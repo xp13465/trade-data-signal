@@ -23,16 +23,20 @@ FAPI 涨停池含 ST 股,东财涨停池不含。实测 20260701:FAPI 全量 max
   (覆盖 *ST / ST / SST 等形态;东财涨停池不含 ST,故排除后才是东财可比口径)。
   排除后与现有重叠段对账一致率 98.5%(含 ST 仅 84%)。
 
-写库保护
-========
-ON CONFLICT DO UPDATE ... WHERE daily_metric.source != 'manual'
-(防覆盖手动补录,与 app/collector/width_history.py upsert_width 同款)。
+写库保护(只补缺口,2026-09-30 用户拍板)
+========================================
+默认 --fill-gaps-only(只补缺口):目标库该日已有非空 a_width_max_lianban 值
+→ 跳过不写(不管该行 source 是什么),一根汗毛不动;只补缺值日期。
+--overwrite 可覆盖已有非 manual 值(不推荐,需另行拍板)。两模式下
+source='manual' 均受保护(ON CONFLICT ... WHERE source != 'manual',与
+app/collector/width_history.py upsert_width 同款),手动补录永不被覆盖。
+日志分列打印:计划写入 / 因已有值跳过 / 因 manual 跳过 / gap,不许静默跳过。
 
 CLI
 ====
-python -m app.backfill_lianban --dry-run --start 20210901 --end 20260611
+python -m app.backfill_lianban --dry-run --start 20210901 --end 20260611   # 只补缺口 dry-run
 python -m app.backfill_lianban --dry-run --start 20210901 --db /tmp/x.db --out /tmp/x.json
-python -m app.backfill_lianban --start 20210901   # 真写库(需用户单独授权)
+python -m app.backfill_lianban --start 20210901                            # 真写库(需用户单独授权)
 """
 from __future__ import annotations
 
@@ -133,22 +137,31 @@ def max_lianban_ex_st(df, with_st: bool = False) -> tuple[float | None, int, int
     return float(series.max()), int(mask_st.sum()), total
 
 
-def _existing_map(conn: sqlite3.Connection, start: str, end: str) -> dict[str, float]:
-    """现有 a_width_max_lianban 在 [start,end] 内的 (date -> value)。"""
+def _existing_map(conn: sqlite3.Connection, start: str, end: str) -> dict[str, tuple[float, str]]:
+    """现有 a_width_max_lianban 在 [start,end] 内的 (date -> (value, source))。
+
+    只取 value IS NOT NULL 的行(空值视为缺口,可补)。
+    """
     rows = conn.execute(
-        "SELECT date, value FROM daily_metric WHERE metric_id=? "
+        "SELECT date, value, source FROM daily_metric WHERE metric_id=? "
         "AND date BETWEEN ? AND ? ORDER BY date",
         (METRIC_ID, start, end),
     ).fetchall()
-    return {r["date"]: r["value"] for r in rows if r["value"] is not None}
+    return {r["date"]: (r["value"], r["source"]) for r in rows if r["value"] is not None}
 
 
 def backfill_lianban(start: str, end: str, *, db: str | None = None,
                      dry_run: bool = True, with_st: bool = False,
-                     verbose: bool = True) -> dict:
-    """逐交易日回补最高连板。dry_run=True 一行都不写库,只输出对账。
+                     fill_gaps_only: bool = True, verbose: bool = True) -> dict:
+    """逐交易日回补最高连板。dry_run=True 只输出对账,一行都不写库。
 
-    返回 dict:dates(总交易日)/success/gaps/overlap 对账/new 增量 摘要。
+    fill_gaps_only=True(默认,只补缺口):目标库该日已有非空 a_width_max_lianban
+    值 → 跳过不写(不管 source 是什么);只写缺值日期。=False(覆盖模式):已有
+    非 manual 值会被覆盖。两模式下 source='manual' 均不覆盖(_upsert SQL 二次
+    兜底)。
+
+    返回 dict:dates(总交易日)/planned_write/gap/skipped_existing/
+    skipped_manual/overlap 对账/new 增量 摘要。
     """
     from .calendar import trading_days_between
 
@@ -156,13 +169,19 @@ def backfill_lianban(start: str, end: str, *, db: str | None = None,
     try:
         dates = trading_days_between(start, end)
         existing = _existing_map(conn, start, end)
+        n_overlap = len(set(dates) & set(existing))
         if verbose:
-            print(f"回补连板 {start}~{end}:交易日 {len(dates)},现有值 {len(existing)} 天"
-                  f"(重叠 {len(set(dates) & set(existing))} 天)", flush=True)
+            print(f"回补连板 {start}~{end}:交易日 {len(dates)},现有非空值 {len(existing)} 天"
+                  f"(重叠 {n_overlap} 天),模式={'只补缺口' if fill_gaps_only else '覆盖非manual'}"
+                  f",含ST={'是' if with_st else '否'}", flush=True)
 
-        rows: list[dict] = []   # 待写/已算行
+        rows: list[dict] = []   # 计划写入的行(缺口 + overwrite 下的已有非manual)
+        computed_all: list[dict] = []  # 所有成功计算的行(date/value/池信息),供 a_sentiment 注入
         gaps: list[dict] = []   # gap 清单
-        for i, d in enumerate(dates):
+        planned_write = 0      # 计划写入天数
+        skipped_existing = 0   # 因已有值跳过(非manual,fill_gaps_only 下)
+        skipped_manual = 0     # 因 manual 保护跳过(任何模式)
+        for d in dates:
             df, msg = _fetch_zt_with_retry(d)
             if df is None:
                 gaps.append({"date": d, "reason": msg})
@@ -170,52 +189,76 @@ def backfill_lianban(start: str, end: str, *, db: str | None = None,
             if len(df) == 0:
                 gaps.append({"date": d, "reason": f"FAPI 涨停池空(真0或当日无数据): {msg}"})
                 continue
-            value, st_count, total = max_lianban_ex_st(df, with_st=with_st)
+            value, st_cnt, total = max_lianban_ex_st(df, with_st=with_st)
             if value is None:
                 gaps.append({"date": d,
-                             "reason": f"全部被 ST 排除(排除{st_count}/{total}行,含ST时无连板可取值)"})
+                             "reason": f"全部被排除ST(排除{st_cnt}/{total}行,含ST时无连板可取值)"})
                 continue
-            rows.append({"date": d, "value": value, "source": SOURCE,
-                         "st_excluded": st_count, "pool_rows": total})
-            if dry_run:
-                if d in existing:
-                    tag = "重叠-对账"
-                else:
-                    tag = "增量"
+            computed_all.append({"date": d, "value": value})
+
+            # ── 写/跳过判定 ──
+            old = existing.get(d)          # None=缺口;否则 (value, source)
+            if old is not None and old[1] == 'manual':
+                # manual 保护:任何模式都不覆写(不调 _upsert)
+                skipped_manual += 1
                 if verbose:
-                    print(f"  {tag} {d}: value={value:g} (池{total} 排除ST{st_count})"
-                          + (f" 现库={existing[d]:g}" if d in existing else ""), flush=True)
-            else:
+                    print(f"  manual跳过 {d}: 现库={old[0]:g}(source=manual,不覆盖) 新值={value:g}",
+                          flush=True)
+                continue
+            if old is not None and fill_gaps_only:
+                # 只补缺口:已有非空值(非manual)→ 跳过
+                skipped_existing += 1
+                if verbose:
+                    print(f"  已有值跳过 {d}: 现库={old[0]:g}(source={old[1]}) 新值={value:g}",
+                          flush=True)
+                continue
+            # 缺口 / 覆盖模式下的已有非manual → 计划写入
+            rows.append({"date": d, "value": value, "source": SOURCE,
+                         "st_excluded": st_cnt, "pool_rows": total})
+            planned_write += 1
+            tag = ("覆盖-写" if old is not None else "增量-计划写入")
+            if verbose:
+                print(f"  {tag} {d}: value={value:g} 池={total} 排除ST={st_cnt}"
+                      + (f" 现库={old[0]:g}(source={old[1]})→覆盖" if old is not None else ""),
+                      flush=True)
+            if not dry_run:
                 _upsert(conn, d, value)
 
         if not dry_run:
             conn.commit()
 
-        # ── 对账 ──
+        # ── 对账(仅对「计划写入」的重叠日判定;被跳过的重叠日不列入 mismatch) ──
         overlap_dates = sorted(set(dates) & set(existing))
+        written_overlap = [d for d in overlap_dates if any(r["date"] == d for r in rows)]
+        skipped_overlap = sorted(set(overlap_dates) - set(written_overlap))
         mismatch = []
         same = 0
-        for d in overlap_dates:
-            new_v = next((r["value"] for r in rows if r["date"] == d), None)
-            if new_v is None:
-                mismatch.append({"date": d, "existing": existing[d], "fapi": None})
-                continue
-            if abs(new_v - existing[d]) < 1e-9:
+        for d in written_overlap:
+            new_v = next(r["value"] for r in rows if r["date"] == d)
+            o = existing[d]
+            if abs(new_v - o[0]) < 1e-9:
                 same += 1
             else:
-                mismatch.append({"date": d, "existing": existing[d], "fapi": new_v})
-        overlap_rate = same / len(overlap_dates) if overlap_dates else None
+                mismatch.append({"date": d, "existing": o[0], "fapi": new_v})
+        overlap_rate = same / len(written_overlap) if written_overlap else None
 
         new_dates = sorted(r["date"] for r in rows if r["date"] not in existing)
         return {
             "start": start, "end": end, "with_st": with_st,
+            "fill_gaps_only": fill_gaps_only,
             "total_trading_days": len(dates),
+            "planned_write": planned_write,
+            "skipped_existing": skipped_existing,
+            "skipped_manual": skipped_manual,
             "success_days": len(rows), "gap_days": len(gaps),
-            "overlap_total": len(overlap_dates), "overlap_same": same,
+            "overlap_total": len(overlap_dates),
+            "overlap_written": len(written_overlap),
+            "overlap_skipped": skipped_overlap,
+            "overlap_same": same,
             "overlap_rate": overlap_rate, "mismatch_days": mismatch,
             "increment_dates": new_dates,
             "gaps": gaps,
-            "_all_dates": dates, "_rows": rows,
+            "_all_dates": dates, "_rows": rows, "_computed": computed_all,
         }
     finally:
         conn.close()
@@ -280,6 +323,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dry-run", action="store_true", default=False,
                     help="显式声明 dry-run(默认即 dry-run;与 --write 互斥)")
     ap.add_argument("--write", action="store_true", help="真写库(需用户单独授权)")
+    ap.add_argument("--fill-gaps-only", action="store_true", default=False,
+                    help="只补缺口:已有非空值跳过(默认行为;与 --overwrite 互斥)")
+    ap.add_argument("--overwrite", action="store_true", default=False,
+                    help="覆盖已有非 manual 值(需另拍板;manual 值仍受保护)")
     ap.add_argument("--with-st", action="store_true",
                     help="含 ST 全量 max(仅作对账对照,验证排除开关)")
     ap.add_argument("--out", default=None, help="对账结果写 JSON 到该路径")
@@ -293,6 +340,12 @@ def main(argv: list[str] | None = None) -> int:
         print("--dry-run 与 --write 互斥(默认 dry-run,--write 为真写库)", file=sys.stderr)
         return 2
 
+    fill_gaps_only = not args.overwrite
+    if args.fill_gaps_only and args.overwrite:
+        print("--fill-gaps-only 与 --overwrite 互斥(默认只补缺口,--overwrite 为覆盖已有非manual值)",
+              file=sys.stderr)
+        return 2
+
     start = args.start
     end = _last_trading_day_before(args.end)
     if args.end is not None:
@@ -302,25 +355,34 @@ def main(argv: list[str] | None = None) -> int:
         end = args.end
 
     result = backfill_lianban(start, end, db=args.db, dry_run=dry_run,
-                              with_st=args.with_st, verbose=True)
+                              with_st=args.with_st, fill_gaps_only=fill_gaps_only,
+                              verbose=True)
 
     # ── 汇总打印 ──
     print(f"\n===== 回补汇总 [{start}~{end}] {'dry-run' if dry_run else '写库'} "
-          f"{'含ST对照' if args.with_st else '排除ST'} =====")
-    print(f"交易日 {result['total_trading_days']} | 成功 {result['success_days']} | "
-          f"gap {result['gap_days']}")
+          f"{'含ST对照' if args.with_st else '排除ST'} "
+          f"{'只补缺口' if fill_gaps_only else '覆盖非manual'} =====")
+    print(f"交易日 {result['total_trading_days']} | gap {result['gap_days']}")
+    print(f"计划写入 {result['planned_write']} 天 | 因已有值跳过 {result['skipped_existing']} 天 | "
+          f"因 manual 跳过 {result['skipped_manual']} 天")
     if result["overlap_total"]:
-        print(f"重叠段对账:共 {result['overlap_total']} 天,一致 {result['overlap_same']} 天,"
-              f"一致率 {result['overlap_rate']:.2%}")
+        if result["overlap_written"]:
+            print(f"重叠段对账:重叠 {result['overlap_total']} 天,计划写入 {result['overlap_written']} 天,"
+                  f"一致 {result['overlap_same']} 天,一致率 {result['overlap_rate']:.2%}")
+        else:
+            print(f"重叠段:共 {result['overlap_total']} 天,全部跳过未写(只补缺口/manual保护),不产生覆盖")
+        if result["overlap_skipped"]:
+            print(f"跳过未写重叠日 {len(result['overlap_skipped'])} 天: "
+                  + ", ".join(result["overlap_skipped"]))
         if result["mismatch_days"]:
-            print("ALL 不等日:")
+            print("计划写入重叠日中 ALL 不等日(FAPI vs 现库):")
             for mm in result["mismatch_days"]:
                 ex = mm["existing"]
                 fa = f"{mm['fapi']:g}" if mm["fapi"] is not None else "None"
                 print(f"  {mm['date']}: 现库={ex:g} vs FAPI={fa}")
     else:
         print("重叠段:无(区间内现库无 a_width_max_lianban 值)")
-    print(f"增量段: {len(result['increment_dates'])} 天")
+    print(f"增量段(缺口): {len(result['increment_dates'])} 天")
     if result["gaps"]:
         print(f"gap 清单({len(result['gaps'])} 天):")
         for g in result["gaps"]:
@@ -331,10 +393,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.out:
         payload = dict(result)
         payload["monthly"] = _fmt_month_summary(result)
-        # 内部字段不落盘;保留计算出的 (date,value) 全量供 a_sentiment 模拟注入
-        payload["computed"] = [{"date": r["date"], "value": r["value"]} for r in result["_rows"]]
+        # 内部字段不落盘;computed=全量计算出的 (date,value)(含重叠段,供 a_sentiment 注入)
+        payload["computed"] = [{"date": r["date"], "value": r["value"]} for r in result["_computed"]]
         payload.pop("_all_dates", None)
         payload.pop("_rows", None)
+        payload.pop("_computed", None)
         with open(args.out, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
         print(f"对账明细已写 {args.out}")
