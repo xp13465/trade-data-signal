@@ -1824,6 +1824,7 @@ function _renderOverfitAcc(data) {
     boundaryGap: true,
     dataZoom: dates.length > 80,
     xLabels: dates, xFmt: (v) => v,
+    forceLastLabel: true,   // 2026-09-30 #147: 末点必出标签(曲线画到末点, 刻度标签不能停在半途)
     ys: [{ splitLine: true, formatter: (v) => v + "%", splitNumber: 5, min: 0, max: 100 }],
     legend: accLegend,
     series: accSeries,
@@ -1849,7 +1850,7 @@ function _renderOverfitAcc(data) {
       tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : v.toFixed(1) + "%") },
       legend: { top: 0, data: es.map((x) => x.name) },
       grid: { left: 42, right: 16, top: 30, bottom: 24 },
-      xAxis: { type: "category", data: dates },
+      xAxis: { type: "category", data: dates, axisLabel: { showMaxLabel: true } },   // 2026-09-30 #147: 末点必出标签(fallback 与 lite 同口径)
       yAxis: { type: "value", min: 0, max: 100, axisLabel: { formatter: "{value}%" } },
       dataZoom: dates.length > 80 ? dzOpts() : undefined,
       series: es,
@@ -1930,6 +1931,7 @@ function _renderOverfitRisk(data) {
     boundaryGap: true,
     dataZoom: dates.length > 80,
     xLabels: dates, xFmt: (v) => v,
+    forceLastLabel: true,   // 2026-09-30 #147: 末点必出标签(与准确率图同口径)
     ys: [{ splitLine: true, splitNumber: 5, min: 0, max: 100 }],  // P2-3: 固定 0-100(对齐 echarts fallback yAxis min/max)
     legend: [{ name: "过拟合风险分", color: "#409eff" }],
     series: [{
@@ -1954,7 +1956,7 @@ function _renderOverfitRisk(data) {
       tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : Math.round(v)) },
       legend: { top: 0, data: ["过拟合风险分"] },
       grid: { left: 42, right: 16, top: 30, bottom: 24 },
-      xAxis: { type: "category", data: dates },
+      xAxis: { type: "category", data: dates, axisLabel: { showMaxLabel: true } },   // 2026-09-30 #147: 末点必出标签(fallback 与 lite 同口径)
       yAxis: { type: "value", min: 0, max: 100, axisLabel: { formatter: "{value}" } },
       dataZoom: dates.length > 80 ? dzOpts() : undefined,
       visualMap: { show: false, dimension: 1, pieces: [
@@ -18282,6 +18284,12 @@ function _lwSVG(cfg) {
   for (let i = _i0; i <= _i1; i += _xStep) {
     const x = _px(i);
     s += '<text x="' + x.toFixed(1) + '" y="' + _xLabelY.toFixed(1) + '" font-size="' + _axFont + '" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[i]) + '</text>';
+  }
+  // 2026-09-30 #147: 末点必出标签开关(对齐 echarts showMaxLabel 语义)。默认关/undefined = 全站其他 lite 图
+  // 行为零变化(§23.7 冻结)。开启时若末点 index 未被步进采样覆盖((_i1-_i0) % _xStep != 0),
+  // 在末点 _px(_i1) 处补画一张同样式标签 —— 曲线画到末端但标签停在半途的视觉错位由此消除。
+  if (cfg.forceLastLabel && _xStep > 0 && (_i1 - _i0) % _xStep !== 0) {
+    s += '<text x="' + _px(_i1).toFixed(1) + '" y="' + _xLabelY.toFixed(1) + '" font-size="' + _axFont + '" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[_i1]) + '</text>';
   }
   // markPoint hideOverlap(fix5, 复刻 echarts markPoint label.hideOverlap): 包围盒相交检测+贪心隐藏,
   // 后画者与先画者相交则整牌跳过(先画者优先保留)。仅 pin 形参与(小圆点 r3 重叠是 band_hold 设计语义,
