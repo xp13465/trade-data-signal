@@ -12572,6 +12572,11 @@ let _collectTimeBase = { ct: "", health: null };
 // 2026-08-06: _EM_HOSTS 首位改 push2delay.eastmoney.com（验收 36/36 稳定，push2 间歇 0/10），
 //             push2 多 host 保留作 L3 兜底（push2delay 失败才转 push2）。
 const _EM_HOSTS = ["push2delay.eastmoney.com", "push2.eastmoney.com", "2.push2.eastmoney.com", "10.push2.eastmoney.com", "20.push2.eastmoney.com"];
+// 东财分时本轮熔断阈值(2026-09-30 加): 连续「确定性拒绝」达阈值 -> 本轮直接短路,不再逐 host
+// 各等 8s 拖慢渲染(EM 抽风/服务端拒时 5host×8s=40s/只, L2/L3 并发放大不可接受)。
+// 区分「确定性拒绝」与「网络抖动」: 超时(AbortError)=抖动不计数; fetch TypeError(连接断)、
+// HTTP 非 2xx、空体/非 JSON(0 字节) = 确定性拒绝,计入连续计数。单次失败后成功会清零(不误熔断)。
+const _EM_TRIP_THRESHOLD = 3;
 async function fetchTencentMinute(code) {
   const secid = _INDEX_TO_EASTMONEY_SECID[code];
   if (!secid) return null;
@@ -12582,7 +12587,14 @@ async function fetchTencentMinute(code) {
     const path = "/api/qt/stock/trends2/get?secid=" + secid + "&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&iscr=0&ndays=1";
     // S9 聚合降噪(2026-09-28): 收集失败host+原因,全host失败后统一打一条,避免1min轮询逐host刷屏(单标的单轮 5~10条 -> 1条)
     const emFails = [];
+    // 2026-09-30 熔断: 连续「确定性拒绝」计数(超时=抖动不计, fetch TypeError/HTTP错误/空体=确定性拒绝计)
+    let emDetFails = 0;
     for (let hi = 0; hi < _EM_HOSTS.length; hi++) {
+      // 熔断检查: 已连续确定性拒绝达阈值 -> 本轮短路,不再试剩余 host(EM 服务端抽风时快速切腾讯兜底)
+      if (emDetFails >= _EM_TRIP_THRESHOLD) {
+        emFails.push(_EM_HOSTS[hi] + ':熔断短路(前' + emDetFails + '次确定性拒绝)');
+        break;
+      }
       // S1: AbortController+8s超时,防fetch卡死致await永不返回定时器链断(参考fetchJSON L3666)
       const _ctrl = new AbortController();
       const _tmr = setTimeout(() => _ctrl.abort(), INTRADAY_FETCH_TIMEOUT_MS);
@@ -12590,8 +12602,10 @@ async function fetchTencentMinute(code) {
         // cache-busting: 加 _=Date.now() + cache:no-store，绕过浏览器/CDN HTTP缓存拿1min最新
         const url = "https://" + _EM_HOSTS[hi] + path + "&_=" + Date.now();
         const resp = await fetch(url, { cache: 'no-store', signal: _ctrl.signal });
-        if (!resp.ok) { emFails.push(_EM_HOSTS[hi] + ':HTTP' + resp.status); continue; }
+        if (!resp.ok) { emDetFails++; emFails.push(_EM_HOSTS[hi] + ':HTTP' + resp.status); continue; }
         const json = await resp.json();
+        // rc!=0/无数据 = 「per-host 不支持某 secid」正常重试场景(push2 负载均衡不同子域间歇不支持
+        // 124.HSTECH/1.000016 等), 不计入确定性拒绝防误熔断掉能用的 host
         if (!json || json.rc !== 0 || !json.data || !json.data.trends) { emFails.push(_EM_HOSTS[hi] + ':rc!=0或无数据'); continue; }
         const d = json.data;
         const points = [];
@@ -12615,8 +12629,11 @@ async function fetchTencentMinute(code) {
         const date = (String(d.trends[0] || "").split(",")[0] || "").split(" ")[0] || "";
         return { name, price: curPrice, preClose, pct, date, points };
       } catch (e) {
+        // 2026-09-30 熔断计数: 超时(AbortError)=网络抖动不计入; 其余(连接断 TypeError/空体 JSON 解析失败)=确定性拒绝计入
+        const _isTimeout = e && e.name === 'AbortError';
+        if (!_isTimeout) emDetFails++;
         // S9: 聚合进失败列表,循环结束统一打一条(含失败host+原因,不砍定位信息)
-        emFails.push(_EM_HOSTS[hi] + ':' + ((e && e.name === 'AbortError') ? '超时' + INTRADAY_FETCH_TIMEOUT_MS + 'ms' : ((e && e.message) || '未知错误')));
+        emFails.push(_EM_HOSTS[hi] + ':' + (_isTimeout ? '超时' + INTRADAY_FETCH_TIMEOUT_MS + 'ms' : ((e && e.message) || '未知错误')));
         continue;
       } finally {
         clearTimeout(_tmr);
@@ -12641,6 +12658,54 @@ async function fetchTencentMinute(code) {
 // proxy.finance.qq.com/ifzq 路径含 /ifzq, 直接拼 host+path 即可
 const _QQ_HOSTS = ["web.ifzq.gtimg.cn", "proxy.finance.qq.com/ifzq", "ifzq.finance.qq.com"];
 const _QQ_PATH = "/appstock/app/minute/query?code=";
+// 2026-09-30 备用腿: day/query(与 minute/query 同域同 host)。返回最近 5 交易日分时(首日=最新
+// 交易日), 防 minute/query 日后也被路径级封禁时兜底。返回结构与 minute/query 对齐(无 preClose)。
+const _QQ_DAY_PATH = "/appstock/app/day/query?code=";
+
+// 腾讯 ifzq day/query 备用腿: data[code].data=[{date,data:[...]},...] 取首日; 行 "0930 3815.12 4605103 10182511845.20"
+// 空格分隔(北证 3 段无成交额), 兼容 3/4 段(price=parts[1])。无 preClose 由调用方从 snap 补。
+async function _fetchQQDayQuery(qqCode) {
+  const dayFails = [];
+  for (let hi = 0; hi < _QQ_HOSTS.length; hi++) {
+    const host = _QQ_HOSTS[hi];
+    const _ctrl = new AbortController();
+    const _tmr = setTimeout(() => _ctrl.abort(), INTRADAY_FETCH_TIMEOUT_MS);
+    try {
+      const url = "https://" + host + _QQ_DAY_PATH + qqCode + "&_=" + Date.now();
+      const resp = await fetch(url, { cache: 'no-store', signal: _ctrl.signal });
+      if (!resp.ok) { dayFails.push(host + ':HTTP' + resp.status); continue; }
+      const json = await resp.json();
+      if (!json || json.code !== 0 || !json.data || !json.data[qqCode]) { dayFails.push(host + ':code!=0或无数据'); continue; }
+      const inner = json.data[qqCode];
+      const days = Array.isArray(inner.data) ? inner.data : [];
+      if (!days.length || !days[0] || !Array.isArray(days[0].data)) { dayFails.push(host + ':无交易日数组'); continue; }
+      const points = [];
+      for (const seg of days[0].data) {
+        const parts = String(seg).split(" ");
+        if (parts.length < 2) continue;
+        const t = parts[0];
+        const time = t.length === 4 ? t.slice(0, 2) + ":" + t.slice(2) : t;
+        const price = parseFloat(parts[1]);
+        if (isNaN(price)) continue;
+        const volume = parseInt(parts[2], 10) || 0;
+        const amount = parseFloat(parts[3]) || 0;
+        points.push({ time, price, volume, amount });
+      }
+      if (!points.length) { dayFails.push(host + ':空点'); continue; }
+      const curPrice = points[points.length - 1].price;
+      const date = days[0].date || "";
+      const name = inner.title || inner.name || "";
+      return { name, price: curPrice, preClose: null, pct: null, date, points };
+    } catch (e) {
+      dayFails.push(host + ':' + ((e && e.name === 'AbortError') ? '超时' + INTRADAY_FETCH_TIMEOUT_MS + 'ms' : ((e && e.message) || '未知错误')));
+      continue;
+    } finally {
+      clearTimeout(_tmr);
+    }
+  }
+  if (dayFails.length) console.warn('[intraday] 腾讯day/query备用腿失败', qqCode, dayFails.join(' | '));
+  return null;
+}
 async function fetchQQMinute(code) {
   const qqCode = _INDEX_TO_TENCENT_MINUTE[code];
   if (!qqCode) return null;
@@ -12693,6 +12758,9 @@ async function fetchQQMinute(code) {
         clearTimeout(_tmr);
       }
     }
+    // 2026-09-30 day/query 备用腿: minute/query 全 host 失败(或日后被封)时兜底同域端点
+    const dayRes = await _fetchQQDayQuery(qqCode);
+    if (dayRes && dayRes.points && dayRes.points.length) return dayRes;
     if (qqFails.length) console.warn('[intraday] 腾讯分时失败', code, qqFails.length + '/' + _QQ_HOSTS.length + ' 个host均失败: ' + qqFails.join(' | '));
     return null;
   })();

@@ -2321,13 +2321,77 @@ _SNAP_CODE_TO_SECID = {
 _EM_TREND_HOSTS = ["push2delay.eastmoney.com", "push2.eastmoney.com",
                    "2.push2.eastmoney.com", "10.push2.eastmoney.com", "20.push2.eastmoney.com"]
 
+# 腾讯 ifzq day/query 备用源(2026-09-30 加): 东财 trends2 间歇性拒绝(实测 3/10),
+# day/query 实测 12/12 稳定, 作分时序列注入首选源。返回最近 5 交易日分时, 首日=最新交易日
+# (盘中=当日到当前分钟, 盘后=当日全天), 含 qt/prec 昨收(北证/部分指数 3 段无成交额)。
+# host 与前端 fetchQQMinute _QQ_HOSTS 同源(proxy.finance.qq.com/ifzq 路径含 /ifzq 直接拼)。
+_QQ_DAY_HOSTS = ["web.ifzq.gtimg.cn", "proxy.finance.qq.com/ifzq", "ifzq.finance.qq.com"]
+_QQ_DAY_PATH = "/appstock/app/day/query?code="
+# 单轮分时注入总预算(2026-09-30): 盘中每 10 分钟一轮, 超时跳过剩余 code 防快照卡死
+# (双源全挂时逐只 3+5 host 重试会拖垮节律; 预算内失败不阻断快照核心, 前端自动落文字降级)。
+_MS_BUDGET_SEC = 60
+
+
+def _fetch_minute_series_tencent(code: str) -> list[dict] | None:
+    """腾讯 ifzq day/query 拉某指数当日分时序列（返回 [{time:"HH:MM", price}...]）。
+
+    与前端 fetchQQMinute 同源同域; data[code].data=[{date,data:[...]},...] 最近 5 交易日,
+    取首日(最新交易日)。每行 "0930 3839.25 3966154 4994260713.60"(空格分隔, 时间 4 位无冒号),
+    北证等 3 段(时间/价格/成交量, 无成交额), 兼容 3/4 段(price=parts[1])。
+    失败/无数据返 None(不阻断快照)。
+    """
+    for host in _QQ_DAY_HOSTS:
+        try:
+            throttle()
+            r = _safe_get(
+                "https://" + host + _QQ_DAY_PATH + code,
+                headers={"User-Agent": UA, "Referer": "https://gu.qq.com/"},
+                timeout=10)
+            if r.status_code != 200:
+                continue
+            js = r.json()
+            if not js or js.get("code") != 0 or not js.get("data") or code not in js["data"]:
+                continue
+            inner = js["data"][code]
+            days = inner.get("data") if isinstance(inner.get("data"), list) else []
+            if not days or not isinstance(days[0], dict):
+                continue
+            lines = days[0].get("data", []) if isinstance(days[0].get("data"), list) else []
+            points = []
+            for line in lines:
+                parts = str(line).split(" ")
+                if len(parts) < 2:
+                    continue
+                t = parts[0]
+                tm = t[:2] + ":" + t[2:] if len(t) == 4 else t
+                try:
+                    price = float(parts[1])
+                except (TypeError, ValueError):
+                    continue
+                if not tm or price <= 0:
+                    continue
+                points.append({"time": tm, "price": price})
+            if points:
+                return points
+        except Exception as e:  # noqa: BLE001
+            print(f"  [intraday] {code} 分时序列腾讯day/query失败({host}): {type(e).__name__} {e}", flush=True)
+            continue
+    return None
+
 
 def _fetch_minute_series(code: str) -> list[dict] | None:
-    """盘后拉某指数当日全天分时序列（东财 trends2/get?ndays=1）。
+    """拉某指数当日全天分时序列（首选腾讯 day/query，失败退东财 trends2）。
 
-    返回 [{time:"HH:MM", price}...]（9:30-15:00 约 240 点），失败/无数据返 None（不阻断快照）。
-    与前端 fetchTencentMinute 同源同字段解析（trends 每行 "日期 HH:MM,开,高,低,收,量,额,均价"，[4]=收）。
+    返回 [{time:"HH:MM", price}...]（9:30-15:00 约 240 点，盘中=当日到当前分钟），失败/无数据返
+    None（不阻断快照）。2026-09-30 改: 东财 trends2 间歇性拒绝(实测 3/10), 腾讯 day/query 首选
+    (实测 12/12 稳定); 东财 retained 作后备(曾 36/36 稳定)。数据源与前端同族同字段解析。
     """
+    # 首选: 腾讯 day/query(稳定, 盘中即当日到当前分钟)
+    series = _fetch_minute_series_tencent(code)
+    if series:
+        return series
+    # 后备: 东财 trends2/get?ndays=1（与前端 fetchTencentMinute 同源同解析，
+    #   trends 每行 "日期 HH:MM,开,高,低,收,量,额,均价"，[4]=收）
     secid = _SNAP_CODE_TO_SECID.get(code)
     if not secid:
         return None
@@ -2369,13 +2433,19 @@ def _fetch_minute_series(code: str) -> list[dict] | None:
 
 
 def _attach_minute_series(indices: list[dict]) -> int:
-    """盘后给快照 indices 注入 minute_series（只覆盖有分时图展示的 9 A 股 + 3 港股）。
+    """给快照 indices 注入 minute_series（只覆盖有分时图展示的 9 A 股 + 3 港股）。
 
-    逐只拉东财全天分时（失败跳过不阻断）。返回成功注入条数。调用方只在 is_closed 时调用，
-    盘中不拉（东财盘中 ndays=1 只返当日到当前分钟，无昨日序列，拉也白拉且费时）。
+    盘中+盘后都调用（2026-09-30 改）：盘中每 10 分钟一轮快照注入当日到当前分钟的分时，
+    使前端实时源全挂时 _renderSnapMinuteSeries 能画出当日曲线而非只显示「实时拉取失败」。
+    逐只拉腾讯 day/query（首选稳定，失败跳过不阻断；双源全挂时受 _MS_BUDGET_SEC 预算保护
+    不拖垮快照节律）。返回成功注入条数。
     """
     n = 0
+    t0 = time.time()
     for d in indices:
+        if time.time() - t0 > _MS_BUDGET_SEC:
+            print(f"  [intraday] 分时序列注入预算超限(>{_MS_BUDGET_SEC}s)，跳过剩余 code", flush=True)
+            break
         code = d.get("code", "")
         if code not in _SNAP_CODE_TO_SECID:
             continue
@@ -2383,7 +2453,7 @@ def _attach_minute_series(indices: list[dict]) -> int:
         if series:
             d["minute_series"] = series
             n += 1
-    print(f"  [intraday] 分时序列注入：{n}/{len(indices)} 指数（仅盘后）", flush=True)
+    print(f"  [intraday] 分时序列注入：{n}/{len(indices)} 指数", flush=True)
     return n
 
 
@@ -2409,13 +2479,13 @@ def build_snapshot() -> dict:
     for d in indices:
         code = d.get("code", "")
         d["is_closed"] = is_hk_closed if code.startswith("hk") else is_closed
-    # 盘后额外拉全天分时序列（前端 fallback 快照画昨日曲线用）。失败不阻断快照核心。
-    # 盘中不拉：东财 ndays=1 盘中只返当日到当前分钟（无昨日序列），且逐只拉 12 只费时。
-    if is_closed:
-        try:
-            _attach_minute_series(indices)
-        except Exception as e:  # noqa: BLE001
-            print(f"  [intraday] 分时序列注入失败（不阻断快照）: {type(e).__name__} {e}", flush=True)
+    # 注入当日分时序列（2026-09-30 起盘中+盘后都注入，前端实时源全挂时降级画当日曲线）。
+    # 盘中每 10 分钟一轮拉腾讯 day/query（首选，12/12 稳定）当日到当前分钟；预算保护防双源
+    # 全挂时拖垮快照节律；失败不阻断快照核心（前端自动落文字降级）。
+    try:
+        _attach_minute_series(indices)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] 分时序列注入失败（不阻断快照）: {type(e).__name__} {e}", flush=True)
     # prev_trading_day: 快照日的前一个交易日(YYYYMMDD)，供前端 pending 角标判断
     # 卡片 dataDate == prev_trading_day 为正常 T+1，< 则为数据滞后(采集断了)
     # 用交易日历而非自然日差值，避免周末/节假日误判
