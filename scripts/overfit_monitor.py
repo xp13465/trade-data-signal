@@ -1458,20 +1458,42 @@ def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date, win=60, m
       0 ~ +10pp    -> 正常(25-45)
       -10pp ~ 0    -> 关注(50-65)
       dev < -10pp  -> 高风险(实盘显著低于回测预期, 70-95)
-    返回 [{date, risk_score, level, win_rate(回测%)}], 供前端 daily 曲线。"""
+    返回 [{date, risk_score, level, win_rate(回测%)}], 供前端 daily 曲线。
+
+    2026-09-30 #144 根因修复(用户拍板口径, §23.7 已放行):
+      驱动日期从「仅回测日期」改为「回测 ∪ 实盘 日期并集」。原实现只遍历回测侧日期
+      (btw), 实盘侧仅查表, 导致「有实盘、但该日无回测样本」的交易日整条不产出记录
+      (风险线末点停在 09-21, 而实盘侧已有到 09-28 的数据)。
+      并集口径: 回测有、实盘缺 -> 保持老口径(中性 40, 冻结不动);
+      实盘有、回测缺(本次新增) -> 缺失侧留空(win_rate=null / risk_score=null /
+      level=null), 不填 40 或任何中性值 —— 无回测对照=算不出偏离, 填中性=凭空断言
+      「正常」=造假信号(参照 L44 has_track 口径漂移红线)。日期并集后按 8 位
+      YYYYMMDD 字符串升序排序(等价时间序, 两侧同格式实测一致)。
+    """
     seq = []
     btw = bt_roll.get(win, []) or bt_roll.get(str(win), [])
     actw = {}
     for p in (act_roll.get(win, []) or act_roll.get(str(win), [])):
         actw[p["date"]] = p.get("win_rate")
+    # #144: 回测侧完全没有数据(如 sell/sell_stop_loss 无回测对照) -> 保持空序列,
+    # 前端走「无回测对照, 风险分不适用」提示, 不产出全 null 点制造空白卡。
+    if not btw:
+        return seq
+    btw_map = {}
     for p in btw:
         wr_pct = p.get("win_rate")   # 回测百分比(42.92)
         if wr_pct is None:
             continue
-        b_wr = wr_pct
-        a_wr = actw.get(p["date"])
+        btw_map[p["date"]] = wr_pct
+    for d in sorted(set(btw_map) | set(actw)):
+        b_wr = btw_map.get(d)
+        if b_wr is None:
+            # 实盘有、回测缺(本次新增类): 缺失侧留空, 不做中性断言
+            seq.append({"date": d, "risk_score": None, "level": None, "win_rate": None})
+            continue
+        a_wr = actw.get(d)
         if a_wr is None:
-            # 实盘缺失(该日无 index 收盘等) -> 中性 40
+            # 实盘缺失(该日无 index 收盘等) -> 中性 40(老口径, 冻结)
             sc = 40.0
         else:
             dev = a_wr - b_wr  # 百分点
@@ -1484,9 +1506,9 @@ def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date, win=60, m
             else:
                 sc = min(95, 70 - (dev + 10) * 1.5)   # <-10pp -> 70-95 高风险
         sc = max(0, min(100, sc))
-        seq.append({"date": p["date"], "risk_score": round(sc),
+        seq.append({"date": d, "risk_score": round(sc),
                     "level": risk_level(sc),
-                    "win_rate": round(wr_pct, 1)})
+                    "win_rate": round(b_wr, 1)})
     return seq
 
 

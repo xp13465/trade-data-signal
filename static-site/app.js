@@ -1767,14 +1767,30 @@ function _overfitAccSeries(data, w) {
   const act = actFull.slice(-n);
   const bt = btFull.slice(-n);
   const actMap = {}; act.forEach((p) => { if (p.date != null) actMap[p.date] = p; });
+  const btMap = {}; bt.forEach((p) => { if (p.date != null && p.win_rate != null) btMap[p.date] = p; });
   const dates = [], actual = [], backtest = [];
-  const btUse = bt.length > 0 ? bt : act;  // 回测空(sell类)时以实盘为准渲染单曲线
-  for (const p of btUse) {
-    if (p.win_rate == null) continue;
-    dates.push(p.date);
-    if (bt.length > 0) backtest.push(+(p.win_rate.toFixed(1)));
-    const a = actMap[p.date];
-    actual.push(a != null && a.win_rate != null ? +(a.win_rate.toFixed(1)) : null);
+  // 2026-09-30 #144 举一反三: 与 _derive_daily_series/_ovDeriveDaily 同根因修复(改单一侧驱动为「回测 ∪ 实盘」日期并集)。
+  // 原实现 bt.length>0 时只用回测日期驱动 dates, 「实盘有、回测缺」的交易日(accuracy.rolling.actual > backtest 末点)整条丢弃。
+  // 改为并集驱动: 缺失侧留 null(回测缺 -> backtest=null, 实盘缺 -> actual=null), 不造假 (同风险分图口径)。
+  if (bt.length === 0) {
+    // 回测空(sell类方案B): 以实盘为准渲染单曲线(原语义, 无并集问题——回测侧整体为空)
+    for (const p of act) {
+      if (p.win_rate == null) continue;
+      dates.push(p.date);
+      actual.push(+(p.win_rate.toFixed(1)));
+    }
+  } else {
+    const allDates = Object.keys(btMap).concat(Object.keys(actMap)).filter((v, i, a) => a.indexOf(v) === i).sort();
+    for (const d of allDates) {
+      const b = btMap[d];
+      const a = actMap[d];
+      const aOk = a != null && a.win_rate != null;
+      // 两侧都无可用值 -> 哑点不入 dates(如 act 有但 win_rate null 且回测无该日)
+      if (b == null && !aOk) continue;
+      dates.push(d);
+      backtest.push(b != null ? +(b.win_rate.toFixed(1)) : null);
+      actual.push(aOk ? +(a.win_rate.toFixed(1)) : null);
+    }
   }
   return { dates, actual, backtest, btEmpty: bt.length === 0 };
 }
@@ -1874,6 +1890,10 @@ function _renderOverfitRisk(data) {
   const daily = _overfitRiskSeries(data);
   const dimName = _overfitState.sigType ? (_overfitDimLabels.sig[_overfitState.sigType] || _overfitState.sigType)
     : (_overfitState.grade ? (_overfitDimLabels.grade[_overfitState.grade] || _overfitState.grade) : "");
+  // 2026-09-30 #144: 末端「无回测对照」原因说明。后端 _derive_daily_series 已改「回测 ∪ 实盘」日期并集,
+  // 「实盘有、回测缺」的交易日产出 risk_score=null(不填中性=不造假); 本说明只在图上提示该段为何无曲线。
+  const _ovRiskTitleEl = _overfitRiskEl.parentElement && _overfitRiskEl.parentElement.querySelector(".overfit-risk-title");
+  const _ovClearTailNote = () => { if (_ovRiskTitleEl) { const s = _ovRiskTitleEl.querySelector(".ov-risk-tail-note"); if (s) s.remove(); } };
   if (!daily.length) {
     if (typeof _lwRenderers !== "undefined") _lwRenderers.delete(_overfitRiskEl);
     if (typeof _lwCfgMap !== "undefined") _lwCfgMap.delete(_overfitRiskEl);
@@ -1883,17 +1903,27 @@ function _renderOverfitRisk(data) {
       : (dimName ? dimName + " 无风险分曲线(该维度无数据)" : "暂无风险分曲线");
     _overfitRiskEl.innerHTML = '<div class="overfit-lite-empty" style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:11px;text-align:center">' +
       msg + "</div>";
+    _ovClearTailNote();
     return;
   }
   const hasScorePoints = daily.filter((p) => p.risk_score != null);
   if (!hasScorePoints.length) {
     if (typeof _lwRenderers !== "undefined") _lwRenderers.delete(_overfitRiskEl);
     if (typeof _lwCfgMap !== "undefined") _lwCfgMap.delete(_overfitRiskEl);
-    _overfitRiskEl.innerHTML = "";
+    // 2026-09-30 #144: 序列非空但全为 null(回测侧该维度全缺) -> 与卖类同口径提示, 不留空白卡
+    const isSell = _overfitState.sigType === "sell" || _overfitState.sigType === "sell_stop_loss";
+    const msg = (dimName || "") + (isSell ? " 无回测对照, 风险分不适用" : " 无回测对照, 风险分不适用");
+    _overfitRiskEl.innerHTML = '<div class="overfit-lite-empty" style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:11px;text-align:center">' +
+      msg + "</div>";
+    _ovClearTailNote();
     return;
   }
   const dates = daily.map((p) => p.date);
   const vals = daily.map((p) => (p.risk_score != null ? p.risk_score : null));
+  // #144 末端 null 检测: 最后一个有效点之后仍有日期(实盘有、回测缺的尾部段) -> 图上给原因说明
+  let _lastValIdx = -1;
+  for (let _i = 0; _i < vals.length; _i++) if (vals[_i] != null) _lastValIdx = _i;
+  const _tailNull = _lastValIdx >= 0 && _lastValIdx < vals.length - 1;
   // 绿黄红分段按值变色(与 markLine 30/60 参考线语义对齐): 绿<30 正常 / 黄30-60 关注 / 红>60 高风险
   const rgColorFn = (i, v) => {
     if (v == null || isNaN(v)) return "#86909c";
@@ -1947,6 +1977,16 @@ function _renderOverfitRisk(data) {
     }), { notMerge: true });
     charts.push(inst);
   });
+  // #144 末端 null 原因说明: 有曲线但末段存在「实盘有、回测缺」日期(risk_score null)时,
+  // 在卡标题行追加灰字说明, 复用「无回测对照, 风险分不适用」措辞(与卖类空态同风格)。
+  _ovClearTailNote();
+  if (_tailNull && _ovRiskTitleEl) {
+    const sp = document.createElement("span");
+    sp.className = "ov-risk-tail-note";
+    sp.style.cssText = "color:var(--text-3);font-size:10px;font-weight:normal;margin-left:6px";
+    sp.textContent = "末端" + String(vals.length - 1 - _lastValIdx) + "日无回测对照, 风险分不适用";
+    _ovRiskTitleEl.appendChild(sp);
+  }
 }
 
 // 建分析参考点AI监控卡 + 异步加载数据渲染(调用点 renderOverview sigCard 之后)
@@ -2013,14 +2053,25 @@ function _ovRoundHalfEven(x) {
   return Math.round(x);
 }
 function _ovDeriveDaily(btSeq, actSeq) {
-  const actMap = {};
+  // 2026-09-30 #144 复刻同步(§5.4⑦ 同构对账铁律): 驱动日期从「回测」改为「回测 ∪ 实盘 日期并集」,
+  // 与后端 _derive_daily_series 逐位一致。原复刻只遍历回测侧(btSeq), 与后端旧实现同病 ——
+  // 「有实盘、但该日无回测样本」的交易日整条不产出(风险线末点停在实盘末日之前的旧症)。
+  const btMap = {}, actMap = {};
+  (btSeq || []).forEach((p) => { btMap[p.date] = p.win_rate; });
   (actSeq || []).forEach((p) => { actMap[p.date] = p.win_rate; });
   const seq = [];
-  const src = btSeq || [];
-  for (let i = 0; i < src.length; i++) {
-    const wr = src[i].win_rate;
-    if (wr == null) continue;
-    const a = actMap[src[i].date];
+  // 回测侧完全没有数据(sell/sell_stop_loss) -> 空序列, 前端走「无回测对照, 风险分不适用」(同后端)
+  if (!Object.keys(btMap).length) return seq;
+  const dates = Object.keys(btMap).concat(Object.keys(actMap)).filter((v, i, a) => a.indexOf(v) === i).sort();
+  for (let i = 0; i < dates.length; i++) {
+    const d = dates[i];
+    const wr = btMap[d];
+    if (wr == null) {
+      // 实盘有、回测缺: 缺失侧留空(不填 40/中性值 = 造假信号, 同后端 #144 口径)
+      seq.push({ date: d, risk_score: null, level: null, win_rate: null });
+      continue;
+    }
+    const a = actMap[d];
     let sc;
     if (a == null) { sc = 40.0; }
     else {
@@ -2031,7 +2082,7 @@ function _ovDeriveDaily(btSeq, actSeq) {
       else sc = Math.min(95, 70 - (dev + 10) * 1.5);
     }
     sc = Math.max(0, Math.min(100, sc));
-    seq.push({ date: src[i].date, risk_score: _ovRoundHalfEven(sc), level: _ovRiskLevel(sc), win_rate: _ovRoundHalfEven(wr * 10) / 10 });
+    seq.push({ date: d, risk_score: _ovRoundHalfEven(sc), level: _ovRiskLevel(sc), win_rate: _ovRoundHalfEven(wr * 10) / 10 });
   }
   return seq;
 }
