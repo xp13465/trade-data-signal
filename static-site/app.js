@@ -12636,7 +12636,8 @@ async function fetchTencentMinute(code) {
 // 调研 a737aa573198aff09 结论: 腾讯分时批量API不存在, 但单只API完全可用
 // web.ifzq.gtimg.cn/appstock/app/minute/query?code={code} 3 host 冗余, CORS Access-Control-Allow-Origin:*
 // 12/12 指数支持(含bj899050/hkHSTECH), 36次压测0 WAF, 作 L2 三源分散兜底(每源 ≤4 次 < 风控边界 40)
-// 数据格式: data.{code}.data.data[]=["0930 3815.12 4605103 10182511845.20", ...] (空格分隔4段: 时间/价格/成交量/成交额)
+// 数据格式: data.{code}.data.data[]=["0930 3815.12 4605103 10182511845.20", ...] (空格分隔: 时间/价格/成交量[/成交额])
+// 注意: 沪深/港股返回4段(含成交额), 北交所返回3段(时间/价格/成交量, 无成交额)——3段也须接受, amount缺省补0(2026-09-30 bj50 分时修)
 // 时间格式 "0930" (4位 HHMM 无冒号), 有 date 字段, 无 preClose (返回 null, 由调用方从 snap 补)
 // proxy.finance.qq.com/ifzq 路径含 /ifzq, 直接拼 host+path 即可
 const _QQ_HOSTS = ["web.ifzq.gtimg.cn", "proxy.finance.qq.com/ifzq", "ifzq.finance.qq.com"];
@@ -12666,9 +12667,10 @@ async function fetchQQMinute(code) {
         if (!d || !d.data || !d.data.data) { qqFails.push(host + ':无data'); continue; }
         const points = [];
         for (const seg of d.data.data) {
-          // 格式: "0930 3815.12 4605103 10182511845.20" (空格分隔4段: 时间/价格/成交量/成交额)
+          // 格式: "0930 3815.12 4605103 10182511845.20" (空格分隔: 时间/价格/成交量[/成交额])
+          // 沪深/港股4段(含成交额); 北交所3段(无成交额)——3段也须接受, amount 由下方 parseFloat(parts[3])||0 天然补0
           const parts = String(seg).split(" ");
-          if (parts.length < 4) continue;
+          if (parts.length < 3) continue; // 最少3段: 时间/价格/成交量; 4段路径逐位不变
           const t = parts[0];
           // 时间 "0930" (4位 HHMM 无冒号) -> "09:30"
           const time = t.length === 4 ? t.slice(0, 2) + ":" + t.slice(2) : t;
