@@ -1,6 +1,9 @@
 import { chromium } from "playwright";
-// 双视口(桌面1280/移动375)对比旧版 vs 新版情绪日历渲染逐位一致 + 新版点日期弹明细。
-// 用法: node scripts/playwright-accept/cal_verify.mjs
+// 情绪日历「旧版 vs 新版」渲染逐位一致回归 + 新版点日期弹当天明细(2026-09-30 feat 情绪日历加维度说明)。
+// ⚠️ 前置依赖(单跑必失败): 需同时起本地服务器——127.0.0.1:8133=新版静态站 / 127.0.0.1:8134=旧版静态站,
+//   旧版用 feature 前的 min(或 git HEAD~1 的 static-site)起服, 新版用当前源码 build_min 后起服。
+// 用法: node scripts/playwright-accept/cal_render_regression.mjs
+// 断言: D3 逐位一致(日期集合+格子文本+sig+idx+val)证明「只增不改」; D5/D6 点日期弹明细; M 系列移动端点击目标/字号。
 const browser = await chromium.launch({ headless: true });
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => { cond ? pass++ : fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${detail ? `  [${detail}]` : ""}`); };

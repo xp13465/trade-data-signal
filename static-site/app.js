@@ -7153,7 +7153,9 @@ function _renderSentimentCalendar(cal) {
     if (!cells) continue;
     // 日期标签可点：查看当天全部触发明细(2026-09-30, 用户拍板"加维度说明/筛选,不删标记")。
     // 仅新增日期标签点击入口, 格子渲染/标记完全不动(§23.7 冻结契约)。点击委托见 freezeCard click。
-    rows += `<div class="sig-day-row"><span class="sig-day-date sig-day-date-btn" data-cal-date="${dt}" title="查看当天触发明细">${dateLabel}</span><div class="sig-items">${cells}</div></div>`;
+    // data-no-pop(2026-09-30 reviewer 复审): 移动端 tap 日期标签时 term-pop(z:9999) 会盖住明细弹层(z:110),
+    // 加 data-no-pop 让 term-pop 让位(见 _initTermPop findTipEl), 桌面原生 title tooltip 保留。
+    rows += `<div class="sig-day-row"><span class="sig-day-date sig-day-date-btn" data-no-pop="" data-cal-date="${dt}" title="查看当天触发明细">${dateLabel}</span><div class="sig-items">${cells}</div></div>`;
   }
   if (!rows) return "";
   // 图例行(2026-09-30, 用户拍板): 说明"本日历合并了哪几类维度的冰点+信号", 不改格子渲染结果。
@@ -16687,7 +16689,7 @@ async function renderOverview() {
   // 无该字段(旧数据/后端未部署)降级回原 recent_freeze 冰点展示(不白屏不消失, §5.3 核心保障)。
   const _sentCal = Array.isArray(r.sentiment_calendar) ? r.sentiment_calendar : null;
   freezeCard.innerHTML = (_sentCal && _sentCal.length)
-    ? `<h3>近 90 日情绪日历<span class="chart-latest"> · ${_sentCal.length} 天</span>${termTip("近90日情绪分信号+冰点日合并日历：每个有内容的日期一行。冰点日=任一情绪分<20(蓝值的超卖极值)；情绪分买/卖点=情绪分自身曲线技术事件化(与市场温度 tab 同源同口径)。同日两列并存(如7/8、6/23)。点击冰点/信号查看该指数走势+标注。")}</h3>` + _renderSentimentCalendar(_sentCal)
+    ? `<h3>近 90 日情绪日历<span class="chart-latest"> · ${_sentCal.length} 天</span>${termTip("近90日情绪分信号+冰点日合并日历：每个有内容的日期一行。冰点日=任一情绪分<20(蓝值的超卖极值)；情绪分买/卖点=情绪分自身曲线技术事件化(与市场温度 tab 同源同口径)。同日两列并存(如7/8、6/23)。点击冰点/信号查看该指数走势+标注；点击日期可查看当天触发维度。")}</h3>` + _renderSentimentCalendar(_sentCal)
     : _renderSignalGrid(r.recent_freeze, r.date, "近期冰点日（近 120 日）" + termTip("近120日情绪冰点日(恐贪指数<20)，常对应阶段性底部"), "freeze", "无近期冰点日");
   // 方案A(2026-08-07): 冰点日专用中性角标。recent_freeze[0].date 是"冰点发生日"(历史事件)非数据日期,
   // 复用 addCardTimeBadge 会被 getCardTimeBadge 判"⚠ 滞后·MM-DD"误报异常(8/3<今日8/7 差4天)。
