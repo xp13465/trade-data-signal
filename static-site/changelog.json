@@ -217,5 +217,8 @@
   ],
   "20260930-a626": [
     "Merge remote-tracking branch 'origin/main' into worktree-agent-a0566720878fdc0bf"
+  ],
+  "20260930-a627": [
+    "merge(origin/main): \u89e3 #144 \u4e0e #139 \u51b2\u7a81, \u7edf\u4e00 _overfitAccSeries \u5e76\u96c6\u9a71\u52a8"
   ]
 }
