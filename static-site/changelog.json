@@ -220,5 +220,8 @@
   ],
   "20260930-a627": [
     "merge(origin/main): \u89e3 #144 \u4e0e #139 \u51b2\u7a81, \u7edf\u4e00 _overfitAccSeries \u5e76\u96c6\u9a71\u52a8"
+  ],
+  "20260930-a628": [
+    "fix(#147): \u8fc7\u62df\u5408\u4e24\u56fe x \u8f74\u6309\u5b9e\u9645\u523b\u5ea6\u4e32(8\u4f4d\u65e5\u671f)\u91cf\u5bbd\u4f20 cfg.xStep"
   ]
 }
