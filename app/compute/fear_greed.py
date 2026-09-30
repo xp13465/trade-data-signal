@@ -64,9 +64,13 @@ def compute_fear_greed() -> int:
     for date, val in score.dropna().items():
         if pd.isna(val):
             continue
-        label = get_label(val)
+        # 口径漂移修复(2026-09-30): label 改由舍入后的入库值判定, 与 value 同口径;
+        # 否则 val=25.004 入库 25.0 却标"恐惧"(阈值 <=25 应为"极度恐惧"), 且与
+        # market_summary 用库内 value 重算的 fear_greed_label 不一致(§22 多展示位一致)。
+        v = round(float(val), 2)
+        label = get_label(v)
         meta = json.dumps({"label": label, "available_scores": int(avail_count.get(date, 0))}, ensure_ascii=False)
-        write_rows.append((date, OUTPUT_SCORE_ID, round(float(val), 2), 0, 0, meta, now))
+        write_rows.append((date, OUTPUT_SCORE_ID, v, 0, 0, meta, now))
 
     conn.executemany(
         "INSERT INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "

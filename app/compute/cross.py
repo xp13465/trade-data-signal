@@ -77,7 +77,9 @@ def store(score: pd.Series, components_df: pd.DataFrame = None) -> int:
     conn = get_conn()
     now = datetime.now().isoformat()
     rows = []
-    for date, v in score.dropna().items():
+    for date, val in score.dropna().items():
+        # 口径漂移修复(2026-09-30): 先舍入再判定, 与入库 value 同口径(见 sentiment.store 同款注释)。
+        v = round(float(val), 2)
         comps = {}
         if components_df is not None and date in components_df.index:
             for c in components_df.columns:
@@ -85,7 +87,7 @@ def store(score: pd.Series, components_df: pd.DataFrame = None) -> int:
                 if pd.notna(cv):
                     comps[c] = round(float(cv), 2)
         comp_json = json.dumps(comps, ensure_ascii=False) if comps else None
-        rows.append((date, "cross_market", round(float(v), 2),
+        rows.append((date, "cross_market", v,
                      int(v < 20), int(v > 80), comp_json, now))
     conn.executemany(
         "INSERT INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "

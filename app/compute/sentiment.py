@@ -125,13 +125,17 @@ def store(score: pd.Series, components_df: pd.DataFrame, score_id: str = "a_sent
     for date, val in score.dropna().items():
         if pd.isna(val):
             continue
+        # 口径漂移修复(2026-09-30): 先舍入再判定, 使 is_freeze/is_overheat 与入库 value 同口径。
+        # 旧写法 value=round(val,2) 而标记用未舍入的 val -> val=19.995 入库 20.0 却标 is_freeze=1
+        # (用户看到"值 20.0 / 标记冰点"自相矛盾)。阈值不变(仍 20/80), 只统一"拿哪个值去比"。
+        v = round(float(val), 2)
         comps = {}
         for c in components_df.columns:
-            v = components_df.at[date, c]
-            if pd.notna(v):
-                comps[c] = round(float(v), 2)
-        rows.append((date, score_id, round(float(val), 2),
-                     int(val < 20), int(val > 80), json.dumps(comps, ensure_ascii=False), now))
+            cv = components_df.at[date, c]
+            if pd.notna(cv):
+                comps[c] = round(float(cv), 2)
+        rows.append((date, score_id, v,
+                     int(v < 20), int(v > 80), json.dumps(comps, ensure_ascii=False), now))
     conn.executemany(
         "INSERT INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
         "VALUES (?,?,?,?,?,?,?) "
