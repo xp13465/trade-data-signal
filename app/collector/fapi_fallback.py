@@ -36,6 +36,7 @@ LHB_ENDPOINTS = {
     "stock_lhb_jgmmtj_em": "dragon-tiger-list",
 }
 TIMEOUT = 20.0  # 兜底请求超时(与东财 _em 20s 同档,防拖慢主链)
+MAX_PAGES = 10  # #140 安全上限(页):最多 10 页=2000 条,防服务端异常翻页死循环(触顶靠对账 TRUNCATED 告警)
 
 
 def _date_ms(yyyymmdd: str) -> int:
@@ -90,20 +91,60 @@ def _lhb_df(stock_items: list, with_inst: bool) -> pd.DataFrame | None:
 
 
 def fetch_zt_fallback(func_name: str, date: str) -> tuple[pd.DataFrame | None, str]:
-    """东财涨停/跌停/炸板池空值时的 FAPI 兜底。返回 (df, msg);df None=兜底失败。"""
+    """东财涨停/跌停/炸板池空值时的 FAPI 兜底。返回 (df, msg);df None=兜底失败。
+
+    #140 修复(2026-09-30):原实现固定 page=1&size=200 单页,服务端 size 上限 200
+    (code=1003 拒大 size),但响应带 pagination.pages 支持翻页 —— 普涨日(涨停池
+    >200 行)静默截断,20241008 只取 200/711(丢 71.9%),max_lianban 6 vs 真值 13
+    连板高度直接判错。现改为:①按 pagination.pages 循环翻页取满;②末页兜底判据
+    len(batch)<200(防 pages 字段缺失/不准);③安全上限 MAX_PAGES(触顶告警不
+    静默截断);④返回前对账机检 len(df) vs pagination.total 不等走 msg 链路带
+    TRUNCATED 字样的告警(兜底极少触发,不会刷屏)。
+    """
     r = ZT_ENDPOINTS.get(func_name)
     if not r:
         return None, f"no fapi endpoint for {func_name}"
-    data = _api(f"/api/a-share/special-data/{r}",
-                {"date_ms": _date_ms(date), "page": 1, "size": 200})
+    params = {"date_ms": _date_ms(date), "page": 1, "size": 200}
+    data = _api(f"/api/a-share/special-data/{r}", params)
     if data is None:
         return None, f"fapi {r} unavailable"
-    items = data.get("item") or data.get("items") or []
-    if not items:
-        # 池子真 0(如跌停 0):返回空 df(count_rows=0),与东财空=真0 语义一致
+    items = list(data.get("item") or data.get("items") or [])
+    pag = data.get("pagination") or {}
+    total = int(pag.get("total") or 0)
+    # total=0(如休市日/真 0 池):优雅返回空,不翻页不报错
+    if total == 0:
         return pd.DataFrame(), f"fapi {r} empty(真0) date={date}"
+    # 循环翻页取满:先取当前页,取完再判「是否还有下一页」。
+    # 停止条件(任一满足):①服务端声明的 pages 已翻完(page>=pages)
+    # ②total 已取满 ③末页兜底:batch<200(防 pages 缺失/虚高/不收敛)
+    # ④安全上限 MAX_PAGES 触顶(触顶后对账 TRUNCATED 告警)。
+    pages = int(pag.get("pages") or 0)  # pages 缺失=0:交给 batch<200 末页兜底
+    page = 1
+    while True:
+        if page > 1:
+            data = _api(f"/api/a-share/special-data/{r}", {**params, "page": page})
+            if data is None:
+                return None, f"fapi {r} page{page}/{pages} unavailable date={date}"
+            batch = list(data.get("item") or data.get("items") or [])
+            if not batch:
+                break  # 服务端已无更多数据(early exit)
+            items += batch
+            if len(batch) < 200:
+                break  # 末页兜底:不满 200 = 已是最后一页(防 pages 缺失/虚高/不收敛)
+        if pages and page >= pages:
+            break  # 服务端声明的页数已翻完(当前页正是最后一页,已取)
+        if len(items) >= total:
+            break  # total 已取满
+        if page >= MAX_PAGES:
+            break  # 安全上限触顶(对账会 TRUNCATED)
+        page += 1
     df = _zt_df(items)
-    return df, f"fapi {r} {len(items)} rows"
+    msg = f"fapi {r} {len(df)} rows"
+    if len(df) != total:
+        # 对账机检:翻页后仍不等于 pagination.total(服务端异常/早期 break),
+        # 告警而不是静默截断(走 msg 链路 -> collect_log 可查可告警)
+        msg += f"; TRUNCATED total={total} got={len(df)}"
+    return df, msg
 
 
 def fetch_lhb_fallback(func_name: str, date: str) -> tuple[pd.DataFrame | None, str]:

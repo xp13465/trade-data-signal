@@ -390,7 +390,7 @@ function signalColor(s) {
   if (s.signal === "sell_stop_loss") return "#3498db";  // 追止损卖 蓝（ATR×3.5 止损，底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）
   if (s.signal === "band_hold") return "#ff9800";  // 波段持有 橙（国债波段仓位管理，中性状态，2026-07-24）
   if (s.signal === "estimate") return "#909399";  // 盘中预估点 灰（方案A补T日点，非真实信号，视觉区分）
-  if (s.signal === "freeze") return "#42a5f5";  // 冰点 蓝（弹窗≤20 冰点标注，2026-08-19，与恐贪/情绪分 visualMap ≤20 冰点蓝一致）
+  if (s.signal === "freeze") return "#42a5f5";  // 冰点 蓝（弹窗<20 冰点标注，2026-08-19，与恐贪/情绪分 visualMap <20 冰点蓝一致）
   const r = s.reason || "";
   // 波段减仓 草绿 #8bc34a（国债波段仓管，减仓非清仓，与卖 #2e8b57 区分体现"没卖重"，2026-07-20）
   // 注意：波段止损仍走默认 #2e8b57（趋势破位清仓，归卖类）；止盈/趋势转弱/前买失效也不受影响
@@ -449,7 +449,7 @@ function signalLabel(s) {
   }
   if (s.signal === "band_hold") return _t("band_hold");  // 国债波段仓位管理 持有状态（2026-07-24）
   if (s.signal === "estimate") return "预估";  // 盘中预估点（方案A补T日点，非真实信号）
-  if (s.signal === "freeze") return s.value != null ? "冰点" + Math.round(s.value) : "冰点";  // 冰点标注（≤20 蓝，带数值，2026-08-19）
+  if (s.signal === "freeze") return s.value != null ? "冰点" + Math.round(s.value) : "冰点";  // 冰点标注（<20 蓝，带数值，2026-08-19）
   const r = s.reason || "";
   // 波段减仓/止损（国债波段仓位管理，2026-07-24）：reason 含"波段减仓X%"/"波段止损X%"
   if (r.includes("波段减仓") || r.includes("波段止损")) {
@@ -1767,32 +1767,27 @@ function _overfitAccSeries(data, w) {
   const act = actFull.slice(-n);
   const bt = btFull.slice(-n);
   const actMap = {}; act.forEach((p) => { if (p.date != null) actMap[p.date] = p; });
-  const btMap = {}; bt.forEach((p) => { if (p.date != null && p.win_rate != null) btMap[p.date] = p; });
+  const btMap = {}; bt.forEach((p) => { if (p.date != null) btMap[p.date] = p; });
+  // 2026-09-30 用户拍板「两处都修」修复「数据只到09-21」观感(#139 前端读法 + #144 后端 _derive_daily_series 同根因):
+  //  ①x 轴改为「回测 ∪ 实盘」日期并集——实盘序列有点就一起纳入, 不再因为回测序列短(K=1 下当天唯一
+  //    有回测样本的 buy_aux 被 top-K 挤掉 → 该回测点缺失)就把实盘末点连带藏掉;
+  //  ②「当天无样本」的保留行降级为不占位——某侧(回测/实盘)无样本的日期只保留有值侧, 缺失侧填 null
+  //    (connectNulls 桥接), 不再整体丢弃该日期制造空窗/断点。
+  const dateSet = {};
+  act.forEach((p) => { if (p.date != null) dateSet[p.date] = 1; });
+  bt.forEach((p) => { if (p.date != null) dateSet[p.date] = 1; });
+  const btEmpty = bt.length === 0;
   const dates = [], actual = [], backtest = [];
-  // 2026-09-30 #144 举一反三: 与 _derive_daily_series/_ovDeriveDaily 同根因修复(改单一侧驱动为「回测 ∪ 实盘」日期并集)。
-  // 原实现 bt.length>0 时只用回测日期驱动 dates, 「实盘有、回测缺」的交易日(accuracy.rolling.actual > backtest 末点)整条丢弃。
-  // 改为并集驱动: 缺失侧留 null(回测缺 -> backtest=null, 实盘缺 -> actual=null), 不造假 (同风险分图口径)。
-  if (bt.length === 0) {
-    // 回测空(sell类方案B): 以实盘为准渲染单曲线(原语义, 无并集问题——回测侧整体为空)
-    for (const p of act) {
-      if (p.win_rate == null) continue;
-      dates.push(p.date);
-      actual.push(+(p.win_rate.toFixed(1)));
-    }
-  } else {
-    const allDates = Object.keys(btMap).concat(Object.keys(actMap)).filter((v, i, a) => a.indexOf(v) === i).sort();
-    for (const d of allDates) {
-      const b = btMap[d];
-      const a = actMap[d];
-      const aOk = a != null && a.win_rate != null;
-      // 两侧都无可用值 -> 哑点不入 dates(如 act 有但 win_rate null 且回测无该日)
-      if (b == null && !aOk) continue;
-      dates.push(d);
-      backtest.push(b != null ? +(b.win_rate.toFixed(1)) : null);
-      actual.push(aOk ? +(a.win_rate.toFixed(1)) : null);
-    }
+  for (const d of Object.keys(dateSet).sort()) {
+    const a = actMap[d], b = btMap[d];
+    const aOk = a != null && a.win_rate != null;
+    const bOk = !btEmpty && b != null && b.win_rate != null;
+    if (!aOk && !bOk) continue;   // 纯空窗日(回测/实盘都无样本)不占位
+    dates.push(d);
+    actual.push(aOk ? +(a.win_rate.toFixed(1)) : null);
+    backtest.push(bOk ? +(b.win_rate.toFixed(1)) : null);
   }
-  return { dates, actual, backtest, btEmpty: bt.length === 0 };
+  return { dates, actual, backtest, btEmpty };
 }
 
 // 渲染准确率双曲线(窗口/评级/类型切换时重绘)
@@ -1911,8 +1906,7 @@ function _renderOverfitRisk(data) {
     if (typeof _lwRenderers !== "undefined") _lwRenderers.delete(_overfitRiskEl);
     if (typeof _lwCfgMap !== "undefined") _lwCfgMap.delete(_overfitRiskEl);
     // 2026-09-30 #144: 序列非空但全为 null(回测侧该维度全缺) -> 与卖类同口径提示, 不留空白卡
-    const isSell = _overfitState.sigType === "sell" || _overfitState.sigType === "sell_stop_loss";
-    const msg = (dimName || "") + (isSell ? " 无回测对照, 风险分不适用" : " 无回测对照, 风险分不适用");
+    const msg = (dimName || "") + " 无回测对照, 风险分不适用";
     _overfitRiskEl.innerHTML = '<div class="overfit-lite-empty" style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:11px;text-align:center">' +
       msg + "</div>";
     _ovClearTailNote();
@@ -7202,9 +7196,82 @@ function _renderSentimentCalendar(cal) {
     }).join("");
     const cells = freezeCells + sigCells;
     if (!cells) continue;
-    rows += `<div class="sig-day-row"><span class="sig-day-date">${dateLabel}</span><div class="sig-items">${cells}</div></div>`;
+    // 日期标签可点：查看当天全部触发明细(2026-09-30, 用户拍板"加维度说明/筛选,不删标记")。
+    // 仅新增日期标签点击入口, 格子渲染/标记完全不动(§23.7 冻结契约)。点击委托见 freezeCard click。
+    // data-no-pop(2026-09-30 reviewer 复审): 移动端 tap 日期标签时 term-pop(z:9999) 会盖住明细弹层(z:110),
+    // 加 data-no-pop 让 term-pop 让位(见 _initTermPop findTipEl), 桌面原生 title tooltip 保留。
+    rows += `<div class="sig-day-row"><span class="sig-day-date sig-day-date-btn" data-no-pop="" data-cal-date="${dt}" title="查看当天触发明细">${dateLabel}</span><div class="sig-items">${cells}</div></div>`;
   }
-  return rows ? `<div class="signal-grid">${rows}</div>` : "";
+  if (!rows) return "";
+  // 图例行(2026-09-30, 用户拍板): 说明"本日历合并了哪几类维度的冰点+信号", 不改格子渲染结果。
+  const legend =
+    '<div class="sig-cal-legend">' +
+      '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#2563eb"></span>冰点维度（情绪分<20，当日触发的一起点亮）</span>' +
+      '<span class="sig-cal-legend-item"><span style="color:#e6492e">红</span>=卖</span>' +
+      '<span class="sig-cal-legend-item"><span style="color:#d63384">紫</span>=辅买</span>' +
+      '<span class="sig-cal-legend-item"><span style="color:#2e8b57">绿</span>=买</span>' +
+      '<span class="sig-cal-legend-item">📋 点日期标签查看当天全部触发明细</span>' +
+    '</div>';
+  return legend + `<div class="signal-grid">${rows}</div>`;
+}
+
+// 当天明细弹层(2026-09-30, 用户拍板): 点日期标签查看"那天到底哪几个维度触发冰点"。
+// 复用 rule-modal 样式 + indexIdToName/signalLabel 现有映射(§22 单源一致, 不新造中文名表)。
+function openSentimentDayDetailModal(day) {
+  if (!day || !day.date) return;
+  let modal = document.getElementById("sentimentDayDetailModal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "sentimentDayDetailModal";
+    modal.className = "rule-modal hidden";
+    modal.innerHTML =
+      '<div class="rule-modal-overlay"></div>' +
+      '<div class="rule-modal-body day-detail-modal-body">' +
+        '<div class="rule-modal-header"><h3 class="day-detail-title">情绪明细</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
+        '<div class="rule-modal-content day-detail-content"></div>' +
+      '</div>';
+    document.body.appendChild(modal);
+    const close = () => closeSentimentDayDetailModal();
+    modal.querySelector(".rule-modal-overlay").addEventListener("click", close);
+    modal.querySelector(".rule-modal-close").addEventListener("click", close);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) close(); });
+  }
+  const titleEl = modal.querySelector(".day-detail-title");
+  const body = modal.querySelector(".day-detail-content");
+  const dt = day.date;
+  titleEl.innerHTML = `${fmtDate(dt)} ${dt ? "(" + dt.slice(0,4) + "-" + dt.slice(4,6) + "-" + dt.slice(6,8) + ")" : ""} 情绪明细`;
+  const fr = Array.isArray(day.freeze) ? day.freeze : [];
+  const sigs = Array.isArray(day.signals) ? day.signals.slice() : [];
+  const ord = { buy: 0, buy_aux: 1, sell: 2 };
+  sigs.sort((a, b) => (ord[a.signal] ?? 9) - (ord[b.signal] ?? 9));
+  const freezeHtml = fr.length
+    ? fr.map((it) => {
+        const _name = indexIdToName(it.score_id);
+        const _val = it.value != null ? it.value.toFixed(1) : "-";
+        return `<div class="dd-row"><span class="dd-name">${_esc(_name)}</span><span class="dd-val freeze-val">${_val}</span></div>`;
+      }).join("")
+    : '<div class="dd-empty">当天无冰点维度</div>';
+  const sigHtml = sigs.length
+    ? sigs.map((s) => {
+        const _label = signalLabel(s);
+        const _name = indexIdToName(s.index_id);
+        const _reason = s.reason ? ` · ${_esc(s.reason)}` : "";
+        return `<div class="dd-row dd-sig"><span class="dd-name"><b class="${s.signal}">${_esc(_label)}</b> ${_esc(_name)}</span><span class="dd-reason">${_reason}</span></div>`;
+      }).join("")
+    : "";
+  body.innerHTML =
+    `<div class="dd-section-title">冰点维度（情绪分 <20 超卖极值）</div>` + freezeHtml +
+    (sigHtml ? `<div class="dd-section-title dd-sig-title">当日情绪分信号</div>` + sigHtml : "") +
+    '<div class="dd-foot">📋 蓝值=冰点触发维度；红/紫/绿=买卖点信号。点击上方格子可看单维度走势。</div>';
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+function closeSentimentDayDetailModal() {
+  const modal = document.getElementById("sentimentDayDetailModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  document.body.style.overflow = "";
 }
 
 // 两段式信号固化三态提示条(2026-08-14, 方案 docs/signal-finalize-time.md §5.3):
@@ -10392,7 +10459,7 @@ function ruleContentHtml() {
       <p class="muted">趋势转弱参考点会附带当前市场情绪分，帮你判断「技术拐点 + 情绪背景」的强弱：</p>
       <table class="rule-table rule-table-tags">
         <tr>
-          <td><span class="rule-tag tag-freeze">冰点</span> ≤ 20</td>
+          <td><span class="rule-tag tag-freeze">冰点</span> < 20</td>
           <td><span class="rule-tag tag-cool">偏冷</span> 21–40</td>
           <td><span class="rule-tag tag-neutral">中性</span> 41–60</td>
           <td><span class="rule-tag tag-warm">偏热</span> 61–80</td>
@@ -10913,7 +10980,7 @@ async function _loadKpiHistory(kpiId, cfg, period) {
         ],
         dimension: 1,
       },
-      hint: "≤20冰点(蓝) · 20-40偏冷(浅蓝) · 40-60中性(灰) · 60-80偏热(橙) · >80过热(红)",
+      hint: "<20冰点(蓝) · 20-40偏冷(浅蓝) · 40-60中性(灰) · 60-80偏热(橙) · >80过热(红)",
     };
   }
 
@@ -12594,6 +12661,21 @@ const INTRADAY_BACKOFF_CAP_MS = 8 * 60 * 1000; // 退避上限8min
 const INTRADAY_DEGRADED_MS = 5 * 60 * 1000; // S3: 连续失败达上限后降频兜底重试5min(非永久停,7x24自愈)
 const INTRADAY_FETCH_TIMEOUT_MS = 8000; // S1: 分时fetch超时8s(同fetchJSON 15s,分时数据轻量用更短)
 
+// ============ 云上多源行情中转·替补第三腿(2026-09-30 用户拍板) ============
+// 背景: 东财 trends2 间歇性拒绝(3/10), 腾讯 minute/query 北交所只返3段, 新浪无ACAO头只能服务端取。
+// 因此加一个"云上中转服务"做替补源: 前端先走"东财→腾讯"(现有双腿), 都失败才走本第三腿。
+// 中转服务: relay/rt_relay.py, 多源(东财/腾讯/新浪)聚合+熔断+限速+4s缓存, 部署后回源走 CF 子域名 HTTPS。
+// ⚠️ 上线前置(配好中间层后主控改这两处即可): BASE 换成最终地址 + ENABLED 翻 true。
+const RT_RELAY_BASE_URL = "https://rt.fx8.store"; // 占位: 待用户开云上安全组8080 + 配 CF 子域名后启用(见 relay/README.md)
+const RT_RELAY_ENABLED = false;                  // ← 上线开关(生产默认禁, 测试页可 window._rtSetRelay 临时开)
+let _rtRelayBase = RT_RELAY_BASE_URL;            // 运行时生效地址(测试/切域名一处切换)
+let _rtRelayEnabled = RT_RELAY_ENABLED;
+// 测试/上线切换点(顶层 function → 挂 window, 供 Playwright 或线上切域名用; 生产默认禁)
+function _rtSetRelay(enable, base) {
+  _rtRelayEnabled = !!enable;
+  if (base) _rtRelayBase = base;
+}
+
 // 分时fetch in-flight去重（同URL并发只发一次，复用Promise）
 const _inflightMinute = new Map();
 let _intradayFailCount = 0;
@@ -12623,6 +12705,11 @@ let _collectTimeBase = { ct: "", health: null };
 // 2026-08-06: _EM_HOSTS 首位改 push2delay.eastmoney.com（验收 36/36 稳定，push2 间歇 0/10），
 //             push2 多 host 保留作 L3 兜底（push2delay 失败才转 push2）。
 const _EM_HOSTS = ["push2delay.eastmoney.com", "push2.eastmoney.com", "2.push2.eastmoney.com", "10.push2.eastmoney.com", "20.push2.eastmoney.com"];
+// 东财分时本轮熔断阈值(2026-09-30 加): 连续「确定性拒绝」达阈值 -> 本轮直接短路,不再逐 host
+// 各等 8s 拖慢渲染(EM 抽风/服务端拒时 5host×8s=40s/只, L2/L3 并发放大不可接受)。
+// 区分「确定性拒绝」与「网络抖动」: 超时(AbortError)=抖动不计数; fetch TypeError(连接断)、
+// HTTP 非 2xx、空体/非 JSON(0 字节) = 确定性拒绝,计入连续计数。单次失败后成功会清零(不误熔断)。
+const _EM_TRIP_THRESHOLD = 3;
 async function fetchTencentMinute(code) {
   const secid = _INDEX_TO_EASTMONEY_SECID[code];
   if (!secid) return null;
@@ -12633,7 +12720,14 @@ async function fetchTencentMinute(code) {
     const path = "/api/qt/stock/trends2/get?secid=" + secid + "&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&iscr=0&ndays=1";
     // S9 聚合降噪(2026-09-28): 收集失败host+原因,全host失败后统一打一条,避免1min轮询逐host刷屏(单标的单轮 5~10条 -> 1条)
     const emFails = [];
+    // 2026-09-30 熔断: 连续「确定性拒绝」计数(超时=抖动不计, fetch TypeError/HTTP错误/空体=确定性拒绝计)
+    let emDetFails = 0;
     for (let hi = 0; hi < _EM_HOSTS.length; hi++) {
+      // 熔断检查: 已连续确定性拒绝达阈值 -> 本轮短路,不再试剩余 host(EM 服务端抽风时快速切腾讯兜底)
+      if (emDetFails >= _EM_TRIP_THRESHOLD) {
+        emFails.push(_EM_HOSTS[hi] + ':熔断短路(前' + emDetFails + '次确定性拒绝)');
+        break;
+      }
       // S1: AbortController+8s超时,防fetch卡死致await永不返回定时器链断(参考fetchJSON L3666)
       const _ctrl = new AbortController();
       const _tmr = setTimeout(() => _ctrl.abort(), INTRADAY_FETCH_TIMEOUT_MS);
@@ -12641,8 +12735,10 @@ async function fetchTencentMinute(code) {
         // cache-busting: 加 _=Date.now() + cache:no-store，绕过浏览器/CDN HTTP缓存拿1min最新
         const url = "https://" + _EM_HOSTS[hi] + path + "&_=" + Date.now();
         const resp = await fetch(url, { cache: 'no-store', signal: _ctrl.signal });
-        if (!resp.ok) { emFails.push(_EM_HOSTS[hi] + ':HTTP' + resp.status); continue; }
+        if (!resp.ok) { emDetFails++; emFails.push(_EM_HOSTS[hi] + ':HTTP' + resp.status); continue; }
         const json = await resp.json();
+        // rc!=0/无数据 = 「per-host 不支持某 secid」正常重试场景(push2 负载均衡不同子域间歇不支持
+        // 124.HSTECH/1.000016 等), 不计入确定性拒绝防误熔断掉能用的 host
         if (!json || json.rc !== 0 || !json.data || !json.data.trends) { emFails.push(_EM_HOSTS[hi] + ':rc!=0或无数据'); continue; }
         const d = json.data;
         const points = [];
@@ -12666,8 +12762,11 @@ async function fetchTencentMinute(code) {
         const date = (String(d.trends[0] || "").split(",")[0] || "").split(" ")[0] || "";
         return { name, price: curPrice, preClose, pct, date, points };
       } catch (e) {
+        // 2026-09-30 熔断计数: 超时(AbortError)=网络抖动不计入; 其余(连接断 TypeError/空体 JSON 解析失败)=确定性拒绝计入
+        const _isTimeout = e && e.name === 'AbortError';
+        if (!_isTimeout) emDetFails++;
         // S9: 聚合进失败列表,循环结束统一打一条(含失败host+原因,不砍定位信息)
-        emFails.push(_EM_HOSTS[hi] + ':' + ((e && e.name === 'AbortError') ? '超时' + INTRADAY_FETCH_TIMEOUT_MS + 'ms' : ((e && e.message) || '未知错误')));
+        emFails.push(_EM_HOSTS[hi] + ':' + (_isTimeout ? '超时' + INTRADAY_FETCH_TIMEOUT_MS + 'ms' : ((e && e.message) || '未知错误')));
         continue;
       } finally {
         clearTimeout(_tmr);
@@ -12687,11 +12786,60 @@ async function fetchTencentMinute(code) {
 // 调研 a737aa573198aff09 结论: 腾讯分时批量API不存在, 但单只API完全可用
 // web.ifzq.gtimg.cn/appstock/app/minute/query?code={code} 3 host 冗余, CORS Access-Control-Allow-Origin:*
 // 12/12 指数支持(含bj899050/hkHSTECH), 36次压测0 WAF, 作 L2 三源分散兜底(每源 ≤4 次 < 风控边界 40)
-// 数据格式: data.{code}.data.data[]=["0930 3815.12 4605103 10182511845.20", ...] (空格分隔4段: 时间/价格/成交量/成交额)
+// 数据格式: data.{code}.data.data[]=["0930 3815.12 4605103 10182511845.20", ...] (空格分隔: 时间/价格/成交量[/成交额])
+// 注意: 沪深/港股返回4段(含成交额), 北交所返回3段(时间/价格/成交量, 无成交额)——3段也须接受, amount缺省补0(2026-09-30 bj50 分时修)
 // 时间格式 "0930" (4位 HHMM 无冒号), 有 date 字段, 无 preClose (返回 null, 由调用方从 snap 补)
 // proxy.finance.qq.com/ifzq 路径含 /ifzq, 直接拼 host+path 即可
 const _QQ_HOSTS = ["web.ifzq.gtimg.cn", "proxy.finance.qq.com/ifzq", "ifzq.finance.qq.com"];
 const _QQ_PATH = "/appstock/app/minute/query?code=";
+// 2026-09-30 备用腿: day/query(与 minute/query 同域同 host)。返回最近 5 交易日分时(首日=最新
+// 交易日), 防 minute/query 日后也被路径级封禁时兜底。返回结构与 minute/query 对齐(无 preClose)。
+const _QQ_DAY_PATH = "/appstock/app/day/query?code=";
+
+// 腾讯 ifzq day/query 备用腿: data[code].data=[{date,data:[...]},...] 取首日; 行 "0930 3815.12 4605103 10182511845.20"
+// 空格分隔(北证 3 段无成交额), 兼容 3/4 段(price=parts[1])。无 preClose 由调用方从 snap 补。
+async function _fetchQQDayQuery(qqCode) {
+  const dayFails = [];
+  for (let hi = 0; hi < _QQ_HOSTS.length; hi++) {
+    const host = _QQ_HOSTS[hi];
+    const _ctrl = new AbortController();
+    const _tmr = setTimeout(() => _ctrl.abort(), INTRADAY_FETCH_TIMEOUT_MS);
+    try {
+      const url = "https://" + host + _QQ_DAY_PATH + qqCode + "&_=" + Date.now();
+      const resp = await fetch(url, { cache: 'no-store', signal: _ctrl.signal });
+      if (!resp.ok) { dayFails.push(host + ':HTTP' + resp.status); continue; }
+      const json = await resp.json();
+      if (!json || json.code !== 0 || !json.data || !json.data[qqCode]) { dayFails.push(host + ':code!=0或无数据'); continue; }
+      const inner = json.data[qqCode];
+      const days = Array.isArray(inner.data) ? inner.data : [];
+      if (!days.length || !days[0] || !Array.isArray(days[0].data)) { dayFails.push(host + ':无交易日数组'); continue; }
+      const points = [];
+      for (const seg of days[0].data) {
+        const parts = String(seg).split(" ");
+        if (parts.length < 2) continue;
+        const t = parts[0];
+        const time = t.length === 4 ? t.slice(0, 2) + ":" + t.slice(2) : t;
+        const price = parseFloat(parts[1]);
+        if (isNaN(price)) continue;
+        const volume = parseInt(parts[2], 10) || 0;
+        const amount = parseFloat(parts[3]) || 0;
+        points.push({ time, price, volume, amount });
+      }
+      if (!points.length) { dayFails.push(host + ':空点'); continue; }
+      const curPrice = points[points.length - 1].price;
+      const date = days[0].date || "";
+      const name = inner.title || inner.name || "";
+      return { name, price: curPrice, preClose: null, pct: null, date, points };
+    } catch (e) {
+      dayFails.push(host + ':' + ((e && e.name === 'AbortError') ? '超时' + INTRADAY_FETCH_TIMEOUT_MS + 'ms' : ((e && e.message) || '未知错误')));
+      continue;
+    } finally {
+      clearTimeout(_tmr);
+    }
+  }
+  if (dayFails.length) console.warn('[intraday] 腾讯day/query备用腿失败', qqCode, dayFails.join(' | '));
+  return null;
+}
 async function fetchQQMinute(code) {
   const qqCode = _INDEX_TO_TENCENT_MINUTE[code];
   if (!qqCode) return null;
@@ -12717,9 +12865,10 @@ async function fetchQQMinute(code) {
         if (!d || !d.data || !d.data.data) { qqFails.push(host + ':无data'); continue; }
         const points = [];
         for (const seg of d.data.data) {
-          // 格式: "0930 3815.12 4605103 10182511845.20" (空格分隔4段: 时间/价格/成交量/成交额)
+          // 格式: "0930 3815.12 4605103 10182511845.20" (空格分隔: 时间/价格/成交量[/成交额])
+          // 沪深/港股4段(含成交额); 北交所3段(无成交额)——3段也须接受, amount 由下方 parseFloat(parts[3])||0 天然补0
           const parts = String(seg).split(" ");
-          if (parts.length < 4) continue;
+          if (parts.length < 3) continue; // 最少3段: 时间/价格/成交量; 4段路径逐位不变
           const t = parts[0];
           // 时间 "0930" (4位 HHMM 无冒号) -> "09:30"
           const time = t.length === 4 ? t.slice(0, 2) + ":" + t.slice(2) : t;
@@ -12744,6 +12893,9 @@ async function fetchQQMinute(code) {
         clearTimeout(_tmr);
       }
     }
+    // 2026-09-30 day/query 备用腿: minute/query 全 host 失败(或日后被封)时兜底同域端点
+    const dayRes = await _fetchQQDayQuery(qqCode);
+    if (dayRes && dayRes.points && dayRes.points.length) return dayRes;
     if (qqFails.length) console.warn('[intraday] 腾讯分时失败', code, qqFails.length + '/' + _QQ_HOSTS.length + ' 个host均失败: ' + qqFails.join(' | '));
     return null;
   })();
@@ -12751,6 +12903,48 @@ async function fetchQQMinute(code) {
   // S2: 超时兜底清理(同上,防毒化)
   const _qqCleanup = setTimeout(() => { _inflightMinute.delete(cacheKey); }, 15000);
   p.finally(() => { _inflightMinute.delete(cacheKey); clearTimeout(_qqCleanup); });
+  return p;
+}
+
+// 云上多源中转·替补第三腿(2026-09-30): 仅当前两腿(东财/腾讯)都失败时由 _fetchIntradayRenderSource 调用。
+// 返回结构与 fetchTencentMinute/fetchQQMinute 同构: {name,price,preClose,pct,date,points:[{time,price,volume,amount}]}。
+// 默认禁(RT_RELAY_ENABLED=false), 上线由主控配好中间层后翻开关+换 BASE; 测试用 _rtSetRelay(true, base)。
+async function fetchRelayMinute(code) {
+  if (!_rtRelayEnabled || !_rtRelayBase) return null;
+  if (!_INDEX_TO_TENCENT_MINUTE[code]) return null;   // 中转端码表与前端12指数同构, 无映射直接跳过
+  const cacheKey = "relay_minute_" + code;
+  const cached = _inflightMinute.get(cacheKey);
+  if (cached) return cached;
+  const p = (async () => {
+    // S1: AbortController+8s超时,防fetch卡死(同fetchTencentMinute/fetchQQMinute)
+    const _ctrl = new AbortController();
+    const _tmr = setTimeout(() => _ctrl.abort(), INTRADAY_FETCH_TIMEOUT_MS);
+    try {
+      // cache-busting: 加 _=Date.now() + cache:no-store(中转侧另有4s缓存, 双缓存不同层)
+      const url = _rtRelayBase + "/intraday?code=" + encodeURIComponent(code) + "&_=" + Date.now();
+      const resp = await fetch(url, { cache: 'no-store', signal: _ctrl.signal });
+      if (!resp.ok) return null;
+      const json = await resp.json();
+      if (!json || !json.points || !json.points.length) return null;
+      return {
+        name: json.name || "",
+        price: json.price,
+        preClose: json.preClose != null ? json.preClose : null,
+        pct: json.pct != null ? json.pct : null,
+        date: json.date || "",
+        points: json.points,
+      };
+    } catch (e) {
+      if (e && e.name === 'AbortError') console.warn('[intraday] 中转分时超时', code);
+      return null;
+    } finally {
+      clearTimeout(_tmr);
+    }
+  })();
+  _inflightMinute.set(cacheKey, p);
+  // S2: 超时兜底清理(同上,防毒化)
+  const _rlCleanup = setTimeout(() => { _inflightMinute.delete(cacheKey); }, 15000);
+  p.finally(() => { _inflightMinute.delete(cacheKey); clearTimeout(_rlCleanup); });
   return p;
 }
 
@@ -13014,6 +13208,17 @@ async function _fetchDynamicPcts(ids, snap) {
       const l3Results = await Promise.all(l3Promises);
       for (const [id, r] of l3Results) {
         applyResult(id, r);
+      }
+    }
+
+    // ---- L4 云上中转·替补第三腿(2026-09-30): L0-L3 后仍失败的(东财/腾讯/同花顺全拒)走中转多源聚合 ----
+    // 前端双腿全废正是中转的启用场景(浏览器直连东财/腾讯被风控/新浪无CORS, 唯服务端可取)。
+    // 默认禁(RT_RELAY_ENABLED=false)时 fetchRelayMinute 立即返 null, 本块行为与旧版逐位一致。
+    if (_rtRelayEnabled) {
+      const l4Ids = valid.filter((id) => results[id] == null);
+      if (l4Ids.length) {
+        const l4Res = await Promise.all(l4Ids.map(async (id) => [id, await fetchRelayMinute(id)]));
+        for (const [id, r] of l4Res) applyResult(id, r);
       }
     }
 
@@ -13334,14 +13539,17 @@ function _renderSnapMinuteSeries(container, code, preClose, snapTime, snap) {
   return true;
 }
 
-// 分时图渲染数据源(2026-09-28 渲染双腿兜底): 东财优先,失败/无数据补试腾讯。
-// 与批量 _fetchDynamicPcts L2/L3 双腿同构(东财抽风风控断连时腾讯仍稳定,实测连发6次全200)。
+// 分时图渲染数据源(2026-09-30 渲染三腿兜底): 东财优先,失败/无数据补试腾讯, 双腿都失败再走云上中转(第三替补腿)。
+// 与批量 _fetchDynamicPcts L2/L3 双腿同构(东财抽风风控断连时腾讯仍稳定,实测连发6次全200);
+// 2026-09-30 第三腿=relay(多源聚合, 服务端才取得到的新浪等, 默认禁 RT_RELAY_ENABLED=false, 无副作用)。
 // 腾讯无 preClose/pct(返回 null)由调用方从 snap 传入的 preClose 参数补(_renderIntradayChart 内 pc=preClose||result.preClose)。
 async function _fetchIntradayRenderSource(code) {
   const em = await fetchTencentMinute(code);
   if (em && em.points && em.points.length) return em;
   const qq = await fetchQQMinute(code);
   if (qq && qq.points && qq.points.length) return qq;
+  const rl = await fetchRelayMinute(code);
+  if (rl && rl.points && rl.points.length) return rl;
   return null;
 }
 
@@ -16043,14 +16251,14 @@ async function renderOverview() {
       a_amount: "沪深京A股成交额。放量=交投活跃,缩量=清淡。",
       a_volume_ratio: "当日成交额/前5日均量。>1.5倍放量,<0.7倍缩量。",
       fear_greed: "综合5类市场情绪等权算的0-100温度计。≤25极度恐惧、≥75极度贪婪。作逆向参考。",
-      a_sentiment: "6项A股指标加权算的0-100情绪分。≤20冰点、≥80过热。",
+      a_sentiment: "6项A股指标加权算的0-100情绪分。<20冰点、>80过热。",
       cross_market: "A股+港股+全球等多维度等权均值0-100。看跨市场整体冷热。",
-      sentiment_sz50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
-      sentiment_hs300: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
-      sentiment_csi500: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
-      sentiment_csi1000: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
-      sentiment_cyb: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
-      sentiment_kc50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_sz50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_hs300: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_csi500: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_csi1000: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_cyb: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_kc50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
       a_width_zt_count: "收盘仍封死涨停的股票数,多=追涨情绪强。",
       a_width_dt_count: "收盘仍封死跌停的股票数,多=恐慌抛售强。",
       a_width_zhaban_rate: "当日曾涨停但收盘未封住的比例,高=封板资金不稳。",
@@ -16601,7 +16809,7 @@ async function renderOverview() {
       fgDimCard.className = "chart-card fg-dim-card";
       fgDimCard.id = "fg-dim-ov";
       const totalTxt = _fgTotal != null ? ` · 总分 ${_fgTotal.toFixed(1)}` : "";
-      let html = '<h3>🌡️ 恐贪分项' + termTip("恐贪指数由以下8项情绪分等权平均合成(2项综合+6项宽基)。分项条解释总分为何是当前值--哪几项拖累(冰点)/哪几项偏高。❄️=冰点(≤20)，🔥=过热(≥80)。") + '<span class="fg-dim-total">8 项等权' + totalTxt + '</span></h3>';
+      let html = '<h3>🌡️ 恐贪分项' + termTip("恐贪指数由以下8项情绪分等权平均合成(2项综合+6项宽基)。分项条解释总分为何是当前值--哪几项拖累(冰点)/哪几项偏高。❄️=冰点(<20)，🔥=过热(>80)。") + '<span class="fg-dim-total">8 项等权' + totalTxt + '</span></h3>';
       html += '<div class="fg-dim-rows">';
       for (const row of _rows) {
         const col = fearGreedColor(row.value);
@@ -16630,7 +16838,7 @@ async function renderOverview() {
       if (v <= 80) return "#e6a23c";
       return "#e6492e";
     };
-    const asChart = _lwLineCard("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的0-100情绪分，≤20冰点≥80过热") + latestSuffix(as6), as6, {
+    const asChart = _lwLineCard("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的0-100情绪分，<20冰点>80过热") + latestSuffix(as6), as6, {
       _lwColor: "#86909c",
       _lwColorFn: (i, v) => asColor(v),
       _lwMarkLine: [
@@ -16650,7 +16858,7 @@ async function renderOverview() {
       },
     }, null, colA1);
     if (asChart) {
-      // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
+      // 冰点(<20)/过热(>80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
       addCardTimeBadge(asChart.card, as6.length ? as6[as6.length - 1].date : "", snap, "t0");
       // 图表高度减一点(300->250)，给下方历史位置3行腾空间
       _lwSetHeight(asChart.div, 250);
@@ -16667,7 +16875,7 @@ async function renderOverview() {
   // 无该字段(旧数据/后端未部署)降级回原 recent_freeze 冰点展示(不白屏不消失, §5.3 核心保障)。
   const _sentCal = Array.isArray(r.sentiment_calendar) ? r.sentiment_calendar : null;
   freezeCard.innerHTML = (_sentCal && _sentCal.length)
-    ? `<h3>近 90 日情绪日历<span class="chart-latest"> · ${_sentCal.length} 天</span>${termTip("近90日情绪分信号+冰点日合并日历：每个有内容的日期一行。冰点日=任一情绪分<20(蓝值的超卖极值)；情绪分买/卖点=情绪分自身曲线技术事件化(与市场温度 tab 同源同口径)。同日两列并存(如7/8、6/23)。点击冰点/信号查看该指数走势+标注。")}</h3>` + _renderSentimentCalendar(_sentCal)
+    ? `<h3>近 90 日情绪日历<span class="chart-latest"> · ${_sentCal.length} 天</span>${termTip("近90日情绪分信号+冰点日合并日历：每个有内容的日期一行。冰点日=任一情绪分<20(蓝值的超卖极值)；情绪分买/卖点=情绪分自身曲线技术事件化(与市场温度 tab 同源同口径)。同日两列并存(如7/8、6/23)。点击冰点/信号查看该指数走势+标注；点击日期可查看当天触发维度。")}</h3>` + _renderSentimentCalendar(_sentCal)
     : _renderSignalGrid(r.recent_freeze, r.date, "近期冰点日（近 120 日）" + termTip("近120日情绪冰点日(恐贪指数<20)，常对应阶段性底部"), "freeze", "无近期冰点日");
   // 方案A(2026-08-07): 冰点日专用中性角标。recent_freeze[0].date 是"冰点发生日"(历史事件)非数据日期,
   // 复用 addCardTimeBadge 会被 getCardTimeBadge 判"⚠ 滞后·MM-DD"误报异常(8/3<今日8/7 差4天)。
@@ -16675,8 +16883,15 @@ async function renderOverview() {
   // 融合口径角标(2026-08-20 #96): 读 _sentCal(sentiment_calendar[0] 最新情绪日), 缺失降级 r.recent_freeze(旧冰点),
   // 两源皆空回退 addCardTimeBadge 绿色 r.date 角标(内部处理, 无 bug)。
   addFreezeEventBadge(freezeCard, _sentCal, r.recent_freeze, r.date, snap);
-  // 点击冰点日卡片弹窗：展示该情绪分走势图+冰点(≤20)标注
+  // 点击冰点日卡片弹窗：①日期标签=当天全部维度明细(2026-09-30新增) ②格子=该维度走势图+冰点(<20)标注。
+  // 日期标签优先判, 格子交互完全不变(§23.7)。
   freezeCard.addEventListener("click", (e) => {
+    const dayBtn = e.target.closest(".sig-day-date-btn");
+    if (dayBtn && dayBtn.dataset.calDate) {
+      const _day = (_sentCal || []).find((d) => d.date === dayBtn.dataset.calDate);
+      if (_day) { e.preventDefault(); openSentimentDayDetailModal(_day); }
+      return;
+    }
     const item = e.target.closest(".sig-clickable");
     if (!item) return;
     e.preventDefault();
@@ -16948,7 +17163,7 @@ async function renderOverview() {
       if (v <= 80) return "#e6a23c";
       return "#e6492e";
     };
-    const cmChart = _lwLineCard("跨市场综合评分（近 6 月）" + termTip("综合A股/港股/美股等多市场算的0-100分，≤20偏冷≥80偏热") + latestSuffix(cm6), cm6, {
+    const cmChart = _lwLineCard("跨市场综合评分（近 6 月）" + termTip("综合A股/港股/美股等多市场算的0-100分，<20偏冷>80偏热") + latestSuffix(cm6), cm6, {
       _lwColor: "#86909c",
       _lwColorFn: (i, v) => cmColor(v),
       _lwMarkLine: [
@@ -16969,7 +17184,7 @@ async function renderOverview() {
     }, null, colB1, 210);
     if (cmChart) {
       cmChart.card.classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
-      // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
+      // 冰点(<20)/过热(>80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
       addCardTimeBadge(cmChart.card, cm6.length ? cm6[cm6.length - 1].date : "", snap, "t0");
     }
   }
@@ -20549,8 +20764,8 @@ function appendHistoryPos(container, indexId = "a_sentiment") {
           '</div>' +
           '<div class="hist-pos-row hist-triggers">' +
             '<span class="hist-row-label">极端触发(近1年)</span>' +
-            '<span class="hist-trig hist-trig-freeze">❄️冰点(≤20) <b>' + freezes.length + '</b>次 最近 <b>' + (fLast ? fmtD(fLast) : '-') + '</b></span>' +
-            '<span class="hist-trig hist-trig-heat">🔥过热(≥80) <b>' + heats.length + '</b>次 最近 <b>' + (hLast ? fmtD(hLast) : '-') + '</b></span>' +
+            '<span class="hist-trig hist-trig-freeze">❄️冰点(<20) <b>' + freezes.length + '</b>次 最近 <b>' + (fLast ? fmtD(fLast) : '-') + '</b></span>' +
+            '<span class="hist-trig hist-trig-heat">🔥过热(>80) <b>' + heats.length + '</b>次 最近 <b>' + (hLast ? fmtD(hLast) : '-') + '</b></span>' +
           '</div>' +
         '</div>';
     } catch (e) {
@@ -23036,7 +23251,7 @@ async function renderSentimentMarketTemp(container) {
         const fgCard = chart.getDom().parentElement; // 恐贪指数 .chart-card，分项并入同一张卡片
         const _fgTotal = _lastVal(r.fear_greed);
         const totalTxt = _fgTotal != null ? ` · 总分 ${_fgTotal.toFixed(1)}` : "";
-        let html = '<div class="fg-dim-merged"><div class="fg-dim-subhead">🌡️ 恐贪分项' + termTip("恐贪指数由以下8项情绪分等权平均合成(2项综合+6项宽基)。分项条解释总分为何是当前值--哪几项拖累(冰点)/哪几项偏高。❄️=冰点(≤20)，🔥=过热(≥80)。") + '<span class="fg-dim-total">8 项等权' + totalTxt + '</span></div>';
+        let html = '<div class="fg-dim-merged"><div class="fg-dim-subhead">🌡️ 恐贪分项' + termTip("恐贪指数由以下8项情绪分等权平均合成(2项综合+6项宽基)。分项条解释总分为何是当前值--哪几项拖累(冰点)/哪几项偏高。❄️=冰点(<20)，🔥=过热(>80)。") + '<span class="fg-dim-total">8 项等权' + totalTxt + '</span></div>';
         html += '<div class="fg-dim-rows">';
         for (const row of _rows) {
           const col = fearGreedColor(row.value);
@@ -23056,7 +23271,7 @@ async function renderSentimentMarketTemp(container) {
   if (r.a_sentiment && r.a_sentiment.length) {
     const data = r.a_sentiment.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
-    const title = `A股综合情绪分（0-100）` + termTip("6项A股指标加权(涨跌比25%+涨停热度20%+炸板率15%+连板15%+成交10%+北向15%,缺项按可用重归一化)算的0-100。≤20冰点(恐慌极值)、≥80过热(亢奋极值)。点'组成因子'看各分项。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
+    const title = `A股综合情绪分（0-100）` + termTip("6项A股指标加权(涨跌比25%+涨停热度20%+炸板率15%+连板15%+成交10%+北向15%,缺项按可用重归一化)算的0-100。<20冰点(恐慌极值)、>80过热(亢奋极值)。点'组成因子'看各分项。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
     const cell = document.createElement("div");
     cardGrid.appendChild(cell);
     const chart = valueChartWithSignals(title, data, sig.a_sentiment || [], {
@@ -23102,7 +23317,7 @@ async function renderSentimentMarketTemp(container) {
     if (r[key] && r[key].length) {
       const data = r[key].map(d => ({date: d.date, value: d.value, components: d.components}));
       const latest = data[data.length - 1] && data[data.length - 1].value;
-      const title = `${baseTitle}（0-100）` + termTip("该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照情绪与指数走势。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
+      const title = `${baseTitle}（0-100）` + termTip("该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照情绪与指数走势。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
       const cell = document.createElement("div");
       cardGrid.appendChild(cell);
       // 情绪分走势图叠对应指数曲线(2026-08-19): 6 宽基情绪分卡叠对应指数全史曲线对照。
@@ -23121,7 +23336,7 @@ async function renderSentimentMarketTemp(container) {
             dimension: 1,
           },
         }, stats[key], strat[key], key, cell, undefined, keyOverlay, true);
-      // 冰点(≤20)/过热(≥80)阈值线（情绪分口径，与恐贪25/75区分）
+      // 冰点(<20)/过热(>80)阈值线（情绪分口径，与恐贪25/75区分）
       chart.setOption({ series: [{ markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
         data: [
@@ -23159,7 +23374,7 @@ async function renderSentimentMarketTemp(container) {
         dimension: 1,
       },
     }, stats.cross_market, strat.cross_market, "cross_market", cell, undefined, true);
-    // 冰点(≤20)/过热(≥80)阈值线（情绪分口径，与恐贪25/75区分）
+    // 冰点(<20)/过热(>80)阈值线（情绪分口径，与恐贪25/75区分）
     chart.setOption({ series: [{ markLine: {
       silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
       data: [
@@ -23177,7 +23392,7 @@ async function renderSentimentMarketTemp(container) {
   // 期货已归入 sentiment 二级 futures subtab（renderFutures），此处不再渲染
 }
 
-// 情绪冰点/过热热力图：X 轴=日期，Y 轴=指数名，色块=蓝(冰点≤20)/红(过热>80)/灰(中性)
+// 情绪冰点/过热热力图：X 轴=日期，Y 轴=指数名，色块=蓝(冰点<20)/红(过热>80)/灰(中性)
 function renderSentimentHeatmap(r, snap, container) {
   const idxNames = [
     { key: 'sentiment_sz50', label: '上证50' },
@@ -23237,7 +23452,7 @@ function renderSentimentHeatmap(r, snap, container) {
     hmSuffix = `<span class="chart-latest"> · ${fmtDate(latestDate)} 冰点${coldCount} 过热${hotCount}</span>`;
   }
 
-  div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}${termTip("6大宽基指数情绪分的冰点(≤20蓝)/过热(>80红)日历。蓝色密集=多指数同时恐慌(常近底);红色密集=同时亢奋(常近顶)。作逆向参考。")}</h3><div class="chart" style="height:220px"></div>`;
+  div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}${termTip("6大宽基指数情绪分的冰点(<20蓝)/过热(>80红)日历。蓝色密集=多指数同时恐慌(常近底);红色密集=同时亢奋(常近顶)。作逆向参考。")}</h3><div class="chart" style="height:220px"></div>`;
   container.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
   charts.push(c);
@@ -23271,7 +23486,7 @@ function renderSentimentHeatmap(r, snap, container) {
     visualMap: {
       min: 0, max: 100,
       pieces: [
-        { lte: 20, color: "#42a5f5", label: "冰点(≤20)" },
+        { lte: 20, color: "#42a5f5", label: "冰点(<20)" },
         { gt: 20, lte: 80, color: "#d9d9d9", label: "中性(20-80)" },
         { gt: 80, color: "#e6492e", label: "过热(>80)" },
       ],
@@ -32749,7 +32964,7 @@ function initOnboarding() {
     steps: [
       {
         icon: '🌡️', title: '看情绪分',
-        body: '综合情绪分 <b>0-100</b>,越低越恐慌。<b>≤20 是冰点</b>(人人恐慌,往往是历史低位),<b>≥80 是过热</b>(人人贪婪,常见于高位)。中间区域观望为主。'
+        body: '综合情绪分 <b>0-100</b>,越低越恐慌。<b><20 是冰点</b>(人人恐慌,往往是历史低位),<b>>80 是过热</b>(人人贪婪,常见于高位)。中间区域观望为主。'
       },
       {
         icon: '❄️', title: '看冰点共振',

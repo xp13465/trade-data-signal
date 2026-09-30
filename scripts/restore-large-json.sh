@@ -3,21 +3,30 @@
 #
 # 背景：7 个 >20MB 的 JSON(共 319MB)已移出 staticdata 备份 git(天天变化把备份变更量
 #       顶到 >300MB 阈值导致天天 skip_oversize 不 commit)，改走 R2 私有桶 signal-backup
-#       的 large-json/ 前缀版本化快照(gz 压缩，保留档位 = 日 14 天 + 周(周日)8 周 + 月(1号)12 月)。
+#       的 large-json/ 前缀版本化快照(gz 压缩)。#126(2026-09-30)起 key 改固定前缀
+#       `large-json/<相对路径>.gz`(唯一完整副本, 增量复用, 不滚动删)；过渡期旧按天键
+#       `large-json/<YYYY-MM-DD>/<相对路径>.gz` 保留 7 天宽限期后清理, 期内仍可读。
 #       staticdata 仓库只留小文件 + 上传/恢复脚本；需要还原本地文件用本脚本一键拉回。
 # 用法：
 #   bash scripts/restore-large-json.sh --list
-#     列出 signal-backup 桶 large-json/ 下所有可用快照(按日期分组,显示每个日期有哪些文件+大小)。
+#     列出 signal-backup 桶 large-json/ 下所有可用快照(当前固定前缀 + 历史日期分组)。
 #   bash scripts/restore-large-json.sh <文件名>
-#     单个还原：默认取该文件最新快照,写回 <目标目录>/<原相对路径>。
+#     单个还原：优先取固定前缀(当前完整副本)，无则取该文件最新历史日期快照。
 #     例：bash scripts/restore-large-json.sh signal_kelly_trades.json
 #         → <目标目录>/signal_kelly_trades.json
 #     例：bash scripts/restore-large-json.sh signal_kelly_trades_parts/t2025.json
 #         → <目标目录>/signal_kelly_trades_parts/t2025.json
 #   bash scripts/restore-large-json.sh --date YYYY-MM-DD
-#     还原该日期全部快照(也支持 --date=YYYY-MM-DD 等号形式)。
+#     只读旧按天键快照(也支持 --date=YYYY-MM-DD 等号形式)；该日期无快照会提示改用
+#     固定前缀(<文件名>/--all)。
 #   bash scripts/restore-large-json.sh --all
-#     还原最新日期那一份的全部文件。
+#     还原「并集」(2026-09-30 返工第2轮): 固定前缀全部文件 ∪ **所有** legacy 历史日期目录
+#     全部文件池的并集——过渡期最新 legacy 目录可能是首跑中断半截, 有文件只在更老 legacy
+#     日期有快照(实测 signal_kelly_trades* / offshore_fund_* 等 09-29 有、09-30 无); 每个
+#     rel 选「含该文件的最新一个日期」(与单文件模式同语义), 同 rel 优先固定前缀。
+#     若固定前缀缺文件, 会打印醒目警告(含 N 个来自非最新 legacy 日期的清单)。
+#     历史: 原实现(只 flat 非空就用 flat)会静默少还原; 第 1 轮修取「最新一个」legacy 目录
+#     仍漏更老 legacy 独有文件; 第 2 轮改为全 legacy 并集按 rel 取最新日期。
 #   [--target <dir>] 可加在任意位置显式指定目标目录(默认见下)。
 # 恢复目标：默认 = $STATICDATA_REPO/data/(环境变量 STATICDATA_REPO 仅测试用,缺省
 #   /Users/linhuichen/code/trade-data)= 生产数据目录 trade-data/data/(用户 2026-09-25
@@ -109,21 +118,32 @@ def _list_all(prefix=PREFIX):
 
 
 def parse_key(key):
-    """large-json/<date>/<rel>.gz -> (date, rel) 或 None(非本前缀/格式或路径非法)。
+    """large-json/ 前缀双格式解析(#126, 2026-09-30):
+      - 固定前缀: `large-json/<rel>.gz`          -> (None, rel)(当前唯一完整副本, 无日期)
+      - 旧按天键: `large-json/<YYYY-MM-DD>/<rel>.gz` -> (date, rel)(过渡期历史快照)
+    无法解析(非本前缀/格式或路径非法)返回 None。
     路径安全第一道校验在此层：rel 非空、不以 / 开头、不含 .. 段、非绝对路径(P1-2 修复)。"""
     if not key.startswith(PREFIX):
         return None
     rest = key[len(PREFIX):]
-    parts = rest.split("/", 1)
-    if len(parts) != 2:
-        return None
-    date, rel_gz = parts
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
-        return None
+    if "/" in rest:
+        head, tail = rest.split("/", 1)
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", head):
+            date = head                  # 旧按天键: 第二段是相对路径
+            rel_gz = tail
+        else:
+            date = None                  # 固定前缀(含子目录): 整个 rest 都是 rel 路径
+            rel_gz = rest
+    else:
+        date = None                      # 固定前缀无子目录
+        rel_gz = rest
     if not rel_gz.endswith(".gz"):
         return None
     rel = rel_gz[:-3]
     if not rel or rel.startswith("/") or rel.startswith("\\"):
+        return None
+    # 路径穿越硬拒: 任何路径段 == ".."(在 normpath 归一化之前判, 防 "../evil" 被归一化成 "evil" 绕过)
+    if any(seg == ".." for seg in re.split(r"[/\\]", rel)):
         return None
     norm = os.path.normpath(rel)
     if os.path.isabs(norm) or norm == ".." or norm.startswith(".." + os.sep):
@@ -189,11 +209,12 @@ def human(n):
 
 
 def restore_one(date, rel, manifest_sha, target_root):
-    """下载 large-json/<date>/<rel>.gz → 解压 → sha256 比对 → 备份旧文件 → 原子写回 <target_root>/<rel>。
+    """下载 large-json/<rel>.gz(固定前缀, date=None) 或 large-json/<date>/<rel>.gz(旧按天键)
+    → 解压 → sha256 比对 → 备份旧文件 → 原子写回 <target_root>/<rel>。
     成功返回 None；任何中止该对象的场景返回 ("skip"|"fail", 错误字符串)：
-    skip = 该日期该文件在 R2 不存在或路径非法(调用方汇总跳过清单)；fail = 下载/写入出错(调用方额外汇总失败计数)。
+    skip = 该对象在 R2 不存在或路径非法(调用方汇总跳过清单)；fail = 下载/写入出错(调用方额外汇总失败计数)。
     均不中断其他文件。"""
-    key = f"{PREFIX}{date}/{rel}.gz"
+    key = f"{PREFIX}{rel}.gz" if date is None else f"{PREFIX}{date}/{rel}.gz"
 
     # 路径安全第二道(realpath 兜底,防 parse_key 漏网/未来改动)：解析后绝对路径必须落在目标根内
     out_path = os.path.join(target_root, rel)
@@ -328,18 +349,26 @@ for key, size in all_items:
         bad_keys.append(key)
 
 if mode == "list":
-    by_date = {}
+    flat_items = []   # (rel, size) 固定前缀(无日期)
+    by_date = {}      # date -> [(rel, size), ...] 历史日期目录
     for _key, size, p in parsed_all:
-        by_date.setdefault(p[0], []).append((p[1], size))
+        if p[0] is None:
+            flat_items.append((p[1], size))
+        else:
+            by_date.setdefault(p[0], []).append((p[1], size))
     n_bad = len(bad_keys)
     extra = f",{n_bad} 个对象格式/路径非法已排除" if n_bad else ""
     print(f"{BUCKET}/{PREFIX} 可用快照(共 {len(all_items)} 个对象,其中 {len(parsed_all)} 个可用{extra}):")
-    if not by_date:
+    if not flat_items and not by_date:
         print("  (无可用快照)")
         sys.exit(0)
+    if flat_items:
+        print(f"\n[当前固定前缀·最新完整副本] {len(flat_items)} 个文件(无日期, 增量复用):")
+        for rel, size in sorted(flat_items):
+            print(f"  {human(size):>10}  {rel}")
     for date in sorted(by_date, reverse=True):
         files = by_date[date]
-        print(f"\n[{date}] {len(files)} 个文件:")
+        print(f"\n[{date}] {len(files)} 个文件(历史日期快照):")
         for rel, size in sorted(files):
             print(f"  {human(size):>10}  {rel}")
     sys.exit(0)
@@ -348,31 +377,63 @@ if mode == "list":
 manifest_sha = load_manifest_sha()
 
 if mode == "all":
-    dates = sorted({p[0] for _k, _s, p in parsed_all}, reverse=True)
-    if not dates:
+    # --all 还原「尽量全」: 固定前缀(当前完整副本) ∪ **所有** legacy 历史日期目录的并集。
+    # 2026-09-30 返工第 2 轮(复审必修): 上一轮只取「最新一个」legacy 日期目录补缺, 但过渡期
+    # 最新日期(如 09-30)可能是首跑中断的半截目录——有文件只在更老日期(如 09-29)有快照
+    # (实测 offshore_fund_* / signal_kelly_trades* 等 7 个 rel 09-29 有、09-30 无) → 仍会静默漏。
+    # 故改为: 固定前缀(flat) ∪ 所有 legacy 日期目录并集, 每个 rel 选「含该文件的最新日期」
+    #   (与单文件模式 L421-427 同语义); flat 优先(当前副本最新), 同 rel 在 flat 则用 flat。
+    flat_map = {p[1]: (None, key) for key, _s, p in parsed_all if p[0] is None}
+    legacy_dates = {}      # date -> {rel: key}(按日期分组 legacy 按天键)
+    for key, _s, p in parsed_all:
+        if p[0] is not None:
+            legacy_dates.setdefault(p[0], {})[p[1]] = key
+    dates = sorted(legacy_dates, reverse=True)  # 所有 legacy 日期, 新→旧
+    if not flat_map and not dates:
         sys.exit("✗ large-json/ 下无可用快照")
-    target_date = dates[0]
-    print(f"还原最新日期 {target_date} 全部文件:")
-    target_pairs = [(target_date, p[1], key) for key, _s, p in parsed_all if p[0] == target_date]
+    target_map = dict(flat_map)  # rel -> (date, key); flat 优先
+    latest_date = dates[0] if dates else None
+    legacy_fill = []             # [(rel, date)] 从 legacy 补的 rel + 它实际来自哪一天
+    for rel in sorted({r for d in legacy_dates.values() for r in d}):
+        if rel in target_map:
+            continue              # flat 已有(当前副本最新), 不覆盖
+        for d in dates:           # 每个 rel 取「含它的最新一个日期」
+            if rel in legacy_dates[d]:
+                target_map[rel] = (d, legacy_dates[d][rel])
+                legacy_fill.append((rel, d))
+                break
+    from_older = [r for r, d in legacy_fill if d != latest_date]
+    print(f"还原并集(固定前缀 {len(flat_map)} 个 + legacy 历史日期 {len(dates)} 个目录 → 并集 {len(target_map)} 个文件):")
+    if legacy_fill:
+        n_non_latest = len(from_older)
+        print(f"  ⚠ 固定前缀不完整: 缺 {len(legacy_fill)} 个文件, 已从 legacy 补齐"
+              f"(其中 {n_non_latest} 个并非来自最新日期 {latest_date}, 而是取自更早的 legacy 快照, 请确认)",
+              file=sys.stderr)
+    target_pairs = [(date, rel, key) for rel, (date, key) in sorted(target_map.items())]
 elif mode == "date":
+    # --date 只读旧按天键快照(过渡期历史); 固定前缀无日期, 该模式对固定前缀无意义
     target_date = payload
     items = [(key, p) for key, _s, p in parsed_all if p[0] == target_date]
     if not items:
-        avail = sorted({p[0] for _k, _s, p in parsed_all}, reverse=True)
-        sys.exit(f"✗ {target_date} 无可用快照;可用日期: {avail or '(无)'}")
-    print(f"还原 {target_date} 全部 {len(items)} 个文件:")
+        avail = sorted({p[0] for _k, _s, p in parsed_all if p[0] is not None}, reverse=True)
+        sys.exit(f"✗ {target_date} 无可用历史日期快照;当前前缀已改固定格式(无日期), "
+                 f"请用 --all 还原最新完整副本或 <文件名> 还原单个。可用历史日期: {avail or '(无)'}")
+    print(f"还原 {target_date} 全部 {len(items)} 个文件(历史日期快照):")
     target_pairs = [(target_date, p[1], key) for key, p in sorted(items)]
 else:  # single
-    matches = []
-    for key, _s, p in parsed_all:
-        if p[1] == payload:
-            matches.append((p[0], key))
-    if not matches:
-        sys.exit(f"✗ 未找到 {payload} 的快照;可先 --list 查看,或带相对路径(如 signal_kelly_trades_parts/t2025.json)")
-    matches.sort(reverse=True)  # 日期降序,取最新
-    date, key = matches[0]
-    print(f"还原 {payload} 最新快照(日期 {date}):")
-    target_pairs = [(date, payload, key)]
+    # 单文件优先固定前缀(当前完整副本), 无则回退该文件最新历史日期快照
+    flat_matches = [(key) for key, _s, p in parsed_all if p[0] is None and p[1] == payload]
+    if flat_matches:
+        print(f"还原 {payload} 当前固定前缀快照(最新完整副本):")
+        target_pairs = [(None, payload, flat_matches[0])]
+    else:
+        matches = [(p[0], key) for key, _s, p in parsed_all if p[0] is not None and p[1] == payload]
+        if not matches:
+            sys.exit(f"✗ 未找到 {payload} 的快照;可先 --list 查看,或带相对路径(如 signal_kelly_trades_parts/t2025.json)")
+        matches.sort(reverse=True)  # 日期降序,取最新
+        date, key = matches[0]
+        print(f"还原 {payload} 最新历史日期快照(日期 {date}):")
+        target_pairs = [(date, payload, key)]
 
 ok_n = fail_n = skip_n = 0
 skipped = []   # 跳过清单(该日期该文件在 R2 不存在/路径非法；含 bad_keys)

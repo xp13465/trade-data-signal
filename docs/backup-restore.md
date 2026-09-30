@@ -165,11 +165,14 @@ trade 仓库的 `docs/large-json-backup-manifest.md` 只是指针说明）。它
 
 ### 备份机制
 
-- 上传：`scripts/upload_r2.py upload-large-json`（活脚本，由核心侧每日挂载，本手册只写恢复侧）
-- key 格式：`large-json/<YYYY-MM-DD>/<相对 data/ 的路径>.gz`
-  - 例：`large-json/2026-09-25/signal_kelly_trades.json.gz`
-  - 例：`large-json/2026-09-25/signal_kelly_trades_parts/t2025.json.gz`
-- 保留档位：日档 14 天 + 周档（周日那份）8 周 + 月档（每月 1 号那份）12 个月
+- 上传：`scripts/upload_r2.py upload-large-json`（活脚本，由核心侧每日挂载，本手册只写恢复侧；默认 8 线程并行，env `R2_LARGE_JSON_WORKERS` 调）
+- key 格式（#126，2026-09-30 固定前缀；唯一完整副本，增量复用，内容未变 HEAD ETag 命中跳过 PUT）：
+  `large-json/<相对 data/ 的路径>.gz`
+  - 例：`large-json/signal_kelly_trades.json.gz`
+  - 例：`large-json/signal_kelly_trades_parts/t2025.json.gz`
+- legacy 旧按天键（过渡期历史快照）：`large-json/<YYYY-MM-DD>/<相对 data/ 的路径>.gz`，保留 7 天宽限期后由 `_prune_large_json` 自动清理
+- 保留档位：固定前缀永久保留（唯一副本，不滚动删，删除=丢数据）；legacy 旧日期目录 7 天宽限期后清理
+- 逃生门：env `R2_LARGE_JSON_DATE_PREFIX=1` 回旧按天键生成行为（一键回退用）
 - 索引/校验依据：`<staticdata 备份仓库>/docs/large-json-backup-manifest.md`（含 sha256，自动生成勿手编）。
   #115(2026-09-27)清单从 trade 仓库迁到 staticdata 仓库(async/sync 的 git add -A 提交对象)；恢复脚本
   `restore-large-json.sh` 已双路径兼容：先读 staticdata 仓库新路径，回退 trade 仓库旧路径。
@@ -178,17 +181,20 @@ trade 仓库的 `docs/large-json-backup-manifest.md` 只是指针说明）。它
 
 ```bash
 cd /Users/linhuichen/code/trade
-# ① 列出所有可用快照（按日期分组 + 每个文件大小）
+# ① 列出所有可用快照（当前固定前缀「最新完整副本」+ 历史日期分组）
 bash scripts/restore-large-json.sh --list
 
-# ② 单个还原：默认取该文件最新快照，写回 <目标目录>/<原相对路径>
+# ② 单个还原：优先取固定前缀（当前完整副本），无则取该文件最新历史日期快照
 bash scripts/restore-large-json.sh signal_kelly_trades.json
 bash scripts/restore-large-json.sh signal_kelly_trades_parts/t2025.json
 
-# ③ 还原指定日期的全部快照（也支持 --date=YYYY-MM-DD 等号形式）
+# ③ 只读旧按天键快照（过渡期历史；固定前缀无日期，该模式对固定前缀无意义）
 bash scripts/restore-large-json.sh --date 2026-09-25
 
-# ④ 还原最新日期那一份的全部文件
+# ④ 还原全部文件（并集）：固定前缀全部文件（最新完整副本）∪ 所有 legacy 历史日期目录
+#    全部文件池；每个文件取「含它的最新一个日期」快照，同文件固定前缀优先。过渡期最新
+#    legacy 目录可能是首跑中断半截（有文件只在更老日期有快照），并集保证不漏任何一个
+#    R2 上存在的备份对象；固定前缀缺文件时会打印醒目警告（含 N 个来自非最新 legacy 日期）。
 bash scripts/restore-large-json.sh --all
 
 # ⑤ 可选 [--target <dir>] 显式指定目标目录（默认见下；可加在任意位置）
@@ -204,7 +210,7 @@ bash scripts/restore-large-json.sh --list --target /tmp/restore-test
 **还原行为安全网（全在脚本内）**：
 - 先下到同目录 `.tmp`（pid+随机）再 `os.replace` 原子覆盖，读侧要么旧完整要么新完整，绝不半截
 - 覆盖前把原文件备份成 `<文件>.bak-<时间戳>`（`copy2` 副本，旧文件在替换前始终在位，无短暂缺失窗口，可回滚）
-- gzip 解压；manifest（先 `<staticdata 备份仓库>/docs/large-json-backup-manifest.md`，回退 trade 仓库旧路径）有该完整 R2 key（含日期）的 sha256 记录则比对，不匹配即中止（不改名跳过并汇总非 0 退出）
+- gzip 解压；manifest（先 `<staticdata 备份仓库>/docs/large-json-backup-manifest.md`，回退 trade 仓库旧路径）有该完整 R2 key（固定前缀或旧按天键均可）的 sha256 记录则比对，不匹配即中止（不改名跳过并汇总非 0 退出）
 - 路径安全：恢复写入前校验相对路径（非空/不含 `..` 段/不以 `/` 开头/realpath 落在目标根内），非法跳过并汇总
 - 网络快速失败：S3 调用注入 10s 连接超时（不受外部 `R2_UPLOAD_HTTP_TIMEOUT` 大值影响），网络不可达/超时立即报错，不做无限等待
 - 收尾总结：打印「成功 N 个 / 失败 M 个 / 跳过 K 个」三计数（跳过=该日期该文件在 R2 不存在/路径非法；失败=下载/写入出错）；失败数 > 0 或存在跳过均非 0 退出，不静默当成功
@@ -218,7 +224,7 @@ import 时 `load_env()` 自动载入 `.env` 的 `R2_S3_ENDPOINT` / `R2_S3_ACCESS
 | 层 | 原四层 | 大 JSON（本机制） |
 | --- | --- | --- |
 | 第 1 层 | git 仓库（trade + staticdata） | **移出 staticdata git 跟踪**，不再走 git |
-| 第 2 层 | R2 私有桶 `signal-backup` 的 `backup/`（DB）/ `decommissioned/`（退役归档） | **新增 `large-json/` 前缀**（版本化快照，同桶不同前缀） |
+| 第 2 层 | R2 私有桶 `signal-backup` 的 `backup/`（DB）/ `decommissioned/`（退役归档） | **`large-json/` 前缀固定格式完整副本**（#126，唯一副本不滚动删）+ legacy 按天旧快照（7 天宽限期后清理） |
 | 第 3 层 | 本地 `data/backups/` 热备 | 大 JSON 本地保留当前副本（`data/` 下），历史版本只在 R2 |
 | 第 4 层 | 公开桶（对外只读） | 不涉及（大 JSON 体积大且频繁变，不进公开层） |
 
