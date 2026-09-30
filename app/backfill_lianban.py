@@ -48,7 +48,7 @@ import sqlite3
 import sys
 import time
 
-from .collector.fapi_fallback import fetch_zt_fallback
+from .collector.fapi_fallback import _api, _date_ms, _zt_df
 
 # ── 与 fapi_daily.py 同款重试/退避(fapi_fallback 自身不重试,外层按此策略兜)──
 RETRY = 3
@@ -98,13 +98,45 @@ def _connect(db: str | None) -> sqlite3.Connection:
     return conn
 
 
+_ZTPOOL_PATH = "/api/a-share/special-data/limit-up-pool"
+
+
+def _fetch_zt_all_pages(date: str) -> tuple[object, str]:
+    """取某日 FAPI 涨停池**全量**(翻页取满 page=1..pagination.pages)。
+
+    ⚠️ 不动 fapi_fallback.py 的既有行为(每日采集兜底仍 page=1&size=200,
+    intraday_snapshot 系在用它,§23.7 冻结);回补需要全量——普涨日涨停池
+    >200 行时单页截断,最高连板可能落在被截断尾部(20240930/20241008 实测
+    少 7 个板)。FAPI 拒 size=2000,page=2&size=200 有效,故按 pagination.pages
+    翻页拼接。
+
+    返回 (df or None, msg)。df 含全量行;None=失败。
+    """
+    params = {"date_ms": _date_ms(date), "page": 1, "size": 200}
+    first = _api(_ZTPOOL_PATH, params)
+    if first is None:
+        return None, f"fapi limit-up-pool unavailable date={date}"
+    items = list(first.get("item") or first.get("items") or [])
+    pag = first.get("pagination") or {}
+    pages = int(pag.get("pages") or 1)
+    for p in range(2, pages + 1):
+        got = _api(_ZTPOOL_PATH, {**params, "page": p})
+        if got is None:
+            return None, f"fapi limit-up-pool page{p}/{pages} unavailable date={date}"
+        items += list(got.get("item") or got.get("items") or [])
+    if not items:
+        # 池子真 0(涨停 0):返回空 df(count_rows=0),与东财空=真0 语义一致
+        return _zt_df([]), f"fapi limit-up-pool empty(真0) date={date}"
+    return _zt_df(items), f"fapi limit-up-pool {len(items)} rows(pages={pages})"
+
+
 def _fetch_zt_with_retry(date: str) -> tuple[object, str]:
-    """调 fetch_zt_fallback,失败按 fapi_daily 策略重试 RETRY 次。
+    """取全量涨停池,失败按 fapi_daily 策略重试 RETRY 次。
     成功也要随机节流(FAPI 是外部服务,别打太猛)。
     返回 (df or None, msg)。df 为 None = 重试后仍失败。"""
     last = None
     for i in range(RETRY):
-        df, msg = fetch_zt_fallback("stock_zt_pool_em", date)
+        df, msg = _fetch_zt_all_pages(date)
         if df is not None:
             time.sleep(random.uniform(*THROTTLE))
             return df, msg
@@ -222,7 +254,7 @@ def backfill_lianban(start: str, end: str, *, db: str | None = None,
                       + (f" 现库={old[0]:g}(source={old[1]})→覆盖" if old is not None else ""),
                       flush=True)
             if not dry_run:
-                _upsert(conn, d, value)
+                _upsert(conn, d, value, only_if_null=fill_gaps_only)
 
         if not dry_run:
             conn.commit()
@@ -264,14 +296,23 @@ def backfill_lianban(start: str, end: str, *, db: str | None = None,
         conn.close()
 
 
-def _upsert(conn: sqlite3.Connection, date: str, value: float) -> None:
-    """写库 ON CONFLICT ... WHERE source != 'manual'(防覆盖手动补录,width_history 同款)。"""
+def _upsert(conn: sqlite3.Connection, date: str, value: float,
+            only_if_null: bool = False) -> None:
+    """写库 ON CONFLICT ... WHERE source != 'manual'(防覆盖手动补录,width_history 同款)。
+
+    only_if_null=True 时冲突更新额外要求现库 value IS NULL ——「只补缺口」竞态
+    加固:防「读快照后、首个 INSERT 前」给缺口日写入的值被本行覆盖(生产
+    23:00+ 无写入者,风险低,但用户要一根汗毛不动,加固一行更稳)。
+    """
+    when = "WHERE daily_metric.source != 'manual'"
+    if only_if_null:
+        when += " AND daily_metric.value IS NULL"
     conn.execute(
         "INSERT INTO daily_metric (date, metric_id, value, source, updated_at) "
         "VALUES (?,?,?,?,?) "
         "ON CONFLICT(date, metric_id) DO UPDATE SET "
         "value=excluded.value, source=excluded.source, updated_at=excluded.updated_at "
-        "WHERE daily_metric.source != 'manual'",
+        + when,
         (date, METRIC_ID, float(value), SOURCE, dt.datetime.now().isoformat()),
     )
 
