@@ -390,7 +390,7 @@ function signalColor(s) {
   if (s.signal === "sell_stop_loss") return "#3498db";  // 追止损卖 蓝（ATR×3.5 止损，底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）
   if (s.signal === "band_hold") return "#ff9800";  // 波段持有 橙（国债波段仓位管理，中性状态，2026-07-24）
   if (s.signal === "estimate") return "#909399";  // 盘中预估点 灰（方案A补T日点，非真实信号，视觉区分）
-  if (s.signal === "freeze") return "#42a5f5";  // 冰点 蓝（弹窗≤20 冰点标注，2026-08-19，与恐贪/情绪分 visualMap ≤20 冰点蓝一致）
+  if (s.signal === "freeze") return "#42a5f5";  // 冰点 蓝（弹窗<20 冰点标注，2026-08-19，与恐贪/情绪分 visualMap <20 冰点蓝一致）
   const r = s.reason || "";
   // 波段减仓 草绿 #8bc34a（国债波段仓管，减仓非清仓，与卖 #2e8b57 区分体现"没卖重"，2026-07-20）
   // 注意：波段止损仍走默认 #2e8b57（趋势破位清仓，归卖类）；止盈/趋势转弱/前买失效也不受影响
@@ -449,7 +449,7 @@ function signalLabel(s) {
   }
   if (s.signal === "band_hold") return _t("band_hold");  // 国债波段仓位管理 持有状态（2026-07-24）
   if (s.signal === "estimate") return "预估";  // 盘中预估点（方案A补T日点，非真实信号）
-  if (s.signal === "freeze") return s.value != null ? "冰点" + Math.round(s.value) : "冰点";  // 冰点标注（≤20 蓝，带数值，2026-08-19）
+  if (s.signal === "freeze") return s.value != null ? "冰点" + Math.round(s.value) : "冰点";  // 冰点标注（<20 蓝，带数值，2026-08-19）
   const r = s.reason || "";
   // 波段减仓/止损（国债波段仓位管理，2026-07-24）：reason 含"波段减仓X%"/"波段止损X%"
   if (r.includes("波段减仓") || r.includes("波段止损")) {
@@ -7161,7 +7161,7 @@ function _renderSentimentCalendar(cal) {
   // 图例行(2026-09-30, 用户拍板): 说明"本日历合并了哪几类维度的冰点+信号", 不改格子渲染结果。
   const legend =
     '<div class="sig-cal-legend">' +
-      '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#2563eb"></span>冰点维度（情绪分≤20，当日触发的一起点亮）</span>' +
+      '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#2563eb"></span>冰点维度（情绪分<20，当日触发的一起点亮）</span>' +
       '<span class="sig-cal-legend-item"><span style="color:#e6492e">红</span>=卖</span>' +
       '<span class="sig-cal-legend-item"><span style="color:#d63384">紫</span>=辅买</span>' +
       '<span class="sig-cal-legend-item"><span style="color:#2e8b57">绿</span>=买</span>' +
@@ -7215,7 +7215,7 @@ function openSentimentDayDetailModal(day) {
       }).join("")
     : "";
   body.innerHTML =
-    `<div class="dd-section-title">冰点维度（情绪分 ≤ 20 超卖极值）</div>` + freezeHtml +
+    `<div class="dd-section-title">冰点维度（情绪分 <20 超卖极值）</div>` + freezeHtml +
     (sigHtml ? `<div class="dd-section-title dd-sig-title">当日情绪分信号</div>` + sigHtml : "") +
     '<div class="dd-foot">📋 蓝值=冰点触发维度；红/紫/绿=买卖点信号。点击上方格子可看单维度走势。</div>';
   modal.classList.remove("hidden");
@@ -10414,7 +10414,7 @@ function ruleContentHtml() {
       <p class="muted">趋势转弱参考点会附带当前市场情绪分，帮你判断「技术拐点 + 情绪背景」的强弱：</p>
       <table class="rule-table rule-table-tags">
         <tr>
-          <td><span class="rule-tag tag-freeze">冰点</span> ≤ 20</td>
+          <td><span class="rule-tag tag-freeze">冰点</span> < 20</td>
           <td><span class="rule-tag tag-cool">偏冷</span> 21–40</td>
           <td><span class="rule-tag tag-neutral">中性</span> 41–60</td>
           <td><span class="rule-tag tag-warm">偏热</span> 61–80</td>
@@ -10935,7 +10935,7 @@ async function _loadKpiHistory(kpiId, cfg, period) {
         ],
         dimension: 1,
       },
-      hint: "≤20冰点(蓝) · 20-40偏冷(浅蓝) · 40-60中性(灰) · 60-80偏热(橙) · >80过热(红)",
+      hint: "<20冰点(蓝) · 20-40偏冷(浅蓝) · 40-60中性(灰) · 60-80偏热(橙) · >80过热(红)",
     };
   }
 
@@ -16065,14 +16065,14 @@ async function renderOverview() {
       a_amount: "沪深京A股成交额。放量=交投活跃,缩量=清淡。",
       a_volume_ratio: "当日成交额/前5日均量。>1.5倍放量,<0.7倍缩量。",
       fear_greed: "综合5类市场情绪等权算的0-100温度计。≤25极度恐惧、≥75极度贪婪。作逆向参考。",
-      a_sentiment: "6项A股指标加权算的0-100情绪分。≤20冰点、≥80过热。",
+      a_sentiment: "6项A股指标加权算的0-100情绪分。<20冰点、>80过热。",
       cross_market: "A股+港股+全球等多维度等权均值0-100。看跨市场整体冷热。",
-      sentiment_sz50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
-      sentiment_hs300: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
-      sentiment_csi500: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
-      sentiment_csi1000: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
-      sentiment_cyb: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
-      sentiment_kc50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_sz50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_hs300: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_csi500: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_csi1000: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_cyb: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_kc50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
       a_width_zt_count: "收盘仍封死涨停的股票数,多=追涨情绪强。",
       a_width_dt_count: "收盘仍封死跌停的股票数,多=恐慌抛售强。",
       a_width_zhaban_rate: "当日曾涨停但收盘未封住的比例,高=封板资金不稳。",
@@ -16623,7 +16623,7 @@ async function renderOverview() {
       fgDimCard.className = "chart-card fg-dim-card";
       fgDimCard.id = "fg-dim-ov";
       const totalTxt = _fgTotal != null ? ` · 总分 ${_fgTotal.toFixed(1)}` : "";
-      let html = '<h3>🌡️ 恐贪分项' + termTip("恐贪指数由以下8项情绪分等权平均合成(2项综合+6项宽基)。分项条解释总分为何是当前值--哪几项拖累(冰点)/哪几项偏高。❄️=冰点(≤20)，🔥=过热(≥80)。") + '<span class="fg-dim-total">8 项等权' + totalTxt + '</span></h3>';
+      let html = '<h3>🌡️ 恐贪分项' + termTip("恐贪指数由以下8项情绪分等权平均合成(2项综合+6项宽基)。分项条解释总分为何是当前值--哪几项拖累(冰点)/哪几项偏高。❄️=冰点(<20)，🔥=过热(>80)。") + '<span class="fg-dim-total">8 项等权' + totalTxt + '</span></h3>';
       html += '<div class="fg-dim-rows">';
       for (const row of _rows) {
         const col = fearGreedColor(row.value);
@@ -16652,7 +16652,7 @@ async function renderOverview() {
       if (v <= 80) return "#e6a23c";
       return "#e6492e";
     };
-    const asChart = _lwLineCard("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的0-100情绪分，≤20冰点≥80过热") + latestSuffix(as6), as6, {
+    const asChart = _lwLineCard("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的0-100情绪分，<20冰点>80过热") + latestSuffix(as6), as6, {
       _lwColor: "#86909c",
       _lwColorFn: (i, v) => asColor(v),
       _lwMarkLine: [
@@ -16672,7 +16672,7 @@ async function renderOverview() {
       },
     }, null, colA1);
     if (asChart) {
-      // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
+      // 冰点(<20)/过热(>80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
       addCardTimeBadge(asChart.card, as6.length ? as6[as6.length - 1].date : "", snap, "t0");
       // 图表高度减一点(300->250)，给下方历史位置3行腾空间
       _lwSetHeight(asChart.div, 250);
@@ -16697,7 +16697,7 @@ async function renderOverview() {
   // 融合口径角标(2026-08-20 #96): 读 _sentCal(sentiment_calendar[0] 最新情绪日), 缺失降级 r.recent_freeze(旧冰点),
   // 两源皆空回退 addCardTimeBadge 绿色 r.date 角标(内部处理, 无 bug)。
   addFreezeEventBadge(freezeCard, _sentCal, r.recent_freeze, r.date, snap);
-  // 点击冰点日卡片弹窗：①日期标签=当天全部维度明细(2026-09-30新增) ②格子=该维度走势图+冰点(≤20)标注。
+  // 点击冰点日卡片弹窗：①日期标签=当天全部维度明细(2026-09-30新增) ②格子=该维度走势图+冰点(<20)标注。
   // 日期标签优先判, 格子交互完全不变(§23.7)。
   freezeCard.addEventListener("click", (e) => {
     const dayBtn = e.target.closest(".sig-day-date-btn");
@@ -16977,7 +16977,7 @@ async function renderOverview() {
       if (v <= 80) return "#e6a23c";
       return "#e6492e";
     };
-    const cmChart = _lwLineCard("跨市场综合评分（近 6 月）" + termTip("综合A股/港股/美股等多市场算的0-100分，≤20偏冷≥80偏热") + latestSuffix(cm6), cm6, {
+    const cmChart = _lwLineCard("跨市场综合评分（近 6 月）" + termTip("综合A股/港股/美股等多市场算的0-100分，<20偏冷>80偏热") + latestSuffix(cm6), cm6, {
       _lwColor: "#86909c",
       _lwColorFn: (i, v) => cmColor(v),
       _lwMarkLine: [
@@ -16998,7 +16998,7 @@ async function renderOverview() {
     }, null, colB1, 210);
     if (cmChart) {
       cmChart.card.classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
-      // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
+      // 冰点(<20)/过热(>80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
       addCardTimeBadge(cmChart.card, cm6.length ? cm6[cm6.length - 1].date : "", snap, "t0");
     }
   }
@@ -20578,8 +20578,8 @@ function appendHistoryPos(container, indexId = "a_sentiment") {
           '</div>' +
           '<div class="hist-pos-row hist-triggers">' +
             '<span class="hist-row-label">极端触发(近1年)</span>' +
-            '<span class="hist-trig hist-trig-freeze">❄️冰点(≤20) <b>' + freezes.length + '</b>次 最近 <b>' + (fLast ? fmtD(fLast) : '-') + '</b></span>' +
-            '<span class="hist-trig hist-trig-heat">🔥过热(≥80) <b>' + heats.length + '</b>次 最近 <b>' + (hLast ? fmtD(hLast) : '-') + '</b></span>' +
+            '<span class="hist-trig hist-trig-freeze">❄️冰点(<20) <b>' + freezes.length + '</b>次 最近 <b>' + (fLast ? fmtD(fLast) : '-') + '</b></span>' +
+            '<span class="hist-trig hist-trig-heat">🔥过热(>80) <b>' + heats.length + '</b>次 最近 <b>' + (hLast ? fmtD(hLast) : '-') + '</b></span>' +
           '</div>' +
         '</div>';
     } catch (e) {
@@ -23065,7 +23065,7 @@ async function renderSentimentMarketTemp(container) {
         const fgCard = chart.getDom().parentElement; // 恐贪指数 .chart-card，分项并入同一张卡片
         const _fgTotal = _lastVal(r.fear_greed);
         const totalTxt = _fgTotal != null ? ` · 总分 ${_fgTotal.toFixed(1)}` : "";
-        let html = '<div class="fg-dim-merged"><div class="fg-dim-subhead">🌡️ 恐贪分项' + termTip("恐贪指数由以下8项情绪分等权平均合成(2项综合+6项宽基)。分项条解释总分为何是当前值--哪几项拖累(冰点)/哪几项偏高。❄️=冰点(≤20)，🔥=过热(≥80)。") + '<span class="fg-dim-total">8 项等权' + totalTxt + '</span></div>';
+        let html = '<div class="fg-dim-merged"><div class="fg-dim-subhead">🌡️ 恐贪分项' + termTip("恐贪指数由以下8项情绪分等权平均合成(2项综合+6项宽基)。分项条解释总分为何是当前值--哪几项拖累(冰点)/哪几项偏高。❄️=冰点(<20)，🔥=过热(>80)。") + '<span class="fg-dim-total">8 项等权' + totalTxt + '</span></div>';
         html += '<div class="fg-dim-rows">';
         for (const row of _rows) {
           const col = fearGreedColor(row.value);
@@ -23085,7 +23085,7 @@ async function renderSentimentMarketTemp(container) {
   if (r.a_sentiment && r.a_sentiment.length) {
     const data = r.a_sentiment.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
-    const title = `A股综合情绪分（0-100）` + termTip("6项A股指标加权(涨跌比25%+涨停热度20%+炸板率15%+连板15%+成交10%+北向15%,缺项按可用重归一化)算的0-100。≤20冰点(恐慌极值)、≥80过热(亢奋极值)。点'组成因子'看各分项。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
+    const title = `A股综合情绪分（0-100）` + termTip("6项A股指标加权(涨跌比25%+涨停热度20%+炸板率15%+连板15%+成交10%+北向15%,缺项按可用重归一化)算的0-100。<20冰点(恐慌极值)、>80过热(亢奋极值)。点'组成因子'看各分项。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
     const cell = document.createElement("div");
     cardGrid.appendChild(cell);
     const chart = valueChartWithSignals(title, data, sig.a_sentiment || [], {
@@ -23131,7 +23131,7 @@ async function renderSentimentMarketTemp(container) {
     if (r[key] && r[key].length) {
       const data = r[key].map(d => ({date: d.date, value: d.value, components: d.components}));
       const latest = data[data.length - 1] && data[data.length - 1].value;
-      const title = `${baseTitle}（0-100）` + termTip("该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照情绪与指数走势。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
+      const title = `${baseTitle}（0-100）` + termTip("该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。<20冰点>80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照情绪与指数走势。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
       const cell = document.createElement("div");
       cardGrid.appendChild(cell);
       // 情绪分走势图叠对应指数曲线(2026-08-19): 6 宽基情绪分卡叠对应指数全史曲线对照。
@@ -23150,7 +23150,7 @@ async function renderSentimentMarketTemp(container) {
             dimension: 1,
           },
         }, stats[key], strat[key], key, cell, undefined, keyOverlay, true);
-      // 冰点(≤20)/过热(≥80)阈值线（情绪分口径，与恐贪25/75区分）
+      // 冰点(<20)/过热(>80)阈值线（情绪分口径，与恐贪25/75区分）
       chart.setOption({ series: [{ markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
         data: [
@@ -23188,7 +23188,7 @@ async function renderSentimentMarketTemp(container) {
         dimension: 1,
       },
     }, stats.cross_market, strat.cross_market, "cross_market", cell, undefined, true);
-    // 冰点(≤20)/过热(≥80)阈值线（情绪分口径，与恐贪25/75区分）
+    // 冰点(<20)/过热(>80)阈值线（情绪分口径，与恐贪25/75区分）
     chart.setOption({ series: [{ markLine: {
       silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
       data: [
@@ -23206,7 +23206,7 @@ async function renderSentimentMarketTemp(container) {
   // 期货已归入 sentiment 二级 futures subtab（renderFutures），此处不再渲染
 }
 
-// 情绪冰点/过热热力图：X 轴=日期，Y 轴=指数名，色块=蓝(冰点≤20)/红(过热>80)/灰(中性)
+// 情绪冰点/过热热力图：X 轴=日期，Y 轴=指数名，色块=蓝(冰点<20)/红(过热>80)/灰(中性)
 function renderSentimentHeatmap(r, snap, container) {
   const idxNames = [
     { key: 'sentiment_sz50', label: '上证50' },
@@ -23266,7 +23266,7 @@ function renderSentimentHeatmap(r, snap, container) {
     hmSuffix = `<span class="chart-latest"> · ${fmtDate(latestDate)} 冰点${coldCount} 过热${hotCount}</span>`;
   }
 
-  div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}${termTip("6大宽基指数情绪分的冰点(≤20蓝)/过热(>80红)日历。蓝色密集=多指数同时恐慌(常近底);红色密集=同时亢奋(常近顶)。作逆向参考。")}</h3><div class="chart" style="height:220px"></div>`;
+  div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}${termTip("6大宽基指数情绪分的冰点(<20蓝)/过热(>80红)日历。蓝色密集=多指数同时恐慌(常近底);红色密集=同时亢奋(常近顶)。作逆向参考。")}</h3><div class="chart" style="height:220px"></div>`;
   container.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
   charts.push(c);
@@ -23300,7 +23300,7 @@ function renderSentimentHeatmap(r, snap, container) {
     visualMap: {
       min: 0, max: 100,
       pieces: [
-        { lte: 20, color: "#42a5f5", label: "冰点(≤20)" },
+        { lte: 20, color: "#42a5f5", label: "冰点(<20)" },
         { gt: 20, lte: 80, color: "#d9d9d9", label: "中性(20-80)" },
         { gt: 80, color: "#e6492e", label: "过热(>80)" },
       ],
@@ -32778,7 +32778,7 @@ function initOnboarding() {
     steps: [
       {
         icon: '🌡️', title: '看情绪分',
-        body: '综合情绪分 <b>0-100</b>,越低越恐慌。<b>≤20 是冰点</b>(人人恐慌,往往是历史低位),<b>≥80 是过热</b>(人人贪婪,常见于高位)。中间区域观望为主。'
+        body: '综合情绪分 <b>0-100</b>,越低越恐慌。<b><20 是冰点</b>(人人恐慌,往往是历史低位),<b>>80 是过热</b>(人人贪婪,常见于高位)。中间区域观望为主。'
       },
       {
         icon: '❄️', title: '看冰点共振',
