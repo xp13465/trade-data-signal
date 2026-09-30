@@ -1767,16 +1767,27 @@ function _overfitAccSeries(data, w) {
   const act = actFull.slice(-n);
   const bt = btFull.slice(-n);
   const actMap = {}; act.forEach((p) => { if (p.date != null) actMap[p.date] = p; });
+  const btMap = {}; bt.forEach((p) => { if (p.date != null) btMap[p.date] = p; });
+  // 2026-09-30 用户拍板「两处都修」修复「数据只到09-21」观感(§24 前端读法改动, 不碰后端口径):
+  //  ①x 轴改为「回测 ∪ 实盘」日期并集——实盘序列有点就一起纳入, 不再因为回测序列短(K=1 下当天唯一
+  //    有回测样本的 buy_aux 被 top-K 挤掉 → 该回测点缺失)就把实盘末点连带藏掉;
+  //  ②「当天无样本」的保留行降级为不占位——某侧(回测/实盘)无样本的日期只保留有值侧, 缺失侧填 null
+  //    (connectNulls 桥接), 不再整体丢弃该日期制造空窗/断点。
+  const dateSet = {};
+  act.forEach((p) => { if (p.date != null) dateSet[p.date] = 1; });
+  bt.forEach((p) => { if (p.date != null) dateSet[p.date] = 1; });
+  const btEmpty = bt.length === 0;
   const dates = [], actual = [], backtest = [];
-  const btUse = bt.length > 0 ? bt : act;  // 回测空(sell类)时以实盘为准渲染单曲线
-  for (const p of btUse) {
-    if (p.win_rate == null) continue;
-    dates.push(p.date);
-    if (bt.length > 0) backtest.push(+(p.win_rate.toFixed(1)));
-    const a = actMap[p.date];
-    actual.push(a != null && a.win_rate != null ? +(a.win_rate.toFixed(1)) : null);
+  for (const d of Object.keys(dateSet).sort()) {
+    const a = actMap[d], b = btMap[d];
+    const aOk = a != null && a.win_rate != null;
+    const bOk = !btEmpty && b != null && b.win_rate != null;
+    if (!aOk && !bOk) continue;   // 纯空窗日(回测/实盘都无样本)不占位
+    dates.push(d);
+    actual.push(aOk ? +(a.win_rate.toFixed(1)) : null);
+    backtest.push(bOk ? +(b.win_rate.toFixed(1)) : null);
   }
-  return { dates, actual, backtest, btEmpty: bt.length === 0 };
+  return { dates, actual, backtest, btEmpty };
 }
 
 // 渲染准确率双曲线(窗口/评级/类型切换时重绘)
