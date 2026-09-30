@@ -2134,18 +2134,86 @@ def _tier_of_today(today_str):
     return "+".join(tier)
 
 
+def _prune_large_json_legacy(bucket=None, dry_run=False):
+    """逃生门专用: large-json/ 前缀**旧分层滚动清理**(从 #126 固定前缀改造前实现原样恢复,
+    2026-09-30 返工:e01f2a045~1 版本, 逃生门 `R2_LARGE_JSON_DATE_PREFIX=1` 走此路径, 保证
+    「逃生门=完整回旧行为」——key 形态回旧按天键, 保留策略也回旧, 不把逃生门产生的按天键
+    当新机制 legacy 统一 7 天清掉):
+
+      - 日档: 保留最近 14 天(含今天)的 large-json/<YYYY-MM-DD>/ 目录。
+      - 周档: 周日生成的目录, 保留最近 8 个存在的周日目录(ISO 周日=一周最后一天)。
+      - 月档: 每月1号生成的目录, 保留最近 12 个存在的1号目录。
+    任一目录被任一层保留 = 整目录 key 保留; 否则 DELETE(幂等, 重跑无害)。
+
+    dry_run=True 只列不删(读侧零污染, 自测/人工预演用; 原实现无此参数, 返工加, 不动删除语义)。"""
+    import re
+    import datetime as _dt
+    bkt = bucket or BACKUP_BUCKET
+    keys = _list_keys("large-json/", bucket=bkt)
+    by_date = {}
+    for k in keys:
+        m = re.match(r"large-json/(\d{4}-\d{2}-\d{2})/", k)
+        if m:
+            by_date.setdefault(m.group(1), []).append(k)
+    if not by_date:
+        return 0
+    dates = sorted(by_date)
+    today = _dt.datetime.now().date()
+    keep = set()
+    # 日档: 最近 14 天(含今天)
+    for d in dates:
+        dd = _dt.datetime.strptime(d, "%Y-%m-%d").date()
+        if (today - dd).days < 14:
+            keep.add(d)
+    # 周档: 最近 8 个存在的周日目录
+    sundays = [d for d in dates
+               if _dt.datetime.strptime(d, "%Y-%m-%d").date().isoweekday() == 7]
+    keep.update(sundays[-8:])
+    # 月档: 最近 12 个存在的每月1号目录
+    firsts = [d for d in dates if d.endswith("-01")]
+    keep.update(firsts[-12:])
+    deleted = 0
+    for d in dates:
+        if d in keep:
+            continue
+        if dry_run:
+            print(f"  [dry-run] 将删旧日期目录 {d} 的 {len(by_date[d])} 个 key")
+            deleted += len(by_date[d])
+            continue
+        for k in by_date[d]:
+            st, _ = s3_request("DELETE", k, bucket=bkt, keep_alive=True)
+            if st in (204, 404):
+                deleted += 1
+            else:
+                print(f"  ⚠ 删除失败 {bkt}/{k} status={st}")
+    if deleted:
+        print(f"{bkt} large-json/ 滚动清理共 {deleted} 个旧 key(保留 {len(keep)} 个目录: 日14天+周8周+月12月)"
+              + (" [dry-run 未执行]" if dry_run else ""))
+    else:
+        print(f"{bkt} large-json/ 无待清理旧日期目录(保留 {len(keep)} 个目录: 日14天+周8周+月12月)"
+              + (" [dry-run 未执行]" if dry_run else ""))
+    return deleted
+
+
 def _prune_large_json(bucket=None, dry_run=False):
     """large-json/ 前缀清理(#126 固定前缀改造后, 2026-09-30):
 
-      - legacy 日期目录(large-json/<YYYY-MM-DD>/): 一次性清理, 给 7 天宽限期——新固定前缀机制
-        首跑未完成/过渡期历史快照还可能需要读, 早于 7 天前的旧日期目录整目录 DELETE(幂等, 重跑无害)。
-      - 固定前缀 large-json/<rel>.gz: 唯一完整副本(git 已 rm --cached 移出, R2 只有这一份),
-        **不做滚动删除**(日14天/周8周/月12月旧语义只适用于按天键, 固定前缀下变成 no-op, 删除=丢唯一副本)。
+      - 逃生门(`R2_LARGE_JSON_DATE_PREFIX=1`): 完整回旧行为, 走 _prune_large_json_legacy——
+        旧分层保留(日14天+周8周+月12月), 防止逃生门长期运行时把按天键当 7 天 legacy 清掉
+        (R2 灾备快照只留 7 天的语义矛盾, 2026-09-30 返工修)。
+      - 默认(固定前缀):
+          - legacy 日期目录(large-json/<YYYY-MM-DD>/): 一次性清理, 给 7 天宽限期——新固定前缀机制
+            首跑未完成/过渡期历史快照还可能需要读, 早于 7 天前的旧日期目录整目录 DELETE(幂等, 重跑无害)。
+          - 固定前缀 large-json/<rel>.gz: 唯一完整副本(git 已 rm --cached 移出, R2 只有这一份),
+            **不做滚动删除**(日14天/周8周/月12月旧语义只适用于按天键, 固定前缀下变成 no-op, 删除=丢唯一副本)。
 
     补预算保护(原实现无界, #126 修): 单轮最多删 R2_LARGE_JSON_PRUNE_LIMIT 个 key(默认 3000),
     防大枚举+删除拖垮上传轮; 超限留待下轮。dry_run=True 只列不删(读侧零污染, 自测/人工预演用)。"""
     import re
     import datetime as _dt
+    if os.environ.get("R2_LARGE_JSON_DATE_PREFIX", "") == "1":
+        # 逃生门 = 完整回旧行为(旧分层保留), 不按新机制 7 天宽限清理
+        return _prune_large_json_legacy(bucket=bucket, dry_run=dry_run)
     bkt = bucket or BACKUP_BUCKET
     try:
         _limit = int(os.environ.get("R2_LARGE_JSON_PRUNE_LIMIT") or "3000")
@@ -2229,13 +2297,25 @@ def _write_large_json_manifest(rows, today_str, date_prefix=False):
         "staticdata 备份仓库 7 个 >20MB JSON(共 ~319MB)已移出 git 跟踪(备份天天 `skip_oversize`",
         "不 commit 的根因), 改走 R2 私有桶 `signal-backup` 的 `large-json/` 前缀版本化快照。",
         "",
-        "- key 格式(#126 固定前缀): `large-json/<相对 data/ 的路径>.gz`(唯一完整副本, 增量复用,",
-        "  内容未变 HEAD ETag 命中跳过 PUT)",
-        "  - 例: `large-json/signal_kelly_trades.json.gz`",
-        "  - 例: `large-json/signal_kelly_trades_parts/t2025.json.gz`",
-        "- legacy 旧日期目录 `large-json/<YYYY-MM-DD>/...`(过渡期按天键快照)保留 7 天宽限期后自动清理;",
-        "  固定前缀本身不滚动删(它是唯一副本, 删除=丢数据)。",
-        "- 保留档位: 固定前缀永久(唯一副本, 不滚动删); legacy 旧日期目录 7 天宽限期后清理",
+    ]
+    if date_prefix:
+        lines.extend([
+            "- key 格式(逃生门 R2_LARGE_JSON_DATE_PREFIX=1): `large-json/<YYYY-MM-DD>/<相对 data/ 的路径>.gz`",
+            "  回旧按天键行为; 保留档位沿用旧分层滚动(见下), 不按固定前缀的 7 天宽限清理。",
+            "- 保留档位: 日档最近 14 天(含今天) + 周档最近 8 个周日 + 月档最近 12 个 1 号,",
+            "  任一目录被任一层保留=整目录保留(与 `_prune_large_json_legacy` 一致)。",
+        ])
+    else:
+        lines.extend([
+            "- key 格式(#126 固定前缀): `large-json/<相对 data/ 的路径>.gz`(唯一完整副本, 增量复用,",
+            "  内容未变 HEAD ETag 命中跳过 PUT)",
+            "  - 例: `large-json/signal_kelly_trades.json.gz`",
+            "  - 例: `large-json/signal_kelly_trades_parts/t2025.json.gz`",
+            "- legacy 旧日期目录 `large-json/<YYYY-MM-DD>/...`(过渡期按天键快照)保留 7 天宽限期后自动清理;",
+            "  固定前缀本身不滚动删(它是唯一副本, 删除=丢数据)。",
+            "- 保留档位: 固定前缀永久(唯一副本, 不滚动删); legacy 旧日期目录 7 天宽限期后清理",
+        ])
+    lines.extend([
         "- 恢复: `bash scripts/restore-large-json.sh <文件名|--list|--date YYYY-MM-DD|--all> [--target <dir>]`",
         "  还原时先下同目录 `.tmp` 再原子覆盖, 覆盖前旧文件备份为 `<文件>.bak-<时间戳>`; 本清单",
         "  有 sha256 记录的会比对, 不匹配即中止(不改原文件)。默认还原目标 = 生产数据目录",
@@ -2247,7 +2327,7 @@ def _write_large_json_manifest(rows, today_str, date_prefix=False):
         "",
         "| 相对 data/ 路径 | 完整字节 | sha256 | 最新 R2 key | 保留档位 | 生成时间 |",
         "|---|---|---|---|---|---|",
-    ]
+    ])
     for relpath, size, sha, key in sorted(rows):
         lines.append(f"| {relpath} | {size} | {sha} | `{key}` | {tier} | {today_str} |")
     lines.append("")
@@ -2454,7 +2534,10 @@ def cmd_upload_large_json():
     ok = _shared["ok"]
     if dry_run:
         # F1 dry-run 收尾: 只打印「将做的事」, 不真跑 prune / 不重写 manifest。
-        print("[dry-run] 将运行 _prune_large_json(旧日期目录 7 天宽限期后清理; 固定前缀唯一副本不滚动删)")
+        if date_prefix:
+            print("[dry-run] 将运行 _prune_large_json(逃生门回旧分层保留: 日14天+周8周+月12月)")
+        else:
+            print("[dry-run] 将运行 _prune_large_json(旧日期目录 7 天宽限期后清理; 固定前缀唯一副本不滚动删)")
         print(f"[dry-run] 将重写 staticdata仓库/docs/large-json-backup-manifest.md(#115, {len(manifest_rows)} 行)")
         print(f"[dry-run] large-json 计划上传 {ok}/{len(entries)} -> {BACKUP_BUCKET}/"
               f"{('large-json/' + today + '/') if date_prefix else 'large-json/'}(私有桶, 未执行)")

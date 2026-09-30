@@ -20,7 +20,10 @@
 #     只读旧按天键快照(也支持 --date=YYYY-MM-DD 等号形式)；该日期无快照会提示改用
 #     固定前缀(<文件名>/--all)。
 #   bash scripts/restore-large-json.sh --all
-#     还原当前固定前缀全部文件(最新完整副本)；固定前缀尚未首跑(仅旧日期目录)时回退最新日期那份。
+#     还原「并集」(2026-09-30 返工): 固定前缀全部文件 ∪ 最新历史日期目录全部文件——
+#     固定前缀是当前完整副本, 最新 legacy 目录是过渡期完整历史, 取并集绝不漏文件
+#     (同 rel 优先固定前缀); 若固定前缀缺文件从最新 legacy 补, 会打印醒目警告。
+#     原实现(只 flat 非空就用 flat)在固定前缀首跑中断过渡期会静默少还原, 已修。
 #   [--target <dir>] 可加在任意位置显式指定目标目录(默认见下)。
 # 恢复目标：默认 = $STATICDATA_REPO/data/(环境变量 STATICDATA_REPO 仅测试用,缺省
 #   /Users/linhuichen/code/trade-data)= 生产数据目录 trade-data/data/(用户 2026-09-25
@@ -371,18 +374,34 @@ if mode == "list":
 manifest_sha = load_manifest_sha()
 
 if mode == "all":
-    flat_pairs = [(None, p[1], key) for key, _s, p in parsed_all if p[0] is None]
-    if flat_pairs:
-        print(f"还原当前固定前缀(最新完整副本)全部 {len(flat_pairs)} 个文件:")
-        target_pairs = flat_pairs
-    else:
-        # 固定前缀尚未首跑(仅历史日期目录): 回退最新日期那份(过渡期兼容)
-        dates = sorted({p[0] for _k, _s, p in parsed_all if p[0] is not None}, reverse=True)
-        if not dates:
-            sys.exit("✗ large-json/ 下无可用快照")
-        target_date = dates[0]
-        print(f"还原最新日期 {target_date} 全部文件(固定前缀尚未首跑, 回退历史快照):")
-        target_pairs = [(target_date, p[1], key) for key, _s, p in parsed_all if p[0] == target_date]
+    # --all 还原「尽量全」: 取固定前缀(当前完整副本) ∪ 最新历史日期目录 的**并集**。
+    # 2026-09-30 返工修静默少还原: 原实现只要 flat 非空(哪怕只传 1 个文件)就只用 flat,
+    # flat 首跑中断的过渡期(flat=15000 vs legacy 9/30=15798)会**少还原且不报警**。
+    # 并集理由: flat 是当前副本(可能含 legacy 没有的新文件), 最新 legacy 目录是过渡期完整历史
+    # (可能含 flat 未传完的旧文件); 两者取并集=绝不漏文件, 同 rel 优先 flat(当前副本最新)。
+    flat_map = {p[1]: (None, key) for key, _s, p in parsed_all if p[0] is None}
+    legacy_by_date = {}
+    for key, _s, p in parsed_all:
+        if p[0] is not None:
+            legacy_by_date.setdefault(p[0], {})[p[1]] = key
+    dates = sorted(legacy_by_date, reverse=True)
+    if not flat_map and not dates:
+        sys.exit("✗ large-json/ 下无可用快照")
+    # 取并集: rel -> (date, key); flat 优先, 最新 legacy 目录补缺
+    target_map = dict(flat_map)
+    latest_date = dates[0] if dates else None
+    legacy_pairs = legacy_by_date.get(latest_date, {}) if latest_date else {}
+    legacy_only = []
+    for rel, key in legacy_pairs.items():
+        if rel not in target_map:
+            target_map[rel] = (latest_date, key)
+            legacy_only.append(rel)
+    print(f"还原并集(固定前缀 {len(flat_map)} 个 + 最新历史日期 {latest_date or '(无)'} "
+          f"{len(legacy_pairs)} 个 → 并集 {len(target_map)} 个文件):")
+    if legacy_only:
+        print(f"  ⚠ 固定前缀可能不完整: 缺 {len(legacy_only)} 个文件(如 "
+              f"{legacy_only[0]}), 已从最新历史日期 {latest_date} 补全, 请确认", file=sys.stderr)
+    target_pairs = [(date, rel, key) for rel, (date, key) in sorted(target_map.items())]
 elif mode == "date":
     # --date 只读旧按天键快照(过渡期历史); 固定前缀无日期, 该模式对固定前缀无意义
     target_date = payload
