@@ -18281,15 +18281,16 @@ function _lwSVG(cfg) {
   // 轴(H-44)到 slider 顶沿(H-26)间隙 18px 放下 12px 字(glyph ≈ H-42.5..H-30), 标签完全落在轴线下、slider 上。
   // fix2 曾 Math.min(axisY+8+3.5, H-31.5) 上移 8px, 致 glyph 上沿高出轴线 5.5px 压进绘图区(P1-1 回归, 已撤销)。
   const _xLabelY = _axisY + 8 + 3.5;
-  for (let i = _i0; i <= _i1; i += _xStep) {
+  // #147(2026-09-30, 右锚定版, 弃"补末点标签"方案): forceLastLabel 开启时采样起点=末点往回推整数个
+  // 步进(_i1 - floor((_i1-_i0)/_xStep)*_xStep = _i0 + ((_i1-_i0)%_xStep), 恒落在 [_i0, _i0+_xStep)),
+  // 保证末点 _i1 必为采样点且有标签, 且相邻标签间距恒为 _xStep×unitW ≥ 标签宽×1.3(_etfXStep 按
+  // 标签最大宽×1.3÷每点px宽算出) → 末两标签天然不重叠, 无需短格式/缩字号补丁。
+  // 默认关/undefined = 走原逻辑(从左采样), 全站其他 lite 图行为零变化(§23.7 冻结)。
+  // 注: 开启时最左端标签可能向右偏移/少一格, 属可接受(轴起点不必有标签, 对齐 echarts showMaxLabel 语义)。
+  const _lbl0 = (cfg.forceLastLabel && _xStep > 0) ? (_i1 - Math.floor((_i1 - _i0) / _xStep) * _xStep) : _i0;
+  for (let i = _lbl0; i <= _i1; i += _xStep) {
     const x = _px(i);
     s += '<text x="' + x.toFixed(1) + '" y="' + _xLabelY.toFixed(1) + '" font-size="' + _axFont + '" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[i]) + '</text>';
-  }
-  // 2026-09-30 #147: 末点必出标签开关(对齐 echarts showMaxLabel 语义)。默认关/undefined = 全站其他 lite 图
-  // 行为零变化(§23.7 冻结)。开启时若末点 index 未被步进采样覆盖((_i1-_i0) % _xStep != 0),
-  // 在末点 _px(_i1) 处补画一张同样式标签 —— 曲线画到末端但标签停在半途的视觉错位由此消除。
-  if (cfg.forceLastLabel && _xStep > 0 && (_i1 - _i0) % _xStep !== 0) {
-    s += '<text x="' + _px(_i1).toFixed(1) + '" y="' + _xLabelY.toFixed(1) + '" font-size="' + _axFont + '" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[_i1]) + '</text>';
   }
   // markPoint hideOverlap(fix5, 复刻 echarts markPoint label.hideOverlap): 包围盒相交检测+贪心隐藏,
   // 后画者与先画者相交则整牌跳过(先画者优先保留)。仅 pin 形参与(小圆点 r3 重叠是 band_hold 设计语义,

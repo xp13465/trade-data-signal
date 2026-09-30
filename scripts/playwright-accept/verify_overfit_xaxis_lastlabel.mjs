@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// #147 过拟合卡 x 轴末点标签验收(2026-09-30)
+// #147 过拟合卡 x 轴末点标签验收(2026-09-30, 右锚定采样版)
 // 主证据(用户视角): lite SVG 两图最右可见标签 == 渲染层数据末点日期; hover 末点 tooltip 同日。
+// 不重叠硬断言: DOM getBoundingClientRect 实测相邻日期标签矩形不相交(保守: 中心距 >= 文本实测宽)。
 // 双渲染路径: lite 自研引擎 + echarts fallback(⚡ 关闭)各验一次。
-// 回归: 开关默认关时, 全站其他 lite 图 x 标签与基线(main 未改版)逐个一致; 两图曲线/数据末点未被动。
+// 回归: 开关默认关时, 全站其他 lite 图 x 标签(位置+文本)与基线(main 未改版)逐个一致; 两图曲线/数据末点未被动。
 import { chromium } from "playwright";
 import fs from "fs";
-import path from "path";
 
 const WT = "/Users/linhuichen/code/trade/.claude/worktrees/agent-a25e29c4db5dba109";
 const BASE = "http://localhost:8127/static-site";
-const SRC_NEW = fs.readFileSync(WT + "/static-site/app.js", "utf8");       // 改后(forceLastLabel 两图开启)
+const SRC_NEW = fs.readFileSync(WT + "/static-site/app.js", "utf8");       // 改后(forceLastLabel 两图开启, 右锚定)
 const SRC_BASE = fs.readFileSync("/tmp/app_main_baseline.js", "utf8");     // 基线(main, 无 forceLastLabel)
 const SRC_I18N = fs.readFileSync(WT + "/static-site/i18n.js", "utf8");
 const readJ = (f) => fs.readFileSync("/tmp/" + f, "utf8");
@@ -45,23 +45,32 @@ async function openPage(browser, appSrc, opts = {}) {
   return { ctx, page, pageErrors };
 }
 
-// ---- 采集函数: 每张 lite 图的日期类 x 标签数组 + 两图 cfg ----
+// ---- 采集: 每张 lite 图 DOM 实测日期标签(文本 + 中心x + 文本宽) + 两图 cfg ----
 function collectLite(page) {
   return page.evaluate(() => {
-    const out = { lites: [], acc: null, risk: null };
+    const out = { lites: [], acc: null, risk: null, textW: {} };
+    const measure = (txt) => {
+      const c = document.createElement("canvas").getContext("2d");
+      c.font = "12px sans-serif";
+      return c.measureText(txt).width;
+    };
     const renderers = (typeof _lwRenderers !== "undefined") ? Array.from(_lwRenderers.keys()) : [];
     renderers.forEach((el) => {
       const svg = el.querySelector("svg.lw-svg");
-      const dates = [];
+      const lbls = [];
       if (svg) {
         Array.from(svg.querySelectorAll("text")).forEach((t) => {
           const txt = t.textContent;
-          if (/^\d{8}$/.test(txt)) dates.push(txt);
+          if (!/^\d{8}$/.test(txt)) return;
+          const r = t.getBoundingClientRect();
+          const cxp = (r.left + r.right) / 2;
+          lbls.push({ txt, x: cxp, w: r.width || measure(txt), svgX: parseFloat(t.getAttribute("x")) });
         });
+        lbls.sort((a, b) => a.x - b.x);
       }
       const isAcc = el.id === "overfit-acc-chart";
       const isRisk = el.id === "overfit-risk-chart";
-      out.lites.push({ id: el.id || "", hasSvg: !!svg, dates, isOverfit: isAcc || isRisk });
+      out.lites.push({ id: el.id || "", hasSvg: !!svg, lbls, isOverfit: isAcc || isRisk });
       if (isAcc && typeof _lwCfgMap !== "undefined") {
         const c = _lwCfgMap.get(el);
         out.acc = c ? { n: c.xLabels.length, last: c.xLabels[c.xLabels.length - 1], forceLastLabel: c.forceLastLabel, seriesLen: (c.series || []).map((s) => (s.data || []).length) } : null;
@@ -71,23 +80,25 @@ function collectLite(page) {
         out.risk = c ? { n: c.xLabels.length, last: c.xLabels[c.xLabels.length - 1], forceLastLabel: c.forceLastLabel, seriesLen: (c.series || []).map((s) => (s.data || []).length) } : null;
       }
     });
-    // 每图 svg 最右可见日期标签(用户视角: 读 x 属性最大的日期文本)
-    const rightMost = (id) => {
-      const svg = document.querySelector(id + " svg.lw-svg");
-      if (!svg) return null;
-      let best = null;
-      Array.from(svg.querySelectorAll("text")).forEach((t) => {
-        const txt = t.textContent;
-        if (!/^\d{8}$/.test(txt)) return;
-        const x = parseFloat(t.getAttribute("x"));
-        if (!best || x > best.x) best = { x, txt };
-      });
-      return best ? best.txt : null;
-    };
-    out.accRight = rightMost("#overfit-acc-chart");
-    out.riskRight = rightMost("#overfit-risk-chart");
+    const find = (id) => out.lites.find((l) => l.id === id);
+    out.accLbls = find("overfit-acc-chart") ? find("overfit-acc-chart").lbls : [];
+    out.riskLbls = find("overfit-risk-chart") ? find("overfit-risk-chart").lbls : [];
     return out;
   });
+}
+
+// 不重叠断言: 相邻标签矩形不相交(保守: 中心距 >= 两标签文本宽中较大者)
+function overlapCheck(lbls, name) {
+  if (lbls.length < 2) { check(`不重叠[${name}] 标签>=2`, false, `n=${lbls.length}`); return; }
+  let allOk = true, worst = null;
+  for (let i = 1; i < lbls.length; i++) {
+    const gap = lbls[i].x - lbls[i - 1].x;
+    const need = Math.max(lbls[i - 1].w, lbls[i].w);
+    const ok = gap >= need;
+    if (!ok) allOk = false;
+    if (!worst || need - gap > worst.need - worst.gap) worst = { a: lbls[i - 1].txt, b: lbls[i].txt, gap: gap.toFixed(1), need: need.toFixed(1) };
+  }
+  check(`不重叠硬断言[${name}] 全部相邻标签矩形不相交`, allOk, worst ? `最差: ${worst.a}->${worst.b} 间距${worst.gap} 需≥${worst.need}` : `n=${lbls.length} 全过`);
 }
 
 // ---- 悬停末点读 tooltip(用户视角) ----
@@ -120,8 +131,10 @@ const lite = await openPage(browser, SRC_NEW);
 const lit = await collectLite(lite.page);
 check("①acc 图 forceLastLabel 已开启", lit.acc && lit.acc.forceLastLabel === true, `forceLastLabel=${lit.acc && lit.acc.forceLastLabel}`);
 check("①risk 图 forceLastLabel 已开启", lit.risk && lit.risk.forceLastLabel === true, `forceLastLabel=${lit.risk && lit.risk.forceLastLabel}`);
-check("①acc 数据末点=最右标签 20260928", lit.acc && lit.acc.last === "20260928" && lit.accRight === "20260928", `dataLast=${lit.acc && lit.acc.last} rightLabel=${lit.accRight}`);
-check("①risk 数据末点=最右标签 20260928", lit.risk && lit.risk.last === "20260928" && lit.riskRight === "20260928", `dataLast=${lit.risk && lit.risk.last} rightLabel=${lit.riskRight}`);
+check("①acc 数据末点=最右标签 20260928", lit.acc && lit.acc.last === "20260928" && lit.accLbls.length && lit.accLbls[lit.accLbls.length - 1].txt === "20260928", `dataLast=${lit.acc && lit.acc.last} right=${lit.accLbls.length ? lit.accLbls[lit.accLbls.length - 1].txt : "-"}`);
+check("①risk 数据末点=最右标签 20260928", lit.risk && lit.risk.last === "20260928" && lit.riskLbls.length && lit.riskLbls[lit.riskLbls.length - 1].txt === "20260928", `dataLast=${lit.risk && lit.risk.last} right=${lit.riskLbls.length ? lit.riskLbls[lit.riskLbls.length - 1].txt : "-"}`);
+overlapCheck(lit.accLbls, "acc(lite)");
+overlapCheck(lit.riskLbls, "risk(lite)");
 check("①lite 路径全程无 pageerror", lite.pageErrors.length === 0, lite.pageErrors.join(" / "));
 
 // 截图留档(用户视角)
@@ -140,13 +153,12 @@ for (const [id, label] of [["#overfit-acc-chart", "acc"], ["#overfit-risk-chart"
     const tip = document.querySelector(id + " .lw-tip");
     return tip && tip.style.display !== "none" ? tip.textContent : null;
   }, id);
-  // 末点 tooltip 同日判定: 文本含 MM-DD("09-28") 或 原始 8 位日期("20260928")(risk 末点 null 时 tipFn 返回原始日期, #144 语义)
   const md = h.last.slice(4, 6) + "-" + h.last.slice(6, 8);
   check(`①${label} hover 末点 tooltip 同日(${md})`, tipText != null && (tipText.includes(md) || String(tipText).includes(h.last)) && h.last === "20260928", `tip=${String(tipText).slice(0, 30)} last=${h.last}`);
 }
 await lite.ctx.close();
 
-// ================= ② 回归: 基线(main) vs 改后 其他 lite 图 x 标签逐个一致 =================
+// ================= ② 回归: 基线(main) vs 改后 其他 lite 图标签(位置+文本)逐个一致 =================
 const base = await openPage(browser, SRC_BASE);
 const bas = await collectLite(base.page);
 const baseNon = bas.lites.filter((l) => !l.isOverfit && l.hasSvg);
@@ -155,7 +167,8 @@ check(`②lite 图数量基线=改后`, baseNon.length === newNon.length && base
 for (let i = 0; i < Math.max(baseNon.length, newNon.length); i++) {
   const b = baseNon[i], nw = newNon[i];
   if (!b || !nw) { check(`②第${i}张 lite 图存在`, false, `base=${!!b} new=${!!nw}`); continue; }
-  check(`②lite图[${i}] 日期标签与基线逐个一致`, JSON.stringify(b.dates) === JSON.stringify(nw.dates), `id=${b.id} base=${JSON.stringify(b.dates.slice(-4))} new=${JSON.stringify(nw.dates.slice(-4))}`);
+  const sig = (l) => l.lbls.map((x) => x.txt + "@" + x.svgX.toFixed(0));
+  check(`②lite图[${i}] 日期标签(文本+位置)与基线逐个一致`, JSON.stringify(sig(b)) === JSON.stringify(sig(nw)), `id=${b.id} base=${JSON.stringify(sig(b).slice(-3))} new=${JSON.stringify(sig(nw).slice(-3))}`);
 }
 // 两图曲线与数据末点不被改动: cfg.xLabels 末点 + series 长度 基线=改后
 check("②acc 曲线数据末点基线=改后", bas.acc && lit.acc && bas.acc.last === lit.acc.last && JSON.stringify(bas.acc.seriesLen) === JSON.stringify(lit.acc.seriesLen), `base=${bas.acc && bas.acc.last} new=${lit.acc && lit.acc.last}`);
@@ -165,7 +178,6 @@ await base.ctx.close();
 
 // ================= ③ fallback 路径(⚡ 关闭 → echarts) =================
 const fb = await openPage(browser, SRC_NEW, { lightweight: false });
-// echarts fallback 是 canvas, 无 text DOM; 读 echarts 实例配置断言 showMaxLabel 生效 + 截图留档
 await new Promise((r) => setTimeout(r, 1500));
 const fbInfo = await fb.page.evaluate(() => {
   const out = { acc: null, risk: null };
