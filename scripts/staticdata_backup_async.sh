@@ -150,8 +150,9 @@ echo "  [step3 JSON rsync] $(( $(date +%s) - _STEP_START ))s" | tee -a "$LOG"
 # 3.5 大 JSON 移出 staticdata git + R2 私有桶备份(2026-09-25, feat/large-json-r2-core)
 # 背景: 7 个大 JSON(>20MB, ~320MB)天天变天天进 delta, .git 膨胀 3.3G, 9-25 撞 >300MB 积压阈值跳过 commit。
 # 本步 = 排除规则单一源 large_json_excludes.py 维护 .gitignore 受管区块(幂等, 精确路径 /data/...),
-# 再 upload_r2.py upload-large-json 按 large-json/<YYYY-MM-DD>/<相对data路径>.gz gzip 上传私有桶
-# signal-backup(幂等: 内容没变跳过 PUT)+ 日14天/周8周/月12月滚动保留 + 自动重写
+# 再 upload_r2.py upload-large-json 按 large-json/<相对data路径>.gz gzip 上传私有桶
+# signal-backup(#126 固定前缀唯一副本, 并行默认8线程; 幂等: 内容没变 HEAD ETag 命中跳过 PUT)+
+# legacy 旧按天目录 7 天宽限期后清理 + 自动重写
 # staticdata仓库/docs/large-json-backup-manifest.md(#115: 写本仓库=git add -A 提交对象)。
 # 失败不阻塞后续 git 步骤(大文件仍在 git 由原链路兜底), 置 STATICDATA_FAIL=1 进心跳与严重告警。
 # 注意: git rm --cached(真正移出 git)由一次性迁移脚本 migrate_large_json_out_of_git.sh 完成,
@@ -179,7 +180,7 @@ echo "  [step3.5 large-json 排除+R2] $(( $(date +%s) - _STEP_START ))s" | tee 
 # 阈值依据(researcher 报告 update-all-staticdata-backup-eval-20260925.md): 正常日 58~487 文件
 # ≈22min 固定开销; 9-22 积压 25789 文件 ≈70-75min(rsync 拉长 + push 7min + GitHub 大文件警告)。
 #   - 积压兜底阈值 500MB(2026-09-25 抬升, feat/large-json-r2-core): 7 个大 JSON(~320MB, 天天
-#     变天天进 delta)已移出 staticdata git、改走 R2 私有桶 large-json/ 每日备份(见 step3.5),
+#     变天天进 delta)已移出 staticdata git、改走 R2 私有桶 large-json/ 固定前缀完整副本(见 step3.5),
 #     正常日变更字节不再触 300MB; 抬到 500MB 给异常日留余量(如首跑大回填), 防误触跳过 commit。
 #     >5000 文件 或 变更文件当前总字节 >500MB → 跳过 commit/push, 仅 rsync 磁盘留档 + 告警;
 # 次日 deploy 的 rsync 全量自然追平 git, 数据不丢, 只 git 历史缺一档(防大 push 拖死 async 自身)。
