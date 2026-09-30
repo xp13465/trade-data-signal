@@ -57,6 +57,7 @@ curl -s -X OPTIONS "http://127.0.0.1:8080/" -i
    - Caching(Assets)别缓存动态 `/intraday`(设 no-store 或绕过);或者直接让本服务 `Cache-Control: no-store` 已被响应头带出——CF 默认会尽力缓存天级 CDN,务必对 `/intraday` 添加 Cache Rule「不缓存」。**4s 缓存在中转服务内部实现,不是靠 CF。**
 3. **前端切换**: `app.js` 顶部 `RT_RELAY_BASE_URL = "https://rt.fx8.store"`(默认值已是)+ `RT_RELAY_ENABLED = false` 翻 `true`,重新 build_min(由 main-merge.sh 统一 bump),上线。
    - 若想收紧 CORS:`RT_ORIGINS="https://ss.fx8.store,https://sss.sugas.site,https://s.sugas.site"`。
+   - ⚠️ **翻开关必做**:两份 CSP `connect-src` 白名单(`static-site/_headers` + `worker/headers.js`)**都要**补 `https://rt.fx8.store`,且两处**逐字一致**。不补会在线上重开一轮 console CSP 刷屏(正是 #133 刚修掉的问题,留到基于 main 当天补 2 处并逐字核对——本 feat 分支 base 早于 #133,分支上两份 CSP 还是旧版,切勿在分支上动手,会与 #133 对同一行产生 merge 冲突)。
 4. **上线前自验**(playwright): 断前两腿 host 断言 bj50 走中转渲染出曲线;对照正常双腿零变化;观察 `/health` 各源计数稳定、无超 bucket。
 
 ## 成本与风险核算(2026-09-30 实测)
