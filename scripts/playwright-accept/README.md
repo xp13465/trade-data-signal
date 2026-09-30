@@ -35,6 +35,7 @@ tester 可直接读。
 | `xcount-consensus-smoke.js` | AI信号认可度计数口径(X/Y/W)渲染层冒烟(2026-08-27 feat/x-count-full-alignment):线上页 route 注入本地新 min,验 data-consensus 三段式格式/winner hover 显「{x}票·当日主推」/0 票显「0·非主推」/CONS_TIP 新文案;⚠️ 信号 cell 子元素带 data-no-pop,须对 cell 本身 dispatchEvent mouseover(onboarding 弹窗需先点 .onboarding-skip) |
 | `sim-toggle-accept.js` | 首页模拟回测弹窗「价格口径」双档验收(2026-09-06 #91,feat/sim-price-toggle):双档按钮默认次日开盘/切当日→买卖价与汇总/峰值/曲线联动/计划买入时间列上下换行(上=信号日期下=实际买入)/首列「信号日期」/表头15=行15/独立键与 lab 键互不触碰/无 console 报错。⚠️ 对账样例 560210 需取消 AI降亏过滤+K=关(raw 全量人口);onboarding overlay 拦截点击须 evaluate+click |
 | `verify_nav_lazy_consistency.mjs` | accum_nav_map 按 ETF 懒加载「前端同构对账机检(§5.4⑦ 强制)」(2026-09-17 feat/nav-lazy-loading):三场景——A block 全量放行 per-ETF(纯懒加载)/B block per-ETF 放行全量(全量 fallback)逐 cell 逐位一致;D 单 code 缺失注入(block 某 code 拆分文件→failed→`__gih_missing_px_`>0 且渲「— 缺价」,证三态门控「未载被吞」bug 未发生)。首页 sim/演进表复用同一 common 内核由 lab 路径覆盖 |
+| `verify_bj50_intraday_degrade.mjs` | 北证50分时双加固验收(2026-09-30 feat 盘中注入minute_series+东财熔断+腾讯day/query备用腿):A EM mock 合法成功路径零变化/A2 腾讯腿/B 实时源全失败+快照带minute_series→画曲线非文字降级/C1 熔断短路(前触发+day兜底取数/C2 偶发失败不误熔断;⚠️ 需本地起 http.server serve worktree static-site 且 data 目录可访问,route 拦截外部源 |
 | `cal_render_regression.mjs` | 情绪日历「旧版 vs 新版」渲染逐位一致回归 + 点日期弹当天明细(2026-09-30 feat 情绪日历加维度说明):双视口(1280/375)断言 D3 日期集合+格子文本+sig+idx+val 逐位一致证明「只增不改」、D5/D6 点日期弹明细、M 系列移动端点击目标/字号;⚠️ 前置依赖=需同时起 8133(新版)/ 8134(旧版)两个本地服务器,单跑必失败 |
 
 > 新增脚本在此索引追加一行。(2026-08-26 补登历史 16 个一次性/专项探针;small-items-batch 六件验收为内联临时断言未落脚本文件,无新增行)
