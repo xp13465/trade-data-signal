@@ -61,6 +61,12 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
+# #123 告警降噪 R1~R5 判定规则纯函数(2026-10-01): REPO/scripts 是 trade-data -> trade 的
+# symlink, 生产云上同树读得到; 测试脚本 scripts/tests/test_alert_denoise_20261001.py
+# import 同一模块打「真实判定函数」反例断言(拒绝逻辑模拟代替真实代码)。
+sys.path.insert(0, str(Path(os.environ["REPO"]) / "scripts"))
+import alert_denoise_rules as adr  # noqa: E402
+
 REPO = Path(os.environ["REPO"])
 LOG_DIR = REPO / "data" / "logs"
 STATS_FILE = REPO / "static-site" / "data" / "schedule_stats.json"
@@ -481,6 +487,21 @@ if STATS_FILE.exists():
                         f"last_run={last_run_str} 距今>{int(STALE_EXIT_THRESHOLD.total_seconds()//3600)}h, "
                         f"旧告警已过期,等下次任务跑更新(不重复 SEVERE)"
                     )
+                # #123 R3(2026-10-01): nextday_plan 自身通道(nextday_plan.sh L68-76, dedup-key
+                # nextday_plan_fail)已发详细告警; 若产物 data/nextday_plan.json 今日已落盘
+                # (=计划实际已生成, 失败面多为 R2 上传/通知段), monitor exit!=0 汇总通道不再
+                # 双发。产物未生成=真失败 → 双保险双响(反例 B 保证)。判定函数
+                # scripts/alert_denoise_rules.py:r3_nextday_product_generated_today。
+                elif s.get("task") == "nextday_plan" and adr.r3_nextday_product_generated_today(
+                    REPO, NOW.strftime("%Y-%m-%d")
+                ):
+                    _ex_nd = alert_state.get(dedup_key)
+                    if _ex_nd is not None and _ex_nd.get("status") == "active":
+                        _ex_nd["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                    print(
+                        f"[r3-nextday-suppress] nextday_plan exit={exit_code} 但产物今日已生成, "
+                        f"自身通道已发详细告警, monitor 汇总去重"
+                    )
                 else:
                     existing = alert_state.get(dedup_key)
                     if _recurrence_suppressed(existing):
@@ -693,7 +714,16 @@ if STATS_FILE.exists():
                         _dur_key = f"{_dur_task}|dur>{_dur_thresh}s"
                         seen_keys_this_run.add(_dur_key)
                         _ex_dur = alert_state.get(_dur_key)
-                        if _ex_dur is None or _ex_dur.get("status") != "active":
+                        # #123 R2(2026-10-01): 「执行耗时」与「进行中超时」双通道同 (task,last_run)
+                        # 合并——同一次卡死两套独立 key(L699 本 dur 通道 + L894 超时通道)本就各发
+                        # 一封(09-30 实测同轮双发); 现在共享 merge|{task}|{last_run} key, 先发通道
+                        # 独占(r2_merge_mark), 后发通道查 r2_merge_already_sent 归入已发(不再双发)。
+                        # 反例保证: 同实例合并后仍必响(首条由先发通道发出); 隔日再卡=新 last_run=新
+                        # merge key=独立再响, 不吞跨天(判定函数 scripts/alert_denoise_rules.py:r2_*)。
+                        if adr.r2_merge_already_sent(alert_state, _dur_task, _dur_lr):
+                            print(f"[r2-merge-suppress] {_dur_task} 耗时超阈值 {_dur_thresh}s: "
+                                  f"同 last_run<{_dur_lr}> 已由超时/耗时另一通道发出, 合并去重")
+                        elif _ex_dur is None or _ex_dur.get("status") != "active":
                             alerts.append(
                                 f"SEVERE: {_dur_task} 执行耗时 {_dur}s 超阈值 {_dur_thresh}s "
                                 f"last_run<{_dur_lr}> (进程退化/卡死信号)"
@@ -705,6 +735,7 @@ if STATS_FILE.exists():
                                 "keyword": f"dur>{_dur_thresh}s",
                                 "line_sample": f"dur={_dur}s last_run={_dur_lr}",
                             }
+                            adr.r2_merge_mark(alert_state, _dur_task, _dur_lr, NOW)
                         else:
                             print(f"[suppress] {_dur_task} 耗时超阈值持续中, "
                                   f"last_alerted={_ex_dur.get('last_alerted')}, 不重发")
@@ -888,7 +919,14 @@ for _ip_task in sorted(in_progress_tasks):
     _ip_key = f"{_ip_task}|in_progress_timeout"
     seen_keys_this_run.add(_ip_key)
     _ex_ip = alert_state.get(_ip_key)
-    if _ex_ip is None or _ex_ip.get("status") != "active":
+    # #123 R2(2026-10-01): 与耗时通道(L699)合并去重——同一 (task,last_run) 已由另一通道发过
+    # 告警(merge key active)则本通道归入已发, 不双发; 先发通道独占后写 merge mark。
+    # 反例: 同实例合并后首条仍必响(先发通道发出), 新 last_run 独立再响。判定函数
+    # scripts/alert_denoise_rules.py:r2_merge_already_sent / r2_merge_mark。
+    if adr.r2_merge_already_sent(alert_state, _ip_task, _ip_lr):
+        print(f"[r2-merge-suppress] {_ip_task} 进行中超时: "
+              f"同 last_run<{_ip_lr}> 已由超时/耗时另一通道发出, 合并去重")
+    elif _ex_ip is None or _ex_ip.get("status") != "active":
         alerts.append(
             f"SEVERE: {_ip_task} 超时未完成 已运行{_run_min}min "
             f"(计划<{_latest_sch.strftime('%H:%M')}> + 阈值{_ip_dur_thresh}s + 缓冲{_ip_buffer}min"
@@ -901,6 +939,7 @@ for _ip_task in sorted(in_progress_tasks):
             "keyword": "in_progress_timeout",
             "line_sample": f"run={_run_min}min last_run={_ip_lr}",
         }
+        adr.r2_merge_mark(alert_state, _ip_task, _ip_lr, NOW)
     else:
         print(f"[suppress] {_ip_task} 进行中超时持续中, "
               f"last_alerted={_ex_ip.get('last_alerted')}, 不重发")
@@ -1128,12 +1167,19 @@ else:
     # 状态文件不存在 → 不告警(盲区: 仓库缺失/首跑前无法判断停摆; 由 async 脚本 C-5 降级 notify 覆盖)
     print("[info] staticdata 备份心跳文件不存在, 跳过停摆检查(仓库缺失/首跑前, C-5 降级 notify 覆盖)")
 
+# #123 R2(2026-10-01): merge key 24h 清理(防 alert_state 无界膨胀; merge key 不参与恢复)
+adr.r2_merge_cleanup(alert_state, NOW)
+
 # 恢复检测: state 里 active 但本次未 seen = 异常已消失,发恢复邮件
 # (gen_schedule_stats 每任务只记首个命中,故每 task 至多1个 active key)
 # 漏跑 key(missed|...) 特殊处理: 不发恢复邮件(漏跑补跑不需通知, 任务补跑 stats
 # 自更新), 跨日(日期<今天)静默清理(昨天漏跑 key 今天不检查了)。
 # 同日窗口外未 seen 保持 active(任务可能真漏跑未补, 等 next day 跨日清理)。
 for _key, _info in list(alert_state.items()):
+    # #123 R2/R5(2026-10-01): merge| 共享去重 key 与 r2_pipeline_congestion| 日汇总状态
+    # 不是"异常告警", 不参与恢复检测(否则 merge key 未 seen 被误发恢复邮件)。
+    if _key.startswith(adr.MERGE_PREFIX) or _key.startswith(adr.R2_CONGESTION_SUMMARY_KEY_PREFIX):
+        continue
     # 通知分级(2026-08-10): pending(自愈类未通知) 未 seen = 静默恢复(不发恢复邮件)
     if _info.get("status") == "pending":
         # r2_/72h_ 有自己的 inline 恢复检测, 不在此处理
@@ -1342,54 +1388,64 @@ try:
                 print(f"[ok] 线上 overview collected_at={collected_at} lag={lag_min}min (via {base})")
                 break
         dedup_key = "overview_lag_3domain"
-        if all_lag:
+        now_full = NOW.strftime("%Y-%m-%d %H:%M:%S")
+        detail = "; ".join(
+            f"{b}={ca or 'N/A'} lag={lm if lm is not None else '?'}min [{st}]"
+            for b, ca, lm, st in lag_results
+        )
+        # #123 R1(2026-10-01): 单次 lag>20min 多为上传间隙瞬时(09-30 14:30 24min 直发 1 封误报),
+        # 连续 >=2 轮(30min, 15min/轮)仍滞后才 SEVERE(真断供 30min 内必响)。
+        # 复用 r2_intraday_lag 的 buffer 计数模式(schedule_monitor.sh L1572-1605 同构),
+        # 判定函数在 scripts/alert_denoise_rules.py:r1_buffer_judge(测试脚本打真实函数)。
+        # buffer key 带 YYYYMMDD 防跨天残留(隔日从 0 起)。阈值不动(20min)。
+        _ov_buf_key = "overview_lag_3domain|buffer|" + NOW.strftime("%Y%m%d")
+        _r1_action = adr.r1_buffer_judge(
+            alert_state, _ov_buf_key, dedup_key, all_lag, NOW,
+        )
+        if _r1_action in ("alert", "buffer", "suppress"):
             seen_keys_this_run.add(dedup_key)
-            now_full = NOW.strftime("%Y-%m-%d %H:%M:%S")
-            detail = "; ".join(
-                f"{b}={ca or 'N/A'} lag={lm if lm is not None else '?'}min [{st}]"
-                for b, ca, lm, st in lag_results
+        if _r1_action == "alert":
+            # 连续 >=2 轮仍滞后 = 真断供, 发 SEVERE + 写 state
+            alerts.append(
+                f"SEVERE: 线上 overview.json 时效滞后(主站 ss.fx8.store lag) "
+                f"threshold<20min> 连续{adr.OVERVIEW_LAG_CONTINUOUS_THRESHOLD}轮 "
+                f"now<{now_full}> 详情: {detail}"
             )
+            alert_state[dedup_key] = {
+                "status": "active",
+                "first_seen": now_full,
+                "last_alerted": now_full,
+                "keyword": "overview_lag",
+                "line_sample": detail,
+            }
+        elif _r1_action == "buffer":
+            _bf = alert_state.get(_ov_buf_key) or {}
+            print(f"[overview-lag-buffer] 线上 overview 滞后连续"
+                  f"{_bf.get('consecutive_count')}/{adr.OVERVIEW_LAG_CONTINUOUS_THRESHOLD} 轮, "
+                  f"暂不通知(单次=上传间隙瞬时)")
+        elif _r1_action == "suppress":
             _existing = alert_state.get(dedup_key)
-            if _existing is None or _existing.get("status") != "active":
-                # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
-                alerts.append(
-                    f"SEVERE: 线上 overview.json 时效滞后(主站 ss.fx8.store lag) "
-                    f"threshold<20min> now<{now_full}> 详情: {detail}"
-                )
-                alert_state[dedup_key] = {
-                    "status": "active",
-                    "first_seen": now_full,
-                    "last_alerted": now_full,
-                    "keyword": "overview_lag",
-                    "line_sample": detail,
-                }
-            else:
-                # 已 active = 抑制不重发, 只 log
-                print(
-                    f"[suppress] overview 时效滞后持续中, "
-                    f"last_alerted={_existing.get('last_alerted')}, 不重发"
-                )
-        else:
+            print(f"[suppress] overview 时效滞后持续中, "
+                  f"last_alerted={_existing.get('last_alerted')}, 不重发")
+        elif _r1_action == "recover":
             # 时效恢复: was active -> resolved, 发恢复邮件(内联, 不复用 L476 恢复循环
             # 因 overview 检查在恢复循环之后运行, 复用会被误报恢复)
             _existing = alert_state.get(dedup_key)
-            if _existing is not None and _existing.get("status") == "active":
-                # A3: 静默窗口(用旧 last_recovered 判断)
-                _emit = _recovery_cooldown_ok(dedup_key, _existing)
-                _existing["status"] = "recovered"
-                _existing["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
-                if _emit:
-                    recoveries.append({
-                        "task": "overview_lag",
-                        "keyword": "overview_lag",
-                        "first_seen": _existing.get("first_seen", "?"),
-                    })
-                else:
-                    print(f"[cooldown] overview 时效恢复邮件静默(上次恢复<30min前), 状态已置 recovered")
-                print(
-                    f"[recovery] overview 时效滞后已恢复 "
-                    f"(首次发现: {_existing.get('first_seen')})"
-                )
+            _emit = _recovery_cooldown_ok(dedup_key, _existing)
+            _existing["status"] = "recovered"
+            _existing["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+            if _emit:
+                recoveries.append({
+                    "task": "overview_lag",
+                    "keyword": "overview_lag",
+                    "first_seen": _existing.get("first_seen", "?"),
+                })
+            else:
+                print(f"[cooldown] overview 时效恢复邮件静默(上次恢复<6h前), 状态已置 recovered")
+            print(
+                f"[recovery] overview 时效滞后已恢复 "
+                f"(首次发现: {_existing.get('first_seen')})"
+            )
         # overview 检查在 save_alert_state(L509) 之后运行, 需补存防状态丢失
         save_alert_state(alert_state)
 except Exception as e:
@@ -1512,16 +1568,26 @@ try:
             ov_lag_min_r2 = int(ov_lag_r2.total_seconds() // 60)
             # 交易日盘中 20min(同 overview_lag_3domain), 交易日非盘中 24h(防盘后断链)
             ov_thresh_r2 = timedelta(minutes=20) if is_r2_trading_window else timedelta(hours=24)
+            # #123 R1(2026-10-01): r2_overview_lag 同 overview_lag_3domain 加连续轮——
+            # 单次 lag 多为上传间隙瞬时(09-30 14:30 与主站同源 1 封误报), 连续 >=2 轮仍滞后才
+            # SEVERE(真断供 30min 内必响)。buffer 带 YYYYMMDD 防跨天残留。判定函数
+            # scripts/alert_denoise_rules.py:r1_buffer_judge(与主站块同构, 测试脚本打真实函数)。
+            _r2_ov_key = "r2_overview_lag"
+            _r2_ov_buf = "r2_overview_lag|buffer|" + NOW.strftime("%Y%m%d")
             if ov_lag_r2 > ov_thresh_r2:
-                _r2_ov_key = "r2_overview_lag"
-                seen_keys_this_run.add(_r2_ov_key)
-                _ex_r2ov = alert_state.get(_r2_ov_key)
-                if _ex_r2ov is None or _ex_r2ov.get("status") != "active":
-                    _thresh_min = int(ov_thresh_r2.total_seconds() // 60)
+                _r2_ov_act = adr.r1_buffer_judge(
+                    alert_state, _r2_ov_buf, _r2_ov_key, True, NOW,
+                )
+                if _r2_ov_act in ("alert", "buffer", "suppress"):
+                    seen_keys_this_run.add(_r2_ov_key)
+                _thresh_min = int(ov_thresh_r2.total_seconds() // 60)
+                if _r2_ov_act == "alert":
+                    # 连续 >=2 轮仍滞后 = 真断供, 发 SEVERE + 写 state
                     alerts.append(
                         f"SEVERE: R2 overview.json 时效滞后 "
                         f"collected_at<{ov_collected_r2}> lag={ov_lag_min_r2}min "
                         f"threshold<{_thresh_min}min> "
+                        f"连续{adr.OVERVIEW_LAG_CONTINUOUS_THRESHOLD}轮 "
                         f"now<{NOW.strftime('%Y-%m-%d %H:%M:%S')}> (upload_r2 未推新版)"
                     )
                     alert_state[_r2_ov_key] = {
@@ -1531,13 +1597,22 @@ try:
                         "keyword": "r2_overview_lag",
                         "line_sample": f"lag={ov_lag_min_r2}min collected_at={ov_collected_r2}",
                     }
-                else:
+                elif _r2_ov_act == "buffer":
+                    _bf_r2o = alert_state.get(_r2_ov_buf) or {}
+                    print(f"[r2-ov-lag-buffer] R2 overview 滞后连续"
+                          f"{_bf_r2o.get('consecutive_count')}/{adr.OVERVIEW_LAG_CONTINUOUS_THRESHOLD} 轮, "
+                          f"暂不通知(单次=上传间隙瞬时)")
+                elif _r2_ov_act == "suppress":
+                    _ex_r2ov = alert_state.get(_r2_ov_key)
                     print(f"[suppress] R2 overview 滞后持续中, "
                           f"last_alerted={_ex_r2ov.get('last_alerted')}, 不重发")
             else:
-                # 恢复检测
-                _ex_r2ov = alert_state.get("r2_overview_lag")
-                if _ex_r2ov is not None and _ex_r2ov.get("status") == "active":
+                # 恢复检测(r1_buffer_judge 内部已清 buffer)
+                _r2_ov_act = adr.r1_buffer_judge(
+                    alert_state, _r2_ov_buf, _r2_ov_key, False, NOW,
+                )
+                if _r2_ov_act == "recover":
+                    _ex_r2ov = alert_state.get("r2_overview_lag")
                     # A3: 静默窗口
                     _emit = _recovery_cooldown_ok("r2_overview_lag", _ex_r2ov)
                     _ex_r2ov["status"] = "recovered"
@@ -1548,7 +1623,7 @@ try:
                             "first_seen": _ex_r2ov.get("first_seen", "?"),
                         })
                     else:
-                        print(f"[cooldown] r2_overview_lag 恢复邮件静默(上次恢复<30min前)")
+                        print(f"[cooldown] r2_overview_lag 恢复邮件静默(上次恢复<6h前)")
                     print(f"[recovery] R2 overview 时效滞后已恢复 "
                           f"(首次发现: {_ex_r2ov.get('first_seen')})")
 
@@ -2066,27 +2141,39 @@ def _format_alert_item(line):
 
 # 输出 + 告警
 now_str = NOW.strftime("%Y-%m-%d %H:%M:%S")
+# #123 R5(2026-10-01): R2/部署链路拥堵同根因日汇总。当日 >=2 种 R2 相关告警(如 09-30
+# r2_unreachable + r2_overview_lag + intraday 滞后同轮 3 封, 同一 upload_r2 卡死根因) →
+# 首条照发保即时性, 第 2 条起并入 r2_pipeline_congestion|{YYYYMMDD} 状态, 23:25 收尾轮发
+# 1 条汇总(现象清单 + #149 根因指针)。非 R2 告警(漏跑/exit失败/数据错)不入聚合, 照发。
+# 判定/聚合函数 scripts/alert_denoise_rules.py:r5_congestion_process。状态 key 不进恢复循环
+# (已在恢复循环开头跳过 R2_CONGESTION_SUMMARY_KEY_PREFIX)。
 if alerts:
-    print(f"[{now_str}] 检测到 {len(alerts)} 个告警:")
-    for a in alerts:
-        print(a)
-    # 复用 notify.py 发邮件 + 写 alerts/latest.md（subject 统一模板 [告警] ... MM-DD HH:MM）
-    # --from-prefix "[告警]" -> 发件人名 "[告警] 信号实验室"
-    # B2(2026-08-14): 正文由纯 SEVERE 行列表改为每项 4 行模板(严重度/影响/日志/建议)
-    body = "<br><br>".join(_format_alert_item(a) for a in alerts)
-    _sm_time = NOW.strftime("%m-%d %H:%M")
-    subprocess.run(
-        [
-            sys.executable, str(REPO / "scripts" / "notify.py"),
-            f"[告警] {len(alerts)}项计划任务异常 {_sm_time}",
-            body,
-            "--severe",
-            "--from-prefix", "[告警]",
-            "--alert-issue", "计划任务监控告警",
-            "--alert-log", str(MONITOR_LOG),
-        ],
-        check=False,
-    )
+    alerts, _r5_summary = adr.r5_congestion_process(alert_state, alerts, NOW)
+    if _r5_summary:
+        alerts.append(_r5_summary)
+    if not alerts:
+        print(f"[{now_str}] 本轮告警已由 R2 拥堵日汇总接管, 见 r2_pipeline_congestion 状态")
+    else:
+        print(f"[{now_str}] 检测到 {len(alerts)} 个告警:")
+        for a in alerts:
+            print(a)
+        # 复用 notify.py 发邮件 + 写 alerts/latest.md（subject 统一模板 [告警] ... MM-DD HH:MM）
+        # --from-prefix "[告警]" -> 发件人名 "[告警] 信号实验室"
+        # B2(2026-08-14): 正文由纯 SEVERE 行列表改为每项 4 行模板(严重度/影响/日志/建议)
+        body = "<br><br>".join(_format_alert_item(a) for a in alerts)
+        _sm_time = NOW.strftime("%m-%d %H:%M")
+        subprocess.run(
+            [
+                sys.executable, str(REPO / "scripts" / "notify.py"),
+                f"[告警] {len(alerts)}项计划任务异常 {_sm_time}",
+                body,
+                "--severe",
+                "--from-prefix", "[告警]",
+                "--alert-issue", "计划任务监控告警",
+                "--alert-log", str(MONITOR_LOG),
+            ],
+            check=False,
+        )
 else:
     print(f"[{now_str}] OK 所有任务按计划执行，无漏跑，无退出失败")
 

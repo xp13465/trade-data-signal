@@ -58,6 +58,10 @@ from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate
 from pathlib import Path
 
+# #123 R4(2026-10-01): staticdata 备份失败分级判定纯函数(scripts/alert_denoise_rules.py,
+# 与 schedule_monitor.sh 共享同一实现; 本文件在同目录, import 直接可用)。
+import alert_denoise_rules as adr  # noqa: E402
+
 
 def _ssl_cafile() -> str | None:
     """SMTP_SSL 等 TLS 场景的 CA 证书路径: 优先 certifi; launchd/裸系统 python 无
@@ -2090,6 +2094,38 @@ def main(argv: list[str] | None = None) -> int:
                   + (f"（未发出：{'/'.join(fail)}）" if fail else ""), file=sys.stderr)
         else:
             print(f"[notify][agent-done] 汇总：全部渠道未发出（{'/'.join(fail) or '无渠道'}）", file=sys.stderr)
+        return 0
+
+    # #123 R4(2026-10-01): staticdata 备份失败分级——staticdata_backup_async.sh 被并发
+    # 改动占用, 分级落在 notify.py 调用侧(dedup_key=staticdata_backup_fail 时拦截)。
+    # 原逻辑: 任何 STATICDATA_FAIL -> --severe 全渠道直发(dedup 3600=1h); 09-30 预算
+    # 耗尽单日 fail 仍轰炸邮件。新逻辑: 强制 dedup 21600(6h, 晚间备份每轮 ~30min 内不再
+    # 逐轮轰炸) + r4_staticdata_grade 分级——连续 >=2 天未追平(真 R2 备份缺口) -> SEVERE
+    # 直发; 单日预算耗尽已追平(心跳 ok)/单日未追平(迁移期一次性) -> info 只记 dashboard
+    # 不推送。判定函数 scripts/alert_denoise_rules.py:r4_staticdata_grade。
+    if args.dedup_key == "staticdata_backup_fail":
+        _r4_repo = Path(os.environ.get("REPO") or REPO)
+        _r4_hb = _r4_repo / "data" / "staticdata_backup_heartbeat.json"
+        _r4_st = _r4_repo / "data" / "staticdata_backup_fail_state.json"
+        _r4_tier, _r4_reason = adr.r4_staticdata_grade(_r4_hb, _r4_st, datetime.now())
+        if not args.dry_run and check_dedup(args.dedup_key, 21600):
+            print(f"[notify][r4] staticdata_backup_fail 21600s 窗口内已发, suppress", file=sys.stderr)
+            return 0
+        print(f"[notify][r4] staticdata_backup_fail 分级={_r4_tier}: {_r4_reason}", file=sys.stderr)
+        if _r4_tier == "severe":
+            results = send_tiered(args.subject, args.body, tier=TIER_CRITICAL,
+                                  dry_run=args.dry_run, from_prefix=args.from_prefix,
+                                  feishu_group=args.feishu_group,
+                                  reply_to_message_id=args.reply_to_message_id)
+        else:
+            results = send_tiered(args.subject, args.body, tier=TIER_INFO,
+                                  dry_run=args.dry_run, from_prefix=args.from_prefix,
+                                  feishu_group=args.feishu_group,
+                                  reply_to_message_id=args.reply_to_message_id)
+        if args.dedup_key and not args.dry_run:
+            update_dedup(args.dedup_key)
+        if args.alert_issue:
+            write_alert(args.alert_issue, args.body, log_path=args.alert_log)
         return 0
 
     # 去重检查：window 内已告警过则 suppress 静默退出（返回 0，不阻塞调用方）
