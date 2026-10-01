@@ -2122,7 +2122,14 @@ def main(argv: list[str] | None = None) -> int:
                                   dry_run=args.dry_run, from_prefix=args.from_prefix,
                                   feishu_group=args.feishu_group,
                                   reply_to_message_id=args.reply_to_message_id)
-        if args.dedup_key and not args.dry_run:
+        # P1-1 契约(2026-10-01 R4 补审修复): 发送成功才更新 dedup——severe 任一渠道真发出
+        # 才占 21600s 窗(与通用路径 L2150 `and ok` 同构); 全渠道失败不更新, 下次调用可重试
+        # (防 staticdata 备份失败告警在发送故障时被静默 suppress 吞掉)。info 级只记 dashboard
+        # 不推送, 渠道全 False 不占窗(也不占 severe 窗)。按渠道字段过滤 send_tiered 返回里的
+        # 非渠道键(tier/info_logged/deferred), 防 `any(results.values())` 被 info_logged 误判。
+        _r4_sent = [ch for ch, v in results.items()
+                    if v and ch in ("email", "telegram", "feishu")]
+        if args.dedup_key and not args.dry_run and _r4_sent:
             update_dedup(args.dedup_key)
         if args.alert_issue:
             write_alert(args.alert_issue, args.body, log_path=args.alert_log)
