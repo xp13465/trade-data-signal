@@ -56,8 +56,9 @@
 1. **R2 对象为 85 个 .db + 1 个 .db-shm(32K),报告字面称「86 个 .db」**。差异:上传清单含 sentiment_20260718_1758.db-shm(日志第 86 行,md5 b7c14… 与 R2 取回一致)。脚本代码应过滤 .shm 但日志显示其被上传(脚本 mtime 20:37 vs 全量运行 21:04,或该文件当时在清单中)。**不构成恢复缺陷**:85 个真 .db 全在,唯一有效内容完整;shm 为 SQLite sidecar 无业务数据,恢复时自动重建。
 2. **上传日志含 4 次 PUT TimeoutError attempt 1 重试(均成功 status=200)**,执行报告异常节未提。重试成功+内容全量验证过,不构成风险。
 
-## fsck 复核状态
-- staticdata fsck --no-dangling 复核:运行中(该仓 1.19G pack 遍历慢,执行报告第二轮亦 timeout 600 截断无输出),已观察 ≥5 分钟零错误输出 —— git fsck 只输出发现问题,零输出即到当前遍历位置无 missing/corrupt,与执行报告证据同态;tds fsck exit 0 + 两仓 count-objects garbage=0 + 可达对象 cat-file 全正常为旁证。
+## fsck 复核状态(终态)
+- staticdata 仓 fsck 独立复核:多轮运行(timeout 480 --full / 900 --no-dangling / 120 --no-dangling)全部零错误输出;严格探针 `FSCK_REAL_RC=124` = timeout 截断(该仓 1.19G pack 遍历慢,执行报告第二轮同样 timeout 600 截断无输出)——git fsck 只输出发现问题,零输出即遍历区间无 missing/corrupt,与执行报告第二轮同态
+- staticdata 全量 fsck 完整跑完的终态证据由执行报告第一轮 `--full --no-dangling` 50min 全程零输出提供;旁证:tds fsck `--full --no-dangling` exit=0(独立复核)、两仓 count-objects garbage=0/size-garbage=0、可达对象 rev-parse/cat-file 全正常 → 「无 missing/corrupt」判定成立
 
 ## 结论
 **PASS**。四项删除/缩容的独立可恢复路径均亲手验证成立;报告数字与实物基本相符(2 处低分观察项不构成缺陷);§23.11 三处记录异常均核实为真且无未遂异常遗漏;红线零违反。8.3G 镜像、云上 systemd、本机 main 均未被动。
