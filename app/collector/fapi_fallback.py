@@ -10,9 +10,9 @@ collect_snapshot 空值分支调用本模块做真异源兜底(同花顺官方 A
 失败一律返回 (None, msg) 不抛异常,主源失败时兜底失败=静默保留 empty(不阻断)。
 
 端点(FAPI 契约 http://fuyao.aicubes.cn):
-  limit-up-pool   ?date_ms=<ms>&page=1&size=200 -> data.pagination.total + data.item[]
-  limit-down-pool 同结构
-  limit-break-pool 同结构
+  limit-up-pool    ?date_ms=<ms>&page=1&size=200 -> data.pagination.total + data.item[]
+  limit-down-pool  ?date=YYYYMMDD&page=1&size=200 -> 同结构(#145 与涨停池参数口径不同)
+  limit-break-pool ?date=YYYYMMDD&page=1&size=200 -> 同结构(#145)
   dragon-tiger-list ?board_type=all&date=YYYY-MM-DD -> data.count + data.stock_items[]
 实测(20260901):涨停 80 vs 东财 83、跌停 0 vs 0、炸板 6 vs 6;龙虎榜 count=68 vs 东财 79。
 """
@@ -115,7 +115,14 @@ def fetch_zt_fallback(func_name: str, date: str) -> tuple[pd.DataFrame | None, s
     r = ZT_ENDPOINTS.get(func_name)
     if not r:
         return None, f"no fapi endpoint for {func_name}"
-    params = {"date_ms": _date_ms(date), "page": 1, "size": 200}
+    # #145 参数口径按池区分:limit-up-pool 契约用 date_ms(毫秒时间戳),涨停池
+    # 当日实时取数保持 date_ms 逐位不变;limit-down-pool/limit-break-pool 契约用
+    # date=YYYYMMDD——原先三池共用 date_ms 致跌停/炸板池历史日期取数 FAPI
+    # 返回 code:1002(参数不合法),老日期恒取不到。
+    if r == "limit-up-pool":
+        params = {"date_ms": _date_ms(date), "page": 1, "size": 200}
+    else:
+        params = {"date": date, "page": 1, "size": 200}
     data = _api(f"/api/a-share/special-data/{r}", params)
     if data is None:
         return None, f"fapi {r} unavailable"
