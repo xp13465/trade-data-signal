@@ -3,6 +3,8 @@
 > 收尾 `docs/ops/lianban-backfill-review-20261002.md` 的 P2 残留。P1-1 已修并合 main(b09a2f62f)。
 > 本批修 6 条(P2-1/2/3/4/5/7),不修 2 条(P2-6/P2-8,理由见末)。
 > 全程只碰 /tmp 沙箱库,不碰生产库、本机 data/、云上。
+>
+> **二轮订正(2026-10-02 同分支延续)**:P2-3「空池写 0」经独立 reviewer 用真实代码实测证伪(前提错误:空 df 有 3 条路径且 API 层无法区分真0/无数据/契约异常),回退为「记 gap、不写值」并把注释改对;遗留待办登记 `app/collector/fapi_fallback.py` 路径 C msg 语义缺陷(只记不修)。详见 P2-3 审查后订正小节。
 
 ## 逐条改法 / 前后对照 / 自测值 / 为何这么改
 
@@ -28,6 +30,8 @@
 
 ### P2-3 真 0 语义矛盾:空池被记 gap,注释却写「真 0 语义一致」
 
+> ⚠️ **本条结论已被二轮订正推翻**(见下「审查后订正」小节)。原文保留可反查(§5.4⑦ 修复链,不删旧字)。
+
 - **改法**:循环内 `len(df)==0` 分支改为写 0——`value, st_cnt, total = 0.0, 0, 0`(写 0.0,source=fapi),不再记 gap。`_fetch_zt_all_pages` docstring 补空池语义说明。
 - **判据(先定哪个对,再改)**:
   1. `app/collector/fapi_fallback.py`:`total==0` → 返回空 df + msg 含 `"empty(真0)"`,即**服务端显式声明当天涨停池为真 0**;请求失败返回 None 是另一条路径。
@@ -39,6 +43,29 @@
   - 修前:20210904 空池 → `gap_days=1`,不写。
   - 修后:20210904 空池 → 写 0.0,`gap_days=0`。
 - **自测值**:`db_rows_after_write1` 含 `('20210904', 0.0, 'fapi')`;`gap_days=0`。
+
+### P2-3 审查后订正:上一轮「空池写 0」基于错误前提,回退为记 gap(2026-10-02 二轮)
+
+> **结论先行**:上一轮 P2-3 判定「`total==0` → 服务端显式声明真0 → `len(df)==0` 唯一合法含义=真0」**被独立 reviewer 用真实代码实测证伪**。空 df 在 API 层有 **3 条可达路径**,且「真0 / 服务端无该日数据 / 契约异常」**本就区分不了**。处置:**回退为记 gap、不写值**(恢复 d1b3e9382 之前行为),并把注释改对。旧结论保留可反查(§5.4⑦ 修复链,不删旧字)。
+
+- **reviewer 发现(独立验证)**:用真实 `app/collector/fapi_fallback.py` + patch `_api` 构造 3 条 `len(df)==0` 可达路径:
+
+| 路径 | 构造 | msg | d1b3e9382 行为 | 危害 |
+|---|---|---|---|---|
+| A 真0 | `pagination.total=0` | `empty(真0)` | 写 0(合理) | 无 |
+| B 契约异常 | `total=700` 但 item 字段缺失/改名 | `TRUNCATED total=700 got=0` | **写 0** | 静默丢 700 行 |
+| C 契约异常 | data 有 item 但缺 pagination,total 误取 0 | `empty(真0)`(**误报**) | **写 0** | 静默丢全部 |
+
+- **危害单向**:写 0 之后 `fill-gaps-only` **永久跳过不再重试**,下游 `a_sentiment` 永远缺/错 lianban 分项。
+- **处置决定(核心判断,已定照做)**:空池 = 那天全市场一只涨停股都没有 —— A 股交易日现实中不存在(2015 股灾日也有涨停)。FAPI 报 total=0 更可能是服务端没有该日数据。而「真0」与「服务端无数据/契约异常」在 API 层**本来就区分不了** —— 区分不了就不该猜。**写 0 是猜,记 gap 是诚实**(§5.1④)。
+  - **回退**:主循环 `len(df)==0` 分支恢复为「记 gap、不写值」(d1b3e9382 之前行为),`continue` 不进入写/跳过判定。
+  - **注释改对**(本次真正的修复):`_fetch_zt_all_pages` docstring + 主循环注释写清 3 条路径 + 无法区分 + 按异常记 gap 的理由,禁止猜测性写 0。
+  - **建议增强(记 msg 原文)**:现有 gap 记录结构 `{"date", "reason"}` 本就内嵌 `msg` 原文(`f"FAPI 涨停池空(...): {msg}"`),人工可直接分辨 `empty(真0)` vs `TRUNCATED`,**增强天然满足,无需改 gap 结构**。
+- **对已写库数据影响**:无。上一轮修复后**尚未真写生产库**(全程只碰 /tmp 沙箱;生产写库原计划 23:00+ 安全窗口,本订正先于写库落地),故无已污染生产行需回填;生产既有 1154 天 fapi 成功值不受影响。
+- **前后对照(回退后)**:
+  - 回退前(d1b3e9382):20210904 空池 → 写 0.0,`gap_days=0`。
+  - 回退后:20210904 空池 → `gap_days=1`,不写(记 gap)。
+- **自测值(真实 fetch_zt_fallback + patch _api,3 交易日沙箱)**:`write1: planned_write=0 | gap_days=3 | success_days=0`;三 gap reason 分别含 `empty(真0)`(A)/`TRUNCATED total=700 got=0`(B)/`empty(真0)`(C 误报);库行=空(3 天均未写值);`dryrun2: planned_write=0`(幂等)。
 
 ### P2-4 静默退出:exit code 恒 0,全量失败也静默
 
@@ -94,6 +121,20 @@
 
 其余(20210901 已有值跳过、20210902 增量、skipped_existing 数、4 日交易日数)逐位一致,无其他差异。
 
+### 二轮回退对账(相对 d1b3e9382,只落 P2-3 相关)
+
+d1b3e9382 修后:`planned_write=2 | skipped_existing=1 | skipped_manual=1 | gap_days=0`
+二轮回退后(3 交易日空池沙箱):`planned_write=0 | skipped_existing=0 | skipped_manual=0 | gap_days=3`。
+
+**差异 1 类行为,只落在 P2-3 相关,非静默**:
+
+| 项 | d1b3e9382 后 | 二轮回退后 | 原因 | 是否预期 |
+|---|---|---|---|---|
+| 空池日(空 df) | 写 0.0(fapi),计入 planned_write,gap_days=0 | 记 gap,gap_days=1,不写 | P2-3 回退:空 df 3 条路径无法区分真0/无数据/契约异常,按异常记 gap,禁止猜写 0 | 预期 |
+
+- 代码 diff 只落两处(均 P2-3 相关):`_fetch_zt_all_pages` docstring 空池语义说明 + 主循环 `len(df)==0` 分支。`_fmt`/`_to_float`/`_source_map`/exit code/`--confirm-prod`/`_target_is_prod`(P2-1/2/4/5/7)全部保留未动。
+- P2-2 修后计数(20210903 manual+NULL → skipped_manual)不受影响;20210903 在二轮测试中作为路径 C 空池入口(gap),与 P2-2 的 manual 语义无交集。
+
 ## 不修项(P2-6 / P2-8)
 
 - **P2-6(单事务持写锁 20~40 分钟)**:设计权衡,非缺陷——单事务=原子,中途 Ctrl-C/SIGKILL 零落库,已有「安全窗口 23:00 后 / 周末休市」纪律 + checklist §五 F8 说明。写锁期间拒绝其他写连接是 SQLite 正常行为,非脚本可改进点;拆多事务会失去原子性,得不偿失。
@@ -119,11 +160,30 @@
 
 /Users/linhuichen/code/trade/.venv/bin/python -c "from app.backfill_lianban import _target_is_prod; ..."
 # None→True 云上主库→True 本机DB_PATH→True 沙箱→False,全 PASS
+
+### 二轮回退自测(2026-10-02,P2-3 订正)
+
+```bash
+/Users/linhuichen/code/trade/.venv/bin/python -m py_compile app/backfill_lianban.py
+# → PY_COMPILE_OK
+
+/Users/linhuichen/code/trade/.venv/bin/python /tmp/lianban-p2fix2/revert_3path_test.py
+# write1: {'planned_write': 0, 'gap_days': 3, 'success_days': 0}
+#   gap 20210901: ... fapi limit-up-pool empty(真0) date=20210901        (路径A)
+#   gap 20210902: ... fapi limit-up-pool 0 rows; TRUNCATED total=700 got=0 (路径B)
+#   gap 20210903: ... fapi limit-up-pool empty(真0) date=20210903        (路径C,误报)
+# dryrun2: {'planned_write': 0, 'gap_days': 3, 'success_days': 0}   # 幂等 PASS
+# 库行:空(3天均未写值);ALL-PASS
 ```
+
+## 遗留待办(只记不修)
+
+- **`app/collector/fapi_fallback.py` `total = int(pag.get("total") or 0)` 路径 C msg 语义缺陷**(#140 已合 main 代码):`data` 有 item 但 `pagination` 字段缺失时,`pag = data.get("pagination") or {}` 得空 dict → `total` 误取 0 → 走 `if total == 0` 分支返回空 df + **误报** `empty(真0)`,实际有数据被静默丢弃。本次回退已让 backfill_lianban 在路径 C 记 gap(不丢值),但 **msg 语义本身仍是错的**(把「契约异常」误报成「真0」),且影响所有 `fetch_zt_fallback` 消费方。待后续排查真实 FAPI 契约分页字段缺失概率后决定是否修(修法需区分「pagination 缺失」与「total 确实为 0」,如 `"pagination" in data` 判定)。**本次不动该文件。**
 
 ## 文件清单
 
-- `app/backfill_lianban.py`(P2-1/2/3/4/7)
+- `app/backfill_lianban.py`(P2-1/2/3/4/7;**二轮订正:回退 P2-3 空池写 0 为记 gap,改对 docstring + 主循环注释**)
 - `docs/scripts/verify_lianban_fillgaps_zerotouch.py`(P2-5 + NULL 值对比宽容)
 - `docs/scripts/sent_impact_lianban.py`(P2-5)
 - `docs/ops/lianban-prod-write-checklist.md`(P2-7 写库命令补 `--confirm-prod`)
+- `docs/ops/lianban-backfill-p2fix-20261002.md`(**二轮订正:补 P2-3 审查后订正小节 + 二轮回退对账 + 遗留待办段;旧结论保留可反查**)

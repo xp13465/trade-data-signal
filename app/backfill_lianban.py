@@ -118,9 +118,15 @@ def _fetch_zt_all_pages(date: str) -> tuple[object, str]:
 
     返回 (df or None, msg)。df 含全量行;None=失败。
 
-    空池语义(P2-3):FAPI 服务端显式 total=0 时返回空 df + msg `empty(真0)`
-    (不是 None——请求失败才返 None)。主循环 `len(df)==0` 分支把它当「当日涨停
-    真0」写 value=0,与东财涨停池空=真0 语义一致,不再记 gap(见 backfill_lianban)。
+    空 df 语义(2026-10-02 订正,回退 d1b3e9382 的 P2-3):fetch_zt_fallback 返回
+    空 df 有 3 条可达路径,且 API 层**无法区分**「该日真0 / 服务端无该日数据 /
+    契约异常」:
+      A. 真0:          pagination.total=0                  -> msg `empty(真0)`
+      B. 契约异常:      total=700 但 item 字段缺失/改名      -> msg `TRUNCATED total=700 got=0`
+      C. 契约异常:      data 有 item 但缺 pagination,total 误取 0 -> msg 误报 `empty(真0)`
+    A 股交易日全市场涨停池为空现实中不存在(2015 股灾日也有涨停),FAPI 报
+    total=0 更可能是服务端无该日数据。故主循环 `len(df)==0` 一律按**异常**记
+    gap、不写值(保守、可重试、诚实,§5.1④;禁止猜测性写 0,详见主循环注释)。
     """
     return fetch_zt_fallback("stock_zt_pool_em", date)
 
@@ -255,17 +261,26 @@ def backfill_lianban(start: str, end: str, *, db: str | None = None,
                 gaps.append({"date": d, "reason": msg})
                 continue
             if len(df) == 0:
-                # P2-3(判据见下):FAPI 服务端显式 total=0 = 当日涨停池真0(请求失败
-                # 返回 None 已在上面拦截,不会走到这)。东财涨停池空=真0 语义一致,
-                # 最高连板 = 0。写 0 而非记 gap——真0日每次重跑 FAPI 都返回空,
-                # 记 gap 会永久 retry 空转 + 下游 sentiment 缺 lianban 分项。
-                value, st_cnt, total = 0.0, 0, 0
-            else:
-                value, st_cnt, total = max_lianban_ex_st(df, with_st=with_st)
-                if value is None:
-                    gaps.append({"date": d,
-                                 "reason": f"全部被排除ST(排除{st_cnt}/{total}行,含ST时无连板可取值)"})
-                    continue
+                # 空 df 处理(2026-10-02 回退 d1b3e9382 的 P2-3 语义改动):记 gap、
+                # 不写值(禁止猜测性写 0)。依据:空 df 在 fetch_zt_fallback 层有
+                # 3 条可达路径,API 层无法区分「该日真0 / 服务端无该日数据 / 契约异常」:
+                #   A. 真0:      pagination.total=0 -> msg empty(真0)
+                #   B. 契约异常: total=700 但 item 字段缺失/改名
+                #                -> msg TRUNCATED total=700 got=0(写 0 静默丢 700 行)
+                #   C. 契约异常: data 有 item 但缺 pagination,total 误取 0
+                #                -> msg 误报 empty(真0)(写 0 静默丢全部)
+                # A 股交易日全市场涨停池为空现实中不存在(2015 股灾日也有涨停),
+                # FAPI 报 total=0 更可能是服务端无该日数据。写 0 是猜、记 gap 是
+                # 诚实:gap 可重试、可人工核、不污染下游;且填 0 后 fill-gaps-only
+                # 永久跳过不再重试,下游 a_sentiment 永远缺/错 lianban 分项。
+                # gap 的 reason 已带 msg 原文,人工可分辨 empty(真0) vs TRUNCATED。
+                gaps.append({"date": d, "reason": f"FAPI 涨停池空(真0/无数据/契约异常无法区分,3条路径见backfill_lianban主循环注释): {msg}"})
+                continue
+            value, st_cnt, total = max_lianban_ex_st(df, with_st=with_st)
+            if value is None:
+                gaps.append({"date": d,
+                             "reason": f"全部被排除ST(排除{st_cnt}/{total}行,含ST时无连板可取值)"})
+                continue
             computed_all.append({"date": d, "value": value})
 
             # ── 写/跳过判定 ──
