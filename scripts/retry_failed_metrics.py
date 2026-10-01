@@ -32,6 +32,7 @@ self_heal 重试或明日 update_all 兜底)。
 """
 import datetime as dt
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -67,14 +68,55 @@ def _load_counts() -> dict:
 
 
 def _save_counts(counts: dict) -> None:
-    """原子写计数文件(tmp+replace, 防半截被并发 self_heal 读走)。失败仅打日志不抛。"""
+    """原子写计数文件(tmp+replace, 防半截被并发 self_heal 读走)。
+
+    2026-10-01 #132 fail-loud 修复: 写失败**直接抛异常**(不再只打日志), main() 捕获后
+    置非零退出 → self_heal.sh `|| echo "⚠..."` 分支接管(chain: pipefail → audit log 标记)。
+    原实现「失败仅打日志不抛」= 计数永远写不进 → 连续失败永远到不了阈值 → 永久静默,
+    正是 #131 要修的病灶(counter 写失败 = 防静默机制本身静默, 同类)。
+    """
+    COUNT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = COUNT_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(counts, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    tmp.replace(COUNT_FILE)
+
+
+def _notify_count_file_write_fail(e: Exception) -> None:
+    """计数文件写失败告警(2026-10-01 #132): 连续失败计数无法持久化 = #131 防静默
+    机制本体失效, 必须被告警——只留 audit 日志一行无人主动查=仍静默(教训 L46:
+    「latest.md 沉默≠无告警」同精神)。复用 notify.py 通道(邮件+飞书)。
+
+    分级判断: tier warning(非 SEVERE) — 计数盘写失败是本地基础设施故障(权限/磁盘),
+    不是数据源故障; 数据级失败仍由内存计数在达阈值瞬间发 _notify_repeat_failure(不依赖
+    写盘成功), 数据告警不丢, 故本告警仅需 warning 提醒"防静默机制本体降级"。6h dedup
+    对齐 with_lock 排队超时(P2 降噪)惯例, 持久故障最多 ~2-4 封/天, 防轰炸。
+
+    仅写失败时触发; notify 自身失败不阻塞 exit 非0(self_heal `||` 分支仍留 audit 标记)。
+    RETRY_NOTIFY_DRY_RUN=1 时走 --dry-run(不真发, 本地自测用, 对齐 with_lock 的
+    WITH_LOCK_NOTIFY_DRY_RUN / on_skip_notify.sh 的 ON_SKIP_DRY_RUN 惯例)。
+    """
+    subject = "[告警][重采计数] 计数文件写失败, 连续失败告警机制失效"
+    body = (
+        f"<b>retry_failed_metrics 计数文件写失败</b>: <code>{COUNT_FILE}</code><br>"
+        f"异常: <code>{e}</code><br>"
+        f"影响: 连续失败计数(阈值 {RETRY_NOTIFY_THRESHOLD})无法跨轮持久化,"
+        f"#131 防静默机制本体失效——写盘恢复前, 连续失败跨轮累计被打断,"
+        f"可能重演 17 轮失败零告警盲点。<br>"
+        f"建议: 检查 data/ 目录/磁盘权限或空间, 修复后计数自动恢复。"
+    )
+    cmd = [sys.executable, str(_ROOT / "scripts" / "notify.py"),
+           subject, body, "--tier", "warning", "--from-prefix", "[告警]",
+           "--dedup-key", "retry_fm_count_file_write_fail", "--dedup-window", "21600"]
+    if os.environ.get("RETRY_NOTIFY_DRY_RUN") == "1":
+        cmd.append("--dry-run")
     try:
-        COUNT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp = COUNT_FILE.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(counts, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-        tmp.replace(COUNT_FILE)
-    except Exception as e:  # noqa: BLE001
-        print(f"[retry] 失败计数原子写失败(不影响重采主流程): {e}", file=sys.stderr)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:
+            print(f"[notify] 计数写失败告警退出码 {r.returncode}: {(r.stderr or '')[-200:]}", file=sys.stderr)
+        else:
+            print(f"[notify] 计数写失败告警已发(dedup 6h)", flush=True)
+    except Exception as ne:  # noqa: BLE001
+        print(f"[notify] 计数写失败告警发送异常(不阻塞, exit 非0 兜底): {ne}", file=sys.stderr)
 
 
 def _is_collect_failure(msg: str) -> bool:
@@ -219,13 +261,25 @@ def main() -> int:
                 n = counts.get(mid, 0) + 1
                 if n >= RETRY_NOTIFY_THRESHOLD:
                     counts.pop(mid, None)  # 达标发一次后清零暂歇, 防每轮轰炸(去重)
-                    _save_counts(counts)
+                    # 先通知后落盘(2026-10-01 #132): 阈值告警依赖内存计数, 必须发出,
+                    # 不因计数文件写失败被吞(原实现先 _save_counts 再通知, 一旦写失败
+                    # 直接冒泡会把本次 _notify_repeat_failure 一起吞掉=双静默)。
                     _notify_repeat_failure(mid, n, today, msg)
                 else:
                     counts[mid] = n  # 未达阈值, 累加后下次再判
             else:
                 counts.pop(mid, None)  # 配置类失败不累计(重试无意义)
-    _save_counts(counts)
+    # 末尾一次性落盘(fail-loud, 2026-10-01 #132):
+    # 原实现「达标路径循环内 + 末尾各写一次」, 注释却写「末尾一次性落盘」, 注释与实现不符。
+    # 收敛为仅末尾写: ①写失败须 fail-loud 置非零退出, 循环内预写会让写失败冒泡吞掉阈值
+    # 通知(见上), 必须先通知后落盘; ②收敛后少一次 IO、注释与实现一致; ③代价=通知后进程
+    # 若被杀致清零未落盘, 后果仅下次多一轮计数(非静默类风险), 可接受。
+    try:
+        _save_counts(counts)
+    except Exception as e:  # noqa: BLE001
+        print(f"[retry] 计数文件原子写失败(连续失败告警机制失效, fail-loud): {e}", file=sys.stderr)
+        _notify_count_file_write_fail(e)
+        return 1
     print(f"=== retry 完成 ok={ok} fail={fail} ===", flush=True)
     return 0
 

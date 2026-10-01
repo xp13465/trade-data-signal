@@ -329,13 +329,19 @@ def _current_slot():
     """
     slot = os.environ.get("BACKFILL_SLOT", "").strip()
     if slot:
-        # 归一：02:xx 小时段（如 launchd 延迟补跑注入 0205）统一算 02:00 强制重算槽，
-        # 防 mac 睡眠唤醒后延迟执行丢失 02:00 槽的每日自纠正
-        if slot.startswith("02"):
+        try:
+            hh = int(slot[:2])
+        except ValueError:
+            hh = -1
+        # 归一：02:xx~04:xx 小时段（launchd 延迟补跑注入 0300/0459 等）统一算 02:00
+        # 强制重算槽（2026-10-01 #132 举一反三：与 backfill_direct_metrics._is_morning_slot
+        # 同病——原 startswith("02") 在 mac 睡眠唤醒延迟时丢 02:00 槽语义，
+        # 防 mac 睡眠唤醒后延迟执行丢失 02:00 槽的每日自纠正）
+        if 0 <= hh < 5:
             return "0200"
         return slot
     h = _dt.datetime.now().hour
-    if h == 2:
+    if h < 5:
         return "0200"
     if h == 16:
         return "1635"
