@@ -32,16 +32,18 @@
 
 | # | 调用方 | timer 时点 | 超时跳过后的兜底路径 | 可靠性 |
 |---|---|---|---|---|
-| 1 | update_all.sh:146(deploy all, 主链) | 17:50 | 次日 17:50 全量重跑追平; 17:50 锁空, 实际不触发超时 | ✓ |
+| 1 | update_all.sh:146(deploy all, 主链) | 17:50 | 次日 17:50 全量重跑追平; 10-01 实测 17:50 **排队 ~37s**后拿到(<600s), 改造后 async 段1 移到锁外、届时锁空 | ✓ |
 | 2 | futures_backfill.sh:97 | 20:05 | 次日 20:05 重跑; 期货数据源持久可重拉 | ✓ |
 | 3 | etf_national_team_backfill.sh:123 | 20:07 | 次日 20:07 重跑 | ✓ |
 | 4 | lhb_backfill.sh:107 | 18:30 | 次日 18:30 重跑; 交易所公布数据持久 | ✓ |
 | 5 | rzhb_backfill.sh:134 | 08:00/19:15 | 次日 08:00+19:15 双机会 | ✓ |
 | 6 | public_fund_daily.sh:82 | 16:30 | 次日 16:30 重跑; 基金净值 T+1 公布 | ✓ |
 | 7 | public_fund_full.sh:87 | 22:00 | 次日 22:00 重跑 | ✓ |
-| 8 | public_fund_quarterly.sh:90 | 03:00 | 下季度 03:00; 凌晨锁空闲, 600s 实际不触发 | ✓ |
+| 8 | public_fund_quarterly.sh:90 | 03:00 | 下季度 03:00; 10-01 实测 03:00 **排队 ~147s**后拿到(<600s), 改造后 async 段1 移到锁外 | ✓ |
 | 9 | index_backfill.py:1139(backfill-evening) | 21:00 | 次日 21:00 重跑 | ✓ |
 | 10 | pipeline.sh:71(DEPLOY_EACH=1, 举一反三) | 手动/单跑 | 下一轮完整 deploy(update_all 主链每日)兜底 | ✓ |
+
+> **措辞校正(2026-10-01 reviewer 复核后修,旧措辞保留可反查)**:本表第 1、8 行原写「17:50 锁空」「凌晨锁空闲」,**与根因报告 §2 实测不符** —— 10-01 实测 17:17:48→17:50:37 async 在跑(17:50 排队 ~37s 后拿到)、02:35:40→03:02:27 async 在跑(03:00 排队 ~147s 后拿到)。**结论不变**(两次排队均 <600s,不触发超时),改的是表述:由「锁空」改为「排队时长 <600s 可拿到」。原措辞见本文件 git 历史 commit `d8d9ac255`。
 
 **改动文件(10)**: `scripts/update_all.sh` `scripts/futures_backfill.sh` `scripts/etf_national_team_backfill.sh` `scripts/lhb_backfill.sh` `scripts/rzhb_backfill.sh` `scripts/public_fund_daily.sh` `scripts/public_fund_full.sh` `scripts/public_fund_quarterly.sh` `app/collector/index_backfill.py` `scripts/pipeline.sh`。
 
