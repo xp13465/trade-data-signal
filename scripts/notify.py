@@ -1632,7 +1632,8 @@ def clear_warning_dedup_for_recovery(subject: str, body: str = "") -> list[str]:
     return hit
 
 
-def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bool:
+def defer_warning(subject: str, body: str, from_prefix: str | None = None,
+                  dry_run: bool = False) -> bool:
     """warning 级：写入聚合 buffer（warning_buffer.jsonl），等 flush_warning_batch 批发。
 
     不直接推送——由 schedule_monitor/monitor_72h 每轮尾部调 flush_warning_batch()，
@@ -1656,7 +1657,16 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bo
         少计一次，方向多发，绝不因锁问题阻塞告警链路）。
     指纹/状态异常一律 fail-open 直接入队（宁可多发不吞告警）。返回 True=已处理
     （入队或计数合并），调用方无需区分（既有调用方均不消费返回值）。
+
+    dry_run=True（#132 复审 C-2 修复，2026-10-01）：不写 buffer、不落 dedup 状态、
+    不外发，仅模拟走一遍返回 True——放函数最前短路，确保 dry-run 绝不触碰任何状态
+    文件（P2④ 同口径：dry_run 全路径只读）。返回仍为 True 对齐 test_u10 钉死的
+    「返回恒 True」语义（追加失败也 True，方向宁多发），dry_run 只是模拟不改变契约。
     """
+    if dry_run:
+        print(f"[notify][warning][dry-run] 模拟入聚合 buffer（不写盘）：{subject}",
+              file=sys.stderr)
+        return True
     now = datetime.now()
     fp = ""
     try:
@@ -2011,12 +2021,34 @@ def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
         log_info(subject, body)
         return {"tier": tier, "email": False, "telegram": False, "feishu": False, "info_logged": True}
     if tier == TIER_WARNING:
-        defer_warning(subject, body, from_prefix=from_prefix)
+        # C-2 透传 dry_run（2026-10-01）：defer_warning 最前短路，dry-run 不写 buffer/状态
+        defer_warning(subject, body, from_prefix=from_prefix, dry_run=dry_run)
         return {"tier": tier, "email": False, "telegram": False, "feishu": False, "deferred": True}
     res = send(subject, body, severe=(tier == TIER_CRITICAL), dry_run=dry_run,
                from_prefix=from_prefix, feishu_group=feishu_group,
                reply_to_message_id=reply_to_message_id)
     return {"tier": tier, **res}
+
+
+def _tier_send_ok(res: dict, tier: str) -> bool:
+    """#132 审 C-1（2026-10-01）tier 分支「发送成功才占窗」判定，对齐通用路径 and ok 契约。
+
+    - critical：send() 真实渠道发出（任一 email/telegram/feishu True）；dry_run 由
+      调用方 guard（not args.dry_run）挡在外面，传进来 res 也带 tier 键需排除。
+    - warning：defer_warning 已本地处理（入 buffer 或同源计数合并），视为已成功路由。
+      注：defer_warning 返回恒 True（含 append 失败 fail-open，#123 test_u10 钉死），
+      入队成功与否无法从返回值区分；此处以 send_tiered 未抛异常=已本地处理为准（对齐
+      defer_warning 自身「追加失败绝不登记状态、下轮重试」的 fail-open 方向一致性——
+      dedup 占窗只压制重试轰炸，不吞掉本轮到 buffer 的条目）。
+    - info：log_info 已落 dashboard。
+    """
+    if tier == TIER_CRITICAL:
+        return any(res.get(ch) for ch in ("email", "telegram", "feishu"))
+    if tier == TIER_WARNING:
+        return bool(res.get("deferred"))
+    if tier == TIER_INFO:
+        return bool(res.get("info_logged"))
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2068,11 +2100,26 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # 三级分级路由（--tier 显式指定时走分级入口；缺省保持原 send() 行为向后兼容）
+    # #132 审 C-1（2026-10-01）：此前 tier 分支在通用 check_dedup 之前 return 0，
+    # --dedup-key/--dedup-window 被静默丢弃（假降噪）。既有调用方 with_lock.py L114 /
+    # staticdata_sync.sh L248 / staticdata_backup_async.sh L394 均显式传 --tier+--dedup-key
+    # 组合且语义=期望去重生效，无任何调用方依赖「--tier 不去重」。修复=tier 分支内补
+    # 上与通用路径一致的 dedup 语义：发送前 check_dedup（窗口内 suppress 返回 0 不阻塞
+    # 调用方），发送成功后 update_dedup（占窗）。dry-run 不走去重（与通用路径 L2140 同
+    # 口径，自测需看到发送日志）。
     if args.tier:
+        if args.dedup_key and not args.dry_run and check_dedup(args.dedup_key, args.dedup_window):
+            print(f"[notify][tier={args.tier}] dedup 窗口内 suppress "
+                  f"key={args.dedup_key}", file=sys.stderr)
+            return 0
         res = send_tiered(args.subject, args.body, tier=args.tier, dry_run=args.dry_run,
                           from_prefix=args.from_prefix, feishu_group=args.feishu_group,
                           reply_to_message_id=args.reply_to_message_id)
         print(f"[notify][tier={args.tier}] 路由完成：{res}", file=sys.stderr)
+        # P1-1 契约（发送成功才占窗，失败不占下次可重发）：tier 分支按 tier 判定成功
+        #（critical=真实渠道发出；warning/info=已本地处理）。不动通用路径 L2157 的 and ok。
+        if args.dedup_key and not args.dry_run and _tier_send_ok(res, args.tier):
+            update_dedup(args.dedup_key)
         # critical 且带 --alert-issue 仍写 latest.md（与原 severe 语义对齐）
         if args.tier == TIER_CRITICAL and args.alert_issue:
             write_alert(args.alert_issue, args.body or args.subject, log_path=args.alert_log)

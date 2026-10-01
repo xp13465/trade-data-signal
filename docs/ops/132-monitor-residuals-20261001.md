@@ -127,8 +127,23 @@ self_heal 两条链路行为 PASS
      通知不再依赖写盘成功。
   4. **计数落盘收敛为仅末尾一次**: 原实现「达标路径循环内 + 末尾各写一次」,注释却写
      「末尾一次性落盘」(注释与实现不符)。核对结论=**改代码不改注释**: ①写失败须 fail-loud,
-     循环内预写的失败会冒泡吞掉阈值通知(见 3);②收敛后少一次 IO、注释变真;③代价=通知后进程
-     被杀致清零未落盘,后果仅下轮多一轮计数(非静默类风险),可接受。
+     循环内预写的失败会冒泡吞掉阈值通知(见 3);②收敛后少一次 IO、注释变真;③代价评估
+     (2026-10-01 复审 C-3 订正,原评估**不实**):
+     - **原评估错误**: 写「后果仅下轮多一轮计数(非静默类风险),可接受」——只考虑「通知后
+       进程被杀致清零未落盘」的瞬时场景,漏了「写失败持续」场景。
+     - **实测实际后果**(复审独立复现,模拟计数累计到 2 → 目录改只读 → 每轮达阈值但落盘
+       失败,跑 3 轮): 每轮 rc=1 + 阈值通知各 +1 → **3 轮 3 封** `[告警][重采失败]`。机制:
+       达标路径先 `_notify_repeat_failure`(依赖内存计数,先通知)再落盘;落盘失败 → 文件保留
+       旧值 `{mid: 2}` → 下一轮 reload n=3 又达阈值 → 又发阈值告警 → **写失败持续期间每
+       15min 一封重复通知,直到写盘恢复**(阈值告警无 dedup-key)。
+     - **定性**: 该重复通知行为**本身是 pre-existing**(旧代码 `_save_counts` 静默不抛时同样
+       每轮 reload 至旧值重复通知,本次 diff 未新增「写失败→旧值→再达阈值→再通知」的重复
+       链路,只是把通知挪到落盘前、未改变该链路);**本次新增的是** C-1 的
+       `_notify_count_file_write_fail` 独立写失败告警(带 6h dedup-key,复审 C-1 修复后真生效)
+       ——写失败期间与阈值重复通知**双通道叠加**:磁盘满场景用户收到「阈值重复告警(每15min)
+       + 写失败告警(6h窗)」。
+     - **要不要改**: 该重复通知本身要改(如阈值告警补 dedup-key)属动 #131 告警链路老功能,
+       按 §23.7 冻结契约须用户拍板,已列入本报告「待拍板项」,本次**不擅自改**。
 
 ### 反例自测(真实输出)
 命令: `/Users/linhuichen/code/trade-data/.venv/bin/python scripts/tests/test_132_count_file_fail_loud.py`
@@ -173,6 +188,67 @@ FADE`、`check_nt_signals.save_nt_notified`、`brief_push.save_state`、`alert_a
 
 ---
 
+## 复审修复(C-1/C-2/C-3,2026-10-01,依据 docs/ops/132-monitor-residuals-review-20261001.md)
+
+外部独立复审抓到 3 条 caveat,本分支全部修复完毕(详见 commit hash 见 git log):
+
+### C-1 notify.py `--tier` 分支绕过通用 dedup(`--dedup-key` 被静默丢弃) — 已修复
+- **病灶**: main() tier 分支(L2070)在通用 check_dedup(L2140)之前 `return 0` → 任何
+  `--tier` + `--dedup-key/--dedup-window` 组合的调用方,**dedup 从未生效**(假降噪)。
+- **调用方审计**(全仓 grep,决定性证据): 既有调用方 **with_lock.py L114**
+  (`--tier warning --dedup-key with_lock_block_timeout:{lockpath}`)、**staticdata_sync.sh
+  L248**(`--tier info --dedup-key staticdata_sync_oversize_skip`)、**staticdata_backup_async.sh
+  L394**(`--tier info --dedup-key staticdata_backup_oversize_skip`)均显式传组合且语义=期望
+  **去重生效**;无任何调用方依赖「--tier 不去重」。→ **修 `--tier` 分支正确**,非绕过。
+- **修复**(scripts/notify.py): tier 分支内补通用 dedup 语义——发送前
+  `if args.dedup_key and not args.dry_run and check_dedup(...): return 0`(suppress 静默),
+  发送成功后 `_tier_send_ok(res, tier)` 为真则 `update_dedup(...)`(占窗)。新增辅助函数
+  `_tier_send_ok`: critical=真实渠道任一发出(email/telegram/feishu);warning=defer_warning
+  已本地处理(入 buffer/计数合并,返回值恒 True 由 #123 test_u10 钉死,追加失败也 True,
+  以「未抛异常=已处理」为准);info=已记 dashboard。**不动通用路径 L2157 的 `and ok` 契约**,
+  dry-run 不走去重不占窗(与通用路径 L2140 同口径)。
+- **附带修好 3 个既有调用方的假降噪**(with_lock/staticdata_sync/staticdata_backup_async
+  的 6h dedup 由「静默失效」变「真生效」)。
+- **验收实测**(scripts/test_132_notify_tier_dedup.py,全 tmp 隔离):
+  ① 同 key 两次调用: 第一次入队 1 条 + update_dedup 占窗;第二次 `dedup suppress`
+  (buffer 行数 1→1,前后对比零增长)✅
+  ② 不同 key(A/B)各自入队: buffer 2 条,subject 集合=A∪B ✅
+  ③ 复刻 with_lock 参数组合 + dry-run: buffer 0 条、无 dedup 状态 ✅
+  ④ 复刻 staticdata_sync info+dedup-key 组合: 第一次记 info dashboard、第二次同 key
+  不重复记(占窗生效)✅
+
+### C-2 `defer_warning` 无 dry_run 参数(自测污染真 buffer) — 已修复
+- **病灶**: notify.py L1635 `defer_warning(subject, body, from_prefix)` 无 dry_run;自测/
+  RETRY_NOTIFY_DRY_RUN=1 时 warning 级仍真写入 warning_buffer.jsonl + 指纹状态(污染 AND
+  消耗真 4h 指纹窗首条)。
+- **修复**(scripts/notify.py): defer_warning 增加 `dry_run: bool = False` 参数,**函数最前
+  短路**——dry_run 时不写 buffer、不落 dedup 状态、不外发,仅 print 模拟 + return True
+  (保持 test_u10 「返回恒 True」契约不变)。`send_tiered` warning 分支透传 dry_run。
+- **被触碰 notify 路径清单 × dry_run 覆盖**:
+  | 调用方 | 参数 | dry_run 覆盖 |
+  |---|---|---|
+  | scripts/retry_failed_metrics.py `_notify_count_file_write_fail`(#132 新增) | warning+dedup-key+`--dry-run`(RETRY_NOTIFY_DRY_RUN) | ✅ 不写 buffer/状态 |
+  | scripts/with_lock.py L114(既有,影响面) | warning+dedup-key+`--dry-run`(WITH_LOCK_NOTIFY_DRY_RUN) | ✅ 同上 |
+  | scripts/staticdata_sync.sh L248(既有,影响面) | info+dedup-key+`--dry-run` | ✅ info 级本不经 buffer,C-2 短路对其无副作用 |
+  | scripts/staticdata_backup_async.sh L394(既有,影响面) | info+dedup-key+`--dry-run` | ✅ 同上 |
+  | scripts/check_s06_freshness.py L132(既有,无 dedup-key) | warning 无 dedup-key | 不受 C-1 影响;未带 dry-run(自测走打桩) |
+  | scripts/schedule_monitor.sh L2049 / self_heal.sh L166 | info 无 dedup-key | 同上,不受影响 |
+- **验收实测**: dry-run 经 defer_warning 直调 + CLI + send_tiered 三层: buffer 0 条、
+  状态文件不生成 ✅
+
+### C-3 「先通知后落盘」代价评估错误 — 已订正
+见上文④③(本文件 C-3 订正段): 原评估「仅下轮多一轮计数」不实,实测写失败持续期间每
+15min 重复阈值告警(3 轮 3 封);定性=pre-existing(旧代码同样重复),本 diff 未新增;新增的
+是写失败独立告警(6h dedup,C-1 修复后真生效)与其双通道叠加。重复通知本身要不要改=用户拍板,
+见「待拍板项」。**注意修完 C-1 后**: `_notify_count_file_write_fail` 的 6h dedup 由假变真
+(写失败告警从 4h 指纹抑制 → 6h dedup 真生效,行为自然变化,非额外改动)。
+
+## 待拍板项(不擅自改,§23.7)
+| 项 | 现状 | 候选改法 | 影响面 |
+|---|---|---|---|
+| A | 阈值告警 `_notify_repeat_failure` 无 dedup-key,写失败持续期间每 15min 一封重复邮件(每3轮达阈值→3轮3封×2通道) | 补 `--dedup-key retry_fm_threshold_{mid} --dedup-window 21600`(防轰炸且保留 1 封/6h 直达) | 动 #131 告警链路老功能,须用户拍板 |
+| B | 6 处「写失败只打日志不抛」同族静默点(alert_denoise_rules.R4/check_data_gap/detect_intraday/feishu_missed/sensenova-healthcheck/agent_inbox) | 全部纳入 fail-loud 专项统一修 | 均为已上线功能,须用户拍板分批排期 |
+
 ## 复现段(§23.5)
 
 1. 重建凌晨槽判定:`/Users/linhuichen/code/trade-data/.venv/bin/python scripts/tests/test_132_morning_slot.py`
@@ -185,6 +261,12 @@ FADE`、`check_nt_signals.save_nt_notified`、`brief_push.save_state`、`alert_a
 4. hkex 归一验证:`BACKFILL_SLOT=0205/0200/0300/0459→0200, 0500→0500, 1635→1635, 2100→2100`(包导入调 `_current_slot`)。
 5. self_heal 两条链路(bash pipefail): 链路1 retry exit=1→rc=1(|| echo 接管);
    链路2 锁被占→--nb 跳过→rc=0(不误报),见上「真实输出」。
+6. 重建 C-1/C-2(复审修复): `/Users/linhuichen/code/trade-data/.venv/bin/python scripts/test_132_notify_tier_dedup.py`
+   (全 tmp 隔离:patch WARNING_BUFFER_FILE/WARNING_DEDUP_STATE_FILE/DEDUP_FILE/INFO_LOG_FILE
+   到临时目录,走 notify.main(argv) 真实 CLI 路径;8 项全 PASS,含 C-1 双调用二态对比、
+   不同 key 各自入队、C-2 dry-run 三层验证、with_lock/staticdata_sync 参数组合复刻)。
+7. 既有回归: `scripts/test_notify_dedup.py`(15 项 OK)+ 上表第 1/2/3 条测试,全部 PASS,
+   证明 defer_warning 返回/去重语义未破坏。
 
 ## 改动文件清单
 - `scripts/backfill_direct_metrics.py` — ① `_is_morning_slot` 按时点判定时点(新增 now 参数注入测试)、模块 docstring 同步
@@ -192,5 +274,7 @@ FADE`、`check_nt_signals.save_nt_notified`、`brief_push.save_state`、`alert_a
 - `app/collector/hkex_ccass_quarterly.py` — ① 举一反三:同一「02 前缀」时点漂移修复
 - `scripts/self_heal.sh` — ② retry 调用经 `with_lock.py --nb` 进程互斥
 - `scripts/retry_failed_metrics.py` — ③ `_save_counts` fail-loud + 写失败独立告警 + 先通知后落盘 + 落盘收敛末尾一次
+- `scripts/notify.py` — 复审 C-1: `--tier` 分支补通用 dedup(发送前 check_dedup suppress + 成功后 update_dedup,新增 `_tier_send_ok` helper,不动通用路径 `and ok`)、C-2: `defer_warning` + `send_tiered` 透传 dry_run
 - `scripts/tests/test_132_morning_slot.py` / `test_132_count_file_fail_loud.py` / `test_132_self_heal_mutex.py` — 新赠三份反例自测(真实代码)
-- `docs/ops/132-monitor-residuals-20261001.md` — 本报告
+- `scripts/test_132_notify_tier_dedup.py` — 复审 C-1/C-2 回归测试(8 项,全 tmp 隔离)
+- `docs/ops/132-monitor-residuals-20261001.md` — 本报告(含 C-3 订正 + 复审修复记录 + 待拍板项)
