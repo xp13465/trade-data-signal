@@ -255,7 +255,18 @@ def default_mode(repo):
     if os.path.isfile(gitignore_path):
         with open(gitignore_path, encoding="utf-8") as fh:
             text = fh.read()
-    before, after, _ = _parse_gitignore(text)
+    before, after, entries = _parse_gitignore(text)
+    # fail-loud 保护(#136, 2026-10-01): sparse-checkout 镜像(data/ 未 checkout、磁盘无大文件)上
+    # desired 四路全空 → 原非空区块会被写成空 → 26k fund_nav 等文件回流 git → staticdata 备份
+    # git 段爆量断档。原区块有排除条目(非注释 /data/ 行)但 desired 空 = 数据源异常, 拒绝写 +
+    # 非零退出(fail-loud); 原区块无排除条目 + desired 空 = 幂等放行(正常, 首次/空区块)。
+    block_excludes = [e for e in entries if e and not e.startswith("#") and e.startswith("/data/")]
+    if block_excludes and not desired:
+        sys.exit(
+            f"✗ 拒绝写回 {gitignore_path}: 原受管区块有 {len(block_excludes)} 个 /data/ 排除条目,"
+            f"但本次 desired 为空(四路全空 = sparse-checkout 镜像 / data/ 未 checkout / 磁盘无大文件)。"
+            f"不覆盖既有排除, 防 {len(block_excludes)} 个文件回流 git。仓库: {repo}"
+        )
     new_text = before.rstrip("\n") + "\n\n" + _render_block(desired) + "\n" + after.lstrip("\n")
     if new_text == text:
         print(f"✓ .gitignore 受管区块已最新({len(desired)} 个排除项, 无变化)", file=sys.stderr)
