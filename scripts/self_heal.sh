@@ -27,7 +27,14 @@ export REPO GIT_REPO
 # 不受下方每日3次上限限制(轻量重采,不像 force 重跑整个 update_all);失败保留 error下次再试。
 # 场景:17:50 update_all 跌停池空 error -> 18:07 本脚本重采交叉验证涨停池有数据 -> 写0+ok,collect_health 变 ok。
 echo "=== retry_failed_metrics 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$REPO/data/logs/self_heal_audit.log"
-"$REPO/.venv/bin/python" "$REPO/scripts/retry_failed_metrics.py" 2>&1 | tee -a "$REPO/data/logs/self_heal_audit.log" || echo "⚠ retry_failed_metrics.py 失败(不阻塞,继续任务级 heal)" | tee -a "$REPO/data/logs/self_heal_audit.log"
+# 2026-10-01 #132 并发双通知修复: 经 with_lock.py --nb 进程互斥(复用仓内既有机制,
+# 与 intraday_snapshot/update_all/turnover_backfill 同"重复跑跳过"惯例), 防止两个并发
+# self_heal 同时读到 n=2 双双跨阈值发两次通知。互斥失败语义 = 跳过本轮: retry 是每 15min
+# 一轮的轻量重采(秒级), 锁被占=另一实例正在跑, 本轮跳过让下一轮(15min 后)再试即可,
+# 失败指标本就处于 error 态, 晚 15min 无害; 排队阻塞反而拖住 self_heal 的任务级 heal。
+# 锁随进程退出自动释放(fcntl.flock), 无残留锁风险。锁跳过时 with_lock stderr 会打进 audit 日志。
+"$REPO/.venv/bin/python" "$REPO/scripts/with_lock.py" --nb /tmp/trade_retry_failed_metrics.lock \
+    "$REPO/.venv/bin/python" "$REPO/scripts/retry_failed_metrics.py" 2>&1 | tee -a "$REPO/data/logs/self_heal_audit.log" || echo "⚠ retry_failed_metrics.py 失败(不阻塞,继续任务级 heal)" | tee -a "$REPO/data/logs/self_heal_audit.log"
 echo "=== retry_failed_metrics 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$REPO/data/logs/self_heal_audit.log"
 
 # 用 python heredoc 做决策 + 触发（bash 处理 JSON/launchctl 太繁琐易错）

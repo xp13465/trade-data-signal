@@ -10,9 +10,11 @@ akshare 等多源 fallback 兜底,间歇封禁后 backfill-evening 槽位补回�
 口径:
 - ok  = 补采成功(rows 非空),写 ok 并清同 run_date 该 metric 旧非 ok 记录
        (让 collect_health 反映最新状态)
-- gap = 数据源无数据(collect_direct 返回空且 msg 含「多源皆败无数据」),归属按 BACKFILL_SLOT
-       槽位分(2026-09-30 资金面监控盲点修复, memory alert-denoise-keep-fault-discriminator):
-       **凌晨槽(02:00)** = 结构性预期缺口(新浪源 T+1、目标日=当日必败),仍计 gap 静默
+- gap = 数据源无数据(collect_direct 返回空且 msg 含「多源皆败无数据」),归属按凌晨槽判定
+       (2026-09-30 资金面监控盲点修复 + 2026-10-01 #132 时点漂移修复,
+       memory alert-denoise-keep-fault-discriminator):
+       **凌晨槽(02:00, 判定= BACKFILL_SLOT 存在且实际时点 < 05:00)** = 结构性预期缺口
+       (新浪源 T+1、目标日=当日必败),仍计 gap 静默
        (9/14-9/30 十七次 gap/五次 ok),仍 log_collect error 让 collect_health 通道反映,
        但不计 fail、不影响退出码——2026-09-09 #84 reviewer P1-1 降噪保留此槽;
        **非凌晨槽(16:35/21:00)** = 真正兜底槽每次都补回来,此刻六源全败=真故障
@@ -28,11 +30,15 @@ akshare 等多源 fallback 兜底,间歇封禁后 backfill-evening 槽位补回�
 输入依赖:REPO 环境变量指向主库目录(由 backfill_metrics.sh 设定,默认
 /Users/linhuichen/code/trade-data);cwd 须在 REPO(app.* import 依赖)。
 BACKFILL_SLOT 环境变量(backfill_metrics.sh L25 export,`date +%H%M`)用于槽位判定:
-02:00→"0200"(凌晨/min前充), 16:35→"1635", 21:00→"2100"。手动跑/无 env 视为非凌晨槽。
+02:00 凌晨槽、16:35/21:00 兜底槽。凌晨槽判定(2026-10-01 #132)不再依赖 env 串前缀
+(「0200」),改为 BACKFILL_SLOT 存在 + 实际时点 < 05:00 的宽限窗口——mac 休眠唤醒延迟致
+02:00 槽在 03:00+ 才启动(BACKFILL_SLOT=0300)仍判凌晨槽,摘掉"唤醒晚几小时"的时点漂移;
+05:00 后(或手动/update_all 无 env)一律按非凌晨槽保守处理(该有数据而没有=真故障须报)。
 
 输出:stdout 进度(追加进 backfill_{STAMP}.log),collect_log 状态。
 复现:bash scripts/backfill_metrics.sh(3 槽位 launchd 调用)。
 """
+import datetime as dt
 import os
 import sys
 
@@ -51,18 +57,31 @@ from app.db import get_conn
 GAP_MARKER = "多源皆败无数据"  # collect_direct 空返回的固定 msg(数据源无数据=正常缺口)
 
 
-def _is_morning_slot() -> bool:
+def _is_morning_slot(now: dt.datetime | None = None) -> bool:
     """槽位判定: 是否为凌晨预期缺口槽(02:00)。
 
-    由 backfill_metrics.sh L25 `BACKFILL_SLOT="$(date +%H%M)"` 注入(02:00→"0200",
-    16:35→"1635", 21:00→"2100")。02:00 是结构性预期缺口:新浪源 T+1、该槽目标日=当日,
-    必败(2026-09-30 实测 9/14-9/30 十七次 gap/五次 ok)。16:35/21:00 是真正兜底槽,
-    每次都能补回来——它们出现「多源皆败」=真故障(16:35/21:00 六源全败)。
-    返回 True = 凌晨槽(02:00 前缀), gap 属结构性预期应静默。
-    无 env(手动跑/update_all)= 非凌晨槽, gap 按真故障计 fail(保守不放过)。
+    2026-10-01 #132 时点漂移修复: 原实现用 `BACKFILL_SLOT.startswith("02")` 判凌晨槽,
+    但 mac 休眠唤醒延迟会致 02:00 槽在 03:00+ 才启动 → BACKFILL_SLOT=0300 → 被判非凌晨
+    → 02:00 槽的结构性预期缺口误判为真故障 → exit 1 → schedule_monitor 假 SEVERE。
+    现改为**按实际时点判定**: BACKFILL_SLOT 存在(本槽语义为 backfill-evening 槽位)
+    且实际时点 < 05:00(宽限窗口)即仍视为凌晨槽, 不再依赖 env 串前缀。
+
+    为什么 02:00 是结构性预期缺口: 新浪源 T+1、该槽目标日=当日, 必败
+    (2026-09-30 实测 9/14-9/30 十七次 gap/五次 ok)。16:35/21:00 是真正兜底槽每次
+    都能补回来——它们出现「多源皆败」=真故障(16:35/21:00 六源全败)。
+    返回 True = 凌晨槽, gap 属结构性预期应静默(仍 log_collect error 反映 collect_health)。
+
+    保留真故障判别维度(memory alert-denoise-keep-fault-discriminator):
+    - 仍报: 非 gap 失败(direct:* error/抛异常/no config)无条件计 fail 与本判定无关;
+      05:00 后(唤醒延迟超整夜)仍六源全败=该有数据而没有=真故障计 fail。
+    - 不再报: 02:00 槽唤醒延迟几小时(实际时点 < 05:00)的 gap。
+    - 无 env(手动跑/update_all)= 非凌晨槽, gap 按真故障计 fail(保守不放过)。
     """
     slot = os.environ.get("BACKFILL_SLOT", "")
-    return slot.startswith("02") if slot else False
+    if not slot:
+        return False
+    now = now or dt.datetime.now()
+    return now.hour < 5
 
 
 def main() -> int:

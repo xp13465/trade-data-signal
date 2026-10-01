@@ -35,11 +35,14 @@ fi
 #    独立脚本 scripts/backfill_direct_metrics.py（2026-09-09 从内嵌 python 提取，逻辑逐行一致，
 #    唯一变更=缺口判定）。退出码语义：仅「真失败」（no direct.fetch_* 配置缺失 / direct:* error:
 #    采集异常 / 抛异常 / 非凌晨槽多源皆败）计 fail → exit 1。
-#    「多源皆败无数据」按 BACKFILL_SLOT 槽位区分（2026-09-30 资金面监控盲点修复）：
-#    02:00 凌晨槽=结构性预期缺口(gap)，不计 fail、不进退出码——该豁免现仅适用 02:00 凌晨槽
-#    （历史依据 #84 reviewer P1-1：02:00 槽 a_fund_main 每日必现该缺口，旧逻辑计 fail → 每日
-#    exit 1 → schedule_monitor 假 SEVERE+恢复邮件循环）；16:35/21:00 非凌晨槽六源全败=真故障
-#    →计 fail→exit 1；无 BACKFILL_SLOT(手动/update_all)保守按非凌晨处理。
+#    「多源皆败无数据」按凌晨槽判定区分（2026-09-30 资金面监控盲点修复 + 2026-10-01 #132
+#    时点漂移修复）：凌晨槽=BACKFILL_SLOT 存在且实际时点 < 05:00（不再依赖串前缀「0200」，
+#    mac 休眠唤醒延迟致 02:00 槽 03:00+ 才启动仍判凌晨槽）=结构性预期缺口(gap)，不计 fail、
+#    不进退出码——该豁免现适用 02:00 凌晨槽的宽限窗口（历史依据 #84 reviewer P1-1：02:00 槽
+#    a_fund_main 每日必现该缺口，旧逻辑计 fail → 每日 exit 1 → schedule_monitor 假
+#    SEVERE+恢复邮件循环）；16:35/21:00 非凌晨槽六源全败=真故障→计 fail→exit 1；05:00 后
+#    （唤醒延迟超整夜）仍六源全败=该有数据而没有=真故障须报；无 BACKFILL_SLOT(手动/update_all)
+#    保守按非凌晨处理。
 "$REPO/.venv/bin/python" "$REPO/scripts/backfill_direct_metrics.py" 2>&1 | tee -a "$LOG"
 drc=${PIPESTATUS[0]}
 if [ "$drc" -ne 0 ]; then

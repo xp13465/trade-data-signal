@@ -1632,7 +1632,8 @@ def clear_warning_dedup_for_recovery(subject: str, body: str = "") -> list[str]:
     return hit
 
 
-def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bool:
+def defer_warning(subject: str, body: str, from_prefix: str | None = None,
+                  dry_run: bool = False) -> str:
     """warning 级：写入聚合 buffer（warning_buffer.jsonl），等 flush_warning_batch 批发。
 
     不直接推送——由 schedule_monitor/monitor_72h 每轮尾部调 flush_warning_batch()，
@@ -1654,9 +1655,31 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bo
       · 全局锁序单向：WARNING_FLUSH_LOCK_FILE → dedup 锁 → buffer flock（详见
         WARNING_DEDUP_LOCK_FILE 常量注释）；锁获取失败 fail-open 无锁继续（退化为可能
         少计一次，方向多发，绝不因锁问题阻塞告警链路）。
-    指纹/状态异常一律 fail-open 直接入队（宁可多发不吞告警）。返回 True=已处理
-    （入队或计数合并），调用方无需区分（既有调用方均不消费返回值）。
+    指纹/状态异常一律 fail-open 直接入队（宁可多发不吞告警）。返回三态字符串
+    （见下 dry_run 段），既有调用方不消费返回值（全 truthy 兼容）；send_tiered
+    warning 分支消费它决定是否占 dedup 窗。
+
+    dry_run=True（#132 复审 C-2 修复，2026-10-01）：不写 buffer、不落 dedup 状态、
+    不外发，仅模拟走一遍——放函数最前短路，确保 dry-run 绝不触碰任何状态文件
+    （P2④ 同口径：dry_run 全路径只读）。
+
+    #132 复审 2 P0 修复（2026-10-01）：返回**可区分三态字符串**（全部 truthy，
+    兼容既有 assertTrue 断言与「方向宁多发」fail-open 精神），调用方据此判断
+    是否允许占窗：
+      "enqueued"      = buffer 追加成功（真入队，flush 有保证送达路径）
+      "suppressed"    = 内部指纹 4h 窗命中（真抑制，消息本就不该再发）
+      "append_failed" = buffer 追加失败（未入队、未登记状态，调用方**不得**占窗，
+                        下轮同源继续尝试）
+      "dry_run"       = dry_run 短路（不写 buffer/状态/外发，仅模拟）
+    关键：只有「真入队 / 真抑制」才是真已处理，才允许 update_dedup 占窗；
+    「追加失败」绝不占窗——否则 buffer 写失败也假成功占窗，check_dedup 在
+    send_tiered 之前拦截下轮重试，真告警被静默吞（#123 R4 同款翻版，本函数与其
+    内部 4h 指纹窗是两套独立窗，勿混为一谈）。
     """
+    if dry_run:
+        print(f"[notify][warning][dry-run] 模拟入聚合 buffer（不写盘）：{subject}",
+              file=sys.stderr)
+        return "dry_run"
     now = datetime.now()
     fp = ""
     try:
@@ -1675,9 +1698,9 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bo
         # 指纹不可用：跳过去重直接入队（fail-open 宁多发）
         if _append_jsonl(WARNING_BUFFER_FILE, payload):
             print(f"[notify][warning] 入聚合 buffer（30min 批发）：{subject}", file=sys.stderr)
-        else:
-            print(f"[notify][warning] buffer 追加失败（未入队）：{subject}", file=sys.stderr)
-        return True
+            return "enqueued"
+        print(f"[notify][warning] buffer 追加失败（未入队）：{subject}", file=sys.stderr)
+        return "append_failed"
     appended = False
     try:
         with _dedup_state_lock():
@@ -1708,7 +1731,7 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bo
                     _save_warning_dedup_state(state)
                     print(f"[notify][dedup] 同源抑制(窗口内第 {total} 次，已通知 "
                           f"{notified} 次，4h 窗)：{subject}", file=sys.stderr)
-                    return True
+                    return "suppressed"
             else:
                 # 首次入队 / 旧窗已过期（U2 回归修复）：重建全新窗口从第 1 次重新计。
                 # 不能沿用旧 rec 增量——否则过期复发继承陈年计数且 window_start 不刷新
@@ -1728,7 +1751,7 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bo
             if not appended:
                 print(f"[notify][warning] buffer 追加失败（不入队、不登记指纹状态，"
                       f"后续同源将继续尝试）：{subject}", file=sys.stderr)
-                return True
+                return "append_failed"
             state[fp] = rec
             if not _save_warning_dedup_state(state):
                 print(f"[notify][dedup] 入队后状态登记失败（下次同源可能多发一封，fail-open）",
@@ -1740,11 +1763,15 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bo
               file=sys.stderr)
         if not appended:
             try:
-                _append_jsonl(WARNING_BUFFER_FILE, payload)
+                appended = _append_jsonl(WARNING_BUFFER_FILE, payload)
             except Exception:  # noqa: BLE001
-                pass
-    print(f"[notify][warning] 入聚合 buffer（30min 批发）：{subject}", file=sys.stderr)
-    return True
+                appended = False
+    if appended:
+        print(f"[notify][warning] 入聚合 buffer（30min 批发）：{subject}", file=sys.stderr)
+        return "enqueued"
+    print(f"[notify][warning] buffer 追加失败（未入队，不占窗，后续同源继续尝试）：{subject}",
+          file=sys.stderr)
+    return "append_failed"
 
 
 
@@ -2011,12 +2038,40 @@ def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
         log_info(subject, body)
         return {"tier": tier, "email": False, "telegram": False, "feishu": False, "info_logged": True}
     if tier == TIER_WARNING:
-        defer_warning(subject, body, from_prefix=from_prefix)
-        return {"tier": tier, "email": False, "telegram": False, "feishu": False, "deferred": True}
+        # C-2 透传 dry_run（2026-10-01）：defer_warning 最前短路，dry-run 不写 buffer/状态
+        # P0 复审（2026-10-01 第二轮）：defer_warning 返回三态，deferred 只在「真入队/真抑制」
+        # 为 True；「追加失败」为 False 即不占 dedup 窗，让下次同 key 调用还能重试（#123 R4
+        # 同款尺子：不是真发送就不占窗）。
+        status = defer_warning(subject, body, from_prefix=from_prefix, dry_run=dry_run)
+        return {"tier": tier, "email": False, "telegram": False, "feishu": False,
+                "deferred": status in ("enqueued", "suppressed"), "defer_status": status}
     res = send(subject, body, severe=(tier == TIER_CRITICAL), dry_run=dry_run,
                from_prefix=from_prefix, feishu_group=feishu_group,
                reply_to_message_id=reply_to_message_id)
     return {"tier": tier, **res}
+
+
+def _tier_send_ok(res: dict, tier: str) -> bool:
+    """#132 审 C-1（2026-10-01）tier 分支「发送成功才占窗」判定，对齐通用路径 and ok 契约。
+
+    - critical：send() 真实渠道发出（任一 email/telegram/feishu True）；dry_run 由
+      调用方 guard（not args.dry_run）挡在外面，传进来 res 也带 tier 键需排除。
+    - warning：defer_warning 返回三态——「enqueued」（真入 buffer）/「suppressed」（内部
+      4h 指纹窗抑制，计数已累计）视为已成功路由=可占窗；「append_failed」（buffer 写失败）
+      视为未发送成功=绝不占窗（#123 R4 同款：不是真发送就不占窗，让下次同 key 重试）。
+      注：defer_warning 内部 4h 指纹窗 与 main 层通用 notify_dedup.json 窗是两套独立窗，
+      「占窗只压制重试轰炸不吞本轮到 buffer 条目」的旧措辞已被实测证伪（append 失败也
+      占窗会让后续同 key 调用在 check_dedup 被挡，消息既没进 buffer 也无送达路径），
+      故以 defer_status 为准而非恒 True。
+    - info：log_info 已落 dashboard。
+    """
+    if tier == TIER_CRITICAL:
+        return any(res.get(ch) for ch in ("email", "telegram", "feishu"))
+    if tier == TIER_WARNING:
+        return res.get("defer_status") in ("enqueued", "suppressed")
+    if tier == TIER_INFO:
+        return bool(res.get("info_logged"))
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2068,11 +2123,26 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # 三级分级路由（--tier 显式指定时走分级入口；缺省保持原 send() 行为向后兼容）
+    # #132 审 C-1（2026-10-01）：此前 tier 分支在通用 check_dedup 之前 return 0，
+    # --dedup-key/--dedup-window 被静默丢弃（假降噪）。既有调用方 with_lock.py L114 /
+    # staticdata_sync.sh L248 / staticdata_backup_async.sh L394 均显式传 --tier+--dedup-key
+    # 组合且语义=期望去重生效，无任何调用方依赖「--tier 不去重」。修复=tier 分支内补
+    # 上与通用路径一致的 dedup 语义：发送前 check_dedup（窗口内 suppress 返回 0 不阻塞
+    # 调用方），发送成功后 update_dedup（占窗）。dry-run 不走去重（与通用路径 L2140 同
+    # 口径，自测需看到发送日志）。
     if args.tier:
+        if args.dedup_key and not args.dry_run and check_dedup(args.dedup_key, args.dedup_window):
+            print(f"[notify][tier={args.tier}] dedup 窗口内 suppress "
+                  f"key={args.dedup_key}", file=sys.stderr)
+            return 0
         res = send_tiered(args.subject, args.body, tier=args.tier, dry_run=args.dry_run,
                           from_prefix=args.from_prefix, feishu_group=args.feishu_group,
                           reply_to_message_id=args.reply_to_message_id)
         print(f"[notify][tier={args.tier}] 路由完成：{res}", file=sys.stderr)
+        # P1-1 契约（发送成功才占窗，失败不占下次可重发）：tier 分支按 tier 判定成功
+        #（critical=真实渠道发出；warning/info=已本地处理）。不动通用路径 L2157 的 and ok。
+        if args.dedup_key and not args.dry_run and _tier_send_ok(res, args.tier):
+            update_dedup(args.dedup_key)
         # critical 且带 --alert-issue 仍写 latest.md（与原 severe 语义对齐）
         if args.tier == TIER_CRITICAL and args.alert_issue:
             write_alert(args.alert_issue, args.body or args.subject, log_path=args.alert_log)
