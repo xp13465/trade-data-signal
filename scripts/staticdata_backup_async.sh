@@ -49,6 +49,7 @@ STATICDATA_REPO="${STATICDATA_REPO:-/Users/linhuichen/code/trade-data-signal-sta
 PY="${PY:-$REPO/.venv/bin/python}"
 TRIGGER="${1:-all}"
 LOCK="/tmp/trade_deploy.lock"
+R2_LOCK="/tmp/trade_backup_r2.lock"   # #149 方案②: step3.5b R2 上传独立锁(非阻塞, 抢不到跳过不排队)
 
 # 云上单仓: 本机硬编码 staticdata 路径不存在时, 回退 GIT_REPO 派生的 sibling 路径
 # (云上 GIT_REPO=/home/ubuntu/code/trade-data-signal -> ...-staticdata), 防云上静默跳过备份
@@ -57,20 +58,28 @@ if [ ! -d "$STATICDATA_REPO/.git" ] && [ -n "${GIT_REPO:-}" ] && [ -d "${GIT_REP
   STATICDATA_REPO="${GIT_REPO}-staticdata"
 fi
 
-# ── 持锁重入 ──
-# 整个备份在 /tmp/trade_deploy.lock 内执行, 避免并发写同一 staticdata git 仓库。
-# 阻塞 + 排队超时护栏: deploy 触发本脚本时锁仍被 deploy 持有 → 阻塞等到 deploy 退出再跑;
-# 若排在前面的 async/consumer 拖太久(>3600s)则告警 + 优雅跳过(exit 0), 防本脚本傻等。
-if [ "${STATICDATA_BACKUP_LOCKED:-}" != "1" ]; then
-  export STATICDATA_BACKUP_LOCKED=1
-  exec "$PY" "$GIT_REPO/scripts/with_lock.py" --block-timeout 3600 "$LOCK" bash "$0" "$@"
-fi
-
+# ── 持锁重入(git 段专用, #149 方案② 2026-10-01)──
+# 原实现: 整个备份(rsync + step3.5 R2 上传 + git)都在 /tmp/trade_deploy.lock 内执行, 而
+# step3.5b upload_r2.py upload-large-json 对 3.1 万文件做 R2 跨境 HEAD 比对(实测 26~105min),
+# 把持锁拉长到小时级 → 排队者连环占死(trade_deploy.lock 队列结构性不空, #149 根因)。
+# 锁的本职 = 串行化 git 写。方案②改造:
+#   - rsync(step1/2/3)+ step3.5a(large_json_excludes)在锁外跑(磁盘/JSON 操作天然可并发,
+#     rsync 幂等、无 git 对象操作, 不抢 git index.lock);
+#   - step3.5b(R2 上传)也移到主锁外, 改持独立锁 /tmp/trade_backup_r2.lock 非阻塞抢
+#     (with_lock.py --nb): 抢不到直接跳过本轮, 绝不排队(灾备1/2层不丢: 磁盘+git 留档,
+#     次日 rsync + HEAD ETag 幂等补传);
+#   - 仅 git add/commit/push 段持 /tmp/trade_deploy.lock(秒~分钟级)。
+# 重入结构: 首次进入跑段1(锁外 rsync+R2) → 段1末尾 exec with_lock.py 重入本脚本(带
+# STATICDATA_BACKUP_ASYNC_R2_DONE=1)→ 重入进程只跑 git 段。LOG 经环境变量跨 exec 复用。
 LOGDIR="$REPO/data/logs"
-LOG="$LOGDIR/staticdata_backup_async_$(date +%Y%m%d_%H%M%S).log"
+LOG="${STATICDATA_BACKUP_LOG:-$LOGDIR/staticdata_backup_async_$(date +%Y%m%d_%H%M%S).log}"
+export STATICDATA_BACKUP_LOG="$LOG"
 mkdir -p "$LOGDIR"
-echo "=== staticdata_backup_async 开始 $(date '+%Y-%m-%d %H:%M:%S') (trigger=$TRIGGER) ===" | tee -a "$LOG"
-echo "REPO=$REPO GIT_REPO=$GIT_REPO STATICDATA_REPO=$STATICDATA_REPO" | tee -a "$LOG"
+# 首次进入(段1: 锁外 rsync+R2)才打日志头; 重入(git 段)沿用同 LOG 追加, 不打两遍头。
+if [ "${STATICDATA_BACKUP_ASYNC_R2_DONE:-}" != "1" ]; then
+  echo "=== staticdata_backup_async 段1(锁外 rsync+R2)开始 $(date '+%Y-%m-%d %H:%M:%S') (trigger=$TRIGGER) ===" | tee -a "$LOG"
+  echo "REPO=$REPO GIT_REPO=$GIT_REPO STATICDATA_REPO=$STATICDATA_REPO" | tee -a "$LOG"
+fi
 
 # ── 改4 C-3 心跳状态文件(2026-09-25 审查整改): 供 schedule_monitor 检查异步备份新鲜度 ──
 # 开始写 {ts,result:"running"}, 结束写 {ts,result:ok|fail|skip_oversize,files,bytes,duration_s}。
@@ -78,7 +87,8 @@ echo "REPO=$REPO GIT_REPO=$GIT_REPO STATICDATA_REPO=$STATICDATA_REPO" | tee -a "
 # 路径=$REPO/data/(与 schedule_monitor.sh LOG_DIR 同约定), 不进 git(deploy 只 add static-site/data/
 # + min, 根 data/ 是 gitignore/未跟踪区); schedule_monitor.sh 用同路径常量读。
 HB_FILE="$REPO/data/staticdata_backup_heartbeat.json"
-_HB_START=$(date +%s)
+# 心跳起始跨 exec 复用: 段1(锁外)开始时取当前时间, 重入进程从环境变量恢复(保持总时长连续)。
+_HB_START="${STATICDATA_BACKUP_ASYNC_HB_START:-$(date +%s)}"
 _hb_write() {
   # 原子写: 写 $TMP 再 mv(禁直接重定向到目标, 防半截)。
   _hb_result="$1"; _hb_files="${2:-0}"; _hb_bytes="${3:-0}"
@@ -102,23 +112,28 @@ if [ "${STATICDATA_BACKUP_NOTIFY_DRY_RUN:-}" = "1" ]; then
   _NOTIFY_DRY=(--dry-run)
 fi
 
-if [ ! -d "$STATICDATA_REPO/.git" ]; then
-  # 改3 C-5(2026-09-25 审查整改): 两个候选仓库($STATICDATA_REPO 与 ${GIT_REPO}-staticdata)
-  # 都不存在 → 原实现静默 exit 0(备份缺口无人知)。改为降级 notify(不必 --severe) + 日志
-  # 写清两个候选路径都查过(路径打出来)。dedup 6h 防每次 deploy 重复轰炸。
-  echo "⚠ staticdata 仓库不存在(已查候选1: ${STATICDATA_REPO:-无}, 候选2: ${GIT_REPO:-无}-staticdata), 跳过备份" | tee -a "$LOG"
-  "$PY" "$REPO/scripts/notify.py" "[通知] staticdata 仓库不存在, 跳过备份" \
-    "staticdata 备份仓库不存在, 本次跳过备份(降级, 非 severe, 不影响 deploy 主链)。<br>已查两个候选路径: 候选1 ${STATICDATA_REPO:-无} / 候选2 ${GIT_REPO:-无}-staticdata<br>生产云上至少应存在 ${GIT_REPO:-无}-staticdata 灾备第2层仓库, 若缺失需人工核查 staticdata git 仓库初始化/迁移。<br>日志: $LOG" \
-    --from-prefix "[通知]" --alert-issue "staticdata备份仓库缺失" --alert-log "$LOG" \
-    --dedup-key staticdata_backup_repo_missing --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
-  exit 0
-fi
+# ── 段1(锁外): rsync + step3.5a + step3.5b(R2 独立锁非阻塞) ──
+# 首次进入执行段1(不持 trade_deploy.lock: rsync 幂等可并发, R2 上传持独立锁非阻塞抢);
+# 段1完成后 exec with_lock.py 重入本脚本(带 STATICDATA_BACKUP_ASYNC_R2_DONE=1), 重入进程
+# 只跑 git 段(持 trade_deploy.lock, 秒~分钟级)。#149 方案②。
+if [ "${STATICDATA_BACKUP_ASYNC_R2_DONE:-}" != "1" ]; then
+  if [ ! -d "$STATICDATA_REPO/.git" ]; then
+    # 改3 C-5(2026-09-25 审查整改): 两个候选仓库($STATICDATA_REPO 与 ${GIT_REPO}-staticdata)
+    # 都不存在 → 原实现静默 exit 0(备份缺口无人知)。改为降级 notify(不必 --severe) + 日志
+    # 写清两个候选路径都查过(路径打出来)。dedup 6h 防每次 deploy 重复轰炸。
+    echo "⚠ staticdata 仓库不存在(已查候选1: ${STATICDATA_REPO:-无}, 候选2: ${GIT_REPO:-无}-staticdata), 跳过备份" | tee -a "$LOG"
+    "$PY" "$REPO/scripts/notify.py" "[通知] staticdata 仓库不存在, 跳过备份" \
+      "staticdata 备份仓库不存在, 本次跳过备份(降级, 非 severe, 不影响 deploy 主链)。<br>已查两个候选路径: 候选1 ${STATICDATA_REPO:-无} / 候选2 ${GIT_REPO:-无}-staticdata<br>生产云上至少应存在 ${GIT_REPO:-无}-staticdata 灾备第2层仓库, 若缺失需人工核查 staticdata git 仓库初始化/迁移。<br>日志: $LOG" \
+      --from-prefix "[通知]" --alert-issue "staticdata备份仓库缺失" --alert-log "$LOG" \
+      --dedup-key staticdata_backup_repo_missing --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
+    exit 0
+  fi
 
-echo "-> staticdata 备份（best-effort, 异步）..." | tee -a "$LOG"
-STATICDATA_FAIL=0
-_OVERSIZE=0
-_SKIP_NONPROD=0   # 2026-09-26 feat/staticdata-write-guard: 非生产机守卫拦截/闸门拒绝 → 心跳 skip_nonprod
-_hb_write "running"   # 改4 C-3: 开始心跳(备份启动前; 仓库缺失早退不写, 留上次 ok 心跳自然变旧触发 C3 停摆告警)
+  echo "-> staticdata 备份（best-effort, 异步）..." | tee -a "$LOG"
+  STATICDATA_FAIL=0
+  _OVERSIZE=0
+  _SKIP_NONPROD=0   # 2026-09-26 feat/staticdata-write-guard: 非生产机守卫拦截/闸门拒绝 → 心跳 skip_nonprod
+  _hb_write "running"   # 改4 C-3: 开始心跳(备份启动前; 仓库缺失早退不写, 留上次 ok 心跳自然变旧触发 C3 停摆告警)
 
 # 1. rsync DB原件到 staticdata/db/（本地备份，不进 git，.gitignore 排除 db/*.db）
 _STEP_START=$(date +%s)
@@ -166,15 +181,47 @@ else
 fi
 # step3.5b 测试隔离钩子(F1, 2026-09-26): STATICDATA_BACKUP_SKIP_R2_UPLOAD=1 → 跳过 R2 上传并写明原因。
 # 其余测试隔离: STATICDATA_REPO 指 /tmp 克隆 + R2_BACKUP_BUCKET 指不存在的桶名(实测 404, 不污染生产桶)。
+# 2026-10-01 #149 方案②: step3.5b 持独立锁 /tmp/trade_backup_r2.lock 非阻塞抢(with_lock.py --nb),
+# 抢不到直接跳过本轮, 绝不排队(灾备1/2层不丢: 磁盘+git 留档, 次日 rsync + HEAD ETag 幂等补传)。
+# 注意: with_lock --nb 锁被占时 exit 0(命令未跑, stderr 有"已被占用"), 与真正上传成功(exit 0)
+# 无法只靠退出码区分 → 捕获输出到临时文件, grep "已被占用" 区分三种态。
 if [ "${STATICDATA_BACKUP_SKIP_R2_UPLOAD:-}" = "1" ]; then
   echo "  [step3.5b large-json R2 上传] 跳过(STATICDATA_BACKUP_SKIP_R2_UPLOAD=1 测试隔离钩子, 未写生产 R2)" | tee -a "$LOG"
-elif STATICDATA_REPO="$STATICDATA_REPO" GIT_REPO="$GIT_REPO" "$PY" "$GIT_REPO/scripts/upload_r2.py" upload-large-json 2>&1 | tee -a "$LOG"; then
-  echo "  [step3.5b large-json R2 上传] ✓" | tee -a "$LOG"
 else
-  echo "⚠ upload_r2.py upload-large-json 失败, 不阻塞" | tee -a "$LOG"
-  STATICDATA_FAIL=1
+  _R2_TMP=$(mktemp)
+  if STATICDATA_REPO="$STATICDATA_REPO" GIT_REPO="$GIT_REPO" "$PY" "$GIT_REPO/scripts/with_lock.py" --nb "$R2_LOCK" \
+      bash -c 'STATICDATA_REPO="$1" GIT_REPO="$2" "$3" "$4" upload-large-json' \
+      _ "$STATICDATA_REPO" "$GIT_REPO" "$PY" "$GIT_REPO/scripts/upload_r2.py" >"$_R2_TMP" 2>&1; then
+    if grep -q "已被占用" "$_R2_TMP"; then
+      echo "  [step3.5b large-json R2 上传] 跳过(trade_backup_r2.lock 被占, 非阻塞不排队; 灾备1/2层磁盘+git 留档, 次日幂等补传)" | tee -a "$LOG"
+    else
+      echo "  [step3.5b large-json R2 上传] ✓" | tee -a "$LOG"
+      tail -n 20 "$_R2_TMP" | tee -a "$LOG"
+    fi
+  else
+    echo "⚠ upload_r2.py upload-large-json 失败(exit=$?), 不阻塞" | tee -a "$LOG"
+    tail -n 20 "$_R2_TMP" | tee -a "$LOG"
+    STATICDATA_FAIL=1
+  fi
+  rm -f "$_R2_TMP"
 fi
 echo "  [step3.5 large-json 排除+R2] $(( $(date +%s) - _STEP_START ))s" | tee -a "$LOG"
+
+  # ── 段1完成: 重入持 /tmp/trade_deploy.lock 只跑 git 段 ──
+  # 传状态给重入进程: LOG(跨 exec 复用同一日志文件)、STATICDATA_FAIL(rsync/R2 失败累积)、
+  # _HB_START(心跳总时长跨段连续)。#149 方案②。
+  export STATICDATA_BACKUP_ASYNC_R2_DONE=1
+  export STATICDATA_BACKUP_ASYNC_R2_FAIL="${STATICDATA_FAIL:-0}"
+  export STATICDATA_BACKUP_ASYNC_HB_START="$_HB_START"
+  exec "$PY" "$GIT_REPO/scripts/with_lock.py" --block-timeout 3600 "$LOCK" bash "$0" "$@"
+fi
+
+# ── 段2: git 段(重入进程, 已持 /tmp/trade_deploy.lock)──
+# 重入进程整脚本重跑: LOG/心跳函数在顶部重新定义, 此处恢复段1累积状态。
+echo "=== staticdata_backup_async 段2(锁内 git add/commit/push)开始 $(date '+%Y-%m-%d %H:%M:%S') (trigger=$TRIGGER) ===" | tee -a "$LOG"
+STATICDATA_FAIL="${STATICDATA_BACKUP_ASYNC_R2_FAIL:-0}"
+_OVERSIZE=0
+_SKIP_NONPROD=0
 
 # 4. git commit + push（差异化日志，best-effort）——积压超阈值跳过 commit 仅磁盘留档
 # 阈值依据(researcher 报告 update-all-staticdata-backup-eval-20260925.md): 正常日 58~487 文件
