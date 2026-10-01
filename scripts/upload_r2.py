@@ -2569,12 +2569,21 @@ def cmd_upload_large_json():
     # 指纹扫描(纯本地, 零 R2 接触): 算本地 gzip md5(幂等前提 mtime=0), 判定 skip/changed
     skip_rels = []
     changed_rels = []
+    missing_rels = []
     sigs = {}
     t_scan = time.time()
     for relpath, size in entries:
         src = repo / "data" / relpath
         if not src.is_file():
-            skip_rels.append(relpath)   # 源缺失: 原逻辑也当「跳过(源不存在)」计入 ok, 语义不变
+            # 源缺失不得静默(2026-10-01 独立审查 P2-1 补修)。新语义 vs 旧版:
+            #   旧 _upload_one 对源缺失 return "skip"(不计 ok) → 整轮 sys.exit(1)(fail-loud);
+            #   新版 = 零.星缺失逐条告警 + 汇总计数, 不阻断整轮(良性竞态如双进程并发/文件替换窗口
+            #   不应打断整条灾备链), 但全量/批量异常缺失(见下方 abnormal 判定)升格非零退出——
+            #   参照 #136 fail-loud 先例「数量异常 ⇒ 拒绝写」, sparse-checkout 配错/数据目录
+            #   损坏/路径挂错都是真异常, 该喊就喊。缺失文件不进状态 files(无指纹可算),
+            #   R2 侧旧副本保留不丢数据(唯一异地备份语义不破)。
+            missing_rels.append(relpath)
+            print(f"⚠ 源文件缺失(计入缺失计数): data/{relpath}", file=sys.stderr)
             continue
         raw = src.read_bytes()
         payload = gzip.compress(raw, compresslevel=6, mtime=0)
@@ -2587,8 +2596,19 @@ def cmd_upload_large_json():
             _add_row(relpath, size, raw, _mk_key(relpath))
         else:
             changed_rels.append((relpath, size))
+    missing_n = len(missing_rels)
+    abnormal = missing_n > 0 and (
+        missing_n == len(entries)                       # 全量缺失(必异常)
+        or missing_n >= 50                              # 大批量缺失(绝对数)
+        or (len(entries) >= 50 and missing_n >= len(entries) * 0.05)  # 非零.星缺失: ≥5% 才升格
+    )
     print(f"[large-json] 模式={mode} 全集 {len(entries)} / 跳过 {len(skip_rels)} / 待传 {len(changed_rels)}"
-          f"(指纹扫描 {time.time()-t_scan:.1f}s, 纯本地)")
+          f" / 缺失 {missing_n}(指纹扫描 {time.time()-t_scan:.1f}s, 纯本地)")
+    if abnormal:
+        # 全量/批量源缺失 = 真异常(sparse-checkout 配错 / staticdata 路径挂错 / 目录级损坏):
+        # fail-loud 升格非零退出, 不写 marker、不开始上传、不写状态(下轮仍会暴露)。
+        sys.exit(f"✗ 源文件缺失异常({missing_n}/{len(entries)}), 疑似目录级损坏/路径配错, "
+                 f"升格非零退出(fail-loud, 未上传未写状态)")
     # 上传开始标记(fail-closed, 2026-09-23 ①假成功根治语义同引擎): 上传中途被 kill 残留 →
     # 下轮 scan 发现强制全量; 正常结束(全成功写状态)后删除。dry-run 不写。
     if not dry_run and changed_rels:

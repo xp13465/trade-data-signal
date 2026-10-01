@@ -24,7 +24,7 @@
 | 清单 `--print` 子进程调用 | 702.6ms |
 | 全集文件数 | 30396 |
 | 全集原始总字节 | 1549.6 MB |
-| 全量 gzip+md5 本地耗时 | 36.5s(vs 单段跨境 HEAD 26~105min) |
+| 全量 gzip+md5 本地耗时 | **36.5s 为采样 2000 文件推算**(非全量实测;真实全量实测 37.4s,见审查报告;另本机 CLI dry-run 复现 37.9s,两次运行抖动)(vs 单段跨境 HEAD 26~105min) |
 | 现状每次运行的远端 HEAD 调用次数 | ≈30396(每个文件 1 次 pre-PUT HEAD) |
 | 现状单段耗时(实测,见根因报告 §4) | 26~105 分钟 |
 
@@ -34,7 +34,7 @@
 python3 /tmp/large_json_baseline.py   # 见复现段,纯本地
 ```
 
-结论:本地 gzip 指纹计算全量仅 36.5s≈原跨境 HEAD 时间(26~105min)的 **1% 量级**。把「远端 HEAD」外移为「本地状态判定」是最大杠杆。
+结论:本地 gzip 指纹计算全量仅 **≈37.5s(36.5s 为采样推算,真实全量实测 37.4s/37.9s)**≈原跨境 HEAD 时间(26~105min)的 **1% 量级**。把「远端 HEAD」外移为「本地状态判定」是最大杠杆。
 
 ## 2. 改动前后对照
 
@@ -53,7 +53,7 @@ python3 /tmp/large_json_baseline.py   # 见复现段,纯本地
 
 | 阶段 | 改动前 | 改动后 |
 |---|---|---|
-| 判定 | 每文件先跨境 s3_head 比对 ETag | 先本地指纹扫描(读+gzip+md5,36.5s):状态 md5 一致 → skip(0 HEAD/0 PUT);否则进 `changed_rels` |
+| 判定 | 每文件先跨境 s3_head 比对 ETag | 先本地指纹扫描(读+gzip+md5,实测 ~37s):状态 md5 一致 → skip(0 HEAD/0 PUT);否则进 `changed_rels` |
 | 清单 | `--print` 输出 → 全部进 upload | `--print` 输出 → 全集,增量跳过不走上传,不缩小全集 |
 | 状态 | 无 | `data/.r2_large_json_state.json`(原子写,只全成功写)+ `.r2_large_json_uploading.marker`(fail-closed)|
 | 退化 | 每次都是全量 HEAD | 首跑/状态缺失/损坏/marker 残留 → 退化全量(同现状时序) |
@@ -62,7 +62,7 @@ python3 /tmp/large_json_baseline.py   # 见复现段,纯本地
 | dry-run | 不 PUT/不 HEAD | 不变 + 0 HEAD 0 PUT 契约保持(指纹纯本地) |
 
 ### 预期耗时降幅
-- 平日增量(内容无变化,最常见场景): 3.1 万跨境 HEAD + gzip → **仅本地 gzip 36.5s + manifest/prune 收尾**,R2 接触 ≈ 0。预期 **26~105min → ~1 分钟级**。
+- 平日增量(内容无变化,最常见场景): 3.1 万跨境 HEAD + gzip → **仅本地指纹扫描 ~37s(实测)+ manifest/prune 收尾**,R2 接触 ≈ 0。预期 **26~105min → ~1 分钟级**。
 - 首跑/周日/--full: 全量 HEAD 32(min 级同现状)但只每周一次或显式触发,不阻塞每日链。
 
 ## 3. 逐项自测(mock 环境,零 R2 生产接触)
@@ -89,8 +89,28 @@ python3 /tmp/large_json_baseline.py   # 见复现段,纯本地
 REPO=/tmp/149e_tr R2_BACKUP_BUCKET=demo-nowhere \
 STATICDATA_REPO=/Users/linhuichen/code/trade-data-signal-staticdata \
 python3 scripts/upload_r2.py upload-large-json --dry-run --full
-# → [large-json] 模式=首次/无状态退化全量 全集 30396 / 跳过 0 / 待传 30396(指纹扫描 37.9s, 纯本地)
+# → [large-json] 模式=首次/无状态退化全量 全集 30396 / 跳过 0 / 待传 30396 / 缺失 0(指纹扫描 37.9s, 纯本地;审查方独立复现 37.4s, 抖动一致)
 ```
+
+### 3.3 P2-1 补修(2026-10-01 独立审查后)
+
+独立审查实测发现 P2-1:源缺失文件从旧版「整轮 sys.exit(1)」(fail-loud)漂成新版「静默跳过」,且注释误写「语义不变」。本次补修:
+
+- **语义选择:零星告警不阻断 + 批量/全量升格非零退出**(不退回旧版整轮 fail)。理由:真实清单由 `--print` 生成(只输出磁盘存在的文件),源缺失几乎不可达,唯一可达形态是 ①良性竞态(双进程并发/文件替换窗口,缺 1-2 个)——旧版整轮 exit 1 会让一次良性竞态打断整条灾备链,反而更糟;②目录级异常(sparse-checkout 配错/路径挂错/目录损坏,全缺或批量缺)——必须 fail-loud。参照 #136 fail-loud 先例「数量异常 ⇒ 拒绝」,用「全量缺失 / ≥50 个 / ≥5% 比例(全集≥50 时)」三判据升格非零退出。
+- **逐条告警 + 汇总计数**:每条缺失打印 `⚠ 源文件缺失(计入缺失计数): data/<relpath>`(stderr);模式行加 `/ 缺失 N`。缺失文件不进状态 files(无指纹可算,R2 旧副本保留不丢数据)。
+- **注释订正**:写明新旧语义实际差异(旧=整轮 fail;新=零星告警+批量升格),不再写「语义不变」。
+
+自测(mock,零 R2 接触,`/tmp/149e_p21.py`)**18/18 PASS**:
+
+| 场景 | 观测 | 结果 |
+|---|---|---|
+| S1 零星缺失(2缺1) | 逐条告警可见 + 汇总「缺失 1」+ 整轮不中断 + a 仍上传 | PASS |
+| S2 全量缺失(2缺2) | exit=✗ 源文件缺失异常(2/2)…,PUT=0,未写状态 | PASS |
+| S3 正常全量 | 缺失 0 / 全传 2 / 状态含两文件 / 无 marker / 二次跑 0 HEAD 0 PUT(五条不变量不回退) | PASS |
+| S4 批量缺失(60缺10, >5%) | exit=✗ 源文件缺失异常(10/60)… 比例升格 | PASS |
+| S4b 零星缺失(60缺1) | 逐条告警可见 + 整轮不中断 | PASS |
+
+审查方补测脚本重跑(指向当前代码):`/tmp/149e_review_extra_cur.py`(T1-T4/T6 PASS)、`/tmp/149e_t5_cur.py`(周日全量 PASS)、`/tmp/149e_t_envfull_cur.py`(R2_LARGE_JSON_FORCE_FULL PASS)、`/tmp/149e_t_deg_cur.py`(退化三形态 PASS)——原 P1/P2 PASS 项全部保持 PASS,无回退。
 
 ## 4. 同类错误面(§23.2 修 bug 三铁律 ③)
 
@@ -114,7 +134,7 @@ python3 scripts/upload_r2.py upload-large-json --dry-run --full
 ```bash
 # 1) 基线取证(纯本地,零 R2 接触)
 python3 /tmp/large_json_baseline.py
-# -> 全集 30396, 本地 gzip+md5 36.5s, 现状每次 ≈30396 次跨境 HEAD(单段 26~105min)
+# -> 全集 30396, 本地 gzip+md5 36.5s(采样 2000 推算;全量实测 ≈37.5s), 现状每次 ≈30396 次跨境 HEAD(单段 26~105min)
 
 # 2) 自测(mock 环境,零 R2 接触;隔离 REPO + 隔离桶 + mock s3)
 python3 /tmp/149e_test.py        # 21 项 PASS
