@@ -48,7 +48,7 @@ import sqlite3
 import sys
 import time
 
-from .collector.fapi_fallback import _api, _date_ms, _zt_df
+from .collector.fapi_fallback import fetch_zt_fallback
 
 # ── 与 fapi_daily.py 同款重试/退避(fapi_fallback 自身不重试,外层按此策略兜)──
 RETRY = 3
@@ -98,36 +98,19 @@ def _connect(db: str | None) -> sqlite3.Connection:
     return conn
 
 
-_ZTPOOL_PATH = "/api/a-share/special-data/limit-up-pool"
-
-
 def _fetch_zt_all_pages(date: str) -> tuple[object, str]:
-    """取某日 FAPI 涨停池**全量**(翻页取满 page=1..pagination.pages)。
+    """取某日 FAPI 涨停池**全量**。
 
-    ⚠️ 不动 fapi_fallback.py 的既有行为(每日采集兜底仍 page=1&size=200,
-    intraday_snapshot 系在用它,§23.7 冻结);回补需要全量——普涨日涨停池
-    >200 行时单页截断,最高连板可能落在被截断尾部(20240930/20241008 实测
-    少 7 个板)。FAPI 拒 size=2000,page=2&size=200 有效,故按 pagination.pages
-    翻页拼接。
+    ⚠️ 直接复用 fapi_fallback.fetch_zt_fallback(#140 已加固翻页,2026-09-30
+    合 main):四重停止条件(按 pagination.pages 翻页 / 末页兜底 len(batch)<200
+    防 pages 缺失 / MAX_PAGES=10 安全上限 / len(df) vs total 对账 TRUNCATED
+    告警)——本脚本不再持有第二份翻页实现(§5.4⑦ 同构对账:复刻=第二份
+    实现,静默漂移是必然)。ST 排除仍在下方 max_lianban_ex_st 做(东财可比
+    口径,排除后才是 max)。
 
     返回 (df or None, msg)。df 含全量行;None=失败。
     """
-    params = {"date_ms": _date_ms(date), "page": 1, "size": 200}
-    first = _api(_ZTPOOL_PATH, params)
-    if first is None:
-        return None, f"fapi limit-up-pool unavailable date={date}"
-    items = list(first.get("item") or first.get("items") or [])
-    pag = first.get("pagination") or {}
-    pages = int(pag.get("pages") or 1)
-    for p in range(2, pages + 1):
-        got = _api(_ZTPOOL_PATH, {**params, "page": p})
-        if got is None:
-            return None, f"fapi limit-up-pool page{p}/{pages} unavailable date={date}"
-        items += list(got.get("item") or got.get("items") or [])
-    if not items:
-        # 池子真 0(涨停 0):返回空 df(count_rows=0),与东财空=真0 语义一致
-        return _zt_df([]), f"fapi limit-up-pool empty(真0) date={date}"
-    return _zt_df(items), f"fapi limit-up-pool {len(items)} rows(pages={pages})"
+    return fetch_zt_fallback("stock_zt_pool_em", date)
 
 
 def _fetch_zt_with_retry(date: str) -> tuple[object, str]:
