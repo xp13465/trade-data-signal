@@ -99,3 +99,51 @@ mkdir -p /tmp/p2mock && git -C /Users/linhuichen/code/trade archive d1b3e9382 ap
 - 云上真实环境(122.51.111.173)未连接,`_target_is_prod` 在云上 symlink 链下的 realpath 行为未实测(本机 + 构造路径已验证逻辑)。
 - 真实 FAPI 请求未打(契约路径用 patch `_api` 构造;FAPI 历史数据稳定且 #140 已独立真实调用复现)。
 - 本次 P2 修复代码仍在 feat 分支未上线,不影响已完成的 1231 行生产写库。
+
+---
+
+## 二轮复验(2026-10-02,commit 35dc52b10 回退 P2-3)
+
+> 主控复核请求:implementer 处置 P1 的方式与 reviewer 建议不同(回退而非验 msg),独立复验 7 项。
+> 处置逻辑本身成立(主控判断正确):「真0 / 服务端无该日数据 / 契约异常」在 API 层无法区分,写 0 是猜且单向不可逆,记 gap 诚实可重试 —— 回退优于 reviewer 一轮的「验 msg」建议(验 msg 挡不住路径 C,因 C 的 msg 本就是 `empty(真0)`)。
+
+### ① 回退是否真的回到原行为 → PASS
+`git diff d1b3e9382^ 35dc52b10 -- app/backfill_lianban.py` 逐位核对 `len(df)==0` 分支:
+- d1b3e9382^:`gaps.append({"date": d, "reason": f"FAPI 涨停池空(真0或当日无数据): {msg}"}); continue`
+- 35dc52b10:`gaps.append({"date": d, "reason": f"FAPI 涨停池空(真0/无数据/契约异常无法区分,3条路径见backfill_lianban主循环注释): {msg}"}); continue`
+- 结构完全一致(记 gap + continue + 不进写判定),唯一差异 = reason 文案更详细。**行为级回到原样**。
+- 写 0 行为(`value, st_cnt, total = 0.0, 0, 0`)已删除;`max_lianban_ex_st` 调用移回 if/else 平级。✓
+
+### ② 3 条路径全部记 gap、全部不写值 → PASS(独立复现)
+真实 `app/collector/fapi_fallback.py` + patch `_api` 构造 3 路径(修正 date_ms key 匹配后):
+- A 真0(`pagination.total=0`)→ gap `... empty(真0) date=20210901`
+- B 契约异常(`total=700` 无 item)→ gap `... 0 rows; TRUNCATED total=700 got=0`
+- C 缺 pagination(`data` 有 item)→ gap `... empty(真0) date=20210903`(误报)
+- 结果:`planned_write=0 | gap_days=3 | success_days=0`,**库内 a_width_max_lianban 零行**(3 天均未写值)。幂等 dryrun2 同样 `planned_write=0`。
+- 边角回归:正常非空日 → planned_write=2/gap=0(写值);全 ST 排除日 → planned_write=0/gap=2(reason 含"排除ST")。均正确。
+
+### ③ 注释是否讲对、有无误导 → PASS
+- `_fetch_zt_all_pages` docstring + 主循环注释:3 条路径逐一列出 + 「API 层无法区分」 + 「A 股真0不存在 / total=0 更可能是服务端无数据」 + 「写 0 是猜、记 gap 是诚实(§5.1④)」 + 「填 0 后 fill-gaps-only 永久跳过、下游缺/错 lianban 分项」。论据合理,无残留"写 0 对"的误导表述。
+- 注释中"2015 股灾日也有涨停"为历史事实性论据(非数据证实),作为注释论据可接受。
+
+### ④ P2-1/P2-2/P2-4/P2-5/P2-7 是否被误动 → PASS(零改动)
+- 主脚本 diff(d1b3e9382→35dc52b10)只含 2 处、均在 P2-3 相关区:`_fetch_zt_all_pages` docstring + 主循环 `len(df)==0` 分支。
+- `_fmt/_to_float/_source_map/_upsert/exit code/--confirm-prod/_target_is_prod` 全部未出现在 diff。P2-5 涉及的两辅助脚本(verify/sent_impact)未在本 commit 触碰(stat 仅 2 文件)。
+- P2-2 的 manual 判定逻辑与空池分支无交集,回退不影响 skipped_manual 计数。
+
+### ⑤ 报告订正是否规范 → PASS(1 处措辞瑕疵)
+- 二轮订正 banner + P2-3 原结论保留可反查(标"已被二轮订正推翻")+ 审查后订正小节(3 路径表/危害单向/处置决定/回退/增强/对已写库影响/前后对照/自测)+ 二轮回退对账(只落 P2-3)+ 遗留待办(路径 C msg 语义缺陷,只记不修,修法已写清)+ 文件清单更新。§5.4⑦ 修复链精神完整。
+- **措辞瑕疵(轻,caveat)**:订正小节写"生产写库原计划 23:00+ 安全窗口,本订正先于写库落地" —— 实际生产写库已完成(2026-10-02,#134 执行报告,备份 `sentiment.db.bak-lianban-202610012304` 后写库 1231 行),措辞让读者误以为写库未执行。实质结论仍正确:P2-3 写 0 版(01:55 提交)晚于写库,从未用于生产写库,无污染行需回填。建议把措辞改为"写 0 版提交晚于生产写库,从未上线"。
+
+### ⑥ gap reason 是否内嵌 msg 原文 → PASS(实测)
+三 gap reason 均内嵌 msg 原文:A/C 含 `empty(真0)`、B 含 `TRUNCATED total=700 got=0`,人工可分辨。声称属实。
+
+### ⑦ 回退有无新引入偏差 → PASS
+- 空 df 不进 `computed_all`(与 d1b3e9382^ 一致),sent_impact 全量注入不受影响(空池日本就是 gap,不该注入)。
+- verify 接口(increment_dates/planned_write/computed)生成逻辑未变,守恒断言 `len(rows)==planned_write` 仍成立。
+- py_compile PASS(独立执行)。
+
+### 二轮复验结论
+**35dc52b10 处置正确,6/7 全 PASS + 1 轻措辞瑕疵。准予合 main**(建议顺手把报告措辞"本订正先于写库落地"改准确;不阻塞)。
+
+**复现命令**:`/Users/linhuichen/code/trade/.venv/bin/python /tmp/p2mock/test_revert2.py`(mock 包 `/tmp/p2mock`,真实 fapi_fallback + patch `_api`);`py_compile` 独立 PASS。
