@@ -196,6 +196,9 @@ else
       echo "  [step3.5b large-json R2 上传] 跳过(trade_backup_r2.lock 被占, 非阻塞不排队; 灾备1/2层磁盘+git 留档, 次日幂等补传)" | tee -a "$LOG"
     else
       echo "  [step3.5b large-json R2 上传] ✓" | tee -a "$LOG"
+      # #149e: 「缺失 N」汇总行固定进 LOG(不被下方 tail -20 截断); 缺失 0 时打印真实值 0,
+      # 万一 grep 无匹配则静默(不写空洞不报错, || true 吞退出码, 不污染后续流程)。
+      grep -F "/ 缺失 " "$_R2_TMP" | tee -a "$LOG" || true
       tail -n 20 "$_R2_TMP" | tee -a "$LOG"
     fi
   else

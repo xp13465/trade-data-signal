@@ -112,6 +112,26 @@ python3 scripts/upload_r2.py upload-large-json --dry-run --full
 
 审查方补测脚本重跑(指向当前代码):`/tmp/149e_review_extra_cur.py`(T1-T4/T6 PASS)、`/tmp/149e_t5_cur.py`(周日全量 PASS)、`/tmp/149e_t_envfull_cur.py`(R2_LARGE_JSON_FORCE_FULL PASS)、`/tmp/149e_t_deg_cur.py`(退化三形态 PASS)——原 P1/P2 PASS 项全部保持 PASS,无回退。
 
+### 3.4 P2 补修(第三轮复验之后): 成功分支「缺失 N」汇总行固定写进 LOG
+
+第三轮复验实测:成功场景(exit 0)下 `staticdata_backup_async.sh` 成功分支 `tail -n 20` 会把位于输出头部的逐条缺失告警 + 「缺失 N」汇总行冲掉(30 行上传输出冲掉头部 3 行)。补修:
+
+- `scripts/staticdata_backup_async.sh` 成功分支(else)在 `tail -n 20` 之前增加
+  `grep -F "/ 缺失 " "$_R2_TMP" | tee -a "$LOG" || true` —— 从完整临时输出里固定捞「缺失 N」汇总行进 LOG(`|| true` 吞 grep 无匹配退出码, 不污染流程; 缺失 0 时仍打印真实值 0)。
+- 升格分支(失败 else, `⚠ ... 失败` + `tail -n 20` + `STATICDATA_FAIL=1`)**一念不动**;§198-199 之外 async 逻辑未碰(那是 #149②③ 已验证链)。逐条告警仍可被 tail 冲掉但不刷 LOG(上万行可接受), 汇总计数保证可见。
+
+等同复刻自测(`/tmp/149e_async_log.py`, 真实 cmd_upload_large_json mock 桶 + subprocess grep/tail 等价复刻脚本三行)**8/8 PASS**:
+
+| 场景 | 观测 | 结果 |
+|---|---|---|
+| 零星缺失 N=2 + 23 行上传输出(≥20) | LOG 含 `[large-json] 模式=... / 缺失 2(指纹扫描...` 汇总行(grep rc=0) | PASS |
+| 缺失 0 成功场景 | LOG 含 `/ 缺失 0` + 25 PUT 全成功 + 流程正常(无 grep 报错/空洞) | PASS |
+| 极端: 临时文件无模式行 | grep rc=1 被 `\|\| true` 吞, LOG 无空洞行 | PASS |
+
+### 3.5 交互观察(如实记录, 非本补修引入)
+
+复验另报 P3: 升格置 `STATICDATA_FAIL=1` 后, `staticdata_backup_async.sh` 结尾 notify(`staticdata_backup_fail`)走 #123 R4 分级(21600s 强迫窗 + `r4_staticdata_grade`), 连续 ≥2 天未追平才 severe 直发;**单日首次升格可能被降级为 info 只记 dashboard 不推送邮件**(LOG/Dashboard/心跳 fail 兜底, 次日未追平即 severe)。**如实记录: 源文件缺失升格告警在 R4 分级下的首日可见性 = dashboard + LOG, 非邮件**(供主控转述用户知悉; 如需首日直达用户另行拍板)。
+
 ## 4. 同类错误面(§23.2 修 bug 三铁律 ③)
 
 排查对象:`upload_r2.py` 内全部逐文件远程比对点 + 灾备链:
