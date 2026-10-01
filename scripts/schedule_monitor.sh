@@ -2147,33 +2147,39 @@ now_str = NOW.strftime("%Y-%m-%d %H:%M:%S")
 # 1 条汇总(现象清单 + #149 根因指针)。非 R2 告警(漏跑/exit失败/数据错)不入聚合, 照发。
 # 判定/聚合函数 scripts/alert_denoise_rules.py:r5_congestion_process。状态 key 不进恢复循环
 # (已在恢复循环开头跳过 R2_CONGESTION_SUMMARY_KEY_PREFIX)。
+# 2026-10-01 复审修复(R5 双重致命缺陷, 见 docs/ops/123-alert-denoise-implementation-review-20261001.md):
+# ① R5 无条件调用(移出 if alerts)——23:25 收尾轮 alerts 为空时也必须运行, 否则当日已聚合
+#    现象永远进不了汇总;
+# ② 调用后立即 save_alert_state 落盘——否则 r2_pipeline_congestion|{YYYYMMDD} 状态只存在
+#    进程内存, 每轮独立进程退出即丢, 同轮第 2+ 种 R2 告警被吞且永久静默。
+_orig_has_alerts = bool(alerts)
+alerts, _r5_summary = adr.r5_congestion_process(alert_state, alerts, NOW)
+if _r5_summary:
+    alerts.append(_r5_summary)
+save_alert_state(alert_state)
 if alerts:
-    alerts, _r5_summary = adr.r5_congestion_process(alert_state, alerts, NOW)
-    if _r5_summary:
-        alerts.append(_r5_summary)
-    if not alerts:
-        print(f"[{now_str}] 本轮告警已由 R2 拥堵日汇总接管, 见 r2_pipeline_congestion 状态")
-    else:
-        print(f"[{now_str}] 检测到 {len(alerts)} 个告警:")
-        for a in alerts:
-            print(a)
-        # 复用 notify.py 发邮件 + 写 alerts/latest.md（subject 统一模板 [告警] ... MM-DD HH:MM）
-        # --from-prefix "[告警]" -> 发件人名 "[告警] 信号实验室"
-        # B2(2026-08-14): 正文由纯 SEVERE 行列表改为每项 4 行模板(严重度/影响/日志/建议)
-        body = "<br><br>".join(_format_alert_item(a) for a in alerts)
-        _sm_time = NOW.strftime("%m-%d %H:%M")
-        subprocess.run(
-            [
-                sys.executable, str(REPO / "scripts" / "notify.py"),
-                f"[告警] {len(alerts)}项计划任务异常 {_sm_time}",
-                body,
-                "--severe",
-                "--from-prefix", "[告警]",
-                "--alert-issue", "计划任务监控告警",
-                "--alert-log", str(MONITOR_LOG),
-            ],
-            check=False,
-        )
+    print(f"[{now_str}] 检测到 {len(alerts)} 个告警:")
+    for a in alerts:
+        print(a)
+    # 复用 notify.py 发邮件 + 写 alerts/latest.md（subject 统一模板 [告警] ... MM-DD HH:MM）
+    # --from-prefix "[告警]" -> 发件人名 "[告警] 信号实验室"
+    # B2(2026-08-14): 正文由纯 SEVERE 行列表改为每项 4 行模板(严重度/影响/日志/建议)
+    body = "<br><br>".join(_format_alert_item(a) for a in alerts)
+    _sm_time = NOW.strftime("%m-%d %H:%M")
+    subprocess.run(
+        [
+            sys.executable, str(REPO / "scripts" / "notify.py"),
+            f"[告警] {len(alerts)}项计划任务异常 {_sm_time}",
+            body,
+            "--severe",
+            "--from-prefix", "[告警]",
+            "--alert-issue", "计划任务监控告警",
+            "--alert-log", str(MONITOR_LOG),
+        ],
+        check=False,
+    )
+elif _orig_has_alerts:
+    print(f"[{now_str}] 本轮告警已由 R2 拥堵日汇总接管, 见 r2_pipeline_congestion 状态")
 else:
     print(f"[{now_str}] OK 所有任务按计划执行，无漏跑，无退出失败")
 

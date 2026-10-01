@@ -104,6 +104,57 @@ check("R1跨天E-隔日防残留从0起/持续不轰炸/恢复后独立再响",
       and a5 == "recover" and a6 == "buffer" and a7 == "alert",
       f"前日 buffer→alert; 隔日suppress(a4={a4}); 恢复后(a5={a5})再滞后 a6={a6}→a7={a7}")
 
+# R1 修复(2026-10-01 复审 FAIL 教训): 带「恢复循环」的跨轮场景——
+# 恢复循环(schedule_monitor.sh L1178-1200)每轮开头先把上轮遗留 pending buffer 置
+# recovered 但不清 consecutive_count; 修复前 r1_buffer_judge 恢复路径只清
+# pending/alerted 不清 recovered → 「滞后→恢复→再滞后」跨 3 轮 count 残留被误判
+# 连续 2 轮发假 SEVERE(reviewer 实测 act=buffer/ok/alert)。修复后恢复路径支持
+# recovered 状态清 count → 三连输出 buffer/ok/buffer 不回 alert, 且真连续 2 轮
+# 仍响(场景 G 第三轮起 suppress 不重发, 不吞真故障)。
+def r1_with_recovery_loop(lag_mins, thresh_min=20, buf_prefix="overview_lag_3domain|buffer|%s",
+                          alert_key="overview_lag_3domain", insert_recovery_loop=True):
+    """按 schedule_monitor 真实执行序逐轮: 先恢复循环(上轮遗留 pending→recovered 不清 count),
+    再调真实 r1_buffer_judge。返回各轮 action 列表。"""
+    st = {}
+    rounds = []
+    NOW = datetime(2026, 9, 30, 14, 30)
+    for i, lm in enumerate(lag_mins):
+        now_round = NOW + timedelta(minutes=15 * i)
+        # --- 恢复循环(L1178-1200)真实逻辑精简版: pending 未在本轮 seen → recovered ---
+        if insert_recovery_loop:
+            for _k, _info in list(st.items()):
+                if _info.get("status") == "pending":
+                    if _k.startswith("r2_") or _k.startswith("72h_"):
+                        continue
+                    if _k not in {alert_key}:  # buffer key 不会进 seen_keys_this_run
+                        _info["status"] = "recovered"
+                        _info["last_recovered"] = now_round.strftime("%Y-%m-%d %H:%M:%S")
+        bk = buf_prefix % now_round.strftime("%Y%m%d")
+        exceeds = lm > thresh_min
+        act = adr.r1_buffer_judge(st, bk, alert_key, exceeds, now_round)
+        if act == "alert":
+            st[alert_key] = {"status": "active", "last_alerted": now_round.strftime("%Y-%m-%d %H:%M:%S")}
+        elif act == "recover" and alert_key in st:
+            st[alert_key]["status"] = "recovered"
+            st[alert_key]["last_recovered"] = now_round.strftime("%Y-%m-%d %H:%M:%S")
+        rounds.append(act)
+    return rounds
+
+# 场景 F(复审反例④): 滞后→恢复→再滞后 三连跨轮, 修复后不得回 alert
+r_F = r1_with_recovery_loop([24, 3, 24])
+check("R1修复F-滞后→恢复→再滞后三连不再误报(recovered也清count)",
+      r_F == ["buffer", "ok", "buffer"] or r_F == ["buffer", "ok", "ok"],
+      f"三连 action={r_F} (recovered 状态恢复路径清 count → 再滞后从0计, 不回 alert)")
+# 场景 G: 真连续 2 轮滞后仍触发(不吞真故障, 头号判据) + 恢复后独立再响
+r_G = r1_with_recovery_loop([24, 25, 3, 24])
+check("R1修复G-真连续2轮仍响SEVERE(不吞真故障)+恢复后再滞后从0计",
+      r_G[0] == "buffer" and r_G[1] == "alert" and r_G[2] in ("ok", "recover") and r_G[3] == "buffer",
+      f"连续2轮 action={r_G} (前2轮buffer→alert 真断供照响; 恢复后第3轮从0计不再连击)")
+# 场景 H: 不插恢复循环(纯判定函数, 与旧测试同口径)对照——原 r1_sim 语义不回退
+r_H = r1_with_recovery_loop([24, 3, 24], insert_recovery_loop=False)
+check("R1修复H-对照组(无恢复循环)仍是 buffer/ok/buffer 不回 alert",
+      r_H == ["buffer", "ok", "buffer"], f"action={r_H}")
+
 # ============================================================
 # 规则 R2: 超时未完成 + 执行耗时 双通道同 (task,last_run) 合并
 # → adr.r2_merge_already_sent / r2_merge_mark / r2_merge_cleanup(真实函数)
@@ -213,6 +264,70 @@ k2, s2 = adr.r5_congestion_process({}, ["SEVERE: fetch_news 退出失败 last_ex
                                    datetime(2026, 9, 30, 23, 30))
 check("R5非R2-数据错/漏跑照发不入聚合", k2 == ["SEVERE: fetch_news 退出失败 last_exit=1 ..."] and s2 is None,
       f"kept={len(k2)}条 summary={'有' if s2 else '无'}")
+
+# R5 修复(2026-10-01 复审 FAIL 教训): 跨轮/同轮/收尾轮空/状态落盘 4 场景——
+# schedule_monitor.sh 每轮独立进程, R5 修改的 r2_pipeline_congestion|{YYYYMMDD} 必须
+# 落盘(save_alert_state)才能被下一轮读到; 且 R5 必须无条件调用(不在 if alerts 内)否则
+# 23:25 收尾轮 alerts 为空时不运行, 汇总永不发出。以下模拟 monitor 真实执行序
+# (load->r5->save->下一轮 load), 打真实 r5_congestion_process + 真实 alert_state 文件读写。
+def r5_monitor_sim(rounds, tmpdir):
+    """rounds: [(now, alerts列表)]。模拟每轮独立进程: load->r5(无条件)->save。返回 (kept_list, summary_list, final_state)。"""
+    st_file = tmpdir / "alert_state.json"
+    st = {}
+    if st_file.exists():
+        st = json.loads(st_file.read_text(encoding="utf-8"))
+    kepts, summaries = [], []
+    for now, alerts in rounds:
+        _kept, _summary = adr.r5_congestion_process(st, alerts, now)
+        if _summary:
+            _kept.append(_summary)
+        kepts.append(_kept)
+        summaries.append(bool(_summary))
+        # save_alert_state 等价: 每轮结束落盘(修复后 R5 调用点之后必有)
+        st_file.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        st = json.loads(st_file.read_text(encoding="utf-8"))  # 下一轮 load
+    return kepts, summaries, st
+
+
+_r5_tmp = new_tmp()
+# 场景 A(复审反例①跨轮): 3 轮各 1 种 R2 告警, 23:30 收尾轮发汇总; 状态跨轮可见
+_rounds = [
+    (datetime(2026, 9, 30, 14, 15), ["SEVERE: r2_unreachable ssd.fx8.store 不可达 ..."]),
+    (datetime(2026, 9, 30, 21, 0), ["SEVERE: R2 overview.json 时效滞后 collected_at<..> lag=24min ..."]),
+    (datetime(2026, 9, 30, 23, 30), ["SEVERE: r2_intraday_lag 盘中数据滞后 ..."]),
+]
+_kepts, _summs, _stA = r5_monitor_sim(_rounds, _r5_tmp)
+check("R5修复A-跨轮3种R2:首条直发+第2种并入+23:30汇总必发+状态落盘读回",
+      len(_kepts[0]) == 1 and not _summs[0] and not _summs[1]
+      and _summs[2] and len(_kepts[2]) >= 1
+      and adr.R2_CONGESTION_SUMMARY_KEY_PREFIX + "20260930" in _stA,
+      f"kept轮次={[len(k) for k in _kepts]} summary={_summs} 最终state含汇总key={'20260930' in ' '.join(_stA) or bool([k for k in _stA if k.startswith(adr.R2_CONGESTION_SUMMARY_KEY_PREFIX)])}")
+# 场景 B(复审反例②同轮): 同轮 3 种 R2 告警 23:30 → 首条直发其余并入 + 汇总必发
+_r5_tmp2 = new_tmp()
+_kepts, _summs, _stB = r5_monitor_sim(
+    [(datetime(2026, 9, 30, 23, 30), [
+        "SEVERE: R2 overview.json 时效滞后 ...",
+        "SEVERE: r2_unreachable ssd.fx8.store 不可达 ...",
+        "SEVERE: r2_intraday_lag 盘中数据滞后 ...",
+    ])], _r5_tmp2)
+check("R5修复B-同轮3种R2@23:30:首条照发+汇总必发(不静默)",
+      _summs[0] and len(_kepts[0]) >= 1,
+      f"kept={len(_kepts[0])}条 summary={'有' if _summs[0] else '无'}(首条直发+其余并入汇总)")
+# 场景 C(复审反例③收尾轮空 alerts): 前两轮已聚合, 23:30 收尾轮 alerts=[] 也必须发汇总
+_r5_tmp3 = new_tmp()
+_kepts, _summs, _stC = r5_monitor_sim([
+    (datetime(2026, 9, 30, 14, 15), ["SEVERE: r2_unreachable ssd.fx8.store 不可达 ..."]),
+    (datetime(2026, 9, 30, 21, 0), ["SEVERE: R2 overview.json 时效滞后 collected_at<..> lag=24min ..."]),
+    (datetime(2026, 9, 30, 23, 30), []),  # 收尾轮无新告警
+], _r5_tmp3)
+check("R5修复C-收尾轮alerts为空也必须发汇总(修复if alerts盲区)",
+      not _summs[0] and not _summs[1] and _summs[2],
+      f"前2轮聚合, 收尾轮summary={'有' if _summs[2] else '无'}(无条件调用生效)")
+# 场景 D: 下一轮状态能读到上一轮写入(r2_pipeline_congestion 现象列表跨轮累计)
+_phen_c = _stC.get(adr.R2_CONGESTION_SUMMARY_KEY_PREFIX + "20260930", {})
+check("R5修复D-状态跨轮读回:现象列表累计>=2(第2+种不静默)",
+      len(_phen_c.get("phenomena", [])) >= 2,
+      f"收尾轮读回 phenomena={len(_phen_c.get('phenomena', []))} 项(状态已落盘可读回)")
 
 # ============================================================
 # R6: kelly + fetch_news 低频真问题保留 — 本次改动未触碰其告警路径(skip_continuous/

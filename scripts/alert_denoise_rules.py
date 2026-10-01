@@ -53,7 +53,14 @@ def r1_buffer_judge(alert_state, buf_key, alert_key, exceeds_threshold, now,
     if not exceeds_threshold:
         # 恢复路径: 清 buffer(防恢复前累计计数在下次单次滞后时 +1 误升级)
         _bf = alert_state.get(buf_key)
-        if _bf and _bf.get("status") in ("pending", "alerted"):
+        # 2026-10-01 复审修复(R1 恢复循环交互误报): status 含 "recovered" 也清 count——
+        # schedule_monitor 恢复循环(L1178-1200)会把上一轮 pending buffer 置 recovered
+        # 但不清 consecutive_count(且 r2_ 前缀 buffer 由各块 inline 恢复处理)。若不支持
+        # recovered, 「滞后→恢复→再滞后」跨 3 轮时轮2 恢复路径看到 status=recovered
+        # 不清 count, 轮3 再滞后 count 残留 +1 直接触顶发假 SEVERE。此处一并清=重置
+        # 连续计数基准, 使「恢复后再滞后」从 0 重新计数; 真连续 2 轮滞后(轮2 仍滞后)
+        # 不受影响(轮2 走滞后分支, count 照常 +1 → 2 触发, 不吞真故障)。
+        if _bf and _bf.get("status") in ("pending", "alerted", "recovered"):
             _bf["status"] = "recovered"
             _bf["consecutive_count"] = 0
             _bf["recovered_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
