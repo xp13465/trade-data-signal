@@ -113,8 +113,17 @@ def _notify_count_file_write_fail(e: Exception) -> None:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
             print(f"[notify] 计数写失败告警退出码 {r.returncode}: {(r.stderr or '')[-200:]}", file=sys.stderr)
+            return
+        # P3 订正(2026-10-01 #132 复审 2): 旧文案「已发(dedup 6h)」在 dedup suppress 时
+        # 照打属误导——主窗口 suppress 不代表本次有送达/入队动作。按 notify.py 实际
+        # stderr 区分三态: 真入聚合队列 / 被 dedup 抑制 / buffer 追加失败(未占窗)。
+        stderr = r.stderr or ""
+        if "dedup 窗口内 suppress" in stderr:
+            print(f"[notify] 计数写失败告警已被 dedup 抑制(6h 窗内已处理过, 本次未入队)", flush=True)
+        elif "buffer 追加失败" in stderr:
+            print(f"[notify] 计数写失败告警 buffer 追加失败(未入队、未占窗, 下轮重试)", flush=True)
         else:
-            print(f"[notify] 计数写失败告警已发(dedup 6h)", flush=True)
+            print(f"[notify] 计数写失败告警已入聚合队列(30min 批发, dedup 6h)", flush=True)
     except Exception as ne:  # noqa: BLE001
         print(f"[notify] 计数写失败告警发送异常(不阻塞, exit 非0 兜底): {ne}", file=sys.stderr)
 

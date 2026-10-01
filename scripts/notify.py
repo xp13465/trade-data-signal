@@ -1633,7 +1633,7 @@ def clear_warning_dedup_for_recovery(subject: str, body: str = "") -> list[str]:
 
 
 def defer_warning(subject: str, body: str, from_prefix: str | None = None,
-                  dry_run: bool = False) -> bool:
+                  dry_run: bool = False) -> str:
     """warning 级：写入聚合 buffer（warning_buffer.jsonl），等 flush_warning_batch 批发。
 
     不直接推送——由 schedule_monitor/monitor_72h 每轮尾部调 flush_warning_batch()，
@@ -1655,18 +1655,31 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None,
       · 全局锁序单向：WARNING_FLUSH_LOCK_FILE → dedup 锁 → buffer flock（详见
         WARNING_DEDUP_LOCK_FILE 常量注释）；锁获取失败 fail-open 无锁继续（退化为可能
         少计一次，方向多发，绝不因锁问题阻塞告警链路）。
-    指纹/状态异常一律 fail-open 直接入队（宁可多发不吞告警）。返回 True=已处理
-    （入队或计数合并），调用方无需区分（既有调用方均不消费返回值）。
+    指纹/状态异常一律 fail-open 直接入队（宁可多发不吞告警）。返回三态字符串
+    （见下 dry_run 段），既有调用方不消费返回值（全 truthy 兼容）；send_tiered
+    warning 分支消费它决定是否占 dedup 窗。
 
     dry_run=True（#132 复审 C-2 修复，2026-10-01）：不写 buffer、不落 dedup 状态、
-    不外发，仅模拟走一遍返回 True——放函数最前短路，确保 dry-run 绝不触碰任何状态
-    文件（P2④ 同口径：dry_run 全路径只读）。返回仍为 True 对齐 test_u10 钉死的
-    「返回恒 True」语义（追加失败也 True，方向宁多发），dry_run 只是模拟不改变契约。
+    不外发，仅模拟走一遍——放函数最前短路，确保 dry-run 绝不触碰任何状态文件
+    （P2④ 同口径：dry_run 全路径只读）。
+
+    #132 复审 2 P0 修复（2026-10-01）：返回**可区分三态字符串**（全部 truthy，
+    兼容既有 assertTrue 断言与「方向宁多发」fail-open 精神），调用方据此判断
+    是否允许占窗：
+      "enqueued"      = buffer 追加成功（真入队，flush 有保证送达路径）
+      "suppressed"    = 内部指纹 4h 窗命中（真抑制，消息本就不该再发）
+      "append_failed" = buffer 追加失败（未入队、未登记状态，调用方**不得**占窗，
+                        下轮同源继续尝试）
+      "dry_run"       = dry_run 短路（不写 buffer/状态/外发，仅模拟）
+    关键：只有「真入队 / 真抑制」才是真已处理，才允许 update_dedup 占窗；
+    「追加失败」绝不占窗——否则 buffer 写失败也假成功占窗，check_dedup 在
+    send_tiered 之前拦截下轮重试，真告警被静默吞（#123 R4 同款翻版，本函数与其
+    内部 4h 指纹窗是两套独立窗，勿混为一谈）。
     """
     if dry_run:
         print(f"[notify][warning][dry-run] 模拟入聚合 buffer（不写盘）：{subject}",
               file=sys.stderr)
-        return True
+        return "dry_run"
     now = datetime.now()
     fp = ""
     try:
@@ -1685,9 +1698,9 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None,
         # 指纹不可用：跳过去重直接入队（fail-open 宁多发）
         if _append_jsonl(WARNING_BUFFER_FILE, payload):
             print(f"[notify][warning] 入聚合 buffer（30min 批发）：{subject}", file=sys.stderr)
-        else:
-            print(f"[notify][warning] buffer 追加失败（未入队）：{subject}", file=sys.stderr)
-        return True
+            return "enqueued"
+        print(f"[notify][warning] buffer 追加失败（未入队）：{subject}", file=sys.stderr)
+        return "append_failed"
     appended = False
     try:
         with _dedup_state_lock():
@@ -1718,7 +1731,7 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None,
                     _save_warning_dedup_state(state)
                     print(f"[notify][dedup] 同源抑制(窗口内第 {total} 次，已通知 "
                           f"{notified} 次，4h 窗)：{subject}", file=sys.stderr)
-                    return True
+                    return "suppressed"
             else:
                 # 首次入队 / 旧窗已过期（U2 回归修复）：重建全新窗口从第 1 次重新计。
                 # 不能沿用旧 rec 增量——否则过期复发继承陈年计数且 window_start 不刷新
@@ -1738,7 +1751,7 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None,
             if not appended:
                 print(f"[notify][warning] buffer 追加失败（不入队、不登记指纹状态，"
                       f"后续同源将继续尝试）：{subject}", file=sys.stderr)
-                return True
+                return "append_failed"
             state[fp] = rec
             if not _save_warning_dedup_state(state):
                 print(f"[notify][dedup] 入队后状态登记失败（下次同源可能多发一封，fail-open）",
@@ -1750,11 +1763,15 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None,
               file=sys.stderr)
         if not appended:
             try:
-                _append_jsonl(WARNING_BUFFER_FILE, payload)
+                appended = _append_jsonl(WARNING_BUFFER_FILE, payload)
             except Exception:  # noqa: BLE001
-                pass
-    print(f"[notify][warning] 入聚合 buffer（30min 批发）：{subject}", file=sys.stderr)
-    return True
+                appended = False
+    if appended:
+        print(f"[notify][warning] 入聚合 buffer（30min 批发）：{subject}", file=sys.stderr)
+        return "enqueued"
+    print(f"[notify][warning] buffer 追加失败（未入队，不占窗，后续同源继续尝试）：{subject}",
+          file=sys.stderr)
+    return "append_failed"
 
 
 
@@ -2022,8 +2039,12 @@ def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
         return {"tier": tier, "email": False, "telegram": False, "feishu": False, "info_logged": True}
     if tier == TIER_WARNING:
         # C-2 透传 dry_run（2026-10-01）：defer_warning 最前短路，dry-run 不写 buffer/状态
-        defer_warning(subject, body, from_prefix=from_prefix, dry_run=dry_run)
-        return {"tier": tier, "email": False, "telegram": False, "feishu": False, "deferred": True}
+        # P0 复审（2026-10-01 第二轮）：defer_warning 返回三态，deferred 只在「真入队/真抑制」
+        # 为 True；「追加失败」为 False 即不占 dedup 窗，让下次同 key 调用还能重试（#123 R4
+        # 同款尺子：不是真发送就不占窗）。
+        status = defer_warning(subject, body, from_prefix=from_prefix, dry_run=dry_run)
+        return {"tier": tier, "email": False, "telegram": False, "feishu": False,
+                "deferred": status in ("enqueued", "suppressed"), "defer_status": status}
     res = send(subject, body, severe=(tier == TIER_CRITICAL), dry_run=dry_run,
                from_prefix=from_prefix, feishu_group=feishu_group,
                reply_to_message_id=reply_to_message_id)
@@ -2035,17 +2056,19 @@ def _tier_send_ok(res: dict, tier: str) -> bool:
 
     - critical：send() 真实渠道发出（任一 email/telegram/feishu True）；dry_run 由
       调用方 guard（not args.dry_run）挡在外面，传进来 res 也带 tier 键需排除。
-    - warning：defer_warning 已本地处理（入 buffer 或同源计数合并），视为已成功路由。
-      注：defer_warning 返回恒 True（含 append 失败 fail-open，#123 test_u10 钉死），
-      入队成功与否无法从返回值区分；此处以 send_tiered 未抛异常=已本地处理为准（对齐
-      defer_warning 自身「追加失败绝不登记状态、下轮重试」的 fail-open 方向一致性——
-      dedup 占窗只压制重试轰炸，不吞掉本轮到 buffer 的条目）。
+    - warning：defer_warning 返回三态——「enqueued」（真入 buffer）/「suppressed」（内部
+      4h 指纹窗抑制，计数已累计）视为已成功路由=可占窗；「append_failed」（buffer 写失败）
+      视为未发送成功=绝不占窗（#123 R4 同款：不是真发送就不占窗，让下次同 key 重试）。
+      注：defer_warning 内部 4h 指纹窗 与 main 层通用 notify_dedup.json 窗是两套独立窗，
+      「占窗只压制重试轰炸不吞本轮到 buffer 条目」的旧措辞已被实测证伪（append 失败也
+      占窗会让后续同 key 调用在 check_dedup 被挡，消息既没进 buffer 也无送达路径），
+      故以 defer_status 为准而非恒 True。
     - info：log_info 已落 dashboard。
     """
     if tier == TIER_CRITICAL:
         return any(res.get(ch) for ch in ("email", "telegram", "feishu"))
     if tier == TIER_WARNING:
-        return bool(res.get("deferred"))
+        return res.get("defer_status") in ("enqueued", "suppressed")
     if tier == TIER_INFO:
         return bool(res.get("info_logged"))
     return True

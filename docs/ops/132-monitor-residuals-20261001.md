@@ -204,8 +204,9 @@ FADE`、`check_nt_signals.save_nt_notified`、`brief_push.save_state`、`alert_a
   `if args.dedup_key and not args.dry_run and check_dedup(...): return 0`(suppress 静默),
   发送成功后 `_tier_send_ok(res, tier)` 为真则 `update_dedup(...)`(占窗)。新增辅助函数
   `_tier_send_ok`: critical=真实渠道任一发出(email/telegram/feishu);warning=defer_warning
-  已本地处理(入 buffer/计数合并,返回值恒 True 由 #123 test_u10 钉死,追加失败也 True,
-  以「未抛异常=已处理」为准);info=已记 dashboard。**不动通用路径 L2157 的 `and ok` 契约**,
+  已本地处理(**第二轮 P0 起按三态判定**: enqueued/suppressed 才 True,append_failed 恒
+  False——不占窗;旧「返回值恒 True 追加失败也 True」口径已被复审2 证伪并修正);
+  info=已记 dashboard。**不动通用路径 L2157 的 `and ok` 契约**,
   dry-run 不走去重不占窗(与通用路径 L2140 同口径)。
 - **附带修好 3 个既有调用方的假降噪**(with_lock/staticdata_sync/staticdata_backup_async
   的 6h dedup 由「静默失效」变「真生效」)。
@@ -249,6 +250,67 @@ FADE`、`check_nt_signals.save_nt_notified`、`brief_push.save_state`、`alert_a
 | A | 阈值告警 `_notify_repeat_failure` 无 dedup-key,写失败持续期间每 15min 一封重复邮件(每3轮达阈值→3轮3封×2通道) | 补 `--dedup-key retry_fm_threshold_{mid} --dedup-window 21600`(防轰炸且保留 1 封/6h 直达) | 动 #131 告警链路老功能,须用户拍板 |
 | B | 6 处「写失败只打日志不抛」同族静默点(alert_denoise_rules.R4/check_data_gap/detect_intraday/feishu_missed/sensenova-healthcheck/agent_inbox) | 全部纳入 fail-loud 专项统一修 | 均为已上线功能,须用户拍板分批排期 |
 
+## 第二轮独立复审修复(P0/P1/P3,2026-10-01,依据 docs/ops/132-monitor-residuals-review2-20261001.md)
+
+### P0 `send_tiered` warning 分支无条件 deferred=True → buffer 追加失败也占窗(已修复)
+- **病灶(本分支自引,复审抓到)**: 修 C-1 时 `send_tiered` warning 分支无条件
+  `return {..., "deferred": True}`,`_tier_send_ok` 取 `bool(res.get("deferred"))` 恒 True
+  → buffer 追加失败也走 `update_dedup` 占窗 → 下轮同 key 调用在 `check_dedup` 被挡,
+  消息既没进 buffer 也无送达路径 → 真告警被静默吞(dedup 窗内,6h 内永不重试)。
+  与 #123 R4「不是真发出就占窗」同款翻版。
+- **修复**(scripts/notify.py,同一把尺子):
+  1. `defer_warning` 返回**可区分三态字符串**: `"enqueued"`(buffer 追加成功,真入队)/
+     `"suppressed"`(内部 4h 指纹窗命中,真抑制)/ `"append_failed"`(buffer 写失败,未入队
+     未登记状态)/ `"dry_run"`(dry-run 短路)。全部 truthy 兼容既有 assertTrue 断言。
+  2. `send_tiered` warning 分支映射: `deferred = status in ("enqueued", "suppressed")`,
+     返回体带 `defer_status` 原始状态供 `_tier_send_ok` 判定。
+  3. `_tier_send_ok` warning 档: `res.get("defer_status") in ("enqueued", "suppressed")`
+     —— 只有「真入队 / 真抑制」才 `update_dedup` 占窗;「append_failed」绝不占窗。
+- **docstring 订正(复审证伪句)**: 旧 `_tier_send_ok` docstring 写「占窗只压制重试轰炸
+  不吞本轮到 buffer 条目」已被实测证伪——defer_warning 内部 4h 指纹窗 与 main 层通用
+  notify_dedup.json 窗是**两套独立窗**,append 失败占窗会让下轮在 check_dedup 被吞。
+  已订正为两套窗口径。
+- **不动通用路径 L2185-2205 的 `and ok` 契约**(复审明确要求)。
+- **验收实测**(scripts/test_132_notify_tier_dedup.py,全 tmp 隔离):
+  - ① `test_p0_buf_append_fail_no_dedup_second_call_retries`: mock `_append_jsonl` 返回
+    False → 两次同 key CLI 调用,第二次仍进入 defer_warning 重试(mock call 计数=[1,1]),
+    dedup 文件空(未占窗)、buffer 空、指纹状态空 ✅
+  - ② `test_p0_enqueue_still_occupies_window`: 真入队 → buffer 1 条 + `test_132_key` 占窗
+    (不回归)✅
+  - ③ `test_p0_internal_suppressed_still_occupies_window`: 预埋活动指纹窗 → defer 返回
+    `suppressed` → send_tiered deferred=True → main 层 update_dedup 占窗 ✅
+  - ④ `test_p0_tier_send_ok_append_failed_false`: 判定直接——append_failed→False,
+    enqueued/suppressed→True ✅
+
+### P1 同 key「先失败 → 恢复 → 再失败」时序实测(已回答,落在设计语义内)
+- **结论**: P0 修好后「占窗」只发生在消息真入队/真抑制时;窗口内二次抑制=调用方自己要的
+  dedup 语义,不算吞告警。**未弱化 dedup**。
+- **实测**(`test_p1_fail_then_recover_then_fail_timing`,三段观测值):
+  1. **段1 失败**: mock append 失败 → `defer_status=append_failed`、dedup 无
+     `test_132_p1`、buffer 0 条 —— 不占窗 ✅
+  2. **段2 恢复**: 真入队 → `defer_status=enqueued`、dedup 出现 `test_132_p1`、buffer 1 条
+     —— 占窗 ✅
+  3. **段3 窗口内再失败**: check_dedup 在设计语义内 suppress(`dedup 窗口内 suppress
+     key=test_132_p1`,不新增 buffer 条目、窗状态不变)—— 因段2 已真入队送达,抑制的是
+     6h 窗内的重试轰炸,不是吞告警 ✅
+
+### P3 retry_failed_metrics.py L117 文案订正(已修复)
+- **病灶**: `_notify_count_file_write_fail` 旧文案「计数写失败告警已发(dedup 6h)」在
+  C-1 修复后 dedup suppress 时仍照打——误导(没真发/没入队却被说成「已发」)。
+- **修复**: 按 notify.py 实际 stderr 分三态打印——`dedup 窗口内 suppress` →「已被 dedup
+  抑制(6h 窗内已处理过,本次未入队)」;`buffer 追加失败` →「buffer 追加失败(未入队、未占窗,
+  下轮重试)」;其余 →「已入聚合队列(30min 批发,dedup 6h)」。
+
+### 同类错误面清单(§23.2,P0 三态契约消费点全仓审计)
+| # | 位置 | 消费方式 | 处置 |
+|---|---|---|---|
+| 1 | `scripts/notify.py` `send_tiered` warning 分支 | 消费 defer_warning 三态 → 映射 deferred + defer_status | 已修(本轮) |
+| 2 | `scripts/notify.py` `_tier_send_ok` | 按 defer_status 判定占窗 | 已修(本轮) |
+| 3 | `scripts/test_notify_dedup.py` test_u1/test_u10 等 | `assertTrue(r)` 只验 truthy | 三态全 truthy,不受影响;15 项回归 OK |
+| 4 | `scripts/with_lock.py` / `staticdata_sync.sh` / `staticdata_backup_async.sh` | CLI `--tier+--dedup-key`,不消费返回值,只看 rc | 不受影响(rc 契约不变) |
+
+
+
 ## 复现段(§23.5)
 
 1. 重建凌晨槽判定:`/Users/linhuichen/code/trade-data/.venv/bin/python scripts/tests/test_132_morning_slot.py`
@@ -261,20 +323,23 @@ FADE`、`check_nt_signals.save_nt_notified`、`brief_push.save_state`、`alert_a
 4. hkex 归一验证:`BACKFILL_SLOT=0205/0200/0300/0459→0200, 0500→0500, 1635→1635, 2100→2100`(包导入调 `_current_slot`)。
 5. self_heal 两条链路(bash pipefail): 链路1 retry exit=1→rc=1(|| echo 接管);
    链路2 锁被占→--nb 跳过→rc=0(不误报),见上「真实输出」。
-6. 重建 C-1/C-2(复审修复): `/Users/linhuichen/code/trade-data/.venv/bin/python scripts/test_132_notify_tier_dedup.py`
+6. 重建 C-1/C-2 + 复审2 P0/P1(复审修复): `/Users/linhuichen/code/trade-data/.venv/bin/python scripts/test_132_notify_tier_dedup.py`
    (全 tmp 隔离:patch WARNING_BUFFER_FILE/WARNING_DEDUP_STATE_FILE/DEDUP_FILE/INFO_LOG_FILE
-   到临时目录,走 notify.main(argv) 真实 CLI 路径;8 项全 PASS,含 C-1 双调用二态对比、
-   不同 key 各自入队、C-2 dry-run 三层验证、with_lock/staticdata_sync 参数组合复刻)。
-7. 既有回归: `scripts/test_notify_dedup.py`(15 项 OK)+ 上表第 1/2/3 条测试,全部 PASS,
-   证明 defer_warning 返回/去重语义未破坏。
+   到临时目录,走 notify.main(argv) 真实 CLI 路径;13 项全 PASS,含 C-1 双调用二态对比、
+   不同 key 各自入队、C-2 dry-run 三层验证、with_lock/staticdata_sync 参数组合复刻、
+   P0 四态(append_fail 不占窗/enqueue 占窗/suppressed 占窗/_tier_send_ok 判定)、
+   P1 三段时间序实测)。
+7. 既有回归: `scripts/test_notify_dedup.py`(15 项 OK)+ `scripts/test_notify_flush_race.py`
+   (6 项 OK)+ 上表第 1/2/3 条测试,全部 PASS,证明 defer_warning 三态返回(全 truthy)
+   与去重语义未破坏。
 
 ## 改动文件清单
 - `scripts/backfill_direct_metrics.py` — ① `_is_morning_slot` 按时点判定时点(新增 now 参数注入测试)、模块 docstring 同步
 - `scripts/backfill_metrics.sh` — ① 注释同步槽位判定口径
 - `app/collector/hkex_ccass_quarterly.py` — ① 举一反三:同一「02 前缀」时点漂移修复
 - `scripts/self_heal.sh` — ② retry 调用经 `with_lock.py --nb` 进程互斥
-- `scripts/retry_failed_metrics.py` — ③ `_save_counts` fail-loud + 写失败独立告警 + 先通知后落盘 + 落盘收敛末尾一次
-- `scripts/notify.py` — 复审 C-1: `--tier` 分支补通用 dedup(发送前 check_dedup suppress + 成功后 update_dedup,新增 `_tier_send_ok` helper,不动通用路径 `and ok`)、C-2: `defer_warning` + `send_tiered` 透传 dry_run
+- `scripts/retry_failed_metrics.py` — ③ `_save_counts` fail-loud + 写失败独立告警 + 先通知后落盘 + 落盘收敛末尾一次 + 复审2 P3: 告警文案三态订正(真入队/被抑制/buffer 写失败)
+- `scripts/notify.py` — 复审 C-1: `--tier` 分支补通用 dedup(发送前 check_dedup suppress + 成功后 update_dedup,新增 `_tier_send_ok` helper,不动通用路径 `and ok`)、C-2: `defer_warning` + `send_tiered` 透传 dry_run、复审2 P0: `defer_warning` 三态返回(签名 `-> str`)+ `send_tiered` 映射 + `_tier_send_ok` 按 defer_status 判定 + docstring 订正两套独立窗
 - `scripts/tests/test_132_morning_slot.py` / `test_132_count_file_fail_loud.py` / `test_132_self_heal_mutex.py` — 新赠三份反例自测(真实代码)
-- `scripts/test_132_notify_tier_dedup.py` — 复审 C-1/C-2 回归测试(8 项,全 tmp 隔离)
-- `docs/ops/132-monitor-residuals-20261001.md` — 本报告(含 C-3 订正 + 复审修复记录 + 待拍板项)
+- `scripts/test_132_notify_tier_dedup.py` — 复审 C-1/C-2 回归测试 + 复审2 P0/P1(13 项,全 tmp 隔离)
+- `docs/ops/132-monitor-residuals-20261001.md` — 本报告(含 C-3 订正 + 复审修复记录 + 第二轮 P0/P1/P3 修复记录 + 待拍板项)
