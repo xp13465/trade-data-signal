@@ -2364,6 +2364,12 @@ def cmd_upload_large_json():
       - dry-run(2026-09-26 F1): `upload-large-json --dry-run`(或 async 侧 STATICDATA_BACKUP_SKIP_R2_UPLOAD=1)
         只打印将上传清单 + 将做的事,**不 PUT / 不 DELETE / 不重写 manifest / 不跑 _prune_large_json,
         且全程不接触 R2**(纯本地计算)——测试隔离钩子, 防集成测试污染生产桶(2026-09-26 实际事故)。
+      - 本地快照增量(#149e, 2026-10-01): 逐文件 pre-PUT HEAD 比对(3.1 万跨境 HEAD 单段 26~105min,
+        锁队列积压元凶)→ 状态文件本地判定。复刻 _incremental_upload 引擎模式: 状态清单
+        data/.r2_large_json_state.json(结构 {version,updated_at,mode,count,files:{rel:{size,md5}},changed:[rel]},
+        与数据同仓 untracked)+ .r2_large_json_uploading.marker(fail-closed)+ 原子写状态 + 首跑/损坏
+        退化全量 + 周日强制全量 HEAD。平时增量: 本地 gzip md5 == 状态 md5 → 跳过(0 HEAD/0 PUT);
+        变化 → 走原 HEAD 幂等 + PUT。--full(或 R2_LARGE_JSON_FORCE_FULL=1)手动强制全量 HEAD 校验防 drift。
     """
     import gzip
     import hashlib
@@ -2521,11 +2527,83 @@ def cmd_upload_large_json():
             return "stop"
         return "fail"
 
-    # 并行执行: 逐文件 submit, 停止标志触发即不再派新任务; shutdown(wait=True) 等全部已派任务落地。
+    # ===== #149e 本地快照增量(2026-10-01): 复刻 _incremental_upload 状态文件模式 =====
+    # 状态清单 data/.r2_large_json_state.json(与数据同仓, untracked 不进 git), 结构同引擎:
+    #   {version, updated_at, mode, count, files:{rel:{size,md5}}, changed:[rel]}
+    # 指纹 = gzip payload 的 md5(上传内容即 gzip payload, R2 ETag 同口径)。
+    # 跳过判据: 状态记录存在 + 本地 gzip md5 == 状态记录 md5 → 跳过(状态只在全部成功后原子写,
+    #   「状态记录+md5 一致」可自证「上次上传成功时远端 HEAD 一致, 内容未变远端必仍在」)。
+    # 首跑/状态损坏 → 退化全量; 周日强制全量 HEAD; --full / R2_LARGE_JSON_FORCE_FULL=1 手动全量
+    #   校验(防状态与 R2 drift); marker fail-closed; 原子写状态(tmp+os.replace), 写失败 fail-loud。
+    # 为什么不复用 _incremental_upload 函数: 清单来自 large_json_excludes.py --print 子进程(非 glob),
+    # 上传 payload 需 gzip 变换(引擎 _upload_glob 传原始字节), 且有本通道独有预算/熔断/并行——状态
+    # 文件命名/结构/原子写/marker/退化全量语义全部照抄引擎, 保持一致(verify-r2 对账同通道可读)。
+    state_name = ".r2_large_json_state.json"
+    state_path = STATIC_DIR.parent / "data" / state_name
+    marker_path = state_path.with_name(".r2_large_json_uploading.marker")
+    old_files = {}
+    state_ok = False
+    if state_path.exists():
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                st = json.load(f)
+            if isinstance(st.get("files"), dict):
+                old_files = st["files"]
+                state_ok = True
+        except (OSError, ValueError):
+            print(f"⚠ 状态清单损坏/不可读({state_path}), 退化为全量")
+    today_weekday = _dt.datetime.now().weekday()
+    marker_stale = marker_path.exists()
+    manual_full = ("--full" in sys.argv or os.environ.get("R2_LARGE_JSON_FORCE_FULL", "") == "1")
+    force_full = (manual_full or (not state_ok) or marker_stale or today_weekday == 6)
+    if marker_stale:
+        mode = "上次上传中断强制全量(marker fail-closed)"
+    elif today_weekday == 6 and state_ok:
+        mode = "周日强制全量校验"
+    elif not state_ok:
+        mode = "首次/无状态退化全量"
+    elif manual_full:
+        mode = "--full 手动强制全量校验"
+    else:
+        mode = "增量"
+    # 指纹扫描(纯本地, 零 R2 接触): 算本地 gzip md5(幂等前提 mtime=0), 判定 skip/changed
+    skip_rels = []
+    changed_rels = []
+    sigs = {}
+    t_scan = time.time()
+    for relpath, size in entries:
+        src = repo / "data" / relpath
+        if not src.is_file():
+            skip_rels.append(relpath)   # 源缺失: 原逻辑也当「跳过(源不存在)」计入 ok, 语义不变
+            continue
+        raw = src.read_bytes()
+        payload = gzip.compress(raw, compresslevel=6, mtime=0)
+        md5 = hashlib.md5(payload).hexdigest()
+        sigs[relpath] = {"size": size, "md5": md5}
+        old = _norm_state_val(old_files.get(relpath))
+        if (not force_full) and old[1] is not None and old[1] == md5:
+            skip_rels.append(relpath)
+            # skip = 远端已有同内容副本(状态自证), 真实成功, 进 manifest(与 _upload_one HEAD 命中进 manifest 同语义)
+            _add_row(relpath, size, raw, _mk_key(relpath))
+        else:
+            changed_rels.append((relpath, size))
+    print(f"[large-json] 模式={mode} 全集 {len(entries)} / 跳过 {len(skip_rels)} / 待传 {len(changed_rels)}"
+          f"(指纹扫描 {time.time()-t_scan:.1f}s, 纯本地)")
+    # 上传开始标记(fail-closed, 2026-09-23 ①假成功根治语义同引擎): 上传中途被 kill 残留 →
+    # 下轮 scan 发现强制全量; 正常结束(全成功写状态)后删除。dry-run 不写。
+    if not dry_run and changed_rels:
+        try:
+            marker_path.parent.mkdir(parents=True, exist_ok=True)
+            marker_path.write_text(time.strftime("%Y-%m-%dT%H:%M:%S") + f" pid={os.getpid()}", encoding="utf-8")
+        except OSError as e:
+            print(f"⚠ 上传标记写入失败({e})", file=sys.stderr)
+
+    # 并行执行: 只传增量判定后的待传清单(changed_rels); 停止标志触发即不再派新任务;
+    # shutdown(wait=True) 等全部已派任务落地。skip 文件 0 HEAD 0 PUT(内容未变, 远端必有)。
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=_workers) as _ex:
         _futures = []
-        for relpath, size in sorted(entries):
+        for relpath, size in sorted(changed_rels):
             if _shared["stop"]:
                 break
             _futures.append((_ex.submit(_upload_one, relpath, size), relpath))
@@ -2542,15 +2620,39 @@ def cmd_upload_large_json():
         else:
             print("[dry-run] 将运行 _prune_large_json(旧日期目录 7 天宽限期后清理; 固定前缀唯一副本不滚动删)")
         print(f"[dry-run] 将重写 staticdata仓库/docs/large-json-backup-manifest.md(#115, {len(manifest_rows)} 行)")
-        print(f"[dry-run] large-json 计划上传 {ok}/{len(entries)} -> {BACKUP_BUCKET}/"
+        print(f"[dry-run] large-json 计划上传 {ok}/{len(changed_rels)} -> {BACKUP_BUCKET}/"
               f"{('large-json/' + today + '/') if date_prefix else 'large-json/'}(私有桶, 未执行)")
         return
+    # 失败(ok < 待传): 不写新状态(保持旧状态 → 下次重传面更大, 宁多传不漏传), marker 残留
+    # → 下轮 scan 强制全量重传(fail-closed, 与引擎同语义)。
+    if ok != len(changed_rels):
+        print(f"large-json 上传 {ok}/{len(changed_rels)} 失败(状态未更新, marker 残留 → 下轮强制全量)",
+              file=sys.stderr)
+        sys.exit(1)
+    # 全部成功 → 原子写状态(tmp + os.replace)+ 删 marker。状态写失败必须 fail-loud(不许静默继续)。
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = state_path.with_name(state_path.name + ".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "version": 1,
+                "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "mode": mode,
+                "count": len(sigs),
+                "files": sigs,
+                "changed": [rel for rel, _ in changed_rels],
+            }, f, ensure_ascii=False, sort_keys=True)
+        os.replace(tmp_path, state_path)
+    except OSError as e:
+        sys.exit(f"✗ 状态文件原子写失败({state_path}): {e}(fail-loud)")
+    try:
+        marker_path.unlink(missing_ok=True)
+    except OSError:
+        pass
     _prune_large_json()
     _write_large_json_manifest(manifest_rows, today, date_prefix=date_prefix)
-    print(f"large-json 上传 {ok}/{len(entries)} -> {BACKUP_BUCKET}/"
+    print(f"large-json 上传 {ok}/{len(changed_rels)} -> {BACKUP_BUCKET}/"
           f"{('large-json/' + today + '/') if date_prefix else 'large-json/'}(私有桶)")
-    if ok != len(entries):
-        sys.exit(1)
 
 
 # ---- verify-r2 通道登记表(2026-09-15, 层3 防漏传对账) ----
@@ -3028,11 +3130,13 @@ if __name__ == "__main__":
     elif cmd == "upload-db":
         cmd_upload_db()
     elif cmd == "upload-large-json":
-        # upload-large-json [--dry-run]  staticdata 备份 git 排除的大 JSON -> 私有桶 large-json/
+        # upload-large-json [--dry-run] [--full]  staticdata 备份 git 排除的大 JSON -> 私有桶 large-json/
         # (2026-09-25, 排除对象清单来源 large_json_excludes.py --print)
         # key 格式(#126, 2026-09-30): 默认固定前缀 large-json/<相对路径>.gz(唯一副本增量复用);
         #   R2_LARGE_JSON_DATE_PREFIX=1 逃生门回旧 large-json/<日期>/<路径>.gz。
         # --dry-run(2026-09-26 F1): 走全局 _DRY_RUN 标志, 只打印清单计划动作, 零 R2 接触。
+        # --full(#149e, 2026-10-01): 手动强制全量 HEAD 校验(防状态与 R2 长期 drift),
+        #   等价 R2_LARGE_JSON_FORCE_FULL=1; 首跑/状态损坏/周日仍自动全量。
         cmd_upload_large_json()
     elif cmd == "upload-claude-backup":
         # upload-claude-backup [local_path]  Claude 自我备份 tar.gz -> signal-backup/claude-backup/
