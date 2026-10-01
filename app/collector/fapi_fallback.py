@@ -10,9 +10,9 @@ collect_snapshot 空值分支调用本模块做真异源兜底(同花顺官方 A
 失败一律返回 (None, msg) 不抛异常,主源失败时兜底失败=静默保留 empty(不阻断)。
 
 端点(FAPI 契约 http://fuyao.aicubes.cn):
-  limit-up-pool   ?date_ms=<ms>&page=1&size=200 -> data.pagination.total + data.item[]
-  limit-down-pool 同结构
-  limit-break-pool 同结构
+  limit-up-pool    ?date_ms=<ms>&page=1&size=200 -> data.pagination.total + data.item[]
+  limit-down-pool  ?date=YYYYMMDD&page=1&size=200 -> 同结构(#145 与涨停池参数口径不同)
+  limit-break-pool ?date=YYYYMMDD&page=1&size=200 -> 同结构(#145)
   dragon-tiger-list ?board_type=all&date=YYYY-MM-DD -> data.count + data.stock_items[]
 实测(20260901):涨停 80 vs 东财 83、跌停 0 vs 0、炸板 6 vs 6;龙虎榜 count=68 vs 东财 79。
 """
@@ -59,9 +59,16 @@ def _api(path: str, params: dict):
         return None
 
 
-def _zt_df(pool_items: list, lianban_col: str = "连板数") -> pd.DataFrame:
+def _zt_df(pool_items: list, lianban_col: str = "连板数",
+           has_lianban: bool = True) -> pd.DataFrame:
     """涨停池 item -> 东财兼容 df。count_rows 用行数;max 取 lianban_col。
-    FAPI continue_day_cnt(整型连板数) -> 东财「连板数」列语义对齐。"""
+    FAPI continue_day_cnt(整型连板数) -> 东财「连板数」列语义对齐。
+
+    #146:跌停/炸板池 item 无 continue_day_cnt 字段(仅涨停池有连板语义),直接
+    it.get() 得整列 NaN——当前列只透传/展示不炸,潜伏风险的任何
+    max()/比较/int() 变换(NaN->int 抛 ValueError)都会打断采集链。
+    has_lianban=False 时该列显式填 0;has_lianban=True 时内层再 fillna(0)
+    防御个别 item 缺值。"""
     rows = []
     for it in pool_items:
         row = {
@@ -69,10 +76,14 @@ def _zt_df(pool_items: list, lianban_col: str = "连板数") -> pd.DataFrame:
             "名称": it.get("name", ""),
             "最新价": it.get("last_price"),
             "涨跌幅": it.get("price_change_ratio_pct"),
-            lianban_col: it.get("continue_day_cnt"),
+            lianban_col: it.get("continue_day_cnt") if has_lianban else 0,
         }
         rows.append(row)
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    if has_lianban and lianban_col in df.columns:
+        # 防御:字段存在但个别 item 缺值(None/NaN)时显式 0,不整列 NaN
+        df[lianban_col] = df[lianban_col].fillna(0)
+    return df
 
 
 def _lhb_df(stock_items: list, with_inst: bool) -> pd.DataFrame | None:
@@ -104,7 +115,14 @@ def fetch_zt_fallback(func_name: str, date: str) -> tuple[pd.DataFrame | None, s
     r = ZT_ENDPOINTS.get(func_name)
     if not r:
         return None, f"no fapi endpoint for {func_name}"
-    params = {"date_ms": _date_ms(date), "page": 1, "size": 200}
+    # #145 参数口径按池区分:limit-up-pool 契约用 date_ms(毫秒时间戳),涨停池
+    # 当日实时取数保持 date_ms 逐位不变;limit-down-pool/limit-break-pool 契约用
+    # date=YYYYMMDD——原先三池共用 date_ms 致跌停/炸板池历史日期取数 FAPI
+    # 返回 code:1002(参数不合法),老日期恒取不到。
+    if r == "limit-up-pool":
+        params = {"date_ms": _date_ms(date), "page": 1, "size": 200}
+    else:
+        params = {"date": date, "page": 1, "size": 200}
     data = _api(f"/api/a-share/special-data/{r}", params)
     if data is None:
         return None, f"fapi {r} unavailable"
@@ -138,7 +156,10 @@ def fetch_zt_fallback(func_name: str, date: str) -> tuple[pd.DataFrame | None, s
         if page >= MAX_PAGES:
             break  # 安全上限触顶(对账会 TRUNCATED)
         page += 1
-    df = _zt_df(items)
+    # #146 按池区分连板语义:limit-up-pool item 有 continue_day_cnt(连板数),
+    # limit-down-pool/limit-break-pool 无该字段(契约文档 L201/L202),整列 NaN
+    # 潜伏 int(NaN)/max(NaN) ValueError 打断采集链——无连板语义池填 0
+    df = _zt_df(items, has_lianban=(r == "limit-up-pool"))
     msg = f"fapi {r} {len(df)} rows"
     if len(df) != total:
         # 对账机检:翻页后仍不等于 pagination.total(服务端异常/早期 break),
