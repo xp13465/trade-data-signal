@@ -36,13 +36,16 @@ CLI
 ====
 python -m app.backfill_lianban --dry-run --start 20210901 --end 20260611   # 只补缺口 dry-run
 python -m app.backfill_lianban --dry-run --start 20210901 --db /tmp/x.db --out /tmp/x.json
-python -m app.backfill_lianban --start 20210901                            # 真写库(需用户单独授权)
+# 真写生产主库(需用户单独授权 + P2-7 二次确认;dry-run 正常路径 rc=0,
+# 有 gap/失败时 rc=1 供自动化感知):
+python -m app.backfill_lianban --start 20210901 --write --confirm-prod
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
 import json
+import os
 import random
 import sqlite3
 import sys
@@ -62,6 +65,11 @@ ST_SUBSTR = "ST"
 
 METRIC_ID = "a_width_max_lianban"
 SOURCE = "fapi"
+
+# 云上生产主库路径(与 docs/ops/lianban-prod-write-checklist.md 钉死的执行目标一致)。
+# 云上 app.db.DB_PATH 经 symlink 链可能解析到旧镜像目录(trade-data-signal/data),
+# 与真实主库(trade-data/data)realpath 不等;为避免 P2-7 护栏漏拦,显式登记常量。
+_CLOUD_PROD_DB = "/home/ubuntu/code/trade-data/data/sentiment.db"
 
 # 与 app/db.py SCHEMA 的 daily_metric 表定义一致(--db 直连时兜底建表)
 _DAILY_METRIC_DDL = """
@@ -109,6 +117,16 @@ def _fetch_zt_all_pages(date: str) -> tuple[object, str]:
     口径,排除后才是 max)。
 
     返回 (df or None, msg)。df 含全量行;None=失败。
+
+    空 df 语义(2026-10-02 订正,回退 d1b3e9382 的 P2-3):fetch_zt_fallback 返回
+    空 df 有 3 条可达路径,且 API 层**无法区分**「该日真0 / 服务端无该日数据 /
+    契约异常」:
+      A. 真0:          pagination.total=0                  -> msg `empty(真0)`
+      B. 契约异常:      total=700 但 item 字段缺失/改名      -> msg `TRUNCATED total=700 got=0`
+      C. 契约异常:      data 有 item 但缺 pagination,total 误取 0 -> msg 误报 `empty(真0)`
+    A 股交易日全市场涨停池为空现实中不存在(2015 股灾日也有涨停),FAPI 报
+    total=0 更可能是服务端无该日数据。故主循环 `len(df)==0` 一律按**异常**记
+    gap、不写值(保守、可重试、诚实,§5.1④;禁止猜测性写 0,详见主循环注释)。
     """
     return fetch_zt_fallback("stock_zt_pool_em", date)
 
@@ -152,6 +170,30 @@ def max_lianban_ex_st(df, with_st: bool = False) -> tuple[float | None, int, int
     return float(series.max()), int(mask_st.sum()), total
 
 
+def _fmt(v) -> str:
+    """宽容数值格式化:数值用 :g,非数值/空串原样字符串(防旧库脏值崩溃, P2-1)。
+
+    真实库 daily_metric.value 是 REAL 列,但边界/脏数据可能为空串或非数值,
+    `{v:g}` 会抛 ValueError 导致回补崩溃。改为可转则 :g,不可转原样 str。
+    """
+    if isinstance(v, bool):
+        return str(v)
+    try:
+        return f"{v:g}"
+    except (ValueError, TypeError):
+        return str(v)
+
+
+def _to_float(v):
+    """宽容转 float;不可转(空串/非数值)返回 None(供对账比较用, P2-1)。"""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
 def _existing_map(conn: sqlite3.Connection, start: str, end: str) -> dict[str, tuple[float, str]]:
     """现有 a_width_max_lianban 在 [start,end] 内的 (date -> (value, source))。
 
@@ -163,6 +205,22 @@ def _existing_map(conn: sqlite3.Connection, start: str, end: str) -> dict[str, t
         (METRIC_ID, start, end),
     ).fetchall()
     return {r["date"]: (r["value"], r["source"]) for r in rows if r["value"] is not None}
+
+
+def _source_map(conn: sqlite3.Connection, start: str, end: str) -> dict[str, str]:
+    """现有 a_width_max_lianban 在 [start,end] 内的 (date -> source),**含 NULL 值行**。
+
+    manual 保护需要覆盖 manual+NULL 缺口行(它也在库里有行、source=manual,不该被
+    计划写入)——只靠 _existing_map(滤 NULL)会漏掉它,把「manual+NULL 行」误计进
+    planned_write(实际被 _upsert SQL `WHERE source != 'manual'` 拦下不写,账实不符,
+    P2-2)。此处独立查一次 date->source,循环内 manual 判定改按本表。
+    """
+    rows = conn.execute(
+        "SELECT date, source FROM daily_metric WHERE metric_id=? "
+        "AND date BETWEEN ? AND ? ORDER BY date",
+        (METRIC_ID, start, end),
+    ).fetchall()
+    return {r["date"]: r["source"] for r in rows}
 
 
 def backfill_lianban(start: str, end: str, *, db: str | None = None,
@@ -184,6 +242,7 @@ def backfill_lianban(start: str, end: str, *, db: str | None = None,
     try:
         dates = trading_days_between(start, end)
         existing = _existing_map(conn, start, end)
+        src_map = _source_map(conn, start, end)
         n_overlap = len(set(dates) & set(existing))
         if verbose:
             print(f"回补连板 {start}~{end}:交易日 {len(dates)},现有非空值 {len(existing)} 天"
@@ -202,7 +261,20 @@ def backfill_lianban(start: str, end: str, *, db: str | None = None,
                 gaps.append({"date": d, "reason": msg})
                 continue
             if len(df) == 0:
-                gaps.append({"date": d, "reason": f"FAPI 涨停池空(真0或当日无数据): {msg}"})
+                # 空 df 处理(2026-10-02 回退 d1b3e9382 的 P2-3 语义改动):记 gap、
+                # 不写值(禁止猜测性写 0)。依据:空 df 在 fetch_zt_fallback 层有
+                # 3 条可达路径,API 层无法区分「该日真0 / 服务端无该日数据 / 契约异常」:
+                #   A. 真0:      pagination.total=0 -> msg empty(真0)
+                #   B. 契约异常: total=700 但 item 字段缺失/改名
+                #                -> msg TRUNCATED total=700 got=0(写 0 静默丢 700 行)
+                #   C. 契约异常: data 有 item 但缺 pagination,total 误取 0
+                #                -> msg 误报 empty(真0)(写 0 静默丢全部)
+                # A 股交易日全市场涨停池为空现实中不存在(2015 股灾日也有涨停),
+                # FAPI 报 total=0 更可能是服务端无该日数据。写 0 是猜、记 gap 是
+                # 诚实:gap 可重试、可人工核、不污染下游;且填 0 后 fill-gaps-only
+                # 永久跳过不再重试,下游 a_sentiment 永远缺/错 lianban 分项。
+                # gap 的 reason 已带 msg 原文,人工可分辨 empty(真0) vs TRUNCATED。
+                gaps.append({"date": d, "reason": f"FAPI 涨停池空(真0/无数据/契约异常无法区分,3条路径见backfill_lianban主循环注释): {msg}"})
                 continue
             value, st_cnt, total = max_lianban_ex_st(df, with_st=with_st)
             if value is None:
@@ -212,19 +284,23 @@ def backfill_lianban(start: str, end: str, *, db: str | None = None,
             computed_all.append({"date": d, "value": value})
 
             # ── 写/跳过判定 ──
-            old = existing.get(d)          # None=缺口;否则 (value, source)
-            if old is not None and old[1] == 'manual':
+            # manual 判定按 _source_map(含 NULL 值行):manual+NULL 缺口行也是 manual
+            # 行,不该计划写入(P2-2)——否则计进 planned_write 却被 _upsert SQL 拦下,
+            # 账实不符。只在「非 manual」时才看已有值。
+            if src_map.get(d) == 'manual':
                 # manual 保护:任何模式都不覆写(不调 _upsert)
                 skipped_manual += 1
                 if verbose:
-                    print(f"  manual跳过 {d}: 现库={old[0]:g}(source=manual,不覆盖) 新值={value:g}",
-                          flush=True)
+                    old = existing.get(d)   # 可能 None(manual+NULL 缺口行)
+                    old_s = f"现库={_fmt(old[0])}(source=manual,不覆盖)" if old is not None else "现库=NULL(manual,不覆盖)"
+                    print(f"  manual跳过 {d}: {old_s} 新值={_fmt(value)}", flush=True)
                 continue
+            old = existing.get(d)          # None=缺口;否则 (value, source)
             if old is not None and fill_gaps_only:
                 # 只补缺口:已有非空值(非manual)→ 跳过
                 skipped_existing += 1
                 if verbose:
-                    print(f"  已有值跳过 {d}: 现库={old[0]:g}(source={old[1]}) 新值={value:g}",
+                    print(f"  已有值跳过 {d}: 现库={_fmt(old[0])}(source={old[1]}) 新值={_fmt(value)}",
                           flush=True)
                 continue
             # 缺口 / 覆盖模式下的已有非manual → 计划写入
@@ -233,8 +309,8 @@ def backfill_lianban(start: str, end: str, *, db: str | None = None,
             planned_write += 1
             tag = ("覆盖-写" if old is not None else "增量-计划写入")
             if verbose:
-                print(f"  {tag} {d}: value={value:g} 池={total} 排除ST={st_cnt}"
-                      + (f" 现库={old[0]:g}(source={old[1]})→覆盖" if old is not None else ""),
+                print(f"  {tag} {d}: value={_fmt(value)} 池={total} 排除ST={st_cnt}"
+                      + (f" 现库={_fmt(old[0])}(source={old[1]})→覆盖" if old is not None else ""),
                       flush=True)
             if not dry_run:
                 _upsert(conn, d, value, only_if_null=fill_gaps_only)
@@ -251,7 +327,9 @@ def backfill_lianban(start: str, end: str, *, db: str | None = None,
         for d in written_overlap:
             new_v = next(r["value"] for r in rows if r["date"] == d)
             o = existing[d]
-            if abs(new_v - o[0]) < 1e-9:
+            # 宽容比较:任一侧非数值(空串/脏值)视为不等而非崩溃(P2-1)
+            a, b = _to_float(new_v), _to_float(o[0])
+            if a is not None and b is not None and abs(a - b) < 1e-9:
                 same += 1
             else:
                 mismatch.append({"date": d, "existing": o[0], "fapi": new_v})
@@ -354,6 +432,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--with-st", action="store_true",
                     help="含 ST 全量 max(仅作对账对照,验证排除开关)")
     ap.add_argument("--out", default=None, help="对账结果写 JSON 到该路径")
+    ap.add_argument("--confirm-prod", action="store_true",
+                    help="二次确认写生产主库(--db 指向生产路径或未指定 --db 时,与 --write 连用必需)")
     args = ap.parse_args(argv)
 
     if not args.start.isdigit() or len(args.start) != 8:
@@ -369,6 +449,17 @@ def main(argv: list[str] | None = None) -> int:
         print("--fill-gaps-only 与 --overwrite 互斥(默认只补缺口,--overwrite 为覆盖已有非manual值)",
               file=sys.stderr)
         return 2
+
+    # P2-7 生产护栏:--write 且目标解析为生产主库(未指定 --db=默认生产库 / 显式指向
+    # app.db.DB_PATH)→ 必须显式二次确认(--confirm-prod 或环境变量 LIANBAN_CONFIRM_PROD=1)。
+    # 防留档复用者凭文档纪律误写生产;dry-run 不拦。
+    if args.write and _target_is_prod(args.db):
+        if not (args.confirm_prod or os.environ.get("LIANBAN_CONFIRM_PROD") == "1"):
+            print("--write 目标为生产主库路径(未指定 --db 即默认 app.db 生产库)。"
+                  "真写需显式二次确认:加 --confirm-prod 或环境变量 LIANBAN_CONFIRM_PROD=1。"
+                  "建议先 dry-run 对账 + 按 docs/ops/lianban-prod-write-checklist.md 备份。",
+                  file=sys.stderr)
+            return 3
 
     start = args.start
     end = _last_trading_day_before(args.end)
@@ -401,9 +492,9 @@ def main(argv: list[str] | None = None) -> int:
         if result["mismatch_days"]:
             print("计划写入重叠日中 ALL 不等日(FAPI vs 现库):")
             for mm in result["mismatch_days"]:
-                ex = mm["existing"]
-                fa = f"{mm['fapi']:g}" if mm["fapi"] is not None else "None"
-                print(f"  {mm['date']}: 现库={ex:g} vs FAPI={fa}")
+                ex = _fmt(mm["existing"])
+                fa = _fmt(mm["fapi"])
+                print(f"  {mm['date']}: 现库={ex} vs FAPI={fa}")
     else:
         print("重叠段:无(区间内现库无 a_width_max_lianban 值)")
     print(f"增量段(缺口): {len(result['increment_dates'])} 天")
@@ -425,7 +516,37 @@ def main(argv: list[str] | None = None) -> int:
         with open(args.out, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
         print(f"对账明细已写 {args.out}")
+
+    # P2-4 静默退出:有 gap/失败时非零退出,供自动化挂链感知(#132 同族弱形态)。
+    # dry-run 正常路径(gap=0)仍 rc=0,不破坏现有手动用法;有 gap 即 rc=1。
+    if result["gap_days"]:
+        print(f"\n⚠️ 存在 {result['gap_days']} 天 gap/失败(详见上方 gap 清单),exit=1",
+              file=sys.stderr)
+        return 1
     return 0
+
+
+def _target_is_prod(db: str | None) -> bool:
+    """目标库是否生产主库路径。
+
+    生产主库 = app.db.DB_PATH(未指定 --db 时 _connect 默认连它)。判定:
+    - db 为 None → 默认走 app.db 生产主库 → True
+    - db 显式 → resolve 后与 app.db.DB_PATH resolve 相等 → True(本机/开发库)
+    - db 显式 → resolve 后与云上生产主库常量相等 → True(云上执行 checklist 显式
+      --db 主库路径;app.db.DB_PATH 在云上经 symlink 可能解析到旧镜像目录,故
+      realpath 与主库不等,须显式登记云上主库路径)
+    其余(沙箱/副本/临时库)→ False。
+    """
+    if db is None:
+        return True
+    try:
+        from .db import DB_PATH
+        import os
+        rp = os.path.realpath(db)
+        return (rp == os.path.realpath(str(DB_PATH))
+                or rp == os.path.realpath(_CLOUD_PROD_DB))
+    except Exception:
+        return False
 
 
 if __name__ == "__main__":

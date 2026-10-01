@@ -78,10 +78,12 @@ print("planned_write=",d["planned_write"],"skipped_existing=",d["skipped_existin
 
 > ⚠️ F8:执行是**单事务**(脚本逐日 `_upsert` 攒到最后一次 `conn.commit()`),天然原子——**中途 Ctrl-C / SIGKILL = 0 行落库**,已写行因未 commit 全部回滚,库保持执行前原样。可放心在 23:00 后跑;真被杀重启脚本即可(重复写幂等,fill-gaps 跳过高危为零)。
 
+> ⚠️ P2-7(2026-10-02)生产护栏:脚本对 `--write` 且目标解析为生产主库路径(含未指定 --db 默认、本机 DB_PATH、云上主库 `/home/ubuntu/code/trade-data/data/sentiment.db` 常量)强制二次确认——必须加 `--confirm-prod` 或环境变量 `LIANBAN_CONFIRM_PROD=1`,否则 rc=3 拦截。dry-run 不拦。因此下面写库命令须带 `--confirm-prod`。
+
 ```bash
 cd /home/ubuntu/code/trade-data
 /home/ubuntu/code/trade-data/.venv/bin/python -m app.backfill_lianban \
-  --start 20210901 --end 20260929 --db /home/ubuntu/code/trade-data/data/sentiment.db --write \
+  --start 20210901 --end 20260929 --db /home/ubuntu/code/trade-data/data/sentiment.db --write --confirm-prod \
   2>&1 | tee /home/ubuntu/code/trade-data/data/logs/lianban_backfill_run.log
 ```
 

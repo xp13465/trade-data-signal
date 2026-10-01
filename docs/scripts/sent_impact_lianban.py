@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """a_sentiment 影响实测:回补 lianban 前后各算一遍 a_sentiment,对比差异。
 
+P2-5:注入 lianban 复用 `app.backfill_lianban._upsert`(消灭第二份手抄 SQL,§5.4⑦)。
+
 用法(在仓库根运行,以便 import app):
   /Users/linhuichen/code/trade/.venv/bin/python /tmp/lianban_dryrun/sent_impact.py \
       --prod /tmp/lianban_dryrun/prod_sentiment_copy.db \
@@ -13,6 +15,8 @@ import shutil
 import sqlite3
 import sys
 from pathlib import Path
+
+from app.backfill_lianban import _upsert
 
 
 def run_sentiment(db_path: Path):
@@ -27,21 +31,14 @@ def run_sentiment(db_path: Path):
 
 
 def inject_lianban(db_path: Path, rows: list[dict]):
-    """把回补 (date,value) upsert 进库,WHERE source != 'manual'(与脚本同款保护)。"""
-    import datetime as dt
+    """把回补 (date,value) upsert 进库 —— 复用 app.backfill_lianban._upsert(P2-5,
+    消灭第二份手抄 SQL)。_upsert 内嵌 manual 保护(WHERE source != 'manual')。
+    这里逐行调用(替代 executemany),与 verify 脚本同源同实现。"""
     conn = sqlite3.connect(db_path, timeout=30.0)
-    now = dt.datetime.now().isoformat()
-    cur = conn.executemany(
-        "INSERT INTO daily_metric (date, metric_id, value, source, updated_at) "
-        "VALUES (?,?,?,?,?) "
-        "ON CONFLICT(date, metric_id) DO UPDATE SET "
-        "value=excluded.value, source=excluded.source, updated_at=excluded.updated_at "
-        "WHERE daily_metric.source != 'manual'",
-        [(r["date"], "a_width_max_lianban", float(r["value"]), "fapi", now)
-         for r in rows],
-    )
+    for r in rows:
+        _upsert(conn, r["date"], float(r["value"]))
     conn.commit()
-    n = cur.rowcount if cur.rowcount > 0 else len(rows)
+    n = len(rows)
     conn.close()
     return n
 

@@ -6,16 +6,27 @@
 (=planned 缺口集合)。不独立重算 value,只重放 dry-run 已判定的计划写,i无第二
 份判定逻辑 → drift 面最小。
 
-用法:
-  python3 verify_zerotouch.py <plan_json> <src_db> <dst_db>
+P2-5:重放 SQL 直接复用 `app.backfill_lianban._upsert`(消灭第二份手抄实现,
+§5.4⑦)——_upsert 内嵌 manual 保护 + only_if_null 竞态加固,未来改动本脚本
+自动跟随,不会静默漂移。
+
+用法(在仓库根运行,以便 import app;建议用项目 venv python):
+  /Users/linhuichen/code/trade/.venv/bin/python verify_zerotouch.py <plan_json> <src_db> <dst_db>
 """
-import datetime as _dt
 import json
 import shutil
 import sqlite3
 import sys
+from pathlib import Path
 
-METRIC = "a_width_max_lianban"
+# 仓库根 = docs/scripts 的上上级;置于 sys.path 使 import app.* 可用
+_REPO = Path(__file__).resolve().parents[2]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+
+from app.backfill_lianban import _upsert, METRIC_ID  # noqa: E402
+
+METRIC = METRIC_ID
 
 
 def planned_rows(data):
@@ -27,6 +38,13 @@ def planned_rows(data):
     assert len(rows) == data.get("planned_write"), \
         f"恢复行数 {len(rows)} != planned_write {data.get('planned_write')}"
     return rows
+
+
+def _vals_equal(a, b):
+    """宽容数值相等:None==None;None!={数值};数值差<=1e-9 视为相等。"""
+    if a is None or b is None:
+        return a is b
+    return abs(a - b) <= 1e-9
 
 
 def key_map(conn):
@@ -41,18 +59,11 @@ def main():
     rows = planned_rows(data)
     print(f"计划写入行数={len(rows)}(应=planned_write {data['planned_write']})")
 
-    # 1) 重放:副本写库(与 app.backfill_lianban._upsert 同 SQL,manual 保护)
+    # 1) 重放:副本写库 —— 复用 app.backfill_lianban._upsert(P2-5 消灭第二份 SQL)
     shutil.copy(src, dst)
     conn = sqlite3.connect(dst)
-    now = _dt.datetime.now().isoformat()
     for r in rows:
-        conn.execute(
-            "INSERT INTO daily_metric (date, metric_id, value, source, updated_at) "
-            "VALUES (?,?,?,?,?) "
-            "ON CONFLICT(date, metric_id) DO UPDATE SET "
-            "value=excluded.value, source=excluded.source, updated_at=excluded.updated_at "
-            "WHERE daily_metric.source != 'manual'",
-            (r["date"], METRIC, float(r["value"]), "fapi", now))
+        _upsert(conn, r["date"], float(r["value"]))
     conn.commit()
 
     # 2) 逐行对比
@@ -61,7 +72,7 @@ def main():
     added = sorted(set(dst_k) - set(src_k))
     removed = sorted(set(src_k) - set(dst_k))
     changed = sorted(k for k in set(src_k) & set(dst_k)
-                     if abs(src_k[k][0] - dst_k[k][0]) > 1e-9 or src_k[k][1] != dst_k[k][1])
+                     if not _vals_equal(src_k[k][0], dst_k[k][0]) or src_k[k][1] != dst_k[k][1])
 
     print(f"src total rows={len(src_k)} | dst total rows={len(dst_k)}")
     print(f"added_rows={len(added)}(应=1154) removed_rows={len(removed)}(应0) changed_rows={len(changed)}(应0)")
