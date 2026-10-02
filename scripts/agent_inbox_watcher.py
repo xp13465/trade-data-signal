@@ -56,6 +56,44 @@ def log(msg):
     except Exception:
         pass
 
+_STATE_WRITE_FAILS = 0  # #132: 关键状态写失败累计(常驻 watcher, 达阈值才发告警)
+
+
+def _state_write_fail(where: str, e: Exception) -> None:
+    """关键状态写失败 fail-loud(#132, 2026-10-02): 累计计数, 达阈值发一次 warning。
+
+    常驻 watcher(5s 一轮)不适合每次写失败都发告警——单次失败多为瞬态抖动, 每次发=
+    噪音; 但持续写失败 = 去重/重试状态(.ready/.retry/.blocked/.failed_at)无法持久化
+    = 防静默机制本体失效(codex 请求无限重试烧额度/同请求重复处理), 必须可见。
+    阈值 5 次 + dedup 24h: 持久故障最多 ~1 封/天, 不刷屏。
+    """
+    global _STATE_WRITE_FAILS
+    _STATE_WRITE_FAILS += 1
+    log(f"⚠ {where} 状态写失败(累计 {_STATE_WRITE_FAILS}): {e}")
+    if _STATE_WRITE_FAILS < 5:
+        return
+    _notify_state_write_fail(where, _STATE_WRITE_FAILS)
+    _STATE_WRITE_FAILS = 0
+
+
+def _notify_state_write_fail(where: str, n: int) -> None:
+    """写失败累计达阈值告警(#132, 2026-10-02): warning, dedup 24h。"""
+    subject = f"[告警][inbox-watcher] 关键状态写失败累计 {n} 次({where})"
+    body = (
+        f"<b>agent_inbox_watcher 状态写失败累计 {n} 次</b> (最近: <code>{where}</code>)<br>"
+        f"影响: 去重/重试状态(.ready/.retry/.blocked/.failed_at)无法持久化 → "
+        f"codex 外审请求可能无限重试烧额度, 或同请求重复处理。<br>"
+        f"建议: 检查 /tmp/codex-*/ 及 {LOG_DIR} 目录/磁盘权限或空间。"
+    )
+    cmd = [sys.executable, str(REPO / "scripts" / "notify.py"), subject, body,
+           "--tier", "warning", "--from-prefix", "[告警]",
+           "--dedup-key", "agent_inbox_state_write_fail", "--dedup-window", "86400"]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except Exception as ne:  # noqa: BLE001
+        log(f"state write fail notify error: {ne}")
+
+
 def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -100,7 +138,7 @@ def touch_heartbeat():
         HEARTBEAT_PATH.parent.mkdir(parents=True, exist_ok=True)
         HEARTBEAT_PATH.write_text(f"{os.getpid()} {time.time()}\n", encoding="utf-8")
     except Exception as e:
-        log(f"heartbeat_error={e}")
+        _state_write_fail("touch_heartbeat", e)
 
 def read_signal(p):
     return json.loads(p.read_text(encoding="utf-8"))
@@ -136,7 +174,7 @@ def bump_retry(request_id):
         REF_STATUS_DIR.mkdir(parents=True, exist_ok=True)
         rc_file.write_text(str(retry_count(request_id) + 1), encoding="utf-8")
     except Exception as e:
-        log(f"bump_retry error {request_id}: {e}")
+        _state_write_fail(f"bump_retry {request_id}", e)
 
 def _failed_at(request_id):
     """读上次失败时间戳, 缺省 0."""
@@ -151,7 +189,7 @@ def _touch_failed(request_id):
         REF_STATUS_DIR.mkdir(parents=True, exist_ok=True)
         (REF_STATUS_DIR / f"{request_id}.failed_at").write_text(str(time.time()), encoding="utf-8")
     except Exception as e:
-        log(f"_touch_failed error {request_id}: {e}")
+        _state_write_fail(f"_touch_failed {request_id}", e)
 
 def retry_backoff_ok(request_id):
     """距上次失败是否已满退避时间(首次失败视为已満)."""
@@ -244,8 +282,8 @@ def sync_git_refs():
                     json.dumps({"request_id": rid, "reason": "retry_exhausted"}),
                     encoding="utf-8",
                 )
-            except Exception:
-                pass
+            except Exception as _e:  # noqa: BLE001
+                _state_write_fail(f"failed_marker {rid}", _e)
             cleanup_ref(rid)
             continue
         try:
@@ -262,7 +300,7 @@ def sync_git_refs():
             ready.write_text(br.stdout, encoding="utf-8")
             log(f"sync_git_refs created {ready}")
         except Exception as e:
-            log(f"sync_git_refs write error {rid}: {e}")
+            _state_write_fail(f"sync_git_refs ready {rid}", e)
 
 def _write_blocked(request_id):
     """重试耗尽后标记 .blocked 终态(不再重试, 避免烧额度)."""
@@ -274,7 +312,7 @@ def _write_blocked(request_id):
         )
         log(f"sync_git_refs wrote .blocked {request_id}")
     except Exception as e:
-        log(f"sync_git_refs write blocked error {request_id}: {e}")
+        _state_write_fail(f"_write_blocked {request_id}", e)
 
 
 def sweep_stale_state():

@@ -1361,12 +1361,13 @@ def _notify(repo: Path, subject: str, body: str, severe: bool, dry_run: bool) ->
 def _save_state_atomic(state_p: Path, state: dict) -> None:
     """原子写(tmp + replace), 防半截文件被并发读者读走(对照 alert_ack.py _save_atomic 先例)。
 
-    失败只打日志不抛(不影响检测主流程); 原文件在 dumps/write 任一步失败时保持原样,
-    绝不截断(替代旧 write_text 直写——进程中途死会留半截 json, _load_json 兜底虽能容错
-    但 dedup/基线状态会静默归零)。"""
-    state_p.parent.mkdir(parents=True, exist_ok=True)
+    失败打日志 + 发独立 warning(fail-loud, 2026-10-02 #132)——不再静默: 去重状态写失败
+    → 告警 dedup 失效 → 同一告警每轮重复轰炸(降噪逆反); 基线状态写失败 → 缺口基线丢失
+    → 误报。原文件在 dumps/write 任一步失败时保持原样, 绝不截断(替代旧 write_text
+    直写——进程中途死会留半截 json, _load_json 兜底虽能容错但 dedup/基线状态会静默归零)。"""
     tmp = state_p.with_suffix(".json.tmp")
     try:
+        state_p.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_text(
             json.dumps(state, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
         )
@@ -1377,6 +1378,33 @@ def _save_state_atomic(state_p: Path, state: dict) -> None:
             tmp.unlink(missing_ok=True)
         except Exception:
             pass
+        _notify_state_write_fail(state_p, e)
+
+
+def _notify_state_write_fail(state_p: Path, e: Exception) -> None:
+    """告警去重/基线状态写失败告警(#132, 2026-10-02): 独立 warning, dedup 24h。
+
+    去重状态(data_gap_alert_state.json)写失败 → dedup 失效 → 同一告警每轮重复轰炸;
+    基线状态丢失 → 缺口基线误报。必须告警提醒恢复, 而非只留 stderr 日志
+    (教训 L46: 日志沉默≠无告警)。warning 非 severe: 本地基础设施故障(权限/磁盘),
+    不是数据源故障; 数据级失败仍由各检查器走原告警通道, 不重复告警。
+    """
+    _repo = state_p.parent.parent.parent  # repo/data/alerts/<file> -> repo
+    subject = "[告警][数据缺口检测] 告警去重/基线状态写失败, 可能重复轰炸或漏基线"
+    body = (
+        f"<b>check_data_gap_alerts._save_state_atomic 状态写失败</b>: "
+        f"<code>{state_p}</code><br>异常: <code>{e}</code><br>"
+        f"影响: 告警去重/基线状态(data_gap_alert_state.json)无法持久化, "
+        f"同一告警可能每轮重复发送, 或基线缺失导致误报。<br>"
+        f"建议: 检查 data/alerts/ 目录/磁盘权限或空间, 修复后自动恢复。"
+    )
+    cmd = [sys.executable, str(_repo / "scripts" / "notify.py"),
+           subject, body, "--tier", "warning", "--from-prefix", "[告警]",
+           "--dedup-key", "data_gap_state_write_fail", "--dedup-window", "86400"]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except Exception as ne:  # noqa: BLE001
+        print(f"[check_data_gap] 状态写失败告警发送异常(不阻塞): {ne}", file=sys.stderr)
 
 
 def _ack_suppressed(repo: Path, key: str, now: datetime) -> bool:

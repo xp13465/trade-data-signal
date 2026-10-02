@@ -100,7 +100,31 @@ def _save_state(repo: Path, state: dict) -> None:
         (repo / "data" / STATE_PATH_NAME).write_text(
             json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
-        print(f"[healthcheck] 状态文件写入失败(不影响本次通知): {e}", file=sys.stderr)
+        # #132 fail-loud(2026-10-02): 状态写失败不再只 stderr —— 去重状态(fired/recovered)
+        # 写失败 → 每次探测都当「未 firing」重新告警(告警反复轰炸)。独立 warning(dedup 24h),
+        # 不升级 severe: 本地基础设施故障, 代理健康数据级判定不受影响。
+        print(f"[healthcheck] 状态文件写入失败(去重丢失→告警可能反复轰炸): {e}", file=sys.stderr)
+        _notify_state_write_fail(repo, e)
+
+
+def _notify_state_write_fail(repo: Path, e: Exception) -> None:
+    """代理健康检查状态写失败告警(#132, 2026-10-02): 独立 warning, dedup 24h。"""
+    _state_p = repo / "data" / STATE_PATH_NAME
+    subject = "[告警][商汤代理] 健康检查状态写失败, 告警可能反复轰炸"
+    body = (
+        f"<b>sensenova-proxy-healthcheck 状态写失败</b>: <code>{_state_p}</code><br>"
+        f"异常: <code>{e}</code><br>"
+        f"影响: 去重状态(fired/recovered)无法持久化 → 代理异常在每 5min 轮被当作"
+        f"「未 firing」反复告警。<br>"
+        f"建议: 检查 data/ 目录/磁盘权限或空间, 修复后自动恢复。"
+    )
+    cmd = [sys.executable, str(SCRIPT_DIR / "notify.py"), subject, body,
+           "--tier", "warning", "--from-prefix", "[告警]",
+           "--dedup-key", "healthcheck_state_write_fail", "--dedup-window", "86400"]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except Exception as ne:  # noqa: BLE001
+        print(f"[healthcheck] 状态写失败告警发送异常(不阻塞): {ne}", file=sys.stderr)
 
 
 def _notify(repo: Path, subject: str, body: str, severe: bool,
