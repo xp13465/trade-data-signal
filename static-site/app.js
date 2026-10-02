@@ -16993,6 +16993,15 @@ async function renderOverview() {
       if (_day) { e.preventDefault(); openSentimentDayDetailModal(_day); }
       return;
     }
+    // 上海炒家冰点格(2026-10-02, 纯新增): 无 data-idx(格不代表某个指数走势), 与日期标签同行为——
+    // 打开当天下钻弹窗(档位/认可度/四因子明细)。判据=专属 class .sig-sh-ice + data-cal-date,
+    // 与 freeze/sig 格(data-idx 系)零交集, 老格子分支行为完全不变(§23.7 冻结契约)。
+    const shBtn = e.target.closest(".sig-sh-ice");
+    if (shBtn && shBtn.dataset.calDate) {
+      const _day = (_sentCal || []).find((d) => d.date === shBtn.dataset.calDate);
+      if (_day) { e.preventDefault(); openSentimentDayDetailModal(_day); }
+      return;
+    }
     const item = e.target.closest(".sig-clickable");
     if (!item) return;
     e.preventDefault();
