@@ -7333,7 +7333,8 @@ function openSentimentDayDetailModal(day) {
     : "";
   // 上海炒家冰点认可度区块(2026-10-02, 纯新增): 展示档位/认可度/四因子共振/四因子明细。
   // 容错: 部分日期无 sh_* 字段(后端 _d not in _ice_df.index 跳过) ⇒ _hasSh=false 整块优雅隐藏, 不误报。
-  // 档位: sh_level hard=硬冰点(四因子全中) / main=主冰点(楼层+地量+涨停或跌停) / ""=未命中。
+  // 档位: sh_level hard=硬冰点(四因子全中) / main=主冰点(楼层+地量+涨停或跌停) /
+  //   ""=sh_hits.total<4?数据不足不可判定(四因子仅可得 N 个):评估过未命中 —— 与 tooltip 同判据同措辞(§22)。
   // 认可度: consensus.x/y=命中口径数/可得口径数(正常 2/2; 上海炒家缺楼层数据降级 1/2)。
   // 四因子明细: 名称/当前值/阈值(方向≤或≥)/是否命中, 命中绿、未中灰红弱化, 视觉一眼区分。
   const _hasSh = typeof day.sh_freeze === "boolean";
@@ -7343,10 +7344,16 @@ function openSentimentDayDetailModal(day) {
     const _consTxt = (_c && typeof _c.x === "number" && typeof _c.y === "number")
       ? `${_c.x}/${_c.y}（命中 ${_c.x} 个口径 / 当日可得 ${_c.y} 个口径）`
       : "—";
+    const _hh = day.sh_hits;
+    // 二义修复(2026-10-02, §22 与 tooltip 同判据同措辞逐字一致): sh_level="" 也有两种情形——
+    //   sh_hits.total<4=四因子数据不足整口径不可判定 vs ==4=评估过确实未命中。
     const _lvlTxt = day.sh_level === "hard"
       ? "硬冰点（四因子全中）"
-      : (day.sh_level === "main" ? "主冰点（楼层+地量+涨停或跌停）" : "未命中");
-    const _hh = day.sh_hits;
+      : (day.sh_level === "main"
+          ? "主冰点（楼层+地量+涨停或跌停）"
+          : ((_hh && typeof _hh.total === "number" && _hh.total < 4)
+              ? "上海炒家口径当日数据不足不可判定(四因子仅可得 " + _hh.total + " 个, 老算法冰点)"
+              : "上海炒家口径当日评估过未命中(仅老算法冰点)"));
     const _hitTxt = (_hh && typeof _hh.n === "number" && typeof _hh.total === "number")
       ? `${_hh.n}/${_hh.total}（${_hh.n} 个因子共振命中 / ${_hh.total} 个因子当日可得）`
       : "—";
