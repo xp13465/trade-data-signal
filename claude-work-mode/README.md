@@ -251,6 +251,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-29 | 0.9725 | 1,075,867 | pro·8899·商汤rotate | 92% | ? | 5488b35bc fix(hooks): agent_dispatch_cron_reminder 收敛为参数可机检两项; 15dbfdfa8 fix(scripts): check_doc_staleness 覆盖缺口补全 + 遍历层根治 worktrees 假命中; a100eb06c docs(sweep): 全仓 launchd 口径大扫除续修 — scripts/README + 4 功能 README + PARAMS/signal-finalize/staticdata/理财指南/标题×2 |
 | 2026-09-30 | 0.9780 | 1,542,579 | pro·8899·商汤rotate | 93% | ? | 无 |
 | 2026-10-01 | 0.9732 | 1,415,994 | pro·8899·商汤rotate | 93% | ? | 4ff477fb1 docs(rules): 新增 §25 删除前必备份·可逆安全铁律 |
+| 2026-10-02 | 0.9660 | 1,776,194 | pro·8899·本地代理 | 91% | ? | 无 |
 <!-- token-cache-trend-end -->
 
 **ASCII 迷你柱状图**（每格 = 0.01 命中率，刻度 0.70~1.00，一眼看升降；由脚本 `--append-daily` 随走势表同步更新，保证与实际命中率一致）：
@@ -308,6 +309,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 09-29  ███████████████████████████(27)  1,075,867     0.9725
 09-30  ████████████████████████████(28)  1,542,579     0.9780
 10-01  ███████████████████████████(27)  1,415,994     0.9732
+10-02  ███████████████████████████(27)  1,776,194     0.9660
 ```
 <!-- token-cache-ascii-end -->
 
@@ -364,6 +366,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-29 | ? | 5488b35bc fix(hooks): agent_dispatch_cron_reminder 收敛为参数可机检两项; 15dbfdfa8 fix(scripts): check_doc_staleness 覆盖缺口补全 + 遍历层根治 worktrees 假命中; a100eb06c docs(sweep): 全仓 launchd 口径大扫除续修 — scripts/README + 4 功能 README + PARAMS/signal-finalize/staticdata/理财指南/标题×2 |
 | 2026-09-30 | ? | — |
 | 2026-10-01 | ? | 4ff477fb1 docs(rules): 新增 §25 删除前必备份·可逆安全铁律 |
+| 2026-10-02 | ? | — |
 <!-- token-cache-changelog-end -->
 
 ### 配置快照日志（2026-09-19 新增：模型/端点/思考%/effort/来源）
@@ -415,5 +418,6 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-28 | pro | 8899·商汤rotate | 90% | — | 时段表 |
 | 2026-09-29 | pro | 8899·商汤rotate | 92% | — | 时段表 |
 | 2026-09-30 | pro | 8899·商汤rotate | 93% | — | 时段表 |
-| 2026-10-01 | pro | 8899·商汤rotate | 93% | 主pro 子flash 按角色(impl low/rev·tst·res max) | 实时抓取 |
+| 2026-10-01 | pro | 8899·商汤rotate | 93% | — | 时段表 |
+| 2026-10-02 | pro | 8899·本地代理 | 91% | 主pro 子flash 按角色(impl low/rev·tst·res max) | 实时抓取 |
 <!-- token-cache-cfglog-end -->
