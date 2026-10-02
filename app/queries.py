@@ -1561,6 +1561,31 @@ def overview(conn, cfg):
         })
     for _d in _cal_by_date.values():
         _d["signals"].sort(key=lambda _s: _sig_ord.get(_s["signal"], 9))
+    # 上海炒家口径旁路字段(纯新增, 不动老算法 freeze/signals 任何字段, §23.7 冻结契约):
+    #   sh_freeze  = 当日上海炒家口径(main(4,40,15,30) 及以上)是否命中
+    #   sh_factors = 四因子明细数组, 每项含 名/值/阈值/✓✗, 供前端下钻
+    #   consensus  = {x: 命中口径数, y: 当日可得口径数(历史缺楼层数据段自然降级)}
+    # 数据源 app/compute/icepoint.py(照搬 docs/scripts/icepoint_bt/bt_core.py 四因子口径)。
+    try:
+        from .compute.icepoint import compute as _icepoint_compute
+        _ice_df = _icepoint_compute()
+    except Exception:
+        _ice_df = None
+    if _ice_df is not None and not _ice_df.empty:
+        _nan = float("nan")
+        for _d in _cal_by_date:
+            if _d not in _ice_df.index:
+                continue
+            _r = _ice_df.loc[_d]
+            _num = lambda _v: None if _v != _v else (round(float(_v), 2) if _v is not None else None)
+            _cal_by_date[_d]["sh_freeze"] = bool(_r["has_signal"])
+            _cal_by_date[_d]["sh_factors"] = [
+                {"name": "楼层", "key": "f1", "value": _num(_r["f1_val"]), "threshold": int(_r["f1_th"]), "hit": bool(_r["f1_hit"])},
+                {"name": "涨停", "key": "f2", "value": _num(_r["f2_val"]), "threshold": int(_r["f2_th"]), "hit": bool(_r["f2_hit"])},
+                {"name": "跌停", "key": "f3", "value": _num(_r["f3_val"]), "threshold": int(_r["f3_th"]), "hit": bool(_r["f3_hit"])},
+                {"name": "地量", "key": "f4", "value": _num(_r["f4_pct"]), "threshold": int(_r["f4_th"]), "hit": bool(_r["f4_hit"])},
+            ]
+            _cal_by_date[_d]["consensus"] = {"x": int(_r["n_hit"]), "y": int(_r["n_avail"])}
     sentiment_calendar = [dict(_d) for _d in sorted(
         _cal_by_date.values(), key=lambda _d: _d["date"], reverse=True)]
 
