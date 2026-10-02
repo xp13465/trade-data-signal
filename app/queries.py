@@ -1564,8 +1564,16 @@ def overview(conn, cfg):
     # 上海炒家口径旁路字段(纯新增, 不动老算法 freeze/signals 任何字段, §23.7 冻结契约):
     #   sh_freeze  = 当日上海炒家口径(main(4,40,15,30) 及以上)是否命中
     #   sh_factors = 四因子明细数组, 每项含 名/值/阈值/✓✗, 供前端下钻
-    #   consensus  = {x: 命中口径数, y: 当日可得口径数(历史缺楼层数据段自然降级)}
+    #   sh_hits    = {n: 四因子共振命中数, total: 当日四因子可得口径数(n_hit/n_avail 平移)}
+    #   sh_level   = "hard"|"main"|""(当日命中硬冰点/主冰点/未命中; hard⊂main, 判 hard 优先)
+    #   consensus  = {x: 当日命中口径数(老算法命中?1:0 + 上海炒家命中?1:0), ∈{1,2};
+    #                 y: 当日可得口径数(正常2; 上海炒家口径因缺楼层数据不可判定时降级1)}
+    #   老算法是否命中 = 取日历已有 freeze 字段(不重算); 老算法可得 = score_daily 当日有值;
+    #   上海炒家可得 = 四因子值全部可得(n_avail==4), 任一因子缺失即整口径不可得(不做三因子降级)。
     # 数据源 app/compute/icepoint.py(照搬 docs/scripts/icepoint_bt/bt_core.py 四因子口径)。
+    # 老算法可得日集合: 近90日 score_daily 有记录即算可得(score_daily 当日有值)。
+    _cal_old_avail = {r[0] for r in conn.execute(
+        "SELECT DISTINCT date FROM score_daily WHERE date>=?", (_cal_start,)).fetchall()}
     try:
         from .compute.icepoint import compute as _icepoint_compute
         _ice_df = _icepoint_compute()
@@ -1574,10 +1582,14 @@ def overview(conn, cfg):
     if _ice_df is not None and not _ice_df.empty:
         _nan = float("nan")
         for _d in _cal_by_date:
+            _old_hit = 1 if _cal_by_date[_d]["freeze"] else 0
+            _old_avail = 1 if _d in _cal_old_avail else 0
             if _d not in _ice_df.index:
                 continue
             _r = _ice_df.loc[_d]
             _num = lambda _v: None if _v != _v else (round(float(_v), 2) if _v is not None else None)
+            _sh_hit = 1 if bool(_r["has_signal"]) else 0
+            _sh_avail = 1 if int(_r["n_avail"]) == 4 else 0
             _cal_by_date[_d]["sh_freeze"] = bool(_r["has_signal"])
             _cal_by_date[_d]["sh_factors"] = [
                 {"name": "楼层", "key": "f1", "value": _num(_r["f1_val"]), "threshold": int(_r["f1_th"]), "hit": bool(_r["f1_hit"])},
@@ -1585,7 +1597,9 @@ def overview(conn, cfg):
                 {"name": "跌停", "key": "f3", "value": _num(_r["f3_val"]), "threshold": int(_r["f3_th"]), "hit": bool(_r["f3_hit"])},
                 {"name": "地量", "key": "f4", "value": _num(_r["f4_pct"]), "threshold": int(_r["f4_th"]), "hit": bool(_r["f4_hit"])},
             ]
-            _cal_by_date[_d]["consensus"] = {"x": int(_r["n_hit"]), "y": int(_r["n_avail"])}
+            _cal_by_date[_d]["sh_hits"] = {"n": int(_r["n_hit"]), "total": int(_r["n_avail"])}
+            _cal_by_date[_d]["sh_level"] = "hard" if bool(_r["hit_hard"]) else ("main" if bool(_r["hit_main"]) else "")
+            _cal_by_date[_d]["consensus"] = {"x": _old_hit + _sh_hit, "y": _old_avail + _sh_avail}
     sentiment_calendar = [dict(_d) for _d in sorted(
         _cal_by_date.values(), key=lambda _d: _d["date"], reverse=True)]
 
