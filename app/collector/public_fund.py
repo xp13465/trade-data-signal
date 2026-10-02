@@ -1128,10 +1128,18 @@ def fetch_nav_history(codes: list[str] | None = None, days: int = 400,
                 rows.append((d, code, None, nav, None, None, nav_pct))
             if rows:
                 conn = get_conn()
+                # UPSERT 而非 INSERT OR REPLACE(2026-10-02 acc_nav 踩踏事故根治, 同 L614 fund_basic 先例):
+                # REPLACE=删整行重插, 会把本函数恒 None 的 acc_nav/fund_name/prev_unit_nav 清成 NULL,
+                # 踩掉 daily 采集(fetch_daily_nav)已写入的有值历史行(9-17/21/23/24 四天 acc_nav 88646→123)。
+                # 只更新本次真正有新值的列(unit_nav 必非 None 已在上游过滤; nav_change_pct 用
+                # COALESCE 守卫——接口日增长率列缺失(None)时保留已有值, 不清不覆盖)。
                 conn.executemany(
-                    "INSERT OR REPLACE INTO fund_daily_nav"
+                    "INSERT INTO fund_daily_nav"
                     "(date, fund_code, fund_name, unit_nav, acc_nav, prev_unit_nav, nav_change_pct) "
-                    "VALUES (?,?,?,?,?,?,?)",
+                    "VALUES (?,?,?,?,?,?,?) "
+                    "ON CONFLICT(date, fund_code) DO UPDATE SET "
+                    "unit_nav = excluded.unit_nav, "
+                    "nav_change_pct = COALESCE(excluded.nav_change_pct, fund_daily_nav.nav_change_pct)",
                     rows,
                 )
                 conn.commit()
