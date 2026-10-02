@@ -159,13 +159,22 @@ console.log('--- D 页面级交互(条件) ---');
 const D = await page.evaluate(() => {
   const sh = document.querySelector('.sig-sh-ice');
   if (!sh) return { hasShCell: false };
+  // 关键修正(2026-10-02): C/C7 段已调 openSentimentDayDetailModal 把弹窗打开(非 hidden)。
+  // 若不复位, 点 sh 格后读 modalOpen = C 段残留打开状态(假阳性 PASS)。
+  // 先关闭重置, 使 D 段只检验本次点击的真实结果。
+  if (typeof window.closeSentimentDayDetailModal === 'function') window.closeSentimentDayDetailModal();
+  const calDate = sh.dataset.calDate || '';
   sh.scrollIntoView();
   sh.click();
   const m = document.getElementById('sentimentDayDetailModal');
-  return { hasShCell: true, modalOpen: !!(m && !m.classList.contains('hidden')), modalTxt: m ? m.textContent.replace(/\s+/g, ' ').trim().slice(0, 120) : '' };
+  const open = !!(m && !m.classList.contains('hidden'));
+  const txt = m ? m.textContent.replace(/\s+/g, ' ').trim() : '';
+  // 断言弹窗内容含本次点击格对应日期(标题 YYYY-MM-DD)——只断言"有个打开的弹窗"无效(残留打开态也满足)
+  const dateTxt = calDate && calDate.length >= 8 ? `${calDate.slice(0,4)}-${calDate.slice(4,6)}-${calDate.slice(6,8)}` : '';
+  return { hasShCell: true, calDate, modalOpen: open, containsDate: open && dateTxt && txt.indexOf(dateTxt) >= 0, modalTxt: txt.slice(0, 160) };
 });
 if (D.hasShCell) {
-  D.modalOpen ? ok('D 点击 sh 格打开下钻弹窗: ' + D.modalTxt.slice(0, 60)) : bad('D 点击 sh 格未打开弹窗');
+  (D.modalOpen && D.containsDate) ? ok(`D 点击 sh 格打开含本次日期(${D.calDate})的下钻弹窗: ${D.modalTxt.slice(0, 60)}`) : bad(`D 点击 sh 格弹窗失败 modalOpen=${D.modalOpen} containsDate=${D.containsDate}`);
 } else {
   console.log('  (skip) 页面级未渲染 sh 格, 跳过 D(其他数据 404 影响整页属预期)');
 }
