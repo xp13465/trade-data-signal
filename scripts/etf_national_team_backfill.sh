@@ -119,8 +119,9 @@ fi
 # 2) 持 deploy 锁推送（串行化 git，阻塞排队；deploy.sh 重新 export 全量 JSON + git push）
 #    deploy.sh 幂等：export 生成相同 JSON -> git add 无新变更 -> 跳过 commit -> push up-to-date。
 #    无新数据时也安全（仅多跑一次 export.py）。
-echo "-> 持 deploy 锁推送（串行化 git，可能排队等 backfill/intraday）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/with_lock.py" --block-timeout 600 /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" etf-national-team 2>&1 | tee -a "$LOG"
+# #149 方案①(2026-10-02): 外层 deploy 锁去掉, deploy.sh 段1 锁外可并发, 段2 git 内部锁串行
+echo "-> 推送 deploy etf-national-team（export+R2 锁外并发, git 段内部锁串行）..." | tee -a "$LOG"
+bash "$REPO/scripts/deploy.sh" etf-national-team 2>&1 | tee -a "$LOG"
 DEPLOY_RC=${PIPESTATUS[0]}
 [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
 

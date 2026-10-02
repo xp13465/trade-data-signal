@@ -35,9 +35,22 @@ EXPORT="$REPO/static-site/export.py"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)
 LOG="$LOGDIR/deploy_${STAMP}.log"
+# #149 方案①a(2026-10-02): 锁粒度拆分 — 两段式 exec(样板=scripts/staticdata_backup_async.sh 段1/段2)。
+# 首次进入(不带 --git-phase)= 段1: export+校验+R2 上传+rsync(可并发, 不持 git 写锁);
+# 段1 末尾 exec with_lock.py 重入本脚本(带 --git-phase)= 段2: 持锁只跑 git add/commit/push
+# + 收尾(秒~分钟级), 根治「export+R2 长跑段占锁」#149 根因。①b(各 backfill 去掉外层 deploy
+# 锁)落地后, trade_deploy.lock 只被 git 写段持用。
+GIT_PHASE=0
+if [ "${1:-}" = "--git-phase" ]; then
+  GIT_PHASE=1
+  shift
+fi
 NAME="${1:-all}"   # 可选 pipeline 名（pipeline.sh 持锁调用时传入；无参=all）
 
 mkdir -p "$LOGDIR"
+# 段2 git 写段专用锁: 默认 /tmp/trade_deploy.lock(与 staticdata async/sync 的 git 段同锁统一
+# 串行全部 git 写); 测试隔离可经 DEPLOY_LOCK 覆写(见 149a 报告 §自测)。
+LOCK="${DEPLOY_LOCK:-/tmp/trade_deploy.lock}"
 
 # 加载 .env（PURGE_SECRET 等 Worker 凭证）到环境，确保手动跑 deploy.sh 时子进程
 # （upload_r2.py / export.py）能读到 PURGE_SECRET 调 /api/purge-cache 清 edge cache。
@@ -48,29 +61,16 @@ set -a
 [ -f "$REPO/.env" ] && . "$REPO/.env"
 set +a
 
-echo "=== deploy.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
-
-# 0. 时段闸门：交易日盘中 09:30-15:30 拒跑全量 export+deploy（防覆盖 intraday 实时版，事故 94c79041 根因）
-# intraday_snapshot.sh 定时任务盘中每 30 分钟推 intraday_snapshot.json 到 main，
-# 全量 deploy 会 export.py 重新生成 + git add 通配带入，易覆盖实时版。force 可绕过。
-FORCE=0
-case " $* " in *" force "*) FORCE=1;; esac
-CURRENT_HM=$(date +%H%M)
-# 判断失败时保守当交易日(echo 1=拦盘中)：盘中闸本意是「交易日盘中 09:30-15:30 不跑全量
-# export+deploy」，判断失败(calendar import 异常/cd REPO 失败)若误放=可能覆盖 intraday
-# 实时版；失败降级方向与 main-merge.sh is_trading_day_now(失败 exit 2 按交易日保守拦)同向(§14 P0)。
-IS_TRADING=$(cd "$REPO" && "$PY" -c "from app.calendar import is_trading_day; print(1 if is_trading_day() else 0)" 2>/dev/null || echo 1)
-echo "时段闸门: IS_TRADING=${IS_TRADING} CURRENT_HM=$CURRENT_HM FORCE=$FORCE" | tee -a "$LOG"
-if [ "$IS_TRADING" = "1" ] && [ "$CURRENT_HM" -ge 0930 ] && [ "$CURRENT_HM" -le 1530 ] && [ "$FORCE" != "1" ]; then
-  echo "✗ 交易日盘中（09:30-15:30），拒跑全量 export+deploy（防覆盖 intraday 实时版；force 可绕过）" | tee -a "$LOG"
-  exit 1
-fi
-
-# git fetch 超时保护（2026-09-15）：云上连 GitHub 22 端口间歇性卡死（ssh git@github.com
-# git-upload-pack 曾卡 51 分钟死拽 /tmp/trade_deploy.lock，连锁卡 staticdata_sync +
-# trade-public-fund-daily 被 systemd 强杀），给 git fetch 包超时兜底。
-# macOS/Linux 无 timeout 命令，用 bash 原生 background+sleep+kill（同 run_r2_upload 模式）；
-# git fetch 会 spawn ssh 子进程，光杀 git 留 orphan ssh 继续卡，故 pkill -P 连子进程一起杀。
+# #149 方案①a: 段1 = 锁外 export/R2/rsync(可并发, 不持 git 写锁)。段2(--git-phase 重入)=
+# 持 /tmp/trade_deploy.lock 只跑 git add/commit/push + 收尾(见下方 git 段注释)。
+# ⚠ 149a 自测发现: git_fetch_timeout / git_push_timeout 必须定义在段1 if 之外(公共区)。
+# 段2 重入进程整脚本重跑但跳过段1(if 为假), 函数若在 if 内定义则段2 调用报 command not
+# found(rc=127)被误判 push/fetch 失败 → 走错误的重试/abort 分支(修正于 2026-10-02)。
+# git fetch 超时保护(2026-09-15): 云上连 GitHub 22 端口间歇性卡死(ssh git@github.com
+# git-upload-pack 曾卡 51 分钟死拽 /tmp/trade_deploy.lock, 连锁卡 staticdata_sync +
+# trade-public-fund-daily 被 systemd 强杀), 给 git fetch 包超时兜底。
+# macOS/Linux 无 timeout 命令, 用 bash 原生 background+sleep+kill(同 run_r2_upload 模式);
+# git fetch 会 spawn ssh 子进程, 光杀 git 留 orphan ssh 继续卡, 故 pkill -P 连子进程一起杀。
 # 返回 0=成功 / 124=超时 / 其他=失败。
 git_fetch_timeout() {
   local limit="${1:-120}"
@@ -102,9 +102,9 @@ git_fetch_timeout() {
   return "$rc"
 }
 
-# git push 超时保护（2026-09-15）：与 git_fetch_timeout 对称（同 background+sleep+kill 模式、
-# 同 pkill -P 杀 ssh 子进程），防 push 卡 GitHub 22 端口死拽 /tmp/trade_deploy.lock 连锁卡后续
-# 所有 deploy。git push 同样 spawn ssh 子进程，光杀 git 留 orphan ssh 继续卡，故 pkill -P 连杀。
+# git push 超时保护(2026-09-15): 与 git_fetch_timeout 对称(同 background+sleep+kill 模式、
+# 同 pkill -P 杀 ssh 子进程), 防 push 卡 GitHub 22 端口死拽 /tmp/trade_deploy.lock 连锁卡后续
+# 所有 deploy。git push 同样 spawn ssh 子进程, 光杀 git 留 orphan ssh 继续卡, 故 pkill -P 连杀。
 # 返回 0=成功 / 124=超时 / 其他=失败。
 git_push_timeout() {
   local limit="${1:-120}"
@@ -135,6 +135,25 @@ git_push_timeout() {
   rm -f "$tmp_log"
   return "$rc"
 }
+
+if [ "$GIT_PHASE" != "1" ]; then
+echo "=== deploy.sh 段1(锁外 export+R2+rsync)开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
+
+# 0. 时段闸门：交易日盘中 09:30-15:30 拒跑全量 export+deploy（防覆盖 intraday 实时版，事故 94c79041 根因）
+# intraday_snapshot.sh 定时任务盘中每 30 分钟推 intraday_snapshot.json 到 main，
+# 全量 deploy 会 export.py 重新生成 + git add 通配带入，易覆盖实时版。force 可绕过。
+FORCE=0
+case " $* " in *" force "*) FORCE=1;; esac
+CURRENT_HM=$(date +%H%M)
+# 判断失败时保守当交易日(echo 1=拦盘中)：盘中闸本意是「交易日盘中 09:30-15:30 不跑全量
+# export+deploy」，判断失败(calendar import 异常/cd REPO 失败)若误放=可能覆盖 intraday
+# 实时版；失败降级方向与 main-merge.sh is_trading_day_now(失败 exit 2 按交易日保守拦)同向(§14 P0)。
+IS_TRADING=$(cd "$REPO" && "$PY" -c "from app.calendar import is_trading_day; print(1 if is_trading_day() else 0)" 2>/dev/null || echo 1)
+echo "时段闸门: IS_TRADING=${IS_TRADING} CURRENT_HM=$CURRENT_HM FORCE=$FORCE" | tee -a "$LOG"
+if [ "$IS_TRADING" = "1" ] && [ "$CURRENT_HM" -ge 0930 ] && [ "$CURRENT_HM" -le 1530 ] && [ "$FORCE" != "1" ]; then
+  echo "✗ 交易日盘中（09:30-15:30），拒跑全量 export+deploy（防覆盖 intraday 实时版；force 可绕过）" | tee -a "$LOG"
+  exit 1
+fi
 
 # 0.5 fetch origin main（后续 unmerged 检查 + rebase 需要）
 # R2 阶段4a 后 static-site/data/ 全量移出 git（含 feed.xml，2026-08-10 也走 R2），
@@ -510,13 +529,25 @@ fi
 # 仅 trade-data 跑时触发（REPO != GIT_REPO）；排除 logs/（日志各自独立不互相同步）。
 # 失败不阻断部署（static-site/data/ JSON 已上线，DB 同步仅兜底）。
 if [ "$REPO" != "$GIT_REPO" ]; then
-  echo "-> rsync 采集数据: $REPO/data/ -> $GIT_REPO/data/ (exclude logs + 告警状态文件) ..." | tee -a "$LOG"
+  echo "-> rsync 采集数据: $REPO/data/ -> $GIT_REPO/data/ (exclude logs + 告警状态文件 + 4 tracked 种子) ..." | tee -a "$LOG"
   # 2026-09-29 告警降噪(改动6): 排除告警状态文件, 防双树(REPO 数据树 + GIT_REPO git 树)
   # 各维护一份 data/notify_dedup.json / alert_state.json 被 rsync -a 覆盖互相丢 key
   # (dedup 失效根因, 09-28 sigkelly_snapshot_stagnation 同 key 24h 内 2 次)。
   # 状态文件以 REPO(trade-data)侧为准, 不跨树同步; 排除后单源写, dedup 窗口可靠。
+  # 2026-10-02 #119: 排除代码仓 git tracked 的 4 个 clone 种子文件(index_etf_map.json /
+  # stock_codes.json / trade.db / trade_dates.txt)。这 4 文件是 bootstrap 文档
+  # (docs/deploy/migration-data-bootstrap-plan-20260912.md L41/72-74/118)定的新机 clone 种子,
+  # 云上被 rsync 覆盖写 → git status data/ 变 M 脏 → 下次 git pull 被挡(#119/#115/#118 同源)。
+  # 不能脱跟踪(trade_dates.txt 有真实代码仓 fallback 消费方 nextday_plan_generator.py:169-170
+  # ROOT/data resolve; 脱跟踪=新机 clone 不再自带种子)。改为 rsync --exclude: 数据仓(REPO)侧
+  # 继续正常生成/刷新这些文件(gen_etf_index_map.py / stock_daily.py codes / app/calendar.py
+  # refresh_trade_dates / trade.db 0B 占位), 代码仓(GIT_REPO)侧保留 clone 种子不再被覆盖写;
+  # 运行期消费方优先读 REPO 数据仓侧新版(_trade_calendar_dates 遍历 db_path.parent→ROOT/data
+  # →REPO/data, 数据仓侧先命中), 种子语义不破坏。
   rsync -a --exclude=logs/ --exclude=notify_dedup.json --exclude=alert_state.json \
         --exclude=alerts/ --exclude=warning_* --exclude=backups/ \
+        --exclude=index_etf_map.json --exclude=stock_codes.json \
+        --exclude=trade.db --exclude=trade_dates.txt \
         "$REPO/data/" "$GIT_REPO/data/" 2>&1 | tee -a "$LOG"
   RSYNC_DB_RC=${PIPESTATUS[0]}
   if [ "$RSYNC_DB_RC" -ne 0 ]; then
@@ -699,6 +730,22 @@ if [ "$PROG_RC" -ne 0 ]; then
   exit "$PROG_RC"
 fi
 echo "✓ 版本串倒退/净回退校验通过（防再犯机制 A/B）" | tee -a "$LOG"
+
+# #149 方案①a: 段1 完成 → 重入持锁只跑 git 段(段2)。
+# 传状态给重入进程: DEPLOY_R2_FAIL(R2 上传失败通道累积, 收尾统一告警用)、
+# DEPLOY_MAP_STALE(board_etf_map 旧版兜底标志)。async/sync 的 git 段已持同一把
+# trade_deploy.lock, deploy 段2 与它们同队列串行(秒~分钟级), 彻底消除
+# 「export+R2 长跑段占锁」#149 根因。LOG 经重入整脚本重跑沿用同一文件(顶部重新定义)。
+export DEPLOY_R2_FAIL="${R2_FAIL:-}"
+export DEPLOY_MAP_STALE="${MAP_STALE:-0}"
+exec "$PY" "$GIT_REPO/scripts/with_lock.py" --block-timeout "${GIT_LOCK_TIMEOUT:-3600}" "$LOCK" bash "$0" --git-phase "$@"
+fi
+
+# === 段2: git add/commit/push + 收尾(重入进程, 已持 /tmp/trade_deploy.lock) ===
+# 重入进程整脚本重跑, 段1 被上方 if 跳过(true 分支为空); 此处恢复段1 累积状态。
+R2_FAIL="${DEPLOY_R2_FAIL:-}"
+MAP_STALE="${DEPLOY_MAP_STALE:-0}"
+echo "=== deploy.sh 段2(锁内 git add/commit/push)开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 
 # 2. git add min JS/CSS（阶段3：数据走 R2，只 push 代码）
 # 原数据 JSON 已由上面 R2 上传（upload-all-data 等）推到 R2，不再 git push。
