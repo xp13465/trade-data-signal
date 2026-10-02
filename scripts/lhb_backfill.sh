@@ -103,8 +103,9 @@ fi
 echo "-> 重算情绪分 ..." | tee -a "$LOG"
 "$PY" -c "from app.compute import runner; runner.run()" 2>&1 | tee -a "$LOG"
 
-echo "-> 持 deploy 锁推送（串行化 git）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/with_lock.py" --block-timeout 600 /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" lhb 2>&1 | tee -a "$LOG"
+# #149 方案①(2026-10-02): 外层 deploy 锁去掉, deploy.sh 段1 锁外可并发, 段2 git 内部锁串行
+echo "-> 推送 deploy lhb（export+R2 锁外并发, git 段内部锁串行）..." | tee -a "$LOG"
+bash "$REPO/scripts/deploy.sh" lhb 2>&1 | tee -a "$LOG"
 DEPLOY_RC=${PIPESTATUS[0]}
 [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
 

@@ -23,7 +23,8 @@ LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)
 NAME="${1:?usage: pipeline.sh <core|width|futures|stock_daily>}"
 LOG="$LOGDIR/pipeline_${NAME}_${STAMP}.log"
-LOCK="/tmp/trade_deploy.lock"
+# #149 方案①(2026-10-02): LOCK 定义已移除 —— deploy 外层锁去掉, deploy.sh 段1 锁外并发,
+# 段2 git 写由 deploy.sh 内部 exec with_lock.py 自持 /tmp/trade_deploy.lock 串行化。
 
 mkdir -p "$LOGDIR"
 cd "$REPO"
@@ -67,8 +68,8 @@ fi
 #   避免 4 遍重复 deploy = 88min 主因）。DEPLOY_EACH=1 可恢复旧行为（单跑 pipeline 需立即上线时用）。
 DEPLOY_EACH="${DEPLOY_EACH:-0}"
 if [ "$DO_EXPORT" = "1" ] && [ "$DEPLOY_EACH" = "1" ]; then
-  echo "-> [$NAME] 等待 deploy 锁（串行化 git）..." | tee -a "$LOG"
-  "$PY" "$REPO/scripts/with_lock.py" --block-timeout 600 "$LOCK" bash "$REPO/scripts/deploy.sh" "$NAME" >> "$LOG" 2>&1
+  echo "-> [$NAME] 推送 deploy（#149 方案①: 段1 锁外并发, 段2 git 内部锁串行）..." | tee -a "$LOG"
+  bash "$REPO/scripts/deploy.sh" "$NAME" >> "$LOG" 2>&1
   DEPLOY_RC=$?
   [ "$DEPLOY_RC" -ne 0 ] && echo "✗ [$NAME] deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
 elif [ "$DO_EXPORT" = "1" ] && [ "$DEPLOY_EACH" != "1" ]; then

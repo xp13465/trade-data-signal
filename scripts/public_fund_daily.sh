@@ -77,9 +77,10 @@ else
   EXPORT_RC=${PIPESTATUS[0]}
   echo "导出退出码=$EXPORT_RC" | tee -a "$LOG"
   if [ "$EXPORT_RC" -eq 0 ]; then
-    # 持 deploy 锁推送（deploy.sh public-fund 重新 export + git push + R2 上传）
-    echo "-> 持 deploy 锁推送（串行化 git）..." | tee -a "$LOG"
-    "$PY" "$REPO/scripts/with_lock.py" --block-timeout 600 /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" public-fund 2>&1 | tee -a "$LOG"
+    # 推送（deploy.sh public-fund 重新 export + git push + R2 上传; #149 方案① 外层锁去掉,
+    # 段1 锁外可并发, 段2 git 内部锁串行）
+    echo "-> 推送 deploy public-fund（export+R2 锁外并发, git 段内部锁串行）..." | tee -a "$LOG"
+    bash "$REPO/scripts/deploy.sh" public-fund 2>&1 | tee -a "$LOG"
     DEPLOY_RC=${PIPESTATUS[0]}
     [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
   else

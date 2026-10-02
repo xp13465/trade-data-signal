@@ -1122,9 +1122,9 @@ def main():
         log_collect(today, "backfill", "ok", f"backfill补采(指数{ok}+序列{s_ok})->重算+推送")
         repo = Path(__file__).absolute().parent.parent.parent
         subprocess.run([sys.executable, "-m", "app.compute.runner"], check=False)
-        # deploy 持 /tmp/trade_deploy.lock 串行化 git（阻塞排队），与 pipeline.sh /
-        # intraday_snapshot.sh 共享 deploy 锁，避免 20:00 前后撞 update_all pipeline
-        # 的 git add/commit/push 致 .git/index.lock 冲突（原裸调 deploy 无锁=隐患）。
+        # deploy 段1(export+R2+rsync)锁外可并发, 段2 git 写由 deploy.sh 内部
+        # exec with_lock.py 自持 /tmp/trade_deploy.lock 串行化(#149 方案① 2026-10-02,
+        # 调用方不再需要包外层 deploy 锁; 避免「排队等锁超时=backfill 跳过」)。
         # 显式传 env 让 deploy.sh 的 REPO 与本进程 repo 一致（根治隐藏 bug 2026-07-26）：
         # repo 由 Path(__file__).absolute() 解析，launchd 从 trade-data 跑时 repo=trade-data
         # （trade-data/app 是 symlink，.absolute() 不 resolve 保留 trade-data 路径）；
@@ -1135,9 +1135,7 @@ def main():
         # 传 env={**os.environ,"REPO":str(repo)} 保证 deploy.sh export 基准 = backfill 写库基准。
         # GIT_REPO 不传：deploy.sh L25 默认 trade（.git 只在 trade，trade-data 不 git init）正确。
         subprocess.run(
-            [sys.executable, str(repo / "scripts" / "with_lock.py"),
-             "--block-timeout", "600",
-             "/tmp/trade_deploy.lock", "bash", "scripts/deploy.sh", "backfill"],
+            ["bash", "scripts/deploy.sh", "backfill"],
             cwd=repo, env={**os.environ, "REPO": str(repo)}, check=False)
         # P0-1(2026-08-14 迟到信号增量补通知根治)：补采重算 signal_daily + export 后，
         # 追加增量补通知——只报【新增/变化的迟到信号】(如本次 div_lowvol/gz_399431)，

@@ -92,9 +92,10 @@ if [ "$COLLECT_RC" -ne 0 ]; then
   exit 0
 fi
 
-# 2) 有新数据 -> 持 deploy 锁推送（串行化 git，阻塞排队；20:00-20:07 密集时段等 backfill 释放）
-echo "-> 持 deploy 锁推送（串行化 git，可能排队等 backfill/etf）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/with_lock.py" --block-timeout 600 /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" futures 2>&1 | tee -a "$LOG"
+# 2) 有新数据 -> 推送（#149 方案① 2026-10-02: 外层 deploy 锁已去掉, deploy.sh 段1 锁外可并发,
+# 段2 git 由 deploy.sh 内部自持 /tmp/trade_deploy.lock 串行化; 不再排队等锁超时跳过)
+echo "-> 推送 deploy futures（export+R2 锁外并发, git 段内部锁串行）..." | tee -a "$LOG"
+bash "$REPO/scripts/deploy.sh" futures 2>&1 | tee -a "$LOG"
 DEPLOY_RC=${PIPESTATUS[0]}
 [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
 

@@ -141,9 +141,12 @@ fi
 # deploy 从「每条 pipeline 各跑一遍完整 deploy（4 遍=88min 主因）」收敛为「统一 1 次完整 deploy」。
 # 此时所有 pipeline 采集已完成，build_board_etf_map/export 读到的 DB 是全量最新，
 # 单次完整 deploy 覆盖全部 4 pipeline 产物（§22 一致性：无一 pipeline 产物漏 deploy）。
-# 与并发 backfill 脚本共用 deploy.lock 串行化 git（防 index.lock 竞争）。
+# #149 方案①(2026-10-02): 外层 deploy 锁已去掉 —— deploy.sh 段1(export+R2+rsync)锁外可并发,
+# 段2(git add/commit/push)由 deploy.sh 内部 exec with_lock.py 自持 /tmp/trade_deploy.lock
+# 串行化 git(与并发 backfill/async/sync 的 git 段同队列, 秒~分钟级)。
+# 主链收益: 不再「排队等锁超时=当天全站缺一天」(审查报告 C-5 点名), 段1 立即开跑。
 echo "-> O1 统一 1 次完整 deploy（覆盖全部 pipeline 产物，原 4 遍→1 遍）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/with_lock.py" --block-timeout 600 /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" all >> "$LOG" 2>&1
+bash "$REPO/scripts/deploy.sh" all >> "$LOG" 2>&1
 DEPLOY_ALL_RC=$?
 if [ "$DEPLOY_ALL_RC" -ne 0 ]; then
   echo "✗ O1 统一 deploy 失败 (rc=$DEPLOY_ALL_RC)" | tee -a "$LOG"
