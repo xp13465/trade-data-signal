@@ -223,5 +223,8 @@
   ],
   "20260930-a628": [
     "fix(#147): \u8fc7\u62df\u5408\u4e24\u56fe x \u8f74\u6309\u5b9e\u9645\u523b\u5ea6\u4e32(8\u4f4d\u65e5\u671f)\u91cf\u5bbd\u4f20 cfg.xStep"
+  ],
+  "20261002-a629": [
+    "fix(icepoint): sh \u683c\u70b9\u51fb\u5f00\u5f53\u5929\u4e0b\u94bb\u5f39\u7a97 \u2014 \u65b0\u589e .sig-sh-ice \u72ec\u7acb\u5206\u652f, \u4e0e\u65e5\u671f\u6807\u7b7e\u540c\u884c\u4e3a; \u4e0d\u518d\u843d\u5165 .sig-clickable \u5206\u652f\u81f4 openSignalChartModal(idx=null) TypeError(2026-10-02)"
   ]
 }
