@@ -8075,6 +8075,9 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：mootdx（通达信协议）收�
   function hide() { hideTimer = setTimeout(function () { pop.style.display = "none"; }, 80); }
   function hideNow() { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } pop.style.display = "none"; popByClick = false; }
   document.addEventListener("mouseover", function (e) {
+    // 2026-10-02 fix(移动端双弹): 移动端(hover:none)tap 合成 mouseover 也走本委托弹 term-pop;
+    // [data-ice-note] 图例 ❓ 由 click 弹完整公示 modal(见 _initIceNoteDelegation), 移动端 hover 无意义 → 排除(桌面 hover 简短文本保留)。
+    if (isTouch && e.target.closest && e.target.closest("[data-ice-note]")) return;
     var el = findTipEl(e.target);
     if (el && !popByClick) show(el, el.getAttribute("data-tip"));
   });
@@ -8084,6 +8087,9 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：mootdx（通达信协议）收�
   });
   if (isTouch) {
     document.addEventListener("click", function (e) {
+      // 2026-10-02 fix(移动端双弹): [data-ice-note] 图例 ❓ 由 _initIceNoteDelegation(capture 注册更早)弹完整公示 modal;
+      // 本委托(capture 注册更晚)若继续处理会同时弹 term-pop → 双弹。显式排除, 让 ice-note modal 单弹。
+      if (e.target.closest && e.target.closest("[data-ice-note]")) return;
       var el = findTipEl(e.target, true);  // forClick=true：click 路径不 fallback [title]（A2）
       if (el) {
         if (popByClick && popEl === el) { hideNow(); return; }  // 同元素再点 -> 关
