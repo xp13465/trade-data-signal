@@ -7238,8 +7238,15 @@ function _renderSentimentCalendar(cal) {
       const _c = day.consensus;
       const _consTxt = (_c && typeof _c.x === "number" && typeof _c.y === "number") ? `${_c.x}/${_c.y}` : "";
       const _srcTxt = (_shHit && _oldHit) ? "重叠" : (_shHit ? "仅上海炒家" : "仅老算法");
+      const _shHits = day.sh_hits;
+      const _shTotal = (_shHits && typeof _shHits.total === "number") ? _shHits.total : null;
+      // 二义修复(2026-10-02): has_signal=false 有两种情形——四因子缺数据不可判定(n_avail<4, 如历史缺楼层数据段)
+      //   vs 评估过确实未命中(n_avail==4)。判据=sh_hits.total(n_avail): <4=整口径不可判定, ==4=齐备已判定。
+      const _shMissTxt = (_shTotal != null && _shTotal < 4)
+        ? `上海炒家口径当日数据不足不可判定(四因子仅可得 ${_shTotal} 个, 老算法冰点)`
+        : "上海炒家口径当日评估过未命中(仅老算法冰点)";
       const _tipParts = [
-        _shHit ? "上海炒家冰点(四因子共振 楼层+涨停或跌停+地量)" : "上海炒家口径当日未命中(仅老算法冰点)",
+        _shHit ? "上海炒家冰点(四因子共振 楼层+涨停或跌停+地量)" : _shMissTxt,
         "来源=" + _srcTxt,
         _consTxt ? "认可度=" + _consTxt + "(命中口径数/可得口径数)" : "",
         "点击查看当天冰点认可度明细",
@@ -7266,10 +7273,12 @@ function _renderSentimentCalendar(cal) {
     '<div class="sig-cal-legend">' +
       '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#2563eb"></span>冰点维度（情绪分<20，当日触发的一起点亮）</span>' +
       '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#7c3aed"></span>上海炒家冰点（四因子共振）' + (_icePublic ? termTip(_icePublic) : "") + '</span>' +
-      '<span class="sig-cal-legend-item">·重叠=两口径都中</span>' +
-      '<span class="sig-cal-legend-item">·仅上海炒家</span>' +
-      '<span class="sig-cal-legend-item">·仅老算法</span>' +
-      '<span class="sig-cal-legend-item">认可度 x/y=两口径命中数/可得数</span>' +
+      // 图例样式对齐老条目(色块+文字, 2026-10-02): 色块=对应格子实际视觉
+      // (重叠=老算法蓝+上海炒家紫双色都中 / 仅上海炒家=紫高亮 / 仅老算法=紫半透明灰化 / 认可度=灰化格数字淡紫)。
+      '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#2563eb"></span><span class="sig-cal-legend-swatch" style="background:#7c3aed"></span>重叠=两口径都中</span>' +
+      '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#7c3aed"></span>仅上海炒家</span>' +
+      '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#7c3aed;opacity:.68"></span>仅老算法</span>' +
+      '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#a58bd6"></span>认可度 x/y=两口径命中数/可得数</span>' +
       '<span class="sig-cal-legend-item"><span style="color:#e6492e">红</span>=卖</span>' +
       '<span class="sig-cal-legend-item"><span style="color:#d63384">紫</span>=辅买</span>' +
       '<span class="sig-cal-legend-item"><span style="color:#2e8b57">绿</span>=买</span>' +
