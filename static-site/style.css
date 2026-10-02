@@ -935,6 +935,19 @@ main { padding: 16px 24px; }
 .sig-item b.band_sell { color: #8bc34a; }
 .sig-freeze-name { color: var(--text-2); }
 .sig-item b.freeze-val { color: #2563eb; }
+/* 上海炒家冰点认可度格(2026-10-02): 紫系, 与老算法冰点蓝 #2563eb 区分 */
+.sig-item.sig-sh-ice { color: #7c3aed; }
+.sig-item.sig-sh-ice .sig-sh-name { font-weight: 600; }
+.sig-item.sig-sh-ice .sig-sh-cons { color: #7c3aed; font-weight: 700; }
+.sig-item.sig-sh-ice.sig-sh-miss { opacity: .68; }
+.sig-item.sig-sh-ice.sig-sh-miss .sig-sh-cons { color: #a58bd6; }
+/* 下钻弹窗四因子明细: 命中绿底 / 未中弱灰红, 一眼区分 */
+.dd-row.sh-f-hit { background: #2e8b570d; }
+.dd-row.sh-f-miss { color: var(--text-3); }
+.sh-f-mark { font-size: 11px; margin-left: 4px; }
+.sh-f-mark-hit { color: #2e8b57; font-weight: 600; }
+.sh-f-mark-miss { color: #e6492e; font-weight: 600; }
+.sh-factors { border-top: 1px dashed var(--border); margin-top: 6px; padding-top: 2px; }
 .sig-day-row.today-row { background: #fff4ec; border-radius: 6px; }
 .sig-day-row.today-row .sig-day-date { color: #e6492e; font-weight: 600; }
 /* 市场温度顶行：热力图 + 情绪分买卖点信号列表 同排同高（flex stretch 自动等高） */

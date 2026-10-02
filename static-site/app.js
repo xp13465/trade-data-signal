@@ -7223,7 +7223,33 @@ function _renderSentimentCalendar(cal) {
       _titleParts.push("点击查看走势图");
       return `<span class="sig-item sig-clickable" data-idx="${s.index_id}" data-sig="${s.signal}" data-date="${dt}" data-idx-name="${_escAttr(_name)}" title="${_escAttr(_titleParts.join(" · "))}"><b class="${s.signal}">${_label}</b> <span class="sig-idx-name">${_name}</span></span>`;
     }).join("");
-    const cells = freezeCells + sigCells;
+    // 上海炒家冰点认可度格(2026-10-02, 纯新增, 老格子不动): 数据=overview sentiment_calendar 旁路字段 sh_* 系。
+    // 容错: 部分日期完全无 sh_* 字段(后端 _d not in _ice_df.index 跳过) ⇒ 按"无此信息"处理,
+    //   不渲染成"未命中"也不报错(缺失时 _hasSh=false 整块跳过)。
+    // 来源三分类(任务口径): 重叠=sh_freeze 与老算法 freeze 都真 / 仅上海炒家=仅 sh_freeze 真 /
+    //   仅老算法=仅老算法 freeze 真(上海炒家口径评估过但未命中, 弱化显示)。
+    // 认可度 consensus.x/y=当日命中口径数/当日可得口径数(正常 2/2; 上海炒家缺楼层数据降级 1/2)→ 形如 "2/2"。
+    // 点击=data-cal-date 复用日期标签委托打开当天下钻弹窗(档位/四因子/阈值明细); data-no-pop=防 term-pop 盖住弹层。
+    const _hasSh = typeof day.sh_freeze === "boolean";
+    const _shHit = _hasSh && day.sh_freeze === true;
+    const _oldHit = fr.length > 0;
+    let _shCells = "";
+    if (_hasSh && (_shHit || _oldHit)) {
+      const _c = day.consensus;
+      const _consTxt = (_c && typeof _c.x === "number" && typeof _c.y === "number") ? `${_c.x}/${_c.y}` : "";
+      const _srcTxt = (_shHit && _oldHit) ? "重叠" : (_shHit ? "仅上海炒家" : "仅老算法");
+      const _tipParts = [
+        _shHit ? "上海炒家冰点(四因子共振 楼层+涨停或跌停+地量)" : "上海炒家口径当日未命中(仅老算法冰点)",
+        "来源=" + _srcTxt,
+        _consTxt ? "认可度=" + _consTxt + "(命中口径数/可得口径数)" : "",
+        "点击查看当天冰点认可度明细",
+      ].filter(Boolean);
+      _shCells = `<span class="sig-item sig-clickable sig-sh-ice${_shHit ? "" : " sig-sh-miss"}" data-no-pop="" data-cal-date="${dt}" title="${_escAttr(_tipParts.join("；"))}">` +
+        `<span class="sig-sh-name">${_shHit ? "上海炒家冰点" : "老算法冰点"}·${_srcTxt}</span>` +
+        (_consTxt ? ` <b class="sig-sh-cons">${_consTxt}</b>` : "") +
+        `</span>`;
+    }
+    const cells = freezeCells + _shCells + sigCells;
     if (!cells) continue;
     // 日期标签可点：查看当天全部触发明细(2026-09-30, 用户拍板"加维度说明/筛选,不删标记")。
     // 仅新增日期标签点击入口, 格子渲染/标记完全不动(§23.7 冻结契约)。点击委托见 freezeCard click。
@@ -7233,9 +7259,17 @@ function _renderSentimentCalendar(cal) {
   }
   if (!rows) return "";
   // 图例行(2026-09-30, 用户拍板): 说明"本日历合并了哪几类维度的冰点+信号", 不改格子渲染结果。
+  // 算法公示(§21, 2026-10-02): 引用 purpose-notes.js 集中配置的 sentiment.icepoint 全文, 图例挂 ❓ 入口。
+  // 文案含四因子口径/阈值/T+1/防前视/两档判定/回测诚实标注(来源≠收益强度), 与后端 icepoint.py 逐字一致。
+  const _icePublic = (typeof PURPOSE_NOTES !== "undefined" && PURPOSE_NOTES["sentiment.icepoint"]) ? PURPOSE_NOTES["sentiment.icepoint"] : "";
   const legend =
     '<div class="sig-cal-legend">' +
       '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#2563eb"></span>冰点维度（情绪分<20，当日触发的一起点亮）</span>' +
+      '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#7c3aed"></span>上海炒家冰点（四因子共振）' + (_icePublic ? termTip(_icePublic) : "") + '</span>' +
+      '<span class="sig-cal-legend-item">·重叠=两口径都中</span>' +
+      '<span class="sig-cal-legend-item">·仅上海炒家</span>' +
+      '<span class="sig-cal-legend-item">·仅老算法</span>' +
+      '<span class="sig-cal-legend-item">认可度 x/y=两口径命中数/可得数</span>' +
       '<span class="sig-cal-legend-item"><span style="color:#e6492e">红</span>=卖</span>' +
       '<span class="sig-cal-legend-item"><span style="color:#d63384">紫</span>=辅买</span>' +
       '<span class="sig-cal-legend-item"><span style="color:#2e8b57">绿</span>=买</span>' +
@@ -7288,8 +7322,46 @@ function openSentimentDayDetailModal(day) {
         return `<div class="dd-row dd-sig"><span class="dd-name"><b class="${s.signal}">${_esc(_label)}</b> ${_esc(_name)}</span><span class="dd-reason">${_reason}</span></div>`;
       }).join("")
     : "";
+  // 上海炒家冰点认可度区块(2026-10-02, 纯新增): 展示档位/认可度/四因子共振/四因子明细。
+  // 容错: 部分日期无 sh_* 字段(后端 _d not in _ice_df.index 跳过) ⇒ _hasSh=false 整块优雅隐藏, 不误报。
+  // 档位: sh_level hard=硬冰点(四因子全中) / main=主冰点(楼层+地量+涨停或跌停) / ""=未命中。
+  // 认可度: consensus.x/y=命中口径数/可得口径数(正常 2/2; 上海炒家缺楼层数据降级 1/2)。
+  // 四因子明细: 名称/当前值/阈值(方向≤或≥)/是否命中, 命中绿、未中灰红弱化, 视觉一眼区分。
+  const _hasSh = typeof day.sh_freeze === "boolean";
+  let shHtml = "";
+  if (_hasSh) {
+    const _c = day.consensus;
+    const _consTxt = (_c && typeof _c.x === "number" && typeof _c.y === "number")
+      ? `${_c.x}/${_c.y}（命中 ${_c.x} 个口径 / 当日可得 ${_c.y} 个口径）`
+      : "—";
+    const _lvlTxt = day.sh_level === "hard"
+      ? "硬冰点（四因子全中）"
+      : (day.sh_level === "main" ? "主冰点（楼层+地量+涨停或跌停）" : "未命中");
+    const _hh = day.sh_hits;
+    const _hitTxt = (_hh && typeof _hh.n === "number" && typeof _hh.total === "number")
+      ? `${_hh.n}/${_hh.total}（${_hh.n} 个因子共振命中 / ${_hh.total} 个因子当日可得）`
+      : "—";
+    const _fxs = Array.isArray(day.sh_factors) ? day.sh_factors : [];
+    const _fxHtml = _fxs.length
+      ? _fxs.map((f) => {
+          const _mark = f.hit ? "✓命中" : "✗未中";
+          const _val = (f.value != null && isFinite(f.value)) ? String(f.value) : "—";
+          const _th = (f.threshold != null && isFinite(f.threshold)) ? String(f.threshold) : "—";
+          const _dir = (f.key === "f4") ? "≤" : (f.key === "f3" ? "≥" : "≤");
+          const _unit = (f.key === "f4") ? "（滚动120日分位）" : "";
+          return `<div class="dd-row${f.hit ? " sh-f-hit" : " sh-f-miss"}"><span class="dd-name">${_esc(f.name || f.key || "")} <span class="sh-f-mark ${f.hit ? "sh-f-mark-hit" : "sh-f-mark-miss"}">${_mark}</span></span><span class="dd-val">当前 ${_val}${_unit} / 阈值 ${_dir}${_th}</span></div>`;
+        }).join("")
+      : "";
+    shHtml =
+      `<div class="dd-section-title">上海炒家冰点认可度</div>` +
+      `<div class="dd-row"><span class="dd-name">档位</span><span class="dd-val">${_esc(_lvlTxt)}</span></div>` +
+      `<div class="dd-row"><span class="dd-name">认可度（命中/可得）</span><span class="dd-val">${_esc(_consTxt)}</span></div>` +
+      `<div class="dd-row"><span class="dd-name">四因子共振</span><span class="dd-val">${_esc(_hitTxt)}</span></div>` +
+      (_fxHtml ? `<div class="sh-factors">${_fxHtml}</div>` : "");
+  }
   body.innerHTML =
     `<div class="dd-section-title">冰点维度（情绪分 <20 超卖极值）</div>` + freezeHtml +
+    shHtml +
     (sigHtml ? `<div class="dd-section-title dd-sig-title">当日情绪分信号</div>` + sigHtml : "") +
     '<div class="dd-foot">📋 蓝值=冰点触发维度；红/紫/绿=买卖点信号。点击上方格子可看单维度走势。</div>';
   modal.classList.remove("hidden");
