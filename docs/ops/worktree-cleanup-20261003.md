@@ -73,10 +73,17 @@
 | agent-ac2f40c2ba03f0130 | —(已合入) | — | 已在 main |
 | agent-ac735ad5463e2ade2 | `docs/ops/emintraday-denoise-review-20261002.md` | `ac735ad-*.md` | 拷贝回 docs/ops/ |
 | agent-adc0fbf873353a6d5 | —(已合入) | — | 已在 main |
-| agent-ae2f7cfb35006f345 | `scripts/playwright-accept/_dbg_f2_probe.mjs` | `ae2f7cf/_dbg_f2_probe.mjs` | 拷贝回原路径 |
-| agent-afcb2fa189b969a04 | `docs/ops/navclobber-review-20261003.md` | `afcb93-*.md`(+review 文档) | 拷贝回 docs/ops/ |
+| agent-ae2f7cfb35006f345 | `scripts/playwright-accept/_dbg_f2_probe.mjs` | `ae2f7cf/_dbg_f2_probe.mjs` | 拷贝回 `scripts/playwright-accept/` 原路径 |
+| agent-afcb2fa189b969a04 | `docs/ops/navclobber-review-20261003.md` | `afcb2fa-navclobber-review-20261003.md` | 拷贝回 docs/ops/ |
 
-**备份完整性验证**:`/tmp/worktree-cleanup-backup-20261003/` 共 8 个文件 308K + `orphan-b0836524e.patch`,删除的每一份独有未提交文件都能在上列找到对应备份。
+**备份完整性验证**:`/tmp/worktree-cleanup-backup-20261003/` 备份内容清单如下(删除的每一份独有未提交文件均能对应):
+- `a23d949-icepoint-legend-tip-review-20261002.md`
+- `a45e087-icepoint-legend-tip-review2-20261002.md`
+- `ac735ad-emintraday-denoise-review-20261002.md`
+- `afcb2fa-navclobber-review-20261003.md`
+- `ae2f7cf/_dbg_f2_probe.mjs`(子目录)
+- `a780922/`(子目录:upload_r2.py + export.py + export-guard.diff,此为保留未删,P0 代码备份)
+- `orphan-b0836524e.patch`(孤儿 detached commit b0836524e 的 app.js 补丁)
 
 ## 4. 没删什么、为什么
 
