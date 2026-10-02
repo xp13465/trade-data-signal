@@ -12,6 +12,7 @@
 """
 import bisect
 import json
+import logging
 import re
 import sys
 from datetime import datetime, timedelta
@@ -25,6 +26,8 @@ from .compute.market_summary import generate_summary, summary_brief
 from .compute.futures_position import compute_role_ih_detail
 from .compute.rotation import compute_rotation
 from .compute.signals import strategy_desc
+
+logger = logging.getLogger(__name__)
 
 # ============ 常量 ============
 
@@ -1579,6 +1582,7 @@ def overview(conn, cfg):
         _ice_df = _icepoint_compute()
     except Exception:
         _ice_df = None
+        logger.exception("icepoint 四因子计算失败,本次 overview 不含 sh_* 字段")
     if _ice_df is not None and not _ice_df.empty:
         _nan = float("nan")
         for _d in _cal_by_date:
