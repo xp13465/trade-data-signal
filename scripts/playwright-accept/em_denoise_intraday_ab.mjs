@@ -4,10 +4,10 @@
 // 用法: MODE=before|after node scripts/playwright-accept/em_denoise_intraday_ab.mjs
 import { createRequire } from "module";
 import { readFileSync } from "fs";
-const require = createRequire("/Users/linhuichen/code/trade/.claude/worktrees/agent-ace11781a6d0397b3/scripts/playwright-accept/");
+const require = createRequire("/Users/linhuichen/code/trade/.claude/worktrees/agent-ae2f7cfb35006f345/scripts/playwright-accept/");
 const { chromium } = require("playwright");
 const MODE = process.env.MODE || "after";
-const appSrc = readFileSync("/Users/linhuichen/code/trade/.claude/worktrees/agent-ace11781a6d0397b3/static-site/app.js", "utf8");
+const appSrc = readFileSync("/Users/linhuichen/code/trade/.claude/worktrees/agent-ae2f7cfb35006f345/static-site/app.js", "utf8");
 const b = await chromium.launch({ headless: true });
 const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: "block" });
 const page = await ctx.newPage();

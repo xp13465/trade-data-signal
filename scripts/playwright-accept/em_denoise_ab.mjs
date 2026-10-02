@@ -4,11 +4,11 @@
 // 前置: python3 -m http.server 8099 -d static-site(worktree内)
 import { createRequire } from "module";
 import { readFileSync } from "fs";
-const require = createRequire("/Users/linhuichen/code/trade/.claude/worktrees/agent-ace11781a6d0397b3/scripts/playwright-accept/");
+const require = createRequire("/Users/linhuichen/code/trade/.claude/worktrees/agent-ae2f7cfb35006f345/scripts/playwright-accept/");
 const { chromium } = require("playwright");
 const MODE = process.env.MODE || "after";
 const BASE = "http://localhost:8099";
-const LOCAL_APP_SRC = "/Users/linhuichen/code/trade/.claude/worktrees/agent-ace11781a6d0397b3/static-site/app.js";
+const LOCAL_APP_SRC = "/Users/linhuichen/code/trade/.claude/worktrees/agent-ae2f7cfb35006f345/static-site/app.js";
 const appSrc = readFileSync(LOCAL_APP_SRC, "utf8");
 const b = await chromium.launch({ headless: true });
 const ctx = await b.newContext({ viewport: { width: 1280, height: 900 } });

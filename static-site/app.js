@@ -12214,6 +12214,15 @@ function _isMarketClosedToday(snap) {
   const _snapDate = _shIdx ? (_shIdx.datetime || "").slice(0, 8) : "";
   return _snapDate !== _bjTodayStr();
 }
+// A1.2(2026-10-03 修正 Finding1): 按市场区分休市判定——港股指数有自己的交易日历(A股国庆休市期间港股照常开盘),
+// snap 只在 A股交易日生成, A股休市日 snap 停在上一交易日, 港股 per-index is_closed/datetime 也是旧值,
+// 无法从快照判断"港股今日是否开盘", 唯一可靠口径=放行实时(腾讯/东财非交易日也返回最近交易日分时, 快照渲染仍是兜底)。
+// 与 _buildHealthSources 港股独立判定(hkIdx.is_closed===false 单独判)同精神: 港股市场状态不与 A股绑定(§22/§23.13)。
+// A股 code(cn)沿用 _isMarketClosedToday 顶层口径(sh000001 datetime≠今日)。
+function _isMarketClosedTodayForCode(snap, code) {
+  if (_INDEX_MARKET[code] === "hk") return false; // 港股: 恒放行实时
+  return _isMarketClosedToday(snap);              // A股/其他: 沿用顶层休市口径
+}
 // 统一盘中状态机(步骤3): 7态 pre_open/auction_call/auction_done/morning/lunch/afternoon/closed
 // 优先级: snap.is_closed(后端交易日历权威,判 intraday vs closed) + _bjTimeMin(细分时段,消除 snap.label 10min 滞后)
 // snap 旧时(昨天收盘 snap,今天已开盘): snapDate!=today 识别, 用 _bjTimeMin 兜底切盘中态
@@ -13705,9 +13714,10 @@ async function _fetchIntradayRenderSource(code) {
 // 2026-09-28: miss 时改走 _fetchIntradayRenderSource（东财失败转腾讯双腿，双源都失败才降级快照）
 function _renderIntradayChart(container, code, preClose, snapTime, snap) {
   if (!container || !container.isConnected) return Promise.resolve(false);
-  // A1.2: 休市日(节假日/周末, snap 非今日=后端今日无数据)直接用快照 minute_series 渲染,
-  // 不发东财/腾讯实时请求(消除休市日 console 东财失败噪音)。交易日盘后(snap 今日)不拦, 正常拉实时。
-  if (_isMarketClosedToday(snap)) {
+  // A1.2(2026-10-03 修正 Finding1): 休市判定按市场区分(_isMarketClosedTodayForCode)——A股休市才走快照渲染,
+  // 港股恒放行实时(港股有自己的交易日历, A股国庆休市期间港股照常开盘, 快照无法反映, 放行实时由数据源返回最近交易日曲线)。
+  // 交易日盘后(snap 今日)不拦, 正常拉实时。
+  if (_isMarketClosedTodayForCode(snap, code)) {
     if (_renderSnapMinuteSeries(container, code, preClose, snapTime, snap)) return Promise.resolve(true);
     _renderIntradayFail(container, snapTime);
     return Promise.resolve(false);
@@ -13878,15 +13888,17 @@ function renderIntradaySection(sparkGrid, snap) {
       const _bjMin = _bjTimeMin();
       const _dow = _bjDayOfWeek();
       const _isWeekday = _dow >= 1 && _dow <= 5; // 周一-周五兜底(节假日误显无害, 收盘后无新数据自然恢复)
-      // A1.2: 节假日/休市(snap 非今日, 后端今日无数据)一律 collapsed(仅日图), 不展开分时不发实时请求。
-      // 交易日盘后 snap 是今天 -> _isMarketClosedToday=false -> 正常 expanded 展示当天分时(不动老行为)。
-      const _holiday = _isMarketClosedToday(snap);
+      // A1.2(2026-10-03 修正 Finding1): 休市判定按市场区分——A股休市但港股开盘的错位日(如国庆 A股休市期间港股照常开盘),
+      // 不能因 A股 _holiday 把整页塌成 collapsed(港股走实时需可见)。兜底用"工作日+港股交易时段(9:30-16:00, 与A股同UTC+8)"判定:
+      // A股休市且当前不在港股时段内(周末/深夜/盘前) -> 全休市 collapse; 否则按原时段逻辑展开。
+      const _inHkSession = _isWeekday && _bjMin >= 9 * 60 + 30 && _bjMin < 16 * 60;
+      const _holiday = _isMarketClosedToday(snap) && !_inHkSession;
       if (!_holiday && _isWeekday && _bjMin >= 9 * 60 + 30 && _bjMin < 15 * 60) {
         mode = "intraday-only";   // 盘中(9:30-15:00 含午休) -> 仅分时
       } else if (!_holiday && _isWeekday && _bjMin >= 15 * 60) {
         mode = "expanded";        // 盘后(15:00 后, 非休市日) -> 全展开
       } else {
-        mode = "collapsed";       // 休市(节假日/周末) / 盘前 9:30 前 -> 仅日图
+        mode = "collapsed";       // 全休市(节假日/周末) / 盘前 9:30 前 -> 仅日图
       }
     }
   }
@@ -13918,9 +13930,13 @@ function renderIntradaySection(sparkGrid, snap) {
       if (showIntraday && !el.querySelector("div")) {
         const code = el.getAttribute("data-intraday-code");
         if (code && _INDEX_TO_TENCENT_MINUTE[code]) {
-          const preClose = _snapPreClose(snap, code);
-          const snapTime = _snapTimeStr(snap);
-          _renderIntradayChart(el, code, preClose, snapTime, snap);
+          // A1.2(2026-10-03 修正 Finding2): 用最新 snap 而非闭包 boot 快照——交易日 9:15 前加载页面(snap=昨日)
+          // 后用户切模式, 若用旧 snap 判休市会渲染昨日冻结分时; state.intradaySnapshot 由 fetchIntradaySnapshot
+          // 在 overview 刷新/开盘检测时更新, 是全局最新权威值(_doIntradayRefresh 盘中刷新也更新 state)。
+          const curSnap = state.intradaySnapshot || snap;
+          const preClose = _snapPreClose(curSnap, code);
+          const snapTime = _snapTimeStr(curSnap);
+          _renderIntradayChart(el, code, preClose, snapTime, curSnap);
         }
       }
     });
@@ -14471,9 +14487,10 @@ function _startMarketOpenCheck() {
   const _preOpenDelay = () => {
     const m = _bjTimeMin();
     const _preOpen = ((m >= 9*60+10 && m <= 9*60+35) || (m >= 13*60 && m <= 13*60+10));
-    // A1.2: 休市日(节假日/周末, snap 非今日)间隔拉到30min——仍保留开盘检测(节后9:25/9:30精确触发+切回前台立即tick切盘中),
-    // 但避免国庆等长假每天每3min拉快照浪费。⚠️竞价时段(9:10-9:35)仍15s快检测: 交易日盘前 snapshot 还是昨日,
-    // _isMarketClosedToday 会误判"休市", 若砍掉15s会拖慢9:25竞价完成切换——竞价时段不受休市降频影响。
+    // A1.2(2026-10-03 修正 Finding3): 9:15 前 snap 昨日无法区分「交易日盘前(快照未生成)」vs「节假日」,
+    // 保持3min/15s快检测(交易日开盘切换不被拖慢); 9:15 后(交易日后端已出当日快照) snap 仍昨日 -> 确定节假日,
+    // 拉30min低频(国庆等长假省请求)。盘前竞价时段(9:10-9:35)仍15s快检测不变。
+    if (m < 9 * 60 + 15) return _preOpen ? MARKET_OPEN_CHECK_PREOPEN_MS : MARKET_OPEN_CHECK_MS;
     if (_isMarketClosedToday(state.intradaySnapshot)) return _preOpen ? MARKET_OPEN_CHECK_PREOPEN_MS : MARKET_OPEN_CHECK_HOLIDAY_MS;
     return _preOpen ? MARKET_OPEN_CHECK_PREOPEN_MS : MARKET_OPEN_CHECK_MS;
   };
