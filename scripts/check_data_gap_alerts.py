@@ -692,6 +692,16 @@ def check_width(repo: Path, today: datetime) -> list[Finding]:
 # 「数据到底有没有进来」。非交易日不判(今天非交易日直接返回, 防节假日误报)。
 FUND_KEY = "data_gap:fund_freshness"
 
+# ── 公募基金 fund_daily_nav acc_nav 完整性检查器(checker 11/12, 2026-10-02 踩踏事故防再犯) ──
+# 事故: stage0-nav 回填用 INSERT OR REPLACE 整行覆盖, 把 9-17/21/23/24 acc_nav 从 88646 清到
+# 123(unit_nav 有值但 acc_nav 全 NULL)。重出产物后 DB↔产物逐位比对自洽测不出, 需独立阈值
+# 判断(审计 docs/ops/fund-nav-accnav-clobber-audit-20261002.md §4.3)。
+FUND_NAV_KEY = "data_gap:fund_nav_accnav"
+FUND_NAV_ALLNULL_KEY = "data_gap:fund_nav_allnull"
+FUND_ACCNAV_30D_MIN = 10000   # 近 30 天 acc_nav 有值行数阈值(正常 ~88696, 被清 ~173)
+FUND_ACCNAV_30D = 30          # 回看窗口(自然日)
+FUND_ALLNULL_MIN_TOTAL = 1000  # 单日总行数 ≥ 此值才算「采集在跑」(排除零星行)
+
 
 def check_fund_freshness(repo: Path, today: datetime) -> list[Finding]:
     db = repo / "data" / "sentiment.db"
@@ -740,6 +750,75 @@ def check_fund_freshness(repo: Path, today: datetime) -> list[Finding]:
                     f"建议: 关注 backfill_evening 日志, 若持续升级为 SEVERE 再人工介入。"))
     finally:
         conn.close()
+    return out
+
+
+# ── checker 11: 公募基金 fund_daily_nav acc_nav 完整性(2026-10-02 踩踏事故防再犯)
+#    事故: stage0-nav 回填用 INSERT OR REPLACE 整行覆盖, 把 9-17/21/23/24 acc_nav 从 88646 清到 123。
+#    本检查器独立于 DB↔产物比对(被清+重出产物后自洽, 原 check_fund_nav 测不出), 直接读 DB
+#    统计近 30 天 acc_nav 有值行数, 低于阈值告警。
+# ── checker 12: 采集全 NULL 告警(9-28/29/30 数据源未发布净值/采集写全 NULL 防再犯)。
+def check_fund_nav_accnav(repo: Path, today: datetime) -> list[Finding]:
+    db = repo / "data" / "public_fund.db"
+    if not db.exists():
+        return []  # 环境无 public_fund.db(本机可能没拉公募库), 跳过不误报
+    t = today.strftime("%Y%m%d")
+    win_start = (datetime.strptime(t, "%Y%m%d") - timedelta(days=FUND_ACCNAV_30D)).strftime("%Y%m%d")
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
+    try:
+        r = conn.execute(
+            "SELECT COUNT(*) FROM fund_daily_nav WHERE date >= ? AND acc_nav IS NOT NULL",
+            (win_start,)).fetchone()
+        cnt = int(r[0]) if r else 0
+    finally:
+        conn.close()
+    if cnt >= FUND_ACCNAV_30D_MIN:
+        return []
+    return [Finding(
+        FUND_NAV_KEY, "warn",
+        f"公募基金近 {FUND_ACCNAV_30D} 天 acc_nav 有值行数异常偏低: {cnt} < {FUND_ACCNAV_30D_MIN}",
+        f"fund_daily_nav 近 {FUND_ACCNAV_30D} 天(>={win_start}) acc_nav 非空行数 {cnt}, "
+        f"低于阈值 {FUND_ACCNAV_30D_MIN}。<br>"
+        f"背景(2026-10-02): stage0-nav 回填曾用 INSERT OR REPLACE 整行覆盖, 把 9-17/21/23/24 "
+        f"acc_nav 从 88646 清到 123; SQL 已改 UPSERT 防再犯, 本检查器兜底监控。<br>"
+        f"可能: ①数据源近期未发布累计净值(9-28/29/30 曾整批无值, 属数据特性) "
+        f"②又被整行覆盖清空。建议: 核 public_fund.py L1132 写入 SQL 是否仍为 UPSERT。")]
+
+
+def check_fund_nav_allnull(repo: Path, today: datetime) -> list[Finding]:
+    """采集全 NULL 告警: 最新采集日整批 unit_nav 全 NULL(9-28/29/30 场景)。
+
+    判定: 取最近一个有写入的日期(近 7 天), 该日有行(>FUND_ALLNULL_MIN_TOTAL)但
+    unit_nav 非空行数 = 0 → 整批全 NULL。9-28/29/30 是「数据源未发布净值」导致当天行全
+    NULL, 属真实故障信号而非正常现象, 应告警(审计 §4.3 第 3 条)。
+    """
+    db = repo / "data" / "public_fund.db"
+    if not db.exists():
+        return []  # 环境无 public_fund.db, 跳过不误报
+    t = today.strftime("%Y%m%d")
+    look_start = (datetime.strptime(t, "%Y%m%d") - timedelta(days=7)).strftime("%Y%m%d")
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
+    try:
+        # 最近 7 天每个日期的: 总行数 + unit_nav 非空行数
+        rows = conn.execute(
+            "SELECT date, COUNT(*) AS total, "
+            " SUM(CASE WHEN unit_nav IS NOT NULL THEN 1 ELSE 0 END) AS ok "
+            "FROM fund_daily_nav WHERE date >= ? GROUP BY date ORDER BY date DESC",
+            (look_start,)).fetchall()
+    finally:
+        conn.close()
+    out: list[Finding] = []
+    for d, total, ok in rows:
+        total = int(total); ok = int(ok or 0)
+        if total >= FUND_ALLNULL_MIN_TOTAL and ok == 0:
+            out.append(Finding(
+                FUND_NAV_ALLNULL_KEY, "severe",
+                f"公募基金 {d} 采集全 NULL: {total} 行 unit_nav 全为空",
+                f"fund_daily_nav {d} 写入 {total} 行但 unit_nav 非空 {ok} 行(全 NULL)。<br>"
+                f"场景(9-28/29/30 同款): 数据源未发布当日净值, 采集写入整批 NULL 行。<br>"
+                f"影响: 前端基金净值走势/历史回填缺该日真实净值。<br>"
+                f"建议: 查数据源当日净值发布状态; 如已发布, 补跑 backfill-nav 回填。"))
+            break  # 只告警最近一日, 防多日连报噪音
     return out
 
 
@@ -1503,6 +1582,8 @@ def run(repo: Path, dry_run: bool) -> int:
     findings += check_kelly_stale(repo, today)
     findings += check_kelly_backtest_fail(repo, today)
     findings += check_fund_freshness(repo, today)
+    findings += check_fund_nav_accnav(repo, today)
+    findings += check_fund_nav_allnull(repo, today)
     print(f"[check_data_gap] 检测完成: {len(findings)} 条发现 "
           f"(severe={sum(1 for f in findings if f.level == 'severe')}, "
           f"warn={sum(1 for f in findings if f.level == 'warn')}, "
@@ -2046,6 +2127,63 @@ def self_test() -> int:
         _save_state_atomic(sp6, ok_state)
         if _load_json(sp6, {}) != ok_state or tmp_left.exists():
             fails.append(f"F2 断言失败: 成功路径写入回读不一致(tmp残留={tmp_left.exists()})")
+
+    # ── case D(2026-10-02 acc_nav 踩踏事故防再犯): 公募 fund_daily_nav 两检查器 two-way ──
+    #    D1 正常态(acc_nav 有值充足)零命中 / D2 事故态(被清)accnav warn 命中
+    #    D3 采集全 NULL(9-28/29/30 场景)allnull severe 命中 / D4 库缺失跳过零命中
+    def _mk_fundnav(base: Path, rows: list[tuple]):
+        (base / "data").mkdir(parents=True, exist_ok=True)
+        c = sqlite3.connect(base / "data" / "public_fund.db")
+        c.execute("DROP TABLE IF EXISTS fund_daily_nav")
+        c.execute("""CREATE TABLE IF NOT EXISTS fund_daily_nav (
+            date TEXT NOT NULL, fund_code TEXT NOT NULL, fund_name TEXT,
+            unit_nav REAL, acc_nav REAL, prev_unit_nav REAL, nav_change_pct REAL,
+            PRIMARY KEY (date, fund_code))""")
+        c.executemany("INSERT OR REPLACE INTO fund_daily_nav"
+                      "(date,fund_code,fund_name,unit_nav,acc_nav,prev_unit_nav,nav_change_pct)"
+                      " VALUES (?,?,?,?,?,?,?)", rows)
+        c.commit(); c.close()
+
+    _today_d = datetime(2026, 10, 2, 22, 35)
+    _win_start = (_today_d - timedelta(days=FUND_ACCNAV_30D)).strftime("%Y%m%d")
+    with tempfile.TemporaryDirectory(prefix="gap_alert_nav_") as td:
+        b7 = Path(td)
+        _rows_n = ([("20260917", f"{i:06d}", f"f{i}", 1.1, 2.2, None, None) for i in range(20000)]
+                   + [("20260923", f"{i:06d}", f"f{i}", 1.1, 2.2, None, None) for i in range(20000)]
+                   + [("20260928", f"{i:06d}", f"f{i}", 1.0, None, None, None) for i in range(5000)])
+        _mk_fundnav(b7, _rows_n)
+        fA = check_fund_nav_accnav(b7, _today_d)
+        if fA:
+            fails.append(f"case D1 正常态 acc_nav 充足不应命中: {[(f.level, f.title) for f in fA]}")
+        fB = check_fund_nav_allnull(b7, _today_d)
+        if fB:
+            fails.append(f"case D1 正常态 unit_nav 有值不应命中 allnull: {[(f.level, f.title) for f in fB]}")
+
+        _rows_d = ([("20260917", f"{i:06d}", f"f{i}", 1.1, None, None, None) for i in range(123)]
+                   + [("20260923", f"{i:06d}", f"f{i}", 1.1, None, None, None) for i in range(123)]
+                   + [("20260928", f"{i:06d}", f"f{i}", 1.0, None, None, None) for i in range(5000)])
+        _mk_fundnav(b7, _rows_d)
+        fA2 = check_fund_nav_accnav(b7, _today_d)
+        if not (fA2 and fA2[0].level == "warn" and "acc_nav 有值行数异常偏低" in fA2[0].title):
+            fails.append(f"case D2 事故态(acc_nav 被清)应 accnav warn 命中, 实得 {[(f.level, f.title) for f in fA2]}")
+        fB2 = check_fund_nav_allnull(b7, _today_d)
+        if fB2:
+            fails.append(f"case D2 unit_nav 有值不应命中 allnull: {[(f.level, f.title) for f in fB2]}")
+
+        _rows_n3 = ([("20260917", f"{i:06d}", f"f{i}", 1.1, 2.2, None, None) for i in range(20000)]
+                    + [("20260928", f"{i:06d}", f"f{i}", None, None, None, None) for i in range(5000)])
+        _mk_fundnav(b7, _rows_n3)
+        fB3 = check_fund_nav_allnull(b7, _today_d)
+        if not (fB3 and fB3[0].level == "severe" and "采集全 NULL" in fB3[0].title):
+            fails.append(f"case D3 全 NULL 态应 allnull severe 命中, 实得 {[(f.level, f.title) for f in fB3]}")
+        fA3 = check_fund_nav_accnav(b7, _today_d)
+        if fA3:
+            fails.append(f"case D3 acc_nav 充足不应命中: {[(f.level, f.title) for f in fA3]}")
+
+    with tempfile.TemporaryDirectory(prefix="gap_alert_nav_empty_") as td:
+        b8 = Path(td)  # 不建库
+        if check_fund_nav_accnav(b8, _today_d) or check_fund_nav_allnull(b8, _today_d):
+            fails.append("case D4 库缺失两检查器应跳过零命中")
 
     if fails:
         for x in fails:
