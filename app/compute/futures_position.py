@@ -501,9 +501,15 @@ def compute_net_position():
 
             composite = pos_df[available].mean(axis=1, skipna=True)
             for date_val, net_ratio in composite.dropna().items():
+                # UPSERT 而非 INSERT OR REPLACE(2026-10-03 同类根治, 同 public_fund L1131 先例):
+                # REPLACE=删整行重插, 只填 net_ratio+source 会把采集器(futures_position.py _upsert)
+                # 写入的 total_long/total_short/net_position/long_chg/short_chg/contract_count 清成 NULL。
+                # ON CONFLICT DO UPDATE 只更新本次真正拿到的列, 其余列保留旧值。
                 conn.execute(
-                    "INSERT OR REPLACE INTO futures_position (date, variety, role, net_ratio, source) "
-                    "VALUES (?,?,?,?,?)",
+                    "INSERT INTO futures_position (date, variety, role, net_ratio, source) "
+                    "VALUES (?,?,?,?,?) "
+                    "ON CONFLICT(date, variety, role) DO UPDATE SET "
+                    "net_ratio=excluded.net_ratio, source=excluded.source",
                     (date_val, "综合", role, float(net_ratio), "computed"),
                 )
                 n += 1
