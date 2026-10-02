@@ -75,13 +75,52 @@ _DRY_RUN_CONSUMERS = {
 }
 
 
+# ---- export-guard 判据 (2026-10-03, 根治「本机误传 R2」事故) ----
+# 生产写入方 = sys.platform != "darwin" AND str(ROOT).startswith("/home/")。
+# 两条都是进程/路径事实,不经 env、无法被 REPO 注入伪装(事故即 export.py 注入
+# REPO=本机树路径, 让 guard 的 REPO_EXPLICIT 提前 return 放行)。
+def _is_production_writer() -> bool:
+    return sys.platform != "darwin" and str(ROOT).startswith("/home/")
+
+
+# 只写私有桶(signal-backup)的上传命令: 本机开发树仍允许(不污染公共 R2)。
+_PRIVATE_ONLY_CMDS = {"upload-db", "upload-large-json", "upload-claude-backup", "upload-decommissioned"}
+# 只读/对账命令: 不写任何 R2 桶。
+_READ_ONLY_CMDS = {"list", "download-db", "verify-r2", "verify-channels", "purge-low-freq"}
+
+
+def _is_public_bucket_write(cmd: str) -> bool:
+    """cmd 是否会写入公共桶 BUCKET(signal-data)。排除只读与私有桶备份命令。"""
+    if not cmd:
+        return False
+    if cmd in _READ_ONLY_CMDS or cmd in _PRIVATE_ONLY_CMDS:
+        return False
+    # 其余命令(所有 upload-* 数据通道 + upload + delete + clean-data-backup)均写公共 R2
+    return True
+
+
 def guard_repo_default(cmd: str) -> None:
     """REPO 缺省(手动裸跑)分级闸;dispatch 层 cmd 解析后立即调用(见 docs/r2-upload-repo-guard-plan-20260822.md)。
 
     显式态(launchd/force_env/export.py 注入 REPO)零行为变化,信任调用方;
     只拦真正危险的「缺省 + 非白名单」组合,防旧数据盖线上。
     未列入 A/B 白名单的其余命令(含 upload-kelly-parts / C 类 11 个数据上传命令)一律 exit 3 拒绝。
+
+    2026-10-03 export-guard L2 叠加: 本机开发树(darwin 或 ROOT 非 /home/ 前缀)拒绝写公共 R2(exit 2)。
+    只堵「现有 guard 会放行」的路径(REPO 显式 / A 类 / B 类白名单 / purge-low-freq),
+    原本就 exit 3 的缺省非白名单命令保持 exit 3(验证命令 2 期望语义)。云上为唯一合法写入方, 全放行。
     """
+    if not _is_production_writer():
+        _would_pass = (REPO_EXPLICIT or cmd in _A_CLASS or cmd in _TRADE_FALLBACK_OK
+                       or cmd == "purge-low-freq")
+        if _would_pass and _is_public_bucket_write(cmd):
+            print(
+                f"✗ 本机开发树({sys.platform} / {ROOT})禁止上传公共 R2(export-guard L2,2026-10-03):\n"
+                f"  {cmd} 会写入公共桶 {BUCKET}; 仅云上(/home/ubuntu, linux)允许写公共 R2。\n"
+                f"  本机如需验证隔离请用 R2_BACKUP_BUCKET=<不存在的桶名>(如 demo-nowhere)",
+                file=sys.stderr,
+            )
+            sys.exit(2)
     if REPO_EXPLICIT:
         return                                  # 显式态:launchd/force_env/export.py,信任调用方
     if cmd in _A_CLASS:
@@ -362,7 +401,7 @@ def _sigv4_canonical_query(query):
     return "&".join(f"{k}={v}" for k, v in norm)
 
 
-def s3_request(method, key, payload=b"", query="", bucket=None, content_type=None, with_headers=False, keep_alive=False):
+def s3_request(method, key, payload=b"", query="", bucket=None, content_type=None, with_headers=False, keep_alive=False, extra_headers=None):
     """path-style: /BUCKET/key, host = endpoint host。bucket=None 用默认 BUCKET。
 
     带连接超时(R2_UPLOAD_HTTP_TIMEOUT 秒,默认 30s)+ 重试(5 次,SSL/连接错退避 1s/2s/4s/8s),防 R2 偶发断连致脚本挂死。
@@ -372,6 +411,8 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
       失败/5xx 自动丢弃重建, 不影响正确性。
     query 多参数时自动按名排序(_sigv4_canonical_query)——R2 服务端对多参数 list/multipart 请求要求
       canonical query 按名升序, 未排序 403(#126); 签名与实际请求 URI 都用规范化后的 query, 保证一致。
+    extra_headers(2026-10-03 export-guard L5): 自定义附加请求头(如 COPY 的 x-amz-copy-source),
+      随 headers 一起进 SigV4 签名与 signed-headers; 用于服务端到服务端 COPY(x-amz-copy-source)。
     """
     if content_type is None:
         ext = os.path.splitext(key)[1].lower()
@@ -395,6 +436,8 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 "x-amz-date": amz_date,
                 "x-amz-content-sha256": payload_hash,
             }
+            if extra_headers:
+                headers.update(extra_headers)
             if method in ("PUT", "POST"):
                 headers["content-type"] = content_type
 
@@ -889,6 +932,81 @@ def _etf_hist_md5(path):
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
+# ---- export-guard L5 (2026-10-03): 上传前将被覆盖 key COPY 到备份桶 (§25 备份先于覆盖机制化) ----
+_PREUPLOAD_RETENTION_DAYS = 7  # pre-upload/ 前缀保留天数, 过期按天 prune(防无限增长)
+
+
+def _prune_pre_upload(today_str, label=""):
+    """删除 BACKUP_BUCKET/pre-upload/ 下超过保留期(默认 7 天)的旧备份 key。
+
+    按 key 前缀日期 `pre-upload/<YYYYMMDD>/` 解析, 早于 cutoff 直接 DELETE。
+    LIST/DELETE 失败不抛(备份顺带 prune, 不因 prune 失败影响上传主流程)。
+    """
+    try:
+        keys = _list_keys("pre-upload/", bucket=BACKUP_BUCKET)
+    except Exception:
+        return
+    if not keys:
+        return
+    cutoff = datetime.date.today() - datetime.timedelta(days=_PREUPLOAD_RETENTION_DAYS)
+    stale = []
+    for k in keys:
+        m = re.match(r"pre-upload/(\d{8})/", k)
+        if not m:
+            continue
+        try:
+            d = datetime.datetime.strptime(m.group(1), "%Y%m%d").date()
+        except ValueError:
+            continue
+        if d < cutoff:
+            stale.append(k)
+    if not stale:
+        return
+    for k in stale:
+        try:
+            s3_request("DELETE", k, bucket=BACKUP_BUCKET, keep_alive=True)
+        except Exception:
+            pass
+    print(f"[{label}] ⚠ pre-upload prune: 删除 {len(stale)} 个过期备份 key(>{_PREUPLOAD_RETENTION_DAYS}天)", flush=True)
+
+
+def _backup_overwritten_keys(r2_keys, label):
+    """把将被 PUT 覆盖的既有 R2 key 先 COPY 到 BACKUP_BUCKET/pre-upload/<YYYYMMDD>/<key>。
+
+    只对「R2 已存在」的 key 备份(新 key 无覆盖风险, HEAD 404 跳过);
+    COPY 走服务端到服务端(带宽 0, s3_request extra_headers 支持 x-amz-copy-source),
+    失败不阻断上传(记日志); 顺带 prune 过期旧备份。返回已备份数量。
+    """
+    today = datetime.date.today().strftime("%Y%m%d")
+    if not r2_keys:
+        _prune_pre_upload(today, label)
+        return 0
+    copied = 0
+    for key in r2_keys:
+        try:
+            st, _etag = s3_head(key, keep_alive=True)
+        except Exception:
+            st = 0
+        if st != 200:
+            continue   # R2 无此 key(首次上传), 无覆盖风险, 不备份
+        backup_key = f"pre-upload/{today}/{key}"
+        try:
+            bst, bdata = s3_request(
+                "PUT", backup_key, bucket=BACKUP_BUCKET,
+                extra_headers={"x-amz-copy-source": f"/{BUCKET}/{quote(key, safe='/')}"}, keep_alive=True)
+            if bst == 200:
+                copied += 1
+            else:
+                print(f"[{label}] ⚠ 备份 {key} -> {BACKUP_BUCKET}/{backup_key} 失败 status={bst} "
+                      f"{(bdata[:200] if isinstance(bdata, (bytes, bytearray)) else bdata)}", flush=True, file=sys.stderr)
+        except Exception as _e:
+            print(f"[{label}] ⚠ 备份 {key} 异常({_e})", flush=True, file=sys.stderr)
+    if copied:
+        print(f"[{label}] ✓ 备份 {copied} 个将被覆盖 key -> {BACKUP_BUCKET}/pre-upload/{today}/ (export-guard L5)", flush=True)
+    _prune_pre_upload(today, label)
+    return copied
+
+
 def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
                         fingerprint=None, exclude_fn=None, checkpoint_every=0,
                         dry_run=None, label=None):
@@ -1032,6 +1150,36 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
 
     changed_rels = [str(p.relative_to(local_dir)) for p in changed]
 
+    # ---- export-guard L3 (2026-10-03): 无状态/首次全量默认 dry-run + 告警 ----
+    # 根治「本机状态文件缺失 → 无状态全量覆盖线上」事故链路(docs/ops/local-export-overwrote-r2-incident)。
+    # 仅拦「首次/无状态全量」(not old_files); 周日设计内全量(weekday==6 且 old_files 有)与
+    # 上次中断强制全量(marker_stale)不受影响。显式 ALLOW_FULL_UPLOAD=1 才真传(首次上线人工放行一次)。
+    if mode == "首次/无状态全量" and not dry_run and os.environ.get("ALLOW_FULL_UPLOAD") != "1":
+        print(f"[{label}] ⚠ 无状态全量被拦(export-guard L3): 状态文件 {state_path.name} 缺失/损坏, "
+              f"拒绝直接全量上传 {len(changed)} 个 key(防本机旧树覆盖线上)。\n"
+              f"  确认安全需显式 ALLOW_FULL_UPLOAD=1 重跑(首次上线通道人工放行一次)。",
+              file=sys.stderr)
+        print(f"[{label}] [dry-run] 将上传 {len(changed)}/{len(all_json)} 个文件(不 PUT):", file=sys.stderr)
+        for rel in changed_rels:
+            print(f"  - {r2_prefix}/{rel}", file=sys.stderr)
+        # 告警(层4 链): 状态文件缺失通常是异常信号, 通知管理员人工确认。
+        try:
+            sys.path.insert(0, str(ROOT / "scripts"))
+            import notify  # noqa: E402
+            _dedup_key = "full_upload_blocked_" + label
+            if not notify.check_dedup(_dedup_key, 1800):
+                notify.send(
+                    "[告警] 无状态全量上传被拦(export-guard L3)",
+                    f"upload_r2.py {label}: 状态文件 {state_path.name} 缺失/损坏, 已拒绝全量上传 "
+                    f"{len(changed)} 个 key。请确认是首次上线还是异常(本机误跑/状态丢失), "
+                    f"确认安全后 ALLOW_FULL_UPLOAD=1 重跑放行一次。",
+                    from_prefix="[告警]",
+                )
+                notify.update_dedup(_dedup_key)
+        except Exception as _e:
+            print(f"⚠ notify 告警发送失败(不阻塞): {_e}")
+        sys.exit(1)
+
     # 待传字节量(③ 看门狗按字节量估算超时): 机器可解析行 R2_BYTES_TOTAL=<N>。增量小 → 小超时;
     # 全量/周日/中断回退大 → 大超时(9-23 事故: 近全量 190MB@~150KB/s 需 950-1270s, 固定 900s
     # 零并发都可能被杀; 按字节量估算才不误杀)。dry-run 也打印供人工校验。
@@ -1097,6 +1245,14 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
     # 5. 上传(only_files + 8 线程 + 层2 ETag 对账)
     done_map = dict(ckpt_files)   # 继承旧 checkpoint, 累积本次新成功
     since_ckpt = 0
+
+    # ---- export-guard L5 (2026-10-03): 真 PUT 前, 将被覆盖的既有 R2 key 先 COPY 到备份桶 ----
+    # (§25 备份先于覆盖机制化; 事故恢复现场依赖备份)。失败不阻断上传, 仅记日志。
+    try:
+        _backup_overwritten_keys(
+            [f"{r2_prefix}/{str(p.relative_to(local_dir))}" for p in changed], label)
+    except Exception as _e:  # noqa: BLE001
+        print(f"[{label}] ⚠ 覆盖前备份异常(不阻断): {_e}", file=sys.stderr)
 
     def _on_success(f, rel):
         nonlocal since_ckpt
@@ -2789,6 +2945,7 @@ def cmd_verify_r2():
 
     repaired_total = 0
     repair_failed = []
+    total_mismatch_found = 0  # export-guard L6: 对账发现的不一致/缺失 key 总数(跨通道累计)
 
     for ch in _R2_CHANNELS:
         label = ch["label"]
@@ -2825,7 +2982,9 @@ def cmd_verify_r2():
                 except (OSError, ValueError):
                     changed_rels = set()
             to_check = [f for f in files if str(f.relative_to(local_dir)) in changed_rels]
-            sample_n = 20
+            # export-guard L6 (2026-10-03): 平日抽样 20 -> 100, 兜「本地没变但 R2 被外部覆盖」存量缺口
+            # (事故报告 §8b: 平日抽样 20 兜不住 482/44 大批残留)。
+            sample_n = 100
             sampled = _uniform_sample(files, sample_n)
             if sampled:
                 print(f"[verify-r2] {label}: 平日增量 {len(to_check)} 个 + 全池抽样 {len(sampled)} 个")
@@ -2865,6 +3024,7 @@ def cmd_verify_r2():
                 if not ok:
                     mismatches.append(f)
         if mismatches:
+            total_mismatch_found += len(mismatches)
             print(f"[verify-r2] {label}: 发现 {len(mismatches)} 个不一致/缺失 key(共查 {ch_checked}), 自动补传")
             ok, total, failed_rels, _ = _upload_glob(
                 local_dir, ch["patterns"], r2_prefix, only_files=mismatches, verify_etag=True)
@@ -2877,6 +3037,30 @@ def cmd_verify_r2():
     if repair_failed:
         print(f"FAILED_FILES: {', '.join(repair_failed)}")
         sys.exit(1)
+
+    # ---- export-guard L6 (2026-10-03): 对账发现大量不一致 → 异源覆盖告警 ----
+    # 平日发现 >50 个不一致 key = 强信号「R2 被异源覆盖/本机误跑」(事故报告 Q7 建议 7)。
+    # 周日全量对账是设计内兜底, 若 >50 也提示(措辞标注可忽略场景), 不阻断(只提示)。
+    if total_mismatch_found > 50:
+        print(f"[verify-r2] ⚠ 发现 {total_mismatch_found} 个不一致 key(阈值 50), R2 可能被异源覆盖/本机误跑!",
+              file=sys.stderr)
+        try:
+            sys.path.insert(0, str(ROOT / "scripts"))
+            import notify  # noqa: E402
+            _dedup_key = "verify_r2_mass_mismatch"
+            if not notify.check_dedup(_dedup_key, 21600):
+                notify.send(
+                    "[告警] R2 可能被异源覆盖(verify-r2 大量不一致)",
+                    f"verify-r2 对账发现 {total_mismatch_found} 个 key 与本地不一致(阈值 50), "
+                    f"自动补传 {repaired_total} 个。可能原因: 本机误跑 export/upload_r2 覆盖了 R2, "
+                    f"或状态文件丢失后全量覆盖。请查本机是否误跑 export.py/upload_r2.py。"
+                    f"(若为周日全量对账设计内补传可忽略此提示)",
+                    from_prefix="[告警]",
+                )
+                notify.update_dedup(_dedup_key)
+        except Exception as _e:
+            print(f"⚠ notify 告警发送失败(不阻塞): {_e}")
+
     print(f"[verify-r2] ✓ 对账完成, 自动补传 {repaired_total} 个")
 
 

@@ -325,6 +325,8 @@ echo "-> 运行 check_data_integrity.py 数据产物校验 ..." | tee -a "$LOG"
 CHECK_RC=${PIPESTATUS[0]}
 if [ "$CHECK_RC" -ne 0 ]; then
   echo "✗ 数据产物校验失败(退出码 $CHECK_RC)，终止部署（4 类事故拦截）" | tee -a "$LOG"
+  # export-guard L4 (2026-10-03): 校验失败升级 --severe 告警(事故 5 次 deploy 失败无人知)。
+  "$PY" "$REPO/scripts/notify.py" "[告警] deploy 数据产物校验失败" "deploy.sh check_data_integrity FAIL(rc=$CHECK_RC), 已终止部署(4 类事故拦截)。日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_check_data_integrity_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
   exit "$CHECK_RC"
 fi
 echo "✓ 数据产物校验通过" | tee -a "$LOG"
@@ -340,6 +342,8 @@ echo "-> 运行 check_task_state.py 任务状态一致性机检 ..." | tee -a "$
 TASK_RC=${PIPESTATUS[0]}
 if [ "$TASK_RC" -ne 0 ]; then
   echo "✗ 任务状态一致性机检失败(退出码 $TASK_RC)，终止部署(§23.12-1 FAIL 阻断上线)" | tee -a "$LOG"
+  # export-guard L4 (2026-10-03): 校验失败升级 --severe 告警。
+  "$PY" "$GIT_REPO/scripts/notify.py" "[告警] deploy 任务状态机检失败" "deploy.sh check_task_state FAIL(rc=$TASK_RC), 已终止部署(§23.12-1)。日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_check_task_state_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
   exit "$TASK_RC"
 fi
 echo "✓ 任务状态一致性机检通过" | tee -a "$LOG"
@@ -355,6 +359,8 @@ echo "-> 运行 check_universe_alignment.py 入样宇宙规则对称校验 ..." 
 UNIV_RC=${PIPESTATUS[0]}
 if [ "$UNIV_RC" -ne 0 ]; then
   echo "✗ 入样宇宙规则校验失败(退出码 $UNIV_RC)，终止部署(§23.6 对称校验 FAIL 阻断上线)" | tee -a "$LOG"
+  # export-guard L4 (2026-10-03): 校验失败升级 --severe 告警(同类闸门)。
+  "$PY" "$REPO/scripts/notify.py" "[告警] deploy 入样宇宙规则校验失败" "deploy.sh check_universe_alignment FAIL(rc=$UNIV_RC), 已终止部署(§23.6)。日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_check_universe_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
   exit "$UNIV_RC"
 fi
 echo "✓ 入样宇宙规则校验通过" | tee -a "$LOG"
@@ -435,6 +441,8 @@ GIT_REPO="$GIT_REPO" "$PY" "$REPO/scripts/check_version_consistency.py" --site-d
 VER_RC=${PIPESTATUS[0]}
 if [ "$VER_RC" -ne 0 ]; then
   echo "✗ 版本一致性校验失败(退出码 $VER_RC)，终止部署(§24⑤ FAIL 阻断上线)" | tee -a "$LOG"
+  # export-guard L4 (2026-10-03): 校验失败升级 --severe 告警。
+  "$PY" "$REPO/scripts/notify.py" "[告警] deploy 版本一致性校验失败" "deploy.sh check_version_consistency FAIL(rc=$VER_RC), 已终止部署(§24⑤ 防孤儿快照)。日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_check_version_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
   exit "$VER_RC"
 fi
 echo "✓ 版本一致性校验通过" | tee -a "$LOG"
@@ -450,6 +458,8 @@ echo "-> 运行 check_data_gap_alerts.py --deploy-mode 占位残留混合行闸�
 PH_RC=${PIPESTATUS[0]}
 if [ "$PH_RC" -ne 0 ]; then
   echo "✗ 占位残留混合行闸门失败(退出码 $PH_RC)，终止部署(9/8 P0 污染未清, accum_nav=1.5 残留)" | tee -a "$LOG"
+  # export-guard L4 (2026-10-03): 校验失败升级 --severe 告警(同类闸门)。
+  "$PY" "$REPO/scripts/notify.py" "[告警] deploy 占位残留混合行闸门失败" "deploy.sh 占位残留混合行闸门 FAIL(rc=$PH_RC), 已终止部署(9/8 P0 污染未清, accum_nav=1.5 残留)。日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_check_placeholder_residue_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
   exit "$PH_RC"
 fi
 echo "✓ 占位残留混合行闸门通过" | tee -a "$LOG"

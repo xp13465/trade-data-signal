@@ -1417,22 +1417,43 @@ def main():
 
     # 生成文件后自动走 R2 优化（用户规则：不等超 300MB 才发起）
     # EXPORT_SKIP_R2=1 时跳过（deploy.sh/intraday_snapshot.sh 自己跑 R2，避免重复）
-    if os.environ.get("EXPORT_SKIP_R2") != "1":
-        print("\n-> 自动上传 R2 (EXPORT_SKIP_R2=1 可跳过)...", flush=True)
-        for _cmd in ["upload-lab", "upload-trade-sim-json", "upload-index", "upload-industry", "upload-public-fund", "upload-etf-score", "upload-data-large", "upload-kelly-parts", "upload-kelly-parts-sdc", "upload-kelly-snapshots"]:
-            try:
-                _r = subprocess.run(
-                    [sys.executable, str(ROOT / "scripts/upload_r2.py"), _cmd],
-                    env={**os.environ, "REPO": str(ROOT)},
-                    capture_output=True, text=True, timeout=300)
-                print(f"  {_cmd}: rc={_r.returncode}", flush=True)
-                if _r.stderr and _r.returncode != 0:
-                    print(f"    stderr: {_r.stderr[:200]}", flush=True)
-            except subprocess.TimeoutExpired:
-                print(f"  {_cmd}: 超时(300s)跳过", flush=True)
-            except Exception as _e:  # noqa: BLE001
-                print(f"  {_cmd}: 异常 {_e}", flush=True)
-        print("-> R2 上传完成(失败不阻塞)", flush=True)
+    # 2026-10-03 export-guard L0: 上传段默认语义反转 —— 默认跳过，仅显式 EXPORT_FORCE_R2=1
+    # (或 EXPORT_SKIP_R2=0)才走上传段；本机开发树即使显式 FORCE 也只 dry-run 打印待传清单，
+    # 不真传（根治「本机裸跑 export.py 无状态全量覆盖生产 R2」事故，见
+    # docs/ops/local-export-overwrote-r2-incident-20261002.md）。
+    _force_r2 = (os.environ.get("EXPORT_FORCE_R2") == "1"
+                 or os.environ.get("EXPORT_SKIP_R2") == "0")
+    if not os.environ.get("EXPORT_SKIP_R2") == "1" and _force_r2:
+        # 生产写入方判据(2026-10-03 export-guard): platform != darwin AND ROOT 前缀 /home/。
+        # 两条都是进程/路径事实,不经 env、无法被 REPO 注入伪装。
+        _is_prod = (sys.platform != "darwin") and str(ROOT).startswith("/home/")
+        _r2_auto_cmds = ["upload-lab", "upload-trade-sim-json", "upload-index",
+                         "upload-industry", "upload-public-fund", "upload-etf-score",
+                         "upload-data-large", "upload-kelly-parts",
+                         "upload-kelly-parts-sdc", "upload-kelly-snapshots"]
+        if not _is_prod:
+            print(f"⚠ 本机开发树({sys.platform} / {ROOT})禁止自动上传 R2(export-guard L0)", flush=True)
+            print(f"  EXPORT_FORCE_R2=1 已设,但仅 dry-run(不 PUT), {len(_r2_auto_cmds)} 通道待传清单:", flush=True)
+            for _cmd in _r2_auto_cmds:
+                print(f"  [dry-run] {sys.executable} {ROOT / 'scripts/upload_r2.py'} {_cmd}", flush=True)
+            print("-> R2 上传跳过(dry-run, 本机开发树)", flush=True)
+        else:
+            print("\n-> 自动上传 R2 (EXPORT_FORCE_R2=1 显式)...", flush=True)
+            for _cmd in _r2_auto_cmds:
+                try:
+                    _r = subprocess.run(
+                        [sys.executable, str(ROOT / "scripts/upload_r2.py"), _cmd],
+                        capture_output=True, text=True, timeout=300)
+                    print(f"  {_cmd}: rc={_r.returncode}", flush=True)
+                    if _r.stderr and _r.returncode != 0:
+                        print(f"    stderr: {_r.stderr[:200]}", flush=True)
+                except subprocess.TimeoutExpired:
+                    print(f"  {_cmd}: 超时(300s)跳过", flush=True)
+                except Exception as _e:  # noqa: BLE001
+                    print(f"  {_cmd}: 异常 {_e}", flush=True)
+            print("-> R2 上传完成(失败不阻塞)", flush=True)
+    else:
+        print("-> 跳过自动上传 R2(默认跳过; 显式 EXPORT_FORCE_R2=1 开启)", flush=True)
 
 
 if __name__ == "__main__":
