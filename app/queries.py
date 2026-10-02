@@ -426,6 +426,11 @@ def _enrich_etfs_since_return(conn, indices):
                 _etf_close_cache.setdefault(_r["etf_code"], {})[_r["date"]] = _r["accum_nav"]
             _ec.close()
         except Exception:  # noqa: BLE001
+            logger.exception(
+                "走势卡 ETF 至今盈亏计算失败(etf_daily.accum_nav 跨库查询异常),"
+                "本次全部 ETF 的 etf_since_return/etf_price_diff 留空,前端 etf-tag-pnl 不生成,"
+                "请检查 etf_national_team.db(表缺失/列丢失/WAL 损坏)"
+            )
             pass
     _today = last_trading_day()
     _close_map_cache: dict[str, dict[str, float]] = {}
@@ -1440,6 +1445,11 @@ def overview(conn, cfg):
                     _etf_price_cache.setdefault(_r["etf_code"], {})[_r["date"]] = _r["close"]
                 _ec.close()
             except Exception:  # noqa: BLE001
+                logger.exception(
+                    "信号卡 ETF 至今盈亏计算失败(etf_daily accum_nav/close 跨库查询异常),"
+                    "本次信号候选 etf_since_return/etf_price_diff 字段留空,"
+                    "请检查 etf_national_team.db(表缺失/列丢失/WAL 损坏)"
+                )
                 pass
         for _s in sigs:
             _sig_date = _s.get("date")
@@ -1854,6 +1864,11 @@ def overview(conn, cfg):
         if _cd:
             extra_dates["csi_div_date"] = _cd[0]["date"]
     except Exception:  # noqa: BLE001
+        logger.exception(
+            "时效横幅补充源日期读取失败(futures.json 读取或 us_dji/csi_div 主库 index_daily 查询异常),"
+            "futures_date/us_dji_date/csi_div_date 缺失,横幅退默认文案,"
+            "请检查 static-site/data/futures.json 与 sentiment.db index_daily 表"
+        )
         pass
 
     # 汪汪队(ETF汪汪队)最新信号 + 共振聚合：首页🐶卡片展示，点击跳专区
@@ -1864,6 +1879,11 @@ def overview(conn, cfg):
         if nt_signals_today:
             nt_signals_today["recent"] = recent_signals_overview()
     except Exception:  # noqa: BLE001
+        logger.exception(
+            "汪汪队卡片数据获取失败(latest_signals_overview/recent_signals_overview 异常),"
+            "nt_signals_today 置 None 首页🐶卡片空白,"
+            "请检查 etf_national_team.db(表缺失/列丢失/WAL 损坏)"
+        )
         pass
 
     # 两段式信号固化 signals_meta(2026-08-14 实施, 方案见 docs/signal-finalize-time.md §5.3):
