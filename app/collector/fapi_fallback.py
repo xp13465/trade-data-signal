@@ -128,8 +128,14 @@ def fetch_zt_fallback(func_name: str, date: str) -> tuple[pd.DataFrame | None, s
         return None, f"fapi {r} unavailable"
     items = list(data.get("item") or data.get("items") or [])
     pag = data.get("pagination") or {}
-    total = int(pag.get("total") or 0)
-    # total=0(如休市日/真 0 池):优雅返回空,不翻页不报错
+    _total_raw = pag.get("total")
+    if _total_raw is None:
+        # 服务端未给分页信息(pagination 字段缺失或 total 字段缺失):不知道有没有数据,
+        # 语义是 unknown 而非 empty(真0)(#140 已合 main 的 msg 语义缺陷, 2026-10-02 修)。
+        # 返回空 df 交给下游记 gap(reason 带 msg 原文可分辨), 不改任何取数逻辑。
+        return pd.DataFrame(), f"fapi {r} unknown(pagination missing) date={date}"
+    total = int(_total_raw)
+    # total=0(服务端明确给 total=0, 如休市日/真 0 池):优雅返回空,不翻页不报错
     if total == 0:
         return pd.DataFrame(), f"fapi {r} empty(真0) date={date}"
     # 循环翻页取满:先取当前页,取完再判「是否还有下一页」。
