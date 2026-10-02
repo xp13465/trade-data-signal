@@ -7266,13 +7266,21 @@ function _renderSentimentCalendar(cal) {
   }
   if (!rows) return "";
   // 图例行(2026-09-30, 用户拍板): 说明"本日历合并了哪几类维度的冰点+信号", 不改格子渲染结果。
-  // 算法公示(§21, 2026-10-02): 引用 purpose-notes.js 集中配置的 sentiment.icepoint 全文, 图例挂 ❓ 入口。
-  // 文案含四因子口径/阈值/T+1/防前视/两档判定/回测诚实标注(来源≠收益强度), 与后端 icepoint.py 逐字一致。
+  // 算法公示(§21, 2026-10-02): purpose-notes.js 集中配置 sentiment.icepoint, 图例挂 ❓ 入口。
+  // 2026-10-02 fix(用户报 bug): 原 termTip(_icePublic) 把含 <b> 的 HTML 公示全文塞进 data-tip,
+  // _initTermPop 对无 sigType 的 term-tip 走 pop.textContent 纯文本渲染 → 字面显示 <b> 标签。
+  // 改为: hover 简短纯文本(四因子要点+引导), click 弹完整公示弹窗(_openIcepointNoteModal innerHTML 渲染, <b> 正常加粗)。
+  // §21 口径: 简短文本与完整公示同源同口径(四因子阈值/T+1/防前视/两档判定/认可度), 完整公示仍以 purpose-notes 原文为准。
   const _icePublic = (typeof PURPOSE_NOTES !== "undefined" && PURPOSE_NOTES["sentiment.icepoint"]) ? PURPOSE_NOTES["sentiment.icepoint"] : "";
+  // hover 简短纯文本(纯文本无 HTML, data-tip 值 _escAttr 转义防属性截断; 与完整公示口径一致, 引导点击看全文)。
+  const _ICE_LEGEND_HOVER = "上海炒家冰点=四因子共振: 楼层(连板高度≤4)+涨停家数≤40+跌停家数≥15+地量(成交额滚动120日分位≤30), 四者同成立=硬冰点; 楼层+地量+(涨停或跌停)=主冰点。认可度 x/y=两口径命中数/可得数。当日定稿次日生效(T+1)、防前视。点击查看完整公示";
+  const _iceLegendTipEl = _icePublic
+    ? ` <span class="term-tip" data-tip="${_escAttr(_ICE_LEGEND_HOVER)}" data-ice-note="1">❓</span>`
+    : "";
   const legend =
     '<div class="sig-cal-legend">' +
       '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#2563eb"></span>冰点维度（情绪分<20，当日触发的一起点亮）</span>' +
-      '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#7c3aed"></span>上海炒家冰点（四因子共振）' + (_icePublic ? termTip(_icePublic) : "") + '</span>' +
+      '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#7c3aed"></span>上海炒家冰点（四因子共振）' + _iceLegendTipEl + '</span>' +
       // 图例样式对齐老条目(色块+文字, 2026-10-02): 色块=对应格子实际视觉
       // (重叠=老算法蓝+上海炒家紫双色都中 / 仅上海炒家=紫高亮 / 仅老算法=紫半透明灰化 / 认可度=灰化格数字淡紫)。
       '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#2563eb"></span><span class="sig-cal-legend-swatch" style="background:#7c3aed"></span>重叠=两口径都中</span>' +
@@ -7286,6 +7294,46 @@ function _renderSentimentCalendar(cal) {
     '</div>';
   return legend + `<div class="signal-grid">${rows}</div>`;
 }
+
+// 图例 ❓ 完整公示弹窗(2026-10-02): 点击图例"上海炒家冰点（四因子共振）"旁 ❓ 查看完整公示。
+// innerHTML 渲染 purpose-notes.js 的 sentiment.icepoint 原文(多段 HTML, <b> 正常加粗),
+// 与图例 hover 简短纯文本口径一致(§21 同源同口径)。复用 .rule-modal 样式, 与 signalHelp 弹窗同型。
+function _openIcepointNoteModal() {
+  const text = (typeof PURPOSE_NOTES !== "undefined" && PURPOSE_NOTES["sentiment.icepoint"]) ? PURPOSE_NOTES["sentiment.icepoint"] : "";
+  if (!text) return;
+  let modal = document.getElementById("icepointNoteModal");
+  const isFirst = !modal;
+  if (isFirst) {
+    modal = document.createElement("div");
+    modal.id = "icepointNoteModal";
+    modal.className = "rule-modal hidden";
+    document.body.appendChild(modal);
+  }
+  const _close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+  modal.innerHTML =
+    '<div class="rule-modal-overlay"></div>' +
+    '<div class="rule-modal-body"><div class="rule-modal-header"><h3>💡 上海炒家冰点（四因子共振）· 完整公示</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
+    '<div class="rule-modal-content"><div class="purpose-note" style="white-space:pre-line">' + text + '</div></div>' +
+    '<div class="rule-modal-footer">⚠ 研究标注，非交易指令；过往表现不代表未来收益。四因子口径/两档判定详见上方公示。</div>' +
+    '</div></div>';
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
+  modal.querySelector(".rule-modal-close").addEventListener("click", _close);
+  if (isFirst) {
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) _close(); });
+  }
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+// click 委托：[data-ice-note] 弹完整公示（capture 先于 term-pop 移动端 pop click，stopPropagation 防双弹）
+(function _initIceNoteDelegation() {
+  document.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-ice-note]");
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _openIcepointNoteModal();
+  }, true);
+})();
 
 // 当天明细弹层(2026-09-30, 用户拍板): 点日期标签查看"那天到底哪几个维度触发冰点"。
 // 复用 rule-modal 样式 + indexIdToName/signalLabel 现有映射(§22 单源一致, 不新造中文名表)。
