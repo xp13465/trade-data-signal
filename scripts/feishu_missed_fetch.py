@@ -102,7 +102,31 @@ def _save_cursor(ms: int) -> None:
             json.dumps({"last_checked_ms": int(ms), "updated_ts": int(time.time())},
                        ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:  # noqa: BLE001
-        log(f"补拉：游标写入失败（不阻塞）：{e}")
+        # #132 fail-loud(2026-10-02): 游标写失败不再只 log —— 游标=消息去重位置,
+        # 写失败 → 下次补拉从旧位置重复拉取(重复落盘)或窗口跳过后漏补。独立 warning
+        # (dedup 24h), 不阻塞本轮补拉(游标及时写不进去, 本轮拉取结果仍先落盘)。
+        log(f"补拉：游标写入失败（去重位置丢失, 可能重复补拉）：{e}")
+        _notify_cursor_write_fail(ms, e)
+
+
+def _notify_cursor_write_fail(ms: int, e: Exception) -> None:
+    """补拉游标写失败告警(#132, 2026-10-02): 独立 warning, dedup 24h。"""
+    import subprocess
+    subject = "[告警][飞书补拉] 游标写失败, 断线补拉可能重复/漏补"
+    body = (
+        f"<b>feishu_missed_fetch 游标写失败</b>: <code>{CURSOR_PATH}</code><br>"
+        f"游标值(ms): <code>{ms}</code> 异常: <code>{e}</code><br>"
+        f"影响: 补拉游标(last_checked_ms)无法持久化 → 下次补拉从旧位置重复拉取, "
+        f"或断线窗口跳过后漏补(游标=消息去重位置)。<br>"
+        f"建议: 检查 data/feishu_requests/ 目录/磁盘权限或空间, 修复后自动恢复。"
+    )
+    cmd = [sys.executable, str(REPO / "scripts" / "notify.py"), subject, body,
+           "--tier", "warning", "--from-prefix", "[告警]",
+           "--dedup-key", "feishu_cursor_write_fail", "--dedup-window", "86400"]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except Exception as ne:  # noqa: BLE001
+        log(f"补拉：游标写失败告警发送异常（不阻塞）：{ne}")
 
 
 def _known_message_ids(inbox_dir: Path) -> set:

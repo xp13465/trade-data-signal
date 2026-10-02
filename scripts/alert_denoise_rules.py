@@ -26,7 +26,9 @@ schedule_monitor.sh(Python heredoc) / notify.py 共用本模块的判定逻辑(�
 (连续轮、跨天追平、产物未生成、首条仍即时), 绝不因降噪静默真故障。
 """
 import json
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # ---- 常量(单一事实源, schedule_monitor.sh 引用本模块而非各自定义) ----
 OVERVIEW_LAG_CONTINUOUS_THRESHOLD = 2   # R1: overview lag 连续 >=2 轮(15min/轮=30min)仍滞后才 SEVERE
@@ -149,6 +151,38 @@ def r3_nextday_product_generated_today(repo, today):
     return _mt.strftime("%Y-%m-%d") == today
 
 
+def _notify_r4_state_write_fail(state_path, e):
+    """R4 分级状态写失败告警(#132, 2026-10-02): 独立 warning, dedup 24h。
+
+    本模块是纯函数库(被 notify.py / schedule_monitor.sh heredoc 引用), 此处经子进程
+    调 notify.py CLI 发通知 —— dedup-key 独立(r4_state_write_fail), 与触发自己的
+    staticdata_backup_fail 链不冲突不递归; 发送失败仅打印不抛(R4 主流程不被吞,
+    stderr 会随调用进程日志落盘可查)。
+    """
+    import os as _os
+    import subprocess as _sp
+    import sys as _sys
+
+    _root = Path(__file__).resolve().parent.parent
+    _subject = "[告警][staticdata分级] R4 分级状态写失败, 备份缺口分级可能失效"
+    _body = (
+        f"<b>alert_denoise_rules.r4_staticdata_grade 状态落盘失败</b>: "
+        f"<code>{state_path}</code><br>异常: <code>{e}</code><br>"
+        f"影响: R4 分级状态(last_fail_date/consecutive_days)无法持久化, "
+        f"「连续 &gt;=2 天未追平」的 SEVERE 阈值可能因计数丢失而静默失效。<br>"
+        f"建议: 检查 data/ 目录/磁盘权限或空间; 修复后下次 staticdata_backup_fail 自动恢复。"
+    )
+    _cmd = [_sys.executable, str(_root / "scripts" / "notify.py"),
+            _subject, _body, "--tier", "warning", "--from-prefix", "[告警]",
+            "--dedup-key", "r4_state_write_fail", "--dedup-window", "86400"]
+    if _os.environ.get("R4_STATE_WRITE_DRY_RUN") == "1":
+        _cmd.append("--dry-run")
+    try:
+        _sp.run(_cmd, capture_output=True, text=True, timeout=120)
+    except Exception as _ne:  # noqa: BLE001
+        print(f"[r4-staticdata-grade] 状态写失败告警发送异常(不阻塞): {_ne}", file=sys.stderr)
+
+
 def r4_staticdata_grade(heartbeat_path, state_path, now):
     """R4: staticdata 备份部分失败分级(notify.py 对 dedup_key=staticdata_backup_fail 调用)。
 
@@ -204,8 +238,14 @@ def r4_staticdata_grade(heartbeat_path, state_path, now):
         _tmp = state_path.with_name(state_path.name + ".tmp")
         _tmp.write_text(json.dumps(_new_state, ensure_ascii=False, indent=2), encoding="utf-8")
         _tmp.replace(state_path)
-    except Exception:
-        pass
+    except Exception as _e:
+        # #132 fail-loud(2026-10-02): 状态写失败不再静默吞 —— R4 分级状态
+        # (last_fail_date/consecutive_days)无法持久化 = 连续天数计数可能丢失 →
+        # 真 R2 备份缺口持续却永远到不了 2 天 SEVERE 阈值(防静默机制本体静默)。
+        # 走独立 warning(dedup 24h)而非升级 severe: 状态写失败是本地基础设施故障
+        # (权限/磁盘), 备份数据级失败仍由心跳/追平判定走原 severe 通道, 不重复告警。
+        print(f"[r4-staticdata-grade] 状态落盘失败(连续天数计数可能丢失): {_e}", file=sys.stderr)
+        _notify_r4_state_write_fail(state_path, _e)
 
     if _days >= 2 and not _caught_up:
         return "severe", f"staticdata 备份连续{_days}天未追平(上次 fail {_last_fail or '无记录'} 之后无成功备份)"

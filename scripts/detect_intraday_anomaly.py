@@ -243,8 +243,31 @@ def filter_and_record(alerts: list[dict]) -> list[dict]:
         DEDUP_FILE.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(DEDUP_FILE, dedup)
     except Exception as e:
-        print(f"[anomaly] 写去重文件失败: {e}", file=sys.stderr)
+        # #132 fail-loud(2026-10-02): 去重文件写失败不再静默 —— 去重失效 =
+        # 同日同标的同类型异动每 30min 轮重复发提示告警(降噪逆反)。独立 warning
+        # (dedup 24h), 不升级 severe: 本地基础设施故障, 异动数据级判定本身不受影响。
+        print(f"[anomaly] 写去重文件失败(异动告警将重复轰炸): {e}", file=sys.stderr)
+        _notify_dedup_write_fail(e)
     return new_alerts
+
+
+def _notify_dedup_write_fail(e: Exception) -> None:
+    """去重文件写失败告警(#132, 2026-10-02): 独立 warning, dedup 24h。"""
+    subject = "[告警][盘中异动] 去重文件写失败, 异动告警可能重复轰炸"
+    body = (
+        f"<b>detect_intraday_anomaly 去重文件写失败</b>: <code>{DEDUP_FILE}</code><br>"
+        f"异常: <code>{e}</code><br>"
+        f"影响: 同日同标的同类型去重(data/anomaly_notified.json)失效, "
+        f"盘中异动告警每 30min 轮可能重复轰炸。<br>"
+        f"建议: 检查 data/ 目录/磁盘权限或空间, 修复后自动恢复。"
+    )
+    cmd = [sys.executable, str(NOTIFY_PY), subject, body,
+           "--tier", "warning", "--from-prefix", "[告警]",
+           "--dedup-key", "anomaly_dedup_write_fail", "--dedup-window", "86400"]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except Exception as ne:  # noqa: BLE001
+        print(f"[anomaly] 去重写失败告警发送异常(不阻塞): {ne}", file=sys.stderr)
 
 
 def send_alert(alerts: list[dict]) -> None:
