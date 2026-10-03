@@ -37,6 +37,7 @@ tester 可直接读。
 | `verify_nav_lazy_consistency.mjs` | accum_nav_map 按 ETF 懒加载「前端同构对账机检(§5.4⑦ 强制)」(2026-09-17 feat/nav-lazy-loading):三场景——A block 全量放行 per-ETF(纯懒加载)/B block per-ETF 放行全量(全量 fallback)逐 cell 逐位一致;D 单 code 缺失注入(block 某 code 拆分文件→failed→`__gih_missing_px_`>0 且渲「— 缺价」,证三态门控「未载被吞」bug 未发生)。首页 sim/演进表复用同一 common 内核由 lab 路径覆盖 |
 | `verify_bj50_intraday_degrade.mjs` | 北证50分时双加固验收(2026-09-30 feat 盘中注入minute_series+东财熔断+腾讯day/query备用腿):A EM mock 合法成功路径零变化/A2 腾讯腿/B 实时源全失败+快照带minute_series→画曲线非文字降级/C1 熔断短路(前触发+day兜底取数/C2 偶发失败不误熔断;⚠️ 需本地起 http.server serve worktree static-site 且 data 目录可访问,route 拦截外部源 |
 | `cal_render_regression.mjs` | 情绪日历「旧版 vs 新版」渲染逐位一致回归 + 点日期弹当天明细(2026-09-30 feat 情绪日历加维度说明):双视口(1280/375)断言 D3 日期集合+格子文本+sig+idx+val 逐位一致证明「只增不改」、D5/D6 点日期弹明细、M 系列移动端点击目标/字号;⚠️ 前置依赖=需同时起 8133(新版)/ 8134(旧版)两个本地服务器,单跑必失败 |
+| `accept_console_clean.mjs` | console 洁净度哨兵(#133 复发防线,2026-10-03 加严并挂 main-merge.sh 7.7 发版验收):判 0 CSP 违规 + 0 pageerror;退出码 0=PASS/1=FAIL(违规,发版阻断)/2=UNREACHABLE(路由加载失败未能校验,放行+醒目提示)以与「检测到违规」区分;⚠️ 打线上真实 URL,约 1 分钟;`SKIP_CONSOLE_CLEAN=1` 只在 main-merge 逃生,本脚本本身无逃生钩 |
 
 > 新增脚本在此索引追加一行。(2026-08-26 补登历史 16 个一次性/专项探针;small-items-batch 六件验收为内联临时断言未落脚本文件,无新增行)
 
