@@ -944,9 +944,11 @@ main { padding: 16px 24px; }
 /* 下钻弹窗四因子明细: 命中绿底 / 未中弱灰红, 一眼区分 */
 .dd-row.sh-f-hit { background: #2e8b570d; }
 .dd-row.sh-f-miss { color: var(--text-3); }
+.dd-row.sh-f-na { color: var(--text-3); opacity: .72; font-style: italic; }   /* 2026-10-03 #152②: 因子缺数据, 弱化灰色斜体 */
 .sh-f-mark { font-size: 11px; margin-left: 4px; }
 .sh-f-mark-hit { color: #2e8b57; font-weight: 600; }
 .sh-f-mark-miss { color: #e6492e; font-weight: 600; }
+.sh-f-mark-na { color: #8a94a6; font-weight: 600; }   /* 2026-10-03 #152②: 缺数据标记, 灰 */
 .sh-factors { border-top: 1px dashed var(--border); margin-top: 6px; padding-top: 2px; }
 .sig-day-row.today-row { background: #fff4ec; border-radius: 6px; }
 .sig-day-row.today-row .sig-day-date { color: #e6492e; font-weight: 600; }
