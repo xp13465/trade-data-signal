@@ -1831,11 +1831,13 @@ function _renderOverfitAcc(data) {
     //   step = floor(max(labelW*1.3, 7) / (_iwEst / n)) + 1, _iwEst = 容器实测宽 - pl - pr(640 空间
     //   经 _lwBind 按容器实测宽拉伸, 屏幕间距 = step×584/n×(_W/640), 先例口径偏保守安全)。
     xStep: (() => {
-      let _lw2 = 33;
+      // 降级估宽同口径(2026-10-03 #147 遗留): measureText 不可用时按本图 8 位刻度串字符数估(_lblWEst =
+      // 8×0.6×12=57.6, 与实测逐位一致), 取代硬编码 33(按 5 字符估宽不足 → 降级仍重叠)。
+      let _lw2 = _lblWEst("20260928", 12);
       try {
         const _cx = document.createElement("canvas").getContext("2d");
         if (_cx) { _cx.font = "12px sans-serif"; _lw2 = _cx.measureText("20260928").width || _lw2; }
-      } catch (_e) { /* 降级默认 33 */ }
+      } catch (_e) { _lw2 = _lblWEst("20260928", 12); }
       const _cw = (_overfitAccEl && (_overfitAccEl.getBoundingClientRect().width || _overfitAccEl.offsetWidth)) || 640;
       const _iwEst = Math.max(120, _cw - 40 - 16);   // 640=兜底; pl40·pr16(本图 cfg)
       return Math.max(1, Math.floor(Math.max(_lw2 * 1.3, 7) / (_iwEst / Math.max(dates.length, 1))) + 1);
@@ -1950,11 +1952,13 @@ function _renderOverfitRisk(data) {
     // 2026-09-30 #147 右锚定版配套: 同准确率图——刻度间隔按实际刻度串(8位日期)量宽重算 step,
     // 照 2026-09-05 净资产图先例公式(floor(labelW*1.3/unitW)+1), 防 8 位日期真实宽 > 常规间距的重叠。
     xStep: (() => {
-      let _lw2 = 33;
+      // 降级估宽同口径(2026-10-03 #147 遗留): measureText 不可用时按本图 8 位刻度串字符数估(_lblWEst =
+      // 8×0.6×12=57.6, 与实测逐位一致), 取代硬编码 33(按 5 字符估宽不足 → 降级仍重叠)。
+      let _lw2 = _lblWEst("20260928", 12);
       try {
         const _cx = document.createElement("canvas").getContext("2d");
         if (_cx) { _cx.font = "12px sans-serif"; _lw2 = _cx.measureText("20260928").width || _lw2; }
-      } catch (_e) { /* 降级默认 33 */ }
+      } catch (_e) { _lw2 = _lblWEst("20260928", 12); }
       const _cw = (_overfitRiskEl && (_overfitRiskEl.getBoundingClientRect().width || _overfitRiskEl.offsetWidth)) || 640;
       const _iwEst = Math.max(120, _cw - 40 - 16);   // 640=兜底; pl40·pr16(本图 cfg)
       return Math.max(1, Math.floor(Math.max(_lw2 * 1.3, 7) / (_iwEst / Math.max(dates.length, 1))) + 1);
@@ -5855,11 +5859,13 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD, 
       // ⚠️ 实际渲染 viewBox 宽=容器实测宽(_lwBind 用 getBoundingClientRect 重渲染), 故 unitW 也用容器实测宽估算,
       // 不能写死 640(桌面 modal 实测 ~1322, 移动 ~330; 写死会在移动端算出过小 step 致连粘)。
       xStep: (() => {
-        let _lw2 = 33;
+        // 降级估宽同口径(2026-10-03 #147 遗留): measureText 不可用时按本图刻度串字符数估(_lblWEst:
+        // 跨年 "2026-01-01" 10字符×0.6×12=72 / 同年 "MM-DD" 5字符×0.6×12=36), 取代硬编码 33。
+        let _lw2 = _lblWEst(_crossYear ? "2026-01-01" : "MM-DD", 12);
         try {
           const _cx = document.createElement("canvas").getContext("2d");
           if (_cx) { _cx.font = "12px sans-serif"; _lw2 = _cx.measureText(_crossYear ? "2026-01-01" : "MM-DD").width || _lw2; }
-        } catch (_e) { /* 降级默认 33 */ }
+        } catch (_e) { _lw2 = _lblWEst(_crossYear ? "2026-01-01" : "MM-DD", 12); }
         const _iwEst = Math.max(120, ((bodyEl && bodyEl.offsetWidth) || 640) - 70 - 52);   // 640=w 缺省兜底; pl70·pr52
         return Math.max(1, Math.floor(Math.max(_lw2 * 1.3, 7) / (_iwEst / Math.max(pts.length, 1))) + 1);
       })(),
@@ -7408,12 +7414,18 @@ function openSentimentDayDetailModal(day) {
     const _fxs = Array.isArray(day.sh_factors) ? day.sh_factors : [];
     const _fxHtml = _fxs.length
       ? _fxs.map((f) => {
-          const _mark = f.hit ? "✓命中" : "✗未中";
-          const _val = (f.value != null && isFinite(f.value)) ? String(f.value) : "—";
-          const _th = (f.threshold != null && isFinite(f.threshold)) ? String(f.threshold) : "—";
+          // 2026-10-03 #152 遗留②: 因子级再区分两种"未命中"——f.value 缺失(nav 缺数据, 后端 value=None, hit=false)
+          //   与 sh_hits.total<4 同源, 即"数据缺失, 无法判定"; 评估过确实未命中(f.value 有值但未达阈值)保持
+          //   原「✗未中 当前 X / 阈值 Y」样式。判据=f.value 是否有限数(后端 _num(NaN)=None, 缺数据目天然区分)。
+          const _missing = (f.value == null || !isFinite(f.value));
+          const _mark = _missing ? "数据缺失,无法判定" : (f.hit ? "✓命中" : "✗未中");
+          const _hitCls = _missing ? " sh-f-na" : (f.hit ? " sh-f-hit" : " sh-f-miss");
+          const _markCls = _missing ? "sh-f-mark-na" : (f.hit ? "sh-f-mark-hit" : "sh-f-mark-miss");
+          const _val = _missing ? "—" : ((f.value != null && isFinite(f.value)) ? String(f.value) : "—");
+          const _th = _missing ? "—" : ((f.threshold != null && isFinite(f.threshold)) ? String(f.threshold) : "—");
           const _dir = (f.key === "f4") ? "≤" : (f.key === "f3" ? "≥" : "≤");
           const _unit = (f.key === "f4") ? "（滚动120日分位）" : "";
-          return `<div class="dd-row${f.hit ? " sh-f-hit" : " sh-f-miss"}"><span class="dd-name">${_esc(f.name || f.key || "")} <span class="sh-f-mark ${f.hit ? "sh-f-mark-hit" : "sh-f-mark-miss"}">${_mark}</span></span><span class="dd-val">当前 ${_val}${_unit} / 阈值 ${_dir}${_th}</span></div>`;
+          return `<div class="dd-row${_hitCls}"><span class="dd-name">${_esc(f.name || f.key || "")} <span class="sh-f-mark ${_markCls}">${_mark}</span></span><span class="dd-val">当前 ${_val}${_unit} / 阈值 ${_dir}${_th}</span></div>`;
         }).join("")
       : "";
     shHtml =
@@ -18519,7 +18531,17 @@ function _lwSVG(cfg) {
   }
   // x 轴: 轴线 + 刻度(边界含末边, echarts alignWithLabel:false) + 标签(自动间隔, 半格中心/boundaryGap=false 点位)
   s += '<line x1="' + PL + '" y1="' + _baseY + '" x2="' + (W - PR) + '" y2="' + _baseY + '" stroke="var(--border-strong)"/>';
-  const _xStep = cfg.xStep != null ? cfg.xStep : _etfXStep(_nView, _iw, _axFont);
+  // 降级估宽需知本图最长刻度串(2026-10-03 #147 遗留): 遍历可见窗口 xLabels 用本图 xFmt 格式化取最长,
+  // 供 _etfXStep 在 measureText 不可用时按真实字符数估宽(硬编码 5 字符对 8 位日期/带年刻度不足会重叠)。
+  let _xMaxLabel = "MM-DD";
+  try {
+    let _mx = 0;
+    for (let _i = _i0; _i <= _i1; _i++) {
+      const _ls = String(_xFmt(cfg.xLabels[_i]));
+      if (_ls.length > _mx) { _mx = _ls.length; _xMaxLabel = _ls; }
+    }
+  } catch (_e) { /* 兜底 MM-DD */ }
+  const _xStep = cfg.xStep != null ? cfg.xStep : _etfXStep(_nView, _iw, _axFont, _xMaxLabel);
   if (bg) {
     for (let i = _i0; i <= _i1 + 1; i += _xStep) {
       const tx = _crisp(PL + (i - _i0) * _unitW);
@@ -25704,16 +25726,26 @@ function _crisp(v) {
   const _r = Math.round(v * 2) / 2;
   return (_r % 1 === 0) ? _r + 0.5 : _r;
 }
+// measureText 不可用时的标签宽估(2026-10-03 #147 遗留, 降级路径): 按刻度串字符数 × 0.6em/字符估算。
+// 系数实测反推 —— 12px sans-serif 下 "20260928"(8字符)真实宽 57.6px = 7.2px/字符 = 0.6×12px;
+// 10px 下 "MM-DD"(5字符)≈30px(原硬编码 28 略低估)。原降级硬编码 28/33(固定 5 字符)对 8 位日期/
+// 跨年带年刻度(10字符)估宽不足 → 降级路径标签重叠, 此函数按本图真实最长刻度串字符数缩放估宽。
+function _lblWEst(label, fs) {
+  const _s = String(label == null ? "" : label);
+  return Math.max(_s.length, 5) * (fs || 10) * 0.6;
+}
 // echarts calculateCategoryInterval: 标签宽×1.3(最小7)/带宽 -> floor -> step=interval+1
 // 标签宽用 canvas measureText("MM-DD", fs px sans-serif) 实测, 与 echarts zrender 同浏览器同字体。
 // fs 默认 10 保持 ETF 走势图(_etfTrendSVG)原间隔; _lwSVG 传 axisFontSize(默认 12)。
-function _etfXStep(n, iw, fs) {
+// 第 4 参 label = 本图最长刻度串, 仅供 measureText 不可用时的降级估宽(_lblWEst); 可用路径逐位零变化(§23.7)。
+function _etfXStep(n, iw, fs, label) {
   let _labelW = 28;
   try {
     const _c = document.createElement("canvas");
     const _ctx = _c.getContext && _c.getContext("2d");
     if (_ctx && _ctx.measureText) { _ctx.font = (fs || 10) + "px sans-serif"; _labelW = _ctx.measureText("MM-DD").width || 28; }
-  } catch (_e) { /* 降级默认 28 */ }
+    else { _labelW = _lblWEst(label, fs); }
+  } catch (_e) { _labelW = _lblWEst(label, fs); }
   const _unitW = iw / n;
   const _maxW = Math.max(_labelW * 1.3, 7);
   return Math.max(0, Math.floor(_maxW / _unitW)) + 1;
@@ -25797,7 +25829,7 @@ function _etfTrendSVG(ohlc, w) {
   // axisTick 默认 alignWithLabel:false) + 日期标签(带宽中心, echarts category 半格内缩 +
   // calculateCategoryInterval 自动间隔 step=_etfXStep, 无强制首尾标签, 全 middle 锚点)
   s += '<line x1="' + PL + '" y1="' + _baseY + '" x2="' + (W - PR) + '" y2="' + _baseY + '" stroke="var(--border-strong)"/>';
-  const _xStep = _etfXStep(_n, g._iw);
+  const _xStep = _etfXStep(_n, g._iw, undefined, "MM-DD");   // 2026-10-03 #147: 本图刻度串=fmtDate 5字符, 降级按字符数估
   for (let i = 0; i <= _n; i += _xStep) {
     const tx = _crisp(PL + i * _unitW);
     s += '<line x1="' + tx.toFixed(1) + '" y1="' + _baseY + '" x2="' + tx.toFixed(1) + '" y2="' + (_axisY + 5) + '" stroke="var(--border-strong)"/>';
