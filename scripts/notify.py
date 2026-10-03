@@ -1044,14 +1044,27 @@ def write_alert(issue: str, detail: str, log_path: str | None = None) -> None:
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_line = f"- **日志路径**：`{log_path}`\n" if log_path else ""
-    content = f"""# 严重告警（最新一次）
+    try:
+        kept_count = [0]
+
+        def _rewrite(head: str, entries: list[str]) -> tuple[str, list[str]]:
+            # 覆盖头部详单区为新 content,severe 流水条目原样保留(锁内读改写,P2-1)
+            kept_count[0] = len([e for e in entries if e.strip()])
+            # P0-4（2026-10-03）：覆盖区固定保留「最近一次 SEVERE」引用——普通告警/恢复
+            # 消息覆盖头部时不再把严重告警从用户视线里静默盖掉（D3 §5 双区结构风险：
+            # 最新 monitor 事件永远压过最严重告警）。引用=流水区最新一条 `## [severe]`，
+            # 处理完并删除/清空本文件后引用随之消失。strict 只增不改：判定仍是流水区
+            # 原样保留（_mirror_severe 追加），本行只是让「最近 severe 仍显形」。
+            severe_ref = _latest_severe_ref(entries)
+            severe_line = f"- **最近一次 SEVERE**：{severe_ref}\n" if severe_ref else ""
+            content = f"""# 严重告警（最新一次）
 
 > ⚠ 本区域由 --alert-issue 覆盖式记录最新一次严重告警，Claude 开工时优先排查；
 > 下方 `## [severe]` 流水为 send(severe=True) 的追加式登记（防旁路出口，最多 {_LATEST_MAX_ENTRIES} 条）。
 > 处理完后可删除/清空详情区（流水会随容量上限滚动）。
 
 - **告警时间**：{now}
-- **问题**：{issue}
+{severe_line}- **问题**：{issue}
 
 ## 详情
 
@@ -1062,12 +1075,6 @@ def write_alert(issue: str, detail: str, log_path: str | None = None) -> None:
 
 Claude 开工时排查此告警：对照日志路径定位根因，修复后删除本文件。
 """
-    try:
-        kept_count = [0]
-
-        def _rewrite(head: str, entries: list[str]) -> tuple[str, list[str]]:
-            # 覆盖头部详单区为新 content,severe 流水条目原样保留(锁内读改写,P2-1)
-            kept_count[0] = len([e for e in entries if e.strip()])
             return content, entries
 
         _update_latest(_rewrite)
@@ -1084,6 +1091,32 @@ Claude 开工时排查此告警：对照日志路径定位根因，修复后删�
 # 本组函数让 send(severe=True) 的**所有出口**统一追加留痕到 latest.md 尾部流水区
 # (防旁路出口),同时 write_alert 的覆盖式「最新详单区」保留原语义、不再抹掉流水。
 _LATEST_MAX_ENTRIES = 50  # 流水容量上限(最新在文件尾部,超出丢最旧)
+
+
+def _latest_severe_ref(entries: list[str]) -> str:
+    """取流水区最新一条 `## [severe]` 的「时间 · 主题(摘要截断)」引用串。
+
+    P0-4（2026-10-03）：write_alert 覆盖头部区时用它做「最近一次 SEVERE」引用行——
+    普通告警/恢复消息覆盖头部时，严重告警不再从用户视线里静默消失（D3 §5 双区结构
+    风险：最新 monitor 事件永远压过最严重告警）。返回空串=流水区无 severe 条目
+    （无需引用行）。条目格式见 _mirror_severe（`## [severe] {ts} · {subj}` 开头）。
+    """
+    for e in reversed(entries):
+        e = e.strip()
+        if not e:
+            continue
+        # _mirror_severe 条目形如 `## [severe] {YYYY-MM-DD HH:MM:SS} · {subject}`——
+        # 时间戳含空格, 不能用 (\S+); 非贪婪取第一个 ` · ` 前段为时间
+        m = re.match(r"## \[severe\] (.+?) · (.+)", e)
+        if not m:
+            continue
+        ts, subj = m.group(1), m.group(2).strip()
+        sm = re.search(r"- \*\*摘要\*\*: (.+)", e)
+        summary = sm.group(1).strip() if sm else ""
+        if len(summary) > 90:
+            summary = summary[:87] + "..."
+        return f"{ts} · {subj}" + (f"（{summary}）" if summary else "")
+    return ""
 
 
 def _parse_latest(content: str) -> tuple[str, list[str]]:
