@@ -1,0 +1,154 @@
+# R2 signal-backup 瘦身压缩率实测 + 保留期口径重算（2026-10-04 定稿）
+
+> 任务书（主控 2026-10-03）要求：实测 mac-backups/2026-10-01 那 10.171 GiB 的压缩率，量出「压缩后保留一份异地归档再删原件」的达标数字。
+> **实测结论前置：mac-backups 已于 2026-10-02 从 R2 恢复+删除（R2 前缀已空，HEAD 404 实证），本机原件 86 文件 10.171 GiB 全量对账 86/86 PASS。任务前提已变，但用户拍板方向（压缩后异地归档+删原件）在当前现状下的正确落点 = 压缩本机原件放 R2 异地归档，再删本机原件。**
+> 本报告全部数字可复现（§复现命令）；**只测量，未执行任何删除/上传/修改 R2 与本地原件**。
+
+## ① 现状修正（2026-10-03/04 实测，R2 上 mac-backups 已不存在）
+
+- 10-02 已有 agent 执行完整流程（docs/ops/r2-mac-backups-restore-20261002.md）：取回本机 → md5+size 对账 86/86 PASS → 逐 key 删 R2（仅此 86 个）→ 删后确认前缀空。
+- 交叉验证（2026-10-03）：List signal-backup 全量 59,770 对象 / 4.820 GiB，**无 mac-backups 前缀**；HEAD `mac-backups/2026-10-01/{etf_20260718,sentiment_20260718,etf_20260911}.db` 均 **404**。
+- 本机原件核实：`~/code/trade-data/data/mac-backups-20261001/` = 86 文件 / 10,920,869,888 B = 10.171 GiB，本次重算 **md5+size 对账锚点日志 86/86 match，missing=0 mismatch=0**。
+- 10-02 容量报告（r2-backup-bucket-capacity-20261002.md）发布于恢复执行前，其「17.115 GiB」现状数字已过时。
+
+## ② 今日两桶基线（2026-10-03/04 实测 List 全量）
+
+| 桶 | 对象数 | 字节 | GiB |
+|---|---|---|---|
+| 主站桶 signal-data | 31,476 | 3,028,738,202 | 2.821 |
+| 备份桶 signal-backup | 59,770 | 5,175,923,847 | 4.820 |
+| 合计 | 91,246 | 8,204,662,049 | **7.641** |
+
+- 备份桶构成（10-04 复测精算）：large-json 59,362（0.820）+ pre-upload/20261003 277（0.705）+ **backup 54 对象（2,822,389,644 B = 2.629 GiB，本次实 List 复测；草稿 backup 写 2.596 为 10-03 早时点值，本次已含 10-03 当日两个新备份）** + weekly 8 + monthly 8 + claude-backup 59 + decommissioned 2。备份桶总量 5,175,923,847 B（4.820 GiB）经完整 List 二次确认，与草稿基线条一致。
+- **两桶合计 7.641 GiB 已在 10 GiB 免费线内，余量 2.359 GiB。**
+- ⚠️ **重要口径说明（本报告新增核实）**：今日基线的 7.641 GiB 是「未执行 14 天 prune」的现状口径——其中 backup/ 前缀 **54 个对象全部在线上**，含 09-04~09-20 这些已超 14 天保留窗口、将在下一次 `upload-db` 时被 `_prune_r2_backup` 过期的旧对象（详见 §③）。**基线含在不含 1.197~1.299 GiB 取决于「prune 前」还是「prune 后」两种口径，§③ 分别计算。**
+
+## ③ 保留期口径重算（keep_days 30→14 已合入 main，2026-10-04 核实）
+
+### 背景与代码/事实核实
+
+- `feat/r2-retention-14d-20261003` 已由统一入口合并入 main（`743c0043c`，现 main=`2997460f4`）：`scripts/upload_r2.py` `_prune_r2_backup(keep_days=14)` 默认参数已 30→14，`cmd_upload_db` 每次上传 DB 都会跑分层清理。
+- **云端下次 `upload-db`（backup_db.sh → `upload_r2.py upload-db`）时会顺带主力 prune**：backup/ 14 天、weekly/ 28 天、monthly/ 365 天（weekly/monthly 不受影响，均在窗口内）。
+- **backup/ 前缀当前实际构成（2026-10-04 00:38 实 List 54 对象精算）**：
+
+| 日期范围 | 对象 | 字节 | GiB |
+|---|---|---|---|
+| 09-04~09-20（14 个日期×2 DB）| 28 | 1,394,775,316 | 1.299 |
+| 09-21~10-03（13 个日期×2 DB）| 26 | 1,427,614,328 | 1.330 |
+| backup/ 前缀全部 | 54 | 2,822,389,644 | **2.629** |
+
+- **会被 prune 掉的量（两个口径，差值=cutoff 顺延）**：
+  - reviewer 复算基准（10-03，cutoff=09-19，真实 List 独立逐位确认，见 docs/ops/r2-backup-bucket-capacity-20261002.md ⑩）：**26 对象 = 1,285,523,660 B ≈ 1.197 GiB**（09-04~09-19 共 13 个交易日份 ×2 DB）。
+  - 今日实时口径（10-04，cutoff=09-20 00:38，含 09-20 再 +2 对象）：**28 对象 = 1,394,775,316 B ≈ 1.299 GiB**。
+  - 任务书所写「≈1,197,523,660 B ≈ 1.197 GiB」的字节数与 reviewer 复算字节（1,285,523,660）不符（GiB 值 1.197 对应正确字节为 1,285,523,660，1,197,523,660 B≈1.115 GiB），本报告以 reviewer 复算 + 今日实测为准。
+- **§5.4② 口径声明**：本报告所有「prune 后」计算采用 **reviewer 复算的 1,285,523,660 B ≈ 1.1975 GiB（保守，先删 26 个，cutoff 不因执行日顺延）**；今日已实时确认若执行日晚于今天会多删约 0.1 GiB（每多 1 天多 2 对象），不作为主推数字。
+
+### 口径 A：现状基线 7.641 GiB（未 prune，含 backup/ 全部 54 对象）
+
+| 落地组合 | 两桶合计 | 10 GiB 线 | 结论 |
+|---|---|---|---|
+| 只等 prune（不动 compression）| 7.641 - 1.197 = **6.444** | ✓ 余 3.556 | prune 本身就是目前最大的单笔瘦身 |
+| gzip9 包 2.917 + 现状 | 10.558 | ✗ 超 0.558 | 未 prune 时 gzip 不达标 |
+| **zstd19 包 2.122 + 现状** | **9.763** | ✓ 余 0.237 | 未 prune 时 zstd19 刚好达标（余量紧）|
+
+### 口径 B：prune 后基线 6.444 GiB（7.641 - 1.1975 GiB，reviewer 口径；1,285,523,660 B≈1.1975 GiB）
+
+| 落地组合 | 两桶合计 | 10 GiB 线 | 结论 |
+|---|---|---|---|
+| gzip9 包 2.917 + prune 后 | **9.361** | ✓ 余 0.639 | gzip9 在 prune 后被救活，达标 |
+| **zstd19 包 2.122 + prune 后** | **8.566** | ✓ 余 1.434 | 最稳，余量过半 |
+| zstd22 包（预期 ~1.3，见 §④）| ~7.7 | ✓ 余 ~2.3 | 预期最优，未实测完 |
+
+> **结论：两种口径下 zstd19 全程达标；gzip9 必须先等 14 天 prune 落地才达标。方案 A（压缩包异地归档+删原件）的正确顺序 = 先让 prune 落地（基线降到 ~6.44 GiB），再传压缩包，两种压缩档都安全。**
+> **费用量级（如实告知）**：只有「口径 A + gzip9」这一个组合超线 0.558 GiB，超出部分按 R2 标准存储 $0.015/GiB-month = **每月约 $0.0084 ≈ ¥0.06**；其余全部组合超线费用为 **$0**。用户问「桶有点大怎么缩」——本桶当前 7.641 GiB 本来就在免费额度内，压缩的本质收益不是省钱而是**补异地归档解除本机单点** + 留有 2~3 GiB 余量。超线成本几乎可忽略，无夸大必要。
+
+## ④ 压缩率实测（核心；整包 = 10.171 GiB / 10,920,869,888 B）
+
+| 方案 | 压缩后字节 | GiB | 保留率 | 压缩率 | 耗时 | 口径 B 合计（prune 后 6.444+包）| 口径 A 合计（现状 7.641+包）|
+|---|---|---|---|---|---|---|---|
+| 原始（现状）| 10,920,869,888 | 10.171 | 100% | 0% | — | 本机原件，不在 R2 | 7.641（无包）|
+| gzip -9 整包 | 3,132,484,902 | **2.917** | 28.7% | 71.3% | 9:17 | **9.361 ✓ 余 0.639** | 10.558 ✗ 超 0.558 |
+| zstd -19（T4）整包 | 2,278,227,979 | **2.122** | 20.9% | 79.1% | 22:19 | **8.566 ✓ 余 1.434** | **9.763 ✓ 余 0.237** |
+| zstd --ultra -22 --long=31（T4）整包 | **未跑完，47min 后终止**，产 211,386,368 B ≈ 0.197 GiB | — | — | — | 47min 仅产 ~0.197 GiB | — | 结论不依赖它 |
+
+- 单文件小样本（85.7MB sentiment_20260718）：gzip -9 → 24.9MB（29.1% 保留）、zstd -19 → 19.1MB（22.3%）。
+- **达标答案：zstd -19 整包 2.122 GiB 两种口径均达标**（现状口径余 0.237 偏紧、prune 后口径余 1.434 充裕）；gzip -9 需 prune 落地后才达标。
+- **long31 放弃理由**：`zstd --ultra -22 --long=31` 以 -T4 从 00:03 跑到 00:50 共 47 分钟，仅产出 211,386,368 B ≈ 0.197 GiB（约 4.5MB/min），按此速率压 2.1 GiB 级需要数小时，且 -22 在这类高冗余 DB 上的预期边际收益（比 -19 再省 0.4~0.8 GiB）不匹配数小时机器占用。进程已按任务书要求核实 PPID 属主链后终止（属本调研 claude 会话派生的压缩进程，非生产 upload_r2 进程）。结论不依赖它，zstd -19 已够达标。
+
+## ⑤ 三策略对照表（每行两种口径：口径 A=现状 7.641 / 口径 B=prune 后 6.444）
+
+| 方案 | 动作 | 两桶合计(A/B) | 10 GiB 线 | 数据安全 | 本机占用 | 说明 |
+|---|---|---|---|---|---|---|
+| S1 原样（现状）| 什么都不做 | 7.641 / 6.444 | ✓ | ⚠️ 唯一副本在本机，R2 无异地 | 10.171 GiB | 本机单点故障=丢 07-18~09-11 全历史 |
+| S2b 压缩归档 zstd -19 放 R2+删本机 | 传 2.122 GiB 包，删本机 | 9.763 / **8.566** | ✓（B 余 1.434，A 余 0.237）| ✓ 异地可恢复 | 0 | **推荐**：两种口径全达标 |
+| S2a 压缩归档 gzip -9 放 R2+删本机 | 传 2.917 GiB 包，删本机 | 10.558 / **9.361** | ✗(A 超 0.558) / ✓(B) | ✓ 异地可恢复 | 0 | 需 A 先执行 14 天 prune 才达标 |
+| S3a 每库只留最新，不压缩 | 保留 2 文件 0.295 GiB，删 84 | ~7.94 / ~6.74 | ✓ | ✗ 丢 84 份历史 | ≈0.295 GiB | 丢历史=不可接受（除非确认无回滚需求）|
+
+- **推荐 S2b（zstd -19）**：理论文件保留率 20.9%、两种口径全达标、耗时 22 分钟可接受；`--long=31` 档期望更优但数小时不可等，不作主推。
+- S2b 与 S3 可组合（见执行草案）：压缩包保留全部历史异地；本机删原件前可选「本机只留最新一份 + 最新 gz」作快速取用副本。
+
+## ⑥ 方案 A 执行草案与回滚（只出草案，本报告未执行；执行时以 §25 为准）
+
+> **铁律（§25）**：执行方必须先做备份并**实测可恢复**才许删原件；验不过→停下报警，绝不「先删再说」。
+> **顺序**：①先确认 14 天 prune 已落地（云上 upload-db 跑过，`r2_bucket_stats.py --prefix backup/` 确认旧对象已被清）→ ②做异地归档包 → ③验证包可恢复 → ④才删本机原件。
+
+### 步骤（改良版 A，全部命令可复跑）
+
+1. **manifest 先行**：在原件目录生成 `mac-backups-manifest.txt`（86 行 key|size|md5，取自锚点日志），打进 tar 包内并单独记录包 SHA256 —— 解压后对账不依赖 /tmp 日志。
+2. **打包 + 压缩**（实测过流程，产物已在 /tmp 验证可解压）：
+   ```bash
+   tar -cf /tmp/mac_backups_20261001_raw.tar -C /Users/linhuichen/code/trade-data/data mac-backups-20261001
+   zstd -19 -T4 -c /tmp/mac_backups_20261001_raw.tar > /tmp/mac_backups_20261001.tar.zst   # 2.122 GiB, 22:19
+   ```
+3. **回读验证（删除唯一前提，本报告未做）**：`zstd -d < 包` 解压 → 与锚点日志 **逐文件 md5+size 对账 86/86 PASS**；交叉 `tar -tf` 包成员数 == 86。
+4. **上传 R2 异地归档**（只读调研阶段不执行；执行时走 upload_r2 私有桶命令）：PUT `signal-backup/mac-backups/archive/mac-backups-2026-10-01.tar.zst`，并 GET 回读 `zstd -d` 再对账 86/86 才算「异地可恢复」达成。
+5. **删本机原件**：对账 PASS 后 `rm -rf ~/code/trade-data/data/mac-backups-20261001/`（可选保留最新两份 + manifest 小副本作本机快速取用）。
+6. **回滚路径**：`wrangler r2 object get signal-backup/mac-backups/archive/mac-backups-2026-10-01.tar.zst`（或等效 GET）→ `zstd -d` → 解压回 `~/code/trade-data/data/mac-backups-<日期>/`。一键可逆，同 10-02 恢复流程。
+
+**对账口径**：86/86 逐文件 md5+size 全比对（非抽样），锚点 = `/tmp/mac_backups_upload_log_20261001.txt`（10-01 上传时本地 md5 mtime 同步，本次已重算 86/86 match）。服务端侧可加 HEAD 校验校验和（单 PUT 非分片时 ETag≈md5；multipart 则需回读对账为准）。
+
+## ⑦ 成本标注（本次调研，2026-10-03/04）
+
+- **Class A**（ListObjectsV2，$4.50/百万，免费 100 万/月）：草稿阶段主桶 32 + 备份桶全量 60 + mac-backups prefix×2 + pre-upload×1 + backup/weekly/monthly/decommissioned×4 = 99；定稿阶段本次复核新增 backup 前缀实 List×2 + 备份桶全量复跑 60 = 62。合计 **161 次 ≈ $0.00072**（免费额度 100 万/月内，零账单影响）。
+- **Class B**（HEAD，免费 1000 万/月）：5 次（mac-backups 3 次 404 + backup 前缀 2 次 200），可忽略。
+- **GET/PUT：0 次**（本机原件就地压缩，未下载/未上传——比任务书预想的 GET 全量 10 GiB 更省，因为 R2 侧已无对象）。
+- 均在当月免费额度内，零账单影响。**超线费用的量级见 §③「费用量级」：全组合中仅「未 prune + gzip9」超线 0.558 GiB ≈ ¥0.06/月，其余为 0。**
+
+## ⑧ 诚实标注
+
+1. **只测量未执行**：本报告全部数字来自 List 采样 + 本机压缩实测，**未对 R2 执行任何删除、未上传任何对象、未修改本地 data/**；§⑥ 是执行草案不是已执行动作。
+2. **任务书背景「mac-backups 10.171 GiB 在 R2」已过时**（10-02 恢复+删除），本报告以今日实测为基线。
+3. **long31 未跑完已终止**：`zstd --ultra -22 --long=31` 起于 10-04 00:03、止于 00:50，共 47 分钟产出 211,386,368 B ≈ 0.197 GiB（速率约 4.5MB/min），预计数小时完成，按任务书限时窗口停掉（停前核实 PPID 属主链=本调研 claude 会话派生，非生产进程）；**结论不依赖它**（zstd -19 已达标）。产物 `/tmp/mac_backups_20261001_long31.tar.zst` 为不完整文件，仅保留作过程证据，不作结果数字。
+4. **R2 桶 lifecycle 规则未实测**：GetBucketLifecycleConfiguration 返回 403（S3 凭证无权限），实际清理以代码 `_prune_r2_backup` 为准（保持双保险思路，lifecycle 是否在位需 CF 控制台确认，不阻塞本结论）。
+5. **基线口径必须写明**：今日 7.641 GiB = prune 前现状（含 backup/ 09-04~10-03 全部 54 对象）；§③ 已分口径计算，`prune 后基线 6.444 GiB` = 7.641 减去 reviewer 复算的 1,285,523,660 B（≈1.1975 GiB，cutoff=09-19 的 26 个对象）；今日实时 cutoff（09-20）会再多删 2 对象约 0.1 GiB（裁至 ~6.34 GiB，0.1 GiB 级不影响达标结论）。
+6. R2 免费额度 10 GB-month 为账号级合计（沿用 10-02 报告口径，未重新抓定价页）；标准存储单价 $0.015/GiB-month 用于 §③ 费用量级。
+7. **任务书字节笔误已标注**（§③）：1.197 GiB 对应 1,285,523,660 B，非 1,197,523,660。
+
+## 复现命令（全部原始输出见 /tmp）
+
+```bash
+# ① List 备份桶全量：确认无 mac-backups 前缀, 当前 4.820 GiB / 59,770 对象
+/Users/linhuichen/code/trade/.venv/bin/python docs/scripts/r2_bucket_stats.py --bucket signal-backup
+# ② HEAD 交叉验证 mac-backups key = 404
+/Users/linhuichen/code/trade/.venv/bin/python /tmp/r2slim_head.py
+# ③ 本机原件全量对账 86/86（md5+size vs 锚点日志）
+/Users/linhuichen/code/trade/.venv/bin/python /tmp/r2slim_verify.py
+# ④ backup/ 前缀 14 天窗口精算（2026-10-04 新增，验证 §③ 数字）
+/Users/linhuichen/code/trade/.venv/bin/python /tmp/r2slim_verify_backup.py
+# ⑤ 打包 + 压缩（源 raw tar 已在本调研生成于 /tmp）
+tar -cf /tmp/mac_backups_20261001_raw.tar -C /Users/linhuichen/code/trade-data/data mac-backups-20261001
+time gzip -9 -c /tmp/mac_backups_20261001_raw.tar > /tmp/mac_backups_20261001.tar.gz      # 3,132,484,902 B, 9:17
+time zstd -19 -T4 -c /tmp/mac_backups_20261001_raw.tar > /tmp/mac_backups_20261001.tar.zst # 2,278,227,979 B, 22:19
+time zstd --ultra -22 --long=31 -T4 -c /tmp/mac_backups_20261001_raw.tar > /tmp/mac_backups_20261001_long31.tar.zst  # 47min 后终止,产 211,386,368 B
+# ⑥ 基线 List 主桶
+/Users/linhuichen/code/trade/.venv/bin/python docs/scripts/r2_bucket_stats.py --bucket signal-data
+```
+
+## 参考
+- docs/ops/r2-backup-bucket-capacity-20261002.md（背景；⑩ 节为 reviewer 14 天 prune 独立复算）
+- docs/ops/r2-mac-backups-restore-20261002.md（10-02 恢复+删除执行，§⑥ 回滚路径同此流程）
+- docs/ops/holiday-window-housekeeping-execution-20261001.md（10-01 家清上传）
+- git `743c0043c`（feat/r2-retention-14d-20261003 合入 main，keep_days 30→14）
+- 本机原件：`~/code/trade-data/data/mac-backups-20261001/`（86 文件 10.171 GiB）
+- 锚点日志：`/tmp/mac_backups_upload_log_20261001.txt`
+- 压缩产物（过程证据，保留不删）：`/tmp/mac_backups_20261001.tar.gz` / `.tar.zst` / `_long31.tar.zst`（不完整）
