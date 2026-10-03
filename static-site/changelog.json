@@ -238,5 +238,8 @@
   ],
   "20261003-a633": [
     "docs(review): help-dblclick F1 \u589e\u91cf\u590d\u6838\u62a5\u544a \u2014 \u53ef merge"
+  ],
+  "20261003-a634": [
+    "fix(frontend): #147 xStep\u964d\u7ea7\u4f30\u5bbd\u540c\u53e3\u5f84 + #152 \u56db\u56e0\u5b50\u660e\u7ec6\u7f3a\u6570\u636e\u533a\u5206+\u56fe\u4f8b\u8272\u5757\u9a8c\u6536"
   ]
 }
