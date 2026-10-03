@@ -380,7 +380,13 @@ elif [[ "${SKIP_CONSOLE_CLEAN:-0}" == "1" ]]; then
   echo "  ████████████████████████████████████████████████████████████████████"
   echo ""
 elif ! command -v node >/dev/null 2>&1; then
-  echo "  ⚠️ node 不可用, 跳过 console 洁净度哨兵(不阻断; 手动可跑: BASE_URL=https://ss.fx8.store node scripts/playwright-accept/accept_console_clean.mjs)" >&2
+  echo "" >&2
+  echo "  ████████████████████████████████████████████████████████████████████" >&2
+  echo "  [!!] node 不可用: console 洁净度哨兵本次未执行(不阻断发版)" >&2
+  echo "       —— 线上 console 洁净度未验证; 手动可跑:" >&2
+  echo "       BASE_URL=https://ss.fx8.store node scripts/playwright-accept/accept_console_clean.mjs" >&2
+  echo "  ████████████████████████████████████████████████████████████████████" >&2
+  echo "" >&2
 else
   CC_RC=0
   ( cd "$REPO" && BASE_URL="${BASE_URL:-https://ss.fx8.store}" node scripts/playwright-accept/accept_console_clean.mjs ) || CC_RC=$?
@@ -391,8 +397,13 @@ else
     echo "  请根据上方哨兵输出(违规路由/视口/样例文本)先修复再重跑; 确系误判/临时抖动可 SKIP_CONSOLE_CLEAN=1 逃生" >&2
     exit 1
   else
-    echo "  [UNREACHABLE] console 洁净度哨兵: 线上不可达/未能完整校验(exit $CC_RC), 放行本次发版"
-    echo "  ██ 主控注意: 本次发版未验证线上 console 洁净度, 建议事后确认线上是否恢复正常 ##" >&2
+    echo "" >&2
+    echo "  ████████████████████████████████████████████████████████████████████" >&2
+    echo "  [UNREACHABLE] console 洁净度哨兵: 线上不可达/未能完整校验(exit $CC_RC), 放行本次发版" >&2
+    echo "       —— 本次发版未验证线上 console 洁净度, 建议事后确认线上是否恢复正常" >&2
+    echo "       —— 若连续多次发版均 UNREACHABLE, 请人工核查线上可用性(哨兵可能形同虚设)" >&2
+    echo "  ████████████████████████████████████████████████████████████████████" >&2
+    echo "" >&2
   fi
 fi
 
