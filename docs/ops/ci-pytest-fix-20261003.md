@@ -18,7 +18,7 @@
 | test_132_count_file_fail_loud.py | 0(脚本式 5 check) | 5 test | 逐条转 assert, 打真实 `retry_failed_metrics` |
 | test_132_morning_slot.py | 0(脚本式 9 check) | 9 test(parametrize 9 组) | 打真实 `backfill_direct_metrics._is_morning_slot` |
 | test_132_self_heal_mutex.py | 0(脚本式 5 check) | 2 test(并发实验 5 角度合一 + 串行基线) | `with_lock.py --nb` 真实互斥; VERSHO 硬编码 → `sys.executable` |
-| test_notify_r4_dedup_20261001.py | 1(内嵌非收集) | 6 test | import 用 conftest 路径, 硬编码 worktree 路径清零; 模块级桩 autouse 隔离 |
+| test_notify_r4_dedup_20261001.py | 0(脚本式 6 check) | 6 test | import 用 conftest 路径, 硬编码 worktree 路径清零; 模块级桩 autouse 隔离 |
 | test_alert_denoise_20261001.py | 0(脚本式 34 check) | 34 test | 28+ 条 check 逐条转 assert, 一条不丢 |
 | conftest.py | 不存在 | 新增 | sys.path / REPO / CI 第三方库 stub |
 | test_kelly_stats.py / test_loss_rules_20keys.py / test_s06_state_machine.py | 正常 pytest | **未动** | 任务明确「不得动」 |
