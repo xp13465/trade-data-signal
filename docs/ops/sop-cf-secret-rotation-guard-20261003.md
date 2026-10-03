@@ -8,7 +8,7 @@
 
 - **Preview Builds 开关 = 开启中**(证据见 §3):latest 10 条 version 全部 `has_preview=true`,最近几条 alias 对应非 main 分支(`feat-hc-docs-registry` / `feat-cf-version-provenance` / `feat-r2-retention-14d`)。
 - **当前守卫状态 = 放行**:latest version = `10df9a1d`(版号 8281),已部署(deployment `873865b5`)。
-- 该开关**仅 dashboard 可操作,无 CLI/API**(官方 API 参考 workers_builds 只有 repo connections/triggers/limits,trigger schema 仅 `trigger_name/trigger_uuid/repository_directory`,无 Enable Preview Builds 字段;wrangler OAuth token 对 `/builds/*` 端点返回 Authentication error 10000=缺 Workers Builds 权限)→ 关闭=用户 dashboard 手点,见 §3。
+- 该开关**没有 CLI 子命令**;Workers Builds **API 端点本身存在**(账户级 `/accounts/{acc}/builds/*`:`repos/connections`、`builds`、`triggers` 等,官方 API 参考页现行 21 个端点),但**没有**「Enable Preview Builds」开关端点(trigger schema 仅 `trigger_name/trigger_uuid/repository_directory`);普通 wrangler OAuth token 无 `workers_builds` scope,调用 `/builds/*` 返回 `Authentication error(10000)`。要读/改相关配置需一个带 **Workers Builds Configuration Edit** 权限的 **user-scoped** API token(account-scoped 不支持)→ 当前凭证无该 scope,结论=用户 dashboard 手点,见 §3。
 
 ## 1 改 secret 前置检查(必做,优先级最高)
 
@@ -49,7 +49,7 @@ curl -s -X POST -o /dev/null -w '%{http_code}' https://ss.fx8.store/api/purge-ca
 2. 本地/云上 `.env` 原地替换旧值
 3. 回退后验证旧值效果恢复(如 purge 走旧值 200)。
 
-## 3 根治:关闭 Preview Builds(dashboard,唯一步骤)
+## 3 根治:关闭 Preview Builds(dashboard,主路径)
 
 > 关闭后,推非 main 分支不再触发 preview build,不再产生 `has_preview=true` 悬挂版本,「latest==deployed」守卫长期满足,改 secret 不再被拦。
 
@@ -69,7 +69,7 @@ curl -s -X POST -o /dev/null -w '%{http_code}' https://ss.fx8.store/api/purge-ca
 npx --no-install wrangler versions list | head -3
 # 2) 推一次性测试分支(feat 分支名连字符化=可能出现的 preview alias,如 test-preview-off-verify)
 git checkout -b test/preview-off-verify  &&  git commit --allow-empty -m "test: preview builds verification"  &&  git push origin test/preview-off-verify
-# 3) 等 60 秒(历史实测 CF 在 push 后 ~22 秒内创建 preview 版本),再查:
+# 3) 等 60 秒(四连实测 push 后 23~35 秒内创建 preview 版本),再查:
 npx --no-install wrangler versions list | head -3
 #    PASS = 没有出现 alias=test-preview-off-verify 的 has_preview=true 新版本(新增版本号数量=0)
 #    FAIL  = 出现了新 preview 版本 → 开关未生效/另有来源,停下上报,不继续
@@ -77,6 +77,14 @@ npx --no-install wrangler versions list | head -3
 git push origin --delete test/preview-off-verify
 git checkout feat/cf-preview-off-20261003 && git branch -D test/preview-off-verify
 ```
+
+**后备手段(仅当 dashboard 里完全没有 Build/Branch control 入口时)**:用一个带 **Workers Builds Configuration Edit** 权限的 **user-scoped** API token(account-scoped 不支持)调账户级 builds API:
+```bash
+# 查生产/preview trigger 的 branch_includes(判定当前 trigger 分支覆盖规则)
+curl -s "https://api.cloudflare.com/client/v4/accounts/<ACC>/builds/triggers" \
+  -H "Authorization: Bearer <USER_SCOPED_WORKERS_BUILDS_TOKEN>"
+```
+> ⚠️ 本条**本轮未实测**——当前环境无 Workers Builds Configuration Edit scope 的凭证(仅 wrangler OAuth,调用 `/builds/*` 得 Authentication error 10000)。若走此路,先验证 token 权限再动,且不以「token 能读」代替「preview 确实关掉」的确定性验证(仍按上文决定性验证收口)。
 
 ## 复现/自查命令(全部门禁输出为空或为判定行,无值)
 

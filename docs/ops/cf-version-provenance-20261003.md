@@ -136,3 +136,41 @@ git log --all --reflog --format='%h|%s' -S'PURGE_SECRET=' --reverse | head -8
 git log --all --format='%h|%s' --name-only --diff-filter=A | grep -iE '\.(pem|key|p12)$'   # 空
 git log --all --reflog --format='%h|%s' --name-only --diff-filter=AC -- '.env'               # 仅 .env.example
 ```
+
+## 补记(2026-10-04):机制四连复现 + API 口径更正
+
+> 主报告结论(悬挂版本=CF Workers Git integration 对非 main 分支 push 自动触发的 preview build)已由 10-03 夜 23:00-23:42 连续 4 次非 main push **逐次复现**,并补充排除法与 API 口径更正。
+
+### 1 四连复现时间线(push 时点取 `git reflog show refs/remotes/origin/<分支> --date=format`,版本创建时点取 `npx wrangler versions list --json` 的 `metadata.created_on` 转北京时间)
+
+| 分支 push(北京) | 版本号/alias | 版本创建(北京) | 延迟 |
+|---|---|---|---|
+| 23:00:45 `feat/hc-docs-registry-20261003` | 8277 `feat-hc-docs-registry-20261003` | 23:01:08 | 23s |
+| 23:23:33 `feat/cf-version-provenance-20261003` | 8279 `feat-cf-version-provenance-20261003` | 23:24:08 | 35s |
+| 23:31:28 `feat/r2-retention-14d-20261003` | 8282 `feat-r2-retention-14d-20261003` | 23:31:58 | 30s |
+| 23:41:13 `feat/cf-preview-off-20261003` | 8283 `feat-cf-preview-off-20261003` | 23:41:38 | 25s |
+
+- 规律:非 main 分支 push → **~半分钟内**出现新版本,`has_preview=true`、`triggered_by=version_upload`、**alias = 分支名连字符化**(与 `wrangler preview --name` 默认取当前 git branch 的机制吻合)。4 次均为 22~35s 延迟,人工 upload 不可能做到。
+
+### 2 排除法(全部实测,2026-10-03 夜)
+
+- **本地 hooks**:common `.git/hooks/` 仅 `pre-commit`(纯 lint,`grep wrangler` 无命中);`core.hooksPath` 未设置 → 排除 git hook 自动 upload。
+- **手工 upload**:`~/.zsh_history` `grep wrangler` = 0 条 → 排除本机手工 `wrangler versions upload`。
+- **GH Actions**:`.github/workflows/` 三个文件(`ci.yml` / `deploy-cf.yml` / `deploy-pages.yml`)全部 `branches: [main]` 才触发,且 deploy-cf 是 `npx wrangler deploy`(部署,非建 preview 版本)→ 排除 CI 在非 main 分支上建版本。
+
+### 3 官方依据
+
+- build-branches 页(2026-10-01 更新)原文:「every push to a branch that is not your production branch triggers a preview build」→ 与四连复现一一对应。preview 命令默认 `--name` = 当前 git branch → alias 完全吻合。
+
+### 4 诚实标注:判定为「强推断」,非 CF 侧逐字段直读
+
+- 版本 `annotations` 实测只含 `workers/alias` + `workers/triggered_by`,**单看不足以区分「CF Builds 建」vs「CLI upload 建」**。判定=**时间线(22~35s)+ 本地/CI 排除(zsh_history 零 wrangler、hooks 无 wrangler、workflows 全 main-only)+ 官方行为文档**三者合起来的强推断,**非** CF 侧逐字段直读(当前凭证无 `workers_builds` scope,`/builds/*` 端点返回 Authentication error 10000,无法读 CF 侧 build 任务明细)。
+
+### 5 API 口径更正(更正前一份 SOP/报告的「CF 无此 API 端点」表述)
+
+- **更正**:Workers Builds **API 端点本身存在**(账户级 `/accounts/{acc}/builds/*`:`repos/connections`、`builds`、`triggers` 等,官方 API 参考页现行 21 个端点;路径是**账户级 `/builds/*`**,不是 `/workers/builds/*`)。准确说法 = **「没有 CLI 子命令;普通 wrangler OAuth token 没有 `workers_builds` scope,调用返回 `Authentication error(10000)`;要读/改需一个带 Workers Builds Configuration Edit 权限的 user-scoped API token(account-scoped 不支持)」**。
+- 结论不变:当前凭证无该 scope,用户关 Preview Builds 仍只能 dashboard 手点(路径见 `docs/ops/sop-cf-secret-rotation-guard-20261003.md` §3)。
+
+### 6 社区查证结果(如实记录)
+
+- 本次多渠道(WebSearch / WebFetch / community.cloudflare.com curl / Reddit / Bing / DDG / StackExchange API)均**未搜到**相关现行讨论;官方文档本身现行且明确,结论以官方文档 + 本仓四连实测为准。
