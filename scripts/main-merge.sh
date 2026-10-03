@@ -16,6 +16,8 @@
 #   5. merge feat(冲突即停报, 绝不静默 §23.11)
 #   6. 若 feat 改了前端源码(9 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content/index.html): 统一跑 build_min + bump_asset_version(版本串唯一权威入口, 机制 C; index.html 改动触发统一 bump, build_min 无源变更自然产出不变)
 #   7. §24⑤ 校验 index 引用 == 实际文件内容 md5(统一 bump 后内容哈希==引用)
+#   7.7 console 洁净度哨兵(#133 复发防线, 2026-10-03 挂): 打线上真实 URL 验 0 CSP 违规 +
+#       0 pageerror; 违规 exit1 阻断发版; 线上不可达 exit2 打醒目告警后放行; SKIP_CONSOLE_CLEAN=1 逃生门
 #   8. 调 check_version_progress.py(A/B: 版本串倒退哨兵 + merge 净回退校验) → FAIL 阻断
 #   8.5 pending-index 销账软提醒(只提醒不阻断不自动改, 2026-08-22 用户授权流程小机制)
 #   9. commit(自动追加 Co-Authored-By) + push main
@@ -352,6 +354,46 @@ else
     exit 1
   fi
   echo "✓ 文档时点/调度口径一致性机检通过"
+fi
+
+# 7.7 console 洁净度哨兵(#133 复发防线, 2026-10-03 挂发版验收)
+#     背景: #133(两份 CSP connect-src 逐字拉平, merge b4c95c2e0)新增 accept_console_clean.mjs
+#     哨兵(判 0 CSP 违规 + 0 pageerror), 但一直没进验收链, 防复发靠人肉想起来跑。挂本入口:
+#     每次发版(merge main)自动打线上真实 URL 校验, 防 CSP 白名单回归让 console 噪音淹没真告警。
+#     退出码语义(见脚本头): 0=PASS 1=FAIL(违规, 阻断) 2=UNREACHABLE(线上不可达, 放行+醒目提示)。
+#     逃生门: SKIP_CONSOLE_CLEAN=1 跳过(线上临时抖动/合规豁免时用), 触发必打醒目提示, 不静默。
+#     不可达 vs 违规(2026-10-03 决策): 违规(exit 1)阻断发版——真故障必须先修; 不可达(exit 2)
+#     打醒目告警后放行——哨兵打的是「当前线上」=上一个发版, 一次 CDN/网络抖动不该把代码发版
+#     锁死, 且 main-merge 本身 push 依赖网络, 若真全网断 push 也会失败自然拦; 但主控须知晓
+#     本次未验证线上洁净度(线上有 #133 类问题会在下次硬拦截)。
+#     注意: 新代码的 CSP 白名单(worker/headers.js)是单独部署链, 哨兵验的是已上线状态——
+#     它是#133 复发防线的一环, 不是唯一机制。
+echo "--- console 洁净度哨兵(#133 复发防线, 打线上真实 URL, 约 1 分钟) ---"
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "  [dry-run] 跳过 console 洁净度哨兵"
+elif [[ "${SKIP_CONSOLE_CLEAN:-0}" == "1" ]]; then
+  echo ""
+  echo "  ████████████████████████████████████████████████████████████████████"
+  echo "  [!!] SKIP_CONSOLE_CLEAN=1(逃生门): 本次发版已跳过 console 洁净度检查"
+  echo "       —— 线上 console 洁净度未验证, 请记得事后补跑:"
+  echo "       node $REPO/scripts/playwright-accept/accept_console_clean.mjs"
+  echo "  ████████████████████████████████████████████████████████████████████"
+  echo ""
+elif ! command -v node >/dev/null 2>&1; then
+  echo "  ⚠️ node 不可用, 跳过 console 洁净度哨兵(不阻断; 手动可跑: BASE_URL=https://ss.fx8.store node scripts/playwright-accept/accept_console_clean.mjs)" >&2
+else
+  CC_RC=0
+  ( cd "$REPO" && BASE_URL="${BASE_URL:-https://ss.fx8.store}" node scripts/playwright-accept/accept_console_clean.mjs ) || CC_RC=$?
+  if [[ "$CC_RC" -eq 0 ]]; then
+    echo "✓ console 洁净度 PASS(0 CSP 违规 + 0 pageerror)"
+  elif [[ "$CC_RC" -eq 1 ]]; then
+    echo "✗ console 洁净度 FAIL: 线上检测到 CSP 违规 / pageerror, 阻断发版(#133 复发防线)" >&2
+    echo "  请根据上方哨兵输出(违规路由/视口/样例文本)先修复再重跑; 确系误判/临时抖动可 SKIP_CONSOLE_CLEAN=1 逃生" >&2
+    exit 1
+  else
+    echo "  [UNREACHABLE] console 洁净度哨兵: 线上不可达/未能完整校验(exit $CC_RC), 放行本次发版"
+    echo "  ██ 主控注意: 本次发版未验证线上 console 洁净度, 建议事后确认线上是否恢复正常 ##" >&2
+  fi
 fi
 
 # 8.5 pending-index 销账软提醒(2026-08-22 用户授权流程小机制: 只提醒不阻断不自动改文件)
