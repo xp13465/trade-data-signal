@@ -7870,7 +7870,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：mootdx（通达信协议）收�
   // data-strategy-help / data-glossary / data-ice-note) 双绑定。桌面有意设计: hover 短文本 + click 详版 modal;
   // 移动端 tap 会合成 mouseover+click 双事件, 若 term-pop 也处理就与 modal 双弹(stopPropagation 拦不住同节点后续 capture listener)。
   // 故 term-pop 对这批选择器: mouseover 仅 isTouch 排除, click 路径直接排除 —— modal 单弹。根因修一次, 不打 5 处补丁。
-  var _modalHelpSel = "[data-ice-note],[data-overfit-help],[data-signal-help],[data-strategy-help],[data-glossary]";
+  var _modalHelpSel = "[data-ice-note],[data-overfit-help],[data-signal-help],[data-strategy-help],[data-glossary],[data-ind-help]";
   // AI 信号认可度 tooltip 三档互证文案(§23.9 白话+场景+1:1 举例; 计数口径用户拍板 2026-08-27「当日主推=
   // 当日票数最多的唯一一支」; 举例数字核验自 static-site/data/overview.json 30 日窗口重放,
   // 见 docs/ops/homepage-ai-endorsement-semantic-audit-20260827.md)
@@ -22062,7 +22062,7 @@ async function renderPublicFund(container) {
     + '<button class="pf-ind-sort-btn" data-ind-class="csrc" type="button" title="只看证监会门类口径(A股基金披露)">证监会</button>'
     + '<button class="pf-ind-sort-btn" data-ind-class="gics" type="button" title="只看GICS口径(QDII/港股基金披露)">GICS</button>'
     + '<button class="pf-ind-sort-btn" data-ind-class="sw" type="button" title="申万一级反查口径(基于重仓股反查, 揭示真实风格暴露, 覆盖约42%仓位仅最新一期)">申万一级</button>'
-    + '<span id="pfIndHelpBtn" style="margin-left:6px;cursor:help;color:var(--text-3);font-size:14px;line-height:1;user-select:none" title="行业配置口径说明">❓</span>'
+    + '<span id="pfIndHelpBtn" data-ind-help="" style="margin-left:6px;cursor:help;color:var(--text-3);font-size:14px;line-height:1;user-select:none" title="行业配置口径说明">❓</span>'
     + '</div>'
     + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">Top15 + 其他聚合(柱状图)；下方矩形树图看全景集中度(点按钮切换面积维度)；柱状图/矩形树图切换独立, 标签跟随各自选中维度: 权重和数值 / 平均权重% / 持仓市值亿</div>'
     + '<div class="chart-subtitle pf-ind-sub-default" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">🔬 点击<b>制造业</b>柱展开申万一级子行业(电子/通信/电力设备…, 基于重仓股拆分非直接披露)；矩形树图点制造业矩形弹子行业列表</div>'
