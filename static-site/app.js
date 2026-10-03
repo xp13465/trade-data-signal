@@ -7865,6 +7865,12 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：mootdx（通达信协议）收�
   var popByClick = false;  // pop 由 click 触发(移动端)，此时 mouseout 不立即关
   var popEl = null;        // 当前触发元素，用于同元素再点 toggle 关
   var isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
+  // 2026-10-03 fix(全站帮助图标移动端双弹): 帮助图标(❓)专属选择器集合。
+  // 这类图标 = term-pop(data-tip / 父级 data-tip) + 各自 click 弹完整 modal(data-overfit-help / data-signal-help /
+  // data-strategy-help / data-glossary / data-ice-note) 双绑定。桌面有意设计: hover 短文本 + click 详版 modal;
+  // 移动端 tap 会合成 mouseover+click 双事件, 若 term-pop 也处理就与 modal 双弹(stopPropagation 拦不住同节点后续 capture listener)。
+  // 故 term-pop 对这批选择器: mouseover 仅 isTouch 排除, click 路径直接排除 —— modal 单弹。根因修一次, 不打 5 处补丁。
+  var _modalHelpSel = "[data-ice-note],[data-overfit-help],[data-signal-help],[data-strategy-help],[data-glossary],[data-ind-help]";
   // AI 信号认可度 tooltip 三档互证文案(§23.9 白话+场景+1:1 举例; 计数口径用户拍板 2026-08-27「当日主推=
   // 当日票数最多的唯一一支」; 举例数字核验自 static-site/data/overview.json 30 日窗口重放,
   // 见 docs/ops/homepage-ai-endorsement-semantic-audit-20260827.md)
@@ -8075,9 +8081,11 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：mootdx（通达信协议）收�
   function hide() { hideTimer = setTimeout(function () { pop.style.display = "none"; }, 80); }
   function hideNow() { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } pop.style.display = "none"; popByClick = false; }
   document.addEventListener("mouseover", function (e) {
-    // 2026-10-02 fix(移动端双弹): 移动端(hover:none)tap 合成 mouseover 也走本委托弹 term-pop;
-    // [data-ice-note] 图例 ❓ 由 click 弹完整公示 modal(见 _initIceNoteDelegation), 移动端 hover 无意义 → 排除(桌面 hover 简短文本保留)。
-    if (isTouch && e.target.closest && e.target.closest("[data-ice-note]")) return;
+    // 2026-10-03 fix(全站帮助图标移动端双弹, 替代 10-02 单点补丁): 移动端(hover:none)tap 合成 mouseover 也走本委托弹 term-pop;
+    // 帮助图标(❓/完整指南)统一由各自 click 委托弹完整 modal(见 _initIceNoteDelegation/_initOverfitHelpDelegation/
+    // _initSignalHelpDelegation/_initStrategyHelpDelegation/lab _initLabGlossaryDelegation), 移动端 hover 无意义 → isTouch 下排除
+    // (桌面 hover 简短文本保留)。单点 [data-ice-note] 排除并入统一集合, 防其余同类漏排。
+    if (isTouch && e.target.closest && e.target.closest(_modalHelpSel)) return;
     var el = findTipEl(e.target);
     if (el && !popByClick) show(el, el.getAttribute("data-tip"));
   });
@@ -8087,9 +8095,10 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：mootdx（通达信协议）收�
   });
   if (isTouch) {
     document.addEventListener("click", function (e) {
-      // 2026-10-02 fix(移动端双弹): [data-ice-note] 图例 ❓ 由 _initIceNoteDelegation(capture 注册更早)弹完整公示 modal;
-      // 本委托(capture 注册更晚)若继续处理会同时弹 term-pop → 双弹。显式排除, 让 ice-note modal 单弹。
-      if (e.target.closest && e.target.closest("[data-ice-note]")) return;
+      // 2026-10-03 fix(全站帮助图标移动端双弹, 替代 10-02 单点补丁): 帮助图标(❓/完整指南)由各自 click 委托
+      // (capture 注册更早)弹完整 modal; 本委托(capture 注册更晚)若继续处理会同时弹 term-pop → 双弹。
+      // 统一排除全部帮助图标选择器, 让各 modal 单弹。单点 [data-ice-note] 排除并入统一集合。
+      if (e.target.closest && e.target.closest(_modalHelpSel)) return;
       var el = findTipEl(e.target, true);  // forClick=true：click 路径不 fallback [title]（A2）
       if (el) {
         if (popByClick && popEl === el) { hideNow(); return; }  // 同元素再点 -> 关
@@ -22053,7 +22062,7 @@ async function renderPublicFund(container) {
     + '<button class="pf-ind-sort-btn" data-ind-class="csrc" type="button" title="只看证监会门类口径(A股基金披露)">证监会</button>'
     + '<button class="pf-ind-sort-btn" data-ind-class="gics" type="button" title="只看GICS口径(QDII/港股基金披露)">GICS</button>'
     + '<button class="pf-ind-sort-btn" data-ind-class="sw" type="button" title="申万一级反查口径(基于重仓股反查, 揭示真实风格暴露, 覆盖约42%仓位仅最新一期)">申万一级</button>'
-    + '<span id="pfIndHelpBtn" style="margin-left:6px;cursor:help;color:var(--text-3);font-size:14px;line-height:1;user-select:none" title="行业配置口径说明">❓</span>'
+    + '<span id="pfIndHelpBtn" data-ind-help="" style="margin-left:6px;cursor:help;color:var(--text-3);font-size:14px;line-height:1;user-select:none" title="行业配置口径说明">❓</span>'
     + '</div>'
     + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">Top15 + 其他聚合(柱状图)；下方矩形树图看全景集中度(点按钮切换面积维度)；柱状图/矩形树图切换独立, 标签跟随各自选中维度: 权重和数值 / 平均权重% / 持仓市值亿</div>'
     + '<div class="chart-subtitle pf-ind-sub-default" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">🔬 点击<b>制造业</b>柱展开申万一级子行业(电子/通信/电力设备…, 基于重仓股拆分非直接披露)；矩形树图点制造业矩形弹子行业列表</div>'
