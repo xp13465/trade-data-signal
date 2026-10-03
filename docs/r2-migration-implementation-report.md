@@ -27,7 +27,7 @@
 |----|------|------|------|
 | ① trade git | `git@github.com:xp13465/trade-data-signal.git` | 代码 | app/scripts/static-site源码,不含data/ |
 | ② staticdata git | `git@github.com:xp13465/trade-data-signal-staticdata.git` | 差异日志 | DB原件(3个不压缩)+配置(.env.example/wrangler/launchd plist不含密钥)+小JSON(脚本生成小文件git diff追踪)。每次deploy后commit+push |
-| ③ R2 signal-backup(私有桶) | R2 | 备份快照(全量恢复) | DB等重要文件gz,分层 backup/30 + weekly/28 + monthly/365。upload_r2.py upload-db 推 |
+| ③ R2 signal-backup(私有桶) | R2 | 备份快照(全量恢复) | DB等重要文件gz,分层 backup/14 + weekly/28 + monthly/365(日备份 2026-10-03 由 30 减至 14)。upload_r2.py upload-db 推 |
 | ④ R2 signal-data(公开桶) | `ssd.fx8.store` | 线上静态资源分发 | 前端fetch的所有线上静态资源(小JSON+大文件index/industry/lab/trade_sim) |
 
 **脚本生成文件去向规则**: 小文件 -> staticdata git(差异日志) + R2公开桶(分发)两处; 大文件 -> 只R2公开桶(不进staticdata,体量大git不适合)。
