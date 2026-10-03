@@ -1456,6 +1456,47 @@ StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/schedule_monitor_la
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/schedule_monitor_launchd.err
 ```
 
+### 2.36 check-monitor-heartbeat(每 15 分 :11/:26/:41/:56,P0-1 心跳消费方)
+> 追加于 2026-10-03:本任务是 check_monitor_heartbeat.py(alertchain-hardening-20261003 批 D3 §6 P0-1)的**调度器挂载**,非迁移批新增(无 launchd 源)。服务端逻辑一行不改,挂载方式=读心跳文件 mtime,缺失或 >30min(2 轮)→ notify --severe --dedup-key schedule_monitor_heartbeat --dedup-window 3600 告警。
+> - script:`check_monitor_heartbeat.py`(venv python,**需主控 merge 后在云上 git pull 才存在**)
+> - 时点依据:与 schedule-monitor(:00/:15/:30/:45)、self-heal(:07/:22/:37/:52)、fetch-news(*:01/:45)全错开,且组内均匀 15min
+> - **顺序坑根治**:service 含 `ConditionPathExists=`——脚本未 merge 到位时 timer 触发 service 直接 skip(不算 failed),不惊动 schedule_monitor 显式列表检查;到位后自动生效
+
+`trade-check-monitor-heartbeat.timer`:
+```ini
+[Unit]
+Description=Trade check-monitor-heartbeat every 15min :11/:26/:41/:56 (P0-1 心跳消费方)
+
+[Timer]
+OnCalendar=*-*-* *:11,26,41,56:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-check-monitor-heartbeat.service`:
+```ini
+[Unit]
+Description=Trade check-monitor-heartbeat (P0-1 schedule-monitor 心跳消费方)
+ConditionPathExists=/home/ubuntu/code/trade-data/scripts/check_monitor_heartbeat.py
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/check_monitor_heartbeat.py
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/check_monitor_heartbeat_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/check_monitor_heartbeat_launchd.err
+```
+> ⚠️ append 例外约定:本 service 不是 shell 型(脚本不自己写同名 `*_launchd.log`,只 print stderr),无双 open 冲突;脚本日志全靠 systemd append 产生,保留 append 勿去(与 schedule-monitor/self-heal 同类)。脚本 print stderr 是诊断信息(OK/异常时点),notify 告警走独立通道(latest.md/email/feishu),本文件不重复登记。
+
 ## 3. 飞书常驻 listener(已拍板不迁)
 
 决策(2026-09-12 用户拍板):feishu-listener **留本机不迁**。理由:飞书 WS 长连接的产出是 `append_todo_to_tasks` 落盘 TASKS.md,给本机 Claude 主控读需求清单,本质是"给本机 Claude 收需求"的入口,云上无 Claude Code 即无意义。云上需要"发飞书抄送通知"的能力由 `notify.py`(config/feishu.json + lark-oapi,已随迁)覆盖。

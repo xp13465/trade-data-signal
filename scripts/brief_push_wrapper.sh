@@ -21,7 +21,9 @@ PY="$REPO/.venv/bin/python"
 LOG="${LOG:-$REPO/data/logs/brief_push.log}"
 mkdir -p "$(dirname "$LOG")"
 
-# --dry-run 透传给 notify.py（隔离自测：不真发邮件/飞书、不写真实 latest.md）
+# --dry-run 透传给 notify.py（隔离自测：不真发邮件/飞书；但 notify 的 write_alert
+# 不 gate dry_run——失败分支 --alert-issue 下 dry-run 也会写真实 latest.md，
+# 测试需 REPO=tmp 隔离，生产手动 --dry-run 失败分支会落真实 alerts 目录）
 _NOTIFY_DRY=""
 case " $* " in
   *" --dry-run "*) _NOTIFY_DRY="--dry-run";;
