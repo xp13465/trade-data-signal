@@ -235,5 +235,8 @@
   ],
   "20261003-a632": [
     "fix(icepoint): \u79fb\u52a8\u7aef\u70b9\u56fe\u4f8b\u2753\u4e0d\u518d\u53cc\u5f39(term-pop+modal)"
+  ],
+  "20261003-a633": [
+    "docs(review): help-dblclick F1 \u589e\u91cf\u590d\u6838\u62a5\u544a \u2014 \u53ef merge"
   ]
 }
