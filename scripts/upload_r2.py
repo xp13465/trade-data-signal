@@ -2091,14 +2091,16 @@ def _prune_layer(prefix, keep_days, bucket=None):
     return deleted
 
 
-def _prune_r2_backup(keep_days=30, bucket=None):
+def _prune_r2_backup(keep_days=14, bucket=None):
     """分层清理 R2 备份(日/周/月三层独立清理):
-      - backup/  日备份: keep_days (默认 30 天)
+      - backup/  日备份: keep_days (默认 14 天,2026-10-03 由 30 天缩减)
       - weekly/  周备份: 28 天 (4 周)
       - monthly/ 月备份: 365 天 (12 月)
 
     三层独立清理,防 7-30 天外及长期的损坏/误删。
-    R2 桶 lifecycle 规则也配了同样天数(双保险:代码清理 + R2 自动过期)。
+    R2 桶 lifecycle 规则曾注释称配了同样天数(双保险:代码清理 + R2 自动过期),
+    但 GetBucketLifecycleConfiguration 实测 403(凭证无权限)未验证——实际清理
+    以本代码为准,lifecycle 是否在位需 CF 控制台或更高权限 token 确认。
     历史 key 为 backup/<name>_YYYYMMDD.db,2026-07-15 起改压缩上传
     backup/<name>_YYYYMMDD.db.gz;weekly/monthly 自 2026-07 起新增,均为 .db.gz。"""
     bkt = bucket or BACKUP_BUCKET
@@ -2114,7 +2116,7 @@ def _prune_r2_backup(keep_days=30, bucket=None):
 def cmd_upload_db():
     """每日 DB 备份推 R2（异地防盘毁）+ 分层滚动清理(日/周/月)。
 
-    sentiment.db -> backup/sentiment_YYYYMMDD.db.gz (日备份,30天)
+    sentiment.db -> backup/sentiment_YYYYMMDD.db.gz (日备份,14天)
                 -> weekly/sentiment_YYYYMMDD.db.gz  (周备份,本周首次,28天/4周)
                 -> monthly/sentiment_YYYYMMDD.db.gz (月备份,本月首次,365天/12月)
     etf_national_team.db 同上(<name>=etf_national_team)。
@@ -2124,7 +2126,7 @@ def cmd_upload_db():
     周月副本复用日备份已压缩的 payload(同 gz 内容,不同 prefix),不额外压缩。
 
     上传到 BACKUP_BUCKET(signal-backup 私有桶,不绑公开域名);
-    _prune_r2_backup 分层清 signal-backup(backup/30 + weekly/28 + monthly/365)。
+    _prune_r2_backup 分层清 signal-backup(backup/14 + weekly/28 + monthly/365)。
     DB 路径取 $REPO/data（与 backup_db.sh 一致，launchd 下 REPO=trade-data）。"""
     import datetime as _dt, gzip
     repo = Path(os.environ.get("REPO", str(ROOT)))
@@ -2153,7 +2155,7 @@ def cmd_upload_db():
             _maybe_upload_monthly(name, payload, today)
         else:
             print(f"✗ {fname} status={status} {data.decode('utf-8', errors='replace')[:300]}")
-    _prune_r2_backup(keep_days=30)
+    _prune_r2_backup(keep_days=14)
     print(f"DB 上传 {ok}/{len(targets)} -> {BACKUP_BUCKET}/backup/ ({today})")
     if ok != len(targets):
         sys.exit(1)

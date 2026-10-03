@@ -22,7 +22,7 @@
 | 前缀 | 对象数 | GiB | 占比 | 保留机制(代码证据) |
 |---|---|---|---|---|
 | mac-backups/2026-10-01 | 86 | **10.171** | 71.1% | 一次性家清归档,**无 prune 只增不减**(见⑤) |
-| backup/ 日 DB 备份 | 54 | 2.596 | 18.2% | 30 天滚动裁剪 `_prune_r2_backup`(upload_r2.py:1938-2000) |
+| backup/ 日 DB 备份 | 54 | 2.596 | 18.2% | 30 天滚动裁剪 `_prune_r2_backup`(upload_r2.py:1938-2000;2026-10-03 改 14,见 ⑩) |
 | large-json/ | 59,370 | 0.820 | 5.7% | legacy 按天目录 7 天宽限自动清 + 固定前缀唯一副本不删(见⑤) |
 | weekly/ + monthly/ + decommissioned/ | 18 | ≈0.670 | 4.7% | weekly 28 天 / monthly 365 天裁剪;decommissioned 无清理 |
 | claude-backup/ | 58 | 0.041 | 0.3% | 用户拍板"先不删"(upload_r2.py:2044) |
@@ -50,7 +50,7 @@ fund_nav 26,458 + accum_nav 1,718 + etf 1,718 + trade_sim_data 504 + data 312 + 
 
 ## ⑤ 备份桶增长机制:DB 层有裁剪,归档层只增不减(代码证据)
 
-- **DB 备份层(backup/weekly/monthly):有滚动裁剪**。upload-db 每日上传后调 `_prune_r2_backup`(upload_r2.py:2000→1938):backup/ 30 天、weekly/ 28 天、monthly/ 365 天(实测 backup/ 恰 54 对象≈27 天×2,与裁剪吻合)。代码注释(upload_r2.py:1945)称 R2 桶 lifecycle 规则配了同等天数作双保险 —— **S3 API GetBucketLifecycleConfiguration 返回 403(S3 凭证无权限),未能直接验证,标注为「代码声明,未实测」**。
+- **DB 备份层(backup/weekly/monthly):有滚动裁剪**。upload-db 每日上传后调 `_prune_r2_backup`(upload_r2.py:2000→1938;2026-10-03 起日层改 14 天,见 ⑩):backup/ 30 天→14 天、weekly/ 28 天、monthly/ 365 天(实测 backup/ 恰 54 对象≈27 天×2,与裁剪吻合)。代码注释(upload_r2.py:1945)称 R2 桶 lifecycle 规则配了同等天数作双保险 —— **S3 API GetBucketLifecycleConfiguration 返回 403(S3 凭证无权限),未能直接验证,标注为「代码声明,未实测」**。
 - **large-json/:固定前缀唯一副本,不滚动删**(upload_r2.py:2204-2211,`_prune_large_json`):git 已 rm --cached 移出,R2 是唯一副本,删除=丢数据;**对象数恒定 ≈31,665,字节随源数据内容增长(缓慢)**。legacy 按天目录(09-25~09-30)在 7 天宽限期后由同函数自动清理(≈0.44 GiB,10-07 前后自动释放,**无需手动**)。逃生门 R2_LARGE_JSON_DATE_PREFIX=1(未设,固定前缀模式生效中)。
 - **mac-backups / decommissioned / claude-backup:无任何 prune,只增不减**。mac-backups 是一次性家清动作(86 文件 10.171 GiB),不会自动涨,但也不会自动清。
 - 结论:**不是单调爆炸式增长**——每天新增约 2×~0.1 GiB DB 备份进入 30 天窗口(平衡态 ~2.6 GiB),large-json 内容微涨;14.3 GiB 备份桶的 71% 是一次性归档(mac-backups)。真正的"会持续缓慢增长"是 large-json 固定前缀内容。
@@ -111,12 +111,26 @@ fund_nav 26,458 + accum_nav 1,718 + etf 1,718 + trade_sim_data 504 + data 312 + 
 3. **mac-backups 对象数**:实测 86 对象;家清执行文档称「86 个 .db」,reviewer 复核实际为 85 个真 .db + 1 个 .db-shm(sidecar,无业务数据,SQLite 自动重建),不构成缺陷,如实引用。
 4. **decommissioned / weekly / monthly 字节为差值推算**(0.670 GiB = 全桶 14.298 − mac 10.171 − backup 2.596 − large-json 0.820 − claude 0.041),未单独 List。如需精确值可对这三个前缀各跑 1 次 List(成本 ~$0.000005/次)。
 5. **类 A 操作免费额度**:本月 List 154 次 + 每日上传 PUT(large-json 增量模式实际 PUT 远小于 3.1 万/日)+ DB 备份 ~2 PUT/日,预估远低于 Class A 免费 100 万次/月;操作费用非本报告重点,未逐项核算。
-6. **未执行任何删除**:本报告只读,方案 A/B/D 均未执行,等待用户拍板。
+6. **执行状态**:本报告初版只读(方案 A/B/D 均未执行)。**方案 B 已于 2026-10-03 用户拍板执行**(见 ⑩),方案 A(删 mac-backups 10.171 GiB)/D 仍待用户拍板;方案 C 自动。
+
+## ⑩ 方案 B 执行记录(2026-10-03,用户拍板:DB 日备份保留窗口 30 天 → 14 天)
+
+> 本报告原为只读统计(⑨.6「未执行任何删除」),方案 B 于 2026-10-03 经用户拍板执行,本节为该执行的落档。
+
+- **改动**:`scripts/upload_r2.py` `_prune_r2_backup` 默认 keep_days 30→14,`cmd_upload_db` 内调用同步改 `keep_days=14`;docstring/注释同步;weekly(28 天)/monthly(365 天)两级**不变**。
+- **R2 侧 lifecycle 核对结果**:`GetBucketLifecycleConfiguration` 本次重测仍返回 **403 AccessDenied**(S3 凭证无此权限),**未能验证**。若 R2 侧存在与代码同天数 lifecycle 规则则双保险;若缺失则清理以代码 `_prune_r2_backup`(每日 upload-db 内执行)为单一机制。**确认路径**:CF 控制台 R2 → signal-backup → Lifecycle rules 人查,或换更高权限 token 重跑 GET ?lifecycle。**此确认项未关闭**(承接 D6 P2-3)。
+- **下次 upload-db 运行时将过期对象(2026-10-03 基准,keep_days=14,cutoff=09-19)**:
+  - 过期 26 个对象 = 13 天份(2026-09-04/07/08/09/10/11/13/14/15/16/17/18/19)×2 DB
+  - 释放 **1,285,523,660 B ≈ 1.197 GiB**(backup/ 总量 2.629 GiB 的 45.5%);剩余 14 天份 28 对象 ≈ 1.43 GiB
+  - 注:若下次 run 日期晚于 10-03,cutoff 顺延,过期对象再多(每多 1 天多 2 对象 ≈ 0.1 GiB)
+- **长周期恢复能力未丢(实测在位)**:weekly/ 8 对象(09-07~09-28 四周)×2、monthly/ 8 对象(07-21~10-01 四月)×2,均在保留窗口内。
+- **本地保留仍在(R2 非唯一副本)**:`scripts/backup_db.sh` 本地 `data/backups/` 保留(脚本默认 RETAIN_DAYS=7,云上 systemd timer 注入 RETAIN_DAYS=7;docs 中部分「本地 14 天」描述为历史遗留偏差,已按 §23.7 不动本地行为,仅在本节如实标注)。
+- **可逆性**:改参数即可加回 30 天;已删对象不可恢复,但 DB 每天有新备份,损失=更早历史日备份(超过 14 天的日份仍可由 weekly/monthly 层级覆盖部分)。
 
 ## 参考
 
 - CF R2 官方定价(2026-10-01 版):https://developers.cloudflare.com/r2/pricing/(llms 版 /r2/llms-full.txt)
 - 家清行动执行/审查:docs/ops/holiday-window-housekeeping-execution-20261001.md · holiday-window-housekeeping-review-20261001.md
 - 大 JSON R2 备份设计:docs/ops/large-json-out-of-git-20260925.md · docs/ops/126-*.md
-- 上传代码:scripts/upload_r2.py(_prune_r2_backup L1938 / _prune_large_json L2199 / cmd_upload_large_json L2344 / cmd_upload_db L1958)
+- 上传代码:scripts/upload_r2.py(_prune_r2_backup L1938→现 L2094 / _prune_large_json L2199 / cmd_upload_large_json L2344 / cmd_upload_db L1958→现 L2116)
 - 统计脚本:docs/scripts/r2_bucket_stats.py

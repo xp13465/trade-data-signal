@@ -47,7 +47,7 @@
 |---|---|---|---|
 | ① trade git | GitHub `xp13465/trade-data-signal` | 代码（app/scripts/static-site源码/worker/wrangler.jsonc），不含 data/ | 代码版本管理 |
 | ② staticdata git | GitHub `xp13465/trade-data-signal-staticdata` | 差异日志：DB 原件（本地 rsync，不进 git）+ 配置（脱敏 .env.example/wrangler.jsonc/systemd 单元配置）+ 小 JSON（git diff 追踪每日变化） | 看变化历史（git diff） |
-| ③ R2 signal-backup 私有桶 | R2（不绑公开域名） | 备份快照压缩：DB gz 分层（backup/30 天 + weekly/28 天 + monthly/365 天）+ Claude 自我备份 | 全量恢复（解压快照） |
+| ③ R2 signal-backup 私有桶 | R2（不绑公开域名） | 备份快照压缩：DB gz 分层（backup/14 天 + weekly/28 天 + monthly/365 天，日备份 2026-10-03 由 30 减至 14）+ Claude 自我备份 | 全量恢复（解压快照） |
 | ④ R2 signal-data 公开桶 | R2（ssd.fx8.store 直链 + Worker binding） | 线上静态资源分发：所有线上用的静态资源（小 JSON + 大文件 index/industry/lab/trade_sim/public_fund） | 前端 fetch |
 
 **脚本生成文件去向规则**：

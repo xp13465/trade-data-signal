@@ -163,7 +163,7 @@ codex-watcher(scripts/ 下 plist)、monitor-72h(LaunchAgents 残留)、sentiment
 1. 用 Python sqlite3 `.backup()` 在线热备 **sentiment.db + etf_national_team.db**(不锁库,WAL 一致快照);
 2. 写到 `$REPO/data/backups/`(BACKUP_DIR 环境变量可覆盖),文件名 `*_YYYYMMDD_HHMM.db`;
 3. 保留 `RETAIN_DAYS=14` 天(默认值,L16 `RETAIN_DAYS="${RETAIN_DAYS:-14}"`),按 mtime 删除;
-4. `upload_r2.py upload-db` 推 R2 signal-backup 桶异地备份(压缩保留 30 天,commit 1a573c000);
+4. `upload_r2.py upload-db` 推 R2 signal-backup 桶异地备份(压缩保留 30 天,commit 1a573c000;**2026-10-03 减至 14 天**);
 5. `verify_backup.sh` 立即从 R2 下载演练(integrity_check+行数对比,只读临时目录);
 6. 本地失败 `notify.py --severe` 邮件告警(R2 失败软处理不阻塞)。
 - 调用链:update_all.sh L357 `bash "$REPO/scripts/backup_db.sh"`(17:50 主链内嵌,REPO=trade-data);无独立 launchd 任务。

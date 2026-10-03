@@ -14,7 +14,7 @@
 
 ### 小节A：R2 备份优化 P0+P1 全闭环（commits 1a573c00 + 500b7338 + 0c22524f + git gc）
 - **P0-1 DB 备份压缩改传 .db.gz**（1a573c00）：backup_db.sh 产 .db.gz，upload_r2.py 上传压缩二进制。87MB->24MB 省 72%。
-- **P0-2 R2 清理改脚本侧分层替代 Dashboard lifecycle**：未配 R2 Dashboard lifecycle 规则，改 upload_r2.py `_prune_r2_backup` 三层清理（更可控，不依赖 Dashboard 手配）：backup/ 日备份 30 天 + weekly/ 周备份 28 天（4周）+ monthly/ 月备份 365 天（12月）。本地 backup_db.sh `RETAIN_DAYS=14` 不变（本地14天，R2 30天）。
+- **P0-2 R2 清理改脚本侧分层替代 Dashboard lifecycle**：未配 R2 Dashboard lifecycle 规则，改 upload_r2.py `_prune_r2_backup` 三层清理（更可控，不依赖 Dashboard 手配）：backup/ 日备份 30 天（**2026-10-03 起减至 14 天**，方案 B 见 docs/ops/r2-backup-bucket-capacity-20261002.md）+ weekly/ 周备份 28 天（4周）+ monthly/ 月备份 365 天（12月）。本地 backup_db.sh 本地保留仍在（R2 不是本地备份的唯一副本）。
 - **P0-3 备份失败邮件告警**（1a573c00）：复用 notify.py，backup_db.sh 失败发邮件（原仅日志无告警，静默丢备份风险消除）。
 - **P1-4 恢复演练 verify_backup.sh**（500b7338）：从 R2 拉备份解压，integrity 校验 + 行数对比，只读不改生产 DB。weekly/monthly 是归档层不参与每日演练。
 - **P1-5 R2 多版本保留分层**（0c22524f）：日备份成功后调 `_maybe_upload_weekly`（本周首次 ISO week）+ `_maybe_upload_monthly`（本月首次 year+month）上传周月副本，复用日备份 payload 不重复传。周号用 isocalendar，月号用 year+month，节假日顺延到本周/月首次交易日。防长期损坏无历史回溯。

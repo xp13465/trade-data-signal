@@ -22,7 +22,7 @@
 |---|---|---|---|---|---|
 | ① trade git | 代码(app/scripts/static-site 源码,不含 data/) | 本机 main + GitHub 远端 + 云上 trade-data-signal 三处 | 今天 18:25 merge `101073af8`(三处 hash 一致) | 增量 commit | GitHub 永久 |
 | ② staticdata git | 差异日志(小 JSON/news_digest/signal_kelly_snapshots)+ config/launchd(历史 plist 存档);**9 大目录 31239 文件 2026-09-30 已 git rm --cached 移出** | 云上 staticdata 仓 + GitHub 远端 + 本机镜像(过时) | 今天 18:19 `0a64585`(backup all 10 files) | 增量,deploy/生成器触发 | GitHub 永久 |
-| ③ R2 signal-backup 私有桶 | DB(sentiment / etf_national_team .gz)+ large-json 固定前缀(9 目录唯一完整副本)+ decommissioned + claude-backup | R2(Cloudflare) | DB 昨天 21:00;large-json 今天 17:25(状态文件) | DB 日备;large-json 增量复用 | backup 30 天 / weekly 28 / monthly 365;large-json 唯一副本不滚动删 |
+| ③ R2 signal-backup 私有桶 | DB(sentiment / etf_national_team .gz)+ large-json 固定前缀(9 目录唯一完整副本)+ decommissioned + claude-backup | R2(Cloudflare) | DB 昨天 21:00;large-json 今天 17:25(状态文件) | DB 日备;large-json 增量复用 | backup 14 天(2026-10-03 由 30 减)/ weekly 28 / monthly 365;large-json 唯一副本不滚动删 |
 | ④ R2 signal-data 公开桶 | 线上数据产物(fund_nav 26458 / etf 1718 / accum_nav 1718 / index / lab / trade_sim 等 31476 对象) | R2(CF,ssd.fx8.store) | 每日 deploy 上传;verify-r2 周日全量对账 | 增量引擎 + 周日全量 HEAD | 分发层,源 = static-site,无独立滚动删 |
 
 **补充事实(DB 子集)**:
@@ -89,7 +89,7 @@ ssh 云上 md5sum .../README.md                                               # 
 |---|---|---|---|---|---|
 | large-json 固定前缀 | 云上磁盘 9 目录 + 根级 7 大 JSON = **31673** | 枚举 31673 key | **0** | **0** | **MISSING=0** ✓ |
 | large-json 状态文件 | upload_r2 `.r2_large_json_state.json` count | **31673**(2026-10-03T17:25, 增量) | — | — | 三方吻合 ✓ |
-| R2 backup/ DB | 每日 2 DB × 30 天 | 54 对象 = 27 天 × 2(09-03~10-02) | 迁云前空窗 09-05/06/12(共 3 天,当时云上未建成) | 0 | 09-13 起逐日连续 ✓ |
+| R2 backup/ DB | 每日 2 DB × 14 天(2026-10-03 由 30 减) | 54 对象 = 27 天 × 2(09-03~10-02) | 迁云前空窗 09-05/06/12(共 3 天,当时云上未建成) | 0 | 09-13 起逐日连续 ✓;下次 upload-db 起按 14 天窗口滚动 |
 | R2 公开桶 | static-site/data 全部产物 | 31476 对象(抽样 PASS) | 未逐对象比对(分发层,verify-r2 周日全量对账机制覆盖) | — | 抽样 PASS |
 
 **memory「R2 大 JSON 灾备从无完整快照 + key 按天翻滚」当前状态(核实结论)**:该缺陷**已由 #126 根治**。2026-09-30 起 large-json key 改**固定前缀** `large-json/<相对data路径>.gz`(无日期),内容不变跨天复用(HEAD ETag 幂等),不再按天翻滚归零。**实测当前 R2 large-json 固定前缀 = 完整快照(31673/31673,MISSING=0)**。legacy 按天目录(09-25~09-30)仍在(27689 对象 ≈0.44GiB),7 天宽限期后由 `_prune_large_json` 自动清理(10-07 前后),逃生门 `R2_LARGE_JSON_DATE_PREFIX=1` 保留。

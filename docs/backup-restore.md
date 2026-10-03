@@ -17,8 +17,8 @@ sentiment.db / etf_national_team.db 的备份机制 + 事故恢复流程。
    - 产出 `data/backups/<name>_YYYYMMDD_HHMM.db`，保留 14 天滚动（`find -mtime +14 -delete`）
 2. **R2 异地备份**（`backup_db.sh` L82-88 调 `upload_r2.py upload-db`）：
    - gzip 压缩上传（102MB→30MB），私有桶 `signal-backup`
-   - 三层保留：日 `backup/` 30 天 + 周 `weekly/` 28 天 + 月 `monthly/` 365 天
-   - `_prune_r2_backup` 分层清理（代码 + R2 lifecycle 双保险）
+   - 三层保留：日 `backup/` 14 天 + 周 `weekly/` 28 天 + 月 `monthly/` 365 天（日备份 2026-10-03 由 30 天缩减至 14 天，方案见 docs/ops/r2-backup-bucket-capacity-20261002.md）
+   - `_prune_r2_backup` 分层清理（代码为主；R2 lifecycle 是否在位未实测——GetBucketLifecycleConfiguration 403，需 CF 控制台/更高权限 token 确认）
 3. **恢复演练**（`backup_db.sh` L95-101 调 `verify_backup.sh`）：
    - 从 R2 下载最新 → `PRAGMA integrity_check` → 关键表 `COUNT(*)` 与本地对比
    - 全程只读 `mode=ro`，不动真实 `data/*.db`
@@ -33,7 +33,7 @@ sentiment.db / etf_national_team.db 的备份机制 + 事故恢复流程。
 
 | 层级 | 路径 | 保留 | 用途 |
 | --- | --- | --- | --- |
-| 日备份 | `backup/<name>_YYYYMMDD.db.gz` | 30 天 | 每日恢复点（首选） |
+| 日备份 | `backup/<name>_YYYYMMDD.db.gz` | 14 天 | 每日恢复点（首选） |
 | 周备份 | `weekly/<name>_YYYYMMDD.db.gz` | 28 天（4 周） | 本周首次上传，跨周损坏兜底 |
 | 月备份 | `monthly/<name>_YYYYMMDD.db.gz` | 365 天（12 月） | 本月首次上传，长期归档 |
 

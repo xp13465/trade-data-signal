@@ -294,7 +294,7 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 ### DB 备份
 
 - 每天 3:17 `com.trade.self-backup`（launchd）备份 memory + CLAUDE.md + NOTES/TASKS 到 `~/.claude/backups/daily/`（保留 30 天）。
-- R2 `signal-backup` 私有桶：DB gz 分层（backup/30 天 + weekly/28 天 + monthly/365 天）。`upload_r2.py upload-db` 推，`download-db <name>` 下载恢复。
+- R2 `signal-backup` 私有桶：DB gz 分层（backup/14 天 + weekly/28 天 + monthly/365 天，日备份 2026-10-03 由 30 天减至 14 天）。`upload_r2.py upload-db` 推，`download-db <name>` 下载恢复。
 
 ---
 
