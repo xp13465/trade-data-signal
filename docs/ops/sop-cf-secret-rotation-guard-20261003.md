@@ -35,6 +35,7 @@ npx --no-install wrangler deployments list     # 看当前 active deployment(顶
   ```
 - **解法 B(官方「use wrangler versions secret put」方案)**:`npx wrangler versions secret put <NAME> <value>` + `npx wrangler versions deploy <version-id> --yes`。
   ⚠️ 实测注意:version-scoped secret **随版本生效**,只 `versions secret put` 不 deploy 不改变线上(2026-10-03 晚实测线上仍是旧值)→ **必须跟 `versions deploy`** 才影响线上。
+  ⚠️⚠️ **硬护栏(爆炸半径,出错=生产 worker 回退)**:`versions deploy <version-id>` 的 **version-id 必须取自刚才 `versions secret put` 自己产出的那个版本**(命令输出里会打印);**严禁填入任何悬挂/历史版本 id**——尤其 **`b1f38e8c`** 这类 dangling/preview 版本内容比线上旧,部署它会把生产 worker 直接回退。拿不准先 `npx --no-install wrangler versions list` 核实版本来源与时间;**不确定就停下问,别猜、别试**。
 
 改完立即验证(以 PURGE_SECRET 为例,不带 -v/-i 防泄漏):
 ```bash
@@ -63,19 +64,26 @@ curl -s -X POST -o /dev/null -w '%{http_code}' https://ss.fx8.store/api/purge-ca
 
 > 副作用:非 main 分支不再有 CF preview(项目部署主路径已是 GH Actions `deploy-cf` 只监听 main,无业务损失)。Git integration 仍保留=生产 main push 双保险兜底(GH Actions 失败时 build+deploy 仍会跑)。**不要**点「Disconnect」断掉整个 Git integration(断开会同时失去 main 生产兜底)。
 
-**关闭后的决定性验证(动手前先做)**,必须真推到远端验证,不认「设置显示已关」:
+**关闭后的决定性验证(严格「先关、后验」顺序,别反)** —— 必须真推到远端验证,不认「设置显示已关」。**顺序铁律:先在 dashboard 把开关关掉并保存(上文第 1~6 步),再推测试分支验证;反过来会白白再建一个 preview 版本、把验证误判成 FAIL。**
+
+**顺序:① 先在 dashboard 取消勾选 Enable Preview Builds 并保存 → ② 再推一次性测试分支 → ③ 等 ~60 秒 → ④ 查 versions list → ⑤ 验完删测试分支。**
 ```bash
-# 1) 记当前最新版本数/号,作为基线
-npx --no-install wrangler versions list | head -3
-# 2) 推一次性测试分支(feat 分支名连字符化=可能出现的 preview alias,如 test-preview-off-verify)
+# ① (前置,必经)dashboard 关开关:Workers & Pages → trade-data-signal → Settings → Builds → Branch control → 取消勾选 Enable Preview Builds → 保存。
+#    没关开关之前【不要】推下面的测试分支。
+
+# ② 推一次性测试分支(分支名连字符化=若开关未生效会出现的 preview alias,如 test-preview-off-verify)
 git checkout -b test/preview-off-verify  &&  git commit --allow-empty -m "test: preview builds verification"  &&  git push origin test/preview-off-verify
-# 3) 等 60 秒(四连实测 push 后 23~35 秒内创建 preview 版本),再查:
+
+# ③ 等 ~60 秒(四连实测 push 后 23~35 秒内创建 preview 版本)后再查:
+
+# ④ 查版本链(可先记基线版本数/号再对比)
 npx --no-install wrangler versions list | head -3
-#    PASS = 没有出现 alias=test-preview-off-verify 的 has_preview=true 新版本(新增版本号数量=0)
+#    PASS = 没有出现 alias=test-preview-off-verify 的 has_preview=true 新版本(新增版本号数量=0)→ 开关真关了
 #    FAIL  = 出现了新 preview 版本 → 开关未生效/另有来源,停下上报,不继续
-# 4) 清理测试分支(必经):
+
+# ⑤ 清理测试分支(必经,远+近都删):
 git push origin --delete test/preview-off-verify
-git checkout feat/cf-preview-off-20261003 && git branch -D test/preview-off-verify
+git checkout <原工作分支，如 feat/cf-preview-off-20261003> && git branch -D test/preview-off-verify
 ```
 
 **后备手段(仅当 dashboard 里完全没有 Build/Branch control 入口时)**:用一个带 **Workers Builds Configuration Edit** 权限的 **user-scoped** API token(account-scoped 不支持)调账户级 builds API:
