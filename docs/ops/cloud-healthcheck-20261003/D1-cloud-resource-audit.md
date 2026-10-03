@@ -109,7 +109,7 @@ staticdata: data 2.7G(fund_nav 578M/nav_bucket 537M/trade_sim 369M 等 9 目录)
 ## 5 资源告警覆盖
 
 **现状:磁盘/内存/inode 阈值告警 = 盲区。**
-- schedule_monitor.sh 9 维度:①漏跑 ②退出失败 ③异常关键词 ④耗时阈值 ⑤launchctl/systemd 加载 ⑥产物时效+R2 直连 ⑦飞书配置 ⑧飞书 hook 心跳 ⑨ws listener 心跳——**均不检查 df 使用率/inode/内存/swap**
+- schedule_monitor.sh 9 维度:①漏跑 ②退出失败 ③异常关键词 ④耗时阈值 ⑤launchctl/systemd 加载 ⑥产物时效+R2 直连 ⑦飞书配置 ⑧飞书 hook 心跳 ⑨ws listener 心跳——**均不检查 df 使用率/inode/内存/swap** <!-- staleness-ok: 转述 schedule_monitor.sh 现状检查维度(脚本 L15 仍含 launchctl 加载检查),非现行调度口径声明 -->
 - 只读 grep 证据:schedule_monitor.sh 全文无 `df -`/`inode`/`disk` 维度;backup_db.sh 只在备份失败时告警(磁盘满会间接显形,但被动且当晚才发现);check_data_gap 只查数据缺口(非资源)
 - 09-30 磁盘 92% 是**人工**诊断发现,不是告警拉响;11G 可用没有自动兜底
 

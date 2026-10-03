@@ -21,7 +21,7 @@
 | 层 | 备份对象 | 存放位置 | 最近备份 | 增量/全量 | 保留策略 |
 |---|---|---|---|---|---|
 | ① trade git | 代码(app/scripts/static-site 源码,不含 data/) | 本机 main + GitHub 远端 + 云上 trade-data-signal 三处 | 今天 18:25 merge `101073af8`(三处 hash 一致) | 增量 commit | GitHub 永久 |
-| ② staticdata git | 差异日志(小 JSON/news_digest/signal_kelly_snapshots)+ config/launchd;**9 大目录 31239 文件 2026-09-30 已 git rm --cached 移出** | 云上 staticdata 仓 + GitHub 远端 + 本机镜像(过时) | 今天 18:19 `0a64585`(backup all 10 files) | 增量,deploy/生成器触发 | GitHub 永久 |
+| ② staticdata git | 差异日志(小 JSON/news_digest/signal_kelly_snapshots)+ config/launchd(历史 plist 存档);**9 大目录 31239 文件 2026-09-30 已 git rm --cached 移出** | 云上 staticdata 仓 + GitHub 远端 + 本机镜像(过时) | 今天 18:19 `0a64585`(backup all 10 files) | 增量,deploy/生成器触发 | GitHub 永久 |
 | ③ R2 signal-backup 私有桶 | DB(sentiment / etf_national_team .gz)+ large-json 固定前缀(9 目录唯一完整副本)+ decommissioned + claude-backup | R2(Cloudflare) | DB 昨天 21:00;large-json 今天 17:25(状态文件) | DB 日备;large-json 增量复用 | backup 30 天 / weekly 28 / monthly 365;large-json 唯一副本不滚动删 |
 | ④ R2 signal-data 公开桶 | 线上数据产物(fund_nav 26458 / etf 1718 / accum_nav 1718 / index / lab / trade_sim 等 31476 对象) | R2(CF,ssd.fx8.store) | 每日 deploy 上传;verify-r2 周日全量对账 | 增量引擎 + 周日全量 HEAD | 分发层,源 = static-site,无独立滚动删 |
 
@@ -157,8 +157,8 @@ ssh 云上 md5sum .../README.md                                               # 
 
 ### P1(本周)
 **P1-1 本机 staticdata 镜像过时且无自动同步**
-- 现象:本机 `~/code/trade-data-signal-staticdata` HEAD `c8a0a46`(09-26)vs 远端 `0a64585`(10-03),落后 7 天;本机 mac 无相关 launchd(定时任务全在云上),镜像仅人工更新。
-- 证据:本机/远端 `git log -1` 对比;`ls ~/Library/LaunchAgents/` 无 staticdata 同步 job。
+- 现象:本机 `~/code/trade-data-signal-staticdata` HEAD `c8a0a46`(09-26)vs 远端 `0a64585`(10-03),落后 7 天;本机 mac 无相关 launchd(已迁云,定时任务全在云上),镜像仅人工更新。
+- 证据:本机/远端 `git log -1` 对比;`ls ~/Library/LaunchAgents/` 无 staticdata 同步 job。 <!-- staleness-ok: 证据命令输出,描述本机 LaunchAgents 无 staticdata 同步 job(否定声明),非现行调度口径 -->
 - 影响:本机作为"异地副本"的时效性失效(9 目录外的小文件差异日志也不最新);当前靠 R2 large-json(最新完整)兜底,风险可控。
 - 建议:①明确"本机 staticdata 镜像非实时灾备、仅回退保险"降级标注 ②或加周度手动 `git fetch origin && git merge --ff-only origin/main`。
 
