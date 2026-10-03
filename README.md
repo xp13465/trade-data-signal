@@ -469,7 +469,7 @@ docs/kelly/             # 凯利回测专题文档子目录（2026-08-14 按主�
 本看板仅供学习研究，**不构成投资建议**。买卖点信号为历史回测参考，胜率接近随机，不可作为独立交易依据。
 数据准确性受数据源限制，请以官方披露为准。数据挖掘发现的降亏标志为统计特征，存在过拟合与漂移风险，使用前请复核 4 窗口稳定性。
 
-> **🔐 凭证安全提示（2026-09-12 PURGE_SECRET 泄漏事件）**：`PURGE_SECRET`（CF `/api/purge-cache` 清缓存凭证）曾在公开仓库 git 历史中短暂以明文出现（已从 head 快照去除，改为 `EnvironmentFile` 从服务器 `.env` 读）。**2026-10-03 用户拍板翻案并已轮换**：旧值自 09-12 泄漏后公开 21 天，harm 边界经复核仅限清缓存（能力有限但无必要持续承担），趁国庆休市窗口完成 4 处轮换（Worker secret + 本地/云上三处 `.env`），验证新值 200 / 旧值 403，旧值已全部失效；历史明文无法被常规 diff 扫到，**未 force push 清历史**。⚠️ 任何新 secret/凭证**切勿明文提交进 git**，一律走 `trade-data/.env`（gitignored）+ `EnvironmentFile`/环境变量注入；请勿再次引入同类敞口。
+> **🔐 凭证安全提示（2026-09-12 PURGE_SECRET 泄漏事件）**：`PURGE_SECRET`（CF `/api/purge-cache` 清缓存凭证）曾在公开仓库 git 历史中短暂以明文出现（已从 head 快照去除，改为 `EnvironmentFile` 从服务器 `.env` 读）。**2026-10-03 用户拍板翻案并已轮换**：旧值自 09-12 泄漏后公开 21 天，harm 边界经复核仅限清缓存（能力有限但无必要持续承担），趁国庆休市窗口完成 4 处轮换（Worker secret + 本地/云上三处 `.env`），验证新值 200 / 旧值 403，旧值已全部失效；历史明文无法被常规 diff 扫到，**未 force push 清历史**。⚠️ 任何新 secret/凭证**切勿明文提交进 git**，一律走 `trade-data/.env`（gitignored）+ `EnvironmentFile`/环境变量注入；请勿再次引入同类敞口。改 CF Worker secret 前先过**前置守卫检查**（`wrangler versions list` + `deployments list` 确认 latest 已部署，不满足先 deploy 规范代码再改，避免「latest isn't deployed」拦截），全文见 [`docs/ops/sop-cf-secret-rotation-guard-20261003.md`](docs/ops/sop-cf-secret-rotation-guard-20261003.md)。
 
 ## 📄 License
 
