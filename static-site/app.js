@@ -15908,6 +15908,14 @@ async function renderOverview() {
       const GLOBAL_TICKER_STORAGE_KEY = "global_ticker_order_v1";
       let _gtEl = null, _gtTrack = null, _gtTimer = null, _gtActive = false;
       let _gtData = {}, _gtInFlight = false, _gtFailCount = 0, _gtVisBound = false, _gtGroupHtml = "";
+      // 2026-10-04 东财源失败冷却(A1.2 覆盖盲区根治): 东财 push2delay 在休市日对单只 stock/get 返回
+      //   ERR_EMPTY_RESPONSE(空体), 旧逻辑东财失败→腾讯/备源补上→anyOk=true→_gtFailCount=0→每轮 30s 都重试
+      //   东财 9 条, 休市日整日无限刷, 永无止境。现: 单轮东财 9 条全败→记冷却截止; 冷却内 _gtFetchEast
+      //   直接短路不发请求(网络层不出错, 数据由腾讯/备源提供), 冷却结束重新试探——与 A1.1
+      //   _emGlobalTripCooldown(_EM_GLOBAL_TRIP_COOLDOWN_MS) 同语义同量级(5min)。仅短路东财这一个源,
+      //   跑马灯照常轮询: 美股/黄金/WTI/布伦特/纳指/美元指数/离岸CNH/USDJPY 周末照常交易, 绝不停整个跑马灯。
+      const _GT_EM_COOLDOWN_MS = 5 * 60 * 1000;   // 东财源冷却期(试探频率=5min一次, 与 A1.1 同量级)
+      let _gtEmTripUntil = 0;                     // 东财源冷却截止时间戳(0=未冷却)
 
       function _gtOrder() {
         let order = [];
@@ -15920,6 +15928,8 @@ async function renderOverview() {
 
       // 主源:东财 push2delay 单只 stock/get(现货全8,逐只并行;ulist 批量当前失效走单只)
       async function _gtFetchEast() {
+        // A1.2 东财源冷却: 冷却期内直接短路, 0 请求(网络层根本不出错), 返回空让上层走腾讯/备源补数
+        if (Date.now() < _gtEmTripUntil) return {};
         const results = {};
         await Promise.all(GLOBAL_TICKER_ITEMS.map(async (item) => {
           const url = `https://push2delay.eastmoney.com/api/qt/stock/get?secid=${item.east.secid}&fields=f43,f58,f60,f86,f170`;
@@ -16085,6 +16095,14 @@ async function renderOverview() {
         try {
           let east = {};
           try { east = await _gtFetchEast(); } catch (e) { east = {}; }
+          // A1.2 东财源失败冷却触发: 本轮(非冷却期试探)东财 9 条全败(休市空体/接口异常) -> 记冷却截止,
+          //   冷却内 _gtFetchEast 短路不再发请求, 数据全程由腾讯/备源供。幂等: 已有冷却期不重复设置,
+          //   冷却结束下次全败重新触发(与 A1.1 触发语义一致, 防东财恢复后永久短路)。
+          if (Object.keys(east).length === 0 && Date.now() >= _gtEmTripUntil) {
+            _gtEmTripUntil = Date.now() + _GT_EM_COOLDOWN_MS;
+            console.warn('[global-ticker] 东财源本轮 9 条全败(休市或接口异常), 冷却 '
+              + (_GT_EM_COOLDOWN_MS / 60000) + 'min 内直连腾讯/备源补数');
+          }
           const missing = GLOBAL_TICKER_ITEMS.filter(i => !east[i.key]).map(i => i.key);
           let tx = {};
           if (missing.length) { try { tx = await _gtFetchTx(missing); } catch (e) {} }
