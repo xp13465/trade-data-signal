@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """持锁执行命令（跨平台 fcntl.flock，macOS/Linux 通用）。
 
-用法: python with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒>] <lockfile> <cmd> [args...]
+用法: python with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] <lockfile> <cmd> [args...]
 持独占锁(LOCK_EX)执行 cmd；进程退出（含崩溃/被杀）锁自动释放。
 
   --nb            非阻塞：锁已被占则不等待，直接 exit 0 跳过（用于"重复跑跳过"场景）。
@@ -15,6 +15,12 @@
                   （fcntl LOCK_NB 循环 + sleep 小间隔），累计等待超过 N 秒仍未拿到锁
                   → notify 告警 + 优雅跳过（exit 0，不当作崩溃、不触发 systemd failed，
                   但必须通知：数据可能缺失需补跑，防静默丢）。
+  --on-timeout <cmd>  仅与 --block-timeout 配合：排队超时跳过时先执行 cmd
+                  （把锁路径作为参数传给 cmd：`cmd <lockpath>`），再 exit 0。
+                  与 --nb 的 --on-skip 对称：--on-skip 管"立即跳过"，--on-timeout 管
+                  "等界内没拿到锁的跳过"。设置后替代内置 notify（调用方自定留痕钩子，
+                  如 r2_upload_skip_notify.sh 写并发跳过标记供在跑实例收尾补跑）。
+                  不影响未设置时的内置 notify 行为。
 
 用途：
   - 多 pipeline 并发时串行化 git commit+push（阻塞），避免 .git/index.lock
@@ -39,10 +45,11 @@ args = sys.argv[1:]
 nonblock = False
 on_skip = None
 block_timeout = 0
+on_timeout = None
 
 # 解析 --nb（无值开关）、--on-skip <cmd>（有值，取一个 token 作为命令名）、
-# --block-timeout <秒>（有值，排队等锁超时护栏）
-# --on-skip 后紧跟的 token 是要执行的命令（如 scripts/on_skip_notify.sh），
+# --block-timeout <秒>（有值，排队等锁超时护栏）、--on-timeout <cmd>（超时跳过钩子）
+# --on-skip / --on-timeout 后紧跟的 token 是要执行的命令（如 scripts/on_skip_notify.sh），
 # 该命令自己解析后续参数。这里只取命令名，不吞其参数。
 rest = []
 i = 0
@@ -53,13 +60,13 @@ while i < len(args):
         i += 1
     elif a == "--on-skip":
         if i + 1 >= len(args):
-            print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒>] <lockfile> <cmd> [args...]", file=sys.stderr)
+            print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] <lockfile> <cmd> [args...]", file=sys.stderr)
             sys.exit(2)
         on_skip = args[i + 1]
         i += 2
     elif a == "--block-timeout":
         if i + 1 >= len(args):
-            print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒>] <lockfile> <cmd> [args...]", file=sys.stderr)
+            print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] <lockfile> <cmd> [args...]", file=sys.stderr)
             sys.exit(2)
         try:
             block_timeout = int(args[i + 1])
@@ -67,13 +74,19 @@ while i < len(args):
             print(f"with_lock.py: --block-timeout 需为整数秒，收到 '{args[i + 1]}'", file=sys.stderr)
             sys.exit(2)
         i += 2
+    elif a == "--on-timeout":
+        if i + 1 >= len(args):
+            print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] <lockfile> <cmd> [args...]", file=sys.stderr)
+            sys.exit(2)
+        on_timeout = args[i + 1]
+        i += 2
     else:
         rest.append(a)
         i += 1
 args = rest
 
 if len(args) < 2:
-    print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒>] <lockfile> <cmd> [args...]", file=sys.stderr)
+    print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] <lockfile> <cmd> [args...]", file=sys.stderr)
     sys.exit(2)
 
 lockpath = args[0]
@@ -148,7 +161,14 @@ try:
                 waited += poll_interval
         if not acquired:
             print(f"[with_lock] {lockpath} 排队等锁超时（>{block_timeout}s），优雅跳过（exit 0）", file=sys.stderr)
-            _notify_block_timeout(waited)
+            if on_timeout:
+                try:
+                    # --on-timeout 钩子替代内置 notify（调用方自定留痕/标记），语义同 --on-skip
+                    subprocess.run([on_timeout, lockpath])
+                except Exception as e:  # noqa: BLE001
+                    print(f"[with_lock] --on-timeout 执行失败（不阻塞跳过）：{e}", file=sys.stderr)
+            else:
+                _notify_block_timeout(waited)
             sys.exit(0)
     else:
         fcntl.flock(f, fcntl.LOCK_EX)

@@ -591,11 +591,12 @@ if [ "${R2_ASYNC_UPLOAD:-1}" = "0" ]; then
   unset _R2RC
 else
   # 异步触发(默认): 云上 systemd transient service(独立 cgroup, deploy 退出不清理); 本地 nohup fallback。
-  # async 持 /tmp/trade_r2_upload_async.lock(--nb): 并发触发(多 pipeline deploy 并发/force 重跑)
-  # 直接跳过, 已在跑那趟负责完成+告警; 上传幂等+增量指纹+checkpoint+verify-r2 对账, 跳过不丢数据。
-  # 数据上线允许延迟 ≤1~2h(下一趟 deploy 的 R2 增量 + verify-r2 对账兜底)。
+  # async 持 /tmp/trade_r2_upload_async.lock(--block-timeout 默认 600s, 2026-10-04 ③ 取代原 --nb):
+  # 并发触发(多 pipeline deploy 并发/force 重跑)先有界等待; 锁在界内释放则继续(幂等增量);
+  # 超界才跳过+留痕(r2_upload_skip_notify.sh 写并发跳过标记, 在跑实例收尾增量补跑数据通道一次),
+  # 保证「某交易日数据因 async 跳过」同日内补上 R2, 不拖到下一趟 deploy。
   # 锁跳过留痕(2026-10-04 P1 修 review F1): DEPLOY_LOG env 传给 async, async 被跳过时
-  # r2_upload_skip_notify.sh 往本 deploy 日志写显式一行 + 落 latest.md(不再只进 journal)。
+  # r2_upload_skip_notify.sh 往本 deploy 日志写显式一行 + 落 latest.md + 写并发跳过标记(不再只进 journal)。
   if command -v systemd-run >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
     sudo -n systemd-run --collect --unit="r2-upload-$(date +%H%M%S)" \
       --uid="$(id -u)" --gid="$(id -g)" \
