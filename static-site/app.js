@@ -2659,6 +2659,31 @@ async function _appendOverfitCard(colA2, r, snap) {
 // 2026-08-05 信号 ETF 数据缓存：index_id -> etfs（_renderSignalGrid 填充，hoverpop 取 top1 显名称代码）。
 let _sigEtfCache = {};
 
+// 2026-10-04 内存卫生(常驻看板): _sigEtfCache 按 index_id|date 无界累积(每天跨日新增几十个 key, 原无任何清理,
+// 审计判定为全站唯一严格无界模块级对象)。现加有界驱逐:
+//   - key 两类: ① index_id(latest, 数量=index 数, 有界, 永不驱逐) ② index_id|date(per-signal, 无界来源)。
+//   - 驱逐策略: 只保留最近 _SIG_ETF_CACHE_MAX_DATES(250) 个不同日期的 per-signal key。
+//   - 窗口论证: 渲染数据源最大覆盖 recent_freeze「近120个交易日」(L17196 文案), 250 远大于 120 →
+//     正常使用(含翻历史窗口)绝不触发; 跨日累积是「每天 +1 个新日期」→ 250 个不同日期 ≈ 250 交易日 ≈ 1 年,
+//     仅页面常驻近 1 年的极端长跑才触发, 触发后也有上界(250 日期 × index 数)。
+//   - 零行为变更: 被驱逐的必为窗口外老日期, 该类 cell 不在渲染范围(用户不可见/不可 hover);
+//     可见 cell 的 date 都在窗口内, 写入后立即被 trim 保留。驱逐只删内存 key, 不触发任何请求。
+const _SIG_ETF_CACHE_MAX_DATES = 250;
+function _sigEtfCacheTrim() {
+  const _dates = new Set();
+  for (const _k in _sigEtfCache) {
+    const _i = _k.indexOf("|");
+    if (_i > 0) _dates.add(_k.slice(_i + 1));
+  }
+  if (_dates.size <= _SIG_ETF_CACHE_MAX_DATES) return;
+  const _sorted = Array.from(_dates).sort();
+  const _keep = new Set(_sorted.slice(-_SIG_ETF_CACHE_MAX_DATES));
+  for (const _k in _sigEtfCache) {
+    const _i = _k.indexOf("|");
+    if (_i > 0 && !_keep.has(_k.slice(_i + 1))) delete _sigEtfCache[_k];
+  }
+}
+
 // 2026-08-08 fix: market tab 走势卡 etf-tag-pnl(至今盈亏)不显示。根因 _sigEtfCache 只在 overview tab
 // _renderSignalGrid(L1664-1670)填充,market tab 不调 renderOverview 致 _sigEtfCache 空 ->
 // _appendEtfLinkTag L15231 _cached 空 -> 不合并 etf_since_return -> _top0Text 空 -> 不生成 etf-tag-pnl。
@@ -2684,6 +2709,7 @@ async function _ensureSigEtfCacheFromOverview() {
       if (!_sigEtfCache[it.index_id]) _sigEtfCache[it.index_id] = it.etfs;
     }
   }
+  _sigEtfCacheTrim(); // 2026-10-04 内存卫生: 写入后驱逐窗口外老日期(见定义处注释, 正常使用绝不触发)
 }
 
 // ===== 信号冻结快照(2026-09-23 首页历史日期漂移根治) =====
@@ -6232,6 +6258,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         if (!_sigEtfCache[it.index_id]) _sigEtfCache[it.index_id] = it.etfs;
       }
     }
+    _sigEtfCacheTrim(); // 2026-10-04 内存卫生: 写入后驱逐窗口外老日期(见定义处注释, 正常使用绝不触发)
   }
   // 列表子筛选谓词（grade/correct/type）：只影响列表显示，不影响汇总条（汇总条显人口全量便于对比）。
   // 提取为谓词供 popItems->filtered 与 ETF 按钮计数基线(_statItems)复用，确保 5 个筛选正交联动：
@@ -15715,6 +15742,12 @@ async function renderAlertBar(host) {
   }
 }
 
+// 2026-10-04 内存卫生(常驻看板): 全球跑马灯 visibilitychange listener 单例持有引用。
+// _initGlobalTicker 每次 renderOverview 重建闭包都调用注册(listener 闭包捕获当前闭包的 _gtActive/_gtTick,
+// 不能只注册一次——旧闭包已死, 只注册一次会绑定到死闭包永不刷新)。正确解=同一时刻只保留最新闭包的 listener:
+//   每次重建先 removeEventListener(旧闭包 listener 引用)再 add(new), 数量恒=1, 旧闭包 listener 被移除不累积。
+let _gtVisChangeHandler = null;
+
 async function renderOverview() {
   // P1-8(2026-08-05): 首屏单 fetch boot.json 合并 11 个 JSON（请求数 22 -> 2）。
   // boot.json 含 overview/signal_stats/intraday_snapshot/summary/alert/ma_alignment/position/
@@ -15911,7 +15944,7 @@ async function renderOverview() {
       ];
       const GLOBAL_TICKER_STORAGE_KEY = "global_ticker_order_v1";
       let _gtEl = null, _gtTrack = null, _gtTimer = null, _gtActive = false;
-      let _gtData = {}, _gtInFlight = false, _gtFailCount = 0, _gtVisBound = false, _gtGroupHtml = "";
+      let _gtData = {}, _gtInFlight = false, _gtFailCount = 0, _gtGroupHtml = "";
       // 2026-10-04 东财源失败冷却(A1.2 覆盖盲区根治 + 2026-10-04 用户拍板修正): 东财 push2delay 在休市日对单只
       //   stock/get 返回 ERR_EMPTY_RESPONSE(空体), 旧逻辑东财失败→腾讯/备源补上→anyOk=true→_gtFailCount=0→
       //   每轮 30s 都重试东财 9 条, 休市日整日无限刷, 永无止境。现分两档:
@@ -16213,10 +16246,10 @@ async function renderOverview() {
         _gtTrack = wrap.querySelector(".gt-track");
         wrap.querySelector(".gt-gear").addEventListener("click", _gtOpenSortModal);
         _gtActive = true;
-        if (!_gtVisBound) {
-          _gtVisBound = true;
-          document.addEventListener("visibilitychange", () => { if (!document.hidden && _gtActive) { if (!_gtDeadGuard()) return; _gtTick(true); } });
-        }
+        // 2026-10-04 内存卫生: 每次重建 remove 旧闭包 listener + add 新闭包 listener, 恒=1 个不累积(见 _gtVisChangeHandler 声明注释)。
+        if (_gtVisChangeHandler) { document.removeEventListener("visibilitychange", _gtVisChangeHandler); _gtVisChangeHandler = null; }
+        _gtVisChangeHandler = () => { if (!document.hidden && _gtActive) { if (!_gtDeadGuard()) return; _gtTick(true); } };
+        document.addEventListener("visibilitychange", _gtVisChangeHandler);
         _gtTick(true);
       }
       // ================= 全球盘面跑马灯 END =================
@@ -19438,7 +19471,13 @@ function _lwSetHeight(container, h) {
 function _reRenderHomeCharts() {
   for (const [container, fn] of Array.from(_lwRenderers.entries())) {
     if (container && container.isConnected) { try { fn(); } catch (e) {} }
-    else _lwRenderers.delete(container);
+    else {
+      // 2026-10-04 内存卫生: 断连容器从 _lwRenderers/_lwCfgMap/_lwZoomMap 三处一并清, 防断连节点 key 残留
+      // (切 tab 重建 × 图表数)。WeakMap 虽依赖 GC, 但显式 delete 让引用链即时断开, 行为零变化(断连容器不再渲染)。
+      _lwRenderers.delete(container);
+      _lwCfgMap.delete(container);
+      _lwZoomMap.delete(container);
+    }
   }
   if (typeof _reRenderHomeSpark === "function") _reRenderHomeSpark();
   if (typeof _renderEtfScoreBody === "function") _renderEtfScoreBody();
