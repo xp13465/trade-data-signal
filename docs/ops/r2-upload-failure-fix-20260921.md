@@ -57,44 +57,66 @@ upload_r2.py verify-channels [desc...]
 - 任一片失败 → `DELETE /key?uploadId=` abort, 错误只重传片不整文件
 - multipart 对象 ETag="xxx-N"(non-md5)→ **verify 对账改「存在+Content-Length==本地大小」**判定
 
-## 改动 4: 周日错峰(方案说明, 本期不 ssh 改云上)
+## 改动 4: 周日错峰(2026-10-04 已落地: Sun 22:30, 非原建议 01:00)
 
-### 现状
+### 现状(2026-10-04 调研核对)
 - 周日 force_full 全量(etf-hist 116MB/fund-nav 577MB/trade_sim 368MB + verify-r2 全量 ~3 万 key HEAD)由 upload_r2.py 内部 `weekday==6` 触发, deploy.sh 无时点判断可改
-- 时点全部在云上 systemd timer:17:50 由 `trade-update-all.timer`(OnCalendar=`*-*-* 17:50:00`)触发 update_all.sh → deploy.sh
+- 时点全部在云上 systemd timer:17:50 由 `trade-update-all.timer`(原 OnCalendar=`*-*-* 17:50:00`)触发 update_all.sh → deploy.sh
 
-### 建议方案(云上执行, 需用户拍板后实施)
-改 `/etc/systemd/system/trade-update-all.timer` 的 OnCalendar, 让周日全量大通道跑到凌晨带宽低谷:
+### ★ 原建议 01:00 已否决(2026-10-04 实跑云上 `systemctl list-timers` 全表核对)
+
+**01:00 起跑最长 ~3h(10-04 段1 10007s=2h48m / 09-20 10754s=2h59m)会跑到 ~04:00,与凌晨批全部撞车**(原文档第 2 条「距 ≥1h 不冲突」对 ~2.8~3h 长任务不成立,且漏列周日专属 timer):
+
+| 01:00 起 ~04:00 窗口内任务 | 时点 | 与 update_all 重叠? |
+|---|---|---|
+| trade-backfill-evening | 02:00(每日) | ✗ 重叠(02:00 起跑 deploy+补采) |
+| trade-pf-stage0-overview | 02:17(周日) | ✗ 重叠(实测 02:17→07:06 长跑) |
+| trade-gold-night | 02:40(每日) | ✗ 重叠(上传 global R2) |
+| trade-public-fund-quarterly | 03:00(每日) | ✗ 重叠(deploy public-fund → 双 R2 上传) |
+| trade-pf-score-weekly | 03:17(周日) | ✗ 重叠(upload-fund-score R2) |
+| trade-etf-track-index | 03:30(周日) | ✗ 重叠 |
+| trade-lof-track-index / quarterly | 04:00(周日/每日) | ✗ 重叠 |
+
+> 叠加风险:凌晨批多个任务自己跑 deploy.sh/upload_r2.py → 周日 weekday==6 下全 force_full → 与 update_all 并发 R2 上传 = **重复 PUT 放大(9 月 Class A 超免费额度事故同族)**。故 01:00 不可取。
+
+### 落地方案(2026-10-04 已实施):周日 22:30
+改 `/etc/systemd/system/trade-update-all.timer` 的 OnCalendar(云上已改+daemon-reload+restart, 已备份原文件):
 
 ```
 # 原
 OnCalendar=*-*-* 17:50:00
-# 改(周一到周六维持 17:50, 周日提前到 01:00)
+# 改(周一到周六维持 17:50, 周日错峰到 22:30)
 OnCalendar=Mon..Sat 17:50:00
-OnCalendar=Sun 01:00:00
+OnCalendar=Sun 22:30:00
 ```
+
+**撞车对照表(22:30 起最长 ~3h → ~01:30 周一):**
+
+| 时段 | 任务 | 与 22:30 起 update_all 重叠? |
+|---|---|---|
+| 周日 22:00 | trade-public-fund-full(实测 1~2s 完成) | 不重叠(已结束) |
+| 周日 22:30-23:00 | 无 trade 任务(nextday-plan/check-data-gap/overfit-monitor/turnover 均 Mon..Fri 不跑周日) | 空 |
+| 周日 23:00-周一 02:00 | 无 trade 任务(§14 安全窗口) | 空(update_all 主体跑完) |
+| 周一 02:00 | trade-backfill-evening | 不重叠(update_all 23:00+2h48m≈01:48 前已结束;最长 3h 也止于 01:30) |
 
 理由:
-1. 周日 01:00 处于带宽低谷(17:50 盘后高峰 + 各盘后任务避让)
-2. 与凌晨既有 timer 不冲突(均在 01:00 之前或之后距 ≥1h):
-   - trade-backfill-evening 02:00
-   - trade-gold-night 02:40
-   - trade-public-fund-quarterly 03:00
-   - trade-us-stock-morning 05:00
+1. 22:30 处于 §14 安全窗口(23:00 后)边缘且早于凌晨批;晚 22:00 全部盘后任务已结束(public-fund-full 1~2s)
+2. 起跑后与凌晨 02:00 backfill-evening 有 ≥30min 缓冲(09-20 最长 2h59m 也止于 01:30);不再与任何 R2/deploy 并发
 3. 避开盘后定时任务时点 15:35/16:00/17:50/20:35/22:00(§14)
-4. update_all.sh 非交易日(周日)默认「跳过采集仅 deploy 补推数据」, 01:00 跑 deploy 全量上传无数据采集依赖, 行为不变
-5. upload_r2.py `weekday==6` 判定基于运行当天日期 → 周日 01:00 跑仍命中 force_full, 逻辑无需改
+4. update_all.sh 非交易日(周日)默认「跳过采集仅 deploy 补推数据」, 22:30 跑 deploy 全量上传无数据采集依赖, 行为不变
+5. upload_r2.py `weekday==6` 判定基于运行当天日期 → 周日 22:30 跑仍命中 force_full(仍在周日), 漂移防护保留;若跨午夜续跑到周一则周一增量, 不 double force_full
 
-实施步骤(云上, 需用户确认后执行):
+实施记录(2026-10-04, 云上):
 ```bash
-sudo systemctl stop trade-update-all.timer
-sudo vim /etc/systemd/system/trade-update-all.timer   # 改 OnCalendar 如上
+# 备份
+sudo cp /etc/systemd/system/trade-update-all.timer /etc/systemd/system/trade-update-all.timer.bak-20261004-2230-<ts>
+# 改 OnCalendar 如上
 sudo systemctl daemon-reload
-sudo systemctl start trade-update-all.timer
-systemctl list-timers trade-update-all.timer           # 验证下次触发
+sudo systemctl restart trade-update-all.timer
+systemctl list-timers trade-update-all.timer   # NEXT=周日 22:30 验证 OK
 ```
 
-> ⚠ 云上 timer 手动管理(git pull 不更新), 改完验证 systemctl 生效即可; 若后续 revert 回 17:50 同样三步。
+> ⚠ 云上 timer 手动管理(git pull 不更新), 改完验证 systemctl 生效即可; 若后续 revert 回 17:50 同样三步(备份路径: `/etc/systemd/system/trade-update-all.timer.bak-20261004-2230-*` 恢复即可)。
 
 ## 自测记录(2026-09-21)
 
