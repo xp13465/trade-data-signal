@@ -29,6 +29,7 @@
 
 - `feat/r2-retention-14d-20261003` 已由统一入口合并入 main（`743c0043c`，现 main=`2997460f4`）：`scripts/upload_r2.py` `_prune_r2_backup(keep_days=14)` 默认参数已 30→14，`cmd_upload_db` 每次上传 DB 都会跑分层清理。
 - **云端下次 `upload-db`（backup_db.sh → `upload_r2.py upload-db`）时会顺带主力 prune**：backup/ 14 天、weekly/ 28 天、monthly/ 365 天（weekly/monthly 不受影响，均在窗口内）。
+- **⚠️ 生效时点订正（2026-10-04 真相调研，详见 `docs/ops/r2-retention-effective-20261004.md`）**：`743c0043c` 代码 2026-10-03 **23:42 才落云**（mtime 实测），10-03 21:00 定时跑的是旧代码、**新版从未执行** ⇒ 上一条「下次 upload-db」= **2026-10-04 21:00 首跑**,此前 `backup/` 仍按 30 天窗口维持;本节「prune 前后」两种口径数字与 §② 基线语义不变。
 - **backup/ 前缀当前实际构成（2026-10-04 00:38 实 List 54 对象精算）**：
 
 | 日期范围 | 对象 | 字节 | GiB |
