@@ -15925,9 +15925,15 @@ async function renderOverview() {
       //   当日收盘; 2026-10-04 P1 复审已根治, 不再存在——两重自愈兜底见下: ① _gtFetchEast 每轮重评估,
       //   快照 is_closed===false 即解除冷却(09:35 快照翻 false 后 ≤30s 自愈); ② 冷却硬上限 6h(不依赖任何
       //   外部信号的死兜底, min(当日23:59:59, now+6h))。two层合起来: 常驻看板不会卡死锁一整个交易日。
+      //   ★ 2026-10-04 P1 自验发现的协调者方案回归: 裸判据「is_closed===false 即解除」在交易日盘中(快照
+      //   恒 is_closed=false)会把 5min 故障冷却每个 tick(≤30s)清零 -> 每 30s 刷屏东财。因此自愈必须只对
+      //   「休市长锁」生效(_gtEmRestLocked=true), 交易日 5min 短锁不得被自愈触碰(行为零回归)。见 L15959。
       const _GT_EM_COOLDOWN_MS = 5 * 60 * 1000;   // 东财源冷却期(交易日: 试探频率=5min一次, 与 A1.1 同量级)
       const _GT_EM_COOLDOWN_MAX_MS = 6 * 60 * 60 * 1000; // 冷却硬上限(6h): 任何冷却不得超过 now+6h, 绝不死兜底
       let _gtEmTripUntil = 0;                     // 东财源冷却截止时间戳(0=未冷却)
+      let _gtEmRestLocked = false;                // 当前冷却是否「休市长锁」(true=休市日冷却到收盘; false=交易日 5min 故障短锁)
+      //   ★ 区分自愈作用域: 只有休市长锁才允许被快照翻 false 自愈解除; 交易日 5min 短锁(东财接口异常)保持原
+      //   5min 冷却不被自愈触碰(否则交易日盘中每 30s 刷屏东财, 正是 A1.1 要治的 WAF 风控病灶)。
       // 休市日冷却截止=min(当日 23:59:59(北京时间), now+6h)。绝不跨次日盘中(上限即当日 23:59:59,
       //   次日 00:00 自动解除, 次日 09:30 开盘前必能再探); 6h 上限保证即使快照/网络全不可用也每 6h 必探一次
       //   (休市日约 4 批/天, 修复前是每 30s 一批 ≈2900 批/天)。
@@ -15950,10 +15956,14 @@ async function renderOverview() {
       async function _gtFetchEast() {
         // P1 自愈(2026-10-04 reviewer 复审「不可 merge」根治): 快照明确表示「已开市」(is_closed===false)
         //   -> 立刻解除冷却, 常驻页面下一轮 tick(≤30s)即恢复探东财, 不再锁一整个交易日。
-        //   护栏(必须): 判据=「快照存在 且 is_closed===false」, 绝不能写成 !_isMarketClosedToday(snap)——快照为
-        //   null 时 _isMarketClosedToday 返回 false, 会把冷却每 30s 清一次(退化成修复前每 30s 刷屏, 整修复打回原形)。
-        if (_gtEmTripUntil > 0 && state.intradaySnapshot && state.intradaySnapshot.is_closed === false) {
+        //   护栏一(必须, 判据): 判据=「快照存在 且 is_closed===false」, 绝不能写成 !_isMarketClosedToday(snap)
+        //   ——快照为 null 时 _isMarketClosedToday 返回 false, 会把冷却每 30s 清一次(退化成修复前每 30s 刷屏)。
+        //   护栏二(必须, 作用域): 仅休市长锁(_gtEmRestLocked=true)允许被自愈解除; 交易日 5min 短锁不触碰——
+        //   若裸判据无条件生效, 交易日盘中快照恒 is_closed=false, 5min 故障冷却每个 tick 被清零, 每 30s
+        //   重探东财(刷屏)。两护栏合起来: 休市锁-开市自愈 + 交易日短锁-行为零回归。
+        if (_gtEmRestLocked && _gtEmTripUntil > 0 && state.intradaySnapshot && state.intradaySnapshot.is_closed === false) {
           _gtEmTripUntil = 0;
+          _gtEmRestLocked = false;
         }
         // A1.2 东财源冷却: 冷却期内直接短路, 0 请求(网络层根本不出错), 返回空让上层走腾讯/备源补数
         if (Date.now() < _gtEmTripUntil) return {};
@@ -16134,6 +16144,7 @@ async function renderOverview() {
             _gtEmTripUntil = _gtRestDay
               ? Math.min(_gtEmEndOfBjDay(), Date.now() + _GT_EM_COOLDOWN_MAX_MS)
               : (Date.now() + _GT_EM_COOLDOWN_MS);
+            _gtEmRestLocked = _gtRestDay; // 休市长锁 vs 交易日短锁: 决定自愈作用域(见 _gtFetchEast 护栏二)
             console.warn('[global-ticker] 东财源本轮 9 条全败(' + (_gtRestDay ? '今日A股休市' : '接口异常') + '), '
               + (_gtRestDay ? '冷却至当日 23:59:59(北京时间)/6h 上限, 次日开盘前可再探' : '冷却 ' + (_GT_EM_COOLDOWN_MS / 60000) + 'min 内直连腾讯/备源补数'));
           }
