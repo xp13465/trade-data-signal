@@ -12291,19 +12291,35 @@ function _bjTodayStr() {
 //   失败方向安全: 拉取失败 / 字段缺失 / 解析异常 -> 返回 false(退回旧行为: 横幅缺约5分钟), 绝不崩或卡。
 //   §21 口径说明: 交易日判定只认日历数据; 时钟仅在「日历已确认是交易日」之后做时段细分(那层是 getState 既有逻辑)。
 const _NEXT_TRADING_DAY_URL = "./data/nextday_plan.json";
+// 失败冷却(2026-10-04 复审根治, 同东财源 A1.2 形态): 拉取失败后冷却期内不再发任何请求
+//   (消除「每轮 60s 轮询都重拉 + fetchJSON R2 兜底至多 3 请求/轮」的按轮刷请求病灶)。
+//   冷却时长论证:
+//   - 盘中轮询 _scheduleNextRefresh 正常 60s(INTRADAY_REFRESH_MS, failCount 退避), 盘前 9:10-9:35 为 15s 快检测;
+//   - 该字段只在「快照判停昨日」时才被问(getState 日历门短路), 最关键时点=交易日 09:30-09:35 快照停昨日那 5 分钟窗口;
+//   - 取 2min: 09:30 失败 → 09:32 重试, 若成功 09:32-09:35 窗口仍能显示横幅(最多丢 2min 而非整 5min 窗口);
+//     请求量从「每 60s 一轮至多 3 请求」降到「每 2min 至多 3 请求」(-66%);
+//   - 硬上限 6h(与 _GT_EM_COOLDOWN_MAX_MS 同量级): 即使快照长期停昨日/网络长期不可用也必每 6h 探一次, 绝不死锁;
+//   - 成功即清(拉成功冷却复位) + 跨日必清(日期越过 _bjTodayStr() 无条件清, 新的一天必能拿到新日历, 第二重保险)。
+const _NTD_COOLDOWN_MS = 2 * 60 * 1000;          // 失败冷却期(2min: 1/3 频率, 保住 09:30-09:35 窗口重试机会)
+const _NTD_COOLDOWN_MAX_MS = 6 * 60 * 60 * 1000; // 冷却硬上限(6h): 任何冷却不得超过 now+6h, 到期必重试, 绝不死态
 let _nextTradingDayCache = null;   // {val: "YYYYMMDD", ts}
 let _ntdLoadingPromise = null;     // in-flight 去重
+let _ntdCooldownUntil = 0;         // 失败冷却截止时间戳(0=未冷却)
+let _ntdCooldownDate = "";         // 冷却登记时的「今天」(_bjTodayStr), 跨日必清
 // 同步读缓存判定(供 getState 同步调用): 缓存未就绪/过期 -> 保守 false, 由 _ensureNextTradingDayLoaded 拉取后重刷
 function _todayIsTradingDay() {
   const today = _bjTodayStr();
   if (_nextTradingDayCache && _nextTradingDayCache.val >= today) return _nextTradingDayCache.val === today;
-  return false; // 失败安全: 拿不到就当非交易日(退回旧行为)
+  return false; // 失败安全: 拿不到就当非交易日(退回旧行为), 横幅缺约 5 分钟(09:35 快照盘中刷新自愈)
 }
-// 异步预热拉取 nextday_plan.json 填充缓存: 幂等(缓存新鲜/in-flight 都不重发), 完成后重刷横幅(日历门可能 false->true)
+// 异步预热拉取 nextday_plan.json 填充缓存: 幂等(缓存新鲜/in-flight/失败冷却中都不重发), 完成后重刷横幅(日历门可能 false->true)
 function _ensureNextTradingDayLoaded() {
   const today = _bjTodayStr();
+  // 跨日必清: 日期越过 _bjTodayStr() -> 无条件清冷却(新的一天必须能拿到新日历, 不因昨日失败被锁)
+  if (_ntdCooldownDate && _ntdCooldownDate !== today) { _ntdCooldownUntil = 0; _ntdCooldownDate = ""; }
   if (_nextTradingDayCache && _nextTradingDayCache.val >= today) return Promise.resolve();
   if (_ntdLoadingPromise) return _ntdLoadingPromise;
+  if (Date.now() < _ntdCooldownUntil) return Promise.resolve(); // 失败冷却中: 不再发任何请求(走既有失败安全路径)
   _ntdLoadingPromise = (async () => {
     try {
       // ?_=Date.now() 破 fetchJSON 的 5min 结果缓存(同 lab.js _atFetch 约定, 统一 .json 不拼 .gz)
@@ -12311,11 +12327,16 @@ function _ensureNextTradingDayLoaded() {
       const ntd = d && d.next_trading_day;
       if (typeof ntd === "string" && /^\d{8}$/.test(ntd)) {
         _nextTradingDayCache = { val: ntd, ts: Date.now() };
+        _ntdCooldownUntil = 0; _ntdCooldownDate = ""; // 成功即清: 冷却与失败登记全部复位
       } else {
-        _nextTradingDayCache = null; // 字段缺失: 失败安全(保持 false), 下次调用重试
+        _nextTradingDayCache = null;                 // 字段缺失: 失败安全(保持 false), 进冷却
+        _ntdCooldownUntil = Date.now() + _NTD_COOLDOWN_MS;
+        _ntdCooldownDate = today;
       }
     } catch (e) {
-      _nextTradingDayCache = null;   // 拉取失败: 失败安全(保持 false), 下次调用重试
+      _nextTradingDayCache = null;                   // 拉取失败: 失败安全(保持 false), 进冷却
+      _ntdCooldownUntil = Date.now() + _NTD_COOLDOWN_MS;
+      _ntdCooldownDate = today;
     } finally {
       _ntdLoadingPromise = null;
     }
