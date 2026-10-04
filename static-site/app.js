@@ -15912,14 +15912,27 @@ async function renderOverview() {
       const GLOBAL_TICKER_STORAGE_KEY = "global_ticker_order_v1";
       let _gtEl = null, _gtTrack = null, _gtTimer = null, _gtActive = false;
       let _gtData = {}, _gtInFlight = false, _gtFailCount = 0, _gtVisBound = false, _gtGroupHtml = "";
-      // 2026-10-04 东财源失败冷却(A1.2 覆盖盲区根治): 东财 push2delay 在休市日对单只 stock/get 返回
-      //   ERR_EMPTY_RESPONSE(空体), 旧逻辑东财失败→腾讯/备源补上→anyOk=true→_gtFailCount=0→每轮 30s 都重试
-      //   东财 9 条, 休市日整日无限刷, 永无止境。现: 单轮东财 9 条全败→记冷却截止; 冷却内 _gtFetchEast
-      //   直接短路不发请求(网络层不出错, 数据由腾讯/备源提供), 冷却结束重新试探——与 A1.1
-      //   _emGlobalTripCooldown(_EM_GLOBAL_TRIP_COOLDOWN_MS) 同语义同量级(5min)。仅短路东财这一个源,
-      //   跑马灯照常轮询: 美股/黄金/WTI/布伦特/纳指/美元指数/离岸CNH/USDJPY 周末照常交易, 绝不停整个跑马灯。
-      const _GT_EM_COOLDOWN_MS = 5 * 60 * 1000;   // 东财源冷却期(试探频率=5min一次, 与 A1.1 同量级)
+      // 2026-10-04 东财源失败冷却(A1.2 覆盖盲区根治 + 2026-10-04 用户拍板修正): 东财 push2delay 在休市日对单只
+      //   stock/get 返回 ERR_EMPTY_RESPONSE(空体), 旧逻辑东财失败→腾讯/备源补上→anyOk=true→_gtFailCount=0→
+      //   每轮 30s 都重试东财 9 条, 休市日整日无限刷, 永无止境。现分两档:
+      //   ① A股休市日(复用 _isMarketClosedToday(state.intradaySnapshot), 与 getState 同源, 不新造): 首探一次后
+      //      冷却到「当日 23:59:59(北京时间)」, 当天不再探; 次日 00:00 自动解除 -> 次日 09:30 开盘前必能再探
+      //      (次日仍休市则再探一次、再冷却到那天的收盘, 即休市日约 1 批/天)。首探必须保留: 富时A50/美元指数
+      //      只有东财一个源, 首探是它们当天唯一的机会。
+      //   ② 交易日盘中: 维持 5min 冷却不变(与 A1.1 _EM_GLOBAL_TRIP_COOLDOWN_MS 同量级), 行为零回归。
+      //   仅短路东财这一个源, 跑马灯照常轮询: 美股/黄金/WTI/布伦特/纳指/美元指数/离岸CNH/USDJPY 周末照常交易,
+      //   绝不停整个跑马灯。已知边界: 交易日盘前快照若仍停在昨收(is_closed=true 但日期=昨日)且东财恰全败,
+      //   _isMarketClosedToday 会误判休市->冷却到当日收盘; 该双故障场景极罕见且影响有界(A50/美元指数本就仅东财
+      //   有源, 东财挂时腾讯/备源仍补其余 7 品种), 如实标注不隐瞒。
+      const _GT_EM_COOLDOWN_MS = 5 * 60 * 1000;   // 东财源冷却期(交易日: 试探频率=5min一次, 与 A1.1 同量级)
       let _gtEmTripUntil = 0;                     // 东财源冷却截止时间戳(0=未冷却)
+      // 休市日冷却截止=当日 23:59:59(北京时间, UTC+8 墙钟)。上限即当日 23:59:59, 冷却绝不跨次日盘中;
+      //   次日 00:00 自动解除(次日 09:30 开盘前必能再探)。
+      function _gtEmEndOfBjDay() {
+        const _d = new Date(Date.now() + 8 * 3600000); // 当前北京时间(UTC+8)墙钟
+        _d.setUTCHours(23, 59, 59, 0);                 // 定位当日 23:59:59(北京时间)
+        return _d.getTime() - 8 * 3600000;             // 转回真实 epoch 时间戳
+      }
 
       function _gtOrder() {
         let order = [];
@@ -16103,9 +16116,12 @@ async function renderOverview() {
           //   冷却内 _gtFetchEast 短路不再发请求, 数据全程由腾讯/备源供。幂等: 已有冷却期不重复设置,
           //   冷却结束下次全败重新触发(与 A1.1 触发语义一致, 防东财恢复后永久短路)。
           if (Object.keys(east).length === 0 && Date.now() >= _gtEmTripUntil) {
-            _gtEmTripUntil = Date.now() + _GT_EM_COOLDOWN_MS;
-            console.warn('[global-ticker] 东财源本轮 9 条全败(休市或接口异常), 冷却 '
-              + (_GT_EM_COOLDOWN_MS / 60000) + 'min 内直连腾讯/备源补数');
+            // 2026-10-04 用户拍板: 休市日首探一次后冷却到当日 23:59:59(北京时间), 交易日维持 5min。
+            //   复用现成 _isMarketClosedToday(state.intradaySnapshot)(与 getState 同源口径), 不新造。
+            const _gtRestDay = _isMarketClosedToday(state.intradaySnapshot);
+            _gtEmTripUntil = _gtRestDay ? _gtEmEndOfBjDay() : (Date.now() + _GT_EM_COOLDOWN_MS);
+            console.warn('[global-ticker] 东财源本轮 9 条全败(' + (_gtRestDay ? '今日A股休市' : '接口异常') + '), '
+              + (_gtRestDay ? '冷却至当日 23:59:59(北京时间), 次日开盘前可再探' : '冷却 ' + (_GT_EM_COOLDOWN_MS / 60000) + 'min 内直连腾讯/备源补数'));
           }
           const missing = GLOBAL_TICKER_ITEMS.filter(i => !east[i.key]).map(i => i.key);
           let tx = {};
