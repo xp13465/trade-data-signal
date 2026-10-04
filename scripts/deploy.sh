@@ -567,163 +567,69 @@ if [ "$REPO" != "$GIT_REPO" ]; then
   fi
 fi
 
-# 1.8 上传 lab/*.json + trade_sim/*.html + index/ + industry/ 到 R2
+# 1.8 上传 lab/*.json + trade_sim/*.html + index/ + industry/ 等到 R2 —— 已异步化(2026-10-04 P1)
 # (R2 全迁后 index/industry/trade_sim 前端从 R2 读;lab 已在 R2;双源过渡也刷 R2 保最新)
 #
-# R2 上传超时监控（A3，2026-07-23）：upload_r2 卡 TCP SYN_SENT 会持 deploy.lock
-# 阻塞后续 update_all（2026-07-23 实测卡 8分20秒，主控 kill 释放锁）。
-# macOS 无 timeout/gtimeout 命令，用 bash 原生 background+sleep+kill 实现：
-# 后台跑 upload_r2，每 5s 探活，看门狗超时 ch_limit = 显式通道值 / 按字节估算值 / 回退基线 900s
-# （三选一逻辑见 run_r2_upload 函数内注释）。2026-09-24 P2-估算回退: 原回退用 R2_UPLOAD_TIMEOUT
-# （默认 300s）短于修复前通用大通道固定值 900s，已改为固定回退 900s 兜底（见回退分支注释），
-# 该变量随之移除，不留死定义。
-# 单通道超时覆盖(2026-08-23): run_r2_upload 第二参若为纯数字, 则作为本通道专属超时秒数,
-# 缺省走按字节估算(估算失败回退固定 900s, 2026-09-24 起无全局 R2_UPLOAD_TIMEOUT 变量)。
-# upload-etf-hist(1532 只全史日K ~87MB)量大且总量随每日
-# 新增K线累积缓慢变大, 曾在 300s 线间歇性被 kill 触发「deploy R2上传失败」告警;
-# 配合 upload_r2.py 增量上传(正常增量秒级~分钟级), 全量兜底(首跑/周日)放宽到 900s。
-# 2026-09-23 ③: 通用大通道(不传显式超时的 upload-data-large / upload-kelly-parts 等)改为
-# 按 upload_r2.py 打印的 R2_BYTES_TOTAL=<待传字节> 估算超时(详见 run_r2_upload 函数注释,
-# 口径: 150KB/s × 2 余量 + 240s 开销, 上限 7200s), 根治「固定 900s 杀近全量 190MB」事故。
-run_r2_upload() {
-  local desc="$1"; shift
-  local ch_timeout=""
-  if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
-    ch_timeout="$1"; shift
+# 2026-10-04 P1 主链有界化: 原 17 条 R2 通道逐条串行(看门狗 900~7200s, 含按字节估算)阻塞主链
+# (10-04 update_all 段1 10007s≈2h48m / 09-20 10754s≈3h, R2 上传占大头)。现拆出主链异步:
+# 上传本体+看门狗估算+失败告警(verify-channels 轻量对账→真缺口才 --severe)全部收敛到
+# scripts/r2_upload_async.sh(本脚本唯一落点)。deploy.sh 只触发 async(云上 systemd-run 独立
+# cgroup / 本地 nohup), 不再同步串行跑 R2。幂等+增量指纹+with_lock --nb 互斥(并发触发跳过,
+# 防重复 PUT 放大 9 月 Class A 超免费额度事故); 周日 weekday==6 force_full 全量漂移防护保留。
+# 数据上线允许延迟 ≤1~2h(下一趟 deploy 的 R2 增量 + verify-r2 对账兜底)。
+# ⚠ 可回退: 环境变量 R2_ASYNC_UPLOAD=0 → 同步串行跑 r2_upload_async.sh(等同旧行为阻塞主链)。
+
+echo "-> 触发 R2 上传(异步, 拆出主链等待区间; 上传本体+看门狗+失败告警见 scripts/r2_upload_async.sh)..." | tee -a "$LOG"
+if [ "${R2_ASYNC_UPLOAD:-1}" = "0" ]; then
+  # 可回退开关(2026-10-04 P1): R2_ASYNC_UPLOAD=0 → 同步串行跑 async 脚本本体(等同旧行为阻塞主链)。
+  echo "  → R2_ASYNC_UPLOAD=0, 同步串行上传(回退开关, 阻塞主链)" | tee -a "$LOG"
+  REPO="$REPO" GIT_REPO="$GIT_REPO" bash "$GIT_REPO/scripts/r2_upload_async.sh" 2>&1 | tee -a "$LOG"
+  _R2RC="${PIPESTATUS[0]:-0}"
+  if [ "$_R2RC" -ne 0 ]; then
+    echo "⚠ r2_upload_async.sh 同步模式退出码 $_R2RC(失败/超时告警已由脚本自身负责)" | tee -a "$LOG"
   fi
-  local tmp_log pid slept rc
-  tmp_log=$(mktemp)
-  "$PY" "$REPO/scripts/upload_r2.py" "$@" >"$tmp_log" 2>&1 &
-  pid=$!
-  # 看门狗超时估算(2026-09-23 ③根治 900s 写死; 详见实测与口径):
-  #   9-23 21:00 backfill_evening: upload-data-large/upload-kelly-parts 两通道被固定 900s
-  #   看门狗 kill → 27 个 R2 缺口(12 kelly-parts + 15 sdc_parts)。近全量 190MB 在云上跨境
-  #   带宽 ~1.2-1.6Mbps(150-200KB/s)下本来就需 950-1270s, 不该固定 900s。
-  #   估算口径: upload_r2.py 增量引擎 scan 后打印 R2_BYTES_TOTAL=<待传字节 N>(含 dry-run);
-  #     est_limit = max(300, N/150000(150KB/s 保守) × 2(余量) + 240s(连接/重试固定开销))
-  #     上限 7200s 保「真死锁仍能被杀掉」, 不因放宽而无限挂住。
-  #   显式传入的 ch_timeout(调优通道 verify-r2 7200 / trade-sim-json 1800 / fund-nav 等)优先,
-  #   估算只覆盖未显式调优的通用通道(upload-data-large / upload-kelly-parts 等, 见下方调用)。
-  #   读不到 R2_BYTES_TOTAL 行(非增量引擎命令如 upload-db/upload-data-files)回退 900s 基线
-  #   (2026-09-24 P2-估算回退: 原回退 R2_UPLOAD_TIMEOUT 默认 300s 短于修复前固定 900s, 已固定 900s,
-  #   理由见回退分支注释)。
-  local est_limit=0 r2bytes=""
-  local _i
-  for _i in $(seq 1 40); do
-    r2bytes=$(grep -Eo 'R2_BYTES_TOTAL=[0-9]+' "$tmp_log" 2>/dev/null | tail -1 | cut -d= -f2)
-    [ -n "$r2bytes" ] && break
-    if ! kill -0 "$pid" 2>/dev/null && ! grep -q "R2_BYTES_TOTAL" "$tmp_log" 2>/dev/null; then
-      break  # 进程已退出且非增量命令(未打印字节量行) → 不用再空等
+  unset _R2RC
+else
+  # 异步触发(默认): 云上 systemd transient service(独立 cgroup, deploy 退出不清理); 本地 nohup fallback。
+  # async 持 /tmp/trade_r2_upload_async.lock(--block-timeout 默认 600s, 2026-10-04 ③ 取代原 --nb):
+  # 并发触发(多 pipeline deploy 并发/force 重跑)先有界等待; 锁在界内释放则继续(幂等增量);
+  # 超界才跳过+留痕(r2_upload_skip_notify.sh 写并发跳过标记, 在跑实例收尾增量补跑数据通道一次),
+  # 保证「某交易日数据因 async 跳过」同日内补上 R2, 不拖到下一趟 deploy。
+  # 锁跳过留痕(2026-10-04 P1 修 review F1): DEPLOY_LOG env 传给 async, async 被跳过时
+  # r2_upload_skip_notify.sh 往本 deploy 日志写显式一行 + 落 latest.md + 写并发跳过标记(不再只进 journal)。
+  if command -v systemd-run >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo -n systemd-run --collect --unit="r2-upload-$(date +%H%M%S)" \
+      --uid="$(id -u)" --gid="$(id -g)" \
+      --setenv=REPO="$REPO" --setenv=GIT_REPO="$GIT_REPO" --setenv=DEPLOY_LOG="$LOG" \
+      bash "$GIT_REPO/scripts/r2_upload_async.sh" 2>&1 | tee -a "$LOG"
+    # 无 pipefail 下管道退出码=tee(恒 0), 必须取 PIPESTATUS[0] 判 systemd-run 真实成败(同 staticdata 改1 C-4)。
+    _R2RC="${PIPESTATUS[0]:-0}"
+    if [ "$_R2RC" -ne 0 ]; then
+      # C-1(2026-09-25 实测): 云上 deploy 调用方 unit KillMode=control-group, deploy 退出时
+      # systemd 连带杀同 cgroup 的 nohup 子进程 → nohup 兜底不可靠, 不加, 走 alert-only。
+      echo "⚠ R2 上传异步触发失败(systemd-run rc=$_R2RC), 需手动补跑: REPO=$REPO GIT_REPO=$GIT_REPO bash $GIT_REPO/scripts/r2_upload_async.sh" | tee -a "$LOG"
+      "$PY" "$REPO/scripts/notify.py" "[告警] R2上传异步触发失败" \
+        "deploy 触发 R2 上传异步任务失败(systemd-run rc=$_R2RC), R2 数据可能停摆。<br>需手动补跑(云上直接粘贴执行): REPO=$REPO GIT_REPO=$GIT_REPO bash $GIT_REPO/scripts/r2_upload_async.sh<br>日志: $LOG" \
+        --severe --from-prefix "[告警]" --alert-issue "R2上传异步触发失败" --alert-log "$LOG" \
+        --dedup-key r2_upload_trigger_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
     fi
-    sleep 0.5
-  done
-  if [ -n "$r2bytes" ] && [[ "$r2bytes" =~ ^[0-9]+$ ]] && [ "$r2bytes" -gt 0 ] 2>/dev/null; then
-    est_limit=$(( r2bytes / 150000 * 2 + 240 ))
-    est_limit=$(( est_limit > 7200 ? 7200 : est_limit ))
-    est_limit=$(( est_limit < 300 ? 300 : est_limit ))
-  fi
-  local ch_limit
-  if [ -n "$ch_timeout" ]; then
-    ch_limit="$ch_timeout"
-  elif [ "$est_limit" -gt 0 ]; then
-    ch_limit="$est_limit"
+    unset _R2RC
+  elif [ -d /run/systemd/system ]; then
+    # 有 systemd 在跑(Linux, /run/systemd/system 存在)但 sudo -n 不可用 → 走 alert-only, 不加 nohup
+    # (C-1: 同 cgroup nohup 子进程随 deploy 退出被连带杀)。
+    echo "⚠ R2 上传异步触发失败(systemd-run 不可用但 systemd 在跑), 需手动补跑: REPO=$REPO GIT_REPO=$GIT_REPO bash $GIT_REPO/scripts/r2_upload_async.sh" | tee -a "$LOG"
+    "$PY" "$REPO/scripts/notify.py" "[告警] R2上传异步触发失败" \
+      "deploy 触发 R2 上传异步任务失败(systemd-run 不可用但 systemd 在跑), R2 数据可能停摆。<br>需手动补跑(云上直接粘贴执行): REPO=$REPO GIT_REPO=$GIT_REPO bash $GIT_REPO/scripts/r2_upload_async.sh<br>日志: $LOG" \
+      --severe --from-prefix "[告警]" --alert-issue "R2上传异步触发失败" --alert-log "$LOG" \
+      --dedup-key r2_upload_trigger_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
   else
-    # ⚠ 回退基线固定 900s（2026-09-24 P2-估算回退根治，挡后续回归）：估算失败（非增量引擎命令 /
-    # 20s 窗口内读不到 R2_BYTES_TOTAL 行）时，回退值**不得短于**修复前通用大通道的固定看门狗值
-    # 900s——若回退到更短的值（原全局默认 300s = 修复前的 1/3），未来近全量大通道一旦落入回退
-    # 分支会比修复前更容易被 kill（9-23 21:00 事故同族：上传-data-large/upload-kelly-parts/sdc_parts
-    # 近全量 190MB 需 950-1270s，固定 900s 都偏紧，回退更短必死）。900s = 修复前通用大通道
-    # （upload-kelly-parts 等）固定值，宁宽不窄；真死锁仍由「估算成功分支」的 7200s 上限 + 显式
-    # 通道（verify-r2 7200 等）兜底，回退 900s 每条通道单次仍会被 kill，不因放宽而无限挂住。
-    ch_limit=900
+    # 无 systemd(本地 mac 开发): nohup 脱离 SIGHUP 后台跑(尽力而为; macOS 无 setsid 命令, 不依赖它)。
+    # async 本体日志独立写 data/logs/r2_upload_async_*.log, 此处追加一份到 deploy LOG 便于追踪。
+    # DEPLOY_LOG env 同时传给 async(锁跳过留痕用, 见上方 F1 注释)。
+    DEPLOY_LOG="$LOG" nohup bash "$GIT_REPO/scripts/r2_upload_async.sh" >> "$LOG" 2>&1 &
+    echo "  → R2 上传已后台触发(nohup fallback, 非 systemd 环境)" | tee -a "$LOG"
   fi
-  slept=0
-  while kill -0 "$pid" 2>/dev/null; do
-    sleep 5
-    slept=$((slept + 5))
-    if [ "$slept" -ge "$ch_limit" ]; then
-      echo "⚠ $desc 超 ${ch_limit}s(估算/显式)未退出，kill pid=$pid 释放 deploy.lock" | tee -a "$LOG"
-      kill -TERM "$pid" 2>/dev/null; sleep 2
-      kill -KILL "$pid" 2>/dev/null || true
-      wait "$pid" 2>/dev/null || true
-      rm -f "$tmp_log"
-      return 1
-    fi
-  done
-  wait "$pid"; rc=$?
-  tail -1 "$tmp_log" | tee -a "$LOG"
-  rm -f "$tmp_log"
-  return "$rc"
-}
-
-echo "-> 上传 lab/trade_sim/index/industry/public_fund/etf_score/data-large/all-data/kelly-snapshots 到 R2 ..." | tee -a "$LOG"
-# 阶段3：数据唯一走 R2，上传失败需 notify 告警让 schedule_monitor 发现
-R2_FAIL=""
-run_r2_upload "upload-lab" 900 upload-lab || { echo "⚠ upload-lab 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-lab"; }
-run_r2_upload "upload-trade-sim" 900 upload-trade-sim || { echo "⚠ upload-trade-sim 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim"; }
-# 2026-09-15 R2 上传增量化(设计文档 §3.5): trade-sim-json 全量 370MB@4.2Mbps=739s+连接开销,
-# 900s 周日/首跑全量偏紧(09-14 17:50 update_all exit 143 事故根因之一), 放宽 1800s 留 2 倍余量(仿 fund-nav)。
-run_r2_upload "upload-trade-sim-json" 1800 upload-trade-sim-json || { echo "⚠ upload-trade-sim-json 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim-json"; }
-run_r2_upload "upload-index" 900 upload-index || { echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-index"; }
-# ETF 全史日K etf/{code}-all.json -> R2 etf/ 前缀(#10 ETF弹窗长历史, 2026-08-22; 1532只~87MB, 8线程并发)
-# 2026-08-23: 改增量上传(upload_r2.py 状态清单只传变化文件)+ 本通道超时放宽 900s(根治间歇超时告警);
-# 首跑/每周日强制全量一次防状态漂移, 增量正常秒级~分钟级完成。
-run_r2_upload "upload-etf-hist" 900 upload-etf-hist || { echo "⚠ upload-etf-hist 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-hist"; }
-# 基金全史净值 nav_bucket/{xx}.json(256 桶) -> R2 nav_bucket/ 前缀(#11 基金弹窗净值走势,
-# 2026-08-25; 2026-09-23 桶化 §9B: 原 per-code 26458 文件/9-22 传 21957 个 6225s 占 deploy 56%,
-# 桶化后 PUT 次数固定 256 上传耗时有界)。2026-09-23 P1 主链有界化: 本通道上传从 deploy 主链
-# 移除, 改由 update_all.sh 在 export_fund_nav 成功后异步触发(systemd-run transient service,
-# 拆出主链等待区间; 9-22 曾拖 6225s=1h43m 占 deploy 段 56%/9-18 超 7200s 被 kill)。
-# 上传本体 + 失败告警(notify --severe, 不静默)见 scripts/fund_nav_upload_async.sh; upload_r2.py
-# 增量指纹 + checkpoint 断点续传语义保留(双保险不丢, 缺传由 async 告警 + 次日 checkpoint 续传兜底)。
-# ETF 全史累计净值 per-ETF 拆分 accum_nav/{code}.json -> R2 accum_nav/ 前缀(2026-09-17 懒加载;
-# ~1554 只~18.5MB, 与 etf-hist 同量级, 900s 留余量; 增量指纹上传只传变化 code, 首跑/周日全量)
-run_r2_upload "upload-accum-nav" 900 upload-accum-nav || { echo "⚠ upload-accum-nav 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-accum-nav"; }
-run_r2_upload "upload-industry" 900 upload-industry || { echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-industry"; }
-run_r2_upload "upload-public-fund" 900 upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-public-fund"; }
-run_r2_upload "upload-etf-score" 900 upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }
-# 2026-09-23 ③ + 2026-09-24 P2-sdc 补齐: upload-data-large / upload-kelly-parts / upload-kelly-parts-sdc
-# 改走「按字节量估算超时」(run_r2_upload 不传第二参): 9-23 21:00 backfill_evening 近全量 190MB
-# (跨境 ~150KB/s 需 950-1270s)被固定 900s 看门狗 kill → 27 个 R2 缺口(12 kelly-parts + 15 sdc_parts)。
-# 增量时字节小 → 估算超时小; 全量/周日回退大 → 估算超时大。sdc 与 kelly-parts 同属 B 档增量引擎, 同根因。
-run_r2_upload "upload-data-large" upload-data-large || { echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-data-large"; }
-run_r2_upload "upload-kelly-parts" upload-kelly-parts || { echo "⚠ upload-kelly-parts 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts"; }
-# #91(2026-09-06) 当日收盘对比档分片(signal_kelly_trades_sdc_parts/, 凯利页「买入口径」切换用; 独立前缀命令)
-# 2026-09-24 P2-sdc 同类补齐: 与 upload-kelly-parts 同走「按字节估算超时」(run_r2_upload 不传第二参
-# → 唯一一套估算逻辑, 不复制第二份)。9-23 21:00 事故 27 缺口里 15 个正是 sdc_parts, 固定 900s 同根因
-# 只修一半; sdc 与 kelly-parts 同属 upload_r2.py B 档增量引擎(_kelly_parts_md5 指纹, 同样打印
-# R2_BYTES_TOTAL), 近全量/周日场景同样会超 900s, 必须同一套估算。
-run_r2_upload "upload-kelly-parts-sdc" upload-kelly-parts-sdc || { echo "⚠ upload-kelly-parts-sdc 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts-sdc"; }
-run_r2_upload "upload-all-data" 900 upload-all-data || { echo "⚠ upload-all-data 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-all-data"; }
-# signal_kelly_snapshots/ 每日快照+演进 index(lab 凯利区「演进」入口, 2026-09-04 断链根治配套;
-# 子目录走独立命令, upload-all-data/upload-data-large 的 *.json glob 不递归天然不匹配, 见 upload_r2.py)
-run_r2_upload "upload-kelly-snapshots" 900 upload-kelly-snapshots || { echo "⚠ upload-kelly-snapshots 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-snapshots"; }
-# feed.xml 走 R2（2026-08-10）：gen_rss 生成的 RSS 上传到 R2 data/feed.xml，不再 git push
-run_r2_upload "upload-feed" 900 upload-data-files feed.xml || { echo "⚠ upload feed.xml 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-feed"; }
-# 2026-09-15 层3 防漏传机检(设计文档 §3.4): 周期全量对账, 周日全量+平日增量自适应。
-# 发现并自动补传不一致 key; 补传失败/命令失败 → exit 1 → 此处累积 R2_FAIL 走收尾 notify(层4)。
-# 2026-09-21 R2 根治: watchdog 1800→7200(周日全量 ~3万 key 逐个 HEAD + keep-alive 复用省握手,
-# 原 1800s 结构性超时成为告警噪音放大器之一, 与 fund-nav 7200 同档)。
-# ⚠ 周日错峰(改动4, 方案说明见 docs/ops/r2-upload-failure-fix-20260921.md): 周日 force_full 全量
-# (etf-hist/fund-nav/trade_sim/verify-r2 ~3万 key)由 upload_r2.py weekday==6 触发, deploy.sh 无时点
-# 判断可改——时点在云上 systemd timer(trade-update-all.timer OnCalendar), 建议把周日全量大通道
-# 前移到凌晨带宽低谷段(timer 方案见上址文档, 本期仅产出方案不 ssh 改云上)。
-run_r2_upload "verify-r2" 7200 verify-r2 || { echo "⚠ verify-r2 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL verify-r2"; }
-# R2_FAIL 告警延迟到 deploy 收尾(见下方收尾段): 通道失败立即告警=误报(09-10 事故链——
-# 单文件 PUT 超时进程异常退出触发告警, 实际上传与 purge 全成功)。upload_r2.py 已补
-# try/except 兜底(单文件失败不异常中断), 走到收尾仍 R2_FAIL 非空=真失败才告警。
-
-# 1.9 末尾统一 purge 低频文件（决策清单项5+项8，2026-08-18）
-# 低频文件(LOW_FREQ 3600s 档) CF 会把 max-age 拉长成 4h edge 残留，上传时 purge 若失败/漏跑
-# 前端读最长 4h 旧版。此步 deploy 末尾统一 purge 低频档文件消除残留窗口（项5）。
-# purge 失败告警：upload_r2.py purge_cache 内部已对「部分批失败/无 PURGE_SECRET」notify 告警（项8）；
-# 命令自身失败/超时（如 HTTP 连接异常）由 run_r2_upload 失败分支在此 notify 兜底。
-run_r2_upload "purge-low-freq" 900 purge-low-freq || {
-  echo "⚠ purge-low-freq 失败/超时, 低频文件 edge cache 可能残留 4h 旧版" | tee -a "$LOG"
-  "$PY" "$REPO/scripts/notify.py" "[告警] deploy 末尾 purge 低频文件失败" \
-    "deploy.sh 末尾统一 purge 低频文件失败(purge-low-freq 命令失败/超时)，CF edge cache 低频文件可能残留最长 4h 旧版。<br>建议手动重试: bash scripts/upload_r2.py purge-low-freq<br>日志: $LOG" \
-    --severe --from-prefix "[告警]" --dedup-key deploy_purge_low_freq_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
-}
+fi
 
 # 1.10 防再犯机制 A/B：版本串倒退哨兵 + merge 净回退校验（2026-08-18）
 # 背景（docs/conflict-overwrite-rootcause-2026-08-18.md）：bf8841966(四档收窄,a350)被 e3fa985c3
@@ -742,18 +648,16 @@ fi
 echo "✓ 版本串倒退/净回退校验通过（防再犯机制 A/B）" | tee -a "$LOG"
 
 # #149 方案①a: 段1 完成 → 重入持锁只跑 git 段(段2)。
-# 传状态给重入进程: DEPLOY_R2_FAIL(R2 上传失败通道累积, 收尾统一告警用)、
-# DEPLOY_MAP_STALE(board_etf_map 旧版兜底标志)。async/sync 的 git 段已持同一把
-# trade_deploy.lock, deploy 段2 与它们同队列串行(秒~分钟级), 彻底消除
-# 「export+R2 长跑段占锁」#149 根因。LOG 经重入整脚本重跑沿用同一文件(顶部重新定义)。
-export DEPLOY_R2_FAIL="${R2_FAIL:-}"
+# 传状态给重入进程: DEPLOY_MAP_STALE(board_etf_map 旧版兜底标志)。R2 上传已异步化(2026-10-04 P1),
+# 不再有 R2_FAIL 累积(R2 失败告警由 scripts/r2_upload_async.sh 自身负责, 见其收尾 verify-channels 段)。
+# async/sync 的 git 段已持同一把 trade_deploy.lock, deploy 段2 与它们同队列串行(秒~分钟级),
+# 彻底消除「export+R2 长跑段占锁」#149 根因。LOG 经重入整脚本重跑沿用同一文件(顶部重新定义)。
 export DEPLOY_MAP_STALE="${MAP_STALE:-0}"
 exec "$PY" "$GIT_REPO/scripts/with_lock.py" --block-timeout "${GIT_LOCK_TIMEOUT:-3600}" "$LOCK" bash "$0" --git-phase "$@"
 fi
 
 # === 段2: git add/commit/push + 收尾(重入进程, 已持 /tmp/trade_deploy.lock) ===
 # 重入进程整脚本重跑, 段1 被上方 if 跳过(true 分支为空); 此处恢复段1 累积状态。
-R2_FAIL="${DEPLOY_R2_FAIL:-}"
 MAP_STALE="${DEPLOY_MAP_STALE:-0}"
 echo "=== deploy.sh 段2(锁内 git add/commit/push)开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 
@@ -1089,30 +993,12 @@ else
   echo "→ feishu listener 无代码变更，跳过重启" | tee -a "$LOG"
 fi
 
-# === R2 上传失败告警(收尾段, 告警噪音根治 2026-09-11) ===
-# 原在通道失败时立即发, 单文件 PUT 超时进程异常退出即触发, 但后续通道/自愈已补传成功=
-# 误报(09-10 18:52 事故链, 实际 103/103 上传+504/504 purge 全成功 rc=0)。延迟到整个 deploy
-# 收尾再发: 走到此处=deploy 未提前退出(整体 rc=0); 配合 upload_r2.py try/except 兜底
-# (单文件失败不异常中断, 全部成功则命令 rc=0 → R2_FAIL 不置位), R2_FAIL 非空=真有文件失败。
-if [ -n "$R2_FAIL" ]; then
-  echo "⚠ R2 上传有失败通道:$R2_FAIL (deploy 整体 rc=0, 收尾统一告警)" | tee -a "$LOG"
-  # 2026-09-21 告警降噪(root cause=看门狗超时 kill, 数据已传完): 失败通道先做轻量对账
-  # (verify-channel 抽查最新关键文件 R2 HEAD vs 本地 md5/size, keep-alive 连接复用)。
-  # 对账全通过 → 改普通日志不告警(噪音); 真缺文件/verify-r2 本身失败 → 照常 --severe 告警。
-  "$PY" "$REPO/scripts/upload_r2.py" verify-channels $R2_FAIL > /tmp/r2_verify_channels.log 2>&1
-  _vc_rc=$?
-  if [ "$_vc_rc" -eq 0 ]; then
-    echo "✓ R2 失败通道轻量对账通过(数据完整, 疑似看门狗超时噪音, 不告警):$R2_FAIL" | tee -a "$LOG"
-  else
-    echo "✗ R2 失败通道轻量对账发现缺口(verify-channels rc=$_vc_rc, 照常告警):$R2_FAIL" | tee -a "$LOG"
-    # verify-channels 输出经 HTML 转义(防 < > 破坏邮件体)
-    _vc_tail="$(tail -8 /tmp/r2_verify_channels.log 2>/dev/null | sed 's/</\&lt;/g; s/>/\&gt;/g' | tr '\n' ' ')"
-    # 2026-09-24 告警降噪 P1: dedup 30min->6h。本分支仅 verify-channels rc!=0(确认真缺口)才走到,
-    # 真缺口仍 6h 内首次直发(不静默), 只防 6h 内多次 deploy 对同一失败面重复轰炸(9-20 一天 8 封噪音)。
-    "$PY" "$REPO/scripts/notify.py" "[告警] deploy R2上传失败" "deploy.sh R2 上传部分通道失败(轻量对账确认有缺口):$R2_FAIL<br>deploy 整体已跑完(rc=0), 请人工确认失败通道文件是否已补传/需手动补刷: bash scripts/upload_r2.py upload-all-data<br>verify-channels 详情: $([ -n "$_vc_tail" ] && echo "$_vc_tail" || echo 无输出)<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
-    unset _vc_rc _vc_tail
-  fi
-fi
+# === R2 上传失败告警(2026-10-04 P1 已随异步化迁出) ===
+# R2 上传已拆出主链异步(scripts/r2_upload_async.sh), 失败告警由该脚本自身收尾统一负责
+# (verify-channels 轻量对账→真缺口才 --severe, 2026-09-11 噪音根治同款逻辑保留在 async
+# 脚本内; async 不传 --alert-issue, latest.md 由 L46④ 的 send(severe=True) 自动镜像登记,
+# 无需重复覆盖写——注释与 r2_upload_async.sh 实际调用参数一致)。deploy.sh 段2 不再有
+# R2_FAIL 状态与告警块, 只留 board_etf_map 兜底告警。
 
 # === board_etf_map 旧版兜底告警(收尾段, 2026-09-22 F1) ===
 # build_board_etf_map.py 失败时已降级为「恢复旧版 + SKIP_MAP_SYNC=1」继续其余产物(deploy 整体 rc=0),
