@@ -11697,6 +11697,9 @@ function fetchIntradaySnapshot() {
   }
   _intradaySnapPromise = (async () => {
     try {
+      // 方案A(2026-10-04): 预热 nextday_plan.json 填充"今天是否交易日"日历缓存(不 await, 不阻塞 snap 拉取);
+      //   缓存就绪后 getState 日历门放行交易日 09:30-09:35 窗口(快照停昨日的 5 分钟)横幅显示
+      try { _ensureNextTradingDayLoaded(); } catch (e) { /* 失败安全: 退回旧行为 */ }
       const snap = await fetchJSON("./data/intraday_snapshot.json");
       if (snap && snap.indices) {
         state.intradaySnapshot = snap;
@@ -12305,6 +12308,69 @@ function _bjTodayStr() {
   const _d = new Date(Date.now() + 8 * 3600000);
   return _d.getUTCFullYear() + String(_d.getUTCMonth() + 1).padStart(2, "0") + String(_d.getUTCDate()).padStart(2, "0");
 }
+// 方案A(2026-10-04 用户拍板): 今天是否交易日——复用后端交易日历产物 nextday_plan.json 的 next_trading_day,
+//   不前端自造日历, 不退回用时钟猜(§22 一致性精神)。
+//   next_trading_day 语义=「产物生成日之后的下一个交易日」(严格 > 生成日, 见 nextday_plan_generator._next_trading_day);
+//   产物只在交易日生成(假期不刷新, 10-04 线上实测 date=20260930 next_trading_day=20261008), 交易日开盘时点前端
+//   读到的必然是「上一生成日」的产物, 其 next_trading_day 恰等于今天 -> 「== 今天」= 今天是交易日。
+//   跨日失效刷新: 缓存值 < 今天 -> 重新拉(next_trading_day 单调前移的前瞻值); 缓存值 >= 今天 -> 用缓存
+//   (当天盘中产物前移也不重拉, 今天整天保持「是交易日」, 与 09:35 snap 盘中刷新自愈无缝衔接)。
+//   失败方向安全: 拉取失败 / 字段缺失 / 解析异常 -> 返回 false(退回旧行为: 横幅缺约5分钟), 绝不崩或卡。
+//   §21 口径说明: 交易日判定只认日历数据; 时钟仅在「日历已确认是交易日」之后做时段细分(那层是 getState 既有逻辑)。
+const _NEXT_TRADING_DAY_URL = "./data/nextday_plan.json";
+// 失败冷却(2026-10-04 复审根治, 同东财源 A1.2 形态): 拉取失败后冷却期内不再发任何请求
+//   (消除「每轮 60s 轮询都重拉 + fetchJSON R2 兜底至多 3 请求/轮」的按轮刷请求病灶)。
+//   冷却时长论证:
+//   - 盘中轮询 _scheduleNextRefresh 正常 60s(INTRADAY_REFRESH_MS, failCount 退避), 盘前 9:10-9:35 为 15s 快检测;
+//   - 该字段只在「快照判停昨日」时才被问(getState 日历门短路), 最关键时点=交易日 09:30-09:35 快照停昨日那 5 分钟窗口;
+//   - 取 2min: 09:30 失败 → 09:32 重试, 若成功 09:32-09:35 窗口仍能显示横幅(最多丢 2min 而非整 5min 窗口);
+//     请求量从「每 60s 一轮至多 3 请求」降到「每 2min 至多 3 请求」(-66%);
+//   - 复位路径三保险: 冷却 2min 自动到期即重试 + 成功即清 + 跨日必清 —— 三者并存, 冷却不可能构成永久死锁;
+//   - 成功即清(拉成功冷却复位) + 跨日必清(日期越过 _bjTodayStr() 无条件清, 新的一天必能拿到新日历, 第二重保险)。
+const _NTD_COOLDOWN_MS = 2 * 60 * 1000;          // 失败冷却期(2min: 1/3 频率, 保住 09:30-09:35 窗口重试机会)
+let _nextTradingDayCache = null;   // {val: "YYYYMMDD", ts}
+let _ntdLoadingPromise = null;     // in-flight 去重
+let _ntdCooldownUntil = 0;         // 失败冷却截止时间戳(0=未冷却)
+let _ntdCooldownDate = "";         // 冷却登记时的「今天」(_bjTodayStr), 跨日必清
+// 同步读缓存判定(供 getState 同步调用): 缓存未就绪/过期 -> 保守 false, 由 _ensureNextTradingDayLoaded 拉取后重刷
+function _todayIsTradingDay() {
+  const today = _bjTodayStr();
+  if (_nextTradingDayCache && _nextTradingDayCache.val >= today) return _nextTradingDayCache.val === today;
+  return false; // 失败安全: 拿不到就当非交易日(退回旧行为), 横幅缺约 5 分钟(09:35 快照盘中刷新自愈)
+}
+// 异步预热拉取 nextday_plan.json 填充缓存: 幂等(缓存新鲜/in-flight/失败冷却中都不重发), 完成后重刷横幅(日历门可能 false->true)
+function _ensureNextTradingDayLoaded() {
+  const today = _bjTodayStr();
+  // 跨日必清: 日期越过 _bjTodayStr() -> 无条件清冷却(新的一天必须能拿到新日历, 不因昨日失败被锁)
+  if (_ntdCooldownDate && _ntdCooldownDate !== today) { _ntdCooldownUntil = 0; _ntdCooldownDate = ""; }
+  if (_nextTradingDayCache && _nextTradingDayCache.val >= today) return Promise.resolve();
+  if (_ntdLoadingPromise) return _ntdLoadingPromise;
+  if (Date.now() < _ntdCooldownUntil) return Promise.resolve(); // 失败冷却中: 不再发任何请求(走既有失败安全路径)
+  _ntdLoadingPromise = (async () => {
+    try {
+      // ?_=Date.now() 破 fetchJSON 的 5min 结果缓存(同 lab.js _atFetch 约定, 统一 .json 不拼 .gz)
+      const d = await fetchJSON(_NEXT_TRADING_DAY_URL + "?_=" + Date.now(), 5000);
+      const ntd = d && d.next_trading_day;
+      if (typeof ntd === "string" && /^\d{8}$/.test(ntd)) {
+        _nextTradingDayCache = { val: ntd, ts: Date.now() };
+        _ntdCooldownUntil = 0; _ntdCooldownDate = ""; // 成功即清: 冷却与失败登记全部复位
+      } else {
+        _nextTradingDayCache = null;                 // 字段缺失: 失败安全(保持 false), 进冷却
+        _ntdCooldownUntil = Date.now() + _NTD_COOLDOWN_MS;
+        _ntdCooldownDate = today;
+      }
+    } catch (e) {
+      _nextTradingDayCache = null;                   // 拉取失败: 失败安全(保持 false), 进冷却
+      _ntdCooldownUntil = Date.now() + _NTD_COOLDOWN_MS;
+      _ntdCooldownDate = today;
+    } finally {
+      _ntdLoadingPromise = null;
+    }
+    // 日历门可能由 false->true(如交易日 09:32 缓存刚就绪), 重刷横幅让 5 分钟窗口立即显示; DOM 未就绪时函数内兜底 return
+    try { updateMarketStatusBanner(state.intradaySnapshot); } catch (e) { /* 忽略 */ }
+  })();
+  return _ntdLoadingPromise;
+}
 // A1.2(2026-10-02): 判断今天是否「非交易日(休市)」——复用后端产物口径, 不前端自造日历(§22 一致性)。
 //   判据: snap.is_closed===true 且 snap 数据日期 ≠ 今日。snap 由后端按交易日历产出(is_closed 是后端权威口径),
 //   后端今日无新快照(snap 日期停在上一交易日)= 今天休市/节假日(如 10-02 国庆)。
@@ -12350,9 +12416,12 @@ function getState(snap, now) {
   //   卡片时间角标 getCardTimeBadge(L11758/L11815, 且仅 intraday=is_closed===false 时才进入含 getState 的分支)、
   //   午休停请求 _isLunchPause(L12341)。全球品种跑马灯(_gtTick 系)有独立数据链不调 getState,
   //   美股/黄金/WTI/布伦特/纳指/美元指数/离岸CNH/USDJPY 不会拿 A股休市一刀切(§23.3 举一反三已核对)。
-  if (_isMarketClosedToday(snap)) return "closed";
+  // 方案A(2026-10-04 用户拍板): 休市 + 日历确认今天非交易日 -> closed; 休市但日历确认今天是交易日
+  //   (交易日 09:30-09:35 首份盘中快照生成前的窗口, snap 仍停昨日 is_closed=true 日期≠今日) -> 放行下方时段细分
+  if (_isMarketClosedToday(snap) && !_todayIsTradingDay()) return "closed";
   const _snapClosed = snap ? (snap.is_closed === true) : true;
-  const _treatAsIntraday = !_snapClosed; // 仅后端确认开盘中(is_closed=false)走时段细分
+  // 后端确认盘中(is_closed=false) 或 快照休市但日历确认今天交易日(开盘5分钟窗口): 走时段细分
+  const _treatAsIntraday = !_snapClosed || (_snapClosed && _todayIsTradingDay());
   if (_treatAsIntraday) {
     if (_min >= 9 * 60 + 30 && _min <= 11 * 60 + 30) return "morning";     // 9:30-11:30
     if (_min > 11 * 60 + 30 && _min < 13 * 60) return "lunch";              // 11:31-12:59
