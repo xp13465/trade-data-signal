@@ -12312,16 +12312,20 @@ function getState(snap, now) {
     : _bjDayOfWeek();
   const _isWeekday = _dow >= 1 && _dow <= 5;
   if (!_isWeekday) return "closed"; // 周末(节假日前端难判, 兜底按周末)
+  // A1.2 统一「A股是否开市」口径(2026-10-04 用户拍板): 后端 is_closed 为权威, 前端不再用交易时段兜底猜盘中。
+  //   旧逻辑(L12324): 收盘 snap 非今日(昨天收盘, 今天可能已开盘) -> _snapClosed && !_snapIsToday 走 _bjTimeMin
+  //   时段兜底切盘中态; 但节假日/长假期间 snap 同样停在上一交易日(is_closed=true 且日期≠今日)落此分支,
+  //   交易时段被误判成 morning/盘中(病灶: 周一节假日 + 快照非当日 -> 前端自猜开盘)。
+  //   新逻辑: 休市判定直接采信 _isMarketClosedToday(snap)(L12286, 与后端产物口径同源: is_closed===true
+  //   且 snap 数据日期≠今日 = 休市) -> 返回 closed, 不再回退时段兜底; 后端确认开盘(is_closed=false)
+  //   才走时段细分; 今日收盘 snap(is_closed=true 但日期=今日)仍走下方 pre_open/closed。
+  //   影响面(调用方已逐个核对): 仅 A股/大盘状态机——市场状态横幅 updateMarketStatusBanner(L11615)、
+  //   卡片时间角标 getCardTimeBadge(L11758/L11815, 且仅 intraday=is_closed===false 时才进入含 getState 的分支)、
+  //   午休停请求 _isLunchPause(L12341)。全球品种跑马灯(_gtTick 系)有独立数据链不调 getState,
+  //   美股/黄金/WTI/布伦特/纳指/美元指数/离岸CNH/USDJPY 不会拿 A股休市一刀切(§23.3 举一反三已核对)。
+  if (_isMarketClosedToday(snap)) return "closed";
   const _snapClosed = snap ? (snap.is_closed === true) : true;
-  // snap 是否今日: sh000001.datetime 前8位 === 今日(判断旧 snap 兜底)
-  const _shIdx = snap && snap.indices ? snap.indices.find((i) => i.code === "sh000001") : null;
-  const _snapDate = _shIdx ? (_shIdx.datetime || "").slice(0, 8) : "";
-  const _d = new Date(Date.now() + 8 * 3600000);
-  const _todayStr = _d.getUTCFullYear() + String(_d.getUTCMonth() + 1).padStart(2, "0") + String(_d.getUTCDate()).padStart(2, "0");
-  const _snapIsToday = _snapDate === _todayStr;
-  // 收盘态(is_closed===true)且 snap 是今天 = 节假日/盘后(后端交易日历确认非盘中)
-  // 收盘态但 snap 非今天(昨天收盘) = 旧 snap, 今天可能已开盘 -> 用时间兜底
-  const _treatAsIntraday = !_snapClosed || (_snapClosed && !_snapIsToday);
+  const _treatAsIntraday = !_snapClosed; // 仅后端确认开盘中(is_closed=false)走时段细分
   if (_treatAsIntraday) {
     if (_min >= 9 * 60 + 30 && _min <= 11 * 60 + 30) return "morning";     // 9:30-11:30
     if (_min > 11 * 60 + 30 && _min < 13 * 60) return "lunch";              // 11:31-12:59
