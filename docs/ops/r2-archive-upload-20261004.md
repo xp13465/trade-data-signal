@@ -27,7 +27,7 @@
 ## ④ 上传 R2
 
 - **key = `signal-backup/mac-backups/archive/mac-backups-2026-10-01.tar.zst`**
-- 通道 = **复用仓库既有 `scripts/upload_r2.py` 的凭证/签名/HTTP 通路**（`s3_request` + `_upload_multipart`，SigV4 凭证从 `.env` 读，未裸写任何凭证逻辑）；2.12 GiB > 100MB 阈值 → 走 multipart 分片（64MiB/片，4 并发），失败只重传片不整文件
+- 通道 = **复用仓库既有 `scripts/upload_r2.py` 的凭证/签名/HTTP 通路**（`s3_request`，SigV4 凭证从 `.env` 读，未裸写任何凭证逻辑）；**最终复现命令 = 单次 PUT（S3 PUT 接口，显式 `bucket=BACKUP_BUCKET`）**，见「复现命令」② `r2_archive_upload_v2.py` —— 2.12 GiB 单次直传，非 multipart 分片（multipart 仅第一版误用，见下事故段，非最终采用通道）
 - ⚠️ **事故与纠正（诚实标注，2026-10-04 当日）**：第一版上传误用 `_upload_multipart` —— 该函数内部 `s3_request` **未传 bucket**（默认落主桶 `BUCKET`=signal-data），导致对象实际落在**公开主桶** `signal-data/mac-backups/archive/...`（2.12 GiB）而非备份桶。已即时纠正，三步全过：
   1) **server-side COPY**（复用仓库既有 `x-amz-copy-source` 模式，带宽 0）：`signal-data/...` → `signal-backup/mac-backups/archive/...`，COPY status=200，HEAD 复核 `Content-Length=2278230346` 与本地包一致 ✓
   2) **DELETE signal-data 误传对象**（仅本人创建的那 1 个，未动任何既有 R2 对象），status=204；signal-data `mac-backups/archive/` 前缀复 List = **0** ✓
