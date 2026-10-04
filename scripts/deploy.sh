@@ -594,10 +594,12 @@ else
   # async 持 /tmp/trade_r2_upload_async.lock(--nb): 并发触发(多 pipeline deploy 并发/force 重跑)
   # 直接跳过, 已在跑那趟负责完成+告警; 上传幂等+增量指纹+checkpoint+verify-r2 对账, 跳过不丢数据。
   # 数据上线允许延迟 ≤1~2h(下一趟 deploy 的 R2 增量 + verify-r2 对账兜底)。
+  # 锁跳过留痕(2026-10-04 P1 修 review F1): DEPLOY_LOG env 传给 async, async 被跳过时
+  # r2_upload_skip_notify.sh 往本 deploy 日志写显式一行 + 落 latest.md(不再只进 journal)。
   if command -v systemd-run >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
     sudo -n systemd-run --collect --unit="r2-upload-$(date +%H%M%S)" \
       --uid="$(id -u)" --gid="$(id -g)" \
-      --setenv=REPO="$REPO" --setenv=GIT_REPO="$GIT_REPO" \
+      --setenv=REPO="$REPO" --setenv=GIT_REPO="$GIT_REPO" --setenv=DEPLOY_LOG="$LOG" \
       bash "$GIT_REPO/scripts/r2_upload_async.sh" 2>&1 | tee -a "$LOG"
     # 无 pipefail 下管道退出码=tee(恒 0), 必须取 PIPESTATUS[0] 判 systemd-run 真实成败(同 staticdata 改1 C-4)。
     _R2RC="${PIPESTATUS[0]:-0}"
@@ -622,7 +624,8 @@ else
   else
     # 无 systemd(本地 mac 开发): nohup 脱离 SIGHUP 后台跑(尽力而为; macOS 无 setsid 命令, 不依赖它)。
     # async 本体日志独立写 data/logs/r2_upload_async_*.log, 此处追加一份到 deploy LOG 便于追踪。
-    nohup bash "$GIT_REPO/scripts/r2_upload_async.sh" >> "$LOG" 2>&1 &
+    # DEPLOY_LOG env 同时传给 async(锁跳过留痕用, 见上方 F1 注释)。
+    DEPLOY_LOG="$LOG" nohup bash "$GIT_REPO/scripts/r2_upload_async.sh" >> "$LOG" 2>&1 &
     echo "  → R2 上传已后台触发(nohup fallback, 非 systemd 环境)" | tee -a "$LOG"
   fi
 fi
@@ -991,8 +994,10 @@ fi
 
 # === R2 上传失败告警(2026-10-04 P1 已随异步化迁出) ===
 # R2 上传已拆出主链异步(scripts/r2_upload_async.sh), 失败告警由该脚本自身收尾统一负责
-# (verify-channels 轻量对账→真缺口才 --severe + --alert-issue, 2026-09-11 噪音根治同款逻辑
-# 保留在 async 脚本内)。deploy.sh 段2 不再有 R2_FAIL 状态与告警块, 只留 board_etf_map 兜底告警。
+# (verify-channels 轻量对账→真缺口才 --severe, 2026-09-11 噪音根治同款逻辑保留在 async
+# 脚本内; async 不传 --alert-issue, latest.md 由 L46④ 的 send(severe=True) 自动镜像登记,
+# 无需重复覆盖写——注释与 r2_upload_async.sh 实际调用参数一致)。deploy.sh 段2 不再有
+# R2_FAIL 状态与告警块, 只留 board_etf_map 兜底告警。
 
 # === board_etf_map 旧版兜底告警(收尾段, 2026-09-22 F1) ===
 # build_board_etf_map.py 失败时已降级为「恢复旧版 + SKIP_MAP_SYNC=1」继续其余产物(deploy 整体 rc=0),

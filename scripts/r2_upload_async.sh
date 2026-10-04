@@ -12,7 +12,8 @@
 #     deploy.sh 不再串行跑 R2, 只触发本脚本)。可回退: R2_ASYNC_UPLOAD=0 时 deploy.sh 同步
 #     跑本脚本(等同旧行为阻塞主链)。
 #   - 失败必须告警(不静默): 先 verify-channels 轻量对账(2026-09-21 降噪) → 真缺口才 notify
-#     --severe + --alert-issue(写 data/alerts/latest.md), 沿用现有告警链让 schedule_monitor 发现。
+#     --severe(不传 --alert-issue: latest.md 由 L46④ 的 send(severe=True) 自动镜像登记),
+#     沿用现有告警链让 schedule_monitor 发现。
 #   - 幂等: upload_r2.py 增量指纹(整文件 md5)+ checkpoint 断点续传, 重复跑安全; 并发触发由
 #     with_lock --nb 跳过(防重复 PUT 放大 9 月 Class A 超免费额度事故; 跳过=已在跑那趟负责完成)。
 #   - 周日 weekday==6 force_full 全量上传(漂移防护, 刻意设计)保留: 运行日=周日即全量,
@@ -30,8 +31,12 @@ PY="$REPO/.venv/bin/python"
 # 进程互斥: 同日内重复触发(多 pipeline deploy 并发/force 重跑)不并发上传。锁跳过=已有在跑,
 # 那趟会负责完成+告警; 上传幂等+checkpoint+verify-r2 对账, 本次跳过不丢数据(下一趟 deploy 的
 # R2 增量会上新 export)。用 with_lock.py --nb(fcntl, mac/linux 通用, 同 fund_nav_upload_async)。
+# --on-skip(2026-10-04 P1 修 review F1): 锁被占跳过时跑 scripts/r2_upload_skip_notify.sh 留痕——
+# 此前跳过只 stderr 一行进 journal(没人看)+deploy 只见 systemd-run rc=0 判「成功」= 零痕迹;
+# 现跳过在 deploy 日志(DEPLOY_LOG env)+ data/logs/r2_upload_async_skip.log + latest.md 显式留痕
+# (正常降级不轰炸, 不发 --severe)。
 if [ -z "${R2_UPLOAD_ASYNC_LOCKED:-}" ]; then
-  exec "$PY" "$REPO/scripts/with_lock.py" --nb /tmp/trade_r2_upload_async.lock \
+  exec "$PY" "$REPO/scripts/with_lock.py" --nb --on-skip "$REPO/scripts/r2_upload_skip_notify.sh" /tmp/trade_r2_upload_async.lock \
     env R2_UPLOAD_ASYNC_LOCKED=1 bash "$0" "$@"
 fi
 

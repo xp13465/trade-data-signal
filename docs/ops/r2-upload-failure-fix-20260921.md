@@ -90,14 +90,24 @@ OnCalendar=Mon..Sat 17:50:00
 OnCalendar=Sun 22:30:00
 ```
 
-**撞车对照表(22:30 起最长 ~3h → ~01:30 周一):**
+**撞车对照表(22:30 起最长 ~3h → ~01:30 周一;2026-10-04 实跑云上 `systemctl list-timers --all` + `grep -r OnCalendar /etc/systemd/system/*.timer` 重新枚举,补齐月级低频项 pf-stage0-risk/pf-stage0-manager):**
 
-| 时段 | 任务 | 与 22:30 起 update_all 重叠? |
+| 时段 | 任务(OnCalendar) | 与 22:30 起 update_all 重叠? |
 |---|---|---|
-| 周日 22:00 | trade-public-fund-full(实测 1~2s 完成) | 不重叠(已结束) |
-| 周日 22:30-23:00 | 无 trade 任务(nextday-plan/check-data-gap/overfit-monitor/turnover 均 Mon..Fri 不跑周日) | 空 |
-| 周日 23:00-周一 02:00 | 无 trade 任务(§14 安全窗口) | 空(update_all 主体跑完) |
-| 周一 02:00 | trade-backfill-evening | 不重叠(update_all 23:00+2h48m≈01:48 前已结束;最长 3h 也止于 01:30) |
+| 周日 22:00 | trade-public-fund-full(`*-*-* 22:00`,实测 1~2s 完成) | 不重叠(已结束) |
+| 周日 22:30-23:00 | 无 trade 任务(nextday-plan 22:30 / check-data-gap 22:35 / overfit-monitor 21:40 / turnover 21:10 均 Mon..Fri 不跑周日) | 空 |
+| 周日 23:00-周一 02:00 | 无 trade 任务(§14 安全窗口;update_all 主体跑完,22:30+最长实测 ~3h=09-20 的 10754s≈2h59m → 止于 ~01:30,10-04 实测 10007s≈2h48m 止于 ~01:18) | 空 |
+| 周一 02:00 | trade-backfill-evening(`*-*-* 02:00`,每日) | 不重叠(最长 ~3h 止于 ~01:30,缓冲 ≥30min) |
+| 每月 15 日 02:33 | trade-pf-stage0-risk(`*-*-15 02:33`,月级) | 不重叠(缓冲 ≥1h) |
+| 每日 02:40 | trade-gold-night(`*-*-* 02:40`) | 不重叠(缓冲 ≥1h10m) |
+| 每月 1 日 02:47 | trade-pf-stage0-manager(`*-*-01 02:47`,月级) | 不重叠(缓冲 ≥1h17m) |
+| 每日 03:00 | trade-public-fund-quarterly(`*-*-* 03:00`,另有 04:00/07:00) | 不重叠(缓冲 ≥1h30m) |
+| 周日 02:17 | trade-pf-stage0-overview(`Sun *-*-* 02:17`,周日专属) | 不重叠(同日 02:17 早于 22:30 已先跑完,不相干) |
+| 周五 01:43 | trade-pf-stage0-nav(`Fri *-*-* 01:43`,周五专属) | 不重叠(周五才触发,与周日 run 不同日) |
+| 周日 03:17 | trade-pf-score-weekly(`Sun *-*-* 03:17`,周日专属) | 不重叠(本次周日 run 结束后下周日才触发) |
+| 周日 03:30 | trade-etf-track-index(`Sun *-*-* 03:30`) | 不重叠(同上) |
+| 周日 04:00 | trade-lof-track-index(`Sun *-*-* 04:00`) | 不重叠(同上) |
+| 每日 05:00 | trade-us-stock-morning(`*-*-* 05:00`) | 不重叠 |
 
 理由:
 1. 22:30 处于 §14 安全窗口(23:00 后)边缘且早于凌晨批;晚 22:00 全部盘后任务已结束(public-fund-full 1~2s)
