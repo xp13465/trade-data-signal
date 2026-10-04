@@ -152,3 +152,57 @@ Authorization: Bearer <wrangler oauth_token>
 - R2 S3 API(`scripts/upload_r2.py` s3_request SigV4)
 - 本机 curl 抓腾讯/新浪真实样本(node CPU 计时输入)
 - 探测 worker 脚本 `/tmp/cf-probe/worker-probe.js`(临时,已随 worker 删除;命令与输出可复现,见上文原始数据)
+
+---
+
+## 2026-10-04 第二轮复测(自定义域名通道)
+
+> 本文档首轮(10-02)之后追加的**独立第二轮复测**,与首轮结论互证。10-02 原文保持不改写(历史记录),只追加本节。
+
+### 为什么要复测
+
+- 10-02 那轮之后,`relay` 方案(把多源分时逻辑搬进 CF Worker)的可行性需要再确认一次——尤其要验证"大陆用户直接访问 `*.workers.dev` 读边缘执行结果"这条通路,因为首轮探测的结果是**写 R2 再由本地读**,没有验证"大陆浏览器能否从 CF 边缘直接拿到结果"。
+- 首轮探测在**盘后**窗口执行(Z 15:08 / 15:20+),样本窗口窄,复测选新窗口再跑一轮、且换自定义域名通道,双独立互证。
+
+### 本轮怎么测通的
+
+- 挂**临时 custom domain**:`relay-probe-tmp` worker 绑临时自定义域名 `probe-tmp.fx8.store`(经 CF 面板/API 添加 custom domain → CF 自动签发边缘证书 + DNS 记录)。
+- 大陆侧直接 `curl https://probe-tmp.fx8.store/...` 3 轮,读到的就是 worker 在 CF 边缘真实出站抓取的结果——**从用户视角端到端验证**。
+- 测完**删除 worker**(`wrangler delete relay-probe-tmp`),custom domain / DNS / 证书随 worker 删除级联清理(见下文清理证据)。
+- **关键经验(以后还会用)**:大陆访问 `*.workers.dev` 被 **SNI 污染阻断**(解析到 Facebook/Dropbox 的 IP,连接被 RST/超时),**必须走自定义域名**才能从大陆直接读到 CF 边缘执行结果。所以 relay 方案上线时**必须给 worker 挂自定义域名**(如 `quote.fx8.store` 之类),不能依赖 workers.dev 子域。
+
+### 实测结果表(6 源 × 3 轮,逐次列出)
+
+| 源 | host | 轮 1 | 轮 2 | 轮 3 | 结论 |
+|---|---|---|---|---|---|
+| 腾讯分时 | `web.ifzq.gtimg.cn` | 200/11940B | 200/11940B | 200/11940B | **3/3 可用,稳定** |
+| 腾讯批量 | `qt.gtimg.cn` | 200/463B | 200/463B | 200/463B | **3/3 可用,稳定** |
+| QQ 代理 | `proxy.finance.qq.com` | 200/11940B | 200/11940B | 200/11940B | **3/3 可用,稳定** |
+| 新浪 | `hq.sinajs.cn`(带 Referer `https://finance.sina.com.cn`) | 200/171B | 200/171B | 200/171B | **3/3 可用(本轮全绿)** |
+| 东财 | `push2delay.eastmoney.com` | 502/16B | 502/16B | 502/16B | **3/3 确定性 502** |
+| 东财 | `push2.eastmoney.com` | 502/16B | 502/16B | 502/16B | **3/3 确定性 502** |
+
+(探测标的 `sh000001` 上证指数;URL 构造与 `relay/rt_relay.py` 的 `_em_urls/_qq_urls/_sina_urls` 同构;判定标准同首轮:200+可解析=可用,501/502/403/000=不可用。)
+
+### 结论
+
+- **relay 方案前提再次成立**:CF 边缘可达腾讯/新浪,东财在 CF 边缘确定性 502。
+- **建议源序**:腾讯分时 → 腾讯批量 → 新浪兜底 → **东财不排**(边缘确定 502,排了只会白打一次 502 往返)。与首轮建议一致,本轮从"自定义域名端到端"通道再确认一次。
+
+### 遗留验证缺口(必须写)
+
+- **两轮均盘后执行**;CF 边缘在**盘中(09:30-15:30)**对腾讯/新浪的可用性**未实测**——上线前应补一次盘中验证(腾讯 WAF 是否盘中放行、新浪是否盘中 520,均为未证项)。
+
+### 清理证据
+
+- `wrangler delete relay-probe-tmp`(输出含 Successfully deleted,临时 worker 已删除)。
+- workers 列表只剩 `['hdszf','trade-data-signal']`(生产两个 worker 未触碰)。
+- custom domains 只剩 `ss.fx8.store`。
+- `dig @olga.ns.cloudflare.com probe-tmp.fx8.store` = **NXDOMAIN**(DNS 记录已随 custom domain 清理,可反查)。
+
+### 诚实标注
+
+- **实测**:6 源 × 3 轮 = 18 次出站请求(状态码/字节数/耗时全部来自 `curl` 真实输出);DNS/证书/worker 清理证据来自 `dig`/`wrangler`/CF API 复核。
+- **推断**:新浪"长期稳定性"仍按兜底位设计——本轮 3/3 全绿,但叠加 10-02 首轮 8/10(2 次 520),样本 13 次中 2 次异常,故建议放腾讯之后的兜底位而非主力。
+- **未核实**:盘中(09:30-15:30)CF 边缘可用性(见"遗留验证缺口")。
+- **未执行**:任何生产 Worker 改动 / 生产路由 / 生产 wrangler.jsonc 变更 / 对既有 worker(hdszf/trade-data-signal)的 deploy。
