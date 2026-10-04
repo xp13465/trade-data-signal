@@ -244,5 +244,8 @@
   ],
   "20261004-a640": [
     "fix(global-ticker): \u81ea\u6108\u4ec5\u5bf9\u4f11\u5e02\u957f\u9501\u751f\u6548 \u2014 \u9632\u4ea4\u6613\u65e5\u76d8\u4e2d5min\u77ed\u9501\u88ab\u8bef\u6e05(30s\u5237\u5c4f)"
+  ],
+  "20261004-a641": [
+    "fix(memory-hygiene): \u5e38\u9a7b\u770b\u677f\u4e09\u5904\u5185\u5b58\u7d2f\u79ef\u70b9\u4fee\u590d"
   ]
 }
