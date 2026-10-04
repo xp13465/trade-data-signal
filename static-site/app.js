@@ -12298,10 +12298,9 @@ const _NEXT_TRADING_DAY_URL = "./data/nextday_plan.json";
 //   - 该字段只在「快照判停昨日」时才被问(getState 日历门短路), 最关键时点=交易日 09:30-09:35 快照停昨日那 5 分钟窗口;
 //   - 取 2min: 09:30 失败 → 09:32 重试, 若成功 09:32-09:35 窗口仍能显示横幅(最多丢 2min 而非整 5min 窗口);
 //     请求量从「每 60s 一轮至多 3 请求」降到「每 2min 至多 3 请求」(-66%);
-//   - 硬上限 6h(与 _GT_EM_COOLDOWN_MAX_MS 同量级): 即使快照长期停昨日/网络长期不可用也必每 6h 探一次, 绝不死锁;
+//   - 复位路径三保险: 冷却 2min 自动到期即重试 + 成功即清 + 跨日必清 —— 三者并存, 冷却不可能构成永久死锁;
 //   - 成功即清(拉成功冷却复位) + 跨日必清(日期越过 _bjTodayStr() 无条件清, 新的一天必能拿到新日历, 第二重保险)。
 const _NTD_COOLDOWN_MS = 2 * 60 * 1000;          // 失败冷却期(2min: 1/3 频率, 保住 09:30-09:35 窗口重试机会)
-const _NTD_COOLDOWN_MAX_MS = 6 * 60 * 60 * 1000; // 冷却硬上限(6h): 任何冷却不得超过 now+6h, 到期必重试, 绝不死态
 let _nextTradingDayCache = null;   // {val: "YYYYMMDD", ts}
 let _ntdLoadingPromise = null;     // in-flight 去重
 let _ntdCooldownUntil = 0;         // 失败冷却截止时间戳(0=未冷却)
