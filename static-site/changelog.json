@@ -247,5 +247,8 @@
   ],
   "20261004-a641": [
     "fix(memory-hygiene): \u5e38\u9a7b\u770b\u677f\u4e09\u5904\u5185\u5b58\u7d2f\u79ef\u70b9\u4fee\u590d"
+  ],
+  "20261004-a642": [
+    "fix(market-banner): \u5220\u9664 NTD \u51b7\u5374\u6b7b\u5e38\u91cf _NTD_COOLDOWN_MAX_MS, \u6ce8\u91ca\u6539\u771f\u5b9e\u590d\u4f4d\u8def\u5f84\u4e09\u4fdd\u9669"
   ]
 }
