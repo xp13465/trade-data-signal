@@ -89,7 +89,11 @@ TASKS = [
     #   us_stock_morning 无交易日闸门每天跑(美股周末虽休但脚本仍启动采旧数据) = False。
     {"task": "update_all",          "log": "update_all_launchd.log",
      "trading_day_only": True,
-     "schedules": ["17:50"]},
+     "schedules": ["17:50"],
+     # 2026-10-04 云上 trade-update-all.timer 周日错峰(Mon..Sat 17:50 / Sun 22:30):
+     # 进行中超时检测拿当天实际时点当起点, 否则周日 22:30 新 run 被算成已运行 280min 误报
+     # (2026-10-04 22:30 实证)。漏跑检查周日因 trading_day_only=True 天然跳过, 不受影响。
+     "schedules_weekend": ["22:30"]},
     {"task": "backfill_evening",    "log": "backfill_evening_launchd.log",
      "trading_day_only": True,
      "schedules": ["02:00", "16:35", "21:00"]},  # 2026-07-29 加 21:00 槽：csi_div/div_lowvol T日晚发布，21:00 提前采(原仅 02:00 兜底)
@@ -196,6 +200,24 @@ def today_schedule(hm: str) -> datetime:
     return NOW.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
 
 
+def schedules_for_today(t: dict) -> list:
+    """返回今天(按 weekday)适用的计划时点列表。
+
+    update_all: 周一~周六 17:50 / 周日 22:30(2026-10-04 云上
+    trade-update-all.timer OnCalendar=Mon..Sat 17:50:00 + Sun 22:30:00,
+    周日错峰避开 evening 链)。进行中超时检测必须按当天实际时点算起点,
+    否则周日 22:30 新 run 被拿 17:50 当起点误算成「已运行 280min」——
+    2026-10-04 22:30 实证误报(schedule_monitor_launchd.log)。
+    其余任务无周日差异(无 schedules_weekend), 直接返回 schedules。
+    """
+    scheds = t["schedules"]
+    weekend = t.get("schedules_weekend")
+    if weekend:
+        # datetime.weekday(): 0=周一 ... 6=周日
+        scheds = weekend if NOW.weekday() == 6 else scheds
+    return scheds
+
+
 alerts = []
 recoveries = []  # 异常恢复通知(log_anomaly 从 true 变 false)
 
@@ -299,7 +321,7 @@ for t in TASKS:
     last_run = parse_last_run(log_path)
     last_run_str = last_run.strftime("%Y-%m-%d %H:%M:%S") if last_run else "无"
 
-    for sch_hm in t["schedules"]:
+    for sch_hm in schedules_for_today(t):
         sch = today_schedule(sch_hm)
         # 下界 +60s buffer：launchd StartCalendarInterval 整点触发后，任务脚本有
         # caffeinate + with_lock.py 包装 + mkdir/cd 等启动开销，"开始"行通常延后 3-8s
@@ -885,7 +907,7 @@ IN_PROGRESS_BUFFER = {
     "intraday_snapshot": 10,
     "us_stock_morning": 10,
 }
-_task_sched_map = {t["task"]: t["schedules"] for t in TASKS}
+_task_sched_map = {t["task"]: schedules_for_today(t) for t in TASKS}
 _stats_by_task = {s.get("task"): s for s in stats if isinstance(s, dict)}
 for _ip_task in sorted(in_progress_tasks):
     _ip_scheds = _task_sched_map.get(_ip_task, [])

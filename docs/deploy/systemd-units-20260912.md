@@ -85,17 +85,18 @@ PURGE_SECRET 值(本机全部 plist 一致):见 `/home/ubuntu/code/trade-data/.e
 
 ---
 
-### 2.1 update-all(盘后主链 17:50)
+### 2.1 update-all(盘后主链 17:50;周日 22:30 错峰)
 - 脚本:`update_all.sh`(4 并行 pipeline + 末尾 deploy;内嵌 backup_db.sh L357——备份已另设 21:00 独立 timer,见 §4,阶段4 删 L357 段)
-- 时点:每天 17:50 | ExitTimeOut=7200
+- 时点:周一~周六 17:50 | **周日 22:30(2026-10-04 错峰)**:周日 R2 force_full 全量 + verify-r2 ~3 万 key 对账结构性慢(10-04 段1 预估 10007s≈2h48m,依据 09-20 实测 10754s≈2h59m 外推;真测锚点=09-20 10754s≈2h59m),挪凌晨安静段避免拖 evening 链;22:30 起最长 ~3h 跑至 ~01:30 周一,不与凌晨 02:00 backfill-evening / 02:17 pf-stage0-overview / 02:40 gold-night / 每月15日 02:33 pf-stage0-risk / 每月1日 02:47 pf-stage0-manager / 03:00 quarterly / 03:17 pf-score-weekly / 03:30 etf-track / 04:00 lof-track / 05:00 us-stock 撞车(完整撞车对照见 docs/ops/r2-upload-failure-fix-20260921.md 改动4,含月级低频项重新枚举)。§14 安全窗口(23:00 后)兼容。| ExitTimeOut=7200(service TimeoutStartSec=10800)
 
-`trade-update-all.timer`:
+`trade-update-all.timer`(云上实际配置,2026-10-04 改):
 ```ini
 [Unit]
-Description=Trade update-all daily 17:50 (源 com.trade.update-all)
+Description=Trade update-all daily 17:50 (Mon..Sat) / Sun 22:30 错峰 (源 com.trade.update-all)
 
 [Timer]
-OnCalendar=*-*-* 17:50:00
+OnCalendar=Mon..Sat 17:50:00
+OnCalendar=Sun 22:30:00
 Persistent=true
 
 [Install]
