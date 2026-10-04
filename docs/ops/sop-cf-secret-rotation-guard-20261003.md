@@ -62,6 +62,10 @@ curl -s -X POST -o /dev/null -w '%{http_code}' https://ss.fx8.store/api/purge-ca
 5. 取消勾选 **Enable Preview Builds**
 6. **保存后生效**(可选:确认页面提示已保存)
 
+> **2026-10-04 用户 dashboard 实测观察(重要,操作前必读)**:实际页面上的复选框标签**不是** "Enable Preview Builds",而是 **「Builds for non-production branches」**——语义相同(给非生产分支构建 = preview builds),就是同一个开关的旧/新 UI 标签差异,别因名字对不上而找不到。另注意页面上可能出现的 **"Set up Worker Previews" 横幅是新型预览模型的迁移提示,须忽略**(与上述开关无关)。来源=2026-10-04 用户 dashboard 实测观察。
+>
+> **⚠️ caveat**:取消勾选后**须验证 main 生产构建不受影响**——生产构建另有 `.github/workflows/deploy-cf.yml` 独立路径兜底(只监听 main),不受此开关影响;但验证步骤(推测试分支确认无 preview alias)做完前,**该开关尚未实际关闭,验证待做**(状态:未执行)。
+
 > 副作用:非 main 分支不再有 CF preview(项目部署主路径已是 GH Actions `deploy-cf` 只监听 main,无业务损失)。Git integration 仍保留=生产 main push 双保险兜底(GH Actions 失败时 build+deploy 仍会跑)。**不要**点「Disconnect」断掉整个 Git integration(断开会同时失去 main 生产兜底)。
 
 **关闭后的决定性验证(严格「先关、后验」顺序,别反)** —— 必须真推到远端验证,不认「设置显示已关」。**顺序铁律:先在 dashboard 把开关关掉并保存(上文第 1~6 步),再推测试分支验证;反过来会白白再建一个 preview 版本、把验证误判成 FAIL。**
