@@ -7,6 +7,7 @@
 ## 0 现状(snapshot 2026-10-03 北京 ~23:35,关闭 Preview Builds 之前)
 
 - **Preview Builds 开关 = 开启中**(证据见 §3):latest 10 条 version 全部 `has_preview=true`,最近几条 alias 对应非 main 分支(`feat-hc-docs-registry` / `feat-cf-version-provenance` / `feat-r2-retention-14d`)。
+  - **状态已变化(2026-10-04)**:本节为关闭前快照;该开关已于 2026-10-04 经用户 dashboard 取消勾选关闭,**关闭后验证 PASS**(推测试分支版本数 10→10 未增),见 §3「✅ 关闭已执行 + 验证已 PASS」段。
 - **当前守卫状态 = 放行**:latest version = `10df9a1d`(版号 8281),已部署(deployment `873865b5`)。
 - 该开关**没有 CLI 子命令**;Workers Builds **API 端点本身存在**(账户级 `/accounts/{acc}/builds/*`:`repos/connections`、`builds`、`triggers` 等,官方 API 参考页现行 21 个端点),但**没有**「Enable Preview Builds」开关端点(trigger schema 仅 `trigger_name/trigger_uuid/repository_directory`);普通 wrangler OAuth token 无 `workers_builds` scope,调用 `/builds/*` 返回 `Authentication error(10000)`。要读/改相关配置需一个带 **Workers Builds Configuration Edit** 权限的 **user-scoped** API token(account-scoped 不支持)→ 当前凭证无该 scope,结论=用户 dashboard 手点,见 §3。
 
@@ -64,7 +65,7 @@ curl -s -X POST -o /dev/null -w '%{http_code}' https://ss.fx8.store/api/purge-ca
 
 > **2026-10-04 用户 dashboard 实测观察(重要,操作前必读)**:实际页面上的复选框标签**不是** "Enable Preview Builds",而是 **「Builds for non-production branches」**——语义相同(给非生产分支构建 = preview builds),就是同一个开关的旧/新 UI 标签差异,别因名字对不上而找不到。另注意页面上可能出现的 **"Set up Worker Previews" 横幅是新型预览模型的迁移提示,须忽略**(与上述开关无关)。来源=2026-10-04 用户 dashboard 实测观察。
 >
-> **⚠️ caveat**:取消勾选后**须验证 main 生产构建不受影响**——生产构建另有 `.github/workflows/deploy-cf.yml` 独立路径兜底(只监听 main),不受此开关影响;但验证步骤(推测试分支确认无 preview alias)做完前,**该开关尚未实际关闭,验证待做**(状态:未执行)。
+> **✅ 关闭已执行 + 验证已 PASS(2026-10-04)**:用户已于 dashboard 取消勾选「Builds for non-production branches」;主控决定性验证(**实测**)推一次性测试分支 `cf-toggle-test-20261004` → 103s 后 `npx wrangler versions list` 版本总数 **10 → 10 未增**,最新版本仍 `2026-10-03T16:34:09.259Z`(`68d55204-…`)⇒ **Preview Builds 已停,main 生产构建不受影响**(生产构建另有 `.github/workflows/deploy-cf.yml` 独立路径兜底,只监听 main);测试分支已删。证据=实测(推分支 + 版本数不变),非推断。
 
 > 副作用:非 main 分支不再有 CF preview(项目部署主路径已是 GH Actions `deploy-cf` 只监听 main,无业务损失)。Git integration 仍保留=生产 main push 双保险兜底(GH Actions 失败时 build+deploy 仍会跑)。**不要**点「Disconnect」断掉整个 Git integration(断开会同时失去 main 生产兜底)。
 

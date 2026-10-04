@@ -7,7 +7,8 @@
 #
 # 备份路径：默认 data/backups/（已 .gitignore，不进 git）。
 #   外置盘：BACKUP_DIR=/Volumes/<盘>/trade_backup bash scripts/backup_db.sh
-# 保留：默认 RETAIN_DAYS=14 天（2026-10-04 对齐 R2 保留期，超出自动删，按文件 mtime）。
+# 保留：默认 RETAIN_DAYS=7 天（2026-10-04 回退，与云上 systemd 注入值一致即云盘预算；
+#   R2 异地保留期为 14 天），超出自动删，按文件 mtime。
 # 日志：data/logs/backup_db_YYYYMMDD_HHMM.log
 #
 # 用法：bash scripts/backup_db.sh
@@ -20,7 +21,7 @@ export REPO GIT_REPO   # #75 显式导出,确保 upload_r2.py 子进程继承 RE
 PY="$REPO/.venv/bin/python"
 DBDIR="$REPO/data"
 BACKUP_DIR="${BACKUP_DIR:-$DBDIR/backups}"
-RETAIN_DAYS="${RETAIN_DAYS:-14}"
+RETAIN_DAYS="${RETAIN_DAYS:-7}"
 STAMP=$(date +%Y%m%d_%H%M)
 LOGDIR="$REPO/data/logs"
 LOG="$LOGDIR/backup_db_${STAMP}.log"
