@@ -16,8 +16,8 @@ if [ "$(uname -s)" = "Darwin" ]; then
     caffeinate -i -w $$ >/dev/null 2>&1 &
 fi
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"   # §9 cwd=trade-data 让 db.py 读主库
-GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 PY="$REPO/.venv/bin/python"
 # 脚本在 trade/scripts/（trade-data/scripts 是 symlink 指向 trade/scripts）
 SCRIPT="$GIT_REPO/scripts/us_stock_morning.py"

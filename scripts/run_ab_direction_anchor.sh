@@ -7,7 +7,11 @@
 # 复现:bash scripts/run_ab_direction_anchor.sh
 set -uo pipefail
 
-TRADE_DIR="${TRADE_DIR:-/Users/linhuichen/code/trade}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
+# 本脚本用 TRADE_DIR 承载「git 仓」语义(= 云上 unit 的 GIT_REPO 值,两侧实测逐字节相同);
+# env 优先零改写,env 丢失时回退 lib 推导的 GIT_REPO(#195 批4 单点守卫),保持脚本内 $TRADE_DIR 全部用法不变。
+TRADE_DIR="${TRADE_DIR:-$GIT_REPO}"
 PY="${PY:-$TRADE_DIR/.venv/bin/python}"
 
 # 部署源树 repo 解析:与 ab_direction_anchor.py 内 pick_repo() 同源(同一 python 模块)。

@@ -22,7 +22,8 @@ if [ "$(uname -s)" = "Darwin" ]; then
     caffeinate -i -w $$ >/dev/null 2>&1 &
 fi
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 PY="$REPO/.venv/bin/python"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)

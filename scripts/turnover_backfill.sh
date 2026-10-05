@@ -25,8 +25,10 @@ fi
 
 # ⚠️ 必须 export(2026-08-26 手动裸跑事故根因): upload_r2.py 从 os.environ 读 REPO 派生
 # STATIC_DIR, 只设 shell 变量不 export 时子进程读不到 → 回退 ROOT=trade 触发盘中守卫 abort。
-export REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-export GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
+export REPO
+export GIT_REPO
 PY="${PY:-$REPO/.venv/bin/python}"
 LOGDIR=$REPO/data/logs
 LOG="$LOGDIR/turnover_backfill_launchd.log"
