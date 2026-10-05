@@ -114,4 +114,107 @@ time REPO=/home/ubuntu/code/trade-data GIT_REPO=/home/ubuntu/code/trade-data-sig
   - 本地语法/静态:`python -m py_compile scripts/check_r2_consistency.py scripts/gen_schedule_stats.py && bash -n scripts/check_r2_consistency.sh && bash scripts/lint_scripts.sh`
   - 云上生产目录实跑:见 §5 命令(跑完删 untracked 临时副本)。
   - unit 生成校验:`python scripts/gen_systemd_units.py --check`(应含 `trade-r2-consistency.timer/.service`)。
+
+## 9. 收口(2026-10-05 reviewer 遗留 1 P1 + 3 P2 + 用户追加增强)
+
+> 处置对象:本任务 reviewer 报告的 P1-1 / P2-1 / P2-2 / P2-3 + 用户 2026-10-05 拍板的「连续 2 天 FAIL 升 critical」增强。
+> 全部落同一分支 `feat/160-consistency-gate-20261005`(§0.2 续跑不新开分支)。
+
+### 9.1 P1-1 周日 23:20 假 SEVERE(必须在 2026-10-11 首次暴露前落地)
+
+**根因(实测证据,非推断)**:云上 `trade-update-all.timer` = `OnCalendar=Mon..Sat 17:50:00` **+ `OnCalendar=Sun 22:30:00`**(错峰档)、`Persistent=true`;实测一次真实更新 `=== update_all.sh 开始 2026-10-04 22:30:00 ===` → `结束(非交易日)2026-10-05 00:49:02` = **139 分钟**。⇒ 周日链跑 22:30→约 00:49,而 #160 的 23:20 采样点**必落在 update-all 半进程中**:`export` 已写本地 `static-site/data`,而 `r2_upload_async.sh`(段1 末尾已异步化)仍在往 R2 写 ⇒ 此刻 local≠R2 是**过渡态而非故障** ⇒ **每周日 23:20 假 SEVERE**。
+
+**选型 = 方案 (c) preflight(采用)**,三个候选逐条对比:
+
+| 候选 | 内容 | 判定 |
+|---|---|---|
+| (a) timer 排除周日 | 改 `trade-r2-consistency.timer` 的 OnCalendar 去掉周日 | 否决:只挡「周日这一档」,工作日链一旦延后同样假阳;**且需动云上生产 unit(§25 备份+恢复路径)** |
+| (b) 采样点后移到 01:30 | 挪到 update-all 结束之后 | 否决:周日链实测结束 00:49 且 `Persistent=true` 补跑会让时长浮动;01:30 后紧邻 02:00/02:17 深夜档,样本点仍不稳 |
+| **(c) preflight 跳过** | `update-all.service` 处于 active(= 晚链在跑)→ 跳过本次检查、写日志、rc=0、**不发告警** | **采用**:对**任意**晚链意外延后(不限周日档)免疫;零云上配置变更(不改 timer/unit ⇒ 无 §25 备份义务);跳过痕留日志可反查 |
+
+**实现**:`scripts/check_r2_consistency.sh` 在 `开始` 行之后、正式比对之前加 `update_all_running()` 判据:①systemd 环境走 `systemctl is-active --quiet trade-update-all.service`(云上服务名已实测确认)②非 systemd(mac 开发)回退 `pgrep -f update_all.sh`③自测用 `R2_CONSISTENCY_PREFLIGHT_STUB=active|inactive` 强制分支(生产不设)。跳过时**刻意写标准结束行** `=== ... 结束 <ts> 退出码=0 ===` 以匹配 `gen_schedule_stats` 的 `END_RE`,让跳过被记为一次正常的 exit-0 运行(**不产生漏跑告警**)。
+
+**判据两态实测(云上只读,未 start/stop update-all)**:
+- `systemctl is-active --quiet systemd-journald.service` → **rc=0**(active 语义)
+- `systemctl is-active --quiet trade-update-all.service` → **rc=3**(inactive 语义;`is-active` 明文 `inactive`)
+⇒ `&& return 0` / `return 1` 两条分支都被真实 systemctl 语义证明;本地测试另覆盖 stub 两态与 pgrep 回退路径。
+
+**代价(如实登记)**:跳过当次 ⇒ 该日一致性**未校验**,由次日 23:20 覆盖。可接受依据:一致性是**持续不变量**(10-02 事故正是持续 6 天无人知),漏一天采样不产生「已确认一致」的假信号;且 update-all 自身失败有独立告警链,**此跳过不吞任何故障**。
+
+### 9.2 P2-1 同一 FAIL 双通道告警 → 加同实例抑制(不削真故障判别)
+
+**问题**:一次 FAIL 会发两封 —— ①包装器 `rc!=0` → `notify --severe --dedup-key r2_consistency_fail`(6h 窗);②`gen_schedule_stats` 记 `last_exit=RC≠0` → `schedule_monitor.sh` 的 `exit!=0` 汇总通道再发一封(other key `f"{task}|exit!=0|{code}"`)。参考先例:`nextday_plan` 有 R3 抑制、`staticdata` 有 R4 抑制,**r2_consistency 此前没有任何抑制**。
+
+**修法**:`scripts/alert_denoise_rules.py` 新增 R7② `r7_r2_consistency_wrapper_alerted(repo, last_run, dedup_key="r2_consistency_fail")` —— 判定依据是**包装器自身通道实际投递的证据**(`data/notify_dedup.json[<key>].last_alerted`),且与 **`last_run` 比较而非与「今天」比较**(故持续到次日也不会在早晨重述)。`schedule_monitor.sh` 在 nextday_plan 的 R3 elif 之后加 R7② elif:成立则**只刷新 alert_state 的 last_alerted 并静默**,不再发汇总封。
+
+**真故障判别维度保留(硬要求)**:`r7_r2_consistency_wrapper_alerted` 任何解析/文件/键缺失错误一律**返回 False(fail-open)**⇒ 包装器若发送失败/被 `run_to` 杀掉/去重文件缺失,汇总通道**照样发**。即「第二封抑制」而非「故障抑制」,真 FAIL 至少 1 封必达。
+
+### 9.3 P2-2 同文档自相矛盾(systemd-units doc 计数)
+
+`docs/deploy/systemd-units-20260912.md:55` 写「共 **5** 个 shell 型」而 `:1616`(§9)已更新为 **6** 个含 `trade-r2-consistency(2026-10-05 追加)` ⇒ 同文档自相矛盾。**已修 L55 → 6 并补单元名**;6+2+32=40 与云上实测总数吻合,**未改写历史计数**(§23.13 不自行选边)。
+
+### 9.4 P2-3 注释与实现不符(进行中超时覆盖实际不存在)
+
+`scripts/schedule_monitor.sh:152-154` 原注释称「只管漏跑+进行中超时」,但 r2_consistency **不在** `DUR_THRESHOLDS` 中,进行中收集还要求 `_dur_task in DUR_THRESHOLDS` ⇒ 进行中覆盖**名义存在、实际不生效**。
+
+**选型 = 改注释对齐实现,不补 DUR_THRESHOLDS(采用)**,理由(在注释里写明):
+- 取 **900** ⇒ 被内层 `run_to 900` 杀掉的 hung python **仍会写入标准结束行**(dur≈901s),转而触发 monitor 的 exit≠0 通道 ⇒ 与包装器自身 severe **重复出现**,违背 P2-1 的同一目的;
+- 取 **>960** ⇒ systemd `TimeoutStartSec=960` 会先杀掉进程,**配置恒不触发 = 死配置**;
+- 进行中超时触发点约 23:35,而 systemd 强杀在 23:36、monitor 轮次为 :00/:15/:30/:45 ⇒ **永远不可能落入窗口**。
+- 结论:卡死防护已由**内层 `run_to 900` + 外层 `TimeoutStartSec=960` 双重硬门 + exit-failure 通道**三层覆盖,无需第四层。已把注释改为「此处只管漏跑」并附上上述 ⚠️ 推导。
+
+### 9.5 用户追加增强:连续 2 天 FAIL 升 critical
+
+**动机**:单次 severe 若正落在 6h 去重窗内(如 23:20 与次日 09:00 的相邻告警)可能被吞,持续缺口被静默。
+
+**档位定义与首日/次日行为**(实现落 `notify.py` 的 R7① 拦截,匹配 R4 先例 `--dedup-key staticdata_backup_fail` 的写法,**包装器不改**):
+
+| 场景 | 档位 | 出口 | 去重 key |
+|---|---|---|---|
+| **第 1 天 FAIL** | severe(**与历史行为一字不差**) | 走通用 `--severe` 路径(邮件 + 飞书 alert 群 + 镜像 `latest.md`) | `r2_consistency_fail`(6h) |
+| **连续第 2 天及以后 FAIL** | **critical(升级)** | `send_tiered(TIER_CRITICAL)`,主题 `[告警] §22 三站一致性校验失败(连续 N 天, 升级 critical)` | `r2_consistency_fail_escalated`(独立窗,**不复用首日 6h 窗**)+ 同时占 `r2_consistency_fail` |
+| 间隔中断(非连续日) | 重置为 1 天 → severe | 同第 1 天 | — |
+
+- **连续天数状态**:`data/r2_consistency_fail_state.json`(`{last_fail_date, consecutive_days, first_fail_date}`,原子写 tmp+replace;写失败只 stderr 不抛)。同日重复不累加;间隔**恰好 1 个自然日**才 +1,否则重置为 1。
+- **L46 无旁路**:`send_tiered(critical)` → `send(severe=True)` → 同样镜像 `data/alerts/latest.md`,飞书经 `_resolve_feishu_chat_key`(`if severe: return "alert"`)路由到 **alert 群**,不存在「升级档绕过镜像」的旁路出口。
+- **升级日同步占首日 key**:保证同日 monitor 的同实例抑制(§9.2)在升级日**依然生效**,不会因升级档换 key 而多出第三封。
+
+### 9.6 举一反三 + 同族扫描(§23.2 同类错误面 / §23.3 同模式)
+
+| 面 | 清单与逐项结论 |
+|---|---|
+| **同类错误面(「preflight 缺失致过渡态假阳」)** | 全部 40 个 `trade-*.timer` 逐个核时点与当日 update-all 链关系:①**只有 r2-consistency 暴露在周日**(其余 checker 均 Mon..Fri 门控,周日不跑)②`check-data-gap` 22:35 有**交易日闸门**而周日非交易日 ⇒ 不跑 ⇒ 无风险 ③工作日 update-all 17:50 + 实测 112–139min → 约 19:42–20:09 结束,远早于 21:40/22:00/22:30/22:35 各采样点。**结论:同类错误面仅此一处,已修**。 |
+| **同族脚本扫描(`check_data_gap_alerts` 等)** | 发现同一不实注释模板「此处只管漏跑+进行中超时」**也存在于 `check_data_gap`(TimeoutStartSec=600)及其它不在 `DUR_THRESHOLDS` 的 TASKS 条目**上 ⇒ 属**同一类陈述失真**(非本次功能 bug)。依 **§23.7 冻结契约**「不顺手改老功能、发现历史遗留上报」**本次只报告不擅改**,交主控/用户拍板是否统一。 |
+| **残留观察项** | 工作日 update-all 若超 **约 230 分钟**(当前最大 139min,余量约 90min),其结束点将越过 21:40 采样点,届时 21:40 档 checker 会落入同样的半进程窗口。当前有 90min 余量,**登记为观察项**(非本次改动引入)。 |
+
+### 9.7 收口自验逐项
+
+| 项 | 结果 |
+|---|---|
+| 分支延续(§0.2) | `git branch --show-current` = `feat/160-consistency-gate-20261005` ✓(未新开分支) |
+| 专项测试 | `pytest -q scripts/tests/test_160_r2_consistency_followup_20261005.py` → **23 passed** |
+| 全量回归 | `pytest -q scripts/tests/` → **188 passed, 1 skipped** |
+| 语法 | `py_compile`(notify/alert_denoise_rules/test)×3 OK;`bash -n`(check_r2_consistency / schedule_monitor)OK |
+| 判据两态 | 云上只读:journald `is-active --quiet` rc=**0** / update-all rc=**3**(见 §9.5);本地 stub 两态 + pgrep 回退均覆盖 |
+| 「真 FAIL 仍报 1 封、不报 2 封」两态实测 | `test_two_channels_one_alert_normal_state`(包装器已投递 → 汇总静默=1 封)、`test_two_channels_one_alert_wrapper_send_failed`(包装器投递失败 → 汇总照发=1 封);两态均**恰好 1 封** |
+| 同实例抑制不打折 | day1 落回 severe(1 封)/ day2 升 critical(1 封)/ 升级窗内 suppress(0 封)三态均实测 |
+| §14 不触发定时任务 | 本次纯代码+文档改动,**未启动/停止/daemon-reload 任何云上 unit**;云上故障排查仅只读 |
+| §25 | 未删任何文件、未动任何云上配置 ⇒ 无备份义务(§9.1 选型 (c) 即为规避动 unit) |
+| §23.11 无静默 | 全程无冲突/覆盖/倒退;`check_r2_consistency.sh` 等文件为单 agent 独占改 |
+
+### 9.8 收口复现命令
+
+```
+# 专项(23 项)
+/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_160_r2_consistency_followup_20261005.py
+# 全量回归
+/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/
+# 语法
+python -m py_compile scripts/notify.py scripts/alert_denoise_rules.py && bash -n scripts/check_r2_consistency.sh && bash -n scripts/schedule_monitor.sh
+# preflight 判据两态(本地, 不碰云上)
+R2_CONSISTENCY_PREFLIGHT_STUB=active   bash scripts/check_r2_consistency.sh; echo rc=$?   # 期望 0 + 日志 [preflight-skip]
+R2_CONSISTENCY_PREFLIGHT_STUB=inactive bash scripts/check_r2_consistency.sh; echo rc=$?   # 期望走真实比对
+# 判据语义(云上只读)
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'systemctl is-active --quiet systemd-journald.service; echo $?; systemctl is-active --quiet trade-update-all.service; echo $?'
+```
 - **配套 commit**:见本分支 `feat/160-consistency-gate-20261005` 同名提交。

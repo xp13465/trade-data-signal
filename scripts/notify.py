@@ -2238,6 +2238,41 @@ def main(argv: list[str] | None = None) -> int:
             write_alert(args.alert_issue, args.body, log_path=args.alert_log)
         return 0
 
+    # #160 收口 R7①(2026-10-05, 用户拍板「连续 2 天 FAIL 升 critical」): r2_consistency
+    # (§22 三站一致性巡检, check_r2_consistency.sh 包装器) 连续失败天数分级。分级落在
+    # notify.py 调用侧(同上方 R4 staticdata_backup_fail 先例, 包装器只管照常调用):
+    #   首日失败  → 本块不拦截, 落回下方通用 --severe 路径(与历史行为一字不差)
+    #   连续>=2天 → 拦截改发 critical(独立 dedup key, 不被首日 6h 窗吞; 邮件 + 飞书 alert 群
+    #               = severe 同渠道, subject 显式标注「连续 N 天」防被单次噪音淹没)
+    #   成功日不调用 notify → 「连续」按自然日间隔判定, 见 r7_r2_consistency_escalate。
+    if args.dedup_key == adr.R2_CONSISTENCY_DEDUP_KEY and not args.dry_run:
+        _r7_repo = Path(os.environ.get("REPO") or REPO)
+        _r7_state = _r7_repo / "data" / "r2_consistency_fail_state.json"
+        _r7_tier, _r7_days, _r7_reason = adr.r7_r2_consistency_escalate(_r7_state, datetime.now())
+        print(f"[notify][r7] r2_consistency 连续失败分级={_r7_tier}({_r7_days}天): {_r7_reason}",
+              file=sys.stderr)
+        if _r7_tier == TIER_CRITICAL:
+            if check_dedup(adr.R2_CONSISTENCY_ESCALATED_DEDUP_KEY, args.dedup_window):
+                print("[notify][r7] 升级档窗口内已发, suppress", file=sys.stderr)
+                return 0
+            _r7_subject = f"[告警] §22 三站一致性校验失败(连续 {_r7_days} 天, 升级 critical)"
+            _r7_body = (f"<b>连续失败升级</b>: {_r7_reason} —— 单次失败已升级为持续缺口, "
+                        f"需人工排查(问题明细见下)。<br>" + (args.body or ""))
+            results = send_tiered(_r7_subject, _r7_body, tier=TIER_CRITICAL,
+                                  dry_run=args.dry_run, from_prefix=args.from_prefix,
+                                  feishu_group=args.feishu_group,
+                                  reply_to_message_id=args.reply_to_message_id)
+            print(f"[notify][r7] 升级档路由完成：{results}", file=sys.stderr)
+            if _tier_send_ok(results, TIER_CRITICAL):
+                # 升级档占独立窗 + 同步占首日窗: 让 schedule_monitor 的同实例去重
+                # (r7_r2_consistency_wrapper_alerted 读 r2_consistency_fail)也看到
+                # 「包装器通道本次已发」, 防 monitor 汇总通道在升级日再复述一封。
+                update_dedup(adr.R2_CONSISTENCY_ESCALATED_DEDUP_KEY)
+                update_dedup(args.dedup_key)
+            if args.alert_issue:
+                write_alert(args.alert_issue, _r7_body, log_path=args.alert_log)
+            return 0
+
     # 去重检查：window 内已告警过则 suppress 静默退出（返回 0，不阻塞调用方）
     # dry-run 不走去重（测试用，需看到发送日志）
     if args.dedup_key and not args.dry_run and check_dedup(args.dedup_key, args.dedup_window):
