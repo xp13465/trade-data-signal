@@ -33,6 +33,7 @@
 2. 派 implementer 实施 **#178**:`upload_r2.py` 引入第二套 endpoint+凭据并按目标桶路由(**必须等 #176 合 main,同文件不可并发**)
 3. 派 implementer 实施 **#163** 断档回填(首选 = `fapi_daily_raw` 库内搬移,分钟级;详见 pending-index #163)
 4. 按 `bkt-audit` 结论配双侧 lifecycle(新桶 3 条 + 老桶补 `pre-upload/` 等)
+5. 清理 `.claude/worktrees/` 下 **~48 个陈旧 worktree**(多为已完成 agent 残留,其中 3 个 `locked`)。**危害**:占着分支会让续跑同一任务的 agent `checkout` 报 `fatal: already checked out` → 只能 cherry-pick → 分支身份漂移(见 memory `resume-same-task-reuse-branch`)。**处置**:先确认对应分支已推 origin(worktree 删掉不影响 origin 上的分支),再 `git worktree remove --force <路径>`;**按 §25 先把备份/可恢复性验证做掉再删**。
 
 **未决/待用户拍板**:fetch_news 周日夜 SEVERE 噪音是否接受;是否启用 CF R2 Local Uploads;`rzhb_backfill` 登记漂移(云上 timer 有 19:15 槽但 `schedule_monitor.sh` 只登记 08:00);老桶实际 lifecycle 规则列表(**我方 key 查 403,须用户 dashboard 核对**;既有记录互相矛盾)。
 
