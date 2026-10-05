@@ -11,7 +11,7 @@
 **最后更新(2026-10-05 22:5x 周一·国庆休市)——本会话收尾完成;三项拍板落地;**无在跑 agent**
 
 > **在跑 agent:0**(tester `a0f33d0f86b5c3748` 已收工,巡检兜底 cron `fb384ac2` 已删)。
-> **在位 cron 4 个**:`7cf5422c`(10-08 21:12 s06 超时真行为 + #188 四子项)/ `541d860f`(10-30 staticdata 旧镜像到期复核)/ `72c2bd8b`(11-01 CF R2 Class A 账单复核)。~~`c6b45788`(10-06 08:07 #185 复核)~~ 与 ~~`fb384ac2`(巡检兜底)~~ **均已删** —— 前者两件事已被本晚实测完整覆盖(报告 `docs/ops/185-backfill-verify-20261005.md`),留着只会重复干活。
+> **在位 cron 3 个**:`7cf5422c`(10-08 21:12 s06 超时真行为 + #188 四子项)/ `541d860f`(10-30 staticdata 旧镜像到期复核)/ `72c2bd8b`(11-01 CF R2 Class A 账单复核)。~~`c6b45788`(10-06 08:07 #185 复核)~~ 与 ~~`fb384ac2`(巡检兜底)~~ **均已删** —— 前者两件事已被本晚实测完整覆盖(报告 `docs/ops/185-backfill-verify-20261005.md`),留着只会重复干活。
 >
 > **✅ 本晚 tester 只读核查结论(2026-10-05 22:15~22:45,云上全程只读)**:① **新桶 `large-json` 31673/31673 填齐**(433.4MB = 原始 2376.3MB 的 18.2%;新账号端点生效)。⚠️ **首轮全量回填实际由 `16:52` 那轮完成**(`staticdata_backup_async_20261005_165200.log`,4798s),**17:50/18:00 那轮 large-json 因 `trade_backup_r2.lock` 被占「跳过」8s** ⇒ 只看 17:50 日志会误判「没回填」,别再踩 ② **完整性 MISSING=0 EXTRA=0 + 抽样 7/7 五项断言逐位一致**(期望集取 staticdata `.gitignore` 受管区块,与上传器 manifest 相互独立;尺子先验注入 1 字节可检出 PASS;中途「gz md5 不匹配」= 误用系统 python3.10 重压,换生产 venv 3.11 后 4/4 复现 ETag)③ **s06 unit 三方一致**(`TimeoutStartUSec=55min`=3300 / `OnCalendar=Mon..Fri 20:35` / `ConditionPathExists` 未设;`systemd_timeout_gradient_audit.py` 本机 `--check-doc` + 云上 `--check-snapshot` 双 PASS 82 unit)④ **10-08(周四)20:35 = 首次真跑**(10-06/07 会触发但被交易日闸门跳过,同源路径已验证可跑);`systemctl --failed`=0。**⇒ #185 ①② 销账**(剩 ③ 老桶 legacy 补刀(随 #186,10-07 后)+ ④ 10-08 后复核);**新增 #197**(staticdata 灾备仓 `git prune` 类,§25 先备份后删)、**#198**(新桶 `claude-backup/`·`mac-backups/` 0 对象,核链路是否应切新桶)。
 >
