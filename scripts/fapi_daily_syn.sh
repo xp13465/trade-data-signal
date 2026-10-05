@@ -12,7 +12,8 @@
 #       15:35/16:00/17:50/20:35/22:00 既有时点无冲突。
 set -u
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 PY="${REPO}/.venv/bin/python"
 
 echo "=== [fapi-daily-syn] $(date '+%F %T') start ==="
