@@ -13,8 +13,8 @@
 > ⚠️ **交接说明**:本节写于 2026-10-05 会话收尾(用户切新模型/新会话)。下面两个 agent 跑在**原会话**里,原会话一关它们的完成通知就收不到了 —— **新会话第一件事:先看 `/tmp/` 下有没有产出,没有就按任务书重派**(§0.2 三件套:run_in_background + 进度文件 + 巡检 cron)。
 > **权威任务状态以 [docs/pending-features-index.md](docs/pending-features-index.md) 为准**(§23.12-1),本节只写 transient 指针。
 
-**在跑 agent(2 个,均 background)**
-1. `r2fix-review` = reviewer。审分支 `worktree-agent-a32eca2ef3e40884f` / commit `9faf92d8e`(2 文件:`scripts/upload_r2.py` + `scripts/r2_upload_async.sh`,162+/43−)。进度 `/tmp/agent-progress-r2fix-review.md`,报告 `/tmp/r2fix-review-report.md`。**三个关键待答**:①减量判据能否被绕过导致**裸覆盖**(§25)②kill 后 marker 残留 → force_full **死循环是否根治**(agent 只让它更快、可能仅降概率)③多线程是否共用同一 HTTP 连接。**审完 PASS → 跑 `scripts/main-merge.sh worktree-agent-a32eca2ef3e40884f`**。
+**在跑 agent:0 个(两个 agent 均已收工,产物已归档)**
+1. ✅ `r2fix-review` = reviewer,**已完成**(9 项全审,报告 `/tmp/r2fix-review-report.md`)。**结论 = 有保留 PASS,无 P0**:§25 减量判据 4 种绕过攻击全试过绕不过;死循环触发链确已断裂;多线程 `threading.local` 独立连接不串包。**已合 main(`4b88a1251`,云上已同步)。三项必改项见 pending-index #180** —— 最要紧的是 **㈡ 82 MiB 大文件低速误杀回归**(`signal_kelly_trades.json` 单 PUT 无日志 211-253s vs 300s 停滞阈值,余量仅 47-89s,带宽 <287KB/s 即误杀 → `data-large` 可能复发死循环)。
 2. ✅ `bkt-audit` = researcher,**已完成并归档**(2026-10-05 11:5x)。报告 `docs/ops/r2-backup-prefix-lifecycle-audit-20261005.md`(已合 main),结论摘要见 pending-index **#179**。**过程有惊无险**:该 agent 一度报 completed 但零产物(死点「数据齐了,写进度文件后收尾报告」),SendMessage 续跑后补齐;**副产物 = 抓出并更正了它自己的一处探针工件**(称新桶 `signal-backup2` 404 不存在,实为复用老账号端点所致;复核确认**桶存在且为空、token 有 ListObjects 权限**)。**该 agent 已收工,无需再管。**
 
 **本会话已完成**
@@ -29,7 +29,7 @@
 **git 状态**:main `9af15ec58` 干净;`worktree-agent-a32eca2ef3e40884f` 已推 origin **未合 main**;本交接文档走分支 `docs/session-handoff-20261005`。
 
 **下一步(按序,硬期限 2026-10-08 开市前 —— 10-05~10-07 假期窗口是唯一机会)**
-1. 等 `r2fix-review` 结论 → PASS 则 `main-merge.sh` 合并 → 云上同步(**P0**)
+1. ✅ **已完成** —— `r2fix-review` 有保留 PASS → 已合 main `4b88a1251` → 云上已同步。**遗留 = pending-index #180 三项必改项**(优先 ㈡ 大文件低速误杀回归)
 2. 派 implementer 实施 **#178**:`upload_r2.py` 引入第二套 endpoint+凭据并按目标桶路由(**必须等 #176 合 main,同文件不可并发**)
 3. 派 implementer 实施 **#163** 断档回填(首选 = `fapi_daily_raw` 库内搬移,分钟级;详见 pending-index #163)
 4. ✅ **普查已完成,报告已归档**:`docs/ops/r2-backup-prefix-lifecycle-audit-20261005.md`(合 main)。**下一步 = 用户 dashboard 配规则**(我方 key 查 lifecycle 返回 403,配不了)。用户已拍板「**新老桶都补**」,定稿规则见 **pending-index #179**:`pre-upload/` 补 **7 天(最高优先,5,540 个 3.13 GiB、日增 ~1.08 GiB)** / `weekly/` 28 / `monthly/` 365 / `large-json/` legacy 补 7 天(**flat 31,673 严禁配删除规则,唯一副本**) / `claude-backup/` 30 / `backup/` 14 已配 / `decommissioned/` 与 `mac-backups/archive/` **不配**。**新桶 `signal-backup2` 已复核存在且为空,直接在它上面照配同一套。** **⚠️ 仍未解决的一处记录打架**:老桶 `backup/` 规则是 **14 天**(用户 10-05 dashboard)还是 **30 天**(本文件 #169 记的 10-04 dashboard)——直接影响存量回收速率,请用户下次开面板时顺手再核一眼
