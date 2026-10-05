@@ -29,7 +29,7 @@ upload-intraday / upload-data-files / purge-low-freq 等不消费它的 R2 写�
 (2026-09-26 教训: --dry-run 被 __main__ 静默移除后这些命令仍真写生产桶)。这些私有桶/公共桶写命令的**唯一
 隔离手段 = R2_BACKUP_BUCKET=<不存在的桶名>**(实测 404 零污染), 别指望 --dry-run。
 """
-import os, sys, re, hashlib, hmac, http.client, datetime, ssl, json, time, threading, fcntl
+import os, sys, re, io, hashlib, hmac, http.client, datetime, ssl, json, time, threading, fcntl
 from pathlib import Path
 from urllib.parse import urlparse, quote, unquote
 
@@ -401,7 +401,64 @@ def _sigv4_canonical_query(query):
     return "&".join(f"{k}={v}" for k, v in norm)
 
 
-def s3_request(method, key, payload=b"", query="", bucket=None, content_type=None, with_headers=False, keep_alive=False, extra_headers=None):
+# ---- 大文件单 PUT 传输进度 (#180, 2026-10-05) ----
+# 背景: >_MULTIPART_THRESHOLD(100MB) 走 multipart, 但其下的大文件(实测 signal_kelly_trades.json
+# 82.3MiB / _sdc 83.5MiB)走**单 PUT**——单个 HTTP 请求把整包 body 一次交给 socket, **中途零日志输出**。
+# 看门狗(#174, 2026-10-05)主判据=「日志 mtime 超 300s 无输出即判停滞 kill」;该大文件实测吞吐
+# 326-390KB/s 需 211-253s, 离 300s 仅 47-89s 余量, 带宽退化 <~287KB/s 即被误杀 → data-large 通道
+# 死循环复发(reviewer 审 9faf92d8e §④ 回归风险)。修法 = 上传阶段按字节流动打进度行, 消掉静默窗口。
+#
+# 为什么是「以字节流动为准」而非定时心跳: _ProgressBody 的 read() 只被 http.client 的
+# send 循环调用(cls.send: while read(8192) -> sock.sendall), 因此
+#   ① 只要字节在真实流动(哪怕很慢), read() 就被调用 → 按 step 字节 / max_interval 秒打点 → 判据放行;
+#   ② 网络真停滞/黑洞时 sock.sendall 阻塞, read() 不被调用 → 不打点 → 停滞判据仍能正确 kill。
+# 即「健康的慢」被放行、「真卡住」仍被 kill, 不削弱故障检测(对齐业界 IO-idle 判据精神, 见
+# memory batch-upload-arch-industry-refs)。
+# 进度行含 (NB) 增量字节: 看门狗**低速判据**按日志里所有 (NB) 求和看增量; 大文件在飞期间完成行
+# 不产生(旧遗漏), 低速判据会误判「字节不涨」→ 也误杀。带上真实增量字节后, 健康慢传的增速会被
+# 正确计入(注意: 与备份进度行刻意不带 (sizeB) 不同——备份不是上传流量, 带它会掩盖备份停滞)。
+_PROGRESS_PUT_MIN = 8 * 1024 * 1024        # 单 PUT 体积 >= 8MiB 才打进度(小文件秒级完成, 打了是噪音)
+_PROGRESS_PUT_STEP = 4 * 1024 * 1024       # 每累计 4MiB 打一行
+_PROGRESS_PUT_MAX_INTERVAL = 60            # 或每 60s 至少一行(极慢链路上 4MiB 间隔可能 >300s, 兜一道时间上限)
+
+
+class _ProgressBody:
+    """file-like 请求体包装: 从 bytes 按块吐出, 边吐边按「字节增量」打进度行。
+
+    仅用于大文件**单 PUT**(见 s3_request progress_label)。http.client 检测到 body 有 read()
+    时走 `send()` 的 read(8192)->sock.sendall 循环(需显式 Content-Length, 否则退化 chunked,
+    SigV4 会失配), 故本类 read() 的调用节奏 == 字节真实交给 socket 的节奏。
+    """
+
+    def __init__(self, data, label, step=_PROGRESS_PUT_STEP, max_interval=_PROGRESS_PUT_MAX_INTERVAL):
+        self._buf = io.BytesIO(data)
+        self._label = label
+        self._total = len(data)
+        self._step = step
+        self._max_interval = max_interval
+        self._sent = 0
+        self._mark = 0          # 上次打点时的已传字节
+        self._mark_t = time.monotonic()
+
+    def read(self, n=-1):
+        chunk = self._buf.read(n)
+        if chunk:
+            self._sent += len(chunk)
+            now = time.monotonic()
+            if (self._sent - self._mark >= self._step
+                    or now - self._mark_t >= self._max_interval):
+                delta = self._sent - self._mark
+                self._mark = self._sent
+                self._mark_t = now
+                # 单次 write(不带 print 的多段写)避免多线程进度行交错; 结尾换行触发行缓冲 flush。
+                sys.stdout.write(
+                    f"[{self._label}] ↑ 上传中 {self._sent / 1048576:.1f}/{self._total / 1048576:.1f} MiB "
+                    f"({delta}B)\n")
+                sys.stdout.flush()
+        return chunk
+
+
+def s3_request(method, key, payload=b"", query="", bucket=None, content_type=None, with_headers=False, keep_alive=False, extra_headers=None, progress_label=None):
     """path-style: /BUCKET/key, host = endpoint host。bucket=None 用默认 BUCKET。
 
     带连接超时(R2_UPLOAD_HTTP_TIMEOUT 秒,默认 30s)+ 重试(5 次,SSL/连接错退避 1s/2s/4s/8s),防 R2 偶发断连致脚本挂死。
@@ -413,6 +470,10 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
       canonical query 按名升序, 未排序 403(#126); 签名与实际请求 URI 都用规范化后的 query, 保证一致。
     extra_headers(2026-10-03 export-guard L5): 自定义附加请求头(如 COPY 的 x-amz-copy-source),
       随 headers 一起进 SigV4 签名与 signed-headers; 用于服务端到服务端 COPY(x-amz-copy-source)。
+    progress_label(2026-10-05 #180): 非 None 且 payload>=_PROGRESS_PUT_MIN 时用 _ProgressBody 作请求体 +
+      显式带 Content-Length(否则 http.client 退化 chunked 致 SigV4 失配), 上传中按字节打进度行,
+      消掉「大文件单 PUT 全程零日志 → 看门狗 300s 停滞判据误杀」回归(治 data-large 死循环复发)。
+      进度只在字节真实流动时打点, 真停滞(socket 阻塞)仍无输出 → 检测能力不削弱。
     """
     if content_type is None:
         ext = os.path.splitext(key)[1].lower()
@@ -440,6 +501,12 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 headers.update(extra_headers)
             if method in ("PUT", "POST"):
                 headers["content-type"] = content_type
+            # #180: 大文件单 PUT 打进度。必须显式 Content-Length(file-like body 否则 http.client
+            # 退化 chunked 致 SigV4 失配)。加在签名前 -> 进 SignedHeaders, 与实际请求头一致。
+            _use_progress = (progress_label is not None and method in ("PUT", "POST")
+                             and len(payload) >= _PROGRESS_PUT_MIN)
+            if _use_progress:
+                headers["content-length"] = str(len(payload))
 
             sorted_items = sorted(headers.items(), key=lambda x: x[0])
             canonical_headers = "".join(f"{k}:{v.strip()}\n" for k, v in sorted_items)
@@ -469,7 +536,10 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
             else:
                 conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
             uri = path + ("?" + canonical_query if canonical_query else "")
-            body = payload if method in ("PUT", "POST") else None
+            if _use_progress:
+                body = _ProgressBody(payload, progress_label)   # 每次重试重建(exhausted 不可复用)
+            else:
+                body = payload if method in ("PUT", "POST") else None
             conn.request(method, uri, body=body, headers=headers)
             resp = conn.getresponse()
             data = resp.read()
@@ -717,7 +787,8 @@ def _upload_multipart(key, payload, content_type):
         q = "partNumber=%d&uploadId=%s" % (pn, quote(upload_id, safe=""))
         # keep_alive(2026-09-22 同类根治): 每线程连续传多个 part 复用线程本地连接, 省 part 间握手
         s, d, hdrs = s3_request("PUT", key, payload=parts[pn], query=q,
-                                content_type=content_type, with_headers=True, keep_alive=True)
+                                content_type=content_type, with_headers=True, keep_alive=True,
+                                progress_label=f"{key} part{pn}/{len(parts)}")
         if s == 200:
             etag = _header_lookup(hdrs, "ETag")
             if etag:
@@ -834,7 +905,8 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
                     return (i, True, rel, size, None, key)
                 return (i, False, rel, size,
                         f"multipart status={status} {data[:200] if isinstance(data, (bytes, bytearray)) else data}", None)
-            status, data = s3_request("PUT", key, payload, keep_alive=True)
+            status, data = s3_request("PUT", key, payload, keep_alive=True,
+                                      progress_label=f"{r2_prefix}/{rel}")
             if status == 200:
                 # 层3 上传正确性对账(verify_etag=True 时): PUT 后 HEAD 取 ETag 与本地整文件
                 # md5 比对, 不一致记上传失败(传上去的内容不对)。HEAD 失败(etag=None, 网络抖动/
