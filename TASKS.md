@@ -8,6 +8,34 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
+**最后更新(2026-10-05 周日·国庆假期)——R2 上传死循环修复已实施待审 + 备份桶迁独立账号任务登记**
+
+> ⚠️ **交接说明**:本节写于 2026-10-05 会话收尾(用户切新模型/新会话)。下面两个 agent 跑在**原会话**里,原会话一关它们的完成通知就收不到了 —— **新会话第一件事:先看 `/tmp/` 下有没有产出,没有就按任务书重派**(§0.2 三件套:run_in_background + 进度文件 + 巡检 cron)。
+> **权威任务状态以 [docs/pending-features-index.md](docs/pending-features-index.md) 为准**(§23.12-1),本节只写 transient 指针。
+
+**在跑 agent(2 个,均 background)**
+1. `r2fix-review` = reviewer。审分支 `worktree-agent-a32eca2ef3e40884f` / commit `9faf92d8e`(2 文件:`scripts/upload_r2.py` + `scripts/r2_upload_async.sh`,162+/43−)。进度 `/tmp/agent-progress-r2fix-review.md`,报告 `/tmp/r2fix-review-report.md`。**三个关键待答**:①减量判据能否被绕过导致**裸覆盖**(§25)②kill 后 marker 残留 → force_full **死循环是否根治**(agent 只让它更快、可能仅降概率)③多线程是否共用同一 HTTP 连接。**审完 PASS → 跑 `scripts/main-merge.sh worktree-agent-a32eca2ef3e40884f`**。
+2. `bkt-audit` = researcher。备份桶 `signal-backup` **前缀 × 对象数/字节 × 清理机制 × 切走后谁清**普查(答用户「lifecycle 只配了 backup/,其他目录怎么办」)。进度 `/tmp/agent-progress-bkt-audit.md`,报告 `/tmp/backup-bucket-prefix-audit.md`(**产出后须落 `docs/ops/`**,§23.5)。
+
+**本会话已完成**
+- R2 死循环**根因报告已合 main**(`9af15ec58`,`docs/ops/r2-export-guard-backup-timeout-rootcause-20261005.md`)。
+- **备份桶新账号凭据双端落 `.env` 并实测通过**(本机 + 云上各 LIST/PUT/GET/DELETE/复查 五动作全过;云上须走 Python 通路,curl 7.81 的 `--aws-sigv4` 不可用)。
+- pending-index:新增 **#178**(备份桶迁独立 CF 账号);**#174 / #176 / #177 / #163** 状态列全部更新(修复已实施·待审 / #163 方案已定案)。
+
+**关键决定(2026-10-05)**
+- 老桶存量**不搬**(用户拍板):只切今后新写,存量靠 lifecycle 自然回收。
+- 备份桶走**独立 CF 账号**(独立免费额度),非本账号第二个桶。
+
+**git 状态**:main `9af15ec58` 干净;`worktree-agent-a32eca2ef3e40884f` 已推 origin **未合 main**;本交接文档走分支 `docs/session-handoff-20261005`。
+
+**下一步(按序,硬期限 2026-10-08 开市前 —— 10-05~10-07 假期窗口是唯一机会)**
+1. 等 `r2fix-review` 结论 → PASS 则 `main-merge.sh` 合并 → 云上同步(**P0**)
+2. 派 implementer 实施 **#178**:`upload_r2.py` 引入第二套 endpoint+凭据并按目标桶路由(**必须等 #176 合 main,同文件不可并发**)
+3. 派 implementer 实施 **#163** 断档回填(首选 = `fapi_daily_raw` 库内搬移,分钟级;详见 pending-index #163)
+4. 按 `bkt-audit` 结论配双侧 lifecycle(新桶 3 条 + 老桶补 `pre-upload/` 等)
+
+**未决/待用户拍板**:fetch_news 周日夜 SEVERE 噪音是否接受;是否启用 CF R2 Local Uploads;`rzhb_backfill` 登记漂移(云上 timer 有 19:15 槽但 `schedule_monitor.sh` 只登记 08:00);老桶实际 lifecycle 规则列表(**我方 key 查 403,须用户 dashboard 核对**;既有记录互相矛盾)。
+
 **最后更新**(2026-09-15 周一 16:1x):✅ **外审 review 门禁链路恢复并端到端验证通过**。背景:v1.1.17/v1.1.18 外审被跳过(门禁 retry 风暴 + claude 回传静默断链)。本轮 fix 全在 main(main==origin/main==`c457a8b09`):①`07de081ff` 外审模型钉深(deepseek-v4-pro-0813)+重试风暴根治 +`fc18cc3be` 终态 request 的 git ref 泄漏清理 ②`c7077c37f` **PIPE 满死锁根治**(spawn stdout/stderr=PIPE 却只在退出后排水,子进程写满 64KB 永久卡死→改文件重定向)③`6e2c9dc20` **claude 回传静默断链 P1**(is_already_processed 误短路 claude 队列,消费者永不 spawn→短路仅对 codex 队列)④`a56be8e04` plist 单一事实源归位 launchd/(删 scripts/ 重复 + 补齐 CLAUDE_BIN/CODEX_REVIEWER_MODEL/PYTHONUNBUFFERED)⑤`c457a8b09` claude 消费者预算 0.50→5.00(deepseek 下不够烧,exit=1)。**mini test(2 commit)全链路验证全绿**:watcher 接单→codex 外审(deepseek)→报告落盘→claude 回传 spawn→**claude 消费者回执 exit=0**→ref 清理;外审 FAIL 的 4 findings(P1/P2x2/P3)经 claude 消费者逐条复核已全部修复。
 **✅ codex 缓存命中修复(2026-09-15 实测)**:根因=非默认 `disable_response_storage=true`(关服务器 response storage,炸掉 Responses API 多轮前缀缓存);改回默认 `false` 后同 2-commit 外审 token **143,207→97,995(−32%)**、无接口报错、verdict/回传/ref 链路正常,已保留(bak: `~/.codex/config.toml.bak-cachetest-20260915-162351`)。进一步候选(未做):codex base_url 改走 thinking_proxy 127.0.0.1:8899 借 cache_control,可能再提命中,但需验 bailian 兼容性。
 **前序**(2026-09-12,详见 docs/archive/TASKS-handoff-20260912.md):✅ 8 项 reviewer 非阻断小项打包上线(main-merge 20260912-a585)+README 角标 2.5 语义同步 + #91 次日开盘口径核销。
