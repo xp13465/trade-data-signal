@@ -8,13 +8,13 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新(2026-10-05 23:5x 周一·国庆休市)——#198 收工; #193/#196 实施完成,双 reviewer 审中**
+**最后更新(2026-10-06 00:2x 周二·国庆休市)——#198 收工; #193/#196 审毕,双返修在跑**
 
-> **在跑 agent:2(两个 reviewer;#198 已收工)**
-> - **(a) #193** R2 通道覆盖缺口(offshore_fund/fund_score 无对账通道 + fund_score 失败只 echo)→ **实施完成**(`feat/193-r2-channel-coverage-20261005` @ `0072c42a5` 主体 + `aa4c482b0` 返修,已 push origin),**已派独立 reviewer 审中**,进度 `/tmp/agent-progress-193rev.md`;⚠️ 该分支**带了自己的 `docs/pending-features-index.md` 改动**(worktree 内改的,主树未见)⇒ 合并时索引会有冲突,**冲突时以 main 侧为准 + 主控手改 #193 状态列**
-> - **(b) #196** 「巡检/链路自身死亡」可见性统一(F1 族)→ **实施完成**(`feat/196-patrol-visibility-20261005` @ `f4fec48aa`,已 push origin):新增 `check_failed_units.py`(挂 `trade-schedule-monitor.timer` 15min)+ 两新升档 key(连续 3 天→critical,状态落 `data/*_state.json` 原子写)+ patrol 纳入监控四路 + `gen_schedule_stats.py`/`schedule_monitor.sh` 登记点 + 测试 39 例(全量 231 passed/1 skipped)。**已派独立 reviewer 审中**,进度 `/tmp/agent-progress-196rev.md`;⚠️ **#193 与本分支都改 `gen_schedule_stats.py` 同一登记点** ⇒ 合并须人工确认 TASKS 条目不被静默吞(机检 `test_registry_monitor_tasks_subset_of_gen` 会暴露),**两分支建议顺序合、合前跑该机检**
+> **在跑 agent:2(两个返修 implementer;#198 已收工)**
+> - **(a) #193** R2 通道覆盖缺口 → **独立审 PASS-with-caveat**(产品代码九项全过);**caveat = test_193 [C] 段未桩 `_upload_glob` ⇒ 从主仓树跑会真写生产 R2(172 次真实 PUT)并可发真告警**(§18 L48 同族)→ **已派返修**(延续原分支,进度 `/tmp/agent-progress-193fix.md`,验收=封网正控制证零外发)。审查另挖出 #200/#201(已登记)。
+> - **(b) #196** 「巡检/链路自身死亡」可见性统一(F1 族)→ **实施完成**(`feat/196-patrol-visibility-20261005` @ `f4fec48aa`,已 push origin):新增 `check_failed_units.py`(挂 `trade-schedule-monitor.timer` 15min)+ 两新升档 key(连续 3 天→critical,状态落 `data/*_state.json` 原子写)+ patrol 纳入监控四路 + `gen_schedule_stats.py`/`schedule_monitor.sh` 登记点 + 测试 39 例(全量 231 passed/1 skipped)。**独立审 FAIL(单点 P1)** —— 八项 PASS(升档四语义全成立且不增告警量 / R7 重构 9 场景逐位 ALL_IDENTICAL / 闸门非空转 / patrol 抑制 fail-open),**唯一 FAIL** = `test_cfu_noncloud_rc3` 环境依赖(有 systemctl 必败,CI 闸门⑧会阻断 ⇒ 合 main 必红),**修法 2 行**(照 #160 同款 skip guard)→ **已派返修**(延续原分支,进度 `/tmp/agent-progress-196fix.md`)。⚠️ **原先「#193/#196 同改 `gen_schedule_stats.py`」预警经评审证伪**(文件交集=空集),**合并顺序任意、无冲突**;P3-a/P3-b 另立 #202
 > - **(c) ✅ #198 已收工**:`claude-backup/`·`mac-backups/` 新桶 0 对象归属判定(只读查证)→ researcher 完成,**结论**=`claude-backup`/`pre-upload`=②已切新桶 / `mac-backups`=③一次性归档不适用切桶;**报告合 main `a6c17270a`**,索引销账 `4508043ea`(另 #186 依据补正 + 新登记 **#199**),worktree/分支已回收。
-> - **巡检兜底 cron `9d45006e`**(15min 档 `3,18,33,48`,零输出门控,**193rev + 196rev 全收工才自删**)在位(旧 `38545b67`/`8cdd8fc9` 已随各自 agent 收工删除)。
+> - **巡检兜底 cron `809b3b24`**(15min 档 `3,18,33,48`,零输出门控,**193fix + 196fix 全收工才自删**)在位(旧 id 已随各自 agent 收工逐个删除)。
 > - **禁并派说明**:#195 / #187 与上述有文件重叠(#187 动 `check_r2_consistency.sh`;#195 横扫 57 个 shell)⇒ **顺序做、不并派**,免 merge 打架;**#187① 受 2026-10-11 硬闸**(周日假 FAIL 首暴露)。
 > - **收工后续**:每个完成 → 按 §15 派 reviewer(B/C 级,PASS 才 push main)→ 主控 `scripts/main-merge.sh`。
 > - ⚠️ **若 mac 关机**:在跑 agent 随会话停(worktree 与 feat 分支留在磁盘,可续跑);**续跑同一任务必须延续原分支**(派单前先 `git worktree list | grep <分支>` 查占用,占死则先 `git worktree remove --force`),见 §0.2 + memory `resume-same-task-reuse-branch`。
