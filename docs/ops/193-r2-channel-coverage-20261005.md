@@ -152,6 +152,8 @@
 | 真实数据树探针(只读) | `REPO=/Users/linhuichen/code/trade-data python3 /tmp/probe193c.py` | `news-digest n=31` / `fund-score n=2` / `offshore-fund n=0`(链停用) / `news-digest ∩ all-data = ∅` / `news-digest ∩ data-large = ∅` / `_assert_no_double_upload = True` |
 | 语法 | `python3 -m py_compile`(4 文件) + `bash -n scripts/update_all.sh` | PY_COMPILE_OK / SH_SYNTAX_OK |
 
+> **自测自身的一处返修(诚实标注)**: [E] 的「喂修复前版本 → 机检必须 FAIL」对照第一版取 `git show HEAD:…` —— commit 一落盘, `HEAD` 就是**修复后**版本, 对照自证失效(实测末跑得 **39 PASS / 1 FAIL**)。已改为钉 **base commit `bf8a58429`**(并加「该 rev 已含修法 → skip」守卫), 复跑恢复 **40 PASS / 0 FAIL**。教训: 回归对照的基线必须钉**历史 rev**, 不能钉会随本次提交前移的 `HEAD`。
+
 ### #188 回归为何要改(3 条断言过时, 非功能回归)
 
 `test_188` 的 [E] 段原以 `data/news_digest/2026/*.json` + `data/news_digest/_index.json` 作为**「死键」样例**。
@@ -203,7 +205,8 @@ python3 scripts/check_r2_channel_coverage.py
 #    期望末行: ALL_PASS
 
 # 3) 机检回归对照: 喂「修复前」版本 → 必须 FAIL, 且 FAIL 清单恰为 fund_score/offshore_fund
-git show HEAD:scripts/upload_r2.py > /tmp/old_upload_r2_193.py
+#    ⚠ rev 必须钉修复前的 base(b43 基线 bf8a58429); 用 HEAD 会自证失效(HEAD 已含修法)
+git show bf8a58429:scripts/upload_r2.py > /tmp/old_upload_r2_193.py
 python3 scripts/check_r2_channel_coverage.py /tmp/old_upload_r2_193.py
 #    期望: HAS_FAIL(2) + FAIL fund_score(L1708) / FAIL offshore_fund(L1692)
 

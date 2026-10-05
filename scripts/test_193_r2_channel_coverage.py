@@ -32,6 +32,10 @@ import upload_r2 as ur  # noqa: E402
 PASS = 0
 FAIL = 0
 
+# #193 的 base commit(修复前状态): 供 [E]「喂修复前版本 → 机检必须 FAIL」的回归对照用。
+# 钉历史 rev 而非 HEAD(HEAD 一旦含本 commit 就成了「修复后」, 对照会自证失效)。
+PREFIX_REV = "bf8a58429"
+
 
 def _ok(cond, msg):
     global PASS, FAIL
@@ -261,19 +265,29 @@ def main():
         _ok("ALL_PASS" in r.stdout, "机检现版输出 ALL_PASS")
         _ok("fund_score" in r.stdout and "offshore_fund" in r.stdout,
             "机检确含 #193 两前缀(fund_score/offshore_fund)")
-        # 回归对照: 喂修复前版本 → 必须 FAIL(证机检真能抓这类漏配, 非空转)
+        # 回归对照: 喂「修复前」版本 → 必须 FAIL(证机检真能抓这类漏配, 非空转)。
+        # ⚠ 必须钉在**修复前的历史 rev**上, 不能用 HEAD —— 本 commit 一落盘, HEAD 就是修复后的
+        #   (对照会自证失效, 曾实测得 39 PASS/1 FAIL)。故钉 #193 的 base commit(_PREFIX_REV)。
         old_src = Path(tempfile.mkdtemp(prefix="old193-")) / "upload_r2.py"
-        g = subprocess.run(["git", "show", "HEAD:scripts/upload_r2.py"],
-                           capture_output=True, text=True, cwd=str(HERE.parent))
-        if g.returncode == 0 and g.stdout:
-            old_src.write_text(g.stdout, encoding="utf-8")
+        got_old = False
+        for rev in (PREFIX_REV, "origin/main"):
+            g = subprocess.run(["git", "show", f"{rev}:scripts/upload_r2.py"],
+                               capture_output=True, text=True, cwd=str(HERE.parent))
+            if g.returncode == 0 and g.stdout:
+                old_src.write_text(g.stdout, encoding="utf-8")
+                got_old = True
+                break
+        if got_old and "news-digest" not in g.stdout:
             r2 = subprocess.run([sys.executable, str(checker), str(old_src)], capture_output=True, text=True)
             _ok(r2.returncode != 0 and "HAS_FAIL" in r2.stdout,
                 "机检喂修复前版本 → FAIL(对照: 确实抓到 #193 漏配)")
             _ok("fund_score" in r2.stdout and "offshore_fund" in r2.stdout,
                 "对照 FAIL 清单确为 fund_score/offshore_fund")
+        elif got_old:
+            print("  [skip] 该 rev 已含 #193 修法(news-digest 通道在场), 修复前对照不适用; "
+                  "修复前实测证据见报告 §7 与本脚本首次运行记录")
         else:
-            print(f"  [skip] git show HEAD 不可用({g.stderr.strip()[:80]}), 跳过修复前对照")
+            print(f"  [skip] git show {PREFIX_REV} / origin/main 均不可用, 跳过修复前对照")
     finally:
         ur.STATIC_DIR = old_static
         shutil.rmtree(root, ignore_errors=True)
