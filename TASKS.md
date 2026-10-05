@@ -13,13 +13,16 @@
 > **权威任务状态以 [docs/pending-features-index.md](docs/pending-features-index.md) 为准**(§23.12-1),本节只写 transient 指针。
 > **新会话(2026-10-05 12:05 起)已接手**;上一会话两个 agent(r2fix-review / bkt-audit)均已收工且产物归档,无遗留。
 
-**在跑 agent:6 个(background + 进度文件;巡检 cron 兜底 `4f138d8e`,完成即删)**
+**在跑 agent:4 个(background + 进度文件;巡检 cron 兜底 `4f138d8e`,完成即删)**
 0. 🔄 `老账号 R2 清理评估 + #178 云上环境核查`(用户 2026-10-05 提出:老账号 backup 桶 8G+ + 主桶 signal-data 3G+ 已超 10G 免费额度,要评估能手动清哪些压到 ~6G)= researcher 只读实测两桶(audit 只覆盖备份桶,**signal-data 是增量**)+ 逐项归类 + §25 恢复路径;顺带核云上 `.env` 有无 `R2_BACKUP2_*` 四键(进度 `/tmp/agent-progress-r2cleanup.md`)。**已知进展:云上 `.env` 两套凭据均在**(老 `R2_S3_*`→signal-data/signal-backup;新 `R2_BACKUP2_*`→signal-backup2),`upload_r2.py` 尚缺 BACKUP2 路由(即 #178 未部署)—— **待其核完"有无 `R2_BACKUP_BUCKET` 覆盖"才能放行 merge**。
-1. 🔄 `告警系统性排查`(用户 2026-10-05 提出:逐条判定告警「是否都当 bug 修了 / 或已优化降噪」)= researcher 事件驱动扫描全告警源 + 四态判定 + 盲区清单 → `docs/ops/alert-systematic-review-20261005.md`(进度 `/tmp/agent-progress-alertaudit.md`)。
-2. 🔄 `#164 监控资源维度 + #162 s06 状态残留 hold`(A 批,同改 `scripts/schedule_monitor.sh` 故并一单)= implementer,分支 `feat/164-162-monitor-20261005`(进度 `/tmp/agent-progress-mon164.md`)。
-3. 🔄 `#160 三站一致性校验器接线`(A 批)= implementer,分支 `feat/160-consistency-gate-20261005`(进度 `/tmp/agent-progress-consistency160.md`)。
-4. 🔄 `#165 集中发布回滚预案文档`(C 批,纯文档)= researcher → `docs/ops/rollback-playbook-20261005.md`(进度 `/tmp/agent-progress-rollback165.md`)。
-5. 🔄 `#159 public_fund.db.bak(10G)异地备份 Batch B`(D 批,§25 先备份后删)= implementer,分支 `feat/159-pfdb-bak-offsite-20261005`(进度 `/tmp/agent-progress-pfbackup159.md`)。
+1. 🔄 `#164 监控资源维度 + #162 s06 状态残留 hold`(A 批,同改 `scripts/schedule_monitor.sh` 故并一单)= implementer,分支 `feat/164-162-monitor-20261005`(进度 `/tmp/agent-progress-mon164.md`)。
+2. 🔄 `#160 三站一致性校验器接线`(A 批)= implementer,分支 `feat/160-consistency-gate-20261005`(进度 `/tmp/agent-progress-consistency160.md`)。
+3. 🔄 `#159 public_fund.db.bak(10G)异地备份 Batch B`(D 批,§25 先备份后删)= implementer,分支 `feat/159-pfdb-bak-offsite-20261005`(进度 `/tmp/agent-progress-pfbackup159.md`)。
+
+**本轮已完成(2026-10-05 下午)**
+- ✅ `告警系统性排查`(用户点名):报告 **`docs/ops/alert-systematic-review-20261005.md`**(206 行)。在册告警**全部四态分类、无未分类遗留**(已修闭环 / 已优化降噪 / 仍待办 / 误报);新登记 **#181-184**(fetch_news 降噪拍板 · 飞书心跳盲区 · utf-8 截断升级评估 · dry-run 写 latest.md),盲区 6 项。关键实证:R2 kill 链**数据无缺口**(md5 三方逐位一致)、#174+#177 新旧行为对照生效、CSP #133 线上已无头。
+- ✅ `#165 回滚预案文档`:报告 **`docs/ops/rollback-playbook-20261005.md`**(237 行),含三步回滚命令+耗时+风险点+验证法。
+- ✅ **CI 网关止血**:GitHub `ci.yml` 步骤⑤ `check_task_state.py` FAIL 根因 = **#178 状态格子串误判**(`CLOSED_STATUSES` 含「已合 main」,而格子内描述 #180 时写了该词)。修法=改措辞去字面量;本地复跑 `--deploy-mode --skip-zombie-crons` **2 ok / 0 fail**,已推 main `e3f130031`。
 2. 📌 `#178 备份桶迁账号`(**非独立 agent**,由 0 号 researcher 一并核环境前提)= **rev3 快速复核 PASS、无 P0/P1** → 待云上 `R2_BACKUP2_*` 四键核查 → 过了即 main-merge。**用户拍板:现在就切 + 切后 §25 顺手清老桶 legacy**。合后**待办**:①核云上 `.env` 无 `R2_BACKUP_BUCKET` 覆盖 ②空闲窗口触发首轮全量回填 ≈450MB 灌新桶 ③新桶验证完整后清老桶 large-json legacy ≈0.27GiB。
 3. ✅ `#163 断档回填` = 已实施并上线 + 已合 main `90537c538` + reviewer 独立复核 PASS + **用户已拍板「保留订正」**(不再回滚;订正=09-29/30 的 `a_width_*` 显示值按公示口径去北交所)。**已闭环**。
 

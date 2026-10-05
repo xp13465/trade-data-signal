@@ -289,8 +289,19 @@
 
 ### 登记待决(未编号,待主控/用户拍板后再立项;2026-10-05 逐条对账现状后登记,非照抄描述)
 - **`rzhb_backfill` 登记漂移(未拍板,登记待决)**:云上 systemd timer 有 **19:15** 槽,而 `schedule_monitor.sh` 登记表(L110-112)只登记 **08:00**(注释「2026-07-29 19:15->T+1 08:00:SSE官方T+1早晨发布T日」)——与 update_all 同病根(登记表与 timer 漂移 → 真跑时段登记表看不见 → 告警盲区/280min 误报同型)。修=登记表补 19:15 槽(一行)或核实 08:00 为唯一权威后删云上 19:15。**未拍板,登记待决**。
-- **`notify.py` 既有瑕疵(未修)**:`--dry-run` 配 `--alert-issue` 仍会写 `latest.md`——`write_alert`(L1031)不接收 dry_run 参数,三个调用点仅 L2181 有 `tier==critical` 门控,L2238/L2264 的 `if args.alert_issue:` **无 dry_run 门控** → 违反 L35 注释「--dry-run 不真发,只 print 到 stderr(自验用)」。修=调用点补 `not args.dry_run` 门控。**未修,登记待决**(§23.7 冻结,动已上线行为须用户确认)。
+- **`notify.py` 既有瑕疵(未修)**:`--dry-run` 配 `--alert-issue` 仍会写 `latest.md`——`write_alert`(L1031)不接收 dry_run 参数,三个调用点仅 L2181 有 `tier==critical` 门控,L2238/L2264 的 `if args.alert_issue:` **无 dry_run 门控** → 违反 L35 注释「--dry-run 不真发,只 print 到 stderr(自验用)」。修=调用点补 `not args.dry_run` 门控。**未修,登记待决**(§23.7 冻结,动已上线行为须用户确认)。 **(2026-10-05 正式立项为 #184,见模块二十)**
 - **架构改造 A 档 / B 档(待事实核查,未拍板)**:调研 `docs/ops/r2-publish-arch-industry-research-20261005.md` 给出 A 档最小可用集(A1 停滞判据 / A2 超时收敛 / A3 分域锁 / A4 断点续传 / A5 告警聚合 / A6 CF R2 Local Uploads)+ B 档结构性方案(B1 发布队列收敛循环 / B2 度量先行 / B3 分域锁 / B4 告警聚合)。**唯一已决定 = 架构改造先不做,等事实核查回来再定**;两条待核查事实 = ①我们桶能否启用 CF R2 Local Uploads(官方 2026-02 特性、TTLB −75%,云上 VM 华东/桶 APAC = 官方目标场景,background agent `ad17be6bb587a467a` 核查中)②云上 NAT/本地端口范围是否偏小(docverse#698 同款 64 端口/VM 场景)。**已核实的现状依据**:A3 描述是全局一把 fcntl 锁(现为 2026-09-23 `trade_r2_upload.lock` + `trade_deploy.lock` 分离后形态);其余 A1-A6/B1-B4 全部 = 研究建议·未拍板。
+
+## 二十、告警系统性排查增补(2026-10-05,来源 `docs/ops/alert-systematic-review-20261005.md`)
+
+> 背景:2026-10-05 用户要求「告警再系统性地排查下,是否都当 bug 解决了或者优化了」。researcher 事件驱动扫描(本地 `data/alerts/` + 云上 systemd/journal + `schedule_monitor` 9 维度 + `notify.py`/`alert_state.json` + 看门狗 + `check_*.py` + CSP 头)后逐条**四态判定**(①已修闭环 ②已优化降噪 ③仍待办 ④误报),**在册告警全部完成分类、无未分类遗留**。本模块只登记其**新提出**的 4 项;其余「仍待办」由既有项承载(#163/#164/#165/#166/#160/#162/#180),不重复立项。
+
+| 编号 | 标题 | 出处 | 描述 | 依赖 | 状态 |
+|---|---|---|---|---|---|
+| 181 | **`fetch_news` 周日夜 SEVERE 告警降噪(实测真阳性,噪音大,待拍板)** | 2026-10-05 告警系统性排查报告「A 组」 | 实测为**真阳性**(上游锁真实被占用,随锁释放自愈),10-04 22:30 起 **5 封 SEVERE = 当前最吵告警**。降噪候选:①连续 N 轮阈值 ②非交易时段降级 ③并入锁等待语义。**必须守 memory `alert-denoise-keep-fault-discriminator`:降噪不得把真故障判别维度一起豁免**。另报告标注一处**疑似**:15min monitor 轮**重复消费同一 skip 行**(30min 新鲜窗 vs 16min 最短间隔),报告内附待验证命令 | §23.3 / memory `alert-denoise-keep-fault-discriminator` | **待拍板**(2026-10-05 登记;降噪方案未定,**勿先实施**) |
+| 182 | **飞书 hook 心跳云上永久空转(监控盲区)** | 同上报告「盲区清单」第 1 项 | 云上 `~/.claude/projects/` 不存在、无进程、无心跳文件 ⇒ 飞书 hook 心跳**永久空转**,本机侧 hook 挂了也无人知。修=补心跳消费者/监控补位(可参照 #154 已上线 `check_monitor_heartbeat` 模式) | #154(同型先例) | **待办**(2026-10-05 登记,未实施) |
+| 183 | **utf-8 截断告警仅 warn、无升级(静默丢数据盲区)** | 同上报告「盲区清单」第 2 项 | 采集侧 utf-8 截断只打 warn 不升级 → 可能静默丢数据。评估 **warn→severe** 升级;与 #164 监控维度批同期做,注意别互相踩 | #164(监控维度批) | **待评估**(2026-10-05 登记) |
+| 184 | **`notify.py --dry-run` 仍写 `latest.md`(正式立项;原为模块十九「登记待决」项)** | 同上报告 N4 + 本文件模块十九「登记待决」第 2 条 | `--dry-run` 配 `--alert-issue` 仍写 `latest.md` —— `write_alert`(L1031)不收 dry_run,三个调用点仅 L2181 有 `tier==critical` 门控,L2238/L2264 **无** `dry_run` 门控,违反 L35 注释「--dry-run 不真发」。修=调用点补 `not args.dry_run` | §23.7(冻结,动已上线行为须用户确认) | **待拍板**(2026-10-05 正式立项;§23.7 需用户确认后才动) |
 
 ---
 
