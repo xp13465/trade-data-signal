@@ -19,7 +19,7 @@
 | 3 | 三源闭合是否真闭合 | 名单集合 diff + 逐字段 + 逐字 | ①云上 41 timer+41 service=82 名单 vs 191 快照 82 名单 **diff 空**;②本地跑 `--check-snapshot`(云上 dump vs 191 快照)**rc=0,82 unit**;③**原始文本逐字 diff 为空(1137 行)**——强于"逐字段";④抽样人工对 3 个 unit(`update-all.timer`/`r2-consistency.service`/`s06-snapshot.service`)逐字一致;⑤doc §2 vs 快照(7.8 命令)rc=0;⑥`gen_systemd_units.py --check`=82 rc=0。**不是只比条数**:全字段(含 [Unit]/[Timer]/[Service] 全部 key=value)多重集 order-insensitive 比对 | ✅ |
 | 4 | 负样本证据真伪 | 云上文件系统核对 + 名单/内容双对 | 备份目录 `/home/ubuntu/backup/191-cloud-unit-patrol/` 存在可读:`units-after.txt` 82 行(名单与云上现况 **diff 全等**)、`timers-after.txt` 59 行(list-timers 输出含 patrol 行);**零字段残留变更**由两条独立证据坐实:①云上现状 vs 191 快照逐字 diff 空 ②main 快照 vs 191 快照 = **纯新增 27 行、0 删除**(仅 patrol service 17 行 + timer 10 行)。云上 mtime 交叉:今日被改 unit 仅 patrol 两件(20:38)+ #160 r2-consistency(14:31)+ s06-snapshot.service(15:10)(后两者内容亦与快照逐字一致,属 #160/#189 云上落地时刻,非 #191 行为)。注:备份目录是「变更后清单」非内容备份——但 #191 只新增无覆盖,「变更前内容」完整保留在 main 版快照里,恢复依据充分 | ✅ |
 | 5 | §22 登记点同步 | 全仓 grep + 逐处核 + 跑机检 | `check_doc_staleness.py:326` 40→41:main 真值=40(实测今日该行)→ 191=41 → **与云上实测 41 一致,基线正确**;全仓 grep 同类计数串(`40 个 .timer`/`39 周期`/`80 unit`/`37 个`)**无漏改**——doc §0 表「40 个 .timer + 40 个 .service」= 周期任务(必迁)40 对的正确分区值(非过时);残留 40/39/80 均历史语境(历史链注解/历史报告)正确保留;`r2-deployment.md` 37→41 = 补 #188 计数清单漏点(原文 37 为陈旧值)。改动内容 = **纯计数**(README/PARAMS/data-sources/site-deployment/scripts/README 均为 40→41,r2-deployment 37→41),与事实相符。机检:`check_doc_staleness`(229 文件)PASS、lint_scripts PASS、6 unit 抽样/82 生成 rc=0 | ✅ |
-| 6 | §23.11 跨分支冲突 | git 层面核对 | **冲突不存在**:main 该行已含 #188 的 40(已入 main),191 = 40→41 单行改;191 commit 的 parent/merge-base = `9b98d12b1` = main HEAD → **无并行落后,merge 可直进**;远端分支仅 `feat/191` 一支,无其他在跑分支改同行。**merge 顺序建议**:①先 merge 191(过 7.8 后由 main-merge.sh 机制 10 自动 pull 云上 → 巡检即刻生效)②主控再销账 `pending-features-index.md` #191 行(销账改同一行,须基于含 191 的新 main 落笔,避免覆盖)。时机:避开 §14 盘后时点(15:35/16:00/17:50/20:35/22:00;本次审查时点 20:53 → 建议 22:00 后或 23:00 安全窗口)。 | ✅ |
+| 6 | §23.11 跨分支冲突 | git 层面核对 | **冲突不存在**:main 该行已含 #188 的 40(已入 main),191 = 40→41 单行改;191 commit 的 parent/merge-base = `9b98d12b1` = main HEAD → **无并行落后,merge 可直进**;另有在跑分支 `feat/188-s06-sync-blindspot-20261005`(@ `09338aa0f`,base 同为 `9b98d12b1`)**已独立核对**:其 5 个改动文件(check_data_integrity.py / s06_snapshot.sh / upload_r2.py / 自测脚本 / 报告)与 #191 的 14 文件**零重叠**,且未碰 `check_doc_staleness.py` 该行(其版本 == main == 40)→ **与 #191 merge 零冲突,先后顺序任选**。**merge 顺序建议**:①先 merge 191(过 7.8 后由 main-merge.sh 机制 10 自动 pull 云上 → 巡检即刻生效)②主控再销账 `pending-features-index.md` #191 行(销账改同一行,须基于含 191 的新 main 落笔,避免覆盖)。时机:避开 §14 盘后时点(15:35/16:00/17:50/20:35/22:00;本次审查时点 20:53 → 建议 22:00 后或 23:00 安全窗口)。 | ✅ |
 | 7 | §15 回归/影响面 | diff 核 + 语义核 + 消费者核 | **`scripts/main-merge.sh` 零 diff**(改动不含它);7.8 仍以「doc §2 vs 仓库快照」为对象(`--dump 快照 --check-doc`),语义未被混入云上直连;`--check-snapshot` 为**新增**参数,旧行为(gradient 审计/`--check-doc`/`--align-doc`)代码路径未动(diff 只增不减);快照消费方(main-merge 7.8 + 新巡检)口径一致;`check_doc_staleness.py` 改动仅提示文案字符串,无消费逻辑依赖,`scripts/tests` 无断言该文案;无前端/算法/数据产物改动 → §21/§24/§5.1 均 N/A。**7.8 无新增误报源**(它不读云上,云上变化不会让它误报) | ✅ |
 | 8 | §25 回滚/恢复实测 | 逐条核 + 恢复路径实跑 | 回滚 4 条命令语法合规、目标文件存在(`/etc/systemd/system/trade-cloud-unit-patrol.{service,timer}` 已在);**恢复路径实证**:`gen_systemd_units.py /tmp/out` 生成 82 unit 含 patrol 两件,**生成结果与云上现状逐字一致**(重装无漂移)。无覆盖型删除→无 .bak 需求(论证成立) | ✅ |
 | 9 | 报告四件套(§23.5) | 逐件核 | ①本体 `docs/ops/191-cloud-unit-patrol-20261005.md`(254 行,含 §2 方案取舍/§4 自验/§9 复现/§10 回滚/§11 交接)✅ ②巡检脚本 `scripts/cloud_unit_patrol.sh` + `systemd_timeout_gradient_audit.py --check-snapshot` ✅ ③「## 9. 复现(命令全集)」在 ✅ ④配套 commit = `b94c32eff`(报告与脚本同一 commit,推送链完整)✅。报告正文未写自身 hash → 低分项(§5-c,与 #190 merge 后补填先例一致) | ✅ |
@@ -72,7 +72,7 @@
 
 ## 6. 给主控的 merge 备忘(§0 用)
 
-1. **merge 顺序**:本分支直进(merge-base = main HEAD,`git merge-tree` 预期无冲突;过 7.8 后机制 10 自动 pull 云上 → patrol 立即在位,无需人工提醒云上)。
+1. **merge 顺序**:本分支直进(merge-base = main HEAD,`git merge-tree` 预期无冲突;过 7.8 后机制 10 自动 pull 云上 → patrol 立即在位,无需人工提醒云上)。在跑分支 `feat/188`(@09338aa0f)与 #191 零文件重叠,两分支 merge 先后任选(#188 未碰 doc §2/快照/check_doc_staleness,不会动 7.8 两侧)。
 2. **时机**:避开盘后时点(审查时 20:53,建议 22:00 后或 23:00 安全窗口;main-merge.sh 内置 §14 检查会自动拦截)。
 3. **merge 后 §0 首验点**:①线上无需验(无前端/数据产物);②云上核一项:`10-06 08:27` 首跑后 `systemctl show trade-cloud-unit-patrol.service -p ConditionResult -p ExecMainStatus` = `yes/0`(或首跑前核 `ls .../scripts/cloud_unit_patrol.sh` 已 pull 到位)。③销账 pending-index #191 行(在 merge 后基于新 main 改)。
 
@@ -105,3 +105,7 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173
 - 全程只读(除任务书授权的 1 次 `systemctl start`——`ConditionPathExists=no` 条件短路,ExecStart 未执行,零副作用);未改任何云上文件、未 push main、未动 data/。
 - curl/ssh 未使用 `-v/-i`;私钥路径 `~/tdsignal.pem` 未打印内容(L22)。
 - 报告落档 = 本文件;分支 `review-191-20261005`(从 origin/main 开,只含本报告)。
+
+## 9. 订正记录
+
+- v2(2026-10-05 同会话):补核在跑分支 `feat/188-s06-sync-blindspot-20261005`(@`09338aa0f`,未入 main)——其 5 文件与 #191 的 14 文件**零重叠**、未碰 `check_doc_staleness.py:326`(其版本 == main == 40),§1-#6 与 §6 备忘已就地订正;结论不变(PASS,P0/P1=0)。
