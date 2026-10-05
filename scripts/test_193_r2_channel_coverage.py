@@ -11,11 +11,20 @@
       平日靠全池抽样兜底; news_digest 归档键经独立链台账确定性纳入)。
   [D] 失败 loud: upload 失败时 _notify_channel_upload_fail 发 severe 告警(notify 已打桩, 见下)。
 
-⚠️ §18 L48 / memory notify-script-selftest-must-stub: 本脚本把 sys.modules['notify'] 换成 Fake,
-   并给真实 notify.send 挂陷阱函数 —— 一旦真模块被触达立即 AssertionError。本脚本零真实外发、
-   零真实 R2 PUT/HEAD(s3_head / _upload_glob 均打桩)。
+⚠️ §18 L48 / memory notify-script-selftest-must-stub: 本脚本自 test 开头(早于任何 cmd_verify_r2 /
+   上传命令路径)即装**三道防线**, 保证「任一 cwd(worktree / 主仓)运行都零真实外发」:
+   ① notify 桩**先于 [C] 安装**(不是等到 [D] 才装): sys.modules['notify'] 换成 Fake, 且真实
+      notify.send 挂陷阱函数(触达即 AssertionError)—— cmd_verify_r2 的 L6 异源覆盖告警 / 台账
+      缺失告警在 [C] 就可能可达, 桩必须在那之前就位(CAVEAT-1 修法 b);
+   ② s3_head **与** _upload_glob **都**打桩(见 _install_upload_glob_stub; CAVEAT-1 修法 a):
+      任何路径都不会真 PUT。旧版 [C] 只打桩 s3_head 漏桩 _upload_glob ⇒ 从主仓跑时 lab/trade-sim
+      三通道的 ROOT 回退落到真仓库树 → fake head 全判「不一致」→ 172 次真实生产 PUT 风险;
+   ③ ur.ROOT 在 [C]/[D] 期间重定向到临时树(CAVEAT-1 修法 c): lab / trade-sim / trade-sim-json
+      三通道的 ROOT 回退不再落到真仓库 ⇒ 「任一 cwd 均可」成立, 不靠运行环境恰好为空。
+   封网正控制证据(证明本次自测零真实外发**不是靠运气**)见报告
+   docs/ops/193-r2-channel-coverage-20261005.md「返修记录(CAVEAT-1)」。
 
-运行: python3 scripts/test_193_r2_channel_coverage.py   (任一 cwd 均可)
+运行: python3 scripts/test_193_r2_channel_coverage.py   (任一 cwd 均可; 三道防线见上)
 复现: cd <worktree> && python3 scripts/test_193_r2_channel_coverage.py
 """
 import sys
@@ -100,8 +109,34 @@ def _install_notify_stub():
     return calls, trap
 
 
+def _install_upload_glob_stub():
+    """打桩 _upload_glob: 记录每次调用 + 一律返回「补传成功」—— 任何路径都不会真 PUT。
+
+    CAVEAT-1 修法 a(test_188_s06_sync_blindspot.py:L152-155 同款写法)。旧版 [C] 只打桩 s3_head,
+    一旦有 key 被判定不一致(如从主仓跑时 lab/trade-sim 通道 ROOT 回退到真树), cmd_verify_r2
+    的补传路径就会调用**真实** _upload_glob → 真实生产 PUT(受控实验实测 172 次)。
+    返回 (prev, calls); calls 非空 = 有补传面(配合 ROOT 重定向后应为 0, 见 [C] 收尾断言)。
+    """
+    calls = []
+
+    def _fake_upload_glob(local_dir, patterns, r2_prefix, **kw):
+        only = kw.get("only_files") or []
+        calls.append({"local_dir": str(local_dir), "r2_prefix": r2_prefix,
+                      "only_files": [getattr(p, "name", str(p)) for p in only]})
+        n = len(only)
+        return (n, n, [], [])  # 视作全部补传成功: 零真实 PUT, 且不触发 repair_failed
+
+    prev = ur._upload_glob
+    ur._upload_glob = _fake_upload_glob
+    return prev, calls
+
+
 def main():
     global ur
+    # §18 L48 硬要求: 装桩必须早于**任何**可能触发外发的路径 —— [C] 的 cmd_verify_r2 的 L6/台账
+    # 告警路径在 [D] 之前就可能可达, notify 桩必须现在就位(CAVEAT-1 修法 b: 不再等到 [D])。
+    calls, trap = _install_notify_stub()
+    prev_glob, put_calls = _install_upload_glob_stub()
     print("== [A] 通道登记 ==")
     by_label = {c["label"]: c for c in ur._R2_CHANNELS}
     for lbl, pfx, pats in (("offshore-fund", "offshore_fund", ["offshore_fund*.json"]),
@@ -115,8 +150,13 @@ def main():
             _ok(ch.get("state_name") is None, f"{lbl}.state_name is None(上传走 _upload_glob, 无增量状态)")
 
     root, sd = _mk_temp_tree()
-    old_static = ur.STATIC_DIR
+    old_static, old_root = ur.STATIC_DIR, ur.ROOT
     ur.STATIC_DIR = sd
+    # CAVEAT-1 修法 c: ROOT 一并重定向到临时树 —— lab / trade-sim / trade-sim-json 三通道的
+    # local_dir(见 upload_r2 L3215-3233)在 STATIC_DIR 侧为空时回退 ROOT/static-site(真仓库树),
+    # 从主仓跑会让 fake s3_head 对这些真文件全判「不一致」→ 真补传路径(受控实验实测 172 次
+    # 真实 PUT)。ROOT 指向临时树后三通道无文件可对账, 与 worktree 运行结果一致(任一 cwd 均可)。
+    ur.ROOT = root
     try:
         print("== [B] 可对账集(_reconcilable_keys_for) ==")
         keys = {
@@ -200,9 +240,13 @@ def main():
         _ok("fund_score/fund_score_top.json" in checked, "周日全量: fund_score 全覆盖")
         _ok("data/news_digest/2026/2026-10-01.json" in checked, "周日全量: news_digest 归档全覆盖")
         _ok("data/feed.xml" not in checked, "feed.xml 不被通道误扫")
+        # CAVEAT-1 修法 a 证据: 走到这里应零 _upload_glob 触达(= 零真实 PUT 尝试)。非零即说明
+        # ROOT 重定向没兜住某个通道的补传面 —— 由下方收尾断言硬判 FAIL, 不靠人眼看日志。
+        print(f"  [stub] [C] _upload_glob 触达 {len(put_calls)} 次, notify send 触达 "
+              f"{sum(1 for c in calls if c[0] == 'send')} 次(均应为 0)")
 
-        print("== [D] 失败 loud(notify 打桩) ==")
-        calls, trap = _install_notify_stub()
+        print("== [D] 失败 loud(notify 打桩, 见 test 开头已装) ==")
+        calls.clear()  # 桩已在 main() 开头就位并复用(CAVEAT-1 修法 b), 此处只清计数
         # D1: 直接调 helper
         ur._notify_channel_upload_fail("fund-score", "upload-fund-score",
                                        "fund_score", 1, 2, ["fund_score_top.json"])
@@ -255,7 +299,8 @@ def main():
             rc = e.code
         _ok(rc == 1, f"同类面: cmd_upload_data_files 失败已 exit 1(本就 loud, 实得 {rc})")
 
-        _ok(not trap, "真实 notify.send 陷阱从未触发(打桩生效, 零真实外发)")
+        _ok(not trap and not put_calls,
+            "真实 notify.send / 真实 _upload_glob 全程零触达(打桩生效, 零真实外发/零真实 PUT)")
 
         print("== [E] §22 通道覆盖机检(check_r2_channel_coverage.py) ==")
         import subprocess
@@ -290,6 +335,8 @@ def main():
             print(f"  [skip] git show {PREFIX_REV} / origin/main 均不可用, 跳过修复前对照")
     finally:
         ur.STATIC_DIR = old_static
+        ur.ROOT = old_root
+        ur._upload_glob = prev_glob
         shutil.rmtree(root, ignore_errors=True)
 
     print(f"\n断言 {PASS} PASS / {FAIL} FAIL")

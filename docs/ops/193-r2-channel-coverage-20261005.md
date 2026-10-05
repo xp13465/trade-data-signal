@@ -235,3 +235,50 @@ print(ur._assert_no_double_upload(ur.STATIC_DIR / "data"))
 ```
 
 **回退**: 本改动为纯新增(通道 + 告警), 回退 = `git revert <本 commit>` 即回到修复前行为(缺口重新出现, 无更坏状态)。无需备份/删除动作(本轮零删除, §25 未触发)。
+---
+
+## 返修记录(CAVEAT-1)
+
+来源: 独立 reviewer 报告 `docs/ops/193-review-20261005.md` §3。**只改自测脚本, 未碰产品代码 `scripts/upload_r2.py`。**
+
+### 病根(一句话)
+`scripts/test_193_r2_channel_coverage.py` 的 **[C] 段只打桩了 `s3_head`、没打桩 `_upload_glob`**, 而 lab / trade-sim / trade-sim-json 三通道的 `local_dir` 在 STATIC_DIR 侧为空时会**回退 `ROOT/static-site`**(`upload_r2.py:3215-3233`)——从**主仓树**跑(合并后的自然回归动作)时 ROOT = 主仓, 回退命中主仓真树(lab 65 / trade_sim html 6 / trade_sim json 504), fake `s3_head` 对这些 key 全返回 None ⇒ 全判「不一致」⇒ 走进真实补传路径; 且 notify 桩当时装在 `[D]`(L204), 晚于 `[C]`。
+
+### 3 处改动(全部在 `scripts/test_193_r2_channel_coverage.py`)
+| # | 修法 | 落点 |
+|---|---|---|
+| a | **[C] 补 `_upload_glob` 打桩** —— 新增 `_install_upload_glob_stub()`(仿 `test_188_s06_sync_blindspot.py:152-155`): 记录调用 + 一律返回「补传成功」, 任何路径都不会真 PUT; 收尾断言改为硬判 `not trap and not put_calls` | 新增 helper 定义 + `main()` 开头 + [C] 收尾断言 |
+| b | **notify 桩提前**: `_install_notify_stub()` 从 `[D]` 内部(L204)提到 `main()` **最开头**(早于 [A]/[C]), `[D]` 改为复用同一桩(`calls.clear()`) | `main()` 开头 + [D] |
+| c | **[C] 把 `ur.ROOT` 一并重定向到临时树**(reviewer 备注的「可选最稳」): 三通道的 ROOT 回退不再落到真仓库 ⇒ 「任一 cwd 均可」这句表述真正成立, 不靠运行环境恰好为空 | `main()` 中设置 `ur.ROOT = root`(与 STATIC_DIR 同处)+ `finally` 恢复 |
+
+另: **订正测试文件头 L14-L19 两处失实表述**(原文称「`s3_head / _upload_glob` 均打桩」「任一 cwd 均可」, 与修复前实测不符), 改写成「三道防线 + 封网正控制证据指向」的准确描述。
+
+### 封网正控制(证明「零真实外发不是靠运气」, §18 L48)
+沙箱: `PYTHONPATH=/tmp/safe193net`(sitecustomize 拦 `socket.connect`/`connect_ex`/`getaddrinfo`/`create_connection` 并落日志)。
+
+1. **先证沙箱生效**: `SAFE_NET_LOG=/tmp/agent-193fix-netcontrol.log ... python3 -c "socket.socket().connect(('93.184.216.34',80))"` → `OSError: BLOCKED(BLOCKED-CONNECT)`; `getaddrinfo('ssd.fx8.store',443)` → BLOCKED。控制日志 2 行(证明拦截真的发生)。
+2. **陷阱非空转 + 修复前/后对比**: 把 `s3_request` / `_upload_multipart` 换成「记录 + BLOCKED」(`/tmp/run193-positive-control.py`), 在**模拟主仓树**下跑两版 test:
+   - **修复前**(`aa4c482b0` 版 test): `POSITIVE-CONTROL HITS = 172`(lab 65 + trade-sim 6 + trade-sim-json 101, 与 reviewer §3 实验的 172 完全一致), test `SystemExit=1`。
+   - **修复后**: `POSITIVE-CONTROL HITS = 0`, `40 PASS / 0 FAIL`。
+3. **零网络尝试**: 上述**所有真实运行**的 `SAFE_NET_LOG` 文件**均不存在**(零 socket 尝试), 唯一有内容的是刻意的正控制日志(2 行)。
+
+### 主仓树复跑数字(修复前 / 修复后)
+| 场景 | 修复前(旧数字, 保留可反查) | 修复后 |
+|---|---|---|
+| 主仓条件(有 lab/trade-sim 真树, `s3_request` 陷阱) | 172 次补传触达, exit 1 | **0 次**, 40 PASS / 0 FAIL |
+| 主仓条件(无陷阱, 真 `s3_request`) | 见下方「诚实标注」: exit 1 | 40 PASS / 0 FAIL, [`[stub] [C] _upload_glob 触达 0 次, notify send 触达 0 次`] |
+| worktree(沙箱) | (reviewer 实测 0 触达 / 40 PASS) | 40 PASS / 0 FAIL, 0 触达 |
+| #188 回归 `test_188_s06_sync_blindspot.py` | — | **31 PASS / 0 FAIL** |
+
+**诚实标注(reviewer 报告与本轮实测的一处差异, 补充而非否定)**: 修复前若**不**加任何陷阱、直接跑旧版 test, 真实 `s3_request` 会在 sigv4 签名处撞上 [C] 装的 `ur.datetime` 桩(`SimpleNamespace` 无 `.datetime`)→ 抛 `AttributeError` → PUT 在**打开 socket 之前**就失败 → 退出码 1(repair_failed), 不会真外发、也走不到 L6 notify。**但这恰恰是「靠运气」**: 安全性来自一个**无关桩的意外碰撞**, 而非任何设计保证; 一旦 `s3_request` 改用别的取时方式, 172 次真实 PUT 与真 notify(实验 2 已证可达)就会成立。修法 a/b/c 把「意外安全」换成「结构性安全」。
+
+### 复现命令(修复后)
+```bash
+# 任一 cwd(worktree / 主仓树)均可, 期望 40 PASS / 0 FAIL + exit 0 + 「_upload_glob 触达 0 次」
+python3 scripts/test_193_r2_channel_coverage.py
+# 主仓条件复现(模拟主仓树 = 含 lab/trade-sim 真树)
+python3 /tmp/193-mainrepo-sim-fixed/scripts/test_193_r2_channel_coverage.py
+# 封网正控制
+SAFE_NET_LOG=/tmp/x.log PYTHONPATH=/tmp/safe193net python3 scripts/test_193_r2_channel_coverage.py  # /tmp/x.log 不应生成
+```
+**回退**: 纯测试脚本改动, 回退 = `git revert <本 commit>`; 产品代码零改动。
