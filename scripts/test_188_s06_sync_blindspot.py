@@ -15,8 +15,10 @@
       云上: cd ~/code/trade-data-signal && git checkout <该 commit> && python3 scripts/test_188_s06_sync_blindspot.py
 
 E/F 为 reviewer 复审后补(2026-10-05):
-  E. P2-2 死键过滤 —— 台账不再收 verify-r2 扫描永远看不到的键(news_digest 子目录键 / feed.xml),
+  E. P2-2 死键过滤 —— 台账不再收 verify-r2 扫描永远看不到的键(无通道 glob 覆盖的子目录键 / feed.xml),
      且台账内每个键都在扫描可达集内(零死键) + 正常键仍被平日对账逐个 HEAD。
+     ⚠ #193 (2026-10-05) 后 data/news_digest/... 已由「死键」变「可对账」(news-digest 通道已登记),
+     故 E 的死键样本改用「无任何通道覆盖的子目录键」, 并新增一条互证断言(news_digest 归档键可达)。
   F. P2-1 台账缺失/损坏/为空 → verify-r2 发显式告警(不静默绿)。
 """
 import os
@@ -179,11 +181,12 @@ def test_dead_key_filter(td):
     print("[E] P2-2 死键过滤")
     import upload_r2 as u
     dd = pathlib.Path(td, "static-site", "data")
-    (dd / "news_digest" / "2026").mkdir(parents=True, exist_ok=True)
-    (dd / "news_digest" / "2026" / "2026-10-05.json").write_text('{"d":1}')
-    (dd / "news_digest" / "_index.json").write_text('{"i":1}')
+    # #193 (2026-10-05): data/news_digest/... 归档键已由 news-digest 通道覆盖 = 可对账, 不再是死键。
+    # 现存死键改用「无任何通道 glob 覆盖的子目录键」(所有 data 通道均为非递归 *.json) + 非 .json:
+    (dd / "uncovered_subdir").mkdir(parents=True, exist_ok=True)
+    (dd / "uncovered_subdir" / "x.json").write_text('{"d":1}')
     (dd / "feed.xml").write_text("<rss/>")
-    dead = ["data/news_digest/2026/2026-10-05.json", "data/news_digest/_index.json", "data/feed.xml"]
+    dead = ["data/uncovered_subdir/x.json", "data/feed.xml"]
 
     p = u._standalone_keys_path()
     p.write_text("[]")                                  # 隔离: 从空台账起
@@ -197,6 +200,12 @@ def test_dead_key_filter(td):
 
     _ok(u._reconcilable_keys_for(set(dead)) == set(), "死键确为扫描不可达(过滤非空转)")
     _ok(u._reconcilable_keys_for(keys) == keys, "台账内每个键都在扫描可达集内(零死键)")
+    # #193 互证: news_digest 归档键现为可达(与上面死键样本形成对照, 防「过滤非空转」假绿)
+    (dd / "news_digest" / "2026").mkdir(parents=True, exist_ok=True)
+    (dd / "news_digest" / "2026" / "2026-10-05.json").write_text('{"d":1}')
+    nd = "data/news_digest/2026/2026-10-05.json"
+    _ok(u._reconcilable_keys_for({nd}) == {nd},
+        "#193: news_digest 归档键已可对账(不再死键 — news-digest 通道)")
     p.write_text(json.dumps(sorted(keys)))
 
 
