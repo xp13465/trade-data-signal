@@ -71,19 +71,13 @@
 # 用法: bash scripts/cloud_unit_patrol.sh
 set -u
 
-# ── 路径自解析(#194):env 覆盖 > 从 $0 推导 > fail-fast ──────────────────────
-_self="$0"
-case "$_self" in
-  /*) : ;;
-  *)  _self="$(pwd)/$_self" ;;   # 相对路径(手动 bash scripts/xxx.sh)→ 补 cwd
-esac
-_self_dir="$(dirname "$_self")"                                              # 本脚本所在 scripts 目录(未解 symlink)
-_repo_derived="$(dirname "$_self_dir")"                                      # REPO 候选 = scripts 的父目录
-_self_dir_real="$(cd "$_self_dir" 2>/dev/null && pwd -P || printf '%s' "$_self_dir")"   # 解 symlink 后的 scripts 目录
-_gitrepo_derived="$(dirname "$_self_dir_real")"                              # GIT_REPO 候选 = 解 symlink 后 scripts 的父目录
-
-export REPO="${REPO:-$_repo_derived}"
-export GIT_REPO="${GIT_REPO:-$_gitrepo_derived}"
+# ── 路径自解析(#194/#195):env 覆盖 > 从 $0 推导(共享 lib)> fail-fast ─────────
+# #195 批1:先前内联的 symlink 推导块收敛到 scripts/lib 的单点 resolve_repo(去重,行为不变),
+#   原 export 语义保留。lib 在「推导值非法」时已 fail-loud(exit 2 + 固定日志);
+#   下方 _fatal 校验负责本脚本语境化提示(unit Environment= 丢失等)。
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
+export REPO GIT_REPO
 
 _FATAL_LOG="${CLOUD_UNIT_PATROL_FATAL_LOG:-${TMPDIR:-/tmp}/cloud_unit_patrol_fatal.$(id -un).log}"
 _fatal() {
@@ -95,8 +89,8 @@ _fatal() {
 }
 
 # ── fail-fast 校验(cd / 调用 python 之前)────────────────────────────────────
-[ -d "$REPO" ]     || _fatal "REPO 目录不存在: REPO='$REPO'($0 推导值='$_repo_derived')。systemd unit trade-cloud-unit-patrol.service 的 Environment=REPO= 或环境变量可能丢失/写错。"
-[ -d "$GIT_REPO" ] || _fatal "GIT_REPO 目录不存在: GIT_REPO='$GIT_REPO'($0 推导值='$_gitrepo_derived')。unit 的 Environment=GIT_REPO= 或环境变量可能丢失/写错。"
+[ -d "$REPO" ]     || _fatal "REPO 目录不存在: REPO='$REPO'。systemd unit trade-cloud-unit-patrol.service 的 Environment=REPO= 或环境变量可能丢失/写错。"
+[ -d "$GIT_REPO" ] || _fatal "GIT_REPO 目录不存在: GIT_REPO='$GIT_REPO'。unit 的 Environment=GIT_REPO= 或环境变量可能丢失/写错。"
 PY="${PY:-$REPO/.venv/bin/python}"
 [ -f "$REPO/.venv/bin/python" ] || _fatal "REPO 下缺 .venv/bin/python(REPO='$REPO')——REPO 可能指向了错误目录。"
 [ -x "$PY" ] || _fatal "python 解释器不存在/不可执行: PY='$PY'(默认 \$REPO/.venv/bin/python)。REPO/PY 配置错误。"

@@ -113,7 +113,8 @@ if [ "$FUND_NAV_RC" -ne 0 ]; then
 else
   # export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 $GIT_REPO/static-site/data/ 供
   # upload_r2 + deploy(trade 跑时 no-op); 随 export 前置, O1 闸门校验到的就是刚刷新的最新产物
-  # 云上单仓(REPO==GIT_REPO)下自同步 no-op, 用 [ "$REPO" = "$GIT_REPO" ] || 跳过。
+  # 自同步:多仓布局(mac REPO=trade-data/GIT_REPO=trade;云上 REPO=trade-data/GIT_REPO=trade-data-signal)
+  # 下 rsync 到 GIT_REPO;仅同路径单仓(REPO==GIT_REPO)才跳过(no-op),用 [ "$REPO" = "$GIT_REPO" ] || 判。
 # 2026-09-23 桶化(§9B): 产物目录 fund_nav/ -> nav_bucket/(256 桶), 上传 PUT 次数固定 256。
   # #200(2026-10-06): 镜像 rsync 失败此前仅 echo 一声(不进聚合告警框架)⇒ 静默; 收 rc 纳入 SEVERE/ISSUE(同 fund_nav 导出失败族样板)。
   [ "$REPO" = "$GIT_REPO" ] || rsync -a --delete --checksum "$REPO/static-site/data/nav_bucket/" "$GIT_REPO/static-site/data/nav_bucket/" 2>>"$LOG" || \
@@ -196,7 +197,8 @@ if [ "$SCORE_LIST_RC" -ne 0 ]; then
 else
 # export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 $GIT_REPO/static-site/data/ 供 upload_r2 + deploy
 # (deploy.sh rsync 在 pipeline 内跑, export 在 pipeline 后跑, 需单独同步; trade 跑时 no-op)
-# 云上单仓(REPO==GIT_REPO)下自同步 no-op, 用 [ "$REPO" = "$GIT_REPO" ] || 跳过。
+# 自同步:多仓布局(mac REPO=trade-data/GIT_REPO=trade;云上 REPO=trade-data/GIT_REPO=trade-data-signal)下 rsync;
+# 仅同路径单仓(REPO==GIT_REPO)才跳过(no-op)——注:云上并非单仓(REPO≠GIT_REPO), 此处 rsync 实际会跑。
 # #200(2026-10-06): 镜像 rsync 失败此前仅 echo 一声(不进聚合告警框架)⇒ 静默; 收 rc 纳入 SEVERE/ISSUE(同 etf_score_list 导出失败族样板)。
 [ "$REPO" = "$GIT_REPO" ] || rsync -a --checksum "$REPO/static-site/data/etf_score_list_"* "$GIT_REPO/static-site/data/" 2>>"$LOG" || \
   SCORE_LIST_RSYNC_RC=$?
@@ -308,8 +310,8 @@ SEVERE=0
 # (2026-09-16 #38) ETF_HIST_RC 随 export_etf_hist 挪到 20:07 etf_national_team_backfill.sh, 此处不再判 SEVERE
 [ "${FUND_SCORE_RC:-0}" -ne 0 ] && SEVERE=1  # 样板抄齐 2026-08-27: 导出失败=基金评分数据断供, 升级严重告警
 # #200(2026-10-06): 镜像 rsync 失败(REPO->GIT_REPO, deploy 从 GIT_REPO 读)= 发布不全, 此前仅 echo 不进聚合 ⇒ 静默;
-# 三条同族点(nav_bucket/etf_score_list/fund_score)统一收 rc 纳入。仅 REPO!=GIT_REPO 时跑(mac 开发/双仓),
-# 云上单仓 no-op → 变量不设 → ${..:-0}=0 不误报。
+# 三条同族点(nav_bucket/etf_score_list/fund_score)统一收 rc 纳入。多仓布局(含云上 REPO=trade-data ≠
+# GIT_REPO=trade-data-signal)下 rsync 实际会跑;仅同路径单仓(REPO==GIT_REPO)跳过 → 变量不设 → ${..:-0}=0 不误报。
 [ "${FUND_NAV_RSYNC_RC:-0}" -ne 0 ] && SEVERE=1
 [ "${SCORE_LIST_RSYNC_RC:-0}" -ne 0 ] && SEVERE=1
 [ "${FUND_SCORE_RSYNC_RC:-0}" -ne 0 ] && SEVERE=1
