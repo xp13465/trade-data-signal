@@ -10,7 +10,7 @@
 | 项 | 动作 | 状态 |
 |---|---|---|
 | **A** 生成源防漂移根因 | `gen_systemd_units.py` 以 `docs/deploy/systemd-units-20260912.md` §2 ini 块为生成源;该源 30 个 service 的 `TimeoutStartSec` 停在 2026-09-12 迁移批旧值 ⇒ 重跑生成器装回云上 = **静默回退 #36 超时收口**(生产事故级) | ✅ 已修 |
-| **B** doc §2 对齐 | 30 处 `TimeoutStartSec` 就地改写为云上实值(`--align-doc`);diff = 30 insert + 30 delete,**非 TimeoutStartSec 变更行 = 0** | ✅ 已改 |
+| **B** doc §2 对齐 | 30 处 `TimeoutStartSec` 就地改写为云上实值(`--align-doc`);doc diff = 34 insert + 32 delete,构成 = 30 处 ini 值(30Δ) + §2 头 2 行口径说明 + §2.1/§2.13 两处 prose 同步,**除此无其他变更** | ✅ 已改 |
 | **C** 机检 + 挂链 | 审计器新增 `--check-doc`(逐字段全量比对 doc §2 生成物 vs 权威 unit 源);固化快照 `docs/deploy/systemd-units-cloud-snapshot.txt`;挂 `main-merge.sh` **7.8** | ✅ 已加 |
 | **D** 机检非空转 | 注入错值(快照侧 / doc 侧各一次)→ **FAIL exit=1**;改前 30 处不一致 → exit=1;改后 → exit=0 | ✅ 见 §三 |
 | **E** 举一反三全字段 | 80 unit 逐字段(doc §2 vs 云上)全量扫描:**仅 TimeoutStartSec 漂移**,其余字段(Restart/OnCalendar/Persistent/Environment/ExecStart/Standard*)0 差异 | ✅ 见 §四 |
@@ -87,7 +87,7 @@ $ python3 scripts/systemd_timeout_gradient_audit.py --dump docs/deploy/systemd-u
 ✓ 生成源(doc §2)与权威 unit 源一致(80 unit,逐字段全量比对通过)   # exit=0
 ```
 
-diff 统计:`30 insertions(+), 30 deletions(-)`;非 `TimeoutStartSec` 变更行 = **0**(见 §六 校验命令)。
+doc diff 统计:**34 insertions(+), 32 deletions(-)**;构成 = 30 处 ini 值对齐(30Δ)+ §2 头 2 行口径说明 + §2.1/§2.13 两处 prose 同步(各 1Δ)。除这些外无任何其他变更(见 §六 校验命令:非 `TimeoutStartSec` 变更行 = 1,即 §2 头说明块那个空引用行 `>`,属说明结构)。
 
 同步改了 doc 内**两处会与 ini 值打架的 prose**(§22 同一事实多登记点):
 - §2.1 update-all 尾注 `(service TimeoutStartSec=10800)` → 注明「迁移批取 10800;2026-09-16 #36 收口为 `0`=无限」。
@@ -225,8 +225,10 @@ python3 scripts/systemd_timeout_gradient_audit.py --dump /tmp/snap_bad.txt --che
 python3 scripts/gen_systemd_units.py --check   # 80 个 unit
 grep -n "周期任务(必迁) | 39\|其余 \*\*32\*\* = 40\|§1.7 = 40\|39 个周期任务完整对照表" docs/deploy/systemd-units-20260912.md
 
-# 6) diff 只含 TimeoutStartSec(应为 0)
-git diff docs/deploy/systemd-units-20260912.md | grep -E '^[+-]' | grep -v '^[+-][+-]' | grep -vc 'TimeoutStartSec'
+# 6) doc diff 构成核对:除「30 处 ini 值 + §2 头说明 2 行 + prose 2 行」外无其他变更
+git diff HEAD~1 --numstat -- docs/deploy/systemd-units-20260912.md        # 34 / 32
+git diff HEAD~1 -- docs/deploy/systemd-units-20260912.md | grep -E '^[+-]' | grep -v '^[+-][+-]' | grep -v 'TimeoutStartSec'
+#    → 只输出 1 行:`>`(§2 头说明块的空引用行;说明行本身含 TimeoutStartSec 被上面的 grep 滤掉)
 ```
 
 **配套 commit**:本报告 + `docs/deploy/systemd-units-20260912.md` + `docs/deploy/systemd-units-cloud-snapshot.txt` + `scripts/systemd_timeout_gradient_audit.py` + `scripts/main-merge.sh` 同属一个 commit。
