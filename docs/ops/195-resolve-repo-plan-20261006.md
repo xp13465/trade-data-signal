@@ -447,3 +447,13 @@ cd /Users/linhuichen/code/trade && git status --porcelain
 3. 批1 迁移 diff(`check_r2_consistency.sh` 两行模板 + `cloud_unit_patrol.sh` 回迁 lib);
 4. `scripts/check_repo_paths_ratchet.py`(§4.6,R1-R3);
 5. 每批验收记录(§6.4 输出 + §6.5 probe 输出 + 24/48h 观察结论)。
+
+### 7.5 批5 独立审文档精度订正(2026-10-06;实施者 + 独立审双重认定,代码为准)
+
+> 同 §4.4 体例:只订正**文档**,不动已合代码。
+
+1. **§3.6 lib 接口表失准(第 4 次同款)**:lib 实况**只有 `resolve_repo`(L41)+ `_resolve_repo_fatal`(L105)**,方案 §3.6 写的 `resolve_staticdata_repo` **不存在**。批5 按 §4.5 定案改用 `STATICDATA_REPO="${STATICDATA_REPO:-$(dirname "$GIT_REPO")/trade-data-signal-staticdata}"`(两机逐字节验证 PASS)。
+2. **§3.6 的「6 个 export 脚本」清单失准**:批5 实测**只有 `push_schedule_stats.sh` 一个** export(`export REPO GIT_REPO` 保留在 `resolve` 之后);`EXPORT-SET UNCHANGED = 16/16`。
+3. **批5 实施报告头 base 标注**:报告写 `base=232444342`,实际落地父提交 = `7071af969`(推送前已 rebase,reflog 可证);报告「17 files/42+/31−」是 `scripts/` 面子集,全 diff = **18 files / 280+ / 31−**。
+4. **ratchet 挂链状态**:实施/审查原报「未挂任何链」→ 独立审订正 = **CI 已跑**(见新增登记 #211),仅 deploy 链/本地范围成立「靠手动」。
+5. **观察项(非本批引入)**:`scripts/staticdata_backup_async.sh:152` 有一条 pre-existing 代码行含 `/Users/linhuichen` 字面量(sed 替换用,非默认值写法),不触发 ratchet R1/R3,登记备查。
