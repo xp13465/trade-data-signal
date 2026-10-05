@@ -27,8 +27,10 @@
 #   schedule_monitor 漏跑检查直读, 同 s06_snapshot 先例)
 set -u
 
-export REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-export GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
+export REPO
+export GIT_REPO
 PY="${PY:-$REPO/.venv/bin/python}"
 LOGDIR=$REPO/data/logs
 LOG="$LOGDIR/nextday_plan_launchd.log"

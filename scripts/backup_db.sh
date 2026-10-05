@@ -15,8 +15,8 @@
 # 退出码：0=全部成功；1=部分/全部失败（仍继续跑完所有 DB，最后报）。
 set -u
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 始终在 trade 仓库(trade-data 不 git init)
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 export REPO GIT_REPO   # #75 显式导出,确保 upload_r2.py 子进程继承 REPO(防缺省回退读 trade 旧库)
 PY="$REPO/.venv/bin/python"
 DBDIR="$REPO/data"

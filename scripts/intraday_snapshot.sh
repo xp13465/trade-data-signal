@@ -24,8 +24,8 @@ if [ "$(uname -s)" = "Darwin" ]; then
     caffeinate -i -w $$ >/dev/null 2>&1 &
 fi
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 始终在 trade 仓库(trade-data 不 git init)
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 export REPO   # 让子 bash -c (commit+push 段) 继承 REPO，trade-data 跑时采集路径用 trade-data
 export GIT_REPO   # 让子 bash -c 继承 GIT_REPO，git worktree 操作在 trade 仓库
 PY="$REPO/.venv/bin/python"

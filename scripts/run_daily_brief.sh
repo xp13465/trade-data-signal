@@ -7,8 +7,8 @@
 # 用法: bash scripts/run_daily_brief.sh [--extra-args...]  透传给 gen_daily_brief.py
 
 set -u
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 仓(trade):app/ 实际所在;云上单仓 GIT_REPO==REPO
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 CFG="$REPO/config/daily_brief.yaml"
 PY="$REPO/.venv/bin/python"
 
