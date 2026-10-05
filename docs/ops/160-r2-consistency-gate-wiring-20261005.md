@@ -130,14 +130,16 @@ time REPO=/home/ubuntu/code/trade-data GIT_REPO=/home/ubuntu/code/trade-data-sig
 |---|---|---|
 | (a) timer 排除周日 | 改 `trade-r2-consistency.timer` 的 OnCalendar 去掉周日 | 否决:只挡「周日这一档」,工作日链一旦延后同样假阳;**且需动云上生产 unit(§25 备份+恢复路径)** |
 | (b) 采样点后移到 01:30 | 挪到 update-all 结束之后 | 否决:周日链实测结束 00:49 且 `Persistent=true` 补跑会让时长浮动;01:30 后紧邻 02:00/02:17 深夜档,样本点仍不稳 |
-| **(c) preflight 跳过** | `update-all.service` 处于 active(= 晚链在跑)→ 跳过本次检查、写日志、rc=0、**不发告警** | **采用**:对**任意**晚链意外延后(不限周日档)免疫;零云上配置变更(不改 timer/unit ⇒ 无 §25 备份义务);跳过痕留日志可反查 |
+| **(c) preflight 跳过** | `update-all.service` 的 `ActiveState ∈ {active, activating}`(= 晚链在跑;oneshot 运行中即 activating)→ 跳过本次检查、写日志、rc=0、**不发告警** | **采用**:对**任意**晚链意外延后(不限周日档)免疫;零云上配置变更(不改 timer/unit ⇒ 无 §25 备份义务);跳过痕留日志可反查 |
 
-**实现**:`scripts/check_r2_consistency.sh` 在 `开始` 行之后、正式比对之前加 `update_all_running()` 判据:①systemd 环境走 `systemctl is-active --quiet trade-update-all.service`(云上服务名已实测确认)②非 systemd(mac 开发)回退 `pgrep -f update_all.sh`③自测用 `R2_CONSISTENCY_PREFLIGHT_STUB=active|inactive` 强制分支(生产不设)。跳过时**刻意写标准结束行** `=== ... 结束 <ts> 退出码=0 ===` 以匹配 `gen_schedule_stats` 的 `END_RE`,让跳过被记为一次正常的 exit-0 运行(**不产生漏跑告警**)。
+**实现**:`scripts/check_r2_consistency.sh` 在 `开始` 行之后、正式比对之前加 `update_all_running()` 判据:①systemd 环境走 `systemctl show -p ActiveState --value trade-update-all.service`,值 ∈ **{active, activating}** 判为在跑(云上服务名已实测确认)②非 systemd(mac 开发)回退 `pgrep -f update_all.sh`③自测用 `R2_CONSISTENCY_PREFLIGHT_STUB=active|inactive` 强制分支(生产不设)。跳过时**刻意写标准结束行** `=== ... 结束 <ts> 退出码=0 ===` 以匹配 `gen_schedule_stats` 的 `END_RE`,让跳过被记为一次正常的 exit-0 运行(**不产生漏跑告警**)。
 
-**判据两态实测(云上只读,未 start/stop update-all)**:
-- `systemctl is-active --quiet systemd-journald.service` → **rc=0**(active 语义)
-- `systemctl is-active --quiet trade-update-all.service` → **rc=3**(inactive 语义;`is-active` 明文 `inactive`)
-⇒ `&& return 0` / `return 1` 两条分支都被真实 systemctl 语义证明;本地测试另覆盖 stub 两态与 pgrep 回退路径。
+> ⚠️ **本段曾用 `is-active --quiet` 判在跑 —— 那是错的(见 §9.9 reviewer P0)**:update-all 是 `Type=oneshot`,运行中 ActiveState=**activating**,而 `is-active` 的 good state 只有 {active, reloading},对运行中的 oneshot 返回 **rc=3(与 inactive 同码)** ⇒ 旧判据在生产恒不成立。已改判 `ActiveState` 值(含 activating)。
+
+**判据实测(云上只读 + 云上活体,未 start/stop update-all)**:
+- 云上活体(§9.9):`systemd-run --no-block` 起瞬态 oneshot,窗口内 `ActiveState=activating` 且 `is-active --quiet` **rc=3** —— 新判据吃到 activating、旧判据漏判,两者对照成立。
+- 静态态:`trade-update-all.service` 当前 `ActiveState=inactive`(非运行窗)→ 判据返 1,照跑。
+- 本地注入态(真实判据代码路径,非 stub):activating→跳过 / active→跳过 / inactive→照跑 / 无 systemctl→pgrep 回退,四态全测(§9.9)。
 
 **代价(如实登记)**:跳过当次 ⇒ 该日一致性**未校验**,由次日 23:20 覆盖。可接受依据:一致性是**持续不变量**(10-02 事故正是持续 6 天无人知),漏一天采样不产生「已确认一致」的假信号;且 update-all 自身失败有独立告警链,**此跳过不吞任何故障**。
 
@@ -186,6 +188,7 @@ time REPO=/home/ubuntu/code/trade-data GIT_REPO=/home/ubuntu/code/trade-data-sig
 | **同类错误面(「preflight 缺失致过渡态假阳」)** | 全部 40 个 `trade-*.timer` 逐个核时点与当日 update-all 链关系:①**只有 r2-consistency 暴露在周日**(其余 checker 均 Mon..Fri 门控,周日不跑)②`check-data-gap` 22:35 有**交易日闸门**而周日非交易日 ⇒ 不跑 ⇒ 无风险 ③工作日 update-all 17:50 + 实测 112–139min → 约 19:42–20:09 结束,远早于 21:40/22:00/22:30/22:35 各采样点。**结论:同类错误面仅此一处,已修**。 |
 | **同族脚本扫描(`check_data_gap_alerts` 等)** | 发现同一不实注释模板「此处只管漏跑+进行中超时」**也存在于 `check_data_gap`(TimeoutStartSec=600)及其它不在 `DUR_THRESHOLDS` 的 TASKS 条目**上 ⇒ 属**同一类陈述失真**(非本次功能 bug)。依 **§23.7 冻结契约**「不顺手改老功能、发现历史遗留上报」**本次只报告不擅改**,交主控/用户拍板是否统一。 |
 | **残留观察项** | 工作日 update-all 若超 **约 230 分钟**(当前最大 139min,余量约 90min),其结束点将越过 21:40 采样点,届时 21:40 档 checker 会落入同样的半进程窗口。当前有 90min 余量,**登记为观察项**(非本次改动引入)。 |
+| **同模式扫描:「判 running」的写法(§9.9 新增)** | 全仓 grep `is-active`:①`self_heal.sh:103/111` 用 **stdout 文本**判(把 activating 当在跑)= **正例,无需改**②`schedule_monitor.sh:1108 launchctl_loaded()` 三态判定,`rc∈(0,3)`+stdout 文本,activating 归「loaded」——因其语义只是「unit 是否已加载」,**当前无 bug**,但那行注释「0=active(在跑)」对 oneshot 不成立 = **同类陷阱**(未来若有人拿它判「在跑」会重犯本 P0);依 §23.7 冻结契约**只报告不擅改**。 |
 
 ### 9.7 收口自验逐项
 
@@ -195,7 +198,7 @@ time REPO=/home/ubuntu/code/trade-data GIT_REPO=/home/ubuntu/code/trade-data-sig
 | 专项测试 | `pytest -q scripts/tests/test_160_r2_consistency_followup_20261005.py` → **23 passed** |
 | 全量回归 | `pytest -q scripts/tests/` → **188 passed, 1 skipped** |
 | 语法 | `py_compile`(notify/alert_denoise_rules/test)×3 OK;`bash -n`(check_r2_consistency / schedule_monitor)OK |
-| 判据两态 | 云上只读:journald `is-active --quiet` rc=**0** / update-all rc=**3**(见 §9.5);本地 stub 两态 + pgrep 回退均覆盖 |
+| 判据两态 | 云上**活体**(systemd-run 瞬态 oneshot):窗口内 `ActiveState=activating` + 旧判据 `is-active --quiet` rc=**3** ⇒ 旧写法漏判、新写法跳过(改前/改后对照,P0 订正见 §9.9);本地注入态四测(activating/active/inactive/无 systemctl)+ stub 两态全覆盖 |
 | 「真 FAIL 仍报 1 封、不报 2 封」两态实测 | `test_two_channels_one_alert_normal_state`(包装器已投递 → 汇总静默=1 封)、`test_two_channels_one_alert_wrapper_send_failed`(包装器投递失败 → 汇总照发=1 封);两态均**恰好 1 封** |
 | 同实例抑制不打折 | day1 落回 severe(1 封)/ day2 升 critical(1 封)/ 升级窗内 suppress(0 封)三态均实测 |
 | §14 不触发定时任务 | 本次纯代码+文档改动,**未启动/停止/daemon-reload 任何云上 unit**;云上故障排查仅只读 |
@@ -205,7 +208,7 @@ time REPO=/home/ubuntu/code/trade-data GIT_REPO=/home/ubuntu/code/trade-data-sig
 ### 9.8 收口复现命令
 
 ```
-# 专项(23 项)
+# 专项(27 项)
 /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_160_r2_consistency_followup_20261005.py
 # 全量回归
 /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/
@@ -214,7 +217,38 @@ python -m py_compile scripts/notify.py scripts/alert_denoise_rules.py && bash -n
 # preflight 判据两态(本地, 不碰云上)
 R2_CONSISTENCY_PREFLIGHT_STUB=active   bash scripts/check_r2_consistency.sh; echo rc=$?   # 期望 0 + 日志 [preflight-skip]
 R2_CONSISTENCY_PREFLIGHT_STUB=inactive bash scripts/check_r2_consistency.sh; echo rc=$?   # 期望走真实比对
-# 判据语义(云上只读)
-ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'systemctl is-active --quiet systemd-journald.service; echo $?; systemctl is-active --quiet trade-update-all.service; echo $?'
+# 判据语义(云上只读 + 活体; 不动生产 update-all)
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'systemctl show -p ActiveState --value trade-update-all.service'
+# 活体抓 oneshot 的 activating 窗(瞬态单元, 用完即清; 必须 --no-block 否则 systemd-run 会等它跑完):
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'sudo systemd-run --no-block --unit=probe-v5 --property=Type=oneshot /bin/sleep 10; for i in 1 2 3 4 5 6; do echo "$(systemctl show -p ActiveState --value probe-v5.service) old_rc=$(systemctl is-active --quiet probe-v5.service; echo $?)"; sleep 1; done; sudo systemctl reset-failed probe-v5.service'
 ```
-- **配套 commit**:见本分支 `feat/160-consistency-gate-20261005` 同名提交。
+- **配套 commit**:见本分支 `feat/160-consistency-gate-20261005` 同名提交(收口 `ceeed320e` + P0 订正 commit)。
+
+### 9.9 P0 订正:preflight 判据用了 `is-active`,对 oneshot 运行中恒不成立(reviewer 2026-10-05 FAIL)
+
+**现象(被 reviewer 抓到)**:§9.1 的判据写成 `systemctl is-active --quiet trade-update-all.service && return 0`。`is-active` 的"运行中"只在 **ActiveState=active** 成立;而 update-all 是 **`Type=oneshot` / `RemainAfterExit=no`**,运行中状态是 **activating**,`is-active` 对 activating **返回 rc=3(与 inactive 同码)** ⇒ `update_all_running()` **恒返 1** ⇒ 跳过分支在生产**是死代码**,2026-10-11 首个周日的假 SEVERE 会照常发生 —— **headline 目标未达成**。
+
+**我方自证(云上活体,非 mock、不碰生产 update-all)**:`sudo systemd-run --no-block --unit=probe-v5 --property=Type=oneshot /bin/sleep 10` 起瞬态单元,窗口内连采 6 次:
+
+| 采样 | `show -p ActiveState` | 旧判据 `is-active --quiet` rc |
+|---|---|---|
+| 1–6 | **activating** | **3** |
+
+⇒ 旧判据漏判、新判据(值 ∈ {active, activating})判为在跑,**改前/改后对照成立**。(踩坑记录:`systemd-run` **不加 `--no-block` 会等 oneshot 跑完才返回**,此时单元已 inactive,采不到窗口 —— 前两次探测就是这么"看起来正常"的。)
+
+**修法(改 `scripts/check_r2_consistency.sh:update_all_running()`)**:
+```sh
+_uas="$(systemctl show -p ActiveState --value trade-update-all.service 2>/dev/null)"
+case "$_uas" in active|activating) return 0 ;; esac
+return 1
+```
+(未采备选②「解析 `is-active` stdout 文本」:值比较无文本解析歧义,且 `show -p ... --value` 是 systemd 官方稳定取值面。)
+
+**静态复核(云上只读)**:`systemctl show -p Type -p RemainAfterExit -p ActiveState trade-update-all.service` → `Type=oneshot` / `RemainAfterExit=no` / `ActiveState=inactive`(非运行窗,故判据返 1 照跑,行为正确)。
+
+**自验(改后)**:
+- 本地**注入 activating 态**走**真实判据代码路径**(PATH 前置假 `systemctl`:`show` 回 `activating`、`is-active` 回 3)—— `[preflight-skip]` 出现、rc=0 ⇒ **改后 return 0 成立**;另三态 active→跳过 / inactive→照跑 / 无 systemctl→pgrep 回退全测;并留一条「旧判据在同一注入态下 rc=3」的改前对照测。
+- 专项 27 passed;全量 `scripts/tests/` 192 passed / 1 skipped。
+- **教训(写进本段防重犯)**:stub 注入只证明"分支能跑",**不证明判据本身对**;凡「判外部系统状态」的判据,必须在**真实运行态**抓一次(本次差点以 stub 通过收尾,正是上次漏掉 P0 的原因)。
+
+**同模式扫描(§23.2/§23.3)**:见 §9.6 末行(两处 `is-active` 用法:一处正例、一处当前无 bug 但有同类陷阱,均只报告不擅改)。

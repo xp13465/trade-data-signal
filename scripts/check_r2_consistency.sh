@@ -19,7 +19,8 @@
 #     **周日 23:20 采样点必落在 update-all 半进程中**(export 已写本地 / R2 异步上传
 #     r2_upload_async.sh 仍在写)⇒ local≠R2 过渡态 ⇒ 每周日 23:20 假 SEVERE。
 #   修法=通用 preflight(非改 timer 时点/非排除周日): systemd `trade-update-all.service`
-#     处于 active(= 晚链在跑)时跳过本次检查、写日志、rc=0、**不发告警**。
+#     的 **ActiveState ∈ {active, activating}**(= 晚链在跑;oneshot 运行中即 activating,
+#     详见 update_all_running() 内注释)时跳过本次检查、写日志、rc=0、**不发告警**。
 #     对**任意**晚链意外延后(不只周日档)免疫; 改 timer 时点只在"这一档"生效且需动云上
 #     生产 unit(§25 备份+恢复路径); 采样点后移则会撞 02:00/02:17 等深夜档。
 #   代价(如实登记): 跳过当次 → 该日一致性**未校验**, 由次日 23:20 覆盖(不变量是持续态,
@@ -78,7 +79,19 @@ update_all_running() {
     inactive) return 1 ;;
   esac
   if command -v systemctl >/dev/null 2>&1; then
-    systemctl is-active --quiet trade-update-all.service && return 0
+    # ⚠️ 判据必须看 ActiveState 值本身, **不能用 `is-active --quiet`**(2026-10-05 reviewer P0):
+    #   update-all 是 Type=oneshot(RemainAfterExit=no), 运行中 ActiveState=**activating**;
+    #   而 systemd v249 的 `is-active` 只把 {active, reloading} 当 good state, **不含
+    #   activating** → 对运行中的 oneshot 返回 EXIT_PROGRAM_NOT_RUNNING=**3**(与 inactive 同码)
+    #   ⇒ 用 is-active 判「在跑」在生产**恒不成立**(跳过分支=死代码, 周日假 SEVERE 照样发生)。
+    #   云上活体实测(2026-10-05, systemd-run 瞬态 oneshot): 窗口内 ActiveState=activating 且
+    #   is-active --quiet rc=3 持续成立 —— 两判据必须分开看。
+    #   故此处按 ActiveState 文本判, 显式含 activating。
+    local _uas
+    _uas="$(systemctl show -p ActiveState --value trade-update-all.service 2>/dev/null)"
+    case "$_uas" in
+      active|activating) return 0 ;;
+    esac
     return 1
   fi
   # 非 systemd 环境(本机 mac 开发, 定时任务全在云上): 回退进程名探测

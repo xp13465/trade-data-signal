@@ -158,11 +158,12 @@ def test_r7_wrapper_alerted_bad_last_run_false(tmp_path):
 # P1-1 preflight 两态(真实脚本周到, 用 R2_CONSISTENCY_PREFLIGHT_STUB 注入判据;
 # 云上是生产, 不真 start/stop update-all)
 # ============================================================
-def _run_wrapper(tmp_path, stub, py=None):
+def _run_wrapper(tmp_path, stub, py=None, path_prefix=None):
     """跑真实包装器: REPO 指向 tmp(日志落 tmp/data/logs), PY 换成 noop 桩(免网络/免真发告警)。
 
     py=None → 用 tmp 里现造的 `#!/bin/sh exit 0` 桩(忽略参数、恒 rc=0, 绝不触网络/notify)。
     stub: "active"/"inactive"/None(不设 → 走真实判据分支)。
+    path_prefix: 把某目录塞到 PATH 最前(用于注入假 systemctl, 走**真实判据代码路径**)。
     """
     if py is None:
         py = tmp_path / "noop_py.sh"
@@ -172,6 +173,8 @@ def _run_wrapper(tmp_path, stub, py=None):
     env = dict(os.environ)
     env["REPO"] = str(tmp_path)
     env["PY"] = py
+    if path_prefix is not None:
+        env["PATH"] = f"{path_prefix}{os.pathsep}{env.get('PATH', '')}"
     if stub is None:
         env.pop("R2_CONSISTENCY_PREFLIGHT_STUB", None)
     else:
@@ -179,6 +182,28 @@ def _run_wrapper(tmp_path, stub, py=None):
     p = subprocess.run(["bash", str(WRAPPER)], env=env, capture_output=True, text=True, timeout=120)
     log = tmp_path / "data" / "logs" / "r2_consistency_launchd.log"
     return p, (log.read_text(encoding="utf-8") if log.exists() else "")
+
+
+def _fake_systemctl(tmp_path, active_state="activating", is_active_rc=3):
+    """造一个假 systemctl 注入 PATH: `show -p ActiveState --value` 回 active_state,
+    `is-active --quiet` 回 is_active_rc(真实 systemd v249 对运行中 oneshot 就是 3)。
+
+    用途: 让真实脚本的**真实判据分支**(非 stub)在注入态下跑, 而非绕过判据。
+    """
+    d = tmp_path / "fakebin"
+    d.mkdir(exist_ok=True)
+    s = d / "systemctl"
+    s.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        f'  show) echo "{active_state}"; exit 0 ;;\n'
+        f'  is-active) exit {is_active_rc} ;;\n'
+        "esac\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    s.chmod(0o755)
+    return d
 
 
 def test_preflight_active_skips_no_alert(tmp_path):
@@ -201,8 +226,53 @@ def test_preflight_inactive_runs_check(tmp_path):
     assert "退出码=0" in log, log
 
 
+def test_preflight_real_judge_activating_skips(tmp_path):
+    """改后判据(真实代码路径, 注入 ActiveState=activating): 必须 **跳过**(=return 0)。
+
+    这是 P0 修复的核心证明: oneshot 运行中 ActiveState=activating, 判据须吃到它。
+    """
+    fake = _fake_systemctl(tmp_path, active_state="activating", is_active_rc=3)
+    p, log = _run_wrapper(tmp_path, None, path_prefix=str(fake))
+    assert p.returncode == 0, p.stderr
+    assert "[preflight-skip]" in log, "activating 态未被判为在跑(P0 未修)"
+
+
+def test_preflight_real_judge_active_skips(tmp_path):
+    """改后判据: ActiveState=active(长驻服务运行中)同样跳过。"""
+    fake = _fake_systemctl(tmp_path, active_state="active", is_active_rc=0)
+    p, log = _run_wrapper(tmp_path, None, path_prefix=str(fake))
+    assert p.returncode == 0, p.stderr
+    assert "[preflight-skip]" in log
+
+
+def test_preflight_old_judge_would_miss_activating(tmp_path):
+    """改前对照(证明 P0 机制非臆测): 同一注入态下旧判据 `is-active --quiet` rc=3
+    ⇒ 旧写法 `&& return 0` 恒不成立 ⇒ 跳过分支是死代码。"""
+    fake = _fake_systemctl(tmp_path, active_state="activating", is_active_rc=3)
+    env = dict(os.environ)
+    env["PATH"] = f"{fake}{os.pathsep}{env.get('PATH', '')}"
+    old = subprocess.run(
+        ["bash", "-c", "systemctl is-active --quiet trade-update-all.service; echo rc=$?"],
+        env=env, capture_output=True, text=True)
+    assert "rc=3" in old.stdout, old.stdout
+    # 旧写法语义复现: rc!=0 → 不 return 0 → 「不在跑」
+    newstyle = subprocess.run(
+        ["bash", "-c",
+         'st=$(systemctl show -p ActiveState --value trade-update-all.service); echo "st=$st"'],
+        env=env, capture_output=True, text=True)
+    assert "st=activating" in newstyle.stdout, newstyle.stdout
+
+
+def test_preflight_inactive_state_runs_check(tmp_path):
+    """改后判据: ActiveState=inactive → 不跳过, 照跑(不误跳)。"""
+    fake = _fake_systemctl(tmp_path, active_state="inactive", is_active_rc=3)
+    p, log = _run_wrapper(tmp_path, None, path_prefix=str(fake))
+    assert "[preflight-skip]" not in log
+    assert "退出码=0" in log
+
+
 def test_preflight_real_judge_branch_runs_on_non_systemd(tmp_path):
-    """不注入 stub 时(本机无 systemctl)→ 回退 pgrep 探测判定非在跑 → 照跑(不误跳)。"""
+    """不注入 stub / 无 systemctl(本机 mac)→ 回退 pgrep 探测判定非在跑 → 照跑(不误跳)。"""
     if shutil_which("systemctl"):
         pytest.skip("本机有 systemctl, 走真实 systemd 判据(云上两态证据见报告)")
     p, log = _run_wrapper(tmp_path, None)
