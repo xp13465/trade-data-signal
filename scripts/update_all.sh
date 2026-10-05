@@ -115,8 +115,10 @@ else
   # upload_r2 + deploy(trade 跑时 no-op); 随 export 前置, O1 闸门校验到的就是刚刷新的最新产物
   # 云上单仓(REPO==GIT_REPO)下自同步 no-op, 用 [ "$REPO" = "$GIT_REPO" ] || 跳过。
 # 2026-09-23 桶化(§9B): 产物目录 fund_nav/ -> nav_bucket/(256 桶), 上传 PUT 次数固定 256。
+  # #200(2026-10-06): 镜像 rsync 失败此前仅 echo 一声(不进聚合告警框架)⇒ 静默; 收 rc 纳入 SEVERE/ISSUE(同 fund_nav 导出失败族样板)。
   [ "$REPO" = "$GIT_REPO" ] || rsync -a --delete --checksum "$REPO/static-site/data/nav_bucket/" "$GIT_REPO/static-site/data/nav_bucket/" 2>>"$LOG" || \
-    echo "⚠ nav_bucket rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+    FUND_NAV_RSYNC_RC=$?
+  [ "${FUND_NAV_RSYNC_RC:-0}" -ne 0 ] && echo "⚠ nav_bucket rsync 同步失败, 可能发布不全" | tee -a "$LOG"
   # P1(2026-09-23) fund-nav 上传异步化: 产物已就绪(export 跑完 + rsync 已同步), 上传拆出主链等待区间。
   # 背景: fund-nav 上传(桶化前 26458 文件 ~578MB)曾拖 deploy 段 6225s(9-22, 1h43m, 占 56%)/9-18 超 7200s
   # 被 kill; 桶化后上传 PUT 次数固定 256 且仍走异步(双保险)。
@@ -195,8 +197,10 @@ else
 # export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 $GIT_REPO/static-site/data/ 供 upload_r2 + deploy
 # (deploy.sh rsync 在 pipeline 内跑, export 在 pipeline 后跑, 需单独同步; trade 跑时 no-op)
 # 云上单仓(REPO==GIT_REPO)下自同步 no-op, 用 [ "$REPO" = "$GIT_REPO" ] || 跳过。
+# #200(2026-10-06): 镜像 rsync 失败此前仅 echo 一声(不进聚合告警框架)⇒ 静默; 收 rc 纳入 SEVERE/ISSUE(同 etf_score_list 导出失败族样板)。
 [ "$REPO" = "$GIT_REPO" ] || rsync -a --checksum "$REPO/static-site/data/etf_score_list_"* "$GIT_REPO/static-site/data/" 2>>"$LOG" || \
-  echo "⚠ etf_score_list rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+  SCORE_LIST_RSYNC_RC=$?
+[ "${SCORE_LIST_RSYNC_RC:-0}" -ne 0 ] && echo "⚠ etf_score_list rsync 同步失败, 可能发布不全" | tee -a "$LOG"
 "$PY" "$REPO/scripts/upload_r2.py" upload-etf-score >> "$LOG" 2>&1 || \
   echo "⚠ upload-etf-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 fi
@@ -232,8 +236,10 @@ if [ "$FUND_SCORE_RC" -ne 0 ]; then
   # 防把截断/过期评分发布到 R2。显式告警入日志不静默(L44)。
   echo "【CRITICAL】export_fund_score 失败(退出码 $FUND_SCORE_RC), 硬闸门跳过 fund_score rsync+upload-fund-score, 防发布截断/过期评分(§22 一致性)" | tee -a "$LOG"
 else
+  # #200(2026-10-06): 镜像 rsync 失败此前仅 echo 一声(不进聚合告警框架)⇒ 静默; 收 rc 纳入 SEVERE/ISSUE(同 fund_score 导出失败族样板)。
   [ "$REPO" = "$GIT_REPO" ] || rsync -a --checksum "$REPO/static-site/data/fund_score"* "$GIT_REPO/static-site/data/" 2>>"$LOG" || \
-    echo "⚠ fund_score rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+    FUND_SCORE_RSYNC_RC=$?
+  [ "${FUND_SCORE_RSYNC_RC:-0}" -ne 0 ] && echo "⚠ fund_score rsync 同步失败, 可能发布不全" | tee -a "$LOG"
   "$PY" "$REPO/scripts/upload_r2.py" upload-fund-score >> "$LOG" 2>&1 || \
     echo "⚠ upload-fund-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 fi
@@ -301,6 +307,12 @@ SEVERE=0
 [ "${SCORE_LIST_RC:-0}" -ne 0 ] && SEVERE=1  # 样板抄齐 2026-08-27: 导出失败=买卖清单数据断供(R2 停旧版+跳过上传), 升级严重告警
 # (2026-09-16 #38) ETF_HIST_RC 随 export_etf_hist 挪到 20:07 etf_national_team_backfill.sh, 此处不再判 SEVERE
 [ "${FUND_SCORE_RC:-0}" -ne 0 ] && SEVERE=1  # 样板抄齐 2026-08-27: 导出失败=基金评分数据断供, 升级严重告警
+# #200(2026-10-06): 镜像 rsync 失败(REPO->GIT_REPO, deploy 从 GIT_REPO 读)= 发布不全, 此前仅 echo 不进聚合 ⇒ 静默;
+# 三条同族点(nav_bucket/etf_score_list/fund_score)统一收 rc 纳入。仅 REPO!=GIT_REPO 时跑(mac 开发/双仓),
+# 云上单仓 no-op → 变量不设 → ${..:-0}=0 不误报。
+[ "${FUND_NAV_RSYNC_RC:-0}" -ne 0 ] && SEVERE=1
+[ "${SCORE_LIST_RSYNC_RC:-0}" -ne 0 ] && SEVERE=1
+[ "${FUND_SCORE_RSYNC_RC:-0}" -ne 0 ] && SEVERE=1
 NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
 # 邮件 subject 统一模板 [类型]关键信息 MM-DD HH:MM（2026-07-20 改造）
 MM_DD_HM=$(date '+%m-%d %H:%M')
@@ -329,6 +341,10 @@ if [ "$SEVERE" -eq 1 ]; then
   [ "${FUND_NAV_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}fund_nav导出失败(rc=${FUND_NAV_RC:-0},产物未刷新) "
   [ "${SCORE_LIST_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}etf_score_list导出失败(rc=${SCORE_LIST_RC:-0},产物未刷新) "
   [ "${FUND_SCORE_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}fund_score导出失败(rc=${FUND_SCORE_RC:-0},产物未刷新) "
+  # #200(2026-10-06): 镜像 rsync 失败明细(与上方 SEVERE 判据一一对应; "镜像未同步"=可能发布不全)
+  [ "${FUND_NAV_RSYNC_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}nav_bucket镜像rsync失败(rc=${FUND_NAV_RSYNC_RC:-0},镜像未同步) "
+  [ "${SCORE_LIST_RSYNC_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}etf_score_list镜像rsync失败(rc=${SCORE_LIST_RSYNC_RC:-0},镜像未同步) "
+  [ "${FUND_SCORE_RSYNC_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}fund_score镜像rsync失败(rc=${FUND_SCORE_RSYNC_RC:-0},镜像未同步) "
   # 防噪 2026-08-27: 复用 notify.py 现成 --dedup-key/--dedup-window(状态文件 data/notify_dedup.json,
   # 发送成功才登记/suppress 静默退0/fail-open; 先例=intraday upload-index R2 失败去重)。
   # key=完整 ISSUE 问题串: 同一问题组合 30min 内只发一次(手动补跑/force 连跑窗口防轰炸),
