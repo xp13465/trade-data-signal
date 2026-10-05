@@ -8,13 +8,13 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新(2026-10-05 23:0x 周一·国庆休市)——收尾完成 + **节后第一批已开工(3 agent 在跑)**
+**最后更新(2026-10-05 23:4x 周一·国庆休市)——#198 收工合 main + #193 待审 + #196 在跑**
 
-> **在跑 agent:3(节后第一批,2026-10-05 23:0x 派出,全部 worktree 隔离)**
-> - **(a) #193** R2 通道覆盖缺口(offshore_fund/fund_score 无对账通道 + fund_score 失败只 echo)→ implementer,分支 `feat/193-r2-channel-coverage-20261005`,进度 `/tmp/agent-progress-193.md`
+> **在跑 agent:2(#198 已收工)**
+> - **(a) #193** R2 通道覆盖缺口(offshore_fund/fund_score 无对账通道 + fund_score 失败只 echo)→ **实施完成**(`feat/193-r2-channel-coverage-20261005` @ `0072c42a5` 主体 + `aa4c482b0` 返修,已 push origin),**已派独立 reviewer 审中**,进度 `/tmp/agent-progress-193rev.md`;⚠️ 该分支**带了自己的 `docs/pending-features-index.md` 改动**(worktree 内改的,主树未见)⇒ 合并时索引会有冲突,**冲突时以 main 侧为准 + 主控手改 #193 状态列**
 > - **(b) #196** 「巡检/链路自身死亡」可见性统一(F1 族:failed-unit 无消费方 + patrol 自身不在监控 + 连续 3 天升 critical 已拍板 + 窄窗口二选一)→ implementer,分支 `feat/196-patrol-visibility-20261005`,进度 `/tmp/agent-progress-196.md`
-> - **(c) #198** `claude-backup/`·`mac-backups/` 新桶 0 对象归属判定(只读查证)→ researcher,分支 `feat/198-claude-backup-route-20261005`,进度 `/tmp/agent-progress-198.md`
-> - **巡检兜底 cron `38545b67`**(15min 档 `3,18,33,48`,零输出门控,**三 agent 全收工才自删**)在位。
+> - **(c) ✅ #198 已收工**:`claude-backup/`·`mac-backups/` 新桶 0 对象归属判定(只读查证)→ researcher 完成,**结论**=`claude-backup`/`pre-upload`=②已切新桶 / `mac-backups`=③一次性归档不适用切桶;**报告合 main `a6c17270a`**,索引销账 `4508043ea`(另 #186 依据补正 + 新登记 **#199**),worktree/分支已回收。
+> - **巡检兜底 cron `8cdd8fc9`**(15min 档 `3,18,33,48`,零输出门控,**#193rev + #196 全收工才自删**)在位(旧 `38545b67` 已随 198 收工删除)。
 > - **禁并派说明**:#195 / #187 与上述有文件重叠(#187 动 `check_r2_consistency.sh`;#195 横扫 57 个 shell)⇒ **顺序做、不并派**,免 merge 打架;**#187① 受 2026-10-11 硬闸**(周日假 FAIL 首暴露)。
 > - **收工后续**:每个完成 → 按 §15 派 reviewer(B/C 级,PASS 才 push main)→ 主控 `scripts/main-merge.sh`。
 > - ⚠️ **若 mac 关机**:在跑 agent 随会话停(worktree 与 feat 分支留在磁盘,可续跑);**续跑同一任务必须延续原分支**(派单前先 `git worktree list | grep <分支>` 查占用,占死则先 `git worktree remove --force`),见 §0.2 + memory `resume-same-task-reuse-branch`。
