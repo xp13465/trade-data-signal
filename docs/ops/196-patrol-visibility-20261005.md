@@ -296,3 +296,44 @@ $PY -m pytest -q scripts/tests/test_196_patrol_visibility_20261005.py::test_cond
 **修复链/演进说明**: 本报告为首次落档,无「旧假数」需保留。若后续发现
 `WATCHMAN_UNITS` 边界或解析格式需调整,请在本节追加一行「YYYY-MM-DD 修订 + 原因 + 影响的机检」,
 不要覆盖上文(可反查)。
+
+---
+
+## 返修记录(FAIL 单点) —— 2026-10-06
+
+**病根(一句话)**: `scripts/tests/test_196_patrol_visibility_20261005.py::test_cfu_noncloud_rc3`
+**不带注入样本却硬断言 `rc == 3`**(非云上跳过码);凡环境里存在 `systemctl`(CI ubuntu runner /
+任何带 systemd 的机器),`check_failed_units.py` L180-182 的「无 systemctl」守卫不触发 → 走真实
+systemd 分支 → `rc != 3` → 该例必败。**CI 侧** `.github/workflows/ci.yml` 闸门⑧ 跑全量 ⇒ 合入
+main 必红。
+
+**改动(2 行,照 `test_160_r2_consistency_followup_20261005.py:275-277/283-285` 同款 `shutil_which` 写法)**:
+在 `test_cfu_noncloud_rc3` 进入处加环境守卫 —— 本机有 `systemctl` → `pytest.skip`(走真实 systemd
+判据,非云上 rc=3 由云上证据覆盖);**无 `systemctl` 环境仍断言 `rc == 3`**,语义不变。新增模块级
+helper `def shutil_which(name): from shutil import which; return which(name)`(与 #160 逐字同款)。
+
+**两环境复跑数字(单文件 `import` 命令见文首)**:
+
+| 环境 | 修复前 | 修复后 |
+|---|---|---|
+| 有 `systemctl`(`PATH="/tmp/fake_systemctl_bin:$PATH"`) | **1 failed, 38 passed** | **0 failed, 38 passed, 1 skipped** |
+| 无 `systemctl`(本机 mac 默认 PATH) | 39 passed | **39 passed**(该例正常跑,断言 rc==3) |
+
+> 注: 派单描述里 ①② 两环境的「39 passed / skipped」标注与实际相反(有 systemctl 才 skip);以
+> 上表实际数字为准,两环境均 **0 failed**。
+
+**全量回归 `pytest -q scripts/tests/`**:
+
+| 环境 | 修复前(基线) | 修复后 |
+|---|---|---|
+| 本机 mac 默认 PATH | 231 passed, 1 skipped | **231 passed, 1 skipped**(该例在无 systemctl 下本就 pass,数字持平) |
+| 有 `systemctl`(CI 态) | 229 passed, 2 skipped, **1 failed** | **229 passed, 3 skipped, 0 failed**(本修复新增 1 skip,passed 未减少) |
+
+> mac 上那 1 个既有 skip 来自 `test_monitor_resource_inprogress_20261005.py:183`(macOS APFS 口径),与本改动无关。
+
+**零真实外发(§18 L48)**: 本轮仅跑 pytest;`test_notify_r4_dedup_20261001.py` 经 autouse fixture
+打桩 `notify.send_tiered`(L81-88),`test_196` 全程 dry-run 注入样本,`check_failed_units.py` 默认 dry
+不发通知 —— **本次自测未产生任何真实邮件/飞书/告警**。
+
+**未改动(另立小任务,本任务不动)**: P3-a(`PATROL_DRIFT_ESCALATE_DAYS` 定义未引用)、
+P3-b(`_cfu_key` 恢复文案 task 名语义偏差)—— reviewer 已建议另立,遵派单不顺手改。

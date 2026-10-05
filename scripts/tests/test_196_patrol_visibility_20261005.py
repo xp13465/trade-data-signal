@@ -283,8 +283,15 @@ def test_cfu_watchman_script_present_rc0(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
 
 
+def shutil_which(name):
+    from shutil import which
+    return which(name)
+
+
 def test_cfu_noncloud_rc3(tmp_path):
     """非云上(无 systemctl 且无注入)→ rc=3, 绝不把「本机没有 systemctl」误判成云上 unit 全挂。"""
+    if shutil_which("systemctl"):
+        pytest.skip("本机有 systemctl, 走真实 systemd 判据(云上 rc=3 证据见报告)")
     r = subprocess.run([sys.executable, str(CFU), "--repo", str(tmp_path)],
                        capture_output=True, text=True, timeout=60, check=False)
     assert r.returncode == 3 and "[skip]" in r.stdout
