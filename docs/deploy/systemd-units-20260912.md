@@ -14,6 +14,8 @@
 | 本机 Claude 开发环境专属(不迁) | 5 | 见 §5(thinking-proxy / sensenova-healthcheck / agent-inbox-watcher / token-cache-stats / com.claude.self-backup) |
 | plist 存在但未加载(不迁) | 3 | 见 §6(codex-watcher / monitor-72h / sentiment) |
 
+> **计数的两种口径(2026-10-05 补注,防误读)**:上表「37」= 2026-09-12 **launchd→systemd 迁移批基线**(有 plist 源的周期任务),**不是**云上 `trade-*.timer` 实时总数。迁移后新增的无 launchd 源计时器(如 §2.37 `trade-r2-consistency` #160 等)另计。截至 2026-10-05 云上实测 `ls /etc/systemd/system/trade-*.timer | wc -l` = **40**(本文件 §2 共给出 40 个 `.timer` 单元块)。
+
 ## 1. 统一约定
 
 ### 1.1 服务器路径(分离架构,复刻本机双仓,2026-09-13 云上单仓改回)
@@ -1559,6 +1561,48 @@ TimeoutStartSec=7200
 | monitor-72h | com.trade.monitor-72h(LaunchAgents 残留) | 同上 |
 | sentiment | com.trade.sentiment(launchd/ 目录) | 同上,历史遗留(旧 scheduler 入口) |
 
+### 2.37 r2-consistency(每日 23:20,#160 §22 三站一致性巡检)
+> 追加于 2026-10-05:本任务是 `check_r2_consistency.sh`(包装既有 `check_r2_consistency.py`,D5 P0-1 / #160)的**调度器挂载**,非迁移批新增(无 launchd 源)。此前该审计器全仓无调度点(§22 HTTP 层一致性零自动校验)。判定=local / R2直链(ssd) / CF r2-proxy(ss/r2) / 主站同源(ss/data) 四源指纹比对 9 个核心产物;rc!=0 → notify --severe --dedup-key r2_consistency_fail --dedup-window 21600。**仅告警不阻断**(不在任何推送链上)。
+> - script:`check_r2_consistency.sh` → `check_r2_consistency.py`(**需主控 merge 后在云上 git pull 才存在**)
+> - 时点依据(§14):23:20 在 23:00 安全窗口内、当日晚链终态后(overfit 21:40 / public-fund-full 22:00 / nextday-plan 22:30 / check-data-gap 22:35);23 点档无其他 trade timer,已避开 hdszf cron(:07/:37)
+> - 每日跑**不限交易日**:「各源一致」是不变量,周末被外部覆盖同样要抓 → timer `*-*-*`(非 Mon..Fri)
+> - **顺序坑根治**:service 含 `ConditionPathExists=`——脚本未 merge 到位时 timer 触发 service 直接 skip(不算 failed);到位后自动生效(同 heartbeat 先例)
+> - **无 StandardOutput append**:本脚本自己写同名 `r2_consistency_launchd.log`,按 §1.4 例外条款(2026-09-15 root 属主冲突根治)刻意不设 append,日志走 journal
+
+`trade-r2-consistency.timer`:
+```ini
+[Unit]
+Description=Trade r2-consistency daily 23:20 (#160 §22 三站一致性)
+
+[Timer]
+OnCalendar=*-*-* 23:20:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-r2-consistency.service`:
+```ini
+[Unit]
+Description=Trade r2-consistency (#160 §22 三站一致性巡检)
+ConditionPathExists=/home/ubuntu/code/trade-data/scripts/check_r2_consistency.sh
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/check_r2_consistency.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+# 外层 960 > 内层 run_to 900(留梯度,防 systemd SIGKILL 打断 wrapper 的「结束」日志行
+#   → schedule_monitor 漏跑检查误判 runaway;memory watchdog-inner-timeout-no-gradient)
+TimeoutStartSec=960
+```
+
 ## 7. 落地注意事项(stage4 用)
 
 1. **只生成配置,不 enable/start**:本文件是配置落档;`systemctl daemon-reload && systemctl enable --now trade-<name>.timer` 由阶段4 执行。
@@ -1569,4 +1613,4 @@ TimeoutStartSec=7200
 6. **macOS 专属点适配**(inventory §5,阶段4 改脚本,非本文件范围):pmset/caffeinate 删段、timeout→gtimeout 降级链、self-heal/schedule-monitor 的 launchctl 检查、/opt/homebrew/bin PATH。本文件只生成 systemd 配置,不动任何 .sh。
 7. **单仓化**:服务器 `/home/ubuntu/code/trade-data` 单仓;双份 DB/backups 问题自然消失(REPO=GIT_REPO=/home/ubuntu/code/trade-data)。
 8. **21:00 并发提示(§14 生产稳定性)**:21:00 现有 3 个 timer 并发——backfill-evening(backfill_metrics.sh)、futures-backfill(futures_backfill.sh)、backup-db(backup_db.sh)。backup_db 用 sqlite3 `.backup()` 在线热备(WAL 一致快照,不锁库,inventory §4.1.1),与另两者不冲突;本机 launchd 原本就有 backfill-evening@21:00 + futures-backfill@21:00 并发,新加 backup_db@21:00 是 inventory §4.3 指定的独立时点(update-all 17:50 完成后 DB 最新)。若 stage4 实测发现 DB 写竞争,可把 backup-db 顺延到 21:05。
-9. **append 例外勿回填(2026-09-15 根治)**:trade-turnover-backfill / trade-nextday-plan / trade-nextday-gap-check / trade-overfit-monitor / trade-s06-snapshot 这 5 个 shell 型 service **刻意无** `StandardOutput=/StandardError=` append(脚本自己写同名 `*_launchd.log`)。落地阶段若有人"补齐一致性"给这 5 个补回 append,会复发 root 属主冲突(见 §1.4 例外注)。**trade-self-heal / trade-schedule-monitor 是例外中的例外**:这 2 个是 python heredoc 型,`MONITOR_LOG` 只定义从未 open 写入,日志一直靠 systemd append 产生,所以**保留 append 不去**——落地阶段勿去掉,否则日志停更、schedule_monitor 告警把 MONITOR_LOG 当路径写进 latest.md 指向陈旧日志。
+9. **append 例外勿回填(2026-09-15 根治)**:trade-turnover-backfill / trade-nextday-plan / trade-nextday-gap-check / trade-overfit-monitor / trade-s06-snapshot / **trade-r2-consistency(2026-10-05 追加,#160)** 这 6 个 shell 型 service **刻意无** `StandardOutput=/StandardError=` append(脚本自己写同名 `*_launchd.log`)。落地阶段若有人"补齐一致性"给这几个补回 append,会复发 root 属主冲突(见 §1.4 例外注)。**trade-self-heal / trade-schedule-monitor 是例外中的例外**:这 2 个是 python heredoc 型,`MONITOR_LOG` 只定义从未 open 写入,日志一直靠 systemd append 产生,所以**保留 append 不去**——落地阶段勿去掉,否则日志停更、schedule_monitor 告警把 MONITOR_LOG 当路径写进 latest.md 指向陈旧日志。

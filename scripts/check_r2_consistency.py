@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
-"""check_r2_consistency.py - R2 产物三版本一致性审计（P2-2）
+"""check_r2_consistency.py - R2 产物多源一致性审计（P2-2）
 
-比对 local static-site/data/ vs R2(ssd.fx8.store) vs CF r2 proxy(ss.fx8.store/r2)
-关键数据产物的 track_score/top1 字段，防 159335 类三版本不一致事故（§22 数据一致性铁律）。
+比对 local static-site/data/ 与远端各到达路径（R2 直链 / CF r2-proxy / 主站同源）
+关键数据产物指纹，防 159335 类多版本不一致事故（§22 数据一致性铁律）。
 
-非 deploy 前置（需网络），作定期监控任务跑。
+非 deploy 前置（需网络），作定期监控任务跑（2026-10-05 #160 起由云上
+trade-r2-consistency.timer 每日拉取，经 scripts/check_r2_consistency.sh 包装）。
 
 用法:
   python scripts/check_r2_consistency.py              # 全量比对
   python scripts/check_r2_consistency.py --quiet      # 仅告警输出
 
-退出码: 0=三版本一致, 1=有不一致或网络错误
+退出码: 0=各源一致, 1=有不一致或网络错误
 """
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import os
 import ssl
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -37,29 +40,53 @@ OVERFIT_LOCAL_TREES = [
     "/Users/linhuichen/code/trade-data",
     "/Users/linhuichen/code/trade",
 ]
-TIMEOUT = 12
+TIMEOUT = 25
+# 传输用 Accept-Encoding: gzip(2026-10-05 #160 接线实测):云上(阿里云境内)→ CF 边缘
+# 未压缩下载极慢(concepts 32.3MB 需 95s;identity 下行 ~0.34MB/s),全量四源裸跑 >12min。
+# gzip 后同文件 7.6MB / 7s(CF 对 application/json 自动压缩),全量降到 ~1-2min。
+# TIMEOUT=25:境内首包 TTFB 抖动可达 12-14s(实测),socket 级超时留余量。
 # track_score 跨源容差（同 build 产物应完全一致，留 0.01 防 JSON float repr 误差）
 FLOAT_TOLERANCE = 0.01
 
-# 受检文件: (显示名, 本地相对路径, R2 URL, CF r2-proxy URL)
+# 受检文件: (显示名, 本地相对路径, [(源标签, URL), ...])
+# 源标签 = 三站展示面的三条到达路径(§22「用户在 N 个展示位看到的数据必须统一」):
+#   R2   = R2 直链      ssd.fx8.store/data/…      (origin, R2 自定义域, 全站数据源)
+#   CF   = CF r2-proxy  ss.fx8.store/r2/data/…    (前端 _R2_DATA_BASE, 备站+主站回退读法)
+#   MAIN = 主站同源     ss.fx8.store/data/…       (CF Workers rewrite→R2, 主站用户实际 fetch
+#          的 ./data/ 面; 2026-10-05 #160 补——此前只查 R2 直链+/r2/ 代理, 主站 rewrite 路径零校验)
+# 备站 sss.sugas.site(gh-pages)/ s.sugas.site 不直接服务 /data/(2026-10-05 实测均 404),
+#   前端走 _R2_DATA_BASE 与主站回退面取数 → 无需独立腿, 由 CF/MAIN 两腿覆盖;
+#   主站 rewrite 断链(历史 deploy.sh:168「R2 已上线但 CF 没拿到」类)由 MAIN 腿抓。
 FILES = [
     (
         "overview",
         "overview.json",
-        "https://ssd.fx8.store/data/overview.json",
-        "https://ss.fx8.store/r2/data/overview.json",
+        [
+            ("R2", "https://ssd.fx8.store/data/overview.json"),
+            ("CF", "https://ss.fx8.store/r2/data/overview.json"),
+            ("MAIN", "https://ss.fx8.store/data/overview.json"),
+        ],
     ),
     (
         "board_etf_map",
         "board_etf_map.json",
-        "https://ssd.fx8.store/data/board_etf_map.json",
-        "https://ss.fx8.store/r2/data/board_etf_map.json",
+        [
+            ("R2", "https://ssd.fx8.store/data/board_etf_map.json"),
+            ("CF", "https://ss.fx8.store/r2/data/board_etf_map.json"),
+            ("MAIN", "https://ss.fx8.store/data/board_etf_map.json"),
+        ],
     ),
     (
         "concepts",
         "industry-all-concepts.json",
-        "https://ssd.fx8.store/industry/industry-all-concepts.json",
-        "https://ss.fx8.store/r2/industry/industry-all-concepts.json",
+        # 只有 R2 直链 + CF /r2/ 两腿: 前端 concepts 读 ss.fx8.store/r2/industry/
+        #   (app.js:25457 fetchJSON(_R2_DATA_BASE 系) 同一路径), worker 无 /industry/ rewrite
+        #   (headers.js 只截 /data/* 与 /r2/*), 主站 /industry/ 面真实 404 → 无 MAIN 腿。
+        #   2026-10-05 云上实测: 误加 MAIN 腿会报 concepts 404 假阳,已按实测路由移除。
+        [
+            ("R2", "https://ssd.fx8.store/industry/industry-all-concepts.json"),
+            ("CF", "https://ss.fx8.store/r2/industry/industry-all-concepts.json"),
+        ],
     ),
     # overfit_monitor 主+ext(2026-08-25 监控盲区收尾批补入): 首页 AI 监控卡盘后核心产物,
     # 2026-08-24 B拆分起走 R2 /data/ 前缀(upload_r2 _OVERFIT_FORCE), 此前审计不查
@@ -67,14 +94,20 @@ FILES = [
     (
         "overfit_monitor",
         "overfit_monitor.json",
-        "https://ssd.fx8.store/data/overfit_monitor.json",
-        "https://ss.fx8.store/r2/data/overfit_monitor.json",
+        [
+            ("R2", "https://ssd.fx8.store/data/overfit_monitor.json"),
+            ("CF", "https://ss.fx8.store/r2/data/overfit_monitor.json"),
+            ("MAIN", "https://ss.fx8.store/data/overfit_monitor.json"),
+        ],
     ),
     (
         "overfit_monitor_ext",
         "overfit_monitor_ext.json",
-        "https://ssd.fx8.store/data/overfit_monitor_ext.json",
-        "https://ss.fx8.store/r2/data/overfit_monitor_ext.json",
+        [
+            ("R2", "https://ssd.fx8.store/data/overfit_monitor_ext.json"),
+            ("CF", "https://ss.fx8.store/r2/data/overfit_monitor_ext.json"),
+            ("MAIN", "https://ss.fx8.store/data/overfit_monitor_ext.json"),
+        ],
     ),
     # 次日买入计划(PRD 阶段一, 2026-09-10 F1 补入): 盘后 nextday_plan_generator.py →
     # upload_r2 upload-data-files 上传 /data/ 前缀。指纹=date+|empty/plan 首条 etf_code+buy_date
@@ -82,8 +115,11 @@ FILES = [
     (
         "nextday_plan",
         "nextday_plan.json",
-        "https://ssd.fx8.store/data/nextday_plan.json",
-        "https://ss.fx8.store/r2/data/nextday_plan.json",
+        [
+            ("R2", "https://ssd.fx8.store/data/nextday_plan.json"),
+            ("CF", "https://ss.fx8.store/r2/data/nextday_plan.json"),
+            ("MAIN", "https://ss.fx8.store/data/nextday_plan.json"),
+        ],
     ),
     # auto_trade_steps(PRD 阶段一执行链, 2026-09-11 #98 F1b 补入): 与 nextday_plan 同批生成,
     # 仅在 steps 有变更时随 upload-data-files 上传 /data/ 前缀。指纹=schema_version+steps 条数+
@@ -91,8 +127,11 @@ FILES = [
     (
         "auto_trade_steps",
         "auto_trade_steps.json",
-        "https://ssd.fx8.store/data/auto_trade_steps.json",
-        "https://ss.fx8.store/r2/data/auto_trade_steps.json",
+        [
+            ("R2", "https://ssd.fx8.store/data/auto_trade_steps.json"),
+            ("CF", "https://ss.fx8.store/r2/data/auto_trade_steps.json"),
+            ("MAIN", "https://ss.fx8.store/data/auto_trade_steps.json"),
+        ],
     ),
     # signal_kelly_day_snapshot(首页历史信号冻结快照, 2026-09-23 信号漂移根治 commit 9a546256f 新增,
     # P2-F2 reviewer 补入): 与 nextday_plan 同批由 nextday_plan_generator.py 生成,
@@ -102,8 +141,11 @@ FILES = [
     (
         "signal_kelly_day_snapshot",
         "signal_kelly_day_snapshot.json",
-        "https://ssd.fx8.store/data/signal_kelly_day_snapshot.json",
-        "https://ss.fx8.store/r2/data/signal_kelly_day_snapshot.json",
+        [
+            ("R2", "https://ssd.fx8.store/data/signal_kelly_day_snapshot.json"),
+            ("CF", "https://ss.fx8.store/r2/data/signal_kelly_day_snapshot.json"),
+            ("MAIN", "https://ss.fx8.store/data/signal_kelly_day_snapshot.json"),
+        ],
     ),
     # accum_nav_map 全量(凯利 G/H/I 强平日真实净值, 2026-09-17 懒加载保留全量作回测源+对账对象+
     # 回退兜底): 走 data-large(data/ 前缀)。三版本一致性指纹=n_codes+首/中/末 code 抽样
@@ -111,20 +153,39 @@ FILES = [
     (
         "accum_nav_map",
         "accum_nav_map.json",
-        "https://ssd.fx8.store/data/accum_nav_map.json",
-        "https://ss.fx8.store/r2/data/accum_nav_map.json",
+        [
+            ("R2", "https://ssd.fx8.store/data/accum_nav_map.json"),
+            ("CF", "https://ss.fx8.store/r2/data/accum_nav_map.json"),
+            ("MAIN", "https://ss.fx8.store/data/accum_nav_map.json"),
+        ],
     ),
 ]
 
 
 def _fetch_json(url: str) -> tuple[object, str | None]:
-    """HTTP 拉 JSON，返回 (data, error)。用 certifi 证书（macOS Python 自带 SSL 证书不全）。"""
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "check_r2_consistency/1.0"})
-        with urllib.request.urlopen(req, timeout=TIMEOUT, context=_SSL_CTX) as resp:
-            return json.loads(resp.read().decode("utf-8")), None
-    except Exception as e:
-        return None, f"{type(e).__name__}: {e}"
+    """HTTP 拉 JSON，返回 (data, error)。用 certifi 证书（macOS Python 自带 SSL 证书不全）。
+
+    transient 网络错误(CF 边缘冷回源偶发 >12s, 2026-10-05 实测 signal_kelly CF 腿
+    12s 超时一次)重试 2 次再判失败——网络抖动不升级为「拉取失败」假警(§123 降噪),
+    真故障(持续不可达)重试后仍报, 判别维度不丢。
+    """
+    last = ""
+    for attempt in range(2):
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "check_r2_consistency/1.0", "Accept-Encoding": "gzip"},
+            )
+            with urllib.request.urlopen(req, timeout=TIMEOUT, context=_SSL_CTX) as resp:
+                raw = resp.read()
+                if (resp.headers.get("Content-Encoding", "") or "").lower() == "gzip":
+                    raw = gzip.decompress(raw)
+                return json.loads(raw.decode("utf-8")), None
+        except Exception as e:
+            last = f"{type(e).__name__}: {e}"
+            if attempt == 0:
+                time.sleep(2)
+    return None, last
 
 
 def _load_local(path: Path) -> tuple[object, str | None]:
@@ -317,25 +378,23 @@ def _mismatches(fps: dict[str, dict[str, object]]) -> tuple[list[str], int]:
     return mismatches, len(all_keys)
 
 
-def check_file(kind: str, local_rel: str, r2_url: str, cf_url: str, quiet: bool) -> tuple[list[str], list[str]]:
-    """比对单文件多版本指纹，返回 (问题行, WARN 行)。
+def check_file(kind: str, local_rel: str, remotes: list[tuple[str, str]], quiet: bool) -> tuple[list[str], list[str]]:
+    """比对单文件多源指纹，返回 (问题行, WARN 行)。
 
+    remotes = [(源标签, URL), ...]（R2 直链 / CF r2-proxy / 主站同源，见 FILES 头注释）。
+    各远端网络错误单独报；local 候选与远端指纹逐项比对（_mismatches）。
     WARN(P1-b review 2026-08-25): 「primary 权威树滞后、后续候选与远端一致」判据仍 PASS
     (正常打点窗口合法滞后不误伤), 但该形态=2026-08-19 R2 被渠道树旧库覆盖的事故同款,
     唯一探针不可静默——独立 WARN 行+汇总段重复计数, 不进 problems 不阻断。
     """
     problems: list[str] = []
-    r2_data, r2err = _fetch_json(r2_url)
-    cf_data, cferr = _fetch_json(cf_url)
-    # 远端网络错误单独报
-    for sname, e in (("R2", r2err), ("CF", cferr)):
-        if e:
-            problems.append(f"[{kind}] {sname} 拉取失败: {e}")
-    remote_fps = {
-        sname: _fingerprint(d, kind)
-        for sname, d in (("R2", r2_data), ("CF", cf_data))
-        if d is not None
-    }
+    remote_fps: dict[str, dict[str, object]] = {}
+    for sname, url in remotes:
+        data, err = _fetch_json(url)
+        if err:
+            problems.append(f"[{kind}] {sname} 拉取失败: {err}")
+        elif data is not None:
+            remote_fps[sname] = _fingerprint(data, kind)
 
     loaded: list[tuple[Path, object, str | None]] = [
         (cand, *_load_local(cand)) for cand in _local_candidates(kind, local_rel)
@@ -361,12 +420,12 @@ def check_file(kind: str, local_rel: str, r2_url: str, cf_url: str, quiet: bool)
             break
         if lagged_primary is None:
             lagged_primary = cand
-            mismatch_report = f"[{kind}] 三版本 track_score/top1 不一致: {'; '.join(mm[:5])} (local={cand})"
+            mismatch_report = f"[{kind}] 各源 track_score/top1 不一致: {'; '.join(mm[:5])} (local={cand})"
 
     warnings: list[str] = []
     if passed is not None:
         n_keys, cand = passed
-        line = f"  ✓ {kind}: 三版本一致 ({n_keys} 项指纹)"
+        line = f"  ✓ {kind}: 各源一致 ({n_keys} 项指纹)"
         if lagged_primary is not None:
             line += f" [primary({lagged_primary}) 滞后, 以 {cand} 为 local 权威源]"
             warnings.append(
@@ -400,16 +459,17 @@ def main() -> int:
     args = parser.parse_args()
 
     if not args.quiet:
-        print("=== R2 产物三版本一致性审计 ===")
+        print("=== R2 产物多源一致性审计 ===")
         print(f"  local: {LOCAL_DATA}")
-        print(f"  R2:    ssd.fx8.store")
-        print(f"  CF:    ss.fx8.store/r2")
+        print(f"  R2:    ssd.fx8.store/data")
+        print(f"  CF:    ss.fx8.store/r2/data")
+        print(f"  MAIN:  ss.fx8.store/data")
         print()
 
     all_problems: list[str] = []
     all_warnings: list[str] = []
-    for kind, local_rel, r2_url, cf_url in FILES:
-        probs, warns = check_file(kind, local_rel, r2_url, cf_url, args.quiet)
+    for kind, local_rel, remotes in FILES:
+        probs, warns = check_file(kind, local_rel, remotes, args.quiet)
         all_problems.extend(probs)
         all_warnings.extend(warns)
 
@@ -429,7 +489,7 @@ def main() -> int:
         return 1
     if not args.quiet:
         print()
-        print("=== 三版本一致 ===")
+        print("=== 各源一致 ===")
     return 0
 
 
