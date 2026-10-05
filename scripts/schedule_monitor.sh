@@ -1114,6 +1114,13 @@ def launchctl_loaded(label):
     与 exit!=0 通道（schedule_stats.json last_exit）对同一现象双登记制造噪音。
     现改为 failed 单独成态：failed=unit 存在但运行失败，运行失败信息由
     exit!=0 通道登记，launchctl 通道只负责真未加载（unit 不存在/未注册）。
+
+    ⚠️ 陷阱提示(2026-10-05 #190，与 #160 P0 同族): 本函数判的是「unit 是否已加载」，
+    不是「是否在跑」。云上 trade-*.service 多为 Type=oneshot(RemainAfterExit=no)，
+    运行中 ActiveState=activating，`is-active` 输出 'activating' 且 **rc=3(与 inactive 同码)**。
+    切勿照本函数/注释推导「is-active rc=0 即在跑」——那是死判据；判「在跑」请照
+    self_heal.sh:111(解析 stdout，activating 视为 running)或 check_r2_consistency.sh:91
+    (`systemctl show -p ActiveState --value` ∈ {active, activating})。
     """
     if shutil.which("systemctl"):
         # Linux: systemd unit 名 = launchd label 把 com.trade. 前缀映射成 trade-（云上实际 unit 名）
@@ -1126,9 +1133,14 @@ def launchctl_loaded(label):
         except Exception:
             return "not_loaded"  # 调用失败保守视为未加载（告警）
         st = (r.stdout or "").strip()
-        # is-active 退出码: 0=active(在跑), 3=inactive(unit 已注册未跑), 4=unit 不存在;
-        # failed 也是 3 但 stdout='failed'。active/inactive 算 loaded, failed 算 failed(已加载但运行失败),
-        # 只有 unit 不存在(exit 4)才算 not_loaded。
+        # ⚠️ oneshot 陷阱(2026-10-05 #190，与 #160 P0 同源) —— 旧的「0=active(在跑)」注释是错的，勿照抄：
+        #   `is-active` 的「在跑」只对 Type=simple 等长驻服务成立(rc=0 ⇔ ActiveState=active)；
+        #   云上 trade-*.service 多为 Type=oneshot(RemainAfterExit=no)，**运行中 ActiveState=activating，
+        #   is-active 输出 'activating' 且 rc=3(与 inactive 同码)** —— 拿「rc==0 判在跑」在生产恒不成立(死判据)。
+        #   故本函数语义刻意定为「unit 是否已加载」(非「是否在跑」)：rc=0(active) / rc=3(inactive 或
+        #   activating 或 stdout='failed')均 = 已加载，仅 unit 不存在(rc=4) = not_loaded。
+        #   切勿改成 `is-active --quiet`(丢 stdout 会把 failed 吞成 loaded)。判「在跑」照 self_heal.sh:111
+        #   或 check_r2_consistency.sh:91(ActiveState ∈ {active, activating})，勿从本函数推导。
         if st == "failed":
             return "failed"
         return "loaded" if r.returncode in (0, 3) else "not_loaded"
