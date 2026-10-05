@@ -4,7 +4,11 @@
 # 复用 on_skip_notify.sh 模式, 文案专指 turnover(否则发"update_all 锁跳过"误导)。
 set -u
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+# ── REPO/GIT_REPO 单点解析(#195 批2):共享 lib(env 优先零改写 > $0 双布局推导 > fail-loud)──
+# 去掉写死的 mac 默认值(原靠 unit 的 Environment= 兜住,env 一丢即静默坏);原 export
+# 语义逐字节保留(python 子进程可见性与迁移前一致)。
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 PY="$REPO/.venv/bin/python"
 LOCKPATH="${1:-/tmp/trade_turnover.lock}"
 DRY_FLAG=""

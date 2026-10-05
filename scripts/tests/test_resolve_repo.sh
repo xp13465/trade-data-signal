@@ -13,6 +13,9 @@
 #   T5  空值 env(REPO="")视同缺失走推导(与 ${VAR:-} 同语义)
 #   T6  无副作用:调用者仅新增 REPO/GIT_REPO 两变量;且 lib assign-only(未 export 子 shell 不可见,
 #       调用者 export 后可见 = 原 export 语义可逐字节保留)
+#   T7  祖先 symlink(#208 修正):仓目录的**某级祖先**是 symlink(raw≠real 但 scripts 目录本身**非**
+#       symlink)→ 不得静默推出 REPO=仓目录(刻意给仓目录也造 .venv,复现「三重校验拦不住」的静默态);
+#       正确结果 = 物理姐妹 trade-data(REPO) / 物理仓(GIT_REPO)
 #
 # 用法: bash scripts/tests/test_resolve_repo.sh   (rc=0 = 全过)
 set -u
@@ -129,6 +132,26 @@ printf '%s\n' "$o6" | grep -q '^CHILD_BEFORE=UNSET$' \
   && ok "lib assign-only:未 export → 子 shell 不可见(不擅自改 py 侧 os.environ 可见性)" || bad "child_before=[$o6]"
 printf '%s\n' "$o6" | grep -q "^CHILD_AFTER=$D3/trade-data$" \
   && ok "调用者 export 后子 shell 可见(原 export 脚本语义可逐字节保留)" || bad "child_after=[$o6]"
+
+echo "== T7 祖先 symlink(仓目录的某级祖先是 symlink)→ 不得静默推出仓目录 =="
+# 布局:$D7/link -> $D7/real(祖先级 symlink);仓 = $D7/real/trade,姐妹 = $D7/real/trade-data。
+# 关键:仓目录**也**造 .venv —— 本机 mac 实测 <trade>/.venv 与 <trade-data>/.venv 都存在,故
+#       「误推成仓目录」能通过 -d/-x/-d 三重校验 ⇒ 旧判据(raw≠real 即 case A)静默出错。
+D7="$TMP/t7"
+mkdir -p "$D7/real/trade/scripts" "$D7/real/trade-data"
+mk_venv "$D7/real/trade"          # 仓目录也有 .venv(复现静默态的关键)
+mk_venv "$D7/real/trade-data"
+ln -s "$D7/real" "$D7/link"       # 祖先级 symlink(scripts 目录本身仍是实体目录)
+o7="$(run_resolve "$D7/link/trade/scripts/x.sh")"
+r7_repo="$(printf '%s\n' "$o7" | sed -n 1p)"
+r7_git="$(printf '%s\n' "$o7" | sed -n 2p)"
+# 物理归一后比对(推导可能给逻辑/物理路径,按物理身份判等)
+p7_repo="$([ -n "$r7_repo" ] && cd -- "$r7_repo" 2>/dev/null && pwd -P || echo "$r7_repo")"
+p7_git="$([ -n "$r7_git" ] && cd -- "$r7_git" 2>/dev/null && pwd -P || echo "$r7_git")"
+{ [ "$p7_repo" = "$D7/real/trade-data" ] && [ "$p7_git" = "$D7/real/trade" ] \
+  && [ "$p7_repo" != "$p7_git" ] && [ "$p7_repo" != "$D7/real/trade" ]; } \
+  && ok "REPO=物理姐妹 trade-data / GIT_REPO=物理仓(未静默推出仓目录)" \
+  || bad "raw=[[$r7_repo] [$r7_git]] phys=[[$p7_repo] [$p7_git]] 期望 [[$D7/real/trade-data] [$D7/real/trade]]"
 
 echo "== 汇总: PASS=$pass FAIL=$fail =="
 [ "$fail" -eq 0 ]

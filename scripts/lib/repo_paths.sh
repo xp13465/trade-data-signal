@@ -13,6 +13,9 @@
 #   ⇒ $0 推导出的 REPO/GIT_REPO 与 unit env 值**逐字相同**。env 丢失时不仅「能报错」,
 #   而是**直接继续正确跑**;推导也不成立时才 fail-loud,响铃交 #196 已上线的
 #   check_failed_units.py(15min 扫 failed unit),lib **不重复造告警通道**。
+#   ➜ #208 修正(2026-10-06):候选 A 的前提收紧为「**scripts 目录本身是 symlink**」(`-L`),
+#     仅 raw≠real 不够 —— 仓目录的**某级祖先是 symlink** 时 raw≠real 也成立,旧判据会**静默**
+#     推出 REPO=仓目录。详见下方推导块注释与单测 T7。
 #
 # 用法(两行模板,只支持在脚本**顶层** source;exit 穿透管道子 shell 由调用方保证):
 #   source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" \
@@ -38,22 +41,33 @@
 resolve_repo() {
   local caller="${1:-}"
   local _raw_dir="" _real_dir="" _derived_repo="" _derived_git="" _sib=""
+  local _cand_a_repo="" _cand_a_git="" _cand_b_repo="" _cand_b_git=""
 
-  # ── 布局推导(§3.2):逻辑路径(raw)vs 物理路径(real)判 symlink ────────────────
+  # ── 布局推导(§3.2 + #208 修正):两候选,按前提择一 ──────────────────────────────
   if [ -n "$caller" ]; then
     _raw_dir="$(cd -- "$(dirname -- "$caller")" 2>/dev/null && pwd || true)"
     _real_dir="$(cd -- "$(dirname -- "$caller")" 2>/dev/null && pwd -P || true)"
   fi
-  if [ -n "$_raw_dir" ] && [ -n "$_real_dir" ] && [ "$_raw_dir" != "$_real_dir" ]; then
-    # case A: 经 <REPO>/scripts symlink 调用(云上/mac 生产常态)
-    _derived_repo="$(dirname -- "$_raw_dir")"
-    _derived_git="$(dirname -- "$_real_dir")"
-  elif [ -n "$_real_dir" ]; then
-    # case B: 仓内直跑(raw==real,或无法判定)—— GIT_REPO=仓,REPO=姐妹 trade-data
-    #         (不存在则回退 GIT_REPO 本身,防有人 clone 成 trade-data 目录名直跑)
-    _derived_git="$(dirname -- "$_real_dir")"
-    _sib="$(dirname -- "$_derived_git")/trade-data"
-    if [ -d "$_sib" ]; then _derived_repo="$_sib"; else _derived_repo="$_derived_git"; fi
+  # 候选 A(经 <REPO>/scripts symlink 调用,云上/mac 生产常态):
+  #   前提 = `-L "$_raw_dir"` —— **scripts 目录本身是 symlink** = 真·case A 的充要特征。
+  # 候选 B(物理路径布局):GIT_REPO=dirname(real);REPO=姐妹 trade-data(缺则回退 GIT_REPO)。
+  # #208 修正:旧判据「仅 raw≠real」不足 —— 当仓目录的**某级祖先**是 symlink 时 raw≠real 也成立,
+  #   但此时 scripts 目录本身是实体目录(= 候选 B 语义);旧判据会误判为候选 A ⇒ **静默**推出
+  #   REPO=仓目录(三重校验拦不住:mac 实测 <trade> 与 <trade-data> 皆有 .venv)⇒ 单测 T7 复现。
+  #   修法 = 候选 A 前提收紧为 `-L raw_dir`;前提不成立即**回退候选 B**(双候选回退)。
+  if [ -n "$_raw_dir" ] && [ -n "$_real_dir" ] && [ "$_raw_dir" != "$_real_dir" ] && [ -L "$_raw_dir" ]; then
+    _cand_a_repo="$(dirname -- "$_raw_dir")"
+    _cand_a_git="$(dirname -- "$_real_dir")"
+  fi
+  if [ -n "$_real_dir" ]; then
+    _cand_b_git="$(dirname -- "$_real_dir")"
+    _sib="$(dirname -- "$_cand_b_git")/trade-data"
+    if [ -d "$_sib" ]; then _cand_b_repo="$_sib"; else _cand_b_repo="$_cand_b_git"; fi
+  fi
+  if [ -n "$_cand_a_repo" ]; then
+    _derived_repo="$_cand_a_repo"; _derived_git="$_cand_a_git"
+  elif [ -n "$_cand_b_repo" ]; then
+    _derived_repo="$_cand_b_repo"; _derived_git="$_cand_b_git"
   fi
 
   # ── env 优先、零改写;缺失/为空(与 ${VAR:-} 同语义)才用推导值 ──────────────────
