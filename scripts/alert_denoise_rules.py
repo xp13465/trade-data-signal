@@ -33,6 +33,7 @@ schedule_monitor.sh(Python heredoc) / notify.py 共用本模块的判定逻辑(�
 (连续轮、跨天追平、产物未生成、首条仍即时), 绝不因降噪静默真故障。
 """
 import json
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -46,6 +47,176 @@ R4_HEARTBEAT_OK_SPAN = timedelta(hours=36)  # R4: 兜底——心跳 ok 距今�
 R2_CONSISTENCY_DEDUP_KEY = "r2_consistency_fail"           # R7: 包装器自身告警通道去重 key(check_r2_consistency.sh)
 R2_CONSISTENCY_ESCALATED_DEDUP_KEY = "r2_consistency_fail_escalated"  # R7: 连续失败升级档独立 key(不复用首日 6h 窗)
 R2_CONSISTENCY_ESCALATE_DAYS = 2                            # R7: 连续失败天数达此值 → severe 升 critical
+
+# #196(F1 族「巡检/链路自身死亡」可见性统一, 2026-10-05): failed-unit 巡检 + 巡检者自身存活 +
+# 「连续 N 天仍异常 → 升 critical」档。与 R7 同口径(首日 severe 不降噪 / 连续第 N 日起 critical
+# 换独立 dedup key 必达 / 连续天数持久化), 共用下面的 consecutive_days_escalate 单一实现。
+# ⚠️ memory alert-denoise-keep-fault-discriminator: 升级的必须是**真故障判别维度**
+# (「有 unit 处于 failed」「巡检 timer 不在跑」= 真故障), 不是把噪音一起升。
+FAILED_UNITS_DEDUP_KEY = "failed_units_patrol"                        # #196① 云上 failed-unit 巡检首报通道
+FAILED_UNITS_ESCALATED_DEDUP_KEY = "failed_units_patrol_escalated"   # 连续 N 天异常升级档独立 key(不占首日窗)
+FAILED_UNITS_ESCALATE_DAYS = 3                                       # #196③ 用户拍板: 连续 3 天仍异常 → critical
+PATROL_DRIFT_DEDUP_KEY = "cloud_unit_patrol_drift"                   # #191 cloud_unit_patrol.sh 漂移首报 key(与脚本字面量一致)
+PATROL_DRIFT_ESCALATED_DEDUP_KEY = "cloud_unit_patrol_drift_escalated"  # 连续 N 天漂移升级档独立 key
+PATROL_DRIFT_ESCALATE_DAYS = 3                                       # #196③: patrol 连续 3 天仍漂移 → critical
+# 巡检者自身存活检查的 unit 清单(只告警不改生产; 状态判定一律 systemctl show -p ActiveState, 禁 is-active)
+# 收录边界(§23.3 穷举后定的原则, 非随手清单): **只收「无数据产物可反证其存活」的守护/巡检/监控类
+# 调度器** —— 采集/生成/回填类 timer 停跑的后果会体现在数据上(数据陈旧 → check_data_integrity/
+# check_data_gap 数据级告警兜底), 且多数已登记进 schedule_monitor 漏跑表; 而监控器/巡检器**不产出
+# 数据**, 它死了没有任何数据会变旧 ⇒ 必须靠本清单直接看 timer 活性。同理不收「有自身 loud 失败通道」
+# 的推送器(如 trade-brief-push, 失败时 wrapper 自己 notify --severe)。
+# 清单与云上实测(2026-10-05 只读 `systemctl show`): 41 个 trade-*.timer 全为 active+enabled。
+WATCHMAN_UNITS = (
+    ("trade-cloud-unit-patrol.timer", "timer"),        # #191 云上 unit 漂移巡检调度器
+    ("trade-check-monitor-heartbeat.timer", "timer"),  # schedule-monitor 心跳消费者(元监控)
+    ("trade-schedule-monitor.timer", "timer"),         # 主监控调度器
+    ("trade-self-heal.timer", "timer"),                # 自愈调度器
+    ("trade-r2-consistency.timer", "timer"),           # §22 三站一致性巡检调度器
+    ("trade-check-data-gap.timer", "timer"),           # 数据缺口/停更告警检测器(巡检类, 不产出数据)
+    ("trade-overfit-monitor.timer", "timer"),          # 过拟合监控器(监控类, 不产出数据)
+)
+
+
+def consecutive_days_escalate(state_path, now, escalate_days, log_prefix=""):
+    """通用「连续 N 自然日异常 → 升 critical」判定(单一事实源; R7 与 #196 共用)。
+
+    「连续 N 天」定义: 相邻自然日各发生一次异常。中间夹一个正常日/未跑日(间隔 >1 自然日)
+    即视为连续链中断, 从 1 重新计; 同日重复调用(手动重跑/重试)不重复计数。
+
+    返回 (tier, consecutive_days, first_fail_date), tier in ("severe", "critical"):
+      - 连续 < escalate_days 天 → "severe"(与历史行为一致, 单次异常照发不降噪)
+      - 连续 >= escalate_days 天 → "critical"(调用侧换独立 dedup key → 不被首日 6h 窗吞 → 必达)
+
+    状态原子落盘 state_path(原子写): {last_fail_date, consecutive_days, first_fail_date,
+    last_grade_time}。故意**不**依赖外部「成功心跳」文件: 正常日在链路上根本不会调用本函数,
+    间隔 >1 天即自然中断(省一个跨脚本耦合点)。
+
+    残余(如实登记): 状态无法落盘时(权限/磁盘)连续天数恒为 1 → 升级档静默失效; 此时首日
+    severe 通道仍照发(不吞真故障), 且 stderr 打印可查 —— 只丢「升级」不丢「告警本身」。
+    """
+    _today = now.strftime("%Y-%m-%d")
+    _state = {}
+    try:
+        if state_path is not None and state_path.exists():
+            _loaded = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(_loaded, dict):
+                _state = _loaded
+    except Exception:
+        _state = {}
+    _last = str(_state.get("last_fail_date") or "")
+    _days = int(_state.get("consecutive_days") or 0)
+    _first = str(_state.get("first_fail_date") or "")
+
+    if _last == _today:
+        # 同日重复(手动重跑/重试): 不重复计数
+        _days = max(_days, 1)
+        _first = _first or _today
+    elif _last:
+        try:
+            _gap = (datetime.strptime(_today, "%Y-%m-%d")
+                    - datetime.strptime(_last, "%Y-%m-%d")).days
+        except (ValueError, TypeError):
+            _gap = 0
+        if _gap == 1:
+            _days += 1
+        else:
+            # 间隔 >1 自然日(中间有正常日 / 该日未跑) = 连续链中断, 从 1 重新计
+            _days = 1
+            _first = _today
+    else:
+        _days = 1
+        _first = _today
+
+    _new_state = {
+        "last_fail_date": _today,
+        "consecutive_days": _days,
+        "first_fail_date": _first or _today,
+        "last_grade_time": now.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        _tmp = state_path.with_name(state_path.name + ".tmp")
+        _tmp.write_text(json.dumps(_new_state, ensure_ascii=False, indent=2), encoding="utf-8")
+        _tmp.replace(state_path)
+    except Exception as _e:  # noqa: BLE001
+        print(f"{log_prefix} 状态落盘失败(连续天数计数可能丢失, 升级档或失效): {_e}",
+              file=sys.stderr)
+
+    _tier = "critical" if _days >= escalate_days else "severe"
+    return _tier, _days, (_first or _today)
+
+
+def parse_failed_units(out_text):
+    """解析 `systemctl --failed --no-legend --plain` 输出 → 失败 unit 名列表(去重保序)。
+
+    行形如: `trade-xxx.service loaded failed failed Trade xxx`(--no-legend 无表头/无图例)。
+    只取每行首个 token(unit 名), 且必须是 .service/.timer/.socket 结尾(过滤描述列/杂行)。
+    空输出/None → [](= 无失败 unit, 健康)。
+    """
+    names = []
+    for line in (out_text or "").splitlines():
+        tok = line.strip().lstrip("● ").strip().split(" ")[0] if line.strip() else ""
+        if tok.endswith((".service", ".timer", ".socket")) and tok not in names:
+            names.append(tok)
+    return names
+
+
+def judge_watchman_units(rows):
+    """巡检者自身存活判定(纯函数; 供 check_failed_units.py 调用, 单测可注入构造行)。
+
+    rows: 每项 dict —— {"unit": str, "kind": "timer"|"service",
+                        "active_state": str|None, "load_state": str|None,
+                        "unit_file_state": str|None}
+      任一字段 None = systemctl show 读不到 → 视为异常(fail-loud, 不静默)。
+    返回 [异常描述, ...](空 = 全健康)。
+
+    判据(requirement: 状态判定用 ActiveState, 禁 is-active):
+      - load_state == "not-found" → unit 文件已从盘上消失(巡检被删, 永久静默的根形态)
+      - unit_file_state != "enabled" → 巡检 unit 被停用/禁用/掩蔽(不再随开机调度)
+      - kind == "timer" 且 active_state != "active" → 巡检 timer 不再在跑(停摆)
+    (oneshot service 的 ActiveState 在 inactive/activating 间跳, 故只对 timer 判 active。)
+    ⚠️ 「被执行的脚本文件已从盘上消失」是**文件系统 I/O**, 不在本纯函数内: 由调用方
+    (check_failed_units.py) 用 extract_script_paths() 取路径 + Path.exists() 判, 再并入告警。
+    """
+    problems = []
+    for r in rows:
+        u = str(r.get("unit") or "?")
+        kind = r.get("kind") or "service"
+        load = r.get("load_state")
+        ufs = r.get("unit_file_state")
+        active = r.get("active_state")
+        if load == "not-found":
+            problems.append(f"{u}: unit 文件不在盘(LoadState=not-found) —— 巡检/守护 unit 可能被删")
+            continue
+        if ufs != "enabled":
+            problems.append(f"{u}: UnitFileState={ufs!r}(非 enabled) —— 巡检 unit 被停用/禁用")
+        if kind == "timer" and active != "active":
+            problems.append(f"{u}: timer ActiveState={active!r}(非 active) —— 巡检不再被调度(停摆)")
+    return problems
+
+
+def extract_script_paths(exec_start_entries):
+    """从 `systemctl show -p ExecStart` 行提取「脚本文件绝对路径」(纯解析, 无 I/O)。
+
+    实测云上 systemd 249 格式(7 个守护 unit 全部同形):
+      `ExecStart={ path=/bin/bash ; argv[]=/bin/bash /home/ubuntu/.../x.sh ; ... }`
+      `ExecStart={ path=/home/.../python ; argv[]=/home/.../python /home/.../x.py ; ... }`
+    ⇒ 取 argv[] 里「以 / 开头且以 .sh/.py 结尾」的 token = 被执行的脚本本体。
+    **为什么只认 .sh/.py**: 保守 + 零误报 —— 解释器/子命令/flag 一律不认, 认不出返回 []
+    (fail-open: 解析不到就不检查, 绝不把「解析失败」报成「脚本被删」)。
+    entries 可为 str / list[str] / None(调用方直接喂 systemctl show 的原始行)。
+    """
+    if isinstance(exec_start_entries, str):
+        exec_start_entries = [exec_start_entries]
+    out = []
+    for e in (exec_start_entries or []):
+        m = re.search(r"argv\[\]=([^;]*)", str(e))
+        if not m:
+            continue
+        for tok in m.group(1).split():
+            if tok.startswith("/") and tok.endswith((".sh", ".py")) and tok not in out:
+                out.append(tok)
+    return out
 
 
 def r1_buffer_judge(alert_state, buf_key, alert_key, exceeds_threshold, now,
@@ -360,77 +531,32 @@ def r7_r2_consistency_escalate(state_path, now):
     severe 通道仍然照发(不吞真故障), 且 stderr 打印落进包装器日志可查 —— 只丢「升级」不丢
     「告警本身」。
     """
+    # 计数/落盘逻辑收敛到 consecutive_days_escalate 单一实现(#196 起 R7 与 failed-unit/patrol
+    # 两个新通道共用), 本函数只保留 R7 专属的档位措辞(reason 文案是 R7 语义, 不复用通用文案)。
+    _tier, _days, _first = consecutive_days_escalate(
+        state_path, now, R2_CONSISTENCY_ESCALATE_DAYS, log_prefix="[r7-r2-consistency]")
     _today = now.strftime("%Y-%m-%d")
-    _state = {}
-    try:
-        if state_path is not None and state_path.exists():
-            _loaded = json.loads(state_path.read_text(encoding="utf-8"))
-            if isinstance(_loaded, dict):
-                _state = _loaded
-    except Exception:
-        _state = {}
-    _last = str(_state.get("last_fail_date") or "")
-    _days = int(_state.get("consecutive_days") or 0)
-    _first = str(_state.get("first_fail_date") or "")
-
-    if _last == _today:
-        # 同日重复(手动重跑/重试): 不重复计数
-        _days = max(_days, 1)
-        _first = _first or _today
-    elif _last:
-        try:
-            _gap = (datetime.strptime(_today, "%Y-%m-%d")
-                    - datetime.strptime(_last, "%Y-%m-%d")).days
-        except (ValueError, TypeError):
-            _gap = 0
-        if _gap == 1:
-            _days += 1
-        else:
-            # 间隔 >1 自然日(中间有成功日 / 该日未跑) = 连续链中断, 从 1 重新计
-            _days = 1
-            _first = _today
-    else:
-        _days = 1
-        _first = _today
-
-    _new_state = {
-        "last_fail_date": _today,
-        "consecutive_days": _days,
-        "first_fail_date": _first or _today,
-        "last_grade_time": now.strftime("%Y-%m-%d %H:%M:%S"),
-    }
-    try:
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        _tmp = state_path.with_name(state_path.name + ".tmp")
-        _tmp.write_text(json.dumps(_new_state, ensure_ascii=False, indent=2), encoding="utf-8")
-        _tmp.replace(state_path)
-    except Exception as _e:  # noqa: BLE001
-        print(f"[r7-r2-consistency] 状态落盘失败(连续天数计数可能丢失, 升级档或失效): {_e}",
-              file=sys.stderr)
-
-    if _days >= R2_CONSISTENCY_ESCALATE_DAYS:
+    if _tier == "critical":
         return "critical", _days, (
-            f"连续 {_days} 天一致性校验失败(自 {_first or _today} 起, 末次 {_today})")
+            f"连续 {_days} 天一致性校验失败(自 {_first} 起, 末次 {_today})")
     return "severe", _days, f"首日失败({_today}, 当前连续 {_days} 天)"
 
 
-def r7_r2_consistency_wrapper_alerted(repo, last_run, dedup_key=R2_CONSISTENCY_DEDUP_KEY):
-    """R7②: r2_consistency 包装器自身通道是否**已为本次运行实例**发过告警。
+def wrapper_channel_alerted(repo, last_run, dedup_key):
+    """通用: 某「包装器自身通道」是否**已为本次运行实例**发过告警(dedup_key 由调用方指定)。
 
-    给 schedule_monitor 的 exit!=0 汇总通道去重用(同 R3 nextday_plan 先例): 同一次 FAIL
-    会有两条通道 —— ①包装器 check_r2_consistency.sh 自己 notify --severe(去重 key
-    r2_consistency_fail, 内容含问题明细)②gen_schedule_stats 记 last_exit!=0 →
-    schedule_monitor exit!=0 通道再发一封(去重 key {task}|exit!=0|{code})。②是①的复述。
+    单一实现(R7 是第一处应用, #196 的 patrol/_failed-unit 复用): 同一次 FAIL 常有两通道
+    ——①包装器/巡检脚本自己 notify --severe(带问题明细) ②schedule_monitor exit!=0 汇总
+    通道 / failed-unit 巡检 再发一封。②是①的复述 → 用本函数判定后抑制。
 
-    判据: data/notify_dedup.json 的 r2_consistency_fail.last_alerted >= last_run
+    判据: data/notify_dedup.json 的 <dedup_key>.last_alerted >= last_run
       (last_run = 本次运行开始时刻, 由 gen_schedule_stats 记录; 包装器在本次运行内发出告警
       时 last_alerted 必然 >= last_run)。用「本次实例」而非「今天」: 失败持续到次日时,
-      昨日告警(last_alerted=昨 23:2x)仍 >= 昨日 last_run → 次日全天不重复复述(否则次日
-      早上 monitor 会把同一实例再报一次)。
+      昨日告警仍 >= 昨日 last_run → 次日全天不重复复述。
 
-    反例保证(R7②-B, 真故障不吞): 包装器告警**发送失败**(update_dedup 只在发送成功后写)
-    或脚本在 notify 前被杀 / notify_dedup.json 缺失 → 返回 False → monitor 汇总通道照发
-    (双保险)。解析失败一律 False(fail-open: 宁多告警不漏)。
+    反例保证(真故障不吞): 包装器告警**发送失败**(update_dedup 只在发送成功后写)或脚本在
+    notify 前被杀 / notify_dedup.json 缺失 → 返回 False → 汇总通道照发(双保险)。
+    解析失败一律 False(fail-open: 宁多告警不漏)。
     """
     if repo is None or not last_run:
         return False
@@ -451,3 +577,16 @@ def r7_r2_consistency_wrapper_alerted(repo, last_run, dedup_key=R2_CONSISTENCY_D
     except Exception:  # noqa: BLE001
         return False
     return _al_dt >= _lr_dt
+
+
+def r7_r2_consistency_wrapper_alerted(repo, last_run, dedup_key=R2_CONSISTENCY_DEDUP_KEY):
+    """R7②: r2_consistency 包装器自身通道是否已为本次运行实例发过告警。
+
+    给 schedule_monitor 的 exit!=0 汇总通道去重用(同 R3 nextday_plan 先例): 同一次 FAIL
+    会有两条通道 —— ①包装器 check_r2_consistency.sh 自己 notify --severe(去重 key
+    r2_consistency_fail, 内容含问题明细)②gen_schedule_stats 记 last_exit!=0 →
+    schedule_monitor exit!=0 通道再发一封(去重 key {task}|exit!=0|{code})。②是①的复述。
+
+    实现已收敛到 wrapper_channel_alerted(单一实现), 本函数保留 R7 语义命名 + 默认 key。
+    """
+    return wrapper_channel_alerted(repo, last_run, dedup_key)

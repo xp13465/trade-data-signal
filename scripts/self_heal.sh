@@ -64,6 +64,13 @@ STALE_THRESHOLD_SEC = 24 * 3600  # last_run 超 24h 不 heal（旧问题等下�
 # task -> force 重跑命令（force 参数仅加给支持 force 的脚本）
 # grep 确认 force 支持：update_all/intraday_snapshot/futures_backfill/lhb_backfill/
 # rzhb_backfill/etf_national_team_backfill 支持；backfill_metrics/update_lab 不支持。
+# ⚠️ 收录边界（#196 §22 登记点判定，2026-10-05）：**只收「自动重跑能真正解除故障」的任务**。
+#    只读巡检/监控类（cloud_unit_patrol / r2_consistency / check_data_gap / overfit_monitor /
+#    schedule-monitor 自身）**故意不登记**：它们失败时重跑无意义（漂移/一致性问题重跑一遍还是
+#    那个结果），且登记进来会把「人工确认」降级成「自动重跑」，反而掩盖真问题。
+#    它们"死了没人知"的问题由 #196 的 check_failed_units.py（failed-unit + timer 存活 +
+#    脚本存在性）与注册漏跑两条通道兜住，不靠自愈。
+#    ⇒ 自愈白名单 ⊂ gen_schedule_stats.TASKS（机检：test_registry_selfheal_subset_of_gen）。
 HEAL_ACTIONS = {
     "update_all":          ["bash", "scripts/update_all.sh", "force"],
     "backfill_evening":    ["bash", "scripts/backfill_metrics.sh"],

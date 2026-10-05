@@ -2273,6 +2273,53 @@ def main(argv: list[str] | None = None) -> int:
                 write_alert(args.alert_issue, _r7_body, log_path=args.alert_log)
             return 0
 
+    # #196(F1 族「巡检/链路自身死亡」, 2026-10-05, 用户拍板 #196③): 两个新通道同样上
+    # 「连续 3 天仍异常 → 升 critical」档(口径同上方 R7, 先例 R7/R4, 只是阈值 3 天而非 2)。
+    #   首日/单次  → 本块不拦截, 落回下方通用 --severe 路径(与历史行为一字不差)
+    #   连续>=3天  → 拦截改发 critical(独立 dedup key, 不被首日 6h 窗吞; 邮件 + 飞书 alert 群,
+    #               subject 显式标注「连续 N 天」防被单次噪音淹没)
+    #   成功日不调用 notify → 「连续」按自然日间隔判定, 见 alert_denoise_rules.consecutive_days_escalate。
+    # ⚠️ memory alert-denoise-keep-fault-discriminator: 升级的是**真故障判别维度**——
+    #    ①云上 unit 巡检漂移连续 3 天未清(=人工处置超时) ②云上 failed unit 连续 3 天未清
+    #    (=某守护链路持续死亡)。两者都是「巡检/链路自身死亡」真故障, 非噪音。
+    _ESCALATE_CHANNELS = {
+        adr.PATROL_DRIFT_DEDUP_KEY: (
+            adr.PATROL_DRIFT_ESCALATED_DEDUP_KEY, "cloud_unit_patrol_drift_state.json",
+            "#191 云上 unit 巡检漂移持续未清"),
+        adr.FAILED_UNITS_DEDUP_KEY: (
+            adr.FAILED_UNITS_ESCALATED_DEDUP_KEY, "failed_units_patrol_state.json",
+            "云上 failed unit 持续未清"),
+    }
+    if args.dedup_key in _ESCALATE_CHANNELS and not args.dry_run:
+        _esc_escalated_key, _esc_state_name, _esc_label = _ESCALATE_CHANNELS[args.dedup_key]
+        _esc_repo = Path(os.environ.get("REPO") or REPO)
+        _esc_tier, _esc_days, _esc_first = adr.consecutive_days_escalate(
+            _esc_repo / "data" / _esc_state_name, datetime.now(),
+            adr.FAILED_UNITS_ESCALATE_DAYS, log_prefix="[notify][196]")
+        print(f"[notify][196] {args.dedup_key} 连续异常分级={_esc_tier}({_esc_days}天)",
+              file=sys.stderr)
+        if _esc_tier == TIER_CRITICAL:
+            if check_dedup(_esc_escalated_key, args.dedup_window):
+                print("[notify][196] 升级档窗口内已发, suppress", file=sys.stderr)
+                return 0
+            _esc_subject = f"[告警] {_esc_label}(连续 {_esc_days} 天, 升级 critical)"
+            _esc_body = (f"<b>连续异常升级</b>: 该异常自 {_esc_first} 起已连续 {_esc_days} 天未清除"
+                         f"(首日已严重告警, 今升 critical —— 说明人工处置超时, 需立即介入)。<br>"
+                         + (args.body or ""))
+            results = send_tiered(_esc_subject, _esc_body, tier=TIER_CRITICAL,
+                                  dry_run=args.dry_run, from_prefix=args.from_prefix,
+                                  feishu_group=args.feishu_group,
+                                  reply_to_message_id=args.reply_to_message_id)
+            print(f"[notify][196] 升级档路由完成：{results}", file=sys.stderr)
+            if _tier_send_ok(results, TIER_CRITICAL):
+                # 升级档占独立窗 + 同步占首日窗(与 R7 同构: 让 schedule_monitor 的同实例去重
+                # patrol_wrapper_alerted 也看到「包装器通道本次已发」, 防汇总通道升级日再复述)
+                update_dedup(_esc_escalated_key)
+                update_dedup(args.dedup_key)
+            if args.alert_issue:
+                write_alert(args.alert_issue, _esc_body, log_path=args.alert_log)
+            return 0
+
     # 去重检查：window 内已告警过则 suppress 静默退出（返回 0，不阻塞调用方）
     # dry-run 不走去重（测试用，需看到发送日志）
     if args.dedup_key and not args.dry_run and check_dedup(args.dedup_key, args.dedup_window):
