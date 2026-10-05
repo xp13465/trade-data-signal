@@ -188,20 +188,20 @@ time REPO=/home/ubuntu/code/trade-data GIT_REPO=/home/ubuntu/code/trade-data-sig
 | **同类错误面(「preflight 缺失致过渡态假阳」)** | 全部 40 个 `trade-*.timer` 逐个核时点与当日 update-all 链关系:①**只有 r2-consistency 暴露在周日**(其余 checker 均 Mon..Fri 门控,周日不跑)②`check-data-gap` 22:35 有**交易日闸门**而周日非交易日 ⇒ 不跑 ⇒ 无风险 ③工作日 update-all 17:50 + 实测 112–139min → 约 19:42–20:09 结束,远早于 21:40/22:00/22:30/22:35 各采样点。**结论:同类错误面仅此一处,已修**。 |
 | **同族脚本扫描(`check_data_gap_alerts` 等)** | 发现同一不实注释模板「此处只管漏跑+进行中超时」**也存在于 `check_data_gap`(TimeoutStartSec=600)及其它不在 `DUR_THRESHOLDS` 的 TASKS 条目**上 ⇒ 属**同一类陈述失真**(非本次功能 bug)。依 **§23.7 冻结契约**「不顺手改老功能、发现历史遗留上报」**本次只报告不擅改**,交主控/用户拍板是否统一。 |
 | **残留观察项** | 工作日 update-all 若超 **约 230 分钟**(当前最大 139min,余量约 90min),其结束点将越过 21:40 采样点,届时 21:40 档 checker 会落入同样的半进程窗口。当前有 90min 余量,**登记为观察项**(非本次改动引入)。 |
-| **同模式扫描:「判 running」的写法(§9.9 新增)** | 全仓 grep `is-active`:①`self_heal.sh:103/111` 用 **stdout 文本**判(把 activating 当在跑)= **正例,无需改**②`schedule_monitor.sh:1108 launchctl_loaded()` 三态判定,`rc∈(0,3)`+stdout 文本,activating 归「loaded」——因其语义只是「unit 是否已加载」,**当前无 bug**,但那行注释「0=active(在跑)」对 oneshot 不成立 = **同类陷阱**(未来若有人拿它判「在跑」会重犯本 P0);依 §23.7 冻结契约**只报告不擅改**。 |
+| **同模式扫描:「判 running」的写法(§9.9 新增)** | 全仓 grep `is-active`:①`self_heal.sh:103/111` 用 **stdout 文本**判(把 activating 当在跑)= **正例,无需改**②`schedule_monitor.sh:1107 launchctl_loaded()`(函数定义在 1107,docstring 起于 1108)三态判定,`rc∈(0,3)`+stdout 文本,activating 归「loaded」——因其语义只是「unit 是否已加载」,**当前无 bug**,但那行注释「0=active(在跑)」对 oneshot 不成立 = **同类陷阱**(未来若有人拿它判「在跑」会重犯本 P0);依 §23.7 冻结契约**只报告不擅改**。 |
 
 ### 9.7 收口自验逐项
 
 | 项 | 结果 |
 |---|---|
 | 分支延续(§0.2) | `git branch --show-current` = `feat/160-consistency-gate-20261005` ✓(未新开分支) |
-| 专项测试 | `pytest -q scripts/tests/test_160_r2_consistency_followup_20261005.py` → **23 passed** |
-| 全量回归 | `pytest -q scripts/tests/` → **188 passed, 1 skipped** |
+| 专项测试 | `pytest -q scripts/tests/test_160_r2_consistency_followup_20261005.py` → **27 passed**(P0 订正后重跑;首轮 23 见 §9.9) |
+| 全量回归 | `pytest -q scripts/tests/` → **192 passed, 1 skipped**(P0 订正后重跑;首轮 188 见 §9.9) |
 | 语法 | `py_compile`(notify/alert_denoise_rules/test)×3 OK;`bash -n`(check_r2_consistency / schedule_monitor)OK |
 | 判据两态 | 云上**活体**(systemd-run 瞬态 oneshot):窗口内 `ActiveState=activating` + 旧判据 `is-active --quiet` rc=**3** ⇒ 旧写法漏判、新写法跳过(改前/改后对照,P0 订正见 §9.9);本地注入态四测(activating/active/inactive/无 systemctl)+ stub 两态全覆盖 |
 | 「真 FAIL 仍报 1 封、不报 2 封」两态实测 | `test_two_channels_one_alert_normal_state`(包装器已投递 → 汇总静默=1 封)、`test_two_channels_one_alert_wrapper_send_failed`(包装器投递失败 → 汇总照发=1 封);两态均**恰好 1 封** |
 | 同实例抑制不打折 | day1 落回 severe(1 封)/ day2 升 critical(1 封)/ 升级窗内 suppress(0 封)三态均实测 |
-| §14 不触发定时任务 | 本次纯代码+文档改动,**未启动/停止/daemon-reload 任何云上 unit**;云上故障排查仅只读 |
+| §14 不触发定时任务 | 本次纯代码+文档改动,**未启动/停止/daemon-reload 任何「生产」unit**(trade-* 一律未动);§9.9 的瞬态探测单元 `probe-v5` 已清理(`systemctl list-units --all \| grep -c probe` = 0 验证无残留),非定时任务、非生产单元 |
 | §25 | 未删任何文件、未动任何云上配置 ⇒ 无备份义务(§9.1 选型 (c) 即为规避动 unit) |
 | §23.11 无静默 | 全程无冲突/覆盖/倒退;`check_r2_consistency.sh` 等文件为单 agent 独占改 |
 
