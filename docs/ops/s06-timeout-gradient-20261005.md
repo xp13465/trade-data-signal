@@ -12,7 +12,7 @@
 | **A** s06 超时梯度 | 云上 `trade-s06-snapshot.service` `TimeoutStartSec` **600 → 3300**（= 内层串行合计 3000 + 300 余量）+ `daemon-reload` | ✅ 已改已验（只读验证 4 项全 PASS） |
 | A 文档同步 | §2.15 服务块值 + 超时梯度修正说明；`timeout-caliber-20260916.md` §七 后记 | ✅ 已改 |
 | **B** 计数漂移 | doc §0 `37→39` / §1.4 `32→32`（维持 main 版） / §1.7 `36→40` / §2 标题 `37→39`；README、scripts/README、check_doc_staleness.py 同步 40 | ✅ 已改 |
-| B 生成器 | update-all 标题去括号 → `gen_systemd_units.py --check` **78 → 80 unit**（40 timer + 40 service） | ✅ 已修 |
+| B 生成器 | update-all 标题去括号 → `gen_systemd_units.py --check` **79 → 80 unit**（+1 = `trade-update-all.timer` 标题修复；自 10-03 体检锚 **78** 起算共 +2，另一 +1 = #160 新增 r2-consistency 对） | ✅ 已修 |
 | 同类错误面 | 全 40 service 梯度审计：**倒挂 0 个**（s06 修后余量 300s；r2-consistency 60s；其余无 shell 内层） | ✅ 见 §三 |
 | 新发现 | doc §2 内 30 个 service 的 `TimeoutStartSec` 仍是 2026-09-12 迁移批值（云上早已按 #36 改）→ 生成器若重跑会**回退** #36，**未改，上报拍板** | ⏳ 见 §五 |
 | 前端/版本串 | 无前端改动 → 不 bump；§21 算法公示 N/A | — |
