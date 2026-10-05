@@ -1,0 +1,1110 @@
+@@@FILE:trade-ab-direction-anchor.service
+[Unit]
+Description=Trade ab-direction-anchor (源 com.trade.ab-direction-anchor)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_ab_direction_anchor.sh
+Environment=TRADE_DIR=/home/ubuntu/code/trade-data-signal
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.out.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.err.log
+@@@FILE:trade-backfill-evening.service
+[Unit]
+Description=Trade backfill-evening (源 com.trade.backfill-evening)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/backfill_metrics.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/backfill_evening_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/backfill_evening_launchd.err
+@@@FILE:trade-backup-db.service
+[Unit]
+Description=Trade backup_db (sqlite .backup 热备 + 推 R2 signal-backup + verify)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/backup_db.sh
+Environment=RETAIN_DAYS=7
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=0
+@@@FILE:trade-brief-push.service
+[Unit]
+Description=Trade brief-push (源 com.trade.brief-push)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/brief_push_wrapper.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/brief_push_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/brief_push_launchd.err
+@@@FILE:trade-check-data-gap.service
+[Unit]
+Description=Trade check-data-gap (源 com.trade.check-data-gap)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/check_data_gap_alerts.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/check_data_gap_launchd.out
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/check_data_gap_launchd.err
+@@@FILE:trade-check-monitor-heartbeat.service
+[Unit]
+Description=Trade check-monitor-heartbeat (P0-1 schedule-monitor 心跳消费方)
+ConditionPathExists=/home/ubuntu/code/trade-data/scripts/check_monitor_heartbeat.py
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/check_monitor_heartbeat.py
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/check_monitor_heartbeat_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/check_monitor_heartbeat_launchd.err
+@@@FILE:trade-daily-brief.service
+[Unit]
+Description=Trade daily-brief --multi (源 com.trade.daily-brief)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_daily_brief.sh --multi
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/daily_brief_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/daily_brief_launchd.err
+@@@FILE:trade-daily-summary-supplement.service
+[Unit]
+Description=Trade daily-summary-supplement (源 com.trade.daily-summary-supplement)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/daily_summary_email.py --mode supplement
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/daily_summary_supplement_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/daily_summary_supplement_launchd.err
+@@@FILE:trade-etf-national-team.service
+[Unit]
+Description=Trade etf-national-team (源 com.trade.etf-national-team)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/etf_national_team_backfill.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/etf_national_team_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/etf_national_team_launchd.err
+@@@FILE:trade-etf-track-index.service
+[Unit]
+Description=Trade etf-track-index (源 com.trade.etf-track-index)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/fetch_etf_track_index.py
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/etf-track-index-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/etf-track-index-launchd.err
+@@@FILE:trade-fapi-daily.service
+[Unit]
+Description=Trade fapi-daily (源 com.trade.fapi-daily)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/fapi_daily_syn.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/fapi_daily_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/fapi_daily_launchd.err
+@@@FILE:trade-fetch-news.service
+[Unit]
+Description=Trade fetch-news (源 com.trade.fetch-news)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/fetch_news.py
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.err
+@@@FILE:trade-futures-backfill.service
+[Unit]
+Description=Trade futures-backfill (源 com.trade.futures-backfill)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/futures_backfill.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/futures_backfill_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/futures_backfill_launchd.err
+@@@FILE:trade-gold-night.service
+[Unit]
+Description=Trade gold-night (源 com.trade.gold-night)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/gold_night.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/gold_night_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/gold_night_launchd.err
+@@@FILE:trade-intraday-snapshot.service
+[Unit]
+Description=Trade intraday-snapshot (源 com.trade.intraday-snapshot)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/intraday_snapshot.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/intraday_snapshot_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/intraday_snapshot_launchd.err
+@@@FILE:trade-kelly-intraday-rerun.service
+[Unit]
+Description=Trade kelly-intraday-rerun (源 com.trade.kelly-intraday-rerun)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/kelly_intraday_rerun.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/kelly_intraday_rerun_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/kelly_intraday_rerun_launchd.err
+@@@FILE:trade-lab-auto.service
+[Unit]
+Description=Trade lab-auto (源 com.trade.lab-auto)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/update_lab.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/update_lab_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/update_lab_launchd.err
+@@@FILE:trade-lhb-backfill.service
+[Unit]
+Description=Trade lhb-backfill (源 com.trade.lhb-backfill)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/lhb_backfill.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/lhb_backfill_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/lhb_backfill_launchd.err
+@@@FILE:trade-lof-track-index.service
+[Unit]
+Description=Trade lof-track-index (源 com.trade.lof-track-index)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/fetch_lof_track_index.py
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/lof-track-index-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/lof-track-index-launchd.err
+@@@FILE:trade-nextday-gap-check.service
+[Unit]
+Description=Trade nextday-gap-check (源 com.trade.nextday-gap-check)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/nextday_gap_check.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=600
+@@@FILE:trade-nextday-plan.service
+[Unit]
+Description=Trade nextday-plan (源 com.trade.nextday-plan)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/nextday_plan.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=600
+@@@FILE:trade-overfit-monitor.service
+[Unit]
+Description=Trade overfit-monitor (源 com.trade.overfit-monitor)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/overfit_monitor.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=0
+@@@FILE:trade-pf-score-daily.service
+[Unit]
+Description=Trade pf-score-daily (源 com.trade.pf-score-daily)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/pf_score_daily.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/pf-score-daily-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/pf-score-daily-launchd.log
+@@@FILE:trade-pf-score-weekly.service
+[Unit]
+Description=Trade pf-score-weekly (源 com.trade.pf-score-weekly)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/pf_score_weekly.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/pf-score-weekly-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/pf-score-weekly-launchd.log
+@@@FILE:trade-pf-stage0-manager.service
+[Unit]
+Description=Trade pf-stage0-manager (源 com.trade.pf-stage0-manager)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/stage0_manager.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/stage0-manager-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/stage0-manager-launchd.log
+@@@FILE:trade-pf-stage0-nav.service
+[Unit]
+Description=Trade pf-stage0-nav (源 com.trade.pf-stage0-nav)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/stage0_nav.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/stage0-nav-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/stage0-nav-launchd.log
+@@@FILE:trade-pf-stage0-overview.service
+[Unit]
+Description=Trade pf-stage0-overview (源 com.trade.pf-stage0-overview)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/stage0_overview.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/stage0-overview-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/stage0-overview-launchd.log
+@@@FILE:trade-pf-stage0-risk.service
+[Unit]
+Description=Trade pf-stage0-risk (源 com.trade.pf-stage0-risk)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/stage0_risk.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/stage0-risk-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/stage0-risk-launchd.log
+@@@FILE:trade-public-fund-daily.service
+[Unit]
+Description=Trade public-fund-daily (源 com.trade.public-fund-daily)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_daily.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=900
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/public_fund_daily_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/public_fund_daily_launchd.err
+@@@FILE:trade-public-fund-estimation.service
+[Unit]
+Description=Trade public-fund-estimation (源 com.trade.public-fund-estimation)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_estimation.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/public_fund_estimation_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/public_fund_estimation_launchd.err
+@@@FILE:trade-public-fund-full.service
+[Unit]
+Description=Trade public-fund-full (源 com.trade.public-fund-full)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_full.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/public_fund_full_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/public_fund_full_launchd.err
+@@@FILE:trade-public-fund-quarterly.service
+[Unit]
+Description=Trade public-fund-quarterly (源 com.trade.public-fund-quarterly)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_quarterly.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/public_fund_quarterly_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/public_fund_quarterly_launchd.err
+@@@FILE:trade-r2-consistency.service
+[Unit]
+Description=Trade r2-consistency (#160 §22 三站一致性巡检)
+ConditionPathExists=/home/ubuntu/code/trade-data/scripts/check_r2_consistency.sh
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/check_r2_consistency.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=960
+@@@FILE:trade-rzhb-backfill.service
+[Unit]
+Description=Trade rzhb-backfill (源 com.trade.rzhb-backfill)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/rzhb_backfill.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/rzhb_backfill_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/rzhb_backfill_launchd.err
+@@@FILE:trade-s06-snapshot.service
+[Unit]
+Description=Trade s06-snapshot (源 com.trade.s06-snapshot)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/s06_snapshot.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=3300
+@@@FILE:trade-schedule-monitor.service
+[Unit]
+Description=Trade schedule-monitor (源 com.trade.schedule-monitor)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/schedule_monitor.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/schedule_monitor_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/schedule_monitor_launchd.err
+@@@FILE:trade-self-heal.service
+[Unit]
+Description=Trade self-heal (源 com.trade.self-heal)
+
+[Service]
+User=ubuntu
+Type=oneshot
+KillMode=process
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/self_heal.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.err
+@@@FILE:trade-turnover-backfill.service
+[Unit]
+Description=Trade turnover-backfill (源 com.trade.turnover-backfill)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/turnover_backfill.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=0
+@@@FILE:trade-update-all.service
+[Unit]
+Description=Trade update-all (源 com.trade.update-all)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/update_all.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/update_all_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/update_all_launchd.err
+@@@FILE:trade-us-stock-morning.service
+[Unit]
+Description=Trade us-stock-morning (源 com.trade.us-stock-morning)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/us_stock_morning.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=0
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/us_stock_morning_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/us_stock_morning_launchd.err
+@@@FILE:trade-ab-direction-anchor.timer
+[Unit]
+Description=Trade ab-direction-anchor daily 21:15 (源 com.trade.ab-direction-anchor)
+
+[Timer]
+OnCalendar=*-*-* 21:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-backfill-evening.timer
+[Unit]
+Description=Trade backfill-evening 3 points (源 com.trade.backfill-evening)
+
+[Timer]
+OnCalendar=*-*-* 16:35:00
+OnCalendar=*-*-* 21:00:00
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-backup-db.timer
+[Unit]
+Description=Trade backup_db daily 21:00 (从 update_all.sh 内嵌拆出)
+
+[Timer]
+OnCalendar=*-*-* 21:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-brief-push.timer
+[Unit]
+Description=Trade brief-push daily 20:45 (源 com.trade.brief-push)
+
+[Timer]
+OnCalendar=*-*-* 20:45:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-check-data-gap.timer
+[Unit]
+Description=Trade check-data-gap Mon..Fri 22:35 (源 com.trade.check-data-gap)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 22:35:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-check-monitor-heartbeat.timer
+[Unit]
+Description=Trade check-monitor-heartbeat every 15min :11/:26/:41/:56 (P0-1 心跳消费方)
+
+[Timer]
+OnCalendar=*-*-* *:11,26,41,56:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-daily-brief.timer
+[Unit]
+Description=Trade daily-brief daily 20:40 (源 com.trade.daily-brief)
+
+[Timer]
+OnCalendar=*-*-* 20:40:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-daily-summary-supplement.timer
+[Unit]
+Description=Trade daily-summary-supplement daily 20:30 (源 com.trade.daily-summary-supplement)
+
+[Timer]
+OnCalendar=*-*-* 20:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-etf-national-team.timer
+[Unit]
+Description=Trade etf-national-team 2 points (源 com.trade.etf-national-team)
+
+[Timer]
+OnCalendar=*-*-* 20:07:00
+OnCalendar=*-*-* 21:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-etf-track-index.timer
+[Unit]
+Description=Trade etf-track-index weekly Sun 03:30 (源 com.trade.etf-track-index)
+
+[Timer]
+OnCalendar=Sun *-*-* 03:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-fapi-daily.timer
+[Unit]
+Description=Trade fapi-daily daily 18:10 (源 com.trade.fapi-daily)
+
+[Timer]
+OnCalendar=*-*-* 18:10:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-fetch-news.timer
+[Unit]
+Description=Trade fetch-news hourly :01/:45 (源 com.trade.fetch-news)
+
+[Timer]
+OnCalendar=*-*-* *:01,45:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-futures-backfill.timer
+[Unit]
+Description=Trade futures-backfill 2 points (源 com.trade.futures-backfill)
+
+[Timer]
+OnCalendar=*-*-* 20:05:00
+OnCalendar=*-*-* 21:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-gold-night.timer
+[Unit]
+Description=Trade gold-night daily 02:40 (源 com.trade.gold-night)
+
+[Timer]
+OnCalendar=*-*-* 02:40:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-intraday-snapshot.timer
+[Unit]
+Description=Trade intraday-snapshot 30 points (源 com.trade.intraday-snapshot)
+
+[Timer]
+OnCalendar=*-*-* 09:25:00
+OnCalendar=*-*-* 09:35:00
+OnCalendar=*-*-* 09:45:00
+OnCalendar=*-*-* 09:55:00
+OnCalendar=*-*-* 10:05:00
+OnCalendar=*-*-* 10:15:00
+OnCalendar=*-*-* 10:25:00
+OnCalendar=*-*-* 10:35:00
+OnCalendar=*-*-* 10:45:00
+OnCalendar=*-*-* 10:55:00
+OnCalendar=*-*-* 11:05:00
+OnCalendar=*-*-* 11:15:00
+OnCalendar=*-*-* 11:25:00
+OnCalendar=*-*-* 11:32:00
+OnCalendar=*-*-* 13:01:00
+OnCalendar=*-*-* 13:05:00
+OnCalendar=*-*-* 13:15:00
+OnCalendar=*-*-* 13:25:00
+OnCalendar=*-*-* 13:35:00
+OnCalendar=*-*-* 13:45:00
+OnCalendar=*-*-* 13:55:00
+OnCalendar=*-*-* 14:05:00
+OnCalendar=*-*-* 14:15:00
+OnCalendar=*-*-* 14:25:00
+OnCalendar=*-*-* 14:35:00
+OnCalendar=*-*-* 14:45:00
+OnCalendar=*-*-* 14:55:00
+OnCalendar=*-*-* 15:02:00
+OnCalendar=*-*-* 15:35:00
+OnCalendar=*-*-* 20:35:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-kelly-intraday-rerun.timer
+[Unit]
+Description=Trade kelly-intraday-rerun daily 09:40 (源 com.trade.kelly-intraday-rerun)
+
+[Timer]
+OnCalendar=*-*-* 09:40:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-lab-auto.timer
+[Unit]
+Description=Trade lab-auto daily 19:00 (源 com.trade.lab-auto)
+
+[Timer]
+OnCalendar=*-*-* 19:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-lhb-backfill.timer
+[Unit]
+Description=Trade lhb-backfill 2 points (源 com.trade.lhb-backfill)
+
+[Timer]
+OnCalendar=*-*-* 18:30:00
+OnCalendar=*-*-* 19:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-lof-track-index.timer
+[Unit]
+Description=Trade lof-track-index weekly Sun 04:00 (源 com.trade.lof-track-index)
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-nextday-gap-check.timer
+[Unit]
+Description=Trade nextday-gap-check Mon..Fri 09:26 (源 com.trade.nextday-gap-check)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:26:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-nextday-plan.timer
+[Unit]
+Description=Trade nextday-plan Mon..Fri 22:30 (源 com.trade.nextday-plan)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 22:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-overfit-monitor.timer
+[Unit]
+Description=Trade overfit-monitor Mon..Fri 21:40 (源 com.trade.overfit-monitor)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 21:40:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-pf-score-daily.timer
+[Unit]
+Description=Trade pf-score-daily daily 16:00 (源 com.trade.pf-score-daily)
+
+[Timer]
+OnCalendar=*-*-* 16:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-pf-score-weekly.timer
+[Unit]
+Description=Trade pf-score-weekly Sun 03:17 (源 com.trade.pf-score-weekly)
+
+[Timer]
+OnCalendar=Sun *-*-* 03:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-pf-stage0-manager.timer
+[Unit]
+Description=Trade pf-stage0-manager monthly 1st 02:47 (源 com.trade.pf-stage0-manager)
+
+[Timer]
+OnCalendar=*-*-01 02:47:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-pf-stage0-nav.timer
+[Unit]
+Description=Trade pf-stage0-nav Fri 01:43 (源 com.trade.pf-stage0-nav)
+
+[Timer]
+OnCalendar=Fri *-*-* 01:43:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-pf-stage0-overview.timer
+[Unit]
+Description=Trade pf-stage0-overview Sun 02:17 (源 com.trade.pf-stage0-overview)
+
+[Timer]
+OnCalendar=Sun *-*-* 02:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-pf-stage0-risk.timer
+[Unit]
+Description=Trade pf-stage0-risk monthly 15th 02:33 (源 com.trade.pf-stage0-risk)
+
+[Timer]
+OnCalendar=*-*-15 02:33:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-public-fund-daily.timer
+[Unit]
+Description=Trade public-fund-daily 2 points (源 com.trade.public-fund-daily)
+
+[Timer]
+OnCalendar=*-*-* 16:30:00
+OnCalendar=*-*-* 17:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-public-fund-estimation.timer
+[Unit]
+Description=Trade public-fund-estimation 4 points (源 com.trade.public-fund-estimation)
+
+[Timer]
+OnCalendar=*-*-* 10:00:00
+OnCalendar=*-*-* 11:00:00
+OnCalendar=*-*-* 13:30:00
+OnCalendar=*-*-* 14:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-public-fund-full.timer
+[Unit]
+Description=Trade public-fund-full daily 22:00 (源 com.trade.public-fund-full)
+
+[Timer]
+OnCalendar=*-*-* 22:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-public-fund-quarterly.timer
+[Unit]
+Description=Trade public-fund-quarterly 3 points (源 com.trade.public-fund-quarterly)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+OnCalendar=*-*-* 04:00:00
+OnCalendar=*-*-* 07:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-r2-consistency.timer
+[Unit]
+Description=Trade r2-consistency daily 23:20 (#160 §22 三站一致性)
+
+[Timer]
+OnCalendar=*-*-* 23:20:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-rzhb-backfill.timer
+[Unit]
+Description=Trade rzhb-backfill 2 points (源 com.trade.rzhb-backfill)
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+OnCalendar=*-*-* 19:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-s06-snapshot.timer
+[Unit]
+Description=Trade s06-snapshot Mon..Fri 20:35 (源 com.trade.s06-snapshot)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 20:35:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-schedule-monitor.timer
+[Unit]
+Description=Trade schedule-monitor every 15min :00/:15/:30/:45 (源 com.trade.schedule-monitor)
+
+[Timer]
+OnCalendar=*-*-* *:00,15,30,45:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-self-heal.timer
+[Unit]
+Description=Trade self-heal every 15min :07/:22/:37/:52 (源 com.trade.self-heal)
+
+[Timer]
+OnCalendar=*-*-* *:07,22,37,52:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-turnover-backfill.timer
+[Unit]
+Description=Trade turnover-backfill Mon..Fri 21:10 (源 com.trade.turnover-backfill)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 21:10:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-update-all.timer
+[Unit]
+Description=Trade update-all daily 17:50 (Mon..Sat) / Sun 22:30 错峰 (源 com.trade.update-all)
+
+[Timer]
+OnCalendar=Mon..Sat 17:50:00
+OnCalendar=Sun 22:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-us-stock-morning.timer
+[Unit]
+Description=Trade us-stock-morning daily 05:00 (源 com.trade.us-stock-morning)
+
+[Timer]
+OnCalendar=*-*-* 05:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

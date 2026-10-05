@@ -356,6 +356,23 @@ else
   echo "✓ 文档时点/调度口径一致性机检通过"
 fi
 
+# 7.8 systemd 生成源 vs 云上快照一致性机检(#189 生成源防漂移, 2026-10-05 挂主入口)
+#     背景: scripts/gen_systemd_units.py 以 docs/deploy/systemd-units-20260912.md §2 的 ini 块为
+#     生成源。「doc §2 值 ≠ 云上实值」时, 任何人重跑生成器并装回云上就会静默回退云上手管配置
+#     (实例: 迁移批旧 TimeoutStartSec 与 #36 收口后的云上 30 处不一致, 重跑=把超时收口打回去)。
+#     校验源 = docs/deploy/systemd-units-cloud-snapshot.txt(云上 unit dump 固化快照, @@@FILE: 格式);
+#     逐字段全量比对 doc §2 生成物 vs 快照, 任一不一致 FAIL 阻断。刷新快照见报告/docs/ops。
+echo "--- systemd 生成源 vs 云上快照一致性机检(#189, §22 生成源防漂移) ---"
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "  [dry-run] 跳过 systemd 生成源一致性机检"
+else
+  if ! "$PY" "$REPO/scripts/systemd_timeout_gradient_audit.py" \
+        --dump "$REPO/docs/deploy/systemd-units-cloud-snapshot.txt" --check-doc; then
+    echo "✗ systemd 生成源(doc §2)与云上快照不一致, 阻断 merge(#189, 修复: 对齐 doc §2 或刷新快照)" >&2
+    exit 1
+  fi
+fi
+
 # 7.7 console 洁净度哨兵(#133 复发防线, 2026-10-03 挂发版验收)
 #     背景: #133(两份 CSP connect-src 逐字拉平, merge b4c95c2e0)新增 accept_console_clean.mjs
 #     哨兵(判 0 CSP 违规 + 0 pageerror), 但一直没进验收链, 防复发靠人肉想起来跑。挂本入口:
