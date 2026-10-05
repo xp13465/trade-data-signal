@@ -6,8 +6,9 @@
 #   T1   fail-fast: REPO 指向不存在路径 → exit≠0 + stderr 清晰提示 + 固定位置日志落一行
 #   T2   fail-fast: GIT_REPO 指向不存在路径 → exit≠0
 #   T3   fail-fast: REPO 下缺 .venv/bin/python → exit≠0
-#   T4   $0 推导: 造 <runtime>/scripts -> <gitrepo>/scripts 的 symlink 布局,不带 REPO/GIT_REPO
-#        env 直跑(audit 桩 rc=0)→ 自动推导 REPO=runtime / GIT_REPO=gitrepo,日志落 runtime
+#   T4   $0 推导(经 scripts/lib 共享 lib): 造 <runtime>/scripts -> <gitrepo>/scripts 的 symlink
+#        布局,不带 REPO/GIT_REPO env 直跑(audit 桩 rc=0)→ lib 推导 REPO=runtime / GIT_REPO=gitrepo,
+#        日志落 runtime(#195 批1:推导实现由「patrol 内联」改判为「共享 lib」,断言结论不变)
 #   T5   环境守卫(#194-F2): 权威 unit 目录不存在(非云上/开发机)→ exit 3 且 **绝不调用 notify**
 #   T6   环境守卫不误伤: unit 目录像云上(含 trade-*.service)且 audit 报漂移 → notify 被调用(可达)
 #   T7   dump 诊断模式(#194-F2): ARBITER_DUMP 非空 + 漂移 → 仍不发通知(仅日志)
@@ -68,6 +69,8 @@ mk_sbx() {  # $1=目录
            "$D/gitrepo/docs/deploy" "$D/units"
   ln -s "$D/gitrepo/scripts" "$D/runtime/scripts"
   cp "$SCRIPT" "$D/gitrepo/scripts/cloud_unit_patrol.sh"
+  mkdir -p "$D/gitrepo/scripts/lib"
+  cp "$HERE/lib/repo_paths.sh" "$D/gitrepo/scripts/lib/repo_paths.sh"   # #195:patrol 改 source 共享 lib
   ln -s "$(command -v python3)" "$D/runtime/.venv/bin/python"
   : > "$D/gitrepo/docs/deploy/systemd-units-cloud-snapshot.txt"
   : > "$D/units/trade-mock.service"          # 让环境守卫判定「像云上」
@@ -100,7 +103,7 @@ run_sbx() {
       bash "$D/runtime/scripts/cloud_unit_patrol.sh" 2>&1
 }
 
-echo "== T4 \$0 推导(不带 REPO/GIT_REPO env,走 symlink 布局;unit 目录像云上) =="
+echo "== T4 \$0 推导(经共享 lib;不带 REPO/GIT_REPO env,走 symlink 布局;unit 目录像云上) =="
 if command -v python3 >/dev/null 2>&1; then
   D4="$TMP/d4"; mk_sbx "$D4"
   o4="$(run_sbx "$D4" 0 CLOUD_UNIT_PATROL_UNITS_DIR="$D4/units")"; r4=$?
