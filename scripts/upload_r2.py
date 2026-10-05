@@ -2068,9 +2068,88 @@ def cmd_upload_intraday():
         return
     if ok != total:
         sys.exit(1)
+    # #188 (2026-10-05): intraday 同为「不经通道状态的独立上传点」(走 _upload_glob 不写
+    # .r2_*_state.json) ⇒ 其 key 天然不在 verify-r2 平日 changed 里。登记进独立链产物清单,
+    # 让 verify-r2 平日也覆盖(与 upload-data-files 同类根治; 前端 overview/情绪分等展示位
+    # 靠 intraday 直传 R2, 若链路静默停传, 旧实现要等周日全量才发现)。
+    _record_standalone_keys(f"data/{f}" for f in files if (data_dir / f).exists())
     # 阶段2：上传成功后清 CF 边缘缓存（purge_cache 失败不中断）
     purge_keys = [f"data/{f}" for f in files if (data_dir / f).exists()]
     purge_cache(purge_keys)
+
+
+# ---- 独立 upload-data-files 链产物登记(#188, 2026-10-05) ----
+# 背景: verify-r2 平日只对账「各通道状态文件 .r2_<ch>_state.json 的 changed 字段」。而
+# upload-data-files 是「脱离 deploy 主链的独立上传点」(s06 20:35 / nextday_plan 22:30 /
+# daily_brief 20:40 / intraday / schedule_stats / feed.xml 等), 走 _upload_glob 不写任何
+# 通道状态 ⇒ 这些产物天然落在 changed 之外: 平日 verify-r2 只能靠全池均匀抽样撞运气, 存量
+# 缺口(状态已记新指纹但 R2 旧/缺)要等周日全量对账才兜。事故: s06 kelly_mode_s06_state.json
+# 09-30 生成版 R2 停在 09-24 版(09-29/09-30 链被 systemd 杀在 R2 段), 直到 10-04 周日
+# verify-r2 全量才补传(「自动补传 1 个」), 期间 deploy 的 s06 机检因「本地新鲜短路只验本地」
+# 全打假绿。根治(举一反三, 自动覆盖当前+将来所有独立上传链产物, 不靠逐文件硬编码清单):
+# 每次 upload-data-files 实际上传成功后把 R2 key 登记进固定清单 data/.r2_standalone_keys.json
+# (去重 set, 跨天持久); verify-r2 平日无条件把这些 key 纳入对账对象。
+_STANDALONE_KEYS_NAME = ".r2_standalone_keys.json"
+
+
+def _standalone_keys_path() -> Path:
+    """独立链产物 key 清单路径(与各通道状态文件同目录 REPO/data, untracked 不进 git)。"""
+    return STATIC_DIR.parent / "data" / _STANDALONE_KEYS_NAME
+
+
+def _record_standalone_keys(keys) -> None:
+    """把独立上传链产物 R2 key 登记进固定清单(去重合并 + 原子写; 失败不阻断上传)。
+
+    keys: 可迭代的 R2 key(含 "data/" 前缀)。读-合并-写; 清单缺失/损坏按空集重建。
+    写失败只打印告警——登记属「检查侧辅助」, 不能反过来阻断上传主链。
+    """
+    p = _standalone_keys_path()
+    try:
+        existing = set()
+        if p.exists():
+            try:
+                raw = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(raw, list):
+                    existing = {str(x) for x in raw}
+            except (OSError, ValueError):
+                existing = set()
+        merged = sorted(existing | {str(k) for k in keys})
+        if merged == sorted(existing):
+            return
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(json.dumps(merged, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, p)
+    except OSError as e:
+        print(f"⚠ 独立链产物 key 登记失败(不影响上传): {e}", file=sys.stderr)
+
+
+def _load_standalone_keys() -> set:
+    """读独立链产物 key 清单; 缺失/损坏返回空集(verify-r2 平日退回旧行为, 不误报)。
+
+    损坏时打 stderr 告警: 清单丢失=独立链产物平日对账覆盖临时回退到旧行为(靠抽样/周日),
+    属「静默降级」——显式发声, 下次各产物上传会重新登记自愈。
+    """
+    p = _standalone_keys_path()
+    if not p.exists():
+        return set()
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        print(f"⚠ 独立链产物 key 清单损坏({p}): {e} — 平日对账覆盖临时回退, 待下次上传重新登记", file=sys.stderr)
+        return set()
+    if not isinstance(raw, list):
+        print(f"⚠ 独立链产物 key 清单格式异常({p}): {type(raw).__name__} — 平日对账覆盖临时回退", file=sys.stderr)
+        return set()
+    return {str(x) for x in raw}
+
+
+def _fmt_name_list(names, cap: int = 50) -> str:
+    """把补传/不一致清单落成可查的文件名串(超 cap 截断并标注总数)。"""
+    names = list(names)
+    if len(names) <= cap:
+        return ", ".join(names)
+    return ", ".join(names[:cap]) + f", ...(共 {len(names)} 个)"
 
 
 def cmd_upload_data_files(filenames):
@@ -2080,6 +2159,8 @@ def cmd_upload_data_files(filenames):
     相对 STATIC_DIR/data/。上传到 R2 data/{filename}。
     部分文件不存在自动跳过（如 notifications.json 某些时点未生成）。
     上传后调 purge_cache 清 CF 边缘缓存。
+    #188(2026-10-05): 上传成功后把 key 登记进 data/.r2_standalone_keys.json,
+    使 verify-r2 平日常态对账这些「独立链产物」(否则它们不在通道状态 changed 里)。
     """
     data_dir = STATIC_DIR / "data"
     existing = [f for f in filenames if (data_dir / f).exists()]
@@ -2089,6 +2170,8 @@ def cmd_upload_data_files(filenames):
     ok, total, _, _ = _upload_glob(data_dir, existing, "data")
     if ok != total:
         sys.exit(1)
+    # #188: 登记独立链产物 key(对账仍按 md5/ETag 逐位比, 只是把它们纳入平日对账对象)
+    _record_standalone_keys(f"data/{f}" for f in existing)
     # 阶段3：上传成功后清 CF 边缘缓存（purge_cache 失败不中断）
     purge_keys = [f"data/{f}" for f in existing]
     purge_cache(purge_keys)
@@ -3148,6 +3231,8 @@ def cmd_verify_r2():
 
     repaired_total = 0
     repair_failed = []
+    repaired_names = []          # #188: 补传涉及的文件名清单(现只打计数→落文件名, 便于反查是谁)
+    stale_standalone_names = []  # #188: 独立链产物中发现 R2 脱节的文件名(层4 外围告警用)
     total_mismatch_found = 0  # export-guard L6: 对账发现的不一致/缺失 key 总数(跨通道累计)
 
     for ch in _R2_CHANNELS:
@@ -3185,15 +3270,30 @@ def cmd_verify_r2():
                 except (OSError, ValueError):
                     changed_rels = set()
             to_check = [f for f in files if str(f.relative_to(local_dir)) in changed_rels]
+            # #188 (2026-10-05): 独立上传链产物(不经 deploy 通道状态, 由 _record_standalone_keys
+            # 登记)无条件纳入平日对账。s06 20:35 / nextday_plan / daily_brief / intraday 等走
+            # upload-data-files, 天然不在 changed 字段里 —— 旧实现只能靠全池抽样撞运气, 存量缺口
+            # 要等周日全量兜(事故: s06 kelly_mode_s06_state.json R2 停 09-24 版 6 天, 本地天天新鲜)。
+            standalone_keys = _load_standalone_keys()
+            standalone_files = []
+            if standalone_keys:
+                standalone_files = [
+                    f for f in files
+                    if f"{r2_prefix}/{str(f.relative_to(local_dir))}" in standalone_keys
+                ]
             # export-guard L6 (2026-10-03): 平日抽样 20 -> 100, 兜「本地没变但 R2 被外部覆盖」存量缺口
             # (事故报告 §8b: 平日抽样 20 兜不住 482/44 大批残留)。
             sample_n = 100
             sampled = _uniform_sample(files, sample_n)
             if sampled:
-                print(f"[verify-r2] {label}: 平日增量 {len(to_check)} 个 + 全池抽样 {len(sampled)} 个")
+                print(f"[verify-r2] {label}: 平日增量 {len(to_check)} 个 + 独立链产物 "
+                      f"{len(standalone_files)} 个 + 全池抽样 {len(sampled)} 个")
             to_check = sorted(set(to_check) | set(sampled))
             if ch.get("sample") and len(to_check) > ch["sample"]:
                 to_check = to_check[:ch["sample"]]
+            # #188: 独立链产物是「必须对账」的确定性对象, 不因抽样上限被截断
+            if standalone_files:
+                to_check = sorted(set(to_check) | set(standalone_files))
         if not to_check:
             print(f"[verify-r2] {label}: 无需对账 key, 跳过")
             continue
@@ -3235,12 +3335,21 @@ def cmd_verify_r2():
                     mismatches.append(f)
         if mismatches:
             total_mismatch_found += len(mismatches)
-            print(f"[verify-r2] {label}: 发现 {len(mismatches)} 个不一致/缺失 key(共查 {ch_checked}), 自动补传")
+            mm_rels = sorted(str(f.relative_to(local_dir)) for f in mismatches)
+            # #188(2026-10-05) 修法②: 落文件名(旧实现只打计数「发现 N 个」查不出是谁)
+            print(f"[verify-r2] {label}: 发现 {len(mismatches)} 个不一致/缺失 key(共查 {ch_checked}), 自动补传: "
+                  f"{_fmt_name_list(mm_rels)}")
+            # #188: 独立链产物里出现脱节 → 记名, 收尾走层4 外围告警(与链路解耦, 防「告警与链路同亡」)
+            _std_set = {str(f.relative_to(local_dir)) for f in standalone_files}
+            stale_here = [n for n in mm_rels if n in _std_set]
+            if stale_here:
+                stale_standalone_names.extend(f"{r2_prefix}/{n}" for n in stale_here)
             ok, total, failed_rels, _ = _upload_glob(
                 local_dir, ch["patterns"], r2_prefix, only_files=mismatches, verify_etag=True)
             repaired_total += ok
             if ok != total:
                 repair_failed.extend(f"{label}/{r}" for r in failed_rels)
+            repaired_names.extend(f"{r2_prefix}/{str(f.relative_to(local_dir))}" for f in mismatches)
         else:
             print(f"[verify-r2] {label}: 共查 {ch_checked} key 全部一致 ✓")
 
@@ -3271,7 +3380,35 @@ def cmd_verify_r2():
         except Exception as _e:
             print(f"⚠ notify 告警发送失败(不阻塞): {_e}")
 
-    print(f"[verify-r2] ✓ 对账完成, 自动补传 {repaired_total} 个")
+    # ---- #188 (2026-10-05): 独立链产物脱节 → 层4 外围告警(与 s06 链解耦) ----
+    # 定位: 修法③「被杀兜底」的外半边。s06_snapshot.sh 内的 notify 在链被 systemd 杀时永不
+    # 触达(告警与链路同亡); verify-r2 跑在 deploy 链上、由云上独立 timer 驱动, 与 s06 链无
+    # 进程依赖 ⇒ 它发现独立链产物(如 kelly_mode_s06_state.json)与 R2 脱节时必须发声:
+    # 「某条排期上传链已连续失败/被截断, 靠我这次全池兜底才补上」。dedup 6h 防轰炸。
+    if stale_standalone_names:
+        print(f"[verify-r2] ⚠ 独立链产物与 R2 脱节: {_fmt_name_list(stale_standalone_names)}", file=sys.stderr)
+        try:
+            sys.path.insert(0, str(ROOT / "scripts"))
+            import notify  # noqa: E402
+            _dedup_key = "verify_r2_standalone_stale"
+            if not notify.check_dedup(_dedup_key, 21600):
+                notify.send(
+                    "[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)",
+                    f"verify-r2 发现以下「脱离 deploy 主链的独立上传产物」R2 副本与本地不一致/缺失"
+                    f"(已自动补传 {repaired_total} 个): {_fmt_name_list(stale_standalone_names)}。\n"
+                    f"含义: 对应排期上传链(如 s06_snapshot.sh 20:35 / nextday_plan / daily_brief)已连续"
+                    f"失败或被截断(生成成功但 R2 没跟上), 本应由该链自己的告警触达 —— 若未收到该链告警, "
+                    f"说明告警与链路同亡, 需查链内 notify 是否在异常/trap 路径下也能触达。",
+                    from_prefix="[告警]",
+                )
+                notify.update_dedup(_dedup_key)
+        except Exception as _e:
+            print(f"⚠ notify 告警发送失败(不阻塞): {_e}")
+
+    if repaired_names:
+        print(f"[verify-r2] ✓ 对账完成, 自动补传 {repaired_total} 个; 涉及文件名: {_fmt_name_list(repaired_names)}")
+    else:
+        print(f"[verify-r2] ✓ 对账完成, 自动补传 {repaired_total} 个")
 
 
 _LIGHT_CHECK_SAMPLE = 20  # 轻量对账每通道抽查文件数(decline 快速降噪, 不全量扫描)

@@ -13,6 +13,9 @@
 #     loss 低频, 20:35 晚于全部源; 失败仅告警不阻断, --check 停滞告警兜底暴露)。export 链
 #     17:50 build_snapshot 亦生成(用昨日 s06), 本链覆盖为今日 s06 权威版。
 # 任一段 FAIL → notify.py --severe 告警(--dedup-key 1h 内不重发防轰炸; 发送成功才记 dedup)。
+# #188 (2026-10-05): 告警改 trap 驱动(EXIT 非零 / SIGTERM / SIGINT 都发), 防「链路被 systemd
+#   杀→走不到末尾→告警与链路同亡」; 详见下方 fire_alert 区。R2 存量缺口另有 deploy 侧
+#   verify-r2 外围告警(verify_r2_standalone_stale)兜底, 与本链解耦。
 #
 # 时点选择依据(§14): 20:35 ——
 #   输入 csi1000/hs300-all.json 由 update_all.sh(17:50 启动)统一 deploy 的
@@ -78,7 +81,35 @@ fi
 
 echo "=== s06_snapshot.sh 开始 $(date '+%F %T') ===" >> "$LOG"
 
-RC_GEN=0; RC_CHK=0; RC_R2=0
+RC_GEN=0; RC_CHK=0; RC_R2=0; RC_PR=0; RC_PR_R2=0
+_ALERTED=0
+
+# #188 (2026-10-05) 修法③「被杀兜底」: 旧实现只在 happy path 末尾判定 FINAL_RC 才发告警, 链路被
+# systemd 杀(Type=oneshot 超 TimeoutStartSec 发 SIGTERM / OOM / 手动 stop)时脚本根本走不到末尾
+# ⇒ 告警与链路同亡, 用户在 R2 停更 6 天里一条告警都没收到。改「trap 驱动」: EXIT(非零) / TERM /
+# INT 任一触发都发告警(_ALERTED 幂等, 防 EXIT 与 TERM 双发)。
+# 注: 注册点在交易日闸门之后(L79), 非交易日 `exit 0` 路径保持无 trap 无告警。
+fire_alert() {
+  local _why="$1"
+  [ "${_ALERTED:-0}" -eq 1 ] && return 0
+  _ALERTED=1
+  "$PY" scripts/notify.py \
+    "[S06] 快照重生链路异常 $_why gen=${RC_GEN:-?} check=${RC_CHK:-?} r2=${RC_R2:-?} pr=${RC_PR:-?} pr_r2=${RC_PR_R2:-?} $(date '+%m-%d %H:%M')" \
+    "S06 每日重生四段(gen 重生成 / check A1-A4 机检 / r2 R2同步 / pr latest_posrating 首页K档评级)异常或链路被杀, 快照可能过期或带病。<br>终止原因: $_why<br>日志: $LOG (尾部 50 行)<br>影响: 前端 S06 档超覆盖期 fail-open 不拦截, 静默退化; pr 生成失败首页 K 档评级回退静态兜底 86.60%, pr R2 上传失败则线上约 21h 展示昨日版(次日 deploy 追上)。<br>注: 若本条为 EXIT/SIGTERM/超时触发, 说明链路未跑完即终结(不依赖末尾判定, 见 #188 修法③); R2 存量缺口另有 deploy 侧 verify-r2 外围告警兜底。" \
+    --severe --from-prefix "[告警]" \
+    --alert-issue "S06 快照重生链路异常" --alert-log "$LOG" \
+    --dedup-key s06_snapshot_fail --dedup-window 3600 2>&1 | tee -a "$LOG" || true
+}
+_on_exit() {
+  local rc=$?
+  [ "$rc" -ne 0 ] && fire_alert "EXIT rc=$rc"
+  return 0
+}
+_on_term() { fire_alert "SIGTERM(被 systemd 超时/stop 杀)"; exit 143; }
+_on_int()  { fire_alert "SIGINT"; exit 130; }
+trap '_on_exit' EXIT
+trap '_on_term' TERM
+trap '_on_int'  INT
 
 # ① 重生快照(两树原子写; 超时 300s 防挂死)
 run_to 300 "$PY" scripts/gen_kelly_mode_s06_state.py --repo "$REPO" --git-repo "$GIT_REPO" >> "$LOG" 2>&1
@@ -135,14 +166,7 @@ FINAL_RC=$RC_GEN
 [ "$FINAL_RC" -eq 0 ] && FINAL_RC=$RC_PR
 [ "$FINAL_RC" -eq 0 ] && FINAL_RC=$RC_PR_R2
 
-if [ "$FINAL_RC" -ne 0 ]; then
-  "$PY" scripts/notify.py \
-    "[S06] 快照重生链路异常 gen=$RC_GEN check=$RC_CHK r2=$RC_R2 pr=$RC_PR $(date '+%m-%d %H:%M')" \
-    "S06 每日重生四段(gen 重生成 / check A1-A4 机检 / r2 R2同步 / pr latest_posrating 首页K档评级)任一失败, 快照可能过期或带病。<br>日志: $LOG (尾部 50 行)<br>影响: 前端 S06 档超覆盖期 fail-open 不拦截, 静默退化; pr 生成失败首页 K 档评级回退静态兜底 86.60%, pr R2 上传失败则线上约 21h 展示昨日版(次日 deploy 追上)。" \
-    --severe --from-prefix "[告警]" \
-    --alert-issue "S06 快照重生链路异常" --alert-log "$LOG" \
-    --dedup-key s06_snapshot_fail --dedup-window 3600 2>&1 | tee -a "$LOG" || true
-fi
+# #188: FINAL_RC != 0 的告警已由 EXIT trap(_on_exit → fire_alert)统一发出, 不再重复调用。
 
 echo "=== s06_snapshot.sh 结束 $(date '+%F %T') 退出码=$FINAL_RC ===" >> "$LOG"
 exit "$FINAL_RC"

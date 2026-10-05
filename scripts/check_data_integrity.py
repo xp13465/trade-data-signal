@@ -2119,6 +2119,9 @@ def check_s06_state_snapshot(data_dir: Path, timeout: int = 300) -> CheckResult:
          即云上工作区=将上传版本, 继续跑 scripts/check_s06_state.py 子进程 A1-A6 完整互证
          (A1 独立第二实现复算 / A2 decision_date 防前视 / A3 两基座+s06 预设键集 /
           A4 阈值与生成器常量+公示文案单源 / A5 锁死不变式 / A6 前段元数据)。exit!=0 → FAIL。
+         ①b #188(2026-10-05): 本地新鲜时追加一次 R2 用户可见副本 coverage_end 比对 ——
+         本地新鲜≠线上新鲜(本地短路只验「将上传版本」, 不看 R2 是否已同步)。不一致/取回失败
+         只 WARN 不 FAIL(deploy.sh L324 先于 R2 上传执行, FAIL 会 abort deploy → 死锁)。
       ② 本地快照缺失或过期(如本机 09-11 旧残留) → 降级查线上 R2 现役快照新鲜度+结构合法
          (校验用户真实看到的线上版本)。
     两级都不静默 PASS：本地新鲜 → A1-A6 任一断言 FAIL 即 FAIL；本地缺失/过期 →
@@ -2161,7 +2164,27 @@ def check_s06_state_snapshot(data_dir: Path, timeout: int = 300) -> CheckResult:
         if proc.returncode != 0:
             return _fail(name, f"check_s06_state.py rc={proc.returncode}: {summary or '详见该脚本输出'}")
         ok_line = next((l.strip() for l in tail if l.strip().startswith("✓")), "")
-        return _ok(name, ok_line or "A1-A6 互证 PASS")
+        ok_line = ok_line or "A1-A6 互证 PASS"
+        # ── ①b #188 (2026-10-05) 本地新鲜 ≠ 用户可见副本新鲜 ──
+        # 定位: 旧实现「本地新鲜就短路只验本地」, 完全不看 R2/用户侧是否已同步。s06 20:35 独立
+        # 上传链若被杀(R2 段未执行), 本地天天新鲜而 R2 停更, 本函数仍打 ✓ → 09-29~10-04 六天
+        # deploy 全假绿(用户可见副本旧版, 直到 10-04 周日全量才补)。故本地新鲜时追加一次 R2
+        # coverage_end 比对。**只 WARN 不 FAIL**: 本函数在 deploy.sh L324 先于 R2 上传执行,
+        # FAIL 会 abort deploy → R2 永不上传 → 死锁(不能自救); WARN 由 deploy 输出可见 +
+        # deploy 侧 verify-r2 独立链产物告警(verify_r2_standalone_stale)兜底。
+        _r2snap, _e = _fetch_r2_json("kelly_mode_s06_state.json", timeout=min(timeout, 30))
+        if _e:
+            return _warn(name, f"{ok_line}；但 R2 用户可见副本取回失败: {_e} "
+                               f"(本地新鲜≠线上新鲜, 疑 s06 20:35 上传链被杀, 见 #188)")
+        if not isinstance(_r2snap, dict):
+            return _warn(name, f"{ok_line}；但 R2 用户可见副本结构异常({type(_r2snap).__name__}), "
+                               f"本地新鲜≠线上新鲜, 见 #188")
+        _r2cov = str(_r2snap.get("coverage_end") or "")
+        if _r2cov != cov_end:
+            return _warn(name, f"{ok_line}；但 R2 用户可见副本 coverage_end={_r2cov or '(缺)'} ≠ 本地 "
+                               f"{cov_end}(本地新鲜≠线上新鲜, 疑 s06 20:35 上传链被杀; "
+                               f"verify-r2 会补传, 见 #188)")
+        return _ok(name, f"{ok_line}；R2 副本 coverage_end={_r2cov} 与本地一致")
 
     # ── ② 本地缺失/过期 → 降级查线上 R2 现役快照(用户真实看到的数据) ──
     snap, err = _fetch_r2_json("kelly_mode_s06_state.json", timeout=min(timeout, 30))
