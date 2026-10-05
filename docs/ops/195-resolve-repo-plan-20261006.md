@@ -288,7 +288,7 @@ resolve_repo "${BASH_SOURCE[0]}"
   - 扫描 `scripts/*.sh` + `scripts/**/*.sh`(排除 `worktrees/`、排除 `docs/`):
     - 规则 R1:含 `(REPO|GIT_REPO|TRADE_DIR|STATICDATA_REPO):-/Users/linhuichen` 的文件必须(且仅允许)在白名单=「已迁移清单」中;白名单外命中 = FAIL(新脚本回潮)。
     - 规则 R2:白名单内文件必须含**恰好 1 行** `source ... repo_paths.sh` 且**恰好 1 行** `resolve_repo` 调用。
-    - 规则 R3:白名单内文件**不得**残留 `:/Users/linhuichen` 默认写法(允许注释内提及;用行内 python 判)。
+    - 规则 R3:白名单内文件**不得**残留 `:-?/Users/linhuichen` 默认写法(允许注释内提及;用行内 python 判)。**2026-10-06 返修**:原写作 `:/Users/linhuichen`,匹配不到全仓主流形态 `:-/Users/linhuichen` ⇒ 代码行命中恒 0 ⇒ R3 空转(批1 独立审复现,已修,并加 §6.4 同源修正 + ratchet 内置变异自测 `--selftest`)。
   - 输出「PASS n / FAIL m + 逐文件行号」;FAIL 阻断(与 §22 一致性机检同精神)。
   - 迁移推进期间 R1 白名单按批增长,ratchet 只收紧不放松。
 
@@ -379,7 +379,7 @@ sed -n '54p' docs/ops/194-review-agent-aa1efa05fb78e5b8b.md
 while read -r f; do
   n_src=$(grep -c 'lib/repo_paths\.sh' "$f")
   n_res=$(grep -cE '^resolve_repo ' "$f")
-  n_mac=$(grep -cE ':/Users/linhuichen' "$f")
+  n_mac=$(grep -cE ':-?/Users/linhuichen' "$f")   # 2026-10-06 返修:原 ':/Users/linhuichen' 匹配不到主流病灶 ':-/Users/linhuichen' ⇒ 恒 0 = 空转闸门(§4.6 R3 同源缺陷);':-?' 同时覆盖 ':-/' 与 ':/'
   n_exp=$(grep -cE '^export (REPO|GIT_REPO)=' "$f")
   [ "$n_src" = 1 ] && [ "$n_res" = 1 ] && [ "$n_mac" = 0 ] || echo "FAIL $f src=$n_src res=$n_res mac=$n_mac"
   echo "INFO $f export_lines=$n_exp"     # 与迁移前基线值逐文件比对(批验收记录 before/after)

@@ -148,3 +148,64 @@ probe 做法:把 lib 全文经 stdin 管道送云上 `env -u REPO -u GIT_REPO ba
 - 跑过的 ssh 全为 `readlink/ls/grep/systemctl show/管道 bash -s(仅打印)`;
 - 自测全在 `mktemp` 沙箱 + `env -u` 隔离;patrol selftest 的 notify 用**哨兵桩**(§18 L48),T5/T7 断言 sentinel **不存在**;
 - lib 本体**不含**任何 notify/告警调用(设计约束)。
+
+## 10. 返修段(2026-10-06 独立审 FAIL 返修,旧假绿结论保留可反查)
+
+### 10.1 FAIL 内容(独立审 9 PASS / 1 FAIL)
+
+**`scripts/check_repo_paths_ratchet.py` 的 R3 是空转 = 永不触发**(审查者已复现):
+`MAC_DEFAULT = re.compile(r":/Users/linhuichen")` **匹配不到全仓主流形态 `:-/Users/linhuichen`**
+⇒ 代码行命中恒 0 ⇒ R3 恒 PASS。变异证据:把已迁移文件的 export 行改回
+`export REPO="${REPO:-/Users/linhuichen/code/trade-data}"` 仍 `RESULT=PASS`(本该 FAIL)。
+
+> **旧假绿结论留痕(可反查,不删)**:§3 表 ⑤ 当时报的 `RESULT=PASS`、§4-E 的「R3 残留命中 0」均为
+> **空转产生的假绿**,本人自验未识破(闸门自验只跑「绿」没跑「红」)。根因 = §18 L49「假样本养绿」
+> 同族:**只验闸门能 PASS,没验闸门能 FAIL**。
+
+### 10.2 修法(三件,全做)
+
+**(1) 修 R3 正则 + 实测全仓命中数 > 0**
+```python
+MAC_DEFAULT = re.compile(r":-?/Users/linhuichen")   # 覆盖 ':-/'(主流) 与 ':/'
+```
+实测(代码行,注释跳过):`:-?/Users/linhuichen` 命中 **83 行 / 56 文件**(修前旧正则 `:/Users/linhuichen` = **0 行**)。
+另加**恒在防空转自检**:每次运行都用标准病灶样本 `REPO="${REPO:-/Users/linhuichen/code/trade-data}"`
+反查正则;匹配不到 → 直接 `FAIL(空转)` 并不许 PASS(即「正则自己失效」也不静默)。
+
+**(2) 补「变异测试」把空转钉死(§18 L49:样本真失败才算通过)**
+ratchet 内置 `--selftest`:造临时仓根 + 放两份**真实已迁移文件** → ①负对照(未变异)断言 **PASS**
+(证自测装置本身非恒 FAIL)②把 `check_r2_consistency.sh` **代码行**的 env 默认值改回写死 mac 路径 →
+断言 ratchet **必须 FAIL**。实测输出:
+```
+  PASS: 负对照(未变异样本)→ RESULT=PASS(装置本身非恒 FAIL)
+  PASS: 变异样本(第 57 行代码)→ RESULT=FAIL(闸门真响);[ratchet] MIGRATED 2 个,PASS 1;R3 残留命中=1
+[ratchet-selftest] PASS
+```
+> **注入点自身的坑(二次踩到 L49 变体,如实留痕)**:首版 `--selftest` 用裸
+> `txt.replace("export REPO GIT_REPO", …, 1)`——该锚点在文件**头注释**里也出现过一次 ⇒ 变异落在了
+> **注释行**上、被 `_code_lines` 跳过 ⇒ 又得到假 PASS(自测 FAIL 暴露)。改为**按整行精确匹配**
+> (`ln.strip() == "export REPO GIT_REPO"`)定位代码行后通过。**变异样本必须落在被判定路径上**。
+> 该自测同时并入 pytest 全量(`scripts/tests/test_repo_paths_ratchet_pytest.py`,2 例),以后改正则改坏立即可见。
+
+**(3) 顺手修方案文档同源缺陷(批2 不照抄空转)**
+`docs/ops/195-resolve-repo-plan-20261006.md` §6.4 批验收机检 `n_mac` 原为同款错正则
+`grep -cE ':/Users/linhuichen'` → 已改 `':-?/Users/linhuichen'` + 一行返修注;§4.6 R3 规则文字
+同步改为 `:-?/Users/linhuichen` 并标注返修来历。
+
+### 10.3 返修后自测(全绿)
+
+| 项 | 命令 | 实测 |
+|---|---|---|
+| ratchet 主检 | `python3 scripts/check_repo_paths_ratchet.py` | 命中 56 文件(白名单外 0)/ MIGRATED 2 PASS 2 / R3 残留命中=0 / 正则健康自检 OK / `RESULT=PASS` |
+| ratchet 变异自测 | `... --selftest` | 负对照 PASS + 变异第 57 行 → `RESULT=FAIL(R3 残留命中=1)` / `[ratchet-selftest] PASS` |
+| lib 单测(回归) | `bash scripts/tests/test_resolve_repo.sh` | `PASS=10 FAIL=0` rc=0 |
+| patrol 自测(回归) | `bash scripts/cloud_unit_patrol_selftest.sh` | `PASS=8 FAIL=0` rc=0 |
+| pytest 全量 | `<venv>/python -m pytest scripts/tests/ -q` | `234 passed, 1 skipped`(含新 2 例 ratchet) |
+| 语法/lint | `bash -n` 6 文件 + pre-commit lint | 全过 |
+
+### 10.4 非阻塞缺口(#208,本批不动,仅确认未引入)
+
+审查者构造「祖先 symlink」反例:能 `rc=0` 静默得 `REPO=仓目录`(非 trade-data)。审查者实测
+**两机祖先路径逐级 `ls -ld` 均无 symlink、41/41 unit ExecStart 根 = trade-data + env 在位 ⇒ 无触发路径**;
+主控已登记 **#208**(批2 前补单测/双候选回退),**不在本批实施**。本批未引入该问题(推导逻辑未变,
+返修只动 ratchet 机检 + 文档)。
