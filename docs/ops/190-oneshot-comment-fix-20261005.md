@@ -244,4 +244,4 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 \
    sudo systemctl reset-failed probe190.service'
 ```
 
-**配套 commit**:`<本次 feat commit 见 git log feat/190-oneshot-comment-fix-20261005 -1>`（`Co-Authored-By: Claude Code <noreply@anthropic.com>`）。
+**配套 commit**:`f868d06f1`（`fix(190): 订正 schedule_monitor.launchctl_loaded() 注释陷阱(oneshot activating)`；`Co-Authored-By: Claude Code <noreply@anthropic.com>`）。分支 `feat/190-oneshot-comment-fix-20261005`，base == 开工时 `origin/main`。
