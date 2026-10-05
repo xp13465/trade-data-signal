@@ -154,7 +154,17 @@ TASKS = [
     # 云上 trade-r2-consistency.timer 每日 23:20 跑 check_r2_consistency.sh
     # (local vs R2直链 vs CF r2-proxy vs 主站同源 四源比对 9 个核心产物; rc!=0 → notify --severe)。
     # 每日跑不限交易日: 「各源一致」是不变量, 周末被外部覆盖同样要抓(故 trading_day_only=False)。
-    # 固定 append + 标准开始/结束行, standard 模式可解析; 此处只管漏跑+进行中超时,
+    # 固定 append + 标准开始/结束行, standard 模式可解析; 此处只管漏跑。
+    # ⚠️ 进行中超时/执行耗时两通道**刻意不覆盖本任务**(未入 DUR_THRESHOLDS; #160 收口
+    #    2026-10-05 判定, 与 check_data_gap 同款), 理由:
+    #    ①区间内无可行阈值——内层 run_to 900 杀掉挂死的 python 后包装器仍会写完结束行
+    #      (dur≈901s), 阈值取 900 就会为同一实例再发一封「执行耗时超标」= 与包装器自身
+    #      severe 双响(正是 R7② 要消除的双通道); 取 >960(外层 systemd TimeoutStartSec=960)
+    #      则 systemd 先硬杀 → 该通道永不触发 = 死配置。
+    #    ②进行中超时触发点 = 23:20 + 900s + 缓冲0min = 23:35, systemd 23:36 已硬杀, 而
+    #      monitor 轮次 :00/:15/:30/:45 永不落在该 1 分钟缝里。
+    #    → 卡死覆盖由「内层 run_to 900 + 外层 TimeoutStartSec=960」双层硬闸 + 退出失败通道
+    #      (last_exit!=0)承担; 本行只管漏跑。
     # 数据级告警由审计器自身出口承担(gen_schedule_stats TASKS 已同步注册)。
     {"task": "r2_consistency",      "log": "r2_consistency_launchd.log",
      "trading_day_only": False,
@@ -588,6 +598,23 @@ if STATS_FILE.exists():
                     print(
                         f"[r3-nextday-suppress] nextday_plan exit={exit_code} 但产物今日已生成, "
                         f"自身通道已发详细告警, monitor 汇总去重"
+                    )
+                # #160 收口 R7②(2026-10-05): r2_consistency 包装器自身通道
+                # (check_r2_consistency.sh → notify --dedup-key r2_consistency_fail, 含问题
+                # 明细)已为**本次运行实例**发过告警时, 本 exit!=0 汇总通道不再复述(同一 FAIL
+                # 走两通道 = 两封邮件)。判据 = notify_dedup.json 的 last_alerted >= 本次
+                # last_run。反例保证(不吞真故障): 包装器告警发送失败/脚本在 notify 前被杀/
+                # 去重状态缺失 → 判定 False → 本通道照发(双保险)。判定函数
+                # scripts/alert_denoise_rules.py:r7_r2_consistency_wrapper_alerted。
+                elif s.get("task") == "r2_consistency" and adr.r7_r2_consistency_wrapper_alerted(
+                    REPO, last_run_str
+                ):
+                    _ex_r2c = alert_state.get(dedup_key)
+                    if _ex_r2c is not None and _ex_r2c.get("status") == "active":
+                        _ex_r2c["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                    print(
+                        f"[r7-r2consistency-suppress] r2_consistency exit={exit_code} 但包装器"
+                        f"通道已为本次运行(last_run={last_run_str})发过告警, monitor 汇总去重"
                     )
                 else:
                     existing = alert_state.get(dedup_key)
