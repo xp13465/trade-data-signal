@@ -3,6 +3,8 @@
 运维告警体系评估与监控机制相关产物。
 
 ## 文档
+- [alert-systematic-review-20261005.md](./alert-systematic-review-20261005.md) - **全站告警系统性排查**(#181-184 来源,2026-10-05):事件驱动扫描全告警源(本地 alerts + 云上 systemd/journal + schedule_monitor 9 维度 + notify/alert_state + 看门狗 + check_* + CSP)后逐条**四态判定**(已修闭环/已优化降噪/仍待办/误报),在册告警全分类无遗留;含盲区 6 项 + 新登记 4 项。复现命令见报告「## 复现」。
+- [rollback-playbook-20261005.md](./rollback-playbook-20261005.md) - **集中发布回滚预案**(#165,承接 D5 P1-2):三步(代码 revert 前进式 ≈25-40min / 数据 R2 快照恢复 2-60min / 版本串·缓存 前进式 bump + SW 壳芯兜底),每步含具体命令 + 耗时 + 风险点 + 验证方法;恢复源优先级(pre-upload 7 天 → 云上树 → large-json → git → mac-backups);诚实标注(SW+缓存组合未演练 / check_r2_consistency 未接线 / deploy 段2 fail-open)。复现命令见报告「## 复现」。
 - [alert-system-evaluation.md](./alert-system-evaluation.md) - 运维告警体系全面评估(2026-08-02~08-15):全量告警清单/分类统计/「调机制vs根治」逐类判定/建议清单/发现的bug(待用户确认)。结论:49条SEVERE中~21条机制误报噪音,~12条真实已根治,剩余需动作为5类(P0修pending误报机制+intraday盘后阈值/P1 R2降噪/push跨槽恢复判定/验证已修项)
 - [data-gap-alert-batch-20260827.md](./data-gap-alert-batch-20260827.md) - 采集异常告警兜底批(检测器上线报告,#103 方案A+S2 用户拍板):新增 scripts/check_data_gap_alerts.{py,sh} 四检查器(北向深缺口不自愈/北向停更/accum_nav 窗外缺口基线增量口径/宽度族保鲜),云上 systemd timer `trade-check-data-gap` 交易日 22:35(迁云前为 launchd `com.trade.check-data-gap`);阈值全部实测来源;发现 a_width_zb/seal_rate 停更37天真先例;two-way 自测+复现段见报告。
 - [v4-pro-leak-rootcause-20260815.md](./v4-pro-leak-rootcause-20260815.md) - v4-pro 用量异常根因(2026-08-15):Explore subagent 请求 model=claude-opus-5 不在代理 INJECT/ALIAS 白名单 → 透传官方端点按 v4-pro 计费。修复建议 A/B/C 待用户确认。复现命令见报告「## 复现」。
