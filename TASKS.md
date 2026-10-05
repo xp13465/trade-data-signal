@@ -13,9 +13,9 @@
 > **权威任务状态以 [docs/pending-features-index.md](docs/pending-features-index.md) 为准**(§23.12-1),本节只写 transient 指针。
 > **新会话(2026-10-05 12:05 起)已接手**;上一会话两个 agent(r2fix-review / bkt-audit)均已收工且产物归档,无遗留。
 
-**在跑 agent:5 个(background + 进度文件;巡检 cron 兜底 `4f138d8e`,完成即删)**
-0. 🔄 `老账号 R2 清理评估 + #178 云上环境核查`(用户 2026-10-05 提出:老账号 backup 桶 8G+ + 主桶 signal-data 3G+ 已超 10G 免费额度,要评估能手动清哪些压到 ~6G)= researcher 只读实测两桶(audit 只覆盖备份桶,**signal-data 是增量**)+ 逐项归类 + §25 恢复路径;顺带核云上 `.env` 有无 `R2_BACKUP2_*` 四键(进度 `/tmp/agent-progress-r2cleanup.md`)。**已知进展:云上 `.env` 两套凭据均在**(老 `R2_S3_*`→signal-data/signal-backup;新 `R2_BACKUP2_*`→signal-backup2),`upload_r2.py` 尚缺 BACKUP2 路由(即 #178 未部署)—— **待其核完"有无 `R2_BACKUP_BUCKET` 覆盖"才能放行 merge**。
-1. 🔄 `#164 监控资源维度 + #162 s06 状态残留 hold`(A 批,同改 `scripts/schedule_monitor.sh` 故并一单)= implementer,分支 `feat/164-162-monitor-20261005`(进度 `/tmp/agent-progress-mon164.md`)。
+**在跑 agent:4 个(background + 进度文件;巡检 cron 兜底 `4f138d8e`,完成即删)**
+0. ✅ `老账号 R2 清理评估 + #178 云上环境核查` 已收工(报告 `docs/ops/r2-old-account-cleanup-assessment-20261005.md`,已合 main);**#178 已合 main `5e014d9e3`**(详见下)。
+1. ✅ `#164 监控资源维度 + #162 s06 状态残留 hold` = implementer 已完成,分支 `feat/164-162-monitor-20261005` commit `06e8c6d66`(已 push);**已派 reviewer 独立审查中**(进度 `/tmp/agent-progress-review164.md`)。**待合并后处理**:①pending-index #164 行计划文字(85/95+inode≥90+内存<500M)与实际落地(四指标同款 85/90)**不一致**,merge 后随状态回填一并改 ②**云上手动动作 2 件**:(a) 新 `schedule_monitor.sh` 需同步云上(云上 `/home/ubuntu/code/trade-data` 非 git 仓,走 deploy/rsync 通道)(b) 独立根因 —— systemd 单元 `trade-s06-snapshot.service` `TimeoutStartSec=600` vs 脚本内层 `run_to 900` **无梯度** ⇒ 每日被杀且无结束行/无 notify,建议提到 ≥960s(unit 云上手动管,git pull 不更新)。
 2. 🔄 `#160 三站一致性校验器接线`(A 批)= implementer,分支 `feat/160-consistency-gate-20261005`(进度 `/tmp/agent-progress-consistency160.md`)。
 3. 🔄 `#159 public_fund.db.bak(10G)异地备份 Batch B`(D 批,§25 先备份后删)= implementer,分支 `feat/159-pfdb-bak-offsite-20261005`(进度 `/tmp/agent-progress-pfbackup159.md`)。
 4. 🔄 `Git 分支大扫除`(用户 2026-10-05 提出「branch 100 多个了要整理清理」;**现状本地 162 / 远端 125**)= general-purpose:§25 **先 bundle 备份(含不在 main 的提交)上传 R2 并 verify** → 分类(勿信 `--merged`,用 blob hash 跨路径比)→ **只删「内容已在 main」的**,有独有内容的一律留+列清单 → `docs/ops/git-branch-cleanup-20261005.md`(进度 `/tmp/agent-progress-branchclean.md`)。**禁区**:不切分支、不碰 4 个在册 worktree 及其分支、不 force push。
