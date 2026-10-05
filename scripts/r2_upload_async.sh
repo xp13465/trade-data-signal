@@ -52,6 +52,10 @@ mkdir -p "$(dirname "$LOG")"
 echo "=== r2_upload_async 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "REPO=$REPO GIT_REPO=$GIT_REPO" | tee -a "$LOG"
 
+# 被看门狗超时 kill 的通道记录(#177 解静音: verify-channels 收尾对账时对这些通道保留告警,
+# 不适用轻量对账静音——该通道本轮从未真正完成上传, 死循环下 R2 可能静默陈旧)。
+R2_KILLED=""
+
 # 加载 .env(PURGE_SECRET 等 Worker 凭证)到环境, 确保手动跑时子进程(upload_r2.py)能读
 # PURGE_SECRET 调 /api/purge-cache 清 edge cache(与 deploy.sh 同款, 防手动触发丢凭证致 purge 失败)。
 set -a
@@ -59,52 +63,85 @@ set -a
 [ -f "$REPO/.env" ] && . "$REPO/.env"
 set +a
 
-# ---- 与 deploy.sh run_r2_upload 同款(唯一落点; 看门狗估算口径 150KB/s × 2 + 240s 固定开销,
-# 上限 7200s; 显式通道值优先; 估算失败回退固定 900s, 2026-09-24 P2-估算回退根治) ----
+# ---- 看门狗换代(#174, 2026-10-05): 总存活时长判据废弃 -> 停滞判据(主)+ 低速判据(辅)+ 7200s 硬兜底 ----
+# 业界(rclone --timeout / rsync --timeout / curl --speed-limit / systemd WatchdogSec)全按
+# 「IO 停滞/无进展」判死, 不按「进程活了多久」—— 健康全量(如 1718 key 备份)只要日志在推进
+# 就放行, 不被总时长误杀(根因: _backup_overwritten_keys 串行备份 ~2200s 被显式 900s 误杀 → 死循环)。
+# 显式 ch_timeout(900/1800/7200)仅保留参数接口兼容调用点(必须从参数剥离数字, 否则会当子命令
+# 传进 upload_r2.py), 不再作 kill 判据。upload_r2.py 打印的 R2_BYTES_TOTAL 估算行不再被消费。
+_fmt_mtime() {
+  # 文件 mtime 秒值(epoch): Linux stat -c %Y / macOS stat -f %m 兼容。失败回退 0。
+  if stat -c %Y "$1" 2>/dev/null; then
+    return 0
+  fi
+  stat -f %m "$1" 2>/dev/null || echo 0
+  return 0
+}
+
 run_r2_upload() {
   local desc="$1"; shift
   local ch_timeout=""
   if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
     ch_timeout="$1"; shift
   fi
-  local tmp_log pid slept rc
+  local tmp_log pid rc
   tmp_log=$(mktemp)
   "$PY" "$REPO/scripts/upload_r2.py" "$@" >"$tmp_log" 2>&1 &
   pid=$!
-  local est_limit=0 r2bytes=""
-  local _i
-  for _i in $(seq 1 40); do
-    r2bytes=$(grep -Eo 'R2_BYTES_TOTAL=[0-9]+' "$tmp_log" 2>/dev/null | tail -1 | cut -d= -f2)
-    [ -n "$r2bytes" ] && break
-    if ! kill -0 "$pid" 2>/dev/null && ! grep -q "R2_BYTES_TOTAL" "$tmp_log" 2>/dev/null; then
-      break  # 进程已退出且非增量命令(未打印字节量行) → 不用再空等
-    fi
-    sleep 0.5
-  done
-  if [ -n "$r2bytes" ] && [[ "$r2bytes" =~ ^[0-9]+$ ]] && [ "$r2bytes" -gt 0 ] 2>/dev/null; then
-    est_limit=$(( r2bytes / 150000 * 2 + 240 ))
-    est_limit=$(( est_limit > 7200 ? 7200 : est_limit ))
-    est_limit=$(( est_limit < 300 ? 300 : est_limit ))
-  fi
-  local ch_limit
-  if [ -n "$ch_timeout" ]; then
-    ch_limit="$ch_timeout"
-  elif [ "$est_limit" -gt 0 ]; then
-    ch_limit="$est_limit"
-  else
-    ch_limit=900
-  fi
-  slept=0
+  # 主判据=停滞: 日志 mtime 超 N 秒(默认 300s=5min, 对齐 rclone --timeout 默认)无新增输出即判死。
+  local _stall_secs="${R2_UPLOAD_STALL_SECS:-300}"
+  local _last_mtime _now _slept _cur_mtime
+  _last_mtime=$(_fmt_mtime "$tmp_log")
+  _slept=0
+  # 辅判据=低速: 每 60s 采样日志已传字节(形如 (12345B)), 近 5 分钟(连续 5 次采样)增量 < 1MB
+  # 且属批量上传(total>10)即判死。小通道/对账通道(verify-r2 无 [N/M] 进度行、upload-feed 单文件)
+  # 不适用, 靠停滞判据 + 7200s 硬兜底。备份阶段进度行不带 (sizeB)(看 upload_r2.py), 不会误判。
+  local _batch_total=0 _upb=0 _low_last=0 _low_bad=0
   while kill -0 "$pid" 2>/dev/null; do
     sleep 5
-    slept=$((slept + 5))
-    if [ "$slept" -ge "$ch_limit" ]; then
-      echo "⚠ $desc 超 ${ch_limit}s(估算/显式)未退出，kill pid=$pid" | tee -a "$LOG"
+    _slept=$((_slept + 5))
+    _now=$(date +%s)
+    _cur_mtime=$(_fmt_mtime "$tmp_log")
+    [ "$_cur_mtime" -gt "$_last_mtime" ] && _last_mtime=$_cur_mtime
+    if [ $((_now - _last_mtime)) -ge "$_stall_secs" ]; then
+      echo "⚠ $desc 停滞 ${_stall_secs}s 无日志输出, kill pid=$pid" | tee -a "$LOG"
+      R2_KILLED="$R2_KILLED $desc"
       kill -TERM "$pid" 2>/dev/null; sleep 2
       kill -KILL "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
       rm -f "$tmp_log"
       return 1
+    fi
+    if [ "$_slept" -ge 7200 ]; then
+      echo "⚠ $desc 总时长超 7200s 硬兜底, kill pid=$pid" | tee -a "$LOG"
+      R2_KILLED="$R2_KILLED $desc"
+      kill -TERM "$pid" 2>/dev/null; sleep 2
+      kill -KILL "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      rm -f "$tmp_log"
+      return 1
+    fi
+    if [ $((_slept % 60)) -eq 0 ]; then
+      if [ "$_batch_total" -le 10 ]; then
+        _batch_total=$(grep -Eo '\[[0-9]+/[0-9]+\]' "$tmp_log" 2>/dev/null | tail -1 | sed 's/.*\///; s/]//')
+        [ -n "$_batch_total" ] || _batch_total=0
+      fi
+      _upb=$(grep -Eo '\([0-9]+B\)' "$tmp_log" 2>/dev/null | sed 's/(//; s/B)//' | awk '{s+=$1} END{print s+0}')
+      if [ "$_batch_total" -gt 10 ] && [ $((_upb - _low_last)) -lt 1048576 ]; then
+        _low_bad=$((_low_bad + 1))
+      else
+        _low_bad=0
+      fi
+      _low_last=$_upb
+      if [ "$_low_bad" -ge 5 ]; then
+        echo "⚠ $desc 低速(近5分钟字节增量<1MB), kill pid=$pid" | tee -a "$LOG"
+        R2_KILLED="$R2_KILLED $desc"
+        kill -TERM "$pid" 2>/dev/null; sleep 2
+        kill -KILL "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        rm -f "$tmp_log"
+        return 1
+      fi
     fi
   done
   wait "$pid"; rc=$?
@@ -159,7 +196,8 @@ upload_data_channels() {
 finalize_verify() {
   if [ -n "$R2_FAIL" ]; then
     echo "⚠ R2 上传有失败通道:$R2_FAIL (异步跑完, 收尾统一告警)" | tee -a "$LOG"
-    "$PY" "$REPO/scripts/upload_r2.py" verify-channels $R2_FAIL > /tmp/r2_verify_channels_async.log 2>&1
+    # #177: R2_KILLED 传给 verify-channels, 被看门狗超时 kill 的通道不适用轻量对账静音, 保留告警。
+    R2_KILLED="$R2_KILLED" "$PY" "$REPO/scripts/upload_r2.py" verify-channels $R2_FAIL > /tmp/r2_verify_channels_async.log 2>&1
     _vc_rc=$?
     if [ "$_vc_rc" -eq 0 ]; then
       echo "✓ R2 失败通道轻量对账通过(数据完整, 疑似看门狗超时噪音, 不告警):$R2_FAIL" | tee -a "$LOG"
