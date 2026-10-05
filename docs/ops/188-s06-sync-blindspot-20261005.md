@@ -61,10 +61,10 @@ verify-r2 平日对账的 `changed` 集合里**，平日只靠全池均匀抽样
 
 | 文件 | 改动 |
 |---|---|
-| `scripts/upload_r2.py` | 新增 `_STANDALONE_KEYS_NAME` / `_standalone_keys_path` / `_record_standalone_keys` / `_load_standalone_keys` / `_fmt_name_list`；`cmd_upload_data_files` 与 `cmd_upload_intraday` 上传成功后登记 key；`cmd_verify_r2` 平日分支纳入独立链产物 + 落文件名 + 新增 `verify_r2_standalone_stale` 告警 |
+| `scripts/upload_r2.py` | 新增 `_STANDALONE_KEYS_NAME` / `_LEDGER_*` / `_standalone_keys_path` / `_record_standalone_keys` / `_load_standalone_keys` / `_fmt_name_list` / `_channel_files` / `_channel_key` / `_reconcilable_keys_for`；`cmd_upload_data_files` 与 `cmd_upload_intraday` 上传成功后登记 key（**死键过滤**）；`cmd_verify_r2` 平日分支纳入独立链产物 + 落文件名 + 新增 `verify_r2_standalone_stale` 与 `verify_r2_standalone_ledger_gap` 两条告警 |
 | `scripts/s06_snapshot.sh` | 告警改 trap 驱动（`fire_alert` + `EXIT`/`TERM`/`INT`，幂等），删除末尾重复的 notify 块 |
 | `scripts/check_data_integrity.py` | `check_s06_state_snapshot` 本地新鲜分支追加 R2 `coverage_end` 比对（WARN 级）+ docstring 同步 |
-| `scripts/test_188_s06_sync_blindspot.py` | 自验脚本（打桩，不触网不写生产桶），18 断言 |
+| `scripts/test_188_s06_sync_blindspot.py` | 自验脚本（打桩，不触网不写生产桶），**30 断言**（含复审修复轮的 P2-2 死键过滤 / P2-1 台账状态 / P3-2 并发写） |
 
 无删除动作（§25 不适用：本次未删任何文件/数据，无需备份与恢复路径）。
 
@@ -102,11 +102,15 @@ verify-r2 平日对账的 `changed` 集合里**，平日只靠全池均匀抽样
 ## 5. 举一反三（§23.3）
 
 ### 5.1 同模式 / 同组件还被谁用
-- **`upload-data-files` 的全部调用点**（本改动的登记半边自动覆盖）：
+- **`upload-data-files` 的调用点**（本改动的登记半边覆盖**其中「产物落在 `data/` 顶层且能被
+  `all-data`/`data-large` 非递归 glob 扫到」的部分**）：
   `s06_snapshot.sh`（s06 快照）/ `nextday_plan_generator.py`（次日买入计划）/ `gen_daily_brief.py`
-  与 `fetch_news.py`（AI 预测 + 新闻）/ `intraday_snapshot.sh`（`schedule_stats.json` +
-  `signal_kelly_trades_intraday.json`）/ `kelly_intraday_rerun.sh` / `push_schedule_stats.sh` /
-  `deploy.sh`（feed.xml）。
+  与 `fetch_news.py`（AI 预测 + 新闻顶层 `news_digest.json`）/ `intraday_snapshot.sh`
+  （`schedule_stats.json` + `signal_kelly_trades_intraday.json`）/ `kelly_intraday_rerun.sh` /
+  `push_schedule_stats.sh`。
+  ⚠️ **不再声称「覆盖全部调用点/产物」**——按实测收窄，例外见 §12.4「已知边界」
+  （`feed.xml`、`news_digest/<YYYY>/<date>.json`、`news_digest/_index.json` 属登记侧不可对账，
+  已由死键过滤排除，不由本清单覆盖）。
 - **`upload-intraday`**（同为 stateless 直传 `data/` 前缀）→ 已在本改中一并登记。
 - **不在覆盖内的同面（同机制但不同前缀，verify-r2 无对应通道）**：
   `upload-offshore_fund`（`offshore_fund/` 前缀，定时链已停用）/ `upload-fund-score`（`fund_score/` 前缀）
@@ -135,19 +139,26 @@ verify-r2 平日对账的 `changed` 集合里**，平日只靠全池均匀抽样
 | §11 进度文件 | `/tmp/agent-progress-188.md` |
 | 云上改动 | **无**（本次未 ssh 云上改文件；云上 `s06_snapshot.sh` 待 merge 后 git pull 生效） |
 
-## 7. 自验结果（逐条，`python3 scripts/test_188_s06_sync_blindspot.py` → ALL_PASS）
+## 7. 自验结果（逐条，`python3 scripts/test_188_s06_sync_blindspot.py` → ALL_PASS，共 **30** 条 PASS）
 
 ```
-[A] 独立链产物 key 登记清单
-  PASS  清单路径 = REPO/data/.r2_standalone_keys.json
-  PASS  缺失清单 → 空集
-  PASS  去重合并(二次登记不重复)
+[A] 独立链产物 key 台账
+  PASS  台账路径 = REPO/data/.r2_standalone_keys.json
+  PASS  缺失台账 → 空集 + state=missing
+  PASS  去重合并(二次登记不重复) + state=ok
   PASS  落盘 = 排序后的去重集合
-  PASS  损坏清单 → 空集(不抛, 打 stderr 告警)
+  PASS  损坏台账 → 空集 + state=corrupt(不抛)
+  PASS  空 list 台账 → 空集 + state=missing
+  PASS  flock 锁文件已创建(P3-2)
+  PASS  原子写无 .tmp 残留
+  PASS  6 进程并发登记 30 键无丢更新(实际 33 键)
 [A/B] verify-r2 平日选中独立链产物 + 落文件名 + 外围告警
-  PASS  changed 为空时, 清单内 key 仍被平日对账选中
+  PASS  changed 为空时, 台账内 key 仍被平日对账选中
+  PASS  台账内全部键均被平日对账逐个 HEAD(零遗漏 — 无「永远对不上」的死键)
   PASS  正例: 脱节 → 补传该文件
   PASS  正例: 脱节 → 发外围告警(verify_r2_standalone_stale)
+  PASS  (反例轮)changed 为空时, 台账内 key 仍被平日对账选中
+  PASS  (反例轮)台账内全部键均被平日对账逐个 HEAD
   PASS  反例: R2 一致 → 无补传、无告警
 [C] s06_snapshot.sh trap 驱动告警
   PASS  EXIT 非零 → 告警恰好 1 次(reason=EXIT rc=1)
@@ -158,21 +169,124 @@ verify-r2 平日对账的 `changed` 集合里**，平日只靠全池均匀抽样
   PASS  R2 落后 → WARN(不 FAIL, 防 deploy 死锁)
   PASS  R2 取回失败 → WARN
   PASS  R2 结构异常 → WARN
+[E] P2-2 死键过滤
+  PASS  全死键登记 → 台账仍为空(零死键)
+  PASS  混合登记 → 只留可对账键(实际=['data/overview.json'])
+  PASS  混合登记后 state=ok
+  PASS  死键确为扫描不可达(过滤非空转)
+  PASS  台账内每个键都在扫描可达集内(零死键)
+[F] P2-1 台账缺失/损坏 → verify-r2 显式告警(不静默绿)
+  PASS  台账缺失 → 发 dedup 告警(verify_r2_standalone_ledger_gap)
+  PASS  台账损坏 → 同样发告警
 ```
 
-外加：`bash -n scripts/s06_snapshot.sh` OK；`python3 -m py_compile scripts/upload_r2.py scripts/check_data_integrity.py` OK。
+> 断言数订正（§23.5 诚实标注）：首轮报告写「18 断言」为笔误，reviewer 实测 **17**，本轮补 13 条 → **30**。
+> 首轮 17 条的明细见 §12.5 修复链（旧数保留可反查）。
+
+外加：`bash -n scripts/s06_snapshot.sh scripts/deploy.sh` OK；`py_compile upload_r2.py / check_data_integrity.py / test_188…py` OK；
+`pytest scripts/tests -q` = **192 passed / 1 skipped**（与基线一致，无回归）。
 
 ## 8. 复现段
 
 ```bash
-# 自验脚本(从仓库根跑; 打桩, 不触网/不写生产桶/R2)
-python3 scripts/test_188_s06_sync_blindspot.py      # 期望末行 ALL_PASS
+# 自验脚本(从仓库根跑; 打桩, 不触网/不写生产桶/R2) → 期望末行 ALL_PASS(30 条 PASS)
+python3 scripts/test_188_s06_sync_blindspot.py
 # 语法
-bash -n scripts/s06_snapshot.sh
-python3 -m py_compile scripts/upload_r2.py scripts/check_data_integrity.py
-# 改动面
+bash -n scripts/s06_snapshot.sh && bash -n scripts/deploy.sh
+python3 -m py_compile scripts/upload_r2.py scripts/check_data_integrity.py scripts/test_188_s06_sync_blindspot.py
+# 回归基线(pytest 需 trade-data venv)
+/Users/linhuichen/code/trade-data/.venv/bin/python -m pytest scripts/tests -q   # 192 passed / 1 skipped
+# 死键过滤实测(只读; 仓库根跑, REPO 未设 → STATIC_DIR=<仓>/static-site, 用真实数据树验证)
+python3 - <<'PY'
+import sys; sys.path.insert(0, "scripts")
+import upload_r2 as u
+cand = {"data/kelly_mode_s06_state.json", "data/overview.json",
+        "data/news_digest/2026/2026-10-05.json", "data/news_digest/_index.json", "data/feed.xml"}
+print("可对账(进台账):", sorted(u._reconcilable_keys_for(cand)))
+print("死键(被过滤):", sorted(cand - u._reconcilable_keys_for(cand)))
+PY
+# 期望(2026-10-05 实测): 可对账=[s06, overview]; 死键=[feed.xml, news_digest/2026/…, news_digest/_index.json]
 git diff --stat
 ```
+
+### 8.1 复现段修复链（§5.4⑦ 精神）
+
+- 首轮本段只写 3 条命令，**未含 pytest 回归与死键实测**；本轮补上（本段 8 行 4 类）。
+- 首轮报告 §7 断言数 18 → 实测 17 → 本轮 30。旧数保留在本段与 §12.5，可反查。
+
+## 12. 复审修复轮（2026-10-05，reviewer PASS 后 4 项先修再合）
+
+> 触发：reviewer 独立复审（对象 `09338aa0f`）给 P0=0/P1=0、4 项须先修。以下为逐项处置 + 实测证据。
+
+### 12.1 P2-2（🔴 死登记 + 潜在每日误报）— 修法①「登记语义与对账扫描语义对齐」
+
+- **病**：旧 `_record_standalone_keys` 收所有上传过的 key，其中 `data/news_digest/<YYYY>/<date>.json`
+  （子目录）与 `data/feed.xml`（非 `.json`）**永远不会出现在 verify-r2 的非递归 `*.json` glob 结果里**
+  ⇒ 台账内成「死键」，平日**每天恒判缺失** → 重复补传 + `verify_r2_standalone_stale` 告警噪音 + 白涨 R2 调用。
+  与本任务所修的「假信号」同族。
+- **为什么选①不选②（让扫描递归）**：`all-data`/`data-large` 的 `local_dir = STATIC_DIR/data`，
+  改成递归 `**/*.json` 会**吞掉** `nav_bucket`（2.6 万）、`etf`、`index`、`lab`、`trade_sim`、
+  `accum_nav`、`signal_kelly_*` 等**所有**子目录 —— 与各专属通道**双传**、并把平日对账 key 数放大数万，
+  爆炸半径远大于收益；且这些归档有独立的「下一轮 `fetch_news` 30min 自愈」兜底。故保持扫描侧非递归不变，
+  在**登记侧**对齐语义。
+- **实现**：抽出 `_channel_files()`（verify-r2 与登记**共用同一份** glob/exclude 语义；`cmd_verify_r2`
+  内联收集已改调它，杜绝「两份口径各写一遍再分叉」）+ `_channel_key()` + `_reconcilable_keys_for(keys)`
+  （只对前缀可能覆盖的通道做 glob，避免每 10min 登记都扫 fund-nav 2.6 万项）；
+  `_record_standalone_keys` 登记前 `keys &= reconcilable`，被剔除的键打 stderr 显式清单（不静默）。
+- **实测证据（E 用例 + 真实数据树）**：
+
+| 候选 key | 类型 | 进台账? |
+|---|---|---|
+| `data/kelly_mode_s06_state.json` | 顶层 .json，all-data 可扫 | ✅ 进 |
+| `data/overview.json` / `data/schedule_stats.json` | 顶层 .json | ✅ 进 |
+| `data/news_digest/2026/2026-10-05.json` | 子目录键（非递归 glob 扫不到） | ❌ 过滤 |
+| `data/news_digest/_index.json` | 子目录键 | ❌ 过滤 |
+| `data/feed.xml` | 非 `.json`（另有 `cmd_verify_channels` 的 `upload-feed` 轻量校验覆盖，见 §12.4） | ❌ 过滤 |
+
+  真实数据树实测（主检出 `trade/static-site/data`，只读探针）：顶层 `*.json` = **178** 个、
+  `news_digest/` 下实际 **31** 个 json（含 1 个迁移期扁平键）、`feed.xml` 存在；
+  探针输出 `可对账(进台账): [s06, overview, schedule_stats]` / `死键(被过滤): [feed.xml, news_digest/2026/…, news_digest/_index.json]`。
+  ⇒ **修复后台账内零死键**，且 E 用例断言「台账内每个键都在 `_reconcilable_keys_for` 可达集内」+
+  「反证：死键集与可达集交集为空（过滤非空转）」；verify-r2 侧另断言「台账内全部键均被平日对账逐个 HEAD（零遗漏）」。
+
+### 12.2 P2-1（台账缺失/为空 = 静默退化为空集）— 显式处置三件
+
+- `_load_standalone_keys()` 改为返回 `(keys, state)`，`state ∈ {ok, missing, corrupt}`；**非 ok 一律打
+  stderr 显式告警**（含路径与后果说明），不再静默返回空集。
+- `cmd_verify_r2` 平日侧新增 dedup 告警 `verify_r2_standalone_ledger_gap`（窗口 **86400s/24h**），
+  正文写明「本次对账退回旧行为（仅抽样 + 周日全量）」「数小时内自愈」「若为首次冷启动可忽略」。
+- 空 `list` 与文件缺失同归 `missing`（均为「无可对账对象」）；损坏/结构异常归 `corrupt`。
+- 实测：F 用例断言缺失→告警、损坏→告警；A 用例断言 `missing`/`corrupt`/空 list 三种状态均正确上报（且不抛）。
+- 边界（**已接受**）：冷启动当天会命中一次该告警（正文已注明可忽略）；周日全量模式不读台账故不发此告警（周日本就全量覆盖，无需它）。
+
+### 12.3 P3-2（台账无锁，极端 merge 窗口丢更新）— 加锁（成本低，直接加）
+
+- `_record_standalone_keys` 的读-改-写用 `fcntl.flock(LOCK_EX)`（锁文件 `….json.lock`）串行化跨进程写
+  （intraday 每 10min / deploy / s06 主链都会写同一份台账）。原子写 `os.replace` 保留。
+- 实测：A 用例真起 **6 个进程 × 5 个互异键** 并发登记 → 台账得 **33** 键无丢更新（3 原有 + 30 并发）。
+
+### 12.4 已知边界（本轮新增；收窄首轮「覆盖全部调用点/产物」的过宽表述）
+
+1. **`data/feed.xml`**：不经 `all-data` glob（非 `.json`），**不在本清单覆盖内**；其覆盖由
+   `cmd_verify_channels` 的 `upload-feed` 特例（`_light_check_single_file("data/feed.xml", …)`）承担，
+   deploy 链上有既有校验 ⇒ **无覆盖缺口**。
+2. **`data/news_digest/<YYYY>/<date>.json`（31 个）+ `data/news_digest/_index.json`**：非递归 glob 扫不到，
+   **当前无任何 verify-r2 通道覆盖**（既有设计缺口，被本清单明确排除以免制造假信号）；其缺口靠
+   `fetch_news.py` 的「下一轮 30min 重试」自愈。若要纳入 verify-r2，需**另开一个专属通道**
+   （`local_dir=STATIC_DIR/data/news_digest`、`patterns=["*.json","*/*.json"]`、`r2_prefix="data/news_digest"`）
+   —— 属新增行为面，列入 §10 同面待办。
+3. **登记侧的「可对账」判定是快照式**：以登记那一刻的文件集为准。若某产物**当天上传成功后即被删除**，
+   它会留在台账里但下次登记不再被复核 —— 由于 verify-r2 侧只对**本地实际存在**的文件做匹配
+   （`standalone_files` 从 `files` 里筛），不存在的清单键不会造成「恒判缺失」假信号（最多是台账略胖）。
+4. **`data/.r2_standalone_keys.json` 的存放**：位于 `REPO/data/`（与 `.r2_*_state.json` 同目录，untracked）；
+   `deploy.sh` 段1 的 `rsync -a`（**无 `--delete`**，排除列表仅 `logs/ notify_dedup.json alert_state.json`）
+   会把它在两棵树间传递，**不会随部署被清**。
+
+### 12.5 首轮 17 条断言 → 本轮 30 条的对应
+
+- 首轮 17 = A 5 + A/B 正例 3 + A/B 反例 2 + C 3 + D 4（旧报告「18」为笔误，见 §7 订正块）。
+- 本轮新增 13 = A 台账状态 3（missing/corrupt/空 list）+ A P3-2 3（锁文件/无 tmp/并发）+ A/B 零死键 2
+  （全部键被 HEAD，正/反例各 1）+ E 5（死键过滤）。首轮 17 条**全部保留且仍 PASS**。
 
 ## 9. 真考验点：2026-10-08（首个交易日）验证步骤
 
@@ -192,9 +306,13 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 '
 '
 ```
 期望：①出现 `=== s06_snapshot.sh 结束 … 退出码=0 ===` 且无 `[S06] … 异常` 告警；②JSON 数组含
-`"data/kelly_mode_s06_state.json"`（及 `overview.json` 等 intraday 产物）；③**线上 `coverage_end` = 本地最新**
+`"data/kelly_mode_s06_state.json"`（及 `overview.json` 等 intraday 产物），且**不含**任何
+`data/news_digest/…` / `data/feed.xml` 死键（P2-2 过滤生效的现场判据）；③**线上 `coverage_end` = 本地最新**
 （**关键判据是"两者一致"，不是某个绝对值**；按链内 `--allow-lag-days 1` 口径，10-08 生成的 coverage_end
 通常为 T-1=20261007）。
+
+**保单日（P2-1）现场判据** —— 10-08 21:05 的 s06 日志/deploy 日志中**不应**出现
+`独立链产物 key 台账不存在/损坏/为空`；若出现且次日仍出现，说明台账被清/权限异常（本体告警见下条）。
 
 **反向（期望「若同步段再被杀，这次一定有人知道」）** —— 两条，任选：
 
@@ -202,7 +320,8 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 '
 # 反向 A(推荐, 只读式, 直接跑自验脚本的"脱节→补传+外围告警"路径)
 ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 \
   'cd ~/code/trade-data-signal && git pull -q && python3 scripts/test_188_s06_sync_blindspot.py'
-#   期望末行 ALL_PASS —— 其中"正例: 脱节 → 补传该文件 + 发外围告警"即反向路径的行为证明
+#   期望末行 ALL_PASS(30 条 PASS) —— 其中"正例: 脱节 → 补传该文件 + 发外围告警"即反向路径的行为证明;
+#   "[E] 死键过滤 / [F] 台账缺失告警"两组即 P2-2/P2-1 的行为证明
 
 # 反向 B(真实故障下的观测点, 无需注入):
 #   若 10-08 的 s06 链**再次**被 systemd 杀在 R2 段, 则
@@ -228,6 +347,11 @@ deploy 全部打印 `✓ s06_state PASS`（本地新鲜短路），R2 副本停�
    风险低于 s06；建议日后统一抽 `alert_on_kill` 公共包装（或任一链 notify 改动时顺手加 trap）。
 4. **#188 索引行状态列**待 merge 后由主控改为「已合 main + merge hash」（本任务在 worktree 内，
    未改 `docs/pending-features-index.md` 以免与 #191 支线并发编辑冲突）。
+5. **`data/news_digest/` 归档（31 个 key + `_index.json`）无任何 verify-r2 通道覆盖**（§12.4 边界 2）：
+   本轮为消除死键误报，把登记侧与扫描侧对齐（不收不可对账键）；若要**真正**把该归档纳入平日对账，
+   需新开一个专属通道（`local_dir=STATIC_DIR/data/news_digest`、`patterns=["*.json","*/*.json"]`、
+   `r2_prefix="data/news_digest"`）—— 属新增行为面（平日对账 key 数 +32、新增一个通道条目），
+   建议独立评估后做，不夹带进本次修复。缺口当前由 `fetch_news.py` 30min 自愈兜。
 
 ## 11. 落档四件套（§23.5）
 

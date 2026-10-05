@@ -2090,58 +2090,94 @@ def cmd_upload_intraday():
 # 每次 upload-data-files 实际上传成功后把 R2 key 登记进固定清单 data/.r2_standalone_keys.json
 # (去重 set, 跨天持久); verify-r2 平日无条件把这些 key 纳入对账对象。
 _STANDALONE_KEYS_NAME = ".r2_standalone_keys.json"
+# 台账状态码(#188 P2-1, 2026-10-05): 非 ok = 平日对账覆盖静默退化为空集, 必须显式发声
+_LEDGER_OK, _LEDGER_MISSING, _LEDGER_CORRUPT = "ok", "missing", "corrupt"
 
 
 def _standalone_keys_path() -> Path:
-    """独立链产物 key 清单路径(与各通道状态文件同目录 REPO/data, untracked 不进 git)。"""
+    """独立链产物 key 台账路径(与各通道状态文件同目录 REPO/data, untracked 不进 git)。
+
+    该目录由 deploy.sh 段1 的 `rsync -a`(无 --delete)双向传递, 台账不会随部署被清(见报告已知边界)。
+    """
     return STATIC_DIR.parent / "data" / _STANDALONE_KEYS_NAME
 
 
 def _record_standalone_keys(keys) -> None:
-    """把独立上传链产物 R2 key 登记进固定清单(去重合并 + 原子写; 失败不阻断上传)。
+    """把独立上传链产物 R2 key 登记进固定台账(死键过滤 + 去重合并 + 原子写 + flock; 失败不阻断上传)。
 
-    keys: 可迭代的 R2 key(含 "data/" 前缀)。读-合并-写; 清单缺失/损坏按空集重建。
+    keys: 可迭代的 R2 key(含 "data/" 前缀)。台账缺失/损坏按空集重建。
     写失败只打印告警——登记属「检查侧辅助」, 不能反过来阻断上传主链。
+
+    #188 P2-2(2026-10-05): 登记前按「verify-r2 扫描实际能触及」过滤(_reconcilable_keys_for),
+    不收「永远对不上」的死键(如 data/news_digest/<YYYY>/<date>.json 子目录键、data/feed.xml
+    非 .json)——否则台账里这些 key 平日恒判缺失 → 每天重复补传 + 告警噪音(与被修的病同族: 假信号)。
+    #188 P3-2(2026-10-05): 读-改-写用 flock 串行化(台账为跨进程共享文件: intraday 每 10min /
+    deploy / s06 主链均会写), 防极端并发窗口丢更新(丢失的 key 次日重登记可自愈, 但锁成本极低)。
     """
     p = _standalone_keys_path()
     try:
-        existing = set()
-        if p.exists():
-            try:
-                raw = json.loads(p.read_text(encoding="utf-8"))
-                if isinstance(raw, list):
-                    existing = {str(x) for x in raw}
-            except (OSError, ValueError):
-                existing = set()
-        merged = sorted(existing | {str(k) for k in keys})
-        if merged == sorted(existing):
+        keys = {str(k) for k in keys}
+        # 死键过滤: 只登记 verify-r2 平日扫描真能触及的 key
+        reconcilable = _reconcilable_keys_for(keys)
+        dead = keys - reconcilable
+        if dead:
+            print(f"⚠ 独立链产物登记: {len(dead)} 个 key verify-r2 扫描扫不到, 已跳过(不进台账): "
+                  f"{_fmt_name_list(sorted(dead))}", file=sys.stderr)
+        keys &= reconcilable
+        if not keys:
             return
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_name(p.name + ".tmp")
-        tmp.write_text(json.dumps(merged, ensure_ascii=False, sort_keys=True), encoding="utf-8")
-        os.replace(tmp, p)
+        lock_path = p.with_name(p.name + ".lock")
+        with open(lock_path, "a+", encoding="utf-8") as _lf:
+            fcntl.flock(_lf.fileno(), fcntl.LOCK_EX)
+            try:
+                existing = set()
+                if p.exists():
+                    try:
+                        raw = json.loads(p.read_text(encoding="utf-8"))
+                        if isinstance(raw, list):
+                            existing = {str(x) for x in raw}
+                    except (OSError, ValueError):
+                        existing = set()
+                merged = sorted(existing | keys)
+                if merged == sorted(existing):
+                    return
+                tmp = p.with_name(p.name + ".tmp")
+                tmp.write_text(json.dumps(merged, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+                os.replace(tmp, p)
+            finally:
+                fcntl.flock(_lf.fileno(), fcntl.LOCK_UN)
     except OSError as e:
         print(f"⚠ 独立链产物 key 登记失败(不影响上传): {e}", file=sys.stderr)
 
 
-def _load_standalone_keys() -> set:
-    """读独立链产物 key 清单; 缺失/损坏返回空集(verify-r2 平日退回旧行为, 不误报)。
+def _load_standalone_keys():
+    """读独立链产物 key 台账; 返回 (keys:set, state:str)。
 
-    损坏时打 stderr 告警: 清单丢失=独立链产物平日对账覆盖临时回退到旧行为(靠抽样/周日),
-    属「静默降级」——显式发声, 下次各产物上传会重新登记自愈。
+    state ∈ {"ok","missing","corrupt"}(_LEDGER_*)。非 ok 一律打 stderr 显式告警(#188 P2-1):
+    台账丢失/损坏/为空 = 平日对账覆盖静默退化为空集(退回「抽样 + 周日全量」旧行为), 属静默降级
+    —— 绝不静默绿; 调用方(verify-r2)另发一条 dedup 告警兜底「台账丢了没人知道」。
+    空 list 与文件缺失同归 missing: 均为「无可对账对象」, 正常应由各独立链上传成功自愈重建。
     """
     p = _standalone_keys_path()
     if not p.exists():
-        return set()
+        print(f"⚠ 独立链产物 key 台账不存在({p}) — 平日对账暂退回旧行为(抽样/周日); "
+              f"正常应由 upload-data-files/intraday 每次上传成功自动登记", file=sys.stderr)
+        return set(), _LEDGER_MISSING
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        print(f"⚠ 独立链产物 key 清单损坏({p}): {e} — 平日对账覆盖临时回退, 待下次上传重新登记", file=sys.stderr)
-        return set()
+        print(f"⚠ 独立链产物 key 台账损坏({p}): {e} — 平日对账退回旧行为, 待下次上传重新登记", file=sys.stderr)
+        return set(), _LEDGER_CORRUPT
     if not isinstance(raw, list):
-        print(f"⚠ 独立链产物 key 清单格式异常({p}): {type(raw).__name__} — 平日对账覆盖临时回退", file=sys.stderr)
-        return set()
-    return {str(x) for x in raw}
+        print(f"⚠ 独立链产物 key 台账格式异常({p}): {type(raw).__name__} — 平日对账退回旧行为", file=sys.stderr)
+        return set(), _LEDGER_CORRUPT
+    keys = {str(x) for x in raw}
+    if not keys:
+        print(f"⚠ 独立链产物 key 台账为空({p}) — 平日对账暂退回旧行为; "
+              f"若非首次冷启动(尚无任一独立链产物上传成功)则疑台账被清空", file=sys.stderr)
+        return set(), _LEDGER_MISSING
+    return keys, _LEDGER_OK
 
 
 def _fmt_name_list(names, cap: int = 50) -> str:
@@ -3178,6 +3214,52 @@ _R2_CHANNELS = [
 ]
 
 
+def _channel_files(ch, local_dir=None):
+    """按通道 glob/exclude 口径收集本地文件(与 cmd_verify_r2 内联收集逐字同源)。
+
+    #188 P2-2(2026-10-05): verify-r2 对账与独立链产物登记共用本函数 —— 二者若各写一份,
+    就会出现「登记进台账但平日对账永远扫不到」的死键(news_digest 子目录键 / feed.xml),
+    每天被判缺失 → 重复补传 + 告警噪音。非递归 glob 是其语义核心(递归会吞掉
+    nav_bucket/etf/index/... 等子目录, 与各自通道双传), 故此处保持与对账侧一致的非递归。
+    """
+    if local_dir is None:
+        local_dir = ch["local_dir"]()
+    if not local_dir.exists():
+        return []
+    files = []
+    for pat in ch["patterns"]:
+        files.extend(local_dir.glob(pat))
+    files = sorted(set(files))
+    if ch.get("exclude_fn"):
+        files = [f for f in files if not ch["exclude_fn"](f)]
+    return [f for f in files if f.exists()]
+
+
+def _channel_key(ch, f, local_dir) -> str:
+    """通道内某本地文件对应的 R2 key(与上传/对账两侧同一构造: 前缀 + 相对路径)。"""
+    return f"{ch['r2_prefix']}/{f.relative_to(local_dir)}"
+
+
+def _reconcilable_keys_for(keys) -> set:
+    """返回 keys 中「verify-r2 扫描实际能触及」的子集(登记侧唯一语义源)。
+
+    #188 P2-2(2026-10-05): 台账只收本集合内的 key。只对「前缀可能覆盖这些 key」的通道
+    做 glob(避免每次登记都扫 fund-nav 26000 项); 每个 key 与通道 key 逐位比较,
+    非递归 glob 扫不到的 (news_digest 子目录键 / feed.xml) 与通道 exclude_fn 排除的
+    天然不在集合内 ⇒ registry 里不再有「永远对不上」的死键。
+    """
+    keys = {str(k) for k in keys}
+    out = set()
+    for ch in _R2_CHANNELS:
+        pfx = ch["r2_prefix"]
+        if not any(k.startswith(pfx + "/") for k in keys):
+            continue
+        ld = ch["local_dir"]()
+        for f in _channel_files(ch, ld):
+            out.add(_channel_key(ch, f, ld))
+    return keys & out
+
+
 def _assert_no_double_upload(data_dir):
     """机检断言 all-data 文件集 ∩ data-large 文件集 = ∅(设计文档 §4 风险8 / §7 验收②)。"""
     large = set()
@@ -3234,6 +3316,10 @@ def cmd_verify_r2():
     repaired_names = []          # #188: 补传涉及的文件名清单(现只打计数→落文件名, 便于反查是谁)
     stale_standalone_names = []  # #188: 独立链产物中发现 R2 脱节的文件名(层4 外围告警用)
     total_mismatch_found = 0  # export-guard L6: 对账发现的不一致/缺失 key 总数(跨通道累计)
+    # #188 P2-1(2026-10-05): 平日先读一次独立链产物台账(全通道同一份), 非 ok 状态收尾告警。
+    standalone_keys, ledger_state = (set(), None)
+    if not full:
+        standalone_keys, ledger_state = _load_standalone_keys()
 
     for ch in _R2_CHANNELS:
         label = ch["label"]
@@ -3242,14 +3328,8 @@ def cmd_verify_r2():
         if not local_dir.exists():
             print(f"[verify-r2] {label}: 本地目录不存在 {local_dir}, 跳过")
             continue
-        # 收集本地文件(glob + exclude_fn + broken 过滤, 与引擎同口径)
-        files = []
-        for pat in ch["patterns"]:
-            files.extend(local_dir.glob(pat))
-        files = sorted(set(files))
-        if ch.get("exclude_fn"):
-            files = [f for f in files if not ch["exclude_fn"](f)]
-        files = [f for f in files if f.exists()]
+        # 收集本地文件(glob + exclude_fn + broken 过滤, 与引擎同口径; #188 与登记侧共用 _channel_files)
+        files = _channel_files(ch, local_dir)
         if not files:
             continue
 
@@ -3274,7 +3354,6 @@ def cmd_verify_r2():
             # 登记)无条件纳入平日对账。s06 20:35 / nextday_plan / daily_brief / intraday 等走
             # upload-data-files, 天然不在 changed 字段里 —— 旧实现只能靠全池抽样撞运气, 存量缺口
             # 要等周日全量兜(事故: s06 kelly_mode_s06_state.json R2 停 09-24 版 6 天, 本地天天新鲜)。
-            standalone_keys = _load_standalone_keys()
             standalone_files = []
             if standalone_keys:
                 standalone_files = [
@@ -3402,6 +3481,31 @@ def cmd_verify_r2():
                     from_prefix="[告警]",
                 )
                 notify.update_dedup(_dedup_key)
+        except Exception as _e:
+            print(f"⚠ notify 告警发送失败(不阻塞): {_e}")
+
+    # ---- #188 P2-1 (2026-10-05): 独立链产物台账丢失/损坏/为空 → 显式告警(不静默绿) ----
+    # 台账缺失 = 平日对账覆盖静默退化为空集(退回抽样+周日), 而这一退化的「受益者」正是
+    # 我们最需要盯的存量缺口族 —— 必须让「台账丢了」发声。dedup 24h; 冷启动(首次尚无任一
+    # 独立链产物上传成功)会命中一次, 告警正文已注明可忽略。
+    if ledger_state in (_LEDGER_MISSING, _LEDGER_CORRUPT):
+        try:
+            sys.path.insert(0, str(ROOT / "scripts"))
+            import notify  # noqa: E402
+            _dk = "verify_r2_standalone_ledger_gap"
+            if not notify.check_dedup(_dk, 86400):
+                notify.send(
+                    "[告警] 独立链产物对账台账缺失/损坏(平日对账退化为空集)",
+                    f"verify-r2 平日读独立链产物台账 {_standalone_keys_path()} 失败(state={ledger_state}), "
+                    f"本次对账退回旧行为(仅抽样 + 周日全量), 「独立上传链产物」的平日覆盖暂时失效。\n"
+                    f"含义: s06/intraday/nextday_plan/daily_brief 等脱离 deploy 通道状态的产物, "
+                    f"其 R2 存量缺口本要靠该台账平日兜底, 台账丢失期间只能等周日全量。\n"
+                    f"处置: 台账应由各独立链每次上传成功自动重建(数小时内自愈); 若次日仍告警, "
+                    f"查 REPO/data/.r2_standalone_keys.json 是否被清理/权限异常。\n"
+                    f"(若为首次冷启动——今天尚无任一独立链产物上传成功——可忽略本条。)",
+                    from_prefix="[告警]",
+                )
+                notify.update_dedup(_dk)
         except Exception as _e:
             print(f"⚠ notify 告警发送失败(不阻塞): {_e}")
 
