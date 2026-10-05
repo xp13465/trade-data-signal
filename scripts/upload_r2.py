@@ -1680,6 +1680,39 @@ def cmd_upload_public_fund():
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
+def _notify_channel_upload_fail(label, cmd_name, r2_prefix, ok, total, failed_rels):
+    """R2 通道上传失败 loud 告警(#193, 2026-10-05, §18 L48 同族静默根治第一批)。
+
+    背景: fund_score 链每日活跃(update_all.sh + pf_score_daily/weekly 三方调用), 其上传走
+    _upload_glob(非增量引擎), 失败只由调用方 echo / 记 rc ⇒ 用户侧静默(fund_score 也不在 deploy
+    的 R2_FAIL 框架里, 无 verify-channels 兜底)。此处在上传命令**单点**发声(复用既有 notify.py,
+    不新造轮子), 一处覆盖全部调用方(根因单点修, 非逐 caller 打补丁)。
+    判据锚在**退出码 ok!=total**(稳定标识), 不 grep 日志文本/字段值(memory
+    data-source-switch-field-filter-blindspot)。
+    ⚠️ 自测涉及本路径必须先打桩 notify(§18 L48 / memory notify-script-selftest-must-stub):
+    test_193_r2_channel_coverage.py 已 monkeypatch notify.send/check_dedup/update_dedup,
+    并先证打桩生效(未产生真实外发)。
+    """
+    names = _fmt_name_list(sorted(str(r) for r in failed_rels)) if failed_rels else "无明细"
+    try:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import notify  # noqa: E402
+        _dk = f"r2_channel_upload_fail_{label}"
+        if not notify.check_dedup(_dk, 21600):
+            notify.send(
+                f"[告警] R2 上传失败: {label} 通道({ok}/{total})",
+                f"upload_r2.py {label} 通道(R2 前缀 {r2_prefix}/)上传 {ok}/{total} 个文件成功后失败。\n"
+                f"失败文件: {names}\n"
+                f"含义: 前端读该 R2 前缀的展示位会停在旧版/缺文件"
+                f"(fund_score 为场外基金评分 fallback 数据源)。\n"
+                f"处置: 查网络/凭证后手动补传: bash scripts/upload_r2.py {cmd_name}",
+                severe=True, from_prefix="[告警]",
+            )
+            notify.update_dedup(_dk)
+    except Exception as _e:
+        print(f"⚠ notify 告警发送失败(不阻塞): {_e}", file=sys.stderr)
+
+
 def cmd_upload_offshore_fund():
     """上传 static-site/data/offshore_fund*.json 到 R2 offshore_fund/ 前缀。
 
@@ -1687,13 +1720,16 @@ def cmd_upload_offshore_fund():
     筛选器阶段0(2026-08-02 新增): 7 类 JSON(5 大文件 >1MB + 2 小文件, 全量后均大)。
     按类别走 R2(implementer skill §3.1 新类别按前缀建独立命令, 不依赖 1MB 阈值兜底)。
     offshore_fund_basic 13MB / performance 5.8MB / manager 6.7MB / purchase_status 4.9MB / rating 2.4MB。
+    #193(2026-10-05): 失败 loud 化(单点 notify, 见 _notify_channel_upload_fail)。
     """
     data_dir = STATIC_DIR / "data"
-    ok, total, _, uploaded_keys = _upload_glob(data_dir, ["offshore_fund*.json"], "offshore_fund")
+    ok, total, failed_rels, uploaded_keys = _upload_glob(data_dir, ["offshore_fund*.json"], "offshore_fund")
     if total == 0:
         print(f"⚠ 无 offshore_fund json: {data_dir}/offshore_fund*.json")
         return
     if ok != total:
+        _notify_channel_upload_fail("offshore-fund", "upload-offshore-fund",
+                                    "offshore_fund", ok, total, failed_rels)
         sys.exit(1)
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
@@ -1703,13 +1739,19 @@ def cmd_upload_fund_score():
 
     阶段1 评分引擎(2026-07-20 新增): fund_score.json(头部2000) + fund_score_top.json(Top100)。
     按类别走 R2(implementer skill §3.1 新类别按前缀建独立命令, 不依赖 1MB 阈值兜底)。
+    前端 app.js 以 https://ss.fx8.store/r2/fund_score/fund_score_top.json 作场外基金评分
+    fallback 数据源(API 失败/未就绪保底不白屏) ⇒ 该前缀 R2 缺/旧 = 用户可见。
+    #193(2026-10-05): 失败 loud 化(单点 notify, 见 _notify_channel_upload_fail); 此前仅被
+    update_all.sh 的 echo 吞掉(不在 deploy R2_FAIL 框架)。
     """
     data_dir = STATIC_DIR / "data"
-    ok, total, _, uploaded_keys = _upload_glob(data_dir, ["fund_score*.json"], "fund_score")
+    ok, total, failed_rels, uploaded_keys = _upload_glob(data_dir, ["fund_score*.json"], "fund_score")
     if total == 0:
         print(f"⚠ 无 fund_score json: {data_dir}/fund_score*.json")
         return
     if ok != total:
+        _notify_channel_upload_fail("fund-score", "upload-fund-score",
+                                    "fund_score", ok, total, failed_rels)
         sys.exit(1)
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
@@ -1789,6 +1831,11 @@ def cmd_upload_kelly_snapshots():
 # 两个命令都扫 static-site/data/ 顶层 *.json, 必须互斥(同 key 双传 = 纯浪费, 每天 ~34MB@4.2Mbps≈68s)。
 # 口径: data-large 传「>=1MB 或 大 range 或 overfit_monitor 前缀」; all-data 传「其余小文件」。
 # 互斥机检断言(data-large ∩ all-data = ∅)见 cmd_verify_r2 内部, 口径常量集中此处防两命令漂移。
+# data-large / all-data 的排除前缀。⚠️ offshore_fund / fund_score 在此 = **设计, 非漏配**
+# (#193 判定, 2026-10-05): 二者各有专属 upload 命令与独立 R2 前缀(offshore_fund/ · fund_score/,
+# 见 cmd_upload_offshore_fund / cmd_upload_fund_score), data-large/all-data 传的是 data/ 前缀,
+# 若不排除会与专属前缀形成**双副本上传**。其「对账覆盖」由 _R2_CHANNELS 里的同名通道承担
+# (offshore-fund / fund-score), 与「是否进 data-large/all-data」是两回事, 别把排除误判为缺口。
 _DATA_EXCLUDE_PREFIXES = ("industry-", "public_fund", "offshore_fund", "fund_score", "etf_score_list")
 # 大 range 文件前端 dataUrl 必走 R2(与 app.js _R2_LARGE_RANGE_RE 同规则), 无大小限制上传
 # (2026-08-03 sentiment-3y 962KB<1MB 漏传致线上 404 修复)
@@ -2109,8 +2156,9 @@ def _record_standalone_keys(keys) -> None:
     写失败只打印告警——登记属「检查侧辅助」, 不能反过来阻断上传主链。
 
     #188 P2-2(2026-10-05): 登记前按「verify-r2 扫描实际能触及」过滤(_reconcilable_keys_for),
-    不收「永远对不上」的死键(如 data/news_digest/<YYYY>/<date>.json 子目录键、data/feed.xml
-    非 .json)——否则台账里这些 key 平日恒判缺失 → 每天重复补传 + 告警噪音(与被修的病同族: 假信号)。
+    不收「永远对不上」的死键(如无任何通道 glob 覆盖的子目录键、data/feed.xml 非 .json)
+    ——否则台账里这些 key 平日恒判缺失 → 每天重复补传 + 告警噪音(与被修的病同族: 假信号)。
+    注(#193 2026-10-05): data/news_digest/... 归档键现由 news-digest 通道覆盖 = 可对账, 不再属死键。
     #188 P3-2(2026-10-05): 读-改-写用 flock 串行化(台账为跨进程共享文件: intraday 每 10min /
     deploy / s06 主链均会写), 防极端并发窗口丢更新(丢失的 key 次日重登记可自愈, 但锁成本极低)。
     """
@@ -3155,8 +3203,15 @@ def cmd_upload_large_json():
 
 # ---- verify-r2 通道登记表(2026-09-15, 层3 防漏传对账) ----
 # 每通道: label / local_dir(可调用, 镜像 cmd_upload_* 的 ROOT 回退) / patterns / r2_prefix /
-# state_name(读 changed 字段做平日增量对账) / exclude_fn(镜像各通道口径) / sample(平日抽样上限,
-# None=全量; fund-nav 平日抽样 100, 周日全量)。
+# state_name(读 changed 字段做平日增量对账; None=该通道上传命令不写增量状态, 平日靠
+# 「全池抽样 + _record_standalone_keys 独立链台账」兜底) / exclude_fn(镜像各通道口径) /
+# sample(平日抽样上限, None=全量; fund-nav 平日抽样 100, 周日全量)。
+#
+# ⚠️ 本清单是 R2 各前缀「能否被 verify-r2 对账」的唯一权威(#193, 2026-10-05)。凡在
+#    cmd_upload_* 里出现的 r2_prefix 都必须在此有条目, 否则该前缀连周日全量都不对账
+#    (且 _reconcilable_keys_for 会把这些 key 当死键过滤 → 独立链台账也救不了)。
+#    新增/改动 upload 命令前缀时同步本清单(§22 同一事实多处副本一致性: 前缀全集还散在
+#    r2_upload_async.sh 的 desc 清单 + 前端 app.js 的 /r2/<prefix>/ 消费 URL, 改前缀须三处一起)。
 def _resolve_lab_dir():
     lab = STATIC_DIR / "data/lab"
     if not lab.exists() or not any(lab.glob("*.json")):
@@ -3178,6 +3233,15 @@ def _resolve_trade_sim_json_dir():
     return ts_dir
 
 
+# ---- R2 对账通道清单(verify-r2 平日/周日对账 + 台账登记侧的唯一语义源) ----
+# 每项: {label, local_dir, patterns, r2_prefix, state_name, [exclude_fn], [sample]}
+#   state_name: 该通道上传命令写的增量状态文件(.r2_<ch>_state.json); 平日对账取其中 changed 字段。
+#   **state_name=None**(#193 2026-10-05 起): 上传命令走 _upload_glob 不写增量状态 ⇒ 无 changed
+#   语义 ⇒ 平日覆盖由「全池均匀抽样(100) + 独立链产物台账(.r2_standalone_keys.json)」承担,
+#   文件数极少的通道(≤ 抽样数)等价于平日全覆盖; 周日全量不受影响。
+# 一致性铁律(§22): 本清单必须与上传侧实参(r2_upload.py 各 cmd_upload_* / _upload_glob /
+#   _incremental_upload 的 r2_prefix)双向对齐 —— 漏配 = 静默缺口(#193 事故形态)。
+#   机检: scripts/check_r2_channel_coverage.py(AST 静态双向断言, 非空转, 可喂历史版本对照)。
 _R2_CHANNELS = [
     {"label": "lab", "local_dir": _resolve_lab_dir, "patterns": ["*.json"], "r2_prefix": "lab",
      "state_name": ".r2_lab_state.json"},
@@ -3198,6 +3262,15 @@ _R2_CHANNELS = [
      "r2_prefix": "industry", "state_name": ".r2_industry_state.json"},
     {"label": "public-fund", "local_dir": lambda: STATIC_DIR / "data", "patterns": ["public_fund*.json"],
      "r2_prefix": "public_fund", "state_name": ".r2_public_fund_state.json"},
+    # #193 (2026-10-05) 通道补齐: 二者此前不在本清单 ⇒ 连周日全量都不对账(fund_score 链每日
+    # 活跃, 前端 app.js 以 /r2/fund_score/fund_score_top.json 作 fallback 数据源 = 用户可见)。
+    # 上传命令走 _upload_glob(不写 .r2_*_state.json) ⇒ state_name=None, 平日靠全池抽样兜底
+    # (文件数极少: fund_score 2 / offshore_fund 7 ⇒ 抽样 100 即全量)。r2_prefix 与 cmd_upload_*
+    # 实参逐字一致(offshore_fund/fund_score), key = <prefix>/<name>.json 与上传侧同构造。
+    {"label": "offshore-fund", "local_dir": lambda: STATIC_DIR / "data", "patterns": ["offshore_fund*.json"],
+     "r2_prefix": "offshore_fund", "state_name": None},
+    {"label": "fund-score", "local_dir": lambda: STATIC_DIR / "data", "patterns": ["fund_score*.json"],
+     "r2_prefix": "fund_score", "state_name": None},
     {"label": "etf-score", "local_dir": lambda: STATIC_DIR / "data", "patterns": ["etf_score_list_*.json"],
      "r2_prefix": "data", "state_name": ".r2_etf_score_state.json"},
     {"label": "kelly-parts", "local_dir": lambda: STATIC_DIR / "data/signal_kelly_trades_parts", "patterns": ["*.json"],
@@ -3211,6 +3284,14 @@ _R2_CHANNELS = [
      "exclude_fn": lambda f: not _is_data_large_file(f)},
     {"label": "all-data", "local_dir": lambda: STATIC_DIR / "data", "patterns": ["*.json"],
      "r2_prefix": "data", "state_name": ".r2_all_data_state.json", "exclude_fn": _is_all_data_excluded},
+    # #193 (2026-10-05) news_digest 归档通道: data/news_digest/<YYYY>/<date>.json + _index.json。
+    # 归档是子目录/递归语义, all-data 的非递归 *.json glob 扫不到 ⇒ 此前无任何通道覆盖(#188 §12.4
+    # 边界②)。此处用 patterns=["*.json","*/*.json"] 递归到「年目录一层」正好覆盖实际结构(年目录下
+    # 即 .json, 无更深层), 不写成 ** 全局递归以免吞掉未来更深层子目录。上传走 fetch_news.py 的
+    # upload-data-files(不写状态) ⇒ state_name=None; 归档不可变, 平日确定性覆盖由 _record_standalone_keys
+    # 台账承担(该通道存在使 data/news_digest/... 键由「死键」变「可对账」, 登记即生效), 全池抽样兜底。
+    {"label": "news-digest", "local_dir": lambda: STATIC_DIR / "data" / "news_digest",
+     "patterns": ["*.json", "*/*.json"], "r2_prefix": "data/news_digest", "state_name": None},
 ]
 
 
@@ -3218,9 +3299,10 @@ def _channel_files(ch, local_dir=None):
     """按通道 glob/exclude 口径收集本地文件(与 cmd_verify_r2 内联收集逐字同源)。
 
     #188 P2-2(2026-10-05): verify-r2 对账与独立链产物登记共用本函数 —— 二者若各写一份,
-    就会出现「登记进台账但平日对账永远扫不到」的死键(news_digest 子目录键 / feed.xml),
+    就会出现「登记进台账但平日对账永远扫不到」的死键(无通道 glob 覆盖的子目录键 / feed.xml),
     每天被判缺失 → 重复补传 + 告警噪音。非递归 glob 是其语义核心(递归会吞掉
-    nav_bucket/etf/index/... 等子目录, 与各自通道双传), 故此处保持与对账侧一致的非递归。
+    nav_bucket/etf/index/... 等子目录, 与各自通道双传), 故此处保持与对账侧一致的非递归;
+    子目录语义通道(news-digest #193)以显式 patterns(如 "*/*.json")按需精确声明, 不放开全局递归。
     """
     if local_dir is None:
         local_dir = ch["local_dir"]()
@@ -3245,8 +3327,9 @@ def _reconcilable_keys_for(keys) -> set:
 
     #188 P2-2(2026-10-05): 台账只收本集合内的 key。只对「前缀可能覆盖这些 key」的通道
     做 glob(避免每次登记都扫 fund-nav 26000 项); 每个 key 与通道 key 逐位比较,
-    非递归 glob 扫不到的 (news_digest 子目录键 / feed.xml) 与通道 exclude_fn 排除的
+    无通道 glob 覆盖的子目录键 / feed.xml(非 .json)与通道 exclude_fn 排除的
     天然不在集合内 ⇒ registry 里不再有「永远对不上」的死键。
+    (#193 2026-10-05 起 data/news_digest/... 由 news-digest 通道覆盖, 已属可对账集。)
     """
     keys = {str(k) for k in keys}
     out = set()
@@ -3340,15 +3423,19 @@ def cmd_verify_r2():
             # 2026-09-23 ②根治: 单一 changed 盲区查不到「状态假成功」存量缺口(状态文件已记录
             # 新指纹但 R2 实际旧/缺, 该 key 不在 recent changed 里 → never 对账直到周日)。
             # 全池均匀取 ~20 个 key(不限 mtime), 让旧 key 也被覆盖; sample 上限口径保留。
-            state_path = STATIC_DIR.parent / "data" / ch["state_name"]
+            # #193 (2026-10-05): state_name=None 的通道(上传命令走 _upload_glob, 不写增量状态)
+            # 无 changed 语义 ⇒ changed 恒空, 平日覆盖由「全池抽样 + 独立链台账」(下方)承担。
+            state_name = ch.get("state_name")
             changed_rels = set()
-            if state_path.exists():
-                try:
-                    with open(state_path, "r", encoding="utf-8") as f:
-                        st = json.load(f)
-                    changed_rels = set(st.get("changed") or [])
-                except (OSError, ValueError):
-                    changed_rels = set()
+            if state_name:
+                state_path = STATIC_DIR.parent / "data" / state_name
+                if state_path.exists():
+                    try:
+                        with open(state_path, "r", encoding="utf-8") as f:
+                            st = json.load(f)
+                        changed_rels = set(st.get("changed") or [])
+                    except (OSError, ValueError):
+                        changed_rels = set()
             to_check = [f for f in files if str(f.relative_to(local_dir)) in changed_rels]
             # #188 (2026-10-05): 独立上传链产物(不经 deploy 通道状态, 由 _record_standalone_keys
             # 登记)无条件纳入平日对账。s06 20:35 / nextday_plan / daily_brief / intraday 等走
