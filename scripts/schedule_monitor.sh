@@ -144,6 +144,15 @@ TASKS = [
     {"task": "check_data_gap",      "log": "check_data_gap_launchd.log",
      "trading_day_only": True,  # 非交易日脚本闸门跳过不写开始行, 必需跳过漏跑检查避免周末误报
      "schedules": ["22:35"]},
+    # r2_consistency: 2026-10-05 补入(#160 / D5 P0-1, §22 三站一致性 HTTP 层零校验收口)。
+    # 云上 trade-r2-consistency.timer 每日 23:20 跑 check_r2_consistency.sh
+    # (local vs R2直链 vs CF r2-proxy vs 主站同源 四源比对 9 个核心产物; rc!=0 → notify --severe)。
+    # 每日跑不限交易日: 「各源一致」是不变量, 周末被外部覆盖同样要抓(故 trading_day_only=False)。
+    # 固定 append + 标准开始/结束行, standard 模式可解析; 此处只管漏跑+进行中超时,
+    # 数据级告警由审计器自身出口承担(gen_schedule_stats TASKS 已同步注册)。
+    {"task": "r2_consistency",      "log": "r2_consistency_launchd.log",
+     "trading_day_only": False,
+     "schedules": ["23:20"]},
     # turnover_backfill: 2026-09-09 补入(#82 C6: turnover 摘出 update_all 主链独立延后跑)。
     # launchd com.trade.turnover-backfill 交易日 21:10 跑 turnover_backfill.sh
     # (baostock 增量 + cleanup_d3d2 算 a_turnover_* 入 daily_metric + 增量重导 overview/a-stock

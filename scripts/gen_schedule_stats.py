@@ -85,6 +85,13 @@ TASKS = [
     # schedule_monitor.sh TASKS 同步加漏跑检查条目。
     {"task": "check_data_gap", "name": "数据缺口检测", "script": "check_data_gap_alerts.sh",
      "schedule": "22:35", "log": "check_data_gap_launchd.log", "mode": "standard"},
+    # r2_consistency: 2026-10-05 补入(#160 / D5 P0-1, §22 三站一致性 HTTP 层零校验收口;
+    # 与 schedule_monitor.sh TASKS + LABEL_MAP 同步注册)。
+    # systemd trade-r2-consistency.timer 每日 23:20 跑 check_r2_consistency.sh
+    # (local vs R2直链 vs CF r2-proxy vs 主站同源 四源比对 9 产物, rc!=0 → notify --severe)。
+    # 日志固定 append + 标准开始/结束行, standard 直读; 每日跑不限交易日。
+    {"task": "r2_consistency", "name": "三站一致性巡检", "script": "check_r2_consistency.sh",
+     "schedule": "23:20", "log": "r2_consistency_launchd.log", "mode": "standard"},
     # turnover_backfill: 2026-09-09 补入(#82 C6: turnover 摘出 update_all 主链独立延后跑)。
     # launchd com.trade.turnover-backfill 交易日 21:10 跑 turnover_backfill.sh
     # (baostock 增量 + cleanup_d3d2 算 a_turnover_* 入 daily_metric + 增量重导 overview/a-stock 传 R2)。
@@ -177,6 +184,9 @@ LABEL_MAP = {
     # (2026-09-22 补: 云上 Linux 用 systemctl 读真实码, unit 映射靠 com.trade. -> trade- 规则,
     #  缺此项则 standard 模式读不到真实码 -> 回退启发式猜 143 误报, 与本次治误报同根因)。
     "nextday_gap_check": "com.trade.nextday-gap-check",
+    # r2_consistency: 2026-10-05 补入(#160), 云上 trade-r2-consistency.service
+    # (缺此项 standard 模式读不到真实码 → 回退启发式猜 143 误报, 同 nextday_gap_check 病根)。
+    "r2_consistency": "com.trade.r2-consistency",
 }
 
 # launchctl print "last exit code = N" 行（N 可为 143/0/1/None，None 显 "last exit code = (none)"）
