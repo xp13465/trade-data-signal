@@ -6,7 +6,8 @@
 # us_stock_morning。
 # 每个任务的计划时点表来自 ~/Library/LaunchAgents/com.trade.*.plist 的 StartCalendarInterval。
 #
-# 检查项（8 维度, R2迁移后72h监控 2026-08-08 扩展, 2026-08-17 加维度⑦飞书配置+维度⑧hook心跳）：
+# 检查项（10 维度, R2迁移后72h监控 2026-08-08 扩展, 2026-08-17 加维度⑦飞书配置+维度⑧hook心跳
+#   +维度⑨飞书ws假死, 2026-10-05 加维度⑩主机资源）：
 #   1) 漏跑：当前时间落在某任务计划时点 + 30min 容忍窗口内，但 last_run < 计划时点 = 漏跑告警
 #   2) 退出失败：schedule_stats.json 中 last_exit 非 0（非 null，null=进行中/无数据不算失败）
 #   2b) log异常关键词：scan_log_anomaly 抓 Traceback/异常类名/FATAL（exit=0 不可信, 脚本吞异常漏报）
@@ -22,6 +23,11 @@
 #   8) 飞书 hook 心跳自检（#25）：Claude Code 会话活跃(pgrep claude 有进程)但
 #      /tmp/feishu_hook_heartbeat 缺失或 >90min 陈旧 → 告警（hook 未触发/静默停摆；
 #      文件缺失时额外要求 claude 进程存活 >30min 防刚开机误报；与维度⑦互补）
+#   9) 飞书 ws listener 接收侧静默假死（2026-08-17 #25 缺口A）：进程在+ws 连接在但收不到
+#      事件时，/tmp/feishu_ws_last_event 陈旧（>90min）→ 告警（KeepAlive 探测抓不到）。
+#  10) 主机资源（#164, 2026-10-05, 云上健康巡检 D1 P1-1）：磁盘/inode/内存/swap 使用率
+#      >=85% 预警（聚合）/ >=90% SEVERE（即时）—— 原 9 维度只看任务执行面，无一条看主机
+#      资源；09-30 磁盘涨到 92% 全靠人眼，写满会先让任务/DB/告警链一起瘫。详见检查块注释。
 #
 # 告警链路：复用 scripts/notify.py（邮件 + data/alerts/latest.md），告警不阻塞、不重试。
 # 阶段3 R2上传失败 notify 已接入: intraday_snapshot.sh upload-index/upload-intraday 失败发
@@ -405,6 +411,56 @@ except Exception as e:
 
 STALE_EXIT_THRESHOLD = timedelta(hours=24)
 
+# #162(2026-10-05, 云上健康巡检 D2 P1-b): "进行中"判定的陈旧起点上限。
+# 背景: last_duration_sec 为 null 有二义性 —— ① 任务真在跑(有 start 无 end, gen 写 null);
+#   ② 最新一次运行的"结束"行没写出(被 systemd TimeoutStartSec 杀 / 漏写),使该 start 永远
+#   无配对 → gen_schedule_stats 取 pending_start=它 → last_duration_sec=null,但任务其实早已结束。
+# 实例(s06 09-28~09-30): s06_snapshot.sh 三次跑到 R2 段被 systemd 600s 杀在内层 run_to 900s
+#   无梯度,日志只留"开始"无"结束",pending=09-30 距今数天;而 last_exit=0(取最近一次 systemd
+#   退出码,含 10-02 节假日跳过那次)。monitor 旧判据 `dur is None and last_exit in (None,0)` 把
+#   它当"在跑" → in_progress_tasks → 恢复循环永久 hold 住 09-28 的 `s06_snapshot|exit!=0|143`
+#   老告警,与"任务已恢复成功(机检六项全 PASS)"的真实状态自相矛盾(D2 P1-b 报告的"残留 hold")。
+# 判据: 仅当最新 start 距今 <= IN_PROGRESS_MAX_AGE 才视为"在跑"。
+# 取值 6h 依据(两条都要满足):
+#   ① 必须显著大于"合法运行"的最长耗时,否则真在跑的任务被踢出 in_progress -> A1 停止检查
+#      且其 in_progress_timeout 告警会被误判"已恢复"。实测最长合法运行 = update_all
+#      DUR_THRESHOLDS 8100s(2.25h) + IN_PROGRESS_BUFFER 30min = 2.75h;取 2x 余量
+#      (memory selftest-window-two-x-period: 窗口须 >= 机制周期 2 倍) -> 5.5h -> 取 6h。
+#      ⚠️ 3h 曾考虑(对齐 gen MAX_GAP_SEC)但会踩坑: A1 在 sch+2.75h 才首报,3h 时任务
+#         恰好刚出窗口 -> 报完 15min 就"已恢复"(假恢复),故不可取。
+#   ② 必须有限(旧代码无上限)才能让"被杀的陈旧起点"自愈: s06 那次 5 天,6h 上限使它在
+#      上线后的第一次巡检即退出 in_progress,09-28 老告警如实恢复(D2 P1-b 的正解)。
+# 残余(如实登记, 见汇报): 真"卡死">6h 的任务会掉出集合 -> 其 in_progress_timeout 会被
+#   报"已恢复"。可接受: A1 早在 2.75h 已 SEVERE 报过(人工已介入),且次日该任务未完成
+#   会被"漏跑"检查再报;>6h 未完成属需人工介入的事故态,不再符合"在跑"语义。
+IN_PROGRESS_MAX_AGE = timedelta(hours=6)
+
+
+def _in_progress_state(_s, _now):
+    """#162: 单条 stats 的"进行中"判定 -> "running" / "stale" / "no"。
+
+    dur=null(有 start 无 end, gen 写 null)有二义性: "running"=真在跑; "stale"=最新 run
+    无结束行的陈旧起点(被 systemd 杀/漏写结束行 -> gen 取它当 pending_start -> 永远 dur=null,
+    任务实际早已结束)。"no"=不适用(已完成/非受监控任务/已失败/last_run 不可解析)。
+    判据与取值依据(6h)见上方 IN_PROGRESS_MAX_AGE 注释。
+    纯函数(只读入参 + 模块常量), 与 scripts/tests/test_monitor_resource_inprogress_20261005.py
+    共用同一份实现(防"测试里另写一份判定"的静默漂移)。
+    """
+    if _s.get("last_duration_sec") is not None:
+        return "no"
+    if _s.get("task") not in DUR_THRESHOLDS:
+        return "no"
+    if _s.get("last_exit") not in (None, 0):
+        return "no"
+    _lr = _s.get("last_run") or ""
+    if not _lr:
+        return "no"
+    try:
+        _age = _now - datetime.strptime(_lr, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return "no"
+    return "running" if _age <= IN_PROGRESS_MAX_AGE else "stale"
+
 # 2026-08-24 瞬时超时降噪: 瞬时/降级类 log 异常按"连续>=3轮未自愈才 SEVERE"处理
 # (单次/两次视为瞬时抖动,只记 dashboard 不通知)。教训=intraday_snapshot R2 PUT
 # 超时连续 11 次全部自愈,每轮都发 SEVERE 邮件=假警报轰炸。
@@ -694,14 +750,21 @@ if STATS_FILE.exists():
             _dur = s.get("last_duration_sec")
             _dur_task = s.get("task")
             # 2026-08-14 告警优化 A1: 进行中任务收集到 in_progress_tasks。
-            # "进行中"信号 = last_duration_sec 为 None(有 start 无 end, gen_schedule_stats
-            #   写 null)。注意 last_exit 是"上一次退出码", 卡死/在跑时仍可能为 0(上次成功),
-            #   不能用 exit is None 判定(8-14 update_all 卡死 exit=0 dur=None 实测)。
-            #   排除 exit!=0(失败/被杀, 已由退出检查告警, 防重复)。
+            # 判定抽为纯函数 _in_progress_state(见常量区注释): "running" 才收集;
+            #   "stale"(最新 run 无结束行的陈旧起点, #162) 不算 —— 否则其历史告警被永久
+            #   hold(第 ② 用途)且 A1 也无意义(last_run 早已过时)。
+            #   ⚠️ 保留"排除 exit!=0"(失败/被杀, 已由退出检查告警, 防重复)。
             # 用途: ①进行中超时检测(A1新增块) ②恢复检测循环跳过该任务的 key
             #   (防 8-14 误恢复: update_all 卡死 dur=null, 未 seen -> 误判"已消失")。
-            if _dur is None and _dur_task in DUR_THRESHOLDS and s.get("last_exit") in (None, 0):
+            _ip_state = _in_progress_state(s, NOW)
+            if _ip_state == "running":
                 in_progress_tasks.add(_dur_task)
+            elif _ip_state == "stale":
+                print(
+                    f"[in-progress-stale] {_dur_task} dur=null 但 last_run={s.get('last_run')} 距今 > "
+                    f"{int(IN_PROGRESS_MAX_AGE.total_seconds() // 3600)}h"
+                    f"(无结束行的陈旧起点, 任务实际已结束), 不判进行中(不 hold 其历史告警)"
+                )
             if _dur is not None and _dur_task in DUR_THRESHOLDS:
                 _dur_thresh = DUR_THRESHOLDS[_dur_task]
                 # P1-3(2026-09-24, r2-false-success-rootfix): intraday 盘后槽阈值分档。
@@ -1188,6 +1251,188 @@ if STATICDATA_HB_FILE.exists():
 else:
     # 状态文件不存在 → 不告警(盲区: 仓库缺失/首跑前无法判断停摆; 由 async 脚本 C-5 降级 notify 覆盖)
     print("[info] staticdata 备份心跳文件不存在, 跳过停摆检查(仓库缺失/首跑前, C-5 降级 notify 覆盖)")
+
+# ===== 维度⑩ 主机资源（磁盘/inode/内存/swap）阈值检查（#164, 2026-10-05）=====
+# 背景（云上健康巡检 D1 P1-1）：原 9 维度全部面向任务执行面（漏跑/退出/耗时/加载/产物时效
+#   /R2/飞书），无一条覆盖"主机资源"。2026-09-30 云上磁盘涨到 92% 全靠人眼发现——磁盘写满会
+#   先让任务失败、DB 报错、告警邮件自身都发不出去（日志/产物写不了），是最该"最先知道"的一类。
+# 阈值（warn/severe = 85%/90%，四指标同款）：
+#   为何不采用 D1 报告建议的「warn 85 / severe 95 + inode≥90 + 内存<500M 或 swap>80%」——
+#   ① severe 定 95 太晚: 09-30 那次涨到 92% 全程静默(报告本身就是在说"靠人眼才发现")，95 线
+#      整场事故都不会响; 90% 留 ~5-10%(云上 61.8G 盘 = 3-6G)处置余量, 且内存/swap 的 90%
+#      已逼近 OOM/换页枯竭。② 四指标同款一对数(而非四套口径)更可预期, 免"哪个指标哪条线"记错。
+#   ③ 内存改用"可用量口径"(MemAvailable)而非绝对 <500M: 与磁盘同为单位无关的百分比,
+#      阈值语义统一; 且 500M 对 3.7G 与 16G 的机器危险程度完全不同(百分比才能跨机型)。
+#   ④ swap 阈值由 80% 提到 85/90 同款: 统一口径; swap 到 80% 时内核 I/O 早已抖动, 提前无益。
+#   ① 磁盘 used%（df 口径 used/(used+bavail)，向上取整与 GNU df 显示一致）：85/90 —— 写满即全线瘫。
+#   ② inode used%（(f_files-f_ffree)/f_files，df -i 口径，同样向上取整）：85/90 —— inode 耗尽
+#      与磁盘写满同效，但"用量"看不见（大量小文件：日志/JSON/WAL/manifest）。同一根因
+#      （fs 满）的独立判别维度，不可省。① ② 用 df 显示值（含 ceil）判定，操作者 df 复核能对上；
+#      ③ ④ 无 df 对应物（free 只给近似值），用原始值判定不取整。
+#   ③ 内存 used%（available 口径 = 100*(1-MemAvailable/MemTotal)）：85/90 —— 用内核"可用量"
+#      估计而非含 page cache 的 used%（后者虚高必误报）；>=90% = OOM 风险，任务被 kill。
+#   ④ swap used%（仅 SwapTotal>0 时）：85/90 —— swap 耗尽 = 内存压力已到极限的强信号。
+# 分级（复用本脚本既有分级，不新造告警通道）：
+#   >=severe -> 追加到 alerts（本轮 SEVERE 邮件，即时）+ 写 alert_state 去重；
+#   >=warn   -> notify.py --tier warning（入 notify 的 30min 聚合缓冲，尾部 --flush-warnings 批发）
+#               + --dedup-key/6h 窗口，防每 15min 一轮轰炸。
+# 恢复：本块在主恢复循环（下方 L1227 起）之前运行，key 前缀 host_resource 不在任何 skip 清单中
+#   -> 指标回落（未 seen）时由主循环统一发恢复邮件（同 staticdata 心跳块的模式，不另写 inline）。
+RESOURCE_WARN_PCT = 85.0
+RESOURCE_SEVERE_PCT = 90.0
+
+
+def _df_pct_ceil(_pct):
+    """向上取整到整数百分比（GNU df 显示口径）；_pct 为 None 时透传 None。"""
+    if _pct is None:
+        return None
+    _i = int(_pct)
+    return float(_i + 1 if _pct > _i else _i)
+
+
+def _df_used_pct(_path):
+    """POSIX statvfs 算磁盘 used%，与 GNU df 显示一致（含向上取整）。失败 -> None（不告警）。
+
+    用 used/(used+bavail) 是 df 的口径（avail = 非 root 可用块，排除保留块）。
+    ⚠️ GNU df 显示百分比时向上取整（ceil），故此处同样 ceil——否则会出现
+    "df 显示 85% 而监控算 84%（不告警）"的观感不一致（云上 2026-10-05 实测正是此边界:
+    raw 84.01% / df 85%；改 ceil 后云上机检 df 85% == 本实现 85.0%，Linux 已逐位对齐）。
+    ⚠️ macOS(开发机)例外: APFS 下 df 报"容器级"容量(含同容器其他卷空闲)与 statvfs 的
+    "卷级"口径不同(实测 df -P / =14% vs 本实现 83%)，该对齐只对生产 Linux 成立。
+    """
+    try:
+        _st = os.statvfs(_path)
+    except Exception:
+        return None
+    _used = _st.f_blocks - _st.f_bfree
+    _denom = _used + _st.f_bavail
+    # 向上取整对齐 df 显示（_df_pct_ceil）；denom<=0 异常 -> None
+    return _df_pct_ceil(100.0 * _used / _denom) if _denom > 0 else None
+
+
+def _inode_used_pct(_path):
+    """statvfs inode used%（df -i 口径，含向上取整）。无 inode（f_files<=0）/失败 -> None。"""
+    try:
+        _st = os.statvfs(_path)
+    except Exception:
+        return None
+    if _st.f_files <= 0:
+        return None
+    return _df_pct_ceil(100.0 * (_st.f_files - _st.f_ffree) / _st.f_files)
+
+
+def _mem_used_pct():
+    """内存 available 口径 used%。Linux /proc/meminfo；macOS vm_stat+sysctl。失败 -> None。"""
+    try:
+        if sys.platform.startswith("linux"):
+            _v = {}
+            with open("/proc/meminfo", encoding="utf-8") as _f:
+                for _l in _f:
+                    _k, _, _val = _l.partition(":")
+                    _v[_k.strip()] = _val.strip()
+            _tot = float(_v.get("MemTotal", "0").split()[0])
+            _avail = float(_v.get("MemAvailable", "0").split()[0])
+            return 100.0 * (1.0 - _avail / _tot) if _tot > 0 and _avail > 0 else None
+        if sys.platform == "darwin":
+            _page = int(subprocess.run(["sysctl", "-n", "hw.pagesize"], capture_output=True,
+                                       text=True, timeout=5).stdout.strip() or 4096)
+            _tot = int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True,
+                                      text=True, timeout=5).stdout.strip() or 0)
+            _inact = _free = _spec = 0
+            for _l in subprocess.run(["vm_stat"], capture_output=True, text=True,
+                                     timeout=5).stdout.splitlines():
+                _n = _l.split(":")[1].strip().rstrip(".") if ":" in _l else ""
+                if _l.startswith("Pages free:"):
+                    _free = int(_n)
+                elif _l.startswith("Pages inactive:"):
+                    _inact = int(_n)
+                elif _l.startswith("Pages speculative:"):
+                    _spec = int(_n)
+            if _tot <= 0:
+                return None
+            _avail = (_free + _inact + _spec) * _page
+            return 100.0 * (1.0 - _avail / _tot)
+    except Exception:
+        return None
+    return None
+
+
+def _swap_used_pct():
+    """swap used%（仅 SwapTotal>0 时；非 Linux/失败 -> None）。"""
+    try:
+        if sys.platform.startswith("linux"):
+            _v = {}
+            with open("/proc/meminfo", encoding="utf-8") as _f:
+                for _l in _f:
+                    _k, _, _val = _l.partition(":")
+                    _v[_k.strip()] = _val.strip()
+            _tot = float(_v.get("SwapTotal", "0").split()[0])
+            _free = float(_v.get("SwapFree", "0").split()[0])
+            return 100.0 * (_tot - _free) / _tot if _tot > 0 else None
+    except Exception:
+        return None
+    return None
+
+
+def _check_resource(_label, _scope, _pct):
+    """单指标阈值判定：>=severe 入 alerts（通过主恢复循环统一管恢复）；>=warn 入 notify 聚合。"""
+    if _pct is None:
+        return
+    _key = f"host_resource|{_label}|{_scope}"
+    if _pct >= RESOURCE_SEVERE_PCT:
+        seen_keys_this_run.add(_key)
+        _ex = alert_state.get(_key)
+        if _ex is not None and _ex.get("status") == "active":
+            print(f"[suppress] {_key} {_pct:.1f}% 持续中, 不重发")
+        elif _recurrence_suppressed(_ex):
+            _ex["status"] = "active"
+            _ex["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[recurrence-suppress] {_key} {_pct:.1f}% 恢复后 <6h 复现, 抑制不重发")
+        else:
+            alerts.append(
+                f"SEVERE: {_label} 使用率 {_pct:.1f}% ({_scope}) "
+                f"超严重线 {RESOURCE_SEVERE_PCT:.0f}% —— 主机资源告急"
+            )
+            alert_state[_key] = {
+                "status": "active",
+                "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "keyword": f"{_label}_high",
+                "line_sample": f"{_scope} {_pct:.1f}%",
+            }
+    elif _pct >= RESOURCE_WARN_PCT:
+        _wkey = f"host_resource_warn_{_label}_{_scope}".replace("/", "_")
+        try:
+            subprocess.run(
+                [
+                    sys.executable, str(REPO / "scripts" / "notify.py"),
+                    f"[资源预警] {_label} 使用率 {_pct:.1f}% ({_scope})",
+                    f"{_label} 使用率 {_pct:.1f}% ({_scope}) 已达预警线 {RESOURCE_WARN_PCT:.0f}%"
+                    f"(严重线 {RESOURCE_SEVERE_PCT:.0f}%); 未到严重级, 仅提示关注增长趋势。",
+                    "--tier", "warning", "--dedup-key", _wkey, "--dedup-window", "21600",
+                ],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+        except Exception as _e:
+            print(f"[warn] {_key} warning 入队失败: {_e}", file=sys.stderr)
+        print(f"[resource-warn] {_key} {_pct:.1f}% 达预警线(>= {RESOURCE_WARN_PCT:.0f}%)")
+
+
+# 检查对象：仓库所在 fs + /（同 fs 去重，防同盘重复报）。REPO 在云上=L 盘根，
+# 单独列 / 兜底"仓库迁走后根盘另满"的场景。
+_res_targets = []
+for _p in (str(REPO), "/"):
+    try:
+        _dev = os.stat(_p).st_dev
+    except Exception:
+        continue
+    if _dev not in [_d for _d, _ in _res_targets]:
+        _res_targets.append((_dev, _p))
+for _dev, _p in _res_targets:
+    _check_resource("主机磁盘", _p, _df_used_pct(_p))
+    _check_resource("主机inode", _p, _inode_used_pct(_p))
+_check_resource("主机内存", "host", _mem_used_pct())
+_check_resource("主机swap", "host", _swap_used_pct())
 
 # #123 R2(2026-10-01): merge key 24h 清理(防 alert_state 无界膨胀; merge key 不参与恢复)
 adr.r2_merge_cleanup(alert_state, NOW)
@@ -2126,6 +2371,10 @@ _IMPACT_MAP = {
     "us_stock_morning": "美股数据可能缺失或未更新, 前端美股指标读旧",
     "overview": "线上 overview.json 时效滞后, 前端首页可能读到旧数据",
     "R2": "R2 存储(ssd.fx8.store)不可达或数据未推新版, 前端大文件/rewrite 数据源断或读旧",
+    "主机磁盘": "主机磁盘超 90%, 继续增长将写满 -> 日志/产物/DB 写入失败, 告警邮件自身也可能发不出(静默失联)",
+    "主机inode": "inode 耗尽(小文件数超限), 与磁盘写满同效: 新文件(日志/JSON/WAL)创建失败, 报 'No space left on device'",
+    "主机内存": "可用内存 <10%, 逼近 OOM -> 采集/导出/回测进程可能被内核 kill, 表现为任务随机中断(exit=137/143)",
+    "主机swap": "swap 接近耗尽, 内存压力已到极限(紧随其后常是 OOM kill); I/O 抖动亦拖慢所有任务",
 }
 _SUGGEST_MAP = {
     "update_all": "自动恢复中; 若持续(超时告警)请人工查 update_all 进程/卡死点",
@@ -2136,6 +2385,10 @@ _SUGGEST_MAP = {
     "overview": "自动恢复中; 若持续请人工查 intraday/push 链路",
     "R2": "自动恢复中; 若持续请人工查 upload_r2/网络/R2 桶",
     "feishu_config": "恢复：cp config/feishu.json.example config/feishu.json 后 launchctl kickstart com.trade.feishu-listener; 持续缺失=配置被删需重建",
+    "主机磁盘": "立即清日志/临时/旧产物或扩容: du -x -h --max-depth=1 / | sort -h; 写不下会让自动任务静默失败",
+    "主机inode": "按文件数定位: df -i /; find / -xdev -printf '%h\\n' 2>/dev/null | sort | uniq -c | sort -rn | head",
+    "主机内存": "查内存大户 top/ps 找泄漏进程, 评估重启服务/加内存; 持续请上报",
+    "主机swap": "同内存处置: 查异常大内存进程/泄漏, 确认 swappiness 与 swap 容量",
 }
 _LOG_MAP = {t["task"]: str(LOG_DIR / t["log"]) for t in TASKS}
 
