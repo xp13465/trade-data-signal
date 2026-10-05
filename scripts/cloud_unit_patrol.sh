@@ -29,16 +29,62 @@
 #   CLOUD_UNIT_PATROL_ARBITER_DUMP=<path>  权威源改用该 dump(替代直连 /etc/systemd/system)
 #   CLOUD_UNIT_PATROL_SNAPSHOT=<path>       快照路径覆盖
 #   CLOUD_UNIT_PATROL_NOTIFY_DRYRUN=1       notify 加 --dry-run(不真发,自验用)
+#   CLOUD_UNIT_PATROL_FATAL_LOG=<path>      路径校验失败时的落盘日志(默认 ${TMPDIR:-/tmp}/cloud_unit_patrol_fatal.log)
+#
+# ── #194 路径加固(2026-10-05,#191 §0 亲验发现的「静默盲区」同族)──────────────
+# 病灶:原第 36/37 行对 REPO/GIT_REPO 写死 mac 默认值(/Users/linhuichen/...),
+#   生产靠 unit 的 Environment=REPO=/GIT_REPO= 兜住。一旦那两行 Environment 丢失
+#   (重生成 unit 被覆盖 / 手改),脚本就拿 mac 路径去 cd / 调 python:rc=127,
+#   且 **$PY 也源自坏 REPO ⇒ notify 一样调不动** ⇒「失败恰恰是最没声音的时候」。
+# 修法(只动本文件,不扩面):
+#   ① fail-fast:cd / 调 python **之前**校验 REPO、GIT_REPO、.venv/bin/python,
+#      不成立即打印带「实际取值 + env/unit 配置可能丢失」提示到 stderr 并 exit≠0。
+#   ② 去 mac 隐式默认:优先从 $0 推导(env 覆盖仍最高优先);推不出且 env 也没给
+#      → 走 ①的 fail-fast,绝不「猜一个 mac 路径继续跑」。
+#      推导依据:云上/mac 的 <REPO>/scripts 都是**指向 git 仓库 scripts/ 的 symlink**
+#        (云 trade-data/scripts -> trade-data-signal/scripts;mac trade-data/scripts -> trade/scripts)
+#        ⇒ $0 的 scripts 目录的**父目录** = REPO(数据/运行目录,含 .venv);
+#          $0 的 scripts 目录**解析 symlink 后**的父目录 = GIT_REPO(git 仓,含 docs/deploy 快照)。
+#   ③ 失败出口兜底:即使路径校验失败,该失败本身也有出口——stderr(unit 无 append
+#      重定向 ⇒ 直接进 systemd journal)+ 固定位置日志 $_FATAL_LOG(不依赖坏 REPO)。
+#   自测脚本:scripts/cloud_unit_patrol_selftest.sh(fail-fast / $0 推导 / bash -n)。
 #
 # 用法: bash scripts/cloud_unit_patrol.sh
 set -u
 
-export REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-export GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
+# ── 路径自解析(#194):env 覆盖 > 从 $0 推导 > fail-fast ──────────────────────
+_self="$0"
+case "$_self" in
+  /*) : ;;
+  *)  _self="$(pwd)/$_self" ;;   # 相对路径(手动 bash scripts/xxx.sh)→ 补 cwd
+esac
+_self_dir="$(dirname "$_self")"                                              # 本脚本所在 scripts 目录(未解 symlink)
+_repo_derived="$(dirname "$_self_dir")"                                      # REPO 候选 = scripts 的父目录
+_self_dir_real="$(cd "$_self_dir" 2>/dev/null && pwd -P || printf '%s' "$_self_dir")"   # 解 symlink 后的 scripts 目录
+_gitrepo_derived="$(dirname "$_self_dir_real")"                              # GIT_REPO 候选 = 解 symlink 后 scripts 的父目录
+
+export REPO="${REPO:-$_repo_derived}"
+export GIT_REPO="${GIT_REPO:-$_gitrepo_derived}"
+
+_FATAL_LOG="${CLOUD_UNIT_PATROL_FATAL_LOG:-${TMPDIR:-/tmp}/cloud_unit_patrol_fatal.log}"
+_fatal() {
+  # 失败出口:①stderr(bash 无条件处理)→ systemd journal ②固定位置日志(不依赖坏 REPO)
+  local msg="[cloud_unit_patrol] FATAL: $*"
+  printf '%s\n' "$msg" >&2
+  printf '%s %s\n' "$(date '+%F %T')" "$msg" >> "$_FATAL_LOG" 2>/dev/null || true
+  exit 2
+}
+
+# ── fail-fast 校验(cd / 调用 python 之前)────────────────────────────────────
+[ -d "$REPO" ]     || _fatal "REPO 目录不存在: REPO='$REPO'($0 推导值='$_repo_derived')。systemd unit trade-cloud-unit-patrol.service 的 Environment=REPO= 或环境变量可能丢失/写错。"
+[ -d "$GIT_REPO" ] || _fatal "GIT_REPO 目录不存在: GIT_REPO='$GIT_REPO'($0 推导值='$_gitrepo_derived')。unit 的 Environment=GIT_REPO= 或环境变量可能丢失/写错。"
 PY="${PY:-$REPO/.venv/bin/python}"
+[ -f "$REPO/.venv/bin/python" ] || _fatal "REPO 下缺 .venv/bin/python(REPO='$REPO')——REPO 可能指向了错误目录。"
+[ -x "$PY" ] || _fatal "python 解释器不存在/不可执行: PY='$PY'(默认 \$REPO/.venv/bin/python)。REPO/PY 配置错误。"
+
 LOGDIR="$REPO/data/logs"
-mkdir -p "$LOGDIR"
-cd "$REPO"
+mkdir -p "$LOGDIR" || _fatal "无法创建日志目录: $LOGDIR"
+cd "$REPO" || _fatal "无法进入 REPO: $REPO"
 LOG="$LOGDIR/cloud_unit_patrol_launchd.log"
 
 SNAPSHOT="${CLOUD_UNIT_PATROL_SNAPSHOT:-$GIT_REPO/docs/deploy/systemd-units-cloud-snapshot.txt}"
