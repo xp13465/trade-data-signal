@@ -479,3 +479,33 @@ git remote prune origin
 ```
 
 > 生成器脚本(临时,故意不落库): `/tmp/bc_report.py`；逐支日志源文件:`/tmp/bc-delete-log.txt`、`/tmp/bc-remote-delete-log.txt`。
+
+---
+
+## 6. 后续增删(2026-10-05 当日追加,主控执行)
+
+> 本报告的 §3/§4 是 14:24 那次批量清理的快照。随后当日又有 3 个 feat 分支陆续合入 main、2 个残留 worktree 分支待清,此处如实追加,避免清单失真(§22 同一事实一处口径)。
+
+### 6.1 本次追加删除(6 ref:本地 5 / 远端 3 — 含 2 个同名本地)
+
+| ref | 层 | 删除前 tip | 证据(§2 三条硬证据之一) |
+|---|---|---|---|
+| `feat/s06-timeout-grad-20261005` | 本地 + 远端 | `9ff608112` | ancestor-of-main(`rev-list --count main..br` = 0;且该 tip 即 main 头,内容逐位相同) |
+| `feat/159-pfdb-bak-offsite-20261005` | 本地 + 远端 | `4225d5946` | ancestor-of-main(合 main `23285f308` 后) |
+| `feat/160-consistency-gate-20261005` | 本地 + 远端 | `b2ac7348b` | ancestor-of-main(合 main `66615cc45` 后)⇒ **§4.3「未评估、不动」已解除** |
+| `worktree-agent-aa9bc6dd712a6558f` | 本地 | `9d0ba2cec` | ancestor-of-main(§4.2 观察项那条旧 worktree 分支,worktree 已 remove) |
+| `worktree-agent-adabd06db362af3d4` | 本地 | `81420e1ff` | ancestor-of-main(同上) |
+
+**远端逐支三查(按 §2 纪律)**:`git ls-remote --heads origin` 取远端真实 hash 后与本地 tracking **逐支比对全等**(`4225d5946` / `b2ac7348b` / `9ff608112`),无不一致 ⇒ 0 SKIP;再 `git push origin --delete` 一支一次。
+
+### 6.2 删除后存量
+
+- 本地分支:**3**(`main` / `feat/r2-slim-20261003` / `zcode/standin-charter`)
+- 远端分支:**4**(`main` / `feat/ledger-20261001b` / `feat/r2-slim-20261003` / `zcode/standin-charter`)
+- 本地 worktree:仅 `main`(残留 worktree 目录已清空,`git worktree list` 无 agent 条目)
+
+### 6.3 仍保留(原因不变,同 §4.1)
+
+`zcode/standin-charter`(分叉,`.agents/zcode-standin/SKILL.md` 分支独有段)、`feat/r2-slim-20261003`(草稿版 vs main 定稿版,非字节子集)、`feat/ledger-20261001b`(活文档分叉、无法逐字证明被覆盖)—— 三支**仍待人工判定**,不在本次增删范围。
+
+**恢复路径**:同 §5(这三支 tip 亦在 bundle `branches-not-in-main-20261005.bundle` 覆盖范围内;§6.1 删掉的 5 支则无需 bundle —— 其 commit 就在 main 历史里)。
