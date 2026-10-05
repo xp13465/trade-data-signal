@@ -13,11 +13,12 @@
 > **权威任务状态以 [docs/pending-features-index.md](docs/pending-features-index.md) 为准**(§23.12-1),本节只写 transient 指针。
 > **新会话(2026-10-05 12:05 起)已接手**;上一会话两个 agent(r2fix-review / bkt-audit)均已收工且产物归档,无遗留。
 
-**在跑 agent:4 个(background + 进度文件;巡检 cron 兜底 `4f138d8e`,完成即删)**
+**在跑 agent:5 个(background + 进度文件;巡检 cron 兜底 `4f138d8e`,完成即删)**
 0. 🔄 `老账号 R2 清理评估 + #178 云上环境核查`(用户 2026-10-05 提出:老账号 backup 桶 8G+ + 主桶 signal-data 3G+ 已超 10G 免费额度,要评估能手动清哪些压到 ~6G)= researcher 只读实测两桶(audit 只覆盖备份桶,**signal-data 是增量**)+ 逐项归类 + §25 恢复路径;顺带核云上 `.env` 有无 `R2_BACKUP2_*` 四键(进度 `/tmp/agent-progress-r2cleanup.md`)。**已知进展:云上 `.env` 两套凭据均在**(老 `R2_S3_*`→signal-data/signal-backup;新 `R2_BACKUP2_*`→signal-backup2),`upload_r2.py` 尚缺 BACKUP2 路由(即 #178 未部署)—— **待其核完"有无 `R2_BACKUP_BUCKET` 覆盖"才能放行 merge**。
 1. 🔄 `#164 监控资源维度 + #162 s06 状态残留 hold`(A 批,同改 `scripts/schedule_monitor.sh` 故并一单)= implementer,分支 `feat/164-162-monitor-20261005`(进度 `/tmp/agent-progress-mon164.md`)。
 2. 🔄 `#160 三站一致性校验器接线`(A 批)= implementer,分支 `feat/160-consistency-gate-20261005`(进度 `/tmp/agent-progress-consistency160.md`)。
 3. 🔄 `#159 public_fund.db.bak(10G)异地备份 Batch B`(D 批,§25 先备份后删)= implementer,分支 `feat/159-pfdb-bak-offsite-20261005`(进度 `/tmp/agent-progress-pfbackup159.md`)。
+4. 🔄 `Git 分支大扫除`(用户 2026-10-05 提出「branch 100 多个了要整理清理」;**现状本地 162 / 远端 125**)= general-purpose:§25 **先 bundle 备份(含不在 main 的提交)上传 R2 并 verify** → 分类(勿信 `--merged`,用 blob hash 跨路径比)→ **只删「内容已在 main」的**,有独有内容的一律留+列清单 → `docs/ops/git-branch-cleanup-20261005.md`(进度 `/tmp/agent-progress-branchclean.md`)。**禁区**:不切分支、不碰 4 个在册 worktree 及其分支、不 force push。
 
 **本轮已完成(2026-10-05 下午)**
 - ✅ `告警系统性排查`(用户点名):报告 **`docs/ops/alert-systematic-review-20261005.md`**(206 行)。在册告警**全部四态分类、无未分类遗留**(已修闭环 / 已优化降噪 / 仍待办 / 误报);新登记 **#181-184**(fetch_news 降噪拍板 · 飞书心跳盲区 · utf-8 截断升级评估 · dry-run 写 latest.md),盲区 6 项。关键实证:R2 kill 链**数据无缺口**(md5 三方逐位一致)、#174+#177 新旧行为对照生效、CSP #133 线上已无头。
