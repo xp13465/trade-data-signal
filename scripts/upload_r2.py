@@ -291,8 +291,10 @@ BACKUP2_HOST = urlparse(BACKUP2_ENDPOINT).hostname if BACKUP2_ENDPOINT else None
 
 # backup 用独立私有桶(不绑公开域名,解决 signal-data 公开可读隐患)。
 # 今后新写默认落新桶 signal-backup2(#178 迁移:老桶 signal-backup 存量不搬,只切今后新写)。
-# 注:老桶存量不在本脚本回收范围——#179 已定 large-json/legacy/decommissioned 等前缀均**不配**
-# lifecycle(无自动回收),存量保留在原桶,是否清理由人工另议(勿信「靠 lifecycle 自然回收」)。
+# 注:老桶存量**部分**回收(#179 定案,2026-10-05):新老两桶已配 5 条 lifecycle 规则
+# (pre-upload 7 / weekly 28 / monthly 365 / claude-backup 30 / backup 14);**不回收的仅**
+# large-json/(无规则,flat 唯一副本)+ decommissioned/ + mac-backups/(刻意不配)→ 永久滞留。
+# 存量保留在原桶,是否清理由人工另议(勿信旧报告「其余前缀全无 lifecycle」的配置前快照)。
 # .env 可配 R2_BACKUP_BUCKET 覆盖(测试隔离用不存在的桶名,实测 404 零污染,不 commit .env)。
 BACKUP_BUCKET = os.environ.get("R2_BACKUP_BUCKET", BACKUP2_BUCKET)
 PUBLIC = os.environ.get("R2_PUBLIC_DOMAIN", "").rstrip("/")

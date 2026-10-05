@@ -89,9 +89,10 @@ R2_S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 R2_PUBLIC_DOMAIN=https://ssd.fx8.store
 # 备份用独立私有桶（不绑公开域名）—— 已迁至独立 CF 账号新桶 signal-backup2（#178，2026-10-05）
 # 独立免费额度，防备份挤爆主账号配额；老桶 signal-backup 存量不搬（只读 legacy）
-# ⚠️ 老桶存量**不会**自动回收：老桶只有 backup/ 14 天一条 lifecycle，weekly/monthly/pre-upload/
-#    large-json legacy/claude-backup 等前缀均无 lifecycle 规则（decommissioned/archive 系刻意保留），
-#    代码切走即永久滞留（#179 审计）——别指望「靠 lifecycle 自然回收」。
+# ⚠️ 老桶存量**部分**回收（#179 定案）：新老两桶已配 5 条规则（pre-upload 7 / weekly 28 /
+#    monthly 365 / claude-backup 30 / backup 14）；**不回收的仅 3 个** —— large-json/（无规则，
+#    flat 31,673 唯一副本）+ decommissioned/ + mac-backups/（刻意不配）→ 永久滞留 ≈2.81 GiB
+#    （0.68+0.01+2.12）。
 # 按目标桶路由：桶名 == R2_BACKUP2_BUCKET → 用下面这套新账号端点/凭据；其余（主桶/老备份桶）→ 主账号
 R2_BACKUP2_ENDPOINT=https://<NEW_ACCOUNT_ID>.r2.cloudflarestorage.com
 R2_BACKUP2_BUCKET=signal-backup2
@@ -116,7 +117,7 @@ Worker `/api/purge-cache` 接口认证密码，需同时在两处配置：
 | `signal-backup2` | 私有（不绑域名，**独立 CF 账号**） | DB 备份 + Claude 自我备份 + large-json（**今后新写**，#178） | upload_r2.py `BACKUP_BUCKET`（路由 → 新账号 `R2_BACKUP2_*`） |
 | `signal-backup` | 私有（不绑域名，老账号 legacy） | 迁移前存量（**不搬**，只读） | — |
 
-> ⚠️ **老桶 signal-backup 的存量不会自动回收**：#179 审计实测老桶**仅 `backup/` 有 14 天 lifecycle**，其余前缀（weekly/ monthly/ pre-upload/ large-json legacy/ claude-backup/ 等）**没有任何 lifecycle 规则**，`decommissioned/`、`mac-backups/archive/` 系**刻意保留**（不配删除规则）。代码切走后这些前缀即**永久滞留**（≈6.61 GiB 永远占老账号容量）。是否补 lifecycle 或一次性清理，属人工决策另议（large-json 固定前缀 flat 31,673 是**唯一副本，绝不可清**）。
+> ⚠️ **老桶 signal-backup 存量部分回收**（#179 定案）：新老两桶已配 **5 条 lifecycle 规则**（`pre-upload/` 7 天 / `weekly/` 28 / `monthly/` 365 / `claude-backup/` 30 / `backup/` 14，用户 2026-10-05 配置；老桶 `pre-upload/` 3.13 GiB 存量预计 24h 内开始被清）。**不回收的仅 3 个前缀**：`large-json/`（无规则，CF prefix 无通配符，配 `large-json/` 会误删 flat 31,673 唯一副本）+ `decommissioned/` + `mac-backups/`（刻意不配删除规则）→ **永久滞留 ≈2.81 GiB**（0.68+0.01+2.12）。
 
 ### 2.4.1 换桶后的一次性回填（#178）
 
@@ -131,7 +132,7 @@ BKUP 桶从老桶切到新桶后，**新桶起步是空的**，各前缀回填�
 
 **large-json 硬化（#178）**：增量判据是**纯本地 state 比对**（不枚举任何桶），若只切桶不清 state，会出现「state+md5 自证完备、而新桶实际只有当日变化的那点」的**静默假完备窗口**，要等**首个周日（强制全量）**才补齐。为此 state 文件加了 `bucket` 字段：
 - **读侧**：`state.bucket != 当前 BACKUP_BUCKET` → 视同无状态 → **退化全量**（老 state 无此字段亦不匹配）。
-- **效果**：换桶后**首个 large-json 轮即自动全量回填 31,673 对象 / ≈454.5 MB**，无需手动 `--full`，静默窗口消失。
+- **效果**：换桶后**首个 large-json 轮即自动全量回填 ≈3.1 万对象 / ≈450 MB（以当轮清单为准）**，无需手动 `--full`，静默窗口消失。
 
 > 建议在**空闲窗口**确认/触发一次首轮回填以控时点（避开盘后定时任务 17:50 / 20:35 / 22:00；large-json 由 `staticdata_backup_async.sh` 在 deploy 后跑，也可手动 `python3 scripts/upload_r2.py upload-large-json` 触发）。
 > **如需读老桶快照**（迁移前存量）：临时 `R2_BACKUP_BUCKET=signal-backup` 覆盖后 `upload_r2.py list` / `download-db` / `restore-large-json.sh`，读完即恢复默认，勿常态指向老桶。
