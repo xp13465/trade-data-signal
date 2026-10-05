@@ -169,6 +169,20 @@ TASKS = [
     {"task": "r2_consistency",      "log": "r2_consistency_launchd.log",
      "trading_day_only": False,
      "schedules": ["23:20"]},
+    # cloud_unit_patrol: 2026-10-05 补入(#196②, F1 族「巡检/链路自身死亡」可见性统一;
+    # 与 gen_schedule_stats.py TASKS + LABEL_MAP 同步注册)。
+    # systemd trade-cloud-unit-patrol.timer 每日 08:27 跑 cloud_unit_patrol.sh(云上 unit 直连
+    # vs 仓库快照漂移比对)。**为何必须注册**: 该 unit 带 ConditionPathExists=<REPO>/scripts/
+    # cloud_unit_patrol.sh —— 脚本被删时 systemd 根本不启动(条件不满足=skipped, 不进 failed)
+    # ⇒ check_failed_units.py 的 failed-unit 通道看不见; **唯一**能发现的是本行支撑的漏跑通道
+    # (日志不再出现「开始」行)。缺则 #191 patrol 被删 = 永久静默(#194/#191 P2-1 同源病灶)。
+    # 每日跑不限交易日(「快照==云上」是不变量, 周末手改同样要抓)。
+    # exit!=0 通道: patrol rc!=0(漂移/exit3)→ failed unit; 该 unit 已被上条 check_failed_units.py
+    # 巡检覆盖且 patrol 自身有 notify 通道 ⇒ exit!=0 汇总通道按下方 r2_consistency 先例做
+    # 同实例去重(patrol_wrapper_alerted), 防同一次漂移三封邮件。
+    {"task": "cloud_unit_patrol",   "log": "cloud_unit_patrol_launchd.log",
+     "trading_day_only": False,
+     "schedules": ["08:27"]},
     # turnover_backfill: 2026-09-09 补入(#82 C6: turnover 摘出 update_all 主链独立延后跑)。
     # launchd com.trade.turnover-backfill 交易日 21:10 跑 turnover_backfill.sh
     # (baostock 增量 + cleanup_d3d2 算 a_turnover_* 入 daily_metric + 增量重导 overview/a-stock
@@ -614,6 +628,23 @@ if STATS_FILE.exists():
                         _ex_r2c["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
                     print(
                         f"[r7-r2consistency-suppress] r2_consistency exit={exit_code} 但包装器"
+                        f"通道已为本次运行(last_run={last_run_str})发过告警, monitor 汇总去重"
+                    )
+                # #196②(2026-10-05): cloud_unit_patrol 漂移时包装器自身通道
+                # (cloud_unit_patrol.sh → notify --dedup-key cloud_unit_patrol_drift, 含差异明细)
+                # 已为**本次运行实例**发过告警时, 本 exit!=0 汇总通道不再复述(同 r2_consistency
+                # 先例; 否则同一次漂移 = 包装器邮件 + 本通道邮件 + check_failed_units failed-unit
+                # 邮件 三封)。反例保证(不吞真故障): 包装器 notify 发送失败/去重表缺失 → 判定
+                # False → 本通道照发。注意 patrol 的 exit 3(环境守卫 SKIP)**不 notify** ⇒
+                # 判定 False ⇒ 本通道照报(正是 #191 P2-1 要的「exit 3 生产可见」)。
+                elif s.get("task") == "cloud_unit_patrol" and adr.wrapper_channel_alerted(
+                    REPO, last_run_str, adr.PATROL_DRIFT_DEDUP_KEY
+                ):
+                    _ex_cup = alert_state.get(dedup_key)
+                    if _ex_cup is not None and _ex_cup.get("status") == "active":
+                        _ex_cup["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                    print(
+                        f"[196-patrol-suppress] cloud_unit_patrol exit={exit_code} 但包装器"
                         f"通道已为本次运行(last_run={last_run_str})发过告警, monitor 汇总去重"
                     )
                 else:
@@ -1481,6 +1512,54 @@ for _dev, _p in _res_targets:
     _check_resource("主机inode", _p, _inode_used_pct(_p))
 _check_resource("主机内存", "host", _mem_used_pct())
 _check_resource("主机swap", "host", _swap_used_pct())
+
+# ── #196①(2026-10-05, F1 族「巡检/链路自身死亡」可见性统一): 云上 failed-unit 巡检 +
+#   巡检者自身存活检查(check_failed_units.py)。位置刻意放"恢复检测循环之前"(同
+#   launchctl_loaded 通道 L1106 注释要求): 让 _cfu_key 的 seen 标记先于恢复检测完成,
+#   否则下一轮 key 未 seen 会被误判"异常已消失"误发恢复邮件。
+#   除让「巡检发现异常」经脚本自身通道(notify --severe, dedup failed_units_patrol)发出外,
+#   更关键的是——**巡检脚本自己跑不起来**(被删/异常/意外退出码)时, 本处直接把它变成
+#   本轮主告警邮件里的一条 SEVERE, 让「巡检者死了」当场可见(#196② 核心:
+#   不能「巡检者死了没人知」)。rc 映射: 0=健康 / 1=自身通道已发(仅记日志) /
+#   3=非云上跳过 / 其他(含 FileNotFoundError/非0异常)→ 追加 SEVERE。
+#   异常消失(脚本恢复可跑)→ 恢复检测循环自动发一条 [恢复](monitor 自身自愈值得一条通知,
+#   与 r2_* 自愈类"静默恢复"口径不同, 故不复用其前缀)。
+_cfu_key = "cloud_unit_patrol|self|dead"
+_cfu_dead = None
+try:
+    _r_cfu = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "check_failed_units.py"),
+         "--repo", str(REPO), "--notify"],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    _cfu_out = (_r_cfu.stdout or "").strip()
+    if _r_cfu.returncode == 0:
+        print(f"[196] {_cfu_out.splitlines()[0] if _cfu_out else 'failed-unit 巡检 OK'}")
+    elif _r_cfu.returncode == 1:
+        print(f"[196] 云上 unit 异常(自身通道已发告警): {_cfu_out[:300]}")
+    elif _r_cfu.returncode == 3:
+        print(f"[196] failed-unit 巡检跳过(非云上环境): {_cfu_out[:200]}")
+    else:
+        _cfu_dead = (f"云上 failed-unit 巡检脚本自身异常 rc={_r_cfu.returncode}: "
+                     f"{(_cfu_out + ' ' + (_r_cfu.stderr or '')).strip()[:200]}")
+except Exception as _e:
+    _cfu_dead = (f"云上 failed-unit 巡检脚本未能运行({type(_e).__name__}: {_e}) —— "
+                 f"巡检者自身死亡, 需人工排查 scripts/check_failed_units.py")
+if _cfu_dead:
+    seen_keys_this_run.add(_cfu_key)
+    _cfu_ex = alert_state.get(_cfu_key)
+    if _cfu_ex is None or _cfu_ex.get("status") != "active":
+        alerts.append(f"SEVERE: {_cfu_dead}")
+        alert_state[_cfu_key] = {
+            "status": "active",
+            "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+            "keyword": "巡检脚本自身异常",
+            "line_sample": _cfu_dead[:200],
+        }
+    else:
+        _cfu_ex["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[suppress] {_cfu_key} 持续中, 不重发")
 
 # #123 R2(2026-10-01): merge key 24h 清理(防 alert_state 无界膨胀; merge key 不参与恢复)
 adr.r2_merge_cleanup(alert_state, NOW)

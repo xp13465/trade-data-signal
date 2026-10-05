@@ -92,6 +92,20 @@ TASKS = [
     # 日志固定 append + 标准开始/结束行, standard 直读; 每日跑不限交易日。
     {"task": "r2_consistency", "name": "三站一致性巡检", "script": "check_r2_consistency.sh",
      "schedule": "23:20", "log": "r2_consistency_launchd.log", "mode": "standard"},
+    # cloud_unit_patrol: 2026-10-05 补入(#196②, F1 族「巡检/链路自身死亡」可见性统一;
+    # 与 schedule_monitor.sh TASKS + LABEL_MAP 同步注册)。
+    # systemd trade-cloud-unit-patrol.timer 每日 08:27 跑 cloud_unit_patrol.sh
+    # (云上 /etc/systemd/system/trade-*.{service,timer} 直连 vs 仓库快照漂移比对, rc!=0 →
+    #  notify --severe, 去重 key cloud_unit_patrol_drift, 连续 3 天仍漂移 → 升 critical)。
+    # **为何必须注册**: 该 unit 带 ConditionPathExists=<REPO>/scripts/cloud_unit_patrol.sh ——
+    # 脚本被删时 systemd **根本不启动**该 unit(条件不满足=skipped, 不进 failed)⇒
+    # check_failed_units.py 的 failed-unit 通道看不见它; **唯一**能发现的是本表支撑的
+    # 漏跑通道(日志不再出现「开始」行 → schedule_monitor 漏跑告警)。这是「巡检者死了没人知」
+    # 的关键一层, 缺则 #191 patrol 被删 = 永久静默(#194/#191 审查 P2-1 同源病灶)。
+    # 日志固定 append + 标准开始/结束行, standard 模式直读。
+    # 每日跑不限交易日: 「快照==云上」是不变量, 周末手改同样要抓(同 r2_consistency)。
+    {"task": "cloud_unit_patrol", "name": "云上unit漂移巡检", "script": "cloud_unit_patrol.sh",
+     "schedule": "08:27", "log": "cloud_unit_patrol_launchd.log", "mode": "standard"},
     # turnover_backfill: 2026-09-09 补入(#82 C6: turnover 摘出 update_all 主链独立延后跑)。
     # launchd com.trade.turnover-backfill 交易日 21:10 跑 turnover_backfill.sh
     # (baostock 增量 + cleanup_d3d2 算 a_turnover_* 入 daily_metric + 增量重导 overview/a-stock 传 R2)。
@@ -187,6 +201,9 @@ LABEL_MAP = {
     # r2_consistency: 2026-10-05 补入(#160), 云上 trade-r2-consistency.service
     # (缺此项 standard 模式读不到真实码 → 回退启发式猜 143 误报, 同 nextday_gap_check 病根)。
     "r2_consistency": "com.trade.r2-consistency",
+    # cloud_unit_patrol: 2026-10-05 补入(#196②), 云上 trade-cloud-unit-patrol.service
+    # (缺此项 standard 模式读不到真实码 → 回退启发式猜 143 误报, 同 nextday_gap_check 病根)。
+    "cloud_unit_patrol": "com.trade.cloud-unit-patrol",
 }
 
 # launchctl print "last exit code = N" 行（N 可为 143/0/1/None，None 显 "last exit code = (none)"）
