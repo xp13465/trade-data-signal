@@ -509,3 +509,45 @@ git remote prune origin
 `zcode/standin-charter`(分叉,`.agents/zcode-standin/SKILL.md` 分支独有段)、`feat/r2-slim-20261003`(草稿版 vs main 定稿版,非字节子集)、`feat/ledger-20261001b`(活文档分叉、无法逐字证明被覆盖)—— 三支**仍待人工判定**,不在本次增删范围。
 
 **恢复路径**:同 §5(这三支 tip 亦在 bundle `branches-not-in-main-20261005.bundle` 覆盖范围内;§6.1 删掉的 5 支则无需 bundle —— 其 commit 就在 main 历史里)。
+
+---
+
+## 7. 三支「宁留勿删」残留支的终局(2026-10-05 晚,主控执行)
+
+> §6.3 记的"仍待人工判定"三支,当晚以逐字节 / 迁移证据全部收口;§6.2 的存量数字随之作废(以本节 7.5 为准)。
+
+### 7.1 逐支终局与证据
+
+| ref | §6.3 原判定 | 终局 | 证据(逐字节/逐 commit) |
+|---|---|---|---|
+| `zcode/standin-charter` | 分叉,SKILL.md 有 main 没有的「ZCode 专属分支纪律」段 | 删(本地+远端) | 该段**已 706 字节逐字节归档在 main**(`docs/archive/zcode-standin-branch-discipline-20260903.md`,同字节数、`diff` 输出为空);余 3 处为 main 已更新的旧文案 |
+| `feat/ledger-20261001b` | 活文档分叉,无法逐字证明被覆盖 | 删(远端;本地早前已无) | 原判定**被实测证伪**:分支 3 commit + 其引用的 8/8 commit 全为 main 祖先;11/11 报告文件在 main 均在;§索引 main 侧为超集 |
+| `feat/r2-slim-20261003` | 草稿版,非字节子集 | **先迁移后删**(本地+远端) | 报告草稿 3 处 main 零命中(工程落地要点 / per-DB 总量字节 / 一处归因差异)→ 派实施 agent 迁移入 main(报告 §⑨ 已含两边全部数字);归因差异见 7.2 |
+
+### 7.2 归因差异定论(exit 144)
+
+researcher **复现实验**定性(不靠推理):144 = Claude Code 对「被 SIGTERM 停掉的后台命令」的固定记录码(同机同版本 `time sleep` 发 TERM **恒记 144**,4/4);对照实验 `kill -9`→**1**、仅杀子进程→**0**、普通 zsh 被 TERM→**143** ⇒ 144 不含"程序自身出错"信息。真正停掉动作有命令原文 + 时间戳(`kill 39145 39142`,10-04 00:50:06.060),另一 agent 收到通知时刻 00:50:06.577(**差 0.517s**)。⇒ main 原写法「按任务书限时窗口主动停掉」**正确,结论不改**,仅在报告补记退出码语义。
+
+### 7.3 删除顺序合规(§25 先备份后删除)
+
+- bundle `/tmp/branches-not-in-main-20261005.bundle`(**14:07** 生成)< 删除动作(14:24 批次 + 当晚)⇒ 备份**先于**删除。
+- 三支 tip 逐 hash 均在 bundle 内(主控 21:57 复核:对象 `cat-file -t` 可读 + `bundle list-heads` 命中);researcher 曾**独立复跑**核实(本地 md5 + R2 回读 md5 双份同源)。
+- 当晚追加**异地副本**:`scp` 至云上 `/home/ubuntu/backup/branches-not-in-main-20261005.bundle`,两侧 md5 `e629c34f848abfe627c5e76c1820d07a` 一致(42,827 B)—— 原 bundle 仅在 mac `/tmp`(重启即失),此副本使恢复路径脱离单机。
+
+### 7.4 恢复路径
+
+```bash
+# 从 bundle 取回任意一支(示例:zcode/standin-charter)
+git fetch /tmp/branches-not-in-main-20261005.bundle \
+    refs/heads/zcode/standin-charter:zcode/standin-charter
+# 异地副本(云上):/home/ubuntu/backup/branches-not-in-main-20261005.bundle
+#   取回:scp -i ~/tdsignal.pem ubuntu@122.51.111.173:/home/ubuntu/backup/branches-not-in-main-20261005.bundle /tmp/
+```
+三支 tip:`zcode/standin-charter` = `f5b25983d`、`feat/r2-slim-20261003` = `ac2d7d21a`、`feat/ledger-20261001b`(远端)= `6eae4644`。
+
+### 7.5 删除后存量(最终,取代 §6.2)
+
+- 本地分支:**1**(`main` @ `58c5a7b5c`)
+- 远端分支:**1**(`refs/heads/main`)
+- worktree:**1**(main 主树;3 个 agent 残留 worktree 已 `remove --force` + `prune`)
+- §2 逐支证据:本批 10 支本地 + 7 支远端删除前均过「`git rev-list --count origin/main..<br>` == 0」或(三支保留支)「逐字节归档 / 迁移 / tip 在 bundle」判据,无一例外。
