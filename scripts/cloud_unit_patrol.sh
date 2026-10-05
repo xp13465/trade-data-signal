@@ -29,26 +29,115 @@
 #   CLOUD_UNIT_PATROL_ARBITER_DUMP=<path>  权威源改用该 dump(替代直连 /etc/systemd/system)
 #   CLOUD_UNIT_PATROL_SNAPSHOT=<path>       快照路径覆盖
 #   CLOUD_UNIT_PATROL_NOTIFY_DRYRUN=1       notify 加 --dry-run(不真发,自验用)
+#   CLOUD_UNIT_PATROL_UNITS_DIR=<path>      权威 unit 目录覆盖(默认 /etc/systemd/system;自测/沙箱用)
+#   CLOUD_UNIT_PATROL_FATAL_LOG=<path>      路径校验失败时的落盘日志(默认 ${TMPDIR:-/tmp}/cloud_unit_patrol_fatal.$(id -un).log)
+#
+# ── #194 路径加固(2026-10-05,#191 §0 亲验发现的「静默盲区」同族)──────────────
+# 病灶:原第 36/37 行对 REPO/GIT_REPO 写死 mac 默认值(/Users/linhuichen/...),
+#   生产靠 unit 的 Environment=REPO=/GIT_REPO= 兜住。一旦那两行 Environment 丢失
+#   (重生成 unit 被覆盖 / 手改),脚本就拿 mac 路径去 cd / 调 python:rc=127,
+#   且 **$PY 也源自坏 REPO ⇒ notify 一样调不动** ⇒「失败恰恰是最没声音的时候」。
+# 修法(只动本文件,不扩面):
+#   ① fail-fast:cd / 调 python **之前**校验 REPO、GIT_REPO、.venv/bin/python,
+#      不成立即打印带「实际取值 + env/unit 配置可能丢失」提示到 stderr 并 exit≠0。
+#   ② 去 mac 隐式默认:优先从 $0 推导(env 覆盖仍最高优先);推不出且 env 也没给
+#      → 走 ①的 fail-fast,绝不「猜一个 mac 路径继续跑」。
+#      推导依据:云上/mac 的 <REPO>/scripts 都是**指向 git 仓库 scripts/ 的 symlink**
+#        (云 trade-data/scripts -> trade-data-signal/scripts;mac trade-data/scripts -> trade/scripts)
+#        ⇒ $0 的 scripts 目录的**父目录** = REPO(数据/运行目录,含 .venv);
+#          $0 的 scripts 目录**解析 symlink 后**的父目录 = GIT_REPO(git 仓,含 docs/deploy 快照)。
+#   ③ 失败出口兜底:即使路径校验失败,该失败本身也有出口——stderr(unit 无 append
+#      重定向 ⇒ 直接进 systemd journal)+ 固定位置日志 $_FATAL_LOG(不依赖坏 REPO)。
+#   自测脚本:scripts/cloud_unit_patrol_selftest.sh(fail-fast / $0 推导 / 环境守卫 / bash -n)。
+#
+# ── #194-F2 环境守卫(2026-10-05,reviewer 实测事故根治)────────────────────────
+# 事故:本脚本**云上专用**(直连 /etc/systemd/system)。在 mac/非云上跑它时,权威源
+#   读不到(旧脚本 ∵ 目录不存在 → audit rc=2)→ 被当成「漂移」→ **真发出 1 邮件 +
+#   1 飞书 severe**(reviewer 2026-10-05 用 main 旧版在 mac 上跑自测时真实发生)。
+# 判据(仓库无先例,自定并明写):**权威源「存在且像真的」才允许巡检;不成立一律
+#   只写日志 + exit 3,绝不调用 notify**。权威源与 systemd_timeout_gradient_audit.py
+#   read_all_units 完全同源(避免「守卫看的源 ≠ 审计读的源」)——
+#     ①生产模式(无 dump):unit 目录(默认 /etc/systemd/system)存在 且 含 trade-*.service
+#     ②测试桩模式(CLOUD_UNIT_PATROL_ARBITER_DUMP 已设):dump 文件存在且非空;
+#       **该模式纯诊断,永不发通知**(生产不设此桩,设了=有人在做测试,不该惊动用户)。
+#   exit 3 非 0:让「巡检自身没跑成」在 systemd/监控里可见(不做静默 —— 与 #188 同精神)。
+#
+# ── #194-F3 失败出口可写性(2026-10-05,reviewer 实测)──────────────────────────
+# 事故:出口②的 /tmp/cloud_unit_patrol_fatal.log 曾被 root 属主化(某次以 root 跑
+#   留下 644 root 文件)→ 之后 ubuntu 身份 append 被拒 → 出口②降级失效。
+# 修法:文件名带 $(id -un) 后缀(每用户独立,避开他人/root 残留),且出口①(stderr→
+#   journal)恒在——即使文件写不进也有 journal 兜底。CLOUD_UNIT_PATROL_FATAL_LOG 可覆盖。
 #
 # 用法: bash scripts/cloud_unit_patrol.sh
 set -u
 
-export REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-export GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
+# ── 路径自解析(#194):env 覆盖 > 从 $0 推导 > fail-fast ──────────────────────
+_self="$0"
+case "$_self" in
+  /*) : ;;
+  *)  _self="$(pwd)/$_self" ;;   # 相对路径(手动 bash scripts/xxx.sh)→ 补 cwd
+esac
+_self_dir="$(dirname "$_self")"                                              # 本脚本所在 scripts 目录(未解 symlink)
+_repo_derived="$(dirname "$_self_dir")"                                      # REPO 候选 = scripts 的父目录
+_self_dir_real="$(cd "$_self_dir" 2>/dev/null && pwd -P || printf '%s' "$_self_dir")"   # 解 symlink 后的 scripts 目录
+_gitrepo_derived="$(dirname "$_self_dir_real")"                              # GIT_REPO 候选 = 解 symlink 后 scripts 的父目录
+
+export REPO="${REPO:-$_repo_derived}"
+export GIT_REPO="${GIT_REPO:-$_gitrepo_derived}"
+
+_FATAL_LOG="${CLOUD_UNIT_PATROL_FATAL_LOG:-${TMPDIR:-/tmp}/cloud_unit_patrol_fatal.$(id -un).log}"
+_fatal() {
+  # 失败出口:①stderr(bash 无条件处理)→ systemd journal ②固定位置日志(不依赖坏 REPO)
+  local msg="[cloud_unit_patrol] FATAL: $*"
+  printf '%s\n' "$msg" >&2
+  printf '%s %s\n' "$(date '+%F %T')" "$msg" >> "$_FATAL_LOG" 2>/dev/null || true
+  exit 2
+}
+
+# ── fail-fast 校验(cd / 调用 python 之前)────────────────────────────────────
+[ -d "$REPO" ]     || _fatal "REPO 目录不存在: REPO='$REPO'($0 推导值='$_repo_derived')。systemd unit trade-cloud-unit-patrol.service 的 Environment=REPO= 或环境变量可能丢失/写错。"
+[ -d "$GIT_REPO" ] || _fatal "GIT_REPO 目录不存在: GIT_REPO='$GIT_REPO'($0 推导值='$_gitrepo_derived')。unit 的 Environment=GIT_REPO= 或环境变量可能丢失/写错。"
 PY="${PY:-$REPO/.venv/bin/python}"
+[ -f "$REPO/.venv/bin/python" ] || _fatal "REPO 下缺 .venv/bin/python(REPO='$REPO')——REPO 可能指向了错误目录。"
+[ -x "$PY" ] || _fatal "python 解释器不存在/不可执行: PY='$PY'(默认 \$REPO/.venv/bin/python)。REPO/PY 配置错误。"
+
 LOGDIR="$REPO/data/logs"
-mkdir -p "$LOGDIR"
-cd "$REPO"
+mkdir -p "$LOGDIR" || _fatal "无法创建日志目录: $LOGDIR"
+cd "$REPO" || _fatal "无法进入 REPO: $REPO"
 LOG="$LOGDIR/cloud_unit_patrol_launchd.log"
 
 SNAPSHOT="${CLOUD_UNIT_PATROL_SNAPSHOT:-$GIT_REPO/docs/deploy/systemd-units-cloud-snapshot.txt}"
 
+# ── 环境守卫(#194-F2):权威源存在且像真的才巡检;否则只日志 + exit 3,绝不 notify ──
+# 判据见脚本头;权威源与 audit 的 read_all_units 同源,避免「守卫看的源 ≠ 审计读的源」。
+_UNITS_DIR="${CLOUD_UNIT_PATROL_UNITS_DIR:-/etc/systemd/system}"
+if [ -n "${CLOUD_UNIT_PATROL_ARBITER_DUMP:-}" ]; then
+  _MODE=dump; _SRC="$CLOUD_UNIT_PATROL_ARBITER_DUMP"; _NOTIFY=0; _SRC_KIND="dump 文件"  # dump=诊断,永不通知
+else
+  _MODE=units; _SRC="$_UNITS_DIR"; _NOTIFY=1; _SRC_KIND="unit 目录"                      # 生产/沙箱,可通知
+fi
+_env_ok() {
+  if [ "$_MODE" = dump ]; then
+    [ -s "$_SRC" ]
+  else
+    [ -d "$_SRC" ] && ls "$_SRC"/trade-*.service >/dev/null 2>&1
+  fi
+}
+if ! _env_ok; then
+  _skip="非云上巡检环境:${_SRC_KIND} '$_SRC' 不存在或为空(判据:unit 目录须含 trade-*.service / dump 须非空)。本脚本云上专用,开发机/容器跑它会把空权威源误判成漂移;本次不巡检、不发通知。"
+  printf '[cloud_unit_patrol] SKIP: %s\n' "$_skip" >&2
+  { echo "=== cloud_unit_patrol.sh 开始 $(date '+%F %T') ==="
+    echo "[skip] $_skip"
+    echo "=== cloud_unit_patrol.sh 结束 $(date '+%F %T') 退出码=3(环境守卫跳过) ==="; } >> "$LOG"
+  exit 3
+fi
+
 echo "=== cloud_unit_patrol.sh 开始 $(date '+%F %T') ===" >> "$LOG"
 
-# 权威源:默认直连云上真 unit(--units-dir /etc/systemd/system);自测桩可换 dump
-AUDIT_ARGS=( --snapshot "$SNAPSHOT" --check-snapshot )
-if [ -n "${CLOUD_UNIT_PATROL_ARBITER_DUMP:-}" ]; then
-  AUDIT_ARGS=( --dump "$CLOUD_UNIT_PATROL_ARBITER_DUMP" "${AUDIT_ARGS[@]}" )
+# 权威源:默认直连云上真 unit(--units-dir);自测桩可换 dump(--dump 优先于 --units-dir)
+AUDIT_ARGS=( --snapshot "$SNAPSHOT" --check-snapshot --units-dir "$_UNITS_DIR" )
+if [ "$_MODE" = dump ]; then
+  AUDIT_ARGS=( --dump "$_SRC" "${AUDIT_ARGS[@]}" )
 fi
 
 OUT="$("$PY" scripts/systemd_timeout_gradient_audit.py "${AUDIT_ARGS[@]}" 2>&1)"
@@ -61,12 +150,16 @@ if [ "$RC" -ne 0 ]; then
   DIFF="$(printf '%s\n' "$OUT" | sed -n '/^unit /,$p' | head -12 | tr '\n' '|')"
   BODY_ESC="$(printf '%s' "$BODY" | sed 's/&/\&amp;/g; s/</\&lt;/g')"
   DIFF_ESC="$(printf '%s' "$DIFF" | sed 's/&/\&amp;/g; s/</\&lt;/g')"
-  echo "✗ 云上 unit 与仓库快照漂移 rc=${RC},发 severe 告警" >> "$LOG"
-  NOTIFY_DRYRUN=""
-  [ "${CLOUD_UNIT_PATROL_NOTIFY_DRYRUN:-}" = "1" ] && NOTIFY_DRYRUN="--dry-run"
-  "$PY" scripts/notify.py "[告警] 云上 systemd unit 与仓库快照漂移" \
-    "${BODY_ESC}<br>云上 /etc/systemd/system/trade-*.{service,timer} 与仓库快照 ${SNAPSHOT} 漂移(rc=${RC})。<br>处置:①云上手改有误→回滚该 unit(用 .bak 或对照快照)②有意改→刷新快照 + 对齐 doc §2 走 merge(否则后续重跑生成器可能把 doc 旧值装回云上)。<br>差异: unit | field | cloud | snapshot:<br>${DIFF_ESC}<br>脚本: scripts/cloud_unit_patrol.sh &nbsp;日志: ${LOG}" \
-    --severe --from-prefix "[告警]" --dedup-key cloud_unit_patrol_drift --dedup-window 21600 $NOTIFY_DRYRUN 2>&1 | tee -a "$LOG" || true
+  if [ "$_NOTIFY" = 1 ]; then
+    echo "✗ 云上 unit 与仓库快照漂移 rc=${RC},发 severe 告警" >> "$LOG"
+    NOTIFY_DRYRUN=""
+    [ "${CLOUD_UNIT_PATROL_NOTIFY_DRYRUN:-}" = "1" ] && NOTIFY_DRYRUN="--dry-run"
+    "$PY" scripts/notify.py "[告警] 云上 systemd unit 与仓库快照漂移" \
+      "${BODY_ESC}<br>云上 /etc/systemd/system/trade-*.{service,timer} 与仓库快照 ${SNAPSHOT} 漂移(rc=${RC})。<br>处置:①云上手改有误→回滚该 unit(用 .bak 或对照快照)②有意改→刷新快照 + 对齐 doc §2 走 merge(否则后续重跑生成器可能把 doc 旧值装回云上)。<br>差异: unit | field | cloud | snapshot:<br>${DIFF_ESC}<br>脚本: scripts/cloud_unit_patrol.sh &nbsp;日志: ${LOG}" \
+      --severe --from-prefix "[告警]" --dedup-key cloud_unit_patrol_drift --dedup-window 21600 $NOTIFY_DRYRUN 2>&1 | tee -a "$LOG" || true
+  else
+    echo "✗ 漂移 rc=${RC},但当前为 dump 诊断模式(#194-F2),不发通知(仅日志)" >> "$LOG"
+  fi
 fi
 
 echo "=== cloud_unit_patrol.sh 结束 $(date '+%F %T') 退出码=$RC ===" >> "$LOG"
