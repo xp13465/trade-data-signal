@@ -15,7 +15,7 @@
 
 **在跑 agent(2 个,均 background)**
 1. `r2fix-review` = reviewer。审分支 `worktree-agent-a32eca2ef3e40884f` / commit `9faf92d8e`(2 文件:`scripts/upload_r2.py` + `scripts/r2_upload_async.sh`,162+/43−)。进度 `/tmp/agent-progress-r2fix-review.md`,报告 `/tmp/r2fix-review-report.md`。**三个关键待答**:①减量判据能否被绕过导致**裸覆盖**(§25)②kill 后 marker 残留 → force_full **死循环是否根治**(agent 只让它更快、可能仅降概率)③多线程是否共用同一 HTTP 连接。**审完 PASS → 跑 `scripts/main-merge.sh worktree-agent-a32eca2ef3e40884f`**。
-2. `bkt-audit` = researcher。备份桶 `signal-backup` **前缀 × 对象数/字节 × 清理机制 × 切走后谁清**普查(答用户「lifecycle 只配了 backup/,其他目录怎么办」)。进度 `/tmp/agent-progress-bkt-audit.md`,报告 `/tmp/backup-bucket-prefix-audit.md`(**产出后须落 `docs/ops/`**,§23.5)。
+2. `bkt-audit` = researcher。备份桶 `signal-backup` **前缀 × 对象数/字节 × 清理机制 × 切走后谁清**普查(答用户「lifecycle 只配了 backup/,其他目录怎么办」)。进度 `/tmp/agent-progress-bkt-audit.md`,报告 `/tmp/backup-bucket-prefix-audit.md`(**产出后须落 `docs/ops/`**,§23.5)。⚠️ **该 agent 曾报 completed 但两个产物都没写(死点:「数据齐了,写进度文件后收尾报告」),主控已 SendMessage 续跑**;下一会话若仍无 `/tmp/backup-bucket-prefix-audit.md` = 需按任务书重派。它已交出的一条数字:`pre-upload/` 日均增量实测 **~1.05 GiB/天**,配代码 7 天保留 ⇒ 该前缀稳态约 **7.35 GiB**。
 
 **本会话已完成**
 - R2 死循环**根因报告已合 main**(`9af15ec58`,`docs/ops/r2-export-guard-backup-timeout-rootcause-20261005.md`)。
@@ -32,7 +32,7 @@
 1. 等 `r2fix-review` 结论 → PASS 则 `main-merge.sh` 合并 → 云上同步(**P0**)
 2. 派 implementer 实施 **#178**:`upload_r2.py` 引入第二套 endpoint+凭据并按目标桶路由(**必须等 #176 合 main,同文件不可并发**)
 3. 派 implementer 实施 **#163** 断档回填(首选 = `fapi_daily_raw` 库内搬移,分钟级;详见 pending-index #163)
-4. 按 `bkt-audit` 结论配双侧 lifecycle(新桶 3 条 + 老桶补 `pre-upload/` 等)
+4. **按 `bkt-audit` 结论配双侧 lifecycle —— 用户已拍板「新老桶都补」**(2026-10-05),已登记 **pending-index #179**(含 provisional 规则表 + 设计约束「新桶 lifecycle 不得短于代码保留期」+ §25 提醒)。**注意认知校准**:这七个前缀**当下都有代码在清**,缺 lifecycle 是**未来隐患**(代码切走老桶后才爆发)不是当前堆积成因;真正的无限堆积候选是 `decommissioned/` 与 `mac-backups/archive/`(普查中)。**待用户复核**:老桶 `backup/` 规则到底是 **14 天**(用户 10-05 dashboard)还是 **30 天**(本文件 #169 记的 10-04 dashboard)——记录打架,直接影响存量回收速率
 5. 清理 `.claude/worktrees/` 下 **~48 个陈旧 worktree**(多为已完成 agent 残留,其中 3 个 `locked`)。**危害**:占着分支会让续跑同一任务的 agent `checkout` 报 `fatal: already checked out` → 只能 cherry-pick → 分支身份漂移(见 memory `resume-same-task-reuse-branch`)。**处置**:先确认对应分支已推 origin(worktree 删掉不影响 origin 上的分支),再 `git worktree remove --force <路径>`;**按 §25 先把备份/可恢复性验证做掉再删**。
 
 **未决/待用户拍板**:fetch_news 周日夜 SEVERE 噪音是否接受;是否启用 CF R2 Local Uploads;`rzhb_backfill` 登记漂移(云上 timer 有 19:15 槽但 `schedule_monitor.sh` 只登记 08:00);老桶实际 lifecycle 规则列表(**我方 key 查 403,须用户 dashboard 核对**;既有记录互相矛盾)。
