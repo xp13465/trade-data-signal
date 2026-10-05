@@ -1,0 +1,7 @@
+{
+  "date": "2026-10-05",
+  "model": "deepseek-v4.1-flash",
+  "subagent_model": "deepseek-v4.1-flash",
+  "base_url": "https://ws-46vmklrma92x8nkw.cn-beijing.maas.aliyuncs.com/apps/anthropic",
+  "_note": "去敏快照,只含端点三字段;不落 token(防 GitHub Push Protection)"
+}

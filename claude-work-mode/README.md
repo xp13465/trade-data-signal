@@ -218,10 +218,10 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-08-25 | 0.4497 | 16,105,992 | opencode | — | ? | b646f10ff docs(CLAUDE): 新增§23.14 v1.1.6后开发内容必过codex外部review——发起脚本/时点(merge前最优漏了补发)/豁免规则(A级纯文档须声明)/闭环处置;对应.agents/codex-reviewer skill+E31通道防误读; b8d6a2f8a docs(治理): L01二次复发根治——派单三件套进共享核心§0.2+PostToolUse(Agent)hook机械兜底 |
 | 2026-08-26 | 0.7025 | 71,075,244 | opencode | — | ? | b11cb60da docs(教训L45): S06快照无每日重生+未上报「快照vs动态」方向分叉——动态功能数据供给四件(生成→定时→机检→告警)是功能本体;静态捷径=方向分叉必上报;验收必查谁每天更新(memory同步落档,§18索引/skill双向咬合) |
 | 2026-08-27 | 0.5886 | 53,797,840 | opencode | — | ? | 无 |
-| 2026-08-28 | 0.3405 | 166,663,223 | minimax-m2.7·opencode | 77% | ? | 5a8a3d9b9 docs(§23.12): TASKS状态日志保留上限防复发规范——前次更新日志只留最新一坨,更老轮次落档时折叠/归档; ebd597dcc chore(会话收尾): L31变种拍板材料默认口径锚点+pending漂移重犯+TASKS收尾落档(v1.1.8盘点启动) |
-| 2026-08-29 | 0.7141 | 111,148,356 | flash-0731·opencode | 91% | ? | 无 |
-| 2026-08-30 | 0.6907 | 90,177,889 | flash-0731·opencode | 80% | ? | 无 |
-| 2026-08-31 | 0.7600 | 33,947,986 | flash-0731·openrouter直连 | 38% | ? | 92e364b0f docs(规范瘦身): CLAUDE.md §23.2/§23.3/§23.4 保守版指针化(audit2 二审用户拍板); 57509a448 docs: 精简根CLAUDE.md至39.4k字符(§5.3核心保障铁律) |
+| 2026-08-28 | 0.3405 | 166,663,223 | opencode | — | ? | 5a8a3d9b9 docs(§23.12): TASKS状态日志保留上限防复发规范——前次更新日志只留最新一坨,更老轮次落档时折叠/归档; ebd597dcc chore(会话收尾): L31变种拍板材料默认口径锚点+pending漂移重犯+TASKS收尾落档(v1.1.8盘点启动) |
+| 2026-08-29 | 0.7141 | 111,148,356 | opencode | — | ? | 无 |
+| 2026-08-30 | 0.6907 | 90,177,889 | opencode | — | ? | 无 |
+| 2026-08-31 | 0.7600 | 33,947,986 | glm-5.3-flash·openrouter直连 | 39% | ? | 92e364b0f docs(规范瘦身): CLAUDE.md §23.2/§23.3/§23.4 保守版指针化(audit2 二审用户拍板); 57509a448 docs: 精简根CLAUDE.md至39.4k字符(§5.3核心保障铁律) |
 | 2026-09-02 | 0.9100 | 9,651,794 | flash-0731·商汤rotate | 77% | ? | 3eca07e8e fix(codex-ref): agent_inbox_watcher 断点修复重构 + codex-reviewer skill 资产(runbook/rubric/playbook)落档 + CLAUDE.md §5.4⑦/§23.15 + researcher §3.2 复现对账铁律 |
 | 2026-09-03 | 0.9381 | 3,480,249 | flash-0731·商汤rotate | 89% | ? | 无 |
 | 2026-09-04 | 0.9415 | 3,297,985 | flash-0731·商汤rotate | 86% | ? | 无 |
@@ -254,6 +254,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-10-02 | 0.9660 | 1,776,194 | pro·8899·商汤rotate | 91% | ? | 无 |
 | 2026-10-03 | 0.9739 | 1,358,095 | pro·8899·商汤rotate | 92% | ? | 无 |
 | 2026-10-04 | 0.9580 | 1,631,704 | pro·8899·商汤rotate | 92% | ? | 无 |
+| 2026-10-05 | 0.8739 | 19,668,798 | deepseek-v4.1-flash·host未知 | 93% | ? | 84cf6d3f4 docs(ops): 分支清理终局 §7 落档 + §18 登记 L48(通知脚本自测打真告警)+ 滚动窗口换出 L33 |
 <!-- token-cache-trend-end -->
 
 **ASCII 迷你柱状图**（每格 = 0.01 命中率，刻度 0.70~1.00，一眼看升降；由脚本 `--append-daily` 随走势表同步更新，保证与实际命中率一致）：
@@ -314,6 +315,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 10-02  ███████████████████████████(27)  1,776,194     0.9660
 10-03  ███████████████████████████(27)  1,358,095     0.9739
 10-04  ██████████████████████████(26)  1,631,704     0.9580
+10-05  █████████████████(17)  19,668,798    0.8739
 ```
 <!-- token-cache-ascii-end -->
 
@@ -373,6 +375,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-10-02 | ? | — |
 | 2026-10-03 | ? | — |
 | 2026-10-04 | ? | — |
+| 2026-10-05 | ? | 84cf6d3f4 docs(ops): 分支清理终局 §7 落档 + §18 登记 L48(通知脚本自测打真告警)+ 滚动窗口换出 L33 |
 <!-- token-cache-changelog-end -->
 
 ### 配置快照日志（2026-09-19 新增：模型/端点/思考%/effort/来源）
@@ -392,10 +395,10 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-08-25 | — | opencode | — | — | 时段表 |
 | 2026-08-26 | — | opencode | — | — | 时段表 |
 | 2026-08-27 | — | opencode | — | — | 时段表 |
-| 2026-08-28 | minimax-m2.7 | opencode | 77% | — | 时段表 |
-| 2026-08-29 | flash-0731 | opencode | 91% | — | 时段表 |
-| 2026-08-30 | flash-0731 | opencode | 80% | — | 时段表 |
-| 2026-08-31 | flash-0731 | openrouter直连 | 38% | — | 时段表 |
+| 2026-08-28 | — | opencode | — | — | 时段表 |
+| 2026-08-29 | — | opencode | — | — | 时段表 |
+| 2026-08-30 | — | opencode | — | — | 时段表 |
+| 2026-08-31 | glm-5.3-flash | openrouter直连 | 39% | — | 时段表 |
 | 2026-09-02 | flash-0731 | 商汤rotate | 77% | — | 时段表 |
 | 2026-09-03 | flash-0731 | 商汤rotate | 89% | — | 时段表 |
 | 2026-09-04 | flash-0731 | 商汤rotate | 86% | — | 时段表 |
@@ -427,5 +430,6 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-10-01 | pro | 8899·商汤rotate | 93% | — | 时段表 |
 | 2026-10-02 | pro | 8899·商汤rotate | 91% | — | 时段表 |
 | 2026-10-03 | pro | 8899·商汤rotate | 92% | — | 时段表 |
-| 2026-10-04 | pro | 8899·商汤rotate | 92% | 主pro 子flash 按角色(impl low/rev·tst·res max) | 实时抓取 |
+| 2026-10-04 | pro | 8899·商汤rotate | 92% | — | 时段表 |
+| 2026-10-05 | deepseek-v4.1-flash | host未知 | 93% | 主deepseek-v4.1-flash 子deepseek-v4.1-flash 按角色(impl low/rev·tst·res max) | 实时抓取 |
 <!-- token-cache-cfglog-end -->
