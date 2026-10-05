@@ -67,7 +67,7 @@
   # 覆盖现行库(先停写 public_fund 的写入端)
   cp /tmp/pfdb_restore/public_fund.db.bak-20261003_104704 \
      /home/ubuntu/code/trade-data/data/public_fund.db
-  # 快照比现行库旧(~2000 行 fund_score),恢复后需重跑当日基金评分 + deploy 同步三库
+  # 快照比现行库旧 29,758 行 fund_score(= 现行 384,687 − 快照 354,929;构成:20261004 的 27,758 + 20261003 的 2,000),恢复后需重跑当日基金评分 + deploy 同步三库
   ```
 - **依赖**:恢复脚本走新桶需 **#178(备份桶路由)已合并**(decommissioned/ 存取经新账号凭据)。
 
