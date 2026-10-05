@@ -2282,20 +2282,23 @@ def main(argv: list[str] | None = None) -> int:
     # ⚠️ memory alert-denoise-keep-fault-discriminator: 升级的是**真故障判别维度**——
     #    ①云上 unit 巡检漂移连续 3 天未清(=人工处置超时) ②云上 failed unit 连续 3 天未清
     #    (=某守护链路持续死亡)。两者都是「巡检/链路自身死亡」真故障, 非噪音。
+    # 每通道带自己的升档天数常量(#202 P3-a: 此前两通道都硬传 FAILED_UNITS_ESCALATE_DAYS,
+    # PATROL_DRIFT_ESCALATE_DAYS 定义悬空; 现值同为 3 故行为逐位不变, 改后各引用各的常量防漂移)。
     _ESCALATE_CHANNELS = {
         adr.PATROL_DRIFT_DEDUP_KEY: (
             adr.PATROL_DRIFT_ESCALATED_DEDUP_KEY, "cloud_unit_patrol_drift_state.json",
-            "#191 云上 unit 巡检漂移持续未清"),
+            "#191 云上 unit 巡检漂移持续未清", adr.PATROL_DRIFT_ESCALATE_DAYS),
         adr.FAILED_UNITS_DEDUP_KEY: (
             adr.FAILED_UNITS_ESCALATED_DEDUP_KEY, "failed_units_patrol_state.json",
-            "云上 failed unit 持续未清"),
+            "云上 failed unit 持续未清", adr.FAILED_UNITS_ESCALATE_DAYS),
     }
     if args.dedup_key in _ESCALATE_CHANNELS and not args.dry_run:
-        _esc_escalated_key, _esc_state_name, _esc_label = _ESCALATE_CHANNELS[args.dedup_key]
+        (_esc_escalated_key, _esc_state_name, _esc_label,
+         _esc_escalate_days) = _ESCALATE_CHANNELS[args.dedup_key]
         _esc_repo = Path(os.environ.get("REPO") or REPO)
         _esc_tier, _esc_days, _esc_first = adr.consecutive_days_escalate(
             _esc_repo / "data" / _esc_state_name, datetime.now(),
-            adr.FAILED_UNITS_ESCALATE_DAYS, log_prefix="[notify][196]")
+            _esc_escalate_days, log_prefix="[notify][196]")
         print(f"[notify][196] {args.dedup_key} 连续异常分级={_esc_tier}({_esc_days}天)",
               file=sys.stderr)
         if _esc_tier == TIER_CRITICAL:
