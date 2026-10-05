@@ -15,7 +15,7 @@
 
 **在跑 agent:2 个(background + 进度文件;巡检 cron 兜底,完成即删)**
 1. 🔄 `#163 断档回填` = implementer(worktree),进度 `/tmp/agent-progress-163.md` —— `fapi_daily_raw` 库内搬移补 9/29-9/30(硬期限 10-08)。
-2. 🔄 `#178 备份桶迁账号` = **implementer 已交付**(feat `feat/178-r2-backup2-route-20261005` commit `45a8d2ad6` 已 push)→ **reviewer 在跑**(§15 B/C:凭据路由/跨文件/生产通道,进度 `/tmp/agent-progress-178rev.md`)→ 待 main-merge。**待用户拍板**:切换后 large-json flat 31,673(~700MB)会一次性重传新桶(老桶那份成陈旧孤儿),是否接受。
+2. 🔄 `#178 备份桶迁账号` = **reviewer PASS(P0=0)** → implementer **续跑同分支** `feat/178-r2-backup2-route-20261005` 做**硬化 + 文档修正**(进度 `/tmp/agent-progress-178.md`)→ 待复核 → main-merge。复核更正:implementer 自述「切换重传 700MB」**不成立**(large-json 增量判据纯本地、不枚举桶);真实后果=切换后 **≤6 天静默假完备窗口**(新桶缺副本而 state 自证完备,周日才补),硬化=state 加 `bucket` 字段换桶自动全量根治。老桶 large-json 孤儿(切换前冻结的完整副本):**新桶验证完整前不删**(§25),之后用户拍板。
 
 > ✅ 本会话已完成:`#180 三项必改`(implementer + **reviewer PASS** → **已合 main `7d5f17b38`**,云上已同步)· `large-json 可配性核实`(researcher → **#179 定案不配**)· `陈旧 worktree 清理`(删 48 留 2,零丢失)。
 > ✅ `陈旧 worktree 清理` **已完成**(2026-10-05 12:1x,general-purpose):删 **48 个**、留 2 个本会话 implementer、**零内容丢失**;§25 可逆性验证 6 个有改动项均无抢救价值(两份报告 md5 与 main 版逐位一致);`git worktree list` 现剩 4 项;残留空目录 `.claude/worktrees/refreeze` 已清。
