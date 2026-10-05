@@ -259,6 +259,7 @@ resolve_repo "${BASH_SOURCE[0]}"
 - **内容**:backup_db / brief_push_wrapper / deploy / intraday_snapshot / kelly_intraday_rerun / nextday_plan / run_daily_brief / s06_snapshot / update_all。
 - **为什么单列一批**:全部是"写生产数据/推 main/对外可见"的链主干(update_all Mon..Sat 17:50、intraday_snapshot 盘中 30 档、deploy 全站产物流水线)。迁错的爆炸半径远大于批2,故与批2 分开、单独收紧验收。
 - **边界**:9 文件 header 两行;export 类 3 个(s06_snapshot / nextday_plan;另 check 类不含)保留 export。
+  - ⚠️ **2026-10-06 订正(批3 实施 + 独立审实测)**:本节 export 计数**与代码现状不符** —— 实测带 `export REPO/GIT_REPO` 的是 **7 个**(backup_db / deploy / intraday_snapshot / kelly_intraday_rerun / nextday_plan / s06_snapshot / update_all)。**批2 §4.2 的「3 个 export」同样不符(实测 2 个)**。⇒ **§2.2 主表「export」列不可作为派单依据**;**后续批次(4/5)一律以「读代码现状」为准**(逐文件 `grep -nE '^\s*export (REPO|GIT_REPO|TRADE_DIR)'` 定基线,迁移后 before/after 逐文件相等)。
 - **验收点**:
   1. 静态断言 + `bash -n` 同批2;
   2. **云上回归窗口选非交易时段**(避免 09:25-15:35 盘中档):env 版手跑 `intraday_snapshot.sh` 之一档 rc=0;unset 版推导一致;
