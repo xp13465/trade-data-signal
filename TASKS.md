@@ -24,7 +24,9 @@
 - ✅ `告警系统性排查`(用户点名):报告 **`docs/ops/alert-systematic-review-20261005.md`**(206 行)。在册告警**全部四态分类、无未分类遗留**(已修闭环 / 已优化降噪 / 仍待办 / 误报);新登记 **#181-184**(fetch_news 降噪拍板 · 飞书心跳盲区 · utf-8 截断升级评估 · dry-run 写 latest.md),盲区 6 项。关键实证:R2 kill 链**数据无缺口**(md5 三方逐位一致)、#174+#177 新旧行为对照生效、CSP #133 线上已无头。
 - ✅ `#165 回滚预案文档`:报告 **`docs/ops/rollback-playbook-20261005.md`**(237 行),含三步回滚命令+耗时+风险点+验证法。
 - ✅ **CI 网关止血**:GitHub `ci.yml` 步骤⑤ `check_task_state.py` FAIL 根因 = **#178 状态格子串误判**(`CLOSED_STATUSES` 含「已合 main」,而格子内描述 #180 时写了该词)。修法=改措辞去字面量;本地复跑 `--deploy-mode --skip-zombie-crons` **2 ok / 0 fail**,已推 main `e3f130031`。
-2. 📌 `#178 备份桶迁账号`(**非独立 agent**,由 0 号 researcher 一并核环境前提)= **rev3 快速复核 PASS、无 P0/P1** → 待云上 `R2_BACKUP2_*` 四键核查 → 过了即 main-merge。**用户拍板:现在就切 + 切后 §25 顺手清老桶 legacy**。合后**待办**:①核云上 `.env` 无 `R2_BACKUP_BUCKET` 覆盖 ②空闲窗口触发首轮全量回填 ≈450MB 灌新桶 ③新桶验证完整后清老桶 large-json legacy ≈0.27GiB。
+- ✅ **`#178 备份桶迁账号` 合并上线**:主控 §0 核闸门(云上 `.env` `R2_BACKUP2_*` 四键全在、**无** `R2_BACKUP_BUCKET` 覆盖 ⇒ 写新桶路由正确) → `main-merge.sh` → **main `5e014d9e3`,云上已同步**。合后收尾转 **#185**;老账号手动清理执行转 **#186**(评估报告 `docs/ops/r2-old-account-cleanup-assessment-20261005.md`,6 项待拍板见报告 §7.9)。
+- 📌 **注意(branch cleanup agent 用)**:`feat/178-r2-backup2-route-20261005` **已合入 main,内容全部在册**,其 worktree 可回收;但**回收动作归主控**,branch cleanup agent 仍按原禁区不碰在册 worktree 分支。
+2. ✅ `#178 备份桶迁账号` = **已完成(2026-10-05 下午)** —— 主控已核云上 `.env` 四键全在 + **无** `R2_BACKUP_BUCKET` 覆盖 → `bash scripts/main-merge.sh feat/178-r2-backup2-route-20261005` → **已合 main `5e014d9e3`,云上已同步**(feat tip `ebd46ce3e`)。**合后收尾三件已转 #185**(①空闲窗口首轮全量回填 ≈450MB 灌新桶 ②新桶完整性验证 MISSING=0+抽样 md5 ③老桶 large-json legacy ≈0.27GiB —— 🔴 新发现:合并后 `_prune_large_json` 目标桶变成新桶,老桶 legacy 断链成孤儿,别再等自动清)。
 3. ✅ `#163 断档回填` = 已实施并上线 + 已合 main `90537c538` + reviewer 独立复核 PASS + **用户已拍板「保留订正」**(不再回滚;订正=09-29/30 的 `a_width_*` 显示值按公示口径去北交所)。**已闭环**。
 
 > ⏳ **待用户拍板(#163 两点)**:①回填口径取 **5211/5212**(排除 348 只 920 北交所,依 #101 公示口径 + `bj_width.py` + `width_history.py:code NOT LIKE '920%'` 三源一致),非派单写的 5559/5560(含 920);②09-29/09-30 的 `a_width_*` **显示值被订正**(up 3471→3249 / down 1932→1819 / zt 57→53·52→56,其余 62 天逐位不变),因原 intraday 值含北交所、违反公示口径;**不拍则维持现状(已上线)**;回滚法见 pending-index #163 行。
