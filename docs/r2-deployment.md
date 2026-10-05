@@ -47,18 +47,18 @@
 |---|---|---|---|
 | ① trade git | GitHub `xp13465/trade-data-signal` | 代码（app/scripts/static-site源码/worker/wrangler.jsonc），不含 data/ | 代码版本管理 |
 | ② staticdata git | GitHub `xp13465/trade-data-signal-staticdata` | 差异日志：DB 原件（本地 rsync，不进 git）+ 配置（脱敏 .env.example/wrangler.jsonc/systemd 单元配置）+ 小 JSON（git diff 追踪每日变化） | 看变化历史（git diff） |
-| ③ R2 signal-backup 私有桶 | R2（不绑公开域名） | 备份快照压缩：DB gz 分层（backup/14 天 + weekly/28 天 + monthly/365 天，日备份 2026-10-03 由 30 减至 14）+ Claude 自我备份 | 全量恢复（解压快照） |
+| ③ R2 signal-backup2 私有桶 | R2（不绑公开域名，**独立 CF 账号**；老桶 signal-backup 为迁移前 legacy，只读） | 备份快照压缩：DB gz 分层（backup/14 天 + weekly/28 天 + monthly/365 天，日备份 2026-10-03 由 30 减至 14）+ Claude 自我备份 + large-json | 全量恢复（解压快照） |
 | ④ R2 signal-data 公开桶 | R2（ssd.fx8.store 直链 + Worker binding） | 线上静态资源分发：所有线上用的静态资源（小 JSON + 大文件 index/industry/lab/trade_sim/public_fund） | 前端 fetch |
 
 **脚本生成文件去向规则**：
 - 小文件 -> staticdata git（差异日志）+ R2 公开桶（分发）两处
 - 大文件 -> 只 R2 公开桶（不进 staticdata，体量大 git 不适合）
 
-**互补不重复**：staticdata 看变化历史（git diff），signal-backup 恢复全量（解压快照），R2 公开桶线上分发。
+**互补不重复**：staticdata 看变化历史（git diff），signal-backup2 恢复全量（解压快照），R2 公开桶线上分发。
 
 ### 1.3 DB 备份方案
 
-DB 原件（sentiment.db 125MB / etf_national_team.db 179MB / public_fund.db 2.2GB）超 GitHub 100MB 限制，且 sqlite 二进制 git diff 无差异化日志价值。**DB 只靠 R2 signal-backup 私有桶异地备份**（gz 分层 30 daily + 28 weekly + 365 monthly 全量恢复）+ 本地双副本（trade/data 主库 + staticdata/db rsync，同 Mac 防误删不防硬盘挂）。
+DB 原件（sentiment.db 125MB / etf_national_team.db 179MB / public_fund.db 2.2GB）超 GitHub 100MB 限制，且 sqlite 二进制 git diff 无差异化日志价值。**DB 只靠 R2 signal-backup2 私有桶异地备份**（独立 CF 账号；gz 分层 30 daily + 28 weekly + 365 monthly 全量恢复）+ 本地双副本（trade/data 主库 + staticdata/db rsync，同 Mac 防误删不防硬盘挂）。
 
 ---
 
@@ -87,8 +87,19 @@ R2_S3_ACCESS_KEY_ID=<R2 Access Key ID>
 R2_S3_SECRET_ACCESS_KEY=<R2 Secret Access Key>
 R2_S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 R2_PUBLIC_DOMAIN=https://ssd.fx8.store
-# 备份用独立私有桶（不绑公开域名）
-R2_BACKUP_BUCKET=signal-backup
+# 备份用独立私有桶（不绑公开域名）—— 已迁至独立 CF 账号新桶 signal-backup2（#178，2026-10-05）
+# 独立免费额度，防备份挤爆主账号配额；老桶 signal-backup 存量不搬（只读 legacy）
+# ⚠️ 老桶存量**部分**回收（#179 定案）：新老两桶已配 5 条规则（pre-upload 7 / weekly 28 /
+#    monthly 365 / claude-backup 30 / backup 14）；**不回收的仅 3 个** —— large-json/（无规则，
+#    flat 31,673 唯一副本）+ decommissioned/ + mac-backups/（刻意不配）→ 永久滞留 ≈2.81 GiB
+#    （0.68+0.01+2.12）。
+# 按目标桶路由：桶名 == R2_BACKUP2_BUCKET → 用下面这套新账号端点/凭据；其余（主桶/老备份桶）→ 主账号
+R2_BACKUP2_ENDPOINT=https://<NEW_ACCOUNT_ID>.r2.cloudflarestorage.com
+R2_BACKUP2_BUCKET=signal-backup2
+R2_BACKUP2_ACCESS_KEY_ID=<新账号 Access Key ID>
+R2_BACKUP2_SECRET_ACCESS_KEY=<新账号 Secret Access Key>
+# 目标备份桶（默认 = R2_BACKUP2_BUCKET，可覆盖；测试隔离用不存在的桶名）
+# R2_BACKUP_BUCKET=signal-backup2
 ```
 
 ### 2.3 PURGE_SECRET
@@ -103,7 +114,28 @@ Worker `/api/purge-cache` 接口认证密码，需同时在两处配置：
 | Bucket | 可见性 | 用途 | 绑定 |
 |---|---|---|---|
 | `signal-data` | 公开（ssd.fx8.store 直链 + Worker binding） | 线上数据文件（JSON/HTML） | wrangler.jsonc `R2_BUCKET` |
-| `signal-backup` | 私有（不绑域名） | DB 备份 + Claude 自我备份 | upload_r2.py `BACKUP_BUCKET` |
+| `signal-backup2` | 私有（不绑域名，**独立 CF 账号**） | DB 备份 + Claude 自我备份 + large-json（**今后新写**，#178） | upload_r2.py `BACKUP_BUCKET`（路由 → 新账号 `R2_BACKUP2_*`） |
+| `signal-backup` | 私有（不绑域名，老账号 legacy） | 迁移前存量（**不搬**，只读） | — |
+
+> ⚠️ **老桶 signal-backup 存量部分回收**（#179 定案）：新老两桶已配 **5 条 lifecycle 规则**（`pre-upload/` 7 天 / `weekly/` 28 / `monthly/` 365 / `claude-backup/` 30 / `backup/` 14，用户 2026-10-05 配置；老桶 `pre-upload/` 3.13 GiB 存量预计 24h 内开始被清）。**不回收的仅 3 个前缀**：`large-json/`（无规则，CF prefix 无通配符，配 `large-json/` 会误删 flat 31,673 唯一副本）+ `decommissioned/` + `mac-backups/`（刻意不配删除规则）→ **永久滞留 ≈2.81 GiB**（0.68+0.01+2.12）。
+
+### 2.4.1 换桶后的一次性回填（#178）
+
+BKUP 桶从老桶切到新桶后，**新桶起步是空的**，各前缀回填方式不同，上线后须知：
+
+| 前缀 | 切换后谁回填 | 说明 |
+|---|---|---|
+| `backup/` / `weekly/` / `monthly/` | **自动**（当日新写 + 周日/月初首次触发） | 日备份按日期新 key，天然写新桶；weekly/monthly 判据是**列 R2 最新 key**（桶感知），新桶空 → 首次即补传 |
+| `pre-upload/` | **自动**（有覆盖即写） | 每次增量上传前把将被覆盖 key COPY 到当天日期目录，与桶状态无关 |
+| `claude-backup/` | **自动**（每日新写） | 按日期目录，天然写新桶 |
+| `large-json/` | **自动全量回填**（硬化后） | 见下 |
+
+**large-json 硬化（#178）**：增量判据是**纯本地 state 比对**（不枚举任何桶），若只切桶不清 state，会出现「state+md5 自证完备、而新桶实际只有当日变化的那点」的**静默假完备窗口**，要等**首个周日（强制全量）**才补齐。为此 state 文件加了 `bucket` 字段：
+- **读侧**：`state.bucket != 当前 BACKUP_BUCKET` → 视同无状态 → **退化全量**（老 state 无此字段亦不匹配）。
+- **效果**：换桶后**首个 large-json 轮即自动全量回填 ≈3.1 万对象 / ≈450 MB（以当轮清单为准）**，无需手动 `--full`，静默窗口消失。
+
+> 建议在**空闲窗口**确认/触发一次首轮回填以控时点（避开盘后定时任务 17:50 / 20:35 / 22:00；large-json 由 `staticdata_backup_async.sh` 在 deploy 后跑，也可手动 `python3 scripts/upload_r2.py upload-large-json` 触发）。
+> **如需读老桶快照**（迁移前存量）：临时 `R2_BACKUP_BUCKET=signal-backup` 覆盖后 `upload_r2.py list` / `download-db` / `restore-large-json.sh`，读完即恢复默认，勿常态指向老桶。
 
 ### 2.5 创建 R2 Bucket
 
@@ -116,14 +148,15 @@ npx wrangler r2 bucket create signal-data
 # 设置公开访问域名（CF Dashboard -> R2 -> signal-data -> Settings -> Public access）
 # 绑定域名 ssd.fx8.store
 
-# 创建备份 bucket（私有，不绑域名）
-npx wrangler r2 bucket create signal-backup
+# 创建备份 bucket（私有，不绑域名）—— 已迁至【独立 CF 账号】新桶 signal-backup2（#178, 2026-10-05）
+# 注意：signal-backup2 在第二个 CF 账号下，需先用该账号登录 wrangler（或在其 Dashboard 建桶）
+npx wrangler r2 bucket create signal-backup2
 
 # 创建 R2 API Token（S3 兼容）
-# CF Dashboard -> R2 -> Manage R2 API Tokens -> Create API Token
-# 权限：Object Read & Write（两个 bucket）
-# 复制 Access Key ID + Secret Access Key + Endpoint（含 Account ID）
-# 填入 trade/.env
+# 主账号：CF Dashboard -> R2 -> Manage R2 API Tokens -> Create API Token
+#   权限：Object Read & Write（signal-data + legacy signal-backup）→ 填 R2_S3_*（trade/.env）
+# 备份新账号：在第二个 CF 账号同样建 R2 API Token（Object Read & Write，signal-backup2）
+#   → 填 R2_BACKUP2_*（trade/.env + 云上 trade-data/.env）
 ```
 
 ---
@@ -221,8 +254,9 @@ upload_r2.py 上传新数据后调 POST /api/purge-cache
 
 | 命令 | 上传内容 | R2 前缀 | 桶 | 用途 |
 |---|---|---|---|---|
-| `upload-db` | sentiment.db + etf_national_team.db（gz 压缩） | `backup/` + `weekly/` + `monthly/` | signal-backup | DB 异地备份（日/周/月三层） |
-| `upload-claude-backup [path]` | Claude 自我备份 tar.gz | `claude-backup/` | signal-backup | Claude 配置异地备份 |
+| `upload-db` | sentiment.db + etf_national_team.db（gz 压缩） | `backup/` + `weekly/` + `monthly/` | signal-backup2 | DB 异地备份（日/周/月三层） |
+| `upload-claude-backup [path]` | Claude 自我备份 tar.gz | `claude-backup/` | signal-backup2 | Claude 配置异地备份 |
+| `upload-large-json` | staticdata 排除的大 JSON（gzip） | `large-json/` | signal-backup2 | 大 JSON 私有桶备份（增量，换桶后首轮自动全量回填） |
 
 ### 4.3 管理命令
 
@@ -367,7 +401,11 @@ R2_S3_ACCESS_KEY_ID=<填入>
 R2_S3_SECRET_ACCESS_KEY=<填入>
 R2_S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 R2_PUBLIC_DOMAIN=https://ssd.fx8.store
-R2_BACKUP_BUCKET=signal-backup
+# 备份桶走独立新账号（#178）：R2_BACKUP2_* 端点/凭据 + 目标桶(默认 = R2_BACKUP2_BUCKET)
+R2_BACKUP2_ENDPOINT=https://<NEW_ACCOUNT_ID>.r2.cloudflarestorage.com
+R2_BACKUP2_BUCKET=signal-backup2
+R2_BACKUP2_ACCESS_KEY_ID=<新账号 Access Key ID>
+R2_BACKUP2_SECRET_ACCESS_KEY=<新账号 Secret Access Key>
 EOF
 
 # trade-data/.env（运行时密钥）
@@ -417,7 +455,8 @@ npx wrangler login
 
 # 3. 创建 R2 buckets
 npx wrangler r2 bucket create signal-data
-npx wrangler r2 bucket create signal-backup
+# 备份桶在【第二个 CF 账号】下（#178）：先登录该账号再建（或在其 Dashboard 建）
+npx wrangler r2 bucket create signal-backup2
 
 # 4. 设置 R2 公开访问（CF Dashboard）
 #    R2 -> signal-data -> Settings -> Public access -> 绑定 ssd.fx8.store
