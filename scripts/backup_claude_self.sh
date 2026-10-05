@@ -5,7 +5,8 @@
 #            + 规范文档(docs/main-governance.md / role-based-context-research.md / smoke-checklist.md,缺则跳过)
 #            + claude-work-mode 通用规范备份包
 # 产出: ~/.claude/backups/daily/claude-self-YYYYMMDD.tar.gz，保留 30 天滚动
-# 云端: 推 R2 signal-backup 私有桶 claude-backup/ 前缀(异地防盘毁,R2 失败不阻塞本地备份)
+# 云端: 推 R2 私有备份桶 claude-backup/ 前缀(异地防盘毁,R2 失败不阻塞本地备份)
+#       桶名/端点按目标桶路由, 单一事实源见 upload_r2.py _route_bucket(#199: 此处不再写死桶名防漂移)
 BACKUP_DIR="$HOME/.claude/backups/daily"
 mkdir -p "$BACKUP_DIR"
 TS=$(date +%Y%m%d)
@@ -19,7 +20,7 @@ for f in docs/main-governance.md docs/role-based-context-research.md docs/smoke-
 done
 # config/ 下 gitignore 配置文件（2026-08-17 三件套③备份）：feishu/email/telegram/subscriptions/
 # sub_pwd/brief_push 是 gitignore 不进 git，曾 feishu.json 丢失致飞书静默停摆数天，纳入每日异地备份。
-# 缺失的文件跳过不报错（仿 DOC_FILES 写法）。.env 含密钥不进备份包（R2 signal-backup 是私有桶仍避免）。
+# 缺失的文件跳过不报错（仿 DOC_FILES 写法）。.env 含密钥不进备份包（R2 备份桶为私有桶仍避免）。
 CONFIG_FILES=()
 for f in config/feishu.json config/email.json config/telegram.json config/subscriptions.json config/sub_pwd.json config/brief_push.json; do
   [ -f "$TRADE_DIR/$f" ] && CONFIG_FILES+=("$f")
@@ -43,7 +44,10 @@ PY="$TRADE_DIR/.venv/bin/python"
 UPLOAD_PY="$TRADE_DIR/scripts/upload_r2.py"
 if [ -x "$PY" ] && [ -r "$UPLOAD_PY" ]; then
   if "$PY" "$UPLOAD_PY" upload-claude-backup "$OUT" 2>&1; then
-    echo "[$(date '+%F %T')] R2 云端备份成功: signal-backup/claude-backup/claude-self-$TS.tar.gz"
+    # #199(2026-10-06): 不再写死桶名(曾写死 signal-backup, 切 signal-backup2 后 10-06 起与实际不符)。
+    # 真实桶名由上一行 upload_r2.py 自身输出(单一事实源, 见 upload_r2.py cmd_upload_claude_backup),
+    # 此处只回显 key(前缀+文件名), 杜绝本地再复制一份会漂移的桶名常量。
+    echo "[$(date '+%F %T')] R2 云端备份成功: claude-backup/claude-self-$TS.tar.gz"
   else
     echo "[$(date '+%F %T')] ⚠ R2 云端备份失败(本地备份已成功,不阻塞)" >&2
   fi

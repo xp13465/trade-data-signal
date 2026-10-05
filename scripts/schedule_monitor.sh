@@ -1524,7 +1524,11 @@ _check_resource("主机swap", "host", _swap_used_pct())
 #   3=非云上跳过 / 其他(含 FileNotFoundError/非0异常)→ 追加 SEVERE。
 #   异常消失(脚本恢复可跑)→ 恢复检测循环自动发一条 [恢复](monitor 自身自愈值得一条通知,
 #   与 r2_* 自愈类"静默恢复"口径不同, 故不复用其前缀)。
-_cfu_key = "cloud_unit_patrol|self|dead"
+# #202 P3-b(2026-10-06): key 首段(task 名, 恢复循环 L1619 取 _key.split("|")[0] 展示)此前误用
+# "cloud_unit_patrol"(那是另一个 monitor/云上 unit 漂移巡检的名字, 见 TASKS L183), 而本块实际监控对象
+# = check_failed_units.py 自身存活 ⇒ 恢复邮件会显示错误的 task 名。改为实际被监控脚本名, 订正恢复文案。
+# 行为逐位不变: key 仅是内部标识, 触发/去重/恢复判定逻辑一字未动(详见 #202 报告"同输入输出"段)。
+_cfu_key = "check_failed_units|self|dead"
 _cfu_dead = None
 try:
     _r_cfu = subprocess.run(
