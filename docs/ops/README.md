@@ -3,6 +3,7 @@
 运维告警体系评估与监控机制相关产物。
 
 ## 文档
+- [git-branch-cleanup-20261005.md](./git-branch-cleanup-20261005.md) - **Git 分支大扫除**(2026-10-05,用户「branch 好像 100 多个了」):本地 162→7 / 远端 125→7,共删 275 支(本地 155 / 远端 120,零失败);先 bundle 备份(--branches --remotes --not main,25 ref/42,827B/md5 e629c34f…07a)→ 上传 signal-backup2 `git-branch-bundles/` 长期前缀(不在该桶 5 条 lifecycle 前缀内)→ 硬链克隆还原实测 25/25 hash 一致;**删前逐支证明内容已在 main**(ancestor / cherry patch-id / blob 逐位;不用 `--merged`、不信三点 diff);桶②有独有内容 3 支按纪律保留(zcode/standin-charter 等);含逐支日志附录 + 恢复路径命令。复现命令见报告「附录 C」。
 - [alert-systematic-review-20261005.md](./alert-systematic-review-20261005.md) - **全站告警系统性排查**(#181-184 来源,2026-10-05):事件驱动扫描全告警源(本地 alerts + 云上 systemd/journal + schedule_monitor 9 维度 + notify/alert_state + 看门狗 + check_* + CSP)后逐条**四态判定**(已修闭环/已优化降噪/仍待办/误报),在册告警全分类无遗留;含盲区 6 项 + 新登记 4 项。复现命令见报告「## 复现」。
 - [rollback-playbook-20261005.md](./rollback-playbook-20261005.md) - **集中发布回滚预案**(#165,承接 D5 P1-2):三步(代码 revert 前进式 ≈25-40min / 数据 R2 快照恢复 2-60min / 版本串·缓存 前进式 bump + SW 壳芯兜底),每步含具体命令 + 耗时 + 风险点 + 验证方法;恢复源优先级(pre-upload 7 天 → 云上树 → large-json → git → mac-backups);诚实标注(SW+缓存组合未演练 / check_r2_consistency 未接线 / deploy 段2 fail-open)。复现命令见报告「## 复现」。
 - [alert-system-evaluation.md](./alert-system-evaluation.md) - 运维告警体系全面评估(2026-08-02~08-15):全量告警清单/分类统计/「调机制vs根治」逐类判定/建议清单/发现的bug(待用户确认)。结论:49条SEVERE中~21条机制误报噪音,~12条真实已根治,剩余需动作为5类(P0修pending误报机制+intraday盘后阈值/P1 R2降噪/push跨槽恢复判定/验证已修项)
