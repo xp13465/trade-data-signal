@@ -26,8 +26,8 @@
 set -u
 # 不 set -e: 每通道显式判退出码, 失败累积 R2_FAIL 走收尾统一告警(与 deploy.sh 同款)。
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 PY="$REPO/.venv/bin/python"
 
 # 进程互斥: 同日内重复触发(多 pipeline deploy 并发/force 重跑)不并发上传。

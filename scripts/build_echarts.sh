@@ -14,7 +14,8 @@
 # 用法：bash scripts/build_echarts.sh
 set -u
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 SPIKE="${ECHARTS_BUILD_DIR:-/tmp/echarts-spike}"
 mkdir -p "$SPIKE"
 cd "$SPIKE"

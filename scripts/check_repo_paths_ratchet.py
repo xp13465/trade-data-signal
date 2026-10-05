@@ -37,7 +37,7 @@ from pathlib import Path
 ROOT = Path(os.environ.get("RATCHET_ROOT") or Path(__file__).absolute().parent.parent).absolute()
 SCRIPTS = ROOT / "scripts"
 
-# 已迁移(批1 + 批2 + 批3 + 批4):scripts/lib/repo_paths.sh + 42 个脚本
+# 已迁移(批1 + 批2 + 批3 + 批4 + 批5):scripts/lib/repo_paths.sh + 58 个脚本
 MIGRATED = {
     # 批1
     "scripts/check_r2_consistency.sh",
@@ -85,11 +85,7 @@ MIGRATED = {
     "scripts/turnover_backfill.sh",
     "scripts/update_lab.sh",
     "scripts/us_stock_morning.sh",
-}
-
-# 迁移基线(批1 时刻仍未迁移的 56 个已知病灶 = §2 的 57 减去本批已迁的 check_r2_consistency.sh)。
-# 随各批推进:该批文件从此集合删除并移入 MIGRATED(批2 删 10 个,批3 删 9 个,批4 删 21 个,余 16)。
-PENDING_BASELINE = {
+    # 批5(链内被调 / 变体 / 孤儿 16 个, 收尾批)
     "scripts/backfill_indices.sh",
     "scripts/build_echarts.sh",
     "scripts/check_signals.sh",
@@ -107,6 +103,11 @@ PENDING_BASELINE = {
     "scripts/update_all_serial.sh",
     "scripts/verify_backup.sh",
 }
+
+# 迁移基线(批1 时刻仍未迁移的 56 个已知病灶 = §2 的 57 减去本批已迁的 check_r2_consistency.sh)。
+# 随各批推进:该批文件从此集合删除并移入 MIGRATED(批2 删 10,批3 删 9,批4 删 21,批5 删 16 ⇒ 余 0,
+# 全仓 57 个 mac 字面量脚本已全部迁移)。保留空集以维持「R1 = known = MIGRATED ∪ PENDING」语义不变。
+PENDING_BASELINE = set()
 
 PATTERN = re.compile(r"(REPO|GIT_REPO|TRADE_DIR|STATICDATA_REPO):-/Users/linhuichen")
 # R3 残留面正则:2026-10-06 返修 —— `:-?` 同时覆盖 `:-/Users/...`(全仓主流形态)与 `:/Users/...`。

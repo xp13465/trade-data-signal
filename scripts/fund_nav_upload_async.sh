@@ -19,8 +19,8 @@
 # 用法: 由 update_all.sh 自动触发; 也可手动: bash scripts/fund_nav_upload_async.sh
 set -u
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 PY="$REPO/.venv/bin/python"
 
 # 进程互斥: 同日内重复触发(force 重跑/手动补跑)不并发上传。锁跳过=已有在跑, 那趟会负责

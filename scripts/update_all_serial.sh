@@ -13,7 +13,8 @@
 # 退出码：deploy.sh 退出码（最终公网状态）；collect / check_signals 失败仅记日志不改变退出码。
 set -u
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)
 LOG="$LOGDIR/update_all_${STAMP}.log"
