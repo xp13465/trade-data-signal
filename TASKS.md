@@ -13,8 +13,9 @@
 > **权威任务状态以 [docs/pending-features-index.md](docs/pending-features-index.md) 为准**(§23.12-1),本节只写 transient 指针。
 > **新会话(2026-10-05 12:05 起)已接手**;上一会话两个 agent(r2fix-review / bkt-audit)均已收工且产物归档,无遗留。
 
-**在跑 agent:1 个(background + 进度文件;巡检 cron `929da295` 兜底,完成即删)**
+**在跑 agent:2 个(background + 进度文件;巡检 cron 兜底,完成即删)**
 1. 🔄 `#163 断档回填` = implementer(worktree),进度 `/tmp/agent-progress-163.md` —— `fapi_daily_raw` 库内搬移补 9/29-9/30(硬期限 10-08)。
+2. 🔄 `#178 备份桶迁账号` = implementer(worktree),进度 `/tmp/agent-progress-178.md` —— `upload_r2.py` 第二套 endpoint+凭据按桶路由(已解除 #180 同文件阻塞)。
 
 > ✅ 本会话已完成:`#180 三项必改`(implementer + **reviewer PASS** → **已合 main `7d5f17b38`**,云上已同步)· `large-json 可配性核实`(researcher → **#179 定案不配**)· `陈旧 worktree 清理`(删 48 留 2,零丢失)。
 > ✅ `陈旧 worktree 清理` **已完成**(2026-10-05 12:1x,general-purpose):删 **48 个**、留 2 个本会话 implementer、**零内容丢失**;§25 可逆性验证 6 个有改动项均无抢救价值(两份报告 md5 与 main 版逐位一致);`git worktree list` 现剩 4 项;残留空目录 `.claude/worktrees/refreeze` 已清。
