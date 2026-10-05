@@ -14,9 +14,9 @@
 set -u
 # 不 set -e: 每步显式判退出码(硬顺序语义, 失败即中止)。
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
-STATICDATA_REPO="${STATICDATA_REPO:-/Users/linhuichen/code/trade-data-signal-staticdata}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
+STATICDATA_REPO="${STATICDATA_REPO:-$(dirname "$GIT_REPO")/trade-data-signal-staticdata}"
 PY="${PY:-$REPO/.venv/bin/python}"
 DRY="${1:-}"
 

@@ -43,9 +43,9 @@ set -u
 set -o pipefail
 # 不 set -e: 每步显式判退出码(best-effort, 失败不中断后续步骤)。
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
-STATICDATA_REPO="${STATICDATA_REPO:-/Users/linhuichen/code/trade-data-signal-staticdata}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
+STATICDATA_REPO="${STATICDATA_REPO:-$(dirname "$GIT_REPO")/trade-data-signal-staticdata}"
 PY="${PY:-$REPO/.venv/bin/python}"
 TRIGGER="${1:-all}"
 LOCK="/tmp/trade_deploy.lock"

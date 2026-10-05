@@ -22,7 +22,8 @@
 # 撞 update_all 17:50: stage0 与 update_all 写不同表, 不撞 public_fund.lock, 安全
 set -uo pipefail
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"   # 云上单仓用 REPO env 覆盖
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 PROGRESS="/tmp/stage0-full-manual-progress.md"
 PY="$REPO/.venv/bin/python"
 

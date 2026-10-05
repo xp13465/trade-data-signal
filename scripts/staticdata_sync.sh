@@ -27,9 +27,9 @@
 #   - REPO/GIT_REPO/STATICDATA_REPO 环境变量可覆盖(同 deploy.sh L24/L512)
 set -u
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
-STATICDATA_REPO="${STATICDATA_REPO:-/Users/linhuichen/code/trade-data-signal-staticdata}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
+STATICDATA_REPO="${STATICDATA_REPO:-$(dirname "$GIT_REPO")/trade-data-signal-staticdata}"
 # 云上单仓: 本机硬编码 staticdata 路径不存在时, 回退 GIT_REPO 派生的 sibling 路径
 # (云上 GIT_REPO=/home/ubuntu/code/trade-data-signal -> ...-staticdata), 防云上静默跳过备份
 # (2026-09-13 迁移残留修)。

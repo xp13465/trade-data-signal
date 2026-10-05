@@ -16,7 +16,8 @@
 # 注意: 需要 wrangler 已登录（npx wrangler whoami 可验）；D1 database_id 见 wrangler.jsonc。
 set -uo pipefail
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 PY="$REPO/.venv/bin/python"
 DB="$REPO/data/public_fund.db"
 LOG_PREFIX="[sync-d1]"

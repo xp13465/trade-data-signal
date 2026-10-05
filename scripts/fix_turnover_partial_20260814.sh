@@ -22,7 +22,8 @@
 #      补全后写正确值(幂等,可重复跑)
 set -u
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 PY="$REPO/.venv/bin/python"
 TARGET="${1:-20260814}"   # 默认清理 8-14;可传其他日期复用
 
