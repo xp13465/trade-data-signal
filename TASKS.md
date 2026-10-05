@@ -14,10 +14,12 @@
 > **新会话(2026-10-05 12:05 起)已接手**;上一会话两个 agent(r2fix-review / bkt-audit)均已收工且产物归档,无遗留。
 
 **在跑 agent:2 个(background + 进度文件;巡检 cron 兜底,完成即删)**
-1. 🔄 `#163 断档回填` = implementer(worktree),进度 `/tmp/agent-progress-163.md` —— `fapi_daily_raw` 库内搬移补 9/29-9/30(硬期限 10-08)。
+1. 🔄 `#163 断档回填` = **已实施并上线 + 已合 main `90537c538`** → **reviewer 独立复核 a/b 中**(§15 C 级补跑,进度 `/tmp/agent-progress-163rev.md`)→ 证据回收后请用户拍板。
 2. 🔄 `#178 备份桶迁账号` = **reviewer PASS(P0=0)** → implementer **续跑同分支** `feat/178-r2-backup2-route-20261005` 做**硬化 + 文档修正**(进度 `/tmp/agent-progress-178.md`)→ 待复核 → main-merge。复核更正:implementer 自述「切换重传 700MB」**不成立**(large-json 增量判据纯本地、不枚举桶);真实后果=切换后 **≤6 天静默假完备窗口**(新桶缺副本而 state 自证完备,周日才补),硬化=state 加 `bucket` 字段换桶自动全量根治。老桶 large-json 孤儿(切换前冻结的完整副本):**新桶验证完整前不删**(§25),之后用户拍板。
 
-> ✅ 本会话已完成:`#180 三项必改`(implementer + **reviewer PASS** → **已合 main `7d5f17b38`**,云上已同步)· `large-json 可配性核实`(researcher → **#179 定案不配**)· `陈旧 worktree 清理`(删 48 留 2,零丢失)。
+> ⏳ **待用户拍板(#163 两点)**:①回填口径取 **5211/5212**(排除 348 只 920 北交所,依 #101 公示口径 + `bj_width.py` + `width_history.py:code NOT LIKE '920%'` 三源一致),非派单写的 5559/5560(含 920);②09-29/09-30 的 `a_width_*` **显示值被订正**(up 3471→3249 / down 1932→1819 / zt 57→53·52→56,其余 62 天逐位不变),因原 intraday 值含北交所、违反公示口径;**不拍则维持现状(已上线)**;回滚法见 pending-index #163 行。
+> 🔎 **#163 顺带发现(待排 follow-up)**:`cmd_upload_all_data`/`purge-low-freq` 的 purge 只清 `/data/` 不清 `/r2/data/`,致 `/r2/data/a-stock-*.json` 边缘缓存残留(已手动 purge 修当前);根治=照 data-large 双前缀做法,**等 #178 收工后一起改 `upload_r2.py`**。另:`upload-etf-hist` 被看门狗 kill(severe 告警,05:10 同款,非本次引入,无数据缺口,force_full 未完成即被杀)。
+> ✅ 本会话已完成:`#180 三项必改`(implementer + **reviewer PASS** → **已合 main `7d5f17b38`**,云上已同步)· `#163 断档回填`(implementer,补 9/29-9/30,已合 main `90537c538`,云上已同步)· `large-json 可配性核实`(researcher → **#179 定案不配**)· `陈旧 worktree 清理`(删 48 留 2,零丢失)。
 > ✅ `陈旧 worktree 清理` **已完成**(2026-10-05 12:1x,general-purpose):删 **48 个**、留 2 个本会话 implementer、**零内容丢失**;§25 可逆性验证 6 个有改动项均无抢救价值(两份报告 md5 与 main 版逐位一致);`git worktree list` 现剩 4 项;残留空目录 `.claude/worktrees/refreeze` 已清。
 
 > 上一会话已收工留档:✅ `r2fix-review` 有保留 PASS 已合 main(`4b88a1251`,9 项全审无 P0);✅ `bkt-audit` 报告已合 main(`docs/ops/r2-backup-prefix-lifecycle-audit-20261005.md`)。reviewer 报告 `/tmp/r2fix-review-report.md`(建议落 docs/ops/,已并入 #180 落档)。
