@@ -13,8 +13,9 @@
 > **权威任务状态以 [docs/pending-features-index.md](docs/pending-features-index.md) 为准**(§23.12-1),本节只写 transient 指针。
 > **新会话(2026-10-05 12:05 起)已接手**;上一会话两个 agent(r2fix-review / bkt-audit)均已收工且产物归档,无遗留。
 
-**在跑 agent:1 个(background + 进度文件;巡检 cron 兜底,完成即删)**
-1. 🔄 `#178 备份桶迁账号` = **文档 D(a) 已修**(tip `ebd46ce3e`,另举一反三改 `upload_r2.py:294` 同错注释)→ **reviewer 快速复核中**(进度 `/tmp/agent-progress-178rev3.md`)→ 待 merge。**用户拍板:现在就切 + 切后 §25 顺手清老桶 legacy**。合后**待办**:①核云上 `.env` 无 `R2_BACKUP_BUCKET` 覆盖 ②空闲窗口触发首轮全量回填 ≈450MB 灌新桶 ③新桶验证完整后清老桶 large-json legacy ≈0.27GiB。
+**在跑 agent:2 个(background + 进度文件;巡检 cron 兜底,完成即删)**
+0. 🔄 `老账号 R2 清理评估`(用户 2026-10-05 提出:老账号 backup 桶 8G+ + 主桶 signal-data 3G+ 已超 10G 免费额度,要评估能手动清哪些压到 ~6G)= researcher 只读实测两桶(audit 只覆盖备份桶,**signal-data 是增量**)+ 逐项归类 + §25 恢复路径(进度 `/tmp/agent-progress-r2cleanup.md`)。
+1. 🔄 `#178 备份桶迁账号` = **rev3 快速复核 PASS、无 P0/P1** → **待云上环境前提核查**(`R2_BACKUP2_*` 四键在否 → 否则合并后备份写入会 404;已委托 r2cleanup researcher 一并核)→ 过了即 main-merge。**用户拍板:现在就切 + 切后 §25 顺手清老桶 legacy**。合后**待办**:①核云上 `.env` 无 `R2_BACKUP_BUCKET` 覆盖 ②空闲窗口触发首轮全量回填 ≈450MB 灌新桶 ③新桶验证完整后清老桶 large-json legacy ≈0.27GiB。
 2. ⏳ `#163 断档回填` = **已实施并上线 + 已合 main `90537c538`** → **reviewer 独立复核 PASS**(订正正确无需回滚;口径 5211/5212 应采用;备份库/日志/三源实物锁死)→ **待用户拍板**(保留 09-29/30 显示值订正 vs 回滚)。
 
 > ⏳ **待用户拍板(#163 两点)**:①回填口径取 **5211/5212**(排除 348 只 920 北交所,依 #101 公示口径 + `bj_width.py` + `width_history.py:code NOT LIKE '920%'` 三源一致),非派单写的 5559/5560(含 920);②09-29/09-30 的 `a_width_*` **显示值被订正**(up 3471→3249 / down 1932→1819 / zt 57→53·52→56,其余 62 天逐位不变),因原 intraday 值含北交所、违反公示口径;**不拍则维持现状(已上线)**;回滚法见 pending-index #163 行。
