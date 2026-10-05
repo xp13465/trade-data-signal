@@ -13,11 +13,10 @@
 > **权威任务状态以 [docs/pending-features-index.md](docs/pending-features-index.md) 为准**(§23.12-1),本节只写 transient 指针。
 > **新会话(2026-10-05 12:05 起)已接手**;上一会话两个 agent(r2fix-review / bkt-audit)均已收工且产物归档,无遗留。
 
-**在跑 agent:2 个(本会话派,均 background + 进度文件;巡检 cron `929da295` 兜底,完成即删)**
+**在跑 agent:1 个(background + 进度文件;巡检 cron `929da295` 兜底,完成即删)**
 1. 🔄 `#163 断档回填` = implementer(worktree),进度 `/tmp/agent-progress-163.md` —— `fapi_daily_raw` 库内搬移补 9/29-9/30(硬期限 10-08)。
-2. 🔄 `#180 reviewer` = reviewer,进度 `/tmp/agent-progress-180rev.md` —— 审 `feat/180-r2-large-put-progress-20261005`(HEAD `046558666`);PASS 后主控 main-merge。
 
-> ✅ 本会话已完成:`large-json 可配性核实`(researcher → **#179 定案不配**,报告已合 main)· `#180 三项必改`(implementer,分支 `046558666` **待 reviewer**)· `陈旧 worktree 清理`(删 48 留 2,零丢失)。
+> ✅ 本会话已完成:`#180 三项必改`(implementer + **reviewer PASS** → **已合 main `7d5f17b38`**,云上已同步)· `large-json 可配性核实`(researcher → **#179 定案不配**)· `陈旧 worktree 清理`(删 48 留 2,零丢失)。
 > ✅ `陈旧 worktree 清理` **已完成**(2026-10-05 12:1x,general-purpose):删 **48 个**、留 2 个本会话 implementer、**零内容丢失**;§25 可逆性验证 6 个有改动项均无抢救价值(两份报告 md5 与 main 版逐位一致);`git worktree list` 现剩 4 项;残留空目录 `.claude/worktrees/refreeze` 已清。
 
 > 上一会话已收工留档:✅ `r2fix-review` 有保留 PASS 已合 main(`4b88a1251`,9 项全审无 P0);✅ `bkt-audit` 报告已合 main(`docs/ops/r2-backup-prefix-lifecycle-audit-20261005.md`)。reviewer 报告 `/tmp/r2fix-review-report.md`(建议落 docs/ops/,已并入 #180 落档)。
