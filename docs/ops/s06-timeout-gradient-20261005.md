@@ -11,7 +11,7 @@
 |---|---|---|
 | **A** s06 超时梯度 | 云上 `trade-s06-snapshot.service` `TimeoutStartSec` **600 → 3300**（= 内层串行合计 3000 + 300 余量）+ `daemon-reload` | ✅ 已改已验（只读验证 4 项全 PASS） |
 | A 文档同步 | §2.15 服务块值 + 超时梯度修正说明；`timeout-caliber-20260916.md` §七 后记 | ✅ 已改 |
-| **B** 计数漂移 | doc §0 `37→39` / §1.4 `32→33` / §1.7 `36→40` / §2 标题 `37→39`；README、scripts/README、check_doc_staleness.py 同步 40 | ✅ 已改 |
+| **B** 计数漂移 | doc §0 `37→39` / §1.4 `32→32`（维持 main 版） / §1.7 `36→40` / §2 标题 `37→39`；README、scripts/README、check_doc_staleness.py 同步 40 | ✅ 已改 |
 | B 生成器 | update-all 标题去括号 → `gen_systemd_units.py --check` **78 → 80 unit**（40 timer + 40 service） | ✅ 已修 |
 | 同类错误面 | 全 40 service 梯度审计：**倒挂 0 个**（s06 修后余量 300s；r2-consistency 60s；其余无 shell 内层） | ✅ 见 §三 |
 | 新发现 | doc §2 内 30 个 service 的 `TimeoutStartSec` 仍是 2026-09-12 迁移批值（云上早已按 #36 改）→ 生成器若重跑会**回退** #36，**未改，上报拍板** | ⏳ 见 §五 |
@@ -133,14 +133,18 @@ sudo systemctl daemon-reload
 ### 2.3 mtime 交叉验证（独立第二源，云上实测）
 
 40 个 `trade-*.timer` 中 **34 个 mtime 停在 `2026-09-14`**（= 迁移批 36 减去之后被改过的 `trade-update-all`(10-04 周日错峰) 与 `trade-nextday-plan`(09-17)）；其余 6 个 = **4 新增**（lof-track-index 09-15 / nextday-gap-check 09-17 / check-monitor-heartbeat 10-03 / r2-consistency 10-05）+ **2 修改**。**34 + 6 = 40** ✓。
-另一独立锚点：`docs/ops/alertchain-hardening-timer-mount-review-20261003.md` 记录 10-03 时 `gen_systemd_units.py --check` = **78 unit（= 39×2）**，今日 **80（= 40×2）**，恰差 10-05 新增的 r2-consistency 1 个 ✓。
+另一独立锚点：`gen_systemd_units.py --check` 的**逐点实测链**（三点，勿混）：`2026-10-03` 体检报告记录 = **78 单元（= 39 timer + 39 service）** → 分支基线 `0ef6fbb98`（已含 #160 的 r2-consistency 对、但 update-all `.timer` 标题仍带尾巴）= **79 单元（= 39 timer + 40 service）** → 本次修复后 = **80 单元（= 40 timer + 40 service）**。78 → 80 差 **2**：+1 = 10-05 新增 r2-consistency 对、+1 = update-all `.timer` 标题解析修复（详见 §2.5）。
+
+### 2.3.1 订正（审查后，2026-10-05）
+
+初稿本节曾写「今日 80 … 恰差 r2-consistency 1 个」与 §2.5 写「78→80 的那 **2** 个 unit」——两处自相矛盾。经审查复核，**基线实跑是 79（非 78）**，且**标题解析修复的生成物差集恰为 1 个文件**（`trade-update-all.timer`）。本文已按 79 → 80（+1 标题修复）+ 78 → 79（+1 r2-consistency）重写；§2.5 同步订正。**注：配套 commit `d6ce93405` 的 message 里写的是「78→80」，按主控指示不 amend（avoid force push），以本订正段为准。**
 
 ### 2.4 旧数字差异（逐项解释，历史数字保留可反查）
 
 | 旧值 | 位置 | 性质 | 新值 |
 |---|---|---|---|
 | `37` | §0 表 | 09-17「+nextday-gap-check」后的中途值，之后 +heartbeat/+r2-consistency 未重算 | **39**（= 40 − 1 backup_db） |
-| `32` | §1.4 | 阶段4b 当时的「32 个非 append 例外 unit」= 37 − 5（当时的 shell 型例外数） | **33**（= 39 − 6；2026-10-05 #160 新增 r2-consistency 为第 6 个 shell 型） |
+| `32` | §1.4 | 阶段4b 当时的「32 个非 append 例外 unit」= 37 − 5（当时的 shell 型例外数） | **32**（**维持不变**；正确口径 = 全 40 service 分区:6 shell 型 + 2 python heredoc 型 + **32** = 40 ✓。**不是**「39 − 6 = 33」——该式把 base 取成 39 周期且漏扣 2 个 python，会得 6+2+33=41 > 40，算术不成立） |
 | `36` | §1.7 | 阶段4b 统一注入三 env 时的 service 数 | **40**（实测 40 service 全注入） |
 | `37` | §2 标题「37 个周期任务完整对照表」 | 同 §0 | **39** |
 
@@ -150,18 +154,18 @@ sudo systemctl daemon-reload
 
 `gen_systemd_units.py` 的标题正则要求标题行**精确**为 `` `trade-x.timer`: ``；`trade-update-all` 标题带了尾巴「(云上实际配置,2026-10-04 改)」⇒ 解析漏 1：
 
-| 版本 | 可解析 `.timer` 块 |
-|---|---|
-| 修复前（`a304740af`） | **39**（update-all 行 = `` `trade-update-all.timer`(云上实际配置,2026-10-04 改): `` ⇒ 不匹配） |
-| 修复后（本次） | **40**（注记移出标题行到独立引用行，标题行还原为 `` `trade-update-all.timer`: ``） |
+| 版本 | 可解析 `.timer` 块 | `--check` 总单元 |
+|---|---|---|
+| 修复前（基线 `0ef6fbb98`） | **39**（update-all `.timer` 行 = `` `trade-update-all.timer`(云上实际配置,2026-10-04 改): `` ⇒ 不匹配；但 update-all `.service` 标题完好） | **79**（= 39 timer + 40 service） |
+| 修复后（本次） | **40**（注记移出标题行到独立引用行，标题行还原为 `` `trade-update-all.timer`: ``） | **80**（= 40 timer + 40 service） |
 
-39 + update-all = 40 ✓ 与云上一致 ⇒ **claim 成立，且正是生成器 78→80 的那 2 个 unit**。
+39 + update-all = 40 ✓ 与云上一致 ⇒ **claim 成立**；生成物差集恰为 **1 个文件**（`trade-update-all.timer`），即 `--check` 的 **79 → 80（+1）**。
 
 ### 2.6 引用点同步清单（§22：同事实多登记点逐一过）
 
 | 引用点 | 旧 | 处理 |
 |---|---|---|
-| `docs/deploy/systemd-units-20260912.md` §0/§1.4/§1.7/§2 标题 | 37/32/36/37 | ✅ 改 39/33/40/39 + §0 重算注 |
+| `docs/deploy/systemd-units-20260912.md` §0/§1.4/§1.7/§2 标题 | 37/32/36/37 | ✅ 改 39/**32**/40/39（§1.4 = 32 **维持 main 版**，按 40-service 分区：6 shell + 2 python heredoc + 32；**非**「39 − 6 = 33」）+ §0 重算注 |
 | `README.md:403` / `:418` | 37（两处） | ✅ 改 40（10-05 实测，附清单链接） |
 | `scripts/README.md:137` | 37 | ✅ 改 40（10-05 实测） |
 | `scripts/check_doc_staleness.py:326` | 「37 个 trade- 前缀 .timer」 | ✅ 改 40（**代码内常量登记点**，§22） |
@@ -247,7 +251,7 @@ trade-us-stock-morning.service               us_stock_morning.sh             0  
 |---|---|---|
 | **同模式**（外层 systemd 超时 vs 脚本内层看门狗） | 全 40 service | ✅ 逐个审计（§三），倒挂 0 |
 | **同数据源**（`TimeoutStartSec` 这个事实的登记点） | 云上 unit 文件 / doc §2 生成源 / `gen_systemd_units.py` / schedule_monitor `DUR_THRESHOLDS` | ✅ doc 生成源已改 3300；云上已改 3300；monitor 阈值 900 不变（它是「耗时超标告警」，须 < 外层）。**发现 doc §2 其余 30 个值陈旧 → §五-1 上报** |
-| **同组件**（改写本文档的其它 agent / 生成器解析） | `gen_systemd_units.py`（TITLE_RE 解析） | ✅ 修 update-all 标题解析（§2.5），78→80 |
+| **同组件**（改写本文档的其它 agent / 生成器解析） | `gen_systemd_units.py`（TITLE_RE 解析） | ✅ 修 update-all 标题解析（§2.5），`--check` **79→80（+1）** |
 | **同组件**（timer 计数的全部登记点） | 11 处（§2.6 表） | ✅ 现役 7 处改 40；历史快照 4 类保留并注明 |
 | **相关展示位**（用户能看到「40 个 timer」的地方） | README:403/418、scripts/README、PARAMS、site-deployment ×2、data-sources | ✅ 全同步 40 |
 
@@ -285,7 +289,7 @@ trade-us-stock-morning.service               us_stock_morning.sh             0  
 
 **仓库（feat 分支 `feat/s06-timeout-grad-20261005`）**
 - `scripts/systemd_timeout_gradient_audit.py`（新增，审计/复现脚本）
-- `docs/deploy/systemd-units-20260912.md`：§2.15 值 600→3300 + 梯度修正说明；§0 计数表 37→39 + 重算注（历史链/commit/mtime 双源）；§1.4 32→33 + 6 个 shell 型清单；§1.7 36→40；§2 标题 37→39；update-all 标题去括号（生成器可解析）
+- `docs/deploy/systemd-units-20260912.md`：§2.15 值 600→3300 + 梯度修正说明；§0 计数表 37→39 + 重算注（历史链/commit/mtime 双源）；§1.4 = **32（维持 main 版，按 40-service 分区）** + 6 个 shell 型清单；§1.7 36→40；§2 标题 37→39；update-all 标题去括号（生成器可解析）
 - `docs/deploy/timeout-caliber-20260916.md`：§七 后记（s06 值过时说明 + 内层合计 3000 + 云上 600→3300 + 同类面）
 - `README.md`（2 处）、`scripts/README.md`、`docs/PARAMS.md`、`docs/site-deployment.md`（2 处）、`docs/data-sources.md`、`scripts/check_doc_staleness.py`：计数 37 → 40（2026-10-05 实测）
 - `docs/ops/s06-timeout-gradient-20261005.md`（本报告）
