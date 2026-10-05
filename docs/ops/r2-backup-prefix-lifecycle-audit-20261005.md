@@ -1,6 +1,6 @@
 # R2 备份桶 signal-backup 前缀 × 清理机制 普查报告(2026-10-05,全程只读)
 
-> ⚠️ **主控复核注(2026-10-05 归档时加,务必先读)** —— 本报告 §4.2/§7 那句「新桶 `signal-backup2` ListObjectsV2 → 404,**桶不存在**」**与主控实测矛盾,已判定为探针工件,勿据此认为桶不存在**:主控 2026-10-05 用新账号凭据对该桶做过五动作实测 **PUT 200 / HEAD 200(etag `8da843ff65205a61374b09b81ed0fa35`)/ DELETE 204 / 复查 404 全过**。极可能原因 = 探针复用了 `scripts/upload_r2.py` 的 `_list_keys`,而该脚本 `ENDPOINT`/`AK`/`SK` 是**模块级单套全局变量指向老账号**、`bucket` 仅作路径分量 ⇒ 拿老账号端点找新桶必然 404。**已让原 agent 用新端点复核**,结论以复核回执为准(三种可能:桶存在且空 / 桶存在有 key / token 无 ListObjects 权限——后者本身是重要发现,会影响 #178/#179 实施方式)。**除这一处外,本报告其余数字均为云上实测,可作 #178/#179 的实施依据。**
+> ⚠️ **主控复核注(2026-10-05 归档时加,务必先读)** —— 本报告 §4.2/§7 那句「新桶 `signal-backup2` ListObjectsV2 → 404,**桶不存在**」**与主控实测矛盾,已判定为探针工件,勿据此认为桶不存在**:主控 2026-10-05 用新账号凭据对该桶做过五动作实测 **PUT 200 / HEAD 200(etag `8da843ff65205a61374b09b81ed0fa35`)/ DELETE 204 / 复查 404 全过**。极可能原因 = 探针复用了 `scripts/upload_r2.py` 的 `_list_keys`,而该脚本 `ENDPOINT`/`AK`/`SK` 是**模块级单套全局变量指向老账号**、`bucket` 仅作路径分量 ⇒ 拿老账号端点找新桶必然 404。**✅ 已复核完毕(2026-10-05,结论=主控判断正确):新桶 `signal-backup2` 存在且为空,404 系探针工件。** 复核证据:云上 monkeypatch 脚本 `/tmp/list_backup2.py` 把 `upload_r2` 模块级 `ENDPOINT`/`HOST`/`AK`/`SK` 换成新账号值后调 `s3_request(GET, query="list-type=2&delimiter=/&max-keys=1000", bucket="signal-backup2")` → **status 200、prefixes=[]、keys_in_page=0**;并印证 `s3_request`(L404-473)确实吃模块级全局 `HOST`/`AK`(L435/463)、`bucket` 只拼进 `path`(L430)。**⇒ 新账号 token 具备 ListObjects 权限**(能 200 列桶),不是权限缺失,**对 #178/#179 实施方式无阻碍**;建议直接在已建好的空桶上配同一套 lifecycle 规则。**除这一处外,本报告其余数字均为云上实测,可作 #178/#179 的实施依据。**
 
 
 > 任务:老桶 signal-backup 全前缀 × (对象数/字节) × 清理机制,产出「代码切走后失控的前缀清单 + 建议 lifecycle」。
@@ -83,7 +83,7 @@
 | mac-backups/ | **不配删除规则** | 一次性归档,无规则=不受删除风险(#169 用户实测确认豁免意图) | **刻意保留** |
 
 ### 4.2 新桶(signal-backup2,今后新写)——防"代码切走后失控"的根子
-新桶当前不存在(404,【云上实测】)。建议**建桶后照抄上面同一套规则**(backup/ 14 + pre-upload/ 7 + weekly/ 28 + monthly/ 365 + large-json legacy 7 + claude-backup/ 30,固定前缀与 decommissioned/archive 不配),让"自动回收"由 R2 侧独立承担,不依赖代码每天跑。**否则新桶 pre-upload/ 单点 ~9 天爆 10 GiB 免费额度(§3.3)。**
+新桶当前**存在且为空**(2026-10-05 复核,见顶部主控复核注;早前「404 不存在」系探针工件已更正)。建议**直接在已建好的空桶上照抄上面同一套规则**(backup/ 14 + pre-upload/ 7 + weekly/ 28 + monthly/ 365 + large-json legacy 7 + claude-backup/ 30,固定前缀与 decommissioned/archive 不配),让"自动回收"由 R2 侧独立承担,不依赖代码每天跑。**否则新桶 pre-upload/ 单点 ~9 天爆 10 GiB 免费额度(§3.3)。**
 
 ---
 
@@ -111,7 +111,7 @@
 - 【云上实测-逐前缀计数】`/tmp/list_r2_counts.py`(分页 max-keys=1000 全量 List)→ 各前缀对象数/总字节(合计 8,676,912,041 B)。
 - 【云上实测-明细】`/tmp/inspect_r2.py`(backup/weekly/monthly 全 key 名;mac-backups/ 1 个 archive;large-json legacy 2 目录 27,673 vs flat 31,673;claude-backup 61 个;decommissioned 2 个)。
 - 【云上实测-pre-upload 按日】`/tmp/preupload_days.py` → 10-03/10-04/10-05 各对象数与字节。
-- 【云上实测-新桶】`/tmp/inspect_r2.py` list signal-backup2 → 404,桶不存在。
+- 【云上实测-新桶·复核后更正】`/tmp/inspect_r2.py` list signal-backup2 → 404(**探针工件**:复用了模块级老账号端点,已作废)。**复核(2026-10-05)**=`/tmp/list_backup2.py` monkeypatch 新账号 ENDPOINT/HOST/AK/SK 后 `s3_request(GET, list-type=2&delimiter=/, bucket=signal-backup2)` → **200 / prefixes=[] / keys_in_page=0** ⇒ **桶存在且为空**。
 - 【云上实测-timer/service】`systemctl list-timers` + `cat /etc/systemd/system/trade-backup-db.service|.timer`(21:00,注入 RETAIN_DAYS=7 本地盘)。
 - 【代码】`scripts/upload_r2.py`:L2094(_prune_r2_backup)/L2108-2110(_prune_layer 三层)/L2158(cmd_upload_db 内执行)/L939(_prune_pre_upload)/L1006(L982/_backup_overwritten_keys)/L1252(_incremental_upload 内)/L2356(_prune_large_json)/L2830(仅全成功执行)/L2202(claude 不删 R2 旧)/L2164(decommissioned 不 prune);`scripts/backup_db.sh:94`(upload-db);`scripts/backup_claude_self.sh:38,45`(本地 30 天滚动+R2 上传);`scripts/staticdata_backup_async.sh` step3.5b(upload-large-json)。
 - 【lifecycle】用户 CF dashboard 实测 2026-10-05:老桶只有 backup/ 14 天一条(主控基准更新转达)。
