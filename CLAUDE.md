@@ -102,6 +102,7 @@
 ### 最近 15 条过错(按日期倒序)
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
 |---|---|---|---|---|
+| L50 | 10-06 | 审查 harness 误执行生产脚本(#195 批4 独立审 reviewer 首版 probe harness 的 DEBUG trap 门控写成「REPO 与 GIT_REPO 同时非空才拦」,而 main 版脚本**只设 REPO 不设 GIT_REPO** ⇒ 门永假 ⇒ `fapi_daily_syn.sh` 被真跑 ~2 分 16 秒;独立取证判**零外发/零落库**,唯一副作用 = dev 树 `data/daily-k.parquet` 被覆盖 181MB) | 审查/测试的探针**一律 static-only**:验 resolve 类只需 source 目标 **lib**(经 stdin 管道喂 `bash -s`),**绝不 source/exec 业务脚本主体**;harness 门控禁用「环境变量是否齐」这类**可被真实形态绕过**的条件,必须正面白名单(只许执行显式声明的文件);派单把「禁跑业务脚本」写成**可核验项**(输出文件时间戳/`pgrep`)+ 事故后必有**独立取证**(不采信自述)(→memory `probe-harness-must-not-exec-prod-scripts`) | archive:锚点块本条(L50) |
 | L49 | 10-06 | 假样本养绿:机制层生产空转被 reviewer 判 PASS(#196 新增 `check_failed_units.py` ②b「脚本存在性」层 —— `WATCHMAN_UNITS` 全是 `.timer` 而 timer **无 `ExecStart` 属性** ⇒ 生产恒空;测试全绿是因注入样本给 timer 喂了现实中不存在的 `ExecStart`;§0 生产实跑才逮到) | 断言输入必须取**真实生产实测样本**(禁人工构造"看起来合理"的样本);reviewer 复算要核「真实对象**有没有**该字段」而非「解析器能否解析出值」;新增守卫/可见性机制 §0 必含「生产侧实跑实证」一条(→#203 + memory `mechanism-scope-verify-in-code`) | archive:锚点块本条(L49) |
 | L48 | 10-05 | 通知类脚本自测打出真告警(#194 reviewer 在非云上跑变异测试,老脚本忽略沙箱环境变量、把"路径对不上"判成真漂移,真发出邮件+飞书告警 21:24:34,一次测试变成用户手机可见的真事故) | 具备真实发送链路的脚本(告警/邮件/飞书)自测前必须先打桩(dry-run/monkeypatch 通知目标/沙箱,并**先证沙箱判定生效**),派单验收点=「本次自测未产生真实外发」证据;真外发后如实上报+留痕不删已发记录(→memory notify-script-selftest-must-stub) | archive:锚点块本条(L48) |
 | L47 | 09-01 | 外部系统先查社区(闭门11组实验自我证伪,用户提醒"规范里就有不要闭门造车"才补查社区,一轮就找到同源官方issue印证+注入合法值验证有效) | 排查跨厂商/网关/API参数未知行为,第一动作上网查社区+官方文档,不闭门实验堆到最后;自己推演的方案用社区先例佐证,不等用户提醒(→CLAUDE.md §5.1强化款) | archive:锚点块本条(L47) |
@@ -116,7 +117,6 @@
 | L38 | 08-15 | daily-brief 周六触发降级(周六20:40收到AI预测且是老版本) | 触发源脚本(run_daily_brief.sh)必带交易日判断,非交易日不触发;降级=模型不守约束加强prompt不放松校验,补原始range日志(→memory daily-brief-range-degrade-contract) | archive:L108 |
 | L37 | 08-15 | 非交易日补发买卖点信号邮件(周日没开盘却收到周五买卖点信号) | 信号邮件/backfill 补发前判断交易日,非交易日不补发(→memory daily-brief-range-degrade-contract) | archive:L107 |
 | L36 | 08-15 | 汇报并行在跑 agent 数错误(把已完成/已收到通知的还当在跑,用户:"顺带提醒 并行在跑的可没4个"+"这种错不要再犯了") | 汇报"在跑N个"前逐 agent 核对是否已收完成通知;收到通知=已完成立即移出在跑(→memory agent-status-verify-before-report) | archive:L106 |
-| L35 | 08-15 | Explore agent v4-pro 计费泄漏:派只读/搜索任务误用 Claude Code 内置 Explore subagent(model=claude-opus-5 不在代理白名单,绕过白名单按 v4-pro 计费,12次~45万tokens泄漏) | 只读/搜索/定位任务一律派 researcher(内置 Explore 固定用 claude-opus-5 绕过代理白名单);白名单外 model 一律兜底改写 flash,绝不透传(→memory no-explore-agent-use-researcher) | archive:L105 |
 
 ### 最近 10 条经验(按 E 编号倒序=最新;全量 30 条见归档锚点索引块)
 | 锚点 | 经验 | 适用 | 归档 |
