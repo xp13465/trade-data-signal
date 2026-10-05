@@ -290,9 +290,10 @@ BACKUP2_SK = os.environ.get("R2_BACKUP2_SECRET_ACCESS_KEY", "")
 BACKUP2_HOST = urlparse(BACKUP2_ENDPOINT).hostname if BACKUP2_ENDPOINT else None
 
 # backup 用独立私有桶(不绑公开域名,解决 signal-data 公开可读隐患)。
-# 今后新写默认落新桶 signal-backup2(#178 迁移:老桶 signal-backup 存量不搬,只切今后新写,
-# 老桶存量靠其 lifecycle 自然回收)。.env 可配 R2_BACKUP_BUCKET 覆盖(测试隔离用不存在的桶名,
-# 实测 404 零污染,不 commit .env)。
+# 今后新写默认落新桶 signal-backup2(#178 迁移:老桶 signal-backup 存量不搬,只切今后新写)。
+# 注:老桶存量不在本脚本回收范围——#179 已定 large-json/legacy/decommissioned 等前缀均**不配**
+# lifecycle(无自动回收),存量保留在原桶,是否清理由人工另议(勿信「靠 lifecycle 自然回收」)。
+# .env 可配 R2_BACKUP_BUCKET 覆盖(测试隔离用不存在的桶名,实测 404 零污染,不 commit .env)。
 BACKUP_BUCKET = os.environ.get("R2_BACKUP_BUCKET", BACKUP2_BUCKET)
 PUBLIC = os.environ.get("R2_PUBLIC_DOMAIN", "").rstrip("/")
 REGION = "auto"
@@ -2706,10 +2707,12 @@ def cmd_upload_large_json():
         且全程不接触 R2**(纯本地计算)——测试隔离钩子, 防集成测试污染生产桶(2026-09-26 实际事故)。
       - 本地快照增量(#149e, 2026-10-01): 逐文件 pre-PUT HEAD 比对(3.1 万跨境 HEAD 单段 26~105min,
         锁队列积压元凶)→ 状态文件本地判定。复刻 _incremental_upload 引擎模式: 状态清单
-        data/.r2_large_json_state.json(结构 {version,updated_at,mode,count,files:{rel:{size,md5}},changed:[rel]},
+        data/.r2_large_json_state.json(结构 {version,updated_at,mode,bucket,count,files:{rel:{size,md5}},changed:[rel]},
         与数据同仓 untracked)+ .r2_large_json_uploading.marker(fail-closed)+ 原子写状态 + 首跑/损坏
         退化全量 + 周日强制全量 HEAD。平时增量: 本地 gzip md5 == 状态 md5 → 跳过(0 HEAD/0 PUT);
         变化 → 走原 HEAD 幂等 + PUT。--full(或 R2_LARGE_JSON_FORCE_FULL=1)手动强制全量 HEAD 校验防 drift。
+        bucket 字段(#178): 记录状态所属桶; 读侧若与当前 BACKUP_BUCKET 不符 → 视同无状态退化全量
+        (换桶后首个 large-json 轮自动全量回填, 根治「新桶实际不完整」的静默假完备窗口)。
     """
     import gzip
     import hashlib
@@ -2869,7 +2872,8 @@ def cmd_upload_large_json():
 
     # ===== #149e 本地快照增量(2026-10-01): 复刻 _incremental_upload 状态文件模式 =====
     # 状态清单 data/.r2_large_json_state.json(与数据同仓, untracked 不进 git), 结构同引擎:
-    #   {version, updated_at, mode, count, files:{rel:{size,md5}}, changed:[rel]}
+    #   {version, updated_at, mode, bucket, count, files:{rel:{size,md5}}, changed:[rel]}
+    #   (bucket = 状态所属桶名, #178 换桶硬化用; 见读侧 bucket_mismatch 分支)
     # 指纹 = gzip payload 的 md5(上传内容即 gzip payload, R2 ETag 同口径)。
     # 跳过判据: 状态记录存在 + 本地 gzip md5 == 状态记录 md5 → 跳过(状态只在全部成功后原子写,
     #   「状态记录+md5 一致」可自证「上次上传成功时远端 HEAD 一致, 内容未变远端必仍在」)。
@@ -2883,13 +2887,23 @@ def cmd_upload_large_json():
     marker_path = state_path.with_name(".r2_large_json_uploading.marker")
     old_files = {}
     state_ok = False
+    bucket_mismatch = False
     if state_path.exists():
         try:
             with open(state_path, "r", encoding="utf-8") as f:
                 st = json.load(f)
             if isinstance(st.get("files"), dict):
-                old_files = st["files"]
-                state_ok = True
+                # #178 换桶硬化(2026-10-05): 增量判据纯本地(不枚举任何桶), 若状态记录的桶与当前
+                #   BACKUP_BUCKET 不符, 「state+md5 自证完备」在新桶并不成立(新桶实际缺这批对象)——
+                #   视同无状态 → 退化全量, 换桶后首个 large-json 轮即自动全量回填(无需手动 --full)。
+                #   老 state 无 bucket 字段(None)亦不匹配 → 正好触发切换回填。
+                if st.get("bucket") == BACKUP_BUCKET:
+                    old_files = st["files"]
+                    state_ok = True
+                else:
+                    bucket_mismatch = True
+                    print(f"⚠ 状态清单 bucket={st.get('bucket')!r} != 当前 BACKUP_BUCKET={BACKUP_BUCKET!r}, "
+                          f"视同无状态退化全量(换桶回填, #178)")
         except (OSError, ValueError):
             print(f"⚠ 状态清单损坏/不可读({state_path}), 退化为全量")
     today_weekday = _dt.datetime.now().weekday()
@@ -2900,6 +2914,8 @@ def cmd_upload_large_json():
         mode = "上次上传中断强制全量(marker fail-closed)"
     elif today_weekday == 6 and state_ok:
         mode = "周日强制全量校验"
+    elif bucket_mismatch:
+        mode = "换桶退化全量(bucket 变更回填, #178)"
     elif not state_ok:
         mode = "首次/无状态退化全量"
     elif manual_full:
@@ -2999,6 +3015,7 @@ def cmd_upload_large_json():
                 "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "mode": mode,
                 "count": len(sigs),
+                "bucket": BACKUP_BUCKET,   # #178: 记录本条状态所属桶, 换桶时读侧判不符→退化全量回填
                 "files": sigs,
                 "changed": [rel for rel, _ in changed_rels],
             }, f, ensure_ascii=False, sort_keys=True)
