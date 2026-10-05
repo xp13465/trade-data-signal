@@ -134,7 +134,7 @@ RUN_BAOSTOCK=1 /bin/bash /Users/linhuichen/code/trade/scripts/collect.sh
 
 ## 定时任务配置
 
-> ⚠️ **2026-09-12 起生产定时任务已迁云上 systemd timer**（37 个 `trade-` 前缀 `.timer` 单元，时点与本节历史 launchd `StartCalendarInterval` 一致，详见 [`docs/deploy/systemd-units-20260912.md`](../docs/deploy/systemd-units-20260912.md)）。**本机 mac 纯开发不跑生产定时任务，launchd 已废弃、查 `launchctl` 是错的**。本节方案 A/B 保留作**历史安装存档**：本机手动跑脚本仍可 `bash scripts/update_all.sh`，但生产调度以云上 systemd timer 为准，不建议再配本机 launchd/cron 调度生产任务。
+> ⚠️ **2026-09-12 起生产定时任务已迁云上 systemd timer**（40 个 `trade-` 前缀 `.timer` 单元，2026-10-05 实测；时点与本节历史 launchd `StartCalendarInterval` 一致，详见 [`docs/deploy/systemd-units-20260912.md`](../docs/deploy/systemd-units-20260912.md)）。**本机 mac 纯开发不跑生产定时任务，launchd 已废弃、查 `launchctl` 是错的**。本节方案 A/B 保留作**历史安装存档**：本机手动跑脚本仍可 `bash scripts/update_all.sh`，但生产调度以云上 systemd timer 为准，不建议再配本机 launchd/cron 调度生产任务。
 
 ### 三个时间点
 

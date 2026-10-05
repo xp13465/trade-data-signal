@@ -8,13 +8,16 @@
 
 | 类别 | 数量 | 产物 |
 |---|---|---|
-| 周期任务(必迁) | 37 | 37 个 `.timer` + 37 个 `.service`(OnCalendar= 时点) |
+| 周期任务(必迁) | 39 | 39 个 `.timer` + 39 个 `.service`(OnCalendar= 时点;不含下方 backup_db) |
 | 飞书常驻 listener(已拍板不迁) | 1 | 无(留本机:需求入口依赖本机 Claude;云上飞书通知走 notify.py) |
 | backup_db 独立备份 | 1 | 1 个 `.timer`(21:00)+ 1 个 `.service` |
 | 本机 Claude 开发环境专属(不迁) | 5 | 见 §5(thinking-proxy / sensenova-healthcheck / agent-inbox-watcher / token-cache-stats / com.claude.self-backup) |
 | plist 存在但未加载(不迁) | 3 | 见 §6(codex-watcher / monitor-72h / sentiment) |
 
-> **计数的两种口径(2026-10-05 补注,防误读)**:上表「37」= 2026-09-12 **launchd→systemd 迁移批基线**(有 plist 源的周期任务),**不是**云上 `trade-*.timer` 实时总数。迁移后新增的无 launchd 源计时器(如 §2.37 `trade-r2-consistency` #160 等)另计。截至 2026-10-05 云上实测 `ls /etc/systemd/system/trade-*.timer | wc -l` = **40**(本文件 §2 共给出 40 个 `.timer` 单元块)。
+> **计数口径与重算(2026-10-05,防误读)**:上表「39 周期 + 1 backup_db = **40**」= 云上 `trade-*.timer` **实测总数**(`ls /etc/systemd/system/trade-*.timer | wc -l` = 40,与 `systemctl list-timers --all | grep -c 'trade-.*\.timer'` 一致)。全文计数以「2026-10-05 云上实测 = 40」为锚,历史数字保留可反查:
+> - **历史链(逐项,含 commit 可反查)**:`2026-09-12` 首版 = **35 周期 + 1 backup_db = 36 timer**(`6f7e5b13a`);`2026-09-14` 新增 `trade-lof-track-index`(§2.6-1)→ **36 周期**(`9993cfba5`);`2026-09-17` #45 补 `trade-nextday-gap-check`(§2.14-1)→ **37 周期**(`fd6d5c78d`);`2026-10-03` P0-1 新增 `trade-check-monitor-heartbeat`(§2.36)→ **38 周期**;`2026-10-05` #160 新增 `trade-r2-consistency`(§2.37,§22 一致性巡检)→ **39 周期 = 40 timer** ✓。
+> - **云上 mtime 交叉验证(独立第二源)**:40 个 `trade-*.timer` 中 34 个 mtime 停在 `2026-09-14`(= 迁移批 36 减去之后被改过的 `trade-update-all`(10-04 周日错峰)与 `trade-nextday-plan`(09-17));其余 6 个 = 4 新增(lof-track-index 09-15 / nextday-gap-check 09-17 / check-monitor-heartbeat 10-03 / r2-consistency 10-05)+ 2 修改。34 + 6 = 40,与 §2 的 40 个 unit 块、`gen_systemd_units.py --check` 的 80 单元(40 timer + 40 service)三源一致。
+> - **旧数字差异(§0「37」/§1.4「32」/§1.7「36」)**:三者均按当时点数、未随后续新增重算——「37」= 迁移批基线经 #45 后的中途值;「32」= 37 − 5(当时 append 例外 shell 型数);「36」= 阶段4b 统一环境变量时的 service 数。本次统一重算:**§0 = 39 周期**(= 40 − 1 backup_db)、**§1.4 = 33**(= 39 − 6 append 例外)、**§1.7 = 40**(全 service 均注入三 env,实测)。
 
 ## 1. 统一约定
 
@@ -52,7 +55,7 @@ timedatectl set-timezone Asia/Shanghai
 | WorkingDirectory | WorkingDirectory= | |
 | StandardOutPath / StandardErrorPath | StandardOutput=append: / StandardError=append: | 保留原日志文件路径(监控/告警排查靠 `find data/logs -mmin` 扫描,路径不可变) |
 
-> ⚠️ **例外(2026-09-15 根治 append 日志 root 属主冲突)**:凡脚本自己 `>> "$LOG"` 写同一个固定名 `*_launchd.log`(而非 STAMP/独立名),该 unit **必须去掉** `StandardOutput=` / `StandardError=` 的 append 重定向(恢复 journal 默认)。原因:systemd 主进程(root)创建 append 文件属主 root(644),脚本(ubuntu)再 `echo >>` 同一文件 re-open 写不进 → Permission denied → 任务超时/失败(2026-09-14 盘后 turnover/nextday/overfit/s06 等 4 任务失败)。去掉后由脚本自己建文件(ubuntu 属主),无冲突、监控直读路径不变。共 5 个 shell 型(脚本自己 `>> "$LOG"` 写同名 `*_launchd.log`):trade-turnover-backfill / trade-nextday-plan / trade-nextday-gap-check / trade-overfit-monitor / trade-s06-snapshot。**另 2 个 python heredoc 型(trade-schedule-monitor / trade-self-heal)不去 append**:它们的 `MONITOR_LOG` 只定义从未 open 写入,日志一直靠 systemd append 产生,去掉会停更、且 schedule_monitor 告警把 MONITOR_LOG 当路径写进 latest.md 指向陈旧日志(L46 `find -mmin` 扫描法对这 2 个也失效)。其余 32 个 unit 脚本写 STAMP/独立名日志(无 re-open 冲突)或完全依赖 systemd 捕获 stdout,保留 append 不动。
+> ⚠️ **例外(2026-09-15 根治 append 日志 root 属主冲突)**:凡脚本自己 `>> "$LOG"` 写同一个固定名 `*_launchd.log`(而非 STAMP/独立名),该 unit **必须去掉** `StandardOutput=` / `StandardError=` 的 append 重定向(恢复 journal 默认)。原因:systemd 主进程(root)创建 append 文件属主 root(644),脚本(ubuntu)再 `echo >>` 同一文件 re-open 写不进 → Permission denied → 任务超时/失败(2026-09-14 盘后 turnover/nextday/overfit/s06 等 4 任务失败)。去掉后由脚本自己建文件(ubuntu 属主),无冲突、监控直读路径不变。共 6 个 shell 型(脚本自己 `>> "$LOG"` 写同名 `*_launchd.log`):trade-turnover-backfill / trade-nextday-plan / trade-nextday-gap-check / trade-overfit-monitor / trade-s06-snapshot / trade-r2-consistency(2026-10-05 追加,#160)。**另 2 个 python heredoc 型(trade-schedule-monitor / trade-self-heal)不去 append**:它们的 `MONITOR_LOG` 只定义从未 open 写入,日志一直靠 systemd append 产生,去掉会停更、且 schedule_monitor 告警把 MONITOR_LOG 当路径写进 latest.md 指向陈旧日志(L46 `find -mmin` 扫描法对这 2 个也失效)。其余 33 个 unit 脚本写 STAMP/独立名日志(无 re-open 冲突)或完全依赖 systemd 捕获 stdout,保留 append 不动。(2026-10-05 重算:39 周期 − 6 append 例外 = 33)
 
 ### 1.5 PATH Linux 化
 本机 plist 内嵌 `PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`,其中 `/opt/homebrew/bin` 在 Linux 不存在。服务器统一为:
@@ -78,9 +81,9 @@ PURGE_SECRET 值(本机全部 plist 一致):见 `/home/ubuntu/code/trade-data/.e
 | PATH | /opt/homebrew/bin:... | /usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin |
 | PURGE_SECRET | 见 §1.6 | 同左 |
 
-阶段4b 统一(2026-09-13):全部 36 service 均注入 `REPO`/`GIT_REPO`/`MAIN_REPO`(REPO=MAIN_REPO=/home/ubuntu/code/trade-data 数据目录,GIT_REPO=/home/ubuntu/code/trade-data-signal 代码仓,与 pick_repo.py 双仓判定一致,防 /Users 语义翻转)。个别任务保留特殊 env:ab-direction-anchor 额外有 `TRADE_DIR`(→ /home/ubuntu/code/trade-data-signal 代码仓)。
+阶段4b 统一(2026-09-13):全部 40 service 均注入 `REPO`/`GIT_REPO`/`MAIN_REPO`(REPO=MAIN_REPO=/home/ubuntu/code/trade-data 数据目录,GIT_REPO=/home/ubuntu/code/trade-data-signal 代码仓,与 pick_repo.py 双仓判定一致,防 /Users 语义翻转)。个别任务保留特殊 env:ab-direction-anchor 额外有 `TRADE_DIR`(→ /home/ubuntu/code/trade-data-signal 代码仓)。
 
-## 2. 37 个周期任务完整对照表 + unit 内容
+## 2. 39 个周期任务完整对照表 + unit 内容
 
 > 每个任务给出:源 plist 摘要(脚本/时点/env/超时)→ `.timer` 与 `.service` 完整内容。
 > 统一模板:`Type=oneshot` + `Persistent=true`(服务器宕机错过时点后补跑,等价于保证数据完整)。
@@ -91,7 +94,9 @@ PURGE_SECRET 值(本机全部 plist 一致):见 `/home/ubuntu/code/trade-data/.e
 - 脚本:`update_all.sh`(4 并行 pipeline + 末尾 deploy;内嵌 backup_db.sh L357——备份已另设 21:00 独立 timer,见 §4,阶段4 删 L357 段)
 - 时点:周一~周六 17:50 | **周日 22:30(2026-10-04 错峰)**:周日 R2 force_full 全量 + verify-r2 ~3 万 key 对账结构性慢(10-04 段1 预估 10007s≈2h48m,依据 09-20 实测 10754s≈2h59m 外推;真测锚点=09-20 10754s≈2h59m),挪凌晨安静段避免拖 evening 链;22:30 起最长 ~3h 跑至 ~01:30 周一,不与凌晨 02:00 backfill-evening / 02:17 pf-stage0-overview / 02:40 gold-night / 每月15日 02:33 pf-stage0-risk / 每月1日 02:47 pf-stage0-manager / 03:00 quarterly / 03:17 pf-score-weekly / 03:30 etf-track / 04:00 lof-track / 05:00 us-stock 撞车(完整撞车对照见 docs/ops/r2-upload-failure-fix-20260921.md 改动4,含月级低频项重新枚举)。§14 安全窗口(23:00 后)兼容。| ExitTimeOut=7200(service TimeoutStartSec=10800)
 
-`trade-update-all.timer`(云上实际配置,2026-10-04 改):
+> 注:下方 `trade-update-all` unit 块 = 云上实际配置(2026-10-04 改),非 2026-09-12 迁移批初值。标题注记从标题行移出到本注(原 `trade-update-all.timer`(云上实际配置,2026-10-04 改): 尾带括号文字,致 `scripts/gen_systemd_units.py` 的标题正则 `^`trade-<name>.timer`:$` 漏解析该 unit,2026-10-05 修复)。
+
+`trade-update-all.timer`:
 ```ini
 [Unit]
 Description=Trade update-all daily 17:50 (Mon..Sat) / Sun 22:30 错峰 (源 com.trade.update-all)
@@ -700,7 +705,8 @@ TimeoutStartSec=600
 ```
 
 ### 2.15 s06-snapshot(周一~五 20:35)
-- 脚本:`s06_snapshot.sh`(timeout 降级链阶段4 Linux 化)| ExitTimeOut=600
+- 脚本:`s06_snapshot.sh`(timeout 降级链阶段4 Linux 化)| ExitTimeOut=600(launchd 源值;云上 service `TimeoutStartSec` 见下)
+- **超时梯度修正(2026-10-05,根因)**:内层 `s06_snapshot.sh` 有 6 次串行 `run_to` 调用(5 段代码,posrating 段双树跑 2 次)——gen 300 + check 300 + R2 上传 900 + posrating 300×2 + 快照上传 900 = **串行合计 3000s**。原云上 `TimeoutStartSec=600` **< 内层合计**无梯度:脚本跑到 R2 段未及内层 `run_to 900` 就先把 systemd 杀掉(退出码 143),「结束」行写不出、`notify`(脚本 L138)也发不出——即「告警与链路同亡」(#162 已把此病根的监控副作用兜底,schedule_monitor 判据见 `scripts/schedule_monitor.sh:427-431`)。修正 = 外层提到 **3300s**(= 内层串行合计 3000 + 300 余量,余量口径采研究者 2026-10-05 建议值,覆盖段间非上传耗时:双树 610KB 原子写×2 / posrating×2 / notify 子进程 / bash-python 启动),使每段 `run_to` 都先于 systemd 生效,脚本必能跑完并写「结束」行 + 发告警。**为何不是 1200(内层 900 + 300)**:R2 网障属**相关失败**——③`upload-data-files` 与 ④b`upload-kelly-snapshots` 同时吃满 900(sched 300+300+900+600+900=3000),外层 1200 仍会先杀 ⇒ 恰在**最需要告警**的场景丢 notify。同类梯度原则见 `memory watchdog-inner-timeout-no-gradient`(外层 > 内层留梯度)。
 
 `trade-s06-snapshot.timer`:
 ```ini
@@ -730,7 +736,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/s06_snapshot.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=600
+TimeoutStartSec=3300
 ```
 
 ### 2.16 check-data-gap(周一~五 22:35)

@@ -176,3 +176,13 @@
 3. 云上 4 个 service（nextday-plan/overfit-monitor/s06-snapshot/turnover-backfill）缺 StandardOutput/StandardError：可补 append 到既有日志文件。
 4. `public_fund_daily` 9-15 挂死 30min 的根因（非本任务 TimeoutStartSec 范畴，属脚本挂死 bug），建议单独排查。
 5. `ab-direction-anchor` 云上 TRADE_DIR 指向 signal 仓的语义确认。
+
+## 七、后记：s06-snapshot 超时梯度再修正（2026-10-05，task `feat/s06-timeout-grad-20261005`）
+
+> 本节为**追加**,不改上文 2026-09-16 原表（历史快照保留可反查）。
+
+- **上文 §三「保持不变（8 个）」把 `s06-snapshot` 定为 `600`（依据「19s 快任务」）已过时**:该结论成立时 `s06_snapshot.sh` 尚无 R2 段;此后脚本新增 6 次串行 `run_to` 调用(5 段代码,posrating 段双树跑 2 次；gen 300 + check 300 + R2 上传 900 + posrating 300×2 + 快照上传 900 = **串行合计 3000s**,`run_to 900` 系 2026-09-21 codex008 F5 引入)。
+- **病症**:云上 `TimeoutStartSec=600` **< 内层合计 3000** 无梯度 ⇒ 脚本跑到 R2 段未及内层 `run_to 900` 就被 systemd 杀,「结束」行/告警发不出(schedule_monitor 侧副作用见 `scripts/schedule_monitor.sh:418`)。
+- **修正**:云上 `trade-s06-snapshot.service` `TimeoutStartSec` **600 → 3300**(= 内层串行合计 3000 + 300 余量),2026-10-05 已改 + `daemon-reload`(未动 OnCalendar)。依据 `memory watchdog-inner-timeout-no-gradient`(外层 > 内层留梯度)+ 串行合计实测;**不是 1200**:R2 网障时 ③ 与 ④b 两段 R2 上传会同时吃满 900(合计 3000),外层 1200 仍先杀 → 丢 notify(详见 `docs/ops/s06-timeout-gradient-20261005.md` §1.4)。
+- **同类面(本次核查,全 40 service 梯度审计 `scripts/systemd_timeout_gradient_audit.py`)**:倒挂 **0 个**;有 shell 内层看门狗者 5 个——s06 3300>3000(余 300)、`r2-consistency` 960>900(余 60)、`check-data-gap` 600>300、`kelly-intraday-rerun` 600>180、`turnover-backfill` 外层 0=无限;其余 `update-all`/`nextday-gap-check`/多数采集类**脚本内无 `run_to`**(`nextday_gap_check.sh` 无 shell 内层看门狗,外层 systemd 即唯一墙钟上限,不存在「内层>外层」倒挂)。审计脚本可云上直跑或喂 unit dump 本地复核。
+- **本文件 §三/§四/§五 的 TimeoutStartSec 数值与云上现状的对账**:见 task 报告 `docs/ops/s06-timeout-gradient-20261005.md` §三(逐项)。

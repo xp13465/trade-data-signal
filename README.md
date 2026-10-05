@@ -400,7 +400,7 @@ cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/u
 
 ### 定时采集（每交易日 17:50，update_all 主采集）
 
-生产定时任务 2026-09-12 起迁云上 systemd timer（阿里云 Ubuntu 22.04，37 个 `.timer` 单元在 `/etc/systemd/system/`，统一前缀 `trade-`，时点与旧 launchd `StartCalendarInterval` 完全一致，详见 [`docs/deploy/systemd-units-20260912.md`](docs/deploy/systemd-units-20260912.md)）；日志仍在 `data/logs/`。**本机 mac 纯开发不跑生产定时任务（launchd 已废弃，查 `launchctl` 是错的）**。
+生产定时任务 2026-09-12 起迁云上 systemd timer（阿里云 Ubuntu 22.04，40 个 `.timer` 单元在 `/etc/systemd/system/`（2026-10-05 实测），统一前缀 `trade-`，时点与旧 launchd `StartCalendarInterval` 完全一致，详见 [`docs/deploy/systemd-units-20260912.md`](docs/deploy/systemd-units-20260912.md)）；日志仍在 `data/logs/`。**本机 mac 纯开发不跑生产定时任务（launchd 已废弃，查 `launchctl` 是错的）**。
 
 ```bash
 # 云上启停/查看主采集（17:50 update_all）
@@ -415,7 +415,7 @@ systemctl status trade-update-all.timer         # 查看下次触发时点
 
 - **17:50（CST）** 主采集 [`scripts/update_all.sh`](scripts/update_all.sh)：4 条并行 pipeline（core 快核心 / width 慢宽度 / futures 期货 / stock_daily 后台死端）只采集+计算写 DB，末尾**统一 1 次完整 deploy**（O1 收敛，原 4 遍→1 遍，省 50-58min）+ export **增量导出**（ab#39，只重算源数据已变化的 JSON，必更白名单 overview/信号类强制全量），约 30-40min 跑完，当日下午即可看到当日数据
 - **09:35–15:00 盘中** 每 10 分钟跑 `intraday_snapshot` 推 `intraday_snapshot.json` 实时快照（走 R2 实时，不推 main）
-- 另有辅助 systemd timer（futures/lhb/rzhb/etf-national-team/backfill-evening/lab-auto/schedule-monitor 等，云上 `/etc/systemd/system/` 共 37 个周期单元）
+- 另有辅助 systemd timer（futures/lhb/rzhb/etf-national-team/backfill-evening/lab-auto/schedule-monitor 等，云上 `/etc/systemd/system/` 共 40 个 `trade-*` 周期单元，2026-10-05 实测；清单见 [`docs/deploy/systemd-units-20260912.md`](docs/deploy/systemd-units-20260912.md)）
 - 非交易日跳过采集仅 deploy + check_signals；交易日盘中 09:30-15:30 拒跑全量 export+deploy（防覆盖 intraday 实时版）
 
 ---
