@@ -36,6 +36,17 @@
 
 ---
 
+## 同类错误面 / 举一反三(§23.2 / §23.3:静默误杀还波及谁)
+
+- **同模式(单 PUT 静默)的判定域 = 谁受 #174 看门狗管辖**。#174 停滞/低速判据只存在于 `scripts/r2_upload_async.sh:run_r2_upload`(deploy.sh 无第二份,reviewer §⑥ 已证)。故「单大文件静默 >300s 被误杀」**只可能发生在其管辖通道**:`upload-lab / upload-trade-sim / upload-trade-sim-json / upload-index / upload-etf-hist / upload-accum-nav / upload-industry / upload-public-fund / upload-etf-score / upload-data-large / upload-kelly-parts / upload-kelly-parts-sdc / upload-all-data / upload-kelly-snapshots / upload-feed / verify-r2 / purge-low-freq`。
+- **这些通道的数据上传全部经 `_upload_glob`(单 PUT ≤100MB / multipart >100MB)或 `_incremental_upload`(内部同样调 `_upload_glob`)** → 本次 `progress_label` 已在 `_upload_glob._upload_one`(`upload_r2.py:908`)与 `_upload_multipart._put_part`(`:789`)统一接线 → **同模式全覆盖**,无遗漏旁路。
+- **不受影响的旁路 PUT(已逐个核对,均不在看门狗管辖)**:
+  - `cmd_upload`(`:703`,CLI `upload`,手动/非看门狗通道);
+  - `cmd_upload_db`(`:2283`,由 `backup_db.sh` 调用)、`cmd_upload_decommissioned`(`:2324`)、`cmd_upload_claude_backup`(`:2357`,由 `backup_claude_self.sh` 调用)、`_maybe_upload_weekly/_monthly`(`:2170/:2193`)、`cmd_upload_large_json`(`:2792`)—— 这些**不经 `run_r2_upload`**,无 300s 停滞判据 ⇒ 无此回归。
+- **结论**:㈡ 的修复面 = 全部看门狗通道的大文件单 PUT,已完整覆盖;**残余仅为门限 8MiB 以下的极小文件**(见 ㈡ 末「最小残留」)。
+
+---
+
 ## 附:相关判据/常量锚点(便于反查)
 - 看门狗主判据(停滞 300s `R2_UPLOAD_STALL_SECS`)/ 辅判据(低速:batch>10 且近 5 采样增量<1MB)/ 7200s 硬兜底:`scripts/r2_upload_async.sh:run_r2_upload`(L78-151)。deploy.sh 无第二份定义(仅触发)。
 - 单 PUT / multipart 阈值:`scripts/upload_r2.py` `_MULTIPART_THRESHOLD`=100MB。
