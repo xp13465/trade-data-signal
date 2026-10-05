@@ -22,10 +22,13 @@ s06 断的是**同步/传播段**（gen 段每日成功、覆盖到 20260930 零
 | 定时（云上 systemd `trade-s06-snapshot.timer`） | Mon..Fri 20:35，一直在跑 |
 
 治愈时刻：**10-04 周日**错峰 deploy 的全量 verify-r2 补传（`deploy_20261004_2230.log:774`「自动补传 1 个」）。
-云上旁证：`.r2_all_data_state.json` 的 `changed`（n=29）**不含 s06**，但 `files` 里有
+云上旁证：`.r2_all_data_state.json` 的 `changed`**不含 s06**，但 `files` 里有
 `kelly_mode_s06_state.json`（md5 `c67db588b0768f2edfb28ce83c2fdfef`，= 云上本地 09-30 20:35 版）。
+（该文件每轮上传重写，故 `n` 只对读取时刻有意义：首查 `changed` n=29；**2026-10-05 21:28 云上复核**
+files n=124 / changed n=18，s06 仍**不在** `changed`、md5 仍为 `c67db588…` —— 结论不变。）
 ⇒ 根因：**s06 走的是 `upload-data-files`（脱离 deploy 通道状态文件的独立上传点），其 key 天然不在
 verify-r2 平日对账的 `changed` 集合里**，平日只靠全池均匀抽样 100 撞运气。
+（本条历史证据的可复演性、以及"143"结论今天在云上还能核到什么，见 §9 末「云上复核」块。）
 
 ## 2. 三层盲区（本次全部根治）
 
@@ -64,7 +67,7 @@ verify-r2 平日对账的 `changed` 集合里**，平日只靠全池均匀抽样
 | `scripts/upload_r2.py` | 新增 `_STANDALONE_KEYS_NAME` / `_LEDGER_*` / `_standalone_keys_path` / `_record_standalone_keys` / `_load_standalone_keys` / `_fmt_name_list` / `_channel_files` / `_channel_key` / `_reconcilable_keys_for`；`cmd_upload_data_files` 与 `cmd_upload_intraday` 上传成功后登记 key（**死键过滤**）；`cmd_verify_r2` 平日分支纳入独立链产物 + 落文件名 + 新增 `verify_r2_standalone_stale` 与 `verify_r2_standalone_ledger_gap` 两条告警 |
 | `scripts/s06_snapshot.sh` | 告警改 trap 驱动（`fire_alert` + `EXIT`/`TERM`/`INT`，幂等），删除末尾重复的 notify 块 |
 | `scripts/check_data_integrity.py` | `check_s06_state_snapshot` 本地新鲜分支追加 R2 `coverage_end` 比对（WARN 级）+ docstring 同步 |
-| `scripts/test_188_s06_sync_blindspot.py` | 自验脚本（打桩，不触网不写生产桶），**30 断言**（含复审修复轮的 P2-2 死键过滤 / P2-1 台账状态 / P3-2 并发写） |
+| `scripts/test_188_s06_sync_blindspot.py` | 自验脚本（打桩，不触网不写生产桶），**30 断言**（含复审修复轮的 P2-2 死键过滤 / P2-1 台账状态 / P3-2 并发写）；第三轮加 `_bootstrap_env_for_selftest()`（mac/云上双端可跑，见 §7.1） |
 
 无删除动作（§25 不适用：本次未删任何文件/数据，无需备份与恢复路径）。
 
@@ -135,9 +138,10 @@ verify-r2 平日对账的 `changed` 集合里**，平日只靠全池均匀抽样
 | §23.7 版本冻结 | 只**新增**检查覆盖面与告警路径，不改已上线功能的业务行为/口径/数字；①b 刻意用 WARN 以免改 deploy 成败语义 |
 | §23.4 同模块冲突 | 已查：全仓仅 `feat/191-cloud-unit-patrol-20261005` 在跑（改 unit 文档，不碰本任务 3 文件）；无同模块并发 |
 | §23.5 四件套 | 本体（本文）+ 自验脚本（`scripts/test_188_s06_sync_blindspot.py`）+ 复现段（§8）+ 配套 commit |
-| §25 备份后删 | 无删除动作 |
+| §25 备份后删 | 无删除动作（云上仅建/删临时 worktree `/tmp/w188`，不涉生产文件） |
 | §11 进度文件 | `/tmp/agent-progress-188.md` |
-| 云上改动 | **无**（本次未 ssh 云上改文件；云上 `s06_snapshot.sh` 待 merge 后 git pull 生效） |
+| 云上改动 | **无生产文件改动**（未 ssh 云上改任何生产文件；云上 `s06_snapshot.sh` 待 merge 后 git pull 生效）。第三轮仅在云上**临时 worktree** 跑自验脚本做实测，跑完已删；云上主检出仍 `main`(64633740e) 未被扰动 |
+| §6 验收铁律 | 第三轮补正：**未在云上实跑过的命令不得写成云上验证步骤**（原 §9 反向 A 犯了此条，主控 §0 逮到 → §7.1/§12.6 已修 + 双端实测） |
 
 ## 7. 自验结果（逐条，`python3 scripts/test_188_s06_sync_blindspot.py` → ALL_PASS，共 **30** 条 PASS）
 
@@ -183,6 +187,50 @@ verify-r2 平日对账的 `changed` 集合里**，平日只靠全池均匀抽样
 > 断言数订正（§23.5 诚实标注）：首轮报告写「18 断言」为笔误，reviewer 实测 **17**，本轮补 13 条 → **30**。
 > 首轮 17 条的明细见 §12.5 修复链（旧数保留可反查）。
 
+**云上实测（第三轮补，主控 §0 验收逮到「云上跑不起来」后修）：**
+
+```
+$ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173
+ubuntu@…:~$ cd ~/code/trade-data-signal && python3 scripts/test_188_s06_sync_blindspot.py
+[env] 自测配置树 = /home/ubuntu/code/trade-data      ← 新增的 .env 引导(见 §7.1)
+[A] 独立链产物 key 台账
+  PASS  台账路径 = REPO/data/.r2_standalone_keys.json
+…
+  PASS  台账损坏 → 同样发告警
+ALL_PASS
+RC=0        （grep -c "^  PASS  " = 30，云上 Python 3.10.12 / /bin/sh=dash）
+```
+
+> 该次实测在云上临时 worktree（`/tmp/w188`，跑完已 `git worktree remove`）中、对 commit `4c6c4bbcc` 跑的；
+> 同时验证**脚本与 cwd 无关**：`cd ~/code/trade-data-signal && python3 <该 worktree>/scripts/test_188…py`
+> 同样 `ALL_PASS` rc=0。即 checkout 的 HEAD 一旦含 `4c6c4bbcc`（本轮修复）或之后，
+> `cd ~/code/trade-data-signal && python3 scripts/test_188_s06_sync_blindspot.py` 即为可直接跑通的命令（见 §9 反向 A）。
+
+### 7.1 运行环境差异（mac vs 云上：`.env` 位置不同 → 自测脚本自带引导）
+
+- **为什么本机没发现**：`upload_r2.py` 导入期就会 `load_env()`，而 `_find_env()` 只认
+  `ROOT/.env`、`$GIT_REPO/.env`、`$REPO/.env`（外加一条 **mac 硬编码**兜底
+  `/Users/linhuichen/code/trade/.env`）。mac 上这条兜底恰好命中 ⇒ 一切正常；云上没有它 ⇒ 导入期 `sys.exit`。
+- **两端的树形差异**：
+
+| | 代码仓（`__file__` 所在树） | `.env` 所在树 |
+|---|---|---|
+| mac | `/Users/linhuichen/code/trade`（另有硬编码兜底命中） | `/Users/linhuichen/code/trade-data/.env` |
+| 云上 | `/home/ubuntu/code/trade-data-signal`（**无 `.env`**） | `/home/ubuntu/code/trade-data/.env` |
+
+- **云上失败现象**（本机复现不出）：`rc=1`、**0 条 PASS**，输出 `[A] 独立链产物 key 台账` 后接
+  `无 .env: 尝试过 ['/home/ubuntu/code/trade-data-signal/.env', '/home/ubuntu/code/trade-data-signal/.env']`；
+  带 `REPO=/home/ubuntu/code/trade-data` 也不行 —— 因为本脚本 `test_ledger` 会把 `REPO` 置为**临时目录**
+  （测试隔离需要），候选里 `$REPO/.env` 必然落空，而云上 shell 的 `GIT_REPO` 又是无 `.env` 的代码仓。
+  ⇒ 这不是功能 FAIL，是**环境解析假 FAIL**（2026-10-08 真考验点按原报告去云上跑会白查一轮）。
+- **修法（最小面，不动生产代码行为）**：自测脚本**最早处**（任何 `import upload_r2` 之前）新增
+  `_bootstrap_env_for_selftest()`：按 `env GIT_REPO/REPO → 仓库根 → 兄弟 trade-data/trade → ~/code/{trade-data,trade}`
+  顺序探测「确实存在 `.env` 的那棵树」，写入 `GIT_REPO`，让 `$GIT_REPO/.env` 命中；首行打印
+  `[env] 自测配置树 = …` 供核对。`REPO=td` 的测试隔离语义不变，`upload_r2.py`/`check_data_integrity.py`/
+  `s06_snapshot.sh` **生产行为零改动**。
+- 云上实测两处：`[env] 自测配置树 = /home/ubuntu/code/trade-data`（引导生效）；
+  `grep -c "^  PASS  " /tmp/w188_out.txt` = **30**、末行 `ALL_PASS`、`RC=0`。mac 侧回归仍 `ALL_PASS`(30) rc=0。
+
 外加：`bash -n scripts/s06_snapshot.sh scripts/deploy.sh` OK；`py_compile upload_r2.py / check_data_integrity.py / test_188…py` OK；
 `pytest scripts/tests -q` = **192 passed / 1 skipped**（与基线一致，无回归）。
 
@@ -196,8 +244,10 @@ bash -n scripts/s06_snapshot.sh && bash -n scripts/deploy.sh
 python3 -m py_compile scripts/upload_r2.py scripts/check_data_integrity.py scripts/test_188_s06_sync_blindspot.py
 # 回归基线(pytest 需 trade-data venv)
 /Users/linhuichen/code/trade-data/.venv/bin/python -m pytest scripts/tests -q   # 192 passed / 1 skipped
-# 死键过滤实测(只读; 仓库根跑, REPO 未设 → STATIC_DIR=<仓>/static-site, 用真实数据树验证)
-python3 - <<'PY'
+# 死键过滤实测(只读; 仓库根跑, 用真实数据树验证)
+#   前置 GIT_REPO=<有 .env 的树>: 两端都有该树(mac ~/code/trade-data; 云上 ~/code/trade-data),
+#   否则 upload_r2 导入期找不到 .env 会直接退出(云上尤其注意, 见 §7.1)
+GIT_REPO="$HOME/code/trade-data" python3 - <<'PY'
 import sys; sys.path.insert(0, "scripts")
 import upload_r2 as u
 cand = {"data/kelly_mode_s06_state.json", "data/overview.json",
@@ -205,14 +255,21 @@ cand = {"data/kelly_mode_s06_state.json", "data/overview.json",
 print("可对账(进台账):", sorted(u._reconcilable_keys_for(cand)))
 print("死键(被过滤):", sorted(cand - u._reconcilable_keys_for(cand)))
 PY
-# 期望(2026-10-05 实测): 可对账=[s06, overview]; 死键=[feed.xml, news_digest/2026/…, news_digest/_index.json]
+# 期望(2026-10-05 mac + 云上双端实测, 输出逐字一致):
+#   可对账(进台账): ['data/kelly_mode_s06_state.json', 'data/overview.json']
+#   死键(被过滤): ['data/feed.xml', 'data/news_digest/2026/2026-10-05.json', 'data/news_digest/_index.json']
 git diff --stat
+# 云上等价一条(脚本自带 .env 引导, mac/云上同一条命令可跑; 前提: checkout 的 HEAD 含本轮修复)
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 \
+  'cd ~/code/trade-data-signal && git pull -q && python3 scripts/test_188_s06_sync_blindspot.py'  # 末行 ALL_PASS(30)
 ```
 
 ### 8.1 复现段修复链（§5.4⑦ 精神）
 
-- 首轮本段只写 3 条命令，**未含 pytest 回归与死键实测**；本轮补上（本段 8 行 4 类）。
-- 首轮报告 §7 断言数 18 → 实测 17 → 本轮 30。旧数保留在本段与 §12.5，可反查。
+- 首轮本段只写 3 条命令，**未含 pytest 回归与死键实测**；第二轮补上（本段 4 类）。
+- 首轮报告 §7 断言数 18 → 实测 17 → 第二轮 30。旧数保留在本段与 §12.5，可反查。
+- **第三轮**：原「云上自测」命令**没在云上验过就写进了报告**（主控 §0 验收在云上跑出 rc=1/0 PASS）。
+  根因与修法见 §7.1；本节命令已补 `GIT_REPO` 前置/云上前提，并**双端实跑过**（mac + 云上输出逐字一致）。
 
 ## 12. 复审修复轮（2026-10-05，reviewer PASS 后 4 项先修再合）
 
@@ -288,6 +345,34 @@ git diff --stat
 - 本轮新增 13 = A 台账状态 3（missing/corrupt/空 list）+ A P3-2 3（锁文件/无 tmp/并发）+ A/B 零死键 2
   （全部键被 HEAD，正/反例各 1）+ E 5（死键过滤）。首轮 17 条**全部保留且仍 PASS**。
 
+### 12.6 第三轮：报告里的「云上验证命令」在云上跑不起来（主控 §0 验收逮到）
+
+- **逮到什么**：主控在云上按报告 §9 反向 A 实跑 → `rc=1`、**0 条 PASS**，输出
+  `[A] 独立链产物 key 台账` + `无 .env: 尝试过 ['/home/ubuntu/code/trade-data-signal/.env', …]`；
+  带 `REPO=/home/ubuntu/code/trade-data` 同样失败。本机（mac）跑同一条 = `ALL_PASS` rc=0 ⇒ 我没发现。
+- **定性**：**我犯的元错误 = 把「本机跑通的命令」当成「云上验证步骤」写进报告，没有在云上实跑过**（§6 验收铁律反面）。
+  后果不是代码错，而是 2026-10-08 真考验点会拿到一次**假 FAIL**、白查一轮。
+- **根因（两处叠加，缺一不犯）**：
+  1. `upload_r2.py` 导入期 `load_env()`；`_find_env()` 候选只有 `ROOT/.env` / `$GIT_REPO/.env` / `$REPO/.env`
+     + 一条 **mac 硬编码** `/Users/linhuichen/code/trade/.env`。云上两棵树是
+     `trade-data-signal`（代码，无 `.env`）+ `trade-data`（有 `.env`），硬编码那条不存在。
+  2. 本脚本 `test_ledger` 为做隔离会把 `REPO` 置为**临时目录** ⇒ 就算在外面导出 `REPO=<真实树>` 也会被覆盖，
+     `$REPO/.env` 必然落空（这解释了「带 REPO=… 也一样」）。
+- **修法**：脚本最早处加 `_bootstrap_env_for_selftest()`（探测存在 `.env` 的树 → 写 `GIT_REPO`），
+  首行打印 `[env] 自测配置树 = …`。**生产代码（`upload_r2.py`/`check_data_integrity.py`/`s06_snapshot.sh`）行为零改动**；
+  测试的 `REPO=td` 隔离语义不变（`upload_r2` 仍只读临时树）。
+- **云上实测证据**（Python 3.10.12、`/bin/sh` = dash）：
+  `[env] 自测配置树 = /home/ubuntu/code/trade-data` → `ALL_PASS`、`rc=0`、`grep -c "^  PASS  " = 30`；
+  且 `cd ~/code/trade-data-signal && python3 <worktree>/scripts/test_188…py` 同样 ALL_PASS（脚本与 cwd 无关）。
+  mac 侧回归 `ALL_PASS`(30) rc=0（未修坏）。
+- **报告订正四处（§23.5 诚实标注）**：①§9 反向 A 补前提 + 假 FAIL 说明；②新增 §7.1 运行环境差异 + 云上实测块；
+  ③§8 复现段：死键探针补 `GIT_REPO` 前置（双端实跑输出逐字一致）、补云上等价命令、8.1 记本轮修复链；
+  ④§11 配套 commit 更新到第三轮。
+- **同类错误面排查（§23.2 三铁律之「排查同类」）**：本报告内**所有**跨机命令逐处核过 ——
+  §9 正向 1)2)3) 全是云上**只读**命令（`tail`/`cat`/`ls`/`curl`，不 import 本项目脚本）⇒ 无 `.env` 依赖；
+  反向 B 同为正则 grep 观测点 ⇒ 无依赖；§8 探针已修。故「云上跑不起来」的面已清零。
+  另：本报告未声称任何「已 ssh 云上改文件」（§6 自检行 140 原文即「云上改动：无」）——该表述仍为事实。
+
 ## 9. 真考验点：2026-10-08（首个交易日）验证步骤
 
 > 10-05~10-07 为国庆非交易日，链会被交易日闸门跳过（不产生新数据），故真考验点在 **2026-10-08 20:35 首跑**。
@@ -320,8 +405,12 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 '
 # 反向 A(推荐, 只读式, 直接跑自验脚本的"脱节→补传+外围告警"路径)
 ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 \
   'cd ~/code/trade-data-signal && git pull -q && python3 scripts/test_188_s06_sync_blindspot.py'
-#   期望末行 ALL_PASS(30 条 PASS) —— 其中"正例: 脱节 → 补传该文件 + 发外围告警"即反向路径的行为证明;
-#   "[E] 死键过滤 / [F] 台账缺失告警"两组即 P2-2/P2-1 的行为证明
+#   期望: 首行 [env] 自测配置树 = /home/ubuntu/code/trade-data; 末行 ALL_PASS(30 条 PASS); rc=0
+#   其中"正例: 脱节 → 补传该文件 + 发外围告警"即反向路径的行为证明;
+#   "[E] 死键过滤 / [F] 台账缺失告警"两组即 P2-2/P2-1 的行为证明。
+#   ⚠ 前提: 该 checkout 的 HEAD 含 commit 4c6c4bbcc(第三轮 .env 引导修复)或之后。
+#   原报告此处只写 `git pull -q && python3 …` 却未在云上实跑过 —— 在补上引导前它会 rc=1、
+#   0 条 PASS、报 "无 .env: 尝试过 [...]"(环境解析假 FAIL, 不是功能 FAIL), 根因/证据见 §7.1。
 
 # 反向 B(真实故障下的观测点, 无需注入):
 #   若 10-08 的 s06 链**再次**被 systemd 杀在 R2 段, 则
@@ -335,6 +424,15 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 \
 **对照（本次修复的"旧行为"长什么样，供 reviewer 反查）**：修复前 09-29~10-04 六天里，
 s06 链日报「退出码=143」但**无任何 [S06] 告警**（走不到末尾 notify），
 deploy 全部打印 `✓ s06_state PASS`（本地新鲜短路），R2 副本停在 09-24 版直到 10-04 周日全量补。
+
+> **2026-10-05 云上复核（第三轮顺手核 §9 全部云上命令，逐处给结论）**：
+> ①上述三个云上只读路径/格式**均已实查存在**：`~/code/trade-data/data/logs/s06_snapshot_launchd.log`
+> 在（当日 20:35 写入）、行格式 `=== s06_snapshot.sh 开始/结束 <时间> 退出码=N ===` 与
+> `非交易日, 跳过 S06 快照重生` 均在（L379-562）、`.r2_standalone_keys.json` 的父目录
+> `~/code/trade-data/data/` 在；②"143"这一历史结论**今天不能在云上复演** —— 云上 `journalctl`
+> 是 volatile（现仅存 10-01 起），09-28~09-30 段已滚掉；当前**可复演**的旁证是同一日志里
+> **09-28 / 09-29 / 09-30 三行「开始」后均无对应「结束」行**（L482/508/534 → 下一匹配直接跳到
+> 09-29/09-30/10-01），与「链被杀、走不到末尾」一致。
 
 ## 10. 同面待办（上报主控，不阻塞本次 merge）
 
@@ -360,4 +458,4 @@ deploy 全部打印 `✓ s06_state PASS`（本地新鲜短路），R2 副本停�
 | 报告本体 | 本文 `docs/ops/188-s06-sync-blindspot-20261005.md` |
 | 生成/自验脚本 | `scripts/test_188_s06_sync_blindspot.py` |
 | 复现段 | §8 |
-| 配套 commit | 见本分支末次 commit（`feat/188-s06-sync-blindspot-20261005`） |
+| 配套 commit | 首轮 `09338aa0f` → 复审修复轮 `143289653` → 第三轮(云上可跑 + 报告订正)见 `feat/188-s06-sync-blindspot-20261005` 分支尾次 commit（原 `git pull -q && python3 …` 那条未验命令即由本轮订正） |

@@ -11,6 +11,8 @@
      (FAIL 会让 deploy.sh L324 abort → R2 永不上传的死锁)。
 
 用法: python3 scripts/test_188_s06_sync_blindspot.py   (从仓库根跑; 全过打印 ALL_PASS)
+      两端都可跑(mac 本机 / 云上), 见下方 _bootstrap_env_for_selftest 的运行环境说明 ——
+      云上: cd ~/code/trade-data-signal && git checkout <该 commit> && python3 scripts/test_188_s06_sync_blindspot.py
 
 E/F 为 reviewer 复审后补(2026-10-05):
   E. P2-2 死键过滤 —— 台账不再收 verify-r2 扫描永远看不到的键(news_digest 子目录键 / feed.xml),
@@ -29,6 +31,36 @@ import subprocess
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPTS = REPO_ROOT / "scripts"
 _fails = []
+
+
+# ─────────── 运行环境引导(必须早于 upload_r2 导入: 其导入期 load_env() 找不到 .env 就 sys.exit) ───────────
+# 为什么需要: upload_r2._find_env() 只认 ROOT/.env、$GIT_REPO/.env、$REPO/.env(+ 一条 mac 硬编码兜底)。
+#   · mac 双树: 代码=~/code/trade, 数据/配置=~/code/trade-data(.env) → 靠硬编码兜底侥幸能跑;
+#   · 云上双树: 代码=~/code/trade-data-signal(git, 无 .env), 数据/配置=~/code/trade-data(.env);
+#   · 云上 shell 里 GIT_REPO=trade-data-signal → $GIT_REPO/.env 不存在;
+#     REPO 又被本脚本 test_ledger 置为临时目录(REPO=td) → $REPO/.env 也不存在 ⇒ 导入期 sys.exit
+#     (现象: 0 条 PASS + "无 .env: 尝试过 [...]", 会被误读成功能 FAIL)。
+# 解法(最小面, 不碰生产代码行为): 在本脚本最早处把 GIT_REPO 指向「确实存在 .env 的那棵树」,
+#   让 $GIT_REPO/.env 命中。REPO=td 的测试语义不受影响(测试要的就是临时仓库)。
+def _bootstrap_env_for_selftest():
+    here = pathlib.Path(__file__).resolve().parent.parent
+    cands = []
+    for var in ("GIT_REPO", "REPO"):           # 已显式给出的先试
+        v = os.environ.get(var)
+        if v:
+            cands.append(pathlib.Path(v))
+    cands += [here,                                          # 单仓: 仓库根就是配置树
+              here.parent / "trade-data", here.parent / "trade",   # 双仓: 兄弟数据树
+              pathlib.Path.home() / "code" / "trade-data", pathlib.Path.home() / "code" / "trade"]
+    for d in cands:
+        if (d / ".env").exists():
+            os.environ["GIT_REPO"] = str(d)
+            return str(d)
+    return None
+
+
+_ENV_BOOTSTRAP_REPO = _bootstrap_env_for_selftest()
+print(f"[env] 自测配置树 = {_ENV_BOOTSTRAP_REPO if _ENV_BOOTSTRAP_REPO else '未找到 .env(导入 upload_r2 会报错)'}")
 
 
 def _ok(cond, label):
