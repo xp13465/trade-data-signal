@@ -13,9 +13,9 @@
 > **权威任务状态以 [docs/pending-features-index.md](docs/pending-features-index.md) 为准**(§23.12-1),本节只写 transient 指针。
 > **新会话(2026-10-05 12:05 起)已接手**;上一会话两个 agent(r2fix-review / bkt-audit)均已收工且产物归档,无遗留。
 
-**在跑 agent:2 个(background + 进度文件;巡检 cron 兜底,完成即删)**
-1. 🔄 `#163 断档回填` = **已实施并上线 + 已合 main `90537c538`** → **reviewer 独立复核 a/b 中**(§15 C 级补跑,进度 `/tmp/agent-progress-163rev.md`)→ 证据回收后请用户拍板。
-2. 🔄 `#178 备份桶迁账号` = **续跑已交付**(硬化 + 文档,tip `1d371f131`)→ **reviewer delta 复核中**(§15 C,进度 `/tmp/agent-progress-178rev2.md`)→ 待 main-merge。硬化=large-json state 加 `bucket` 字段,换桶自动退化全量(根治「≤6 天静默假完备」窗口);文档补 §2.4.1 换桶回填。合后**待办**:①空闲窗口触发首轮回填(31,673/≈454.5MB 灌新桶)②云上 `.env` 核无 `R2_BACKUP_BUCKET` 覆盖。老桶 large-json 孤儿(切换前冻结副本):**新桶验证完整前不删**(§25),之后用户拍板。
+**在跑 agent:1 个(background + 进度文件;巡检 cron 兜底,完成即删)**
+1. 🔄 `#178 备份桶迁账号` = **续跑已交付**(硬化 + 文档,tip `1d371f131`)→ **reviewer delta 复核中**(§15 C,进度 `/tmp/agent-progress-178rev2.md`)→ 待 main-merge。硬化=large-json state 加 `bucket` 字段,换桶自动退化全量(根治「≤6 天静默假完备」窗口);文档补 §2.4.1 换桶回填。合后**待办**:①空闲窗口触发首轮回填(31,673/≈454.5MB 灌新桶)②云上 `.env` 核无 `R2_BACKUP_BUCKET` 覆盖。老桶 large-json 孤儿(切换前冻结副本):**新桶验证完整前不删**(§25),之后用户拍板。
+2. ⏳ `#163 断档回填` = **已实施并上线 + 已合 main `90537c538`** → **reviewer 独立复核 PASS**(订正正确无需回滚;口径 5211/5212 应采用;备份库/日志/三源实物锁死)→ **待用户拍板**(保留 09-29/30 显示值订正 vs 回滚)。
 
 > ⏳ **待用户拍板(#163 两点)**:①回填口径取 **5211/5212**(排除 348 只 920 北交所,依 #101 公示口径 + `bj_width.py` + `width_history.py:code NOT LIKE '920%'` 三源一致),非派单写的 5559/5560(含 920);②09-29/09-30 的 `a_width_*` **显示值被订正**(up 3471→3249 / down 1932→1819 / zt 57→53·52→56,其余 62 天逐位不变),因原 intraday 值含北交所、违反公示口径;**不拍则维持现状(已上线)**;回滚法见 pending-index #163 行。
 > 🔎 **#163 顺带发现(待排 follow-up)**:`cmd_upload_all_data`/`purge-low-freq` 的 purge 只清 `/data/` 不清 `/r2/data/`,致 `/r2/data/a-stock-*.json` 边缘缓存残留(已手动 purge 修当前);根治=照 data-large 双前缀做法,**等 #178 收工后一起改 `upload_r2.py`**。另:`upload-etf-hist` 被看门狗 kill(severe 告警,05:10 同款,非本次引入,无数据缺口,force_full 未完成即被杀)。
