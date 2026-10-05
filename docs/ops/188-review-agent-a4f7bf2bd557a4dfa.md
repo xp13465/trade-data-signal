@@ -127,3 +127,49 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 \
 
 ## 五、总结
 **PASS,建议合并**(P0/P1=0)。三处修法均达成事故教训目标(告警与链路同亡→trap 兜底;存量缺口平日不着→台账确定性纳入;盲区静默→双通道告警),且未发现对外语义回退。P2 两项(台账缺失静默、死登记/表述过宽)与点 11 的 fund_score 活体缺口建议合并登记为一个后续任务统一处理;P3 两项可不改。
+
+---
+
+## 复审第二轮 — 增量 `143289653`(2026-10-05)
+
+**复审对象**:`143289653`(delta = `09338aa0f..143289653`,3 文件:`scripts/upload_r2.py` +174 / `scripts/test_188_s06_sync_blindspot.py` +133 / `docs/ops/188-s06-sync-blindspot-20261005.md` +166;与 #191/#194/systemd unit 文件**零重叠**)。上轮 PASS 未沿用——代码改过即全面独立复核,以下结论全部来自 reviewer 自写探针 + 独立第三实现,不采信实现者自述。
+
+**复审结论:PASS(P0=0 / P1=0 / P2=0;P3 观察 ×2,不阻断)** —— merge 资格成立。
+
+### 逐项核(4 项修复)
+
+1. **P2-2 修法①(登记语义 = 对账扫描语义)** — ✅ 成立。
+   - 代码原文核:`cmd_verify_r2` 的收集即 `files = _channel_files(ch, local_dir)`(L3327),平日 `to_check ⊆ files`、`standalone_files` 从同一 `files` 筛、补传 `only_files=mismatches`(同为这些 file 对象)⇒ **决定 missing 的判定路径完全由 `_channel_files()` 覆盖**(不是只覆盖一半)。
+   - 自证循环排查:两边共用 helper 属「构造性同源」,风险在 helper 本身与真实上传通道分叉。用**独立第三实现**(自写段感知 glob,`*` 不跨 `/`;不调用其任何 helper)对 44 个候选键(28 intraday + s06 + nextday/brief/news/kelly 等)逐位比对:`kept` 集与 `_reconcilable_keys_for` **完全一致**(36/36)。
+   - 真实数据树探针(主检出 `trade/static-site/data`,只读):顶层 `*.json`=178、`news_digest/` 下 31 个 json、`feed.xml` 存在;期望三键 `kelly_mode_s06_state.json`/`overview.json`/`schedule_stats.json` 全部保留;`news_digest` 全部子目录键(31 个,含迁移期扁平键)+ `feed.xml` 全部剔除(与报告 §12.1 表逐行一致)。
+   - **反证(防互掩)**:monkeypatch `s3_head` 对台账内 `data/overview.json` 返回 404 → 实测走完「判缺失 → `_upload_glob(only_files=[该文件])` 补传 → 层4 `verify_r2_standalone_stale` 告警」全链 ⇒ 台账键的缺口真会被独立检测,非自证空转。
+   - 不选修法②(递归 glob)的理由与代码事实一致:`all-data`/`data-large` 的 local_dir=STATIC_DIR/data,递归会吞 nav_bucket/etf/index/lab/trade_sim/accum_nav/signal_kelly_* 全部子目录(与专属通道双传)。
+2. **P2-1(台账缺失/损坏显式告警)** — ✅ 成立。五场景实测:平日+缺失 → **恰 1 发**,dedup key `verify_r2_standalone_ledger_gap` 窗口实测 **86400s**,stderr 有显式提示;损坏(非法 JSON)→ 1 发;正常 → 0 发;周日 → **不读台账不发**(monkeypatch load 抛异常证明未被调用);去重生效 → 0 发。
+3. **P3-2(fcntl.flock 串行化)** — ✅ 成立,**不会卡住 17:50 上传链**(死结论 + 实测):
+   - 阻塞性:**是阻塞式、无超时**(持锁 3s 的对照进程下,活键登记实测等待 3.01s)——语义确认。
+   - 但对 17:50 链**结构性不触锁**:deploy 链唯一 `upload-data-files` 调用是 `upload-feed`(r2_upload_async.sh L190,文件=feed.xml),feed.xml 已属死键 ⇒ `keys &= reconcilable` 后为空、**在取锁前 return**。实测:另一进程持锁 3s 期间跑 feed.xml-only 登记 = **0.04s 秒回**(对照:活键登记同场景 3.01s)。
+   - 临界区尺度:无竞争单次登记实测 **1-2ms**(36 键台账读改写);8 进程 × 5 互异键并发 = 40 键**零丢更新**,总耗时 0.09s(SIGKILL 持锁者后 0.08s 接管,**无陈旧锁**;锁文件持久存在=flock inode 语义正常,不构成陈旧锁)。只读目录(锁文件创建失败)→ **exit 0 + stderr 告警,fail-open 不阻断上传**。
+   - 残余风险(可忽略级):仅「持锁进程被冻结在临界区」一种——临界区内无网络/阻塞 IO(本地读+原子写,毫秒级),概率可忽略;建议日后顺手加超时或注释(见 P3-A)。
+4. **报告订正** — ✅ 数字与表述现与实测一致:断言 **30 条 = 实测 30 PASS**(逐条计数);§8 复现段**原文照跑**,输出与所写期望逐字一致(`可对账=[s06, overview]` / `死键=[feed.xml, news_digest/2026/2026-10-05.json, news_digest/_index.json]`);§12.4 边界复核:feed.xml 的轻量校验通路真实存在(`cmd_verify_channels` L3600 `upload-feed` 特例 `_light_check_single_file("data/feed.xml", …)`)——「无覆盖缺口」成立;news_digest 缺口**如实标注不掩盖**;§12.5 17→30 对应链一致。
+
+### ledger_gap 冷启动死结论:不是「每日噪音」,是**有界且自愈**
+
+台账缺失/损坏时才发,dedup 24h ⇒ **每个平日 verify-r2 至多 1 条,且只在「台账尚不存在」窗口内**;首个独立链产物上传成功登记落盘即**永久静默**(intraday 交易日盘中每 10min 登记 / s06 20:35 / nextday 22:30 / brief 20:40 任一先行即自愈)。周日全量不读台账、不发(实测)。正常交易日冷启动窗口通常为 0(盘中链 09:35 先登记,17:50 deploy 链 verify 时台账已在)。代码无首次/宽限处理,但告警正文已注明「首次冷启动可忽略」;假期连排(如本 10-05~10-07)最多连续数日各 1 条,属可接受边界(已写入 §12.2)。
+
+### 独立复跑(全部与实现者声称一致)
+
+| 项 | 实测 |
+|---|---|
+| `python3 scripts/test_188_s06_sync_blindspot.py` | **30 PASS / ALL_PASS**(worktree HEAD=143289653,工作区干净) |
+| `pytest scripts/tests -q` | **192 passed, 1 skipped** |
+| `bash -n s06_snapshot.sh` / `deploy.sh` | 双双 OK |
+| `(keys,state)` 三态异常路径 | 全有定论无未捕获:000 权限→corrupt / 目录冒充→corrupt / dict→corrupt / 空 list→missing / 非串元素→ok 容错 |
+| 台账键零遗漏 HEAD | 真实树平日跑 **36/36 全 HEAD**(总 HEAD 663);人工把 all-data `sample=1` 仍不截断(独立块在抽样上限之后并入) |
+
+### 新观察(不阻断)
+
+- **P3-A**:`flock` 阻塞式无超时(设计取舍成立:临界区毫秒级 + 主链回退不触锁 + SIGKILL 自释放;仅冻结持锁者理论场景)。建议日后任一链动到该函数时顺手注明或加 `LOCK_NB`+重试,不构成本次阻断。
+- **P3-B**:台账 list 内非字符串元素(如 `null`)→ state=ok 吞入 `"None"` 串,无害(不匹配任何真实 key),cosmetic。
+- 附(正向):死键过滤附带治愈同类假缺失——`data/signal_kelly_trades_intraday.json`(2.2KB,被 all-data 前缀排除且未达 data-large,旧代码登记即死键)现被剔除;其上传失败由 `kelly_intraday_rerun.sh` L127-130 链内告警兜底,无新增缺口。上轮记录的既存缺口(offshore_fund/fund_score 前缀无 verify-r2 通道)本次未动,不受影响。
+
+**上轮 4 项须先修全部验证通过;无新增 P0/P1/P2。复审 PASS,可 merge(经主控 `main-merge.sh` 统一入口)。**
