@@ -8,9 +8,9 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新(2026-10-06 00:5x 周二·国庆休市)——#198 收工; #193/#196 双审终判 PASS,收口合 main 中**
+**最后更新(2026-10-06 01:0x 周二·国庆休市)——节后第一批 3 件全收工并合 main(#193 `c0e87ce92` / #196 `351f63817` / #198 `a6c17270a`);§0 上线验证中**
 
-> **在跑 agent:0(三件全收工;**下一步=合 #193/#196 两个 feat 分支入 main + §0 上线验证**)**
+> **在跑 agent:1(tester,§0 上线验证 #193/#196,进度 `/tmp/agent-progress-193196-live.md`,巡检 cron `d7eb7ddf`)**
 > - **(a) #193** R2 通道覆盖缺口 → **独立审 PASS-with-caveat**(产品代码九项全过);**caveat = test_193 [C] 段未桩 `_upload_glob` ⇒ 从主仓树跑会真写生产 R2(172 次真实 PUT)并可发真告警**(§18 L48 同族)→ **修复完成 `e8e9669e7`**(产品代码零改动;3 处全在自测脚本:补 `_upload_glob` 桩 + notify 桩提前 + ROOT/STATIC_DIR 重定向;**封网正控制 172→0**,主仓条件 40 PASS/0 FAIL,test_188 31 PASS/0 FAIL)→ **复审终判 PASS(2026-10-06)**。审查另挖出 #200/#201(已登记)。
 > - **(b) #196** 「巡检/链路自身死亡」可见性统一(F1 族)→ **实施完成**(`feat/196-patrol-visibility-20261005` @ `f4fec48aa`,已 push origin):新增 `check_failed_units.py`(挂 `trade-schedule-monitor.timer` 15min)+ 两新升档 key(连续 3 天→critical,状态落 `data/*_state.json` 原子写)+ patrol 纳入监控四路 + `gen_schedule_stats.py`/`schedule_monitor.sh` 登记点 + 测试 39 例(全量 231 passed/1 skipped)。**独立审 FAIL(单点 P1)** —— 八项 PASS(升档四语义全成立且不增告警量 / R7 重构 9 场景逐位 ALL_IDENTICAL / 闸门非空转 / patrol 抑制 fail-open),**唯一 FAIL** = `test_cfu_noncloud_rc3` 环境依赖(有 systemctl 必败,CI 闸门⑧会阻断 ⇒ 合 main 必红),**修法 2 行**(照 #160 同款 skip guard)→ **修复完成 `f2791e909`**(2 行 `pytest.skip` guard,照 #160 先例;有 systemctl 38P/1S/0F + mac 默认 39P/0F + 全量 mac 231P/1S + CI 态 229P/3S/0F)→ **复审终判 PASS(2026-10-06)**。⚠️ **原先「#193/#196 同改 `gen_schedule_stats.py`」预警经评审证伪**(文件交集=空集),**合并顺序任意、无冲突**;P3-a/P3-b 另立 #202
 > - **(c) ✅ #198 已收工**:`claude-backup/`·`mac-backups/` 新桶 0 对象归属判定(只读查证)→ researcher 完成,**结论**=`claude-backup`/`pre-upload`=②已切新桶 / `mac-backups`=③一次性归档不适用切桶;**报告合 main `a6c17270a`**,索引销账 `4508043ea`(另 #186 依据补正 + 新登记 **#199**),worktree/分支已回收。
@@ -20,7 +20,7 @@
 > - ⚠️ **若 mac 关机**:在跑 agent 随会话停(worktree 与 feat 分支留在磁盘,可续跑);**续跑同一任务必须延续原分支**(派单前先 `git worktree list | grep <分支>` 查占用,占死则先 `git worktree remove --force`),见 §0.2 + memory `resume-same-task-reuse-branch`。
 
 > **上一批已收工**:tester `#185 只读复核` 完成(结论见下),巡检 cron `fb384ac2` 已删。
-> **在位 cron 3 个**:`7cf5422c`(10-08 21:12 s06 超时真行为 + #188 四子项)/ `541d860f`(10-30 staticdata 旧镜像到期复核)/ `72c2bd8b`(11-01 CF R2 Class A 账单复核)。~~`c6b45788`(10-06 08:07 #185 复核)~~ 与 ~~`fb384ac2`(巡检兜底)~~ **均已删** —— 前者两件事已被本晚实测完整覆盖(报告 `docs/ops/185-backfill-verify-20261005.md`),留着只会重复干活。
+> **在位 cron 4 个**:`7cf5422c`(10-08 21:12 s06 超时真行为 + #188 四子项)/ `541d860f`(10-30 staticdata 旧镜像到期复核)/ `72c2bd8b`(11-01 CF R2 Class A 账单复核)/ `d7eb7ddf`(巡检兜底,服务 tester §0 验证,收工自删)。~~`c6b45788`(10-06 08:07 #185 复核)~~ 与 ~~`fb384ac2`(巡检兜底)~~ **均已删** —— 前者两件事已被本晚实测完整覆盖(报告 `docs/ops/185-backfill-verify-20261005.md`),留着只会重复干活。
 >
 > **✅ 本晚 tester 只读核查结论(2026-10-05 22:15~22:45,云上全程只读)**:① **新桶 `large-json` 31673/31673 填齐**(433.4MB = 原始 2376.3MB 的 18.2%;新账号端点生效)。⚠️ **首轮全量回填实际由 `16:52` 那轮完成**(`staticdata_backup_async_20261005_165200.log`,4798s),**17:50/18:00 那轮 large-json 因 `trade_backup_r2.lock` 被占「跳过」8s** ⇒ 只看 17:50 日志会误判「没回填」,别再踩 ② **完整性 MISSING=0 EXTRA=0 + 抽样 7/7 五项断言逐位一致**(期望集取 staticdata `.gitignore` 受管区块,与上传器 manifest 相互独立;尺子先验注入 1 字节可检出 PASS;中途「gz md5 不匹配」= 误用系统 python3.10 重压,换生产 venv 3.11 后 4/4 复现 ETag)③ **s06 unit 三方一致**(`TimeoutStartUSec=55min`=3300 / `OnCalendar=Mon..Fri 20:35` / `ConditionPathExists` 未设;`systemd_timeout_gradient_audit.py` 本机 `--check-doc` + 云上 `--check-snapshot` 双 PASS 82 unit)④ **10-08(周四)20:35 = 首次真跑**(10-06/07 会触发但被交易日闸门跳过,同源路径已验证可跑);`systemctl --failed`=0。**⇒ #185 ①② 销账**(剩 ③ 老桶 legacy 补刀(随 #186,10-07 后)+ ④ 10-08 后复核);**新增 #197**(staticdata 灾备仓 `git prune` 类,§25 先备份后删)、**#198**(新桶 `claude-backup/`·`mac-backups/` 0 对象,核链路是否应切新桶)。
 >
