@@ -144,3 +144,131 @@ fail-fast 四项前置校验在**当前生产真值下全部通过**(逐项实�
 ## 7. 结论汇总
 
 **PASS(可 merge,建议按序:①主控裁定 F4 补档方式 ②merge 后云上 pull 自动生效 ③清理 §5 残留项 ④登记 F1/F2 后续)。** P0=0,P1=0,P2=4(F1 巡检死亡静默 / F2 非云上环境假告警(含我的事故) / F3 root 残留阻塞出口② / F4 报告与索引缺位)。
+
+---
+
+# 复审(增量 `d935267f1`:F2 环境守卫 + F3 出口②可写性 + §23.5 报告补落;同分支续跑)
+
+> 复审对象:`feat/194-cloud-patrol-hardening-20261005` @ `d935267f1`(增量 commit,已 push 未入 main;base 仍 `50090c642`)。**不能沿用对 `8a74e779b` 的旧 PASS,本段为独立复审结论。**
+> 增量范围:`git diff --stat origin/main...d935267f1` = **仅 3 文件** —— `scripts/cloud_unit_patrol.sh`(+121/−14)、`scripts/cloud_unit_patrol_selftest.sh`(+143)、`docs/ops/194-cloud-patrol-hardening-20261005.md`(+155,新)。unit 文件 / `docs/deploy/systemd-units-20260912.md` §2 / 快照 / #188 三文件 **零改动**(逐字复核)。
+> md5:本轮脚本 `e6c493b794a0ae72507e3a1949fbedee`、自测 `17f268096f6e9a4f8fba3eae8ff6b1be`(本地 `git show` 提取值 == 云上 scp 后实测值,双向一致)。
+> 复审方式:**只读** + **独立手法**(不复用实施者证据链):云上漂移注入用"真实 unit 副本改一字段";T5"不通知"复验用我自己的**解释器层 instrumentation**(记录 python 每次被调用的 argv,与它的 notify 哨兵桩机制不同源);云上正跑日志**全落 /tmp 沙箱**(生产文件/日志/unit 零写)。
+> 日期:2026-10-05。
+
+## R0. 复审结论
+
+**PASS(不阻塞 merge,建议按 R7 处理 2 条 P2 后随 merge 收口)**。旧 P2-2(F2 守卫)/P2-3(F3 出口②)两项必修**确已修掉且经独立复现**;旧 F4(报告缺位)已补落。**本轮新发现:P2 = 2 条 + 注 1 条**(P0 = 0,P1 = 0)。
+
+| 主控指定复审点 | 结论 |
+|---|---|
+| 🔴 新守卫是否制造新静默盲区(exit 3 谁看得见) | 死结论见 **R1**:**systemd 层可见、自动监控层零消费**;真实可达窗口比假设窄(边界推导 R1.2)→ 记 P2-1/P2-2 |
+| 🔴 真漂移仍能告警(独立注入) | 通过,见 **R2**(D2b rc=1 + notify 可达;D2a 控制组 rc=0) |
+| 自测 8/8 且 T5/T6/T7 非假绿 | 通过,见 **R2/R3**(本地 + 云上双跑 8/8;T5 证明机制=哨兵桩非日志,我另做解释器层独立复核) |
+| exit 3 / rc=1 / rc=0 / rc=2 语义与调用方一致 | 通过,见 **R4**(表 + 两来源同为 2 的辨析) |
+| 云上复原三方核(独立确认) | 通过,见 **R5**(md5 回基线 / 日志 3 行 / bak / tmp / root 残留全清 / 我侧残留已清) |
+| diff 仅 3 文件;unit/doc§2/快照/#188 零改动 | 通过(上文) |
+| 报告四件套齐 + 自述一致 | 通过,见 **R6**(四件齐;md5 等数字逐字对上;注 1 台账小差) |
+
+## R1. exit 3 可见性:死结论 + 场景后果(主控 🔴 点名)
+
+### R1.1 三层可见性实测(谁看得见)
+
+| 层 | 有没有人看见 | 证据(实测) |
+|---|---|---|
+| systemd 单元状态 | 看得见(**但没人看**) | `systemctl show`:`SuccessExitStatus=`(**空**)→ 非 0 即 `failed`;`Type=oneshot`、`User=ubuntu`;当前 `systemctl --failed` = 0 条(常态) |
+| journal | 看得见(**但没人看**) | SKIP 行走 stderr → journal;unit 无 `StandardOutput/Error` 重定向(既有设计,脚本自写日志) |
+| 自动监控 | **零消费方** | ①`schedule_monitor.sh` 的 `LAUNCHCTL_LABELS` 11 个 label **无** `trade-cloud-unit-patrol`;②`schedule_stats.json` 三个副本(staticdata + static-site×2)`grep -c patrol` = **0/0/0**(exit!=0 通道不覆盖);③云上 `crontab -l` 只有 hdszf(node)业务,无 failed-unit/巡检消费;④云上仓 + 全仓 grep `systemctl --failed`/`is-failed` = **无消费方**;⑤巡检日志无任何读者 |
+| 巡检自身日志 | 看得见(**但没人看**) | `[skip] … 退出码=3(环境守卫跳过)` 段(我 D3 实测) |
+
+**死结论**:**生产上 exit 3 = "只写日志 + 单元置 failed",没有任何自动告警渠道** —— 对用户/主控而言是**静默 SKIP**(要人工 `systemctl --failed` / 翻 journal 才见)。即本轮是把"假告警"(旧版在非云上 rc=2 → 真发 severe,即我 round-1 事故)换成了"**窄窗口的静默 SKIP**"。
+⇒ 脚本头 L63 与实施报告 §1.2 的措辞「让「巡检自身没跑成」在 systemd/**监控**里可见(不做静默)」**与事实不符**(监控不可见)→ **P2-1**(文档级,建议改措辞,非改代码)。
+
+### R1.2 "云上 unit 目录临时为空/迁移中"的后果判断 + 关键边界(新推导)
+
+守卫判据 = 目录存在 **且含任意 `trade-*.service`**。而 patrol 自己的 unit 就叫 `trade-cloud-unit-patrol.service`(也匹配该 glob)。**⇒ 在真实云上,守卫失败的充要条件 ≈ "patrol 自己的 .service 文件已不在盘上"**(脚本仍在跑 ⇒ 依赖 systemd 内存中已加载单元,如"删 unit 文件未 `daemon-reload`"/"unit 目录整体换位未 reload"),或 `CLOUD_UNIT_PATROL_UNITS_DIR`/`ARBITER_DUMP` 桩被误设(**生产两者都没设**:unit env 仅 `REPO/GIT_REPO/MAIN_REPO/PATH`,`EnvironmentFile=trade-data/.env` 39 行经查**无任何 `CLOUD_UNIT_PATROL_*` 键、无 `REPO=`/`GIT_REPO=` 行**,实测)。
+
+| 子态 | 守卫 | 后果 |
+|---|---|---|
+| (a) 只是**别的** trade-*.service 被删/迁移,patrol 自己的文件还在 | **放行** | audit 读到真值 → 漂移照发 rc=1 → **告警正常,零盲区**(D2b/D2a 实测) |
+| (b) patrol 自己的文件也不在盘(删文件未 reload / 目录换位未 reload) | 拦下 → exit 3 | **静默跳过**;旧版此态 = audit `未读到任何 trade-*.service/timer` **rc=2**(实测)→ 发 severe(文案却是"漂移",**误导**)。此刻其它监控(`trade-schedule-monitor` 等)的 service 文件同样不在盘上;若随后 `daemon-reload` → 全链停摆(timer 也消失,巡检一次都跑不成,增量盲区=0);若很快回滚,则旧版那条"漂移"告警本身就是假信息 |
+
+**死结论**:增量静默窗口**存在但窄**(子态(b) 是"整个 unit 体系将离盘"的过渡瞬间),且旧版在该窗口的替代行为(rc=2 误标"漂移"的告警)**也不可信**。**判 P2-2(建议级,不阻断)**:建议二选一 —— ①等 **F1(failed-unit 监控)** 立项落地后统一关闭本族盲区(它才是通用解);②守卫失败时加"云上特征"二次判别(`/run/systemd/system` 存在 + 目录存在但无 `trade-*.service` → 换 dedup key 仍告警;代价=Linux 开发机/容器会被误伤)。**由主控拍板,不自行选边。**
+
+## R2. 守卫不误伤生产真告警(独立注入,云上实跑)—— 通过
+
+方法:复制**真实生产 unit**(`/etc/systemd/system/trade-*.{service,timer}` **全量 82 件**)到 `/tmp` 副本,生产文件零覆盖;脚本以 `/tmp` 沙箱 REPO 运行(日志落沙箱,生产日志 0 污染)。
+
+| 用例 | 注入 | 实测 |
+|---|---|---|
+| D1 默认权威源(真 `/etc/systemd/system`) | 无 | **rc=0**,日志 `✓ 云上 unit 与仓库快照一致(82 unit)`(82 = 41 service + 41 timer,与快照条目数逐项对上) |
+| D2a 控制组(真实 unit 未改副本) | 无 | **rc=0**(副本忠实,证明 D2b 的差异只来自我注入的字段) |
+| D2b **独立注入漂移** | 副本 `trade-ab-direction-anchor.service`:`TimeoutStartSec=600→9999` | **rc=1**;输出 `[notify][dry-run] email subject=[告警] 云上 systemd unit 与仓库快照漂移 …` 完整可达;日志落 `✗ 漂移 rc=1,发 severe 告警` + 差异行 `cloud ['9999'] vs snapshot ['600']`;notify 参数实测 = `--severe --from-prefix [告警] --dedup-key cloud_unit_patrol_drift --dedup-window 21600` + `--dry-run`(零真发) |
+| D3 守卫拦(空目录) | `UNITS_DIR`=空目录 | **rc=3**;stderr + 日志均标 SKIP;**无 notify 行** |
+| D4 dump 桩 + 漂移 | `ARBITER_DUMP` | **rc=1,零通知**;日志标 `✗ 漂移 rc=1,但当前为 dump 诊断模式(#194-F2),不发通知(仅日志)` |
+
+(飞书段在我的沙箱里因沙箱 REPO 无 `config/feishu.json` 退化为"未配置"提示,属**我的沙箱伪影**,与守卫/改动无关;云上生产 severe 通道近期流水实测 `email=OK feishu=OK`。)
+
+**守卫 ⇄ 审计同源核(代码级,闭掉"守卫看的源 ≠ 审计读的源"缝隙)**:`read_all_units`(`scripts/systemd_timeout_gradient_audit.py:83-92`)= `args.dump` 优先(实读) → 否则 glob `trade-*.service`+`trade-*.timer`(取 `--units-dir`,默认 `/etc/systemd/system`);守卫判据与之一致。另:本轮新增的**无条件传参 `--units-dir`** 已核实该参数真实存在(`ap.add_argument("--units-dir", default="/etc/systemd/system")` L324)且 dump 模式 `--dump` 实读优先(L85-86)→ **无"新参数打坏审计"风险**(我独立 instrumentation 也录到参数确实传入)。
+
+**T5/T6/T7 假绿专项(主控点名)**:
+- T5 的"证明不通知"**不是只看日志**:它把 `notify.py` 换成**哨兵桩**(被调用才写 `$NOTIFY_SENTINEL`),断言"哨兵文件不存在";且 **T6 是同一桩的正对照**(漂移 → 哨兵存在),证明该机制真能捕捉调用。⇒ 结论:哨兵证明的是"**notify 从未被调用**",比日志观察强。
+- 我另做**机制不同源的独立复核**(解释器层 wrapper 记录每次 python argv,与其哨兵桩不同层):用例A 守卫拦下 → **python 零调用**(比"notify 未调用"更强,整个 python 层未触碰);用例B 守卫放行+漂移 → 两次调用:audit(带 `--units-dir`)+ **notify(完整参数)**;用例C 守卫放行+一致 → 仅 audit。⇒ **T5/T6/T7 非假绿成立。**
+
+## R3. 自测独立复跑
+
+- 本地(mac):`bash cloud_unit_patrol_selftest.sh` → **PASS=8 FAIL=0,rc=0**。
+- 云上(同一对文件,md5 双向一致):**PASS=8 FAIL=0,rc=0**。
+- `bash -n` 两文件 OK。
+
+## R4. 退出码语义(0/1/2/3)与调用方一致性
+
+| 码 | 含义 | 通道 | 自动消费 |
+|---|---|---|---|
+| 0 | 快照==云上,一致 | 仅日志 | 无需 |
+| 1 | 漂移(audit) | notify severe + 日志 | 邮件/飞书 ✓ |
+| 2 | audit 不能完成(快照缺失 / 未读到 unit) | notify severe(与 rc=1 同一分支,文案同"漂移"——**既有措辞问题,非本轮引入**) | 邮件/飞书 ✓ |
+| 2 | `_fatal`(REPO/GIT_REPO/PY/日志目录 前置校验失败) | stderr(journal)+ `_FATAL_LOG`;**不 notify** | **无**(= round-1 F1,已登记另立项) |
+| 3 | 环境守卫 SKIP | stderr + 巡检日志;**不 notify** | **无**(本轮 P2-1/R1) |
+
+辨析:两个来源同为数字 2,靠"有无 notify + 文案(FATAL vs 审计输出)+ 日志有无'开始'行"区分;unit 侧任何非 0 统一 `failed`(无 `SuccessExitStatus`)。**结论:四个码语义清晰、脚本头 L22-24/L63/L111-133 与实施报告 §5.3 三处一致**;唯一台账级问题是 2/3 的"无人消费"应写清(P2-1)。
+
+## R5. 云上复原三方核(独立确认,非照抄实施者)
+
+| # | 核对项 | 本轮实测 |
+|---|---|---|
+| ① | 生产脚本回基线 | `md5sum …/cloud_unit_patrol.sh` = **`e51a270ddb662ed476e77ed3b841ae57`**(== `git show 50090c642:scripts/…` 本地比对同值) |
+| ② | 巡检日志回基线 | **3 行**(21:00:37 段),mtime 21:33;我复审全程正跑都写 /tmp 沙箱,**未再动它**(复审收尾复刷仍 3 行) |
+| ③ | `.bak` / 临时件 | `scripts/` 无 `.bak-20261005b`(仅存的 `com.trade.thinking-proxy.plist.bak-official-*` 属旧物);/tmp `cup_units`、`cupst2`、`*.v2`、`rev194test` 均不存在 |
+| ④ | root 残留 | `/tmp/cloud_unit_patrol_fatal.log` **已不存在**(实施者 `sudo rm` 属实,我独立确认) |
+| ⑤ | F3 默认路径可写性 | 我复测:E2/E3 用坏 REPO 触发 fatal → rc=2;默认路径(`$(id -un)`=ubuntu)文件**创建+追加均成功**(257B);按"来前什么样回什么样"我在收尾时清掉了它 |
+| ⑥ | 云上 git 状态 | `?? scripts/sysaudit_tmp.py` **1 行** —— 属**另一任务**(s06-timeout-grad,15:19,round-1 已登记)产物,非 #194、非本轮;实施报告"0 行"是其"该文件干净"的文件级口径(`git status --porcelain scripts/cloud_unit_patrol.sh`),**无误导** |
+
+**我(复审者)本轮云上残留处置**:测试件全在云上 `/tmp/rev194_check`(本轮)+ `/tmp/r194test`(round-1 我的残留)→ **均已清**;生产脚本/日志/unit 零写(①-⑤独立可查)。本机 `/tmp/rev194*`(证据)随本报告提交后清理;本机事故日志 `trade-data/data/logs/cloud_unit_patrol_launchd.log`(现 1367B,mtime 21:32 = 含实施者 mac 零通知取证所留 `[skip]` 段)按 round-1 §5 仍归主控裁定。
+
+## R6. 报告四件套 + 自述一致性
+
+- **四件齐**:本体 `docs/ops/194-cloud-patrol-hardening-20261005.md`(+155 行)✓;**复现工具** = `scripts/cloud_unit_patrol_selftest.sh`(§复现段给出可直接跑的入口)✓;**复现段**(含云上六步命令,与我 R2/R5 实测路径逐条可对)✓;**配套 commit** = `d935267f1`(三文件同 commit)✓。
+- **自述数字逐字核**:基线 md5 `e51a270…` ✓(本地 `git show 50090c642` 实测同);被测版 `e6c493b794a0ae72507e3a1949fbedee` ✓(= 提取值 + 云上 scp 后 md5);"57 脚本 / 36 被 unit 调用"(round-1 已独立复核)沿用无误;"82 unit" 与快照 41+41 对上 ✓。
+- **注 1(台账小差)**:报告 §1.3 称"云上实测追加 2 行"的 `/tmp/cloud_unit_patrol_fatal.ubuntu.log`,本轮实测**当时已不存在**(清理动作未登记进 §3 清理表);建议 §3 补一行(不影响结论)。
+
+## R7. 复审 findings 汇总
+
+- **P2-1(措辞与事实不符;文档级,建议改)**:脚本头 L63 + 报告 §1.2「…在 systemd/**监控**里可见(不做静默)」→ 实测为 **systemd 可见(unit failed + journal)/ 自动监控零消费**。建议改措辞为"systemd 可见、监控不可见(依赖人工排查)",并让报告 §5.3「云上出现 exit 3 需人工排查」的运维须知与之一致(内容已有,仅口径对齐)。
+- **P2-2(窄静默窗口;建议二选一,不阻断)**:见 R1.2 —— ①等 F1(failed-unit 监控)落地统一关闭;②守卫失败加"云上特征"二次判别后仍告警(代价:Linux 开发机误伤)。**主控拍板**。
+- **注 1(台账)**:报告 §3 清理表补记 fatal.ubuntu.log(见 R6)。
+- **round-1 旧 finding 状态**:F1(巡检死亡静默 / 全站无 failed-unit 监控)仍在,主控已登记独立任务(实施报告 §4 亦引用)→ 不改判;**F2 已修**(守卫,独立复核通过);**F3 已修**(`id -un` 后缀,云上实测可写);**F4 已修**(报告补落,四件齐)。
+
+## R8. 复审证据复现(命令集)
+
+```bash
+# 本地
+git show origin/feat/194-cloud-patrol-hardening-20261005:scripts/cloud_unit_patrol.sh | md5   # e6c493b794a0ae72507e3a1949fbedee
+bash /tmp/rev194b/cloud_unit_patrol_selftest.sh                                               # PASS=8 FAIL=0
+# 云上(我实际执行;完整输出留档 /tmp/rev194_cloud_out{,_2,_3}.txt)
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'bash -s' < /tmp/rev194_cloud_check.sh
+#   关键读点:D1 rc=0 / D2b rc=1 + notify --dry-run 可达 / D3 rc=3 零通知 / D4 rc=1 零通知 / E3 默认 fatal 路径可写
+```
+
+## R9. 复审自检
+
+只读复审:生产文件/unit/日志/快照**零写**;云上仅 /tmp 沙箱读写(已清);本回复审新增 **P2×2 + 注×1,无 P0/P1**;进度文件 `/tmp/agent-progress-review194.md` 全程逐步追加。**复审结论:PASS(增量不阻塞 merge)。**
