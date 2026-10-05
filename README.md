@@ -400,7 +400,7 @@ cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/u
 
 ### 定时采集（每交易日 17:50，update_all 主采集）
 
-生产定时任务 2026-09-12 起迁云上 systemd timer（阿里云 Ubuntu 22.04，40 个 `.timer` 单元在 `/etc/systemd/system/`（2026-10-05 实测），统一前缀 `trade-`，时点与旧 launchd `StartCalendarInterval` 完全一致，详见 [`docs/deploy/systemd-units-20260912.md`](docs/deploy/systemd-units-20260912.md)）；日志仍在 `data/logs/`。**本机 mac 纯开发不跑生产定时任务（launchd 已废弃，查 `launchctl` 是错的）**。
+生产定时任务 2026-09-12 起迁云上 systemd timer（阿里云 Ubuntu 22.04，41 个 `.timer` 单元在 `/etc/systemd/system/`（2026-10-05 实测），统一前缀 `trade-`，时点与旧 launchd `StartCalendarInterval` 完全一致，详见 [`docs/deploy/systemd-units-20260912.md`](docs/deploy/systemd-units-20260912.md)）；日志仍在 `data/logs/`。**本机 mac 纯开发不跑生产定时任务（launchd 已废弃，查 `launchctl` 是错的）**。
 
 ```bash
 # 云上启停/查看主采集（17:50 update_all）
@@ -415,7 +415,7 @@ systemctl status trade-update-all.timer         # 查看下次触发时点
 
 - **17:50（CST）** 主采集 [`scripts/update_all.sh`](scripts/update_all.sh)：4 条并行 pipeline（core 快核心 / width 慢宽度 / futures 期货 / stock_daily 后台死端）只采集+计算写 DB，末尾**统一 1 次完整 deploy**（O1 收敛，原 4 遍→1 遍，省 50-58min）+ export **增量导出**（ab#39，只重算源数据已变化的 JSON，必更白名单 overview/信号类强制全量），约 30-40min 跑完，当日下午即可看到当日数据
 - **09:35–15:00 盘中** 每 10 分钟跑 `intraday_snapshot` 推 `intraday_snapshot.json` 实时快照（走 R2 实时，不推 main）
-- 另有辅助 systemd timer（futures/lhb/rzhb/etf-national-team/backfill-evening/lab-auto/schedule-monitor 等，云上 `/etc/systemd/system/` 共 40 个 `trade-*` 周期单元，2026-10-05 实测；清单见 [`docs/deploy/systemd-units-20260912.md`](docs/deploy/systemd-units-20260912.md)）
+- 另有辅助 systemd timer（futures/lhb/rzhb/etf-national-team/backfill-evening/lab-auto/schedule-monitor 等，云上 `/etc/systemd/system/` 共 41 个 `trade-*` 周期单元，2026-10-05 实测；清单见 [`docs/deploy/systemd-units-20260912.md`](docs/deploy/systemd-units-20260912.md)）
 - 非交易日跳过采集仅 deploy + check_signals；交易日盘中 09:30-15:30 拒跑全量 export+deploy（防覆盖 intraday 实时版）
 
 ---
@@ -455,6 +455,7 @@ docs/kelly/             # 凯利回测专题文档子目录（2026-08-14 按主�
 - **告警三级分级 + 同源降噪**：critical 立即推送 / warning 30min 聚合批发 / info 只记 dashboard（`scripts/notify.py` send_tiered）；warning 聚合链路带同源指纹降噪——归一化指纹 4h 固定窗内同源告警不再逐条入队，合并为「[第N次]」频次标注一封发出，恢复类消息（[恢复]/[72h恢复]）自动清零重新计，窗口内恶化翻倍或升级 critical 自动穿透绝不吞真告警（2026-08-26）
 - **check_data_integrity**：数据产物完整性校验（deploy 前置，关键 JSON 空值率超标即阻断上线）
 - **check_r2_consistency**：本地 vs R2 一致性审计（数据一致性铁律）
+- **cloud_unit_patrol**：云上 systemd unit 直连巡检（#191，云上 `trade-cloud-unit-patrol.timer` 每日 08:27）——直连 `/etc/systemd/system/trade-*.{service,timer}` 真 unit，与仓库固化快照 `docs/deploy/systemd-units-cloud-snapshot.txt` 逐字段全量比对（`scripts/systemd_timeout_gradient_audit.py --check-snapshot`），漂移即 notify 告警（含哪个 unit / 哪个字段 / 云上值 vs 快照值）。消 #189 merge 闸门 7.8 的「快照陈旧」窗口（7.8 只保证 doc §2 == 快照，本巡检补「快照 == 云上当前」）；仅告警不改生产
 - **check_universe_alignment**：凯利回测/首页AI建议「入样宇宙规则」对称校验（deploy 前置，CLAUDE.md §23.6 治理）——自动比对 overview 每信号 `_bt_in_universe` ⟺ board_etf_map 重算入样判定、候选信号类型 ⊆ 白名单（config/universe_rules.yaml buy_whitelist）、回测交易无排除类别（债类 cgb_*/情绪 s.*/商品 g.*/港股行业 hk_*/空数组 ftse100·kospi）记录、yaml 排除类别 ⟺ map 实际缺失 key，任一 FAIL 阻断上线（同 §22 数据一致性校验逻辑）
 - **check_task_state**：任务状态一致性对账（deploy 前置 + CI 静态门禁，每日经 update_all 17:50 O1 统一 deploy 链运行，CLAUDE.md §23.12-1 治理）——对账 A pending-index 编号完整性 / B TASKS 幽灵编号+残留关闭指针 / C 僵尸巡检 cron，任一 FAIL 阻断上线（任务状态唯一权威=pending-index，TASKS/cron/memory 只写指针）
 - **数据缺口告警（check_data_gap_alerts）**：每日 22:35 数据缺口兜底检测（云上 systemd timer `trade-check-data-gap`，调度脚本 `scripts/check_data_gap_alerts.sh`），五项检查器——北向资金断档洞/停更（a_fund_north 内部洞>15天 / 最新日期落后>14天）、ETF累计净值窗口外 NULL 存量基线增长（accum_nav：T+2 净值缓冲 6 天外 NULL 超存量基线 +10 行告警，最老 >90 天升级严重，散点停牌日特性不刷屏）、**ETF累计净值当日新增缺价 diff（2026-09-06 方案 D：本次全量缺价清单对比上版快照，历史回归（之前有价今天变缺）/ 当日新缺（该日该有价却缺）两类 WARN，QDII 跨境 T+1 净值时滞缺价只记 info 不告警，存量 2081 条历史缺价不动）**、宽度族指标停更/断档（大表全量 8 指标 / 新起点 3 指标按基线分类）、涨停源与宽度族对照（源有数宽度没算=计算问题）。**2026-09-08 新增交易记录断档监控三项检查器**（9/7 断档根治：回测产物停更三天零告警——现有五项全查采集层零查回测产物，设计见 [`docs/kelly/analysis/monitor-trades-stall-rootfix-20260908.md`](docs/kelly/analysis/monitor-trades-stall-rootfix-20260908.md)）——**交易记录覆盖检查（`data_gap:kelly_coverage`）**：signal_daily 最近 5 交易日 buy 系信号 vs `signal_kelly_trades.json` 最新 signal_date 集合，信号有但交易无逐条列出（日期/index_id/信号/对应ETF/预计丢弃原因：缺次日价可解释 vs 价齐仍缺需人工核查），宇宙外信号跳过（universe_rules.yaml + board_etf_map 同源 §23.6）；断档深度（T 与 trades 最新信号日交易日间隔）≥2 交易日 SEVERE、=1 WARN，全缺集中在「T-1 且缺次日价」降 WARN 防首日吓人；**交易记录新鲜度（`data_gap:kelly_stale`）**：B1 最新 signal_date ≥ T-1（次日开盘重定价口径，价未齐=定价窗内降 WARN）、B2 产物 generated_at/mtime ≤48h（周末按最近交易日放宽）、B3 nav 最新日 ≥T 但 trades ≤T-2 → SEVERE + 缺 nav 前 3 ETF（QDII 时滞降 info）；**回测/deploy 链路（`data_gap:kelly_backtest_fail`）**：最近成功 deploy 日志（含「退出码=0」）距今 >2 天或最新 deploy 尾部无成功标记 → WARN（防「任务没跑/跑挂了但旧产物还在」）。SEVERE→邮件+latest.md，WARN→普通邮件，info 只记日志；同 key 每自然日去重、人工 acknowledge 24h 免打扰、问题真正消失发恢复通知；state 写盘原子化（tmp+replace），dry-run 零副作用不落盘

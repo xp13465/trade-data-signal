@@ -100,6 +100,23 @@ EnvironmentFile=/home/ubuntu/code/trade-data/.env
 TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/check_monitor_heartbeat_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/check_monitor_heartbeat_launchd.err
+@@@FILE:trade-cloud-unit-patrol.service
+[Unit]
+Description=Trade cloud-unit-patrol (#191 云上 unit 直连 vs 仓库快照漂移巡检)
+ConditionPathExists=/home/ubuntu/code/trade-data/scripts/cloud_unit_patrol.sh
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/cloud_unit_patrol.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+# 外层 600 > 内层(读 ~80 个小 unit 文件 + python 比对,秒级;外层即唯一看门狗,留梯度)
+TimeoutStartSec=600
 @@@FILE:trade-daily-brief.service
 [Unit]
 Description=Trade daily-brief --multi (源 com.trade.daily-brief)
@@ -724,6 +741,16 @@ Description=Trade check-monitor-heartbeat every 15min :11/:26/:41/:56 (P0-1 心�
 
 [Timer]
 OnCalendar=*-*-* *:11,26,41,56:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-cloud-unit-patrol.timer
+[Unit]
+Description=Trade cloud-unit-patrol daily 08:27 (#191 云上 unit 直连巡检)
+
+[Timer]
+OnCalendar=*-*-* 08:27:00
 Persistent=true
 
 [Install]

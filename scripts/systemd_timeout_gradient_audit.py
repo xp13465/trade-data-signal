@@ -23,6 +23,13 @@
   # 对齐模式:把 doc §2 ini 块字段值就地改写为权威源值(改文档;仅覆盖两侧同名且各出现一次的 key)。
   python3 scripts/systemd_timeout_gradient_audit.py --dump docs/deploy/systemd-units-cloud-snapshot.txt --align-doc
 
+  # 云上直连巡检(#191,2026-10-05):比对权威 unit 源(云上实值 / --dump)vs 仓库固化快照
+  # (--snapshot),逐字段 + 集合。差异 exit 1。挂云上 trade-cloud-unit-patrol.timer:
+  #   直连 /etc/systemd/system 真 unit → 与仓库快照逐位比对 → 漂移即 notify 告警。
+  # 消 #189 闸门的「快照陈旧」窗口:7.8 只保证「doc == 快照」,本模式补「快照 == 云上当前」。
+  python3 scripts/systemd_timeout_gradient_audit.py --units-dir /etc/systemd/system \
+      --snapshot docs/deploy/systemd-units-cloud-snapshot.txt --check-snapshot
+
 局限(须知):
   * 只识别 shell 层 `run_to N` / `perl -e 'alarm ...' N`;Python 侧 subprocess timeout
     (如 nextday_gap_check.py 的 60/300/120)不计入——这类 service 无 shell 内层看门狗,
@@ -39,6 +46,9 @@ import re
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# 云上 unit dump 固化快照(仓库内,#189/#191;@@@FILE: 格式,权威真值清单)
+SNAPSHOT_REL_PATH = os.path.join("docs", "deploy", "systemd-units-cloud-snapshot.txt")
 
 RUN_TO_RE = re.compile(r"\brun_to\s+(\d+)\b")
 PERL_ALARM_RE = re.compile(r"alarm[^']*'\s+(\d+)\b")
@@ -203,6 +213,63 @@ def doc_sync(args, units):
     return 0
 
 
+def default_snapshot_path():
+    return os.path.join(REPO, SNAPSHOT_REL_PATH)
+
+
+def _set_diffs(a_units, b_units):
+    """逐字段比对两个 unit 源(名 -> 文本),返回 (diffs, only_a, only_b)。
+
+    字段比对口径与 #189 `_doc_vs_units_diffs` 一致:`key=value` 多重集,order-insensitive。
+    """
+    diffs = []
+    only_a = [n for n in a_units if n not in b_units]
+    only_b = [n for n in b_units if n not in a_units]
+    for name in a_units:
+        if name not in b_units:
+            continue
+        ak = unit_field_map(a_units[name])
+        bk = unit_field_map(b_units[name])
+        for key in sorted(set(ak) | set(bk)):
+            if sorted(ak.get(key, [])) != sorted(bk.get(key, [])):
+                diffs.append((name, key, ak.get(key), bk.get(key)))
+    return diffs, only_a, only_b
+
+
+def snapshot_sync(args, units):
+    """比对(权威 unit 源)vs(仓库固化快照);漂移 exit 1(#191 云上直连巡检)。
+
+    `units` = 权威源(云上实值 --units-dir,或 --dump);`args.snapshot` = 仓库快照。
+    输出列 = `cloud`(权威/云上值)vs `snapshot`(仓库快照值),直白给出「哪个 unit / 哪个字段 /
+    云上值 vs 快照值」。消 #189 闸门 7.8 的「快照陈旧」窗口。
+    """
+    snap_path = args.snapshot or default_snapshot_path()
+    if not os.path.isfile(snap_path):
+        print(f"✗ 快照文件不存在: {snap_path}", file=sys.stderr)
+        return 2
+    snap_units = parse_dump(snap_path)
+    if not snap_units:
+        print(f"✗ 快照为空或非 @@@FILE: 格式: {snap_path}", file=sys.stderr)
+        return 2
+
+    diffs, only_cloud, only_snap = _set_diffs(units, snap_units)
+    if diffs or only_cloud or only_snap:
+        print(f"✗ 云上 unit 与仓库快照漂移:差异字段 {len(diffs)} 处"
+              f",仅云上 {len(only_cloud)} unit,仅快照 {len(only_snap)} unit")
+        hdr = f"{'unit':44} {'field':26} {'cloud':>16} {'snapshot':>16}"
+        print(hdr)
+        print("-" * len(hdr))
+        for name, key, cv, sv in diffs:
+            print(f"{name:44} {key:26} {str(cv):>16} {str(sv):>16}")
+        for n in only_cloud:
+            print(f"{n:44} {'<unit>':26} {'存在':>16} {'缺失':>16}")
+        for n in only_snap:
+            print(f"{n:44} {'<unit>':26} {'缺失':>16} {'存在':>16}")
+        return 1
+    print(f"✓ 云上 unit 与仓库快照一致({len(units)} unit,逐字段全量比对通过)")
+    return 0
+
+
 def field(text, key):
     for line in text.splitlines():
         line = line.strip()
@@ -262,6 +329,11 @@ def main(argv=None):
                     help="把 doc §2 ini 块字段值就地对齐权威源值(改文档;配合 --dump/--units-dir)")
     ap.add_argument("--md", default=None,
                     help="doc 路径(默认 = gen_systemd_units 的 MD_REL_PATH)")
+    ap.add_argument("--check-snapshot", action="store_true",
+                    help="比对权威 unit 源(云上实值/--dump)vs 仓库固化快照(--snapshot),逐字段;"
+                         "漂移 exit 1(#191 云上直连巡检,消 #189 快照陈旧窗口)")
+    ap.add_argument("--snapshot", default=None,
+                    help="仓库固化快照路径(--check-snapshot 用;默认 docs/deploy/systemd-units-cloud-snapshot.txt)")
     args = ap.parse_args(argv)
 
     if args.check_doc or args.align_doc:
@@ -270,6 +342,13 @@ def main(argv=None):
             print("未读到任何 trade-*.service / trade-*.timer", file=sys.stderr)
             return 2
         return doc_sync(args, units)
+
+    if args.check_snapshot:
+        units = read_all_units(args)
+        if not units:
+            print("未读到任何 trade-*.service / trade-*.timer", file=sys.stderr)
+            return 2
+        return snapshot_sync(args, units)
 
     units = read_units(args)
     if not units:

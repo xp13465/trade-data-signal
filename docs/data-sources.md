@@ -263,7 +263,7 @@ akshare 封装的同花顺接口。
 
 ## 采集时点（生产定时任务）
 
-生产定时任务 2026-09-12 起迁云上 systemd timer（40 个 `.timer` 单元（2026-10-05 实测），统一前缀 `trade-`，时点与原 launchd `StartCalendarInterval` 一致，详见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md)），下表「任务」列为原 launchd label，云上 unit = `trade-<name>`。
+生产定时任务 2026-09-12 起迁云上 systemd timer（41 个 `.timer` 单元（2026-10-05 实测），统一前缀 `trade-`，时点与原 launchd `StartCalendarInterval` 一致，详见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md)），下表「任务」列为原 launchd label，云上 unit = `trade-<name>`。
 
 | 任务 | 时间（CST） | 说明 |
 |---|---|---|

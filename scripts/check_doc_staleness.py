@@ -323,7 +323,7 @@ def _check_file(root: str, relpath: str) -> list:
         # launchd 命中(独立判定: 上下文豁免已过滤掉历史/否定声明)
         if LAUNCHD_RE.search(line):
             hits.append((i, line.rstrip("\n"),
-                         "生产定时任务已迁云上 systemd timer(40 个 trade- 前缀 .timer, 2026-10-05 实测), launchd 已废弃"))
+                         "生产定时任务已迁云上 systemd timer(41 个 trade- 前缀 .timer, 2026-10-05 实测), launchd 已废弃"))
             continue
         for pat, desc in STALE_PATTERNS:
             if re.search(pat, line):

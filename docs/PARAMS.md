@@ -856,7 +856,7 @@ SCORE_IDS = (
 | scripts/lab/lab_simulate.py | 模拟配对回测（9 指数 × 64 配对 × 2 模式） |
 | scripts/update_all.sh | 并行流水线编排（4 pipeline） |
 | scripts/bump_asset_version.py | CSS/JS 版本号破缓存 |
-| `docs/deploy/systemd-units-20260912.md` | 生产定时任务权威（40 个 trade- 前缀 systemd timer（2026-10-05 实测），update-all 17:50 / backfill-evening 20:00） |
+| `docs/deploy/systemd-units-20260912.md` | 生产定时任务权威（41 个 trade- 前缀 systemd timer（2026-10-05 实测），update-all 17:50 / backfill-evening 20:00） |
 | web/app.js | 前端主逻辑（2690 行） |
 | web/lab.js | 策略实验室前端（2261 行） |
 | web/style.css | 主样式（1465 行） |

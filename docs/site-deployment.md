@@ -618,7 +618,7 @@ s.sugas.site 有 300MB 总大小限制。`static-site/data/` 已移出 git（走
 
 ### 8.1 生产定时任务清单（云上 systemd timer）
 
-生产定时任务 2026-09-12 起迁云上 systemd timer：40 个 `.timer`/`.service` 单元在云上 `/etc/systemd/system/`（2026-10-05 实测；统一前缀 `trade-`，如主采集 `trade-update-all.timer`），时点与原 launchd `StartCalendarInterval` 完全一致，配置落档见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md)。下表「原 launchd label」列保留历史名，云上 unit = `trade-<name>`（如 `com.trade.update-all` → `trade-update-all`）。云上 `REPO` 指向 `/home/ubuntu/code/trade-data`（数据目录），`GIT_REPO` 指向 `/home/ubuntu/code/trade-data-signal`（代码仓）。
+生产定时任务 2026-09-12 起迁云上 systemd timer：41 个 `.timer`/`.service` 单元在云上 `/etc/systemd/system/`（2026-10-05 实测；统一前缀 `trade-`，如主采集 `trade-update-all.timer`），时点与原 launchd `StartCalendarInterval` 完全一致，配置落档见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md)。下表「原 launchd label」列保留历史名，云上 unit = `trade-<name>`（如 `com.trade.update-all` → `trade-update-all`）。云上 `REPO` 指向 `/home/ubuntu/code/trade-data`（数据目录），`GIT_REPO` 指向 `/home/ubuntu/code/trade-data-signal`（代码仓）。
 
 | 任务 | 原 launchd label（云上 unit=trade-&lt;name&gt;） | 时点（CST） | 脚本 | 用途 | push main |
 |---|---|---|---|---|---|
@@ -840,7 +840,7 @@ git push origin main
 
 ### 步骤 9：配置定时任务
 
-生产定时任务已迁云上 systemd timer（40 个 `.timer`/`.service`（2026-10-05 实测），生成与启用步骤见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md) 与 `docs/deploy/migration-checklist-20260912.md`）；**本机 mac 纯开发不配置生产定时任务**。
+生产定时任务已迁云上 systemd timer（41 个 `.timer`/`.service`（2026-10-05 实测），生成与启用步骤见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md) 与 `docs/deploy/migration-checklist-20260912.md`）；**本机 mac 纯开发不配置生产定时任务**。
 
 ```bash
 # 云上查看/管理生产定时任务

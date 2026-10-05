@@ -529,7 +529,7 @@ git push origin main
 
 ### 步骤 9：配置定时任务
 
-生产定时任务已迁云上 systemd timer（37 个 `.timer`/`.service`，生成与启用步骤见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md) 与 `docs/deploy/migration-checklist-20260912.md`）；**本机 mac 纯开发不配置生产定时任务**。
+生产定时任务已迁云上 systemd timer（41 个 `.timer`/`.service`，生成与启用步骤见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md) 与 `docs/deploy/migration-checklist-20260912.md`）；**本机 mac 纯开发不配置生产定时任务**。
 
 ```bash
 # 云上查看/管理生产定时任务
