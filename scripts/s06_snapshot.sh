@@ -55,8 +55,10 @@ run_to() {
 # os.environ 读 REPO 派生 STATIC_DIR, 只设 shell 变量不 export 时子进程读不到 →
 # 回退 ROOT=trade 触发盘中守卫 abort exit=3(过程脏)。export+缺省兜底双保险;
 # plist 已显式设置 EnvironmentVariables, 定时链路不受影响。
-export REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-export GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
+export REPO
+export GIT_REPO
 PY="${PY:-$REPO/.venv/bin/python}"
 LOGDIR=$REPO/data/logs
 LOG="$LOGDIR/s06_snapshot_launchd.log"

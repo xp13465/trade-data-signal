@@ -15,7 +15,8 @@
 # 用法: bash scripts/brief_push_wrapper.sh [--dry-run]
 
 set -u
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 PY="$REPO/.venv/bin/python"
 
 LOG="${LOG:-$REPO/data/logs/brief_push.log}"

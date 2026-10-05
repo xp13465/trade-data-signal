@@ -37,7 +37,7 @@ from pathlib import Path
 ROOT = Path(os.environ.get("RATCHET_ROOT") or Path(__file__).absolute().parent.parent).absolute()
 SCRIPTS = ROOT / "scripts"
 
-# 已迁移(批1 + 批2):scripts/lib/repo_paths.sh + 12 个脚本
+# 已迁移(批1 + 批2 + 批3):scripts/lib/repo_paths.sh + 21 个脚本
 MIGRATED = {
     # 批1
     "scripts/check_r2_consistency.sh",
@@ -53,30 +53,34 @@ MIGRATED = {
     "scripts/self_heal.sh",
     "scripts/turnover_backfill_skip_notify.sh",
     "scripts/uptime_check.sh",
+    # 批3(生产主链 9 个)
+    "scripts/backup_db.sh",
+    "scripts/brief_push_wrapper.sh",
+    "scripts/deploy.sh",
+    "scripts/intraday_snapshot.sh",
+    "scripts/kelly_intraday_rerun.sh",
+    "scripts/nextday_plan.sh",
+    "scripts/run_daily_brief.sh",
+    "scripts/s06_snapshot.sh",
+    "scripts/update_all.sh",
 }
 
 # 迁移基线(批1 时刻仍未迁移的 56 个已知病灶 = §2 的 57 减去本批已迁的 check_r2_consistency.sh)。
-# 随各批推进:该批文件从此集合删除并移入 MIGRATED(批2 已删 10 个,余 46)。
+# 随各批推进:该批文件从此集合删除并移入 MIGRATED(批2 已删 10 个,批3 已删 9 个,余 37)。
 PENDING_BASELINE = {
     "scripts/backfill_indices.sh",
     "scripts/backfill_metrics.sh",
-    "scripts/backup_db.sh",
-    "scripts/brief_push_wrapper.sh",
     "scripts/build_echarts.sh",
     "scripts/check_signals.sh",
     "scripts/collect.sh",
-    "scripts/deploy.sh",
     "scripts/etf_national_team_backfill.sh",
     "scripts/fapi_daily_syn.sh",
     "scripts/fix_turnover_partial_20260814.sh",
     "scripts/fund_nav_upload_async.sh",
     "scripts/futures_backfill.sh",
     "scripts/gold_night.sh",
-    "scripts/intraday_snapshot.sh",
-    "scripts/kelly_intraday_rerun.sh",
     "scripts/lhb_backfill.sh",
     "scripts/migrate_large_json_out_of_git.sh",
-    "scripts/nextday_plan.sh",
     "scripts/pf_score_daily.sh",
     "scripts/pf_score_weekly.sh",
     "scripts/pipeline.sh",
@@ -87,9 +91,7 @@ PENDING_BASELINE = {
     "scripts/push_schedule_stats.sh",
     "scripts/r2_upload_async.sh",
     "scripts/run_ab_direction_anchor.sh",
-    "scripts/run_daily_brief.sh",
     "scripts/rzhb_backfill.sh",
-    "scripts/s06_snapshot.sh",
     "scripts/stage0_full_manual.sh",
     "scripts/stage0_manager.sh",
     "scripts/stage0_nav.sh",
@@ -99,7 +101,6 @@ PENDING_BASELINE = {
     "scripts/staticdata_sync.sh",
     "scripts/sync_fund_score_to_d1.sh",
     "scripts/turnover_backfill.sh",
-    "scripts/update_all.sh",
     "scripts/update_all_serial.sh",
     "scripts/update_lab.sh",
     "scripts/us_stock_morning.sh",
