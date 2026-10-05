@@ -16,8 +16,11 @@
 #   的 0/15/30/45，让 monitor 先告警 self_heal 后自愈，避免撞 deploy.lock）。
 # 告警链路：复用 scripts/notify.py（邮件 + alerts/latest.md），达到上限时发 SEVERE。
 set -uo pipefail
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
+# ── REPO/GIT_REPO 单点解析(#195 批2):共享 lib(env 优先零改写 > $0 双布局推导 > fail-loud)──
+# 去掉写死的 mac 默认值(原靠 unit 的 Environment= 兜住,env 一丢即静默坏);原 export
+# 语义逐字节保留(python 子进程可见性与迁移前一致)。
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
 cd "$REPO"
 export REPO GIT_REPO
 

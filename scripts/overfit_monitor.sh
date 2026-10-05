@@ -22,8 +22,12 @@ set -u
 
 # 树路径 env 化(P3-D 2026-08-25): 缺省回落现值行为不变; TRADE_REPO 更名 GIT_REPO
 # 与全站惯例一致(intraday_snapshot/self_heal/update_all/staticdata_sync/push_schedule_stats)。
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 渠道树(mjs 校验的前端源码所在)
+# ── REPO/GIT_REPO 单点解析(#195 批2):共享 lib(env 优先零改写 > $0 双布局推导 > fail-loud)──
+# 去掉写死的 mac 默认值(原靠 unit 的 Environment= 兜住,env 一丢即静默坏);原 export
+# 语义逐字节保留(python 子进程可见性与迁移前一致)。
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
+# GIT_REPO = git 渠道树(mjs 校验的前端源码所在)
 PY="${PY:-$REPO/.venv/bin/python}"
 LOGDIR=$REPO/data/logs
 mkdir -p "$LOGDIR"
