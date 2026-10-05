@@ -21,6 +21,13 @@ schedule_monitor.sh(Python heredoc) / notify.py 共用本模块的判定逻辑(�
      (因 staticdata_backup_async.sh 被并发改动占用, 分级落在 notify.py 调用侧 L2110)
   R5 R2/部署链路拥堵同根因日汇总: 当日 >=2 种 R2 相关告警 → 首条直发, 第 2 条起聚合,
      23:25 收尾轮发 1 条汇总(现象清单 + #149 根因指针; 调用点 schedule_monitor.sh L2151)
+  R7 r2_consistency(§22 三站一致性巡检)两件事(2026-10-05 #160 收口):
+     ①连续失败天数分级: 首日 severe(= 现状不变), 连续第 2 日及以后升 critical(独立 dedup
+       key 不占首日 6h 窗, 确保必达; 邮件 + 飞书 alert 群)。判定 r7_r2_consistency_escalate
+       (调用点 notify.py dedup_key=r2_consistency_fail 拦截, 同 R4 落调用侧先例)
+     ②同实例去重: 包装器自身通道(notify --dedup-key r2_consistency_fail)已为本次运行实例
+       发过告警时, schedule_monitor exit!=0 汇总通道不复述(判定 r7_r2_consistency_wrapper_alerted,
+       调用点 schedule_monitor.sh exit!=0 分支; 同 R3 nextday_plan 先例)
 
 原则(§23.2 修 bug 三铁律 + §18 降噪翻车教训): 每条规则必须保留「真故障判别维度」
 (连续轮、跨天追平、产物未生成、首条仍即时), 绝不因降噪静默真故障。
@@ -36,6 +43,9 @@ MERGE_PREFIX = "merge|"                  # R2: 超时/耗时双通道同 (task,l
 R2_CONGESTION_SUMMARY_KEY_PREFIX = "r2_pipeline_congestion|"  # R5: 日级汇总 key 前缀
 R4_OK_RESULTS = ("ok", "skip_oversize")  # R4: 备份心跳里视为「备份完成/追平」的 result
 R4_HEARTBEAT_OK_SPAN = timedelta(hours=36)  # R4: 兜底——心跳 ok 距今超 36h 视为已过旧(不误判追平)
+R2_CONSISTENCY_DEDUP_KEY = "r2_consistency_fail"           # R7: 包装器自身告警通道去重 key(check_r2_consistency.sh)
+R2_CONSISTENCY_ESCALATED_DEDUP_KEY = "r2_consistency_fail_escalated"  # R7: 连续失败升级档独立 key(不复用首日 6h 窗)
+R2_CONSISTENCY_ESCALATE_DAYS = 2                            # R7: 连续失败天数达此值 → severe 升 critical
 
 
 def r1_buffer_judge(alert_state, buf_key, alert_key, exceeds_threshold, now,
@@ -326,3 +336,118 @@ def r5_congestion_process(alert_state, alerts, now, summary_hm="23:25"):
         print(f"[r5-congest] 生成当日拥堵汇总({_hm_now}, {len(_st['phenomena'])} 项现象)")
     alert_state[_sk] = _st
     return _kept, _summary
+
+
+def r7_r2_consistency_escalate(state_path, now):
+    """R7①: r2_consistency(§22 三站一致性巡检)连续失败天数分级(#160 收口, 2026-10-05 用户拍板)。
+
+    「连续 N 天 FAIL」定义: 相邻自然日各发生一次失败(r2_consistency 每日 23:20 跑一轮)。
+    中间夹一个成功日/未跑日(间隔 >1 自然日)即视为连续链中断, 从 1 重新计。
+
+    档位(返回 (tier, consecutive_days, reason), tier in ("severe", "critical")):
+      - 首日失败(连续 1 天) → "severe": 与历史行为一致(notify --severe 单封, 6h 去重
+        由调用侧 R2_CONSISTENCY_DEDUP_KEY 承担)——单次失败仍是真故障即时告警, 不降噪。
+      - 连续 >= R2_CONSISTENCY_ESCALATE_DAYS(2) 天失败 → "critical": 升级档
+        (换 R2_CONSISTENCY_ESCALATED_DEDUP_KEY 独立窗口 → 不被首日的 6h 窗吞掉 → 必达;
+        邮件 + 飞书 alert 群, 与 severe 同渠道但显式标注「连续 N 天」)。
+    同日重复调用(手动重跑/重试) → 天数不变(不重复计数)。
+
+    状态落盘 state_path(原子写): {last_fail_date, consecutive_days, first_fail_date,
+    last_grade_time}。故意**不**依赖外部「成功心跳」文件: 成功日在通知链路上根本不会调用本函数,
+    间隔 >1 天即自然中断(省一个跨脚本耦合点)。
+
+    残余(如实登记): 状态无法落盘时(权限/磁盘)连续天数恒为 1 → 升级档静默失效; 此时首日
+    severe 通道仍然照发(不吞真故障), 且 stderr 打印落进包装器日志可查 —— 只丢「升级」不丢
+    「告警本身」。
+    """
+    _today = now.strftime("%Y-%m-%d")
+    _state = {}
+    try:
+        if state_path is not None and state_path.exists():
+            _loaded = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(_loaded, dict):
+                _state = _loaded
+    except Exception:
+        _state = {}
+    _last = str(_state.get("last_fail_date") or "")
+    _days = int(_state.get("consecutive_days") or 0)
+    _first = str(_state.get("first_fail_date") or "")
+
+    if _last == _today:
+        # 同日重复(手动重跑/重试): 不重复计数
+        _days = max(_days, 1)
+        _first = _first or _today
+    elif _last:
+        try:
+            _gap = (datetime.strptime(_today, "%Y-%m-%d")
+                    - datetime.strptime(_last, "%Y-%m-%d")).days
+        except (ValueError, TypeError):
+            _gap = 0
+        if _gap == 1:
+            _days += 1
+        else:
+            # 间隔 >1 自然日(中间有成功日 / 该日未跑) = 连续链中断, 从 1 重新计
+            _days = 1
+            _first = _today
+    else:
+        _days = 1
+        _first = _today
+
+    _new_state = {
+        "last_fail_date": _today,
+        "consecutive_days": _days,
+        "first_fail_date": _first or _today,
+        "last_grade_time": now.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        _tmp = state_path.with_name(state_path.name + ".tmp")
+        _tmp.write_text(json.dumps(_new_state, ensure_ascii=False, indent=2), encoding="utf-8")
+        _tmp.replace(state_path)
+    except Exception as _e:  # noqa: BLE001
+        print(f"[r7-r2-consistency] 状态落盘失败(连续天数计数可能丢失, 升级档或失效): {_e}",
+              file=sys.stderr)
+
+    if _days >= R2_CONSISTENCY_ESCALATE_DAYS:
+        return "critical", _days, (
+            f"连续 {_days} 天一致性校验失败(自 {_first or _today} 起, 末次 {_today})")
+    return "severe", _days, f"首日失败({_today}, 当前连续 {_days} 天)"
+
+
+def r7_r2_consistency_wrapper_alerted(repo, last_run, dedup_key=R2_CONSISTENCY_DEDUP_KEY):
+    """R7②: r2_consistency 包装器自身通道是否**已为本次运行实例**发过告警。
+
+    给 schedule_monitor 的 exit!=0 汇总通道去重用(同 R3 nextday_plan 先例): 同一次 FAIL
+    会有两条通道 —— ①包装器 check_r2_consistency.sh 自己 notify --severe(去重 key
+    r2_consistency_fail, 内容含问题明细)②gen_schedule_stats 记 last_exit!=0 →
+    schedule_monitor exit!=0 通道再发一封(去重 key {task}|exit!=0|{code})。②是①的复述。
+
+    判据: data/notify_dedup.json 的 r2_consistency_fail.last_alerted >= last_run
+      (last_run = 本次运行开始时刻, 由 gen_schedule_stats 记录; 包装器在本次运行内发出告警
+      时 last_alerted 必然 >= last_run)。用「本次实例」而非「今天」: 失败持续到次日时,
+      昨日告警(last_alerted=昨 23:2x)仍 >= 昨日 last_run → 次日全天不重复复述(否则次日
+      早上 monitor 会把同一实例再报一次)。
+
+    反例保证(R7②-B, 真故障不吞): 包装器告警**发送失败**(update_dedup 只在发送成功后写)
+    或脚本在 notify 前被杀 / notify_dedup.json 缺失 → 返回 False → monitor 汇总通道照发
+    (双保险)。解析失败一律 False(fail-open: 宁多告警不漏)。
+    """
+    if repo is None or not last_run:
+        return False
+    try:
+        _lr_dt = datetime.strptime(str(last_run)[:16], "%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return False
+    try:
+        _p = Path(repo) / "data" / "notify_dedup.json"
+        if not _p.exists():
+            return False
+        _st = json.loads(_p.read_text(encoding="utf-8"))
+        _entry = _st.get(dedup_key) if isinstance(_st, dict) else None
+        _last = (_entry or {}).get("last_alerted")
+        if not _last:
+            return False
+        _al_dt = datetime.strptime(str(_last)[:19], "%Y-%m-%d %H:%M:%S")
+    except Exception:  # noqa: BLE001
+        return False
+    return _al_dt >= _lr_dt
