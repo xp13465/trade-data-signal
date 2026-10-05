@@ -962,34 +962,78 @@ def _prune_pre_upload(today_str, label=""):
             stale.append(k)
     if not stale:
         return
-    for k in stale:
+    # 2026-10-05 #174 同类面排查: 原串行逐 key DELETE 且无进度输出, 若 stale 达几千
+    # (7 天×多通道 force_full 备份积累会被 .r2 停滞判据 300s 无输出误杀), 改 8 线程并行
+    # + 每 128 个打进度行(日志滚动=停滞判据放行)。DELETE 幂等, 失败静默留待下轮 prune。
+    def _del_one(k):
         try:
             s3_request("DELETE", k, bucket=BACKUP_BUCKET, keep_alive=True)
         except Exception:
             pass
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    deleted = 0
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futs = [pool.submit(_del_one, k) for k in stale]
+        for fut in as_completed(futs):
+            fut.result()
+            deleted += 1
+            if deleted % 128 == 0 or deleted == len(stale):
+                print(f"[{label}] ⚠ pre-upload prune: 删除 {deleted}/{len(stale)} 过期备份 key", flush=True)
     print(f"[{label}] ⚠ pre-upload prune: 删除 {len(stale)} 个过期备份 key(>{_PREUPLOAD_RETENTION_DAYS}天)", flush=True)
 
 
-def _backup_overwritten_keys(r2_keys, label):
+def _backup_overwritten_keys(r2_keys, label, md5_map=None):
     """把将被 PUT 覆盖的既有 R2 key 先 COPY 到 BACKUP_BUCKET/pre-upload/<YYYYMMDD>/<key>。
 
     只对「R2 已存在」的 key 备份(新 key 无覆盖风险, HEAD 404 跳过);
     COPY 走服务端到服务端(带宽 0, s3_request extra_headers 支持 x-amz-copy-source),
     失败不阻断上传(记日志); 顺带 prune 过期旧备份。返回已备份数量。
+
+    2026-10-05 并行化+减量(#176): 8 线程并发(与 _upload_glob 同风格, ThreadPoolExecutor
+    + keep_alive 线程本地连接), 根治 export-guard L5 串行 3436 次跨境 HEAD+COPY
+    (实测 RTT 0.65s ⇒ ~2200s)被 900s 总时长看门狗确定性 kill 的死循环。
+    减量判据 = 「备份桶 pre-upload/<today>/ 已有该 key 的备份 **且** R2 当前内容与本地
+    将传指纹一致」→ 覆盖成相同内容无损失, 跳过(不重复 COPY)。任何一侧不满足都备份:
+    - 备份桶无今天备份(如 10-05 被 kill 残留的 ~950 key)→ **补上**(在 PUT 前完整补齐残留);
+    - 备份桶有但 R2 内容将变(本地 != R2, 同天多轮覆盖)→ 重新 COPY 当前 R2 内容(留最新现场)。
+    §25 语义(某 key PUT 之前其备份必须已完成)不变: 本函数**整体先于** _upload_glob 的
+    PUT 批量执行, 并行只发生在本函数内部, 备份与 PUT 之间仍是「整批备份完 → 整批 PUT」。
+    r2_keys: {r2_key: local_md5} 或 list(r2_key)(md5_map=None 时按 list 处理, 不减量)。
     """
     today = datetime.date.today().strftime("%Y%m%d")
     if not r2_keys:
         _prune_pre_upload(today, label)
         return 0
+    if isinstance(r2_keys, (list, tuple)):
+        items = [(k, None) for k in r2_keys]
+    else:
+        items = [(k, v) for k, v in r2_keys.items()]
+    total = len(items)
     copied = 0
-    for key in r2_keys:
+    skipped = 0
+
+    def _backup_one(key, local_md5):
+        nonlocal copied, skipped
+        backup_key = f"pre-upload/{today}/{key}"
+        # 先看备份桶是否已有今天备份
         try:
-            st, _etag = s3_head(key, keep_alive=True)
+            bk_st, _ = s3_head(backup_key, bucket=BACKUP_BUCKET, keep_alive=True)
+        except Exception:
+            bk_st = 0
+        # 再看 R2 当前内容
+        try:
+            st, etag = s3_head(key, keep_alive=True)
         except Exception:
             st = 0
+            etag = None
         if st != 200:
-            continue   # R2 无此 key(首次上传), 无覆盖风险, 不备份
-        backup_key = f"pre-upload/{today}/{key}"
+            return 0   # R2 无此 key(首次上传), 无覆盖风险, 不备份
+        # 减量(#176): 备份桶已有今天备份 且 R2 内容 == 本地将传指纹 → 覆盖无损失, 跳过
+        if bk_st == 200 and local_md5 is not None and etag is not None and etag.strip('"') == local_md5:
+            skipped += 1
+            return 0
+        # 需要备份: 补残留(备份桶无今天备份)/ 更新现场(R2 内容将变)。COPY 覆盖到备份桶。
         try:
             bst, bdata = s3_request(
                 "PUT", backup_key, bucket=BACKUP_BUCKET,
@@ -1001,8 +1045,24 @@ def _backup_overwritten_keys(r2_keys, label):
                       f"{(bdata[:200] if isinstance(bdata, (bytes, bytearray)) else bdata)}", flush=True, file=sys.stderr)
         except Exception as _e:
             print(f"[{label}] ⚠ 备份 {key} 异常({_e})", flush=True, file=sys.stderr)
+        return 0
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    done = 0
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(_backup_one, k, m) for k, m in items]
+        for fut in as_completed(futures):
+            fut.result()  # 异常已被 _backup_one 内部消化(失败记日志不抛)
+            done += 1
+            # 进度行(看门狗 #174 停滞判据放行: 备份阶段有输出=有工作, 不被 300s 无输出误杀);
+            # 刻意不用 `[N/M]` 方括号格式 + 不带 (sizeB), 避免被 r2_upload_async.sh 低速判据
+            # 当作「批量上传字节进度」误判(备份是 COPY 无字节语义)。
+            if done % 64 == 0 or done == total:
+                print(f"[{label}] 备份 {done}/{total} 已备份 {copied} 跳过 {skipped}", flush=True)
     if copied:
         print(f"[{label}] ✓ 备份 {copied} 个将被覆盖 key -> {BACKUP_BUCKET}/pre-upload/{today}/ (export-guard L5)", flush=True)
+    if skipped:
+        print(f"[{label}] ➖ 减量跳过 {skipped} 个已备份且 R2 指纹一致 key(覆盖无损失)", flush=True)
     _prune_pre_upload(today, label)
     return copied
 
@@ -1027,8 +1087,8 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         正常结束(全成功写状态)删除; 进程中途被 kill(看门狗 TERM/KILL)marker 残留 → 下轮
         scan 发现 → 强制全量重传(fail-closed: 宁可多传一次, 不可假成功)。兼容旧状态文件
         (无 marker 不触发全量, 首跑/周日仍按原逻辑)。
-      - 待传字节量行 R2_BYTES_TOTAL=<N>(③): 看门狗(deploy.sh run_r2_upload)按 N/150KB/s×2
-        余量+固定开销估算超时, 根治「固定 900s 杀近全量」的事故; 显式通道超时优先覆盖。
+      - 待传字节量行 R2_BYTES_TOTAL=<N>(③): 历史遗留(看门狗已换代 #174, 2026-10-05 改为
+        停滞判据+低速判据+7200s 硬兜底, 不再按字节量估算 kill; 本行仅日志留痕无机器消费方)。
       - 层2 上传正确性对账: 本次 PUT 的 key 逐一 HEAD 取 ETag == 本地整文件 md5(_upload_glob
         verify_etag=True), 不一致记入 failed_rels(传上去的内容不对=失败, 触发调用方告警);
       - checkpoint_every>0 时启用分片 checkpoint 断点续传(fund-nav 模式, 治「超时 kill->状态
@@ -1180,9 +1240,9 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
             print(f"⚠ notify 告警发送失败(不阻塞): {_e}")
         sys.exit(1)
 
-    # 待传字节量(③ 看门狗按字节量估算超时): 机器可解析行 R2_BYTES_TOTAL=<N>。增量小 → 小超时;
-    # 全量/周日/中断回退大 → 大超时(9-23 事故: 近全量 190MB@~150KB/s 需 950-1270s, 固定 900s
-    # 零并发都可能被杀; 按字节量估算才不误杀)。dry-run 也打印供人工校验。
+    # 待传字节量 R2_BYTES_TOTAL=<N>(③ 历史遗留): 看门狗已换代 #174(2026-10-05)为停滞判据+
+    # 低速判据+7200s 硬兜底, 不再按字节量估算 kill(见 r2_upload_async.sh run_r2_upload 注释)。
+    # 本行仅日志留痕供人工查看, 无机器消费方。dry-run 也打印供人工校验。
     total_pending = sum(p.stat().st_size for p in changed if p.exists())
     print(f"[{label}] R2_BYTES_TOTAL={total_pending}")
 
@@ -1248,9 +1308,12 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
 
     # ---- export-guard L5 (2026-10-03): 真 PUT 前, 将被覆盖的既有 R2 key 先 COPY 到备份桶 ----
     # (§25 备份先于覆盖机制化; 事故恢复现场依赖备份)。失败不阻断上传, 仅记日志。
+    # 2026-10-05 并行化+减量(#176): 传 {r2_key: 本地 md5} 让备份函数对「R2 已有且指纹未变」
+    # 的 key 跳过(覆盖无损失), 只备份真正将被覆盖不同内容的 key。
     try:
         _backup_overwritten_keys(
-            [f"{r2_prefix}/{str(p.relative_to(local_dir))}" for p in changed], label)
+            {f"{r2_prefix}/{str(p.relative_to(local_dir))}": sigs[str(p.relative_to(local_dir))]["md5"]
+             for p in changed}, label)
     except Exception as _e:  # noqa: BLE001
         print(f"[{label}] ⚠ 覆盖前备份异常(不阻断): {_e}", file=sys.stderr)
 
@@ -3018,11 +3081,18 @@ def cmd_verify_r2():
 
         mismatches = []
         ch_checked = 0
+        last_pct_log = 0
+        # 2026-10-05 看门狗 #174 停滞判据配套: 全量通道(如 fund-nav 26000+ key HEAD)可能单通道
+        # 跑 5 分钟以上, 若中间零日志会被「300s 无输出=停滞」判死 —— 每 100 个打印一次进度,
+        # 日志持续滚动, 健康工作不被误杀。
         with ThreadPoolExecutor(max_workers=8) as pool:
             futures = [pool.submit(_check, f) for f in to_check]
             for fut in as_completed(futures):
                 f, ok = fut.result()
                 ch_checked += 1
+                if ch_checked - last_pct_log >= 100 or ch_checked == len(to_check):
+                    last_pct_log = ch_checked
+                    print(f"[verify-r2] {label}: 对账 {ch_checked}/{len(to_check)}", flush=True)
                 if not ok:
                     mismatches.append(f)
         if mismatches:
@@ -3133,9 +3203,20 @@ def cmd_verify_channels(desc_list):
     # 会走到 checked_any/bad 判定, 若同批 upload 通道全通过 → exit 0 → deploy.sh 抑制告警 → 静默缺口。)
     if "verify-r2" in desc_list:
         sys.exit(1)
+    # 2026-10-05 #177 解静音: 看门狗「force_full + 超时 kill」的通道本轮从未真正完成上传
+    # (PUT 未执行, marker 残留 → 下轮强制全量 → 死循环), 轻量对账 20/通道≈1.2% 兜不住
+    # 「下一交易日 export 出新内容后 R2 静默陈旧」—— 降噪必须保留真故障判别维度
+    # (memory alert-denoise-keep-fault-discriminator), 被 kill 通道单独保留告警, 不适用静音。
+    # 由 r2_upload_async.sh run_r2_upload 在 kill 时写入环境变量 R2_KILLED(空格分隔通道名)。
+    killed = set((os.environ.get("R2_KILLED") or "").split())
     bad = []
     checked_any = False
     for desc in desc_list:
+        if desc in killed:
+            print(f"通道 {desc} 本轮被看门狗超时 kill(force_full 未完成, PUT 未执行), "
+                  f"不适用轻量对账静音, 保留告警", file=sys.stderr)
+            bad.append(f"{desc}: 超时 kill 上传未完成(死循环风险, 需人工确认 R2 是否陈旧)")
+            continue
         if desc == "upload-feed":
             ok, why = _light_check_single_file("data/feed.xml", STATIC_DIR / "data" / "feed.xml", "feed.xml")
             checked_any = True
