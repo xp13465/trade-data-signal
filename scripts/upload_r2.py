@@ -12,14 +12,19 @@
   python3 scripts/upload_r2.py upload-offshore-fund       # 上传 data/offshore_fund* -> offshore_fund/ (定时链已停用,仅手动使用)
   python3 scripts/upload_r2.py upload-data-large          # 上传 data/ 顶层 >1MB .json -> data/
   python3 scripts/upload_r2.py upload-all-data            # 上传 data/ 全量小 .json -> data/ (阶段1a双写)
-  python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup)
-  python3 scripts/upload_r2.py upload-claude-backup [path] # Claude 自我备份 tar.gz -> signal-backup/claude-backup/
+  python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup2, 独立新账号)
+  python3 scripts/upload_r2.py upload-claude-backup [path] # Claude 自我备份 tar.gz -> signal-backup2/claude-backup/
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
-  python3 scripts/upload_r2.py upload-large-json [--dry-run]  # 大 JSON 私有桶备份(signal-backup/large-json/, #126 固定前缀)
+  python3 scripts/upload_r2.py upload-large-json [--dry-run]  # 大 JSON 私有桶备份(signal-backup2/large-json/, #126 固定前缀)
+
+跨账号路由(#178, 2026-10-05): 备份桶已迁至独立 CF 账号新桶 signal-backup2(独立免费额度),
+  按目标桶路由端点/凭据(见 _route_bucket): 目标桶 == R2_BACKUP2_BUCKET → R2_BACKUP2_* 新账号,
+  其余(主桶 signal-data + 老备份桶 signal-backup legacy) → R2_S3_* 老账号。
+  老桶 signal-backup 存量不搬, 只切今后新写(老桶存量靠其 lifecycle 自然回收)。
 
 测试隔离三件套(F1, 2026-09-26, 严禁写生产 R2):
   1) STATICDATA_REPO=/tmp/xxx —— 指向 /tmp 临时 staticdata git 克隆(见 docs/ops/large-json-out-of-git-20260925.md §5.1)。
-  2) R2_BACKUP_BUCKET=不存在的桶名(如 demo-nowhere)—— 指向不存在的桶实测 404, 不污染真实 signal-backup。
+  2) R2_BACKUP_BUCKET=不存在的桶名(如 demo-nowhere)—— 指向不存在的桶实测 404, 不污染真实备份桶(signal-backup2)。
   3) upload-large-json --dry-run(或 async 侧 STATICDATA_BACKUP_SKIP_R2_UPLOAD=1)—— 只打印将上传清单与计划动作,
      不 PUT / 不 DELETE / 不重写 manifest / 不跑 prune, 全程零 R2 接触。
 
@@ -83,7 +88,7 @@ def _is_production_writer() -> bool:
     return sys.platform != "darwin" and str(ROOT).startswith("/home/")
 
 
-# 只写私有桶(signal-backup)的上传命令: 本机开发树仍允许(不污染公共 R2)。
+# 只写私有桶(signal-backup2)的上传命令: 本机开发树仍允许(不污染公共 R2)。
 _PRIVATE_ONLY_CMDS = {"upload-db", "upload-large-json", "upload-claude-backup", "upload-decommissioned"}
 # 只读/对账命令: 不写任何 R2 桶。
 _READ_ONLY_CMDS = {"list", "download-db", "verify-r2", "verify-channels", "purge-low-freq"}
@@ -263,17 +268,35 @@ def load_env():
 
 load_env()
 BUCKET = os.environ["R2_BUCKET"]
-# backup 用独立私有桶(不绑公开域名,解决 signal-data 公开可读隐患)。
-# .env 可配 R2_BACKUP_BUCKET 覆盖,默认 signal-backup(不 commit .env)。
-BACKUP_BUCKET = os.environ.get("R2_BACKUP_BUCKET", "signal-backup")
+
+# ---- 第一套端点/凭据:老 CF 账号(主桶 signal-data + 老备份桶 signal-backup legacy)----
 ENDPOINT = os.environ["R2_S3_ENDPOINT"]
 AK = os.environ["R2_S3_ACCESS_KEY_ID"]
 SK = os.environ["R2_S3_SECRET_ACCESS_KEY"]
+HOST = urlparse(ENDPOINT).hostname
+
+# ---- 第二套端点/凭据:独立新 CF 账号(#178,2026-10-05)----
+# 背景:老备份桶 signal-backup 持续增长会挤爆老账号 R2 免费额度(用户原话:「为了避免未来超额
+#   影响免费计划,我重新创建了一个 signal-backup2 的桶,让 backup 独立迁移出去」+「这是一个新
+#   账号的 r2 所以是独立的额度」)。⇒ 备份桶迁至独立账号新桶,与主桶配额解耦。
+# 路由(见 _route_bucket):目标桶 == BACKUP2_BUCKET → 用本套端点/凭据;其余(主桶/老备份桶)→ 老账号。
+# 兼容:新账号 env 缺失(如本机未填 R2_BACKUP2_*)时 BACKUP2_HOST=None → 全部回退老账号,不崩。
+#   env 键名:R2_BACKUP2_ENDPOINT / R2_BACKUP2_BUCKET / R2_BACKUP2_ACCESS_KEY_ID /
+#   R2_BACKUP2_SECRET_ACCESS_KEY(本机 trade/.env + 云上 trade-data/.env;.gitignore 已忽略,严禁 commit)。
+BACKUP2_BUCKET = os.environ.get("R2_BACKUP2_BUCKET", "signal-backup2")
+BACKUP2_ENDPOINT = os.environ.get("R2_BACKUP2_ENDPOINT", "")
+BACKUP2_AK = os.environ.get("R2_BACKUP2_ACCESS_KEY_ID", "")
+BACKUP2_SK = os.environ.get("R2_BACKUP2_SECRET_ACCESS_KEY", "")
+BACKUP2_HOST = urlparse(BACKUP2_ENDPOINT).hostname if BACKUP2_ENDPOINT else None
+
+# backup 用独立私有桶(不绑公开域名,解决 signal-data 公开可读隐患)。
+# 今后新写默认落新桶 signal-backup2(#178 迁移:老桶 signal-backup 存量不搬,只切今后新写,
+# 老桶存量靠其 lifecycle 自然回收)。.env 可配 R2_BACKUP_BUCKET 覆盖(测试隔离用不存在的桶名,
+# 实测 404 零污染,不 commit .env)。
+BACKUP_BUCKET = os.environ.get("R2_BACKUP_BUCKET", BACKUP2_BUCKET)
 PUBLIC = os.environ.get("R2_PUBLIC_DOMAIN", "").rstrip("/")
 REGION = "auto"
 SERVICE = "s3"
-
-HOST = urlparse(ENDPOINT).hostname
 
 # R2 上传 HTTP 连接超时(秒):默认 30(本机带宽快够用);云上跨境上传带宽 ~1.2-1.6Mbps,
 # >7MB 大文件(凯利交易明细 74.7MB/累积净值 18.5MB 等)必超时失败,云上 systemd 设
@@ -293,26 +316,34 @@ _CTX = ssl.create_default_context(cafile=_CA) if Path(_CA).exists() else ssl._cr
 
 # ---- keep-alive 连接复用 (2026-09-21 R2 上传失败根治: verify-r2 周日全量对账 ~3万 key 逐个 HEAD,
 # 每个 HEAD 新建 HTTPSConnection 跨境握手 ~1s 结构性超时; 同一连接复用连续 HEAD 省 60%+ 对账时间)。
-# 线程局部单连接: ThreadPoolExecutor worker 线程内连续请求复用, 连接失效自动重建。
+# 线程局部**按 host 分桶**复用(#178 跨账号:老/新账号 host 不同,不能共用一个连接,否则会把
+# 新账号桶的请求复用到老账号连接上 → 签名/路由错乱)。ThreadPoolExecutor worker 线程内同 host
+# 连续请求复用, 连接失效自动重建。
 _KA_TLS = threading.local()
 
 
-def _get_keepalive_conn():
-    conn = getattr(_KA_TLS, "conn", None)
+def _get_keepalive_conn(host):
+    conns = getattr(_KA_TLS, "conns", None)
+    if conns is None:
+        conns = {}
+        _KA_TLS.conns = conns
+    conn = conns.get(host)
     if conn is None:
-        conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
-        _KA_TLS.conn = conn
+        conn = http.client.HTTPSConnection(host, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
+        conns[host] = conn
     return conn
 
 
-def _drop_keepalive_conn():
-    conn = getattr(_KA_TLS, "conn", None)
+def _drop_keepalive_conn(host):
+    conns = getattr(_KA_TLS, "conns", None)
+    if conns is None:
+        return
+    conn = conns.pop(host, None)
     if conn is not None:
         try:
             conn.close()
         except Exception:
             pass
-    _KA_TLS.conn = None
 
 
 # ---- multipart 大文件上传 (2026-09-21 R2 上传失败根治: >阈值单文件走 create-multipart-upload →
@@ -357,12 +388,26 @@ def _hmac_hex(key_bytes, msg):
     return hmac.new(key_bytes, msg.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def signing_key(date_stamp):
-    k = _hmac(("AWS4" + SK).encode("utf-8"), date_stamp)
+def signing_key(date_stamp, sk=SK):
+    k = _hmac(("AWS4" + sk).encode("utf-8"), date_stamp)
     k = _hmac(k, REGION)
     k = _hmac(k, SERVICE)
     k = _hmac(k, "aws4_request")
     return k
+
+
+def _route_bucket(bucket):
+    """按目标桶返回 (host, access_key_id, secret_key) —— 跨账号路由(#178, 2026-10-05)。
+
+    备份桶已迁至独立新 CF 账号:目标桶名 == BACKUP2_BUCKET(signal-backup2) 且新账号端点已配置时,
+    用 BACKUP2_* 端点/凭据(独立免费额度);其余(主桶 signal-data、老备份桶 signal-backup legacy)
+    用老账号端点/凭据。新账号 env 未配置(BACKUP2_HOST is None)→ 一律回退老账号,向后兼容不崩。
+    bucket=None 时(未显式指定)按默认主桶 BUCKET 判定。
+    """
+    bkt = bucket or BUCKET
+    if BACKUP2_HOST and bkt == BACKUP2_BUCKET:
+        return BACKUP2_HOST, BACKUP2_AK, BACKUP2_SK
+    return HOST, AK, SK
 
 
 _CONTENT_TYPE_MAP = {
@@ -479,6 +524,7 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
         ext = os.path.splitext(key)[1].lower()
         content_type = _CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
     bkt = bucket or BUCKET
+    host, ak, sk = _route_bucket(bkt)   # #178: 按目标桶选端点/凭据(备份桶→独立新账号)
     last_exc = None
     for attempt in range(5):
         conn = None
@@ -493,7 +539,7 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 path += "/" + quote(key, safe="/")
 
             headers = {
-                "host": HOST,
+                "host": host,
                 "x-amz-date": amz_date,
                 "x-amz-content-sha256": payload_hash,
             }
@@ -525,16 +571,16 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
             ])
 
-            signature = _hmac_hex(signing_key(date_stamp), string_to_sign)
+            signature = _hmac_hex(signing_key(date_stamp, sk), string_to_sign)
             headers["authorization"] = (
-                f"AWS4-HMAC-SHA256 Credential={AK}/{scope}, "
+                f"AWS4-HMAC-SHA256 Credential={ak}/{scope}, "
                 f"SignedHeaders={signed_headers}, Signature={signature}"
             )
 
             if keep_alive:
-                conn = _get_keepalive_conn()
+                conn = _get_keepalive_conn(host)
             else:
-                conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
+                conn = http.client.HTTPSConnection(host, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
             uri = path + ("?" + canonical_query if canonical_query else "")
             if _use_progress:
                 body = _ProgressBody(payload, progress_label)   # 每次重试重建(exhausted 不可复用)
@@ -555,7 +601,7 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 wait = 2 ** attempt  # 1s, 2s, 4s, 8s
                 print(f"  ⚠ {method} {key} HTTP {resp.status} attempt {attempt+1}, {wait}s 后重试", file=sys.stderr)
                 if keep_alive:
-                    _drop_keepalive_conn()
+                    _drop_keepalive_conn(host)
                 time.sleep(wait)
                 continue
             if with_headers:
@@ -564,7 +610,7 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
         except (ssl.SSLError, OSError, http.client.HTTPException) as e:
             last_exc = e
             if keep_alive:
-                _drop_keepalive_conn()
+                _drop_keepalive_conn(host)
             if attempt < 4:
                 import time
                 wait = 2 ** attempt  # 1s, 2s, 4s, 8s
@@ -587,6 +633,7 @@ def s3_head(key, bucket=None, keep_alive=False, with_len=False):
     keep_alive=True(2026-09-21 R2 根治): 复用线程本地连接连续 HEAD, 省跨境握手(~1s/次)。
     """
     bkt = bucket or BUCKET
+    host, ak, sk = _route_bucket(bkt)   # #178: 按目标桶选端点/凭据(备份桶→独立新账号)
     for attempt in range(5):
         conn = None
         try:
@@ -598,7 +645,7 @@ def s3_head(key, bucket=None, keep_alive=False, with_len=False):
             if key:
                 path += "/" + quote(key, safe="/")
             headers = {
-                "host": HOST,
+                "host": host,
                 "x-amz-date": amz_date,
                 "x-amz-content-sha256": payload_hash,
             }
@@ -613,15 +660,15 @@ def s3_head(key, bucket=None, keep_alive=False, with_len=False):
                 "AWS4-HMAC-SHA256", amz_date, scope,
                 hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
             ])
-            signature = _hmac_hex(signing_key(date_stamp), string_to_sign)
+            signature = _hmac_hex(signing_key(date_stamp, sk), string_to_sign)
             headers["authorization"] = (
-                f"AWS4-HMAC-SHA256 Credential={AK}/{scope}, "
+                f"AWS4-HMAC-SHA256 Credential={ak}/{scope}, "
                 f"SignedHeaders={signed_headers}, Signature={signature}"
             )
             if keep_alive:
-                conn = _get_keepalive_conn()
+                conn = _get_keepalive_conn(host)
             else:
-                conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
+                conn = http.client.HTTPSConnection(host, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
             conn.request("HEAD", path, headers=headers)
             resp = conn.getresponse()
             etag = resp.getheader("ETag")
@@ -633,7 +680,7 @@ def s3_head(key, bucket=None, keep_alive=False, with_len=False):
             if status >= 500 and attempt < 4:
                 wait = 2 ** attempt
                 if keep_alive:
-                    _drop_keepalive_conn()
+                    _drop_keepalive_conn(host)
                 print(f"  ⚠ HEAD {key} HTTP {status} attempt {attempt+1}, {wait}s 后重试", file=sys.stderr)
                 time.sleep(wait)
                 continue
@@ -642,7 +689,7 @@ def s3_head(key, bucket=None, keep_alive=False, with_len=False):
             return status, etag
         except (ssl.SSLError, OSError, http.client.HTTPException) as e:
             if keep_alive:
-                _drop_keepalive_conn()
+                _drop_keepalive_conn(host)
             if attempt < 4:
                 wait = 2 ** attempt
                 print(f"  ⚠ HEAD {key} attempt {attempt+1} 失败({type(e).__name__}: {e}), {wait}s 后重试", file=sys.stderr)
@@ -2260,8 +2307,8 @@ def cmd_upload_db():
     本地 .db 备份不变（backup_db.sh 仍存 .db，方便直接恢复），仅 R2 侧压缩。
     周月副本复用日备份已压缩的 payload(同 gz 内容,不同 prefix),不额外压缩。
 
-    上传到 BACKUP_BUCKET(signal-backup 私有桶,不绑公开域名);
-    _prune_r2_backup 分层清 signal-backup(backup/14 + weekly/28 + monthly/365)。
+    上传到 BACKUP_BUCKET(signal-backup2 独立账号私有桶,不绑公开域名,#178);
+    _prune_r2_backup 分层清 signal-backup2(backup/14 + weekly/28 + monthly/365)。
     DB 路径取 $REPO/data（与 backup_db.sh 一致，launchd 下 REPO=trade-data）。"""
     import datetime as _dt, gzip
     repo = Path(os.environ.get("REPO", str(ROOT)))
@@ -2297,7 +2344,7 @@ def cmd_upload_db():
 
 
 def cmd_upload_decommissioned(local, key_name):
-    """退役归档上传到 R2 signal-backup 私有桶 decommissioned/ 前缀(独立前缀,不进 _prune)。
+    """退役归档上传到 R2 signal-backup2 私有桶 decommissioned/ 前缀(独立前缀,不进 _prune)。
 
     用于本地大件/历史 bak 清理时的异地归档:git 不进大文件,manifest+恢复脚本进 git,
     数据本体进 R2 私有桶 decommissioned/(不受 backup//weekly//monthly/ 滚动清理影响,天然长期留存)。
@@ -2329,7 +2376,7 @@ def cmd_upload_decommissioned(local, key_name):
 
 
 def cmd_upload_claude_backup(local_path=None):
-    """上传 Claude 自我备份 tar.gz 到 R2 signal-backup 私有桶 claude-backup/ 前缀。
+    """上传 Claude 自我备份 tar.gz 到 R2 signal-backup2 私有桶 claude-backup/ 前缀。
 
     backup_claude_self.sh(launchd 03:17)tar 打包后调本命令推云端异地备份。
     local_path=None 时取 ~/.claude/backups/daily/ 最新 claude-self-YYYYMMDD.tar.gz。
@@ -2591,7 +2638,7 @@ def _write_large_json_manifest(rows, today_str, date_prefix=False):
         "## 机制一句话",
         "",
         "staticdata 备份仓库 7 个 >20MB JSON(共 ~319MB)已移出 git 跟踪(备份天天 `skip_oversize`",
-        "不 commit 的根因), 改走 R2 私有桶 `signal-backup` 的 `large-json/` 前缀版本化快照。",
+        "不 commit 的根因), 改走 R2 私有桶 `signal-backup2` 的 `large-json/` 前缀版本化快照。",
         "",
     ]
     if date_prefix:
@@ -2635,7 +2682,7 @@ def _write_large_json_manifest(rows, today_str, date_prefix=False):
 
 
 def cmd_upload_large_json():
-    """大 JSON(staticdata 备份 git 排除对象)gzip 推 R2 私有桶 signal-backup large-json/ 前缀 + legacy 旧目录清理。
+    """大 JSON(staticdata 备份 git 排除对象)gzip 推 R2 私有桶 signal-backup2 large-json/ 前缀 + legacy 旧目录清理。
 
     背景(2026-09-25): staticdata 备份 git 仓库 7 个大 JSON(>20MB, 共~320MB)天天变天天进 delta,
     .git 膨胀到 3.3G, 9-25 首跑撞「变更总字节 >300MB」积压阈值跳过 commit。本命令 = 排除对象异地备份:
@@ -3498,16 +3545,16 @@ if __name__ == "__main__":
         #   等价 R2_LARGE_JSON_FORCE_FULL=1; 首跑/状态损坏/周日仍自动全量。
         cmd_upload_large_json()
     elif cmd == "upload-claude-backup":
-        # upload-claude-backup [local_path]  Claude 自我备份 tar.gz -> signal-backup/claude-backup/
+        # upload-claude-backup [local_path]  Claude 自我备份 tar.gz -> signal-backup2/claude-backup/
         local_path = sys.argv[2] if len(sys.argv) > 2 else None
         cmd_upload_claude_backup(local_path)
     elif cmd == "upload-decommissioned":
-        # upload-decommissioned <local_path> <key_name>  退役归档 -> signal-backup/decommissioned/
+        # upload-decommissioned <local_path> <key_name>  退役归档 -> signal-backup2/decommissioned/
         local = sys.argv[2]
         key_name = sys.argv[3]
         cmd_upload_decommissioned(local, key_name)
     elif cmd == "download-db":
-        # download-db <name> [out_dir]  从 signal-backup 下载最新 backup/<name>_YYYYMMDD.db[.gz]
+        # download-db <name> [out_dir]  从 signal-backup2 下载最新 backup/<name>_YYYYMMDD.db[.gz]
         # 返回解压后 .db 路径(stdout)。用于 verify_backup.sh 恢复演练。
         name = sys.argv[2]
         out_dir = sys.argv[3] if len(sys.argv) > 3 else None

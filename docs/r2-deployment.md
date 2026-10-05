@@ -87,8 +87,15 @@ R2_S3_ACCESS_KEY_ID=<R2 Access Key ID>
 R2_S3_SECRET_ACCESS_KEY=<R2 Secret Access Key>
 R2_S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 R2_PUBLIC_DOMAIN=https://ssd.fx8.store
-# 备份用独立私有桶（不绑公开域名）
-R2_BACKUP_BUCKET=signal-backup
+# 备份用独立私有桶（不绑公开域名）—— 已迁至独立 CF 账号新桶 signal-backup2（#178，2026-10-05）
+# 独立免费额度，防备份挤爆主账号配额；老桶 signal-backup 存量不搬（只读 legacy，靠其 lifecycle 回收）
+# 按目标桶路由：桶名 == R2_BACKUP2_BUCKET → 用下面这套新账号端点/凭据；其余（主桶/老备份桶）→ 主账号
+R2_BACKUP2_ENDPOINT=https://<NEW_ACCOUNT_ID>.r2.cloudflarestorage.com
+R2_BACKUP2_BUCKET=signal-backup2
+R2_BACKUP2_ACCESS_KEY_ID=<新账号 Access Key ID>
+R2_BACKUP2_SECRET_ACCESS_KEY=<新账号 Secret Access Key>
+# 目标备份桶（默认 = R2_BACKUP2_BUCKET，可覆盖；测试隔离用不存在的桶名）
+# R2_BACKUP_BUCKET=signal-backup2
 ```
 
 ### 2.3 PURGE_SECRET
@@ -103,7 +110,8 @@ Worker `/api/purge-cache` 接口认证密码，需同时在两处配置：
 | Bucket | 可见性 | 用途 | 绑定 |
 |---|---|---|---|
 | `signal-data` | 公开（ssd.fx8.store 直链 + Worker binding） | 线上数据文件（JSON/HTML） | wrangler.jsonc `R2_BUCKET` |
-| `signal-backup` | 私有（不绑域名） | DB 备份 + Claude 自我备份 | upload_r2.py `BACKUP_BUCKET` |
+| `signal-backup2` | 私有（不绑域名，**独立 CF 账号**） | DB 备份 + Claude 自我备份 + large-json（**今后新写**，#178） | upload_r2.py `BACKUP_BUCKET`（路由 → 新账号 `R2_BACKUP2_*`） |
+| `signal-backup` | 私有（不绑域名，老账号 legacy） | 迁移前存量（**不搬**，只读，靠其 lifecycle 自然回收） | — |
 
 ### 2.5 创建 R2 Bucket
 
@@ -116,14 +124,15 @@ npx wrangler r2 bucket create signal-data
 # 设置公开访问域名（CF Dashboard -> R2 -> signal-data -> Settings -> Public access）
 # 绑定域名 ssd.fx8.store
 
-# 创建备份 bucket（私有，不绑域名）
-npx wrangler r2 bucket create signal-backup
+# 创建备份 bucket（私有，不绑域名）—— 已迁至【独立 CF 账号】新桶 signal-backup2（#178, 2026-10-05）
+# 注意：signal-backup2 在第二个 CF 账号下，需先用该账号登录 wrangler（或在其 Dashboard 建桶）
+npx wrangler r2 bucket create signal-backup2
 
 # 创建 R2 API Token（S3 兼容）
-# CF Dashboard -> R2 -> Manage R2 API Tokens -> Create API Token
-# 权限：Object Read & Write（两个 bucket）
-# 复制 Access Key ID + Secret Access Key + Endpoint（含 Account ID）
-# 填入 trade/.env
+# 主账号：CF Dashboard -> R2 -> Manage R2 API Tokens -> Create API Token
+#   权限：Object Read & Write（signal-data + legacy signal-backup）→ 填 R2_S3_*（trade/.env）
+# 备份新账号：在第二个 CF 账号同样建 R2 API Token（Object Read & Write，signal-backup2）
+#   → 填 R2_BACKUP2_*（trade/.env + 云上 trade-data/.env）
 ```
 
 ---
@@ -367,7 +376,11 @@ R2_S3_ACCESS_KEY_ID=<填入>
 R2_S3_SECRET_ACCESS_KEY=<填入>
 R2_S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 R2_PUBLIC_DOMAIN=https://ssd.fx8.store
-R2_BACKUP_BUCKET=signal-backup
+# 备份桶走独立新账号（#178）：R2_BACKUP2_* 端点/凭据 + 目标桶(默认 = R2_BACKUP2_BUCKET)
+R2_BACKUP2_ENDPOINT=https://<NEW_ACCOUNT_ID>.r2.cloudflarestorage.com
+R2_BACKUP2_BUCKET=signal-backup2
+R2_BACKUP2_ACCESS_KEY_ID=<新账号 Access Key ID>
+R2_BACKUP2_SECRET_ACCESS_KEY=<新账号 Secret Access Key>
 EOF
 
 # trade-data/.env（运行时密钥）
