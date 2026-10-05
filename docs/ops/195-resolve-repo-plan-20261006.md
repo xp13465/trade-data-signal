@@ -275,13 +275,17 @@ resolve_repo "${BASH_SOURCE[0]}"
 - **验收点**:静态断言 21/21 + `bash -n` 21/21 + 云上只读抽样 3 个(时间散点跨日:如 fapi_daily + pf_score_daily + gold_night)+ 上线后 48h 无新增 failed。
 - **回归策略**:批量 commit 但按文件粒度写 message(脚本名列表),出问题可按文件名 revert。
 
+> ⚠️ **2026-10-06 订正(批4 实施 + 独立审实测,第三次同款)**:本节「export 类 = 1(turnover_backfill)」**与代码现状不符** —— 实测本批带 export 的是 **6 个**(`etf_national_team_backfill` / `gold_night` / `pf_score_daily` / `pf_score_weekly` / `turnover_backfill` / `update_lab`),独立审用自建解析器复算同值;§2.2 主表另有 5 处误标「否」。⇒ **「export / 边界」列一律不可作派单依据,后续一律以「读代码现状」为准**(批2「3 个」实测 2 个、批3「3 个」实测 7 个、本批「1 个」实测 6 个)。
+
 ### 4.5 批5 — 链内被调 / 孤儿 16 个(低组,收尾)
 
 - **内容**:backfill_indices / build_echarts / check_signals / collect / fix_turnover_partial_20260814 / fund_nav_upload_async / migrate_large_json_out_of_git / pipeline / push_schedule_stats / r2_upload_async / stage0_full_manual / staticdata_backup_async / staticdata_sync / sync_fund_score_to_d1 / update_all_serial / verify_backup。
 - **为什么最后**:失败时有父链日志(update_all/deploy/r2_upload 链),自身多无 notify;孤儿 5 个中 4 个在此,**优先级最低但必须收**——不修则"链内传递"仍是 env 依赖翻版(父脚本迁移后子脚本若自算 REPO 仍是 mac 默认,反而暴露跨脚本 hash 不一致风险,见 §5.9)。
 - **边界**:16 文件 header;migrate_large_json_out_of_git / staticdata_backup_async / staticdata_sync 三个含 STATICDATA_REPO,若采纳 `resolve_staticdata_repo` 则在这三个文件落地(或维持原样仅 REPO/GIT_REPO 迁移,STATICDATA_REPO 留待独立小批,记入 §7 待拍板)。
+  - **2026-10-06 主控决定(随批5 落地,附实测依据)**:lib 里**只有** `resolve_repo` / `_resolve_repo_fatal` —— **`resolve_staticdata_repo` 从未实现**(§3.6 的提法不成立),故不新增 lib 函数;三个文件把 `STATICDATA_REPO` 的 **mac 字面量默认值**改为从 `$GIT_REPO` 推导:`STATICDATA_REPO="${STATICDATA_REPO:-$(dirname "$GIT_REPO")/trade-data-signal-staticdata}"`。**实测两机取值不变**:mac `GIT_REPO=/Users/linhuichen/code/trade` ⇒ `dirname`=`/Users/linhuichen/code` ⇒ `/Users/linhuichen/code/trade-data-signal-staticdata`(实测 `ls -d` 存在);云上 `GIT_REPO=/home/ubuntu/code/trade-data-signal` ⇒ `/home/ubuntu/code/trade-data-signal-staticdata`(实测存在)。**已排除的错解**:写成 `${GIT_REPO}-staticdata` —— mac 上 GIT_REPO 尾名是 `trade`(不是 `trade-data-signal`),会推出不存在的 `trade-staticdata`。实施须两机逐字节验证,**证不出就停手上报**;另需保 `staticdata_sync.sh` L36-37 既有 `${GIT_REPO}-staticdata` 兜底分支语义不被破坏。ratchet `PATTERN` 含 `STATICDATA_REPO` 且 R3 要求 MIGRATED 文件零残留 mac 字面量 ⇒ 这三处必须一起去。
 - **验收点**:静态断言 16/16 + `bash -n` 16/16 + 本机干跑 verify_backup(设 REPO 不存在→rc=2 无外发)+ 上线后 48h 无新增 failed。
-- **回归策略**:低风险批,异常按文件 revert;孤儿脚本(update_all_serial/build_echarts/stage0_full_manual/fix_turnover_partial)迁移后**本机 dry-source**一次(仅 source+打印 REPO)即可。
+  - ⚠️ **2026-10-06 主控收紧(§18 L50)**:原文「本机**干跑** `verify_backup`」与本节下文「孤儿脚本本机 **dry-source** 一次(仅 source+打印 REPO)」**均会执行脚本主体,一律取消** —— 改用**静态 diff + 只 source `scripts/lib/repo_paths.sh` 的探针**覆盖同一断言。起因:批4 审查 harness 门控被真实形态绕过、**真跑了 `fapi_daily_syn.sh`**(L50)。
+- **回归策略**:低风险批,异常按文件 revert;孤儿脚本(update_all_serial/build_echarts/stage0_full_manual/fix_turnover_partial)迁移后**只做静态 diff + lib 探针**(原「本机 dry-source」已按 §18 L50 取消,见上)。
 
 ### 4.6 机检 ratchet(防 58/59 号脚本回潮与新脚本漏接)
 
