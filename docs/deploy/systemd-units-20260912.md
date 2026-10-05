@@ -87,12 +87,14 @@ PURGE_SECRET 值(本机全部 plist 一致):见 `/home/ubuntu/code/trade-data/.e
 
 > 每个任务给出:源 plist 摘要(脚本/时点/env/超时)→ `.timer` 与 `.service` 完整内容。
 > 统一模板:`Type=oneshot` + `Persistent=true`(服务器宕机错过时点后补跑,等价于保证数据完整)。
+>
+> ⚠️ **service `TimeoutStartSec` 口径(2026-10-05,#189 对齐)**:下方各 unit 块 = 云上**当前实值**(权威 = 云上 `/etc/systemd/system/trade-*.service`,手管、`git pull` 不更新)。迁移批(2026-09-12)照搬本机 `ExitTimeOut` 的初值,已于 **2026-09-16 #36 超时收口**整体重定(慢任务→`0`=无限 / 快任务→`600`;详见 docs/deploy/timeout-caliber-20260916.md),**ini 块取值以收口后为准**;`- 脚本:… | ExitTimeOut=N` 行里的 N 是**迁移源 plist 的 ExitTimeOut**(非云上现值),仅作迁移溯源。生成器 `scripts/gen_systemd_units.py` 以本节为生成源 ⇒ 本节必须与云上实值一致;机检 `python3 scripts/systemd_timeout_gradient_audit.py --dump docs/deploy/systemd-units-cloud-snapshot.txt --check-doc`(挂 `scripts/main-merge.sh` 7.8)逐字段校验本快照,防「旧值被重跑生成器静默装回云上」。
 
 ---
 
 ### 2.1 update-all(盘后主链 17:50;周日 22:30 错峰)
 - 脚本:`update_all.sh`(4 并行 pipeline + 末尾 deploy;内嵌 backup_db.sh L357——备份已另设 21:00 独立 timer,见 §4,阶段4 删 L357 段)
-- 时点:周一~周六 17:50 | **周日 22:30(2026-10-04 错峰)**:周日 R2 force_full 全量 + verify-r2 ~3 万 key 对账结构性慢(10-04 段1 预估 10007s≈2h48m,依据 09-20 实测 10754s≈2h59m 外推;真测锚点=09-20 10754s≈2h59m),挪凌晨安静段避免拖 evening 链;22:30 起最长 ~3h 跑至 ~01:30 周一,不与凌晨 02:00 backfill-evening / 02:17 pf-stage0-overview / 02:40 gold-night / 每月15日 02:33 pf-stage0-risk / 每月1日 02:47 pf-stage0-manager / 03:00 quarterly / 03:17 pf-score-weekly / 03:30 etf-track / 04:00 lof-track / 05:00 us-stock 撞车(完整撞车对照见 docs/ops/r2-upload-failure-fix-20260921.md 改动4,含月级低频项重新枚举)。§14 安全窗口(23:00 后)兼容。| ExitTimeOut=7200(service TimeoutStartSec=10800)
+- 时点:周一~周六 17:50 | **周日 22:30(2026-10-04 错峰)**:周日 R2 force_full 全量 + verify-r2 ~3 万 key 对账结构性慢(10-04 段1 预估 10007s≈2h48m,依据 09-20 实测 10754s≈2h59m 外推;真测锚点=09-20 10754s≈2h59m),挪凌晨安静段避免拖 evening 链;22:30 起最长 ~3h 跑至 ~01:30 周一,不与凌晨 02:00 backfill-evening / 02:17 pf-stage0-overview / 02:40 gold-night / 每月15日 02:33 pf-stage0-risk / 每月1日 02:47 pf-stage0-manager / 03:00 quarterly / 03:17 pf-score-weekly / 03:30 etf-track / 04:00 lof-track / 05:00 us-stock 撞车(完整撞车对照见 docs/ops/r2-upload-failure-fix-20260921.md 改动4,含月级低频项重新枚举)。§14 安全窗口(23:00 后)兼容。| ExitTimeOut=7200(迁移批取 service TimeoutStartSec=10800;2026-09-16 #36 收口为 `0`=无限)
 
 > 注:下方 `trade-update-all` unit 块 = 云上实际配置(2026-10-04 改),非 2026-09-12 迁移批初值。标题注记从标题行移出到本注(原 `trade-update-all.timer`(云上实际配置,2026-10-04 改): 尾带括号文字,致 `scripts/gen_systemd_units.py` 的标题正则 `^`trade-<name>.timer`:$` 漏解析该 unit,2026-10-05 修复)。
 
@@ -125,7 +127,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/update_all.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=10800
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/update_all_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/update_all_launchd.err
 ```
@@ -191,7 +193,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/intraday_snapshot.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=1800
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/intraday_snapshot_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/intraday_snapshot_launchd.err
 ```
@@ -227,7 +229,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/kelly_intraday_rerun.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=200
+TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/kelly_intraday_rerun_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/kelly_intraday_rerun_launchd.err
 ```
@@ -302,7 +304,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/etf_national_team_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=7200
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/etf_national_team_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/etf_national_team_launchd.err
 ```
@@ -338,7 +340,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/fetch_etf_track_index.py
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=1800
+TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/etf-track-index-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/etf-track-index-launchd.err
 ```
@@ -375,7 +377,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/fetch_lof_track_index.py
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=1800
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/lof-track-index-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/lof-track-index-launchd.err
 ```
@@ -412,7 +414,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/fapi_daily_syn.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=600
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/fapi_daily_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/fapi_daily_launchd.err
 ```
@@ -449,7 +451,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/futures_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=7200
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/futures_backfill_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/futures_backfill_launchd.err
 ```
@@ -485,7 +487,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/gold_night.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=600
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/gold_night_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/gold_night_launchd.err
 ```
@@ -522,7 +524,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/lhb_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=7200
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/lhb_backfill_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/lhb_backfill_launchd.err
 ```
@@ -559,7 +561,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/rzhb_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=7200
+TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/rzhb_backfill_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/rzhb_backfill_launchd.err
 ```
@@ -595,12 +597,12 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/turnover_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=300
+TimeoutStartSec=0
 ```
 
 ### 2.13 ab-direction-anchor(21:15)
 - 脚本:`run_ab_direction_anchor.sh` | 时点:21:15
-- env:全量注入 REPO/MAIN_REPO(= 数据目录)、GIT_REPO/TRADE_DIR(= 代码仓);源 plist 无 ExitTimeOut、无 WorkingDirectory(此处补 WorkingDirectory=/home/ubuntu/code/trade-data 数据目录 + TimeoutStartSec=900 保险,防 systemd 默认 90s 强杀)
+- env:全量注入 REPO/MAIN_REPO(= 数据目录)、GIT_REPO/TRADE_DIR(= 代码仓);源 plist 无 ExitTimeOut、无 WorkingDirectory(此处补 WorkingDirectory=/home/ubuntu/code/trade-data 数据目录 + TimeoutStartSec 保险,防 systemd 默认 90s 强杀;迁移批取 `900`,2026-09-16 #36 收口为 `600`)
 
 `trade-ab-direction-anchor.timer`:
 ```ini
@@ -630,7 +632,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_ab_direction_anchor.sh
 Environment=TRADE_DIR=/home/ubuntu/code/trade-data-signal
-TimeoutStartSec=900
+TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.out.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.err.log
 ```
@@ -807,7 +809,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_daily_brief.sh --multi
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=900
+TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/daily_brief_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/daily_brief_launchd.err
 ```
@@ -878,7 +880,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/brief_push_wrapper.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=300
+TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/brief_push_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/brief_push_launchd.err
 ```
@@ -951,7 +953,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/pf_score_daily.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=1800
+TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/pf-score-daily-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/pf-score-daily-launchd.log
 ```
@@ -987,7 +989,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/pf_score_weekly.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=14400
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/pf-score-weekly-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/pf-score-weekly-launchd.log
 ```
@@ -1023,7 +1025,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/stage0_nav.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=21600
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/stage0-nav-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/stage0-nav-launchd.log
 ```
@@ -1059,7 +1061,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/stage0_overview.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=25200
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/stage0-overview-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/stage0-overview-launchd.log
 ```
@@ -1095,7 +1097,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/stage0_risk.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=18000
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/stage0-risk-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/stage0-risk-launchd.log
 ```
@@ -1131,7 +1133,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/stage0_manager.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=12600
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/stage0-manager-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/stage0-manager-launchd.log
 ```
@@ -1168,7 +1170,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_daily.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=1800
+TimeoutStartSec=900
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/public_fund_daily_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/public_fund_daily_launchd.err
 ```
@@ -1207,7 +1209,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_estimation.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=120
+TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/public_fund_estimation_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/public_fund_estimation_launchd.err
 ```
@@ -1243,7 +1245,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_full.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=21600
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/public_fund_full_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/public_fund_full_launchd.err
 ```
@@ -1281,7 +1283,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_quarterly.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=7200
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/public_fund_quarterly_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/public_fund_quarterly_launchd.err
 ```
@@ -1317,7 +1319,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/overfit_monitor.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=900
+TimeoutStartSec=0
 ```
 
 ### 2.32 lab-auto(19:00 lab 页数据)
@@ -1351,7 +1353,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/update_lab.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=7200
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/update_lab_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/update_lab_launchd.err
 ```
@@ -1387,7 +1389,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/us_stock_morning.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=7200
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/us_stock_morning_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/us_stock_morning_launchd.err
 ```
@@ -1424,7 +1426,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/self_heal.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=10800
+TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.err
 ```
@@ -1545,7 +1547,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/backup_db.sh
 Environment=RETAIN_DAYS=7
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=7200
+TimeoutStartSec=0
 ```
 > 注:backup_db.sh 自身写 `$LOG`(data/logs 下)并 `notify.py --severe` 告警,stdout/stderr 走 journal 即可;如要保留文件可加 `StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/backup_db_systemd.log`。
 
