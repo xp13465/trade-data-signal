@@ -158,7 +158,7 @@ def test_223_timeout_gradient_and_copy():
 
     print("\n[C] ① / ② / gap_check 值未动(只加注释)")
     for f, old in ((ROOT / "scripts" / "gen_daily_brief.py", "timeout=120"),
-                   (ROOT / "scripts" / "nextday_plan_generator.py", "timeout=300"),
+                   (ROOT / "scripts" / "nextday_plan_generator.py", "timeout=480"),  # #223②(2026-10-07 拍板) 300→480: 契约值同步(该链唯一 CI 契约点)
                    (ROOT / "scripts" / "nextday_gap_check.py", "timeout=300")):
         t = _src(f)
         ck(old in t, f"{f.name}: {old} 保留(未改值)")

@@ -1178,10 +1178,13 @@ def main():
             # 算式(逐字见 docs/ops/223-123-inner-timeout-evidence-20261006.md §3.3):
             #   480 + 28(上传前 ≤10s + 超时后处理实测 18s) = 508 < 600(本链外层 systemd
             #   TimeoutStartSec 硬墙), 余 92s; 480 亦 > 观测触发的下界 300s(2026-09-30 318s 事件)。
-            # 不加运行时梯度守卫: 外层固定 600 ⇒ 480 < 600 无倒置(与 #217②/overfit 先例的
-            # 「外层无界/未知」场景不同); 且 #217②/overfit 守卫的「内层 HTTP(云上 .env=600)≥
-            # 本层则抬升」规则会把 480 抬过 600 = 越 systemd 墙(禁止), 故本处显式不采用该规则,
-            # 改由本注释 + tests/test_223_nextday_plan_timeout.py 固化「480 < 600」不变量。
+            # 不加运行时梯度守卫(对齐 #6.5 少写抽象: 无第二真实使用者不造抽象):
+            #   · #217② 版(无外层感知)照抄会越墙、不可用 —— 其「内层 HTTP(云上 .env=600)≥ 本层
+            #     则抬到 内层+300」规则会把 480 抬到 900 > 600(越 systemd 墙, 禁止);
+            #   · #223④ overfit 版(有外层感知)在本处行为中性但产噪 —— 代入 外层 600 + 内层 HTTP 600,
+            #     走其「外层优先不越墙」分支保持 480(不抬过 600), 但该倒置条件恒真 ⇒ 每次运行打一行永久 warn。
+            # 外层固定 600 ⇒ 480 < 600 无倒置, 改由本注释 +
+            # tests/test_223_nextday_plan_timeout.py 固化「480 < 600」不变量。
             # 仍 < 内层 HTTP 600 的倒置经拍板接受(外层优先不越墙, 保本层优雅超时先于 systemd SIGKILL)。
             r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=480)
             log(f"R2 退出码={r.returncode}\n{r.stdout}")
