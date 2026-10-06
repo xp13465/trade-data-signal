@@ -59,7 +59,8 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **历史教训**:曾算法改了公示没改用户看老规则,修复需重新定位所有公示点+更新+重新上线,成本高
 
 ## 3. 上线操作细节(原 §8 操作层,摘要见根共享核心)
-- ⚠️ **push main 统一入口(防再犯机制 D,2026-08-19)**:agent 只 push **feat 分支**,**禁止 agent 直接 push main**。merge+push main 一律由主控走 `scripts/main-merge.sh <feat>` 统一入口(内含 base 新鲜校验 + merge + 统一 build_min/bump + §24⑤/check_version_progress + push main)。push main 不归 agent。
+- ⚠️ **push main 统一入口(防再犯机制 D,2026-08-19)**:agent 只 push **feat 分支**,**禁止 agent 直接 push main**。merge+push main 一律由主控走 `scripts/main-merge.sh <feat>` 统一入口(内含 base 新鲜校验 + merge + 统一 build_min/bump + §24⑤/check_version_progress + push main + **push 后自动自查 CI 结论**)。push main 不归 agent。
+- **push 后 CI 自查(2026-10-07 用户定,防「CI FAIL 无人察觉」)**:main-merge.sh 第 11 步在 push main 成功后自动轮询 GitHub Actions(`scripts/lib/ci_selfcheck.sh`),按 head_sha + 目标 workflow(`CI Quality Gate`)匹配本次 commit 的 CI run:success 打印一行;**FAIL 醒目告警(run 编号/html_url/失败 job 名)+ exit 9**(主控须立即派修 §23.11);拿不到结论(网络/超时/无匹配)warn + 提示手动复核(不让 push 看起来失败)。逃生门 `CI_SELFCHECK_SKIP=1`。**mac 自测绿 ≠ CI Linux 绿**,此步补上「push 后必须看 CI」。
 - ⚠️ **worktree agent 改前端源码不自行 bump 版本串**(防再犯机制 C,2026-08-19):改 app.js/lab.js/common.js/style.css 的 worktree agent **不自行跑 bump_asset_version.py**(多 agent 各自 bump 会撞号/stale bump,08-18 根因 §三.2),由主控 merge 时 main-merge.sh 统一跑 build_min+bump(版本串唯一权威入口,回归 08-13「merge 收尾统一 bump」模式)。
 - ⚠️ **完成报告必带「base commit + 版本串前后值」**(防再犯机制 D,2026-08-19):agent 完成报告必须写明 base commit(开工时基于的 origin/main 或 merge-base)+ 改动前后版本串值(若改前端源码,记录改动前版本串,由主控 merge 统一 bump 成新值)。
 - **开工强制 rebase origin/main + base 新鲜校验(防再犯缺口①,2026-08-19)**:worktree 或分支开工前先 `git fetch origin && git rebase origin/main`;提交前用 `git merge-base --is-ancestor origin/main HEAD && echo base-fresh || echo base-stale` 校验 base 新鲜(base 落后则先 rebase 再提交,防基于旧 base 提交静默覆盖最近改动)。
