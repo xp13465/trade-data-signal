@@ -2151,7 +2151,8 @@ def _export_trades_parts(trades_data, trades_path):
       首页弹窗打开只拉这一片秒开)
     - t{YYYY}.json: 按 signal_date 年份切片(空年份不出文件; 弹窗超出热区时按年并行拉)
 
-    每片结构与全量完全一致 {generated_at,buy_amount,period_cutoffs,fields,quadrants},
+    每片结构 = {fields,quadrants}(#219 治本 2026-10-06: 撤出每轮必变的生成器元数据
+    generated_at/buy_amount/period_cutoffs, 详见 _dump 内注释与 docs/ops/219-parts-metadata-fix-20261006.md),
     quadrants[qk][mk] 只含属于该片/该窗口的行(空 qk 整键省略)。前端两策略互斥取用
     (热区内只用 recent / 超出只用年片), 拼接不会重复计数。
     全量 signal_kelly_trades.json 本体不动(lab.js 凯利区依赖 + §23.7 冻结契约),
@@ -2164,10 +2165,20 @@ def _export_trades_parts(trades_data, trades_path):
     sig_i = fields.index("signal_date")
 
     def _dump(name, rows_by_qm):
+        # #219 治本(2026-10-06): 分片文件**只含数据本体**(fields+quadrants), 撤出三个「每轮必变」
+        # 的生成器元数据 generated_at/period_cutoffs/buy_amount。
+        # 根因: 上传链按 B 档结构化指纹(剔除这三字段)判「内容没变→跳过」, 而 verify-r2 按**整文件
+        # md5** 对账; export 每轮重写这三字段 ⇒ 整文件 md5 每轮都变 ⇒ verify 每轮必然全量「对不上」
+        # ⇒ 每轮补传整目录(~179MB/轮 × 5~7 轮/天 ≈ 0.9~1.2GB/天跨境); 而数据本体其实零变化。
+        # 三字段前端/后端/脚本**零消费**(见 docs/ops/219-parts-metadata-fix-20261006.md 穷举清单):
+        #   - generated_at = 生成时刻(可观测性由全量 trades 的 mtime/generated_at 承担, 本片无需)
+        #   - period_cutoffs = 滚动日期切点(前端读的是 signal_kelly_backtest.json 的 config.period_cutoffs)
+        #   - buy_amount = 常量(前端 td.buy_amount 恒 undefined, 一律回退 data.config.buy_amount)
+        # 撤出后整文件内容 ≡ B 档指纹(见 upload_r2._kelly_parts_md5)⇒ 两把尺子合流: 本体不变则
+        # 上传链跳过且 verify 0 补传; 本体真变/R2 被破坏或丢失 ⇒ 两处都照旧发现并补传(判别力不降)。
+        # sort_keys=True: 让文件字节规范化, 与 _kelly_parts_md5 的 sort_keys 序列化逐字节一致
+        # (file_md5 ≡ B 档指纹, 杜绝「内容同但键序不同」造成的残余代差)。
         shard = {
-            "generated_at": trades_data["generated_at"],
-            "buy_amount": trades_data["buy_amount"],
-            "period_cutoffs": trades_data["period_cutoffs"],
             "fields": fields,
             "quadrants": {},
         }
@@ -2180,7 +2191,7 @@ def _export_trades_parts(trades_data, trades_path):
                 if rows:
                     shard["quadrants"][qk][mk] = rows
                     n += len(rows)
-        payload = json.dumps(shard, ensure_ascii=False, separators=(",", ":"))
+        payload = json.dumps(shard, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         # codex-002 high: 分片原子写——同目录唯一 .tmp + flush + fsync + os.replace,
         # 防进程中断/并发写把半截 JSON 留在最终文件被前端 fetch 到(解析炸/旧数据混版)
         atomic_write_text(os.path.join(parts_dir, name), payload)
