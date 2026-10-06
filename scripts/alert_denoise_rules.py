@@ -205,6 +205,10 @@ def extract_script_paths(exec_start_entries):
     **为什么只认 .sh/.py**: 保守 + 零误报 —— 解释器/子命令/flag 一律不认, 认不出返回 []
     (fail-open: 解析不到就不检查, 绝不把「解析失败」报成「脚本被删」)。
     entries 可为 str / list[str] / None(调用方直接喂 systemctl show 的原始行)。
+
+    ⚠️ 调用方须喂「真正持 ExecStart 的 unit」的原始行: `.timer` 自身**无 ExecStart 属性**,
+    须先经 check_failed_units._resolve_exec_entries 解析到它触发的 `.service` 再取 ExecStart
+    (2026-10-06 #203 根因: 直读 timer 的 ExecStart 恒空 → 本层生产空转/假绿)。
     """
     if isinstance(exec_start_entries, str):
         exec_start_entries = [exec_start_entries]

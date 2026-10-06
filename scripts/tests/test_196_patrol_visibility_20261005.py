@@ -19,6 +19,7 @@
 跑法: python3 -m pytest -q scripts/tests/test_196_patrol_visibility_20261005.py
 """
 import json
+import os
 import re
 import subprocess
 import sys
@@ -28,6 +29,7 @@ import pytest  # noqa: F401  (显式依赖声明)
 
 sys.path.insert(0, str(Path(__file__).absolute().parent.parent))
 import alert_denoise_rules as adr  # noqa: E402
+import check_failed_units as cfu_mod  # noqa: E402  (纯函数 _resolve_exec_entries 单测用)
 import notify  # noqa: E402  (conftest 已加 scripts/ 入 sys.path)
 
 ROOT = Path(__file__).absolute().parent.parent.parent
@@ -35,9 +37,47 @@ SCRIPTS = ROOT / "scripts"
 CFU = SCRIPTS / "check_failed_units.py"
 
 # 全部巡检/监控 timer 健康样本(ActiveState=active / LoadState=loaded / UnitFileState=enabled);
-# 由 adr.WATCHMAN_UNITS 推导, 清单增删自动跟随(不写死 5 个, 防两处清单漂移)
+# 由 adr.WATCHMAN_UNITS 推导, 清单增删自动跟随(不写死 5 个, 防两处清单漂移)。
+# ⚠️ 这是「状态判定」专用 fixture(只喂三态, 不含脚本存在性数据)——脚本存在性(②b)必须用下面
+#    「云上实测形态」fixture(_real_cloud_show), 不得给 .timer 喂 ExecStart(§18 L49 假样本养绿)。
 HEALTHY_SHOW = {u: {"ActiveState": "active", "LoadState": "loaded", "UnitFileState": "enabled"}
                 for u, _ in adr.WATCHMAN_UNITS}
+
+# ── 云上实测 fixture(#203, 2026-10-06 只读 `systemctl show` 逐字取证) ──
+# 形态与云上真值同形: `.timer` 只带 `Triggers=<名>.service`(timer 无 ExecStart),
+# ExecStart 落在其触发的 `.service` 上。WATCHMAN_UNITS 7 个 timer 的真实目标脚本:
+CLOUD_ROOT = "/home/ubuntu/code/trade-data"
+WATCHMAN_SCRIPT_BY_UNIT = {
+    "trade-cloud-unit-patrol.timer": f"{CLOUD_ROOT}/scripts/cloud_unit_patrol.sh",
+    "trade-check-monitor-heartbeat.timer": f"{CLOUD_ROOT}/scripts/check_monitor_heartbeat.py",
+    "trade-schedule-monitor.timer": f"{CLOUD_ROOT}/scripts/schedule_monitor.sh",
+    "trade-self-heal.timer": f"{CLOUD_ROOT}/scripts/self_heal.sh",
+    "trade-r2-consistency.timer": f"{CLOUD_ROOT}/scripts/check_r2_consistency.sh",
+    "trade-check-data-gap.timer": f"{CLOUD_ROOT}/scripts/check_data_gap_alerts.sh",
+    "trade-overfit-monitor.timer": f"{CLOUD_ROOT}/scripts/overfit_monitor.sh",
+}
+
+
+def _real_cloud_show(root=CLOUD_ROOT):
+    """由云上实测(2026-10-06 `systemctl show` 逐字)构造的 show_map, 形态与云上同形:
+    .timer 只带 Triggers(指向 .service), ExecStart 在其触发的 .service 条目上。
+
+    root: 把脚本路径根从 /home/ubuntu/... 迁到受控临时目录(**仅**用于在 mac/CI 上确定性
+    地跑 exists/missing 两分支; 结构/文件名保持云上真值不变, 非人工构造样本)。
+    """
+    show = {}
+    for timer, script in WATCHMAN_SCRIPT_BY_UNIT.items():
+        svc = timer.replace(".timer", ".service")
+        show[timer] = {"Id": timer, "ActiveState": "active", "LoadState": "loaded",
+                       "UnitFileState": "enabled", "Triggers": svc}
+        ipath = (f"{root}/.venv/bin/python" if script.endswith(".py") else "/bin/bash")
+        local = script.replace(CLOUD_ROOT, root)
+        show[svc] = {"Id": svc, "LoadState": "loaded", "ActiveState": "inactive",
+                     "UnitFileState": "static",
+                     "ExecStart": (f"{{ path={ipath} ; argv[]={ipath} {local} ; "
+                                   "start_time=[Tue 2026-10-06 08:27:01 CST] ; pid=892245 ; "
+                                   "code=exited ; status=0 }")}
+    return show
 
 
 def _run_cfu(tmp_path, failed_text="", show_map=None, repo=None, extra=None):
@@ -142,6 +182,66 @@ def test_extract_script_paths_fail_open_on_junk():
     assert adr.extract_script_paths("") == []
     assert adr.extract_script_paths("ExecStart={ path=/bin/bash ; status=0 }") == []
     assert adr.extract_script_paths("garbage without marker") == []
+
+
+# ══════════════════════════════════════════════════════════════════
+# ①c 纯函数+回归: _resolve_exec_entries(.timer → Triggers → .service, #203 根因修复)
+# ══════════════════════════════════════════════════════════════════
+def test_resolve_exec_entries_timer_real_cloud_shape_nonempty():
+    """#203 根因回归(核心): 云上真实形态(.timer 无 ExecStart, 只带 Triggers 指向 .service)下,
+    ②b 层必须解析出**非空**的真实脚本路径 —— 修复前恒空(生产空转/假绿)。
+
+    7 个 WATCHMAN_UNITS timer 逐个断言, 路径与云上 systemctl show 真值一致。"""
+    show = _real_cloud_show()
+
+    def _lookup(u):
+        return show.get(u) or {}
+
+    for timer, expected in WATCHMAN_SCRIPT_BY_UNIT.items():
+        entries = cfu_mod._resolve_exec_entries(timer, "timer", _lookup)
+        assert adr.extract_script_paths(entries) == [expected], f"{timer} 未解析到真实脚本路径"
+
+
+def test_resolve_exec_entries_timer_ignores_own_execstart_fake_sample():
+    """反假样本护栏(§18 L49): 给 .timer **自己**喂 ExecStart(云上现实不存在的形态)不得被采信
+    —— 必须仍只认 Triggers → .service 链路。防「注入假样本养绿」再次复发。"""
+    fake = "{ path=/bin/bash ; argv[]=/bin/bash /tmp/FAKE_should_be_ignored.sh ; status=0 }"
+    show = {"trade-x.timer": {"ActiveState": "active", "LoadState": "loaded",
+                              "UnitFileState": "enabled", "ExecStart": fake}}
+
+    def _lookup(u):
+        return show.get(u) or {}
+
+    # Triggers 缺失 → 回退同名 .service(不在 map → 空)⇒ 结果为空, 绝不回落到 timer 自己的 ExecStart
+    assert cfu_mod._resolve_exec_entries("trade-x.timer", "timer", _lookup) == []
+
+
+def test_resolve_exec_entries_timer_fallback_same_name_service():
+    """Triggers 为空(unit 未加载/查询失败)时回退同名前缀 .service(systemd 默认 Unit= 规则)。"""
+    svc_exec = ("{ path=/bin/bash ; argv[]=/bin/bash /home/ubuntu/code/trade-data/scripts/"
+                "self_heal.sh ; status=0 }")
+    show = {"trade-self-heal.timer": {"ActiveState": "active", "LoadState": "loaded",
+                                      "UnitFileState": "enabled"},  # 无 Triggers
+            "trade-self-heal.service": {"ExecStart": svc_exec}}
+
+    def _lookup(u):
+        return show.get(u) or {}
+
+    assert cfu_mod._resolve_exec_entries("trade-self-heal.timer", "timer", _lookup) == [svc_exec]
+
+
+def test_resolve_exec_entries_service_kind_direct_execstart():
+    """kind == service 时直接取自身 ExecStart(反向对照: 真实存在该字段的对象)。"""
+    ex = "{ path=/bin/bash ; argv[]=/bin/bash /home/ubuntu/code/trade-data/scripts/x.sh ; status=0 }"
+    show = {"trade-x.service": {"ExecStart": ex}}
+    assert cfu_mod._resolve_exec_entries("trade-x.service", "service", show.get) == [ex]
+
+
+def test_resolve_exec_entries_fail_open_when_unresolvable():
+    """fail-open: timer Triggers 指向的 .service 读不到 → [], 绝不把「解析失败」报成「脚本被删」。"""
+    show = {"trade-x.timer": {"ActiveState": "active", "LoadState": "loaded",
+                              "UnitFileState": "enabled", "Triggers": "trade-x.service"}}
+    assert cfu_mod._resolve_exec_entries("trade-x.timer", "timer", show.get) == []
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -253,34 +353,97 @@ def test_cfu_watchman_stopped_rc1(tmp_path):
     assert "巡检者自身存活异常" in r.stderr, "dry-run 必须打出将发送内容(自验留证)"
 
 
-def test_cfu_watchman_script_missing_rc1(tmp_path):
-    """§23.3 同模式暴击面: 守护 unit 的脚本被删 → systemd 静默跳过(不 failed/不写日志)也必须报。
+def _plant_cloud_scripts(root, skip=None):
+    """在受控 root 下按云上真值文件名铺 7 个守护脚本(供 exists/missing 两分支确定性测试)。"""
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    for script in WATCHMAN_SCRIPT_BY_UNIT.values():
+        if script == skip:
+            continue
+        Path(script.replace(CLOUD_ROOT, str(root))).write_text("#!/bin/bash\ntrue\n",
+                                                               encoding="utf-8")
 
-    这是与注册(漏跑)无关的兜底: 直接查 ExecStart 里的脚本本体在不在盘。
+
+def test_cfu_watchman_script_present_rc0_real_cloud_shape(tmp_path):
+    """§18 L49 反向对照-存在侧: 云上实测形态(.timer→Triggers→.service 持 ExecStart)下,
+    7 个脚本都在盘 → rc=0, 零假阳性(该层必须干净, 否则成告警噪音)。"""
+    root = tmp_path / "cloud"
+    _plant_cloud_scripts(root)
+    r = _run_cfu(tmp_path, show_map=_real_cloud_show(root=str(root)))
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_cfu_watchman_script_missing_rc1_real_cloud_shape(tmp_path):
+    """§23.3 同模式暴击面 + §18 L49 反向对照-缺失侧: 云上实测形态下删掉一个脚本 →
+    必须被拦下, 且只报缺失那一个(不误报其余 6 个)。
+
+    这是与注册(漏跑)无关的兜底: 直接查被触发 .service 的 ExecStart 脚本本体在不在盘。
     """
-    show = dict(HEALTHY_SHOW)
-    show["trade-check-monitor-heartbeat.timer"] = {
-        "ActiveState": "active", "LoadState": "loaded", "UnitFileState": "enabled",
-        "ExecStart": ("{ path=/home/ubuntu/code/trade-data/.venv/bin/python ; argv[]=.../python "
-                      f"{tmp_path}/scripts/gone_heartbeat.py ; status=0 }}"),
-    }
-    r = _run_cfu(tmp_path, show_map=show)
+    root = tmp_path / "cloud"
+    missing = WATCHMAN_SCRIPT_BY_UNIT["trade-overfit-monitor.timer"]
+    _plant_cloud_scripts(root, skip=missing)
+    r = _run_cfu(tmp_path, show_map=_real_cloud_show(root=str(root)))
     assert r.returncode == 1, r.stdout + r.stderr
     assert "被执行的脚本已不在盘" in r.stdout
-    assert "gone_heartbeat.py" in r.stdout
+    assert "overfit_monitor.sh" in r.stdout
+    assert "cloud_unit_patrol.sh" not in r.stdout, "只应报缺失那一个, 不得误报其余"
 
 
-def test_cfu_watchman_script_present_rc0(tmp_path):
-    """反向保证: 脚本在盘 → 不误报(该层必须零假阳性, 否则成告警噪音)。"""
-    real = tmp_path / "real_patrol.sh"
-    real.write_text("#!/bin/bash\ntrue\n", encoding="utf-8")
-    show = dict(HEALTHY_SHOW)
-    show["trade-cloud-unit-patrol.timer"] = {
-        "ActiveState": "active", "LoadState": "loaded", "UnitFileState": "enabled",
-        "ExecStart": f"{{ path=/bin/bash ; argv[]=/bin/bash {real} ; status=0 }}",
-    }
-    r = _run_cfu(tmp_path, show_map=show)
+def _write_systemctl_stub(bindir, show_map):
+    """写一个 `systemctl` 桩(回放已采样的真实 show 输出), 用于走**真实代码路径**(非注入 JSON)。
+
+    桩只 cat 预写好的文本, 不执行任何业务脚本(§18 L50 static-only)。
+    返回存放各 unit 文本的目录(经 FAKE_SYSD_SHOW 传给桩)。
+    """
+    showdir = bindir / "show"
+    showdir.mkdir(parents=True, exist_ok=True)
+    for u, fields in show_map.items():
+        lines = []
+        for k, v in fields.items():
+            if isinstance(v, list):
+                lines += [f"{k}={x}" for x in v]
+            else:
+                lines.append(f"{k}={v}")
+        (showdir / (u + ".txt")).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    stub = bindir / "systemctl"
+    stub.write_text(
+        '#!/bin/bash\n'
+        'if [ "$1" = "list-units" ]; then exit 0; fi\n'
+        'if [ "$1" = "show" ]; then\n'
+        '  for a in "$@"; do u="$a"; done\n'
+        '  cat "$FAKE_SYSD_SHOW/$u.txt" 2>/dev/null\n'
+        '  exit 0\n'
+        'fi\n'
+        'exit 0\n', encoding="utf-8")
+    stub.chmod(0o755)
+    return showdir
+
+
+def test_cfu_real_systemctl_path_nonempty_and_judges(tmp_path):
+    """端到端**真实代码路径**: 用云上实测输出做 `systemctl` 桩, 走 _run_unit_show 的
+    Key+Value 文本解析(含新加的 Triggers)→ 证明真实生产形态下 ②b 路径**非空**且判定正确。
+
+    - 全部脚本在盘 → rc=0(零假阳性)
+    - 删一个 → rc=1(证明解析确实非空, 否则删了也报不出来; 修复前此路径恒空 → 恒 rc=0 假绿)
+    """
+    root = tmp_path / "cloud"
+    _plant_cloud_scripts(root)
+    env = dict(os.environ, FAKE_SYSD_SHOW=str(
+        _write_systemctl_stub(tmp_path / "bin", _real_cloud_show(root=str(root)))))
+    env["PATH"] = f"{tmp_path / 'bin'}:{os.environ['PATH']}"
+
+    def _run():
+        return subprocess.run([sys.executable, str(CFU), "--repo", str(tmp_path)],
+                              capture_output=True, text=True, timeout=90, check=False, env=env)
+
+    r = _run()
     assert r.returncode == 0, r.stdout + r.stderr
+
+    # 删掉一个脚本 → 真实路径下必须拦下(证明解析非空)
+    Path(WATCHMAN_SCRIPT_BY_UNIT["trade-r2-consistency.timer"].replace(
+        CLOUD_ROOT, str(root))).unlink()
+    r2 = _run()
+    assert r2.returncode == 1, r2.stdout + r2.stderr
+    assert "check_r2_consistency.sh" in r2.stdout and "被执行的脚本已不在盘" in r2.stdout
 
 
 def shutil_which(name):
