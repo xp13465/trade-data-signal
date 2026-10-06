@@ -189,3 +189,95 @@ rm -f scripts/tests/test_223_overfit_monitor_timeout.py
 - **诚实标注**:①任务前提「已有 `#223 勿擅改` 注释」在 `overfit_monitor.py` **不存在**(§三 门 ③);
   ②本改动**未经云上实跑**(云上外层实测=无界,但本层新值尚未在生产链验证);③乙表「是否偏紧」为判断,
   非实测超时统计。
+
+## 十、补丁(2026-10-07):测试写死开发机假设致 CI 红(P0)+ 守卫「假墙」根因修
+
+- 分支:`feat/223-4-ci-fix-20261007`(base=origin/main `6fe16ad83`);定级:**守卫真 bug + 测试环境假设**,两者同批修。
+- 现象:GitHub Actions `quality-gate-static` 自 ④ 合 main(`2e1a564d5`)起 **连红 2 轮**(run #655 `38c172461` /
+  #656 `5f78f586d`),`test_223_overfit_monitor_timeout.py:92` 断言「默认探测应 900」**实得 1**;**本机 mac 绿**。
+
+### 10.1 根因(已确证,非推断)
+
+两条独立病灶:
+1. **测试侧(表面)**:断言注释写死「本机无 systemctl ⇒ 探测=无界」——CI Ubuntu runner **有 systemd**,该假设不成立。
+2. **守卫侧(真 bug)**:`systemctl show` 对**不存在的 unit** 既不报错也不返回空,而是回填**编译期默认值**
+   `TimeoutStartUSec='1min 30s'`(=90s, **exit 0**;上游依据 systemd/systemd#40046)。旧实现只 `--value` 取
+   TimeoutStartUSec ⇒ 拿到 90s 这个**假墙** ⇒ `base(900) >= 90` ⇒ 守卫按「外层-余量」收成
+   `max(90-300,1) = 1`s ⇒ **R2 上传 1 秒即被杀**(CI 实得 1 与之逐位吻合)。
+
+**定性:守卫真 bug(生产风险成立)**,不只是"仅测试环境假设"。触发面:unit **改名**(常量 `_OVERFIT_SYSTEMD_UNIT`
+与实际单元漂移)、**尚未 `daemon-reload`**(新写单元文件尚未加载 ⇒ LoadState 非 loaded)、**systemd 未就绪/查询失败**
+—— 任一发生,守卫都会把 900 静默塌成 1s(只 warn 到 stderr,**不 notify 到人**),R2 上传链当场变哑。
+现网暂未踩中(云上单元实测 `LoadState=loaded` + `TimeoutStartUSec=infinity`),属**潜伏型**,但代价与"无界"完全相反。
+
+### 10.2 修法(根因修,不逐文件补丁)
+
+- **守卫**(`scripts/overfit_monitor.py:_systemd_outer_wall_secs`):一次 `systemctl show <unit> -p LoadState
+  -p TimeoutStartUSec` 取**两个属性**(带属性名前缀 key=value,免 `--value` 输出顺序依赖),**只有 `LoadState == 'loaded'`
+  才采信 TimeoutStartUSec**;缺失 / not-found / error / masked / `returncode != 0` / 无 systemctl(异常)⇒ **一律返回 0
+  (=无上界)⇒ 放行 base 900**,绝不塌到 1s。形态**对齐同根因先例** `gen_schedule_stats.py:_systemd_last_exit`
+  (2026-09-22 同款:LoadState 守卫 + returncode 门 + key=value 解析)。
+- **测试**(`scripts/tests/test_223_overfit_monitor_timeout.py`):①「默认探测」那条改成**契约不变量**
+  (探测无界 ⇒ 恰 900 静默;探测有界 X ⇒ 0 < rc < X),mac/CI 两种语义都成立,断言里**不再出现"本机有无 systemctl"**;
+  ②新增注入替身 subprocess 的矩阵(走真实探测代码路径),显式覆盖 not-found / 未 daemon-reload / 空输出 / error /
+  masked / returncode≠0 ⇒ **都必须退化为 900**,另加两条反向断言(loaded+infinity ⇒ 900 静默;loaded+10min ⇒ 仍收回 300+warn,
+  证明修复没把"有界真墙"一并放行)。断言数 30+ → **64**。
+
+### 10.3 证据点(可复现)
+
+1. **云上真机只读实测(新命令形态在本链真实环境下成立,§18 L49 真实样本)**:
+   `ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'systemctl show trade-overfit-monitor.service
+   -p LoadState -p TimeoutStartUSec'` ⇒ 逐字输出 **`TimeoutStartUSec=infinity` + `LoadState=loaded`**, `rc=0`。
+   ⇒ 生产上 `outer=0 ⇒ 放行 900`(与修复前一致)。**附带实证**:真实属性输出顺序 = **与 `-p` 参数顺序相反**
+   (我传 `-p LoadState -p TimeoutStartUSec`,`TimeoutStartUSec` 先说)—— 故解析**必须按属性名**,按位置会被真实环境证伪;
+   测试已加"顺序颠倒 ⇒ 结果一致"断言守此点,样本亦改用**云上逐字顺序**。
+2. **CI 复现(本机等价覆盖)**:`PATH` 注入假 `systemctl`(回放 CI 形态 `LoadState=not-found` +
+   `TimeoutStartUSec=1min 30s`,exit 0)⇒ 跑**修复前**源码(HEAD)得 `outer=90 / rc_none=1`,**与 CI 实得 1 逐位一致**;
+   跑**修复后**得 `outer=0 / rc_none=900`。⇒ mac 虽无 systemd,但**能造出与 CI 同形的探测响应**做等价覆盖。
+3. **测试双环境绿**:mac 真实环境 `1 passed`;`PATH=/tmp/fakebin_ci:$PATH`(模拟 CI)`1 passed`。
+   断言数两环境均 **64 断言全 PASS**。
+4. **全量回归**:mac `264 passed, 1 skipped`;模拟 CI `262 passed, 3 skipped`(多出的 2 skip = #160/#196 在
+   「检测到 systemctl」时按设计 `pytest.skip`,与真 CI 一致),**两端零 FAIL**。
+5. **同类面(§23.2③,只报不改)**:`scripts/tests/*.py` 全量扫「依赖开发机环境」的断言 —— 命中仅本报此一处(已修);
+   `test_160`/`test_196` 用 `shutil.which("systemctl")` → `pytest.skip`(**skip 而非断言**,环境无关,合规);
+   `test_monitor_resource_inprogress` 的 `skipif(not _ON_LINUX)`(只在 Linux 断言 df 口径)是**有意为之且已注释**,合规;
+   `test_resolve_repo_pytest` 无 bash 则 skip,合规。**同根因(采信 systemctl 假值)面**:`fapi_bj_width_export.py`
+   守卫**根本不探测 systemd**(硬编码外层=0,有文档),无此缺陷;`check_failed_units.py` / `alert_denoise_rules.py`
+   已按 LoadState/ActiveState + fail-loud 处理;`check_r2_consistency.sh` / `schedule_monitor.sh` 只看 ActiveState
+   (not-found ⇒ inactive,方向安全)。⇒ **全仓同型守卫仅 `overfit_monitor.py` 一处,已修**。
+
+### 10.4 复现命令
+
+```bash
+# 1) 造 CI 同形 systemctl(unit 不存在, show 回填默认; 顺序按云上实测惯例=与 -p 参数序相反)
+mkdir -p /tmp/fakebin_ci && cat > /tmp/fakebin_ci/systemctl <<'EOF'
+#!/bin/sh
+printf 'TimeoutStartUSec=1min 30s\nLoadState=not-found\n'; exit 0
+EOF
+chmod +x /tmp/fakebin_ci/systemctl
+# 2) 双环境跑测试(均应 1 passed; 也可直跑, 会打印断言数并给非零退出码)
+python3 -m pytest -q scripts/tests/test_223_overfit_monitor_timeout.py
+PATH=/tmp/fakebin_ci:$PATH python3 -m pytest -q scripts/tests/test_223_overfit_monitor_timeout.py
+# 3) 全量(应 264 passed,1 skipped ↔ 262 passed,3 skipped)
+python3 -m pytest -q scripts/tests/
+# 4) 云上真机(只读; 期望 TimeoutStartUSec=infinity + LoadState=loaded)
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 \
+  'systemctl show trade-overfit-monitor.service -p LoadState -p TimeoutStartUSec'
+```
+
+### 10.5 自验清单(§23.2/§23.3/§21/§22/§24)
+
+- **§23.2**:修完整(同批修守卫+测试;同类面清单见 10.3-⑤)/自测完成(64 断言 + 双环境全量)/根因修(LoadState 门,
+  非在断言处打补丁)。
+- **§23.3**:「同模式/同数据源/同组件还被谁用」清单见 10.3-⑤(仓内 systemctl 消费点 6 处逐个定性)。
+- **§21 算法公示**:N/A(只改超时守卫判定,不涉 track_score/评分/权重/分段/匹配)。
+- **§22 数据一致性**:N/A(无数据产物变更,无 R2/CF 同步点)。
+- **§24 前端防撕裂**:N/A(未改任何前端源;不 bump 版本串)。
+- **§18 L49/L50/L48**:断言输入取**真实生产实测样本**(unit 名 / `infinity` / `1min 30s` / 属性名格式,均来自云上实测
+  与上游 issue,未伪造);测试仍 **static-only**(AST 抽取 + exec,不 import 业务模块/不起真子进程);**零外发**
+  (唯一外呼=只读 `systemctl show`,stub 断言独立保证)。
+- **诚实标注**:①**CI 真机未实跑**(GitHub runner 不可本地复现;用 PATH 注入假 `systemctl` 做**等价覆盖**, 已见
+  10.3-2 的 A/B 逐位吻合);②**云上业务脚本未实跑**(§18 L50 禁执行业务主体;但**新探测命令已在云上只读实跑**,
+  见 10.3-1);③生产当前**未踩中**该潜伏路径(`LoadState=loaded` + `infinity` 已实测), 风险定性为"**潜伏型**"
+  (触发条件:unit 改名 / 未 daemon-reload / systemd 未就绪);④本改动 `overfit_monitor.py` 是**生产定时链**
+  (`trade-overfit-monitor`, 每天 21:40 一次)所用代码,merge 后**下一轮 21:40 日志应无 warn**=生产实证闭环。

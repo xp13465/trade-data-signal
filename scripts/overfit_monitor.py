@@ -1661,6 +1661,10 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal, 
 #   标记(优雅); L2 = systemd SIGKILL, 进程内无任何捕获(激进)。正确梯度 = 激进必须更慢 ⇒ L1 < L2;
 #   L2 = 0(无界)时无上界约束, 放行(不生硬比较)。另守 #217② 先例: L1 > L0 —— 否则本层在 upload_r2
 #   自身 HTTP 超时前就杀子进程, 丢了子进程诊断输出与 --skip-if-locked 等锁重试窗口。
+# ⚠ L2 探测不可信时一律**视为无界**(2026-10-07 修, CI 红事故): `systemctl show` 对**不存在的 unit**
+#   不报错, 而是回填编译默认 TimeoutStartUSec='1min 30s'(=90s, exit 0; systemd#40046)⇒ 直接采信的话,
+#   unit 改名 / 未 daemon-reload / systemd 未就绪时守卫会把 L1 从 900 **静默**塌到 `max(90-300,1)=1`s
+#   (1s 的 R2 上传必被杀, 比"无界"危险得多)。故探测须同时校验 LoadState == 'loaded'。
 _R2_UPLOAD_TIMEOUT = 900
 _R2_UPLOAD_TIMEOUT_MARGIN = 300
 _OVERFIT_SYSTEMD_UNIT = "trade-overfit-monitor.service"
@@ -1693,14 +1697,36 @@ def _parse_systemd_span_secs(value):
 
 
 def _systemd_outer_wall_secs(unit=_OVERFIT_SYSTEMD_UNIT):
-    """外层 systemd TimeoutStartSec(秒)。0 / 'infinity' / 读不到(无 systemctl/权限/超时)= 无上界。"""
+    """外层 systemd TimeoutStartSec(秒)。0 / 'infinity' / **探测不可信** 一律 = 无上界(放行 base)。
+
+    ⚠ 为什么必须查 LoadState(2026-10-07 CI 红事故根治, §23.2 根因修复):
+    `systemctl show` 对**不存在的 unit** 既不报错也不返回空, 而是回填编译期默认值
+    (TimeoutStartUSec='1min 30s'=90s, exit 0;systemd/systemd#40046)。若只 `--value` 取
+    TimeoutStartUSec, 则 unit 改名 / 尚未 daemon-reload / systemd 未就绪 / 非生产机(GitHub
+    Actions runner 有 systemd 但无本 unit)时, 都会拿到 90s 这个**假墙** ⇒ 守卫把本层预算从 900
+    静默塌到 `max(90-300,1)=1`s ⇒ R2 上传 1s 即被杀。故**同一次 show 里取 LoadState**, 只有
+    'loaded' 才采信 TimeoutStartUSec;缺失 / not-found / error / masked ⇒ 视为探测失败 ⇒ 0
+    (与 outer_wall_secs=0 同路, 放行 base 900, 绝不塌到 1s)。
+    实现形态对齐同根因先例 `gen_schedule_stats.py:_systemd_last_exit`(2026-09-22 同款治误报:
+    带属性名前缀 key=value 免 `--value` 输出顺序依赖 + returncode≠0 视为读不到 ⇒ 不猜)。
+    另: 无 systemctl(mac) / 权限不足 / 超时 ⇒ subprocess 抛异常 ⇒ 同样 0。
+    """
     try:
         r = subprocess.run(
-            ["systemctl", "show", "-p", "TimeoutStartUSec", "--value", unit],
+            ["systemctl", "show", unit, "-p", "LoadState", "-p", "TimeoutStartUSec"],
             capture_output=True, text=True, timeout=5)
-        return _parse_systemd_span_secs(r.stdout)
     except Exception:  # noqa: BLE001  (mac 无 systemctl / 只读探测失败 → 视为无界)
         return 0
+    if r.returncode != 0:      # 命令本身失败 ⇒ 输出不可信, 不猜
+        return 0
+    props = {}
+    for line in (r.stdout or "").splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            props[k.strip()] = v.strip()
+    if props.get("LoadState") != "loaded":
+        return 0               # unit 不存在(回填默认值)/未加载 ⇒ 不采信假墙
+    return _parse_systemd_span_secs(props.get("TimeoutStartUSec", ""))
 
 
 def _r2_upload_timeout(outer_wall_secs=None):
