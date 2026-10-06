@@ -1,8 +1,11 @@
 # #217 告警降噪 ①②③ 实施报告(2026-10-06)
 
 - 分支:`feat/217-alert-denoise-20261006`
-- base commit(开工时 origin/main):`7cd94594c`(rebase 后 HEAD base 新鲜)
-- 首个提交:`a4b495114`(rebase 后 hash 变为 **`d714be25b`**)
+- base commit(开工时 origin/main):`7cd94594c`
+- 最终分支链(远端已推,非 force):
+  - `d714be25b` #217 ①②③ 源改(首个提交 `a4b495114` 经 rebase 后的 hash)
+  - `e1e7a7261` 报告落档 + 过时注释对齐
+  - `ea16648da` merge origin/main(含 #219 合流)同步 → 远端 tip,base 新鲜
 - 派单来源:`docs/ops/alert-triage-3d-20261006.md` §5.1 / §5.2-a / §5.2-b
 - 第 ④ 条(`standalone_stale` 文案)**不在本次范围**(另派只读复核)
 
