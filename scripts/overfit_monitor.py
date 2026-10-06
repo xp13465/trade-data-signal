@@ -57,6 +57,7 @@ import bisect
 import json
 import math
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -1651,6 +1652,91 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal, 
     return out
 
 
+# ── R2 上传外层超时 + 梯度守卫(#223④, 对齐 #217② 先例)─────────────────────────
+# 三层梯度(逐层实测锚定, 见 docs/ops/223-overfit-monitor-timeout-20261006.md):
+#   L0 内层 = R2 单请求 HTTP 超时 R2_UPLOAD_HTTP_TIMEOUT(本机默认 30, 云上 .env = 600)
+#   L1 本层 = 对 upload_r2.py 的 subprocess 超时(_R2_UPLOAD_TIMEOUT, #223④ 由 180 抬到 900)
+#   L2 外层 = systemd TimeoutStartSec(trade-overfit-monitor.service, 云上实测 **0 = 无界**)
+# 判据(优雅 vs 激进): L1 超时后被 except subprocess.TimeoutExpired 捕获 → 打 ✗ R2_UPLOAD_TIMEOUT
+#   标记(优雅); L2 = systemd SIGKILL, 进程内无任何捕获(激进)。正确梯度 = 激进必须更慢 ⇒ L1 < L2;
+#   L2 = 0(无界)时无上界约束, 放行(不生硬比较)。另守 #217② 先例: L1 > L0 —— 否则本层在 upload_r2
+#   自身 HTTP 超时前就杀子进程, 丢了子进程诊断输出与 --skip-if-locked 等锁重试窗口。
+_R2_UPLOAD_TIMEOUT = 900
+_R2_UPLOAD_TIMEOUT_MARGIN = 300
+_OVERFIT_SYSTEMD_UNIT = "trade-overfit-monitor.service"
+
+# systemd 时间跨度单位 → 秒(TimeoutStartUSec 输出形如 'infinity'/'10min'/'1h 30min'/'600s')
+_SYSTEMD_SPAN_UNITS = {
+    "us": 1e-6, "usec": 1e-6, "µs": 1e-6,
+    "ms": 1e-3, "msec": 1e-3,
+    "s": 1.0, "sec": 1.0, "second": 1.0, "seconds": 1.0,
+    "m": 60.0, "min": 60.0, "minute": 60.0, "minutes": 60.0,
+    "h": 3600.0, "hr": 3600.0, "hour": 3600.0, "hours": 3600.0,
+    "d": 86400.0, "day": 86400.0, "days": 86400.0,
+    "w": 604800.0,
+}
+
+
+def _parse_systemd_span_secs(value):
+    """systemd 时间跨度(如 '10min'/'1h 30min'/'600s'/'infinity')→ 秒; 无法解析 → 0。"""
+    v = (value or "").strip()
+    if not v or v == "infinity":
+        return 0
+    total, matched = 0.0, False
+    for num, unit in re.findall(r"(\d+(?:\.\d+)?)\s*([a-zµ]+)?", v):
+        mul = _SYSTEMD_SPAN_UNITS.get((unit or "s").lower())
+        if mul is None:
+            return 0
+        total += float(num) * mul
+        matched = True
+    return int(total) if matched else 0
+
+
+def _systemd_outer_wall_secs(unit=_OVERFIT_SYSTEMD_UNIT):
+    """外层 systemd TimeoutStartSec(秒)。0 / 'infinity' / 读不到(无 systemctl/权限/超时)= 无上界。"""
+    try:
+        r = subprocess.run(
+            ["systemctl", "show", "-p", "TimeoutStartUSec", "--value", unit],
+            capture_output=True, text=True, timeout=5)
+        return _parse_systemd_span_secs(r.stdout)
+    except Exception:  # noqa: BLE001  (mac 无 systemctl / 只读探测失败 → 视为无界)
+        return 0
+
+
+def _r2_upload_timeout(outer_wall_secs=None):
+    """本层 subprocess 超时预算(秒), 带运行时梯度守卫(#223④, 对齐 #217② 先例)。
+
+    - 外层 systemd(L2)> 0 且本层 ≥ 外层 ⇒ 倒置(systemd 硬杀会抢在本层优雅超时之前) ⇒
+      自动收到「外层 - 余量」并 warn;
+    - 外层 = 0(无界)⇒ 无上界约束, 放行本层预算(不生硬比较);
+    - 内层 R2 HTTP(L0)≥ 本层 ⇒ 倒置/零梯度(本层在 upload_r2 自身 HTTP 超时前杀子进程) ⇒
+      自动抬到「内层 + 余量」并 warn。
+    """
+    outer = _systemd_outer_wall_secs() if outer_wall_secs is None else int(outer_wall_secs)
+    base = _R2_UPLOAD_TIMEOUT
+    if outer > 0 and base >= outer:
+        want = max(outer - _R2_UPLOAD_TIMEOUT_MARGIN, 1)
+        print(f"⚠ [overfit-monitor] 本层 R2 上传超时 {base}s >= 外层 systemd 墙 {outer}s"
+              f"(梯度倒置/零梯度: systemd 硬杀会抢在优雅超时之前), 自动收到 {want}s"
+              f"(外层-{_R2_UPLOAD_TIMEOUT_MARGIN}s 余量)", flush=True)
+        base = want
+    try:
+        http_to = int(os.environ.get("R2_UPLOAD_HTTP_TIMEOUT") or "30")
+    except (TypeError, ValueError):
+        http_to = 30
+    if base <= http_to:
+        if outer > 0 and http_to + _R2_UPLOAD_TIMEOUT_MARGIN >= outer:
+            print(f"⚠ [overfit-monitor] 内层 HTTP 超时 {http_to}s 与外层 systemd 墙 {outer}s 无法同时"
+                  f"满足梯度(本层保 {base}s, 外层优先不越墙)", flush=True)
+        else:
+            want = http_to + _R2_UPLOAD_TIMEOUT_MARGIN
+            print(f"⚠ [overfit-monitor] 本层 R2 上传超时 {base}s <= 内层 HTTP 超时 {http_to}s"
+                  f"(梯度倒置/零梯度), 自动抬到 {want}s(内层+{_R2_UPLOAD_TIMEOUT_MARGIN}s 余量)",
+                  flush=True)
+            base = want
+    return base
+
+
 def build_output(rebuild=False, dry_run=False):
     # 写/上传路径守卫(惰性求值, 方案 A 2026-09-30): import 不再触发(曾致 import 即 SystemExit
     # + 假告警); 真正写盘/上传前先校验部署源树, 误写 git 仓仍拦截 + 告警(防再犯机制 E, §23.11
@@ -1865,7 +1951,10 @@ def build_output(rebuild=False, dry_run=False):
                 _r2_skip_retry = 60
             if _r2_skip_retry < 0:
                 _r2_skip_retry = 0
-            _r2_timeout = 120 + _r2_skip_retry
+            # #223④(2026-10-06): 本层基预算 120 → 900——_r2_upload_timeout() 带运行时梯度守卫
+            # (外层 systemd=0/无界 ⇒ 放行; 有界且倒置 ⇒ 收回; 内层 HTTP 倒置 ⇒ 抬升), #217①
+            # 等锁重试窗口(R2_UPLOAD_SKIP_RETRY_SECS)照旧加在本层预算之上(默认合计 960s)。
+            _r2_timeout = _r2_upload_timeout() + _r2_skip_retry
             r = _sp.run(
                 [sys.executable, os.path.join(SCRIPT_DIR, "upload_r2.py"),
                  "--skip-if-locked", "upload-data-large"],
