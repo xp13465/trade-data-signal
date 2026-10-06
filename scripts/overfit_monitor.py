@@ -1852,7 +1852,7 @@ def build_output(rebuild=False, dry_run=False):
             # trade-data/static-site/data(新版) 不一致(§22 三步同步, L33 STATIC_DIR=REPO/static-site)。
             # 统一 helper force_env(防再犯机制 E): 强制覆盖 REPO/GIT_REPO, 不用 setdefault。
             # --skip-if-locked(2026-09-24 硬化 P1-A): overfit_monitor 21:40 打点可能撞 deploy 全量
-            # 持锁窗口, 排队等待必然触发本 subprocess timeout=120 被 except 吞掉 → exit 0 静默失败
+            # 持锁窗口, 排队等待必然触发本 subprocess timeout 被 except 吞掉 → exit 0 静默失败
             # (R2 没传但监控显通过)。带该 flag = 拿不到锁立即跳过本轮, 不改打点主流程; 当日 R2
             # 同步缺口由 deploy 日链 upload-data-large 兜底(OVERFIT_SKIP_R2 语义同侧)。
             _env = force_env(dict(os.environ), REPO)

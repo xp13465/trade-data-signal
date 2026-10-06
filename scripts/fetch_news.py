@@ -722,7 +722,7 @@ def sync_news_digest_live(day_str: str) -> None:
         r = subprocess.run(
             [str(repo / ".venv/bin/python"), str(repo / "scripts/upload_r2.py"),
              # --skip-if-locked(2026-09-24 硬化 P1-A): 本调用可被 deploy 全量持锁窗口拖住排队,
-             # 排队必然触发 timeout=120 被 except 吞掉 → exit 0 静默失败(R2 没传但监控显通过)。带该
+             # 排队必然触发 subprocess timeout 被 except 吞掉 → exit 0 静默失败(R2 没传但监控显通过)。带该
              # flag = 拿不到锁立即跳过本轮; 缺口由真实兜底链自愈(2026-09-24 P2-3 修正注释):
              #   ①下一轮 fetch_news(30min 后)自动重试(本脚本 :01/:31 两档) ②17:50 deploy
              #   upload-all-data 兜底顶层 news_digest.json(非递归 glob 不覆盖 news_digest/<YYYY>/ 归档,
