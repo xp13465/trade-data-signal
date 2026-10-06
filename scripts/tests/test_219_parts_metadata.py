@@ -35,6 +35,8 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(REPO))
 
 import signal_kelly_backtest as skb  # noqa: E402
+# upload_r2 顶层 load_env() 在无 .env(CI)时会 sys.exit(收集期崩 → ⑧ 全灭);
+# 所需的临时 .env 垫片由 conftest.py §④ 在收集期统一铺好(GIT_REPO 指向垫片), 本文件无需自建。
 import upload_r2 as ur  # noqa: E402
 
 FIELDS = ["signal_date", "index_id", "signal", "profit"]
