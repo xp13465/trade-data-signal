@@ -23,18 +23,31 @@
 #   9. commit(自动追加 Co-Authored-By) + push main
 #   10. merge 即同步: push main 成功后自动 ssh 云上 git pull(2026-09-19 用户定, 根治「忘 pull」;
 #       云上 /home/ubuntu/code/trade-data 手动 pull, 不 pull 不生效。失败不静默打醒目 [!!] 告警 + exit 6)
+#   11. push main 后自动自查 CI 结论(2026-10-07 用户定): 轮询 GitHub Actions, 按 head_sha +
+#       目标 workflow 匹配本次 push 的 CI run, 拉到 completed 结论: success 打印一行正常退出;
+#       FAIL 醒目告警(run 编号/html_url/失败 job 名)+ 非零退出 exit 9(§23.11 绝不静默);
+#       拿不到结论(网络/超时/无匹配)warn + 提示手动复核(不让 push 看起来失败)。
+#       实现见 scripts/lib/ci_selfcheck.sh(独立 lib, 可单测);CI_SELFCHECK_SKIP=1 逃生门。
 #
 # 用法:
 #   bash scripts/main-merge.sh <feat 分支名> [--dry-run]
 #   --dry-run: 演练不真 merge/push(第 5/9 步跳过, 其余校验照跑)
 #
 # 依赖: scripts/check_version_progress.py(机制 A/B) + scripts/build_min.py + scripts/bump_asset_version.py(机制 C)
+#       + scripts/lib/ci_selfcheck.sh(第 11 步 push 后 CI 自查)
 # =============================================================================
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 GIT="git -C $REPO"
 PY="python3"
+
+# push 后 CI 自查(独立 lib, 可单测; 见 scripts/lib/ci_selfcheck.sh)。
+# lib 缺失不阻断 merge(降级为 warn 桩, 不静默), 避免自查机制本身把 push main 卡死。
+# shellcheck source=lib/ci_selfcheck.sh
+if ! source "$REPO/scripts/lib/ci_selfcheck.sh" 2>/dev/null; then
+  ci_selfcheck() { echo "⚠️ 缺 scripts/lib/ci_selfcheck.sh, 跳过 push 后 CI 自查(请手动核对 CI)" >&2; return 2; }
+fi
 
 DRY_RUN=0
 # --dry-run 可在任意位置出现(防手滑把 <feat> --dry-run 顺序写反被当真实运行 → 意外 push main)
@@ -553,4 +566,22 @@ sync_cloud_pull() {
   return 0
 }
 sync_cloud_pull || { echo "✗ main 已 push 但云上同步失败, 见上方 [!!] 告警。请手动 ssh pull 后人工补同步(§23.11 不静默)" >&2; exit 6; }
-echo "=== main-merge.sh 完成(feat=$FEAT 已合入并推送 main, 云上已同步) ==="
+
+# 11. push main 后自动自查 CI 结论(2026-10-07 用户定, 防「CI FAIL 无人察觉」)
+#     放在云上同步之后(§14 生产同步优先, 不被最长 8 分钟的 CI 轮询阻塞);
+#     作为最后一步: FAIL 时以非零退出把「CI 门禁红」暴露给主控(§23.11 绝不静默),
+#     但 main 已 push + 云上已同步, 不影响本次上线动作本身。
+#     注意: 本步只在真实 push(非 dry-run)后执行 —— dry-run 在 push 前已 exit 0。
+PUSHED_SHA="$($GIT rev-parse HEAD)"
+echo "--- 11. push main 后自动自查 CI 结论(commit=${PUSHED_SHA:0:8}) ---"
+CI_RC=0
+ci_selfcheck "$PUSHED_SHA" || CI_RC=$?
+if [[ "$CI_RC" -eq 1 ]]; then
+  echo "=== main-merge.sh: main 已 push 且云上已同步, 但 CI 门禁 FAIL(feat=$FEAT) ⇒ 请主控立即派修 ===" >&2
+  exit 9
+fi
+if [[ "$CI_RC" -eq 2 ]]; then
+  echo "=== main-merge.sh 完成(feat=$FEAT 已合入并推送 main, 云上已同步; ⚠️ CI 结论未取得, 见上方提示) ==="
+else
+  echo "=== main-merge.sh 完成(feat=$FEAT 已合入并推送 main, 云上已同步, CI success) ==="
+fi
