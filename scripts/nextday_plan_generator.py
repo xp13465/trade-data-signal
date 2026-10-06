@@ -1174,11 +1174,16 @@ def main():
         try:
             env = dict(os.environ)
             env.setdefault("REPO", str(REPO))
-            # #223(2026-10-06) 记录(勿擅改): timeout=300 vs 内层 R2 HTTP 超时(云上 .env=600)
-            # = 梯度倒置;但不能单独抬到 900 —— 本链外层 systemd TimeoutStartSec=600, 抬过 600
-            # 会先被 systemd SIGKILL, 下面 except TimeoutExpired 的 loud severe 永不执行
-            # (「告警与链路同亡」)。要改必须 systemd 一并抬, 已上报主控待拍板(#223)。
-            r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
+            # #223②(2026-10-07 用户拍板): 本层 timeout 300 → 480(把慢传带纳入忍耐)。
+            # 算式(逐字见 docs/ops/223-123-inner-timeout-evidence-20261006.md §3.3):
+            #   480 + 28(上传前 ≤10s + 超时后处理实测 18s) = 508 < 600(本链外层 systemd
+            #   TimeoutStartSec 硬墙), 余 92s; 480 亦 > 观测触发的下界 300s(2026-09-30 318s 事件)。
+            # 不加运行时梯度守卫: 外层固定 600 ⇒ 480 < 600 无倒置(与 #217②/overfit 先例的
+            # 「外层无界/未知」场景不同); 且 #217②/overfit 守卫的「内层 HTTP(云上 .env=600)≥
+            # 本层则抬升」规则会把 480 抬过 600 = 越 systemd 墙(禁止), 故本处显式不采用该规则,
+            # 改由本注释 + tests/test_223_nextday_plan_timeout.py 固化「480 < 600」不变量。
+            # 仍 < 内层 HTTP 600 的倒置经拍板接受(外层优先不越墙, 保本层优雅超时先于 systemd SIGKILL)。
+            r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=480)
             log(f"R2 退出码={r.returncode}\n{r.stdout}")
             if r.returncode != 0:
                 _err = r.stderr[-2000:]
@@ -1192,10 +1197,10 @@ def main():
                 )
                 r2_rc = 1
         except subprocess.TimeoutExpired:
-            log("⚠ R2 上传超时(300s, 将告警)")
+            log("⚠ R2 上传超时(480s, 将告警)")
             _severe_alert(
                 f"[告警] 次日买入计划 R2 上传超时 {T}",
-                "nextday_plan_generator.py: R2 upload-data-files 300s 超时, "
+                "nextday_plan_generator.py: R2 upload-data-files 480s 超时, "
                 "次日买入计划本地已落盘但 R2 未同步确认(线上备站可能滞后)。<br>日志: "
                 f"{REPO}/data/logs/nextday_plan_launchd.log",
             )
