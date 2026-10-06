@@ -8,7 +8,7 @@ CI 挂载: 位于 `scripts/tests/` ⇒ 被 CI 门禁 ⑧(`python3 -m pytest -q s
 覆盖:
   [A] ③ fapi_bj_width_export.py 的 R2 上传超时守卫(_r2_upload_timeout)行为 + 回归守卫
   [B] ③ 调用点确实使用守卫值(静态文本)
-  [C] ① / ② / nextday_gap_check 的超时值未被擅改(只加 #223 结构性注释)
+  [C] ① / ② / nextday_gap_check 的超时契约值(② 已随 #223② 300→480; ①/gap_check 未改值)
   [D] A) 文案:AST 抽 notify.send 正文并真渲染, 校验口径/举例/双因结构
   [E] A) 判别逻辑与阈值(D:>50) / dedup key / subject 未动
 
@@ -156,12 +156,12 @@ def test_223_timeout_gradient_and_copy():
     ck("超时({_to}s)" in s, "超时消息带动态值")
     ck("✗ upload-data-files 超时(600s)" not in s, "旧硬编码消息已消失")
 
-    print("\n[C] ① / ② / gap_check 值未动(只加注释)")
+    print("\n[C] ① / ② / gap_check 契约值(② 已随 #223② 300→480; ①/gap_check 未改值)")
     for f, old in ((ROOT / "scripts" / "gen_daily_brief.py", "timeout=120"),
-                   (ROOT / "scripts" / "nextday_plan_generator.py", "timeout=300"),
+                   (ROOT / "scripts" / "nextday_plan_generator.py", "timeout=480"),  # #223②(2026-10-07 拍板) 300→480: 契约值同步(该链唯一 CI 契约点)
                    (ROOT / "scripts" / "nextday_gap_check.py", "timeout=300")):
         t = _src(f)
-        ck(old in t, f"{f.name}: {old} 保留(未改值)")
+        ck(old in t, f"{f.name}: {old} 契约值在位")
         ck("#223" in t, f"{f.name}: 已加 #223 结构性注释")
 
     print("\n[D] A) 文案:AST 抽 notify.send 正文 + 真渲染")
