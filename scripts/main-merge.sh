@@ -43,11 +43,13 @@ GIT="git -C $REPO"
 PY="python3"
 
 # push 后 CI 自查(独立 lib, 可单测; 见 scripts/lib/ci_selfcheck.sh)。
-# lib 缺失不阻断 merge(降级为 warn 桩, 不静默), 避免自查机制本身把 push main 卡死。
+# lib 缺失/语法坏不阻断 merge(降级为 warn 桩, 不静默), 避免自查机制本身把 push main 卡死。
+# F2: 用 `eval ... || 桩` 而非 `if ! source ...`: bash 3.2(set -e)遇 source 打不开/解析失败
+#     会在条件上下文里直接静默退出(桩/提示全不执行); eval 形式「在位/缺失/语法坏」三态均正确降级。
+#     勿改子壳形式 `(source ...)`, 成功路径函数会留在子壳致父 shell 未定义。
 # shellcheck source=lib/ci_selfcheck.sh
-if ! source "$REPO/scripts/lib/ci_selfcheck.sh" 2>/dev/null; then
+eval ". \"$REPO/scripts/lib/ci_selfcheck.sh\"" 2>/dev/null || \
   ci_selfcheck() { echo "⚠️ 缺 scripts/lib/ci_selfcheck.sh, 跳过 push 后 CI 自查(请手动核对 CI)" >&2; return 2; }
-fi
 
 DRY_RUN=0
 # --dry-run 可在任意位置出现(防手滑把 <feat> --dry-run 顺序写反被当真实运行 → 意外 push main)

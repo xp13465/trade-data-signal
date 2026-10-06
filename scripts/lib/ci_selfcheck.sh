@@ -132,7 +132,10 @@ ci_selfcheck() {
       if [ "$pick" = "NORUN" ] || [ "$pick" = "PARSE_ERR" ] || [ -z "$pick" ]; then
         echo "  · 未匹配到目标 commit $short 的 '$CI_WORKFLOW_NAME' run(CI 创建有延迟), ${CI_POLL_INTERVAL}s 后重试..."
       else
-        IFS=$'\t' read -r run_id status conclusion run_number run_html <<< "$pick"
+        # F1: 用 cut -f 按 TAB 切分 —— 不用 read: 未完成 run 的 conclusion 为 null(空字段),
+        # 空 TAB 会被 read 当 IFS 空白折叠 ⇒ 字段左移(run_number 误取 html_url)。
+        run_id="$(printf '%s' "$pick" | cut -f1)"; status="$(printf '%s' "$pick" | cut -f2)"; conclusion="$(printf '%s' "$pick" | cut -f3)"
+        run_number="$(printf '%s' "$pick" | cut -f4)"; run_html="$(printf '%s' "$pick" | cut -f5)"
         if [ "$status" = "completed" ]; then
           done=1
           break
