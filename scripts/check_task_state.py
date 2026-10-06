@@ -18,9 +18,15 @@
         (例外: done-list 引用编号 + 已关闭上下文标注(如「勿再列为/已完成 done-list」
         视为正常, 不告警)。
   C. 僵尸巡检 cron 检测: .claude/scheduled_tasks.json 里 prompt 含「巡检兜底」
-     /「agent-progress」的巡检 cron, 查其进度文件 /tmp/agent-progress-*.md:
-     不存在 或 mtime > 7 天 = 疑似僵尸(任务早结束 cron 未删), 建议 CronDelete。
-     不自动删, 只报告。
+     /「agent-progress」的巡检 cron, 查其进度文件 /tmp/agent-progress-*.md。
+     §224(2026-10-06 用户拍板「都开」): 判定纳入 job 的**时点/生命周期** ——
+     进度文件最早「应当存在」的时刻 ready_at = 首次触发时刻(cron 表达式推算)
+     + 冷启动宽限 60min。ready_at 之前文件不存在属正常(一次性派单 cron 触发日未到 /
+     巡检 cron 刚建、agent 还没写首条进度), **不判僵尸**; ready_at 之后仍不存在 =
+     真故障(agent 从未 echo / 已死), 判僵尸; mtime > 7 天仍判僵尸(任务早已结束
+     cron 未删)。不自动删, 只报告。
+     ⚠️ 判据用「首次触发时刻」而**非** job 的 `recurring` 字段 —— 真实生产样本里该
+     字段不可靠(存在 recurring=True 但语义为一次性的 job), 见 docs/ops/224-*.md。
 
 输入依赖:
   - docs/pending-features-index.md   (编号+状态列=任务状态唯一权威, §23.12 单一事实源)
@@ -55,6 +61,13 @@ from pathlib import Path
 ZOMBIE_CRON_STALE_DAYS = 7          # 巡检进度文件 mtime 超过 7 天 = 疑似僵尸 cron
 ZOMBIE_CRON_STALE_SECS = ZOMBIE_CRON_STALE_DAYS * 86400
 
+# §224(2026-10-06 用户拍板根治): job 生命周期冷启动宽限。job 创建后 / 首次触发后,
+# 进度文件尚未产生属正常窗口 —— 一次性派单 cron 的触发日尚未到; 巡检 cron 刚建、
+# 主控刚派 agent, agent 写下首条进度需数分钟; 一次性 job 触发后主控还要再派 agent。
+# 超过该宽限仍无文件 = 真故障(agent 从未 echo / 已死)。
+ZOMBIE_CRON_COLD_START_SECS = 3600      # 60min(> 巡检 cron 自身的 20min 停滞阈值)
+CRON_FIRE_HORIZON_DAYS = 400            # 由 cron 推算首次触发时刻的搜索视野(天)
+
 # pending-index 中视为「已关闭/已完成」的状态关键词(命中即不得再作远期/待办指针)
 CLOSED_STATUSES = [
     "已完成", "已关闭", "已合 main", "已合main", "已上线", "已归档", "已拍板关闭",
@@ -75,6 +88,7 @@ FORWARD_POINTER_MARKERS = [
 # 巡检 cron prompt 识别: 巡检兜底(XXX) 或 显式 /tmp/agent-progress-*.md 路径
 PROGRESS_PATH_RE = re.compile(r"/tmp/agent-progress-([A-Za-z0-9._-]+)\.md")
 PATROL_NAME_RE = re.compile(r"巡检兜底\(([A-Za-z0-9._-]+)\)")
+PROGRESS_DIR = Path("/tmp")         # 进度文件目录(生产=/tmp; 测试可 monkeypatch 隔离)
 
 # TASKS 扫描的段标题关键字
 SECTION_STATUS_TITLE = "📍 当前会话状态"
@@ -298,8 +312,145 @@ def check_tasks_references(repo: Path) -> CheckResult:
 
 
 # ── C. 僵尸巡检 cron 检测 ─────────────────────────────────────────────────────
+def _fmt_epoch(epoch: float) -> str:
+    """epoch 秒 -> 本机时区 'YYYY-MM-DD HH:MM'。"""
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(epoch))
+
+
+def _cron_parse_field(field: str, lo: int, hi: int) -> "set[int] | None":
+    """解析 cron 单字段(`*` / `a,b` / `a-b` / `a-b/n` / `*/n`)为取值集合; 无法解析返回 None。"""
+    out: set[int] = set()
+    for part in field.split(","):
+        part = part.strip()
+        if not part:
+            return None
+        step = 1
+        if "/" in part:
+            base, _, step_s = part.partition("/")
+            if not step_s.strip().isdigit() or int(step_s) <= 0:
+                return None
+            step = int(step_s)
+            part = base.strip()
+        if part == "*":
+            start, end = lo, hi
+        elif "-" in part:
+            a, _, b = part.partition("-")
+            a, b = a.strip(), b.strip()
+            if not (a.isdigit() and b.isdigit()):
+                return None
+            start, end = int(a), int(b)
+        elif part.isdigit():
+            start = end = int(part)
+        else:
+            return None
+        if start < lo or end > hi or start > end:
+            return None
+        out.update(range(start, end + 1, step))
+    return out or None
+
+
+def _cron_parse(expr: str) -> "dict | None":
+    """解析 5 字段 cron(minute hour dom month dow)为判据 dict; 无法解析返回 None。
+
+    仅支持标准 5 字段数值语法(与 .claude/scheduled_tasks.json 真实形态一致);
+    含秒的 6 字段 / 月周英文名等扩展语法一律返回 None -> 上层退化为 created_at 粗判。
+    """
+    fields = str(expr or "").split()
+    if len(fields) != 5:
+        return None
+    minute = _cron_parse_field(fields[0], 0, 59)
+    hour = _cron_parse_field(fields[1], 0, 23)
+    dom = _cron_parse_field(fields[2], 1, 31)
+    month = _cron_parse_field(fields[3], 1, 12)
+    dow_raw = _cron_parse_field(fields[4], 0, 7)
+    if minute is None or hour is None or dom is None or month is None or dow_raw is None:
+        return None
+    return {
+        "minute": minute,
+        "hour": hour,
+        "dom": dom,
+        "month": month,
+        "dow": {0 if d == 7 else d for d in dow_raw},
+        "dom_restricted": fields[2].strip() != "*",
+        "dow_restricted": fields[4].strip() != "*",
+    }
+
+
+def _cron_day_matches(parsed: dict, tm: time.struct_time) -> bool:
+    """日期字段匹配(标准 cron 语义: dom 与 dow 同时受限时取「或」)。"""
+    if tm.tm_mon not in parsed["month"]:
+        return False
+    dom_ok = tm.tm_mday in parsed["dom"]
+    dow_ok = ((tm.tm_wday + 1) % 7) in parsed["dow"]  # cron 0=周日; struct_time tm_wday 0=周一
+    if parsed["dom_restricted"] and parsed["dow_restricted"]:
+        return dom_ok or dow_ok
+    return dom_ok and dow_ok
+
+
+def _cron_next_fire_after(parsed: dict, after_epoch: float,
+                          horizon_days: int = CRON_FIRE_HORIZON_DAYS) -> "int | None":
+    """严格晚于 after_epoch 的首次触发时刻(epoch 秒, 本机时区); 视野内无触发返回 None。
+
+    逐「月/日/时/分」跳进(非逐分钟暴力扫), 400 天视野下开销可忽略。
+    """
+    t = (int(after_epoch) // 60) * 60 + 60
+    limit = t + horizon_days * 86400
+    while t <= limit:
+        tm = time.localtime(t)
+        if tm.tm_mon not in parsed["month"]:
+            y, mo = (tm.tm_year + 1, 1) if tm.tm_mon == 12 else (tm.tm_year, tm.tm_mon + 1)
+            t = int(time.mktime((y, mo, 1, 0, 0, 0, 0, 0, -1)))
+            continue
+        if not _cron_day_matches(parsed, tm):
+            t = int(time.mktime((tm.tm_year, tm.tm_mon, tm.tm_mday, 0, 0, 0, 0, 0, -1))) + 86400
+            continue
+        if tm.tm_hour not in parsed["hour"]:
+            t = int(time.mktime((tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour, 0, 0, 0, 0, -1))) + 3600
+            continue
+        if tm.tm_min not in parsed["minute"]:
+            t += 60
+            continue
+        return t
+    return None
+
+
+def _job_created_epoch(task: dict) -> "float | None":
+    """取 job 创建时刻(epoch 秒)。真实形态 = `createdAt`(**毫秒** epoch); 取不到返回 None。"""
+    v = task.get("createdAt")
+    if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+        return None
+    return v / 1000.0 if v > 1e11 else float(v)  # 毫秒级约 1.8e12, 秒级约 1.8e9
+
+
+def _progress_ready_at(task: dict) -> "tuple[float | None, str]":
+    """该 job 的进度文件最早「应当存在」的时刻 ready_at + 判据说明(§224)。
+
+    ready_at = 首次触发时刻 + 冷启动宽限(COLD_START_SECS):
+      · 一次性派单 job(触发日在数天后): 首次触发在将来 -> ready_at 在将来
+        -> 触发前不判僵尸(事故一); 触发后 + 宽限内主控还要派 agent、agent 要写首条
+        进度 -> 同样不判; 宽限后仍无文件 -> 判僵尸(真故障)。
+      · recurring 巡检 cron: 建 cron 即派 agent, 首次触发在其创建后 ≤1 个周期 -> 宽限
+        (60min)覆盖「建 cron -> agent 首条 echo」空窗期(事故二); 其后完全维持现行语义
+        (文件不存在 = 僵尸, mtime > 7 天 = 僵尸)。
+    判据取「首次触发时刻」而**非** job 的 `recurring` 字段: 真实生产样本里该字段不可靠
+    (存在 recurring=True 但语义是一次性的 job, 其触发日在次日; 见 §224 报告)。
+    cron 不可解析 / 视野内无触发 -> 退化为 createdAt + 宽限(如实标注); 两者皆无 ->
+    None(维持现行判定)。
+    """
+    created = _job_created_epoch(task)
+    parsed = _cron_parse(task.get("cron") or "")
+    first_fire = _cron_next_fire_after(parsed, created) if (parsed and created is not None) else None
+    if first_fire is not None:
+        return first_fire + ZOMBIE_CRON_COLD_START_SECS, (
+            f"首次触发 {_fmt_epoch(first_fire)} + 宽限 {ZOMBIE_CRON_COLD_START_SECS // 60}min")
+    if created is not None:
+        return created + ZOMBIE_CRON_COLD_START_SECS, (
+            f"cron 无法解析或视野内无触发, 退化按 createdAt {_fmt_epoch(created)} + 宽限")
+    return None, "无 createdAt/cron 生命周期信息, 维持现行判定"
+
+
 def check_zombie_crons(repo: Path) -> CheckResult:
-    """C 维度: 巡检 cron 的进度文件不存在 / 过期 = 疑似僵尸。"""
+    """C 维度: 巡检 cron 的进度文件不存在 / 过期 = 疑似僵尸(判定纳入 job 生命周期, §224)。"""
     name = "zombie_crons"
     cron_p = repo / ".claude" / "scheduled_tasks.json"
     if not cron_p.exists():
@@ -313,7 +464,9 @@ def check_zombie_crons(repo: Path) -> CheckResult:
     now = time.time()
     detail_fail: list[str] = []
     detail_warn: list[str] = []
+    detail_pending: list[str] = []
     patrol_count = 0
+    pending_count = 0
     for t in data["tasks"]:
         if not isinstance(t, dict):
             continue
@@ -323,18 +476,29 @@ def check_zombie_crons(repo: Path) -> CheckResult:
         if "巡检兜底" not in prompt and "agent-progress" not in prompt:
             continue
         patrol_count += 1
-        # 收集进度文件路径: 显式路径 / 巡检兜底(name) -> /tmp/agent-progress-<name>.md
+        # 收集进度文件路径: 显式路径 / 巡检兜底(name) -> <PROGRESS_DIR>/agent-progress-<name>.md
         paths: list[Path] = []
         for m in PROGRESS_PATH_RE.finditer(prompt):
-            paths.append(Path(f"/tmp/agent-progress-{m.group(1)}.md"))
+            paths.append(PROGRESS_DIR / f"agent-progress-{m.group(1)}.md")
         for m in PATROL_NAME_RE.finditer(prompt):
-            paths.append(Path(f"/tmp/agent-progress-{m.group(1)}.md"))
+            paths.append(PROGRESS_DIR / f"agent-progress-{m.group(1)}.md")
         if not paths:
             detail_warn.append(f"cron {cid} 是巡检兜底但 prompt 未含可解析的 /tmp/agent-progress-*.md 路径(人工核对)")
             continue
+        # §224: 该 job 的进度文件何时才「应当存在」—— 未到该时刻不判僵尸
+        ready_at, why = _progress_ready_at(t)
+        is_pending = ready_at is not None and now < ready_at
         for pp in dict.fromkeys(paths):  # 去重保序
             if not pp.exists():
-                detail_fail.append(f"cron {cid} 巡检进度文件不存在: {pp} -> 疑似僵尸(任务已结束 cron 未删), 建议 CronDelete")
+                if is_pending:
+                    pending_count += 1
+                    detail_pending.append(
+                        f"cron {cid} 进度文件 {pp.name} 尚未产生 -> 触发前待观察({why}; "
+                        f"ready_at={_fmt_epoch(ready_at)}), 不判僵尸")
+                    continue
+                detail_fail.append(
+                    f"cron {cid} 巡检进度文件不存在: {pp} -> 疑似僵尸或 agent 未写进度"
+                    f"(已过应产生时刻: {why}), 建议 CronDelete; 若 agent 真卡死请主控核实")
                 continue
             try:
                 age = now - pp.stat().st_mtime
@@ -347,14 +511,19 @@ def check_zombie_crons(repo: Path) -> CheckResult:
                     f"cron {cid} 巡检进度文件 {pp.name} mtime 已 {days} 天未更新 > {ZOMBIE_CRON_STALE_DAYS} 天 -> "
                     f"疑似僵尸(任务早已结束 cron 未删), 建议 CronDelete; 若 agent 真卡死请主控核实")
 
+    pending_note = f", {pending_count} 个进度文件触发前待观察(未到应产生时刻, 不计僵尸)" if pending_count else ""
     if detail_fail:
-        return _fail(name, f"僵尸巡检 cron FAIL({len(detail_fail)} 处, 共 {patrol_count} 个巡检 cron)", detail_fail)
-    msg = f"巡检 cron 检测 OK({patrol_count} 个巡检 cron 进度文件均存在且新鲜)"
+        return _fail(name, f"僵尸巡检 cron FAIL({len(detail_fail)} 处, 共 {patrol_count} 个巡检 cron"
+                           f"{pending_note})", detail_fail + detail_pending)
+    msg = f"巡检 cron 检测 OK({patrol_count} 个巡检 cron 进度文件均存在且新鲜{pending_note})"
+    if pending_count:
+        msg = (f"巡检 cron 检测 OK({patrol_count} 个巡检 cron: 其余进度文件存在且新鲜"
+               f"{pending_note})")
     if detail_warn:
-        return _warn(name, msg + f", 但有 {len(detail_warn)} 处告警", detail_warn)
+        return _warn(name, msg + f", 但有 {len(detail_warn)} 处告警", detail_warn + detail_pending)
     if patrol_count == 0:
         return _ok(name, "当前无巡检兜底 cron(无需检测)")
-    return _ok(name, msg)
+    return _ok(name, msg, detail_pending)
 
 
 # ── 编排 ──────────────────────────────────────────────────────────────────────
