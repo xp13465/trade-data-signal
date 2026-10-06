@@ -1021,7 +1021,13 @@ def _kelly_parts_md5(path):
     三字段=生成器元数据(生成时刻+滚动周期切点+本金常量), 前端零消费(已 grep app.js/lab.js
     核实: _simParseTrades / _labKellyParseTrades 只取 fields/fIdx/quadrants, 顶层三字段不读);
     不剔除则天天变致增量失效(复现 etf-hist exported_at 先例)。json 解析失败退化为整文件字节
-    md5(坏文件必与上次不同 -> 触发重传, 失败方向宁多勿漏)。"""
+    md5(坏文件必与上次不同 -> 触发重传, 失败方向宁多勿漏)。
+
+    #219 治本(2026-10-06): 生成端已**撤出**这三字段(parts 文件只含 {fields,quadrants}, 且
+    sort_keys 规范化, 见 signal_kelly_backtest.py _dump), 故此处 pop 对现产物是 no-op。保留本
+    函数=①平滑过渡(旧 R2/旧状态里仍含三字段的产物照旧按 B 档判定, 不产生状态失配)②防御未来
+    生成端回流元数据。撤出后 file_md5 ≡ 本 B 档指纹 ⇒ 上传链(跳过判据)与 verify-r2(整文件
+    ETag)两把尺子合流: 本体不变则「跳过 + 0 补传」, 本体真变/R2 破坏或丢失则两处都照旧发现。"""
     try:
         with open(path, "r", encoding="utf-8") as f:
             payload = json.load(f)
