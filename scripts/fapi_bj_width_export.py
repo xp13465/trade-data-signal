@@ -67,12 +67,39 @@ def _export_products(conn, cfg) -> bool:
     return ok
 
 
+# ── R2 上传外层超时 + 倒置守卫(#223, 对齐 #217② 先例)────────────────────────
+# 三层梯度:
+#   内层 = R2 单请求 HTTP 超时 R2_UPLOAD_HTTP_TIMEOUT(本机默认 30, 云上 .env = 600)
+#   本层 = 对 upload_r2.py 的 subprocess 超时(下 _R2_UPLOAD_TIMEOUT)
+#   外层 = systemd TimeoutStartSec(trade-fapi-daily.service = **0 无限**, 无上限 ⇒ 本层即唯一墙钟)
+# 判据: 本层 ≤ 内层 = 梯度倒置/零梯度 ⇒ 内层仍在合法重试时本层已杀子进程, 丢了子进程自身的
+#      诊断输出与「--skip-if-locked 等锁重试」窗口。故本层取 内层 600 + 300 余量 = 900。
+_R2_UPLOAD_TIMEOUT = 900
+_R2_UPLOAD_TIMEOUT_MARGIN = 300
+
+
+def _r2_upload_timeout() -> int:
+    """本层 subprocess 超时;若与内层 R2 HTTP 超时构成倒置/零梯度 ⇒ 自动抬升 + 告警。"""
+    try:
+        http_to = int(os.environ.get("R2_UPLOAD_HTTP_TIMEOUT") or "30")
+    except ValueError:
+        http_to = 30
+    if _R2_UPLOAD_TIMEOUT <= http_to:
+        want = http_to + _R2_UPLOAD_TIMEOUT_MARGIN
+        print(f"⚠ [fapi-bj-width-export] 外层 R2 上传超时 {_R2_UPLOAD_TIMEOUT}s <= 内层 HTTP 超时 "
+              f"{http_to}s(梯度倒置/零梯度), 自动抬升到 {want}s(内层+{_R2_UPLOAD_TIMEOUT_MARGIN}s 余量)",
+              flush=True)
+        return want
+    return _R2_UPLOAD_TIMEOUT
+
+
 def _upload_r2(files) -> bool:
     """复用 upload_r2.py upload-data-files 精准上传 R2 data/ 前缀(自动 purge edge cache)。"""
     cmd = [str(PY), str(REPO / "scripts" / "upload_r2.py"), "upload-data-files", *files]
     env = {**os.environ, "REPO": str(REPO)}
+    _to = _r2_upload_timeout()
     try:
-        r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=600)
+        r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=_to)
         sys.stdout.write(r.stdout)
         sys.stderr.write(r.stderr)
         if r.returncode != 0:
@@ -80,7 +107,7 @@ def _upload_r2(files) -> bool:
             return False
         return True
     except subprocess.TimeoutExpired:
-        print("  ✗ upload-data-files 超时(600s)", flush=True)
+        print(f"  ✗ upload-data-files 超时({_to}s)", flush=True)
         return False
     except Exception as e:  # noqa: BLE001
         print(f"  ✗ upload-data-files 异常: {e}", flush=True)

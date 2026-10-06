@@ -3108,6 +3108,10 @@ def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) ->
     # REPO=pick_repo() 选中的部署源树, GIT_REPO=trade git 仓, 上传链与写入位置同树,
     # 防 launchd 注入 REPO 与 pick_repo 决策不一致导致 STATIC_DIR 错位读旧版。
     env = force_env(dict(os.environ), repo)
+    # #223(2026-10-06) 记录(勿擅改): 本层 timeout=120 vs 内层 R2 HTTP 超时(云上 .env=600)
+    # = 梯度倒置;但**不能单独抬到 900** —— 本链外层 systemd TimeoutStartSec=600, 抬过 600 会
+    # 先被 systemd SIGKILL, 下面 except TimeoutExpired 的 degrade/critical 分支永不执行
+    # (「告警与链路同亡」, 同 s06 病灶)。要改必须 systemd 一并抬, 已上报主控待拍板(#223)。
     try:
         r = subprocess.run(
             [str(repo / ".venv/bin/python"), str(repo / "scripts/upload_r2.py"),

@@ -1,0 +1,211 @@
+# -*- coding: utf-8 -*-
+"""test_223_timeout_gradient_copy.py — #217④ 告警文案订正 + #223 超时梯度自测。
+
+CI 挂载: 位于 `scripts/tests/` ⇒ 被 CI 门禁 ⑧(`python3 -m pytest -q scripts/tests/`)收集。
+(2026-10-06 从 `scripts/test_223_timeout_gradient_copy.py` **移入**本目录; 仓根 `scripts/test_*.py`
+ 历来不被 CI 收集 ⇒ 留在那里等于没有回归守卫。移动时**逐条保留全部断言**, 未削弱任何一条。)
+
+覆盖:
+  [A] ③ fapi_bj_width_export.py 的 R2 上传超时守卫(_r2_upload_timeout)行为 + 回归守卫
+  [B] ③ 调用点确实使用守卫值(静态文本)
+  [C] ① / ② / nextday_gap_check 的超时值未被擅改(只加 #223 结构性注释)
+  [D] A) 文案:AST 抽 notify.send 正文并真渲染, 校验口径/举例/双因结构
+  [E] A) 判别逻辑与阈值(D:>50) / dedup key / subject 未动
+
+⚠️ 为什么所有抽取都在**测试函数体内**(不在模块级)
+  本目录 conftest §④ 记载过一条 P0: 任一测试文件**收集期**抛异常 ⇒ pytest INTERNALERROR
+  ⇒ 本目录**全部用例一条都不跑**(不是只挂一个文件)。故本文件模块级只定义纯函数/常量,
+  `ast.parse` / `exec` / 读源文件全部放进 test 函数体内 —— 将来源文件改形状(如函数改名),
+  失败被隔离成本用例 FAIL, 不炸整个门禁。
+
+§18 L50(探针一律 static-only)
+  本测试**不 import** 任何业务模块: `upload_r2.py` / `fapi_bj_width_export.py` 模块级会读
+  config/DB 并 `sys.path` 注入, 故改用 **AST 抽节点 → compile → exec/eval**(只 `os`/`print`
+  入 ns)。**未 source/exec 任何业务脚本主体**(L50 事故正是 harness 真跑了 `fapi_daily_syn.sh`,
+  本文件连 `.sh` 都不打开)。
+
+§18 L48(通知类脚本先打桩)
+  本测试**结构上不可能外发**: 全程不 import、不调用 `notify`; 两条正文用 `eval` 渲染在沙箱
+  ns(`__builtins__={}`)里。零网络、零 subprocess、零 R2、零文件写入(只 read_text)。
+  另: 本文件不碰 `sys.modules` / 不挂真实 `notify.send` 陷阱 ⇒ 无跨用例会话污染(无需 finally 还原块)。
+
+跑法:
+  python3 -m pytest -q scripts/tests/test_223_timeout_gradient_copy.py   # CI 口径
+  python3 scripts/tests/test_223_timeout_gradient_copy.py                # 人工直跑(打印明细)
+"""
+import ast
+import io
+import os
+import sys
+from contextlib import redirect_stdout
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]          # scripts/tests -> scripts -> 仓库根
+F_FAPI = ROOT / "scripts" / "fapi_bj_width_export.py"
+F_UPLOAD = ROOT / "scripts" / "upload_r2.py"
+MIN_ASSERTIONS = 33                                 # 断言下限(防收集/执行异常导致的假绿)
+
+
+def _src(p: Path) -> str:
+    return p.read_text(encoding="utf-8")
+
+
+def _extract_guard():
+    """从 fapi_bj_width_export.py 抽「守卫常量 + _r2_upload_timeout」并 exec 成可调用对象。
+
+    只 compile 这两个节点, 不 import 模块(模块级 `import export as exp` 会读 config/DB)。
+    """
+    tree = ast.parse(_src(F_FAPI))
+    want = {"_R2_UPLOAD_TIMEOUT", "_R2_UPLOAD_TIMEOUT_MARGIN"}
+    nodes = [n for n in tree.body
+             if (isinstance(n, ast.Assign)
+                 and any(getattr(t, "id", "") in want for t in n.targets))
+             or (isinstance(n, ast.FunctionDef) and n.name == "_r2_upload_timeout")]
+    if not nodes:
+        raise AssertionError("fapi_bj_width_export.py 未找到 _r2_upload_timeout / 常量, "
+                            "守卫是否被删?")
+    ns = {"os": os, "print": print}
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(F_FAPI), "exec"), ns)
+    return ns
+
+
+def _render_alert_bodies():
+    """AST 抽两条 notify.send 的 (subject, 正文) 并真渲染(沙箱 ns, 无 builtins)。"""
+    ut = ast.parse(_src(F_UPLOAD))
+    found = {}
+    for n in ast.walk(ut):
+        if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "send":
+            try:
+                subj = ast.literal_eval(n.args[0])
+            except Exception:
+                continue
+            if isinstance(subj, str) and ("异源覆盖" in subj or "独立上传链产物" in subj):
+                found["mass" if "异源覆盖" in subj else "stale"] = (subj, n.args[1])
+    env = {"total_mismatch_found": 114, "repaired_total": 114,
+           "stale_standalone_names": ["data/schedule_stats.json", "data/a-stock-3m.json"],
+           "_fmt_name_list": lambda xs: ", ".join(xs)}
+    out = {}
+    for k, (subj, body_node) in found.items():
+        body = eval(compile(ast.Expression(body_node), str(F_UPLOAD), "eval"),
+                    {"__builtins__": {}}, env)
+        out[k] = (subj, body)
+    return out
+
+
+# ── 断言计数器(仅本用例内部使用, 无全局副作用)─────────────────────────────
+class _Ck:
+    def __init__(self):
+        self.p = self.f = 0
+
+    def __call__(self, ok, name, extra=""):
+        if ok:
+            self.p += 1
+            print(f"  PASS  {name}")
+        else:
+            self.f += 1
+            print(f"  FAIL  {name} {extra}")
+
+
+def test_223_timeout_gradient_and_copy():
+    ck = _Ck()
+
+    # ── 1. 抽 fapi 守卫(见模块 docstring: 抽取在函数体内, 不炸收集期)───────────
+    ns = _extract_guard()
+    guard = ns["_r2_upload_timeout"]
+    print(f"[抽取] _R2_UPLOAD_TIMEOUT={ns['_R2_UPLOAD_TIMEOUT']} "
+          f"MARGIN={ns['_R2_UPLOAD_TIMEOUT_MARGIN']}")
+
+    def run(env):
+        old = os.environ.get("R2_UPLOAD_HTTP_TIMEOUT")
+        if env is None:
+            os.environ.pop("R2_UPLOAD_HTTP_TIMEOUT", None)
+        else:
+            os.environ["R2_UPLOAD_HTTP_TIMEOUT"] = env
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                v = guard()
+        finally:
+            if old is None:
+                os.environ.pop("R2_UPLOAD_HTTP_TIMEOUT", None)
+            else:
+                os.environ["R2_UPLOAD_HTTP_TIMEOUT"] = old
+        return v, buf.getvalue()
+
+    print("\n[A] ③ fapi 守卫行为")
+    v, o = run(None)
+    ck(v == 900 and "⚠" not in o, "默认(无 env, 内层30): 900 且静默", f"v={v} o={o!r}")
+    v, o = run("600")
+    ck(v == 900 and "⚠" not in o, "云上(内层600): 900 且静默(内层+300)", f"v={v} o={o!r}")
+    v, o = run("abc")
+    ck(v == 900 and "⚠" not in o, "非法 env → 回落 30: 900 且静默", f"v={v} o={o!r}")
+    v, o = run("900")
+    ck(v == 1200 and "⚠" in o, "内层900 ⇒ 零梯度: 抬到1200+警告", f"v={v} o={o!r}")
+    for bad in (600, 300, 120):
+        ns["_R2_UPLOAD_TIMEOUT"] = bad
+        v, o = run("600")
+        ck(v == 900 and "⚠" in o, f"回归守卫: 外层被调到 {bad} ⇒ 自动抬到 900+警告",
+           f"v={v} o={o!r}")
+    ns["_R2_UPLOAD_TIMEOUT"] = 900
+
+    print("\n[B] ③ 调用点确实用守卫值(静态)")
+    s = _src(F_FAPI)
+    ck("_to = _r2_upload_timeout()" in s, "调用点取 _to = _r2_upload_timeout()")
+    ck("timeout=_to" in s, "subprocess.run 用 timeout=_to")
+    ck("timeout=600" not in s, "旧硬编码 timeout=600 已消失")
+    ck("超时({_to}s)" in s, "超时消息带动态值")
+    ck("✗ upload-data-files 超时(600s)" not in s, "旧硬编码消息已消失")
+
+    print("\n[C] ① / ② / gap_check 值未动(只加注释)")
+    for f, old in ((ROOT / "scripts" / "gen_daily_brief.py", "timeout=120"),
+                   (ROOT / "scripts" / "nextday_plan_generator.py", "timeout=300"),
+                   (ROOT / "scripts" / "nextday_gap_check.py", "timeout=300")):
+        t = _src(f)
+        ck(old in t, f"{f.name}: {old} 保留(未改值)")
+        ck("#223" in t, f"{f.name}: 已加 #223 结构性注释")
+
+    print("\n[D] A) 文案:AST 抽 notify.send 正文 + 真渲染")
+    bodies = _render_alert_bodies()
+    ck(set(bodies) == {"mass", "stale"}, "两处 notify.send 均定位到", f"{set(bodies)}")
+    for k in ("mass", "stale"):
+        subj, body = bodies[k]
+        print(f"\n--- [{k}] subject: {subj}\n--- [{k}] body:\n{body}\n")
+        if k == "mass":
+            ck("114" in body, "mass: N 动态带出(=114)")
+            ck("不可逐字考" in body and ">50 已证" in body and "≈114" in body,
+               "mass: 口径「N 不可考 / >50 已证 / ≈114」齐")
+            ck("周日全量对账" in body, "mass: 保留周日可忽略判别")
+            ck("误跑" in body, "mass: 保留「本机误跑」真故障判别")
+        else:
+            ck("a-stock-{3m,6m,1y,3y,5y,all}.json" in body and "news_digest" in body
+               and "schedule_stats.json" in body and "overview.json" in body,
+               "stale: 举例=台账实有池(fapi a-stock/overview/news_digest/schedule_stats)")
+            ck("s06" not in body and "nextday_plan" not in body and "daily_brief" not in body,
+               "stale: 误导举例 s06/nextday_plan/daily_brief 已清除")
+            ck("跑前 gen" in body and "设计内" in body, "stale: 归因改为设计内「生成/上传解耦」")
+            ck("连续失败" in body and "被截断" in body and "告警与链路同亡" in body,
+               "stale: 真故障分支(b)判别保留")
+
+    print("\n[E] A) 判别逻辑/阈值未动(静态)")
+    u = _src(F_UPLOAD)
+    ck("total_mismatch_found > 50" in u, "mass 阈值 >50 未动")
+    ck('_dedup_key = "verify_r2_mass_mismatch"' in u, "mass dedup key 未动")
+    ck('_dedup_key = "verify_r2_standalone_stale"' in u, "stale dedup key 未动")
+    ck('"[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)"' in u, "stale subject 未动")
+    ck('"[告警] R2 可能被异源覆盖(verify-r2 大量不一致)"' in u, "mass subject 未动")
+    ck("notify.update_dedup(_dedup_key)" in u, "dedup 写回未动")
+
+    print(f"\n===== 汇总: PASS={ck.p} FAIL={ck.f} =====")
+    assert ck.f == 0, f"#223/#217④ 自测 FAIL={ck.f}(明细见上方 stdout)"
+    assert ck.p >= MIN_ASSERTIONS, (
+        f"断言数仅 {ck.p}(下限 {MIN_ASSERTIONS}), 疑似收集/执行异常")
+    print("ALL_PASS")
+
+
+if __name__ == "__main__":
+    try:
+        test_223_timeout_gradient_and_copy()
+    except AssertionError as e:
+        print(f"\nSOME_FAIL: {e}")
+        sys.exit(1)
+    sys.exit(0)
