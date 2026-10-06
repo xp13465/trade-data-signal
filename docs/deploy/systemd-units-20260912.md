@@ -809,7 +809,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_daily_brief.sh --multi
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=600
+TimeoutStartSec=1740
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/daily_brief_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/daily_brief_launchd.err
 ```
@@ -915,7 +915,7 @@ Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
 Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/fetch_news.py
-TimeoutStartSec=600
+TimeoutStartSec=1080
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.err
 ```
