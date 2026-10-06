@@ -17,9 +17,10 @@
     (`s3_head` / `_upload_glob` / `notify`)把全部外发面封死(见原脚本 docstring §18 L48)。
   - ⚠️ 唯一非仓内项: `upload_r2` 顶层 `load_env()` 找不到 .env 会 `sys.exit`(upload_r2.py:249-251),
     其后 `os.environ["R2_BUCKET"]` 等硬取(270-275)。CI(ubuntu runner)无 .env(`.gitignore:91` 忽略)
-    ⇒ 直接 import 会崩。故本包装在 import 前铺一个**临时 .env 垫片**(`GIT_REPO` 指向 tempdir),
-    只满足「文件存在 + 键齐」校验; 垫片里全是 dummy 值, 且原脚本已把**全部真实外发路径**打桩
-    (下节), 垫片不引入任何真实触达。
+    ⇒ 直接 import 会崩。**该 .env 垫片已上移到 `scripts/tests/conftest.py` §④ 统一提供**
+    (2026-10-06 与 test_219 合并为单一事实源; test_219 顶层 import upload_r2 在同一坑上使整个
+    Job1 ⑧ 收集期崩)。垫片里全是 dummy 值, 且原脚本已把**全部真实外发路径**打桩(下节),
+    垫片不引入任何真实触达。
 
 零外发自证(§18 L48「先证打桩生效再跑」)
   原脚本 `main()` **开头**(早于任何 cmd_verify_r2 / 上传路径)即装三道防线:
@@ -32,39 +33,28 @@
   原脚本是「进程退出即回收」的独立脚本设计: `main()` 结尾 `sys.exit()` 收尾, 且**不还原**
   `sys.modules['notify']`(Fake)与真实 `notify.send`(陷阱)。在 pytest 长驻会话里若不复原,
   会毒化同一会话内其余 notify 用例(test_196 / test_notify_r4_dedup / test_alertchain)。
-  故 finally 显式回滚 `sys.modules['notify']` / `notify.send` / 垫片 env。
+  故 finally 显式回滚 `sys.modules['notify']` / `notify.send`(.env 垫片由会话级 conftest 持有,
+  无需在此回滚)。
 
 跑法: python3 -m pytest -q scripts/tests/test_193_r2_channel_coverage_pytest.py
 """
-import os
-import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 SCRIPTS = Path(__file__).absolute().parent.parent  # scripts/tests -> scripts
-_ENV_KEYS = ("GIT_REPO", "R2_BUCKET", "R2_S3_ENDPOINT", "R2_S3_ACCESS_KEY_ID", "R2_S3_SECRET_ACCESS_KEY")
-# 垫片内容: 仅满足 upload_r2 顶层 load_env() 的「文件存在」与 `os.environ[...]` 硬取的「键齐」,
-# 值全 dummy; 原脚本的三道打桩已封死一切真实外发, 垫片不产生任何真实触达。
-_SHIM_DOTENV = (
-    "R2_BUCKET=ci-shim-test\n"
-    "R2_S3_ENDPOINT=https://invalid.example\n"
-    "R2_S3_ACCESS_KEY_ID=ci-shim\n"
-    "R2_S3_SECRET_ACCESS_KEY=ci-shim\n"
-)
 # 原脚本本地实测 40 条断言(含 [E] 段 git 回归对照 5 条); 若 [E] 的 git rev 不可用会走 [skip]
 # 少 2 条 ⇒ 下限取 30, 防「0 断言静默通过」(§18 L49 假样本养绿)又不因 git 环境差异误杀。
 _MIN_ASSERTIONS = 30
 
 
 def test_r2_channel_coverage_gate():
-    """#193 机检 + 自验全量在 CI 上必须 ALL_PASS(任一 FAIL ⇒ 本用例 FAIL, 阻断 merge)。"""
-    shim = tempfile.mkdtemp(prefix="test201env-")
-    (Path(shim) / ".env").write_text(_SHIM_DOTENV, encoding="utf-8")
-    saved_env = {k: os.environ.get(k) for k in _ENV_KEYS}
+    """#193 机检 + 自验全量在 CI 上必须 ALL_PASS(任一 FAIL ⇒ 本用例 FAIL, 阻断 merge)。
+
+    upload_r2 顶层 load_env() 所需的 .env 垫片由 conftest.py §④ 在收集期统一铺好
+    (GIT_REPO 指向临时垫片), 本文件不再自建(§5.1 消除重复)。此处仅做**会话卫生**回滚。
+    """
     saved_notify = sys.modules.get("notify")
     saved_send = getattr(saved_notify, "send", None) if saved_notify is not None else None
-    os.environ["GIT_REPO"] = shim
 
     if str(SCRIPTS) not in sys.path:
         sys.path.insert(0, str(SCRIPTS))
@@ -88,9 +78,3 @@ def test_r2_channel_coverage_gate():
             sys.modules["notify"] = saved_notify
             if saved_send is not None:
                 saved_notify.send = saved_send  # 还原被挂陷阱的真实 send
-        for k, v in saved_env.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-        shutil.rmtree(shim, ignore_errors=True)

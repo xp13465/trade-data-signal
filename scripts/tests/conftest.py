@@ -37,6 +37,7 @@ rfm/bdm 两个测试在 CI 上会退回 ImportError。
 import importlib.util
 import os
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -77,3 +78,27 @@ for _name, _need_session, _submods in (
         _m.__path__ = []  # 允许子模块注册
         for _sub in _submods:
             sys.modules[f"{_name}.{_sub}"] = types.ModuleType(f"{_name}.{_sub}")
+
+# ④ upload_r2 顶层 load_env() 垫片(2026-10-06, CI 门禁 ⑧ 收集期崩溃根治, 原 #219 事故)
+#   scripts/upload_r2.py 模块级 `load_env()`(:269) 若无 .env 会 `sys.exit`(:251), 其后
+#   `os.environ["R2_BUCKET"]` 等再硬取(:270-275)。CI(ubuntu runner)无 .env(`.gitignore` 忽略)
+#   ⇒ 任何测试文件顶层 `import upload_r2` 会在 **pytest 收集期**触发 SystemExit ⇒ INTERNALERROR
+#   「no tests ran」(exit 3) ⇒ 整个 Job1 ⑧ 全军覆没(**不是**只挂一个文件; 收集期崩会让本目录
+#   全部用例一条都不跑)。
+#   本垫片在 conftest 加载期(早于 pytest 收集任何 test 模块)铺一个临时 .env:
+#     ① `GIT_REPO` 指向 tempdir(命中 _find_env() 的 `$GIT_REPO/.env` 候选);
+#     ② tempdir 内 `.env` 含 4 个键, 满足「文件存在 + 顶层 os.environ[...] 键齐」两道校验。
+#   值全 dummy。垫片**只决定「模块能否 import」, 不产生任何真实触达**: 引用 upload_r2 的两个
+#   测试(test_193 / test_219)对其调用全是纯函数 / 临时树输入; test_193 的自验脚本还对上传播径
+#   与 notify 逐条打桩(见其 docstring「零外发自证」, 遵循 §18 L48)。setdefault 不覆盖已设值
+#   (本机开发环境已 export GIT_REPO 时不改动), 只补 CI 的缺口。
+#   注: 与 test_193 原先内联的同类垫片合并为本处单一事实源(§5.1 消除重复), 两文件共用。
+_ENV_SHIM_DIR = Path(tempfile.mkdtemp(prefix="ci-env-shim-"))
+(_ENV_SHIM_DIR / ".env").write_text(
+    "R2_BUCKET=ci-shim-test\n"
+    "R2_S3_ENDPOINT=https://invalid.example\n"
+    "R2_S3_ACCESS_KEY_ID=ci-shim\n"
+    "R2_S3_SECRET_ACCESS_KEY=ci-shim\n",
+    encoding="utf-8",
+)
+os.environ.setdefault("GIT_REPO", str(_ENV_SHIM_DIR))
