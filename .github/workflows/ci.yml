@@ -16,6 +16,9 @@
 #       凯利三件套, 固定输入→断言输出, 样本硬编码自线上产物冻结快照, 零外部数据依赖
 #       (仅需 pip install pytest pyyaml)。挂 Job 1 而非 Job 2: Job 2 整体 continue-on-error
 #       (为⑥⑦数据窗口差 FAIL 源保 CI 可用), ⑧ 留在 Job 2 会吞掉 FAIL 永不阻断, 与 P0-1 门禁意图相悖。
+#       + #201(2026-10-06)并入 scripts/tests/test_193_r2_channel_coverage_pytest.py: #193 R2 通道
+#       覆盖双向机检(纯仓库内输入, 无生产数据产物)由「人工跑」转自动强制。详见
+#       docs/ops/201-ci-gate-20261006.md(依赖面判定 + 零外发自证)。
 #   Job 2 quality-gate-data(continue-on-error, 需下载 R2 生产数据产物):
 #     ⑥ scripts/check_loss_rules_vs_mining.py AI降亏 20 新键·三层一致性(特征/谓词/阈值 vs 挖掘权威)
 #     ⑦ scripts/check_fade_predicate_parity.mjs 老37键迁 spec-driven 规格·命中集合逐位一致(单边模式)
