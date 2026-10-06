@@ -1856,10 +1856,20 @@ def build_output(rebuild=False, dry_run=False):
             # (R2 没传但监控显通过)。带该 flag = 拿不到锁立即跳过本轮, 不改打点主流程; 当日 R2
             # 同步缺口由 deploy 日链 upload-data-large 兜底(OVERFIT_SKIP_R2 语义同侧)。
             _env = force_env(dict(os.environ), REPO)
+            # #217①: 上游 upload_r2 --skip-if-locked 撞锁时先等锁重试 R2_UPLOAD_SKIP_RETRY_SECS
+            # (默认 60s)再判跳过; 本 subprocess timeout 须把该重试窗口算进去, 否则重试期间被
+            # 外层 timeout 杀掉 → 走 TimeoutExpired(✗ 标记)而非 SKIPPED_LOCKED(设计让路)。
+            try:
+                _r2_skip_retry = int(_env.get("R2_UPLOAD_SKIP_RETRY_SECS") or "60")
+            except (TypeError, ValueError):
+                _r2_skip_retry = 60
+            if _r2_skip_retry < 0:
+                _r2_skip_retry = 0
+            _r2_timeout = 120 + _r2_skip_retry
             r = _sp.run(
                 [sys.executable, os.path.join(SCRIPT_DIR, "upload_r2.py"),
                  "--skip-if-locked", "upload-data-large"],
-                capture_output=True, text=True, timeout=120, env=_env)
+                capture_output=True, text=True, timeout=_r2_timeout, env=_env)
             if r.returncode == 0:
                 _blob = (r.stdout or "") + (r.stderr or "")
                 if "SKIPPED_LOCKED" in _blob:
@@ -1871,7 +1881,7 @@ def build_output(rebuild=False, dry_run=False):
                 print(f"   ✗ R2 上传失败(rc={r.returncode}): {r.stderr[-300:]}", file=sys.stderr)
         except subprocess.TimeoutExpired:
             # 绝不静默(2026-09-24 硬化 P1-B): 排队→timeout 被吞=监控显通过实未传。打显式标记。
-            print("   ✗ R2_UPLOAD_TIMEOUT: overfit_monitor.json R2 上传超 120s 未完成, "
+            print(f"   ✗ R2_UPLOAD_TIMEOUT: overfit_monitor.json R2 上传超 {_r2_timeout}s 未完成, "
                   "当日同步缺口由 deploy 日链兜底, 请人工确认", file=sys.stderr)
         except Exception as e:  # noqa: BLE001
             print(f"   ✗ R2 上传异常(非静默): {e}", file=sys.stderr)

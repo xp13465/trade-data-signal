@@ -709,6 +709,16 @@ def sync_news_digest_live(day_str: str) -> None:
         # 与上面 static_dir 一致, 读新版上传, 不读另一树旧版(818-fix 精神, 扩展到部署源树)。
         env = force_env(dict(os.environ), repo)
         _load_dotenv(env)
+        # #217①: 上游 upload_r2 --skip-if-locked 撞锁时会先等锁重试 R2_UPLOAD_SKIP_RETRY_SECS
+        # (默认 60s)再判跳过; 本 subprocess timeout 须把该重试窗口算进去, 否则重试期间被外层
+        # timeout 杀掉 → 走 TimeoutExpired(✗ 标记, 被 gen_schedule_stats 当真故障) 而非
+        # SKIPPED_LOCKED(设计让路)。基础 120s + 重试窗口。
+        try:
+            _r2_skip_retry = int(env.get("R2_UPLOAD_SKIP_RETRY_SECS") or "60")
+        except (TypeError, ValueError):
+            _r2_skip_retry = 60
+        if _r2_skip_retry < 0:
+            _r2_skip_retry = 0
         r = subprocess.run(
             [str(repo / ".venv/bin/python"), str(repo / "scripts/upload_r2.py"),
              # --skip-if-locked(2026-09-24 硬化 P1-A): 本调用可被 deploy 全量持锁窗口拖住排队,
@@ -719,7 +729,7 @@ def sync_news_digest_live(day_str: str) -> None:
              #   归档仅由①补) ③gen_daily_brief 20:40 条件性兜底(news_meta.available=True 才带
              #   news_digest, 且其 upload 同款 P1-B 病灶已收口打 ✗_TIMEOUT, 不可当作主兜底)。
              "--skip-if-locked", "upload-data-files"] + arch_files,
-            cwd=str(repo), env=env, timeout=120, capture_output=True, check=False)
+            cwd=str(repo), env=env, timeout=120 + _r2_skip_retry, capture_output=True, check=False)
         _skip_locked = (r.returncode == 0 and
                         b"SKIPPED_LOCKED" in (r.stdout or b"") + (r.stderr or b""))
         if _skip_locked:

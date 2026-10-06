@@ -452,8 +452,9 @@ def _sigv4_canonical_query(query):
 # ---- 大文件单 PUT 传输进度 (#180, 2026-10-05) ----
 # 背景: >_MULTIPART_THRESHOLD(100MB) 走 multipart, 但其下的大文件(实测 signal_kelly_trades.json
 # 82.3MiB / _sdc 83.5MiB)走**单 PUT**——单个 HTTP 请求把整包 body 一次交给 socket, **中途零日志输出**。
-# 看门狗(#174, 2026-10-05)主判据=「日志 mtime 超 300s 无输出即判停滞 kill」;该大文件实测吞吐
-# 326-390KB/s 需 211-253s, 离 300s 仅 47-89s 余量, 带宽退化 <~287KB/s 即被误杀 → data-large 通道
+# 看门狗(#174, 2026-10-05)主判据=「日志 mtime 超 R2_UPLOAD_STALL_SECS 无输出即判停滞 kill」
+# (#217② 2026-10-06: 该值由 300s 抬到默认 900s, 见 r2_upload_async.sh);该大文件实测吞吐
+# 326-390KB/s 需 211-253s, 旧 300s 阈值仅 47-89s 余量(带宽退化 <~287KB/s 即被误杀) → data-large 通道
 # 死循环复发(reviewer 审 9faf92d8e §④ 回归风险)。修法 = 上传阶段按字节流动打进度行, 消掉静默窗口。
 #
 # 为什么是「以字节流动为准」而非定时心跳: _ProgressBody 的 read() 只被 http.client 的
@@ -467,7 +468,7 @@ def _sigv4_canonical_query(query):
 # 正确计入(注意: 与备份进度行刻意不带 (sizeB) 不同——备份不是上传流量, 带它会掩盖备份停滞)。
 _PROGRESS_PUT_MIN = 8 * 1024 * 1024        # 单 PUT 体积 >= 8MiB 才打进度(小文件秒级完成, 打了是噪音)
 _PROGRESS_PUT_STEP = 4 * 1024 * 1024       # 每累计 4MiB 打一行
-_PROGRESS_PUT_MAX_INTERVAL = 60            # 或每 60s 至少一行(极慢链路上 4MiB 间隔可能 >300s, 兜一道时间上限)
+_PROGRESS_PUT_MAX_INTERVAL = 60            # 或每 60s 至少一行(极慢链路上 4MiB 间隔可能 >停滞阈值, 兜一道时间上限)
 
 
 class _ProgressBody:
@@ -520,7 +521,7 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
       随 headers 一起进 SigV4 签名与 signed-headers; 用于服务端到服务端 COPY(x-amz-copy-source)。
     progress_label(2026-10-05 #180): 非 None 且 payload>=_PROGRESS_PUT_MIN 时用 _ProgressBody 作请求体 +
       显式带 Content-Length(否则 http.client 退化 chunked 致 SigV4 失配), 上传中按字节打进度行,
-      消掉「大文件单 PUT 全程零日志 → 看门狗 300s 停滞判据误杀」回归(治 data-large 死循环复发)。
+      消掉「大文件单 PUT 全程零日志 → 看门狗停滞判据误杀」回归(治 data-large 死循环复发)。
       进度只在字节真实流动时打点, 真停滞(socket 阻塞)仍无输出 → 检测能力不削弱。
     """
     if content_type is None:
@@ -1085,7 +1086,7 @@ def _prune_pre_upload(today_str, label=""):
     if not stale:
         return
     # 2026-10-05 #174 同类面排查: 原串行逐 key DELETE 且无进度输出, 若 stale 达几千
-    # (7 天×多通道 force_full 备份积累会被 .r2 停滞判据 300s 无输出误杀), 改 8 线程并行
+    # (7 天×多通道 force_full 备份积累会被 .r2 停滞判据无输出误杀), 改 8 线程并行
     # + 每 128 个打进度行(日志滚动=停滞判据放行)。DELETE 幂等, 失败静默留待下轮 prune。
     def _del_one(k):
         try:
@@ -1176,7 +1177,7 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
         for fut in as_completed(futures):
             fut.result()  # 异常已被 _backup_one 内部消化(失败记日志不抛)
             done += 1
-            # 进度行(看门狗 #174 停滞判据放行: 备份阶段有输出=有工作, 不被 300s 无输出误杀);
+            # 进度行(看门狗 #174 停滞判据放行: 备份阶段有输出=有工作, 不被停滞判据误杀);
             # 刻意不用 `[N/M]` 方括号格式 + 不带 (sizeB), 避免被 r2_upload_async.sh 低速判据
             # 当作「批量上传字节进度」误判(备份是 COPY 无字节语义)。
             if done % 64 == 0 or done == total:
@@ -3513,7 +3514,7 @@ def cmd_verify_r2():
         ch_checked = 0
         last_pct_log = 0
         # 2026-10-05 看门狗 #174 停滞判据配套: 全量通道(如 fund-nav 26000+ key HEAD)可能单通道
-        # 跑 5 分钟以上, 若中间零日志会被「300s 无输出=停滞」判死 —— 每 100 个打印一次进度,
+        # 跑 5 分钟以上, 若中间零日志会被「停滞判据无输出」判死 —— 每 100 个打印一次进度,
         # 日志持续滚动, 健康工作不被误杀。
         with ThreadPoolExecutor(max_workers=8) as pool:
             futures = [pool.submit(_check, f) for f in to_check]
@@ -3763,12 +3764,17 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
     timeout 兜底 fail-closed(exit 1, 走调用方既有告警链), 不会 fail-open 无锁上传破互斥保证,
     也不会静默留缺口。
 
-    skip_if_locked(opt-in, 2026-09-24 硬化 P1-A): 高频/下轮可重试通道专用。拿不到锁时
-    立即返回 _SKIP_R2_LOCKED 哨兵(不排队), 由 __main__ 统一打印可 grep 的 SKIPPED_LOCKED
-    行 + exit 0(不触发调用方 `|| 告警邮件` 分支)。跳过 = 本轮不传, 下一轮 10min 后自然重试,
-    对 intraday_snapshot/overfit_monitor/fetch_news 这类高频或兜底链通道是安全的;
+    skip_if_locked(opt-in, 2026-09-24 硬化 P1-A; #217① 2026-10-06 加有界等锁重试):
+    高频/下轮可重试通道专用。拿不到锁时**先在有界窗口内轮询重试**(env
+    R2_UPLOAD_SKIP_RETRY_SECS, 默认 60s, 2s 间隔)——窗口内拿到锁则正常上传(不打印
+    SKIPPED_LOCKED, 不参与连续轮次计数, 消除网络抖动/瞬时撞锁噪声); 窗口内仍拿不到才返回
+    _SKIP_R2_LOCKED 哨兵(不排队), 由 __main__ 统一打印可 grep 的 SKIPPED_LOCKED 行 + exit 0
+    (不触发调用方 `|| 告警邮件` 分支)。跳过 = 本轮不传, 下一轮 10min 后自然重试, 对
+    intraday_snapshot/overfit_monitor/fetch_news 这类高频或兜底链通道是安全的;
     对 deploy.sh 日链 data-large/kelly-parts 等「跳过就留数据缺口」的低频通道**不适用**(它们
-    不带该 flag, 保持排队语义不变)。
+    不带该 flag, 保持排队语义不变)。**真缺口判别保持**: schedule_monitor 对「连续 3 轮仍
+    SKIPPED_LOCKED」照常 SEVERE(重试只把瞬时撞锁从计数里剔除, 不放松阈值)。
+    R2_UPLOAD_SKIP_RETRY_SECS=0 恢复旧行为(拿不到锁立即跳过)。
 
     list/delete/download-db/clean-data-backup 等只读/低频调试命令不走本锁(避免排查时被上传阻塞);
     upload(单文件 <100KB)轻量命令豁免。upload-db/upload-claude-backup/upload-decommissioned
@@ -3786,15 +3792,34 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
         print(f"⚠ 无法打开 R2 上传锁 {lock_path}({e}), 不持锁继续(并发风险自知)", file=sys.stderr)
         return None
     deadline = time.time() + timeout
+    # #217①: skip_if_locked 的有界等锁重试窗口(秒)。撞锁后先轮询重试(2s 间隔), 窗口内
+    # 拿到锁 -> 正常上传(静默, 不打印 SKIPPED_LOCKED、不参与连续轮次计数); 窗口内仍拿不到
+    # -> 才 SKIPPED_LOCKED(真缺口判别保持)。0=旧行为(拿不到锁立即跳过), 向后兼容。
+    if skip_if_locked:
+        try:
+            skip_retry_secs = int(os.environ.get("R2_UPLOAD_SKIP_RETRY_SECS", "60"))
+        except ValueError:
+            skip_retry_secs = 60
+        if skip_retry_secs < 0:
+            skip_retry_secs = 0
+    else:
+        skip_retry_secs = 0
+    skip_deadline = None
     while True:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return fd
         except OSError:
             if skip_if_locked:
+                if skip_deadline is None:
+                    skip_deadline = time.time() + skip_retry_secs
+                if skip_retry_secs > 0 and time.time() < skip_deadline:
+                    time.sleep(2)
+                    continue
                 os.close(fd)
                 print(
-                    "SKIPPED_LOCKED: R2 上传锁被占用, 跳过本轮上传(--skip-if-locked, 下轮重试)",
+                    "SKIPPED_LOCKED: R2 上传锁被占用, 跳过本轮上传"
+                    f"(--skip-if-locked, 已等锁重试 {skip_retry_secs}s 仍未拿到, 下轮重试)",
                     file=sys.stderr,
                 )
                 return _SKIP_R2_LOCKED

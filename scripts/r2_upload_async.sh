@@ -55,6 +55,10 @@ echo "REPO=$REPO GIT_REPO=$GIT_REPO" | tee -a "$LOG"
 # 被看门狗超时 kill 的通道记录(#177 解静音: verify-channels 收尾对账时对这些通道保留告警,
 # 不适用轻量对账静音——该通道本轮从未真正完成上传, 死循环下 R2 可能静默陈旧)。
 R2_KILLED=""
+# #217③(2026-10-06): 被 kill 通道的「kill 前 tmp_log 尾部 30 行」累积(HTML 片段), 供收尾
+# 告警正文引用。旧行为 kill 后直接 rm tmp_log + 主日志只 tail -1 → 10-06 17:16 告警详情
+# 「无输出」不可定因。现 kill 前把尾部 30 行落主日志(见 _dump_kill_tail), 并累积到本变量。
+R2_KILL_CTX=""
 
 # 加载 .env(PURGE_SECRET 等 Worker 凭证)到环境, 确保手动跑时子进程(upload_r2.py)能读
 # PURGE_SECRET 调 /api/purge-cache 清 edge cache(与 deploy.sh 同款, 防手动触发丢凭证致 purge 失败)。
@@ -78,6 +82,23 @@ _fmt_mtime() {
   return 0
 }
 
+# #217③: kill 前把 tmp_log 尾部 30 行落进主日志(事后定因材料; 旧行为只 tail -1 且 kill 后
+# 立即 rm tmp_log → 事后不可定因)。同时累积到 R2_KILL_CTX(HTML 片段)供收尾告警正文引用。
+_dump_kill_tail() {
+  local _f="$1" _desc="$2" _tail30 _esc
+  _tail30="$(tail -30 "$_f" 2>/dev/null)"
+  echo "  --- [$_desc] kill 前 tmp_log 尾部 30 行(定因材料) ---" | tee -a "$LOG"
+  if [ -n "$_tail30" ]; then
+    printf '%s\n' "$_tail30" | tee -a "$LOG"
+    # 转义 HTML 尖括号 + 逐行接 <br>(告警正文为 HTML)供告警正文
+    _esc="$(printf '%s' "$_tail30" | sed 's/</\&lt;/g; s/>/\&gt;/g' | awk '{printf "%s<br>", $0}')"
+  else
+    echo "  (tmp_log 无任何输出——进程启动即无日志/缓冲未刷)" | tee -a "$LOG"
+    _esc="（无输出）"
+  fi
+  R2_KILL_CTX="${R2_KILL_CTX}<br><b>[$_desc] kill 前尾部 30 行:</b><br>${_esc}"
+}
+
 run_r2_upload() {
   local desc="$1"; shift
   local ch_timeout=""
@@ -88,8 +109,20 @@ run_r2_upload() {
   tmp_log=$(mktemp)
   "$PY" "$REPO/scripts/upload_r2.py" "$@" >"$tmp_log" 2>&1 &
   pid=$!
-  # 主判据=停滞: 日志 mtime 超 N 秒(默认 300s=5min, 对齐 rclone --timeout 默认)无新增输出即判死。
-  local _stall_secs="${R2_UPLOAD_STALL_SECS:-300}"
+  # 主判据=停滞: 日志 mtime 超 N 秒无新增输出即判死(对齐 rclone --timeout 语义)。
+  # #217②(2026-10-06): 阈值必须**严格 > 内层单请求 HTTP 超时**(R2_UPLOAD_HTTP_TIMEOUT,
+  #   云上 .env=600), 否则内层仍在合法慢请求/重试时外层已先 kill = 梯度倒置(旧默认 300 < 600,
+  #   是 10-05/10-06 verify-r2 单通道静默被误杀诱因之一)。默认 900(= s06_snapshot.sh run_to 900
+  #   同口径: 内层 600 须留梯度, 见该脚本 L132); 显式 R2_UPLOAD_STALL_SECS 若 ≤ HTTP 超时,
+  #   自动抬到 HTTP+300(防倒置回归, 打日志留痕)。
+  local _http_to="${R2_UPLOAD_HTTP_TIMEOUT:-30}"
+  case "$_http_to" in ''|*[!0-9]*) _http_to=30 ;; esac
+  local _stall_secs="${R2_UPLOAD_STALL_SECS:-900}"
+  case "$_stall_secs" in ''|*[!0-9]*) _stall_secs=900 ;; esac
+  if [ "$_stall_secs" -le "$_http_to" ]; then
+    echo "⚠ R2_UPLOAD_STALL_SECS=$_stall_secs ≤ 内层 HTTP 超时 ${_http_to}s(梯度倒置), 自动抬到 $((_http_to + 300))s" | tee -a "$LOG"
+    _stall_secs=$((_http_to + 300))
+  fi
   local _last_mtime _now _slept _cur_mtime
   _last_mtime=$(_fmt_mtime "$tmp_log")
   _slept=0
@@ -106,6 +139,7 @@ run_r2_upload() {
     if [ $((_now - _last_mtime)) -ge "$_stall_secs" ]; then
       echo "⚠ $desc 停滞 ${_stall_secs}s 无日志输出, kill pid=$pid" | tee -a "$LOG"
       R2_KILLED="$R2_KILLED $desc"
+      _dump_kill_tail "$tmp_log" "$desc"
       kill -TERM "$pid" 2>/dev/null; sleep 2
       kill -KILL "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
@@ -115,6 +149,7 @@ run_r2_upload() {
     if [ "$_slept" -ge 7200 ]; then
       echo "⚠ $desc 总时长超 7200s 硬兜底, kill pid=$pid" | tee -a "$LOG"
       R2_KILLED="$R2_KILLED $desc"
+      _dump_kill_tail "$tmp_log" "$desc"
       kill -TERM "$pid" 2>/dev/null; sleep 2
       kill -KILL "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
@@ -136,6 +171,7 @@ run_r2_upload() {
       if [ "$_low_bad" -ge 5 ]; then
         echo "⚠ $desc 低速(近5分钟字节增量<1MB), kill pid=$pid" | tee -a "$LOG"
         R2_KILLED="$R2_KILLED $desc"
+        _dump_kill_tail "$tmp_log" "$desc"
         kill -TERM "$pid" 2>/dev/null; sleep 2
         kill -KILL "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
@@ -204,7 +240,7 @@ finalize_verify() {
     else
       echo "✗ R2 失败通道轻量对账发现缺口(verify-channels rc=$_vc_rc, 照常告警):$R2_FAIL" | tee -a "$LOG"
       _vc_tail="$(tail -8 /tmp/r2_verify_channels_async.log 2>/dev/null | sed 's/</\&lt;/g; s/>/\&gt;/g' | tr '\n' ' ')"
-      "$PY" "$REPO/scripts/notify.py" "[告警] R2上传失败" "r2_upload_async.sh R2 上传部分通道失败(轻量对账确认有缺口):$R2_FAIL<br>上传已在异步任务跑完, 请人工确认失败通道文件是否已补传/需手动补刷: bash scripts/upload_r2.py upload-all-data<br>verify-channels 详情: $([ -n "$_vc_tail" ] && echo "$_vc_tail" || echo 无输出)<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
+      "$PY" "$REPO/scripts/notify.py" "[告警] R2上传失败" "r2_upload_async.sh R2 上传部分通道失败(轻量对账确认有缺口):$R2_FAIL<br>上传已在异步任务跑完, 请人工确认失败通道文件是否已补传/需手动补刷: bash scripts/upload_r2.py upload-all-data<br>verify-channels 详情: $([ -n "$_vc_tail" ] && echo "$_vc_tail" || echo 无输出)${R2_KILL_CTX}<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
       unset _vc_rc _vc_tail
     fi
   fi
