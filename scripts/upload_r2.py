@@ -3570,8 +3570,14 @@ def cmd_verify_r2():
                 notify.send(
                     "[告警] R2 可能被异源覆盖(verify-r2 大量不一致)",
                     f"verify-r2 对账发现 {total_mismatch_found} 个 key 与本地不一致(阈值 50), "
-                    f"自动补传 {repaired_total} 个。可能原因: 本机误跑 export/upload_r2 覆盖了 R2, "
-                    f"或状态文件丢失后全量覆盖。请查本机是否误跑 export.py/upload_r2.py。"
+                    f"自动补传 {repaired_total} 个。\n"
+                    f"量级口径: N 不可逐字考(旧实现只打计数不落正文, 事后仅存 dedup key+时间); "
+                    f">50 已证(阈值触发); 同轮实测量级 ≈114(10-04 周日全量对账轮, "
+                    f"dedup verify_r2_mass_mismatch 末次 10-04 04:07:20, 该轮补传 114 且无失败记录) "
+                    f"—— 本条 N 只作量级参考。\n"
+                    f"可能原因: ①周日全量对账的设计内兜底(见末句, 可忽略); "
+                    f"②本机误跑 export/upload_r2 覆盖了 R2, 或状态文件丢失后全量覆盖 "
+                    f"—— 请查本机是否误跑 export.py/upload_r2.py。\n"
                     f"(若为周日全量对账设计内补传可忽略此提示)",
                     from_prefix="[告警]",
                 )
@@ -3595,9 +3601,14 @@ def cmd_verify_r2():
                     "[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)",
                     f"verify-r2 发现以下「脱离 deploy 主链的独立上传产物」R2 副本与本地不一致/缺失"
                     f"(已自动补传 {repaired_total} 个): {_fmt_name_list(stale_standalone_names)}。\n"
-                    f"含义: 对应排期上传链(如 s06_snapshot.sh 20:35 / nextday_plan / daily_brief)已连续"
-                    f"失败或被截断(生成成功但 R2 没跟上), 本应由该链自己的告警触达 —— 若未收到该链告警, "
-                    f"说明告警与链路同亡, 需查链内 notify 是否在异常/trap 路径下也能触达。",
+                    f"台账实有池(本条对账对象): a-stock-{{3m,6m,1y,3y,5y,all}}.json(fapi 链) + overview.json "
+                    f"+ news_digest 家族 + schedule_stats.json。\n"
+                    f"双因结构(请按此对照判别): "
+                    f"(a)【设计内, 无需处置】这类产物存在多个「为读/为记/为刷」的生成点"
+                    f"(任务链结尾 gen / schedule_monitor 每 15min 跑前 gen / export 重写 / trap EXIT gen), "
+                    f"而上传点滞后 ⇒ 对账窗口内本地版本被判为比 R2 新, 自动补传即把这一代差兜平; "
+                    f"(b)【真故障】该链连续失败或被截断(生成成功但 R2 没跟上), 本应由该链自己的告警触达 —— "
+                    f"若未收到该链告警, 说明告警与链路同亡, 需查链内 notify 在异常/trap 路径下是否也能触达。",
                     from_prefix="[告警]",
                 )
                 notify.update_dedup(_dedup_key)

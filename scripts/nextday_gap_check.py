@@ -352,6 +352,9 @@ def _sync_r2_and_notify(excluded, steps_changed, today, no_r2=False, no_notify=F
             try:
                 env = dict(os.environ)
                 env.setdefault("REPO", str(REPO))
+                # #223(2026-10-06) 记录(勿擅改): timeout=300 vs 内层 R2 HTTP 超时(云上 .env=600)
+                # = 梯度倒置;但不能单独抬到 900 —— 本链外层 systemd TimeoutStartSec=600, 抬过 600
+                # 会先被 systemd SIGKILL, 本段 except 永远走不到。要改必须 systemd 一并抬(待拍板 #223)。
                 r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
                 log(f"R2 退出码={r.returncode}\n{r.stdout}")
                 if r.returncode != 0:
