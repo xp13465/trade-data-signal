@@ -1191,7 +1191,7 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
 
 def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
                         fingerprint=None, exclude_fn=None, checkpoint_every=0,
-                        dry_run=None, label=None):
+                        dry_run=None, label=None, on_fail=None):
     """通用增量上传引擎(2026-09-15 R2 上传增量化, 12 通道复用; 参数化 etf-hist 先例全套机制)。
 
     一次实现, 12 通道共用; 机制逐条继承 cmd_upload_etf_hist(scripts/upload_r2.py 先例):
@@ -1216,6 +1216,10 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
       - checkpoint_every>0 时启用分片 checkpoint 断点续传(fund-nav 模式, 治「超时 kill->状态
         缺失->下次更慢全量->再被 kill」恶性循环); checkpoint 落 data/.r2_<channel>_ckpt.json;
       - dry_run=True 只打印「将传 N/M」不 PUT(验收自测用)。
+      - on_fail(可选, #204 2026-10-06): 回调 (ok, total, failed_rels) -> None, 仅在 ok!=total
+        的失败分支、sys.exit(1) 之前调用一次 —— 给增量通道预留「失败 loud」发声点(此前引擎
+        自身 exit 1 让调用方拿不到返回值, 无法在 cmd 层接 _notify_channel_upload_fail)。
+        默认 None = 零行为变化(其余 11 个增量通道不传即维持原样); etf-score 传入 notify 回调。
     返回 (ok, total, failed_rels, uploaded_keys) —— 与 _upload_glob 同签名, 调用方照旧拿
     uploaded_keys 调 purge_cache(引擎不负责 purge, 各通道 purge 口径不同由通道函数自理)。"""
     label = label or state_name
@@ -1465,6 +1469,11 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
             except OSError as e:
                 print(f"[{label}] ⚠ checkpoint 落盘失败({e}), 下轮将从断点前续传")
         print(f"FAILED_FILES: {', '.join(failed_rels)}")
+        if on_fail is not None:
+            try:
+                on_fail(ok, total, failed_rels)
+            except Exception as _e:  # noqa: BLE001
+                print(f"[{label}] ⚠ on_fail 失败告警回调异常(不阻塞): {_e}", file=sys.stderr)
         sys.exit(1)
 
     _save_state(sigs, mode, changed_rels)
@@ -1680,7 +1689,8 @@ def cmd_upload_public_fund():
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
-def _notify_channel_upload_fail(label, cmd_name, r2_prefix, ok, total, failed_rels):
+def _notify_channel_upload_fail(label, cmd_name, r2_prefix, ok, total, failed_rels,
+                                impact_note="(fund_score 为场外基金评分 fallback 数据源)"):
     """R2 通道上传失败 loud 告警(#193, 2026-10-05, §18 L48 同族静默根治第一批)。
 
     背景: fund_score 链每日活跃(update_all.sh + pf_score_daily/weekly 三方调用), 其上传走
@@ -1689,6 +1699,9 @@ def _notify_channel_upload_fail(label, cmd_name, r2_prefix, ok, total, failed_re
     不新造轮子), 一处覆盖全部调用方(根因单点修, 非逐 caller 打补丁)。
     判据锚在**退出码 ok!=total**(稳定标识), 不 grep 日志文本/字段值(memory
     data-source-switch-field-filter-blindspot)。
+    impact_note(可选, #204 2026-10-06): 「含义」行末尾对该 R2 前缀影响的括注。默认值 = #193
+    两个既有调用点(fund-score/offshore-fund)的历史文案, 逐字保持字节不变; 新接入通道(etf-score)
+    传入本通道自己的括注(名称/作用域不同), 避免把 fund_score 的影响说明误挂到别的通道。
     ⚠️ 自测涉及本路径必须先打桩 notify(§18 L48 / memory notify-script-selftest-must-stub):
     test_193_r2_channel_coverage.py 已 monkeypatch notify.send/check_dedup/update_dedup,
     并先证打桩生效(未产生真实外发)。
@@ -1703,8 +1716,7 @@ def _notify_channel_upload_fail(label, cmd_name, r2_prefix, ok, total, failed_re
                 f"[告警] R2 上传失败: {label} 通道({ok}/{total})",
                 f"upload_r2.py {label} 通道(R2 前缀 {r2_prefix}/)上传 {ok}/{total} 个文件成功后失败。\n"
                 f"失败文件: {names}\n"
-                f"含义: 前端读该 R2 前缀的展示位会停在旧版/缺文件"
-                f"(fund_score 为场外基金评分 fallback 数据源)。\n"
+                f"含义: 前端读该 R2 前缀的展示位会停在旧版/缺文件{impact_note}。\n"
                 f"处置: 查网络/凭证后手动补传: bash scripts/upload_r2.py {cmd_name}",
                 severe=True, from_prefix="[告警]",
             )
@@ -1756,6 +1768,18 @@ def cmd_upload_fund_score():
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
+def _etf_score_on_fail(ok, total, failed_rels):
+    """#204(2026-10-06): etf-score 通道增量上传失败 → loud 告警(引擎 on_fail 回调)。
+
+    本通道走 _incremental_upload(引擎自身在 ok!=total 时 sys.exit(1), 调用方拿不到返回值),
+    故经引擎 on_fail 回调单点发声, 复用 _notify_channel_upload_fail(同 fund-score/offshore-fund
+    的严重级别/6h 去重/文案骨架); 仅「含义」括注换成本通道自己的作用域说明。
+    """
+    _notify_channel_upload_fail(
+        "etf-score", "upload-etf-score", "data", ok, total, failed_rels,
+        impact_note="(etf_score_list_* 为 ETF 评分三大榜(buy/sell/hold)前端数据源)")
+
+
 def cmd_upload_etf_score():
     """上传 static-site/data/etf_score_list_*.json 到 R2 data/ 前缀。
 
@@ -1765,11 +1789,13 @@ def cmd_upload_etf_score():
     implementer skill §3.1 新类别按前缀建独立命令; upload-data-large exclude etf_score_list_ 防双副本。
     etf_score_list_buy.json ~1.4MB / sell ~1.2MB / hold ~13MB, 均 >1MB 但走独立命令非阈值兜底。
     2026-09-15 迁增量引擎(A 档整文件 md5): 盘后重算时天天变, 非交易日全省。
+    #204(2026-10-06): 失败 loud 化(单点 notify, 见 _notify_channel_upload_fail / _etf_score_on_fail);
+    此前仅被 update_all.sh:206 的「|| echo」吞掉(该调用点不在其聚合告警框架), 用户侧静默。
     """
     data_dir = STATIC_DIR / "data"
     _, _, _, uploaded_keys = _incremental_upload(
         data_dir, ["etf_score_list_*.json"], "data",
-        ".r2_etf_score_state.json", label="etf-score")
+        ".r2_etf_score_state.json", label="etf-score", on_fail=_etf_score_on_fail)
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
