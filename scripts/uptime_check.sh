@@ -29,7 +29,7 @@ resolve_repo "${BASH_SOURCE[0]}"
 PY="$REPO/.venv/bin/python"
 URL="${SITE_URL:-https://ss.fx8.store/data/overview.json}"
 DRY_FLAG=""
-[ "${UPTIME_DRY_RUN:-0}" = "1" ] && DRY_FLAG="--dry-run"   # 验证用：不真发邮件（仍写 alerts/latest.md）
+[ "${UPTIME_DRY_RUN:-0}" = "1" ] && DRY_FLAG="--dry-run"   # 验证用：不真发邮件，也不写 alerts/latest.md（#184）
 STAMP=$(date +%Y%m%d_%H%M)
 LOGDIR="$REPO/data/logs"
 LOG="$LOGDIR/uptime_${STAMP}.log"

@@ -11,6 +11,7 @@
   四群 chat_id 映射 alert=运维群/agent_done=开发群/report=报告群/follow=跟单群，tenant_access_token +
   im/v1/messages API，详见 feishu.json.example 与 docs/feishu-bot-integration-plan.md）。
 - 严重告警额外写 data/alerts/latest.md（覆盖式记最新一次严重），供下轮 Claude 开工优先排查。
+  （--dry-run 下该写入被 write_alert 内部 guard 挡下，零落盘，#184 2026-10-07）
 - 邮件兜底保留：飞书失败不阻塞邮件（best-effort），SEVERE 告警邮件始终发（防飞书故障无通知）。
 
 用法（CLI）:
@@ -32,7 +33,8 @@
                     默认 None 时用 "信号实验室监控"。
   --feishu-group    飞书群 key 显式覆盖（alert/agent_done/report/follow）
   --feishu-only     只发飞书（跳过邮件/Telegram），调试用
-  --dry-run         不真发，只 print 到 stderr（自验用）
+  --dry-run         不真发，只 print 到 stderr（自验用）；#184：**也不写 latest.md**
+                    （--alert-issue 在本模式下由 write_alert 内部 guard 挡下，零落盘）
 
 各渠道发送失败只 print 警告不抛异常（不阻塞调用方，update_all 末尾 || true 双保险）。
 """
@@ -1028,14 +1030,26 @@ def send_to(subject: str, body: str, email: str | None = None,
     return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
 
-def write_alert(issue: str, detail: str, log_path: str | None = None) -> None:
+def write_alert(issue: str, detail: str, log_path: str | None = None,
+                dry_run: bool = False) -> None:
     """覆盖式写 data/alerts/latest.md 头部「最新详单区」(CLI --alert-issue 场景)。
 
     内容含时间、问题、详情、日志路径、提示 Claude 开工排查。
     L46④(2026-08-27):重写详情区时保留尾部 severe 发送流水条目(_parse_latest/
     _compose_latest),不再整文件抹掉——流水是管道内 severe 的唯一留痕(防旁路出口),
     被 --alert-issue 覆盖冲掉 = 同型旁路盲区复发。写入走 _update_latest(锁内读改写+原子)。
+
+    #184(2026-10-07):dry_run=True 在函数最前短路返回,**绝不触碰 latest.md**——
+    与 --dry-run 自带契约「不真发」(L35) 及 send(severe=True) 的 _mirror_severe
+    (`if severe and not dry_run`, L998) 同口径。此前 dry_run 只挡外发、不挡本写入
+    (write_alert 不收 dry_run 参数),CLI --alert-issue 配 --dry-run 仍会落真实
+    latest.md,与契约相悖。门控收在**唯一写入函数内**=根因单点守卫(§6.5),所有
+    调用点自动覆盖,未来新增调用点也无需各自补守卫。
     """
+    if dry_run:
+        print(f"[notify][dry-run] write_alert 跳过写 {ALERTS_FILE}（issue={issue}）",
+              file=sys.stderr)
+        return
     try:
         ALERTS_DIR.mkdir(parents=True, exist_ok=True)
     except Exception as e:  # noqa: BLE001
@@ -2134,7 +2148,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dedup-key", help="去重 key：同 key 在 --dedup-window 秒内不重发（suppress 静默退出 0）。"
                         "用于 intraday 等 15min 周期任务防 R2 偶发失败轰炸（写入 data/notify_dedup.json）")
     parser.add_argument("--dedup-window", type=int, default=1800, help="去重窗口秒数（默认 1800=30min）")
-    parser.add_argument("--dry-run", action="store_true", help="不真发，只 print 到 stderr")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="不真发，只 print 到 stderr（#184：也不写 latest.md）")
     parser.add_argument("--from-prefix", default=None,
                         help="邮件发件人名前缀（如 [告警]/[完成]/[恢复]）；"
                              "None/空=默认 '信号实验室监控'，非空 -> '<prefix> 信号实验室'")
@@ -2176,9 +2191,11 @@ def main(argv: list[str] | None = None) -> int:
         #（critical=真实渠道发出；warning/info=已本地处理）。不动通用路径 L2157 的 and ok。
         if args.dedup_key and not args.dry_run and _tier_send_ok(res, args.tier):
             update_dedup(args.dedup_key)
-        # critical 且带 --alert-issue 仍写 latest.md（与原 severe 语义对齐）
+        # critical 且带 --alert-issue 仍写 latest.md（与原 severe 语义对齐）；dry-run 由
+        # write_alert 内部守卫挡下（#184，不落盘）
         if args.tier == TIER_CRITICAL and args.alert_issue:
-            write_alert(args.alert_issue, args.body or args.subject, log_path=args.alert_log)
+            write_alert(args.alert_issue, args.body or args.subject, log_path=args.alert_log,
+                        dry_run=args.dry_run)
         return 0
 
     # agent 完成通知模式：subject=结论摘要，直达用户绕过主控队列
@@ -2235,7 +2252,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.dedup_key and not args.dry_run and _r4_sent:
             update_dedup(args.dedup_key)
         if args.alert_issue:
-            write_alert(args.alert_issue, args.body, log_path=args.alert_log)
+            write_alert(args.alert_issue, args.body, log_path=args.alert_log,
+                        dry_run=args.dry_run)
         return 0
 
     # #160 收口 R7①(2026-10-05, 用户拍板「连续 2 天 FAIL 升 critical」): r2_consistency
@@ -2270,7 +2288,8 @@ def main(argv: list[str] | None = None) -> int:
                 update_dedup(adr.R2_CONSISTENCY_ESCALATED_DEDUP_KEY)
                 update_dedup(args.dedup_key)
             if args.alert_issue:
-                write_alert(args.alert_issue, _r7_body, log_path=args.alert_log)
+                write_alert(args.alert_issue, _r7_body, log_path=args.alert_log,
+                            dry_run=args.dry_run)
             return 0
 
     # #196(F1 族「巡检/链路自身死亡」, 2026-10-05, 用户拍板 #196③): 两个新通道同样上
@@ -2320,7 +2339,8 @@ def main(argv: list[str] | None = None) -> int:
                 update_dedup(_esc_escalated_key)
                 update_dedup(args.dedup_key)
             if args.alert_issue:
-                write_alert(args.alert_issue, _esc_body, log_path=args.alert_log)
+                write_alert(args.alert_issue, _esc_body, log_path=args.alert_log,
+                            dry_run=args.dry_run)
             return 0
 
     # 去重检查：window 内已告警过则 suppress 静默退出（返回 0，不阻塞调用方）
@@ -2346,7 +2366,8 @@ def main(argv: list[str] | None = None) -> int:
         update_dedup(args.dedup_key)
 
     if args.alert_issue:
-        write_alert(args.alert_issue, args.body, log_path=args.alert_log)
+        write_alert(args.alert_issue, args.body, log_path=args.alert_log,
+                    dry_run=args.dry_run)
 
     return 0
 
