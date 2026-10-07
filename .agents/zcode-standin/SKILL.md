@@ -38,7 +38,7 @@
 | memory 注入 | MEMORY.md 索引每会话自动全注入 | **开工显式 Read** MEMORY.md 索引 + 相关文件 |
 | 主控规范 | 靠 CLAUDE.md §1 指针 | 开工显式 Read `docs/main-governance.md` |
 | role skill 注入 | `.claude/agents/*.md` skills 字段启动全文注入 | ZCode 子代理无此机制 → **派单 prompt 显式要求「先 Read `.claude/skills/role-<角色>/SKILL.md` 再开工」**,关键条款摘进 prompt |
-| 派单三件套 hook | PostToolUse(Agent) hook **读调用参数机检**(2026-09-29 收敛为 ①prompt 含进度文件路径 ②implementer 的 `isolation="worktree"`;**全过静默**、只在缺件时发声) | hook 在 ZCode 下未验证生效 → **行为层自觉执行**(§0.2 三件套**全部三件**,不因 Claude Code 侧只机检两项而少做) |
+| 派单三件套 hook | PostToolUse(Agent) hook **读调用参数机检**(2026-09-29 收敛为 ①prompt 含进度文件路径 ②implementer 的 `isolation="worktree"`;2026-10-07 增 ③prompt 含 `timeout` 约束;**全过静默**、只在缺件时发声) | hook 在 ZCode 下未验证生效 → **行为层自觉执行**(§0.2 三件套**全部三件**,不因 Claude Code 侧只机检这三项而少做) |
 | 飞书会话通知 | UserPromptSubmit/Stop hooks | 未验证生效 → 重要节点显式调 `python3 scripts/notify.py`(notify.py 不依赖 hook) |
 | cron 体系 | Claude 会话级 cron(.claude/scheduled_tasks.json) | ZCode cron 独立(CronList 看不到 Claude 的);巡检兜底用 ZCode 自己的 CronCreate,开工先核对 TASKS 记录的 Claude cron 是否仍有效。**CronDelete 边界(2026-08-31 审核补):绝不删非本会话创建的 job——尤其 Claude 的既有巡检 cron;接管场景只在自己侧补兜底,Claude 的 cron 留给 Claude 收工自清或用户点头才动** |
 | commit 尾注 | `Co-Authored-By: Claude <noreply@anthropic.com>` | 诚实标注 `Co-Authored-By: ZCode (stand-in) <noreply@z.ai>`,git 历史可区分代班轮次 |
