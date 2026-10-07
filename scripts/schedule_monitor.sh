@@ -774,6 +774,14 @@ if STATS_FILE.exists():
                                 "keyword": "marker_buffer",
                                 "line_sample": line_sample,
                             }
+                            # #232(2026-10-07): 计数桶补 mark seen —— 防主恢复循环(L1676-1684)对
+                            # 「pending 且未 seen 且非 r2_/72h_ 前缀」的桶键每 tick 误翻 recovered
+                            # (否则下 tick L768 else 分支把 count 重置恒 1, SEVERE 结构性不可达=零报)。
+                            # 与 r2_intraday_lag 计数桶/missed L381/dedup_key L718 同款既有写法。
+                            # 只在 degrade tick 标记 ⇒ 链断(无 degrade)时不再 seen, 恢复循环/inline
+                            # 照常清链、下轮从 1 起(防抖语义保持)。语义=按 tick 的「连续>=3轮(≈45min)
+                            # 未定论」哨, 阈值与 r2_lag 同族, 不动常量。
+                            seen_keys_this_run.add(_bk)
                             if _c < TRANSIENT_TIMEOUT_THRESHOLD:
                                 print(
                                     f"[marker_buffer] {s.get('task')} {keyword} 连续{_c}/"
@@ -826,6 +834,10 @@ if STATS_FILE.exists():
                     alert_state[_bk_r] = {
                         **_b_r,
                         "status": "recovered",
+                        # #232(2026-10-07): 复位时显式清 count(状态洁净; 与 r2_intraday_lag
+                        # L2205-2211 / overview judge L250-253 同款)。即使不清, 下轮 degrade 读
+                        # status=recovered 走 L768 else 分支也会重置为 1 —— 此处清=复位语义显式化。
+                        "consecutive_count": 0,
                         "recovered_at": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                         "recovery_reason": "marker_buffer_self_healed",
                     }
