@@ -12,9 +12,11 @@
     exec(同一份实现), 与 test_monitor_resource_inprogress_20261005.py 同法。
 
 样本铁律(§18 L49「断言输入必须取真实生产实测样本」): fixtures/228/*.log 全部是**云上生产日志
-逐行原样切片**(ssh 只读拉取, 字节级保真, 未做任何改写)。唯一例外 = fetch_news 被杀轮的
-`轮次开始` 标记行: M2 尚未上线, 故该行按 M2 代码 format string 生成、时间戳取报告 §1.3 直证的
-真实被杀轮启动时点(2026-10-04 20:01:00) —— 非「看起来合理」的杜撰样本。fixture 出处/切片行号见
+逐行原样切片**(ssh 只读拉取, 字节级保真, 未做任何改写)。唯一例外 = fetch_news 两个 fixture 的
+`轮次开始` **合成标记行**(M2 尚未上线, 该行按 M2 代码 format string 生成): 被杀轮 fixture 时间戳取
+报告 §1.3 直证的真实被杀轮启动时点(2026-10-04 20:01:00), 已完成轮 fixture 取该轮真实起始时刻
+(2026-10-07 10:01:02, 与同居真实日志行 `date=2026-10-07` 对齐) —— 二者均非「看起来合理」的杜撰样本;
+daily_brief 的 3 个 fixture 与其余各行均为真实切片, 无合成。fixture 出处/切片行号见
 各用例注释; 拉取命令:
   ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'cat /home/ubuntu/code/trade-data/data/logs/daily_brief.log'
   ssh ... 'cat /home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.log'

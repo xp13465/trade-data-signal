@@ -80,7 +80,7 @@ L41 非交易日),均「跑到了、故意不干活、退出码 0」,**不含「
 | 5 | 同轮中途 `[notify] ...跳过发送` | 反向风险(会掩盖真故障) | ✓ 前缀锚定排除 + 专项用例 |
 | 6 | `_systemd_last_exit` 是否同样缺 LoadState 护栏 | 否 | ✓ 已核 L423 早有同款护栏,`_unit_active_state` 与之对齐 |
 | 7 | `scan_marker_log` 其他调用方是否被签名变更波及 | 否 | ✓ 全仓唯一调用点 = EXTRA 组装;无测试引用旧 3 元组返回 |
-| 8 | 其余 21 个 trade timer 的「被杀」可见性 | **部分同病**(仅 unit 级 CFU) | ⚠ 未做(超本次范围,§4 已列上报)#227 轴 |
+| 8 | 其余 22 个 trade timer 的「被杀」可见性 | **部分同病**(仅 unit 级 CFU) | ⚠ 未做(超本次范围,§4 已列上报)#227 轴 |
 | 9 | `staticdata_sync` 锁等待期间被杀无痕 | 同族(日志面) | ⚠ 报告 §4 已给方案,本任务未含(报告未列 M 项) |
 
 ## 4. §23.3 举一反三清单(同模式/同数据源/同组件还被谁用 + 展示位) + 逐项覆盖
@@ -92,7 +92,7 @@ L41 非交易日),均「跑到了、故意不干活、退出码 0」,**不含「
 
 **同模式(云上 timer 全表比对,2026-10-07 实测 41 个 trade-*.timer)**:
 - 已被 TASKS 表(17 任务,①②③ 通道)+ EXTRA(2 任务,M1)覆盖 = 19 个。
-- **不在任一判定通道、仅靠 CFU 做 unit 级兜底 = 21 个**:`backup-db`、`brief-push`、`check-monitor-heartbeat`、
+- **不在任一判定通道、仅靠 CFU 做 unit 级兜底 = 22 个**:`ab-direction-anchor`、`backup-db`、`brief-push`、`check-monitor-heartbeat`、
   `daily-summary-supplement`、`etf-track-index`、`fapi-daily`、`gold-night`、`kelly-intraday-rerun`、
   `lof-track-index`、`pf-score-daily`、`pf-score-weekly`、`pf-stage0-{manager,nav,overview,risk}`、
   `public-fund-{daily,estimation,full,quarterly}`、`schedule-monitor`、`self-heal`。
@@ -160,8 +160,9 @@ Id=trade-fetch-news.service   LoadState=loaded ActiveState=inactive TimeoutStart
 
 `scripts/lint_scripts.sh` 三处扫描范围由 `scripts/*.sh|*.py` 扩到**含 `scripts/lib/*.sh|*.py`**:
 ① bash -n(L24)② `$VAR`+非 ASCII 扫描的 python glob(L51-52)③ py_compile(L80);头部 docblock 同步。
-- **既有 lib 全过**:`repo_paths.sh`/`ci_selfcheck.sh`(bash -n OK)、`check_repo_paths_ratchet.py`(py_compile OK);
-  全量 `=== lint 全通过 ===`(退出码 0)。
+- **既有 lib 全过**:`repo_paths.sh`/`ci_selfcheck.sh`(bash -n OK);全量 `=== lint 全通过 ===`(退出码 0)。
+  (`check_repo_paths_ratchet.py` 实际在 `scripts/` **顶层**而非 `scripts/lib/`(实测 `ls scripts/lib/` 仅
+  `ci_selfcheck.sh`/`repo_paths.sh`),由**既有** `scripts/*.py` 全局覆盖,非本次新增覆盖对象 —— 原报告误归入 lib 清单,订正。)
 - **尺子有效性负向验证**(防「扩了却没生效」的空转, L42):临时投放 `scripts/lib/zzz_probe_bad_*.sh|.py`
   语法错文件 ⇒ 两条均 `FAIL: ...` + `=== lint 失败 ===`(证明新 glob 真在扫 lib);随后删除探针并复测全过。
 
@@ -193,7 +194,7 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'systemctl show trade-daily-brief.se
 
 ## 11. 上报主控(不在本任务范围 / 需拍板)
 
-1. **21 个 timer 的任务级归因缺口**(§4):被杀只有 unit 级 CFU 可见,无归因/无恢复配对 ⇒ 建议并入
+1. **22 个 timer 的任务级归因缺口**(§4):被杀只有 unit 级 CFU 可见,无归因/无恢复配对 ⇒ 建议并入
    `#227(systemd 轴审计扩展)` 或另立任务(扩面需先定阈值/口径,不擅自动)。
 2. **部署动作归主控**:merge 入 main 后,云上 `git pull` 才使 M1/M2 生效(monitor/gen_schedule_stats/fetch_news
    均为仓内脚本);生效后首轮预期见 §5 末。
