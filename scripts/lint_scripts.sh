@@ -2,21 +2,26 @@
 # lint_scripts.sh - 脚本静态检查（P0 稳定性 2026-07-20）
 #
 # 检查项（P0 简化版，shellcheck 留 P1）：
-#   1) bash -n 语法检查 scripts/*.sh 所有文件
+#   1) bash -n 语法检查 scripts/*.sh + scripts/lib/*.sh 所有文件
 #   2) 全角/多字节字符位置扫描：$VAR 后紧跟非 ASCII 字节（bash 3.2 吞变量名病灶；
 #      python3 实现——旧版 grep -nP 在 BSD grep 下 invalid option 被吞致机检空转，
-#      2026-08-25 复活，扫 scripts/*.sh 和 scripts/*.py）
-#   3) python3 -m py_compile 检查 scripts/*.py
+#      2026-08-25 复活，扫 scripts/**/*.sh 和 scripts/**/*.py）
+#   3) python3 -m py_compile 检查 scripts/*.py + scripts/lib/*.py
 #
 # 任一失败 exit 1（pre-commit hook 调本脚本，失败阻止 commit）。
 # 用法：bash scripts/lint_scripts.sh
+#
+# 2026-10-07(#228 顺带): 检查范围从 `scripts/*.sh` 扩到 **含 `scripts/lib/*.sh`**。
+# 根因=#195 共享 lib(repo_paths.sh/ci_selfcheck.sh) 落在 scripts/lib/, 不在顶层 glob 内
+# ⇒ 新 lib 脚本语法错无机检可拦(F2「lib 缺失降级桩静默失效」事故同源: 缺了机检尺子)。
+# pre-commit(scripts/pre-commit) 对 staged .sh/.py 调本脚本 ⇒ 扩后即生效。
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FAIL=0
 
-echo "=== 1) bash -n 语法检查 scripts/*.sh ==="
-for f in "$SCRIPT_DIR"/*.sh; do
+echo "=== 1) bash -n 语法检查 scripts/*.sh (+ scripts/lib/*.sh) ==="
+for f in "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/lib/*.sh; do
     [ -f "$f" ] || continue
     if ! bash -n "$f"; then
         echo "FAIL: $f"
@@ -43,7 +48,8 @@ from pathlib import Path
 
 pat = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f]")
 root = Path(sys.argv[1])
-files = sorted(set(root.glob("*.sh")) | set(root.glob("*.py")))
+files = sorted(set(root.glob("*.sh")) | set(root.glob("*.py"))
+                   | set(root.glob("lib/*.sh")) | set(root.glob("lib/*.py")))
 hits = 0
 for f in files:
     try:
@@ -69,9 +75,9 @@ else
 fi
 
 echo ""
-echo "=== 3) python3 -m py_compile 检查 scripts/*.py ==="
+echo "=== 3) python3 -m py_compile 检查 scripts/*.py (+ scripts/lib/*.py) ==="
 PY=${PYTHON:-python3}
-for f in "$SCRIPT_DIR"/*.py; do
+for f in "$SCRIPT_DIR"/*.py "$SCRIPT_DIR"/lib/*.py; do
     [ -f "$f" ] || continue
     if ! "$PY" -m py_compile "$f" 2>/dev/null; then
         echo "FAIL: $(basename "$f")"

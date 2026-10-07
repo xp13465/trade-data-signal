@@ -150,6 +150,28 @@ EXTRA_MARKER_SCANS = [
         # round_start_re: daily_brief.log 每轮必打 `[run_daily_brief] schedule_enabled=true,开始生成 <ts>`
         "tail_lines": 600,
         "round_start_re": r'\[run_daily_brief\] schedule_enabled=true,开始生成 ',
+        # #228 M1(2026-10-07): 「轮次完整性」判据字段(供 schedule_monitor 判「开始了没跑完」)。
+        #   round_begin_re: 本轮**开始**标记(= M1 轮次起点)。本任务「开始生成」行既是异常窗口
+        #     起点也是轮次起点, 故 None=复用 round_start_re(两窗口重合, 既有语义零变化)。
+        #   completion_re: 本轮**收尾**标记(正常终态三种)。实测文本(云上 daily_brief.log 逐字):
+        #     a) `[run_daily_brief] ✓ 完成`(run_daily_brief.sh L47) / `[run_daily_brief] ✗ 失败 rc=`
+        #        (L50) —— 生产轮的正常终态。两者全无 = 轮次被 systemd TimeoutStartSec 杀
+        #        (实证: 云上 12 轮「开始生成」仅 4 轮有 ✓ ⇒ 8 轮被杀, 与报告 §1.5 的 8 次杀逐数吻合)。
+        #     b) `[run_daily_brief] ...跳过` —— **实施期按真实生产样本补**(报告 §3 M1 未建模):
+        #        脚本有 3 条**自终结「跳过」轮**(run_daily_brief.sh L26 配置缺失 / L34
+        #        schedule_enabled!=true 拦截 / L41 非交易日), 均为「跑到了、故意不干活、0 退出」
+        #        的正常轮, **不含「开始生成」行**。若不认它 → 最后一个「开始生成」轮的窗口会一直
+        #        兜到文件尾并越过后续跳过轮, 使**整个长假期间的跳过轮都被误判 started_unfinished**
+        #        (云上实测: 09-30 开始生成 后紧跟 10-01~10-06 六条跳过, 窗口永不收口 → 假期全程
+        #        挂一条 7 天前的 SEVERE 假阳性)。故把跳过行并入终态: 窗口内出现任一终态即视为
+        #        本轮已收尾(跳过轮自身也「收尾」, 语义=「unit 这次跑完了」)。
+        #        ⚠️ 前缀锚定 `\[run_daily_brief\]` 不可放松: 真实生产日志里同轮**中途**有
+        #        `[notify] telegram bot_token/chat_id ... 跳过发送`(云上 L186/192/197, 属正常
+        #        轮的中间输出), 若用裸「.*跳过」会把它误当终态 → 被杀轮被掩盖(降判别力)。
+        #   systemd_label: 供读 unit 运行态/退出码(读法同 standard _systemd_last_exit)。
+        "round_begin_re": None,
+        "completion_re": r'\[run_daily_brief\] (?:✓ 完成|✗ 失败 rc=|.*跳过)',
+        "systemd_label": "com.trade.daily-brief",
     },
     {
         "task": "fetch_news", "name": "新闻采集",
@@ -161,10 +183,21 @@ EXTRA_MARKER_SCANS = [
         #   下一轮成功时新「已写」行把旧标记挤出窗口 → log_anomaly/计数自动对应当本轮。
         "tail_lines": 400,
         "round_start_re": r'\[fetch_news\] 已写 ',
+        # #228 M1(2026-10-07): 轮次完整性判据。
+        #   round_begin_re: M2 新增的 `[fetch_news] 轮次开始 <ts>` 行(flush=True) = 本轮真开始
+        #     信号。**刻意与 round_start_re(「已写」)分离**: 既有异常窗口保持从「已写」起
+        #     (P1-A/P1-B 轮次作用域语义逐字不变, §23.7 冻结), M1 另用本标记判「有开始无收尾」。
+        #   completion_re: `[fetch_news] 已写 ...`(成功) 或 `✗ [fetch_news] ...`(超时/异常)。
+        #   systemd_label: 同 daily_brief。
+        "round_begin_re": r'\[fetch_news\] 轮次开始 ',
+        "completion_re": r'\[fetch_news\] 已写 |✗ \[fetch_news\]',
+        "systemd_label": "com.trade.fetch-news",
     },
 ]
 
 _TS = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})'
+# #228 M1: 从轮次开始标记行抽时间戳(与 _TS 同格式)。
+_ROUND_TS_RE = re.compile(_TS)
 # 开始:=== xxx.sh 开始 <ts> ===
 START_RE = re.compile(r'=== (\S+\.sh) 开始 ' + _TS + r' ===')
 # 结束:=== xxx.sh 结束 [(非交易日)] <ts> [退出码=N | deploy=N] ===  (退出码可选)
@@ -400,6 +433,41 @@ def _systemd_last_exit(label: str) -> int | None:
     if ec in (2, 3) and es is not None:  # CLD_KILLED/CLD_DUMPED: 128+signal 对齐 launchd 143
         return 128 + es
     return None  # 从未跑(ec=0)/缺字段: 未知
+
+
+def _unit_active_state(label: str | None) -> str | None:
+    """读 unit 的 ActiveState(仅 Linux systemd; 供 #228 M1 判「unit 是否仍在跑」)。
+
+    「unit 非运行态」是 M1「轮次未收尾」判定的元素②: 日志显示轮次已开始且无收尾标记,
+    但 unit 若仍在 active/activating/reloading, 说明本轮还在跑(正常短跑/慢跑), 不该报。
+    返回 'active'/'activating'/'inactive'/'failed' 等; 读不到 → None(调用方退化纯 age 判据)。
+
+    ⚠️ #223-4 教训(2026-10-07): `systemctl show <不存在的 unit>` **不报错**, 会回填编译期
+    默认值(ActiveState=inactive) ⇒ 若只看 ActiveState 会把「探测不到」误当「已停」→ 误报。
+    故必须先核 LoadState=='loaded' 才采信 ActiveState(与 _systemd_last_exit 同款护栏)。
+    """
+    if not label or not sys.platform.startswith("linux"):
+        return None
+    unit = _label_to_systemd_unit(label)
+    if not unit:
+        return None
+    try:
+        r = subprocess.run(
+            ["systemctl", "show", unit, "-p", "LoadState", "-p", "ActiveState"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    props = {}
+    for line in r.stdout.splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            props[k.strip()] = v.strip()
+    if props.get("LoadState") != "loaded":
+        return None  # unit 不存在/探测不到: 不猜运行态, 退化纯 age 判据
+    return props.get("ActiveState") or None
 
 
 def _finalizer_noise_ranges(lines: list, lo: int, hi: int) -> list:
@@ -639,7 +707,9 @@ MARKER_ANOMALY_RE = re.compile(
 )
 
 
-def scan_marker_log(log_path: Path, tail_lines: int, round_start_re: re.Pattern | None = None) -> tuple:
+def scan_marker_log(log_path: Path, tail_lines: int, round_start_re: re.Pattern | None = None,
+                    completion_re: re.Pattern | None = None,
+                    round_begin_re: re.Pattern | None = None) -> tuple:
     """轮次作用域扫描 deploy 外生成器日志(gen_daily_brief/fetch_news, P1-1/P1-2 消费补口)。
 
     这两个任务不在 TASKS 表、无标准 `=== xxx.sh 开始/结束 ===` 行,scan_log_anomaly 窗口
@@ -666,13 +736,20 @@ def scan_marker_log(log_path: Path, tail_lines: int, round_start_re: re.Pattern 
             gen_daily_brief=每轮必打的「开始生成」行)。None=纯尾部窗口(旧行为)。
 
     Returns:
-        (anomaly_dict|None, skip_count): 二元组, 与 scan_log_anomaly 同构。
-        anomaly_dict 含 keyword/line 字段(与现有 log_anomaly_keyword/line 同构)。
+        (anomaly_dict|None, skip_count, round_start_ts|None, completion_seen|None)
+        前两位与 scan_log_anomaly 同构(anomaly_dict 含 keyword/line/severity)。
         last_run 由调用方(EXTRA_MARKER_SCANS 循环)按 mtime/行内时间戳补充。
+        #228 M1(2026-10-07)追加后两位:
+          round_start_ts: 本轮「开始标记」(round_begin_re, 缺省=round_start_re)行的时间戳
+            (YYYY-MM-DD HH:MM:SS); 尾部窗口内找不到开始标记 → None。
+          completion_seen: 本轮作用域(window=[开始标记行, 末尾))内是否出现 completion_re
+            (完成/失败标记)。有开始标记时恒为 bool; 无开始标记 → None(未定论)。
+          ⇒ 调用方据此得 round_state: no_start / completed / started_unfinished。
     """
     if not log_path.exists():
-        return None, 0
+        return None, 0, None, None
     lines = _read_tail_lines(log_path)
+    # ── 既有:异常窗口 = [最后 round_start_re 命中行, 末尾)(P1-A/P1-B 轮次作用域, 语义不动)──
     window = None
     if round_start_re is not None:
         for i in range(len(lines) - 1, -1, -1):
@@ -682,6 +759,24 @@ def scan_marker_log(log_path: Path, tail_lines: int, round_start_re: re.Pattern 
     if window is None:
         window = lines[-tail_lines:] if tail_lines and tail_lines > 0 else lines
     skip_count = sum(1 for _l in window if "SKIPPED_LOCKED" in _l)
+    # ── #228 M1:轮次完整性(独立窗口, 起点 = round_begin_re; 缺省复用 round_start_re)──
+    # 刻意与异常窗口分离: 既有异常窗口逐字不变(§23.7 冻结), M1 另用「开始标记」判
+    # 「有开始无收尾」。round_begin_re=None(如 gen_daily_brief)⇒ 两者同一起点。
+    _begin_re = round_begin_re if round_begin_re is not None else round_start_re
+    round_window = None
+    if _begin_re is not None:
+        for i in range(len(lines) - 1, -1, -1):
+            if _begin_re.search(lines[i]):
+                round_window = lines[i:]
+                break
+    round_start_ts = None
+    completion_seen = None
+    if round_window is not None:
+        _tm = _ROUND_TS_RE.search(round_window[0])
+        round_start_ts = _tm.group(1) if _tm else None
+        if completion_re is not None:
+            completion_seen = any(completion_re.search(_l) for _l in round_window)
+    anomaly = None
     for _l in window:
         m = MARKER_ANOMALY_RE.search(_l)
         if m:
@@ -691,9 +786,9 @@ def scan_marker_log(log_path: Path, tail_lines: int, round_start_re: re.Pattern 
             # ✗ 前缀 / R2_UPLOAD_TIMEOUT 是真异常(非静默/超时), severity=critical
             # 维持首次即 SEVERE。
             _sev = "degrade" if _l.strip().startswith("⚠") else "critical"
-            return {"keyword": m.group(0), "line": _l.strip()[:200],
-                    "severity": _sev}, skip_count
-    return None, skip_count
+            anomaly = {"keyword": m.group(0), "line": _l.strip()[:200], "severity": _sev}
+            break
+    return anomaly, skip_count, round_start_ts, completion_seen
 
 
 def _compile_rsre(pattern: str | None) -> re.Pattern | None:
@@ -966,8 +1061,25 @@ def build():
     # (log_anomaly→SEVERE 告警 / r2_skip_count→连续跳过计数, 见 schedule_monitor.sh)。
     for m in EXTRA_MARKER_SCANS:
         log_path = LOG_DIR / m["log"]
-        anomaly, skip_count = scan_marker_log(log_path, m["tail_lines"],
-                                              round_start_re=_compile_rsre(m.get("round_start_re")))
+        anomaly, skip_count, _rstart_ts, _completion_seen = scan_marker_log(
+            log_path, m["tail_lines"],
+            round_start_re=_compile_rsre(m.get("round_start_re")),
+            completion_re=_compile_rsre(m.get("completion_re")),
+            round_begin_re=_compile_rsre(m.get("round_begin_re")),
+        )
+        # #228 M1(2026-10-07): 轮次完整性状态(供 schedule_monitor 判「开始了没跑完」)。
+        #   no_start          = 尾部窗口内无「开始标记」(尚未跑过 / 刚部署未见 M2 新标记)
+        #   completed         = 本轮有开始 + 有完成/失败标记
+        #   started_unfinished= 本轮有开始、无完成/失败 = 疑被 systemd TimeoutStartSec 杀/FAIL
+        if _rstart_ts is None:
+            _round_state = "no_start"
+        elif _completion_seen:
+            _round_state = "completed"
+        else:
+            _round_state = "started_unfinished"
+        # unit 状态(仅供 M1 判定元素② + 文案; 非 Linux/探测不到 → None)
+        _u_active = _unit_active_state(m.get("systemd_label"))
+        _u_exit = _systemd_last_exit(m.get("systemd_label"))
         # last_run = 文件最后写入时刻(近似最近运行时刻; 无标准开始行可解析时间戳)
         _mtime = None
         try:
@@ -986,6 +1098,11 @@ def build():
             # schedule_monitor 对 EXTRA 任务走连续 N 轮缓冲不首报 SEVERE(见 monitor 消费端)
             "log_anomaly_severity": anomaly.get("severity") if anomaly else None,
             "r2_skip_count": skip_count,
+            # #228 M1(2026-10-07): 轮次完整性 + unit 状态(新增判别轴, 不影响既有字段)
+            "round_state": _round_state,
+            "round_start_ts": _rstart_ts,
+            "unit_active_state": _u_active,
+            "unit_last_exit": _u_exit,
         })
     OUT.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(OUT, result, indent=2)
