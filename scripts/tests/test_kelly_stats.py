@@ -14,7 +14,7 @@
      _annualized_return 各周期。
 
 【依赖】import scripts/signal_kelly_backtest → 需 yaml + app.db(纯标准库链)。
-  CI ⑧ 已 pip install pytest pyyaml; 环境缺依赖时 pytest.skip(不 FAIL)。
+  CI ⑧ 已装 pytest + pyyaml + numpy/pandas/pyarrow(#213 方案 A2); 环境缺依赖时 pytest.skip(不 FAIL)。
 
 【已知设计观察(诚实标注, 不改行为)】_compute_kelly 中 f* clamp [0,1] → half_kelly max
   50.0, tier「激进」(half>=60)在当前口径下不可达(可达档为 保守/均衡)。本套锁定当前

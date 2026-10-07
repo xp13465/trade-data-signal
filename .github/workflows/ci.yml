@@ -14,7 +14,9 @@
 #                                              因 runner 无本地 /tmp agent-progress 文件, C 维度降级跳过)
 #     ⑧ 算法核心 pytest(FAIL 阻断, P0-1 产出, 2026-09-06): loss_rules 20 键 / S06 状态机 /
 #       凯利三件套, 固定输入→断言输出, 样本硬编码自线上产物冻结快照, 零外部数据依赖
-#       (仅需 pip install pytest pyyaml)。挂 Job 1 而非 Job 2: Job 2 整体 continue-on-error
+#       (#213 方案 A2 起依赖面 = pytest + pyyaml + numpy/pandas/pyarrow 5 件真数值库,
+#        版本 pin 与依据见 docs/ops/213-batch2-dependency-decision-20261007.md)。
+#       挂 Job 1 而非 Job 2: Job 2 整体 continue-on-error
 #       (为⑥⑦数据窗口差 FAIL 源保 CI 可用), ⑧ 留在 Job 2 会吞掉 FAIL 永不阻断, 与 P0-1 门禁意图相悖。
 #       + #201(2026-10-06)并入 scripts/tests/test_193_r2_channel_coverage_pytest.py: #193 R2 通道
 #       覆盖双向机检(纯仓库内输入, 无生产数据产物)由「人工跑」转自动强制。详见

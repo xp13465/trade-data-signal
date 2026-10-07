@@ -13,14 +13,17 @@
    的缺省值是开发者主仓绝对路径, CI(ubuntu runner)上不存在 → 显式 setdefault 为仓库根,
    消除主仓绝对路径依赖(且测试文件不再硬编码任何绝对路径)。
 
-③ 第三方库 stub(CI 依赖最小化): CI ⑧ 只 `pip install pytest pyyaml`, 而
-   retry_failed_metrics / backfill_direct_metrics 会 import app.collector 生产链
+③ 第三方库 stub(CI 依赖最小化): CI ⑧ 装 pytest + pyyaml + numpy/pandas/pyarrow
+   (#213 方案 A2, 2026-10-07 起; 版本 pin 与依据见
+   docs/ops/213-batch2-dependency-decision-20261007.md), 而 retry_failed_metrics /
+   backfill_direct_metrics 会 import app.collector 生产链
    (fetchers → multisource/fapi_fallback/fapi_daily, base), 其顶层 `import requests /
-   pandas / akshare / pyarrow`(本地 dev venv 有; CI 没有, 装齐这些重型库会拖慢门禁且
-   含网络/DNS 依赖, 不适合 CI 常驻)。因测试只「import 模块 + 调纯函数/方向patch」、
-   从不调用第三方库方法, 只需保证这些 import 语句能解析 → 对「未安装」的库注入空
-   ModuleType stub。本地 venv 已装有真实库时 find_spec 命中 → 不 stub, 保持与生产
-   同构(原脚本式自测的行为不变)。
+   pandas / akshare / pyarrow`。其中 numpy/pandas/pyarrow 已随 ⑧ 装上(CI find_spec
+   命中 → 不 stub); 仅 requests / akshare 仍走 stub(网络采集层: 装齐会拖慢门禁且含
+   网络/DNS 依赖, 不适合 CI 常驻; akshare 边界判据见上述决策报告 §1)。因测试只
+   「import 模块 + 调纯函数/方向patch」、从不调用第三方库方法, 只需保证这些 import
+   语句能解析 → 对「未安装」的库注入空 ModuleType stub。本地 venv 已装有真实库时
+   find_spec 命中 → 不 stub, 保持与生产同构(原脚本式自测的行为不变)。
    - requests: app/collector/base.py 顶层 `EM_SESSION = requests.Session()` 后紧跟
      `EM_SESSION.headers.update(...)`, stub 的 Session 需带可 update 的 headers dict +
      mount() 空实现(运行时 .get 等不在 stub → AttributeError 响亮失败, 不假绿)。
