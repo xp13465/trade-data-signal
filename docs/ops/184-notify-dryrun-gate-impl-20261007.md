@@ -28,7 +28,13 @@
 | 5 | 2366 | 通用路径 `--alert-issue` | 该 —— 唯一无任何 dry_run 门控的入口 | 透传 |
 
 grep 全量确认:`grep -n "write_alert(" scripts/notify.py` 仅此 5 个调用点(另 1 处为 def)。
-`write_alert` 在 notify.py 之外无调用方(全仓 grep 确认)。
+
+**notify.py 之外的调用方(全仓 grep,订正早前「无外部调用方」的错误表述)**:
+- `scripts/check_ds_resilience.py:259` / `:266` —— 自检 harness 直接 `nmod.write_alert("...", "...")`(C2/C3 用例,验追加式/流水保留)。
+- `scripts/tests/test_196_patrol_visibility_20261005.py:501` —— monkeypatch 桩(`lambda *a, **k: None`)。
+- `scripts/tests/test_alertchain_hardening_20261003.py:72/87/98` —— 直接调用(不传 dry_run)。
+
+**为何不影响本结论**:本次改动是给 `write_alert` **新增可选参数 `dry_run=False`(缺省=False)**,签名向后兼容;上述外部调用方**均未传 `dry_run`** ⇒ 一律走缺省 False = 与改前行为逐位一致(照常写),无一被波及。改动只是「多了一个可选的 dry-run 短路入口」,不改变任何既有调用方的语义。
 
 ## 3. §23.3 举一反三:同类「dry_run 未贯穿」写入路径逐项判定
 
@@ -50,9 +56,16 @@ grep 全量确认:`grep -n "write_alert(" scripts/notify.py` 仅此 5 个调用�
 - 证据:`send_tiered()` L2084-2086 `if tier == TIER_INFO: log_info(subject, body)` ——
   未透传 dry_run;`log_info()`(L1415-1434)无条件 `_append_jsonl(INFO_LOG_FILE, rec)`
   (+>2000 行时截断重写)。
-- 触发面:`--tier info` 是生产在用档位(staticdata_sync.sh L248 / schedule_monitor.sh L2520 /
-  self_heal.sh L176 / staticdata_backup_async.sh L397),但它们**不传 --dry-run**;
-  仅「手动 `--tier info --dry-run` 自验」组合会命中 → 影响面低但契约仍破。
+- 触发面:`--tier info` 是生产在用档位。**订正早前「4 个脚本均不传 --dry-run」的错误表述**——
+  实际 2 个脚本带「自验用」环境变量钩子注入 `--dry-run`(订正证据见下),仅另 2 个无任何 dry-run 钩子:
+  - `staticdata_sync.sh`:L44-46 `STATICDATA_SYNC_NOTIFY_DRY_RUN=1` → `_NOTIFY_DRY=(--dry-run)`;
+    L248 的 `--tier info` 调用尾接 `"${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}"` ⇒ **自验场景真会命中**。
+  - `staticdata_backup_async.sh`:L110-112 `STATICDATA_BACKUP_NOTIFY_DRY_RUN=1` → `_NOTIFY_DRY=(--dry-run)`;
+    L397 同款尾接 ⇒ **自验场景真会命中**。
+  - `schedule_monitor.sh`(L2520)/`self_heal.sh`(L176):无 dry-run 钩子,不传 `--dry-run`。
+- 影响判定(据实修正):生产**默认链路**(上述环境变量均未设)一律不传 `--dry-run`,故不改默认行为;
+  但**两个 staticdata 脚本的脚本化自验**(设了钩子)会真命中 → 缺口触发面比「仅手动自验」略广一层,
+  即「脚本化自验也会写 `info_log.jsonl`」;缺口本身与触发面大小无关(契约仍破),仍按另立编号单独处理。
 - 建议修法(供主控拍板,一行级):`log_info(subject, detail, dry_run=False)`,最前
   `if dry_run: print(...); return True`;`send_tiered` info 分支透传 `dry_run=dry_run`。
   是否本轮一并修请主控定(涉及另一个已上线档位的行为,§23.7)。
