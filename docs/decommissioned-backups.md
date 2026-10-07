@@ -1,16 +1,22 @@
 # 退役归档清单:本地杂物清理 + R2 归档通路(decommissioned-backups.md)
 
 > 2026-09-03 一次性收尾:本地 data/ 大件/historical .bak 清理,数据本体进 R2 私有桶
-> `signal-backup` 的 `decommissioned/` 前缀长期留存,git 只留本 manifest + 恢复脚本,
+> `decommissioned/` 前缀长期留存(跨桶,见下),git 只留本 manifest + 恢复脚本,
 > 大文件不进 git 本体。
 > 相关脚本:`scripts/upload_r2.py`(上传,活脚本被生产/手动引用)/
-> `scripts/restore-r2-backup.sh`(一键恢复)。
+> `scripts/restore-r2-backup.sh`(一键恢复,自动探测候选桶)。
+>
+> ⚠️ **桶分布(2026-10-08 修测明确)**:`decommissioned/` 对象**跨桶分布** ——
+> #178(2026-10-05)备份桶迁移**之前**写入的历史归档(本清单 2 个:37M etf db + small-baks tar.gz)
+> 在**老桶 `signal-backup`**;#178 之后新写入的(如 `public_fund.db.bak-20261003_104704.zst` 等)
+> 落**新桶 `signal-backup2`**(独立账号)。`restore-r2-backup.sh` **默认自动探测**
+> (先新桶 → 404 回落老 legacy 桶),不再绑死单一桶。
 
 ---
 
 ## 一、归档明细
 
-| 原文件路径(清理前) | R2 key(signal-backup/decommissioned/) | 上传日期 | 原始体积 | 内容说明(为什么留) |
+| 原文件路径(清理前) | R2 key(decommissioned/,所在桶 = 老桶 `signal-backup`) | 上传日期 | 原始体积 | 内容说明(为什么留) |
 | --- | --- | --- | --- | --- |
 | `data/etf_national_team.db.bak-backfill-20260728-232308` | `etf_national_team.db.bak-backfill-20260728-232308.gz` | 2026-09-03 | 38,793,216 B (~37MB),gzip 后 10,968,910 B | 2026-07-28 ETF 国家队库按 db.bak 备份(backfill 前快照),历史快照还原用 |
 | `data/` 下 4 个 .bak(见下表明细) | `decommissioned-small-baks-20260903.tar.gz` | 2026-09-03 | 4 文件合计 42,807 B,tar.gz 后 11,259 B | 历史 .bak 打包归档(alert 状态/日报/新闻 digest 旧版快照) |
@@ -40,7 +46,8 @@
 
 ## 二、恢复
 
-从 R2 私有桶 `signal-backup` 的 `decommissioned/` 前缀一键还原(本地清理前的原文件名):
+从 R2 私有桶 `decommissioned/` 前缀一键还原(本地清理前的原文件名)。脚本**默认自动探测候选桶**
+(先新桶 `signal-backup2` → 404 回落老 legacy 桶 `signal-backup`,本清单 2 个归档在老桶命中):
 
 ```bash
 cd /Users/linhuichen/code/trade
@@ -50,6 +57,9 @@ bash scripts/restore-r2-backup.sh etf_national_team.db.bak-backfill-20260728-232
 # tar.gz 包 → 先还原成 .tar,再解包出 4 个 .bak
 bash scripts/restore-r2-backup.sh decommissioned-small-baks-20260903.tar.gz
 tar -xf data/decommissioned-small-baks-20260903.tar -C data
+
+# 已知对象所在桶时可显式钉桶(跳过探测); --out-dir 可指临时目录(演练不覆盖本地源)
+bash scripts/restore-r2-backup.sh --bucket signal-backup --out-dir /tmp/restore decommissioned-small-baks-20260903.tar.gz
 ```
 
 **手动 gunzip 恢复**(不经脚本,纯 s3 拉取 + 解压):
@@ -82,6 +92,8 @@ python3 scripts/upload_r2.py list decommissioned/ signal-backup
 ```
 
 - **输入依赖**:`data/etf_national_team.db.bak-backfill-20260728-232308`(已清理,重建需从 R2 还原)/
-  `data/` 下 4 个 .bak(已清理,同上)/ R2 凭证 `.env`(`R2_BACKUP_BUCKET` 默认 `signal-backup`)
+  `data/` 下 4 个 .bak(已清理,同上)/ R2 凭证 `.env`(恢复侧 `restore-r2-backup.sh` **按候选桶自动探测**,
+  不依赖 `R2_BACKUP_BUCKET` 取值;候选桶可用 `R2_LEGACY_BACKUP_BUCKET` / `R2_RESTORE_BUCKET_FALLBACKS`
+  扩展,或 `--bucket` 显式钉桶。本清单 2 个归档均在**老桶 `signal-backup`**,探测时新桶 404 → 回落老桶命中)
 - **关键口径一句话**:`upload-r2` 双子模式——`<local>` 以 `.gz`/`.tar.gz` 结尾视为已压缩直传(不再二次 gzip),否则 gzip 压缩上传;R2 key 一律 `decommissioned/` 前缀(独立前缀,不受 `_prune_r2_backup` 的 backup//weekly//monthly 滚动清理影响,长期留存)
 - **上游 `scripts/upload_r2.py` 是活脚本**(生产/手动引用,不只 manifest 调它,故不加副本);`scripts/restore-r2-backup.sh` 是恢复入口,与本文档同步维护
