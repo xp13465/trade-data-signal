@@ -64,6 +64,8 @@ L41 非交易日),均「跑到了、故意不干活、退出码 0」,**不含「
 | ⑥ §23.4 同模块冲突 | 开工前查 `docs/pending-features-index.md`:#228 本条、#227(systemd 轴审计扩展)未占 M1 落点;见 §4 |
 | ⑦ §23.15 完整版 | 两任务同构覆盖(都新增起点标记语义),无「数据以后补」项 |
 | ⑧ git | 只 commit+push feat 分支,不碰 main,不 add 根 `data/` |
+| ⑨ §21 算法公示 | **N/A**:无用户可见算法/数值变化。`schedule_stats.json` 仅**新增可选键**(round_state/round_start_ts/unit_active_state/unit_last_exit),前端「数据更新规则」只读既有字段 ⇒ 无公示文案需改 |
+| ⑩ §23.11 无静默 | git 全程无冲突/覆盖/倒退(pre-commit lint 通过、push 为 new branch 非 ff 无需 rebase);merge main 由主控走 `scripts/main-merge.sh` 统一入口 |
 
 ---
 
