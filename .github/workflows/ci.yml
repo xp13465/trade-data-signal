@@ -108,7 +108,13 @@ jobs:
 
       - name: ⑧ 算法核心 pytest(P0-1, FAIL 阻断)
         run: |
-          pip install pytest pyyaml
+          # #213(2026-10-07): 装真数值库 numpy/pandas/pyarrow(与两 venv 同款 pin)。
+          # 依据 docs/ops/213-batch2-dependency-decision-20261007.md(方案 A2): conftest 的
+          # bare pandas/pyarrow stub 只能到「导入级」(假对象扩散 + 无底洞), 装真库后
+          # conftest.py:60 的 find_spec 命中即跳过 stub(conftest 零改动), 解锁 app.queries /
+          # app.compute/* 类算法函数可测(现 CI 只能测纯 JSON 算法)。akshare/requests 仍保持
+          # stub(网络采集层, 边界判据见该报告 §1)。pin 版本 = dev==trade-data 两 venv 实查同款。
+          pip install pytest pyyaml numpy==2.4.6 pandas==3.0.3 pyarrow==25.0.1
           python3 -m pytest -q scripts/tests/
 
   # ---------------------------------------------------------------- Job 2: 数据产物一致性门禁
