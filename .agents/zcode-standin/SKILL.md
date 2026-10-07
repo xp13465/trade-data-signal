@@ -110,7 +110,7 @@ Claude Code 回来后的恢复路径(三层,全部由我的收尾动作保证):
 
 ## 7. 已知缺口登记(诚实项,待补)
 
-- **hooks 机械提醒无法复刻**(2026-08-31 核实:ZCode 桌面版 setting.json 无 hooks 机制):Claude Code 的 PostToolUse(Agent) 派单机检(①进度文件 ②implementer 的 isolation;2026-09-29 起全过静默)在我侧缺失。现行补救=§5.1 checklist 行为层执行+第二层审计追溯;可选根治=cron 巡检时顺带机械核对三件套痕迹(待用户点头再建)。
+- **hooks 机械提醒无法复刻**(2026-08-31 核实:ZCode 桌面版 setting.json 无 hooks 机制):Claude Code 的 PostToolUse(Agent) 派单机检(①进度文件 ②implementer 的 isolation ③prompt 含 timeout 约束;2026-09-29 起全过静默)在我侧缺失。现行补救=§5.1 checklist 行为层执行+第二层审计追溯;可选根治=cron 巡检时顺带机械核对三件套痕迹(待用户点头再建)。
 - **ZCode 子代理规范靠 prompt 注入**:忘写=子代理裸奔。现行补救=§5.1 checklist 第二行强制+reviewer 兜底层抓裸奔产物。
 
 ## 8. 我的教训积累(防重犯,格式同 §18:过错+根因+防重犯条款)

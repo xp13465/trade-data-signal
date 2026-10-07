@@ -115,6 +115,7 @@
 
 ### agent prompt 写作规范
 - **必含**:目标 + 约束(引用章节不重复全文,§4 减 token)+ 验收口径 + 上线流程(如适用)+ 进度文件路径 + 完成时通知(见 §11,cron 兜底为主):①`SendMessage to: 'main'`(补充,不可靠)②end_turn 触发 task-notification(harness 自动)③进度文件写 `## DONE <结论>`(证据)④重要节点调 `python3 scripts/notify.py --agent-done`(非每 agent 完成)
+- **必含(timeout 约束,2026-10-07 补)**:③ prompt 必含 `timeout` 约束(§0.2 hook 机检第 ③ 项)—— 要求子 agent 每条 Bash 显式传 `timeout`,防长命令被 harness 转后台成僵尸;派单漏写即触发 hook exit 2 噪声(F2)
 - **落档类任务必含(2026-08-15 补)**:验收口径除「落档位置+索引更新」外,必含「`git ls-files` 确认报告本体/脚本/数据三件套均已 tracked」,agent 收尾自验落档完整性时一并验 git 跟踪(教训:次日报告索引 commit 了但本体没 commit,用户 2026-08-15 指出)
 - **thinking 配置(2026-08-12,§5.2 落地)**:派单按任务类型标注 thinking——**执行类**(简单重构/格式化/数据搬运/单文件小改/测试脚本跑批):prompt 注明"可关 thinking 提速省 token"(实测 3.8x 提速/省 85% 输出 token/简单任务无降智);**判断类**(跨文件影响/规范遵循 §21§22§23/复杂 debug/口径公示判断):prompt 注明"保留 thinking"。行为分类全文见 docs/thinking-off-optimization.md(不重复全文)
 - **约束引用**:"见 §8/§14" 而非重述全文;只写本次任务特有约束;禁止图片见 §13(已归档引用);commit 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`;push 见 §8(不 force,non-ff 先 rebase 重试);push main 时点见 §14(盘中不避 intraday,避 17:50 update_all,盘中全量 export+deploy 禁)
