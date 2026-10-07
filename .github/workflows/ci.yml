@@ -114,7 +114,7 @@ jobs:
           # conftest.py:60 的 find_spec 命中即跳过 stub(conftest 零改动), 解锁 app.queries /
           # app.compute/* 类算法函数可测(现 CI 只能测纯 JSON 算法)。akshare/requests 仍保持
           # stub(网络采集层, 边界判据见该报告 §1)。pin 版本 = dev==trade-data 两 venv 实查同款。
-          pip install pytest pyyaml numpy==2.4.6 pandas==3.0.3 pyarrow==25.0.1
+          pip install pytest pyyaml numpy==2.4.6 pandas==3.0.5 pyarrow==25.0.1
           python3 -m pytest -q scripts/tests/
 
   # ---------------------------------------------------------------- Job 2: 数据产物一致性门禁
