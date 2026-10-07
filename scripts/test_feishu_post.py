@@ -63,6 +63,19 @@ class SendFeishuPostTest(unittest.TestCase):
         patcher = mock.patch("notify._get_tenant_access_token", return_value="fake-token")
         patcher.start()
         self.addCleanup(patcher.stop)
+        # #213(2026-10-07): 本类每个用例都要经 notify.send_feishu() 真跑发送编排(只打桩网络出口),
+        # 而 send_feishu 会调 notify.load_feishu_config() 取 app 模式凭据/chat_ids。
+        # 本地 dev 有仓根 .env+config/email.json 可兜住, **CI 无配置文件**(无 .env/email.json)
+        # ⇒ mode=None ⇒ send_feishu 静默返 False ⇒ assertTrue(ok) 必炸(这是入 CI 闸门 ⑧ 的先决项)。
+        # 故在 setUp 统一钉死一份 app 模式配置(3 个 chat_key 都给测试占位 id)。
+        # 不弱化任何断言: 只补「配置文件」这一外部输入, 不改任何被测行为; webhook 用例
+        # (test_post_webhook_mode) 在自己 with 内再 patch 一次同函数 ⇒ 内层优先, 不受影响。
+        cfg_patcher = mock.patch("notify.load_feishu_config", return_value={
+            "enabled": True, "mode": "app",
+            "chat_ids": {"report": "oc_test", "alert": "oc_test", "agent_done": "oc_test"},
+        })
+        cfg_patcher.start()
+        self.addCleanup(cfg_patcher.stop)
 
     def _send_with_post(self, chat_key):
         """调 send_feishu(feishu_post=...)，捕获实际发给 _feishu_http_post_json 的 body。"""

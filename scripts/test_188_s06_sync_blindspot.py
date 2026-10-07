@@ -33,6 +33,27 @@ import subprocess
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPTS = REPO_ROOT / "scripts"
 _fails = []
+# #213(2026-10-07): 本脚本原为「进程式自测」, 在主控下裸跑时无需收尾; 但入库 CI 闸门 ⑧ 后
+# 它跑在 **pytest 长驻会话**里, 若不还原会对**同会话其余用例**造成污染(os.environ 的 REPO/MATCH、
+# sys.modules["notify"] 假模块、upload_r2/check_data_integrity 被 monkeypatch 的属性、sys.path)。
+# 故引入极简 patch 登记表 + main() 收尾统一还原(见文件尾 main())。
+_PATCHED = []   # [(obj, attr, orig)] monkeypatch 登记, main() 收尾逆序还原
+
+
+def _patch(obj, **attrs):
+    """登记式 monkeypatch: 记录原值供 main() 收尾还原(替代裸 `obj.attr = x` 赋值)。"""
+    for _k, _v in attrs.items():
+        _PATCHED.append((obj, _k, getattr(obj, _k, None)))
+        setattr(obj, _k, _v)
+
+
+def _restore_patched():
+    for _obj, _k, _orig in reversed(_PATCHED):
+        try:
+            setattr(_obj, _k, _orig)
+        except Exception:
+            pass
+    _PATCHED.clear()
 
 
 # ─────────── 运行环境引导(必须早于 upload_r2 导入: 其导入期 load_env() 找不到 .env 就 sys.exit) ───────────
@@ -40,7 +61,7 @@ _fails = []
 #   · mac 双树: 代码=~/code/trade, 数据/配置=~/code/trade-data(.env) → 靠硬编码兜底侥幸能跑;
 #   · 云上双树: 代码=~/code/trade-data-signal(git, 无 .env), 数据/配置=~/code/trade-data(.env);
 #   · 云上 shell 里 GIT_REPO=trade-data-signal → $GIT_REPO/.env 不存在;
-#     REPO 又被本脚本 test_ledger 置为临时目录(REPO=td) → $REPO/.env 也不存在 ⇒ 导入期 sys.exit
+#     REPO 又被本脚本 run_ledger 置为临时目录(REPO=td) → $REPO/.env 也不存在 ⇒ 导入期 sys.exit
 #     (现象: 0 条 PASS + "无 .env: 尝试过 [...]", 会被误读成功能 FAIL)。
 # 解法(最小面, 不碰生产代码行为): 在本脚本最早处把 GIT_REPO 指向「确实存在 .env 的那棵树」,
 #   让 $GIT_REPO/.env 命中。REPO=td 的测试语义不受影响(测试要的就是临时仓库)。
@@ -72,7 +93,7 @@ def _ok(cond, label):
 
 
 # ───────────────────────── A/B: upload_r2.py ─────────────────────────
-def test_ledger():
+def run_ledger():
     print("[A] 独立链产物 key 台账")
     td = tempfile.mkdtemp(prefix="t188_ledg_")
     os.environ["REPO"] = td
@@ -82,7 +103,8 @@ def test_ledger():
         (dd / n).write_text('{"a":1}')
     for m in ("upload_r2", "check_data_integrity", "notify"):
         sys.modules.pop(m, None)
-    sys.path.insert(0, str(SCRIPTS))
+    if str(SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS))
     import upload_r2 as u
 
     p = u._standalone_keys_path()
@@ -125,9 +147,10 @@ def test_ledger():
     return td
 
 
-def test_verify_r2(td):
+def run_verify_r2(td):
     print("[A/B] verify-r2 平日选中独立链产物 + 落文件名 + 外围告警")
-    sys.path.insert(0, str(SCRIPTS))
+    if str(SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS))
     import upload_r2 as u
 
     dd = pathlib.Path(td, "static-site", "data")
@@ -159,10 +182,9 @@ def test_verify_r2(td):
         send = staticmethod(lambda subj, body, **kw: sent.append(subj))
         update_dedup = staticmethod(lambda k: None)
 
-    u.s3_head = fake_head
-    u._upload_glob = fake_upload_glob
-    u._uniform_sample = lambda files, n: []
-    sys.modules["notify"] = N
+    _patch(u, s3_head=fake_head, _upload_glob=fake_upload_glob,
+           _uniform_sample=lambda files, n: [])
+    sys.modules["notify"] = N          # main() 收尾还原(见文件尾)
     u.cmd_verify_r2()
 
     _ok(any(k.endswith("data/kelly_mode_s06_state.json") for k in seen),
@@ -177,7 +199,7 @@ def test_verify_r2(td):
 
 
 # ─────────────── E: P2-2 死键过滤(台账不收「永远对不上」的键) ───────────────
-def test_dead_key_filter(td):
+def run_dead_key_filter(td):
     print("[E] P2-2 死键过滤")
     import upload_r2 as u
     dd = pathlib.Path(td, "static-site", "data")
@@ -210,7 +232,7 @@ def test_dead_key_filter(td):
 
 
 # ─────────────── F: P2-1 台账缺失/损坏 → 显式告警 ───────────────
-def test_ledger_gap_alert(td):
+def run_ledger_gap_alert(td):
     print("[F] P2-1 台账缺失/损坏 → verify-r2 显式告警(不静默绿)")
     import datetime as _dt
     import upload_r2 as u
@@ -226,7 +248,7 @@ def test_ledger_gap_alert(td):
         timedelta = _dt.timedelta
         timezone = _dt.timezone
 
-    u.datetime = _FakeDT
+    _patch(u, datetime=_FakeDT)
     p = u._standalone_keys_path()
     if p.exists():
         p.unlink()
@@ -237,10 +259,10 @@ def test_ledger_gap_alert(td):
         send = staticmethod(lambda subj, body, **kw: sent.append(subj))
         update_dedup = staticmethod(lambda k: None)
 
-    u.s3_head = lambda key, **kw: (200, '"deadbeefdeadbeefdeadbeefdeadbeef"')
-    u._upload_glob = lambda *a, **k: (0, 0, [], [])
-    u._uniform_sample = lambda files, n: []
-    sys.modules["notify"] = N
+    _patch(u, s3_head=lambda key, **kw: (200, '"deadbeefdeadbeefdeadbeefdeadbeef"'),
+           _upload_glob=lambda *a, **k: (0, 0, [], []),
+           _uniform_sample=lambda files, n: [])
+    sys.modules["notify"] = N          # main() 收尾还原(见文件尾)
     u.cmd_verify_r2()
     _ok(any("台账缺失" in s for s in sent), "台账缺失 → 发 dedup 告警(verify_r2_standalone_ledger_gap)")
 
@@ -252,7 +274,7 @@ def test_ledger_gap_alert(td):
 
 
 # ───────────────────────── C: s06_snapshot.sh trap ─────────────────────────
-def test_s06_traps():
+def run_s06_traps():
     print("[C] s06_snapshot.sh trap 驱动告警")
     td = tempfile.mkdtemp(prefix="t188_s06_")
     scripts = pathlib.Path(td, "scripts")
@@ -263,14 +285,33 @@ def test_s06_traps():
                       'case "${FAKE_MODE:-failgen}" in failgen) exit 1;; ok) exit 0;; '
                       'slow) sleep 5; exit 0;; esac\n')
     fakepy.chmod(0o755)
+    # #213(2026-10-07) 修正①: `sh` → `bash`。s06_snapshot.sh 用 `${BASH_SOURCE[0]}`(L58)与
+    #   bash 数组/`trap` 语义; CI(Ubuntu) 的 `sh`=dash: BASH_SOURCE 为空 ⇒ `cd $(dirname "")`
+    #   ⇒ source 找不到 lib/repo_paths.sh ⇒ `FATAL: repo_paths.sh missing` exit 2 ⇒ 本段在 CI 必挂
+    #   (macOS `sh`=bash 故本地侥幸绿 —— 典型「本地绿 ≠ CI 绿」)。
+    # 修正④(§18 L50 精神): 本段要 exec **业务脚本本体**, 属 L50 意义上的危险面 ⇒ 加「正面白名单」
+    #   三重护栏(只许执行显式声明的单一文件 + cwd/env 全钉 tempdir), 把爆炸半径锁死:
+    #     ① 目标路径必须**逐字等于**下面声明的唯一白名单文件(代码被改成 exec 别的文件即响亮 FAIL);
+    #     ② 脚本源码必须仍是「$PY 单点拦截」形态(所有 python 调用走 $PY, 无裸 python3);
+    #     ③ cwd/REPO/GIT_REPO 全钉 tempdir(脚本内 `cd "$REPO"` 落在 tempdir, 不触真实树)。
+    #   残余风险(诚实标注, 详见 docs/ops/213-batch12-impl-20261007.md §批2-②): 若未来 s06_snapshot.sh
+    #   新增**非 $PY** 的外部命令(如 curl/git), 本段会在 tempdir 内真跑它一次(cwd 已隔离, 不会伤真实树)。
+    _WHITELISTED_SCRIPT = REPO_ROOT / "scripts" / "s06_snapshot.sh"
     target = str(REPO_ROOT / "scripts" / "s06_snapshot.sh")
+    _ok(os.path.realpath(target) == os.path.realpath(str(_WHITELISTED_SCRIPT)),
+        "[C] 白名单: exec 目标 == 显式声明的唯一文件 s06_snapshot.sh")
+    _src = _WHITELISTED_SCRIPT.read_text(encoding="utf-8")
+    _ok('"$PY"' in _src and "scripts/notify.py" in _src,
+        '[C] 白名单: 脚本仍为 "$PY" 单点拦截形态(无裸 python3 直调)')
     env = {"FAKE_TRACE": str(pathlib.Path(td, "trace")), "PY": str(fakepy),
            "REPO": td, "GIT_REPO": td, "PATH": os.environ["PATH"]}
+    _ok(env["REPO"] == td and env["GIT_REPO"] == td,
+        "[C] 白名单: cwd/env 全钉 tempdir(不触真实仓库树)")
 
     def run(mode, kill_term=False):
         pathlib.Path(td, "trace").write_text("")
         e = dict(env, FAKE_MODE=mode)
-        p = subprocess.Popen(["sh", target, "force"], env=e, cwd=td,
+        p = subprocess.Popen(["bash", target, "force"], env=e, cwd=td,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if kill_term:
             import time as _t
@@ -293,7 +334,7 @@ def test_s06_traps():
 
 
 # ───────────────────────── D: check_data_integrity 盲区①b ─────────────────────────
-def test_integrity_1b():
+def run_integrity_1b():
     print("[D] check_data_integrity ①b 本地新鲜时追 R2 coverage_end 比对(只 WARN)")
     import datetime
     td = tempfile.mkdtemp(prefix="t188_integ_")
@@ -302,15 +343,16 @@ def test_integrity_1b():
     today = datetime.date.today().strftime("%Y%m%d")
     (dd / "kelly_mode_s06_state.json").write_text(json.dumps(
         {"coverage_start": "20250101", "coverage_end": today, "daily": [1], "on_base": 1, "off_base": 2}))
-    sys.path.insert(0, str(SCRIPTS))
+    if str(SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS))
     import check_data_integrity as ci
 
     class P:
         returncode, stdout, stderr = 0, "✓ A1-A6 全部通过\n", ""
-    ci.subprocess.run = lambda *a, **k: P()
+    _patch(ci.subprocess, run=lambda *a, **k: P())   # ci.subprocess 即全局 subprocess 模块, 必须还原
 
     def probe(r2):
-        ci._fetch_r2_json = lambda rel, timeout=20: r2
+        _patch(ci, _fetch_r2_json=lambda rel, timeout=20: r2)
         r = ci.check_s06_state_snapshot(dd)
         return r.status, r.msg
 
@@ -324,19 +366,46 @@ def test_integrity_1b():
     _ok(s == "warn", "R2 结构异常 → WARN")
 
 
-if __name__ == "__main__":
-    os.environ.pop("MATCH", None)
-    td = test_ledger()
-    test_verify_r2(td)
-    os.environ["MATCH"] = "1"
-    test_verify_r2(td)
-    os.environ.pop("MATCH", None)
-    test_s06_traps()
-    test_integrity_1b()
-    test_dead_key_filter(td)
-    test_ledger_gap_alert(td)
+def main():
+    """全量自测入口(原 __main__ 块抽为函数, 供 CI 薄包装 import 后调用, 单一实现)。
+
+    执行顺序保持原样(含 MATCH=1 反例开关的**置位/复位**语义: 正例→反例→复位, 顺序敏感)。
+    收尾 finally 统一还原会话状态(§18: 进程式自测进 pytest 长驻会话必须自己收尾):
+      · monkeypatch(_patch 登记的 upload_r2/check_data_integrity/subprocess 属性)逆序还原;
+      · sys.modules["notify"] 假模块还原/移除;
+      · os.environ(REPO/MATCH/GIT_REPO 等)与 sys.path 整体还原。
+    """
+    env_snapshot = dict(os.environ)
+    path_snapshot = list(sys.path)
+    _had_notify = "notify" in sys.modules
+    _prev_notify = sys.modules.get("notify")
+    try:
+        os.environ.pop("MATCH", None)
+        td = run_ledger()
+        run_verify_r2(td)
+        os.environ["MATCH"] = "1"
+        run_verify_r2(td)
+        os.environ.pop("MATCH", None)
+        run_s06_traps()
+        run_integrity_1b()
+        run_dead_key_filter(td)
+        run_ledger_gap_alert(td)
+    finally:
+        _restore_patched()
+        if _had_notify:
+            sys.modules["notify"] = _prev_notify
+        else:
+            sys.modules.pop("notify", None)
+        os.environ.clear()
+        os.environ.update(env_snapshot)
+        sys.path[:] = path_snapshot
     print()
     if _fails:
         print(f"FAILED {len(_fails)}: {_fails}")
         sys.exit(1)
     print("ALL_PASS")
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
