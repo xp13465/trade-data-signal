@@ -558,7 +558,9 @@ R2_SKIP_CONTINUOUS_THRESHOLD = 3
 # 任务最近一次运行窗口内 SKIPPED_LOCKED 行数——对每日一轮任务(overfit_monitor 21:40 单轮),
 # 一次良性撞锁后该值滞留恒=1 直到次日新一轮。monitor 消费时仅当 last_run 落在本窗口内
 # (= 本轮有新运行, 该 skip 是「本轮新发生」)才参与「连续 N 轮」计数; 窗口外(本轮无新运行)
-# = 滞留值, 不参与连续计数并清零。窗口 30min: monitor 15min/轮, 高频任务(intraday 10min 轮 /
+# = 滞留值, 不参与连续计数【#181(2026-10-07)起保留连续链不清零: 旧「滞留即清零」会造成
+# 「stale 清零 → 下一 tick 假恢复 → 1h 后重报」结构性循环; 现唯一清零点 = 本轮无 skip 分支】。
+# 窗口 30min: monitor 15min/轮, 高频任务(intraday 10min 轮 /
 # fetch_news 30min 轮)每轮/隔轮必有新运行, last_run 恒在窗口内 -> 连续 N 轮 SEVERE 行为一条
 # 不改; 每日一轮任务 ~2 轮后即出窗口 -> 单次 skip 最大计数 2 < 阈值 3, 跨轮累积误报根治。
 R2_SKIP_OBS_WINDOW = timedelta(minutes=30)
@@ -919,21 +921,28 @@ if STATS_FILE.exists():
             # 一直没上 R2), 必须自动发现告警。gen_schedule_stats 已把 TASKS 表任务 +
             # gen_daily_brief/fetch_news(EXTRA_MARKER_SCANS)的 r2_skip_count 输出进
             # schedule_stats.json, 此处消费: 连续多轮 r2_skip_count>0 → SEVERE。
-            # 判定: 用 alert_state 的 {task}|r2_skip_continuous 计数跨轮次(15min 一轮
-            # monitor, intraday 10min 一轮, 连续 3 轮 monitor 看到 skip ≈ intraday 连续
-            # 3-5 轮 skip)。恢复: 本轮 r2_skip_count==0/缺失 → 计数清零, key 未 seen
-            # → 主恢复循环自动发恢复邮件。notify 出口与既有告警一致。
+            # 判定: 用 alert_state 的 {task}|r2_skip_rounds 计数跨轮次(15min 一轮 monitor,
+            # intraday 10min 一轮, 连续 3 轮 monitor 看到 skip ≈ intraday 连续 3-5 轮 skip)。
+            # 恢复: 本轮 r2_skip_count==0/缺失 → 计数清零, key 未 seen → 主恢复循环自动发
+            # 恢复邮件。notify 出口与既有告警一致。
+            # [#181 2026-10-07 fetchnews-denoise, ①d 三改(计数语义治本, 用户已拍板动此冻结面)]:
+            #   ① 轮去重: count_key 增 last_round(= stats last_run 分钟串)做轮标识, 同一轮被多
+            #      个 tick 消费时不再重复 +1。根因: fetch_news 每小时 :01/:45 两轮 + 30min 新鲜
+            #      窗 + :45 stale, 使「一个真 skip 轮」被 :00/:15/:30 三个 tick 各计 1 次 →
+            #      消息自称「连续 3 轮」实则 distinctRounds=2(实测 13/13 SEVERE 皆 counted=3/
+            #      distinctRounds=2)。
+            #   ② 去假清零: 滞留 skip(本轮无新运行)不再清连续链(保链), 替换旧「age>30min ⇒
+            #      清零 + 下一 tick 假恢复」的结构性循环(旧循环致 7h 锁事件每小时重报 1 封)。
+            #   ③ seen 补全: 连续计数 >= 阈值 的**任一** skip tick(含新轮/重复轮/滞留轮)都 mark
+            #      告警 key seen —— 否则通用恢复循环(L1644-1716, 本轮不改)会在 15min 后把未
+            #      seen 的 active key 误判「已消失」→ 假恢复 → 1h 后重报。
+            #   保留 else(本轮无 skip)清链分支 = 唯一合法清零点 = 真恢复入口(不得一并去掉)。
+            #   阈值 R2_SKIP_CONTINUOUS_THRESHOLD / R2_SKIP_OBS_WINDOW 保持原值(未实现任何 dial)。
             _r2_skip_cnt = s.get("r2_skip_count")
             if isinstance(_r2_skip_cnt, int) and _r2_skip_cnt > 0:
                 # P1-3(2026-09-24 r2skip-alert-fix): 计数语义修正——r2_skip_count 是「任务最近
-                # 一次运行窗口内 SKIPPED_LOCKED 行数」。对每日一轮任务(overfit_monitor 21:40
-                # 单轮), 一次良性撞锁后该值滞留恒=1 直到次日新一轮(9-24 21:45/22:00/22:15/22:30
-                # 四轮 monitor 看同一份滞留值), 把「窗口存在」当「本轮新发生」逐轮 +1 = 单次
-                # skip 被放大成「连续 N 轮缺口持续」必然误报。修法(分诊判据①): last_run 不在
-                # 本轮观察窗口内(= 本轮没有新运行) → 该 skip 是滞留值, 不参与「连续 N 轮」计数,
-                # 连续计数清零(一轮无新运行 = 连续链中断)。高频任务(intraday 10min / fetch_news
-                # 30min)每轮/隔轮都有新运行, last_run 恒新鲜 → 连续 N 轮 SEVERE 行为一条不改
-                # (fetch_news 中午真验保持有效)。
+                # 一次运行窗口内 SKIPPED_LOCKED 行数」。last_run 不在本轮观察窗口内(= 本轮没有
+                # 新运行)= 滞留值, 不参与「连续 N 轮」计数(#181 后: 保链不清零, 见上②)。
                 _r2_fresh = True  # 解析失败/缺失保守当新鲜处理(不因解析问题吞真告警)
                 _r2_lr = s.get("last_run") or ""
                 if _r2_lr:
@@ -942,62 +951,74 @@ if STATS_FILE.exists():
                         _r2_fresh = (NOW - _r2_lr_dt) < R2_SKIP_OBS_WINDOW
                     except ValueError:
                         pass  # 格式异常保守当新鲜
-                if not _r2_fresh:
-                    # 滞留 skip(最近运行距今超观察窗口, 本轮无新运行): 不参与连续 N 轮计数,
-                    # 连续计数清零。告警 key 不在此处动——若此前已误报 active, 由主恢复循环
-                    # 在本 key 未 seen 时统一发恢复邮件(防同轮 SEVERE+恢复振荡)。
-                    _r2_stale_key = f"{s['task']}|r2_skip_rounds"
-                    _r2_stale_prev = alert_state.get(_r2_stale_key)
-                    if _r2_stale_prev and int(_r2_stale_prev.get("skip_rounds") or 0) > 0:
-                        _r2_stale_prev["skip_rounds"] = 0
+                _r2_cnt_key = f"{s['task']}|r2_skip_rounds"
+                _r2_prev = alert_state.get(_r2_cnt_key) or {}
+                _r2_n = int(_r2_prev.get("skip_rounds") or 0)
+                # ① 轮去重: 仅当「本轮有新运行(last_run 新鲜)」且「轮标识 != 上次计数轮」才 +1。
+                _r2_same_round = bool(_r2_lr) and _r2_lr == _r2_prev.get("last_round")
+                if _r2_fresh and not _r2_same_round:
+                    _r2_n += 1
+                    _r2_prev["last_round"] = _r2_lr
+                    _r2_prev.setdefault("first_seen", NOW.strftime("%Y-%m-%d %H:%M:%S"))
+                _r2_prev["skip_rounds"] = _r2_n
+                if _r2_n > 0:
+                    # 计数 key 只记录连续轮次(不写告警去重 key, 恢复循环按 count_key 判断)
+                    alert_state[_r2_cnt_key] = _r2_prev
+                if _r2_n >= R2_SKIP_CONTINUOUS_THRESHOLD:
+                    # 达到连续阈值: 用独立告警去重 key(计数 key 状态不干扰告警去重)。
+                    # ③ seen 补全: 达阈值后**每一** skip tick(新轮/重复/滞留)都 mark 告警 key
+                    # seen(告警仍存在) -> 只有 skip 停止(else 清零点不 mark)恢复循环才判消失
+                    # 发恢复邮件, 同时杜绝「滞留轮不 mark → 假恢复」循环。
+                    _r2_alert_key = f"{s['task']}|r2_skip_alert"
+                    seen_keys_this_run.add(_r2_alert_key)
+                    _r2_exist = alert_state.get(_r2_alert_key)
+                    if _r2_exist is None or _r2_exist.get("status") != "active":
+                        _r2_line = f"r2_skip_count={_r2_skip_cnt} 连续{_r2_n}轮"
+                        alerts.append(
+                            f"SEVERE: {s['task']} R2 上传锁连续 {_r2_n} 轮跳过(SKIPPED_LOCKED), "
+                            f"上传缺口持续(收盘版/每日版可能未上 R2), 需人工关注"
+                        )
+                        alert_state[_r2_alert_key] = {
+                            "status": "active",
+                            "first_seen": _r2_prev.get(
+                                "first_seen", NOW.strftime("%Y-%m-%d %H:%M:%S")),
+                            "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                            "keyword": "r2_skip_continuous",
+                            "line_sample": _r2_line,
+                        }
+                    else:
+                        # 已告警过: 刷新计数 key 触发恢复检测(本轮 skip 仍存在), 不重发
+                        # (与现有 durable 告警语义一致)
+                        _r2_exist["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                        _r2_exist["line_sample"] = f"r2_skip_count={_r2_skip_cnt} 连续{_r2_n}轮"
+                        print(f"[suppress] {s['task']} R2 锁连续skip持续中, "
+                              f"last_alerted={_r2_exist.get('last_alerted')}, 不重发")
+                elif _r2_n > 0:
+                    if _r2_same_round:
+                        print(f"[r2-skip-dup] {s['task']} R2 锁skip 同轮重复tick"
+                              f"(last_round={_r2_lr}), 不重复计数"
+                              f"(连续{_r2_n}/{R2_SKIP_CONTINUOUS_THRESHOLD})")
+                    elif not _r2_fresh:
                         print(f"[r2-skip-stale] {s['task']} R2 锁skip为滞留值(最近运行距今>"
                               f"{int(R2_SKIP_OBS_WINDOW.total_seconds()//60)}min, 本轮无新运行), "
-                              f"不参与连续计数, 清零")
-                else:
-                    _r2_cnt_key = f"{s['task']}|r2_skip_rounds"
-                    _r2_prev = alert_state.get(_r2_cnt_key) or {}
-                    _r2_n = int(_r2_prev.get("skip_rounds") or 0) + 1
-                    # 计数 key 只记录连续轮次(不写告警去重 key, 恢复循环按 count_key 判断)
-                    _r2_prev["skip_rounds"] = _r2_n
-                    _r2_prev.setdefault("first_seen", NOW.strftime("%Y-%m-%d %H:%M:%S"))
-                    alert_state[_r2_cnt_key] = _r2_prev
-                    if _r2_n < R2_SKIP_CONTINUOUS_THRESHOLD:
+                              f"保链不计数(连续{_r2_n}/{R2_SKIP_CONTINUOUS_THRESHOLD})")
+                    else:
                         print(f"[r2-skip] {s['task']} R2 锁skip 连续{_r2_n}/"
                               f"{R2_SKIP_CONTINUOUS_THRESHOLD} 轮(未达阈值, 不告警)")
-                    else:
-                        # 达到连续阈值: 用独立告警去重 key(计数 key 状态不干扰告警去重)。
-                        # 告警 key 每轮都 seen(告警仍存在) -> skip 停止后(本轮 skip=0 清零
-                        # 分支不 mark)恢复循环才判消失发恢复邮件, 避免同轮 SEVERE+恢复振荡。
-                        _r2_alert_key = f"{s['task']}|r2_skip_alert"
-                        seen_keys_this_run.add(_r2_alert_key)
-                        _r2_exist = alert_state.get(_r2_alert_key)
-                        if _r2_exist is None or _r2_exist.get("status") != "active":
-                            _r2_line = f"r2_skip_count={_r2_skip_cnt} 连续{_r2_n}轮"
-                            alerts.append(
-                                f"SEVERE: {s['task']} R2 上传锁连续 {_r2_n} 轮跳过(SKIPPED_LOCKED), "
-                                f"上传缺口持续(收盘版/每日版可能未上 R2), 需人工关注"
-                            )
-                            alert_state[_r2_alert_key] = {
-                                "status": "active",
-                                "first_seen": _r2_prev["first_seen"],
-                                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
-                                "keyword": "r2_skip_continuous",
-                                "line_sample": _r2_line,
-                            }
-                        else:
-                            # 已告警过: 同步刷新计数 key 触发恢复检测(本轮 skip 仍存在)
-                            # 告警 key 已 active, 不重发(与现有 durable 告警语义一致)
-                            _r2_exist["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
-                            _r2_exist["line_sample"] = f"r2_skip_count={_r2_skip_cnt} 连续{_r2_n}轮"
-                            print(f"[suppress] {s['task']} R2 锁连续skip持续中, "
-                                  f"last_alerted={_r2_exist.get('last_alerted')}, 不重发")
+                else:
+                    # 本轮无新运行且史上无链: 纯滞留 skip, 不建空 key(不留噪音状态)
+                    print(f"[r2-skip-stale] {s['task']} R2 锁skip为滞留值(最近运行距今>"
+                          f"{int(R2_SKIP_OBS_WINDOW.total_seconds()//60)}min, 本轮无新运行且无"
+                          f"历史链), 不计数")
             else:
                 # 本轮无 skip: 连续计数清零。计数 key 本轮未 seen +
                 # skip_rounds=0 -> 主恢复循环把既有告警 key 判为消失发恢复邮件。
+                # (真恢复入口; #181 未改此分支。)
                 _r2_cnt_key = f"{s['task']}|r2_skip_rounds"
                 _r2_prev = alert_state.get(_r2_cnt_key)
                 if _r2_prev and int(_r2_prev.get("skip_rounds") or 0) > 0:
                     _r2_prev["skip_rounds"] = 0
+                    _r2_prev["last_round"] = None
                     print(f"[r2-skip] {s['task']} R2 锁连续skip清零(本轮无skip)")
         # P2(2026-09-24 r2 终审): EXTRA 任务停摆漏跑告警。
         # fetch_news/gen_daily_brief 不在 MISSED_TASKS 漏跑检查(TASKS 表无对应条目,
