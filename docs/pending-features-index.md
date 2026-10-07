@@ -294,7 +294,7 @@
 
 ### 登记待决(未编号,待主控/用户拍板后再立项;2026-10-05 逐条对账现状后登记,非照抄描述)
 - **`rzhb_backfill` 登记漂移(未拍板,登记待决)**:云上 systemd timer 有 **19:15** 槽,而 `schedule_monitor.sh` 登记表(L110-112)只登记 **08:00**(注释「2026-07-29 19:15->T+1 08:00:SSE官方T+1早晨发布T日」)——与 update_all 同病根(登记表与 timer 漂移 → 真跑时段登记表看不见 → 告警盲区/280min 误报同型)。修=登记表补 19:15 槽(一行)或核实 08:00 为唯一权威后删云上 19:15。**未拍板,登记待决**。
-- **`notify.py` 既有瑕疵(未修)**:`--dry-run` 配 `--alert-issue` 仍会写 `latest.md`——`write_alert`(L1031)不接收 dry_run 参数,三个调用点仅 L2181 有 `tier==critical` 门控,L2238/L2264 的 `if args.alert_issue:` **无 dry_run 门控** → 违反 L35 注释「--dry-run 不真发,只 print 到 stderr(自验用)」。修=调用点补 `not args.dry_run` 门控。**未修,登记待决**(§23.7 冻结,动已上线行为须用户确认)。 **(2026-10-05 正式立项为 #184,见模块二十)**
+- **`notify.py` 既有瑕疵(未修)**:`--dry-run` 配 `--alert-issue` 仍会写 `latest.md`——`write_alert`(L1031)不接收 dry_run 参数,三个调用点仅 L2181 有 `tier==critical` 门控,L2238/L2264 的 `if args.alert_issue:` **无 dry_run 门控** → 违反 L35 注释「--dry-run 不真发,只 print 到 stderr(自验用)」。修=调用点补 `not args.dry_run` 门控。**未修,登记待决**(§23.7 冻结,动已上线行为须用户确认)。 **(2026-10-05 正式立项为 #184,见模块二十;2026-10-07 已实施,见 #184 状态列)**
 - **架构改造 A 档 / B 档(待事实核查,未拍板)**:调研 `docs/ops/r2-publish-arch-industry-research-20261005.md` 给出 A 档最小可用集(A1 停滞判据 / A2 超时收敛 / A3 分域锁 / A4 断点续传 / A5 告警聚合 / A6 CF R2 Local Uploads)+ B 档结构性方案(B1 发布队列收敛循环 / B2 度量先行 / B3 分域锁 / B4 告警聚合)。**唯一已决定 = 架构改造先不做,等事实核查回来再定**;两条待核查事实 = ①我们桶能否启用 CF R2 Local Uploads(官方 2026-02 特性、TTLB −75%,云上 VM 华东/桶 APAC = 官方目标场景,background agent `ad17be6bb587a467a` 核查中)②云上 NAT/本地端口范围是否偏小(docverse#698 同款 64 端口/VM 场景)。**已核实的现状依据**:A3 描述是全局一把 fcntl 锁(现为 2026-09-23 `trade_r2_upload.lock` + `trade_deploy.lock` 分离后形态);其余 A1-A6/B1-B4 全部 = 研究建议·未拍板。
 
 ## 二十、告警系统性排查增补(2026-10-05,来源 `docs/ops/alert-systematic-review-20261005.md`)

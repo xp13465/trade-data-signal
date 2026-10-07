@@ -5,8 +5,9 @@
 
 覆盖（每条 = 实跑证据 + 反向测）：
   ① brief_push 静默失败（D3 §3-2）：wrapper 失败分支必须产生显式信号（notify --severe
-     → latest.md 头部写入「brief_push 推送失败」+ dry-run 打出告警邮件占位）。
-     反向：成功路径不触发任何 notify（wrapper 退出码恒 0 设计不动）。
+     → 实跑写 latest.md 头部「brief_push 推送失败」；--dry-run 下由 notify 内部 guard
+     挡下=只打印不落盘，#184 2026-10-07）。反向：成功路径不触发任何 notify
+     （wrapper 退出码恒 0 设计不动）。
   ② latest.md 覆盖区「最近一次 SEVERE」引用（D3 §5）：severe 流水 + 后续普通告警/恢复
      覆盖头部 → 覆盖区固定保留「最近一次 SEVERE」引用行，严重告警不再被恢复消息静默
      盖掉。反向：流水区无 severe 时不产生引用行（不污染头部、不假报严重）。
@@ -137,8 +138,11 @@ def _setup_wrapper_tmp(repo_tmp: Path) -> Path:
 
 
 def test_brief_push_failure_produces_alert(tmp_path):
-    """①失败场景：wrapper 失败分支调 notify --severe → dry-run 打出告警邮件 + 写
-    latest.md「brief_push 推送失败」；wrapper 恒 exit 0（原设计不动）。"""
+    """①失败场景：wrapper 失败分支调 notify --severe → 显式信号（#184 后 dry-run
+    下为占位打印，**不写 latest.md**）；wrapper 恒 exit 0（原设计不动）。
+
+    实跑（无 --dry-run）路径仍写 latest.md——写路径由
+    test_184_notify_dryrun_gate_20261007.py 以打桩方式覆盖零外发验证。"""
     env = dict(os.environ, REPO=str(tmp_path))
     wrapper = _setup_wrapper_tmp(tmp_path)
     r = subprocess.run(["bash", str(wrapper), "--dry-run"], env=env,
@@ -146,9 +150,10 @@ def test_brief_push_failure_produces_alert(tmp_path):
     log = (tmp_path / "data" / "logs" / "brief_push.log").read_text(encoding="utf-8")
     assert "✗ 失败 rc=1" in log, "失败 rc 已记录"
     assert "[告警] brief_push 推送失败 rc=1" in log, "notify --severe 已发起（dry-run 打印）"
+    assert "[notify][dry-run]" in log, "notify dry-run 占位输出已打印（外发被挡下）"
+    assert "write_alert 跳过写" in log, "#184：dry-run 下 write_alert 被守卫挡下（打印跳过）"
     latest = tmp_path / "data" / "alerts" / "latest.md"
-    assert latest.exists(), "wrapper 失败信号写 latest.md"
-    assert "brief_push 推送失败" in latest.read_text(encoding="utf-8")
+    assert not latest.exists(), "#184：dry-run 不得写 latest.md（零落盘）"
     assert r.returncode == 0, "wrapper 退出码恒 0 设计必须保留"
 
 
