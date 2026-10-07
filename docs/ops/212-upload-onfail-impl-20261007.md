@@ -57,7 +57,11 @@
 
 - **复核结论:报告三档(挂 14 / 不挂 3)成立,未改判**。14 条 = A 类 13 + data_files;B 类 `fund_nav`/`intraday`/`large_json` 三条不挂——`fund_nav`(唯一调用方 severe)、`intraday`(两调用链均 severe,含失败文件列表)、`large_json`(不走引擎/glob 的独立通道 + 私有桶非用户可见 + 唯一调用方 severe+heartbeat)。本批**未触碰**这三条。
 - **报告外的真静默候选(列报主控,未擅自扩改)**:
-  - `cmd_upload(local, key)`(L752,`upload <本地> <r2key>` 单文件点对点):失败仅 `print ✗`、**不 exit 非零、无 notify**。但它是**人工即时命令**(无任何定时/systemd 调用方;全仓 grep 仅用法示例,无 .sh 调用),失败当场肉眼可见 ⇒ 判定**范围外**(非「自动链静默面」),建议**不纳入** #212。若主控要「全站单点统一」可另单。
+  - `cmd_upload(local, key)`(L752,`upload <本地> <r2key>` 单文件点对点):失败仅 `print ✗`、**不 exit 非零、无 notify**。
+    - **订正(2026-10-07 独立审 §7 FAIL 项:原报告此处「人工即时命令,无任何定时/systemd 调用方」表述不实,据实订正)**:它**有定时调用方**——`app/collector/intraday_snapshot.py::_export_affected_json`(定义 L2114;采集主流程 L2631 调用)对每个 `EXPORT_RANGES` 起子进程跑 `upload_r2.py upload <local> data/sentiment-{rng}.json`(子进程构造 L2158-2165),整链由 `scripts/intraday_snapshot.sh:74`(`"$PY" -m app.collector.intraday_snapshot`,脚本头注释「盘中每 10 分钟」)在云上定时执行。
+    - **原报告字面 grep 漏检原因**:该子进程 argv 是变量形式(`sys.executable` + `Path(__file__)` 派生的脚本路径变量 + `EXPORT_RANGES` 循环变量),字面量 grep 抓不到(典型「字面量漏常量」;`.sh` 侧亦为 `"$PY" -m <模块>` 变量调用,非 `upload` 字面量)。
+    - **失败后果**:`cmd_upload` 只 `print ✗` 且 **exit 0**(无 exit 非零、无 notify)⇒ 调用方转 `log_collect(..., "sentiment_r2_upload", "error")`(L2172-2174)⇒ **只有 UI 小红点,monitor 十维均不覆盖**(据独立审 §7 实证)。
+    - **范围判断保留(判断本身没错,错的只是「无调用方」这句事实)**:本批范围 = 矩阵 14 通道,`cmd_upload` 仍判**范围外**(非矩阵内「自动链静默面」通道),建议**不纳入** #212;该静默面**已另立 #231 登记**(本报告不重复立项)。若主控要「全站单点统一」可另单。
   - `cmd_upload_db` / `cmd_upload_decommissioned` / `cmd_upload_claude_backup` / `cmd_upload_large_json`:私有桶(signal-backup / signal-backup2)+ 管理用途,**前端零展示**,不在「用户读旧数据」判别面内 ⇒ 范围外。
 - **预留位置遵循(§23.4)**:本批正是复用 #204 预留的 `on_fail` 扩展点(报告 §0.2),未新造机制;scan `docs/pending-features-index.md` 同模块项(#193/#204/#212/#218/#223/#228)无与本次改动文件重叠的在跑任务;`#212` 行(=待拍板)状态列未改(状态权威归主控)。
 
