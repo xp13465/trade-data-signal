@@ -766,6 +766,8 @@ def cmd_upload_lab():
     盘后 17:50 全重算, 非交易日全省(增量最大确定性收益); 原串行自写循环由引擎
     8 线程 + 状态清单 + 层2 ETag 对账替代(告警噪音根治 2026-09-11 语义保留在引擎:
     单文件失败不异常中断, 末尾 ok<total 才 exit 1)。
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    此前该通道失败只被 deploy 链「全池抽 20 文件」概率性兜底, 用户侧静默。
     """
     lab = STATIC_DIR / "data/lab"
     if not lab.exists() or not any(lab.glob("*.json")):
@@ -774,7 +776,10 @@ def cmd_upload_lab():
         sys.exit(f"无 lab json: {lab}")
     # 失败时引擎内部已 print FAILED_FILES + exit 1
     _incremental_upload(
-        lab, ["*.json"], "lab", ".r2_lab_state.json", label="lab")
+        lab, ["*.json"], "lab", ".r2_lab_state.json", label="lab",
+        on_fail=_channel_on_fail(
+            "lab", "upload-lab", "lab",
+            "(lab/*.json 为首页「策略实验室」参数/回测/权重表数据源)"))
     # lab 原命令不 purge(前端 lab 数据经 /data/ rewrite 读 R2, 短 TTL), 保持不 purge。
 
 
@@ -1502,6 +1507,8 @@ def cmd_upload_trade_sim():
 
     R2 key = trade_sim/trade_sim_{id}.html（保留原文件名）。
     前端改 href -> https://ssd.fx8.store/trade_sim/trade_sim_{id}.html。
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    此前该通道失败只被 deploy 链「全池抽 20 文件」概率性兜底, 用户侧静默。
     """
     # simulate_trade.py 按 __file__ 写 ROOT(trade/)static-site/trade_sim_*.html,
     # REPO=trade-data 时 trade-data/static-site/ 可能无 trade_sim_*.html,回退 ROOT。
@@ -1515,7 +1522,10 @@ def cmd_upload_trade_sim():
         sys.exit(f"无 trade_sim html: {ts_dir}/trade_sim_*.html")
     # 失败时引擎内部已 print FAILED_FILES + exit 1
     _incremental_upload(
-        ts_dir, ["trade_sim_*.html"], "trade_sim", ".r2_trade_sim_html_state.json", label="trade-sim")
+        ts_dir, ["trade_sim_*.html"], "trade_sim", ".r2_trade_sim_html_state.json", label="trade-sim",
+        on_fail=_channel_on_fail(
+            "trade-sim", "upload-trade-sim", "trade_sim",
+            "(trade_sim/*.html 为首页模拟回测详情页)"))
 
 
 def cmd_upload_trade_sim_json():
@@ -1530,6 +1540,8 @@ def cmd_upload_trade_sim_json():
     simulate_trade.py 按 __file__ 写 ROOT(trade/)static-site/data/trade_sim/（非 REPO）,
     REPO=trade-data 时 trade-data/static-site/data/trade_sim/ 不存在,回退 ROOT(trade/)。
     （2026-07-25 AZ28 根治:此前 deploy.sh 从 trade-data 跑时本命令 sys.exit 无文件）
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    此前该通道失败只被 deploy 链「全池抽 20 文件」概率性兜底, 用户侧静默。
     """
     ts_dir = STATIC_DIR / "data/trade_sim"
     if not ts_dir.exists() or not any(ts_dir.glob("*.json")):
@@ -1538,7 +1550,10 @@ def cmd_upload_trade_sim_json():
         sys.exit(f"无 trade_sim json: {ts_dir}")
     # 失败时引擎内部已 print FAILED_FILES + exit 1
     _, _, _, uploaded_keys = _incremental_upload(
-        ts_dir, ["*.json"], "trade_sim_data", ".r2_trade_sim_json_state.json", label="trade-sim-json")
+        ts_dir, ["*.json"], "trade_sim_data", ".r2_trade_sim_json_state.json", label="trade-sim-json",
+        on_fail=_channel_on_fail(
+            "trade-sim-json", "upload-trade-sim-json", "trade_sim_data",
+            "(trade_sim/*.json 为首页模拟回测弹窗走势/统计卡数据源)"))
     # 清 CF 边缘缓存(同其他 R2 前缀命令模式):uploaded_keys 含 "trade_sim_data/" 前缀,
     # cache_prefix="/r2/" -> "/r2/trade_sim_data/{id}_stats.json" 匹配 r2ProxyHandler cacheKey。
     # 2026-08-19 补:此前本命令从不 purge, trade_sim JSON 在 CF edge 残留最长 4h,
@@ -1552,13 +1567,18 @@ def cmd_upload_index():
     R2 key = index/{id}-all.json。
     前端改 fetchJSON -> https://ssd.fx8.store/index/{id}-all.json。
     intraday_snapshot 盘中会重写本地 index/{iid}-all.json，deploy.sh 调本命令同步 R2。
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    此前该通道失败只被 deploy 链「全池抽 20 文件」概率性兜底, 用户侧静默。
     """
     idx_dir = STATIC_DIR / "data/index"
     if not any(f.exists() for f in idx_dir.glob("*.json")):
         sys.exit(f"无 index json: {idx_dir}")
     # 失败时引擎内部已 print FAILED_FILES(rel 相对 index/, intraday_snapshot.sh 抓取引用告警 body)+ exit 1
     _, _, _, uploaded_keys = _incremental_upload(
-        idx_dir, ["*.json"], "index", ".r2_index_state.json", label="index")
+        idx_dir, ["*.json"], "index", ".r2_index_state.json", label="index",
+        on_fail=_channel_on_fail(
+            "index", "upload-index", "index",
+            "(index/*-all.json 为首页指数K线/情绪曲线叠图数据源)"))
     # 清 CF 边缘缓存(同 cmd_upload_industry 模式):uploaded_keys 含 "index/" 前缀,
     # cache_prefix="/r2/" -> "/r2/index/{id}-all.json" 匹配 r2ProxyHandler cacheKey。
     # 不用 "/r2/index/" 否则双 index 致 purge 无效。
@@ -1578,13 +1598,18 @@ def cmd_upload_etf_hist():
         兼容读取); 首跑/状态损坏退化全量、周日强制全量、原子写状态、宁多传不漏传语义不变;
       - 新增层2 ETag 对账(本次 PUT 后 HEAD 对 ETag==本地 md5, 不一致判失败)。
     purge 只清本次实际上传 key(cache_prefix="/r2/")。
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    此前回填链(echo-only)+ deploy 链抽样双静默面, 用户侧静默。
     """
     etf_dir = STATIC_DIR / "data/etf"
     if not any(f.exists() for f in etf_dir.glob("*.json")):
         sys.exit(f"无 etf json: {etf_dir} (先跑 scripts/export_etf_hist.py 生成)")
     _, _, _, uploaded_keys = _incremental_upload(
         etf_dir, ["*.json"], "etf", ".r2_etf_hist_state.json",
-        fingerprint=_etf_hist_md5, label="etf-hist")
+        fingerprint=_etf_hist_md5, label="etf-hist",
+        on_fail=_channel_on_fail(
+            "etf-hist", "upload-etf-hist", "etf",
+            "(etf/{code}-all.json 为 ETF/标的弹窗长历史K线数据源)"))
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
@@ -1643,13 +1668,18 @@ def cmd_upload_accum_nav():
       - 层2 ETag 对账(本次 PUT 后 HEAD 对 ETag==本地 md5, 不一致判失败)。
       - purge 用 etf 模式(非 fund_nav no-store): 边缘 3600s + 上传后 purge 本次 key(cache_prefix="/r2/"),
         nav 历史日 append-only 强平日都是历史日期, 1h 边缘缓存重开弹窗零流量(方案 §三 依据)。
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    此前该通道无任何 deterministic 告警, 用户侧静默。
     """
     nav_dir = STATIC_DIR / "data/accum_nav"
     if not any(f.exists() for f in nav_dir.glob("*.json")):
         sys.exit(f"无 accum_nav json: {nav_dir} (先跑 scripts/export_accum_nav_map.py --all 生成)")
     _, _, _, uploaded_keys = _incremental_upload(
         nav_dir, ["*.json"], "accum_nav", ".r2_accum_nav_state.json",
-        label="accum-nav")
+        label="accum-nav",
+        on_fail=_channel_on_fail(
+            "accum-nav", "upload-accum-nav", "accum_nav",
+            "(accum_nav/{code}.json 为全站净值走势(凯利 G/H/I 真实净值)数据源)"))
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
@@ -1666,6 +1696,8 @@ def cmd_upload_industry():
 
     2026-09-15 迁增量引擎(A 档整文件 md5, 4 组 glob pattern 保留): 非交易日全省, 盘中/盘后
     行情天天变时只传变化文件。
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    此前该通道无任何 deterministic 告警, 用户侧静默。
     """
     data_dir = STATIC_DIR / "data"
     # 3 个拆分目录 + 扁平 industry-*.json
@@ -1678,7 +1710,10 @@ def cmd_upload_industry():
     if not any(f.exists() for pat in patterns for f in data_dir.glob(pat)):
         sys.exit(f"无 industry 文件: {data_dir}/industry-*")
     _, _, _, uploaded_keys = _incremental_upload(
-        data_dir, patterns, "industry", ".r2_industry_state.json", label="industry")
+        data_dir, patterns, "industry", ".r2_industry_state.json", label="industry",
+        on_fail=_channel_on_fail(
+            "industry", "upload-industry", "industry",
+            "(industry/* 为首页行业卡/行业详情数据源)"))
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
@@ -1688,11 +1723,16 @@ def cmd_upload_public_fund():
     覆盖当前 5 小样本 + 未来全量品种(public_fund-{id}-holdings-5y.json 等)。
     架构同 lab/index/industry(按路径前缀,非大小阈值),新增品种自动走 R2 零维护。
     2026-09-15 迁增量引擎(A 档整文件 md5); 无文件=正常(引擎返回 0 待传, 不 purge)。
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    此前该通道无任何 deterministic 告警, 用户侧静默。
     """
     data_dir = STATIC_DIR / "data"
     _, _, _, uploaded_keys = _incremental_upload(
         data_dir, ["public_fund*.json"], "public_fund",
-        ".r2_public_fund_state.json", label="public-fund")
+        ".r2_public_fund_state.json", label="public-fund",
+        on_fail=_channel_on_fail(
+            "public-fund", "upload-public-fund", "public_fund",
+            "(public_fund_* 为公募筛选器/持仓分布数据源)"))
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
@@ -1730,6 +1770,26 @@ def _notify_channel_upload_fail(label, cmd_name, r2_prefix, ok, total, failed_re
             notify.update_dedup(_dk)
     except Exception as _e:
         print(f"⚠ notify 告警发送失败(不阻塞): {_e}", file=sys.stderr)
+
+
+def _channel_on_fail(label, cmd_name, r2_prefix, impact_note):
+    """#212(2026-10-07): 造 `_incremental_upload` 用的 on_fail 回调 `(ok, total, failed_rels) -> None`。
+
+    A 类增量通道(本批 13 条)共用同一发声点(§5.1 消除重复, 不逐通道写 13 个雷同函数):
+    引擎仅在 `ok != total` 的失败分支、`sys.exit(1)` 之前调用一次 → 复用
+    `_notify_channel_upload_fail`(同 fund-score/offshore-fund/etf-score 的 severe 级 / 6h 去重 /
+    文案骨架), 仅「含义」括注换成各通道自己的作用域说明(名称/作用域不同, 不误挂 fund_score 文案)。
+
+    背景: 此前这些通道上传失败只被调用方 `echo` / deploy 链的「全池抽 20 文件」概率性兜底吞掉,
+    用户侧静默(证据见 docs/ops/212-channel-failure-matrix-20261007.md, 17 行通道 × 失败后果表)。
+    ⚠️ 仅 `ok != total` 触发 —— export-guard(L1374)/ `total == 0`(L1466-1467)/ cmd 级前置
+    「无 xxx json」(如 lab L774)三类退出路径**触达不到 on_fail**, 不是失败挂点(挂了会误报)。
+    ⚠️ 自测涉及本路径必须先打桩 notify(§18 L48 / memory notify-script-selftest-must-stub)。
+    """
+    def _cb(ok, total, failed_rels):
+        _notify_channel_upload_fail(label, cmd_name, r2_prefix, ok, total, failed_rels,
+                                    impact_note=impact_note)
+    return _cb
 
 
 def cmd_upload_offshore_fund():
@@ -1816,11 +1876,16 @@ def cmd_upload_kelly_parts():
     2026-09-15 迁增量引擎(B 档结构化指纹: 剔除 generated_at/period_cutoffs/buy_amount 后
     md5, 前端零消费已 grep 核实) —— 深历史片(t2019/t2016 等)跨天本体一致可省, 工作日
     省 ~10-15MB, 非交易日全省。
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    此前该通道无任何 deterministic 告警, 用户侧静默。
     """
     parts_dir = STATIC_DIR / "data" / "signal_kelly_trades_parts"
     _, _, _, uploaded_keys = _incremental_upload(
         parts_dir, ["*.json"], "data/signal_kelly_trades_parts",
-        ".r2_kelly_parts_state.json", fingerprint=_kelly_parts_md5, label="kelly-parts")
+        ".r2_kelly_parts_state.json", fingerprint=_kelly_parts_md5, label="kelly-parts",
+        on_fail=_channel_on_fail(
+            "kelly-parts", "upload-kelly-parts", "data/signal_kelly_trades_parts",
+            "(signal_kelly_trades_parts/* 为首页模拟回测弹窗凯利分片数据源)"))
     purge_cache(uploaded_keys)
 
 
@@ -1832,11 +1897,16 @@ def cmd_upload_kelly_parts_sdc():
     KELLY_BUY_NEXTDAY=0 生成。implementer skill §3.1 同规矩独立命令(子目录 glob 不递归); 前端 /data/ rewrite
     R2 key = data/signal_kelly_trades_sdc_parts/<name>, purge 默认 cache_prefix="/"。
     2026-09-15 迁增量引擎(B 档结构化指纹, 同 kelly-parts)。
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    此前该通道无任何 deterministic 告警, 用户侧静默(非默认口径但用户可切)。
     """
     parts_dir = STATIC_DIR / "data" / "signal_kelly_trades_sdc_parts"
     _, _, _, uploaded_keys = _incremental_upload(
         parts_dir, ["*.json"], "data/signal_kelly_trades_sdc_parts",
-        ".r2_kelly_sdc_state.json", fingerprint=_kelly_parts_md5, label="kelly-parts-sdc")
+        ".r2_kelly_sdc_state.json", fingerprint=_kelly_parts_md5, label="kelly-parts-sdc",
+        on_fail=_channel_on_fail(
+            "kelly-parts-sdc", "upload-kelly-parts-sdc", "data/signal_kelly_trades_sdc_parts",
+            "(signal_kelly_trades_sdc_parts/* 为模拟回测弹窗「当日收盘」口径分片数据源)"))
     purge_cache(uploaded_keys)
 
 
@@ -1849,6 +1919,8 @@ def cmd_upload_kelly_snapshots():
     index.json(dataRewriteHandler 原生 URL), R2 key = data/signal_kelly_snapshots/<name>,
     purge 用默认 cache_prefix="/"(匹配 dataRewriteHandler)。
     2026-09-15 迁增量引擎(A 档整文件 md5): 每日新增快照=新文件自然增量, 旧快照不变跳过。
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    日链(s06)已响, deploy 链仅采样 => 补 deploy 路径静默面。
     """
     snap_dir = STATIC_DIR / "data" / "signal_kelly_snapshots"
     if not snap_dir.exists():
@@ -1856,7 +1928,10 @@ def cmd_upload_kelly_snapshots():
         return
     _, _, _, uploaded_keys = _incremental_upload(
         snap_dir, ["*.json"], "data/signal_kelly_snapshots",
-        ".r2_kelly_snapshots_state.json", label="kelly-snapshots")
+        ".r2_kelly_snapshots_state.json", label="kelly-snapshots",
+        on_fail=_channel_on_fail(
+            "kelly-snapshots", "upload-kelly-snapshots", "data/signal_kelly_snapshots",
+            "(signal_kelly_snapshots/* 为 lab 凯利演进曲线 + 首页 K 档评级数据源)"))
     purge_cache(uploaded_keys)
 
 
@@ -1926,11 +2001,17 @@ def cmd_upload_data_large():
 
     2026-09-15 迁增量引擎(A 档整文件 md5, 顺手改串行自写循环 → 8 线程): 稳定件
     (kelly_loss_features 等)跨天不变自然跳过, 工作日省稳定件, 非交易日全省。
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    此前 gold_night 链明确静默 + deploy 链抽样, 双静默面。
     """
     data_dir = STATIC_DIR / "data"
     _, _, _, uploaded_keys = _incremental_upload(
         data_dir, ["*.json"], "data", ".r2_data_large_state.json",
-        exclude_fn=lambda f: not _is_data_large_file(f), label="data-large")
+        exclude_fn=lambda f: not _is_data_large_file(f), label="data-large",
+        on_fail=_channel_on_fail(
+            "data-large", "upload-data-large", "data",
+            "(signal_kelly_trades.json 主档/overfit_monitor*/大 range {id}-{all,5y,3y}.json "
+            "为首页走势图/过拟合监控/模拟回测主档数据源)"))
     # 清 CF 边缘缓存(同 cmd_upload_industry 模式):uploaded_keys 含 "data/" 前缀,
     # cache_prefix="/r2/" -> "/r2/data/{name}" 匹配 r2ProxyHandler cacheKey。
     # 不用 "/r2/data/" 否则双 data 致 purge 无效。
@@ -2100,11 +2181,17 @@ def cmd_upload_all_data():
       - .gz 不再生成(CF 自动 br 压缩替代),只传 *.json pattern
       - feed.xml: 非 .json,*.json glob 天然不匹配
     2026-09-15 迁增量引擎(A 档整文件 md5): purge 只清本次实际上传 key(未变化文件 R2 已最新)。
+    #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
+    此前该通道无任何 deterministic 告警, 用户侧静默。
     """
     data_dir = STATIC_DIR / "data"
     _, _, _, uploaded_keys = _incremental_upload(
         data_dir, ["*.json"], "data", ".r2_all_data_state.json",
-        exclude_fn=_is_all_data_excluded, label="all-data")
+        exclude_fn=_is_all_data_excluded, label="all-data",
+        on_fail=_channel_on_fail(
+            "all-data", "upload-all-data", "data",
+            "(board_etf_map/daily_brief*/signal_stats/news_digest 等为首页 AI 建议/每日前瞻/"
+            "信号统计/新闻看板数据源)"))
     # 阶段2：上传成功后清 CF 边缘缓存（purge_cache 失败不中断; 只 purge 本次实际上传 key）
     purge_cache(uploaded_keys)
 
@@ -2278,14 +2365,27 @@ def cmd_upload_data_files(filenames):
     上传后调 purge_cache 清 CF 边缘缓存。
     #188(2026-10-05): 上传成功后把 key 登记进 data/.r2_standalone_keys.json,
     使 verify-r2 平日常态对账这些「独立链产物」(否则它们不在通道状态 changed 里)。
+    #212(2026-10-07): 失败 loud 化(命令级单点 _notify_channel_upload_fail, label="data-files");
+    本命令 11 个调用方多数已 severe, 但 fapi_bj_width(print-only)/ intraday 单文件(echo)为静默路径,
+    单点补齐覆盖全部调用方 ⇒ 对已有 severe 的调用方形成双告警(既有形态, 非 bug)。
     """
     data_dir = STATIC_DIR / "data"
     existing = [f for f in filenames if (data_dir / f).exists()]
     if not existing:
         print(f"⚠ 无文件: {filenames}")
         return
-    ok, total, _, _ = _upload_glob(data_dir, existing, "data")
+    ok, total, failed_rels, _ = _upload_glob(data_dir, existing, "data")
     if ok != total:
+        # #212(2026-10-07): 命令级单点 loud 化(照 #193 fund-score 样板)。本命令有 11 个调用方
+        # (schedule_stats/feed.xml/北交所宽度/盘中凯利/lab_*/s06/nextday/daily_brief/gold_night/
+        # kelly_intraday_rerun 等), 多数已 severe, 但 fapi_bj_width_export.py(print-only)与
+        # intraday_snapshot.sh 的 signal_kelly_trades_intraday(echo-only)为静默路径 ⇒ 单点补齐
+        # 即覆盖全部调用方(#193 设计精神: 根因单点修, 非逐 caller 打补丁)。对已有 severe 的
+        # 调用方形成双告警 —— 属 #204 审认可的既有形态(通道级即时 + 收尾聚合, 键/窗口不同)。
+        _notify_channel_upload_fail(
+            "data-files", "upload-data-files", "data", ok, total, failed_rels,
+            impact_note="(data/ 前缀下各调用方文件: schedule_stats/北交所宽度/盘中凯利/lab_*/"
+                        "s06 状态/nextday_plan/feed.xml 等, 影响面随调用方而异)")
         sys.exit(1)
     # #188: 登记独立链产物 key(对账仍按 md5/ETag 逐位比, 只是把它们纳入平日对账对象)
     _record_standalone_keys(f"data/{f}" for f in existing)
