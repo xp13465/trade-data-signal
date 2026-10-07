@@ -1,0 +1,31 @@
+[run_daily_brief] schedule_enabled=true,开始生成 2026-09-14 20:40:01
+[notify] 邮件已发送至 234058394@qq.com：[cloud] 📊 每日速递 20260914:⚪ 震荡（把握度 50/100·区间-0.10% ~ +0.10%）
+[notify] telegram bot_token/chat_id 占位符或缺失，跳过发送（subject=📊 每日速递 20260914:⚪ 震荡（把握度 50/100·区间-0.10% ~ +0.10%））
+[notify] Feishu 已发送至 oc_edd9ac6dbe07303bed6f30d44b19604c：[cloud] 📊 每日速递 20260914:⚪ 震荡（把握度 50/100·区间-0.10% ~ +0.10%）
+[notify][dedup] 更新 key=daily_brief_notify_20260914 last_alerted=now
+[run_daily_brief] schedule_enabled=true,开始生成 2026-09-15 20:40:00
+[notify] 邮件已发送至 234058394@qq.com：[cloud] 📊 每日速递 20260915:⚪ 震荡（把握度 50/100·区间-0.10% ~ +0.10%）
+[notify] telegram bot_token/chat_id 占位符或缺失，跳过发送（subject=📊 每日速递 20260915:⚪ 震荡（把握度 50/100·区间-0.10% ~ +0.10%））
+[notify] Feishu 已发送至 oc_edd9ac6dbe07303bed6f30d44b19604c：[cloud] 📊 每日速递 20260915:⚪ 震荡（把握度 50/100·区间-0.10% ~ +0.10%）
+[notify][dedup] 更新 key=daily_brief_notify_20260915 last_alerted=now
+[gen_daily_brief] repo=/home/ubuntu/code/trade-data date=20260915 db=sentiment.db compliance=True
+[gen_daily_brief] AI 预测开关 ai_prediction_enabled=false,默认走规则版(零 DeepSeek 成本)
+[gen_daily_brief] 降级: 规则版生成
+[gen_daily_brief] 写 /home/ubuntu/code/trade-data/static-site/data/daily_brief.json + history(1条) hit_stats={'30d': {'n': 0, 'hit': 0, 'hit_rate': None, 'direction': {'n': 0, 'hit': 0, 'hit_rate': None}}, '90d': {'n': 0, 'hit': 0, 'hit_rate': None, 'direction': {'n': 0, 'hit': 0, 'hit_rate': None}}}
+[gen_daily_brief] ledger 记录 date=20260915 referenced=0 missed=20 extra_faces_keys=['a_div_yield', 'amount_forecast', 'board_concept_top', 'cov_premium_median', 'nhnl_20d', 'nhnl_52w', 'sentiment_pctile']
+[gen_daily_brief] 每日速递通知发送完成 version=rule 渠道={'email': True, 'telegram': False, 'feishu': True}
+[gen_daily_brief] news_digest.json + 5 个日期归档已同步到 static_dir + 加入 R2/staticdata 上传链
+[R2] ✓ Cache purge 完成: 全部 1 批成功, 共 purged 8/8 keys
+[staticdata] ⚠ staticdata 同步部分失败(best-effort,不阻塞调用方)
+[staticdata]   ⚠ staticdata push 失败(best-effort)
+[staticdata]   ⚠ staticdata 同步部分失败(best-effort,不阻塞调用方)
+[gen_daily_brief] 运行日志已双写: /home/ubuntu/code/trade-data/static-site/data/daily_brief_run_log.json + /home/ubuntu/code/trade-data/data/logs/daily_brief_run.log
+[R2] ✓ Cache purge 完成: 全部 1 批成功, 共 purged 1/1 keys
+[staticdata] ⚠ staticdata 同步部分失败(best-effort,不阻塞调用方)
+[staticdata]   ⚠ staticdata push 失败(best-effort)
+[staticdata]   ⚠ staticdata 同步部分失败(best-effort,不阻塞调用方)
+[gen_daily_brief] 完成 version=rule date=20260915
+[run_daily_brief] ✓ 完成
+[run_daily_brief] 开始影子对账 aggregate_shadow 2026-09-15 20:40:25
+[aggregate_shadow] 阴影文件不存在(/home/ubuntu/code/trade-data/data/brief_shadow.json),无可对账样本。
+{

@@ -518,6 +518,24 @@ EXTRA_MARKER_STALE_LOOPS = {
     "fetch_news": timedelta(hours=4),
     "gen_daily_brief": timedelta(hours=26),
 }
+# #228 M1(2026-10-07): EXTRA 任务「轮次完整性」通道 —— 判「本轮开始了没跑完」。
+# 背景: gen_daily_brief / fetch_news 被 systemd TimeoutStartSec 硬杀时, 既有五通道全被
+#   结构性豁免(漏跑不在 TASKS / last_exit=None 不算失败 / 耗时不在阈 / 停摆被 mtime 刷新),
+#   被砍轮恒报「OK 无漏跑」(报告 docs/ops/228-monitor-blindspot-20261007.md §1.2/1.3 实证)。
+#   本通道补「unit 被杀/FAIL」判别轴(只新增, 不改/不豁免任何既有通道, §23.7)。
+# 判别三元素(全部满足才报):
+#   ① round_state == 'started_unfinished'(纯日志: 最后一轮有开始标记、无完成/失败标记)
+#   ② unit 非运行态(ActiveState ∉ {active,activating,reloading}; 读不到 → 退化为纯 age)
+#   ③ 开始标记距今: unit 状态可读 → > ROUND_INCOMPLETE_GRACE; 不可读 → > EXTRA_ROUND_INCOMPLETE
+# 阈值口径: EXTRA_ROUND_INCOMPLETE 须 **大于对应 unit 现 TimeoutStartSec**(否则正常慢跑
+#   被杀前就误报)且 **远小于停摆阈值**(留语义边界)。云上 2026-10-07 实测: daily-brief
+#   TimeoutStartUSec=29min、fetch-news=18min ⇒ 取 45min / 30min(均为 1.5~1.7x 墙钟)。
+#   ROUND_INCOMPLETE_GRACE=10min 覆盖正常短跑(fetch_news 常态 24s)+ 探测迟到。
+EXTRA_ROUND_INCOMPLETE = {
+    "gen_daily_brief": timedelta(minutes=45),
+    "fetch_news": timedelta(minutes=30),
+}
+ROUND_INCOMPLETE_GRACE = timedelta(minutes=10)
 
 # 执行耗时阈值(R2迁移72h监控 2026-08-08): 移到循环外避免每次迭代重建(L2)
 # 2026-08-14 修复(reviewer FAIL, A1 误报正常日): 依据 update_all_launchd.log 近9交易日实际耗时
@@ -1021,6 +1039,57 @@ if STATS_FILE.exists():
                 }
             else:
                 print(f"[suppress] {_et} 停摆告警持续中, last_alerted={_ex_stale.get('last_alerted')}, 不重发")
+        # #228 M1(2026-10-07): EXTRA 任务「轮次完整性」通道 —— 判「本轮开始了没跑完」。
+        # 与上面停摆通道天然互斥: 停摆 = 无开始标记(round_state='no_start'); 完整性 = 有开始
+        #   无收尾(round_state='started_unfinished')。判别三元素见常量区 EXTRA_ROUND_INCOMPLETE。
+        # 降噪: 同轮 log_anomaly 已命中(✗/⚠ 更具体的真故障信号) → M1 不重复报(双响抑制)。
+        # 恢复: 下一轮成功收尾 ⇒ round_state='completed' ⇒ 本 key 未 seen ⇒ 主恢复循环自动发恢复邮件。
+        for _es in stats:
+            _et = _es.get("task")
+            if _et not in EXTRA_ROUND_INCOMPLETE:
+                continue
+            if _es.get("round_state") != "started_unfinished":
+                continue
+            # 同轮已有 log_anomaly(✗/⚠ 关键词命中): 更具体信号优先, M1 不报(降噪, 防双响)
+            if _es.get("log_anomaly"):
+                continue
+            _erst = _es.get("round_start_ts") or ""
+            if not _erst:
+                continue
+            try:
+                _erst_dt = datetime.strptime(_erst, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                continue
+            _eage = NOW - _erst_dt
+            _ustate = _es.get("unit_active_state")
+            if _ustate:
+                # unit 状态可读: 仍在跑(慢跑, 宽容) 或 未超宽限 → 不报
+                if _ustate in ("active", "activating", "reloading") or _eage <= ROUND_INCOMPLETE_GRACE:
+                    continue
+            else:
+                # 读不到 unit 状态(非 Linux / unit 不存在): 退化为纯 age 判据(更大阈值防误报)
+                if _eage <= EXTRA_ROUND_INCOMPLETE[_et]:
+                    continue
+            _ri_key = f"{_et}|round_incomplete"
+            seen_keys_this_run.add(_ri_key)
+            _ex_ri = alert_state.get(_ri_key)
+            _le = _es.get("unit_last_exit")
+            _le_txt = f"unit last_exit={_le}" if _le is not None else "unit last_exit=未知"
+            if _ex_ri is None or _ex_ri.get("status") != "active":
+                alerts.append(
+                    f"SEVERE: {_et} 轮次未正常收尾(开始 {_erst}, 无完成/失败标记, "
+                    f"疑被 systemd 超时杀/FAIL; {_le_txt})"
+                )
+                alert_state[_ri_key] = {
+                    "status": "active",
+                    "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                    "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                    "keyword": "round_incomplete",
+                    "line_sample": f"round_start_ts={_erst} unit_active_state={_ustate} {_le_txt}",
+                }
+            else:
+                _ex_ri["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                print(f"[suppress] {_et} 轮次未收尾告警持续中, last_alerted={_ex_ri.get('last_alerted')}, 不重发")
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 

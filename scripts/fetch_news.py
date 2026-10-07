@@ -575,6 +575,15 @@ def main():
     # 新闻采集无交易日/工作日概念(2026-08-16 主控认知修正): 7×24 每30分钟照采,无闸门。
     # 交易盘面(指数/分时/K线)才有 is_trading_day,新闻无日历概念。
 
+    # #228 M2(2026-10-07): 「轮次开始」标记 —— 本脚本原**全文件 0 处 flush=True**, print
+    # 走 stdout 块缓冲; 被 systemd TimeoutStartSec SIGTERM 杀死时缓冲随进程丢弃 ⇒ 被杀轮在
+    # 日志零痕迹(报告 docs/ops/228-monitor-blindspot-20261007.md §1.3 实证: 10-04 20:11
+    # trade-fetch-news 600s 被杀, fetch_news_launchd.log 该轮 0 行)。
+    # 本行 = schedule_monitor M1「轮次完整性」通道的**开始标记**(与 gen_daily_brief 的
+    # `[run_daily_brief] ...开始生成` 行同构); flush=True 确保被杀前已落盘。
+    # 只在 main() 真正开跑后打(前面 argparse/日期解析失败属另一路径, 无「开始」语义)。
+    print(f"[fetch_news] 轮次开始 {dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
+
     # 三源独立采集(本次抓到当天条目)
     sources_map = {
         "eastmoney": fetch_eastmoney(day_str),

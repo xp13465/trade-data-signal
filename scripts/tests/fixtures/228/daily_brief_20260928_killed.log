@@ -1,0 +1,12 @@
+[run_daily_brief] schedule_enabled=true,开始生成 2026-09-28 20:40:00
+[notify] 邮件已发送至 234058394@qq.com：[cloud] 📊 每日速递 20260928:🟢 偏弱（把握度 50/100·区间-0.50% ~ -0.05%）
+[notify] telegram bot_token/chat_id 占位符或缺失，跳过发送（subject=📊 每日速递 20260928:🟢 偏弱（把握度 50/100·区间-0.50% ~ -0.05%））
+[notify] Feishu 已发送至 oc_edd9ac6dbe07303bed6f30d44b19604c：[cloud] 📊 每日速递 20260928:🟢 偏弱（把握度 50/100·区间-0.50% ~ -0.05%）
+[notify][dedup] 更新 key=daily_brief_notify_20260928 last_alerted=now
+✗ R2_UPLOAD_TIMEOUT: daily_brief R2 上传超 120s 未完成, 上传文件可能缺口(缺口由 17:50 deploy upload-all-data 或次日任务兜底), 请核对 R2 是否缺
+[run_daily_brief] schedule_enabled=true,开始生成 2026-09-29 20:40:00
+[notify] 邮件已发送至 234058394@qq.com：[cloud] 📊 每日速递 20260929:🔴 偏强（把握度 50/100·区间+0.05% ~ +0.50%）
+[notify] telegram bot_token/chat_id 占位符或缺失，跳过发送（subject=📊 每日速递 20260929:🔴 偏强（把握度 50/100·区间+0.05% ~ +0.50%））
+[notify] Feishu 已发送至 oc_edd9ac6dbe07303bed6f30d44b19604c：[cloud] 📊 每日速递 20260929:🔴 偏强（把握度 50/100·区间+0.05% ~ +0.50%）
+[notify][dedup] 更新 key=daily_brief_notify_20260929 last_alerted=now
+[run_daily_brief] schedule_enabled=true,开始生成 2026-09-30 20:40:00

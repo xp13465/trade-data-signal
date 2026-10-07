@@ -1,0 +1,13 @@
+[fetch_news] 已写 /home/ubuntu/code/trade-data-signal/data/news_digest.json + 归档 /home/ubuntu/code/trade-data-signal/data/news_digest/2026/2026-10-07.json date=2026-10-07 [合并已有归档] news=40 upcoming=0 sources={'eastmoney': 50, 'cls': 7, 'jin10': 197}
+[fetch_news] R2 同步 OK ✓ Cache purge 完成: 全部 1 批成功, 共 purged 28/28 keys
+[fetch_news] 同步上线完成 date=2026-10-07 (news_digest.json + 27 个日期归档, repo=/home/ubuntu/code/trade-data)
+[fetch_news] 已写 /home/ubuntu/code/trade-data-signal/data/news_digest.json + 归档 /home/ubuntu/code/trade-data-signal/data/news_digest/2026/2026-10-07.json date=2026-10-07 [合并已有归档] news=40 upcoming=0 sources={'eastmoney': 50, 'cls': 8, 'jin10': 208}
+[fetch_news] R2 同步 OK ✓ Cache purge 完成: 全部 1 批成功, 共 purged 28/28 keys
+[fetch_news] 同步上线完成 date=2026-10-07 (news_digest.json + 27 个日期归档, repo=/home/ubuntu/code/trade-data)
+[fetch_news] 已写 /home/ubuntu/code/trade-data-signal/data/news_digest.json + 归档 /home/ubuntu/code/trade-data-signal/data/news_digest/2026/2026-10-07.json date=2026-10-07 [合并已有归档] news=39 upcoming=1 sources={'eastmoney': 50, 'cls': 9, 'jin10': 214}
+[fetch_news] R2 同步 OK ✓ Cache purge 完成: 全部 1 批成功, 共 purged 28/28 keys
+[fetch_news] 同步上线完成 date=2026-10-07 (news_digest.json + 27 个日期归档, repo=/home/ubuntu/code/trade-data)
+[fetch_news] 已写 /home/ubuntu/code/trade-data-signal/data/news_digest.json + 归档 /home/ubuntu/code/trade-data-signal/data/news_digest/2026/2026-10-07.json date=2026-10-07 [合并已有归档] news=39 upcoming=1 sources={'eastmoney': 50, 'cls': 10, 'jin10': 224}
+[fetch_news] R2 同步 OK ✓ Cache purge 完成: 全部 1 批成功, 共 purged 28/28 keys
+[fetch_news] 同步上线完成 date=2026-10-07 (news_digest.json + 27 个日期归档, repo=/home/ubuntu/code/trade-data)
+[fetch_news] 轮次开始 2026-10-04 20:01:00
