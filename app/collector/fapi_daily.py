@@ -24,11 +24,17 @@
 
 增量策略:
   - 常规:  daily-k-10d(每交易日 1 次,10 交易日窗口,默认)
-  - 重建:  库内最新日期落后 ≥STALE_DAYS 自然日 → 自动切 daily-k(10 年全量)一次跑完,
-            防缺口;加 `full` 参数强制全量。#238 护栏:阈值可用环境变量
-            `FAPI_STALE_DAYS` 覆盖,默认设为"长假安全"值(最长春节/国庆连休 8~11
-            自然日 < 默认值),避免长假后首跑被自然日跨度击穿误切全量(旧默认 8
-            被国庆 8 天休市精确击穿 → 8 天量级全量重建在 3.6GB 小机上 OOM)。
+  - 重建:  库内最新日期落后面临"缺口超出 10d 窗口能力"时才切 daily-k(10 年全量);
+            判据为**交易日**口径(缺口 > STALE_TRADING_DAYS 个交易日,默认 10),
+            长假后首跑不会因自然日跨度大而误切全量;加 `full` 参数强制全量。
+  增量与本地重叠按主键 (thscode,date_ms) UPSERT 去重,幂等可重复。
+
+#238 治本:full 路径改**流式分块**(ParquetFile.iter_batches → 逐列转 numpy → 逐组映射
+→ 分批 upsert),峰值内存 ~290MB(本机 181MB / 1032 万行实测;旧全量路径 2786MB,
+约 9.6x 降幅),不再全程物化(read_table → to_pandas → sort → 1032 万 tuple list
+→ 一次性 executemany),消除 3.6GB 小机「单次全量 OOM 拖垮整机」。
+峰值地板 = pyarrow 解码的最大 row group(rg0 = 765 万行 / 8 列未压缩 183MB,
+加 pyarrow 工作集 ≈ 285MB 地板),与全量行数无关。
   增量与本地重叠按主键 (thscode,date_ms) UPSERT 去重,幂等可重复。
 
 幂等/重试:UPSERT 天然幂等;下载 5 分钟过期前立即用,session 重试 ≤3 次指数
@@ -43,7 +49,7 @@ CLI:
   --dry-run   下载+映射验证,不写库
   --workdir   显式指定仓库根(默认根据 __file__ 自动定位)
 
-依赖:requests, pyarrow(.venv 已装)
+依赖:requests, pyarrow, numpy(.venv 已装)
 """
 from __future__ import annotations
 
@@ -55,18 +61,28 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import pyarrow.parquet as pq
 import requests
 
 BASE = "https://fuyao.aicubes.cn"
 DUMP_10D = "daily-k-10d"
 DUMP_FULL = "daily-k"
-# #238 护栏:库内最新日落后 ≥STALE_DAYS 自然日 → 全量重建。
-# 旧值 8 会被国庆/春节等长假(连休 8~11 自然日)击穿导致节后首跑必走全量;
-# 默认放宽到 21(> 任何 A 股长假连休跨度)并使阈值可被环境变量覆盖
-# (运维不重发代码即可临时调整,避免"盘中修配置"窗口)。见 _stale / _stale_days。
-STALE_DAYS = 21
-STALE_DAYS_ENV = "FAPI_STALE_DAYS"
+# #238 ⑤ 缺口判据 = **交易日**(非自然日)。daily-k-10d dump 覆盖最近 10 个交易日,
+# 故只有当缺口 > 10 交易日(超出 10d 窗口能力)时才必须走全量;旧口径 STALE_DAYS=8
+# (自然日)被国庆 8 天休市精确击穿 → 节后首跑误切全量 → 3.6GB 小机 OOM。
+# 环境变量 FAPI_STALE_TRADING_DAYS 可覆盖(默认 10)。见 _stale / _stale_trading_days。
+STALE_TRADING_DAYS = 10
+STALE_TRADING_DAYS_ENV = "FAPI_STALE_TRADING_DAYS"
+# #238 ④ 流式分块批大小(行/批)。峰值内存主要**由 pyarrow 解码的 row group 决定**
+# (与本参数弱相关),故取小批以压 overhead。本机在 181MB / 1032 万行真实 dump
+# (row group 0 = 765 万行 / 8 列未压缩 183MB)实测:bs=1万 峰值 RSS ~290MB
+# (bs=5千 ~284MB 地板 = pyarrow 解码缓冲,bs=5万 ~329MB);旧全量路径实测 2786MB。
+# 全量映射耗时与批大小无关(实测 ~29s / 1032 万行)。
+BATCH_SIZE = 10_000
+# 映射实际用到的列(其余 currency/interval/adjusted 全程未用,列裁剪省内存 —— 实测有效)
+_COLS = ["thscode", "date_ms", "open_price", "high_price", "low_price",
+         "close_price", "volume", "turnover"]
 RETRY = 3
 BACKOFF = [5, 15, 30]  # 秒
 
@@ -185,62 +201,181 @@ def _f(v) -> float | None:
     return f
 
 
-def map_frame(df) -> list[tuple]:
-    """dump DataFrame → 入库行列表(含只增仅 dup 0 的防御断言)。
+_UPSERT_SQL = (
+    "INSERT INTO fapi_daily_raw "
+    "(thscode, date_ms, code, date, open, high, low, close, "
+    " volume, amount, pct_change, turnover) "
+    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+    "ON CONFLICT(thscode, date_ms) DO UPDATE SET "
+    "code=excluded.code, date=excluded.date, open=excluded.open, "
+    "high=excluded.high, low=excluded.low, close=excluded.close, "
+    "volume=excluded.volume, amount=excluded.amount, "
+    "pct_change=excluded.pct_change, turnover=excluded.turnover"
+)
 
+
+def _map_group(ts: str, cols: dict) -> list[tuple]:
+    """单个 thscode 组(列名→numpy 数组)→ 入库行列表(#238 ④ 组处理原子)。
+
+    pct_change 只依赖**同组内前一行**(组内时序前收,首日 None),不跨组依赖 ⇒
+    天然可流式;组内排序由本函数保证(异常乱序时按 date_ms 稳定排序)。
+    入参用 numpy 列数组(而非 DataFrame),省去 `to_pandas()` 的整批物化开销(实测 ~54MB)。
+    """
+    dm = cols["date_ms"]
+    if len(dm) > 1 and not bool(np.all(dm[1:] >= dm[:-1])):
+        order = np.argsort(dm, kind="stable")
+        cols = {k: v[order] for k, v in cols.items()}
+        dm = cols["date_ms"]
+    close = cols["close_price"]
+    opens = cols["open_price"]
+    highs = cols["high_price"]
+    lows = cols["low_price"]
+    vols = cols["volume"]
+    tos = cols["turnover"]
+    code = _code_from(str(ts))
+    rows = []
+    prev = None
+    for i in range(len(dm)):
+        cur = _f(close[i])
+        pct = None
+        if prev and cur and prev != 0:
+            pct = round((cur / prev - 1) * 100, 4)
+        dms_i = int(dm[i])
+        rows.append((
+            str(ts),
+            dms_i,
+            code,
+            _ms_to_date(dms_i),
+            _f(opens[i]),
+            _f(highs[i]),
+            _f(lows[i]),
+            cur,
+            _f(vols[i]),
+            _f(tos[i]),  # 命名交换:成交额 → amount
+            pct,
+            None,        # 换手率恒 NULL
+        ))
+        prev = cur
+    return rows
+
+
+def map_frame(df) -> list[tuple]:
+    """[参照实现 / reference oracle]dump DataFrame → 入库行列表。
+
+    ⚠️ 生产路径已改**流式**(`process_parquet`);本函数保留为语义参照,供测试做
+    差分对账(§5.4⑦:复用单一语义源,防第二份实现静默漂移),也可人工核查。
+    与流式路径共享同一 `_map_group`(单一语义源),避免第二份实现静默漂移。
     行格式:(thscode, date_ms, code, date, open, high, low, close,
              volume, amount, pct_change, turnover)
     """
-    rows = []
-    # 按 code 分组,date 升序,算 pct_change(与 mootdx 同口径)
     df = df.sort_values(["thscode", "date_ms"]).reset_index(drop=True)
-    groups = df.groupby("thscode", sort=False).indices
-
-    for ts, idx in groups.items():
-        g = df.loc[idx]
-        closes = g["close_price"].map(_f).tolist()
-        dates = [_ms_to_date(int(ms)) for ms in g["date_ms"].tolist()]
-        for i in range(len(g)):
-            prev = closes[i - 1] if i > 0 else None
-            cur = closes[i]
-            pct = None
-            if prev and cur and prev != 0:
-                pct = round((cur / prev - 1) * 100, 4)
-            rows.append((
-                str(ts),
-                int(g.iloc[i]["date_ms"]),
-                _code_from(str(ts)),
-                dates[i],
-                _f(g.iloc[i]["open_price"]),
-                _f(g.iloc[i]["high_price"]),
-                _f(g.iloc[i]["low_price"]),
-                cur,
-                _f(g.iloc[i]["volume"]),
-                _f(g.iloc[i]["turnover"]),  # 命名交换:成交额 → amount
-                pct,
-                None,  # 换手率恒 NULL
-            ))
+    rows: list[tuple] = []
+    for ts, g in df.groupby("thscode", sort=False):
+        cols = {name: g[name].to_numpy() for name in _COLS}
+        rows.extend(_map_group(str(ts), cols))
     return rows
+
+
+def _iter_groups(path, batch_size: int = BATCH_SIZE):
+    """流式产出 (thscode, {列名→numpy 数组}) **完整组**(#238 ④核心)。
+
+    前提:dump 按 thscode **连续分组**(定因报告已证 dump 按 thscode 排序)。批尾未闭合
+    的组缓冲至下一批,各批只放行已闭合的组(组=处理原子单位)。
+    守卫:某 thscode 被放行后再次出现 ⇒ dump 分组前提被破坏,抛错中止(防把
+    pct_change 静默算错),不静默吞掉。
+    只读映射所需列(`_COLS`);`use_threads=False` 省 pyarrow 线程缓冲;逐列转 numpy
+    (不经 `to_pandas()`),实测峰值更低。
+    """
+    pf = pq.ParquetFile(path)
+    pend = None                    # 尾部未闭合组:列名 → numpy 数组(已 copy,脱离 batch)
+    pend_ts = None
+    finalized: set[str] = set()
+
+    def _emit(ts, cols):
+        ts = str(ts)
+        if ts in finalized:
+            raise RuntimeError(
+                f"[fapi_daily] dump 未按 thscode 连续分组(thscode {ts} 重复出现),"
+                f"流式分组前提被破坏,中止(防 pct_change 静默算错)")
+        finalized.add(ts)
+        return ts, cols
+
+    for batch in pf.iter_batches(batch_size=batch_size, columns=_COLS,
+                                 use_threads=False):
+        arr = {name: batch.column(i).to_numpy(zero_copy_only=False)
+               for i, name in enumerate(_COLS)}
+        codes = arr["thscode"]
+        n = len(codes)
+        if n == 0:
+            continue
+        # 连续段边界:starts[j]..ends[j] 为同 thscode 的连续行段
+        if n > 1:
+            starts = np.concatenate(([0], np.nonzero(codes[1:] != codes[:-1])[0] + 1))
+        else:
+            starts = np.array([0])
+        ends = np.concatenate((starts[1:], [n]))
+        j0 = 0
+        if pend is not None:
+            if str(codes[0]) == pend_ts:
+                if len(starts) == 1:  # 整批同码(单组 ≥ 批大小,罕见):仍未闭合,继续缓冲
+                    pend = {k: np.concatenate([pend[k], arr[k]]) for k in _COLS}
+                    continue
+                merged = {k: np.concatenate([pend[k], arr[k][:ends[0]]]) for k in _COLS}
+                yield _emit(pend_ts, merged)
+                j0 = 1
+            else:
+                yield _emit(pend_ts, pend)
+            pend = None
+            pend_ts = None
+        for j in range(j0, len(starts)):
+            s, e = int(starts[j]), int(ends[j])
+            # copy 脱离 batch 缓冲(尾部组要跨批存活,不 pin 整批内存)
+            sub = {k: arr[k][s:e].copy() for k in _COLS}
+            if j == len(starts) - 1:
+                pend, pend_ts = sub, str(codes[s])  # 尾部未闭合组(≥1 行)
+            else:
+                yield _emit(str(codes[s]), sub)
+    if pend is not None:
+        yield _emit(pend_ts, pend)
+
+
+def process_parquet(path, *, batch_size: int = BATCH_SIZE, on_rows=None) -> dict:
+    """流式处理 dump parquet:逐组映射 → 分批回调 `on_rows(rows)`(#238 ④)。
+
+    峰值内存与 `batch_size` 同阶(非全量)。防御断言(与旧全量口径等价):
+      · 主键 (thscode,date_ms) 零重复:重复项必共享 thscode ⇒ 必落在同一组内,
+        故「组内 date_ms 去重判」== 「全量 (thscode,date_ms) 去重判」;
+      · turnover 语义机检:全量累计 |turnover|>|volume| 占比 ≥0.9(命名坑守卫)。
+    """
+    total = 0
+    dup = 0
+    amt_ok = 0
+    for ts, cols in _iter_groups(path, batch_size):
+        dm = cols["date_ms"]
+        dup += int(len(dm) - len(np.unique(dm)))
+        amt_ok += int(np.sum(np.abs(cols["turnover"]) > np.abs(cols["volume"])))
+        rows = _map_group(ts, cols)
+        total += len(rows)
+        if on_rows is not None:
+            on_rows(rows)
+    if dup:
+        raise RuntimeError(f"[fapi_daily] dump 主键重复 {dup} 行,中止(数据异常)")
+    if total and amt_ok / total < 0.9:
+        raise RuntimeError(
+            f"[fapi_daily] turnover 语义疑似非成交额(与 volume 比 {amt_ok / total:.0%} "
+            f">volume),拒绝映射,防止换手率/成交额错位")
+    return {"rows": total, "dup": dup, "amt_ok": amt_ok}
 
 
 def upsert_rows(rows: list[tuple]) -> int:
     if not rows:
         return 0
     conn = get_conn()
-    conn.executemany(
-        "INSERT INTO fapi_daily_raw "
-        "(thscode, date_ms, code, date, open, high, low, close, "
-        " volume, amount, pct_change, turnover) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
-        "ON CONFLICT(thscode, date_ms) DO UPDATE SET "
-        "code=excluded.code, date=excluded.date, open=excluded.open, "
-        "high=excluded.high, low=excluded.low, close=excluded.close, "
-        "volume=excluded.volume, amount=excluded.amount, "
-        "pct_change=excluded.pct_change, turnover=excluded.turnover",
-        rows,
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.executemany(_UPSERT_SQL, rows)
+        conn.commit()
+    finally:
+        conn.close()
     return len(rows)
 
 
@@ -253,27 +388,44 @@ def db_latest_date() -> str | None:
     return row[0] if row else None
 
 
-def _stale_days() -> int:
-    """当前全量阈值(自然日)。环境变量 `FAPI_STALE_DAYS` 覆盖,非法值回退默认。"""
+def _stale_trading_days() -> int:
+    """当前全量阈值(交易日)。环境变量 `FAPI_STALE_TRADING_DAYS` 覆盖,非法值回退默认。"""
     try:
-        return int(os.environ.get(STALE_DAYS_ENV, STALE_DAYS))
+        return int(os.environ.get(STALE_TRADING_DAYS_ENV, STALE_TRADING_DAYS))
     except (TypeError, ValueError):
-        return STALE_DAYS
+        return STALE_TRADING_DAYS
 
 
-def _stale(latest: str | None, *, today: dt.date | None = None) -> bool:
-    """库内最新日落后 ≥阈值自然日 → 全量重建(#238 护栏:默认阈值长假安全)。
+def _stale(latest: str | None, *, today: dt.date | None = None,
+           trading_days_fn=None) -> bool:
+    """库内最新日期缺口 > 阈值**交易日** → 全量重建(#238 ⑤:交易日口径)。
 
-    `today` 可注入以便确定性测试(默认取真实今天)。
+    daily-k-10d dump 覆盖最近 10 个交易日,故缺口 ≤10 交易日时 10d 增量即可补齐,
+    无需全量;仅当缺口 > 阈值(default 10 交易日)才必须走全量。
+
+    防前视(§5.1⑥):只统计 (latest, today] 区间内的交易日,**显式排除任何 > today 的
+    日期**——即便调用方传入含未来日期的完整交易日历,也不会用到 t 之后的数据;判定在
+    运行当次(t = today)生效,不使用任何未来日历。复用项目既有交易历机制
+    `app.calendar.trading_days_between`(固化口径,不另造)。
+
+    `today` / `trading_days_fn` 可注入以便确定性测试(默认取真实今天 + 真实交易日历)。
     """
     if latest is None:
         return False  # 首次无数据:10d 增量起步
     today = today or dt.date.today()
+    today_s = today.strftime("%Y%m%d")
     try:
-        gap = (today - dt.datetime.strptime(latest, "%Y%m%d").date()).days
+        dt.datetime.strptime(latest, "%Y%m%d")
     except (TypeError, ValueError):
         return True  # 库内日期不可解析 = 数据异常,保守走全量自愈
-    return gap >= _stale_days()
+    if trading_days_fn is None:
+        from app.calendar import trading_days_between
+        td = trading_days_between(latest, today)
+    else:
+        td = trading_days_fn(latest, today)
+    # 只数 (latest, today] 内交易日;`d <= today_s` 是防前视的显式闸门
+    gap_td = sum(1 for d in td if latest < d <= today_s)
+    return gap_td > _stale_trading_days()
 
 
 def run(full: bool = False, dry_run: bool = False) -> dict:
@@ -286,27 +438,32 @@ def run(full: bool = False, dry_run: bool = False) -> dict:
     url = get_download_url(key, dump)
     download_parquet(url, dest)
 
-    table = pq.read_table(dest)
-    print(f"[fapi_daily] parquet rows={table.num_rows} "
-          f"schema={[(f.name, str(f.type)) for f in table.schema]}", flush=True)
-    df = table.to_pandas()
+    # #238 ④:只读 parquet 元数据(不物化),再流式分块处理
+    pf = pq.ParquetFile(dest)
+    print(f"[fapi_daily] parquet rows={pf.metadata.num_rows} "
+          f"schema={[(f.name, str(f.type)) for f in pf.schema_arrow]}", flush=True)
 
-    # 防御断言:主键零重复 + 命名坑机检(turnover>volume 才符合成交额语义)
-    dup = int(df.duplicated(subset=["thscode", "date_ms"]).sum())
-    if dup:
-        raise RuntimeError(f"[fapi_daily] dump 主键重复 {dup} 行,中止(数据异常)")
-    amt_ok = (df["turnover"].abs() > df["volume"].abs()).mean()
-    if amt_ok < 0.9:
-        raise RuntimeError(
-            f"[fapi_daily] turnover 语义疑似非成交额(与 volume 比 {amt_ok:.0%} "
-            f">volume),拒绝映射,防止换手率/成交额错位")
-
-    rows = map_frame(df)
     if dry_run:
-        print(f"[fapi_daily] DRY-RUN: 映射 {len(rows)} 行,不写库", flush=True)
-        return {"dump": dump, "rows": len(rows), "dry_run": True}
+        stats = process_parquet(dest)
+        print(f"[fapi_daily] DRY-RUN: 映射 {stats['rows']} 行,不写库", flush=True)
+        return {"dump": dump, "rows": stats["rows"], "dry_run": True}
 
-    n = upsert_rows(rows)
+    # 流式:逐组映射 → 分批 upsert(每批 commit,限 WAL 增长),防御断言在内部累计
+    conn = get_conn()
+    written = 0
+
+    def _flush(rows: list[tuple]) -> None:
+        nonlocal written
+        conn.executemany(_UPSERT_SQL, rows)
+        conn.commit()
+        written += len(rows)
+
+    try:
+        process_parquet(dest, on_rows=_flush)
+    finally:
+        conn.close()
+
+    n = written
     conn = get_conn()
     cnt = conn.execute("SELECT COUNT(*) FROM fapi_daily_raw").fetchone()[0]
     mdate = conn.execute("SELECT MAX(date) FROM fapi_daily_raw").fetchone()[0]
