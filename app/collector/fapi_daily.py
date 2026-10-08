@@ -24,8 +24,11 @@
 
 增量策略:
   - 常规:  daily-k-10d(每交易日 1 次,10 交易日窗口,默认)
-  - 重建:  库内最新日期落后 ≥8 自然日 → 自动切 daily-k(10 年全量)一次跑完,
-            防缺口;加 `full` 参数强制全量。
+  - 重建:  库内最新日期落后 ≥STALE_DAYS 自然日 → 自动切 daily-k(10 年全量)一次跑完,
+            防缺口;加 `full` 参数强制全量。#238 护栏:阈值可用环境变量
+            `FAPI_STALE_DAYS` 覆盖,默认设为"长假安全"值(最长春节/国庆连休 8~11
+            自然日 < 默认值),避免长假后首跑被自然日跨度击穿误切全量(旧默认 8
+            被国庆 8 天休市精确击穿 → 8 天量级全量重建在 3.6GB 小机上 OOM)。
   增量与本地重叠按主键 (thscode,date_ms) UPSERT 去重,幂等可重复。
 
 幂等/重试:UPSERT 天然幂等;下载 5 分钟过期前立即用,session 重试 ≤3 次指数
@@ -46,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 import sqlite3
 import sys
 import time
@@ -57,7 +61,12 @@ import requests
 BASE = "https://fuyao.aicubes.cn"
 DUMP_10D = "daily-k-10d"
 DUMP_FULL = "daily-k"
-STALE_DAYS = 8  # 库内最新日落后 ≥8 自然日 → 全量重建(含周末/节假日缓冲)
+# #238 护栏:库内最新日落后 ≥STALE_DAYS 自然日 → 全量重建。
+# 旧值 8 会被国庆/春节等长假(连休 8~11 自然日)击穿导致节后首跑必走全量;
+# 默认放宽到 21(> 任何 A 股长假连休跨度)并使阈值可被环境变量覆盖
+# (运维不重发代码即可临时调整,避免"盘中修配置"窗口)。见 _stale / _stale_days。
+STALE_DAYS = 21
+STALE_DAYS_ENV = "FAPI_STALE_DAYS"
 RETRY = 3
 BACKOFF = [5, 15, 30]  # 秒
 
@@ -244,15 +253,27 @@ def db_latest_date() -> str | None:
     return row[0] if row else None
 
 
-def _stale(latest: str | None) -> bool:
-    """库内最新日落后 ≥STALE_DAYS 自然日 → 全量重建。"""
+def _stale_days() -> int:
+    """当前全量阈值(自然日)。环境变量 `FAPI_STALE_DAYS` 覆盖,非法值回退默认。"""
+    try:
+        return int(os.environ.get(STALE_DAYS_ENV, STALE_DAYS))
+    except (TypeError, ValueError):
+        return STALE_DAYS
+
+
+def _stale(latest: str | None, *, today: dt.date | None = None) -> bool:
+    """库内最新日落后 ≥阈值自然日 → 全量重建(#238 护栏:默认阈值长假安全)。
+
+    `today` 可注入以便确定性测试(默认取真实今天)。
+    """
     if latest is None:
         return False  # 首次无数据:10d 增量起步
+    today = today or dt.date.today()
     try:
-        gap = (dt.date.today() - dt.datetime.strptime(latest, "%Y%m%d").date()).days
-    except ValueError:
-        gap = 999
-    return gap >= STALE_DAYS
+        gap = (today - dt.datetime.strptime(latest, "%Y%m%d").date()).days
+    except (TypeError, ValueError):
+        return True  # 库内日期不可解析 = 数据异常,保守走全量自愈
+    return gap >= _stale_days()
 
 
 def run(full: bool = False, dry_run: bool = False) -> dict:
