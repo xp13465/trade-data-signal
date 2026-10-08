@@ -269,7 +269,7 @@ $ journalctl grep "Failed with result"
 
 ## 7. 未实施项 / 待拍板分叉
 
-1. **`MemorySwapMax` 未设**(仍 `infinity`):定因报告 §6.2 曾提"可选 1G 限 thrash",本任务 prompt 只要 `MemoryHigh/MemoryMax` 两项,**未擅自加**。加与不加是行为分叉(见 §2.5),**待主控/用户拍板**。
+1. ~~**`MemorySwapMax` 未设**(仍 `infinity`):定因报告 §6.2 曾提"可选 1G 限 thrash",本任务 prompt 只要 `MemoryHigh/MemoryMax` 两项,**未擅自加**。加与不加是行为分叉(见 §2.5),**待主控/用户拍板**。~~ → ✅ **已于 2026-10-09 07:24 补上 `MemorySwapMax=512M`**(见文末「补强:MemorySwapMax」节,已生效复读 `MemorySwapMax=536870912`)。
 2. **其余 40 个 unit 未加内存隔离**:§4.3 候选清单等**后续评估**(需先实测峰值 RSS)。
 3. **仓库 2 处快照副本未同步**(§5):属"需有人管",本任务按边界不碰仓库那份;建议后续派单同步或注明"云上为准"。
 4. **unit 失败态未 reset**(§1.5):`trade-fapi-daily.service` 仍 `failed`(10-08 真实事件残留),本任务不 reset-failed;如需清告警由主控/后续决定。
@@ -291,3 +291,86 @@ $SSH 'timeout 10 ls /etc/systemd/system/trade-*.service | wc -l; timeout 10 grep
 # 备份在位
 $SSH 'timeout 10 sudo ls -la /etc/systemd/system/trade-fapi-daily.service.bak-20261009-0713'
 ```
+
+---
+
+## 补强:MemorySwapMax(2026-10-09 07:24)
+
+> 任务:#238 补强项,承接 §7 未实施项 1(原 `MemorySwapMax` 仍 `infinity`)。硬约束:改后**只许** `daemon-reload`,禁 start/restart/stop/触发;禁业务脚本;禁真实外发(邮件/飞书/R2/告警)。实施时间窗 07:24 CST(deadline=当日 18:10,提前约 10.8h)。
+
+### A. 为什么补这一项
+10-08 该 unit 是**主机级 global_oom**(被杀进程 `anon-rss≈1.95GiB`),当时 `/swapfile`(1G)被榨干,导致 **47 分钟极度 thrash 冻结**。07:13 第一次加固只设了 `MemoryHigh=1.5G`/`MemoryMax=2G`,**漏了 `MemorySwapMax`**;systemd 该项默认=`infinity`,进程仍可无限往 swap 灌 ⇒ thrash 风险仍在。本次补 `MemorySwapMax=512M`,给 swap 侧也钉上边界。
+
+### B. 改了什么(只加一行,零其它改动)
+`/etc/systemd/system/trade-fapi-daily.service` 的 `[Service]` 段中,**`MemoryMax=2G` 之后新增一行**:
+
+```ini
+MemoryHigh=1.5G
+MemoryMax=2G
+MemorySwapMax=512M    # ← 本次唯一新增
+```
+
+改动方式:`sudo sed -i '/^MemoryMax=2G$/a MemorySwapMax=512M'`(定点插行)。改后 `sudo diff 备份 → 现文件` **仅 1 行新增,无任何其它差异**:
+
+```
+$ sudo diff /etc/systemd/system/trade-fapi-daily.service.bak-20261009-0724 \
+            /etc/systemd/system/trade-fapi-daily.service
+16a17
+> MemorySwapMax=512M
+```
+(`diff` 返回码 1 = 有差异,为正常;差异块仅此一处 `16a17`。)
+
+### C. 备份路径与 md5(§25 改前先备份)
+```
+$ sudo cp -a .../trade-fapi-daily.service .../trade-fapi-daily.service.bak-20261009-0724
+$ sudo md5sum .../trade-fapi-daily.service .../trade-fapi-daily.service.bak-20261009-0724
+d9c86230fc4b0f3bb21a8964dda21b86  /etc/systemd/system/trade-fapi-daily.service
+d9c86230fc4b0f3bb21a8964dda21b86  /etc/systemd/system/trade-fapi-daily.service.bak-20261009-0724
+```
+- 改前 md5 = `d9c86230fc4b0f3bb21a8964dda21b86`(双文件一致,备份 = 改前状态)。
+- 改后新 md5 = `d949ac07dc93a93f6ac90d2633de1bb0`(仅多一行所致)。
+- 备份保留在云上:`/etc/systemd/system/trade-fapi-daily.service.bak-20261009-0724`。
+- 注:上一轮 `.../trade-fapi-daily.service.bak-20261009-0713`(671B,首次加固前基线)保留不动。
+
+### D. 逐项验证证据(daemon-reload 后复读)
+```
+$ sudo systemctl daemon-reload                → reload_rc=0
+$ systemctl show trade-fapi-daily.service -p MemoryHigh -p MemoryMax -p MemorySwapMax -p FragmentPath -p ActiveState
+  MemoryHigh=1610612736        # = 1.5 GiB  ✓
+  MemoryMax=2147483648         # = 2 GiB    ✓(未动)
+  MemorySwapMax=536870912      # = 512 MiB  ✓(本次新增项,已生效)
+  FragmentPath=/etc/systemd/system/trade-fapi-daily.service   # ← 值来自本 unit 文件,非默认(默认=infinity)
+  ActiveState=failed           # 10-08 残留失败态,未 reset(按约束不动)
+```
+
+| 项 | 期望 | 实测 | 结果 |
+|---|---|---|---|
+| MemoryHigh | 1610612736 | 1610612736 | ✅ |
+| MemoryMax | 2147483648 | 2147483648 | ✅(未动,保持 2G) |
+| MemorySwapMax | 536870912 | 536870912 | ✅(本次新增) |
+| FragmentPath | 本 unit 文件 | 本 unit 文件 | ✅ |
+| ActiveState | failed(保持) | failed | ✅(未 reset) |
+| diff 仅 1 行新增 | 仅 `MemorySwapMax=512M` | `16a17` 一处 | ✅ |
+
+### E. 主机规格(供后续评估)
+```
+MemTotal:        3808588 kB      # ≈ 3.63 GiB
+nproc:           4
+free -h:
+               total        used        free      shared  buff/cache   available
+Mem:           3.6Gi       277Mi       196Mi       2.0Mi       3.2Gi       3.1Gi
+Swap:          5.0Gi       100Mi       4.9Gi
+swapon --summary:
+Filename        Type   Size      Used    Priority
+/swapfile       file   1048572   103092  -2
+/swapfile2      file   4194300   0       -3
+```
+> 观察:整机 RAM 仅 3.6Gi,`MemoryMax=2G` 已占约 55% 物理内存;`MemorySwapMax=512M` 首跑时 systemd v249 对 swap 上限的施加需后续实测佐证(本任务禁 start 无法实跑,诚实标注)。
+
+### F. 回滚命令
+```bash
+ssh -4 -i /Users/linhuichen/tdsignal.pem ubuntu@122.51.111.173 \
+  'sudo -n cp -a /etc/systemd/system/trade-fapi-daily.service.bak-20261009-0724 \
+             /etc/systemd/system/trade-fapi-daily.service && sudo -n systemctl daemon-reload'
+```
+> 校验:`systemctl show trade-fapi-daily -p MemorySwapMax` 应回 `infinity`。回滚后 md5 应回到 `d9c86230fc4b0f3bb21a8964dda21b86`。
