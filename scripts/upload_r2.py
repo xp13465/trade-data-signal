@@ -3856,6 +3856,12 @@ def cmd_verify_channels(desc_list):
 # --skip-if-locked 拿不到锁时的哨兵返回值(区别于正常持锁 fd 与 None=锁不可用)。
 _SKIP_R2_LOCKED = object()
 
+# #239 止血(2026-10-09): 排队等锁心跳间隔(秒,纯可见性)。排队等锁期间每 N 秒往 stderr 打一行,
+# 刷新外层看门狗(tmp_log mtime) ⇒ 停滞判据不再把「合法等锁」误判为卡死 kill。取值远小于看门狗
+# 停滞阈值(r2_upload_async.sh R2_UPLOAD_STALL_SECS 默认 900s):既足以持续刷新 mtime,又不制造噪音洪流。
+# 只加输出: 不动锁语义 / 不动 time.sleep 间隔 / 不动任何超时值。
+_R2_LOCK_HEARTBEAT_SECS = 30
+
 
 def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
     """R2 上传统一进程互斥锁(2026-09-23 ④: 直传通道无 deploy.lock → 三路并发抢带宽)。
@@ -3869,6 +3875,11 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
     持锁进程退出/被杀自动释放, 不会死持。timeout 只是极端兜底护栏: 超时 → stderr 提示
     + exit 1(fail-closed, 显式失败走调用方既有告警链, 不静默跳过、不造静默缺口)。
     正常等待时间 = 前一个上传通道实际耗时(有界, 见 deploy.sh run_r2_upload ③估算看门狗)。
+
+    #239 止血(2026-10-09): 排队等锁期间每 _R2_LOCK_HEARTBEAT_SECS 秒往 stderr 打一行
+    「⏳ 等待 R2 上传锁 Ns(上限 timeout)」——**纯可见性**, 让外层看门狗能把「合法等锁」
+    与「真卡死」分开(此前排队分支除 sleep(2) 外零输出, 撞上长持锁者时被停滞判据误杀)。
+    锁语义 / sleep 间隔 / 超时值 / 看门狗判据一律未动。
 
     timeout 缺省读 env R2_UPLOAD_LOCK_TIMEOUT(默认 7300), 只约束「排队等锁」时长上限。
     与 deploy.sh run_r2_upload 看门狗的关系: 看门狗上限按通道显式/按字节量估算, 无单一统一值
@@ -3922,6 +3933,9 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
     else:
         skip_retry_secs = 0
     skip_deadline = None
+    # #239 止血: 排队等锁心跳基准(纯可见性, 不影响锁/sleep/超时语义)。
+    wait_started_at = time.time()
+    last_beat_at = wait_started_at
     while True:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -3940,7 +3954,8 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
                     file=sys.stderr,
                 )
                 return _SKIP_R2_LOCKED
-            if time.time() >= deadline:
+            now = time.time()
+            if now >= deadline:
                 print(
                     f"✗ R2 上传锁 {lock_path} 排队等待超 {timeout}s 仍被占用, 拒绝本次上传"
                     f"(fail-closed, 防与持锁进程并发抢带宽; 持锁进程退出自动释放锁, 若长期占用"
@@ -3948,6 +3963,17 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
                     file=sys.stderr,
                 )
                 sys.exit(1)
+            # #239 止血(仅加可见性): 排队等锁期间每 _R2_LOCK_HEARTBEAT_SECS 秒打一行到 stderr,
+            # **刷新 tmp_log mtime** ⇒ 外层看门狗停滞判据(默认 900s)不再把「合法等锁」误判成
+            # 「卡死」而 kill 健康进程。flush=True 保证落盘即时(不依赖解释器行缓冲)。
+            # 只加输出: sleep 间隔(2s)/超时(deadline)/锁语义一律未改。
+            if now - last_beat_at >= _R2_LOCK_HEARTBEAT_SECS:
+                print(
+                    f"⏳ 等待 R2 上传锁 {int(now - wait_started_at)}s(上限 {timeout}s, "
+                    f"持锁进程可用 lsof {lock_path} 排查)",
+                    file=sys.stderr, flush=True,
+                )
+                last_beat_at = now
             time.sleep(2)
 
 
