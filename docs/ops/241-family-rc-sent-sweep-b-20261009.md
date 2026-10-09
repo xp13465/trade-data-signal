@@ -4,6 +4,14 @@
 > 适用范围: `scripts/` 全部 notify 调用方 + shell 侧 notify 门控(全仓交叉扫)
 > 独立复审输入: `docs/ops/241-family-rc-sent-sweep-review-20261009.md`(§2 FAIL 详证 = 本波反例来源)
 > 前置 A 波: `docs/ops/241-family-rc-sent-sweep-20261009.md`(3 处「rc 判 sent」已修)
+> **续跑补漏(2026-10-09 复审后,`47fbc42d4` → 本次 commit)**:
+> - 独立复审 `docs/ops/241-family-b-review-20261009.md`(§7)逮出首轮穷举**漏网 1 处**
+>   `scripts/retry_failed_metrics.py`(同族**延迟型** + 一个 pre-existing bug)⇒ 本轮补入为 **B6**,
+>   穷举口径改为**诚实版**(见 §0/§1)。
+> - 登记复审三项 observation(**F1** B3 前端通道耦合 / **F2** 本文件 / **F3** 低分注记),见 §5.6;
+>   **F1 由主控另呈用户拍板,本轮只登记、未动 `detect_intraday_anomaly.py` 行为**。
+> - 措辞修正:monitor_72h 恢复通知侧「抑制歧义」理由只适用 schedule_monitor 侧(见 §4.2)。
+> - 红绿计数差异标注:复审变异树 14 failed / 2 passed ≠ 本报告 §5.2 的 9/7(构造不同,见 §5.2)。
 
 ---
 
@@ -19,14 +27,21 @@ A 波修的是「**用 `returncode` 判** notify 是否真发出」——`notify
 复审报告 §2 已证明:先前「穷举」用「含 notify 且含 returncode」为口径,**结构性漏掉**了
 「不出现 rc 字样、但照样落签后 fire-and-forget」的站点。本波改用**后果口径**重扫。
 
+⚠️ **诚实标注(续跑补漏)**:本波首轮**改用后果口径后仍漏 1 处** —— `scripts/retry_failed_metrics.py`
+(独立复审 §7 逮出,属同族**延迟型**:通道恢复需再累计 N 轮才重发,非 B1/B2 的永久型;另含一个
+pre-existing `subj` NameError)。本轮补入为 **B6**。故本波「穷举」的真实口径应为**「两轮口径交叉 +
+复审补漏后收敛」**,不宣称一次到位(§23.2 排查同类须以复审/复核为闭合点,自证清单不足以自封完整)。
+
 ---
 
 ## 1. 穷举清单(核心验收点)
 
 口径三条:**① 全 `scripts/` + `app/` 的 notify 调用方逐个读;② 每处问「通知前是否已写状态」;
-③ 再问「该状态是否在下一轮抑制重发」**。三类结论:
+③ 再问「该状态是否在下一轮抑制重发」**。⚠️ **口径诚实版**:首轮声称「覆盖全 scripts/ notify 调用方」
+**不成立** —— 复审 §7 逮出漏网 `retry_failed_metrics.py`(改后已补为 B6);下表为**复审补漏收敛后**的清单。
+三类结论:
 
-### 1.1 本波修复(5 站点)
+### 1.1 本波修复(6 站点)
 
 | # | 站点 | 病灶(修前) | 后果 | 修法 |
 |---|---|---|---|---|
@@ -35,6 +50,7 @@ A 波修的是「**用 `returncode` 判** notify 是否真发出」——`notify
 | B3 | `scripts/detect_intraday_anomaly.py` | `filter_and_record` 先 `atomic_write_json(anomaly_notified.json)` 落当日签, 再 `send_alert(check=False)` | 全渠道失败 ⇒ 当日该异动(**含 severe 项**)丢失, 同日同 key 已占 ⇒ 30min 下一轮不再补发 | 拆 compute(`filter_and_record` 只返回) / commit(`record_notified`); `send_alert` 返回 bool; **送达才落签** |
 | B4 | `scripts/gen_daily_brief.py` | `results = notify.send(...)` 后 `if not dry_run: notify.update_dedup(dedup_key)` **不判 channels** | 全渠道失败仍占当日去重窗 ⇒ 当日重跑被「通知已发过(date=…)」抑制(该 key 带日期, 次日才恢复) = 当日「每日速递」丢失且不可补发 | `_channels_sent(results)` 门控 `update_dedup`(至少一渠道真发出才占窗) |
 | B5 | `scripts/check_signals.py` | fade 子去重 `filter_fade_alerts_intraday` 在主邮件前写 `fade_notified.json` | 全渠道失败 ⇒ 重试邮件会重发主信号但 **缺 fade 警示栏**(该子签已占, 同日不再补) | 主邮件两处失败分支(notify 异常 / `ok_channels` 空)**回滚本轮新落 fade 签** |
+| B6 | `scripts/retry_failed_metrics.py`(复审 §7 补漏) | main() 达标分支旧序 = `counts.pop(mid)`(**先清零/落签**)先于 fire-and-forget `_notify_repeat_failure`(仅查 rc, 丢返回值);另 L145 用未定义名 `subj`(变量实为 `subject`)⇒ 阈值告警路径必 NameError 冒泡终止本轮 | 通道全挂时计数已清零暂歇 + 通知没发出 ⇒ 达标告警**延迟丢失**(需再累计 3 轮才重发), 且 `subj` 令阈值告警**完全不可达** | `_notify_repeat_failure` 返回 `notify_sent` 判定;main() **送达才清零**,未送达保留计数下轮重试;`subj`→`subject` |
 
 ### 1.2 前序已修(独立标记, 本波未再动)
 
@@ -106,6 +122,7 @@ A 波修的是「**用 `returncode` 判** notify 是否真发出」——`notify
 | B3 detect_intraday_anomaly.py | 30min/轮 | 不落签 ⇒ 每轮重试 | 首轮送达 ⇒ 落签 ⇒ 去重 | **不轰炸** |
 | B4 gen_daily_brief.py | 每日 20:40 | 不占窗 ⇒ **当日运维重跑**可补发 | — | **不轰炸**(无自动重试, 仅解人工重跑抑制) |
 | B5 check_signals.py fade | 10min(盘中) | 回滚签 ⇒ 重试邮件带 fade 栏 | 主邮件 Ok ⇒ 落签 | **不轰炸**(fade 栏随主邮件, 主邮件本身有 ok_channels 门控) |
+| B6 retry_failed_metrics.py | 15min/轮(self_heal) | 未送达不清零 ⇒ 每轮重试(发不出, 计数保留不静默) | 首轮送达 ⇒ 清零暂歇(1 封) | **不轰炸**(全挂期每轮仅 1 次尝试且发不出; 送达即暂歇) |
 
 **远端残余(诚实标注)**:若 `notify_sent` 因输出格式漂移误判(把成功判 False)⇒ 每轮重复投递。
 概率低, 且失败时 stderr 打印 `rc + 输出尾部 200 字` 可排障。
@@ -118,12 +135,15 @@ A 波修的是「**用 `returncode` 判** notify 是否真发出」——`notify
    ②它是 R2 上传链核心, 6 处 `check_dedup→notify.send→无条件 update_dedup` + L2057(无 dedup),
    改动面大且与上传语义交织;③动它需独立决策(+§23.7 用户拍板)。**本波只列不改, 上报主控/用户**。
    (注: 现有 `scripts/test_193_r2_channel_coverage.py` 只断言 `notify.send` 被调用, 若将来改它不会误红。)
-2. **两个 `recovery` notify(schedule_monitor.sh / monitor_72h.sh)** —— ①`schedule_monitor` 侧带
-   `--dedup-key schedule_monitor_recovery --dedup-window 21600`, 6h 窗内 `notify.py` 以 **rc=0 + 零输出
-   静默 suppress** ⇒ 朴素换 `notify_sent` 会把「合法抑制」误判为「未送达」(A 波 Pattern B pivot 已论证同款陷阱);
-   ②按「未送达」回滚 `recovered→active` 会让**已恢复**的 key 在通道故障期被翻回 `active`,
-   造成 `alert_ack --list` 面板假告警 + `active/recovered` 每轮振荡;③恢复邮件是**低价值提示**(状态已正确置 recovered)。
-   ⇒ 与 A 波「dedup-key 站点 不动 + 上报」同款先例。
+2. **两个 `recovery` notify(schedule_monitor.sh L2868-2876 / monitor_72h.sh L921-930)** ——
+   **措辞修正(复审 §4)**:理由①(dedup-key 静默 suppress)只适用 **schedule_monitor 侧**
+   (其带 `--dedup-key schedule_monitor_recovery --dedup-window 21600`, 6h 窗内 `notify.py` 以
+   **rc=0 + 零输出静默 suppress** ⇒ 朴素换 `notify_sent` 会把「合法抑制」误判为「未送达」,
+   A 波 Pattern B pivot 已论证同款陷阱);**monitor_72h 侧恢复通知(L921-930)无 dedup-key**,
+   理由①**不适用**于它 —— 其「不动」依据应落在理由②(下)+ 改造量(无自然重试点, 需新机制)。
+   理由②(通用):按「未送达」回滚 `recovered→active` 会让**已恢复**的 key 在通道故障期被翻回 `active`,
+   造成 `alert_ack --list` 面板假告警 + `active/recovered` 每轮振荡。理由③:恢复邮件是**低价值提示**
+   (状态已正确置 recovered)。⇒ 与 A 波「dedup-key 站点 不动 + 上报」同款先例;**结论不变**。
 3. **`brief_push.py`**(`state["pushed"]=date` 不判 `results`) —— 逐**订阅者**推送是**部分成功**语义,
    单一 bool 无法判定; 盲目「未全成功就不落签」会对已成功订阅者**重复投递**; 正解需 per-recipient 落签, 属独立改造。上报。
 4. **`self_heal.sh`**(`limit_notified=True` + `save_state` 紧随 `notify_limit_info`) —— 该通知是
@@ -152,6 +172,23 @@ A 波修的是「**用 `returncode` 判** notify 是否真发出」——`notify
 跑同一测试文件: **9 failed / 7 passed**; 修复版 **16 passed**。
 失败项 = 各站点负控 + 静态锁(B1-B5 全覆盖), 证明测试非恒绿、判别力真实。
 
+> **红绿计数与复审差异标注(复审 §5)**:独立复审用**全量变异树**(worktree 全量 `scripts/` + `app/`
+> 复制, 5 目标文件换 `git show 4325a27d5:` 旧版)同命令实测 **14 failed / 2 passed**, 与本报告 §5.2 的
+> **9 failed / 7 passed** 精确计数不同 —— 系**变异树构造差异**(复审含 app/ 全量 + 更彻底旧版替换, 判别面更广)。
+> 两方**方向一致、判别力均复现**;精确数以复审 14/2 为更强证据。2 个通过项 = test_00(trap 自证, 与版本无关)
+> + 正控(新旧语义下「成功⇒可观测落签相同」), 属预期正控非假绿。
+
+### 5.2b B6(续跑补)`retry_failed_metrics.py`
+
+新增 `scripts/tests/test_241_family_b_retry_metrics_20261009.py`(11 用例)。
+- 行为负控:通道全挂 ⇒ main() **不清零**(计数保留 ≥ 阈值), 且**连跑两轮每轮都重试通知**(旧代码第一轮
+  即 pop ⇒ 第二轮不再通知, 断言 calls==2 必 FAIL)。
+- 行为正控:送达 ⇒ 清零暂歇;未达阈值 ⇒ 不通知、累加。
+- 单元:`_notify_repeat_failure` 返回 bool(success→True / 全失败→False / 异常→False)+ 组 cmd 用
+  `subject`(证 B 的 `subj` NameError 已修)。
+- **红绿**:旧语义变异(清零先于通知 + `subj` + 返回 None)⇒ **9 failed / 2 passed**;修复版 **11 passed**。
+- 零外发:rfm 局部 `subprocess` 替身(不 spawn)+ `ZeroOutboundTrap`, `test_00` 先证武装,各用例收尾 `hits==[]`。
+
 ### 5.3 关联套件回归(§15)
 
 `pytest -q` 跑 notify/alert 家族相关 12 套 + 本波新套 = **266 passed, 1 skipped**
@@ -159,6 +196,8 @@ A 波修的是「**用 `returncode` 判** notify 是否真发出」——`notify
 `test_alert_denoise_20261001`、`test_alertchain_hardening_20261003`、`test_160_r2_consistency_followup` 等)。
 > 备注: `test_160::test_preflight_real_judge_branch_runs_on_non_systemd` 曾在批量跑时**偶发** 1 红 ——
 > 根因是它回退 `pgrep -f update_all.sh`, 与本波改动无关的**并发进程**误撞; 单跑 27 passed。
+>
+> **续跑补漏(B6)回归**: notify/241/alert 家族相关 13 套(含两份 B 波测试)= **144 passed**(0 failed)。
 
 ### 5.4 §23.2 修 bug 三铁律
 
@@ -170,6 +209,24 @@ A 波修的是「**用 `returncode` 判** notify 是否真发出」——`notify
 
 同模式/同数据源/同组件还被谁用清单 + 逐项覆盖结果 = §1 全表(含「安全」与「不动」两类均逐条列,
 无静默跳过)。相关展示位: `latest.md`(不依赖渠道成功, 仍写)/ `alert_ack --list`(见 §4.2 面板振荡权衡)。
+⚠️ 复审 §7 逮出**漏网 1 处**(`retry_failed_metrics.py`, 已补 B6)⇒ 首轮举一反三**未闭合**, 以复审为闭合点。
+
+### 5.6 复审 observation 登记(独立复审 `docs/ops/241-family-b-review-20261009.md` §2)
+
+- **F1(B3 前端通道耦合 —— 主控另呈用户拍板; 本轮只登记, 未动 `detect_intraday_anomaly.py` 行为)**
+  `anomaly_notified.json` 是**共享件**:除 detect_intraday_anomaly 自身邮件去重外,还是
+  `scripts/export_notifications.py`(`ANOMALY_NOTIFIED_PATH` L51 / `_load_anomalies_today` L308-313 →
+  汇入 `notifications.json` 的 `anomalies` L383-392)的**唯一数据源** → **前端浏览器通知**。
+  B3 把落签门控在「邮件送达」后 ⇒ **邮件/飞书通道全挂期, 前端(独立通道)的异动弹窗被一并抑制**
+  (改前不受影响)。本报告 §5.5 影响面清单原只列 `latest.md` / `alert_ack --list`, **未列此展示位**(§23.3 口径缺项)。
+  备选修法(供拍板):①「前端 feed 记录」与「邮件重试门控」解耦(未送达时仍保留 pending 集合供 export 合并读);
+  或 ②接受并落 §6 残余。**本轮未擅改**(§23.11)。
+- **F2(`retry_failed_metrics.py` —— 本轮已修 = B6)**:① `subj` NameError(pre-existing)② 先清零后
+  fire-and-forget(同族延迟型)。两处均已在 B6 修复并加行为测试。
+- **F3(低分注记, 非阻断)**:①跨进程 `alert_state.json` 整文件写竞态(既有; 本波失败分支 +1 次 save 略增窗)
+  ②`_recurrence_suppressed`(6h 恢复冷却)本轮新 active key 在全挂期会被回滚 = 仅日志噪声(下轮重现再抑制,
+  无邮件丢失/重复)③`notify_sent.py` docstring 行号引用漂移(2368/2371 vs 现行 2359/2362, 纯注释)。
+  ①③为既有/纯注释, ②已验证无实质影响 ⇒ 均不改。
 
 ---
 
@@ -180,6 +237,9 @@ A 波修的是「**用 `returncode` 判** notify 是否真发出」——`notify
 - **`alert_ack --list` 面板**:故障期回滚会让本轮新告警暂时不在面板(下轮重落)。这是「状态语义=是否已成功告警」的必然结果(复审建议「本轮新写 active 的 key 不落盘」同向)。
 - **未采纳 `notify_sent` 判 recovery notify**:见 §4.2(误判风险 > 收益)。
 - **`upload_r2.py` 未改**:冻结面, 见 §4.1。
+- **F1(B3 前端通道耦合:邮件全挂期前端异动弹窗被一并抑制)**:见 §5.6,**主控另呈用户拍板**,本轮只登记、未改行为。
+- **B6 延迟型(非永久型)诚实标注**:`retry_failed_metrics.py` 修前是「通道恢复需再累计 3 轮才重发」的**延迟型**
+  (非 B1/B2 的永久型);修后为「未送达即每轮重试」。`subj` NameError 使其阈值告警**修前完全不可达**(更重)。
 
 ---
 
@@ -193,12 +253,16 @@ A 波修的是「**用 `returncode` 判** notify 是否真发出」——`notify
 | `scripts/gen_daily_brief.py` | +`_channels_sent`; `update_dedup` 门控在 `not dry_run and _sent` |
 | `scripts/check_signals.py` | +`_rollback_fade_notified`; 主邮件两处失败分支回滚本轮 fade 签 |
 | `scripts/tests/test_241_family_b_consign_20261009.py` | 新增(16 用例) |
+| `scripts/retry_failed_metrics.py`(续跑 B6) | +`from notify_sent import notify_sent`;`_notify_repeat_failure` 返回 bool(notify_sent 判据)+ `subj`→`subject`;main() **送达才清零** |
+| `scripts/tests/test_241_family_b_retry_metrics_20261009.py`(续跑 B6) | 新增(11 用例) |
 | `docs/ops/241-family-rc-sent-sweep-b-20261009.md` | 本文件 |
 
-未触碰: `notify.py` / `notify_sent.py` / `check_data_integrity.py` / `update_all.sh` / `upload_r2.py` / A 波 3 文件 / #235·#236·#237 文件。
+未触碰: `notify.py` / `notify_sent.py` / `check_data_integrity.py` / `update_all.sh` / `upload_r2.py` / A 波 3 文件 / #235·#236·#237 文件;
+**`detect_intraday_anomaly.py` 行为未动**(F1 待拍板);**复审报告 `docs/ops/241-family-b-review-20261009.md` 未改未 add**(他人产物)。
 
 ## 8. 跑法
 
 ```bash
-python3 -m pytest -q scripts/tests/test_241_family_b_consign_20261009.py
+python3 -m pytest -q scripts/tests/test_241_family_b_consign_20261009.py \
+                    scripts/tests/test_241_family_b_retry_metrics_20261009.py
 ```

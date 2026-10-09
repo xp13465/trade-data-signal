@@ -46,6 +46,15 @@ _ROOT = Path(__file__).absolute().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+# notify_sent 唯一判据(scripts/notify_sent.py)所在目录, 供 import。脚本以
+# `python scripts/retry_failed_metrics.py` 跑时 sys.path[0] 已是 scripts/, 此处显式补一次
+# 防被当模块导入(cwd=repo 根)时找不到。
+_SCRIPTS_DIR = Path(__file__).absolute().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from notify_sent import notify_sent  # noqa: E402
+
 from app.calendar import is_trading_day
 from app.collector.base import log_collect
 from app.collector.fetchers import load_config, collect_snapshot, collect_direct
@@ -133,8 +142,13 @@ def _is_collect_failure(msg: str) -> bool:
     return not (msg or "").startswith(_CONFIG_FAIL_PREFIX)
 
 
-def _notify_repeat_failure(mid: str, count: int, date: str, msg: str) -> None:
-    """重采连续失败达阈值 → 调 notify.py 发邮件+飞书(复用既有通道, 不另起炉灶)。"""
+def _notify_repeat_failure(mid: str, count: int, date: str, msg: str) -> bool:
+    """重采连续失败达阈值 → 调 notify.py 发邮件+飞书(复用既有通道, 不另起炉灶)。
+
+    返回**是否真发出**(notify_sent 判据, rc 不可信: notify.py main() 全出口恒 return 0)。
+    调用方据此决定是否清零计数(2026-10-09 #241 同族B波): 未送达 ⇒ **不清零** ⇒ 保留计数
+    下轮重试; 送达才清零暂歇, 否则「先清零后 fire-and-forget」会让达标告警永久丢失。
+    """
     subject = f"[告警][重采失败] {mid} 连续 {count} 轮重采失败"
     body = (f"<b>{mid}</b> 在 <b>{date}</b> 自愈重采(每15min一轮)已连续 <b>{count}</b> 轮失败"
             f"(阈值 {RETRY_NOTIFY_THRESHOLD})。<br>"
@@ -142,15 +156,22 @@ def _notify_repeat_failure(mid: str, count: int, date: str, msg: str) -> None:
             f"这是 2026-09-30 资金面 6 源全败盲区根治#3: 前序 17 轮失败零告警(只 return False 打日志)。<br>"
             f"建议: 查该数据源(fetch_market_fund_flow 等)是否封禁/停服, 必要时手动补采或人工介入。")
     cmd = [sys.executable, str(_ROOT / "scripts" / "notify.py"),
-           subj, body, "--from-prefix", "[告警]"]
+           subject, body, "--from-prefix", "[告警]"]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        out = (r.stdout or "") + (r.stderr or "")
+        sent = notify_sent(out)
         if r.returncode != 0:
             print(f"[notify] retry_failed 通知退出码 {r.returncode}: {(r.stderr or '')[-200:]}", file=sys.stderr)
-        else:
+        elif sent:
             print(f"[notify] {mid} 连续 {count} 轮失败已发通知", flush=True)
+        else:
+            print(f"[notify] {mid} 连续 {count} 轮失败告警**未确认送达** ⇒ 不清零计数, 下轮重试: {out[-200:]}",
+                  file=sys.stderr)
+        return sent
     except Exception as e:  # noqa: BLE001
         print(f"[notify] retry_fail 通知异常: {e}", file=sys.stderr)
+        return False
 
 
 def get_failed_metrics(date: str) -> list[dict]:
@@ -269,11 +290,17 @@ def main() -> int:
             if _is_collect_failure(msg):
                 n = counts.get(mid, 0) + 1
                 if n >= RETRY_NOTIFY_THRESHOLD:
-                    counts.pop(mid, None)  # 达标发一次后清零暂歇, 防每轮轰炸(去重)
                     # 先通知后落盘(2026-10-01 #132): 阈值告警依赖内存计数, 必须发出,
                     # 不因计数文件写失败被吞(原实现先 _save_counts 再通知, 一旦写失败
                     # 直接冒泡会把本次 _notify_repeat_failure 一起吞掉=双静默)。
-                    _notify_repeat_failure(mid, n, today, msg)
+                    # 送达才清零(2026-10-09 #241 同族B波): 旧实现「先 counts.pop 后
+                    # fire-and-forget」= 先落签(记 已告警)后通知且丢返回值 ⇒ 通道全挂时
+                    # 计数已被清零暂歇, 达标告警永久丢失(下轮从 0 重新累计)。改为
+                    # 判 notify_sent 返回: 未送达 ⇒ 保留计数下轮重试(不占「已发一次」位)。
+                    if _notify_repeat_failure(mid, n, today, msg):
+                        counts.pop(mid, None)  # 送达后清零暂歇, 防每轮轰炸(去重)
+                    else:
+                        counts[mid] = n  # 未送达: 保留计数, 下轮重试(不静默丢告警)
                 else:
                     counts[mid] = n  # 未达阈值, 累加后下次再判
             else:
