@@ -65,6 +65,11 @@
 ### 2.3 测试改动
 - **新增边界竞态 fixture** `scripts/tests/fixtures/181/race_ticks.csv`(列 NOW,last_run,skip,
   `r2_round_id`;编码「:45 tick 与 :45 轮同秒起跑」场账,逐行引用报告 §5.1/§5.2 真实原始行号)。
+  - **fixture 列粒度口径(诚实标注)**:`r2_round_id` 列用**分钟粒度**(`2026-10-09 00:45`),因
+    §5.1 链 E 生产样本只给到分钟级锚点(dup 行 `last_round=2026-10-09 01:02`);**生产实测 `r2_round_id`
+    实为带秒**(`2026-10-09 01:01:00`,见 §4.1)。本 fixture 测的是**竞态判别逻辑**(纯字符串相等去重,
+    与粒度无关),故分钟粒度不影响被测行为;但它**不覆盖**「旧分钟串 vs 新秒串」的**升级瞬变**面 ——
+    该面见 §4.5(由审查探针 P1 生产实测覆盖,非本 fixture)。
 - `test_181_fetchnews_denoise_20261007.py`:`_drive` 支持 4 元组 tick(带 `r2_round_id`);
   新增 8 个用例(见 §3.1)。
 - `test_228_round_incomplete_20261007.py`:解包由 4 → 5 元组(`scan_marker_log` 返回值加 1)。
@@ -108,7 +113,7 @@
 ### 4.1 面收敛清单
 | 受影响 | 说明 |
 |---|---|
-| EXTRA 任务(fetch_news / gen_daily_brief)r2_skip 轮去重标识 | 由 mtime → 窗口所属轮 `轮次开始` 时间戳;`last_round` 状态值格式仍是 `YYYY-MM-DD HH:MM` |
+| EXTRA 任务(fetch_news / gen_daily_brief)r2_skip 轮去重标识 | 由 mtime → 窗口所属轮 `轮次开始` 时间戳;**`last_round` 状态值格式由分钟粒度 → 带秒**:旧值 = mtime 经 `gen_schedule_stats.py:1181` `strftime("%Y-%m-%d %H:%M")`(**分钟** `YYYY-MM-DD HH:MM`),新值 = `轮次开始` 行经 `gen_schedule_stats.py:198` `_TS` 正则 `\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}` 抽出的**带秒** `YYYY-MM-DD HH:MM:SS`(= `fetch_news.py:585` 真 print 的 `%Y-%m-%d %H:%M:%S`)。**格式迁移面**:因标识粒度 + 标识源同时变更,升级首个 tick 新旧串必不相等 ⇒ 同轮 +1(见 §4.5 升级瞬变,一次性+自愈)。|
 | `schedule_stats.json` | 新增 info 字段 `r2_round_id`(前端**不读**,无展示改动) |
 | TASKS 表任务(如 overfit_monitor) | `r2_round_id` 缺失 ⇒ 回退 `last_run`,**行为逐字不变**(overfit 89-dup 样本不受影响) |
 | `last_run` 语义 / 前端执行统计表 `last_run` 展示 | **不变**(仍 mtime) |
@@ -138,6 +143,18 @@
 - `[r2-skip-stale] 保链不计数` 分支仍缺生产样本(承接 tester 报告 §3.2/§6,本修复未触及该分支,留待后续窗口)。
 - 边界 fixture 为**构造竞态形态**(行格式逐字取自 `fetch_news.py` 真 print;机制来自报告 §5 生产
   构造性论证 §18 L49),非直接取自云上原始日志切片 —— 但反事实(§3.2)证明该形态具判别力且被真代码驱动。
+
+### 4.5 升级瞬变披露(审查补正 F2,无需改码)
+
+- **现象**:升级部署后**首个 tick**,`alert_state` 里持久化的 `last_round` 是**旧分钟串**
+  (`YYYY-MM-DD HH:MM`),而新代码产出**秒串**(`YYYY-MM-DD HH:MM:SS`),二者**必不相等** ⇒ 该 tick
+  对**同一轮**误判为「新一轮」,`_r2_n` +1(审查探针 P1 生产实测:`n` 由 1→2)。本质 = 与本案所修**同类**
+  的幻影 +1,但触发源是**跨版本格式差异**(非 mtime/窗口异源)。
+- **影响半径**:**一次性 + 自愈** —— 该 tick 后状态即写入秒串,后续 tick 同源同格式,回归正常去重;
+  唯一恶化解 = 升级恰落在 `n=2` 的链上(则该 tick 把 2→3 ⇒ **多发一次 SEVERE**),此后清零不再复发。
+- **现网风险 ≈ 0**:生产样本链 E 在升级前已**清零**(报告 §5.1 dup 行后 SEVERE→清零),升级时
+  `n` 从 1 起,远低于阈值 3 ⇒ 不发告警。故**不阻断上线、无需改码**;此处如实披露,备后续任何
+  `alert_state` 跨格式迁移复用同一判据时留档。
 
 ## 5. 复现命令(只读)
 ```
