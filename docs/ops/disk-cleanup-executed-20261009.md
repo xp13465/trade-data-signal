@@ -115,7 +115,19 @@ df -h /System/Volumes/Data; du -sh /Users/linhuichen/code/trade /Users/linhuiche
 
 - 命令:`git reflog expire --expire=30.days --all` → `git gc --prune=30.days --quiet`(后台执行,约 30 秒完成)
 - **reflog 保留 30 天**(未用 `now`,按 §25 保守口径);`--prune=30.days` ⇒ **30 天内的不可达对象一律不删** —— 现存那 1,635 个 loose(156 MiB)正属此类「新近不可达」(前几日删分支/worktree 的残留),满 30 天后可再 gc 清除,故本轮**没有**把体积压到最小,这是**刻意的安全取舍**(已如实标注,未为好看而收紧 prune 窗口)
-- **恢复路径**:本轮零删除动作 ⇒ 无内容丢失。若需回到 gc 前形态,`git fsck --lost-found` 仍可扫 dangling 对象(与 甲4 `.git/lost-found/` 同法)
-- §25 合规:① 先确认可逆(只回收不可达对象,ref 全保留)② 事后体积实测比对(上表)③ 未删任何 ref/分支/worktree ④ 恢复路径已写明
+- **恢复路径**:~~本轮零删除动作 ⇒ 无内容丢失~~(见下方订正)。若需回到 gc 前形态,`git fsck --lost-found` 仍可扫 dangling 对象(与 甲4 `.git/lost-found/` 同法)
+- §25 合规:① 先确认可逆(只回收不可达对象)② 事后体积实测比对(上表)③ ~~未删任何 ref/分支/worktree~~(**声明失真,见订正**)④ 恢复路径已写明
 - **§七 待拍板项 4(gc 择时 + 批准)就此闭环**;其余 5 项(gc 之外)仍待拍板
 - 落档方式说明:原曾落在分支 `feat/disk-gc-record-1010`,但该分支基点是 W1 的 commit(非 main),直接 merge 会回退 main 上的 W1/W2 内容 ⇒ 改为**在 main 树直接补录本节**,该分支已按 §25 核验「独有内容已迁走」后删除
+
+### ⚠️ 事后订正(2026-10-10 07:4x,主控自核;由 #234 第三批清理实测暴露)
+
+> **本节「不删任何 ref / 分支 / worktree」的声明与事实不符,现如实订正。**
+
+- **事实**:`git reflog expire --expire=30.days --all` 的 **`--all` 作用域涵盖 `refs/stash`**;stash 无独立对象,**其存活完全依赖 `.git/logs/refs/stash` 的 reflog** ⇒ 3 条 stash(均为 2026-09 上旬,>30 天窗口)**全部被 expire,`refs/stash` 随之消失**。当时未意识到此作用域,故声明失真——属**认知偏差 + 声明未核**,非刻意。
+- **实测证据**:`.git/logs/refs/stash` 现存 `size=0`、`mtime=10-10 00:47`(= 本轮 gc 窗口);`git stash list` 空;HEAD reflog 现存**最老条目恰为 `2026-09-10 07:56`**(= gc 日 − 30 天,窗口边界吻合)。
+- **影响与可恢复性**(第三批 agent 逐条实测):
+  - `stash@{2}`(09-07,等价 `1cc5339d`):已从 dangling 筛出 → 导出 patch(7,255 B)→ `git apply --check` **PASS** → 真应用逐位一致 ⇒ **可恢复**
+  - `stash@{0}`(09-19):候选 6 条对象仍在 dangling(**30 天窗口内**),候选手册已留档(未导出 patch)
+  - `stash@{1}`(09-08,32 天 > 窗口):**实体已不可寻**(全量 dangling 扫描无匹配)。据 10-09 verify 报告记载,其内容为 README 删 #101/#91(该删从未生效、两条现仍在 main L64/70)、版本串 a554→a555(早被覆盖)、kimi plist 删 40 行(main `536d62202` 已完成)⇒ **判断无实质内容损失**,但**实体已不可复验**(结论基于当时记载,非实测原件)。
+- **防重犯**(已落 memory `git-reflog-expire-all-kills-stash`):① gc / reflog expire **前先 `git stash list` 留证** ② 长留 stash 须 `git stash store` 建显式 ref 或 30 天窗口内导出 patch ③ 报告写清 `--all` 作用域含 stash,**不得声称「不删任何 ref」**。
