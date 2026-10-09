@@ -39,6 +39,9 @@ from datetime import datetime
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).absolute().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+from notify_sent import notify_sent  # noqa: E402  (#241 同族: notify 真发出判据唯一实现, 不看 rc)
 DEFAULT_REPO_CANDIDATES = [
     Path("/Users/linhuichen/code/trade-data"),
 ]
@@ -129,7 +132,14 @@ def _notify_state_write_fail(repo: Path, e: Exception) -> None:
 
 def _notify(repo: Path, subject: str, body: str, severe: bool,
             dry_run: bool, alert_issue: str | None = None) -> bool:
-    """经 scripts/notify.py 发送; severe 额外写 data/alerts/latest.md(镜像防旁路)。"""
+    """经 scripts/notify.py 发送; severe 额外写 data/alerts/latest.md(镜像防旁路)。
+
+    返回 = **是否真发出**(`notify_sent` 判 notify.py 输出的真实路由结果, **不看 rc**)。
+    #241 同族病灶: notify.py main() 恒 return 0(含「全部渠道未发出」)⇒ rc==0 不含送达
+    告知力。旧判据 `returncode != 0 → 失败` ⇒ 通知全失败也判成功 ⇒ main() 落 `fired=True`
+    ⇒ 后续轮次 `if fired: 抑制` ⇒ **告警永不送达、永不重试**。fail-safe: 判不出 ⇒ False
+    ⇒ 不落 fired ⇒ 下轮重试(与 check_s06_freshness #241 同款契约)。
+    """
     cmd = [sys.executable, str(SCRIPT_DIR / "notify.py"), subject, body]
     if severe:
         cmd.append("--severe")
@@ -139,11 +149,15 @@ def _notify(repo: Path, subject: str, body: str, severe: bool,
         cmd.append("--dry-run")
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if r.returncode != 0:
-            print(f"[healthcheck] notify 退出码 {r.returncode}: {(r.stderr or '')[-300:]}", file=sys.stderr)
-            return False
-        print(f"[healthcheck][notify] subject={subject!r} severe={severe} dry_run={dry_run}", file=sys.stderr)
-        return True
+        out = (r.stdout or "") + (r.stderr or "")
+        sent = notify_sent(out)
+        if not sent:
+            print(f"[healthcheck] notify 未真发出(rc={r.returncode}): {out.strip()[-300:]}",
+                  file=sys.stderr)
+        else:
+            print(f"[healthcheck][notify] subject={subject!r} severe={severe} dry_run={dry_run}",
+                  file=sys.stderr)
+        return sent
     except Exception as e:
         print(f"[healthcheck] notify 异常: {e}", file=sys.stderr)
         return False

@@ -121,6 +121,7 @@ if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 from app.collector.nav_placeholder_defense import CANDIDATE_WHERE, is_placeholder_row, trading_gap_between  # noqa: E402
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+from notify_sent import notify_sent  # noqa: E402  (#241 同族: notify 真发出判据唯一实现, 不看 rc)
 
 DEFAULT_REPO = Path(os.environ.get("REPO", "/Users/linhuichen/code/trade-data"))
 REPO = DEFAULT_REPO  # --repo 可覆盖(见 main)
@@ -1455,7 +1456,15 @@ def _load_json(p: Path, default):
 
 
 def _notify(repo: Path, subject: str, body: str, severe: bool, dry_run: bool) -> bool:
-    """经 scripts/notify.py 发送(邮件渠道); severe 额外写 data/alerts/latest.md。"""
+    """经 scripts/notify.py 发送(邮件渠道); severe 额外写 data/alerts/latest.md。
+
+    返回 = **是否真发出**(`notify_sent` 判 notify.py 输出里的真实路由结果, **不看 rc**)。
+    #241 同族病灶: notify.py 的 main() 所有出口恒 return 0(含「全部渠道未发出」/ tier
+    `append_failed`)⇒ rc==0 不含送达告知力。旧判据 `returncode != 0 → 失败` ⇒ 通知全失败
+    当日被误判成功 ⇒ `run_alerts` 落 `state[key].last_fired=today` ⇒ 该告警当日被 dedup
+    抑制 = **当天失报**。fail-safe: 判不出 ⇒ 返回 False ⇒ 不落签 ⇒ 下轮重试。
+    (与 check_failed_units #240 F1 / check_s06_freshness #241 共用 `scripts/notify_sent.py`。)
+    """
     cmd = [sys.executable, str(repo / "scripts" / "notify.py"), subject, body]
     if severe:
         cmd.append("--severe")
@@ -1463,8 +1472,10 @@ def _notify(repo: Path, subject: str, body: str, severe: bool, dry_run: bool) ->
         cmd.append("--dry-run")
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if r.returncode != 0:
-            print(f"[check_data_gap] notify 退出码 {r.returncode}: {(r.stderr or '')[-300:]}", file=sys.stderr)
+        out = (r.stdout or "") + (r.stderr or "")
+        if not notify_sent(out):
+            print(f"[check_data_gap] notify 未真发出(rc={r.returncode}): {out.strip()[-300:]}",
+                  file=sys.stderr)
             return False
         return True
     except Exception as e:

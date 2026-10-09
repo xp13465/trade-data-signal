@@ -81,6 +81,7 @@ from pick_repo import pick_repo, pick_git_repo, force_env, guard_deploy_source_t
 # signal_kelly_backtest 顶层仅常量/函数定义, 无 DB 连接/重计算副作用, import 安全。
 from signal_kelly_backtest import TRADE_FIELDS  # noqa: E402
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+from notify_sent import notify_sent  # noqa: E402  (#241 同族: notify 真发出判据唯一实现, 不看 rc)
 REPO = str(pick_repo())         # trade-data/(部署源树); 惰性求值: guard 见 build_output 开头
 
 # ── 常量 ──────────────────────────────────────────────────────────────────────
@@ -1425,7 +1426,13 @@ def _mk_alert(typ, risk_score, date, **kw):
 
 # ── 邮件发送 ─────────────────────────────────────────────────────────────────
 def send_notify(subject, body, level="WARN", dry_run=False, dedup_key=None):
-    """调 notify.py 发邮件+Telegram+飞书。dry_run 试发。"""
+    """调 notify.py 发邮件+Telegram+飞书。dry_run 试发。
+
+    返回 (ok, err); ok = **是否真发出**(`notify_sent` 判 notify.py 输出里的真实路由结果,
+    **不看 rc**)。#241 同族病灶: notify.py main() 恒 return 0(含「全部渠道未发出」)⇒ 旧
+    判据按 rc 判「成功」, 在渠道全失败时也判成功, 使覆盖本脚本 alerts[].sent 观测标志
+    失真(即使不触发抑制, 误标「已送达」也会误导排障)。fail-safe: 判不出 ⇒ False。
+    """
     notify = os.path.join(SCRIPT_DIR, "notify.py")
     cmd = [sys.executable, notify, subject, body]
     if level == "SEVERE":
@@ -1436,7 +1443,8 @@ def send_notify(subject, body, level="WARN", dry_run=False, dedup_key=None):
         cmd.append("--dry-run")
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        return r.returncode == 0, r.stderr
+        out = (r.stdout or "") + (r.stderr or "")
+        return notify_sent(out), r.stderr
     except Exception as e:  # noqa: BLE001
         return False, str(e)
 
