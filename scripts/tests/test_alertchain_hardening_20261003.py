@@ -179,11 +179,18 @@ def test_brief_push_success_silent(tmp_path):
 # ══════════════════════════════════════════════════════════════════
 # ③ schedule-monitor heartbeat 消费方
 # ══════════════════════════════════════════════════════════════════
-def _run_heartbeat(args, monkeypatch, captured) -> int:
-    """跑 cmh.main，把 subprocess.run patch 成记录器（返回成功，绝不真调 notify）。"""
+def _run_heartbeat(args, monkeypatch, captured, output: str = None) -> int:
+    """跑 cmh.main，把 subprocess.run patch 成记录器（返回成功，绝不真调 notify）。
+
+    #241 Pattern B / W2(2026-10-10): cmh 判据由「rc」改为「notify 输出三态」(notify_state)。
+    故 fake 必须回**真实汇总行**(sent), 否则空输出 ⇒ failed ⇒ rc 2(旧空输出的人造假样本作废)。
+    """
+    if output is None:
+        output = "[notify] 汇总：已发出 email/feishu\n"  # 真实通用路径成功行(notify.py:2359)
+
     def fake_run(cmd, *a, **k):
         captured.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=output)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     return cmh.main(args)

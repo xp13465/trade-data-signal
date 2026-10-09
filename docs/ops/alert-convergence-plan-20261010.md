@@ -27,7 +27,7 @@
 
 ### 改动 3 件(同一分支,同一作者上下文)
 1. **单点台账 `data/alerts/alert_ledger.jsonl`**
-   - 写点 = `notify.py` 的**唯一外发出口**(审计定位:通用汇总处 L2359/2368-2371 附近)。
+   - 写点 = **3 个渠道函数** `send_feishu`/`send_telegram`/`_send_email`（CLI 13 个分支 + 10 个库直调脚本的共同必经点）；原述通用汇总处覆盖不全。
    - 每封**实际外发**追加一行:`{ts, tree(REPO), tier, key(dedup_key 或 subject 哈希), subject, channels{email,feishu}, source(sys.argv[0] / NOTIFY_SOURCE)}`。
    - **冻结面处理(§23.7)**:纯新增追加写、**零现有行为变更**;best-effort(写失败不阻塞发送,同 `_mirror_severe` 模式);路径解析**沿用该文件既有 3 处 env 先例** `Path(os.environ.get("REPO") or REPO)`(L2227/2267/2317)—— 是既有模式的推广,**不是新发明**;`--dry-run` **不写台账**(同 #184 的 latest.md 约定)。
    - **出口穷举(防漏记)**:开工先列 `notify.py` 全部真实外发出口并确认是否单点;若不止一处,**选能覆盖全部真实外发的最小集合**,出口清单随报告落档(不许只挂一处就声称全量)。
@@ -46,7 +46,8 @@
 ## 3. W2 — L3d / #241 Pattern B 3 处(与 #241 合并为一个项,不重开)
 
 ### 病灶
-`check_monitor_heartbeat.py` / `nextday_gap_check.py` / `nextday_plan_generator.py` 用「`rc` 判 notify 是否真发出」;而 `notify.py` 的 **dedup 抑制分支静默 `return 0`(不打任何输出)** ⇒ 包装层**无法区分「真发出」与「被去重抑制」**,只能在「弱化 fail-safe(有丢告警风险)」与「不动」之间二选一。
+`check_monitor_heartbeat.py` / `nextday_gap_check.py` / `nextday_plan_generator.py` 用「`rc` 判 notify 是否真发出」;而 `notify.py` 的 **CLI 13 个分支恒 `return 0`,rc 无判别力** ⇒ 包装层**无法区分「真发出」与「被去重抑制」**,只能在「弱化 fail-safe(有丢告警风险)」与「不动」之间二选一。
+**订正（证伪, 2026-10-10 调研）**：原述「dedup 抑制分支静默 `return 0`（不打任何输出）」与代码事实不符 —— 抑制路径**有 stderr 输出（7 处）**；真正病灶 = **CLI 13 个分支恒 `return 0`，rc 无判别力**；故改走**路线 B（不动冻结面）**，判据改为读抑制行的 stderr 输出（`scripts/notify_sent.py:notify_state` 三态）。
 
 ### 推荐改法(加法,不弱化判别维度)
 给冻结面加**一行机器可读输出**(例:`[notify] dedup-suppressed key=<k>`),让判据升级为**三态**:
