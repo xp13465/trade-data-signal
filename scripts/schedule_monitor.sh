@@ -76,6 +76,9 @@ from pathlib import Path
 # import 同一模块打「真实判定函数」反例断言(拒绝逻辑模拟代替真实代码)。
 sys.path.insert(0, str(Path(os.environ["REPO"]) / "scripts"))
 import alert_denoise_rules as adr  # noqa: E402
+# #241 同族(2026-10-09): notify 子进程「是否真发出过」的唯一判据(rc 不可信: notify.py
+# main() 所有出口恒 return 0)。用于「先落签后 fire-and-forget 通知」病灶的回滚判定。
+from notify_sent import notify_sent  # noqa: E402
 
 REPO = Path(os.environ["REPO"])
 LOG_DIR = REPO / "data" / "logs"
@@ -292,7 +295,43 @@ def save_alert_state(state):
         print(f"[warn] 写 alert_state.json 失败: {e}", file=sys.stderr)
 
 
+def _diff_transition(new_state, pre_state, status):
+    """本轮从「非 status」变为 status 的 key 列表(= 本轮新落签/新翻状态的 key)。
+
+    #241 同族(2026-10-09): 用于「先落签后 fire-and-forget 通知」病灶的精确回滚 ——
+    只回滚本轮新变 active(告警)/recovered(恢复)的 key, 不动本轮未变化的既有 active
+    (持续抑制态)、pending 计数、r5_congestion 状态(无 status 字段) —— 语义最小面。
+    """
+    out = []
+    for k, v in new_state.items():
+        if isinstance(v, dict) and v.get("status") == status:
+            pv = pre_state.get(k)
+            if not (isinstance(pv, dict) and pv.get("status") == status):
+                out.append(k)
+    return out
+
+
+def _rollback_transition(new_state, pre_state, status):
+    """把本轮新落签(→status)的 key 回滚到本轮开始前的值; 返回回滚条数。
+
+    fail-safe: 通知未确认送达 ⇒ 不落签 ⇒ 下轮重试(条件持续时每轮重发, 通道恢复后首轮
+    送达即止)。只回滚本轮 diff, 不动历史状态。
+    """
+    keys = _diff_transition(new_state, pre_state, status)
+    for k in keys:
+        if k in pre_state:
+            pv = pre_state[k]
+            new_state[k] = dict(pv) if isinstance(pv, dict) else pv
+        else:
+            new_state.pop(k, None)
+    return len(keys)
+
+
 alert_state = load_alert_state()
+# #241 同族(2026-10-09): 本轮开始前状态快照 —— 供「通知未确认送达 ⇒ 回滚本轮新落签」使用
+# (病灶: 收尾聚合 save_alert_state 先落签, 之后 fire-and-forget notify 丢返回值 ⇒ 通道全挂时
+#  当晚计划任务告警丢失且 state 已落签 ⇒ 条件持续期永不重发)。
+_STATE_PRE = {k: (dict(v) if isinstance(v, dict) else v) for k, v in alert_state.items()}
 seen_keys_this_run = set()  # 本次运行仍存在的异常 key(防误报恢复)
 # 2026-08-14 告警优化 A1: 进行中(未完成)任务集合。dur=null + exit=null = 任务仍在跑。
 # 用于: ①进行中超时检测(卡死/异常慢) ②恢复检测跳过进行中任务的 key(防 8-14 误恢复)。
@@ -2764,7 +2803,7 @@ if alerts:
     # B2(2026-08-14): 正文由纯 SEVERE 行列表改为每项 4 行模板(严重度/影响/日志/建议)
     body = "<br><br>".join(_format_alert_item(a) for a in alerts)
     _sm_time = NOW.strftime("%m-%d %H:%M")
-    subprocess.run(
+    _r_main = subprocess.run(
         [
             sys.executable, str(REPO / "scripts" / "notify.py"),
             f"[告警] {len(alerts)}项计划任务异常 {_sm_time}",
@@ -2774,8 +2813,22 @@ if alerts:
             "--alert-issue", "计划任务监控告警",
             "--alert-log", str(MONITOR_LOG),
         ],
-        check=False,
+        capture_output=True, text=True, check=False,
     )
+    _main_out = (_r_main.stdout or "") + (_r_main.stderr or "")
+    if _main_out.strip():
+        print(_main_out.strip())
+    # #241 同族(2026-10-09): 「先落签后 fire-and-forget 通知」病灶修复 —— 上方 save_alert_state
+    # (及轮内检查点)已先把本轮新告警落签 active, 此处 notify 若丢返回值则通道全挂时告警丢失且
+    # state 已落签 ⇒ 条件持续期永不重发(15min 全局巡检中枢受影响面最大)。改为: 只有 notify
+    # **真发出**才保留本轮新 active 落签; 判不出/全失败 ⇒ 回滚本轮新 active key ⇒ 下轮重试。
+    # 判据 = notify_sent(输出文本, rc 不可信: notify.py main() 所有出口恒 return 0)。
+    # --alert-issue 的 latest.md 镜像不依赖渠道成功(仍写), 故最新告警页不丢。
+    if not notify_sent(_main_out):
+        _rb = _rollback_transition(alert_state, _STATE_PRE, "active")
+        save_alert_state(alert_state)
+        print(f"[warn] 聚合告警未确认送达(rc={_r_main.returncode}) ⇒ 回滚本轮 {_rb} 个新告警落签"
+              f"(下轮重试)", file=sys.stderr)
 elif _orig_has_alerts:
     print(f"[{now_str}] 本轮告警已由 R2 拥堵日汇总接管, 见 r2_pipeline_congestion 状态")
 else:

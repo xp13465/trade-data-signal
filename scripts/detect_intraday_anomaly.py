@@ -28,6 +28,7 @@ from pathlib import Path
 REPO = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(Path(__file__).absolute().parent))
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+from notify_sent import notify_sent  # noqa: E402  (#241 同族: notify 真发出判据, 唯一实现)
 SENT_DB = REPO / "data" / "sentiment.db"
 SNAPSHOT_JSON = REPO / "static-site" / "data" / "intraday_snapshot.json"
 NOTIFY_PY = REPO / "scripts" / "notify.py"
@@ -219,8 +220,15 @@ def _alert_key(a: dict) -> str:
     return f"{a['type']}|{a['kind']}|{a['name']}"
 
 
-def filter_and_record(alerts: list[dict]) -> list[dict]:
-    """去重：同日同标的同类型只保留首次。记录到 data/anomaly_notified.json。"""
+def filter_and_record(alerts: list[dict]) -> tuple[list[dict], dict]:
+    """去重：同日同标的同类型只保留首次。**不落签**，返回 (本轮新异动, 待落签 dedup)。
+
+    #241 同族修复(2026-10-09): 原实现**先写** anomaly_notified.json 落当日去重签, 之后
+    send_alert 才 fire-and-forget 发通知(check=False 丢返回值)⇒ 全渠道失败时当日该异动
+    (含 severe 项)丢失, 且同日同 key 已被占 ⇒ 30min 下一轮不再补发(同日同类只报一次) =
+    告警永久丢失。改为「送达成功才落签」(record_notified): 未送达 ⇒ 不占签 ⇒ 下轮重试,
+    与 check_data_gap/sensenova/check_failed_units 同款 fail-safe。
+    """
     today = datetime.now().strftime("%Y%m%d")
     dedup = {}
     if DEDUP_FILE.exists():
@@ -239,16 +247,22 @@ def filter_and_record(alerts: list[dict]) -> list[dict]:
         new_alerts.append(a)
     # 只保留今日（清理旧日期避免文件膨胀）
     dedup = {today: today_set}
+    return new_alerts, dedup
+
+
+def record_notified(dedup: dict) -> None:
+    """落签 data/anomaly_notified.json（**仅在告警确认送达后**由 main 调用）。
+
+    写失败 fail-loud（#132, 2026-10-02）: 去重失效 = 同日同标的同类型异动每 30min 轮重复
+    发提示告警(降噪逆反)。独立 warning(dedup 24h), 不升级 severe: 本地基础设施故障,
+    异动数据级判定本身不受影响。
+    """
     try:
         DEDUP_FILE.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(DEDUP_FILE, dedup)
     except Exception as e:
-        # #132 fail-loud(2026-10-02): 去重文件写失败不再静默 —— 去重失效 =
-        # 同日同标的同类型异动每 30min 轮重复发提示告警(降噪逆反)。独立 warning
-        # (dedup 24h), 不升级 severe: 本地基础设施故障, 异动数据级判定本身不受影响。
         print(f"[anomaly] 写去重文件失败(异动告警将重复轰炸): {e}", file=sys.stderr)
         _notify_dedup_write_fail(e)
-    return new_alerts
 
 
 def _notify_dedup_write_fail(e: Exception) -> None:
@@ -270,10 +284,14 @@ def _notify_dedup_write_fail(e: Exception) -> None:
         print(f"[anomaly] 去重写失败告警发送异常(不阻塞): {ne}", file=sys.stderr)
 
 
-def send_alert(alerts: list[dict]) -> None:
-    """发告警邮件（通过 notify.py，非 severe=盘中提示性）。"""
+def send_alert(alerts: list[dict]) -> bool:
+    """发告警邮件（通过 notify.py，非 severe=盘中提示性）。返回「是否**真发出**」。
+
+    #241 同族(2026-10-09): 判据改解析 notify.py 输出文本(notify_sent), 不看 rc
+    (notify.py main() 所有出口恒 return 0, 全渠道失败也 rc=0 ⇒ rc 无告知力)。
+    """
     if not alerts:
-        return
+        return False
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     severe_n = sum(1 for a in alerts if a.get("tier") == "severe")
     if severe_n:
@@ -293,14 +311,22 @@ def send_alert(alerts: list[dict]) -> None:
     body = "\n".join(lines)
 
     try:
-        subprocess.run(
+        r = subprocess.run(
             [sys.executable, str(NOTIFY_PY), subject, body,
              "--from-prefix", "[盘中异动]"],
             timeout=60, check=False, capture_output=True, text=True,
         )
-        print(f"[anomaly] 告警邮件已发：{subject}", flush=True)
+        out = (r.stdout or "") + (r.stderr or "")
+        sent = notify_sent(out)
+        if sent:
+            print(f"[anomaly] 告警邮件已发：{subject}", flush=True)
+        else:
+            print(f"[anomaly] 告警邮件**未确认送达**(rc={r.returncode}, 下轮重试不落去重签)："
+                  f"{out.strip()[-200:]}", file=sys.stderr)
+        return sent
     except Exception as e:
         print(f"[anomaly] 告警邮件发送失败（不阻塞）: {e}", file=sys.stderr)
+        return False
 
 
 def main() -> int:
@@ -319,12 +345,16 @@ def main() -> int:
 
     print(f"[anomaly] 检测到 {len(alerts)} 项异动（去重前）", flush=True)
 
-    new_alerts = filter_and_record(alerts)
+    new_alerts, _dedup_pending = filter_and_record(alerts)
     if new_alerts:
         print(f"[anomaly] 去重后 {len(new_alerts)} 项新异动，发告警：", flush=True)
         for a in new_alerts:
             print(f"  - {a['desc']}", flush=True)
-        send_alert(new_alerts)
+        # #241 同族(2026-10-09): 只有告警**真发出**才落去重签; 未送达 ⇒ 不落 ⇒ 下轮重试。
+        if send_alert(new_alerts):
+            record_notified(_dedup_pending)
+        else:
+            print("[anomaly] 告警未确认送达 ⇒ 不落去重签(下轮将重试)", file=sys.stderr)
     else:
         print(f"[anomaly] 无新异动（均已告警过），不发邮件", flush=True)
 

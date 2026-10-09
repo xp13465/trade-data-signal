@@ -94,6 +94,11 @@ SS_DATA = REPO / "static-site" / "data"
 DATA_DIR = REPO / "data"
 ALERT_STATE_FILE = DATA_DIR / "alert_state.json"
 
+# #241 同族(2026-10-09): notify 子进程「是否真发出过」的唯一判据(rc 不可信: notify.py
+# main() 所有出口恒 return 0)。用于「先落签后 fire-and-forget 通知」病灶的回滚判定。
+sys.path.insert(0, str(REPO / "scripts"))
+from notify_sent import notify_sent  # noqa: E402
+
 NOW = datetime.now()
 NOW_STR = NOW.strftime("%Y-%m-%d %H:%M:%S")
 TODAY = NOW.strftime("%Y%m%d")
@@ -183,7 +188,32 @@ def save_alert_state(state):
         print(f"[warn] 写 alert_state.json 失败: {e}", file=sys.stderr)
 
 
+def _diff_transition(new_state, pre_state, status):
+    """本轮从「非 status」变为 status 的 key 列表(= 本轮新落签的 key)。"""
+    out = []
+    for k, v in new_state.items():
+        if isinstance(v, dict) and v.get("status") == status:
+            pv = pre_state.get(k)
+            if not (isinstance(pv, dict) and pv.get("status") == status):
+                out.append(k)
+    return out
+
+
+def _rollback_transition(new_state, pre_state, status):
+    """把本轮新落签(→status)的 key 回滚到本轮开始前的值; 返回回滚条数(#241 同族 fail-safe)。"""
+    keys = _diff_transition(new_state, pre_state, status)
+    for k in keys:
+        if k in pre_state:
+            pv = pre_state[k]
+            new_state[k] = dict(pv) if isinstance(pv, dict) else pv
+        else:
+            new_state.pop(k, None)
+    return len(keys)
+
+
 alert_state = load_alert_state()
+# #241 同族(2026-10-09): 本轮开始前状态快照(供通知未确认送达时回滚本轮新落签)
+_STATE_PRE = {k: (dict(v) if isinstance(v, dict) else v) for k, v in alert_state.items()}
 
 # 通知分级(2026-08-10): 自愈类(curl超时/版本传播/等待update_all)连续N次仍异常才通知,
 # 严重类(数据404/损坏/DB错)首次即通知。N=2 = 60min(30min频率×2), 过滤5-30min自愈问题。
@@ -866,7 +896,7 @@ if alerts:
         a.replace("<", "&lt;").replace(">", "&gt;") for a in alerts
     )
     _time_str = NOW.strftime("%m-%d %H:%M")
-    subprocess.run(
+    _r_main = subprocess.run(
         [
             sys.executable, str(REPO / "scripts" / "notify.py"),
             f"[72h监控] {len(alerts)}项异常 {_time_str}",
@@ -876,8 +906,21 @@ if alerts:
             "--alert-issue", "72h持续监控告警",
             "--alert-log", str(MONITOR_LOG),
         ],
-        check=False,
+        capture_output=True, text=True, check=False,
     )
+    _main_out = (_r_main.stdout or "") + (_r_main.stderr or "")
+    if _main_out.strip():
+        print(_main_out.strip())
+    # #241 同族(2026-10-09): 「先落签后 fire-and-forget 通知」病灶修复 —— 上方 save_alert_state
+    # 已先把本轮新告警落签 active, 此处 notify 若丢返回值则通道全挂时告警丢失且 state 已落签
+    # ⇒ 条件持续期永不重发(72h 监控自停前的告警收集亦受影响)。改为: 只有 notify **真发出**才
+    # 保留本轮新 active 落签; 判不出/全失败 ⇒ 回滚本轮新 active key ⇒ 下轮重试。
+    # 判据 = notify_sent(输出文本, rc 不可信: notify.py main() 所有出口恒 return 0)。
+    if not notify_sent(_main_out):
+        _rb = _rollback_transition(alert_state, _STATE_PRE, "active")
+        save_alert_state(alert_state)
+        print(f"[warn] 72h 聚合告警未确认送达(rc={_r_main.returncode}) ⇒ 回滚本轮 {_rb} 个新告警落签"
+              f"(下轮重试)", file=sys.stderr)
 else:
     print(f"[{NOW_STR}] PASS 所有检查正常（5类覆盖: 采集/R2/发布/稳定性/及时性）")
 
