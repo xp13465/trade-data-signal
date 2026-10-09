@@ -108,20 +108,34 @@ except Exception as _e:
     print(f"[warn] is_trading_day 判断失败(按交易日处理不跳过): {_e}", file=sys.stderr)
     _is_today_trading = True
 
-# 最近交易日（周末取周五；法定假日人工判断，非交易日 overview.date=最近交易日不算FAIL）
+# 最近交易日（#235 F1, 2026-10-09: 改用 app.calendar.last_trading_day 交易日历, 含法定假日;
+# 原周几算术在长假 weekday 上错判「今日=交易日」→ S2/S5/S8 白名单假 SEVERE。不可用→回退周几算术 fail-safe）
 # 交易日盘前(09:25前)：市场未开盘，数据仍为上一交易日，LAST_TRADING_DAY 取上一交易日
 _td = NOW.date()
 _now_hm_calc = NOW.strftime("%H%M")
 _is_before_open = _is_today_trading and _now_hm_calc < "0925"
-if _td.weekday() == 5:      # 周六 -> 周五
-    LAST_TRADING_DAY = (_td - timedelta(days=1)).strftime("%Y%m%d")
-elif _td.weekday() == 6:    # 周日 -> 周五
-    LAST_TRADING_DAY = (_td - timedelta(days=2)).strftime("%Y%m%d")
+
+
+def _last_trading_day_safe(d):
+    """返回 <= d 的最近交易日 YYYYMMDD（走 app.calendar 交易日历, 含法定假日）。
+    app.calendar 不可用 → 回退周几算术(fail-safe, 不静默跳过检查)。
+    """
+    try:
+        from app.calendar import last_trading_day
+        return last_trading_day(d)
+    except Exception as _e:  # noqa: BLE001
+        print(f"[warn] last_trading_day 不可用, 回退周几算术: {_e}", file=sys.stderr)
+        if d.weekday() == 5:      # 周六 -> 周五
+            return (d - timedelta(days=1)).strftime("%Y%m%d")
+        if d.weekday() == 6:      # 周日 -> 周五
+            return (d - timedelta(days=2)).strftime("%Y%m%d")
+        return d.strftime("%Y%m%d")
+
+
+if not _is_today_trading:
+    LAST_TRADING_DAY = _last_trading_day_safe(_td)                       # 非交易日(含法定假日) → 最近交易日
 elif _is_before_open:
-    # 交易日盘前(09:25前)：数据仍为上一交易日
-    # 周一盘前 -> 上周五, 周二-周五盘前 -> 昨日
-    _offset = 3 if _td.weekday() == 0 else 1
-    LAST_TRADING_DAY = (_td - timedelta(days=_offset)).strftime("%Y%m%d")
+    LAST_TRADING_DAY = _last_trading_day_safe(_td - timedelta(days=1))   # 盘前 → 上一交易日(含跨假日)
 else:
     LAST_TRADING_DAY = TODAY
 
@@ -135,8 +149,7 @@ else:
 _is_before_update_all = _is_today_trading and _now_hm_calc < "1900"
 if _is_before_update_all:
     # 交易日19:00前(含 update_all 在途窗口 17:50-~18:45)：alert.json date 应为上一交易日
-    _prev_offset = 3 if _td.weekday() == 0 else 1
-    ALERT_EXPECTED_DATE = (_td - timedelta(days=_prev_offset)).strftime("%Y%m%d")
+    ALERT_EXPECTED_DATE = _last_trading_day_safe(_td - timedelta(days=1))
 else:
     # 19:00后 or 非交易日：alert.json date 应为最近交易日
     ALERT_EXPECTED_DATE = LAST_TRADING_DAY
@@ -748,40 +761,20 @@ if _ov_online and not _ov_err_s1:
     else:
         check_recovery(_dedup_ov)
 
-# alert.json date 滞后（>3天=SEVERE，盘中可能昨日正常；盘前/非交易日 LAST_TRADING_DAY 不算滞后）
-# alert.json 仅17:50 update_all 更新，交易日17:50前是上一交易日数据（正常，周一盘前周五=3天不算滞后）
-if _al_online and not _al_err_s5:
-    _al_date_str = str(_al_online.get("date", ""))
-    _dedup_al = "stale_alert_date"
-    if _al_date_str in (LAST_TRADING_DAY, ALERT_EXPECTED_DATE):
-        check_recovery(_dedup_al)
-    else:
-        try:
-            _al_dt = datetime.strptime(_al_date_str, "%Y%m%d")
-            _al_age = (NOW.date() - _al_dt.date()).days
-            # 周末跨度大（周五->周一=3天），>3天才算真滞后
-            if _al_age > 3:
-                check_and_alert(_dedup_al, f"alert.json date={_al_date_str} 滞后{_al_age}天(>3天)",
-                                keyword="stale_alert", line_sample=f"date={_al_date_str} age={_al_age}d",
-                                tier="self_heal")
-            else:
-                check_recovery(_dedup_al)
-        except ValueError:
-            print(f"[warn] alert.json date 格式异常: {_al_date_str}", file=sys.stderr)
-
-# ad_line.json 最后日期滞后（交易日口径 >3交易日 = SEVERE；长假顺延不计滞后）
-def _ad_line_trading_age(ymd_str):
-    """ad_line 最后日期的滞后「交易日数」(#235 F1, 2026-10-09 口径由自然日改交易日)。
+# 日频数据时效判据公共函数：数据的滞后「交易日数」(#235 F1, 2026-10-09 口径由自然日改交易日)。
+def _trading_age(ymd_str):
+    """返回数据的滞后「交易日数」(最新交易日数据=0)。
 
     单一事实源 = app.calendar.lag_trading_days(与 scripts/check_data_integrity 同款,
-    防两份实现静默漂移); 长假/周末自然空档不计滞后(根治长假后首个交易日 ad_line 假 SEVERE)。
+    防两份实现静默漂移); 长假/周末自然空档不计滞后(根治长假后首个交易日假 SEVERE)。
     解析失败 → None; app.calendar 不可用 → 回退自然日(fail-safe, 不静默跳过检查)。
+    供 stale_alert_date 与 ad_line 两处时效判据共用。
     """
     try:
         from app.calendar import lag_trading_days
         _v = lag_trading_days(ymd_str, today=NOW.date())
     except Exception as _e:  # noqa: BLE001
-        print(f"[warn] ad_line 交易日口径不可用, 回退自然日: {_e}", file=sys.stderr)
+        print(f"[warn] 交易日口径不可用, 回退自然日: {_e}", file=sys.stderr)
         _v = None
     if _v is not None:
         return _v
@@ -791,6 +784,26 @@ def _ad_line_trading_age(ymd_str):
         return None
 
 
+# alert.json date 滞后（>3交易日=SEVERE；盘中可能昨日正常；盘前/非交易日 LAST_TRADING_DAY 不算滞后）
+# alert.json 仅17:50 update_all 更新，交易日17:50前是上一交易日数据（正常，周一盘前周五=3天不算滞后）
+if _al_online and not _al_err_s5:
+    _al_date_str = str(_al_online.get("date", ""))
+    _dedup_al = "stale_alert_date"
+    if _al_date_str in (LAST_TRADING_DAY, ALERT_EXPECTED_DATE):
+        check_recovery(_dedup_al)
+    else:
+        _al_age = _trading_age(_al_date_str)
+        if _al_age is None:
+            print(f"[warn] alert.json date 格式异常: {_al_date_str}", file=sys.stderr)
+        # 长假跨度大（如国庆 09-30->10-09 自然日 9 天，交易日仅 1 天），>3交易日才算真滞后
+        elif _al_age > 3:
+            check_and_alert(_dedup_al, f"alert.json date={_al_date_str} 滞后{_al_age}交易日(>3交易日)",
+                            keyword="stale_alert", line_sample=f"date={_al_date_str} age={_al_age}td",
+                            tier="self_heal")
+        else:
+            check_recovery(_dedup_al)
+
+# ad_line.json 最后日期滞后（交易日口径 >3交易日 = SEVERE；长假顺延不计滞后）
 _ad_online, _ad_err = curl_json("https://ss.fx8.store/data/ad_line.json")
 _dedup_ad = "stale_ad_line"
 if _ad_err or not _ad_online:
@@ -800,7 +813,7 @@ else:
     _ad_data = _ad_online.get("data", [])
     if isinstance(_ad_data, list) and _ad_data:
         _ad_last_date = str(_ad_data[-1].get("date", "")) if isinstance(_ad_data[-1], dict) else ""
-        _ad_age = _ad_line_trading_age(_ad_last_date)
+        _ad_age = _trading_age(_ad_last_date)
         if _ad_age is None:
             print(f"[warn] ad_line date 格式异常: {_ad_last_date}", file=sys.stderr)
         elif _ad_age > 3:

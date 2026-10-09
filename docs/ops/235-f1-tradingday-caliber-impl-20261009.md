@@ -95,7 +95,10 @@
    属**展示标签非闸门**,且改动会动邮件文案 → 未动,列此备查。
 
 **B. 已交易日口径(无需改,同类已对齐)**
-- `scripts/monitor_72h.sh:741-770` overview / alert:已用 `TODAY/LAST_TRADING_DAY` 集合豁免(交易日感知)✓
+- ~~`scripts/monitor_72h.sh:741-770` overview / alert:已用 `TODAY/LAST_TRADING_DAY` 集合豁免(交易日感知)✓~~
+  **【更正 2026-10-09 复审:此结论错】** 该处白名单**并非**交易日感知 —— `LAST_TRADING_DAY`/`ALERT_EXPECTED_DATE`
+  当时是**周几算术**(周六→周五、盘前 offset),**不看交易日历**,长假工作日(如 10-06 周二)会算出
+  「今日=交易日」;且 alert 的 else 分支是**纯自然日 `>3`**。属**同类病灶**,已补正,见 §11。
 - `scripts/check_s06_freshness.py`:独立交易日兜底链 ✓
 - `scripts/signal_kelly_snapshot.py:329` `trading_days_lag`:已交易日 + 自然日 fallback ✓
 - `scripts/check_data_integrity.py` 内 `check_signal_accum_nav_lag` / `check_nextday_plan`(allowed 集合)✓
@@ -131,10 +134,12 @@
 
 ## 9. 复现段(可独立复跑)
 
+> 注:下方 `# … passed` 为**首版(df3c73ea4)时点**的数字;续跑/复审后的最新数字见 §10.5 / §11.4。
+
 ```bash
 cd <worktree>
 /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_235_f1_tradingday_caliber_20261009.py   # 55 passed
-/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/                                           # 517 passed / 2 skipped
+/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/                                           # 517 passed / 2 skipped(首版时点)
 /Users/linhuichen/code/trade/.venv/bin/python scripts/test_188_s06_sync_blindspot.py                                # ALL_PASS
 ```
 判别力(red-before-green):`test_08a/08b` 静态锁在旧代码上必 FAIL(旧=9 处 `_days_ago`/0 处新 helper);
@@ -148,7 +153,9 @@ cd <worktree>
 
 - 范围 = 8 处口径点里**用户/运维可见的消息文本**(含阈值显示),逐处改:
   `alert`(FAIL/WARN/OK 3 处)、`notifications`(3)、`ad_line`(3)、`a_stock`(2)、
-  `trade_sim_indices mtime`(3)、`accum_nav_map`(3)、`线上 S06 快照`(2)—— 共 **16 行文本字面**。
+  `trade_sim_indices mtime`(3)、`accum_nav_map`(3)、`线上 S06 快照`(2)—— 共 **19 行消息文本**
+  (复核实测:alert 3 + notifications 3 + ad_line 3 + a_stock 2 + trade_sim mtime 3 + accum_nav_map 3
+  + S06 线上 2 = 19;另 s06 docstring 1 行,故报「19 消息行 + 1 docstring」)。
   形如 `滞后 {days} 天 > {STALE_DAYS_FAIL} 天` → `滞后 {days} 交易日 > {STALE_DAYS_FAIL} 交易日`。
 - s06「本地门槛」那处无用户可见消息(只有「格式异常」不含「天」)→ 无文案改动;
   其 docstring「近 7 天」→「近 7 交易日」一并校正。
@@ -175,8 +182,11 @@ cd <worktree>
   app.calendar 不可用 → **回退自然日**(旧口径 fail-safe,不静默跳过检查)。
 - **未动**:`check_and_alert` / `check_recovery` / dedup key / tier / escalation 链
   —— 只换「滞后天数怎么算」,告警链零改动(§23.11:无静默吞掉)。
-- **同文件它的时效点**:overview(L742)/alert(L753)本就走 `TODAY/LAST_TRADING_DAY` 白名单
-  (交易日感知)→ 非同类病灶,未动(§23.3)。
+- ~~**同文件它的时效点**:overview(L742)/alert(L753)本就走 `TODAY/LAST_TRADING_DAY` 白名单
+  (交易日感知)→ 非同类病灶,未动(§23.3)。~~
+  **【更正 2026-10-09 复审:此结论错,见 §11】** 该白名单非交易日感知(见上 §6-B 更正),
+  且 alert 的 else 分支是纯自然日 `>3` —— **同类病灶**。复审共确诊 **4 处漏改**
+  (stale_alert_date / S5 / S8 / S2),已在本轮补齐(§11)。
 
 ### 10.3 口径「单一事实源」上移(防两份实现漂移,§22)
 
@@ -188,24 +198,65 @@ cd <worktree>
 
 ### 10.4 续跑测试结果
 
-`scripts/tests/test_235_f1_monitor72h_appcal_20261009.py`(新增 35 条):
+`scripts/tests/test_235_f1_monitor72h_appcal_20261009.py`(该文件 **43 条**,含复审新增;详见 §11.4):
 - A) `app.calendar.lag_trading_days` 与设计表 §4.3 **逐位一致** + 解析失败 None + 两道护栏;
-- B) `monitor_72h.sh` 静态锁:heredoc 合法 python + ad_line 用 `lag_trading_days` + 判据 `>3` 保留
-  + 文案「交易日」+ **已无纯自然日判据**(`(NOW.date()-_ad_dt.date()).days` 与 `_ad_dt` 均清除);
-- C) **行为实测**:从 heredoc `ast` 提取纯函数 `_ad_line_trading_age` 在受控命名空间执行
-  (ZeroOutboundTrap 兜底,不跑业务脚本主体,§18 L50)——
+- B) 静态锁:heredoc 合法 python + 共用 `_trading_age` 用 `lag_trading_days` + 判据 `>3` 保留
+  + 文案「交易日」+ **已无纯自然日判据**(`_ad_dt`/`_al_dt` 旧变量均清除);
+- B3b/c) **行为实测**:从 heredoc `ast` 提取「最近交易日/预期上一交易日」纯计算片断 exec
+  —— 长假工作日 LAST_TRADING_DAY=最近交易日 09-30(非误判今日) + 复现生产假 SEVERE 白名单放行;
+- C) **行为实测**:提取纯函数 `_trading_age` 受控命名空间执行(ZeroOutboundTrap 兜底,§18 L50)——
   **长假后首日(today=20261008,date=20260930)→ lag=1 ≤3 不误报**;
-  **真过期(today=20261019)→ lag=8 >3 仍报**;含当日/周末/边界/解析失败/app.calendar 不可用回退。
+  **真过期(today=20261019)→ lag=8 >3 仍报**;含当日/周末/边界/解析失败/app.calendar 不可用回退;
+- D) 降级不静默:`_last_trading_day_safe` 在 app.calendar 不可用时回退周几算术(工作日→今日,保守更严)。
 
-**逐项过验收**:两文件 `90 passed`;全量 `pytest -q scripts/tests/` → **563 passed / 2 skipped / 0 failed (91.65s)**。
-**数量对账**:基线 517 + origin/main(#241 测试文件 11 用例,rebase 带入)= 528;+ 本次新文件 35 = **563**(0 fail,无回归)。
+**逐项过验收**:两文件 `98 passed`;全量 `pytest -q scripts/tests/` → **571 passed / 2 skipped / 0 failed (92.94s)**。
+**数量对账**:基线 517 + origin/main(#241 测试文件 11 用例,rebase 带入)= 528;+ 本文件 43 = **571**(0 fail,无回归)。
 
 ### 10.5 复现段(续跑)
 
 ```bash
 cd <worktree>
-/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_235_f1_monitor72h_appcal_20261009.py  # 35 passed
-/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/                                          # 563 passed / 2 skipped
+/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_235_f1_monitor72h_appcal_20261009.py  # 43 passed
+/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/                                          # 571 passed / 2 skipped
 ```
 - 判别力(red-before-green):`test_B2` 在旧 .sh 上必 FAIL(`(NOW.date() - _ad_dt.date()).days` 仍在);
   `test_C1` 的长假后首日用例在旧自然日口径下 lag=8>3(会误报)→ 新口径 lag=1 不报。
+
+## 11. 复审返工:monitor_72h.sh 同类病灶 4 处补齐(2026-10-09,同分支)
+
+**复审判定**:首版 §23.3 穷举不成立 —— `monitor_72h.sh` 内还有 **4 处**同类(自然日/周几算术)时效点
+未改,且 `data/alert_state.json` 有**生产实证**(长假工作日误报)。
+
+**生产实证(2026-10-06,国庆长假,市场休市)**:
+`data/alert_state.json` 10-06 17:40 活跃 key:`72h_stale_alert_date`(date=20260930 age=6d)、
+`72h_p0_smoke_s5_alert`(date=20260930)、`72h_p0_smoke_s8_notifications`、`72h_p0_smoke_s2_intraday`
+—— **4 个假 SEVERE**,根因=长假工作日 `LAST_TRADING_DAY` 被周几算术算成「今日 10-06」,
+数据日期 09-30 ≠ 10-06 → 白名单失配。
+
+**改动(§6.5 根因修复:单点根治,非逐文件打补丁)**:
+
+| # | 站点 | 行号(改后) | 旧形态 | 新形态 |
+|---|---|---|---|---|
+| ① | `stale_alert_date` else 分支 | `L795-806` | 纯自然日 `(NOW.date()-_al_dt.date()).days > 3` | 共用 `_trading_age(date) > 3`(交易日) |
+| ② | S5 alert 白名单 | `L661`(依赖 L152) | `ALERT_EXPECTED_DATE`=周几算术 | `ALERT_EXPECTED_DATE`←`app.calendar.last_trading_day` |
+| ③ | S8 notifications 白名单 | `L717`(依赖 L136/138/140) | `LAST_TRADING_DAY`=周几算术 | `LAST_TRADING_DAY`←`app.calendar.last_trading_day` |
+| ④ | S2 intraday 白名单 | `L605`(依赖 L136/138/140) | 同 ③ | 同 ③ |
+
+- ②③④ **同病根**=共享变量 `LAST_TRADING_DAY`/`ALERT_EXPECTED_DATE` 的「周几算术」(L113-155);
+  根治=改其计算(新增 `_last_trading_day_safe(d)` 走 `app.calendar.last_trading_day`),
+  **单点收口**,不逐处打补丁。该变量另有 S1(L579)/S6(L683)/overview(L758)消费者 → **一并受益**。
+- ① 与 ad_line 合并为**同一个** `_trading_age(ymd)`(共用,消除两份实现)。
+- **阈值语义保持**:3 处判据仍 `> 3`(交易日),阈值常量/FAIL-WARN 分档/dedup key/tier/escalation 链**零改动**。
+- **降级不静默**(与 ad_line 同款):`app.calendar` 不可用 → `_last_trading_day_safe` 回退周几算术、
+  `_trading_age` 回退自然日,均 `print` 到 stderr,不静默跳过检查(`test_C3`/`test_D1` 行为实证)。
+- **局部化**:改动落在 L113-155(共享根)与 L764-816(时效块),未碰 L178-206 / L867-890(避开并行支)。
+
+**§11.4 测试(本文件 43 条)**:
+- `test_B3a` 静态锁:`LAST_TRADING_DAY`/`ALERT_EXPECTED_DATE` 确由 `_last_trading_day_safe` 计算;
+- `test_B3b` **行为**(替换旧字面量假绿):exec 「最近交易日」计算片断,逐案核对 6 组
+  —— 长假工作日/周六/交易日盘后/交易日盘前/长假后首日盘前/周一盘前;
+- `test_B3c` **行为**:复现生产假 SEVERE 场景(10-06,数据 09-30)→ S2/S5/S8 白名单放行;
+- `test_B2`/`test_C1`/`test_D1`:共用 helper + `_trading_age` 行为 + 降级回退。
+
+**判别力(red-before-green)**:`test_B3b` 的长假工作日用例在旧周几算术下 `LAST_TRADING_DAY==TODAY`,
+断言 `ltd != today_s` 必 FAIL;`test_B3a` 的 `_offset = 3 if _td.weekday() == 0 else 1` 静态锁在旧 .sh 上必 FAIL。
