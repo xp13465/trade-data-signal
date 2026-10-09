@@ -12,7 +12,11 @@
 
 接入 scripts/intraday_snapshot.sh（R2同步后、push前），失败不阻塞快照。
 告警通过 scripts/notify.py 发邮件（盘中提示性，非 --severe 系统级）。
-同日同标的同类型去重（data/anomaly_notified.json，不进 git）。
+同日同标的同类型去重签 data/anomaly_notified.json（不进 git）——**该文件同时是前端浏览器
+通知的唯一数据源**（export_notifications.py -> static-site/data/notifications.json -> 前端弹 severe）。
+#241B(2026-10-10)【前端通知与邮件送达解耦】: 落签（写 anomaly_notified.json）与邮件送达**解耦**
+—— 异动一旦产出即落签（前端源就绪），邮件送达**单独记账**（未达 ⇒ 整 payload 暂存
+data/anomaly_email_pending.json，下一轮重试）。修「邮件通道一挂，前端通知一起静默丢失」。
 """
 from __future__ import annotations
 
@@ -33,6 +37,8 @@ SENT_DB = REPO / "data" / "sentiment.db"
 SNAPSHOT_JSON = REPO / "static-site" / "data" / "intraday_snapshot.json"
 NOTIFY_PY = REPO / "scripts" / "notify.py"
 DEDUP_FILE = REPO / "data" / "anomaly_notified.json"
+# #241B(2026-10-10): 邮件未达暂存账本(与「前端取数源落签」DEDUP_FILE 解耦的独立文件)。
+EMAIL_PENDING_FILE = REPO / "data" / "anomaly_email_pending.json"
 
 # --- 三档阈值 ---
 RAPID_TIERS = [           # (阈值%, 标签, 档位) 降序，取最高档
@@ -223,11 +229,9 @@ def _alert_key(a: dict) -> str:
 def filter_and_record(alerts: list[dict]) -> tuple[list[dict], dict]:
     """去重：同日同标的同类型只保留首次。**不落签**，返回 (本轮新异动, 待落签 dedup)。
 
-    #241 同族修复(2026-10-09): 原实现**先写** anomaly_notified.json 落当日去重签, 之后
-    send_alert 才 fire-and-forget 发通知(check=False 丢返回值)⇒ 全渠道失败时当日该异动
-    (含 severe 项)丢失, 且同日同 key 已被占 ⇒ 30min 下一轮不再补发(同日同类只报一次) =
-    告警永久丢失。改为「送达成功才落签」(record_notified): 未送达 ⇒ 不占签 ⇒ 下轮重试,
-    与 check_data_gap/sensenova/check_failed_units 同款 fail-safe。
+    #241B(2026-10-10): 落签语义见 record_notified —— 与**邮件送达**解耦（异动产出即落签,
+    前端源就绪）, 不再等邮件送达。B 波(2026-10-09)「全失败永久失报」由「邮件单独记账 +
+    未达 payload 暂存下轮重试」(retry_pending_emails/send_or_stage)承接, 不回归。
     """
     today = datetime.now().strftime("%Y%m%d")
     dedup = {}
@@ -251,7 +255,11 @@ def filter_and_record(alerts: list[dict]) -> tuple[list[dict], dict]:
 
 
 def record_notified(dedup: dict) -> None:
-    """落签 data/anomaly_notified.json（**仅在告警确认送达后**由 main 调用）。
+    """落签 data/anomaly_notified.json（**异动产出即落签**, 由 main 无条件调用）。
+
+    #241B(2026-10-10): 该文件是**前端浏览器通知的唯一数据源**, 落签与**邮件送达解耦**
+    —— 只要异动已产出即落签（前端源就绪）, 不因邮件通道故障而缺失。邮件送达由
+    send_or_stage/retry_pending_emails 单独记账（未达暂存重试）, 二者互不影响。
 
     写失败 fail-loud（#132, 2026-10-02）: 去重失效 = 同日同标的同类型异动每 30min 轮重复
     发提示告警(降噪逆反)。独立 warning(dedup 24h), 不升级 severe: 本地基础设施故障,
@@ -329,7 +337,77 @@ def send_alert(alerts: list[dict]) -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------
+# #241B(2026-10-10) 邮件送达单独记账 —— 与「前端取数源落签」解耦
+# ---------------------------------------------------------------------------
+# 病灶: anomaly_notified.json 既是「前端浏览器通知的唯一数据源」, 又曾被当作「邮件已送达」
+# 的落签门控(B 波「送达成功才落签」) ⇒ 邮件通道一挂, 前端通知一起静默丢失(错误耦合)。
+# 修法: ①main 里**落签与邮件送达解耦**(异动产出即落签 = 前端源就绪);
+#       ②邮件送达**单独记账** —— 未达 ⇒ 整 payload 暂存, 下一轮重试。
+# 不变式(不回归 B 波): 邮件全失败仍会重试直到送达(不永久失报); 前端源不因邮件失败而缺。
+
+def _load_email_pending() -> dict:
+    """读「邮件未达」暂存账本 {alert_key: alert_payload}。缺失/损坏 ⇒ 空(降级不阻塞)。"""
+    if not EMAIL_PENDING_FILE.exists():
+        return {}
+    try:
+        data = json.loads(EMAIL_PENDING_FILE.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[anomaly] 读邮件暂存账本失败(本轮视为空): {e}", file=sys.stderr)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_email_pending(pending: dict) -> None:
+    """写暂存账本(原子写)。写失败 fail-loud 打印, **不另发告警**(防台账元噪声, plan §5 不变式5)。"""
+    try:
+        EMAIL_PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(EMAIL_PENDING_FILE, pending)
+    except Exception as e:  # noqa: BLE001
+        print(f"[anomaly] 写邮件暂存账本失败(未达邮件可能丢失重试): {e}", file=sys.stderr)
+
+
+def stage_email_pending(alerts: list[dict]) -> None:
+    """邮件未达 ⇒ 把**整 payload** 暂存待下轮重试(按 alert_key 去重, 同 key 不重复入账)。
+
+    存整 payload(非 key): send_alert 组装 body 依赖 `a['desc']`(**无法由 _alert_key 重建**),
+    ⇒ 必须存下整条 alert dict。
+    """
+    pending = _load_email_pending()
+    for a in alerts:
+        pending[_alert_key(a)] = a
+    _write_email_pending(pending)
+
+
+def retry_pending_emails() -> None:
+    """下轮重试: 账本非空即整批补发; 成功 ⇒ 清账; 失败 ⇒ 保留再下轮。
+
+    幂等保证(不重复弹前端): 落签早在首次产出时已写, 补发成功**不再触碰** anomaly_notified.json
+    ⇒ 前端源内容不变、不会重复弹(前端亦按 localStorage key 当日去重)。绝不因重试而重复落签。
+    """
+    pending = _load_email_pending()
+    if not pending:
+        return
+    alerts = list(pending.values())
+    if send_alert(alerts):
+        _write_email_pending({})
+        print(f"[anomaly] 补发暂存告警 {len(alerts)} 项成功, 邮件账本已清", flush=True)
+    else:
+        print(f"[anomaly] 暂存告警 {len(alerts)} 项补发仍未达, 保留账本下轮再试", file=sys.stderr)
+
+
+def send_or_stage(alerts: list[dict]) -> bool:
+    """发邮件; 未达 ⇒ 暂存整 payload 待下轮重试(不回归 B 波「全失败仍可重试」)。返回是否真发出。"""
+    if send_alert(alerts):
+        return True
+    stage_email_pending(alerts)
+    return False
+
+
 def main() -> int:
+    # #241B(2026-10-10): 先补发上轮暂存的未达邮件(重试不依赖今日快照, 每次调用都尝试)。
+    retry_pending_emails()
+
     snap = load_snapshot()
     if not snap:
         return 0
@@ -350,11 +428,12 @@ def main() -> int:
         print(f"[anomaly] 去重后 {len(new_alerts)} 项新异动，发告警：", flush=True)
         for a in new_alerts:
             print(f"  - {a['desc']}", flush=True)
-        # #241 同族(2026-10-09): 只有告警**真发出**才落去重签; 未送达 ⇒ 不落 ⇒ 下轮重试。
-        if send_alert(new_alerts):
-            record_notified(_dedup_pending)
-        else:
-            print("[anomaly] 告警未确认送达 ⇒ 不落去重签(下轮将重试)", file=sys.stderr)
+        # #241B(2026-10-10): 落签与邮件送达**解耦** —— anomaly_notified.json 是前端浏览器
+        # 通知的唯一数据源, 异动一旦产出即落签(前端源就绪), 不再等待邮件送达。
+        record_notified(_dedup_pending)
+        # 邮件送达**单独记账**: 未达 ⇒ 整 payload 暂存待下轮重试(不回归 B 波「全失败仍可重试」)。
+        if not send_or_stage(new_alerts):
+            print("[anomaly] 告警邮件未确认送达 ⇒ 已暂存待下轮重试(前端源已落签)", file=sys.stderr)
     else:
         print(f"[anomaly] 无新异动（均已告警过），不发邮件", flush=True)
 

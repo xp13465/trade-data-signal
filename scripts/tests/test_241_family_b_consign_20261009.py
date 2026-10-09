@@ -63,7 +63,7 @@ ROOT = Path(__file__).absolute().parent.parent.parent
 SCRIPTS = ROOT / "scripts"
 
 # 断言计数下限(防收集/执行异常致「0 断言假绿」, §18 L49 / 仿 #201/#240/#241A)
-_MIN_ASSERTIONS = 36
+_MIN_ASSERTIONS = 90
 _N = [0]
 
 
@@ -251,6 +251,7 @@ def _snap_today():
 
 def _run_dia_main(monkeypatch, tmp_path, output, calls):
     monkeypatch.setattr(dia, "DEDUP_FILE", tmp_path / "anomaly_notified.json")
+    monkeypatch.setattr(dia, "EMAIL_PENDING_FILE", tmp_path / "anomaly_email_pending.json")
     monkeypatch.setattr(dia, "subprocess", type("S", (), {"run": _fake_run(output, rc=0, calls=calls)}))
     monkeypatch.setattr(dia, "load_snapshot", lambda: _snap_today())
     monkeypatch.setattr(dia, "_conn", lambda: _FakeConn())
@@ -275,23 +276,51 @@ def test_06_dia_send_alert_returns_sent():
         _chk(got is exp, f"send_alert out={out!r}: 期望 {exp} 实得 {got}")
 
 
-def test_07_dia_negative_control_no_consign_and_retries(monkeypatch, tmp_path):
-    """负控(必修): 异动告警全渠道失败 ⇒ 不写 anomaly_notified.json ⇒ 下轮重试。"""
+def test_07_dia_negative_control_consigns_and_email_retries(monkeypatch, tmp_path):
+    """负控(必修, #241B 翻转): 异动告警全渠道失败 ⇒
+      ① 文件 anomaly_notified.json **已写**(前端取数源可得, 与邮件送达解耦);
+      ② 邮件整 payload 进暂存账本(待重试); ③ 下轮重试仍未达 ⇒ 账本保留(可再试);
+      ④ 重试成功 ⇒ 账本清空, 且落签内容不变(不重复写签 / 前端不重复弹)。
+    """
+    from datetime import datetime
+    today = datetime.now().strftime("%Y%m%d")
+    sign = tmp_path / "anomaly_notified.json"
+    pend = tmp_path / "anomaly_email_pending.json"
     calls: list = []
     with ZeroOutboundTrap() as trap:
+        # 轮1: 全渠道失败
         rc = _run_dia_main(monkeypatch, tmp_path, FAIL_GENERAL, calls)
         _chk(rc == 0, f"main 应 rc 0, 实得 {rc}")
-        _chk(len(calls) == 1, f"应尝试 notify 1 次, 实得 {len(calls)}")
-        _chk(not (tmp_path / "anomaly_notified.json").exists(),
-             "全渠道失败**不得**落当日去重签(否则同日不再补发 = 永久丢失)")
+        _chk(sign.exists(), "全渠道失败仍须落签(=前端取数源就绪, 与邮件送达解耦)")
+        sign_r1 = json.loads(sign.read_text(encoding="utf-8"))
+        _chk("rapid_move|指数|上证" in sign_r1.get(today, {}), "落签 key 应在")
+        _chk(isinstance(sign_r1[today]["rapid_move|指数|上证"], str),
+             "落签 value 必须保持 ts 字符串(export_notifications/app.js 零改动的前提)")
+        _chk(pend.exists(), "邮件未达应进暂存账本")
+        p1 = json.loads(pend.read_text(encoding="utf-8"))
+        _chk("rapid_move|指数|上证" in p1, "暂存应以 alert_key 为账")
+        _chk(isinstance(p1["rapid_move|指数|上证"].get("desc"), str)
+             and p1["rapid_move|指数|上证"]["desc"],
+             "暂存必须是**整 payload**(含 desc, 不可由 key 重建)")
+        # 轮2: 仍失败 ⇒ 重试暂存 1 次 + 不重复落签
         calls.clear()
         _run_dia_main(monkeypatch, tmp_path, FAIL_GENERAL, calls)
-        _chk(len(calls) == 1, f"未落签 ⇒ 下轮必须重试, 实得 {len(calls)}")
+        _chk(len(calls) == 1, f"下轮应重试暂存邮件 1 次, 实得 {len(calls)}")
+        _chk(json.loads(pend.read_text(encoding="utf-8")) != {}, "重试仍失败 ⇒ 账本保留")
+        _chk(json.loads(sign.read_text(encoding="utf-8")) == sign_r1,
+             "重试轮不得改变落签内容(不重复写签)")
+        # 轮3: 送达成功 ⇒ 账本清空; 落签不变(前端不重复弹)
+        calls.clear()
+        _run_dia_main(monkeypatch, tmp_path, SUCCESS_GENERAL, calls)
+        _chk(len(calls) == 1, f"补发应发 1 次, 实得 {len(calls)}")
+        _chk(json.loads(pend.read_text(encoding="utf-8")) == {}, "补发成功 ⇒ 账本清空")
+        _chk(json.loads(sign.read_text(encoding="utf-8")) == sign_r1,
+             "补发不得重复落签/改变前端源(不重复弹前端)")
     _chk(trap.hits == [], f"零外发被破坏: {trap.hits}")
 
 
 def test_08_dia_positive_control_consigns_and_dedups(monkeypatch, tmp_path):
-    """正控: 真发出 ⇒ 落 anomaly_notified.json ⇒ 下轮同 key 被去重(不重发)。"""
+    """正控: 落 anomaly_notified.json ⇒ 下轮同 key 被去重(不重发); 成功轮不产生暂存账本。"""
     calls: list = []
     with ZeroOutboundTrap() as trap:
         rc = _run_dia_main(monkeypatch, tmp_path, SUCCESS_GENERAL, calls)
@@ -305,12 +334,15 @@ def test_08_dia_positive_control_consigns_and_dedups(monkeypatch, tmp_path):
         calls.clear()
         _run_dia_main(monkeypatch, tmp_path, SUCCESS_GENERAL, calls)
         _chk(len(calls) == 0, f"同 key 当日已发 ⇒ 去重抑制(0 次 notify), 实得 {len(calls)}")
+        pend = tmp_path / "anomaly_email_pending.json"
+        _chk((not pend.exists()) or json.loads(pend.read_text(encoding="utf-8")) == {},
+             "成功轮不得产生邮件暂存账本")
     _chk(trap.hits == [], f"零外发被破坏: {trap.hits}")
 
 
 def test_09_dia_red_before_green_old_no_commit_gate():
-    """red-before-green: 旧语义 = filter_and_record 内联落签(不判 sent) ⇒ 全失败也落签。
-    用「旧行为 = 直接 record_notified」复现 bug, 证新代码把落签门控在 send_alert 之后。
+    """落签语义(#241B 后): filter_and_record 只算不写(拆分为 compute); record_notified 才落签。
+    #241B 起落签与**邮件送达解耦**(异动产出即落签), 本用例锁「compute 与写 分离」这一结构不变式。
     """
     from datetime import datetime
     import tempfile
@@ -331,6 +363,60 @@ def test_09_dia_red_before_green_old_no_commit_gate():
                  "record_notified 落签生效(旧代码在此无条件调用 = bug)")
         finally:
             dia.DEDUP_FILE = orig
+
+
+# ══════════════════════ ③b #241B 邮件单独记账 helper(2026-10-10) ══════════════════════
+def test_15_dia_email_pending_helpers_unit(monkeypatch, tmp_path):
+    """helper 单元: 暂存按 alert_key 去重 + 存**整 payload**; 重试成功清账 / 失败保留 / 空账 no-op。"""
+    pend = tmp_path / "anomaly_email_pending.json"
+    monkeypatch.setattr(dia, "EMAIL_PENDING_FILE", pend)
+    a1 = {"type": "rapid_move", "tier": "severe", "kind": "指数", "name": "上证", "desc": "d1"}
+    a2 = {"type": "volume_surge", "tier": "normal", "kind": "行业", "name": "半导体", "desc": "d2"}
+    calls: list = []
+    monkeypatch.setattr(dia, "subprocess", type("S", (), {"run": _fake_run(FAIL_GENERAL, calls=calls)}))
+    # 空账本 ⇒ no-op(不 spawn 子进程)
+    dia.retry_pending_emails()
+    _chk(calls == [], "空账本重试应 no-op(不 spawn)")
+    # 暂存: 按 key 入账 + 存整 payload
+    dia.stage_email_pending([a1, a2])
+    d = json.loads(pend.read_text(encoding="utf-8"))
+    _chk(set(d) == {"rapid_move|指数|上证", "volume_surge|行业|半导体"}, f"按 alert_key 入账, 实得 {set(d)}")
+    _chk(d["rapid_move|指数|上证"]["desc"] == "d1", "暂存须保留整 payload(desc)")
+    dia.stage_email_pending([a1])
+    _chk(len(json.loads(pend.read_text(encoding="utf-8"))) == 2, "同 key 不重复入账")
+    # 重试失败 ⇒ 保留
+    dia.retry_pending_emails()
+    _chk(len(calls) == 1, f"重试应 spawn 1 次, 实得 {len(calls)}")
+    _chk(json.loads(pend.read_text(encoding="utf-8")) != {}, "失败保留账本")
+    # 重试成功 ⇒ 清账
+    calls.clear()
+    monkeypatch.setattr(dia, "subprocess", type("S", (), {"run": _fake_run(SUCCESS_GENERAL, calls=calls)}))
+    dia.retry_pending_emails()
+    _chk(len(calls) == 1, "补发应 spawn 1 次")
+    _chk(json.loads(pend.read_text(encoding="utf-8")) == {}, "成功清账")
+    # 损坏账本 ⇒ 降级为空(不炸)
+    pend.write_text("{not json", encoding="utf-8")
+    calls.clear()
+    _chk(dia._load_email_pending() == {}, "损坏账本降级为空")
+    _chk(dia.send_or_stage([]) is False, "空 alerts ⇒ send_alert False, 不暂存空")
+
+
+def test_16_dia_static_lock_decoupled_from_email():
+    """静态锁(main 流程): 落签不再门控在送邮件; 旧「送达成功才落签」门控已删除;
+    流程 = 先 retry 暂存 → 落签(前端源) → send_or_stage(邮件单独记账)。"""
+    src = inspect.getsource(dia.main)
+    _chk("retry_pending_emails()" in src, "main 应先补发上轮暂存邮件")
+    _chk("record_notified(_dedup_pending)" in src, "应无条件落签")
+    _chk("send_or_stage(new_alerts)" in src, "邮件送达单独记账")
+    _chk("if send_alert(new_alerts):" not in src, "旧的「送达成功才落签」门控应已删除")
+    _chk(src.index("retry_pending_emails()") < src.index("record_notified(_dedup_pending)")
+         < src.index("send_or_stage(new_alerts)"),
+         "顺序: 先重试暂存 → 落签(前端源) → 邮件记账")
+    _chk("stage_email_pending(alerts)" in inspect.getsource(dia.send_or_stage),
+         "send_or_stage 未达应暂存整 payload")
+    # 判据不重写: 仍复用唯一实现 notify_sent(检测站点无 --dedup-key ⇒ 无 suppressed 态, 两态已够)
+    _chk("from notify_sent import notify_sent" in inspect.getsource(dia),
+         "notify 真发出判据仍复用唯一实现 notify_sent")
 
 
 # ══════════════════════ ④ gen_daily_brief.py ══════════════════════
