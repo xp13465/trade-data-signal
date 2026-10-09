@@ -74,12 +74,22 @@
 | 位置 | 是否落签抑制(同后果) | 处置 |
 |---|---|---|
 | `check_s06_freshness.py:135`(#241) | ✅ 落签 → 当日抑制 | **本任务已修** |
-| `check_data_gap_alerts.py:1465-1467` `_notify` rc → `ok` 门控 `state[key].last_fired=today` | ✅ 落签 → 当日抑制(**同后果, 未修**) | 上报待拍板(见 §7) |
-| `overfit_monitor.py:1439` `send_notify` rc → `a["sent"]` | ⚠ 非落签, 仅 JSON 里「已发」标志不实(观测不实) | 上报观察项 |
+| `check_data_gap_alerts.py:1465-1467` `_notify` rc → `ok` 门控 `state[key].last_fired=today`(`:1569` 抑制 / `:1573-1575` 落签) | ✅ 落签 → 当日抑制(**同后果, 未修**) | 上报待拍板(见 §7-1) |
+| `sensenova-proxy-healthcheck.py:142-146` `_notify` rc → `ok` → `:230-232` 门控 `_save_state({"fired": True})` 落签 → `:221-222` `if fired:` 抑制重复告警 | ✅ 落签 → **此后每轮被抑制, 告警永不送达、永不重试**(**同后果, 未修**) | 上报待拍板(见 §7-2) |
+| `check_monitor_heartbeat.py:101-105` | ⚠ 观测类: rc!=0 才报错, rc 恒 0 ⇒ 全渠道失败也印「已发起告警」(标记不实, 不落签) | 观察项 |
+| `detect_intraday_anomaly.py:244/301` | ⚠ 观测类: `:301` 印「告警邮件已发」未看 rc(标记不实); `:244` 去重文件先写后发(降噪同日同标的本即只报一次) | 观察项 |
+| `signal_kelly_backtest.py:343-348` | ⚠ 观测类: 印 `冻结缺失告警 rc={r.returncode}` 未看真实发送(标记不实) | 观察项 |
+| `nextday_plan_generator.py:1247-1254` | ⚠ 观测类: rc!=0 才置 `notify_rc=1`, rc 恒 0 ⇒ 全渠道失败不置位(标记不实; 包装层 `nextday_plan.sh` 为兜底) | 观察项 |
+| `overfit_monitor.py:1439` `send_notify` rc → `a["sent"]` | ⚠ 观测类: 仅 JSON 里「已发」标志不实(不落签) | 观察项 |
 | `retry_failed_metrics.py:113/150`、`nextday_gap_check.py:66/374`、各 `scripts/*.sh` 调用 | ❌ 只打印 rc / 委托 notify 自身 `--dedup-key`(notify 内部占窗已按 `and ok` / `_tier_send_ok` 正确守卫) | 不同类, 不动 |
 
-> 结论: 真正「同后果(落签抑制)」的同类面除本任务外 = `check_data_gap_alerts.py` 一处;
-> 其余属观测性/不同类。**未擅自扩大改动**(§23.7 已上线功能冻结, 见 §7)。
+> 结论: 真正「同后果(落签抑制 ⇒ 真告警丢失)」的同类面除本任务外 = **两处**
+> (`check_data_gap_alerts.py` + `sensenova-proxy-healthcheck.py`); 其余为观测类/不同类。
+> **未擅自扩大改动**(§23.7 已上线功能冻结, 见 §7)。
+>
+> ⚠️ **复审修订(2026-10-09, 维度 6 FAIL → 本表补齐)**: 首版 §5 曾把同后果面误判为「仅
+> `check_data_gap_alerts.py` 一处」, 漏了 `sensenova-proxy-healthcheck.py`(其 `:234` 注释
+> 自证「参考 check_s06 同款契约」= 病根从 #241 这处抄过去)。观测类 4 处亦为复审补记。
 
 ## 6. 举一反三清单(§23.3)
 
@@ -99,9 +109,21 @@
    - 修法同构: `_notify` 改判 `notify_sent((r.stdout or "")+(r.stderr or ""))`(它走默认 send 路径,
      输出「已发出」/「全部渠道未发出」, 共享判据直接适用)。
    - **为何未做**: 属另一 PRD 功能(已上线), 动其落签语义触 §23.7 冻结契约, 需用户确认后另派单。
-2. `overfit_monitor.py:1439` `send_notify` 的 `a["sent"]` 标志 rc 判定(观测不实, 非丢告警),
-   同上需拍板。
-3. `notify.py` 自身**不改**(冻结面)。
+2. **`sensenova-proxy-healthcheck.py` 同后果同类面(未修, 复审补列)**: `_notify`(`:142-146`)
+   用 `rc!=0` 判失败(rc 恒 0 ⇒ 该分支死, 恒返回 True)→ `ok` 门控 `_save_state({"fired": True})`
+   落签(`:230-232`)→ `:221-222` `if fired:` 抑制重复告警。
+   - 后果: 商汤代理**持续异常** + 当轮通知**全渠道未发出**(rc 仍 0)→ `fired` 落盘 →
+     **此后每轮被抑制, 告警永不送达、永不重试**。
+   - 佐证: `:234` 注释自证「参考 check_s06 同款契约」(病根从 #241 这处抄过去)。
+   - 修法同构: `_notify` 改判 `notify_sent((r.stdout or "")+(r.stderr or ""))`(走默认 send 路径,
+     输出「已发出」/「全部渠道未发出」, 共享判据直接适用)。
+   - **为何未做**: 同 §7-1, 属已上线功能, 动其落签语义触 §23.7 冻结, 需用户确认后另派单。
+3. **观测类(5 处, 非丢告警, 仅标记不实)**: `check_monitor_heartbeat.py:101-105`、
+   `detect_intraday_anomaly.py:244/301`、`signal_kelly_backtest.py:343-348`、
+   `nextday_plan_generator.py:1247-1254`、`overfit_monitor.py:1439` `a["sent"]`。
+   共性是「以 rc 判『已发』并打日志/写标志, rc 恒 0 ⇒ 全渠道失败也标『已发』」;
+   均**不落签抑制**故不丢真告警, 列为观察项(是否收口同判据由主控/用户定)。
+4. `notify.py` 自身**不改**(冻结面)。
 
 ## 8. 恢复路径(§25 精神)
 
