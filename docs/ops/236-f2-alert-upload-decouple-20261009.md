@@ -51,12 +51,12 @@ if [ "${ALERT_R2_TRY1:-1}" -ne 0 ]; then     # 仅首次未成功才跑（无冗
 fi
 ```
 
-**为什么两段、为什么放在这两处**:首次紧跟 C6(`export_alert`)与 C7(`export_alert_analyze`)之后 —— 本地 alert.json / alert_analyze_*.json 刚写完、内容最新那一刻;**二次落在 `etf_score_list` 块之后** —— 该块内的 `upload-etf-score` 不带 `--skip-if-locked` 会**排队等锁**(10-08 实测排队 ≈211s),它返回时锁刚释放 ⇒ 二次大概率即拿到锁,当夜即可自解(见 §3-b 时序证据)。
+**为什么两段、为什么放在这两处**:首次紧跟 C6(`export_alert`)与 C7(`export_alert_analyze`)之后 —— 本地 alert.json / alert_analyze_*.json 刚写完、内容最新那一刻;**二次落在 `etf_score_list` 块之后** —— 该块内的 `upload-etf-score` 不带 `--skip-if-locked` 会**排队等锁**(10-08 实测排队 **222s**,即 3 分 42 秒),它返回时锁刚释放 ⇒ 二次大概率即拿到锁,当夜即可自解(见 §3-b 时序证据)。
 
 **关键实现细节(踩过的坑,勿回退)**:
 
 1. **必须 `cd "$REPO/static-site/data"` 包一层**。`upload_r2.py cmd_upload_data_files` 把每个参数当**相对 data_dir 的 glob**,但先用 `(data_dir/f).exists()` 预过滤 —— 字面量 `alert_analyze_*.json` 传进去会被 `exists()` 判否而**静默丢弃**。所以必须让 **shell** 先展开 glob,再传基名进去。
-2. **必须带 `--skip-if-locked`**。默认锁行为是**排队等锁最多 7300s**(会拖住 update_all)。带此 flag 后:拿不到锁就短重试(`R2_UPLOAD_SKIP_RETRY_SECS`,**每次调用读环境变量**,故可逐次设窗口),仍未拿到则打印 `SKIPPED_LOCKED: ...` 到 stderr 并 **exit 0**。本实现:首次窗口 **60s**、二次窗口 **120s**(仅在被锁时计时,拿不到即退,**绝不排队 7300s** ⇒ 不阻塞主链;对照:本链 `upload-etf-score`/`upload-fund-score` 本就排队等锁,10-08 曾等 211s)。选它是为了「既不阻塞主链、又不与主链既有上传打架」(见 §3)。
+2. **必须带 `--skip-if-locked`**。默认锁行为是**排队等锁最多 7300s**(会拖住 update_all)。带此 flag 后:拿不到锁就短重试(`R2_UPLOAD_SKIP_RETRY_SECS`,**每次调用读环境变量**,故可逐次设窗口),仍未拿到则打印 `SKIPPED_LOCKED: ...` 到 stderr 并 **exit 0**。本实现:首次窗口 **60s**、二次窗口 **120s**(仅在被锁时计时,拿不到即退,**绝不排队 7300s** ⇒ 不阻塞主链;对照:本链 `upload-etf-score`/`upload-fund-score` 本就排队等锁,10-08 曾等 222s)。选它是为了「既不阻塞主链、又不与主链既有上传打架」(见 §3)。
 3. **必须带 `REPO=` 且必须 export**(`update_all.sh` 上方 L37 已有 `export REPO GIT_REPO`,#75 显式导出确保子进程继承)。云上 `upload_r2.py:_find_env()` 候选路径中**唯一存在**的是 `REPO/.env`(=`/home/ubuntu/code/trade-data/.env`);`GIT_REPO/.env`(=`…/trade-data-signal/.env`)**不存在**。故若 `REPO` 只在脚本内赋值而未 export,**子 python 看不到** ⇒ 报「无 .env」exit 1(本阶段测试装置曾踩此坑,生产代码 L37 已正确 export,无需改)。
 4. **rc 用命令替换后的 `$?` 捕获**(不是管道 `PIPESTATUS`)——因为输出已 `2>&1` 收进变量,再 `printf` 落日志。
 
@@ -94,17 +94,19 @@ deploy.sh  L582      触发 r2_upload_async(此时才 upload-all-data,alert.json
 
 ### 3-b. 10-08 时间窗重叠证据(FAIL-1 的立论依据,云上日志重建)
 
-| 事件 | 时点(北京时间) | 证据 |
-|---|---|---|
-| fund_nav 异步长锁 **起** | 18:28:38 | `r2_upload_async_fund_nav` 日志(255/256 桶全量重传) |
-| C6/C7 alert 导出完(**F2 首次窗口起点**) | ≈19:29:45 | update_all 日志 export_alert/export_alert_analyze 行 |
-| etf_score_list 导出(138.7s) | ≈19:30:47→19:33:06 | 同上 |
-| **upload-etf-score 排队等锁 ≈211s** | 19:33:06→≈19:36:48 | 期间无输出 ⇒ 等锁 |
-| fund_nav 异步长锁 **释放**(4089.8s) | 19:36:48 | 锁文件 + 日志 |
-| **F2 首次窗口**(60s) | ≈19:30:50 | 完全落在 18:28:38→19:36:48 锁内 ⇒ **必然 SKIPPED_LOCKED** |
-| **F2b 二次窗口起点** | ≈19:37(etf_score_list 之后) | **> 19:36:48 释放点** ⇒ 当夜即可自解 |
+> 下表**前 5 行 = 实测**(云上日志/锁文件,数字自洽);**后 2 行(F2/F2b 窗口) = 推演值** —— 基于实测时点 + 代码上线后各段顺序/耗时推算,未见当日实跑日志(当日该代码尚未上线)。
 
-**结论**:①「最需要自解锁的日子 = 锁最被占的日子」这一结构性事实成立 ⇒ 单次尝试不够,故加二次;②二次位置选在 etf_score_list 之后,正是利用「upload-etf-score 排队等锁 → 返回时锁刚释放」这一既有节奏 ⇒ 二次大概率命中。
+| 事件 | 时点(北京时间) | 证据 / 性质 |
+|---|---|---|
+| fund_nav 异步长锁 **起** | 18:28:38 | `r2_upload_async_fund_nav` 日志(255/256 桶全量重传)· **实测** |
+| C6/C7 alert 导出完 | ≈19:29:45 | update_all 日志 export_alert/export_alert_analyze 行 · **实测** |
+| etf_score_list 导出(138.7s) | ≈19:30:47→19:33:06 | 同上 · **实测** |
+| **upload-etf-score 排队等锁 222s**(3 分 42 秒) | 19:33:06→≈19:36:48 | 期间无输出 ⇒ 等锁 · **实测** |
+| fund_nav 异步长锁 **释放**(4089.8s) | 19:36:48 | 锁文件 + 日志 · **实测** |
+| **F2 首次窗口**(60s) | ≈19:30:50 | 完全落在 18:28:38→19:36:48 锁内 ⇒ **必然 SKIPPED_LOCKED** · **推演值** |
+| **F2b 二次窗口起点** | ≈19:37(etf_score_list 之后) | **> 19:36:48 释放点** ⇒ 当夜即可自解 · **推演值** |
+
+**结论**:①「最需要自解锁的日子 = 锁最被占的日子」这一结构性事实成立 ⇒ 单次尝试不够,故加二次;②二次位置选在 etf_score_list 之后,正是利用「upload-etf-score 排队等锁(222s)→ 返回时锁刚释放」这一既有节奏 ⇒ 二次大概率命中。
 
 ## 4. R2 实测证据(写侧=云上;内容幂等,多次 PUT 内容逐位不变)
 
@@ -186,6 +188,14 @@ cd /home/ubuntu/code/trade-data/static-site/data && \
 - 云上:备份 `/home/ubuntu/backup/f2-236-20261009/alert.json.before`(md5 65c60ad5…);T1 上传后 `ssd HEAD /data/alert.json` `LM=Fri, 09 Oct 2026 09:16:23 GMT`/`etag=65c60ad5…`;T2 后再验 `LM` 未变(=零写)。
 - 线上:`ss.fx8.store/data/alert.json` GET md5=65c60ad5…。
 - 结构:`docs/ops/deploy-selflock-recon-20261009.md` §2(死锁行号)/§4(F1+F2 互补)/§5(F2 方向);`docs/ops/236-f2-alert-upload-decouple-review-20261009.md`(独立审查:7 PASS/2 FAIL,本阶段修复 FAIL-1 双次尝试 + FAIL-2 过度宣称)。
+
+## 8. 复审追加观察(2026-10-09 二次独立审 reviewer 提供,如实登记)
+
+> 来源:二次独立审查(`236-f2-review2-20261009.md`)。代码 6 项全 PASS;以下 3 条为审查观察,不属本任务修复范围,**如实登记不擅自处置**。
+
+1. **update_all 新入 SKIPPED_LOCKED 监测面(#181 冻结面牵动)**:F2 的 `SKIPPED_LOCKED` 输出进了 update_all 日志 ⇒ 落进「上传缺口」监测口径。计数按**轮**去重不放大(同轮多次尝试只计一轮);但「**try1 跳过 + try2 成功**」之夜**仍留一行计数** —— 连续 3 夜出现窄窗竞争会触发「上传缺口持续」**误报**。**处置:记录不动**(不改监测口径、不为 F2 加特例;若日后真误报,再按 #181 冻结面流程评估)。
+2. **§22 瞬态错位(F2 成功形态的伴生,非缺陷)**:F2 于 ≈19:30 起把 R2 的 alert.json 更新为 T 日;而**首页预警条读的是 `boot.alert`**,要等 **20:07 backfill 链的 deploy 重生成 ≈20:10** 才跟上 ⇒ 中间**约 40 分钟**「R2 alert.json(T)vs 首页 boot.alert(旧)」两个展示位不一致。这是 F2 落地后新引入的瞬态窗口。**处置:记录 + 上报主控待拍板,不擅自改行为**(§23.7 已上线功能冻结:动展示位时序须用户确认)。
+3. **理论边界(仅登记)**:若本地 `alert.json` / `alert_analyze_*.json` **全部缺失**,`cmd_upload_data_files` 会打 `⚠ 无文件` 但 **rc=0** ⇒ F2 会打一个**假的 ✓**(「完成」)而实际零上传。当前不会发生(上游 C6/C7 export 已生成文件);仅登记该理论边界,未改行为。
 
 ---
 *实施 agent 落档;只 commit + push feat 分支,不 push main;merge 由主控走 `scripts/main-merge.sh`。*
