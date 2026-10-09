@@ -49,9 +49,13 @@
 【告警】--notify 才真发(默认 dry 只打印, 单测/手动排查安全):
   notify.py <subject> <body> --severe --from-prefix "[告警]"
     --dedup-key failed_units_patrol --dedup-window 0
-  ⚠️ #240 ②(2026-10-09): 窗口 21600 → **0**。每日 1 次 / 集合有变立即报的闸门已移到本脚本自管
-  (adr.failed_units_daily_judge), 若仍留 6h 窗会把「集合有变立即报」吞掉。--dedup-key 一字不改
+  ⚠️ #240 ②(2026-10-09): 窗口 21600 → **0**。每日 1 次 / 集合变化判定的闸门已移到本脚本自管
+  (adr.failed_units_daily_judge), 若仍留 6h 窗会把「新增立即报」吞掉。--dedup-key 一字不改
   (notify.py #196③「连续 3 天升 critical」以该 key 精确接线)。
+  ⚠️ #240 ② 精修(2026-10-09, 方向感知): 判定**拆方向** —— **新增** failed unit 立即报;
+  **集合缩小(=恢复进展)** 静默; 次日首报照报; 同集合 24h 二次 added 抖动抑制(unit 反复
+  fail→clear→fail)。判据见 adr.failed_units_identity / adr.failed_units_daily_judge。
+  真故障判别维度保留: 新增立即报 + #196③ 连续 3 天升 critical + 跨日首报。
   ⚠️ F1 复审(2026-10-09): notify.py **恒 return 0**(含「全部渠道未发出」, notify.py:2362),
   故「是否发出去」判据不能只看 rc(否则渠道全失败照样落签名 → 当日同集合全抑制 = 当天失报);
   改看输出汇总(_notify_sent)。全渠道失败 → 不落签 → 下轮重试, 不吞真故障。
@@ -199,15 +203,39 @@ def _read_sig_state(path):
         return {}
 
 
-def _write_sig_state(path, signature, today_str):
-    """原子落盘集合签名状态(与 consecutive_days_escalate 同款 tmp+replace)。失败仅告警不阻断。"""
+def _write_sig_state(path, prev_state, *, sent, reason, observed_sig, observed_items,
+                     today_str, now_str):
+    """原子落盘集合状态(与 consecutive_days_escalate 同款 tmp+replace)。失败仅告警不阻断。
+
+    #240 ② 精修(方向感知): 状态字段(见 alert_denoise_rules.failed_units_daily_judge docstring):
+      signature          = 最近一次「真发出」告警的集合签名(原语义保留)
+      prev_signature     = **上一轮观测**到的集合签名(供下一轮变更比对)
+      items              = **上一轮观测**到的成员列表(方向判定: added/shrunk)
+      last_alert_date    = 最近一次真发出告警的自然日
+      last_added_signature/last_added_at = 抖动抑制(同集合 24h 二次 added)
+    sent=False(降噪静默轮): 只刷新观测字段(prev_signature/items), **不动** signature/last_alert_date
+      —— 否则「集合缩小」静默轮会把「上次已报集合」抹掉, 破坏当日去重与抖动判定。
+    sent=True 且 reason∈{"added","changed"}: 记 last_added_*(抖动抑制基准; changed=迁移期保守报,
+      语义上也是「新集合首报」, 同样需作为抖动基准, 否则首次告警后的同集合二次 added 无基准可比)。
+    """
+    prev_state = prev_state if isinstance(prev_state, dict) else {}
+    new = {
+        "signature": observed_sig if sent else str(prev_state.get("signature") or ""),
+        "prev_signature": observed_sig,
+        "items": list(observed_items or []),
+        "last_alert_date": today_str if sent else str(prev_state.get("last_alert_date") or ""),
+        "last_added_signature": str(prev_state.get("last_added_signature") or ""),
+        "last_added_at": str(prev_state.get("last_added_at") or ""),
+        "updated_at": now_str,
+    }
+    if sent and reason in ("added", "changed"):
+        new["last_added_signature"] = observed_sig
+        new["last_added_at"] = now_str
     try:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_name(p.name + ".tmp")
-        tmp.write_text(json.dumps({"signature": signature, "last_alert_date": today_str,
-                                   "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
-                                  ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps(new, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(p)
     except Exception as e:  # noqa: BLE001
         print(f"[failed-units] 集合签名状态落盘失败(下轮或重复报一次, 不吞真故障): {e}",
@@ -357,19 +385,32 @@ def main() -> int:
         for s in suppressed:
             print(f"[suppress] {s}")
 
+    now = datetime.now()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    today_str = now.strftime("%Y-%m-%d")
+    _sig_state_path = repo / "data" / adr.FAILED_UNITS_SIG_STATE_FILENAME
+    _prev_state = _read_sig_state(_sig_state_path)
+    # 方向判定用的**细粒度成员**(见 adr.failed_units_identity): failed unit 名逐个 + 存活异常逐条
+    _identity = adr.failed_units_identity(failed, watchman)
+
     if not problems:
+        # 健康轮: 记录「集合已空」观测 —— 否则「清空后同 unit 重现」会被误判为 shrunk 而**漏报**
+        # (真故障判别维度: 重现 = 新一次失败, 必须报)。仅在「曾观测到非空集合」时写一次, 免每轮空写。
+        if do_notify and (_prev_state.get("items") or _prev_state.get("prev_signature")
+                          or _prev_state.get("signature")):
+            _write_sig_state(_sig_state_path, _prev_state, sent=False, reason="empty",
+                             observed_sig="", observed_items=[],
+                             today_str=today_str, now_str=now_str)
+            print("[failed-units] 记录「集合已空」观测(供方向判定)", file=sys.stderr)
         print(f"CHECK_FAILED_UNITS_OK failed=0 watchman={len(WATCHMAN_UNITS)} 个 timer 全部在跑")
         return 0
 
-    # ── ③ 降噪(#240 ②, 2026-10-09) ──
-    # 同一失败集合当日只报 1 次(消除 09:45/16:00/22:15 三封同文); 集合有变(新增/消失)
-    # 立即报; 次日首报照报。判定为纯函数(adr.failed_units_daily_judge), 状态单独落盘。
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    # ── ③ 降噪(#240 ② + 方向感知精修, 2026-10-09) ──
+    # 同一失败集合当日只报 1 次(消除 09:45/16:00/22:15 三封同文); **新增** failed unit 立即报;
+    # **集合缩小(=恢复进展)** 静默; 次日首报照报; 同集合 24h 二次 added 抖动抑制。
+    # 判定为纯函数(adr.failed_units_daily_judge), 状态单独落盘。
     _sig = adr.failed_units_signature(problems)
-    _sig_state_path = repo / "data" / adr.FAILED_UNITS_SIG_STATE_FILENAME
-    _send, _reason = adr.failed_units_daily_judge(
-        _read_sig_state(_sig_state_path), _sig, now.strftime("%Y-%m-%d"))
+    _send, _reason = adr.failed_units_daily_judge(_prev_state, _sig, _identity, today_str, now)
     subject = f"[告警] 云上 unit 巡检发现异常({len(problems)} 项) {now_str[5:16]}"
     body_lines = []
     if failed:
@@ -385,13 +426,20 @@ def main() -> int:
 
     if do_notify:
         if not _send:
-            print(f"[failed-units] 降噪: 失败集合与上次已报一致且今日已报(reason={_reason}), "
-                  f"本轮不重发(集合变化/次日首报即发)", file=sys.stderr)
+            # shrunk(集合缩小=恢复进展) / same-set-same-day(当日同集合) / added-jitter(抖动):
+            # 静默, 但仍**刷新观测字段**(prev_signature/items)供下轮方向判定(不动已报集合基准)
+            _write_sig_state(_sig_state_path, _prev_state, sent=False, reason=_reason,
+                             observed_sig=_sig, observed_items=_identity,
+                             today_str=today_str, now_str=now_str)
+            print(f"[failed-units] 降噪: 本轮不重发(reason={_reason}; "
+                  f"仅「新增 failed unit」/「次日首报」才发)", file=sys.stderr)
             return 1
         sent, detail = _send_notify(repo, subject, body)
         if sent:
             # 只有真发出才落状态(发送失败→不落→下轮重试, 不吞真故障)
-            _write_sig_state(_sig_state_path, _sig, now.strftime("%Y-%m-%d"))
+            _write_sig_state(_sig_state_path, _prev_state, sent=True, reason=_reason,
+                             observed_sig=_sig, observed_items=_identity,
+                             today_str=today_str, now_str=now_str)
             print(f"[failed-units] 告警已发出(--severe, reason={_reason})", file=sys.stderr)
         else:
             # F1 复审: notify.py 恒 return 0, 全渠道失败也会走到这里(输出含「全部渠道未发出」)

@@ -11,6 +11,9 @@
   ② failed unit 每 6h 重报(check_failed_units.py): R3 —— 同一集合 09:45/16:00/22:15 三封同文。
      修 = `adr.failed_units_daily_judge`(集合未变+当日已报 → 跳过; 集合有变 → 立即报; 次日首报照报),
      notify 侧 `--dedup-window 0`(窗口自管), dedup-key 保持 `failed_units_patrol`(保 #196③ 升档接线)。
+     **②精修(2026-10-09, 方向感知)**: `changed` 拆 `added`(新增→立即报)/`shrunk`(只有移除→静默),
+     状态加 `prev_signature`+`items`; 真故障判别维度保留(新增立即报 / #196③ 3 天升 critical / 跨日首报);
+     同集合 24h 二次 added 抖动抑制。依据 docs/ops/alert-system-fullchain-audit-20261009.md §6-L3a。
   ③ intraday 碰线(schedule_monitor.sh): R7 —— 928s vs 900s(仅超 3%)判 SEVERE + 15min 后恢复。
      修 = 单轮碰线进 pending 桶, 连续 `DUR_CONTINUOUS_THRESHOLD` 轮才 SEVERE; `>= 2×阈值` 单次立即报。
      **真退化照报**(09-30 盘后 2081s → 反例断言)。
@@ -145,27 +148,65 @@ FileNotFoundError: [Errno 2] No such file or directory'''
 # ══════════════════════ ② failed unit 每日 1 次 / 集合变即报 ══════════════════════
 
 def test_02_signature_and_judge_pure():
-    """② 纯函数: 签名与顺序无关; 判定四态(empty/changed/daily-first/same-set-same-day)。"""
+    """② 纯函数: 签名与顺序无关; 方向判定(added/shrunk/daily-first/same-set/抖动/迁移)。"""
     a = adr.failed_units_signature(["b.service", "a.service"])
     b = adr.failed_units_signature(["a.service", "b.service"])
     _chk(a == b and len(a) == adr.FAILED_UNITS_SIG_LEN, "② 签名应与顺序无关且定长")
     _chk(adr.failed_units_signature([]) == "" and adr.failed_units_signature(None) == "",
          "② 空集合签名应为空串")
     _chk(adr.failed_units_signature(["a.service"]) != a, "② 集合变 → 签名应变")
+    _chk(adr.failed_units_identity(["x", "y", "x"], ["p"]) == ["x", "y", "p"],
+         "② 细粒度成员应去重保序(含巡检异常描述)")
 
     sig = adr.failed_units_signature(["a.service"])
-    _chk(adr.failed_units_daily_judge({}, "", "2026-10-09") == (False, "empty"), "② empty 不应发")
-    _chk(adr.failed_units_daily_judge({}, sig, "2026-10-09") == (True, "changed"),
-         "② 无历史 → 集合变 = 立即报")
-    _chk(adr.failed_units_daily_judge({"signature": sig, "last_alert_date": "2026-10-08"},
-                                      sig, "2026-10-09") == (True, "daily-first"),
-         "② 集合同但跨日 → 次日首报照报")
+    items = ["a.service"]
+    # empty / 迁移期(旧状态无 items)
+    _chk(adr.failed_units_daily_judge({}, "", [], "2026-10-09") == (False, "empty"), "② empty 不应发")
+    _chk(adr.failed_units_daily_judge({}, sig, items, "2026-10-09") == (True, "changed"),
+         "② 迁移期无成员快照 → 保守立即报(fail-open)")
     _chk(adr.failed_units_daily_judge({"signature": sig, "last_alert_date": "2026-10-09"},
-                                      sig, "2026-10-09") == (False, "same-set-same-day"),
-         "② 集合同+当日已报 → 跳过(消除 6h 重报)")
-    _chk(adr.failed_units_daily_judge({"signature": "deadbeef0000", "last_alert_date": "2026-10-09"},
-                                      sig, "2026-10-09") == (True, "changed"),
-         "② 当日已报但集合变了 → 立即报")
+                                      sig, items, "2026-10-09") == (False, "same-set-same-day"),
+         "② 迁移期旧状态+签名同+当日已报 → 跳过(不因精修平白多报)")
+    _chk(adr.failed_units_daily_judge({"signature": sig, "last_alert_date": "2026-10-08"},
+                                      sig, items, "2026-10-09") == (True, "daily-first"),
+         "② 迁移期旧状态+签名同+跨日 → 次日首报照报")
+
+    # 方向: 有 items 快照
+    sig_ab = adr.failed_units_signature(["a.service", "b.service"])
+    st_ab = {"prev_signature": sig_ab, "items": ["a.service", "b.service"],
+             "last_alert_date": "2026-10-09"}
+    _chk(adr.failed_units_daily_judge(
+        st_ab, adr.failed_units_signature(["a.service", "b.service", "c.service"]),
+        ["a.service", "b.service", "c.service"], "2026-10-09") == (True, "added"),
+        "② 有新增成员 → 立即报(added)")
+    _chk(adr.failed_units_daily_judge(
+        st_ab, adr.failed_units_signature(["a.service"]), ["a.service"],
+        "2026-10-09") == (False, "shrunk"),
+        "② 只有移除(集合缩小=恢复进展) → 静默(shrunk)")
+    _chk(adr.failed_units_daily_judge(st_ab, sig_ab, ["a.service", "b.service"],
+                                      "2026-10-09") == (False, "same-set-same-day"),
+        "② 集合未变+当日已报 → 跳过")
+    _chk(adr.failed_units_daily_judge(
+        {"prev_signature": sig_ab, "items": ["a.service", "b.service"],
+         "last_alert_date": "2026-10-08"}, sig_ab, ["a.service", "b.service"],
+        "2026-10-09") == (True, "daily-first"),
+        "② 集合未变+跨日 → 次日首报照报")
+    # added 优先于 removed(同时有增有减 → 报, 新 unit 是真信号)
+    _chk(adr.failed_units_daily_judge(
+        st_ab, adr.failed_units_signature(["a.service", "c.service"]),
+        ["a.service", "c.service"], "2026-10-09") == (True, "added"),
+        "② 有增有减 → added 优先(新 unit 必须报)")
+
+    # 抖动抑制: 结果集合与 24h 内二次 added 相同 → 静默
+    _jit = {"prev_signature": "", "items": [], "last_alert_date": "2026-10-09",
+            "last_added_signature": items and adr.failed_units_signature(items),
+            "last_added_at": "2026-10-09 10:00:00"}
+    _chk(adr.failed_units_daily_judge(_jit, sig, items, "2026-10-09",
+                                      datetime.datetime(2026, 10, 9, 10, 30)) == (False, "added-jitter"),
+         "② 同集合 24h 二次 added → 静默(抖动抑制)")
+    _chk(adr.failed_units_daily_judge(_jit, sig, items, "2026-10-10",
+                                      datetime.datetime(2026, 10, 10, 11, 0)) == (True, "added"),
+         "② 超 24h 的同集合 added → 照报(窗口外不抑制)")
 
 
 _HEALTHY_SHOW = {u: {"ActiveState": "active", "LoadState": "loaded", "UnitFileState": "enabled"}
@@ -214,7 +255,7 @@ def test_02b_e2e_daily_once_and_change_immediate(monkeypatch, tmp_path):
         # 集合有变(新增 unit): 立即报
         rc3, c3, out3 = _cfu_main(monkeypatch, tmp_path, _FAILED_LINE + "trade-y.service loaded failed failed Trade Y\n")
         _chk(rc3 == 1 and len(c3) == 1, f"② 集合有变应立即报, rc={rc3} n={len(c3)}")
-        _chk("reason=changed" in out3, f"② 应变应记 reason=changed, out={out3[-200:]}")
+        _chk("reason=added" in out3, f"② 新增应记 reason=added, out={out3[-200:]}")
 
         # 状态落盘可查(下次判定依据)
         st = json.loads((tmp_path / "data" / adr.FAILED_UNITS_SIG_STATE_FILENAME).read_text(encoding="utf-8"))
@@ -285,6 +326,57 @@ def test_02e_all_channels_failed_writes_no_signature_and_retries(monkeypatch, tm
          "F1 全渠道失败不得落签名状态文件")
     _chk("告警已发出" not in out2, "F1 失败轮不得声称已发出")
     _chk(trap.hits == [], f"F1 零外发被破坏: {trap.hits}")
+
+
+def _fl(unit):
+    return f"{unit} loaded failed failed {unit}\n"
+
+
+def test_02f_e2e_direction_aware_shrink_silent_add_reported(monkeypatch, tmp_path):
+    """②精修 端到端: 新增立即报 / **集合缩小静默** / 再次新增(不同集合)仍报。
+
+    复现审计 §2-D3: 集合 7→6→5→4→2 的纯「缩小」方向触发, 今日 4 条假信号。
+    """
+    X, Y, Z = _fl("trade-x.service"), _fl("trade-y.service"), _fl("trade-z.service")
+    with ZeroOutboundTrap() as trap:
+        rc1, c1, _ = _cfu_main(monkeypatch, tmp_path, X + Y)     # added → 报
+        _chk(rc1 == 1 and len(c1) == 1, f"②精修 新增应报, rc={rc1} n={len(c1)}")
+        rc2, c2, out2 = _cfu_main(monkeypatch, tmp_path, X)      # shrunk → 静默
+        _chk(rc2 == 1 and len(c2) == 0, f"②精修 集合缩小应静默, rc={rc2} n={len(c2)}")
+        _chk("reason=shrunk" in out2, f"②精修 缩小应记 reason=shrunk, out={out2[-200:]}")
+        rc3, c3, out3 = _cfu_main(monkeypatch, tmp_path, X + Z)  # added z(不同集合) → 报
+        _chk(rc3 == 1 and len(c3) == 1, f"②精修 再新增应报, rc={rc3} n={len(c3)}")
+        _chk("reason=added" in out3, f"②精修 再新增应记 reason=added, out={out3[-200:]}")
+        st = json.loads((tmp_path / "data" / adr.FAILED_UNITS_SIG_STATE_FILENAME).read_text(encoding="utf-8"))
+        _chk(set(st.get("items") or []) == {"trade-x.service", "trade-z.service"},
+             f"②精修 观测成员应刷新为最新集合, 实得 {st.get('items')}")
+        _chk(st.get("prev_signature") == adr.failed_units_signature(
+            ["云上 failed unit: trade-x.service, trade-z.service"]),
+            f"②精修 prev_signature 应落最新观测, 实得 {st.get('prev_signature')}")
+    _chk(trap.hits == [], f"②精修 零外发被破坏: {trap.hits}")
+
+
+def test_02g_e2e_jitter_and_reappear_after_clear(monkeypatch, tmp_path):
+    """②精修 端到端: 同集合 24h 二次 added 抖动抑制; 集合清空后重现仍报(不因曾缩到空漏报)。"""
+    X, Y = _fl("trade-x.service"), _fl("trade-y.service")
+    with ZeroOutboundTrap() as trap:
+        rc1, c1, _ = _cfu_main(monkeypatch, tmp_path, X + Y)     # added → 报(last_added={x,y})
+        _chk(rc1 == 1 and len(c1) == 1, f"②精修 新增应报, rc={rc1} n={len(c1)}")
+        rc2, c2, _ = _cfu_main(monkeypatch, tmp_path, X)          # shrunk → 静默
+        _chk(rc2 == 1 and len(c2) == 0, f"②精修 缩小应静默, rc={rc2} n={len(c2)}")
+        rc3, c3, out3 = _cfu_main(monkeypatch, tmp_path, X + Y)   # 同集合二次 added(抖动) → 静默
+        _chk(rc3 == 1 and len(c3) == 0, f"②精修 同集合二次 added 应抖动抑制, rc={rc3} n={len(c3)}")
+        _chk("reason=added-jitter" in out3, f"②精修 应记 added-jitter, out={out3[-200:]}")
+        # 集合清空(main 返回 0 并记录空观测) → 同 unit 重现 = 新一次失败, 应报
+        rc4, c4, _ = _cfu_main(monkeypatch, tmp_path, "")
+        _chk(rc4 == 0 and len(c4) == 0, f"②精修 健康轮应 rc=0 且不发, rc={rc4} n={len(c4)}")
+        st4 = json.loads((tmp_path / "data" / adr.FAILED_UNITS_SIG_STATE_FILENAME).read_text(encoding="utf-8"))
+        _chk(st4.get("items") == [], f"②精修 健康轮应记录空观测(items=[]), 实得 {st4.get('items')}")
+        # 清空后「子集」重现(= 真新失败)必须报: 若不做空观测, prev={x,y} 会把 {x} 误判 shrunk 而漏报
+        rc5, c5, out5 = _cfu_main(monkeypatch, tmp_path, X)
+        _chk(rc5 == 1 and len(c5) == 1, f"②精修 清空后子集重现应报(不吞真故障), rc={rc5} n={len(c5)}")
+        _chk("reason=added" in out5, f"②精修 重现应 reason=added, out={out5[-200:]}")
+    _chk(trap.hits == [], f"②精修 零外发被破坏: {trap.hits}")
 
 
 # ══════════════════════ ③ 执行耗时「单轮碰线」降噪(schedule_monitor.sh) ══════════════════════

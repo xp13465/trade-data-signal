@@ -87,8 +87,23 @@ WATCHMAN_UNITS = (
 #   - 次日首报(集合同但跨自然日) → 照报(reason="daily-first")
 #   ⇒ 静默的只有「同一事实的当日重复」, 真故障(新 unit 挂 / 持续未清)一封不少
 #     (持续未清另有 #196③ 连续 3 天升 critical 兜底)。
+#
+# ---- #240 ② 精修(2026-10-09, 方向感知; 见 docs/ops/alert-system-fullchain-audit-20261009.md §6-L3a)----
+# 病灶2(审计 §2-D3 / §3-F3): 原判定**对称**, 不区分方向 —— 集合**新增** failed unit(真信号)
+#   与集合**缩小**(unit 被清零/恢复)一视同仁「立即报」⇒ 12:52 部署后 7 连发中 4 条
+#   (17:00/18:15/18:30/20:15)是纯「恢复进展」方向的假信号(今日 unit 巡检 9/20 条, 占 45%)。
+# 精修口径(把 changed 拆方向; 判别维度一条不少):
+#   - added         : 新集合 − 旧集合 非空(新增 failed unit / 新存活异常) → **立即报**
+#   - added-jitter  : 新增, 但「结果集合」24h 内已 added 过 → 静默(防 unit 反复 fail→clear→fail 抖动)
+#   - shrunk        : 只有移除(集合缩小 = 恢复进展) → 静默(并入观测, 不单独发)
+#   - daily-first   : 集合与上次观测一致且跨自然日 → 照报(每日一次提醒)
+#   - same-set-same-day: 集合与上次观测一致且当日已报 → 跳过
+#   - changed       : 旧状态无成员快照(迁移期, 方向不可判) → 保守照报(fail-open)
+#   ⇒ **真故障判别维度保留**: ①新增立即报 ②持续未清由 #196③ 连续 3 天升 critical 兜底
+#     ③跨日首报照旧 ④集合清空后 unit 重现 = added(会报, 不因「曾缩到空」漏掉重现的真故障)
 FAILED_UNITS_SIG_STATE_FILENAME = "failed_units_patrol_sig.json"  # 签名+最近一次已报日期状态
 FAILED_UNITS_SIG_LEN = 12                                          # 签名取 md5 前 N 位(可读+足够区分)
+FAILED_UNITS_ADDED_JITTER_WINDOW = timedelta(hours=24)            # #240②精修: 同集合二次 added 抖动抑制窗
 
 # ---- #240 ③ 复审 F2(2026-10-09) dur 计数桶键标记(单一事实源) ----
 # 桶键 = f"{task}|dur_buffer|{阈值}"; schedule_monitor.sh 用本常量**构造**桶键 + 在恢复循环里
@@ -108,18 +123,67 @@ def failed_units_signature(problems) -> str:
     return hashlib.md5("|".join(sorted(items)).encode("utf-8")).hexdigest()[:FAILED_UNITS_SIG_LEN]
 
 
-def failed_units_daily_judge(state: dict, signature: str, today_str: str) -> tuple:
-    """#240 ② 每日一次判定(纯函数, 不碰 I/O)。返回 (send: bool, reason: str)。
+def failed_units_identity(failed_units, watchman_problems=None) -> list:
+    """方向判定用的**细粒度成员集**(去重保序): failed unit 名逐个 + 巡检者存活异常描述逐条。
 
-    state = 上次**成功发送**后落盘的状态 {"signature": str, "last_alert_date": "YYYY-MM-DD"}。
-    reason ∈ {"empty"(无异常, 调用方本不该调) / "changed"(集合变→立即报) /
+    ⚠️ 方向判定必须用细粒度成员, **不能**用汇总后的整串("云上 failed unit: a, b")——
+       否则集合缩小(a,b → a)会表现为「整串换新」= 旧串消失 + 新串出现, 被误判为
+       added(实为 shrunk)⇒ 方向判定失效、恢复进展照旧被当故障报。
+    """
+    out = []
+    for x in list(failed_units or []) + list(watchman_problems or []):
+        s = str(x)
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def failed_units_daily_judge(state: dict, signature: str, items, today_str: str, now=None) -> tuple:
+    """#240 ② 方向感知每日判定(纯函数, 不碰 I/O)。返回 (send: bool, reason: str)。
+
+    state = 上次落盘状态:
+      {"signature"/"prev_signature": 上次观测集合签名, "items": 上次观测成员列表(方向判定),
+       "last_alert_date": 最近一次真发出日期, "last_added_signature"/"last_added_at": 抖动抑制}。
+    signature = 本轮集合签名(变更检测键, 与调用方 failed_units_signature(problems) 同源)。
+    items     = 本轮**细粒度成员**(方向判定; 见 failed_units_identity)。
+    now       = 当前时间(抖动抑制窗口用; 缺省 None → 不做抖动抑制, fail-open 照报)。
+
+    reason ∈ {"empty"(无异常, 调用方本不该调) / "added"(有新增→立即报) /
+              "added-jitter"(同集合二次新增→静默) / "shrunk"(只有移除→静默) /
+              "changed"(迁移期无成员快照→保守照报) /
               "daily-first"(今日首报) / "same-set-same-day"(当日同集合重复→跳过)}。
     """
     if not signature:
         return False, "empty"
-    if str(state.get("signature") or "") != signature:
-        return True, "changed"
-    if str(state.get("last_alert_date") or "") != today_str:
+    prev_sig = str(state.get("prev_signature") or state.get("signature") or "")
+    last_alert_date = str(state.get("last_alert_date") or "")
+    prev_items_raw = state.get("items")
+
+    if isinstance(prev_items_raw, list):
+        _items = sorted(str(p) for p in (items or []) if str(p))
+        _prev = set(str(x) for x in prev_items_raw if str(x))
+        _cur = set(_items)
+        _added = _cur - _prev
+        if _added:
+            # 抖动抑制: 结果集合与 24h 内上一次 added 相同 → 静默(unit 反复 fail→clear→fail)
+            _la_sig = str(state.get("last_added_signature") or "")
+            _la_at = str(state.get("last_added_at") or "")
+            if now is not None and _la_at and signature == _la_sig:
+                try:
+                    _at = datetime.strptime(_la_at, "%Y-%m-%d %H:%M:%S")
+                    if timedelta(0) <= (now - _at) < FAILED_UNITS_ADDED_JITTER_WINDOW:
+                        return False, "added-jitter"
+                except (ValueError, TypeError):
+                    pass
+            return True, "added"
+        if _prev - _cur:
+            return False, "shrunk"
+        # 无增无减(含聚合串顺序变化): 落到按日判定(下方统一)
+    else:
+        # 迁移期(旧状态无成员快照): 方向不可判 → 按签名判「变没变」, 变了保守照报(fail-open)
+        if signature != prev_sig:
+            return True, "changed"
+    if last_alert_date != today_str:
         return True, "daily-first"
     return False, "same-set-same-day"
 
