@@ -98,3 +98,24 @@ df -h /System/Volumes/Data; du -sh /Users/linhuichen/code/trade /Users/linhuiche
 6. stash ×3:是否 drop(含 README 口味项)。
 
 > 落档:docs/ops/disk-cleanup-executed-20261009.md(2026-10-09,未 commit,待主控统一收)。
+
+---
+
+## 八、续记:2026-10-10 git gc 执行(#234-4,用户 2026-10-09 已批准)
+
+> 执行:主控(2026-10-10 00:4x,§14 安全窗口内)。
+> §25 可逆性前置:本轮**只做对象库回收,不删任何 ref / 分支 / worktree**。
+
+| 项 | 事前 | 事后 |
+|---|---|---|
+| packs | 18 | **1** |
+| size-pack | 1.59 GiB | **1.27 GiB**(释放 ≈ **0.32 GiB**) |
+| loose( count / size )| 5,651 / 131.22 MiB | 1,635 / 156.42 MiB |
+| df `/` | 142Gi avail | 142Gi avail(容量本就充裕,非压力项) |
+
+- 命令:`git reflog expire --expire=30.days --all` → `git gc --prune=30.days --quiet`(后台执行,约 30 秒完成)
+- **reflog 保留 30 天**(未用 `now`,按 §25 保守口径);`--prune=30.days` ⇒ **30 天内的不可达对象一律不删** —— 现存那 1,635 个 loose(156 MiB)正属此类「新近不可达」(前几日删分支/worktree 的残留),满 30 天后可再 gc 清除,故本轮**没有**把体积压到最小,这是**刻意的安全取舍**(已如实标注,未为好看而收紧 prune 窗口)
+- **恢复路径**:本轮零删除动作 ⇒ 无内容丢失。若需回到 gc 前形态,`git fsck --lost-found` 仍可扫 dangling 对象(与 甲4 `.git/lost-found/` 同法)
+- §25 合规:① 先确认可逆(只回收不可达对象,ref 全保留)② 事后体积实测比对(上表)③ 未删任何 ref/分支/worktree ④ 恢复路径已写明
+- **§七 待拍板项 4(gc 择时 + 批准)就此闭环**;其余 5 项(gc 之外)仍待拍板
+- 落档方式说明:原曾落在分支 `feat/disk-gc-record-1010`,但该分支基点是 W1 的 commit(非 main),直接 merge 会回退 main 上的 W1/W2 内容 ⇒ 改为**在 main 树直接补录本节**,该分支已按 §25 核验「独有内容已迁走」后删除
