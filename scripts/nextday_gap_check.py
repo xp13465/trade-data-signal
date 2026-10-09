@@ -52,6 +52,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from signal_kelly_backtest import PSEUDO_GAP_EXCLUDE, _fetch_intraday_open_prices  # noqa: E402
+from notify_sent import notify_state  # noqa: E402  (#241 Pattern B/W2: 三态判据, 同 notify_sent 唯一实现)
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 LOG_TAG = "[nextday_gap_check]"
@@ -71,7 +72,10 @@ def _severe_alert(subject, body):
            "--dedup-key", "nextday_gap_check_gen_fail", "--dedup-window", "3600"]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        log(f"severe 告警 rc={r.returncode}")
+        # #241 Pattern B / W2(2026-10-10): 本函数 fire-and-forget(不 gate 行为), 仅把无判别力
+        # 的 rc 换为可读三态(state), 便于排障时看出「真发出 / 被抑制 / 未发出」。
+        _st = notify_state((r.stdout or "") + "\n" + (r.stderr or ""))
+        log(f"severe 告警 state={_st} rc={r.returncode}")
     except Exception as e:
         log(f"⚠ severe 告警调用异常(无法送达): {e}")
 
@@ -377,9 +381,14 @@ def _sync_r2_and_notify(excluded, steps_changed, today, no_r2=False, no_notify=F
             log("notify: " + subject)
             try:
                 r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-                log(f"notify 退出码={r.returncode}")
-                if r.returncode != 0:
-                    log(f"⚠ notify 失败 rc={r.returncode}")
+                # #241 Pattern B / W2(2026-10-10): rc 无判别力(notify.py main() 所有出口恒
+                # return 0)。改三态判据: sent=真发出; suppressed=被 dedup 窗口抑制(已发过,
+                # 成功且已知); failed/未知=保守置 notify_rc=1(交包装层告警/重试)。
+                out = (r.stdout or "") + "\n" + (r.stderr or "")
+                state = notify_state(out)
+                log(f"notify 退出码={r.returncode} state={state}")
+                if state not in ("sent", "suppressed"):
+                    log(f"⚠ notify 未发出 state={state} rc={r.returncode}")
                     notify_rc = 1
             except Exception as e:
                 log(f"⚠ notify 异常: {e}")

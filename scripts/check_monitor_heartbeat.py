@@ -24,8 +24,8 @@ notify --severe 告警到用户（含 latest.md 流水区留痕）。
       [--heartbeat-path /tmp/schedule-monitor-heartbeat.txt] \
       [--stale-seconds 1800] [--repo <REPO>] [--dry-run]
 
-退出码：0=健康（静默无输出告警）或「已判定异常且告警已发起」；2=判定异常但 notify
-  调用失败（告警未能发出，需人工介入）。
+退出码：0=健康（静默无输出告警）或「已判定异常且告警已发出/被 dedup 窗口抑制」；
+  2=判定异常但 notify 未确认发出（failed/异常，需人工介入）。
 """
 from __future__ import annotations
 
@@ -34,6 +34,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from notify_sent import notify_state  # noqa: E402  (#241 Pattern B/W2: 三态判据, 同 notify_sent 唯一实现)
 
 # 默认心跳文件：与 schedule_monitor.sh 尾部 heartbeat 段（L2255 附近）一致
 DEFAULT_HEARTBEAT = Path("/tmp/schedule-monitor-heartbeat.txt")
@@ -98,14 +100,19 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as e:  # noqa: BLE001
         print(f"[monitor-heartbeat] notify 调用失败（告警未能发出）: {e}", file=sys.stderr)
         return 2
-    if r.returncode != 0:
-        print(f"[monitor-heartbeat] notify 返回 rc={r.returncode}: "
-              f"{(r.stdout + r.stderr).strip()[:300]}", file=sys.stderr)
-        return 2
-    print(f"[monitor-heartbeat] 已发起告警（dedup {DEDUP_KEY}/{DEDUP_WINDOW}s）",
-          file=sys.stderr)
-    # 告警已由 notify 独立通道发出（email/feishu/latest.md），本脚本正常完成
-    return 0
+    # #241 Pattern B / W2(2026-10-10): rc 无判别力(notify.py main() 所有出口恒 return 0)。
+    # 改三态判据(notify_sent.notify_state): sent=真发出; suppressed=被 dedup 窗口抑制
+    # (=已发过, 成功且已知, 不重试不报错); failed/未知=保守回 rc 2(交调度层告警)。
+    out = (r.stdout or "") + "\n" + (r.stderr or "")
+    state = notify_state(out)
+    if state in ("sent", "suppressed"):
+        print(f"[monitor-heartbeat] notify 已处理({state}, rc={r.returncode}, "
+              f"dedup {DEDUP_KEY}/{DEDUP_WINDOW}s)", file=sys.stderr)
+        # 告警已由 notify 独立通道发出（email/feishu/latest.md）或被窗口抑制，本脚本正常完成
+        return 0
+    print(f"[monitor-heartbeat] notify 未发出（state={state}, rc={r.returncode}）: "
+          f"{out.strip()[:300]}", file=sys.stderr)
+    return 2
 
 
 if __name__ == "__main__":

@@ -81,6 +81,7 @@ import kelly_posrating as kp  # noqa: E402  (复用 S06Resolver + _tds_fade_spec
 from app import queries as appq  # noqa: E402  (首页 AI建议同款: etf_for/_etf_freeze/_align_home_top1_to_backtest/_ai_macro_*)
 from app.collector.fetchers import load_config  # noqa: E402  (indicators.yaml indicator.market 归类)
 from signal_kelly_backtest import PSEUDO_GAP_EXCLUDE  # noqa: E402  (伪跳空阈值同源, 不各写一个数)
+from notify_sent import notify_state  # noqa: E402  (#241 Pattern B/W2: 三态判据, 同 notify_sent 唯一实现)
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 K = 1                       # K 档(每日 top1, 与首页 AI仓位建议默认 K=1 一致)
@@ -113,7 +114,9 @@ def _severe_alert(subject, body):
            "--dedup-key", "nextday_plan_gen_fail", "--dedup-window", "3600"]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        log(f"severe 告警 rc={r.returncode}")
+        # #241 Pattern B / W2(2026-10-10): fire-and-forget, 仅把无判别力的 rc 换为可读三态。
+        _st = notify_state((r.stdout or "") + "\n" + (r.stderr or ""))
+        log(f"severe 告警 state={_st} rc={r.returncode}")
     except Exception as e:
         log(f"⚠ severe 告警调用异常(无法送达): {e}")
 
@@ -1244,13 +1247,19 @@ def main():
         log("notify: " + subject)
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-            log(f"notify 退出码={r.returncode}")
-            if r.returncode != 0:
+            # #241 Pattern B / W2(2026-10-10): rc 无判别力(notify.py main() 所有出口恒
+            # return 0)。改三态判据: sent=真发出; suppressed=被 dedup 窗口抑制(已发过,
+            # 成功且已知, 不算失败); failed/未知=保守置 notify_rc=1 交包装层告警。
+            out = (r.stdout or "") + "\n" + (r.stderr or "")
+            state = notify_state(out)
+            log(f"notify 退出码={r.returncode} state={state}")
+            if state not in ("sent", "suppressed"):
                 # F2: 关键 notify(计划已生成)失败 = 用户收不到次日计划, 属会让线上停滞的一环
                 # (计划产物本身已落盘, 但通知是 PRD 阶段一交付物的显式出口, 失败必须非 0 暴露,
                 # 由 nextday_plan.sh 包装层兜底再发 severe; 此处只在包装已存在基础上叠加非 0,
                 # 不重复发 severe —— 包装 --dedup-key nextday_plan_fail 已覆盖该失败面)
-                log(f"⚠ notify 失败 rc={r.returncode}(计划已生成但通知未送达, 退出码非 0 交包装层告警)")
+                log(f"⚠ notify 未发出 state={state} rc={r.returncode}"
+                    f"(计划已生成但通知未送达, 退出码非 0 交包装层告警)")
                 notify_rc = 1
         except Exception as e:
             log(f"⚠ notify 异常: {e}")

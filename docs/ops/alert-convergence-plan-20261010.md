@@ -27,7 +27,7 @@
 
 ### 改动 3 件(同一分支,同一作者上下文)
 1. **单点台账 `data/alerts/alert_ledger.jsonl`**
-   - 写点 = `notify.py` 的**唯一外发出口**(审计定位:通用汇总处 L2359/2368-2371 附近)。
+   - 写点 = **3 个渠道函数** `send_feishu`/`send_telegram`/`_send_email`（CLI 13 个分支 + 10 个库直调脚本的共同必经点）；原述通用汇总处覆盖不全。
    - 每封**实际外发**追加一行:`{ts, tree(REPO), tier, key(dedup_key 或 subject 哈希), subject, channels{email,feishu}, source(sys.argv[0] / NOTIFY_SOURCE)}`。
    - **冻结面处理(§23.7)**:纯新增追加写、**零现有行为变更**;best-effort(写失败不阻塞发送,同 `_mirror_severe` 模式);路径解析**沿用该文件既有 3 处 env 先例** `Path(os.environ.get("REPO") or REPO)`(L2227/2267/2317)—— 是既有模式的推广,**不是新发明**;`--dry-run` **不写台账**(同 #184 的 latest.md 约定)。
    - **出口穷举(防漏记)**:开工先列 `notify.py` 全部真实外发出口并确认是否单点;若不止一处,**选能覆盖全部真实外发的最小集合**,出口清单随报告落档(不许只挂一处就声称全量)。
@@ -45,11 +45,17 @@
 
 ## 3. W2 — L3d / #241 Pattern B 3 处(与 #241 合并为一个项,不重开)
 
-### 病灶
-`check_monitor_heartbeat.py` / `nextday_gap_check.py` / `nextday_plan_generator.py` 用「`rc` 判 notify 是否真发出」;而 `notify.py` 的 **dedup 抑制分支静默 `return 0`(不打任何输出)** ⇒ 包装层**无法区分「真发出」与「被去重抑制」**,只能在「弱化 fail-safe(有丢告警风险)」与「不动」之间二选一。
+### 定案（2026-10-10，实施落地口径）
+**已定案：路线 B（不动冻结面 `notify.py`）**。理由：抑制路径**本就有 stderr 输出（7 处）**，真正病灶 = `notify.py` 的 CLI 13 个分支**恒 `return 0`**（rc 无判别力）⇒ **只需让判据学会读既有输出**（`scripts/notify_sent.py:notify_state` 三态：`sent`/`suppressed`/`failed`），**无需给 notify.py 加任何新行**。落地与自验见 `docs/ops/w2-notify-tri-state-20261010.md`。
 
-### 推荐改法(加法,不弱化判别维度)
-给冻结面加**一行机器可读输出**(例:`[notify] dedup-suppressed key=<k>`),让判据升级为**三态**:
+### 病灶
+`check_monitor_heartbeat.py` / `nextday_gap_check.py` / `nextday_plan_generator.py` 用「`rc` 判 notify 是否真发出」;而 `notify.py` 的 **CLI 13 个分支恒 `return 0`,rc 无判别力** ⇒ 包装层**无法区分「真发出」与「被去重抑制」**,只能在「弱化 fail-safe(有丢告警风险)」与「不动」之间二选一。
+**订正（证伪, 2026-10-10 调研）**：原述「dedup 抑制分支静默 `return 0`（不打任何输出）」与代码事实不符 —— 抑制路径**有 stderr 输出（7 处）**；真正病灶 = **CLI 13 个分支恒 `return 0`，rc 无判别力**；故改走**路线 B（不动冻结面）**，判据改为读抑制行的 stderr 输出（`scripts/notify_sent.py:notify_state` 三态）。
+
+### 曾评估路线 A（加法）——**未采用**（对照留存）
+> **未采用原因（2026-10-10 定案）**：①需动冻结面 `notify.py`（在抑制分支追加机器可读行），与 W1 改 `notify.py` **同文件 ⇒ 必须串行**；②**非必要** —— 抑制路径本就有 stderr 输出，路线 B 已能读全既有 5 类抑制行（见上「定案」）。此段仅作「曾评估、未采用」对照，**非推荐改法**，节内「推荐」措辞不再指向本段。
+
+路线 A 原设想（**未采用**）：给冻结面加**一行机器可读输出**(例:`[notify] dedup-suppressed key=<k>`),让判据升级为**三态**:
 
 | 态 | 判据 | 包装层动作 |
 |---|---|---|
@@ -57,8 +63,9 @@
 | **被抑制** | 新增抑制标记命中 | **成功且已知**,不重试、不报错(这正是当前 fail-safe 想表达却表达不出的语义) |
 | 全渠道失败 | 已有 #241 Pattern A 契约 | 不落签 ⇒ 下轮重试 |
 
-### 前置穷举(必须先做,防新输出行破坏既有解析)
+### 前置穷举（路线 A 专用；已在调研 Q2 完成）
 列出**所有解析 `notify.py` stdout/stderr 的调用方**,给出「新增这一行会不会破坏它」的逐项判定。
+（该穷举已在独立调研 Q2 完成，结论=新增行对既有解析全部非破坏；**路线 B 不新增行**，故本前置不再是路线 B 的必经项。）
 
 ## 4. W3 — #241B 前端通知与邮件送达解耦
 
