@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS fapi_daily_raw (
 **增量策略**:
 - 常规:daily-k-10d(每交易日下载一次,1.1MB,10 日窗口)
 - **10 日增量落后 >7 自然日 → 切 daily-k(10 年全量)重建**(契约原文推荐口径)
+  > ⚠️ 注记(2026-10-09):该**自然日**口径已改为**交易日**口径(缺口 **>10 交易日**才切全量,见 #238 / `docs/ops/fapi-daily-oom-fix-20261009.md`),原文保留作历史记录。
 - 全量 daily-k 实测 verify:更新 download-url 后下载即可,10y dump 行数约 945 万行(主控情报),单次 ~200-500MB 量级,仅兜底重建用,不每日拉
 
 **调度时点**:17:50 update_all 之后(18:00+),或在 update_all.sh 后追加一个 fapi pipeline;避开 15:35/16:00/17:50/20:35/22:00 既有任务(§14)。**推荐 18:10 独立 launchd 任务**(与 update_all 错峰,7 分钟余量)。

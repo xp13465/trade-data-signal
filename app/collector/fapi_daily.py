@@ -35,6 +35,9 @@
 → 一次性 executemany),消除 3.6GB 小机「单次全量 OOM 拖垮整机」。
 峰值地板 = pyarrow 解码的最大 row group(rg0 = 765 万行 / 8 列未压缩 183MB,
 加 pyarrow 工作集 ≈ 285MB 地板),与全量行数无关。
+写入前先**两遍扫描**(pass1 只流式统计 dup/金额合法性,**不映射不写库**;全部通过后
+pass2 才流式映射 + 逐批 upsert),校验不过 ⇒ **零写入** + raise —— 恢复 #238 前
+「过检才写」语义(区别于「逐批写完后尾部校验」的写后检);两遍均流式,峰值不退化。
   增量与本地重叠按主键 (thscode,date_ms) UPSERT 去重,幂等可重复。
 
 幂等/重试:UPSERT 天然幂等;下载 5 分钟过期前立即用,session 重试 ≤3 次指数
@@ -83,6 +86,9 @@ BATCH_SIZE = 10_000
 # 映射实际用到的列(其余 currency/interval/adjusted 全程未用,列裁剪省内存 —— 实测有效)
 _COLS = ["thscode", "date_ms", "open_price", "high_price", "low_price",
          "close_price", "volume", "turnover"]
+# pass1(守卫统计)只需分组键 + 重复判 + 金额语义判,裁掉 OHLC 4 列。列裁剪把 pass1 的
+# pyarrow 解码缓冲降到约一半,保证「两遍扫描」的合计峰值不退回到单遍以上(见 #238 落档 §2)。
+_GUARD_COLS = ["thscode", "date_ms", "volume", "turnover"]
 RETRY = 3
 BACKOFF = [5, 15, 30]  # 秒
 
@@ -276,16 +282,17 @@ def map_frame(df) -> list[tuple]:
     return rows
 
 
-def _iter_groups(path, batch_size: int = BATCH_SIZE):
+def _iter_groups(path, batch_size: int = BATCH_SIZE, columns=None):
     """流式产出 (thscode, {列名→numpy 数组}) **完整组**(#238 ④核心)。
 
     前提:dump 按 thscode **连续分组**(定因报告已证 dump 按 thscode 排序)。批尾未闭合
     的组缓冲至下一批,各批只放行已闭合的组(组=处理原子单位)。
     守卫:某 thscode 被放行后再次出现 ⇒ dump 分组前提被破坏,抛错中止(防把
     pct_change 静默算错),不静默吞掉。
-    只读映射所需列(`_COLS`);`use_threads=False` 省 pyarrow 线程缓冲;逐列转 numpy
-    (不经 `to_pandas()`),实测峰值更低。
+    只读 `columns`(默认映射所需 8 列 `_COLS`;pass1 守卫只需 4 列,列裁剪降解码内存);
+    `use_threads=False` 省 pyarrow 线程缓冲;逐列转 numpy(不经 `to_pandas()`),实测峰值更低。
     """
+    cols_want = list(columns) if columns is not None else _COLS
     pf = pq.ParquetFile(path)
     pend = None                    # 尾部未闭合组:列名 → numpy 数组(已 copy,脱离 batch)
     pend_ts = None
@@ -300,10 +307,10 @@ def _iter_groups(path, batch_size: int = BATCH_SIZE):
         finalized.add(ts)
         return ts, cols
 
-    for batch in pf.iter_batches(batch_size=batch_size, columns=_COLS,
+    for batch in pf.iter_batches(batch_size=batch_size, columns=cols_want,
                                  use_threads=False):
         arr = {name: batch.column(i).to_numpy(zero_copy_only=False)
-               for i, name in enumerate(_COLS)}
+               for i, name in enumerate(cols_want)}
         codes = arr["thscode"]
         n = len(codes)
         if n == 0:
@@ -318,9 +325,9 @@ def _iter_groups(path, batch_size: int = BATCH_SIZE):
         if pend is not None:
             if str(codes[0]) == pend_ts:
                 if len(starts) == 1:  # 整批同码(单组 ≥ 批大小,罕见):仍未闭合,继续缓冲
-                    pend = {k: np.concatenate([pend[k], arr[k]]) for k in _COLS}
+                    pend = {k: np.concatenate([pend[k], arr[k]]) for k in cols_want}
                     continue
-                merged = {k: np.concatenate([pend[k], arr[k][:ends[0]]]) for k in _COLS}
+                merged = {k: np.concatenate([pend[k], arr[k][:ends[0]]]) for k in cols_want}
                 yield _emit(pend_ts, merged)
                 j0 = 1
             else:
@@ -330,7 +337,7 @@ def _iter_groups(path, batch_size: int = BATCH_SIZE):
         for j in range(j0, len(starts)):
             s, e = int(starts[j]), int(ends[j])
             # copy 脱离 batch 缓冲(尾部组要跨批存活,不 pin 整批内存)
-            sub = {k: arr[k][s:e].copy() for k in _COLS}
+            sub = {k: arr[k][s:e].copy() for k in cols_want}
             if j == len(starts) - 1:
                 pend, pend_ts = sub, str(codes[s])  # 尾部未闭合组(≥1 行)
             else:
@@ -339,25 +346,26 @@ def _iter_groups(path, batch_size: int = BATCH_SIZE):
         yield _emit(pend_ts, pend)
 
 
-def process_parquet(path, *, batch_size: int = BATCH_SIZE, on_rows=None) -> dict:
-    """流式处理 dump parquet:逐组映射 → 分批回调 `on_rows(rows)`(#238 ④)。
+def scan_parquet(path, *, batch_size: int = BATCH_SIZE) -> dict:
+    """pass1:流式**只统计**(主键重复 / turnover 语义),不映射、不写库(#238 ①)。
 
-    峰值内存与 `batch_size` 同阶(非全量)。防御断言(与旧全量口径等价):
+    防御断言(与旧全量口径等价):
       · 主键 (thscode,date_ms) 零重复:重复项必共享 thscode ⇒ 必落在同一组内,
         故「组内 date_ms 去重判」== 「全量 (thscode,date_ms) 去重判」;
       · turnover 语义机检:全量累计 |turnover|>|volume| 占比 ≥0.9(命名坑守卫)。
+    校验不过 ⇒ 抛错(调用方 `process_parquet` 因此**一个字节都不写**)。
+    行的分母 `len(dm)` == `_map_group` 的行数(每输入行恒映射一行),故 ratio 口径不变。
+    pass1 **列裁剪**(`_GUARD_COLS` 4 列,不需 OHLC)⇒ 解码缓冲 ≈ 单遍 8 列的一半,
+    故「pass1 + pass2」合计峰值不高于单遍流式(实测 ~298MB,见 #238 落档 §2)。
     """
     total = 0
     dup = 0
     amt_ok = 0
-    for ts, cols in _iter_groups(path, batch_size):
+    for ts, cols in _iter_groups(path, batch_size, columns=_GUARD_COLS):
         dm = cols["date_ms"]
         dup += int(len(dm) - len(np.unique(dm)))
         amt_ok += int(np.sum(np.abs(cols["turnover"]) > np.abs(cols["volume"])))
-        rows = _map_group(ts, cols)
-        total += len(rows)
-        if on_rows is not None:
-            on_rows(rows)
+        total += len(dm)
     if dup:
         raise RuntimeError(f"[fapi_daily] dump 主键重复 {dup} 行,中止(数据异常)")
     if total and amt_ok / total < 0.9:
@@ -367,16 +375,21 @@ def process_parquet(path, *, batch_size: int = BATCH_SIZE, on_rows=None) -> dict
     return {"rows": total, "dup": dup, "amt_ok": amt_ok}
 
 
-def upsert_rows(rows: list[tuple]) -> int:
-    if not rows:
-        return 0
-    conn = get_conn()
-    try:
-        conn.executemany(_UPSERT_SQL, rows)
-        conn.commit()
-    finally:
-        conn.close()
-    return len(rows)
+def process_parquet(path, *, batch_size: int = BATCH_SIZE, on_rows=None) -> dict:
+    """流式处理 dump parquet:**两遍扫描**(pass1 校验 → pass2 映射/写)。
+
+    峰值内存与 `batch_size` 同阶(非全量);两遍均流式、串行,峰值不因两遍叠加。
+    过检才写(#238 ①):pass1(`scan_parquet`)全部通过后,pass2 才逐组映射 →
+    回调 `on_rows(rows)`。校验不过 ⇒ pass1 直接 raise,调用方**零写入**(恢复
+    #238 前「写前检」语义,非「逐批写完后尾部校验」)。
+    代价:多读一遍 parquet(full 路径 ≈ +20s;流式内存不变)。
+    """
+    stats = scan_parquet(path, batch_size=batch_size)  # pass1:过检才写
+    for ts, cols in _iter_groups(path, batch_size):     # pass2:映射 + 逐批回调
+        rows = _map_group(ts, cols)
+        if on_rows is not None:
+            on_rows(rows)
+    return stats
 
 
 def db_latest_date() -> str | None:
@@ -448,12 +461,16 @@ def run(full: bool = False, dry_run: bool = False) -> dict:
         print(f"[fapi_daily] DRY-RUN: 映射 {stats['rows']} 行,不写库", flush=True)
         return {"dump": dump, "rows": stats["rows"], "dry_run": True}
 
-    # 流式:逐组映射 → 分批 upsert(每批 commit,限 WAL 增长),防御断言在内部累计
-    conn = get_conn()
+    # 两遍扫描:pass1 先校验(不过 ⇒ raise,写连接从未打开 ⇒ 零行入库),pass2
+    # 才逐组映射 → 分批 upsert(每批 commit,限 WAL 增长)。连接**首写才开**,
+    # 保证「过检才写」连 WAL pragma 也不在过检前发生(与 #238 前写前检语义一致)。
+    conn = None
     written = 0
 
     def _flush(rows: list[tuple]) -> None:
-        nonlocal written
+        nonlocal written, conn
+        if conn is None:
+            conn = get_conn()
         conn.executemany(_UPSERT_SQL, rows)
         conn.commit()
         written += len(rows)
@@ -461,7 +478,8 @@ def run(full: bool = False, dry_run: bool = False) -> dict:
     try:
         process_parquet(dest, on_rows=_flush)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
     n = written
     conn = get_conn()
