@@ -15,7 +15,7 @@
 | `suppressed` | 命中 `notify.py` **既有抑制行的 stderr 输出**（5 类，行首锚定） | **成功且已知**（不重试不报错） |
 | `failed`/未知 | 其余（全渠道失败 / 空输出 / 无法判定） | **保守**：站点回非 0（交包装层告警/下轮重试），沿用 #241「不吞真故障」 |
 
-**零改 `notify.py`**（另一 implementer 正独立改它）；既有 `notify_sent()` 函数体**一字不改** ⇒ 存量 12 个调用方零回归。
+**零改 `notify.py`**（另一 implementer 正独立改它）；既有 `notify_sent()` 函数体**一字不改** ⇒ 存量 **9** 个调用方零回归（7 个 .py 直调：`detect_intraday_anomaly` / `overfit_monitor` / `check_s06_freshness` / `check_data_gap_alerts` / `retry_failed_metrics` / `sensenova-proxy-healthcheck` / `check_failed_units`；2 个 .sh 内嵌 python：`monitor_72h.sh:919`、`schedule_monitor.sh:2837`）。
 
 ## 1. 病灶订正（写回 plan，§2/§3 各一处）
 
@@ -50,7 +50,7 @@
   - **反向用例（必测）**：`[notify][tier=warning] 路由完成：{... 'defer_status': 'suppressed'}` 行**同时含**
     `路由完成：` + `True` ⇒ `notify_sent` 为真 ⇒ **判 `sent`**（**不得**因行内 `suppressed` 子串误判 suppressed）。
   - 真抑制路径（`check_dedup`）只打抑制行、不打任何 `已发出`/`路由完成：` ⇒ `notify_sent` 假 ⇒ 落到 suppressed。
-- 空输出 / 未知形态 ⇒ `failed`（保守）。`notify_sent()` 保持原判据不变（12 调用方零回归）。
+- 空输出 / 未知形态 ⇒ `failed`（保守）。`notify_sent()` 保持原判据不变（**9** 调用方零回归，口径见 §0）。
 
 ## 4. 3 站点改动 diff 摘要
 
