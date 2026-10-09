@@ -38,7 +38,17 @@
   `send`/`send_to` ← check_signals / gen_daily_brief / signal_kelly_snapshot / check_nt_signals /
   nextday_plan_generator 等。
 
-**挂钩选择（最小集覆盖全部真实外发，两级设计）**：
+**挂钩选择（最小集覆盖 notify 家族全部外发，两级设计）**：
+
+> ⚠️ **scope 收窄声明（审查 F2 订正）**：台账的覆盖范围 = **`notify.py` 全部外发**，
+> **不是**「全系统全部外发」。另有 **3 条非 notify 直发链路不在本台账口径内**（各自另有
+> 链路，本次不做、不扩冻结面）：
+> ① `scripts/daily_summary_email.py` **自建 smtplib**（每日实际 2 封：main 17:50 由
+>    update_all 调 + supplement 20:30）；
+> ② `scripts/brief_push.py` **订阅者 webhook POST**（L165-179，不走 notify 的 send_feishu）；
+> ③ `scripts/feishu_missed_fetch.py` import `feishu_ws_listener` 的 `send_receipt`
+>    （与 §1 末「回执旁路」同族，是第二个出处）。
+> 若要「全系统外发」口径，需另开任务把这 3 条对齐到同一台账（不在 W1 范围）。
 
 1. **消息级**：`send()` / `send_to()` 各记 **1 条**（含 `tier/key/group/merged_count`）；
 2. **底层直调**：把 `send_feishu` / `_send_email` / `send_telegram` 三个**模块级名字**替换为
@@ -72,11 +82,11 @@
 | # | 纠偏点 | 核对结果 | 处置 |
 |---|---|---|---|
 | 1 | 「消息级+渠道级双层打点 = 每封记两次」 | **不成立**：有 `threading.local()` 重入深度守卫 —— `send/send_to` 分发期间 depth>0 ⇒ 渠道包装**跳过**记账。机检证据：`test_B1`（email+feishu 都成功 ⇒ 台账**恰好 1 行**）、`test_B3`（send_to+send ⇒ 2 行而非 4 行） | 维持两级设计（理由见 §1.2），无需改 |
-| 2 | 最小覆盖集 = {send_feishu, send_telegram, _send_email}；CLI 13 分支汇总处覆盖不全 | **认同**：原设计只包了 send_feishu/_send_email，**已补 `send_telegram`**（`_ledger_telegram_dispatch`）；CLI 13 分支虽走 `send/send_to/send_tiered/flush_warning_batch`，但**全部**最终落到这 3 个原语 ⇒ 渠道包装使其无一漏网 | 已补 TG（`test_B2` 三渠道各 1 条） |
+| 2 | 最小覆盖集 = {send_feishu, send_telegram, _send_email}；CLI 13 分支汇总处覆盖不全 | **认同**：原设计只包了 send_feishu/_send_email，**已补 `send_telegram`**（`_ledger_telegram_dispatch`）；CLI 13 分支虽走 `send/send_to/send_tiered/flush_warning_batch`，但**全部**最终落到这 3 个原语 ⇒ 渠道包装使其**在 notify 家族内**无一漏网（**范围=notify 家族**；3 条非 notify 直发链路见 §1 的 scope 收窄声明） | 已补 TG（`test_B2` 三渠道各 1 条） |
 | 3 | 内部旁路 `_alert_feishu_config_missing` 是否走 `_send_email` | **走**（函数体末 `ok = _send_email(...)`）。depth==0 由渠道包装记 1 条；**发现嵌套残留漏记**：`send_feishu` 内 cfg 缺失触发它时 depth>0，渠道包装会跳过 ⇒ 已在该函数内**条件补记**（仅 `_ledger_depth() > 0` 时补，depth==0 不补 ⇒ 零双记） | 已修 + `test_H1/H2` 锁死（1 条 / 2 条） |
 | 4 | hook 必须落在各渠道 dry-run 早退**之后** | **等价满足**：记账在**包装层**（调用原函数返回后）执行，且条件含 `and not dry_run`；另原函数 dry-run 早退时返回 False ⇒ 双重保证。三渠道逐一验证 | `test_B4` 扩到四入口（send / send_feishu / _send_email / send_telegram） |
 | 5 | 用 `scripts/tests/_zero_outbound.py` L11-14 官方对照表逐项核对 | **逐项一致**（3 原语：urlopen×2 + SMTP_SSL）——详见 §1 末段交叉验证 | 已引用 + 补两处易漏点核实 |
-| 6 | 不许碰 notify.py 现存 5 类 suppress 输出措辞（L2183 被 `retry_failed_metrics.py:130` 文本匹配） | **零触碰**：`git diff scripts/notify.py` 的删除行仅 15 行，全为「扩签名加参数」与「渠道调用加 try/finally 缩进」；**无一行是 print/suppress 文案**；台账新增打印一律走 **stderr**（`[notify][ledger] …`），与 stdout 文本匹配消费者正交；`notify_sent.py` 未在本次 diff 内 | 机检证据留档（§5.5） |
+| 6 | 不许碰 notify.py 现存 5 类 suppress 输出措辞（L2183 被 `retry_failed_metrics.py:130` 文本匹配） | **零触碰**：`git diff scripts/notify.py` 的删除行共 **18 行**（审查复核实测值，见 §5.4），全为「扩签名加参数」与「渠道调用加 try/finally 缩进」；**无一行是 print/suppress 文案**；台账新增打印一律走 **stderr**（`[notify][ledger] …`），与 stdout 文本匹配消费者正交；`notify_sent.py` 未在本次 diff 内 | 机检证据留档（§5.5） |
 | 7 | 定清聚合口径：渠道级「每信道一行」 vs 台账「每封一行 + channels{}」，`alert_daily.json` 怎么还原封数 | **见 §1.2**：本设计**不存在**「一封拆多行」，故 `total` = 封数 = 台账行数（按 group 过滤即告警条数），无需「还原」 | 明文写入口径定义 |
 
 ## 1.2 聚合口径定义（回答纠偏点 1/7）
@@ -158,7 +168,30 @@ depth==0 时不补（由渠道包装记，防双记）。
 
 ## 5. 自验证据
 
-### 5.1 今日真实 20 条样本重放（§18 L49 真样本，非人工构造）
+### 5.1 今日 20 条样本重放（事件级真实；字段标签=人工重建，见口径声明）
+
+**口径声明（审查 F1 订正，必读）**：本节的 **事件级 20 条是真实生产事件**（时间/条数/事件归属
+与云上双树 `latest.md` 的 severe 记录 + 审计 §4 逐条定性表一致；审计截点后新增的
+22:35 数据缺口×3、23:30 unit 巡检已**正确排除**），但表内 **`subject` / `key` / `source`
+三列是人工重建的语义标签，不是生产原值的逐字照抄**：
+
+| 字段 | 重建原因 | 生产实际值 |
+|---|---|---|
+| `subject` | unit 巡检族生产模板为 `[告警] 云上 unit 巡检发现异常(N 项) MM-DD HH:MM`；本节为便于人读写成 `云上 failed unit 巡检: N 个未清` | 见左列生产模板 |
+| `key` | `schedule_monitor_alert` 这个键**全库唯一出处就是本报告 + 本次测试**：生产 monitor 告警走 CLI 且**不带 `--dedup-key`** ⇒ 台账实键走哈希回退 | `sha1(subject)[:12]`（12 位十六进制） |
+| `source` | 见下「by_source 塌缩局限」 | 该批 **23 处云上 `latest.md`「来源」字段实测全为 `notify.py`** |
+
+另订正：`REAL_20` #1 的 `source` 标 `upload_r2.py`，但该告警（key `r2_upload_trigger_fail`）
+真实发射者是 `deploy.sh`（L611/621）——同属「标签非原值」；因此下表的 `by_source` 分解
+**生产不可复现**，仅用于演示按键/源聚合的能力。
+
+**已知局限（by_source 在生产近似常量）**：云上 `latest.md` 的「来源」字段 23 处实测**全是
+`notify.py`**（CLI 家族按 `sys.argv[0]` 解析 ⇒ 走 notify CLI 的告警全部塌缩成同一个值）
+⇒ **`by_source` 维度在生产近似常量、暂不可用于归因**；**当前可用维度 = `by_group` / `by_tier`**
+（`by_key` 仅在带 `--dedup-key` 的告警上可用）。
+**后续项（本次不做，勿扩冻结面）**：根治 = 给 CLI 家族注入 `NOTIFY_SOURCE` 环境变量
+（`_record_ledger` 已支持优先级「显式 `source` > `NOTIFY_SOURCE` > `sys.argv[0]`」，
+故只要注入即可激活），另开 W2 小任务。
 
 样本来源 = 审计 §4 逐条定性表 + §2/§3 的键/源证据；**人工重建 20 条 → 台账重算 20 条**
 （逐条对照表见 `scripts/tests/test_alert_meter_l1_20261010.py -s` 输出与
@@ -172,8 +205,9 @@ depth==0 时不补（由渠道包装记，防双记）。
 | 摘要并入 merged_in_digest | 0 | 0 | ✅ |
 
 `by_key`：`failed_units_patrol`=9、`schedule_monitor_alert`=4、其余 7 类各 1（合计 20）。
-`by_source`：check_failed_units.py 10 / schedule_monitor.sh 4 / deploy.sh 2 /
-upload_r2.py·intraday_snapshot.sh·nextday_gap_check.sh·nextday_gap_check.py 各 1。
+`by_source`（**重建标签，生产不可复现**，见上）：check_failed_units.py 10 /
+schedule_monitor.sh 4 / deploy.sh 2 / upload_r2.py·intraday_snapshot.sh·
+nextday_gap_check.sh·nextday_gap_check.py 各 1。
 双树校验：运行树 19 条 + 信号树（`nextday_gap_check_gen_fail`）1 条 ⇒ 跨树聚合 = 20（单一数字）。
 
 ### 5.2 幂等（重算两次逐位一致）
@@ -202,7 +236,9 @@ H1~H2 内部旁路嵌套漏记与零双记。）
 
 ### 5.4 冻结面证据（§23.7 + 纠偏点 6：零既有行为变更）
 
-`git diff scripts/notify.py` 删除行共 15 行，逐行核对**全为此三类**（无一是既有打印/判定/文案）：
+`git diff scripts/notify.py` 删除行共 **18 行**（实施初稿写 15 行，经独立审查逐行复核订正为 18；
+三类加总：签名加参 2 + 纯缩进位移 8 + 调用点加 `ledger_*` 关键字 8），逐行核对**全为此三类**
+（无一是既有打印/判定/文案）：
 ① `send`/`send_to`/`send_tiered` 签名行加新参数（尾部追加，位置调用不变）；
 ② `send`/`send_to` 内三条渠道调用**加 try/finally 缩进**（文本原样，仅缩进）；
 ③ `send_tiered`/`notify_agent_done`/`main` 的 send 调用**加 ledger_* 关键字**。
