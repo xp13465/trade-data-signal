@@ -21,8 +21,10 @@
     更新」(generated_at 新 / coverage_end 旧)同样能抓到。
 【告警】--notify 时才真发: notify.defer_warning 入聚合队列(schedule_monitor 尾部统一
   flush 批发), 同一 (coverage_end, N) 状态只 defer 一次(N 加深才再报), 去重状态记
-  data/s06_fresh_alert_state.json——且只在 notify 返回 0(确认入队)后落盘(codex008 F3:
-  先写后发的旧结构在发送失败时会把告警永久吞掉); 恢复(N<=1)清状态不发恢复邮件
+  data/s06_fresh_alert_state.json——且只在 notify **真发出/入队**后落盘(codex008 F3:
+  先写后发的旧结构在发送失败时会把告警永久吞掉; #241 起判据为真实路由结果 notify_sent,
+  **不看 rc** —— notify.py 恒 return 0 含「全部渠道未发出」/append_failed, 按 rc 落签会吞真告警);
+  恢复(N<=1)清状态不发恢复邮件
   (快照链正常重生本身即恢复, 免恢复轰炸)。默认 dry 只打印(单测/手动排查安全)。
 【dry 单测】--snap/--index 显式传构造样本路径即可验证判定与退出码(判定纯相对日期,
   无 now 依赖, 不需要假时钟)。复现命令见文件尾单测段注释。
@@ -41,6 +43,8 @@ from pathlib import Path
 # absolute() 非 resolve(): 保持 trade-data/scripts symlink 字面路径,
 # 使子进程 notify.py 的 REPO 探测落在与调用方(schedule_monitor flusher)同一棵树
 SCRIPT_DIR = Path(__file__).absolute().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+from notify_sent import notify_sent  # noqa: E402  #241 落签判据(与 #240 F1 共用唯一实现)
 # 数据仓候选: env 注入(REPO/GIT_REPO/MAIN_REPO, 与 pick_repo.candidate_repos 同类语义)优先,
 # 云上单仓(REPO=GIT_REPO=MAIN_REPO=/home/ubuntu/code/trade-data-signal)env 排最前;
 # env 缺失回退 macOS 本机 trade-data(向后兼容, 行为不变)。云上若仍用本机硬编码会读不到
@@ -132,10 +136,15 @@ def main() -> int:
                      "--tier", "warning", "--from-prefix", "[告警·聚合]"],
                     capture_output=True, text=True, timeout=60, check=False,
                 )
-                sent_ok = proc.returncode == 0
+                # #241: 落签判据不能看 rc —— notify.py 恒 return 0(含「全部渠道未发出」/
+                # defer_status='append_failed'), 通知全失败也 rc=0; 若按 rc 落签, 该过期告警
+                # 被后续轮次抑制 = 静默丢失。改判**真实路由结果**(唯一实现 scripts/notify_sent.py,
+                # 与 check_failed_units #240 F1 同一判据)。fail-safe: 判不出 ⇒ 不落签 ⇒ 下轮重试。
+                out = (proc.stdout or "") + (proc.stderr or "")
+                sent_ok = notify_sent(out)
                 if not sent_ok:
-                    print(f"[s06-fresh] notify.py rc={proc.returncode} 非零, 本次不落去重状态"
-                          f"(下轮重试): {(proc.stderr or proc.stdout or '')[-200:]}",
+                    print(f"[s06-fresh] notify.py 未真发出(rc={proc.returncode}), 本次不落去重状态"
+                          f"(下轮重试): {out.strip()[-200:]}",
                           file=sys.stderr)
             except Exception as e:  # noqa: BLE001
                 print(f"[s06-fresh] defer_warning 异常(不落状态待下轮重试): {e}", file=sys.stderr)
@@ -158,9 +167,10 @@ def _state_matches(repo: Path, cov_end: str, n: int) -> bool:
 
 
 def _record_state(repo: Path, cov_end: str, n: int, msg: str) -> bool:
-    """codex008 F3(P2): 去重状态只在发送成功(notify rc==0=已入队确认)后落盘;
-    发送失败/异常一律不写——旧结构先写后发且忽略 returncode, 发送失败时状态已被
-    记为「已告警」, 该过期告警永久丢失(每轮被抑制)。失败不写=下一监控周期自动重试。"""
+    """codex008 F3(P2) + #241: 去重状态只在 notify **真发出/入队**(notify_sent 判真实
+    路由结果, 不看 rc)后落盘; 发送失败/未入队/异常一律不写——旧结构先写后发且忽略
+    判据, 发送失败时状态已被记为「已告警」, 该过期告警永久丢失(每轮被抑制)。
+    失败不写=下一监控周期自动重试。"""
     p = _state_path(repo)
     try:
         p.parent.mkdir(parents=True, exist_ok=True)

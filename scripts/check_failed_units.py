@@ -87,6 +87,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).absolute().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 import alert_denoise_rules as adr  # noqa: E402
+from notify_sent import notify_sent  # noqa: E402  #240 F1 判据 + #241 同病根共用唯一实现
 
 # 数据仓候选: env 注入优先(云上 REPO=/home/ubuntu/code/trade-data), 回退 mac 本机 trade-data
 DEFAULT_REPO_CANDIDATES = [
@@ -217,25 +218,11 @@ def _notify_sent(output: str) -> bool:
     """从 notify.py 输出判定「是否真的发出过」(F1 复审, 2026-10-09)。
 
     notify.py 恒 return 0(含「全部渠道未发出」, notify.py:2362)⇒ rc 不能当发出判据。
-    三种输出形态:
-      ① 通用路径成功 → `[notify] 汇总：已发出 email/feishu`(notify.py:2368)
-      ② 通用路径全败 → `[notify] 汇总：全部渠道未发出（...）`(notify.py:2371)
-      ③ #196③ 升级档 → `[notify][196] 升级档路由完成：{'email': True, ...}`(notify.py:2334,
-         该路径 early return, 不发 ① 的通用汇总行)
-    判不出「发出过」时**保守返回 False** ⇒ 不落签名 ⇒ 下轮重试(宁可重复一次也不吞真故障)。
+    判据已抽为**唯一实现** `scripts/notify_sent.py:notify_sent`(#241 同病根, 2026-10-09):
+    两处(本脚本 + check_s06_freshness)共用同一函数, 杜绝第二份实现漂移。本包装仅为
+    保持既有调用点符号不变(#240 已验收), 判据本体见 notify_sent 模块 docstring。
     """
-    if not output:
-        return False
-    if "全部渠道未发出" in output:
-        return False
-    if "已发出" in output:
-        return True
-    _i = output.find("升级档路由完成：")
-    if _i >= 0:
-        _j = output.find("}", _i)
-        _seg = output[_i:_j + 1] if _j >= 0 else output[_i:]
-        return "True" in _seg
-    return False
+    return notify_sent(output)
 
 
 def _send_notify(repo, subject, body):
