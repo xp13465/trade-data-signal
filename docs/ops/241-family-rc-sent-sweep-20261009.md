@@ -18,7 +18,8 @@
 fail-safe: 判不出 ⇒ `False` ⇒ 不落签 ⇒ 下轮重试)。本批三处全部委托它, 与 #240/#241 共用同一份判据
 (杜绝第二份实现漂移, memory `repro-script-second-implementation-drift`)。
 
-## 1. 穷举清单(核心验收点: 全 scripts/ + app/ 交叉扫, 确认无第 4 处同后果站点)
+## 1. 穷举清单(核心验收点: 全 scripts/ + app/ 交叉扫; 本清单只覆盖 **rc 轴** —— **rc 轴无第 4 处同后果站点**,
+「落签轴」另有 ≥4 类站点见 **§7**)
 
 扫描口径: `grep -rln "notify.py" scripts`(含 .py/.sh)+ `grep -rn notify app` + 对「含 notify 且含 returncode」
 的文件逐个人读。结论按后果分 5 类:
@@ -72,9 +73,15 @@ deploy.sh / backup_db.sh / check_r2_consistency.sh / gold_night.sh / fund_nav_up
 cloud_unit_patrol.sh / nextday_plan.sh … 这些 shell 里 `rc=$RC` 是**触发检查自己的 rc**(内嵌进告警正文),
 **不是 notify 的 rc**;且多为 `2>&1 | tee` / `|| true` fire-and-forget, 不据 notify rc 落签。不属「用 rc 判 notify sent」。
 
-### 结论
-**「用 rc 判 notify 是否真发出」的站点 = Pattern A(3, 已修)+ Pattern B(3, 结构性卡住已上报)+ Pattern C(仅留痕, 不改)。
-无第 4 处「同后果(落签/抑制/丢告警)」遗漏。** 另发现 adjacent 病灶 1 处(Pattern D `upload_r2`)已列 §4。
+### 结论(2026-10-09 独立审补正)
+**rc 轴 = Pattern A(3, 已修)+ Pattern B(3, 结构性卡住已上报)+ Pattern C(仅留痕, 不改)——
+「rc 轴」无第 4 处遗漏。**
+⚠️ **但「落签轴」另有 ≥4 类站点(独立审给出反例, 见 §7)**:这些站点**不出现 rc**, 却同样
+**先落签/占窗、通知 fire-and-forget**(或进程内 `update_dedup` 不判 res)⇒ 通道全挂时**告警丢失
+且 state 已落签 ⇒ 条件持续期间永不重发**,与本批修的三处**同后果**。本批扫描口径只覆盖了 rc 轴,
+遗漏了落签轴——故原先「无第 4 处『同后果』遗漏」的表述**不成立, 已更正为**:
+「**rc 轴无第 4 处; 落签轴另有 ≥4 类站点(见 §7), 属动已上线行为, 已由主控另派 agent 处理**」。
+另 Pattern D `upload_r2` 的落签点计数由「1 处」更正为 **≥6 处**(见 §7.5)。
 
 ## 2. 代码改动(3 文件)
 
@@ -118,9 +125,10 @@ $ … -m pytest -q test_240_alert_denoise_batch2 test_223_overfit_monitor_timeou
 ## 4. §23.3 举一反三(同模式别处 + 上报项)
 
 - **同类 rc 失真已全列**(§1):A 修 3 / B 列出 3(结构性卡住)/ C 仅留痕不改 / E 非本模式;
-- **adjacent 病灶 1 处(上报)**:`scripts/upload_r2.py` L1366 附近进程内 `notify.send(...)` 后**不判 res 直接
-  `update_dedup`** ⇒ 全渠道失败也占 30min 窗(「sent 判定缺失」, 非「用 rc」)。修它=动 upload_r2 冻结链路,
-  需用户/主控决策, 本次**未动**。
+- **adjacent 病灶(上报)**:`scripts/upload_r2.py` 进程内 `notify.send(...)` 后**不判 res 直接 `update_dedup`** ——
+  全渠道失败也占窗(「sent 判定缺失」, 非「用 rc」)。**计数更正:非「1 处」,实为 ≥6 处**
+  (L1368/1369/1376、L1761/1762/1770、L2150/2151/2159、L3669/3670/3684、L3699/3700/3714、L3727/3728/3739;
+  另 L2057 仅 send 无 dedup=仅观测)。修它=动 upload_r2 冻结链路, 需用户/主控决策, 本次**未动**(详见 §7.5)。
 - **上报项(需主控/用户拍板)**:Pattern B 三处(check_monitor_heartbeat / nextday_gap_check / nextday_plan_generator)
   的「告警升级 rc 判据」修复——需先解决 `notify_sent` 无法区分通用路径 dedup 抑制的结构性问题(见 §1 Pattern B 理由 2/3)。
 
@@ -130,9 +138,54 @@ $ … -m pytest -q test_240_alert_denoise_batch2 test_223_overfit_monitor_timeou
   ⇒ 输出为空 ⇒ `notify_sent → False` ⇒ `alerts[].sent=False`。方向是 **fail-safe 的 under-report**(只可能少报「已送达」,
   绝不误报), 且 `sent`/`notify_error` 全仓无消费方(仅观测), 无实际影响。
 - 判据只解析输出文本, 调用方须合并 stdout+stderr 后传入(本批三处均已合并)。
+- **扫描口径局限(独立审补正)**:本批扫描只覆盖「**含 rc**」轴, 未覆盖「**不出现 rc、却先落签/占窗、通知
+  fire-and-forget**」的落签轴 ⇒ **落签轴另有 ≥4 类同后果站点未纳入本批**(见 §7), 属独立行为变更,
+  需主控/用户另决。
 
 ## 6. 关联
 
 - 上游: #240 F1(`check_failed_units`) / #241(`check_s06_freshness`);判据唯一实现 `scripts/notify_sent.py`。
 - 规范: §23.2(修 bug 三铁律: 根因修不逐文件补丁——判据只此一份)、§23.3(举一反三: §1/§4)、§18 L48(自测零外发)、
   §18 L49(断言计数)、§18 L50(探针 static-only: overfit 用 AST 抽取不 import)。
+
+## 7. 落签轴遗漏(2026-10-09 独立审补正;行号本 agent 自核)
+
+> **本轮不改任何代码。** 下列站点与本批修的三处**同一后果**(告警丢失/丢升级 + state 已落签 ⇒ 条件持续期间
+> 永不重发), 但因**不以 rc 为判据**(而是「先落签/占窗、通知 fire-and-forget」或「进程内 update_dedup 不判 res」),
+> 未被本批「含 rc」扫描口径命中。**修它们=动已上线行为(§23.7 冻结契约), 已由主控另派 agent 处理(have dispatched)。**
+> 标签:「**同后果**」= 告警丢失/升级丢失且 state 已落签 ⇒ 持续期间静默不重发;「**仅观测**」= 只误标日志/标志, 无落签抑制。
+
+### 7.1 `scripts/schedule_monitor.sh` — 最严重 · **同后果**
+- `save_alert_state(alert_state)` @ **L2757**, 紧随 `if alerts:` @ **L2758**;notify `subprocess.run([... notify.py
+  ... "--severe" ... ], check=False)` @ **L2767-2778**(notify 路径 L2769)。
+- ⇒ **告警状态先落签、再 fire-and-forget 通知且 `check=False` 完全忽略结果**。通道全挂时**当晚计划任务
+  异常告警彻底丢失, 而 alert_state 已落签** ⇒ 条件持续期间**永不重发**(本批修的三处同后果, 且此处覆盖面更广=
+  全站计划任务监控总闸)。
+
+### 7.2 `scripts/detect_intraday_anomaly.py` — **同后果**
+- `filter_and_record` 先 `atomic_write_json(DEDUP_FILE, dedup)` 落 `data/anomaly_notified.json` @ **L244**;
+  之后 `send_alert` 才 `subprocess.run([... notify.py ...], timeout=60, check=False, ...)` @ **L296-300**, 结果丢弃。
+- ⇒ 盘中异动告警**先占当日去重窗、再 best-effort 发送**;发送全挂 ⇒ **该异动当日不再重发** = 静默丢告警。
+
+### 7.3 `scripts/gen_daily_brief.py` — **同后果**
+- `notify.check_dedup(dedup_key, 86400)` @ **L4038** → `results = notify.send(...)` @ **L4041** →
+  `notify.update_dedup(dedup_key)` @ **L4044**(**仅由 `if not dry_run` 守卫, 不判 `results`**)。
+- ⇒ 进程内 `notify.send` 返回 res 表示「渠道发出成功」, 但 **`update_dedup` 不看 res** ⇒ 全渠道失败仍**占 24h 窗**
+  ⇒ 每日速递通知当日不再重发。属「sent 判定缺失」的同后果病灶(与 upload_r2 同类)。
+
+### 7.4 `scripts/check_signals.py`(fade 告警)— **同后果**
+- `filter_fade_alerts_intraday(alerts, date)`(def @ **L238**, 落 `data/fade_notified.json` @ **L252-271**)
+  在 **L1007** 被调用;随后本次 fade 告警才进邮件/通知发送链。`_reset_fade_notified` @ **L1027** 只做「再现即清」。
+- ⇒ fade 告警**先落 `fade_notified.json` 去重窗、再发送**;发送失败 ⇒ **当日同 key 不再重发** = 静默丢 fade 告警。
+
+### 7.5 `scripts/upload_r2.py` — 落签点计数更正:**≥6 处** · **同后果**
+- 6 处 `check_dedup → notify.send → update_dedup`(update_dedup **不判 send 的 res**), 行号:
+  **L1368/1369/1376**、**L1761/1762/1770**、**L2150/2151/2159**、**L3669/3670/3684**、**L3699/3700/3714**、
+  **L3727/3728/3739**。
+- 另 **L2057** `notify.send(...)` 无配套 dedup = **仅观测**(不影响去重/抑制)。
+- ⇒ 原报告 §4 记「adjacent 病灶 **1 处**」**不准确, 更正为 ≥6 处**(均由「send 后不判 res 直接 update_dedup」导致
+  全渠道失败仍占窗)。修它=动 upload_r2 冻结链路, 需主控/用户决策。
+
+### 7.6 处置说明
+上述 5 类**均属动已上线行为(§23.7)**, 会改变通知/去重时序, **已由主控另派 agent 处理(have dispatched),
+本批(commit 面)不含这些代码改动**。本批只做「rc 轴 3 处」的收口 + 落档。
