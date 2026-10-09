@@ -329,8 +329,8 @@ def send_alert(alerts: list[dict]) -> bool:
         if sent:
             print(f"[anomaly] 告警邮件已发：{subject}", flush=True)
         else:
-            print(f"[anomaly] 告警邮件**未确认送达**(rc={r.returncode}, 下轮重试不落去重签)："
-                  f"{out.strip()[-200:]}", file=sys.stderr)
+            print(f"[anomaly] 告警邮件**未确认送达**(rc={r.returncode}, 前端源已落签, "
+                  f"未达邮件经暂存账本下轮重试)：{out.strip()[-200:]}", file=sys.stderr)
         return sent
     except Exception as e:
         print(f"[anomaly] 告警邮件发送失败（不阻塞）: {e}", file=sys.stderr)
