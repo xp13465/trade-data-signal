@@ -32,6 +32,8 @@ from pathlib import Path
 
 import pytest
 
+import gen_schedule_stats as G  # conftest 已把 scripts/ 入 sys.path(数据层断言真模块)
+
 ROOT = Path(__file__).absolute().parent.parent.parent
 MONITOR = ROOT / "scripts" / "schedule_monitor.sh"
 CSV = Path(__file__).absolute().parent / "fixtures" / "181" / "ticks.csv"
@@ -115,17 +117,25 @@ def _ticks():
 
 def _drive(code, consts, ticks):
     """逐 tick exec 真块, 并模拟通用恢复循环(L1644: active 且本轮未 seen ⇒ 判消失翻 recovered)。
-    返回 list[Rec(T, alerts, seen_set, cnt_state, recovered_this_tick)]。"""
+    返回 list[Rec(T, alerts, seen_set, cnt_state, recovered_this_tick)]。
+
+    每 tick = (NOW, last_run, skip) 或 (NOW, last_run, skip, r2_round_id)(#181race: 轮标识与
+    skip 窗口同源; 3 元组 = 不带 r2_round_id ⇒ 真块回退 last_run, 复刻改动前语义, 供反事实对照)。"""
     st, alert, recs = {}, False, []
-    for T, lr, sk in ticks:
+    for t in ticks:
+        T, lr, sk = t[0], t[1], t[2]
+        s = {"task": TASK, "r2_skip_count": (1 if sk else 0),
+             "last_run": lr.strftime("%Y-%m-%d %H:%M")}
+        if len(t) > 3 and t[3]:
+            s["r2_round_id"] = (t[3] if isinstance(t[3], str)
+                                else t[3].strftime("%Y-%m-%d %H:%M"))
         run = {
             "datetime": datetime.datetime, "timedelta": datetime.timedelta,
             "R2_SKIP_CONTINUOUS_THRESHOLD": consts["R2_SKIP_CONTINUOUS_THRESHOLD"],
             "R2_SKIP_OBS_WINDOW": consts["R2_SKIP_OBS_WINDOW"],
             "alerts": [], "alert_state": st, "seen_keys_this_run": set(), "NOW": T,
             "print": (lambda *a, **k: None),
-            "s": {"task": TASK, "r2_skip_count": (1 if sk else 0),
-                  "last_run": lr.strftime("%Y-%m-%d %H:%M")},
+            "s": s,
         }
         exec(code, run)  # noqa: S102
         seen = set(run["seen_keys_this_run"])
@@ -157,6 +167,18 @@ def test_block_is_1d_not_old(r2_src):
     _chk("seen_keys_this_run.add(_r2_alert_key)" in block, "缺 seen 补全")
     # 旧代码特征:stale 分支把 skip_rounds 清零。新代码不得再有。
     _chk('_r2_stale_prev["skip_rounds"] = 0' not in block, "仍残留 stale 假清零")
+
+
+def test_block_uses_window_coupled_round_id(r2_src):
+    """#181race:轮标识必须取自 r2_round_id(与 skip 窗口同源), 不得直接用 last_run/mtime;
+    且保留 r2_round_id→last_run 的向后兼容回退(旧 stats / 非 EXTRA 任务)。"""
+    block, _ = r2_src
+    _chk('s.get("r2_round_id") or _r2_lr' in block,
+         "缺 #181race 轮标识: 未用 r2_round_id(与窗口同源)或未保留回退")
+    _chk('_r2_prev["last_round"] = _r2_round' in block,
+         "计数轮标识未存 r2_round_id ⇒ 轮去重仍可能用 mtime(幻影未修)")
+    # 反例守卫: 不得再出现「last_round = last_run」这种异源写法
+    _chk('_r2_prev["last_round"] = _r2_lr' not in block, "仍残留 mtime 当轮标识的旧写法")
 
 
 # ══════════════════════ 主场景:真实 4 天窗口 13→5 ══════════════════════
@@ -303,6 +325,140 @@ def test_negative_control_sustained_gap_still_alerts(code, r2_src):
     fires = [r.T for r in recs if r.alerts]
     _chk(len(fires) == 1, f"真持续缺口应恰好首报 1 次, got {len(fires)}")
     _chk(bool(fires) and fires[0] == base + datetime.timedelta(hours=1), f"首报时点={fires}")
+
+
+# ══════════════ #181race:轮边界「幻影 +1」竞态(边界 fixture + 反事实 + 正向对照) ══════════════
+
+RACE_CSV = Path(__file__).absolute().parent / "fixtures" / "181" / "race_ticks.csv"
+
+
+def _race_ticks(strip_round=False):
+    """读边界竞态 fixture。strip_round=True ⇒ 丢弃 r2_round_id(复刻改动前的 mtime 轮标识语义,
+    供反事实对照; 真块此时回退 last_run)。"""
+    rows = []
+    for ln in RACE_CSV.read_text(encoding="utf-8").splitlines():
+        if not ln or ln.startswith("#"):
+            continue
+        parts = ln.split(",")
+        now_s, lr_s, sk = parts[0], parts[1], parts[2]
+        rid = parts[3].strip() if len(parts) > 3 and parts[3].strip() else None
+        rec = (datetime.datetime.strptime(now_s, "%Y-%m-%d %H:%M:%S"),
+               datetime.datetime.strptime(lr_s, "%Y-%m-%d %H:%M"), int(sk))
+        if not strip_round:
+            rec = rec + (rid,)
+        rows.append(rec)
+    return rows
+
+
+def test_race_fixture_shape(code, r2_src):
+    """fixture 自校验: 确实编码了竞态(r2_round_id 不变而 last_run 跳变)。"""
+    _chk(len(_race_ticks()) == 5, "race fixture 行数漂移")
+    t3 = _race_ticks()[3]
+    _chk(t3[1].strftime("%H:%M") == "01:45", "竞态 tick 的 last_run(mtime) 应为新轮 01:45")
+    _chk(t3[3] == "2026-10-09 01:01", "竞态 tick 的 r2_round_id 应为窗口所属轮 01:01(≠ last_run)")
+
+
+def test_race_phantom_plus1_eliminated(code, r2_src):
+    """#181race 主断言: 轮标识与 skip 窗口同源 ⇒ 竞态 tick 判同轮 dup ⇒ 2 真轮不达阈值, 无 SEVERE。"""
+    _, consts = r2_src
+    recs = _drive(code, consts, _race_ticks())
+    _chk(all(not r.alerts for r in recs),
+         f"竞态 tick 产生幻影 SEVERE: {[r.T for r in recs if r.alerts]}")
+    _chk(max(r.cnt.get("skip_rounds", 0) for r in recs) == 2,
+         f"计数应止于 2 真轮, got {[r.cnt.get('skip_rounds') for r in recs]}")
+    _chk(recs[3].cnt.get("skip_rounds") == 2, f"竞态 tick(01:45:02)应保链=2, got {recs[3].cnt}")
+    _chk(recs[3].cnt.get("last_round") == "2026-10-09 01:01",
+         f"竞态 tick 轮标识应锚窗口所属轮 01:01, got {recs[3].cnt.get('last_round')}")
+
+
+def test_race_fixture_counterfactual_would_fire_with_mtime_id(code, r2_src):
+    """反事实(证 fixture 真能触发旧病灶 + 修向必要性): 轮标识退回 last_run(=mtime)时, 同一
+    fixture 在 01:45:02 竞态 tick 上 last_run=01:45 ≠ last_round=01:02 ⇒ 幻影 +1 ⇒ n=3 假阳性。
+
+    此即「直接取最新轮次开始/文件 mtime 当轮标识」为何**不足**的机检证据 —— 二者与窗口异源,
+    仍会幻影; 必须锚到窗口所属轮。"""
+    _, consts = r2_src
+    recs_old = _drive(code, consts, _race_ticks(strip_round=True))
+    fires = [r.T.strftime("%H:%M:%S") for r in recs_old if r.alerts]
+    _chk(fires == ["01:45:02"], f"反事实: 旧 mtime 轮标识应恰在竞态 tick 幻影告警, got {fires}")
+
+
+def test_race_genuine_three_rounds_still_fires(code, r2_src):
+    """正向对照(防过度抑制, §memory alert-denoise-keep-fault-discriminator): 三个**真不同轮**
+    (round_id 各异)且 skip ⇒ 仍 1→2→3 并告警。"""
+    _, consts = r2_src
+    d = datetime.datetime
+    ticks = [
+        (d(2026, 11, 2, 10, 0, 1), d(2026, 11, 2, 9, 45), 1, "2026-11-02 09:45"),
+        (d(2026, 11, 2, 10, 30, 1), d(2026, 11, 2, 10, 15), 1, "2026-11-02 10:15"),
+        (d(2026, 11, 2, 11, 0, 1), d(2026, 11, 2, 10, 45), 1, "2026-11-02 10:45"),
+    ]
+    recs = _drive(code, consts, ticks)
+    _chk([r.cnt.get("skip_rounds") for r in recs] == [1, 2, 3], "三真轮计数链漂移")
+    _chk(len(recs[2].alerts) == 1, "三个真不同轮仍必须告警")
+
+
+# ══════════════ #181race 数据层: scan_marker_log 输出的轮标识(与窗口同源) ══════════════
+
+def _scan_fn(log_text, tmp_path, name="fetch_news_race.log"):
+    """按 EXTRA_MARKER_SCANS[fetch_news] 真配置调真 scan_marker_log。"""
+    p = tmp_path / name
+    p.write_text(log_text, encoding="utf-8")
+    m = {x["task"]: x for x in G.EXTRA_MARKER_SCANS}["fetch_news"]
+    return G.scan_marker_log(
+        p, m["tail_lines"],
+        round_start_re=G._compile_rsre(m["round_start_re"]),
+        completion_re=G._compile_rsre(m["completion_re"]),
+        round_begin_re=G._compile_rsre(m["round_begin_re"]),
+    )
+
+
+def test_scan_window_round_ts_race_shape(tmp_path):
+    """竞态形态日志: 新轮「轮次开始」已 flush 但无「已写」⇒ 窗口仍指上一轮 ⇒ 轮标识必须
+    = 上一轮(01:01)的开始时间戳, 而非新轮(01:45)。行格式逐字取自 fetch_news.py 真实 print。"""
+    log = (
+        "[fetch_news] 轮次开始 2026-10-09 01:01:00\n"
+        "[fetch_news] 已写 /x/news_digest.json + 归档 /x/y.json date=2026-10-09 [合并已有归档] news=3 upcoming=0 sources={'x':3}\n"
+        "[fetch_news] SKIPPED_LOCKED: R2 上传锁忙, 本轮跳过 news_digest 归档上传(缺口由下一轮 fetch_news 30min 后自动重试兜底)\n"
+        "[fetch_news] 同步上线完成 date=2026-10-09 (news_digest.json + 3 个日期归档, repo=/x)\n"
+        "[fetch_news] 轮次开始 2026-10-09 01:45:00\n"  # 新轮起跑, 无「已写」
+    )
+    _an, skip, _rst, _comp, wrt = _scan_fn(log, tmp_path)
+    _chk(skip == 1, f"窗口内 SKIPPED_LOCKED 数={skip}")
+    _chk(wrt == "2026-10-09 01:01:00", f"轮标识应锚窗口所属轮(01:01), got {wrt}")
+
+
+def test_scan_window_round_ts_advances_after_completion(tmp_path):
+    """新轮正常收尾(有「已写」)⇒ 窗口前移, 轮标识随之更新到新轮(01:45)——证轮标识非『永不前进』
+    (否则会永久 suppress 后续真 skip 轮)。"""
+    log = (
+        "[fetch_news] 轮次开始 2026-10-09 01:01:00\n"
+        "[fetch_news] 已写 /x/news_digest.json + 归档 /x/y.json date=2026-10-09 [合并已有归档] news=3 upcoming=0 sources={'x':3}\n"
+        "[fetch_news] SKIPPED_LOCKED: R2 上传锁忙\n"
+        "[fetch_news] 轮次开始 2026-10-09 01:45:00\n"
+        "[fetch_news] 已写 /x/news_digest.json + 归档 /x/y.json date=2026-10-09 [合并已有归档] news=3 upcoming=0 sources={'x':3}\n"
+        "[fetch_news] SKIPPED_LOCKED: R2 上传锁忙\n"
+    )
+    _an, skip, _rst, _comp, wrt = _scan_fn(log, tmp_path)
+    _chk(skip == 1, f"窗口(=[01:45 已写, 末尾))内 SKIPPED_LOCKED 数={skip}")
+    _chk(wrt == "2026-10-09 01:45:00", f"收尾后轮标识应推进到新轮 01:45, got {wrt}")
+
+
+def test_scan_window_round_ts_none_when_no_window_start(tmp_path):
+    """无 round_start 命中(纯尾部回退)⇒ 轮标识 None(消费端回退 last_run, 向后兼容)。"""
+    log = "[fetch_news] SKIPPED_LOCKED: R2 上传锁忙\n"
+    _an, skip, _rst, _comp, wrt = _scan_fn(log, tmp_path)
+    _chk(skip == 1)
+    _chk(wrt is None, f"无窗口起点时轮标识应 None, got {wrt}")
+
+
+def test_field_name_wired_producer_to_consumer():
+    """跨文件字段名一致性机检(§22): gen_schedule_stats 产 r2_round_id, schedule_monitor 消费同名 ——
+    两处登记点漂移(改名只改一边)会让轮标识静默退回 mtime, 幻影复发。"""
+    g = (ROOT / "scripts" / "gen_schedule_stats.py").read_text(encoding="utf-8")
+    m = (ROOT / "scripts" / "schedule_monitor.sh").read_text(encoding="utf-8")
+    _chk('"r2_round_id": _window_round_ts' in g, "gen 未输出 r2_round_id 字段")
+    _chk('s.get("r2_round_id")' in m, "monitor 未消费 r2_round_id 字段")
 
 
 # ══════════════════════ 零真实外发自证(§18 L48/L50) ══════════════════════

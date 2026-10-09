@@ -1084,11 +1084,21 @@ if STATS_FILE.exists():
                 _r2_cnt_key = f"{s['task']}|r2_skip_rounds"
                 _r2_prev = alert_state.get(_r2_cnt_key) or {}
                 _r2_n = int(_r2_prev.get("skip_rounds") or 0)
+                # #181race(2026-10-09, 用户已拍板动此冻结面): 轮标识**与 skip 窗口同源**——
+                #   用 gen_schedule_stats 输出的 r2_round_id(= 拥有当前 skip 窗口那一轮的「轮次
+                #   开始」时间戳), **不用文件 mtime(last_run)**。根因:旧用 last_run=mtime 当轮标识,
+                #   而计数窗口=[最后「已写」行, EOF) 与之异源; fetch_news :45 tick 与 :45 轮
+                #   同秒起跑时「轮次开始」已 flush(mtime 先刷新)而「已写」未写(窗口仍指上一轮) ⇒
+                #   same_round 误判 False ⇒ 同一真 skip 轮被 +1 两次(幻影), 阈值 3 退化为 2
+                #   (假阳性; 生产样本 docs/ops/181-denoise-prod-sample-20261008.md §5)。
+                #   r2_round_id 缺失(旧 stats / 非 EXTRA 任务 / 找不到窗口起点)⇒ 回退 last_run,
+                #   行为与改动前逐字一致(向后兼容, 全量既有测试不变)。新鲜度判据仍用 last_run(不变)。
+                _r2_round = s.get("r2_round_id") or _r2_lr
                 # ① 轮去重: 仅当「本轮有新运行(last_run 新鲜)」且「轮标识 != 上次计数轮」才 +1。
-                _r2_same_round = bool(_r2_lr) and _r2_lr == _r2_prev.get("last_round")
+                _r2_same_round = bool(_r2_round) and _r2_round == _r2_prev.get("last_round")
                 if _r2_fresh and not _r2_same_round:
                     _r2_n += 1
-                    _r2_prev["last_round"] = _r2_lr
+                    _r2_prev["last_round"] = _r2_round
                     _r2_prev.setdefault("first_seen", NOW.strftime("%Y-%m-%d %H:%M:%S"))
                 _r2_prev["skip_rounds"] = _r2_n
                 if _r2_n > 0:
@@ -1126,7 +1136,7 @@ if STATS_FILE.exists():
                 elif _r2_n > 0:
                     if _r2_same_round:
                         print(f"[r2-skip-dup] {s['task']} R2 锁skip 同轮重复tick"
-                              f"(last_round={_r2_lr}), 不重复计数"
+                              f"(last_round={_r2_round}), 不重复计数"
                               f"(连续{_r2_n}/{R2_SKIP_CONTINUOUS_THRESHOLD})")
                     elif not _r2_fresh:
                         print(f"[r2-skip-stale] {s['task']} R2 锁skip为滞留值(最近运行距今>"
