@@ -572,6 +572,19 @@ R2_SKIP_OBS_WINDOW = timedelta(minutes=30)
 #     (30min, 15min频率×2)仍无运行才 SEVERE; TOLERANCE=30min 窗口内一个 sch 最多被检查 2 轮。
 R2_LAG_CONTINUOUS_THRESHOLD = 3
 MISSED_CONTINUOUS_THRESHOLD = 2
+# #240 ③(2026-10-09) 执行耗时「单轮碰线」降噪(只降噪不降灵敏度, memory
+#   alert-denoise-keep-fault-discriminator): 病灶(docs/ops/alert-triage-1008-20261008.md R7)——
+#   intraday 10-08 15:02 轮 928s vs 阈值 900s(**仅超 3%**)被判 SEVERE + 15min 后 [恢复],
+#   一轮碰线 = 2 封噪音。实测分布(云上 intraday_snapshot_launchd.log 全配对 400 run):
+#   盘中 387 run p95=796s / p99=935s / max=1398s(全部 exit=0 正常完成)⇒ 900s 附近是正常
+#   波动尾, 单轮碰线不是故障。口径:
+#     ① dur >= DUR_IMMEDIATE_MULTIPLE × 阈值(盘中 1800s / 盘后 3600s) = 单次极端超阈
+#        (卡死/严重退化量级) → 立即 SEVERE, 不等连续轮。
+#     ② 否则需连续 DUR_CONTINUOUS_THRESHOLD 轮(15min/轮)仍超阈才 SEVERE(pending→active)。
+#     ⇒ 真退化照报: 极端单次立即报; 持续多轮报(如 09-30 盘后 2081s, 单 run/日但被其后
+#       多个 tick 连续看到 → 连续计数天然可达)。盘中卡死未完成另有 A1 通道(阈值900s+缓冲10min)。
+DUR_CONTINUOUS_THRESHOLD = 2
+DUR_IMMEDIATE_MULTIPLE = 2
 DUR_THRESHOLDS = {
     "intraday_snapshot": 900,   # 15min(2026-09-29 告警降噪 改动3: 600->900, 正常286s 3倍裕量;
                                 #   盘后>=20:00槽已在 L645-651 分档放宽到 1800s 覆盖, 勿动)
@@ -902,13 +915,38 @@ if STATS_FILE.exists():
                         _dur_key = f"{_dur_task}|dur>{_dur_thresh}s"
                         seen_keys_this_run.add(_dur_key)
                         _ex_dur = alert_state.get(_dur_key)
+                        # #240 ③(2026-10-09) 单轮碰线降噪: 计数桶 pending→active(镜像 marker_buffer
+                        # 模式)。桶键带阈值维度(dur_buffer|{阈值})防盘中槽(900)与盘后槽(1800)计数串用
+                        # ——否则「盘后已 alerted」的桶会让次日盘中首轮碰线直接达阈(假 SEVERE)。
+                        _dur_cnt_key = f"{_dur_task}|dur_buffer|{_dur_thresh}"
+                        seen_keys_this_run.add(_dur_cnt_key)  # 防主恢复循环对 pending 桶静默翻 recovered
+                        _dur_b = alert_state.get(_dur_cnt_key) or {}
+                        _dur_bs = _dur_b.get("status")
+                        if _dur >= _dur_thresh * DUR_IMMEDIATE_MULTIPLE:
+                            _dur_c = DUR_CONTINUOUS_THRESHOLD  # 单次极端超阈: 视同已达连续阈值, 立即报
+                        elif _dur_bs == "pending":
+                            _dur_c = (_dur_b.get("consecutive_count") or 0) + 1
+                        else:
+                            _dur_c = 1
+                        alert_state[_dur_cnt_key] = {
+                            "status": "alerted" if _dur_c >= DUR_CONTINUOUS_THRESHOLD else "pending",
+                            "first_seen": _dur_b.get("first_seen") or NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                            "consecutive_count": _dur_c,
+                            "keyword": "dur_buffer",
+                            "line_sample": f"dur={_dur}s thresh={_dur_thresh}s last_run={_dur_lr}",
+                        }
                         # #123 R2(2026-10-01): 「执行耗时」与「进行中超时」双通道同 (task,last_run)
                         # 合并——同一次卡死两套独立 key(L699 本 dur 通道 + L894 超时通道)本就各发
                         # 一封(09-30 实测同轮双发); 现在共享 merge|{task}|{last_run} key, 先发通道
                         # 独占(r2_merge_mark), 后发通道查 r2_merge_already_sent 归入已发(不再双发)。
                         # 反例保证: 同实例合并后仍必响(首条由先发通道发出); 隔日再卡=新 last_run=新
                         # merge key=独立再响, 不吞跨天(判定函数 scripts/alert_denoise_rules.py:r2_*)。
-                        if adr.r2_merge_already_sent(alert_state, _dur_task, _dur_lr):
+                        if _dur_c < DUR_CONTINUOUS_THRESHOLD:
+                            print(f"[dur_buffer] {_dur_task} 耗时 {_dur}s 超阈值 {_dur_thresh}s "
+                                  f"连续{_dur_c}/{DUR_CONTINUOUS_THRESHOLD}轮, 暂不通知(单轮碰线; "
+                                  f">={_dur_thresh * DUR_IMMEDIATE_MULTIPLE}s 或连续"
+                                  f"{DUR_CONTINUOUS_THRESHOLD}轮才 SEVERE)")
+                        elif adr.r2_merge_already_sent(alert_state, _dur_task, _dur_lr):
                             print(f"[r2-merge-suppress] {_dur_task} 耗时超阈值 {_dur_thresh}s: "
                                   f"同 last_run<{_dur_lr}> 已由超时/耗时另一通道发出, 合并去重")
                         elif _ex_dur is None or _ex_dur.get("status") != "active":
@@ -927,6 +965,18 @@ if STATS_FILE.exists():
                         else:
                             print(f"[suppress] {_dur_task} 耗时超阈值持续中, "
                                   f"last_alerted={_ex_dur.get('last_alerted')}, 不重发")
+                else:
+                    # #240 ③: 耗时回到阈值内 = 碰线/退化已过去 → 计数桶复位(静默; 已发 SEVERE 的
+                    # 恢复通知仍由主恢复循环负责, 不在此发)。archive 语义与 marker_buffer 复位同款。
+                    _dur_cnt_key_r = f"{_dur_task}|dur_buffer|{_dur_thresh}"
+                    _dur_br = alert_state.get(_dur_cnt_key_r)
+                    if _dur_br and _dur_br.get("status") in ("pending", "alerted"):
+                        alert_state[_dur_cnt_key_r] = {
+                            **_dur_br,
+                            "status": "recovered",
+                            "consecutive_count": 0,
+                            "recovered_at": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                        }
             # P1-1(2026-09-24, r2-false-success-rootfix): r2_skip_count 真正消费——
             # SKIPPED_LOCKED(R2 上传锁忙跳过本轮)单次是设计让路(下轮 10min 后重试),
             # 不上 SEVERE(噪噪音); 但**连续多轮** skip = 上传缺口持续(收盘版/每日版可能

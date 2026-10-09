@@ -32,6 +32,7 @@ schedule_monitor.sh(Python heredoc) / notify.py 共用本模块的判定逻辑(�
 原则(§23.2 修 bug 三铁律 + §18 降噪翻车教训): 每条规则必须保留「真故障判别维度」
 (连续轮、跨天追平、产物未生成、首条仍即时), 绝不因降噪静默真故障。
 """
+import hashlib
 import json
 import re
 import sys
@@ -75,6 +76,47 @@ WATCHMAN_UNITS = (
     ("trade-check-data-gap.timer", "timer"),           # 数据缺口/停更告警检测器(巡检类, 不产出数据)
     ("trade-overfit-monitor.timer", "timer"),          # 过拟合监控器(监控类, 不产出数据)
 )
+
+
+# ---- #240 ②(2026-10-09) failed-unit 巡检「同一集合每天只报 1 次 / 集合有变立即报」----
+# 病灶(见 docs/ops/alert-triage-1008-20261008.md R3): 同一批 failed unit 在 09:45 / 16:00 /
+# 22:15 被**逐轮(6h 窗)重报同一内容**; 而 notify 的 dedup 窗仅 6h → 一天 3 封同文邮件。
+# 降噪口径(保留真故障判别维度, memory alert-denoise-keep-fault-discriminator):
+#   - 集合**未变**且当日已报 → 只报 1 次(本函数判 "same-set-same-day" → 调用方跳过发送)
+#   - 集合**有变**(新增 failed unit / 消失) → **立即报**(reason="changed")
+#   - 次日首报(集合同但跨自然日) → 照报(reason="daily-first")
+#   ⇒ 静默的只有「同一事实的当日重复」, 真故障(新 unit 挂 / 持续未清)一封不少
+#     (持续未清另有 #196③ 连续 3 天升 critical 兜底)。
+FAILED_UNITS_SIG_STATE_FILENAME = "failed_units_patrol_sig.json"  # 签名+最近一次已报日期状态
+FAILED_UNITS_SIG_LEN = 12                                          # 签名取 md5 前 N 位(可读+足够区分)
+
+
+def failed_units_signature(problems) -> str:
+    """告警项列表 → 稳定集合签名(排序后 md5 前 FAILED_UNITS_SIG_LEN 位)。
+
+    与顺序无关(排序): 同一批 failed unit 无论 systemctl 输出顺序如何, 签名一致。
+    空列表 → ""(调用方据此短路, 不判「集合变化」)。
+    """
+    items = [str(p) for p in (problems or []) if str(p)]
+    if not items:
+        return ""
+    return hashlib.md5("|".join(sorted(items)).encode("utf-8")).hexdigest()[:FAILED_UNITS_SIG_LEN]
+
+
+def failed_units_daily_judge(state: dict, signature: str, today_str: str) -> tuple:
+    """#240 ② 每日一次判定(纯函数, 不碰 I/O)。返回 (send: bool, reason: str)。
+
+    state = 上次**成功发送**后落盘的状态 {"signature": str, "last_alert_date": "YYYY-MM-DD"}。
+    reason ∈ {"empty"(无异常, 调用方本不该调) / "changed"(集合变→立即报) /
+              "daily-first"(今日首报) / "same-set-same-day"(当日同集合重复→跳过)}。
+    """
+    if not signature:
+        return False, "empty"
+    if str(state.get("signature") or "") != signature:
+        return True, "changed"
+    if str(state.get("last_alert_date") or "") != today_str:
+        return True, "daily-first"
+    return False, "same-set-same-day"
 
 
 def consecutive_days_escalate(state_path, now, escalate_days, log_prefix=""):

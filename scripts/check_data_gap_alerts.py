@@ -701,6 +701,13 @@ FUND_NAV_ALLNULL_KEY = "data_gap:fund_nav_allnull"
 FUND_ACCNAV_30D_MIN = 10000   # 近 30 天 acc_nav 有值行数阈值(正常 ~88696, 被清 ~173)
 FUND_ACCNAV_30D = 30          # 回看窗口(自然日)
 FUND_ALLNULL_MIN_TOTAL = 1000  # 单日总行数 ≥ 此值才算「采集在跑」(排除零星行)
+# #240 ④(2026-10-09) 公募全 NULL 首日时滞降噪(docs/ops/alert-triage-1008-20261008.md R8):
+# 病灶——9-28/29/30 场景里「当日刚采、数据源尚未发布净值」也判 severe, 与 ETF 累计净值
+# 「当日新缺=净值时滞, 次日自然补齐, 不告警」(ACC_NAV_GAP_KEY info 分支)口径不一致。
+# 口径(保留真故障判别维度): 全 NULL 日 == **今日** 且落在净值发布窗口(>=20:00, 定时 22:35)
+# → info(只记日志不发邮件); 任何**早于今日**的全 NULL 日 → severe(次日仍全 NULL = 真断供,
+# 一封不少)。窗口外(白天手跑)不看今日 → 仍 severe(fail-loud 保守)。
+FUND_NAV_PUBLISH_WINDOW_HOUR = 20
 
 
 def check_fund_freshness(repo: Path, today: datetime) -> list[Finding]:
@@ -791,6 +798,12 @@ def check_fund_nav_allnull(repo: Path, today: datetime) -> list[Finding]:
     判定: 取最近一个有写入的日期(近 7 天), 该日有行(>FUND_ALLNULL_MIN_TOTAL)但
     unit_nav 非空行数 = 0 → 整批全 NULL。9-28/29/30 是「数据源未发布净值」导致当天行全
     NULL, 属真实故障信号而非正常现象, 应告警(审计 §4.3 第 3 条)。
+
+    #240 ④(2026-10-09) 分档(参数见 FUND_NAV_PUBLISH_WINDOW_HOUR 常量注释):
+      - 全 NULL 日 == 今日 且发布窗口内(>=20:00) → **info**(首日净值时滞, 只记日志不发邮件);
+      - 任何早于今日的全 NULL 日 → **severe**(次日仍全 NULL = 真断供, 照报不吞);
+      - 窗口外(白天手跑)不看今日 → 仍 severe(fail-loud 保守)。
+    仅产出 1 条 Finding(severe 优先), 保持「只告警最近一日, 防多日连报噪音」。
     """
     db = repo / "data" / "public_fund.db"
     if not db.exists():
@@ -808,17 +821,39 @@ def check_fund_nav_allnull(repo: Path, today: datetime) -> list[Finding]:
     finally:
         conn.close()
     out: list[Finding] = []
+    _today_s = today.strftime("%Y%m%d")
+    _in_window = today.hour >= FUND_NAV_PUBLISH_WINDOW_HOUR
+    _today_allnull = None       # 今日全 NULL(窗口内) —— 首日时滞, 待定级
+    _severe_pick = None         # 早于今日的全 NULL 日 —— 真断供, 优先 severe
     for d, total, ok in rows:
         total = int(total); ok = int(ok or 0)
-        if total >= FUND_ALLNULL_MIN_TOTAL and ok == 0:
-            out.append(Finding(
-                FUND_NAV_ALLNULL_KEY, "severe",
-                f"公募基金 {d} 采集全 NULL: {total} 行 unit_nav 全为空",
-                f"fund_daily_nav {d} 写入 {total} 行但 unit_nav 非空 {ok} 行(全 NULL)。<br>"
-                f"场景(9-28/29/30 同款): 数据源未发布当日净值, 采集写入整批 NULL 行。<br>"
-                f"影响: 前端基金净值走势/历史回填缺该日真实净值。<br>"
-                f"建议: 查数据源当日净值发布状态; 如已发布, 补跑 backfill-nav 回填。"))
-            break  # 只告警最近一日, 防多日连报噪音
+        if not (total >= FUND_ALLNULL_MIN_TOTAL and ok == 0):
+            continue
+        if d == _today_s and _in_window:
+            _today_allnull = (d, total, ok)   # #240 ④: 首日时滞, 先跳过看有无更早真断供日
+            continue
+        _severe_pick = (d, total, ok)
+        break  # 只告警最近一个「非今日」全 NULL 日, 防多日连报噪音(与历史口径一致)
+    if _severe_pick:
+        d, total, ok = _severe_pick
+        out.append(Finding(
+            FUND_NAV_ALLNULL_KEY, "severe",
+            f"公募基金 {d} 采集全 NULL: {total} 行 unit_nav 全为空",
+            f"fund_daily_nav {d} 写入 {total} 行但 unit_nav 非空 {ok} 行(全 NULL)。<br>"
+            f"场景(9-28/29/30 同款): 数据源未发布当日净值, 采集写入整批 NULL 行。<br>"
+            f"影响: 前端基金净值走势/历史回填缺该日真实净值。<br>"
+            f"建议: 查数据源当日净值发布状态; 如已发布, 补跑 backfill-nav 回填。"))
+    elif _today_allnull:
+        # #240 ④: 仅「今日」且发布窗口内全 NULL → info(只记日志, 不发邮件); 次日复查若仍全 NULL
+        # 即落入上面 severe 分支(真断供照报, 不吞)。
+        d, total, ok = _today_allnull
+        out.append(Finding(
+            FUND_NAV_ALLNULL_KEY, "info",
+            f"公募基金 {d} 采集全 NULL(首日净值时滞, 次日复查)",
+            f"fund_daily_nav {d}(=今日)写入 {total} 行但 unit_nav 全为空, 当前在净值发布窗口"
+            f"({FUND_NAV_PUBLISH_WINDOW_HOUR}:00 后), 属数据源当日净值尚未发布的正常时滞"
+            f"(2026-10-09 告警降噪, 与 ETF 累计净值当日新缺同口径)。<br>"
+            f"次日复查: 若该日仍全 NULL(或出现早于今日的全 NULL 日)则升 severe 告警。"))
     return out
 
 
