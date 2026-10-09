@@ -16,7 +16,10 @@ tmp_path 原生 fixture(并发/重跑安全), main() 链路经 monkeypatch env(�
      (RETRY_NOTIFY_DRY_RUN=1 走 notify.py --dry-run 不真发)。
   4. 恢复正常(可写): 计数继续正常持久化、跨轮累加。
   5. main() 达阈值路径: 第三轮达阈值 → _notify_repeat_failure 被调(先通知, 不依赖
-     写盘), 清零后末尾落盘。
+     写盘), **送达后**清零末尾落盘。(2026-10-09 #241 同族B波: _notify_repeat_failure
+     新契约改为返回 bool=是否真送达, main() 送达才清零; 本用例桩返回 True 体现送达。)
+  6. main() 未送达路径(#241 同族B波新契约): 达阈值但通知未确认送达 ⇒ 不清零, 保留计数
+     下轮重试(不静默丢达标告警)。
 
 注: 原脚本第 3 条里另有一个恒 True 的 `check("main 写失败仍累加计数(内存)", True, ...)`
 占位(结论见打印日志, 无实际判定), 改造后以 rc==1(非零退出=fail-loud 置位)为硬断言,
@@ -108,14 +111,25 @@ def test_4_restored_writable_persist(tmp_path):
 
 
 def test_5_main_threshold_notify_then_reset(tmp_path, monkeypatch):
-    """main() 达阈值路径: 第三轮 → 通知被调 + 清零落盘, 清零暂歇后重新累计不重复通知。"""
+    """main() 达阈值路径: 第三轮 → 通知被调(送达)+ 清零落盘, 清零暂歇后重新累计不重复通知。
+
+    #241 同族B波(2026-10-09): _notify_repeat_failure 新契约返回 bool=是否真送达,
+    main() **送达才清零**。本用例桩显式 return True(体现送达) ⇒ 语义「达标→通知→
+    清零暂歇」不变, 前提多了「送达」这一条。旧桩 lambda ...: notify_calls.append(...)
+    返回 None(假值, §18 L48 类「桩不返回布尔被当假值」陷阱)⇒ 会被新代码判成「未送达」
+    而不清零, 故必须显式返回 True。
+    """
     rfm.COUNT_FILE = tmp_path / "thr" / "count.json"
     rfm.COUNT_FILE.parent.mkdir(parents=True)
     patch_fail_chain(monkeypatch)
 
     notify_calls = []
-    monkeypatch.setattr(rfm, "_notify_repeat_failure",
-                        lambda mid, n, date, msg: notify_calls.append((mid, n)))
+
+    def _notify_sent(mid, n, date, msg):
+        notify_calls.append((mid, n))
+        return True  # 新契约: 送达=True ⇒ 调用方清零暂歇
+
+    monkeypatch.setattr(rfm, "_notify_repeat_failure", _notify_sent)
 
     rfm.main()  # 第 1 轮: n=1
     rfm.main()  # 第 2 轮: n=2
@@ -126,3 +140,35 @@ def test_5_main_threshold_notify_then_reset(tmp_path, monkeypatch):
     assert c4 == {}, f"达阈值清零已落盘, count.json={c4}"
     rfm.main()  # 第 4 轮: 重新从 1 累计(清零暂歇)
     assert len(notify_calls) == 1, f"清零暂歇后重新累计(第4轮不重复通知), notify_calls={notify_calls}"
+
+
+def test_6_main_threshold_not_sent_keeps_count(tmp_path, monkeypatch):
+    """main() 未送达路径(#241 同族B波新契约): 达阈值但通知未确认送达 ⇒ **不清零**,
+    计数保留 >= 阈值, 下轮继续重试通知(不静默丢达标告警, 也绝不占「已发一次」位)。
+
+    这是 #241 同族B波的整个立意: 旧实现「先 counts.pop 后 fire-and-forget」= 通道全挂时
+    计数已被清零暂歇 ⇒ 达标告警永久丢失(下轮从 0 重新累计)。此负向用例旧代码必 FAIL。
+    """
+    rfm.COUNT_FILE = tmp_path / "thr_unsent" / "count.json"
+    rfm.COUNT_FILE.parent.mkdir(parents=True)
+    patch_fail_chain(monkeypatch)
+
+    notify_calls = []
+
+    def _notify_unsent(mid, n, date, msg):
+        notify_calls.append((mid, n))
+        return False  # 通道全挂: 未送达 ⇒ 调用方不得清零
+
+    monkeypatch.setattr(rfm, "_notify_repeat_failure", _notify_unsent)
+
+    rfm.main()  # 第 1 轮: n=1
+    rfm.main()  # 第 2 轮: n=2
+    assert len(notify_calls) == 0, f"第2轮未达阈值不得通知, notify_calls={notify_calls}"
+    rfm.main()  # 第 3 轮: n=3 达阈值 → 通知(未送达)
+    assert len(notify_calls) == 1, f"第3轮达阈值应调通知, notify_calls={notify_calls}"
+    c3 = json.loads(rfm.COUNT_FILE.read_text(encoding="utf-8"))
+    assert c3 == {"a_fund_main": 3}, f"未送达不得清零(旧代码会 pop 掉), count.json={c3}"
+    rfm.main()  # 第 4 轮: 计数保留 → n=4 仍达阈值 → 再试通知(不静默丢)
+    assert len(notify_calls) == 2, f"未送达应下轮重试通知, notify_calls={notify_calls}"
+    c4 = json.loads(rfm.COUNT_FILE.read_text(encoding="utf-8"))
+    assert c4 == {"a_fund_main": 4}, f"未送达累加保留, count.json={c4}"
