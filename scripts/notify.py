@@ -45,6 +45,7 @@ try:
     import certifi
 except ImportError:  # launchd/裸系统 python 无 certifi: _ssl_cafile() 回退系统 CA 路径
     certifi = None  # (rebase 冲突解决: main 侧 certifi 回退 + 本分支 hashlib 指纹, 两边全保留)
+import functools
 import hashlib
 import json
 import os
@@ -52,6 +53,7 @@ import re
 import smtplib
 import ssl
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -93,6 +95,96 @@ ALERTS_FILE = ALERTS_DIR / "latest.md"
 # 结构: {"<dedup_key>": {"last_alerted": "YYYY-MM-DD HH:MM:SS"}}。
 # 不进 git(运行时数据,与 alert_state.json 同级 .gitignore 忽略)。
 DEDUP_FILE = REPO / "data" / "notify_dedup.json"
+
+# ---------------------------------------------------------------------------
+# W1 L1 度量层（2026-10-10，告警系统性收敛第一波；用户已拍板触碰本冻结面）
+# 单点台账 data/alerts/alert_ledger.jsonl —— 记录每一封**实际外发**的通知。
+#   · 纯新增追加写、零现有行为变更；best-effort（写失败绝不阻塞发送，同 _mirror_severe）
+#   · --dry-run 不写台账（同 latest.md / write_alert 的既有契约）
+#   · 路径解析沿用本文件既有 env 先例 Path(os.environ.get("REPO") or REPO)
+#     （L2227/L2267/L2317 同款）—— 是既有模式的推广，不是新发明
+#   · 出口覆盖：send()/send_to() 记「消息级」一条；_send_email/send_feishu/send_telegram
+#     在**被直接调用**（非经 send 分发）时记「单渠道」一条。两级用 _ledger_depth()
+#     重入计数器去重（send 分发时置 1，底层渠道看到 depth>0 即跳过），保证
+#       ① 覆盖全部真实外发（含 upload_r2 等 in-process 直调 send、brief_push 直调
+#          send_feishu/_send_email、send_feishu_post_segmented 等旁路出口）
+#       ② 同一消息只记一条（不因 邮件+飞书 双通道记两条）
+#   · 台账机制自身绝不告警（防元噪声）
+LEDGER_FILENAME = "alert_ledger.jsonl"
+
+
+def _ledger_path() -> Path:
+    """台账文件路径（沿用 env 先例：REPO env 覆盖 > 文件位置推导）。"""
+    return Path(os.environ.get("REPO") or REPO) / "data" / "alerts" / LEDGER_FILENAME
+
+
+# 重入计数（thread-local，防多线程下 send() 分发与底层直调互相误判）：
+# >0 = 当前处于某次 send()/send_to() 分发内部 ⇒ 底层渠道不再单独记账。
+_LEDGER_LOCAL = threading.local()
+
+
+def _ledger_depth() -> int:
+    return getattr(_LEDGER_LOCAL, "depth", 0)
+
+
+def _ledger_key_of(subject: str, key: str | None) -> str:
+    """台账 key：显式 dedup_key 优先，否则 subject 的 sha1 前 12 位（稳定、跨树可归并）。"""
+    if key:
+        return str(key)
+    return hashlib.sha1(str(subject).encode("utf-8")).hexdigest()[:12]
+
+
+def _record_ledger(subject: str, results: dict, *, tier: str | None = None,
+                   key: str | None = None, source: str | None = None,
+                   group: str | None = None, merged_count: int = 0,
+                   dry_run: bool = False) -> None:
+    """向单点台账追加一行 JSONL（best-effort，任何失败不影响通知主链路）。
+
+    results：{"email": bool, "telegram": bool, "feishu": bool}——仅当**至少一个真实
+      渠道发出**时才记账（「实际外发」口径；全渠道失败=未外发，不记）。
+    tier：critical / warning / info / notice / agent_done / subscribe（缺省 notice）。
+    key ：dedup_key 或 subject 哈希；source：显式 > NOTIFY_SOURCE > sys.argv[0]。
+    group：飞书群 key（alert/report/...），供查询面区分告警群 vs 报告群功能输出口径。
+    merged_count：本条聚合消息「被并入的条目数」（L2 预算/摘要层预留，默认 0）。
+    dry_run=True 直接短路（不写台账，与 latest.md 同契约）。
+    """
+    if dry_run or os.environ.get("ALERT_LEDGER_DISABLE") == "1":
+        return  # dry-run 不记；ALERT_LEDGER_DISABLE=1 = 一键回滚开关（字节级零副作用）
+    try:
+        ch = {"email": bool(results.get("email")), "feishu": bool(results.get("feishu"))}
+        if telegram_configured():
+            ch["telegram"] = bool(results.get("telegram"))
+        if not any(ch.values()):
+            return  # 全渠道未发出 = 未实际外发，不记
+        src = source or os.environ.get("NOTIFY_SOURCE") or (
+            Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "unknown")
+        rec = {
+            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "tree": str(Path(os.environ.get("REPO") or REPO)),
+            "tier": tier or "notice",
+            "key": _ledger_key_of(subject, key),
+            "subject": re.sub(r"\s+", " ", str(subject)).strip(),
+            "channels": ch,
+            "source": src,
+            "group": group,
+        }
+        if merged_count:
+            rec["merged_count"] = int(merged_count)
+        line = json.dumps(rec, ensure_ascii=False) + "\n"
+        p = _ledger_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        import fcntl
+        with open(p, "a", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)  # 多进程并发追加串行化，防交错半行
+            f.write(line)
+            f.flush()
+            fcntl.flock(f, fcntl.LOCK_UN)
+        print(f"[notify][ledger] 台账登记 {p}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001  台账失败绝不阻塞通知主链路
+        print(f"[notify][ledger] 台账写入失败(不影响发送): {e}", file=sys.stderr)
+
+
+# email.json.example 中的占位密码，识别后跳过实际发送
 
 # email.json.example 中的占位密码，识别后跳过实际发送
 PLACEHOLDER_PASSWORD = "<填163邮箱SMTP授权码，非登录密码>"
@@ -747,6 +839,13 @@ def _alert_feishu_config_missing(dry_run: bool = False) -> None:
     ok = _send_email(subject, body, dry_run=dry_run, from_prefix="[告警]")
     if ok and not dry_run:
         update_dedup(dedup_key)
+        if _ledger_depth() > 0:
+            # W1 L1（2026-10-10）：本函数常被 send_feishu 内部（cfg 缺失分支）嵌套调用，
+            # 此时外层 send()/send_to() 的重入守卫会让 `_send_email` 渠道包装跳过记账；
+            # 但本条是**独立主题**的真实外发（基建告警，subject 与触发它的告警不同），
+            # 故在此显式补记一条，避免嵌套场景漏记（depth==0 时由渠道包装记账，不补防双记）。
+            _record_ledger(subject, {"email": True, "telegram": False, "feishu": False},
+                           tier="critical", key=dedup_key, group="alert")
 
 
 def _host_tag_subject(subject: str) -> str:
@@ -946,12 +1045,68 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
         return False
 
 
+# ---------------------------------------------------------------------------
+# W1 L1 度量层（2026-10-10）：底层渠道「直调」记账包装（纯包装，不改原函数体/行为）
+# send()/send_to() 分发期间 _ledger_depth()>0 ⇒ 包装层跳过（该消息已由 send/send_to
+# 记「消息级」一条，防双记）；外部**直接**调用 send_feishu/_send_email（旁路出口：
+# brief_push / codex_notify_bridge / agent_inbox_watcher / feishu_ws_listener /
+# send_feishu_post_segmented / _alert_feishu_config_missing）时 depth==0 ⇒ 记「单渠道」
+# 一条，保证台账覆盖**全部真实外发**。返回原函数返回值（语义零变化）。
+# 注：包装体调用**模块级全局** `_send_feishu_core` / `_send_email_core`（非闭包捕获），
+# 使测试可 patch 这两个 core 名（§18 L49 真实样本自测需要）。
+_send_feishu_core = send_feishu
+_send_email_core = _send_email
+
+
+@functools.wraps(_send_feishu_core)
+def _ledger_feishu_dispatch(subject: str, body: str, chat_key: str | None = None,
+                            dry_run: bool = False, severe: bool = False,
+                            from_prefix: str | None = None,
+                            reply_to_message_id: str | None = None,
+                            feishu_post: dict | None = None) -> bool:
+    ok = _send_feishu_core(subject, body, chat_key=chat_key, dry_run=dry_run,
+                           severe=severe, from_prefix=from_prefix,
+                           reply_to_message_id=reply_to_message_id, feishu_post=feishu_post)
+    if ok and not dry_run and _ledger_depth() == 0:
+        _record_ledger(subject, {"email": False, "telegram": False, "feishu": True},
+                       group=chat_key)
+    return ok
+
+
+@functools.wraps(_send_email_core)
+def _ledger_email_dispatch(subject: str, body: str, dry_run: bool = False,
+                           to: str | None = None, from_prefix: str | None = None) -> bool:
+    ok = _send_email_core(subject, body, dry_run=dry_run, to=to, from_prefix=from_prefix)
+    if ok and not dry_run and _ledger_depth() == 0:
+        _record_ledger(subject, {"email": True, "telegram": False, "feishu": False})
+    return ok
+
+
+_send_telegram_core = send_telegram
+
+
+@functools.wraps(_send_telegram_core)
+def _ledger_telegram_dispatch(subject: str, body: str, dry_run: bool = False,
+                              chat_id: str | None = None) -> bool:
+    ok = _send_telegram_core(subject, body, dry_run=dry_run, chat_id=chat_id)
+    if ok and not dry_run and _ledger_depth() == 0:
+        _record_ledger(subject, {"email": False, "telegram": True, "feishu": False})
+    return ok
+
+
+send_feishu = _ledger_feishu_dispatch
+_send_email = _ledger_email_dispatch
+send_telegram = _ledger_telegram_dispatch
+
+
 def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
          from_prefix: str | None = None, feishu_group: str | None = None,
          feishu_only: bool = False,
          reply_to_message_id: str | None = None,
          feishu_post: dict | None = None,
-         source: str | None = None) -> dict:
+         source: str | None = None,
+         ledger_tier: str | None = None, ledger_key: str | None = None,
+         ledger_group: str | None = None, merged_count: int = 0) -> dict:
     """多渠道分发通知（邮件 + Telegram + 飞书）。各渠道独立失败不互相阻塞。
 
     先邮件后 Telegram 再飞书，任一渠道失败不影响其他。返回聚合结果：
@@ -989,18 +1144,30 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
             print(f"[notify][dedup] 恢复清零异常（不影响发送）：{e}", file=sys.stderr)
     if severe:
         subject = SEVERE_PREFIX + subject
-    email_ok = _send_email(subject, body, dry_run=dry_run, from_prefix=from_prefix) if not feishu_only else False
-    tg_ok = send_telegram(subject, body, dry_run=dry_run) if not feishu_only else False
-    fs_ok = send_feishu(subject, body, chat_key=feishu_group, dry_run=dry_run,
-                        severe=severe, from_prefix=from_prefix,
-                        reply_to_message_id=reply_to_message_id,
-                        feishu_post=feishu_post)
+    # W1 台账重入守卫：分发期间 depth>0，令底层 _send_email/send_feishu/send_telegram
+    # 不各自单独记账（本消息在下方按「消息级」记一条，含全渠道结果）。
+    _LEDGER_LOCAL.depth = _ledger_depth() + 1
+    try:
+        email_ok = _send_email(subject, body, dry_run=dry_run, from_prefix=from_prefix) if not feishu_only else False
+        tg_ok = send_telegram(subject, body, dry_run=dry_run) if not feishu_only else False
+        fs_ok = send_feishu(subject, body, chat_key=feishu_group, dry_run=dry_run,
+                            severe=severe, from_prefix=from_prefix,
+                            reply_to_message_id=reply_to_message_id,
+                            feishu_post=feishu_post)
+    finally:
+        _LEDGER_LOCAL.depth = _ledger_depth() - 1
     # L46④:severe 统一镜像 latest.md 追加流水(所有出口留痕防旁路沉默);
     # dry_run 冒烟只读不落盘;镜像失败 best-effort 不影响发送结果。
     if severe and not dry_run:
         _mirror_severe(subject, body,
                        results={"email": email_ok, "telegram": tg_ok, "feishu": fs_ok},
                        source=source)
+    # W1 L1 度量层（纯新增，best-effort）：消息级台账一条（仅实际外发时 = 至少一个真实渠道发出）。
+    _record_ledger(subject, {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok},
+                   tier=ledger_tier or ("critical" if severe else "notice"),
+                   key=ledger_key, source=source,
+                   group=ledger_group or _resolve_feishu_chat_key(subject, from_prefix, severe),
+                   merged_count=merged_count, dry_run=dry_run)
     return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
 
@@ -1022,11 +1189,18 @@ def send_to(subject: str, body: str, email: str | None = None,
     feishu_post（2026-08-11 飞书格式模板）：post 富文本数据（build_feishu_post 产出），
       仅 report 群生效，alert/agent_done/follow 群忽略保持 text。
     """
-    email_ok = _send_email(subject, body, dry_run=dry_run, to=email, from_prefix=from_prefix) if email and not feishu_only else False
-    tg_ok = send_telegram(subject, body, dry_run=dry_run, chat_id=chat_id) if chat_id and not feishu_only else False
-    fs_ok = send_feishu(subject, body, chat_key=feishu_group, dry_run=dry_run,
-                        severe=False, from_prefix=from_prefix,
-                        feishu_post=feishu_post)
+    _LEDGER_LOCAL.depth = _ledger_depth() + 1
+    try:
+        email_ok = _send_email(subject, body, dry_run=dry_run, to=email, from_prefix=from_prefix) if email and not feishu_only else False
+        tg_ok = send_telegram(subject, body, dry_run=dry_run, chat_id=chat_id) if chat_id and not feishu_only else False
+        fs_ok = send_feishu(subject, body, chat_key=feishu_group, dry_run=dry_run,
+                            severe=False, from_prefix=from_prefix,
+                            feishu_post=feishu_post)
+    finally:
+        _LEDGER_LOCAL.depth = _ledger_depth() - 1
+    # W1 L1 度量层（纯新增，best-effort）：消息级台账一条（订阅推送通道）。
+    _record_ledger(subject, {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok},
+                   tier="subscribe", group=feishu_group, dry_run=dry_run)
     return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
 
@@ -1364,7 +1538,8 @@ Agent：{agent_name}
 
     results = send(subject, body, dry_run=dry_run, from_prefix="[完成]",
                    feishu_group=feishu_group or "agent_done",
-                   reply_to_message_id=reply_to_message_id)
+                   reply_to_message_id=reply_to_message_id,
+                   ledger_tier="agent_done", ledger_key=dedup_key)
 
     # P1-1：发送成功才更新 dedup（失败不标记，下次可重发——避免偶发失败致该消息永久不发）
     if not dry_run and any(results.values()):
@@ -1964,7 +2139,8 @@ def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
     body = "<hr>".join(rows)
     prefix = str(due[0].get("from_prefix") or "[告警·聚合]")
     results = send(subject, body, severe=False, dry_run=dry_run,
-                   from_prefix=prefix, feishu_group="alert")
+                   from_prefix=prefix, feishu_group="alert",
+                   ledger_tier="warning", merged_count=n)
     sent = any(results.values())
     sent = any(results.values())
     snapshot_ok = False
@@ -2062,7 +2238,8 @@ def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
 def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
                 dry_run: bool = False, from_prefix: str | None = None,
                 feishu_group: str | None = None,
-                reply_to_message_id: str | None = None) -> dict:
+                reply_to_message_id: str | None = None,
+                ledger_key: str | None = None) -> dict:
     """三级分级统一入口（2026-08-24）。按 tier 路由：
 
     - critical：立即全渠道（=send(severe=True)，真故障即时可达用户，冻结契约不变）
@@ -2094,7 +2271,8 @@ def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
                 "deferred": status in ("enqueued", "suppressed"), "defer_status": status}
     res = send(subject, body, severe=(tier == TIER_CRITICAL), dry_run=dry_run,
                from_prefix=from_prefix, feishu_group=feishu_group,
-               reply_to_message_id=reply_to_message_id)
+               reply_to_message_id=reply_to_message_id,
+               ledger_tier=tier, ledger_key=ledger_key, ledger_group=feishu_group)
     return {"tier": tier, **res}
 
 
@@ -2185,7 +2363,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         res = send_tiered(args.subject, args.body, tier=args.tier, dry_run=args.dry_run,
                           from_prefix=args.from_prefix, feishu_group=args.feishu_group,
-                          reply_to_message_id=args.reply_to_message_id)
+                          reply_to_message_id=args.reply_to_message_id,
+                          ledger_key=args.dedup_key)
         print(f"[notify][tier={args.tier}] 路由完成：{res}", file=sys.stderr)
         # P1-1 契约（发送成功才占窗，失败不占下次可重发）：tier 分支按 tier 判定成功
         #（critical=真实渠道发出；warning/info=已本地处理）。不动通用路径 L2157 的 and ok。
@@ -2351,7 +2530,9 @@ def main(argv: list[str] | None = None) -> int:
     results = send(args.subject, args.body, severe=args.severe, dry_run=args.dry_run,
                    from_prefix=args.from_prefix, feishu_group=args.feishu_group,
                    feishu_only=args.feishu_only,
-                   reply_to_message_id=args.reply_to_message_id)
+                   reply_to_message_id=args.reply_to_message_id,
+                   ledger_tier=("critical" if args.severe else "notice"),
+                   ledger_key=args.dedup_key, ledger_group=args.feishu_group)
     ok = [ch for ch, v in results.items() if v]
     # 告警噪音根治 2026-09-11: telegram 未配置不计入"未发出"(未配置=跳过非失败), 与 _mirror_severe 同口径
     fail = [ch for ch, v in results.items() if not v and (ch != "telegram" or telegram_configured())]

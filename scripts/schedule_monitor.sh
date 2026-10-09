@@ -2934,6 +2934,36 @@ try:
     )
 except Exception as e:
     print(f"[warn] warning 聚合 flush 失败: {e}", file=sys.stderr)
+
+# 2026-10-10 W1-L1 度量层：幂等重算 data/alerts/alert_daily.json（读单点台账派生，
+# 跨两树写同一结果）。best-effort，失败不阻塞主流程，且**本机制自身绝不告警**。
+# 时点：每轮收尾跑一次（幂等 ⇒ 重复跑无副作用）；避开盘后重任务时点
+# （15:35/16:00/17:50/20:35/22:00，§14）±2min，防与 deploy/采集撞车。
+_GUARDED_HHMM = ("15:35", "16:00", "17:50", "20:35", "22:00")
+
+
+def _in_guarded_window(now, tol_min=2):
+    for hhmm in _GUARDED_HHMM:
+        h, m = (int(x) for x in hhmm.split(":"))
+        t = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        if abs((now - t).total_seconds()) <= tol_min * 60:
+            return True
+    return False
+
+
+try:
+    if _in_guarded_window(NOW):
+        print("[alert_meter] 盘后重任务窗口内，本轮跳过 recount")
+    else:
+        _r_meter = subprocess.run(
+            [sys.executable, str(REPO / "scripts" / "alert_meter.py"), "--recount"],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+        if _r_meter.returncode != 0:
+            print(f"[warn] alert_meter recount rc={_r_meter.returncode}: "
+                  f"{(_r_meter.stdout + _r_meter.stderr).strip()[:200]}", file=sys.stderr)
+except Exception as e:
+    print(f"[warn] alert_meter recount 失败(不阻塞): {e}", file=sys.stderr)
 PYEOF
 
 # 总是 exit 0：告警已发邮件，避免 launchd 因非0退出重试
