@@ -2,8 +2,11 @@
 
 - 角色: 实施 agent | 分支: `worktree-agent-a075c2034c69c77f0`(worktree 隔离)
 - 设计稿(已定稿): `docs/ops/235-f1-tradingday-caliber-design-20261009.md`
-- 改动文件: `scripts/check_data_integrity.py`(helper + 8 处替换 + 1 处 docstring)
+- 改动文件: `scripts/check_data_integrity.py`(helper + 8 处替换 + docstring + 16 处文案)
+  + `app/calendar.py`(新增口径权威实现 `lag_trading_days`)
+  + `scripts/monitor_72h.sh`(ad_line 同病根第三处)
   + 新增 `scripts/tests/test_235_f1_tradingday_caliber_20261009.py`
+  + 新增 `scripts/tests/test_235_f1_monitor72h_appcal_20261009.py`(续跑, 见 §10)
 - 本次自测**零外发**(全程 monkeypatch `_fetch_r2_json`,ZeroOutboundTrap 兜底,见 §5)
 
 ## 1. 结论摘要
@@ -17,6 +20,7 @@
    ②任何异常 → 回退自然日 fail-safe。
 5. 自测 **55 passed**(含稿 §4.3 的 15 组数值表逐位比对、稿 §8.1/§8.2 判据 A/B、s06 档间翻转、
    §15 回归、静态锁);全量 `scripts/tests/` **517 passed / 2 skipped / 0 failed**。
+   **续跑**(文案 + monitor_72h 第三处 + 口径单一事实源)另见 **§10**(全量 563 passed)。
 
 ## 2. 稿行号逐条复核(任务项 1)
 
@@ -45,8 +49,8 @@
   / accum_nav_map / s06 本地门槛 / s06 R2。
 - **docstring 修正**:`check_accum_nav_map_fresh` 的「口径与 check_overview 一致(自然日…)」→ 交易日口径
   (稿 §7.3 第二 bullet 标「必须修正」,原因:改口径后原句与实现矛盾)。
-- **未改**:阈值常量(`STALE_DAYS_WARN=3`/`STALE_DAYS_FAIL=7`)、所有 FAIL/WARN 判据、所有
-  用户/运维可见消息文本(见 §7 诚实标注)。
+- **未改**:阈值常量(`STALE_DAYS_WARN=3`/`STALE_DAYS_FAIL=7`)、所有 FAIL/WARN 判据。
+- **文案(续跑补,§10)**:8 处口径点的用户可见消息「天」→「交易日」(含阈值显示),见 §10。
 
 ## 4. 护栏实现(任务项 3)与实测证据
 
@@ -76,8 +80,8 @@
 - **⑦静态锁**:AST 断言 `_lag_trading_days` **恰好 8 处**且落在 7 个预期函数(s06 占 2);
   `_days_ago` **恰好 2 处**且仅 check_overview / check_fund_score。阈值常量与判据措辞未变。
 
-**全量回归**:`pytest -q scripts/tests/` → **517 passed / 2 skipped / 0 failed (93.00s)**(改动前基线
-517-55=462 量级,新增 55 条全绿,无回归)。
+**全量回归**:首版 `pytest -q scripts/tests/` → **517 passed / 2 skipped / 0 failed**;续跑后(含文案 + monitor_72h
++ app.calendar 单一事实源)→ **563 passed / 2 skipped / 0 failed (91.65s)**,详见 §10。
 
 ## 6. §23.3 举一反三:其它「日期维度判据」清单(任务项 7)
 
@@ -86,7 +90,7 @@
 **A. 同病候选(自然日新鲜度判据,长假后可能误报)—— 本任务**不动**,建议单开任务**
 1. `scripts/monitor_72h.sh:772-794` `ad_line.json` 检查:**纯自然日** `(NOW.date()-date).days > 3 → SEVERE,
    无交易日豁免。长假后首日(date=09-30,today=10-08,age=8>3)会误报 SEVERE。**机制不同**(SEVERE 监控
-   告警,非 deploy 闸门)+ 不在 #235 F1 scope(本任务只动 check_data_integrity)→ 未动,列此备查。
+   告警,非 deploy 闸门)+ 不在 #235 F1 scope(本任务只动 check_data_integrity)→ **续跑已改**(见 §10)。
 2. `scripts/check_nt_signals.py:185-192` 邮件标签 `T-{gap}数据`:natural gap,长假后标签偏大(如 T-8)。
    属**展示标签非闸门**,且改动会动邮件文案 → 未动,列此备查。
 
@@ -118,9 +122,8 @@
 
 ## 8. 诚实标注(与派单约束的取舍)
 
-- **消息文案未改**:稿 §7.3 第一 bullet(FAIL/WARN 消息「X 天」→「X 交易日」)标「**可选但建议**」,
-  而派单硬约束为「**消息结构一律不动 / 别顺手改文案**」→ **按派单未改**。代价:改口径后消息里的
-  「天」字面=交易日数,存在轻微误导。**若需对齐,建议主控另派一次纯文案改动**(零逻辑风险)。
+- **消息文案**:首版按派单硬约束(消息结构不动)未改;主控随后拍板**必改**(§5 一步到位,字面须跟口径一致)
+  → 续跑已把 8 处口径点的「天」改「交易日」,见 §10。**只改文本字面,lag 算法/阈值/判据一行未动。**
 - **docstring 已改**:稿 §7.3 第二 bullet 标「**必须修正**」(原句与实现矛盾,不改即为错误描述),
   且非用户可见文案 → 已改。若主控认为该并入上条一并暂缓,撤这一处即可(仅 3 行)。
 - 稿 §1.7 / §9.3 的「给 alert 增补本地 vs R2 差异只 WARN」是**可选增强、非本规格** → **未做**(按任务项 6)。
@@ -136,3 +139,73 @@ cd <worktree>
 ```
 判别力(red-before-green):`test_08a/08b` 静态锁在旧代码上必 FAIL(旧=9 处 `_days_ago`/0 处新 helper);
 `test_01` 数值表同时断言新旧两口径值,若 helper 未换口径即 FAIL。
+
+## 10. 续跑:文案口径 + monitor_72h 同病根第三处 + 单一事实源(2026-10-09,同分支)
+
+主控追加两件(同一 feat 分支 `worktree-agent-a075c2034c69c77f0`):
+
+### 10.1 必做 · 文案口径(「天」→「交易日」)
+
+- 范围 = 8 处口径点里**用户/运维可见的消息文本**(含阈值显示),逐处改:
+  `alert`(FAIL/WARN/OK 3 处)、`notifications`(3)、`ad_line`(3)、`a_stock`(2)、
+  `trade_sim_indices mtime`(3)、`accum_nav_map`(3)、`线上 S06 快照`(2)—— 共 **16 行文本字面**。
+  形如 `滞后 {days} 天 > {STALE_DAYS_FAIL} 天` → `滞后 {days} 交易日 > {STALE_DAYS_FAIL} 交易日`。
+- s06「本地门槛」那处无用户可见消息(只有「格式异常」不含「天」)→ 无文案改动;
+  其 docstring「近 7 天」→「近 7 交易日」一并校正。
+- **只改文本字面**:lag 算法、阈值常量、FAIL/WARN 判据**一行未动**(静态锁 `test_08c` 仍在守)。
+- **未改**(口径本就自然日,不能改字面):`check_overview` / `check_fund_score` 的全部消息
+  (首版 `_ok` 行因与 alert/notifications 同形被 `replace_all` 误改 1 处,已即时回退为「天」,
+  见下「自纠」)、DB 领先/落后 `_dir_note`(不同功能)、nextday_plan 降级分支。
+- **无多语言分支 / 拼接模板**:8 处均为单 f-string,无 i18n 分支,无跨行拼接(唯一跨行的是
+  trade_sim FAIL 的相邻字面量,已随改)。
+- **测试断言字符串**:grep `scripts/tests/` 全量确认**无**断言这些消息串(原有 235 测试只断言
+  `.status` / 源码静态串)→ 无需同步测试字符串。
+- **自纠记录(§23.11 不静默)**:`return _ok(name, f"date={date_str} (滞后 {days} 天)")` 在
+  alert / notifications / overview **三处同形**,`replace_all` 会同时命中 overview(不该改);
+  已实读定位并**单独把 overview 那处回退为「天」**,复查确认 overview/fund_score 全部保留自然日字面。
+
+### 10.2 评估后做 · monitor_72h.sh ad_line(同病根第三处) —— 结论:能改,已改
+
+- **可行性判定**:`monitor_72h.sh` 虽名为 .sh,但校验主体是 **L81-920 的 python heredoc**
+  (`"$REPO/.venv/bin/python" <<'PYEOF'`),且**已 `from app.calendar import is_trading_day`**。
+  → 复用交易日口径**零新依赖、不造假日表**,风险低 → **改**。
+- **改动**:ad_line 块新增纯函数 `_ad_line_trading_age(ymd)`(单一事实源=app.calendar),
+  判据由 `(NOW.date()-date).days > 3` 改 `_ad_line_trading_age(date) > 3`(**阈值 3 不变**);
+  文案 `滞后{N}天(>3天)` → `滞后{N}交易日(>3交易日)`;解析失败 → 打印格式异常(不告警);
+  app.calendar 不可用 → **回退自然日**(旧口径 fail-safe,不静默跳过检查)。
+- **未动**:`check_and_alert` / `check_recovery` / dedup key / tier / escalation 链
+  —— 只换「滞后天数怎么算」,告警链零改动(§23.11:无静默吞掉)。
+- **同文件它的时效点**:overview(L742)/alert(L753)本就走 `TODAY/LAST_TRADING_DAY` 白名单
+  (交易日感知)→ 非同类病灶,未动(§23.3)。
+
+### 10.3 口径「单一事实源」上移(防两份实现漂移,§22)
+
+- 新增 `app/calendar.lag_trading_days(date_str, today=None)` = 口径**权威实现**(含两道护栏)。
+  `check_data_integrity._lag_trading_days` 改为**委托**(只注入本进程「今日」+ app.calendar
+  不可用时 fail-safe 回退);monitor_72h 亦调用同款 → 全仓**唯一实现**,消除漂移面。
+- 既有近似实现 `signal_kelly_snapshot.trading_days_lag`(= `len(between)-1`)**语义不同**
+  (假定两端皆交易日;假期端点会差 1),**未复用、未改**。
+
+### 10.4 续跑测试结果
+
+`scripts/tests/test_235_f1_monitor72h_appcal_20261009.py`(新增 35 条):
+- A) `app.calendar.lag_trading_days` 与设计表 §4.3 **逐位一致** + 解析失败 None + 两道护栏;
+- B) `monitor_72h.sh` 静态锁:heredoc 合法 python + ad_line 用 `lag_trading_days` + 判据 `>3` 保留
+  + 文案「交易日」+ **已无纯自然日判据**(`(NOW.date()-_ad_dt.date()).days` 与 `_ad_dt` 均清除);
+- C) **行为实测**:从 heredoc `ast` 提取纯函数 `_ad_line_trading_age` 在受控命名空间执行
+  (ZeroOutboundTrap 兜底,不跑业务脚本主体,§18 L50)——
+  **长假后首日(today=20261008,date=20260930)→ lag=1 ≤3 不误报**;
+  **真过期(today=20261019)→ lag=8 >3 仍报**;含当日/周末/边界/解析失败/app.calendar 不可用回退。
+
+**逐项过验收**:两文件 `90 passed`;全量 `pytest -q scripts/tests/` → **563 passed / 2 skipped / 0 failed (91.65s)**。
+**数量对账**:基线 517 + origin/main(#241 测试文件 11 用例,rebase 带入)= 528;+ 本次新文件 35 = **563**(0 fail,无回归)。
+
+### 10.5 复现段(续跑)
+
+```bash
+cd <worktree>
+/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_235_f1_monitor72h_appcal_20261009.py  # 35 passed
+/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/                                          # 563 passed / 2 skipped
+```
+- 判别力(red-before-green):`test_B2` 在旧 .sh 上必 FAIL(`(NOW.date() - _ad_dt.date()).days` 仍在);
+  `test_C1` 的长假后首日用例在旧自然日口径下 lag=8>3(会误报)→ 新口径 lag=1 不报。

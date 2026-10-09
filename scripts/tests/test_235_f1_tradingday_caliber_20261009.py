@@ -393,8 +393,10 @@ def test_08b_days_ago_kept_only_for_overview_and_fund_score():
     src = (SCRIPTS / "check_data_integrity.py").read_text(encoding="utf-8")
     calls = _calls_by_func(src)
     old_funcs = {f: c["_days_ago"] for f, c in calls.items() if "_days_ago" in c}
-    _chk(old_funcs == {"check_overview": 1, "check_fund_score": 1},
-         f"_days_ago 应仅余 check_overview/fund_score 各 1 处, 实得 {old_funcs}")
+    # check_overview/check_fund_score 仍自然日口径; _lag_trading_days 仅在 app.calendar
+    # 不可用时 fail-safe 回退自然日(委托实现), 亦引用 _days_ago。
+    _chk(old_funcs == {"check_overview": 1, "check_fund_score": 1, "_lag_trading_days": 1},
+         f"_days_ago 应仅余 check_overview/fund_score/_lag_trading_days(回退) 各 1 处, 实得 {old_funcs}")
 
 
 def test_08c_no_threshold_or_message_changed():

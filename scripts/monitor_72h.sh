@@ -769,7 +769,28 @@ if _al_online and not _al_err_s5:
         except ValueError:
             print(f"[warn] alert.json date 格式异常: {_al_date_str}", file=sys.stderr)
 
-# ad_line.json 最后日期滞后（>3天=SEVERE）
+# ad_line.json 最后日期滞后（交易日口径 >3交易日 = SEVERE；长假顺延不计滞后）
+def _ad_line_trading_age(ymd_str):
+    """ad_line 最后日期的滞后「交易日数」(#235 F1, 2026-10-09 口径由自然日改交易日)。
+
+    单一事实源 = app.calendar.lag_trading_days(与 scripts/check_data_integrity 同款,
+    防两份实现静默漂移); 长假/周末自然空档不计滞后(根治长假后首个交易日 ad_line 假 SEVERE)。
+    解析失败 → None; app.calendar 不可用 → 回退自然日(fail-safe, 不静默跳过检查)。
+    """
+    try:
+        from app.calendar import lag_trading_days
+        _v = lag_trading_days(ymd_str, today=NOW.date())
+    except Exception as _e:  # noqa: BLE001
+        print(f"[warn] ad_line 交易日口径不可用, 回退自然日: {_e}", file=sys.stderr)
+        _v = None
+    if _v is not None:
+        return _v
+    try:
+        return (NOW.date() - datetime.strptime(ymd_str, "%Y%m%d").date()).days
+    except ValueError:
+        return None
+
+
 _ad_online, _ad_err = curl_json("https://ss.fx8.store/data/ad_line.json")
 _dedup_ad = "stale_ad_line"
 if _ad_err or not _ad_online:
@@ -779,16 +800,14 @@ else:
     _ad_data = _ad_online.get("data", [])
     if isinstance(_ad_data, list) and _ad_data:
         _ad_last_date = str(_ad_data[-1].get("date", "")) if isinstance(_ad_data[-1], dict) else ""
-        try:
-            _ad_dt = datetime.strptime(_ad_last_date, "%Y%m%d")
-            _ad_age = (NOW.date() - _ad_dt.date()).days
-            if _ad_age > 3:
-                check_and_alert(_dedup_ad, f"ad_line.json 最后日期={_ad_last_date} 滞后{_ad_age}天(>3天)",
-                                keyword="stale_ad_line", line_sample=f"last_date={_ad_last_date} age={_ad_age}d")
-            else:
-                check_recovery(_dedup_ad)
-        except ValueError:
+        _ad_age = _ad_line_trading_age(_ad_last_date)
+        if _ad_age is None:
             print(f"[warn] ad_line date 格式异常: {_ad_last_date}", file=sys.stderr)
+        elif _ad_age > 3:
+            check_and_alert(_dedup_ad, f"ad_line.json 最后日期={_ad_last_date} 滞后{_ad_age}交易日(>3交易日)",
+                            keyword="stale_ad_line", line_sample=f"last_date={_ad_last_date} age={_ad_age}td")
+        else:
+            check_recovery(_dedup_ad)
     else:
         check_and_alert(_dedup_ad, "ad_line.json data 为空",
                         keyword="ad_empty", line_sample="data list empty")
