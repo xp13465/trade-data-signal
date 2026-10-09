@@ -94,6 +94,11 @@ SS_DATA = REPO / "static-site" / "data"
 DATA_DIR = REPO / "data"
 ALERT_STATE_FILE = DATA_DIR / "alert_state.json"
 
+# #241 同族(2026-10-09): notify 子进程「是否真发出过」的唯一判据(rc 不可信: notify.py
+# main() 所有出口恒 return 0)。用于「先落签后 fire-and-forget 通知」病灶的回滚判定。
+sys.path.insert(0, str(REPO / "scripts"))
+from notify_sent import notify_sent  # noqa: E402
+
 NOW = datetime.now()
 NOW_STR = NOW.strftime("%Y-%m-%d %H:%M:%S")
 TODAY = NOW.strftime("%Y%m%d")
@@ -108,20 +113,34 @@ except Exception as _e:
     print(f"[warn] is_trading_day 判断失败(按交易日处理不跳过): {_e}", file=sys.stderr)
     _is_today_trading = True
 
-# 最近交易日（周末取周五；法定假日人工判断，非交易日 overview.date=最近交易日不算FAIL）
+# 最近交易日（#235 F1, 2026-10-09: 改用 app.calendar.last_trading_day 交易日历, 含法定假日;
+# 原周几算术在长假 weekday 上错判「今日=交易日」→ S2/S5/S8 白名单假 SEVERE。不可用→回退周几算术 fail-safe）
 # 交易日盘前(09:25前)：市场未开盘，数据仍为上一交易日，LAST_TRADING_DAY 取上一交易日
 _td = NOW.date()
 _now_hm_calc = NOW.strftime("%H%M")
 _is_before_open = _is_today_trading and _now_hm_calc < "0925"
-if _td.weekday() == 5:      # 周六 -> 周五
-    LAST_TRADING_DAY = (_td - timedelta(days=1)).strftime("%Y%m%d")
-elif _td.weekday() == 6:    # 周日 -> 周五
-    LAST_TRADING_DAY = (_td - timedelta(days=2)).strftime("%Y%m%d")
+
+
+def _last_trading_day_safe(d):
+    """返回 <= d 的最近交易日 YYYYMMDD（走 app.calendar 交易日历, 含法定假日）。
+    app.calendar 不可用 → 回退周几算术(fail-safe, 不静默跳过检查)。
+    """
+    try:
+        from app.calendar import last_trading_day
+        return last_trading_day(d)
+    except Exception as _e:  # noqa: BLE001
+        print(f"[warn] last_trading_day 不可用, 回退周几算术: {_e}", file=sys.stderr)
+        if d.weekday() == 5:      # 周六 -> 周五
+            return (d - timedelta(days=1)).strftime("%Y%m%d")
+        if d.weekday() == 6:      # 周日 -> 周五
+            return (d - timedelta(days=2)).strftime("%Y%m%d")
+        return d.strftime("%Y%m%d")
+
+
+if not _is_today_trading:
+    LAST_TRADING_DAY = _last_trading_day_safe(_td)                       # 非交易日(含法定假日) → 最近交易日
 elif _is_before_open:
-    # 交易日盘前(09:25前)：数据仍为上一交易日
-    # 周一盘前 -> 上周五, 周二-周五盘前 -> 昨日
-    _offset = 3 if _td.weekday() == 0 else 1
-    LAST_TRADING_DAY = (_td - timedelta(days=_offset)).strftime("%Y%m%d")
+    LAST_TRADING_DAY = _last_trading_day_safe(_td - timedelta(days=1))   # 盘前 → 上一交易日(含跨假日)
 else:
     LAST_TRADING_DAY = TODAY
 
@@ -135,8 +154,7 @@ else:
 _is_before_update_all = _is_today_trading and _now_hm_calc < "1900"
 if _is_before_update_all:
     # 交易日19:00前(含 update_all 在途窗口 17:50-~18:45)：alert.json date 应为上一交易日
-    _prev_offset = 3 if _td.weekday() == 0 else 1
-    ALERT_EXPECTED_DATE = (_td - timedelta(days=_prev_offset)).strftime("%Y%m%d")
+    ALERT_EXPECTED_DATE = _last_trading_day_safe(_td - timedelta(days=1))
 else:
     # 19:00后 or 非交易日：alert.json date 应为最近交易日
     ALERT_EXPECTED_DATE = LAST_TRADING_DAY
@@ -170,7 +188,32 @@ def save_alert_state(state):
         print(f"[warn] 写 alert_state.json 失败: {e}", file=sys.stderr)
 
 
+def _diff_transition(new_state, pre_state, status):
+    """本轮从「非 status」变为 status 的 key 列表(= 本轮新落签的 key)。"""
+    out = []
+    for k, v in new_state.items():
+        if isinstance(v, dict) and v.get("status") == status:
+            pv = pre_state.get(k)
+            if not (isinstance(pv, dict) and pv.get("status") == status):
+                out.append(k)
+    return out
+
+
+def _rollback_transition(new_state, pre_state, status):
+    """把本轮新落签(→status)的 key 回滚到本轮开始前的值; 返回回滚条数(#241 同族 fail-safe)。"""
+    keys = _diff_transition(new_state, pre_state, status)
+    for k in keys:
+        if k in pre_state:
+            pv = pre_state[k]
+            new_state[k] = dict(pv) if isinstance(pv, dict) else pv
+        else:
+            new_state.pop(k, None)
+    return len(keys)
+
+
 alert_state = load_alert_state()
+# #241 同族(2026-10-09): 本轮开始前状态快照(供通知未确认送达时回滚本轮新落签)
+_STATE_PRE = {k: (dict(v) if isinstance(v, dict) else v) for k, v in alert_state.items()}
 
 # 通知分级(2026-08-10): 自愈类(curl超时/版本传播/等待update_all)连续N次仍异常才通知,
 # 严重类(数据404/损坏/DB错)首次即通知。N=2 = 60min(30min频率×2), 过滤5-30min自愈问题。
@@ -748,7 +791,30 @@ if _ov_online and not _ov_err_s1:
     else:
         check_recovery(_dedup_ov)
 
-# alert.json date 滞后（>3天=SEVERE，盘中可能昨日正常；盘前/非交易日 LAST_TRADING_DAY 不算滞后）
+# 日频数据时效判据公共函数：数据的滞后「交易日数」(#235 F1, 2026-10-09 口径由自然日改交易日)。
+def _trading_age(ymd_str):
+    """返回数据的滞后「交易日数」(最新交易日数据=0)。
+
+    单一事实源 = app.calendar.lag_trading_days(与 scripts/check_data_integrity 同款,
+    防两份实现静默漂移); 长假/周末自然空档不计滞后(根治长假后首个交易日假 SEVERE)。
+    解析失败 → None; app.calendar 不可用 → 回退自然日(fail-safe, 不静默跳过检查)。
+    供 stale_alert_date 与 ad_line 两处时效判据共用。
+    """
+    try:
+        from app.calendar import lag_trading_days
+        _v = lag_trading_days(ymd_str, today=NOW.date())
+    except Exception as _e:  # noqa: BLE001
+        print(f"[warn] 交易日口径不可用, 回退自然日: {_e}", file=sys.stderr)
+        _v = None
+    if _v is not None:
+        return _v
+    try:
+        return (NOW.date() - datetime.strptime(ymd_str, "%Y%m%d").date()).days
+    except ValueError:
+        return None
+
+
+# alert.json date 滞后（>3交易日=SEVERE；盘中可能昨日正常；盘前/非交易日 LAST_TRADING_DAY 不算滞后）
 # alert.json 仅17:50 update_all 更新，交易日17:50前是上一交易日数据（正常，周一盘前周五=3天不算滞后）
 if _al_online and not _al_err_s5:
     _al_date_str = str(_al_online.get("date", ""))
@@ -756,20 +822,18 @@ if _al_online and not _al_err_s5:
     if _al_date_str in (LAST_TRADING_DAY, ALERT_EXPECTED_DATE):
         check_recovery(_dedup_al)
     else:
-        try:
-            _al_dt = datetime.strptime(_al_date_str, "%Y%m%d")
-            _al_age = (NOW.date() - _al_dt.date()).days
-            # 周末跨度大（周五->周一=3天），>3天才算真滞后
-            if _al_age > 3:
-                check_and_alert(_dedup_al, f"alert.json date={_al_date_str} 滞后{_al_age}天(>3天)",
-                                keyword="stale_alert", line_sample=f"date={_al_date_str} age={_al_age}d",
-                                tier="self_heal")
-            else:
-                check_recovery(_dedup_al)
-        except ValueError:
+        _al_age = _trading_age(_al_date_str)
+        if _al_age is None:
             print(f"[warn] alert.json date 格式异常: {_al_date_str}", file=sys.stderr)
+        # 长假跨度大（如国庆 09-30->10-09 自然日 9 天，交易日仅 1 天），>3交易日才算真滞后
+        elif _al_age > 3:
+            check_and_alert(_dedup_al, f"alert.json date={_al_date_str} 滞后{_al_age}交易日(>3交易日)",
+                            keyword="stale_alert", line_sample=f"date={_al_date_str} age={_al_age}td",
+                            tier="self_heal")
+        else:
+            check_recovery(_dedup_al)
 
-# ad_line.json 最后日期滞后（>3天=SEVERE）
+# ad_line.json 最后日期滞后（交易日口径 >3交易日 = SEVERE；长假顺延不计滞后）
 _ad_online, _ad_err = curl_json("https://ss.fx8.store/data/ad_line.json")
 _dedup_ad = "stale_ad_line"
 if _ad_err or not _ad_online:
@@ -779,16 +843,14 @@ else:
     _ad_data = _ad_online.get("data", [])
     if isinstance(_ad_data, list) and _ad_data:
         _ad_last_date = str(_ad_data[-1].get("date", "")) if isinstance(_ad_data[-1], dict) else ""
-        try:
-            _ad_dt = datetime.strptime(_ad_last_date, "%Y%m%d")
-            _ad_age = (NOW.date() - _ad_dt.date()).days
-            if _ad_age > 3:
-                check_and_alert(_dedup_ad, f"ad_line.json 最后日期={_ad_last_date} 滞后{_ad_age}天(>3天)",
-                                keyword="stale_ad_line", line_sample=f"last_date={_ad_last_date} age={_ad_age}d")
-            else:
-                check_recovery(_dedup_ad)
-        except ValueError:
+        _ad_age = _trading_age(_ad_last_date)
+        if _ad_age is None:
             print(f"[warn] ad_line date 格式异常: {_ad_last_date}", file=sys.stderr)
+        elif _ad_age > 3:
+            check_and_alert(_dedup_ad, f"ad_line.json 最后日期={_ad_last_date} 滞后{_ad_age}交易日(>3交易日)",
+                            keyword="stale_ad_line", line_sample=f"last_date={_ad_last_date} age={_ad_age}td")
+        else:
+            check_recovery(_dedup_ad)
     else:
         check_and_alert(_dedup_ad, "ad_line.json data 为空",
                         keyword="ad_empty", line_sample="data list empty")
@@ -834,7 +896,7 @@ if alerts:
         a.replace("<", "&lt;").replace(">", "&gt;") for a in alerts
     )
     _time_str = NOW.strftime("%m-%d %H:%M")
-    subprocess.run(
+    _r_main = subprocess.run(
         [
             sys.executable, str(REPO / "scripts" / "notify.py"),
             f"[72h监控] {len(alerts)}项异常 {_time_str}",
@@ -844,8 +906,21 @@ if alerts:
             "--alert-issue", "72h持续监控告警",
             "--alert-log", str(MONITOR_LOG),
         ],
-        check=False,
+        capture_output=True, text=True, check=False,
     )
+    _main_out = (_r_main.stdout or "") + (_r_main.stderr or "")
+    if _main_out.strip():
+        print(_main_out.strip())
+    # #241 同族(2026-10-09): 「先落签后 fire-and-forget 通知」病灶修复 —— 上方 save_alert_state
+    # 已先把本轮新告警落签 active, 此处 notify 若丢返回值则通道全挂时告警丢失且 state 已落签
+    # ⇒ 条件持续期永不重发(72h 监控自停前的告警收集亦受影响)。改为: 只有 notify **真发出**才
+    # 保留本轮新 active 落签; 判不出/全失败 ⇒ 回滚本轮新 active key ⇒ 下轮重试。
+    # 判据 = notify_sent(输出文本, rc 不可信: notify.py main() 所有出口恒 return 0)。
+    if not notify_sent(_main_out):
+        _rb = _rollback_transition(alert_state, _STATE_PRE, "active")
+        save_alert_state(alert_state)
+        print(f"[warn] 72h 聚合告警未确认送达(rc={_r_main.returncode}) ⇒ 回滚本轮 {_rb} 个新告警落签"
+              f"(下轮重试)", file=sys.stderr)
 else:
     print(f"[{NOW_STR}] PASS 所有检查正常（5类覆盖: 采集/R2/发布/稳定性/及时性）")
 

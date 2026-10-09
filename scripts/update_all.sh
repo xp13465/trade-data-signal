@@ -172,7 +172,8 @@ echo "-> intraday_snapshot 采集 ..." | tee -a "$LOG"
   echo "⚠ intraday_snapshot 采集失败（不阻塞主流程）" | tee -a "$LOG"
 
 # C6 预警条：算当日预警分入库 score_daily + 导出 static-site/data/alert.json
-# 读 DB 最新日算分（约5s），失败不阻塞；alert.json 本地更新，下次 pipeline deploy 推上线
+# 读 DB 最新日算分（约5s），失败不阻塞；alert.json 本地更新 + 随下方 #236 F2 独立上传推 R2（首次/二次尝试）
+# （2026-10-09 口径更新：原「下次 pipeline deploy 推上线」已解耦，见下方 F2 块）
 echo "-> 预警分计算（high_alert/low_alert）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/export_alert.py" >> "$LOG" 2>&1 || \
   echo "⚠ export_alert 失败（不阻塞主流程）" | tee -a "$LOG"
@@ -182,6 +183,58 @@ echo "-> 预警分计算（high_alert/low_alert）..." | tee -a "$LOG"
 echo "-> 预警分析快照（alert_analyze 40 宽基+行业）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/export_alert_analyze.py" >> "$LOG" 2>&1 || \
   echo "⚠ export_alert_analyze 失败（不阻塞主流程）" | tee -a "$LOG"
+
+# ---------------------------------------------------------------------------
+# F2（#236，2026-10-09）：预警数据独立上传 R2 —— 解 deploy 校验自锁（机制型设计缺陷）
+#   死锁结构（已取证 docs/ops/deploy-selflock-recon-20261009.md §2）：
+#     check_data_integrity 读【线上 R2】的 alert.json 判新鲜度（deploy.sh L323-324 校验，
+#     rc≠0 即 exit 1 硬终止）；而 alert.json / alert_analyze_*.json 的唯一 R2 通道 =
+#     deploy 内的 upload-all-data（deploy.sh L582 触发，晚于 L324 的 exit，且 static-site/data/*
+#     已全量 gitignore、无 git 旁路）⇒ 拦截点早于写入点，一旦 R2 侧滞后 >7 自然日即永久死锁
+#     （10-08 实例：全天 ≥12 轮 deploy 零成功、r2_upload_async 整日零运行）。
+#   修法：在 deploy 主链之外独立上传，使 R2 预警数据不再依赖 deploy 自身，打破
+#     「读 R2 的闸门拦住了它自己输入的唯一运输通道」。配套 #235 交易历口径（另一任务）。
+#   两段式（2026-10-09 审查 FAIL-1 后补，关键日才落地）：
+#     ①首次尝试 = 本块（两 export 之后 ≈19:30，本地刚算完最新）；
+#     ②二次尝试 = etf_score_list 块之后（见下方 F2b 块，仅当①未成功时才跑）。
+#     —— 必须两段：首次尝试恰好撞在「长假后首日 fund_nav 全量重传」的长锁里（10-08 实证
+#     fund_nav 异步锁 18:28:38→19:36:48/4089.8s，而首次窗口 ≈19:30:50 ⇒ 必然跳过），
+#     偏偏「最需要自解锁的日子 = 锁最被占的日子」；②落在 etf_score_list 之后，该块内的
+#     upload-etf-score 不带 --skip-if-locked 会排队等锁（10-08 实测排队 ≈211s），它返回时锁
+#     刚释放 ⇒ ②大概率即拿到锁，当夜即可自解。
+#   锁竞争/覆盖口径（勿写死「主链一定覆盖」）：--skip-if-locked ⇒ 拿不到锁就跳过、不排队
+#     （不阻塞主链）。正常日锁主多为主链 R2 上传，其 upload-all-data 稍后会覆盖同 key（无需
+#     干预）；但长假后首日锁主可能是 fund_nav 等长锁任务，此时【本轮无人覆盖同 key】，靠②
+#     或次日更新窗口兜底（自解锁典型顺延 ≤1 天，期间 deploy 侧 check_alert severe 告警持续可见）。
+#   alert 与 alert_analyze 同批同源上传（§22：两展示位日期一致）。
+#   失败不阻断主链（独立、可跳过），留痕不静默（§23.11）；持续失败的可见性由 deploy 侧
+#     check_alert 对 R2 新鲜度的判定（超阈值 → severe 告警）独立兜底，不新增告警通道。
+#   先例 = scripts/s06_snapshot.sh:133 / intraday_snapshot.sh / update_lab.sh 同款 upload-data-files。
+# ---------------------------------------------------------------------------
+# 独立上传预警数据到 R2。$1=等锁重试窗(秒) $2=阶段名；返回 0=成功 / 1=失败 / 2=被锁跳过。
+# 三态都只留痕不阻断主链（调用方据返回码决定是否再试）。
+alert_r2_upload() {
+  local win="${1:-60}" tag="${2:-}" out rc
+  out="$( cd "$REPO/static-site/data" && R2_UPLOAD_SKIP_RETRY_SECS="$win" \
+          "$PY" "$REPO/scripts/upload_r2.py" --skip-if-locked \
+          upload-data-files alert.json alert_analyze_*.json 2>&1 )"
+  rc=$?
+  printf '%s\n' "$out" >> "$LOG"   # 原文入日志（留痕，不静默）
+  if [ "$rc" -ne 0 ]; then
+    echo "⚠ 预警数据独立上传 R2 ${tag}失败(rc=$rc, 不阻塞主流程)。R2 侧将停旧版; 持续 >7 自然日时 deploy 侧 check_alert 会拦 deploy。手动补刷: cd $REPO/static-site/data && $PY $REPO/scripts/upload_r2.py upload-data-files alert.json alert_analyze_*.json" | tee -a "$LOG"
+    return 1
+  fi
+  if printf '%s' "$out" | grep -q "SKIPPED_LOCKED"; then
+    echo "ℹ 预警数据独立上传 R2 ${tag}被锁跳过(等锁 ${win}s 未得, 未写入 R2)" | tee -a "$LOG"
+    return 2
+  fi
+  echo "✓ 预警数据独立上传 R2 ${tag}完成（alert.json + alert_analyze_*.json）" | tee -a "$LOG"
+  return 0
+}
+
+echo "-> 预警数据独立上传 R2（首次尝试，alert.json + alert_analyze_*.json，#236 F2 解自锁）..." | tee -a "$LOG"
+alert_r2_upload 60 首次
+ALERT_R2_TRY1=$?
 
 # P1-新-C ETF买卖清单：全市场 ETF评分排序 -> etf_score_list_{buy,sell,hold}.json (+ .gz)
 # B4 并发改造(2026-07-24):加 --full-market 跑全市场1371只(原62只代表性),
@@ -205,6 +258,19 @@ else
 [ "${SCORE_LIST_RSYNC_RC:-0}" -ne 0 ] && echo "⚠ etf_score_list rsync 同步失败, 可能发布不全" | tee -a "$LOG"
 "$PY" "$REPO/scripts/upload_r2.py" upload-etf-score >> "$LOG" 2>&1 || \
   echo "⚠ upload-etf-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+fi
+
+# ---------------------------------------------------------------------------
+# F2b（#236 F2 二次尝试，2026-10-09 审查 FAIL-1 修复）：同轮再刷一次预警数据
+#   位置 = etf_score_list 块之后：该块内的 upload-etf-score 会排队等锁（10-08 实测 ≈211s），
+#   它返回时锁刚释放 ⇒ 此处大概率立即拿到锁（10-08 该时点 ≈19:37 > 锁释放 19:36:48）。
+#   仅当首次尝试未成功（被锁/失败）时才跑 ⇒ 无冗余 PUT、无双重上传。
+#   窗口 120s（>首次 60s）只在被锁时计时、拿不到即退，不排队 7300s（不阻塞主链；
+#   对照：本链 upload-etf-score/upload-fund-score 本就排队等锁，10-08 曾等 211s）。
+# ---------------------------------------------------------------------------
+if [ "${ALERT_R2_TRY1:-1}" -ne 0 ]; then
+  echo "-> 预警数据独立上传 R2（二次尝试；首次 rc=${ALERT_R2_TRY1}，#236 F2）..." | tee -a "$LOG"
+  alert_r2_upload 120 二次
 fi
 
 # #10 ETF弹窗长历史(2026-08-22): export_etf_hist 已挪到 20:07 etf_national_team_backfill.sh

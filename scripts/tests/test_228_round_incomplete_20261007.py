@@ -44,7 +44,7 @@ EXTRA = {x["task"]: x for x in G.EXTRA_MARKER_SCANS}
 def _scan(task, log_path, tail=600):
     """按 EXTRA_MARKER_SCANS 的真配置调真 scan_marker_log → (state, ts, completion, anomaly)。"""
     m = EXTRA[task]
-    anomaly, _skip, ts, comp = G.scan_marker_log(
+    anomaly, _skip, ts, comp, _wrt = G.scan_marker_log(
         Path(log_path), tail,
         round_start_re=G._compile_rsre(m.get("round_start_re")),
         completion_re=G._compile_rsre(m.get("completion_re")),

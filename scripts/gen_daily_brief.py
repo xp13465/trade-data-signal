@@ -3811,6 +3811,16 @@ def _ensure_highlights(meta: dict) -> None:
     meta["highlights"] = [x[:40] for x in out[:4]] or ["AI 预测生成,以正文为准"]
 
 
+def _channels_sent(results) -> bool:
+    """notify.send 渠道 dict → 是否**至少一个渠道真发出**(#241 同族统一判据, 2026-10-09)。
+
+    用于「先通知后落签但落签不判送达」病灶(原 `if not dry_run: update_dedup` 无条件占窗):
+    全渠道失败仍占当日去重窗 ⇒ 当日重跑被「通知已发过」抑制、该 key 带日期次日才恢复 =
+    当日「每日速递」丢失且不可补发。fail-safe: 未确认送达 ⇒ 不占窗 ⇒ 同日可重跑补发。
+    """
+    return bool(results) and any(results.values())
+
+
 def notify_daily_brief(brief: dict, cfg: dict, log, dry_run: bool = False) -> dict | None:
     """生成成功后发 邮件+飞书报告群(2026-08-11 追加需求,完整版:先总结再细讲)。
 
@@ -4040,8 +4050,15 @@ def notify_daily_brief(brief: dict, cfg: dict, log, dry_run: bool = False) -> di
             return {"dedup": True}
         results = notify.send(subject, body, from_prefix="[每日速递]", feishu_group="report",
                               feishu_post=feishu_post, dry_run=dry_run)
-        if not dry_run:
+        # #241 同族(2026-10-09): 原「if not dry_run: update_dedup」**不判 channels** ⇒ 全渠道失败也照样
+        # 占当日去重窗 ⇒ 当日运维重跑被「通知已发过(date=…),同日去重跳过」抑制(该 key 带日期,次日才恢复)
+        # = 当日「每日速递」丢失且不可补发。改为「至少一个渠道真发出」才占窗; 失败/未确认 ⇒ 不占 ⇒
+        # 同日重跑可补发(fail-safe: 宁重复一次,绝不吞真故障)。判据 = notify.send 的渠道 dict。
+        _sent = _channels_sent(results)
+        if not dry_run and _sent:
             notify.update_dedup(dedup_key)
+        elif not dry_run:
+            log(f"⚠ 每日速递通知未确认送达(渠道={results}),不占当日去重窗(重跑可补发)")
         log(f"每日速递通知发送完成 version={version} 渠道={results}")
         return results
     except Exception as e:  # noqa: BLE001

@@ -162,6 +162,23 @@ def _days_ago(date_str: str) -> int | None:
         return None
 
 
+def _lag_trading_days(date_str: str) -> int | None:
+    """解析 YYYYMMDD 日期字符串，返回「滞后交易日数」（最新交易日数据=0）。解析失败返回 None。
+
+    口径(#235 F1, 2026-10-09)权威实现 = app.calendar.lag_trading_days(单一事实源,
+    scripts/monitor_72h.sh 亦调用同款, 防两份实现漂移); 本函数只负责注入本进程「今日」
+    (便于测试冻结时钟)+ app.calendar 不可用时 fail-safe 回退自然日(即原 _days_ago 行为)。
+    见 docs/ops/235-f1-tradingday-caliber-design-20261009.md。
+    """
+    try:
+        # 先例同款: check_signal_accum_nav_lag 亦在函数内 sys.path.insert + 借 app.calendar
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from app.calendar import lag_trading_days
+    except Exception:  # noqa: BLE001  app.calendar 不可用 → 退自然日(旧行为)
+        return _days_ago(date_str)
+    return lag_trading_days(date_str, today=datetime.now().date())
+
+
 def _get_nested(d: dict, *keys, default=None):
     """安全嵌套取值。"""
     cur = d
@@ -425,15 +442,15 @@ def check_alert(data_dir: Path) -> CheckResult:
         return _fail(name, "alert.json 无 date 字段")
 
     # alert 是盘后日频，允许滞后 1 天（盘前 alert 还是昨日盘后的）
-    days = _days_ago(date_str)
+    days = _lag_trading_days(date_str)
     if days is None:
         return _warn(name, f"alert.json date 格式异常: {date_str}")
     if days > STALE_DAYS_FAIL:
-        return _fail(name, f"alert.json date={date_str} 滞后 {days} 天 > {STALE_DAYS_FAIL} 天")
+        return _fail(name, f"alert.json date={date_str} 滞后 {days} 交易日 > {STALE_DAYS_FAIL} 交易日")
     if days > STALE_DAYS_WARN + 1:  # alert 允许多 1 天
-        return _warn(name, f"alert.json date={date_str} 滞后 {days} 天")
+        return _warn(name, f"alert.json date={date_str} 滞后 {days} 交易日")
 
-    return _ok(name, f"date={date_str} (滞后 {days} 天)")
+    return _ok(name, f"date={date_str} (滞后 {days} 交易日)")
 
 
 def check_notifications(data_dir: Path) -> CheckResult:
@@ -453,15 +470,15 @@ def check_notifications(data_dir: Path) -> CheckResult:
     if not date_str:
         return _fail(name, "notifications.json 无 date 字段")
 
-    days = _days_ago(date_str)
+    days = _lag_trading_days(date_str)
     if days is None:
         return _fail(name, f"notifications.json date 格式异常: {date_str}")
     if days > STALE_DAYS_FAIL:
-        return _fail(name, f"notifications.json date={date_str} 滞后 {days} 天 > {STALE_DAYS_FAIL} 天")
+        return _fail(name, f"notifications.json date={date_str} 滞后 {days} 交易日 > {STALE_DAYS_FAIL} 交易日")
     if days > 1:
-        return _warn(name, f"notifications.json date={date_str} 滞后 {days} 天")
+        return _warn(name, f"notifications.json date={date_str} 滞后 {days} 交易日")
 
-    return _ok(name, f"date={date_str} (滞后 {days} 天)")
+    return _ok(name, f"date={date_str} (滞后 {days} 交易日)")
 
 
 def check_schedule_stats(data_dir: Path) -> CheckResult:
@@ -538,15 +555,15 @@ def check_ad_line(data_dir: Path) -> CheckResult:
         return _warn(name, f"ad_line.json data[-1] 不是 dict: {type(last).__name__}")
 
     date_str = last.get("date", "")
-    days = _days_ago(date_str)
+    days = _lag_trading_days(date_str)
     if days is None:
         return _warn(name, f"ad_line.json 最后日期格式异常: {date_str}")
     if days > STALE_DAYS_FAIL:
-        return _fail(name, f"ad_line.json 最后日期={date_str} 滞后 {days} 天 > {STALE_DAYS_FAIL} 天")
+        return _fail(name, f"ad_line.json 最后日期={date_str} 滞后 {days} 交易日 > {STALE_DAYS_FAIL} 交易日")
     if days > STALE_DAYS_WARN:
-        return _warn(name, f"ad_line.json 最后日期={date_str} 滞后 {days} 天（日频盘后数据）")
+        return _warn(name, f"ad_line.json 最后日期={date_str} 滞后 {days} 交易日（日频盘后数据）")
 
-    return _ok(name, f"{len(data_list)} 条, 最后={date_str} (滞后 {days} 天)")
+    return _ok(name, f"{len(data_list)} 条, 最后={date_str} (滞后 {days} 交易日)")
 
 
 def check_a_stock(data_dir: Path) -> CheckResult:
@@ -570,11 +587,11 @@ def check_a_stock(data_dir: Path) -> CheckResult:
     a_amount = metrics.get("a_amount")
     if isinstance(a_amount, dict) and isinstance(a_amount.get("data"), list) and a_amount["data"]:
         last_date = a_amount["data"][-1].get("date", "") if isinstance(a_amount["data"][-1], dict) else ""
-        days = _days_ago(last_date)
+        days = _lag_trading_days(last_date)
         if days is not None and days > STALE_DAYS_FAIL:
-            return _fail(name, f"a_amount 最后日期={last_date} 滞后 {days} 天 > {STALE_DAYS_FAIL} 天")
+            return _fail(name, f"a_amount 最后日期={last_date} 滞后 {days} 交易日 > {STALE_DAYS_FAIL} 交易日")
         if days is not None and days > STALE_DAYS_WARN:
-            return _warn(name, f"a_amount 最后日期={last_date} 滞后 {days} 天")
+            return _warn(name, f"a_amount 最后日期={last_date} 滞后 {days} 交易日")
 
     return _ok(name, f"metrics={len(metrics)} 项, indices={len(indices)} 项")
 
@@ -736,15 +753,17 @@ def check_trade_sim_indices(data_dir: Path) -> CheckResult:
     # mtime 滞后校验（list 内容是 index_id 字符串，无 date 字段，用文件 mtime）
     try:
         mtime_dt = datetime.fromtimestamp(path.stat().st_mtime)
-        days = (datetime.now() - mtime_dt).days
+        days = _lag_trading_days(mtime_dt.strftime("%Y%m%d"))
+        if days is None:  # strftime 恒合法, 纯防御(保持原自然日回退)
+            days = (datetime.now() - mtime_dt).days
     except OSError as e:
         return _warn(name, f"无法读取文件 mtime: {e}")
     if days > STALE_DAYS_FAIL:
-        return _fail(name, f"trade_sim_indices.json mtime 滞后 {days} 天 > {STALE_DAYS_FAIL} 天"
+        return _fail(name, f"trade_sim_indices.json mtime 滞后 {days} 交易日 > {STALE_DAYS_FAIL} 交易日"
                      f"（trade_sim JSON 无调度，回测数据过期）")
     if days > STALE_DAYS_WARN:
-        return _warn(name, f"trade_sim_indices.json mtime 滞后 {days} 天 > {STALE_DAYS_WARN} 天")
-    return _ok(name, f"{len(data)} 个品种, mtime 滞后 {days} 天")
+        return _warn(name, f"trade_sim_indices.json mtime 滞后 {days} 交易日 > {STALE_DAYS_WARN} 交易日")
+    return _ok(name, f"{len(data)} 个品种, mtime 滞后 {days} 交易日")
 
 
 def check_etf_since_return(data_dir: Path) -> CheckResult:
@@ -982,8 +1001,9 @@ def check_accum_nav_map_fresh(data_dir: Path) -> CheckResult:
     #52 数据供给链机检(2026-09-05): 前端 simnetasset 净资产曲线 + _gihRealizeRealForce 强平日
     真实价均读该文件; 手动一次性生成期曾停在 08-28, 致 9/1-9/4 波动不可见 + __gih_missing_px_
     强平日缺价告警(513400/516390)。deploy.sh 每日重置生成后本项兜底——
-    最新 nav 日期滞后 > STALE_DAYS_WARN(3 自然日) = WARN, > STALE_DAYS_FAIL(7) = FAIL(阻断 deploy)。
-    口径与 check_overview 一致(自然日 + 周末/节假日自然滞后不误报)。
+    最新 nav 日期滞后 > STALE_DAYS_WARN(3 交易日) = WARN, > STALE_DAYS_FAIL(7 交易日) = FAIL(阻断 deploy)。
+    #235 F1(2026-10-09): 口径由自然日改交易日(nav=交易日真价, 长假后首个交易日不应误报);
+    日历不可用时回退自然日(见 _lag_trading_days)。check_overview 仍为自然日口径, 勿再写「与之一致」。
     """
     name = "accum_nav_map_fresh"
     path = data_dir / "accum_nav_map.json"
@@ -993,14 +1013,14 @@ def check_accum_nav_map_fresh(data_dir: Path) -> CheckResult:
     if not isinstance(data, dict) or not data:
         return _fail(name, f"accum_nav_map.json 空或非 dict: {path}")
     last_dt = max(dt for m in data.values() if isinstance(m, dict) for dt in m)
-    days = _days_ago(last_dt)
+    days = _lag_trading_days(last_dt)
     if days is None:
         return _fail(name, f"accum_nav_map.json 最新 nav 日期格式异常: {last_dt}")
     if days > STALE_DAYS_FAIL:
-        return _fail(name, f"accum_nav_map.json 最新 nav 日期={last_dt} 滞后 {days} 天 > {STALE_DAYS_FAIL} 天(净资产曲线/强平日真价停更)")
+        return _fail(name, f"accum_nav_map.json 最新 nav 日期={last_dt} 滞后 {days} 交易日 > {STALE_DAYS_FAIL} 交易日(净资产曲线/强平日真价停更)")
     if days > STALE_DAYS_WARN:
-        return _warn(name, f"accum_nav_map.json 最新 nav 日期={last_dt} 滞后 {days} 天 > {STALE_DAYS_WARN} 天")
-    return _ok(name, f"最新 nav 日期={last_dt} (滞后 {days} 天)")
+        return _warn(name, f"accum_nav_map.json 最新 nav 日期={last_dt} 滞后 {days} 交易日 > {STALE_DAYS_WARN} 交易日")
+    return _ok(name, f"最新 nav 日期={last_dt} (滞后 {days} 交易日)")
 
 
 def check_accum_nav_split_consistency(data_dir: Path) -> CheckResult:
@@ -2115,7 +2135,7 @@ def check_s06_state_snapshot(data_dir: Path, timeout: int = 300) -> CheckResult:
     """S06 快照(kelly_mode_s06_state.json)机检（2026-08-26 接入 deploy 校验链；2026-09-19 分级）。
 
     两级互证(2026-09-19 reviewer 证伪补强, 防「带病快照穿透 deploy」):
-      ① 本地 data_dir 存在 kelly_mode_s06_state.json **且 coverage_end 新鲜(近 7 天)** →
+      ① 本地 data_dir 存在 kelly_mode_s06_state.json **且 coverage_end 新鲜(近 7 交易日)** →
          即云上工作区=将上传版本, 继续跑 scripts/check_s06_state.py 子进程 A1-A6 完整互证
          (A1 独立第二实现复算 / A2 decision_date 防前视 / A3 两基座+s06 预设键集 /
           A4 阈值与生成器常量+公示文案单源 / A5 锁死不变式 / A6 前段元数据)。exit!=0 → FAIL。
@@ -2138,7 +2158,7 @@ def check_s06_state_snapshot(data_dir: Path, timeout: int = 300) -> CheckResult:
         if not isinstance(snap_local, dict):
             return _fail(name, f"S06 本地快照不是 dict: {type(snap_local).__name__}")
         cov_end = str(snap_local.get("coverage_end") or "")
-        days = _days_ago(cov_end)
+        days = _lag_trading_days(cov_end)
         if days is None:
             return _fail(name, f"S06 本地快照 coverage_end 格式异常: {cov_end!r}")
         local_fresh = days <= STALE_DAYS_FAIL
@@ -2207,13 +2227,13 @@ def check_s06_state_snapshot(data_dir: Path, timeout: int = 300) -> CheckResult:
     # 快照 20:35 生成时 coverage_end=T-1(与 --allow-lag-days 1 同口径), 故 WARN 阈值取
     # STALE_DAYS_WARN+1 与 alert 相同(允许跨日); 日常新鲜度仍由 check_s06_freshness 交易日兜底。
     cov_end = str(snap["coverage_end"])
-    days = _days_ago(cov_end)
+    days = _lag_trading_days(cov_end)
     if days is None:
         return _fail(name, f"线上 S06 快照 coverage_end 格式异常: {cov_end!r}")
     if days > STALE_DAYS_FAIL:
-        return _fail(name, f"线上 S06 快照 coverage_end={cov_end} 滞后 {days} 天 > {STALE_DAYS_FAIL} 天")
+        return _fail(name, f"线上 S06 快照 coverage_end={cov_end} 滞后 {days} 交易日 > {STALE_DAYS_FAIL} 交易日")
     if days > STALE_DAYS_WARN + 1:
-        return _warn(name, f"线上 S06 快照 coverage_end={cov_end} 滞后 {days} 天")
+        return _warn(name, f"线上 S06 快照 coverage_end={cov_end} 滞后 {days} 交易日")
 
     gen_at = snap.get("generated_at") or snap.get("updated_at") or "?"
     return _ok(name, f"线上快照 coverage {snap['coverage_start']}~{cov_end} days={len(daily)} "

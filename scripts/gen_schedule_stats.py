@@ -802,7 +802,8 @@ def scan_marker_log(log_path: Path, tail_lines: int, round_start_re: re.Pattern 
             gen_daily_brief=每轮必打的「开始生成」行)。None=纯尾部窗口(旧行为)。
 
     Returns:
-        (anomaly_dict|None, skip_count, round_start_ts|None, completion_seen|None)
+        (anomaly_dict|None, skip_count, round_start_ts|None, completion_seen|None,
+         window_round_ts|None)
         前两位与 scan_log_anomaly 同构(anomaly_dict 含 keyword/line/severity)。
         last_run 由调用方(EXTRA_MARKER_SCANS 循环)按 mtime/行内时间戳补充。
         #228 M1(2026-10-07)追加后两位:
@@ -811,16 +812,20 @@ def scan_marker_log(log_path: Path, tail_lines: int, round_start_re: re.Pattern 
           completion_seen: 本轮作用域(window=[开始标记行, 末尾))内是否出现 completion_re
             (完成/失败标记)。有开始标记时恒为 bool; 无开始标记 → None(未定论)。
           ⇒ 调用方据此得 round_state: no_start / completed / started_unfinished。
+        #181race(2026-10-09)追加 window_round_ts:
+          拥有当前 skip 窗口那一轮的「开始标记」时间戳 —— 见下方实现注释(轮标识与窗口同源)。
     """
     if not log_path.exists():
-        return None, 0, None, None
+        return None, 0, None, None, None
     lines = _read_tail_lines(log_path)
     # ── 既有:异常窗口 = [最后 round_start_re 命中行, 末尾)(P1-A/P1-B 轮次作用域, 语义不动)──
     window = None
+    window_start_idx = None
     if round_start_re is not None:
         for i in range(len(lines) - 1, -1, -1):
             if round_start_re.search(lines[i]):
                 window = lines[i:]
+                window_start_idx = i
                 break
     if window is None:
         window = lines[-tail_lines:] if tail_lines and tail_lines > 0 else lines
@@ -842,6 +847,29 @@ def scan_marker_log(log_path: Path, tail_lines: int, round_start_re: re.Pattern 
         round_start_ts = _tm.group(1) if _tm else None
         if completion_re is not None:
             completion_seen = any(completion_re.search(_l) for _l in round_window)
+    # ── #181race(2026-10-09):「轮标识」= 拥有当前 skip 窗口那一轮的开始标记时间戳 ──
+    # 根因(生产样本 docs/ops/181-denoise-prod-sample-20261008.md §5):schedule_monitor 用
+    #   EXTRA 任务的 last_run(= 本文件 mtime)当轮去重标识, 而 r2_skip 计数窗口 = [最后
+    #   round_start_re(「已写」)行, 末尾) —— 两者**异源**。fetch_news 每轮 `:01/:45:00` 先
+    #   flush「轮次开始」(瞬间刷新 mtime), 数十秒后才写「已写」(窗口才前移)。monitor 恰在
+    #   `:45` tick 与 `:45` 轮**同秒起跑**时读到「窗口仍指上一轮(含 SKIPPED_LOCKED)、mtime
+    #   已是新值」的错配组合 ⇒ 同一真 skip 轮被 +1 两次 = 幻影, 阈值 3 退化为 2(假阳性)。
+    # 修向:轮标识锚到**窗口本身**——取窗口起点行(该 round_start 行)**之前或同位**的最后一个
+    #   round_begin_re 命中行的时间戳。窗口 = [该 start 行, 末尾) 恒不随新轮起跑前移, 故标识
+    #   也恒锚在窗口所属那一轮(新轮的「轮次开始」虽已进入窗口, 但窗口起点仍是上一轮「已写」,
+    #   标识仍 = 上一轮)⇒ 同轮 tick 一致, 幻影消除。⚠️ **不可**取「最新 round_begin 行」——
+    #   它与 mtime 同瞬刷新, 与窗口同样异源, 幻影依旧(见测试反事实用例)。
+    #   gen_daily_brief:round_begin_re=None ⇒ _begin_re=round_start_re(「开始生成」), 起点行
+    #   自身即开始标记(同位) ⇒ window_round_ts = 该轮开始生成时间戳, 语义一致。
+    #   找不到窗口起点(纯尾部回退) ⇒ None ⇒ 消费端回退 last_run(向后兼容, 行为同改动前)。
+    window_round_ts = None
+    if _begin_re is not None and window_start_idx is not None:
+        for _i in range(window_start_idx, -1, -1):
+            if _begin_re.search(lines[_i]):
+                _wts = _ROUND_TS_RE.search(lines[_i])
+                if _wts:
+                    window_round_ts = _wts.group(1)
+                break
     anomaly = None
     for _l in window:
         m = MARKER_ANOMALY_RE.search(_l)
@@ -854,7 +882,7 @@ def scan_marker_log(log_path: Path, tail_lines: int, round_start_re: re.Pattern 
             _sev = "degrade" if _l.strip().startswith("⚠") else "critical"
             anomaly = {"keyword": m.group(0), "line": _l.strip()[:200], "severity": _sev}
             break
-    return anomaly, skip_count, round_start_ts, completion_seen
+    return anomaly, skip_count, round_start_ts, completion_seen, window_round_ts
 
 
 def _compile_rsre(pattern: str | None) -> re.Pattern | None:
@@ -1127,7 +1155,7 @@ def build():
     # (log_anomaly→SEVERE 告警 / r2_skip_count→连续跳过计数, 见 schedule_monitor.sh)。
     for m in EXTRA_MARKER_SCANS:
         log_path = LOG_DIR / m["log"]
-        anomaly, skip_count, _rstart_ts, _completion_seen = scan_marker_log(
+        anomaly, skip_count, _rstart_ts, _completion_seen, _window_round_ts = scan_marker_log(
             log_path, m["tail_lines"],
             round_start_re=_compile_rsre(m.get("round_start_re")),
             completion_re=_compile_rsre(m.get("completion_re")),
@@ -1164,6 +1192,10 @@ def build():
             # schedule_monitor 对 EXTRA 任务走连续 N 轮缓冲不首报 SEVERE(见 monitor 消费端)
             "log_anomaly_severity": anomaly.get("severity") if anomaly else None,
             "r2_skip_count": skip_count,
+            # #181race(2026-10-09): r2_skip 轮去重标识 —— 拥有当前 skip 窗口那一轮的
+            # 「轮次开始」时间戳(与窗口同源, 替代消费端此前用的文件 mtime; 见 scan_marker_log
+            # docstring + schedule_monitor 消费块)。None ⇒ 消费端回退 last_run(向后兼容)。
+            "r2_round_id": _window_round_ts,
             # #228 M1(2026-10-07): 轮次完整性 + unit 状态(新增判别轴, 不影响既有字段)
             "round_state": _round_state,
             "round_start_ts": _rstart_ts,

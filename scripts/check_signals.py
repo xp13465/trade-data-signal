@@ -1091,6 +1091,53 @@ def _clear_fade_dedup_for_reappear(date: str, signals: list[dict]) -> int:
     return n
 
 
+def _rollback_fade_notified(date: str, alerts: list[dict]) -> int:
+    """#241 同族(2026-10-09): 通知未真发出时，回滚**本轮新落**的 fade 去重签。
+
+    原实现：`run_fade_detect → filter_fade_alerts_intraday` 阶段即写 fade_notified.json
+    （**先落签**），而主邮件在数千行之后才发（那里 check `ok_channels` 才落 signal_notified，
+    判据本身正确）⇒ 全渠道失败时重试邮件会重发主信号，但 fade 条目已被本轮子去重签占，
+    重试邮件缺 fade 警示栏（同日不再补）= 提示性栏目永久丢失。
+
+    只删**本轮 filter_fade_alerts_intraday 新增的 key**（精确回滚，不动历史签、不动
+    pending/其他 key），使下轮重试邮件能带上 fade 警示栏；送达成功路径不调用本函数。
+    刻意**保留 A5 抑制路径的签**（盘中无信号时按设计不发邮件，不改其语义）。
+    写失败降级（不阻塞）。返回回滚条数。
+    """
+    if not alerts or not FADE_NOTIFIED_PATH.exists():
+        return 0
+    try:
+        dedup = json.loads(FADE_NOTIFIED_PATH.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("fade_notified.json 回滚读取失败（降级）：%s", e)
+        return 0
+    if not isinstance(dedup, dict):
+        return 0
+    today = dedup.get(date, {})
+    if not isinstance(today, dict) or not today:
+        return 0
+    keys = {f"{a['index_id']}|{a['level']}|{a.get('kind', 'buy')}" for a in alerts}
+    n = 0
+    for k in list(today.keys()):
+        if k in keys:
+            del today[k]
+            n += 1
+    if not n:
+        return 0
+    dedup[date] = today
+    try:
+        FADE_NOTIFIED_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = FADE_NOTIFIED_PATH.parent / (FADE_NOTIFIED_PATH.name + ".tmp")
+        tmp.write_text(json.dumps(dedup, ensure_ascii=False, separators=(",", ":")),
+                       encoding="utf-8")
+        tmp.replace(FADE_NOTIFIED_PATH)
+        log.info("fade-notified-rollback：通知未送达，回滚本轮 %d 条 fade 签（下轮重试可补 fade 栏）", n)
+    except Exception as e:  # noqa: BLE001
+        log.warning("fade_notified.json 回滚写入失败（降级）：%s", e)
+        return 0
+    return n
+
+
 def _build_fade_banner(fade_alerts: list[dict], name_map: dict[str, str],
                        intraday: bool = False) -> str:
     """构建 fade 警示横幅 HTML（红/橙/黄三档表格 + sell 行绿色系）。
@@ -2034,6 +2081,9 @@ def main(argv: list[str] | None = None) -> int:
                               feishu_post=feishu_post)
     except Exception as e:  # noqa: BLE001
         log.error("✗ 通知发送异常：%s（不阻塞流程）", e)
+        # #241 同族(2026-10-09): 通知异常 ⇒ 回滚本轮 fade 签, 下轮重试邮件可补 fade 栏。
+        if args.intraday and fade_alerts and not args.dry_run:
+            _rollback_fade_notified(date, fade_alerts)
         return 2
     ok_channels = [ch for ch, v in results.items() if v]
     fail_channels = [ch for ch, v in results.items() if not v]
@@ -2042,6 +2092,9 @@ def main(argv: list[str] | None = None) -> int:
                  f"（未发出：{' '.join(fail_channels)}）" if fail_channels else "")
     else:
         log.warning("✗ 通知未发出（渠道均未配置或失败）-- 不更新去重记录，下次重试")
+        # #241 同族(2026-10-09): 全渠道未发出 ⇒ 回滚本轮 fade 签(fade_notified 先落签病灶)。
+        if args.intraday and fade_alerts and not args.dry_run:
+            _rollback_fade_notified(date, fade_alerts)
         return 0
 
     # 发送成功后更新 signal_notified.json（标记当日已通知，下次去重跳过）。
