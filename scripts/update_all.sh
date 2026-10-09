@@ -172,7 +172,8 @@ echo "-> intraday_snapshot 采集 ..." | tee -a "$LOG"
   echo "⚠ intraday_snapshot 采集失败（不阻塞主流程）" | tee -a "$LOG"
 
 # C6 预警条：算当日预警分入库 score_daily + 导出 static-site/data/alert.json
-# 读 DB 最新日算分（约5s），失败不阻塞；alert.json 本地更新，下次 pipeline deploy 推上线
+# 读 DB 最新日算分（约5s），失败不阻塞；alert.json 本地更新 + 随下方 #236 F2 独立上传推 R2
+# （2026-10-09 口径更新：原「下次 pipeline deploy 推上线」已解耦，见下方 F2 块）
 echo "-> 预警分计算（high_alert/low_alert）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/export_alert.py" >> "$LOG" 2>&1 || \
   echo "⚠ export_alert 失败（不阻塞主流程）" | tee -a "$LOG"
@@ -182,6 +183,35 @@ echo "-> 预警分计算（high_alert/low_alert）..." | tee -a "$LOG"
 echo "-> 预警分析快照（alert_analyze 40 宽基+行业）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/export_alert_analyze.py" >> "$LOG" 2>&1 || \
   echo "⚠ export_alert_analyze 失败（不阻塞主流程）" | tee -a "$LOG"
+
+# ---------------------------------------------------------------------------
+# F2（#236，2026-10-09）：预警数据独立上传 R2 —— 解 deploy 校验自锁（机制型设计缺陷）
+#   死锁结构（已取证 docs/ops/deploy-selflock-recon-20261009.md §2）：
+#     check_data_integrity 读【线上 R2】的 alert.json 判新鲜度（deploy.sh L323-324 校验，
+#     rc≠0 即 exit 1 硬终止）；而 alert.json / alert_analyze_*.json 的唯一 R2 通道 =
+#     deploy 内的 upload-all-data（deploy.sh L582 触发，晚于 L324 的 exit，且 static-site/data/*
+#     已全量 gitignore、无 git 旁路）⇒ 拦截点早于写入点，一旦 R2 侧滞后 >7 自然日即永久死锁
+#     （10-08 实例：全天 ≥12 轮 deploy 零成功、r2_upload_async 整日零运行）。
+#   修法：在 deploy 主链之外（两 export 之后）独立上传，使 R2 预警数据不再依赖 deploy 自身，
+#     打破「读 R2 的闸门拦住了它自己输入的唯一运输通道」。配套 #235 交易历口径（另一任务）。
+#   与 deploy 既有上传不冲突（无双重上传/竞态）：--skip-if-locked ⇒ 主链 R2 上传在跑（锁被占）
+#     就跳过本轮，由在跑的 upload-all-data 覆盖同 key；主链被拦（async 不跑、锁空闲）才由本步
+#     补上。alert 与 alert_analyze 同批同源上传（§22：两展示位日期一致）。
+#   失败不阻断主链（独立、可跳过），留痕不静默（§23.11）；持续失败的可见性由 deploy 侧
+#     check_alert 对 R2 新鲜度的判定（超阈值 → severe 告警）独立兜底，不新增告警通道。
+#   先例 = scripts/s06_snapshot.sh:133 / intraday_snapshot.sh / update_lab.sh 同款 upload-data-files。
+# ---------------------------------------------------------------------------
+echo "-> 预警数据独立上传 R2（alert.json + alert_analyze_*.json，#236 F2 解自锁，--skip-if-locked 不阻塞主链）..." | tee -a "$LOG"
+ALERT_R2_OUT="$( cd "$REPO/static-site/data" && "$PY" "$REPO/scripts/upload_r2.py" --skip-if-locked upload-data-files alert.json alert_analyze_*.json 2>&1 )"
+ALERT_R2_RC=$?
+printf '%s\n' "$ALERT_R2_OUT" >> "$LOG"   # 全文入日志（留痕，不静默）
+if [ "$ALERT_R2_RC" -ne 0 ]; then
+  echo "⚠ 预警数据独立上传 R2 失败(rc=$ALERT_R2_RC, 不阻塞主流程)。R2 alert.json 将停旧版; 若持续 >7 自然日, deploy 侧 check_alert 会拦 deploy。手动补刷: cd $REPO/static-site/data && $PY $REPO/scripts/upload_r2.py upload-data-files alert.json alert_analyze_*.json" | tee -a "$LOG"
+elif printf '%s' "$ALERT_R2_OUT" | grep -q "SKIPPED_LOCKED"; then
+  echo "ℹ 预警数据独立上传 R2 被锁跳过(--skip-if-locked; 主链 R2 上传在跑, 其 upload-all-data 会覆盖 alert.json/alert_analyze, 无需干预)" | tee -a "$LOG"
+else
+  echo "✓ 预警数据独立上传 R2 完成（alert.json + alert_analyze_*.json，#236 F2）" | tee -a "$LOG"
+fi
 
 # P1-新-C ETF买卖清单：全市场 ETF评分排序 -> etf_score_list_{buy,sell,hold}.json (+ .gz)
 # B4 并发改造(2026-07-24):加 --full-market 跑全市场1371只(原62只代表性),
