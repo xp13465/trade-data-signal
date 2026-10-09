@@ -44,6 +44,9 @@ LEGACY_MD5 = "682e6b588b82833d8f00ce825792ffaf"
 
 _SUBPROC = r"""
 import json, sys
+sys.path.insert(0, sys.argv[3])          # scripts/tests(_ci_stubs 所在)
+from _ci_stubs import install_missing_third_party_stubs
+install_missing_third_party_stubs()      # CI 缺 requests: 补导入级 stub(与 pytest 进程同判据)
 sys.path.insert(0, sys.argv[1])          # 旧实现所在目录
 import fapi_daily as legacy              # noqa: E402
 import pyarrow.parquet as pq             # noqa: E402
@@ -70,8 +73,9 @@ def compute_rows(ref: str) -> tuple[list, str]:
             f"ref={ref} 不是 pre-#238 版本,拒绝生成(防产出假黄金)。")
     with tempfile.TemporaryDirectory() as td:
         (Path(td) / "fapi_daily.py").write_bytes(src)
-        out = subprocess.run([sys.executable, "-c", _SUBPROC, td, str(SAMPLE)],
-                             cwd=ROOT, capture_output=True, timeout=300)
+        out = subprocess.run(
+            [sys.executable, "-c", _SUBPROC, td, str(SAMPLE), str(Path(__file__).parent)],
+            cwd=ROOT, capture_output=True, timeout=300)
     if out.returncode != 0:
         raise SystemExit(f"旧实现跑 map_frame 失败:{out.stderr.decode()[-500:]}")
     return json.loads(out.stdout.decode()), md5

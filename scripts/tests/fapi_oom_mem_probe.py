@@ -25,6 +25,14 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+_TESTS_DIR = Path(__file__).resolve().parent
+if str(_TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TESTS_DIR))
+from _ci_stubs import install_missing_third_party_stubs  # noqa: E402
+
+install_missing_third_party_stubs()  # 本脚本是裸子进程, 无 conftest: CI 缺 requests 须自补
+# (与 gen_fapi_golden_238.py 的 oracle 子进程同一根因/同一函数; 细则见 _ci_stubs.py)
+
 
 def _peak_mb() -> float:
     v = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss

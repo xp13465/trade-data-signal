@@ -37,11 +37,9 @@
 内置 try import baostock, CI 无 baostock 时静默跳过。均已实测。切勿为省事删除 stub, 否则
 rfm/bdm 两个测试在 CI 上会退回 ImportError。
 """
-import importlib.util
 import os
 import sys
 import tempfile
-import types
 from pathlib import Path
 
 ROOT = Path(__file__).absolute().parent.parent.parent  # scripts/tests -> 仓库根
@@ -53,34 +51,17 @@ for _p in (str(SCRIPTS), str(ROOT)):
 
 os.environ.setdefault("REPO", str(ROOT))
 
-# ③ 未安装的第三方库注入 stub(本地已装则保持真库)
-for _name, _need_session, _submods in (
-    ("requests", True, ()),
-    ("pandas", False, ()),
-    ("akshare", False, ()),
-    ("pyarrow", False, ("parquet",)),
-):
-    if _name in sys.modules or importlib.util.find_spec(_name) is not None:
-        continue  # 本地 venv 已装: 不 stub, 保持同构
-    _m = types.ModuleType(_name)
-    if _need_session:
-        # requests: 仅满足 import 期模块级用法(base.py `EM_SESSION = requests.Session()`
-        # 后紧跟 `EM_SESSION.headers.update(...)`), headers 必须是可 update 的 dict;
-        # mount() 在 base.py try/except 内(requests.adapters 导入失败即整体跳过), 补上
-        # 防 try 块意外成功。任何**运行时**方法调用(如 em_get 里的 .get)不在 stub 内 →
-        # AttributeError 响亮失败, 不假绿(测试只调纯判定函数, 不触运行时第三方调用)。
-        class _Session:
-            def __init__(self, *a, **k):
-                self.headers = {}
+# ③ 未安装的第三方库注入 stub(本地已装则保持真库)。
+#   实现已抽到 scripts/tests/_ci_stubs.py(**单一事实源**,2026-10-09 CI #727 红修复):
+#   pytest 进程内由本 conftest 调用;**裸子进程**里 import app.collector 生产链的脚本
+#   (gen_fapi_golden_238.py 的 oracle 子进程 / fapi_oom_mem_probe.py)不加载 conftest,
+#   须各自调用**同一函数**, 否则在 CI(缺 requests, 见 ci.yml `pip install` 行)上
+#   ModuleNotFoundError ⇒ 门禁 ⑧ 红。判据/边界见该模块 docstring。
+if str(Path(__file__).parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent))  # 同目录, 便于 import _ci_stubs
+from _ci_stubs import install_missing_third_party_stubs  # noqa: E402
 
-            def mount(self, *a, **k):  # noqa: B027
-                return None
-        _m.Session = _Session
-    sys.modules[_name] = _m
-    if _submods:
-        _m.__path__ = []  # 允许子模块注册
-        for _sub in _submods:
-            sys.modules[f"{_name}.{_sub}"] = types.ModuleType(f"{_name}.{_sub}")
+install_missing_third_party_stubs()
 
 # ④ upload_r2 顶层 load_env() 垫片(2026-10-06, CI 门禁 ⑧ 收集期崩溃根治, 原 #219 事故)
 #   scripts/upload_r2.py 模块级 `load_env()`(:269) 若无 .env 会 `sys.exit`(:251), 其后
