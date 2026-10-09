@@ -580,11 +580,24 @@ MISSED_CONTINUOUS_THRESHOLD = 2
 #   波动尾, 单轮碰线不是故障。口径:
 #     ① dur >= DUR_IMMEDIATE_MULTIPLE × 阈值(盘中 1800s / 盘后 3600s) = 单次极端超阈
 #        (卡死/严重退化量级) → 立即 SEVERE, 不等连续轮。
-#     ② 否则需连续 DUR_CONTINUOUS_THRESHOLD 轮(15min/轮)仍超阈才 SEVERE(pending→active)。
+#     ② 否则需连续 DUR_CONTINUOUS_THRESHOLD 轮(15min/轮)观测到超阈才 SEVERE(pending→active)。
 #     ⇒ 真退化照报: 极端单次立即报; 持续多轮报(如 09-30 盘后 2081s, 单 run/日但被其后
 #       多个 tick 连续看到 → 连续计数天然可达)。盘中卡死未完成另有 A1 通道(阈值900s+缓冲10min)。
+#   ⚠️ 复审 F2(2026-10-09, reviewer 结构性盲区根治): 「连续轮」口径有结构漏洞——
+#     dur=None 轮(最新 run 仍在进行中)进不了 dur 块、不登记 seen, 主恢复循环遂把 pending 桶
+#     静默翻 recovered、计数从头再来; 配合节拍数学(tick 15min, intraday 槽 10min), 两连观测
+#     的真实窗口条件退化为「run 时长 D < 15min, 且下一 tick 恰好没有新 run 在进行中」。
+#     阈值恰=900s=15min ⇒ 盘中 D∈[900,1800) 的 run 结构性凑不出「连续 2 轮」而**完全静默**
+#     (旧行为会报)。两处根治: ①恢复循环豁免 `|dur_buffer|` 键(桶复位只由 dur 块内联负责)
+#     ②桶记 last_run(区分「同一 run 被后续 tick 重复观测」与「另一 run 也超阈」, 供日志/排查;
+#     计数仍是「观测轮次」—— 对 1 run/日 的盘后槽, 同一 run 被后续 tick 重复观测正是其累积
+#     途径, 故不能按 run 去重)。桶含陈旧保护: 上次观测 >DUR_BUFFER_MAX_AGE 视为新建, 防停跑
+#     任务的陈年计数让单轮碰线假达阈。
+#     ⚠️ 残余(诚实标注): 同一超阈 run 若被连续两轮观测且中间没有新 run 介入(如午休/收盘后槽),
+#     会被计为 2 → SEVERE。这是「1 run/日 槽仍要能报」的必要代价, 且旧行为本就报该情形。
 DUR_CONTINUOUS_THRESHOLD = 2
 DUR_IMMEDIATE_MULTIPLE = 2
+DUR_BUFFER_MAX_AGE = timedelta(hours=24)
 DUR_THRESHOLDS = {
     "intraday_snapshot": 900,   # 15min(2026-09-29 告警降噪 改动3: 600->900, 正常286s 3倍裕量;
                                 #   盘后>=20:00槽已在 L645-651 分档放宽到 1800s 覆盖, 勿动)
@@ -918,20 +931,36 @@ if STATS_FILE.exists():
                         # #240 ③(2026-10-09) 单轮碰线降噪: 计数桶 pending→active(镜像 marker_buffer
                         # 模式)。桶键带阈值维度(dur_buffer|{阈值})防盘中槽(900)与盘后槽(1800)计数串用
                         # ——否则「盘后已 alerted」的桶会让次日盘中首轮碰线直接达阈(假 SEVERE)。
-                        _dur_cnt_key = f"{_dur_task}|dur_buffer|{_dur_thresh}"
+                        _dur_cnt_key = f"{_dur_task}{adr.DUR_BUFFER_KEY_MARK}{_dur_thresh}"
                         seen_keys_this_run.add(_dur_cnt_key)  # 防主恢复循环对 pending 桶静默翻 recovered
                         _dur_b = alert_state.get(_dur_cnt_key) or {}
                         _dur_bs = _dur_b.get("status")
+                        # 复审 F2: 陈旧桶保护 —— 上次观测 >24h(任务已停跑, 桶不再被复位)按新建处理,
+                        # 防陈年 consecutive_count 让一个单轮碰线假达阈(见文件头 F2 注)
+                        _dur_last_seen = _dur_b.get("last_seen")
+                        if _dur_last_seen:
+                            try:
+                                _dur_stale_b = (NOW - datetime.strptime(
+                                    _dur_last_seen, "%Y-%m-%d %H:%M:%S") > DUR_BUFFER_MAX_AGE)
+                            except (ValueError, TypeError):
+                                _dur_stale_b = True
+                            if _dur_stale_b:
+                                _dur_b, _dur_bs = {}, None
+                        _dur_prev_c = _dur_b.get("consecutive_count") or 0
                         if _dur >= _dur_thresh * DUR_IMMEDIATE_MULTIPLE:
                             _dur_c = DUR_CONTINUOUS_THRESHOLD  # 单次极端超阈: 视同已达连续阈值, 立即报
-                        elif _dur_bs == "pending":
-                            _dur_c = (_dur_b.get("consecutive_count") or 0) + 1
+                        elif _dur_bs in ("pending", "alerted") and _dur_prev_c >= 1:
+                            # 上一轮(15min 前)已观测到超阈且未被复位(dur=None 轮不复位, 见恢复环豁免)
+                            # → 计数 +1。对「1 run/日」的槽(如盘后 20:35)这是唯一能累积的途径。
+                            _dur_c = _dur_prev_c + 1
                         else:
                             _dur_c = 1
                         alert_state[_dur_cnt_key] = {
                             "status": "alerted" if _dur_c >= DUR_CONTINUOUS_THRESHOLD else "pending",
                             "first_seen": _dur_b.get("first_seen") or NOW.strftime("%Y-%m-%d %H:%M:%S"),
                             "consecutive_count": _dur_c,
+                            "last_run": _dur_lr,
+                            "last_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                             "keyword": "dur_buffer",
                             "line_sample": f"dur={_dur}s thresh={_dur_thresh}s last_run={_dur_lr}",
                         }
@@ -945,7 +974,7 @@ if STATS_FILE.exists():
                             print(f"[dur_buffer] {_dur_task} 耗时 {_dur}s 超阈值 {_dur_thresh}s "
                                   f"连续{_dur_c}/{DUR_CONTINUOUS_THRESHOLD}轮, 暂不通知(单轮碰线; "
                                   f">={_dur_thresh * DUR_IMMEDIATE_MULTIPLE}s 或连续"
-                                  f"{DUR_CONTINUOUS_THRESHOLD}轮才 SEVERE)")
+                                  f"{DUR_CONTINUOUS_THRESHOLD}轮才 SEVERE; dur=null 轮不复位)")
                         elif adr.r2_merge_already_sent(alert_state, _dur_task, _dur_lr):
                             print(f"[r2-merge-suppress] {_dur_task} 耗时超阈值 {_dur_thresh}s: "
                                   f"同 last_run<{_dur_lr}> 已由超时/耗时另一通道发出, 合并去重")
@@ -968,7 +997,7 @@ if STATS_FILE.exists():
                 else:
                     # #240 ③: 耗时回到阈值内 = 碰线/退化已过去 → 计数桶复位(静默; 已发 SEVERE 的
                     # 恢复通知仍由主恢复循环负责, 不在此发)。archive 语义与 marker_buffer 复位同款。
-                    _dur_cnt_key_r = f"{_dur_task}|dur_buffer|{_dur_thresh}"
+                    _dur_cnt_key_r = f"{_dur_task}{adr.DUR_BUFFER_KEY_MARK}{_dur_thresh}"
                     _dur_br = alert_state.get(_dur_cnt_key_r)
                     if _dur_br and _dur_br.get("status") in ("pending", "alerted"):
                         alert_state[_dur_cnt_key_r] = {
@@ -1733,6 +1762,13 @@ for _key, _info in list(alert_state.items()):
     # #123 R2/R5(2026-10-01): merge| 共享去重 key 与 r2_pipeline_congestion| 日汇总状态
     # 不是"异常告警", 不参与恢复检测(否则 merge key 未 seen 被误发恢复邮件)。
     if _key.startswith(adr.MERGE_PREFIX) or _key.startswith(adr.R2_CONGESTION_SUMMARY_KEY_PREFIX):
+        continue
+    # #240 ③ 复审 F2(2026-10-09): dur 计数桶(|dur_buffer|)由 dur 块**内联自管复位**
+    # (耗时回到阈值内 → recovered; 起止都在同一块), 不参与本恢复循环 —— 否则 dur=None 轮
+    # (最新 run 进行中)进不了 dur 块、不登记 seen, pending 桶被此处静默翻 recovered、计数从头
+    # 再来, 致 D∈[900,1800) 的 run 结构性凑不出「相邻 2 run 各超阈」而完全静默(旧行为会报)。
+    # 注: 真告警 key `{task}|dur>{thresh}s` 不受影响, 仍由本循环负责发 [恢复]。
+    if adr.DUR_BUFFER_KEY_MARK in _key:
         continue
     # 通知分级(2026-08-10): pending(自愈类未通知) 未 seen = 静默恢复(不发恢复邮件)
     if _info.get("status") == "pending":

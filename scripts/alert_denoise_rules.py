@@ -90,6 +90,11 @@ WATCHMAN_UNITS = (
 FAILED_UNITS_SIG_STATE_FILENAME = "failed_units_patrol_sig.json"  # 签名+最近一次已报日期状态
 FAILED_UNITS_SIG_LEN = 12                                          # 签名取 md5 前 N 位(可读+足够区分)
 
+# ---- #240 ③ 复审 F2(2026-10-09) dur 计数桶键标记(单一事实源) ----
+# 桶键 = f"{task}|dur_buffer|{阈值}"; schedule_monitor.sh 用本常量**构造**桶键 + 在恢复循环里
+# **豁免**同前缀键(桶复位只由 dur 块内联负责)。两处共用同一常量, 防字面量漂移导致豁免失配。
+DUR_BUFFER_KEY_MARK = "|dur_buffer|"
+
 
 def failed_units_signature(problems) -> str:
     """告警项列表 → 稳定集合签名(排序后 md5 前 FAILED_UNITS_SIG_LEN 位)。

@@ -56,7 +56,7 @@ SCRIPTS = ROOT / "scripts"
 MONITOR = Path(os.environ.get("SCHEDULE_MONITOR_SH", str(SCRIPTS / "schedule_monitor.sh")))
 
 # 断言计数下限(防收集/执行异常致「0 断言假绿」, §18 L49 / 仿 #201/#193)
-_MIN_ASSERTIONS = 40
+_MIN_ASSERTIONS = 58
 _N = [0]
 
 
@@ -173,8 +173,11 @@ _HEALTHY_SHOW = {u: {"ActiveState": "active", "LoadState": "loaded", "UnitFileSt
 _FAILED_LINE = "trade-x.service loaded failed failed Trade X\n"
 
 
-def _cfu_main(monkeypatch, tmp: Path, failed_text: str):
-    """跑 check_failed_units.main()(注入样本 + 记录型 _send_notify)。返回 (rc, calls, out)。"""
+def _cfu_main(monkeypatch, tmp: Path, failed_text: str, sender=None):
+    """跑 check_failed_units.main()(注入样本 + 记录型 _send_notify)。返回 (rc, calls, out)。
+
+    sender 可覆盖打桩实现(F1 负控需模拟「渠道全失败」)。
+    """
     fd = tmp / "failed.txt"
     fd.write_text(failed_text, encoding="utf-8")
     sj = tmp / "show.json"
@@ -185,7 +188,7 @@ def _cfu_main(monkeypatch, tmp: Path, failed_text: str):
         calls.append((subject, body))
         return True, "recorder"
 
-    monkeypatch.setattr(cfu, "_send_notify", _rec)
+    monkeypatch.setattr(cfu, "_send_notify", sender or _rec)
     monkeypatch.setattr(sys, "argv", [
         "check_failed_units.py", "--repo", str(tmp), "--notify",
         "--failed-units-file", str(fd), "--unit-show-json", str(sj)])
@@ -244,6 +247,46 @@ def test_02c_e2e_dry_run_no_send_and_key_unchanged():
         _chk(trap.hits == [], f"② dry-run 零外发被破坏: {trap.hits}")
 
 
+@pytest.mark.parametrize("out,exp,why", [
+    ("[notify] 汇总：已发出 email/feishu", True, "通用路径成功"),
+    ("[notify] 汇总：已发出 email（未发出：feishu）", True, "有任一渠道成功即算已发出"),
+    ("[notify] 汇总：全部渠道未发出（email/feishu）", False, "全渠道失败 → 不算发出"),
+    ("[notify] 汇总：全部渠道未发出（无渠道）", False, "无渠道 → 不算发出"),
+    ("[notify][196] 升级档路由完成：{'email': True, 'feishu': True}", True,
+     "#196③ 升级档 early return, 靠 dict 判"),
+    ("[notify][196] 升级档路由完成：{'email': False, 'feishu': False}", False,
+     "升级档也全败 → 不算发出"),
+    ("", False, "无输出 → 保守不算发出(下轮重试)"),
+])
+def test_02d_notify_sent_parser(out, exp, why):
+    """F1: 落签判据 = 输出汇总(notify.py 恒 rc=0, 不能只看 rc)。"""
+    _chk(cfu._notify_sent(out) is exp, f"F1 {why}: 期望 {exp}, 实得 {cfu._notify_sent(out)}")
+
+
+def test_02e_all_channels_failed_writes_no_signature_and_retries(monkeypatch, tmp_path):
+    """F1 负控(必修项): 通知渠道全失败 → **不得落签名** → 下一轮仍重试(当天不失报)。
+
+    改前: 落签判据 = 子进程 rc==0, 而 notify.py 恒返回 0(含「全部渠道未发出」)
+    ⇒ 渠道故障当天同集合告警被全部抑制 = 当天失报。改后: 看输出 => 不落签 => 重试。
+    """
+    calls = []
+
+    def _fail(repo, subject, body):
+        calls.append(subject)
+        return False, "[notify] 汇总：全部渠道未发出（email/feishu）"
+
+    with ZeroOutboundTrap() as trap:
+        rc1, _c1, out1 = _cfu_main(monkeypatch, tmp_path, _FAILED_LINE, sender=_fail)
+        rc2, _c2, out2 = _cfu_main(monkeypatch, tmp_path, _FAILED_LINE, sender=_fail)
+    _chk(rc1 == 1 and rc2 == 1, f"F1 发送失败仍应 rc=1, 实得 {rc1}/{rc2}")
+    _chk(len(calls) == 2, f"F1 全渠道失败必须下轮重试(不得落签抑制), 实得调用 {len(calls)} 次")
+    _chk("告警未发出" in out1 and "不落抑制" in out1, f"F1 应响亮报未发出, out={out1[-200:]}")
+    _chk(not (tmp_path / "data" / adr.FAILED_UNITS_SIG_STATE_FILENAME).exists(),
+         "F1 全渠道失败不得落签名状态文件")
+    _chk("告警已发出" not in out2, "F1 失败轮不得声称已发出")
+    _chk(trap.hits == [], f"F1 零外发被破坏: {trap.hits}")
+
+
 # ══════════════════════ ③ 执行耗时「单轮碰线」降噪(schedule_monitor.sh) ══════════════════════
 
 def _monitor_src():
@@ -278,7 +321,7 @@ def _dur_block():
               if isinstance(n, ast.FunctionDef) and n.name == "_in_progress_state")
     consts = {}
     for name in ("DUR_THRESHOLDS", "DUR_CONTINUOUS_THRESHOLD", "DUR_IMMEDIATE_MULTIPLE",
-                 "STALE_EXIT_THRESHOLD", "IN_PROGRESS_MAX_AGE"):
+                 "DUR_BUFFER_MAX_AGE", "STALE_EXIT_THRESHOLD", "IN_PROGRESS_MAX_AGE"):
         node = next((n for n in ast.walk(tree) if isinstance(n, ast.Assign)
                      and getattr(n.targets[0], "id", None) == name), None)
         assert node is not None, f"schedule_monitor.sh 缺常量 {name}(被改名/删除? 本测试锚点需同步)"
@@ -359,8 +402,89 @@ def test_03b_dur_block_is_wired_and_thresholds_unchanged():
     src = _monitor_src()
     _chk('if _dur_c < DUR_CONTINUOUS_THRESHOLD:' in src and '"status": "pending"' in src,
          "③ 连续轮 pending 判定未接线")
-    _chk('_dur_cnt_key = f"{_dur_task}|dur_buffer|{_dur_thresh}"' in src,
-         "③ 计数桶键缺阈值维度(盘中/盘后会串用)")
+    _chk('_dur_cnt_key = f"{_dur_task}{adr.DUR_BUFFER_KEY_MARK}{_dur_thresh}"' in src,
+         "③ 计数桶键缺阈值维度(盘中/盘后会串用) 或未走 adr 单一事实源")
+
+
+# ── 复审 F2: 恢复环豁免 dur 计数桶(否则 dur=None 轮把 pending 桶静默翻 recovered) ──
+
+def _recovery_loop_code():
+    """ast 提取**真恢复检测环**(`for _key, _info in list(alert_state.items()):` 整块)。"""
+    src = _monitor_src()
+    tree = ast.parse(src)
+    loop = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.For) and isinstance(n.iter, ast.Call)
+                and isinstance(n.target, ast.Tuple) and len(n.target.elts) == 2
+                and getattr(n.target.elts[0], "id", None) == "_key"
+                and getattr(n.target.elts[1], "id", None) == "_info")
+    return compile(textwrap.dedent(ast.get_source_segment(src, loop)),
+                   "<recovery-loop>", "exec")
+
+
+def _run_recovery_loop(state, seen, now):
+    """跑一轮真恢复环(未 seen 的 key 会被静默置 recovered)。返回 recoveries 列表。"""
+    g = {"adr": adr, "NOW": now, "alert_state": state, "seen_keys_this_run": seen,
+         "recoveries": [], "in_progress_tasks": set(),
+         "print": lambda *a, **k: None,
+         "_recovery_cooldown_ok": lambda k, i: True,
+         "RECOVERY_COOLDOWN": datetime.timedelta(hours=6)}
+    exec(_recovery_loop_code(), g)  # noqa: S102  (真源码块: 只改 alert_state + 追加 recoveries)
+    return g["recoveries"]
+
+
+def test_03c_dur_none_tick_does_not_reset_pending_bucket():
+    """F2 核心(必修项): dur=None 轮(最新 run 进行中)不进 dur 块、桶不在 seen —— 恢复环必须
+    **豁免 `|dur_buffer|` 键**, 否则 pending 桶被静默翻 recovered、计数从头再来 ⇒
+    盘中 D∈[900,1800) 的 run 结构性凑不出「连续 2 轮」而完全静默(旧行为会报)。"""
+    now = datetime.datetime(2026, 10, 9, 10, 30)
+    bk = "intraday_snapshot|dur_buffer|900"
+    state = {bk: {"status": "pending", "first_seen": "2026-10-09 10:00:00",
+                  "consecutive_count": 1, "last_run": "2026-10-09 09:55",
+                  "last_seen": "2026-10-09 10:00:00"}}
+    # 对照: 其他任务的 pending key(dur=null 未 seen)应照旧被静默恢复
+    state["other_task|dur>900s"] = {"status": "pending", "first_seen": "2026-10-09 10:00:00",
+                                    "consecutive_count": 1}
+    _run_recovery_loop(state, seen=set(), now=now)
+    _chk(state[bk]["status"] == "pending" and state[bk]["consecutive_count"] == 1,
+         f"F2 dur=null 轮不得复位 dur 计数桶, 实得 {state[bk]}")
+    _chk(state["other_task|dur>900s"]["status"] == "recovered",
+         f"F2 对照: 其他 pending key 仍应被恢复环静默置 recovered, 实得 "
+         f"{state['other_task|dur>900s']}")
+    # 源码锚点: 豁免必须**在恢复环内部**, 且在 pending 分支之前(位置错=豁免失效)
+    src = _monitor_src()
+    _i_loop = src.index("for _key, _info in list(alert_state.items()):")
+    _i_ex = src.index("if adr.DUR_BUFFER_KEY_MARK in _key:", _i_loop)
+    _i_pend = src.index('if _info.get("status") == "pending":', _i_loop)
+    _chk(_i_loop < _i_ex < _i_pend, "F2 豁免位置错(须在恢复环内且先于 pending 分支)")
+
+
+def test_03d_dur_buffer_accumulates_when_bucket_survives():
+    """F2 回归: 桶未被复位时, 下一轮超阈观测应使计数达 2 → SEVERE(灵敏度不降)。"""
+    code, consts = _dur_block()
+    st = {"intraday_snapshot|dur_buffer|900": {
+        "status": "pending", "first_seen": "2026-10-09 10:00:00",
+        "consecutive_count": 1, "last_run": "2026-10-09 09:55",
+        "last_seen": "2026-10-09 10:00:00"}}
+    a = _dur_tick(code, consts, dur=1000, last_run="2026-10-09 10:10",
+                  now=datetime.datetime(2026, 10, 9, 10, 15), state=st, seen=set())
+    _chk(any("执行耗时 1000s 超阈值 900s" in x for x in a),
+         f"F2 桶保留后第 2 轮观测应 SEVERE, 实得 {a}")
+
+
+def test_03e_stale_bucket_does_not_carry_count():
+    """F2 陈旧保护: 上次观测 >24h(任务已停跑, 桶不再被复位)按新建处理 → 单轮碰线仍不报。"""
+    code, consts = _dur_block()
+    bk = "intraday_snapshot|dur_buffer|900"
+    st = {bk: {"status": "pending", "first_seen": "2026-10-05 10:00:00",
+               "consecutive_count": 1, "last_run": "2026-10-05 09:55",
+               "last_seen": "2026-10-05 10:00:00"}}
+    a = _dur_tick(code, consts, dur=1000, last_run="2026-10-09 10:10",
+                  now=datetime.datetime(2026, 10, 9, 10, 15), state=st, seen=set())
+    _chk(a == [], f"F2 陈旧桶不得让单轮碰线假达阈, 实得 {a}")
+    _chk(st[bk]["consecutive_count"] == 1, f"F2 陈旧桶应按新建处理(count=1), 实得 {st[bk]}")
+    _chk(st[bk]["last_seen"] == "2026-10-09 10:15:00", "F2 陈旧桶应刷新 last_seen")
+    _chk(adr.DUR_BUFFER_KEY_MARK == "|dur_buffer|",
+         "F2 桶键标记常量不得漂移(构造与豁免共用)")
 
 
 # ══════════════════════ ④ 公募全 NULL 首日时滞降噪(check_data_gap_alerts) ══════════════════════
