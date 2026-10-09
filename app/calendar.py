@@ -100,6 +100,38 @@ def trading_days_between(start: str, end: str) -> list[str]:
     return out
 
 
+def lag_trading_days(date_str, today=None) -> "int | None":
+    """返回「滞后交易日数」:区间 (date_str, today] 内的交易日个数(最新交易日数据=0)。
+
+    date_str 为 'YYYYMMDD' 字符串, 解析失败 → None。非交易日(周末/假期)按其后交易日计,
+    故长假/周末的自然空档不计滞后 —— 根治「长假后首个交易日把盘前状态误判成滞后 8 天」
+    的 deploy 自锁(#235 F1, 2026-10-09)。
+
+    单一事实源:scripts/check_data_integrity._lag_trading_days 与 scripts/monitor_72h.sh
+    均调用本函数(防两份「交易日口径」实现静默漂移)。
+
+    两道护栏(宁可保守, 不静默放松):
+      ① 日历未覆盖 today / 无法定位交易日 → 回退自然日(防跨年日历未刷新时 lag 恒 0);
+      ② 任何异常 → 回退自然日(fail-safe)。
+    """
+    if today is None:
+        today = dt.date.today()
+    try:
+        d = dt.datetime.strptime(date_str.strip(), "%Y%m%d").date()
+    except (ValueError, AttributeError):
+        return None
+    try:
+        if not is_trading_day(last_trading_day(today)):
+            # 日历未覆盖 today(前找 15 天全非交易日 → 返回 today 自身) → 回退自然日
+            return (today - d).days
+        ds, ts = d.strftime("%Y%m%d"), today.strftime("%Y%m%d")
+        n = len(trading_days_between(ds, ts))
+        # date 为交易日时不含自身; 非交易日(周末/假期)按其后交易日计, 故不减 1
+        return max(n - (1 if is_trading_day(ds) else 0), 0)
+    except Exception:  # noqa: BLE001  fail-safe: 日历不可用 → 退自然日
+        return (today - d).days
+
+
 if __name__ == "__main__":
     print("今天:", dt.date.today(), "交易日?", is_trading_day())
     print("最近交易日:", last_trading_day())
