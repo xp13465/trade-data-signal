@@ -48,7 +48,13 @@
 
 【告警】--notify 才真发(默认 dry 只打印, 单测/手动排查安全):
   notify.py <subject> <body> --severe --from-prefix "[告警]"
-    --dedup-key failed_units_patrol --dedup-window 21600
+    --dedup-key failed_units_patrol --dedup-window 0
+  ⚠️ #240 ②(2026-10-09): 窗口 21600 → **0**。每日 1 次 / 集合有变立即报的闸门已移到本脚本自管
+  (adr.failed_units_daily_judge), 若仍留 6h 窗会把「集合有变立即报」吞掉。--dedup-key 一字不改
+  (notify.py #196③「连续 3 天升 critical」以该 key 精确接线)。
+  ⚠️ F1 复审(2026-10-09): notify.py **恒 return 0**(含「全部渠道未发出」, notify.py:2362),
+  故「是否发出去」判据不能只看 rc(否则渠道全失败照样落签名 → 当日同集合全抑制 = 当天失报);
+  改看输出汇总(_notify_sent)。全渠道失败 → 不落签 → 下轮重试, 不吞真故障。
   「连续 3 天仍异常 → 升 critical」由 notify.py 调用侧拦截(#196③,
   alert_denoise_rules.consecutive_days_escalate, 状态 data/failed_units_patrol_state.json)。
 
@@ -183,16 +189,77 @@ def _read_patrol_last_run(stats_path):
     return None
 
 
+def _read_sig_state(path):
+    """读 #240 ② 集合签名状态(缺失/损坏 → {}(视为「集合有变」, fail-loud 照报))。"""
+    try:
+        d = json.loads(Path(path).read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _write_sig_state(path, signature, today_str):
+    """原子落盘集合签名状态(与 consecutive_days_escalate 同款 tmp+replace)。失败仅告警不阻断。"""
+    try:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(json.dumps({"signature": signature, "last_alert_date": today_str,
+                                   "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+                                  ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(p)
+    except Exception as e:  # noqa: BLE001
+        print(f"[failed-units] 集合签名状态落盘失败(下轮或重复报一次, 不吞真故障): {e}",
+              file=sys.stderr)
+
+
+def _notify_sent(output: str) -> bool:
+    """从 notify.py 输出判定「是否真的发出过」(F1 复审, 2026-10-09)。
+
+    notify.py 恒 return 0(含「全部渠道未发出」, notify.py:2362)⇒ rc 不能当发出判据。
+    三种输出形态:
+      ① 通用路径成功 → `[notify] 汇总：已发出 email/feishu`(notify.py:2368)
+      ② 通用路径全败 → `[notify] 汇总：全部渠道未发出（...）`(notify.py:2371)
+      ③ #196③ 升级档 → `[notify][196] 升级档路由完成：{'email': True, ...}`(notify.py:2334,
+         该路径 early return, 不发 ① 的通用汇总行)
+    判不出「发出过」时**保守返回 False** ⇒ 不落签名 ⇒ 下轮重试(宁可重复一次也不吞真故障)。
+    """
+    if not output:
+        return False
+    if "全部渠道未发出" in output:
+        return False
+    if "已发出" in output:
+        return True
+    _i = output.find("升级档路由完成：")
+    if _i >= 0:
+        _j = output.find("}", _i)
+        _seg = output[_i:_j + 1] if _j >= 0 else output[_i:]
+        return "True" in _seg
+    return False
+
+
 def _send_notify(repo, subject, body):
-    """子进程调 notify.py(--severe 真发)。返回 (ok, detail)。"""
+    """子进程调 notify.py(--severe 真发)。返回 (sent, detail)。
+
+    ⚠️ #240 ② 起 `--dedup-window 0`: 每日 1 次/集合变化的闸门已由本脚本自管
+    (failed_units_daily_judge), 若仍用 6h 窗则「集合有变立即报」会被 notify 的通用去重
+    吞掉。dedup-key 保持 failed_units_patrol **一字不改** —— notify.py 的 #196③
+    「连续 3 天升 critical」正是以该 key 精确匹配接线(见 notify.py _ESCALATE_CHANNELS)。
+
+    ⚠️ F1 复审(2026-10-09): 返回的 sent **不是 rc==0**, 而是从 notify.py 输出里判「真发出过」
+    (见 _notify_sent)。rc 恒 0 不含告知力: 全渠道失败也 return 0(notify.py:2362), 若按 rc
+    落签名, 渠道故障当天会把同集合告警全部抑制 = 当天失报。
+    """
     try:
         proc = subprocess.run(
             [sys.executable, str(SCRIPT_DIR / "notify.py"), subject, body.replace("\n", "<br>"),
              "--severe", "--from-prefix", "[告警]",
-             "--dedup-key", adr.FAILED_UNITS_DEDUP_KEY, "--dedup-window", "21600"],
+             "--dedup-key", adr.FAILED_UNITS_DEDUP_KEY, "--dedup-window", "0"],
             capture_output=True, text=True, timeout=120, check=False,
         )
-        return proc.returncode == 0, (proc.stderr or proc.stdout or "").strip()[-300:]
+        out = (proc.stdout or "") + (proc.stderr or "")
+        detail = out.strip()[-300:] or f"rc={proc.returncode}(无输出)"
+        return _notify_sent(out), detail
     except Exception as e:  # noqa: BLE001
         return False, f"{type(e).__name__}: {e}"
 
@@ -307,7 +374,15 @@ def main() -> int:
         print(f"CHECK_FAILED_UNITS_OK failed=0 watchman={len(WATCHMAN_UNITS)} 个 timer 全部在跑")
         return 0
 
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # ── ③ 降噪(#240 ②, 2026-10-09) ──
+    # 同一失败集合当日只报 1 次(消除 09:45/16:00/22:15 三封同文); 集合有变(新增/消失)
+    # 立即报; 次日首报照报。判定为纯函数(adr.failed_units_daily_judge), 状态单独落盘。
+    now = datetime.now()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    _sig = adr.failed_units_signature(problems)
+    _sig_state_path = repo / "data" / adr.FAILED_UNITS_SIG_STATE_FILENAME
+    _send, _reason = adr.failed_units_daily_judge(
+        _read_sig_state(_sig_state_path), _sig, now.strftime("%Y-%m-%d"))
     subject = f"[告警] 云上 unit 巡检发现异常({len(problems)} 项) {now_str[5:16]}"
     body_lines = []
     if failed:
@@ -322,14 +397,23 @@ def main() -> int:
     print(f"CHECK_FAILED_UNITS_FAIL({len(problems)} 项): " + " | ".join(problems))
 
     if do_notify:
-        ok, detail = _send_notify(repo, subject, body)
-        if ok:
-            print("[failed-units] 告警已发出(--severe)", file=sys.stderr)
+        if not _send:
+            print(f"[failed-units] 降噪: 失败集合与上次已报一致且今日已报(reason={_reason}), "
+                  f"本轮不重发(集合变化/次日首报即发)", file=sys.stderr)
+            return 1
+        sent, detail = _send_notify(repo, subject, body)
+        if sent:
+            # 只有真发出才落状态(发送失败→不落→下轮重试, 不吞真故障)
+            _write_sig_state(_sig_state_path, _sig, now.strftime("%Y-%m-%d"))
+            print(f"[failed-units] 告警已发出(--severe, reason={_reason})", file=sys.stderr)
         else:
-            print(f"[failed-units] 告警发送失败(不落抑制, 下轮重试): {detail}", file=sys.stderr)
+            # F1 复审: notify.py 恒 return 0, 全渠道失败也会走到这里(输出含「全部渠道未发出」)
+            # ⇒ 响亮打日志 + 不落签名, 下轮仍会重试
+            print(f"[failed-units] 告警未发出(不落抑制, 下轮重试): {detail}", file=sys.stderr)
     else:
         # dry-run 打印「将要发送的内容」便于人工排查/自验留证(绝不真发)
-        print("[failed-units] dry-run: 未真发通知(需 --notify 才发); 将发送内容如下:", file=sys.stderr)
+        print(f"[failed-units] dry-run: 未真发通知(需 --notify 才发); "
+              f"降噪判定 send={_send} reason={_reason}; 将发送内容如下:", file=sys.stderr)
         print(f"  SUBJECT: {subject}", file=sys.stderr)
         print(f"  BODY: {body}", file=sys.stderr)
     return 1

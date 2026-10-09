@@ -522,6 +522,69 @@ def _in_finalizer_noise(ranges: list, idx: int) -> bool:
     return any(a <= idx < b for a, b in ranges)
 
 
+# 2026-10-09 #240 ①: multiprocessing 子进程 spawn 期 semaphore 重建失败的
+# 「无锚 Traceback」变体(实证 2026-10-08 backfill_evening 21:00 轮真实 log):
+#   Traceback (most recent call last):
+#     File "<string>", line 1, in <module>
+#     File ".../multiprocessing/spawn.py", line 122, in spawn_main
+#     ...
+#       self._semlock = _multiprocessing.SemLock._rebuild(*state)
+#   FileNotFoundError: [Errno 2] No such file or directory
+# 与 Fix A 的 finalizer 块**同根**(进程退出期 semaphore 已被 unlink),但没有
+# "Exception ignored in: <Finalize object, dead>" 锚行 → Fix A 切块器漏过,
+# 被 ANOMALY_RE 当真实异常上报(2026-10-08 R5 误报根因)。判据取「帧路径全基础设施
+# + canonical sem_unlink 文案」双闸, 零开口:任何带应用帧的真实 Traceback 照报。
+MP_INFRA_FRAME_RE = re.compile(r'^\s*File "([^"]+)", line \d+')
+MP_SEMUNLINK_ERR_RE = re.compile(
+    r'^(?:FileNotFoundError|OSError): \[Errno 2\] No such file or directory$')
+
+
+def _is_mp_infra_frame(path: str) -> bool:
+    """帧路径是否属「multiprocessing 基础设施」(stdlib 无路径 "<string>" 或 multiprocessing/)。"""
+    return path == "<string>" or "multiprocessing/" in path
+
+
+def _mp_infra_traceback_ranges(lines: list, lo: int, hi: int) -> list:
+    """识别「无 Finalize 锚行」的 multiprocessing 基础设施 Traceback 噪音块(#240 ①)。
+
+    切块: 起点 = 裸 "Traceback (most recent call last):" 行; 向后吃帧行(File "…")
+    与缩进代码行/^^^ 行; 吃到第一个无缩进行(异常类型行)结束。
+    三重判据(任一不满足 = 不判噪音 → 保留正常上报, 零误吞真故障):
+      ① 帧路径**全部**基础设施(multiprocessing/… 或 "<string>") —— 无任何应用帧;
+      ② 至少 2 帧 —— 单帧 "<string>" 不足以证明是 spawn 链;
+      ③ 终止异常行 == canonical semaphore 清理失败文案(FileNotFoundError/OSError
+         + "[Errno 2] No such file or directory", 且**不带路径** —— 带路径的是
+         真实的文件缺失故障, 照报)。
+    返回 [(start_idx, end_idx_exclusive), ...]。
+    """
+    ranges = []
+    i = lo
+    while i < hi:
+        if lines[i].strip() != "Traceback (most recent call last):":
+            i += 1
+            continue
+        frames = []
+        j = i + 1
+        while j < hi:
+            lk = lines[j]
+            m = MP_INFRA_FRAME_RE.match(lk)
+            if m:
+                frames.append(m.group(1))
+                j += 1
+                continue
+            if lk.startswith((" ", "\t")):  # 源码行 / ^^^ 指示行
+                j += 1
+                continue
+            break
+        if j < hi and len(frames) >= 2 and all(_is_mp_infra_frame(p) for p in frames) \
+                and MP_SEMUNLINK_ERR_RE.match(lines[j].strip()):
+            ranges.append((i, j + 1))
+            i = j + 1
+            continue
+        i += 1
+    return ranges
+
+
 def _retry_self_healed(window_lines: list, idx: int) -> bool:
     """⚠ 瞬态命中行(idx)之后是否存在**对应成功行** → 判该重试已自愈(Fix C)。
 
@@ -624,6 +687,9 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
     skip_count = sum(1 for _l in window_lines if "SKIPPED_LOCKED" in _l)
     has_push_success = any(PUSH_SUCCESS_RE.search(l) for l in window_lines)
     finalizer_ranges = _finalizer_noise_ranges(lines, last_start_idx, end_idx)
+    # #240 ①(2026-10-09): 无 Finalize 锚行的 multiprocessing 基础设施 Traceback
+    # 变体同属清理噪音(实证 2026-10-08 backfill_evening 误报), 并入同一噪音区间集。
+    finalizer_ranges += _mp_infra_traceback_ranges(lines, last_start_idx, end_idx)
     for i in range(last_start_idx, end_idx):
         # 优先扫非 push 失败类异常(Traceback/异常类名/FATAL):命中即报,不抑制
         m = ANOMALY_RE.search(lines[i])
