@@ -6,7 +6,7 @@
   「告警是否真发出」零判别力;且抑制路径**有 stderr 输出**(7 处)但旧判据(rc)读不到。
   三站点(check_monitor_heartbeat / nextday_gap_check / nextday_plan_generator)此前按 rc
   判 ⇒ 无法区分「真发出」与「被 dedup 抑制」(且全渠道失败也 rc=0)。
-修 = 三态判据 `scripts/notify_sent.py:notify_state`(既有 notify_sent 一字不改, 存量 12 调用方零回归):
+修 = 三态判据 `scripts/notify_sent.py:notify_state`(既有 notify_sent 一字不改, 存量 9 调用方零回归: 7 .py 直调 + 2 .sh 内嵌 python):
     sent       → 成功(不重试不报错)
     suppressed → 成功且已知(被 dedup 窗口抑制, 不重试不报错)
     failed/未知 → 保守(回非 0, 交包装层告警/重试), 沿用 #241「不吞真故障」

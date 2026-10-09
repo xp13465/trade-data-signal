@@ -78,7 +78,7 @@ def notify_sent(output: str) -> bool:
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 三态判据 notify_state()（#241 Pattern B / W2, 2026-10-10）—— 纯新增, 既有 notify_sent
-# 一字不改（存量 12 个调用方零回归）。消费者: check_monitor_heartbeat / nextday_gap_check /
+# 一字不改（存量 9 个调用方零回归: 7 个 .py 直调 + 2 个 .sh 内嵌 python）。消费者: check_monitor_heartbeat / nextday_gap_check /
 # nextday_plan_generator 三个巡检站点（它们此前用 rc 判 notify 是否真发出, 而 CLI 13 个分支
 # 恒 return 0 ⇒ rc 无判别力; 需区分「真发出」与「被 dedup 抑制」两种成功态）。
 # ══════════════════════════════════════════════════════════════════════════════
