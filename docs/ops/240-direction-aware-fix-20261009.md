@@ -14,6 +14,10 @@
 `prev_signature` + `items`。**用今日真实巡检集合序列仿真:unit 巡检 9 条 → 2 条**(预期 1~2,达标);
 真故障判别维度(新增立即报 / #196③ 连续 3 天升 critical / 跨日首报)**全部保留**。
 
+**抖动静默边界(防误读为「无限吞」)**:同集合 `added-jitter` 静默后,跨日**下一轮 `daily-first` 即补报**
+(延迟 ≤ 1 轮 = 15min);**任何成员变化 → 立即 `added` 报**;持续未清 → 第 3 天走 #196③ `critical` 独立通道。
+即:同组成故障至多 24h 报 1 次 + 每日首报兜底,真故障一封不少。详见 §2.1。
+
 ---
 
 ## 1. 病灶复现(§18 L50 static-only, 云上只读)
@@ -57,7 +61,11 @@ def failed_units_daily_judge(state, signature, today_str):
 | 18:15 | 4 | 移除 lhb-backfill |
 | 20:00 | 2 | 移除 etf-national-team、futures-backfill |
 
-- **结论**:今日集合变更 9 次,**其中 7 次是纯「缩小」(恢复进展)**;旧判据对每次变更都「立即报」。
+- **时点口径(与 §8 统一)**:本表「变更时点」= `schedule_monitor_launchd.log` 记录的**集合变更(判定输入)
+  时刻**;审计/notify 侧记录的**实际发送时刻**与之相差约 1 个 tick(§8),两者是对**同一批**集合变更的
+  两种时点口径,方向与条数结论一致(勿因两处时点错位误判不一致)。
+- **结论**:今日共 9 个判定时点 = **6 次纯「缩小」(恢复进展)** + 1 次真新增(09:30)+ 1 次 re-add 抖动
+  (16:30)+ 1 次跨日首报(00:00);旧判据对每次变更都「立即报」。
   与审计 §2-D3 / §3-F3 完全一致(审计:17:00/18:15/18:30/20:15 四条为纯缩小触发)。**复现成立**,
   未发现与审计不符的情形。
 
@@ -82,8 +90,13 @@ def failed_units_daily_judge(state, signature, today_str):
 | `changed` | **仅迁移期**:状态无 `items`(旧格式)且签名有变 | 立即报(fail-open,不吞真故障) |
 | `empty` | 无异常 | —— |
 
+- **`added-jitter` 静默的边界(写全,防误读「无限吞」)**:① 同日同组成重复 —— 旧代码本就
+  `same-set-same-day` 静默,非本次新增(对比基线未变差);② 跨日 jitter 静默后,**下一轮 `daily-first`
+  立即补报**(延迟上限 1 轮 = 15min);③ **任何成员变化 → 立即 `added` 报**;④ 持续未清 → 第 3 天走
+  #196③ `consecutive_days` 升 `critical` 独立通道。净效果 = 同组成故障至多 24h 报 1 次 + 每日首报兜底。
 - `failed_units_signature(items)` 不变(仍按传入项排序 md5);调用方仍以 `problems`(汇总串)计算,故
-  **旧状态文件签名在内容不变时仍匹配** → 迁移不产生额外告警。
+  **旧状态文件签名在内容不变时仍匹配** → 迁移期**仅在签名不变时**不额外报(签名有变 / 集合缩小走
+  fail-open `changed` 报一次,见 §6)。
 
 ### 2.2 `scripts/check_failed_units.py`
 
@@ -145,6 +158,10 @@ def failed_units_daily_judge(state, signature, today_str):
 - **改造前**(`git show HEAD:scripts/alert_denoise_rules.py` 还原)跑新测试文件:
   `4 failed, 26 passed` —— 恰为 4 个方向感知用例(`test_02` / `test_02b` / `test_02f` / `test_02g`)在
   对称逻辑下**失败**(如 `②精修 缩小应静默, rc=1 n=1`),证明新测试确有判别力(非「假绿」)。
+  ⚠️ **口径标注(勿误读为「只有 4 条红」)**:此 `4/26` 是**外科式还原**口径(只还原
+  `alert_denoise_rules.py` 单文件、保留新 `check_failed_units.py` 与新 API);若按**全量还原父版**
+  (连 `check_failed_units.py` 一并还原)跑,独立审查者实测 = **7 failed / 23 passed**(多出 `test_99` 因
+  `_MIN_ASSERTIONS` 守卫 52<58 整文件 fail)。两口径红数不同(4 vs 7),但均证明新测试有判别力。
 - **改造后**:`30 passed in 0.45s`。
 - **相关全量**(240 + 196 + alert_denoise + alertchain_hardening + 181 fetchnews):
   `132 passed in 2.41s`(基线即此 5 文件全绿,本改动零回归)。
@@ -181,7 +198,9 @@ def failed_units_daily_judge(state, signature, today_str):
 - **回滚**:本改动为纯函数判定 + 状态文件新增字段;回滚 = `git revert` 本 commit,状态文件字段向前兼容
   (旧代码忽略未知字段)。**不影响** R1-R7 / #196 / #241 任意机制。
 - **迁移**:线上状态文件为旧格式(无 `items`)→ 首轮走 `changed`(fail-open 报一次),随后自动补齐
-  `items`/`prev_signature`,进入方向感知。**不产生额外告警**(签名 basis 与旧代码一致)。
+  `items`/`prev_signature`,进入方向感知。**除迁移期 fail-open 首轮外不产生额外告警**:线上为旧格式
+  (无 `items`)状态时,若集合**缩小**,会走 legacy `changed` 分支多发 **1 条 fail-open changed**(设计如此,
+  宁多报不吞真故障);其后进入方向感知即不再额外发。签名 basis 与旧代码一致。
 
 ## 7. 复现命令(全部只读/离线)
 
@@ -204,5 +223,7 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'cat ~/code/trade-data/data/failed_u
   「入当日摘要」—— 与审计 L3a 允许的两种口径之一一致(静默)。若后续上 L2 摘要层,`shrunk` 可一行改接摘要。
 - 对照表基于**判定层纯函数仿真**(复刻 `_write_sig_state` 状态流转),非端到端重放;生产实际发送时刻
   还受 notify 通道与轮次相位影响(故审计实测消息时刻与集合变更时刻差 1 个 tick),但**条数结论一致**。
-- 今日 9 条 unit 巡检中 3 条(04:30/10:45/13:00)由旧 6h 窗机制产生,与本精修(12:52 后新判据)覆盖的
-  6 条属不同来源;本对照表按「同一批集合变更序列」统一口径给 9→2。
+- 今日 9 条 unit 巡检中,**04:30/10:45 两条由旧码(6h 窗逐轮重报同一内容)产生**;**13:00 一条不是旧
+  6h 窗,而是 12:52 部署后首轮的迁移期 `changed`(状态缺失 → fail-open 报一次)** —— 与
+  `scripts/alert_denoise_rules.py` docstring 自载「12:52 部署后 7 连发」
+  (13:00/16:30/16:45/17:00/18:15/18:30/20:15)一致。本对照表按「同一批集合变更序列」统一口径给 9→2。

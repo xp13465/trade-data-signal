@@ -395,7 +395,9 @@ def main() -> int:
 
     if not problems:
         # 健康轮: 记录「集合已空」观测 —— 否则「清空后同 unit 重现」会被误判为 shrunk 而**漏报**
-        # (真故障判别维度: 重现 = 新一次失败, 必须报)。仅在「曾观测到非空集合」时写一次, 免每轮空写。
+        # (真故障判别维度: 重现 = 新一次失败, 必须报)。写条件 (items or prev_signature or signature)
+        # 因 signature 永不置空而实质恒真 ⇒ 一旦状态文件已有任何签名, 每个健康轮都会重写该小 JSON
+        # 并打 1 行 stderr(微写+日志, 无害)。原注释「仅在曾观测到非空集合时写一次」与实态不符, 已订正。
         if do_notify and (_prev_state.get("items") or _prev_state.get("prev_signature")
                           or _prev_state.get("signature")):
             _write_sig_state(_sig_state_path, _prev_state, sent=False, reason="empty",
