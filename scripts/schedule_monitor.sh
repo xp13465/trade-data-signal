@@ -2909,6 +2909,30 @@ try:
 except Exception as e:
     print(f"[warn] s06 freshness 检查失败(不阻塞主流程): {e}", file=sys.stderr)
 
+# pre-upload 覆盖前备份护栏存活观测（#237 D③，2026-10-10）：
+# 根因=护栏自 10-05 切桶起 100% 失败却无人察觉（失败只 print、不阻断、无观测点 ⇒ §25
+# 「备份先于覆盖」实际能力 0）。判定 = R2 只读 LIST 数 pre-upload/<今日>/ 对象数，与当日
+# 通道日志的结构化行对账；fail 时 check_preupload_backup.py 内部 defer_warning 入聚合队列
+# （--dedup-key preupload_backup_fail 6h 去重防 15min 周期轰炸），由本脚本尾部既有
+# --flush-warnings 统一批发。判据/边界见该脚本 docstring；监控层只看退出码。
+# 注: 备份段挂在上传通道内部（无独立 launchd 日志），漏跑由上方维度1/2 覆盖；本检查补
+# 「通道跑了但备份零落地」的语义盲区（10-05~10-09 病态形态）。
+try:
+    _r_pu = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "check_preupload_backup.py"),
+         "--repo", str(REPO), "--notify"],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    if _r_pu.returncode == 0:
+        print(f"[preupload] {_r_pu.stdout.strip().splitlines()[0] if _r_pu.stdout.strip() else 'OK'}")
+    elif _r_pu.returncode == 1:
+        print(f"[preupload] 覆盖前备份护栏异常(已 defer_warning 入聚合队列): {_r_pu.stdout.strip()[:200]}")
+    else:
+        print(f"[warn] preupload backup 无法判定 rc={_r_pu.returncode}: "
+              f"{(_r_pu.stdout + _r_pu.stderr).strip()[:200]}", file=sys.stderr)
+except Exception as e:
+    print(f"[warn] preupload backup 检查失败(不阻塞主流程): {e}", file=sys.stderr)
+
 # Heartbeat：每次完整跑完都更新时间戳（主控 Claude Code cron 读此文件，
 # 超过 30 分钟未更新 = launchd 层可能挂了，立即提示用户）。
 # 文件含时间戳 + 告警数，便于主控层判断"在跑但有告警" vs "完全没跑"。

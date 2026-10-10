@@ -280,7 +280,9 @@ HOST = urlparse(ENDPOINT).hostname
 #   影响免费计划,我重新创建了一个 signal-backup2 的桶,让 backup 独立迁移出去」+「这是一个新
 #   账号的 r2 所以是独立的额度」)。⇒ 备份桶迁至独立账号新桶,与主桶配额解耦。
 # 路由(见 _route_bucket):目标桶 == BACKUP2_BUCKET → 用本套端点/凭据;其余(主桶/老备份桶)→ 老账号。
-# 兼容:新账号 env 缺失(如本机未填 R2_BACKUP2_*)时 BACKUP2_HOST=None → 全部回退老账号,不崩。
+# #237 D①(2026-10-10):env 缺失**不再静默回退老账号**(旧行为=拿老账号凭据访问只存在于新账号的
+#   signal-backup2 ⇒ 必 404 NoSuchBucket 且不可见,是 #237 静默失效的共犯)。现 `_route_bucket`
+#   对该桶凭据缺失时直接抛 RuntimeError;要显式在老账号桶上工作请设 R2_BACKUP_BUCKET=signal-backup。
 #   env 键名:R2_BACKUP2_ENDPOINT / R2_BACKUP2_BUCKET / R2_BACKUP2_ACCESS_KEY_ID /
 #   R2_BACKUP2_SECRET_ACCESS_KEY(本机 trade/.env + 云上 trade-data/.env;.gitignore 已忽略,严禁 commit)。
 BACKUP2_BUCKET = os.environ.get("R2_BACKUP2_BUCKET", "signal-backup2")
@@ -404,11 +406,22 @@ def _route_bucket(bucket):
 
     备份桶已迁至独立新 CF 账号:目标桶名 == BACKUP2_BUCKET(signal-backup2) 且新账号端点已配置时,
     用 BACKUP2_* 端点/凭据(独立免费额度);其余(主桶 signal-data、老备份桶 signal-backup legacy)
-    用老账号端点/凭据。新账号 env 未配置(BACKUP2_HOST is None)→ 一律回退老账号,向后兼容不崩。
-    bucket=None 时(未显式指定)按默认主桶 BUCKET 判定。
+    用老账号端点/凭据。bucket=None 时(未显式指定)按默认主桶 BUCKET 判定。
+
+    D① fail-loud(#237, 2026-10-10):**BACKUP2_BUCKET 的凭据缺失时直接抛错,不再静默回退老账号**。
+    旧行为(回退老账号)对该桶是「炸弹」:signal-backup2 只存在于新账号,拿老账号端点/凭据去访问
+    = 必然 404 NoSuchBucket,且形态与「桶不存在」不可区分 ⇒ 静默失败不可见(正是 10-05~10-09
+    pre-upload 护栏零备份的隐蔽条件之一,见 docs/ops/preupload-copy-rootcause-20261008.md §3.2)。
+    老账号桶(主桶 / legacy 老备份桶)保持原回退语义(默认端点),不受影响。
     """
     bkt = bucket or BUCKET
-    if BACKUP2_HOST and bkt == BACKUP2_BUCKET:
+    if bkt == BACKUP2_BUCKET:
+        if not (BACKUP2_HOST and BACKUP2_AK and BACKUP2_SK):
+            raise RuntimeError(
+                f"备份桶 {BACKUP2_BUCKET} 的独立账号凭据缺失(R2_BACKUP2_ENDPOINT/"
+                f"R2_BACKUP2_ACCESS_KEY_ID/R2_BACKUP2_SECRET_ACCESS_KEY 未配置)。"
+                f"拒绝静默回退老账号(回退 = 必然 404 NoSuchBucket 且不可见,#237 D①)。"
+                f"如确需在老账号桶上工作,请显式设 R2_BACKUP_BUCKET=signal-backup。")
         return BACKUP2_HOST, BACKUP2_AK, BACKUP2_SK
     return HOST, AK, SK
 
@@ -518,7 +531,10 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
     query 多参数时自动按名排序(_sigv4_canonical_query)——R2 服务端对多参数 list/multipart 请求要求
       canonical query 按名升序, 未排序 403(#126); 签名与实际请求 URI 都用规范化后的 query, 保证一致。
     extra_headers(2026-10-03 export-guard L5): 自定义附加请求头(如 COPY 的 x-amz-copy-source),
-      随 headers 一起进 SigV4 签名与 signed-headers; 用于服务端到服务端 COPY(x-amz-copy-source)。
+      随 headers 一起进 SigV4 签名与 signed-headers; 用于需自定义头的 S3 操作。
+      ⚠️ 现状无调用方使用: #237(2026-10-10)后覆盖前备份改客户端中转(GET+PUT), 服务端 COPY
+      (x-amz-copy-source)已从 L5 移除(跨账号 COPY 在 R2 恒 404, 见 _backup_overwritten_keys docstring);
+      参数保留为通用能力, 不删(避免动公共签名)。
     progress_label(2026-10-05 #180): 非 None 且 payload>=_PROGRESS_PUT_MIN 时用 _ProgressBody 作请求体 +
       显式带 Content-Length(否则 http.client 退化 chunked 致 SigV4 失配), 上传中按字节打进度行,
       消掉「大文件单 PUT 全程零日志 → 看门狗停滞判据误杀」回归(治 data-large 死循环复发)。
@@ -814,16 +830,18 @@ def _parse_upload_id(resp_body):
     return None
 
 
-def _upload_multipart(key, payload, content_type):
+def _upload_multipart(key, payload, content_type, bucket=None):
     """大文件 multipart 上传: create -> 并行 upload-part -> complete(R2 官方流程)。
 
     2026-09-21 R2 上传失败根治: >100MB 单文件单 PUT 卡 600s 超时重试 5 次(放大器) →
     改 multipart 分片并行, 单片 64MiB 单请求时长 << HTTP/看门狗超时, 失败只重传片不整文件。
     注意: multipart 上传对象 ETag=分片组合(non-md5), 不参与 ETag=md5 对账(调用方以 complete
     200 视为内容就位; verify-r2 对 multipart 大文件改「存在 + Content-Length==本地大小」判定)。
+    bucket(2026-10-10 #237): 目标桶; None = 默认主桶 BUCKET(既有调用方行为不变)。
+      备份段(pre-upload 中转)上传目标为 BACKUP_BUCKET, 必须显式传入, 否则会写到主桶。
     """
     # 1) create (POST /key?uploads=)
-    st, data = s3_request("POST", key, payload=b"", query="uploads=", content_type=content_type)
+    st, data = s3_request("POST", key, payload=b"", query="uploads=", content_type=content_type, bucket=bucket)
     if st != 200:
         return st, data
     upload_id = _parse_upload_id(data)
@@ -844,7 +862,7 @@ def _upload_multipart(key, payload, content_type):
         # keep_alive(2026-09-22 同类根治): 每线程连续传多个 part 复用线程本地连接, 省 part 间握手
         s, d, hdrs = s3_request("PUT", key, payload=parts[pn], query=q,
                                 content_type=content_type, with_headers=True, keep_alive=True,
-                                progress_label=f"{key} part{pn}/{len(parts)}")
+                                progress_label=f"{key} part{pn}/{len(parts)}", bucket=bucket)
         if s == 200:
             etag = _header_lookup(hdrs, "ETag")
             if etag:
@@ -859,7 +877,7 @@ def _upload_multipart(key, payload, content_type):
             pn, etag, err = fut.result()
             if err:
                 try:
-                    s3_request("DELETE", key, query="uploadId=%s" % quote(upload_id, safe=""))
+                    s3_request("DELETE", key, query="uploadId=%s" % quote(upload_id, safe=""), bucket=bucket)
                 except Exception:
                     pass
                 return 500, err.encode("utf-8", errors="replace")
@@ -868,7 +886,7 @@ def _upload_multipart(key, payload, content_type):
     # 3) complete (POST /key?uploadId= + CompleteMultipartUpload XML)
     if sorted(uploaded) != sorted(parts):
         try:
-            s3_request("DELETE", key, query="uploadId=%s" % quote(upload_id, safe=""))
+            s3_request("DELETE", key, query="uploadId=%s" % quote(upload_id, safe=""), bucket=bucket)
         except Exception:
             pass
         return 500, "multipart 缺分片, abort".encode("utf-8", errors="replace")
@@ -878,7 +896,7 @@ def _upload_multipart(key, payload, content_type):
     body = ("<CompleteMultipartUpload>%s</CompleteMultipartUpload>" % parts_xml).encode("utf-8")
     st, data = s3_request("POST", key, payload=body,
                           query="uploadId=%s" % quote(upload_id, safe=""),
-                          content_type="application/xml")
+                          content_type="application/xml", bucket=bucket)
     return st, data
 
 
@@ -1118,27 +1136,39 @@ def _prune_pre_upload(today_str, label=""):
 
 
 def _backup_overwritten_keys(r2_keys, label, md5_map=None):
-    """把将被 PUT 覆盖的既有 R2 key 先 COPY 到 BACKUP_BUCKET/pre-upload/<YYYYMMDD>/<key>。
+    """把将被 PUT 覆盖的既有 R2 key 先**客户端中转**备份到 BACKUP_BUCKET/pre-upload/<YYYYMMDD>/<key>。
 
-    只对「R2 已存在」的 key 备份(新 key 无覆盖风险, HEAD 404 跳过);
-    COPY 走服务端到服务端(带宽 0, s3_request extra_headers 支持 x-amz-copy-source),
-    失败不阻断上传(记日志); 顺带 prune 过期旧备份。返回已备份数量。
+    #237(2026-10-10)根因修复: 备份语义由「服务端 COPY(x-amz-copy-source)」改为
+    「老账号端点 GET 源对象 → 校验 → 新账号端点 PUT 到备份桶 → 回读校验」。
+    原因: R2 的 CopyObject 源桶只在**签名凭据所属账号**内解析,源桶 signal-data(老账号)/
+    目标桶 signal-backup2(新账号)跨账号 ⇒ 自 10-05 切桶起 100% 404 NoSuchBucket,护栏实际
+    能力 = 0(详见 docs/ops/preupload-copy-rootcause-20261008.md、
+    docs/ops/237-r2-overwrite-backup-guard-design-20261009.md §4.2)。客户端中转绕开服务端
+    COPY 语义,与 #178「第二套端点+凭据按桶路由」架构相容。
 
-    2026-10-05 并行化+减量(#176): 8 线程并发(与 _upload_glob 同风格, ThreadPoolExecutor
-    + keep_alive 线程本地连接), 根治 export-guard L5 串行 3436 次跨境 HEAD+COPY
-    (实测 RTT 0.65s ⇒ ~2200s)被 900s 总时长看门狗确定性 kill 的死循环。
-    减量判据 = 「备份桶 pre-upload/<today>/ 已有该 key 的备份 **且** R2 当前内容与本地
-    将传指纹一致」→ 覆盖成相同内容无损失, 跳过(不重复 COPY)。任何一侧不满足都备份:
-    - 备份桶无今天备份(如 10-05 被 kill 残留的 ~950 key)→ **补上**(在 PUT 前完整补齐残留);
-    - 备份桶有但 R2 内容将变(本地 != R2, 同天多轮覆盖)→ 重新 COPY 当前 R2 内容(留最新现场)。
-    §25 语义(某 key PUT 之前其备份必须已完成)不变: 本函数**整体先于** _upload_glob 的
-    PUT 批量执行, 并行只发生在本函数内部, 备份与 PUT 之间仍是「整批备份完 → 整批 PUT」。
+    落地校验(P1~P6,证「备份真落地」而非「PUT 返回 200」):
+      P1 源 HEAD(with_len) → (st, etag_s, size_s);R2 无此 key ⇒ 视为无覆盖必要(跳过, 现状语义)
+      P2 减量(保留 #176): 备份桶已有今天备份 且 R2 内容 == 本地将传指纹 ⇒ 跳过
+      P3 GET 源体(老账号): 状态 200 且 len(body) == size_s,否则 failed(记「GET 短读/失败」)
+      P4 源 md5: 单 PUT 源比 md5(body) == etag_s;multipart 源(etag 含 `-`)只比长度
+      P5 PUT 目标(新账号): <100MB 单 PUT;>=100MB 走 _upload_multipart(bucket=BACKUP_BUCKET)
+      P6 目标回读(s3_head with_len): 单 PUT 比 etag_t == md5(body);multipart 比 Content-Length
+      ⇒ 全过 copied += 1;任一环 failed += 1 + 记结构化样本(key/环节/实际值)
+    失败方向 fail-closed(宁多备不漏备): 单 PUT 的 200-but-not-landed 平台异常由 P6 兜住。
+
+    2026-10-05 并行化+减量(#176)保留: 8 线程并发(ThreadPoolExecutor + keep_alive 线程本地连接),
+    减量判据同前。§25 语义(某 key PUT 之前其备份必须已完成)不变: 本函数**整体先于**
+    _upload_glob 的 PUT 批量执行, 并行只发生在本函数内部, 备份与 PUT 之间仍是「整批备份完 → 整批 PUT」。
     r2_keys: {r2_key: local_md5} 或 list(r2_key)(md5_map=None 时按 list 处理, 不减量)。
+
+    返回 (copied, skipped, failed, samples):
+      samples = 失败样本列表 [{key, stage, detail}](最多 50 条, 供调用点结构化日志/后续告警)。
+      调用点第一阶段(#237 §4.4)**不阻断**上传, 只记结构化日志。
     """
     today = datetime.date.today().strftime("%Y%m%d")
     if not r2_keys:
         _prune_pre_upload(today, label)
-        return 0
+        return 0, 0, 0, []
     if isinstance(r2_keys, (list, tuple)):
         items = [(k, None) for k in r2_keys]
     else:
@@ -1146,59 +1176,111 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
     total = len(items)
     copied = 0
     skipped = 0
+    failed = 0
+    samples = []
+    _samples_lock = threading.Lock()
+
+    def _fail(key, stage, detail):
+        nonlocal failed
+        failed += 1
+        with _samples_lock:
+            if len(samples) < 50:
+                samples.append({"key": key, "stage": stage, "detail": detail})
 
     def _backup_one(key, local_md5):
         nonlocal copied, skipped
         backup_key = f"pre-upload/{today}/{key}"
-        # 先看备份桶是否已有今天备份
+        # ---- P1: 源 HEAD(带长度)。源桶 = 主桶 BUCKET(老账号端点, _route_bucket 自动路由) ----
         try:
-            bk_st, _ = s3_head(backup_key, bucket=BACKUP_BUCKET, keep_alive=True)
-        except Exception:
-            bk_st = 0
-        # 再看 R2 当前内容
-        try:
-            st, etag = s3_head(key, keep_alive=True)
-        except Exception:
-            st = 0
-            etag = None
-        if st != 200:
-            return 0   # R2 无此 key(首次上传), 无覆盖风险, 不备份
-        # 减量(#176): 备份桶已有今天备份 且 R2 内容 == 本地将传指纹 → 覆盖无损失, 跳过
-        if bk_st == 200 and local_md5 is not None and etag is not None and etag.strip('"') == local_md5:
-            skipped += 1
-            return 0
-        # 需要备份: 补残留(备份桶无今天备份)/ 更新现场(R2 内容将变)。COPY 覆盖到备份桶。
-        try:
-            bst, bdata = s3_request(
-                "PUT", backup_key, bucket=BACKUP_BUCKET,
-                extra_headers={"x-amz-copy-source": f"/{BUCKET}/{quote(key, safe='/')}"}, keep_alive=True)
-            if bst == 200:
-                copied += 1
-            else:
-                print(f"[{label}] ⚠ 备份 {key} -> {BACKUP_BUCKET}/{backup_key} 失败 status={bst} "
-                      f"{(bdata[:200] if isinstance(bdata, (bytes, bytearray)) else bdata)}", flush=True, file=sys.stderr)
+            st, etag_s, size_s = s3_head(key, bucket=BUCKET, keep_alive=True, with_len=True)
         except Exception as _e:
-            print(f"[{label}] ⚠ 备份 {key} 异常({_e})", flush=True, file=sys.stderr)
-        return 0
+            _fail(key, "HEAD源", f"异常 {_e}")
+            return
+        if st != 200:
+            return   # R2 无此 key(首次上传), 无覆盖风险, 不备份(与现状语义一致)
+        # ---- 备份桶是否已有今天备份(减量输入) ----
+        try:
+            bk_st, _bk_etag = s3_head(backup_key, bucket=BACKUP_BUCKET, keep_alive=True)
+        except Exception as _e:
+            _fail(key, "HEAD备份桶", f"异常 {_e}")
+            return
+        # ---- P2: 减量(#176): 备份桶已有今天备份 且 R2 内容 == 本地将传指纹 → 覆盖无损失, 跳过 ----
+        if bk_st == 200 and local_md5 is not None and etag_s is not None and etag_s.strip('"') == local_md5:
+            skipped += 1
+            return
+        # ---- P3: GET 源体(老账号) ----
+        try:
+            gst, body = s3_request("GET", key, bucket=BUCKET, keep_alive=True)
+        except Exception as _e:
+            _fail(key, "GET", f"异常 {_e}")
+            return
+        if gst != 200 or not isinstance(body, (bytes, bytearray)):
+            _fail(key, "GET", f"status={gst}")
+            return
+        body = bytes(body)
+        if size_s is not None and len(body) != int(size_s):
+            _fail(key, "GET", f"短读 len={len(body)} != size={size_s}")
+            return
+        # ---- P4: 源 md5 自校验(multipart 源 ETag 非 md5, 只比长度) ----
+        src_md5 = hashlib.md5(body).hexdigest()
+        src_multipart = "-" in (etag_s or "")
+        if not src_multipart and etag_s is not None and src_md5 != etag_s.strip('"'):
+            _fail(key, "源校验", f"md5={src_md5} != etag={etag_s}")
+            return
+        # ---- P5: PUT 目标(新账号; >=100MB 走 multipart, 目标桶必须显式传 BACKUP_BUCKET) ----
+        ctype = _infer_content_type(key)
+        if len(body) >= _MULTIPART_THRESHOLD:
+            pst, pdata = _upload_multipart(backup_key, body, ctype, bucket=BACKUP_BUCKET)
+            tgt_multipart = True
+        else:
+            pst, pdata = s3_request("PUT", backup_key, payload=body, bucket=BACKUP_BUCKET,
+                                    content_type=ctype, keep_alive=True)
+            tgt_multipart = False
+        if pst != 200:
+            _fail(key, "PUT", f"status={pst} "
+                  f"{(pdata[:200] if isinstance(pdata, (bytes, bytearray)) else pdata)}")
+            return
+        # ---- P6: 目标回读校验(证「备份真落地」; 静默失败的兜底网) ----
+        try:
+            t_st, t_etag, t_len = s3_head(backup_key, bucket=BACKUP_BUCKET, keep_alive=True, with_len=True)
+        except Exception as _e:
+            _fail(key, "回读", f"异常 {_e}")
+            return
+        if t_st != 200:
+            _fail(key, "回读", f"目标对象不存在 status={t_st}")
+            return
+        if tgt_multipart or src_multipart:
+            ok = (t_len is not None and int(t_len) == len(body))
+            if not ok:
+                _fail(key, "回读", f"Content-Length={t_len} != len={len(body)}")
+                return
+        else:
+            if t_etag is None or t_etag.strip('"') != src_md5:
+                _fail(key, "回读", f"etag={t_etag} != md5={src_md5}")
+                return
+        copied += 1
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
     done = 0
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = [pool.submit(_backup_one, k, m) for k, m in items]
         for fut in as_completed(futures):
-            fut.result()  # 异常已被 _backup_one 内部消化(失败记日志不抛)
+            fut.result()  # 异常已被 _backup_one 内部消化(失败记样本不抛)
             done += 1
             # 进度行(看门狗 #174 停滞判据放行: 备份阶段有输出=有工作, 不被停滞判据误杀);
             # 刻意不用 `[N/M]` 方括号格式 + 不带 (sizeB), 避免被 r2_upload_async.sh 低速判据
-            # 当作「批量上传字节进度」误判(备份是 COPY 无字节语义)。
+            # 当作「批量上传字节进度」误判(备份是 GET+PUT 中转, 不是 _upload_glob 批量上传流量)。
             if done % 64 == 0 or done == total:
                 print(f"[{label}] 备份 {done}/{total} 已备份 {copied} 跳过 {skipped}", flush=True)
     if copied:
         print(f"[{label}] ✓ 备份 {copied} 个将被覆盖 key -> {BACKUP_BUCKET}/pre-upload/{today}/ (export-guard L5)", flush=True)
     if skipped:
         print(f"[{label}] ➖ 减量跳过 {skipped} 个已备份且 R2 指纹一致 key(覆盖无损失)", flush=True)
+    if failed:
+        for s in samples[:5]:
+            print(f"[{label}] ⚠ 备份失败样本 {s['key']} [{s['stage']}] {s['detail']}", flush=True, file=sys.stderr)
     _prune_pre_upload(today, label)
-    return copied
+    return copied, skipped, failed, samples
 
 
 def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
@@ -1444,16 +1526,22 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
     done_map = dict(ckpt_files)   # 继承旧 checkpoint, 累积本次新成功
     since_ckpt = 0
 
-    # ---- export-guard L5 (2026-10-03): 真 PUT 前, 将被覆盖的既有 R2 key 先 COPY 到备份桶 ----
-    # (§25 备份先于覆盖机制化; 事故恢复现场依赖备份)。失败不阻断上传, 仅记日志。
+    # ---- export-guard L5 (2026-10-03): 真 PUT 前, 将被覆盖的既有 R2 key 先备份到备份桶 ----
+    # (§25 备份先于覆盖机制化; 事故恢复现场依赖备份)。#237(2026-10-10)起备份实现 =
+    # 客户端中转(GET 老账号源 → 校验 → PUT 新账号备份桶 → 回读校验),不再是服务端 COPY。
+    # 第一阶段(#237 §4.4)保持「失败不阻断上传」——只把 failed 计数 + 样本写结构化日志,
+    # 供观测(pre-upload 真实成功率)+ check_preupload_backup.py 巡检消费;
+    # C 级 fail-fast 阻断须待 A 观测 ≥1 交易日 failed≈0 后由用户拍板再开。
     # 2026-10-05 并行化+减量(#176): 传 {r2_key: 本地 md5} 让备份函数对「R2 已有且指纹未变」
     # 的 key 跳过(覆盖无损失), 只备份真正将被覆盖不同内容的 key。
     try:
-        _backup_overwritten_keys(
+        _bc, _bs, _bf, _bsamples = _backup_overwritten_keys(
             {f"{r2_prefix}/{str(p.relative_to(local_dir))}": sigs[str(p.relative_to(local_dir))]["md5"]
              for p in changed}, label)
+        print(f"[{label}] 备份完成 copied={_bc} skipped={_bs} failed={_bf}", flush=True)
     except Exception as _e:  # noqa: BLE001
         print(f"[{label}] ⚠ 覆盖前备份异常(不阻断): {_e}", file=sys.stderr)
+        print(f"[{label}] 备份完成 copied=0 skipped=0 failed=-1", flush=True)
 
     def _on_success(f, rel):
         nonlocal since_ckpt

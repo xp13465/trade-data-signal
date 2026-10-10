@@ -164,7 +164,8 @@ def _install_engine_stubs(fail):
 
     prev = (ur._upload_glob, ur._backup_overwritten_keys, ur.purge_cache, ur._DRY_RUN)
     ur._upload_glob = _fake_upload_glob
-    ur._backup_overwritten_keys = lambda *a, **k: None
+    # #237(2026-10-10):返回契约 4 元组(与调用点解包一致);返回 None 会被 except 兜成失败行。
+    ur._backup_overwritten_keys = lambda *a, **k: (0, 0, 0, [])
     ur.purge_cache = lambda *a, **k: None
     ur._DRY_RUN = False
     return prev, put_calls
