@@ -105,14 +105,20 @@ def _severe_alert(subject, body):
     """严重失败告警(notify.py --severe, 带 dedup 防轰炸)。
 
     F2(2026-09-10): 生成器内 R2 上传失败/写盘失败等「会让线上停滞」的失败不再静默只 log,
-    调 notify.py --severe 告警 + 最终退出码非 0(与 nextday_plan.sh 包装的 --severe 双保险,
-    dedup key 不同不互吞; 包装只在 RC!=0 时兜底, 生成器内先行带明细 stderr)。
+    调 notify.py --severe 告警 + 最终退出码非 0(进程非 0 交 nextday_plan.sh 包装层兜底)。
+
+    #247(2026-10-10): dedup key 与包装层 nextday_plan.sh 统一为 nextday_plan_fail
+    (同 B4-3 nextday_gap_check 先例)。此前 py=nextday_plan_gen_fail / sh=nextday_plan_fail
+    两键不同 ⇒ notify dedup **按 key 判** ⇒ 同一事件秒级两封 SEVERE(py 带明细, sh 带
+    「未生成」失真汇总)。统一后语义: 先发者占窗(带明细的 py 侧优先), 包装层同键窗内被抑制;
+    py 未发(崩溃/超时/被杀)时包装层照发兜底 —— **兜底性不依赖「不同 key」**, 故双保险与
+    去重可兼得(旧「不同 key 不互吞=双保险」论证已废止: 那是重复告警不是双保险)。
     """
     log_path = REPO / "data" / "logs" / "nextday_plan_launchd.log"
     cmd = [PY, str(SCRIPT_DIR / "notify.py"), subject, body,
            "--severe", "--from-prefix", "[告警]",
            "--alert-issue", subject, "--alert-log", str(log_path),
-           "--dedup-key", "nextday_plan_gen_fail", "--dedup-window", "3600"]
+           "--dedup-key", "nextday_plan_fail", "--dedup-window", "3600"]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         # #241 Pattern B / W2(2026-10-10): fire-and-forget, 仅把无判别力的 rc 换为可读三态。
@@ -1258,7 +1264,9 @@ def main():
                 # F2: 关键 notify(计划已生成)失败 = 用户收不到次日计划, 属会让线上停滞的一环
                 # (计划产物本身已落盘, 但通知是 PRD 阶段一交付物的显式出口, 失败必须非 0 暴露,
                 # 由 nextday_plan.sh 包装层兜底再发 severe; 此处只在包装已存在基础上叠加非 0,
-                # 不重复发 severe —— 包装 --dedup-key nextday_plan_fail 已覆盖该失败面)
+                # 不重复发 severe —— 本失败面(计划已生成仅通知未送达)由包装层
+                # --dedup-key nextday_plan_fail 兜底; #247: py 此处不调 _severe_alert, 故包装层
+                # 同键窗内无已发记录 ⇒ 不会被抑制, 照发(兜底不断层))
                 log(f"⚠ notify 未发出 state={state} rc={r.returncode}"
                     f"(计划已生成但通知未送达, 退出码非 0 交包装层告警)")
                 notify_rc = 1

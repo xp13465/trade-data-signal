@@ -71,7 +71,7 @@ if [ "$RC" -ne 0 ]; then
   echo "✗ 次日买入计划生成失败 rc=${RC}" >> "$LOG"
   "$PY" scripts/notify.py \
     "[告警] 次日买入计划生成失败 $(date '+%m-%d %H:%M')" \
-    "nextday_plan_generator.py 退出码 ${RC}, 次日买入计划未生成。<br>日志: $LOG(尾部 50 行)<br>影响: 明日无自动买入计划(干跑阶段, 不真实下单); 需人工核查产物(signal_kelly_trades/backtest/s06/loss 是否就绪)。" \
+    "nextday_plan_generator.py 退出码 ${RC}, 次日买入计划未生成。<br>日志: $LOG(尾部 50 行)<br>影响: 明日无自动买入计划(干跑阶段, 不真实下单); 需人工核查产物(signal_kelly_trades/backtest/s06/loss 是否就绪)。注意: 本条为包装层兜底(py 同 dedup key: py 已发时本条被抑制; py 未发时本条兜底; 若仅 R2 未同步而本地已落盘, 明细以 py 侧为准)。" \
     --severe --from-prefix "[告警]" \
     --alert-issue "次日买入计划生成失败" --alert-log "$LOG" \
     --dedup-key nextday_plan_fail --dedup-window 3600 2>&1 | tee -a "$LOG" || true
