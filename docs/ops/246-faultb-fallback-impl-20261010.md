@@ -240,4 +240,4 @@ SKIPPED [1] test_monitor_resource_inprogress_20261005.py:183: macOS APFS 的 df 
 
 **共享面(不变)**:`nextday_gap_check.py` 仍与 #245 批2(B4-3)同文件但**不同 hunk**(本节只动 L62-69 常量/注释区,L104 `_severe_alert` dedup key 未动)⇒ 任意 merge 顺序零冲突。
 
-**新 tip**:`<回填>`(订正 commit;初版 tip = `eb75e5394`)。
+**新 tip**:订正 commit = `ab4ec303c`(本节随之回填的细微 doc commit 之一,分支 tip 见 `git log -1`);初版 tip = `eb75e5394`(实施 `6111c8304` + 报告补 `eb75e5394`),base = `d9911b814`。
