@@ -101,7 +101,13 @@ def _install_engine_stubs():
     prev_backup = ur._backup_overwritten_keys
     prev_purge = ur.purge_cache
     ur._upload_glob = _fake_upload_glob
-    ur._backup_overwritten_keys = lambda r2_keys, label, md5_map=None: backup_calls.append(label)
+    # #237(2026-10-10):契约由「返回 copied(int)」改为 4 元组 (copied, skipped, failed, samples),
+    # 打桩必须跟随,否则调用点解包 None 抛 TypeError(被 except 兜住 ⇒ 注入多余 ⚠ 行)。
+    def _fake_backup(r2_keys, label, md5_map=None):
+        backup_calls.append(label)
+        return (0, 0, 0, [])
+
+    ur._backup_overwritten_keys = _fake_backup
     ur.purge_cache = lambda *a, **k: None
     return prev_glob, prev_backup, prev_purge, put_calls, backup_calls
 
