@@ -18,22 +18,24 @@
       status=skipped + status_text「伪跳空剔除(|开盘/信号日收盘-1|=xx%)」
     - nextday_plan.json: 条目加 gap_excluded:true
 
-数据就绪闸: 开盘价取不到 / 数据日期陈旧(fund_etf_spot_em「数据日期」!= 执行日, F4) → 等
-    --retry-wait 秒(默认 300, 9:26→9:31)重试一次 → 仍失败 → severe 告警 + 买入行 status_text
-    「伪跳空校验未完成(待人工)」(干跑阶段, 不真实下单)。陈旧快照绝不照算旧价(防 9:26 拉到
-    昨日数据误剔真实跳空)。
+数据就绪闸: 开盘价取不到(兜底链修复后, 主源+腾讯/新浪双源均取不到才算取不到) /
+    数据日期陈旧(fund_etf_spot_em「数据日期」!= 执行日, F4, 已并入兜底优先) → 短间隔退避
+    多轮重试(60s×3, 带 jitter, 预算硬顶 450s, B4-2 2026-10-10) → 仍失败 → severe 告警 +
+    买入行 status_text「伪跳空校验未完成(待人工)」(干跑阶段, 不真实下单)。陈旧快照绝不照算
+    旧价(防 9:26 拉到昨日数据误剔真实跳空)。
 
 幂等: 执行日买入行已有「伪跳空」标记 → 跳过, 不重复标记/通知。
 
 用法:
     python scripts/nextday_gap_check.py [--date YYYYMMDD] [--dry-run] [--no-r2] [--no-notify]
-        [--test-open "code:price,code2:price2"] [--no-retry] [--retry-wait 秒]
+        [--test-open "code:price,code2:price2"] [--no-retry] [--retry-wait 基数秒] [--retry-rounds N]
     # --test-open 注入假开盘价(自测, 不拉 akshare); --dry-run 只计算打印不落盘不 R2 不通知
 日志: data/logs/nextday_gap_check_launchd.log(标准开始/结束行, schedule_monitor 可读)。
 """
 import argparse
 import json
 import os
+import random
 import subprocess
 import sys
 import time
@@ -56,11 +58,44 @@ from notify_sent import notify_state  # noqa: E402  (#241 Pattern B/W2: 三态�
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 LOG_TAG = "[nextday_gap_check]"
-DEFAULT_RETRY_WAIT = 300   # 9:26 → 9:31 重试间隔(秒)
+
+# ── B4-2 重试策略(2026-10-10 #246 故障 B 治本) ──
+# 原「单次 300s 长退避」(9:26 fail → 9:31 重试一次, 仍在东财时段性高峰边缘)改为「短间隔
+# 退避多轮」: 60s 基数 × 3 轮 + ±25% jitter(防同刻多任务同时重试撞峰), 总退避预算硬顶 450s。
+# 预算口径(2026-10-10 #246 R1 审查定案): 必须 ≤ 云上本链外层 `TimeoutStartSec=600`(见
+# _sync_r2_and_notify 内 #223 注释)——设 900/15min 会「超墙被 cgroup 静默硬杀 + 预算成死代码」,
+# 故取 450 留 150s 余量给拉数/落盘/R2(≤300s)/通知。默认 60×3 jitter 后仅 135~225s,远不触顶。
+# 配合 B4-1 兜底链修复后, 主源失败第一轮即由兜底接管, 重试退为「兜底也失败时的二次窗口」。
+RETRY_BACKOFF_BASE_S = 60      # 每轮退避基数(秒) → "60s×3"
+RETRY_JITTER_FRAC = 0.25       # 抖动幅度 ±25%(每轮实际 = base × [1-λ, 1+λ] ⇒ 45~75s)
+RETRY_BUDGET_S = 450           # 总退避预算上限(秒, 硬顶;须 ≤ 外层 systemd 墙 600s)
+DEFAULT_RETRY_ROUNDS = 3       # 退避轮数 = 重试次数(首拉 + 3 轮重试 = 4 attempts)
 
 
 def log(msg):
     print(f"{LOG_TAG} {msg}", flush=True)
+
+
+def _retry_backoff_schedule(rounds=DEFAULT_RETRY_ROUNDS, base=RETRY_BACKOFF_BASE_S,
+                            jitter=RETRY_JITTER_FRAC, budget=RETRY_BUDGET_S, rng=None):
+    """生成就绪闸退避等待秒数序列(B4-2, 2026-10-10 #246)。
+
+    每轮 = base × [1-λ, 1+λ](λ=jitter, 由 rng() 抽) → "60s×3";累计达/超预算时把当轮截到
+    剩余预算并停止再排(硬顶 ≤ budget)。rng 可注入(random.random 形态)便于测试确定性;
+    返回 list[float](长度 = 实际轮数)。
+    """
+    rng = rng or random.random
+    waits = []
+    total = 0.0
+    for _ in range(max(int(rounds), 0)):
+        w = base * (1.0 + jitter * (2.0 * rng() - 1.0))
+        if total + w > budget:
+            w = max(budget - total, 0.0)
+        waits.append(round(w, 3))
+        total += w
+        if total >= budget:
+            break
+    return waits
 
 
 def _severe_alert(subject, body):
@@ -132,7 +167,10 @@ def main():
     ap.add_argument("--no-notify", action="store_true", help="落盘但不通知(自测用)")
     ap.add_argument("--test-open", default=None, help='自测用假开盘价 "code:price,code2:price2"')
     ap.add_argument("--no-retry", action="store_true", help="禁用就绪重试(自测用)")
-    ap.add_argument("--retry-wait", type=int, default=DEFAULT_RETRY_WAIT, help="就绪重试等待秒数(默认 300)")
+    ap.add_argument("--retry-wait", type=int, default=RETRY_BACKOFF_BASE_S,
+                    help="退避基数秒(默认 60, 每轮实际 base×[0.75,1.25] jitter)")
+    ap.add_argument("--retry-rounds", type=int, default=DEFAULT_RETRY_ROUNDS,
+                    help="退避轮数/重试次数(默认 3 → 首拉 + 3 轮 = 4 attempts)")
     args = ap.parse_args()
 
     today = args.date or _today()
@@ -173,33 +211,37 @@ def main():
         opens = _fetch_opens(list(target.keys()), args.test_open)
         log(f"--test-open 注入开盘价: {opens}")
     else:
-        for attempt in (1, 2):
+        backoffs = [] if args.no_retry else _retry_backoff_schedule(
+            rounds=args.retry_rounds, base=args.retry_wait)
+        total_attempts = 1 + len(backoffs)
+        for attempt in range(1, total_attempts + 1):
             try:
                 # F4: 传执行日 today 做数据日期新鲜度校验(陈旧快照抛 RuntimeError 走重试链)
                 opens = _fetch_opens(list(target.keys()), None, today)
-                if attempt == 2:
+                if attempt > 1:
                     # Fix B(2026-09-23): 重试成功显式标记, 供 gen_schedule_stats 扫描侧
                     # 识别"窗口内异常后自愈"(否则 ConnectionError 命中即报, 卡 active 至今)。
                     # ⚠️ 纯标记, 不拼 last_err: last_err 含 "ConnectionError:" 会自命中
                     # ANOMALY_RE 且不含「拉开盘价失败」导致抑制不生效照样报(主控揪出, 09-23)。
                     # 失败原因上一行 "⚠ 第 N 次拉开盘价失败: {last_err}" 已有。
-                    log("✓ 重试成功(第1次失败后重试)")
+                    log(f"✓ 重试成功(第{attempt - 1}次失败后重试)")
                 break
             except RuntimeError as e:
                 last_err = str(e)
                 log(f"⚠ 第 {attempt} 次拉开盘价失败: {last_err}")
-                if args.no_retry or attempt == 2:
+                if args.no_retry or attempt == total_attempts:
                     opens = None
                     break
-                log(f"等 {args.retry_wait}s 重试(9:26→9:31)")
-                time.sleep(args.retry_wait)
+                wait = backoffs[attempt - 1]
+                log(f"等 {wait:.1f}s 退避重试(第 {attempt}/{len(backoffs)} 轮, 预算≤{RETRY_BUDGET_S}s)")
+                time.sleep(wait)
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if opens is None:
         # 就绪闸 FAIL: severe 告警 + 全部买入行标记「伪跳空校验未完成(待人工)」
         _severe_alert(
             f"[告警] 次日买入计划伪跳空校验未完成 {today}",
-            f"nextday_gap_check.py: 执行日 {today} 拉取 akshare 开盘价两次失败, 无法完成伪跳空剔除, "
+            f"nextday_gap_check.py: 执行日 {today} 拉取开盘价多轮重试(60s×3 退避)后仍失败, 无法完成伪跳空剔除, "
             f"买入行标记「伪跳空校验未完成(待人工)」待人工复核。<br>失败原因: {last_err}"
             f"<br>日志: {REPO}/data/logs/nextday_gap_check_launchd.log",
         )
