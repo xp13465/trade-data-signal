@@ -85,7 +85,16 @@ def _ssl_cafile() -> str | None:
     return None
 
 
-REPO = Path(__file__).absolute().parent.parent
+# #245 L3e(2026-10-10): REPO 接 env —— 云上 41/41 systemd units 均已设
+#   Environment=REPO=<运行树>, 本行改为 env 优先(沿用本文件既有 env 先例:
+#   :118 台账路径 / :163 tree 字段 / :2406·:2446·:2496 升级档), 使下列**全部派生量**
+#   (EMAIL_CONFIG/TELEGRAM_CONFIG/FEISHU_CONFIG、ALERTS_DIR/ALERTS_FILE、DEDUP_FILE、
+#   WARNING_BUFFER_FILE/INFO_LOG_FILE/各 lock)单点化到同一棵树。
+# 根因(1009-real-faults §C): 代码树 trade-data/scripts 是 symlink → trade-data-signal/scripts,
+#   py 侧 `Path(__file__).resolve()` 穿透 symlink 落**代码树**、sh 侧字面路径落**运行树** ⇒
+#   dedup/latest/buffer 双树分裂(37% 键窗仅存单树)、运行树读侧判据对 py 告警失明。
+# 无 env 时回退 absolute()(保持 symlink 字面路径) = 现行为, 零回归。
+REPO = Path(os.environ.get("REPO") or Path(__file__).absolute().parent.parent)
 EMAIL_CONFIG = REPO / "config" / "email.json"
 TELEGRAM_CONFIG = REPO / "config" / "telegram.json"
 FEISHU_CONFIG = REPO / "config" / "feishu.json"
