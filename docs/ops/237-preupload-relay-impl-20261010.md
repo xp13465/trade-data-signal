@@ -21,13 +21,13 @@
 
 | # | 文件:行 | 改动 | 级别 |
 |---|---|---|---|
-| 1 | `scripts/upload_r2.py:1138-1330`(`_backup_overwritten_keys` / 内嵌 `_backup_one`) | COPY 段整体替换为 **P1~P6**;失败改 `failed += 1` + 结构化样本;返回 `(copied, skipped, failed, samples)` | A 主体 |
-| 2 | `scripts/upload_r2.py:1533-1545`(L5 调用点 `_incremental_upload`) | 接住 4 元组 + 打结构化行 `[label] 备份完成 copied=X skipped=Y failed=Z`;异常路径打 `failed=-1`;**全程不阻断**(无 raise / 无 sys.exit / 无 `failed>0` 分支) | A 配套 |
+| 1 | `scripts/upload_r2.py:1138-1285`(`_backup_overwritten_keys` / 内嵌 `_backup_one`) | COPY 段整体替换为 **P1~P6**;失败改 `failed += 1` + 结构化样本;返回 `(copied, skipped, failed, samples)` | A 主体 |
+| 2 | `scripts/upload_r2.py:1537-1545`(L5 调用点 `_incremental_upload`) | 接住 4 元组 + 打结构化行 `[label] 备份完成 copied=X skipped=Y failed=Z`;异常路径打 `failed=-1`;**全程不阻断**(无 raise / 无 sys.exit / 无 `failed>0` 分支) | A 配套 |
 | 3 | `scripts/upload_r2.py:404-424`(`_route_bucket`) | **D①**:`BACKUP2_BUCKET` 凭据缺失 ⇒ `RuntimeError`(不再静默回退老账号);老账号桶回退语义不变 | D |
-| 4 | `scripts/upload_r2.py:833-870`(`_upload_multipart`) | 新增可选 `bucket=` 并透传到 4 处 `s3_request`(create/part PUT/abort/complete)。**不改就等于把大文件备份写到主桶**(潜伏正确性缺口,已修) | A 配套 |
+| 4 | `scripts/upload_r2.py:833-902`(`_upload_multipart`) | 新增可选 `bucket=` 并透传到 4 处 `s3_request`(create/part PUT/abort/complete)。**不改就等于把大文件备份写到主桶**(潜伏正确性缺口,已修) | A 配套 |
 | 5 | `scripts/upload_r2.py:283-285 / 531-535` | 注释同步:删「env 缺失→回退老账号」的过时兼容说明;`extra_headers` 注记 COPY 已从 L5 移除 | 一致性 |
-| 6 | `scripts/check_preupload_backup.py`(**新增**) | **D③** 当日存活观测巡检(dry 默认 / `--notify` 入聚合队列) | D |
-| 7 | `scripts/schedule_monitor.sh:2912-2946` | 把 D③ 挂进既有 15min 巡检链(紧随 check_s06_freshness 块,同族写法) | D |
+| 6 | `scripts/check_preupload_backup.py`(**新增**,235 行) | **D③** 当日存活观测巡检(dry 默认 / `--notify` 入聚合队列) | D |
+| 7 | `scripts/schedule_monitor.sh:2912-2934` | 把 D③ 挂进既有 15min 巡检链(紧随 check_s06_freshness 块,同族写法) | D |
 | 8 | `scripts/tests/test_237_preupload_relay_pytest.py`(**新增**,12 例) | A/D① 的 static-only 单测 | 测试 |
 | 9 | `scripts/tests/test_237_check_preupload_backup_pytest.py`(**新增**,18 例) | D③ 判定口径/通道/端到端 dry/零外发单测 | 测试 |
 | 10 | `scripts/tests/test_212_upload_onfail_loud_pytest.py:167`、`scripts/test_204_etfscore_loud.py:104` | 打桩跟随新返回契约(4 元组)。**原打桩返回 None ⇒ 调用点解包抛 TypeError 被 except 兜成 `failed=-1`** 的同类面,已修 | 同类面 |
