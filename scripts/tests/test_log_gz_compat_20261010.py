@@ -13,15 +13,25 @@
 
 用例:
   ①helper 单元: .log 优先 / 缺失回退 .log.gz / 都无=None
-  ②parse_last_run: 未压缩 == gz(逐位); 缺失 → None(改造前后同)
-  ③gen_schedule_stats 端到端回归: 未压缩输入, 改造前(HEAD) vs 改造后 输出逐字一致
-  ④gen_schedule_stats 端到端 gz: 单任务日志 gz 化 → last_run 不丢(治漏跑误报)
+  ②parse_last_run: 未压缩 == 改造前固化期望(同输入逐位); == gz(逐位); 缺失 → None
+  ③gen_schedule_stats 端到端回归: 未压缩输入 == 改造前固化输出 md5(逐字节一致)
+  ④gen_schedule_stats 端到端 gz: 单任务日志 gz 化 → last_run 不丢(==未压缩, 治漏跑误报)
   ⑤check_data_gap _scan_cap_giveup_log: 未压缩 == gz(逐位)
+
+2026-10-10 打回修复(独立审 BLOCKER-1 + 低分项):
+  · 弃用 `git show HEAD:` 自引用对照: 改造 commit 后 HEAD 即改造后源码 —— 对照面缺
+    resolve_log_path(崩 NameError)、gen_schedule_stats 对照空转(改造后 vs 改造后)。
+    改用「真实输入→期望输出」固化期望值(常量见 FROZEN_*, 捕获自 baseline 64946a079),
+    彻底不依赖 git 历史(CI 浅克隆/无 git 环境同样成立)。
+  · ④ 修复同族假绿: 原实现未真正 gz 化沙箱日志(out_gz 恒 == j_mod, 该块空转) ——
+    现真把 INTRA 改为 .gz 再跑, 使「gz 化后统计字段不丢」名副其实。
+  · 零外发断言加**阳性对照**(§18 L48「先证判定生效」): 伪 urlopen 必被拦, 防陷阱自身失效假绿。
 """
 from __future__ import annotations
 
 import ast
 import gzip
+import hashlib
 import json
 import re
 import shutil
@@ -44,14 +54,25 @@ def check(name: str, cond: bool, detail: str = "") -> None:
         FAIL.append(name)
 
 
-def _git_show(rel: str) -> str | None:
-    """取 HEAD 版源码用于「改造前后」对账; CI/无 git 环境返回 None → 该对账降级为 SKIP。"""
-    try:
-        r = subprocess.run(["git", "-C", str(ROOT), "show", f"HEAD:{rel}"],
-                           capture_output=True, text=True, timeout=30)
-        return r.stdout if r.returncode == 0 and r.stdout else None
-    except Exception:
-        return None
+# ── 固化期望值(captured from baseline 64946a079 = 改造前; 一次捕获即冻结) ──
+# 取代原 `git show HEAD:` 动态自引用(BLOCKER-1 根因: 改造 commit 后 HEAD 即改造后源码)。
+# 这些值可用任意方式核验(改造前后逐位一致),但测试本身不再查询 git。
+#
+# ② 改造前 parse_last_run 在未压缩 INTRA 样本上的末次开始时间(改造前后逐位一致)
+FROZEN_OLD_PARSE_LAST_RUN_PLAIN = "2026-10-10 09:35:02"
+# ③ 改造前 gen_schedule_stats 在同一 3 日志沙箱(INTRA/ETF/UPDATE_ALL)上的输出 md5
+#    (改造前后逐字节一致; reviewer 独立复核证据 A 同结论 —— 未压缩场景零行为变化)
+FROZEN_OLD_E2E_MD5 = "0cf8f13b12d9b710b055e11531792454"
+# ④ gz-only(INTRA 仅剩 .log.gz)场景: 改造前该任务 last_run=None(=缺陷: .log 缺失 →
+#    「无日志」→ 落计划窗口即漏跑误报), 且未压缩沙箱的 null 计数未变; 改造后 null 计数减 1
+FROZEN_OLD_GZ_ONLY_NULL_COUNT = 17
+
+
+def heredoc_src(name: str) -> str:
+    src = (SCRIPTS / name).read_text(encoding="utf-8")
+    m = re.search(r"<<'PYEOF'[^\n]*\n(.*?)\nPYEOF\b", src, re.S)
+    assert m, f"heredoc not found in {name}"
+    return m.group(1)
 
 
 def heredoc_src(name: str) -> str:
@@ -133,17 +154,11 @@ def main() -> int:
           r0 is not None and r0.strftime("%Y-%m-%d %H:%M:%S") == "2026-10-10 09:35:02",
           f"got={r0}")
 
-    # ② 未压缩回归: HEAD(改造前) 版 parse_last_run 同输入 == 改造后
-    sm_orig_src = _git_show("scripts/schedule_monitor.sh")
-    if sm_orig_src is None:
-        print("SKIP  ② 未压缩回归(HEAD 对账)  -- git 不可用")
-    else:
-        mo = re.search(r"<<'PYEOF'[^\n]*\n(.*?)\nPYEOF\b", sm_orig_src, re.S)
-        ns_sm_orig, _ = extract_module(
-            mo.group(1), {"parse_last_run"}, {"START_RE", "ETF_START_RE"})
-        check("② 未压缩回归: HEAD parse_last_run == 改造后(同输入逐位)",
-              ns_sm_orig["parse_last_run"](plain) == r0,
-              f"orig={ns_sm_orig['parse_last_run'](plain)} mod={r0}")
+    # ② 未压缩回归(固化期望值,弃 git 自引用): 断言改造后输出 == 改造前固化的「真实输入→
+    #    期望输出」常量 ⇒ 等价于「改造前 == 改造后(同输入逐位)」。
+    check("② 未压缩回归: parse_last_run == 改造前固化期望(同输入逐位)",
+          r0 is not None and r0.strftime("%Y-%m-%d %H:%M:%S") == FROZEN_OLD_PARSE_LAST_RUN_PLAIN,
+          f"got={r0} frozen={FROZEN_OLD_PARSE_LAST_RUN_PLAIN}")
 
     gz = tmp / "intraday_snapshot_launchd.log.gz"
     with gzip.open(gz, "wt", encoding="utf-8") as f:
@@ -213,8 +228,6 @@ def main() -> int:
 
     # ---------- ③ + ④ gen_schedule_stats 端到端 ----------
     basis = Path(tempfile.mkdtemp(prefix="a5-e2e-"))
-    # 原始(HEAD)版本源码
-    orig_src = _git_show("scripts/gen_schedule_stats.py")
     mod_src = gs
 
     def build_sandbox(tag: str, src: str) -> Path:
@@ -230,11 +243,9 @@ def main() -> int:
             (sb / "data" / "logs" / nm).write_text(content, encoding="utf-8")
         return sb
 
-    sb_orig = build_sandbox("orig", orig_src) if orig_src is not None else None
     sb_mod = build_sandbox("mod", mod_src)
 
     # ZeroOutboundTrap 包裹 runpy 跑真实脚本主体(证明零外发)
-    zero = TESTS / "_zero_outbound.py"
     runner = (
         "import runpy,sys;"
         f"sys.path.insert(0,{str(TESTS)!r});"
@@ -251,16 +262,21 @@ def main() -> int:
         out = sb / "static-site" / "data" / "schedule_stats.json"
         return json.loads(out.read_text(encoding="utf-8"))
 
-    j_orig = run_script(sb_orig) if sb_orig is not None else None
     j_mod = run_script(sb_mod)
-    if j_orig is None:
-        print("SKIP  ③ 未压缩端到端(HEAD 对账)  -- git 不可用")
-    else:
-        check("③ 未压缩端到端: 改造前 == 改造后(逐字)",
-              j_orig == j_mod,
-              "" if j_orig == j_mod else "diff: " + _firstdiff(j_orig, j_mod))
+    # ③ 未压缩端到端回归(固化期望 md5,弃 git 自引用): 断言改造后输出**逐字节** == 改造前
+    #    固化的 md5(捕获自 baseline 64946a079; 二者逐字节一致 = 未压缩场景零行为变化)。
+    _md5_mod = hashlib.md5(
+        (sb_mod / "static-site" / "data" / "schedule_stats.json").read_bytes()).hexdigest()
+    check("③ 未压缩端到端: 输出 == 改造前固化 md5(逐字节)",
+          _md5_mod == FROZEN_OLD_E2E_MD5,
+          f"got={_md5_mod} frozen={FROZEN_OLD_E2E_MD5}")
 
-    # ④ 单任务日志 gz 化 + ZeroOutboundTrap 包裹跑
+    # ④ 单任务日志真 gz 化(修复同族假绿: 原实现未 gz 化, out_gz 恒 == j_mod = 空转)
+    #    + ZeroOutboundTrap 包裹跑
+    _intra_log = sb_mod / "data" / "logs" / "intraday_snapshot_launchd.log"
+    with gzip.open(str(_intra_log) + ".gz", "wt", encoding="utf-8") as f:
+        f.write(INTRA)
+    _intra_log.unlink()
     r = subprocess.run([PY, "-c", runner], capture_output=True, text=True, timeout=180)
     assert r.returncode == 0, f"gz runner rc={r.returncode}\n{r.stdout}\n{r.stderr}"
     check("③ 零外发: gen_schedule_stats 端到端 ZeroOutboundTrap hits==[]",
@@ -270,6 +286,13 @@ def main() -> int:
 
     int_mod = next(x for x in j_mod if x["task"] == "intraday_snapshot")
     int_gz = next(x for x in out_gz if x["task"] == "intraday_snapshot")
+    check("④ 旧代码 gz-only 缺陷已关闭: 新代码 null 计数 -1(旧代码 "
+          f"{FROZEN_OLD_GZ_ONLY_NULL_COUNT})",
+          sum(1 for x in out_gz if x["last_run"] is None) == FROZEN_OLD_GZ_ONLY_NULL_COUNT - 1
+          and sum(1 for x in out_gz if x["last_run"] is None)
+          == sum(1 for x in j_mod if x["last_run"] is None),
+          f"gz_null={sum(1 for x in out_gz if x['last_run'] is None)} "
+          f"plain_null={sum(1 for x in j_mod if x['last_run'] is None)}")
     check("④ gz 化后 intraday last_run 不丢(==未压缩, 治漏跑误报)",
           int_gz["last_run"] == int_mod["last_run"] and int_gz["last_run"] == "2026-10-10 09:35",
           f"gz={int_gz['last_run']} mod={int_mod['last_run']}")
@@ -277,6 +300,30 @@ def main() -> int:
           {k: int_gz[k] for k in ("last_exit", "est_text", "log_anomaly", "last_duration_sec")}
           == {k: int_mod[k] for k in ("last_exit", "est_text", "log_anomaly", "last_duration_sec")},
           f"gz={int_gz.get('last_exit')} {int_gz.get('est_text')}")
+
+    # ②(顺手, §18 L48 阳性对照): 证明零外发陷阱**本身生效** —— 伪调用必被拦。
+    #    否则 ZERO_HITS==[] 可能因陷阱未安装而假绿(先证判定生效, 再信 hits==[])。
+    #    ⚠️ 仅当确认陷阱已安装(installed=True)才发起伪调用 ⇒ 伪调用恒被陷阱拦截, 零真实网络。
+    _positive = (
+        "import urllib.request, smtplib, sys\n"
+        f"sys.path.insert(0, {str(TESTS)!r})\n"
+        "from _zero_outbound import ZeroOutboundTrap\n"
+        "t = ZeroOutboundTrap(); t.__enter__()\n"
+        "installed = (getattr(urllib.request.urlopen, '__name__', '') == '_trap'\n"
+        "             and getattr(smtplib.SMTP_SSL, '__name__', '') == '_trap')\n"
+        "blocked = None\n"
+        "if installed:\n"
+        "    try:\n"
+        "        urllib.request.urlopen('http://selftest.invalid/')\n"
+        "        blocked = False\n"
+        "    except AssertionError:\n"
+        "        blocked = True\n"
+        "print('POSITIVE=' + repr(bool(installed and blocked)))"
+    )
+    _rp = subprocess.run([PY, "-c", _positive], capture_output=True, text=True, timeout=60)
+    check("② 零外发陷阱阳性对照: 伪 urlopen 必被拦(先证陷阱生效)",
+          _rp.returncode == 0 and "POSITIVE=True" in _rp.stdout,
+          f"rc={_rp.returncode} out={(_rp.stdout or '').strip()!r}")
 
     # 清场 sandbox
     for d in (tmp, gaproot, basis):
@@ -288,13 +335,6 @@ def main() -> int:
         return 1
     print("RESULT: ALL PASS")
     return 0
-
-
-def _firstdiff(a, b) -> str:
-    for i, (x, y) in enumerate(zip(a, b)):
-        if x != y:
-            return f"idx {i} task={x.get('task')}\n orig={x}\n mod ={y}"
-    return f"len {len(a)} vs {len(b)}"
 
 
 def test_log_gz_compat_20261010() -> None:

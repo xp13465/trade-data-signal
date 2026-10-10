@@ -55,8 +55,9 @@ resolve_repo "${BASH_SOURCE[0]}"
 cd "$REPO"
 
 # 注：launchd plist 设 REPO=/Users/linhuichen/code/trade-data，trade-data/scripts 是
-# trade/scripts 的 symlink，trade-data/data/logs 与 trade/data/logs 同 inode（hard link）。
-# 故 $REPO/data/logs/*_launchd.log 路径在 trade-data 下也可读到正确日志。
+# trade/scripts 的 symlink（代码共用）；trade-data/data/logs 则是独立真实目录（非 symlink、
+# 非 hard link，inode 与 trade/data/logs 不同），launchd 写入的 *_launchd.log 存于此。
+# 故 $REPO/data/logs/*_launchd.log 在 trade-data 下可读到正确日志。
 export REPO
 
 # 用 python heredoc 处理日期解析 + JSON 读取（bash 处理太繁琐易错）
