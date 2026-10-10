@@ -34,6 +34,7 @@ schedule_monitor.sh(Python heredoc) / notify.py 共用本模块的判定逻辑(�
 """
 import hashlib
 import json
+import os
 import re
 import sys
 from datetime import datetime, timedelta
@@ -109,6 +110,12 @@ FAILED_UNITS_ADDED_JITTER_WINDOW = timedelta(hours=24)            # #240②精�
 # 桶键 = f"{task}|dur_buffer|{阈值}"; schedule_monitor.sh 用本常量**构造**桶键 + 在恢复循环里
 # **豁免**同前缀键(桶复位只由 dur 块内联负责)。两处共用同一常量, 防字面量漂移导致豁免失配。
 DUR_BUFFER_KEY_MARK = "|dur_buffer|"
+
+# ---- #245 批2 B4-3 收口(2026-10-10) nextday_gap_check 三层统一 dedup key ----
+# py(notify --dedup-key)/sh(notify --dedup-key)/monitor(wrapper_channel_alerted 读 notify_dedup.json)
+# 三层共用同一键: py 已发 → sh 同键窗内 suppress + monitor 汇总去重(0 重复);py 崩/未发 → sh/monitor
+# 照发(兜底不断层)。此常量本模块暴露, 供 monitor 引用; py/sh 的 CLI 字面量须与之一致(机检断言)。
+NEXTDAY_GAP_DEDUP_KEY = "nextday_gap_check_fail"
 
 
 def failed_units_signature(problems) -> str:
@@ -583,6 +590,9 @@ def r5_congestion_process(alert_state, alerts, now, summary_hm="23:25"):
       - 当日收尾轮(NOW >= summary_hm, monitor 15min/轮 → 命中 23:30 轮)且现象 >=2 且
         未发汇总 → 返回 1 条汇总 SEVERE(现象清单 + #149 根因指针)
     keep/summary 由调用方替换原 alerts 并持久化状态。
+
+    #245 批2(2026-10-10): monitor 侧起由 alert_budget_process(超集: 按类别日预算)取代;
+    本函数**保留不删**(scripts/tests/test_alert_denoise_20261001.py 引用), 供历史测试。
     """
     _today = now.strftime("%Y%m%d")
     _sk = f"{R2_CONGESTION_SUMMARY_KEY_PREFIX}{_today}"
@@ -705,3 +715,150 @@ def r7_r2_consistency_wrapper_alerted(repo, last_run, dedup_key=R2_CONSISTENCY_D
     实现已收敛到 wrapper_channel_alerted(单一实现), 本函数保留 R7 语义命名 + 默认 key。
     """
     return wrapper_channel_alerted(repo, last_run, dedup_key)
+
+
+# ══ #245 批2 L2 预算+摘要层(2026-10-10) ═══════════════════════════════════════
+# 类别维度 + 日预算 + 台账当日直发计数 + monitor 批次行级吸收。纯函数, 可单测。
+# 计数单一事实源 = W1 台账(data/alerts/alert_ledger.jsonl)——跨通道统一数字(§22),
+# 与 alert_meter 展示口径一致。诚实标注: 未映射类别一律 exempt(不限预算, 直发),
+# 首版只咬「已识别的重复族」(宁多发不吞, 见 spec §1.2/§1.3)。
+ALERT_BUDGET = {
+    "unit": 1, "r2": 1, "data_gap": 1, "gap_check": 1,
+    "deploy": 1, "fund_nav": 1, "kelly": 1,
+}
+
+
+def category_of(key, subject):
+    """键/主题 → 告警类别(未映射返回 None=不限预算)。
+
+    key 优先(前缀/子串), subject 兜底; 均 case-sensitive(沿用 dedup key 风格)。
+    映射表见 docs/ops/245-batch2-impl-spec-20261010.md §1.2(基于 10-08 直发样本)。
+    """
+    _k = str(key or "")
+    _s = str(subject or "")
+    if "unit_patrol" in _k or "failed_units" in _k or "cloud_unit_patrol" in _k:
+        return "unit"
+    if _k.startswith("r2_") or "r2_pipeline_congestion" in _k:
+        return "r2"
+    if "data_gap" in _k or "[数据缺口]" in _s:
+        return "data_gap"
+    if _k in (NEXTDAY_GAP_DEDUP_KEY, "nextday_gap_check_gen_fail") or "伪跳空" in _s:
+        return "gap_check"
+    if _k.startswith("deploy_"):
+        return "deploy"
+    if _k.startswith("fund_nav"):
+        return "fund_nav"
+    if "kelly" in _k:
+        return "kelly"
+    return None
+
+
+def category_of_line(line):
+    """monitor 批次行文本 → 类别(未映射返回 None)。strip "SEVERE: " 前缀后判定。
+
+    与 category_of 的分工: 行文本没有 dedup key, 只能靠 task 前缀/文本特征(§1.2)。
+    """
+    _t = str(line or "")
+    if _t.startswith("SEVERE: "):
+        _t = _t[len("SEVERE: "):]
+    if r5_is_r2_congestion_line(_t):
+        return "r2"
+    if "[数据缺口]" in _t:
+        return "data_gap"
+    if "nextday_gap_check" in _t or "伪跳空" in _t:
+        return "gap_check"
+    _toks = _t.split()
+    _first = _toks[0] if _toks else ""
+    if "unit_patrol" in _first or "failed_units" in _first:
+        return "unit"
+    if "deploy" in _t:
+        return "deploy"
+    return None
+
+
+def ledger_day_direct_counts(repo, day=None):
+    """台账当日各类别「已直发」条数(单一事实源; 读不到=全 0=全直发 fail-open)。
+
+    只数: ts 前缀==day 且 group=="alert" 且 tier!="digest" 的行, 按 category_of(key,subject)
+    归类。坏行跳过 / 文件缺失 → 空 dict(绝不因台账问题吞告警)。
+    """
+    _day = day or datetime.now().strftime("%Y-%m-%d")
+    counts = {}
+    if repo is None:
+        return counts
+    try:
+        _p = Path(repo) / "data" / "alerts" / "alert_ledger.jsonl"
+        if not _p.exists():
+            return counts
+        for _ln in _p.read_text(encoding="utf-8").splitlines():
+            _ln = _ln.strip()
+            if not _ln:
+                continue
+            try:
+                _r = json.loads(_ln)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(_r, dict):
+                continue
+            if str(_r.get("ts", ""))[:10] != _day:
+                continue
+            if _r.get("group") != "alert":
+                continue
+            if _r.get("tier") == "digest":
+                continue
+            _c = category_of(_r.get("key"), _r.get("subject"))
+            if _c:
+                counts[_c] = counts.get(_c, 0) + 1
+    except Exception:  # noqa: BLE001  台账问题绝不吞告警
+        return counts
+    return counts
+
+
+def _budget_entry(line, category, now):
+    """构造吸收条目(供 monitor 的 --defer-digest 循环; key 仅用于摘要展示/幂等)。"""
+    _t = str(line)
+    _body = _t[8:] if _t.startswith("SEVERE: ") else _t
+    _toks = _body.split()
+    _task = _toks[0] if _toks else "alert"
+    _h = hashlib.md5(_t.encode("utf-8", errors="replace")).hexdigest()[:8]
+    _ts = now.strftime("%Y-%m-%d %H:%M:%S") if hasattr(now, "strftime") else str(now)
+    return {"line": _t, "category": category, "key": f"{_task}|{_h}", "ts": _ts}
+
+
+def alert_budget_process(alert_state, alerts, now, repo, day=None):
+    """monitor 批次行级预算: 逐行判类别预算, 超预算的行移出批次(交 --defer-digest 吸收)。
+
+    返回 (kept, absorbed)。**不写 alert_state**(计数实时读台账, 无需状态键)。
+    counts 从 ledger_day_direct_counts 起算(当日已直发数) + **同轮乐观增量**(同轮第 2 条
+    同类行吸收, 镜像「首条直发」语义)。台账读不到 → 全 0 → 全部 kept(=现状 fail-open)。
+    加强档 task_family 第二层(默认 OFF, env ALERT_BUDGET_TASK_FAMILY=1 开启, 拍板项见 spec
+    §0.3/§1.3): 同类判完后对 kept 行再按 task 分组, 超 task 预算(1/日)的行转入 absorbed。
+    """
+    counts = ledger_day_direct_counts(repo, day)
+    _fam_on = os.environ.get("ALERT_BUDGET_TASK_FAMILY") == "1"
+    kept, absorbed = [], []
+    for _a in alerts:
+        _c = category_of_line(_a)
+        if _c is None:
+            kept.append(_a)
+            continue
+        _lim = ALERT_BUDGET.get(_c, 1)
+        if counts.get(_c, 0) < _lim:
+            counts[_c] = counts.get(_c, 0) + 1
+            kept.append(_a)
+        else:
+            absorbed.append(_budget_entry(_a, _c, now))
+    if _fam_on and kept:
+        _tcnt = {}
+        _kept2 = []
+        for _a in kept:
+            _body = _a[8:] if _a.startswith("SEVERE: ") else _a
+            _toks = _body.split()
+            _t = _toks[0] if _toks else "alert"
+            if _tcnt.get(_t, 0) < 1:
+                _tcnt[_t] = _tcnt.get(_t, 0) + 1
+                _kept2.append(_a)
+            else:
+                absorbed.append(_budget_entry(_a, category_of_line(_a) or "task_family", now))
+        kept = _kept2
+    return kept, absorbed

@@ -80,7 +80,7 @@ sys.path.insert(0, str(Path(os.environ["REPO"]) / "scripts"))
 import alert_denoise_rules as adr  # noqa: E402
 # #241 同族(2026-10-09): notify 子进程「是否真发出过」的唯一判据(rc 不可信: notify.py
 # main() 所有出口恒 return 0)。用于「先落签后 fire-and-forget 通知」病灶的回滚判定。
-from notify_sent import notify_sent  # noqa: E402
+from notify_sent import notify_sent, notify_state  # noqa: E402
 
 REPO = Path(os.environ["REPO"])
 LOG_DIR = REPO / "data" / "logs"
@@ -618,6 +618,18 @@ ROUND_INCOMPLETE_GRACE = timedelta(minutes=10)
 # 轮 monitor(15min/轮)仍 skip = 上传缺口持续(收盘版/每日版可能一直未上 R2), 才升级 SEVERE。
 # monitor 每 15min 轮询, 阈值 3 ≈ intraday(10min/轮)连续 ~4-5 轮 skip(≥45min 上传锁被占)。
 R2_SKIP_CONTINUOUS_THRESHOLD = 3
+# L3c(#245 批2, 2026-10-10): r2-skip 自愈类任务降 tier(保升级, memory alert-denoise-keep-fault-
+#   discriminator)。病灶: gen_daily_brief/fetch_news 类「自愈型」任务盘中 30min 一轮, 撞上传锁
+#   (SKIPPED_LOCKED)多为让路(锁忙), 连续 3 轮即 SEVERE 直发(critical: 邮件+飞书+latest.md)。
+#   降 tier: 自愈类连续 < R2_SKIP_ESCALATE_ROUNDS 轮 → notify --tier warning(入 30min 聚合缓冲,
+#   ≤30~45min 批 1 条, 非静默); 连续 >= 阈值 → 升级 SEVERE 直发(**升级必达**, 不受 warning
+#   窗/指纹影响)。非自愈类 = 现行为逐字节不变。诚实标注: 已入 warning 缓冲的条目即便随后自愈
+#   也照发(flush_warning_batch 无「自愈取消」), 本批收益 = 延迟 ≤30~45min + 多条合 1 + 4h 同源
+#   指纹窗抑制(取消机制不在本批, 保 freeze 面)。
+R2_SKIP_TRANSIENT_TASKS = ("gen_daily_brief", "fetch_news")
+# 升级阈值: 1.5x~2x 于 R2_SKIP_CONTINUOUS_THRESHOLD(3)(与 EXTRA_ROUND_INCOMPLETE 口径同族);
+# monitor 15min/轮, 6 轮 ≈ 90min 仍锁忙 = 上传缺口持续, 升级直发。
+R2_SKIP_ESCALATE_ROUNDS = 6
 # P1-3(2026-09-24 r2skip-alert-fix): r2_skip_count 的「本轮观察窗口」。r2_skip_count 是
 # 任务最近一次运行窗口内 SKIPPED_LOCKED 行数——对每日一轮任务(overfit_monitor 21:40 单轮),
 # 一次良性撞锁后该值滞留恒=1 直到次日新一轮。monitor 消费时仅当 last_run 落在本窗口内
@@ -761,6 +773,24 @@ if STATS_FILE.exists():
                         f"[196-patrol-suppress] cloud_unit_patrol exit={exit_code} 但包装器"
                         f"通道已为本次运行(last_run={last_run_str})发过告警, monitor 汇总去重"
                     )
+                # #245 批2 B4-3 收口(2026-10-10): nextday_gap_check 伪跳空校验失败时包装器
+                # 自身通道(nextday_gap_check.py --dedup-key nextday_gap_check_fail, 及 .sh 同键
+                # 兜底)已为本次运行实例发过告警时, 本 exit!=0 汇总通道不再复述(同 r2_consistency/
+                # cloud_unit_patrol 先例; 同一失败走 py+sh+monitor 三通道 = 三封邮件)。
+                # 反例保证(不吞真故障): 包装器 notify 发送失败 / py 与 sh 同时被杀 / 去重表缺失
+                # → 判定 False → 本通道照发。判定函数
+                # scripts/alert_denoise_rules.py:wrapper_channel_alerted(读 notify_dedup.json 的
+                # adr.NEXTDAY_GAP_DEDUP_KEY.last_alerted >= last_run[:16], 解析失败 fail-open False)。
+                elif s.get("task") == "nextday_gap_check" and adr.wrapper_channel_alerted(
+                    REPO, last_run_str, adr.NEXTDAY_GAP_DEDUP_KEY
+                ):
+                    _ex_ngc = alert_state.get(dedup_key)
+                    if _ex_ngc is not None and _ex_ngc.get("status") == "active":
+                        _ex_ngc["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                    print(
+                        f"[r8-nextday-gap-suppress] nextday_gap_check exit={exit_code} 但包装器"
+                        f"通道已为本次运行(last_run={last_run_str})发过告警, monitor 汇总去重"
+                    )
                 else:
                     existing = alert_state.get(dedup_key)
                     if _recurrence_suppressed(existing):
@@ -815,7 +845,20 @@ if STATS_FILE.exists():
                             is_stale_a = True
                     except ValueError:
                         pass
-                if is_stale_a:
+                # #245 批2 B4-3 收口(2026-10-10): nextday_gap_check 的 log 异常关键词段与 exit!=0
+                # 段是同一事实的两面(伪跳空校验失败)。exit!=0 时**交 exit 段告警**, 本段静默不复述
+                # (exit 段已 L705 add dedup_key, 防恢复循环误判消失); exit==0 但 log 有异常(吞异常)
+                # = 真信号, 本段照报。seen 已 L807 add。
+                _r8_ngc_skip = (
+                    s.get("task") == "nextday_gap_check"
+                    and isinstance(exit_code, int) and exit_code != 0
+                )
+                if _r8_ngc_skip:
+                    print(
+                        f"[r8-nextday-gap-suppress] nextday_gap_check log异常 keyword={keyword} "
+                        f"但 exit={exit_code}!=0, exit 段负责告警, 关键词段去重不复述"
+                    )
+                elif is_stale_a:
                     # 24h stale 兜底(state 丢失时仍不轰炸)
                     print(
                         f"[info] {s['task']} log异常 keyword={keyword} "
@@ -1137,20 +1180,77 @@ if STATS_FILE.exists():
                     _r2_alert_key = f"{s['task']}|r2_skip_alert"
                     seen_keys_this_run.add(_r2_alert_key)
                     _r2_exist = alert_state.get(_r2_alert_key)
-                    if _r2_exist is None or _r2_exist.get("status") != "active":
+                    # L3c(#245 批2): 自愈类降 tier + 升级逃逸。
+                    #   ① 首次(或已 active 但曾 warning)且未跨升级阈值 → warning 聚合(非静默);
+                    #   ② 非自愈类 = 现行为; 自愈类跨阈值 = 升级 SEVERE(必达);
+                    #   ③ 升级判定必须检查 tier != "severe" 逃逸已 active 分支, 否则 warning 期
+                    #      状态 active 会永久挡住升级; 升级不换 key(state 内改 tier)⇒ 恢复闭环
+                    #      仍单键单恢复, 无新 key/假恢复噪音。
+                    _r2_is_transient = s["task"] in R2_SKIP_TRANSIENT_TASKS
+                    _r2_escalate = (
+                        _r2_is_transient
+                        and _r2_n >= R2_SKIP_ESCALATE_ROUNDS
+                        and not (
+                            _r2_exist is not None
+                            and _r2_exist.get("status") == "active"
+                            and _r2_exist.get("tier") == "severe"
+                        )
+                    )
+                    if _r2_exist is None or _r2_exist.get("status") != "active" or _r2_escalate:
                         _r2_line = f"r2_skip_count={_r2_skip_cnt} 连续{_r2_n}轮"
-                        alerts.append(
+                        _r2_severe_body = (
                             f"SEVERE: {s['task']} R2 上传锁连续 {_r2_n} 轮跳过(SKIPPED_LOCKED), "
                             f"上传缺口持续(收盘版/每日版可能未上 R2), 需人工关注"
                         )
-                        alert_state[_r2_alert_key] = {
-                            "status": "active",
-                            "first_seen": _r2_prev.get(
-                                "first_seen", NOW.strftime("%Y-%m-%d %H:%M:%S")),
-                            "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
-                            "keyword": "r2_skip_continuous",
-                            "line_sample": _r2_line,
-                        }
+                        if _r2_is_transient and _r2_n < R2_SKIP_ESCALATE_ROUNDS:
+                            # L3c: 自愈类先 warning(入 30min 聚合缓冲, ≤30~45min 批发; 非静默)
+                            try:
+                                subprocess.run(
+                                    [
+                                        sys.executable, str(REPO / "scripts" / "notify.py"),
+                                        f"[告警] {s['task']} R2 上传锁连续 {_r2_n} 轮跳过"
+                                        f"(自愈类, 延迟提示)",
+                                        _r2_severe_body + (
+                                            f"(自愈类任务先入聚合; 连续 ≥"
+                                            f"{R2_SKIP_ESCALATE_ROUNDS} 轮将升级直发)"
+                                        ),
+                                        "--tier", "warning",
+                                        "--dedup-key", f"{s['task']}|r2_skip_warn",
+                                        "--dedup-window", "21600",
+                                        "--from-prefix", "[告警]",
+                                    ],
+                                    capture_output=True, text=True, timeout=30, check=False,
+                                )
+                            except Exception as _r2we:
+                                print(f"[warn] {s['task']} r2-skip warning 入队失败: {_r2we}",
+                                      file=sys.stderr)
+                            print(f"[r2-skip-warn] {s['task']} 连续{_r2_n}轮, "
+                                  f"已入 warning 聚合(未达升级阈值)")
+                            alert_state[_r2_alert_key] = {
+                                "status": "active",
+                                "first_seen": _r2_prev.get(
+                                    "first_seen", NOW.strftime("%Y-%m-%d %H:%M:%S")),
+                                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                                "keyword": "r2_skip_continuous",
+                                "line_sample": _r2_line,
+                                "tier": "warning",
+                            }
+                        else:
+                            # 非自愈类=现行为; 自愈类跨过升级阈值=升级必达(SEVERE 直发)
+                            _r2_esc_note = (
+                                f" 已连续 {_r2_n} 轮, 超升级阈值({R2_SKIP_ESCALATE_ROUNDS})"
+                                if _r2_is_transient else ""
+                            )
+                            alerts.append(_r2_severe_body + _r2_esc_note)
+                            alert_state[_r2_alert_key] = {
+                                "status": "active",
+                                "first_seen": _r2_prev.get(
+                                    "first_seen", NOW.strftime("%Y-%m-%d %H:%M:%S")),
+                                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                                "keyword": "r2_skip_continuous",
+                                "line_sample": _r2_line,
+                                "tier": "severe",
+                            }
                     else:
                         # 已告警过: 刷新计数 key 触发恢复检测(本轮 skip 仍存在), 不重发
                         # (与现有 durable 告警语义一致)
@@ -1836,6 +1936,10 @@ for _key, _info in list(alert_state.items()):
     # #123 R2/R5(2026-10-01): merge| 共享去重 key 与 r2_pipeline_congestion| 日汇总状态
     # 不是"异常告警", 不参与恢复检测(否则 merge key 未 seen 被误发恢复邮件)。
     if _key.startswith(adr.MERGE_PREFIX) or _key.startswith(adr.R2_CONGESTION_SUMMARY_KEY_PREFIX):
+        continue
+    # #245 批2 D5(2026-10-10): monitor_recovery|pending(6h 窗吞掉的恢复补列桶)不是
+    # "异常告警", 不参与恢复检测——否则 pending 键未 seen 会被误判"异常已消失"翻转/误发。
+    if _key.startswith("monitor_recovery|"):
         continue
     # #240 ③ 复审 F2(2026-10-09): dur 计数桶(|dur_buffer|)由 dur 块**内联自管复位**
     # (耗时回到阈值内 → recovered; 起止都在同一块), 不参与本恢复循环 —— 否则 dur=None 轮
@@ -2828,10 +2932,29 @@ now_str = NOW.strftime("%Y-%m-%d %H:%M:%S")
 # ② 调用后立即 save_alert_state 落盘——否则 r2_pipeline_congestion|{YYYYMMDD} 状态只存在
 #    进程内存, 每轮独立进程退出即丢, 同轮第 2+ 种 R2 告警被吞且永久静默。
 _orig_has_alerts = bool(alerts)
-alerts, _r5_summary = adr.r5_congestion_process(alert_state, alerts, NOW)
-if _r5_summary:
-    alerts.append(_r5_summary)
+# #245 批2 L2(2026-10-10): 批次行级日预算 —— 取代 r5 聚合(超集: 按类别日预算, 见
+# adr.alert_budget_process)。逐行判类别预算, 超预算的行移出批次交 --defer-digest 吸收
+# (当日 23:25 摘要出线, 或次日 stale 兜底); 未映射类别/类别首行照旧随批次即时直发。
+# 计数实时读台账(单一事实源, 跨通道统一数字 §22), **不写 alert_state**; 台账读不到 →
+# 全 kept = 现状 fail-open(绝不因台账问题吞告警)。
+alerts, _absorbed = adr.alert_budget_process(alert_state, alerts, NOW, REPO)
 save_alert_state(alert_state)
+# defer 调用在 save_alert_state **之后**、批次发送 **之前**: 被吸收行从批次剔除 ⇒ 下方
+# 批次 subject 的 N=len(alerts) 自然重算。fail-open: defer 失败(rc!=0) → 回批直发。
+for _ent in _absorbed:
+    _r_dg = subprocess.run(
+        [
+            sys.executable, str(REPO / "scripts" / "notify.py"),
+            _ent["line"][:300], _ent["line"],
+            "--defer-digest", "--digest-category", _ent["category"],
+        ],
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    if _r_dg.returncode != 0:
+        alerts.append(_ent["line"])
+        print(f"[warn] digest defer 失败, 回批直发: {_ent['line'][:80]}", file=sys.stderr)
+    else:
+        print(f"[budget-absorb] {_ent['category']} 并入当日摘要: {_ent['line'][:80]}")
 if alerts:
     print(f"[{now_str}] 检测到 {len(alerts)} 个告警:")
     for a in alerts:
@@ -2867,8 +2990,9 @@ if alerts:
         save_alert_state(alert_state)
         print(f"[warn] 聚合告警未确认送达(rc={_r_main.returncode}) ⇒ 回滚本轮 {_rb} 个新告警落签"
               f"(下轮重试)", file=sys.stderr)
-elif _orig_has_alerts:
-    print(f"[{now_str}] 本轮告警已由 R2 拥堵日汇总接管, 见 r2_pipeline_congestion 状态")
+elif _orig_has_alerts or _absorbed:
+    # 本轮原有过告警但已全部被吸收(批次 kept 空) ⇒ 记日志(仅日志, 不影响发送)。
+    print(f"[{now_str}] 本轮告警已由类别日预算吸收, 见当日摘要 alert_digest.jsonl")
 else:
     print(f"[{now_str}] OK 所有任务按计划执行，无漏跑，无退出失败")
 
@@ -2882,26 +3006,47 @@ else:
 # 6h 内无论多少条恢复只发首封(汇总), 6h 后新恢复重新可发——恢复通知是低价值信息,
 # 延迟合并可接受, SEVERE(首次异常直发)不受影响。
 recoveries = [r for r in recoveries if not str(r.get("task", "")).startswith("r2_")]
-if recoveries:
-    print(f"[{now_str}] 检测到 {len(recoveries)} 个异常恢复:")
-    for r in recoveries:
+# #245 批2 D5(2026-10-10): 恢复闭环「必出现」——6h dedup 窗吞掉的恢复不再静默。
+# 病灶(10-09 实证): 窗内第 2 条不同任务的恢复被同 dedup key 6h 窗吞掉(age=11683s 实吞),
+# 且原 fire-and-forget 无法感知吞没。改: capture + notify_state 三态; 被吞/失败 ⇒ 本批
+# recoveries 并入 `monitor_recovery|pending` 桶(每轮随下次恢复发送重试; 6h 窗过期后自然
+# 带出直发; 或当日摘要补列 --defer-digest recovery, 见尾部; 或次日 stale flush ⇒ 三级必出)。
+_PEND_KEY = "monitor_recovery|pending"
+_pend = alert_state.get(_PEND_KEY)
+_pend_items = [i for i in _pend.get("items", []) if isinstance(i, dict)] if isinstance(_pend, dict) else []
+# 合成发送内容 = 本轮 recoveries + pending 补列(按 (task,keyword) 去重, 防重复行)
+_combined = []
+_seen_r = set()
+for _r in (recoveries + _pend_items):
+    _tk = (str(_r.get("task", "")), str(_r.get("keyword", "")))
+    if _tk in _seen_r:
+        continue
+    _seen_r.add(_tk)
+    _combined.append(_r)
+_pend_tks = {(str(i.get("task", "")), str(i.get("keyword", ""))) for i in _pend_items}
+_pend_n = sum(1 for _r in _combined if (str(_r.get("task", "")), str(_r.get("keyword", ""))) in _pend_tks)
+if _combined:
+    print(f"[{now_str}] 检测到 {len(recoveries)} 个异常恢复(pending 补列 {_pend_n}):")
+    for r in _combined:
         print(f"  [恢复] {r['task']} 异常关键词<{r['keyword']}> 已消失")
-    if len(recoveries) == 1:
+    if len(recoveries) == 1 and _pend_n == 0:
         r0 = recoveries[0]
         subject = f"[恢复] {r0['task']} {r0['keyword']} {NOW.strftime('%m-%d %H:%M')}"
     else:
-        subject = f"[恢复] {len(recoveries)}项异常恢复 {NOW.strftime('%m-%d %H:%M')}"
+        subject = f"[恢复] {len(_combined)}项异常恢复 {NOW.strftime('%m-%d %H:%M')}"
     rec_lines = [
         f"[恢复] {r['task']} 异常关键词<{r['keyword']}> 已消失 "
-        f"(首次发现: {r['first_seen']}, 恢复时间: {now_str})"
-        for r in recoveries
+        f"(首次发现: {r.get('first_seen', '?')}, 恢复时间: {now_str})"
+        for r in _combined
     ]
+    if _pend_n:
+        rec_lines.append(f"(其中 {_pend_n} 条为早前恢复补列)")
     # B2(2026-08-14): 恢复邮件尾加"无需操作,已自动恢复"提示
     rec_lines.append("— 无需操作, 异常已自动恢复 —")
     body = "<br>".join(
         l.replace("<", "&lt;").replace(">", "&gt;") for l in rec_lines
     )
-    subprocess.run(
+    _r_rec = subprocess.run(
         [
             sys.executable, str(REPO / "scripts" / "notify.py"),
             subject,
@@ -2912,8 +3057,34 @@ if recoveries:
             # 2026-09-24 P1: 恢复汇总 6h 去重(合并成"恢复汇总"一次性发, 防振荡期每轮一封)
             "--dedup-key", "schedule_monitor_recovery", "--dedup-window", "21600",
         ],
-        check=False,
+        capture_output=True, text=True, timeout=60, check=False,
     )
+    _rec_out = (_r_rec.stdout or "") + (_r_rec.stderr or "")
+    if _rec_out.strip():
+        print(_rec_out.strip())
+    _rec_state = notify_state(_rec_out)
+    if _rec_state == "sent":
+        # 本次已带出全部 pending(合成内容=recoveries+pending) → 清桶
+        if _PEND_KEY in alert_state:
+            alert_state.pop(_PEND_KEY, None)
+            save_alert_state(alert_state)
+    else:
+        # suppressed(6h 窗吞) / failed(发送失败) → 本批 recoveries 并入 pending 桶重试
+        _new_items = list(_pend_items)
+        _have = {(str(i.get("task", "")), str(i.get("keyword", ""))) for i in _new_items}
+        for _r in recoveries:
+            _tk = (str(_r.get("task", "")), str(_r.get("keyword", "")))
+            if _tk in _have:
+                continue
+            _have.add(_tk)
+            _new_items.append({
+                "task": _r.get("task"), "keyword": _r.get("keyword"),
+                "first_seen": _r.get("first_seen", "?"),
+            })
+        alert_state[_PEND_KEY] = {"status": "pending_hold", "items": _new_items}
+        save_alert_state(alert_state)
+        print(f"[warn] 恢复消息 state={_rec_state} ⇒ {len(_new_items)} 条入 pending 桶"
+              f"(下一轮/摘要补列重试)", file=sys.stderr)
 
 # S06 快照新鲜度兜底检查（2026-08-26，S06 每日重生链路第三件）：
 # kelly_mode_s06_state.json 的 coverage_end 落后最近已入库交易日 >1 个交易日 →
@@ -2986,6 +3157,52 @@ try:
     )
 except Exception as e:
     print(f"[warn] warning 聚合 flush 失败: {e}", file=sys.stderr)
+
+# #245 批2 D5(2026-10-10) 当日摘要补列兜底: monitor_recovery|pending 非空时, 逐条
+# --defer-digest --digest-category recovery 补列进当日摘要 buffer(被吞的恢复在 23:25 摘要
+# 出线; 摘要正文含 [恢复补列] 标注)。成功 → 从 pending 清该条; 失败 → 保留(下轮再试)。
+try:
+    _pend_now = alert_state.get("monitor_recovery|pending")
+    _pend_now_items = ([i for i in _pend_now.get("items", []) if isinstance(i, dict)]
+                       if isinstance(_pend_now, dict) else [])
+    if _pend_now_items:
+        _keep_items = []
+        for _it in _pend_now_items:
+            _subj = f"[恢复] {_it.get('task', '?')} {_it.get('keyword', '?')}"
+            _bdy = (f"恢复补列: {_it.get('task', '?')} 异常关键词<{_it.get('keyword', '?')}> 已消失 "
+                    f"(首次发现: {_it.get('first_seen', '?')})")
+            _r_pd = subprocess.run(
+                [sys.executable, str(REPO / "scripts" / "notify.py"),
+                 _subj, _bdy, "--defer-digest", "--digest-category", "recovery"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            if _r_pd.returncode == 0:
+                print(f"[budget-absorb] recovery 补列并入当日摘要: {_subj}")
+            else:
+                _keep_items.append(_it)
+                print(f"[warn] recovery 补列失败, 保留待下轮: {_subj}", file=sys.stderr)
+        if len(_keep_items) != len(_pend_now_items):
+            if _keep_items:
+                alert_state["monitor_recovery|pending"] = {"status": "pending_hold", "items": _keep_items}
+            else:
+                alert_state.pop("monitor_recovery|pending", None)
+            save_alert_state(alert_state)
+except Exception as e:
+    print(f"[warn] recovery 摘要补列失败(不阻塞): {e}", file=sys.stderr)
+
+# #245 批2 L2(2026-10-10) 摘要 flush: 冲出 alert_digest buffer 里到期的条目
+# (23:25 后首轮发 1 条汇总; 隔日 stale 兜底)。flush 自身按门控: 非 23:25 且无 stale
+# ⇒ 静默 no-op, 每轮调用安全。放 flush-warnings 之后、alert_meter recount 之前。
+try:
+    _r_dig = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "notify.py"), "--flush-digest"],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    if _r_dig.returncode != 0 or "未发出" in ((_r_dig.stdout or "") + (_r_dig.stderr or "")):
+        print(f"[warn] digest flush: {((_r_dig.stdout or '') + (_r_dig.stderr or '')).strip()[:200]}",
+              file=sys.stderr)
+except Exception as e:
+    print(f"[warn] digest flush 异常: {e}", file=sys.stderr)
 
 # 2026-10-10 W1-L1 度量层：幂等重算 data/alerts/alert_daily.json（读单点台账派生，
 # 跨两树写同一结果）。best-effort，失败不阻塞主流程，且**本机制自身绝不告警**。

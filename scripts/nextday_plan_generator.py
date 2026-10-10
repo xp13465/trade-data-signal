@@ -59,6 +59,7 @@
 import argparse
 import json
 import os
+os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))  # #245 批2 W1: 台账 source 溯源
 import re
 import subprocess
 import sys

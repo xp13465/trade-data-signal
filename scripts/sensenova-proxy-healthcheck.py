@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))  # #245 批2 W1: 台账 source 溯源
 import socket
 import subprocess
 import sys

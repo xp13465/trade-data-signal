@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 import json, os, re, subprocess, sys, time, signal, threading
+os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))  # #245 批2 W1: 台账 source 溯源
 from datetime import datetime
 from pathlib import Path
 

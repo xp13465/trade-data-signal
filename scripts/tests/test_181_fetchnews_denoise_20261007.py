@@ -18,13 +18,24 @@ monitor 30min 新鲜窗 + :45 stale 三重叠加 ⇒ 同一个真 skip 轮被 3 
   **逐条对账 93/93 零差集**才被采信(对齐用日期一致性独立搜得 o0=797 + 被杀轮 = 唯一无
   Deactivated 轮 j51, 未抄报告 b_of_j)。
 
-零外发铁律(§18 L48/L50):static-only —— 只读文件 + exec 提取出的**纯逻辑块**(该块只 append
-  到一个 `alerts` list、改 alert_state dict, **无任何 notify/网络/子进程**);本测试用
-  subprocess/urllib/socket 打桩「一调用即 AssertionError」兜底证明本次自测零真实外发。
+零外发铁律(§18 L48/L50):static-only —— 只读文件 + exec 提取出的**纯逻辑块**。
+  ⚠️ #245 批2(规格 §2 L3c, 2026-10-10)起, 该块对**自愈类任务**(`R2_SKIP_TRANSIENT_TASKS`)
+  新增一条 `subprocess.run(notify.py --tier warning)` 告警降级调用 ⇒ 本测试一律注入**假
+  subprocess**(记录 argv、不真起子进程), 并对 urllib/socket + 真 `subprocess.run` 打
+  「一调用即 AssertionError」桩兜底 ⇒ 本次自测零真实外发。
+
+§2 适配(2026-10-10, 规格 §2):`fetch_news` 起被列入 `R2_SKIP_TRANSIENT_TASKS`(L3c 自愈类降
+  tier) ⇒ 其上「连续 3 轮即 SEVERE」旧行为**已按拍板改变**(3~5 轮转 warning 聚合, ≥6 轮才
+  SEVERE)。为继续以**同一份真实 fixture** 复现「#181 ①d 修好后的非 transient 现行为」(§2 保证
+  非 transient 路径逐字节=现状, 即负控 N11), 全部「#181 机制」用例统一以**非 transient 任务名**
+  (`TASK_MECH`)驾驶 —— 机制/阈值/断言一字不改, 仅任务身份使 transient 分支不介入。`fetch_news`
+  自身的 §2 新行为另设专测(`test_l3c_*`, 车同 fixture, 断言降级点)。此适配不改 fixture、不改
+  任何阈值、不改任何 #181 机制断言。
 """
 import ast
 import datetime
 import socket
+import sys
 import textwrap
 import urllib.request
 from collections import namedtuple
@@ -39,13 +50,31 @@ MONITOR = ROOT / "scripts" / "schedule_monitor.sh"
 CSV = Path(__file__).absolute().parent / "fixtures" / "181" / "ticks.csv"
 
 # 独立反事实复算(旧=13 封 → 新=5 封;时点/恢复点均为本测试驱动的期望, 非抄报告)
+# 注: 这组期望 = 「非 transient 任务」的现行为(§2 保证逐字节=现状); #245 批2 起 fetch_news
+# 转 transient, 故本组期望由 TASK_MECH 承载(见 header §2 适配)。
 EXPECTED_FIRES = ["10-04 04:00", "10-04 07:00", "10-04 18:15", "10-05 04:00", "10-05 18:15"]
 EXPECTED_RECOVERIES = ["10-04 05:00", "10-04 08:00", "10-05 01:15", "10-05 04:15", "10-05 19:00"]
-ALERT_KEY = "fetch_news|r2_skip_alert"
-CNT_KEY = "fetch_news|r2_skip_rounds"
+# 数据来源任务(真实生产日志, 见 header); 其 §2 transient 新行为由 test_l3c_* 专测。
 TASK = "fetch_news"
+# #245 批2 §2 适配: #181 机制用例统一以**非 transient** 任务名驾驶(见 header)。任意不在
+# R2_SKIP_TRANSIENT_TASKS 的名字皆可; 机制与本 block 的任务身份无关。
+TASK_MECH = "r2skip_mech_nontransient"
+ALERT_KEY = f"{TASK_MECH}|r2_skip_alert"
+CNT_KEY = f"{TASK_MECH}|r2_skip_rounds"
 
-Rec = namedtuple("Rec", "T alerts seen cnt recovered")
+Rec = namedtuple("Rec", "T alerts seen cnt recovered warn")
+
+
+class _FakeSub:
+    """假 subprocess —— 记录 argv、不起真子进程(#245 批2 §2 的 notify --tier warning 降级
+    调用须零真实外发, §18 L48)。"""
+
+    def __init__(self):
+        self.calls = []
+
+    def run(self, argv, **kw):
+        self.calls.append(list(argv))
+        return type("_R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
 # 断言下限(仿 #201/#193 薄包装范式, 防收集/执行异常致「0 断言假绿」)
 _MIN_ASSERTIONS = 30
@@ -91,10 +120,13 @@ def r2_src():
     consts = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) in (
-                "R2_SKIP_CONTINUOUS_THRESHOLD", "R2_SKIP_OBS_WINDOW"):
+                "R2_SKIP_CONTINUOUS_THRESHOLD", "R2_SKIP_OBS_WINDOW",
+                "R2_SKIP_TRANSIENT_TASKS", "R2_SKIP_ESCALATE_ROUNDS"):
             exec(ast.get_source_segment(src, node), {"timedelta": datetime.timedelta}, consts)  # noqa: S102
-    assert set(consts) == {"R2_SKIP_CONTINUOUS_THRESHOLD", "R2_SKIP_OBS_WINDOW"}, \
-        "schedule_monitor.sh 未找到两条常量(被改名/删除? 本测试锚点需同步)"
+    assert set(consts) == {
+        "R2_SKIP_CONTINUOUS_THRESHOLD", "R2_SKIP_OBS_WINDOW",
+        "R2_SKIP_TRANSIENT_TASKS", "R2_SKIP_ESCALATE_ROUNDS"}, \
+        "schedule_monitor.sh r2-skip 常量缺失/改名(被删或锚点漂移? 本测试锚点需同步)"
     return block, consts
 
 
@@ -115,27 +147,37 @@ def _ticks():
     return rows
 
 
-def _drive(code, consts, ticks):
+def _drive(code, consts, ticks, task=TASK_MECH):
     """逐 tick exec 真块, 并模拟通用恢复循环(L1644: active 且本轮未 seen ⇒ 判消失翻 recovered)。
-    返回 list[Rec(T, alerts, seen_set, cnt_state, recovered_this_tick)]。
+    返回 list[Rec(T, alerts, seen_set, cnt_state, recovered_this_tick, warn_argv)]。
 
     每 tick = (NOW, last_run, skip) 或 (NOW, last_run, skip, r2_round_id)(#181race: 轮标识与
-    skip 窗口同源; 3 元组 = 不带 r2_round_id ⇒ 真块回退 last_run, 复刻改动前语义, 供反事实对照)。"""
+    skip 窗口同源; 3 元组 = 不带 r2_round_id ⇒ 真块回退 last_run, 复刻改动前语义, 供反事实对照)。
+
+    task 默认 = TASK_MECH(非 transient, 复现 §2 现行为); 传 "fetch_news" 驾驶 §2 transient 新行为。
+    subprocess 一律注入假对象(见 _FakeSub): block 对 transient 的 notify 降级调用零真实外发。"""
+    alert_key = f"{task}|r2_skip_alert"
+    cnt_key = f"{task}|r2_skip_rounds"
     st, alert, recs = {}, False, []
     for t in ticks:
         T, lr, sk = t[0], t[1], t[2]
-        s = {"task": TASK, "r2_skip_count": (1 if sk else 0),
+        s = {"task": task, "r2_skip_count": (1 if sk else 0),
              "last_run": lr.strftime("%Y-%m-%d %H:%M")}
         if len(t) > 3 and t[3]:
             s["r2_round_id"] = (t[3] if isinstance(t[3], str)
                                 else t[3].strftime("%Y-%m-%d %H:%M"))
+        sub = _FakeSub()
         run = {
             "datetime": datetime.datetime, "timedelta": datetime.timedelta,
             "R2_SKIP_CONTINUOUS_THRESHOLD": consts["R2_SKIP_CONTINUOUS_THRESHOLD"],
             "R2_SKIP_OBS_WINDOW": consts["R2_SKIP_OBS_WINDOW"],
+            "R2_SKIP_TRANSIENT_TASKS": consts["R2_SKIP_TRANSIENT_TASKS"],
+            "R2_SKIP_ESCALATE_ROUNDS": consts["R2_SKIP_ESCALATE_ROUNDS"],
             "alerts": [], "alert_state": st, "seen_keys_this_run": set(), "NOW": T,
             "print": (lambda *a, **k: None),
             "s": s,
+            # 假 subprocess(记录 argv) + 真实 sys/REPO(仅取路径, 不执行) —— 保证零真实外发。
+            "subprocess": sub, "sys": sys, "REPO": ROOT,
         }
         exec(code, run)  # noqa: S102
         seen = set(run["seen_keys_this_run"])
@@ -143,11 +185,13 @@ def _drive(code, consts, ticks):
             alert = True
         recovered = False
         # 通用恢复循环真语义(仅本 key): active 且未 seen ⇒ recovered
-        if alert and ALERT_KEY not in seen:
+        if alert and alert_key not in seen:
             alert = False
-            st[ALERT_KEY]["status"] = "recovered"
+            st[alert_key]["status"] = "recovered"
             recovered = True
-        recs.append(Rec(T, list(run["alerts"]), seen, dict(st.get(CNT_KEY) or {}), recovered))
+        warn = sub.calls[0] if sub.calls else None
+        recs.append(Rec(T, list(run["alerts"]), seen, dict(st.get(cnt_key) or {}),
+                        recovered, warn))
     return recs
 
 
@@ -221,7 +265,7 @@ def test_fire_message_says_3_rounds(code, r2_src):
     msgs = [r.alerts[0] for r in recs if r.alerts]
     _chk(len(msgs) == 5)
     for m in msgs:
-        _chk(m.startswith("SEVERE: fetch_news R2 上传锁连续 3 轮跳过(SKIPPED_LOCKED)"), m)
+        _chk(m.startswith(f"SEVERE: {TASK_MECH} R2 上传锁连续 3 轮跳过(SKIPPED_LOCKED)"), m)
         _chk("上传缺口持续" in m)
 
 
@@ -464,8 +508,8 @@ def test_field_name_wired_producer_to_consumer():
 # ══════════════════════ 零真实外发自证(§18 L48/L50) ══════════════════════
 
 def test_zero_real_outbound(code, r2_src, monkeypatch):
-    """打桩 subprocess/urllib/socket「一调用即 AssertionError」+ 调用计数 ⇒ 证明本次自测
-    零真实外发(该块结构上无外发出口, 此断言为硬闸兜底)。"""
+    """零真实外发硬闸(§18 L48/L50): 真 subprocess.run / urllib / socket 全部打「一调用即
+    AssertionError」桩 —— block 若越过假 subprocess 直接外发(改坏/误删注入), 即在此爆。"""
     _, consts = r2_src
     calls = {"n": 0}
 
@@ -476,9 +520,106 @@ def test_zero_real_outbound(code, r2_src, monkeypatch):
     monkeypatch.setattr("subprocess.run", _boom, raising=False)
     monkeypatch.setattr(urllib.request, "urlopen", _boom)
     monkeypatch.setattr(socket, "create_connection", _boom)
-    recs = _drive(code, consts, _ticks())
-    _chk(calls["n"] == 0, f"发生外发调用 {calls['n']} 次")
+    # 非 transient(机制) + transient(fetch_news, 会走 notify 降级调用)两路都驱动:
+    recs = _drive(code, consts, _ticks())                       # TASK_MECH
+    recs_t = _drive(code, consts, _ticks(), task="fetch_news")  # transient 有 warn 调用
+    _chk(calls["n"] == 0, f"发生真实外发调用 {calls['n']} 次")
     _chk(len([1 for r in recs if r.alerts]) == 5)
+    # 证明 transient 路的 notify 降级调用**确实发生**但走的是假 subprocess(真 subprocess 零调用)。
+    _chk(len([1 for r in recs_t if r.warn]) == 2, "transient warn 调用应发生(经假 subprocess)")
+
+
+# ══════════════════════ §2 L3c: fetch_news(自愈类)降 tier 专测 ══════════════════════
+# 车同一份真实生产 fixture; 断言 = 规格 §2 的降级点(n 首达阈值→warning; n≥ESCALATE→SEVERE)。
+
+def test_l3c_transient_downgrade_real_fixture(code, r2_src):
+    """§2 L3c 主断言: fetch_news 在真实 fixture 上 —— 连续 3 轮首达阈值转 **warning 聚合**
+    (不 append SEVERE); 仅连续 ≥6 轮那一段(10-04 18:15 起)升级 **1 封 SEVERE**(10-04 20:00)。
+    对照 test_real_window_fires_13_to_5(同 fixture 非 transient → 原 5 封)证明差异**恰**来自 §2。"""
+    _, consts = r2_src
+    _chk(consts["R2_SKIP_ESCALATE_ROUNDS"] == 6)
+    _chk("fetch_news" in consts["R2_SKIP_TRANSIENT_TASKS"])
+    recs = _drive(code, consts, _ticks(), task="fetch_news")
+    warns = [r.T.strftime("%m-%d %H:%M") for r in recs if r.warn]
+    fires = [r.T.strftime("%m-%d %H:%M") for r in recs if r.alerts]
+    _chk(warns == ["10-04 04:00", "10-05 04:00"], f"warning(首达阈值)时点={warns}")
+    _chk(fires == ["10-04 20:00"], f"升级 SEVERE 时点={fires}")
+    m = [r.alerts[0] for r in recs if r.alerts][0]
+    _chk(m.startswith("SEVERE: fetch_news R2 上传锁连续 6 轮跳过(SKIPPED_LOCKED)"), m)
+    _chk("上传缺口持续" in m)
+    _chk("超升级阈值" in m, "升级消息应标注已超升级阈值")
+
+
+def test_l3c_warn_argv_verbatim(code, r2_src):
+    """§2 负控①: warning 降级调用的 argv 逐字断言(--tier warning + 独立 dedup-key/窗口 +
+    from-prefix), 且消息含「自愈类」标注(非静默)。"""
+    _, consts = r2_src
+    recs = _drive(code, consts, _ticks(), task="fetch_news")
+    argv = next(r.warn for r in recs if r.warn)
+    joined = " ".join(argv)
+    _chk(argv[0] == sys.executable, f"argv[0] 应为 python 解释器: {argv[0]}")
+    _chk("--tier" in argv and argv[argv.index("--tier") + 1] == "warning")
+    _chk("--dedup-key" in argv and argv[argv.index("--dedup-key") + 1] == "fetch_news|r2_skip_warn")
+    _chk("--dedup-window" in argv and argv[argv.index("--dedup-window") + 1] == "21600")
+    _chk("--from-prefix" in argv and argv[argv.index("--from-prefix") + 1] == "[告警]")
+    _chk("自愈类" in joined and "延迟提示" in joined)
+
+
+def test_l3c_state_tier_progression(code, r2_src):
+    """§2 升级不换 key、state 内改 tier: warning 段 tier=warning, 升级后 tier=severe(单键单恢复)。"""
+    _, consts = r2_src
+    st = {}
+    alert_key = "fetch_news|r2_skip_alert"
+    tiers = []
+    for t in _ticks():
+        T, lr, sk = t[0], t[1], t[2]
+        s = {"task": "fetch_news", "r2_skip_count": (1 if sk else 0),
+             "last_run": lr.strftime("%Y-%m-%d %H:%M")}
+        run = {**{"datetime": datetime.datetime, "timedelta": datetime.timedelta,
+                  **consts, "alerts": [], "alert_state": st, "seen_keys_this_run": set(),
+                  "NOW": T, "print": (lambda *a, **k: None), "s": s,
+                  "subprocess": _FakeSub(), "sys": sys, "REPO": ROOT}}
+        exec(code, run)  # noqa: S102
+        if alert_key in st:
+            tiers.append(st[alert_key].get("tier"))
+    _chk("warning" in tiers, "应有 tier=warning 段")
+    _chk("severe" in tiers, "升级后应出现 tier=severe")
+    _chk(tiers.index("severe") > tiers.index("warning"), "severe 应晚于 warning")
+    _chk(st[alert_key].get("tier") == "severe", "末态应为 severe")
+    # 升级不换 key: 全程只此一个告警 key(无 r2_skip_warn 等新 key 混入)
+    _chk(not any(k == "fetch_news|r2_skip_warn" for k in st), "不得新增告警 key(升级只在值内改 tier)")
+
+
+def test_l3c_escalation_escapes_warning_active(code, r2_src):
+    """§2 要点①硬机检: warning 期 state=active, 升级判定须 escape active 分支(n≥ESCALATE 时
+    即便 active 也升级 SEVERE 一次), 否则被永久挡住。用小用例直接构造。"""
+    _, consts = r2_src
+    base = datetime.datetime(2026, 11, 4, 0, 0)
+    ticks = []
+    for k in range(6):  # 6 个连续真轮(每轮 fresh 新轮) ⇒ n=1..6
+        T = base + datetime.timedelta(minutes=30 * k)
+        ticks.append((T, (T - datetime.timedelta(minutes=15)).replace(second=0, microsecond=0), 1))
+    recs = _drive(code, consts, ticks, task="fetch_news")
+    _chk(recs[2].warn is not None, "n=3 首达阈值应 warning")
+    _chk(not recs[2].alerts, "n=3 不得 append SEVERE")
+    _chk(recs[5].alerts and len(recs[5].alerts) == 1, "n=6 应升级 SEVERE 一次(escape active)")
+    _chk(recs[5].alerts[0].endswith("超升级阈值(6)"), f"升级消息尾注={recs[5].alerts[0][-30:]}")
+
+
+def test_l3c_nontransient_unchanged(code, r2_src):
+    """§2 负控④(规格 N11): 非 transient 任务 n=3 → 照旧即时 SEVERE 直发, 零 warning 调用。"""
+    _, consts = r2_src
+    base = datetime.datetime(2026, 11, 4, 12, 0)
+    ticks = []
+    for k in range(3):
+        T = base + datetime.timedelta(minutes=30 * k)
+        ticks.append((T, (T - datetime.timedelta(minutes=15)).replace(second=0, microsecond=0), 1))
+    recs = _drive(code, consts, ticks)  # TASK_MECH
+    _chk(all(r.warn is None for r in recs), "非 transient 不得走 warning 调用")
+    _chk(len(recs[2].alerts) == 1, "非 transient n=3 应照旧 SEVERE 直发")
+    _chk(recs[2].alerts[0].startswith("SEVERE: r2skip_mech_nontransient R2 上传锁连续 3 轮跳过"),
+         f"非 transient 消息={recs[2].alerts[0][:60]}")
+    _chk("超升级阈值" not in recs[2].alerts[0], "非 transient 不得带升级尾注")
 
 
 # ══════════════════════ 断言下限守卫(防 0 断言假绿) ══════════════════════

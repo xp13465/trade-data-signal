@@ -36,6 +36,7 @@ import argparse
 import json
 import os
 import random
+os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))  # #245 批2 W1: 台账 source 溯源
 import subprocess
 import sys
 import time
@@ -104,7 +105,7 @@ def _severe_alert(subject, body):
     cmd = [PY, str(SCRIPT_DIR / "notify.py"), subject, body,
            "--severe", "--from-prefix", "[告警]",
            "--alert-issue", subject, "--alert-log", str(log_path),
-           "--dedup-key", "nextday_gap_check_gen_fail", "--dedup-window", "3600"]
+           "--dedup-key", "nextday_gap_check_fail", "--dedup-window", "3600"]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         # #241 Pattern B / W2(2026-10-10): 本函数 fire-and-forget(不 gate 行为), 仅把无判别力

@@ -31,6 +31,8 @@
 #   - env 提供值即便「看起来非法」也**只 warn 不 exit**(显式指令优先,可能指向 NFS / 延迟
 #     挂载等边界形态);**推导值非法 = FATAL**(此刻脚本无论继续与否都必然坏)。
 #   - 只定义 resolve_repo / _resolve_repo_fatal 两个符号,不污染调用者命名空间。
+#   - **唯一例外**:NOTIFY_SOURCE — 本 lib 赋值并 export(其用途即跨进程溯源:notify.py 台账
+#     source 取它;REPO/GIT_REPO 的 assign-not-export 语义不受影响)。#245 批2 W1(2026-10-10)。
 #
 # 出口:
 #   - 恒定一行 info 到 stderr:`resolve_repo: REPO=<v> (source=env|derived) GIT_REPO=<v> (source=...)`
@@ -74,6 +76,11 @@ resolve_repo() {
   local _src_repo=env _src_git=env
   if [ -z "${REPO:-}" ]; then REPO="$_derived_repo"; _src_repo=derived; fi
   if [ -z "${GIT_REPO:-}" ]; then GIT_REPO="$_derived_git"; _src_git=derived; fi
+
+  # #245 批2 W1 溯源(2026-10-10): 给本脚本及其全部子/孙进程留下"谁触发的"标记
+  # (notify.py 台账 source 字段)。env 优先(外层已注入则不覆盖);本行是 lib「绝不 export」
+  # 契约的唯一例外(见头注释契约段的例外说明)。
+  export NOTIFY_SOURCE="${NOTIFY_SOURCE:-$(basename -- "${caller:-$0}")}"
 
   printf 'resolve_repo: REPO=%s (source=%s) GIT_REPO=%s (source=%s)\n' \
     "${REPO:-}" "$_src_repo" "${GIT_REPO:-}" "$_src_git" >&2

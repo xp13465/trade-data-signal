@@ -248,6 +248,19 @@ WARNING_BATCH_WINDOW = 1800  # 30min 聚合窗口（秒）
 # flush 本就该串行，防两进程基于同一快照重复推送/错位截尾。
 WARNING_FLUSH_LOCK_FILE = ALERTS_DIR / "warning_buffer.flushlock"
 
+# ── L2 预算+摘要层(#245 批2, 2026-10-10) ──────────────────────────────────────
+# 日预算: 每类别当日直发上限(adr.ALERT_BUDGET); 超预算的 SEVERE 不再即时外发, 改并入
+# 当日摘要 buffer(data/alerts/alert_digest.jsonl), 23:25 后首轮 --flush-digest 发 1 条
+# [告警·摘要](severe=False, tier=digest, merged_count=N)。计数单一事实源 = W1 台账
+# (adr.ledger_day_direct_counts); 未映射类别 exempt(不限预算, 直发)。
+# 回滚开关(零代码改动): ALERT_BUDGET_DISABLE=1 = master(gate 全停, 完全回滚);
+#   ALERT_DIGEST_DISABLE=1 = flush 全停(⚠️ gate 吸收仍发生 → 条目积压但不外发,
+#   完整回滚须置 master。两开关关系见 docs/ops/245-batch2-impl-20261010.md)。
+ALERT_DIGEST_FILE = ALERTS_DIR / "alert_digest.jsonl"
+ALERT_DIGEST_LOCK_FILE = ALERTS_DIR / "alert_digest.flushlock"
+ALERT_DIGEST_STATE_FILE = ALERTS_DIR / "alert_digest_state.json"
+ALERT_DIGEST_HM = "23:25"
+
 # ── warning 同源指纹降噪（2026-08-26 B1/B2/B3，docs/feishu-aggregate-spam-rootcause-20260826.md §5）──
 # 背景：聚合链路"防丢不防噪"——同源告警反复入队 → 每 30min 一封聚合轰炸。
 # B1 同源指纹窗口：defer_warning 入队时算归一化指纹，同指纹 4h 内不再入队只累计次数；
@@ -1115,7 +1128,8 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
          feishu_post: dict | None = None,
          source: str | None = None,
          ledger_tier: str | None = None, ledger_key: str | None = None,
-         ledger_group: str | None = None, merged_count: int = 0) -> dict:
+         ledger_group: str | None = None, merged_count: int = 0,
+         budget_exempt: bool = False) -> dict:
     """多渠道分发通知（邮件 + Telegram + 飞书）。各渠道独立失败不互相阻塞。
 
     先邮件后 Telegram 再飞书，任一渠道失败不影响其他。返回聚合结果：
@@ -1151,6 +1165,26 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
             clear_warning_dedup_for_recovery(subject, body)
         except Exception as e:  # noqa: BLE001
             print(f"[notify][dedup] 恢复清零异常（不影响发送）：{e}", file=sys.stderr)
+    # ── L2 日预算 gate(#245 批2, 2026-10-10)──────────────────────────────────
+    # 类别内当日第 2+ 条 SEVERE 不再即时外发, 改并入当日摘要 buffer(23:25 摘要统一出);
+    # 首条/未映射/critical+升级档/恢复/手动预算外 行为逐字节=现状。
+    # 反例保证: 台账缺失/坏行 → 计数 0 → 直发; digest append 失败 → fail-open 直发;
+    # ALERT_BUDGET_DISABLE=1 → gate 全停; budget_exempt=True(critical 升级档) → 直发。
+    if (severe and not dry_run and not budget_exempt
+            and os.environ.get("ALERT_BUDGET_DISABLE") != "1"):
+        _cat = adr.category_of(ledger_key, subject)
+        if _cat:
+            _n = _budget_today_count(_cat)
+            if _n >= adr.ALERT_BUDGET.get(_cat, 1):
+                if _absorb_to_digest(subject, body, key=ledger_key, category=_cat,
+                                     source=source, from_prefix=from_prefix):
+                    print(f"[notify][budget] 并入当日摘要 "
+                          f"key={ledger_key or '<subject>'} category={_cat} "
+                          f"(今日 {_cat} 直发 {_n}/{adr.ALERT_BUDGET[_cat]})",
+                          file=sys.stderr)
+                    return {"email": False, "telegram": False, "feishu": False,
+                            "digested": True}
+                # append 失败 → fail-open 落直发(宁多发不吞, 不 return)
     if severe:
         subject = SEVERE_PREFIX + subject
     # W1 台账重入守卫：分发期间 depth>0，令底层 _send_email/send_feishu/send_telegram
@@ -1594,6 +1628,60 @@ def _read_jsonl(path: Path) -> list[dict]:
     except Exception as e:  # noqa: BLE001
         print(f"[notify] jsonl 读取失败 {path.name}：{e}", file=sys.stderr)
     return out
+
+
+def _budget_today_count(cat: str) -> int:
+    """类别当日「已直发」条数(单一事实源 = adr.ledger_day_direct_counts, 读 W1 台账)。
+
+    读不到/坏行 → 0(自然直发 = 现状, fail-open 宁多发不吞)。"""
+    _repo = Path(os.environ.get("REPO") or REPO)
+    return int(adr.ledger_day_direct_counts(_repo).get(cat, 0))
+
+
+def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str,
+                      source: str | None = None,
+                      from_prefix: str | None = None) -> bool:
+    """把超预算的 SEVERE 并入当日摘要 buffer(幂等: 同日同 key 只 1 行)。
+
+    返回 True=已并入(或当日同 key 已在 buffer, 幂等命中); False=append 失败
+    (调用方 fail-open 落直发, 宁多发不吞, 与 warning defer 的「先 buffer 后状态」取舍一致)。
+    条目字段与 defer_warning 同构(ts/rid 供 _stable_rid 精确清理; body 截 3000)。
+    """
+    try:
+        _now = datetime.now()
+        _day = _now.strftime("%Y-%m-%d")
+        _k = _ledger_key_of(subject, key)
+        try:
+            with open(ALERT_DIGEST_FILE, "rb") as f:
+                import fcntl
+                fcntl.flock(f, fcntl.LOCK_SH)
+                _raw = f.read()
+                fcntl.flock(f, fcntl.LOCK_UN)
+            _entries, _ = _parse_buffer_lines(_raw)
+        except FileNotFoundError:
+            _entries = []
+        except OSError as e:  # noqa: BLE001
+            print(f"[notify][digest] buffer 读失败(继续尝试 append)：{e}", file=sys.stderr)
+            _entries = []
+        for _e in _entries:
+            if str(_e.get("day")) == _day and str(_e.get("key")) == _k:
+                return True  # 幂等: 当日已并入, 不重复 append
+        _rec = {
+            "ts": _now.strftime("%Y-%m-%d %H:%M:%S"),
+            "rid": f"d{time.time_ns()}",
+            "day": _day,
+            "key": _k,
+            "category": category,
+            "subject": re.sub(r"\s+", " ", str(subject)).strip()[:200],
+            "body": str(body)[:3000],
+            "from_prefix": from_prefix,
+            "source": source or os.environ.get("NOTIFY_SOURCE") or "notify.py",
+            "reason": "over_budget",
+        }
+        return _append_jsonl(ALERT_DIGEST_FILE, _rec)
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify][digest] 并入异常(转直发)：{e}", file=sys.stderr)
+        return False
 
 
 def log_info(subject: str, detail: str = "") -> bool:
@@ -2244,6 +2332,150 @@ def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
     return {"sent_batch": sent, "n_due": n, "n_remaining": n_remaining}
 
 
+def flush_digest(dry_run: bool = False) -> dict:
+    """把摘要 buffer 中「当日到期(>=23:25 且当日未发)」或「隔日 stale」条目聚合 1 条发出。
+
+    返回 {"sent": bool, "n": int, "n_remaining": int}。结构 mirror flush_warning_batch:
+    - 抢 ALERT_DIGEST_LOCK_FILE 全生命周期锁(抢不到=另一 flusher 在处理, return 静默)。
+    - 触发 = stale 非空; 或 now >= ALERT_DIGEST_HM(23:25) 且 due 非空 且 state.last_sent_day
+      != today(当日只发一封, 防 23:25 后连续轮次重复发)。不满足 → 原样保留 return。
+    - 成功(真实发出)→ 按 _stable_rid 精确清理已发条目 + 写 state(**只在发送成功后做**);
+      失败 → 条目全保留, 下轮/次日重试(「绝不丢条目」与 warning flush 同契约)。
+    - ALERT_DIGEST_DISABLE=1 → 直接 return(flush 全停; ⚠️ gate 吸收仍发生 → 完整回滚须置
+      ALERT_BUDGET_DISABLE=1, 见常量区注释)。
+    """
+    if os.environ.get("ALERT_DIGEST_DISABLE") == "1":
+        return {"sent": False, "n": 0, "n_remaining": 0}
+    import fcntl
+    try:
+        ALERT_DIGEST_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        lock_f = open(ALERT_DIGEST_LOCK_FILE, "a+")
+    except OSError as e:
+        print(f"[notify][digest] flush lock 打开失败（放弃本轮 flush）：{e}", file=sys.stderr)
+        return {"sent": False, "n": 0, "n_remaining": 0}
+    with lock_f:
+        fcntl.flock(lock_f, fcntl.LOCK_EX)  # 全生命周期互斥（含发送秒级，有意串行）
+        return _flush_digest_locked(dry_run=dry_run)
+
+
+def _flush_digest_locked(dry_run: bool = False) -> dict:
+    """flush_digest 的持锁主体（调用方必须已持有 ALERT_DIGEST_LOCK_FILE 锁）。"""
+    import fcntl
+    try:
+        with open(ALERT_DIGEST_FILE, "rb") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            raw = f.read()
+            fcntl.flock(f, fcntl.LOCK_UN)
+    except FileNotFoundError:
+        return {"sent": False, "n": 0, "n_remaining": 0}
+    except OSError as e:
+        print(f"[notify][digest] buffer 读取失败：{e}", file=sys.stderr)
+        return {"sent": False, "n": 0, "n_remaining": 0}
+    entries, bad_lines = _parse_buffer_lines(raw)
+    for i, bl in enumerate(bad_lines, 1):
+        print(f"[notify][digest] buffer 坏行跳过（第{i}条，前80字符）：{bl[:80]!r}",
+              file=sys.stderr)
+    if not entries:
+        return {"sent": False, "n": 0, "n_remaining": 0}
+    now = datetime.now()
+    _today = now.strftime("%Y-%m-%d")
+    due, stale = [], []
+    for e in entries:
+        (due if str(e.get("day")) == _today else stale).append(e)
+    _hm_ok = now.strftime("%H:%M") >= ALERT_DIGEST_HM
+    _last_day = ""
+    try:
+        if ALERT_DIGEST_STATE_FILE.exists():
+            _st = json.loads(ALERT_DIGEST_STATE_FILE.read_text(encoding="utf-8"))
+            _last_day = str((_st or {}).get("last_sent_day") or "")
+    except Exception:  # noqa: BLE001
+        _last_day = ""
+    if not (bool(stale) or (_hm_ok and bool(due) and _last_day != _today)):
+        return {"sent": False, "n": 0, "n_remaining": len(entries)}
+    send_entries = stale + due
+    n = len(send_entries)
+    _cats: dict[str, int] = {}
+    for e in send_entries:
+        _c = str(e.get("category") or "?")
+        _cats[_c] = _cats.get(_c, 0) + 1
+    _cat_txt = "/".join(f"{c} {v}" for c, v in _cats.items())
+    _stale_note = f"(含前日遗留 {len(stale)} 条)" if stale else ""
+    subject = (f"[告警·摘要] 当日合并 {n} 条 {_stale_note}"
+               f"({_cat_txt}) {now.strftime('%m-%d %H:%M')}")
+
+    def esc(s):  # noqa: E731
+        return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    intro = (f"以下 {n} 条告警未即时直发, 已并入本摘要(超当日类别预算){_stale_note}; "
+             f"条目仍可追溯: 台账 data/alerts/alert_ledger.jsonl / 监控日志。")
+    rows = []
+    for e in send_entries:
+        try:
+            _hm = datetime.strptime(str(e.get("ts", "")), "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
+        except ValueError:
+            _hm = "--:--"
+        _tag = "[恢复补列] " if str(e.get("category")) == "recovery" else ""
+        rows.append(f"[{_hm}][{e.get('category')}] {_tag}{e.get('key')} — "
+                    f"{e.get('subject')}({e.get('reason')})")
+    body = intro + "<br>" + "<br>".join(esc(r) for r in rows)
+    results = send(subject, body, severe=False, dry_run=dry_run,
+                   from_prefix="[告警·摘要]", feishu_group="alert",
+                   ledger_tier="digest", ledger_key="alert_digest", merged_count=n)
+    sent = any(results.get(ch) for ch in ("email", "telegram", "feishu"))
+    if dry_run:
+        print(f"[notify][digest][dry-run] 模拟发送摘要 {n} 条, 不清理", file=sys.stderr)
+        return {"sent": False, "n": n, "n_remaining": len(entries)}
+    if not sent:
+        print(f"[notify][digest] flush 未发出, 条目保留 {n} 条", file=sys.stderr)
+        return {"sent": False, "n": n, "n_remaining": len(entries)}
+    _drop = {_stable_rid(e) for e in send_entries}
+    _did = False
+    try:
+        with open(ALERT_DIGEST_FILE, "rb+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            cur_raw = f.read()
+            cur_entries, cur_bad = _parse_buffer_lines(cur_raw)
+            out_entries = []
+            _seen = set()
+            for ce in cur_entries:
+                rid = _stable_rid(ce)
+                if rid in _drop and rid not in _seen:
+                    _seen.add(rid)  # 同内容重复行只删一条（宁留勿多删）
+                    continue
+                out_entries.append(ce)
+            out = b"".join(json.dumps(e, ensure_ascii=False).encode("utf-8") + b"\n"
+                           for e in out_entries)
+            out += b"".join(ln.encode("utf-8", errors="replace") + b"\n" for ln in cur_bad)
+            f.seek(0)
+            f.write(out)          # 先写：失败则原文件完好
+            f.flush()
+            os.fsync(f.fileno())  # 落盘后再缩，缩完断电也是完整合法 JSONL
+            f.truncate(len(out))
+            fcntl.flock(f, fcntl.LOCK_UN)
+        _did = True
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify][digest] buffer 清理失败（下轮可能重发）：{e}", file=sys.stderr)
+    if _did:
+        try:
+            with open(ALERT_DIGEST_FILE, "rb") as f:
+                _n_rem = len(_parse_buffer_lines(f.read())[0])
+        except OSError:
+            _n_rem = 0
+    else:
+        _n_rem = len(entries)
+    # 只在发送成功后写 state(幂等: 当日只发一封)
+    try:
+        ALERT_DIGEST_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _tmp = ALERT_DIGEST_STATE_FILE.with_name(ALERT_DIGEST_STATE_FILE.name + ".tmp")
+        _tmp.write_text(json.dumps({"last_sent_day": _today}, ensure_ascii=False),
+                        encoding="utf-8")
+        os.replace(_tmp, ALERT_DIGEST_STATE_FILE)
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify][digest] state 写入失败（下轮可能重发）：{e}", file=sys.stderr)
+    print(f"[notify][digest] 摘要发出 {n} 条（剩余 {_n_rem} 条）：已发", file=sys.stderr)
+    return {"sent": True, "n": n, "n_remaining": _n_rem}
+
+
 def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
                 dry_run: bool = False, from_prefix: str | None = None,
                 feishu_group: str | None = None,
@@ -2281,7 +2513,8 @@ def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
     res = send(subject, body, severe=(tier == TIER_CRITICAL), dry_run=dry_run,
                from_prefix=from_prefix, feishu_group=feishu_group,
                reply_to_message_id=reply_to_message_id,
-               ledger_tier=tier, ledger_key=ledger_key, ledger_group=feishu_group)
+               ledger_tier=tier, ledger_key=ledger_key, ledger_group=feishu_group,
+               budget_exempt=(tier == TIER_CRITICAL))
     return {"tier": tier, **res}
 
 
@@ -2326,6 +2559,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--flush-warnings", action="store_true",
                         help="批发 warning 聚合 buffer 中满 30min 窗口的条目（schedule_monitor/"
                              "monitor_72h 每轮尾部调用），发送成功才清已发条目")
+    parser.add_argument("--flush-digest", action="store_true",
+                        help="批发摘要 buffer 中当日到期(>=23:25, 当日未发)或隔日 stale 的条目"
+                             "（schedule_monitor 每轮尾部调用，自门控：非 23:25 且无 stale 即静默）")
+    parser.add_argument("--defer-digest", action="store_true",
+                        help="把 positional subject/body 并入当日摘要 buffer"
+                             "（monitor 行级预算吸收 / 恢复补列用；成功 rc=0，失败 rc=1 供回批）")
+    parser.add_argument("--digest-category", default=None, metavar="CAT",
+                        help="配合 --defer-digest：吸收条目的类别标注（如 r2/deploy/recovery）")
     parser.add_argument("--alert-issue", help="写 data/alerts/latest.md，值为问题一句话")
     parser.add_argument("--alert-log", help="配合 --alert-issue，日志文件路径")
     parser.add_argument("--agent-done", metavar="NAME", default=None,
@@ -2356,6 +2597,27 @@ def main(argv: list[str] | None = None) -> int:
         r = flush_warning_batch(dry_run=args.dry_run)
         print(f"[notify] flush-warnings: {r}", file=sys.stderr)
         return 0
+
+    # 摘要批发模式（#245 批2；schedule_monitor 每轮尾部调用，自门控静默 no-op）
+    if args.flush_digest:
+        r = flush_digest(dry_run=args.dry_run)
+        print(f"[notify] flush-digest: {r}", file=sys.stderr)
+        return 0
+
+    # 摘要吸收模式（#245 批2）：monitor 行级预算吸收 / 恢复补列直接入 buffer
+    if args.defer_digest:
+        _dg_cat = args.digest_category or "unmapped"
+        if args.dry_run:
+            print(f"[notify][digest][dry-run] 模拟并入摘要 buffer category={_dg_cat}: "
+                  f"{args.subject[:80]}", file=sys.stderr)
+            return 0
+        if _absorb_to_digest(args.subject, args.body, key=None, category=_dg_cat,
+                             from_prefix=args.from_prefix):
+            print(f"[notify][digest] 已并入摘要 buffer category={_dg_cat}: "
+                  f"{args.subject[:80]}", file=sys.stderr)
+            return 0
+        print(f"[notify][digest] 并入失败 category={_dg_cat}: {args.subject[:80]}", file=sys.stderr)
+        return 1
 
     # 三级分级路由（--tier 显式指定时走分级入口；缺省保持原 send() 行为向后兼容）
     # #132 审 C-1（2026-10-01）：此前 tier 分支在通用 check_dedup 之前 return 0，
@@ -2542,6 +2804,10 @@ def main(argv: list[str] | None = None) -> int:
                    reply_to_message_id=args.reply_to_message_id,
                    ledger_tier=("critical" if args.severe else "notice"),
                    ledger_key=args.dedup_key, ledger_group=args.feishu_group)
+    # #245 批2: gate 已把本条并入摘要 buffer(digested=True) → 不打印「已发出」、不 update_dedup、
+    # 不 write_alert(未外发消息不该占窗/不该在最新告警页); rc 恒 0 契约不变。
+    if results.get("digested"):
+        return 0
     ok = [ch for ch, v in results.items() if v]
     # 告警噪音根治 2026-09-11: telegram 未配置不计入"未发出"(未配置=跳过非失败), 与 _mirror_severe 同口径
     fail = [ch for ch, v in results.items() if not v and (ch != "telegram" or telegram_configured())]

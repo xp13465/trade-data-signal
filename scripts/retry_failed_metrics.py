@@ -33,6 +33,7 @@ self_heal 重试或明日 update_all 兜底)。
 import datetime as dt
 import json
 import os
+os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))  # #245 批2 W1: 台账 source 溯源
 import subprocess
 import sys
 from pathlib import Path

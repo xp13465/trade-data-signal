@@ -37,6 +37,7 @@ import concurrent.futures
 import datetime as _dt
 import json
 import os
+os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))  # #245 批2 W1: 台账 source 溯源
 import re
 import shutil
 import sqlite3

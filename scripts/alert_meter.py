@@ -23,7 +23,8 @@
 用法
 ----
   python scripts/alert_meter.py --today            # 今日一行 + top talkers + 前 7 日均值对比
-  python scripts/alert_meter.py --week             # 近 7 天逐日表
+  python scripts/alert_meter.py --week             # 近 7 天逐日表 + P50/P90
+  python scripts/alert_meter.py --budget           # L5 验收视图：近 7 天 P50/P90 → PASS/FAIL
   python scripts/alert_meter.py --top 20           # 近 7 天 top talkers
   python scripts/alert_meter.py --recount          # 幂等重算 alert_daily.json（写每棵树）
   python scripts/alert_meter.py --today --json     # 机读 JSON 输出
@@ -45,6 +46,26 @@ DAILY_FILENAME = "alert_daily.json"
 
 # 告警群口径（用户「0~3 条/天」判据的主口径）：飞书 alert 群。
 ALERT_GROUPS = {"alert"}
+
+# L5 预算验收口径（2026-10-10, priority doc §2.4）：
+# 「连续 7 天告警群条数 P50<=3 且 P90<=5」→ PASS。口径=告警群 alert（report/功能输出另列,
+# 见 ALERT_GROUPS 分离）。分位数=线性插值（numpy.percentile 'linear' 同款, 确定性可机检）。
+L5_WINDOW_DAYS = 7
+L5_P50_MAX = 3
+L5_P90_MAX = 5
+
+
+def _percentile(vals: list[int] | list[float], p: float) -> float:
+    """线性插值分位数（numpy.percentile 'linear'）。空列表 → 0.0（无样本按最保守=0）。"""
+    xs = sorted(float(v) for v in vals)
+    if not xs:
+        return 0.0
+    if len(xs) == 1:
+        return xs[0]
+    rank = (p / 100.0) * (len(xs) - 1)
+    lo = int(rank)
+    hi = min(lo + 1, len(xs) - 1)
+    return xs[lo] + (rank - lo) * (xs[hi] - xs[lo])
 
 
 # ----------------------------------------------------------------------------
@@ -276,17 +297,55 @@ def cmd_week(trees: list[Path], end_day: str, as_json: bool) -> int:
     rows = [{"date": d, "alert": alert_count(per[d]), "severe": severe_count(per[d]),
              "merged_in_digest": per[d]["merged_in_digest"], "total_all_groups": per[d]["total"]}
             for d in days]
+    alerts = [r["alert"] for r in rows]
+    p50 = round(_percentile(alerts, 50), 2)
+    p90 = round(_percentile(alerts, 90), 2)
+    ok = p50 <= L5_P50_MAX and p90 <= L5_P90_MAX
     if as_json:
-        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        print(json.dumps({"window": [days[0], days[-1]], "rows": rows,
+                          "p50": p50, "p90": p90,
+                          "criterion": f"P50<={L5_P50_MAX} 且 P90<={L5_P90_MAX}",
+                          "pass": ok}, ensure_ascii=False, indent=2))
         return 0
     print(f"近 7 天（{days[0]} ~ {days[-1]}）：")
     print(f"  {'日期':<12}{'告警群':>6}{'severe':>8}{'并入':>6}{'全量':>6}")
     for r in rows:
         print(f"  {r['date']:<12}{r['alert']:>6}{r['severe']:>8}"
               f"{r['merged_in_digest']:>6}{r['total_all_groups']:>6}")
-    avgs = [r["alert"] for r in rows]
-    if avgs:
-        print(f"  均值 {round(sum(avgs) / len(avgs), 2)} 条/天（告警群口径）")
+    if alerts:
+        print(f"  均值 {round(sum(alerts) / len(alerts), 2)} 条/天（告警群口径）")
+    print(f"  P50 {p50} / P90 {p90} 条/天 → {'PASS' if ok else 'FAIL'}"
+          f"（L5 判据 连续 {L5_WINDOW_DAYS} 天 P50<={L5_P50_MAX} 且 P90<={L5_P90_MAX}）")
+    return 0
+
+
+def cmd_budget(trees: list[Path], end_day: str, as_json: bool) -> int:
+    """L5 验收视图（priority doc §2.4）：近 7 天告警群条数 P50/P90 → PASS/FAIL。
+
+    判据 = 连续 7 天 P50<=3 且 P90<=5（告警群 alert 口径）。纯查询面, 不写任何文件。
+    """
+    d0 = datetime.strptime(end_day, "%Y-%m-%d").date()
+    days = [(d0 - timedelta(days=i)).isoformat() for i in range(L5_WINDOW_DAYS - 1, -1, -1)]
+    per = _daily_totals(trees, days)
+    counts = [alert_count(per[d]) for d in days]
+    p50 = round(_percentile(counts, 50), 2)
+    p90 = round(_percentile(counts, 90), 2)
+    ok = p50 <= L5_P50_MAX and p90 <= L5_P90_MAX
+    payload = {
+        "window": [days[0], days[-1]],
+        "days": {d: c for d, c in zip(days, counts)},
+        "p50": p50, "p90": p90,
+        "p50_max": L5_P50_MAX, "p90_max": L5_P90_MAX,
+        "criterion": f"连续 {L5_WINDOW_DAYS} 天 P50<={L5_P50_MAX} 且 P90<={L5_P90_MAX}",
+        "pass": ok,
+    }
+    if as_json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+    print(f"L5 预算验收（{days[0]} ~ {days[-1]}，告警群口径）：")
+    print(f"  逐日：{', '.join(f'{d}:{c}' for d, c in zip(days, counts))}")
+    print(f"  P50 = {p50}（判据 <= {L5_P50_MAX}）  P90 = {p90}（判据 <= {L5_P90_MAX}）")
+    print(f"  ⇒ {'PASS' if ok else 'FAIL'}（{payload['criterion']}）")
     return 0
 
 
@@ -310,7 +369,9 @@ def cmd_top(trees: list[Path], n: int, as_json: bool) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="告警度量查询面（L1 度量层，跨树聚合）")
     ap.add_argument("--today", action="store_true", help="今日条数 + top talkers + 前 7 日均值对比")
-    ap.add_argument("--week", action="store_true", help="近 7 天逐日表")
+    ap.add_argument("--week", action="store_true", help="近 7 天逐日表 + P50/P90")
+    ap.add_argument("--budget", action="store_true",
+                    help="L5 验收视图：近 7 天告警群 P50/P90 → PASS/FAIL（连续 7 天 P50<=3 且 P90<=5）")
     ap.add_argument("--top", type=int, nargs="?", const=10, default=None,
                     help="近 7 天 top talkers（默认 10）")
     ap.add_argument("--recount", action="store_true",
@@ -336,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_today(trees, day, args.as_json)
     if args.week:
         return cmd_week(trees, day, args.as_json)
+    if args.budget:
+        return cmd_budget(trees, day, args.as_json)
     if args.top is not None:
         return cmd_top(trees, args.top, args.as_json)
 

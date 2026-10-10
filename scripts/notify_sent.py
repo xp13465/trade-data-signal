@@ -101,6 +101,12 @@ _SUPPRESS_SIGNATURES: tuple[tuple[str, str | None], ...] = (
     ("[notify][196] 升级档窗口内已发, suppress", None),
     # agent-done 5min 抑制（notify.py:1348）
     ("[notify][agent-done] suppress", None),
+    # #245 批2 L2 预算+摘要层（2026-10-10）：超日预算的 SEVERE 被并入当日摘要 buffer
+    # （「成功且已知」——消息未即时外发但已登记待 23:25 摘要出线，**不是**未发出，勿判 failed
+    #  触发调用方重试/包装层重复告警。原始行 notify.py:[notify][budget] 并入当日摘要 ...）。
+    ("[notify][budget] 并入当日摘要", None),
+    # --defer-digest 直接并入 buffer 的成功行（monitor 行级吸收/恢复补列；同构登记防后续调试）。
+    ("[notify][digest] 已并入摘要 buffer", None),
 )
 
 
