@@ -19,6 +19,7 @@
 # 配对：开始后紧接的结束算一次运行；耗时>3h 视为错位丢弃。只匹配外层任务脚本名，
 # 内嵌的 deploy.sh/check_signals.sh 不计（避免嵌套干扰）。
 from __future__ import annotations
+import gzip
 import json
 import os
 import re
@@ -38,6 +39,25 @@ MAX_GAP_SEC = 3 * 3600  # >3h 视为错位，丢弃
 # (同一调度时槽/crash 后 6h 内立刻重启=真重试)才算，跨天残留(如 8/12 deploy=1 污染 8/13)
 # 不关联本 pending,不再误报。
 CRASH_RETRY_GAP_SEC = 6 * 3600
+
+
+# #234 甲5(2026-10-10): 容忍日志被 gzip —— 日志归档压缩后 .log 不再存在, 回退读
+# 同名 <name>.log.gz, 避免「文件缺失」被判成任务无日志(漏统计)。未压缩场景 .log
+# 存在 → 返回原路径, 与改造前逐字等价(零行为变化)。
+def _resolve_log(path: Path) -> Path | None:
+    """返回可读日志路径: 原 .log 优先, 缺失回退同名 .log.gz, 都无 → None。"""
+    if path.exists():
+        return path
+    alt = path.with_name(path.name + ".gz")
+    return alt if alt.exists() else None
+
+
+def _open_log_text(path: Path):
+    """按实际形态打开日志文本句柄(.gz → gzip.open, 其余普通 open)。path 须已存在。"""
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    return open(path, encoding="utf-8", errors="replace")
+
 
 # 外层脚本名只匹配任务自身，内嵌 deploy.sh/check_signals.sh 不会误配
 TASKS = [
@@ -637,10 +657,12 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
         独立于 log_anomaly 标注——skip 是设计让路(下轮/兜底链重试), 不算失败不上 SEVERE,
         但给出独立计数供 schedule_stats 前端/巡检观察(2026-09-24 P2-2 硬化)。
     """
-    if not log_path.exists():
+    _resolved = _resolve_log(log_path)
+    if _resolved is None:
         return None, 0
     try:
-        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        with _open_log_text(_resolved) as _f:
+            lines = _f.read().splitlines()
     except Exception:
         return None, 0
 
@@ -815,7 +837,7 @@ def scan_marker_log(log_path: Path, tail_lines: int, round_start_re: re.Pattern 
         #181race(2026-10-09)追加 window_round_ts:
           拥有当前 skip 窗口那一轮的「开始标记」时间戳 —— 见下方实现注释(轮标识与窗口同源)。
     """
-    if not log_path.exists():
+    if _resolve_log(log_path) is None:
         return None, 0, None, None, None
     lines = _read_tail_lines(log_path)
     # ── 既有:异常窗口 = [最后 round_start_re 命中行, 末尾)(P1-A/P1-B 轮次作用域, 语义不动)──
@@ -907,20 +929,35 @@ def _read_tail_lines(path: Path, n_bytes: int = _TAIL_READ_BYTES) -> list[str]:
 
     边界处理: 若尾部截断落在某行中间, 该行首部不完整——从最后一条完整换行后截断,
     丢弃不完整头行(不影响轮次作用域找「已写/开始生成」等完整标志行)。
+
+    #234 甲5(2026-10-10): 容忍日志被 gzip(.log 缺失 → 回退 .log.gz)。gzip 无法
+    seek 尾部, 解压全量后取末 n_bytes(归档日志已不再增长, 解压开销可接受)。
     """
+    resolved = _resolve_log(path)
+    if resolved is None:
+        return []
+    truncated = False
     try:
-        with open(path, "rb") as f:
-            f.seek(0, 2)
-            size = f.tell()
-            if size == 0:
-                return []
-            start = max(0, size - n_bytes)
-            f.seek(start)
-            chunk = f.read()
+        if resolved.suffix == ".gz":
+            with gzip.open(resolved, "rb") as f:
+                chunk = f.read()
+            if len(chunk) > n_bytes:
+                chunk = chunk[-n_bytes:]
+                truncated = True
+        else:
+            with open(resolved, "rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                if size == 0:
+                    return []
+                start = max(0, size - n_bytes)
+                f.seek(start)
+                chunk = f.read()
+                truncated = start > 0
     except Exception:
         return []
     text = chunk.decode("utf-8", errors="replace")
-    if start > 0:
+    if truncated:
         # 截断可能落在行中: 从第一个换行之后开始, 丢不完整头行
         nl = text.find("\n")
         if nl >= 0:
@@ -929,7 +966,10 @@ def _read_tail_lines(path: Path, n_bytes: int = _TAIL_READ_BYTES) -> list[str]:
 
 
 def _iter_lines(path: Path):
-    with open(path, encoding="utf-8", errors="replace") as f:
+    resolved = _resolve_log(path)
+    if resolved is None:
+        return
+    with _open_log_text(resolved) as f:
         for line in f:
             yield line
 
@@ -1031,7 +1071,7 @@ def build():
     result = []
     for t in TASKS:
         log_path = LOG_DIR / t["log"]
-        if not log_path.exists():
+        if _resolve_log(log_path) is None:
             result.append({**{k: t[k] for k in ("task", "name", "schedule")},
                            "est_text": "-", "last_run": None, "last_exit": None,
                            "last_duration_sec": None,
@@ -1177,8 +1217,9 @@ def build():
         # last_run = 文件最后写入时刻(近似最近运行时刻; 无标准开始行可解析时间戳)
         _mtime = None
         try:
-            if log_path.exists():
-                _mtime = datetime.fromtimestamp(log_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+            _mresolved = _resolve_log(log_path)
+            if _mresolved is not None:
+                _mtime = datetime.fromtimestamp(_mresolved.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
         except (OSError, ValueError):
             _mtime = None
         result.append({

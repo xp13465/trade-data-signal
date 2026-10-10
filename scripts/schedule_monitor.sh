@@ -55,13 +55,15 @@ resolve_repo "${BASH_SOURCE[0]}"
 cd "$REPO"
 
 # 注：launchd plist 设 REPO=/Users/linhuichen/code/trade-data，trade-data/scripts 是
-# trade/scripts 的 symlink，trade-data/data/logs 与 trade/data/logs 同 inode（hard link）。
-# 故 $REPO/data/logs/*_launchd.log 路径在 trade-data 下也可读到正确日志。
+# trade/scripts 的 symlink（代码共用）；trade-data/data/logs 则是独立真实目录（非 symlink、
+# 非 hard link，inode 与 trade/data/logs 不同），launchd 写入的 *_launchd.log 存于此。
+# 故 $REPO/data/logs/*_launchd.log 在 trade-data 下可读到正确日志。
 export REPO
 
 # 用 python heredoc 处理日期解析 + JSON 读取（bash 处理太繁琐易错）
 "$REPO/.venv/bin/python" <<'PYEOF' 2>&1
 import hashlib
+import gzip
 import json
 import os
 import re
@@ -224,13 +226,35 @@ START_RE = re.compile(r"开始 (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
 ETF_START_RE = re.compile(r"\[etf_nt\] daily 开始 (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
 
 
+# #234 甲5(2026-10-10): 容忍日志被 gzip —— 日志归档压缩后 .log 不再存在, 回退读
+# 同名 <name>.log.gz, 避免「文件缺失 → last_run=None → 落计划窗口即漏跑误报」。
+# 未压缩场景 .log 存在 → 返回原路径, 与改造前逐字等价(零行为变化)。
+def resolve_log_path(path: Path):
+    """返回可读日志路径: 原 .log 优先, 缺失回退同名 .log.gz, 都无 → None。"""
+    if path.exists():
+        return path
+    alt = path.with_name(path.name + ".gz")
+    return alt if alt.exists() else None
+
+
+def open_log_text(path: Path):
+    """按实际形态打开日志文本句柄(.gz → gzip.open, 其余普通 open)。path 须已存在。"""
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    return open(path, encoding="utf-8", errors="replace")
+
+
 def parse_last_run(log_path: Path):
-    """从 launchd log 解析最近一次开始时间作为 last_run（含 etf_nt 变体）"""
-    if not log_path.exists():
+    """从 launchd log 解析最近一次开始时间作为 last_run（含 etf_nt 变体）
+
+    #234 甲5(2026-10-10): 容忍日志被 gzip（.log 缺失 → 回退 .log.gz）。
+    """
+    resolved = resolve_log_path(log_path)
+    if resolved is None:
         return None
     last = None
     try:
-        with open(log_path, encoding="utf-8", errors="replace") as f:
+        with open_log_text(resolved) as f:
             for line in f:
                 m = START_RE.search(line) or ETF_START_RE.search(line)
                 if m:
@@ -1929,9 +1953,11 @@ ETF_DUR_RE = re.compile(r"\[etf_nt\] (daily|backfill) 完成 (\d+\.?\d*)s")
 ETF_DAILY_START_RE = re.compile(r"\[etf_nt\] daily 开始 (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
 ETF_BACKFILL_START_RE = re.compile(r"\[etf_nt\] backfill 开始 (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
 etf_log = LOG_DIR / "etf_national_team_launchd.log"
-if etf_log.exists():
+_etf_resolved = resolve_log_path(etf_log)  # #234 甲5: 容忍 .log.gz
+if _etf_resolved is not None:
     try:
-        etf_lines = etf_log.read_text(encoding="utf-8", errors="replace").splitlines()
+        with open_log_text(_etf_resolved) as _ef:
+            etf_lines = _ef.read().splitlines()
         # 反向找最后一行完成行(只查最近一次跑的耗时)
         for i in range(len(etf_lines) - 1, -1, -1):
             m = ETF_DUR_RE.search(etf_lines[i])
@@ -2394,10 +2420,11 @@ try:
     # feishu_listener.err 尾部 10 条是否含"feishu.json 不存在"（listener 停摆信号）
     _feishu_err_missing = False
     _feishu_err_path = LOG_DIR / "feishu_listener.err"
-    if _feishu_err_path.exists():
+    _feishu_err_resolved = resolve_log_path(_feishu_err_path)  # #234 甲5: 容忍 .log.gz
+    if _feishu_err_resolved is not None:
         try:
-            _tail_lines = _feishu_err_path.read_text(
-                encoding="utf-8", errors="replace").splitlines()[-10:]
+            with open_log_text(_feishu_err_resolved) as _few:
+                _tail_lines = _few.read().splitlines()[-10:]
             if any("feishu.json 不存在" in _l for _l in _tail_lines):
                 _feishu_err_missing = True
         except Exception:

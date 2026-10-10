@@ -103,6 +103,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import os
 import sqlite3
@@ -280,13 +281,22 @@ def _scan_cap_giveup_log(repo: Path) -> str:
     log_dir = repo / "data" / "logs"
     for name in NORTH_LOG_CANDIDATES:
         p = log_dir / name
+        # #234 甲5(2026-10-10): 容忍日志被 gzip(.log 缺失 → 回退同名 .log.gz)。
+        if not p.exists():
+            _gz = p.with_name(p.name + ".gz")
+            p = _gz if _gz.exists() else p
         if not p.exists():
             continue
         try:
-            size = p.stat().st_size
-            with open(p, "rb") as f:
-                f.seek(max(0, size - 512 * 1024))  # 只读尾部 512KB 防大文件
-                tail = f.read().decode("utf-8", errors="replace")
+            if p.suffix == ".gz":
+                # gzip 无法 seek 尾部, 解压全量后取末 512KB(归档日志已不再增长)
+                with gzip.open(p, "rb") as f:
+                    tail = f.read()[-512 * 1024:].decode("utf-8", errors="replace")
+            else:
+                size = p.stat().st_size
+                with open(p, "rb") as f:
+                    f.seek(max(0, size - 512 * 1024))  # 只读尾部 512KB 防大文件
+                    tail = f.read().decode("utf-8", errors="replace")
             hits = [ln.strip() for ln in tail.splitlines() if CAP_GIVEUP_ANCHOR in ln]
             if hits:
                 return hits[-1][:300]
