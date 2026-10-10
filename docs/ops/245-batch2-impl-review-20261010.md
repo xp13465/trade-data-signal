@@ -102,3 +102,12 @@ python -m pytest scripts/tests/                            # 723 passed, 2 skipp
 python /tmp/probe_245_rollback.py                          # A/B/C 三段见 §二
 # #246 交叠机检: #246 commit 新增行 in 分支文件 的逐行比对(§一#5)
 ```
+
+## 七、附:批2 订正定点复验(reviewer 续跑, 2026-10-10, tip `18149cd69`)
+
+- 范围: F1 回滚面 / F3 N12N13 行为级真伪 / 报告订正抽查 / 快速回归 —— **4/4 PASS, 无新阻断, 原 F1 阻断闭环**。
+- 证据: test_245 **38 passed**、test_181 **28 passed**、全量 **727 passed/2 skipped**(两次复跑同数, 与实施报告逐位一致); 变异对照 = 移除真源码 suppress 后 n12/n13 **双红**(能抓坏); ast 选择器各命中 1 段真源码(L703/L828)。
+- F1 闭环: `ALERT_BUDGET_DISABLE=1` 三处短路齐(gate `notify.py:1172-1174`、`adr.py:842-843`、defer CLI `notify.py:2612-2615`); buffer 写路径**全集**(gate L1179 / CLI L2620)均被覆盖; 07hh/07hh2 反证半边在位。
+- 残余(非阻断): digest-disable 单独置 = 积压不外发属规格明示行为(L152); legacy 套件不隔离 REPO 卫生项待后续批; 决策项 10 维持「同 B4-3 统一 key」建议待用户拍板。
+- git 复核: 订正 commit `6d49df4f3` 范围干净(5 文件); merge 非 force(`a2d962a82` 仍为第一亲); 复验**未写主仓、未产生真实外发、无残留后台任务**。
+- 主控收尾(补记): 本附录落档时已合 main(ff 至 `18149cd69`, CI run 787 绿)+ 云上同步 + §0 云上核验 PASS(云上 HEAD 全等 + 五文件 md5 5/5)。
