@@ -80,7 +80,8 @@
 pre-upload 是**私有回滚层**,不属任何展示位数据源 ⇒ 无 N 文件+N 缓存同步动作(设计文 §4.5)。
 主数据上传路径的键集/内容/顺序未改: 备份段是 `_upload_glob` **之前**的独立段,只改该段**内部**
 实现(COPY→中转),`_upload_glob` 调用签名与批内容零改动(L1538 备份 → L1554 `_upload_glob`,同前)。
-本地全量回归: `python -m pytest -q scripts/tests/` ⇒ **669 passed / 1 skipped**(唯一 failed 见 §6.2,与本次改动无关)。
+本地全量回归(CI 等价命令 `pytest -q scripts/tests/`,并按 CI 情形置空 `R2_BACKUP2_*`):
+**提交后复跑 = 669 passed / 2 skipped / 0 failed**(提交前那 1 例 failed 见 §6.2 = 脏工作区固有前提,提交态自动 skip)。
 
 ### 3.6 ⑥ 门控(无半开开关,PASS)
 - 代码级零 C: 调用点无任何 `failed>0` 判断(单测卡住该字面量)。
@@ -160,7 +161,7 @@ python -m pytest -q scripts/tests/test_237_preupload_relay_pytest.py \
 | 「只有进度行(无 完成 行)」的在飞窗口 | 15min 巡检撞上在飞备份段 ⇒ 假 FAIL | 归 NO_RUN **不判定**(`test_judge_progress_only_is_no_run_not_false_alarm`) |
 | `failed=-1`(备份段整体异常早退)被判成「0 失败」 | 观测点漏报 | 判据 `failed != 0`(不是 `> 0`)(`test_judge_failed_minus_one_fails`) |
 | 观测点进度行正则污染看门狗低速判据 | 方括号/字节形态被 `r2_upload_async.sh` 当批内行 ⇒ 误杀 | 正则只认 `备份 N/M 已备份 …`,显式断言不匹配 `[N/M] (sizeB)`(`test_progress_regex_does_not_match_watchdog_bracket_form`) |
-| 唯一未过项(**与本次改动无关**) | `test_212::test_e_pre_change_source_static` 在**脏工作区**下 FAIL | 该测试假设「工作区要么干净(skip)要么只含 #212 未提交改动」;本分支未提交态 ⇒ `git show HEAD:` 取到的不是改前版。**提交后 HEAD==工作区 ⇒ 自动 skip**;CI(提交态)不受影响(设计缺陷已在 §9 登记,不在本任务范围) |
+| 唯一未过项(**与本次改动无关,已实证自愈**) | `test_212::test_e_pre_change_source_static` 在**脏工作区**下 FAIL | 该测试假设「工作区要么干净(skip)要么只含 #212 未提交改动」;本分支未提交态 ⇒ `git show HEAD:` 取到的不是改前版。**提交后 `HEAD==工作区` ⇒ 自动 skip**(提交后实测: 该例 `1 skipped`;全量 669 passed / 2 skipped / 0 failed);CI(提交态)不受影响(设计缺陷已在 §9 登记,不在本任务范围) |
 
 ---
 
