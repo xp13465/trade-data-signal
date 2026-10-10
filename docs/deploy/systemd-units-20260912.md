@@ -415,6 +415,9 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/fapi_daily_syn.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=0
+MemoryHigh=1.5G
+MemoryMax=2G
+MemorySwapMax=512M
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/fapi_daily_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/fapi_daily_launchd.err
 ```
