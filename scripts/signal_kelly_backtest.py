@@ -708,11 +708,14 @@ def _normalize_date_str(v):
 def _verify_spot_data_date(df, expect_date):
     """fund_etf_spot_em「数据日期」新鲜度校验(fail-closed, F4)。
 
-    要求数据日期 == expect_date(YYYYMMDD); 陈旧(或超前)快照抛 RuntimeError 拒用,
-    调用方走就绪重试 → 仍陈旧则跳过本轮 + severe 告警, 不照算旧价(防 9:26 误剔真实跳空)。
-    注: 16 前缀 LOF 兜底源(新浪/腾讯实时行情)无日期字段、数量少且为实时快照接口,
-    陈旧风险低, 不单独强制校验; 但主源数据日期校验覆盖整批(fail-closed 优先), 主源陈旧
-    时整批拒用、不落到 LOF 兜底。
+    要求数据日期 == expect_date(YYYYMMDD); 陈旧(或超前)快照抛 RuntimeError 拒用, 不照算旧价
+    (防 9:26 误剔真实跳空)。**本函数语义未变(仍是 fail-closed 校验器)**;变的是调用方
+    `_fetch_intraday_open_prices`(2026-10-10 #246 B4-1(ii)):捕获本异常后**不再整批拒用**,
+    而是把整批标的并入「实时兜底优先」(腾讯/新浪即时行情自带日期字段[30] 作当日性锚, 比陈旧
+    快照更新鲜), 兜底也拿不到才算取不到 → 走多轮退避重试 → 仍失败才跳过本轮 + severe 告警。
+    注: 兜底源(新浪/腾讯)各自带日期字段且为实时快照接口, 陈旧风险低;旧注释「16 前缀 LOF
+    兜底源无日期字段、主源陈旧时不到 LOF 兜底」已随 B4-1(ii) 作废——现在**全部 missing
+    (不限 16 前缀)走同一套 HTTP 兜底**。
     """
     if "数据日期" not in df.columns:
         raise RuntimeError("fund_etf_spot_em 缺「数据日期」列, 无法校验数据新鲜度(拒用)")

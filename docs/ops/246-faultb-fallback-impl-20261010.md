@@ -45,12 +45,13 @@ def _date_matches(field, expect):
 
 采用设计文**推荐档 = 兜底修复 + 60s×3 退避(带 jitter,总预算硬顶)**:
 
-- 常量:`RETRY_BACKOFF_BASE_S=60` / `RETRY_JITTER_FRAC=0.25`(每轮 60×[0.75,1.25] = 45~75s)/ `RETRY_BUDGET_S=900` / `DEFAULT_RETRY_ROUNDS=3`(首拉 + 3 轮重试 = 4 attempts);删原 `DEFAULT_RETRY_WAIT=300`。
+- 常量:`RETRY_BACKOFF_BASE_S=60` / `RETRY_JITTER_FRAC=0.25`(每轮 60×[0.75,1.25] = 45~75s)/ `RETRY_BUDGET_S=450` / `DEFAULT_RETRY_ROUNDS=3`(首拉 + 3 轮重试 = 4 attempts);删原 `DEFAULT_RETRY_WAIT=300`。
+  > 预算值定案见 §四 R1 + §八 订正①:初版按设计文原值 900 落地,审查核实云上外层 `TimeoutStartSec=600` 后**降为 450**(须落墙内)。
 - 新纯函数 `_retry_backoff_schedule(rounds, base, jitter, budget, rng)` → 返回等待秒表,逐轮累加**不超预算**(超则截断),达预算即截断;`rng` 可注入 ⇒ 可确定性测试。
 - `main()` 重试循环改为按 schedule 逐轮退避;成功于 attempt>1 时日志 `✓ 重试成功(第{attempt-1}次失败后重试)`(**逐字保留该串**,供 `gen_schedule_stats.py` 的 `GAP_RETRY_SUCCESS_RE` 匹配);失败中间日志 `⚠ ... 第 N 次`(**逐字保留**,供 `TRANSIENT_WARN_LINE_RE`)。
 - CLI:`--retry-wait` 语义改为"退避基数"(默认 60),新增 `--retry-rounds`(默认 3),`--no-retry` 不变(单次 attempts=1)。
 - 告警文案:severe 由"拉取 akshare 开盘价两次失败" → "拉取开盘价多轮重试(60s×3 退避)后仍失败";`nextday_gap_check.sh` 包装层 dedup 文案同步("主源+腾讯/新浪双源兜底多轮退避后均取不到")。
-- `scripts/schedule_monitor.sh`:两处注释(阈值段)更新为"60s×3 退避(≈180~225s,硬顶预算 15min)";**阈值数值 900 不变**。
+- `scripts/schedule_monitor.sh`:两处注释(阈值段)更新为"60s×3 退避(135~225s,预算硬顶 450s < 600s 墙)";**阈值数值 900 不变**(该 900 = 时长告警阈值 15min,与退避预算无关,勿混)。
 - `docs/deploy/systemd-units-20260912.md` L675 父级说明 "300s 重试" → "60s×3 短退避重试,2026-10-10 #246 B4-2"(ini 块外,服务单元生成器源文档;`--check` 不受影响)。
 
 ---
@@ -75,16 +76,20 @@ def _date_matches(field, expect):
 | 8 | `..._prices_date_stale_falls_back` | B4-1(ii) 缺口3:日期陈旧 → 全批下沉兜底 |
 | 9 | `..._prices_normal_path_no_fallback` | **正常路径零变化**:healthy 主源 → requests.get 调用数 = 0 |
 | 10 | `..._retry_backoff_schedule_shape` | B4-2 schedule = `[60,60,60]`、长度 3 |
-| 11 | `..._retry_backoff_jitter_bounds_and_budget` | jitter ∈ ±25%;预算截断生效 |
+| 11 | `..._retry_backoff_jitter_bounds_and_budget` | jitter ∈ ±25%;预算截断生效;`RETRY_BUDGET_S == 450` 且 `<= 570`(墙内机检) |
 | 12 | `..._retry_loop_uses_schedule_and_attempts` | main() 真按 schedule 走 4 attempts 且退避值来自 schedule |
 | 13 | `..._retry_fn_exists` | 常量/函数到齐 |
-| 14 | `..._via_http_source_of_truth_static` | ast 静态检查:源码里 tencent 在 sina 之前(防顺序漂移) |
+| 14 | `..._via_http_source_of_truth_static` | **真·ast 顺序断言**(订正③):`_fetch_intraday_open_via_http` 体内 `qt.gtimg.cn` 必须先于 `hq.sinajs.cn`(防源优先级漂移) |
 
-**红先验(旧码跑新测试必 fail)**:把**未改动的**测试文件对**原始码**跑 → `10 failed, 4 passed in 0.86s`。
-- 10 红 = 缺口1/2/3 + 逐标的独立 + 源优先级 + 全部 B4-2 项(全在旧码上 fail,证明测试确实锚住了本轮改动)。
-- 4 绿 = **刻意不变**的行为(#4 全失败 raise / #5 新浪日期校验 / #6 expect_date 空 / #9 正常路径零变化)——旧码本就正确,红先验里仍绿 = 反证"我没顺手改正常路径"。
+**红先验(旧码跑新测试必 fail)**:
+- **订正前测试文件**对**原始码**(d9911b814)跑 → `10 failed, 4 passed in 0.86s`;精确名单:**红 = #1/#2/#3/#6/#7/#8/#10/#11/#12/#13**(10 项),**绿 = #4/#5/#9/#14**(4 项)。
+  - 绿的原因(逐项,非"刻意不改"泛说):#4 全灭 raise(旧码同样 raise)、#5 腾讯时间戳缺失旧码同样 raise RuntimeError(断言同为 raise,故"绿")、#9 正常路径不触发兜底、#14 订正前是空壳断言(`assert tree is not None`)。
+  - #6 为红:旧码源优先级是**新浪在前**,expect_date=None 用例只打桩了腾讯 URL ⇒ 旧码去请求新浪 ⇒ 打桩漏网 `AssertionError`(即旧码上该用例失败) —— **正是"源顺序不同"的实证**。
+  - 精确名单来源:审查 `pytest -v` 实跑(cf. 审查报告 §3);本报告初版误记为"绿 = #4/#5/#6/#9"(见 §八 订正②)。
+- **订正后(§八 订正③ 把 #14 由空壳改真顺序断言)** 对旧码源文本的实测(static-only,不 import 旧模块、零外发):`旧码:tencent=437 sina=302 → 断言 FAIL` / `新码:tencent=309 sina=459 → 断言 PASS`。⇒ 订正后红先验应为 **11 failed / 3 passed**(#14 由绿转红),**红面更宽 = 锚更硬**。
+  - 本轮**未重跑旧码全量红先验**(旧码路径可能真外发,§18 L48 保守),上条为**对旧码源文本的静态实测**,非推演。
 
-**绿(改后)**:`14 passed in 0.40s`。
+**绿(改后,含订正)**:`14 passed in 0.48s`。
 
 **CI 同款全量**:`/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/` ⇒ 见文末"最终全量结果"节(改前基线 670 passed / 2 skipped;本轮 +14)。无失败;2 项 skip 为**存量**(与本改动无关,非我引入、未静默掩盖)。语法:`py_compile` 两 py OK;`bash -n` 两 sh OK。
 
@@ -99,7 +104,7 @@ def _date_matches(field, expect):
 | 3 | 主源"成功但个别标的缺价"→ 全部 missing 兜底(原仅 16 前缀) | 主源返回不含某 15 前缀标的 | 同上,失败率改善 |
 | 4 | 日期陈旧不再直接 raise,改走兜底(即时行情) | F4 判东财快照日期陈旧 | 用即时价替代陈旧快照,仍是真实开盘价 |
 | 5 | 空 df / 缺列不再直接 raise,沉入兜底 | 主源返回异常 | 同上 |
-| 6 | 重试:单次 300s → 60s×3 退避(45~75s×3) | 9:26 首拉失败 | 重试窗口 ~180–225s(vs 原 300s);告警延迟上限下降 |
+| 6 | 重试:单次 300s → 60s×3 退避(45~75s×3) | 9:26 首拉失败 | 重试窗口 135~225s(vs 原 300s);告警延迟上限下降 |
 | 7 | `--retry-wait` 语义=退避基数(默认 60);新增 `--retry-rounds`;`--no-retry` 不变 | CLI | 向后兼容(默认行为变,但语义标注清晰) |
 | 8 | 三处告警/监控注释文案更新;阈值数值**不变** | — | 纯文案 |
 | 9 | **正常路径(主源健康)零变化** | 主源成功且全部 target 有价且日期新鲜 | test#9 机检 requests.get 调用数 = 0 |
@@ -111,10 +116,12 @@ def _date_matches(field, expect):
 
 ## 四、风险与警示(诚实标注)
 
-**R1(需主控拍板的既有约束,非本改动引入)**:`RETRY_BUDGET_S=900`(15min,取自设计文"总预算 ≤15min")**大于**云上 `trade-nextday-gap-check.service` 的 `TimeoutStartSec=600`。含义:
-- 默认配置(60×3,jitter 后 ≤225s)远低于 600 ⇒ **现状无风险**,且**比改前更安全**:旧码单次 300s + R2 ≤300s 可能达 ~600 触墙,新码 ≤225s + 300 = ~525 < 600,梯度余量反而变大。
-- 但 900 这个"硬顶"在 systemd 600s 墙面前**无法真正兜住超长配置**(如误传 `--retry-rounds 15`)。设计文假设外层可到 900(#223 亦记"若做 retry 组合须按外层 900 重算"),而**当前云上仍是 600**;提外层墙是云上 unit 手动管理动作(非本 feat 能覆盖)。
-- **建议(待主控决策)**:①稳妥 = 把 `RETRY_BUDGET_S` 下调到 ≤450(保梯度);②或维持 900 并在云上把 `TimeoutStartSec` 提到 900。**本实现按设计文原值 900 落地,未擅自偏离**,此处只如实标注。
+**R1(已定案,2026-10-10 主控采纳审查建议)**:`RETRY_BUDGET_S` 由初版 900 **降为 450**。
+- 事实:云上 `trade-nextday-gap-check.service` 外层 `TimeoutStartSec=600` + `KillMode=control-group`(审查 ssh 只读实测)。900 > 600 = 预算落墙外 ⇒ 「超墙被 cgroup 静默硬杀(bash 包装层 `RC!=0` 告警路径根本走不到)+ 预算成死代码/假安全感」,与 `nextday_gap_check.py` 内既有 #223 注释(`L392-396`:不能单独抬到 900)同构。
+- 定案 450:落墙内留 150s 给拉数/落盘/R2(≤300s 子进程超时)/通知;gradient 保持「外层 600 > 内层退避预算 450」。
+- 默认行为不受裁剪:60×3 + ±25% jitter = **135~225s**,远低于 450(也远低于 600),故常态无影响;450 只在操作员显式传大 `--retry-wait/--retry-rounds` 时才逐步接近。
+- 云上 unit **不动**(仍 600);本项**零云上部署面改动** ⇒ 无 unit 手工管理漂移依赖。
+- 已同步处:代码常量 + 模块 docstring + `_retry_backoff_schedule` 注释 + 日志行(自动取 `RETRY_BUDGET_S`)+ `schedule_monitor.sh` 两处注释 + `docs/deploy/systemd-units-20260912.md` L675 + 测试断言(含新增 `<=570` 上界机检)+ 设计文 §B4-2 定案注 + 本报告。
 
 **R2(存量,非本改动引入)**:`scripts/nextday_gap_check.py` 内 `timeout=300`(R2 上传子进程,L399 附近,#223③ 已记录"触发 0 次 ⇒ 不动")本次**未改动**;`timeout=60`(L106)/`timeout=120`(L422)亦未动。
 
@@ -191,17 +198,46 @@ SKIPPED [1] test_monitor_resource_inprogress_20261005.py:183: macOS APFS 的 df 
 
 ## 七、产物清单
 
-改动(5 改 + 1 新):
-- `scripts/signal_kelly_backtest.py`(+161/- 内,B4-1)
-- `scripts/nextday_gap_check.py`(B4-2 常量/纯函数/重试循环/CLI)
+改动(初版 5 改 + 1 新;订正轮追加 2 文档改 + 1 新文件改):
+- `scripts/signal_kelly_backtest.py`(B4-1;订正③ = `_verify_spot_data_date` docstring)
+- `scripts/nextday_gap_check.py`(B4-2 常量/纯函数/重试循环/CLI;订正 R1/⑤)
 - `scripts/nextday_gap_check.sh`(dedup 文案)
-- `scripts/schedule_monitor.sh`(两处注释)
-- `docs/deploy/systemd-units-20260912.md`(1 行说明)
-- `scripts/tests/test_246_faultb_fallback_20261010.py`(**新**,14 test)
+- `scripts/schedule_monitor.sh`(两处注释;订正 R1/⑤)
+- `docs/deploy/systemd-units-20260912.md`(1 行说明;订正 R1)
+- `scripts/tests/test_246_faultb_fallback_20261010.py`(**新**,14 test;订正 R1/①)
 - 本报告 `docs/ops/246-faultb-fallback-impl-20261010.md`(**新**)
+- `docs/ops/1009-real-faults-rootcause-design-20261009.md`(订正 R1 加 §B4-2 定案注 1 行)
 
 复现命令:
 ```
 /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_246_faultb_fallback_20261010.py
 /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/
 ```
+
+---
+
+## 八、审查订正(2026-10-10,回应 `docs/ops/246-faultb-fallback-review-20261010.md`)
+
+> 审查结论 = PASS / 0 阻断;本节处理 1 项待拍板(R1)+ 6 项低分 finding。
+> 初版 tip `eb75e5394`;订正 commit 见文末 **新 tip**。
+
+| # | 审查 finding | 处理 | 落点 |
+|---|---|---|---|
+| R1 | `RETRY_BUDGET_S=900` > 云上墙 600 | **采纳审查建议(主控拍板):900 → 450** | `nextday_gap_check.py` 常量 + 模块 docstring + 注释;`schedule_monitor.sh` L216/L679;`docs/deploy/systemd-units-20260912.md` L675;测试断言(+新增 `<=570` 墙内机检);设计文 §B4-2 定案注;本报告 §四 |
+| ① | test #14 空洞(docstring 称 ast 顺序检查,实为 `assert tree is not None`) | **选"补真检查"**(不选"改 docstring 删声称"):改为真 ast 顺序断言 —— 取 `_fetch_intraday_open_via_http` 函数段,断言 `qt.gtimg.cn` 下标 < `hq.sinajs.cn` 下标,**并反证非空壳**(颠倒样本上确实 FAIL) | `scripts/tests/test_246_faultb_fallback_20261010.py::test_246_via_http_source_of_truth_static` |
+| ② | 报告红绿名单误(#6 实红 / #14 实绿) | **已改正**:红 = #1/#2/#3/#6/#7/#8/#10/#11/#12/#13;绿 = #4/#5/#9/#14;并补每项"为何绿"的逐项理由(见 §二) | 本报告 §二 |
+| ③ | `_verify_spot_data_date` docstring 过时(仍写"主源陈旧整批拒用、不到 LOF 兜底") | **已重写**:函数语义未变,变的是调用方;"16 前缀 LOF 无日期字段/主源陈旧不到兜底"旧假设**显式标注作废** | `scripts/signal_kelly_backtest.py::_verify_spot_data_date` docstring |
+| ④ | 窄边界保守方向不一致(主源部分成功 + 兜底子集全灭 ⇒ 兜底内部 raise ⇒ 整批 gate FAIL) | **留档不修**(审查已判"方向保守、不阻断",且改动会动 fail-closed 收口语义) | 本节留档;行为与审查 §1 表第 4 行一致 |
+| ⑤ | 退避区间数字小误(注释 `≈180~225s`;实则 3×45=**135** 下界) | **已订正为 135~225s**:`nextday_gap_check.py` 常量注释 + `schedule_monitor.sh` L216/L679 + 本报告 §三/§四 | 同上 |
+| ⑥ | R1 的"待拍板"标签(非独立缺陷) | 已随 R1 拍板关闭 | 本报告 §四 |
+
+**订正轮自验**:
+- 聚焦:`pytest -q scripts/tests/test_246_faultb_fallback_20261010.py` → **14 passed in 0.48s**(零外发;全部 HTTP/告警/R2/sleep 打桩)。
+- `#14` 真断言双向实证:`旧码 tencent=437 sina=302 → FAIL` / `新码 tencent=309 sina=459 → PASS`(static-only,仅解析源文本,不 import、零外发)。
+- 全量 CI 同款:见 §六(≥684 passed / 2 skipped)。
+- 语法:`py_compile` 两 py OK;`bash -n` 两 sh OK。
+- 预算一致性机检:代码常量/测试断言/两处 monitor 注释/部署文档/设计文定案注/本报告 **7 处** `450` 全对齐;对改动文件集 `grep -rn "15 \* 60\|预算 ≤15min\|硬顶预算 15min\|预算≤900\|== 900"` = **0 命中**(仅本节自述行含该模式文本,非代码/文案)。
+
+**共享面(不变)**:`nextday_gap_check.py` 仍与 #245 批2(B4-3)同文件但**不同 hunk**(本节只动 L62-69 常量/注释区,L104 `_severe_alert` dedup key 未动)⇒ 任意 merge 顺序零冲突。
+
+**新 tip**:`<回填>`(订正 commit;初版 tip = `eb75e5394`)。

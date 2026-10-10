@@ -12,7 +12,7 @@
   ② `_fetch_intraday_open_prices`: 主源成功但部分 target 缺有效开盘价 → 对「全部 missing」
      (不限 16 前缀)启用单标的 HTTP 兜底;「日期陈旧」路径并入兜底优先。正常路径(主源新鲜且
      整批命中)行为零变化(missing 空 ⇒ 不触发兜底)。
-  ③ `_retry_backoff_schedule` + main(): 短间隔退避多轮(60s×3,带 ±25% jitter,预算 ≤15min),
+  ③ `_retry_backoff_schedule` + main(): 短间隔退避多轮(60s×3,带 ±25% jitter,预算硬顶 450s),
      替代原单次 300s。
 
 【零外发(§18 L48)】所有用例把 `requests.get` / `akshare.fund_etf_spot_em` 全量替换为假对象,
@@ -248,7 +248,9 @@ def test_246_retry_backoff_jitter_bounds_and_budget():
     assert hi == [75.0, 75.0, 75.0], hi
     many = ngc._retry_backoff_schedule(rounds=100, rng=lambda: 1.0)
     assert sum(many) <= ngc.RETRY_BUDGET_S + 1e-6, (sum(many), ngc.RETRY_BUDGET_S)
-    assert ngc.RETRY_BUDGET_S == 900
+    # 预算硬顶口径(#246 R1 审查定案): 须 ≤ 云上外层 systemd 墙 600s, 取 450 留梯度
+    assert ngc.RETRY_BUDGET_S == 450, ngc.RETRY_BUDGET_S
+    assert ngc.RETRY_BUDGET_S <= 570, "预算必须落在 600s 墙内(留余量给 R2/通知)"
 
 
 def test_246_retry_loop_uses_schedule_and_attempts(monkeypatch, tmp_path):
@@ -294,7 +296,19 @@ def test_246_retry_fn_exists():
 
 
 def test_246_via_http_source_of_truth_static():
-    """static-only(ast, §18 L50): 确认缺失列分支已无「直接 raise」兜底盲区文案。"""
+    """static-only(ast, §18 L50)——**真·顺序检查**(2026-10-10 审查订正①: 原为空壳
+    `assert tree is not None`, 现改为实断言):锁死 `_fetch_intraday_open_via_http` 函数体内
+    「腾讯源 URL 出现在新浪源 URL 之前」= 源优先级 腾讯→新浪(#246 B4-1(i) 核心语义),
+    防后续被顺序漂移静默改回「新浪主/腾讯备」。"""
     src = (ROOT / "scripts" / "signal_kelly_backtest.py").read_text(encoding="utf-8")
-    tree = ast.parse(src)  # 只解析, 绝不 exec
-    assert tree is not None
+    tree = ast.parse(src)  # 只解析, 绝不 exec(§18 L50 static-only)
+    fn = next((n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef)
+               and n.name == "_fetch_intraday_open_via_http"), None)
+    assert fn is not None, "未找到 _fetch_intraday_open_via_http(改名/删除 = 锚失效)"
+    seg = ast.get_source_segment(src, fn)
+    assert seg, "无法取出函数源码段(ast.get_source_segment 失效)"
+    i_ten, i_sina = seg.find("qt.gtimg.cn"), seg.find("hq.sinajs.cn")
+    assert i_ten != -1, "函数体内未出现腾讯源 URL(锚失效, 请同步本测试锚)"
+    assert i_sina != -1, "函数体内未出现新浪源 URL(锚失效, 请同步本测试锚)"
+    assert i_ten < i_sina, f"源优先级漂移: 腾讯({i_ten}) 必须先于 新浪({i_sina})"
