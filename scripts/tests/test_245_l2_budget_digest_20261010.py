@@ -449,6 +449,37 @@ def test_07d_budget_process_failopen_no_ledger(_iso):
     _chk(len(kept) == 1 and len(absorbed) == 1, "空台账下同轮首行直发/次行吸收")
 
 
+def test_07hh_budget_process_disable_switch_full_rollback(_iso, monkeypatch):
+    """F1(审查订正): ALERT_BUDGET_DISABLE=1 是 L2 **全链**总开关 ⇒ monitor 层同样逐字节回现状
+    (批次行全 kept 直发, 零吸收)。判别力: 去掉该短路时本用例必红(下面第二条反证)。"""
+    monkeypatch.setenv("ALERT_BUDGET_DISABLE", "1")
+    lines = ["SEVERE: r2_a R2 不可达", "SEVERE: r2_b R2 又一次",
+             "SEVERE: [数据缺口] 公募全 NULL", "SEVERE: [数据缺口] 场外全 NULL"]
+    kept, absorbed = adr.alert_budget_process({}, lines, datetime.now(), _iso["tmp"])
+    _chk(kept == lines, f"总开关下必须全 kept(逐字节回现状), 得 {kept}")
+    _chk(absorbed == [], f"总开关下不得吸收任何行, 得 {absorbed}")
+    # 反证(判别力): 同输入去掉开关 → 必出现吸收(证明上面第二条不是恒真)
+    monkeypatch.delenv("ALERT_BUDGET_DISABLE", raising=False)
+    kept2, absorbed2 = adr.alert_budget_process({}, lines, datetime.now(), _iso["tmp"])
+    _chk(len(absorbed2) == 2 and len(kept2) == 2,
+         f"无开关时同输入应有吸收(判别力证据), 得 kept={kept2}/absorbed={absorbed2}")
+
+
+def test_07hh2_defer_digest_cli_disable_switch_noop(_iso, monkeypatch):
+    """F1(审查订正): ALERT_BUDGET_DISABLE=1 下 `--defer-digest` 亦 no-op(不写 buffer), rc=0。"""
+    monkeypatch.setenv("ALERT_BUDGET_DISABLE", "1")
+    rc = notify.main(["[恢复] task_x kw_x", "恢复补列正文", "--defer-digest",
+                      "--digest-category", "recovery"])
+    _chk(rc == 0, f"总开关下 defer 应 rc=0(调用方不重试), 得 {rc}")
+    _chk(_digest_lines(_iso["alerts"]) == [], "总开关下 defer 不得写 buffer(逐字节回现状)")
+    # 反证(判别力): 去掉开关 → 同命令必写 buffer(证明上面第二条不是恒真)
+    monkeypatch.delenv("ALERT_BUDGET_DISABLE", raising=False)
+    rc2 = notify.main(["[恢复] task_x kw_x", "恢复补列正文", "--defer-digest",
+                       "--digest-category", "recovery"])
+    _chk(rc2 == 0 and len(_digest_lines(_iso["alerts"])) == 1,
+         "无开关时同命令应写 buffer 1 行(判别力证据)")
+
+
 def test_07e_task_family_off_by_default(_iso, monkeypatch):
     # 不同 task 同类两条: task_family 默认关 → 只有类别预算生效(仍只首条直发)
     kept, absorbed = adr.alert_budget_process({}, [
@@ -505,6 +536,101 @@ def test_07g_monitor_wires_budget_process_and_branch():
          "批次全吸收分支应含 _absorbed(§1.6 日志分支)")
     _chk("adr.r5_congestion_process(" not in src,
          "monitor 不应再调用 r5(已被 alert_budget_process 取代)")
+
+
+# ══════════════ ⑦c B4-3 monitor 侧行为级负控(N12/N13, 审查订正 2026-10-10) ══════════════
+def _exit_segment_code():
+    """ast 提取真 **exit!=0 汇总段**块(`if exit_code is not None and exit_code != 0:`)。"""
+    src = _monitor_src()
+    tree = ast.parse(src)
+    node = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.If) and isinstance(n.test, ast.BoolOp)
+                and any(isinstance(v, ast.Compare) and isinstance(v.left, ast.Name)
+                        and v.left.id == "exit_code" for v in n.test.values))
+    return compile(textwrap.dedent(ast.get_source_segment(src, node)),
+                   "<exit-segment>", "exec")
+
+
+def _keyword_segment_code():
+    """ast 提取真 **log 异常关键词段**块(`if s.get("log_anomaly"):`)。"""
+    src = _monitor_src()
+    tree = ast.parse(src)
+    node = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.If) and isinstance(n.test, ast.Call)
+                and isinstance(n.test.func, ast.Attribute) and n.test.func.attr == "get"
+                and isinstance(n.test.func.value, ast.Name) and n.test.func.value.id == "s"
+                and n.test.args and isinstance(n.test.args[0], ast.Constant)
+                and n.test.args[0].value == "log_anomaly")
+    return compile(textwrap.dedent(ast.get_source_segment(src, node)),
+                   "<keyword-segment>", "exec")
+
+
+def _adr_stub(*, wrapper_alerted: bool):
+    """真 adr 的替身: 只替换判定函数返回值, 其余常量借用真 adr(o 防常量漂移)。"""
+    return types.SimpleNamespace(
+        wrapper_channel_alerted=lambda *a, **k: wrapper_alerted,
+        r3_nextday_product_generated_today=lambda *a, **k: False,
+        r7_r2_consistency_wrapper_alerted=lambda *a, **k: False,
+        PATROL_DRIFT_DEDUP_KEY=adr.PATROL_DRIFT_DEDUP_KEY,
+        NEXTDAY_GAP_DEDUP_KEY=adr.NEXTDAY_GAP_DEDUP_KEY,
+    )
+
+
+def _run_exit_segment(task, exit_code, *, wrapper_alerted: bool, state=None,
+                      last_run="2026-10-10 09:26"):
+    alerts, seen = [], set()
+    st = state if state is not None else {}
+    g = {"adr": _adr_stub(wrapper_alerted=wrapper_alerted),
+         "s": {"task": task, "last_exit": exit_code, "last_run": last_run},
+         "exit_code": exit_code, "alert_state": st, "seen_keys_this_run": seen,
+         "alerts": alerts, "NOW": datetime(2026, 10, 10, 9, 40, 0),
+         "datetime": datetime, "STALE_EXIT_THRESHOLD": timedelta(hours=24),
+         "sys": sys, "REPO": Path("/x"), "_recurrence_suppressed": lambda e: False,
+         "print": lambda *a, **k: None}
+    exec(_exit_segment_code(), g)  # noqa: S102  (真源码块: 只 append alerts/改 state)
+    return alerts, st, seen
+
+
+def test_n12_exit_segment_ngc_wrapper_suppress():
+    """N12 行为级: 包装器通道已为本次运行发过告警(wrapper_alerted=True)→ monitor exit 段静默;
+    判别力: 若缺该 elif(=判定恒 False 的旧版)→ 同输入必出 SEVERE(重复告警)。"""
+    a1, st1, seen1 = _run_exit_segment("nextday_gap_check", 1, wrapper_alerted=True)
+    _chk(a1 == [], f"包装器已发时 monitor 汇总应静默, 得 {a1}")
+    _chk("nextday_gap_check|exit!=0|1" in seen1,
+         "suppress 分支仍须标 seen(防恢复循环误判消失)")
+    a2, st2, _ = _run_exit_segment("nextday_gap_check", 1, wrapper_alerted=False)
+    _chk(len(a2) == 1 and "SEVERE: nextday_gap_check 退出失败" in a2[0],
+         f"判定 False(旧版/包装器未发)必须照发 SEVERE(判别力证据), 得 {a2}")
+
+
+def test_n13_keyword_segment_ngc_skip():
+    """N13 行为级: exit!=0 时关键词段静默(exit 段负责); exit==0 吞异常=真信号照报;
+    非 ngc 任务不受 skip 影响。判别力: 缺 skip 时首条会误出 SEVERE(同事实两封)。"""
+    base = {"task": "nextday_gap_check", "log_anomaly": True,
+            "log_anomaly_keyword": "Traceback", "log_anomaly_line": "E ValueError: x",
+            "log_anomaly_severity": "critical", "last_run": "2026-10-10 09:26"}
+
+    def _run(exit_code, task="nextday_gap_check"):
+        alerts, seen = [], set()
+        st = {}
+        s = dict(base, task=task)
+        g = {"s": s, "exit_code": exit_code, "alert_state": st,
+             "seen_keys_this_run": seen, "alerts": alerts, "hashlib": __import__("hashlib"),
+             "NOW": datetime(2026, 10, 10, 9, 40, 0), "datetime": datetime,
+             "STALE_EXIT_THRESHOLD": timedelta(hours=24), "sys": sys,
+             "_recurrence_suppressed": lambda e: False,
+             "TRANSIENT_TIMEOUT_THRESHOLD": 3, "print": lambda *a, **k: None}
+        exec(_keyword_segment_code(), g)  # noqa: S102
+        return alerts, seen
+
+    a1, seen1 = _run(1)
+    _chk(a1 == [], f"exit!=0 时关键词段应静默(交 exit 段), 得 {a1}")
+    _chk(len(seen1) == 1, "skip 分支仍须标 seen(防恢复循环误判消失)")
+    a2, _ = _run(0)
+    _chk(len(a2) == 1 and "log异常关键词<Traceback>" in a2[0],
+         f"exit==0 吞异常=真信号必须照报(判别力证据), 得 {a2}")
+    a3, _ = _run(1, task="some_other_task")
+    _chk(len(a3) == 1, f"skip 只对 nextday_gap_check 生效, 得 {a3}")
 
 
 # ══════════════════════════════ ⑧ 恢复闭环 D5 ══════════════════════════════

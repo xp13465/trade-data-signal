@@ -2607,6 +2607,12 @@ def main(argv: list[str] | None = None) -> int:
     # 摘要吸收模式（#245 批2）：monitor 行级预算吸收 / 恢复补列直接入 buffer
     if args.defer_digest:
         _dg_cat = args.digest_category or "unmapped"
+        # #245 批2 F1 订正(2026-10-10): ALERT_BUDGET_DISABLE=1 = L2 全链总开关 ⇒ 本 CLI
+        # 亦 no-op(不写 buffer), 回滚时 buffer 逐字节回现状(空)。rc=0=调用方不重试。
+        if os.environ.get("ALERT_BUDGET_DISABLE") == "1":
+            print(f"[notify][digest] ALERT_BUDGET_DISABLE=1 → 已停用, 不并入摘要 buffer "
+                  f"category={_dg_cat}: {args.subject[:80]}", file=sys.stderr)
+            return 0
         if args.dry_run:
             print(f"[notify][digest][dry-run] 模拟并入摘要 buffer category={_dg_cat}: "
                   f"{args.subject[:80]}", file=sys.stderr)

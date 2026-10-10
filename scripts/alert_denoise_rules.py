@@ -833,7 +833,14 @@ def alert_budget_process(alert_state, alerts, now, repo, day=None):
     同类行吸收, 镜像「首条直发」语义)。台账读不到 → 全 0 → 全部 kept(=现状 fail-open)。
     加强档 task_family 第二层(默认 OFF, env ALERT_BUDGET_TASK_FAMILY=1 开启, 拍板项见 spec
     §0.3/§1.3): 同类判完后对 kept 行再按 task 分组, 超 task 预算(1/日)的行转入 absorbed。
+
+    回滚(#245 批2 F1 订正, 2026-10-10): `ALERT_BUDGET_DISABLE=1` 是 **L2 全链总开关** ——
+    本层同样短路返回全部 kept(逐字节回现状: 批次行全直发, 无吸收), 与 notify.py send()
+    gate / --defer-digest CLI 三处开关齐, 否则「置总开关=完整回滚」声明不成立(monitor 侧
+    仍抽走批次行而 flush 被停 → 静默吞告警)。
     """
+    if os.environ.get("ALERT_BUDGET_DISABLE") == "1":
+        return list(alerts), []
     counts = ledger_day_direct_counts(repo, day)
     _fam_on = os.environ.get("ALERT_BUDGET_TASK_FAMILY") == "1"
     kept, absorbed = [], []
