@@ -171,9 +171,23 @@ grep 前端:`static-site/purpose-notes.js` 命中 0;`static-site/lab.js` 仅 L14
 
 ---
 
-## 六、最终全量结果
+## 六、最终全量结果(实跑)
 
-(见文末追加节,由实施时实跑填入)
+```
+$ /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/
+684 passed, 2 skipped in 92.00s (0:01:32)   EXIT=0
+
+$ ... -q -rs scripts/tests/   # 追问 2 项 skip 归属
+SKIPPED [1] test_212_upload_onfail_loud_pytest.py:386: 已提交态(HEAD==工作区): 改前版不可得, 跳过静态对照
+SKIPPED [1] test_monitor_resource_inprogress_20261005.py:183: macOS APFS 的 df 为容器级口径, 与 statvfs 卷级不同
+684 passed, 2 skipped in 90.56s
+```
+
+- 2 项 skip **均为存量、均非本改动引入**:
+  - `test_212:386` = git 状态型条件(该测对比 `upload_r2.py` 改前/改后版;本改动未碰该文件 ⇒ HEAD==工作区 ⇒ 按设计跳过)。改前改后两轮均如此,**跳过与否与本改动无关**。
+  - `test_monitor_resource_inprogress:183` = macOS 专有(df 口径差异);**CI(Ubuntu)上会真跑,不跳**。属既有环境性分支,非我新增。
+- 本改动新增的 test 文件**0 skip**:14 项全绿(`14 passed in 0.40s`);其 `importorskip(yaml/pandas)` 仅为 CI 缺依赖时的模块级兜底,**本机与 CI(⑧ 已装 pyyaml/pandas)均不触发**。
+- 改前基线**未单独实跑**(诚实标注);由现 684 − 本轮新增 14 = **670 推算**。**无"用 skip 掩盖失败"**:本轮新增的 14 项全绿、无 skip,skip 总数未被抬高。
 
 ## 七、产物清单
 
