@@ -672,7 +672,7 @@ TimeoutStartSec=600
 ```
 
 ### 2.14-1 nextday-gap-check(周一~五 9:26 伪跳空二次剔除)
-- 脚本:`nextday_gap_check.sh` | ExitTimeOut=600(内含开盘价就绪闸 + 300s 重试)
+- 脚本:`nextday_gap_check.sh` | ExitTimeOut=600(内含开盘价就绪闸 + 60s×3 短退避重试,2026-10-10 #246 B4-2)
 - 说明:nextday-plan 22:30 生成次日计划时,当日计划的 T+1 开盘价尚未产生,生成器侧真校验(A1)跳过留兜底;本任务 9:26(集合竞价 9:25 结束后)拉 akshare 当日开盘价,对 buy_date==today 买入行做伪跳空二次剔除(gap=|开盘/信号日收盘-1|>0.20 剔除,与回测 `PSEUDO_GAP_EXCLUDE` 同式同阈值),剔除形态=steps 行 skipped + status_text「伪跳空剔除」+ nextday_plan.json 条目 gap_excluded:true。
 
 `trade-nextday-gap-check.timer`:

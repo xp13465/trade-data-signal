@@ -63,7 +63,7 @@ if [ "$RC" -ne 0 ]; then
   echo "✗ 伪跳空二次剔除失败 rc=${RC}" >> "$LOG"
   "$PY" scripts/notify.py \
     "[告警] 次日买入计划伪跳空校验失败 $(date '+%m-%d %H:%M')" \
-    "nextday_gap_check.py 退出码 ${RC}, 伪跳空二次剔除未完成。<br>日志: $LOG(尾部 50 行)<br>影响: 执行日买入行可能未做伪跳空剔除(干跑阶段不真实下单), 需人工核查。注意: 若退出码 2 为开盘价就绪闸 FAIL(akshare 两次取不到), 脚本已标记「伪跳空校验未完成(待人工)」, 本条为包装层兜底重复告警(不同 dedup key 不互吞)。" \
+    "nextday_gap_check.py 退出码 ${RC}, 伪跳空二次剔除未完成。<br>日志: $LOG(尾部 50 行)<br>影响: 执行日买入行可能未做伪跳空剔除(干跑阶段不真实下单), 需人工核查。注意: 若退出码 2 为开盘价就绪闸 FAIL(主源+腾讯/新浪双源兜底多轮退避后均取不到), 脚本已标记「伪跳空校验未完成(待人工)」, 本条为包装层兜底重复告警(不同 dedup key 不互吞)。" \
     --severe --from-prefix "[告警]" \
     --alert-issue "次日买入计划伪跳空校验失败" --alert-log "$LOG" \
     --dedup-key nextday_gap_check_fail --dedup-window 3600 >> "$LOG" 2>&1
