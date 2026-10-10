@@ -105,3 +105,56 @@ fd 持有着逐字对上两 plist:`com.trade.agent-inbox-watcher.plist` Standard
 - 实施 agent 执行期进程级证据无法回溯,其"残留后台任务:无"按报告口径采信。
 - CI 红色为推演 + 本地实证:本地运行的命令与 CI L123 收集面同构(scripts/tests/ 全目录),收集语义一致,推演依据充分但未实跑云 CI(Ubuntu 环境)。
 - check_data_gap_alerts.py 云上真实运行日志未抽查(本地无运行记录)。
+
+---
+
+## 六、复验段(2026-10-10,BLOCKER-1 修复后独立复验)
+
+> 复验者:reviewer agent(独立复跑,未采信实施自述)
+> 复验对象:feat/234-a5-log-gz 修复态(本地==远端==`a40d09130`;修 commit `296e3e0d7` + doc 补数 `a40d09130`);worktree `/Users/linhuichen/code/trade/.claude/worktrees/agent-a7d4bc8707ee0028d`
+> **复验结论:BLOCKER-1 关闭(通过,可 merge)。** 0 新阻断;2 项低分项见 6.5。
+
+### 6.1 全量 pytest(本人实跑,最终 HEAD)
+
+- `.venv/bin/python -m pytest -q scripts/tests/` → **`640 passed, 2 skipped in 92.33s`(0 failed)**。实施报告自称 640/2/94.17s,数字一致(时间差=机器负载)。
+- 单文件 `test_log_gz_compat_20261010.py` → `1 passed in 0.17s`;脚本式直跑 → exit=0,**19 PASS/0 FAIL**,`RESULT: ALL PASS`。
+- 对比首版 BLOCKER-1 观测(1 failed/639 passed/2 skipped):缺陷已消,收集面 +1 用例。
+
+### 6.2 固化值真伪独立核(核心项;用 baseline 旧源码实地复算,防"拍脑袋数字固化")
+
+方法:独立脚本 AST 抽取测试常量(防抄写偏差)+ `git show 64946a079:scripts/<旧源码>` 取改造前版本 + 与测试同款 3 日志沙箱(INTRA/ETF/UPDATE_ALL)实跑,ZeroOutboundTrap 全程包裹。
+
+| 固化值 | 测试期望 | 独立复算(baseline 旧源码实跑) | 判定 |
+|---|---|---|---|
+| FROZEN_OLD_PARSE_LAST_RUN_PLAIN | `2026-10-10 09:35:02` | 旧代码同输入 = `2026-10-10 09:35:02` | MATCH |
+| FROZEN_OLD_E2E_MD5 | `0cf8f13b12d9b710b055e11531792454` | 旧代码沙箱输出 md5 同值(新代码亦同值) | MATCH |
+| FROZEN_OLD_GZ_ONLY_NULL_COUNT | `17` | 旧代码 gz-only(INTRA 仅 .gz)null=17 | MATCH |
+
+- 语义等价(④ 真 gzip 化后仍成立):新代码 gz-only null=16 == 新代码 plain null=16(差分 1 = INTRA 恰被找回);gz 场景 intraday `last_run` == plain。直跑输出实测:`gz_null=16 plain_null=16`、`gz=2026-10-10 09:35 mod=2026-10-10 09:35`。
+- md5 可移植:换第二个不同长路径沙箱重跑 md5 不变(路径不敏感,CI 换 workspace 路径不漂移);输出字段无"生成时刻/今日日期"类敏感项(仅 task/name/schedule/est_text/last_run/last_exit/last_duration_sec/log_anomaly*/r2_skip_count)→ 无跨日漂移。
+- 全部沙箱跑 `ZERO_HITS=[]`(零真实外发,同首版口径)。
+- 口径注:首版 §四 L95 的 6 vs 2 为**真实 17 样本场景**数字,本轮 17 vs 16 为**测试同款 3 日志沙箱**数字,两者场景不同不矛盾,方向一致(旧代码丢任务 → 新代码修好)。
+
+### 6.3 修复无新脆弱性
+
+- **无 git 依赖**:`_git_show`/`_firstdiff`/SKIP 降级分支已全删;全文件 grep 残留仅 2 处**注释文字**(L22/L58,解释 BLOCKER-1 背景),无代码调用 → 浅克隆/无 git 环境成立。
+- **CI 可移植**:`PY = sys.executable`(不写死 venv 路径);子进程目标 `gen_schedule_stats.py` 依赖仅标准库(gzip/json/os/re/subprocess/sys/datetime/pathlib)→ CI 依赖面无新增。
+- **阳性对照设计安全**:`installed` 仅当陷阱安装成功才发伪 `urlopen('http://selftest.invalid/')`(必被拦);installed=False 时不发调用 → 无真实网络风险。直跑实证 `POSITIVE=True` 且 `ZERO_HITS=[]`。
+- 3 处 `subprocess.run` 用途复核:均为沙箱管道(跑沙箱副本脚本/伪调用),timeout 180/180/60s 硬限,不碰生产树。
+
+### 6.4 顺手项验证(②③④ + 低分项处置)
+
+- ② 自发现「④ gz-only 未真 gzip」假绿:已修(真 gzip 写入 + unlink),断言 `gz_null=16 == plain_null=16` 为真检查(直跑输出佐证)。
+- ③ 阳性对照:真输出 `POSITIVE=True`(陷阱生效已证)。
+- ④ 报告措辞:`234-a5-logs-gz-20261010.md` 修复 diff 覆盖 §1.1/§1.3/§2.2/§2.4/§2.5/§五 六处 —— 假绿更正段、固化值说明、§1.3 行 7 重写(nextday_plan 按名读)、§五 保留集证据重写(plist 行号 + agent_inbox 三次采样递增实证)、同类枚举补充。与首版低分项逐条对应(L-2/L-3/L-5/L-6/L-4 全处置),复核无新失真。
+- `schedule_monitor.sh` L58 注释已更正为"trade-data/data/logs 独立真实目录(非 symlink、非 hard link,inode 与 trade/data/logs 不同)"(L55-59,5 行纯注释 diff)。
+
+### 6.5 新发现低分项(不阻断 merge,供主控追问;已滤不进正式 Findings)
+
+- R-1(30)`test_log_gz_compat_20261010.py` L71-82 `heredoc_src` **重复定义两次**(内容完全相同;第二次覆盖第一次,功能无影响;修复 diff 引入的冗余,删一份省 6 行)。
+- R-2(20)实施报告 §2.5 写直跑"18 项",实测 **19 项 PASS**(19 项全 PASS;文档口径小偏差)。
+
+### 6.6 复验未覆盖声明
+
+- 同 §五:CI 未实跑(本地命令与 CI L123 收集面同构,推演依据充分);本轮未重跑耗时生产链路;云上机器运行态未审。
+- 本轮全程只读(未 commit/未 push/未改业务代码);零真实外发;无残留后台任务(全量 pytest 已轮询至终态退出)。
