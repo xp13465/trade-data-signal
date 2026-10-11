@@ -1,0 +1,27 @@
+{
+  "_meta": {
+    "purpose": "凯利回测「冻结表缺失历史信号事件」已确认接受(跳过)登记表",
+    "single_source_of_truth": "本文件是「哪些冻结缺失事件已被人工确认接受(跳过处理)」的单一事实源; signal_kelly_backtest._alert_frozen_missing 只对不在 accepted 表内的事件告警",
+    "why": "部分历史信号事件(date < latest_signal_date)在冻结表里完全无键——信号是事后回填进 signal_daily 的(冻结分时点防御闸 2026-09-18 拒绝补冻历史信号), 读侧 _freeze_fallback(2026-09-22, 接的是「同一 (date,index) 有其它 signal 变体」) 也接不住((date,index) 从没冻结过)。这些事件在回测中被跳过, 不影响基线口径(v1.1.7 默认 S06 动态 a9/new15 组合)。",
+    "decision": "2026-09-21 用户拍板「接受跳过」(这些事件跳过处理可接受); 2026-10-11 用户拍板「直接干」告警降噪三项, 本表把该决定落到数据层使其不再每日触发 report 告警",
+    "discriminator_preserved": "出现「不在本表内」的新缺键事件(新出现的/异常的/规模超常的)照常告警: n<10 → WARN(普通邮件+24h dedup), n>=10 → SEVERE(1h dedup 直发)",
+    "how_to_extend": "新增已确认接受的事件 → 把精确键 date|index_id|signal 追加进 accepted 数组 + 在 approval_log 追加一行(日期/依据/审批人)。键取自告警正文样例或 signal_kelly_backtest._FROZEN_MISSING_EVENTS",
+    "fail_safe": "本文件缺失/损坏 ⇒ 视为空表(全量告警, 绝不静默吞真告警)",
+    "generated_at": "2026-10-11",
+    "enumeration_method": "只读枚举云上生产 trade-data/data/signal_kelly_etf_freeze.json + board_etf_map.json + sentiment.db(signal_daily) + etf_daily MAX(date)=20261009, 复刻 _resolve_etf 的缺失判据"
+  },
+  "accepted": [
+    "20260922|sz_div|buy",
+    "20260929|gz_399395|buy_aux",
+    "20261002|cac40|buy",
+    "20261002|dax|buy_aux",
+    "20261005|hscei|buy_aux",
+    "20261005|hstech|buy",
+    "20261006|cac40|buy",
+    "20261006|hsi|buy_aux"
+  ],
+  "approval_log": [
+    {"date": "2026-09-21", "event": "20260918|sz_div|buy_aux", "decision": "接受跳过(用户拍板)", "note": "该 (date,index) 冻结表无键, 事后延迟回填所致"},
+    {"date": "2026-10-11", "event": "8 个事件(见 accepted 数组)", "decision": "接受跳过→登记入本表", "note": "2026-10-11 告警降噪三项拍板; 均为信号事后回填致 (date,index) 从未冻结; 每日 21:12 report 噪音源"}
+  ]
+}

@@ -312,9 +312,33 @@ def _save_etf_freeze(freeze):
 # >=10 指向批量历史暴露(冻结表与生产脱节)需人工核查。证据见 docs/ops/alert-noise-evidence-20260924.md §2.4。
 FROZEN_MISSING_SEVERE_THRESHOLD = 10
 
+# 2026-10-11 告警降噪(①, 用户拍板「直接干」): 已确认接受的冻结缺失事件登记表。
+# 治根(把「已确认接受」落到数据层使其不再触发): 部分历史信号事件(date < latest_signal_date)
+# 在冻结表里完全无键——信号是事后回填进 signal_daily 的(冻结分时点防御闸 2026-09-18 拒绝
+# 补冻历史信号), 读侧 _freeze_fallback(2026-09-22, 接「同一 (date,index) 有其它 signal 变体」)
+# 也接不住((date,index) 从没冻结过)。这些事件在回测中被跳过, 2026-09-21 用户拍板「接受跳过」。
+# 本表把该决定持久化: _alert_frozen_missing 只对不在表内的事件告警。
+# 保留判据(不可一刀切静音): 出现表外的新缺键事件(新出现的/异常的/规模超常的)照常告警。
+# fail-safe: 表缺失/损坏/格式异常 ⇒ 视为空表(全量告警, 绝不静默吞真告警)。
+FROZEN_MISSING_ACCEPTED_PATH = os.path.join(
+    ROOT, "config", "signal_kelly_frozen_missing_accepted.json")
+
+
+def _load_frozen_missing_accepted():
+    """读「已确认接受的冻结缺失事件」登记表 -> set[date|index_id|signal]。
+
+    失败/缺失/损坏一律返回空集(fail-safe: 空集 = 全量告警, 不静默)。
+    """
+    try:
+        with open(FROZEN_MISSING_ACCEPTED_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return {str(k) for k in (data.get("accepted") or [])}
+    except (OSError, json.JSONDecodeError, AttributeError, TypeError):
+        return set()
+
 
 def _alert_frozen_missing(events):
-    """冻结表缺失历史信号事件告警(分级)。events: {(date, index_id, signal), ...}。
+    """冻结表缺失历史信号事件告警(分级 + 已确认接受过滤)。events: {(date, index_id, signal), ...}。
 
     背景(2026-09-18 根治): 冻结分时点防御闸拒绝补冻历史信号(date < latest)后, 这些信号
     事件不写入冻结表, 若事件非空说明生产冻结流程有缺口(如 dev sync 后本机冻结表落后),
@@ -322,8 +346,22 @@ def _alert_frozen_missing(events):
     2026-09-24 分级(告警降噪 P1): >=FROZEN_MISSING_SEVERE_THRESHOLD(10) 个 = 批量历史事件,
     保持 SEVERE + 1h dedup 直发(真 P0 不降级); <10 个 = 单键漂移(读侧兜底已接住), 降
     普通邮件(WARN 语义: 不写 latest.md 镜像) + 24h dedup 低频提醒。
+    2026-10-11 降噪(①): 先按 config/signal_kelly_frozen_missing_accepted.json 过滤掉
+    已确认接受(跳过)的精确键事件(仅写日志); 只剩「表外新事件」才进入分级告警路径,
+    全部命中接受表 ⇒ 不发任何通知(治根, 消除每日 report 噪音; 判别维度保留: 新事件照报)。
     """
-    sorted_events = sorted(events)
+    accepted = _load_frozen_missing_accepted()
+    accepted_hit, new_events = [], []
+    for e in sorted(events):
+        key = f"{e[0]}|{e[1]}|{e[2]}"
+        (accepted_hit if key in accepted else new_events).append(e)
+    if accepted_hit:
+        _acc_sample = "; ".join(f"{d}|{i}|{s}" for d, i, s in accepted_hit[:5])
+        print(f"   冻结缺失: {len(accepted_hit)} 个事件命中「已确认接受」登记表, 跳过告警(仅日志): "
+              f"{_acc_sample}", file=sys.stderr)
+    if not new_events:
+        return
+    sorted_events = new_events
     n = len(sorted_events)
     sample = "; ".join(f"{d}|{i}|{s}" for d, i, s in sorted_events[:5])
     subject = f"[kelly] 冻结表缺失历史信号事件 {n} 个"

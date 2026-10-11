@@ -106,21 +106,28 @@ def _build_env(tmp_path, monkeypatch, force_day, files, rows_in_r2=None):
 
 
 def test_full_mode_mismatch_no_unboundlocalerror(monkeypatch, tmp_path):
-    """P0 核心: 周日 full + 通道不一致 → 修前 UnboundLocalError, 修后正常收尾且发脱节告警。"""
+    """P0 核心: 周日 full + 通道不一致 → 修前 UnboundLocalError, 修后正常收尾且发脱节告警。
+
+    2026-10-11 降噪②: 单文件小规模脱节已降为仅日志 ⇒ 以「规模超常(3 文件 ≥ 阈值)」驱动,
+    保持本用例原意(不崩 + 有等效告警输入)。
+    """
     dd, seen, nf = _build_env(
         tmp_path, monkeypatch, _SUNDAY,
-        files={"kelly_mode_s06_state.json": '{"coverage_end":"2026-10-10"}', "overview.json": '{"a":1}'},
-        rows_in_r2={"kelly_mode_s06_state.json"},
+        files={"kelly_mode_s06_state.json": '{"coverage_end":"2026-10-10"}', "overview.json": '{"a":1}',
+               "extra_a.json": '{"x":1}', "extra_b.json": '{"x":2}'},
+        rows_in_r2={"kelly_mode_s06_state.json", "extra_a.json", "extra_b.json"},
     )
-    u._record_standalone_keys(["data/kelly_mode_s06_state.json"])
+    u._record_standalone_keys(["data/kelly_mode_s06_state.json",
+                               "data/extra_a.json", "data/extra_b.json"])
 
     with ZeroOutboundTrap() as trap:
         u.cmd_verify_r2()          # 修前此处抛 UnboundLocalError(L3730)
 
     assert trap.hits == [], f"零外发被破坏: {trap.hits}"
-    # full 模式: 全池都在被查对象里(2 个文件逐个 HEAD)
-    assert sorted(k.rsplit("/", 1)[-1] for k in seen) == ["kelly_mode_s06_state.json", "overview.json"]
-    # 语义正确: 独立链产物脱节 → 层4 外围告警照发(full 模式同样要有等效输入, 非仅消崩)
+    # full 模式: 全池都在被查对象里(4 个文件逐个 HEAD)
+    assert sorted(k.rsplit("/", 1)[-1] for k in seen) == [
+        "extra_a.json", "extra_b.json", "kelly_mode_s06_state.json", "overview.json"]
+    # 语义正确: 独立链产物脱节(规模超常) → 层4 外围告警照发(full 模式同样要有等效输入, 非仅消崩)
     assert any("独立上传链产物与 R2 脱节" in s for s in nf.sent), f"full 模式缺脱节告警: {nf.sent}"
 
 
@@ -140,18 +147,40 @@ def test_full_mode_all_consistent_no_alert(monkeypatch, tmp_path):
 
 
 def test_weekday_standalone_still_selected_and_alert(monkeypatch, tmp_path):
-    """回归: 平日(changed 空 + 抽样空)独立链产物仍被选中对账 → 脱节 → 告警(修前后行为不变)。"""
+    """回归: 平日(changed 空 + 抽样空)独立链产物仍被选中对账 → 超常脱节 → 告警。
+
+    2026-10-11 降噪②: 单文件小规模脱节降为「仅日志」⇒「仍被选中对账」不变(该断言保留),
+    告警断言改为「规模超常(3 文件)」触发的形态。
+    """
     _dd, seen, nf = _build_env(
         tmp_path, monkeypatch, _MONDAY,
-        files={"kelly_mode_s06_state.json": '{"coverage_end":"2026-10-10"}', "overview.json": '{"a":1}'},
+        files={"kelly_mode_s06_state.json": '{"coverage_end":"2026-10-10"}', "overview.json": '{"a":1}',
+               "extra_a.json": '{"x":1}', "extra_b.json": '{"x":2}'},
+        rows_in_r2={"kelly_mode_s06_state.json", "extra_a.json", "extra_b.json"},
+    )
+    u._record_standalone_keys(["data/kelly_mode_s06_state.json",
+                               "data/extra_a.json", "data/extra_b.json"])
+    with ZeroOutboundTrap() as trap:
+        u.cmd_verify_r2()
+    assert trap.hits == []
+    assert "data/kelly_mode_s06_state.json" in seen, "平日: 台账内独立链产物必须被对账(不受抽样/上限截断)"
+    assert any("独立上传链产物与 R2 脱节" in s for s in nf.sent), f"平日超常脱节应告警: {nf.sent}"
+
+
+def test_weekday_small_stale_only_logs_no_alert(monkeypatch, tmp_path, capsys):
+    """2026-10-11 降噪②验收①: 平日单文件小规模脱节 ⇒ 仅日志(不发通知)。"""
+    _dd, seen, nf = _build_env(
+        tmp_path, monkeypatch, _MONDAY,
+        files={"kelly_mode_s06_state.json": '{"coverage_end":"2026-10-10"}'},
         rows_in_r2={"kelly_mode_s06_state.json"},
     )
     u._record_standalone_keys(["data/kelly_mode_s06_state.json"])
     with ZeroOutboundTrap() as trap:
         u.cmd_verify_r2()
     assert trap.hits == []
-    assert "data/kelly_mode_s06_state.json" in seen, "平日: 台账内独立链产物必须被对账(不受抽样/上限截断)"
-    assert any("独立上传链产物与 R2 脱节" in s for s in nf.sent), f"平日缺脱节告警: {nf.sent}"
+    assert "data/kelly_mode_s06_state.json" in seen, "平日仍须对账该产物(不因降噪漏检)"
+    assert nf.sent == [], f"小规模脱节不应外发通知: {nf.sent}"
+    assert "仅日志" in capsys.readouterr().out, "应打印「仅日志」说明(留痕不静默)"
 
 
 def test_ledger_missing_full_mode_no_weekday_alert(monkeypatch, tmp_path):
