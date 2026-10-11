@@ -21,12 +21,12 @@
 reviewer 对第一轮 4 条改动 PASS,但判 4 项必改(2 必修 + 2 低)。逐项修复如下(全部落同一 feat 分支)。
 
 ### F1【中高·必修】`check_failed_units.py` 落签判据不能信 rc(notify.py rc 恒 0)
-**病灶**:第一轮用 `proc.returncode == 0` 当「已发出」的判据。但 `notify.py` **所有分支都 `return 0`**(含「全部渠道未发出」,`scripts/notify.py:2362`;失败汇总行 `:2371`)。⇒ 当邮件+飞书**全挂**时,脚本仍写签名状态 ⇒ 当天同集合的后续轮次全被 `same-set-same-day` 抑制 = **当天失报**,与代码里「发送失败→不落→下轮重试」的自述自相矛盾(第一轮的真故障判别维度被自己破掉)。
+**病灶**:第一轮用 `proc.returncode == 0` 当「已发出」的判据。但 `notify.py` **所有分支都 `return 0`**(含「全部渠道未发出」,`scripts/notify.py` 汇总行 `[notify] 汇总：全部渠道未发出`)。⇒ 当邮件+飞书**全挂**时,脚本仍写签名状态 ⇒ 当天同集合的后续轮次全被 `same-set-same-day` 抑制 = **当天失报**,与代码里「发送失败→不落→下轮重试」的自述自相矛盾(第一轮的真故障判别维度被自己破掉)。
 **改法**(`scripts/check_failed_units.py`):
-- `:216` 新增纯函数 `_notify_sent(output) -> bool`,从 notify 子进程的**输出汇总**判「真发出」,三种形态都覆盖:
-  - 含 `全部渠道未发出` ⇒ False(总失败汇总行,`notify.py:2371`)
-  - 含 `已发出` ⇒ True(通用成功汇总行,`notify.py:2368`)
-  - 含 `升级档路由完成：{...}` ⇒ 解析该 dict 段里的 `True`(`notify.py:2306-2313` 的 `_ESCALATE_CHANNELS` 提前 return,不走通用汇总行)
+- 新增纯函数 `_notify_sent(output) -> bool`,从 notify 子进程的**输出汇总**判「真发出」,三种形态都覆盖:
+  - 含 `全部渠道未发出` ⇒ False(总失败汇总行,`notify.py` 汇总：全部渠道未发出)
+  - 含 `已发出` ⇒ True(通用成功汇总行,`notify.py` 汇总：已发出)
+  - 含 `升级档路由完成：{...}` ⇒ 解析该 dict 段里的 `True`(`notify.py` 的 `_ESCALATE_CHANNELS` 提前 return,不走通用汇总行)
   - 其余未知形态 ⇒ False(**fail-safe**:认不出就当没发 → 下轮重试,宁重不吞)
 - `:241` `_send_notify` 返回 `(sent, detail)`(detail = 子进程输出尾部 300 字或 `rc=N(无输出)`);`:262` 返回 `_notify_sent(out), detail`
 - `:404` main 改为 `sent, detail = _send_notify(...)`;`sent` 为真才走 `_write_sig_state`(`:407`);为假打 `告警未发出(不落抑制, 下轮重试)`(`:412`)
@@ -117,17 +117,24 @@ reviewer 对第一轮 4 条改动 PASS,但判 4 项必改(2 必修 + 2 低)。�
 
 **真故障负控**:集合新增/替换成员 → 立即发;集合非空且跨日 → 每日首轮发;`problems` 为空 → 走既有 early-return 不变(空集合报「全正常」的原逻辑不动)。
 
-**同类错误面清单(§23.2 + §23.3 穷举补齐)**:`grep -rn "21600" scripts/` 全量命中 **10 个文件**,逐个核对如下(F4 补列后 4 个在前):
+**同类错误面清单(§23.2 + §23.3 穷举补齐)**:`grep -rln "21600" scripts/`(排除 `scripts/tests/` 与 `scripts/test_*`)**实测命中 16 处非测试文件**(2026-10-11 #240 残余复核重算;首轮写「10 个文件」漏计 6 处——P-5 订正),逐个核对如下(按调用方 `--dedup-key` 锚,行号易漂故不写死):
 
-| 文件:行 | 形态 | 结论 |
+| 文件(dedup-key 锚) | 形态 | 结论 |
 |---|---|---|
-| `upload_r2.py:1761/3669/3699` | R2 上传链路 `notify.check_dedup(_dk, 21600)` | 上传失败**事件驱动**(成功即不再命中),非「状态不变定时重报」⇒ 不改 |
-| `with_lock.py:128` | 锁阻塞超时 `<lockpath>` 去重,key **含具体锁路径**(天然按锁区分) | 一次性阻塞事件,不同锁不同 key ⇒ 不改 |
-| `staticdata_sync.sh:158/171/177/189/249` | 同步守卫/闸门/跳过(oversize/nonprod) 五档 | 每次同步独立事件,非同一状态重复 ⇒ 不改 |
-| `staticdata_backup_async.sh:128/263/276/290/302/398` | 备份守卫/闸门/跳过 六档 | 同上,事件驱动 ⇒ 不改 |
+| `upload_r2.py`(R2 上传链路 `notify.check_dedup(_dk, 21600)`) | 上传失败**事件驱动**(成功即不再命中) | 非「状态不变定时重报」⇒ 不改 |
+| `with_lock.py`(锁阻塞超时 `<lockpath>` 去重,key **含具体锁路径**) | 一次性阻塞事件,不同锁不同 key | 天然按锁区分 ⇒ 不改 |
+| `staticdata_sync.sh`(同步守卫/闸门/跳过 oversize/nonprod) | 每次同步独立事件 | 非同状态重复 ⇒ 不改 |
+| `staticdata_backup_async.sh`(备份守卫/闸门/跳过) | 同上 | 事件驱动 ⇒ 不改 |
 | `brief_push_wrapper.sh` | 事件驱动,一次性 | 不改 |
 | `check_r2_consistency.sh` / `cloud_unit_patrol.sh` | 各自已有独立升级链 | 不改 |
-| `deploy.sh` 闸门 | 一次性 | 不改 |
+| `deploy.sh`(闸门) | 一次性 | 不改 |
+| `notify.py`(`staticdata_backup_fail` R4 强制 6h 窗) | 备份失败**事件驱动** + 已分档(staticdata_grade) | 非本批病灶形态 ⇒ 不改 |
+| `retry_failed_metrics.py`(`retry_fm_count_file_write_fail`) | 计数文件写失败**事件驱动** | 非同一状态定时重报 ⇒ 不改 |
+| `r2_upload_async.sh`(`deploy_r2_upload_fail`) | R2 上传失败**事件驱动**(异步任务跑完确认有缺口) | 同上 ⇒ 不改 |
+| `r2_upload_skip_notify.sh`(`r2_upload_async_skip:$LOCKPATH`,key 含锁路径) | 并发重复触发去重,按锁区分 | 天然按锁区分 ⇒ 不改 |
+| `schedule_monitor.sh`(unit 巡检 / warning 升级 / 恢复链 多档) | 各自事件/恢复链 | 非同一状态定时重报 ⇒ 不改 |
+| `check_preupload_backup.py`(`preupload_backup_fail`) | 备份终态**事件驱动**(每日跑一次) | 同上 ⇒ 不改 |
+| `notify_sent.py`(仅「21600s 窗口内已发」标记**字面量**,非 dedup 调用) | 判据标记串,不适用 | 非调用方 ⇒ 不适用 |
 | **`check_failed_units.py`(本批改)** | **同一 unit 集合每 6h 定时重报** | **← 唯一该形态**,改 |
 
 **抽查一句话结论**:抽查 `upload_r2.py:1761`(R2 上传失败告警)与 `staticdata_sync.sh:158`(同步守卫),两者都是「动作发生时告警、动作成功即静默」的事件驱动形态,不存在「状态不变却每 6h 重报」的病灶 ⇒ 方向不变,无需同款改造。
@@ -189,7 +196,7 @@ reviewer 对第一轮 4 条改动 PASS,但判 4 项必改(2 必修 + 2 低)。�
 | 面 | 结论 |
 |---|---|
 | ① 同模式(别的扫描器要不要同款过滤) | `scan_marker_log()` 的窄正则结构上匹配不到 multiprocessing Traceback ⇒ 无漏面;finalizer 过滤全仓只有 1 处实现 |
-| ② 同模式(6h 窗「状态不变重复报」) | **10 个** `21600` 调用方逐个核对(F4 补齐 4 个),仅 `check_failed_units.py` 是该形态 ⇒ 其余不改,已披露(见 §2 表) |
+| ② 同模式(6h 窗「状态不变重复报」) | **16 处** `21600` 调用方逐个核对(2026-10-11 #240 残余复核补齐,见 §2 表),仅 `check_failed_units.py` 是该形态 ⇒ 其余不改,已披露 |
 | ③ 同数据源(DUR_THRESHOLDS) | 全部任务生效(设计如此,非遗漏) |
 | ④ 同组件(其他 severe 无 grace 的检查器) | ETF nav 时滞早已走 info(本次对齐先例);`check_fund_nav_allnull` 是公募侧唯一对标项 |
 | 展示位(R2/前端/static-site) | 无:4 条全为后端监控脚本,**不改任何数据产物/前端/JSON 字段** ⇒ §22 一致性 / §24 防撕裂 / 版本串 bump **均不适用** |

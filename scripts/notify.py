@@ -1684,12 +1684,21 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
         return False
 
 
-def log_info(subject: str, detail: str = "") -> bool:
+def log_info(subject: str, detail: str = "", dry_run: bool = False) -> bool:
     """info 级：只记 dashboard（data/alerts/info_log.jsonl），不推送任何渠道。
 
     用途：单次瞬时抖动自愈 / acknowledged 窗口内的重复提醒。供排查与页面展示；
     文件增长控制：>2000 行时截断保留最近 1000 行（dashboard 是滚动日志非审计账本）。
+
+    #229（2026-10-11）：dry_run=True 在函数最前短路返回，**绝不写 info_log.jsonl**——
+    与 #184 write_alert 同口径（唯一写入函数内单点守卫 §6.5）。此前 send_tiered 的 info
+    分支未透传 dry_run，CLI `--tier info --dry-run` 仍真落 dashboard，与 --dry-run
+    「不真发/不落盘」契约相悖。返回 False 表示未落盘（供 _tier_send_ok 判 info_logged）。
     """
+    if dry_run:
+        print(f"[notify][dry-run] log_info 跳过写 {INFO_LOG_FILE}"
+              f"（subject={subject}）", file=sys.stderr)
+        return False
     rec = {"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "subject": subject}
     if detail:
         rec["detail"] = str(detail)[:500]
@@ -2140,6 +2149,12 @@ def flush_warning_batch(dry_run: bool = False) -> dict:
       与 flush 锁互不干扰：flusher 重写文件也在 buffer 文件 flock 内做，append 不会被截在半行。
     """
     import fcntl
+    # #230（2026-10-11）：dry_run 不落任何盘——跳过 flushlock 的 mkdir+open。此前无条件
+    # `mkdir+open("a+")` 会留下 0 字节 warning_buffer.flushlock，与 --dry-run「不落盘」
+    # 契约相悖。dry-run 全路径只读（send dry_run=True 短路、cleanup 由 `sent and not
+    # dry_run` 挡），无任何写入故无需互斥锁，直接进锁内主体即可。
+    if dry_run:
+        return _flush_warning_batch_locked(dry_run=True)
     try:
         WARNING_FLUSH_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
         lock_f = open(WARNING_FLUSH_LOCK_FILE, "a+")
@@ -2346,6 +2361,13 @@ def flush_digest(dry_run: bool = False) -> dict:
     """
     if os.environ.get("ALERT_DIGEST_DISABLE") == "1":
         return {"sent": False, "n": 0, "n_remaining": 0}
+    # #230 同模式面（2026-10-11，§23.3 举一反三）：dry_run 不落任何盘——跳过 digest lock 的
+    # mkdir+open。与 flush_warning_batch #230 病灶逐字同型（此前 `--flush-digest --dry-run`
+    # 也会留下 0 字节 alert_digest.lock + 建 ALERTS_DIR）。dry-run 全路径只读
+    # （_flush_digest_locked 在 `if dry_run:` 处 return，不清理/不写 state），无需互斥锁，
+    # 直接进锁内主体即可。
+    if dry_run:
+        return _flush_digest_locked(dry_run=True)
     import fcntl
     try:
         ALERT_DIGEST_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -2500,8 +2522,11 @@ def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
                   f"(fail-critical 宁多勿漏)", file=sys.stderr)
         tier = TIER_CRITICAL
     if tier == TIER_INFO:
-        log_info(subject, body)
-        return {"tier": tier, "email": False, "telegram": False, "feishu": False, "info_logged": True}
+        # #229（2026-10-11）：透传 dry_run——dry-run 时 log_info 短路不落 dashboard，
+        # info_logged 如实反映（dry_run ⇒ False），与 --dry-run「不落盘」契约一致。
+        logged = log_info(subject, body, dry_run=dry_run)
+        return {"tier": tier, "email": False, "telegram": False, "feishu": False,
+                "info_logged": logged}
     if tier == TIER_WARNING:
         # C-2 透传 dry_run（2026-10-01）：defer_warning 最前短路，dry-run 不写 buffer/状态
         # P0 复审（2026-10-01 第二轮）：defer_warning 返回三态，deferred 只在「真入队/真抑制」

@@ -3065,7 +3065,7 @@ main { padding: 16px 24px; }
 }
 .summary-chips-top { color: var(--text-2); }
 .summary-chips-top > span { font-weight: 500; }
-/* #74 8 宽基四档聚合卡(KPI 行首张, 2026-09-25): 复用 .card.kpi 外观, flex:2 1 300px 占 2 格宽与 KPI 卡同高。
+/* 8 宽基四档聚合卡(KPI 行首张, 2026-09-25): 复用 .card.kpi 外观, flex:2 1 300px 占 2 格宽与 KPI 卡同高。
    三行结构(card-title/tier-value/card-sub)对齐 KPI 卡纵向节奏; hover 浮层展示 4 档各自具体指数(hover 口)。
    注意: .card.kpi 选择器 specificity(0,2,0) 高于单 .tier-card(0,1,0), 覆盖 flex 必须用 .card.kpi.tier-card(0,3,0);
    不加 .tier-tooltip 触发类(.kpi-fg-tooltip 之类), hover 浮层纯 CSS 实现, 不与 KPI 卡 .hover-active 交互打架。 */
@@ -4033,7 +4033,7 @@ main { padding: 16px 24px; }
   .cards.kpi-row { display: flex; flex-wrap: wrap; gap: 10px; }
   .card.kpi { min-width: 0; padding: 10px 12px; }
   .card.kpi .card-value { font-size: 20px; }
-  /* #74 四档卡移动端(2026-09-26 修复): flex:2 1 300px 在窄屏占满整行被 flex-wrap 挤到单独一行，
+  /* 四档卡移动端(2026-09-26 修复): flex:2 1 300px 在窄屏占满整行被 flex-wrap 挤到单独一行，
      flex 行内 stretch 只对同一行生效 → 四档卡行高=自身内容(~88px) < 相邻 KPI 卡行(~117px) → 卡显矮；
      且 hover 浮层是 inset:0+overflow:hidden 覆盖式，卡高 88 < 浮层内容(3行明细) → 内容被裁。
      修复①=移动端显式 min-height:117px 与相邻 KPI 卡行高完全一致(实测 KPI 117px)，
