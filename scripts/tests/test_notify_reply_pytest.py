@@ -11,5 +11,6 @@ _MIN_TESTS = 3          # 原文件 def test_ 实测 3(grep -c 'def test_'), 下
 
 
 def test_notify_reply_wrapped():
-    n = run_unittest_module("test_notify_reply", _MIN_TESTS)
+    # isolate_repo=True(#247-R2/#245 卫生): send_feishu 会落合成台账 alert_ledger.jsonl。
+    n = run_unittest_module("test_notify_reply", _MIN_TESTS, isolate_repo=True)
     print(f"test_notify_reply: {n} 用例全绿, 零真实外发")

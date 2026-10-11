@@ -56,7 +56,7 @@
   **集合缩小(=恢复进展)** 静默; 次日首报照报; 同集合 24h 二次 added 抖动抑制(unit 反复
   fail→clear→fail)。判据见 adr.failed_units_identity / adr.failed_units_daily_judge。
   真故障判别维度保留: 新增立即报 + #196③ 连续 3 天升 critical + 跨日首报。
-  ⚠️ F1 复审(2026-10-09): notify.py **恒 return 0**(含「全部渠道未发出」, notify.py:2362),
+  ⚠️ F1 复审(2026-10-09): notify.py **恒 return 0**(含「全部渠道未发出」, notify.py 汇总行([notify] 汇总：全部渠道未发出)),
   故「是否发出去」判据不能只看 rc(否则渠道全失败照样落签名 → 当日同集合全抑制 = 当天失报);
   改看输出汇总(_notify_sent)。全渠道失败 → 不落签 → 下轮重试, 不吞真故障。
   「连续 3 天仍异常 → 升 critical」由 notify.py 调用侧拦截(#196③,
@@ -246,10 +246,14 @@ def _write_sig_state(path, prev_state, *, sent, reason, observed_sig, observed_i
 def _notify_sent(output: str) -> bool:
     """从 notify.py 输出判定「是否真的发出过」(F1 复审, 2026-10-09)。
 
-    notify.py 恒 return 0(含「全部渠道未发出」, notify.py:2362)⇒ rc 不能当发出判据。
+    notify.py 恒 return 0(含「全部渠道未发出」, notify.py 汇总行([notify] 汇总：全部渠道未发出))⇒ rc 不能当发出判据。
     判据已抽为**唯一实现** `scripts/notify_sent.py:notify_sent`(#241 同病根, 2026-10-09):
     两处(本脚本 + check_s06_freshness)共用同一函数, 杜绝第二份实现漂移。本包装仅为
     保持既有调用点符号不变(#240 已验收), 判据本体见 notify_sent 模块 docstring。
+
+    ⚠️ 维护契约(#240 复审 P-4, 2026-10-11): 判据依赖 notify.py 的**汇总打印文案**(“汇总：已发出”
+    / “汇总：全部渠道未发出”)。notify.py 若新增「真发但不打印现有标记」的路由, 本判据会退化为
+    判不出(→ 每轮重发)。**改 notify.py 汇总行文案时必须同步 scripts/notify_sent.py 的标记集**。
     """
     return notify_sent(output)
 
@@ -263,7 +267,7 @@ def _send_notify(repo, subject, body):
     「连续 3 天升 critical」正是以该 key 精确匹配接线(见 notify.py _ESCALATE_CHANNELS)。
 
     ⚠️ F1 复审(2026-10-09): 返回的 sent **不是 rc==0**, 而是从 notify.py 输出里判「真发出过」
-    (见 _notify_sent)。rc 恒 0 不含告知力: 全渠道失败也 return 0(notify.py:2362), 若按 rc
+    (见 _notify_sent)。rc 恒 0 不含告知力: 全渠道失败也 return 0(notify.py 汇总行([notify] 汇总：全部渠道未发出)), 若按 rc
     落签名, 渠道故障当天会把同集合告警全部抑制 = 当天失报。
     """
     try:

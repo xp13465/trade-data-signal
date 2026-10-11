@@ -12,5 +12,6 @@ _MIN_TESTS = 20         # 原文件 def test_ 实测 20(5+4+6+5)
 
 
 def test_feishu_post_wrapped():
-    n = run_unittest_module("test_feishu_post", _MIN_TESTS)
+    # isolate_repo=True(#247-R2/#245 卫生): send_feishu 会落合成台账 alert_ledger.jsonl。
+    n = run_unittest_module("test_feishu_post", _MIN_TESTS, isolate_repo=True)
     print(f"test_feishu_post: {n} 用例全绿, 零真实外发")

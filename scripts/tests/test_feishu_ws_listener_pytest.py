@@ -7,6 +7,10 @@ ProcessEventAutoTodoTests / CrossGroupForwardTests / StabilityFixTests, 合计 3
 
 ⚠️ 原文件 `fwl`(feishu_ws_listener)是长驻 websocket 监听器模块; 本包装只 import 它 +
 跑其 TestCase(不 start 监听循环), 网络出口由 ZeroOutboundTrap 兜底(§18 L48)。
+
+#247-R2/#245 卫生(2026-10-11): isolate_repo=True —— StabilityFixTests 调 process_event 不传
+dedup_path ⇒ 落模块级 FORWARD_DEDUP_PATH(合成 3 行曾写进主仓 data/feishu_requests/)。
+env REPO→临时树 + `_redirect_repo_paths` 重绑 import 期常量, 双向隔离(见 _wrap_util 注释)。
 """
 from _wrap_util import run_unittest_module
 
@@ -14,5 +18,5 @@ _MIN_TESTS = 33         # 原文件 def test_ 实测 33
 
 
 def test_feishu_ws_listener_wrapped():
-    n = run_unittest_module("test_feishu_ws_listener", _MIN_TESTS)
+    n = run_unittest_module("test_feishu_ws_listener", _MIN_TESTS, isolate_repo=True)
     print(f"test_feishu_ws_listener: {n} 用例全绿, 零真实外发")

@@ -11,5 +11,7 @@ _MIN_TESTS = 6          # 原文件 def test_ 实测 6(t1~t6)
 
 
 def test_notify_flush_race_wrapped():
-    n = run_unittest_module("test_notify_flush_race", _MIN_TESTS)
+    # isolate_repo=True(#247-R2/#245 卫生): flush_warning_batch(dry_run=False) 会落合成台账
+    # data/alerts/alert_ledger.jsonl; 指到临时树防污染主仓。
+    n = run_unittest_module("test_notify_flush_race", _MIN_TESTS, isolate_repo=True)
     print(f"test_notify_flush_race: {n} 用例全绿, 当前进程零真实外发")

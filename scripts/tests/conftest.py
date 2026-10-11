@@ -37,7 +37,9 @@
 内置 try import baostock, CI 无 baostock 时静默跳过。均已实测。切勿为省事删除 stub, 否则
 rfm/bdm 两个测试在 CI 上会退回 ImportError。
 """
+import atexit
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -86,3 +88,10 @@ _ENV_SHIM_DIR = Path(tempfile.mkdtemp(prefix="ci-env-shim-"))
     encoding="utf-8",
 )
 os.environ.setdefault("GIT_REPO", str(_ENV_SHIM_DIR))
+
+# #226(2026-10-11): 垫片 tempdir 显式清理。此前 `mkdtemp(prefix="ci-env-shim-")` 从不回收
+#   ⇒ 本机每跑一次 pytest 就在 /tmp 留一个 `ci-env-shim-*` 目录(CI 一次性 runner 无害,
+#   但本机长期累积)。用 atexit 注册进程退出时删除(ignore_errors=True: 已删/占用时不抛,
+#   清理失败不影响测试结论)。仅在**本进程创建**垫片时注册(setdefault 命中已设 GIT_REPO 的
+#   分支同样注册, 因其 mkdtemp 已执行)——atexit 保证 pytest 正常退出必回收。
+atexit.register(shutil.rmtree, _ENV_SHIM_DIR, ignore_errors=True)

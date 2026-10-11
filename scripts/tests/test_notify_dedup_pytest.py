@@ -13,5 +13,7 @@ _MIN_TESTS = 15         # 原文件 def test_ 实测 15(U1~U15)
 
 
 def test_notify_dedup_wrapped():
-    n = run_unittest_module("test_notify_dedup", _MIN_TESTS)
+    # isolate_repo=True(#247-R2/#245 卫生): 原脚本调 notify.send(...) 会落合成台账
+    # data/alerts/alert_ledger.jsonl(_ledger_path() 调用时读 env REPO); 指到临时树防污染主仓。
+    n = run_unittest_module("test_notify_dedup", _MIN_TESTS, isolate_repo=True)
     print(f"test_notify_dedup: {n} 用例全绿, 当前进程零真实外发")
