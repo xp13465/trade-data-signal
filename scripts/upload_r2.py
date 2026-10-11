@@ -2407,31 +2407,39 @@ def _record_standalone_keys(keys) -> None:
         print(f"⚠ 独立链产物 key 登记失败(不影响上传): {e}", file=sys.stderr)
 
 
-def _load_standalone_keys():
+def _load_standalone_keys(warn: bool = True):
     """读独立链产物 key 台账; 返回 (keys:set, state:str)。
 
     state ∈ {"ok","missing","corrupt"}(_LEDGER_*)。非 ok 一律打 stderr 显式告警(#188 P2-1):
     台账丢失/损坏/为空 = 平日对账覆盖静默退化为空集(退回「抽样 + 周日全量」旧行为), 属静默降级
     —— 绝不静默绿; 调用方(verify-r2)另发一条 dedup 告警兜底「台账丢了没人知道」。
     空 list 与文件缺失同归 missing: 均为「无可对账对象」, 正常应由各独立链上传成功自愈重建。
+
+    warn(2026-10-11 hotfix): 上述 stderr 文案针对**平日增量**语义(full 全池覆盖不受台账影响)。
+    full(周日)模式调用方传 warn=False —— 台账仅用于「独立链产物脱节」告警记名, 缺台账不降级
+    覆盖面, 故不打「平日退回旧行为」误导文案。
     """
     p = _standalone_keys_path()
     if not p.exists():
-        print(f"⚠ 独立链产物 key 台账不存在({p}) — 平日对账暂退回旧行为(抽样/周日); "
-              f"正常应由 upload-data-files/intraday 每次上传成功自动登记", file=sys.stderr)
+        if warn:
+            print(f"⚠ 独立链产物 key 台账不存在({p}) — 平日对账暂退回旧行为(抽样/周日); "
+                  f"正常应由 upload-data-files/intraday 每次上传成功自动登记", file=sys.stderr)
         return set(), _LEDGER_MISSING
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        print(f"⚠ 独立链产物 key 台账损坏({p}): {e} — 平日对账退回旧行为, 待下次上传重新登记", file=sys.stderr)
+        if warn:
+            print(f"⚠ 独立链产物 key 台账损坏({p}): {e} — 平日对账退回旧行为, 待下次上传重新登记", file=sys.stderr)
         return set(), _LEDGER_CORRUPT
     if not isinstance(raw, list):
-        print(f"⚠ 独立链产物 key 台账格式异常({p}): {type(raw).__name__} — 平日对账退回旧行为", file=sys.stderr)
+        if warn:
+            print(f"⚠ 独立链产物 key 台账格式异常({p}): {type(raw).__name__} — 平日对账退回旧行为", file=sys.stderr)
         return set(), _LEDGER_CORRUPT
     keys = {str(x) for x in raw}
     if not keys:
-        print(f"⚠ 独立链产物 key 台账为空({p}) — 平日对账暂退回旧行为; "
-              f"若非首次冷启动(尚无任一独立链产物上传成功)则疑台账被清空", file=sys.stderr)
+        if warn:
+            print(f"⚠ 独立链产物 key 台账为空({p}) — 平日对账暂退回旧行为; "
+                  f"若非首次冷启动(尚无任一独立链产物上传成功)则疑台账被清空", file=sys.stderr)
         return set(), _LEDGER_MISSING
     return keys, _LEDGER_OK
 
@@ -3620,10 +3628,15 @@ def cmd_verify_r2():
     repaired_names = []          # #188: 补传涉及的文件名清单(现只打计数→落文件名, 便于反查是谁)
     stale_standalone_names = []  # #188: 独立链产物中发现 R2 脱节的文件名(层4 外围告警用)
     total_mismatch_found = 0  # export-guard L6: 对账发现的不一致/缺失 key 总数(跨通道累计)
-    # #188 P2-1(2026-10-05): 平日先读一次独立链产物台账(全通道同一份), 非 ok 状态收尾告警。
-    standalone_keys, ledger_state = (set(), None)
-    if not full:
-        standalone_keys, ledger_state = _load_standalone_keys()
+    # #188 P2-1(2026-10-05): 读一次独立链产物台账(全通道同一份); 非 ok 状态收尾告警。
+    # 2026-10-11 hotfix: full(周日)模式也读 —— full 下 to_check 已是全池, 台账不参与「扩覆盖面」,
+    #   但参与「独立链产物脱节」告警记名(stale_standalone_names: 某排期上传链连续失败、靠周日
+    #   全量兜底补传时必须发声)。缺台账在 full 模式不降级覆盖面, 故 warn=not full(full 不打
+    #   「平日退回旧行为」误导文案)。
+    #   台账 missing/corrupt 的「平日覆盖退化」告警语义仅针对平日增量模式 → full 不置 ledger_state,
+    #   避免周日误报(下方 ledger_state in (missing, corrupt) 分支)。
+    standalone_keys, _ledger_state = _load_standalone_keys(warn=not full)
+    ledger_state = None if full else _ledger_state
 
     for ch in _R2_CHANNELS:
         label = ch["label"]
@@ -3636,6 +3649,20 @@ def cmd_verify_r2():
         files = _channel_files(ch, local_dir)
         if not files:
             continue
+
+        # #188 (2026-10-05): 独立上传链产物(不经 deploy 通道状态, 由 _record_standalone_keys
+        # 登记)与模式无关地判定本通道子集。s06 20:35 / nextday_plan / daily_brief / intraday 等走
+        # upload-data-files, 天然不在 changed 字段里。
+        # · 平日: 纳入 to_check(不受抽样上限截断), 让这些产物的存量缺口平日常态被对账(旧实现
+        #   只能靠全池抽样撞运气, 要等周日全量兜 —— 事故: s06 kelly_mode_s06_state.json R2 停
+        #   09-24 版 6 天, 本地天天新鲜)。
+        # · full(周日): to_check 已含全池, 此处仅用于下方「独立链产物脱节」告警记名(必须两种模式
+        #   都定义 —— 2026-10-11 hotfix: 原实现只在 else 分支赋值, full 模式 L3730 无条件引用 →
+        #   UnboundLocalError, 周日全量对账崩溃、自动补传不执行)。
+        standalone_files = [
+            f for f in files
+            if f"{r2_prefix}/{str(f.relative_to(local_dir))}" in standalone_keys
+        ]
 
         if full:
             to_check = files
@@ -3658,16 +3685,6 @@ def cmd_verify_r2():
                     except (OSError, ValueError):
                         changed_rels = set()
             to_check = [f for f in files if str(f.relative_to(local_dir)) in changed_rels]
-            # #188 (2026-10-05): 独立上传链产物(不经 deploy 通道状态, 由 _record_standalone_keys
-            # 登记)无条件纳入平日对账。s06 20:35 / nextday_plan / daily_brief / intraday 等走
-            # upload-data-files, 天然不在 changed 字段里 —— 旧实现只能靠全池抽样撞运气, 存量缺口
-            # 要等周日全量兜(事故: s06 kelly_mode_s06_state.json R2 停 09-24 版 6 天, 本地天天新鲜)。
-            standalone_files = []
-            if standalone_keys:
-                standalone_files = [
-                    f for f in files
-                    if f"{r2_prefix}/{str(f.relative_to(local_dir))}" in standalone_keys
-                ]
             # export-guard L6 (2026-10-03): 平日抽样 20 -> 100, 兜「本地没变但 R2 被外部覆盖」存量缺口
             # (事故报告 §8b: 平日抽样 20 兜不住 482/44 大批残留)。
             sample_n = 100
