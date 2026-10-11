@@ -196,7 +196,7 @@ git branch <name> origin/main            # 重建同名分支(指向 main 可达
 ### 自测证据（逐条对验收口径）
 | 验收点 | 命令/手段 | 结果 |
 |---|---|---|
-| **双树零污染对拍（跑前跑后）** | 跑前后 `wc -l` + `md5`：主仓 `data/logs/agent_inbox_watcher.log`、`trade-data/data/logs/feishu_listener.log` | 定向（2 包装，4.14s）与**全量**（82.07s）跑后：主仓 log **85464 行 / md5 `653eb82b…` 零变化**；feishu 镜像树 **md5 `8e1177df…` 零变化** |
+| **双树零污染对拍（跑前跑后）** | 跑前后 `wc -l` + `md5`：主仓 `data/logs/agent_inbox_watcher.log`、`trade-data/data/logs/feishu_listener.log` | 定向（2 包装，4.14s）与**全量**（82.07s）跑后：主仓 log **85464 行 / md5 `076bd4e1…` 零变化**（注：`653eb82b…` 为删前 85478 行原态，见「数据清理」段）；feishu 镜像树 **md5 `8e1177df…` 零变化** |
 | **正向证明**（防「`log()` 未被调用」的假绿，§18 L49） | 手工 `_isolate_repo_env()` + `_redirect_repo_paths()` 后打印常量 + 调 `log()` | `agent_inbox_watcher`：`LOG_DIR/LOG_FILE` 由主仓路径 → 临时树，probe 行落临时树 `data/agent_inbox_watcher.log`；`feishu_ws_listener`：`LOG_PATH` → 临时树，probe 落临时树 |
 | **定向测试** | `pytest -q test_agent_inbox_watcher_pytest.py test_feishu_ws_listener_pytest.py` | **2 passed** |
 | **受影响包装回归（§15）** | 9 个：2 目标包装 + notify 家族 6 + B2 `test_229_230` | **22 passed** |
