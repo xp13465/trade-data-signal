@@ -31,6 +31,9 @@
 | ⑥ | mac GIT_REPO 侧树 | `/Users/linhuichen/code/trade/static-site/data/fund_nav` | 26,370 | 574M(du);trade 树精确 553,049,297 B = 527.4 MiB(trade-data 树 du 同值,抽样 md5 一致) | 同上;**方案「本机 mac 树」实为 2 处**(⑤+⑥) |
 | — | 合计 | **6 磁盘树 + 1 R2 前缀 = 7 处** | | | |
 
+> **勘误(2026-10-11 二轮,依独立审查 `next-steps-b3-review-20261011.md` §2)**:本表原列 **①~⑥ 六行(1 R2 + 5 磁盘树)**,但合计行写「**6 磁盘树** + 1 R2 = 7 处」——**off-by-one**(表中无第 6 棵磁盘树)。真相 = mac 存在**第 3 棵同类残树** `/Users/linhuichen/code/trade-data-signal-staticdata/data/fund_nav`(26,370 文件/574M/09-11 代际,与云上④同类 staticdata 仓 `data/fund_nav`)**未被发现**,故表漏一行。该树经二轮返修复核+补删(见 exec 报告 §3.1 / 勘误 2),补为第 7 项后 **7 行 = 1 R2 + 6 磁盘树** 与合计自洽。原表述保留可反查。
+> 另:本报告头(下 §1 标题下注)「漏 3 处」与 §7.1 只列 2 项(云上 GIT_REPO 侧树、mac 拆两处)亦不自洽,一并勘误(以 §1.1 表 + 上述补项为准)。
+
 - 独立性核验:云上 3 处 inode 互不相同(1222218/1076213/1104837);mac 2 处 inode 互不相同(253202469/253229137)→ **均为物理独立副本,不是 symlink/hardlink**;mac 两树抽样 md5 一致(同内容)。
 - 集合并集核验:R2 `fund_nav/` 名称集 = 云上树名称集(**差集 0**);云上树 vs mac 树 = 仅云上 88 / **仅 mac 0**。
 
