@@ -297,8 +297,13 @@ def _entry(day: str, key="r2_x", cat="r2") -> dict:
 
 
 def test_04_flush_before_2325_noop(_iso, monkeypatch):
-    _patch_now(monkeypatch, datetime(2026, 10, 10, 12, 0, 0))
-    _seed_digest(_iso["alerts"], [_entry(_today())])
+    # 日期无关(2026-10-11 修 P0: CI 自 10-11 起红): patch 时钟与条目日必须**同源**。
+    # 原病灶 = patch 硬编码 10-10 而 `_entry(_today())` 用真实时钟; 当真实日期 != 10-10
+    # (如 10-11)时条目日 != now 日 → 被判 stale → 断言语义反转(no-op 变必发)。
+    # 由 patch 的那个固定时刻派生条目日, 则任何真实日期跑都恒判「当日 due, 23:25 前 no-op」。
+    _now = datetime(2026, 10, 10, 12, 0, 0)
+    _patch_now(monkeypatch, _now)
+    _seed_digest(_iso["alerts"], [_entry(_now.strftime("%Y-%m-%d"))])
     calls = []
     monkeypatch.setattr(notify, "send", lambda *a, **k: (calls.append((a, k)),
                                                          {"email": True, "telegram": False,
@@ -350,8 +355,12 @@ def test_04c_flush_send_fail_keeps_entries(_iso, monkeypatch):
 
 
 def test_04d_flush_stale_next_day_sends(_iso, monkeypatch):
-    yday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-    _patch_now(monkeypatch, datetime(2026, 10, 10, 12, 0, 0))  # 非 23:25 也发(stale)
+    # 日期无关(2026-10-11 修 P0): 条目日 = patch 日的前一天(**同源**), 才恒判 stale。
+    # 原病灶 = 条目日取自真实 `datetime.now()-1d`, patch 却硬编码 10-10; 真实日期 == 10-10
+    # 时 yday == now 日(非 stale)→ 断言语义反转(必发变 no-op)。
+    _now = datetime(2026, 10, 10, 12, 0, 0)
+    yday = (_now - timedelta(days=1)).strftime("%Y-%m-%d")
+    _patch_now(monkeypatch, _now)  # 非 23:25 也发(stale)
     _seed_digest(_iso["alerts"], [_entry(yday)])
     calls = []
     monkeypatch.setattr(notify, "send", lambda *a, **k: (calls.append((a, k)),
