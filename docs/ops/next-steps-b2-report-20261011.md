@@ -171,3 +171,39 @@ git branch <name> origin/main            # 重建同名分支(指向 main 可达
 1. **#240 P-2（低·观察）**：F1 的「响亮打日志」在生产调用链可能被父进程吞 stderr —— 本批按原文**只报不改**，建议并入「告警链 sent 语义收口」小任务。
 2. **`update_dedup`/`_save_warning_dedup_state`** 仍是「调用侧守 dry_run」而非「函数内单点守卫」：本批**刻意不改**（理由见 §2.1），留档供后续统一口径时参考。
 3. **main CI 红**（§6）在修复分支合并前会持续；任何 feat 走 `main-merge.sh` 都会看到 ⑧ FAIL，属**既有基线**、非本批引入。
+
+---
+
+## 补笔（O-1/O-2，2026-10-11 审查后顺手补齐）
+
+本批独立审查（`docs/ops/next-steps-b2-review-20261011.md` §二）在隔离穷举面外发现 2 条同型残余面（O-1 中置信 / O-2 低置信，均 pre-existing、不阻断 merge）；主控定夺于本批顺手补齐。
+
+### 勘误
+- 隔离穷举的对外结论 **「6 个未启用隔离的包装**均不写主仓**」→ 订正为「**5 个不写 + `agent_inbox_watcher` 写主仓日志（已补）**」**。即：跑全量 pytest 时，6 个未启用隔离的包装里**恰有 1 个**（`test_agent_inbox_watcher`）会把合成行 append 进**主仓** `data/logs/agent_inbox_watcher.log`（O-1；§0 表「污染检测」/ §7「item 7 零残留」两行的口径按此理解——那两行只覆盖 `data/alerts`/`data/feishu_requests`，未覆盖 `data/logs`）。
+
+### ① O-1（必须）：agent_inbox_watcher 未纳入隔离，跑 pytest 写主仓日志
+- **病灶（与已修 `feishu_ws_listener` 逐字同型）**：`scripts/agent_inbox_watcher.py:23 REPO = Path("/Users/linhuichen/code/trade")` 硬编码主仓；`:29-30 LOG_DIR/LOG_FILE` 在 **import 期**由 REPO 派生绑定；原 legacy 测试只 `patch w.REPO`（:110/:274）**不更新已绑定量** ⇒ `log()` 把合成行 append 进主仓 `data/logs/agent_inbox_watcher.log`。
+- **修法（沿用 B2 既有隔离机制，现成模式，3 处）**：
+  1. `scripts/tests/_wrap_util.py` `_REPO_PATH_ATTRS` 登记 `"agent_inbox_watcher": ("LOG_DIR", "LOG_FILE")`；
+  2. 同文件 `_WATCH_MODULES` 加 `"agent_inbox_watcher"`（重绑类模块**收尾必须还原**，否则残留指向已删临时树，与 `feishu_ws_listener` 同位同律）；
+  3. `scripts/tests/test_agent_inbox_watcher_pytest.py` 包装 `isolate_repo=True`。
+  > 审查报告 O-1 建议实含前两点实质（登记 + `isolate_repo`）；第 2 点 `_WATCH_MODULES` 是「重绑后收尾还原」的必需项（对照 `feishu_ws_listener` 既有先例），一并补齐。
+
+### ② O-2（顺手）：`feishu_ws_listener` LOG_PATH 硬编码 trade-data 树
+- **病灶**：`scripts/feishu_ws_listener.py:63 LOG_PATH = Path("/Users/linhuichen/code/trade-data/data/logs/…")` 硬编码 **trade-data 镜像树**（非主仓，且 `log()` 有 try/except 兜底 ⇒ CI 恒安全）；复跑实测在该镜像树有新行。
+- **修法**：低成本同机制 —— `_REPO_PATH_ATTRS` 的 `feishu_ws_listener` 元组加 `"LOG_PATH"`（包装已 `isolate_repo=True`、模块已在 `_WATCH_MODULES`，无需其他改动）。
+
+### 自测证据（逐条对验收口径）
+| 验收点 | 命令/手段 | 结果 |
+|---|---|---|
+| **双树零污染对拍（跑前跑后）** | 跑前后 `wc -l` + `md5`：主仓 `data/logs/agent_inbox_watcher.log`、`trade-data/data/logs/feishu_listener.log` | 定向（2 包装，4.14s）与**全量**（82.07s）跑后：主仓 log **85464 行 / md5 `653eb82b…` 零变化**；feishu 镜像树 **md5 `8e1177df…` 零变化** |
+| **正向证明**（防「`log()` 未被调用」的假绿，§18 L49） | 手工 `_isolate_repo_env()` + `_redirect_repo_paths()` 后打印常量 + 调 `log()` | `agent_inbox_watcher`：`LOG_DIR/LOG_FILE` 由主仓路径 → 临时树，probe 行落临时树 `data/agent_inbox_watcher.log`；`feishu_ws_listener`：`LOG_PATH` → 临时树，probe 落临时树 |
+| **定向测试** | `pytest -q test_agent_inbox_watcher_pytest.py test_feishu_ws_listener_pytest.py` | **2 passed** |
+| **受影响包装回归（§15）** | 9 个：2 目标包装 + notify 家族 6 + B2 `test_229_230` | **22 passed** |
+| **全量回归** | `pytest -q scripts/tests/` | **746 passed / 2 skipped / 3 failed**（3 条仍为 §6 既有：`test_188`×1 + `test_245`×2，本分支 base 未含 B6/B7 修复，**非本改动引入，勿动勿修**） |
+| **零外发自证（§18 L48）** | 沿用 `ZeroOutboundTrap` 哨兵 | 上述各跑均 `hits=[]`，无真实发通知/飞书/R2 写 |
+
+### 数据清理（主仓日志合成行）
+- 主仓 `data/logs/agent_inbox_watcher.log`：清除 B2 审查复跑（mtime **10:25:40**）写入的**整段合成日志 = 尾段 14 行**（含 `rev-test-003`×2 + `t-verdict-003`×1 + 临时路径 `tmpc86xal8k` 等；**85478 → 85464 行**）。
+- 只删该次复跑段；**10:25:40 之前的既有行（如 10:16:11 段）一律未动**（遵「勿动其余」）。
+- **§25 可逆**：删前已整文件备份 → `/tmp/b2fix-backup-agent_inbox_watcher.log`（删除前原态 **md5 `653eb82b3bd76dc9687081adee38f51d`**，85478 行）；若只需删 `rev-test-003` 标志行，可从此备份重取原态重做。

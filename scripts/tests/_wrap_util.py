@@ -81,7 +81,16 @@ _REPO_PATH_ATTRS = {
     ),
     # feishu_ws_listener.StabilityFixTests 调 process_event(...) 时不传 dedup_path ⇒ 落到模块级
     # FORWARD_DEDUP_PATH(合成 3 行写进主仓 data/feishu_requests/, 2026-10-11 实测)。
-    "feishu_ws_listener": ("FORWARD_DEDUP_PATH", "AUTODONE_DEDUP_PATH"),
+    # LOG_PATH(#247-R2/#245 卫生补, 2026-10-11 B2 审查 O-2): 原为硬编码绝对路径
+    # `/Users/linhuichen/code/trade-data/data/logs/feishu_listener.log`(镜像树), log() 复跑实测有新行;
+    # 登记后随机制重定向到临时树(不再写 trade-data 镜像树), 有 try/except 兜底 CI 恒安全。
+    "feishu_ws_listener": ("FORWARD_DEDUP_PATH", "AUTODONE_DEDUP_PATH", "LOG_PATH"),
+    # agent_inbox_watcher(#247-R2/#245 卫生补, 2026-10-11 B2 审查 O-1): REPO 硬编码主仓(:23),
+    # LOG_DIR/LOG_FILE 在 import 期由 REPO 派生绑定(:29-30); 原测试只 patch w.REPO(:110/:274)
+    # 不更新已绑定的 LOG_DIR/LOG_FILE ⇒ 跑 pytest 时 log() 把合成行 append 进主仓
+    # data/logs/agent_inbox_watcher.log(实测 rev-test-003/t-verdict-003, 2026-10-11 10:25:40)。
+    # 与 feishu_ws_listener 逐字同型(import 期绑定量 + legacy 套件), 补登记后重定向到临时树。
+    "agent_inbox_watcher": ("LOG_DIR", "LOG_FILE"),
 }
 
 
@@ -89,7 +98,8 @@ def _redirect_repo_paths(iso_dir):
     """把**已在 sys.modules** 的受管模块的落盘路径常量重定向到临时树(与 env REPO 同树)。
 
     仅处理 `_REPO_PATH_ATTRS` 登记且在册的模块(notify 由各 notify-家族套件 import; feishu_ws_listener
-    由 test_feishu_ws_listener 顶层 `import ... as fwl` 带入);收尾 `_restore_modules` 整体还原
+    由 test_feishu_ws_listener 顶层 `import ... as fwl` 带入; agent_inbox_watcher 由 test_agent_inbox_watcher
+    `import agent_inbox_watcher as w` 带入);收尾 `_restore_modules` 整体还原
     (快照两层: 对象身份 + 命名空间属性, 二者都须在 `_WATCH_MODULES` 内)。
     """
     for mname, attrs in _REPO_PATH_ATTRS.items():
@@ -108,7 +118,9 @@ def _redirect_repo_paths(iso_dir):
 # `_get_tenant_access_token` → 之后 test_feishu_post 的 setUp patch 直接 AttributeError)。
 # feishu_ws_listener 亦纳入: 其 import 期路径常量会被 `_redirect_repo_paths` 重绑,
 # 必须随包装收尾还原(否则残留指向已删临时树)。
-_WATCH_MODULES = ("notify", "upload_r2", "check_data_integrity", "feishu_ws_listener")
+# agent_inbox_watcher 同理纳入(2026-10-11 O-1): LOG_DIR/LOG_FILE 被重绑, 收尾须还原。
+_WATCH_MODULES = ("notify", "upload_r2", "check_data_integrity", "feishu_ws_listener",
+                  "agent_inbox_watcher")
 
 
 def _snapshot_modules():
