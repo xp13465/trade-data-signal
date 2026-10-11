@@ -180,9 +180,10 @@ awk 'NR>=65 && /^PYEOF$/{exit} NR>=65' scripts/schedule_monitor.sh > /tmp/sm_che
 # 新增测试套(三项 24 例)
 /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_alert_denoise_3x_20261011.py
 
-# 全量回归
+# 全量回归(commit a7f6413ec 之后, HEAD==工作区)
 /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/
-#   → 780 passed, 1 skipped(唯一 FAIL=test_212 静态对照,见下「已知噪声」)
+#   → 780 passed, 2 skipped, 0 failed(提交前为 1 failed/780 passed/1 skipped,
+#     唯一 FAIL=test_212 静态对照,提交后自动转 skip ⇒ 0 failed)
 
 # 零外发实测(跑前/跑后告警目录对比)
 stat -f "%m %z" data/alerts/latest.md data/alerts/alert_ledger.jsonl
@@ -192,6 +193,6 @@ ls data/alerts/ ; ls data/.r2_standalone_stale_state.json
 ## 已知噪声 / 诚实标注
 
 - `scripts/tests/test_212_upload_onfail_loud_pytest.py::test_e_pre_change_source_static` 在**未提交**态必 FAIL:
-  它用 `git show HEAD:scripts/upload_r2.py` 当「#212 改前版」与工作区比,要求 HEAD 版无 `_channel_on_fail`;而 #212 早已在 HEAD(#212 已 merge),该用例本意是「改动未提交时可对照」——任何**改动 upload_r2.py 的 worktree** 都会踩到。**提交后 HEAD==工作区 ⇒ 该用例自动 skip**(与 main 上一致)。本次提交后将复跑确认(不改该测试,属其自身设计,超出本任务授权范围)。
+  它用 `git show HEAD:scripts/upload_r2.py` 当「#212 改前版」与工作区比,要求 HEAD 版无 `_channel_on_fail`;而 #212 早已在 HEAD(#212 已 merge),该用例本意是「改动未提交时可对照」——任何**改动 upload_r2.py 的 worktree** 都会踩到。**提交后 HEAD==工作区 ⇒ 该用例自动 skip**(与 main 上一致)。**已复跑确认:commit `a7f6413ec` 后该单例结果为 `skipped`,全量 `780 passed / 2 skipped / 0 failed`**(不改该测试,属其自身设计,超出本任务授权范围)。
 - ③ 的 `--tier info` 不带 dedup key ⇒ 每条 warning 档恢复各记一次 dashboard(每恢复事件一次,不重复;因状态已翻 recovered,不会逐轮重复)。
 - 本次**未做** red-first(未回退旧码跑新测试);新测试的判别性由「旧断言在旧码下的反例」间接佐证(如 test_223 正文渲染对旧正文无新字段)。
