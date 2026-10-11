@@ -15,7 +15,9 @@ akshare 等多源 fallback 兜底,间歇封禁后 backfill-evening 槽位补回�
        memory alert-denoise-keep-fault-discriminator):
        **凌晨槽(02:00, 判定= BACKFILL_SLOT 存在且实际时点 < 05:00)** = 结构性预期缺口
        (新浪源 T+1、目标日=当日必败),仍计 gap 静默
-       (9/14-9/30 十七次 gap/五次 ok),仍 log_collect error 让 collect_health 通道反映,
+       (9/14-9/30 十七次 gap/五次 ok),仍 log_collect warn 让 collect_health 通道反映
+       (2026-10-12 改:原写 error 会被 retry_failed_metrics 当真实失败 → 每 45min 误报一条,
+       详见 _is_morning_slot docstring 与 morning 分支注释),
        但不计 fail、不影响退出码——2026-09-09 #84 reviewer P1-1 降噪保留此槽;
        **非凌晨槽(16:35/21:00)** = 真正兜底槽每次都补回来,此刻六源全败=真故障
        (前端 fetch_market_fund_flow 6 源串行兜底全败被静默=监控盲区根因),必须计 fail
@@ -69,7 +71,8 @@ def _is_morning_slot(now: dt.datetime | None = None) -> bool:
     为什么 02:00 是结构性预期缺口: 新浪源 T+1、该槽目标日=当日, 必败
     (2026-09-30 实测 9/14-9/30 十七次 gap/五次 ok)。16:35/21:00 是真正兜底槽每次
     都能补回来——它们出现「多源皆败」=真故障(16:35/21:00 六源全败)。
-    返回 True = 凌晨槽, gap 属结构性预期应静默(仍 log_collect error 反映 collect_health)。
+    返回 True = 凌晨槽, gap 属结构性预期应静默(仍 log_collect warn 反映 collect_health,
+    2026-10-12 由 error 改 warn:error 会被 retry_failed_metrics 当真实失败致 45min 误报环)。
 
     保留真故障判别维度(memory alert-denoise-keep-fault-discriminator):
     - 仍报: 非 gap 失败(direct:* error/抛异常/no config)无条件计 fail 与本判定无关;
@@ -123,7 +126,18 @@ def main() -> int:
                 if morning:
                     gap += 1
                     print(f"[gap] {mid} {msg} (02:00 槽预期缺口, 静默)", flush=True)
-                    log_collect(date, mid, "error", msg)
+                    # 2026-10-12 凌晨 45min 误报环根治: 结构性预期缺口写 warn 而非 error。
+                    # 病灶: 写 error 会被 retry_failed_metrics.get_failed_metrics(只取
+                    # status='error')当真实失败 → 每 15min 重试(必败)、连续 3 轮发通知、
+                    # 送达后清零计数 → 下一轮又从 0 累计 → 每 45min 一条无限环
+                    # (2026-10-12 实测: count.json={"a_fund_main":2};notify 02:52/06:37)。
+                    # 写 warn 仍进 collect_health(status!=ok 即计入, level 黄点而非红点),
+                    # 保留 #84 P1-1「让 collect_health 通道反映」的意图, 又与
+                    # index_backfill.py 同款(warn=告警但不计 error 重试)约定一致。
+                    # 真故障判别维度不变: 非凌晨槽 6 源全败 / 配置缺失 / 抛异常仍写 error
+                    # + 计 fail(见下方两分支), 该有数据而没有由 16:35/21:00 槽 +
+                    # check_data_gap_alerts.check_fund_freshness 兜底照报。
+                    log_collect(date, mid, "warn", msg)
                 else:
                     fail += 1
                     print(f"[fail] {mid} {msg} (非凌晨槽多源全败=真故障, 计入退出码)", flush=True)
