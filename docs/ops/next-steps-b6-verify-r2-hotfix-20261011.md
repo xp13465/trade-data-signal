@@ -121,7 +121,8 @@ FAILED scripts/tests/test_245_l2_budget_digest_20261010.py::test_04d_flush_stale
 
 **逐条归因(均非本改动引入,已逐条核实)**:
 
-- `test_212::test_e_pre_change_source_static`:该用例设计为「**仅未提交态**才有意义」——断言 `git show HEAD:scripts/upload_r2.py` 里 `_channel_on_fail` 计数 == 0(= #212 改前证据)。而 #212 早已合入 HEAD(`11776c31b`),只有**本地工作区脏**(我改了 upload_r2.py)时才不 skip、才会撞上这条早已过时的断言。**commit 后 HEAD==工作区 → 自动 skip**(用例 docstring 自述)。与本改动的 `standalone_files` 无关(断言对象是 `_channel_on_fail`)。
+- `test_212::test_e_pre_change_source_static`:该用例设计为「**仅未提交态**才有意义」——断言 `git show HEAD:scripts/upload_r2.py` 里 `_channel_on_fail` 计数 == 0(= #212 改前证据)。而 #212 早已合入 HEAD(`11776c31b`),只有**本地工作区脏**(我改了 upload_r2.py)时才不 skip、才会撞上这条早已过时的断言。**commit 后 HEAD==工作区 → 自动 skip**。与本改动的 `standalone_files` 无关(断言对象是 `_channel_on_fail`)。
+  - **提交后实测确认**:`pytest -q scripts/tests/test_212_upload_onfail_loud_pytest.py scripts/tests/test_188_s06_sync_blindspot_pytest.py` → **43 passed / 1 skipped**(该 skip 即 `test_e`,符合其「已提交态自动 skip」设计;同跑的 test_188 绿)。
 - `test_245::test_04` / `test_04d`:日期敏感用例(隔日 stale 判定),**由另一任务负责,本任务不触碰**(协调者已明确)。
 
 ## 5. 同类错误面清单(§23.2 ③)
