@@ -28,6 +28,9 @@ set -u
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
 resolve_repo "${BASH_SOURCE[0]}"
+# 看门狗判据纯函数库(2026-10-11 抽取, 见 lib/upload_watchdog.sh 头注): 低速窗口/杀停/收尾豁免
+# 三个判定抽成无副作用纯函数, 供本脚本调用 + 测试 static-only source 覆盖(§18 L50)。
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/upload_watchdog.sh" || { echo "FATAL: upload_watchdog.sh missing" >&2; exit 2; }
 PY="$REPO/.venv/bin/python"
 
 # 进程互斥: 同日内重复触发(多 pipeline deploy 并发/force 重跑)不并发上传。
@@ -68,6 +71,9 @@ set -a
 set +a
 
 # ---- 看门狗换代(#174, 2026-10-05): 总存活时长判据废弃 -> 停滞判据(主)+ 低速判据(辅)+ 7200s 硬兜底 ----
+# ---- 低速判据修复(2026-10-11, upload-trade-sim 两轮误杀): a1 窗口 300s→max(900,HTTP+300) 防梯度倒置
+#      + a2 收尾豁免(剩 ≤2 个文件不杀)。判据纯函数抽到 lib/upload_watchdog.sh; 根因见
+#      docs/ops/watchdog-tradesim-slowkill-20261011.md ----
 # 业界(rclone --timeout / rsync --timeout / curl --speed-limit / systemd WatchdogSec)全按
 # 「IO 停滞/无进展」判死, 不按「进程活了多久」—— 健康全量(如 1718 key 备份)只要日志在推进
 # 就放行, 不被总时长误杀(根因: _backup_overwritten_keys 串行备份 ~2200s 被显式 900s 误杀 → 死循环)。
@@ -123,13 +129,21 @@ run_r2_upload() {
     echo "⚠ R2_UPLOAD_STALL_SECS=$_stall_secs ≤ 内层 HTTP 超时 ${_http_to}s(梯度倒置), 自动抬到 $((_http_to + 300))s" | tee -a "$LOG"
     _stall_secs=$((_http_to + 300))
   fi
+  # 辅判据=低速(2026-10-11 改): 每 60s 采样日志已传字节(形如 (12345B)), 连续「窗口」时长增量 < 1MB
+  # 且属批量上传(total>10)即判死; 但**接近完成(收尾阶段)豁免**(a2), 且窗口跟随内层 HTTP 超时(a1)。
+  # 小通道/对账通道(verify-r2 无 [N/M] 进度行、upload-feed 单文件)不适用, 靠停滞判据 + 7200s 硬兜底。
+  # 备份阶段进度行不带 (sizeB)(看 upload_r2.py), 不会误判。
+  #   a1 窗口 = max(900, HTTP超时+300)(lib/upload_watchdog.sh): 旧硬编码 300 < 内层 600 ⇒ 梯度倒置,
+  #      内层「600s 超时→退避→重试」自愈链被外层先杀; 900s > 内层自愈周期(≈675s) ⇒ 内层活着就杀不掉。
+  #   a2 收尾豁免: M>10 且已完成 N ≥ M-2(只剩最后 ≤2 个文件)时低速崩不杀——8 线程池收尾必然 5 分钟
+  #      零增量(其余线程早空闲无完成行), 杀它=下轮 marker→全量(200MB 级); 真死交停滞判据 900s/硬 7200s。
+  local _low_win _low_need
+  _low_win="$(r2_low_speed_window "$_http_to")"
+  _low_need="$(r2_low_speed_need "$_low_win")"
   local _last_mtime _now _slept _cur_mtime
   _last_mtime=$(_fmt_mtime "$tmp_log")
   _slept=0
-  # 辅判据=低速: 每 60s 采样日志已传字节(形如 (12345B)), 近 5 分钟(连续 5 次采样)增量 < 1MB
-  # 且属批量上传(total>10)即判死。小通道/对账通道(verify-r2 无 [N/M] 进度行、upload-feed 单文件)
-  # 不适用, 靠停滞判据 + 7200s 硬兜底。备份阶段进度行不带 (sizeB)(看 upload_r2.py), 不会误判。
-  local _batch_total=0 _upb=0 _low_last=0 _low_bad=0
+  local _batch_total=0 _batch_done=0 _upb=0 _low_last=0 _low_bad=0 _low_tail_logged=0
   while kill -0 "$pid" 2>/dev/null; do
     sleep 5
     _slept=$((_slept + 5))
@@ -157,19 +171,26 @@ run_r2_upload() {
       return 1
     fi
     if [ $((_slept % 60)) -eq 0 ]; then
-      if [ "$_batch_total" -le 10 ]; then
-        _batch_total=$(grep -Eo '\[[0-9]+/[0-9]+\]' "$tmp_log" 2>/dev/null | tail -1 | sed 's/.*\///; s/]//')
-        [ -n "$_batch_total" ] || _batch_total=0
+      # 取日志最后一个 [N/M] 进度行: N=已完成数(a2 收尾豁免用), M=批次总数(仅首批 >10 时固定, 与旧行为一致)。
+      local _prog _pn _pm
+      _prog=$(grep -Eo '\[[0-9]+/[0-9]+\]' "$tmp_log" 2>/dev/null | tail -1)
+      if [ -n "$_prog" ]; then
+        read -r _pn _pm <<<"$(r2_parse_progress "$_prog")"
+        _batch_done="$_pn"
+        if [ "$_batch_total" -le "$R2_LOW_SPEED_MIN_BATCH" ] && [ "$_pm" -gt 0 ]; then
+          _batch_total="$_pm"
+        fi
       fi
       _upb=$(grep -Eo '\([0-9]+B\)' "$tmp_log" 2>/dev/null | sed 's/(//; s/B)//' | awk '{s+=$1} END{print s+0}')
-      if [ "$_batch_total" -gt 10 ] && [ $((_upb - _low_last)) -lt 1048576 ]; then
+      if [ "$_batch_total" -gt "$R2_LOW_SPEED_MIN_BATCH" ] && [ $((_upb - _low_last)) -lt 1048576 ]; then
         _low_bad=$((_low_bad + 1))
       else
         _low_bad=0
+        _low_tail_logged=0
       fi
       _low_last=$_upb
-      if [ "$_low_bad" -ge 5 ]; then
-        echo "⚠ $desc 低速(近5分钟字节增量<1MB), kill pid=$pid" | tee -a "$LOG"
+      if r2_low_speed_should_kill "$_low_bad" "$_low_win" "$_batch_total" "$_batch_done"; then
+        echo "⚠ $desc 低速(近$((_low_win / 60))分钟字节增量<1MB, 完成 $_batch_done/$_batch_total), kill pid=$pid" | tee -a "$LOG"
         R2_KILLED="$R2_KILLED $desc"
         _dump_kill_tail "$tmp_log" "$desc"
         kill -TERM "$pid" 2>/dev/null; sleep 2
@@ -177,6 +198,10 @@ run_r2_upload() {
         wait "$pid" 2>/dev/null || true
         rm -f "$tmp_log"
         return 1
+      elif [ "$_low_bad" -ge "$_low_need" ] && [ "$_low_tail_logged" -eq 0 ] \
+           && r2_tail_near_complete "$_batch_total" "$_batch_done"; then
+        echo "  $desc 低速真空达 ${_low_win}s 但处于收尾阶段(完成 $_batch_done/$_batch_total), 跳过低速杀(a2 收尾豁免)" | tee -a "$LOG"
+        _low_tail_logged=1
       fi
     fi
   done
