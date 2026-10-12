@@ -98,11 +98,12 @@ P2b 绝对量闸(§13)新增一条 WARN(`kelly_intraday_gate_allzero_volume`, 6h
 
 ```bash
 # 全量回归(CI 同口径, CI 只跑 scripts/tests/)
-/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/          # 799 passed, 2 skipped
-# 本任务套(#254 原 30 项 + P2b 新增 14 项 = 44 项)
+/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/          # 801 passed, 2 skipped
+# 本任务套(#254 原 30 项 + P2b 新增 14 项 + F5 新增 2 项 = 46 项)
 /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_254_intraday_gate_relax_20261012.py
-#   → 44 passed(含 P2b: target2 静默 / target3 WARN / 同面豁免静默 / 豁免面不匹配 WARN /
-#      部分零成交不触发 / 混合面 abort 不改写 / 空轮不受影响 / 显式字段式 / P3 不动 / 留痕字段 / 沙箱零外发)
+#   → 46 passed(含 P2b: target2 静默 / target3 WARN / 同面豁免静默 / 豁免面不匹配 WARN /
+#      部分零成交不触发 / 部分零成交(target4/3零)静默 / target4 全零 WARN / 混合面 abort 不改写 /
+#      空轮不受影响 / 显式字段式 / P3 不动 / 留痕字段 / 沙箱零外发)
 # #246 回归(签名扩容同步后)
 /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_246_faultb_fallback_20261010.py
 # 未定价字段层级实测(真实产物, 2026-10-12 实跑; 结论 = root 级 intraday, 无 meta):
