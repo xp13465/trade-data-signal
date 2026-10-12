@@ -43,6 +43,9 @@ exit5 原本 = 「取不到今日真实开盘价」一刀切 fail-closed(#246 B4
   (class=`zero_volume`)的**子集**。不变式 `unpriced_zero_volume_codes ⊆ unpriced_codes`;
   子集缺失/为空时前端退回中性措辞 ⇒ 后端必须保证零成交类**不漏**归子集。
   两字段**同批出现在**盘中档 JSON 与 `data/kelly_intraday_gate_report.json`。
+  **层级双证(代码锚)**:`verify_intraday`(每轮生产实跑的对账函数)读的是
+  `data.get("intraday", {}).get("main_pre_date_hash")` = **root 级 `intraday`**
+  (`scripts/signal_kelly_backtest.py` `verify_intraday`),与线上产物实测一致。
 - **字段真实层级(以实际产物为准, 已实测)**:线上 `signal_kelly_trades_intraday.json` 的 `top_keys` 含
   **root 级 `intraday`**、**无 `meta`** ⇒ 路径 = **`intraday.unpriced_codes`** / `intraday.unpriced_zero_volume_codes`,
   **不是** `meta.intraday.*`(派单原措辞不精确, 见 §7 复现段实测命令)。`signal_kelly_backtest_intraday.json`
