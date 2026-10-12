@@ -12,8 +12,16 @@
   · 断言输入取自 2026-10-12 真实响应（列名 + 真实行值，见 REAL_* 常量）；
   · 「未发布当日列」用真实空单元格形态（空字符串 ""，非 NaN）构造——这是东财实际返回的
     形态，也是旧代码 notna()/按列序取用的失守点；
-  · 在旧代码上 FAIL、在新代码上 PASS（旧逻辑在 test_01 由 `_legacy_fetch_daily_nav` 复刻
+  · 在旧代码上 FAIL、在新代码上 PASS（旧逻辑在 run_01 由 `_legacy_fetch_daily_nav` 复刻
     并逐位验证「确实写出全 NULL 当日行」，证明 fixture 能触发该 bug）。
+
+CI 防护（must-fix-1，2026-10-12 独立审查）：
+  原版 `_check` 只记录不 assert，且用例名 `test_*` 被 pytest 当空壳收集 ⇒ CI 闸门
+  （.github/workflows/ci.yml:123 `python3 -m pytest -q scripts/tests/`）里 6 passed 却零防护
+  （§18 L49 空转养绿）。现改为：①用例改名 `run_*`（进程式，不被 pytest 空壳收集）
+  ②新增 `test_251_fundnav_col_bugfix_ci_gate`（pytest 唯一入口）经 house 桥接
+  `scripts/tests/_wrap_util.py::run_script_main` 跑完整 main()，断「无 FAIL 检查 + 检查数下限
+  + 零真实外发」。期望值改错 ⇒ 该 gate FAIL（非 0）。
 
 用法：python3 scripts/tests/test_251_fundnav_col_bugfix.py
 退出码 0=全过；1=有 FAIL。
@@ -68,6 +76,7 @@ CREATE TABLE IF NOT EXISTS fund_daily_nav (
 """
 
 _RESULTS: list[tuple[bool, str]] = []
+_MIN_CHECKS = 24          # 全用例 `_check` 条数（run_01..run_06 实测 24）；CI gate 的防删下限（§18 L49）
 
 
 def _check(cond: bool, label: str) -> None:
@@ -81,8 +90,12 @@ def _mk_df(cols: list[str], rows: list[dict]) -> pd.DataFrame:
 
 def _race_df() -> pd.DataFrame:
     """10-13 16:30 撞上「滚动未发布」窗口的真实形态：
-    当日(10-13)两列全空字符串 + 日增长率仍是 '0.00'（东财未发布日的实际返回），
-    前一日(10-12)列是 2026-10-12 真实净值。"""
+    当日(10-13)两列全空字符串 + 日增长率给 '0.00'，前一日(10-12)列是 2026-10-12 真实净值。
+
+    注(nit-1 订正, 2026-10-12 独立审查): 此处「未发布日 日增长率 = 0.00」是**比真实更严格**的
+    构造 —— 事故备份实测 10-08/09/12 的 DB nav_change_pct 是**全 NULL**(非 0.0), 即东财未发布
+    日的日增长率实为缺失而非 0。构造成 '0.00' 可额外验证「新逻辑不得把未发布日的涨跌串记到
+    回退日头上」(run_02 末条断言), 本身有效, 故不改数据, 只订正注释措辞。"""
     cols = [
         "基金代码", "基金简称",
         "2026-10-13-单位净值", "2026-10-13-累计净值",
@@ -96,7 +109,7 @@ def _race_df() -> pd.DataFrame:
             "2026-10-13-单位净值": "", "2026-10-13-累计净值": "",
             "2026-10-12-单位净值": r["2026-10-12-单位净值"],
             "2026-10-12-累计净值": r["2026-10-12-累计净值"],
-            # 未发布日的实际返回：日增长率给 0.00（事故当天 DB nav_change_pct=0 的由来）
+            # 未发布日构造「日增长率 = 0.00」（比真实更严格, 见本函数 docstring nit-1 订正注释）
             "日增长值": "0.00", "日增长率": "0.00",
             "申购状态": "开放申购", "赎回状态": "开放赎回", "手续费": "0.05%",
         })
@@ -169,7 +182,7 @@ def _q(db_path: Path, sql: str, args=()):
 
 
 # ── 用例 ────────────────────────────────────────────────────────────────────────
-def test_01_fixture_triggers_bug_on_legacy() -> None:
+def run_01_fixture_triggers_bug_on_legacy() -> None:
     """L49 前置：先证明 race fixture 在旧逻辑下确实产出全 NULL 当日行（否则 fixture 无效）。"""
     print("test_01 旧逻辑在 race fixture 上复现 bug（fixture 有效性）")
     db = _fresh_db()
@@ -181,7 +194,7 @@ def test_01_fixture_triggers_bug_on_legacy() -> None:
            "旧逻辑写出的当日行 unit_nav/acc_nav 全 NULL（=事故形态）")
 
 
-def test_02_new_code_falls_back_to_published_prev_day() -> None:
+def run_02_new_code_falls_back_to_published_prev_day() -> None:
     """新逻辑：当日未发布 → 回退到次新已发布日，不写全 NULL 当日行。"""
     print("test_02 新逻辑：未发布当日回退（10-08/09/12 根因场景）")
     db = _fresh_db()
@@ -201,7 +214,7 @@ def test_02_new_code_falls_back_to_published_prev_day() -> None:
     _check(r2 and r2[0]["unit_nav"] == 1.6758, f"161226 20261012 unit_nav=1.6758（实际 {r2 and r2[0]['unit_nav']}）")
 
 
-def test_03_normal_response_writes_newest_full_row() -> None:
+def run_03_normal_response_writes_newest_full_row() -> None:
     """正常（当日已发布）：写最新日，unit/acc/prev/pct 齐。"""
     print("test_03 新逻辑：正常响应写最新已发布日全字段")
     db = _fresh_db()
@@ -217,7 +230,7 @@ def test_03_normal_response_writes_newest_full_row() -> None:
            "不把 prev 列另写一行（prev 仅作列值）")
 
 
-def test_04_column_order_independent() -> None:
+def run_04_column_order_independent() -> None:
     """抵抗上游列序微调：把两个日期列整体倒序，仍须认最新日。"""
     print("test_04 新逻辑：列序倒置仍认最新日（抗上游微调）")
     db = _fresh_db()
@@ -230,7 +243,7 @@ def test_04_column_order_independent() -> None:
            "倒序下未误写 20261009")
 
 
-def test_05_fallback_does_not_clobber_existing_values() -> None:
+def run_05_fallback_does_not_clobber_existing_values() -> None:
     """回退重写「前一日」行时，不得抹掉该行已有的 prev_unit_nav/nav_change_pct（COALESCE 保留）。"""
     print("test_05 新逻辑：回退写不踩踏已有值（COALESCE）")
     db = _fresh_db()
@@ -247,7 +260,7 @@ def test_05_fallback_does_not_clobber_existing_values() -> None:
     _check(r["nav_change_pct"] == -9.99, f"已有 nav_change_pct=-9.99 未被抹（实际 {r['nav_change_pct']}）")
 
 
-def test_06_all_columns_blank_returns_zero() -> None:
+def run_06_all_columns_blank_returns_zero() -> None:
     """所有日期列都未发布：不写行、返回 0（不制造全 NULL 批）。"""
     print("test_06 新逻辑：全列未发布 → 不写")
     db = _fresh_db()
@@ -263,12 +276,12 @@ def test_06_all_columns_blank_returns_zero() -> None:
 
 
 def main() -> int:
-    for fn in (test_01_fixture_triggers_bug_on_legacy,
-               test_02_new_code_falls_back_to_published_prev_day,
-               test_03_normal_response_writes_newest_full_row,
-               test_04_column_order_independent,
-               test_05_fallback_does_not_clobber_existing_values,
-               test_06_all_columns_blank_returns_zero):
+    for fn in (run_01_fixture_triggers_bug_on_legacy,
+               run_02_new_code_falls_back_to_published_prev_day,
+               run_03_normal_response_writes_newest_full_row,
+               run_04_column_order_independent,
+               run_05_fallback_does_not_clobber_existing_values,
+               run_06_all_columns_blank_returns_zero):
         fn()
     bad = [lbl for ok, lbl in _RESULTS if not ok]
     print(f"\n{'=' * 60}\n#251 回归：{len(_RESULTS) - len(bad)}/{len(_RESULTS)} 通过", flush=True)
@@ -278,6 +291,27 @@ def main() -> int:
         return 1
     print("ALL PASS", flush=True)
     return 0
+
+
+# ── CI 闸门 ⑧ 入口（must-fix-1）─────────────────────────────────────────────────
+def test_251_fundnav_col_bugfix_ci_gate() -> None:
+    """pytest 唯一入口（.github/workflows/ci.yml job ⑧ `pytest -q scripts/tests/`）。
+
+    本文件是「进程式 main() + PASS/FAIL 计数」形态，house 机制 = `_wrap_util.run_script_main`
+    桥接（与 test_188/test_204/test_ai_macro_hit_filters 同款）：import 本模块 → 调 main() →
+    零外发陷阱包裹 → 按本脚本自己的计数断言。传 `__name__` 而非硬编码模块名，使本文件被复制
+    成任意副本（如变异验证副本）时仍桥接**副本自身**，变异即被捕获。
+    """
+    from _wrap_util import run_script_main  # scripts/tests/ 同目录(house 薄包装工具)
+
+    r = run_script_main(__name__)
+    bad = [lbl for ok, lbl in r.mod._RESULTS if not ok]
+    assert not bad, f"#251 回归有 FAIL 检查: {bad}\n{r.out[-3000:]}"
+    assert len(r.mod._RESULTS) >= _MIN_CHECKS, (
+        f"#251 仅记录 {len(r.mod._RESULTS)} 条检查（下限 {_MIN_CHECKS}），"
+        f"疑似断言被删/未执行（§18 L49 假绿）\n{r.out[-3000:]}")
+    assert r.trap_hits == [], f"零真实外发被破坏（§18 L48）hits={r.trap_hits}"
+    print(f"#251 fundnav 回归（CI 闸门）: {len(r.mod._RESULTS)} 条检查全过，零真实外发")
 
 
 if __name__ == "__main__":

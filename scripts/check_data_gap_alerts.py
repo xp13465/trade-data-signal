@@ -13,7 +13,7 @@
   (锚点「已越过硬顶」)并清掉分轮 state——监控零捕获。本检测器以 DB 状态推导为主信号
   (内部断档洞 >15 天), 日志扫描为辅证实锤, 不依赖日志轮转不丢信号。
 
-九个检查器(均只读生产库, 不写任何业务数据):
+检查器(均只读生产库, 不写任何业务数据; 下列为初版九个, 后续新增 checker 11/12/13 见对应函数注释):
   north_hole          a_fund_north 内部断档洞>15天。洞+无分轮state=SEVERE(不自愈,
                       需人工 fallback1 全量); 洞+有state=WARN(分轮累积推进中, 观察)。
                       附带扫 backfill_evening 日志尾部「已越过硬顶」实锤行。
@@ -66,6 +66,14 @@
                       真实: 2026-09-30 库 a_fund_main 停 09-17 / a_fund_margin 停 09-16
                       (落后 last_trading_day 09-30 约 8-9 交易日), 即本检查器要抓的形态——
                       backfill 16:35/21:00 槽多源全败被静默成"正常缺口"的漏网。(纯新增, 不改现有检查器)
+  fund_nav_freshness  公募基金净值「前进式」保鲜(#251 must-fix-2, 2026-10-12 独立审查补位):
+                      fund_daily_nav 最大「已发布真实净值日」(unit_nav IS NOT NULL) 落后最近
+                      交易日 >=FUND_NAV_FRESH_LAG_SEVERE(2) 交易日 → SEVERE(正常「T+1 入图」lag<=1)。
+                      病灶: #251 修复撞窗口不再写全 NULL 当日行 ⇒ checker 12 的「全 NULL 日」形态
+                      不再产生, 数据源连续不发布将失去及时 severe(只剩 checker 11 的 30 天计数
+                      warn, 滞后数周)。本条只新增不删旧(checker 12 原判定保留)。
+                      真实日历锚点(2026-10-12 核对 data/trade_dates.txt): 10-09→10-12 =1 交易日,
+                      10-08→10-12 =2 交易日(即本检查器要抓的形态)。(纯新增, 不改现有检查器)
 
 输入依赖(新增 6/7/8 检查器):
   - {repo}/data/sentiment.db  signal_daily(候选信号源, 与 signal_kelly_backtest.py L1089 同源)
@@ -710,6 +718,15 @@ FUND_KEY = "data_gap:fund_freshness"
 # 判断(审计 docs/ops/fund-nav-accnav-clobber-audit-20261002.md §4.3)。
 FUND_NAV_KEY = "data_gap:fund_nav_accnav"
 FUND_NAV_ALLNULL_KEY = "data_gap:fund_nav_allnull"
+# ── checker 13: 公募基金净值「前进式」保鲜(#251 must-fix-2, 2026-10-12 独立审查补位) ──
+# 背景: #251 修复后「撞滚动未发布窗口」不再写整批 unit_nav 全 NULL 的当日行(改为回退写前一日
+# 真值 / 全空不写) ⇒ checker 12(check_fund_nav_allnull)赖以发现的「全 NULL 日」形态不再产生,
+# 若数据源连续多日不发布净值, 残余仅 checker 11 的 30 天 acc_nav 计数 warn(滞后数周)。
+# 本条为前进式补位: 「最大已发布真实净值日」落后最近交易日 >= 阈值即 severe, 保住真故障判别
+# 维度(memory alert-denoise-keep-fault-discriminator: 改动不许静默丢真故障判别维度)。
+# checker 12 原判定保留不动(仍能抓别的形态), 本条只新增不删旧。
+FUND_NAV_FRESH_KEY = "data_gap:fund_nav_freshness"
+FUND_NAV_FRESH_LAG_SEVERE = 2   # 最大已发布净值日 落后最近交易日 >= 此值 → severe(正常「T+1 入图」lag<=1)
 FUND_ACCNAV_30D_MIN = 10000   # 近 30 天 acc_nav 有值行数阈值(正常 ~88696, 被清 ~173)
 FUND_ACCNAV_30D = 30          # 回看窗口(自然日)
 FUND_ALLNULL_MIN_TOTAL = 1000  # 单日总行数 ≥ 此值才算「采集在跑」(排除零星行)
@@ -867,6 +884,59 @@ def check_fund_nav_allnull(repo: Path, today: datetime) -> list[Finding]:
             f"(2026-10-09 告警降噪, 与 ETF 累计净值当日新缺同口径)。<br>"
             f"次日复查: 若该日仍全 NULL(或出现早于今日的全 NULL 日)则升 severe 告警。"))
     return out
+
+
+def check_fund_nav_freshness(repo: Path, today: datetime) -> list[Finding]:
+    """checker 13: 公募基金净值「前进式」保鲜(#251 must-fix-2, 2026-10-12 独立审查补位)。
+
+    病灶(#251 已修复, 但判别力被消解): #251 前, 采集撞「东财滚动未发布窗口」会写出整批
+    unit_nav 全 NULL 的「当日」行, checker 12(check_fund_nav_allnull)靠这个形态发现事故;
+    #251 修复后该形态不再产生(改为回退写前一日真值 / 全空不写) ⇒ 未来「东财连续多日不发布
+    净值」将失去及时 severe, 只剩 checker 11 的 30 天 acc_nav 计数 warn(滞后数周)。本条补一条
+    **前进式**检查: 只看「最大已发布真实净值日」是否跟得上交易日历, 与行内 NULL 形态无关。
+
+    判定: mx_pub = MAX(date) WHERE unit_nav IS NOT NULL(真实已发布净值的最新日);
+    ref = 交易日历中 <= today 的最大交易日; lag = ref - mx_pub 的**交易日**数(既有
+    `_trading_days_gap` + `_load_trade_dates` 工具)。lag >= FUND_NAV_FRESH_LAG_SEVERE(2) → severe。
+    阈值保守(宁少报勿误报): 正常「T+1 入图」形态 lag<=1(T 日跑批时源常只发布到 T-1), 只有连续
+    2 个交易日仍无新净值才报。任一日期不在交易日历 / 日历缺失 / mx_pub 为空 / 库缺失 → 跳过不误报。
+    """
+    db = repo / "data" / "public_fund.db"
+    if not db.exists():
+        return []  # 环境无 public_fund.db(本机可能没拉公募库), 跳过不误报
+    ds = _load_trade_dates(repo)
+    if not ds:
+        return []  # 交易日历缺失(异常) → 不判, 防误报
+    t = today.strftime("%Y%m%d")
+    ref = max((d for d in ds if d <= t), default="")
+    if not ref:
+        return []  # 今日早于日历起点(异常) → 跳过
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
+    try:
+        row = conn.execute(
+            "SELECT MAX(date) FROM fund_daily_nav WHERE unit_nav IS NOT NULL").fetchone()
+    finally:
+        conn.close()
+    mx = str(row[0] or "") if row else ""
+    if not mx:
+        return []  # 库里一条已发布净值都没有(空库/未采集) → 交 checker 11 的计数告警, 本条不误报
+    if mx not in ds or ref not in ds:
+        return []  # 日期不在交易日历(口径不符/异常) → 不判, 防自然日回退造成的放大误报
+    lag = _trading_days_gap(repo, mx, ref)  # ref - mx 交易日数(升序日历 index 差)
+    if lag < FUND_NAV_FRESH_LAG_SEVERE:
+        return []
+    return [Finding(
+        FUND_NAV_FRESH_KEY, "severe",
+        f"公募基金净值已 {lag} 个交易日未更新(最大已发布日 {mx}, 最近交易日 {ref})",
+        f"fund_daily_nav 最大「已发布真实净值」日期 {mx}, 落后最近交易日 {ref} 达 {lag} 交易日"
+        f"(阈值 {FUND_NAV_FRESH_LAG_SEVERE}; 正常「T+1 入图」lag<=1)。<br>"
+        f"场景: 数据源(东财 fund_open_fund_daily_em)连续多日未发布净值, 或采集链路未跑/失败。<br>"
+        f"影响: 前端基金净值走势/月频/风险指标读到旧值, nav_bucket 停滞。<br>"
+        f"与 checker 12 关系(#251 must-fix-2): 修复后撞窗口不再写全 NULL 当日行, checker 12 的"
+        f"「全 NULL 日」形态不再产生, 本条为前进式补位(checker 12 原判定保留不动)。<br>"
+        f"建议: 查 public_fund_daily 16:30/17:00 运行日志与数据源发布状态; "
+        f"日志: {repo}/data/logs/public_fund_daily_YYYYMMDD_HHMM.log。<br>"
+        f"口径来源: 站点「T+1 入图」承诺(README/产物 source 文案)。")]
 
 
 # ── checker 6/7/8: 交易记录断档监控(2026-09-08 用户核心诉求根治, 9/7 停更三天零告警)
@@ -1641,6 +1711,7 @@ def run(repo: Path, dry_run: bool) -> int:
     findings += check_fund_freshness(repo, today)
     findings += check_fund_nav_accnav(repo, today)
     findings += check_fund_nav_allnull(repo, today)
+    findings += check_fund_nav_freshness(repo, today)
     print(f"[check_data_gap] 检测完成: {len(findings)} 条发现 "
           f"(severe={sum(1 for f in findings if f.level == 'severe')}, "
           f"warn={sum(1 for f in findings if f.level == 'warn')}, "
@@ -2242,6 +2313,80 @@ def self_test() -> int:
         if check_fund_nav_accnav(b8, _today_d) or check_fund_nav_allnull(b8, _today_d):
             fails.append("case D4 库缺失两检查器应跳过零命中")
 
+    # ── case E(#251 must-fix-2, 2026-10-12 独立审查): checker 13 前进式保鲜 two-way ──
+    #    E1 lag=1(正常「T+1 入图」)零命中 / E2 lag=2(10-08 未发布形态)severe 命中
+    #    E3 库缺失跳过 / E4 交易日历缺失跳过 / E5 mx 不在日历跳过(防自然日回退放大误报)
+    #    日期取自**真实交易日历**(data/trade_dates.txt, git 跟踪): 实测 10-09→10-12 =1 交易日、
+    #    10-08→10-12 =2 交易日(§18 L49: 判据数字来自真实日历, 非人工臆造)。
+    #    行值取 test_251 的 2026-10-12 真实响应值(3 只基金); 本检查器只读 MAX(date), 行内容不参与判定。
+    def _mk_cal(base: Path, dates: list[str]):
+        (base / "data").mkdir(parents=True, exist_ok=True)
+        (base / "data" / "trade_dates.txt").write_text("\n".join(dates) + "\n", encoding="utf-8")
+
+    _cal_real = _load_trade_dates(Path(__file__).resolve().parents[1]) or _load_trade_dates(REPO)
+    _cal_slice = [d for d in _cal_real if "20260901" <= d <= "20261020"]
+    if not _cal_slice:  # 兜底: 真实日历不可得时用真实交易日锚点(10-09/10-12 均为真实交易日)
+        _cal_slice = ["20260930", "20261008", "20261009", "20261012", "20261013"]
+    _FRESH3 = [("026990", "国泰产业智选混合发起A", 0.8051, 0.8051),
+               ("026991", "国泰产业智选混合发起C", 0.8043, 0.8043),
+               ("161226", "国投瑞银白银期货(LOF)A", 1.6758, 1.6758)]
+    _e_today = datetime(2026, 10, 12, 22, 35)   # 最近交易日 ref=20261012
+
+    def _fresh_rows(d: str) -> list[tuple]:
+        return [(d, c, n, u, a, None, None) for c, n, u, a in _FRESH3]
+
+    with tempfile.TemporaryDirectory(prefix="gap_alert_navfresh_") as td:
+        b9 = Path(td)
+        _mk_cal(b9, _cal_slice)
+        _mk_fundnav(b9, _fresh_rows("20261009"))     # mx=10-09, ref=10-12 → lag=1(正常 T+1 入图)
+        fE1 = check_fund_nav_freshness(b9, _e_today)
+        if fE1:
+            fails.append(f"case E1 正常态 lag=1 不应命中 fresh: {[(f.level, f.title) for f in fE1]}")
+
+        _mk_fundnav(b9, _fresh_rows("20261008"))     # mx=10-08, ref=10-12 → lag=2(10-08 未发布形态)
+        fE2 = check_fund_nav_freshness(b9, _e_today)
+        if not (fE2 and fE2[0].level == "severe" and "未更新" in fE2[0].title
+                and fE2[0].key == FUND_NAV_FRESH_KEY):
+            fails.append(f"case E2 lag=2 应 fresh severe 命中, 实得 {[(f.level, f.title) for f in fE2]}")
+
+        # E2b: 同日 allnull 判定不误触(unit_nav 有值 → checker 12 不命中; 二者判别维度正交)
+        if check_fund_nav_allnull(b9, _e_today):
+            fails.append("case E2b unit_nav 有值不应命中 allnull(与 fresh 正交)")
+
+        _mk_fundnav(b9, _fresh_rows("20261012"))     # mx=ref → lag=0
+        if check_fund_nav_freshness(b9, _e_today):
+            fails.append("case E3 lag=0(最新日已发布)不应命中 fresh")
+
+        # E4: 交易日历缺失 → 跳过不误报(即使数据很旧)
+        (b9 / "data" / "trade_dates.txt").unlink()
+        _mk_fundnav(b9, _fresh_rows("20261008"))
+        if check_fund_nav_freshness(b9, _e_today):
+            fails.append("case E4 交易日历缺失应跳过零命中")
+
+        # E5: mx 不在交易日历(20261011 非交易日) → 跳过, 防自然日回退放大误报
+        _mk_cal(b9, _cal_slice)
+        _mk_fundnav(b9, _fresh_rows("20261011"))
+        if check_fund_nav_freshness(b9, _e_today):
+            fails.append("case E5 mx 不在交易日历应跳过零命中")
+
+        # E7/E8: 必须取「最大**已发布真实净值**日」而非「最大日期」(WHERE unit_nav IS NOT NULL 语义)
+        #   E7 最新日(10-12)整批 unit_nav NULL + 10-09 有值 → mx=10-09, lag=1 → 零命中
+        #   E8 最新日(10-12)整批 unit_nav NULL + 10-08 有值 → mx=10-08, lag=2 → severe
+        #   (把 WHERE 改成 1=1 的变异会让 E8 漏判 ⇒ E8 是该语义的判别用例)
+        _mk_fundnav(b9, [(("20261012"), c, n, None, None, None, None) for c, n, u, a in _FRESH3]
+                    + _fresh_rows("20261009"))
+        if check_fund_nav_freshness(b9, _e_today):
+            fails.append("case E7 最新日全 NULL+前一日有值(lag=1)不应命中 fresh")
+        _mk_fundnav(b9, [(("20261012"), c, n, None, None, None, None) for c, n, u, a in _FRESH3]
+                    + _fresh_rows("20261008"))
+        fE8 = check_fund_nav_freshness(b9, _e_today)
+        if not (fE8 and fE8[0].level == "severe" and "20261008" in fE8[0].title):
+            fails.append(f"case E8 取已发布净值日(lag=2)应 severe 命中, 实得 {[(f.level, f.title) for f in fE8]}")
+
+    with tempfile.TemporaryDirectory(prefix="gap_alert_navfresh_empty_") as td:
+        if check_fund_nav_freshness(Path(td), _e_today):   # 不建库
+            fails.append("case E6 库缺失应跳过零命中")
+
     if fails:
         for x in fails:
             print(f"[self-test] FAIL: {x}")
@@ -2255,7 +2400,11 @@ def self_test() -> int:
           " / K4 全缺次日价降warn / K5 盘中占位行不算真价→不判SEVERE / K6 盘后真断档仍SEVERE"
           " / #125-A 无冻结键+当天有别的入账→WARN(同日期参照) / #125-C 有冻结键→WARN(回归)"
           " / #125-D 无冻结键+当天0入账→SEVERE(真故障判别)"
-          " / C1 成功deploy锚点近不告警+距今>2天告警 / C2 尾部锚点在/不在 two-way)")
+          " / C1 成功deploy锚点近不告警+距今>2天告警 / C2 尾部锚点在/不在 two-way"
+          " / D1 公募正常态零命中 / D2 acc_nav 被清→accnav warn / D3 采集全NULL→allnull severe / D4 库缺失跳过"
+          " / E1 fresh lag=1 零命中 / E2 fresh lag=2→severe / E2b 与 allnull 正交 / E3 lag=0 零命中"
+          " / E4 日历缺失跳过 / E5 mx 不在日历跳过 / E6 库缺失跳过"
+          " / E7 最新日全NULL+前一日有值(lag=1)零命中 / E8 取已发布净值日(lag=2)→severe)")
     return 0
 
 
