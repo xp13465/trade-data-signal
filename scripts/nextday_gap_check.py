@@ -19,28 +19,34 @@
     - nextday_plan.json: 条目加 gap_excluded:true
 
 数据就绪闸: 开盘价取不到(兜底链修复后, 主源+腾讯/新浪双源均取不到才算取不到) /
-    数据日期陈旧(fund_etf_spot_em「数据日期」!= 执行日, F4, 已并入兜底优先) → 短间隔退避
-    多轮重试(60s×3, 带 jitter, 预算硬顶 450s, B4-2 2026-10-10) → 仍失败 → severe 告警 +
-    买入行 status_text「伪跳空校验未完成(待人工)」(干跑阶段, 不真实下单)。陈旧快照绝不照算
-    旧价(防 9:26 拉到昨日数据误剔真实跳空)。
+    数据日期陈旧(fund_etf_spot_em「数据日期」!= 执行日, F4, 已并入兜底优先) → 跨 9:30 锚点
+    重试(墙钟锚点 09:28/09:31/09:35/09:40, 预算硬顶 900s, 2026-10-13 跨窗口治本) → 仍失败
+    → severe 告警 + 买入行 status_text「伪跳空校验未完成(待人工)」(干跑阶段, 不真实下单)。
+    陈旧快照绝不照算旧价(防 9:26 拉到昨日数据误剔真实跳空)。
 
 幂等: 执行日买入行已有「伪跳空」标记 → 跳过, 不重复标记/通知。
 
+存量死标记清理(2026-10-13): 历史遗留的「伪跳空校验未完成(待人工)」行(执行日已过)每日运行时
+    按行内 order_price + etf_daily 执行日 open 重判(纯历史, 零实时接口) → 非伪跳空复位「待执行」/
+    仍伪跳空标「伪跳空剔除」/ open 缺失保持不动。`--recheck-pending` 可立即清(date<=today)。
+
 用法:
     python scripts/nextday_gap_check.py [--date YYYYMMDD] [--dry-run] [--no-r2] [--no-notify]
-        [--test-open "code:price,code2:price2"] [--no-retry] [--retry-wait 基数秒] [--retry-rounds N]
+        [--test-open "code:price,code2:price2"] [--no-retry] [--retry-targets "HH:MM:SS,…"]
+        [--recheck-pending]
     # --test-open 注入假开盘价(自测, 不拉 akshare); --dry-run 只计算打印不落盘不 R2 不通知
+    # --recheck-pending 只清存量死标记后返回(不跑计划校验/标记)
 日志: data/logs/nextday_gap_check_launchd.log(标准开始/结束行, schedule_monitor 可读)。
 """
 import argparse
 import json
 import os
-import random
+import sqlite3
 os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))  # #245 批2 W1: 台账 source 溯源
 import subprocess
 import sys
 import time
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
 # 运行根: 显式 REPO 优先(trade-data 运行副本), 缺省回退脚本所在仓
@@ -60,43 +66,51 @@ from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块,
 
 LOG_TAG = "[nextday_gap_check]"
 
-# ── B4-2 重试策略(2026-10-10 #246 故障 B 治本) ──
-# 原「单次 300s 长退避」(9:26 fail → 9:31 重试一次, 仍在东财时段性高峰边缘)改为「短间隔
-# 退避多轮」: 60s 基数 × 3 轮 + ±25% jitter(防同刻多任务同时重试撞峰), 总退避预算硬顶 450s。
-# 预算口径(2026-10-10 #246 R1 审查定案): 必须 ≤ 云上本链外层 `TimeoutStartSec=600`(见
-# _sync_r2_and_notify 内 #223 注释)——设 900/15min 会「超墙被 cgroup 静默硬杀 + 预算成死代码」,
-# 故取 450 留 150s 余量给拉数/落盘/R2(≤300s)/通知。默认 60×3 jitter 后仅 135~225s,远不触顶。
-# 配合 B4-1 兜底链修复后, 主源失败第一轮即由兜底接管, 重试退为「兜底也失败时的二次窗口」。
-RETRY_BACKOFF_BASE_S = 60      # 每轮退避基数(秒) → "60s×3"
-RETRY_JITTER_FRAC = 0.25       # 抖动幅度 ±25%(每轮实际 = base × [1-λ, 1+λ] ⇒ 45~75s)
-RETRY_BUDGET_S = 450           # 总退避预算上限(秒, 硬顶;须 ≤ 外层 systemd 墙 600s)
-DEFAULT_RETRY_ROUNDS = 3       # 退避轮数 = 重试次数(首拉 + 3 轮重试 = 4 attempts)
+# ── 跨 9:30 锚点重试(2026-10-13 跨窗口治本; 替代 #246 B4-2 的 60s×3 短退避) ──
+# 根因: B4-2 的「60s×3 + ±25% jitter」(实际退避 135~225s, 末次尝试 ≈9:29:37)使**整个重试
+# 窗口整体落在主源恢复点之前**(实测恢复点 9:31~9:40: 10-08 东财 9:31 恢复、10-09/10-12 9:40
+# 链路健康)⇒ 必然全败 exit=2。改为按**墙钟锚点**重试: 首拉仍 9:26(保「源正常即秒过」早成功
+# 路径), 重试锚点 09:28/09:31/09:35/09:40(跨过 9:30 开盘线 + 主源风控恢复点)。
+# RETRY_BUDGET_S=900 = 各锚点等待累计硬顶(9:26 首拉起最坏 120+180+240+300=840s), 须 ≤ 外层
+# systemd 墙(`TimeoutStartSec`, 2026-10-13 由 600 抬到 1800; 见 _sync_r2_and_notify 内 #223 注释)。
+# 锚点确定性(无 jitter/随机) ⇒ 计划纯函数可逐位复现。
+RETRY_TARGETS = ("09:28:00", "09:31:00", "09:35:00", "09:40:00")  # 墙钟重试锚点(HH:MM:SS)
+RETRY_BUDGET_S = 900           # 各锚点等待累计硬顶(秒; 9:26 起最坏 840s, 留裕量给尾段)
 
 
 def log(msg):
     print(f"{LOG_TAG} {msg}", flush=True)
 
 
-def _retry_backoff_schedule(rounds=DEFAULT_RETRY_ROUNDS, base=RETRY_BACKOFF_BASE_S,
-                            jitter=RETRY_JITTER_FRAC, budget=RETRY_BUDGET_S, rng=None):
-    """生成就绪闸退避等待秒数序列(B4-2, 2026-10-10 #246)。
+def _retry_plan(now, targets=RETRY_TARGETS, budget=RETRY_BUDGET_S):
+    """生成墙钟锚点重试计划(2026-10-13 跨 9:30 锚点重试治本)。
 
-    每轮 = base × [1-λ, 1+λ](λ=jitter, 由 rng() 抽) → "60s×3";累计达/超预算时把当轮截到
-    剩余预算并停止再排(硬顶 ≤ budget)。rng 可注入(random.random 形态)便于测试确定性;
-    返回 list[float](长度 = 实际轮数)。
+    给定墙钟 `now`(datetime, 首拉时刻), 逐锚点算「到该锚点还需睡多久」:
+        wait = max(0, 锚点 - cursor)  —— cursor = 上一轮醒来时刻(首轮 = now); 锚点已过则 0
+        (立即重试, 不出现负值)。
+    故 wait 为**相邻锚点间差**(9:26 首拉 → 120+180+240+300 = 840s, 恰在 09:28/09:31/
+    09:35/09:40 醒来), 循环可直接 `time.sleep(wait)` 顺序执行。累计等待达/超 `budget` 时把
+    当轮截到剩余预算并停止再排(硬顶 ≤ budget)。
+    返回 [(target_str, wait_sec)]:target_str 原样 "HH:MM:SS", wait_sec 保留 3 位。
+    纯函数(完全由 now/targets/budget 决定, 无 jitter/随机 ⇒ 可测、逐位可复现)。
     """
-    rng = rng or random.random
-    waits = []
+    plan = []
     total = 0.0
-    for _ in range(max(int(rounds), 0)):
-        w = base * (1.0 + jitter * (2.0 * rng() - 1.0))
+    cursor = now
+    for t in targets:
+        hh, mm, ss = (int(x) for x in t.split(":"))
+        target_dt = cursor.replace(hour=hh, minute=mm, second=ss, microsecond=0)
+        w = (target_dt - cursor).total_seconds()
+        if w < 0:
+            w = 0.0
         if total + w > budget:
             w = max(budget - total, 0.0)
-        waits.append(round(w, 3))
+        plan.append((t, round(w, 3)))
         total += w
+        cursor = cursor + timedelta(seconds=w)
         if total >= budget:
             break
-    return waits
+    return plan
 
 
 def _severe_alert(subject, body):
@@ -176,10 +190,10 @@ def main():
     ap.add_argument("--no-notify", action="store_true", help="落盘但不通知(自测用)")
     ap.add_argument("--test-open", default=None, help='自测用假开盘价 "code:price,code2:price2"')
     ap.add_argument("--no-retry", action="store_true", help="禁用就绪重试(自测用)")
-    ap.add_argument("--retry-wait", type=int, default=RETRY_BACKOFF_BASE_S,
-                    help="退避基数秒(默认 60, 每轮实际 base×[0.75,1.25] jitter)")
-    ap.add_argument("--retry-rounds", type=int, default=DEFAULT_RETRY_ROUNDS,
-                    help="退避轮数/重试次数(默认 3 → 首拉 + 3 轮 = 4 attempts)")
+    ap.add_argument("--retry-targets", default=None,
+                    help='墙钟重试锚点, 逗号分隔 "HH:MM:SS,HH:MM:SS"(默认 09:28:00,09:31:00,09:35:00,09:40:00)')
+    ap.add_argument("--recheck-pending", action="store_true",
+                    help="只清理存量「伪跳空校验未完成(待人工)」死标记(范围 date<=today)后返回, 不跑计划校验")
     args = ap.parse_args()
 
     today = args.date or _today()
@@ -189,11 +203,49 @@ def main():
     plan_doc, _ = _read_first([data_dir, git_data_dir], "nextday_plan.json")
     steps_doc, steps_path = _read_first([data_dir, git_data_dir], "auto_trade_steps.json")
 
+    # etf_daily 库(同 nextday_plan_generator: REPO 优先, 回退 ROOT)
+    db_path = REPO / "data" / "etf_national_team.db"
+    if not db_path.exists():
+        db_path = ROOT / "data" / "etf_national_team.db"
+
+    # ---- 挂载点 B: --recheck-pending 独立清理模式(范围 date<=today, 不跑计划校验/标记) ----
+    if args.recheck_pending:
+        changed = _recheck_stale_pending(
+            steps_doc, today, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), db_path,
+            include_today=True)
+        if args.dry_run:
+            log("DRY-RUN: 不落盘不 R2 不通知(--recheck-pending)")
+            return 0
+        if changed:
+            _persist_steps(steps_doc, data_dir, git_data_dir)
+        else:
+            log("--recheck-pending: 无死标记需清理(0 改动)")
+        r2_rc, notify_rc = _sync_r2_and_notify([], changed, today,
+                                               no_r2=args.no_r2, no_notify=args.no_notify)
+        return 1 if (r2_rc or notify_rc) else 0
+
+    # ---- 挂载点 A: 日常运行时自动清存量死标记(范围 date<today; 不动当天行) ----
+    steps_changed = _recheck_stale_pending(
+        steps_doc, today, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), db_path,
+        include_today=False)
+    if steps_changed and not args.dry_run:
+        _persist_steps(steps_doc, data_dir, git_data_dir)
+
+    def _sync_recheck():
+        """早退/无剔除出口: recheck 有改动时补一次 R2 同步(§22 三步; dry-run 不落盘不推)。"""
+        if steps_changed and not args.dry_run:
+            r2_rc, notify_rc = _sync_r2_and_notify([], True, today,
+                                                   no_r2=args.no_r2, no_notify=args.no_notify)
+            if r2_rc or notify_rc:
+                log(f"⚠ recheck 清理的线上同步未完全成功(r2_rc={r2_rc} notify_rc={notify_rc})")
+
     if plan_doc is None:
         log(f"nextday_plan.json 不存在, 无计划可校验, 跳过(退出 0)")
+        _sync_recheck()
         return 0
     if not isinstance(plan_doc.get("plan"), list) or not plan_doc["plan"]:
         log(f"nextday_plan.json 空计划({plan_doc.get('empty')}), 无执行日买入, 跳过")
+        _sync_recheck()
         return 0
 
     # 执行日(date==today / buy_date==today)买入计划条目, 键 = etf_code, 值 = 信号日收盘(prev_close)
@@ -210,19 +262,21 @@ def main():
 
     if not target:
         log(f"执行日 {today} 无买入计划条目(buy_date==today 无有效 prev_close), 跳过")
+        _sync_recheck()
         return 0
     log(f"执行日 {today} 计划内 ETF={len(target)}: {sorted(target)}")
 
-    # ---- 拉开盘价(就绪闸 + 重试) ----
+    # ---- 拉开盘价(就绪闸 + 跨 9:30 锚点重试) ----
     opens = None
     last_err = ""
     if args.test_open:
         opens = _fetch_opens(list(target.keys()), args.test_open)
         log(f"--test-open 注入开盘价: {opens}")
     else:
-        backoffs = [] if args.no_retry else _retry_backoff_schedule(
-            rounds=args.retry_rounds, base=args.retry_wait)
-        total_attempts = 1 + len(backoffs)
+        retry_targets = (tuple(t.strip() for t in args.retry_targets.split(",") if t.strip())
+                         if args.retry_targets else RETRY_TARGETS)
+        plan = [] if args.no_retry else _retry_plan(datetime.now(), targets=retry_targets)
+        total_attempts = 1 + len(plan)
         for attempt in range(1, total_attempts + 1):
             try:
                 # F4: 传执行日 today 做数据日期新鲜度校验(陈旧快照抛 RuntimeError 走重试链)
@@ -241,8 +295,8 @@ def main():
                 if args.no_retry or attempt == total_attempts:
                     opens = None
                     break
-                wait = backoffs[attempt - 1]
-                log(f"等 {wait:.1f}s 退避重试(第 {attempt}/{len(backoffs)} 轮, 预算≤{RETRY_BUDGET_S}s)")
+                target_str, wait = plan[attempt - 1]
+                log(f"等到 {target_str} 重试(第 {attempt}/{len(plan)} 轮, 等 {wait:.0f}s, 预算≤{RETRY_BUDGET_S}s)")
                 time.sleep(wait)
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -250,7 +304,7 @@ def main():
         # 就绪闸 FAIL: severe 告警 + 全部买入行标记「伪跳空校验未完成(待人工)」
         _severe_alert(
             f"[告警] 次日买入计划伪跳空校验未完成 {today}",
-            f"nextday_gap_check.py: 执行日 {today} 拉取开盘价多轮重试(60s×3 退避)后仍失败, 无法完成伪跳空剔除, "
+            f"nextday_gap_check.py: 执行日 {today} 拉取开盘价跨 9:30 锚点重试(09:28/09:31/09:35/09:40)后仍失败, 无法完成伪跳空剔除, "
             f"买入行标记「伪跳空校验未完成(待人工)」待人工复核。<br>失败原因: {last_err}"
             f"<br>日志: {REPO}/data/logs/nextday_gap_check_launchd.log",
         )
@@ -287,6 +341,7 @@ def main():
 
     if not excluded and not unverified:
         log(f"执行日 {today} 全部 {len(target)} 笔无伪跳空, 无标记")
+        _sync_recheck()
         return 0
 
     if args.dry_run:
@@ -299,7 +354,8 @@ def main():
 
     # ---- 落盘标记 ----
     written = []
-    steps_changed = False
+    # steps_changed 已在挂载点 A 处按 recheck 结果初始化(有改动=True), 此处不重置;
+    # 下方 _mark_steps 用 `or steps_changed` 累加, 保证 recheck 改动不丢(§22 同步闭环)。
     if excluded:
         steps_changed = _mark_steps(steps_doc, today, now, "skipped", excluded) or steps_changed
         _mark_plan(plan_doc, today, excluded)
@@ -328,6 +384,111 @@ def main():
                                            no_r2=args.no_r2, no_notify=args.no_notify)
     log("落盘完成: " + ", ".join(written))
     return 1 if (r2_rc or notify_rc) else 0
+
+
+def _persist_steps(steps_doc, data_dir, git_data_dir):
+    """把 steps_doc 原子写两树(static-site/data;§22 数据一致性)。"""
+    for sp in [data_dir / "auto_trade_steps.json", git_data_dir / "auto_trade_steps.json"]:
+        sp.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(sp, steps_doc, indent=1)
+    log("auto_trade_steps 落盘(recheck 清死标记)")
+
+
+def _open_one(cur, code, day):
+    """取 etf_daily 该 code 在 day(YYYYMMDD)的真实开盘价;取不到返回 None。
+
+    过滤口径与 nextday_plan_generator._next_open 同款(排除盘中占位行 etf_name<>etf_code +
+    open 非空);本处按 exact date 命中执行日当天行(生成器用 date>after_date 取次日, 语义不同)。
+    """
+    cur.execute(
+        "SELECT open FROM etf_daily WHERE etf_code=? AND date=? "
+        "AND etf_name<>etf_code AND open IS NOT NULL LIMIT 1",
+        (str(code), str(day)),
+    )
+    row = cur.fetchone()
+    return None if row is None else float(row[0])
+
+
+def _recheck_stale_pending(steps_doc, today, now, db_path, include_today=False):
+    """重判存量「伪跳空校验未完成(待人工)」死标记(2026-10-13 治本; 纯历史读取, 零实时接口)。
+
+    病灶(§4): 标记一旦落下, 既有链路(date==today 只标当天 + 幂等跳过 + 成功路径不覆盖 +
+    生成器 gate_past 禁 replace)使历史行永不重访 ⇒ 误标行滞留(实测 9 行 20+ 天)。
+    本函数按行内 order_price(生成时冻结的信号日收盘)+ etf_daily 执行日 open 重判(同式同阈值
+    PSEUDO_GAP_EXCLUDE, 与 9:26 当日判定一致;防前视 §5.1⑥: 只用「信号日收盘 + 执行日开盘」
+    两个当时已固定的量):
+      - open 取不到(数据缺失)→ 保持不动(仍「待人工」, 不算错), log 一行
+      - |gap| > PSEUDO_GAP_EXCLUDE → status="skipped" + status_text「伪跳空剔除(…)」
+      - 否则 → status="pending" + status_text「待执行」
+    幂等: 结果与现状逐字一致时不写(不刷 updated_at)⇒ 重跑零改动。
+    范围: 默认 date<today(不动当天行, 当天归正常流程);include_today=True → date<=today。
+    DB 只读(mode=ro);任何 DB 异常 → 返回 False(保持待人工, 防误清)。
+    返回 bool 是否有改动(供调用方落盘 + R2 同步)。
+    """
+    if steps_doc is None or not isinstance(steps_doc.get("steps"), list):
+        return False
+    if not Path(db_path).exists():
+        log(f"  ~ recheck: DB 不存在({db_path}), 保持待人工")
+        return False
+    con = None
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        cur = con.cursor()
+        changed = False
+        n_hit = n_clear = n_stay = 0
+        for s in steps_doc["steps"]:
+            if not isinstance(s, dict):
+                continue
+            if str(s.get("action")) != "buy":
+                continue
+            if "伪跳空" not in str(s.get("status_text") or ""):
+                continue
+            d = str(s.get("date") or "")
+            if not d:
+                continue
+            if include_today:
+                if d > today:
+                    continue
+            elif d >= today:
+                continue
+            code = str(s.get("etf_code") or "")
+            try:
+                op = float(s.get("order_price"))
+            except (TypeError, ValueError):
+                log(f"  ~ recheck: {d}/{code} 无 order_price, 保持待人工")
+                n_stay += 1
+                continue
+            if op <= 0:
+                n_stay += 1
+                continue
+            o = _open_one(cur, code, d)
+            if o is None or o <= 0:
+                log(f"  ~ recheck: {d}/{code} etf_daily 无 open, 保持待人工")
+                n_stay += 1
+                continue
+            n_hit += 1
+            gap = o / op - 1.0
+            if abs(gap) > PSEUDO_GAP_EXCLUDE:
+                new_status, new_text = "skipped", f"伪跳空剔除(|开盘/信号日收盘-1|={abs(gap):.2%})"
+            else:
+                new_status, new_text = "pending", "待执行"
+            if str(s.get("status")) == new_status and str(s.get("status_text")) == new_text:
+                continue  # 幂等: 结果与现状逐字一致 → 不写(不刷 updated_at)
+            s["status"] = new_status
+            s["status_text"] = new_text
+            s["updated_at"] = now
+            changed = True
+            n_clear += 1
+            log(f"  ✓ recheck: {d}/{code} seq={s.get('seq')} → {new_status}「{new_text}」"
+                f"(open={o} 信号日收盘={op} gap={gap:+.2%})")
+        log(f"  recheck 汇总: 可判 {n_hit} 行 / 清理 {n_clear} 行 / 保持待人工 {n_stay} 行")
+        return changed
+    except Exception as e:
+        log(f"  ⚠ recheck: DB 读取异常, 保持待人工(不清理): {e}")
+        return False
+    finally:
+        if con is not None:
+            con.close()
 
 
 def _mark_steps(steps_doc, today, now, status, items, status_text=None):
@@ -407,9 +568,10 @@ def _sync_r2_and_notify(excluded, steps_changed, today, no_r2=False, no_notify=F
             try:
                 env = dict(os.environ)
                 env.setdefault("REPO", str(REPO))
-                # #223(2026-10-06) 记录(勿擅改): timeout=300 vs 内层 R2 HTTP 超时(云上 .env=600)
-                # = 梯度倒置;但不能单独抬到 900 —— 本链外层 systemd TimeoutStartSec=600, 抬过 600
-                # 会先被 systemd SIGKILL, 本段 except 永远走不到。要改必须 systemd 一并抬(待拍板 #223)。
+                # #223(2026-10-06 记录 / 2026-10-13 更新): timeout=300 vs 内层 R2 HTTP 超时
+                # (云上 .env=600)本为梯度倒置; 但本链外层 systemd TimeoutStartSec 已由 600 抬到
+                # 1800(2026-10-13 跨窗口治本, 见 trade-nextday-gap-check.service), 300 仍安全
+                # (墙 1800 > 300 + 尾段裕量)。#223 的「梯度倒置」属另案, 勿在此顺手改 300。
                 r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
                 log(f"R2 退出码={r.returncode}\n{r.stdout}")
                 if r.returncode != 0:
