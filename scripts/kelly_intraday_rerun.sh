@@ -22,7 +22,7 @@
 #     数据就绪闸判定统一交 scripts/kelly_intraday_gate_decider.py(读 data/kelly_intraday_gate_report.json):
 #       · abort(单日未豁免取不到比例 > R=15%)= exit 5, 刻意正常跳过(17:50 全量兜底)
 #         -> WARN(--tier warning, 入 notify 30min 聚合缓冲, 不再即时 SEVERE, 降噪不变);
-#       · tolerate(出档, 带 meta.unpriced_codes)= exit 0; 若命中「取不到类」豁免 -> 降级 WARN(7d 去重);
+#       · tolerate(出档, 带根级 intraday.unpriced_codes)= exit 0; 若命中「取不到类」豁免 -> 降级 WARN(7d 去重);
 #         零成交类豁免/正常 pass -> 完全静默(仅 ledger/info 留痕);
 #     对账 FAIL(3)/超时(142)/脚本错误 -> SEVERE 直达不变。
 #     decider 自身异常 → 回退保险(§23.11 不静默): abort 分支沿用旧内联 WARN 并保持 exit 5;

@@ -780,7 +780,8 @@ def _fetch_intraday_open_prices(codes, expect_date=None):
     B4-1(ii)(2026-10-10 #246 故障 B 治本): 兜底泛化到「全部 missing」(不再只 16 前缀 LOF),
     且逐标的独立 —— 主源成功但个别 target 缺有效开盘价 / 主源空/缺列 / 数据日期陈旧(F4)三种
     情形统一收口到 HTTP 兜底; 单标的双源皆失败仅记 missing(下游 gap_check 标「待人工」), 不
-    拖累其余标的; 仅当最终 out 为空(全灭)才 raise(fail-closed 终检保留)。正常路径(主源新鲜
+    拖累其余标的; 最终 out 为空(全灭)**也不 raise**(#254: raise 决定权上移到调用方 ratio
+    判据, 见下方「#254 返回签名变更」)。正常路径(主源新鲜
     且整批命中)行为零变化: missing 为空 ⇒ 不触发兜底。
 
     #254 返回签名变更(2026-10-12): 现返回 **(out, zero_volume_codes, meta)**:
@@ -873,13 +874,15 @@ def _fetch_intraday_open_via_http(codes, expect_date=None):
       · 腾讯失败(**含时间戳缺失/非当日** = 当日性无法确认)不再直接 raise 终止兜底链, 而是
         降级新浪 —— 新浪自带日期字段[30](YYYY-MM-DD)作当日性锚(等效 F4);
       · **逐标的独立**: 单标的双源皆失败 → 记 missing(继续下一标的, 不 raise), 不拖累其他
-        标的。仅当**全部标的均失败**(结果为空)才抛 RuntimeError(fail-closed 终检保留)。
+        标的。**全部标的均失败**(结果为空)亦**不 raise**(#254): 空集/全灭统一返回
+        ({}, []), 由调用方按 ratio 判据决定是否 fail-closed(见末尾「#254 治本」段)。
 
     expect_date(可选, YYYYMMDD): 非 None 时用命中源的日期字段前 8 位 == expect_date 校验
     当日性(腾讯时间戳[30] / 新浪日期[30]); 无日期字段或非当日 → 该源拒用(fail-closed, 同
     F4 "陈旧快照拒用"精神, 不许拿 0/空值/无法证实当日的价格当今开)。expect_date=None 时不
     校验(回测历史档)。任一目标双源均取不到真实>0 今开价 → 该目标记 missing(不 raise);
-    全灭才 raise。2026-09-23 云上+本地实测: 两源均 8/8 成功、逐位一致(561120 今开=1.250)。
+    全灭(out/zero_volume_codes 皆空)亦**不 raise**(#254, 见末尾治本段)。
+    2026-09-23 云上+本地实测: 两源均 8/8 成功、逐位一致(561120 今开=1.250)。
 
     #254 治本(2026-10-12,放宽方案 A)返回签名变更: 现返回 **(out, zero_volume_codes)**:
       · out = {code: open>0}                已取得真实「可证实当日」开盘价

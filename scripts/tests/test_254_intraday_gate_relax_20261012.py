@@ -65,7 +65,9 @@ def _series_row(run_date):
 REAL_1012 = _series_row("2026-10-12")
 REAL_1012_CODES = REAL_1012["codes"]                # ['159513', '164508']
 REAL_1012_TARGET = REAL_1012["target_count"]        # 24
-# 09-23 真实 n=1 100% 日(整源挂/不可细分, 设计稿 §五.5 该日仍 fail-closed)
+# 09-23 真实 n=1 100% 日(靶数=1): 成因 = 主源东财挂 + 兜底双源(腾讯/新浪)可达(8/8 成功) +
+# `561120` 当日 09:40 前零成交(首笔落 09:40–10:00; 非整源挂/非停牌)。旧码当天 raise 根因 =
+# 旧兜底不含「5」前缀。设计稿 §五.5「09-23(n=1,已验零成交)」该日仍 fail-closed。
 REAL_0923 = _series_row("2026-09-23")
 
 
@@ -180,6 +182,51 @@ def test_254_zero_volume_classified_not_priced(monkeypatch):
     assert zv == sorted(REAL_1012_CODES), zv
 
 
+def test_254_zero_open_without_daily_anchor_is_unfetchable_not_zero_volume(monkeypatch):
+    """M1 缺口加固(§18 L49 变异看门): [今开<=0 但**当日日期锚不成立**] 必须归 **unfetchable**,
+    **严禁**判 zero_volume —— 现行「今开<=0」用例(上一条)只覆盖日期锚**匹配成功**的分支, 对
+    「该保守的判据被放松」(审查变异 B: 去掉 `_classify` 的日期锚条件 ⇒ 无锚也判零成交)零看门能力。
+    三子面逐字对应 `_classify` 的 fail-closed 保守判据:
+      · (i)   日期锚**失配**([30] != expect_date, 拉到别日/陈旧快照);
+      · (ii)  **无 [30]**(字段位缺失 ⇒ 当日性无法证实);
+      · (iii) expect_date=None(回测历史档, 无当日锚)。
+    断言面: 该码既不进 priced(out) 也不进 zero_volume_codes ⇒ unfetchable(调用方按 ratio 处置)。
+    """
+    code = "561120"
+    sym = _sym(code)
+
+    def _raw_tencent(fields_len, open_p):
+        # 手工控字段数: 用于模拟 split('~') 后**无 [30]**(len<=30 ⇒ date_idx=30 越界)
+        f = [""] * fields_len
+        if fields_len > 5:
+            f[5] = str(open_p)
+        return ('v_%s="' % sym + "~".join(f)).encode("gbk")
+
+    def _raw_sina(fields_len, open_p):
+        f = [""] * fields_len
+        if fields_len > 1:
+            f[1] = str(open_p)
+        return ('var hq_str_%s="' % sym + ",".join(f) + '";').encode("gbk")
+
+    cases = [
+        # (面名, 腾讯报文, 新浪报文, expect_date)
+        ("日期锚失配([30]!=expect_date)",
+         _tencent(sym, 0, "20261011094000"), _sina(sym, 0.0, "2026-10-11"), EXPECT),
+        ("无 [30](字段位缺失)",
+         _raw_tencent(30, 0), _raw_sina(30, 0.0), EXPECT),
+        ("expect_date 缺失(回测历史档)",
+         _tencent(sym, 0, "20261012094000"), _sina(sym, 0.0, "2026-10-12"), None),
+    ]
+    for name, t_bytes, s_bytes, exp in cases:
+        stub = _GetStub({f"qt.gtimg.cn/q={sym}": t_bytes,
+                         f"hq.sinajs.cn/list={sym}": s_bytes})
+        monkeypatch.setattr(_requests_mod, "get", stub, raising=False)
+        out, zv = sk._fetch_intraday_open_via_http([code], expect_date=exp)
+        assert out == {}, f"[{name}] 今开<=0 但无当日锚不得判 priced: {out}"
+        assert zv == [], \
+            f"[{name}] 今开<=0 但无当日锚严禁判 zero_volume(应归 unfetchable): {zv}"
+
+
 def test_254_zero_volume_verdict_tolerate_silent():
     """10-12 真实底座行(target=24, 2 零成交码)→ verdict=tolerate, ratio=0, exit 0, silent。"""
     rep = _report(REAL_1012["R"], REAL_1012_TARGET, REAL_1012_CODES,
@@ -219,7 +266,7 @@ def test_254_unpriced_subsets_real_samples_and_invariant():
     # 真实 10-12 面: 两码皆「09:40 前零成交」
     miss, zv_sub = sk._unpriced_subsets(REAL_1012_CODES, REAL_1012_CODES)
     assert miss == sorted(REAL_1012_CODES) and zv_sub == sorted(REAL_1012_CODES), (miss, zv_sub)
-    # 混合面(真实 09-23 不可细分码 + 10-12 零成交码): 子集只能含零成交类
+    # 混合面(真实 09-23 单码 `561120` + 10-12 零成交码): 子集只能含零成交类
     mixed = list(REAL_0923["codes"]) + list(REAL_1012_CODES)
     miss, zv_sub = sk._unpriced_subsets(mixed, REAL_1012_CODES)
     assert miss == sorted(mixed), miss
@@ -261,7 +308,12 @@ def test_254_unfetchable_when_sources_down(monkeypatch):
 
 
 def test_254_abort_when_unfetchable_ratio_over_R():
-    """09-23 真实 n=1 100% 日(整源挂/不可细分)按保守归 unfetchable → ratio=1.0>R → abort exit5。"""
+    """n=1 靶数 100% 日(借 09-23 真实「靶数=1」几何)按保守归 unfetchable → ratio=1.0>R → abort exit5。
+
+    注(定性订正 2026-10-12): 09-23 真实成因 = **主源东财挂 + 兜底双源可达(8/8 成功) + `561120`
+    当日 09:40 前零成交**(**非**整源挂/不可细分, 亦非停牌)。本用例只借其「靶数=1 的 100% 面」几何,
+    将该单码假设为 unfetchable 以验证「单码全灭日 → abort」判据 —— **不等于**断言 09-23 真实成因是取不到。
+    """
     rep = _report(REAL_0923["R"], REAL_0923["target_count"], REAL_0923["codes"], ["unfetchable"])
     dec = gate.evaluate(rep, {"exemptions": [], "tolerate_streak": {}}, NOW, mutate=False)
     assert dec["verdict"] == "abort" and dec["exit_code"] == 5, dec
