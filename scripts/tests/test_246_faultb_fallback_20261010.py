@@ -14,8 +14,8 @@
   ② `_fetch_intraday_open_prices`: 主源成功但部分 target 缺有效开盘价 → 对「全部 missing」
      (不限 16 前缀)启用单标的 HTTP 兜底;「日期陈旧」路径并入兜底优先。正常路径(主源新鲜且
      整批命中)行为零变化(missing 空 ⇒ 不触发兜底)。
-  ③ `_retry_backoff_schedule` + main(): 短间隔退避多轮(60s×3,带 ±25% jitter,预算硬顶 450s),
-     替代原单次 300s。
+  ③ `_retry_plan` + main(): 跨 9:30 墙钟锚点重试(09:28/09:31/09:35/09:40,预算硬顶 900s),
+     替代原 60s×3 短退避(2026-10-13 跨窗口治本);配合外层 systemd 墙 600→1800。
 
 【零外发(§18 L48)】所有用例把 `requests.get` / `akshare.fund_etf_spot_em` 全量替换为假对象,
   并断言假对象确被调用(证明打桩生效、真实出口未被触达)。main() 用例另把 `_severe_alert`
@@ -26,7 +26,9 @@
 【复现命令】/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_246_faultb_fallback_20261010.py
 """
 import ast
+import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -243,31 +245,74 @@ def test_246_prices_normal_path_no_fallback(monkeypatch):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# ③ 重试策略 —— B4-2
+# ③ 重试策略 —— 跨 9:30 锚点重试(2026-10-13 跨窗口治本; 替代 B4-2 的 60s×3)
 # ════════════════════════════════════════════════════════════════════════════
-def test_246_retry_backoff_schedule_shape():
-    """60s×3: rng=0.5(无抖动)→ 三轮各 60s; 轮数/基数常量锁定。"""
-    assert ngc.RETRY_BACKOFF_BASE_S == 60
-    assert ngc.DEFAULT_RETRY_ROUNDS == 3
-    waits = ngc._retry_backoff_schedule(rng=lambda: 0.5)
-    assert waits == [60.0, 60.0, 60.0], waits
+def test_246_retry_targets_and_budget_constants():
+    """锚点表 / 预算常量锁定: 09:28/09:31/09:35/09:40, 预算硬顶 900s。"""
+    assert ngc.RETRY_TARGETS == ("09:28:00", "09:31:00", "09:35:00", "09:40:00"), ngc.RETRY_TARGETS
+    assert ngc.RETRY_BUDGET_S == 900, ngc.RETRY_BUDGET_S
 
 
-def test_246_retry_backoff_jitter_bounds_and_budget():
-    """带 jitter: rng=0/1 → 每轮 base×[0.75,1.25]; 累计不超预算。"""
-    lo = ngc._retry_backoff_schedule(rng=lambda: 0.0)
-    hi = ngc._retry_backoff_schedule(rng=lambda: 1.0)
-    assert lo == [45.0, 45.0, 45.0], lo
-    assert hi == [75.0, 75.0, 75.0], hi
-    many = ngc._retry_backoff_schedule(rounds=100, rng=lambda: 1.0)
-    assert sum(many) <= ngc.RETRY_BUDGET_S + 1e-6, (sum(many), ngc.RETRY_BUDGET_S)
-    # 预算硬顶口径(#246 R1 审查定案): 须 ≤ 云上外层 systemd 墙 600s, 取 450 留梯度
-    assert ngc.RETRY_BUDGET_S == 450, ngc.RETRY_BUDGET_S
-    assert ngc.RETRY_BUDGET_S <= 570, "预算必须落在 600s 墙内(留余量给 R2/通知)"
+def test_246_retry_plan_waits_from_now():
+    """给定首拉 now=09:26:00 → 相邻锚点差 120/180/240/300(合计 840 ≤ 900), 末锚点 = 09:40:00。
+
+    差 = 9:28-9:26 / 9:31-9:28 / 9:35-9:31 / 9:40-9:35 ⇒ 顺序 sleep 后恰在四个锚点醒来。
+    """
+    now = datetime(2026, 10, 13, 9, 26, 0)
+    plan = ngc._retry_plan(now)
+    assert plan == [("09:28:00", 120.0), ("09:31:00", 180.0),
+                    ("09:35:00", 240.0), ("09:40:00", 300.0)], plan
+    assert plan[-1][0] == "09:40:00", plan
+    assert sum(w for _, w in plan) == 840.0, plan
+    assert sum(w for _, w in plan) <= ngc.RETRY_BUDGET_S, plan
 
 
-def test_246_retry_loop_uses_schedule_and_attempts(monkeypatch, tmp_path):
-    """main() 就绪闸: 前 2 次失败 → 按退避表 sleep 两轮 → 第 3 次成功(共 3 attempts)。"""
+def test_246_retry_plan_waits_shift_with_now():
+    """now 偏移 → 首轮差随 now 变化, 后续轮差恒等于锚点间距(纯函数, 无 jitter)。"""
+    now = datetime(2026, 10, 13, 9, 27, 30)
+    plan = ngc._retry_plan(now)
+    assert [w for _, w in plan] == [30.0, 180.0, 240.0, 300.0], plan
+
+
+def test_246_retry_plan_past_anchor_zero():
+    """锚点已过 → 该轮 wait=0(立即重试, 不出现负值); 后续轮按剩余间距推进。"""
+    now = datetime(2026, 10, 13, 9, 29, 0)
+    plan = ngc._retry_plan(now, budget=10000)
+    assert [w for _, w in plan] == [0.0, 120.0, 240.0, 300.0], plan
+    assert all(w >= 0 for _, w in plan), plan
+
+
+def test_246_retry_plan_budget_truncation():
+    """跨预算 → 当轮截到剩余预算并停止再排(硬顶 ≤ budget); 末锚点不晚于 09:40:00。"""
+    now = datetime(2026, 10, 13, 9, 26, 0)
+    plan = ngc._retry_plan(now, budget=200)
+    assert plan == [("09:28:00", 120.0), ("09:31:00", 80.0)], plan
+    assert sum(w for _, w in plan) <= 200, plan
+    assert plan[-1][0] <= "09:40:00", plan
+
+
+def test_246_service_wall_matches_budget():
+    """机检(#13): doc §2.14-1 service 块 TimeoutStartSec == 1800, 且 ≥ 预算 + 300(梯度)。
+
+    替代原 `RETRY_BUDGET_S <= 570` 的「墙内」断言(墙 600→1800, 2026-10-13 跨窗口治本)。
+    """
+    md = (ROOT / "docs" / "deploy" / "systemd-units-20260912.md").read_text(encoding="utf-8")
+    lines = md.splitlines()
+    idx = next((i for i, l in enumerate(lines) if "trade-nextday-gap-check.service" in l), None)
+    assert idx is not None, "doc §2.14-1 未找到 trade-nextday-gap-check.service(锚失效)"
+    wall = None
+    for l in lines[idx:]:
+        m = re.match(r"^\s*TimeoutStartSec=(\d+)\s*$", l)
+        if m:
+            wall = int(m.group(1))
+            break
+    assert wall is not None, "doc §2.14-1 service 块未找到 TimeoutStartSec(锚失效)"
+    assert wall == 1800, wall
+    assert wall >= ngc.RETRY_BUDGET_S + 300, (wall, ngc.RETRY_BUDGET_S)
+
+
+def test_246_retry_loop_uses_plan_and_attempts(monkeypatch, tmp_path):
+    """main() 就绪闸: 前 2 次失败 → 按锚点计划 sleep 两轮 → 第 3 次成功(共 3 attempts)。"""
     # 打桩所有外发/R2/告警(§18 L48: 零真实外发)
     monkeypatch.setattr(ngc, "REPO", tmp_path, raising=False)
     monkeypatch.setattr(ngc, "GIT_REPO", tmp_path, raising=False)
@@ -291,8 +336,8 @@ def test_246_retry_loop_uses_schedule_and_attempts(monkeypatch, tmp_path):
         return {"510300": 4.50}
 
     monkeypatch.setattr(ngc, "_fetch_opens", _fake_fetch, raising=False)
-    backoffs = [11.0, 22.0, 33.0]
-    monkeypatch.setattr(ngc, "_retry_backoff_schedule", lambda **k: list(backoffs), raising=False)
+    plan = [("09:28:00", 11.0), ("09:31:00", 22.0), ("09:35:00", 33.0)]
+    monkeypatch.setattr(ngc, "_retry_plan", lambda *a, **k: list(plan), raising=False)
 
     monkeypatch.setattr(sys, "argv", ["nextday_gap_check.py", "--date", EXPECT, "--dry-run"])
     rc = ngc.main()
@@ -302,10 +347,130 @@ def test_246_retry_loop_uses_schedule_and_attempts(monkeypatch, tmp_path):
     assert tmp_path.joinpath("static-site", "data").exists()  # 仅读不写(dry-run)
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# ④ 存量死标记清理 —— _recheck_stale_pending(2026-10-13 治本)
+# ════════════════════════════════════════════════════════════════════════════
+def _make_db(path, rows):
+    """建最小 etf_daily 假库(etf_code/date/etf_name/open)。"""
+    import sqlite3
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(str(path))
+    con.execute("CREATE TABLE etf_daily (etf_code TEXT, date TEXT, etf_name TEXT, open REAL)")
+    con.executemany("INSERT INTO etf_daily VALUES (?,?,?,?)", rows)
+    con.commit()
+    con.close()
+
+
+def test_246_recheck_stale_pending_branches(tmp_path):
+    """三分支 + 不动项: 有 open 非伪跳→待执行 / 有 open 伪跳→剔除 / 无 open 不动 /
+    当天行不动 / 非 buy 不动; 幂等重跑零改动(不二次刷 updated_at)。"""
+    db = tmp_path / "data" / "etf_national_team.db"
+    _make_db(db, [
+        ("510300", "20260923", "沪深300ETF", 1.00),   # |1.00/1.00-1| = 0% → 非伪跳空
+        ("159920", "20260923", "恒生ETF", 2.00),      # |2.00/1.00-1| = 100% > 20% → 剔除
+    ])
+    stale = "伪跳空校验未完成(待人工)"
+    steps = {"steps": [
+        {"date": "20260923", "seq": "1", "action": "buy", "etf_code": "510300",
+         "order_price": 1.00, "status": "pending", "status_text": stale, "updated_at": "old"},
+        {"date": "20260923", "seq": "2", "action": "buy", "etf_code": "159920",
+         "order_price": 1.00, "status": "pending", "status_text": stale, "updated_at": "old"},
+        {"date": "20260923", "seq": "3", "action": "buy", "etf_code": "000001",
+         "order_price": 1.00, "status": "pending", "status_text": stale, "updated_at": "old"},
+        {"date": "20261013", "seq": "1", "action": "buy", "etf_code": "510300",
+         "order_price": 1.00, "status": "pending", "status_text": stale, "updated_at": "old"},
+        {"date": "20260923", "seq": "4", "action": "sell", "etf_code": "510300",
+         "order_price": 1.00, "status": "pending", "status_text": stale, "updated_at": "old"},
+    ]}
+    assert ngc._recheck_stale_pending(steps, "20261013", "2026-10-13 09:26:00", db) is True
+    s = steps["steps"]
+    assert s[0]["status"] == "pending" and s[0]["status_text"] == "待执行", s[0]
+    assert s[0]["updated_at"] == "2026-10-13 09:26:00", s[0]
+    assert s[1]["status"] == "skipped" and s[1]["status_text"].startswith("伪跳空剔除"), s[1]
+    assert s[2]["status_text"] == stale and s[2]["updated_at"] == "old", s[2]   # 无 open 不动
+    assert s[3]["updated_at"] == "old", s[3]                                    # 当天行不动
+    assert s[4]["updated_at"] == "old", s[4]                                    # 非 buy 不动
+    # 幂等: 重跑零改动, 且不二次刷 updated_at
+    assert ngc._recheck_stale_pending(steps, "20261013", "2026-10-13 10:00:00", db) is False
+    assert s[0]["updated_at"] == "2026-10-13 09:26:00", s[0]
+    assert s[1]["status_text"].startswith("伪跳空剔除"), s[1]
+
+
+def test_246_recheck_include_today(tmp_path):
+    """独立模式 include_today=True → date<=today 也重判(date==today 默认不动)。"""
+    db = tmp_path / "data" / "etf_national_team.db"
+    _make_db(db, [("510300", "20261013", "沪深300ETF", 1.00)])
+    steps = {"steps": [
+        {"date": "20261013", "seq": "1", "action": "buy", "etf_code": "510300",
+         "order_price": 1.00, "status": "pending",
+         "status_text": "伪跳空校验未完成(待人工)", "updated_at": "old"}]}
+    assert ngc._recheck_stale_pending(steps, "20261013", "now", db, include_today=False) is False
+    assert ngc._recheck_stale_pending(steps, "20261013", "now", db, include_today=True) is True
+    assert steps["steps"][0]["status_text"] == "待执行", steps
+
+
+def test_246_recheck_missing_db_no_clear(tmp_path):
+    """DB 缺失 → 不清理(防误清), 行原样。"""
+    steps = {"steps": [
+        {"date": "20260923", "seq": "1", "action": "buy", "etf_code": "510300",
+         "order_price": 1.0, "status": "pending",
+         "status_text": "伪跳空校验未完成(待人工)", "updated_at": "old"}]}
+    assert ngc._recheck_stale_pending(steps, "20261013", "now", tmp_path / "nope.db") is False
+    assert steps["steps"][0]["updated_at"] == "old", steps
+
+
+def test_246_recheck_pending_cli_e2e(monkeypatch, tmp_path):
+    """--recheck-pending 端到端(tmp 假 JSON + 假库): 清 1 行 → 落盘「待执行」; 再跑零改动。"""
+    import json
+    _make_db(tmp_path / "data" / "etf_national_team.db",
+             [("510300", "20260923", "沪深300ETF", 1.00)])
+    monkeypatch.setattr(ngc, "REPO", tmp_path, raising=False)
+    monkeypatch.setattr(ngc, "GIT_REPO", tmp_path, raising=False)
+    monkeypatch.setattr(ngc, "_sync_r2_and_notify", lambda *a, **k: (0, 0), raising=False)
+    d = tmp_path / "static-site" / "data"
+    d.mkdir(parents=True)
+    (d / "auto_trade_steps.json").write_text(json.dumps({"steps": [
+        {"date": "20260923", "seq": "1", "action": "buy", "etf_code": "510300",
+         "order_price": 1.00, "status": "pending",
+         "status_text": "伪跳空校验未完成(待人工)", "updated_at": "old"}]}), encoding="utf-8")
+    argv = ["nextday_gap_check.py", "--recheck-pending", "--date", "20261013",
+            "--no-r2", "--no-notify"]
+    monkeypatch.setattr(sys, "argv", list(argv))
+    assert ngc.main() == 0
+    doc = json.loads((d / "auto_trade_steps.json").read_text(encoding="utf-8"))
+    assert doc["steps"][0]["status"] == "pending", doc
+    assert doc["steps"][0]["status_text"] == "待执行", doc
+    monkeypatch.setattr(sys, "argv", list(argv))
+    assert ngc.main() == 0
+    after = json.loads((d / "auto_trade_steps.json").read_text(encoding="utf-8"))
+    assert after == doc, "重跑应零改动(幂等)"
+
+
+def test_246_recheck_planning_not_touched_when_no_plan(monkeypatch, tmp_path):
+    """挂载点 A: 无 nextday_plan(空)时早退, 但 recheck 清出的改动仍落盘(§22 闭环)。"""
+    import json
+    _make_db(tmp_path / "data" / "etf_national_team.db",
+             [("510300", "20260923", "沪深300ETF", 1.00)])
+    monkeypatch.setattr(ngc, "REPO", tmp_path, raising=False)
+    monkeypatch.setattr(ngc, "GIT_REPO", tmp_path, raising=False)
+    monkeypatch.setattr(ngc, "_sync_r2_and_notify", lambda *a, **k: (0, 0), raising=False)
+    d = tmp_path / "static-site" / "data"
+    d.mkdir(parents=True)
+    (d / "auto_trade_steps.json").write_text(json.dumps({"steps": [
+        {"date": "20260923", "seq": "1", "action": "buy", "etf_code": "510300",
+         "order_price": 1.00, "status": "pending",
+         "status_text": "伪跳空校验未完成(待人工)", "updated_at": "old"}]}), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["nextday_gap_check.py", "--date", "20261013",
+                                      "--no-r2", "--no-notify"])
+    assert ngc.main() == 0                       # 无计划 → 退出 0
+    doc = json.loads((d / "auto_trade_steps.json").read_text(encoding="utf-8"))
+    assert doc["steps"][0]["status_text"] == "待执行", doc
+
+
 # ── 红先验辅助: 旧码无该函数 ─────────────────────────────────────────────────
 def test_246_retry_fn_exists():
-    assert callable(getattr(ngc, "_retry_backoff_schedule", None)), \
-        "B4-2 退避表函数缺失(旧码应 FAIL)"
+    assert callable(getattr(ngc, "_retry_plan", None)), \
+        "锚点重试计划函数缺失(旧码应 FAIL)"
 
 
 def test_246_via_http_source_of_truth_static():

@@ -354,7 +354,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/nextday_gap_check.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=600
+TimeoutStartSec=1800
 @@@FILE:trade-nextday-plan.service
 [Unit]
 Description=Trade nextday-plan (源 com.trade.nextday-plan)
