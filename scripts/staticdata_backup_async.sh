@@ -188,6 +188,47 @@ fi
 if [ "${STATICDATA_BACKUP_SKIP_R2_UPLOAD:-}" = "1" ]; then
   echo "  [step3.5b large-json R2 上传] 跳过(STATICDATA_BACKUP_SKIP_R2_UPLOAD=1 测试隔离钩子, 未写生产 R2)" | tee -a "$LOG"
 else
+  # ── step3.5b R2 上传守卫(#249, 2026-10-11)──
+  # 病灶(B3 执行报告 §6.7): 本步在写权限守卫(git 段, 段2)之前跑, 且 upload-large-json 属
+  # upload_r2.py `_PRIVATE_ONLY_CMDS`(本机允许本机跑) ⇒ mac 若跑本脚本, 会把本机 staticdata 的
+  # large-json 目录(可能与云上正本代际不一致)gzip PUT 覆盖 signal-backup2 的 large-json/<rel>.gz
+  # 固定前缀唯一副本(覆盖写, 不可逆)。B 批删 ⑦ 只消掉了 fund_nav 那处触发源, 机制本身仍在。
+  # 修法 = 与 git 段同款判据前置(同一纯函数 staticdata_write_guard.py --check-write-auth: 判定
+  #   path 前缀 /home/ubuntu/), 复用不开新判据、同风格提示:
+  #   rc 0 = 生产机 → 原逻辑逐字节不动(云上行为零变化)。
+  #   rc 1 = 非生产机 → 默认跳过 R2 上传(不接触 signal-backup2); 显式 STATICDATA_ALLOW_R2_UPLOAD=1
+  #          才放行(large-json 为固定 key 覆盖写, 无"只增不覆盖"闸门可套, 故只提供全量放行逃生门)。
+  #   rc 2/其他 = 判定异常 → fail-closed 跳过 + FAIL=1 告警。与 git 段 rc=2 的 fail-open(L3 有意识
+  #          取舍)刻意不同: R2 覆盖写会销毁唯一副本=不可逆, 无判据下不可 fail-open(明确否决 copy L3)。
+  _R2_GA_MSG=$("$PY" "$GIT_REPO/scripts/staticdata_write_guard.py" --check-write-auth --repo "$STATICDATA_REPO" 2>&1)
+  _R2_GA_RC=$?
+  _R2_SKIP=0
+  if [ "$_R2_GA_RC" -eq 0 ]; then
+    :  # 生产机: 原上传逻辑不动
+  elif [ "$_R2_GA_RC" -eq 1 ]; then
+    echo "  [step3.5b R2 上传守卫] $_R2_GA_MSG" | tee -a "$LOG"
+    if [ "${STATICDATA_ALLOW_R2_UPLOAD:-}" = "1" ]; then
+      echo "  [step3.5b large-json R2 上传] 非生产机 + STATICDATA_ALLOW_R2_UPLOAD=1: 显式放行(固定 key 覆盖写, 无只增闸门, 风险自知)" | tee -a "$LOG"
+    else
+      echo "  [step3.5b large-json R2 上传] 跳过(非生产机守卫拦截, 未接触 signal-backup2; 显式放行: STATICDATA_ALLOW_R2_UPLOAD=1 重跑)" | tee -a "$LOG"
+      "$PY" "$REPO/scripts/notify.py" "[通知] 非生产机 staticdata large-json R2 上传已跳过" \
+        "staticdata 备份(trigger=$TRIGGER) 在本机(非生产机, 仓库 $STATICDATA_REPO 非 /home/ubuntu/)被 R2 上传守卫拦截, 跳过 step3.5b upload-large-json。<br>本机 large-json 目录可能与云上正本代际不一致, 上传会覆盖 signal-backup2 固定前缀唯一副本, 故默认拦截。<br>数据仍已 rsync 磁盘留档(灾备第1/2层不丢)。<br>如需从本机显式上传: 设 STATICDATA_ALLOW_R2_UPLOAD=1 重跑。<br>日志: $LOG" \
+        --from-prefix "[通知]" --alert-issue "非生产机staticdata large-json R2上传被守卫拦截" --alert-log "$LOG" \
+        --dedup-key staticdata_backup_r2_nonprod_skip --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
+      _R2_SKIP=1
+    fi
+  else
+    echo "  [step3.5b R2 上传守卫] $_R2_GA_MSG" | tee -a "$LOG"
+    echo "⚠ R2 上传守卫判定异常(rc=$_R2_GA_RC), fail-closed 跳过 R2 上传(无生产机判据下不覆盖唯一副本), 置 STATICDATA_FAIL=1" | tee -a "$LOG"
+    "$PY" "$REPO/scripts/notify.py" "[告警] staticdata R2 上传守卫内部错误" \
+      "staticdata 备份(trigger=$TRIGGER) step3.5b R2 上传守卫内部错误(rc=$_R2_GA_RC), 保守跳过 upload-large-json(fail-closed)并置 FAIL, 防在无生产机判据下覆盖 signal-backup2 唯一副本。<br>日志: $LOG" \
+      --from-prefix "[告警]" --alert-issue "staticdata R2上传守卫内部错误" --alert-log "$LOG" \
+      --dedup-key staticdata_backup_r2_guard_error --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
+    STATICDATA_FAIL=1
+    _R2_SKIP=1
+  fi
+
+  if [ "$_R2_SKIP" = "0" ]; then
   _R2_TMP=$(mktemp)
   if STATICDATA_REPO="$STATICDATA_REPO" GIT_REPO="$GIT_REPO" "$PY" "$GIT_REPO/scripts/with_lock.py" --nb "$R2_LOCK" \
       bash -c 'STATICDATA_REPO="$1" GIT_REPO="$2" "$3" "$4" upload-large-json' \
@@ -207,6 +248,7 @@ else
     STATICDATA_FAIL=1
   fi
   rm -f "$_R2_TMP"
+  fi  # 结束 "if [ \"$_R2_SKIP\" = \"0\" ]"(原上传逻辑; #249 守卫放行时)
 fi
 echo "  [step3.5 large-json 排除+R2] $(( $(date +%s) - _STEP_START ))s" | tee -a "$LOG"
 
