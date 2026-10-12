@@ -161,15 +161,26 @@ def _fresh_db() -> Path:
 
 
 def _run_fixed(df: pd.DataFrame, db_path: Path) -> int:
-    """把模块的 DB_PATH/ak 换成测试替身，调用真实 fetch_daily_nav。"""
-    orig_db, orig_ak = pf.DB_PATH, pf.ak.fund_open_fund_daily_em
+    """把模块的 DB_PATH/ak 换成测试替身，调用真实 fetch_daily_nav。
+
+    CI 侧注意：ci.yml job ⑧ 不装 akshare ⇒ 走 `scripts/tests/_ci_stubs.py` 的**空桩**
+    ModuleType（只有 import 级存在性，无任何属性）。故此处**不得在替换前读
+    `pf.ak.fund_open_fund_daily_em`**（CI 里 AttributeError、本机装了真库却假绿 = §18 L49
+    反面）；改为 hasattr 判定 + getattr 默认值，恢复时「原本有则 setattr、原本无则 delattr」。
+    """
+    orig_db = pf.DB_PATH
+    had_attr = hasattr(pf.ak, "fund_open_fund_daily_em")
+    orig_ak = getattr(pf.ak, "fund_open_fund_daily_em", None)
     pf.DB_PATH = db_path
     pf.ak.fund_open_fund_daily_em = lambda *a, **k: df
     try:
         return pf.fetch_daily_nav()
     finally:
         pf.DB_PATH = orig_db
-        pf.ak.fund_open_fund_daily_em = orig_ak
+        if had_attr:
+            pf.ak.fund_open_fund_daily_em = orig_ak
+        else:
+            del pf.ak.fund_open_fund_daily_em
 
 
 def _q(db_path: Path, sql: str, args=()):
