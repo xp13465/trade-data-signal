@@ -644,6 +644,33 @@ def test_254_allzero_partial_not_triggered():
     assert dec["tier"] == "silent" and dec["verdict"] == "tolerate", dec
 
 
+def test_254_allzero_target4_three_zero_one_priced_silent():
+    """(e2)【变异靶 C1】target=4, 3 只零成交 + 1 只已定价 → 必须静默(全零要件=100% 不成立)。
+
+    变异看门: 把判据 `len(_zv_codes) == target_count` 放宽成 `>= ALLZERO_MIN_TARGETS` →
+    本用例 FAIL(3 >= 3 成立但 3 != 4)⇒ 部分零成交会被误判为「全零成交」并误发 P2b WARN。
+    """
+    # target_count=4 但 codes 只列 3 只零成交(第 4 只已定价、不在未定价名单)⇒ 非 100% 全零。
+    rep = _report("20261012", 4, ["561120", "561121", "561122"], ["zero_volume"] * 3)
+    dec = gate.evaluate(rep, {"exemptions": [], "tolerate_streak": {}}, NOW, mutate=False)
+    assert dec["all_zero_volume"] is False, dec
+    assert dec["tier"] == "silent", dec
+    assert dec["exit_code"] == 0 and dec["verdict"] == "tolerate", dec
+    assert gate.build_alarm(rep, dec, 0, NOW) is None, f"部分零成交(3/4)严禁发 P2b 告警: {dec}"
+
+
+def test_254_allzero_target4_all_zero_warn():
+    """(e3) 镜像面: target=4, 4 只全零成交 → 100% 要件成立 → WARN(verdict 仍 tolerate, exit 0)。"""
+    codes = ["561120", "561121", "561122", "561123"]
+    rep = _allzero_rep(4, codes)
+    dec = gate.evaluate(rep, {"exemptions": [], "tolerate_streak": {}}, NOW, mutate=False)
+    assert dec["all_zero_volume"] is True and dec["all_zero_volume_codes"] == sorted(codes), dec
+    assert dec["tier"] == "warning" and dec["reason"] == "all_zero_volume_not_exempted", dec
+    assert dec["verdict"] == "tolerate" and dec["exit_code"] == 0 and dec["ratio"] == 0.0, dec
+    alarm = gate.build_alarm(rep, dec, 0, NOW)
+    assert alarm is not None and alarm[3] == gate.ALLZERO_DEDUP_KEY and alarm[4] == 21600, alarm
+
+
 def test_254_allzero_mixed_face_abort_unchanged():
     """(f) 混合面(零成交 + unfetchable 且 ratio=50% > R) → 走 P2 abort, 不被本闸改写 tier/exit。"""
     rep = _report("20261012", 4, ["561120", "561121", "561122", "561123"],

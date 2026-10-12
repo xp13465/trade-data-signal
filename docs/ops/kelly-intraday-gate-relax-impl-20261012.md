@@ -119,7 +119,7 @@ P2b 绝对量闸(§13)新增一条 WARN(`kelly_intraday_gate_allzero_volume`, 6h
 - 语料底座 113 运行日: `docs/kelly/analysis/kelly-intraday-gate-zero-volume-series-20261012.json`
 - 逐字锚 10-12: `target=24`, `codes=['159513','164508']`, 8.3%(与云上日志 L748 一致)
 - n=1 100% 日: 03-31 `513400`、09-23 `561120`
-  - **09-23 定性订正(2026-10-12,原写「整源挂/不可细分」为误)**: 该日 = **主源(东财)封禁挂** + **兜底双源(腾讯/新浪)可达且 8/8 成功**(证据 `246-faultb-fallback-impl-20261010.md:19`「9-23 两源 8/8 成功、逐位一致」); `561120` 当日**非停牌**(etf_daily@20260923 今开=1.25 / 成交 735.6 万手,云上实测)。旧码当天 raise 的根因 = **旧兜底不含「5」前缀** + 主源挂,**不是**「两源同死」。该日归**零成交型**(`561120` 首笔落 09:40–10:00 ⇒ 09:40 前零成交),非整源全灭型 —— 与设计稿 §五.5「09-23(n=1,已验零成交)」一致。
+  - **09-23 定性订正(2026-10-12,原写「整源挂/不可细分」为误)**: 该日 = **主源(东财)封禁挂** + **兜底双源(腾讯/新浪)可达且 8/8 成功**(证据 `246-faultb-fallback-impl-20261010.md:19`「9-23 两源 8/8 成功、逐位一致」); `561120` 当日**非停牌**(etf_daily@20260923 今开=1.25 / 成交 735.6 万元(`amount=7,355,741` 元),云上实测)。旧码当天 raise 的根因 = **旧兜底不含「5」前缀** + 主源挂,**不是**「两源同死」。该日归**零成交型**(`561120` 首笔落 09:40–10:00 ⇒ 09:40 前零成交),非整源全灭型 —— 与设计稿 §五.5「09-23(n=1,已验零成交)」一致。
 - 容忍带样本: 10-08 `target=15`, `codes=['160638','164508']`(13.3%)、09-30 `target=23`(8.7%)
 - 字段位/时间戳语义: 设计稿 §六 V2/V3(腾讯 `[5]`=今开 / `[30]`=时间戳;新浪 `[1]`=今开 / `[30]`=日期)
 - 出站全量打桩(requests.get 替换)、decider `--dry-run`,**零外发**(§18 L48: 已用 subprocess 哨兵证明沙箱生效)
@@ -183,3 +183,135 @@ P2b 绝对量闸(§13)新增一条 WARN(`kelly_intraday_gate_allzero_volume`, 6h
 7. **(P2b 增补, 移交前端 agent, 本 agent 不改前端)** — 本闸为**纯后端告警**(WARN 邮件/飞书), 不新增前端字段/展示位;
    若前端就绪闸公示需覆盖「全零成交面」语义, 建议文案:「当日全部目标(≥3 只)都取不到 09:40 前成交 → 后端发
    WARN(疑似数据源整体异常), 但仍出档; 若已确认该形态正常可人工豁免」——**是否列入公示由前端 agent 与主控定**。
+
+## 13. P2b 绝对量闸(#254 方案 A, 2026-10-12 增补)
+
+> **本节为补写(订正记录见 §13.12)**:`caf439cf8` 的 commit message 声称「台账 §13 新增」, 但该 commit **未写入
+> §13 正文**(当时文档只到 §12, 却有 8 处 §13.x 引用悬空)。本节按**实际代码逐条对齐**补写, 代码锚 = 行号
+> (以本分支 tip 为准, 文件 `scripts/kelly_intraday_gate_decider.py`, 简称 `decider`)。
+
+### 13.1 拍板凭据(§23.7 冻结契约的例外)
+- 用户 **2026-10-12 拍板「方案 A」**(施工图 `docs/ops/kelly-intraday-gate-relax-design-20261012.md`)。
+  拍板**含义**(原文口径)= **小样本(≥3 只)全零成交要至少响一声**;**n<3 静默**(避 09-23 复发 ——
+  09-23 是 n=1 全零成交日, 曾因误报被用户抱怨, 故 n<3 绝对不能再响)。
+- P2b **改了已上线冻结 decider 的行为**(旧: 100% 全零成交 → 完全静默零告警; 新: ≥3 只 → WARN),
+  属 §23.7 冻结契约的**例外**, 凭据即上条用户拍板。
+
+### 13.2 判据(`decider:219-230`)
+- 触发 = `target_count >= ALLZERO_MIN_TARGETS`(=3) **且** `len(unpriced_zero_volume_codes) == target_count`(`decider:228`)。
+- `unpriced_zero_volume_codes` 来源: report **显式**带该字段(list)时以之为准, 否则从 `codes`/`class`
+  派生 `class=='zero_volume'` 子集(`decider:223-227`); 两路径同源同批写入, 不产生漂移。
+- **n<3 完全静默**: `target_count < 3` ⇒ 判据短路(用例 `(a) target=2`)。
+- **部分零成交不触发**: 只要有一只已定价/unfetchable, `len(_zv) != target_count` ⇒ 不触发
+  (用例 `(e) target=3 只列 2` + `(e2) target=4 只列 3`)。
+- **混面不触发**: 零成交 + unfetchable 混面时 `len(_zv) != target_count`(用例 `(f)`)。
+- **空轮 `target=0` 不受影响**: `0 >= 3` 假 ⇒ 不触发; verdict `pass`/exit 0(用例 `(g)`)。
+
+### 13.3 动作 / 通道(`decider:283-291, 309-315, 331, 366-377`)
+- **verdict 仍 `tolerate`(仍出档)**: `decider:283-291` 阶梯 = `target_count==0`→pass; `ratio>R`→abort;
+  否则 `missing_count>0`→tolerate。全零成交 `ratio=0`(分子 = 未豁免 unfetchable = 0)⇒ 落 tolerate(`:288`)。
+- **告警升 WARN**: `decider:313-315` → `tier="warning", reason="all_zero_volume_not_exempted"`。
+- **专用通道**: `build_alarm`(`decider:366-377`)→ subject
+  `[告警] 凯利盘中就绪闸·全零成交面(target N 只 100% 零成交)`; body 附「极可能数据源整体异常」+ 豁免命令。
+  **dedup-key = `ALLZERO_DEDUP_KEY`**(`= kelly_intraday_gate_allzero_volume`, `decider:76`);
+  **dedup-window = `ALLZERO_DEDUP_WINDOW`**(`= 21600`, `decider:80`)。
+- **exit 码**: `decider:331` `exit_code = 5 if verdict=="abort" else 0` ⇒ 全零成交 **exit 0**(不中断出档)。
+- **6h 同日窗口理由**(代码注释 `decider:77-79`): 盘中档每交易日仅 9:40 单发; `6h < 24h` ⇒ 同一交易日内手动
+  重跑只发一条, 次交易日 9:40(≈24h 后)自然重发; 6h 覆盖 9:40→15:40 全部同日内重跑。不取 abort 的 1800(30min):
+  abort 是「本轮跳过」即时态, 全零成交是「当日数据形态」持续态, 30min 会让同日内重跑反复轰炸。
+
+### 13.4 优先级(`abort` > P2b; 结构互斥)
+- tier 阶梯先判 abort(`decider:309-310`)再判 P2b(`:313`)⇒ `abort` 优先级更高。
+- **结构互斥**: 全零成交 ⇒ `unfetchable_all=0` ⇒ 未豁免 unfetchable=0 ⇒ `ratio=0` ⇒ **永不 abort**;
+  反之 abort 时 `len(_zv) != target_count`。二者不可能同时成立(用例 `(f)` 断言 abort 面 `all_zero_volume=False`)。
+- P2b **不改写** abort 的 tier/exit 码。
+
+### 13.5 豁免口径(复用既有查表, 不新造种类)
+- `decider:274-276`: `all_zero_exempted = bool(all_zero_volume and face_codes and set(face_codes) <= set(exempted))`。
+  **复用既有 P1 四元组查表**(`match_exemption`), **不新造豁免种类**; 命中同面 active 豁免 ⇒ `exempted` 已含
+  全部面码 ⇒ 判为已豁免, tier 阶梯继续下行最终落 **`silent`**(用例 `(c)`)。
+- 命中条件 = 五维全中(子集 + 类别 + 源上下文 + band + TTL 未过期)。**已确认该形态正常** → 人工 `confirm` 后完全静默;
+  未命中(无交集/面不匹配/超带/过期)→ 仍 WARN(用例 `(d)`)。
+- **`scripts/kelly_intraday_gate_ack.py` 未改动即天然接受该面**(说明其机制): ack 的 `_face_from_report`
+  (`ack.py:39-47`)只读 report 的 `codes`(`:41-42`)+ `target_count`(`:43`)派生 4 元组面
+  (`r_band` 由未豁免 unfetchable 算, `:44-47`), **不读 P2b 字段** ⇒ ack 零改动下对全零成交面的
+  confirm/list/clear 行为不变(P2b 未新增豁免种类, 走同一 face)。
+- **取舍**: 不新造「全零成交专属豁免」而复用同一 face ⇒ 单一事实源、零漂移; 代价 = 全零成交面与普通零成交面
+  **共用**同一 face 语义(将来若须区分, 需另立种类, 属 §23.7 冻结变更)。
+- **可逆说明**: 删去 `decider` 的 P2b 分支(`:219-230, 274-276, 313-315, 366-377`)即回到「全零成交完全静默」旧行为;
+  **无状态迁移**(未新增 state 字段, 既有 `kelly_intraday_gate_state.json` 结构不变)。
+
+### 13.6 复现与变异复验(实测)
+```bash
+PY=/Users/linhuichen/code/trade/.venv/bin/python
+# ① 全量回归(CI 同口径)
+$PY -m pytest -q scripts/tests/                     # 实测: 801 passed, 2 skipped (95.21s)
+# ② 本任务套(#254 原 30 + P2b 14 + 本次 F5 新增 2 = 46 项)
+$PY -m pytest -q scripts/tests/test_254_intraday_gate_relax_20261012.py   # 实测: 46 passed
+# ③ #246 回归(签名扩容同步后)
+$PY -m pytest -q scripts/tests/test_246_faultb_fallback_20261010.py        # 实测: 14 passed
+# ④ 语料分布独立坐实(§13.7)
+$PY -c "import json,collections;d=json.load(open('docs/kelly/analysis/kelly-intraday-gate-zero-volume-series-20261012.json'));print(collections.Counter(r['zero_volume_count'] for r in d))"
+#   → Counter({0: 102, 1: 8, 2: 3})  ⇒ 113 运行日, 最大 2, **≥3 从未发生**
+# ⑤ 变异复验(F5, §18 L49): 把判据 `len(_zv_codes) == target_count` 手工放宽为 `>= ALLZERO_MIN_TARGETS`
+$PY -m pytest -q scripts/tests/test_254_intraday_gate_relax_20261012.py
+#   → 实测: 1 failed, 45 passed;FAILED = test_254_allzero_target4_three_zero_one_priced_silent
+#   → 还原后 md5 复验一致 + 46 passed
+```
+- **变异前 md5**(`decider`)= `7e145906c237dc7ccd24fc32caabd033`(F4 删死常量后的当前态);变异后 =
+  `72c36095074247eae62799fca4a39cb2`;**还原后 = `7e145906c237dc7ccd24fc32caabd033`(与变异前逐位一致)**。
+- **⚠️ 诚实标注(F5 复验方法)**: F5 的「先 FAIL 后还原 PASS」为本轮**实测**(上列输出即实跑所得);
+  §13.6 的 801/46/14 三项亦为本轮实跑值(非照抄他处)。
+
+### 13.7 阈值来源(§5.1 诚实标注 + 独立坐实)
+- `ALLZERO_MIN_TARGETS = 3`(`decider:75`)= **经验起步值 / 历史零样本 / 上线后待校准**。
+  代码注释已明写(`decider:71-74`), 且有源码词机检 `test_254_allzero_freeze_min_targets_named`。
+- **独立坐实(本轮实跑, 见 §13.6 ④)**: 113 运行日语料的 `zero_volume_count` 分布 = **{0:102, 1:8, 2:3}**
+  ⇒ **≥3 从未发生**。故 n≥3 的下限**无法由历史校准**, 只能取「> 历史最大 2」的保守起步值。
+
+### 13.8 留痕
+- **report 根级**: `all_zero_volume` / `all_zero_volume_codes`(`signal_kelly_backtest.py:2152-2153`;
+  由 `_gate_dec` 单一事实源落盘, 生产方不复制判据)。`all_zero_volume_exempted` 只在 decider decision
+  内(`decider:342`), 生产 report **不落**该字段(仅 decider CLI + ledger 有)。
+- **ledger 追加字段**: `all_zero_volume` / `all_zero_volume_codes` / `all_zero_volume_exempted`(`decider:505-507`)。
+- **P3 `tolerate_streak` 语义零改动**: 全零成交 `ratio=0` ⇒ 不落容忍带, streak 归零(`decider:293-304`, 用例 `(h)`)。
+
+### 13.9 零外发证据(§18 L48)
+- **打桩方式**: 全零成交 WARN 的 dry-run 路径由 `test_254_allzero_notify_sandbox_effective` 锁 ——
+  monkeypatch `gate.subprocess.run` 成「一被调用即抛 AssertionError」的**哨兵**, 断言 `called == []`
+  (零调用 = 零外发硬证据)。
+- **哨兵实证**: `test_254_allzero_ledger_and_cli_dry_run` 断言输出含 `[dry-run] notify`, 走 `dispatch_notify`
+  的 `--dry-run` 分支(`decider:419-422`, 打印不发)。
+- **本轮(F1-F5 修复)零真实外发**: 全部自测 = pytest(全打桩)+ 云上**只读** `SELECT`(查 `etf_daily` 成交额),
+  **未运行任何生产业务脚本 / 未发任何告警**。
+
+### 13.10 诚实标注: 样本 = 真实锚 + 扩展构造(§18 L49)
+- **真实锚**(语料逐字一致): 09-23 `561120`、03-31 `513400`(语料
+  `kelly-intraday-gate-zero-volume-series-20261012.json`);09-23 已由 `etf_daily@20260923` 实测坐实
+  (今开 1.25 / 成交 735.6 万元 / 非停牌)。
+- **扩展构造**: 靶数 3/4 的组合面按真实结构扩展构造 —— 历史 **0 次** n≥3, 无真实 n≥3 样本可用。
+- 测试文件头(`test_254_intraday_gate_relax_20261012.py:16-22`)已声明: payload 报文按设计稿实测字段位构造、
+  出站全打桩。
+- **不是「全套生产实证」**: n≥3 全零成交面生产从未出现, 本闸上线后才有首个真实观测机会。
+
+### 13.11 §23.3 同模式/同数据源/同组件消费点清单(冲突核实, 全部与代码一致)
+| # | 消费点 | P2b 是否触及 | 处置(代码锚, 已核实无冲突) |
+|---|---|---|---|
+| 1 | 判定唯一事实源 `evaluate` | 是 | 判据**只**在 `decider:219-230` 一处;`signal_kelly_backtest.py:2146` 只读复用, 不复制判据(§5.4⑦) |
+| 2 | 告警通道 `notify.py --dedup-key/--dedup-window` | 是 | 复用同通道, 专用 key `kelly_intraday_gate_allzero_volume` + 21600,**不与 abort key**(`kelly_intraday_rerun_fail`/1800)**互相压制**(不同 key) |
+| 3 | 告警分级阶梯 `build_alarm` | 是 | P2b 插在 abort(`:309-310`)与 unfetchable_exempted(`:311-312`)之后(`:313-315`), 不改 abort tier |
+| 4 | `verdict` / exit 码 | 是 | 全零仍 `tolerate`(ratio=0 不 abort)→ exit 0(`decider:285-291, 331`) |
+| 5 | unit `SuccessExitStatus=5` | 否 | 未动(`rerun.sh` 零改动; 机检 `test_254_allzero_rerun_sh_comment_wired` 断言 sh 不含 `SuccessExitStatus`) |
+| 6 | P3 `tolerate_streak` 状态机 | 否 | 零改动: 全零 `ratio=0` ⇒ streak 归零(`decider:293-304`, 用例 `(h)`) |
+| 7 | report / ledger 字段登记点 | 是 | 生产方 `signal_kelly_backtest.py:2152-2153` + decider ledger `:505-507` **同批写入**, 单一事实源 |
+| 8 | ack 消费方 / 前端展示位 | 否 / 移交 | ack 读 `codes`+`target_count`(`ack.py:39-47`)零改动;前端 P2b **无新增字段**(§12 第 7 条, 移交前端 agent) |
+
+### 13.12 订正记录(`caf439cf8` 假声称 + 同批订正)
+- **假声称**: `caf439cf8` 的 commit message 声称「台账 §13 新增」, 但该 commit **未写入 §13 正文**
+  (文档只到 §12, 而 8 处 §13.x 引用悬空)⇒ **假声称**。本轮 **F1 补写 §13 全文**(本节), 并订正 §0 四件套行
+  第 9 行 `§13.6` 引用(§13.6 现存在, 编号对齐)。
+- **F3 单位订正**: §7 复现段样本行原写「09-23 `561120` 成交 735.6 **万手**」= 单位错 → 改「735.6 **万元**」
+  (`etf_daily@20260923 amount=7,355,741` 元, 云上实测)。
+- **F4 死常量订正**: `decider` 的 `ALLZERO_FACE` 原仅定义处 1 命中(注释谎称 ledger/report/reason 会用)= 死码 → **已删除**,
+  注释同删(理由: 令代码「真的用它」要么只改一半 → 字面量/常量混用 = 违反一致性, 要么为单一消费者造一族派生名常量
+  = 过度抽象, 见 role-implementer §6.5「少写抽象」; 且 face 标识从不作为**值**被消费)。

@@ -73,7 +73,6 @@ STATE_READ_FAIL_DEDUP_WINDOW = 24 * 3600
 #    中 0 次出现, 无法从历史校准; n>=3 为刻意下限 —— n<3 的全零成交(=用户抱怨过的 09-23 n=1 日)必须
 #    保持**完全静默**, 不能再响。
 ALLZERO_MIN_TARGETS = 3
-ALLZERO_FACE = "all_zero_volume"          # 本闸问题面标识(ledger/report/reason 用; 非新豁免种类)
 ALLZERO_DEDUP_KEY = "kelly_intraday_gate_allzero_volume"
 # 6h 同日窗口(给理由): 盘中档每交易日仅 9:40 单发, 6h < 24h ⇒ 同一交易日内的手动重跑只发一条,
 # 次交易日 9:40(≈24h 后)自然重发; 6h 覆盖 9:40→15:40 全部同日内重跑。不取 abort 的 1800(30min):
