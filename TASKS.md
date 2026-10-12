@@ -8,12 +8,13 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-> 🧭 **本次会话状态(2026-10-12,主控)——接力先看这段**
-> **①改了哪些**:**#254 已上线** —— 盘中就绪闸 fail-closed 放宽(方案 A,三部分:后端 decider 放宽 + 前端「未定价」标注 + 公示措辞修正)。main `3bbabbb31`;CI 三 workflow(GitHub Pages / Cloudflare Workers / CI Quality Gate)全 success;三站版本串 `20261012-a645`(index 与 sw.js CACHE_VERSION 同源);云上已同步。
-> **②效果是什么**:盘中未定价标的处理放宽(方案 A 落地);**#251/#252 数据缺口回填在跑**(#251 公募 fund_daily_nav 10-08/10-09 全 NULL、#252 trades 断档 signal_date 落后)。
-> **③下一步**:夜间 **21:07** 排了两条已审分支合并 —— `feat/watchdog-lowkill-fix`(`9cbb9060a`)/ `feat/alert-denoise-batch3-20261011`(`f275698a1`);#251/#252 回填完成后核。
-> **状态**:在跑 = #251/#252 数据缺口回填 + 夜间两分支合并;本轮另做纯文档台账回填(pending-index 若干状态列对齐 + TASKS 侧指针订正),不改代码、不 bump 版本串。
-> 📜 **上一轮落档(2026-10-10 01:3x 起 / 07:5x 补 #234 批3,存档备查;其 ④下一步/状态 已被本轮取代)**
+> 🧭 **本次会话状态(2026-10-13 凌晨,主控)——接力先看这段**
+> **①改了哪些**:今晚 **7 次 push main,全部 CI success**(main 从 `297364612` → **`a9934436c`**)。四条已审分支合并:①`feat/afund-retry-loop-fix` →`297364612`(a_fund 重采失败降级修复,G3 每日 8 条告警)②`feat/251-fundnav-col-bugfix` →`0c1de7118`(#251 公募 nav 全 NULL 根治:东财 showday 翻滚抢跑窗 + UPSERT/COALESCE)③`feat/alert-denoise-severe-exempt` →`7b571dc9d`(降噪误吞 severe 修复:预算只数 critical)④`feat/gapcheck-retry-window` →`a9934436c`(伪跳空 exit=2 治本:墙钟锚点重试 + TimeoutStartSec 1800 + pending 重判清理)。另 3 次:2 份文档落档 + 1 次 A 级闸门文案修正(`3c7d5ab24`,披露在案)。
+> **②效果是什么**:告警层(重采失败 8 条/日 → 预期 0;吞 severe → 恢复直发)+ 数据层(#251 不再写全 NULL 日)+ 任务层(伪跳空 exit=2 不再误报)。**均已独立复核**:伪跳空 9 行 pending 清理,云上四端(双树/R2/CF)md5 全等 `bee0c0682940846650259534d26e46d9`,「待人工」残留 0(主控自验,与 tester 报值逐位一致)。
+> **③下一步(观察锚点,明天核)**:10-13 **02:00** a_fund 槽 → `alert_ledger.jsonl` 应 0 条「重采失败」;**16:30** 公募采集槽 → 应无全 NULL 日(#251);明早 **08:27** 伪跳空 patrol → 应不再报 exit=2。
+> **状态**:无在跑 agent(巡检 cron 已全清),无未推 commit。本轮未 bump 版本串(纯后端/脚本改动,不动前端默认)。
+> 📜 **上一轮落档(2026-10-12,#254 盘中就绪闸放宽;存档备查)**:#254 已上线 main `3bbabbb31`,三站版本串 `20261012-a645`,云上已同步。
+> 📜 **上一轮落档(2026-10-10 01:3x 起 / 07:5x 补 #234 批3,存档备查)**
 > **①改了哪些**:告警系统性收敛**首批三波全线开动** —— ①**W1 = L1 度量层**:让「一天 0~3 条」从「拼 ≥5 个来源估算」变成**单一权威数字**(台账 `data/alerts/alert_ledger.jsonl` + 日计数 `alert_daily.json` + 查询面 `scripts/alert_meter.py` **强制跨两树聚合**防 §22 双数字),写点 = **3 个渠道函数** `send_feishu`/`send_telegram`/`_send_email`(出口穷举结论 = **非单点**),**已合 main `34c55ec19`(CI run 756 绿)** ②**W2 = 三态判据**(L3d Pattern B 3 处):治「`notify.py` CLI 13 分支恒 `return 0`、rc 无判别力」病灶,**定案走路线 B —— 不动冻结面**,只让判据读既有 stderr 输出(`notify_sent.py:notify_state` 三态),**已合 main `1d946f685`(CI run 757 绿)** ③**W3 = #241B 前端通知与邮件送达解耦**:**已合 main `66efa9fcb`(CI run 760 绿)**,独立审 **12 项必查全 PASS / 0 阻断**,订正 commit `97b5ca721`;**§0 云上核验 7/7 全 PASS**。三波独立审**全 PASS**(独立复跑 pytest + 重新推导数字 + 专核波间交互不撞)。**方案文档两处前提被独立调研证伪并已订正**:§2 写点由「通用汇总处」改为 **3 渠道函数**;§3 由「路线 A」改为**路线 B**。另:**#234-4 git gc 已执行**(pack 18→1、1.59→1.27 GiB;reflog/prune 均按 30 天保守口径,未为好看收紧),续记落 `docs/ops/disk-cleanup-executed-20261009.md` §八。
 > **②台账(本批登记)**:#242(W1 L1 度量层)= **已上线**;#243(W2 三态判据)= **已上线**(⚠️ 其 commit message 曾用**非台账的占位编号**;实物已逐条核过,**台账编号以 #243 为准**);#244(W3 解耦)= **已上线**;#245(W4+ 队列 L3c/L3e/L2/L5)= **批1 L3e + 批2 均已上线(批2 合 main `18149cd69`,CI run 787 绿 + §0 核验 PASS)**;#246(故障 B 治本:B4-1 兜底链 + B4-2 重试)= **已上线**(`5cb374934`,CI run 783 绿);#247(nextday_plan py/sh 双 key 统一,决策项 10,用户拍板「修吧」)= **已上线**(`023d73929`,CI run 790 绿;独立审九项全 PASS);#248(systemd unit 漂移仓库侧同步,10-11 深挖顺带坐实)= **已上线**(`f93de7713`,CI run 794 绿;独立审 7/7 PASS)。
 > **③效果是什么**:main = **`66efa9fcb`**(云上已同步);「一天几条」**首次有了可查的单一数字**(W1)、「rc 吓不出真伪」的判据病灶根治(W2,9 个既有调用方零回归)、**前端通知不再被邮件通道连坐**(W3 —— 邮件挂了前端照弹)。
