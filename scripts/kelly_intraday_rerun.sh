@@ -18,7 +18,9 @@
 #   - 交易日 9:40 起跑; 单档限时 3min(perl alarm, macOS 无 timeout 命令), 9:43 前完避开 9:45 intraday-snapshot;
 #   - deploy 锁 /tmp/trade_deploy.lock 用 with_lock.py --nb 非阻塞: 锁在位则跳过本轮(留给 17:50 全量);
 #   - 非交易日跳过(is_trading_day 闸门);
-#   - 失败 SEVERE notify(数据就绪闸/对账 FAIL/超时/脚本错误)。
+#   - 失败告警分级(2026-10-12 降噪): 数据就绪闸 FAIL(退出码 5, 刻意正常跳过, 17:50 全量兜底)
+#     -> WARN(--tier warning, 入 notify 30min 聚合缓冲, 不再即时 SEVERE);
+#     对账 FAIL(3)/超时(142)/脚本错误 -> SEVERE 直达不变。
 #
 # 产物链路: static-site/data/signal_kelly_trades_intraday.json + signal_kelly_backtest_intraday.json
 # -> upload_r2 upload-data-files 上传 data/ 前缀 + purge(对账 PASS 后)。
@@ -103,9 +105,19 @@ if [ "$BK_RC" -ne 0 ]; then
     142) echo "╷ 超时(>3min 限时被杀), 撞 intraday-snapshot 风险, 本轮跳过, 留 17:50 全量" | tee -a "$LOG" >&2;;
     3)  echo "╷ 对账机检 FAIL(产品不应发布)" | tee -a "$LOG" >&2;;
   esac
-  "$PY" "$REPO/scripts/notify.py" "[告警] 凯利盘中增量回测失败(退出码 ${BK_RC}) ${ALERT_TIME}" \
-    "kelly_intraday_rerun 退出码 ${BK_RC}。详见日志:<br>$LOG" \
-    --severe --from-prefix "[告警]" --dedup-key kelly_intraday_rerun_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+  # 降噪(2026-10-12 用户拍板): 退出码 5(数据就绪闸 FAIL)是**刻意的正常跳过**, 17:50 全量会补,
+  # 不是故障 → severe 降为 warn(--tier warning, 入 notify 30min 聚合缓冲, 告警照发只是不再即时 severe)。
+  # 判别维度保留: 标题/正文仍带退出码, 越权重现(akshare 长期取不到价)仍可辨识; 退出码仍保持 5(专用码)。
+  # 其余退出码(142 超时/3 对账 FAIL)仍走 severe 直达。
+  if [ "$BK_RC" -eq 5 ]; then
+    "$PY" "$REPO/scripts/notify.py" "[告警] 凯利盘中增量回测本轮跳过(数据就绪闸 FAIL, 退出码 ${BK_RC}) ${ALERT_TIME}" \
+      "kelly_intraday_rerun 退出码 ${BK_RC}: 数据就绪闸 FAIL(取不到今日真实开盘价), 本轮跳过, 留 17:50 全量兜底。详见日志:<br>$LOG" \
+      --tier warning --from-prefix "[告警]" --dedup-key kelly_intraday_rerun_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+  else
+    "$PY" "$REPO/scripts/notify.py" "[告警] 凯利盘中增量回测失败(退出码 ${BK_RC}) ${ALERT_TIME}" \
+      "kelly_intraday_rerun 退出码 ${BK_RC}。详见日志:<br>$LOG" \
+      --severe --from-prefix "[告警]" --dedup-key kelly_intraday_rerun_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+  fi
   exit "$BK_RC"
 fi
 

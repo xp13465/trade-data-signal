@@ -286,6 +286,7 @@ ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/kelly_intraday_rerun.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
 TimeoutStartSec=600
+SuccessExitStatus=5
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/kelly_intraday_rerun_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/kelly_intraday_rerun_launchd.err
 @@@FILE:trade-lab-auto.service
