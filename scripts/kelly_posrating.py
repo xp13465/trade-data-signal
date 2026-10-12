@@ -917,7 +917,9 @@ def compute_posrating(trades_doc, backtest_doc, s06_doc, loss_feat_doc):
     return {
         "computed": True,
         "date": datetime.now().strftime("%Y%m%d"),
-        "generated_at": trades_doc.get("generated_at"),
+        # #222(2026-10-11): trades 档已撤出顶层 generated_at(治上传 churn), 改读同批产出的
+        # signal_kelly_backtest.json(backtest_doc, 保留该键, 与本次回测同一轮), 语义不变=快照数据时间。
+        "generated_at": backtest_doc.get("generated_at"),
         "mode": "s06",
         "fee": "ETF主流(万0.5/最低0.1元)",
         "values": pos_vals,

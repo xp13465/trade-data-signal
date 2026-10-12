@@ -49,7 +49,8 @@
   kelly_stale         交易记录产物新鲜度(双保险, 抓「时间戳新内容旧」):
                       B1 trades.json 最新 signal_date >= T-1(KELLY_BUY_NEXTDAY 次日开盘口径,
                       T-1 日信号在 T 盘后必须已入账; 9/7 断档 9/3<9/4 必命中 SEVERE);
-                      B2 generated_at/文件 mtime <=48h(周末按最近交易日放宽);
+                      B2 产物生成时刻 <=48h(trades generated_at 有则取, 无则回退文件 mtime;
+                      #222 起 trades 已撤该键 → 实际走 mtime; 周末按最近交易日放宽);
                       B3 etf_daily accum_nav 最新日 >=T 但 trades 最新 <=T-2 → SEVERE
                       + 缺 nav 前3 ETF(QDII 513xxx 缺当日 nav 降 info)。
                       nav 最新日/次日价判定均排除盘中占位行(etf_name=etf_code 同值假数据,
@@ -70,7 +71,6 @@
 输入依赖(新增 6/7/8 检查器):
   - {repo}/data/sentiment.db  signal_daily(候选信号源, 与 signal_kelly_backtest.py L1089 同源)
   - {repo}/static-site/data/signal_kelly_trades.json(交易记录产物, 72MB; 回退 {repo}/data/)
-  - {repo}/static-site/data/signal_kelly_backtest.json(B2 generated_at 同查)
   - {repo}/config/universe_rules.yaml(excluded_categories, §23.6 单一事实源)
   - {repo}/static-site/data/board_etf_map.json(best_etf 宇宙判定, _build_best_etf 同款)
   - {repo}/data/etf_national_team.db(B3/B3 丢弃原因: etf_daily 次日价)
@@ -169,7 +169,6 @@ KELLY_WARN_BACK = 1           # 落后 =1 交易日 → WARN(首日, 次日定�
 KELLY_STALE_MAX_H = 48        # B2: 产物 generated_at/mtime 距今上限(自然小时; 周末按交易日放宽)
 KELLY_FAIL_MAX_DAYS = 2       # C1: 最近成功 deploy(deploy_*.log 含「退出码=0」)距今上限(自然日)
 KELLY_TRADES_FILE = "signal_kelly_trades.json"
-KELLY_BACKTEST_FILE = "signal_kelly_backtest.json"
 KELLY_FREEZE_FILE = "signal_kelly_etf_freeze.json"
 KELLY_DEPLOY_OK_ANCHOR = "退出码=0"   # deploy.sh L799 成功行锚点: 「=== deploy.sh 结束 ... 退出码=0 ===」
 KELLY_C2_GRACE_MIN = 30        # 改动9(2026-09-29): C2 对「最新 deploy 日志 mtime 距今 <30min」跳过

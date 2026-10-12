@@ -1779,9 +1779,13 @@ def _build_outputs(quadrants):
     # trades 列文件(列式存储, 每 quadrant x mode 存 all 周期全量, 前端按 cutoff 过滤 y1/y3);
     # 列序 = 模块级常量 TRADE_FIELDS(单一事实源, 与 overfit_monitor.py 共用, 防列序漂移)
     trades_output = {
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        # #222(2026-10-11 用户拍板 §23.7): 撤出「每轮必变」元数据 generated_at/period_cutoffs,
+        # 令内容本体不变时整文件 md5 稳定 ⇒ data-large 上传判定(md5 变才传)自然跳过、
+        # verify-r2(HEAD ETag vs 本地整文件 md5)0 补传。与 #219 parts 同路线治本(病灶=生成器元数据
+        # 污染变更判据)。剩余字段只含数据本体(fields/quadrants)+ 常量 buy_amount(不随轮次变, 保留)。
+        # 新鲜度可观测性由文件 mtime 承担(告警 B2 的 ts_cands 首项即 mtime, 撤键后自动回退, 代码零改动);
+        # 展示/追溯用的生成时刻由同批产出的 signal_kelly_backtest.json(见上方 output)generated_at 承担。
         "buy_amount": BUY_AMOUNT,
-        "period_cutoffs": {k: v["cutoff"] for k, v in PERIODS.items()},
         "fields": TRADE_FIELDS,
         "quadrants": {},
     }
@@ -1892,9 +1896,9 @@ def _build_unique_tables(quadrants):
             variants_out[m].append(variants_map.get((k, m)))
 
     return {
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        # #222(2026-10-11): 基笔唯一化三表(KELLY_UNIQUE_EXPORT, 默认关)同款撤出每轮必变元数据
+        # generated_at/period_cutoffs(与主 trades_output 同族字段, 防口径分叉)。
         "buy_amount": BUY_AMOUNT,
-        "period_cutoffs": {k: v["cutoff"] for k, v in PERIODS.items()},
         "modes": list(SELL_MODES),
         "fields": share_fields,
         "variant_fields": sell_fields,
@@ -2345,7 +2349,8 @@ def _export_trades_parts(trades_data, trades_path):
     generated_at/buy_amount/period_cutoffs, 详见 _dump 内注释与 docs/ops/219-parts-metadata-fix-20261006.md),
     quadrants[qk][mk] 只含属于该片/该窗口的行(空 qk 整键省略)。前端两策略互斥取用
     (热区内只用 recent / 超出只用年片), 拼接不会重复计数。
-    全量 signal_kelly_trades.json 本体不动(lab.js 凯利区依赖 + §23.7 冻结契约),
+    全量 signal_kelly_trades.json 结构由 _build_outputs 决定(lab.js 凯利区依赖 + §23.7 冻结契约;
+    #222 2026-10-11 已撤出顶层每轮必变元数据 generated_at/period_cutoffs, 见该函数注释),
     本函数只在 main() 末尾追加调用。分片不生成 .gz(前端 fetchJSON 全走 .json, CF 自动 br)。
     """
     from datetime import datetime as _dt, timedelta as _td
@@ -2361,7 +2366,7 @@ def _export_trades_parts(trades_data, trades_path):
         # md5** 对账; export 每轮重写这三字段 ⇒ 整文件 md5 每轮都变 ⇒ verify 每轮必然全量「对不上」
         # ⇒ 每轮补传整目录(~179MB/轮 × 5~7 轮/天 ≈ 0.9~1.2GB/天跨境); 而数据本体其实零变化。
         # 三字段前端/后端/脚本**零消费**(见 docs/ops/219-parts-metadata-fix-20261006.md 穷举清单):
-        #   - generated_at = 生成时刻(可观测性由全量 trades 的 mtime/generated_at 承担, 本片无需)
+        #   - generated_at = 生成时刻(可观测性由全量 trades 的 mtime 承担, 本片无需;#222 起全量 trades 亦已撤该键)
         #   - period_cutoffs = 滚动日期切点(前端读的是 signal_kelly_backtest.json 的 config.period_cutoffs)
         #   - buy_amount = 常量(前端 td.buy_amount 恒 undefined, 一律回退 data.config.buy_amount)
         # 撤出后整文件内容 ≡ B 档指纹(见 upload_r2._kelly_parts_md5)⇒ 两把尺子合流: 本体不变则
