@@ -56,6 +56,7 @@ import datetime as dt
 import fcntl
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -875,26 +876,50 @@ def fetch_daily_nav() -> int:
     if isinstance(df, Exception) or df is None or len(df) == 0:
         print(f"[E] FAIL: {df}", flush=True)
         return 0
-    # 列结构: '基金代码','基金简称','<date>-单位净值','<date>-累计净值','<prev_date>-单位净值','<prev_date>-累计净值','日增长值','日增长率'
-    cols = list(df.columns)
-    # 找到日期列名（"YYYY-MM-DD-单位净值"）
-    today_col_unit = next((c for c in cols if "-单位净值" in c and "2026" in c), None)
-    today_col_acc = next((c for c in cols if "-累计净值" in c and "2026" in c), None)
-    prev_col_unit = None
-    # 第二个 'YYYY-MM-DD-单位净值' 是前日
-    unit_cols = [c for c in cols if "-单位净值" in c]
-    if len(unit_cols) >= 2:
-        prev_col_unit = unit_cols[1]
-    if not today_col_unit:
-        print(f"[E] WARN 找不到今日单位净值列, cols[:10]={cols[:10]}", flush=True)
+    # ── 列选择：按「列名里的日期」定位，不依赖列顺序、不依赖 showday 下标（#251 根治）────────
+    # 东财列结构：'基金代码','基金简称','<date0>-单位净值','<date0>-累计净值',
+    #             '<date1>-单位净值','<date1>-累计净值','日增长值','日增长率',...
+    # date0=最新交易日, date1=次新交易日。两列的先后顺序属上游实现细节（曾发生列序微调），
+    # 故一律从列名解析日期后排序取用，不用 next(...)/下标 取「第一个/第二个」。
+    unit_by_date: dict[str, str] = {}
+    acc_by_date: dict[str, str] = {}
+    for c in df.columns:
+        s = str(c)
+        m = re.match(r"^(\d{4})-(\d{2})-(\d{2})-单位净值$", s)
+        if m:
+            unit_by_date["".join(m.groups())] = s
+            continue
+        m = re.match(r"^(\d{4})-(\d{2})-(\d{2})-累计净值$", s)
+        if m:
+            acc_by_date["".join(m.groups())] = s
+    dates_desc = sorted(unit_by_date, reverse=True)  # 新→旧
+    if not dates_desc:
+        print(f"[E] WARN 找不到单位净值日期列, cols[:10]={list(df.columns)[:10]}", flush=True)
         return 0
-    # 今日日期 YYYYMMDD（列名格式 'YYYY-MM-DD-单位净值', 取前 3 段拼成 YYYYMMDD）
-    # split('-') -> ['YYYY','MM','DD','单位净值']，取前3段
-    parts = today_col_unit.split("-")
-    if len(parts) >= 3 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
-        today_str = f"{parts[0]}{parts[1]}{parts[2]}"
-    else:
-        today_str = dt.date.today().strftime("%Y%m%d")
+
+    # 目标日期 = 最新一个「整列已发布（存在真实净值）」的日期列。
+    # 根因：东财在新交易日「先把 showday 滚到当日、稍后才发布当日净值」——滚动瞬间当日两列
+    # 全是空字符串列。16:30/17:00 采集若撞上这个窗口，旧逻辑照写一整批 unit_nav/acc_nav/
+    # nav_change_pct 全 NULL 的「当日」行（10-08/10-09/10-12 事故根因），而真实可用的前一日
+    # 净值只被塞进次日的 prev_unit_nav 列里、永不在它自己那一天落行。
+    # 故：当日未发布时自动回退到次新已发布日，让「前一日净值」落回它自己的行（自愈）。
+    # 判「已发布」必须用 _safe_float 逐值判（东财空值是 "" 字符串，notna() 对它返回 True 会误判）。
+    def _col_published(col: str) -> bool:
+        return any(_safe_float(v) is not None for v in df[col])
+
+    target_date = next((d for d in dates_desc if _col_published(unit_by_date[d])), None)
+    if target_date is None:
+        print(f"[E] WARN 所有净值列均无已发布值(数据源当日尚未发布), dates={dates_desc}", flush=True)
+        return 0
+    today_col_unit = unit_by_date[target_date]
+    today_col_acc = acc_by_date.get(target_date)
+    today_str = target_date
+    # 前一交易日列 = 目标日期之后的次新日期列（存在则取单位净值作 prev_unit_nav）
+    _idx = dates_desc.index(target_date)
+    prev_col_unit = unit_by_date[dates_desc[_idx + 1]] if _idx + 1 < len(dates_desc) else None
+    # 日增长率只有一行、归属「最新日期列」；目标日期≠最新日期（当日未发布回退）时，该值属未发布
+    # 的当日，不可挂到回退日 → 置 None，避免把当日涨跌算到前一日头上。
+    use_pct = target_date == dates_desc[0]
     rows = []
     for _, r in df.iterrows():
         fund_code = str(r.get("基金代码", "")).strip()
@@ -904,13 +929,22 @@ def fetch_daily_nav() -> int:
         unit_nav = _safe_float(r.get(today_col_unit))
         acc_nav = _safe_float(r.get(today_col_acc)) if today_col_acc else None
         prev_unit = _safe_float(r.get(prev_col_unit)) if prev_col_unit else None
-        nav_pct = _safe_float(r.get("日增长率"))
+        nav_pct = _safe_float(r.get("日增长率")) if use_pct else None
         rows.append((today_str, fund_code, fund_name, unit_nav, acc_nav, prev_unit, nav_pct))
     conn = get_conn()
+    # UPSERT + COALESCE：只补空、不覆盖已有非空值。回退路径会重写「前一交易日」行，若用
+    # INSERT OR REPLACE 会把该行已有的 prev_unit_nav/nav_change_pct 抹成 NULL（踩踏）；COALESCE
+    # 保证回退写只补 unit/acc，已有值原样保留。
     conn.executemany(
-        "INSERT OR REPLACE INTO fund_daily_nav"
+        "INSERT INTO fund_daily_nav"
         "(date, fund_code, fund_name, unit_nav, acc_nav, prev_unit_nav, nav_change_pct) "
-        "VALUES (?,?,?,?,?,?,?)",
+        "VALUES (?,?,?,?,?,?,?) "
+        "ON CONFLICT(date, fund_code) DO UPDATE SET "
+        "fund_name      = COALESCE(excluded.fund_name,      fund_daily_nav.fund_name), "
+        "unit_nav       = COALESCE(excluded.unit_nav,       fund_daily_nav.unit_nav), "
+        "acc_nav        = COALESCE(excluded.acc_nav,        fund_daily_nav.acc_nav), "
+        "prev_unit_nav  = COALESCE(excluded.prev_unit_nav,  fund_daily_nav.prev_unit_nav), "
+        "nav_change_pct = COALESCE(excluded.nav_change_pct, fund_daily_nav.nav_change_pct)",
         rows,
     )
     conn.commit()
