@@ -2407,6 +2407,82 @@ def _record_standalone_keys(keys) -> None:
         print(f"⚠ 独立链产物 key 登记失败(不影响上传): {e}", file=sys.stderr)
 
 
+# ---- 2026-10-11 告警降噪(②): verify-r2 独立链产物脱节「小规模偶发补传 ⇒ 仅日志」 ----
+# 背景: 该产物存在多个「为读/为记/为刷」的生成点而上传点滞后, 对账窗口内本地版本被判比
+# R2 新 → 正常偶发小规模补传即把代差兜平。旧实现只要 stale_standalone_names 非空就发
+# notice(邮件+飞书), 10-10/10-11 各 2 轮 → 常态噪音。
+# 改法: 正常小规模(数量/字节均低于阈值)且非连续多轮 ⇒ 只写 stderr 日志, 不发通知。
+# 保留判据(不可一刀切静音): ①单轮规模超常(文件数 ≥ 阈值 或 字节 ≥ 阈值)或 ②连续多轮脱节
+# (同一 24h 窗口内上一轮也脱节, 连续轮次 ≥ 阈值)⇒ 照常告警(真故障: 某链连续失败/被截断)。
+# 阈值按数据自定(依据见 docs/ops/alert-denoise-exec-20261011.md §②): 历史常态轮脱节多为 1~2 个
+# 小 json(数 KB~数百 KB); ≥3 个 或 ≥1 MiB 已明显偏离常态 = 疑真故障。
+_STANDALONE_STALE_STATE_NAME = ".r2_standalone_stale_state.json"
+_STALE_ALERT_COUNT_THRESHOLD = 3            # 单轮脱节文件数 ≥3 → 告警
+_STALE_ALERT_BYTES_THRESHOLD = 1024 * 1024  # 单轮脱节合计字节 ≥1 MiB → 告警
+_STALE_ALERT_CONSECUTIVE_THRESHOLD = 3      # 连续轮次 ≥3 → 告警
+_STALE_CONSECUTIVE_WINDOW_HOURS = 24        # 「连续」判定窗口(相邻两轮间隔 ≤24h 才累计)
+
+
+def _standalone_stale_state_path() -> Path:
+    """脱节告警状态文件路径(与各通道状态文件同目录 REPO/data, untracked 不进 git)。"""
+    return STATIC_DIR.parent / "data" / _STANDALONE_STALE_STATE_NAME
+
+
+def _load_standalone_stale_state() -> dict:
+    """读脱节告警状态; 缺失/损坏 → 空 dict(视为「上一轮无脱节」, fail-safe 不影响告警)。"""
+    try:
+        raw = json.loads(_standalone_stale_state_path().read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_standalone_stale_state(state: dict) -> None:
+    """原子写脱节告警状态(失败只打日志, 不阻断对账主链)。"""
+    p = _standalone_stale_state_path()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, p)
+    except OSError as e:
+        print(f"⚠ 脱节告警状态写失败(不阻塞): {e}", file=sys.stderr)
+
+
+def _compute_stale_consecutive_rounds(now_str: str, count: int, nbytes: int) -> int:
+    """累加/重置「连续脱节轮次」并落状态文件, 返回本轮连续轮次数。
+
+    连续 = 上一轮也有脱节(count>0)且相邻两轮间隔 ≤ _STALE_CONSECUTIVE_WINDOW_HOURS;
+    本轮有脱节 → 上一轮非脱节/超窗 ⇒ 重置为 1, 否则累加。
+    """
+    prev = _load_standalone_stale_state()
+    _consecutive = 1
+    try:
+        prev_ts = datetime.datetime.strptime(str(prev.get("last_round_ts", "")), "%Y-%m-%d %H:%M:%S")
+        now_ts = datetime.datetime.strptime(now_str, "%Y-%m-%d %H:%M:%S")
+        _prev_count = int(prev.get("last_count", 0) or 0)
+        if _prev_count > 0 and (now_ts - prev_ts) <= datetime.timedelta(hours=_STALE_CONSECUTIVE_WINDOW_HOURS):
+            _consecutive = int(prev.get("consecutive_rounds", 1) or 1) + 1
+    except (ValueError, TypeError):
+        _consecutive = 1
+    _save_standalone_stale_state({
+        "last_round_ts": now_str,
+        "consecutive_rounds": _consecutive,
+        "last_count": count,
+        "last_bytes": nbytes,
+    })
+    return _consecutive
+
+
+def _reset_stale_state_if_clean() -> None:
+    """本轮无脱节 → 清零连续计数(仅在上一轮计数非 0 时写, 减少无谓 IO)。"""
+    if int(_load_standalone_stale_state().get("consecutive_rounds", 0) or 0) > 0:
+        _save_standalone_stale_state({
+            "last_round_ts": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "consecutive_rounds": 0, "last_count": 0, "last_bytes": 0,
+        })
+
+
 def _load_standalone_keys(warn: bool = True):
     """读独立链产物 key 台账; 返回 (keys:set, state:str)。
 
@@ -3627,6 +3703,7 @@ def cmd_verify_r2():
     repair_failed = []
     repaired_names = []          # #188: 补传涉及的文件名清单(现只打计数→落文件名, 便于反查是谁)
     stale_standalone_names = []  # #188: 独立链产物中发现 R2 脱节的文件名(层4 外围告警用)
+    stale_standalone_bytes = 0   # 2026-10-11 降噪②: 上述脱节文件合计字节(规模阈值判据用)
     total_mismatch_found = 0  # export-guard L6: 对账发现的不一致/缺失 key 总数(跨通道累计)
     # #188 P2-1(2026-10-05): 读一次独立链产物台账(全通道同一份); 非 ok 状态收尾告警。
     # 2026-10-11 hotfix: full(周日)模式也读 —— full 下 to_check 已是全池, 台账不参与「扩覆盖面」,
@@ -3748,6 +3825,13 @@ def cmd_verify_r2():
             stale_here = [n for n in mm_rels if n in _std_set]
             if stale_here:
                 stale_standalone_names.extend(f"{r2_prefix}/{n}" for n in stale_here)
+                # 2026-10-11 降噪②: 累加脱节文件字节(规模阈值判据; stat 失败按 0 计不阻断)
+                _mm_by_name = {str(f.relative_to(local_dir)): f for f in mismatches}
+                for _n in stale_here:
+                    try:
+                        stale_standalone_bytes += _mm_by_name[_n].stat().st_size
+                    except (OSError, KeyError):
+                        pass
             ok, total, failed_rels, _ = _upload_glob(
                 local_dir, ch["patterns"], r2_prefix, only_files=mismatches, verify_etag=True)
             repaired_total += ok
@@ -3796,29 +3880,53 @@ def cmd_verify_r2():
     # 进程依赖 ⇒ 它发现独立链产物(如 kelly_mode_s06_state.json)与 R2 脱节时必须发声:
     # 「某条排期上传链已连续失败/被截断, 靠我这次全池兜底才补上」。dedup 6h 防轰炸。
     if stale_standalone_names:
-        print(f"[verify-r2] ⚠ 独立链产物与 R2 脱节: {_fmt_name_list(stale_standalone_names)}", file=sys.stderr)
-        try:
-            sys.path.insert(0, str(ROOT / "scripts"))
-            import notify  # noqa: E402
-            _dedup_key = "verify_r2_standalone_stale"
-            if not notify.check_dedup(_dedup_key, 21600):
-                notify.send(
-                    "[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)",
-                    f"verify-r2 发现以下「脱离 deploy 主链的独立上传产物」R2 副本与本地不一致/缺失"
-                    f"(已自动补传 {repaired_total} 个): {_fmt_name_list(stale_standalone_names)}。\n"
-                    f"台账实有池(本条对账对象): a-stock-{{3m,6m,1y,3y,5y,all}}.json(fapi 链) + overview.json "
-                    f"+ news_digest 家族 + schedule_stats.json。\n"
-                    f"双因结构(请按此对照判别): "
-                    f"(a)【设计内, 无需处置】这类产物存在多个「为读/为记/为刷」的生成点"
-                    f"(任务链结尾 gen / schedule_monitor 每 15min 跑前 gen / export 重写 / trap EXIT gen), "
-                    f"而上传点滞后 ⇒ 对账窗口内本地版本被判为比 R2 新, 自动补传即把这一代差兜平; "
-                    f"(b)【真故障】该链连续失败或被截断(生成成功但 R2 没跟上), 本应由该链自己的告警触达 —— "
-                    f"若未收到该链告警, 说明告警与链路同亡, 需查链内 notify 在异常/trap 路径下是否也能触达。",
-                    from_prefix="[告警]",
-                )
-                notify.update_dedup(_dedup_key)
-        except Exception as _e:
-            print(f"⚠ notify 告警发送失败(不阻塞): {_e}")
+        # 2026-10-11 降噪②: 规模/轮次判据 —— 正常小规模偶发补传 ⇒ 仅日志; 超常/连续多轮 ⇒ 照常告警。
+        _stale_now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _stale_count = len(stale_standalone_names)
+        _stale_consecutive = _compute_stale_consecutive_rounds(
+            _stale_now_str, _stale_count, stale_standalone_bytes)
+        _oversized = (_stale_count >= _STALE_ALERT_COUNT_THRESHOLD
+                      or stale_standalone_bytes >= _STALE_ALERT_BYTES_THRESHOLD)
+        _repeated = _stale_consecutive >= _STALE_ALERT_CONSECUTIVE_THRESHOLD
+        print(f"[verify-r2] ⚠ 独立链产物与 R2 脱节: {_fmt_name_list(stale_standalone_names)} "
+              f"(本轮 {_stale_count} 个/{stale_standalone_bytes} 字节, 连续第 {_stale_consecutive} 轮)",
+              file=sys.stderr)
+        if not (_oversized or _repeated):
+            print(f"[verify-r2]   规模与轮次均未达告警阈值"
+                  f"(阈值: 文件数≥{_STALE_ALERT_COUNT_THRESHOLD} 或 字节≥{_STALE_ALERT_BYTES_THRESHOLD} "
+                  f"或 连续≥{_STALE_ALERT_CONSECUTIVE_THRESHOLD}轮) → 仅日志, 不告警(正常偶发补传)", flush=True)
+        else:
+            _reason = ("单轮规模超常" if _oversized else "连续多轮脱节")
+            print(f"[verify-r2]   {_reason} ⇒ 照常告警", flush=True)
+            try:
+                sys.path.insert(0, str(ROOT / "scripts"))
+                import notify  # noqa: E402
+                _dedup_key = "verify_r2_standalone_stale"
+                if not notify.check_dedup(_dedup_key, 21600):
+                    notify.send(
+                        "[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)",
+                        f"verify-r2 发现以下「脱离 deploy 主链的独立上传产物」R2 副本与本地不一致/缺失"
+                        f"(已自动补传 {repaired_total} 个): {_fmt_name_list(stale_standalone_names)}。\n"
+                        f"本轮规模: {_stale_count} 个文件/{stale_standalone_bytes} 字节, "
+                        f"连续第 {_stale_consecutive} 轮脱节; 触发判据={_reason}"
+                        f"(阈值: 文件数≥{_STALE_ALERT_COUNT_THRESHOLD} 或 字节≥{_STALE_ALERT_BYTES_THRESHOLD} "
+                        f"或 连续≥{_STALE_ALERT_CONSECUTIVE_THRESHOLD}轮)。"
+                        f"【注】正常小规模偶发补传已降级为仅日志, 本条出现即说明规模/轮次偏离常态。\n"
+                        f"台账实有池(本条对账对象): a-stock-{{3m,6m,1y,3y,5y,all}}.json(fapi 链) + overview.json "
+                        f"+ news_digest 家族 + schedule_stats.json。\n"
+                        f"双因结构(请按此对照判别): "
+                        f"(a)【设计内, 无需处置】这类产物存在多个「为读/为记/为刷」的生成点"
+                        f"(任务链结尾 gen / schedule_monitor 每 15min 跑前 gen / export 重写 / trap EXIT gen), "
+                        f"而上传点滞后 ⇒ 对账窗口内本地版本被判为比 R2 新, 自动补传即把这一代差兜平; "
+                        f"(b)【真故障】该链连续失败或被截断(生成成功但 R2 没跟上), 本应由该链自己的告警触达 —— "
+                        f"若未收到该链告警, 说明告警与链路同亡, 需查链内 notify 在异常/trap 路径下是否也能触达。",
+                        from_prefix="[告警]",
+                    )
+                    notify.update_dedup(_dedup_key)
+            except Exception as _e:
+                print(f"⚠ notify 告警发送失败(不阻塞): {_e}")
+    else:
+        _reset_stale_state_if_clean()
 
     # ---- #188 P2-1 (2026-10-05): 独立链产物台账丢失/损坏/为空 → 显式告警(不静默绿) ----
     # 台账缺失 = 平日对账覆盖静默退化为空集(退回抽样+周日), 而这一退化的「受益者」正是

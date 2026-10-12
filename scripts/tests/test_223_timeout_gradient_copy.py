@@ -83,7 +83,12 @@ def _render_alert_bodies():
                 found["mass" if "异源覆盖" in subj else "stale"] = (subj, n.args[1])
     env = {"total_mismatch_found": 114, "repaired_total": 114,
            "stale_standalone_names": ["data/schedule_stats.json", "data/a-stock-3m.json"],
-           "_fmt_name_list": lambda xs: ", ".join(xs)}
+           "_fmt_name_list": lambda xs: ", ".join(xs),
+           # 2026-10-11 降噪②: 脱节告警正文新增规模/判据字段(本渲染 env 补上)
+           "_stale_count": 2, "stale_standalone_bytes": 4096, "_stale_consecutive": 1,
+           "_reason": "单轮规模超常",
+           "_STALE_ALERT_COUNT_THRESHOLD": 3, "_STALE_ALERT_BYTES_THRESHOLD": 1048576,
+           "_STALE_ALERT_CONSECUTIVE_THRESHOLD": 3}
     out = {}
     for k, (subj, body_node) in found.items():
         body = eval(compile(ast.Expression(body_node), str(F_UPLOAD), "eval"),

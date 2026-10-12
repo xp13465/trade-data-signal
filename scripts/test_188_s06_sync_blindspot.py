@@ -156,7 +156,13 @@ def run_verify_r2(td):
     dd = pathlib.Path(td, "static-site", "data")
     (dd / "kelly_mode_s06_state.json").write_text('{"coverage_end":"20260930"}')
     (dd / "tiny.json").write_text('{"a":1}')
-    u._record_standalone_keys(["data/kelly_mode_s06_state.json"])
+    # 2026-10-11 降噪②: 单文件小规模脱节已降为「仅日志」(不告警) ⇒ 正例改为「规模超常
+    # (3 个文件 ≥ 阈值)」才触发外围告警(装大半径不变: 真脱节(超常)照常响)。
+    for _n in ("extra_a.json", "extra_b.json"):
+        (dd / _n).write_text('{"x":1}')
+    _stale_names = {"kelly_mode_s06_state.json", "extra_a.json", "extra_b.json"}
+    u._record_standalone_keys(["data/kelly_mode_s06_state.json",
+                               "data/extra_a.json", "data/extra_b.json"])
 
     md5 = lambda n: hashlib.md5((dd / n).read_bytes()).hexdigest()
     seen, repairs, sent = [], [], []
@@ -167,8 +173,8 @@ def run_verify_r2(td):
         fp = dd / name
         if not fp.exists():
             return (404, None)
-        # 正例只让 s06 那个文件脱节, 其余(台账内 overview/schedule_stats)按真实 md5 → 一致
-        if name == "kelly_mode_s06_state.json" and os.environ.get("MATCH") != "1":
+        # 正例让 3 个台账文件脱节(规模超常 ≥ 阈值 ⇒ 告警), 其余按真实 md5 → 一致
+        if name in _stale_names and os.environ.get("MATCH") != "1":
             return (200, '"ffffffffffffffffffffffffffffffff"')
         return (200, f'"{hashlib.md5(fp.read_bytes()).hexdigest()}"')
 
@@ -195,7 +201,8 @@ def run_verify_r2(td):
         _ok(not repairs and not sent, "反例: R2 一致 → 无补传、无告警")
     else:
         _ok(repairs and "kelly_mode_s06_state.json" in repairs[0], "正例: 脱节 → 补传该文件")
-        _ok(any("独立上传链产物" in s for s in sent), "正例: 脱节 → 发外围告警(verify_r2_standalone_stale)")
+        _ok(any("独立上传链产物" in s for s in sent),
+            "正例: 规模超常脱节(3 文件) → 发外围告警(verify_r2_standalone_stale)")
 
 
 # ─────────────── E: P2-2 死键过滤(台账不收「永远对不上」的键) ───────────────

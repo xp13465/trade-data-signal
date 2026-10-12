@@ -2001,6 +2001,9 @@ for _key, _info in list(alert_state.items()):
                 "task": _task,
                 "keyword": _kw,
                 "first_seen": _info.get("first_seen", "?"),
+                # 2026-10-11 降噪③: 携带告警时分 tier, 供恢复发送侧分级
+                # (warning 档=自愈类, 恢复仅记 dashboard 不发群/邮件; severe 等照常双通道)。
+                "tier": _info.get("tier"),
             })
         else:
             print(
@@ -3029,41 +3032,68 @@ if _combined:
     print(f"[{now_str}] 检测到 {len(recoveries)} 个异常恢复(pending 补列 {_pend_n}):")
     for r in _combined:
         print(f"  [恢复] {r['task']} 异常关键词<{r['keyword']}> 已消失")
-    if len(recoveries) == 1 and _pend_n == 0:
-        r0 = recoveries[0]
-        subject = f"[恢复] {r0['task']} {r0['keyword']} {NOW.strftime('%m-%d %H:%M')}"
-    else:
-        subject = f"[恢复] {len(_combined)}项异常恢复 {NOW.strftime('%m-%d %H:%M')}"
-    rec_lines = [
-        f"[恢复] {r['task']} 异常关键词<{r['keyword']}> 已消失 "
-        f"(首次发现: {r.get('first_seen', '?')}, 恢复时间: {now_str})"
-        for r in _combined
-    ]
-    if _pend_n:
-        rec_lines.append(f"(其中 {_pend_n} 条为早前恢复补列)")
-    # B2(2026-08-14): 恢复邮件尾加"无需操作,已自动恢复"提示
-    rec_lines.append("— 无需操作, 异常已自动恢复 —")
-    body = "<br>".join(
-        l.replace("<", "&lt;").replace(">", "&gt;") for l in rec_lines
-    )
-    _r_rec = subprocess.run(
-        [
+    # 2026-10-11 降噪③(用户拍板「直接干」): 自愈类(warning tier = r2_skip 自愈键)的恢复通知
+    # 只记 dashboard(notify --tier info, 不进群/邮件); 其余(severe/critical 等真告警)恢复照常
+    # 双通道。保留判据: 自愈类持续阻塞时告警侧已升级 severe(tier="severe"), 其恢复走 alert 批
+    # 照常告警; 严重类告警的恢复不因本条受影响(仅动 warning 档)。
+    _combined_warn = [r for r in _combined if str(r.get("tier") or "") == "warning"]
+    _combined_alert = [r for r in _combined if str(r.get("tier") or "") != "warning"]
+
+    def _send_recovery_batch(_batch, _info_only):
+        """发一批恢复通知; 返回 notify_state(空批返回 None)。_info_only=True ⇒ 仅 dashboard。"""
+        if not _batch:
+            return None
+        _batch_pend_n = sum(
+            1 for _r in _batch
+            if (str(_r.get("task", "")), str(_r.get("keyword", ""))) in _pend_tks)
+        if len(_batch) == 1 and _batch_pend_n == 0:
+            _r0 = _batch[0]
+            _subj = f"[恢复] {_r0['task']} {_r0['keyword']} {NOW.strftime('%m-%d %H:%M')}"
+        else:
+            _subj = f"[恢复] {len(_batch)}项异常恢复 {NOW.strftime('%m-%d %H:%M')}"
+        _lines = [
+            f"[恢复] {r['task']} 异常关键词<{r['keyword']}> 已消失 "
+            f"(首次发现: {r.get('first_seen', '?')}, 恢复时间: {now_str})"
+            for r in _batch
+        ]
+        if _batch_pend_n:
+            _lines.append(f"(其中 {_batch_pend_n} 条为早前恢复补列)")
+        # B2(2026-08-14): 恢复邮件尾加"无需操作,已自动恢复"提示
+        _lines.append("— 无需操作, 异常已自动恢复 —")
+        _body = "<br>".join(
+            l.replace("<", "&lt;").replace(">", "&gt;") for l in _lines
+        )
+        _cmd = [
             sys.executable, str(REPO / "scripts" / "notify.py"),
-            subject,
-            body,
+            _subj,
+            _body,
             "--from-prefix", "[恢复]",
-            "--alert-issue", "计划任务监控恢复",
             "--alert-log", str(MONITOR_LOG),
-            # 2026-09-24 P1: 恢复汇总 6h 去重(合并成"恢复汇总"一次性发, 防振荡期每轮一封)
-            "--dedup-key", "schedule_monitor_recovery", "--dedup-window", "21600",
-        ],
-        capture_output=True, text=True, timeout=60, check=False,
-    )
-    _rec_out = (_r_rec.stdout or "") + (_r_rec.stderr or "")
-    if _rec_out.strip():
-        print(_rec_out.strip())
-    _rec_state = notify_state(_rec_out)
-    if _rec_state == "sent":
+        ]
+        if _info_only:
+            # 自愈类恢复: 仅 dashboard 记录(不进群/邮件); 不带 dedup key(每恢复事件一次, 无需去重)
+            _cmd += ["--tier", "info"]
+        else:
+            _cmd += [
+                "--alert-issue", "计划任务监控恢复",
+                # 2026-09-24 P1: 恢复汇总 6h 去重(合并成"恢复汇总"一次性发, 防振荡期每轮一封)
+                "--dedup-key", "schedule_monitor_recovery", "--dedup-window", "21600",
+            ]
+        _res = subprocess.run(_cmd, capture_output=True, text=True, timeout=60, check=False)
+        _rec_out = (_res.stdout or "") + (_res.stderr or "")
+        if _rec_out.strip():
+            print(_rec_out.strip())
+        return notify_state(_rec_out)
+
+    _rec_state_alert = _send_recovery_batch(_combined_alert, _info_only=False)
+    _rec_state_warn = _send_recovery_batch(_combined_warn, _info_only=True)
+    if _rec_state_warn is not None:
+        print(f"[恢复·自愈类] {len(_combined_warn)} 条仅记 dashboard(不进群/邮件), "
+              f"state={_rec_state_warn}")
+    # 批级成功 = 各非空批均 sent(空批不算失败); 有失败/被吞 ⇒ 本批 recoveries 并入 pending 重试
+    _batches_ok = all(
+        _s == "sent" for _s in (_rec_state_alert, _rec_state_warn) if _s is not None)
+    if _batches_ok:
         # 本次已带出全部 pending(合成内容=recoveries+pending) → 清桶
         if _PEND_KEY in alert_state:
             alert_state.pop(_PEND_KEY, None)
@@ -3080,11 +3110,12 @@ if _combined:
             _new_items.append({
                 "task": _r.get("task"), "keyword": _r.get("keyword"),
                 "first_seen": _r.get("first_seen", "?"),
+                "tier": _r.get("tier"),  # 2026-10-11 降噪③: 保留 tier 供补列时仍走对应档
             })
         alert_state[_PEND_KEY] = {"status": "pending_hold", "items": _new_items}
         save_alert_state(alert_state)
-        print(f"[warn] 恢复消息 state={_rec_state} ⇒ {len(_new_items)} 条入 pending 桶"
-              f"(下一轮/摘要补列重试)", file=sys.stderr)
+        print(f"[warn] 恢复消息 state={{alert:{_rec_state_alert}, 自愈类:{_rec_state_warn}}} ⇒ "
+              f"{len(_new_items)} 条入 pending 桶(下一轮/摘要补列重试)", file=sys.stderr)
 
 # S06 快照新鲜度兜底检查（2026-08-26，S06 每日重生链路第三件）：
 # kelly_mode_s06_state.json 的 coverage_end 落后最近已入库交易日 >1 个交易日 →
