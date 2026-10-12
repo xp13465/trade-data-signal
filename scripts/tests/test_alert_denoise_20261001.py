@@ -24,6 +24,7 @@ v3 改造(2026-10-03, CI Quality Gate ⑧ pytest 收集崩溃修复):
 """
 import json
 import os
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -454,3 +455,93 @@ def test_reg_nextday_x2_dedup(tmp_path):
     """回归-nextday×2→1(R3 产物今日已生成→monitor 去重)。"""
     assert r3_with_repo("2026-10-01 22:35:00", tmp_path) is True, \
         "自身通道发详细 + monitor 对已生成产物轮去重"
+
+
+# ============================================================
+# 规则 L2-B1/B2(2026-10-13 订正)「降噪吞 severe」本案反例
+#   事故: 2026-10-12 22:35 severe「公募基金 20261009 采集全 NULL: 24224 行」被同日
+#   22:35:27 先直发的一条 notice(tier=notice)行吃掉 data_gap 当日额度 ⇒ 并入 23:30 摘要、
+#   latest.md 无痕 = 真故障被机制误吞。
+#   修: B1 计数只数 tier=="critical"(severe 直发登记口径, notice/warning 不吃额度)
+#       + B2 新签名必达(仅同签名重复才并入)。
+#   零外发(§18 L48 / memory notify-script-selftest-must-stub): 渠道函数在三处
+#   (send_feishu/_send_email/send_telegram)全部打桩为「只记录返回 True」的假函数, 外层再套
+#   ZeroOutboundTrap 包裹最底层 urllib/smtplib 出口, 收尾断言 trap.hits == []。
+# ============================================================
+sys.path.insert(0, str(Path(__file__).absolute().parent))
+from _zero_outbound import ZeroOutboundTrap  # noqa: E402
+sys.path.insert(0, str(Path(__file__).absolute().parent.parent))
+import notify  # noqa: E402
+
+
+def _l2_env(tmp_path, monkeypatch):
+    """L2 用例隔离: 全落盘面指 tmp_path + 渠道打桩(返回 True 并记录调用)。"""
+    alerts = tmp_path / "data" / "alerts"
+    alerts.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("REPO", str(tmp_path))
+    monkeypatch.delenv("ALERT_BUDGET_DISABLE", raising=False)
+    monkeypatch.delenv("ALERT_DIGEST_DISABLE", raising=False)
+    monkeypatch.setattr(notify, "REPO", tmp_path)
+    monkeypatch.setattr(notify, "ALERTS_DIR", alerts)
+    monkeypatch.setattr(notify, "ALERT_DIGEST_FILE", alerts / "alert_digest.jsonl")
+    monkeypatch.setattr(notify, "ALERT_DIGEST_LOCK_FILE", alerts / "alert_digest.flushlock")
+    monkeypatch.setattr(notify, "ALERT_DIGEST_STATE_FILE", alerts / "alert_digest_state.json")
+    calls = []
+
+    def _fake(kind):
+        def _f(*_a, **_k):
+            calls.append(kind)
+            return True
+        return _f
+    monkeypatch.setattr(notify, "_send_email", _fake("email"))
+    monkeypatch.setattr(notify, "send_telegram", _fake("telegram"))
+    monkeypatch.setattr(notify, "send_feishu", _fake("feishu"))
+    return alerts, calls
+
+
+def _seed_ledger_rows(alerts, rows):
+    with open(alerts / "alert_ledger.jsonl", "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+
+PUBFUND_SUBJECT = ("[告警][数据缺口] 公募基金 20261009 采集全 NULL: 24224 行 unit_nav 全为空")
+
+
+def test_l2_b1b2_public_fund_severe_is_direct(tmp_path, monkeypatch):
+    """本案反例: notice 行(22:35:27 交易记录断档)不得吃掉 data_gap 额度 ⇒
+    22:35:32 的 severe「公募 20261009 全 NULL」必须直发(改前 = 并入摘要)。
+    判别力: 回退 B1+B2(旧 `tier!="digest"` 计数 + 超预算即并入)时本用例必红。"""
+    alerts, calls = _l2_env(tmp_path, monkeypatch)
+    _seed_ledger_rows(alerts, [
+        {"ts": f"{datetime.now().strftime('%Y-%m-%d')} 22:35:27", "group": "alert",
+         "tier": "notice", "key": "37fdb07a0d71",
+         "subject": "[告警][数据缺口] 交易记录断档: 15 个入样买入信号无对应交易 10-12 22:35"},
+    ])
+    with ZeroOutboundTrap() as trap:
+        res = notify.send(PUBFUND_SUBJECT, "body", severe=True, ledger_key=None,
+                          feishu_group="alert")
+    assert res.get("digested") is not True, f"该 severe 必须直发, 得 {res}"
+    assert calls, "该 severe 应触达渠道(直发)"
+    assert (alerts / "alert_digest.jsonl").exists() is False or \
+        (alerts / "alert_digest.jsonl").read_text().strip() == "", "不得进摘要 buffer"
+    assert trap.hits == [], f"零外发被破坏(§18 L48): {trap.hits}"
+
+
+def test_l2_b2_new_signature_direct_repeat_digested(tmp_path, monkeypatch):
+    """B2 门级: 同类别已耗额度时 —— 新签名直发 / 同签名重复并入(deploy 同因复报仍收敛)。
+    判别力: 回退 B2 时第一条(新签名直发)必红。"""
+    alerts, calls = _l2_env(tmp_path, monkeypatch)
+    today = datetime.now().strftime("%Y-%m-%d")
+    _seed_ledger_rows(alerts, [
+        {"ts": f"{today} 00:15:55", "group": "alert", "tier": "critical",
+         "key": "deploy_r2_upload_fail", "subject": "[告警] R2上传失败"},
+    ])
+    with ZeroOutboundTrap() as trap:
+        r_new = notify.send("[告警] deploy 数据产物校验失败", "body", severe=True,
+                            ledger_key="deploy_check_data_integrity_fail", feishu_group="alert")
+        r_rep = notify.send("[告警] R2上传失败", "body", severe=True,
+                            ledger_key="deploy_r2_upload_fail", feishu_group="alert")
+    assert r_new.get("digested") is not True, f"新签名必须直发, 得 {r_new}"
+    assert r_rep.get("digested") is True, f"同签名重复应并入(收敛), 得 {r_rep}"
+    assert trap.hits == [], f"零外发被破坏(§18 L48): {trap.hits}"
