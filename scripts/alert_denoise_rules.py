@@ -722,6 +722,8 @@ def r7_r2_consistency_wrapper_alerted(repo, last_run, dedup_key=R2_CONSISTENCY_D
 # 计数单一事实源 = W1 台账(data/alerts/alert_ledger.jsonl)——跨通道统一数字(§22),
 # 与 alert_meter 展示口径一致。诚实标注: 未映射类别一律 exempt(不限预算, 直发),
 # 首版只咬「已识别的重复族」(宁多发不吞, 见 spec §1.2/§1.3)。
+# ⚠️ 计数口径(2026-10-13 修 B1, 见 docs/ops/... 「降噪吞 severe」): 只数 tier=="critical"
+# 的行(severe 直发登记口径); notice/warning 行不吃 severe 额度。
 ALERT_BUDGET = {
     "unit": 1, "r2": 1, "data_gap": 1, "gap_check": 1,
     "deploy": 1, "fund_nav": 1, "kelly": 1,
@@ -776,20 +778,27 @@ def category_of_line(line):
     return None
 
 
-def ledger_day_direct_counts(repo, day=None):
-    """台账当日各类别「已直发」条数(单一事实源; 读不到=全 0=全直发 fail-open)。
+def ledger_day_direct_index(repo, day=None):
+    """台账当日各类别「已直发(severe)」行的签名索引(category -> [key...], 含重复)。
 
-    只数: ts 前缀==day 且 group=="alert" 且 tier!="digest" 的行, 按 category_of(key,subject)
-    归类。坏行跳过 / 文件缺失 → 空 dict(绝不因台账问题吞告警)。
+    单一事实源; **只数 tier=="critical" 的行**:
+      B1(2026-10-13 修「降噪吞 severe」): severe 直发统一登记 tier=critical
+      (notify.py L1210 `ledger_tier or ("critical" if severe else "notice")`), 而 notice
+      (告警转发/买卖点/恢复)与 warning 行同样落台账、却不是 severe 直发 —— 旧口径
+      `tier!="digest"` 把它们一并计入 ⇒ notice 行吃掉 severe 的当日类别额度(10-12 22:35
+      「公募基金 20261009 采集全 NULL: 24224 行」severe 被同日 22:35:27 一条 notice 行
+      挤掉额度, 并入摘要未直发)。改后 notice/warning 不再吃额度。
+    只取: ts 前缀==day 且 group=="alert" 且 tier=="critical"。
+    坏行跳过 / 文件缺失 → 空 dict(绝不因台账问题吞告警, fail-open)。
     """
     _day = day or datetime.now().strftime("%Y-%m-%d")
-    counts = {}
+    index: dict[str, list[str]] = {}
     if repo is None:
-        return counts
+        return index
     try:
         _p = Path(repo) / "data" / "alerts" / "alert_ledger.jsonl"
         if not _p.exists():
-            return counts
+            return index
         for _ln in _p.read_text(encoding="utf-8").splitlines():
             _ln = _ln.strip()
             if not _ln:
@@ -804,14 +813,31 @@ def ledger_day_direct_counts(repo, day=None):
                 continue
             if _r.get("group") != "alert":
                 continue
-            if _r.get("tier") == "digest":
+            if _r.get("tier") != "critical":
                 continue
             _c = category_of(_r.get("key"), _r.get("subject"))
             if _c:
-                counts[_c] = counts.get(_c, 0) + 1
+                index.setdefault(_c, []).append(str(_r.get("key", "")))
     except Exception:  # noqa: BLE001  台账问题绝不吞告警
-        return counts
-    return counts
+        return index
+    return index
+
+
+def ledger_day_direct_counts(repo, day=None):
+    """台账当日各类别「已直发(severe)」条数 = 索引长度(兼容既有调用方)。
+
+    口径同 ledger_day_direct_index(B1: 只数 tier=="critical")。
+    """
+    return {c: len(ks) for c, ks in ledger_day_direct_index(repo, day).items()}
+
+
+def ledger_day_direct_keys(repo, day=None):
+    """台账当日各类别「已直发(severe)」的**故障签名集合**(category -> set(key))。
+
+    B2(2026-10-13)「新签名必达」判据用: gate 并入前比对本条签名是否已在本集合内 ——
+    在=同签名重复(并入); 不在=新故障签名(直发, 复用 #240②「added→立即报」方法论)。
+    """
+    return {c: set(ks) for c, ks in ledger_day_direct_index(repo, day).items()}
 
 
 def _budget_entry(line, category, now):
@@ -831,6 +857,13 @@ def alert_budget_process(alert_state, alerts, now, repo, day=None):
     返回 (kept, absorbed)。**不写 alert_state**(计数实时读台账, 无需状态键)。
     counts 从 ledger_day_direct_counts 起算(当日已直发数) + **同轮乐观增量**(同轮第 2 条
     同类行吸收, 镜像「首条直发」语义)。台账读不到 → 全 0 → 全部 kept(=现状 fail-open)。
+    B1(2026-10-13): counts 只数 tier=="critical" 行(severe 直发口径), notice/warning 行不再
+    吃额度 —— 与 notify.py gate 同一共享函数, 一刀两端。
+    B2 边界(2026-10-13 诚实标注): 本层**不做**「新签名必达」(notify gate 侧做了)——
+    monitor 批次行的故障签名(台账 key)是**每轮载荷哈希**(notify.py 批次 subject 含轮次时间,
+    key=sha1(subject)), 无跨轮稳定签名可比; 且 monitor 上游 alert_state 已自带「同故障抑制
+    重发」层(批次里的行本身绝大多数就是新故障), 实测近 14 天 severe 类零吸收(仅 recovery
+    补列 1 条)。若将来要给本层加 B2, 需先给批次行引入稳定签名源(勿凭空哈希)。
     加强档 task_family 第二层(默认 OFF, env ALERT_BUDGET_TASK_FAMILY=1 开启, 拍板项见 spec
     §0.3/§1.3): 同类判完后对 kept 行再按 task 分组, 超 task 预算(1/日)的行转入 absorbed。
 

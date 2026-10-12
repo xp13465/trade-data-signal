@@ -177,10 +177,12 @@ def test_01b_category_of_line_table():
 
 # ══════════════════════════════ ② send() 单点 gate ══════════════════════════════
 def test_02_gate_second_over_budget_is_digested(_iso):
-    _seed_ledger(_iso["alerts"], [_ledger_row("r2_unreachable", "R2 不可达")])
+    # B2(2026-10-13)订正: 并入判据 = 「**同签名**当日已直发」, 故台账种子 key 必须与本次
+    # 同签名(旧的「不同 key 也并入」正是被修掉的病灶)。
+    _seed_ledger(_iso["alerts"], [_ledger_row("r2_overbudget", "R2 不可达")])
     res = notify.send("[告警] R2 又一次不可达", "body", severe=True,
                       ledger_key="r2_overbudget", feishu_group="alert")
-    _chk(res.get("digested") is True, f"超预算第 2 条应 digested, 得 {res}")
+    _chk(res.get("digested") is True, f"同签名超预算第 2 条应 digested, 得 {res}")
     _chk(_iso["calls"] == [], f"digested 不得触达任何渠道, 得 {_iso['calls']}")
     _chk(len(_digest_lines(_iso["alerts"])) == 1,
          f"buffer 应恰 1 行, 得 {len(_digest_lines(_iso['alerts']))}")
@@ -245,7 +247,8 @@ def test_02h_gate_critical_tier_exempt(_iso):
 
 def test_02i_gate_absorb_fail_failopen(_iso, monkeypatch):
     """N4: buffer 吸收失败(_absorb_to_digest 返回 False) ⇒ fail-open 落直发, 绝不吞告警。"""
-    _seed_ledger(_iso["alerts"], [_ledger_row("r2_unreachable", "x")])
+    # B2 订正: 种子 key 须与本次同签名, 否则「新签名直接直发」会掩盖吸收失败路径(判别力归零)。
+    _seed_ledger(_iso["alerts"], [_ledger_row("r2_absfail", "x")])
     monkeypatch.setattr(notify, "_absorb_to_digest", lambda *a, **k: False)
     res = notify.send("[告警] R2 吸收失败", "body", severe=True, ledger_key="r2_absfail",
                       feishu_group="alert")
@@ -254,14 +257,78 @@ def test_02i_gate_absorb_fail_failopen(_iso, monkeypatch):
 
 
 def test_02j_gate_bad_ledger_line_tolerated(_iso):
-    """N5: 台账含坏行(非法 JSON) ⇒ 计数跳过坏行不崩, 好行仍计入(此处 1 条 → 第 2 条 digested)。"""
+    """N5: 台账含坏行(非法 JSON) ⇒ 计数跳过坏行不崩, 好行仍计入(同签名 ⇒ 第 2 条 digested)。"""
     p = _iso["alerts"] / "alert_ledger.jsonl"
     p.write_text(
-        '{"ts": "%s 09:00:00", "group": "alert", "tier": "critical", "key": "r2_unreachable"}\n'
+        '{"ts": "%s 09:00:00", "group": "alert", "tier": "critical", "key": "r2_badline"}\n'
         'NOT-JSON-GARBAGE{{{\n' % _today(), encoding="utf-8")
     res = notify.send("[告警] R2 坏行也不吞", "body", severe=True, ledger_key="r2_badline",
                       feishu_group="alert")
-    _chk(res.get("digested") is True, f"好行计入 1 ⇒ 第 2 条应 digested, 得 {res}")
+    _chk(res.get("digested") is True, f"好行计入 1 ⇒ 同签名第 2 条应 digested, 得 {res}")
+
+
+# ══════════════ ②b B1+B2 订正: 计数口径对齐 + 新签名必达(2026-10-13) ══════════════
+# 事故: 2026-10-12 22:35 severe「公募基金 20261009 采集全 NULL: 24224 行」被 22:35:27
+# 先直发的一条 notice(tier=notice)行吃掉 data_gap 当日额度 → 并入摘要未直发。
+def test_02k_ledger_counts_only_critical_tier(_iso):
+    """B1 函数级: 台账计数只数 tier=="critical"(severe 直发口径), notice/warning 不吃额度。"""
+    _seed_ledger(_iso["alerts"], [
+        _ledger_row("r2_unreachable", "x", tier="critical"),
+        _ledger_row("r2_notice_row", "[告警] R2 转发", tier="notice"),
+        _ledger_row("r2_warn_row", "[告警·聚合] warning 汇总", tier="warning"),
+        _ledger_row("alert_digest", "[告警·摘要]", tier="digest"),
+    ])
+    counts = adr.ledger_day_direct_counts(_iso["tmp"])
+    _chk(counts == {"r2": 1}, f"只应数 1 条 critical(notice/warning/digest 不计), 得 {counts}")
+    keys = adr.ledger_day_direct_keys(_iso["tmp"])
+    _chk(keys == {"r2": {"r2_unreachable"}}, f"签名集合应只含 critical 行 key, 得 {keys}")
+    # 反向(判别力): 改前口径(`tier!="digest"`)会把 notice/warning 一并计入 = 3
+    _legacy = len([1 for r in [
+        _ledger_row("r2_unreachable", "x"), _ledger_row("r2_notice_row", "x", tier="notice"),
+        _ledger_row("r2_warn_row", "x", tier="warning")]])
+    _chk(_legacy == 3, "改前口径应变 3(证明上面 1 不是恒真)")
+
+
+def test_02l_gate_new_signature_over_budget_still_direct(_iso):
+    """B2 门级(本案反例核心): 类别已耗额度, 但本条是**新故障签名** ⇒ 必须直发, 绝不并入。
+    判别力: 回退 B2(旧「超预算即并入」)时本用例必红。"""
+    _seed_ledger(_iso["alerts"], [_ledger_row("deploy_r2_upload_fail", "R2 上传失败")])
+    res = notify.send("[告警] deploy 数据产物校验失败", "body", severe=True,
+                      ledger_key="deploy_check_data_integrity_fail", feishu_group="alert")
+    _chk(not res.get("digested"), f"新签名超预算必须直发, 得 {res}")
+    _chk(len(_iso["calls"]) >= 1, "新签名应触达渠道")
+    _chk(_digest_lines(_iso["alerts"]) == [], "新签名不得入 buffer")
+
+
+def test_02m_gate_repeat_signature_over_budget_digested(_iso):
+    """B2 门级另一半: 同签名重复(已直发过) ⇒ 仍并入(保 L2 收益, deploy 同因复报收敛)。"""
+    _seed_ledger(_iso["alerts"], [_ledger_row("deploy_r2_upload_fail", "R2 上传失败")])
+    res = notify.send("[告警] R2上传失败", "body", severe=True,
+                      ledger_key="deploy_r2_upload_fail", feishu_group="alert")
+    _chk(res.get("digested") is True, f"同签名重复应 digested, 得 {res}")
+    _chk(_iso["calls"] == [], "digested 不应触达渠道")
+
+
+def test_02n_replay_1012_public_fund_severe_direct(_iso):
+    """§5.1 重放 2026-10-12 实况: 同 category(data_gap)当日已有 1 条 notice 行
+    (`[告警][数据缺口] 交易记录断档`, 22:35:27), 随后 severe「公募基金 20261009 采集全
+    NULL: 24224 行」必须**直发**(改前: 被 notice 吃掉额度 → 并入 23:30 摘要)。"""
+    _seed_ledger(_iso["alerts"], [
+        {"ts": f"{_today()} 22:35:27", "group": "alert", "tier": "notice",
+         "key": "37fdb07a0d71",
+         "subject": "[告警][数据缺口] 交易记录断档: 15 个入样买入信号无对应交易 10-12 22:35"},
+    ])
+    res = notify.send("[告警][数据缺口] 公募基金 20261009 采集全 NULL: 24224 行 unit_nav 全为空",
+                      "body", severe=True, ledger_key=None, feishu_group="alert")
+    _chk(not res.get("digested"), f"10-12 案 severe 必须直发(不得并入摘要), 得 {res}")
+    _chk(len(_iso["calls"]) >= 1, "该 severe 应触达渠道(latest.md 镜像前提=直发)")
+    _chk(_digest_lines(_iso["alerts"]) == [], "不得进摘要 buffer")
+    # 反向(判别力): 第 1 次直发已把该签名记为 critical ⇒ 同日同签名重复必须并入
+    # (证明上面不是「永远直发」; 也正是 L2 收益保留点)
+    res2 = notify.send("[告警][数据缺口] 公募基金 20261009 采集全 NULL: 24224 行 unit_nav 全为空",
+                       "body", severe=True, ledger_key=None, feishu_group="alert")
+    _chk(res2.get("digested") is True,
+         f"首条直发后同日同签名重复应并入(同签名收敛), 得 {res2}")
 
 
 # ══════════════════════════════ ③ _absorb_to_digest 幂等 ══════════════════════════════
@@ -384,7 +451,8 @@ def test_04e_flush_digest_disable(_iso, monkeypatch):
 
 # ══════════════════════════════ ⑤ main() digested 早退 ══════════════════════════════
 def test_05_main_digested_early_return(_iso, monkeypatch):
-    _seed_ledger(_iso["alerts"], [_ledger_row("r2_unreachable", "x")])
+    # B2 订正: 种子 key 与 --dedup-key 同签名(否则新签名走直发, 本用例测不到 digested 早退)。
+    _seed_ledger(_iso["alerts"], [_ledger_row("r2_two", "x")])
     updated, written = [], []
     monkeypatch.setattr(notify, "update_dedup", lambda k: updated.append(k))
     monkeypatch.setattr(notify, "write_alert",
@@ -456,6 +524,25 @@ def test_07d_budget_process_failopen_no_ledger(_iso):
     kept, absorbed = adr.alert_budget_process({}, ["SEVERE: r2_a R2 x", "SEVERE: r2_b R2 y"],
                                               datetime.now(), _iso["tmp"])
     _chk(len(kept) == 1 and len(absorbed) == 1, "空台账下同轮首行直发/次行吸收")
+
+
+def test_07i_budget_process_ignores_notice_rows(_iso):
+    """B1 monitor 侧(判别力核心): notice/warning 行不吃类别额度 ⇒ 批次首行仍 kept。
+    判别力: 回退 B1(旧 `tier!="digest"`)时 notice 行占额度, 本用例必红。"""
+    _seed_ledger(_iso["alerts"], [
+        _ledger_row("r2_notice_row", "[告警] R2 转发", tier="notice"),
+        _ledger_row("x_warn_row", "[告警·聚合] warning 汇总", tier="warning"),
+    ])
+    kept, absorbed = adr.alert_budget_process({}, ["SEVERE: r2_a R2 不可达"], datetime.now(),
+                                              _iso["tmp"])
+    _chk(kept == ["SEVERE: r2_a R2 不可达"] and absorbed == [],
+         f"notice/warning 不占额度 ⇒ 批次行应 kept, 得 kept={kept}/absorbed={absorbed}")
+    # 对照(判别力): 同输入换成 critical 行 ⇒ 必被吸收(证明上面不是恒真)
+    _seed_ledger(_iso["alerts"], [_ledger_row("r2_crit", "R2 不可达", tier="critical")])
+    kept2, absorbed2 = adr.alert_budget_process({}, ["SEVERE: r2_a R2 不可达"], datetime.now(),
+                                                _iso["tmp"])
+    _chk(kept2 == [] and len(absorbed2) == 1,
+         f"critical 行占额度 ⇒ 应吸收(对照), 得 kept={kept2}/absorbed={absorbed2}")
 
 
 def test_07hh_budget_process_disable_switch_full_rollback(_iso, monkeypatch):

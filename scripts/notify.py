@@ -1165,22 +1165,28 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
             clear_warning_dedup_for_recovery(subject, body)
         except Exception as e:  # noqa: BLE001
             print(f"[notify][dedup] 恢复清零异常（不影响发送）：{e}", file=sys.stderr)
-    # ── L2 日预算 gate(#245 批2, 2026-10-10)──────────────────────────────────
-    # 类别内当日第 2+ 条 SEVERE 不再即时外发, 改并入当日摘要 buffer(23:25 摘要统一出);
-    # 首条/未映射/critical+升级档/恢复/手动预算外 行为逐字节=现状。
-    # 反例保证: 台账缺失/坏行 → 计数 0 → 直发; digest append 失败 → fail-open 直发;
+    # ── L2 日预算 gate(#245 批2, 2026-10-10; B1+B2 订正 2026-10-13)────────────
+    # 类别内当日「同签名」的第 2+ 条 SEVERE 不再即时外发, 改并入当日摘要 buffer(23:25 摘要
+    # 统一出); 首条/新签名/未映射/critical+升级档/恢复/手动预算外 行为=直发。
+    # B1(2026-10-13): 计数只数 severe 直发行(台账 tier=="critical", 见 _budget_today_count)
+    #   —— notice(转发/买卖点/恢复)/warning 行不再吃 severe 额度(10-12 22:35 公募 severe
+    #   被同日 notice 行挤掉即此病灶)。
+    # B2(2026-10-13): **新签名必达** —— 仅「同签名(_ledger_key_of)当日已直发」的重复才并入;
+    #   新故障签名(首现)永远直发(复用 #240②「added→立即报」方法论)。
+    # 反例保证: 台账缺失/坏行 → 计数 0/签名空 → 直发; digest append 失败 → fail-open 直发;
     # ALERT_BUDGET_DISABLE=1 → gate 全停; budget_exempt=True(critical 升级档) → 直发。
     if (severe and not dry_run and not budget_exempt
             and os.environ.get("ALERT_BUDGET_DISABLE") != "1"):
         _cat = adr.category_of(ledger_key, subject)
         if _cat:
             _n = _budget_today_count(_cat)
-            if _n >= adr.ALERT_BUDGET.get(_cat, 1):
+            _k = _ledger_key_of(subject, ledger_key)
+            if _n >= adr.ALERT_BUDGET.get(_cat, 1) and _k in _budget_today_keys(_cat):
                 if _absorb_to_digest(subject, body, key=ledger_key, category=_cat,
                                      source=source, from_prefix=from_prefix):
                     print(f"[notify][budget] 并入当日摘要 "
-                          f"key={ledger_key or '<subject>'} category={_cat} "
-                          f"(今日 {_cat} 直发 {_n}/{adr.ALERT_BUDGET[_cat]})",
+                          f"key={ledger_key or '<subject>'} sig={_k} category={_cat} "
+                          f"(今日 {_cat} 直发 {_n}/{adr.ALERT_BUDGET[_cat]}, 同签名重复)",
                           file=sys.stderr)
                     return {"email": False, "telegram": False, "feishu": False,
                             "digested": True}
@@ -1631,11 +1637,22 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 
 def _budget_today_count(cat: str) -> int:
-    """类别当日「已直发」条数(单一事实源 = adr.ledger_day_direct_counts, 读 W1 台账)。
+    """类别当日「已直发(severe)」条数(单一事实源 = adr.ledger_day_direct_counts, 读 W1 台账)。
 
+    B1(2026-10-13): 只数 tier=="critical" 行(severe 直发登记口径, notify.py L1210),
+    notice/warning 行不吃 severe 额度。
     读不到/坏行 → 0(自然直发 = 现状, fail-open 宁多发不吞)。"""
     _repo = Path(os.environ.get("REPO") or REPO)
     return int(adr.ledger_day_direct_counts(_repo).get(cat, 0))
+
+
+def _budget_today_keys(cat: str) -> set:
+    """类别当日「已直发(severe)」的故障签名集合(B2「新签名必达」判据)。
+
+    单一事实源同 _budget_today_count(同一台账 critical 行); 读不到 → 空集
+    (⇒ 本条视为新签名 → 直发, fail-open 宁多发不吞)。"""
+    _repo = Path(os.environ.get("REPO") or REPO)
+    return set(adr.ledger_day_direct_keys(_repo).get(cat, ()))
 
 
 def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str,

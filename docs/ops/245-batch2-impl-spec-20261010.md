@@ -412,3 +412,37 @@ if s["task"] == "nextday_gap_check" and isinstance(exit_code, int) and exit_code
 
 **已完成前置(不再实施,防重复开发)**:L3e 单树化(notify.py L97 已 env 优先,云上生效);过渡 dedup 历史合并(closeout 有档,两树终态=运行树保守覆盖)。
 
+
+## 8. 订正 B1+B2(2026-10-13):修「降噪按类别预算吞 severe」
+
+**事故**:2026-10-12 22:35 severe「公募基金 20261009 采集全 NULL: 24224 行 unit_nav 全为空」被
+22:35:27 先直发的一条 **notice**(tier=notice,`[告警][数据缺口] 交易记录断档`)吃掉 data_gap
+当日额度 → 并入 23:30 摘要、未直发、latest.md 无痕。根因 = §1.4 gate 的计数源
+`ledger_day_direct_counts` 按 `tier!="digest"` 计数,**不过滤 tier** ⇒ notice/recovery/warning
+行同样吃 severe 额度(与 §1.3「类别内第 2+ 条 **SEVERE**」的设计意图不符)。
+
+**订正(两处,一刀两端)**:
+- **B1 计数口径对齐**:`alert_denoise_rules.ledger_day_direct_index` 只数 `tier=="critical"`
+  行(severe 直发已由 notify.py L1210 统一登记 critical);`ledger_day_direct_counts` /
+  新增 `ledger_day_direct_keys` 均派生自此索引。monitor 侧 `alert_budget_process`
+  (schedule_monitor.sh L2943 调用)共用同函数 ⇒ 一并生效。
+- **B2 新签名必达**:gate 并入前再判「本条故障签名(`_ledger_key_of`)当日该类别是否已有
+  **critical 直发行**」——在=同签名重复(并入);不在=新故障签名(**直发**)。复用 #240②
+  「added→立即报」方法论。⇒ 本节 §1.4 旧措辞「类别内当日第 2+ 条 SEVERE 不再即时外发」
+  修正为「类别内**同签名**的第 2+ 条 SEVERE 不再即时外发」。
+- 回滚开关不变:`ALERT_BUDGET_DISABLE=1`(notify gate + monitor 层 + `--defer-digest` 三处齐)。
+- 诚实标注(B2 边界):monitor 批次行不在 B2 内 —— 其台账 key 是**每轮载荷哈希**(批次
+  subject 含轮次时间),无跨轮稳定签名可比;且 monitor 上游 alert_state 已自带同故障抑制,
+  实测近 14 天 severe 类零吸收(仅 recovery 补列 1 条)。已在 `alert_budget_process`
+  docstring 记录,勿凭空哈希补 B2。
+
+**验收(§5.1 数据说话;全部真实数据)**:
+- 重放脚本 `/tmp/denoise-replay/replay_gate.py` + 云上真实台账(84 行,scp 原件)+ 云上
+  `data/logs` 的实况 `[notify][budget]` 打印。
+- 改前 vs 改后逐条:10-12 台账 data_gap 计数 `2->0`(旧口径把 2 条 notice 计入)⇒ 公募
+  severe **恢复直发**;`deploy_check_data_integrity_fail` 首现(16:30)恢复直发,
+  16:32/16:35/16:44 同签名连续调用仍并入;`deploy_r2_upload_fail` 18:30/21:11 复报
+  **仍收敛**(同签名)。当日直发条数 13 → 15(+2;摘要内 kelly 1 条无 gate 打印留痕,未计入)。
+- 10-08:台账起 10-10 ⇒ 当日无行,两口径均 fail-open 全直发(等价于 L2 上线前基线)。
+- 单测:test_245 B1/B2 新增/订正用例 + test_alert_denoise_20261001 本案反例;
+  变异回退 B1 → 2 例 FAIL、回退 B2 → 2 例 FAIL(判别力实证)。

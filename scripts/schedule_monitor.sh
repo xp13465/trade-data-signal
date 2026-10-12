@@ -2940,6 +2940,9 @@ _orig_has_alerts = bool(alerts)
 # (当日 23:25 摘要出线, 或次日 stale 兜底); 未映射类别/类别首行照旧随批次即时直发。
 # 计数实时读台账(单一事实源, 跨通道统一数字 §22), **不写 alert_state**; 台账读不到 →
 # 全 kept = 现状 fail-open(绝不因台账问题吞告警)。
+# ⚠️ B1(2026-10-13 修「降噪吞 severe」): 计数口径 = 台账 tier=="critical" 行(severe 直发
+# 登记口径), notice/warning 行不吃额度 —— 与 notify.py send() gate 共用
+# adr.ledger_day_direct_counts/ledger_day_direct_index 同一函数, 一刀两端。
 alerts, _absorbed = adr.alert_budget_process(alert_state, alerts, NOW, REPO)
 save_alert_state(alert_state)
 # defer 调用在 save_alert_state **之后**、批次发送 **之前**: 被吸收行从批次剔除 ⇒ 下方
