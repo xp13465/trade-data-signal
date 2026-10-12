@@ -8,7 +8,9 @@
 
 【本套锁死的新行为(B4-1/B4-2)】
   ① `_fetch_intraday_open_via_http`: 腾讯失败(含时间戳缺失)→ 降级新浪(新浪[30]日期字段作
-     当日性锚);逐标的独立(单标的双源皆失败仅记 missing,不 raise);全灭才 raise。
+     当日性锚);逐标的独立(单标的双源皆失败仅记 missing,不 raise)。
+     ⚠️ #254(2026-10-12)签名变更: 现返回 `(out, zero_volume_codes)`,**全灭也不再 raise**
+     (fail-closed 决定权上移到 compute_intraday 的 ratio 判据);本套对应用例已同步新签名。
   ② `_fetch_intraday_open_prices`: 主源成功但部分 target 缺有效开盘价 → 对「全部 missing」
      (不限 16 前缀)启用单标的 HTTP 兜底;「日期陈旧」路径并入兜底优先。正常路径(主源新鲜且
      整批命中)行为零变化(missing 空 ⇒ 不触发兜底)。
@@ -119,8 +121,9 @@ def test_246_via_http_tencent_ts_missing_degrades_to_sina(monkeypatch):
         f"hq.sinajs.cn/list={sym}": _sina(sym, 4.370, OK_DATE),  # 新浪价 + 当日日期
     })
     monkeypatch.setattr(_requests_mod, "get", stub, raising=False)
-    out = sk._fetch_intraday_open_via_http(["510300"], expect_date=EXPECT)
+    out, zv = sk._fetch_intraday_open_via_http(["510300"], expect_date=EXPECT)
     assert out == {"510300": 4.370}, out
+    assert zv == [], zv
     assert stub.count("hq.sinajs.cn") == 1, "打桩生效证明: 新浪确被请求"
 
 
@@ -129,8 +132,9 @@ def test_246_via_http_tencent_ok_prefers_tencent(monkeypatch):
     sym = _sym("510300")
     stub = _GetStub({f"qt.gtimg.cn/q={sym}": _tencent(sym, 4.371, OK_TS)})
     monkeypatch.setattr(_requests_mod, "get", stub, raising=False)
-    out = sk._fetch_intraday_open_via_http(["510300"], expect_date=EXPECT)
+    out, zv = sk._fetch_intraday_open_via_http(["510300"], expect_date=EXPECT)
     assert out == {"510300": 4.371}, out
+    assert zv == [], zv
     assert stub.count("hq.sinajs.cn") == 0
 
 
@@ -143,33 +147,36 @@ def test_246_via_http_per_target_independent(monkeypatch):
         f"hq.sinajs.cn/list={sb}": ValueError("新浪 B 失败"),
     })
     monkeypatch.setattr(_requests_mod, "get", stub, raising=False)
-    out = sk._fetch_intraday_open_via_http(["510300", "159920"], expect_date=EXPECT)
+    out, zv = sk._fetch_intraday_open_via_http(["510300", "159920"], expect_date=EXPECT)
     assert out == {"510300": 4.40}, out
     assert "159920" not in out
+    assert zv == [], zv
 
 
-def test_246_via_http_all_missing_raises(monkeypatch):
-    """全灭(唯一标的双源皆失败) → 抛 RuntimeError(fail-closed 终检保留)。"""
+def test_246_via_http_all_missing_no_longer_raises(monkeypatch):
+    """#254(2026-10-12)行为变更: 全灭(唯一标的双源皆失败=取不到) → **不再 raise**, 返回 ({}, [])。
+    旧行为(本套原用例)=此处 raise;fail-closed 决定权上移到 compute_intraday 的 ratio 判据。"""
     sb = _sym("159920")
     stub = _GetStub({
         f"qt.gtimg.cn/q={sb}": ValueError("腾讯失败"),
         f"hq.sinajs.cn/list={sb}": ValueError("新浪失败"),
     })
     monkeypatch.setattr(_requests_mod, "get", stub, raising=False)
-    with pytest.raises(RuntimeError):
-        sk._fetch_intraday_open_via_http(["159920"], expect_date=EXPECT)
+    out, zv = sk._fetch_intraday_open_via_http(["159920"], expect_date=EXPECT)
+    assert out == {} and zv == [], (out, zv)
 
 
 def test_246_via_http_sina_date_mismatch_rejected(monkeypatch):
-    """腾讯时间戳缺失 + 新浪日期非当日 → 该标的拒用(missing, fail-closed)。"""
+    """腾讯时间戳缺失 + 新浪日期非当日 → 该标的拒用(取不到/unfetchable, 非 priced 也非 zero_volume)。
+    #254 起不再 raise, 返回 ({}, []);该码归 unfetchable 由调用方 ratio 判据处理。"""
     sym = _sym("510300")
     stub = _GetStub({
         f"qt.gtimg.cn/q={sym}": _tencent(sym, 4.40, ""),                 # 时间戳缺失
         f"hq.sinajs.cn/list={sym}": _sina(sym, 4.41, "2026-10-08"),      # 昨日日期
     })
     monkeypatch.setattr(_requests_mod, "get", stub, raising=False)
-    with pytest.raises(RuntimeError):
-        sk._fetch_intraday_open_via_http(["510300"], expect_date=EXPECT)
+    out, zv = sk._fetch_intraday_open_via_http(["510300"], expect_date=EXPECT)
+    assert out == {} and zv == [], (out, zv)
 
 
 def test_246_via_http_no_expect_date_skips_date_anchor(monkeypatch):
@@ -177,7 +184,9 @@ def test_246_via_http_no_expect_date_skips_date_anchor(monkeypatch):
     sym = _sym("510300")
     stub = _GetStub({f"qt.gtimg.cn/q={sym}": _tencent(sym, 4.42, "")})
     monkeypatch.setattr(_requests_mod, "get", stub, raising=False)
-    assert sk._fetch_intraday_open_via_http(["510300"]) == {"510300": 4.42}
+    out, zv = sk._fetch_intraday_open_via_http(["510300"])
+    assert out == {"510300": 4.42}, out
+    assert zv == [], zv
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -200,8 +209,10 @@ def test_246_prices_partial_missing_falls_back_for_15prefix(monkeypatch):
     sym = _sym("159920")
     stub = _GetStub({f"qt.gtimg.cn/q={sym}": _tencent(sym, 1.250, OK_TS)})
     monkeypatch.setattr(_requests_mod, "get", stub, raising=False)
-    out = sk._fetch_intraday_open_prices(["510300", "159920"], expect_date=EXPECT)
+    out, zv, meta = sk._fetch_intraday_open_prices(["510300", "159920"], expect_date=EXPECT)
     assert out == {"510300": 4.50, "159920": 1.250}, out
+    assert zv == [], zv
+    assert meta == {"main_source_ok": True, "fallback_used": True}, meta
     assert stub.count("qt.gtimg.cn") == 1, "15 前缀 missing 确被兜底"
 
 
@@ -213,8 +224,9 @@ def test_246_prices_date_stale_falls_back(monkeypatch):
     sym = _sym("510300")
     stub = _GetStub({f"qt.gtimg.cn/q={sym}": _tencent(sym, 4.60, OK_TS)})
     monkeypatch.setattr(_requests_mod, "get", stub, raising=False)
-    out = sk._fetch_intraday_open_prices(["510300"], expect_date=EXPECT)
+    out, zv, meta = sk._fetch_intraday_open_prices(["510300"], expect_date=EXPECT)
     assert out == {"510300": 4.60}, out          # 用兜底实时价, 不用陈旧快照 9.99
+    assert zv == [] and meta["main_source_ok"] is False, (zv, meta)
 
 
 def test_246_prices_normal_path_no_fallback(monkeypatch):
@@ -224,8 +236,9 @@ def test_246_prices_normal_path_no_fallback(monkeypatch):
                         lambda: _spot_df([("510300", 4.50, OK_DATE)]), raising=False)
     stub = _GetStub({})
     monkeypatch.setattr(_requests_mod, "get", stub, raising=False)
-    out = sk._fetch_intraday_open_prices(["510300"], expect_date=EXPECT)
+    out, zv, meta = sk._fetch_intraday_open_prices(["510300"], expect_date=EXPECT)
     assert out == {"510300": 4.50}, out
+    assert zv == [] and meta == {"main_source_ok": True, "fallback_used": False}, (zv, meta)
     assert stub.calls == [], "正常路径不得触发兜底"
 
 

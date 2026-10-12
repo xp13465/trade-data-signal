@@ -18,9 +18,15 @@
 #   - 交易日 9:40 起跑; 单档限时 3min(perl alarm, macOS 无 timeout 命令), 9:43 前完避开 9:45 intraday-snapshot;
 #   - deploy 锁 /tmp/trade_deploy.lock 用 with_lock.py --nb 非阻塞: 锁在位则跳过本轮(留给 17:50 全量);
 #   - 非交易日跳过(is_trading_day 闸门);
-#   - 失败告警分级(2026-10-12 降噪): 数据就绪闸 FAIL(退出码 5, 刻意正常跳过, 17:50 全量兜底)
-#     -> WARN(--tier warning, 入 notify 30min 聚合缓冲, 不再即时 SEVERE);
+#   - 失败告警分级(2026-10-12 降噪 + #254 放宽方案 A 2026-10-12 同日上线):
+#     数据就绪闸判定统一交 scripts/kelly_intraday_gate_decider.py(读 data/kelly_intraday_gate_report.json):
+#       · abort(单日未豁免取不到比例 > R=15%)= exit 5, 刻意正常跳过(17:50 全量兜底)
+#         -> WARN(--tier warning, 入 notify 30min 聚合缓冲, 不再即时 SEVERE, 降噪不变);
+#       · tolerate(出档, 带 meta.unpriced_codes)= exit 0; 若命中「取不到类」豁免 -> 降级 WARN(7d 去重);
+#         零成交类豁免/正常 pass -> 完全静默(仅 ledger/info 留痕);
 #     对账 FAIL(3)/超时(142)/脚本错误 -> SEVERE 直达不变。
+#     decider 自身异常 → 回退保险(§23.11 不静默): abort 分支沿用旧内联 WARN 并保持 exit 5;
+#       tolerate/pass 分支补 WARN(kelly_intraday_gate_decider_crash) 后照常发布, 不让判定链静默丢失。
 #
 # 产物链路: static-site/data/signal_kelly_trades_intraday.json + signal_kelly_backtest_intraday.json
 # -> upload_r2 upload-data-files 上传 data/ 前缀 + purge(对账 PASS 后)。
@@ -99,26 +105,52 @@ perl -e 'alarm shift @ARGV; exec @ARGV' 180 \
     --intraday-outdir "$OUTDIR" 2>&1 | tee -a "$LOG"
 BK_RC=${PIPESTATUS[0]}
 echo "回测退出码=$BK_RC" | tee -a "$LOG"
-if [ "$BK_RC" -ne 0 ]; then
+
+GATE_REPORT="$REPO/data/kelly_intraday_gate_report.json"
+GATE_DECIDER="$REPO/scripts/kelly_intraday_gate_decider.py"
+
+# 1a) 就绪闸判定统一交 decider(#254): 读 gate report -> 落豁免状态/ledger + 按 tier 发告警 + 返回 gate 码。
+#     仅当回测「正常返回」(0=出档 / 5=abort) 才走 decider; 142 超时/其他脚本错误不属就绪闸范围。
+GATE_RC=$BK_RC
+if [ "$BK_RC" -eq 0 ] || [ "$BK_RC" -eq 5 ]; then
+  "$PY" "$GATE_DECIDER" --report "$GATE_REPORT" --commit --backtest-rc "$BK_RC" 2>&1 | tee -a "$LOG"
+  GATE_RC=${PIPESTATUS[0]}
+  echo "就绪闸判定退出码=$GATE_RC(回测退出码=$BK_RC)" | tee -a "$LOG"
+  # 回退保险(§23.11 不静默): decider 自身异常(非 0/5 的 gate 码) → 不让判定/告警丢失
+  if [ "$GATE_RC" -ne 0 ] && [ "$GATE_RC" -ne 5 ]; then
+    if [ "$BK_RC" -eq 5 ]; then
+      # abort 分支: 沿用旧内联 WARN(与 2026-10-12 降噪逐字一致: tier=warning + 同 dedup key/window)+ 保持 exit 5
+      "$PY" "$REPO/scripts/notify.py" "[告警] 凯利盘中增量回测本轮跳过(数据就绪闸 FAIL, 退出码 ${BK_RC}) ${ALERT_TIME}" \
+        "kelly_intraday_rerun 退出码 ${BK_RC}: 数据就绪闸 FAIL(取不到今日真实开盘价), 本轮跳过, 留 17:50 全量兜底。详见日志:<br>$LOG" \
+        --tier warning --from-prefix "[告警]" --dedup-key kelly_intraday_rerun_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+      GATE_RC=5
+    else
+      # tolerate/pass 分支: 回测已出档(产物在), 但 decider 未产出判定 → 补一条 WARN 后照常发布(不阻断)
+      "$PY" "$REPO/scripts/notify.py" "[告警] 凯利盘中就绪闸 decider 异常(未产出判定) ${ALERT_TIME}" \
+        "回测退出码 0(已出档), 但 kelly_intraday_gate_decider.py 自身异常(退出码 ${GATE_RC}), 就绪闸判定/豁免状态未落。本轮照常发布。详见日志:<br>$LOG" \
+        --tier warning --from-prefix "[告警]" --dedup-key kelly_intraday_gate_decider_crash --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+      GATE_RC=0
+    fi
+  fi
+fi
+
+# 1b) 非就绪闸的失败(142 超时 / 3 对账 / 其他脚本错误) -> SEVERE 直达(与放宽前逐字一致)
+if [ "$BK_RC" -ne 0 ] && [ "$BK_RC" -ne 5 ]; then
   case "$BK_RC" in
-    5)  echo "╷ 数据就绪闸 FAIL(akshare 未返真实开盘价), 本轮跳过, 留 17:50 全量" | tee -a "$LOG";;
     142) echo "╷ 超时(>3min 限时被杀), 撞 intraday-snapshot 风险, 本轮跳过, 留 17:50 全量" | tee -a "$LOG" >&2;;
     3)  echo "╷ 对账机检 FAIL(产品不应发布)" | tee -a "$LOG" >&2;;
+    *)  echo "╷ 回测脚本错误(退出码 ${BK_RC})" | tee -a "$LOG" >&2;;
   esac
-  # 降噪(2026-10-12 用户拍板): 退出码 5(数据就绪闸 FAIL)是**刻意的正常跳过**, 17:50 全量会补,
-  # 不是故障 → severe 降为 warn(--tier warning, 入 notify 30min 聚合缓冲, 告警照发只是不再即时 severe)。
-  # 判别维度保留: 标题/正文仍带退出码, 越权重现(akshare 长期取不到价)仍可辨识; 退出码仍保持 5(专用码)。
-  # 其余退出码(142 超时/3 对账 FAIL)仍走 severe 直达。
-  if [ "$BK_RC" -eq 5 ]; then
-    "$PY" "$REPO/scripts/notify.py" "[告警] 凯利盘中增量回测本轮跳过(数据就绪闸 FAIL, 退出码 ${BK_RC}) ${ALERT_TIME}" \
-      "kelly_intraday_rerun 退出码 ${BK_RC}: 数据就绪闸 FAIL(取不到今日真实开盘价), 本轮跳过, 留 17:50 全量兜底。详见日志:<br>$LOG" \
-      --tier warning --from-prefix "[告警]" --dedup-key kelly_intraday_rerun_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
-  else
-    "$PY" "$REPO/scripts/notify.py" "[告警] 凯利盘中增量回测失败(退出码 ${BK_RC}) ${ALERT_TIME}" \
-      "kelly_intraday_rerun 退出码 ${BK_RC}。详见日志:<br>$LOG" \
-      --severe --from-prefix "[告警]" --dedup-key kelly_intraday_rerun_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
-  fi
+  "$PY" "$REPO/scripts/notify.py" "[告警] 凯利盘中增量回测失败(退出码 ${BK_RC}) ${ALERT_TIME}" \
+    "kelly_intraday_rerun 退出码 ${BK_RC}。详见日志:<br>$LOG" \
+    --severe --from-prefix "[告警]" --dedup-key kelly_intraday_rerun_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
   exit "$BK_RC"
+fi
+
+# 1c) 就绪闸 abort(单日未豁免取不到比例 > R): 整轮跳过, 留 17:50 全量(告警已由 decider 按降噪档发出)
+if [ "$GATE_RC" -eq 5 ]; then
+  echo "╷ 数据就绪闸 abort(单日缺口 >R), 本轮跳过, 留 17:50 全量" | tee -a "$LOG"
+  exit 5
 fi
 
 # 2) 对账机检(§5.4⑦ 同构对账: 结构性 signal_date==T + 主档 pre-T 哈希漂移) 产品到位才允许发布

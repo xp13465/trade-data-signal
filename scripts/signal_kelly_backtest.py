@@ -54,6 +54,12 @@ from simulate_trade import (  # noqa: E402
 from app.db import get_conn  # noqa: E402
 from app.collector.nav_placeholder_defense import is_placeholder_row, trading_gap_between  # noqa: E402
 from util_atomic import atomic_write_text, atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-21 同类错误面根治)
+# #254 就绪闸判定器(单一事实源): 逐码分类后的豁免匹配/verdict 计算与 decider CLI 同一函数(零漂移)
+from kelly_intraday_gate_decider import (  # noqa: E402
+    evaluate as _gate_evaluate,
+    load_state as _gate_load_state,
+    write_report as _gate_write_report,
+)
 
 # 凯利回测默认费率(保持该回测的既定口径, 不受 simulate_trade 重构影响)
 # simulate_trade._sell_with_fees 重构后默认新增印花税万5 + 过户费沪深统一;
@@ -736,6 +742,18 @@ def _verify_spot_data_date(df, expect_date):
     return s
 
 
+def _unpriced_subsets(missing_keys, zero_volume_codes):
+    """未定价码拆分(#254 接口补丁, 冻结): 返回 (unpriced_codes, unpriced_zero_volume_codes)。
+
+    - unpriced_codes = 本期**全部未定价**、未计入买价基准的代码(零成交类 + 取不到类, 含容忍带内放行的);
+    - unpriced_zero_volume_codes = 其中可证实「09:40 前零成交」(class=zero_volume)的**子集**。
+    不变式: unpriced_zero_volume_codes ⊆ unpriced_codes(前端在该子集缺失/为空时退回中性措辞)。
+    """
+    miss = sorted(set(str(c) for c in missing_keys))
+    zv = set(str(c) for c in zero_volume_codes)
+    return miss, [c for c in miss if c in zv]
+
+
 def _fetch_intraday_open_prices(codes, expect_date=None):
     """盘中(9:40)拉 akshare 真实开盘价, 返回 {etf_code: open_price}。
 
@@ -765,7 +783,12 @@ def _fetch_intraday_open_prices(codes, expect_date=None):
     拖累其余标的; 仅当最终 out 为空(全灭)才 raise(fail-closed 终检保留)。正常路径(主源新鲜
     且整批命中)行为零变化: missing 为空 ⇒ 不触发兜底。
 
-    失败/全灭: 抛 RuntimeError(调用方转退出码 5/告警)。
+    #254 返回签名变更(2026-10-12): 现返回 **(out, zero_volume_codes, meta)**:
+      · out = {code: open>0}              已取得真实「可证实当日」开盘价
+      · zero_volume_codes = [code, ...]   「可证实当日零成交」(见 _fetch_intraday_open_via_http)
+      · meta = {"main_source_ok": bool, "fallback_used": bool}  供豁免 src_ctx 判定
+    空轮语义(#254 冻结): target=0(无对象可缺)⇒ 返回 ({}, [], meta), **不 raise**(正常空档)。
+    本函数**不再 raise**(fail-closed 决定权上移到 compute_intraday 的 ratio 判据)。
     """
     import warnings
     try:
@@ -773,7 +796,11 @@ def _fetch_intraday_open_prices(codes, expect_date=None):
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"akshare 不可用: {type(e).__name__}: {e}") from e
     target = [str(c) for c in codes]
+    if not target:
+        return {}, [], {"main_source_ok": False, "fallback_used": False}
     out = {}
+    zero_volume_codes = []
+    meta = {"main_source_ok": False, "fallback_used": False}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         # 主源: 东财 ETF 实时行情(覆盖 15 前缀场内 ETF; 16 前缀 LOF 不在该源)
@@ -782,15 +809,12 @@ def _fetch_intraday_open_prices(codes, expect_date=None):
         except Exception as e:  # noqa: BLE001
             # 2026-09-23 东财 push2 家族封禁(HTTP 000, 连续 6h+, 本机+云上双地实测):
             # 主源拉取失败 → 对全部 target 走腾讯(主)+新浪(备)双源兜底(逐标的独立,
-            # 见 _fetch_intraday_open_via_http); 兜底全灭才抛 RuntimeError(fail-closed 不
-            # 放松), 主源失败原因随附在消息里便于排查。
-            try:
-                return _fetch_intraday_open_via_http(target, expect_date=expect_date)
-            except RuntimeError as e2:
-                raise RuntimeError(
-                    f"akshare fund_etf_spot_em 拉取失败: {type(e).__name__}: {e}; "
-                    f"且新浪/腾讯双源兜底亦失败: {e2}"
-                ) from e2
+            # 见 _fetch_intraday_open_via_http)。#254: 兜底现不再 raise, 返回分类结果;
+            # 失败原因打 stderr 便于排查(不再包成 RuntimeError 终止链)。
+            print(f"   [就绪闸] 主源 fund_etf_spot_em 失败({type(e).__name__}: {e}), 全量走双源兜底",
+                  file=sys.stderr, flush=True)
+            sub_out, sub_zv = _fetch_intraday_open_via_http(target, expect_date=expect_date)
+            return sub_out, sub_zv, {"main_source_ok": False, "fallback_used": True}
 
         # 主源"可用"判定(2026-10-10 #246 B4-1(ii)): 非空 + 含必需列。空/缺列不再直接
         # raise, 而是并入下方「全部 missing」兜底(main_cols_ok=False ⇒ out 空 ⇒ 全走兜底)。
@@ -810,6 +834,7 @@ def _fetch_intraday_open_prices(codes, expect_date=None):
             except RuntimeError:
                 date_stale = True
         if main_cols_ok and not date_stale:
+            meta["main_source_ok"] = True
             for _, row in df[df["代码"].isin(target)].iterrows():
                 try:
                     op = float(row.get("开盘价"))
@@ -824,10 +849,13 @@ def _fetch_intraday_open_prices(codes, expect_date=None):
         # (兜底优先, 见上)。单标的失败仅记 missing(不拖累其他), 全灭时兜底函数内部 raise。
         missing = [c for c in target if c not in out]
         if missing:
-            out.update(_fetch_intraday_open_via_http(missing, expect_date=expect_date))
-    if not out:
-        raise RuntimeError("akshare 未返回任何目标 ETF/LOF 的真实开盘价(数据就绪闸 FAIL)")
-    return out
+            # 逐标的独立分类(#254): 零成交码 → zero_volume_codes(可返回类); 其余 → unfetchable
+            sub_out, sub_zv = _fetch_intraday_open_via_http(missing, expect_date=expect_date)
+            out.update(sub_out)
+            zero_volume_codes.extend(sub_zv)
+            meta["fallback_used"] = True
+    # #254: 不再 raise(fail-closed 决定权上移到 compute_intraday 的 ratio 判据; 空轮已 early-return)
+    return out, zero_volume_codes, meta
 
 
 def _fetch_intraday_open_via_http(codes, expect_date=None):
@@ -852,6 +880,14 @@ def _fetch_intraday_open_via_http(codes, expect_date=None):
     F4 "陈旧快照拒用"精神, 不许拿 0/空值/无法证实当日的价格当今开)。expect_date=None 时不
     校验(回测历史档)。任一目标双源均取不到真实>0 今开价 → 该目标记 missing(不 raise);
     全灭才 raise。2026-09-23 云上+本地实测: 两源均 8/8 成功、逐位一致(561120 今开=1.250)。
+
+    #254 治本(2026-10-12,放宽方案 A)返回签名变更: 现返回 **(out, zero_volume_codes)**:
+      · out = {code: open>0}                已取得真实「可证实当日」开盘价
+      · zero_volume_codes = [code, ...]     **可证实当日零成交**(两源之一 [30]==expect_date 且
+        今开 <=0/无值)—— 判为可返回类(不注入 open, 也不再 raise);这是「放宽」的核心:
+        主源健康、仅个别标的 09:40 前零成交的日子不再先炸在旧 :917-920 全灭 raise。
+      其余(两源皆不可证实当日)既非 priced 又非 zero_volume = 取不到(unfetchable),
+      由调用方按 ratio 判据决定是否 fail-closed(raise -> exit5), 本函数**不再 raise**。
     """
     import requests  # 已有依赖(us_stock_morning.py 同用)
 
@@ -870,55 +906,73 @@ def _fetch_intraday_open_via_http(codes, expect_date=None):
         head = norm[:8]
         return len(norm) >= 8 and head.isdigit() and head == expect
 
+    def _classify(fields, open_idx, date_idx, src):
+        """单源单标的分类 → ('priced', p) / ('zero_volume', evidence) / ('unknown', None)。
+
+        判据(设计稿 §六 V2, 冻结): 日期位 == expect_date(今日) 且 今开 <=0/无值 ⇒ 当日零成交。
+        无 expect_date(回测历史档)⇒ 不做日期锚: 有 >0 价判 priced(与旧码一致), 否则 unknown
+        (无法证实当日 ⇒ 归 unfetchable; zero_volume **必须**有当日日期锚, 无锚不判)。
+        字段索引: 腾讯 [5]=今开/[30]=时间戳;新浪 [1]=今开/[30]=日期(量单位差 100 倍, 此处不比量)。
+        """
+        raw = fields[open_idx] if len(fields) > open_idx else None
+        try:
+            p = float(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            p = None
+        has_date_anchor = (expect_date is not None
+                           and len(fields) > date_idx
+                           and _date_matches(fields[date_idx], expect_date))
+        if p is not None and p > 0:
+            if expect_date is None or has_date_anchor:
+                return ("priced", p)
+            return ("unknown", None)          # 有价但日期不可证实当日 → 拒用(与旧码一致)
+        # p <= 0 或无值: 仅「当日日期锚成立」才判零成交
+        if has_date_anchor:
+            return ("zero_volume", f"{src}:date={expect_date} raw_open={raw!r}")
+        return ("unknown", None)
+
     out = {}
+    zero_volume_codes = []
     for code in codes:
         prefix = "sh" if code.startswith("5") else "sz"
         symbol = f"{prefix}{code}"
+        priced = None
+        zv_evidence = None
 
         # --- 腾讯(主): 价 split('~')[5] + 当日性锚 时间戳[30] ---
         try:
             r = requests.get(f"https://qt.gtimg.cn/q={symbol}", timeout=10)
             fields = r.content.decode("gbk", errors="replace").split("~")
-            tencent_p = None
-            if len(fields) > 5:
-                p = float(fields[5])
-                if p > 0:
-                    tencent_p = p
-            if tencent_p is not None and (
-                expect_date is None
-                or _date_matches(fields[30] if len(fields) > 30 else None, expect_date)
-            ):
-                out[code] = tencent_p
-                continue
+            kind, val = _classify(fields, 5, 30, "tencent")
+            if kind == "priced":
+                priced = val
+            elif kind == "zero_volume":
+                zv_evidence = val
         except (requests.RequestException, ValueError, IndexError):
             pass
-        # 腾讯取不到 / 时间戳缺失或非当日 → 降级新浪(2026-10-10 #246 B4-1(i)): 不再 raise
+        # 腾讯取不到 / 时间戳缺失或非当日 → 降级新浪(2026-10-10 #246 B4-1(i)): 不 raise
 
         # --- 新浪(备 + 当日性锚): 价 split(',')[1] + 日期字段[30]=YYYY-MM-DD ---
-        try:
-            r = requests.get(f"https://hq.sinajs.cn/list={symbol}",
-                             headers=_SINA_HEADERS, timeout=10)
-            fields = r.content.decode("gbk", errors="replace").split(",")
-            sina_p = None
-            if len(fields) > 1:
-                p = float(fields[1])
-                if p > 0:
-                    sina_p = p
-            if sina_p is not None and (
-                expect_date is None
-                or _date_matches(fields[30] if len(fields) > 30 else None, expect_date)
-            ):
-                out[code] = sina_p
-                continue
-        except (requests.RequestException, ValueError, IndexError):
-            pass
-        # 双源皆未取得可证实当日的真实>0 今开 → 该标的记 missing(逐标的独立, 不 raise)
+        if priced is None:
+            try:
+                r = requests.get(f"https://hq.sinajs.cn/list={symbol}",
+                                 headers=_SINA_HEADERS, timeout=10)
+                fields = r.content.decode("gbk", errors="replace").split(",")
+                kind, val = _classify(fields, 1, 30, "sina")
+                if kind == "priced":
+                    priced = val
+                elif kind == "zero_volume":
+                    zv_evidence = zv_evidence or val
+            except (requests.RequestException, ValueError, IndexError):
+                pass
 
-    if not out:
-        raise RuntimeError(
-            f"新浪/腾讯行情均未取得任何目标真实开盘价(数据就绪闸 FAIL, target={len(codes)})"
-        )
-    return out
+        if priced is not None:
+            out[code] = priced
+        elif zv_evidence is not None:
+            zero_volume_codes.append(code)
+        # else: 两源皆不可证实当日 → 取不到(unfetchable, 两个返回集合都不含)
+
+    return out, zero_volume_codes
 
 
 def _calendar_days(d1, d2):
@@ -2049,19 +2103,58 @@ def compute_intraday(signal_date_str, main_trades_path):
         close_map[c] = {d: v for d, v in close_map.get(c, {}).items() if d <= signal_date_str}
         sorted_dates_map[c] = sorted(price_map[c].keys())
 
-    # 4. akshare 真实开盘价注入(数据就绪闸: 取不到真价 -> raise -> 退出码 5, 本轮跳过留给 17:50)
+    # 4. akshare 真实开盘价注入(数据就绪闸, #254 放宽方案 A: 逐码分类 + 日级 (R,D) 粗闸 + 豁免)
     print("-> akshare fund_etf_spot_em 拉真实开盘价(数据就绪闸) ...", flush=True)
     # next_date = 执行日 today, 与下方注入 open_map 的键同源(2026-09-19 F4 同类面补齐:
     # 传 expect_date=next_date 走数据日期新鲜度校验 fail-closed, 防 9:40 拉到昨日快照
     # 把昨开价当今日价注入 open_map)。
     next_date = datetime.now().strftime("%Y%m%d")
-    real_opens = _fetch_intraday_open_prices(needed_etfs, expect_date=next_date)
+    real_opens, zero_volume_codes, gate_meta = _fetch_intraday_open_prices(needed_etfs, expect_date=next_date)
     missing_keys = sorted(set(needed_etfs) - set(real_opens))
-    if missing_keys:
+    # #254 接口补丁(冻结): 未定价码 + 其中「09:40 前零成交」子集(见 _unpriced_subsets docstring)
+    unpriced_codes, unpriced_zero_volume_codes = _unpriced_subsets(missing_keys, zero_volume_codes)
+    # P0 逐码分类(绝对前置): 全部缺口码 → zero_volume(可证实当日零成交, 09:40 前) / unfetchable(取不到)
+    zv_set = set(zero_volume_codes)
+    _gate_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    code_infos = []
+    for c in missing_keys:
+        if c in zv_set:
+            code_infos.append({"code": c, "class": "zero_volume",
+                               "evidence": "两源之一可证实当日[30]时间戳且今开<=0(09:40 前零成交)", "ts": _gate_ts})
+        else:
+            code_infos.append({"code": c, "class": "unfetchable",
+                               "evidence": "两源均不可证实当日开盘价(取不到)", "ts": _gate_ts})
+    # P1 豁免 / P2 单日闸 / P3 累计闸: 与 decider CLI **同一函数**(mutate=False 只读算, 状态落账/告警归 decider)
+    _gate_state, _gate_state_ok = _gate_load_state()
+    gate_report = {
+        "run_date": next_date,
+        "target_count": len(needed_etfs),
+        "missing_count": len(missing_keys),
+        "ratio": 0.0,
+        "main_source_ok": bool(gate_meta.get("main_source_ok")),
+        "fallback_used": bool(gate_meta.get("fallback_used")),
+        "codes": code_infos,
+        "exempted": [],
+        "verdict": "",
+        # #254 接口补丁(冻结): 未定价全集 + 「09:40 前零成交」子集(见 _unpriced_subsets)
+        "unpriced_codes": unpriced_codes,
+        "unpriced_zero_volume_codes": unpriced_zero_volume_codes,
+    }
+    _gate_dec = _gate_evaluate(gate_report, _gate_state, datetime.now(), mutate=False, state_ok=_gate_state_ok)
+    gate_report["exempted"] = _gate_dec["exempted"]
+    gate_report["ratio"] = _gate_dec["ratio"]
+    gate_report["verdict"] = _gate_dec["verdict"]
+    _gate_write_report(gate_report)
+    print(f"   [就绪闸] target={gate_report['target_count']} missing={gate_report['missing_count']} "
+          f"zero_volume={len(zero_volume_codes)} unfetchable_未豁免={len(_gate_dec['unfetchable_not_exempted'])} "
+          f"ratio={_gate_dec['ratio']:.1%} verdict={_gate_dec['verdict']} exempted={_gate_dec['exempted']}", flush=True)
+    if _gate_dec["verdict"] == "abort":
         raise RuntimeError(
-            f"数据就绪闸 FAIL: {len(missing_keys)} 只 ETF 取不到真实开盘价: {missing_keys[:10]}{'...' if len(missing_keys) > 10 else ''}"
+            f"数据就绪闸 FAIL(单日 >R): {len(_gate_dec['unfetchable_not_exempted'])} 只未豁免取不到开盘价 / "
+            f"target {gate_report['target_count']} (ratio={_gate_dec['ratio']:.1%} > R=15%): "
+            f"{_gate_dec['unfetchable_not_exempted'][:10]}"
         )
-    print(f"   注入 {next_date} 真实开盘价 {len(real_opens)} 只", flush=True)
+    print(f"   注入 {next_date} 真实开盘价 {len(real_opens)} 只(未定价 {len(missing_keys)} 只)", flush=True)
     for c, op in real_opens.items():
         open_map[c][next_date] = op
         # 当前价估值: next_date 开盘的 accum_nav 等价值(供持仓中 current_price 用,
@@ -2097,6 +2190,10 @@ def compute_intraday(signal_date_str, main_trades_path):
         "next_open_date": next_date,
         "price_basis": "next_day_open_akshare_spot",
         "main_pre_date_hash": pre_hash,
+        # #254 接口补丁(冻结): 未定价代码(09:40 前零成交 / 已豁免取不到 → 未计入买价基准)
+        #   unpriced_codes = 全部未定价;unpriced_zero_volume_codes = 其中「09:40 前零成交」子集
+        "unpriced_codes": unpriced_codes,
+        "unpriced_zero_volume_codes": unpriced_zero_volume_codes,
         "note": "盘中增量档: 只含 T 日信号新增交易, 定价=信号日 accum_nav × (T+1 真实开盘 / T 日真实 close), "
                 "历史交易零改动; 17:50 全量回测后以全量版为准",
     }

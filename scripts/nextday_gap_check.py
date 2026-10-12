@@ -144,6 +144,10 @@ def _fetch_opens(codes, test_open, expect_date=None):
     否则复用回测 _fetch_intraday_open_prices(同源同函数, 不另写一份 akshare 拉取),
     expect_date(=执行日 today)触发 F4 数据日期新鲜度校验(fail-closed)。
     全量失败抛 RuntimeError(由调用方重试 + severe 告警)。
+
+    #254(2026-10-12): _fetch_intraday_open_prices 改返回 (out, zero_volume, meta) 且不再 raise;
+    gap-check 是另一条已发布流程, **语义冻结不启用放宽** → 此处按 out 是否为空自行 re-raise,
+    行为与放宽前逐字一致(仅「取了真价」才算成功, 零成交/取不到都视为未就绪)。
     """
     if test_open:
         out = {}
@@ -157,7 +161,11 @@ def _fetch_opens(codes, test_open, expect_date=None):
             except ValueError:
                 continue
         return out
-    return _fetch_intraday_open_prices(codes, expect_date=expect_date)
+    out, _zero_volume, _meta = _fetch_intraday_open_prices(codes, expect_date=expect_date)
+    # gap-check 冻结语义保持(§23.7): 本流程不启用 #254 放宽, out 为空仍 fail-closed(re-raise)
+    if not out:
+        raise RuntimeError("就绪闸: 未取得任何目标真实开盘价(fail-closed)")
+    return out
 
 
 def main():
