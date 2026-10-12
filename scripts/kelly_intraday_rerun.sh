@@ -24,6 +24,9 @@
 #         -> WARN(--tier warning, 入 notify 30min 聚合缓冲, 不再即时 SEVERE, 降噪不变);
 #       · tolerate(出档, 带根级 intraday.unpriced_codes)= exit 0; 若命中「取不到类」豁免 -> 降级 WARN(7d 去重);
 #         零成交类豁免/正常 pass -> 完全静默(仅 ledger/info 留痕);
+#         P2b 绝对量闸(2026-10-12 用户拍板「方案 A」): target>=3 且当日目标 100% 零成交 -> 不再静默, WARN
+#           (dedup-key kelly_intraday_gate_allzero_volume, 6h 同日窗口; verdict 仍 tolerate, 仍 exit 0);
+#           同面豁免命中 -> 降级静默; n<3 的全零成交(如 09-23 n=1 日)保持完全静默(刻意);
 #     对账 FAIL(3)/超时(142)/脚本错误 -> SEVERE 直达不变。
 #     decider 自身异常 → 回退保险(§23.11 不静默): abort 分支沿用旧内联 WARN 并保持 exit 5;
 #       tolerate/pass 分支补 WARN(kelly_intraday_gate_decider_crash) 后照常发布, 不让判定链静默丢失。

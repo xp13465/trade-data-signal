@@ -4,9 +4,9 @@
 
 | 件 | 位置 |
 |---|---|
-| 本体(设计/口径总账) | 本文件 |
-| 生成脚本(实现) | `scripts/kelly_intraday_gate_decider.py`(判定器/状态/豁免)、`scripts/kelly_intraday_gate_ack.py`(确认 CLI)、`scripts/signal_kelly_backtest.py`(P0 分类 + 出档写 `unpriced_codes`)、`scripts/kelly_intraday_rerun.sh`(接线)、`scripts/nextday_gap_check.py`(签名同步) |
-| 复现段 | §7(命令 + 真实样本来源 + 期望输出) |
+| 本体(设计/口径总账) | 本文件(含 §13 P2b 绝对量闸增补) |
+| 生成脚本(实现) | `scripts/kelly_intraday_gate_decider.py`(判定器/状态/豁免, 含 P2b 绝对量闸)、`scripts/kelly_intraday_gate_ack.py`(确认 CLI)、`scripts/signal_kelly_backtest.py`(P0 分类 + 出档写 `unpriced_codes` + gate report 落 P2b 留痕)、`scripts/kelly_intraday_rerun.sh`(接线, 仅注释留痕)、`scripts/nextday_gap_check.py`(签名同步) |
+| 复现段 | §7(命令 + 真实样本来源 + 期望输出)+ §13.6(P2b 复现与变异复验) |
 | 配套 commit | `git log --oneline -1 -- scripts/kelly_intraday_gate_decider.py`(自包含, 不写死哈希防漂移) |
 
 施工图(上游, 逐字): `docs/ops/kelly-intraday-gate-relax-design-20261012.md`、`docs/ops/kelly-intraday-rerun-exit5-20261012.md`。
@@ -27,9 +27,11 @@ exit5 原本 = 「取不到今日真实开盘价」一刀切 fail-closed(#246 B4
 | P0 | 逐码分类(绝对前置) | 两源之一 `[30]==今日` 且 今开<=0 → `zero_volume`;否则 `unfetchable`(不可证实一律保守归此类) | 决定 ratio 分子 |
 | P1 | 豁免查表(overlay) | 4 元组匹配 = 子集命中(`F.codes ⊆ E.codes`)+ 类别一致 + 源上下文一致 + `r_band ≤ band_cap` + 未过期 | 命中 → 移出分子 |
 | P2 | 单日比例闸 | `ratio = 未豁免 unfetchable / target` > R(15%) | abort → exit 5(整轮跳过) |
+| **P2b** | **绝对量闸(2026-10-12 增补, §13)** | `target_count ≥ 3` **且** 当日目标 100% 属零成交类(`len(unpriced_zero_volume_codes) == target_count`) | verdict 仍 `tolerate`(出档)→ 告警升 **WARN**(同面豁免命中则静默) |
 | P3 | 累计运行日闸 | 容忍带 `0 < ratio ≤ R` 连续 ≥ D(5) 运行日 | 仅 WARN(不阻断) |
 
-分类 > 豁免 > 单日 > 累计。空轮 `target==0` → verdict `pass`, exit 0, 静默(§五.6 版本断层已消)。
+分类 > 豁免 > 单日 > **绝对量** > 累计;`abort` 优先级最高, P2b **不改写** abort 的 tier/exit 码。
+空轮 `target==0` → verdict `pass`, exit 0, 静默(§五.6 版本断层已消);n<3 的全零成交亦保持完全静默(§13.2)。
 
 ## 3. 冻结参数与冻结接口(§23.7, 改动须用户确认)
 
@@ -84,6 +86,8 @@ exit5 原本 = 「取不到今日真实开盘价」一刀切 fail-closed(#246 B4
 新增回退保险(§23.11 不静默):decider 自身异常时,abort 分支沿用旧内联 WARN 并保持 exit 5;
 tolerate/pass 分支补 WARN(`kelly_intraday_gate_decider_crash`)后照常发布。
 对账 FAIL(3)/超时(142)/其他脚本错误 → SEVERE 直达链**逐字不变**。
+P2b 绝对量闸(§13)新增一条 WARN(`kelly_intraday_gate_allzero_volume`, 6h), **不改** abort 的 tier/dedup
+(`kelly_intraday_rerun_fail`/1800)、**不改** exit 码(全零成交仍 exit 0)、**不改** unit `SuccessExitStatus=5`。
 
 > 注:**同源豁免改写了 :917-920 的 raise**(原为「passed-in set 全灭 ⇒ raise」,现为返回分类结果)。
 > 该 raise 的原始 fail-closed 出处 `docs/ops/246-faultb-fallback-impl-20261010.md:155` 仍保留可追溯;
@@ -94,9 +98,11 @@ tolerate/pass 分支补 WARN(`kelly_intraday_gate_decider_crash`)后照常发布
 
 ```bash
 # 全量回归(CI 同口径, CI 只跑 scripts/tests/)
-/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/          # 781 passed, 2 skipped
-# 本任务套(#254 27 项)
+/Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/          # 799 passed, 2 skipped
+# 本任务套(#254 原 30 项 + P2b 新增 14 项 = 44 项)
 /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_254_intraday_gate_relax_20261012.py
+#   → 44 passed(含 P2b: target2 静默 / target3 WARN / 同面豁免静默 / 豁免面不匹配 WARN /
+#      部分零成交不触发 / 混合面 abort 不改写 / 空轮不受影响 / 显式字段式 / P3 不动 / 留痕字段 / 沙箱零外发)
 # #246 回归(签名扩容同步后)
 /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_246_faultb_fallback_20261010.py
 # 未定价字段层级实测(真实产物, 2026-10-12 实跑; 结论 = root 级 intraday, 无 meta):
@@ -143,6 +149,9 @@ tolerate/pass 分支补 WARN(`kelly_intraday_gate_decider_crash`)后照常发布
 | 对账 FAIL(3)/超时(142)告警链 | 否 | 逐字未动 |
 | unit `SuccessExitStatus=5` | 否 | 未动(机检在位) |
 | 回测历史档(无 `expect_date`)取价行为 | 否 | 保持旧行为(有价判 priced) |
+| **P2b 绝对量闸新增(§13)** | — | decider `evaluate`/`build_alarm`/`ledger`/CLI print + `signal_kelly_backtest` gate report 落字段 + `rerun.sh` 头部注释; 全部经用例覆盖 |
+| gate report 消费方(decider/ack/前端) | 是(新增 2 字段) | 增量字段, 旧消费方忽略即兼容; ack 读 `codes`/`target_count` 不受影响(ack 零改动) |
+| P3 `tolerate_streak` 语义 | 否 | 刻意零改动(§13.8) |
 
 ## 11. 举一反三清单(§23.3)
 
@@ -153,6 +162,10 @@ tolerate/pass 分支补 WARN(`kelly_intraday_gate_decider_crash`)后照常发布
 | 告警分级/去重 | notify.py 既有通道 | 复用,未新造通道 |
 | alert 状态落盘模式(flock+tmp/rename) | `alert_ack.py` / `alert_denoise_rules.py` 模板 | 同模式复用 |
 | `data/alerts/` 目录 | 既有 alert 状态同目录 | 复用(云上目录已存在且属 ubuntu) |
+| **P2b 绝对量闸的同模式消费点(§13)** | decider `evaluate`(唯一事实源)→ signal_kelly_backtest 只读复用 / CLI | 已覆盖:判定只在 `evaluate` 一处, 生产方仅落留痕(不复制判据, §5.4⑦ 零漂移) |
+| 同 dedup 通道(notify.py `--dedup-key/--dedup-window`) | abort/unfetchable_exempted/expand/state_fail 各档 + 新 P2b | 已覆盖:复用同通道, 仅发一条, 专用 key 不与既有键互相压制 |
+| gate report / ledger 字段登记点 | decider ledger + signal_kelly_backtest report + 前端(移交) | 已覆盖:ledger/report 同批写入; 前端仅 `unpriced_*` 展示位, P2b 无前端字段 |
+| 阈值/常数登记点 | decider `ALLZERO_MIN_TARGETS` + 测试冻结看门 | 已覆盖:具名常量 + `test_254_allzero_freeze_min_targets_named` 机检 |
 
 ## 12. §21 前端公示同步点(本 agent 不改前端, 移交前端 agent)
 
@@ -167,3 +180,6 @@ tolerate/pass 分支补 WARN(`kelly_intraday_gate_decider_crash`)后照常发布
 4. 累计闸公示:容忍带(0<ratio≤15%)连续 ≥5 运行日 → 只通知不阻断。
 5. 口径锚点公示(§23.13):问题面 = **观测形态**,不区分停牌/清盘/零成交/封禁成因;「09:40 前零成交」≠「当日零成交」。
 6. 退出码语义公示:`exit 5` = 本轮跳过(17:50 全量兜底),**非故障**。
+7. **(P2b 增补, 移交前端 agent, 本 agent 不改前端)** — 本闸为**纯后端告警**(WARN 邮件/飞书), 不新增前端字段/展示位;
+   若前端就绪闸公示需覆盖「全零成交面」语义, 建议文案:「当日全部目标(≥3 只)都取不到 09:40 前成交 → 后端发
+   WARN(疑似数据源整体异常), 但仍出档; 若已确认该形态正常可人工豁免」——**是否列入公示由前端 agent 与主控定**。

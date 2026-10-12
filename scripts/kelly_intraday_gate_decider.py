@@ -8,10 +8,13 @@
 冻结参数(§23.7 冻结: 实施即冻结, 后续变更须用户确认):
   R(单日缺口比例阈值)=15% / D(累计运行日阈值)=5 / 豁免 TTL=60 自然日
   取不到类(unfetchable)豁免 TTL=14 自然日且**永不静默** / band 地板 k>=3 无条件 WARN + r>=50% 超带必 WARN
+  P2b 绝对量闸(2026-10-12 用户拍板「方案 A」新增): target>=ALLZERO_MIN_TARGETS 且当日目标 100%
+  属零成交类 → **不再静默**, 提升到 WARN(verdict 仍 tolerate, 出档不中断)
 
 结构 = A+B 混合(逐码判据/豁免为主闸 + 日级 (R,D) 粗闸兜底):
-  P0 逐码分类(绝对前置)  → P1 豁免查表(overlay) → P2 单日比例闸 → P3 累计天数闸
-  分类 > 豁免 > 单日 > 累计;单日大缺口(ratio>R)永远 abort(整轮跳过, exit 5)。
+  P0 逐码分类(绝对前置) → P1 豁免查表(overlay) → P2 单日比例闸 → P2b 绝对量闸 → P3 累计天数闸
+  分类 > 豁免 > 单日 > 绝对量 > 累计;单日大缺口(ratio>R)永远 abort(整轮跳过, exit 5);
+  abort 优先级最高, P2b 不得改写 abort 的 tier/exit 码(全零成交天然 numerator=0, 不会 abort)。
 
 ratio 口径(冻结): 分子 = 未豁免且 class=unfetchable 的码数;分母 = 当轮 target 数(含零成交豁免码)。
   ⇒ 零成交类(zero_volume)不推高 ratio(这正是放宽的落点);只有「取不到(unfetchable)」才计入。
@@ -60,6 +63,22 @@ UNFETCHABLE_DEDUP_WINDOW = 7 * 24 * 3600   # 取不到类豁免命中 → 降级
 ABORT_DEDUP_KEY = "kelly_intraday_rerun_fail"
 ABORT_DEDUP_WINDOW = 1800     # 与 2026-10-12 降噪一致(exit5 → --tier warning)
 STATE_READ_FAIL_DEDUP_WINDOW = 24 * 3600
+
+# ── P2b 绝对量闸(#254 方案 A, 2026-10-12 用户拍板)──────────────────────────
+# 目的: 当日「已定价=0 且未定价里无 unfetchable」即 100% 全零成交时, 现状 = 分子 0 → ratio=0 →
+#      完全静默零告警; 极端形态「数据源整体坏掉却对所有标的返回假 0 价(带今日时间戳)」在现状下
+#      完全隐形。本闸把该形态提到 WARN(仍 tolerate 出档, 不整轮跳过)。
+# ⚠️ ALLZERO_MIN_TARGETS 为「**经验起步值, 历史零样本, 上线后待校准**」(§5.1 诚实标注):
+#    全零成交面在 113 运行日语料(docs/kelly/analysis/kelly-intraday-gate-zero-volume-series-20261012.json)
+#    中 0 次出现, 无法从历史校准; n>=3 为刻意下限 —— n<3 的全零成交(=用户抱怨过的 09-23 n=1 日)必须
+#    保持**完全静默**, 不能再响。
+ALLZERO_MIN_TARGETS = 3
+ALLZERO_FACE = "all_zero_volume"          # 本闸问题面标识(ledger/report/reason 用; 非新豁免种类)
+ALLZERO_DEDUP_KEY = "kelly_intraday_gate_allzero_volume"
+# 6h 同日窗口(给理由): 盘中档每交易日仅 9:40 单发, 6h < 24h ⇒ 同一交易日内的手动重跑只发一条,
+# 次交易日 9:40(≈24h 后)自然重发; 6h 覆盖 9:40→15:40 全部同日内重跑。不取 abort 的 1800(30min):
+# abort 是「本轮跳过」的即时态, 全零成交是「当日数据形态」的持续态, 30min 会让同日内重跑反复轰炸。
+ALLZERO_DEDUP_WINDOW = 21600
 
 EMPTY_STATE = {"version": 1, "exemptions": [], "tolerate_streak": {"count": 0, "first_date": None, "codes": []}}
 
@@ -197,6 +216,19 @@ def evaluate(report: dict, state: dict, now: datetime, mutate: bool = False,
     r_band = (len(unfetchable_all) / target_count) if target_count else 0.0
     face = {"codes": face_codes, "class_by_code": class_by_code, "src_ctx": src_ctx, "r_band": r_band}
 
+    # P2b 绝对量闸判据(#254 方案 A, 2026-10-12 用户拍板): 当日目标 100% 属零成交类。
+    #   触发 = target_count >= ALLZERO_MIN_TARGETS **且** len(unpriced_zero_volume_codes) == target_count
+    #   等价式 = 已定价==0(未定价数==target) 且未定价里无 unfetchable(全为 zero_volume 类)。
+    #   canonical 面由 codes/class 派生(decider 权威面, 恒在); 仅当 report 显式带
+    #   unpriced_zero_volume_codes 时以其为准(与 codes/class 同源同批写入, 不产生漂移)。
+    _zv_field = report.get("unpriced_zero_volume_codes")
+    if isinstance(_zv_field, list):
+        _zv_codes = [str(c) for c in _zv_field]
+    else:
+        _zv_codes = [c for c in face_codes if class_by_code.get(c) == "zero_volume"]
+    all_zero_volume = (target_count >= ALLZERO_MIN_TARGETS and len(_zv_codes) == target_count)
+    all_zero_volume_codes = sorted(face_codes) if all_zero_volume else []
+
     exempted: list = []
     uncovered: list = []
     forced_warn = False
@@ -239,6 +271,11 @@ def evaluate(report: dict, state: dict, now: datetime, mutate: bool = False,
     if len(unfetchable_all) >= BAND_FLOOR_MIN_CODES or r_band >= BAND_FLOOR_RATIO:
         forced_warn = True
 
+    # P2b 豁免(接既有 P1 查表, 不新造豁免种类): all-zero 面被 active 豁免整面覆盖(子集+类别+源上下文+
+    # band+TTL 五维命中, 即 `exempted` 已含全部面码)⇒ 降级静默(仅 ledger/info 留痕); 未命中 ⇒ WARN。
+    # 注: 命中任一豁免时上面的循环会把**整个面码**并入 `exempted`(面级语义), 故该子集判定 ⟺ 有命中。
+    all_zero_exempted = bool(all_zero_volume and face_codes and set(face_codes) <= set(exempted))
+
     # ratio 口径(冻结): 未豁免且 unfetchable / target_count(含零成交豁免码)
     unfetchable_not_exempted = [c for c in unfetchable_all if c not in set(exempted)]
     ratio = (len(unfetchable_not_exempted) / target_count) if target_count else 0.0
@@ -274,6 +311,9 @@ def evaluate(report: dict, state: dict, now: datetime, mutate: bool = False,
         tier, reason = "warning", "abort_ratio_over_R"
     elif unfetchable_exempted:
         tier, reason = "warning", "unfetchable_exempted_never_silent"
+    elif all_zero_volume and not all_zero_exempted:
+        # P2b 绝对量闸: 100% 全零成交(target>=3)且未被同面豁免命中 → 不再静默(verdict 仍 tolerate)
+        tier, reason = "warning", "all_zero_volume_not_exempted"
     elif persistent:
         tier, reason = "warning", "tolerate_streak_ge_D"
     elif forced_warn:
@@ -298,6 +338,9 @@ def evaluate(report: dict, state: dict, now: datetime, mutate: bool = False,
         "unfetchable_not_exempted": sorted(unfetchable_not_exempted),
         "streak": new_count,
         "persistent": persistent,
+        "all_zero_volume": all_zero_volume,
+        "all_zero_volume_codes": all_zero_volume_codes,
+        "all_zero_volume_exempted": all_zero_exempted,
         "forced_warn": forced_warn,
         "invalidations": invalidations,
         "expansions": expansions,
@@ -321,6 +364,18 @@ def build_alarm(report: dict, dec: dict, backtest_rc: int | None, now: datetime)
                 f"{report.get('target_count')}, ratio={dec['ratio']:.1%} > R=15%), 本轮跳过, 留 17:50 全量兜底。"
                 f"<br>codes={dec['unfetchable_not_exempted'][:10]}")
         return subject, body, "warning", ABORT_DEDUP_KEY, ABORT_DEDUP_WINDOW
+    if dec["reason"] == "all_zero_volume_not_exempted":
+        # P2b 绝对量闸(#254 方案 A): 当日目标 100% 零成交 → 不再静默(verdict 仍 tolerate, 出档不中断)
+        codes = dec.get("all_zero_volume_codes") or []
+        subject = (f"[告警] 凯利盘中就绪闸·全零成交面(target {report.get('target_count')} 只 100% 零成交) {stamp}")
+        body = (f"就绪闸绝对量闸(P2b): target={report.get('target_count')}(>= {ALLZERO_MIN_TARGETS}) 且当日目标"
+                f" 100% 属「零成交类」(已定价=0、取不到=0)。极可能是**数据源整体异常**(对所有标的返回"
+                f"假 0 价但带当日时间戳), 或全市场性零成交 —— 现状下该形态完全隐形, 故本闸强制 WARN。"
+                f"<br>本轮已按放宽规则出档(verdict={dec['verdict']}, ratio=0), 不整轮跳过。"
+                f"<br>codes={codes[:15]}(共 {len(codes)} 只)"
+                f"<br>如已确认该形态属正常, 可豁免: python scripts/kelly_intraday_gate_ack.py confirm "
+                f"--report data/kelly_intraday_gate_report.json")
+        return subject, body, "warning", ALLZERO_DEDUP_KEY, ALLZERO_DEDUP_WINDOW
     if dec["reason"] == "unfetchable_exempted_never_silent":
         subject = f"[告警] 凯利盘中增量档已出档(取不到类豁免命中, 降级 WARN) {stamp}"
         body = (f"凯利盘中增量档已按放宽规则出档(ratio={dec['ratio']:.1%} <= R=15%), 但命中"
@@ -407,6 +462,8 @@ def main(argv=None) -> int:
                "exempted": [], "unfetchable_exempted": [], "zero_volume_exempted": [],
                "unfetchable_not_exempted": [], "streak": 0, "persistent": False,
                "unpriced_codes": [], "unpriced_zero_volume_codes": [],
+               "all_zero_volume": False, "all_zero_volume_codes": [],
+               "all_zero_volume_exempted": False,
                "forced_warn": False, "invalidations": [], "expansions": [], "state_ok": state_ok}
         if args.print_field:
             print(dec.get(args.print_field))
@@ -445,6 +502,10 @@ def main(argv=None) -> int:
             "exempted": dec["exempted"], "invalidations": dec["invalidations"],
             "expansions": dec["expansions"], "streak": dec["streak"], "tier": dec["tier"],
             "reason": dec["reason"], "state_ok": state_ok,
+            # #254 P2b 绝对量闸留痕(2026-10-12 用户拍板): 全零成交面标记 + 码表
+            "all_zero_volume": dec["all_zero_volume"],
+            "all_zero_volume_codes": dec["all_zero_volume_codes"],
+            "all_zero_volume_exempted": dec["all_zero_volume_exempted"],
         })
         alarm = build_alarm(report, dec, args.backtest_rc, now)
         dispatch_notify(alarm, dry_run=args.dry_run)
@@ -453,7 +514,8 @@ def main(argv=None) -> int:
         print(json.dumps(dec, ensure_ascii=False))
     print(f"verdict={dec['verdict']} tier={dec['tier']} exit_code={dec['exit_code']} "
           f"ratio={dec['ratio']:.4f} reason={dec['reason']} "
-          f"exempted={dec['exempted']} streak={dec['streak']}")
+          f"exempted={dec['exempted']} streak={dec['streak']} "
+          f"all_zero_volume={dec['all_zero_volume']}({len(dec['all_zero_volume_codes'])} 只)")
     return int(dec["exit_code"])
 
 

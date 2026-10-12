@@ -555,3 +555,189 @@ def test_254_freeze_constants():
     assert gate.R_THRESHOLD == 0.15 and gate.D_THRESHOLD == 5
     assert gate.TTL_DAYS == 60 and gate.UNFETCHABLE_TTL_DAYS == 14
     assert gate.BAND_FLOOR_MIN_CODES == 3 and gate.BAND_FLOOR_RATIO == 0.50
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# P2b 绝对量闸(#254 方案 A, 2026-10-12 用户拍板)
+#   触发 = target_count >= ALLZERO_MIN_TARGETS(3) 且当日目标 100% 属零成交类;
+#   动作 = verdict 仍 tolerate(出档不中断), 告警层级提升到 WARN(专用 dedup-key/6h 同日窗口);
+#   豁免 = 接既有 P1 查表(同面命中 → 静默); n<3 全零成交保持完全静默(刻意, 09-23 n=1 日不能响)。
+# ════════════════════════════════════════════════════════════════════════════
+def _allzero_rep(target_count, codes):
+    """全零成交面 report(target 全为 codes 且全 class=zero_volume ⇒ 已定价=0、取不到=0)。"""
+    return _report("20261012", target_count, list(codes), ["zero_volume"] * len(codes))
+
+
+def test_254_allzero_freeze_min_targets_named():
+    """阈值必须是具名常量且 = 3(经验起步值, 历史零样本, 上线后待校准 —— §5.1 诚实标注)。
+
+    源码标注锚(机检): decider 源码必须含「经验起步值」「历史零样本」「待校准」三词,
+    防后人把「无数据支撑的起步值」当已验证结论。
+    """
+    assert gate.ALLZERO_MIN_TARGETS == 3, "绝对量闸起步值被改(若非拍板变更 = 变异)"
+    assert gate.ALLZERO_DEDUP_KEY == "kelly_intraday_gate_allzero_volume"
+    assert gate.ALLZERO_DEDUP_WINDOW == 21600   # 6h 同日窗口
+    src = (ROOT / "scripts" / "kelly_intraday_gate_decider.py").read_text(encoding="utf-8")
+    for kw in ("经验起步值", "历史零样本", "待校准"):
+        assert kw in src, f"绝对量闸阈值缺 §5.1 诚实标注词:{kw}"
+
+
+def test_254_allzero_target2_silent_variation_target():
+    """(a)【变异靶】target=2 全零成交 → 必须**完全静默**(n<3 刻意不响: 09-23 n=1 全零成交日不能再响)。
+
+    变异看门: 把 ALLZERO_MIN_TARGETS 改坏(如改成 1)或删掉 `target_count >= 3` 条件 → 本用例 FAIL。
+    """
+    rep = _allzero_rep(2, ["561120", "561121"])
+    dec = gate.evaluate(rep, {"exemptions": [], "tolerate_streak": {}}, NOW, mutate=False)
+    assert dec["all_zero_volume"] is False, dec
+    assert dec["tier"] == "silent", dec
+    assert dec["exit_code"] == 0 and dec["ratio"] == 0.0, dec
+    assert dec["verdict"] == "tolerate", dec
+    alarm = gate.build_alarm(rep, dec, 0, NOW)
+    assert alarm is None, f"n<3 全零成交严禁发告警: {alarm}"
+
+
+def test_254_allzero_target3_warn():
+    """(b) target=3 全零成交 → WARN(tier=warning), verdict 仍 tolerate, exit 0(不中断出档)。"""
+    codes = ["561120", "561121", "561122"]
+    rep = _allzero_rep(3, codes)
+    dec = gate.evaluate(rep, {"exemptions": [], "tolerate_streak": {}}, NOW, mutate=False)
+    assert dec["all_zero_volume"] is True, dec
+    assert dec["all_zero_volume_codes"] == sorted(codes), dec
+    assert dec["tier"] == "warning" and dec["reason"] == "all_zero_volume_not_exempted", dec
+    assert dec["verdict"] == "tolerate" and dec["exit_code"] == 0 and dec["ratio"] == 0.0, dec
+    alarm = gate.build_alarm(rep, dec, 0, NOW)
+    subj, body, tier, key, win = alarm
+    assert tier == "warning" and key == "kelly_intraday_gate_allzero_volume" and win == 21600, alarm
+    assert "全零成交" in subj and "100%" in body, (subj, body)
+
+
+def test_254_allzero_target3_exempted_silent():
+    """(c) target=3 全零成交 + 同面豁免命中(接既有 P1 四元组查表) → 降级静默(仅 ledger/info)。"""
+    codes = ["561120", "561121", "561122"]
+    state = {"exemptions": [_ex({c: "zero_volume" for c in codes}, ttl_days=60)],
+             "tolerate_streak": {}}
+    rep = _allzero_rep(3, codes)
+    dec = gate.evaluate(rep, state, NOW, mutate=False)
+    assert dec["all_zero_volume"] is True and dec["all_zero_volume_exempted"] is True, dec
+    assert dec["exempted"] == sorted(codes), dec
+    assert dec["tier"] == "silent", dec
+    assert gate.build_alarm(rep, dec, 0, NOW) is None, "同面豁免命中后仍发告警"
+
+
+def test_254_allzero_target3_exempt_face_mismatch_warn():
+    """(d) target=3 全零成交 + 豁免面不匹配(无交集码) → 仍 WARN(不误降级)。"""
+    codes = ["561120", "561121", "561122"]
+    state = {"exemptions": [_ex({"999999": "zero_volume"}, ttl_days=60)], "tolerate_streak": {}}
+    rep = _allzero_rep(3, codes)
+    dec = gate.evaluate(rep, state, NOW, mutate=False)
+    assert dec["all_zero_volume"] is True and dec["all_zero_volume_exempted"] is False, dec
+    assert dec["exempted"] == [], dec
+    assert dec["tier"] == "warning" and dec["reason"] == "all_zero_volume_not_exempted", dec
+
+
+def test_254_allzero_partial_not_triggered():
+    """(e) 部分零成交(target=3, 仅 2 只未定价且皆零成交 = 第 3 只已定价) → 不触发本闸, 仍静默。"""
+    rep = _report("20261012", 3, ["561120", "561121"], ["zero_volume", "zero_volume"])
+    dec = gate.evaluate(rep, {"exemptions": [], "tolerate_streak": {}}, NOW, mutate=False)
+    assert dec["all_zero_volume"] is False, dec
+    assert dec["tier"] == "silent" and dec["verdict"] == "tolerate", dec
+
+
+def test_254_allzero_mixed_face_abort_unchanged():
+    """(f) 混合面(零成交 + unfetchable 且 ratio=50% > R) → 走 P2 abort, 不被本闸改写 tier/exit。"""
+    rep = _report("20261012", 4, ["561120", "561121", "561122", "561123"],
+                  ["zero_volume", "zero_volume", "unfetchable", "unfetchable"])
+    dec = gate.evaluate(rep, {"exemptions": [], "tolerate_streak": {}}, NOW, mutate=False)
+    assert dec["all_zero_volume"] is False, dec
+    assert dec["verdict"] == "abort" and dec["exit_code"] == 5, dec
+    assert dec["tier"] == "warning" and dec["reason"] == "abort_ratio_over_R", dec
+    alarm = gate.build_alarm(rep, dec, 5, NOW)
+    assert alarm[3] == gate.ABORT_DEDUP_KEY and alarm[4] == gate.ABORT_DEDUP_WINDOW, alarm
+
+
+def test_254_allzero_empty_round_unaffected():
+    """(g) target=0 空轮 → 不受本闸影响: verdict=pass, exit 0, 静默。"""
+    rep = _report("20261012", 0, [], [])
+    dec = gate.evaluate(rep, {"exemptions": [], "tolerate_streak": {}}, NOW, mutate=False)
+    assert dec["all_zero_volume"] is False, dec
+    assert dec["verdict"] == "pass" and dec["exit_code"] == 0 and dec["tier"] == "silent", dec
+
+
+def test_254_allzero_explicit_field_form_matches_spec():
+    """spec 字面式: report 带 unpriced_zero_volume_codes 且 len == target_count → 触发(与派生式等价)。"""
+    codes = ["561120", "561121", "561122"]
+    rep = _allzero_rep(3, codes)
+    rep["unpriced_zero_volume_codes"] = sorted(codes)   # 显式字段路径(生产 report 同批写入)
+    dec = gate.evaluate(rep, {"exemptions": [], "tolerate_streak": {}}, NOW, mutate=False)
+    assert dec["all_zero_volume"] is True and dec["all_zero_volume_codes"] == sorted(codes), dec
+    # 字段比 target 少(= 部分零成交) → 不触发
+    rep2 = _allzero_rep(3, codes)
+    rep2["unpriced_zero_volume_codes"] = sorted(codes)[:2]
+    dec2 = gate.evaluate(rep2, {"exemptions": [], "tolerate_streak": {}}, NOW, mutate=False)
+    assert dec2["all_zero_volume"] is False, dec2
+
+
+def test_254_allzero_p3_streak_untouched():
+    """本闸不改 P3 语义: 全零成交日 ratio=0 仍按现状归零 streak(刻意不顺手改, §23.7)。"""
+    state = {"exemptions": [], "tolerate_streak": {"count": 4, "first_date": "20261006", "codes": []}}
+    rep = _allzero_rep(3, ["561120", "561121", "561122"])
+    dec = gate.evaluate(rep, state, NOW, mutate=True)
+    assert dec["streak"] == 0 and dec["persistent"] is False, dec
+    assert state["tolerate_streak"]["count"] == 0, state
+
+
+def test_254_allzero_report_field_static_and_roundtrip(tmp_path):
+    """留痕: 生产方(signal_kelly_backtest)闸 report 落 all_zero_volume + 码表; write_report 往返不丢。"""
+    import ast
+    src = (ROOT / "scripts" / "signal_kelly_backtest.py").read_text(encoding="utf-8")
+    assert 'gate_report["all_zero_volume"] = bool(_gate_dec.get("all_zero_volume"))' in src and \
+           'gate_report["all_zero_volume_codes"] = _gate_dec.get("all_zero_volume_codes", [])' in src, \
+        "gate report 缺 P2b 留痕字段(单一事实源 = decider.evaluate)"
+    assert ast.parse(src) is not None
+    rep = _allzero_rep(3, ["561120", "561121", "561122"])
+    rep["all_zero_volume"] = True
+    rep["all_zero_volume_codes"] = ["561120", "561121", "561122"]
+    p = tmp_path / "gate.json"
+    gate.write_report(rep, p)
+    back = json.loads(p.read_text(encoding="utf-8"))
+    assert back["all_zero_volume"] is True and len(back["all_zero_volume_codes"]) == 3, back
+
+
+def test_254_allzero_ledger_and_cli_dry_run(tmp_path, capsys, monkeypatch):
+    """CLI --commit --dry-run: 全零成交面 → 落 ledger 含 P2b 字段 + 零真实外发(§18 L48 沙箱)。"""
+    rep = _allzero_rep(3, ["561120", "561121", "561122"])
+    rep_path = tmp_path / "r.json"
+    rep_path.write_text(json.dumps(rep), encoding="utf-8")
+    ledger_path = tmp_path / "ledger.jsonl"
+    monkeypatch.setattr(gate, "LEDGER_PATH", ledger_path)
+    rc = gate.main(["--report", str(rep_path), "--state", str(tmp_path / "s.json"),
+                    "--commit", "--backtest-rc", "0", "--dry-run"])
+    out = capsys.readouterr().out
+    assert rc == 0, (rc, out)
+    assert "[dry-run] notify" in out, out
+    line = json.loads(ledger_path.read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert line["all_zero_volume"] is True and len(line["all_zero_volume_codes"]) == 3, line
+    assert line["tier"] == "warning", line
+
+
+def test_254_allzero_notify_sandbox_effective(monkeypatch, tmp_path, capsys):
+    """§18 L48: 先证沙箱生效 —— 全零成交 WARN 的 dry-run 路径**绝不**触 subprocess.run(零外发硬证据)。"""
+    called = []
+    monkeypatch.setattr(gate.subprocess, "run",
+                        lambda *a, **k: called.append(a) or (_ for _ in ()).throw(
+                            AssertionError("[#254] 全零成交 dry-run 竟调用 subprocess.run(外发泄漏!)")),
+                        raising=True)
+    rep = _allzero_rep(3, ["561120", "561121", "561122"])
+    rep_path = tmp_path / "r.json"
+    rep_path.write_text(json.dumps(rep), encoding="utf-8")
+    rc = gate.main(["--report", str(rep_path), "--state", str(tmp_path / "s.json"),
+                    "--commit", "--backtest-rc", "0", "--dry-run"])
+    assert rc == 0 and called == [], called
+
+
+def test_254_allzero_rerun_sh_comment_wired():
+    """接线留痕: rerun.sh 头部注释明写 P2b 绝对量闸(WARN + dedup-key + n<3 静默), 且 exit 5 语义未动。"""
+    sh = (ROOT / "scripts" / "kelly_intraday_rerun.sh").read_text(encoding="utf-8")
+    assert "P2b 绝对量闸" in sh and "kelly_intraday_gate_allzero_volume" in sh, sh
+    assert 'exit 5' in sh and "SuccessExitStatus" not in sh, "abort 语义/链路被改动"

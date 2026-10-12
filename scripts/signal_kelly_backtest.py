@@ -2147,10 +2147,15 @@ def compute_intraday(signal_date_str, main_trades_path):
     gate_report["exempted"] = _gate_dec["exempted"]
     gate_report["ratio"] = _gate_dec["ratio"]
     gate_report["verdict"] = _gate_dec["verdict"]
+    # #254 P2b 绝对量闸留痕(2026-10-12 用户拍板, 方案 A): 全零成交面标记 + 码表(目标数见 target_count)。
+    # 由 decider 同一 evaluate() 判定(单一事实源), 此处仅落盘留痕, 不重复实现判据(§5.4⑦ 零漂移)。
+    gate_report["all_zero_volume"] = bool(_gate_dec.get("all_zero_volume"))
+    gate_report["all_zero_volume_codes"] = _gate_dec.get("all_zero_volume_codes", [])
     _gate_write_report(gate_report)
     print(f"   [就绪闸] target={gate_report['target_count']} missing={gate_report['missing_count']} "
           f"zero_volume={len(zero_volume_codes)} unfetchable_未豁免={len(_gate_dec['unfetchable_not_exempted'])} "
-          f"ratio={_gate_dec['ratio']:.1%} verdict={_gate_dec['verdict']} exempted={_gate_dec['exempted']}", flush=True)
+          f"ratio={_gate_dec['ratio']:.1%} verdict={_gate_dec['verdict']} exempted={_gate_dec['exempted']} "
+          f"all_zero_volume={_gate_dec['all_zero_volume']}", flush=True)
     if _gate_dec["verdict"] == "abort":
         raise RuntimeError(
             f"数据就绪闸 FAIL(单日 >R): {len(_gate_dec['unfetchable_not_exempted'])} 只未豁免取不到开盘价 / "
