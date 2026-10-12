@@ -1655,6 +1655,46 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
     var R = active
       ? '#e74c3c'
       : '#999';
+    // ─── 未定价标的(2026-10-12, #254 治本 / 冻结接口 intraday.unpriced_codes) ───
+    // intraday.unpriced_codes = 本期内「未计入买价基准」的全部标的代码(根级, 无 meta 层);
+    // intraday.unpriced_zero_volume_codes = 其中「09:40 前零成交」类的子集(后端补丁字段, 可缺失)。
+    // 文案分两档(主控裁决 M1): 甲档 = zero_volume 覆盖 unpriced 全部成员(全属零成交类)→ 保留
+    //   「零成交 / 非数据故障」断言; 乙档 = 否则(含「取不到价/源挂」类, 或 zero_volume 缺失/为空)
+    //   → 中性措辞(不武断说是零成交)。
+    // 优雅降级: unpriced_codes 缺失/非数组/空 → 完全不显示该行(不报错、零 pageerror)。
+    // 计数=批次级(不随模式/降亏/K 过滤变化), 两消费点(lab 交易记录弹窗 / app 首页模拟弹窗)同源一致(§22)。
+    var unpriced = (meta && Array.isArray(meta.unpriced_codes))
+      ? meta.unpriced_codes.filter(function (c) { return c != null && c !== ""; })
+      : [];
+    var nUnpriced = unpriced.length;
+    var zv = (meta && Array.isArray(meta.unpriced_zero_volume_codes))
+      ? meta.unpriced_zero_volume_codes.filter(function (c) { return c != null && c !== ""; })
+      : [];
+    var zvSet = {};
+    for (var _zvi = 0; _zvi < zv.length; _zvi++) zvSet[zv[_zvi]] = 1;
+    // 甲档判据: unpriced 非空 且 每个成员都落在 zero_volume 集里(zv 非空保证; 集合层面 zv ⊇ unpriced)。
+    var allZeroVol = nUnpriced > 0 && zv.length > 0 && unpriced.every(function (c) {
+      return Object.prototype.hasOwnProperty.call(zvSet, c);
+    });
+    // ≤8 只时列代码(超 8 只不列, 控行宽); README/公示已标注此规则。
+    var _codesTxt = (nUnpriced <= 8) ? '(' + _esc(unpriced.join('、')) + ')' : '';
+    // 说明行: 甲档带「零成交/非数据故障」断言, 乙档中性不断言成因; 仅非空时渲染。
+    var unpricedTxt = nUnpriced > 0
+      ? '<div class="kelly-intraday-unpriced">ℹ️ 本期 <b>' + nUnpriced + '</b> 只标的 '
+        + (allZeroVol
+          ? '09:40 前无成交(未定价),未计入买价基准' + _codesTxt + '。此为开盘初段零成交的已知正常形态, 非数据故障; 其余标的不受影响。'
+          : '未取得可证实为今日的开盘价(未定价),未计入买价基准' + _codesTxt + '。其余标的不受影响。')
+        + '</div>'
+      : '';
+    // 买价基准宣称(2026-10-12): 有未定价标的后「买价=今日真实开盘价」不再无条件成立 → 带条件表述
+    // (两档同源中立, 不断言成因); 无未定价标的时逐字维持原宣称(零回归)。
+    var basisCaveat = nUnpriced > 0
+      ? '；<b>' + nUnpriced + ' 只未定价</b>标的未计入买价基准(见本行下方说明)'
+      : '';
+    // 脚注条件短语(两档区分: 甲档零成交 / 乙档中性)。
+    var footCaveat = nUnpriced > 0
+      ? '；本期有 ' + nUnpriced + ' 只标的' + (allZeroVol ? ' 09:40 前无成交,' : '未取得可证实为今日的开盘价,') + ' 未计入买价基准(未定价)'
+      : '';
     // 口径标注: 联动态显示(模式/降亏/K 过滤后 N 笔), 现状态显示 N 笔(全部卖出模式);
     // fadeOn=false 时降亏未生效(不显示 modeId), 但 K 独立生效照常标注。
     var scopeTxt;
@@ -1667,7 +1707,7 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
       scopeTxt = '提前入账 <b>' + nAll + '</b> 笔（' + modes.length + ' 卖出模式）';
     }
     var head = active
-      ? '<b>📊 盘中增量回测</b> · 上一交易日(<b>' + cap + '</b>)信号已用今日开盘价<br>' + scopeTxt + ' · <b style="color:' + R + '">标注=盘中价（买价=今日真实开盘定价，当前价/收益率盘中实时跟随，非最终收盘口径）</b>'
+      ? '<b>📊 盘中增量回测</b> · 上一交易日(<b>' + cap + '</b>)信号已用今日开盘价<br>' + scopeTxt + ' · <b style="color:' + R + '">标注=盘中价（买价=今日真实开盘定价' + basisCaveat + '，当前价/收益率盘中实时跟随，非最终收盘口径）</b>'
       : '<b>📋 盘中增量回测</b> · <span style="color:' + R + '">已由 17:50 全量版接管（本视图为盘中历史临时视图，价格仍为盘中口径，最终以全量版为准）</span>';
     var rows = "";
     for (var j = 0; j < unique.length; j++) {
@@ -1697,16 +1737,16 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
     // flex-shrink:0 → 容器高度=内容高(60+ 行也不出内部滚动条), overflow-x:auto 保留窄屏横滚,
     // overflow-y 自然不滚(高度即内容, 无溢出)。窄屏横滚仍在容器内发生, 不撑破弹窗(M5 模式)。
     return '<div class="sim-table-wrap kelly-intraday-view" id="kelly-intraday-view">' +
-      '<div class="kelly-intraday-note' + (active ? ' kelly-intraday-note-active' : ' kelly-intraday-note-idle') + '">' + head + '</div>' +
+      '<div class="kelly-intraday-note' + (active ? ' kelly-intraday-note-active' : ' kelly-intraday-note-idle') + '">' + head + unpricedTxt + '</div>' +
       '<table class="sim-intraday-tbl"><thead><tr>' +
       '<th class="txt">信号日</th><th class="txt" title="指数(信号标的)">指数</th>' +
       '<th class="txt">信号</th><th class="txt">入账ETF</th>' +
-      '<th title="盘中价=信号日净值×今日真实开盘/信号日收盘">买入价(盘中)</th>' +
+      '<th title="盘中价=信号日净值×今日真实开盘/信号日收盘' + (nUnpriced > 0 ? '（' + nUnpriced + ' 只未定价标的未计入买价基准）' : '') + '">买入价(盘中)</th>' +
       '<th title="盘中实时市价(约10分钟跟随刷新), 持仓中未卖出">当前价(盘中)</th>' +
       '<th>收益率</th></tr></thead><tbody>' + rows + '</tbody></table>' +
       '<div class="kelly-intraday-foot">' +
       (active ? '⏰ 当前价/收益率盘中约10分钟跟随行情刷新；17:50 全量回测后前端自动以全量版为准, 本盘中视图降级为历史临时视图（价格可能随收盘口径跳变）。' : '') +
-      '定价口径与主档一致（信号次日开盘）, 仅价格源=今日真实开盘(akshare)。纯展示, 不构成投资建议。</div></div>';
+      '定价口径与主档一致（信号次日开盘）, 仅价格源=今日真实开盘(akshare)' + footCaveat + '。纯展示, 不构成投资建议。</div></div>';
   }
   // #90 任务③(2026-09-09): 盘中增量表 etf 代码点击 → 走势+买卖/强平 pin 弹窗。
   // 复用 lab.js _openEtfTrendPinModal(全局 async 函数), 事件源=当前过滤后行集 _lastUnique + 盘中产物 fields;

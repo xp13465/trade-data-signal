@@ -7326,6 +7326,11 @@ main { padding: 16px 24px; }
 .kelly-intraday-note-idle { background: #f7f7f7; border-color: #ddd; }
 [data-theme="dark"] .kelly-intraday-note-active, [data-theme="redgold"] .kelly-intraday-note-active { background: rgba(231,76,60,0.10); border-color: rgba(231,76,60,0.35); }
 [data-theme="dark"] .kelly-intraday-note-idle, [data-theme="redgold"] .kelly-intraday-note-idle { background: rgba(255,255,255,0.04); border-color: var(--border); }
+/* 未定价标的说明行(2026-10-12, meta.intraday.unpriced_codes 非空时渲染)。中性信息色, 不惊吓用户;
+   与上方 head 以虚线分隔; 仅非空时出现, 空/缺失=零渲染。字号 11px(移动端可读下限)。 */
+.kelly-intraday-unpriced { font-size: 11px; line-height: 1.5; color: #667; margin-top: 5px; padding-top: 5px; border-top: 1px dashed rgba(0,0,0,0.12); }
+.kelly-intraday-unpriced b { color: inherit; font-weight: 700; }
+[data-theme="dark"] .kelly-intraday-unpriced, [data-theme="redgold"] .kelly-intraday-unpriced { color: var(--text-3); border-top-color: var(--border); }
 .sim-intraday-tbl { width: 100%; border-collapse: collapse; font-size: 11px; white-space: nowrap; }
 .sim-intraday-tbl th, .sim-intraday-tbl td { padding: 4px 6px; border: 1px solid var(--border); text-align: right; overflow: hidden; text-overflow: ellipsis; }
 .sim-intraday-tbl th { position: sticky; top: 0; background: var(--bg-card); z-index: 1; color: var(--text-1); font-weight: 700; }
