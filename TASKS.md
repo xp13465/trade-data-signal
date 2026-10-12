@@ -8,7 +8,12 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-> 🧭 **本次会话状态(2026-10-10 01:3x 起 / 07:5x 补 #234 批3,主控)——接力先看这段**
+> 🧭 **本次会话状态(2026-10-12,主控)——接力先看这段**
+> **①改了哪些**:**#254 已上线** —— 盘中就绪闸 fail-closed 放宽(方案 A,三部分:后端 decider 放宽 + 前端「未定价」标注 + 公示措辞修正)。main `3bbabbb31`;CI 三 workflow(GitHub Pages / Cloudflare Workers / CI Quality Gate)全 success;三站版本串 `20261012-a645`(index 与 sw.js CACHE_VERSION 同源);云上已同步。
+> **②效果是什么**:盘中未定价标的处理放宽(方案 A 落地);**#251/#252 数据缺口回填在跑**(#251 公募 fund_daily_nav 10-08/10-09 全 NULL、#252 trades 断档 signal_date 落后)。
+> **③下一步**:夜间 **21:07** 排了两条已审分支合并 —— `feat/watchdog-lowkill-fix`(`9cbb9060a`)/ `feat/alert-denoise-batch3-20261011`(`f275698a1`);#251/#252 回填完成后核。
+> **状态**:在跑 = #251/#252 数据缺口回填 + 夜间两分支合并;本轮另做纯文档台账回填(pending-index 若干状态列对齐 + TASKS 侧指针订正),不改代码、不 bump 版本串。
+> 📜 **上一轮落档(2026-10-10 01:3x 起 / 07:5x 补 #234 批3,存档备查;其 ④下一步/状态 已被本轮取代)**
 > **①改了哪些**:告警系统性收敛**首批三波全线开动** —— ①**W1 = L1 度量层**:让「一天 0~3 条」从「拼 ≥5 个来源估算」变成**单一权威数字**(台账 `data/alerts/alert_ledger.jsonl` + 日计数 `alert_daily.json` + 查询面 `scripts/alert_meter.py` **强制跨两树聚合**防 §22 双数字),写点 = **3 个渠道函数** `send_feishu`/`send_telegram`/`_send_email`(出口穷举结论 = **非单点**),**已合 main `34c55ec19`(CI run 756 绿)** ②**W2 = 三态判据**(L3d Pattern B 3 处):治「`notify.py` CLI 13 分支恒 `return 0`、rc 无判别力」病灶,**定案走路线 B —— 不动冻结面**,只让判据读既有 stderr 输出(`notify_sent.py:notify_state` 三态),**已合 main `1d946f685`(CI run 757 绿)** ③**W3 = #241B 前端通知与邮件送达解耦**:**已合 main `66efa9fcb`(CI run 760 绿)**,独立审 **12 项必查全 PASS / 0 阻断**,订正 commit `97b5ca721`;**§0 云上核验 7/7 全 PASS**。三波独立审**全 PASS**(独立复跑 pytest + 重新推导数字 + 专核波间交互不撞)。**方案文档两处前提被独立调研证伪并已订正**:§2 写点由「通用汇总处」改为 **3 渠道函数**;§3 由「路线 A」改为**路线 B**。另:**#234-4 git gc 已执行**(pack 18→1、1.59→1.27 GiB;reflog/prune 均按 30 天保守口径,未为好看收紧),续记落 `docs/ops/disk-cleanup-executed-20261009.md` §八。
 > **②台账(本批登记)**:#242(W1 L1 度量层)= **已上线**;#243(W2 三态判据)= **已上线**(⚠️ 其 commit message 曾用**非台账的占位编号**;实物已逐条核过,**台账编号以 #243 为准**);#244(W3 解耦)= **已上线**;#245(W4+ 队列 L3c/L3e/L2/L5)= **批1 L3e + 批2 均已上线(批2 合 main `18149cd69`,CI run 787 绿 + §0 核验 PASS)**;#246(故障 B 治本:B4-1 兜底链 + B4-2 重试)= **已上线**(`5cb374934`,CI run 783 绿);#247(nextday_plan py/sh 双 key 统一,决策项 10,用户拍板「修吧」)= **已上线**(`023d73929`,CI run 790 绿;独立审九项全 PASS);#248(systemd unit 漂移仓库侧同步,10-11 深挖顺带坐实)= **已上线**(`f93de7713`,CI run 794 绿;独立审 7/7 PASS)。
 > **③效果是什么**:main = **`66efa9fcb`**(云上已同步);「一天几条」**首次有了可查的单一数字**(W1)、「rc 吓不出真伪」的判据病灶根治(W2,9 个既有调用方零回归)、**前端通知不再被邮件通道连坐**(W3 —— 邮件挂了前端照弹)。
@@ -198,7 +203,7 @@
 **最后更新**(2026-09-15 周一 16:1x):✅ **外审 review 门禁链路恢复并端到端验证通过**。背景:v1.1.17/v1.1.18 外审被跳过(门禁 retry 风暴 + claude 回传静默断链)。本轮 fix 全在 main(main==origin/main==`c457a8b09`):①`07de081ff` 外审模型钉深(deepseek-v4-pro-0813)+重试风暴根治 +`fc18cc3be` 终态 request 的 git ref 泄漏清理 ②`c7077c37f` **PIPE 满死锁根治**(spawn stdout/stderr=PIPE 却只在退出后排水,子进程写满 64KB 永久卡死→改文件重定向)③`6e2c9dc20` **claude 回传静默断链 P1**(is_already_processed 误短路 claude 队列,消费者永不 spawn→短路仅对 codex 队列)④`a56be8e04` plist 单一事实源归位 launchd/(删 scripts/ 重复 + 补齐 CLAUDE_BIN/CODEX_REVIEWER_MODEL/PYTHONUNBUFFERED)⑤`c457a8b09` claude 消费者预算 0.50→5.00(deepseek 下不够烧,exit=1)。**mini test(2 commit)全链路验证全绿**:watcher 接单→codex 外审(deepseek)→报告落盘→claude 回传 spawn→**claude 消费者回执 exit=0**→ref 清理;外审 FAIL 的 4 findings(P1/P2x2/P3)经 claude 消费者逐条复核已全部修复。
 **✅ codex 缓存命中修复(2026-09-15 实测)**:根因=非默认 `disable_response_storage=true`(关服务器 response storage,炸掉 Responses API 多轮前缀缓存);改回默认 `false` 后同 2-commit 外审 token **143,207→97,995(−32%)**、无接口报错、verdict/回传/ref 链路正常,已保留(bak: `~/.codex/config.toml.bak-cachetest-20260915-162351`)。进一步候选(未做):codex base_url 改走 thinking_proxy 127.0.0.1:8899 借 cache_control,可能再提命中,但需验 bailian 兼容性。
 **前序**(2026-09-12,详见 docs/archive/TASKS-handoff-20260912.md):✅ 8 项 reviewer 非阻断小项打包上线(main-merge 20260912-a585)+README 角标 2.5 语义同步 + #91 次日开盘口径核销。
-**待办指针**:#108 四档升级判定源 hs300→cyb 待拍板;#174/#175 + 模块十九登记项(rzhb_backfill 登记漂移 / notify.py --dry-run 写 latest.md 瑕疵 / 架构改造 A-B 档 待事实核查)均见 docs/pending-features-index.md 模块十九(2026-10-05);v1.1.16..v1.1.18 外审补审(263 commits)待定预算/范围;codex 缓存命中优化(上);`feat/lof-path-absolute-align` 分支 ahead of origin by 2(重复 commit)待 main-merge 收尾。
+**待办指针**:#108 四档升级判定源 hs300→cyb **已拍板不动(2026-09-17 用户:先不动,留历史对照)**,见 pending-index #108;#174/#175 + 模块十九登记项(rzhb_backfill 登记漂移 / notify.py --dry-run 写 latest.md 瑕疵 **✅ 已闭环(#184 合 main `f06ef83be`,2026-10-07)** / 架构改造 A-B 档 待事实核查)均见 docs/pending-features-index.md 模块十九(2026-10-05);v1.1.16..v1.1.18 外审补审(263 commits)待定预算/范围;codex 缓存命中优化(上);`feat/lof-path-absolute-align` 分支 ahead of origin by 2(重复 commit)待 main-merge 收尾。
 
 ## 📋 待办（2026-08-20 治理后:全移 todolist,本文件无活跃 checkbox）
 
