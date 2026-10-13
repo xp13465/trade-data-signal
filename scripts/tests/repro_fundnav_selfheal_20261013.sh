@@ -24,6 +24,7 @@ REAL_REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 SB="${SANDBOX:-$(mktemp -d -t fundnav-selfheal)}"
 mkdir -p "$SB"
 LOG="$SB/repro.log"
+KEEP="${KEEP:-0}"                          # 默认不保留沙箱(set -u 下必须有默认值, 否则 L186 裸跑即 unbound 报错)
 FAILED=0
 
 # venv 定位: worktree 内无 .venv(untracked 不进 worktree) -> 走主仓库(主 .git 所在树)的 venv。
