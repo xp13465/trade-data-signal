@@ -9640,12 +9640,14 @@ const _resultCache = new Map(); // url -> { data, ts }
 const _NO_CACHE_URLS = /(?:^|\/)(?:boot|overview|intraday_snapshot|metrics|notifications|daily_brief(?:_history)?|public_fund_\w+|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
 // codex-001 medium: R2 直链数据文件跳过通用 _resultCache——payload 由调用方先验后存
 // 自己的 per-code/per-item 缓存(如 _fundNavCache), 通用层不缓存=坏 payload 不被 5 分钟复用。
-// codex-004 P2 收窄: 只保留两类真实需要的前缀——①fund_nav(_validFundNavPayload 先验+
-// per-code 缓存, 坏 payload 不得进通用层)②etf/{code}-all(弹窗长历史走势源, 与 index-all
-// 同性质需与首页信号 pin 实时对齐)。其余 R2 前缀(public_fund/industry/lab/index-all 等)
+// codex-004 P2 收窄: 只保留两类真实需要的前缀——①nav_bucket(净值桶 payload 由
+// _validFundNavPayload 先验 + _fundNavCache 缓存, 坏 payload 不得进通用层)②etf/{code}-all
+// (弹窗长历史走势源, 与 index-all 同性质需与首页信号 pin 实时对齐)。其余 R2 前缀
+// (public_fund/industry/lab/index-all 等)
 // 为盘后聚合产物且无坏 payload 风险, 恢复通用 5min 结果缓存(切 tab/重开不再重复拉大 JSON)。
 // 注: /r2/index/{id}-all 另被 _NO_CACHE_URLS 的 index\/[^/]+-all 分支排除, 不受本正则影响。
-const _NO_R2_CACHE_URLS = /\/r2\/(?:fund_nav|nav_bucket|etf)\//;
+// D2 2026-10-13: 旧 fund_nav/ per-code 前缀已下线(前端不再拉取), 从本正则剔除。
+const _NO_R2_CACHE_URLS = /\/r2\/(?:nav_bucket|etf)\//;
 const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // R2 大range 路由（2026-07-24）：all/5y/3y 从 R2 读（减 git 仓库 ~60M），小 range（3m/6m/1y）留本地减延迟。
 // fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全部跳 .gz，根治 CF .gz 4h edge 缓存滞后）。
@@ -27767,8 +27769,9 @@ function _fundScoreRadarSVG(e) {
 // - 数据源 R2 nav_bucket/{xx}.json(桶=256, 桶内 {code: payload} map, 点开才拉该桶);
 //   桶名 = FNV-1a hash(code) 末 8bit(00-ff), **必须与 scripts/export_fund_nav.py
 //   `_fund_bucket` 同构**(第二份实现防漂移 §5.4⑦); 校验同端自测对账。
-// - 桶缺失/桶内无该 code -> 回退旧 per-code R2 fund_nav/{code}.json(过渡期旧 per-code
-//   保留在 R2 不删, 兜底旧缓存前端与桶数据滞后场景, §24 防撕裂)
+// - 桶缺失/桶内无该 code -> 结构校验失败统一走外层 catch 错误框(不崩溃, 评分/凯利等
+//   区块不受影响); D2 2026-10-13: 旧 per-code R2 fund_nav/{code}.json 回退双读已下线
+//   (数据层 2026-10-11 已清, 回退恒 404 属死路径)
 // - 单位净值映射为伪 OHLC [date,v,v,v,v] 复用 _etfTrendLiteHTML/_etfTrendLiteBind
 //   (valueLabel=单位净值/valueDecimals=4; 两 helper 缺省「收盘」+3 位, ETF 行为零变化 §23.7)
 // - 缓存: 模块级 per-bucket 整桶 map(弹窗关开/切周期不重复拉桶) + per-code payload
@@ -27828,19 +27831,16 @@ async function _renderFundNavSection(modal, code, period) {
           // 同桶多只基金共享一次桶拉取; 首屏零全拉, 懒加载语义不退化 §24)
           bucketMap = await fetchJSON(`https://ss.fx8.store/r2/nav_bucket/${bucket}.json`);
         } catch (_bucketErr) {
-          // 桶拉取失败(404/网络/超时) -> 降级 null, 走下方 per-code 回退(fetchJSON 对 !ok 抛错,
-          // 桶 404 绝不能直接跳外层 catch 丢弃回退机会; 过渡期旧 per-code 保留在 R2 就是为此)
+          // 桶拉取失败(404/网络/超时) -> 降级 null(fetchJSON 对 !ok 抛错), 由下方结构校验
+          // 失败分支统一走外层 catch 错误框(不崩溃; D2 2026-10-13 已下线 per-code 回退)
           bucketMap = null;
         }
         _fundNavBucketCache[bucket] = bucketMap; // 桶缓存: 弹窗关开/同桶后续基金零网络
       }
       hist = (bucketMap && bucketMap[code]) || null;
-      // 桶内无该 code(新基金/桶滞后) -> 回退旧 per-code(过渡期 R2 旧文件保留)
-      if (!_validFundNavPayload(code, hist)) {
-        hist = await fetchJSON(`https://ss.fx8.store/r2/fund_nav/${code}.json`);
-      }
-      // codex-001 medium: 先验后存——结构验证不通过不写 per-code 缓存, 走失败分支
-      // 可重试(通用 _resultCache 已对该 URL 前缀跳过写入, 见 fetchJSON _NO_R2_CACHE_URLS)
+      // codex-001 medium: 先验后存——结构验证不通过(桶缺失/桶内无该 code/坏 payload)不写
+      // per-code 缓存, 抛错走外层 catch 错误框可重试(通用 _resultCache 已对该桶 URL 前缀
+      // 跳过写入, 见 fetchJSON _NO_R2_CACHE_URLS; D2 2026-10-13 已下线旧 per-code 回退)
       if (!_validFundNavPayload(code, hist)) {
         throw new Error("净值 payload 结构校验失败(code/date/nav 形状不符)");
       }
@@ -27946,8 +27946,8 @@ function openFundScoreDetailModal(code) {
       </div>`;
     // #11 净值走势(2026-08-25): period tab 切换(UI/交互 pattern 复刻 openEtfScoreDetailModal
     // #10 模式: .signal-chart-periods + .lab-signal-period-btn + modal._ctx 重入)。
-    // 全部周期都从 R2 nav_bucket/{xx}.json 桶懒加载(2026-09-23 桶化; 桶缺失回退旧
-    // fund_nav/{code}.json per-code, 过渡期双读), 点开才拉。
+    // 全部周期都从 R2 nav_bucket/{xx}.json 桶懒加载(2026-09-23 桶化; D2 2026-10-13 已下线
+    // 旧 fund_nav/{code}.json per-code 回退双读), 点开才拉。
     modal.querySelectorAll(".lab-signal-period-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         modal.querySelectorAll(".lab-signal-period-btn").forEach((b) => b.classList.remove("active"));
