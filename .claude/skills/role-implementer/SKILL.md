@@ -73,6 +73,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - ⚠️ **agent 推理"X 文件在 Y commit 里"前先核对**:用 `git show --stat <commit>` 或 `git log -- <file>` 确认文件实际是否在 commit 里、是哪个时点版本,不靠"Y commit 是 Z 时点跑的所以含 Z 时点数据"推理
 - ⚠️ **"功能 done"三查清单(唯一权威,2026-08-11 AI 预测前端漏上线教训补)**:验收"已上线/done"必须三查齐:①main 链含 commit(git log origin/main 含 hash)②数据层生效(curl 线上 JSON 字段有值/无旧字段残留)③**前端展示层上线(curl 线上 app.min.js/lab.js 含新功能 class/中文字符串)**。只验①②不验③=前端代码写了但从未 commit main+上线,用户看不到。**reviewer 验本地 min ≠ 前端上线**,reviewer PASS 后主控 §0 必须补验③
 - ⚠️ 交易日盘中(09:30-15:30)不跑全量 export + deploy(全量 export+deploy 限定交易日 15:35 后;周末/节假日休市例外可随时跑)。盘中 intraday-snapshot 走 R2 不推 main
+- ⚠️ **应急止血也一样守时点,不豁免(2026-10-13)**:线上坏了要"马上重出数据/重跑 export/deploy"**不是**豁免理由——动手前先核当前时点 + 当时并发定时任务,**挪窗口外 > 报主控/用户拍板 > 直接跑**;确需盘中执行必须拿到明确点头 + 事后留痕(起止/重叠对象与时长/实际影响证据)。**改 deploy 链做治本时必须把时点约束内建进设计**(窗口门 + 硬超时上限 + 避开既有任务时点),不靠"跑的时候记得看表"。详见 CLAUDE.md §14、memory `emergency-heal-respect-schedule-window`
 
 ### 3.1 R2 存储架构准则(原 §8.1,按数据类别不按大小)
 - **R2 是存储架构的结构决策,不按单文件大小临时判断**。新数据类别从第一天就走 R2 架构(upload_r2 清单+前端 dataUrl R2 fallback),不等变大才补

@@ -158,6 +158,7 @@
 - **核心一句话:生产稳定性是 P0 第一要素**。项目已上线生产(ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2),定时任务撞车会导致线上数据覆盖事故/DB锁/用户看到错误数据,是不可逆生产故障
 - **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查定时任务清单**——**生产定时任务全在云上 systemd timer(ssh 云上 `systemctl list-timers`;云上 `/etc/systemd/system/*.timer` 单元文件手动管理,git pull 不更新),本机 mac 纯开发不跑定时任务(launchd 已废弃,查 `launchctl` 是错的,详见 memory `local-dev-cloud-prod-split`)**。列当日盘后任务时点确认不撞,并主动给用户时点建议
 - **盘后定时任务时点(15:35/16:00/17:50/20:35/22:00)不推 main 不写 public_fund.db**;**交易日盘中(09:30-15:30)不跑全量 export+deploy**(§8 已有,休市可随时跑);**安全窗口 23:00 后**无推 main/评分/采集任务
+- **应急止血同样守时点,不豁免(2026-10-13 用户追认)**:"线上坏了、要马上重出数据/重跑 export"**不是** §14 的豁免理由——动手前先核**当前时点 + 当时并发定时任务**,能挪到窗口外就挪;确需盘中执行,先报用户拍板 + 事后如实留痕(现象/重叠时长/实际影响)。案例:10-13 治 `nav_bucket` 陈旧的全量重出落**盘中 13:33–13:36**,与 `trade-intraday-snapshot` 真重叠 ~1.2min(写目标不同 ⇒ 零实际伤害,但属踩线,用户追认);同日治本(`deploy.sh` 自愈分支)设计上就**主动避开 17:50/18:10/18:30**(硬上限 900s)。详见 memory `emergency-heal-respect-schedule-window`
 - **push main 要避开**盘后定时任务时点(尤其 17:50 update_all deploy.sh 推 main non-ff 竞争;盘中 push 代码不避 intraday——R2 迁移后 intraday 走 R2 不推 main)。main-merge.sh 内含 §14 安全窗口检查,盘后时点自动拒绝;agent 只 push feat 不 push main(机制 D)
 
 ## 21. 算法改动同步公示(指针,全文在 .claude/skills/role-implementer §2)
