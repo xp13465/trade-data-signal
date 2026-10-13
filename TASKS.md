@@ -8,7 +8,12 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-> 🧭 **本次会话状态(2026-10-13 下午,主控)——接力先看这段**
+> 🧭 **本次会话状态(2026-10-14 早,主控)——接力先看这段**
+> **①改了哪些**:①**#256 前提证伪、台账已撤销** —— 全史穷举扫描(1590 交易日)**100% 与 ≥95% NULL 日均为 0 个**;`2026-09-11` 云库 `26120 行 / NULL 仅 55`;**根因 = 原发现误用「本机 mac 库(陈旧镜像)」当生产事实证据**(本机该日仅 24015 行)⇒ 教训落 memory `prod-fact-must-use-cloud-authoritative-db` + 索引行。②**#254 遗留闭环** —— 10-13 09:40 盘中档首跑 **PASS**(rc=0 / `verdict=tolerate tier=silent` / **误拦无 · 漏拦无 · 豁免 0**)⇒ **不需要执行 confirm**;`rerun_date` 已由 `20261008` 前进到 `20261012`。③**两个锚点 PASS** —— 10-13 16:30 公募槽后 DB 24241 行 / 非空 22106(**无全 NULL 日**,#251 首验);10-14 02:00 a_fund 槽 **0 条「重采失败」**(修复后首验)。
+> **②在跑 / 待触发**:researcher **只读分流夜间 6 条 critical + 1 条静默盲区**(S06 快照 rc=124 / failed unit 连续 7 天 / turnover r2=124(疑 #176)/ **trades 停 `20261009`、13 信号无交易** / R2 上传被看门狗超时 kill / **`fund_index_daily` 停 `20260929` 且零告警覆盖**),巡检兜底 cron `57b1381b` 在位;另一次性 cron `4cc66fce` 定 **08:43** 核**伪跳空 patrol**(#a9934436c 治本后首次自然实跑)。
+> **③下一步**:分流结论回来 ⇒ 判为真故障的派 implementer **治本修**(不逐文件打补丁);静默盲区(`fund_index_daily` 停更 + 无告警)是否补数据/补告警**等用户拍板**。
+> **状态**:main → `21d840820`(上一批:应急纪律 + 复核台账,CI 全 success);本批台账本次提交。**#256 已撤销**,不再有回填待办。
+> 📜 **上一轮落档(2026-10-13 下午「nav_bucket 陈旧止血 + 治本 + D2 收口」)**
 > **①改了哪些**:下午 **2 次 push main,全 CI success**(main `a9934436c` → `918456b05` → **`784f7d18e`**)。①`feat/deploy-fundnav-selfheal` → `918456b05`(**#255 生产 `nav_bucket` 陈旧(88.36%)堵死 deploy 闸的治本**:新增 `scripts/fund_nav_selfheal.sh` + `deploy.sh:327-350` 接入 + `check_data_integrity.py` **第三口径**治「同源假绿」;reviewer 9 项 **8 PASS / 0 FAIL**,F1 `$KEEP` unbound 已修)②`feat/d2-fundnav-fallback-removal` → `784f7d18e`(**D2 前端下线 `fund_nav` per-code 回退双读**,收口 **#111**;机制 C 统一 bump ⇒ 版本串 `20261013-a646`;reviewer 8/8 PASS)。**同日 A 止血**(无 commit,云上数据操作):全量重出 `nav_bucket` + R2 重传,stale **88.36% → 0**,`check_data_integrity --deploy-mode` **rc=0**,线上桶 `2e`/`001037` date `20260930` → **`20261012`**。
 > **②效果是什么**:「生产 deploy 被 fund_nav 陈旧闸堵死(10-13 **零次成功部署**)」解除,且**下次 DB 领先产物时可自愈**;前端已死的 per-code 回退路径彻底清掉(线上 min 旧串 **0** 次)。**已独立复核**:A 由 tester 复验(尺子 red 先验 `23554/26657=88.36%` 逐位吻合;**闸门计数订正**为 **41 ok / 1 warn / 0 fail** —— 实施者报的 38/4 含 3 条缺 `REPO` env 的假 warn),C / D2 各由 reviewer 独立审 PASS。
 > **③观察锚点**:①**17:50 链已复核 = 5/5 PASS(10-13 晚,tester 只读独立核)** —— 链未被终止;**自愈已在真实生产救活 1 次 deploy**(16:44 `rc=3 DB 领先 23/23` → 106s 重出 → HEAL_RC=0 → 校验通过);双树 256 桶汇聚 md5 全等 `ed391c0a…`;线上桶 md5 与云上刚重出产物一致(date 合法前进到 `20261013`);**未实测**项 = 反向拒自愈 / 17:25–18:35 窗口外跳过(今日无真实样本,仅源码语义)。②今晚 **16:30** 公募采集槽 → 应无全 NULL 日(#251)③明早 **08:27** 伪跳空 patrol → 应不再报 exit=2 ④**02:00** a_fund 槽 → 0 条「重采失败」。
