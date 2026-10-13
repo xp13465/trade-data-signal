@@ -323,6 +323,32 @@ cp -R "$GIT_REPO/docs/kelly/position/scripts/accum_nav" "$REPO/static-site/data/
 echo "-> 运行 check_data_integrity.py 数据产物校验 ..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/check_data_integrity.py" --deploy-mode --data-dir "$REPO/static-site/data" 2>&1 | tee -a "$LOG"
 CHECK_RC=${PIPESTATUS[0]}
+
+# 1.0.9 fund_nav 自愈(2026-10-13, docs/ops/deploy-fundnav-selfheal-20261013.md):
+# 病灶 = nav_bucket 产物一天只在 17:50 update_all 重出一次, 其余链只过闸不重出 ⇒ DB 被改新
+# (当日采集写库/手工修复)后到次日 17:50 之间每个 deploy 的 fund_nav 校验必 FAIL ⇒ 全站部署被
+# 终止 + severe 告警(10-12 22:41 → 10-13 17:50 窗口约 19h)。
+# 自愈 = 校验失败后先判方向(探针只认「DB 领先产物」; 反方向=DB 破损, 重出会以坏覆盖好, 绝不自愈)
+# ⇒ 命中则重出 nav_bucket(with_lock 互斥 + 超时 900s + 最多 1 次) 再重跑校验。
+# **不放宽阻断语义**: 重跑仍 FAIL 照旧走下方原终止+告警(用户拍板保留 fund_nav FAIL 阻断全站)。
+# 临近 17:50 update_all 窗口(17:25-18:35)跳过自愈(§14 避撞, 只告警)。逻辑全在 fund_nav_selfheal.sh。
+if [ "$CHECK_RC" -ne 0 ]; then
+  echo "-> fund_nav 自愈前置检查(scripts/fund_nav_selfheal.sh)..." | tee -a "$LOG"
+  REPO="$REPO" GIT_REPO="$GIT_REPO" bash "$REPO/scripts/fund_nav_selfheal.sh" 2>&1 | tee -a "$LOG"
+  HEAL_RC=${PIPESTATUS[0]}
+  case "$HEAL_RC" in
+    0)
+      echo "→ fund_nav 自愈已重出产物, 重跑数据产物校验 ..." | tee -a "$LOG"
+      "$PY" "$REPO/scripts/check_data_integrity.py" --deploy-mode --data-dir "$REPO/static-site/data" 2>&1 | tee -a "$LOG"
+      CHECK_RC=${PIPESTATUS[0]}
+      ;;
+    10) echo "→ fund_nav 自愈未命中(非「DB 领先产物」方向), 走原终止逻辑" | tee -a "$LOG" ;;
+    11) echo "⚠ fund_nav 自愈跳过(临近 17:50 update_all 窗口, §14 避撞), 只告警" | tee -a "$LOG" ;;
+    13) echo "→ fund_nav 自愈 dry-run(未执行重出), 走原终止逻辑" | tee -a "$LOG" ;;
+    *)  echo "⚠ fund_nav 自愈失败/超时(rc=$HEAL_RC, 上界=1 次不重试), 走原终止逻辑" | tee -a "$LOG" ;;
+  esac
+fi
+
 if [ "$CHECK_RC" -ne 0 ]; then
   echo "✗ 数据产物校验失败(退出码 $CHECK_RC)，终止部署（4 类事故拦截）" | tee -a "$LOG"
   # export-guard L4 (2026-10-03): 校验失败升级 --severe 告警(事故 5 次 deploy 失败无人知)。

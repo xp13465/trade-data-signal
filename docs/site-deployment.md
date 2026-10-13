@@ -956,6 +956,7 @@ deploy.sh 每次 deploy 后自动备份（best-effort，失败不阻塞 deploy�
 |---|---|---|
 | build_board_etf_map.py 失败阻断 | akshare 反爬/网络 | 14 宽基校验未过，检查 akshare 连通性 |
 | check_data_integrity.py 阻断 | 数据产物异常（空 map/爆炸值/丢失） | 检查 export.py 输出，修复数据源 |
+| fund_nav 一项阻断（DB 领先产物） | nav_bucket 一天只在 17:50 重出，DB 被改新后产物未跟上 | **已自愈**：deploy 会先跑 `scripts/fund_nav_selfheal.sh` 重出 nav_bucket 再复查；仍 FAIL 才终止。排障/回退见 `docs/ops/deploy-fundnav-selfheal-20261013.md`（止血开关 `FUNDNAV_SELFHEAL_DISABLE=1`）；根因见 `docs/ops/stale-navbucket-rootcause-20261013.md` |
 | rebase 失败 | 工作区有 unmerged 文件 | deploy.sh 自动清理数据文件 unmerged；代码文件 unmerged 需手动解决 |
 | rsync 不同步 | trade-data/static-site/data/ ≠ trade/static-site/data/ | export 后手动 rsync 或确认 deploy.sh rsync 步骤执行 |
 

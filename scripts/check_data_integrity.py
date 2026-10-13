@@ -1199,6 +1199,149 @@ def _find_public_fund_db() -> Path | None:
     return None
 
 
+def _sample_fund_nav_mismatches(nav_dir: Path, db: Path, sample_n: int) -> list[tuple[str, list, list]]:
+    """nav_bucket 抽样 vs DB 逐位比对（**同源单实现**，check_fund_nav 第4层 + --fundnav-stale-probe 共用）。
+
+    每桶随机取 1 只，DB 取该 code 最新 3 个 unit_nav 非空点（日期降序），产物取尾部 3 点（降序），
+    逐位比对 [date, unit_nav, acc_nav]。返回 [(code, got, exp)]（不一致项；空 = 全一致）。
+
+    抽到实现单点化的原因（§5.4⑦ 防「第二份实现」漂移）：deploy 自愈（C1，2026-10-13）需要问
+    「是否 DB 领先产物」，若另写一份比对，前端/校验/自愈三处口径迟早漂移。比对口径只此一处。
+    """
+    import random
+
+    files = sorted(nav_dir.glob("*.json"))
+    if not files:
+        return []
+    sample = random.sample(files, min(sample_n, len(files)))
+    mismatches: list[tuple[str, list, list]] = []
+    conn = sqlite3.connect(str(db), timeout=5.0)
+    try:
+        for f in sample:
+            d, err = _load_json(f)
+            if err or not isinstance(d, dict) or not d:
+                continue
+            code = random.choice(sorted(d.keys()))
+            payload = d[code]
+            if not isinstance(payload, dict):
+                continue
+            rows = conn.execute(
+                "SELECT date, unit_nav, acc_nav FROM fund_daily_nav "
+                "WHERE fund_code=? AND unit_nav IS NOT NULL ORDER BY date DESC LIMIT 3",
+                (code,),
+            ).fetchall()
+            got = [(r[0], r[1], r[2]) for r in rows]
+            exp = [(r[0], r[1], r[2]) for r in list(reversed(payload.get("nav", [])))[:3]]
+            if got != exp:
+                mismatches.append((code, got, exp))
+    finally:
+        conn.close()
+    return mismatches
+
+
+# ── fund_nav 第三口径阈值（C2，2026-10-13；治「DB 自身破损 ⇒ 同源比对假绿」）──────────────
+# 病灶：原 check_fund_nav 的 DB↔产物比对是**同源比对** —— DB 某交易日整列 unit_nav 全 NULL 时，
+# 产物按同一破损 DB 重出 ⇒ 两侧同值 ⇒ 判 PASS（假绿）。10-08/09/12 三日全 NULL 那晚即如此：
+# 产物最新日停在 09-30，校验却 PASS（check_data_gap[severe] 当晚抓到了 DB 破损，但校验没联动）。
+FUND_NAV_DBDAY_WINDOW_DAYS = 30   # 只扫最近 30 自然日（≈最近 20 交易日，长假也够；PK(date,fund_code)
+                                  # 使 WHERE date>=? 走范围扫描，实测云上量级 ~1s，不拖 deploy）
+FUND_NAV_DBDAY_MIN_ROWS = 1000    # 「显著交易日」行数下限：整日写入 ~24000 行，阈值取 1000 留两个数量级
+                                  # 余量 —— 只写了几只新基金的零星行（本来就无数据的新基金）不参与判定，
+                                  # 保住真故障判别维度（不把「新基金无数据」误判成缺口）
+FUND_NAV_DBDAY_RECENT_N = 3       # 参与判定的最近 N 个显著交易日
+
+
+def _fund_nav_db_day_coverage(db: Path) -> tuple[str | None, str | None]:
+    """源 DB 逐日 unit_nav 非空覆盖率（第三口径）。返回 (fail_msg, warn_msg)，都 None = 正常。
+
+    判定（阈值/依据见上方常量注释）：
+      · 最新显著交易日 unit_nav 非空数 == 0 → FAIL（正是「假绿」时点：DB 最新有效日回退到更早，
+        产物按同源重出也停在更早 ⇒ 同源比对永远 PASS；且重出无法自愈，必须阻断+人工修源）；
+      · 最近 N 个显著交易日均全 NULL → FAIL（总停摆，上一条已覆盖，文案补明）；
+      · 更早的（非最新）显著交易日全 NULL → WARN 不阻断（历史空洞由 check_data_gap[severe] 管；
+        若并入 FAIL，遇不可恢复的历史空洞会永久阻断全站 deploy —— 与「不再频繁触发」相悖）。
+
+    只查 unit_nav **不查 acc_nav**：10-08 acc_nav 全 NULL 属「无来源可补」的已知残留，
+    纳入判定等于永久阻断 deploy（诚实标注：acc 维度仍是盲区，登记见实施报告遗留项）。
+    """
+    window_start = (datetime.now() - timedelta(days=FUND_NAV_DBDAY_WINDOW_DAYS)).strftime("%Y%m%d")
+    try:
+        conn = sqlite3.connect(str(db), timeout=5.0)
+        try:
+            rows = conn.execute(
+                "SELECT date, COUNT(*) AS n, "
+                "SUM(CASE WHEN unit_nav IS NOT NULL THEN 1 ELSE 0 END) AS nn "
+                "FROM fund_daily_nav WHERE date >= ? AND date != '' "
+                "GROUP BY date HAVING COUNT(*) >= ? ORDER BY date DESC LIMIT ?",
+                (window_start, FUND_NAV_DBDAY_MIN_ROWS, FUND_NAV_DBDAY_RECENT_N),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        return (None, f"第三口径读库失败(db={db}): {e}（DB 破损判定跳过，请人工核对）")
+
+    if not rows:
+        return (None, None)  # 窗口内无显著交易日（长假/空库），不判
+    latest_date, latest_n, latest_nn = rows[0]
+    if latest_nn == 0:
+        all_bad = all(r[2] == 0 for r in rows)
+        detail = (f"（最近 {len(rows)} 个显著交易日均全 NULL，采集总停摆）" if all_bad else "")
+        return (
+            f"最近显著交易日 {latest_date} unit_nav 全为 NULL({latest_n} 行/非空 0){detail}"
+            f" —— 源 DB 整日破损(采集/上游未发布整列), 产物同源重出无法自愈; 第三口径治假绿(2026-10-13)",
+            None,
+        )
+    broken = [(d, n) for (d, n, nn) in rows[1:] if nn == 0]
+    if broken:
+        return (
+            None,
+            f"近邻显著交易日 {'/'.join(d for d, _ in broken)} unit_nav 全为 NULL(非最新日, 记 WARN 不阻断; "
+            f"历史空洞由 check_data_gap[severe] 管)",
+        )
+    return (None, None)
+
+
+def probe_fund_nav_db_ahead(data_dir: Path) -> tuple[int, str]:
+    """探测 nav_bucket 是否「DB 领先产物」（deploy 自愈 C1 用，2026-10-13）。返回 (exit_code, 原因)。
+
+    背景（根因见 docs/ops/stale-navbucket-rootcause-20261013.md）：nav_bucket 产物一天只在
+    17:50 update_all 重出一次，其余链（16:30/17:00/21:00/02:00/05:00…）只过闸不重出 ⇒ 一旦 DB
+    被改新（当日采集写库 / 手工修复）而产物未重出，到次日 17:50 之间**每个** deploy 的 fund_nav
+    校验必 FAIL ⇒ 全站部署被终止 + severe 告警（10-12 22:41 → 10-13 17:50 长达约 19h。）
+
+    退出码：3 = 检测到 DB 领先产物（可自愈：产物是用「更全的 DB」重建，数据只增不减）；
+            0 = 未检测到 / 无法判定（产物缺失、DB 找不到、抽样查询失败）。
+
+    **只认「DB 领先」方向，绝不认「DB 落后」**：反方向（产物比 DB 新，例如 DB 被损坏/回退）重出
+    等于「用坏数据覆盖好数据」，会把真故障洗成 PASS —— 那是掩盖而非自愈，必须照旧 FAIL 阻断。
+    比对口径与 check_fund_nav 第4层完全同源（共用 _sample_fund_nav_mismatches）。
+    """
+    nav_dir = data_dir / "nav_bucket"
+    if not nav_dir.is_dir() or not any(nav_dir.glob("*.json")):
+        return 0, "nav_bucket 产物缺失, 不判 DB 领先(交校验本体处理)"
+    db = _find_public_fund_db()
+    if db is None:
+        return 0, "未找到 public_fund.db, 无法判定"
+    try:
+        sample_n = max(5, int(os.environ.get("FUND_NAV_SAMPLE_N", "30")))
+    except ValueError:
+        sample_n = 30
+    try:
+        pairs = _sample_fund_nav_mismatches(nav_dir, db, sample_n)
+    except sqlite3.Error as e:
+        return 0, f"抽样查询失败(db={db}): {e}"
+    ahead = [
+        (code, str(got[0][0]), str(exp[0][0]) if exp else "")
+        for code, got, exp in pairs
+        if got and (not exp or str(got[0][0]) > str(exp[0][0]))
+    ]
+    if ahead:
+        c, gd, ed = ahead[0]
+        return 3, (f"命中 DB 领先产物: {len(ahead)}/{len(pairs)} 抽样不一致且方向为 DB 领先"
+                   f"(如 {c}: DB={gd} vs 产物={ed or '空'}), 可自愈重出")
+    return 0, f"未命中 DB 领先产物(抽样 {len(pairs)} 只, 不一致 {len(pairs)} 只且方向非 DB 领先)"
+
+
 def check_fund_nav(data_dir: Path) -> CheckResult:
     """校验 nav_bucket/ 桶化全史净值产物目录（#11，export_fund_nav.py 生成）。
 
@@ -1212,7 +1355,10 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
       3) 覆盖率: 桶内 code 并集 vs DB distinct fund_code
          （常规 <90% FAIL / <95% WARN; deploy 模式收紧到 <98% FAIL——deploy 是最后闸门）;
       4) 抽样最多 N 只 DB<->产物逐位一致（最新 3 个有效净值点 date/unit_nav/acc_nav 全等；
-         空数据基金两侧均为空序列, 天然一致）。
+         空数据基金两侧均为空序列, 天然一致）；
+      5) **第三口径（2026-10-13 治假绿）**：源 DB 逐日 unit_nav 非空覆盖率 —— 第 4 层是**同源比对**，
+         DB 自身整日全 NULL 时两侧同值 ⇒ 假绿（10-08/09/12 三日全 NULL 那晚即如此）；本层直接看
+         DB 的「最新显著交易日」是否整列无值（判据/阈值见 _fund_nav_db_day_coverage）。
     """
     import random
 
@@ -1350,6 +1496,7 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
     # 覆盖率: 桶内 code 并集 vs DB distinct fund_code
     db = _find_public_fund_db()
     db_codes = None
+    _dbday_warn = None   # 第三口径(below)的 WARN 文案; 提前初始化防 db 缺失分支 NameError
     conn = None
     if db:
         try:
@@ -1395,61 +1542,54 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
             return _warn(name, bad[0])
 
         # DB<->产物逐位一致抽验: 每只取 DB 最新 3 个有效净值点与产物尾部全等比对
-        conn = sqlite3.connect(str(db), timeout=5.0)
+        # ── 第三口径(2026-10-13 治假绿): 先判源 DB 自身是否整日破损 ──
+        # 必须在同源比对**之前**: DB 整日全 NULL 时同源比对必然 PASS(假绿), 若不先判会把
+        # 「DB 破损」报成 OK。D 层用的是 db 句柄(见上方覆盖率块已确认 db 存在)。
+        _dbday_fail, _dbday_warn = _fund_nav_db_day_coverage(db)
+        if _dbday_fail:
+            return _fail(name, _dbday_fail)
+
         try:
-            mismatch = []
+            pairs = _sample_fund_nav_mismatches(nav_dir, db, sample_n)
+        except sqlite3.Error as e:
+            return _fail(name, f"读 public_fund.db 失败(db={db}): {e}")
 
-            def _dir_note(g0, e0) -> str:
-                """方向注记(2026-08-27 文案修): got/exp 均按日期降序, [0]=最新一条。
+        def _dir_note(g0, e0) -> str:
+            """方向注记(2026-08-27 文案修): got/exp 均按日期降序, [0]=最新一条。
 
-                旧文案打 got[-1]/exp[-1](尾3 中最旧一条), 观感像"DB 缺一天", 而真实多数
-                场景是"DB 多了新净值、产物待重出"(fund_nav 时序倒挂; 根治见 update_all.sh
-                先 export 再过闸)。此处取两侧最新一条 + 按最新日期差自动标注方向与天数,
-                并打印完整尾3 序列便于逐位核对。日期格式=DB/产物一致的 YYYYMMDD text。
-                """
-                try:
-                    g = datetime.strptime(str(g0), "%Y%m%d").date()
-                    e = datetime.strptime(str(e0), "%Y%m%d").date()
-                except (ValueError, TypeError):
-                    return "方向未知: 最新日期无法解析(人工核对)"
-                gap = (g - e).days
-                if gap > 0:
-                    return f"DB 领先产物 {gap} 天(新净值已入库, 产物待重出)"
-                if gap < 0:
-                    return f"DB 落后产物 {abs(gap)} 天(数据缺失)"
-                return "最新日期相同但数值不一致(疑似净值修正)"
+            旧文案打 got[-1]/exp[-1](尾3 中最旧一条), 观感像"DB 缺一天", 而真实多数
+            场景是"DB 多了新净值、产物待重出"(fund_nav 时序倒挂; 根治见 update_all.sh
+            先 export 再过闸)。此处取两侧最新一条 + 按最新日期差自动标注方向与天数,
+            并打印完整尾3 序列便于逐位核对。日期格式=DB/产物一致的 YYYYMMDD text。
+            """
+            try:
+                g = datetime.strptime(str(g0), "%Y%m%d").date()
+                e = datetime.strptime(str(e0), "%Y%m%d").date()
+            except (ValueError, TypeError):
+                return "方向未知: 最新日期无法解析(人工核对)"
+            gap = (g - e).days
+            if gap > 0:
+                return f"DB 领先产物 {gap} 天(新净值已入库, 产物待重出)"
+            if gap < 0:
+                return f"DB 落后产物 {abs(gap)} 天(数据缺失)"
+            return "最新日期相同但数值不一致(疑似净值修正)"
 
-            for f in sample:
-                d, err = _load_json(f)
-                if err or not isinstance(d, dict) or not d:
-                    continue
-                code = random.choice(sorted(d.keys()))
-                payload = d[code]
-                if not isinstance(payload, dict):
-                    continue
-                rows = conn.execute(
-                    "SELECT date, unit_nav, acc_nav FROM fund_daily_nav "
-                    "WHERE fund_code=? AND unit_nav IS NOT NULL ORDER BY date DESC LIMIT 3",
-                    (code,),
-                ).fetchall()
-                got = [(r[0], r[1], r[2]) for r in rows]
-                exp = [(r[0], r[1], r[2]) for r in list(reversed(payload.get("nav", [])))[:3]]
-                if got != exp:
-                    note = _dir_note(got[0][0] if got else None, exp[0][0] if exp else None)
-                    mismatch.append(
-                        f"{code}: [{note}] "
-                        f"DB最新={got[0] if got else '[]'} vs 产物最新={exp[0] if exp else '[]'}; "
-                        f"DB尾3={got} vs 产物尾3={exp}")
-            if mismatch:
-                return _fail(name, "DB↔产物不一致: " + "; ".join(mismatch[:3]))
-        finally:
-            conn.close()
+        if pairs:
+            mismatch = [
+                f"{code}: [{_dir_note(got[0][0] if got else None, exp[0][0] if exp else None)}] "
+                f"DB最新={got[0] if got else '[]'} vs 产物最新={exp[0] if exp else '[]'}; "
+                f"DB尾3={got} vs 产物尾3={exp}"
+                for code, got, exp in pairs
+            ]
+            return _fail(name, "DB↔产物不一致: " + "; ".join(mismatch[:3]))
 
     msg = f"{len(files)} 桶/{total_codes} 只基金全史净值，抽样 {checked} 只结构+DB逐位一致"
     if empty_cnt:
         msg += f"（含合法空数据基金 {empty_cnt} 只）"
     if db_codes and len({_safe_code(c) for c in all_codes} & set(fname_to_codes)) / len(db_codes) >= 0.95:
         msg += "，覆盖率 ≥95%"
+    if _dbday_warn:
+        return _warn(name, _dbday_warn)
     return _ok(name, msg)
 
 
@@ -2316,6 +2456,9 @@ def main():
     parser.add_argument("--deploy-mode", action="store_true",
                         help="deploy 接入模式（仅 fail 阻断 deploy，warn 不阻断）")
     parser.add_argument("--data-dir", metavar="DIR", help="指定 static-site/data/ 路径")
+    parser.add_argument("--fundnav-stale-probe", action="store_true",
+                        help="只探测 nav_bucket 是否「DB 领先产物」(deploy 自愈 C1 用): "
+                             "exit 3=命中(可自愈重出) / exit 0=未命中或无法判定")
     args = parser.parse_args()
 
     # --strict: warn 当 fail (exit 2) 手动排查用
@@ -2324,6 +2467,13 @@ def main():
     if args.deploy_mode:
         global _deploy_mode
         _deploy_mode = True
+
+    # nav_bucket「DB 领先产物」探针(deploy 自愈 C1, 2026-10-13): 三态退出碼见 help
+    if args.fundnav_stale_probe:
+        _probe_data_dir, _ = detect_dirs(args.data_dir)
+        rc, reason = probe_fund_nav_db_ahead(_probe_data_dir)
+        print(f"[fundnav-stale-probe] rc={rc} {reason}")
+        return rc
 
     # 单文件模式
     if args.file:
