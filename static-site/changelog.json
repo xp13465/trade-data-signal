@@ -259,5 +259,8 @@
   ],
   "20261012-a645": [
     "fix(#254 \u6536\u53e3): \u76d8\u4e2d\u5c31\u7eea\u95f8\u516c\u793a\u63aa\u8f9e\u4fee\u6b63 + \u53f0\u8d26\u72b6\u6001\u5217\u7ffb\u8f6c(\u6cbb\u672c\u53e3\u5f84\u540c\u6b65)"
+  ],
+  "20261013-a646": [
+    "chore(fundnav): D2 \u4e0b\u7ebf app.js \u65e7 fund_nav/ per-code \u56de\u9000\u53cc\u8bfb"
   ]
 }
