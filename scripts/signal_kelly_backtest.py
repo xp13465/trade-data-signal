@@ -394,6 +394,89 @@ def _alert_frozen_missing(events):
         print(f"   ⚠ 冻结缺失告警调用异常: {e}", file=sys.stderr)
 
 
+# ── T2 入账源「冻结表优先」+ 孤儿买事件检测(2026-10-14, 默认关闭, 待用户拍板) ─────────
+# 背景(docs/ops/trades-wipe-rootfix-20261014.md T2): 入账单笔事件只来自 signal_daily 现值表,
+# 但该表每天全表 DELETE+重算(app/compute/signals.py store), 上游 index_daily 被整段重写后
+# 重算吐不出原历史 buy 行 → 「冻结表里 frozen_at 齐全、次日价也齐」的事件却既不成账也不报孤儿。
+# 实测: 10-12 有 6 条 buy 键(frozen_at=2026-10-12 16:38)在现值 signal_daily 全无。
+# 冻结表是唯一固化保护(signal_kelly_etf_freeze.json), 故可作「事件曾存在」的权威补账源。
+#
+# ⚠️ 本改动触及**已上线入账口径**(§23.7 冻结契约 + §5.4⑥ 版本升级), **默认关闭**:
+#   · 入账源改「冻结表优先」= env SIGNAL_KELLY_FREEZE_UNION=1 时才启用;
+#   · 未经用户拍板**不得翻默认、不得改基准定义**;
+#   · 新旧口径对比回测须先复现基准锚点(memory test-baseline-v112-anchor) ±0.1% 才可信。
+# 孤儿检测(观测, 不改口径)默认只打印 + 落 stderr; 告警由 SIGNAL_KELLY_FREEZE_ORPHAN_ALERT=1 开启。
+FREEZE_UNION_ENV = "SIGNAL_KELLY_FREEZE_UNION"
+FREEZE_ORPHAN_ALERT_ENV = "SIGNAL_KELLY_FREEZE_ORPHAN_ALERT"
+
+
+def _freeze_buy_keys(freeze):
+    """从冻结表键(格式 date|index_id|signal)筛出买类事件 set[(date,index_id,signal)]。"""
+    out = set()
+    for k in freeze:
+        parts = k.split("|")
+        if len(parts) != 3:
+            continue
+        d, iid, sig = parts
+        if sig in BUY_SIGNALS:
+            out.add((d, iid, sig))
+    return out
+
+
+def _detect_freeze_orphan_buy_events(freeze, present_di):
+    """检出「冻结表有买类键, 但现值 signal_daily 该 (date,index_id) 已无任何行」的孤儿事件。
+
+    判据刻意用 (date,index_id) **整行缺失**(而非精确三元组缺失): 信号类型漂移(buy→sell/buy_aux)
+    会让精确键失配但行仍在(_freeze_fallback 已接住), 那不是孤儿; 只有整行消失才是
+    「重算抹除历史行」的症状。present_di = 现值表全部 (date,index_id) 集合。
+    返回 sorted list[(date,index_id,signal)]。
+    """
+    fk = _freeze_buy_keys(freeze)
+    return sorted((d, i, s) for (d, i, s) in fk if (d, i) not in present_di)
+
+
+def _alert_freeze_orphans(orphans):
+    """孤儿买事件告警(默认不告警, 由 SIGNAL_KELLY_FREEZE_ORPHAN_ALERT=1 开启)。
+
+    这些事件在冻结表有固化记录(frozen_at 齐全)却已从 signal_daily 现值表消失 = 历史行被
+    重算抹除的直接证据。默认只打印(stderr)避免首跑制造告警风暴, 由主控/用户评估规模后开启。
+    """
+    n = len(orphans)
+    if n == 0:
+        return
+    sample = "; ".join(f"{d}|{i}|{s}" for d, i, s in orphans[:8])
+    msg = (f"   冻结表孤儿买事件: {n} 条(冻结表有键、现值 signal_daily 无对应行)。"
+           f"样例: {sample}")
+    print(msg, file=sys.stderr)
+    if os.environ.get(FREEZE_ORPHAN_ALERT_ENV, "0") != "1":
+        print(f"   (未告警: 设 {FREEZE_ORPHAN_ALERT_ENV}=1 开启)", file=sys.stderr)
+        return
+    try:
+        subprocess.run(
+            [sys.executable, os.path.join(SCRIPT_DIR, "notify.py"),
+             f"[kelly] 冻结表孤儿买事件 {n} 条",
+             f"冻结表已固化但已从 signal_daily 现值表消失的买类事件 {n} 条"
+             f"(历史行被重算抹除的直接证据, docs/ops/trades-wipe-rootfix-20261014.md)。样例: {sample}",
+             "--from-prefix", "[kelly]",
+             "--dedup-key", "kelly_freeze_orphan_buy", "--dedup-window", "86400"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except Exception as e:  # noqa: BLE001
+        print(f"   ⚠ 冻结孤儿告警调用异常: {e}", file=sys.stderr)
+
+
+def _union_freeze_buy_rows(buy_rows, freeze):
+    """把冻结表里买类事件并进买信号集合(T2「冻结表优先」, 默认关闭)。去重 + 稳定排序。"""
+    seen = {(r[0], r[1], r[2]) for r in buy_rows}
+    extra = sorted(_freeze_buy_keys(freeze) - seen)
+    if not extra:
+        return buy_rows
+    print(f"   [T2 freeze-union] 冻结表补入 signal_daily 未含的买类事件 {len(extra)} 条")
+    merged = [(r[0], r[1], r[2]) for r in buy_rows] + extra
+    merged.sort(key=lambda r: (r[0], r[1], r[2]))
+    return merged
+
+
 # ── 宇宙感知剪枝(v1.1.7 实施批, 2026-08-24 用户拍板) ─────────────────────────
 # 背景: 冻结固化机制(#58)对已固化信号事件直接返回冻结 ETF, 绕过当前宇宙判定——
 # board_etf_map 已把 bj50(北证50) 等改为空数组(显式不收录, build_board_etf_map.py 不留兜底),
@@ -1956,6 +2039,9 @@ def compute():
     sell_timeline = {}
     for _d, _iid, _sig in sell_rows:
         sell_timeline.setdefault(_iid, []).append((_d, _sig))
+    # T2 孤儿买事件检测(观测): 取现值表全部 (date,index_id), 用于判「整行缺失」
+    _present_di = {(r[0], r[1]) for r in conn.execute(
+        "SELECT DISTINCT date, index_id FROM signal_daily")}
     # 加载沪深300 MA60 大盘择时状态(降亏toggle后端注入)
     print("-> 加载 hs300 MA60 大盘择时状态 ...", flush=True)
     market_state, market_dates = _load_market_state(conn)
@@ -1970,6 +2056,12 @@ def compute():
     print(f"   {len(cyb_tiers)} 个交易日有 cyb 四档状态")
     conn.close()
     print(f"   {len(buy_rows)} 条买信号")
+    # T2 冻结表孤儿买事件(观测, 默认只打印; 告警由 env 开启)
+    _alert_freeze_orphans(_detect_freeze_orphan_buy_events(etf_freeze, _present_di))
+    # T2 入账源改「冻结表优先」(默认关闭; 开启须用户拍板, §23.7/§5.4⑥)
+    if os.environ.get(FREEZE_UNION_ENV, "0") == "1":
+        buy_rows = _union_freeze_buy_rows(buy_rows, etf_freeze)
+        print(f"   [T2] 冻结表优先入账已启用 -> {len(buy_rows)} 条买信号")
 
     # 3. 确定需要的 ETF 代码集合, 批量加载价格。注意: 用 _resolve_etf 而非直接 best_etf.get,
     #    这样已固化的历史信号事件用冻结 ETF, 新信号事件就地冻结当前 best。

@@ -70,6 +70,19 @@ _SINA_URL = "http://hq.sinajs.cn/list=" + ",".join(_A_STOCK_CODES)
 _SINA_HEADERS = {"User-Agent": UA, "Referer": "https://finance.sina.com.cn"}
 
 
+def _audit_hist_partial(conn, date, idx_id, updates):
+    """T3 同类写入面补全(2026-10-14): 单行局部字段改写(计算法 UPDATE)也过审计入口。
+
+    本模块的历史 calc 回退只改 close(+source), 整行入参会误报未动列, 故走局部字段审计
+    `history_audit.audit_index_row_partial`(只比对 updates 给出的列)。失败不阻断采集。
+    """
+    try:
+        from ..history_audit import audit_index_row_partial
+        audit_index_row_partial(conn, None, date, idx_id, updates)
+    except Exception as e:  # noqa: BLE001
+        print(f"[history-audit] index_daily 单行局部审计失败(不阻断): {type(e).__name__} {e}")
+
+
 def _safe_get(url, headers=None, timeout=10):
     """用 requests.Session 发起 GET,结束后显式 close,杜绝 TCP ESTABLISHED 滞留。
 
@@ -1163,13 +1176,14 @@ def _backfill_index_daily(indices: list[dict]) -> int:
             continue
 
         conn.execute(
-            "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
-            "VALUES (?,?,?,?,?,?,?,?) "
+            "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, source) "
+            "VALUES (?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(date, index_id) DO UPDATE SET "
             "open=excluded.open, high=excluded.high, low=excluded.low, "
-            "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
+            "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount, "
+            "source=excluded.source",
             (today, index_id, idx.get("open"), idx.get("high"), idx.get("low"),
-             price, idx.get("pct_change"), idx.get("amount")),
+             price, idx.get("pct_change"), idx.get("amount"), "intraday_snapshot"),
         )
         n += 1
     conn.commit()
@@ -1232,12 +1246,12 @@ def _backfill_industry_daily(industries: list[dict], target_date: str = None) ->
             close_val = round(float(prev["close"]) * (1 + float(pct) / 100.0), 4)
             calc_n += 1
         conn.execute(
-            "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, net_inflow) "
-            "VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, ?) "
+            "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, net_inflow, source) "
+            "VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?) "
             "ON CONFLICT(date, index_id) DO UPDATE SET "
             "pct_change=excluded.pct_change, net_inflow=excluded.net_inflow, "
-            "close=excluded.close, amount=excluded.amount",
-            (today, sw_code, close_val, pct, amt, net),
+            "close=excluded.close, amount=excluded.amount, source=excluded.source",
+            (today, sw_code, close_val, pct, amt, net, "calc"),
         )
         n += 1
     conn.commit()
@@ -1295,8 +1309,9 @@ def _backfill_industry_daily_historical(target_date: str) -> int:
             ).fetchone()
             if prev and prev["close"] is not None:
                 close_val = round(float(prev["close"]) * (1 + float(pct) / 100.0), 4)
+                _audit_hist_partial(conn, target_date, sw_code, {"close": close_val})
                 conn.execute(
-                    "UPDATE index_daily SET close=? WHERE index_id=? AND date=?",
+                    "UPDATE index_daily SET close=?, source='calc' WHERE index_id=? AND date=?",
                     (close_val, sw_code, target_date)
                 )
                 calc_n += 1
@@ -1346,11 +1361,12 @@ def _backfill_concept_daily(concepts: list[dict]) -> int:
         if pct is None:
             continue
         conn.execute(
-            "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
-            "VALUES (?,?,?,?,?,?,?,?) "
+            "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, source) "
+            "VALUES (?,?,?,?,?,?,?,?, 'intraday_snapshot') "
             "ON CONFLICT(date, index_id) DO UPDATE SET "
             "open=excluded.open, high=excluded.high, low=excluded.low, "
-            "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
+            "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount, "
+            "source=excluded.source",
             (today, cid, c.get("open"), c.get("high"), c.get("low"),
              c.get("close"), pct, c.get("amount")),
         )
@@ -1493,11 +1509,12 @@ def _backfill_signal_universe_tencent(today: str = None) -> int:
                 print(f"  [intraday] 补采 {iid} 快照日期 {snap_date} != 今日 {today}，跳过", flush=True)
                 continue
             conn.execute(
-                "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
-                "VALUES (?,?,?,?,?,?,?,?) "
+                "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, source) "
+                "VALUES (?,?,?,?,?,?,?,?, 'intraday_snapshot') "
                 "ON CONFLICT(date, index_id) DO UPDATE SET "
                 "open=excluded.open, high=excluded.high, low=excluded.low, "
-                "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
+                "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount, "
+                "source=excluded.source",
                 (today, iid, d.get("open"), d.get("high"), d.get("low"),
                  price, d.get("pct_change"), d.get("amount")),
             )

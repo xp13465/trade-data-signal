@@ -172,6 +172,24 @@ CREATE TABLE IF NOT EXISTS signal_intraday_log (
   reason TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_signal_intraday_log_date ON signal_intraday_log(date);
+
+-- 历史行改写审计（2026-10-14 加，根治「重算抹除历史行」不可见）：记录 signal_daily /
+-- index_daily 的「历史行(date < 运行日)在重算/整段重写前后发生消失 / 出现 / 值改写」事件。
+-- 写方 app/history_audit.py；只留痕 + 告警，不阻断任何重算/采集（见该模块 docstring）。
+CREATE TABLE IF NOT EXISTS history_overwrite_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  detected_at TEXT NOT NULL,
+  run_date TEXT NOT NULL,        -- 触发本次审计的运行日(本地 YYYYMMDD)
+  src_table TEXT NOT NULL,       -- signal_daily / index_daily
+  kind TEXT NOT NULL,            -- disappeared / appeared / changed
+  date TEXT NOT NULL,            -- 被改写的历史行日期(date < run_date)
+  index_id TEXT NOT NULL,
+  signal TEXT,                   -- 仅 signal_daily 有
+  before_val TEXT,
+  after_val TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_history_overwrite_audit_date ON history_overwrite_audit(date);
+CREATE INDEX IF NOT EXISTS idx_history_overwrite_audit_run ON history_overwrite_audit(run_date);
 """
 
 
@@ -207,6 +225,19 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "net_inflow" not in cols:
         try:
             conn.execute("ALTER TABLE index_daily ADD COLUMN net_inflow REAL")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e):
+                pass  # 并发首跑竞态，另一进程已加列，忽略
+            else:
+                raise
+
+    # index_daily.source 列（2026-10-14 加，T5 占位行 source 标记）：区分「行情源真实价」
+    # (collect) / 「盘中快照反哺」(intraday_snapshot) / 「计算法合成」(calc，如
+    # close=prev_close×(1+pct/100)），让下游可识别占位/合成行，从源头减少「先有信号、
+    # 后无信号」的假事件。旧行 source 为 NULL = 未标注(历史存量)。
+    if "source" not in cols:
+        try:
+            conn.execute("ALTER TABLE index_daily ADD COLUMN source TEXT")
         except sqlite3.OperationalError as e:
             if "duplicate column name" in str(e):
                 pass  # 并发首跑竞态，另一进程已加列，忽略
