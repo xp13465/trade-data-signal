@@ -65,6 +65,21 @@ SW_INDICES = [
 ]
 
 
+def _audit_hist_row(conn, date, idx_id, row6):
+    """T3 同类写入面补全(2026-10-14): 本模块 3 处单行兜底写入历史行时也过审计入口。
+
+    根因同 `runner.upsert_index_rows`(整段/单行 UPSERT 覆盖历史行值、零保护)——
+    同一事实存在多份写入实现时逐处漏掉是必然(§23.2③ 根因修不逐文件补丁),故本模块
+    所有 index_daily 写入统一走 `history_audit.audit_index_rows_upsert` 单一入口。
+    审计只对 date < 运行日且值实质变化的历史行留痕 + 告警,失败一律不阻断采集。
+    """
+    try:
+        from ..history_audit import audit_index_rows_upsert
+        audit_index_rows_upsert([(date, idx_id) + tuple(row6)], conn=conn)
+    except Exception as e:  # noqa: BLE001
+        print(f"[history-audit] index_daily 兜底行审计失败(不阻断): {type(e).__name__} {e}")
+
+
 def _f(v):
     """baostock 返回字符串，转 float；空/无效返 None。"""
     if v is None or v == "":
@@ -597,12 +612,14 @@ def _tencent_hk_fallback(idx_id: str, date: str, conn, verbose: bool = False) ->
     high = f(33)
     low = f(34)
 
+    _audit_hist_row(conn, date, idx_id, (open_, high, low, price, pct, amount))
     conn.execute(
-        "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
-        "VALUES (?,?,?,?,?,?,?,?) "
+        "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, source) "
+        "VALUES (?,?,?,?,?,?,?,?, 'backfill') "
         "ON CONFLICT(date, index_id) DO UPDATE SET "
         "open=excluded.open, high=excluded.high, low=excluded.low, "
-        "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
+        "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount, "
+        "source=excluded.source",
         (date, idx_id, open_, high, low, price, pct, amount),
     )
     conn.commit()
@@ -698,12 +715,14 @@ def _sina_global_realtime_fallback(idx_id: str, date: str, conn, verbose: bool =
     if pre_close and pre_close != 0 and (chg_pct is None or abs(chg_pct) < 1e-9):
         chg_pct = (price - pre_close) / pre_close * 100
 
+    _audit_hist_row(conn, date, idx_id, (open_, high, low, price, chg_pct, None))
     conn.execute(
-        "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
-        "VALUES (?,?,?,?,?,?,?,?) "
+        "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, source) "
+        "VALUES (?,?,?,?,?,?,?,?, 'backfill') "
         "ON CONFLICT(date, index_id) DO UPDATE SET "
         "open=excluded.open, high=excluded.high, low=excluded.low, "
-        "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
+        "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount, "
+        "source=excluded.source",
         (date, idx_id, open_, high, low, price, chg_pct, None),
     )
     conn.commit()
@@ -777,12 +796,14 @@ def _sina_spot_hk_fallback(idx_id: str, date: str, conn, verbose: bool = False) 
         return False
 
     # spot 无成交额字段,amount 写 None(daily_sina 后续 upsert 覆盖补全)
+    _audit_hist_row(conn, date, idx_id, (open_, high, low, close, pct, None))
     conn.execute(
-        "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
-        "VALUES (?,?,?,?,?,?,?,?) "
+        "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, source) "
+        "VALUES (?,?,?,?,?,?,?,?, 'backfill') "
         "ON CONFLICT(date, index_id) DO UPDATE SET "
         "open=excluded.open, high=excluded.high, low=excluded.low, "
-        "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
+        "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount, "
+        "source=excluded.source",
         (date, idx_id, open_, high, low, close, pct, None),
     )
     conn.commit()

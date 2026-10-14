@@ -52,21 +52,13 @@ def _notify(subject: str, body: str, *, dedup_key: str, dedup_window: int = 8640
     最需要告警的时刻失聪。改为捕获子进程输出与返回码，非 0/异常/超时经
     _notify_fail_trace 落双通道痕迹；成功仍静默，主功能行为不变（check=False
     不阻塞采集、timeout=60 不变）。
+    2026-10-14：实现下沉到 app/notify_hook.send_alert（与历史行改写审计共用单一实现，
+    防「同一 notify.py 调用协议多份副本静默漂移」）；参数/行为逐字不变。
     """
-    try:
-        r = subprocess.run(
-            [sys.executable, str(_NOTIFY_PY), subject, body,
-             "--severe", "--from-prefix", "[告警]",
-             "--dedup-key", dedup_key, "--dedup-window", str(dedup_window)],
-            timeout=60, check=False,
-            capture_output=True, text=True,
-        )
-    except Exception as e:  # noqa: BLE001  通知失败不阻塞采集，但必须留痕
-        _notify_fail_trace(subject, f"subprocess 异常 {type(e).__name__}: {e}")
-        return
-    if r.returncode != 0:
-        tail = (((r.stderr or "") + " " + (r.stdout or "")).strip())[-300:]
-        _notify_fail_trace(subject, f"rc={r.returncode} {tail}")
+    from ..notify_hook import send_alert
+    send_alert(subject, body, dedup_key=dedup_key, dedup_window=dedup_window,
+               severe=True, from_prefix="[告警]", timeout=60,
+               fail_hook=_notify_fail_trace)
 
 
 def _want(steps, name):
@@ -135,15 +127,30 @@ def upsert_metrics_many(metric_id, rows, source="akshare"):
     conn.close()
 
 
-def upsert_index_rows(rows):
+def upsert_index_rows(rows, source="collect"):
+    """整段 UPSERT index_daily；source 标记写入来源(T5)。
+
+    source 取值: collect(行情源真实价) / intraday_snapshot(盘中快照反哺) / calc(计算法合成)。
+    旧行为不变(全字段替换)，新增: ①写 source 列 ②T3 历史行改写审计(见下)。
+    """
     conn = get_conn()
+    # T3 历史行改写审计(2026-10-14)：整段全历史 UPSERT 会覆盖历史行(date < 运行日)的值，
+    # 此前零保护(docs/ops/trades-wipe-rootfix-20261014.md ③U2)。此处只对「已存在且值实质变化」
+    # 的历史行记审计 + 告警(不禁止改写——源值确实可能被修正),新增行不算改写。
+    # 审计失败不阻断采集主流程。
+    try:
+        from ..history_audit import audit_index_rows_upsert
+        audit_index_rows_upsert(rows, conn=conn)
+    except Exception as e:  # noqa: BLE001
+        print(f"[history-audit] index_daily 历史行审计失败(不阻断): {type(e).__name__} {e}",
+              flush=True)
     conn.executemany(
-        "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
-        "VALUES (?,?,?,?,?,?,?,?) "
+        "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, source) "
+        "VALUES (?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(date, index_id) DO UPDATE SET "
         "open=excluded.open, high=excluded.high, low=excluded.low, close=excluded.close, "
-        "pct_change=excluded.pct_change, amount=excluded.amount",
-        rows,
+        "pct_change=excluded.pct_change, amount=excluded.amount, source=excluded.source",
+        [tuple(r) + (source,) for r in rows],
     )
     conn.commit()
     conn.close()

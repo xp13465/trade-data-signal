@@ -1441,6 +1441,17 @@ def compute():
 
 def store(signals) -> int:
     conn = get_conn()
+    # T1 历史行改写审计(2026-10-14)：全表 DELETE+重算前先快照历史行(date < 运行日)，
+    # 重算后再快照做 diff —— 历史行消失/出现即落审计表 + 告警(不阻断重算)。
+    # 根因：上游 index_daily 被整段重写后，本全表重算吐不出原历史 buy 行 → 历史成交静默消失
+    # (docs/ops/trades-wipe-rootfix-20261014.md)。审计失败不阻断(signals 是主产物)。
+    from ..history_audit import snapshot_signal_daily_history, audit_signal_daily_store, today_ymd
+    run_date = today_ymd()
+    hist_before = set()
+    try:
+        hist_before = snapshot_signal_daily_history(conn, run_date)
+    except Exception as e:  # noqa: BLE001
+        print(f"[history-audit] signal_daily 历史行快照(前)失败(不阻断): {type(e).__name__} {e}")
     conn.execute("DELETE FROM signal_daily")  # 信号逻辑变更，清空重算
     # INSERT OR REPLACE: 全历史 band 信号(接回->buy_aux)可能与标准 buy_aux(布林下轨回归)
     # 同天同品种冲突(30个, cgb_idx 历史)。band 信号后 append, 覆盖标准 buy_aux
@@ -1450,5 +1461,11 @@ def store(signals) -> int:
         signals,
     )
     conn.commit()
+    if hist_before:
+        try:
+            hist_after = snapshot_signal_daily_history(conn, run_date)
+            audit_signal_daily_store(conn, hist_before, hist_after, run_date)
+        except Exception as e:  # noqa: BLE001
+            print(f"[history-audit] signal_daily 历史行 diff 审计失败(不阻断): {type(e).__name__} {e}")
     conn.close()
     return len(signals)
