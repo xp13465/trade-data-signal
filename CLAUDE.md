@@ -12,7 +12,7 @@
 | 实施 agent | 本共享核心 + .claude/skills/role-implementer(§9 前端/§24 防撕裂/§21 公示/§8§14 操作/修bug三铁律/举一反三) |
 | reviewer agent | 本共享核心 + .claude/skills/role-reviewer(§15 回归/改动分级/§24 四查/smoke/数据校验) |
 | 调研 agent | 本共享核心 + .claude/skills/role-researcher(调研方法论/防误判/§5.1 穷举回测/数据挖掘) |
-| 测试 agent | 本共享核心 + .claude/skills/role-tester(smoke/数据校验/curl 三查/一致性) |
+| 测试 agent | 本共享核心 + .claude/skills/role-tester(smoke/数据校验/curl 三查/一致性/**边界维度穷举 §5.3.1**) |
 > 设计原则:根文件只留"所有角色都该无条件知道"的共享核心;角色专属规范进 role skill(启动全文注入,确定性,不依赖主动读);主控专属进 governance(子 agent 永不读,不再为其 token 买单)。
 
 ## 0.1 主控角色红线:只调度,不亲自实施(2026-08-12 用户定,防再犯)
