@@ -18,6 +18,10 @@ A 包做了三件事:①给两条链加**改写审计 + 告警**(T1/T3)②给占
 ③把「冻结表孤儿买事件」这条**唯一铁证链**做成可观测 + 可补账候选(T2,默认关闭)。
 真跑对比:**新口径(冻结表优先)会让 564/880 格 rmh 变差、最大 -1.86pp** ⇒ **未翻默认,等用户拍板**。
 
+**另附 2 条范围外发现(§8.2,证据在案,交主控立案)**:F1 CI 的 ⑥⑦ 门禁实为空转
+(`ok=0` 被 `ls` 的 exit 0 吞掉 ⇒ 恒 skipped 还报绿);F2 生产 `kelly_loss_features.json` 与挖掘权威
+在 20260824 S1/S2 有 2 行不一致(存量漂移,非本包引入)。
+
 ---
 
 ## 1. T1 — `signal_daily` 重算抹除历史行 → 可见
@@ -178,6 +182,40 @@ A/B 对比(基线 = 默认口径 vs 新口径 `SIGNAL_KELLY_FREEZE_UNION=1`,同�
   ⇒ **本次自测零真实外发**
 - 全量回归:`python -m pytest -q scripts/tests/` → **899 passed, 2 skipped**(CI Job1 同集)
 - 回测对账:见 §4.3(与线上产物 880/880 格逐位一致)
+
+### 8.1 CI Job1/Job2 本地模拟(逐项)
+
+| CI 步骤 | 本地结果 | 说明 |
+|---|---|---|
+| ① `check_fade_keys_alignment.py` | **PASS** | 「AI降亏默认档键集全端对齐」 |
+| ② `check_version_progress.py` | **PASS** | 版本串倒退/净回退校验通过 |
+| ③ `check_version_consistency.py` | **PASS** | §24⑤ 版本一致性 |
+| ④ 前端 `node --check` | **PASS** | 抽查 app.js/lab.js/common.js(本包未改 JS) |
+| ⑤ `check_task_state.py --deploy-mode --skip-zombie-crons` | **PASS** | 2 ok / 0 warn / 0 fail |
+| ⑧ `pytest -q scripts/tests/` | **PASS** | 899 passed / 2 skipped |
+| ⑥ `check_loss_rules_vs_mining.py` | **FAIL(非本包引入,见 §8.2)** | 需先下生产产物才能跑 |
+| ⑦ `check_fade_predicate_parity.mjs` | 未跑(与⑥同源,见 §8.2) | CI 里同为 skipped |
+
+### 8.2 附带发现(本包范围外,证据在案,交主控立案)
+
+**F1. CI 的 ⑥⑦ 门禁实为「空转」——已静默跳过**(L49 同类:机制在,生产恒空)
+- 证据(run API,2026-10-14 01:53 main `9833a132d`):job `quality-gate-data` 步骤 5「下载生产数据产物」
+  `success`,但步骤 6「⑥ AI降亏三层一致性」/步骤 7「⑦ fade 谓词规格迁移」= **skipped**;
+  抽查 10-11 `38105915179` 同样 skipped ⇒ 至少已持续数日。
+- 根因(读 `.github/workflows/ci.yml` L138-165):下载步骤末尾 `ls -la` 恒 exit 0,`ok=0`(下载失败)
+  被 `|| {... ok=0; }` 吞掉,步骤仍记 success,下一步 `if: steps.download.outputs.ok == '1'` 恒假
+  ⇒ **门禁靠不住还报绿**(GitHub runner 侧对 `ssd.fx8.store` 取文件失败,本机 mac 取同一 URL 成功)。
+- 影响:AI降亏三层一致性(特征/谓词/阈值)自 10-11 前起在 CI 无任何把关;本机手动跑才暴露 F2。
+
+**F2. 生产 `kelly_loss_features.json` 与挖掘权威快照存在 2 行不一致**(非本包引入)
+- 证据(本机 mac 跑 ⑥,输入=线上 `https://ssd.fx8.store/data/kelly_loss_features.json`
+  `generated_at=2026-08-24 17:07:27` → 产物自 08-24 起未再生 + 仓内
+  `docs/kelly/analysis/scripts/sim_window_loss_mining_20260822/data/mine10_features.json`):
+  层3 阈值 14 项 PASS;层1 特征 20 项中 S1(`s1SentALow`)/S2(`s2SentHs300Low`)
+  **各 2 行不一致**(样本 `20260824 buy_aux 挖掘=False 生产=True`)⇒ 层2 谓词全等 **FAIL**。
+- 归因:⑥ 的输入(下载产物 + 仓内 mining 快照 + `scripts/loss_rules.py`)均**不在本包 diff 内**
+  (本包 diff 仅 13 个文件,见 §10),且检查脚本本体未改 ⇒ **与本包无关的存量口径漂移**,需
+  researcher 判「到底该以谁为准」(§23.13 两源不统一必上报,不自行选边)。
 
 ## 9. 复现命令
 
