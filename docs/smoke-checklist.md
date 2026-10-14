@@ -1,4 +1,4 @@
-# 主功能快速全量回归 Smoke 清单
+# 主功能快速全量回归冒烟测试清单
 
 > **目的**:拦截"老功能突然坏了/文件丢了"事故(全部无ETF/成交额昨日值/KPI角标停/预估爆炸)。大阶段结束/上线前必行,不等用户发现再修。
 > **触发时机**:当天开发功能多后 / 大阶段结束 / 上线前 / 改动数据产物生成脚本后。
@@ -389,7 +389,7 @@ fi
 
 ---
 
-## Part 3: P0 核心功能 Smoke 清单（拦截"上线后才发现"）
+## Part 3: P0 核心功能冒烟测试清单（拦截"上线后才发现"）
 
 > 对应 .claude/skills/role-reviewer §3(原 §15 操作层回归机制三层)③。每项给 curl 数据层验证 + 关键交互文字描述 + 关联文件。reviewer agent 上线前必跑。
 
@@ -519,7 +519,7 @@ fi
 
 ---
 
-## Part 4: P1 重要功能 Smoke 清单
+## Part 4: P1 重要功能冒烟测试清单
 
 ### P1-01 策略实验室备买 chip 三档
 - **curl**: `curl -s https://ssd.fx8.store/trade_sim_data/trade_sim_sh000001_stats.json | python3 -c "import sys,json;d=json.load(sys.stdin);print('keys:',list(d.keys())[:10])"`
@@ -560,7 +560,7 @@ fi
 
 ## Part 5: 改动影响面 grep 清单（reviewer agent push 前必跑）
 
-> 对应 .claude/skills/role-reviewer §3(原 §15 操作层回归机制三层)②。改了 X 文件 → grep 谁引用 X → 列出受影响老功能点 → 跑相关 P0/P1 smoke。
+> 对应 .claude/skills/role-reviewer §3(原 §15 操作层回归机制三层)②。改了 X 文件 → grep 谁引用 X → 列出受影响老功能点 → 跑相关 P0/P1 冒烟测试。
 
 ### grep 模板
 
@@ -617,7 +617,7 @@ grep -n "schedule_stats" app.js lab.js
 ### 影响面判断流程
 1. `git diff --name-only main..HEAD` 列改动文件
 2. 按上表 grep 改动文件名/关键字 → 命中哪些老功能
-3. 跑命中的 P0/P1 smoke 项(curl 验证)
+3. 跑命中的 P0/P1 冒烟测试项(curl 验证)
 4. 任一失败 = 阻断 push,修复后重验
 
 ---
@@ -631,7 +631,7 @@ grep -n "schedule_stats" app.js lab.js
 
 ### 怎么派（主控 prompt 模板）
 ```
-你是 task-reviewer 子 agent。任务:主功能回归 smoke 检查,不看新功能,专看"改动可能影响哪些老功能"。
+你是 task-reviewer 子 agent。任务:主功能回归冒烟测试检查,不看新功能,专看"改动可能影响哪些老功能"。
 
 步骤:
 1. 读 docs/smoke-checklist.md

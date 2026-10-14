@@ -239,7 +239,7 @@
 ### 🤖 多 Agent 协作模式（traderagent 启发）
 
 **用途**：本项目用**多 agent 分工做开发协作**——调研 agent（只读定位根因）→ 实施 agent（写码）→
-reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent，配 cron 兜底轮询 + 进度文件回写，
+reviewer agent（独立批判性查影响面 + 回归冒烟测试）→ 测试 agent，配 cron 兜底轮询 + 进度文件回写，
 借鉴 **traderagent 风格的多智能体团队模式**（[原版 tradingagents](https://github.com/tauricresearch/tradingagents) / [中文改版 TradingAgents-CN](https://github.com/hsliuping/TradingAgents-CN)，分析师/研究员/交易员/风控分工协作）来组织工程流水线：
 - 数据产品线：采集 agent（多源互备）→ 计算 agent → 上线 agent（deploy 三站验证）
 - 开发质量线：实施 → reviewer（独立 review 防改坏老功能）→ 主控逐字验收
@@ -250,7 +250,7 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 
 ### 🤖 外部交叉验证 reviewer（codex CLI）
 
-**用途**：版本发布前的**外部独立盲审**——经 [OpenAI codex CLI](https://github.com/openai/codex) 以只读沙箱身份做交叉验证，防「内部实施↔内部 review 同源盲区」。协作机制：Claude 主控调 `scripts/codex-review-request.sh` 把审计范围打包成 git ref（`refs/codex/req/<id>`）→ codex 在独立环境读仓库执行影响面 grep / smoke 验证 / 口径交叉核对 → 报告 JSON 回传 `/tmp/codex-reports/` → 主控校验归档至 [`docs/codex-reviews/`](docs/codex-reviews/)。codex 不 commit、不 push、不改源码；2026-08-24 首轮 v1.1.4→v1.1.6 前置两轮审计均 PASS，揪出 QTH 全史快照前视取舍、tester skill 缺规范挂接等内部 review 未覆盖项。协议全文见 [`docs/codex-collab-protocol.md`](docs/codex-collab-protocol.md)。协作通讯走**信号桥**（2026-08-26）：`scripts/agent_inbox_watcher.py` 常驻监听 `/tmp/codex-reports/signals/` 双收件箱（2 秒文件轮询，待机零模型调用），发单秒级拉起 codex exec、报告回传自动 schema 机检 + 推飞书，替代 cron 盲轮询的 7-8 分钟延迟——链路全图、launchd 部署模板与利弊分析见 [`docs/codex-signal-bridge.md`](docs/codex-signal-bridge.md)。
+**用途**：版本发布前的**外部独立盲审**——经 [OpenAI codex CLI](https://github.com/openai/codex) 以只读沙箱身份做交叉验证，防「内部实施↔内部 review 同源盲区」。协作机制：Claude 主控调 `scripts/codex-review-request.sh` 把审计范围打包成 git ref（`refs/codex/req/<id>`）→ codex 在独立环境读仓库执行影响面 grep / 冒烟测试验证 / 口径交叉核对 → 报告 JSON 回传 `/tmp/codex-reports/` → 主控校验归档至 [`docs/codex-reviews/`](docs/codex-reviews/)。codex 不 commit、不 push、不改源码；2026-08-24 首轮 v1.1.4→v1.1.6 前置两轮审计均 PASS，揪出 QTH 全史快照前视取舍、tester skill 缺规范挂接等内部 review 未覆盖项。协议全文见 [`docs/codex-collab-protocol.md`](docs/codex-collab-protocol.md)。协作通讯走**信号桥**（2026-08-26）：`scripts/agent_inbox_watcher.py` 常驻监听 `/tmp/codex-reports/signals/` 双收件箱（2 秒文件轮询，待机零模型调用），发单秒级拉起 codex exec、报告回传自动 schema 机检 + 推飞书，替代 cron 盲轮询的 7-8 分钟延迟——链路全图、launchd 部署模板与利弊分析见 [`docs/codex-signal-bridge.md`](docs/codex-signal-bridge.md)。
 
 ### 📋 每日速递（2026-09-06 起默认规则版，AI 预测已退役）
 

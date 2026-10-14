@@ -1038,7 +1038,7 @@ curl -s https://ss.fx8.store/sw.js | grep "CACHE_VERSION"
 curl -s https://ss.fx8.store/manifest.json | python3 -m json.tool | head -5
 ```
 
-### 12.4 回归 smoke 清单
+### 12.4 回归冒烟测试清单
 
 详见 [docs/smoke-checklist.md](smoke-checklist.md)，包含 P0/P1 主功能点清单 + 数据校验规则。
 
@@ -1075,6 +1075,6 @@ curl -s https://ss.fx8.store/manifest.json | python3 -m json.tool | head -5
 - [DB 备份与恢复手册](backup-restore.md) - 三层备份 + 恢复流程
 - [数据字典](data-dictionary.md) - static-site/data/ JSON 字段说明
 - [数据源说明](data-sources.md) - akshare/mootdx/baostock 等
-- [Smoke 清单](smoke-checklist.md) - 主功能回归验证
+- [冒烟测试清单](smoke-checklist.md) - 主功能回归验证
 - [static-site/DEPLOY.md](../static-site/DEPLOY.md) - 旧版静态部署说明（已过时，参考用）
 - [R2 部署文档](r2-deployment.md) - R2 数据层完整架构 + 重建步骤 + 排障

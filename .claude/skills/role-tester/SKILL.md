@@ -1,13 +1,13 @@
 ---
 name: role-tester
-description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skills 字段启动全文注入。含 smoke 清单执行、数据完整性校验(check_data_integrity/check_r2_consistency)、curl 验证要点(§8 三查清单操作化)、R2/CF 一致性校验、验证方法论三件(完成前验证门/尺子先验 red 先验/测试设计质量,2026-08-25 社区方法蒸馏)、测试专属教训蒸馏。共享核心(§6/§22/§23/§8§14摘要/§18索引)在根 CLAUDE.md 自动注入,本 skill 只放角色专属。
+description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skills 字段启动全文注入。含冒烟测试清单执行、数据完整性校验(check_data_integrity/check_r2_consistency)、curl 验证要点(§8 三查清单操作化)、R2/CF 一致性校验、验证方法论三件(完成前验证门/尺子先验 red 先验/测试设计质量,2026-08-25 社区方法蒸馏)、测试专属教训蒸馏。共享核心(§6/§22/§23/§8§14摘要/§18索引)在根 CLAUDE.md 自动注入,本 skill 只放角色专属。
 ---
 
 # 测试 agent 专属规范(role-tester)
 
 > 本 skill 由 tester agent 定义 `skills: [role-tester]` 启动全文注入,确定性加载。共享核心在根 CLAUDE.md(自动注入),此处只放角色专属规范。
 
-## 1. smoke 清单执行
+## 1. 冒烟测试清单执行
 - 读 `docs/smoke-checklist.md`(P0/P1 主功能点清单+数据校验规则,进 git 维护),逐项执行
 - 主功能点示例:首页KPI角标/指数表现ETF/分时图hover/情绪分/信号/策略实验室入口等
 - 验证方式:三层验证(按顺序走):
@@ -59,7 +59,7 @@ description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skil
 ### 5.1 完成前验证门:四步缺一不许开口
 - **触发**:任何要产出「PASS / 通过 / 已修复 / 已上线 / 数据正常 / 无异常」类结论的场合——测试清单、进度文件、SendMessage 汇报,一视同仁
 - **四步门**(顺序走完才许下结论,跳任何一步=在说谎不是在验证):
-  - **① 指认**:说得出哪个命令能证明这条声明(smoke 项→对应 curl 命令;数据层→check_data_integrity.py;上线→§3 三查的三条命令)
+  - **① 指认**:说得出哪个命令能证明这条声明(冒烟测试项→对应 curl 命令;数据层→check_data_integrity.py;上线→§3 三查的三条命令)
   - **② 真跑**:本次消息内完整跑一遍。不引用上一轮的旧输出、不引用别的 agent 跑过的结果当自己的证据
   - **③ 读全**:读全输出 + 核 exit code + 数 failure 条数。⚠️ **exit 0 ≠ 无错**:校验脚本吞异常/语法错也 exit 0(#90 同族教训,memory monitor-blindspot-exit0-syntax-error);grep 无匹配返回码 1 是特性不是故障,别反向误读
   - **④ 对账**:输出确实支撑声明才开口;不支持就报实际状态+贴证据原文,不硬圆

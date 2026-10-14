@@ -8,7 +8,7 @@
 | 角色 | 职责 | 权限 |
 |---|---|---|
 | Claude 主控 | 调度 implementer/reviewer/tester；生成 request；读取 report | 完整读写 |
-| Codex | 只读审查：影响面 grep、smoke 验证、交叉验证 | `.git/` 只读 + `/tmp/` 写；自研门禁走 `codex/*` 分支写（见头注例外） |
+| Codex | 只读审查：影响面 grep、冒烟测试验证、交叉验证 | `.git/` 只读 + `/tmp/` 写；自研门禁走 `codex/*` 分支写（见头注例外） |
 
 ## 流程
 
@@ -48,7 +48,7 @@ refs/codex/resp/<request_id>   # 可选：Codex 报告的 SHA 指针（由 Claud
   "task_type": "review",
   "change_class": "B",
   "requirement": "用户要求修复XXX",
-  "focus_areas": ["数据一致性", "公示同步", "P0 smoke"],
+  "focus_areas": ["数据一致性", "公示同步", "P0 冒烟测试"],
   "internal_reviewer_verdict": "PASS",
   "notes": ""
 }
@@ -144,5 +144,5 @@ refs/codex/resp/<request_id>   # 可选：Codex 报告的 SHA 指针（由 Claud
 - Codex 不写 `.git/`，不 commit，不 push（`codex/*` 自研门禁分支除外，见头注例外）。
 - Codex 报告写到 `/tmp/codex-reports/<request_id>.json`。
 - Claude 主控负责清理过期 ref 和报告文件（建议保留 7 天）。
-- P0 smoke fail = BLOCKED；P1 = FAIL（主控判断是否阻断）；P2/P3 = 记录不阻断。
+- P0 冒烟测试 fail = BLOCKED；P1 = FAIL（主控判断是否阻断）；P2/P3 = 记录不阻断。
 - 同 id 重跑必须换新 id，或确认旧报告已清（脚本②已自动清场）；禁止依赖残留报告当本次结果。

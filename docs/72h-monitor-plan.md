@@ -67,7 +67,7 @@ update_all(17:50) / backfill_evening(02:00,16:35,21:00) / intraday_snapshot(30�
 | 1 | **采集** | ✅ 9任务漏跑/退出/log异常/耗时/launchctl加载 + self_heal force重跑 | ⚠️ public_fund系列(pf-stage0-*/pf-score-*/public-fund-daily等)不在9任务监控列表 | 扩展 gen_schedule_stats TASKS 或 72h脚本单独检查 |
 | 2 | **上传R2** | ⚠️ R2可达性+overview/intraday时效 | ❌ index/industry/trade_sim/public_fund/signal_kelly 各前缀上传成功否 | 72h脚本 curl 各前缀代表性文件时效 |
 | 3 | **发布push main** | ❌ 未覆盖 | ❌ deploy.sh push main 成功否 + 线上版本最新(sw.js CACHE_VERSION) | 72h脚本 curl 线上 sw.js vs 本地 + git log origin/main 时效 |
-| 4 | **功能稳定性** | ❌ 未覆盖(check_data_integrity只在deploy跑) | ❌ 线上 P0 smoke(overview scores/index etfs/board_etf_map/alert/trade_sim_indices) | 72h脚本 curl P0 smoke 关键项 |
+| 4 | **功能稳定性** | ❌ 未覆盖(check_data_integrity只在deploy跑) | ❌ 线上 P0 冒烟测试(overview scores/index etfs/board_etf_map/alert/trade_sim_indices) | 72h脚本 curl P0 冒烟测试关键项 |
 | 5 | **功能及时性** | ⚠️ overview/intraday 时效(盘中<20min/<15min) | ❌ signal_kelly backtest 口径非旧258% + 其他日频数据时效 | 72h脚本 curl signal_kelly_backtest 检查 annualized_return 口径 |
 
 ---
@@ -142,7 +142,7 @@ update_all(17:50) / backfill_evening(02:00,16:35,21:00) / intraday_snapshot(30�
 - 不一致 = 线上滞后
 - **告警**：线上 date < 本地 date = SEVERE（dedup-key=`overview_date_mismatch`）
 
-#### 检查4：功能稳定性（P0 smoke 精简版）
+#### 检查4：功能稳定性（P0 冒烟测试精简版）
 
 从 docs/smoke-checklist.md Part 3 的 20 项 P0 中，选**最关键的 8 项**持续监控（curl 数据层，非全量 20 项省时）：
 
@@ -329,7 +329,7 @@ rm /tmp/monitor-72h-start.txt
 
 4. **告警不轰炸**：alert_state.json 去重（同一异常首次发 SEVERE + suppress），恢复发恢复邮件。72h期间同一异常最多发1次 SEVERE + 1次恢复。
 
-5. **非交易日处理**：P0 smoke 项 date 允许=最近交易日（周末取周五），不误报。intraday/overview 时效检查非交易日跳过（schedule_monitor 已有 is_trading_day 判断，72h脚本同样处理）。
+5. **非交易日处理**：P0 冒烟测试项 date 允许=最近交易日（周末取周五），不误报。intraday/overview 时效检查非交易日跳过（schedule_monitor 已有 is_trading_day 判断，72h脚本同样处理）。
 
 6. **R2 前缀检查代表性文件**：不检查全量（index有100+文件），只抽查代表性文件（sh-all.json等），省时且覆盖上传链路。
 

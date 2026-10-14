@@ -71,10 +71,10 @@
 
 ## 15. 主功能回归复查(2026-08-06 计入,2026-08-06 强化)
 - **核心一句话:新功能绝对不可以影响老功能**。站点功能日益庞大,改动影响面是网状的(一个数据文件被多模块读),单靠"改的人自己测 + 主控验关键点"覆盖不到跨模块回归
-- **⚠️ 每次代码改动都要独立 review + 回归测试(2026-08-06 用户强化标准)**:不只大改动,**任何**改 app.js/lab.js/style.css/后端逻辑/数据产物脚本的改动,push 上线前必须:①派独立 task-reviewer 子 agent(grep 改动文件被谁引用+跑 P0 smoke)②reviewer 通过才 push main。流程:实施 agent 改完 -> reviewer agent review -> 通过 -> 主控 push main。"改的人自己测"不算 review,必须额外一双眼睛(8/6 曾上线没派 reviewer 补派回归,此后严格执行)
+- **⚠️ 每次代码改动都要独立 review + 回归测试(2026-08-06 用户强化标准)**:不只大改动,**任何**改 app.js/lab.js/style.css/后端逻辑/数据产物脚本的改动,push 上线前必须:①派独立 task-reviewer 子 agent(grep 改动文件被谁引用+跑 P0 冒烟测试)②reviewer 通过才 push main。流程:实施 agent 改完 -> reviewer agent review -> 通过 -> 主控 push main。"改的人自己测"不算 review,必须额外一双眼睛(8/6 曾上线没派 reviewer 补派回归,此后严格执行)
 - **改动分级 + 小问题口子(2026-08-07 用户定,修订 L121 一刀切)**:review 本质是怕改坏逻辑,纯显示改无逻辑可坏,不需派 reviewer。按级别分级:
-  - **A 级 小(纯显示)**:同时满足 5 条=①纯显示/文案/CSS/常量配置(不动 if/for/事件绑定/数据结构/SQL/数据产物) ②定位已知:用户指明或 agent 已定位行号,grep 即得 ③量级:≤30 行纯改 ④验证:grep/读单点即确认(不需 smoke/curl) ⑤风险:前端代码可 git revert(不碰 DB/数据产物/后端/定时任务)。**主控直接改 + grep 自验 + push feat+main,不派实施/reviewer**。核心两条:纯显示不动逻辑 + 定位已知不需调研,任一不满足升级派 agent
-  - **B 级 大(逻辑)**:逻辑分支/if/for/事件绑定/数据结构/跨函数/跨模块。派 agent 实施 + reviewer 通过后主控 push main。**reviewer 按影响面分级**(2026-08-07 补,省 token):①无隐藏影响面(单点逻辑,不被轮询/事件/跨函数引用):agent 自验+主控§0单点,不派 reviewer ②有隐藏影响面(轮询/事件/跨函数/数据被多模块读):reviewer 只查影响面+相关 smoke ③广涉及面(跨模块/数据产物/定时任务/后端):完整 reviewer(全 P0 smoke+check_data_integrity)
+  - **A 级 小(纯显示)**:同时满足 5 条=①纯显示/文案/CSS/常量配置(不动 if/for/事件绑定/数据结构/SQL/数据产物) ②定位已知:用户指明或 agent 已定位行号,grep 即得 ③量级:≤30 行纯改 ④验证:grep/读单点即确认(不需冒烟测试/curl) ⑤风险:前端代码可 git revert(不碰 DB/数据产物/后端/定时任务)。**主控直接改 + grep 自验 + push feat+main,不派实施/reviewer**。核心两条:纯显示不动逻辑 + 定位已知不需调研,任一不满足升级派 agent
+  - **B 级 大(逻辑)**:逻辑分支/if/for/事件绑定/数据结构/跨函数/跨模块。派 agent 实施 + reviewer 通过后主控 push main。**reviewer 按影响面分级**(2026-08-07 补,省 token):①无隐藏影响面(单点逻辑,不被轮询/事件/跨函数引用):agent 自验+主控§0单点,不派 reviewer ②有隐藏影响面(轮询/事件/跨函数/数据被多模块读):reviewer 只查影响面+相关冒烟测试 ③广涉及面(跨模块/数据产物/定时任务/后端):完整 reviewer(全 P0 冒烟测试+check_data_integrity)
   - **C 级 数据/后端**:数据产物/SQL/后端/定时任务。派 agent 实施 + 派 reviewer + 数据完整性校验(check_data_integrity.py deploy 前置) + reviewer 通过主控 push main
 - **⚠️ push main 统一入口(防再犯机制 D,2026-08-19)**:merge+push main 一律由主控走 `bash scripts/main-merge.sh <feat 分支>`(唯一权威入口,内含:§14 安全窗口检查 → fetch + main 同步 → base 新鲜校验 → merge feat(冲突即停 §23.11)→ 前端源码统一 build_min+bump(机制 C,版本串唯一权威)→ check_version_progress A/B 校验 → push main → 云上 pull → **push 后自动自查 CI 结论**(轮询 GitHub Actions,FAIL 醒目告警+exit 9,见 scripts/lib/ci_selfcheck.sh))。**agent 只 push feat 分支,禁止 agent 直接 push main**(08-18 多 agent 各自 push 缺 commit / deploy 非 main 分支 push HEAD:main 带上 feat 的根因 §三.4 根治)。改前端源码的 feat,版本串由本脚本 merge 时统一 bump(worktree agent 不自行 bump,防撞号)。
   - **小口子打包原则**:多个 A 级小改动(≥3 个 或合计 >50 行)凑一起=派 agent 合适(打包一次实施省 cherry-pick,主控改多个分散点易漏)。单个 A 级主控改,多个打包派 agent。是否"过多"看分散度+总行数
@@ -83,9 +83,9 @@
 - **回归机制三层**(操作细节见 .claude/skills/role-reviewer §3,reviewer 执行):
   ① **数据产物完整性校验**:被多模块读的关键 JSON(`board_etf_map.json`空key占比<30% / `overview.json` a_amount非空 / `intraday_snapshot.json` collected_at今日 等)生成脚本跑完自动校验,超标 fail 不让 deploy(check_data_integrity.py deploy.sh 前置,已接入)。扩展 `collect_health` 到数据产物
   ② **task-reviewer 子 agent**:每次代码改动 push 前派独立 reviewer agent,不看新功能,专看"改动可能影响哪些老功能"(grep 改动文件被谁引用 + 跑关键老功能点),不占主控上下文
-  ③ **关键功能 smoke 清单**:维护 P0/P1 主功能点清单(首页KPI角标/指数表现ETF/分时图hover/情绪分/信号/策略实验室入口等),每次上线前 reviewer agent 跑一遍 curl 数据层 + 关键交互文字描述验证,失败项立即修
+  ③ **关键功能冒烟测试清单**:维护 P0/P1 主功能点清单(首页KPI角标/指数表现ETF/分时图hover/情绪分/信号/策略实验室入口等),每次上线前 reviewer agent 跑一遍 curl 数据层 + 关键交互文字描述验证,失败项立即修
 - **2026-08-06 教训**:`board_etf_map.json` 因 `etf_index_map.json` 缺失常 27/72 空数组,致指数表现模块 ETF 全失效("全部无ETF")用户发现时已上线。根因=数据产物损坏无校验拦截,此 bug 触发本规范建立
-- **smoke 清单落档**:主功能清单+数据校验规则放 `docs/smoke-checklist.md` 进 git(非 memory),reviewer agent 读取执行
+- **冒烟测试清单落档**:主功能清单+数据校验规则放 `docs/smoke-checklist.md` 进 git(非 memory),reviewer agent 读取执行
 - 模型只文本不能看 UI,回归验证用 curl JSON 数据层 + 关键交互文字描述 + 让用户确认显示三层
 - **审查方法论增强**(2026-08-25,吸收官方 code review 方法论):B级②③/C 级广涉及面改动可拆多视角独立审(规范/大bug浅扫/git blame历史意图/静默失败专查)+ finding 置信度过滤(<80 不进报告)+ 六类误报清单 + 静默失败专查;全文见 `.claude/skills/role-reviewer` §10(小改动仍单 reviewer 单遍审)
 
@@ -103,8 +103,8 @@
 |---|---|---|---|
 | 实施 implementer | .claude/agents/implementer.md | role-implementer | 写代码改文件+上线,含 §9/§21/§8§14 操作+修bug三铁律+举一反三 |
 | 调研 researcher | .claude/agents/researcher.md | role-researcher | 定位根因/查证/方案分析,只读不改,产出结论+证据 |
-| 审查 reviewer | .claude/agents/reviewer.md | role-reviewer | 独立看改动影响老功能,批判性找问题不改代码,跑 smoke |
-| 测试 tester | .claude/agents/tester.md | role-tester | 回归 smoke/压测/边界/数据完整性校验/上线验证 |
+| 审查 reviewer | .claude/agents/reviewer.md | role-reviewer | 独立看改动影响老功能,批判性找问题不改代码,跑冒烟测试 |
+| 测试 tester | .claude/agents/tester.md | role-tester | 回归冒烟测试/压测/边界/数据完整性校验/上线验证 |
 - **角色可兼任**:小任务一个 agent 调研+实施;大任务拆多角色(实施->reviewer->测试流水线)
 - **验收 agent**:主控轻量验收够用不派;需全面验证(多文件/多场景/跨模块)才派独立验收 agent
 - **综合 agent**:汇总多 sub-agent 结果产出文档(如 4 盘点 sub-agent -> smoke-checklist)
