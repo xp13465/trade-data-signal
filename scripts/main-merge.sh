@@ -14,7 +14,8 @@
 #   3. git fetch origin + checkout main + 确认 main 已是最新
 #   4. 校验 feat 分支 base 新鲜: 最近一次 rebase 基点距 origin/main 无净回退(调 check_version_progress)
 #   5. merge feat(冲突即停报, 绝不静默 §23.11)
-#   6. 若 feat 改了前端源码(9 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content/index.html): 统一跑 build_min + bump_asset_version(版本串唯一权威入口, 机制 C; index.html 改动触发统一 bump, build_min 无源变更自然产出不变)
+#   6. 若 feat 改了前端源码(9 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content/index.html): 统一跑 build_min + bump_asset_version(版本串唯一权威入口, 机制 C; index.html 改动触发统一 bump, build_min 无源变更自然产出不变);
+#      触发 bump = 一次「发版」→ 打印「发版本时同步 work-mode-standard/ 通用包」软提醒(README §4 维护约定, 2026-10-15 拍板; 只提醒不阻断)
 #   7. §24⑤ 校验 index 引用 == 实际文件内容 md5(统一 bump 后内容哈希==引用)
 #   7.7 console 洁净度哨兵(#133 复发防线, 2026-10-03 挂): 打线上真实 URL 验 0 CSP 违规 +
 #       0 pageerror; 违规 exit1 阻断发版; 线上不可达 exit2 打醒目告警后放行; SKIP_CONSOLE_CLEAN=1 逃生门
@@ -251,6 +252,16 @@ if [[ -n "$CHANGED_SRC" ]]; then
     # bump 后 main 工作区 index.html/min 已变, 需要 commit 才走后续校验
     echo "  ✓ build_min + bump 完成, 待 commit"
   fi
+
+  # 发版本时同步通用包 — 软提醒(README §4 维护约定, 2026-10-15 用户拍板; 只提醒不阻断不自动改)
+  #   触发点 = 本次「确实 bump 版本」的分支(CHANGED_SRC 非空, 与上面第 6 步 bump 判定同一条件):
+  #   本次 merge 触发版本 bump = 一次「发版」, 提醒顺手同步仓内通用包 work-mode-standard/
+  #   (其 README §4「维护约定」: 来源项目每次发版本时把「同步通用包」当发版清单一项)。
+  #   未触发 bump(未触碰前端源码)则不打该行; 纯输出, 对控制流零影响(不改退出码/不阻断/不加失败路径)。
+  #   dry-run 也打印(演练预览发版提示), 便于本地验证本提醒分支。
+  echo ""
+  echo "⚠ 本次发版(触发版本 bump):记得同步 work-mode-standard/ 通用包(README §4 维护约定:发版本时同步)"
+  echo ""
 else
   echo "  feat 未触碰前端源码(9 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content/index.html), 跳过统一 bump"
 fi
