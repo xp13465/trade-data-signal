@@ -226,6 +226,10 @@ def test_signals_store_wires_t1_audit(tmp_prod_db, monkeypatch):
     calls = []
     monkeypatch.setattr(history_audit, "send_alert",
                         lambda s, b, **kw: calls.append(s) or 0)
+    # 钉死运行日:store() 内部用真实今天(history_audit.today_ymd)判定历史行,
+    # 若不钉则测试出生当天(新行==运行日,只落 disappeared)绿、隔天再跑变历史行多落
+    # appeared 而炸(时敏用例)。打桩模块属性即可命中(store 函数体内 from ..history_audit import)。
+    monkeypatch.setattr(history_audit, "today_ymd", lambda: RUN_DATE)
     n = sigmod.store([("20261014", "sz_div", "buy", "x")])
     assert n == 1
     c = sqlite3.connect(str(tmp_prod_db))

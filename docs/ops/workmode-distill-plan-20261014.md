@@ -6,7 +6,7 @@
 
 - **用户原话**:「最新的工作规范和多agent写协作规范蒸馏到一个新目录。用于其他项目参考 蒸馏过程中和项目相关的不需要保留。核心保留的是工作模式和多agent流转 还是坑和一些经验总结」。
 - **已拍板**:①新目录放 **trade 仓内** ②旧三个镜像目录 **标废弃留档、不删**。
-- **主控按推荐直接推进(用户「听你的建议」)**:③**只出一包 + README 附「Codex 适配指引」**(不做双份对等包 —— 旧 `collab-standard-codex` 停在 09-21、比 Claude 版少一截,双份必然漂移已被自家验证)④**避坑 157 条全展开成正文**(不降级成速查卡)。
+- **主控按推荐直接推进(用户「听你的建议」)**:③**只出一包 + README 附「Codex 适配指引」**(不做双份对等包 —— 旧 `collab-standard-codex` 停在 09-21、比 Claude 版少一截,双份必然漂移已被自家验证)④**避坑 158 条全展开成正文**(不降级成速查卡)。
 
 ## 1. 可修正的依据(证据)
 
@@ -15,7 +15,7 @@
 | 1 | 规范正文资产 = 15 文件 2232 行;纯通用 ≈55% / 混合 ≈40% / 纯项目 ≈5% | recon §1(逐节骨架 + 性质标注) |
 | 2 | 三个旧包**全缺 10 月增量**:`collab-standard-*` 停 09-21/09-28、`claude-work-mode` 停 09-28;§5.7 / §5.8 / §25 / CI 自查 / reviewer §10.7§10.8 / tester §5.3.1 / 续跑分支条 一条都没有 | recon §2.5(差距清单) |
 | 3 | `collab-standard-claude/` 去化已彻底(全包仅 2 处 git 链接残留),骨架(README 四件套 + 模板 + 角色实体文件)可作底子 | recon §2.3 |
-| 4 | 经验资产:memory 246 份 / §18 表 L15+E10 / archive **实测 L50+E30=80** ⇒ 通用候选 **157 条(15 域)**、纯业务特定剔除 83 条 | experience §一、§四 |
+| 4 | 经验资产:memory 246 份 / §18 表 L15+E10 / archive **实测 L50+E30=80** ⇒ 通用候选 **158 条(15 域)**、纯业务特定剔除 83 条 | experience §一、§四 |
 | 5 | 项目依赖残留基线:**8 类约 390 处**(域名 16 / 脚本路径 27 / 任务编号 11 / memory 名 18 / docs 引用 ~70 / 产物名 ~45 / 业务词 ~170 / 时点数字 33) | recon §5.2 |
 
 ## 2. 结构(目标树)
@@ -28,13 +28,14 @@ work-mode-standard/
 │   ├── main-governance.md    主控层(只调度不实施/派单规范/任务治理/COMPACT 恢复)
 │   ├── quality-flow.md       6 道关 + 观察锚点
 │   ├── role-based-context-design.md   角色分层的设计依据
-│   ├── lessons-index.md      避坑索引(一行一条 ×157)
+│   ├── lessons-index.md      避坑索引(一行一条 ×158)
 │   └── pitfalls/<15 域>.md   避坑正文(现象→根因→防再犯→反例/代价→来源)
-├── .claude/
-│   ├── agents/{implementer,reviewer,researcher,tester}.md      ×4
-│   └── skills/role-{implementer,reviewer,researcher,tester}/SKILL.md  ×4
+├── agents/{implementer,reviewer,researcher,tester}.md          ×4
+├── skills/role-{implementer,reviewer,researcher,tester}/SKILL.md  ×4
 └── templates/PROJECT-SPECIFIC.template.md
 ```
+
+> **⚠️ 结构变更(2026-10-15,§7 有全文)**:角色文件从 `.claude/agents|skills/` **改放包内普通目录 `agents/` `skills/`**,安装时再拷进项目的 `.claude/`。原因:在本仓 worktree 里往**任何 `.claude/` 路径下创建文件**会让子 agent 的工具调用永久卡死(已连卡 4 任实施 agent,取证见 §7)。README 的安装命令须按新结构写(含 `mkdir -p <项目>/.claude/{agents,skills}` 再 cp)。
 
 **15 个避坑域**(→ `docs/pitfalls/<slug>.md`):a 多 agent 协作 / b 通知告警 / c 测试自测验证 / d git 分支合并 / e 数据产物一致性 / f 成本 token / g 派单任务调度 / h 调研防误判 / i 前端部署缓存 / j 删除备份安全 / k 生产运维平台 / l 数据源外部依赖 / m 回测数据科学口径 / n LLM 平台工具链 / o 沟通文档治理。
 
@@ -43,7 +44,7 @@ work-mode-standard/
 1. 新目录 `work-mode-standard/` 出现,自带 README 上手指引 ⇒ **整体拷走即可用**(角色文件是实体文件,拿走即生效)。
 2. 10 月增量(recon §2.5 清单)**逐条**在新目录里能找到落点(§5.7 方案可证伪 / §5.8 六关 / §25 删前必备份 / CI 真绿 / 边界独立复核 / 边界维度穷举 / 续跑延用原分支 / 应急不豁免时点)。
 3. 8 类项目依赖 **390 处 → 0 或 `<占位符>`**(刻意保留的通用示例须显式标注)。
-4. 避坑库:157 条(索引 + 正文)在位,每条带来源可溯源。
+4. 避坑库:158 条(索引 + 正文)在位,每条带来源可溯源。
 
 ## 4. 证据用例(事先写定,实现后逐条跑)
 
@@ -59,7 +60,7 @@ work-mode-standard/
 
 | 路 | 分支 | 产出文件 | 依据 |
 |---|---|---|---|
-| 路1 规范正文包 | `feat/263-workmode-spec` | `README.md` / `CLAUDE.md` / `docs/{main-governance,quality-flow,role-based-context-design}.md` / `.claude/**` / `templates/**` | recon §3 判据 + §4.1 结构 + §2.5 差距清单 |
+| 路1 规范正文包 | `feat/263-workmode-spec` | `README.md` / `CLAUDE.md` / `docs/{main-governance,quality-flow,role-based-context-design}.md` / `agents/**` / `skills/**` / `templates/**` | recon §3 判据 + §4.1 结构 + §2.5 差距清单 |
 | 路2 避坑库 | `feat/263-workmode-pitfalls` | `docs/lessons-index.md` / `docs/pitfalls/<15 域>.md` | experience §二判据 + §三盘点 + §四终版清单 |
 
 - 两路各自 worktree 隔离、各自 commit 到自己的 feat 分支、**禁 push main**;合并由主控走 `scripts/main-merge.sh`。
@@ -71,3 +72,24 @@ work-mode-standard/
 新目录 README 必须写一节「维护约定」:**本仓规范改动后,"改动即同步"到本目录**(不再靠记性),并说明"通用版不写死状态型内容(版本号/时点/编号)"—— 这是 L41「同步验收做窄」+ 本次三包全过时的双重复发场景,必须在产物里内建防线。
 
 > 2026-10-15 用户拍板:**保留维护约定,同步触发点 = 发版本时**(替代上文"改动即同步"的写法——本项目每次发版本(打 tag / 发版)时,把「同步通用包」作为发版清单的一项执行);落地见 `work-mode-standard/README.md` §4「维护约定」。
+## 7. 变更记录:结构从 `.claude/**` 改为 `agents/**` + `skills/**`(2026-10-15)
+
+**触发**:路1 实施 agent **连续 4 任卡死**,全部死在"往 `.claude/` 路径下创建文件"这一个动作上。
+
+**取证(每任一致)**:
+| 任 | 死在 | 最后一条工具调用 | 已落地文件 |
+|---|---|---|---|
+| 1 | 写 `.claude/skills/role-implementer/SKILL.md` | Write | CLAUDE.md + 3 份 docs 正常落地 |
+| 2(续跑) | 同上 | Write | 无 |
+| 3(全新) | 写 `.claude/agents/implementer.md`(≤35 行) | Write | 无 |
+| 4(暂存+cp) | Bash 探针 `cp` 进 `.claude/agents/` | Bash | 无 |
+
+**结论**:往路径含 `.claude/` 的位置**创建文件**(不论 Write 工具还是 Bash `cp`)都会让子 agent 的工具调用**永久卡住**;同一步骤、同样的上下文,往 `CLAUDE.md` / `docs/*.md` 这类**不含 `.claude`** 的路径写**全部成功**;第 3 任死在**第一次** 35 行小文件的 Write ⇒ **与内容长度无关,是路径**。
+
+**处置**:通用包**包内不再放 `.claude/` 目录**,角色文件放包内普通目录 `agents/` `skills/`,由 README 的安装命令在**目标项目**里建 `.claude/{agents,skills}` 再拷入 —— 目标项目不在本仓 worktree 内,不受此限。
+
+**落档**:memory `agent-freeze-write-dot-claude-path`(含取证方法:读转录最后一条 `tool_use` 名 + 看 worktree 已落地文件清单;教训是**先取证再动手**,前两轮未取证直接续跑/重派,全部白费)。
+
+## 8. 数字订正:157 → 158(2026-10-15,审查关发现)
+
+本文件原 4 处写「避坑 157 条」,系**方案关出口时的笔误**。审查关实测(`docs/ops/workmode-distill-review-20261015.md` §③必查 4):路2 正文 `lessons-index.md` `grep -c '^- '` = **158**、15 域标题括号数合计 = **158**、索引↔正文 `comm -3` 双向空、五字段各 158;而 `experience` 调研 §四**逐条实测也是 158**、`recon` 无此数 ⇒ **以 158 为准**,本文件已全量更正。
