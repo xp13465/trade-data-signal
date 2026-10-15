@@ -51,7 +51,6 @@ SCAN_EXCLUDE = {"notify.py", "notify_sent.py", "alert_weekly_review.py",
 _NOTIFY_CALL = re.compile(r"notify\.py\b")
 # 「调用形态」提示:行内含这些 = 真在把 notify.py 当命令/子进程调(排除散文/docstring 提及)
 _INVOKE_HINT = re.compile(r"subprocess|sys\.executable|\$PY|\$REPO/scripts/notify|os\.system|\.run\(|cmd\s*=|notify\.py[\"']")
-_IS_COMMENT = re.compile(r"^\s*#")
 # dedup window 关死抑制(=0)的三种形状:「--dedup-window 0」「--dedup-window=0」「\"--dedup-window\", \"0\"」
 _WINDOW0 = re.compile(r"--dedup-window[\"']?\s*(?:[=,]\s*)?[\"']?0[\"']?(?!\d)")
 
