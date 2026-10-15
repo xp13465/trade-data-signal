@@ -2813,17 +2813,27 @@ def main(argv: list[str] | None = None) -> int:
         (_esc_escalated_key, _esc_state_name, _esc_label,
          _esc_escalate_days) = _ESCALATE_CHANNELS[args.dedup_key]
         _esc_repo = Path(os.environ.get("REPO") or REPO)
+        # #264 件B: 有界滚动窗口「近 N 天出现天数」(判据事件化) —— 判据原挂 systemd 持久
+        # failed 状态, 条件挂着不消时「连续天数」单调递增无上界(实测 8 天仍在涨)。
         _esc_tier, _esc_days, _esc_first = adr.consecutive_days_escalate(
             _esc_repo / "data" / _esc_state_name, datetime.now(),
-            _esc_escalate_days, log_prefix="[notify][196]")
-        print(f"[notify][196] {args.dedup_key} 连续异常分级={_esc_tier}({_esc_days}天)",
-              file=sys.stderr)
+            _esc_escalate_days, log_prefix="[notify][196]",
+            rolling_window_days=adr.ESCALATE_ROLLING_WINDOW_DAYS)
+        print(f"[notify][196] {args.dedup_key} 近{adr.ESCALATE_ROLLING_WINDOW_DAYS}天异常分级="
+              f"{_esc_tier}({_esc_days}天)", file=sys.stderr)
         if _esc_tier == TIER_CRITICAL:
-            if check_dedup(_esc_escalated_key, args.dedup_window):
+            # #264 件A: 升级档改判**独立抑制窗**(adr.ESCALATED_DEDUP_WINDOW_SECONDS), 不再复用
+            # 调用方的首报窗。病灶: failed_units 首报窗=0(为「集合有变立即报」), 升级档沿用它
+            # ⇒ check_dedup(key, 0) 恒放行 ⇒ 升级 critical 永不被抑制(10-15 单日 6 封, 6 天 19 封)。
+            # 改后: 同档 ≤1 封/adr.ESCALATED_DEDUP_WINDOW_SECONDS(实测锚定 72h, 见该常量取值依据);
+            # 首报「新增立即报」不受影响(仍走 window=0 的普通路径)。
+            if check_dedup(_esc_escalated_key, adr.ESCALATED_DEDUP_WINDOW_SECONDS):
                 print("[notify][196] 升级档窗口内已发, suppress", file=sys.stderr)
                 return 0
-            _esc_subject = f"[告警] {_esc_label}(连续 {_esc_days} 天, 升级 critical)"
-            _esc_body = (f"<b>连续异常升级</b>: 该异常自 {_esc_first} 起已连续 {_esc_days} 天未清除"
+            _esc_subject = (f"[告警] {_esc_label}(近 {adr.ESCALATE_ROLLING_WINDOW_DAYS} 天出现 "
+                            f"{_esc_days} 天, 升级 critical)")
+            _esc_body = (f"<b>持续异常升级</b>: 该异常自 {_esc_first} 起, 近 "
+                         f"{adr.ESCALATE_ROLLING_WINDOW_DAYS} 天里已出现 {_esc_days} 天未清除"
                          f"(首日已严重告警, 今升 critical —— 说明人工处置超时, 需立即介入)。<br>"
                          + (args.body or ""))
             results = send_tiered(_esc_subject, _esc_body, tier=TIER_CRITICAL,
