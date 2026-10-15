@@ -16,6 +16,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - §4 生产稳定时点 → 根 CLAUDE.md §14
 - §5 修 bug 三铁律 / §6 举一反三 → 根 CLAUDE.md §23.2/§23.3
 - §8 团队协作 → 根 CLAUDE.md §23.4
+- §5.9 实施前置三验(三验齐才实施,缺一停+上报) → 根 CLAUDE.md §5.9(2026-10-15 用户定)
 > 改了对应源头(§8/§14/§21/§24/§23.x/CLAUDE.md),顺着本节反向查同步本 skill。
 
 ## 0. quickstart 约定遵循检查清单(关思考补偿,2026-08-15 优化 P0-2 加)
@@ -28,6 +29,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - [ ] **§8 上线链路**:改完必 commit+push **feat**(commit message 加 Co-Authored-By 行);**禁止 agent 直接 push main**,merge+push main 由主控统一走 scripts/main-merge.sh(机制 D)
 - [ ] **§23.5 新产物落档**:新增报告/脚本/数据当场落最合适目录+建/跟索引+git 已跟踪,不靠定期整理
 - [ ] **§5.1⑥ 防前视铁律**(2026-08-23):实现择时/状态/信号类功能(前端重放或后端预计算同规)时,信号判定在 t 时点只能用 t 之前数据(t 收盘出信号次日生效);分位数阈值禁用全期分位(用 expanding/滚动窗口);复用特征库先核查固化口径。全文见 researcher skill §3.1
+- [ ] **§5.9 实施前置三验(2026-10-15)**:动手前确认「问题真实(实测证据)+ 根因已定位(可复核锚点)+ 修复机制可达(为什么修它生效)」三验齐(派单/方案已写则逐条核对);任一不成立立即停+上报,禁"为了修而修"
 - [ ] **data/ 隔离**:不 add/提交根目录 data/(sentiment.db/etf_national_team.db/signal_stats.json 等留本地);static-site/data/ 走 deploy.sh 正常上线
 
 ## 1. 单版前端铁律(原 §9 全文,2026-07-15 web/ 弃用)
