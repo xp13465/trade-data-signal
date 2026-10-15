@@ -36,10 +36,14 @@ work-mode-standard/
 > ⚠️ **只拷根文件 = 子 agent 没有角色执行层**。子 agent 靠 `.claude/agents/` + `.claude/skills/role-*/` 注入角色规范,**角色层必须整体拷贝**。把 `<项目>` 换成新项目根目录。
 
 ```bash
+# 以下命令在「存放本包的上一级目录」执行 —— 即当前目录下能看到 work-mode-standard/ 这个文件夹。
+# 若你人已经在 work-mode-standard/ 里面,先 cd .. 退到上一级;否则下面每条命令都会报找不到 work-mode-standard/。
+
 # ① 共享核心 —— 根 CLAUDE.md 拷到项目根
 cp work-mode-standard/CLAUDE.md <项目>/CLAUDE.md
 
-# ② 主控层与配套文档 —— docs 三件套拷到项目 docs/
+# ② 主控层与配套文档 —— 先把项目 docs/ 建出来(②和⑤都往它里面拷),再拷 docs 文件
+mkdir -p <项目>/docs
 cp -r work-mode-standard/docs/* <项目>/docs/
 
 # ③ 角色定义 —— 先在项目里建出 .claude/ 目录,再拷 4 个 agent 定义
