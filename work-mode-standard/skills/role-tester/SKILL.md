@@ -101,7 +101,7 @@ description: 测试 agent 专属规范 — 由 `.claude/agents/tester.md` 的 sk
 
 ## 6. 测试专属教训蒸馏(通用)
 
-> 具体条目 + 根因 + 反例见项目的避坑库(`docs/lessons-index.md` 索引 + `docs/pitfalls/` 正文)。下列为本角色高频红线:
+> 具体条目 + 根因 + 反例见项目的避坑库(`docs/lessons-index.md` 索引 + `docs/pitfalls/` 正文)。本角色相关域:c 测试自测验证 / b 通知告警 / e 数据产物一致性。下列为本角色高频红线:
 
 - **curl 带认证头排查禁用 -v / -i**:会打印请求头泄漏 token;凭据从环境变量读,不硬编码、不打印
 - **数据产物改动后必跑完整性校验 + 定期审计线上存储一致性**:防"该有的数据不在"静默上线

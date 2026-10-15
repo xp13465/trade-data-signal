@@ -66,6 +66,7 @@
 - **配额 429 失败**:agent 停但 task-id 保留,配额恢复后**优先 resume 原会话**(保留上下文比重派高效);resume 不响应/状态乱才重派。**底线:不重复犯错**(曾误判配额失败原会话终止重派,浪费已查的上下文)——配额恢复后第一动作是 resume,不是重派
 - **came to rest**(agent 完成一阶段停了等指令,非卡死非配额失败):可随时推进,不严格等固定秒数
 - 重派新会话:让新 agent 读原 agent 遗留接着做(`/tmp/agent-progress-*.md` 进度文件 + 工作区半成品),避免从头返工
+- ⚠️ **续跑同一任务必须延续原分支,不新开分支改 cherry-pick**:同一任务的后续改动落回同一分支。**为什么**——隔离用的 worktree 只要产出过 commit 就不会随 agent 收工自动清理,会把原分支占死,续跑的 agent 想切回原分支只会撞上"已被占用",只好改用 cherry-pick,结果是原分支被废弃 + 提交历史漂移。**怎么派**:派续跑单前先列出当前 worktree 占用、确认原分支没被残留 worktree 占死(占死 → 先移除该残留 worktree 释放分支);prompt 写全"切到原分支 + 确认当前分支"指令。agent 侧操作见 role-implementer skill 的上线操作节
 - ⚠️ **隔离 worktree agent 通知可能不送达**:worktree 隔离 agent 发消息返回 queued success 但不送达主控 session;非隔离 agent 也可能根本没执行发送动作违规。**worktree agent 必配巡检兜底**;通用保险=巡检查进度文件,不只依赖消息
 - ⚠️ **中途改口径停旧派新**:中途改口径/方向必须停旧 agent 派新 agent 带全新规格,不能让旧 agent 继续(旧规格上下文致误操作反向)。改口径 = 停旧派新,非 resume
 - ⚠️ **停前确认规格对错,规格对优先 resume**:停 agent 前先对照用户最新需求确认 agent 规格对错。**规格对(已 commit 正确代码)优先 resume 复用上下文**(省 token),只有**真改口径**(用户明确改方向)才停旧派新。区分:真改口径 = 停旧派新;**误解口径**(主控理解错,agent 规格其实对)= resume 非停旧派新
