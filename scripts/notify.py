@@ -1188,28 +1188,17 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     # 挂在 send() 入口=CLI 直调/send_tiered/notify_agent_done 全路径统一生效。
     # P2④（codex007）：dry_run 冒烟/测试全路径只读——不触碰真实 dedup state 文件；
     # 同时把 body 传下去，聚合恢复消息靠正文明细行逐源清零（泛化 subject 匹配不全）。
-    if not dry_run and _RECOVERY_PREFIX_RE.match(str(subject)):
+    _is_recovery = bool(_RECOVERY_PREFIX_RE.match(str(subject)))
+    if not dry_run and _is_recovery:
         try:
             clear_warning_dedup_for_recovery(subject, body)
         except Exception as e:  # noqa: BLE001
             print(f"[notify][dedup] 恢复清零异常（不影响发送）：{e}", file=sys.stderr)
-        # #264 件E(2026-10-15): 恢复类闭合信号**照发**, 同时在当日摘要里留一条痕迹
-        # (修 RCA §4.1 E「恢复类消息无痕迹」⇒ 摘要单列【闭环信号(恢复)】段)。
-        # 留痕条 reason=recovery_closure, 不计入摘要「被合并 N 条」计数(它不是被合并)。
-        # 失败不影响发送(best-effort); flush 停用(ALERT_DIGEST_DISABLE)时不写(防 buffer 积压)。
-        try:
-            if (not ALERT_AGGREGATE_SUBJECT_RE.match(str(subject))
-                    and os.environ.get("ALERT_DIGEST_DISABLE") != "1"
-                    and os.environ.get("ALERT_BUDGET_DISABLE") != "1"
-                    and (feishu_group
-                         or _resolve_feishu_chat_key(subject, from_prefix, severe)) == "alert"):
-                _absorb_to_digest(
-                    subject, body,
-                    key=f"recovery-trace|{_ledger_key_of(subject, ledger_key)}",
-                    category="recovery", source=source, from_prefix=from_prefix,
-                    reason=DIGEST_RECOVERY_TRACE_REASON, bump_hits=True)
-        except Exception as e:  # noqa: BLE001
-            print(f"[notify][digest] 恢复留痕异常（不影响发送）：{e}", file=sys.stderr)
+    # #264 件E(2026-10-15): 恢复类闭合信号**照发**, 同时在当日摘要里留一条痕迹
+    # (修 RCA §4.1 E「恢复类消息无痕迹」⇒ 摘要单列【闭环信号(恢复)】段)。
+    # R2 修(2026-10-16, 审查 R2): 留痕**移出本处、改在真发出之后写**(见下方 sends 之后)——
+    #   原实现发送前预写 ⇒ 全渠道失败时摘要仍自称「已即时直发」= 不实。
+    #   与设计口径「恢复消息照发后留存」+ P1-1「发送成功才占窗」一致 ⇒ 措辞恒真。
     # ── L2 日预算 gate(#245 批2, 2026-10-10; B1+B2 订正 2026-10-13)────────────
     # 类别内当日「同签名」的第 2+ 条 SEVERE 不再即时外发, 改并入当日摘要 buffer(23:25 摘要
     # 统一出); 首条/新签名/未映射/critical+升级档/恢复/手动预算外 行为=直发。
@@ -1329,6 +1318,25 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     # 发送失败不占窗 ⇒ 下次同域告警仍是 first 重试, 绝不因一次发送失败静默 2h。
     if _dom and _dom_action == "first" and any((email_ok, tg_ok, fs_ok)):
         _commit_domain_state(_dom, _dom_entry)
+    # #264 件E 恢复类留痕: **只在真发出之后**才写(设计口径「恢复消息照发后留存」+ P1-1
+    # 「发送成功才占窗」)。R2 修(2026-10-16, 审查 R2): 原在发送前预写 ⇒ 全渠道失败时
+    # 摘要【闭环信号(恢复)】段仍自称「已即时直发」= 不实; 移到发送结果已知处、仅任一
+    # 渠道成功才登痕 ⇒ 措辞恒真, 且不丢「已发出的恢复」这一本意(设计报告 §① 明示
+    # 「本包留痕是『已发出』的恢复」)。语义不变: reason=recovery_closure, 不计入「被合并
+    # N 条」; 写失败 best-effort 不影响发送; flush 停用(ALERT_DIGEST_DISABLE)时不写防积压。
+    if (_is_recovery and not dry_run and any((email_ok, tg_ok, fs_ok))):
+        try:
+            if (not ALERT_AGGREGATE_SUBJECT_RE.match(str(subject))
+                    and os.environ.get("ALERT_DIGEST_DISABLE") != "1"
+                    and os.environ.get("ALERT_BUDGET_DISABLE") != "1"
+                    and _grp == "alert"):
+                _absorb_to_digest(
+                    subject, body,
+                    key=f"recovery-trace|{_ledger_key_of(subject, ledger_key)}",
+                    category="recovery", source=source, from_prefix=from_prefix,
+                    reason=DIGEST_RECOVERY_TRACE_REASON, bump_hits=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[notify][digest] 恢复留痕异常（不影响发送）：{e}", file=sys.stderr)
     # W1 L1 度量层（纯新增，best-effort）：消息级台账一条（仅实际外发时 = 至少一个真实渠道发出）。
     _record_ledger(subject, {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok},
                    tier=ledger_tier or ("critical" if severe else "notice"),

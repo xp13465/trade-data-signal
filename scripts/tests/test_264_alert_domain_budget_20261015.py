@@ -366,6 +366,35 @@ def test_02g_recovery_exempt_but_trace_kept(_iso, monkeypatch):
     _chk(rows[0]["category"] == "recovery", f"留痕类别应 recovery, 得 {rows[0]}")
 
 
+def test_02n_recovery_trace_only_after_real_send(_iso, monkeypatch):
+    """R2 修(2026-10-16, 审查 R2): 恢复留痕**只在真发出之后**才写(设计口径「照发后留存」)。
+
+    旧实现发送前预写 ⇒ 全渠道失败时摘要【闭环信号(恢复)】段仍自称「已即时直发」= 不实。
+    判别力: 把行为改回「发送前无条件写」, 本用例第 ① 组必红(失败场景留痕行出现)。
+    """
+    clk = _Clock(datetime(2026, 10, 15, 20, 15, 10))
+    _patch_clock(monkeypatch, clk)
+
+    # ① 全渠道失败 ⇒ 不写留痕(摘要才不会自称「已直发」)
+    monkeypatch.setattr(notify, "_send_email", lambda *a, **k: False)
+    monkeypatch.setattr(notify, "send_telegram", lambda *a, **k: False)
+    monkeypatch.setattr(notify, "send_feishu", lambda *a, **k: False)
+    r = notify.send("[恢复] fetch_news ⚠ 已消失", "恢复正文", severe=False)
+    _chk(not any((r.get("email"), r.get("telegram"), r.get("feishu"))),
+         f"应全渠道失败, 得 {r}")
+    _chk(_digest_rows(_iso["alerts"]) == [],
+         f"全渠道失败不得写恢复留痕(否则摘要自称已直发=不实), 得 {_digest_rows(_iso['alerts'])}")
+
+    # ② 任一渠道成功 ⇒ 照写留痕(正控: 行为未被过度收紧; 与 test_02g 同源, 单测自含)
+    monkeypatch.setattr(notify, "send_feishu", lambda *a, **k: True)
+    r2 = notify.send("[恢复] other_task ⚠ 已消失", "恢复正文", severe=False)
+    _chk(r2.get("feishu") is True, f"飞书成功, 得 {r2}")
+    rows = _digest_rows(_iso["alerts"])
+    _chk(len(rows) == 1 and rows[0]["reason"] == notify.DIGEST_RECOVERY_TRACE_REASON
+         and str(rows[0]["key"]).startswith("recovery-trace|"),
+         f"真发出后应留痕 1 行, 得 {rows}")
+
+
 def test_02h_dry_run_writes_nothing(_iso, monkeypatch):
     clk = _Clock(datetime(2026, 10, 15, 18, 25, 19))
     _patch_clock(monkeypatch, clk)
