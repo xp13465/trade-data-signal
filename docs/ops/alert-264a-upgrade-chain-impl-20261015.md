@@ -11,7 +11,7 @@
 
 | 项 | 结果 |
 |---|---|
-| 件A(升级档独立抑制窗) | ✅ 已实现:升级档改判**自己的窗**,与调用方首报窗彻底解耦。窗口取值经**实测重放**锚定 **72h**(RCA 建议 24h 实测**不达标**,偏离已逐条声明,见 §3/§5) |
+| 件A(升级档独立抑制窗) | ✅ 已实现:升级档改判**自己的窗**,与调用方首报窗彻底解耦。窗口取值经**实测重放**锚定 **72h**(RCA 建议 24h 实测**不达标**,偏离已逐条声明,见 §3/§5)。**收口(2026-10-16)**:72h 仅作用于 failed-unit 通道,patrol_drift 归位其原 6h(见 §9) |
 | 件B(判据事件化) | ✅ 已实现:#196 两通道判据改**有界滚动窗「近 7 天出现天数」**;R7 通道(`rolling_window_days=None`)逐位不变 |
 | A-①(重放 ≤2,现 18) | ✅ **2 封**(见 §3 表) |
 | A-② 真故障反例(窗口外/首报必发) | ✅ PASS(测试 `test_a2`) |
@@ -184,9 +184,9 @@ window=72h  10-12~10-15 外发=2 (现18) | 10-11~10-16 外发=2 (现20) | 10-15 
 ### 7.2 同类错误面清单(§23.2 修 bug 三铁律:修完整 + 排查同类)
 | 同类面 | 是否同病 | 处置 |
 |---|---|---|
-| #196 另一通道 `cloud_unit_patrol_drift`(patrol 漂移) | **同病**(同分支同 `args.dedup_window`) | ✅ 一并修(`test_a4` 覆盖) |
+| #196 另一通道 `cloud_unit_patrol_drift`(patrol 漂移) | **不同病**(其首报窗 21600 > 0,抑制本就有效) | ⚠️ 首版「一并修」= 范围外行为变更;**收口回退**:patrol 窗归位 6h(见 §9) |
 | R7 `r2_consistency` 升级档 | **不同病**(R7 分支独立、传 21600;且判据未改) | ✅ 一行未动 + 回归用例 `test_b4`(纯函数)/`test_b5`(真跑) |
-| `check_r2_consistency.sh`(21600)/ `cloud_unit_patrol.sh`(21600) | 不同病(窗口 >0,抑制有效) | 零改动;现语义 = 「首报窗 6h」+「升级档独立 72h 窗」 |
+| `check_r2_consistency.sh`(21600)/ `cloud_unit_patrol.sh`(21600) | 不同病(窗口 >0,抑制有效) | 零改动;收口后语义 = patrol 首报/升级档均 6h;failed-unit 首报 0 + 升级档 72h(见 §9) |
 | 其它传 `--dedup-window 0` 的调用方 | 全仓仅 `check_failed_units.py:282` 一处 | 已在 docstring 标注语义边界 |
 | 其它用「连续天数/持久状态」推进档位的机制 | `schedule_monitor.sh` 的 `self_heal escalated`(L271/L1631/L2306)—— 按「连续 N 次」**运行计数**,非自然日持久状态 | 未动(语义不同、不在声明区);已登记为后续核查候选 |
 
@@ -203,3 +203,31 @@ window=72h  10-12~10-15 外发=2 (现18) | 10-11~10-16 外发=2 (现20) | 10-15 
 - 代码:`feat/264a-alert-upgrade-chain`(commit + push feat,**不 push main**;merge 由主控走 `scripts/main-merge.sh`)。
 - 待拍板 3 项(本包不改):① 窗口取值 72h 是否接受(替代 RCA 建议 24h,备 24/48/72 数字)② §5.2 残余(已 critical 时新增单元受窗,是否加 `--escalate-bypass`)③ §5.3 B-③ 挂账 key 到期清理(另一域,须先设计防 re-trigger/防隐藏真故障)。
 - 上线后观察锚点:RCA §4.1.A 证据用例①「改后连续 6 天 `alert_ledger.jsonl` 中『持续未清』行 ≤2」—— 建议主控在部署后第 3/6 天各核一次(云上只读 grep 即可)。
+
+---
+
+## 9. 收口(2026-10-16,独立审查差集①③ 处置;用户拍板「按推荐方案实施」)
+
+> 来源:`/tmp/review-264a-report.md` §E 差异集 ①(须拍板)/③(建议)。两项均在**同一分支**上收口,不改本包主口径。
+
+### 9.1 ① patrol_drift 升级档窗归位(6h,不并入 72h)
+
+- **问题**:件A 把两个 #196 通道的升级档窗统一成 72h,**顺带**把 `cloud_unit_patrol_drift` 从原 6h 放大 12 倍。该通道不在 RCA 病灶范围(噪声清单只有 failed unit)且现网零升级流量 ⇒ 范围外行为变更。
+- **改法(独立常量,非通道排除)**:
+  - `adr.PATROL_DRIFT_ESCALATED_DEDUP_WINDOW_SECONDS = 21600`(新增常量,注释指明与 `cloud_unit_patrol.sh:153 --dedup-window 21600` 同源);
+  - `notify.py` `_ESCALATE_CHANNELS` 元组**每通道补第 5 项 = 自己的窗**(failed-unit=72h,patrol=6h),`check_dedup(_esc_escalated_key, _esc_window)`。
+- **选型理由(报告要求)**:选「独立常量 + 每通道带窗」而**不是**「patrol 通道保留 `args.dedup_window`」——件A 的立意本就是「升级档窗不再依赖调用方参数」,回退成 `args.dedup_window` 会把刚拆掉的隐式耦合重新装回该通道;独立常量显式可 grep、行为不藏在分支里,且与件A 口径一致。
+- **预期 X→Y**:`check_dedup(cloud_unit_patrol_drift_escalated, W)` 的 W 由 259200 → **21600**;`check_dedup(failed_units_patrol_escalated, W)` 的 W 保持 259200(不变)。
+- **证据用例**:`test_a4`(断言 patrol 窗 == 新常量;旧实现 72h 会红)+ `test_a1`(断言 failed-unit 窗仍 == 72h)。
+
+### 9.2 ③ 两个防御性输入校验(测试方发现的低现实性缺口)
+
+- **a) `consecutive_days` 非数值不再 ValueError 崩**:新增 `adr._safe_int(value, default)`;`consecutive_days_escalate:261` 与**同类面** `r4_staticdata_grade:574`(同款 `int(_state.get("consecutive_days"))`)两处改用之。缺省行为与「字段缺失」一致(从零重算),不崩=不出现「该通道当次零告警」。
+- **b) `seen_dates` 形状过滤**:非 list(字符串/数字)视为缺失;list 内只留 ISO 日期串(新助手 `adr._looks_like_iso_date`)。防损坏内容被当日期:字符串比较 `'a' >= '2026-10-09'` 成立 ⇒ 垃圾项全保留 ⇒ 窗口"满" ⇒ **误判 critical**;过滤后至多退回 severe(方向:少升一次级,绝不虚增误升级)。
+- **预期 X→Y**:`consecutive_days="abc"` 由「抛 ValueError」→「severe(days=2)正常返回」;`seen_dates=["abc",…]` 由「critical(6 天)」→「severe(1 天)」。
+- **证据用例**:`test_c1`(非数值不崩,含 r4 同类面断言;旧码红)+ `test_c2`(垃圾/非 list 三形态不误判 critical;旧码红)。
+- **同类错误面(§23.2③)**:全仓 `int(_state.get(...))` 仅 `adr.py:261` / `adr.py:574` 两处,已一并修;`seen_dates` 唯一写入方=`consecutive_days_escalate` 本身,无第三方消费者。
+
+### 9.3 测试增量
+
+`test_264_upgrade_chain_20261015.py`:`test_a4` 改写(patrol 窗归位)+ 新增件C(`test_c1` 1 例 + `test_c2` 参数化 3 例)。件A/B 用例其余不动(件B/件A failed-unit 口径零变化)。

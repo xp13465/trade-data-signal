@@ -9,13 +9,17 @@
     A-① 升级档窗口内已发 → 抑制(不再因调用方 --dedup-window 0 而恒放行)
     A-② 真故障反例: 窗口外/首报 仍必发 critical(降噪不吞真故障判别维度)
     A-③ 首报通道不受牵连: 首日仍走普通 severe 路径、首报窗仍=0(「集合有变立即报」不变)
-    A-④ 直接取证: 升级档 check_dedup 收到的是独立常量的窗口值, 不是调用方的 0
+    A-④ 直接取证: 升级档 check_dedup 收到的是**该通道自己的**窗口值, 不是调用方的 0/首报窗
+         (failed-unit=72h 独立窗; patrol_drift=原 6h, 收口 2026-10-16 边界差集①)
   件 B(判据事件化: 「连续天数」→ 有界滚动窗「近 N 天出现天数」)
     B-① 计数有界(≤ 窗口天数), 不再单调无界(实测原 consecutive_days=8 仍在涨)
     B-② 稀疏出现(间隔断链)不误升, 但真持续仍升 critical
     B-③ 迁移: 旧状态(只存 consecutive_days)不丢历史连续性, 升级档不误降级
     B-④ R7 回归: rolling_window_days=None → 旧语义逐位不变(R7 链路零影响)
     B-⑤ R7 通道经 notify 真跑: 仍用调用方窗口(21600), 未被件 A 的独立升级窗波及
+  件 C(收口 2026-10-16 防御性输入校验)
+    C-① consecutive_days 非数值 → 容错按缺省, 不抛 ValueError(含 r4 同类面)
+    C-② seen_dates 非列表/垃圾内容 → 形状过滤, 不虚增计数误判 critical
   零外发: ZeroOutboundTrap 包裹全链真跑, 断言零真实出口触达
 
 跑法: /tmp/ci-venv/bin/python -m pytest -q scripts/tests/test_264_upgrade_chain_20261015.py
@@ -102,6 +106,8 @@ def _escalate_state(last, days, first=None):
 def test_a1_escalated_window_suppresses_when_already_sent(stubbed_notify):
     """A-① 升级档独立窗内已发 → 抑制(旧实现: 调用方传 0 ⇒ check_dedup(key,0) 恒放行 ⇒ 真发)。"""
     sent, spy, tmp_path = stubbed_notify
+    assert adr.ESCALATED_DEDUP_WINDOW_SECONDS == 259200, \
+        "failed-unit 升级档窗 = 72h(件A 实测锚定值, 独立锚点)"
     spy.alerted.add(adr.FAILED_UNITS_ESCALATED_DEDUP_KEY)  # 模拟独立窗内已发过升级档
     _seed_state(tmp_path, "failed_units_patrol_state.json",
                 _escalate_state(YESTERDAY, 2))
@@ -139,17 +145,24 @@ def test_a3_first_report_channel_not_affected(stubbed_notify):
     assert spy.windows_for(adr.FAILED_UNITS_DEDUP_KEY) == [0], "首报窗必须仍为调用方传入的 0"
 
 
-def test_a4_patrol_drift_channel_same_fix(stubbed_notify):
-    """A-④ 同模式通道(patrol 漂移)同修: 两个 #196 通道都不再被调用方 0 窗击穿。"""
+def test_a4_patrol_drift_channel_keeps_own_window(stubbed_notify):
+    """A-④ 收口(2026-10-16): patrol_drift 升级档用**自己的窗** —— 原 6h(21600), 不并入 72h。
+
+    该通道不在 RCA 病灶范围且现网零升级流量(审查边界差集①)。
+    判别力: 断言钉**字面量 21600**(独立锚点 = cloud_unit_patrol.sh:153 的 --dedup-window),
+    不用常量比常量 —— 否则「把常量的值改回 72h」这种改坏不会红(自证式断言)。
+    """
     sent, spy, tmp_path = stubbed_notify
+    assert adr.PATROL_DRIFT_ESCALATED_DEDUP_WINDOW_SECONDS == 21600, \
+        "patrol_drift 升级档窗常量必须仍是 6h(独立锚点: cloud_unit_patrol.sh:153)"
     spy.alerted.add(adr.PATROL_DRIFT_ESCALATED_DEDUP_KEY)
     _seed_state(tmp_path, "cloud_unit_patrol_drift_state.json", _escalate_state(YESTERDAY, 2))
     rc = notify.main(["漂移主题", "漂移正文", "--severe",
                       "--dedup-key", adr.PATROL_DRIFT_DEDUP_KEY, "--dedup-window", "21600"])
     assert rc == 0
-    assert not sent, "patrol 漂移升级档窗口内同样必须抑制"
-    assert spy.windows_for(adr.PATROL_DRIFT_ESCALATED_DEDUP_KEY) == [
-        adr.ESCALATED_DEDUP_WINDOW_SECONDS]
+    assert not sent, "patrol 漂移升级档窗口内已发 → 必须抑制"
+    assert spy.windows_for(adr.PATROL_DRIFT_ESCALATED_DEDUP_KEY) == [21600], \
+        "patrol_drift 升级档必须真收到 6h(21600), 不得被 72h 统一档吞并"
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -218,6 +231,53 @@ def test_b5_r7_notify_channel_keeps_caller_window(stubbed_notify):
     assert tiered and "连续 2 天" in tiered[0], "R7 措辞/阈值不变(件 B 只作用 #196 通道)"
     assert spy.windows_for(adr.R2_CONSISTENCY_ESCALATED_DEDUP_KEY) == [21600], \
         "R7 升级档仍用调用方窗口(件 A 不改 R7)"
+
+
+# ══════════════════════════════════════════════════════════════════
+# 件 C(收口 2026-10-16): 防御性输入校验(损坏状态文件不崩 / 不误判)
+# ══════════════════════════════════════════════════════════════════
+def test_c1_non_numeric_consecutive_days_does_not_crash(tmp_path):
+    """C-① consecutive_days 非数值(损坏状态) → 容错按缺省, 不抛 ValueError。
+
+    判别力: 旧实现 `int(_state.get("consecutive_days") or 0)` 对 'abc' 抛 ValueError →
+    整个分级链崩(该通道当次零告警)。同类面: r4_staticdata_grade 同款崩点, 一并断言。
+    """
+    _seed_state(tmp_path, "failed_units_patrol_state.json",
+                {"last_fail_date": YESTERDAY, "consecutive_days": "abc"})
+    tier, days, first = adr.consecutive_days_escalate(
+        tmp_path / "data" / "failed_units_patrol_state.json", FROZEN_NOW,
+        adr.FAILED_UNITS_ESCALATE_DAYS,
+        rolling_window_days=adr.ESCALATE_ROLLING_WINDOW_DAYS)
+    assert (tier, days, first) == ("severe", 2, YESTERDAY), \
+        "非数值应容错退化(缺省 1 天 + 迁移补齐昨日) → severe, 不崩不误升"
+
+    # 同类面: r4_staticdata_grade 的同款 `int(_state.get("consecutive_days"))` 崩点
+    _seed_state(tmp_path, "r4_grade_state.json",
+                {"last_fail_date": YESTERDAY, "consecutive_days": "oops"})
+    tier4, reason4 = adr.r4_staticdata_grade(
+        None, tmp_path / "data" / "r4_grade_state.json", FROZEN_NOW)
+    assert tier4 == "info", f"同类面(r4 分级)非数值同样不得崩: {reason4}"
+
+
+@pytest.mark.parametrize("garbage", [
+    ["abc", "xyz", "foo", "bar", "baz"],   # 垃圾串 list
+    "abcdefghij",                          # 非 list(字符串 → 会被逐字符迭代)
+    12345,                                 # 非 list(数字 → 迭代会 TypeError)
+])
+def test_c2_garbage_seen_dates_not_falsely_critical(tmp_path, garbage):
+    """C-② seen_dates 非列表/垃圾内容 → 形状过滤, 不虚增窗口计数误判 critical。
+
+    判别力: 旧实现下垃圾串字符序 > '2026-…' ⇒ 全被保留 ⇒ 计数 6 ≥ 3 ⇒ **误判 critical**;
+    非 list 情形还会 TypeError 崩。过滤后回落 severe。
+    """
+    _seed_state(tmp_path, "failed_units_patrol_state.json",
+                {"last_fail_date": TODAY, "consecutive_days": 1, "seen_dates": garbage})
+    tier, days, _first = adr.consecutive_days_escalate(
+        tmp_path / "data" / "failed_units_patrol_state.json", FROZEN_NOW,
+        adr.FAILED_UNITS_ESCALATE_DAYS,
+        rolling_window_days=adr.ESCALATE_ROLLING_WINDOW_DAYS)
+    assert (tier, days) == ("severe", 1), \
+        f"垃圾 seen_dates({garbage!r}) 必须被形状过滤 → severe, 不得误判 critical"
 
 
 # ══════════════════════════════════════════════════════════════════

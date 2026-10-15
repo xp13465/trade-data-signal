@@ -79,6 +79,16 @@ PATROL_DRIFT_ESCALATE_DAYS = 3                                       # #196③: 
 #      「升 critical 首报」(窗空必发)不受影响。
 ESCALATED_DEDUP_WINDOW_SECONDS = 259200
 
+# ── #264 收口(2026-10-16, 审查边界差集①): patrol_drift 升级档窗归位 ──────────────
+# 件A 把**两个** #196 通道的升级档窗统一成 ESCALATED_DEDUP_WINDOW_SECONDS(72h), 顺带把
+# patrol_drift 从原 6h(21600)放大到 72h。但 patrol_drift **不在 RCA 病灶范围**(噪声清单只有
+# failed unit), 且现网零升级流量 ⇒ 属「同病一并修」之外的范围外行为变更。收口: patrol_drift
+# 升级档保持其原 6h 窗(与 scripts/cloud_unit_patrol.sh:153 `--dedup-window 21600` 同源, 该值
+# 即 #264 前该通道升级档的实际生效窗), 不受 72h 逻辑影响; failed-unit 升级链仍 72h(不变)。
+# 选「独立常量」而非「该通道保留 args.dedup_window」: 与件A「升级档窗 = 该通道自己的窗, 不依赖
+# 调用方参数」口径一致(件A 正是为消除这种隐式耦合), 且常量名显式可 grep, 避免行为藏在分支里。
+PATROL_DRIFT_ESCALATED_DEDUP_WINDOW_SECONDS = 21600
+
 # ── #264 件B(2026-10-15): 「连续天数」→「近 N 天出现天数」(判据事件化, 有界不单调) ──────
 # 病灶: 判据原先挂在 systemd 的**持久 failed 状态**上(只有人工 reset-failed/重跑成功才消),
 # 条件挂着不消时「连续天数」单调递增无上界(实测 consecutive_days=8 仍在涨), 既不真实也无收益。
@@ -142,6 +152,29 @@ DUR_BUFFER_KEY_MARK = "|dur_buffer|"
 # 三层共用同一键: py 已发 → sh 同键窗内 suppress + monitor 汇总去重(0 重复);py 崩/未发 → sh/monitor
 # 照发(兜底不断层)。此常量本模块暴露, 供 monitor 引用; py/sh 的 CLI 字面量须与之一致(机检断言)。
 NEXTDAY_GAP_DEDUP_KEY = "nextday_gap_check_fail"
+
+
+def _safe_int(value, default=0):
+    """容错取整(#264 收口 2026-10-16): 状态文件字段被写坏(非数值, 如人工编辑/异常写)时返回
+    default, **不抛 ValueError** —— 分级判定退化为「从零重算」, 而不是让调用方整体崩掉
+    (崩 = 该通道当次零告警, 比降级更糟)。缺省行为与旧「字段缺失」一致。
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _looks_like_iso_date(value) -> bool:
+    """形状判定: 是否形如 YYYY-MM-DD(只做形状 ASCII 检查, 不验证日历有效性)。
+
+    用于 seen_dates 状态字段过滤(#264 收口 2026-10-16): 防损坏内容被当日期参与 `>=` 字符串
+    比较 —— 垃圾串(如 'a')字符序大于 '2026-…' 会被保留 ⇒ 虚增窗口计数 ⇒ 误判 critical。
+    """
+    if not isinstance(value, str) or len(value) != 10 or not value.isascii():
+        return False
+    return (value[4] == "-" and value[7] == "-"
+            and value[:4].isdigit() and value[5:7].isdigit() and value[8:].isdigit())
 
 
 def failed_units_signature(problems) -> str:
@@ -258,17 +291,23 @@ def consecutive_days_escalate(state_path, now, escalate_days, log_prefix="",
     except Exception:
         _state = {}
     _last = str(_state.get("last_fail_date") or "")
-    _days = int(_state.get("consecutive_days") or 0)
+    _days = _safe_int(_state.get("consecutive_days"))   # #264 收口: 容错, 非数值不崩
     _first = str(_state.get("first_fail_date") or "")
 
     if rolling_window_days is not None:
         # ── #264 件B: 有界滚动窗口「近 N 天出现天数」(判据事件化) ──
-        _seen = [str(d) for d in (_state.get("seen_dates") or []) if d]
+        # #264 收口(2026-10-16, 审查边界差集③): seen_dates **形状过滤** —— 非 list(字符串/数字
+        # 等)一律视为缺失; list 内逐项只留 ISO 日期串。防损坏文件把垃圾当日期: 字符串比较
+        # 'a' >= '2026-10-09' 成立 ⇒ 逐字符/垃圾项全被保留 ⇒ 窗口"满" ⇒ **误判 critical**。
+        # 方向: 过滤后不足 escalate_days 至多退回 severe(少升一次级), 绝不虚增计数误升级。
+        _raw_seen = _state.get("seen_dates")
+        _seen = ([str(d) for d in _raw_seen if _looks_like_iso_date(str(d))]
+                 if isinstance(_raw_seen, list) else [])
         if not _seen and _last:
             # 迁移: 旧状态无 seen_dates(只存 consecutive_days) → 用「连续天数」+ last_fail_date
             # **反推补齐**窗口内日期, 不丢历史连续性(否则迁移当天会把已升 critical 的链路误降级)。
             try:
-                _n = max(1, int(_state.get("consecutive_days") or 1))
+                _n = max(1, _safe_int(_state.get("consecutive_days"), 1))
                 _last_dt = datetime.strptime(_last, "%Y-%m-%d")
                 _seen = [(_last_dt - timedelta(days=i)).strftime("%Y-%m-%d")
                          for i in range(_n - 1, -1, -1)]
@@ -571,7 +610,7 @@ def r4_staticdata_grade(heartbeat_path, state_path, now):
     except Exception:
         _state = {}
     _last_fail = str(_state.get("last_fail_date") or "")
-    _days = int(_state.get("consecutive_days") or 0)
+    _days = _safe_int(_state.get("consecutive_days"))   # #264 收口: 同类面(同款非数值崩点)
     _today = now.strftime("%Y-%m-%d")
 
     # 追平判定: 心跳最新 ok/skip_oversize 且其 ts 日期 >= 上次 fail 日期

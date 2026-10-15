@@ -2801,17 +2801,23 @@ def main(argv: list[str] | None = None) -> int:
     #    (=某守护链路持续死亡)。两者都是「巡检/链路自身死亡」真故障, 非噪音。
     # 每通道带自己的升档天数常量(#202 P3-a: 此前两通道都硬传 FAILED_UNITS_ESCALATE_DAYS,
     # PATROL_DRIFT_ESCALATE_DAYS 定义悬空; 现值同为 3 故行为逐位不变, 改后各引用各的常量防漂移)。
+    # 每通道带**自己的升级档抑制窗**(#264 收口 2026-10-16, 审查边界差集①): failed-unit 用
+    # adr.ESCALATED_DEDUP_WINDOW_SECONDS(72h, 件A 实测锚定); patrol_drift 保持其原 6h 窗
+    # (adr.PATROL_DRIFT_ESCALATED_DEDUP_WINDOW_SECONDS = cloud_unit_patrol.sh 的 21600) ——
+    # 该通道不在 RCA 病灶范围且现网零升级流量, 不并入 72h 统一档(见 adr 常量注释)。
     _ESCALATE_CHANNELS = {
         adr.PATROL_DRIFT_DEDUP_KEY: (
             adr.PATROL_DRIFT_ESCALATED_DEDUP_KEY, "cloud_unit_patrol_drift_state.json",
-            "#191 云上 unit 巡检漂移持续未清", adr.PATROL_DRIFT_ESCALATE_DAYS),
+            "#191 云上 unit 巡检漂移持续未清", adr.PATROL_DRIFT_ESCALATE_DAYS,
+            adr.PATROL_DRIFT_ESCALATED_DEDUP_WINDOW_SECONDS),
         adr.FAILED_UNITS_DEDUP_KEY: (
             adr.FAILED_UNITS_ESCALATED_DEDUP_KEY, "failed_units_patrol_state.json",
-            "云上 failed unit 持续未清", adr.FAILED_UNITS_ESCALATE_DAYS),
+            "云上 failed unit 持续未清", adr.FAILED_UNITS_ESCALATE_DAYS,
+            adr.ESCALATED_DEDUP_WINDOW_SECONDS),
     }
     if args.dedup_key in _ESCALATE_CHANNELS and not args.dry_run:
         (_esc_escalated_key, _esc_state_name, _esc_label,
-         _esc_escalate_days) = _ESCALATE_CHANNELS[args.dedup_key]
+         _esc_escalate_days, _esc_window) = _ESCALATE_CHANNELS[args.dedup_key]
         _esc_repo = Path(os.environ.get("REPO") or REPO)
         # #264 件B: 有界滚动窗口「近 N 天出现天数」(判据事件化) —— 判据原挂 systemd 持久
         # failed 状态, 条件挂着不消时「连续天数」单调递增无上界(实测 8 天仍在涨)。
@@ -2822,12 +2828,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[notify][196] {args.dedup_key} 近{adr.ESCALATE_ROLLING_WINDOW_DAYS}天异常分级="
               f"{_esc_tier}({_esc_days}天)", file=sys.stderr)
         if _esc_tier == TIER_CRITICAL:
-            # #264 件A: 升级档改判**独立抑制窗**(adr.ESCALATED_DEDUP_WINDOW_SECONDS), 不再复用
-            # 调用方的首报窗。病灶: failed_units 首报窗=0(为「集合有变立即报」), 升级档沿用它
+            # #264 件A: 升级档改判**该通道自己的独立抑制窗**(_esc_window), 不再复用调用方的
+            # 首报窗。病灶: failed_units 首报窗=0(为「集合有变立即报」), 升级档沿用它
             # ⇒ check_dedup(key, 0) 恒放行 ⇒ 升级 critical 永不被抑制(10-15 单日 6 封, 6 天 19 封)。
-            # 改后: 同档 ≤1 封/adr.ESCALATED_DEDUP_WINDOW_SECONDS(实测锚定 72h, 见该常量取值依据);
+            # 改后: 同档 ≤1 封/_esc_window(failed-unit=72h 实测锚定; patrol_drift=原 6h, 收口见上);
             # 首报「新增立即报」不受影响(仍走 window=0 的普通路径)。
-            if check_dedup(_esc_escalated_key, adr.ESCALATED_DEDUP_WINDOW_SECONDS):
+            if check_dedup(_esc_escalated_key, _esc_window):
                 print("[notify][196] 升级档窗口内已发, suppress", file=sys.stderr)
                 return 0
             _esc_subject = (f"[告警] {_esc_label}(近 {adr.ESCALATE_ROLLING_WINDOW_DAYS} 天出现 "
