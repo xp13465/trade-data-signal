@@ -30,11 +30,12 @@ work-mode-standard/
 │   ├── role-based-context-design.md   角色分层的设计依据
 │   ├── lessons-index.md      避坑索引(一行一条 ×157)
 │   └── pitfalls/<15 域>.md   避坑正文(现象→根因→防再犯→反例/代价→来源)
-├── .claude/
-│   ├── agents/{implementer,reviewer,researcher,tester}.md      ×4
-│   └── skills/role-{implementer,reviewer,researcher,tester}/SKILL.md  ×4
+├── agents/{implementer,reviewer,researcher,tester}.md          ×4
+├── skills/role-{implementer,reviewer,researcher,tester}/SKILL.md  ×4
 └── templates/PROJECT-SPECIFIC.template.md
 ```
+
+> **⚠️ 结构变更(2026-10-15,§7 有全文)**:角色文件从 `.claude/agents|skills/` **改放包内普通目录 `agents/` `skills/`**,安装时再拷进项目的 `.claude/`。原因:在本仓 worktree 里往**任何 `.claude/` 路径下创建文件**会让子 agent 的工具调用永久卡死(已连卡 4 任实施 agent,取证见 §7)。README 的安装命令须按新结构写(含 `mkdir -p <项目>/.claude/{agents,skills}` 再 cp)。
 
 **15 个避坑域**(→ `docs/pitfalls/<slug>.md`):a 多 agent 协作 / b 通知告警 / c 测试自测验证 / d git 分支合并 / e 数据产物一致性 / f 成本 token / g 派单任务调度 / h 调研防误判 / i 前端部署缓存 / j 删除备份安全 / k 生产运维平台 / l 数据源外部依赖 / m 回测数据科学口径 / n LLM 平台工具链 / o 沟通文档治理。
 
@@ -59,7 +60,7 @@ work-mode-standard/
 
 | 路 | 分支 | 产出文件 | 依据 |
 |---|---|---|---|
-| 路1 规范正文包 | `feat/263-workmode-spec` | `README.md` / `CLAUDE.md` / `docs/{main-governance,quality-flow,role-based-context-design}.md` / `.claude/**` / `templates/**` | recon §3 判据 + §4.1 结构 + §2.5 差距清单 |
+| 路1 规范正文包 | `feat/263-workmode-spec` | `README.md` / `CLAUDE.md` / `docs/{main-governance,quality-flow,role-based-context-design}.md` / `agents/**` / `skills/**` / `templates/**` | recon §3 判据 + §4.1 结构 + §2.5 差距清单 |
 | 路2 避坑库 | `feat/263-workmode-pitfalls` | `docs/lessons-index.md` / `docs/pitfalls/<15 域>.md` | experience §二判据 + §三盘点 + §四终版清单 |
 
 - 两路各自 worktree 隔离、各自 commit 到自己的 feat 分支、**禁 push main**;合并由主控走 `scripts/main-merge.sh`。
@@ -69,3 +70,21 @@ work-mode-standard/
 ## 6. 维护约定(防"镜像仓又没同步")
 
 新目录 README 必须写一节「维护约定」:**本仓规范改动后,"改动即同步"到本目录**(不再靠记性),并说明"通用版不写死状态型内容(版本号/时点/编号)"—— 这是 L41「同步验收做窄」+ 本次三包全过时的双重复发场景,必须在产物里内建防线。
+
+## 7. 变更记录:结构从 `.claude/**` 改为 `agents/**` + `skills/**`(2026-10-15)
+
+**触发**:路1 实施 agent **连续 4 任卡死**,全部死在"往 `.claude/` 路径下创建文件"这一个动作上。
+
+**取证(每任一致)**:
+| 任 | 死在 | 最后一条工具调用 | 已落地文件 |
+|---|---|---|---|
+| 1 | 写 `.claude/skills/role-implementer/SKILL.md` | Write | CLAUDE.md + 3 份 docs 正常落地 |
+| 2(续跑) | 同上 | Write | 无 |
+| 3(全新) | 写 `.claude/agents/implementer.md`(≤35 行) | Write | 无 |
+| 4(暂存+cp) | Bash 探针 `cp` 进 `.claude/agents/` | Bash | 无 |
+
+**结论**:往路径含 `.claude/` 的位置**创建文件**(不论 Write 工具还是 Bash `cp`)都会让子 agent 的工具调用**永久卡住**;同一步骤、同样的上下文,往 `CLAUDE.md` / `docs/*.md` 这类**不含 `.claude`** 的路径写**全部成功**;第 3 任死在**第一次** 35 行小文件的 Write ⇒ **与内容长度无关,是路径**。
+
+**处置**:通用包**包内不再放 `.claude/` 目录**,角色文件放包内普通目录 `agents/` `skills/`,由 README 的安装命令在**目标项目**里建 `.claude/{agents,skills}` 再拷入 —— 目标项目不在本仓 worktree 内,不受此限。
+
+**落档**:memory `agent-freeze-write-dot-claude-path`(含取证方法:读转录最后一条 `tool_use` 名 + 看 worktree 已落地文件清单;教训是**先取证再动手**,前两轮未取证直接续跑/重派,全部白费)。
