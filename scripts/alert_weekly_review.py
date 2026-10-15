@@ -12,6 +12,7 @@
      「被合并条目是否都出现」(降噪不变式 4:被合并条目必须出现在摘要)。
   4. **四元组缺失扫描**(`--check-four-tuple`):静态扫 scripts/ 下**调 notify.py 发外发告警**
      的脚本,列 缺 `--tier/--severe` / 缺 `--dedup-key` / `--dedup-window 0`(关死抑制=违规)。
+     **判定只认真代码里的调用行**(先剔注释:注释里提及 `--severe`/`--dedup-*` 不算声明,防假 OK)。
      对齐 `docs/ops/alert-checker-registry-20261015.md`(新 checker 缺一不上线,reviewer skill §11)。
 
 数据源:云上权威机台账 `data/alerts/alert_ledger.jsonl`(10-10 08:27 上线后的**全量外发**逐行)
@@ -51,11 +52,40 @@ _NOTIFY_CALL = re.compile(r"notify\.py\b")
 # 「调用形态」提示:行内含这些 = 真在把 notify.py 当命令/子进程调(排除散文/docstring 提及)
 _INVOKE_HINT = re.compile(r"subprocess|sys\.executable|\$PY|\$REPO/scripts/notify|os\.system|\.run\(|cmd\s*=|notify\.py[\"']")
 _IS_COMMENT = re.compile(r"^\s*#")
+# dedup window 关死抑制(=0)的三种形状:「--dedup-window 0」「--dedup-window=0」「\"--dedup-window\", \"0\"」
+_WINDOW0 = re.compile(r"--dedup-window[\"']?\s*(?:[=,]\s*)?[\"']?0[\"']?(?!\d)")
+
+
+def _strip_comments(text):
+    """剔注释(2026-10-16 修 F1/F2):注释里的 --tier/--severe/--dedup-* 不算「已声明」。
+
+    逐行逐字符扫描,跟踪单/双引号;引号外的第一个 '#' 起截断(整行注释与行尾注释一并处理)。
+    字符串内的 '#' 保留(非注释)。shell 续行符 '\\' 不受影响。
+    """
+    out = []
+    for line in text.splitlines():
+        q = None
+        cut = None
+        for i, c in enumerate(line):
+            if q:
+                if c == q:
+                    q = None
+            elif c in ("'", '"'):
+                q = c
+            elif c == "#":
+                cut = i
+                break
+        out.append(line if cut is None else line[:cut])
+    return "\n".join(out)
 
 
 def _load_ledger(paths):
+    """读台账 jsonl;坏 JSON 行跳过,合法 JSON 但顶层非 dict 的行也跳过(计数上报,不裸崩)。
+
+    返回 (rows, missing, skipped_non_dict)。"""
     rows = []
     missing = []
+    skipped = 0
     for p in paths:
         fp = Path(p)
         if not fp.exists():
@@ -66,10 +96,14 @@ def _load_ledger(paths):
             if not line:
                 continue
             try:
-                rows.append(json.loads(line))
+                obj = json.loads(line)
             except json.JSONDecodeError:
                 continue
-    return rows, missing
+            if not isinstance(obj, dict):
+                skipped += 1
+                continue
+            rows.append(obj)
+    return rows, missing, skipped
 
 
 def report_ledger(rows, days, now=None):
@@ -107,6 +141,9 @@ def report_recovery(daily_paths):
         except json.JSONDecodeError:
             print(f"  {p}: JSON 解析失败")
             continue
+        if not isinstance(d, dict):
+            print(f"  {p}: JSON 顶层非对象(跳过)")
+            continue
         merged = d.get("merged_in_digest")
         total = d.get("total")
         print(f"  {p}: date={d.get('date')} total={total} merged_in_digest={merged}")
@@ -127,14 +164,16 @@ def scan_four_tuple(scripts_dir):
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        invokes = any(_NOTIFY_CALL.search(l) and _INVOKE_HINT.search(l) and not _IS_COMMENT.match(l)
-                      for l in text.splitlines())
+        code = _strip_comments(text)  # F1/F2:只在真代码里判(注释提及不算)
+        invokes = any(_NOTIFY_CALL.search(l) and _INVOKE_HINT.search(l)
+                      for l in code.splitlines())
         if not invokes:
             continue
-        has_tier = ("--tier" in text) or ("--severe" in text)
-        has_dedup = "--dedup-key" in text
-        window0 = bool(re.search(r"--dedup-window[\"']?\s*,\s*[\"']0[\"']", text)) or \
-            bool(re.search(r"--dedup-window\s+0\b", text))
+        # 口径:该脚本**任一**真调用行声明了即算已声明(登记表按脚本登记一个值;
+        # 多路径脚本里注释提及不算 —— 旧版全文子串判定会把注释当声明 = 假 OK,F1)
+        has_tier = ("--tier" in code) or ("--severe" in code)
+        has_dedup = "--dedup-key" in code
+        window0 = bool(_WINDOW0.search(code))
         missing = []
         if not has_tier:
             missing.append("tier未声明")
@@ -155,41 +194,59 @@ def scan_four_tuple(scripts_dir):
 
 def _selftest():
     import tempfile
+    import io
+    import contextlib
     rows = [
         {"ts": "2026-10-15 18:00:00", "tier": "critical", "source": "a.sh", "subject": "S1", "group": "alert"},
         {"ts": "2026-10-15 18:05:00", "tier": "critical", "source": "a.sh", "subject": "S1", "group": "alert"},
         {"ts": "2026-10-15 19:00:00", "tier": "notice", "source": "b.sh", "subject": "S2", "group": "report"},
+        # F4:窗口外行(now=10-15 23:00,days=7 ⇒ cutoff=10-08)必须被排除
+        {"ts": "2026-10-01 09:00:00", "tier": "critical", "source": "old.sh", "subject": "OLD", "group": "alert"},
     ]
     with tempfile.TemporaryDirectory() as d:
         lp = Path(d) / "ledger.jsonl"
-        lp.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
-        loaded, missing = _load_ledger([str(lp)])
-        assert len(loaded) == 3 and not missing, (len(loaded), missing)
-        print("[selftest] ledger 加载 OK(3 行)")
-        import io
-        import contextlib
+        # F3:末行塞「合法 JSON 但非 dict」,须跳过+计数,不裸崩
+        lines = [json.dumps(r, ensure_ascii=False) for r in rows] + ["[1, 2, 3]"]
+        lp.write_text("\n".join(lines), encoding="utf-8")
+        loaded, missing, skipped = _load_ledger([str(lp)])
+        assert len(loaded) == 4 and not missing, (len(loaded), missing)
+        assert skipped == 1, f"非 dict 行未计数: skipped={skipped}"
+        print("[selftest] ledger 加载 OK(4 行;1 行合法 JSON 非 dict 已跳过计数)")
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             report_ledger(loaded, days=7, now=datetime(2026, 10, 15, 23, 0))
         out = buf.getvalue()
+        assert "共 3 条" in out, "窗口外行未被排除(F4 断言):\n" + out
+        assert "old.sh" not in out, "窗口外行混进统计(F4 断言):\n" + out
         assert "多余行 1" in out, "重复行统计未生效:\n" + out
         assert "a.sh" in out, "top-talkers 未含 a.sh"
-        print("[selftest] top-talkers / 重复率 OK")
-        # 四元组扫描:合成两个脚本
+        print("[selftest] top-talkers / 重复率 OK(含窗口外行必须被排除断言)")
+        # 四元组扫描:合成样本
         (Path(d) / "good.sh").write_text('"$PY" scripts/notify.py "x" "y" --severe --dedup-key k --dedup-window 3600\n', encoding="utf-8")
         (Path(d) / "bad.sh").write_text('"$PY" scripts/notify.py "x" "y"\n', encoding="utf-8")
         (Path(d) / "zero.sh").write_text('"$PY" scripts/notify.py "x" "y" --severe --dedup-key k --dedup-window 0\n', encoding="utf-8")
+        # F2:等号形式 --dedup-window=0 也必须被检出
+        (Path(d) / "eq0.sh").write_text('"$PY" scripts/notify.py "x" "y" --severe --dedup-key k --dedup-window=0\n', encoding="utf-8")
+        # F1:注释里提 --severe,真调用无 tier ⇒ 必须判「缺 tier」(不再假 OK)
+        (Path(d) / "cmt.sh").write_text('# 本脚本 --severe 直发,dedup 21600\n"$PY" scripts/notify.py "x" "y" --dedup-key k --dedup-window 21600\n', encoding="utf-8")
         # 散文提及(非调用)应被过滤
         (Path(d) / "prose.py").write_text('# 参见 scripts/notify.py 的说明\nx = 1\n', encoding="utf-8")
         buf2 = io.StringIO()
         with contextlib.redirect_stdout(buf2):
             scan_four_tuple(d)
         out2 = buf2.getvalue()
-        assert "good.sh" in out2 and "[OK ] good.sh" in out2, out2
-        assert "bad.sh" in out2 and "tier未声明" in out2 and "dedup-key未声明" in out2, out2
-        assert "zero.sh" in out2 and "dedup-window=0" in out2, out2
+
+        def _line(name):
+            return next(l for l in out2.splitlines() if name in l)
+
+        assert "[OK ] good.sh" in out2, out2
+        assert "tier未声明" in _line("bad.sh") and "dedup-key未声明" in _line("bad.sh"), _line("bad.sh")
+        assert "dedup-window=0" in _line("zero.sh"), _line("zero.sh")
+        assert "dedup-window=0" in _line("eq0.sh"), "等号形式漏检(F2):\n" + _line("eq0.sh")
+        assert "tier未声明" in _line("cmt.sh") and "dedup-key未声明" not in _line("cmt.sh"), \
+            "注释误判为声明(F1):\n" + _line("cmt.sh")
         assert "prose.py" not in out2, "散文提及未被过滤:\n" + out2
-        print("[selftest] 四元组扫描 OK(OK/缺/违规 三态均判对;散文提及已过滤)")
+        print("[selftest] 四元组扫描 OK(三态皆判对;注释不再假 OK;=0 等号形式可检出;散文已过滤)")
     print("[selftest] ALLPASS")
 
 
@@ -213,7 +270,9 @@ def main(argv=None):
         scan_four_tuple(sdir)
 
     ledgers = args.ledger or DEFAULT_LEDGER_CANDIDATES
-    rows, missing = _load_ledger(ledgers)
+    rows, missing, skipped = _load_ledger(ledgers)
+    if skipped:
+        print(f"[warn] 台账有 {skipped} 行是合法 JSON 但顶层非对象,已跳过(计数上报)", file=sys.stderr)
     if not rows:
         print(f"[warn] 未读到台账(缺:{missing})。台账在云上,请在云上跑或传 --ledger", file=sys.stderr)
         if not args.check_four_tuple:

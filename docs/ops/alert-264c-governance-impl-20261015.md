@@ -7,18 +7,18 @@
 ## ① 盘点口径与范围
 
 - **口径**:「告警产生点」= 仓内 `scripts/` 下**实际调 `scripts/notify.py` 发外发告警**的脚本(checker / 告警包装层 / 兜底通知 / 锁跳过通知)。读源码逐点取参,非文档推断。
-- **方法(可复现)**:静态扫 `python3 scripts/alert_weekly_review.py --check-four-tuple --scripts-dir scripts` —— 本轮实产 **49 候选 / 14 缺项**;剔除 2 假阳性(`check_ds_resilience.py` 仅模块 load 非调用、`cloud_unit_patrol_selftest.sh` 自测桩注入 notify)→ **47 个真实产生点**,逐一登表。
+- **方法(可复现)**:静态扫 `python3 scripts/alert_weekly_review.py --check-four-tuple --scripts-dir scripts` —— 本轮实产 **49 候选 / 14 缺项**(2026-10-16 修扫描器后再跑 = **49 候选 / 15 缺项**;增量 +1 见 §修正记录「扫描器修复」);剔除 2 假阳性(`check_ds_resilience.py` 仅模块 load 非调用、`cloud_unit_patrol_selftest.sh` 自测桩注入 notify)→ **47 个真实产生点**,逐一登表。
   - 扫描器只用「调用形态提示」正则排除散文/docstring 提及(教训:初版无该过滤,24 处散文误报;已修 + 自测断言)。
-- **范围**:仓内全部产生点 + 云上 `122.51.111.173` systemd timer 清单(只读 `systemctl list-timers --all`,**56 timers** 含 42 个 `trade-*`)。
+- **范围**:仓内全部产生点 + 云上 `122.51.111.173` systemd timer 清单(只读 `systemctl list-timers --all`,**56 timers** 含 **41 个 `trade-*`**;2026-10-16 云上只读复测 `ls /etc/systemd/system/trade-*.timer | wc -l` = 41,订正原文「42」)。
 - **诚实标注**:云上 timer 是「触发链」权威;本机 mac 纯开发不跑定时(launchd 已废弃,memory `local-dev-cloud-prod-split`),故脚本头注释里的「launchd」字样不代表现网触发,已按云上是否真有 timer 落「触发方式」列。
 
 ## ② 四元组矩阵 + 缺项
 
 - 矩阵落 `docs/ops/alert-checker-registry-20261015.md`:§2.1 故障告警 checker **44 行** / §2.2 业务订阅 **3 行**。
 - **缺项汇总(§3)**:
-  - **A. dedup window 未声明(12 处)**:check_s06_freshness、self_heal、backup_db、verify_backup、on_skip_notify、turnover_backfill_skip_notify、r2_upload_skip_notify、pick_repo、uptime_check、monitor_72h、sensenova-proxy-healthcheck、signal_kelly_backtest
+  - **A. dedup window 未声明(10 处)**:check_s06_freshness、self_heal、backup_db、verify_backup、on_skip_notify、turnover_backfill_skip_notify、pick_repo、uptime_check、monitor_72h、sensenova-proxy-healthcheck(2026-10-16 复核订正:原 12 处含 r2_upload_skip_notify、signal_kelly_backtest 两条误值,均已移出;口径见 §修正记录)
   - **B. window=0 关死抑制(1 处,违规)**:check_failed_units.py(RCA §2.2④.a 病灶 → A 包修)
-  - **C. 默认 tier 未声明(走 send() 旧行为,7 处)**:r2_upload_skip_notify、staticdata_backup_async、staticdata_sync、sensenova-proxy-healthcheck、signal_kelly_backtest、run_daily_brief、gen_daily_brief
+  - **C. 默认 tier 未声明(走 send() 旧行为,5 处)**:r2_upload_skip_notify、staticdata_backup_async、staticdata_sync、run_daily_brief、gen_daily_brief(2026-10-16 复核订正:原 7 处含 sensenova-proxy-healthcheck、signal_kelly_backtest 两条误值,均已移出)
   - **D. 聚合域未声明(全表)**:当前无域概念,全表标「建议·待对齐」,待 264b 定稿
   - **E. 首报策略未声明(隐式)**:多数靠 dedup 语义隐式满足,未显式声明
   - **F. 孤儿 checker 无触发链(2 处)**:uptime_check.sh、monitor_72h.sh(有告警能力但云上无 timer;已登记 #210)⇒ **观察盲区**,须 264c 后续收口
@@ -30,13 +30,13 @@
 - **现状核查**:全仓**无**专门的「新增脚本/checker 上线检查」活规范文件;现有上线检查分散在 `role-implementer` §0 清单、`role-reviewer` 各审查节、`docs/pre-release-quality-flow.md`(§5.8 六关)。
 - **选择**:把「四元组缺失不上线」落在**两个角色 skill**:
   1. `.claude/skills/role-reviewer/SKILL.md` 新增 **§11**(审查关硬门槛)—— 对应 RCA §4.1 F 原话「review 清单强制」;
-  2. `.claude/skills/role-implementer/SKILL.md` **§0 清单新增第 9 条**(实施侧前置声明),「8 条硬勾选」→「9 条硬勾选」。
+  2. `.claude/skills/role-implementer/SKILL.md` **§0 清单新增第 9 条**(实施侧前置声明);计数文案 2026-10-16 由「9 条」订正为「**11 条硬勾选**」(实际项数,见 §⑥ 第 10 条)。
 - **理由**:①生产方(implementer 声明)+ 门禁方(reviewer 把关)**成对覆盖**,不留单侧漏洞(§23.3 举一反三);②两 skill 每会话启动全文注入,确定性生效,不依赖主动读;③role skill 是「活规范」,符合 §23.8 skill 维护同步铁律。
 - **`待 264b` 例外**:聚合域在 264b 定稿前可标 `建议·待对齐`(不阻断),但 **tier / dedup window / 首报策略三项不得缺**。
 
 ### diff(摘要)
 - `role-reviewer/SKILL.md`:文件 213 → **229 行**,§11 起于 L215;含「必查四项 + 怎么核(源码行 grep / 登记表 / 扫描器)+ §10.4 静默失败联动 + §10.8 边界独立复核联动 + 验收口径」。
-- `role-implementer/SKILL.md`:§0 清单 L32 新增第 9 条;L22「8 条」→「9 条」。
+- `role-implementer/SKILL.md`:§0 清单 L34 新增第 9 条(四元组声明);L23 计数文案 2026-10-16 订正为「**11 条硬勾选**」(见 §⑥ 第 10 条)。
 - 两文件均在 `.claude/` 下 ⇒ 按纪律走 **/tmp 暂存 → Bash `cp` 就位 → `cat`/`grep` 验证落地**(禁 Write/Edit 直写 `.claude/` 路径);已 grep 验证 §11 标题在位(L215)、§0 第 9 条在位(L32)。
 
 ## ④ 周 review 机制(件F 的第二半:top-talkers + 被吞条目找回)
@@ -48,7 +48,7 @@
   4. **四元组缺失扫描**(`--check-four-tuple`):静态扫产生点,列缺 tier / 缺 dedup-key / `--dedup-window 0`。
 - **数据源**:云上权威机台账 `data/alerts/alert_ledger.jsonl`(**跨两树聚合**,双树分裂是结构性根因,RCA §1.1;不跨树会「又变成两个数字」违反 §22)+ `alert_daily.json`。
 - **自测**:`--selftest` 用合成台账 + 合成脚本(含 good/bad/zero/散文四种),断言「OK / 缺 / 违规」三态判对 + 散文提及被过滤;**零外发**(全程只读内存/临时目录)。
-- **首周基线**:本脚本首次真跑须在云上(本机无台账,缺省 exit 2 提示从云上取);本轮先落**机制 + 静态扫描基线**(49 候选 / 14 缺项),台账型 top-talkers 待云上首跑产出。
+- **首周基线**:本脚本首次真跑须在云上(本机无台账,缺省 exit 2 提示从云上取);本轮先落**机制 + 静态扫描基线**(49 候选 / 15 缺项,2026-10-16 修扫描器后),台账型 top-talkers 待云上首跑产出。
 
 ## ⑤ 三验证清单(选项一前置)
 
@@ -73,5 +73,42 @@ ssh -i /Users/linhuichen/tdsignal.pem -4 -o ConnectTimeout=10 ubuntu@122.51.111.
 - **264c 后续**:孤儿 checker(uptime_check/monitor_72h)补触发链或显式声明「无触发不适用」(#210)。
 - **首周 review**:云上首跑 `alert_weekly_review.py`(带 `--ledger` 两树),产 top-talkers 基线。
 
+## ⑥ 审查/测试修正记录(2026-10-16,依据 review-264c-report.md + test-264c-report.md)
+
+> 本段由修复单(#264 包3 后续)追加,依据两份独立报告的实文行号逐条复核后修正;每条给证据行号,可反向复跑。
+
+| # | 来源 | 修正内容 | 证据(行号/命令) |
+|---|---|---|---|
+| 1 | review F1 | 登记表 #26 dedup window `未声明` → `21600` | `scripts/r2_upload_skip_notify.sh:51` = `--dedup-key "r2_upload_async_skip:$LOCKPATH" --dedup-window 21600`(注释 L45 有 `--severe` 字样,真调用 L47-51 确无 tier ⇒ tier 仍记未声明) |
+| 2 | review F2 | 登记表 #41 tier/dedup `未声明` → `critical(--severe)/warning`、`86400(状态写失败)` | `sensenova-proxy-healthcheck.py:144-146`(`--severe`)、`:125-127`(`--tier warning --dedup-key healthcheck_state_write_fail --dedup-window 86400`) |
+| 3 | review F3 | 登记表 #42 tier/dedup `未声明` → `critical(--severe,大事件)/3600·86400` | `signal_kelly_backtest.py:381-385`(`--severe --dedup-key ... --dedup-window 3600` / `..._small --dedup-window 86400`)、`:456-461`(孤儿买 `--dedup-window 86400`) |
+| 4 | review F4/F4b | #4 `每 5min` → `每 15min`;#18 `每 5min` → `每 15min` | 云上**只读**实测(2026-10-16):`trade-check-monitor-heartbeat.timer:OnCalendar=*-*-* *:11,26,41,56:00`、`trade-self-heal.timer:OnCalendar=*-*-* *:07,22,37,52:00`(均 15min;仓内快照 `docs/deploy/systemd-units-cloud-snapshot.txt:744`/`:1103` 同值) |
+| 5 | review §3 计数 | §3-A `12 处` → `10 处`(移出 #26/#42);§3-C `7 处` → `5 处`(移出 #41/#42) | 同 #1/#2/#3;两处订正同步登记表 §3 与本报告 ② |
+| 6 | test F1/F2 | 扫描器 tier/dedup 判定改「**剔注释后**在真代码里判」;`--dedup-window=0`/`"--dedup-window", "0"` 等号与逗号形状补检 | `scripts/alert_weekly_review.py` 新增 `_strip_comments()` + `_WINDOW0`;修前 `r2_upload_skip_notify.sh` 假 `[OK ]`(注释命中),修后如实 `[缺 ] tier未声明`(扫描 14 → **15** 缺项) |
+| 7 | test F3 | 台账行「合法 JSON 但非 dict」不再裸崩:跳过 + 计数上报 | `_load_ledger()` 加 `isinstance(obj, dict)` 判定;selftest 已覆盖(塞 `[1,2,3]` 行 → `skipped==1`,不崩) |
+| 8 | test F4 | selftest 补「窗口外行必须被排除」断言(cutoff 逻辑改坏会真红) | selftest 增 1 条 `ts=2026-10-01` 行(now=10-15/days=7 ⇒ cutoff=10-08),断言 `共 3 条` 且 `old.sh` 不出现 |
+| 9 | test F6 | 本报告「42 个 `trade-*` timer」→ **41** | 云上只读 `ls /etc/systemd/system/trade-*.timer \| wc -l` = **41**(2026-10-16 实测;原 42 差 1) |
+| 10 | review F5(计数文案) | `.claude/skills/role-implementer/SKILL.md` §0「N 条硬勾选」计数 9 → **11**(实际项数) | 逐条数 §0 清单(含 2026-08-24 `e1fa7f28f` 新增的 §5.1⑥ 防前视条 + 本次新增四元组条);main 合并后实际 11 项(见下方「计数依据」) |
+| 11 | review ⑧ | 4 个文件补尾换行 | `role-reviewer/SKILL.md` + 登记表 + 本报告 + 扫描器脚本;`tail -c1` 均为 `\n` |
+| 12 | 未纳入本单(上报) | test F5(跨树台账不报「读到几棵树」+ 未声明跨树是否去重)、test F7(周 review 无云上触发链)、test 附注(b)(扫描器输出「49 个告警产生点」措辞) | 均非本修复单清单项;F7(周 review 挂载)按任务书归主控拍板,其余留 264b/后续收口 |
+
+### 计数依据(第 10 条:role-implementer §0 实际项数 = 11)
+
+`grep -n "^- \[ \]" .claude/skills/role-implementer/SKILL.md` 数 §0「quickstart 约定遵循检查清单」的勾选行 = **11 行**(原文写「9 条」)。溯源:2026-08-24 `e1fa7f28f` 加「§5.1⑥ 防前视铁律」条目时未同步计数行,之后 main/feat 各自叠加未修(本次合并 main 的 §5.9 条后又 +1)。已订正为 11。
+
+### 扫描器修复前/后对照(出口条件①)
+
+```
+# 修前:r2_upload_skip_notify.sh 因注释含 --severe 被误判 OK(假 OK,F1)
+$ python3 scripts/alert_weekly_review.py --check-four-tuple --scripts-dir scripts | grep r2_upload_skip
+  [OK ] r2_upload_skip_notify.sh
+# 修后:如实列为「缺 tier」
+  [缺 ] r2_upload_skip_notify.sh  →  tier未声明
+# 小结:修前「扫描 49 个告警产生点,14 个有缺项」→ 修后「49 个,15 个」(+1 = 上述假 OK 修正)
+# selftest(合成样本):cmt.sh(注释提 --severe + 真调用无 tier)⇒ [缺 ] tier未声明(不再假 OK);
+#   eq0.sh(`--dedup-window=0`)⇒ 检出违规;good/bad/zero 三态判对;prose.py 散文过滤
+$ python3 scripts/alert_weekly_review.py --selftest   # → [selftest] ALLPASS
+```
+
 ---
-(报告完;随 #264 包3 落档。生成:2026-10-15。)
+(报告完;随 #264 包3 落档。生成:2026-10-15;2026-10-16 追加 §⑥ 审查/测试修正记录并订正 ①/②/④ 计数。)

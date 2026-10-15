@@ -5,7 +5,7 @@
 > 盘点口径:仓内 `scripts/` 下**实际调用 notify.py 发外发告警**的脚本(读源码逐点取参,非文档推断)+ 云上 systemd timer 清单(`ssh 云上 systemctl list-timers`,只读)。
 > 云上机器:`122.51.111.173`(`/home/ubuntu/code/trade-data`)。行号为 2026-10-15 仓内文件实测。
 > **本表为「盘点快照」**:登表值取自各脚本当前源码;后续改 checker 须同步改本表。
-> **盘点方法(可复现)**:`python3 scripts/alert_weekly_review.py --check-four-tuple --scripts-dir scripts`(静态扫,不执行任何脚本;本轮实产 49 候选 / 14 缺项;剔除 2 假阳性 = `check_ds_resilience.py` 模块 load 非调用、`cloud_unit_patrol_selftest.sh` 自测桩)。
+> **盘点方法(可复现)**:`python3 scripts/alert_weekly_review.py --check-four-tuple --scripts-dir scripts`(静态扫,不执行任何脚本;2026-10-16 修扫描器「注释假 OK/`=0` 等号漏检」后实产 **49 候选 / 15 缺项**;**剔除 2 假阳性**(→47 真产生点)= `check_ds_resilience.py` 模块 load 非调用、`cloud_unit_patrol_selftest.sh` 自测桩。修前为 14 缺项,增量 +1 = #26 `r2_upload_skip_notify.sh`:其 `--severe` 只在注释里(真调用无 tier),旧版全文字串判定把它误判 `[OK ]`,修后如实检出「缺 tier」)。
 
 ## 0. 四元组定义(登记列口径)
 
@@ -46,7 +46,7 @@
 | 1 | `check_failed_units.py`(#196 patrol) | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | **0** ⚠️ | `monitor` | 首报必达 | ⚠️ **window=0 关死抑制**(RCA §2.2④.a 病灶;A 包修复) |
 | 2 | `cloud_unit_patrol.sh` | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | 21600 | `deploy` | 首报必达 | 聚合域待对齐 |
 | 3 | `check_data_gap_alerts.py` | `trade-check-data-gap.timer` 22:35 | critical(`--severe`)/warning(子项) | 86400 | `data-gap` | 首报必达 | 聚合域待对齐 |
-| 4 | `check_monitor_heartbeat.py` | `trade-check-monitor-heartbeat.timer` 每 5min | critical(`--severe`) | 3600 | `monitor` | 首报必达 | — |
+| 4 | `check_monitor_heartbeat.py` | `trade-check-monitor-heartbeat.timer` 每 15min | critical(`--severe`) | 3600 | `monitor` | 首报必达 | — |
 | 5 | `check_s06_freshness.py` | schedule_monitor 尾部(每 15min) | warning | **未声明**(自管 `_state_matches` 落签,无 `--dedup-key`) | `snapshot` | 入聚合 | **dedup window 未声明** |
 | 6 | `check_preupload_backup.py` | schedule_monitor 尾部 | warning | 21600 | `backup` | 入聚合 | — |
 | 7 | `check_r2_consistency.sh` | `trade-r2-consistency.timer` 23:20 | critical(`--severe`) | 21600 | `r2` | 首报必达 | — |
@@ -60,7 +60,7 @@
 | 15 | `alert_denoise_rules.py`(R4 状态写失败) | 各调用点(备份链) | warning | 86400 | `backup` | 入聚合 | — |
 | 16 | `schedule_monitor.sh` | `trade-schedule-monitor.timer` 每 15min | warning / critical | 21600(r2-skip/恢复各自键) | `monitor` | 首报必达 | 聚合域待对齐 |
 | 17 | `retry_failed_metrics.py` | schedule_monitor | warning | 21600 | `collect` | 入聚合 | — |
-| 18 | `self_heal.sh` | `trade-self-heal.timer` 每 5min | info(达上限只落盘) | **未声明** | `collect` | — | **dedup window / 聚合域未声明** |
+| 18 | `self_heal.sh` | `trade-self-heal.timer` 每 15min | info(达上限只落盘) | **未声明** | `collect` | — | **dedup window / 聚合域未声明** |
 | 19 | `update_all.sh` | `trade-update-all.timer` 17:50 | critical(`--severe`) | 1800 | `collect` | 首报必达 | 聚合域待对齐 |
 | 20 | `s06_snapshot.sh` | `trade-s06-snapshot.timer` 20:35 | critical(`--severe`) | 3600 | `snapshot` | 首报必达 | — |
 | 21 | `intraday_snapshot.sh` | `trade-intraday-snapshot.timer`(交易日盘中 09:25 起) | critical(`--severe`) | 1800 | `r2` | 首报必达 | — |
@@ -68,7 +68,7 @@
 | 23 | `verify_backup.sh` | schedule_monitor / 备份链 | critical(`--severe`) | **未声明** | `backup` | 首报必达 | **dedup window 未声明** |
 | 24 | `on_skip_notify.sh` | update_all 锁跳过 | critical(`--severe`) | **未声明** | `collect` | 首报必达 | **dedup window / 聚合域未声明** |
 | 25 | `turnover_backfill_skip_notify.sh` | turnover 锁跳过 | critical(`--severe`) | **未声明** | `collect` | 首报必达 | **dedup window / 聚合域未声明** |
-| 26 | `r2_upload_skip_notify.sh` | r2_upload_async 锁跳过 | **未声明**(无 `--tier`/`--severe`) | **未声明** | `r2` | 首报必达 | **tier / dedup window / 聚合域未声明** |
+| 26 | `r2_upload_skip_notify.sh` | r2_upload_async 锁跳过 | **未声明**(无 `--tier`/`--severe`) | 21600 | `r2` | 首报必达 | **tier / 聚合域未声明** |
 | 27 | `pick_repo.py`(写错树守卫) | 各调用点 | critical(`--severe`) | **未声明** | `deploy` | 首报必达 | **dedup window / 聚合域未声明** |
 | 28 | `with_lock.py`(锁排队超时) | update_all / r2_upload 锁跳过 | warning | 21600 | `collect` | 首报必达 | 聚合域待对齐 |
 | 29 | `agent_inbox_watcher.py`(状态写失败) | 本机 watcher(codex review 链) | warning | 86400 | `monitor` | 首报必达 | 聚合域待对齐 |
@@ -79,12 +79,12 @@
 | 34 | `deploy.sh` | `trade-update-all.timer` 17:50(update_all 主链)+ main-merge | critical(`--severe`) | 21600 | `deploy` | 首报必达 | 聚合域待对齐 |
 | 35 | `r2_upload_async.sh` | update_all 段1 异步任务 | critical(`--severe`) | 21600 / 1800 | `r2` | 首报必达 | 聚合域待对齐 |
 | 36 | `fund_nav_upload_async.sh` | update_all 异步任务 | critical(`--severe`) | 3600 | `r2` | 首报必达 | 聚合域待对齐 |
-| 37 | `staticdata_backup_async.sh` | update_all 异步任务 | **未声明**(`--from-prefix "[通知]"`,无 tier) | 21600 | `backup` | 首报必达 | **tier 未声明 / 聚合域待对齐** |
-| 38 | `staticdata_sync.sh` | deploy / staticdata 链 | **未声明**(`--from-prefix "[告警]"`,无 tier) | 21600 | `backup` | 首报必达 | **tier 未声明 / 聚合域待对齐** |
+| 37 | `staticdata_backup_async.sh` | update_all 异步任务 | **未声明**(守卫类告警路径 L223/L302/L329 无 tier;失败分支有 `--severe`、超阈值分支有 `--tier info`) | 21600 | `backup` | 首报必达 | **tier 未声明 / 聚合域待对齐** |
+| 38 | `staticdata_sync.sh` | deploy / staticdata 链 | **未声明**(守卫类告警路径 L155/L174 无 tier;超阈值分支有 `--tier info`) | 21600 | `backup` | 首报必达 | **tier 未声明 / 聚合域待对齐** |
 | 39 | `push_schedule_stats.sh` | deploy 链(独立推 schedule_stats) | critical(`--severe`) | 1800 | `deploy` | 首报必达 | 聚合域待对齐 |
 | 40 | `brief_push_wrapper.sh` | `trade-brief-push.timer` 20:45 | critical(`--severe`) | 21600 | `business` | 首报必达 | 聚合域待对齐 |
-| 41 | `sensenova-proxy-healthcheck.py` | mac launchd(本机,非云 timer) | **未声明** | **未声明** | `proxy` | 首报必达 | **tier / dedup window / 聚合域未声明** |
-| 42 | `signal_kelly_backtest.py` | kelly 盘中回测链 | **未声明** | **未声明** | `kelly` | 首报必达 | **tier / dedup window / 聚合域未声明** |
+| 41 | `sensenova-proxy-healthcheck.py` | mac launchd(本机,非云 timer) | critical(`--severe`,主告警 L144-146/177)/warning(`--tier warning`,状态写失败 L125-127) | 86400(状态写失败分支);主告警路径无 `--dedup-key`(靠状态机 fired/recovered 自管,类比 #5) | `proxy` | 首报必达 | 聚合域待对齐 |
+| 42 | `signal_kelly_backtest.py` | kelly 盘中回测链 | critical(`--severe`,冻结缺失大事件分支 L381)/**未声明**(小缺口 L385、孤儿买 L456-461 分支) | 3600(大事件)/86400(小缺口、孤儿买) | `kelly` | 首报必达 | 聚合域待对齐 |
 | 43 | `uptime_check.sh` ⚠️**孤儿** | **无触发链**(#210 观察盲区) | critical(`--severe`) | **未声明** | `monitor` | 首报必达 | **dedup window / 聚合域未声明 + 无触发=观察盲区** |
 | 44 | `monitor_72h.sh` ⚠️**孤儿** | **无触发链**(#210;本机 launchd 已自卸载) | critical(`--severe`) | **未声明** | `monitor` | 首报必达 | **dedup window / 聚合域未声明 + 无触发=观察盲区** |
 
@@ -101,9 +101,15 @@
 
 ## 3. 缺项清单(汇总,供 264b/后续收口)
 
-**A. dedup window 未声明(12 处)**:`check_s06_freshness`、`self_heal`、`backup_db`、`verify_backup`、`on_skip_notify`、`turnover_backfill_skip_notify`、`r2_upload_skip_notify`、`pick_repo`、`uptime_check`、`monitor_72h`、`sensenova-proxy-healthcheck`、`signal_kelly_backtest`(其中 #5/#18 为自管落签、#22/#23 触发频次低)。
+**A. dedup window 未声明(10 处)**:`check_s06_freshness`、`self_heal`、`backup_db`、`verify_backup`、`on_skip_notify`、`turnover_backfill_skip_notify`、`pick_repo`、`uptime_check`、`monitor_72h`、`sensenova-proxy-healthcheck`(其中 #5/#18 为自管落签、#22/#23 触发频次低、#41 主告警路径靠状态机自管)。
 **B. dedup window 取值违规(=0 关死抑制,1 处)**:`check_failed_units.py`(RCA §2.2④.a 已立案 → A 包修复)。
-**C. 默认 tier 未声明(走 send() 旧行为,7 处)**:`r2_upload_skip_notify`、`staticdata_backup_async`、`staticdata_sync`、`sensenova-proxy-healthcheck`、`signal_kelly_backtest`、`run_daily_brief`、`gen_daily_brief`。
+**C. 默认 tier 未声明(走 send() 旧行为,5 处)**:`r2_upload_skip_notify`、`staticdata_backup_async`、`staticdata_sync`、`run_daily_brief`、`gen_daily_brief`。
+
+> **A/C 判定口径(2026-10-16 复核订正,逐轴独立判)**:按「**默认告警路径**(常规、非降级、非 opt-in 的告警路径)是否显式声明」判定;**注释里提及不算声明**(旧版扫描器全文子串会把注释当声明 = 假 OK)。
+> - 移出 A(2 处,dedup 实已声明):#26 `r2_upload_skip_notify`(L51 `--dedup-key ... --dedup-window 21600`)、#42 `signal_kelly_backtest`(L382/L385/L461 三处调用均已声明)。
+> - 移出 C(2 处,tier 实已声明):#41 `sensenova-proxy-healthcheck`(L146 `--severe`、L125-127 `--tier warning`)、#42 `signal_kelly_backtest`(L381 `--severe`,小缺口/孤儿买为降级/opt-in 路径,不改变「默认告警路径已声明」判定)。
+> - 保留入 C(守卫类告警路径确无 tier,属常规告警):#37 `staticdata_backup_async`、#38 `staticdata_sync`(其 `--severe`/`--tier info` 只覆盖失败/超阈值分支,守卫类告警路径仍走 send() 旧行为)。
+> - **扫描器口径差异说明(对账 §2 复现命令 4)**:`alert_weekly_review.py --check-four-tuple` 按「脚本内**任一**真调用声明即算已声明」的**粗口径**,故 #37/#38 扫描器判 `[OK ]` 而本表判「缺 tier」(本表按告警路径细分,更严);对账时以本表为准,差异仅此 2 行。
 **D. 聚合域未声明(全表)**:本项目**当前无域概念**(RCA §1.4/§4.1 C)⇒ 全表聚合域均为「建议·待对齐」,须 264b 定稿。
 **E. 首报策略未声明(隐式)**:多数点靠「dedup 语义 = 首次无 key 记录即发出」隐式满足「首报必达」,但**未在代码/文档显式声明**,不满足「缺一不上线」的字面要求。
 **F. 孤儿 checker 无触发链(2 处)**:`uptime_check.sh`、`monitor_72h.sh` —— 有告警能力但云上无触发(观察盲区,已登记 #210)。

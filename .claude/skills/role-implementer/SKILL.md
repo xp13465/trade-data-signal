@@ -20,7 +20,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 > 改了对应源头(§8/§14/§21/§24/§23.x/CLAUDE.md),顺着本节反向查同步本 skill。
 
 ## 0. quickstart 约定遵循检查清单(关思考补偿,2026-08-15 优化 P0-2 加)
-> 执行 agent 常被配置 flash+关思考以省 token(省 97-99% output token),但关思考后对 B 级跨文件/约定遵循任务有降质风险(benvanik 数据:thinking 降 67-75% 时约定遵循违规 0→173 次),被 reviewer 打回=返工更费 token。本清单把实施 agent 最容易违反的规范浓缩成 9 条硬勾选,**开工前读一遍、完工自验逐条勾**,靠 prompt 不看 thinking 也守住核心约定。逐条对应的规范全文见下方对应节,参考实现见 `docs/agent-quickstart.md`。
+> 执行 agent 常被配置 flash+关思考以省 token(省 97-99% output token),但关思考后对 B 级跨文件/约定遵循任务有降质风险(benvanik 数据:thinking 降 67-75% 时约定遵循违规 0→173 次),被 reviewer 打回=返工更费 token。本清单把实施 agent 最容易违反的规范浓缩成 11 条硬勾选,**开工前读一遍、完工自验逐条勾**,靠 prompt 不看 thinking 也守住核心约定。逐条对应的规范全文见下方对应节,参考实现见 `docs/agent-quickstart.md`。
 - [ ] **§21 算法公示**:改算法逻辑/数值(评分/权重/匹配/分段),必 grep 前端公示文案 purpose-notes.js + app.js/lab.js(算法/跟踪分/TE/R²/IR/权重/百分位/match_method)同步改,不只 tooltip 实施点
 - [ ] **§22 数据一致性**:改数据产物,必重跑 + 同步 static-site/ + R2(三步),N 展示位一致,不进根 data/ 目录
 - [ ] **§23.2 修 bug 三铁律**:修完整(先列同类错误面清单)+ 自测完成(全覆盖)+ 排查同类(根因修,不逐文件补丁)
