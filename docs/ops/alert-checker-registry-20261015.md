@@ -1,0 +1,133 @@
+# 告警 checker 四元组登记表 — 2026-10-15(#264 包3「治理」件F)
+
+> 依据:`docs/ops/alert-noise-rca-20261015.md` §2.2③(告警面扩张快于降噪)+ §4.1 F。
+> 目的:把「告警面扩张」纳入预算 —— **每个告警产生点必须声明四元组**「默认 tier / dedup window / 聚合域 / 首报策略」,缺一不上线。
+> 盘点口径:仓内 `scripts/` 下**实际调用 notify.py 发外发告警**的脚本(读源码逐点取参,非文档推断)+ 云上 systemd timer 清单(`ssh 云上 systemctl list-timers`,只读)。
+> 云上机器:`122.51.111.173`(`/home/ubuntu/code/trade-data`)。行号为 2026-10-15 仓内文件实测。
+> **本表为「盘点快照」**:登表值取自各脚本当前源码;后续改 checker 须同步改本表。
+> **盘点方法(可复现)**:`python3 scripts/alert_weekly_review.py --check-four-tuple --scripts-dir scripts`(静态扫,不执行任何脚本;本轮实产 49 候选 / 14 缺项;剔除 2 假阳性 = `check_ds_resilience.py` 模块 load 非调用、`cloud_unit_patrol_selftest.sh` 自测桩)。
+
+## 0. 四元组定义(登记列口径)
+
+| 列 | 含义 | 取值域 | 依据 |
+|---|---|---|---|
+| **默认 tier** | notify.py `--tier`/`--severe` 决定的告警档 | `critical`(--severe 或无 tier 走 send() 旧行为)/`warning`(入 30min 聚合 buffer)/`info`(只落 dashboard) | `notify.py` L2596/L2598 注释 |
+| **dedup window** | `--dedup-key` + `--dedup-window` 去重窗(秒) | 秒数;`0`=**关死抑制**(每次必发,⚠️ 违规值);缺=未声明 | `notify.py` L2618/L2620;L1479 `window<=0 → 不抑制` |
+| **聚合域** | 该告警归属的故障域(供 group_by / 域 inhibition 用) | 见 §1 建议域表 | RCA §4.1 C;**待 264b(aggregate-budget 包)定稿对齐** |
+| **首报策略** | 当日**新 key 首报**是否必达 | `首报必达`(新 key 直发,不受预算/聚合吞)/`入聚合`(首报即进 warning buffer/摘要)/`业务流`(非故障,应分流) | 收敛计划不变式 1/3(首报必达、新 key 永远直发) |
+
+## 1. 建议域表(聚合域取值域,`待 264b 定稿`)
+
+> RCA §4.1 C 只给了「R2/双树、快照、部署、采集、kelly…」的示例域。下表是本次盘点据此**归并**的建议域集(每个告警点先归入一个域,供 264b 的 group_by 复用);**264b(aggregate-budget 包)定稿前,本列标注为「建议·待对齐」,不作为最终口径**。
+
+| 域 key | 域名 | 覆盖 checker(示例) |
+|---|---|---|
+| `monitor` | 监控链(元监控) | schedule_monitor / check_monitor_heartbeat / check_failed_units / agent_inbox_watcher / uptime_check(孤儿) / monitor_72h(孤儿) |
+| `r2` | R2 存储 / 多源一致性(双树) | check_r2_consistency / intraday_snapshot / r2_upload_async / r2_upload_skip_notify / fund_nav_upload_async |
+| `snapshot` | 快照 | s06_snapshot / check_s06_freshness |
+| `deploy` | 部署 / unit 漂移 / 版本一致性 | deploy / cloud_unit_patrol / pick_repo / update_lab / push_schedule_stats |
+| `collect` | 采集 / 回采 / 锁跳过 | update_all / retry_failed_metrics / self_heal / gold_night / turnover_backfill / with_lock / feishu_missed_fetch / 锁跳过类 |
+| `kelly` | 信号凯利(回测/冻结表/盘中闸) | kelly_intraday_gate_decider / kelly_intraday_rerun / signal_kelly_backtest |
+| `plan` | 次日计划 / 缺口 | nextday_plan_generator / nextday_plan.sh / nextday_gap_check(.py/.sh) |
+| `backup` | 备份(DB/staticdata/R2 演练) | backup_db / verify_backup / check_preupload_backup / staticdata_backup_async / staticdata_sync / alert_denoise_rules(R4) |
+| `data-gap` | 数据缺口 | check_data_gap_alerts |
+| `business` | 业务订阅(**非故障,应分流**) | brief_push_wrapper / detect_intraday_anomaly / 买卖点 / 速递 |
+| `proxy` | 代理链路 | sensenova-proxy-healthcheck |
+
+## 2. 四元组矩阵(F-① 实产)
+
+> 「缺项」列:标注四元组中**未显式声明**或**取值违规**的项。`—` = 四列齐且取值合规。
+> **口径**:本表覆盖**全部实调 notify.py 发外发告警**的产生点(47 个真实产生点 = 扫描 49 − 2 假阳性)。
+
+### 2.1 故障告警 checker
+
+| # | 脚本 | 触发方式 / 时点 | 默认 tier | dedup window | 聚合域(建议·待对齐) | 首报策略 | 缺项 |
+|---|---|---|---|---|---|---|---|
+| 1 | `check_failed_units.py`(#196 patrol) | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | **0** ⚠️ | `monitor` | 首报必达 | ⚠️ **window=0 关死抑制**(RCA §2.2④.a 病灶;A 包修复) |
+| 2 | `cloud_unit_patrol.sh` | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | 21600 | `deploy` | 首报必达 | 聚合域待对齐 |
+| 3 | `check_data_gap_alerts.py` | `trade-check-data-gap.timer` 22:35 | critical(`--severe`)/warning(子项) | 86400 | `data-gap` | 首报必达 | 聚合域待对齐 |
+| 4 | `check_monitor_heartbeat.py` | `trade-check-monitor-heartbeat.timer` 每 5min | critical(`--severe`) | 3600 | `monitor` | 首报必达 | — |
+| 5 | `check_s06_freshness.py` | schedule_monitor 尾部(每 15min) | warning | **未声明**(自管 `_state_matches` 落签,无 `--dedup-key`) | `snapshot` | 入聚合 | **dedup window 未声明** |
+| 6 | `check_preupload_backup.py` | schedule_monitor 尾部 | warning | 21600 | `backup` | 入聚合 | — |
+| 7 | `check_r2_consistency.sh` | `trade-r2-consistency.timer` 23:20 | critical(`--severe`) | 21600 | `r2` | 首报必达 | — |
+| 8 | `nextday_gap_check.py` | `trade-nextday-gap-check.timer` 09:26 | critical(`--severe`) | 3600 | `plan` | 首报必达 | — |
+| 9 | `nextday_gap_check.sh`(包装层) | `trade-nextday-gap-check.timer` 09:26 | critical(`--severe`) | 3600 | `plan` | 首报必达 | — |
+| 10 | `nextday_plan_generator.py` | `trade-nextday-plan.timer` 22:30 | critical(`--severe`) | 3600 | `plan` | 首报必达 | — |
+| 11 | `nextday_plan.sh`(包装层) | `trade-nextday-plan.timer` 22:30 | critical(`--severe`) | 3600 | `plan` | 首报必达 | — |
+| 12 | `overfit_monitor.py` | `trade-overfit-monitor.timer` 21:40 | WARN→notice / SEVERE→critical | 86400 | `monitor` | 首报必达 | 聚合域待对齐 |
+| 13 | `kelly_intraday_gate_decider.py` | `trade-kelly-intraday-rerun.timer` 09:40 | warning | 1800 / 21600 / 86400 / 7d(按子类) | `kelly` | 首报必达 | — |
+| 14 | `kelly_intraday_rerun.sh` | `trade-kelly-intraday-rerun.timer` 09:40 | warning / critical(`--severe`,失败分支) | 1800 | `kelly` | 首报必达 | — |
+| 15 | `alert_denoise_rules.py`(R4 状态写失败) | 各调用点(备份链) | warning | 86400 | `backup` | 入聚合 | — |
+| 16 | `schedule_monitor.sh` | `trade-schedule-monitor.timer` 每 15min | warning / critical | 21600(r2-skip/恢复各自键) | `monitor` | 首报必达 | 聚合域待对齐 |
+| 17 | `retry_failed_metrics.py` | schedule_monitor | warning | 21600 | `collect` | 入聚合 | — |
+| 18 | `self_heal.sh` | `trade-self-heal.timer` 每 5min | info(达上限只落盘) | **未声明** | `collect` | — | **dedup window / 聚合域未声明** |
+| 19 | `update_all.sh` | `trade-update-all.timer` 17:50 | critical(`--severe`) | 1800 | `collect` | 首报必达 | 聚合域待对齐 |
+| 20 | `s06_snapshot.sh` | `trade-s06-snapshot.timer` 20:35 | critical(`--severe`) | 3600 | `snapshot` | 首报必达 | — |
+| 21 | `intraday_snapshot.sh` | `trade-intraday-snapshot.timer`(交易日盘中 09:25 起) | critical(`--severe`) | 1800 | `r2` | 首报必达 | — |
+| 22 | `backup_db.sh` | `trade-backup-db.timer` 21:00 | critical(`--severe`) | **未声明** | `backup` | 首报必达 | **dedup window 未声明** |
+| 23 | `verify_backup.sh` | schedule_monitor / 备份链 | critical(`--severe`) | **未声明** | `backup` | 首报必达 | **dedup window 未声明** |
+| 24 | `on_skip_notify.sh` | update_all 锁跳过 | critical(`--severe`) | **未声明** | `collect` | 首报必达 | **dedup window / 聚合域未声明** |
+| 25 | `turnover_backfill_skip_notify.sh` | turnover 锁跳过 | critical(`--severe`) | **未声明** | `collect` | 首报必达 | **dedup window / 聚合域未声明** |
+| 26 | `r2_upload_skip_notify.sh` | r2_upload_async 锁跳过 | **未声明**(无 `--tier`/`--severe`) | **未声明** | `r2` | 首报必达 | **tier / dedup window / 聚合域未声明** |
+| 27 | `pick_repo.py`(写错树守卫) | 各调用点 | critical(`--severe`) | **未声明** | `deploy` | 首报必达 | **dedup window / 聚合域未声明** |
+| 28 | `with_lock.py`(锁排队超时) | update_all / r2_upload 锁跳过 | warning | 21600 | `collect` | 首报必达 | 聚合域待对齐 |
+| 29 | `agent_inbox_watcher.py`(状态写失败) | 本机 watcher(codex review 链) | warning | 86400 | `monitor` | 首报必达 | 聚合域待对齐 |
+| 30 | `feishu_missed_fetch.py`(游标写失败) | 独立 CLI / 采集链 | warning | 86400 | `collect` | 首报必达 | 聚合域待对齐 |
+| 31 | `gold_night.sh` | `trade-gold-night.timer` 02:40 | critical(`--severe`) | 3600 | `collect` | 首报必达 | 聚合域待对齐 |
+| 32 | `turnover_backfill.sh` | `trade-turnover-backfill.timer` 21:10 | critical(`--severe`) | 3600 | `collect` | 首报必达 | 聚合域待对齐 |
+| 33 | `update_lab.sh` | `trade-lab-auto.timer` 19:00 | critical(`--severe`) | 1800 | `deploy` | 首报必达 | 聚合域待对齐 |
+| 34 | `deploy.sh` | `trade-update-all.timer` 17:50(update_all 主链)+ main-merge | critical(`--severe`) | 21600 | `deploy` | 首报必达 | 聚合域待对齐 |
+| 35 | `r2_upload_async.sh` | update_all 段1 异步任务 | critical(`--severe`) | 21600 / 1800 | `r2` | 首报必达 | 聚合域待对齐 |
+| 36 | `fund_nav_upload_async.sh` | update_all 异步任务 | critical(`--severe`) | 3600 | `r2` | 首报必达 | 聚合域待对齐 |
+| 37 | `staticdata_backup_async.sh` | update_all 异步任务 | **未声明**(`--from-prefix "[通知]"`,无 tier) | 21600 | `backup` | 首报必达 | **tier 未声明 / 聚合域待对齐** |
+| 38 | `staticdata_sync.sh` | deploy / staticdata 链 | **未声明**(`--from-prefix "[告警]"`,无 tier) | 21600 | `backup` | 首报必达 | **tier 未声明 / 聚合域待对齐** |
+| 39 | `push_schedule_stats.sh` | deploy 链(独立推 schedule_stats) | critical(`--severe`) | 1800 | `deploy` | 首报必达 | 聚合域待对齐 |
+| 40 | `brief_push_wrapper.sh` | `trade-brief-push.timer` 20:45 | critical(`--severe`) | 21600 | `business` | 首报必达 | 聚合域待对齐 |
+| 41 | `sensenova-proxy-healthcheck.py` | mac launchd(本机,非云 timer) | **未声明** | **未声明** | `proxy` | 首报必达 | **tier / dedup window / 聚合域未声明** |
+| 42 | `signal_kelly_backtest.py` | kelly 盘中回测链 | **未声明** | **未声明** | `kelly` | 首报必达 | **tier / dedup window / 聚合域未声明** |
+| 43 | `uptime_check.sh` ⚠️**孤儿** | **无触发链**(#210 观察盲区) | critical(`--severe`) | **未声明** | `monitor` | 首报必达 | **dedup window / 聚合域未声明 + 无触发=观察盲区** |
+| 44 | `monitor_72h.sh` ⚠️**孤儿** | **无触发链**(#210;本机 launchd 已自卸载) | critical(`--severe`) | **未声明** | `monitor` | 首报必达 | **dedup window / 聚合域未声明 + 无触发=观察盲区** |
+
+> 说明:#43/#44 是**孤儿 checker**(脚本存在、能发告警,但云上无 timer/无调用方触发)——2026-10-06 #195 批2 已登记 #210;「有告警能力但从不跑」= 观察盲区,须一并纳入治理。
+
+### 2.2 业务订阅/报告(非故障,`business` 域,应分流 — 不计入「告警面」扩张考核)
+
+| # | 脚本 | 触发方式 / 时点 | 默认 tier | dedup window | 聚合域(建议) | 首报策略 | 缺项 |
+|---|---|---|---|---|---|---|---|
+| 45 | `detect_intraday_anomaly.py` | intraday_snapshot.sh(盘中) | warning(非 severe,提示性) | 86400(状态写失败分支) | `business` | **业务流** | 聚合域=业务(应分流) |
+| 46 | `run_daily_brief.sh` | `trade-daily-brief.timer` 20:40 | **未声明**(`--from-prefix "[告警]"`,非 severe) | 1800 | `business` | 首报必达 | **tier 未声明(走 send() 旧行为)** |
+| 47 | `gen_daily_brief.py` | trade-daily-brief 链 | **未声明**(同日 dedup) | 同日(自管) | `business` | 业务流 | tier / 聚合域未声明 |
+| — | 买卖点/速递/计划等(notify.py subscribe 分支) | check_signals / brief_push 等 | subscribe(独立渠道) | 自管 | `business` | 业务流 | 归 `subscribe` tier(已独立) |
+
+## 3. 缺项清单(汇总,供 264b/后续收口)
+
+**A. dedup window 未声明(12 处)**:`check_s06_freshness`、`self_heal`、`backup_db`、`verify_backup`、`on_skip_notify`、`turnover_backfill_skip_notify`、`r2_upload_skip_notify`、`pick_repo`、`uptime_check`、`monitor_72h`、`sensenova-proxy-healthcheck`、`signal_kelly_backtest`(其中 #5/#18 为自管落签、#22/#23 触发频次低)。
+**B. dedup window 取值违规(=0 关死抑制,1 处)**:`check_failed_units.py`(RCA §2.2④.a 已立案 → A 包修复)。
+**C. 默认 tier 未声明(走 send() 旧行为,7 处)**:`r2_upload_skip_notify`、`staticdata_backup_async`、`staticdata_sync`、`sensenova-proxy-healthcheck`、`signal_kelly_backtest`、`run_daily_brief`、`gen_daily_brief`。
+**D. 聚合域未声明(全表)**:本项目**当前无域概念**(RCA §1.4/§4.1 C)⇒ 全表聚合域均为「建议·待对齐」,须 264b 定稿。
+**E. 首报策略未声明(隐式)**:多数点靠「dedup 语义 = 首次无 key 记录即发出」隐式满足「首报必达」,但**未在代码/文档显式声明**,不满足「缺一不上线」的字面要求。
+**F. 孤儿 checker 无触发链(2 处)**:`uptime_check.sh`、`monitor_72h.sh` —— 有告警能力但云上无触发(观察盲区,已登记 #210)。
+
+> 说明:C/E 类在 264b(aggregate-budget)落地前属**已知缺口**,本表如实登记;新 checker 自本表起线后须显式声明四元组(见 §4)。F 类须在 264c 后续收口(补触发链或将「无触发」显式声明为不适用)。
+
+## 4. review 强制落点(四元组缺失不上线)
+
+**落点:`.claude/skills/role-reviewer/SKILL.md` 新增 §11(审查关硬门槛)+ `.claude/skills/role-implementer/SKILL.md` §0 清单新增第 9 条(实施侧前置声明)。**
+选择理由与 diff 见实施报告 `docs/ops/alert-264c-governance-impl-20261015.md` §③。
+
+## 5. 复现命令(只读)
+
+```bash
+# 1) 云上 timer 清单
+ssh -i /Users/linhuichen/tdsignal.pem -4 -o ConnectTimeout=10 ubuntu@122.51.111.173 \
+  'systemctl list-timers --all --no-pager; ls -1 /etc/systemd/system/trade-*.timer'
+# 2) 仓内 notify.py 调用点
+grep -rn "notify\.py" scripts/*.py scripts/*.sh | grep -vE "tests/|test_|notify_sent|^scripts/notify.py"
+# 3) 各点四元组取值
+grep -nE "\-\-tier|\-\-severe|\-\-dedup-key|\-\-dedup-window" scripts/<checker>
+# 4) 一键静态扫描(四元组缺项,不执行任何脚本)
+python3 scripts/alert_weekly_review.py --check-four-tuple --scripts-dir scripts
+```
+
+---
+(报告完;本文件随 #264 包3 落档。生成:2026-10-15。)
