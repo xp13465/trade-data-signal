@@ -261,6 +261,34 @@ ALERT_DIGEST_LOCK_FILE = ALERTS_DIR / "alert_digest.flushlock"
 ALERT_DIGEST_STATE_FILE = ALERTS_DIR / "alert_digest_state.json"
 ALERT_DIGEST_HM = "23:25"
 
+# ── #264 件C 故障域聚合层 + 件E 非 critical 重复类预算(2026-10-15) ──────────────
+# 依据: RCA docs/ops/alert-noise-rca-20261015.md §4.1 C/E(10-15 单日 83 条里, 一个真实
+# R2 故障被 7~8 个脚本各自播报 = 同一故障域 28 条; merged_in_digest 仅 3 条/日 ⇒ 预算几乎
+# 不挡; 被吸收事件跨日重新计数再发; 恢复类闭合信号无痕迹)。
+# 三层结构(与既有 L2 日预算层**正交**, 互不改计数口径):
+#   ① 域聚合(C): 同一故障域静默窗(默认 2h)内的派生告警 ⇒ 并入当日摘要, 域首条/跨日首条直发;
+#   ② 非 critical 重复类预算(E): notice/warning 的同签名重复 ⇒ 并入摘要, 首现必直发;
+#   ③ rollover 记忆(E): 已并入过的签名在 3 天窗内再次出现 ⇒ 仍并入, 不再当新事件重发。
+# 不变式(逐条机检, 见 scripts/tests/test_264_alert_domain_budget_20261015.py):
+#   · critical 永不因本层被吞: 件E 分支只在 not severe 时可达(结构性豁免);
+#   · 首报必达: 域首条/跨日首条/未映射域/新签名 一律直发;
+#   · 被并入条目 100% 进摘要正文(逐条 key/来源/正文), 可检索(降噪铁律 L10);
+#   · 各层独立回滚开关(ALERT_DOMAIN_DISABLE / ALERT_NOTICE_BUDGET_DISABLE)+
+#     既有总开关 ALERT_BUDGET_DISABLE=1(置 1 ⇒ 本层与 L2 一起逐字节回现状)。
+ALERT_DOMAIN_STATE_FILE_NAME = adr.ALERT_DOMAIN_STATE_FILENAME
+ALERT_DIGEST_SEEN_FILE_NAME = adr.ALERT_DIGEST_SEEN_FILENAME
+ALERT_AGGREGATE_SUBJECT_RE = re.compile(r"^\[告警·(?:摘要|聚合)\]")   # 聚合/摘要消息自身绝不入聚合
+DIGEST_RECOVERY_TRACE_REASON = "recovery_closure"       # 恢复类「已直发」留痕条目的 reason
+# 摘要正文里的人读原因标签(§6 说人话: 用户可见文案不暴露英文标识; jsonl 里仍是原标识符)
+DIGEST_REASON_LABELS = {
+    "over_budget": "超当日类别预算",
+    "notice_over_budget": "非 critical 重复类超预算",
+    "domain_inhibited": "同一故障域静默窗内派生",
+    "rollover_digested": "前日已并入的同一重复",
+    DIGEST_RECOVERY_TRACE_REASON: "闭环信号留痕(已直发)",
+    "unmapped": "未映射类别(兜底)",
+}
+
 # ── warning 同源指纹降噪（2026-08-26 B1/B2/B3，docs/feishu-aggregate-spam-rootcause-20260826.md §5）──
 # 背景：聚合链路"防丢不防噪"——同源告警反复入队 → 每 30min 一封聚合轰炸。
 # B1 同源指纹窗口：defer_warning 入队时算归一化指纹，同指纹 4h 内不再入队只累计次数；
@@ -1165,6 +1193,23 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
             clear_warning_dedup_for_recovery(subject, body)
         except Exception as e:  # noqa: BLE001
             print(f"[notify][dedup] 恢复清零异常（不影响发送）：{e}", file=sys.stderr)
+        # #264 件E(2026-10-15): 恢复类闭合信号**照发**, 同时在当日摘要里留一条痕迹
+        # (修 RCA §4.1 E「恢复类消息无痕迹」⇒ 摘要单列【闭环信号(恢复)】段)。
+        # 留痕条 reason=recovery_closure, 不计入摘要「被合并 N 条」计数(它不是被合并)。
+        # 失败不影响发送(best-effort); flush 停用(ALERT_DIGEST_DISABLE)时不写(防 buffer 积压)。
+        try:
+            if (not ALERT_AGGREGATE_SUBJECT_RE.match(str(subject))
+                    and os.environ.get("ALERT_DIGEST_DISABLE") != "1"
+                    and os.environ.get("ALERT_BUDGET_DISABLE") != "1"
+                    and (feishu_group
+                         or _resolve_feishu_chat_key(subject, from_prefix, severe)) == "alert"):
+                _absorb_to_digest(
+                    subject, body,
+                    key=f"recovery-trace|{_ledger_key_of(subject, ledger_key)}",
+                    category="recovery", source=source, from_prefix=from_prefix,
+                    reason=DIGEST_RECOVERY_TRACE_REASON, bump_hits=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[notify][digest] 恢复留痕异常（不影响发送）：{e}", file=sys.stderr)
     # ── L2 日预算 gate(#245 批2, 2026-10-10; B1+B2 订正 2026-10-13)────────────
     # 类别内当日「同签名」的第 2+ 条 SEVERE 不再即时外发, 改并入当日摘要 buffer(23:25 摘要
     # 统一出); 首条/新签名/未映射/critical+升级档/恢复/手动预算外 行为=直发。
@@ -1191,6 +1236,75 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
                     return {"email": False, "telegram": False, "feishu": False,
                             "digested": True}
                 # append 失败 → fail-open 落直发(宁多发不吞, 不 return)
+    # ── #264 件C 故障域聚合 gate(2026-10-15)──────────────────────────────────
+    # 语义 = Alertmanager「分组静默窗」: 同一故障域(adr.domain_of)距上一条同域告警 < 2h
+    # ⇒ 本条是该事件的派生播报, 并入当日摘要(23:25 出 1 条, 正文逐条列全量明细); 否则
+    # 直发(域首条/跨日首条/静默窗外复发 = 新事件)。依据 RCA §4.1 C(10-15 一个真 R2 故障
+    # 被 7~8 个脚本各发 = 28 条)。
+    # 豁免(逐条 = 不聚合, 照发; 宁多勿吞): 非告警群消息(业务流 report 群等) / 恢复类
+    # (闭环信号必须即时) / 摘要+聚合消息自身(防元噪声) / budget_exempt(critical 升级档) /
+    # dry-run / 域未映射 / 总开关 ALERT_BUDGET_DISABLE=1 或 ALERT_DOMAIN_DISABLE=1。
+    # 状态写盘在「真发出/真并入」之后(发送成功才占窗, 对齐 P1-1), 写失败只是不占窗。
+    _dom, _dom_action, _dom_entry = None, None, None
+    _agg_exempt = bool(ALERT_AGGREGATE_SUBJECT_RE.match(str(subject))) \
+        or bool(_RECOVERY_PREFIX_RE.match(str(subject)))
+    _grp = feishu_group or _resolve_feishu_chat_key(subject, from_prefix, severe)
+    if (not dry_run and not budget_exempt and not _agg_exempt and _grp == "alert"
+            and os.environ.get("ALERT_DOMAIN_DISABLE") != "1"
+            and os.environ.get("ALERT_BUDGET_DISABLE") != "1"):
+        _dom = adr.domain_of(ledger_key, subject)
+        if _dom:
+            _dom_action, _dom_entry = adr.domain_inhibit_judge(
+                _domain_state(), _dom, datetime.now())
+            if _dom_action == "absorb":
+                _dcat = adr.category_of(ledger_key, subject) or _dom
+                if _absorb_to_digest(subject, body, key=ledger_key, category=_dcat,
+                                     source=source, from_prefix=from_prefix,
+                                     reason=adr.DOMAIN_ABSORB_REASON, domain=_dom,
+                                     bump_hits=True):
+                    _commit_domain_state(_dom, _dom_entry)
+                    print(f"[notify][domain] 并入当日域摘要 domain={_dom} "
+                          f"key={ledger_key or '<subject>'} "
+                          f"(同域 2h 静默窗内派生, 本日该域已并入 {_dom_entry['n_absorbed']} 条)",
+                          file=sys.stderr)
+                    return {"email": False, "telegram": False, "feishu": False,
+                            "digested": True}
+                # append 失败 → fail-open 落直发(宁多发不吞, 不 return)
+    # ── #264 件E 非 critical 重复类预算 gate(2026-10-15)────────────────────────
+    # 依据 RCA §4.1 E(merged_in_digest 仅 3 条/日 ⇒ 预算几乎不挡; 被吸收事件跨日重新计数
+    # 再发)。口径: **只咬非 severe(notice/warning) 的重复类** —— 同签名今日已直发过, 或
+    # 在 3 天 rollover 记忆窗内已并入过, 且该类别当日 notice 直发额度已用尽 ⇒ 并入摘要。
+    # ①结构性保证 critical 不被本层吞: 分支前置 `not severe`(物理不可达);
+    # ②计数走 tier∈{notice,warning} 独立台账口径 ⇒ 不与 critical 额度互相挤占(B1 不破);
+    # ③首现必直发(新签名/无历史 ⇒ 照发), 跨日重复不再重发(rollover 记忆);
+    # ④只咬告警群(`_grp == "alert"`): 本层咬的是**非 severe** 消息, 没有 severe⇒alert
+    #   的结构保证, 故必须显式限群 —— 否则 report 群的业务订阅流(买卖点/汪汪队信号/
+    #   异动)一旦同签名重复就会被并入「告警摘要」而**从报告群消失** = 丢业务信号。
+    #   (report/follow 群消息不属「告警重复播报」问题面, 与域 gate 同口径。)
+    if (not severe and not dry_run and not budget_exempt and not _agg_exempt
+            and _grp == "alert"
+            and os.environ.get("ALERT_NOTICE_BUDGET_DISABLE") != "1"
+            and os.environ.get("ALERT_BUDGET_DISABLE") != "1"):
+        _ncat = adr.category_of(ledger_key, subject)
+        if _ncat:
+            _nsig = _ledger_key_of(subject, ledger_key)
+            _dup_today = _nsig in _budget_today_notice_keys(_ncat)
+            _roll, _ = adr.rollover_absorb_judge(_rollover_seen(), _nsig, datetime.now())
+            if (_budget_today_notice_count(_ncat) >= adr.ALERT_NOTICE_BUDGET.get(_ncat, 1)
+                    and (_dup_today or _roll)):
+                _nreason = (adr.ROLLOVER_ABSORB_REASON if (_roll and not _dup_today)
+                            else adr.NOTICE_OVER_BUDGET_REASON)
+                if _absorb_to_digest(subject, body, key=ledger_key, category=_ncat,
+                                     source=source, from_prefix=from_prefix,
+                                     reason=_nreason, mark_seen=True, bump_hits=True):
+                    print(f"[notify][notice-budget] 并入当日摘要 "
+                          f"key={ledger_key or '<subject>'} sig={_nsig} category={_ncat} "
+                          f"reason={_nreason} (非 critical 重复类; critical 额度不动)",
+                          file=sys.stderr)
+                    return {"email": False, "telegram": False, "feishu": False,
+                            "digested": True}
+                # append 失败 → fail-open 落直发
+
     if severe:
         subject = SEVERE_PREFIX + subject
     # W1 台账重入守卫：分发期间 depth>0，令底层 _send_email/send_feishu/send_telegram
@@ -1211,6 +1325,10 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
         _mirror_severe(subject, body,
                        results={"email": email_ok, "telegram": tg_ok, "feishu": fs_ok},
                        source=source)
+    # #264 件C: 域「首报」只有在**真发出**后才占窗(发送成功才占窗, 对齐 P1-1)——
+    # 发送失败不占窗 ⇒ 下次同域告警仍是 first 重试, 绝不因一次发送失败静默 2h。
+    if _dom and _dom_action == "first" and any((email_ok, tg_ok, fs_ok)):
+        _commit_domain_state(_dom, _dom_entry)
     # W1 L1 度量层（纯新增，best-effort）：消息级台账一条（仅实际外发时 = 至少一个真实渠道发出）。
     _record_ledger(subject, {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok},
                    tier=ledger_tier or ("critical" if severe else "notice"),
@@ -1655,14 +1773,101 @@ def _budget_today_keys(cat: str) -> set:
     return set(adr.ledger_day_direct_keys(_repo).get(cat, ()))
 
 
+def _budget_today_notice_count(cat: str) -> int:
+    """类别当日「非 critical 直发(notice/warning)」条数(#264 件E; 独立台账口径)。
+
+    与 _budget_today_count(只数 critical)**并行且隔离** ⇒ 两套额度互不挤占(不破 B1 修)。
+    读不到/坏行 → 0(自然直发 = 现状, fail-open 宁多发不吞)。"""
+    _repo = Path(os.environ.get("REPO") or REPO)
+    _idx = adr.ledger_day_notice_index(_repo)
+    return len(_idx.get(cat, ()))
+
+
+def _budget_today_notice_keys(cat: str) -> set:
+    """类别当日「非 critical 直发(notice/warning)」的签名集合(#264 件E 重复判据)。"""
+    _repo = Path(os.environ.get("REPO") or REPO)
+    return set(adr.ledger_day_notice_index(_repo).get(cat, ()))
+
+
+def _state_path(name: str) -> Path:
+    """data/alerts/ 下状态文件路径(经 ALERTS_DIR 间接 ⇒ 测试 monkeypatch 生效)。"""
+    return ALERTS_DIR / name
+
+
+def _read_state_obj(path: Path) -> dict:
+    """读 JSON 状态对象; 不存在/坏内容 → {}(fail-open: 状态读不到当「无历史」处理)。"""
+    try:
+        if not path.exists():
+            return {}
+        _o = json.loads(path.read_text(encoding="utf-8"))
+        return _o if isinstance(_o, dict) else {}
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify][state] 状态读取失败 {path.name}: {e}", file=sys.stderr)
+        return {}
+
+
+def _write_state_obj(path: Path, obj: dict) -> bool:
+    """原子写 JSON 状态对象(tmp + os.replace); 失败只 print 不抛(best-effort)。"""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _tmp = path.with_name(path.name + ".tmp")
+        _tmp.write_text(json.dumps(obj, ensure_ascii=False), encoding="utf-8")
+        os.replace(_tmp, path)
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify][state] 状态写入失败 {path.name}: {e}", file=sys.stderr)
+        return False
+
+
+def _domain_state() -> dict:
+    """读故障域状态(域 → last_seen/计数)。"""
+    return _read_state_obj(_state_path(ALERT_DOMAIN_STATE_FILE_NAME))
+
+
+def _commit_domain_state(domain: str, entry: dict) -> bool:
+    """写回单域状态(读-改-写; 只覆盖该域键, 不动其他域)。"""
+    _st = _domain_state()
+    _st[domain] = entry
+    return _write_state_obj(_state_path(ALERT_DOMAIN_STATE_FILE_NAME), _st)
+
+
+def _rollover_seen() -> dict:
+    """读「已被并入摘要的签名 → 最后并入日」记忆表(#264 件E rollover 层)。"""
+    return _read_state_obj(_state_path(ALERT_DIGEST_SEEN_FILE_NAME))
+
+
+def _commit_rollover_seen(sig: str, now=None) -> None:
+    """登记签名已并入摘要(+ 裁剪过期项)。best-effort, 失败不影响发送。"""
+    _now = now or datetime.now()
+    try:
+        _st = _rollover_seen()
+        _st[str(sig)] = _now.strftime("%Y-%m-%d")
+        _write_state_obj(_state_path(ALERT_DIGEST_SEEN_FILE_NAME),
+                         adr.rollover_prune(_st, _now))
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify][state] rollover 记忆写入失败: {e}", file=sys.stderr)
+
+
 def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str,
                       source: str | None = None,
-                      from_prefix: str | None = None) -> bool:
-    """把超预算的 SEVERE 并入当日摘要 buffer(幂等: 同日同 key 只 1 行)。
+                      from_prefix: str | None = None,
+                      reason: str = "over_budget",
+                      domain: str | None = None,
+                      mark_seen: bool = False,
+                      bump_hits: bool = False) -> bool:
+    """把「不即时直发」的告警并入当日摘要 buffer(幂等: 同日同 key 只 1 行)。
 
     返回 True=已并入(或当日同 key 已在 buffer, 幂等命中); False=append 失败
     (调用方 fail-open 落直发, 宁多发不吞, 与 warning defer 的「先 buffer 后状态」取舍一致)。
     条目字段与 defer_warning 同构(ts/rid 供 _stable_rid 精确清理; body 截 3000)。
+
+    #264(2026-10-15)新增参数(全部**默认值 = 老行为**, L2 既有调用方逐字节不变):
+      reason     并入原因标记(域聚合 domain_inhibited / 非 critical 重复 notice_over_budget
+                 / 跨日 rollover_digested / 缺省 over_budget = L2 超预算)
+      domain     故障域(域聚合条目用; 摘要按域分段 + 「涉及 N 个来源脚本」)
+      mark_seen  并入后登记 rollover 记忆表(仅件E 非 critical 路径开; 默认关 ⇒ 不产生额外状态文件)
+      bump_hits  幂等命中时把该行 hits+1(而非静默 no-op)⇒ 摘要里可见「同一签名被并了 N 次」,
+                 不丢「合并了多少条」的计数事实; 默认关 ⇒ L2 老路径行为不变
     """
     try:
         _now = datetime.now()
@@ -1682,6 +1887,11 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
             _entries = []
         for _e in _entries:
             if str(_e.get("day")) == _day and str(_e.get("key")) == _k:
+                if bump_hits:
+                    # hits 累加失败也不改变「已并入」结论(否则会因计数失败多发一条直发 = 噪声)
+                    _bump_digest_hits(_k, _day, str(_e.get("rid") or ""))
+                if mark_seen:
+                    _commit_rollover_seen(_k, _now)
                 return True  # 幂等: 当日已并入, 不重复 append
         _rec = {
             "ts": _now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -1693,11 +1903,52 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
             "body": str(body)[:3000],
             "from_prefix": from_prefix,
             "source": source or os.environ.get("NOTIFY_SOURCE") or "notify.py",
-            "reason": "over_budget",
+            "reason": reason,
+            "hits": 1,
         }
-        return _append_jsonl(ALERT_DIGEST_FILE, _rec)
+        if domain:
+            _rec["domain"] = domain
+        if not _append_jsonl(ALERT_DIGEST_FILE, _rec):
+            return False
+        if mark_seen:
+            _commit_rollover_seen(_k, _now)
+        return True
     except Exception as e:  # noqa: BLE001
         print(f"[notify][digest] 并入异常(转直发)：{e}", file=sys.stderr)
+        return False
+
+
+def _bump_digest_hits(key: str, day: str, rid: str = "") -> bool:
+    """幂等命中时给当日同 key 的摘要条目 hits+1(重写整个 buffer, flock 保护)。
+
+    目的(#264 件E「被合并 N 条」可核): 同签名重复并入时不静默 no-op, 计数留在条目上,
+    摘要正文渲染成 `xN`。失败 → 不改文件(返回 False, 调用方仍当「已并入」)。
+    """
+    import fcntl
+    try:
+        with open(ALERT_DIGEST_FILE, "rb+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            _cur, _bad = _parse_buffer_lines(f.read())
+            _touched = False
+            for _e in _cur:
+                if (str(_e.get("day")) == day and str(_e.get("key")) == key
+                        and (not rid or str(_e.get("rid") or "") == rid)):
+                    _e["hits"] = int(_e.get("hits") or 1) + 1
+                    _touched = True
+            if not _touched:
+                fcntl.flock(f, fcntl.LOCK_UN)
+                return False
+            _out = b"".join(json.dumps(e, ensure_ascii=False).encode("utf-8") + b"\n" for e in _cur)
+            _out += b"".join(ln.encode("utf-8", errors="replace") + b"\n" for ln in _bad)
+            f.seek(0)
+            f.write(_out)
+            f.flush()
+            os.fsync(f.fileno())
+            f.truncate(len(_out))
+            fcntl.flock(f, fcntl.LOCK_UN)
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify][digest] hits 累加失败(不影响并入): {e}", file=sys.stderr)
         return False
 
 
@@ -2432,30 +2683,73 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
     if not (bool(stale) or (_hm_ok and bool(due) and _last_day != _today)):
         return {"sent": False, "n": 0, "n_remaining": len(entries)}
     send_entries = stale + due
-    n = len(send_entries)
+    # #264 件E(2026-10-15)分段: 真被并入的(merged) vs 恢复类**已直发**的留痕(traces)。
+    # 计数「被合并 N 条」只算 merged —— 留痕条不是被合并, 只是可见性(闭环信号), 单列一段。
+    merged = [e for e in send_entries
+              if str(e.get("reason")) != DIGEST_RECOVERY_TRACE_REASON]
+    traces = [e for e in send_entries
+              if str(e.get("reason")) == DIGEST_RECOVERY_TRACE_REASON]
+    n = len(merged)
     _cats: dict[str, int] = {}
-    for e in send_entries:
+    _rcnt: dict[str, int] = {}
+    for e in merged:
         _c = str(e.get("category") or "?")
         _cats[_c] = _cats.get(_c, 0) + 1
+        _r = str(e.get("reason") or "?")
+        _rcnt[_r] = _rcnt.get(_r, 0) + 1
     _cat_txt = "/".join(f"{c} {v}" for c, v in _cats.items())
     _stale_note = f"(含前日遗留 {len(stale)} 条)" if stale else ""
-    subject = (f"[告警·摘要] 当日合并 {n} 条 {_stale_note}"
-               f"({_cat_txt}) {now.strftime('%m-%d %H:%M')}")
+    _trace_note = f"(恢复留痕 {len(traces)} 条)" if traces else ""
+    if n:
+        subject = (f"[告警·摘要] 当日合并 {n} 条 {_stale_note}{_trace_note}"
+                   f"({_cat_txt}) {now.strftime('%m-%d %H:%M')}")
+    else:
+        subject = (f"[告警·摘要] 当日无合并告警 {_trace_note} "
+                   f"{now.strftime('%m-%d %H:%M')}")
 
     def esc(s):  # noqa: E731
         return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    intro = (f"以下 {n} 条告警未即时直发, 已并入本摘要(超当日类别预算){_stale_note}; "
-             f"条目仍可追溯: 台账 data/alerts/alert_ledger.jsonl / 监控日志。")
-    rows = []
-    for e in send_entries:
+    def _hm_of(e) -> str:  # noqa: E731
         try:
-            _hm = datetime.strptime(str(e.get("ts", "")), "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
+            return datetime.strptime(str(e.get("ts", "")), "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
         except ValueError:
-            _hm = "--:--"
+            return "--:--"
+
+    def _row(e, tag="") -> str:  # noqa: E731
+        _d = str(e.get("domain") or "")
+        _scope = f"{_d}|" if _d else ""
+        _src = str(e.get("source") or "")
+        _hits = int(e.get("hits") or 1)
+        _x = f" x{_hits}" if _hits > 1 else ""
+        _reason = DIGEST_REASON_LABELS.get(str(e.get("reason") or ""),
+                                           str(e.get("reason") or ""))
+        return (f"[{_hm_of(e)}][{_scope}{e.get('category')}] {tag}{_src}:{e.get('key')}{_x} — "
+                f"{e.get('subject')} (原因: {_reason})")
+
+    # intro: 必含「被合并 N 条」(件E 验收口径) + 按原因构成 + 全量可检索承诺
+    _reason_txt = ("; 构成: " + "、".join(
+        f"{DIGEST_REASON_LABELS.get(_k, _k)} {_v} 条" for _k, _v in _rcnt.items())) if _rcnt else ""
+    intro = (f"以下 {n} 条告警未即时直发, 已并入本摘要(被合并 {n} 条{_reason_txt})"
+             f"{_stale_note}; 条目全量可检索(逐条含来源脚本/去重键), "
+             f"台账 data/alerts/alert_ledger.jsonl / 监控日志。")
+    rows = []
+    # ① 故障域汇总段(#264 件C「多少通道/脚本受影响」判别维度必须保留, 不做逐域静默)
+    _dom_agg = adr.domain_aggregate_summary(merged)
+    for _d, _g in _dom_agg.items():
+        _lbl = adr.DOMAIN_LABELS.get(_d, _d)
+        rows.append(f"【故障域 {_lbl}】共 {_g['n']} 条, 涉及 {len(_g['sources'])} 个来源脚本: "
+                    f"{'、'.join(_g['sources']) or '-'}(域内首条 {_g['first_hm']})")
+    # ② 逐条明细(可逐条检索; 恢复补列条目沿用 [恢复补列] 标注)
+    for e in merged:
         _tag = "[恢复补列] " if str(e.get("category")) == "recovery" else ""
-        rows.append(f"[{_hm}][{e.get('category')}] {_tag}{e.get('key')} — "
-                    f"{e.get('subject')}({e.get('reason')})")
+        rows.append(_row(e, _tag))
+    # ③ 闭环信号段(#264 件E「恢复类入摘要且可见」): 已直发的恢复只留痕, 不计入被合并数
+    if traces:
+        rows.append(f"【闭环信号(恢复)】以下 {len(traces)} 条恢复消息**已即时直发**, "
+                    f"此处仅留痕(闭环信号可见):")
+        for e in traces:
+            rows.append(_row(e, "[恢复留痕·已直发] "))
     body = intro + "<br>" + "<br>".join(esc(r) for r in rows)
     results = send(subject, body, severe=False, dry_run=dry_run,
                    from_prefix="[告警·摘要]", feishu_group="alert",

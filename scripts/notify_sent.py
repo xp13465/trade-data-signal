@@ -107,6 +107,10 @@ _SUPPRESS_SIGNATURES: tuple[tuple[str, str | None], ...] = (
     ("[notify][budget] 并入当日摘要", None),
     # --defer-digest 直接并入 buffer 的成功行（monitor 行级吸收/恢复补列；同构登记防后续调试）。
     ("[notify][digest] 已并入摘要 buffer", None),
+    # #264 件C/E（2026-10-15）：域聚合 / 非 critical 重复类预算的并入成功行
+    # （同样是「成功且已知」= 已登记待 23:25 摘要出线，非未发出 ⇒ 不得判 failed 触发重试）。
+    ("[notify][domain] 并入当日域摘要", None),
+    ("[notify][notice-budget] 并入当日摘要", None),
 )
 
 
