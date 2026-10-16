@@ -28,6 +28,28 @@
 #   活跃至 21:40 overfit-monitor, 20:35 落在活跃区间内。
 # 非交易日: 跳过(index 收盘序列不更新, 快照无新日期可追加); 传 force 绕过闸门补跑。
 #
+# #258 E1 (2026-10-17): 两个 R2 步骤(external 阻塞 = 排队等 R2 上传锁)的**计时口径**修正。
+#   病灶: 旧写法 `run_to 900` 量的是「进程启动→结束」整段墙钟(**含排队等锁**), 撞上长持锁者
+#   时「等锁 870s + 工作 30s」就撞 900s 超时(rc=124, 等锁吃掉了工作预算)。现场: 10-13 / 10-15
+#   两天 s06 退出码 = 124(R2 兜底副本缺失)。梯度(外层 unit TimeoutStartSec 3300 > 内层 3000)
+#   本身合规, 问题纯在**口径**。
+#   修法: 预算拆成两段**各自独立计时**(见步骤③注释):
+#     · 等锁段 = R2_UPLOAD_LOCK_TIMEOUT(默认 7300 过长, 本链显式收到 1800): 计时起点=进程启动,
+#       超时 fail-closed exit 1(显式失败走本链告警, 不静默跳过);
+#     · 工作段 = R2_UPLOAD_WORK_TIMEOUT=900(与旧值同数, **未放宽**): 计时起点=**真正拿到锁之后**
+#       (在 upload_r2.py 进程内 arm, 只有拿锁方自己知道该时点), 超时 exit 124 与旧 shell 超时同码。
+#   ⇒ 语义 = 预算只量「工作耗时」, 等锁不再吃掉工作预算。
+#   ⚠ 配套(本链脚本之外, 需一起处理, 详见 #258 E1 报告):
+#     ① unit `trade-s06-snapshot.service` 的 TimeoutStartSec 3300 需抬到 ≥6900 —— 本链真实内层
+#        上界 = 300+300+(1800+900)+300×2+(1800+900) = 6600(等锁段现在也是内层预算的一部分),
+#        3300 会先于内层预算杀掉链路(诚实标注: 抬墙前属真实倒挂, 只是比旧的「等锁吃掉预算」
+#        更晚发生)。抬墙顺序 = 先改云上 unit → 再刷新仓库快照/doc §2(见 cloud_unit_patrol 流程)。
+#     ② `scripts/schedule_monitor.sh` 的 s06 耗时判据 DUR_THRESHOLDS=900 同样是**墙钟**口径,
+#        会继续对「合法长等锁」日误报(实测 10-13 起已触发); 需同步改口径或改值。
+#     ③ 梯度审计脚本只统计 shell 层 `run_to <字面量>`, 不识别进程内预算 ⇒ 本链的内层观测量
+#        依赖下方两个 shell 兜底字面量 2760(每个 R2 步骤各一个)。改动预算时必须同步改字面量,
+#        脚本内有梯度自检拦「兜底 ≤ 等锁+工作」的倒挂。
+#
 # 用法: bash scripts/s06_snapshot.sh [force]
 #   手动裸跑也安全(2026-08-26 补): REPO/GIT_REPO 缺省兜底且 export 成环境变量,
 #   不带前缀直接跑不会让子进程(upload_r2 等)拿错仓根。
@@ -113,6 +135,20 @@ trap '_on_exit' EXIT
 trap '_on_term' TERM
 trap '_on_int'  INT
 
+# #258 E1: 两个 R2 步骤的预算常量(两段各自独立计时; 语义/依据见文件头 #258 段与步骤③注释)。
+#   · 等锁段 1800s: 依据 = 持锁方自身看门狗上限 900s(deploy.sh run_r2_upload 通道级)的 2 倍裕量;
+#     实测最长等锁 ≈ 900s(10-13/10-14/10-15 三天), 取 2 倍既覆盖实测又不放过真死锁。
+#   · 工作段 900s: **与旧 run_to 900 同数**(本单不改总预算数值), 只是计时起点后移到拿到锁之后。
+R2_LOCK_WAIT_BUDGET=1800
+R2_WORK_BUDGET=900
+# shell 层兜底字面量(下方 run_to 用): = 等锁 + 工作 + 60s 余量, 只覆盖「进程内计时器生效之前」
+# 的窗口(python 启动/import/开锁文件)。它不是工作预算; 工作预算恒为 R2_WORK_BUDGET。
+# 梯度自检: 兜底必须严格大于「等锁 + 工作」, 否则合法等锁会被 shell 先杀 = #258 原病复发。
+if [ 2760 -le $((R2_LOCK_WAIT_BUDGET + R2_WORK_BUDGET)) ]; then
+  echo "$(date '+%F %T') FATAL: s06 R2 步骤预算梯度倒挂(shell 兜底 2760 <= 等锁 ${R2_LOCK_WAIT_BUDGET} + 工作 ${R2_WORK_BUDGET}) —— 见文件头 #258 E1 段" >> "$LOG"
+  exit 2
+fi
+
 # ① 重生快照(两树原子写; 超时 300s 防挂死)
 run_to 300 "$PY" scripts/gen_kelly_mode_s06_state.py --repo "$REPO" --git-repo "$GIT_REPO" >> "$LOG" 2>&1
 RC_GEN=$?
@@ -128,9 +164,15 @@ else
   if [ "$RC_CHK" -ne 0 ]; then
     echo "✗ S06 快照机检 FAIL rc=${RC_CHK}(产物可能带病, 告警人工核查)" >> "$LOG"
   else
-    # ③ R2 兜底副本即时同步(上传+purge 一条龙; 含网络往返给 900s; 失败不阻断——git 渠道随次日 deploy 追上)
+    # ③ R2 兜底副本即时同步(上传+purge 一条龙; 失败不阻断——git 渠道随次日 deploy 追上)
+    #    #258 E1 计时口径(2026-10-17): 旧写法 `run_to 900` 量「进程启动→结束」整段墙钟(含排队
+    #    等锁) ⇒ 等锁 870s + 工作 30s 就判 900s 超时(rc=124); 现拆两段各自独立计时:
+    #      · 等锁段 1800s: upload_r2.py 内 R2_UPLOAD_LOCK_TIMEOUT 的排队 deadline(fail-closed exit 1);
+    #      · 工作段 900s: upload_r2.py 内 R2_UPLOAD_WORK_TIMEOUT, 计时起点 = 拿到锁之后(exit 124 同旧码);
+    #      · shell 兜底 2760s: 只兜「进程内计时器生效之前」的窗口, 非工作预算(工作预算恒 900)。
     #    (900s 对齐 deploy.sh 看门狗 900: 内层 R2_UPLOAD_HTTP_TIMEOUT=600 重试须有梯度余量, 2026-09-21)
-    run_to 900 "$PY" scripts/upload_r2.py upload-data-files kelly_mode_s06_state.json >> "$LOG" 2>&1
+    run_to 2760 env R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET" R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" \
+      "$PY" scripts/upload_r2.py upload-data-files kelly_mode_s06_state.json >> "$LOG" 2>&1
     RC_R2=$?
     [ "$RC_R2" -ne 0 ] && echo "⚠ S06 快照 R2 同步失败 rc=${RC_R2}(git 渠道随次日 deploy 追上)" >> "$LOG"
   fi
@@ -158,7 +200,9 @@ for _D in "$REPO/static-site/data" "$GIT_REPO/static-site/data"; do
   [ "$_rc" -ne 0 ] && echo "⚠ latest_posrating.json 生成失败 rc=${_rc} data-dir=$_D(首页回退静态兜底 86.60%)" >> "$LOG"
   [ "$RC_PR" -eq 0 ] && RC_PR=$_rc
 done
-run_to 900 "$PY" scripts/upload_r2.py upload-kelly-snapshots >> "$LOG" 2>&1
+# ④b 同 ③ 的 #258 E1 计时口径(等锁段 1800 / 工作段 900 / shell 兜底 2760, 依据见步骤③注释)
+run_to 2760 env R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET" R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" \
+  "$PY" scripts/upload_r2.py upload-kelly-snapshots >> "$LOG" 2>&1
 RC_PR_R2=$?
 [ "$RC_PR_R2" -ne 0 ] && echo "⚠ latest_posrating R2 同步失败 rc=${RC_PR_R2}(git 渠道随次日 deploy 追上)" >> "$LOG"
 

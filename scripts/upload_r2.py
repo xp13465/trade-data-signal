@@ -4075,6 +4075,74 @@ _SKIP_R2_LOCKED = object()
 # 只加输出: 不动锁语义 / 不动 time.sleep 间隔 / 不动任何超时值。
 _R2_LOCK_HEARTBEAT_SECS = 30
 
+# #258 E1(2026-10-17): 「工作阶段」预算(opt-in;未设 = 完全不 arm, 与旧版逐字节同行为)。
+# 病灶: 调用方(如 s06_snapshot.sh)用 shell `run_to 900` 包住**整条** upload 命令, 该包装的
+#   计时口径 = 进程「启动→结束」整段墙钟(**含排队等锁**)⇒ 撞上长持锁者时「等锁 870s + 工作
+#   30s」就撞 900s 超时(rc=124): 等锁吃掉工作预算(#258 现场, 10-13/10-15 两天复发)。
+# E1 口径修正: 预算只量**工作耗时** ⇒ 计时起点后移到「真正拿到锁之后」。该时点只有拿锁的
+#   本进程自己知道, 故预算必须在进程内实施: 拿锁返回后再 arm 一个一次性计时器(见 __main__)。
+# 语义边界(与等锁预算严格不重叠):
+#   · 等锁段 = `_acquire_r2_upload_lock` 自己的 deadline(R2_UPLOAD_LOCK_TIMEOUT, 超时 fail-closed exit 1);
+#   · 工作段 = 本计时器(R2_UPLOAD_WORK_TIMEOUT, 超时 exit 124 与 shell `timeout` 同码, 调用方
+#     既有 rc 判据/告警文案口径不变)。
+#   · 用 os._exit 而非 sys.exit: 计时器跑在守护线程里, sys.exit 只结束该线程, 杀不掉进程。
+_R2_WORK_TIMEOUT_ENV = "R2_UPLOAD_WORK_TIMEOUT"
+
+# #258 E1 观测句柄(供 __main__/自测/排查看「工作段预算何时起算、给了多少」): 拿锁成功后填。
+_WORK_BUDGET_TIMER = None
+_WORK_BUDGET_ARMED_AT = None
+
+
+def _work_budget_secs():
+    """读工作阶段预算(秒)。未设/空/非法/<=0 = 0(不 arm;opt-in 零行为变化)。"""
+    try:
+        return int(os.environ.get(_R2_WORK_TIMEOUT_ENV, "0") or "0")
+    except ValueError:
+        return 0
+
+
+def _arm_work_budget(seconds):
+    """拿锁**之后**调用: 给「工作阶段」单独设预算(秒, 计时起点 = 此刻)。
+
+    返回计时器对象(未 arm 时 None)。到点: stderr 打一行 + os._exit(124) 硬终止。
+    计时口径: 只量「拿到锁之后」的耗时; 排队等锁时长不经此处(由 R2_UPLOAD_LOCK_TIMEOUT 管)。
+    """
+    try:
+        secs = int(seconds or 0)
+    except (TypeError, ValueError):
+        secs = 0
+    if secs <= 0:
+        return None
+
+    def _fire():
+        print(
+            f"✗ R2 上传工作阶段超 {secs}s(计时起点 = 拿到锁之后, 不含排队等锁;"
+            f" 等锁预算另计 = env R2_UPLOAD_LOCK_TIMEOUT) —— 强制终止 rc=124",
+            file=sys.stderr, flush=True,
+        )
+        os._exit(124)
+
+    t = threading.Timer(secs, _fire)
+    t.daemon = True
+    t.start()
+    return t
+
+
+def acquire_r2_upload_lock_with_budgets(skip_if_locked=False):
+    """#258 E1 接线点(唯一): 拿锁(等锁段预算=R2_UPLOAD_LOCK_TIMEOUT)→ 拿锁成功即 arm 工作段预算。
+
+    两段预算**各自独立计时**: 等锁段 = _acquire 自己的 deadline(fail-closed exit 1);
+    工作段 = 本函数在**拿锁返回之后**才 arm 的计时器(起点 = 此刻, 不含排队等锁)。
+    返回 持锁 fd / None(锁文件不可用, 不持锁继续) / _SKIP_R2_LOCKED(opt-in 跳过, 不 arm)。
+    """
+    global _WORK_BUDGET_TIMER, _WORK_BUDGET_ARMED_AT
+    lock = _acquire_r2_upload_lock(skip_if_locked=skip_if_locked)
+    if lock is _SKIP_R2_LOCKED:
+        return lock
+    _WORK_BUDGET_ARMED_AT = time.time()
+    _WORK_BUDGET_TIMER = _arm_work_budget(_work_budget_secs())
+    return lock
+
 
 def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
     """R2 上传统一进程互斥锁(2026-09-23 ④: 直传通道无 deploy.lock → 三路并发抢带宽)。
@@ -4120,6 +4188,10 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
     list/delete/download-db/clean-data-backup 等只读/低频调试命令不走本锁(避免排查时被上传阻塞);
     upload(单文件 <100KB)轻量命令豁免。upload-db/upload-claude-backup/upload-decommissioned
     等私有桶备份也持锁(与主数据上传互斥, 防抢带宽)。
+
+    #258 E1(2026-10-17): 本函数只负责**等锁段**预算(timeout/R2_UPLOAD_LOCK_TIMEOUT);
+    调用方若还要「工作段」预算(只量拿到锁之后的耗时), 在拿锁返回后自行调
+    `_arm_work_budget(R2_UPLOAD_WORK_TIMEOUT)`(__main__ 已接线), 两段各自独立计时。
     """
     if timeout is None:
         try:
@@ -4217,7 +4289,9 @@ if __name__ == "__main__":
     guard_repo_default(cmd)                     # #75 分级闸:REPO 缺省且非白名单命令 → exit 3
     # ④ R2 上传统一互斥锁: 只读/单文件小命令豁免, 其余 upload_*/verify_*/purge_* 持锁排队。
     if cmd and cmd not in {"list", "delete", "download-db", "clean-data-backup", "upload"}:
-        _lock = _acquire_r2_upload_lock(skip_if_locked=_SKIP_IF_LOCKED)
+        # #258 E1: 拿锁(等锁段预算) + 拿锁成功后 arm 工作段预算(计时起点 = 真正拿到锁之后;
+        # 排队等锁时长不再计入工作预算)。未设 R2_UPLOAD_WORK_TIMEOUT 时零行为变化。
+        _lock = acquire_r2_upload_lock_with_budgets(skip_if_locked=_SKIP_IF_LOCKED)
         if _lock is _SKIP_R2_LOCKED:
             sys.exit(0)   # SKIPPED_LOCKED 已在 _acquire 内打印到 stderr; 退出码 0 不触发告警邮件
     if cmd == "list":
