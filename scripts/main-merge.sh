@@ -455,6 +455,16 @@ fi
 #     逻辑: 从本次 merge 带入的 commit message(标题+body, 范围=merge 前 origin/main..HEAD)提取 #编号,
 #           对照 pending-index 该编号是否仍以活跃形式出现——词边界精确匹配(#15 不误配 #150),
 #           先剔除 ~~…~~ 划线墓碑段再查(墓碑=已销账不算活跃);命中则 echo 提醒。dry-run 跳过。
+#     提取口径(2026-10-16 修误报): 编号后紧跟字母/数字的不算引用——「审计#2a」不再被截成 2 去对账
+#           (旧口径 `grep -oE '#[0-9]+'` 会把 #2a 吃成 2 ⇒ 对上索引里无关的 #2 ⇒ 误报);
+#           相邻引用(如 #174#176)先插空格拆开再提取, 保证两号都取到(单侧边界正则做不到)。
+#           已知让步: 任务号+包后缀连写(如 #264c)整串不算引用 ⇒ 该号不被提取(实测历史仅 #2a 一种带字母形态)。
+#     回归用例(改这段时手跑; static-only, 不 source 整脚本): ①重放 `git log --format=%B 98ada5d4f..10b180df1`
+#           过本行管道 ⇒ 输出空(旧版出「2」) ②喂 `fix #2a 审计#3 见 #15 与 #150 #264 包3 #264c` ⇒ `3 15 150 264`
+#           ③同输入喂下方 for 循环 + 两行假 pending-index(`| 264 | 活跃 |` / `> 本模块 #1/#2/#7 已完成`)
+#           ⇒ 只提醒 264、不再提醒 2 ④`bash -n scripts/main-merge.sh`。
+#           (未加 pytest: 本段依赖 grep/sed/sort 的实际行为, 本机是 BSD 工具链、CI 是 GNU,
+#            在本机无法证明两者同构 ⇒ 不加 CI 常驻测试, 改为上方手跑用例; 详见修复单报告。)
 if [[ "$DRY_RUN" == "1" ]]; then
   echo "  [dry-run] 跳过 pending-index 销账提醒"
 else
@@ -462,7 +472,11 @@ else
   HIT_NUMS=""
   if [[ -f "$PENDING_IDX" ]]; then
     # 提取编号去重升序(|| true 防 grep 空匹配非零退出触发 set -e)
-    REF_NUMS="$($GIT log --format=%B "$PRE_MERGE_BASE"..HEAD 2>/dev/null | grep -oE '#[0-9]+' | tr -d '#' | sort -un || true)"
+    #   口径与理由见上方 8.5 顶注释; sed -E 先把相邻引用(#174#176)拆成 #174 #176 再提取。
+    REF_NUMS="$($GIT log --format=%B "$PRE_MERGE_BASE"..HEAD 2>/dev/null \
+      | sed -E 's/(#[0-9]+)#/\1 #/g' \
+      | grep -oE '#[0-9]+([^0-9A-Za-z]|$)' \
+      | sed 's/[^0-9]//g' | sort -un || true)"
     for n in $REF_NUMS; do
       # 活跃判定(两种活跃形态任一命中即算): ①行内词边界精确 #n 引用(#15 不误配 #150)
       #   ②表格行首列裸编号 | n |(pending-index 主表行的主键形态)
