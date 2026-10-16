@@ -2,7 +2,7 @@
 
 本文件为**所有会话(主控 + 子 agent)共享的硬规范核心**,每次开工前必读。
 - **主控(主 agent)**:开工第一件事 Read `docs/main-governance.md`(主控专属全部规范:§2/§3/§4/§7/§11/§15/§16/§19+COMPACT 恢复 5 步,MEMORY.md 有索引行),本文件只含共享核心。
-- **角色子 agent**:由 `.claude/agents/*.md` 定义(implementer/reviewer/researcher/tester),角色专属规范经 `skills` 字段**启动全文注入**对应 `.claude/skills/<role>/SKILL.md`,不再依赖本文件全量。
+- **角色子 agent**:由 `.claude/agents/*.md` 定义(implementer/reviewer/researcher/tester/mech-runner),角色专属规范经 `skills` 字段**启动全文注入**对应 `.claude/skills/<role>/SKILL.md`,不再依赖本文件全量。
 - **瘦身=移动不=删除**:原文全量在 `docs/main-governance.md` / `docs/archive/CLAUDE-errors-2026-08.md` / `.claude/skills/<role>/SKILL.md`,均可反向追。
 
 ## 0. 角色分上下文速览(2026-08-12 方案落地,详见 docs/role-based-context-research.md)
@@ -10,13 +10,14 @@
 |---|---|
 | 主控 | 本共享核心 + 按需 Read docs/main-governance.md(§2/3/4/7/11/15/16/19+COMPACT) |
 | 实施 agent | 本共享核心 + .claude/skills/role-implementer(§9 前端/§24 防撕裂/§21 公示/§8§14 操作/修bug三铁律/举一反三) |
+| mech-runner(机械型) | 本共享核心 + .claude/skills/role-implementer(同实施注入,effort=low 机械型) |
 | reviewer agent | 本共享核心 + .claude/skills/role-reviewer(§15 回归/改动分级/§24 四查/smoke/数据校验) |
 | 调研 agent | 本共享核心 + .claude/skills/role-researcher(调研方法论/防误判/§5.1 穷举回测/数据挖掘) |
 | 测试 agent | 本共享核心 + .claude/skills/role-tester(冒烟测试/数据校验/curl 三查/一致性/**边界维度穷举 §5.3.1**) |
 > 设计原则:根文件只留"所有角色都该无条件知道"的共享核心;角色专属规范进 role skill(启动全文注入,确定性,不依赖主动读);主控专属进 governance(子 agent 永不读,不再为其 token 买单)。
 
 ## 0.1 主控角色红线:只调度,不亲自实施(2026-08-12 用户定,防再犯)
-- **主控永不亲自 Edit 业务代码 / 写代码 / 跑自测 / 亲自 grep 定位实施细节**——实施是子 agent 的活:改代码/修bug 派 implementer、回归/查影响面派 reviewer、根因/数据挖掘派 researcher、冒烟测试/校验派 tester。
+- **主控永不亲自 Edit 业务代码 / 写代码 / 跑自测 / 亲自 grep 定位实施细节**——实施是子 agent 的活:改代码/修bug 派 implementer、回归/查影响面派 reviewer、根因/数据挖掘派 researcher、冒烟测试/校验派 tester、机械型纯执行(批量搬运/格式转换/按清单逐项改)派 mech-runner。
 - 主控=调度中枢+时点管理+§0 验收(只验上线点,不重复 agent 自验的代码点,全文见 governance §2/§0)。
 - **触发场景**:接 bug/功能需求时想"直接 Edit 快一点"→ 停,先想"该派谁"。紧急小改也走 agent(§23.2 修bug三铁律要求 agent 修+自测)。
 - **唯一例外:仅紧急 A 级小改可主控直接改(2026-08-12 用户定)**——A 级=纯文案/格式/单行常数/无逻辑变更/无跨文件影响/一眼可见正确性,且**必须紧急**(线上错字/马上要上线等)。常规 A 级仍派 agent,拿不准就派;**B 级+(逻辑/口径/算法/跨文件/需 review)主控永不碰**。改完必须自验(语法/一致性)。
@@ -25,7 +26,7 @@
 > 与 L29 同病:此条原在 governance §11(按需读,compact 后不注入),裸派 3 agent 零兜底。提升为共享核心=每会话必注入。
 - **每次 Agent 工具派出子 agent,同一轮必齐三件**:①`run_in_background`(同步阻塞=违规)②prompt 写明进度文件 `/tmp/agent-progress-<名>.md` 且每步 echo ③**巡检兜底 cron 在位**(CronList 查已有 durable 巡检 job 且覆盖本 agent→复用;无→CronCreate 15min 档 `3,18,33,48`+durable+门控零输出;全部 agent 完成后 CronDelete)
 - **通知送达不可靠是架构事实**(task-notification/SendMessage 均会丢),cron 兜底是唯一可靠残余;裸派=L01 违规
-- **机械强制(机检三项,2026-09-29 收敛为参数可验证项 + 2026-10-07 增第 ③ 项)**:`.claude/settings.json` PostToolUse(Agent) hook(scripts/agent_dispatch_cron_reminder.py)读 Agent **实际调用参数**机检:①prompt 是否含进度文件路径 `/tmp/agent-progress-` ②implementer 是否 `isolation="worktree"` ③prompt 是否含 `timeout` 约束(①②③ 均按参数直给确定性判定;③ 对**所有** subagent_type 生效,不只 implementer)。只在该补的没补时才发声(带观测值+exit 2),全过静默 exit 0;每次调用落一行日志到 `/tmp/agent-hook-dispatch.log` 便于反查。「后台派单」「巡检兜底」因**结构性不可机检**(②平台不转发该字段;④cron 与派单同批、检查时刻早于写入,且任意遗留 job 恒绿)不由本 hook 机检——**仍是人工纪律照旧要求**(见上面两条 bullet),措辞勿把纪律写没;「为什么删」全文见脚本 docstring。⚠️ ③ 局限(诚实标注):只保证「派单 prompt 写了 timeout 要求」,**不保证**子 agent 每条 Bash 真传 timeout——那是子 agent 执行层纪律;`禁 find /`、`禁裸跑 pip/npm` 等同属执行层约束,同样不可机检,仍是人工纪律。**子 agent 收工纪律(2026-10-07 冒烟实测补)**:①命令尽量短,>60s 走 nohup 化+短轮询(转后台阈值=**生效的 timeout** ⇒ 调大 timeout 并不防后台化);②交报告前自查,本次若出现过 `moved to the background (ID:` ⇒ 在报告**首行**声明「残留后台任务:ID+命令+预期退出」,**由主控 TaskStop**——role agent **拿不到 TaskStop**(harness 策略性硬禁,frontmatter `tools:` 声明也投不进去,2026-10-07 实测)⇒ 自清这条路堵死,只留预防+上报(证据 `docs/ops/selfclean-smoke-20261007.md`)
+- **机械强制(机检三项,2026-09-29 收敛为参数可验证项 + 2026-10-07 增第 ③ 项)**:`.claude/settings.json` PostToolUse(Agent) hook(scripts/agent_dispatch_cron_reminder.py)读 Agent **实际调用参数**机检:①prompt 是否含进度文件路径 `/tmp/agent-progress-` ②implementer/mech-runner 是否 `isolation="worktree"` ③prompt 是否含 `timeout` 约束(①②③ 均按参数直给确定性判定;③ 对**所有** subagent_type 生效,不只 implementer)。只在该补的没补时才发声(带观测值+exit 2),全过静默 exit 0;每次调用落一行日志到 `/tmp/agent-hook-dispatch.log` 便于反查。「后台派单」「巡检兜底」因**结构性不可机检**(②平台不转发该字段;④cron 与派单同批、检查时刻早于写入,且任意遗留 job 恒绿)不由本 hook 机检——**仍是人工纪律照旧要求**(见上面两条 bullet),措辞勿把纪律写没;「为什么删」全文见脚本 docstring。⚠️ ③ 局限(诚实标注):只保证「派单 prompt 写了 timeout 要求」,**不保证**子 agent 每条 Bash 真传 timeout——那是子 agent 执行层纪律;`禁 find /`、`禁裸跑 pip/npm` 等同属执行层约束,同样不可机检,仍是人工纪律。**子 agent 收工纪律(2026-10-07 冒烟实测补)**:①命令尽量短,>60s 走 nohup 化+短轮询(转后台阈值=**生效的 timeout** ⇒ 调大 timeout 并不防后台化);②交报告前自查,本次若出现过 `moved to the background (ID:` ⇒ 在报告**首行**声明「残留后台任务:ID+命令+预期退出」,**由主控 TaskStop**——role agent **拿不到 TaskStop**(harness 策略性硬禁,frontmatter `tools:` 声明也投不进去,2026-10-07 实测)⇒ 自清这条路堵死,只留预防+上报(证据 `docs/ops/selfclean-smoke-20261007.md`)
 - **续跑同一任务派单必延续原 feat 分支(2026-09-23 用户定,防分支身份漂移+废弃分支)**:同一任务后续改动落同一分支,不新开分支 cherry-pick。派单前主控先 `git worktree list | grep <原分支>` 查占用,被已完成的 agent 残留 worktree 占死→先 `git worktree remove --force <路径>` 释放;prompt 写全延续指令(`git checkout <原分支>` + `git branch --show-current` 确认)。根因=isolation worktree 有 commit 不自动清理占死原分支,续跑 agent checkout 报 `fatal: already checked out` 只能 cherry-pick 致废弃分支+hash 漂移(详见 memory [[resume-same-task-reuse-branch]],implementer 侧操作见 role-implementer skill §3)
 
 ## 1. 开工先读
@@ -182,7 +183,7 @@
 - **与 §15/§18 互参**:§15 是"改坏老功能"回归复查(见 governance/reviewer skill),本条是"用户视角多展示位一致性"铁律,§18 记具体犯错(2026-08-09 量子科技3展示位不一致)。三者互补:§15 防改坏、§22 防不一致、§18 记教训
 
 ## 8. 改完必须推送(摘要;操作细节见 .claude/skills/role-implementer §3-§3.1)
-- **push main 统一入口(防再犯机制 D,2026-08-19)**:agent 只 commit + push **feat 分支**,**禁止 agent 直接 push main**;merge+push main 一律由主控走 `scripts/main-merge.sh <feat>` 统一入口(内含 §14 安全窗口/merge/base 新鲜/统一 build_min+bump/check_version_progress/push main/push 后自动自查 CI 结论)。改前端源码的 feat 由 main-merge.sh 统一 bump 版本串(机制 C,worktree agent 不自行 bump)。commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
+- **push main 统一入口(防再犯机制 D,2026-08-19)**:agent 只 commit + push **feat 分支**,**禁止 agent 直接 push main**;merge+push main 一律由主控走 `scripts/main-merge.sh <feat>` 统一入口(内含 §14 安全窗口/merge/base 新鲜/统一 build_min+bump/check_version_progress/push main/push 后自动自查 CI 结论)。**所有改动(含纯文档/仅文档提交)一律走本入口,禁直推 main**。改前端源码的 feat 由 main-merge.sh 统一 bump 版本串(机制 C,worktree agent 不自行 bump)。commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
 - 不 add **根目录 data/** 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json 保持本地 M / untracked 不推);**`static-site/data/` 是正常上线渠道**,后端新增 JSON 字段/新品种必须跑 `bash scripts/deploy.sh` 推数据上线(R2 架构准则全文见 implementer skill §3.1)
 - 线上 curl 验证任一域名到新版即算上线 OK,不卡单域名 404(ss.fx8.store CF 主站优先 / sss.sugas.site / s.sugas.site)
 - ⚠️ **push main 后必自查 CI 结论(2026-10-07 用户定,自查 + 自动修正规范)**:每次 push main **自动**拉最新 run 结论——`curl -s --max-time 20 "https://api.github.com/repos/xp13465/trade-data-signal/actions/runs?per_page=3"`(public 仓免鉴权;**禁 -v/-i**),看 `conclusion`;**FAIL ⇒ 立即派修,不等用户发现**(=自动修正);**本机 mac 自测/pytest 通过 ≠ CI 绿**(CI=Ubuntu 环境差异致假绿;实例 2026-10-07 #223④ 测试写死「本机无 systemctl」⇒ CI 自合 main `2e1a564d5` 起红 2 轮无人察觉)。**机制已内建**:`scripts/main-merge.sh` push 后自动轮询 CI 并在 FAIL 时醒目告警+非零退出(细节见 implementer skill §3)
