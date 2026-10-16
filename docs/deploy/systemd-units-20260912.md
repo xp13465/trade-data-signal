@@ -83,7 +83,7 @@ PURGE_SECRET 值(本机全部 plist 一致):见 `/home/ubuntu/code/trade-data/.e
 
 阶段4b 统一(2026-09-13;2026-10-16 新增 unit 同规):全部 42 service 均注入 `REPO`/`GIT_REPO`/`MAIN_REPO`(REPO=MAIN_REPO=/home/ubuntu/code/trade-data 数据目录,GIT_REPO=/home/ubuntu/code/trade-data-signal 代码仓,与 pick_repo.py 双仓判定一致,防 /Users 语义翻转)。个别任务保留特殊 env:ab-direction-anchor 额外有 `TRADE_DIR`(→ /home/ubuntu/code/trade-data-signal 代码仓)。
 
-## 2. 40 个周期任务完整对照表 + unit 内容
+## 2. 41 个周期任务完整对照表 + unit 内容
 
 > 每个任务给出:源 plist 摘要(脚本/时点/env/超时)→ `.timer` 与 `.service` 完整内容。
 > 统一模板:`Type=oneshot` + `Persistent=true`(服务器宕机错过时点后补跑,等价于保证数据完整)。

@@ -615,6 +615,21 @@ def test_watchman_units_have_syslog_service_counterpart():
         assert f"@@@FILE:{u.replace('.timer', '.service')}" in snap, f"{u} 缺配套 .service"
 
 
+def test_watchman_units_membership_locked():
+    """#264 包3 件F 回归锁(F1, 2026-10-16 timer 复查):告警周度 review 调度器必须留在
+    WATCHMAN_UNITS;且 §18 L49 云上实测形态 fixture 键集必须与清单键集一致(两侧同锁)。
+
+    判别力:从 WATCHMAN_UNITS 去掉新项 → 本条必红(2026-10-16 复查变体 A「去掉后 45 全绿」
+    = 成员资格无锁,即本锁补的缺口);把新项只从 fixture 去掉 → 也必红。
+    """
+    names = {u for u, _ in adr.WATCHMAN_UNITS}
+    assert "trade-alert-weekly-review.timer" in names, (
+        "新项从 WATCHMAN_UNITS 掉了(② timer 存活检查 / ②b 脚本存在性 对它失明)")
+    assert names == set(WATCHMAN_SCRIPT_BY_UNIT), (
+        "WATCHMAN_UNITS 与云上实测 fixture 键集不一致(清单增删必须两处同步):"
+        f" 差集={names ^ set(WATCHMAN_SCRIPT_BY_UNIT)}")
+
+
 def test_conditionpathexists_units_all_watchman_covered():
     """§23.3 同模式暴击面机检: 云上凡带 `ConditionPathExists=<脚本>` 的 unit, 脚本被删时 systemd
     会**跳过不跑**(既不 failed 也无日志)——其 .timer 必须全部进 WATCHMAN_UNITS, 才能被

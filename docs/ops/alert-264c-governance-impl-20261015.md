@@ -111,4 +111,11 @@ $ python3 scripts/alert_weekly_review.py --selftest   # → [selftest] ALLPASS
 ```
 
 ---
-(报告完;随 #264 包3 落档。生成:2026-10-15;2026-10-16 追加 §⑥ 审查/测试修正记录并订正 ①/②/④ 计数。)
+## ⑦ 观察期跟踪(2026-10-16 追加;来源 = 2026-10-16 timer 复查 F4)
+
+- **周 review 首跑固定出现的「缺项」= pre-existing,非新增故障**:`alert_weekly_review.py --check-four-tuple` 首跑列 **15 处缺项**,其中 `check_failed_units.py → dedup-window=0`(违规值)与 `check_s06_freshness.py` 属登记表**已注明的自管/已立案**项 ——「自管」= check_failed_units 把「每日 1 次 / 集合变化判定」的闸门移到脚本内自管(见本文件 §2.B + `check_failed_units.py` 头注释 #240 ②),升级档另走独立窗;故扫描器的「window=0」提示**每周都会固定重现**。处置:后续让扫描器**交叉引用登记表豁免态**(命中已登记/已立案项时降为 INFO,不进缺项计数),不再逐周当新缺项;对账口径见 `docs/ops/alert-checker-registry-20261015.md`。
+- **不阻断本轮**:以上为登记表已覆盖的已知态,非本次 timer 挂载引入;另登记表 #1 行「window=0 …A 包修复」措辞可择机与件 A 实际(首报通道保留 0 + 升级档独立窗)对齐。
+
+---
+
+(报告完;随 #264 包3 落档。生成:2026-10-15;2026-10-16 追加 §⑥ 审查/测试修正记录并订正 ①/②/④ 计数,追加 §⑦ 观察期跟踪。)

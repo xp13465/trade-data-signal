@@ -34,7 +34,7 @@
   schedule_monitor/gen_schedule_stats 的 TASKS, 日志不再出现「开始」行 → 漏跑告警)。
   ⇒ ①②③ 四路(本脚本 failed-unit / 本脚本 timer 存活 / 本脚本脚本存在性 / 注册漏跑)覆盖的
      失败模式互不重叠:
-     脚本被删→注册漏跑(注册过的)或脚本存在性检查(全 7 个守护 unit, 与注册无关);
+     脚本被删→注册漏跑(注册过的)或脚本存在性检查(全 8 个守护 unit, 与注册无关);
      timer 被停/unit 离盘→本脚本存活检查; 跑起来却失败(漂移/exit3)→本脚本 failed-unit +
      gen_schedule_stats exit!=0 通道。
 

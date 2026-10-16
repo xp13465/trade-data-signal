@@ -419,7 +419,7 @@ def judge_watchman_units(rows):
 def extract_script_paths(exec_start_entries):
     """从 `systemctl show -p ExecStart` 行提取「脚本文件绝对路径」(纯解析, 无 I/O)。
 
-    实测云上 systemd 249 格式(7 个守护 unit 全部同形):
+    实测云上 systemd 249 格式(8 个守护 unit 全部同形):
       `ExecStart={ path=/bin/bash ; argv[]=/bin/bash /home/ubuntu/.../x.sh ; ... }`
       `ExecStart={ path=/home/.../python ; argv[]=/home/.../python /home/.../x.py ; ... }`
     ⇒ 取 argv[] 里「以 / 开头且以 .sh/.py 结尾」的 token = 被执行的脚本本体。
