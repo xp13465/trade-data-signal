@@ -16,16 +16,18 @@
 #       凯利三件套, 固定输入→断言输出, 样本硬编码自线上产物冻结快照, 零外部数据依赖
 #       (#213 方案 A2 起依赖面 = pytest + pyyaml + numpy/pandas/pyarrow 5 件真数值库,
 #        版本 pin 与依据见 docs/ops/213-batch2-dependency-decision-20261007.md)。
-#       挂 Job 1 而非 Job 2: Job 2 整体 continue-on-error
-#       (为⑥⑦数据窗口差 FAIL 源保 CI 可用), ⑧ 留在 Job 2 会吞掉 FAIL 永不阻断, 与 P0-1 门禁意图相悖。
+#       挂 Job 1 而非 Job 2: ⑧ 是纯静态门禁(不依赖数据产物), 归纯静态的 Job 1; 而 Job 2 是「数据产物
+#       一致性」门禁 + 带「已知数据窗口差 FAIL 吸收」语义(⑥⑦ 步骤级 continue-on-error, #261 前为
+#       job 级直接吞), ⑧ 挂进去易被同口径吸收 ⇒ 与 P0-1 门禁意图相悖(#261 下沉步骤级后此原则不变)。
 #       + #201(2026-10-06)并入 scripts/tests/test_193_r2_channel_coverage_pytest.py: #193 R2 通道
 #       覆盖双向机检(纯仓库内输入, 无生产数据产物)由「人工跑」转自动强制。详见
 #       docs/ops/201-ci-gate-20261006.md(依赖面判定 + 零外发自证)。
-#   Job 2 quality-gate-data(continue-on-error, 需下载 R2 生产数据产物):
+#   Job 2 quality-gate-data(⑥⑦ 步骤级 continue-on-error; 下载步骤 fail-fast ⇒ #261):
 #     ⑥ scripts/check_loss_rules_vs_mining.py AI降亏 20 新键·三层一致性(特征/谓词/阈值 vs 挖掘权威)
 #     ⑦ scripts/check_fade_predicate_parity.mjs 老37键迁 spec-driven 规格·命中集合逐位一致(单边模式)
+#     下载步骤: 从 R2 ssd.fx8.store 拉两件生产数据产物; **失败即 exit 1 让 job 红**(基础设施故障必报红)
 #
-# 【为什么 Job 2 用 continue-on-error】
+# 【为什么 ⑥⑦ 用步骤级 continue-on-error(#261 起, 原为 Job 2 整体)】
 #   ⑥⑦ 依赖 gitignore 的生产数据产物(static-site/data/signal_kelly_trades.json 72MB +
 #   kelly_loss_features.json 1.1MB, CI checkout 后不存在, 需从 R2 ssd.fx8.store 下载),
 #   且存在已知非代码回归 FAIL 来源:
@@ -33,11 +35,21 @@
 #       buy_aux 行必然不确定(20260903 实测: 20260824 两行 S1/S2 挖掘=False 生产=True,
 #       快照 mine10_features.json 截止 20260821, 生产已到 20260824 → 数据窗口差, 非代码错)。
 #     它 EP 的设计用途是「挖掘当期验证」, 挖掘快照每周不重跑时就对不齐 → 若 FAIL 阻断会让
-#     CI 永远红, 反而失去门禁意义。故 continue-on-error:true 保 CI 可用, 但每次运行仍输出
-#     FAIL 明细供巡检; 待 P0-1 重跑挖掘快照/把快照纳入版本后转 FAIL 阻断。
+#     CI 永远红, 反而失去门禁意义。故 ⑥⑦ 步骤级 continue-on-error:true(仅吸收这类数据窗口差
+#     FAIL), 保 CI 可用, 但每次运行仍输出 FAIL 明细供巡检; 待 P0-1 重跑挖掘快照/把快照纳入版本
+#     后转 FAIL 阻断。
 #     - check_fade_predicate_parity 无 --base 基线时跑单边模式(仅输出构建结果不对比, exit 0),
 #       完整对比需先固化迁移前基线(--ref cf66741d5 --out t31-base.json 落 docs/), 属 T3 迁移
 #       验证场景, 非常驻 CI 门禁形态。
+#
+# 【#261 门禁空转修复: 为什么 continue-on-error 下沉到 ⑥⑦ 步骤级 + 下载步骤 fail-fast】
+#   旧形态(2026-10-16 前): continue-on-error 挂在 **Job 2 级**, 下载步骤失败只打一句 ⚠ 后置 ok=0,
+#   末尾 ls -la 退出码 0 吞掉失败, ⑥⑦ 再被 `if: ok=='1'` 静默 skip ⇒ job 整体恒绿。
+#   后果: 「下载失败(基础设施故障)」与「⑥⑦ 全过」在 CI 结论上**无法区分** = 门禁空转。
+#   现形态(B1/B3): ①continue-on-error 下沉到 ⑥⑦ 两个 step(继续吸收已知数据窗口差 FAIL);
+#   ②下载步骤 fail-fast —— 失败时打显式 ::error 文案 + exit 1, 让 job 红(基础设施故障 = 该红)。
+#   真值表: 下载成功 + ⑥⑦ 全过 → 绿; 下载成功 + ⑥⑦ 有 FAIL → 绿(窗口差, 已知设计);
+#           下载失败 → 红(fail-fast, ⑥⑦ 不再运行, 日志说明「为什么红」)。
 #
 # 【JDK/python 版本】与既有 deploy-cf.yml 保持一致: ubuntu-latest + setup-node@v4 lts/*;
 #   python 用 setup-python@v5 3.11(与本地 dev 3.11 一致, check_*.py 均纯标准库无第三方依赖)。
@@ -125,7 +137,9 @@ jobs:
   # ---------------------------------------------------------------- Job 2: 数据产物一致性门禁
   quality-gate-data:
     runs-on: ubuntu-latest
-    continue-on-error: true   # 见文件头注释: 依赖生产数据产物 + 已知数据窗口差 FAIL 源, 保 CI 可用
+    # #261(B1): 原来这里是 job 级 continue-on-error —— 它把「下载失败(基础设施故障)」和「⑥⑦ 已知数据
+    #   窗口差 FAIL」一并吞成恒绿, 门禁空转。现下沉到 ⑥⑦ 步骤级: 只有「已知数据窗口差」这类非代码回归
+    #   被吸收, 下载步骤 FAIL(基础设施故障)照常让 job 红。见文件头注释「为什么 ⑥⑦ 用步骤级 continue-on-error」。
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -138,25 +152,41 @@ jobs:
       - name: 下载生产数据产物(供 ⑥⑦)
         id: download
         run: |
+          # #261(B1/B3): 本步骤 fail-fast —— 下载失败 = 基础设施/数据产物可达性故障, 该 job 必须红。
+          #   旧行为: 失败只打一句 ⚠ 后置 ok=0, 末尾 ls -la 退出码 0 吞掉失败, ⑥⑦ 再被 if 静默 skip
+          #   且整体按成功计 ⇒「数据没下到」与「⑥⑦ 全过」在 CI 结论上无法区分(门禁空转)。现改为显式 exit 1。
           mkdir -p "$GITHUB_WORKSPACE/static-site/data"
           ok=1
           curl -fsSL --retry 3 -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36" \
             -o "$GITHUB_WORKSPACE/static-site/data/kelly_loss_features.json" \
-            "https://ssd.fx8.store/data/kelly_loss_features.json" || { echo "⚠ 下载 kelly_loss_features.json 失败(⑥⑦将跳过)"; ok=0; }
+            "https://ssd.fx8.store/data/kelly_loss_features.json" || { echo "::error title=下载失败::kelly_loss_features.json 从 ssd.fx8.store 下载失败"; ok=0; }
           curl -fsSL --retry 3 -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36" \
             -o "$GITHUB_WORKSPACE/static-site/data/signal_kelly_trades.json" \
-            "https://ssd.fx8.store/data/signal_kelly_trades.json" || { echo "⚠ 下载 signal_kelly_trades.json 失败(⑥⑦将跳过)"; ok=0; }
+            "https://ssd.fx8.store/data/signal_kelly_trades.json" || { echo "::error title=下载失败::signal_kelly_trades.json 从 ssd.fx8.store 下载失败"; ok=0; }
           ls -la "$GITHUB_WORKSPACE/static-site/data/"
           echo "ok=$ok" >> "$GITHUB_OUTPUT"
+          if [ "$ok" != "1" ]; then
+            echo "================================================================"
+            echo "::error::生产数据产物下载失败 ⇒ ⑥⑦ 无法运行, 本步骤 FAIL(该 job 红)。"
+            echo "  为什么红: ⑥⑦ 依赖 gitignore 的生产数据产物(signal_kelly_trades.json / kelly_loss_features.json),"
+            echo "  CI checkout 后仓内不存在, 必须先经本步骤从 R2 ssd.fx8.store 下载。下载失败 = 基础设施/数据产物"
+            echo "  可达性故障, 属真实故障(非代码回归), 必须显式报红, 不再静默 skip 后按成功计(旧行为见 #261)。"
+            echo "  排查方向: ssd.fx8.store 是否可达 / R2 data/ 前缀下两文件是否存在(见 role-implementer §3.1 R2 架构准则)。"
+            echo "  注: 已知数据窗口差(非下载失败)导致的 ⑥⑦ FAIL 由 ⑥⑦ 各自步骤级 continue-on-error 吸收, 不放行本步骤。"
+            echo "================================================================"
+            exit 1
+          fi
 
       - name: ⑥ AI降亏三层一致性(特征/谓词/阈值 vs 挖掘权威)
         if: steps.download.outputs.ok == '1'
+        continue-on-error: true   # #261(B1): 仅吸收「已知数据窗口差」FAIL(非代码回归), 下载失败已由上一步骤 exit 1 拦截
         env:
           TRADES_JSON: "${{ github.workspace }}/static-site/data/signal_kelly_trades.json"
         run: python3 scripts/check_loss_rules_vs_mining.py
 
       - name: ⑦ fade 谓词规格迁移一致性(单边)
         if: steps.download.outputs.ok == '1'
+        continue-on-error: true   # #261(B1): 同上, 步骤级下沉, 不吞下载失败
         env:
           TRADES_JSON: "${{ github.workspace }}/static-site/data/signal_kelly_trades.json"
         run: node scripts/check_fade_predicate_parity.mjs

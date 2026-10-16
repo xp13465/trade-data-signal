@@ -17,7 +17,7 @@
 
 CI 防护（must-fix-1，2026-10-12 独立审查）：
   原版 `_check` 只记录不 assert，且用例名 `test_*` 被 pytest 当空壳收集 ⇒ CI 闸门
-  （.github/workflows/ci.yml:123 `python3 -m pytest -q scripts/tests/`）里 6 passed 却零防护
+  （.github/workflows/ci.yml:135 `python3 -m pytest -q scripts/tests/`）里 6 passed 却零防护
   （§18 L49 空转养绿）。现改为：①用例改名 `run_*`（进程式，不被 pytest 空壳收集）
   ②新增 `test_251_fundnav_col_bugfix_ci_gate`（pytest 唯一入口）经 house 桥接
   `scripts/tests/_wrap_util.py::run_script_main` 跑完整 main()，断「无 FAIL 检查 + 检查数下限
