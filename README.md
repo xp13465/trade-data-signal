@@ -85,7 +85,7 @@
 
 #### v1.1.20（2026-10-17 合入）
 
-- 🔹 **凯利冻结孤儿断档根治 + 补账**（§5.4⑥ 数据层人口口径修正,默认组合/算法未动,测试基准仍=v1.1.7）：信号凯利冻结表孤儿买事件断档止血——引擎读侧 union 补账登记表（`config/signal_kelly_freeze_orphan_backfill.json`，1,848 行 = 4 象限 × 11 模式 × 42 候选，覆盖 49 条孤儿买事件：2026-10-14 五条 / 10-15 两条 / 10-16 六条及更早），凯利页全史笔数 341,000→342,848；回滚=删或清空配置即 no-op；配套观测开关 `SIGNAL_KELLY_FREEZE_ORPHAN_ALERT`（云上运维开关,开启后新孤儿即告警）；依据报告 [`docs/ops/252-freeze-orphan-backfill-20261016.md`](docs/ops/252-freeze-orphan-backfill-20261016.md)
+- 🔹 **凯利冻结孤儿断档根治 + 补账**（§5.4⑥ 数据层人口口径修正,默认组合/算法未动,测试基准仍=v1.1.7）：信号凯利冻结表孤儿买事件断档止血——引擎读侧 union 补账登记表（`config/signal_kelly_freeze_orphan_backfill.json`，1,848 行 = 4 象限 × 11 模式 × 42 候选，登记表收录全部 49 条孤儿买事件——42 条即时成账（即上述 1,848 行）、7 条待行情就绪后自动成账；拍板时 36 条系 10-14 快照,同源损伤持续至 49 条），凯利页全史笔数 341,000→342,848；回滚=删或清空配置即 no-op；配套观测开关 `SIGNAL_KELLY_FREEZE_ORPHAN_ALERT`（云上运维开关,开启后新孤儿即告警）；依据报告 [`docs/ops/252-freeze-orphan-backfill-20261016.md`](docs/ops/252-freeze-orphan-backfill-20261016.md)
 
 #### v1.1.19（2026-09-18 合入）
 
