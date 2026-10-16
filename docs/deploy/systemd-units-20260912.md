@@ -8,16 +8,16 @@
 
 | 类别 | 数量 | 产物 |
 |---|---|---|
-| 周期任务(必迁) | 40 | 40 个 `.timer` + 40 个 `.service`(OnCalendar= 时点;不含下方 backup_db) |
+| 周期任务(必迁) | 41 | 41 个 `.timer` + 41 个 `.service`(OnCalendar= 时点;不含下方 backup_db) |
 | 飞书常驻 listener(已拍板不迁) | 1 | 无(留本机:需求入口依赖本机 Claude;云上飞书通知走 notify.py) |
 | backup_db 独立备份 | 1 | 1 个 `.timer`(21:00)+ 1 个 `.service` |
 | 本机 Claude 开发环境专属(不迁) | 5 | 见 §5(thinking-proxy / sensenova-healthcheck / agent-inbox-watcher / token-cache-stats / com.claude.self-backup) |
 | plist 存在但未加载(不迁) | 3 | 见 §6(codex-watcher / monitor-72h / sentiment) |
 
-> **计数口径与重算(2026-10-05,防误读)**:上表「40 周期 + 1 backup_db = **41**」= 云上 `trade-*.timer` **实测总数**(`ls /etc/systemd/system/trade-*.timer | wc -l` = 41,与 `systemctl list-timers --all | grep -c 'trade-.*\.timer'` 一致)。全文计数以「2026-10-05 云上实测 = 41」为锚,历史数字保留可反查:
-> - **历史链(逐项,含 commit 可反查)**:`2026-09-12` 首版 = **35 周期 + 1 backup_db = 36 timer**(`6f7e5b13a`);`2026-09-14` 新增 `trade-lof-track-index`(§2.6-1)→ **36 周期**(`9993cfba5`);`2026-09-17` #45 补 `trade-nextday-gap-check`(§2.14-1)→ **37 周期**(`fd6d5c78d`);`2026-10-03` P0-1 新增 `trade-check-monitor-heartbeat`(§2.36)→ **38 周期**;`2026-10-05` #160 新增 `trade-r2-consistency`(§2.37,§22 一致性巡检)→ **39 周期 = 40 timer**;`2026-10-05` #191 新增 `trade-cloud-unit-patrol`(§2.38,云上 unit 直连巡检)→ **40 周期 = 41 timer** ✓。
-> - **云上 mtime 交叉验证(独立第二源)**:41 个 `trade-*.timer` 中 34 个 mtime 停在 `2026-09-14`(= 迁移批 36 减去之后被改过的 `trade-update-all`(10-04 周日错峰)与 `trade-nextday-plan`(09-17));其余 7 个 = 5 新增(lof-track-index 09-15 / nextday-gap-check 09-17 / check-monitor-heartbeat 10-03 / r2-consistency 10-05 / cloud-unit-patrol 10-05)+ 2 修改。34 + 7 = 41,与**全文 41 对**(§2 区内物理 39 对,`### 2.37 r2-consistency` 对物理落在 §6、`trade-backup-db` 对落在 §4;= 40 周期 + 1 backup_db)、`gen_systemd_units.py --check` 的 82 单元(41 timer + 41 service)三源一致。
-> - **旧数字差异(§0「37」/§1.4「32」/§1.7「36」)**:三者均按当时点数、未随后续新增重算——「37」= 迁移批基线经 #45 后的中途值;「32」= 37 − 5(当时 append 例外 shell 型数);「36」= 阶段4b 统一环境变量时的 service 数。本次统一重算:**§0 = 40 周期**(= 41 − 1 backup_db)、**§1.4(其余不 append)= 32**(全 41 service 分区:7 个 shell 型 + 2 个 python heredoc 型 + 其余 **32** = 41 ✓;注意分区对象是**全部 41 个 service**而非 40 周期,故不能拿「40 − 7」推)、**§1.7 = 41**(全 service 均注入三 env,实测)。
+> **计数口径与重算(2026-10-16,防误读)**:上表「41 周期 + 1 backup_db = **42**」= 云上 `trade-*.timer` **实测总数**(`ls /etc/systemd/system/trade-*.timer | wc -l` = 42,与 `systemctl list-timers --all | grep -c 'trade-.*\.timer'` 一致)。全文计数以「2026-10-16 云上实测 = 42」为锚,历史数字保留可反查:
+> - **历史链(逐项,含 commit 可反查)**:`2026-09-12` 首版 = **35 周期 + 1 backup_db = 36 timer**(`6f7e5b13a`);`2026-09-14` 新增 `trade-lof-track-index`(§2.6-1)→ **36 周期**(`9993cfba5`);`2026-09-17` #45 补 `trade-nextday-gap-check`(§2.14-1)→ **37 周期**(`fd6d5c78d`);`2026-10-03` P0-1 新增 `trade-check-monitor-heartbeat`(§2.36)→ **38 周期**;`2026-10-05` #160 新增 `trade-r2-consistency`(§2.37,§22 一致性巡检)→ **39 周期 = 40 timer**;`2026-10-05` #191 新增 `trade-cloud-unit-patrol`(§2.38,云上 unit 直连巡检)→ **40 周期 = 41 timer**;`2026-10-16` #264 新增 `trade-alert-weekly-review`(§2.39,告警周度 review 挂载)→ **41 周期 = 42 timer** ✓。
+> - **云上 mtime 交叉验证(独立第二源)**:42 个 `trade-*.timer` 中 34 个 mtime 停在 `2026-09-14`(= 迁移批 36 减去之后被改过的 `trade-update-all`(10-04 周日错峰)与 `trade-nextday-plan`(09-17));其余 8 个 = 6 新增(lof-track-index 09-15 / nextday-gap-check 09-17 / check-monitor-heartbeat 10-03 / r2-consistency 10-05 / cloud-unit-patrol 10-05 / alert-weekly-review 10-16)+ 2 修改。34 + 8 = 42,与**全文 42 对**(§2 区内物理 38 对,`### 2.37`/`### 2.38`/`### 2.39` 三对物理落在 §6、`trade-backup-db` 对落在 §4;= 41 周期 + 1 backup_db)、`gen_systemd_units.py --check` 的 84 单元(42 timer + 42 service)三源一致。
+> - **旧数字差异(§0「37」/§1.4「32」/§1.7「36」)**:三者均按当时点数、未随后续新增重算——「37」= 迁移批基线经 #45 后的中途值;「32」= 37 − 5(当时 append 例外 shell 型数);「36」= 阶段4b 统一环境变量时的 service 数。本次统一重算:**§0 = 41 周期**(= 42 − 1 backup_db)、**§1.4(其余不 append)= 33**(全 42 service 分区:7 个 shell 型 + 2 个 python heredoc 型 + 其余 **33** = 42 ✓;注意分区对象是**全部 42 个 service**而非 41 周期,故不能拿「41 − 7」推)、**§1.7 = 42**(全 service 均注入三 env,实测)。
 
 ## 1. 统一约定
 
@@ -55,7 +55,7 @@ timedatectl set-timezone Asia/Shanghai
 | WorkingDirectory | WorkingDirectory= | |
 | StandardOutPath / StandardErrorPath | StandardOutput=append: / StandardError=append: | 保留原日志文件路径(监控/告警排查靠 `find data/logs -mmin` 扫描,路径不可变) |
 
-> ⚠️ **例外(2026-09-15 根治 append 日志 root 属主冲突)**:凡脚本自己 `>> "$LOG"` 写同一个固定名 `*_launchd.log`(而非 STAMP/独立名),该 unit **必须去掉** `StandardOutput=` / `StandardError=` 的 append 重定向(恢复 journal 默认)。原因:systemd 主进程(root)创建 append 文件属主 root(644),脚本(ubuntu)再 `echo >>` 同一文件 re-open 写不进 → Permission denied → 任务超时/失败(2026-09-14 盘后 turnover/nextday/overfit/s06 等 4 任务失败)。去掉后由脚本自己建文件(ubuntu 属主),无冲突、监控直读路径不变。共 7 个 shell 型(脚本自己 `>> "$LOG"` 写同名 `*_launchd.log`):trade-turnover-backfill / trade-nextday-plan / trade-nextday-gap-check / trade-overfit-monitor / trade-s06-snapshot / **trade-r2-consistency(2026-10-05 追加,#160)** / **trade-cloud-unit-patrol(2026-10-05 追加,#191)**。**另 2 个 python heredoc 型(trade-schedule-monitor / trade-self-heal)不去 append**:它们的 `MONITOR_LOG` 只定义从未 open 写入,日志一直靠 systemd append 产生,去掉会停更、且 schedule_monitor 告警把 MONITOR_LOG 当路径写进 latest.md 指向陈旧日志(L46 `find -mmin` 扫描法对这 2 个也失效)。其余 32 个 unit 脚本写 STAMP/独立名日志(无 re-open 冲突)或完全依赖 systemd 捕获 stdout,保留 append 不动。
+> ⚠️ **例外(2026-09-15 根治 append 日志 root 属主冲突)**:凡脚本自己 `>> "$LOG"` 写同一个固定名 `*_launchd.log`(而非 STAMP/独立名),该 unit **必须去掉** `StandardOutput=` / `StandardError=` 的 append 重定向(恢复 journal 默认)。原因:systemd 主进程(root)创建 append 文件属主 root(644),脚本(ubuntu)再 `echo >>` 同一文件 re-open 写不进 → Permission denied → 任务超时/失败(2026-09-14 盘后 turnover/nextday/overfit/s06 等 4 任务失败)。去掉后由脚本自己建文件(ubuntu 属主),无冲突、监控直读路径不变。共 7 个 shell 型(脚本自己 `>> "$LOG"` 写同名 `*_launchd.log`):trade-turnover-backfill / trade-nextday-plan / trade-nextday-gap-check / trade-overfit-monitor / trade-s06-snapshot / **trade-r2-consistency(2026-10-05 追加,#160)** / **trade-cloud-unit-patrol(2026-10-05 追加,#191)**。**另 2 个 python heredoc 型(trade-schedule-monitor / trade-self-heal)不去 append**:它们的 `MONITOR_LOG` 只定义从未 open 写入,日志一直靠 systemd append 产生,去掉会停更、且 schedule_monitor 告警把 MONITOR_LOG 当路径写进 latest.md 指向陈旧日志(L46 `find -mmin` 扫描法对这 2 个也失效)。其余 33 个 unit 脚本写 STAMP/独立名日志(无 re-open 冲突)或完全依赖 systemd 捕获 stdout,保留 append 不动。
 
 ### 1.5 PATH Linux 化
 本机 plist 内嵌 `PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`,其中 `/opt/homebrew/bin` 在 Linux 不存在。服务器统一为:
@@ -81,7 +81,7 @@ PURGE_SECRET 值(本机全部 plist 一致):见 `/home/ubuntu/code/trade-data/.e
 | PATH | /opt/homebrew/bin:... | /usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin |
 | PURGE_SECRET | 见 §1.6 | 同左 |
 
-阶段4b 统一(2026-09-13):全部 41 service 均注入 `REPO`/`GIT_REPO`/`MAIN_REPO`(REPO=MAIN_REPO=/home/ubuntu/code/trade-data 数据目录,GIT_REPO=/home/ubuntu/code/trade-data-signal 代码仓,与 pick_repo.py 双仓判定一致,防 /Users 语义翻转)。个别任务保留特殊 env:ab-direction-anchor 额外有 `TRADE_DIR`(→ /home/ubuntu/code/trade-data-signal 代码仓)。
+阶段4b 统一(2026-09-13;2026-10-16 新增 unit 同规):全部 42 service 均注入 `REPO`/`GIT_REPO`/`MAIN_REPO`(REPO=MAIN_REPO=/home/ubuntu/code/trade-data 数据目录,GIT_REPO=/home/ubuntu/code/trade-data-signal 代码仓,与 pick_repo.py 双仓判定一致,防 /Users 语义翻转)。个别任务保留特殊 env:ab-direction-anchor 额外有 `TRADE_DIR`(→ /home/ubuntu/code/trade-data-signal 代码仓)。
 
 ## 2. 40 个周期任务完整对照表 + unit 内容
 
@@ -1654,6 +1654,48 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
 # 外层 600 > 内层(读 ~80 个小 unit 文件 + python 比对,秒级;外层即唯一看门狗,留梯度)
 TimeoutStartSec=600
+```
+
+### 2.39 alert-weekly-review(周一 8:20,#264 告警周度 review)
+
+> 追加于 2026-10-16:本任务是 `alert_weekly_review.py`(#264 包3「治理」件F 的周度防复发工具)的**调度器挂载**,非迁移批新增(无 launchd 源)。对齐 L45 教训「生成→定时挂载→机检→过期告警」四件 —— 本 unit 补「定时挂载」 + 纳入 WATCHMAN(第 4 件「过期告警」落点,见下)。工具做**只读**周度复核:①top-talkers(近 N 天实发告警按 source/subject 排序)②tier/重复率 ③被吞条目找回核对(alert_daily.json `merged_in_digest`)④四元组缺失扫描(`--check-four-tuple`:静态扫 scripts/ 下**调 notify.py** 的脚本,列缺 `--tier/--severe` / 缺 `--dedup-key` / `--dedup-window 0`(关死抑制=违规),对齐 `docs/ops/alert-checker-registry-20261015.md`)。**零外发**(不碰通知链路,§18 L48 精神:脚本无任何 notify/smtp/requests import,`notify.py` 仅作静态扫描目标串);产出=stdout 报告,人工读 `data/logs/alert-weekly-review-launchd.log`;台账读云上 `data/alerts/alert_ledger.jsonl`(缺省候选=两树绝对路径,不依赖 REPO env)。
+> - script:`alert_weekly_review.py --check-four-tuple`
+> - 时点依据(§14):周一 08:20 盘前闲时,避开盘后 15:35/16:00/17:50/20:35/22:00 与盘中 09:30-15:30;08 点档最近的其他 trade timer = rzhb-backfill(08:00)/ cloud-unit-patrol(08:27),均不撞
+> - 每周跑(周一):周度复核节奏;`Persistent=true` 保证宕机错过周一后补跑
+> - **纳入 WATCHMAN_UNITS**(`alert_denoise_rules.WATCHMAN_UNITS`):本工具属「无数据产物可反证其存活的巡检/监控类调度器」——停了没有任何数据会变旧(§WATCHMAN 收录边界),须靠 `check_failed_units.py` ② 的「巡检者自身存活」层直接看 timer 活性;其触发 .service 的 ExecStart 脚本存在性由 ②b 层兜(脚本被删=静默跳过,须能发现)
+> - **保留 systemd append 日志**:脚本是纯 python,自己不写同名 `*_launchd.log`(无双 open 冲突),日志全靠 systemd append 产生(与 etf-track-index 同类,非 §1.4 的 7 个 shell 型例外)
+
+`trade-alert-weekly-review.timer`:
+```ini
+[Unit]
+Description=Trade alert-weekly-review weekly Mon 08:20 (#264 告警周度 review)
+
+[Timer]
+OnCalendar=Mon *-*-* 08:20:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-alert-weekly-review.service`:
+```ini
+[Unit]
+Description=Trade alert-weekly-review (#264 告警周度 review:top-talkers+四元组扫描)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/alert_weekly_review.py --check-four-tuple
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/alert-weekly-review-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/alert-weekly-review-launchd.err
 ```
 
 ## 7. 落地注意事项(stage4 用)

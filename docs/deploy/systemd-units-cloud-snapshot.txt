@@ -15,6 +15,23 @@ Environment=TRADE_DIR=/home/ubuntu/code/trade-data-signal
 TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.out.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.err.log
+@@@FILE:trade-alert-weekly-review.service
+[Unit]
+Description=Trade alert-weekly-review (#264 告警周度 review:top-talkers+四元组扫描)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/alert_weekly_review.py --check-four-tuple
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/alert-weekly-review-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/alert-weekly-review-launchd.err
 @@@FILE:trade-backfill-evening.service
 [Unit]
 Description=Trade backfill-evening (源 com.trade.backfill-evening)
@@ -693,6 +710,16 @@ Description=Trade ab-direction-anchor daily 21:15 (源 com.trade.ab-direction-an
 
 [Timer]
 OnCalendar=*-*-* 21:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-alert-weekly-review.timer
+[Unit]
+Description=Trade alert-weekly-review weekly Mon 08:20 (#264 告警周度 review)
+
+[Timer]
+OnCalendar=Mon *-*-* 08:20:00
 Persistent=true
 
 [Install]

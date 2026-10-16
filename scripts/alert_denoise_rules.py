@@ -103,7 +103,7 @@ ESCALATE_ROLLING_WINDOW_DAYS = 7
 # check_data_gap 数据级告警兜底), 且多数已登记进 schedule_monitor 漏跑表; 而监控器/巡检器**不产出
 # 数据**, 它死了没有任何数据会变旧 ⇒ 必须靠本清单直接看 timer 活性。同理不收「有自身 loud 失败通道」
 # 的推送器(如 trade-brief-push, 失败时 wrapper 自己 notify --severe)。
-# 清单与云上实测(2026-10-05 只读 `systemctl show`): 41 个 trade-*.timer 全为 active+enabled。
+# 清单与云上实测(2026-10-16 只读 `systemctl show`): 42 个 trade-*.timer 全为 active+enabled。
 WATCHMAN_UNITS = (
     ("trade-cloud-unit-patrol.timer", "timer"),        # #191 云上 unit 漂移巡检调度器
     ("trade-check-monitor-heartbeat.timer", "timer"),  # schedule-monitor 心跳消费者(元监控)
@@ -112,6 +112,9 @@ WATCHMAN_UNITS = (
     ("trade-r2-consistency.timer", "timer"),           # §22 三站一致性巡检调度器
     ("trade-check-data-gap.timer", "timer"),           # 数据缺口/停更告警检测器(巡检类, 不产出数据)
     ("trade-overfit-monitor.timer", "timer"),          # 过拟合监控器(监控类, 不产出数据)
+    # #264 包3 件F(2026-10-16): 告警周度 review 调度器(巡检类, 不产出数据; 停了没有任何
+    # 数据会变旧 ⇒ 纳入本清单直接看 timer 活性 = L45 第 4 件「过期告警」落点)。
+    ("trade-alert-weekly-review.timer", "timer"),
 )
 
 

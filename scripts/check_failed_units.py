@@ -13,9 +13,9 @@
 
 【两类判定(都是「真故障判别维度」, 非噪音; memory alert-denoise-keep-fault-discriminator)】
   ① failed-unit: `systemctl list-units --state=failed --no-legend --plain` 非空 → 真故障。
-  ② 巡检者自身存活(= ② 「不能巡检者死了没人知」): 对 WATCHMAN_UNITS(7 个「无数据产物可反证
+  ② 巡检者自身存活(= ② 「不能巡检者死了没人知」): 对 WATCHMAN_UNITS(8 个「无数据产物可反证
      其存活」的守护/巡检/监控 timer: patrol / schedule-monitor / check-monitor-heartbeat /
-     self-heal / r2-consistency / check-data-gap / overfit-monitor; 收录边界见
+     self-heal / r2-consistency / check-data-gap / overfit-monitor / alert-weekly-review; 收录边界见
      alert_denoise_rules.WATCHMAN_UNITS 注释)逐个判:
        - LoadState == not-found      → unit 文件离盘(巡检被删的最彻底形态)
        - UnitFileState != enabled    → 被停用/禁用/掩蔽(不再随开机调度)
