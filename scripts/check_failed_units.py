@@ -264,7 +264,12 @@ def _send_notify(repo, subject, body):
     ⚠️ #240 ② 起 `--dedup-window 0`: 每日 1 次/集合变化的闸门已由本脚本自管
     (failed_units_daily_judge), 若仍用 6h 窗则「集合有变立即报」会被 notify 的通用去重
     吞掉。dedup-key 保持 failed_units_patrol **一字不改** —— notify.py 的 #196③
-    「连续 3 天升 critical」正是以该 key 精确匹配接线(见 notify.py _ESCALATE_CHANNELS)。
+    「连续 N 天升 critical」正是以该 key 精确匹配接线(见 notify.py _ESCALATE_CHANNELS)。
+
+    ⚠️ #264 件A(2026-10-15): 上面的 `--dedup-window 0` **只作用于首报通道**(window=0 =
+    集合有变立即报, 保持原样)。升级档(升 critical)**不再复用本窗**, 改判 notify.py 侧
+    自己的独立窗 `adr.ESCALATED_DEDUP_WINDOW_SECONDS`(实测锚定 72h, 见该常量取值依据)。病灶: 升级档原样复用本窗 ⇒
+    check_dedup(key, 0) 恒放行 ⇒ 升级 critical 永不被抑制(10-15 单日 6 封)。本脚本无需改动。
 
     ⚠️ F1 复审(2026-10-09): 返回的 sent **不是 rc==0**, 而是从 notify.py 输出里判「真发出过」
     (见 _notify_sent)。rc 恒 0 不含告知力: 全渠道失败也 return 0(notify.py 汇总行([notify] 汇总：全部渠道未发出)), 若按 rc

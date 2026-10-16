@@ -521,7 +521,8 @@ def test_notify_escalation_patrol_drift_third_day(stubbed_notify):
                       "--dedup-key", "cloud_unit_patrol_drift", "--dedup-window", "21600"])
     assert rc == 0
     tiered = [s for k, s in sent if k == "tiered"]
-    assert tiered and "升级 critical" in tiered[0] and "连续 3 天" in tiered[0]
+    # #264 件B: 判据由「连续 3 天」改为有界滚动窗「近 7 天出现 3 天」(措辞随实现同步)
+    assert tiered and "升级 critical" in tiered[0] and "近 7 天出现 3 天" in tiered[0]
     assert not [s for k, s in sent if k == "send"], "升级档不得再走普通 severe 路径(不双发)"
 
 
@@ -535,7 +536,8 @@ def test_notify_escalation_failed_units_third_day(stubbed_notify):
                       "--dedup-key", "failed_units_patrol", "--dedup-window", "21600"])
     assert rc == 0
     tiered = [s for k, s in sent if k == "tiered"]
-    assert tiered and "failed unit 持续未清" in tiered[0] and "连续 3 天" in tiered[0]
+    assert (tiered and "failed unit 持续未清" in tiered[0]
+            and "近 7 天出现 3 天" in tiered[0])
 
 
 def test_notify_escalation_first_day_falls_through(stubbed_notify, capsys):
