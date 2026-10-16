@@ -1642,6 +1642,59 @@ def check_a_fund_north_quarterly() -> CheckResult:
                  f"（季度闸门/采集异常致指标滞后，应 02:00 强制重算补回；db={db}）")
 
 
+def check_fund_index_daily() -> CheckResult:
+    """校验 fund_index_daily 最新日期不滞后（#257 D1，2026-10-17）。
+
+    病灶（2026-10-14 夜间告警分流发现，静默降级）：fund_index_daily 最新停在 20260929
+    却**零告警覆盖**（scripts/ 下无该表任何 checker、check_data_integrity 无该表字样）。
+    消费方 = position_estimate 反推算法 + IR/Alpha 回归（app/queries.py:2802、
+    static-site/export.py:700 均读该表） ⇒ 公募 tab 预估仓位/报告期静默停在 09-29，
+    属「数据停了但台账零条告警」的检查侧盲区（#154/#241 同族：数据供给链缺「机检」件）。
+
+    采集节奏（**阈值依据，先考证非拍脑袋**）：
+      · 写点 = app/collector/public_fund.py:fetch_index_daily（baostock 拉 hs300/csi500/gem
+        三指数日频 INSERT OR REPLACE），由 scripts/public_fund_daily.sh 每交易日
+        16:30（主槽）+ 17:00（兜槽）触发 pipeline_daily → fetch_index_daily(end_date=今日)。
+      · 期望滞后 = 0（当日盘后采到 T）或 1（16:30 采时源未发全、17:00 兜槽补；或盘中读昨值）。
+      · 交易日口径（_lag_trading_days，与 check_accum_nav_map_fresh 同源）：长假后首个
+        交易日不误报（自然日口径会把国庆后首个交易日误判成 8 天滞后）。
+    阈值（**复用仓库既有 daily-freshness 常量，与 6 个同类 check 同源、非新造**）：
+      · 滞后 > STALE_DAYS_WARN(3) 交易日 = WARN（日频数据可能停更，deploy 输出可见）；
+      · 滞后 > STALE_DAYS_FAIL(7) 交易日 = FAIL（停更故障：deploy 阻断 + severe 告警）。
+    环境缺库 = WARN（与 check_a_fund_north_quarterly / check_fapi_mutex 同款：库找不到
+    不误判为数据故障）；库锁竞争 = FAIL 但 msg 显式标注语境（同 a_fund_north_quarterly 先例）。
+    """
+    name = "fund_index_daily"
+    db = _find_public_fund_db()
+    if db is None:
+        return _warn(name, "public_fund.db 未找到（trade-data 主库与 trade 镜像均不存在），"
+                     "无法校验 fund_index_daily")
+    try:
+        conn = sqlite3.connect(str(db), timeout=5.0)
+        row = conn.execute("SELECT MAX(date) FROM fund_index_daily").fetchone()
+        conn.close()
+    except Exception as e:  # noqa: BLE001
+        hint = "（库被占用，疑似采集进程持写锁，请避开采集时点重跑复验；非数据缺失/schema 问题）" \
+            if "locked" in str(e).lower() else ""
+        return _fail(name, f"读 public_fund.db 失败{hint}: db={db}: {e}")
+
+    latest = row[0] if row else None
+    if not latest:
+        return _fail(name, f"fund_index_daily 无任何行（反推算法基准指数缺失，"
+                     f"公募 tab 预估仓位算不出；db={db}）")
+    days = _lag_trading_days(latest)
+    if days is None:
+        return _fail(name, f"fund_index_daily 最新日期格式异常: {latest!r} (db={db})")
+    if days > STALE_DAYS_FAIL:
+        return _fail(name, f"fund_index_daily 最新 date={latest} 滞后 {days} 交易日 > "
+                     f"{STALE_DAYS_FAIL} 交易日（position_estimate 反推/IR-Alpha 基准停更，"
+                     f"公募 tab 预估仓位陈旧；db={db}）")
+    if days > STALE_DAYS_WARN:
+        return _warn(name, f"fund_index_daily 最新 date={latest} 滞后 {days} 交易日 > "
+                     f"{STALE_DAYS_WARN} 交易日 (db={db})")
+    return _ok(name, f"最新 date={latest} (滞后 {days} 交易日)")
+
+
 def _load_track_map(repo_data_dir: Path) -> tuple[dict | None, str | None]:
     """读 board_etf_map.json -> {index_id: {code: entry}}（_meta/非 list 值跳过）。
 
@@ -2069,6 +2122,9 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_track_score_map_vs_index(data_dir, repo_data_dir))
     results.append(check_track_score_overview_vs_map(data_dir, repo_data_dir))
     results.append(check_a_fund_north_quarterly())
+    # #257 D1(2026-10-17): fund_index_daily 最新日期新鲜度(公募 tab 预估仓位/IR-Alpha 基准,
+    # 静默降级补盲——该表此前零 checker 覆盖, 停更 20260929 无任何告警)
+    results.append(check_fund_index_daily())
     # T1 AI降亏特征通道（2026-08-23）：规格单源完整性（E16 防静默缺失）
     results.append(check_kelly_loss_features(data_dir))
     # P1-D2 export 导出面全量断言（2026-08-23，单一事实源=export.py EXPORT_MANIFEST，
