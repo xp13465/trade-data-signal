@@ -84,7 +84,7 @@
 | 39 | `push_schedule_stats.sh` | deploy 链(独立推 schedule_stats) | critical(`--severe`) | 1800 | `deploy` | 首报必达 | 聚合域待对齐 |
 | 40 | `brief_push_wrapper.sh` | `trade-brief-push.timer` 20:45 | critical(`--severe`) | 21600 | `business` | 首报必达 | 聚合域待对齐 |
 | 41 | `sensenova-proxy-healthcheck.py` | mac launchd(本机,非云 timer) | critical(`--severe`,主告警 L144-146/177)/warning(`--tier warning`,状态写失败 L125-127) | 86400(状态写失败分支);主告警路径无 `--dedup-key`(靠状态机 fired/recovered 自管,类比 #5) | `proxy` | 首报必达 | 聚合域待对齐 |
-| 42 | `signal_kelly_backtest.py` | kelly 盘中回测链 | critical(`--severe`,冻结缺失大事件分支 L381)/**未声明**(小缺口 L385、孤儿买 L456-461 分支) | 3600(大事件)/86400(小缺口、孤儿买) | `kelly` | 首报必达 | 聚合域待对齐 |
+| 42 | `signal_kelly_backtest.py` | kelly 盘中回测链 | critical(`--severe`,`_alert_frozen_missing` 大事件分支)/**未声明**(小缺口、`_alert_freeze_orphans` 孤儿买分支) | 3600(大事件)/86400(小缺口、孤儿买) | `kelly` | 首报必达 | 聚合域待对齐;⚠️ **孤儿买分支 2026-10-16 #252-A4 起在云上开启**(云 `.env` `SIGNAL_KELLY_FREEZE_ORPHAN_ALERT=1`), 只报到**未登记**的新孤儿 —— 已进 `config/signal_kelly_freeze_orphan_backfill.json` 补账登记表的孤儿不计入(防同一批每日重复报); 台账 `docs/ops/252-freeze-orphan-backfill-20261016.md` |
 | 43 | `uptime_check.sh` ⚠️**孤儿** | **无触发链**(#210 观察盲区) | critical(`--severe`) | **未声明** | `monitor` | 首报必达 | **dedup window / 聚合域未声明 + 无触发=观察盲区** |
 | 44 | `monitor_72h.sh` ⚠️**孤儿** | **无触发链**(#210;本机 launchd 已自卸载) | critical(`--severe`) | **未声明** | `monitor` | 首报必达 | **dedup window / 聚合域未声明 + 无触发=观察盲区** |
 

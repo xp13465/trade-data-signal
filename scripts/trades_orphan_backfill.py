@@ -138,12 +138,37 @@ def build_candidates(freeze, present_di, etf_db_path):
     return {"candidates": candidates, "skipped_no_price": no_price, "stats": stats}
 
 
+def build_registry(result, generated_at=None):
+    """把候选清单(含 no_price 跳过项)转成 #252 定向补账登记表结构(引擎读它补账, 见 signal_kelly_backtest)。
+
+    keys 取**全部孤儿事件**(候选 + 跳过): 「次日无行情」只是那天价还没到(正常 T+1 时点问题),
+    事件本体仍是真孤儿; 何时补得上由引擎按当时的 etf_daily 决定, 登记表不预判。
+    本函数是该 JSON 格式的**唯一定义处**(防第二份实现漂移 §5.4⑦)。
+    """
+    keys = sorted(
+        {f"{c['date']}|{c['index_id']}|{c['signal']}" for c in result.get("candidates", [])}
+        | {f"{s['date']}|{s['index_id']}|{s['signal']}" for s in result.get("skipped_no_price", [])}
+    )
+    if generated_at is None:
+        import datetime  # noqa: PLC0415
+        generated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        "generated_at": generated_at,
+        "purpose": "#252 A1 定向补账:冻结表孤儿买事件 → 引擎入账侧补入白名单(只补这些键, 不翻 T2 全局 union 默认)",
+        "generated_by": "scripts/trades_orphan_backfill.py --registry-out",
+        "counts": result.get("stats", {}),
+        "keys": keys,
+    }
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="冻结表孤儿买事件 → 次日开盘价补账候选(只读)")
     ap.add_argument("--freeze", default=None, help="冻结表 JSON(默认 SIGNAL_KELLY_ETF_FREEZE_PATH 或 data/)")
     ap.add_argument("--db", default=os.path.join(ROOT, "data", "sentiment.db"), help="主库(含 signal_daily),只读")
     ap.add_argument("--etf-db", default=None, help="ETF 库(含 etf_daily),只读;默认走 _get_etf_db_path()")
     ap.add_argument("--out", default=None, help="输出 JSON 路径;缺省打印 stdout")
+    ap.add_argument("--registry-out", default=None, metavar="FILE",
+                    help="另写 #252 定向补账登记表(引擎读 config/signal_kelly_freeze_orphan_backfill.json)")
     args = ap.parse_args(argv)
 
     skb = _skb()
@@ -158,11 +183,18 @@ def main(argv=None):
         "readonly": True,
     }
     text = json.dumps(result, ensure_ascii=False, indent=2)
+    if args.registry_out:
+        reg = build_registry(result)
+        reg["meta"] = result["meta"]
+        with open(args.registry_out, "w", encoding="utf-8") as f:
+            f.write(json.dumps(reg, ensure_ascii=False, indent=2) + "\n")
+        print(f"✓ 定向补账登记表已写 {args.registry_out}({len(reg['keys'])} 键;只读生成,未改任何 DB)",
+              file=sys.stderr)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(text + "\n")
         print(f"✓ 候选清单已写 {args.out}(只读生成,未改任何 DB)", file=sys.stderr)
-    else:
+    elif not args.registry_out:
         print(text)
     return 0
 
