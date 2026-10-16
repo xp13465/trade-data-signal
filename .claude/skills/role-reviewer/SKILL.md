@@ -212,3 +212,20 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **差集非空时必报主控**:带上「我推的这条 + 为什么需要 + 现在有没有覆盖 + 建议处置」。**不许**因为"用户没点名""看起来不重要""改完再说"就吞掉
 - **与 §10.7 分工**:§10.7 审「**方案承诺**是否兑现」(纵向:预期 vs 证据);本节审「**边界覆盖**是否真全」(横向:两个独立推导的差集)。两条都要
 - **验收口径**:审查报告须含「独立推导的边界清单 + 与实施方清单的对账表(三分类)+ 差集逐条处置」。**缺对账表 = 本节未落地**;有差集却无处置 = FAIL
+
+## 11. 新增告警 checker / 告警脚本审查口径:四元组声明齐(2026-10-15 #264 包3 件F 定)
+
+> **触发**:审任何**新增/改动「会调 `scripts/notify.py` 发外发告警」的脚本**(检查器 checker / 告警包装层 / 兜底通知)。**关联规范源**:`docs/ops/alert-checker-registry-20261015.md`(四元组登记表)+ `docs/ops/alert-noise-rca-20261015.md` §2.2③/§4.1 F;root CAUSE = 告警面扩张(新 checker、新故障域)速度快于降噪,每新增一个 checker 就新增一组出口,**不加约束则降噪永远追不上**。改了登记表/口径时反向同步本节。
+> **与 implementer skill §0 配套**:实施方在 §0 清单里前置声明,reviewer 在此把「**缺一不上线**」当硬门槛核 —— 两侧一对,生产方 + 门禁方都覆盖(§23.3 举一反三)。
+
+**核心一句话:新增/改动告警 checker,必须显式声明四元组「默认 tier / dedup window / 聚合域 / 首报策略」;缺任一项 ⇒ 审查关 FAIL、不放行上线(review 清单强制)。**
+
+- **必查四项(逐项要证据,缺一=FAIL)**:
+  1. **默认 tier**:该 checker 的告警档是 `critical`(`--severe`)/ `warning` / `info`?**禁「未声明走 send() 旧行为」**(旧行为 = 隐式 critical,最易造成噪声;登记表里已把「tier 未声明」记为缺项)。
+  2. **dedup window**:`--dedup-key` + `--dedup-window` 取值?**`--dedup-window 0` = 关死抑制 = 违规**(RCA §2.2④.a 病灶:`notify.py` L1479 `window<=0 → 不抑制`);若 checker 自管落签(如 `check_s06_freshness` 的 `_state_matches`)必须**显式说明并给出等效抑制窗**。
+  3. **聚合域**:归属哪个故障域(取值见登记表 §1 建议域表;`待 264b(aggregate-budget 包)定稿对齐`)?**禁「无域」**(无域 = 同域多脚本各发、无法 inhibition,正是 10-15 R2 域 28 条的成因)。
+  4. **首报策略**:该 checker 当日**新 key 首报**是否必达?须符合降噪不变式「**首报必达 / 新 key 永远直发 / critical 永不入预算**」(收敛计划 §5);首报即进聚合/摘要的须显式声明。
+- **怎么核**:①读 checker 源码的 `notify.py` 调用行(`grep -nE "\-\-tier|\-\-severe|\-\-dedup-key|\-\-dedup-window" <脚本>`),四元组取值逐一落证据;②对照 `docs/ops/alert-checker-registry-20261015.md`:新 checker **必须同步登记进该表**(行不改表 = FAIL);③`python3 scripts/alert_weekly_review.py --check-four-tuple`(四元组缺失静态扫描,见周 review 机制)应无该 checker 的缺项。
+- **与 §10.4 静默失败专查联动**:告警 checker 的 `--dedup-window 0` / 无 `--dedup-key` / 捕获后 `exit 0` 都属「噪声或静默」双向病灶,一并核。
+- **与 §10.8 边界独立复核联动**:独立再推一次「这个新 checker 会不会引入新的出口/新故障域/新重复路径」,与实施方清单对账。
+- **验收口径**:审查报告须含「四元组四项取值 + 证据(源码行)+ 是否已登记入表 + 缺项处置(补声明 / 显式声明不适用 + 理由)」。**缺四元组任一项又未处置 = FAIL,不得放行**;在 264b 定稿前,「聚合域」可标 `建议·待对齐`(不阻断),但**默认 tier / dedup window / 首报策略三项不得缺**。
