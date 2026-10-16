@@ -471,6 +471,8 @@ fi
 #           ④chain `#12#34#56` ⇒ `12 34 56`(8dea30f23 版只出 `12 34`, 丢尾)
 #           ⑤quad `#5#7#9#11` ⇒ `5 7 9 11`; `#174#176#177` ⇒ `174 176 177`(真实历史形态, 8dea30f23 版丢尾)
 #           ⑥`bash -n scripts/main-merge.sh`。
+#           ⑦非法 UTF-8 字节输入(喂 `printf 'fix \x80\x81\n'`): BSD sed 报 illegal byte sequence,
+#             循环内 sed 已加 `|| true` 兜住 ⇒ rc=0 / REFS 空(修复前 rc=1, set -e 中止在 push 之前)。
 #           (未加 pytest: 本段依赖 grep/sed/sort 的实际行为, 本机是 BSD 工具链、CI 是 GNU,
 #            在本机无法证明两者同构 ⇒ 不加 CI 常驻测试, 改为上方手跑用例; 详见修复单报告。)
 if [[ "$DRY_RUN" == "1" ]]; then
@@ -484,7 +486,9 @@ else
     #   再逐段提取——单遍 sed + grep -o 会把 3+ 链的尾号丢掉(见顶注释)。
     _REF_TXT="$($GIT log --format=%B "$PRE_MERGE_BASE"..HEAD 2>/dev/null || true)"
     while :; do
-      _REF_SPLIT="$(printf '%s\n' "$_REF_TXT" | sed -E 's/([0-9])#([0-9])/\1 #\2/g')"
+      # || true: 非法 UTF-8 字节输入会让 BSD sed 报 illegal byte sequence(rc=1); 不兜住则 set -e 会在
+      # merge 之后 / push main 之前中止脚本, 留「本地已 merge 未 push」半完成态 —— 兜住即降级为空结果继续走。
+      _REF_SPLIT="$(printf '%s\n' "$_REF_TXT" | sed -E 's/([0-9])#([0-9])/\1 #\2/g' || true)"
       if [[ "$_REF_SPLIT" == "$_REF_TXT" ]]; then break; fi
       _REF_TXT="$_REF_SPLIT"
     done
