@@ -1002,3 +1002,236 @@ def alert_budget_process(alert_state, alerts, now, repo, day=None):
                 absorbed.append(_budget_entry(_a, category_of_line(_a) or "task_family", now))
         kept = _kept2
     return kept, absorbed
+
+
+# ══ #264 件C 故障域聚合层(域 inhibition, 2026-10-15) ════════════════════════════
+# 依据(RCA docs/ops/alert-noise-rca-20261015.md §4.1 C): 10-15 一个真实 R2 故障被 7~8 个
+# 脚本各自独立告警 = 同一故障域 28 条(现 83 条里最大的一坨); 全站此前无 domain 概念;
+# 业界对照 = Alertmanager 的 group_by / inhibit_rules + group_interval(§4.0)。
+#
+# 口径(降噪铁律, 收敛计划 alert-convergence-plan-20261010.md L10):
+#   ① 首报必达: 域首条 / 跨自然日首条 / 静默窗外复发 一律直发(即「本条 = 新事件」);
+#   ② 不吞真故障判别维度: 被并入的条目 100% 进摘要正文逐条列出(key/来源脚本/正文全留,
+#      可逐条检索), 且不占用/不改变 critical 的发送与额度;
+#   ③ 不同根因不并: 不同域各自独立首报(真故障反例), 未映射域一律直发;
+#   ④ 宁多勿吞(fail-open): 域未映射 / 状态写盘失败 / dry-run / 域开关关闭 ⇒ 直发。
+#
+# 语义 = Alertmanager 的「分组静默窗」: 距上一条**同域**告警 < 窗口 ⇒ 本条属同一事件派生,
+#   并入当日摘要; 否则视为「上一事件已结束后的复发 / 新事件」⇒ 直发。
+#   窗口**不跨自然日** ⇒ 「持续未清」每自然日仍有一次直发(留一条分页通道, 与 §4.0
+#   SRE「分页 vs 工单/摘要」分级精神一致), 同时把「跨日 rollover 重复播报」压在 1 条/日。
+ALERT_DOMAIN_STATE_FILENAME = "alert_domains.json"      # data/alerts/ 下: 各域 last_seen/计数
+ALERT_DOMAIN_GROUP_INTERVAL = 7200                      # 域静默窗(秒; 默认 2h = RCA 建议 group_interval)
+DOMAIN_ABSORB_REASON = "domain_inhibited"               # 域聚合并入摘要的 reason 标记
+DOMAIN_R2_RC_RE = re.compile(r"\br2(?:large)?=(\d+)")   # 主题内 R2 rc 值(≠0 ⇒ 该告警派生自 R2 链路失败)
+DOMAIN_LABELS = {                                       # 域 → 人读标签(摘要正文用, 说人话)
+    "data_gap": "数据缺口",
+    "gap_check": "伪跳空/次日计划",
+    "r2_deploy": "R2/双树/部署链路",
+    "snapshot": "快照/S06",
+    "unit": "云上 systemd 单元",
+    "kelly": "信号凯利",
+    "fund_nav": "公募基金净值",
+    "collect": "采集/回补",
+}
+
+
+def domain_of(key, subject) -> str | None:
+    """键/主题 → 故障域(未映射返回 None = 不聚合, 照发)。顺序敏感(首个命中胜出)。
+
+    域表定稿依据 = 10-15 真实台账逐条归纳(RCA §1.4 的事件域表) + notify.py 既有
+    event/类别归纳; 与 category_of(L2 预算类别)的分工: **域是更粗粒度的「同一故障域」**
+    —— r2 与 deploy 合一(部署→上传→校验是同一条流水线, RCA §1.4 按一个域计 28 条),
+    category 维持原样不动(预算额度不因本层改动)。
+    优先序 = ①显式类别标记(数据缺口/伪跳空, 最强) > ②R2/双树/部署链路(最大域; 含主题里
+    R2 rc≠0 的派生告警, 如 S06 rc=124 ⇒ 归根因域) > ③其余单脚本域。
+    ⚠️ 不并入 history_overwrite(历史行改写): 每次出现的表/条数不同(index_daily 1 条 vs
+    signal_daily 997/1000 条)= 无法判定「同一事实」⇒ 宁漏不误并, 保持直发(报告 §③ 定稿理由)。
+    """
+    _k = str(key or "")
+    _kl = _k.lower()
+    _s = str(subject or "")
+    _sl = _s.lower()
+    # ① 显式类别标记(方括号类别 = 人工定义的事件类, 优先于根因域)
+    if "[数据缺口]" in _s or "数据缺口" in _s:
+        return "data_gap"
+    if "伪跳空" in _s or "nextday_gap_check" in _k:
+        return "gap_check"
+    # ② R2/双树/部署链路(最大故障域)
+    if (_k.startswith("r2_") or "r2_fail" in _k or "r2_consistency" in _k
+            or "r2_pipeline" in _k or _k.startswith("deploy_")
+            or _k.startswith("update_all_severe")):
+        return "r2_deploy"
+    if ("R2 上传" in _s or "R2上传" in _s or "ssd.fx8.store" in _s or "双树" in _s
+            or "三站一致性" in _s or "锁跳过" in _s or "计划任务异常" in _s
+            or "统一deploy" in _s or "数据产物校验失败" in _s):
+        return "r2_deploy"
+    if any(int(_m) != 0 for _m in DOMAIN_R2_RC_RE.findall(_sl)):
+        return "r2_deploy"
+    # ③ 其余单脚本域
+    if "s06" in _kl or "snapshot" in _kl or "S06" in _s or "快照" in _s:
+        return "snapshot"
+    if ("unit_patrol" in _k or "failed_units" in _k or "cloud_unit_patrol" in _k
+            or "failed unit" in _sl):
+        return "unit"
+    if "kelly" in _kl or "kelly" in _sl or "凯利" in _s:
+        return "kelly"
+    if _kl.startswith("fund_nav") or "公募基金" in _s:
+        return "fund_nav"
+    if "backfill" in _kl or "backfill" in _sl or "采集" in _s:
+        return "collect"
+    return None
+
+
+def domain_inhibit_judge(state, domain, now, interval_seconds=None) -> tuple:
+    """判定本条同域告警 = 「首报(直发)」还是「同事件派生(并入摘要)」。
+
+    返回 (action, entry): action ∈ {"first", "absorb"}; entry = 更新后的域状态条目
+    (调用方在**真发出/真并入之后**写回 state —— 对齐 P1-1「发送成功才占窗」,
+    发送失败不占窗 ⇒ 下次同域告警仍是 first 重试, 绝不因一次发送失败静默 2h)。
+    规则: 无历史 / 跨自然日 / 距上一条同域告警 >= 窗口 ⇒ "first"; 否则 "absorb"。
+    纯函数(不读盘不写盘), 可单测。
+    """
+    _iv = ALERT_DOMAIN_GROUP_INTERVAL if interval_seconds is None else int(interval_seconds)
+    _today = now.strftime("%Y-%m-%d") if hasattr(now, "strftime") else str(now)[:10]
+    _now_ts = now.strftime("%Y-%m-%d %H:%M:%S") if hasattr(now, "strftime") else str(now)
+    _cur = state.get(domain) if isinstance(state, dict) else None
+    _cur = _cur if isinstance(_cur, dict) else {}
+    _last = None
+    _raw = str(_cur.get("last_ts") or "")
+    if _raw:
+        try:
+            _last = datetime.strptime(_raw, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            _last = None
+    _in_window = False
+    if _last is not None and _last.strftime("%Y-%m-%d") == _today:
+        try:
+            _in_window = (now - _last).total_seconds() < _iv
+        except TypeError:  # tz-aware 混 naive → 不判窗, 当新事件直发(fail-open)
+            _in_window = False
+    action = "absorb" if _in_window else "first"
+    _entry = {
+        "last_ts": _now_ts,
+        "last_day": _today,
+        "day_first_ts": str(_cur.get("day_first_ts") or _now_ts) if _cur.get("last_day") == _today
+                        else _now_ts,
+        "n_direct": int(_cur.get("n_direct") or 0) + (1 if action == "first" else 0),
+        "n_absorbed": int(_cur.get("n_absorbed") or 0) + (1 if action == "absorb" else 0),
+        "interval": _iv,
+    }
+    return action, _entry
+
+
+def domain_aggregate_summary(entries) -> dict:
+    """按域汇总摘要条目(纯函数): domain -> {"n", "sources": [...], "first_hm", "first_key"}。
+
+    供摘要正文「【故障域 X】共 N 条, 涉及 M 个来源脚本」段 —— C-③ 的「多少通道/脚本受影响」
+    判别维度必须保留在合并消息里(不做逐域静默)。
+    """
+    _out: dict[str, dict] = {}
+    for _e in entries or []:
+        _d = str(_e.get("domain") or "")
+        if not _d:
+            continue
+        _g = _out.setdefault(_d, {"n": 0, "sources": [], "first_hm": "--:--", "first_key": ""})
+        _g["n"] += 1
+        _src = str(_e.get("source") or "")
+        if _src and _src not in _g["sources"]:
+            _g["sources"].append(_src)
+        _hm = str(_e.get("ts") or "")[11:16] or "--:--"
+        if _g["first_hm"] == "--:--":
+            _g["first_hm"] = _hm
+            _g["first_key"] = str(_e.get("key") or "")
+    return _out
+
+
+# ══ #264 件E 非 critical 重复类预算 + 跨日 rollover(2026-10-15) ══════════════════
+# 依据(RCA §4.1 E): merged_in_digest 仅 3 条/日(容量太小 ⇒ 几乎不挡); 跨日 rollover(被预算
+# 吸收的事件次日重新计数再发); 恢复类消息(闭环信号)无痕迹。
+# 口径: 「非 critical 重复类超预算 ⇒ 入摘要」; **critical 结构性豁免**(下挂 gate 只在
+# not severe 时可达 ⇒ 物理上不可能吞 critical, 与 10-14 已修约束 440c9b8cd 正交);
+# 计数走独立台账口径(tier ∈ {notice, warning}) ⇒ 绝不与 severe 额度互相挤占(B1 不破)。
+ALERT_NOTICE_BUDGET = {                                 # 非 critical(notice/warning)各类别日额度
+    "unit": 1, "r2": 1, "data_gap": 1, "gap_check": 1,  # 默认同 ALERT_BUDGET; 独立可调
+    "deploy": 1, "fund_nav": 1, "kelly": 1,             # (改一处不动 critical 额度)
+}
+NOTICE_OVER_BUDGET_REASON = "notice_over_budget"
+ROLLOVER_ABSORB_REASON = "rollover_digested"
+ALERT_DIGEST_SEEN_FILENAME = "alert_digest_seen.json"   # 已被并入摘要的签名 → 最后并入日
+ALERT_DIGEST_ROLLOVER_DAYS = 3                          # rollover 记忆窗(天): 窗内再次出现 ⇒ 仍并入
+
+
+def ledger_day_notice_index(repo, day=None):
+    """台账当日各类别「非 critical 直发(notice/warning)」行的签名索引(category -> [key])。
+
+    与 ledger_day_direct_index(B1: tier=="critical")**并行的独立口径**: 只取
+    group=="alert" 且 tier ∈ {"notice","warning"} 的行 —— 两套额度互不挤占(B1 不破)。
+    坏行跳过 / 文件缺失 → 空 dict(绝不因台账问题吞告警, fail-open)。
+    """
+    _day = day or datetime.now().strftime("%Y-%m-%d")
+    index: dict[str, list[str]] = {}
+    if repo is None:
+        return index
+    try:
+        _p = Path(repo) / "data" / "alerts" / "alert_ledger.jsonl"
+        if not _p.exists():
+            return index
+        for _ln in _p.read_text(encoding="utf-8").splitlines():
+            _ln = _ln.strip()
+            if not _ln:
+                continue
+            try:
+                _r = json.loads(_ln)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(_r, dict):
+                continue
+            if str(_r.get("ts", ""))[:10] != _day:
+                continue
+            if _r.get("group") != "alert":
+                continue
+            if _r.get("tier") not in ("notice", "warning"):
+                continue
+            _c = category_of(_r.get("key"), _r.get("subject"))
+            if _c:
+                index.setdefault(_c, []).append(str(_r.get("key", "")))
+    except Exception:  # noqa: BLE001  台账问题绝不吞告警
+        return index
+    return index
+
+
+def rollover_absorb_judge(seen, sig, now, days=None) -> tuple:
+    """跨日 rollover 判据: 该签名是否在记忆窗内已被并入过摘要(且不是今天)。
+
+    返回 (should_absorb, seen): 命中 ⇒ 本条属「已并入过的事件次日重现」⇒ 仍并入摘要,
+    不再当新事件直发(病灶见 RCA §2.2 ④b: 被吸收事件次日重新计数再发)。
+    纯函数; seen 的裁剪由 rollover_prune 负责(调用方落盘前调)。
+    """
+    _days = ALERT_DIGEST_ROLLOVER_DAYS if days is None else int(days)
+    _today = now.strftime("%Y-%m-%d") if hasattr(now, "strftime") else str(now)[:10]
+    _d = str((seen or {}).get(str(sig)) or "")
+    if not _d or _d == _today:
+        return False, seen
+    try:
+        if (datetime.strptime(_today, "%Y-%m-%d")
+                - datetime.strptime(_d, "%Y-%m-%d")).days <= _days:
+            return True, seen
+    except ValueError:
+        return False, seen
+    return False, seen
+
+
+def rollover_prune(seen, now, days=None) -> dict:
+    """裁剪记忆表: 只保留最近 days 天内的签名(防状态无限膨胀)。纯函数。"""
+    _days = ALERT_DIGEST_ROLLOVER_DAYS if days is None else int(days)
+    _today = now.strftime("%Y-%m-%d") if hasattr(now, "strftime") else str(now)[:10]
+    _out = {}
+    for _sig, _d in (seen or {}).items():
+        try:
+            if 0 <= (datetime.strptime(_today, "%Y-%m-%d")
+                     - datetime.strptime(str(_d), "%Y-%m-%d")).days <= _days:
+                _out[_sig] = _d
+        except ValueError:
+            continue
+    return _out

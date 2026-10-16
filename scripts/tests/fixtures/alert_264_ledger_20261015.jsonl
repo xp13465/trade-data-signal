@@ -1,0 +1,271 @@
+{"ts": "2026-10-10 08:27:04", "group": "alert", "tier": "critical", "key": "cloud_unit_patrol_drift", "subject": "[告警] 云上 systemd unit 与仓库快照漂移", "source": "notify.py"}
+{"ts": "2026-10-10 17:16:49", "group": "alert", "tier": "notice", "key": "499ec8489d1f", "subject": "[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)", "source": "upload_r2.py"}
+{"ts": "2026-10-10 21:12:14", "group": "report", "tier": "notice", "key": "signal_kelly_frozen_missing_small", "subject": "[kelly] 冻结表缺失历史信号事件 8 个", "source": "notify.py"}
+{"ts": "2026-10-11 00:00:06", "group": "alert", "tier": "critical", "key": "9ad29b242cd3", "subject": "[告警] 云上 failed unit 持续未清(连续 4 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-11 04:27:55", "group": "alert", "tier": "critical", "key": "deploy_r2_upload_fail", "subject": "[告警] R2上传失败", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-11 04:30:15", "group": "alert", "tier": "warning", "key": "e8aeeda26b68", "subject": "[告警·聚合] 1条 warning 汇总 10-11 04:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-11 05:00:07", "group": "alert", "tier": "notice", "key": "schedule_monitor_recovery", "subject": "[恢复] fetch_news r2_skip_continuous 10-11 05:00", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-11 18:23:47", "group": "alert", "tier": "notice", "key": "499ec8489d1f", "subject": "[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-11 18:45:20", "group": "alert", "tier": "warning", "key": "c028d8e612d4", "subject": "[告警·聚合] 1条 warning 汇总 10-11 18:45", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-11 19:00:13", "group": "alert", "tier": "notice", "key": "schedule_monitor_recovery", "subject": "[恢复] fetch_news r2_skip_continuous 10-11 19:00", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-11 21:12:32", "group": "report", "tier": "notice", "key": "signal_kelly_frozen_missing_small", "subject": "[kelly] 冻结表缺失历史信号事件 8 个", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-11 22:50:34", "group": "report", "tier": "notice", "key": "r2_upload_async_skip:/tmp/trade_r2_upload_async.lock", "subject": "R2上传异步锁跳过 10-11 22:50", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-11 23:30:26", "group": "alert", "tier": "digest", "key": "alert_digest", "subject": "[告警·摘要] 当日合并 1 条 (deploy 1) 10-11 23:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-12 00:00:07", "group": "alert", "tier": "critical", "key": "64e119273471", "subject": "[告警] 云上 failed unit 持续未清(连续 5 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-12 00:00:18", "group": "alert", "tier": "critical", "key": "a2e7f9d33e9b", "subject": "[告警] 1项计划任务异常 10-12 00:00", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-12 00:15:55", "group": "alert", "tier": "critical", "key": "deploy_r2_upload_fail", "subject": "[告警] R2上传失败", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-12 02:16:59", "group": "report", "tier": "notice", "key": "c12f7dac1d95", "subject": "[买卖点信号] 20261009 主买×1 法国CAC40 | 辅买×1 德国DAX | 追买×1 纳斯达克100", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-12 02:17:46", "group": "alert", "tier": "notice", "key": "654a9fa3d849", "subject": "[告警] 信号凯利回测停滞", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-12 02:52:17", "group": "alert", "tier": "notice", "key": "1dffc3c82f4c", "subject": "[告警][重采失败] a_fund_main 连续 3 轮重采失败", "source": "self_heal.sh"}
+{"ts": "2026-10-12 03:37:18", "group": "alert", "tier": "notice", "key": "1dffc3c82f4c", "subject": "[告警][重采失败] a_fund_main 连续 3 轮重采失败", "source": "self_heal.sh"}
+{"ts": "2026-10-12 04:22:18", "group": "alert", "tier": "notice", "key": "1dffc3c82f4c", "subject": "[告警][重采失败] a_fund_main 连续 3 轮重采失败", "source": "self_heal.sh"}
+{"ts": "2026-10-12 05:07:18", "group": "alert", "tier": "notice", "key": "1dffc3c82f4c", "subject": "[告警][重采失败] a_fund_main 连续 3 轮重采失败", "source": "self_heal.sh"}
+{"ts": "2026-10-12 05:52:25", "group": "alert", "tier": "notice", "key": "1dffc3c82f4c", "subject": "[告警][重采失败] a_fund_main 连续 3 轮重采失败", "source": "self_heal.sh"}
+{"ts": "2026-10-12 06:37:18", "group": "alert", "tier": "notice", "key": "1dffc3c82f4c", "subject": "[告警][重采失败] a_fund_main 连续 3 轮重采失败", "source": "self_heal.sh"}
+{"ts": "2026-10-12 07:22:17", "group": "alert", "tier": "notice", "key": "1dffc3c82f4c", "subject": "[告警][重采失败] a_fund_main 连续 3 轮重采失败", "source": "self_heal.sh"}
+{"ts": "2026-10-12 08:07:18", "group": "alert", "tier": "notice", "key": "1dffc3c82f4c", "subject": "[告警][重采失败] a_fund_main 连续 3 轮重采失败", "source": "self_heal.sh"}
+{"ts": "2026-10-12 09:27:24", "group": "report", "tier": "notice", "key": "db7b8c583c8a", "subject": "[盘中实时·买卖点信号] 20261012 主买×2 中华博彩业、深证红利 | 辅买×13 10年国债ETF、中证500、深证100等13个 | 追止损卖×2 中证新能源、中证信息安全 | 波段持有×1 上证国债指数", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 09:29:37", "group": "alert", "tier": "critical", "key": "nextday_gap_check_fail", "subject": "[告警] 次日买入计划伪跳空校验未完成 20261012", "source": "nextday_gap_check.sh"}
+{"ts": "2026-10-12 09:31:57", "group": "report", "tier": "notice", "key": "3095ba94d73b", "subject": "[盘中异动] 9项异动 (2026-10-12 09:31)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 09:37:21", "group": "report", "tier": "notice", "key": "ee71bfe0fd55", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 追止损卖×4 军工、光伏概念、东数西算(算力)等4个 | 波段持有×1 10年国债ETF", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 09:40:15", "group": "alert", "tier": "critical", "key": "kelly_intraday_rerun_fail", "subject": "[告警] 凯利盘中增量回测失败(退出码 5) 10-12 09:40", "source": "kelly_intraday_rerun.sh"}
+{"ts": "2026-10-12 09:45:07", "group": "alert", "tier": "critical", "key": "64e119273471", "subject": "[告警] 云上 failed unit 持续未清(连续 5 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-12 09:47:13", "group": "report", "tier": "notice", "key": "2fe706535b30", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 卖×1 人工智能 | 追止损卖×4 恒生科技、新能源汽车、量子科技等4个", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 09:50:24", "group": "report", "tier": "notice", "key": "4adf8d429c34", "subject": "[盘中异动] 1项异动 (2026-10-12 09:50)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 09:57:47", "group": "report", "tier": "notice", "key": "6531e0752f12", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 辅买×1 科创50", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 10:13:24", "group": "report", "tier": "notice", "key": "82ddbb9d5df3", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 卖×1 数字经济 | 追止损卖×3 机器人概念、量子科技、低空经济", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 10:18:52", "group": "report", "tier": "notice", "key": "6531e0752f12", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 辅买×1 科创50", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 10:27:21", "group": "report", "tier": "notice", "key": "2b31989a6189", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 辅买×3 中证500、第三代半导体、共封装光学(CPO)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 10:37:13", "group": "report", "tier": "notice", "key": "364b478d47ef", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 2 条信号消失/变化：中证500、共封装光学(CPO)（见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 10:47:17", "group": "report", "tier": "notice", "key": "36e9fbe8542d", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 卖×1 人工智能 | 追止损卖×3 新能源汽车、算力租赁、人形机器人", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 11:00:15", "group": "report", "tier": "notice", "key": "b28f50a61d19", "subject": "[盘中异动] 1项异动 (2026-10-12 11:00)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 11:17:29", "group": "report", "tier": "notice", "key": "0d1f3ef89d46", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 人工智能、算力租赁、人形机器人 减仓条件解除（3 条，见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 11:27:19", "group": "report", "tier": "notice", "key": "79667b66dd05", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 卖×1 人工智能 | 追止损卖×2 算力租赁、人形机器人", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 11:34:19", "group": "report", "tier": "notice", "key": "6531e0752f12", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 辅买×1 科创50", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 13:03:14", "group": "report", "tier": "notice", "key": "641565d219a2", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 追止损卖×1 算力租赁", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 13:17:24", "group": "report", "tier": "notice", "key": "1cc72f7559c9", "subject": "[盘中实时·买卖点信号] 20261012 辅买×1 科创50", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 13:27:15", "group": "report", "tier": "notice", "key": "a6e881b7df74", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 1 条信号消失/变化：科创50（见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 13:37:21", "group": "report", "tier": "notice", "key": "7bea2100d208", "subject": "[盘中实时·买卖点信号] 20261012 卖×1 上证国债指数", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 13:47:19", "group": "report", "tier": "notice", "key": "642e199a7c67", "subject": "[盘中实时·买卖点信号] 20261012 追止损卖×2 机器人概念、低空经济", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 13:57:44", "group": "report", "tier": "notice", "key": "deef3c2cf849", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 低空经济 减仓条件解除（1 条，见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 14:07:19", "group": "report", "tier": "notice", "key": "0f431044c07f", "subject": "[盘中实时·买卖点信号] 20261012 追止损卖×1 低空经济", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 14:10:52", "group": "report", "tier": "notice", "key": "eedd1765d59d", "subject": "[盘中异动] 1项异动 (2026-10-12 14:10)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 14:17:22", "group": "report", "tier": "notice", "key": "deef3c2cf849", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 低空经济 减仓条件解除（1 条，见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 14:36:46", "group": "report", "tier": "notice", "key": "d10ec93f8f90", "subject": "[盘中异动] 1项异动 (2026-10-12 14:36)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 14:39:14", "group": "report", "tier": "notice", "key": "0f431044c07f", "subject": "[盘中实时·买卖点信号] 20261012 追止损卖×1 低空经济", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 14:47:31", "group": "report", "tier": "notice", "key": "7987e97708b1", "subject": "[盘中实时·买卖点信号] 20261012 追止损卖×1 量子科技", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 15:08:49", "group": "report", "tier": "notice", "key": "ce64e2afded6", "subject": "[盘中异动] 2项异动 (2026-10-12 15:08)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 16:15:15", "group": "alert", "tier": "critical", "key": "e6766cbe5350", "subject": "[告警] 1项计划任务异常 10-12 16:15", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-12 16:45:06", "group": "alert", "tier": "critical", "key": "64e119273471", "subject": "[告警] 云上 failed unit 持续未清(连续 5 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-12 16:51:38", "group": "report", "tier": "notice", "key": "2fad9de3cdd6", "subject": "[买卖点信号] 20261012 仅波段持有(中性持有,无操作信号)", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-12 18:31:03", "group": "report", "tier": "notice", "key": "91980942a708", "subject": "⚠️ 🕐 [买卖点信号] 20261012 辅买×2 创业板50、国证军工 | 卖×3 上证国债指数、中证煤炭、人工智能 | 追止损卖×14 中证新能源、中证信息安全、恒生科技等14个 | 波段持有×2 10年国债ETF、10年国债期货", "source": "update_all.sh"}
+{"ts": "2026-10-12 18:48:54", "group": "agent_done", "tier": "notice", "key": "2482acce8845", "subject": "[完成] update_all 58min 10-12 18:48", "source": "update_all.sh"}
+{"ts": "2026-10-12 18:51:43", "group": "report", "tier": "notice", "key": "r2_upload_async_skip:/tmp/trade_r2_upload_async.lock", "subject": "R2上传异步锁跳过 10-12 18:51", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-12 20:10:09", "group": "report", "tier": "notice", "key": "1542a80bd7bd", "subject": "[汪汪队信号] 20261009(T-3数据) 进2只 量1只 | 🐾共振", "source": "etf_national_team_backfill.sh"}
+{"ts": "2026-10-12 20:30:34", "group": "alert", "tier": "warning", "key": "60100262c238", "subject": "[告警·聚合] 1条 warning 汇总 10-12 20:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-12 20:40:11", "group": "report", "tier": "notice", "key": "bf6ee62c2b72", "subject": "📊 每日速递 20261012:🟢 偏弱（把握度 50/100·区间-0.50% ~ -0.05%）", "source": "run_daily_brief.sh"}
+{"ts": "2026-10-12 20:40:35", "group": "report", "tier": "notice", "key": "bec8d61a7312", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261012 追止损卖×1 综合", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-12 20:45:02", "group": "report", "tier": "notice", "key": "511591109db5", "subject": "[每日速递] 20261012", "source": "brief_push_wrapper.sh"}
+{"ts": "2026-10-12 21:00:29", "group": "alert", "tier": "notice", "key": "schedule_monitor_recovery", "subject": "[恢复] intraday_snapshot dur>900s 10-12 21:00", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-12 21:15:12", "group": "alert", "tier": "critical", "key": "405c29276619", "subject": "[告警] 1项计划任务异常 10-12 21:15", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-12 21:40:45", "group": "alert", "tier": "notice", "key": "overfit_param_spike", "subject": "[过拟合监控] 38分 · 卖出模式微扰收益翻转符号或变化>30%", "source": "overfit_monitor.sh"}
+{"ts": "2026-10-12 21:41:44", "group": "report", "tier": "notice", "key": "0f25c9cd9b08", "subject": "[买卖点信号] 20261012 主买×1 中国波指300 | 追止损卖×1 中证2000", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-12 21:45:15", "group": "alert", "tier": "critical", "key": "19562be65540", "subject": "[告警] 1项计划任务异常 10-12 21:45", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-12 22:27:02", "group": "alert", "tier": "critical", "key": "turnover_backfill_fail", "subject": "[告警] turnover 独立任务链路异常 pipe=0 export=0 r2=0 r2large=124 10-12 22:26", "source": "turnover_backfill.sh"}
+{"ts": "2026-10-12 22:30:09", "group": "alert", "tier": "critical", "key": "64e119273471", "subject": "[告警] 云上 failed unit 持续未清(连续 5 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-12 22:30:23", "group": "alert", "tier": "critical", "key": "a4b2ca529c9f", "subject": "[告警] 1项计划任务异常 10-12 22:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-12 22:30:41", "group": "follow", "tier": "notice", "key": "nextday_plan_20261012", "subject": "明日买入计划 20261012", "source": "nextday_plan.sh"}
+{"ts": "2026-10-12 22:35:27", "group": "alert", "tier": "notice", "key": "37fdb07a0d71", "subject": "[告警][数据缺口] 交易记录断档: 15 个入样买入信号无对应交易(断档深度 1 交易日) 10-12 22:35", "source": "check_data_gap_alerts.sh"}
+{"ts": "2026-10-12 22:35:32", "group": "alert", "tier": "notice", "key": "476a2b09c57f", "subject": "[恢复][数据缺口] 交易记录最新信号日 20260930 落后(应≥20261008) 已恢复 10-12 22:35", "source": "check_data_gap_alerts.sh"}
+{"ts": "2026-10-12 23:07:16", "group": "alert", "tier": "notice", "key": "621d8489dea6", "subject": "[告警] R2 可能被异源覆盖(verify-r2 大量不一致)", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-12 23:07:19", "group": "alert", "tier": "notice", "key": "499ec8489d1f", "subject": "[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-12 23:30:32", "group": "alert", "tier": "digest", "key": "alert_digest", "subject": "[告警·摘要] 当日合并 5 条 (recovery 1/deploy 2/kelly 1/data_gap 1) 10-12 23:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 00:00:06", "group": "alert", "tier": "critical", "key": "01d914512eb7", "subject": "[告警] 云上 failed unit 持续未清(连续 6 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 00:00:19", "group": "alert", "tier": "digest", "key": "alert_digest", "subject": "[告警·摘要] 当日合并 1 条 (含前日遗留 1 条)(deploy 1) 10-13 00:00", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 02:13:06", "group": "report", "tier": "notice", "key": "signal_kelly_frozen_missing_small", "subject": "[kelly] 冻结表缺失历史信号事件 3 个", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-13 02:16:35", "group": "alert", "tier": "critical", "key": "deploy_check_data_integrity_fail", "subject": "[告警] deploy 数据产物校验失败", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-13 09:27:13", "group": null, "tier": "subscribe", "key": "862f1879f692", "subject": "[订阅:订阅-1] [盘中实时·买卖点信号] 20261013 辅买×1 深证成指", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 09:27:17", "group": "report", "tier": "notice", "key": "a654bbf8a193", "subject": "[盘中实时·买卖点信号] 20261013 辅买×3 中证500、科创50、深证成指 | 卖×1 数据要素 | 追止损卖×4 中证环保、中证环境治理、中证传媒等4个 | 波段持有×2 10年国债ETF、上证国债指数", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 09:30:09", "group": "alert", "tier": "critical", "key": "d4960d3f72ba", "subject": "[告警] 1项计划任务异常 10-13 09:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 09:31:59", "group": "report", "tier": "notice", "key": "871cc18724ad", "subject": "[盘中异动] 11项异动 (2026-10-13 09:31)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 09:37:20", "group": "report", "tier": "notice", "key": "8c0a7e130da6", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 追止损卖×6 锂电池概念、人工智能、储能等6个", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 09:40:21", "group": "report", "tier": "notice", "key": "24eb0770afea", "subject": "[盘中异动] 1项异动 (2026-10-13 09:40)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 09:47:13", "group": "report", "tier": "notice", "key": "c9f3c753dcba", "subject": "[盘中实时·买卖点信号] 20261013 追止损卖×2 恒生指数、固态电池", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 09:50:15", "group": "report", "tier": "notice", "key": "e8296c2bf78a", "subject": "[盘中异动] 12项异动 (2026-10-13 09:50)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 10:00:40", "group": "report", "tier": "notice", "key": "8d599d841dc4", "subject": "[盘中异动] 2项异动 (2026-10-13 10:00)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 10:17:21", "group": "report", "tier": "notice", "key": "b59bfd698e12", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 卖×1 数据要素", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 10:27:18", "group": "report", "tier": "notice", "key": "56c10d81e1b2", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 追止损卖×3 人工智能、固态电池、元宇宙", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 10:30:32", "group": "report", "tier": "notice", "key": "a1f7f6aecded", "subject": "[盘中异动] 1项异动 (2026-10-13 10:30)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 10:40:26", "group": "report", "tier": "notice", "key": "578c1854ba15", "subject": "[盘中异动] 1项异动 (2026-10-13 10:40)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 11:07:11", "group": "report", "tier": "notice", "key": "a6709c101498", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 元宇宙 减仓条件解除（1 条，见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 11:27:18", "group": "report", "tier": "notice", "key": "bf3f8680f6c8", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 辅买×1 共封装光学(CPO)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 11:34:18", "group": "report", "tier": "notice", "key": "c580da8b852d", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 主买×1 电子 | 辅买×6 科创50、芯片概念、存储芯片等6个", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 13:03:29", "group": "report", "tier": "notice", "key": "bd03b1ebec4d", "subject": "[盘中实时·买卖点信号] 20261013 辅买×6 深证成指、军工、光伏概念等6个", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 13:08:45", "group": "report", "tier": "notice", "key": "af5d45ba8013", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 辅买×2 中证500、新能源汽车", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 13:17:30", "group": "report", "tier": "notice", "key": "bdf53e76066b", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 锂电池概念 减仓条件解除（1 条，见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 13:27:16", "group": "report", "tier": "notice", "key": "ac0b0ac10fe9", "subject": "[盘中实时·买卖点信号] 20261013 主买×1 沪深300", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 13:37:29", "group": "report", "tier": "notice", "key": "e70a3b61c98e", "subject": "[盘中实时·买卖点信号] 20261013 主买×2 中证500、机械设备 | 辅买×1 国防军工", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 13:40:47", "group": "report", "tier": "notice", "key": "d2b4f41d9f55", "subject": "[盘中异动] 1项异动 (2026-10-13 13:40)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 13:48:02", "group": "report", "tier": "notice", "key": "27628e07ab38", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 2 条信号消失/变化：沪深300、机械设备（见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 13:58:23", "group": "report", "tier": "notice", "key": "ee114318c7c7", "subject": "[盘中实时·买卖点信号] 20261013 主买×1 机械设备", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 14:15:20", "group": "alert", "tier": "critical", "key": "5291484825fd", "subject": "[告警] 2项计划任务异常 10-13 14:15", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 14:17:27", "group": "report", "tier": "notice", "key": "f93278ca60db", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 1 条信号消失/变化：机械设备（见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 14:27:40", "group": "report", "tier": "notice", "key": "f5afaf17148b", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 1 条信号消失/变化：国防军工（见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 14:30:19", "group": "alert", "tier": "notice", "key": "schedule_monitor_recovery", "subject": "[恢复] overview_lag overview_lag 10-13 14:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 14:37:20", "group": "report", "tier": "notice", "key": "223eb646ad70", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 1 条信号消失/变化：中证500（见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 16:45:06", "group": "alert", "tier": "critical", "key": "01d914512eb7", "subject": "[告警] 云上 failed unit 持续未清(连续 6 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 18:37:34", "group": "report", "tier": "notice", "key": "eb37e4fbe36d", "subject": "⚠️ 🕐 [买卖点信号] 20261013 主买×6 创业板综、中证申万电子行业、中证军工等6个 | 辅买×24 中证A500、科创综合、科创100等24个 | 追买×1 10年国债期货 | 追止损卖×3 中证环保、食品饮料、氢能源 | 波段持有×3 10年国债ETF、10年国债期货、上证国债指数", "source": "update_all.sh"}
+{"ts": "2026-10-13 18:54:24", "group": "report", "tier": "notice", "key": "r2_upload_async_skip:/tmp/trade_r2_upload_async.lock", "subject": "R2上传异步锁跳过 10-13 18:54", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-13 18:55:58", "group": "agent_done", "tier": "notice", "key": "e900a04b2eb0", "subject": "[完成] update_all 65min 10-13 18:55", "source": "update_all.sh"}
+{"ts": "2026-10-13 20:16:48", "group": "alert", "tier": "notice", "key": "621d8489dea6", "subject": "[告警] R2 可能被异源覆盖(verify-r2 大量不一致)", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-13 20:16:53", "group": "alert", "tier": "notice", "key": "499ec8489d1f", "subject": "[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-13 20:30:32", "group": "alert", "tier": "warning", "key": "44c49be7b3a4", "subject": "[告警·聚合] 1条 warning 汇总 10-13 20:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 20:40:06", "group": "report", "tier": "notice", "key": "50d8c408e17c", "subject": "📊 每日速递 20261013:🔴 偏强（把握度 50/100·区间+0.05% ~ +0.50%）", "source": "run_daily_brief.sh"}
+{"ts": "2026-10-13 20:40:15", "group": "report", "tier": "notice", "key": "f6af58712d35", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261013 中证环境治理、中证传媒、国证钢铁、食品饮料 减仓条件解除（4 条，见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-13 20:45:03", "group": "report", "tier": "notice", "key": "2f326097fe70", "subject": "[每日速递] 20261013", "source": "brief_push_wrapper.sh"}
+{"ts": "2026-10-13 20:59:33", "group": "alert", "tier": "critical", "key": "s06_snapshot_fail", "subject": "[S06] 快照重生链路异常 EXIT rc=124 gen=0 check=0 r2=0 pr=0 pr_r2=124 10-13 20:59", "source": "s06_snapshot.sh"}
+{"ts": "2026-10-13 21:00:06", "group": "alert", "tier": "critical", "key": "01d914512eb7", "subject": "[告警] 云上 failed unit 持续未清(连续 6 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 21:00:27", "group": "alert", "tier": "critical", "key": "6dd9a7504fcd", "subject": "[告警] 1项计划任务异常 10-13 21:00", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 21:15:28", "group": "alert", "tier": "critical", "key": "ce6b91a87e2d", "subject": "[告警] 2项计划任务异常 10-13 21:15", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 21:15:33", "group": "alert", "tier": "notice", "key": "schedule_monitor_recovery", "subject": "[恢复] turnover_backfill exit=124 10-13 21:15", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 21:30:28", "group": "alert", "tier": "critical", "key": "81a7ffc2e4e9", "subject": "[告警] 1项计划任务异常 10-13 21:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-13 21:51:45", "group": "report", "tier": "notice", "key": "a7b9c655bd56", "subject": "[买卖点信号] 20261013 主买×1 中证互联网 | 辅买×6 中证人工智能、中证智能汽车、中证云计算等6个 | 追止损卖×1 中证电池主题", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-13 22:32:41", "group": "alert", "tier": "critical", "key": "turnover_backfill_fail", "subject": "[告警] turnover 独立任务链路异常 pipe=0 export=0 r2=124 r2large=124 10-13 22:32", "source": "turnover_backfill.sh"}
+{"ts": "2026-10-13 22:35:24", "group": "alert", "tier": "critical", "key": "98fbd8d80937", "subject": "[严重][数据缺口] 交易记录断档: 13 个入样买入信号无对应交易(断档深度 2 交易日) 10-13 22:35", "source": "check_data_gap_alerts.sh"}
+{"ts": "2026-10-13 22:35:28", "group": "alert", "tier": "critical", "key": "a4fe8eaeee3a", "subject": "[严重][数据缺口] 交易记录最新信号日 20261009 落后(应≥20261012) 10-13 22:35", "source": "check_data_gap_alerts.sh"}
+{"ts": "2026-10-13 22:35:33", "group": "alert", "tier": "notice", "key": "fdc07ab10fe0", "subject": "[恢复][数据缺口] 公募基金 20261008 采集全 NULL: 24218 行 unit_nav 全为空 已恢复 10-13 22:35", "source": "check_data_gap_alerts.sh"}
+{"ts": "2026-10-13 22:37:38", "group": "follow", "tier": "notice", "key": "nextday_plan_20261013", "subject": "明日买入计划 20261013", "source": "nextday_plan.sh"}
+{"ts": "2026-10-13 22:37:39", "group": "alert", "tier": "critical", "key": "deploy_r2_upload_fail", "subject": "[告警] R2上传失败", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-14 00:00:09", "group": "alert", "tier": "critical", "key": "0a7c5bdc8cb7", "subject": "[告警] 云上 failed unit 持续未清(连续 7 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-14 00:00:25", "group": "alert", "tier": "digest", "key": "alert_digest", "subject": "[告警·摘要] 当日合并 3 条 (含前日遗留 3 条)(recovery 3) 10-14 00:00", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-14 02:24:53", "group": "report", "tier": "notice", "key": "signal_kelly_frozen_missing_small", "subject": "[kelly] 冻结表缺失历史信号事件 5 个", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-14 02:30:20", "group": "alert", "tier": "notice", "key": "654a9fa3d849", "subject": "[告警] 信号凯利回测停滞", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-14 09:27:19", "group": "report", "tier": "notice", "key": "631281510fb4", "subject": "[盘中实时·买卖点信号] 20261014 主买×1 国证军工 | 辅买×8 中证500、深证100、创业板50等8个 | 追止损卖×1 中证环境治理 | 波段持有×2 10年国债ETF、上证国债指数", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 09:31:49", "group": "report", "tier": "notice", "key": "7e1f61bb658b", "subject": "[盘中异动] 9项异动 (2026-10-14 09:31)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 09:37:36", "group": "report", "tier": "notice", "key": "97a16ce9d903", "subject": "[盘中实时·买卖点信号] 20261014 追止损卖×3 军工、锂电池概念、储能", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 09:49:20", "group": "report", "tier": "notice", "key": "892f77ea07af", "subject": "[盘中实时·买卖点信号] 20261014 追止损卖×1 氢能源", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 09:52:44", "group": "report", "tier": "notice", "key": "ad83e908759b", "subject": "[盘中异动] 3项异动 (2026-10-14 09:52)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 09:57:17", "group": "report", "tier": "notice", "key": "cd6f50e235b5", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261014 氢能源 减仓条件解除（1 条，见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 10:00:39", "group": "report", "tier": "notice", "key": "15ae7e55a0eb", "subject": "[盘中异动] 3项异动 (2026-10-14 10:00)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 11:30:37", "group": "report", "tier": "notice", "key": "1674bb18b94c", "subject": "[盘中异动] 1项异动 (2026-10-14 11:30)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 13:09:07", "group": "report", "tier": "notice", "key": "892f77ea07af", "subject": "[盘中实时·买卖点信号] 20261014 追止损卖×1 氢能源", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 13:57:16", "group": "report", "tier": "notice", "key": "46e06e101f86", "subject": "[盘中实时·买卖点信号] 20261014 追止损卖×1 固态电池", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 14:07:28", "group": "report", "tier": "notice", "key": "6428557de2a4", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261014 1 条信号消失/变化：中证500（见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 14:41:12", "group": "report", "tier": "notice", "key": "4eea67f9a6d4", "subject": "[盘中异动] 3项异动 (2026-10-14 14:41)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 15:03:17", "group": "report", "tier": "notice", "key": "20784d9c34cd", "subject": "[盘中异动] 1项异动 (2026-10-14 15:03)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 16:37:52", "group": "alert", "tier": "critical", "key": "history_overwrite:index_daily:20261014", "subject": "[历史行改写] index_daily 历史行被重写 1 条(值改写1)", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-14 16:42:21", "group": "alert", "tier": "critical", "key": "deploy_check_data_integrity_fail", "subject": "[告警] deploy 数据产物校验失败", "source": "public_fund_daily.sh"}
+{"ts": "2026-10-14 16:44:28", "group": "alert", "tier": "critical", "key": "history_overwrite:signal_daily:20261014", "subject": "[历史行改写] signal_daily 历史行被重写 997 条(消失440/出现557)", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-14 17:58:20", "group": "alert", "tier": "critical", "key": "history_overwrite:signal_daily:20261014", "subject": "[历史行改写] signal_daily 历史行被重写 1001 条(消失557/出现444)", "source": "update_all.sh"}
+{"ts": "2026-10-14 18:21:50", "group": "report", "tier": "notice", "key": "54f837b66d58", "subject": "⚠️ 🕐 [买卖点信号] 20261014 辅买×2 中证智能家居、国证新能源汽车 | 追止损卖×9 中证环境治理、轻工制造、综合等9个 | 波段持有×3 10年国债ETF、10年国债期货、上证国债指数", "source": "update_all.sh"}
+{"ts": "2026-10-14 18:51:00", "group": "report", "tier": "notice", "key": "r2_upload_async_skip:/tmp/trade_r2_upload_async.lock", "subject": "R2上传异步锁跳过 10-14 18:50", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-14 18:55:13", "group": "agent_done", "tier": "notice", "key": "c22179dc5de9", "subject": "[完成] update_all 65min 10-14 18:55", "source": "update_all.sh"}
+{"ts": "2026-10-14 20:10:07", "group": "report", "tier": "notice", "key": "0a47b8bc2d42", "subject": "[汪汪队信号] 20261013(T-1数据) 进1只 量1只", "source": "etf_national_team_backfill.sh"}
+{"ts": "2026-10-14 20:30:22", "group": "alert", "tier": "warning", "key": "e84d13b8bfb6", "subject": "[告警·聚合] 1条 warning 汇总 10-14 20:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-14 20:40:05", "group": "report", "tier": "notice", "key": "e5fa4ca6192c", "subject": "📊 每日速递 20261014:⚪ 震荡（把握度 50/100·区间-0.10% ~ +0.10%）", "source": "run_daily_brief.sh"}
+{"ts": "2026-10-14 20:41:18", "group": "report", "tier": "notice", "key": "a9c159291d81", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261014 追止损卖×1 食品饮料", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-14 20:45:02", "group": "report", "tier": "notice", "key": "b6de58676268", "subject": "[每日速递] 20261014", "source": "brief_push_wrapper.sh"}
+{"ts": "2026-10-14 20:45:18", "group": "alert", "tier": "critical", "key": "c6fd156e16fb", "subject": "[告警] 1项计划任务异常 10-14 20:45", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-14 21:00:19", "group": "alert", "tier": "notice", "key": "schedule_monitor_recovery", "subject": "[恢复] s06_snapshot exit=124 10-14 21:00", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-14 21:03:14", "group": "alert", "tier": "notice", "key": "621d8489dea6", "subject": "[告警] R2 可能被异源覆盖(verify-r2 大量不一致)", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-14 21:03:19", "group": "alert", "tier": "notice", "key": "499ec8489d1f", "subject": "[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-14 21:40:48", "group": "alert", "tier": "notice", "key": "overfit_param_spike", "subject": "[过拟合监控] 40分 · 卖出模式微扰收益翻转符号或变化>30%", "source": "overfit_monitor.sh"}
+{"ts": "2026-10-14 21:41:31", "group": "report", "tier": "notice", "key": "18b214563d3b", "subject": "[买卖点信号] 20261014 备买×1 红利低波 | 追止损卖×1 中证2000", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-14 21:42:02", "group": "alert", "tier": "critical", "key": "2c4da7136c41", "subject": "[告警] 信号凯利回测指标突变(C/K)", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-14 22:23:18", "group": "alert", "tier": "critical", "key": "turnover_backfill_fail", "subject": "[告警] turnover 独立任务链路异常 pipe=0 export=0 r2=0 r2large=124 10-14 22:23", "source": "turnover_backfill.sh"}
+{"ts": "2026-10-14 22:30:08", "group": "alert", "tier": "critical", "key": "0a7c5bdc8cb7", "subject": "[告警] 云上 failed unit 持续未清(连续 7 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-14 22:35:26", "group": "alert", "tier": "notice", "key": "926ff0aa8d58", "subject": "[告警][数据缺口] 交易记录断档: 9 个入样买入信号无对应交易(断档深度 1 交易日) 10-14 22:35", "source": "check_data_gap_alerts.sh"}
+{"ts": "2026-10-14 22:35:32", "group": "alert", "tier": "notice", "key": "c9baf4a9a317", "subject": "[恢复][数据缺口] 交易记录最新信号日 20261009 落后(应≥20261012) 已恢复 10-14 22:35", "source": "check_data_gap_alerts.sh"}
+{"ts": "2026-10-14 22:38:08", "group": "alert", "tier": "critical", "key": "nextday_plan_fail", "subject": "[告警] 次日买入计划 R2 上传超时 20261014", "source": "nextday_plan.sh"}
+{"ts": "2026-10-14 22:38:12", "group": "follow", "tier": "notice", "key": "nextday_plan_20261014", "subject": "明日买入计划 20261014", "source": "nextday_plan.sh"}
+{"ts": "2026-10-14 22:45:05", "group": "alert", "tier": "critical", "key": "0a7c5bdc8cb7", "subject": "[告警] 云上 failed unit 持续未清(连续 7 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-14 22:45:17", "group": "alert", "tier": "critical", "key": "50a9db9dd9a1", "subject": "[告警] 1项计划任务异常 10-14 22:45", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-14 23:15:17", "group": "alert", "tier": "critical", "key": "7e2318bf2eea", "subject": "[告警] 1项计划任务异常 10-14 23:15", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-14 23:22:14", "group": "alert", "tier": "critical", "key": "r2_consistency_fail", "subject": "[告警] §22 三站一致性校验失败", "source": "check_r2_consistency.sh"}
+{"ts": "2026-10-14 23:30:06", "group": "alert", "tier": "critical", "key": "0a7c5bdc8cb7", "subject": "[告警] 云上 failed unit 持续未清(连续 7 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 00:00:06", "group": "alert", "tier": "critical", "key": "73ad3acf51d2", "subject": "[告警] 云上 failed unit 持续未清(连续 8 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 00:00:20", "group": "alert", "tier": "digest", "key": "alert_digest", "subject": "[告警·摘要] 当日合并 2 条 (含前日遗留 1 条)(recovery 2) 10-15 00:00", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 02:32:17", "group": "report", "tier": "notice", "key": "signal_kelly_frozen_missing_small", "subject": "[kelly] 冻结表缺失历史信号事件 6 个", "source": "public_fund_full.sh"}
+{"ts": "2026-10-15 02:46:47", "group": "report", "tier": "notice", "key": "r2_upload_async_skip:/tmp/trade_r2_upload_async.lock", "subject": "R2上传异步锁跳过 10-15 02:46", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-15 09:27:38", "group": null, "tier": "subscribe", "key": "bdc3be371a39", "subject": "[订阅:订阅-1] [盘中实时·买卖点信号] 20261015 辅买×1 深证成指", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 09:27:42", "group": "report", "tier": "notice", "key": "fd39d311dc51", "subject": "[盘中实时·买卖点信号] 20261015 辅买×4 中证500、COMEX白银、科创50等4个 | 备买×1 中证红利 | 追止损卖×1 恒生指数 | 波段持有×2 10年国债ETF、上证国债指数", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 09:32:27", "group": "report", "tier": "notice", "key": "d3ccbf17fc94", "subject": "[盘中异动] 18项异动 (2026-10-15 09:32)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 09:37:17", "group": "report", "tier": "notice", "key": "8edbbc31763c", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261015 追止损卖×2 人工智能、军工信息化", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 09:40:29", "group": "report", "tier": "notice", "key": "e3ab4a0ef023", "subject": "[盘中异动] 1项异动 (2026-10-15 09:40)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 09:47:09", "group": "report", "tier": "notice", "key": "23cf7332ec67", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261015 军工信息化 减仓条件解除（1 条，见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 09:50:30", "group": "report", "tier": "notice", "key": "2d91c81580c8", "subject": "[盘中异动] 2项异动 (2026-10-15 09:50)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 09:57:21", "group": "report", "tier": "notice", "key": "e0b17b7eb405", "subject": "[盘中实时·买卖点信号] 20261015 追止损卖×1 军工信息化", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 10:10:39", "group": "report", "tier": "notice", "key": "fd10010172d9", "subject": "[盘中异动] 3项异动 (2026-10-15 10:10)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 10:20:25", "group": "report", "tier": "notice", "key": "2bd5ea051d15", "subject": "[盘中异动] 3项异动 (2026-10-15 10:20)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 10:27:13", "group": "report", "tier": "notice", "key": "23cf7332ec67", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261015 军工信息化 减仓条件解除（1 条，见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 10:37:19", "group": "report", "tier": "notice", "key": "e0b17b7eb405", "subject": "[盘中实时·买卖点信号] 20261015 追止损卖×1 军工信息化", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 10:50:34", "group": "report", "tier": "notice", "key": "a7075e3b719a", "subject": "[盘中异动] 1项异动 (2026-10-15 10:50)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 11:10:31", "group": "report", "tier": "notice", "key": "8329c1b4575e", "subject": "[盘中异动] 1项异动 (2026-10-15 11:10)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 13:06:45", "group": "report", "tier": "notice", "key": "986371c0513f", "subject": "[盘中异动] 1项异动 (2026-10-15 13:06)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 13:12:42", "group": "report", "tier": "notice", "key": "265f1ac84b50", "subject": "[盘中异动] 3项异动 (2026-10-15 13:12)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 13:17:16", "group": "report", "tier": "notice", "key": "eaa7250635f0", "subject": "[盘中实时·买卖点信号] 20261015 追止损卖×1 数字经济", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 13:21:05", "group": "report", "tier": "notice", "key": "00f1d13f9731", "subject": "[盘中异动] 7项异动 (2026-10-15 13:21)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 13:27:14", "group": "report", "tier": "notice", "key": "61e22c2a5541", "subject": "[盘中实时·买卖点信号] 20261015 追止损卖×1 元宇宙", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 13:30:51", "group": "report", "tier": "notice", "key": "d92734bfa3a8", "subject": "[盘中异动] 8项异动 (2026-10-15 13:30)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 13:37:28", "group": "report", "tier": "notice", "key": "294d2e4e7cf4", "subject": "⚠️ 🕐 [盘中实时·买卖点信号] 20261015 元宇宙、数字经济 减仓条件解除（2 条，见时间线）", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 14:07:13", "group": "report", "tier": "notice", "key": "eaa7250635f0", "subject": "[盘中实时·买卖点信号] 20261015 追止损卖×1 数字经济", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 14:17:22", "group": "report", "tier": "notice", "key": "61e22c2a5541", "subject": "[盘中实时·买卖点信号] 20261015 追止损卖×1 元宇宙", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 14:21:03", "group": "report", "tier": "notice", "key": "01f10db075c4", "subject": "[盘中异动] 1项异动 (2026-10-15 14:20)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 14:30:56", "group": "report", "tier": "notice", "key": "8356124248b3", "subject": "[盘中异动] 10项异动 (2026-10-15 14:30)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 14:40:50", "group": "report", "tier": "notice", "key": "0d26d326f702", "subject": "[盘中异动] 2项异动 (2026-10-15 14:40)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 14:57:21", "group": "report", "tier": "notice", "key": "bba38e2d43ea", "subject": "[盘中实时·买卖点信号] 20261015 辅买×1 科创50", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 16:37:45", "group": "alert", "tier": "critical", "key": "history_overwrite:index_daily:20261015", "subject": "[历史行改写] index_daily 历史行被重写 1 条(值改写1)", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-15 16:45:00", "group": "alert", "tier": "critical", "key": "history_overwrite:signal_daily:20261015", "subject": "[历史行改写] signal_daily 历史行被重写 997 条(消失440/出现557)", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-15 17:21:21", "group": "report", "tier": "notice", "key": "r2_upload_async_skip:/tmp/trade_r2_upload_async.lock", "subject": "R2上传异步锁跳过 10-15 17:21", "source": "r2_upload_async.sh"}
+{"ts": "2026-10-15 17:58:40", "group": "alert", "tier": "critical", "key": "history_overwrite:signal_daily:20261015", "subject": "[历史行改写] signal_daily 历史行被重写 1000 条(消失559/出现441)", "source": "update_all.sh"}
+{"ts": "2026-10-15 18:25:19", "group": "alert", "tier": "critical", "key": "deploy_check_data_integrity_fail", "subject": "[告警] deploy 数据产物校验失败", "source": "update_all.sh"}
+{"ts": "2026-10-15 18:25:24", "group": "report", "tier": "notice", "key": "b00f9748b809", "subject": "🕐 [买卖点信号] 20261015 主买×1 创业板综 | 辅买×4 中国10年国债收益率、COMEX白银、科创50等4个 | 备买×1 中证红利 | 追止损卖×8 恒生指数、日经225、医药生物等8个 | 波段持有×3 10年国债ETF、10年国债期货、上证国债指数", "source": "update_all.sh"}
+{"ts": "2026-10-15 18:28:03", "group": "alert", "tier": "critical", "key": "e516c06e9ff7", "subject": "[告警] R2 上传失败: data-files 通道(0/71)", "source": "update_all.sh"}
+{"ts": "2026-10-15 18:31:42", "group": "alert", "tier": "critical", "key": "634ec0d71890", "subject": "[告警] R2 上传失败: etf-score 通道(0/3)", "source": "update_all.sh"}
+{"ts": "2026-10-15 18:32:00", "group": "alert", "tier": "critical", "key": "66108a927df8", "subject": "[告警] R2 上传失败: fund-score 通道(0/2)", "source": "update_all.sh"}
+{"ts": "2026-10-15 18:32:04", "group": "alert", "tier": "critical", "key": "update_all_severe:update_all 严重告警：统一deploy失败(1) ", "subject": "[告警] update_all update_all 严重告警：统一deploy失败(1) 10-15 18:32", "source": "update_all.sh"}
+{"ts": "2026-10-15 18:32:12", "group": "alert", "tier": "critical", "key": "schedule_stats_r2_fail", "subject": "[告警] schedule_stats R2上传失败 10-15 18:32", "source": "update_all.sh"}
+{"ts": "2026-10-15 18:45:06", "group": "alert", "tier": "critical", "key": "73ad3acf51d2", "subject": "[告警] 云上 failed unit 持续未清(连续 8 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 18:45:10", "group": "alert", "tier": "critical", "key": "30968c2c5b90", "subject": "[告警] 1项计划任务异常 10-15 18:45", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 19:16:13", "group": "alert", "tier": "critical", "key": "8ab9e0dc4476", "subject": "[告警] R2 上传失败: lab 通道(0/65)", "source": "update_lab.sh"}
+{"ts": "2026-10-15 19:16:18", "group": "alert", "tier": "critical", "key": "update_lab_r2_upload_fail", "subject": "[告警] update_lab R2上传失败 10-15 19:16", "source": "update_lab.sh"}
+{"ts": "2026-10-15 19:30:07", "group": "alert", "tier": "critical", "key": "173a21920b67", "subject": "[告警] 1项计划任务异常 10-15 19:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 19:43:19", "group": "alert", "tier": "critical", "key": "34cbaf1f18a2", "subject": "[告警] R2 上传失败: trade-sim-json 通道(0/503)", "source": "update_lab.sh"}
+{"ts": "2026-10-15 19:43:25", "group": "alert", "tier": "critical", "key": "update_lab_tradesim_r2_fail", "subject": "[告警] update_lab trade_sim R2上传失败 10-15 19:43", "source": "update_lab.sh"}
+{"ts": "2026-10-15 19:43:31", "group": "alert", "tier": "critical", "key": "update_lab_labjson_r2_fail", "subject": "[告警] update_lab lab_json R2上传失败 10-15 19:43", "source": "update_lab.sh"}
+{"ts": "2026-10-15 19:43:39", "group": "alert", "tier": "critical", "key": "schedule_stats_r2_fail", "subject": "[告警] schedule_stats R2上传失败 10-15 19:43", "source": "update_lab.sh"}
+{"ts": "2026-10-15 19:45:09", "group": "alert", "tier": "critical", "key": "02c57355fd36", "subject": "[告警] 1项计划任务异常 10-15 19:45", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 20:07:07", "group": "alert", "tier": "critical", "key": "da98e21f3520", "subject": "[告警] update_all 锁跳过 10-15 20:07", "source": "self_heal.sh"}
+{"ts": "2026-10-15 20:14:25", "group": "alert", "tier": "critical", "key": "update_lab_r2_upload_fail", "subject": "[告警] update_lab R2上传失败 10-15 20:14", "source": "self_heal.sh"}
+{"ts": "2026-10-15 20:15:05", "group": "alert", "tier": "critical", "key": "73ad3acf51d2", "subject": "[告警] 云上 failed unit 持续未清(连续 8 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 20:15:10", "group": "alert", "tier": "notice", "key": "schedule_monitor_recovery", "subject": "[恢复] fetch_news ⚠ [fetch_news] R2 上传 rc 10-15 20:15", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 20:15:52", "group": "alert", "tier": "critical", "key": "46f3c0366f77", "subject": "[告警] R2 上传失败: etf-hist 通道(0/112)", "source": "etf_national_team_backfill.sh"}
+{"ts": "2026-10-15 20:22:06", "group": "alert", "tier": "critical", "key": "fd4e15d4b268", "subject": "[告警] update_all 锁跳过 10-15 20:22", "source": "self_heal.sh"}
+{"ts": "2026-10-15 20:30:06", "group": "alert", "tier": "critical", "key": "73ad3acf51d2", "subject": "[告警] 云上 failed unit 持续未清(连续 8 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 20:30:13", "group": "alert", "tier": "critical", "key": "6f2fd0e29858", "subject": "[告警] 1项计划任务异常 10-15 20:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 20:40:05", "group": "report", "tier": "notice", "key": "dd34ef0a41d0", "subject": "📊 每日速递 20261015:⚪ 震荡（把握度 50/100·区间-0.10% ~ +0.10%）", "source": "run_daily_brief.sh"}
+{"ts": "2026-10-15 20:45:03", "group": "report", "tier": "notice", "key": "e629af5732c0", "subject": "[每日速递] 20261015", "source": "brief_push_wrapper.sh"}
+{"ts": "2026-10-15 20:45:07", "group": "alert", "tier": "critical", "key": "update_lab_tradesim_r2_fail", "subject": "[告警] update_lab trade_sim R2上传失败 10-15 20:45", "source": "self_heal.sh"}
+{"ts": "2026-10-15 20:59:26", "group": "alert", "tier": "critical", "key": "7b1af3752ce4", "subject": "[告警] R2 上传失败: index 通道(0/147)", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 20:59:31", "group": "alert", "tier": "critical", "key": "intraday_upload_index_r2_fail", "subject": "[告警] intraday R2上传失败 10-15 20:40", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 20:59:32", "group": "alert", "tier": "critical", "key": "update_lab_labjson_r2_fail", "subject": "[告警] update_lab lab_json R2上传失败 10-15 20:59", "source": "self_heal.sh"}
+{"ts": "2026-10-15 21:00:08", "group": "alert", "tier": "critical", "key": "18290a4b7853", "subject": "[告警] 2项计划任务异常 10-15 21:00", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 21:00:24", "group": "alert", "tier": "critical", "key": "882e5333b936", "subject": "[告警] R2 上传失败: kelly-snapshots 通道(0/3)", "source": "s06_snapshot.sh"}
+{"ts": "2026-10-15 21:00:27", "group": "alert", "tier": "critical", "key": "s06_snapshot_fail", "subject": "[S06] 快照重生链路异常 EXIT rc=124 gen=0 check=0 r2=124 pr=0 pr_r2=1 10-15 21:00", "source": "s06_snapshot.sh"}
+{"ts": "2026-10-15 21:14:13", "group": "alert", "tier": "critical", "key": "intraday_upload_intraday_r2_fail", "subject": "[告警] intraday R2上传失败 10-15 20:40", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 21:14:31", "group": "alert", "tier": "critical", "key": "intraday_schedule_stats_r2_fail", "subject": "[告警] intraday schedule_stats R2上传失败 10-15 20:40", "source": "intraday_snapshot.sh"}
+{"ts": "2026-10-15 21:15:06", "group": "alert", "tier": "critical", "key": "73ad3acf51d2", "subject": "[告警] 云上 failed unit 持续未清(连续 8 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 21:15:12", "group": "alert", "tier": "critical", "key": "ad245cef4f8e", "subject": "[告警] 1项计划任务异常 10-15 21:15", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 21:30:11", "group": "alert", "tier": "critical", "key": "72c328be4459", "subject": "[告警] 1项计划任务异常 10-15 21:30", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 21:40:10", "group": "alert", "tier": "critical", "key": "4cdbff00234e", "subject": "[告警] 信号凯利回测指标突变(C/D/K)", "source": "backfill_metrics.sh"}
+{"ts": "2026-10-15 21:45:16", "group": "alert", "tier": "warning", "key": "7c6866f42cbc", "subject": "[告警·聚合] 1条 warning 汇总 10-15 21:45", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 22:14:03", "group": "alert", "tier": "critical", "key": "turnover_backfill_fail", "subject": "[告警] turnover 独立任务链路异常 pipe=0 export=0 r2=1 r2large=124 10-15 22:13", "source": "turnover_backfill.sh"}
+{"ts": "2026-10-15 22:15:06", "group": "alert", "tier": "critical", "key": "73ad3acf51d2", "subject": "[告警] 云上 failed unit 持续未清(连续 8 天, 升级 critical)", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 22:15:12", "group": "alert", "tier": "critical", "key": "a116fb80b039", "subject": "[告警] 2项计划任务异常 10-15 22:15", "source": "schedule_monitor.sh"}
+{"ts": "2026-10-15 22:30:12", "group": "alert", "tier": "critical", "key": "nextday_plan_fail", "subject": "[告警] 次日买入计划 R2 上传失败 rc=1 20261015", "source": "nextday_plan.sh"}
+{"ts": "2026-10-15 22:30:17", "group": "follow", "tier": "notice", "key": "nextday_plan_20261015", "subject": "明日买入计划 20261015", "source": "nextday_plan.sh"}
+{"ts": "2026-10-15 22:35:22", "group": "alert", "tier": "notice", "key": "26f300d60276", "subject": "[告警][数据缺口] 交易记录缺 7 条冻结/评级缺失或同日期有别的入账(接受缺口降噪, 断档深度 1) 10-15 22:35", "source": "check_data_gap_alerts.sh"}
+{"ts": "2026-10-15 22:35:27", "group": "alert", "tier": "notice", "key": "04058a9a2760", "subject": "[告警][数据缺口] 最近 deploy(deploy_20261015_2152.log)无成功标记, kelly 产物可能未刷新 10-15 22:35", "source": "check_data_gap_alerts.sh"}
+{"ts": "2026-10-15 23:21:34", "group": "alert", "tier": "critical", "key": "schedule_stats_r2_fail", "subject": "[告警] schedule_stats R2上传失败 10-15 23:21", "source": "public_fund_full.sh"}
+{"ts": "2026-10-15 23:22:25", "group": "alert", "tier": "critical", "key": "4bfdf1ca5351", "subject": "[告警] §22 三站一致性校验失败(连续 2 天, 升级 critical)", "source": "check_r2_consistency.sh"}
+{"ts": "2026-10-15 23:30:08", "group": "alert", "tier": "critical", "key": "73ad3acf51d2", "subject": "[告警] 云上 failed unit 持续未清(连续 8 天, 升级 critical)", "source": "schedule_monitor.sh"}
