@@ -115,9 +115,10 @@ def _is_system_inject(text: str) -> bool:
 
 
 # ---------------------------------------------------------------- 主/子会话判定
-# 角色名 -> 中文(2026-08-13 需求): implementer/reviewer/researcher/tester/general-purpose
+# 角色名 -> 中文(2026-08-13 需求): implementer/mech-runner/reviewer/researcher/tester/general-purpose
 ROLE_CN = {
     "implementer": "实施",
+    "mech-runner": "机械",
     "reviewer": "审查",
     "researcher": "调研",
     "tester": "测试",

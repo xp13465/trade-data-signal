@@ -26,7 +26,7 @@ HEAD、main-merge 被拒。memory 记两次但无效——机械动作必须机�
 3 项(field 存在性经 docs/thinking-off-optimization.md:64 的 AgentInput schema 确认;
 run_in_background 名义上在 schema 内但平台不转发,已不依赖):
   ① 进度文件:prompt 是否含 /tmp/agent-progress-
-  ② worktree 隔离:subagent_type==implementer 要求 isolation=="worktree";
+  ② worktree 隔离:subagent_type in (implementer, mech-runner) 要求 isolation=="worktree";
      只读角色(reviewer/researcher/tester)不作隔离硬要求
   ③ 命令超时约束(2026-10-07 新增):prompt 是否含 timeout 标记(判
      "timeout" not in prompt.lower())。对**所有** subagent_type 生效(与 ① 一致,不只
@@ -108,7 +108,7 @@ def main() -> int:
     if not isinstance(prompt, str):
         prompt = None  # 类型容错:非 str 一律视为缺失
 
-    is_implementer = isinstance(subagent_type, str) and subagent_type.lower() == "implementer"
+    needs_worktree = isinstance(subagent_type, str) and subagent_type.lower() in ("implementer", "mech-runner")
     problems = []
     fails = ""
 
@@ -118,12 +118,12 @@ def main() -> int:
             "① 进度文件缺失:prompt 未含 %s 路径(观测 prompt 前 %d 字符=%s)"
             % (PROGRESS_FILE_MARKER, PROMPT_PREVIEW_MAX, _prompt_preview(prompt))
         )
-    # ② worktree 隔离(仅 implementer 硬要求)
-    if is_implementer:
+    # ② worktree 隔离(implementer / mech-runner 硬要求:两者均可写文件,无隔离会污染主仓)
+    if needs_worktree:
         if isolation != "worktree":
             problems.append(
-                "② worktree 隔离缺失:subagent_type=implementer 但 isolation=%r(需 'worktree')"
-                % (isolation,)
+                "② worktree 隔离缺失:subagent_type=%r 但 isolation=%r(需 'worktree')"
+                % (subagent_type, isolation)
             )
     # ③ 命令超时约束(所有 subagent_type 生效,与 ① 一致;判 prompt 含 timeout 标记)
     if prompt is None or TIMEOUT_MARKER not in prompt.lower():
@@ -137,7 +137,7 @@ def main() -> int:
         lines = ["[派单机检·§0.2] 以下项未通过(带实际观测值,缺哪件现在补,别裸派):"]
         for p in problems:
             lines.append("  - " + p)
-        if not is_implementer:
+        if not needs_worktree:
             lines.append(
                 "  〔只读/其它 agent %r〕未强制 worktree 隔离,运行期间主控禁止 checkout/merge"
                 "(会把该 agent 工作树拉走)" % (subagent_type,)

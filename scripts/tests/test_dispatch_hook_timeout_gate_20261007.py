@@ -17,6 +17,8 @@ run_in_background。故本文件样本字段集按该形态构造。
   e) ③ 对所有 subagent_type 生效:reviewer(只读角色)+ 无 timeout ⇒ exit 2 含「③」
   f) timeout 大小写不敏感(Timeout/TIMEOUT)⇒ exit 0
   g) ①③ 同时缺失 ⇒ stderr 同时含「①」与「③」(编号收集=①③)
+  h) ② 可写角色机检:mech-runner(可写文件)+ 无 isolation ⇒ exit 2 含「②」(2026-10-16 F3 扩)
+  i) mech-runner + isolation=worktree ⇒ exit 0 静默(② 通过)
 """
 from __future__ import annotations
 
@@ -114,3 +116,26 @@ def test_g_missing_1_and_3_together(monkeypatch, capsys, tmp_path):
     assert code == 2
     assert "①" in err
     assert "③" in err
+
+
+def test_h_mech_runner_needs_worktree(monkeypatch, capsys, tmp_path):
+    """h) ② mech-runner 可写文件却无隔离 ⇒ exit 2 含 ②(负向探针,其余项齐备)。"""
+    prompt = f"机械搬运任务:进度文件 {PROG},每步 echo;所有 Bash 带 timeout。"
+    code, err = _run(
+        monkeypatch, capsys, tmp_path,
+        _agent_input(prompt, subagent_type="mech-runner", isolation=None),
+    )
+    assert code == 2
+    assert "②" in err
+    assert "mech-runner" in err
+
+
+def test_i_mech_runner_with_worktree_green(monkeypatch, capsys, tmp_path):
+    """i) mech-runner + isolation=worktree ⇒ exit 0 静默(② 通过)。"""
+    prompt = f"机械搬运任务:进度文件 {PROG},每步 echo;所有 Bash 带 timeout。"
+    code, err = _run(
+        monkeypatch, capsys, tmp_path,
+        _agent_input(prompt, subagent_type="mech-runner", isolation="worktree"),
+    )
+    assert code == 0
+    assert err == ""
