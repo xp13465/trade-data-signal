@@ -22,6 +22,9 @@
 #     本脚本不取消、不改为增量, 只改执行方式/时机。
 #
 # 日志: $REPO/data/logs/r2_upload_async_YYYYMMDD_HHMMSS.log
+#   #239-J1(2026-10-17): 等锁可观测性 —— 子进程心跳行(tmp_log)按 ≤1 行/5 分钟镜像进本主日志,
+#   每通道收尾落「等锁统计: 最长等锁 Ns」, 收尾 banner 汇总「等锁: 次数=N 最长=Ns」(见 _mirror_lock_heartbeat)。
+#   纯可见性加法: 锁语义/sleep/超时/看门狗判据一律未动; 节流可用 env R2_LOCK_BEAT_MIRROR_SECS 覆盖。
 # 用法: 由 deploy.sh 自动触发; 也可手动: REPO=... GIT_REPO=... bash scripts/r2_upload_async.sh
 set -u
 # 不 set -e: 每通道显式判退出码, 失败累积 R2_FAIL 走收尾统一告警(与 deploy.sh 同款)。
@@ -62,6 +65,21 @@ R2_KILLED=""
 # 告警正文引用。旧行为 kill 后直接 rm tmp_log + 主日志只 tail -1 → 10-06 17:16 告警详情
 # 「无输出」不可定因。现 kill 前把尾部 30 行落主日志(见 _dump_kill_tail), 并累积到本变量。
 R2_KILL_CTX=""
+
+# #239-J1(2026-10-17): 等锁可观测性。止血步(upload_r2.py 排队等锁每 30s 心跳)只把心跳打到
+# stderr → 落 tmp_log, 而 tmp_log 成功轮只 `tail -1` 进主日志、随即 rm ⇒ 生产里「没等到锁」
+# 与「等到但靠心跳逃生」不可区分(b4a §3 实证: 云上 16 轮日志 grep「等待 R2 上传锁」= 0 命中)。
+# 本段只加可见性, 三件事: ①心跳行低频镜像进主日志(默认每 5 分钟一行, 首行即时; 30 分钟级等待
+# 约 6 行, 不刷屏) ②每通道收尾落一行「等锁统计: 最长等锁 Ns」 ③收尾 banner 汇总「等锁次数/最长」。
+# 不动锁语义 / sleep 间隔 / 超时值 / 看门狗判据(与 #239 止血步同口径)。
+R2_LOCK_WAIT_N=0        # 本轮出现等锁(≥30s 心跳留痕)的通道数
+R2_LOCK_WAIT_MAX=0      # 本轮最长等锁秒数(30s 粒度: 取该通道最后一个心跳的「已等待 Ns」)
+R2_LOCK_WAIT_LAST=0     # 当前通道最近观测到的等锁秒数(每通道开始清零)
+_LOCK_BEAT_AT=0         # 上次镜像到主日志时的通道内已 sleep 秒数(节流基准, 无墙钟依赖)
+_LOCK_BEAT_LOGGED=0      # 当前通道是否已镜像过(首次即时, 之后按间隔)
+# 镜像间隔(秒): 默认 300(5min)。0 = 每个采样点都镜像(排障用, 不推荐常开)。
+_LOCK_BEAT_MIRROR_SECS="${R2_LOCK_BEAT_MIRROR_SECS:-300}"
+case "$_LOCK_BEAT_MIRROR_SECS" in ''|*[!0-9]*) _LOCK_BEAT_MIRROR_SECS=300 ;; esac
 
 # 加载 .env(PURGE_SECRET 等 Worker 凭证)到环境, 确保手动跑时子进程(upload_r2.py)能读
 # PURGE_SECRET 调 /api/purge-cache 清 edge cache(与 deploy.sh 同款, 防手动触发丢凭证致 purge 失败)。
@@ -105,7 +123,47 @@ _dump_kill_tail() {
   R2_KILL_CTX="${R2_KILL_CTX}<br><b>[$_desc] kill 前尾部 30 行:</b><br>${_esc}"
 }
 
+# #239-J1: 心跳镜像 —— 把 tmp_log 里最新的心跳行(「⏳ 等待 R2 上传锁 Ns(上限 M s...)」)低频
+# 抄进主日志。节流基准用「通道内已 sleep 秒数 _slept」(纯计数, 无墙钟/时刻依赖 ⇒ 可注入可测);
+# 首次观测即时落, 之后每 _LOCK_BEAT_MIRROR_SECS 秒最多一行(低频, 防 30 分钟等锁刷 60 行)。
+# 只读 tmp_log + 写主日志, 不改任何判定/超时/锁行为。
+_mirror_lock_heartbeat() {
+  local _f="$1" _desc="$2" _slept="$3" _hb _secs
+  _hb="$(grep -F '等待 R2 上传锁' "$_f" 2>/dev/null | tail -1)"
+  [ -z "$_hb" ] && return 0
+  # 取「等待 R2 上传锁 」之后、首个 s 之前的秒数(纯 bash 参数展开, 不用 `grep -o '[0-9]+'`:
+  # 那样会把文案里 `R2` 的 "2" 也抠出来 ⇒ _secs 变 "2\n30" 多行脏值, 下游整型比较直接报错。
+  # 同款纯 bash 解析先例 = lib/upload_watchdog.sh::r2_parse_progress)。
+  _secs="${_hb##*等待 R2 上传锁 }"
+  _secs="${_secs%%s*}"
+  case "$_secs" in ''|*[!0-9]*) return 0 ;; esac   # 文案漂移/解析不出 ⇒ 静默跳过, 不污染 LAST
+  R2_LOCK_WAIT_LAST="$_secs"
+  if [ "$_LOCK_BEAT_LOGGED" -eq 0 ] || [ $((_slept - _LOCK_BEAT_AT)) -ge "$_LOCK_BEAT_MIRROR_SECS" ]; then
+    echo "  ⏳ $_desc 等锁中 已等待 ${_secs}s(心跳每 30s 刷新 tmp_log mtime 防停滞判据误杀; 后续每 ${_LOCK_BEAT_MIRROR_SECS}s 镜像一行)" | tee -a "$LOG"
+    _LOCK_BEAT_AT="$_slept"
+    _LOCK_BEAT_LOGGED=1
+  fi
+  return 0
+}
+
+# #239-J1: 通道包装层 —— 每次通道开始清零等锁观测状态, 收尾(成功/失败/被 kill 各路径)统一落
+# 「等锁统计」并累加本轮指标。原实现整体下移为 _run_r2_upload_impl(不改其内部逻辑, 只改函数名)。
 run_r2_upload() {
+  local _desc="$1"
+  R2_LOCK_WAIT_LAST=0
+  _LOCK_BEAT_AT=0
+  _LOCK_BEAT_LOGGED=0
+  _run_r2_upload_impl "$@"
+  local _rc=$?
+  if [ "$R2_LOCK_WAIT_LAST" -gt 0 ]; then
+    echo "  ⏳ $_desc 等锁统计: 最长等锁 ${R2_LOCK_WAIT_LAST}s(30s 粒度, 仅 ≥30s 的等待有留痕)" | tee -a "$LOG"
+    R2_LOCK_WAIT_N=$((R2_LOCK_WAIT_N + 1))
+    [ "$R2_LOCK_WAIT_LAST" -gt "$R2_LOCK_WAIT_MAX" ] && R2_LOCK_WAIT_MAX="$R2_LOCK_WAIT_LAST"
+  fi
+  return "$_rc"
+}
+
+_run_r2_upload_impl() {
   local desc="$1"; shift
   local ch_timeout=""
   if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
@@ -171,6 +229,9 @@ run_r2_upload() {
       return 1
     fi
     if [ $((_slept % 60)) -eq 0 ]; then
+      # #239-J1: 等锁心跳低频镜像进主日志(首次即时, 之后每 _LOCK_BEAT_MIRROR_SECS 秒一行)。
+      # 放在批次判定之前 ⇒ 不依赖 [N/M] 行, 对全部通道一视同仁(含小通道/对账通道)。
+      _mirror_lock_heartbeat "$tmp_log" "$desc" "$_slept"
       # 取日志最后一个 [N/M] 进度行: N=已完成数(a2 收尾豁免用), M=批次总数(仅首批 >10 时固定, 与旧行为一致)。
       local _prog _pn _pm
       _prog=$(grep -Eo '\[[0-9]+/[0-9]+\]' "$tmp_log" 2>/dev/null | tail -1)
@@ -229,6 +290,11 @@ upload_data_channels() {
   # 900s 周日/首跑全量偏紧(09-14 17:50 update_all exit 143 事故根因之一), 放宽 1800s 留 2 倍余量(仿 fund-nav)。
   run_r2_upload "upload-trade-sim-json" 1800 upload-trade-sim-json || { echo "⚠ upload-trade-sim-json 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim-json"; }
   run_r2_upload "upload-index" 900 upload-index || { echo "⚠ upload-index 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-index"; }
+  # #253-c1(2026-10-17): 上面这三通道(trade-sim / trade-sim-json / index)的周日 full 若落在白天
+  #   禁窗(8:00-23:00)会延后到夜间/次日凌晨轮(白天轮走平日增量, 秒级);00:00-07:59 与 ≥23:00
+  #   放行 full —— 依据「同通道凌晨 100% 成功 vs 傍晚 0/2 被看门狗低速 kill」
+  #   (docs/ops/watchdog-tradesim-slowkill-20261011.md §5-c1);
+  #   开关与日志见 upload_r2.py _NIGHT_FULL_DEFER_CHANNELS / 延后分支。
   # ETF 全史日K etf/{code}-all.json -> R2 etf/ 前缀(#10 ETF弹窗长历史, 2026-08-22; 1532只~87MB, 8线程并发)
   # 2026-08-23: 改增量上传(upload_r2.py 状态清单只传变化文件)+ 本通道超时放宽 900s(根治间歇超时告警);
   # 首跑/每周日强制全量一次防状态漂移, 增量正常秒级~分钟级完成。
@@ -297,5 +363,6 @@ if [ -f "$PENDING_FILE" ]; then
   finalize_verify
 fi
 
-echo "=== r2_upload_async 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
+# #239-J1: 收尾汇总加「等锁次数 / 最长等锁时长」两指标(既有收尾 banner 同位, 按现有格式追加)
+echo "=== r2_upload_async 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 等锁: 次数=$R2_LOCK_WAIT_N 最长=${R2_LOCK_WAIT_MAX}s ===" | tee -a "$LOG"
 exit 0
