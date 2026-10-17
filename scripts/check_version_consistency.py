@@ -27,11 +27,17 @@ SW更新接管 + 数据同步」三处设计未闭环。
 用法:
   python3 scripts/check_version_consistency.py --site-dir /path/to/static-site [--deploy-mode]
   python3 scripts/check_version_consistency.py --site-dir /path/to/static-site   # 普通跑(FYI 模式)
+  python3 scripts/check_version_consistency.py --site-dir /path/to/static-site --checks 1,2
   --deploy-mode   deploy 接入(任一 FAIL 以非0退出阻断上线, 同 §24⑤ FAIL 阻断语义)
+  --checks        只跑指定校验(逗号分隔, 取值 1/2/3; 默认 1,2,3)。
+                 用途(#261 选项①, CI 拆步): CI 把「校验1/2」(纯静态硬项, 真阻断)与
+                 「校验3」(需 build_min 依赖 npx terser/rcssmin, 尽力而为)拆成两步分别传
+                 `--checks 1,2` 与 `--checks 3`, 使注释自称「纯静态必跑」名副其实。
+                 deploy.sh 不传本参数 ⇒ 默认全跑, 行为不变。
 
 退出码:
-  0 = 全部 PASS
-  1 = 有 FAIL(任一校验 FAIL → 阻断上线)
+  0 = 所选校验全部 PASS
+  1 = 有 FAIL(所选任一校验 FAIL → 阻断上线); 或 --checks 取值非法
 
 deploy.sh 接入(step 1.2 宇宙校验之后, 见部署 §24⑤):
   "$PY" "$REPO/scripts/check_version_consistency.py" --site-dir "$GIT_REPO/static-site" --deploy-mode
@@ -231,7 +237,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="部署版本一致性校验(§24⑤, #48, 适配 #46 日期+批次版本串)")
     ap.add_argument("--site-dir", required=True, help="static-site 目录路径(如 /Users/linhuichen/code/trade/static-site)")
     ap.add_argument("--deploy-mode", action="store_true", help="deploy 接入模式(任一 FAIL 以非0退出阻断上线)")
+    ap.add_argument("--checks", default="1,2,3",
+                    help="只跑指定校验(逗号分隔, 取值 1/2/3; 默认 1,2,3)。CI 拆步用 1,2 / 3")
     args = ap.parse_args()
+
+    sel = {c.strip() for c in args.checks.split(",") if c.strip()}
+    if not sel or not sel <= {"1", "2", "3"}:
+        print(f"✗ --checks 取值非法: {args.checks!r}(只允许 1/2/3 的逗号分隔子集)", file=sys.stderr)
+        return 1
 
     site_dir = Path(args.site_dir).resolve()
     if not site_dir.exists() or not site_dir.is_dir():
@@ -258,12 +271,15 @@ def main() -> int:
     ok = True
     results = []
     checks = [
-        ("校验1:index版本串格式/批次与sw一致", check1, (index_refs, site_dir)),
-        ("校验2:index引用资源文件存在", check2, (index_refs, site_dir)),
-        ("校验3:min内容==git HEAD源重建(B2防脏工作区覆盖)", check3, (site_dir,)),
+        ("1", "校验1:index版本串格式/批次与sw一致", check1, (index_refs, site_dir)),
+        ("2", "校验2:index引用资源文件存在", check2, (index_refs, site_dir)),
+        ("3", "校验3:min内容==git HEAD源重建(B2防脏工作区覆盖)", check3, (site_dir,)),
     ]
+    checks = [c for c in checks if c[0] in sel]
+    print(f"  本次校验子集 : --checks {args.checks}({'/'.join(c[0] for c in checks)})")
+    print()
 
-    for title, fn, tup in checks:
+    for _n, title, fn, tup in checks:
         passed, detail = fn(*tup)
         status = "PASS" if passed else "FAIL"
         results.append((title, passed))
@@ -275,7 +291,7 @@ def main() -> int:
     if not ok:
         print("✗ 版本一致性校验未通过(任一 FAIL 阻断上线, 防孤儿快照再产生, 2026-08-14 全站白屏事故根因⑤)")
         return 1
-    print("✓ 版本一致性全部校验通过(§24⑤ PASS)")
+    print(f"✓ 版本一致性校验通过(所选子集 {args.checks}, §24⑤ PASS)")
     return 0
 
 
