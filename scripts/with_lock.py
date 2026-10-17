@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """持锁执行命令（跨平台 fcntl.flock，macOS/Linux 通用）。
 
-用法: python with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] <lockfile> <cmd> [args...]
+用法: python with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]]
+                         [--exec-timeout <秒>] <lockfile> <cmd> [args...]
 持独占锁(LOCK_EX)执行 cmd；进程退出（含崩溃/被杀）锁自动释放。
 
   --nb            非阻塞：锁已被占则不等待，直接 exit 0 跳过（用于"重复跑跳过"场景）。
@@ -21,6 +22,11 @@
                   "等界内没拿到锁的跳过"。设置后替代内置 notify（调用方自定留痕钩子，
                   如 r2_upload_skip_notify.sh 写并发跳过标记供在跑实例收尾补跑）。
                   不影响未设置时的内置 notify 行为。
+  --exec-timeout <秒>  持锁**执行段**（工作段）预算。计时起点 = **真正拿到锁之后**（不是
+                  进程启动），故排队等锁时长不计入本预算（#258 口径：等锁 / 工作两预算各自
+                  独立计时）。超时 → 先 SIGTERM 子进程组、宽限 5s 再 SIGKILL，退出码 124
+                  （与 shell `timeout` / 各脚本 run_to 同码，调用方既有 rc 判据无需改）。
+                  0 / 未设 = 不设（向后兼容：旧行为逐字不变，子进程不新建会话）。
 
 用途：
   - 多 pipeline 并发时串行化 git commit+push（阻塞），避免 .git/index.lock
@@ -31,12 +37,16 @@
   - deploy 串行锁 + --block-timeout：防单点慢 deploy 拖垮整条盘后链
     （2026-09-18 事故：R2 慢 deploy 85min 占锁，下游 futures/etf/lhb/lab
     排队到各自 systemd TimeoutStartSec 90min 被硬杀 exit143 连环告警）。
+  - 等锁 + 工作两段预算分离（--block-timeout + --exec-timeout，#258 A2/A3）：
+    「等锁被算进工作预算、长等锁吃掉工作窗口」的根治（同 #258 E1 在 upload_r2.py 的
+    两预算设计）。调用方把进程内工作预算交给本脚本，等锁时长不再挤占它。
 
 为何不用 flock(1)：macOS 默认无 flock 命令（util-linux 工具），
 fcntl.flock 是 POSIX 标准，Python 自带，无外部依赖。
 """
 import fcntl
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -46,9 +56,11 @@ nonblock = False
 on_skip = None
 block_timeout = 0
 on_timeout = None
+exec_timeout = 0   # #258 A2/A3: 持锁执行段(工作段)预算; 计时起点 = 拿锁之后。0=不设(旧行为)
 
 # 解析 --nb（无值开关）、--on-skip <cmd>（有值，取一个 token 作为命令名）、
-# --block-timeout <秒>（有值，排队等锁超时护栏）、--on-timeout <cmd>（超时跳过钩子）
+# --block-timeout <秒>（有值，排队等锁超时护栏）、--on-timeout <cmd>（超时跳过钩子）、
+# --exec-timeout <秒>（有值，#258 A2/A3：持锁执行段预算，计时起点＝拿锁之后）
 # --on-skip / --on-timeout 后紧跟的 token 是要执行的命令（如 scripts/on_skip_notify.sh），
 # 该命令自己解析后续参数。这里只取命令名，不吞其参数。
 rest = []
@@ -60,13 +72,13 @@ while i < len(args):
         i += 1
     elif a == "--on-skip":
         if i + 1 >= len(args):
-            print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] <lockfile> <cmd> [args...]", file=sys.stderr)
+            print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] [--exec-timeout <秒>] <lockfile> <cmd> [args...]", file=sys.stderr)
             sys.exit(2)
         on_skip = args[i + 1]
         i += 2
     elif a == "--block-timeout":
         if i + 1 >= len(args):
-            print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] <lockfile> <cmd> [args...]", file=sys.stderr)
+            print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] [--exec-timeout <秒>] <lockfile> <cmd> [args...]", file=sys.stderr)
             sys.exit(2)
         try:
             block_timeout = int(args[i + 1])
@@ -76,9 +88,22 @@ while i < len(args):
         i += 2
     elif a == "--on-timeout":
         if i + 1 >= len(args):
-            print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] <lockfile> <cmd> [args...]", file=sys.stderr)
+            print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] [--exec-timeout <秒>] <lockfile> <cmd> [args...]", file=sys.stderr)
             sys.exit(2)
         on_timeout = args[i + 1]
+        i += 2
+    elif a == "--exec-timeout":
+        if i + 1 >= len(args):
+            print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] [--exec-timeout <秒>] <lockfile> <cmd> [args...]", file=sys.stderr)
+            sys.exit(2)
+        try:
+            exec_timeout = int(args[i + 1])
+        except ValueError:
+            print(f"with_lock.py: --exec-timeout 需为整数秒，收到 '{args[i + 1]}'", file=sys.stderr)
+            sys.exit(2)
+        if exec_timeout < 0:
+            print(f"with_lock.py: --exec-timeout 需 >= 0（0=不设），收到 '{args[i + 1]}'", file=sys.stderr)
+            sys.exit(2)
         i += 2
     else:
         rest.append(a)
@@ -86,7 +111,7 @@ while i < len(args):
 args = rest
 
 if len(args) < 2:
-    print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] <lockfile> <cmd> [args...]", file=sys.stderr)
+    print("usage: with_lock.py [--nb [--on-skip <cmd>]] [--block-timeout <秒> [--on-timeout <cmd>]] [--exec-timeout <秒>] <lockfile> <cmd> [args...]", file=sys.stderr)
     sys.exit(2)
 
 lockpath = args[0]
@@ -170,10 +195,53 @@ try:
             else:
                 _notify_block_timeout(waited)
             sys.exit(0)
+        # #258 A2/A3(2026-10-17): 拿到锁的**等锁时长**单独留痕 —— 让「等锁」与「工作」在日志里
+        # 可分离观测(执行段预算 --exec-timeout 的计时起点是本行之后)。只在真等过(waited>0)时打印,
+        # 不改变任何判定/退出码;纯观测行(旧调用方仅在「等过锁」时多一行 stderr)。
+        if waited > 0:
+            print(f"[with_lock] 取得锁 {lockpath}（排队等锁 {waited}s）", file=sys.stderr)
     else:
         fcntl.flock(f, fcntl.LOCK_EX)
 except BlockingIOError:
     print(f"[with_lock] {lockpath} 已被占用，跳过", file=sys.stderr)
     sys.exit(0)
-r = subprocess.run(cmd)
-sys.exit(r.returncode)
+def _run_cmd_with_budget():
+    """持锁执行命令。#258 A2/A3 执行段(工作段)预算:
+
+    - `--exec-timeout N`(N>0): 计时起点 = **本函数调用时刻** = 已拿到锁之后(排队等锁已结束),
+      故等锁时长不计入工作预算(两段预算各自独立计时)。超时 → 先 SIGTERM 整个子进程组、
+      宽限 5s 再 SIGKILL(与各脚本既有 `pkill -TERM -P` 兜底同语义),返回 124
+      (与 shell `timeout`/`run_to` 同码, 调用方既有 rc 判据与告警文案口径不变)。
+    - 未设 / 0: 旧行为逐字不变 —— `subprocess.run(cmd)` 直跑、不新建会话、不设任何超时。
+    """
+    if exec_timeout <= 0:
+        return subprocess.run(cmd).returncode
+    p = subprocess.Popen(cmd, start_new_session=True)   # 独立会话/进程组 ⇒ 超时可整组回收
+    try:
+        return p.wait(timeout=exec_timeout)
+    except subprocess.TimeoutExpired:
+        print(
+            f"[with_lock] 持锁执行段超 {exec_timeout}s（计时起点 = 拿到锁之后, 不含排队等锁）"
+            f" —— 终止子进程组 pid={p.pid}, exit 124",
+            file=sys.stderr, flush=True,
+        )
+        try:
+            os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        try:
+            p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                print(f"[with_lock] 子进程组 pid={p.pid} SIGKILL 后仍未回收(残留进程)", file=sys.stderr)
+        return 124
+
+
+r = _run_cmd_with_budget()
+sys.exit(r)

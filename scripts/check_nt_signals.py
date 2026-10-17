@@ -408,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 多渠道分发（邮件 + Telegram）：notify.send 统一出口，各渠道失败不互相阻塞
     try:
-        results = notify.send(subject, body, feishu_post=feishu_post)
+        results = notify.send(subject, body, feishu_group="report", feishu_post=feishu_post)
     except Exception as e:  # noqa: BLE001
         log.error("✗ 通知发送异常：%s（不阻塞流程）", e)
         return 2

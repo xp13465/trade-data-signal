@@ -1347,10 +1347,15 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
         except Exception as e:  # noqa: BLE001
             print(f"[notify][digest] 恢复留痕异常（不影响发送）：{e}", file=sys.stderr)
     # W1 L1 度量层（纯新增，best-effort）：消息级台账一条（仅实际外发时 = 至少一个真实渠道发出）。
+    # #264D(2026-10-17): 台账 group 记**实际落群**，取值优先级 = ledger_group(CLI 传入) >
+    # feishu_group(显式渠道声明) > 主题文本推断。原式漏了 feishu_group ⇒ 直调 send() 且显式
+    # 声明渠道时(如 feishu_group="alert" 而主题无 [告警] 字样)，实际发 alert 群却记 report，
+    # 台账与真实落群不一致(§22)。CLI 路径 ledger_group=args.feishu_group 本就不受影响。
     _record_ledger(subject, {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok},
                    tier=ledger_tier or ("critical" if severe else "notice"),
                    key=ledger_key, source=source,
-                   group=ledger_group or _resolve_feishu_chat_key(subject, from_prefix, severe),
+                   group=(ledger_group or feishu_group
+                          or _resolve_feishu_chat_key(subject, from_prefix, severe)),
                    merged_count=merged_count, dry_run=dry_run)
     return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
@@ -1370,6 +1375,8 @@ def send_to(subject: str, body: str, email: str | None = None,
     返回 {"email": bool, "telegram": bool, "feishu": bool}。
     from_prefix：邮件发件人名前缀（None=默认 "信号实验室监控"）。
     feishu_group：飞书群 key（None=按前缀自动映射，订阅信号推送默认进 report 报告群）。
+      业务出口请显式传 report/follow（#264D 2026-10-17 业务/故障分渠道：业务不再靠主题文本
+      推断落群，显式声明后台账 group 记实际落群而非空值）。
     feishu_post（2026-08-11 飞书格式模板）：post 富文本数据（build_feishu_post 产出），
       仅 report 群生效，alert/agent_done/follow 群忽略保持 text。
     """
@@ -1383,8 +1390,12 @@ def send_to(subject: str, body: str, email: str | None = None,
     finally:
         _LEDGER_LOCAL.depth = _ledger_depth() - 1
     # W1 L1 度量层（纯新增，best-effort）：消息级台账一条（订阅推送通道）。
+    # #264D(2026-10-17): group 记**实际落群**——feishu_group 未显式传时按 send_feishu 同一
+    # 口径解析（原样记 None 致台账 5 行 group 空值，用户/对账侧看不出实发 report 群）。
     _record_ledger(subject, {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok},
-                   tier="subscribe", group=feishu_group, dry_run=dry_run)
+                   tier="subscribe",
+                   group=feishu_group or _resolve_feishu_chat_key(subject, from_prefix, False),
+                   dry_run=dry_run)
     return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
 
@@ -2708,7 +2719,10 @@ def flush_digest(dry_run: bool = False) -> dict:
     返回 {"sent": bool, "n": int, "n_remaining": int}。结构 mirror flush_warning_batch:
     - 抢 ALERT_DIGEST_LOCK_FILE 全生命周期锁(抢不到=另一 flusher 在处理, return 静默)。
     - 触发 = stale 非空; 或 now >= ALERT_DIGEST_HM(23:25) 且 due 非空 且 state.last_sent_day
-      != today(当日只发一封, 防 23:25 后连续轮次重复发)。不满足 → 原样保留 return。
+      < today(水位线语义: 今日尚未发送才发, 防 23:25 后连续轮次重复发)。不满足 → 原样保留 return。
+    - state.last_sent_day = 「**已发条目所属最大 day**」(水位线), **不是发送时刻的日期**
+      (#264b 时序修复 2026-10-17 选项②): 旧语义把 00:00 的 stale 兜底 flush 记成"新一日已发",
+      致该日 23:25 被 `!= today` 永久挡住(10-13~10-16 摘要连续滑到次日 00:00 的根因)。
     - 成功(真实发出)→ 按 _stable_rid 精确清理已发条目 + 写 state(**只在发送成功后做**);
       失败 → 条目全保留, 下轮/次日重试(「绝不丢条目」与 warning flush 同契约)。
     - ALERT_DIGEST_DISABLE=1 → 直接 return(flush 全停; ⚠️ gate 吸收仍发生 → 完整回滚须置
@@ -2767,7 +2781,9 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
             _last_day = str((_st or {}).get("last_sent_day") or "")
     except Exception:  # noqa: BLE001
         _last_day = ""
-    if not (bool(stale) or (_hm_ok and bool(due) and _last_day != _today)):
+    # #264b(2026-10-17)门控比较用 `<`(水位线)而非 `!=`: 已发水位未达今日才发。
+    # 旧 `!=` 下, 00:00 的 stale 兜底 flush 把 last_sent_day 写成"新一日"后, 该日 23:25 被永久挡住。
+    if not (bool(stale) or (_hm_ok and bool(due) and _last_day < _today)):
         return {"sent": False, "n": 0, "n_remaining": len(entries)}
     send_entries = stale + due
     # #264 件E(2026-10-15)分段: 真被并入的(merged) vs 恢复类**已直发**的留痕(traces)。
@@ -2893,10 +2909,14 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
     else:
         _n_rem = len(entries)
     # 只在发送成功后写 state(幂等: 当日只发一封)
+    # #264b(2026-10-17 选项②): 写「已发条目所属**最大** day」(水位线), 不是发送时刻日期。
+    # 这样 00:00 的 stale 兜底 flush(只发前日遗留)只把水位推到前日, 不会挡住当日晚些的 23:25。
+    _sent_days = [str(e.get("day") or "") for e in send_entries]
+    _max_sent_day = max(_sent_days) if _sent_days else _today
     try:
         ALERT_DIGEST_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         _tmp = ALERT_DIGEST_STATE_FILE.with_name(ALERT_DIGEST_STATE_FILE.name + ".tmp")
-        _tmp.write_text(json.dumps({"last_sent_day": _today}, ensure_ascii=False),
+        _tmp.write_text(json.dumps({"last_sent_day": _max_sent_day}, ensure_ascii=False),
                         encoding="utf-8")
         os.replace(_tmp, ALERT_DIGEST_STATE_FILE)
     except Exception as e:  # noqa: BLE001

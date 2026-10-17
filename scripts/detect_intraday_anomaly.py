@@ -321,7 +321,7 @@ def send_alert(alerts: list[dict]) -> bool:
     try:
         r = subprocess.run(
             [sys.executable, str(NOTIFY_PY), subject, body,
-             "--from-prefix", "[盘中异动]"],
+             "--from-prefix", "[盘中异动]", "--feishu-group", "report"],
             timeout=60, check=False, capture_output=True, text=True,
         )
         out = (r.stdout or "") + (r.stderr or "")

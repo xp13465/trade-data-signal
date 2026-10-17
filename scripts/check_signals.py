@@ -428,7 +428,8 @@ def push_subscriptions(all_signals: list[dict], name_map: dict[str, str],
         chat_id = (sub.get("telegram_chat_id") or "").strip() or None
         try:
             results = notify.send_to(subject, body, email=email, chat_id=chat_id, dry_run=dry_run,
-                                     from_prefix="[买卖点信号]", feishu_post=feishu_post)
+                                     from_prefix="[买卖点信号]", feishu_group="report",
+                                     feishu_post=feishu_post)
         except Exception as e:  # noqa: BLE001
             log.error("订阅 %s(%s) 推送异常：%s（不阻塞其他订阅）", sub_name, sub_id, e)
             continue
@@ -2078,7 +2079,7 @@ def main(argv: list[str] | None = None) -> int:
     # 全部渠道未发出（未配置/失败）-> 不更新去重记录，下次重试。
     try:
         results = notify.send(subject, body, from_prefix="[买卖点信号]",
-                              feishu_post=feishu_post)
+                              feishu_group="report", feishu_post=feishu_post)
     except Exception as e:  # noqa: BLE001
         log.error("✗ 通知发送异常：%s（不阻塞流程）", e)
         # #241 同族(2026-10-09): 通知异常 ⇒ 回滚本轮 fade 签, 下轮重试邮件可补 fade 栏。

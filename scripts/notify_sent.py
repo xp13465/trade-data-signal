@@ -4,8 +4,8 @@
 
 背景(同一病根, 已两处命中)
   `scripts/notify.py` 的 `main()` **所有出口都 `return 0`** —— 包括
-  「全部渠道未发出」(notify.py:2362 通用路径)与 tier 分支 `defer_status='append_failed'`
-  (notify.py:2189 分级路径)。因此**子进程 `returncode == 0` 完全不含「告警送达/入队」的
+  「全部渠道未发出」(notify.py:3272 通用路径)与 tier 分支 `defer_status='append_failed'`
+  (notify.py:3068 分级路径)。因此**子进程 `returncode == 0` 完全不含「告警送达/入队」的
   告知力**: 渠道全挂也 rc=0。
   历史事故面:
     · #240 F1 → `check_failed_units.py` 用 `rc==0` 当落签判据 ⇒ 全渠道失败照样落签名 ⇒
@@ -17,12 +17,12 @@
 
 判据覆盖 notify.py 的两类出口形态(逐字对齐源码)
   ① 通用 / `--severe` 路径:
-       · 成功   → `[notify] 汇总：已发出 email/feishu`(notify.py:2359)
-       · 全失败 → `[notify] 汇总：全部渠道未发出（...）`(notify.py:2362)
+       · 成功   → `[notify] 汇总：已发出 email/feishu`(notify.py:3269)
+       · 全失败 → `[notify] 汇总：全部渠道未发出（...）`(notify.py:3272)
        · #196③ 连续异常升 critical 走 `send_tiered(critical)` 后 **early return**, 不发①的
-         通用汇总行, 只发 → `[notify][196] 升级档路由完成：{'email': True, ...}`(notify.py:2335)
-  ② 分级 `--tier` 路径(notify.py:2189-2198, 恒 return 0):
-       · `[notify][tier=<t>] 路由完成：{res}`。res 语义随 tier 变(`_tier_send_ok`, notify.py:2101):
+         通用汇总行, 只发 → `[notify][196] 升级档路由完成：{'email': True, ...}`(notify.py:3239)
+  ② 分级 `--tier` 路径(notify.py:3068-3087, 各出口恒 return 0):
+       · `[notify][tier=<t>] 路由完成：{res}`(notify.py:3077)。res 语义随 tier 变(`_tier_send_ok`, notify.py:2953):
            - tier=warning → `defer_warning` 三态, 真处理 ⇔ `deferred=True`
              (`defer_status ∈ {enqueued, suppressed}`); `append_failed` ⇒ `deferred=False`
              = **未入聚合 buffer** = 不得当发出(否则漏告警)。
@@ -43,8 +43,24 @@
 边界(诚实标注)
   · 只解析**输出文本**; 调用方须把 notify 子进程 stdout **与** stderr 合并后传入
     (notify.py 两路都打 stderr, 但合并更稳)。
-  · 不覆盖「dry-run」: dry-run 输出(如 `[notify][warning][dry-run] 模拟入聚合 buffer`)
-    不含 `路由完成：`/`已发出` ⇒ 判 False(不落签), 与「dry-run 不占窗」契约一致。
+  · **dry-run 分两种形态, 判据不同**(2026-10-17 实测订正; 旧注释写「dry-run ⇒ 一律判 False」
+    只对形态②成立, 对形态①是错的):
+      ① **通用形态**(`notify.py --dry-run`, notify.py:36「不真发, 只 print 到 stderr」):
+         dry-run 只把各渠道 send 短路成「模拟成功」, **汇总行照旧按模拟结果打印** ⇒
+         `[notify] 汇总：已发出 email/feishu`(notify.py:3269) ⇒ 本判据 **True**(= 会被当成「真发出」落签)。
+         实测证据: `/tmp/rev250-dryrun-probe.log`(RC=0, 末行即该汇总行)。
+      ② **tier/warning 形态**(`[notify][warning][dry-run] 模拟入聚合 buffer（不写盘）`, notify.py:2363):
+         不含 `路由完成：`/`已发出` ⇒ 判 **False**(不落签), 与「dry-run 不占窗」契约一致。
+  · **影响面(实测核查, 2026-10-17)**: 本判据现有全部消费方(7 个: check_failed_units /
+    check_s06_freshness / check_data_gap_alerts / detect_intraday_anomaly / check_monitor_heartbeat /
+    overfit_monitor / monitor_72h.sh)**均不向 notify.py 传 `--dry-run`**; 传 dry-run 的是自验包装
+    (on_skip_notify.sh / r2_upload_skip_notify.sh / verify_backup.sh / brief_push_wrapper.sh /
+    check_sentiment_r2_upload.py), 它们不经本判据 ⇒ 形态①的「误判真发出」**当前无实际危害面**。
+    但**新调用方若把 dry-run 输出喂进本判据**, 形态①会误判 ⇒ 那一轮告警被当成已送达而抑制,
+    新接入时必须按上表规避(production 调用方一律不传 `--dry-run`)。
+
+行号锚点: 本文引用的 notify.py 行号已于 2026-10-17 全量核对并更新到当前(notify.py 共 3286 行;
+  旧值停在 2026-10-10 前后, 与现状普遍相差约 +910 行)。notify.py 再改动后请同步核对本文锚点。
 
 关联: `check_failed_units._notify_sent`(#240 F1) / `check_s06_freshness`(#241)均委托本函数;
       规范 §23.2③(根因修复不只表面症状: 判据只此一份)。notify.py 为冻结面(§23.7), 本判据
@@ -66,7 +82,7 @@ def notify_sent(output: str) -> bool:
     # ② 通用路径成功(含 "--severe", 以及 #196③ 升级档前置的一般汇总)
     if "已发出" in output:
         return True
-    # ③ 分级/升级档路径: "...路由完成：{<res dict>}"(#196③ notify.py:2334 / --tier notify.py:2190)
+    # ③ 分级/升级档路径: "...路由完成：{<res dict>}"(#196③ notify.py:3239 / --tier notify.py:3077)
     _i = output.find("路由完成：")
     if _i >= 0:
         _j = output.find("}", _i)
@@ -86,20 +102,20 @@ def notify_sent(output: str) -> bool:
 # **严禁裸 "suppress" 子串分类** —— tier 分支的成功行
 # `[notify][tier=<t>] 路由完成：{... 'defer_status': 'suppressed'}` 也含 "suppressed" 子串,
 # 但那必须判 sent（反向用例, 见 notify_state docstring）。签名字面量对齐 notify.py 既有 5 类
-# 抑制行打印（这些行措辞被冻结: 唯一文本消费者 retry_failed_metrics.py:130 按
-# "dedup 窗口内 suppress" 匹配 notify.py:2183 那行, 禁改）。
+# 抑制行打印（这些行措辞被冻结: 唯一文本消费者 retry_failed_metrics.py:131 按
+# "dedup 窗口内 suppress" 匹配 notify.py:3070 那行, 禁改）。
 _SUPPRESS_SIGNATURES: tuple[tuple[str, str | None], ...] = (
-    # 通用 / tier 的 check_dedup 抑制（notify.py:1272-1273）
+    # 通用 / tier 的 check_dedup 抑制（打印 notify.py:1686, 判定函数 check_dedup 定义 notify.py:1661）
     ("[notify][dedup] suppress key=", None),
-    # defer_warning 4h 指纹层「同源抑制」（notify.py:1779-1780）
+    # defer_warning 4h 指纹层「同源抑制」（notify.py:2415）
     ("[notify][dedup] 同源抑制(", None),
-    # tier 分支窗口内抑制（notify.py:2183-2184, tier 名变 ⇒ 前缀 + 固定标记）
+    # tier 分支窗口内抑制（notify.py:3070-3071, tier 名变 ⇒ 前缀 + 固定标记）
     ("[notify][tier=", "dedup 窗口内 suppress"),
-    # R4 / R7 / #196 升级档窗口内已发抑制（notify.py:2232 / 2274 / 2325）
+    # R4 / R7 / #196 升级档窗口内已发抑制（notify.py:3120 / 3162 / 3227）
     ("[notify][r4] staticdata_backup_fail 21600s 窗口内已发, suppress", None),
     ("[notify][r7] 升级档窗口内已发, suppress", None),
     ("[notify][196] 升级档窗口内已发, suppress", None),
-    # agent-done 5min 抑制（notify.py:1348）
+    # agent-done 5min 抑制（notify.py:1762）
     ("[notify][agent-done] suppress", None),
     # #245 批2 L2 预算+摘要层（2026-10-10）：超日预算的 SEVERE 被并入当日摘要 buffer
     # （「成功且已知」——消息未即时外发但已登记待 23:25 摘要出线，**不是**未发出，勿判 failed
