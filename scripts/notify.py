@@ -1347,10 +1347,15 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
         except Exception as e:  # noqa: BLE001
             print(f"[notify][digest] 恢复留痕异常（不影响发送）：{e}", file=sys.stderr)
     # W1 L1 度量层（纯新增，best-effort）：消息级台账一条（仅实际外发时 = 至少一个真实渠道发出）。
+    # #264D(2026-10-17): 台账 group 记**实际落群**，取值优先级 = ledger_group(CLI 传入) >
+    # feishu_group(显式渠道声明) > 主题文本推断。原式漏了 feishu_group ⇒ 直调 send() 且显式
+    # 声明渠道时(如 feishu_group="alert" 而主题无 [告警] 字样)，实际发 alert 群却记 report，
+    # 台账与真实落群不一致(§22)。CLI 路径 ledger_group=args.feishu_group 本就不受影响。
     _record_ledger(subject, {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok},
                    tier=ledger_tier or ("critical" if severe else "notice"),
                    key=ledger_key, source=source,
-                   group=ledger_group or _resolve_feishu_chat_key(subject, from_prefix, severe),
+                   group=(ledger_group or feishu_group
+                          or _resolve_feishu_chat_key(subject, from_prefix, severe)),
                    merged_count=merged_count, dry_run=dry_run)
     return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
@@ -1370,6 +1375,8 @@ def send_to(subject: str, body: str, email: str | None = None,
     返回 {"email": bool, "telegram": bool, "feishu": bool}。
     from_prefix：邮件发件人名前缀（None=默认 "信号实验室监控"）。
     feishu_group：飞书群 key（None=按前缀自动映射，订阅信号推送默认进 report 报告群）。
+      业务出口请显式传 report/follow（#264D 2026-10-17 业务/故障分渠道：业务不再靠主题文本
+      推断落群，显式声明后台账 group 记实际落群而非空值）。
     feishu_post（2026-08-11 飞书格式模板）：post 富文本数据（build_feishu_post 产出），
       仅 report 群生效，alert/agent_done/follow 群忽略保持 text。
     """
@@ -1383,8 +1390,12 @@ def send_to(subject: str, body: str, email: str | None = None,
     finally:
         _LEDGER_LOCAL.depth = _ledger_depth() - 1
     # W1 L1 度量层（纯新增，best-effort）：消息级台账一条（订阅推送通道）。
+    # #264D(2026-10-17): group 记**实际落群**——feishu_group 未显式传时按 send_feishu 同一
+    # 口径解析（原样记 None 致台账 5 行 group 空值，用户/对账侧看不出实发 report 群）。
     _record_ledger(subject, {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok},
-                   tier="subscribe", group=feishu_group, dry_run=dry_run)
+                   tier="subscribe",
+                   group=feishu_group or _resolve_feishu_chat_key(subject, from_prefix, False),
+                   dry_run=dry_run)
     return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
 

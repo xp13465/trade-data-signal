@@ -375,7 +375,7 @@ def _alert_frozen_missing(events):
             f"冻结表缺失 {n} 个历史信号事件, 拒绝补冻已跳过, 请核查生产冻结流程。"
             f"样例: {sample}")
     cmd = [sys.executable, os.path.join(SCRIPT_DIR, "notify.py"), subject, body,
-           "--from-prefix", "[kelly]"]
+           "--from-prefix", "[kelly]", "--feishu-group", "alert"]
     if n >= FROZEN_MISSING_SEVERE_THRESHOLD:
         # 大事件(批量历史暴露)保持 SEVERE + 1h dedup 直发(真 P0 不降级)
         cmd += ["--severe",
@@ -532,7 +532,7 @@ def _alert_freeze_orphans(orphans, handled_n=0):
              f"[kelly] 冻结表新增孤儿买事件 {n} 条",
              f"冻结表已固化但已从 signal_daily 现值表消失、且不在 #252 补账登记表内的买类事件 {n} 条"
              f"(历史行被重算抹除的直接证据, docs/ops/trades-wipe-rootfix-20261014.md)。样例: {sample}",
-             "--from-prefix", "[kelly]",
+             "--from-prefix", "[kelly]", "--feishu-group", "alert",
              "--dedup-key", "kelly_freeze_orphan_buy", "--dedup-window", "86400"],
             capture_output=True, text=True, timeout=60,
         )
