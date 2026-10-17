@@ -159,12 +159,13 @@ def test_c5_registry_guards():
 
     gap = (SCRIPTS / "check_data_gap_alerts.py").read_text(encoding="utf-8")
     assert "KELLY_BACKTEST_FILE" not in gap, "死常量应已清(实测零引用)"
-    assert "ts_cands = [datetime.fromtimestamp(tp.stat().st_mtime)]" in gap, "B2 应仍以 mtime 为首候选"
+    assert "fresh_ts = datetime.fromtimestamp(tp.stat().st_mtime)" in gap, "B2 应以 mtime 单源(2026-10-17 P4 已收敛, 双源恒死代码已删)"
+    assert "ts_cands" not in gap, "B2 双源死码不得回潮"
 
     # 唯一写 trades_generated_at 的点仍是 overfit_monitor(其唯一消费者=自身, 撤键后变 "")
     ov = (SCRIPTS / "overfit_monitor.py").read_text(encoding="utf-8")
     assert 'data.get("generated_at", "")' in ov
-    print("④ 守护 OK: posrating 改源 / gap-alerts 死码已清 / B2 mtime / overfit 单写点")
+    print("④ 守护 OK: posrating 改源 / gap-alerts 死码已清 / B2 mtime 单源 / overfit 单写点")
 
 
 if __name__ == "__main__":

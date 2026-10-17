@@ -1941,7 +1941,7 @@ def _build_outputs(quadrants):
         # 令内容本体不变时整文件 md5 稳定 ⇒ data-large 上传判定(md5 变才传)自然跳过、
         # verify-r2(HEAD ETag vs 本地整文件 md5)0 补传。与 #219 parts 同路线治本(病灶=生成器元数据
         # 污染变更判据)。剩余字段只含数据本体(fields/quadrants)+ 常量 buy_amount(不随轮次变, 保留)。
-        # 新鲜度可观测性由文件 mtime 承担(告警 B2 的 ts_cands 首项即 mtime, 撤键后自动回退, 代码零改动);
+        # 新鲜度可观测性由文件 mtime 承担(告警 B2 判据即 mtime 单源);
         # 展示/追溯用的生成时刻由同批产出的 signal_kelly_backtest.json(见上方 output)generated_at 承担。
         "buy_amount": BUY_AMOUNT,
         "fields": TRADE_FIELDS,
