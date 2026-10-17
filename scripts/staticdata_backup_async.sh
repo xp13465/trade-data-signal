@@ -20,6 +20,10 @@
 #   - 积压兜底: 待提交变更 >5000 文件 或 总字节 >500MB → 仅 rsync 磁盘留档 + 告警,
 #     跳过 git commit/push(次日 deploy 的 rsync 全量自然追平, 数据不丢; 防大 push 拖死
 #     async 自身 + git gc 膨胀)。
+# #258 A3 (2026-10-17): 「等锁 3600s 计入 unit 墙钟」的假设经核实**不成立**(云上触发是
+#   systemd-run transient 默认 Type=simple, TimeoutStartSec 不管运行时长; 对照 42 个
+#   trade-*.service 全 Type=oneshot)⇒ **本单零行为改动**, 段2 锁重入处只补口径留档 +
+#   「真要加运行硬上限该用 RuntimeMaxSec=」的建议(全文见段2 exec 上方注释)。
 #   - 失败必须告警(不静默): notify.py --severe + --alert-issue(写 data/alerts/latest.md),
 #     沿用现有告警链(update_all/deploy 同款), 让 schedule_monitor 发现。
 #   - 幂等: rsync + git add -A, 无变更跳过 commit; 重复跑安全(重复触发由 with_lock 排队)。
@@ -258,6 +262,19 @@ echo "  [step3.5 large-json 排除+R2] $(( $(date +%s) - _STEP_START ))s" | tee 
   export STATICDATA_BACKUP_ASYNC_R2_DONE=1
   export STATICDATA_BACKUP_ASYNC_R2_FAIL="${STATICDATA_FAIL:-0}"
   export STATICDATA_BACKUP_ASYNC_HB_START="$_HB_START"
+  # #258 A3 (2026-10-17) 口径核实结论 = **前提被证伪 ⇒ 无行为改动**(仅留档 + 建议, 详见文件头 #258 A3 段):
+  #   报告原假设「等锁 3600s 发生在工作之前, 却被计入 unit 墙钟, 只有外层墙兜底」不成立 ——
+  #   云上触发走 `systemd-run --collect --unit=staticdata-backup-HHMMSS …`(deploy.sh L955-958),
+  #   **未传 --property=Type= / RuntimeMaxSec=** ⇒ 该 transient 服务是默认 Type=simple,
+  #   其 TimeoutStartSec 只管「启动阶段」(ExecStart 一 fork 即视为 started), 对本脚本
+  #   **运行时长没有硬墙**(对照: 快照 systemd-units-cloud-snapshot.txt 里 42 个 trade-*.service
+  #   全是 Type=oneshot —— 只有 oneshot 的 TimeoutStartSec 才当运行墙)。故「等锁算进墙」不存在,
+  #   无需改口径; 等待本身已有界且不静默(--block-timeout 3600 超界优雅跳过 exit 0 + 告警),
+  #   各工作段各有自身上界(git push 900s 自兜底 / step3.5b upload-large-json 进程内预算 10800s),
+  #   停摆可见性由 schedule_monitor 心跳新鲜度 36h 兜底。
+  #   建议(需拍板, 属跨端 sizing, 本单不动): 若将来真要给本异步任务加**运行时长硬上限**,
+  #   正确旋钮是 `RuntimeMaxSec=`(Type=simple 下 TimeoutStartSec 无效), 取值须先按合法最坏
+  #   (rsync 全量 + push 7min + R2 3h 预算)测算 —— 列回主控。
   exec "$PY" "$GIT_REPO/scripts/with_lock.py" --block-timeout 3600 "$LOCK" bash "$0" "$@"
 fi
 
