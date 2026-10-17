@@ -265,5 +265,8 @@
   ],
   "20261017-a647": [
     "docs(pack2-p5): F-1 \u7559\u75d5\u53e3\u5f84\u8ba2\u6b63(absorb=\u6458\u8981\u7ea7\u5ef6\u8fdf)+ B3/B5/B6/B11 \u8865\u8bb0"
+  ],
+  "20261018-a648": [
+    "fix(pack2-p4): \u5ba1\u67e5\u6761\u4ef6\u5904\u7f6e\u2014\u2014C3 \u53bb await \u975e\u963b\u585e + integrity \u8865 signals_today"
   ]
 }
