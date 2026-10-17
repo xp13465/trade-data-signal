@@ -103,7 +103,7 @@ def test_queue_branch_static_contract():
     p = UR_PY.read_text(encoding="utf-8")
     # 默认排队: 只读/单文件小命令豁免, 其余持锁排队; skip 仅在显式 flag 下生效
     assert 'if cmd and cmd not in {"list", "delete", "download-db", "clean-data-backup", "upload"}:' in p
-    assert "_acquire_r2_upload_lock(skip_if_locked=_SKIP_IF_LOCKED)" in p, "排队分支接线丢失"
+    assert "acquire_r2_upload_lock_with_budgets(skip_if_locked=_SKIP_IF_LOCKED)" in p, "排队分支接线丢失"
     # 跨文件字面量契约: 镜像函数 grep 的锚点必须仍是生产心跳的文案前缀
     assert "等待 R2 上传锁" in p, "生产心跳文案漂移(镜像会静默失效)"
     assert re.search(r"等待 R2 上传锁 \{int\(now - wait_started_at\)\}s", p), \
