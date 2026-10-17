@@ -1217,7 +1217,8 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
             _k = _ledger_key_of(subject, ledger_key)
             if _n >= adr.ALERT_BUDGET.get(_cat, 1) and _k in _budget_today_keys(_cat):
                 if _absorb_to_digest(subject, body, key=ledger_key, category=_cat,
-                                     source=source, from_prefix=from_prefix):
+                                     source=source, from_prefix=from_prefix,
+                                     bump_hits=True):
                     print(f"[notify][budget] 并入当日摘要 "
                           f"key={ledger_key or '<subject>'} sig={_k} category={_cat} "
                           f"(今日 {_cat} 直发 {_n}/{adr.ALERT_BUDGET[_cat]}, 同签名重复)",
@@ -1308,12 +1309,20 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
                             feishu_post=feishu_post)
     finally:
         _LEDGER_LOCAL.depth = _ledger_depth() - 1
-    # L46④:severe 统一镜像 latest.md 追加流水(所有出口留痕防旁路沉默);
+    # L46④:告警群消息统一镜像 latest.md 追加流水(所有出口留痕防旁路沉默);
+    # #218-⑥-K1(2026-10-17):镜像面由「仅 severe」扩到**非 severe 告警群消息** ——
+    #   「凡当日有告警产生, latest.md 必有痕迹」, 堵住 standalone_stale/mass_mismatch
+    #   这类非 severe 管道告警不进 latest.md ⇒ 沉默被误读为「全局无告警」的 L46④ 残留。
+    #   仅限告警群(_grp=="alert": 告警/恢复/监控/摘要/聚合);业务报告群(report)/完成
+    #   通知(agent_done)不入(非告警, 旧行为不变)。
     # dry_run 冒烟只读不落盘;镜像失败 best-effort 不影响发送结果。
-    if severe and not dry_run:
-        _mirror_severe(subject, body,
-                       results={"email": email_ok, "telegram": tg_ok, "feishu": fs_ok},
-                       source=source)
+    if not dry_run and (severe or _grp == "alert"):
+        _mirror_level = "severe" if severe else (
+            ledger_tier if ledger_tier in _LATEST_ENTRY_LEVELS else "notice")
+        _mirror_latest_entry(_mirror_level, subject, body,
+                             results={"email": email_ok, "telegram": tg_ok,
+                                      "feishu": fs_ok},
+                             source=source)
     # #264 件C: 域「首报」只有在**真发出**后才占窗(发送成功才占窗, 对齐 P1-1)——
     # 发送失败不占窗 ⇒ 下次同域告警仍是 first 重试, 绝不因一次发送失败静默 2h。
     if _dom and _dom_action == "first" and any((email_ok, tg_ok, fs_ok)):
@@ -1411,7 +1420,7 @@ def write_alert(issue: str, detail: str, log_path: str | None = None,
         kept_count = [0]
 
         def _rewrite(head: str, entries: list[str]) -> tuple[str, list[str]]:
-            # 覆盖头部详单区为新 content,severe 流水条目原样保留(锁内读改写,P2-1)
+            # 覆盖头部详单区为新 content, 流水条目(severe + 非 severe #218-⑥-K1)原样保留
             kept_count[0] = len([e for e in entries if e.strip()])
             # P0-4（2026-10-03）：覆盖区固定保留「最近一次 SEVERE」引用——普通告警/恢复
             # 消息覆盖头部时不再把严重告警从用户视线里静默盖掉（D3 §5 双区结构风险：
@@ -1423,7 +1432,8 @@ def write_alert(issue: str, detail: str, log_path: str | None = None,
             content = f"""# 严重告警（最新一次）
 
 > ⚠ 本区域由 --alert-issue 覆盖式记录最新一次严重告警，Claude 开工时优先排查；
-> 下方 `## [severe]` 流水为 send(severe=True) 的追加式登记（防旁路出口，最多 {_LATEST_MAX_ENTRIES} 条）。
+> 下方流水为 send() 告警群消息的追加式登记（防旁路出口；`## [severe]` 最多 {_LATEST_MAX_ENTRIES} 条，
+> 非 severe 留痕最多 {_LATEST_MAX_NONSEVERE} 条）。
 > 处理完后可删除/清空详情区（流水会随容量上限滚动）。
 
 - **告警时间**：{now}
@@ -1451,9 +1461,26 @@ Claude 开工时排查此告警：对照日志路径定位根因，修复后删�
 # 为什么存在:17:56 baostock 封禁熔断严重邮件走 notify 管道内直发,而 latest.md 此前
 # 只由 CLI --alert-issue(write_alert,覆盖式)写入 -> 管道内直发的 severe 在 latest.md
 # 完全沉默,L46 排查时被误读为「全局无告警」(教训:任何单一登记点沉默≠全局无告警)。
-# 本组函数让 send(severe=True) 的**所有出口**统一追加留痕到 latest.md 尾部流水区
+# 本组函数让 send() 的**告警群**出口统一追加留痕到 latest.md 尾部流水区
 # (防旁路出口),同时 write_alert 的覆盖式「最新详单区」保留原语义、不再抹掉流水。
-_LATEST_MAX_ENTRIES = 50  # 流水容量上限(最新在文件尾部,超出丢最旧)
+# #218-⑥-K1(2026-10-17):镜像面由「仅 severe」扩到「severe + 非 severe 告警群消息」
+#   (notice/warning/digest/recovery) —— 「凡当日有告警产生, latest.md 必有痕迹」,
+#   堵住「非 severe 管道告警(standalone_stale / mass_mismatch 类)不进 latest.md ⇒
+#   latest.md 沉默被误读为全局无告警」这条 L46④ 残留盲区。
+#   硬约束(不破 severe 区语义):两级**各自独立容量、独立区段**,非 severe 再多也不挤掉
+#   severe 流水;条目级别标记走**闭合集**(防正文里偶然出现的 `---\n## [x]` 被误当条目)。
+_LATEST_MAX_ENTRIES = 50       # severe 流水容量上限(最新在文件尾部,超出丢最旧)——不变
+_LATEST_MAX_NONSEVERE = 30     # 非 severe 留痕容量上限(#218-⑥-K1;独立段,不挤 severe 区)
+_LATEST_ENTRY_LEVELS = ("severe", "notice", "warning", "digest", "recovery", "alert")
+_LATEST_ENTRY_SPLIT_RE = re.compile(
+    r"\n-{3,}\n(?=## \[(?:" + "|".join(_LATEST_ENTRY_LEVELS) + r")\])")
+_LATEST_ENTRY_LEVEL_RE = re.compile(r"^## \[(" + "|".join(_LATEST_ENTRY_LEVELS) + r")\]")
+
+
+def _latest_entry_level(entry: str) -> str:
+    """取流水条目的级别标记(severe/notice/warning/digest/recovery/alert);非条目返回 ""。"""
+    m = _LATEST_ENTRY_LEVEL_RE.match(entry.strip())
+    return m.group(1) if m else ""
 
 
 def _latest_severe_ref(entries: list[str]) -> str:
@@ -1483,22 +1510,33 @@ def _latest_severe_ref(entries: list[str]) -> str:
 
 
 def _parse_latest(content: str) -> tuple[str, list[str]]:
-    """拆 latest.md 为(头部区文本, severe 流水条目列表[不含 --- 分隔线])。
+    """拆 latest.md 为(头部区文本, 流水条目列表[不含 --- 分隔线])。
 
-    条目识别 = 「--- 行后紧跟 '## [severe]'」。兼容旧纯 write_alert 文件(无条目,
-    整体当头部)。"""
-    parts = re.split(r"\n-{3,}\n(?=## \[severe\])", content)
+    条目识别 = 「--- 行后紧跟 `## [级别]`」(级别∈_LATEST_ENTRY_LEVELS 闭合集, 含
+    severe 与非 severe 两类, #218-⑥-K1)。兼容旧纯 write_alert 文件(无条目, 整体当头部)。"""
+    parts = _LATEST_ENTRY_SPLIT_RE.split(content)
     return parts[0], parts[1:]
 
 
 def _compose_latest(head: str, entries: list[str]) -> str:
-    """头部区 + 条目列表(cap 最近 N 条)拼回完整 latest.md 文本。"""
+    """头部区 + 条目列表拼回完整 latest.md 文本。
+
+    P0-1(#218-⑥-K1):severe 与非 severe 两级**各自独立容量**(severe 50 / 非 severe 30)
+    —— 非 severe 再多也不挤掉 severe 流水(旧行为:单池 50 条, 全是 severe;现 severe
+    仍独立 cap 50 ⇒ severe 区语义逐字不变)。
+    """
     h = head.rstrip("\n")
     if not h.strip():
-        h = ("# 严重告警(severe 发送流水)\n\n"
-             f"> 下部为 severe 发送的追加式流水(最新在下,最多 {_LATEST_MAX_ENTRIES} 条);\n"
+        h = ("# 告警发送流水(all 级)\n\n"
+             f"> 下部为 send() 告警群消息的追加式流水(最新在下;severe 最多 "
+             f"{_LATEST_MAX_ENTRIES} 条, 非 severe 留痕最多 {_LATEST_MAX_NONSEVERE} 条);\n"
              "> `--alert-issue` 显式详情会写在本注释上方区域。")
-    kept = [e for e in entries if e.strip()][-_LATEST_MAX_ENTRIES:]
+    sev, other = [], []
+    for e in entries:
+        if not e.strip():
+            continue
+        (sev if _latest_entry_level(e) == "severe" else other).append(e)
+    kept = sev[-_LATEST_MAX_ENTRIES:] + other[-_LATEST_MAX_NONSEVERE:]
     chunks = [h] + ["---\n" + e.rstrip("\n") for e in kept]
     return "\n\n".join(chunks) + "\n"
 
@@ -1549,16 +1587,26 @@ def _update_latest(mutate) -> None:
         _rmw()
 
 
-def _mirror_severe(subject: str, body: str, results: dict | None = None,
-                   source: str | None = None) -> None:
-    """send() severe 级统一镜像登记(latest.md 尾部流水,追加式,cap 50 条)。
+def _mirror_latest_entry(level: str, subject: str, body: str,
+                         results: dict | None = None,
+                         source: str | None = None) -> None:
+    """send() 告警消息统一镜像登记(latest.md 尾部流水,追加式)。
 
-    条目含 时间戳/[severe] 级别标记/来源通道/送达结果/摘要(body 去 HTML 标签压缩
+    条目含 时间戳/[级别] 标记/来源通道/送达结果/摘要(body 去 HTML 标签压缩
     空白取前 500 字符)。来源优先级:显式 source 参数 > NOTIFY_SOURCE env >
     调用脚本名(sys.argv[0]) > unknown。任何失败 best-effort 不阻塞通知主链路。
     写入经 _update_latest(锁内 read-modify-write,P2-1)。
+
+    #218-⑥-K1(2026-10-17):由「仅 severe」推广到**任意告警级别** —— severe 仍走
+    `## [severe]`(格式与旧版逐字同构, 供 _latest_severe_ref / 现有消费方不变),
+    非 severe(notice/warning/digest/recovery)走对应级别标记 ⇒ 非 severe 管道告警
+    也在 latest.md 留痕(防「latest.md 沉默≠全局无告警」旁路盲区, §18 L46④)。
+    level 须∈_LATEST_ENTRY_LEVELS(闭合集);越界值退回 "notice"(防条目标记不为
+    _parse_latest 识别致条目被吞)。
     """
     try:
+        if level not in _LATEST_ENTRY_LEVELS:
+            level = "notice"
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         src = source or os.environ.get("NOTIFY_SOURCE") or (
             Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "unknown")
@@ -1577,8 +1625,8 @@ def _mirror_severe(subject: str, body: str, results: dict | None = None,
                 ch_parts.append(f"telegram={_ok('telegram')}")
             ch_parts.append(f"feishu={_ok('feishu')}")
             ch_line = f"- **通道**: {' '.join(ch_parts)}\n"
-        entry = (f"## [severe] {now} · {subj_line}\n"
-                 f"- **级别**: severe\n"
+        entry = (f"## [{level}] {now} · {subj_line}\n"
+                 f"- **级别**: {level}\n"
                  f"- **来源**: {src}\n"
                  f"{ch_line}"
                  f"- **摘要**: {summary}")
@@ -1588,9 +1636,16 @@ def _mirror_severe(subject: str, body: str, results: dict | None = None,
             return _head, entries
 
         _update_latest(_append)
-        print(f"[notify][severe-mirror] 已镜像登记 {ALERTS_FILE}", file=sys.stderr)
+        print(f"[notify][latest-mirror] 已镜像登记 {ALERTS_FILE} level={level}",
+              file=sys.stderr)
     except Exception as e:  # noqa: BLE001  镜像失败绝不阻塞通知主链路
-        print(f"[notify][severe-mirror] 镜像登记失败(不影响发送): {e}", file=sys.stderr)
+        print(f"[notify][latest-mirror] 镜像登记失败(不影响发送): {e}", file=sys.stderr)
+
+
+def _mirror_severe(subject: str, body: str, results: dict | None = None,
+                   source: str | None = None) -> None:
+    """兼容旧签名:severe 镜像 = level="severe"(现委托 _mirror_latest_entry)。"""
+    _mirror_latest_entry("severe", subject, body, results=results, source=source)
 
 
 def check_dedup(key: str, window: int) -> bool:
@@ -1874,8 +1929,11 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
                  / 跨日 rollover_digested / 缺省 over_budget = L2 超预算)
       domain     故障域(域聚合条目用; 摘要按域分段 + 「涉及 N 个来源脚本」)
       mark_seen  并入后登记 rollover 记忆表(仅件E 非 critical 路径开; 默认关 ⇒ 不产生额外状态文件)
-      bump_hits  幂等命中时把该行 hits+1(而非静默 no-op)⇒ 摘要里可见「同一签名被并了 N 次」,
-                 不丢「合并了多少条」的计数事实; 默认关 ⇒ L2 老路径行为不变
+      bump_hits  幂等命中时把该行 hits+1 并记最近时刻(而非静默 no-op)⇒ 摘要里可见
+                 「同一签名被并了 N 次(最近 HH:MM)」, 不丢「合并了多少条」的计数事实。
+                 #253-d2(2026-10-17): **全部调用点均传 True**(L2 超预算 / 域 / 非 critical
+                 重复 / 恢复留痕 / CLI 直并)⇒ 任何「同日第二次同形事件」都留痕, 不再有
+                 被幂等静默吞掉的路径(原仅件E 路径传, L2/CLI 缺 ⇒ #253 trade-sim 场景无痕)。
     """
     try:
         _now = datetime.now()
@@ -1927,13 +1985,23 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
 
 
 def _bump_digest_hits(key: str, day: str, rid: str = "") -> bool:
-    """幂等命中时给当日同 key 的摘要条目 hits+1(重写整个 buffer, flock 保护)。
+    """幂等命中时给当日同 key 的摘要条目 hits+1 并记「最近一次并入时刻」。
 
-    目的(#264 件E「被合并 N 条」可核): 同签名重复并入时不静默 no-op, 计数留在条目上,
-    摘要正文渲染成 `xN`。失败 → 不改文件(返回 False, 调用方仍当「已并入」)。
+    目的(#264 件E「被合并 N 条」可核 / #253-d2「同日第二次同形事件留痕」):
+    同签名重复并入时不静默 no-op, 计数 + **最近时刻**(hits_ts)留在条目上, 摘要正文
+    渲染成 `xN(最近 HH:MM)`(仍 1 行, 不新增条目 = 不破坏摘要收敛)。
+    旧行无 hits/hits_ts 字段按 1 计(hits_ts 缺则渲染不带时刻)。
+    失败 → 不改文件(返回 False, 调用方仍当「已并入」)。
+
+    写入方式(#253-d2 实施取舍): 在 ALERT_DIGEST_FILE 自身 flock 临界区内**原地重写**
+    (read→seek→write→truncate)。全部写方(_append_jsonl / flush_digest / 本函数)都以该
+    文件 inode 的 flock 互斥 ⇒ 原地重写与并发追加不互丢; 不用 tmp+rename 是因 rename
+    换 inode 会撕裂这套「以数据文件 inode 为锁」的契约(另一个已 open 旧 inode 的写方
+    会锁在已 unlink 的文件上, 互斥失效 → 反而可能交错写坏)。详见实施报告取舍段。
     """
     import fcntl
     try:
+        _now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(ALERT_DIGEST_FILE, "rb+") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             _cur, _bad = _parse_buffer_lines(f.read())
@@ -1942,6 +2010,7 @@ def _bump_digest_hits(key: str, day: str, rid: str = "") -> bool:
                 if (str(_e.get("day")) == day and str(_e.get("key")) == key
                         and (not rid or str(_e.get("rid") or "") == rid)):
                     _e["hits"] = int(_e.get("hits") or 1) + 1
+                    _e["hits_ts"] = _now
                     _touched = True
             if not _touched:
                 fcntl.flock(f, fcntl.LOCK_UN)
@@ -2730,6 +2799,15 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
         _src = str(e.get("source") or "")
         _hits = int(e.get("hits") or 1)
         _x = f" x{_hits}" if _hits > 1 else ""
+        if _x:
+            # #253-d2: 同签名第二次及以后的并入 → 行内附「最近 HH:MM」(旧行无 hits_ts 则省)
+            try:
+                _hhm = datetime.strptime(
+                    str(e.get("hits_ts") or ""), "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
+            except ValueError:
+                _hhm = ""
+            if _hhm:
+                _x += f"(最近 {_hhm})"
         _reason = DIGEST_REASON_LABELS.get(str(e.get("reason") or ""),
                                            str(e.get("reason") or ""))
         return (f"[{_hm_of(e)}][{_scope}{e.get('category')}] {tag}{_src}:{e.get('key')}{_x} — "
@@ -2962,7 +3040,7 @@ def main(argv: list[str] | None = None) -> int:
                   f"{args.subject[:80]}", file=sys.stderr)
             return 0
         if _absorb_to_digest(args.subject, args.body, key=None, category=_dg_cat,
-                             from_prefix=args.from_prefix):
+                             from_prefix=args.from_prefix, bump_hits=True):
             print(f"[notify][digest] 已并入摘要 buffer category={_dg_cat}: "
                   f"{args.subject[:80]}", file=sys.stderr)
             return 0
