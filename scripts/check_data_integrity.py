@@ -71,6 +71,7 @@ ETF_SINCE_RETURN_WARN_RATIO = 0.95  # <95% = WARN
 # static-site/data/ 下的部署产物 + data/ 下的构建依赖
 KEY_FILES_STATIC = [
     "overview.json",
+    "signals_today.json",  # C3(2026-10-17) 拆产物: 首页信号卡独立来源, 与 overview.json 同批生成/同 ttl=0, 缺=信号卡空(§fix555 同类)
     "boot.json",
     "intraday_snapshot.json",
     "schedule_stats.json",

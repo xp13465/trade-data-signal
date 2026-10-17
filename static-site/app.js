@@ -9949,13 +9949,28 @@ function fetchBoot() {
         if (boot.overview) {
           if (!boot.overview.date || boot.overview.date >= _bjTodayStr()) {
             _setCachedOverview(boot.overview);
+            // C3(2026-10-17, 弱网第三批·拆产物): signals_today 已从 boot 内嵌副本拆出独立产物
+            //   /data/signals_today.json(boot 与 overview.json 不再各存一份 103KB gz 重复副本)。
+            //   旧数据层(尚未重建的 boot) 仍带 signals_today → 直接可用, 不发起补拉(下方显式判空,
+            //   零补拉零重绘 = 旧格式行为逐位不变); 新数据层 boot 无 signals_today(export pop 掉该键)
+            //   → 补拉一次(失败回退 overview.json, 再失败由 ≤3min 的 overview 轮询自愈), 保证信号卡不空。
+            //   §22 单一来源=signals_today.json。
+            // ⚠ F1 整改(2026-10-17 审查条件③): 补拉**不再 await** 且**只在本分支发起**。原写法 await 在
+            //   if 之外 ⇒ ①串在 fetchBoot() 单例 Promise 上(renderOverview/fetchCollectTime/initSimIndices
+            //   三处 await 它), 整个首屏被多压 1 个 RTT(补拉只服务页面靠下的信号卡, 非首屏 KPI 关键路径);
+            //   ②boot.overview 判陈旧不缓存分支本就用新鲜 overview.json 渲染(它自带 signals_today),
+            //   却也白拉一次。改为非阻塞发起 + 落地后按既有范式(_rerenderSigCardContent, 同 L2738 信号
+            //   快照落地重绘)刷新信号卡。不用既有 _maybeRerenderSigCard: 它带 collected_at 去重守卫
+            //   (同 collected_at 跳过), 而补拉不改 collected_at、信号卡多数已在补拉落地前用同一
+            //   collected_at 渲染过 ⇒ 守卫恒命中 = 永不刷新(审查 F1 判据2)。
+            if (!Array.isArray(boot.overview.signals_today)) {
+              _ensureSignalsToday(boot.overview).then(function (st) {
+                if (!Array.isArray(st) || !st.length) return;
+                if (state.tab !== "overview") return;
+                try { _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot); } catch (e) {}
+              }, function () {});
+            }
           }
-          // C3(2026-10-17, 弱网第三批·拆产物): signals_today 已从 boot 内嵌副本拆出独立产物
-          //   /data/signals_today.json(boot 与 overview.json 不再各存一份 103KB gz 重复副本)。
-          //   旧数据层(尚未重建的 boot) 仍带 signals_today → 直接可用, 不发起补拉;
-          //   新数据层 boot 无 signals_today → 补拉一次(失败回退 overview.json, 再失败由 ≤3min
-          //   的 overview 轮询自愈), 保证信号卡不因拆产物而空。§22 单一来源=signals_today.json。
-          await _ensureSignalsToday(boot.overview);
         }
         if (boot.signal_stats) state.signalStats = boot.signal_stats;
         // intraday_snapshot 只在 state.intradaySnapshot 为空时设（boot 的作初始值），
