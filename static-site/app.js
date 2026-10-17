@@ -14766,11 +14766,13 @@ async function _initAutoRefresh() {
 // 三层去重：Notification tag（同 tag 只显最新）+ localStorage notified_keys（同事件当日只弹一次）
 //           + 时间窗（同类别 60s 内不连弹）。后端 signal_notified/anomaly_notified 已做邮件去重。
 const NOTIFY_STORAGE_KEY = 'ts_notify_enabled';      // '1'/'0' 用户偏好
-// #264D(2026-10-17) 通知分类开关：业务/运维告警分渠道(飞书侧 report 业务群 vs alert 故障群)后，
-// 浏览器通知侧给用户一个「按类收」的粒度——原来只有一个总开关，业务信号与市场预警混在一起。
+// #264D(2026-10-17) 通知分类开关：浏览器通知侧给用户一个「按类收」的粒度——原来只有一个总开关，
+// 8 类业务/行情通知(买卖点买·卖/汪汪队三型/盘中异动/高低位预警/恐贪极值/涨停潮/收盘速递)混在一起，
+// 想只看买卖点就做不到。飞书侧的 report 业务群 vs alert 故障群分渠道是同批的另一件事
+// (docs/ops/business-channel-routing-20261017.md)；本页通知只含业务/行情事件，不含故障告警。
 // 三档(键值与文案一一对应，缺省全开 => 老用户行为零变化，§23.7 只增不改)：
 //   signals   买卖点信号(含汪汪队 ETF)
-//   warnings  异动与市场预警(盘中异动/高地位/恐贪极值/涨停潮)
+//   warnings  异动与市场预警(盘中异动/高低位/恐贪极值/涨停潮)
 //   postclose 收盘速递
 const NOTIFY_CATS = [
   { key: 'signals',   label: '买卖点信号（含汪汪队 ETF）' },
