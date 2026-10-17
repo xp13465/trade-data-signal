@@ -5,13 +5,18 @@
 #         push/PR 流水线, FAIL 阻断 merge 信心。
 #
 # 【挂载项(全量)】
-#   Job 1 quality-gate-static(FAIL 阻断, 纯仓库内输入, 不依赖任何数据产物):
+#   Job 1 quality-gate-static(FAIL 阻断(③b 校验3 步骤级 c-o-e 除外), 纯仓库内输入, 不依赖任何数据产物):
 #     ① scripts/check_fade_keys_alignment.py  AI降亏默认档键集七项跨端一致性(§22 代码内常量登记点)
 #     ② scripts/check_version_progress.py     版本串倒退哨兵 + merge 净回退校验(防再犯机制 A/B, §23.11)
 #     ③ scripts/check_version_consistency.py  部署版本一致性(§24⑤ 防孤儿快照)
+#        —— #261 选项① 拆两步: ③a `--checks 1,2`(index 版本串格式/批次 + 引用资源存在, 纯静态必跑)
+#        FAIL 阻断; ③b `--checks 3`(min 内容 == git HEAD 源重建, 需 build_min 依赖 terser/rcssmin)
+#        步骤级 c-o-e 尽力而为。拆步动机: 原整步 c-o-e 把「注释自称纯静态必跑的校验1/2」也吞掉 ⇒ 空转。
 #     ④ 前端全部源 JS node --check            语法门禁(只 check 源, 不含 .min.js 产物)
 #     ⑤ scripts/check_task_state.py           任务状态一致性对账(§23.12-1; CI 传 --skip-zombie-crons,
 #                                              因 runner 无本地 /tmp agent-progress 文件, C 维度降级跳过)
+#     ⑨ scripts/check_data_gap_alerts.py --self-test  采集缺口/停更告警器 two-way 自测(#250-P4):
+#        自测在临时库里跑(不碰生产 DB、零外发), 把 #250 的回归面固化成 CI 常驻门禁
 #     ⑧ 算法核心 pytest(FAIL 阻断, P0-1 产出, 2026-09-06): loss_rules 20 键 / S06 状态机 /
 #       凯利三件套, 固定输入→断言输出, 样本硬编码自线上产物冻结快照, 零外部数据依赖
 #       (#213 方案 A2 起依赖面 = pytest + pyyaml + numpy/pandas/pyarrow 5 件真数值库,
@@ -22,40 +27,51 @@
 #       + #201(2026-10-06)并入 scripts/tests/test_193_r2_channel_coverage_pytest.py: #193 R2 通道
 #       覆盖双向机检(纯仓库内输入, 无生产数据产物)由「人工跑」转自动强制。详见
 #       docs/ops/201-ci-gate-20261006.md(依赖面判定 + 零外发自证)。
-#   Job 2 quality-gate-data(⑥⑦ 步骤级 continue-on-error; 下载步骤 fail-fast ⇒ #261):
+#   Job 2 quality-gate-data(⑥⑦ 步骤级 continue-on-error; 下载步骤 fail-fast + 产物完整性校验 ⇒ #261):
 #     ⑥ scripts/check_loss_rules_vs_mining.py AI降亏 20 新键·三层一致性(特征/谓词/阈值 vs 挖掘权威)
 #     ⑦ scripts/check_fade_predicate_parity.mjs 老37键迁 spec-driven 规格·命中集合逐位一致(单边模式)
 #     下载步骤: 从 R2 ssd.fx8.store 拉两件生产数据产物; **失败即 exit 1 让 job 红**(基础设施故障必报红)
+#     完整性校验(#261 选项③): 下载后校验两件产物「JSON 可解析 + 大小 ≥ 下限」, 空体/坏体(HTTP 200
+#       但非有效产物)一律 exit 1 —— 堵死「200 空体进 ⑥⑦ 后非零退出又被各自步骤级 c-o-e 吸收 ⇒ job 恒绿」
+#       这条比下载失败更窄的空转面(#261 独立复查边界差集①)。
 #
-# 【为什么 ⑥⑦ 用步骤级 continue-on-error(#261 起, 原为 Job 2 整体)】
-#   ⑥⑦ 依赖 gitignore 的生产数据产物(static-site/data/signal_kelly_trades.json 72MB +
-#   kelly_loss_features.json 1.1MB, CI checkout 后不存在, 需从 R2 ssd.fx8.store 下载),
-#   且存在已知非代码回归 FAIL 来源:
-#     - check_loss_rules_vs_mining 层2 在「生产特征日期 > 挖掘快照 mine10 日期」时对新增日期
-#       buy_aux 行必然不确定(20260903 实测: 20260824 两行 S1/S2 挖掘=False 生产=True,
+# 【为什么 ⑥⑦ 用步骤级 continue-on-error(#261 起, 原为 Job 2 整体; 2026-10-17 #262 后更新)】
+#   ⑥⑦ 依赖 gitignore 的生产数据产物(static-site/data/signal_kelly_trades.json ~86MB +
+#   kelly_loss_features.json ~1.1MB, CI checkout 后不存在, 需从 R2 ssd.fx8.store 下载),
+#   历史上存在已知非代码回归 FAIL 来源:
+#     - (⑥, #262 已治) check_loss_rules_vs_mining 层2 曾对「生产特征日期 > 挖掘快照 mine10 日期」的
+#       新增日期 buy_aux 行判 FAIL(20260903 实测: 20260824 两行 S1/S2 挖掘=False 生产=True,
 #       快照 mine10_features.json 截止 20260821, 生产已到 20260824 → 数据窗口差, 非代码错)。
-#     它 EP 的设计用途是「挖掘当期验证」, 挖掘快照每周不重跑时就对不齐 → 若 FAIL 阻断会让
-#     CI 永远红, 反而失去门禁意义。故 ⑥⑦ 步骤级 continue-on-error:true(仅吸收这类数据窗口差
-#     FAIL), 保 CI 可用, 但每次运行仍输出 FAIL 明细供巡检; 待 P0-1 重跑挖掘快照/把快照纳入版本
-#     后转 FAIL 阻断。
-#     - check_fade_predicate_parity 无 --base 基线时跑单边模式(仅输出构建结果不对比, exit 0),
+#       #262(2026-10-17, commit 2ac1cb664)已给层2加窗口感知: 超出挖掘快照覆盖日的差异降级为
+#       「超窗 INFO」不计 FAIL ⇒ **下载成功时 ⑥ 由 FAIL 转 exit 0**, 「已知窗口差」这一 FAIL 来源已消失。
+#       ⇒ ⑥ 现在实质已是真门禁; 步骤级 continue-on-error 保留作**防御性兜底**(吸收未来再现的窗口差 /
+#       未知非代码回归), 不再有「预期必 FAIL」的常态来源。
+#     - (⑦) check_fade_predicate_parity 无 --base 基线时跑单边模式(仅输出构建结果不对比, exit 0),
 #       完整对比需先固化迁移前基线(--ref cf66741d5 --out t31-base.json 落 docs/), 属 T3 迁移
-#       验证场景, 非常驻 CI 门禁形态。
+#       验证场景, 非常驻 CI 门禁形态 ⇒ ⑦ 仍**必须**步骤级 continue-on-error。
+#   ⚠️ 机制边界(诚实标注, #261 独立复查提示): 步骤级 continue-on-error **无法区分**「窗口差」与
+#     「真代码回归」—— 步骤内任何非零退出都被吸收。故不能写「仅吸收窗口差 FAIL」; 准确说法是
+#     「吸收 ⑥⑦ 任意 FAIL(预期主因=窗口差); 真回归也会被吸收, 靠每次运行输出的 FAIL 明细人工巡检兜底」。
 #
-# 【#261 门禁空转修复: 为什么 continue-on-error 下沉到 ⑥⑦ 步骤级 + 下载步骤 fail-fast】
+# 【#261 门禁空转修复: 为什么 continue-on-error 下沉到 ⑥⑦ 步骤级 + 下载步骤 fail-fast + 产物完整性校验】
 #   旧形态(2026-10-16 前): continue-on-error 挂在 **Job 2 级**, 下载步骤失败只打一句 ⚠ 后置 ok=0,
 #   末尾 ls -la 退出码 0 吞掉失败, ⑥⑦ 再被 `if: ok=='1'` 静默 skip ⇒ job 整体恒绿。
 #   后果: 「下载失败(基础设施故障)」与「⑥⑦ 全过」在 CI 结论上**无法区分** = 门禁空转。
-#   现形态(B1/B3): ①continue-on-error 下沉到 ⑥⑦ 两个 step(继续吸收已知数据窗口差 FAIL);
-#   ②下载步骤 fail-fast —— 失败时打显式 ::error 文案 + exit 1, 让 job 红(基础设施故障 = 该红)。
-#   真值表: 下载成功 + ⑥⑦ 全过 → 绿; 下载成功 + ⑥⑦ 有 FAIL → 绿(窗口差, 已知设计);
-#           下载失败 → 红(fail-fast, ⑥⑦ 不再运行, 日志说明「为什么红」)。
+#   现形态(B1/B3 + 选项③): ①continue-on-error 下沉到 ⑥⑦ 两个 step;
+#   ②下载步骤 fail-fast —— 失败时打显式 ::error 文案 + exit 1, 让 job 红(基础设施故障 = 该红);
+#   ③下载后新增「产物完整性校验」步(#261 选项③)—— JSON 解析失败或大小低于下限即 exit 1,
+#     堵死「HTTP 200 空体/坏体进 ⑥⑦ 后非零退出、又被各自步骤级 c-o-e 吸收 ⇒ job 恒绿」这条窄空转面。
+#   真值表: 下载成功 + 产物完整 + ⑥⑦ 全过 → 绿; 下载成功 + 产物完整 + ⑥⑦ 有 FAIL → 绿(步骤级吸收, 预期主因=窗口差);
+#           下载成功但产物空体/坏体   → 红(完整性校验 exit 1, ⑥⑦ 不再运行);
+#           下载失败                  → 红(fail-fast, ⑥⑦ 不再运行, 日志说明「为什么红」)。
 #
 # 【JDK/python 版本】与既有 deploy-cf.yml 保持一致: ubuntu-latest + setup-node@v4 lts/*;
 #   python 用 setup-python@v5 3.11(与本地 dev 3.11 一致, check_*.py 均纯标准库无第三方依赖)。
 #
 # 【后续联通】⑧ 已落进 FAIL 阻断(P0-1 产出, 2026-09-06, 任务 #47);
-#   metrics/coverage 上 GitHub Actions job 徽章; check_loss_rules 挖掘快照版本化后转正。
+#   ⑨ 数据缺口告警 --self-test 已挂 Job 1(#250-P4, 2026-10-17);
+#   ③a 校验1/2 已落进 FAIL 阻断(#261 选项①, 2026-10-17); ③b 校验3 待 build_min 依赖面补齐后转正;
+#   metrics/coverage 上 GitHub Actions job 徽章; ⑦ 待固化迁移前基线后可转双边真门禁。
 ---
 name: CI Quality Gate
 
@@ -92,14 +108,29 @@ jobs:
       - name: ② 版本串倒退哨兵 + merge 净回退校验
         run: python3 scripts/check_version_progress.py --site-dir "$GITHUB_WORKSPACE/static-site" --repo "$GITHUB_WORKSPACE"
 
-      - name: ③ 部署版本一致性校验(§24⑤ 防孤儿快照)
-        run: python3 scripts/check_version_consistency.py --site-dir "$GITHUB_WORKSPACE/static-site"
-        continue-on-error: true
+      - name: ③a 部署版本一致性·校验1/2(§24⑤ 纯静态必跑, FAIL 阻断)
+        run: python3 scripts/check_version_consistency.py --site-dir "$GITHUB_WORKSPACE/static-site" --checks 1,2
         # note: 额外挂载项(任务书 6 项之外, 举一反三 §0.1)。
-        #   校验1/2(index 版本串格式/资源存在)纯静态必跑; 校验3(min 内容==git HEAD 源重建)
-        #   需 build_min 依赖(JS→npx terser 首次联网下载, CSS→rcssmin CI 未装会 ImportError 跳过),
-        #   属「尽力而为」层: 网络/依赖不齐时归告警级不阻断。deploy.sh 已挂本脚本为上线硬门禁,
-        #   CI 这里作 PR 期前瞻检查。P0-1 补 build_min pytest + pip install rcssmin 后可转正 FAIL 阻断。
+        #   校验1(index 版本串格式/批次与 sw.js 一致) + 校验2(index 引用的资源文件都存在)= 纯静态硬项,
+        #   不依赖任何外部工具 ⇒ 真 FAIL 阻断。
+        #   拆步动机(#261 选项①): 原「③ 整步 continue-on-error」会把这两项也一起吸收 ⇒ 与注释自称
+        #   「纯静态必跑」不符(同名空转的轻量版, #261 独立复查 §7)。
+
+      - name: ③b 部署版本一致性·校验3(min==git HEAD 源重建, 尽力而为)
+        continue-on-error: true
+        run: |
+          # 校验3 需 build_min 依赖: JS→npx terser(首次联网下载)、CSS→rcssmin。
+          # 现装 rcssmin ⇒ CSS 侧不再 ImportError 跳过(此前 CI 未装 ⇒ CSS 恒被跳过)。
+          pip install rcssmin
+          python3 scripts/check_version_consistency.py --site-dir "$GITHUB_WORKSPACE/static-site" --checks 3
+        # note: 校验3 = min 内容 == git HEAD 源重建(B2, 防「工作区源脏 + min 旧版」内容覆盖)。
+        #   属「尽力而为」层: terser 需联网、生成失败即跳过(不 FAIL), 网络/依赖不齐时归告警级不阻断,
+        #   故保留步骤级 continue-on-error。deploy.sh 已挂本脚本(不传 --checks ⇒ 默认全跑 1,2,3)为
+        #   上线硬门禁, CI 这里作 PR 期前瞻检查。
+        #   #261 选项① 注明转正前提「P0-1 补 build_min pytest + pip install rcssmin」:
+        #   · pip install rcssmin —— 本步补上;
+        #   · build_min pytest —— scripts/tests/test_261_build_min_deps.py 补上(映射一致性 + CSS 压缩,
+        #     无网络依赖; JS/terser 侧仍靠本步联网时覆盖, 见该文件 docstring 的边界声明)。
 
       - name: ④ 前端源码 node --check 语法门禁(只 check 源, 跳过 .min.js)
         run: |
@@ -133,6 +164,14 @@ jobs:
           #           requirements.txt 未 pin 三件 ⇒ 无仓内权威 pin 源)。
           pip install pytest pyyaml numpy==2.4.6 pandas==3.0.5 pyarrow==25.0.1
           python3 -m pytest -q scripts/tests/
+
+      - name: ⑨ 采集缺口/停更告警器 two-way 自测(--self-test, #250-P4)
+        run: python3 scripts/check_data_gap_alerts.py --self-test
+        # note: #250(2026-10-17)交付的 `--self-test` 把「正常态零命中 + 注入态必命中且级别正确」的
+        #   two-way 断言固化在脚本内(#250 独立复查 §七 记「CI 包装缺失」⇒ 本步补上, 本单 #250-P4)。
+        #   自测全程在 tempfile 临时库里跑: 不碰生产 DB / R2, 零外发(通知走临时目录里的 notify.py 桩;
+        #   #250 独立复查已用零外发探针实证 TRAP_HITS=[], 阳性对照 RAISED)。
+        #   交易日历取自仓库内 data/trade_dates.txt(git 跟踪; 脚本先读 parents[1] 仓根, CI 上可得)。
 
   # ---------------------------------------------------------------- Job 2: 数据产物一致性门禁
   quality-gate-data:
@@ -176,6 +215,51 @@ jobs:
             echo "================================================================"
             exit 1
           fi
+
+      - name: 产物完整性校验(#261 选项③ · HTTP 200 空体/坏体 → FAIL)
+        if: steps.download.outputs.ok == '1'
+        run: |
+          # 堵死「HTTP 200 但空体/坏体」这条比下载失败更窄的空转面(#261 独立复查边界差集①):
+          #   旧形态下 0 字节文件也照样落盘 + ok=1; 进 ⑥⑦ 后 json.load / JSON.parse 炸 → 非零退出
+          #   → 被各自步骤级 continue-on-error 吸收 ⇒ job 恒绿。现改为本步显式校验:
+          #   两件产物「JSON 可解析 + 大小 ≥ 下限」, 任一不达标即 exit 1(枚举于日志, 该 job 红)。
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          data_dir = os.path.join(os.environ["GITHUB_WORKSPACE"], "static-site", "data")
+          # 下限取「远低于当前实际大小」的保守值, 只挡空体/截断/错误页, 不因数据正常波动误红。
+          # 现值参考(2026-10-17 实测): kelly_loss_features.json ~1.1MB、signal_kelly_trades.json ~86MB。
+          limits = {
+              "kelly_loss_features.json": 100 * 1024,
+              "signal_kelly_trades.json": 1024 * 1024,
+          }
+          bad = []
+          for name, lo in limits.items():
+              p = os.path.join(data_dir, name)
+              size = os.path.getsize(p) if os.path.exists(p) else 0
+              if size < lo:
+                  bad.append(f"{name}: 大小 {size} 字节 < 下限 {lo}(空体/截断/错误页)")
+                  continue
+              try:
+                  with open(p, encoding="utf-8") as f:
+                      json.load(f)
+              except Exception as e:
+                  bad.append(f"{name}: JSON 解析失败({type(e).__name__}: {e})")
+          for b in bad:
+              print(f"::error title=产物完整性校验失败::{b}")
+          if bad:
+              print("================================================================")
+              print("::error::生产数据产物完整性校验失败 ⇒ ⑥⑦ 不再运行, 本步骤 FAIL(该 job 红)。")
+              print("  为什么红: 下载得到 HTTP 200 但产物为空体/坏体(非有效 JSON 或远小于下限)。")
+              print("  旧形态下这类产物会被 ⑥⑦ 的 json.load/JSON.parse 炸成非零退出, 再被各自步骤级")
+              print("  continue-on-error 吸收 ⇒ job 恒绿(与 #261 同族的窄空转面), 故本步前置拦截。")
+              print("  排查方向: ssd.fx8.store/data/ 下两文件是否为有效 JSON / 源产物生成是否中断。")
+              print("================================================================")
+              sys.exit(1)
+          print("✓ 产物完整性校验通过: 两件产物 JSON 可解析且大小达标")
+          PY
 
       - name: ⑥ AI降亏三层一致性(特征/谓词/阈值 vs 挖掘权威)
         if: steps.download.outputs.ok == '1'
