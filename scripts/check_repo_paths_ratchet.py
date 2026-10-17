@@ -12,10 +12,12 @@ mac 默认值(#195 分批迁移到 scripts/lib 的单点 resolve_repo)。本脚�
       ⚠️ 2026-10-06 返修:原正则 `:/Users/linhuichen` **匹配不到主流病灶形态 `:-/Users/linhuichen`**
       ⇒ 全仓代码行命中 0 ⇒ R3 恒 PASS,**空转闸门**(独立审复现)。已改为 `:-?/Users/linhuichen`
       (同时覆盖 `:-/` 与 `:/`),并加「恒在自检」(见下)+「变异自测 `--selftest`」双重钉死。
-  R4(假兜底面,#205 增):MIGRATED 内每个文件**不得**在 source lib 之后又自己写
-      `REPO="${REPO:-...}"` / `GIT_REPO="${GIT_REPO:-...}"`(resolve_repo 之后 REPO/GIT_REPO 必已赋值,
-      该行是**永不生效的死代码**;更坏的是它给人「有兜底」的假象 —— #205 病灶:restore 两脚本
-      用 `REPO="${REPO:-$(pwd)}"` 假兜底 + **未 export**,云上裸调用(灾难恢复场景)拿不到 .env 凭证 exit=1)。
+  R4(假兜底面,#205 增):MIGRATED 内每个文件**不得**自己写 `REPO="${REPO:-...}"` /
+      `GIT_REPO="${GIT_REPO:-...}"`(自身赋值形态)。**位置无关**——接 lib 后正解是 `export REPO GIT_REPO`,
+      任何自赋值都是病灶:放 resolve_repo 之后 = 永不生效的死代码(且给人「有兜底」假象);放 source 之前 =
+      抢先设 REPO ⇒ resolve_repo「env 优先」分支取到错值(比死代码更坏)。#205 病灶:restore 两脚本
+      用 `REPO="${REPO:-$(pwd)}"` 假兜底 + **未 export**,云上裸调用(灾难恢复场景)拿不到 .env 凭证 exit=1。
+      ⚠️ 已知盲区:只认**双引号**形态 `"${...}"`,无引号 `REPO=${REPO:-$(pwd)}` 不命中(现仓 0 实例;如需收口扩正则)。
 
 判定用**代码行**(行首 `#` 视为注释跳过):lib 自身头注释里对病灶的举例提及不算命中。
 
@@ -41,7 +43,7 @@ from pathlib import Path
 ROOT = Path(os.environ.get("RATCHET_ROOT") or Path(__file__).absolute().parent.parent).absolute()
 SCRIPTS = ROOT / "scripts"
 
-# 已迁移(批1 + 批2 + 批3 + 批4 + 批5 + 批6):58 个脚本
+# 已迁移(批1 + 批2 + 批3 + 批4 + 批5 + 批6):60 个脚本
 MIGRATED = {
     # 批1
     "scripts/check_r2_consistency.sh",
@@ -119,8 +121,9 @@ PENDING_BASELINE = set()
 PATTERN = re.compile(r"(REPO|GIT_REPO|TRADE_DIR|STATICDATA_REPO):-/Users/linhuichen")
 # R3 残留面正则:2026-10-06 返修 —— `:-?` 同时覆盖 `:-/Users/...`(全仓主流形态)与 `:/Users/...`。
 MAC_DEFAULT = re.compile(r":-?/Users/linhuichen")
-# R4 假兜底面:source lib + resolve_repo 之后 REPO/GIT_REPO 必已赋值 ⇒ 再写 `REPO="${REPO:-...}"`
-# 恒为死代码(且给人「有兜底」假象,#205)。只认**自身赋值**形态,不误伤 `export REPO GIT_REPO` 等。
+# R4 假兜底面:MIGRATED 内任何 REPO/GIT_REPO 自身赋值(位置无关,见 docstring R4)。接 lib 后正解是
+# `export REPO GIT_REPO`;自赋值恒为病灶(后置=死代码,前置=抢先设 env 取错值)。只认双引号形态,不误伤
+# `export REPO GIT_REPO` 等;无引号 `REPO=${REPO:-...}` 是已知盲区(现仓 0 实例)。
 FAKE_FALLBACK = re.compile(r'^(export\s+)?(REPO|GIT_REPO)="\$\{(REPO|GIT_REPO):-')
 SRC_RE = re.compile(r"^source\s+.*lib/repo_paths\.sh")
 RES_RE = re.compile(r"^resolve_repo\s")
@@ -189,7 +192,7 @@ def main() -> int:
         n_fake = sum(1 for ln in _code_lines(text) if FAKE_FALLBACK.search(ln))
         if n_fake != 0:
             fails.append(f"R4 {rel}: 假兜底 REPO/GIT_REPO 自身赋值 {n_fake} 处"
-                         f"(resolve_repo 之后恒不生效的死代码,#205)")
+                         f"(位置无关;接 lib 后应为 `export REPO GIT_REPO`,#205)")
         if n_src == 1 and n_res == 1 and n_mac == 0 and n_fake == 0:
             pass_n += 1
 

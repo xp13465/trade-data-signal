@@ -6,7 +6,7 @@
 >
 > 📌 **桶名注记（2026-10-17 补，#205）**：本文写于 **#178（2026-10-05）备份桶迁至独立 CF 账号新桶 `signal-backup2` 之前**，
 > 记录的当时事实（对象落在老桶 `signal-backup`）**不改写**；今老桶 `signal-backup` = legacy 存量桶（只读、不搬），
-> 现行备份桶 = `signal-backup2`（见 [docs/r2-deployment.md](../r2-deployment.md) §桶清单）。下文 ④⑤⑥ 的 key 仍指向老桶，属历史事实。
+> 现行备份桶 = `signal-backup2`（见 [docs/r2-deployment.md](../r2-deployment.md) §2.4 Bucket 清单）。下文 ④⑤⑥ 的 key 仍指向老桶，属历史事实。
 
 ## ① 源对账（打包前，不 PASS 不打包）
 
