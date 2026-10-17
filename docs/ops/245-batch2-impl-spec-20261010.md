@@ -143,6 +143,10 @@ if (severe and not dry_run and not budget_exempt
    - snapshot:读全部条目,分 `due`(day==today)与 `stale`(day<today,隔日兜底)。
    - 触发条件任一:`stale 非空`;或 `now >= ALERT_DIGEST_HM(23:25)` 且 `due 非空` 且 state 的 `last_sent_day != today`(当日只发一封;防 23:25 后连续轮次重复发)。
    - 不满足 → 原样保留条目 return 0。
+   - ⚠️ **修订(#264b 时序修复 2026-10-17 选项②,以 `scripts/notify.py` 现文为准)**:门控比较由
+     `last_sent_day != today` 改为 `last_sent_day < today`(水位线: 已发水位未达今日才发);
+     写 state 由 `{"last_sent_day": today}` 改为「**已发条目所属最大 day**」`{"last_sent_day": max(day of sent)}`。
+     原语义致 00:00 的 stale 兜底 flush 把"新一日"记成已发 ⇒ 该日 23:25 被永久挡住(10-13~10-16 摘要滑到次日 00:00)。
    - 满足 → 组装 1 条消息:
      - subject:`[告警·摘要] 当日合并 {N} 条 ({cat1} {a}/{cat2} {b}/...) {MM-DD HH:MM}`(stale 混入时 N 含前日遗留,正文标注)
      - body:intro 行(「以下 {N} 条告警未即时直发,已并入本摘要(超日预算);条目仍可追溯:台账 data/alerts/alert_ledger.jsonl / 监控日志」)+ 每条一行 `[HH:MM][category] key — subject(原因)`(原因取 rec.reason;含恢复补列条目时标注 `[恢复补列]`)

@@ -2708,7 +2708,10 @@ def flush_digest(dry_run: bool = False) -> dict:
     返回 {"sent": bool, "n": int, "n_remaining": int}。结构 mirror flush_warning_batch:
     - 抢 ALERT_DIGEST_LOCK_FILE 全生命周期锁(抢不到=另一 flusher 在处理, return 静默)。
     - 触发 = stale 非空; 或 now >= ALERT_DIGEST_HM(23:25) 且 due 非空 且 state.last_sent_day
-      != today(当日只发一封, 防 23:25 后连续轮次重复发)。不满足 → 原样保留 return。
+      < today(水位线语义: 今日尚未发送才发, 防 23:25 后连续轮次重复发)。不满足 → 原样保留 return。
+    - state.last_sent_day = 「**已发条目所属最大 day**」(水位线), **不是发送时刻的日期**
+      (#264b 时序修复 2026-10-17 选项②): 旧语义把 00:00 的 stale 兜底 flush 记成"新一日已发",
+      致该日 23:25 被 `!= today` 永久挡住(10-13~10-16 摘要连续滑到次日 00:00 的根因)。
     - 成功(真实发出)→ 按 _stable_rid 精确清理已发条目 + 写 state(**只在发送成功后做**);
       失败 → 条目全保留, 下轮/次日重试(「绝不丢条目」与 warning flush 同契约)。
     - ALERT_DIGEST_DISABLE=1 → 直接 return(flush 全停; ⚠️ gate 吸收仍发生 → 完整回滚须置
@@ -2767,7 +2770,9 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
             _last_day = str((_st or {}).get("last_sent_day") or "")
     except Exception:  # noqa: BLE001
         _last_day = ""
-    if not (bool(stale) or (_hm_ok and bool(due) and _last_day != _today)):
+    # #264b(2026-10-17)门控比较用 `<`(水位线)而非 `!=`: 已发水位未达今日才发。
+    # 旧 `!=` 下, 00:00 的 stale 兜底 flush 把 last_sent_day 写成"新一日"后, 该日 23:25 被永久挡住。
+    if not (bool(stale) or (_hm_ok and bool(due) and _last_day < _today)):
         return {"sent": False, "n": 0, "n_remaining": len(entries)}
     send_entries = stale + due
     # #264 件E(2026-10-15)分段: 真被并入的(merged) vs 恢复类**已直发**的留痕(traces)。
@@ -2893,10 +2898,14 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
     else:
         _n_rem = len(entries)
     # 只在发送成功后写 state(幂等: 当日只发一封)
+    # #264b(2026-10-17 选项②): 写「已发条目所属**最大** day」(水位线), 不是发送时刻日期。
+    # 这样 00:00 的 stale 兜底 flush(只发前日遗留)只把水位推到前日, 不会挡住当日晚些的 23:25。
+    _sent_days = [str(e.get("day") or "") for e in send_entries]
+    _max_sent_day = max(_sent_days) if _sent_days else _today
     try:
         ALERT_DIGEST_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         _tmp = ALERT_DIGEST_STATE_FILE.with_name(ALERT_DIGEST_STATE_FILE.name + ".tmp")
-        _tmp.write_text(json.dumps({"last_sent_day": _today}, ensure_ascii=False),
+        _tmp.write_text(json.dumps({"last_sent_day": _max_sent_day}, ensure_ascii=False),
                         encoding="utf-8")
         os.replace(_tmp, ALERT_DIGEST_STATE_FILE)
     except Exception as e:  # noqa: BLE001
