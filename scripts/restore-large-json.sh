@@ -34,8 +34,9 @@
 #   回生产原位最直接,与 db.py/export.py 读的库同源,不随 cwd 漂移。
 #   ⚠️ 非默认目标目录(覆盖了 STATICDATA_REPO 或传 --target)会打印醒目警告：可能是
 #   别的目录,直接覆盖有风险,测试临时目录也应看清再继续。
-# 依赖：python3(调 scripts/upload_r2.py 的 s3_request,SigV4 签名+凭证复用,不新起连接)。
-#       凭证从 .env / 环境变量读(upload_r2 模块 import 时 load_env)。
+# 依赖：$REPO/.venv/bin/python(调 scripts/upload_r2.py 的 s3_request,SigV4 签名+凭证复用,不新起连接)。
+#       凭证从 .env / 环境变量读(upload_r2 模块 import 时 load_env)；REPO/GIT_REPO 已 export,
+#       保证 python 子进程能找到 .env(#205:裸调用场景不再依赖 mac 写死路径)。
 # 输出：<目标目录>/<原相对路径>(先下同目录 .tmp 再 os.replace 原子覆盖,读侧要么旧完整要么新完整;
 #       覆盖前旧文件备份为 <文件>.bak-<时间戳>(copy2 副本,旧文件在原子替换前始终在位,无短暂缺失窗口);
 #       gzip 解压;若大 JSON 备份清单(<staticdata 仓库>/docs/large-json-backup-manifest.md,#115 起,
@@ -47,6 +48,15 @@
 # 与 docs/backup-restore.md「八、大 JSON 私有桶备份与恢复」。
 
 set -euo pipefail
+
+# REPO/GIT_REPO 单点解析(#195 批1 模板):env 优先 → $0 双布局推导 → fail-loud。
+# 灾难恢复正是「云上/mac 裸调用」场景,此前本脚本完全没有 REPO/GIT_REPO ⇒ 云上裸调用时
+# upload_r2 找不到 .env 凭证直接 exit=1。接上本 lib 后裸调用可用(#205)。
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
+export REPO GIT_REPO   # 显式导出,确保 python 子进程(import upload_r2)继承 REPO/GIT_REPO 找到 .env(同 deploy.sh L26)
+PY="${PY:-$REPO/.venv/bin/python}"
+
 cd "$(dirname "$0")/.."   # 定位到仓库根(供 scripts/ 模块导入与 docs/ 相对引用；恢复目标由 --target/STATICDATA_REPO 决定)
 
 MODE="${1:-}"
@@ -58,7 +68,7 @@ fi
 
 # 全部逻辑走 python(复用 upload_r2.s3_request 签名/凭证；文件级原子写/备份/校验也在此闭环)。
 # --list 只读查询；单文件/--date/--all 只读 R2 + 写本地目标目录。
-python3 - "$@" <<'PYEOF'
+"$PY" - "$@" <<'PYEOF'
 import sys, gzip, os, re, hashlib, shutil, datetime, urllib.parse
 from pathlib import Path
 

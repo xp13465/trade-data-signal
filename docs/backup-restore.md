@@ -16,7 +16,7 @@ sentiment.db / etf_national_team.db 的备份机制 + 事故恢复流程。
    - 不锁库、不阻塞读写（WAL 模式下也拿一致快照），比直接 `cp` 文件安全（cp 可能拷到半写状态）
    - 产出 `data/backups/<name>_YYYYMMDD_HHMM.db`，保留 14 天滚动（`find -mtime +14 -delete`）
 2. **R2 异地备份**（`backup_db.sh` L82-88 调 `upload_r2.py upload-db`）：
-   - gzip 压缩上传（102MB→30MB），私有桶 `signal-backup`
+   - gzip 压缩上传（102MB→30MB），私有桶 `signal-backup2`（独立 CF 账号；#178 2026-10-05 起的新写入桶，老桶 `signal-backup` 为迁移前 legacy 存量、只读不搬）
    - 三层保留：日 `backup/` 14 天 + 周 `weekly/` 28 天 + 月 `monthly/` 365 天（日备份 2026-10-03 由 30 天缩减至 14 天，方案见 docs/ops/r2-backup-bucket-capacity-20261002.md）
    - `_prune_r2_backup` 分层清理（代码为主；R2 lifecycle 是否在位未实测——GetBucketLifecycleConfiguration 403，需 CF 控制台/更高权限 token 确认）
 3. **恢复演练**（`backup_db.sh` L95-101 调 `verify_backup.sh`）：
@@ -29,7 +29,7 @@ sentiment.db / etf_national_team.db 的备份机制 + 事故恢复流程。
 
 **日志**：`data/logs/backup_db_YYYYMMDD_HHMM.log`（备份）/ `data/logs/verify_backup_*.log`（演练）。
 
-### 三层备份说明（R2 signal-backup 桶）
+### 三层备份说明（R2 signal-backup2 桶）
 
 | 层级 | 路径 | 保留 | 用途 |
 | --- | --- | --- | --- |
@@ -39,10 +39,13 @@ sentiment.db / etf_national_team.db 的备份机制 + 事故恢复流程。
 
 查可用备份列表：
 ```bash
-.venv/bin/python scripts/upload_r2.py list "backup/sentiment_" --bucket signal-backup
-.venv/bin/python scripts/upload_r2.py list "weekly/sentiment_" --bucket signal-backup
-.venv/bin/python scripts/upload_r2.py list "monthly/sentiment_" --bucket signal-backup
+.venv/bin/python scripts/upload_r2.py list "backup/sentiment_" --bucket signal-backup2
+.venv/bin/python scripts/upload_r2.py list "weekly/sentiment_" --bucket signal-backup2
+.venv/bin/python scripts/upload_r2.py list "monthly/sentiment_" --bucket signal-backup2
 ```
+
+> **如需读老桶快照**（#178 迁移前存量）：临时 `R2_BACKUP_BUCKET=signal-backup` 覆盖后 `upload_r2.py list` / `download-db`，
+> 读完即恢复默认，勿常态指向老桶（老桶只读、存量不搬；相关说明见 [r2-deployment.md](r2-deployment.md)）。
 
 注意：`download-db` 默认只取 `backup/` 最新（日备份层）；周/月归档如需恢复，用 `upload_r2.py list` 查 key 后手动 GET。
 
@@ -69,7 +72,7 @@ cd /Users/linhuichen/code/trade
 .venv/bin/python scripts/upload_r2.py download-db etf_national_team # 下载最新 etf_nt 备份
 ```
 
-`download-db <name>`（`upload_r2.py` L582-589 `cmd_download_latest_db`）：列出 R2 `signal-backup` 桶 `backup/<name>_YYYYMMDD.db[.gz]` 所有 key，按日期降序取最新，GET 下载，`.gz` 自动 gunzip 解压；解压后 `.db` 绝对路径打印到 stdout（进度到 stderr）。
+`download-db <name>`（`upload_r2.py` L582-589 `cmd_download_latest_db`）：列出 R2 `signal-backup2` 桶 `backup/<name>_YYYYMMDD.db[.gz]` 所有 key，按日期降序取最新，GET 下载，`.gz` 自动 gunzip 解压；解压后 `.db` 绝对路径打印到 stdout（进度到 stderr）。
 
 可选第二参数指定输出目录（默认临时目录）：
 ```bash
@@ -153,7 +156,7 @@ sudo systemctl start trade-update-all.timer trade-intraday-snapshot.timer \
 
 ---
 
-## 八、大 JSON 私有桶备份与恢复（signal-backup 桶 large-json/ 前缀）
+## 八、大 JSON 私有桶备份与恢复（signal-backup2 桶 large-json/ 前缀）
 
 ### 背景：为什么大 JSON 不进 git
 
@@ -161,7 +164,7 @@ staticdata 备份仓库里跟踪着 7 个 >20MB 的 JSON（共 319MB，如 `sign
 明细见 `<staticdata 备份仓库>/docs/large-json-backup-manifest.md`——#115 起该清单已迁至 staticdata 仓库，
 trade 仓库的 `docs/large-json-backup-manifest.md` 只是指针说明）。它们天天变化、天天进 delta，把备份的「变更量」
 顶到 357MB > 300MB 阈值 → 备份天天 `skip_oversize` 不 commit。**已把它们移出 staticdata git 跟踪**，
-改走 R2 私有桶 `signal-backup` 的 `large-json/` 前缀版本化快照（gzip 压缩，只留小文件 + 上传/恢复脚本在 git）。
+改走 R2 私有桶 `signal-backup2` 的 `large-json/` 前缀版本化快照（gzip 压缩，只留小文件 + 上传/恢复脚本在 git）。
 
 ### 备份机制
 
@@ -224,9 +227,9 @@ import 时 `load_env()` 自动载入 `.env` 的 `R2_S3_ENDPOINT` / `R2_S3_ACCESS
 | 层 | 原四层 | 大 JSON（本机制） |
 | --- | --- | --- |
 | 第 1 层 | git 仓库（trade + staticdata） | **移出 staticdata git 跟踪**，不再走 git |
-| 第 2 层 | R2 私有桶 `signal-backup` 的 `backup/`（DB）/ `decommissioned/`（退役归档） | **`large-json/` 前缀固定格式完整副本**（#126，唯一副本不滚动删）+ legacy 按天旧快照（7 天宽限期后清理） |
+| 第 2 层 | R2 私有桶 `signal-backup2` 的 `backup/`（DB）/ `decommissioned/`（退役归档） | **`large-json/` 前缀固定格式完整副本**（#126，唯一副本不滚动删）+ legacy 按天旧快照（7 天宽限期后清理） |
 | 第 3 层 | 本地 `data/backups/` 热备 | 大 JSON 本地保留当前副本（`data/` 下），历史版本只在 R2 |
 | 第 4 层 | 公开桶（对外只读） | 不涉及（大 JSON 体积大且频繁变，不进公开层） |
 
-**一句话**：大 JSON 从 git 层搬到 R2 私有桶版本化层，`signal-backup` 桶仍是 DB + 大 JSON 的
+**一句话**：大 JSON 从 git 层搬到 R2 私有桶版本化层，`signal-backup2` 桶仍是 DB + 大 JSON 的
 统一异地灾备锚点；恢复侧统一入口 = `restore-large-json.sh`。

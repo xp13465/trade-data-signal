@@ -421,7 +421,7 @@ cd /Users/linhuichen/code/trade
 详见 [docs/backup-restore.md](backup-restore.md)，三层备份机制：
 
 1. **本地热备**：`backup_db.sh` 每日 17:50 后自动跑，Python `sqlite3.Connection.backup()` 在线 API（不锁库），`data/backups/` 保留 14 天
-2. **R2 异地备份**：gzip 压缩上传到私有桶 `signal-backup`，三层保留（日 14 天 / 周 28 天 / 月 365 天，日备份 2026-10-03 由 30 天减至 14 天）
+2. **R2 异地备份**：gzip 压缩上传到私有桶 `signal-backup2`（独立 CF 账号；#178 2026-10-05 起的新写入桶，老桶 `signal-backup` 为迁移前 legacy 存量、只读不搬），三层保留（日 14 天 / 周 28 天 / 月 365 天，日备份 2026-10-03 由 30 天减至 14 天）
 3. **恢复演练**：`verify_backup.sh` 每日自动跑，从 R2 下载 → `PRAGMA integrity_check` → 关键表行数对比
 
 从 R2 恢复：
@@ -445,7 +445,8 @@ cd /Users/linhuichen/code/trade
 | Bucket | 可见性 | 用途 | 绑定 |
 |---|---|---|---|
 | `signal-data` | 公开（ssd.fx8.store 直链 + Worker binding） | 数据文件（JSON/.gz/HTML） | wrangler.jsonc `R2_BUCKET` |
-| `signal-backup` | 私有（不绑域名） | DB 备份 + Claude 自我备份 | upload_r2.py `BACKUP_BUCKET` |
+| `signal-backup2` | 私有（不绑域名，**独立 CF 账号**） | DB 备份 + Claude 自我备份 + large-json（**今后新写**，#178） | upload_r2.py `BACKUP_BUCKET`（路由 → 新账号 `R2_BACKUP2_*`） |
+| `signal-backup` | 私有（不绑域名，老账号 legacy） | 迁移前存量（**不搬**，只读） | — |
 
 ### 5.2 upload_r2.py 命令清单
 
@@ -464,7 +465,7 @@ cd /Users/linhuichen/code/trade
 | `upload-all-data` | data/ 全量小 .json | `data/` | 全量小文件上 R2（排除已走独立命令的） |
 | `upload-intraday` | intraday 相关 23 文件 | `data/` | 盘中实时快照 |
 | `upload-data-files <f1> [f2]...` | 指定文件列表 | `data/` | 精准上传指定文件 |
-| `upload-db` | sentiment.db + etf_national_team.db | `backup/` + `weekly/` + `monthly/` | DB 异地备份（signal-backup 桶） |
+| `upload-db` | sentiment.db + etf_national_team.db | `backup/` + `weekly/` + `monthly/` | DB 异地备份（signal-backup2 桶） |
 | `upload-claude-backup` | Claude 自我备份 tar.gz | `claude-backup/` | Claude 配置异地备份 |
 | `list [prefix]` | 列对象 | - | 查询 |
 | `download-db <name>` | 下载最新 DB 备份 | - | 恢复用 |
@@ -494,8 +495,9 @@ npx wrangler r2 bucket create signal-data
 # 设置公开访问域名（CF Dashboard -> R2 -> signal-data -> Settings -> Public access）
 # 绑定域名 ssd.fx8.store
 
-# 创建备份 bucket（私有，不绑域名）
-npx wrangler r2 bucket create signal-backup
+# 创建备份 bucket（私有，不绑域名）—— 已迁至【独立 CF 账号】新桶 signal-backup2（#178, 2026-10-05）
+# 注意：signal-backup2 在第二个 CF 账号下，需先用该账号登录 wrangler（或在其 Dashboard 建桶）
+npx wrangler r2 bucket create signal-backup2
 
 # 创建 R2 API Token（S3 兼容）
 # CF Dashboard -> R2 -> Manage R2 API Tokens -> Create API Token
@@ -778,7 +780,8 @@ npx wrangler login
 
 # 3. 创建 R2 buckets
 npx wrangler r2 bucket create signal-data
-npx wrangler r2 bucket create signal-backup
+# 备份桶：现行 = 独立 CF 账号下的 signal-backup2（#178, 2026-10-05）；老桶 signal-backup 为 legacy 存量
+npx wrangler r2 bucket create signal-backup2
 
 # 4. 设置 R2 公开访问（CF Dashboard）
 #    R2 -> signal-data -> Settings -> Public access -> 绑定 ssd.fx8.store
@@ -882,7 +885,7 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 "systemctl list-timers | grep trade"
 1. **按第 9 节完整重建**，但使用不同域名（如 `ss2.example.com`）
 2. **CF Workers 配置**：新建 Worker（如 `trade-data-signal-backup`），绑定新域名，wrangler.jsonc 修改 `name` 字段
 3. **数据恢复**：
-   - DB 从 R2 `signal-backup` 桶下载最新备份（`upload_r2.py download-db`）
+   - DB 从 R2 `signal-backup2` 桶下载最新备份（`upload_r2.py download-db`）
    - static-site/data 从 R2 `signal-data` 桶恢复（upload_r2.py upload-all-data 重新填充）+ staticdata git 恢复小 JSON
 4. **定时任务**：加载相同 plist（修改路径），可错开时点避免与主站同时采集（或只做备份不采集）
 5. **R2 共享**：灾备机可共用同一 R2 bucket（只读），或创建独立 bucket 定期同步
@@ -892,11 +895,11 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 "systemctl list-timers | grep trade"
 | 数据类型 | 备份位置 | 恢复方式 |
 |---|---|---|
 | 代码 | GitHub 仓库 `xp13465/trade-data-signal` | `git clone` |
-| DB | R2 `signal-backup` 桶（日/周/月三层） | `upload_r2.py download-db` |
+| DB | R2 `signal-backup2` 桶（日/周/月三层） | `upload_r2.py download-db` |
 | 静态 JSON（小） | R2 `signal-data` 桶 + staticdata git | `upload_r2.py list data/` 或 `git pull` staticdata |
 | 静态 JSON（大） | R2 `signal-data` 桶 | `upload_r2.py list` + 下载 |
 | 配置 | `.example` 模板 + 手动填入 | `cp *.example *.json` |
-| Claude 配置 | R2 `signal-backup/claude-backup/` | `upload_r2.py upload-claude-backup` |
+| Claude 配置 | R2 `signal-backup2/claude-backup/` | `upload_r2.py upload-claude-backup` |
 
 ### 10.4 静态数据备份仓库（staticdata）
 
@@ -908,7 +911,7 @@ deploy.sh 每次 deploy 后自动备份（best-effort，失败不阻塞 deploy�
 - **全量 JSON** rsync 到 `staticdata/data/`（git diff 追踪每日变化）
 - **git commit + push** 差异化日志（`data backup [deploy] YYYY-MM-DD_HH:MM`）
 
-> 此仓库为灾备第 2 层（差异化日志），不替代 R2 备份（第 3/4 层）。DB 因 >100MB 不进 git，仅 rsync 本地 + R2 signal-backup 私有桶 gz 快照异地备份。详见 [r2-deployment.md 第 6 节](r2-deployment.md#6-staticdata-git-备份)。
+> 此仓库为灾备第 2 层（差异化日志），不替代 R2 备份（第 3/4 层）。DB 因 >100MB 不进 git，仅 rsync 本地 + R2 signal-backup2 私有桶 gz 快照异地备份。详见 [r2-deployment.md 第 6 节](r2-deployment.md#6-staticdata-git-备份)。
 
 ---
 

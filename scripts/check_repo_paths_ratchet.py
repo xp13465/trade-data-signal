@@ -12,6 +12,10 @@ mac 默认值(#195 分批迁移到 scripts/lib 的单点 resolve_repo)。本脚�
       ⚠️ 2026-10-06 返修:原正则 `:/Users/linhuichen` **匹配不到主流病灶形态 `:-/Users/linhuichen`**
       ⇒ 全仓代码行命中 0 ⇒ R3 恒 PASS,**空转闸门**(独立审复现)。已改为 `:-?/Users/linhuichen`
       (同时覆盖 `:-/` 与 `:/`),并加「恒在自检」(见下)+「变异自测 `--selftest`」双重钉死。
+  R4(假兜底面,#205 增):MIGRATED 内每个文件**不得**在 source lib 之后又自己写
+      `REPO="${REPO:-...}"` / `GIT_REPO="${GIT_REPO:-...}"`(resolve_repo 之后 REPO/GIT_REPO 必已赋值,
+      该行是**永不生效的死代码**;更坏的是它给人「有兜底」的假象 —— #205 病灶:restore 两脚本
+      用 `REPO="${REPO:-$(pwd)}"` 假兜底 + **未 export**,云上裸调用(灾难恢复场景)拿不到 .env 凭证 exit=1)。
 
 判定用**代码行**(行首 `#` 视为注释跳过):lib 自身头注释里对病灶的举例提及不算命中。
 
@@ -37,7 +41,7 @@ from pathlib import Path
 ROOT = Path(os.environ.get("RATCHET_ROOT") or Path(__file__).absolute().parent.parent).absolute()
 SCRIPTS = ROOT / "scripts"
 
-# 已迁移(批1 + 批2 + 批3 + 批4 + 批5):scripts/lib/repo_paths.sh + 58 个脚本
+# 已迁移(批1 + 批2 + 批3 + 批4 + 批5 + 批6):58 个脚本
 MIGRATED = {
     # 批1
     "scripts/check_r2_consistency.sh",
@@ -102,6 +106,9 @@ MIGRATED = {
     "scripts/sync_fund_score_to_d1.sh",
     "scripts/update_all_serial.sh",
     "scripts/verify_backup.sh",
+    # 批6(#205, 2026-10-17):restore 两脚本接 repo_paths.sh(灾难恢复场景裸调用可用)
+    "scripts/restore-large-json.sh",
+    "scripts/restore-r2-backup.sh",
 }
 
 # 迁移基线(批1 时刻仍未迁移的 56 个已知病灶 = §2 的 57 减去本批已迁的 check_r2_consistency.sh)。
@@ -112,6 +119,9 @@ PENDING_BASELINE = set()
 PATTERN = re.compile(r"(REPO|GIT_REPO|TRADE_DIR|STATICDATA_REPO):-/Users/linhuichen")
 # R3 残留面正则:2026-10-06 返修 —— `:-?` 同时覆盖 `:-/Users/...`(全仓主流形态)与 `:/Users/...`。
 MAC_DEFAULT = re.compile(r":-?/Users/linhuichen")
+# R4 假兜底面:source lib + resolve_repo 之后 REPO/GIT_REPO 必已赋值 ⇒ 再写 `REPO="${REPO:-...}"`
+# 恒为死代码(且给人「有兜底」假象,#205)。只认**自身赋值**形态,不误伤 `export REPO GIT_REPO` 等。
+FAKE_FALLBACK = re.compile(r'^(export\s+)?(REPO|GIT_REPO)="\$\{(REPO|GIT_REPO):-')
 SRC_RE = re.compile(r"^source\s+.*lib/repo_paths\.sh")
 RES_RE = re.compile(r"^resolve_repo\s")
 
@@ -175,7 +185,12 @@ def main() -> int:
         n_mac_total += n_mac
         if n_mac != 0:
             fails.append(f"R3 {rel}: 残留 `:-?/Users/linhuichen` 默认写法 {n_mac} 处(代码行,注释除外)")
-        if n_src == 1 and n_res == 1 and n_mac == 0:
+        # R4(#205):resolve_repo 之后不得再有 REPO/GIT_REPO 自身赋值(死代码假兜底)
+        n_fake = sum(1 for ln in _code_lines(text) if FAKE_FALLBACK.search(ln))
+        if n_fake != 0:
+            fails.append(f"R4 {rel}: 假兜底 REPO/GIT_REPO 自身赋值 {n_fake} 处"
+                         f"(resolve_repo 之后恒不生效的死代码,#205)")
+        if n_src == 1 and n_res == 1 and n_mac == 0 and n_fake == 0:
             pass_n += 1
 
     # ── 输出 ────────────────────────────────────────────────────────────────
@@ -197,10 +212,11 @@ def main() -> int:
 
 
 def selftest() -> int:
-    """变异自测(§18 L49 假样本养绿根治):证明 R3 闸门**真能响**,不是空转。
+    """变异自测(§18 L49 假样本养绿根治):证明 R3/R4 闸门**真能响**,不是空转。
 
-    做法:造临时仓根,放两份**真实已迁移文件**;①负对照(未变异)→ 期望 PASS;
-    ②把 check_r2_consistency.sh 的 env 默认值改回写死 mac 路径(病灶形态)→ 期望 **FAIL**。
+    做法:造临时仓根,放全部**真实已迁移文件**;①负对照(未变异)→ 期望 PASS;
+    ②把 check_r2_consistency.sh 的 env 默认值改回写死 mac 路径(病灶形态)→ 期望 **FAIL**(R3);
+    ③把 restore-r2-backup.sh 注入 `REPO="${REPO:-$(pwd)}"` 假兜底 → 期望 **FAIL**(R4,#205 增)。
     rc=0 = 自测通过(闸门非空转);任一断言不成立 = FAIL。
     """
     import shutil
@@ -254,6 +270,21 @@ def selftest() -> int:
             else:
                 ok = False
                 print(f"  FAIL: 变异样本竟 rc={rc1}(应 FAIL)⇒ R3 空转复现, tail={out1.strip().splitlines()[-4:]}")
+
+        # ③ 变异(#205 增):把 check_r2_consistency.sh 还原,改注入「假兜底」行 → 必须 R4 FAIL
+        #    (R4 = resolve_repo 之后又写 REPO="${REPO:-...}";此处不带 mac 路径 ⇒ 只有 R4 能命中,
+        #     正好证明 R4 独立于 R3 真能响。)
+        shutil.copy2(Path(__file__).absolute().parent.parent / target.relative_to(t), target)
+        fake_target = t / "scripts/restore-r2-backup.sh"
+        with fake_target.open("a", encoding="utf-8") as fh:
+            fh.write('\nREPO="${REPO:-$(pwd)}"\n')
+        rc2, out2 = _run(t)
+        if rc2 != 0 and "R4" in out2 and "RESULT=FAIL" in out2:
+            hit2 = [ln for ln in out2.splitlines() if "R4 " in ln and "假兜底" in ln]
+            print(f"  PASS: 假兜底变异样本 → RESULT=FAIL(R4 闸门真响);{hit2[0].strip() if hit2 else ''}")
+        else:
+            ok = False
+            print(f"  FAIL: 假兜底变异样本竟 rc={rc2}(应 FAIL)⇒ R4 空转, tail={out2.strip().splitlines()[-4:]}")
 
     print(f"[ratchet-selftest] {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
