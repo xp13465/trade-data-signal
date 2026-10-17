@@ -14766,6 +14766,17 @@ async function _initAutoRefresh() {
 // 三层去重：Notification tag（同 tag 只显最新）+ localStorage notified_keys（同事件当日只弹一次）
 //           + 时间窗（同类别 60s 内不连弹）。后端 signal_notified/anomaly_notified 已做邮件去重。
 const NOTIFY_STORAGE_KEY = 'ts_notify_enabled';      // '1'/'0' 用户偏好
+// #264D(2026-10-17) 通知分类开关：业务/运维告警分渠道(飞书侧 report 业务群 vs alert 故障群)后，
+// 浏览器通知侧给用户一个「按类收」的粒度——原来只有一个总开关，业务信号与市场预警混在一起。
+// 三档(键值与文案一一对应，缺省全开 => 老用户行为零变化，§23.7 只增不改)：
+//   signals   买卖点信号(含汪汪队 ETF)
+//   warnings  异动与市场预警(盘中异动/高地位/恐贪极值/涨停潮)
+//   postclose 收盘速递
+const NOTIFY_CATS = [
+  { key: 'signals',   label: '买卖点信号（含汪汪队 ETF）' },
+  { key: 'warnings',  label: '异动与市场预警（盘中异动/高低位/恐贪/涨停潮）' },
+  { key: 'postclose', label: '收盘速递' },
+];
 const NOTIFY_DEDUP_KEY = 'ts_notify_dedup';          // {key: ts} 当日已弹+时间窗记录
 const NOTIFY_TIME_WINDOW_MS = 60 * 1000;             // 同类别 60s 内不连弹
 const NOTIFY_FETCH_INTERVAL_MS = 30 * 1000;          // 通知 JSON 拉取节流（最小 30s 间隔）
@@ -14802,6 +14813,14 @@ function _loadNotifyPref() {
 }
 function _saveNotifyPref(on) {
   try { localStorage.setItem(NOTIFY_STORAGE_KEY, on ? '1' : '0'); } catch (e) {}
+}
+// 通知分类读写（#264D）：缺省/读不到 = 开（老用户零变化）；'0' = 用户显式关掉该类
+function _notifyCatKey(cat) { return 'ts_notify_cat_' + cat; }
+function _loadNotifyCat(cat) {
+  try { return localStorage.getItem(_notifyCatKey(cat)) !== '0'; } catch (e) { return true; }
+}
+function _saveNotifyCat(cat, on) {
+  try { localStorage.setItem(_notifyCatKey(cat), on ? '1' : '0'); } catch (e) {}
 }
 
 // 当前通知权限状态
@@ -15060,9 +15079,13 @@ function _stopNotifyPolling() {
 // 处理 notifications.json：6 类触发场景 + 三层去重
 function _processNotifications(data) {
   const today = data.date;
+  // #264D 通知分类开关：按用户所选分类过滤（默认全开）
+  const _catSignals = _loadNotifyCat('signals');
+  const _catWarnings = _loadNotifyCat('warnings');
+  const _catPostClose = _loadNotifyCat('postclose');
 
   // 1+2. 新买入/卖出信号（后端已用 signal_notified.json 去重，前端再做当日去重）
-  if (data.signals && data.signals.length) {
+  if (_catSignals && data.signals && data.signals.length) {
     const newBuys = data.signals.filter(s =>
       ['buy', 'buy_aux', 'buy_special', 'buy_backup'].includes(s.signal));
     if (newBuys.length && !_isNotifyNotified(`signal_buy_${today}`)
@@ -15090,7 +15113,7 @@ function _processNotifications(data) {
   // 2b. ETF 汪汪队信号（source='etf'，与 A股 buy/sell 分开弹通知）
   // share_surge->etf_buy 进场 / share_outflow->etf_sell 离场 / volume_surge->etf_volume 放量
   // 注意：同一只 ETF 常同时触发 share_surge+volume_surge，volume 去重排除已有 buy/sell 的 etf_code 避免重复
-  if (data.signals && data.signals.length) {
+  if (_catSignals && data.signals && data.signals.length) {
     const etfBuys = data.signals.filter(s => s.source === 'etf' && s.signal === 'etf_buy');
     if (etfBuys.length && !_isNotifyNotified(`etf_buy_${today}`)
         && !_isInNotifyTimeWindow('etf_buy')) {
@@ -15127,7 +15150,7 @@ function _processNotifications(data) {
   }
 
   // 3. 盘中异常（只弹 severe 级：rapid_move/breakout_down）
-  if (data.anomalies && data.anomalies.length) {
+  if (_catWarnings && data.anomalies && data.anomalies.length) {
     const severe = data.anomalies.filter(a => a.tier === 'severe');
     // 去重粒度对齐后端_alert_key(type|kind|name),当天同标的同类型只弹1次(原anomaly_${today}全天1次太粗漏通知)
     const _anomalyKey = a => `anomaly_${a.type}_${a.kind}_${a.name}_${today}`;
@@ -15146,7 +15169,7 @@ function _processNotifications(data) {
   }
 
   // 4. 综合预警（high_alert>=72 / low_alert>=85）
-  if (data.alerts) {
+  if (_catWarnings && data.alerts) {
     if (data.alerts.high && data.alerts.high.triggered
         && !_isNotifyNotified(`alert_high_${today}`)) {
       if (showNotification('🔴 高位预警',
@@ -15164,7 +15187,7 @@ function _processNotifications(data) {
   }
 
   // 5. 恐贪极值（<20 极度恐惧 / >80 极度贪婪）
-  if (data.fear_greed && data.fear_greed.extreme
+  if (_catWarnings && data.fear_greed && data.fear_greed.extreme
       && !_isNotifyNotified(`fg_${data.fear_greed.extreme}_${today}`)) {
     const isFear = data.fear_greed.extreme === 'fear';
     if (showNotification(
@@ -15178,7 +15201,7 @@ function _processNotifications(data) {
   }
 
   // 6. 涨停潮（a_width_zt_count > 5日均×1.8 且 >=50）
-  if (data.limit_up && data.limit_up.spike
+  if (_catWarnings && data.limit_up && data.limit_up.spike
       && !_isNotifyNotified(`zt_${today}`) && !_isInNotifyTimeWindow('zt')) {
     if (showNotification('🔥 涨停潮',
       `今日涨停 ${data.limit_up.count} 只（5日均 ${data.limit_up.avg}）`, `zt_${today}`, { msgType: 'OPEN_ZT' })) {
@@ -15188,7 +15211,7 @@ function _processNotifications(data) {
   }
 
   // 7. 盘后速递（post_close=True 且有信号时弹一次）
-  if (data.post_close && data.signals && data.signals.length
+  if (_catPostClose && data.post_close && data.signals && data.signals.length
       && !_isNotifyNotified(`post_close_${today}`)) {
     if (showNotification('📊 收盘速递',
       `今日 ${data.signals.length} 个信号，点击查看详情`, `post_close_${today}`, { msgType: 'OPEN_POST_CLOSE' })) {
@@ -15255,6 +15278,15 @@ function openNotifySettingsModal() {
           '<span class="notify-toggle-label">接收盘中信号通知</span>' +
           '<button class="notify-toggle-switch ' + (enabled ? 'on' : '') + '" data-action="toggle" aria-label="开关通知"></button>' +
         '</div>' +
+        // #264D 通知分类开关（只控制浏览器通知弹哪几类，不影响邮件/飞书）
+        '<div class="notify-cat-title">通知分类（只影响浏览器通知）</div>' +
+        NOTIFY_CATS.map(function (c) {
+          var catOn = _loadNotifyCat(c.key);
+          return '<div class="notify-toggle-row notify-cat-row">' +
+            '<span class="notify-toggle-label">' + c.label + '</span>' +
+            '<button class="notify-toggle-switch ' + (catOn ? 'on' : '') + '" data-action="cat" data-cat="' + c.key + '" aria-label="开关' + c.label + '"></button>' +
+            '</div>';
+        }).join('') +
         '<button class="notify-btn-action" data-action="test">🔔 试看测试通知</button>' +
         '<div class="notify-status"></div>';
     } else {
@@ -15317,6 +15349,11 @@ function openNotifySettingsModal() {
         _stopNotifyPolling();
       }
       render();  // 刷新开关状态
+    } else if (action === 'cat') {
+      // #264D 通知分类开关：localStorage 落盘 + 重渲染刷新开关态
+      var catKey = btn.dataset.cat;
+      _saveNotifyCat(catKey, !_loadNotifyCat(catKey));
+      render();
     } else if (action === 'test') {
       // 确保 pref 开启 + permission granted 后试看
       if (!_loadNotifyPref()) {
@@ -15366,7 +15403,7 @@ function initNotifyButton() {
   const pop = document.createElement('div');
   pop.className = 'notify-pop';
   // 方案2: pop 含两项 - toggle(开关通知, 文字动态) + test(试看)
-  pop.innerHTML = '<div class="notify-pop-item" data-action="toggle"></div><div class="notify-pop-item" data-action="test">🔔 试看测试通知</div>';
+  pop.innerHTML = '<div class="notify-pop-item" data-action="toggle"></div><div class="notify-pop-item" data-action="test">🔔 试看测试通知</div><div class="notify-pop-item" data-action="cats">📂 通知分类设置</div>';
   wrap.appendChild(pop);
 
   // 方案2(2026-08-05 恢复): hover/click 都弹 pop, 删原生tooltip(btn.title空)后hover pop不再被盖
@@ -15499,6 +15536,11 @@ function initNotifyButton() {
       }
       pop.style.display = 'none';
       _popPinned = false;
+    } else if (action === 'cats') {
+      // #264D 通知分类：PC 侧入口 -> 复用设置面板(移动端同款，含总开关+试看+分类)
+      pop.style.display = 'none';
+      _popPinned = false;
+      openNotifySettingsModal();
     } else if (action === 'test') {
       // 试看：自动开启 pref + 确保 permission + 弹测试通知(一键开启+测试)
       if (!_loadNotifyPref()) {

@@ -7073,6 +7073,11 @@ main { padding: 16px 24px; }
   font-size: 14px; color: var(--text-1);
 }
 .notify-toggle-label { flex: 1; }
+/* #264D 通知分类开关：分类小标题 + 分类行（比总开关行更紧凑，视觉上分层） */
+.notify-cat-title {
+  margin: 14px 0 8px; font-size: 12px; font-weight: 600; color: var(--text-3);
+}
+.notify-cat-row { padding: 8px 12px; font-size: 13px; }
 .notify-toggle-switch {
   position: relative; width: 40px; height: 22px; flex-shrink: 0;
   background: var(--border-strong); border-radius: 999px; cursor: pointer;
