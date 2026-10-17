@@ -209,6 +209,26 @@ def test_k1_per_level_cap_isolation(_iso):
     _chk(not any("N-0" in e for e in oth), "非 severe 应丢最旧 N-0")
 
 
+def test_k1_zero_capacity_drops_level_not_keeps_all(_iso, monkeypatch):
+    """S1(复查建议):容量 0 必须=该级**不保留**,而非 `x[-0:]` 的"不截断"陷阱。
+
+    旧写法 `sev[-_LATEST_MAX_ENTRIES:]` 在常量=0 时等价 `sev[0:]` ⇒ 留全量,
+    与"容量 0"直觉相反(复查 §6 S1 变异测 cap=0 实测不红即此因)。本用例=判别力门。
+    """
+    head = "# head\n"
+    entries3 = [f"## [severe] 2026-01-0{i} 00:00:00 · S{i}\n- **摘要**: s"
+                for i in range(1, 4)]
+    monkeypatch.setattr(notify, "_LATEST_MAX_ENTRIES", 0)
+    _h, kept = notify._parse_latest(notify._compose_latest(head, entries3))
+    _chk(len(kept) == 0, f"severe 容量 0 应丢全部(非留全量), 实 {len(kept)}")
+
+    entries3n = [f"## [notice] 2026-01-0{i} 00:00:00 · N{i}\n- **摘要**: s"
+                 for i in range(1, 4)]
+    monkeypatch.setattr(notify, "_LATEST_MAX_NONSEVERE", 0)
+    _h2, kept2 = notify._parse_latest(notify._compose_latest(head, entries3n))
+    _chk(len(kept2) == 0, f"非 severe 容量 0 应丢全部(非留全量), 实 {len(kept2)}")
+
+
 def test_k1_write_alert_preserves_both_levels(_iso):
     """--alert-issue 覆盖头部区时, severe + 非 severe 流水条目都原样保留。"""
     notify._mirror_latest_entry("severe", "S1", "b")

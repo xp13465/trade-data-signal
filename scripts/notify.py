@@ -1469,8 +1469,12 @@ Claude 开工时排查此告警：对照日志路径定位根因，修复后删�
 #   latest.md 沉默被误读为全局无告警」这条 L46④ 残留盲区。
 #   硬约束(不破 severe 区语义):两级**各自独立容量、独立区段**,非 severe 再多也不挤掉
 #   severe 流水;条目级别标记走**闭合集**(防正文里偶然出现的 `---\n## [x]` 被误当条目)。
-_LATEST_MAX_ENTRIES = 50       # severe 流水容量上限(最新在文件尾部,超出丢最旧)——不变
+_LATEST_MAX_ENTRIES = 50       # severe 流水容量上限(段内最新在尾,超出丢最旧)——不变
 _LATEST_MAX_NONSEVERE = 30     # 非 severe 留痕容量上限(#218-⑥-K1;独立段,不挤 severe 区)
+# 闭合集:条目级别标记白名单(只认这些 `## [x]` 才算流水条目,防正文偶然出现的
+# `---\n## [任意标题]` 被误切)。"recovery"/"alert" 两 label 当前**无生产调用点**赋值
+# (S2 复查注:`[恢复]` 组消息实际落 notice/ledger tier)——防守性保留:级别来源是
+# ledger tier 字段,未来新增 tier 名时不至于因白名单过窄被当成非条目而吞掉。
 _LATEST_ENTRY_LEVELS = ("severe", "notice", "warning", "digest", "recovery", "alert")
 _LATEST_ENTRY_SPLIT_RE = re.compile(
     r"\n-{3,}\n(?=## \[(?:" + "|".join(_LATEST_ENTRY_LEVELS) + r")\])")
@@ -1528,15 +1532,21 @@ def _compose_latest(head: str, entries: list[str]) -> str:
     h = head.rstrip("\n")
     if not h.strip():
         h = ("# 告警发送流水(all 级)\n\n"
-             f"> 下部为 send() 告警群消息的追加式流水(最新在下;severe 最多 "
-             f"{_LATEST_MAX_ENTRIES} 条, 非 severe 留痕最多 {_LATEST_MAX_NONSEVERE} 条);\n"
+             f"> 下部为 send() 告警群消息的追加式流水,分两段:先 `## [severe]` 段"
+             f"(最多 {_LATEST_MAX_ENTRIES} 条),后非 severe 留痕段"
+             f"(最多 {_LATEST_MAX_NONSEVERE} 条);"
+             "段内按时间升序(段内最新在下),超出各段容量丢该段最旧;\n"
              "> `--alert-issue` 显式详情会写在本注释上方区域。")
     sev, other = [], []
     for e in entries:
         if not e.strip():
             continue
         (sev if _latest_entry_level(e) == "severe" else other).append(e)
-    kept = sev[-_LATEST_MAX_ENTRIES:] + other[-_LATEST_MAX_NONSEVERE:]
+    # S1(复查建议):x[-N:] 在 N=0 时 Python 语义陷阱(x[-0:] == x[0:] ⇒ 容量 0 反而
+    # 不截断,留全量)。显式判 N:0 ⇒ 空列表(= 该级不保留),语义与「容量 0」直觉一致。
+    sev_kept = sev[-_LATEST_MAX_ENTRIES:] if _LATEST_MAX_ENTRIES else []
+    other_kept = other[-_LATEST_MAX_NONSEVERE:] if _LATEST_MAX_NONSEVERE else []
+    kept = sev_kept + other_kept
     chunks = [h] + ["---\n" + e.rstrip("\n") for e in kept]
     return "\n\n".join(chunks) + "\n"
 
