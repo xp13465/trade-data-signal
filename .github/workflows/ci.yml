@@ -194,23 +194,105 @@ jobs:
           # #261(B1/B3): 本步骤 fail-fast —— 下载失败 = 基础设施/数据产物可达性故障, 该 job 必须红。
           #   旧行为: 失败只打一句 ⚠ 后置 ok=0, 末尾 ls -la 退出码 0 吞掉失败, ⑥⑦ 再被 if 静默 skip
           #   且整体按成功计 ⇒「数据没下到」与「⑥⑦ 全过」在 CI 结论上无法区分(门禁空转)。现改为显式 exit 1。
+          #
+          # 下载策略(每文件独立走三路 fallback, 任一成功即通过; 每次 echo 用了哪一路便于下轮 CI 判形):
+          #   v1 = ssd 域(https://ssd.fx8.store/data/<f>) + 仅 UA                     —— 现状路
+          #   v2 = ssd 域 + 完整浏览器头(UA/Accept/Accept-Language/Sec-Fetch-*/Referer)
+          #   v3 = ss 域(https://ss.fx8.store/data/<f>) + 完整浏览器头
+          #   为什么三路: GitHub Actions runner 是 Azure 数据中心 IP, Cloudflare Bot Management 对
+          #   「数据中心 IP + curl 指纹」默认从严; 91645116a(2026-09-16)只加 UA 伪装「提高成功率」未根治
+          #   (10 月上旬抽样: 下载步表 success 实为吞错、⑥⑦ 全 skipped)。多路正交(换域 + 补全浏览器头)
+          #   提高当场成功率; 三路全失败时输出精确诊断(HTTP 码/响应头/响应体摘要)供定方案 B。
+          #   注: 不手加 Accept-Encoding(避免落盘压缩体), 需要压缩用 --compressed 让 curl 自协商。
           mkdir -p "$GITHUB_WORKSPACE/static-site/data"
+
+          UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+
+          # 完整浏览器头(除 UA 外), 数组形式避免长行重复。
+          BROWSER_HEADERS=(
+            -H "Accept: application/json,text/plain,*/*"
+            -H "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8"
+            -H "Sec-Fetch-Dest: empty"
+            -H "Sec-Fetch-Mode: cors"
+            -H "Sec-Fetch-Site: same-site"
+            -H "Referer: https://ssd.fx8.store/"
+          )
+
+          # 下载单文件: 按 v1→v2→v3 顺序尝试, 任一成功返回 0 并 echo 命中的路。
+          download_one() {
+            local file="$1"
+            local dest="$GITHUB_WORKSPACE/static-site/data/$file"
+            local ssd="https://ssd.fx8.store/data/$file"
+            local ss="https://ss.fx8.store/data/$file"
+
+            echo "[download] $file · 路 v1(ssd 域 + UA): $ssd"
+            if curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+                -A "$UA" -o "$dest" "$ssd"; then
+              echo "[download] $file 成功(路 v1: ssd 域 + UA)"; return 0
+            fi
+
+            echo "[download] $file · 路 v2(ssd 域 + 完整浏览器头): $ssd"
+            if curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 20 --max-time 240 --compressed \
+                -A "$UA" "${BROWSER_HEADERS[@]}" -o "$dest" "$ssd"; then
+              echo "[download] $file 成功(路 v2: ssd 域 + 完整浏览器头)"; return 0
+            fi
+
+            echo "[download] $file · 路 v3(ss 域 + 完整浏览器头): $ss"
+            if curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 20 --max-time 240 --compressed \
+                -A "$UA" "${BROWSER_HEADERS[@]}" -o "$dest" "$ss"; then
+              echo "[download] $file 成功(路 v3: ss 域 + 完整浏览器头)"; return 0
+            fi
+
+            return 1
+          }
+
+          # 失败诊断(针对 v1 目标 = ssd 域): 取 HTTP 码 + 响应头 + 响应体摘要, 全部 echo 进日志。
+          #   只诊断 v1: 三路同指纹, v1 的码/头/体即对照基准; 据此可判是 CF 拦截(含 error code 如 1020)
+          #   还是真 404/超时, 供后续定方案 B(CF 白名单 / S3 通道)。
+          #   头用 -D(非 -v, 防敏感头混进日志); 体取前 600 字节(-r 0-599 + head -c 双保险)。
+          diagnose_one() {
+            local file="$1"
+            local url="https://ssd.fx8.store/data/$file"
+            echo "----------------------------------------------------------------"
+            echo "[diag] $file · 目标 $url"
+            local code
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 20 --max-time 60 -A "$UA" "$url" 2>&1) \
+              || code="curl-failed(exit=$?)"
+            echo "[diag] HTTP 码: $code"
+            # 注解带 HTTP 码, 供 CI 页面直接判形(403/cf-mitigated ⇒ CF bot 拦; 404 ⇒ 文件缺失)。
+            echo "::error title=下载诊断::$file 目标 $url 返回 HTTP $code"
+            echo "[diag] 响应头(前 30 行, 关注 cf-ray / server / cf-mitigated):"
+            { curl -sS -D - -o /dev/null --connect-timeout 20 --max-time 60 -A "$UA" "$url" 2>&1 || true; } | head -n 30 || true
+            echo "[diag] 响应体前 600 字节(CF 拦截页会含 error code 如 1020):"
+            { curl -sS --connect-timeout 20 --max-time 60 -A "$UA" -r 0-599 "$url" 2>/dev/null || true; } | head -c 600 || true
+            echo ""
+            echo "----------------------------------------------------------------"
+          }
+
           ok=1
-          curl -fsSL --retry 3 -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36" \
-            -o "$GITHUB_WORKSPACE/static-site/data/kelly_loss_features.json" \
-            "https://ssd.fx8.store/data/kelly_loss_features.json" || { echo "::error title=下载失败::kelly_loss_features.json 从 ssd.fx8.store 下载失败"; ok=0; }
-          curl -fsSL --retry 3 -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36" \
-            -o "$GITHUB_WORKSPACE/static-site/data/signal_kelly_trades.json" \
-            "https://ssd.fx8.store/data/signal_kelly_trades.json" || { echo "::error title=下载失败::signal_kelly_trades.json 从 ssd.fx8.store 下载失败"; ok=0; }
+          for f in kelly_loss_features.json signal_kelly_trades.json; do
+            if download_one "$f"; then
+              :
+            else
+              echo "::error title=下载失败::$f 三路(ssd+UA / ssd+完整头 / ss+完整头)全部失败"
+              diagnose_one "$f"
+              ok=0
+            fi
+          done
+
           ls -la "$GITHUB_WORKSPACE/static-site/data/"
           echo "ok=$ok" >> "$GITHUB_OUTPUT"
           if [ "$ok" != "1" ]; then
             echo "================================================================"
             echo "::error::生产数据产物下载失败 ⇒ ⑥⑦ 无法运行, 本步骤 FAIL(该 job 红)。"
             echo "  为什么红: ⑥⑦ 依赖 gitignore 的生产数据产物(signal_kelly_trades.json / kelly_loss_features.json),"
-            echo "  CI checkout 后仓内不存在, 必须先经本步骤从 R2 ssd.fx8.store 下载。下载失败 = 基础设施/数据产物"
+            echo "  CI checkout 后仓内不存在, 必须先经本步骤从 R2 下载。下载失败 = 基础设施/数据产物"
             echo "  可达性故障, 属真实故障(非代码回归), 必须显式报红, 不再静默 skip 后按成功计(旧行为见 #261)。"
-            echo "  排查方向: ssd.fx8.store 是否可达 / R2 data/ 前缀下两文件是否存在(见 role-implementer §3.1 R2 架构准则)。"
+            echo "  已试三路: v1 ssd 域+UA / v2 ssd 域+完整浏览器头 / v3 ss 域+完整浏览器头; 各文件命中哪一路见上方 [download] 行,"
+            echo "  全失败时的 HTTP 码/响应头/响应体摘要见上方 [diag] 段。"
+            echo "  排查方向: [diag] 显示 403 / cf-mitigated / error code 1020 ⇒ GitHub Actions 机房 IP 被 CF bot 规则拦截"
+            echo "  (91645116a 同类, 未根治), 方案 B = CF 白名单 / S3 通道(主控定); 显示 404 ⇒ R2 data/ 前缀下文件缺失"
+            echo "  (见 role-implementer §3.1 R2 架构准则); 显示超时/连接失败 ⇒ 网络可达性故障。"
             echo "  注: 已知数据窗口差(非下载失败)导致的 ⑥⑦ FAIL 由 ⑥⑦ 各自步骤级 continue-on-error 吸收, 不放行本步骤。"
             echo "================================================================"
             exit 1
