@@ -99,6 +99,11 @@ def test_defer_log_landing_contract():
     region = body.split("# #253-c1:", 1)[1].split('print(f"[{label}] 模式=', 1)[0]
     assert not re.search(r"\d{4}-\d{2}-\d{2}", region), \
         "延后判定区出现写死的日期字面量(§18 L51 禁止; 时刻必须来自 _now() 注入点)"
+    # §22 登记点一致性: 延后通道集的每个 label 必须真存在于 upload_r2.py 的 label="..." 调用点上
+    # (防拼写漂移 ⇒ 开关静默失效: 集合里写错一个名字, 该通道永远不会被延后且无任何报错)
+    declared = set(re.findall(r'label="([^"]+)"', src))
+    assert ur._NIGHT_FULL_DEFER_CHANNELS <= declared, \
+        f"延后通道集含未登记的 label: {sorted(ur._NIGHT_FULL_DEFER_CHANNELS - declared)}"
     assert "verify-r2" in src.split("_NIGHT_FULL_DEFER_CHANNELS", 1)[0][-800:], \
         "延后开关旁必须写明「verify-r2 周日全量对账独立 ⇒ 漂移防护不丢」的依赖结论"
 
