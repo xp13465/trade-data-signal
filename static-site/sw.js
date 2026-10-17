@@ -8,6 +8,9 @@
  *  2. 数据 JSON (除 intraday_snapshot): network-first (正确性优先, 失败回退缓存)
  *     - 2026-08-02 改: 原走 SWR 先返旧缓存后台拉新版, 低频数据(季频 public_fund_* /etf_score_list)更新后用户仍拿旧缓存
  *     - 改 network-first 每次走网络拿最新, 离线/失败回退缓存(牺牲毫秒延迟换正确性)
+ *     - 2026-10-17 改(C1 缓存分层边界): 新鲜度边界 = 响应头 Cache-Control 唯一事实源(与 CF Worker edge TTL 同源),
+ *       max-age=0/no-store ⇒ 每次回源(强一致, 与边缘 no-store 同语义); max-age=N ⇒ N 秒内直接复用 SW 缓存(弱网省往返)。
+ *       SW 不做第三份"更严"的新鲜度名单(§22 单源), 不覆盖页面请求的 cache 模式, 不与 Worker edge TTL 打架。
  *  3. intraday_snapshot.json + notifications.json: NetworkFirst (盘中实时性优先,离线回退缓存)
  *  4. 第三方 (hm.baidu/zz.bdstatic/echarts CDN 等): 跨域不拦截,直接走网络,不缓存
  *
@@ -20,23 +23,35 @@ const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 // 分两类:
 //   CORE_SHELL_URLS   —— 页面能渲染的"绝对必要"核心壳(缺其一 reload 即全白空壳)。这些必须全部预缓存成功才能激活接管。
 //   PRECACHE_URLS     —— 含 CORE + 非关键资源(图标/字体/统计 JS 等)。非关键失败不阻塞预缓存,但 CORE 失败绝不允许激活。
+// C5(2026-10-17, 弱网第三批): 预缓存 URL 必须与运行时请求 URL **同键**。
+//   旧缺陷: PRECACHE_URLS 一律无 ?v=, 而 index.html 运行时请求带 ?v=<assetVersion> ⇒ Cache API 按 URL
+//   (含 query)匹配 ⇒ 预缓存的 636KB 壳资源从不命中(白下白存), 首屏每个资源仍每次走网络。
+//   版本串从 CACHE_VERSION 派生(单一事实源: bump_asset_version.py 改 CACHE_VERSION 即自动跟随,
+//   无需部署期注入 sw.js, 不会出现"index 引新版本 / SW 缓旧版本"的撕裂)。
+const ASSET_VERSION = (CACHE_VERSION.match(/^v\d+-(.+)$/) || [])[1] || '';
+const _av = (u) => (ASSET_VERSION ? u + '?v=' + ASSET_VERSION : u);
+
 const CORE_SHELL_URLS = [
   './',                 // 导航请求回退目标
   './index.html',       // HTML 壳
-  './app.min.js',       // 首屏渲染 JS(缺=全白)
-  './common.min.js'     // app 依赖的公共 JS(缺=渲染异常)
+  _av('./app.min.js'),  // 首屏渲染 JS(缺=全白)
+  _av('./common.min.js') // app 依赖的公共 JS(缺=渲染异常)
 ];
 
-// 核心 shell 的 pathname 归一形态('./' → '/', './x' → '/x'), 供 fetch 路由判定核心资源
-const CORE_SHELL_PATHNAMES = CORE_SHELL_URLS.map((u) =>
-  u === './' ? '/' : '/' + u.replace(/^\.\//, '')
-);
+// 核心 shell 的 pathname 归一形态('./' → '/', './x?v=..' → '/x'), 供 fetch 路由判定核心资源
+// ⚠️ 必须去 query: CORE_SHELL_URLS 现带 ?v=, 若原样拼进 pathname 则 isCore 判定永远不命中(核心壳损坏兜底失效)。
+const CORE_SHELL_PATHNAMES = CORE_SHELL_URLS.map((u) => {
+  const p = u.replace(/^\.\//, '').split('?')[0];
+  return p === '' ? '/' : '/' + p;
+});
 
+// 注: 图标/manifest 保持无 ?v=(它们由 index.html/manifest 内部以内容 md5 或不带版本引用),
+//     只有 JS/CSS 走资产版本串(与 bump_asset_version.py ASSETS 清单同口径)。
 const PRECACHE_URLS = CORE_SHELL_URLS.concat([
-  './style.min.css',
-  './purpose-notes.min.js',
-  './kelly-review-notes.min.js',
-  './qr.js',
+  _av('./style.min.css'),
+  _av('./purpose-notes.min.js'),
+  _av('./kelly-review-notes.min.js'),
+  _av('./qr.js'),
   './manifest.json',
   './favicon.svg',
   './favicon.ico',
@@ -241,20 +256,71 @@ function cacheFirst(req) {
   });
 }
 
-// ============== networkFirstJson: 优先网络拿最新, 失败回退缓存(离线兜底) ==============
-// 用于 /data/ JSON: 低频数据(季频/日频)正确性优先, 不返回旧缓存。
-// fetch 加 cache:'no-store' 避免命中浏览器 HTTP/CF 缓存拉旧数据(与 intraday/overview 同模式)。
-// 成功写入缓存供离线兜底; 失败回退缓存, 缓存也无则返 offline 占位。
+// ============== C1(2026-10-17): 缓存分层边界 = 响应头 Cache-Control 唯一事实源 ==============
+// 背景: 页面 HTTP 缓存 / SW Cache / CF Worker edge Cache 三层各按各的 TTL 判, 边界不一致 ⇒ 同一文件
+//   出现"SW 认为必须回源、边缘却直接给 60s 旧版"的打架(busting 参数被边缘 edge key 剥掉, 白破缓存)。
+// 定案(按 /tmp/perf-b3-recon.md §3 C1 结论): SW 只认响应头 —— 与 CF Worker dataCacheTtl 输出的
+//   Cache-Control 同源, 边缘允许缓存多久, SW 最多就复用多久, 不更严也不更松(§22 单一事实源)。
+const SW_CACHED_AT = 'x-sw-cached-at';   // SW 自记的写入时刻戳(用于按 max-age 算新鲜度)
+
+// 解析响应的可缓存秒数: no-store/no-cache 或缺失/无法解析 ⇒ 0(不允许 SW 侧新鲜度复用)
+function _respMaxAge(res) {
+  try {
+    const cc = (res && res.headers && res.headers.get('cache-control')) || '';
+    if (/no-store|no-cache/i.test(cc)) return 0;
+    const m = /(?:^|,)\s*max-age\s*=\s*(\d+)/i.exec(cc);
+    return m ? parseInt(m[1], 10) : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+// 缓存键去 query(与 CF Worker edge cache key = origin+pathname 同口径):
+//   旧版用 req 原样当键 ⇒ 前端 ?_=Date.now() 破缓存参数使每次落一个新键, 同一文件写成 N 份,
+//   且离线回退 caches.match(req) 因 query 不同**永远命中不到**(离线兜底形同失效)。
+function _swCacheKey(req) {
+  const u = new URL(req.url);
+  return u.origin + u.pathname;
+}
+
+// 加时间戳后存库(不动返给页面的响应; 失败静默)
+function _putStamped(cache, key, res) {
+  const headers = new Headers(res.headers);
+  headers.set(SW_CACHED_AT, String(Date.now()));
+  return res.blob()
+    .then((body) => cache.put(key, new Response(body, { status: res.status, statusText: res.statusText, headers })))
+    .catch(() => {});
+}
+
+// ============== networkFirstJson: 边缘 TTL 内复用缓存, 否则回源; 失败回退缓存(离线兜底) ==============
+// 用于 /data/ JSON: 正确性优先 —— 但"最新"的边界交给响应头(max-age)定义, 与 CF edge 同新鲜度。
+// 不再强制 fetch(req, {cache:'no-store'}): 覆盖页面的 cache 模式反而剥夺浏览器 HTTP 缓存/304 复用
+//   (弱网下的净损失); cache:no-store 的语义由 Worker 响应头(no-store, max-age=0)天然承担, 单源。
+// 离线回退保留全量(含 max-age=0 文件也写缓存) —— 不因省空间砍掉离线可用性(§5.3 核心保障)。
+// 注: overview.json / intraday_snapshot.json / notifications.json 走各自上方分支(硬-won 的 P0 修复, 不并入本函数)。
 function networkFirstJson(req) {
-  return fetch(req, { cache: 'no-store' })
-    .then((res) => {
+  const key = _swCacheKey(req);
+  const fromNetwork = () =>
+    fetch(req).then((res) => {
       if (res && res.status === 200) {
         const copy = res.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
+        caches.open(CACHE_NAME).then((cache) => _putStamped(cache, key, copy)).catch(() => {});
       }
       return res;
+    });
+  return caches.open(CACHE_NAME).then((cache) =>
+    cache.match(key).then((cached) => {
+      if (cached && cached.ok && cached.status === 200) {
+        const maxAge = _respMaxAge(cached);
+        const cachedAt = parseInt(cached.headers.get(SW_CACHED_AT) || '0', 10) || 0;
+        const age = Date.now() - cachedAt;
+        if (maxAge > 0 && cachedAt > 0 && age >= 0 && age < maxAge * 1000) {
+          return cached; // 仍在边缘 TTL 内 ⇒ 与边缘同新鲜度, 直接省一次往返
+        }
+      }
+      return fromNetwork().catch(() => cache.match(key).then((c) => c || Response.error()));
     })
-    .catch(() => caches.match(req).then((cached) => cached || Response.error()));
+  ).catch(() => fromNetwork().catch(() => Response.error()));
 }
 
 // ============== message: 接收客户端消息 ==============

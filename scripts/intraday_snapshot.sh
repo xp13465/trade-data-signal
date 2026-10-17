@@ -201,7 +201,7 @@ fi
 echo "-> 同步 intraday 数据到 staticdata 仓库（灾备留档）..." | tee -a "$LOG"
 STATICDATA_SYNC_NONBLOCK=1 bash "$GIT_REPO/scripts/staticdata_sync.sh" intraday \
   intraday_snapshot.json overview.json summary.json summary_history.json \
-  notifications.json boot.json schedule_stats.json \
+  notifications.json boot.json signals_today.json schedule_stats.json \
   a-stock-3m.json a-stock-6m.json a-stock-1y.json \
   hk-3m.json hk-6m.json hk-1y.json \
   global-3m.json global-6m.json global-1y.json \

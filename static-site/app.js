@@ -9637,7 +9637,7 @@ const _resultCache = new Map(); // url -> { data, ts }
 // 2026-07-20: 加 index\/[^/]+-all 排除 kc50-all.json 等 index/{iid}-all.json（走势图源），
 // 让走势图与 overview 同级实时（跳过 5min 缓存），避免"卡片有信号但走势图无 pin"的窗口期不一致。
 // 只排除 *-all.json（走势图源），不排除 industry-*-indices/* 等静态少变文件（保留缓存）。
-const _NO_CACHE_URLS = /(?:^|\/)(?:boot|overview|intraday_snapshot|metrics|notifications|daily_brief(?:_history)?|public_fund_\w+|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
+const _NO_CACHE_URLS = /(?:^|\/)(?:boot|signals_today|overview|intraday_snapshot|metrics|notifications|daily_brief(?:_history)?|public_fund_\w+|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
 // codex-001 medium: R2 直链数据文件跳过通用 _resultCache——payload 由调用方先验后存
 // 自己的 per-code/per-item 缓存(如 _fundNavCache), 通用层不缓存=坏 payload 不被 5 分钟复用。
 // codex-004 P2 收窄: 只保留两类真实需要的前缀——①nav_bucket(净值桶 payload 由
@@ -9881,13 +9881,63 @@ function siteCfg(key, codeDefault) {
   }
   return _codeDef;
 }
+// C2(2026-10-17, 弱网第三批): 消费 index.html head 里提前发起的 boot.json 预取。
+//   index.html 在 <head> 即起 fetch 挂 window.__bootPrefetch(与 app.min.js 下载并行),
+//   此处消费一次(消费即置空, 防重复使用同一已解析对象/防其他代码误用);
+//   预取失败(网络失败/非 200/JSON 坏)则回退原 fetchJSON 链路(含 R2 兜底), 行为与改动前一致。
+async function _bootJSON() {
+  const pre = (typeof window !== "undefined") ? window.__bootPrefetch : null;
+  if (pre && typeof pre.then === "function") {
+    window.__bootPrefetch = null;
+    try {
+      const boot = await pre;
+      if (boot && typeof boot === "object") return boot;
+    } catch (e) {
+      console.warn("[fetchBoot] 预取 boot.json 失败, 回退 fetchJSON", e?.message || e);
+    }
+  }
+  return fetchJSON("./data/boot.json");
+}
+
+// C3(2026-10-17, 弱网第三批·拆产物): 补齐 overview 对象上的 signals_today(拆产物后的唯一来源)。
+//   boot 内嵌副本已不再带 signals_today; 单独产物 /data/signals_today.json 与 overview.json(OFF) 同为 ttl=0。
+//   就地补进同一个 overview 对象(_getCachedOverview() 返同一引用 ⇒ 各消费点共享, 不需二次分发)。
+//   幂等: 已有 signals_today / 已在飞行中的补拉 → 直接复用, 不重复请求。
+let _sigTodayPromise = null;
+async function _ensureSignalsToday(ov) {
+  if (!ov) return null;
+  if (Array.isArray(ov.signals_today)) return ov.signals_today;
+  if (_sigTodayPromise) return _sigTodayPromise;
+  _sigTodayPromise = (async () => {
+    let st = null;
+    try { st = await fetchJSON("./data/signals_today.json"); } catch (e) { /* 落 404/网络失败 → 走下方 overview 回退 */ }
+    if (!st || !Array.isArray(st.signals_today)) {
+      // 回退①: 独立产物缺失(例: 数据层尚未重建/部署) → 用 overview.json 的 signals_today 顶一次
+      try {
+        const ovf = await fetchJSON("./data/overview.json");
+        if (ovf && Array.isArray(ovf.signals_today)) {
+          ov.signals_today = ovf.signals_today;
+          if (ovf.signals_meta && !ov.signals_meta) ov.signals_meta = ovf.signals_meta;
+          return ov.signals_today;
+        }
+      } catch (e) { /* 回退②: 都失败 → 本轮保持空, 由 ≤3min overview 轮询自愈(_maybeRerenderSigCard 会自动重绘) */ }
+      _sigTodayPromise = null; // 失败不粘缓存: 后续任何调用可重试
+      return null;
+    }
+    ov.signals_today = st.signals_today;
+    if (st.signals_meta && !ov.signals_meta) ov.signals_meta = st.signals_meta;
+    return ov.signals_today;
+  })();
+  return _sigTodayPromise;
+}
+
 let _bootPromise = null;
 let _bootData = null;
 function fetchBoot() {
   if (_bootPromise) return _bootPromise;
   _bootPromise = (async () => {
     try {
-      const boot = await fetchJSON("./data/boot.json");
+      const boot = await _bootJSON();
       if (boot) {
         _bootData = boot;
         // 站点统一配置框架(P0): boot.config(config/site.yaml) 合并进 _siteConfig 远程默认
@@ -9900,6 +9950,12 @@ function fetchBoot() {
           if (!boot.overview.date || boot.overview.date >= _bjTodayStr()) {
             _setCachedOverview(boot.overview);
           }
+          // C3(2026-10-17, 弱网第三批·拆产物): signals_today 已从 boot 内嵌副本拆出独立产物
+          //   /data/signals_today.json(boot 与 overview.json 不再各存一份 103KB gz 重复副本)。
+          //   旧数据层(尚未重建的 boot) 仍带 signals_today → 直接可用, 不发起补拉;
+          //   新数据层 boot 无 signals_today → 补拉一次(失败回退 overview.json, 再失败由 ≤3min
+          //   的 overview 轮询自愈), 保证信号卡不因拆产物而空。§22 单一来源=signals_today.json。
+          await _ensureSignalsToday(boot.overview);
         }
         if (boot.signal_stats) state.signalStats = boot.signal_stats;
         // intraday_snapshot 只在 state.intradaySnapshot 为空时设（boot 的作初始值），
@@ -14355,7 +14411,23 @@ function _overviewRefreshDelay() {
   // 盘后/收盘(is_closed===true): 5min低频, 拉17:50 update_all + 21:00/02:00 backfill 等overview更新
   const snap = state.intradaySnapshot;
   if (snap && snap.is_closed === true) return AFTER_HOURS_REFRESH_MS;
+  // C7(弱网第三批): 弱网不追关键时点 1min(降级档, 但仍守 <=3min 兜底铁律, 数据不滞后超 3min)
+  if (_weakNet()) return OVERVIEW_REFRESH_MS;
   return _isKeyRefreshMoment() ? 60 * 1000 : OVERVIEW_REFRESH_MS;
+}
+
+// C7(2026-10-17, 弱网第三批·降级档): 弱网判定单点(saveData 省流量开关 / 2G·3G 有效连接类型)。
+//   用途: 只在"轮询类/预加载类"请求上降频降量(概览轮询/全球跑马灯行情/首页新闻速览),
+//   **不用于**即时性属功能核心的通知轮询(30s 不可降, 见 memory notify-instant-over-resource 用户 2026-08-05 拍板)。
+//   宽带路径完全不受影响(判定为假时全站行为与改动前逐位一致)。
+function _weakNet() {
+  try {
+    const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!c) return false;
+    if (c.saveData === true) return true;         // 用户主动开省流量 = 最强弱网信号
+    const et = String(c.effectiveType || "");
+    return et === "slow-2g" || et === "2g" || et === "3g";
+  } catch (e) { return false; }
 }
 let _overviewRefreshTimer = null;
 let _overviewLastFetch = 0;
@@ -14435,14 +14507,15 @@ function _scheduleNextOverviewRefresh() {
   if (!_overviewRefreshActive) return;
   if (_overviewRefreshTimer) clearTimeout(_overviewRefreshTimer);
   const now = Date.now();
+  const _weak = _weakNet(); // C7: 弱网不追 15s 高频窗口(15s 轮询=弱网用户最大流量来源), 走低频兜底
   let delay;
-  if (_overviewHighFreqStart && now >= _overviewHighFreqStart && now < _overviewHighFreqEnd) {
+  if (!_weak && _overviewHighFreqStart && now >= _overviewHighFreqStart && now < _overviewHighFreqEnd) {
     delay = OVERVIEW_HIGH_FREQ_MS; // 高频窗口内: 15s追后端推完
-  } else if (_overviewHighFreqStart && now < _overviewHighFreqStart
+  } else if (!_weak && _overviewHighFreqStart && now < _overviewHighFreqStart
              && (_overviewHighFreqStart - now) <= OVERVIEW_REFRESH_MS) {
     delay = _overviewHighFreqStart - now; // 窗口起点在3min内: 精确等到起点切高频
   } else {
-    delay = _overviewRefreshDelay(); // 低频兜底: 关键时点1min/非关键3min
+    delay = _overviewRefreshDelay(); // 低频兜底: 关键时点1min/非关键3min(弱网固定3min)
   }
   _overviewNextFireAt = now + Math.max(1000, delay); // debug倒计时用
   _overviewRefreshTimer = setTimeout(() => {
@@ -16056,6 +16129,15 @@ async function renderOverview() {
       }
       function _gtSaveOrder(order) { try { localStorage.setItem(GLOBAL_TICKER_STORAGE_KEY, JSON.stringify(order)); } catch (e) {} }
 
+      // C8①(2026-10-17, 弱网第三批): 外部行情源统一超时(signal + 定时 abort)。
+      //   旧缺陷: 全站外部行情 fetch 无超时 ⇒ 弱网/源挂起时 Promise.all 阻塞整轮, _gtInFlight 恒 true
+      //   致调度链断(要等浏览器自身超时, 分钟级), 跑马灯整段卡死。5s 后转备源或等下一轮, 不拖累页面。
+      function _gtAbort(ms) {
+        const ctl = new AbortController();
+        const to = setTimeout(() => { try { ctl.abort(); } catch (e) {} }, ms);
+        return { signal: ctl.signal, done: () => clearTimeout(to) };
+      }
+
       // 主源:东财 push2delay 单只 stock/get(现货全8,逐只并行;ulist 批量当前失效走单只)
       async function _gtFetchEast() {
         // P1 自愈(2026-10-04 reviewer 复审「不可 merge」根治): 快照明确表示「已开市」(is_closed===false)
@@ -16074,8 +16156,9 @@ async function renderOverview() {
         const results = {};
         await Promise.all(GLOBAL_TICKER_ITEMS.map(async (item) => {
           const url = `https://push2delay.eastmoney.com/api/qt/stock/get?secid=${item.east.secid}&fields=f43,f58,f60,f86,f170`;
+          const _ab = _gtAbort(5000); // C8①: 单只 5s 超时
           try {
-            const r = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+            const r = await fetch(url, { method: "GET", headers: { "Accept": "application/json" }, signal: _ab.signal });
             if (!r.ok) return;
             const j = await r.json();
             const d = (j && j.data) || null;
@@ -16086,7 +16169,7 @@ async function renderOverview() {
             const pct = isFinite(Number(d.f170)) ? Number(d.f170) / 100 : null;
             const ts = isFinite(Number(d.f86)) ? Number(d.f86) * 1000 : null;
             results[item.key] = { price, pct, ts, src: "east" };
-          } catch (e) { /* 静默降级 */ }
+          } catch (e) { /* 静默降级 */ } finally { _ab.done(); }
         }));
         return results;
       }
@@ -16099,8 +16182,9 @@ async function renderOverview() {
         }
         if (!codes.length) return {};
         const results = {};
+        const _abTx = _gtAbort(5000); // C8①: 同源链统一超时(§23.3 同类覆盖)
         try {
-          const r = await fetch("https://qt.gtimg.cn/q=" + codes.join(","));
+          const r = await fetch("https://qt.gtimg.cn/q=" + codes.join(","), { signal: _abTx.signal });
           if (!r.ok) return results;
           const buf = await r.arrayBuffer();
           const text = new TextDecoder("gbk").decode(buf);
@@ -16135,7 +16219,7 @@ async function renderOverview() {
               results[key] = { price, pct, ts: null, src: "tx" };
             }
           }
-        } catch (e) { /* 静默降级 */ }
+        } catch (e) { /* 静默降级 */ } finally { _abTx.done(); }
         return results;
       }
       // 备2:gold-api(XAU/XAG 现货)+ open.er-api(USDCNH/USDJPY 日更)
@@ -16145,17 +16229,19 @@ async function renderOverview() {
         const erKeys = keys.filter(k => GLOBAL_TICKER_ITEMS.find(i => i.key === k).erapi);
         await Promise.all(goldKeys.map(async (k) => {
           const item = GLOBAL_TICKER_ITEMS.find(i => i.key === k);
+          const _abG = _gtAbort(5000); // C8①: 备源同样 5s 超时
           try {
-            const r = await fetch(`https://api.gold-api.com/price/${item.goldapi}`);
+            const r = await fetch(`https://api.gold-api.com/price/${item.goldapi}`, { signal: _abG.signal });
             if (!r.ok) return;
             const j = await r.json();
             const p = Number(j.price);
             if (isFinite(p) && p > 0) results[k] = { price: p, pct: null, ts: j.updatedAt ? Date.parse(j.updatedAt) : null, src: "goldapi" };
-          } catch (e) {}
+          } catch (e) {} finally { _abG.done(); }
         }));
         if (erKeys.length) {
+          const _abE = _gtAbort(5000); // C8①: 备源同样 5s 超时
           try {
-            const r = await fetch("https://open.er-api.com/v6/latest/USD");
+            const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: _abE.signal });
             if (r.ok) {
               const j = await r.json();
               if (j && j.result === "success" && j.rates) {
@@ -16166,7 +16252,7 @@ async function renderOverview() {
                 }
               }
             }
-          } catch (e) {}
+          } catch (e) {} finally { _abE.done(); }
         }
         return results;
       }
@@ -16209,7 +16295,10 @@ async function renderOverview() {
       function _gtSchedule() {
         if (!_gtActive) return;
         if (_gtTimer) clearTimeout(_gtTimer);
-        const delay = _gtFailCount >= 6 ? 120000 : Math.min(30000 * Math.pow(2, _gtFailCount), 120000);
+        let delay = _gtFailCount >= 6 ? 120000 : Math.min(30000 * Math.pow(2, _gtFailCount), 120000);
+        // C7(弱网第三批): 弱网下外部行情轮询降到 5min(单轮 9+3 路跨域 fetch, 是弱网用户最大流量来源之一)。
+        //   降频不暂停: 首轮仍渲染, 只是刷新变慢(跑马灯是参考信息非交易信号, 与通知即时性铁律无关)。
+        if (_weakNet()) delay = Math.max(delay, 300000);
         _gtTimer = setTimeout(() => {
           _gtTimer = null;
           if (!_gtActive) return;
@@ -25456,11 +25545,20 @@ async function _loadIndustryData(range) {
   const entries = await Promise.all(
     ids.map(async (iid) => [iid, await fetchJSON(`https://ss.fx8.store/r2/industry/industry-${range}-indices/${iid}.json`)])
   );
-  const conceptsRes = await fetchJSON(`https://ss.fx8.store/r2/industry/industry-${range}-concepts.json`);
+  // C4b(2026-10-17, 弱网第三批·解耦): 概念大文件不再与申万区串行阻塞, 也不再"一处失败拖垮整个行业 tab"。
+  //   旧缺陷: await fetchJSON(concepts) 用默认 15s 超时, all 档该文件 7.7MB gz ⇒ 弱网必超时抛错 ⇒
+  //   31 个行业文件明明已拿到, 整个「行业」tab 却渲染失败(根因锚点 app.js:25459+9717)。
+  //   改: ①不 await, 把 Promise 交给 renderIndustry 在申万区渲染完后消费(成功补挂概念区)
+  //      ②独立预算 45s(7.7MB gz 的大文件需要比默认 15s 更宽, 宽带用户不再被误判超时)
+  //      ③失败只降级概念区(带「重试」按钮), 申万区照常可用 —— 本节不动任何数据口径/排序/筛选语义。
+  const conceptsPromise = fetchJSON(`https://ss.fx8.store/r2/industry/industry-${range}-concepts.json`, 45000)
+    .then((res) => ({ concepts: (res && res.concepts) || {} }))
+    .catch((e) => ({ concepts: {}, error: (e && e.message) || String(e) }));
   return {
     indices: Object.fromEntries(entries),
     heatmap: meta.heatmap,
-    concepts: conceptsRes.concepts || {},
+    concepts: {},
+    _conceptsPromise: conceptsPromise,
   };
 }
 
@@ -25663,21 +25761,27 @@ async function renderIndustry(container = content) {
   container.appendChild(swGridWrap);
 
   // I2：概念板块也加搜索筛选 -- 共用 state.industrySearch，一个搜索条同时过滤两区
+  // C4b(2026-10-17, 弱网第三批·解耦): 概念区改「按数据到达挂载」——申万区(31 行业文件)先渲染可用,
+  //   概念大文件独立加载(见 _loadIndustryData): 成功补挂概念区, 失败降级概念区(带重试)不影响申万区。
   let conceptGridWrap = null;
   let conceptTitle = null; // 提到 if 块外，供 _applyIndustryFilter 更新 shown/total 标题
-  if (conceptCount > 0) {
+  const conceptAnchorBtn = anchorBar.querySelector('button[data-anchor="thsc-concepts"]');
+  function _mountConceptSection() {
+    if (conceptGridWrap) return; // 幂等: 已挂载不重复建
+    const cnt = Object.keys(r.concepts || {}).length;
     const thscSection = document.createElement("div");
     thscSection.id = "thsc-concepts";
     container.appendChild(thscSection);
-
     conceptTitle = document.createElement("div");
     conceptTitle.className = "section-title";
-    conceptTitle.textContent = `概念板块指数折线（${conceptCount}/${conceptCount} 个，` + _t("concept_title_signal") + ` + 回测统计）`;
+    conceptTitle.textContent = `概念板块指数折线（${cnt}/${cnt} 个，` + _t("concept_title_signal") + ` + 回测统计）`;
     thscSection.appendChild(conceptTitle);
-
     conceptGridWrap = document.createElement("div");
     thscSection.appendChild(conceptGridWrap);
+    if (conceptAnchorBtn) conceptAnchorBtn.textContent = `概念板块（${cnt}）`;
+    if (_industryScrollSpy) _industryScrollSpy.observe(thscSection); // 异步挂载也纳入 scrollspy(否则吸顶高亮不跟随概念区)
   }
+  if (conceptCount > 0) _mountConceptSection();
 
   function _applyIndustryFilter() {
     // 申万行业
@@ -25692,7 +25796,8 @@ async function renderIndustry(container = content) {
     swGridWrap.appendChild(title);
     renderIndustryGrid(filtered, swGridWrap);
     // I2：概念板块共用搜索条筛选
-    if (conceptGridWrap) {
+    // C4b: 概念区降级态(失败卡+重试)时跳过重渲, 避免用户一敲搜索就把失败卡与重试按钮冲掉(重试入口丢失)
+    if (conceptGridWrap && !r._conceptsDegradedShown) {
       _disposeContainerCharts(conceptGridWrap);
       conceptGridWrap.innerHTML = "";
       const conceptFiltered = filterIndicesByName(r.concepts, state.industrySearch);
@@ -25716,6 +25821,26 @@ async function renderIndustry(container = content) {
     }, 250);
   };
   _applyIndustryFilter();
+
+  // C4b: 概念数据异步到达 → 成功补挂概念区并重跑筛选(共用 state.industrySearch 语义不变);
+  //   失败 → 概念区降级失败卡 + 重试(重试=清行业缓存后重渲本 tab), 申万区不受影响。
+  if (!conceptCount && r._conceptsPromise) {
+    r._conceptsPromise.then((res) => {
+      if (res && res.concepts && Object.keys(res.concepts).length) {
+        r.concepts = res.concepts;
+        _mountConceptSection();
+        _applyIndustryFilter();
+        return;
+      }
+      if (r._conceptsDegradedShown) return; // 幂等: 多次进入本 tab(缓存命中)不重复刷降级卡
+      r._conceptsDegradedShown = true;
+      _mountConceptSection();
+      renderErrorState(conceptGridWrap, (res && res.error) || "概念板块数据加载失败", () => {
+        _industryCache = { range: null, r: null }; // 清缓存: 重试必须重新发起 concept 拉取
+        renderIndustry(container);
+      });
+    });
+  }
 
   // A9: 板块轮动频次 Top N 卡片（基于 fund_flow 方向反转次数，单板块维度，与全局轮动速度互补）
   // 插在 anchorBar 之前（热力图下方概览区），chip 点击清搜索+滚动定位对应板块卡
@@ -29229,7 +29354,8 @@ function _startHomeNewsPoll(banner, content) {
     clearTimeout(_homeNewsTimer); _homeNewsTimer = null; _homeNewsPolling = false;
   }
   _homeNewsPollEpoch = epoch;
-  const POLL_MS = 5 * 60 * 1000; // 5 分钟,覆盖 fetch_news 每30分钟增量
+  // C7(弱网第三批): 弱网下首页新闻速览轮询 5min → 15min(新闻是参考信息, 后端 fetch_news 本身 30min 才增量一次)
+  const POLL_MS = _weakNet() ? 15 * 60 * 1000 : 5 * 60 * 1000; // 宽带 5 分钟,覆盖 fetch_news 每30分钟增量
   const poll = () => {
     _homeNewsTimer = setTimeout(async () => {
       _homeNewsTimer = null;

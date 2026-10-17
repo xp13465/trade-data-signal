@@ -17,6 +17,18 @@
   <link rel="canonical" href="https://ss.fx8.store/">
   <link rel="preconnect" href="https://d.10jqka.com.cn">
   <link rel="preconnect" href="https://push2delay.eastmoney.com">
+  <!-- C8②(弱网第三批): 预连备站/主站源。ss.fx8.store 是所有 ./data/* 请求的 R2 兜底与 /r2/ 大文件直连源,
+       弱网首屏一旦触发兜底就要现场做 DNS+TLS(2-3 次往返), 提前预连省掉这段串行等待。 -->
+  <link rel="preconnect" href="https://ss.fx8.store">
+  <!-- C2(弱网第三批): boot.json 预取。boot 是首屏渲染的第一块数据(含 overview 副本/signal_stats/config),
+       原来要等 app.min.js 下载+执行后才发起(串行); 此处提前发起, 与 JS 下载并行, 首屏数据到位提前约 1 个 JS 下载时长。
+       ⚠️ 不用 <link rel=preload as=fetch>(SW 拦截下 as=fetch 的 preload 与页面 fetch 命中同一请求但语义易错),
+       直接起一个 fetch Promise 挂 window, 由 app.js fetchBoot() 消费(消费一次即置空, 失败回退原链路含 R2 兜底)。 -->
+  <script>
+  window.__bootPrefetch = fetch('./data/boot.json', { cache: 'no-cache' })
+    .then(function (r) { return r && r.ok ? r.json() : null; })
+    .catch(function () { return null; });
+  </script>
   <link rel="icon" type="image/x-icon" href="./favicon.ico?v=1dbb579c">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=9d27c273">
@@ -284,7 +296,9 @@
     </p>
   </footer>
 
-  <script src="./qr.js?v=20261013-a646"></script>
+  <!-- C6①(弱网第三批): qr.js(1.5KB 纯数据全局) 补 defer, 不再阻塞 HTML 解析;
+       defer 保序 ⇒ 仍在 common/app(亦 defer) 之前执行, QR_MODULES 消费点(app.js 二维码绘制)不受影响。 -->
+  <script defer src="./qr.js?v=20261013-a646"></script>
   <script defer src="./common.min.js?v=20261013-a646"></script>
   <script defer src="./purpose-notes.min.js?v=20261013-a646"></script>
   <!-- P1-01(2026-08-29): kelly-reports-content/kelly-review-notes 改 lab.js 动态懒加载,首页不预加载(省 379KB) -->

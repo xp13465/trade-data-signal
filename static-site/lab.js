@@ -10304,7 +10304,7 @@ function _kellyModeCompareHTML() {
       `<div class="lab-sigkelly-mode-compare-body">` +
         `<div class="lab-sigkelly-mode-compare-note">⚠ 先看清口径: <b>A/B/C</b> 是在 9 键基座上加规则(叠加口径, 金色=基座键/绿色=本方案叠加键); <b>NEW 14键/NEW14+1·15键</b> 是完全不同的组合结构(重构换基座, 蓝色=成员键, 不预设 8 默认在场、弃候选1; NEW14+1 为可选档非默认), 两者不能混为一谈。(NEW2·18键对照卡已于 2026-08-26 移除: 与14键差异太小, 原始数字存 mine24_compare.json)</div>` +
         `<div class="lab-sigkelly-mode-cards">${cardsHTML}</div>` +
-        `<div class="lab-sigkelly-mode-compare-foot">📐 数字口径: mode A + K1 + etf_def 费后补位口径(signal_date 切片); 数据版本 signal_kelly_trades generated_at=2026-08-23 05:09, 权威值=mine24_compare.json(经独立审查二次验证, docs/kelly/analysis/sim-combo-cheatsheet-20260823.md)。★=该维度冠军(A=近端收益冠军 / NEW=全史净利+回撤双冠)。本区为纯展示快照, 不随页面开关重算(交互切换归后续版本)。</div>` +
+        `<div class="lab-sigkelly-mode-compare-foot">📐 数字口径: mode A + K1 + etf_def 费后补位口径(signal_date 切片); 数据快照日 2026-08-23(当时 signal_kelly_trades 产物; 注: 该产物自 #222 起不再写 generated_at 键, 故本快照只标日期不引用该键), 权威值=mine24_compare.json(经独立审查二次验证, docs/kelly/analysis/sim-combo-cheatsheet-20260823.md)。★=该维度冠军(A=近端收益冠军 / NEW=全史净利+回撤双冠)。本区为纯展示快照, 不随页面开关重算(交互切换归后续版本)。</div>` +
       `</div>` +
     `</details>`;
 }

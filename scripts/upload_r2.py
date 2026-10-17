@@ -2377,6 +2377,7 @@ def cmd_upload_intraday():
     files = [
         "intraday_snapshot.json", "overview.json", "summary.json",
         "summary_history.json", "notifications.json", "boot.json",
+        "signals_today.json",   # C3(2026-10-17) 拆产物: 与 boot/overview 同批盘中重出, 否则信号卡盘中停在 T-1
         "schedule_stats.json",
         # 大盘结构套件（2026-08-19 修复：随 intraday _recompute_scores 盘中重算后一并上传 R2，
         # 否则前端 position/ma_alignment/ad_line/new_high_low/volume_ratio 卡盘中停在 T-1，
@@ -2659,7 +2660,8 @@ def _data_cache_ttl(pathname):
     if _re.search(r'^/data/(?:overview|intraday_snapshot|board_etf_map|daily_brief|'
                   r'daily_brief_history|signal_kelly_backtest|signal_kelly_trades|'
                   r'overfit_monitor|news_digest|signal_stats|'
-                  r'signal_kelly_trades_intraday|signal_kelly_backtest_intraday)\.json$', pathname):
+                  r'signal_kelly_trades_intraday|signal_kelly_backtest_intraday|'
+                  r'signals_today)\.json$', pathname):
         return 0
     if _re.search(r'^/data/(?:boot|notifications|summary|summary_history|schedule_stats|alert)\.json$',
                   pathname) or pathname == '/data/feed.xml':

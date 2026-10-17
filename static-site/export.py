@@ -1025,11 +1025,33 @@ def export_boot():
             # 前端检测 null 则 fallback fetch 对应 JSON
             boot[key] = None
             missing.append(f"{fname}({type(e).__name__})")
+    # C3（2026-10-17，弱网第三批·拆产物）: signals_today 从 boot 内嵌的 overview 副本里拆出独立产物。
+    #   背景：boot["overview"] 是 overview.json 的整份拷贝，其中 signals_today 占 boot 体积约 39%
+    #   （264KB gz 里 103KB gz），与 overview.json 重复传输（§22 同一事实两处存储/两处缓存）。
+    #   拆分：signals_today 单独一份 /data/signals_today.json，boot 内嵌副本只去掉这一个键
+    #   （signals_meta 等其余字段保留 —— 前端固化提示条/角标不依赖补拉，零等待）。
+    #   ⚠️ overview.json 本体一字不动 → 首页/回测/校验脚本等既有消费方口径零回归（老前端读 boot 也有兜底：
+    #   app.js _ensureSignalsToday 见 signals_today 缺失才补拉，缺失时回退 overview.json）。
+    #   生成失败不阻断 export：不 pop（保留旧内嵌副本，老链路可用），只告警。
+    _ov = boot.get("overview")
+    if isinstance(_ov, dict) and "signals_today" in _ov:
+        _st_payload = {
+            "date": _ov.get("date"),
+            "signals_today": _ov.get("signals_today"),
+            "signals_meta": _ov.get("signals_meta"),
+        }
+        try:
+            _st_size = write_json(DATA_DIR / "signals_today.json", _st_payload)
+            _ov.pop("signals_today", None)
+            print(f"  signals_today.json ({_st_size} bytes, C3 拆产物: boot 内嵌副本去 signals_today)")
+        except Exception as e:  # 拆产物失败 → 保留 boot 内嵌副本（老链路可用），不阻断
+            print(f"  ⚠️ signals_today.json 生成失败，保留 boot 内嵌副本: {type(e).__name__}: {e}")
     # boot.json 元信息（生成时间 + 合并的文件清单，供前端调试/版本核对）
     boot["_meta"] = {
         "generated_at": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "files": [f for _, f in boot_files],
         "missing": missing,
+        "split": ["signals_today.json"],  # C3: 从 boot 内嵌副本拆出的独立产物（前端按需补拉）
     }
     # 站点统一配置框架(P0, 2026-08-11)：config/site.yaml 前端可见子集 → boot.config
     # 前端 _siteConfig 单例读取（localStorage 用户选择 > boot.config 远程默认 > 代码内置默认）

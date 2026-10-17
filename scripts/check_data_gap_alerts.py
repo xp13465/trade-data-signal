@@ -49,9 +49,9 @@
   kelly_stale         交易记录产物新鲜度(双保险, 抓「时间戳新内容旧」):
                       B1 trades.json 最新 signal_date >= T-1(KELLY_BUY_NEXTDAY 次日开盘口径,
                       T-1 日信号在 T 盘后必须已入账; 9/7 断档 9/3<9/4 必命中 SEVERE);
-                      B2 产物生成时刻 <=48h(trades generated_at 有则取, 无则回退文件 mtime;
-                      #222 起 trades 已撤该键 → 实际走 mtime; 周末按最近交易日放宽;
-                      自测 case B2new/B2stale 覆盖 mtime 单源两向, #250②);
+                      B2 产物生成时刻 <=48h(判据=文件 mtime 单源; trades 自 #222 起已撤
+                      generated_at 键, 旧"双源取较旧"分支恒死代码 + 文案误导, #250② 已改单源;
+                      周末按最近交易日放宽; 自测 case B2new/B2stale 覆盖 mtime 单源两向);
                       B3 etf_daily accum_nav 最新日 >=T 但 trades 最新 <=T-2 → SEVERE
                       + 缺 nav 前3 ETF(QDII 513xxx 缺当日 nav 降 info)。
                       nav 最新日/次日价判定均排除盘中占位行(etf_name=etf_code 同值假数据,
@@ -175,7 +175,7 @@ FUND_SEVERE_BACK = 5      # 落后 >=5 交易日(约一周) → SEVERE(真停更
 KELLY_COVERAGE_BACK = 5       # 覆盖检查回溯窗口: 最近 N 个已生成信号的交易日
 KELLY_SEVERE_BACK = 2         # 落后 >=2 交易日仍无 trade → SEVERE(连续断档)
 KELLY_WARN_BACK = 1           # 落后 =1 交易日 → WARN(首日, 次日定价窗内不吓人)
-KELLY_STALE_MAX_H = 48        # B2: 产物 generated_at/mtime 距今上限(自然小时; 周末按交易日放宽)
+KELLY_STALE_MAX_H = 48        # B2: 产物 mtime 距今上限(自然小时; 周末按交易日放宽; 判据单源见 B2 段注释)
 KELLY_FAIL_MAX_DAYS = 2       # C1: 最近成功 deploy(deploy_*.log 含「退出码=0」)距今上限(自然日)
 KELLY_TRADES_FILE = "signal_kelly_trades.json"
 KELLY_FREEZE_FILE = "signal_kelly_etf_freeze.json"
@@ -1292,7 +1292,7 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
 
 def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
     """checker 7: 交易记录产物新鲜度(9/7「时间戳新内容旧」双保险, 设计 §4.2)。
-    B1 trades 最新 signal_date<T-1 → SEVERE; B2 generated_at/mtime >48h(周末按交易日放宽) → SEVERE;
+    B1 trades 最新 signal_date<T-1 → SEVERE; B2 产物 mtime >48h(周末按交易日放宽) → SEVERE;
     B3 nav 最新日>=T 但 trades<=T-2 → SEVERE + 缺 nav 前3 ETF(QDII 降 info)。
     #102 信号缺席感知(2026-09-11 SEVERE 误报根治): B1/B3 时间戳机械对比前先看「最近窗口内
     宇宙内入样 buy 系信号是否应入账却未入账」(复用 kelly_coverage 同源 _kelly_missing_candidates,
@@ -1386,14 +1386,10 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
                      f"建议: 补 etf_daily 次日价后重跑 export/signal_kelly_backtest。")
         out.append(Finding(KELLY_STALE_KEY, "severe" if b1_gated else "warn", b1_title, b1_detail))
 
-    # B2: generated_at / 文件 mtime 新鲜度(取较旧保守判定; 周末/节假日按最近交易日放宽)
-    ts_cands = [datetime.fromtimestamp(tp.stat().st_mtime)]
-    if generated:
-        try:
-            ts_cands.append(datetime.strptime(str(generated)[:19], "%Y-%m-%d %H:%M"))
-        except Exception:
-            pass
-    fresh_ts = min(ts_cands)
+    # B2: 产物新鲜度判据 = 文件 mtime 单源(周末/节假日按最近交易日放宽)。
+    # #250② 复核: 该产物自 #222 起已撤 generated_at 键, 旧版"generated_at/mtime 双源取较旧"分支
+    # 恒为死代码(永远是 mtime), 但文案仍写双源 → 误导排查者按不存在的键找问题。改单源 mtime, 措辞同源。
+    fresh_ts = datetime.fromtimestamp(tp.stat().st_mtime)
     fresh_ok = (today - fresh_ts).total_seconds() < KELLY_STALE_MAX_H * 3600
     t_date = None
     if T:
@@ -1408,7 +1404,7 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
         out.append(Finding(
             KELLY_STALE_KEY, "severe",
             f"交易记录产物生成于 {fresh_ts:%Y-%m-%d %H:%M}, 距今 {age_h:.0f}h(>{KELLY_STALE_MAX_H}h)",
-            f"signal_kelly_trades.json 的 generated_at/mtime 已 {age_h:.0f} 小时未刷新(上限 {KELLY_STALE_MAX_H}h, "
+            f"signal_kelly_trades.json 已 {age_h:.0f} 小时未刷新(判据=文件最后写入时间 mtime; 上限 {KELLY_STALE_MAX_H}h, "
             f"周末按最近交易日 {T} 放宽)。<br>backtest 连续未跑或跑挂但旧产物保留——B1 抓内容旧,B2 抓时间戳也旧。<br>"
             f"日志: {repo}/data/logs/update_all_launchd.log + deploy_*.log。<br>"
             f"建议: 人工重跑 export(含 signal_kelly_backtest 阶段)确认链路健康。"))

@@ -189,7 +189,10 @@ function dataCacheTtl(pathname) {
   //   2026-08-16 再补 signal_kelly_* / overfit_monitor / news_digest / signal_stats：均属「重跑后立即看」的
   //   回测/监控/速递类文件，CF 会把 MED 600s 实际拉长成 4h(max-age=14400)edge 残留，用户重跑后仍见旧版。
   //   stale 不可接受，与 overview 同属数据一致性核心(memory 同源事故)。
-  if (/^\/data\/(?:overview|intraday_snapshot|board_etf_map|daily_brief|daily_brief_history|signal_kelly_backtest|signal_kelly_trades|news_digest|signal_stats|signal_kelly_trades_intraday|signal_kelly_backtest_intraday)\.json$/.test(pathname)) return 0;
+  //   2026-10-17 补 signals_today：C3 拆产物（boot 内嵌副本去掉 signals_today，独立成 /data/signals_today.json）。
+  //   它与 overview.json 是同一份 signals_today 的两个消费入口 ⇒ 必须同新鲜度，否则首页信号卡（读 signals_today.json）
+  //   与其它展示位（读 overview.json）会出现 §22 不一致；故与 overview 同列 ttl=0。
+  if (/^\/data\/(?:overview|intraday_snapshot|board_etf_map|daily_brief|daily_brief_history|signal_kelly_backtest|signal_kelly_trades|news_digest|signal_stats|signal_kelly_trades_intraday|signal_kelly_backtest_intraday|signals_today)\.json$/.test(pathname)) return 0;
   // MED_FREQ 600s：AI 监控卡走势图数据(overfit_monitor 主文件 + _ext K档扩展, B拆分 2026-08-24)。
   //   【沿革/前提修正, 防后人困惑】2026-08-16 曾把 overfit_monitor 归入上面 NO_CACHE(ttl=0)：当时该文件
   //   <1MB 且 purge 链路缺失，「重跑立即看」只能靠 no-store 保证(memory edge-cache-ttl-stretch-no-cache)。
