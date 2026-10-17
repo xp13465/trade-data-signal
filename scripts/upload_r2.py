@@ -742,6 +742,10 @@ def cmd_delete(key, bucket=None):
         print(f"✓ 删除 {bkt}/{key}")
     else:
         print(f"✗ 删除 {bkt}/{key} status={status} {data.decode('utf-8', errors='replace')[:300]}")
+        # #231 H3 同模式(2026-10-17): 失败改 rc=1(此前静默 exit 0)。调用方全枚举:
+        # 仅人工/文档用法(如 docs/ops/large-json-guard-sync-20260926.md);全仓无 shell
+        # `if ! ... delete` 链、无定时调用方(r2_delete_prefix.py 用自身批量删除, 不走本命令)。
+        sys.exit(1)
 
 
 def cmd_clean_data_backup():
@@ -772,6 +776,11 @@ def cmd_upload(local, key):
         print(f"✓ {local} ({len(payload)}B) -> {PUBLIC}/{key}")
     else:
         print(f"✗ status={status}\n{data.decode('utf-8', errors='replace')[:1500]}")
+        # #231 H3(2026-10-17): 失败改 rc=1, 与同类单文件命令对齐(cmd_upload_decommissioned
+        # L2923 / cmd_upload_claude_backup L2956 均 sys.exit)。调用方
+        # app/collector/intraday_snapshot.py:2180 判 `returncode == 0 and "✓" in stdout`,
+        # 改后行为不变(失败早已走 else 分支);但消除"rc=0 却失败"的静默隐患(未来调用方踩坑)。
+        sys.exit(1)
 
 
 def cmd_upload_lab():

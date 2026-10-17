@@ -85,6 +85,17 @@ bash /Users/linhuichen/code/trade/scripts/deploy.sh                  # build_min
 
 > ⚠️ 盘中（09:30-15:30）不跑全量 export + deploy。盘中只有 intraday-snapshot 定时任务推 intraday_snapshot.json。
 
+### 2.4 底层单文件命令 `upload` / `delete`（脚本内部调用 / 手动兜底）
+
+```bash
+.venv/bin/python scripts/upload_r2.py upload <本地文件> <r2key>     # 单文件 PUT, key 例 data/board_etf_map.json
+.venv/bin/python scripts/upload_r2.py delete <r2key> [bucket]      # 单 key DELETE, bucket 默认 signal-data
+```
+
+- **退出码（2026-10-17 #231 H3 起）**：成功 `rc=0`（stdout 打 `✓`）；**失败打印 `✗` 且 `rc=1`**（此前失败仍是 `rc=0`，只有 stdout 记号，调用方容易漏判）。
+- 影响面：定时链 `app/collector/intraday_snapshot.py` 判 `rc==0 且 stdout 含 ✓`，改后行为不变；**人工用 `&&` 串联时失败会断链**（这是期望的变严，别再靠肉眼看 `✗`）。
+- 判成功统一口径：`rc==0` **且** stdout 含 `✓`（双信号，单一 stdout 记号不够）。
+
 ---
 
 ## 3. 改前端代码如何上线
