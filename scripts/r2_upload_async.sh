@@ -176,9 +176,14 @@ _run_r2_upload_impl() {
   # 主判据=停滞: 日志 mtime 超 N 秒无新增输出即判死(对齐 rclone --timeout 语义)。
   # #217②(2026-10-06): 阈值必须**严格 > 内层单请求 HTTP 超时**(R2_UPLOAD_HTTP_TIMEOUT,
   #   云上 .env=600), 否则内层仍在合法慢请求/重试时外层已先 kill = 梯度倒置(旧默认 300 < 600,
-  #   是 10-05/10-06 verify-r2 单通道静默被误杀诱因之一)。默认 900(= s06_snapshot.sh run_to 900
-  #   同口径: 内层 600 须留梯度, 见该脚本 L132); 显式 R2_UPLOAD_STALL_SECS 若 ≤ HTTP 超时,
-  #   自动抬到 HTTP+300(防倒置回归, 打日志留痕)。
+  #   是 10-05/10-06 verify-r2 单通道静默被误杀诱因之一)。
+  # #258 C3(2026-10-17) 订正本段依据: 默认 900 的**真正不变量**只有「> 内层 HTTP 超时 且留梯度」
+  #   (600 + 300 裕量), 与本文件无耦合的**任何外部脚本的 run_to 字面量**都不构成判据 ——
+  #   旧注写的「= s06_snapshot.sh run_to 900 同口径/见该脚本 L132」已陈旧: s06 的 **shell 兜底
+  #   字面量**现为 2760(#258 E1), 而其**工作段预算** 900 是 s06 自己的 `R2_UPLOAD_WORK_TIMEOUT`
+  #   (来自 upload_r2.py 进程内计时, 本处停滞判据不参与该口径)。两处是**不同层**的独立参数,
+  #   不该互相「同口径」; 想调本处阈值只按「> HTTP 超时 + 留裕量」定, 不必回看 s06。
+  #   显式 R2_UPLOAD_STALL_SECS 若 ≤ HTTP 超时, 自动抬到 HTTP+300(防倒置回归, 打日志留痕)。
   local _http_to="${R2_UPLOAD_HTTP_TIMEOUT:-30}"
   case "$_http_to" in ''|*[!0-9]*) _http_to=30 ;; esac
   local _stall_secs="${R2_UPLOAD_STALL_SECS:-900}"
