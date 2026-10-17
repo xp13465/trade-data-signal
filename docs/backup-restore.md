@@ -208,7 +208,9 @@ bash scripts/restore-large-json.sh --list --target /tmp/restore-test
 
 ```bash
 # 云上（生产数据仓库 = /home/ubuntu/code/trade-data）：裸调用即落到生产原位
-ssh ubuntu@<云上> 'bash /home/ubuntu/code/trade/scripts/restore-large-json.sh signal_kelly_trades.json'
+#   注：云上无 /home/ubuntu/code/trade/（那是本机 mac 代码仓路径）；云上代码仓 = trade-data-signal，
+#   经 trade-data/scripts → trade-data-signal/scripts 符号链接访问（2026-10-18 ssh 只读实核）
+ssh ubuntu@<云上> 'bash /home/ubuntu/code/trade-data/scripts/restore-large-json.sh signal_kelly_trades.json'
 # mac（生产数据仓库 = /Users/linhuichen/code/trade-data）：默认同样落生产原位
 bash scripts/restore-large-json.sh signal_kelly_trades.json
 ```

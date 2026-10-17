@@ -49,8 +49,12 @@
          dry-run 只把各渠道 send 短路成「模拟成功」, **汇总行照旧按模拟结果打印** ⇒
          `[notify] 汇总：已发出 email/feishu`(notify.py:3269) ⇒ 本判据 **True**(= 会被当成「真发出」落签)。
          实测证据: `/tmp/rev250-dryrun-probe.log`(RC=0, 末行即该汇总行)。
-      ② **tier/warning 形态**(`[notify][warning][dry-run] 模拟入聚合 buffer（不写盘）`, notify.py:2363):
-         不含 `路由完成：`/`已发出` ⇒ 判 **False**(不落签), 与「dry-run 不占窗」契约一致。
+      ② **tier/warning 形态**(`notify.py --tier warning --dry-run`): 输出 **含有** `路由完成：` 行
+         (`[notify][tier=warning] 路由完成：{res}`, notify.py:3097), 但其 res dict
+         `{'tier':'warning','email':False,'telegram':False,'feishu':False,'deferred':False,'defer_status':'dry_run'}`
+         **无任何 `True`** 且无 `已发出` ⇒ 本判据 **False**(不落签), 与「dry-run 不占窗」契约一致。
+         (dry-run 时 `defer_warning` 短路返回三态串 `"dry_run"` ⇒ `deferred=False`, notify.py:2373-2376;
+         另打 `[notify][warning][dry-run] 模拟入聚合 buffer（不写盘）:` 一行(notify.py:2374), 不含判据关键词。)
   · **影响面(实测核查, 2026-10-17)**: 本判据现有全部消费方(7 个: check_failed_units /
     check_s06_freshness / check_data_gap_alerts / detect_intraday_anomaly / check_monitor_heartbeat /
     overfit_monitor / monitor_72h.sh)**均不向 notify.py 传 `--dry-run`**; 传 dry-run 的是自验包装

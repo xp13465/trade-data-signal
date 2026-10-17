@@ -235,7 +235,7 @@ echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 =
 }
 
 # 6) #231 H1 链尾收口：sentiment R2 上传连续失败 → SEVERE（详见 check_sentiment_r2_upload.py 头注）
-#    sentiment-3y/5y/all 只走采集层内部 `upload_r2.py upload` 单点(#231:失败仍 exit 0)，失败只落
+#    sentiment-3y/5y/all 只走采集层内部 `upload_r2.py upload` 单点(#231 H3:失败改 rc=1,2026-10-17)，失败只落
 #    collect_log('sentiment_r2_upload','error') = UI 小红点，monitor 十维均不覆盖 ⇒ 告警盲区。
 #    本步在**链尾**消费本轮及前几轮日志里的上传结果（轮日志 = 每轮一份，天然是逐轮历史）：
 #    连续 M=3 轮失败才发；单轮/两轮失败不发。阈值依据 = 2026-10-17 云上只读普查（失败双峰

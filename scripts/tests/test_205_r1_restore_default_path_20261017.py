@@ -98,10 +98,13 @@ def test_03_fallback_to_repo(monkeypatch, tmp_path):
          f"兄弟缺时应回退 REPO, 得 {_default_data_repo()}")
 
 
-# ══════════ ④ 推导全不成立 → mac 常量末位兜底(不误指 dev/worktree) ══════════
+# ══════════ ④ 推导全不成立 → mac 常量末位兜底(仅「无 data/ 的 dev/worktree」不误指) ══════════
 def test_04_mac_const_last_resort(monkeypatch, tmp_path):
     _clear(monkeypatch, "STATICDATA_REPO")
     # worktree-like: REPO=某个没有 data/ 的目录; GIT_REPO 兄弟也不存在
+    # ⚠ 边界(P1 审查 §10.8 F2,实测):`data/` 存在性判据下,「带 data/ 的 worktree」会命中 dev 树
+    #   → 返回 worktree 自身(即有 data/ 时「不误指」不成立);本用例只覆盖「无 data/」形态。
+    #   处置=worktree 内裸跑请显式 `--target`(判据加固不在本轮范围)。
     dev = tmp_path / "worktree"
     dev.mkdir()
     monkeypatch.setenv("REPO", str(dev))

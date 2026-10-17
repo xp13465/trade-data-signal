@@ -8,7 +8,9 @@
   失败走两路之一:
     ① 正常路径 `_ok < _total` → `log_collect(..., "sentiment_r2_upload", "error", ...)`
     ② 异常路径(子进程 timeout / 读文件失败)→ 同上 log_collect error
-  而 `scripts/upload_r2.py` 的 `cmd_upload` 失败**仍 exit 0**(只 `print ✗`,#231 主体),
+  而 `scripts/upload_r2.py` 的 `cmd_upload` 失败改 **rc=1**(#231 H3,2026-10-17;此前静默
+  exit 0,只 `print ✗`)——采集层判据 `intraday_snapshot.py:2183`(`returncode == 0 and "✓" in
+  stdout`)对 rc 变化不敏感(失败早已走 else),故采集层行为不变、**仍不发外发**;
   且 `sentiment_r2_upload` 全仓**无任何告警消费者** ⇒ 失败只剩 UI 数据健康度小红点,
   monitor 十维均不覆盖。残余静默窗 = `sentiment-3y/5y/all` 三个单文件
   (3m/6m/1y 另有 `upload-intraday` 通道、失败走 SEVERE,已覆盖)。

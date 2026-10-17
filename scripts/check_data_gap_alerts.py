@@ -1307,7 +1307,7 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
     if trades is None or tp is None:
         return [Finding(KELLY_STALE_KEY, "severe", "交易记录产物缺失, 新鲜度检查无法进行",
                         f"{tp or KELLY_TRADES_FILE} 不存在/不可读。存在产物或已刷新需人工确认。")]
-    sig_set, latest, generated = _scan_trades(trades)
+    sig_set, latest, _ = _scan_trades(trades)
     excluded, best_etf = _load_universe(repo)
 
     win, T = _recent_signal_days(repo, KELLY_COVERAGE_BACK)

@@ -141,6 +141,7 @@
 ### 最近 15 条过错(按日期倒序)
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
 |---|---|---|---|---|
+| L52 | 10-18 | 改「被 tests/ 源码形状守卫盯的源文件」未跑全量 pytest(P4 `c7e49bf48` 把 `check_data_gap_alerts.py` B2 判据由 mtime+generated_at 双源收敛为 mtime 单源,而 `scripts/tests/test_222_trades_meta_strip.py:162` 源码形状守卫仍断言旧串「ts_cands」⇒ 主干 CI #891 `quality-gate-static` **确定性红**;次日 `bd5c2c697` 同步守卫才绿) | 改 `scripts/` **任何源码**后自验必含**全量 `pytest -q scripts/tests/`**(不止改动直接相关的用例)——`tests/` 里存在**源码形状守卫**(grep 源文件字面量),源形状一变守卫即红,本机只跑「相关用例绿」≠ 全绿(教训族 →memory `tests-freeze-today-must-inject`;CI 门禁口径 →memory `ci-sim-reverify-dispatch-discipline`) | archive:未单独归档(全文见本行) |
 | L51 | 10-15 | CI 假绿·时敏测试跨天红(#252 包用例把数据日期写死成"出生当天",被测代码取真实 `date.today()` ⇒ 引入当天 CI 绿、**次日必红**;10-14 引入、10-15 才暴露,期间无人察觉) | 凡**被测代码内部**取 `today()`/`now()`,用例**必须注入/冻结运行日**,禁写死日期字面量;交测试类改动前必验「隔天仍绿」(冻结运行日平移一天跑全量,**别替换标准库 `date`/`datetime` 类**⇒ 假失败)+ 过判别力关(改坏生产逻辑看会不会真红)(→memory `tests-freeze-today-must-inject` + role-tester skill §5.3.1 第三条硬约束) | archive:未单独归档(全文见 memory) |
 | L50 | 10-06 | 审查 harness 误执行生产脚本(#195 批4 独立审 reviewer 首版 probe harness 的 DEBUG trap 门控写成「REPO 与 GIT_REPO 同时非空才拦」,而 main 版脚本**只设 REPO 不设 GIT_REPO** ⇒ 门永假 ⇒ `fapi_daily_syn.sh` 被真跑 ~2 分 16 秒;独立取证判**零外发/零落库**,唯一副作用 = dev 树 `data/daily-k.parquet` 被覆盖 181MB) | 审查/测试的探针**一律 static-only**:验 resolve 类只需 source 目标 **lib**(经 stdin 管道喂 `bash -s`),**绝不 source/exec 业务脚本主体**;harness 门控禁用「环境变量是否齐」这类**可被真实形态绕过**的条件,必须正面白名单(只许执行显式声明的文件);派单把「禁跑业务脚本」写成**可核验项**(输出文件时间戳/`pgrep`)+ 事故后必有**独立取证**(不采信自述)(→memory `probe-harness-must-not-exec-prod-scripts`) | archive:锚点块本条(L50) |
 | L49 | 10-06 | 假样本养绿:机制层生产空转被 reviewer 判 PASS(#196 新增 `check_failed_units.py` ②b「脚本存在性」层 —— `WATCHMAN_UNITS` 全是 `.timer` 而 timer **无 `ExecStart` 属性** ⇒ 生产恒空;测试全绿是因注入样本给 timer 喂了现实中不存在的 `ExecStart`;§0 生产实跑才逮到) | 断言输入必须取**真实生产实测样本**(禁人工构造"看起来合理"的样本);reviewer 复算要核「真实对象**有没有**该字段」而非「解析器能否解析出值」;新增守卫/可见性机制 §0 必含「生产侧实跑实证」一条(→#203 + memory `mechanism-scope-verify-in-code`) | archive:锚点块本条(L49) |
@@ -155,8 +156,6 @@
 | L40 | 08-16 | 打 tag 只做点名处没举一反三(用户让打 v1.1.1,打了就报完成,但 v1.1.0 从没打过 git tag——首次 `git tag -l` 已见只有 v1.0.0,却把"v1.1.0 漏打"当顺手小事默默补打没暴露给用户) | ①「打tag/发版本」第一件事 `git tag -l` 全量核对版本链(v1.0.0→v1.1.0→v1.1.1 三连齐不齐),缺哪个先报用户确认再补 ②发版本验收口径=git tag 必须在(版本串 a2xx/memory/README 是辅助标记不替代 git tag),且必须 push 远端 ③发现历史疏漏=上报用户(§23.7⑤),不自己拍板位置 ④「打 vN tag」隐含前提=版本链完整,做 A 举一反三覆盖版本链全貌(§23.3) | archive:L110 |
 | L39 | 08-15 | 挖掘用裸G不可操作口径当基准(2.0挖掘第一轮用裸G测「剔除整象限G -74,954」,用户质疑后核实确是不可操作口径,结论需重测) | 回测/挖掘第一件事=确认基线落在当前基准(§5.4,权威 memory),测非基准口径(裸G/其他K/P档)必须显式声明+说明为何测+标注口径差异,不作主推结论 | archive:L109 |
 | L38 | 08-15 | daily-brief 周六触发降级(周六20:40收到AI预测且是老版本) | 触发源脚本(run_daily_brief.sh)必带交易日判断,非交易日不触发;降级=模型不守约束加强prompt不放松校验,补原始range日志(→memory daily-brief-range-degrade-contract) | archive:L108 |
-| L37 | 08-15 | 非交易日补发买卖点信号邮件(周日没开盘却收到周五买卖点信号) | 信号邮件/backfill 补发前判断交易日,非交易日不补发(→memory daily-brief-range-degrade-contract) | archive:L107 |
-
 ### 最近 10 条经验(按 E 编号倒序=最新;全量 30 条见归档锚点索引块)
 | 锚点 | 经验 | 适用 | 归档 |
 |---|---|---|---|

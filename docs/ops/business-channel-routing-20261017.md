@@ -62,6 +62,10 @@
   实发 report 群却记 business = 新的"台账与真实落群不一致"(正是本条要修的病);
   ③业务对账口径本来就是 `group ∈ {report, follow}`(264D §五)。
   若坚持"business"语义,建议**另加字段**(如 `kind=business`)而不是复用 `group`——留主控拍板。
+- **〔2026-10-18 拍板:采纳本口径〕** 台账 `group` 记**实际落群**(`report`/`follow`),**不引入** `business` 值;
+  264D §六5「填 business」措辞作废(已在 `docs/ops/264d-plan-report-20261017.md` §六5 就地订正)。
+  **实现侧核实(P5 拍板落档同步核)**:`notify.py` `send()`(`:1354-1359`)与 `send_to()`(`:1397`)现行取值 =
+  `ledger_group or feishu_group or _resolve_feishu_chat_key(...)` = **实际落群**,与本拍板口径一致,**无须改代码**。
 
 ## 四、邮件:维持单收件箱 + 前缀(事项 ②③)
 
@@ -156,6 +160,9 @@ python3 scripts/alert_meter.py --today
    - 逃生口:总开关 `ALERT_BUDGET_DISABLE=1` 全停该链;另两层可独立回滚 —— `ALERT_DOMAIN_DISABLE=1`(故障域聚合
      gate)、`ALERT_NOTICE_BUDGET_DISABLE=1`(非 critical 重复类预算 gate)。**若认为这两条故障必须始终即时直发,请拍板**(可加
      `--budget-exempt` 之类;本轮未加,以保改动面最小)。
+   - **〔2026-10-18 拍板:接受降噪链,不加 `--budget-exempt`〕** 两条故障源并入降噪链为**有意设计**(有上列三层逃生口)。
+     **实现侧核实(P5 拍板落档同步核)**:降噪 gate 现为形态 = `notify.py` `:1242`(故障域聚合,`_grp=="alert"`)/ `:1274`
+     (非 critical 重复类预算,`_grp=="alert"`),与本文描述一致,**无须改代码**。
 2. **群归属:这两条有意从 report 改成 alert**(264D §四 E2「锁跳过/[kelly] 样本必须落**故障渠道**」),
    与形态1 概述里「群归属零变化(隐式→显式)」的说法只在**业务出口**成立;故障源的群归属是本轮要修的目标
    (F2 实测 12 行/6 天误路由)。用户可见效果:这两类消息今后出现在告警群而不是报告群。
