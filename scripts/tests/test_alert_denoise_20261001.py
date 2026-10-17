@@ -501,9 +501,20 @@ def _l2_env(tmp_path, monkeypatch):
     monkeypatch.setattr(notify, "ALERT_DIGEST_FILE", alerts / "alert_digest.jsonl")
     monkeypatch.setattr(notify, "ALERT_DIGEST_LOCK_FILE", alerts / "alert_digest.flushlock")
     monkeypatch.setattr(notify, "ALERT_DIGEST_STATE_FILE", alerts / "alert_digest_state.json")
-    # 自锁守卫(防回归到既存缝): 镜像写面必须落在本用例的 tmp 树内, 否则这条用例一跑就红
+    # 2026-10-17 补齐既存隔离缝(a182abf73 先例只补了 10 个常量, 漏了 2 个锁常量): 锁常量同为
+    # **import 期**由 ALERTS_DIR 派生(notify.py:319)⇒ `_dedup_state_lock()` 会把
+    # warning_dedup.lock build 到**真实工作树** data/alerts/(用例全绿=假绿)。
+    monkeypatch.setattr(notify, "WARNING_DEDUP_LOCK_FILE", alerts / "warning_dedup.lock")
+    monkeypatch.setattr(notify, "WARNING_FLUSH_LOCK_FILE", alerts / "warning_buffer.flushlock")
+    # 自锁守卫(防回归到既存缝): notify 全部落盘面必须落在本用例的 tmp 树内, 否则一跑就红
     assert notify.ALERTS_FILE == alerts / "latest.md", \
         f"隔离缝破损: 告警镜像写面指向 {notify.ALERTS_FILE}(非 tmp) ⇒ 会污染真实告警痕迹"
+    _leak = [n for n in ("ALERTS_FILE", "WARNING_BUFFER_FILE", "INFO_LOG_FILE",
+                         "WARNING_FLUSH_LOCK_FILE", "WARNING_DEDUP_STATE_FILE",
+                         "WARNING_DEDUP_LOCK_FILE", "DEDUP_FILE", "ALERT_DIGEST_FILE",
+                         "ALERT_DIGEST_LOCK_FILE", "ALERT_DIGEST_STATE_FILE")
+             if tmp_path not in Path(getattr(notify, n)).parents]
+    assert not _leak, f"隔离缝破损: notify 落盘面泄漏到真实树 {_leak} ⇒ 会污染生产 data/alerts/"
     calls = []
 
     def _fake(kind):
