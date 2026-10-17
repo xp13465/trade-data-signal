@@ -1283,6 +1283,43 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
     return copied, skipped, failed, samples
 
 
+# ---- #253-c1(2026-10-17): 周日白天大批量 full 延后夜间 ----
+# 证据(docs/ops/watchdog-tradesim-slowkill-20261011.md §5-c1,用户已拍板「周日上线时点可后移」):
+#   同一跨境通道(异步链)周日凌晨 2 轮 **100% 成功**(366s / 709s),周日傍晚 2 轮 **0/2 被看门狗
+#   低速 kill**;trade-sim 单轮 full = 204.8MB(103 文件单 PUT 串完)⇒ 傍晚链路 ~0.27MiB/s 传不完,
+#   被 kill 后 marker 残留 → 下轮又全量,烧人工。
+# 做法(粒度按任务书,不扩大改动面):仅「周日 + 当前时刻 < 23:00 + 这三通道 + 已有状态文件(非
+#   首次/无状态全量)」把 full 延后到 23:00 后首轮;白天轮改按**平日增量逻辑**走(指纹扫描,秒级),
+#   并落一行明确日志(时刻 + 通道 + 原因 + 「延迟到 23:00 后」)。平日 / 夜间(≥23:00)/ 非这三通道 /
+#   首次无状态全量(走 export-guard L3 原路)一律不受本开关影响。
+# 依赖已核(L3694-3695):verify-r2 的「周日全量对账」独立按 weekday 判定,与上传通道 mode 无关 ⇒
+#   延后期间「R2 侧对象丢失/状态漂移」仍被周日 verify-r2 全量检出并自动补传(**漂移防护不丢**)。
+_NIGHT_FULL_DEFER_CHANNELS = frozenset({"trade-sim", "trade-sim-json", "index"})
+_NIGHT_FULL_DEFER_HOUR = 23          # 23:00 后首轮恢复 full(不含 23:00 前一刻)
+_NOW_OVERRIDE_ENV = "R2_NOW_OVERRIDE"  # 测试冻结运行时刻用(§18 L51,禁写死日期字面量)
+
+
+def _now():
+    """当前北京时间(Asia/Shanghai;取不到 zoneinfo 时降级本地时区=本机即北京)。
+
+    可注入冻结: env ``R2_NOW_OVERRIDE=<ISO8601>``(如 ``2026-10-18T14:00:00``)⇒ 返回该时刻。
+    §18 L51 时敏铁律:「周日 / 23:00」这类时刻判定的用例必须注入/冻结运行时刻、禁写死日期字面量;
+    此处把「取时刻」收敛为单点,用例设 env 即冻结,无需替换标准库 date/datetime 类(那样会假失败)。
+    口径与 ``_is_intraday_hours``(:193)同款:Asia/Shanghai 优先 + 本地降级。
+    """
+    override = os.environ.get(_NOW_OVERRIDE_ENV, "").strip()
+    if override:
+        try:
+            return datetime.datetime.fromisoformat(override)
+        except ValueError:
+            print(f"⚠ {_NOW_OVERRIDE_ENV} 非法({override!r}), 回退系统时间", file=sys.stderr)
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo("Asia/Shanghai"))
+    except Exception:  # noqa: BLE001 - 与 _is_intraday_hours 同款兜底
+        return datetime.datetime.now()
+
+
 def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
                         fingerprint=None, exclude_fn=None, checkpoint_every=0,
                         dry_run=None, label=None, on_fail=None):
@@ -1296,6 +1333,8 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         存双字段(结构对齐), 判定以 md5 为准(本地算 md5 快; 不做「size 快筛 + 上传后回填 md5」
         的 A/B 分叉优化, 少写抽象——见 .claude/skills/role-implementer §6.5(原 §6.5))。
       - 首跑/状态缺失或损坏 -> 自动退化全量; 每周日强制全量一次(防 R2 侧对象丢失/状态漂移);
+        **例外(#253-c1)**: trade-sim / trade-sim-json / index 三通道的周日 full 在白天(<23:00)
+        延后到 23:00 后首轮(白天轮走平日增量), 见本函数上方 _NIGHT_FULL_DEFER_CHANNELS 注释;
       - 增量 0 待传=正常完成(不报错, 防 deploy 把「今天没变化」当失败告警);
       - 状态只在全部上传成功后 tmp+os.replace 原子写; 部分失败保持旧状态下次重传面更大
         —— 失败方向宁多传不漏传;
@@ -1378,10 +1417,12 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         if old[1] is None or old[1] != md5:
             changed.append(p)
 
-    today_weekday = datetime.date.today().weekday()   # Monday=0 ... Sunday=6
+    now = _now()                                      # 可注入冻结的运行时刻(§18 L51)
+    today_weekday = now.weekday()                     # Monday=0 ... Sunday=6
     marker_stale = marker_path.exists()
     if marker_stale:
         print(f"[{label}] ⚠ 检测到上次上传未正常结束({marker_path.name}), 强制全量重传(fail-closed)")
+    incr_changed = list(changed)                      # 指纹增量集(force_full 覆盖前留存, 延后分支用)
     force_full = (not old_files) or today_weekday == 6 or marker_stale
     if marker_stale:
         mode = "上次上传中断强制全量"
@@ -1393,6 +1434,22 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         mode = "增量"
     if force_full:
         changed = list(all_json)
+
+    # #253-c1: 周日白天(<23:00)这三通道的 full 延后到 23:00 后首轮(常量注释见本函数上方)。
+    # 覆盖「周日强制全量」与「上次上传中断强制全量(marker 残留)」两种 full 来源(任务书口径);
+    # 首次/无状态全量(old_files 空)不延后 —— 它走 export-guard L3 拦截 + 告警原路, 保持原状。
+    if (force_full and old_files and today_weekday == 6
+            and now.hour < _NIGHT_FULL_DEFER_HOUR
+            and label in _NIGHT_FULL_DEFER_CHANNELS):
+        print(f"[{label}] ⏸ 周日白天(<{_NIGHT_FULL_DEFER_HOUR}:00)大批量 full 延后夜间: "
+              f"当前 {now:%Y-%m-%d %H:%M}, full 原因为「{mode}」; 本轮改按平日增量逻辑走"
+              f"(待传 {len(incr_changed)}/{len(all_json)}, 与 full 相比少传 "
+              f"{len(all_json) - len(incr_changed)} 个内容未变化文件), "
+              f"full 延迟到 {_NIGHT_FULL_DEFER_HOUR}:00 后首轮再执行"
+              f"(依据 docs/ops/watchdog-tradesim-slowkill-20261011.md §5-c1)")
+        force_full = False
+        changed = incr_changed
+        mode = f"增量(周日 full 延后到 {_NIGHT_FULL_DEFER_HOUR}:00 后)"
 
     print(f"[{label}] 模式={mode} 本次待传 {len(changed)}/{len(all_json)}"
           f"(其余 {len(all_json) - len(changed)} 个内容未变化跳过)")
