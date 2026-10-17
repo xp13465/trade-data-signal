@@ -234,4 +234,16 @@ echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 =
   "$PY" "$REPO/scripts/notify.py" "[告警] intraday schedule_stats R2上传失败 ${ALERT_TIME}" "schedule_stats R2 上传失败，前端"执行统计"将读旧数据，下一轮 intraday 自动重试。需手动补刷: bash scripts/upload_r2.py upload-data-files schedule_stats.json<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key intraday_schedule_stats_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 }
 
+# 6) #231 H1 链尾收口：sentiment R2 上传连续失败 → SEVERE（详见 check_sentiment_r2_upload.py 头注）
+#    sentiment-3y/5y/all 只走采集层内部 `upload_r2.py upload` 单点(#231:失败仍 exit 0)，失败只落
+#    collect_log('sentiment_r2_upload','error') = UI 小红点，monitor 十维均不覆盖 ⇒ 告警盲区。
+#    本步在**链尾**消费本轮及前几轮日志里的上传结果（轮日志 = 每轮一份，天然是逐轮历史）：
+#    连续 M=3 轮失败才发；单轮/两轮失败不发。阈值依据 = 2026-10-17 云上只读普查（失败双峰
+#    6/6 或 0/6、无部分失败样本；单轮失败有 5 例自愈、长连败 1 例）⇒ 判别维度取「持续性」，
+#    不取单轮严重度（降噪纪律：不把真故障判别维度降没）。口径/四元组见脚本头注。
+#    本步恒 exit 0，失败只打印不阻塞快照链。
+echo "-> 链尾检查 sentiment R2 上传连续失败（#231 H1）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/check_sentiment_r2_upload.py" --log "$LOG" --logdir "$LOGDIR" --notify-send \
+  2>&1 | tee -a "$LOG" || echo "⚠ check_sentiment_r2_upload 失败(不阻塞快照)" | tee -a "$LOG"
+
 exit 0

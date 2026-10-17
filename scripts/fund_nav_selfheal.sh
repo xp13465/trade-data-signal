@@ -27,12 +27,24 @@
 #   ① **不放宽阻断语义** —— 重跑仍 FAIL 由 deploy.sh 原逻辑终止部署 + 告警（用户拍板保留）
 #   ② 复用 scripts/with_lock.py 进程互斥（并发 deploy 段1 可并发，防两实例同时全量重出打 IO）
 #      + 临近 17:50 update_all 窗口跳过（FUNDNAV_SELFHEAL_SKIP_BEGIN/END，默认 17:25-18:35）
-#   ③ 上界：最多重出 1 次（本脚本天然一次）+ 单次超时 FUNDNAV_SELFHEAL_TIMEOUT（默认 900s）
+#   ③ 上界：最多重出 1 次（本脚本天然一次）+ 单次**工作段**超时 FUNDNAV_SELFHEAL_TIMEOUT
+#      （默认 900s；等锁段另计 FUNDNAV_SELFHEAL_LOCK_WAIT 默认 300s，见 #258 A2）
 #   ④ 爆炸半径最小：只碰 nav_bucket（export_fund_nav + nav_bucket rsync + upload-fund-nav），
 #      **绝不重出其它产物**（其它产物 deploy 链自己每日重出，无此窗口）
 #
+# #258 A2 (2026-10-17): 步骤③重出段的**计时口径**修正（与 #258 A1/E1 同族）。
+#   病灶: 旧写法 `regen_with_timeout "$TIMEOUT"(=900) … with_lock.py --block-timeout 300 …`
+#   量的是「进程启动→结束」整段墙钟（**含排队等锁**）；撞上并发实例长持锁时
+#   「等锁 300s + 工作 620s」就已逼近 900s，等锁吃掉工作预算。
+#   修法: 预算拆两段各自独立计时 —— 等锁段 = with_lock.py `--block-timeout $LOCK_WAIT_BUDGET`
+#   （默认 300，口径未变，仍优雅跳过 exit 0）；工作段 = with_lock.py `--exec-timeout $TIMEOUT`
+#   （默认 900，**未放宽**，计时起点 = 真正拿到锁之后，在 with_lock.py 进程内计时）。
+#   shell 侧 `regen_with_timeout` 保留为**外层兜底** = 等锁 + 工作 + 60 余量（只兜
+#   「内层计时器生效之前」的窗口），与 #258 A1/E1 口径对齐（内层 < 外层留梯度）。
+#
 # 测试注入（**仅供测试，生产禁设**；见 scripts/tests/test_fundnav_selfheal_dbday_20261013.py）:
 #   FUNDNAV_SELFHEAL_NOW=HHMM         覆盖当前时刻（窗口判定用，免等真实时钟）
+#   FUNDNAV_SELFHEAL_LOCK_WAIT=N      覆盖**等锁段**预算（默认 300s，with_lock --block-timeout）
 #   FUNDNAV_SELFHEAL_EXPORT_CMD=...   覆盖重出命令（默认 $PY scripts/export_fund_nav.py）
 #   FUNDNAV_SELFHEAL_ASYNC_UPLOAD=0   关闭 R2 异步重传（**自测必须设 0**，防真上传）
 #   FUNDNAV_SELFHEAL_DRY_RUN=1        只探针+打印计划，不重出/不同步/不上传
@@ -50,12 +62,24 @@ LOCK="${FUNDNAV_SELFHEAL_LOCK:-/tmp/trade_fund_nav_export.lock}"
 NOW_HHMM="${FUNDNAV_SELFHEAL_NOW:-$(date +%H%M)}"
 SKIP_BEGIN="${FUNDNAV_SELFHEAL_SKIP_BEGIN:-1725}"   # 17:25
 SKIP_END="${FUNDNAV_SELFHEAL_SKIP_END:-1835}"       # 18:35
-TIMEOUT="${FUNDNAV_SELFHEAL_TIMEOUT:-900}"          # 单次重出超时 15min
+TIMEOUT="${FUNDNAV_SELFHEAL_TIMEOUT:-900}"          # 单次重出**工作段**超时 15min(计时起点=拿锁之后)
+# #258 A2: 步骤③预算拆两段(口径与 #258 A1/E1 同款, 见文件头 #258 A2 段)。
+#   等锁段 = with_lock.py --block-timeout(默认 300, 口径未变, 超界仍优雅跳过 exit 0);
+#   工作段 = with_lock.py --exec-timeout(= TIMEOUT, 默认 900 **未放宽**, 计时起点 = 拿锁之后)。
+#   shell 侧 regen_with_timeout 保留为**外层兜底** = 等锁 + 工作 + 60 余量(只兜内层计时器
+#   生效之前 / 内层自身异常未退出的窗口), 满足「内层 < 外层留梯度」。
+LOCK_WAIT_BUDGET="${FUNDNAV_SELFHEAL_LOCK_WAIT:-300}"
+for _v in "$LOCK_WAIT_BUDGET" "$TIMEOUT"; do
+  case "$_v" in
+    ''|*[!0-9]*) echo "✗ FATAL: fund_nav_selfheal 预算需为非负整数(等锁=$LOCK_WAIT_BUDGET 工作=$TIMEOUT)" >&2; exit 2 ;;
+  esac
+done
+SHELL_LIMIT=$((LOCK_WAIT_BUDGET + TIMEOUT + 60))
 DRY_RUN="${FUNDNAV_SELFHEAL_DRY_RUN:-0}"
 ASYNC_UPLOAD="${FUNDNAV_SELFHEAL_ASYNC_UPLOAD:-1}"
 
 echo "=== fund_nav_selfheal 开始 $(date '+%Y-%m-%d %H:%M:%S') ==="
-echo "  REPO=$REPO GIT_REPO=$GIT_REPO now=$NOW_HHMM skip_window=[$SKIP_BEGIN,$SKIP_END] timeout=${TIMEOUT}s dry_run=$DRY_RUN async_upload=$ASYNC_UPLOAD"
+echo "  REPO=$REPO GIT_REPO=$GIT_REPO now=$NOW_HHMM skip_window=[$SKIP_BEGIN,$SKIP_END] 等锁预算=${LOCK_WAIT_BUDGET}s 工作预算=${TIMEOUT}s 外层兜底=${SHELL_LIMIT}s dry_run=$DRY_RUN async_upload=$ASYNC_UPLOAD"
 
 # ⓪ 总开关(2026-10-13 加, 止血/恢复用): FUNDNAV_SELFHEAL_DISABLE=1 ⇒ 等价「未命中」(exit 10),
 #    调用方走原终止逻辑, 行为回到改动前(无需改代码/无需回滚)。恢复路径全文见
@@ -85,13 +109,16 @@ case "$PROBE_RC" in
 esac
 
 if [ "$DRY_RUN" = "1" ]; then
-  echo "[dry-run] 计划: 重出 nav_bucket(with_lock $LOCK, 超时 ${TIMEOUT}s) + rsync 镜像树 + 异步重传 R2；本轮不执行"
+  echo "[dry-run] 计划: 重出 nav_bucket(with_lock $LOCK, 等锁预算 ${LOCK_WAIT_BUDGET}s / 工作预算 ${TIMEOUT}s / 外层兜底 ${SHELL_LIMIT}s) + rsync 镜像树 + 异步重传 R2；本轮不执行"
   exit 13
 fi
 
-# ③ 重出 nav_bucket（互斥 + 超时，上界 1 次）
-#    with_lock.py --block-timeout 300：并发实例（deploy 段1 可并发）先有界等锁，界内释放则继续；
-#    超界优雅跳过（exit 0，不当作崩溃）。跳过 / 失败由 ④ 复核探针 + 调用方重跑校验兜底定生死。
+# ③ 重出 nav_bucket（互斥 + 两段预算，上界 1 次）
+#    with_lock.py --block-timeout $LOCK_WAIT_BUDGET：并发实例（deploy 段1 可并发）先有界等锁，
+#    界内释放则继续；超界优雅跳过（exit 0，不当作崩溃）。
+#    with_lock.py --exec-timeout $TIMEOUT（#258 A2）：持锁**执行段**预算，计时起点 = 真正拿到锁
+#    之后 ⇒ 排队等锁时长不再挤占工作预算（旧口径 bug：300s 等锁 + 620s 工作就撞外层 900s）。
+#    跳过 / 失败由 ④ 复核探针 + 调用方重跑校验兜底定生死。
 GEN_CMD=("$PY" "$REPO/scripts/export_fund_nav.py")
 if [ -n "${FUNDNAV_SELFHEAL_EXPORT_CMD:-}" ]; then
   echo "  ⚠ 使用 FUNDNAV_SELFHEAL_EXPORT_CMD 覆盖重出命令（仅测试路径）: ${FUNDNAV_SELFHEAL_EXPORT_CMD}"
@@ -110,7 +137,7 @@ regen_with_timeout() {
     sleep 5
     slept=$((slept + 5))
     if [ "$slept" -ge "$limit" ]; then
-      echo "⚠ 重出 nav_bucket 超 ${limit}s 未退出，kill pid=${pid}（上界=1 次，不重试）"
+      echo "⚠ 重出 nav_bucket 外层兜底超 ${limit}s 未退出（等锁+工作+余量；内层预算应更早触发，本条只兜内层失效），kill pid=${pid}（上界=1 次，不重试）"
       pkill -TERM -P "$pid" 2>/dev/null || true
       kill -TERM "$pid" 2>/dev/null; sleep 2
       pkill -KILL -P "$pid" 2>/dev/null || true
@@ -128,8 +155,8 @@ regen_with_timeout() {
   return "$rc"
 }
 
-echo "→ 重出 nav_bucket（互斥锁 $LOCK, 超时 ${TIMEOUT}s, 最多 1 次）..."
-regen_with_timeout "$TIMEOUT" "$PY" "$REPO/scripts/with_lock.py" --block-timeout 300 "$LOCK" "${GEN_CMD[@]}"
+echo "→ 重出 nav_bucket（互斥锁 $LOCK, 等锁预算 ${LOCK_WAIT_BUDGET}s / 工作预算 ${TIMEOUT}s, 最多 1 次）..."
+regen_with_timeout "$SHELL_LIMIT" "$PY" "$REPO/scripts/with_lock.py" --block-timeout "$LOCK_WAIT_BUDGET" --exec-timeout "$TIMEOUT" "$LOCK" "${GEN_CMD[@]}"
 REGEN_RC=$?
 if [ "$REGEN_RC" -ne 0 ]; then
   echo "✗ 自愈重出失败/超时（rc=${REGEN_RC}，上界=1 不重试）→ 交调用方走原终止逻辑"

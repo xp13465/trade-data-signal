@@ -49,6 +49,25 @@ def _isolate(tmp_path, monkeypatch, request):
     monkeypatch.setattr(notify, "ALERTS_DIR", tmp_path / "data" / "alerts")
     monkeypatch.setattr(notify, "ALERTS_FILE", tmp_path / "data" / "alerts" / "latest.md")
     monkeypatch.setattr(notify, "DEDUP_FILE", tmp_path / "data" / "notify_dedup.json")
+    # 2026-10-17 补齐既存隔离缝(对齐 a182abf73/test_245 先例;docstring 原称「全部落 tmp」
+    # 但 10 个 notify 落盘常量只 patch 了 3 个): 其余 7 个同为 **import 期**由 ALERTS_DIR
+    # 派生(notify.py:299-319), 不随 ALERTS_DIR 的 patch 自动改 ⇒ 一旦触发 buffer flush /
+    # 去重锁 / 摘要面就会写**真实工作树** data/alerts/(假绿)。
+    _a = tmp_path / "data" / "alerts"
+    monkeypatch.setattr(notify, "WARNING_BUFFER_FILE", _a / "warning_buffer.jsonl")
+    monkeypatch.setattr(notify, "INFO_LOG_FILE", _a / "info_log.jsonl")
+    monkeypatch.setattr(notify, "WARNING_FLUSH_LOCK_FILE", _a / "warning_buffer.flushlock")
+    monkeypatch.setattr(notify, "WARNING_DEDUP_STATE_FILE", _a / "warning_dedup_state.json")
+    monkeypatch.setattr(notify, "WARNING_DEDUP_LOCK_FILE", _a / "warning_dedup.lock")
+    monkeypatch.setattr(notify, "ALERT_DIGEST_FILE", _a / "alert_digest.jsonl")
+    monkeypatch.setattr(notify, "ALERT_DIGEST_LOCK_FILE", _a / "alert_digest.flushlock")
+    monkeypatch.setattr(notify, "ALERT_DIGEST_STATE_FILE", _a / "alert_digest_state.json")
+    _leak = [n for n in ("ALERTS_FILE", "WARNING_BUFFER_FILE", "INFO_LOG_FILE",
+                         "WARNING_FLUSH_LOCK_FILE", "WARNING_DEDUP_STATE_FILE",
+                         "WARNING_DEDUP_LOCK_FILE", "DEDUP_FILE", "ALERT_DIGEST_FILE",
+                         "ALERT_DIGEST_LOCK_FILE", "ALERT_DIGEST_STATE_FILE")
+             if tmp_path not in Path(getattr(notify, n)).parents]
+    assert not _leak, f"隔离缝破损: notify 落盘面泄漏到真实树 {_leak} ⇒ 会污染生产 data/alerts/"
     monkeypatch.setattr(notify.smtplib, "SMTP_SSL", _boom)
     monkeypatch.setattr(notify.urllib.request, "urlopen", _boom)
     # TG 配置存在与否决定台账 channels 是否含 telegram 键 → 固定为「未配置」，

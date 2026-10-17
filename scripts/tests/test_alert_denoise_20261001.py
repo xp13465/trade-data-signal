@@ -475,17 +475,46 @@ import notify  # noqa: E402
 
 
 def _l2_env(tmp_path, monkeypatch):
-    """L2 用例隔离: 全落盘面指 tmp_path + 渠道打桩(返回 True 并记录调用)。"""
+    """L2 用例隔离: 全落盘面指 tmp_path + 渠道打桩(返回 True 并记录调用)。
+
+    2026-10-17 补齐既存隔离缝(独立复查 §七;对齐 test_245_l2_budget_digest_20261010.py::_iso 先例):
+      坑 = notify 的 severe 镜像写 latest.md 全程用**模块常量 ALERTS_FILE**(写路径 notify.py:1523
+      `tmp.replace(ALERTS_FILE)`、登记 L1591),而它是 **import 期**按 REPO 算死的;fixture 里
+      `setenv("REPO", ...)` / `setattr(notify, "REPO"/"ALERTS_DIR", ...)` 都不会让它重算 ⇒
+      用例在 tmp 环境断言通过、latest.md 却落到**真实工作树** data/alerts/latest.md,
+      污染「开工优先排查」告警面(2026-10-17 08:57 实测 2 条假 severe);
+      同理 `NOTIFY_SOURCE` env 会被同进程早先 import 的 retry_failed_metrics.py 等
+      `os.environ.setdefault` 污染(进程级),必须 delenv(对齐 test_245 先例)。
+    """
     alerts = tmp_path / "data" / "alerts"
     alerts.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("REPO", str(tmp_path))
-    monkeypatch.delenv("ALERT_BUDGET_DISABLE", raising=False)
-    monkeypatch.delenv("ALERT_DIGEST_DISABLE", raising=False)
+    for _v in ("NOTIFY_SOURCE", "ALERT_BUDGET_DISABLE", "ALERT_DIGEST_DISABLE"):
+        monkeypatch.delenv(_v, raising=False)
     monkeypatch.setattr(notify, "REPO", tmp_path)
     monkeypatch.setattr(notify, "ALERTS_DIR", alerts)
+    monkeypatch.setattr(notify, "ALERTS_FILE", alerts / "latest.md")
+    monkeypatch.setattr(notify, "WARNING_BUFFER_FILE", alerts / "warning_buffer.jsonl")
+    monkeypatch.setattr(notify, "INFO_LOG_FILE", alerts / "info_log.jsonl")
+    monkeypatch.setattr(notify, "WARNING_DEDUP_STATE_FILE", alerts / "warning_dedup_state.json")
+    monkeypatch.setattr(notify, "DEDUP_FILE", alerts / "notify_dedup.json")
     monkeypatch.setattr(notify, "ALERT_DIGEST_FILE", alerts / "alert_digest.jsonl")
     monkeypatch.setattr(notify, "ALERT_DIGEST_LOCK_FILE", alerts / "alert_digest.flushlock")
     monkeypatch.setattr(notify, "ALERT_DIGEST_STATE_FILE", alerts / "alert_digest_state.json")
+    # 2026-10-17 补齐既存隔离缝(a182abf73 先例只补了 10 个常量, 漏了 2 个锁常量): 锁常量同为
+    # **import 期**由 ALERTS_DIR 派生(notify.py:319)⇒ `_dedup_state_lock()` 会把
+    # warning_dedup.lock build 到**真实工作树** data/alerts/(用例全绿=假绿)。
+    monkeypatch.setattr(notify, "WARNING_DEDUP_LOCK_FILE", alerts / "warning_dedup.lock")
+    monkeypatch.setattr(notify, "WARNING_FLUSH_LOCK_FILE", alerts / "warning_buffer.flushlock")
+    # 自锁守卫(防回归到既存缝): notify 全部落盘面必须落在本用例的 tmp 树内, 否则一跑就红
+    assert notify.ALERTS_FILE == alerts / "latest.md", \
+        f"隔离缝破损: 告警镜像写面指向 {notify.ALERTS_FILE}(非 tmp) ⇒ 会污染真实告警痕迹"
+    _leak = [n for n in ("ALERTS_FILE", "WARNING_BUFFER_FILE", "INFO_LOG_FILE",
+                         "WARNING_FLUSH_LOCK_FILE", "WARNING_DEDUP_STATE_FILE",
+                         "WARNING_DEDUP_LOCK_FILE", "DEDUP_FILE", "ALERT_DIGEST_FILE",
+                         "ALERT_DIGEST_LOCK_FILE", "ALERT_DIGEST_STATE_FILE")
+             if tmp_path not in Path(getattr(notify, n)).parents]
+    assert not _leak, f"隔离缝破损: notify 落盘面泄漏到真实树 {_leak} ⇒ 会污染生产 data/alerts/"
     calls = []
 
     def _fake(kind):

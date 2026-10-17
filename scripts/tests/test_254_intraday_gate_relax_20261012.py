@@ -114,6 +114,34 @@ def _ensure_request_exception(monkeypatch):
         monkeypatch.setattr(_requests_mod, "RequestException", Exception, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _iso_gate_paths(tmp_path, monkeypatch):
+    """#254 隔离缝补齐(2026-10-17, 对齐 a182abf73/test_245 先例)。
+
+    病灶: decider 的**全部落盘面**都是 **import 期**由 REPO 派生的模块常量
+    (kelly_intraday_gate_decider.py:48-51 STATE_PATH/LEDGER_PATH/LOCK_PATH/REPORT_PATH);
+    `--commit` 分支即便带 `--dry-run` 也会 `LOCK_PATH.parent.mkdir` + 开 LOCK_PATH +
+    `append_ledger`(缺省 LEDGER_PATH, notify 只挡外发不挡落盘)⇒ 不重定向就写
+    **真实工作树** data/alerts/。本文件此前仅 1 处用例 patch 了 LEDGER_PATH(且未 patch
+    LOCK_PATH), 其余 3 处 `--commit --dry-run` 用例静默写真实树(实测: 单跑本文件新增
+    `data/alerts/.kelly_intraday_gate.lock` + `data/alerts/kelly_intraday_gate_ledger.jsonl`,
+    且下游 `kelly_intraday_gate_ack.py:27-36` 是 `from kelly_intraday_gate_decider import
+    LOCK_PATH...` 的**值拷贝** ⇒ 两个模块都要重绑, 只 patch gate.* 仍有 ack.* 漏写真实树(实测)。
+    用例全绿 = 假绿)。env REPO 只覆盖**调用时**解析的路径, 对 import 期常量无效 ⇒ 须显式重绑。
+    """
+    for _m in (gate, ack):
+        for _n in ("STATE_PATH", "LEDGER_PATH", "LOCK_PATH", "REPORT_PATH"):
+            if hasattr(_m, _n):
+                monkeypatch.setattr(_m, _n, tmp_path / Path(getattr(_m, _n)).name)
+    # 自锁守卫(防回归到既存缝): decider **及其下游 ack** 的落盘面必须全落在本用例 tmp 树内,
+    # 破了当场红。(ack 是 `from kelly_intraday_gate_decider import LOCK_PATH, ...` 的**值拷贝**
+    # ⇒ 只 patch gate.* 不改 ack.*, 实测漏 patch 时 `.kelly_intraday_gate.lock` 落真实树。)
+    _leak = [f"{_m.__name__}.{n}" for _m in (gate, ack)
+             for n in ("STATE_PATH", "LEDGER_PATH", "LOCK_PATH", "REPORT_PATH")
+             if hasattr(_m, n) and tmp_path not in Path(getattr(_m, n)).parents]
+    assert not _leak, f"隔离缝破损: 落盘面泄漏到真实树 {_leak} ⇒ 会污染生产 data/alerts/"
+
+
 def _report(run_date, target_count, codes, classes, main_ok=False, fb=True):
     infos = [{"code": c, "class": cls, "evidence": "real", "ts": "2026-10-12 09:40:00"}
              for c, cls in zip(codes, classes)]

@@ -86,6 +86,18 @@ def main() -> int:
     notify.ALERT_DIGEST_FILE = alerts / "alert_digest.jsonl"
     notify.ALERT_DIGEST_LOCK_FILE = alerts / "alert_digest.flushlock"
     notify.ALERT_DIGEST_STATE_FILE = alerts / "alert_digest_state.json"
+    # 2026-10-17 补齐既存隔离缝(对齐 a182abf73/test_245 先例): 上面 9 个常量漏了 2 个锁常量,
+    # 它们同为 **import 期**由 ALERTS_DIR 派生(notify.py:319)⇒ `_dedup_state_lock()` 的
+    # `open(WARNING_DEDUP_LOCK_FILE,"a+")` 会 build 到**真实工作树** data/alerts/warning_dedup.lock
+    # (实测: 本脚本跑完 rc=0「全绿」但真实树多出该文件)。
+    notify.WARNING_DEDUP_LOCK_FILE = alerts / "warning_dedup.lock"
+    notify.WARNING_FLUSH_LOCK_FILE = alerts / "warning_buffer.flushlock"
+    _leak = [n for n in ("ALERTS_FILE", "WARNING_BUFFER_FILE", "INFO_LOG_FILE",
+                         "WARNING_FLUSH_LOCK_FILE", "WARNING_DEDUP_STATE_FILE",
+                         "WARNING_DEDUP_LOCK_FILE", "DEDUP_FILE", "ALERT_DIGEST_FILE",
+                         "ALERT_DIGEST_LOCK_FILE", "ALERT_DIGEST_STATE_FILE")
+             if tmp not in Path(getattr(notify, n)).parents]
+    assert not _leak, f"隔离缝破损: notify 落盘面泄漏到真实树 {_leak} ⇒ 会污染生产 data/alerts/"
     for _k in ("ALERT_BUDGET_DISABLE", "ALERT_DIGEST_DISABLE", "ALERT_DOMAIN_DISABLE",
                "ALERT_NOTICE_BUDGET_DISABLE"):
         os.environ.pop(_k, None)

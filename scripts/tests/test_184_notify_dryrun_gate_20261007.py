@@ -48,6 +48,20 @@ def _isolate(tmp_path, monkeypatch):
     monkeypatch.setattr(notify, "INFO_LOG_FILE", tmp_path / "info_log.jsonl")
     monkeypatch.setattr(notify, "WARNING_DEDUP_STATE_FILE", tmp_path / "warning_dedup_state.json")
     monkeypatch.setattr(notify, "DEDUP_FILE", tmp_path / "notify_dedup.json")
+    # 2026-10-17 补齐既存隔离缝(对齐 a182abf73/test_245 先例): 下列常量同为 **import 期**
+    # 由 ALERTS_DIR 派生(notify.py:299-319), 不随 ALERTS_DIR 的 patch 自动改;漏掉时
+    # buffer flush 锁/去重锁/摘要面会把文件写到**真实工作树** data/alerts/(假绿)。
+    monkeypatch.setattr(notify, "WARNING_FLUSH_LOCK_FILE", tmp_path / "warning_buffer.flushlock")
+    monkeypatch.setattr(notify, "WARNING_DEDUP_LOCK_FILE", tmp_path / "warning_dedup.lock")
+    monkeypatch.setattr(notify, "ALERT_DIGEST_FILE", tmp_path / "alert_digest.jsonl")
+    monkeypatch.setattr(notify, "ALERT_DIGEST_LOCK_FILE", tmp_path / "alert_digest.flushlock")
+    monkeypatch.setattr(notify, "ALERT_DIGEST_STATE_FILE", tmp_path / "alert_digest_state.json")
+    _leak = [n for n in ("ALERTS_FILE", "WARNING_BUFFER_FILE", "INFO_LOG_FILE",
+                         "WARNING_FLUSH_LOCK_FILE", "WARNING_DEDUP_STATE_FILE",
+                         "WARNING_DEDUP_LOCK_FILE", "DEDUP_FILE", "ALERT_DIGEST_FILE",
+                         "ALERT_DIGEST_LOCK_FILE", "ALERT_DIGEST_STATE_FILE")
+             if tmp_path not in Path(getattr(notify, n)).parents]
+    assert not _leak, f"隔离缝破损: notify 落盘面泄漏到真实树 {_leak} ⇒ 会污染生产 data/alerts/"
     # 零外发哨兵：真实发送链路任一处被触达即失败
     monkeypatch.setattr(notify.smtplib, "SMTP_SSL", _boom)
     monkeypatch.setattr(notify.urllib.request, "urlopen", _boom)

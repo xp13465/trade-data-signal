@@ -50,7 +50,8 @@
                       B1 trades.json 最新 signal_date >= T-1(KELLY_BUY_NEXTDAY 次日开盘口径,
                       T-1 日信号在 T 盘后必须已入账; 9/7 断档 9/3<9/4 必命中 SEVERE);
                       B2 产物生成时刻 <=48h(trades generated_at 有则取, 无则回退文件 mtime;
-                      #222 起 trades 已撤该键 → 实际走 mtime; 周末按最近交易日放宽);
+                      #222 起 trades 已撤该键 → 实际走 mtime; 周末按最近交易日放宽;
+                      自测 case B2new/B2stale 覆盖 mtime 单源两向, #250②);
                       B3 etf_daily accum_nav 最新日 >=T 但 trades 最新 <=T-2 → SEVERE
                       + 缺 nav 前3 ETF(QDII 513xxx 缺当日 nav 降 info)。
                       nav 最新日/次日价判定均排除盘中占位行(etf_name=etf_code 同值假数据,
@@ -1952,14 +1953,27 @@ def self_test() -> int:
             fails.append(f"case F4(非交易日)不应判, 实得 {[(f.key, f.level) for f in fF4]}")
 
         # ── case K/K2/K4: 交易记录断档监控 two-way 自测(设计 §7 项 1/4) ──
+        # 生产 trades 顶层 fields 列(单一事实源 = signal_kelly_backtest.TRADE_FIELDS L187-192);
+        # 仅作夹具形态真实用(本检查器只消费 quadrants 行 [0:3]), 照抄不 import(避免自测引入重模块)。
+        _TRADE_FIELDS_FIXTURE = [
+            "signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
+            "track_tier", "track_score", "match_method", "track_low_confidence",
+            "buy_price", "sell_price", "shares", "profit", "return_pct",
+            "hold_days", "sell_reason", "current_price", "real_buy_price", "real_buy_date",
+            "real_current_price",
+            "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
+
         def _kelly_files(repo_p, sd_sigs, latest_trades, nav_ok, placeholder_98=False,
-                         open_ok=False, freeze=None):
+                         open_ok=False, freeze=None, generated_at="2026-09-08 05:10",
+                         mtime_age_h=None):
             """写 kelly 检查器依赖文件(board_etf_map/universe_rules/trade_dates/trades + signal_daily + 次日价)。
             nav_ok=False 时 9/4 三 ETF 不写 9/7 次日价(模拟 R3 缺价 → 应降 WARN 场景)。
             placeholder_98=True 时 9/8 写盘中占位行(etf_name=etf_code 同值假数据 accum_nav=1.5/open=1.49,
             模拟 F2 盘中场景: 占位行不算真价, 覆盖源不推进到 9/8 → nav_ready 不判 SEVERE)。
             open_ok=True 时 9/7 次日价 open 也写(模拟「已具备次日价仍缺」blocked=False, C 类降级可测)。
-            freeze 为 dict 时写冻结表(KELLY_FREEZE_FILE), None 则删旧文件(防跨 case 残留影响 #125 A/C/D)。"""
+            freeze 为 dict 时写冻结表(KELLY_FREEZE_FILE), None 则删旧文件(防跨 case 残留影响 #125 A/C/D)。
+            generated_at=None → 按生产新格式写(顶层无 generated_at, #222 起形态, B2 走 mtime 单源);
+            mtime_age_h=N → 把 trades 文件 mtime 相对自测 now 回拨 N 小时(驱动 B2 mtime 判定, 不依赖真实钟)。"""
             d = repo_p
             (d / "static-site" / "data").mkdir(parents=True, exist_ok=True)
             (d / "config").mkdir(parents=True, exist_ok=True)
@@ -1972,8 +1986,21 @@ def self_test() -> int:
             (d / "data" / "trade_dates.txt").write_text(
                 "\n".join(["20260901", "20260902", "20260903", "20260904", "20260907", "20260908"]),
                 encoding="utf-8")
-            (d / "static-site" / "data" / "signal_kelly_trades.json").write_text(
-                json.dumps({"generated_at": "2026-09-08 05:10", "quadrants": latest_trades}), encoding="utf-8")
+            # trades 产物: #250② —— #222(2026-10-11)起生产顶层已撤 generated_at/period_cutoffs
+            # (signal_kelly_backtest._build_outputs L1864-1874), B2 因此走文件 mtime 单源;
+            # 旧夹具(带 generated_at)只覆盖「有键」路径, mtime 单源常态无用例(L49 同类预防)。
+            # generated_at=None 时按**生产新形态**写 {buy_amount,fields,quadrants}(真样本形态,
+            # 列清单源自生产单一事实源 signal_kelly_backtest.TRADE_FIELDS); 默认值保留旧格式样本不删。
+            trades_doc = {"quadrants": latest_trades}
+            if generated_at is not None:
+                trades_doc = {"generated_at": generated_at, **trades_doc}
+            else:
+                trades_doc = {"buy_amount": 10000, "fields": _TRADE_FIELDS_FIXTURE, **trades_doc}
+            _trades_f = d / "static-site" / "data" / "signal_kelly_trades.json"
+            _trades_f.write_text(json.dumps(trades_doc), encoding="utf-8")
+            if mtime_age_h is not None:
+                _ts = now.timestamp() - mtime_age_h * 3600
+                os.utime(_trades_f, (_ts, _ts))
             _fp = d / "static-site" / "data" / KELLY_FREEZE_FILE
             if freeze is not None:
                 _fp.write_text(json.dumps(freeze), encoding="utf-8")
@@ -2078,6 +2105,22 @@ def self_test() -> int:
         if not b1_6 or b1_6[0].level != "severe":
             fails.append(f"case K6(盘后真断档)stale B1 应仍 severe, 实得 {(b1_6[0].level if b1_6 else '无')}")
 
+        # case B2(#250②): 生产新格式(顶层无 generated_at, #222 起) → B2 走 mtime 单源 两向。
+        #   常态: mtime 距今 1h(<48h) → B2 不告警(旧的「有 generated_at」夹具覆盖不到这条路径)。
+        #   过期: mtime 距今 120h(>KELLY_STALE_MAX_H=48) → B2 severe(判别力锚点: 把 B2 的 mtime
+        #   项去掉/改成恒 fresh, 本 case 必红)。mtime 相对自测 now 显式回拨 ⇒ 不依赖真实钟。
+        #   B2 finding 标题形如「交易记录产物生成于 …」(“产物生成于”), 以此与 B1 条目区分。
+        _b2t = lambda fs: [f for f in fs if f.key == KELLY_STALE_KEY and "产物生成于" in f.title]
+        _kelly_files(base, k_sig, k_ok, nav_ok=True, generated_at=None, mtime_age_h=1.0)
+        _b2o = _b2t(check_kelly_stale(base, now))
+        if _b2o:
+            fails.append(f"case B2new 新格式 mtime 1h(<48h) 不应命中 B2: {[f.title for f in _b2o]}")
+        _kelly_files(base, k_sig, k_ok, nav_ok=True, generated_at=None, mtime_age_h=120.0)
+        _b2s = _b2t(check_kelly_stale(base, now))
+        if not _b2s or _b2s[0].level != "severe":
+            fails.append(f"case B2stale 新格式 mtime 120h(>48h) 应 B2 severe, "
+                         f"实得 {[(f.key, f.level, f.title) for f in check_kelly_stale(base, now)]}")
+
         # ── #125 C 类降级「同日期参照」two-way 自测(A/C/D 三 case) ──
         # A: 无冻结键 + signal_date 当天 trades 有别的信号入账 → 回测链当天在跑, 单点缺口良性 → 降 WARN
         # C: 有冻结键 → 降 WARN(回归, 原行为不许退化; 冻结表命中路径)
@@ -2171,10 +2214,23 @@ def self_test() -> int:
 
         # ── case A4: run_alerts 出口链路(stub notify 真发模式): state 登记+dedup+恢复通知
         # + extra_state 内部键保留(dry-run 不落盘由生产 --dry-run 行为保证) ──
-        # stub notify.py 验证子进程调用通路(命中真实文件即 exit 0)
+        # stub notify.py 验证子进程调用通路。⚠️ #250①(2026-10-17): stub 必须与生产语义对齐 ——
+        # _notify(:1556) 用 notify_sent(out) 判「真发出」(**不看 rc**), 而 run_alerts(:1665) 只在
+        # 真发出 或 dry_run 时才落 state[key].last_fired。旧 stub `import sys; sys.exit(0)` 零输出
+        # ⇒ notify_sent("") = False ⇒ state 恒不登记 ⇒ 本 case 恒 FAIL(2026-10-09 notify_sent
+        # 改造漏同步此处, 该自测无 CI 包装 ⇒ 九天无人察觉)。修法=stub 对齐生产成功行
+        # (notify.py:3181 `[notify] 汇总：已发出 …`), 非改生产语义迁就 stub。
+        # marker 落盘 = 打桩生效证据(L48: 自测前必先打桩并证桩生效; marker 命中 ⇔ 子进程跑的是
+        # 本 stub 而非真实 notify.py, 即本次自测零真实外发)。
         stub = base / "scripts" / "notify.py"
         stub.parent.mkdir(parents=True, exist_ok=True)
-        stub.write_text("import sys; sys.exit(0)\n", encoding="utf-8")
+        _stub_marker = base / "stub_invoked.marker"
+        stub.write_text(
+            "import sys\n"
+            f"open({str(_stub_marker)!r}, 'a').write('1')\n"
+            "print('[notify] 汇总：已发出 email/feishu', file=sys.stderr)\n"
+            "sys.exit(0)\n",
+            encoding="utf-8")
         test_findings = [
             Finding("data_gap:t1", "severe", "T1 标题", "T1 明细"),
             Finding("data_gap:t1", "severe", "T1 标题二", "T1 明细二"),  # 同 key 第二条触发 dedup 只登记一次
@@ -2189,6 +2245,9 @@ def self_test() -> int:
         st2 = _load_json(base / "data" / "alerts" / "data_gap_alert_state.json", {})
         if set(st2.keys()) != {"_accum_nav_baseline"}:
             fails.append(f"case A4 恢复后应只剩基线内部键, 实得 {list(st2)}")
+        # L48 打桩生效证据: stub marker 必须存在(证明 notify 子进程命中本 stub)
+        if not _stub_marker.exists():
+            fails.append("case A4 stub 未被调用(打桩未生效: 可能命中真实 notify.py, L48)")
 
     # ── case A5(内审 F1 返修断言): warn 登记后次轮只出 info 同源条目 → 不发恢复邮件、key 保留 ──
     notify_calls: list[str] = []
@@ -2397,6 +2456,7 @@ def self_test() -> int:
           " / A7 新增缺价 diff: 首轮建档+无新增静默+非QDII回归warn+QDII时滞info"
           " / K 断档 trades只到9/3→kelly_coverage SEVERE+stale B1 SEVERE / K2 全入账零命中"
           " / K4 全缺次日价降warn / K5 盘中占位行不算真价→不判SEVERE / K6 盘后真断档仍SEVERE"
+          " / B2 新格式(无 generated_at)+mtime 单源: 1h 不告警 / 120h→severe(#250②)"
           " / #125-A 无冻结键+当天有别的入账→WARN(同日期参照) / #125-C 有冻结键→WARN(回归)"
           " / #125-D 无冻结键+当天0入账→SEVERE(真故障判别)"
           " / C1 成功deploy锚点近不告警+距今>2天告警 / C2 尾部锚点在/不在 two-way"

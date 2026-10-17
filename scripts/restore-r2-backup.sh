@@ -23,12 +23,21 @@
 #     R2_RESTORE_BUCKET_FALLBACKS  逗号分隔追加桶(在默认两桶之后按序探测)
 #   非 404 的硬错误(403/5xx 等)不回落, 立即响亮失败(§23.11 异常绝不静默)。
 #
-# 依赖：python3(调 scripts/upload_r2.py 的 s3_request,SigV4 签名+凭证复用,不新起连接)。
-#        凭证从 .env / 环境变量读(upload_r2 模块 import 时 load_env)。
+# 依赖：$REPO/.venv/bin/python(调 scripts/upload_r2.py 的 s3_request,SigV4 签名+凭证复用,不新起连接)。
+#        凭证从 .env / 环境变量读(upload_r2 模块 import 时 load_env)；REPO/GIT_REPO 已 export,
+#        保证 python 子进程能找到 .env(#205:裸调用场景不再依赖 mac 写死路径)。
 # 输出文件位置：<out-dir>/<key_name 去 .gz>(默认与清理前原文件名一致, data/ 下)
 # 复现命令：与 docs/decommissioned-backups.md「## 恢复」节一致。
 
 set -euo pipefail
+
+# REPO/GIT_REPO 单点解析(#195 批1 模板):env 优先 → $0 双布局推导 → fail-loud。
+# 灾难恢复正是「云上/mac 裸调用」场景,此前用 `REPO="${REPO:-$(pwd)}"` 是假兜底(死代码,且未 export)
+# ⇒ 云上裸调用时 upload_r2 找不到 .env 凭证直接 exit=1。接上本 lib 后裸调用可用(#205)。
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+resolve_repo "${BASH_SOURCE[0]}"
+export REPO GIT_REPO   # 显式导出,确保 python 子进程(import upload_r2)继承 REPO/GIT_REPO 找到 .env(同 deploy.sh L26)
+
 cd "$(dirname "$0")/.."   # 定位到仓库根(trade/)，data/ 在其下
 
 usage() {
@@ -63,9 +72,7 @@ if [ $# -ne 1 ]; then
 fi
 KEY_NAME="$1"
 
-REPO="${REPO:-$(pwd)}"
-ROOT_ABS="$(cd "$(dirname "$0")/.." && pwd)"
-PY="${PYTHON:-python3}"
+PY="${PY:-$REPO/.venv/bin/python}"
 
 echo "还原 decommissioned/${KEY_NAME} → ${OUT_DIR}/ ..."
 RESTORE_KEY_NAME="$KEY_NAME" RESTORE_BUCKET_OVERRIDE="$BUCKET_OVERRIDE" RESTORE_OUT_DIR="$OUT_DIR" \

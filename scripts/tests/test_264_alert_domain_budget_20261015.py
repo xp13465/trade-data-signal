@@ -100,6 +100,20 @@ def _iso(tmp_path, monkeypatch):
     monkeypatch.setattr(notify, "ALERT_DIGEST_FILE", alerts / "alert_digest.jsonl")
     monkeypatch.setattr(notify, "ALERT_DIGEST_LOCK_FILE", alerts / "alert_digest.flushlock")
     monkeypatch.setattr(notify, "ALERT_DIGEST_STATE_FILE", alerts / "alert_digest_state.json")
+    # 2026-10-17 补齐既存隔离缝(对齐 a182abf73/test_245 先例): `_dedup_state_lock()` 会
+    # `WARNING_DEDUP_LOCK_FILE.parent.mkdir` + `open(...,"a+")` 建锁文件, 而该常量是
+    # **import 期**由 ALERTS_DIR 派生的(notify.py:319)——本 fixture 只 patch 了
+    # WARNING_DEDUP_STATE_FILE(notify.py:300), 锁常量不跟着变 ⇒ 用例在 tmp 断言通过、
+    # `warning_dedup.lock` 落到**真实工作树** data/alerts/(实测: 单跑本文件新增该文件, 全绿=假绿)。
+    monkeypatch.setattr(notify, "WARNING_DEDUP_LOCK_FILE", alerts / "warning_dedup.lock")
+    monkeypatch.setattr(notify, "WARNING_FLUSH_LOCK_FILE", alerts / "warning_buffer.flushlock")
+    # 自锁守卫(防回归): notify 落盘面必须全落在本用例 tmp 树内, 破了当场红
+    _leak = [n for n in ("ALERTS_FILE", "WARNING_BUFFER_FILE", "INFO_LOG_FILE",
+                         "WARNING_FLUSH_LOCK_FILE", "WARNING_DEDUP_STATE_FILE",
+                         "WARNING_DEDUP_LOCK_FILE", "DEDUP_FILE", "ALERT_DIGEST_FILE",
+                         "ALERT_DIGEST_LOCK_FILE", "ALERT_DIGEST_STATE_FILE")
+             if tmp_path not in Path(getattr(notify, n)).parents]
+    assert not _leak, f"隔离缝破损: notify 落盘面泄漏到真实树 {_leak} ⇒ 会污染生产 data/alerts/"
 
     calls: list[str] = []
 

@@ -5,6 +5,9 @@
     层1 特征: gen_kelly_loss_features.py 产出 vs 挖掘用 mine10_features.json 重叠日期逐位相等
     层2 谓词: scripts/loss_rules.py rule_hit vs 挖掘 mine21_bigtour.build_rules / mine22_joint.build_r2
               在 signal_kelly_trades.json mode A 全部行上命中集合全等
+              (窗口感知 #262: 挖掘快照未覆盖的日期上挖掘侧"无意见"(缺值→不命中), 生产侧有值→可能命中,
+               此类差异 = 数据窗口差非移植走样 → 标 INFO 不 FAIL; 窗口内真漂移照旧 FAIL。
+               判据不硬编码日期, 由 mine10_features.json 各特征已覆盖日期集合动态得出)
     层3 阈值: loss_rules.QTH 重算(从 mine10_features.json) vs 固化快照逐位相等
 【输入】static-site/data/kelly_loss_features.json(先生成) + 挖掘目录 mine10_features.json +
         static-site/data/signal_kelly_trades.json + 挖掘脚本 sim_core/mine21/mine22
@@ -88,6 +91,8 @@ def layer2_predicates():
     from mine22_joint import build_r2  # noqa: E402
 
     feats_mining = json.load(open(os.path.join(MINING, "data", "mine10_features.json")))
+    # 窗口感知(#262): 挖掘快照各特征「已覆盖日期」集合; 日期不在集合内 = 挖掘侧对该日无意见。
+    mining_feat_dates = {name: set(series) for name, series in feats_mining.items()}
     # trades 路径: env TRADES_JSON 显式指定(worktree 隔离) → ROOT/static-site/data/(生产)
     trades_path = os.environ.get("TRADES_JSON") or os.path.join(ROOT, "static-site", "data", "signal_kelly_trades.json")
     if not os.path.exists(trades_path):
@@ -114,21 +119,37 @@ def layer2_predicates():
         )
 
     all_ok = True
+    info_total = 0
     for mk in MINING_KEY_ORDER:
         pk = MINING_TO_PROD_KEY[mk]
         fn = mining_rules[mk]
-        diff = []
+        # 该键依赖的特征(无特征条件的键 = R2b/R2g/W1/A1/X1, 不吃特征日期窗口)
+        fname = (RULE_SPECS.get(mk) or {}).get("feature")
+        win_dates = mining_feat_dates.get(fname) if fname else None
+        prod_series = prod_feats.get(fname) if fname else None
+        diff, overflow = [], []
         for t in rows:
             a = bool(fn(t))
             b = rule_hit(pk, prod_ctx(t))
             if a != b:
-                diff.append((str(t[fIdx["signal_date"]]), t[fIdx["signal"]], a, b))
+                d = str(t[fIdx["buy_date"]] or "")   # 特征查询日, 与 rule_hit ctx 同源
+                # 超窗判据: 该日不在挖掘快照覆盖内(挖掘缺值→不命中), 且生产特征该日有值(生产窗口更长)
+                #  ⇒ 差异源于数据窗口差(非移植走样) → INFO; 窗口内差异(含生产缺值那侧)照旧 FAIL
+                if (fname and (win_dates is None or d not in win_dates)
+                        and prod_series is not None and prod_series.get(d) is not None):
+                    overflow.append((d, t[fIdx["signal"]], a, b))
+                else:
+                    diff.append((str(t[fIdx["signal_date"]]), t[fIdx["signal"]], a, b))
         ok = not diff
         all_ok = all_ok and ok
-        print("   %-4s->%-20s 行数%d 不一致%d %s" % (mk, pk, len(rows), len(diff), "PASS" if ok else "FAIL"))
+        info_total += len(overflow)
+        print("   %-4s->%-20s 行数%d 不一致%d 超窗INFO%d %s"
+              % (mk, pk, len(rows), len(diff), len(overflow), "PASS" if ok else "FAIL"))
         for d in diff[:3]:
             print("      样本: %s %s 挖掘=%s 生产=%s" % d)
-    print("层2 谓词全等: %s" % ("PASS" if all_ok else "FAIL"))
+        for d in overflow[:3]:
+            print("      INFO(超窗/挖掘快照无此日): %s %s 挖掘=%s 生产=%s" % d)
+    print("层2 谓词全等(窗口内): %s (超窗 INFO %d 条, 不计 FAIL)" % ("PASS" if all_ok else "FAIL", info_total))
     return all_ok
 
 

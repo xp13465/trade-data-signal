@@ -455,6 +455,26 @@ fi
 #     逻辑: 从本次 merge 带入的 commit message(标题+body, 范围=merge 前 origin/main..HEAD)提取 #编号,
 #           对照 pending-index 该编号是否仍以活跃形式出现——词边界精确匹配(#15 不误配 #150),
 #           先剔除 ~~…~~ 划线墓碑段再查(墓碑=已销账不算活跃);命中则 echo 提醒。dry-run 跳过。
+#     提取口径(2026-10-16 修误报 + 补链式丢尾): 编号后紧跟字母/数字的不算引用——「审计#2a」不再被截成 2
+#           去对账(旧口径 `grep -oE '#[0-9]+'` 会把 #2a 吃成 2 ⇒ 对上索引里无关的 #2 ⇒ 误报)。
+#           相邻引用(#12#34#56 / #174#176#177 这类链)先拆空格再提取: 单遍 sed 只拆开前一对,
+#           且 grep -o 会把后一处的 `#` 当上一匹配的结束符吃掉 ⇒ 3+ 链丢尾(#12#34#56 只出 12 34)。
+#           故改为**不动点循环**: 反复把每个「数字#数字」拆成「数字 #数字」直到不再变化, 链上每号都保留。
+#           已知让步: 任务号+包后缀连写(如 #264c)整串不算引用 ⇒ 该号不被提取。此让步与 #2a 同形
+#           (编号紧跟字母, 机制上无法区分); 实测 main 已有 chore/fix(#264c) 这类以连写为唯一引用、
+#           而 #264 仍活跃的 commit ⇒ 该类引用新口径下静默不提醒, 属软提醒机制可容忍的已知让步(#264c 不作支持)。
+#     回归用例(改这段时手跑; static-only, 抽本段+假 git 喂 stdin, 不 source 整脚本):
+#           ①重放 `git log --format=%B 98ada5d4f..10b180df1` 过本行管道 ⇒ 输出空(旧版出「2」)
+#           ②喂 `fix #2a 审计#3 见 #15 与 #150 #264 包3 #264c` ⇒ `3 15 150 264`
+#           ③同输入喂下方 for 循环 + 两行假 pending-index(`| 264 | 活跃 |` / `> 本模块 #1/#2/#7 已完成`)
+#           ⇒ 只提醒 264、不再提醒 2
+#           ④chain `#12#34#56` ⇒ `12 34 56`(8dea30f23 版只出 `12 34`, 丢尾)
+#           ⑤quad `#5#7#9#11` ⇒ `5 7 9 11`; `#174#176#177` ⇒ `174 176 177`(真实历史形态, 8dea30f23 版丢尾)
+#           ⑥`bash -n scripts/main-merge.sh`。
+#           ⑦非法 UTF-8 字节输入(喂 `printf 'fix \x80\x81\n'`): BSD sed 报 illegal byte sequence,
+#             循环内 sed 已加 `|| true` 兜住 ⇒ rc=0 / REFS 空(修复前 rc=1, set -e 中止在 push 之前)。
+#           (未加 pytest: 本段依赖 grep/sed/sort 的实际行为, 本机是 BSD 工具链、CI 是 GNU,
+#            在本机无法证明两者同构 ⇒ 不加 CI 常驻测试, 改为上方手跑用例; 详见修复单报告。)
 if [[ "$DRY_RUN" == "1" ]]; then
   echo "  [dry-run] 跳过 pending-index 销账提醒"
 else
@@ -462,7 +482,19 @@ else
   HIT_NUMS=""
   if [[ -f "$PENDING_IDX" ]]; then
     # 提取编号去重升序(|| true 防 grep 空匹配非零退出触发 set -e)
-    REF_NUMS="$($GIT log --format=%B "$PRE_MERGE_BASE"..HEAD 2>/dev/null | grep -oE '#[0-9]+' | tr -d '#' | sort -un || true)"
+    #   口径与理由见上方 8.5 顶注释; 先不动点循环把相邻引用拆成 "#12 #34 #56"(反复拆到不再变化),
+    #   再逐段提取——单遍 sed + grep -o 会把 3+ 链的尾号丢掉(见顶注释)。
+    _REF_TXT="$($GIT log --format=%B "$PRE_MERGE_BASE"..HEAD 2>/dev/null || true)"
+    while :; do
+      # || true: 非法 UTF-8 字节输入会让 BSD sed 报 illegal byte sequence(rc=1); 不兜住则 set -e 会在
+      # merge 之后 / push main 之前中止脚本, 留「本地已 merge 未 push」半完成态 —— 兜住即降级为空结果继续走。
+      _REF_SPLIT="$(printf '%s\n' "$_REF_TXT" | sed -E 's/([0-9])#([0-9])/\1 #\2/g' || true)"
+      if [[ "$_REF_SPLIT" == "$_REF_TXT" ]]; then break; fi
+      _REF_TXT="$_REF_SPLIT"
+    done
+    REF_NUMS="$(printf '%s\n' "$_REF_TXT" \
+      | grep -oE '#[0-9]+([^0-9A-Za-z]|$)' \
+      | sed 's/[^0-9]//g' | sort -un || true)"
     for n in $REF_NUMS; do
       # 活跃判定(两种活跃形态任一命中即算): ①行内词边界精确 #n 引用(#15 不误配 #150)
       #   ②表格行首列裸编号 | n |(pending-index 主表行的主键形态)

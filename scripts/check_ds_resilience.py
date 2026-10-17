@@ -32,7 +32,8 @@
     D7 cleanup source=mootdx 聚合五指标+非法 source raise+daily_metric source 标记
   E组(P2 内审修复批 2026-08-27):
     E1 P2-1 并发锁内读改写:_update_latest 单一入口(flock+read+compose 同锁段),
-       _mirror_severe 锁外零直读;8 线程并发 severe 镜像零丢失(旧行为 lost update)
+       _mirror_latest_entry 锁外零直读(镜像真身,#218-⑥-K1 起 _mirror_severe 为委托薄壳);
+       8 线程并发 severe 镜像零丢失(旧行为 lost update)
     E2 P2-2 空 DB(无表)db_progress_snapshot 三模块(mootdx/stock/baostock)
        容错返空 dict 不抛 OperationalError
     E3 P2-3 读取侧闭合:三文件裸 `= load_progress()` 仅剩三件套/旧 reconcile 内部
@@ -417,9 +418,28 @@ def behavior_checks() -> None:
           "def _update_latest" in ns and "_read_parse_latest" in ns.split(
               "def _update_latest", 1)[1].split("\ndef ", 1)[0]
           and "LOCK_EX" in ns.split("def _update_latest", 1)[1].split("\ndef ", 1)[0])
-    ms_body = ns.split("def _mirror_severe", 1)[1].split("\ndef ", 1)[0]
-    check("E1b _mirror_severe 锁外零直读(read_text/parse 已下沉锁内)",
-          "read_text" not in ms_body and "_parse_latest" not in ms_body)
+    # E1b 守卫锚点必须指向**镜像真身**:#218-⑥-K1(2026-10-17)把 _mirror_severe 改成
+    #   委托薄壳后,原「扫 def _mirror_severe 函数体」的守卫扫的是壳 ⇒ 恒绿、再也无法变红
+    #   (与 L49「机制层空转」同病)。修法 = 扫真身 `_mirror_latest_entry` + 断言壳仍委托真身。
+    #   扫描前剥离函数 docstring:说明文本不是代码路径,防「说明里提到 read_text/_parse_latest」
+    #   造成假红(守卫要的是**真的读调用**,不是字面出现)。真身与壳两侧都要剥——
+    #   壳的 docstring 字面就写着「(现委托 _mirror_latest_entry)」,不剥则断言恒真(空转)。
+    #   壳委托断言用**调用形** "_mirror_latest_entry(" 而非裸名,进一步防说明文本冒充。
+    def _body(src: str) -> str:
+        m = _re.search(r'^\s*""".*?"""', src, _re.S | _re.M)
+        return src[m.end():] if m else src
+
+    def _fn_src(name: str) -> str:
+        # 函数被删除时返回 "" ⇒ 断言自然 FAIL(而不是 split 抛 IndexError 崩掉整个 E 组)
+        parts = ns.split(f"def {name}", 1)
+        return parts[1].split("\ndef ", 1)[0] if len(parts) > 1 else ""
+
+    ml_body = _body(_fn_src("_mirror_latest_entry"))
+    sh_body = _body(_fn_src("_mirror_severe"))
+    check("E1b _mirror_latest_entry 锁外零直读(read_text/parse 已下沉锁内)"
+          " + _mirror_severe 真委托真身(防扫壳空转)",
+          "read_text" not in ml_body and "_parse_latest" not in ml_body
+          and "_mirror_latest_entry(" in sh_body)
 
     # E1c 行为级:8 线程并发 send(severe) 全部条目留存(旧锁外实现会 lost update)
     import threading as _th

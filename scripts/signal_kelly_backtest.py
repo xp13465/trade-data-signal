@@ -406,8 +406,22 @@ def _alert_frozen_missing(events):
 #   · 未经用户拍板**不得翻默认、不得改基准定义**;
 #   · 新旧口径对比回测须先复现基准锚点(memory test-baseline-v112-anchor) ±0.1% 才可信。
 # 孤儿检测(观测, 不改口径)默认只打印 + 落 stderr; 告警由 SIGNAL_KELLY_FREEZE_ORPHAN_ALERT=1 开启。
+#
+# #252(2026-10-16 用户拍板 A1+A4; T2 全局 union 仍不翻默认): 对已检出的孤儿批次做「一次性定向补账」——
+#   入账侧 = config/signal_kelly_freeze_orphan_backfill.json 登记表, 只补登记键(见 _union_freeze_backfill_rows);
+#   观测侧 = 登记表内的孤儿不再重复告警, 未登记的新孤儿照常报(见 _split_registered_orphans / _alert_freeze_orphans)。
+#   登记表可随时删/清空回退到本改动前行为(§25 可逆)。
 FREEZE_UNION_ENV = "SIGNAL_KELLY_FREEZE_UNION"
 FREEZE_ORPHAN_ALERT_ENV = "SIGNAL_KELLY_FREEZE_ORPHAN_ALERT"
+
+# #252 A1 定向补账登记表(2026-10-16 用户拍板「一次性定向补孤儿买事件, 不动全局入账源」):
+# 只把本表列出的孤儿买事件并进买信号集合(引擎入账侧), **不改 signal_daily**(下一次全表重算仍会抹)= 治标不动源;
+# **不翻 T2 全局 union 默认**(FREEZE_UNION_ENV 保持关闭)。
+# 生成器 = scripts/trades_orphan_backfill.py --registry-out(单一格式来源, 防第二份实现漂移 §5.4⑦);
+# 台账 / 重生成 / 回滚 = docs/ops/252-freeze-orphan-backfill-20261016.md。
+# fail-safe: 表缺失 / 损坏 / 格式异常 ⇒ 空集(= 改动前现行为: 不补账、不吞告警)。
+FREEZE_BACKFILL_REGISTRY_PATH = os.path.join(
+    ROOT, "config", "signal_kelly_freeze_orphan_backfill.json")
 
 
 def _freeze_buy_keys(freeze):
@@ -435,18 +449,79 @@ def _detect_freeze_orphan_buy_events(freeze, present_di):
     return sorted((d, i, s) for (d, i, s) in fk if (d, i) not in present_di)
 
 
-def _alert_freeze_orphans(orphans):
+def _load_freeze_backfill_registry():
+    """读 #252 定向补账登记表 -> set["date|index_id|signal"]。
+
+    失败 / 缺失 / 损坏一律返回空集(fail-safe: 空集 = 不补账 = 改动前现行为, 绝不静默造账)。
+    """
+    try:
+        with open(FREEZE_BACKFILL_REGISTRY_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("keys") if isinstance(data, dict) else None
+        if not isinstance(raw, list):
+            return set()          # 形状不对(如 keys 写成字符串 ⇒ 逐字符迭代出垃圾键)一律当空表
+        return {str(k) for k in raw}
+    except (OSError, json.JSONDecodeError, AttributeError, TypeError):
+        return set()
+
+
+def _freeze_key_of(row):
+    """(date, index_id, signal) -> 冻结表键串 "date|index_id|signal"。"""
+    return f"{row[0]}|{row[1]}|{row[2]}"
+
+
+def _split_registered_orphans(orphans, registry_keys):
+    """按补账登记表把孤儿拆成 (未登记, 已登记条数)。
+
+    未登记 = 真·新损伤(照常告警, 判别维度保留); 已登记 = 已在补账范围(降噪: 登记即已处置,
+    不再每日重复报同一批)。孤儿本体不会因补账而从 DB 消失, 不拆就会天天报同一批(§告警降噪: 保留真故障判别维度)。
+    """
+    unreg = [o for o in orphans if _freeze_key_of(o) not in registry_keys]
+    return unreg, len(orphans) - len(unreg)
+
+
+def _union_freeze_backfill_rows(buy_rows, freeze, registry_keys, present_di):
+    """#252 定向补账: 只把登记表里列出、且冻结表仍在、且现值表整行仍缺失的买事件并进买信号集合。
+
+    两道护栏保证「定向」不越界(= 与 T2 全局 union 的区别):
+      ① 登记键必须仍在冻结表里(冻结表 = 事件曾存在的权威证据, 单一事实源);
+      ② 只在 (date, index_id) **整行仍缺失**时补 —— 行还在(信号类型漂移)的事件由读侧 _freeze_fallback
+         接住, 再补一次就是重复计数。
+    """
+    if not registry_keys:
+        return buy_rows
+    seen = {(r[0], r[1], r[2]) for r in buy_rows}
+    extra = sorted(
+        t for t in _freeze_buy_keys(freeze)
+        if _freeze_key_of(t) in registry_keys and t not in seen and (t[0], t[1]) not in present_di
+    )
+    if not extra:
+        return buy_rows
+    sample = "; ".join(_freeze_key_of(t) for t in extra[:5])
+    print(f"   [#252 定向补账] 冻结表补入登记表内未成账买事件 {len(extra)} 条(样例: {sample})")
+    merged = [(r[0], r[1], r[2]) for r in buy_rows] + extra
+    merged.sort(key=lambda r: (r[0], r[1], r[2]))
+    return merged
+
+
+def _alert_freeze_orphans(orphans, handled_n=0):
     """孤儿买事件告警(默认不告警, 由 SIGNAL_KELLY_FREEZE_ORPHAN_ALERT=1 开启)。
 
     这些事件在冻结表有固化记录(frozen_at 齐全)却已从 signal_daily 现值表消失 = 历史行被
     重算抹除的直接证据。默认只打印(stderr)避免首跑制造告警风暴, 由主控/用户评估规模后开启。
+    handled_n: 已登记 #252 定向补账的条数(调用方已从 orphans 里剔除), 只用于日志可读性。
     """
     n = len(orphans)
     if n == 0:
+        if handled_n:
+            print(f"   冻结表孤儿买事件: 共 {handled_n} 条, 全在 #252 补账登记表内(已处置, 不告警)",
+                  file=sys.stderr)
         return
     sample = "; ".join(f"{d}|{i}|{s}" for d, i, s in orphans[:8])
-    msg = (f"   冻结表孤儿买事件: {n} 条(冻结表有键、现值 signal_daily 无对应行)。"
+    msg = (f"   冻结表孤儿买事件(未登记): {n} 条(冻结表有键、现值 signal_daily 无对应行)。"
            f"样例: {sample}")
+    if handled_n:
+        msg += f"(另有 {handled_n} 条已在 #252 补账登记表内, 跳过)"
     print(msg, file=sys.stderr)
     if os.environ.get(FREEZE_ORPHAN_ALERT_ENV, "0") != "1":
         print(f"   (未告警: 设 {FREEZE_ORPHAN_ALERT_ENV}=1 开启)", file=sys.stderr)
@@ -454,8 +529,8 @@ def _alert_freeze_orphans(orphans):
     try:
         subprocess.run(
             [sys.executable, os.path.join(SCRIPT_DIR, "notify.py"),
-             f"[kelly] 冻结表孤儿买事件 {n} 条",
-             f"冻结表已固化但已从 signal_daily 现值表消失的买类事件 {n} 条"
+             f"[kelly] 冻结表新增孤儿买事件 {n} 条",
+             f"冻结表已固化但已从 signal_daily 现值表消失、且不在 #252 补账登记表内的买类事件 {n} 条"
              f"(历史行被重算抹除的直接证据, docs/ops/trades-wipe-rootfix-20261014.md)。样例: {sample}",
              "--from-prefix", "[kelly]",
              "--dedup-key", "kelly_freeze_orphan_buy", "--dedup-window", "86400"],
@@ -2057,7 +2132,13 @@ def compute():
     conn.close()
     print(f"   {len(buy_rows)} 条买信号")
     # T2 冻结表孤儿买事件(观测, 默认只打印; 告警由 env 开启)
-    _alert_freeze_orphans(_detect_freeze_orphan_buy_events(etf_freeze, _present_di))
+    # #252 A1 定向补账(2026-10-16 用户拍板): 登记表内的孤儿「入账 + 不再计入告警」(登记=已处置,
+    # 防同一批每日重复报; 未登记的新孤儿照常告警 = 真故障判别维度保留)。只补登记键, 不动全局入账源。
+    _orphans = _detect_freeze_orphan_buy_events(etf_freeze, _present_di)
+    _bf_keys = _load_freeze_backfill_registry()
+    _unreg_orphans, _handled_n = _split_registered_orphans(_orphans, _bf_keys)
+    _alert_freeze_orphans(_unreg_orphans, handled_n=_handled_n)
+    buy_rows = _union_freeze_backfill_rows(buy_rows, etf_freeze, _bf_keys, _present_di)
     # T2 入账源改「冻结表优先」(默认关闭; 开启须用户拍板, §23.7/§5.4⑥)
     if os.environ.get(FREEZE_UNION_ENV, "0") == "1":
         buy_rows = _union_freeze_buy_rows(buy_rows, etf_freeze)
@@ -2217,8 +2298,15 @@ def compute_intraday(signal_date_str, main_trades_path):
     market_state, market_dates = _load_market_state(conn)
     market_tiers = _load_market_tiers(conn)
     cyb_tiers = _load_market_tiers(conn, index_id='cyb')
+    # #252 A1 定向补账用: 盘中档只判 T 日范围内的「(date,index_id) 整行缺失」
+    _present_di_t = {(r[0], r[1]) for r in conn.execute(
+        "SELECT DISTINCT date, index_id FROM signal_daily WHERE date = ?", (signal_date_str,))}
     conn.close()
     print(f"   T 日买信号 {len(buy_rows)} 条; 卖出信号时间线 {sum(len(v) for v in sell_timeline.values())} 条", flush=True)
+    # #252 A1 定向补账(盘中档): 只补「信号日 == T」的登记孤儿, 保持盘中档「零历史、只含 T 日交易」不变量;
+    # 目的 = T 日本身是孤儿的买事件在主档(全量补账)与盘中档两处一致(§22 多展示位一致)。
+    _bf_keys_t = {k for k in _load_freeze_backfill_registry() if k.startswith(signal_date_str + "|")}
+    buy_rows = _union_freeze_backfill_rows(buy_rows, etf_freeze, _bf_keys_t, _present_di_t)
     if not buy_rows:
         print("   ⚠ T 日无买信号, 盘中档产物为空结构(前端无盘中视图, 正常)", file=sys.stderr)
 
