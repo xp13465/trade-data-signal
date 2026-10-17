@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""#253-c1 自测: 周日白天(<23:00)大批量 full 延后夜间(2026-10-17)。
+"""#253-c1 自测: 周日白天禁窗(8:00-23:00)大批量 full 延后夜间/凌晨轮(2026-10-17)。
 
 被测面 = `scripts/upload_r2.py::_incremental_upload` 的延后分支(+ 新增的 `_now()` 注入点)。
 权威规格 = docs/ops/watchdog-tradesim-slowkill-20261011.md §5-c1 + 派单任务书 B 段;
@@ -11,7 +11,8 @@
 §18 L51(时敏铁律)落地:
   - **跑时刻由 env R2_NOW_OVERRIDE 注入冻结**(不写死日期字面量进生产代码, 不替换标准库类);
   - 覆盖「隔天仍绿」⇔ 平移一天(周日→周一/周日 23:00→周日 14:00)重跑, 结论必须跟着变;
-  - 判别力关: 关掉开关(通道集置空 / 阈值置 0)后断言必须翻转 ⇒ 证明断言真咬住新代码。
+  - 判别力关: 关掉开关(通道集置空 / 禁窗两端各自收掉)后断言必须翻转 ⇒ 证明断言真咬住新代码。
+  - 禁窗边界(2026-10-17 复查裁决点①): 00:00-07:59 与 >=23:00 放行 full, 8:00-23:00 延后。
 
 跑法: python3 -m pytest -q scripts/tests/test_253_c1_night_full_defer_20261017.py
 """
@@ -30,10 +31,15 @@ sys.path.insert(0, str(REPO))
 import upload_r2 as ur  # noqa: E402  (顶层 load_env 由 conftest §④ 垫片兜住)
 
 # 冻结时刻(周日 = 2026-10-18; 周一 = 2026-10-19; 均为注入值, 非生产代码里的字面量)
-SUN_DAYTIME = "2026-10-18T14:00:00"     # 周日白天
+SUN_DAYTIME = "2026-10-18T14:00:00"     # 周日白天(禁窗内)
 SUN_2359 = "2026-10-18T23:59:00"        # 周日 23:00 后
-SUN_2300 = "2026-10-18T23:00:00"        # 边界: 恰好 23:00(不算白天)
-SUN_2259 = "2026-10-18T22:59:00"        # 边界: 差 1 分钟
+SUN_2300 = "2026-10-18T23:00:00"        # 边界: 恰好 23:00(禁窗终点, 放行)
+SUN_2259 = "2026-10-18T22:59:00"        # 边界: 差 1 分钟(禁窗内)
+SUN_0800 = "2026-10-18T08:00:00"        # 边界: 禁窗起点(含 ⇒ 延后)
+SUN_0759 = "2026-10-18T07:59:00"        # 边界: 禁窗起点前 1 分钟(放行)
+SUN_0216 = "2026-10-18T02:16:00"        # 凌晨轮(历史成功窗口 02:16, 放行)
+SUN_0511 = "2026-10-18T05:11:00"        # 凌晨轮(历史成功窗口 05:11, 放行)
+SUN_0000 = "2026-10-18T00:00:00"        # 边界: 当日 0 点(放行)
 MON_DAYTIME = "2026-10-19T14:00:00"     # 平日(周一)
 
 N_FILES = 10          # 本地文件数
@@ -91,8 +97,12 @@ def test_defer_log_landing_contract():
     """落地契约(静态): 延后分支/常量/注入点/依赖注释都在位, 且同函数不再直取 date.today()。"""
     src = ur.__file__ and Path(ur.__file__).read_text(encoding="utf-8")
     body = src.split("def _incremental_upload(", 1)[1].split("\ndef ", 1)[0]
-    assert "_NIGHT_FULL_DEFER_HOUR" in body, "延后阈值未在引擎内使用"
-    assert "延迟到 {_NIGHT_FULL_DEFER_HOUR}:00 后" in body, "延后日志缺「延迟到 23:00 后」要素"
+    assert "_NIGHT_FULL_DEFER_HOUR" in body, "延后禁窗终点常量未在引擎内使用"
+    assert "_NIGHT_FULL_DEFER_FROM_HOUR" in body, "延后禁窗起点常量未在引擎内使用(凌晨放行口径)"
+    assert "延迟到夜间/次日凌晨轮再执行" in body, "延后日志缺「延迟到夜间/凌晨轮」要素"
+    # 反面: 旧文案「周日白天(<23:00)」「延迟到 23:00 后首轮」名实不符(现存调度无 23:00-23:59 例行轮),
+    # 2026-10-17 复查裁决点① 已订正 ⇒ 静态禁止回退到该措辞
+    assert "周日白天(<" not in body and "后首轮再执行" not in body, "延后日志回退到名实不符的旧文案"
     assert "now:%Y-%m-%d %H:%M" in body, "延后日志缺「时间」要素"
     assert "_now()" in body and "datetime.date.today().weekday()" not in body, \
         "引擎内仍直取系统日期 ⇒ 时敏用例无法注入冻结(§18 L51)"
@@ -115,9 +125,10 @@ def test_sunday_daytime_defers_to_night(tmp_path, monkeypatch, capsys):
     (ok, total), _ = _run(local)
     out = _out(capsys)
     assert (ok, total) == (N_UNCHANGED, N_UNCHANGED), f"应只传增量集 {N_UNCHANGED}, 实得 {(ok, total)}"
-    assert "⏸ 周日白天(<23:00)大批量 full 延后夜间" in out
-    assert "2026-10-18 14:00" in out and "trade-sim" in out and "延迟到 23:00 后" in out
-    assert "模式=增量(周日 full 延后到 23:00 后)" in out
+    assert "⏸ 周日白天(8:00-23:00)大批量 full 延后夜间/凌晨轮" in out
+    assert "2026-10-18 14:00" in out and "trade-sim" in out
+    assert "延迟到夜间/次日凌晨轮再执行" in out and "窗口外首轮即恢复 full" in out
+    assert "模式=增量(周日白天 full 延后到夜间/凌晨轮)" in out
     assert "周日强制全量" not in out.split("模式=")[-1], "延后轮不应以「周日强制全量」模式收尾"
 
 
@@ -143,6 +154,36 @@ def test_sunday_boundary_2300_and_2259(tmp_path, monkeypatch, capsys):
     out_b = _out(capsys)
     assert (ok_a, ok_b) == (N_UNCHANGED, N_FILES), f"22:59 应延后/23:00 应全量, 实得 {ok_a}/{ok_b}"
     assert "延后夜间" in out_a and "延后夜间" not in out_b
+
+
+def test_sunday_dawn_window_released(tmp_path, monkeypatch, capsys):
+    """①-补(2026-10-17 复查裁决点①): 凌晨 00:00-07:59 放行 full —— 不许禁掉历史成功窗口。
+
+    依据: docs/ops/watchdog-tradesim-slowkill-20261011.md §5-c1 两个成功窗口 = 02:16 / 05:11;
+    旧口径 hour<23 把它们一并禁掉 ⇒ full 在多数周无轮次可执行(复查 §3.2)。
+    """
+    local = _mk_tree(tmp_path, monkeypatch)
+    for stamp in (SUN_0000, SUN_0216, SUN_0511, SUN_0759):
+        monkeypatch.setenv("R2_NOW_OVERRIDE", stamp)
+        (ok, total), _ = _run(local)
+        out = _out(capsys)
+        assert (ok, total) == (N_FILES, N_FILES), f"{stamp} 应放行 full(凌晨成功窗口), 实得 {ok}/{total}"
+        assert "模式=周日强制全量" in out, f"{stamp} 未延后时应收在「周日强制全量」模式"
+        assert "延后" not in out, f"{stamp} 不该落延后日志"
+
+
+def test_sunday_ban_window_start_boundary_0800(tmp_path, monkeypatch, capsys):
+    """①-补 边界: 07:59 放行 / 08:00 起延后(禁窗口径 = 8 <= hour < 23)。"""
+    local = _mk_tree(tmp_path, monkeypatch)
+    monkeypatch.setenv("R2_NOW_OVERRIDE", SUN_0759)
+    (ok_a, _), _ = _run(local)
+    out_a = _out(capsys)
+    monkeypatch.setenv("R2_NOW_OVERRIDE", SUN_0800)
+    (ok_b, _), _ = _run(local)
+    out_b = _out(capsys)
+    assert (ok_a, ok_b) == (N_FILES, N_UNCHANGED), f"07:59 应放行/08:00 应延后, 实得 {ok_a}/{ok_b}"
+    assert "延后" not in out_a and "延后夜间" in out_b
+    assert "2026-10-18 08:00" in out_b and "禁窗 8:00-23:00" in out_b
 
 
 def test_weekday_behavior_unchanged(tmp_path, monkeypatch, capsys):
@@ -204,18 +245,22 @@ def test_first_run_full_not_deferred(tmp_path, monkeypatch, capsys):
 
 
 def test_discriminating_power(tmp_path, monkeypatch, capsys):
-    """判别力关: 关掉开关(通道集置空 / 阈值置 0)后, 原断言必须翻转 ⇒ 断言真咬住新代码。"""
+    """判别力关: 关掉开关(通道集置空 / 禁窗两端各自收掉)后, 原断言必须翻转 ⇒ 断言真咬住新代码。"""
     local = _mk_tree(tmp_path, monkeypatch)
     monkeypatch.setenv("R2_NOW_OVERRIDE", SUN_DAYTIME)
     monkeypatch.setattr(ur, "_NIGHT_FULL_DEFER_CHANNELS", frozenset())
     (ok_a, _), _ = _run(local)
     out_a = _out(capsys)
     monkeypatch.setattr(ur, "_NIGHT_FULL_DEFER_CHANNELS", frozenset({"trade-sim"}))
-    monkeypatch.setattr(ur, "_NIGHT_FULL_DEFER_HOUR", 0)
+    monkeypatch.setattr(ur, "_NIGHT_FULL_DEFER_HOUR", 0)        # 禁窗终点收掉
     (ok_b, _), _ = _run(local)
     out_b = _out(capsys)
-    assert (ok_a, ok_b) == (N_FILES, N_FILES), "开关关掉后必须回到 full"
-    assert "延后夜间" not in out_a and "延后夜间" not in out_b
+    monkeypatch.setattr(ur, "_NIGHT_FULL_DEFER_HOUR", 23)       # 复原终点
+    monkeypatch.setattr(ur, "_NIGHT_FULL_DEFER_FROM_HOUR", 15)  # 禁窗起点右移过 14:00
+    (ok_c, _), _ = _run(local)
+    out_c = _out(capsys)
+    assert (ok_a, ok_b, ok_c) == (N_FILES, N_FILES, N_FILES), "开关关掉后必须回到 full"
+    assert "延后" not in out_a and "延后" not in out_b and "延后" not in out_c
 
 
 def test_now_injection_and_default(tmp_path, monkeypatch):

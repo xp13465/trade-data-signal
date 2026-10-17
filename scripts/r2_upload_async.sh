@@ -291,8 +291,9 @@ upload_data_channels() {
   run_r2_upload "upload-trade-sim-json" 1800 upload-trade-sim-json || { echo "⚠ upload-trade-sim-json 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim-json"; }
   run_r2_upload "upload-index" 900 upload-index || { echo "⚠ upload-index 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-index"; }
   # #253-c1(2026-10-17): 上面这三通道(trade-sim / trade-sim-json / index)的周日 full 若落在白天
-  #   (<23:00) 会延后到 23:00 后首轮(白天轮走平日增量, 秒级) —— 依据「同通道凌晨 100% 成功 vs
-  #   傍晚 0/2 被看门狗低速 kill」(docs/ops/watchdog-tradesim-slowkill-20261011.md §5-c1);
+  #   禁窗(8:00-23:00)会延后到夜间/次日凌晨轮(白天轮走平日增量, 秒级);00:00-07:59 与 ≥23:00
+  #   放行 full —— 依据「同通道凌晨 100% 成功 vs 傍晚 0/2 被看门狗低速 kill」
+  #   (docs/ops/watchdog-tradesim-slowkill-20261011.md §5-c1);
   #   开关与日志见 upload_r2.py _NIGHT_FULL_DEFER_CHANNELS / 延后分支。
   # ETF 全史日K etf/{code}-all.json -> R2 etf/ 前缀(#10 ETF弹窗长历史, 2026-08-22; 1532只~87MB, 8线程并发)
   # 2026-08-23: 改增量上传(upload_r2.py 状态清单只传变化文件)+ 本通道超时放宽 900s(根治间歇超时告警);
