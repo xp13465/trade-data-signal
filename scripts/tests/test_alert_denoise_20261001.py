@@ -475,17 +475,35 @@ import notify  # noqa: E402
 
 
 def _l2_env(tmp_path, monkeypatch):
-    """L2 用例隔离: 全落盘面指 tmp_path + 渠道打桩(返回 True 并记录调用)。"""
+    """L2 用例隔离: 全落盘面指 tmp_path + 渠道打桩(返回 True 并记录调用)。
+
+    2026-10-17 补齐既存隔离缝(独立复查 §七;对齐 test_245_l2_budget_digest_20261010.py::_iso 先例):
+      坑 = notify 的 severe 镜像写 latest.md 全程用**模块常量 ALERTS_FILE**(写路径 notify.py:1523
+      `tmp.replace(ALERTS_FILE)`、登记 L1591),而它是 **import 期**按 REPO 算死的;fixture 里
+      `setenv("REPO", ...)` / `setattr(notify, "REPO"/"ALERTS_DIR", ...)` 都不会让它重算 ⇒
+      用例在 tmp 环境断言通过、latest.md 却落到**真实工作树** data/alerts/latest.md,
+      污染「开工优先排查」告警面(2026-10-17 08:57 实测 2 条假 severe);
+      同理 `NOTIFY_SOURCE` env 会被同进程早先 import 的 retry_failed_metrics.py 等
+      `os.environ.setdefault` 污染(进程级),必须 delenv(对齐 test_245 先例)。
+    """
     alerts = tmp_path / "data" / "alerts"
     alerts.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("REPO", str(tmp_path))
-    monkeypatch.delenv("ALERT_BUDGET_DISABLE", raising=False)
-    monkeypatch.delenv("ALERT_DIGEST_DISABLE", raising=False)
+    for _v in ("NOTIFY_SOURCE", "ALERT_BUDGET_DISABLE", "ALERT_DIGEST_DISABLE"):
+        monkeypatch.delenv(_v, raising=False)
     monkeypatch.setattr(notify, "REPO", tmp_path)
     monkeypatch.setattr(notify, "ALERTS_DIR", alerts)
+    monkeypatch.setattr(notify, "ALERTS_FILE", alerts / "latest.md")
+    monkeypatch.setattr(notify, "WARNING_BUFFER_FILE", alerts / "warning_buffer.jsonl")
+    monkeypatch.setattr(notify, "INFO_LOG_FILE", alerts / "info_log.jsonl")
+    monkeypatch.setattr(notify, "WARNING_DEDUP_STATE_FILE", alerts / "warning_dedup_state.json")
+    monkeypatch.setattr(notify, "DEDUP_FILE", alerts / "notify_dedup.json")
     monkeypatch.setattr(notify, "ALERT_DIGEST_FILE", alerts / "alert_digest.jsonl")
     monkeypatch.setattr(notify, "ALERT_DIGEST_LOCK_FILE", alerts / "alert_digest.flushlock")
     monkeypatch.setattr(notify, "ALERT_DIGEST_STATE_FILE", alerts / "alert_digest_state.json")
+    # 自锁守卫(防回归到既存缝): 镜像写面必须落在本用例的 tmp 树内, 否则这条用例一跑就红
+    assert notify.ALERTS_FILE == alerts / "latest.md", \
+        f"隔离缝破损: 告警镜像写面指向 {notify.ALERTS_FILE}(非 tmp) ⇒ 会污染真实告警痕迹"
     calls = []
 
     def _fake(kind):
