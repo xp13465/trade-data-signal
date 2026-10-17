@@ -204,10 +204,22 @@ bash scripts/restore-large-json.sh --all
 bash scripts/restore-large-json.sh --list --target /tmp/restore-test
 ```
 
-**恢复目标**：默认 = `$STATICDATA_REPO/data/`（环境变量 `STATICDATA_REPO` 仅测试用，缺省
-`/Users/linhuichen/code/trade-data`）= **生产数据目录 `trade-data/data/`**。这些大 JSON 的生产
-"家"就是 `trade-data/data/`（git 不再跟踪它们），恢复回生产原位与 `db.py`/`export.py` 读的库
-同源，不随 cwd 漂移。**非默认目标目录（覆盖了 `STATICDATA_REPO` 或传 `--target`）会打印醒目
+**云上 / mac 恢复示例（默认路径已随 REPO 推导，无需再传 --target）**：
+
+```bash
+# 云上（生产数据仓库 = /home/ubuntu/code/trade-data）：裸调用即落到生产原位
+ssh ubuntu@<云上> 'bash /home/ubuntu/code/trade/scripts/restore-large-json.sh signal_kelly_trades.json'
+# mac（生产数据仓库 = /Users/linhuichen/code/trade-data）：默认同样落生产原位
+bash scripts/restore-large-json.sh signal_kelly_trades.json
+```
+
+**恢复目标**（2026-10-17 用户拍板改**随 REPO 推导**，推翻 09-25 mac 常量默认）：默认
+= `<生产数据仓库根>/data/`，三级回退 **① `STATICDATA_REPO`（显式覆盖/测试用）② 随
+`REPO`/`GIT_REPO` 推导（`GIT_REPO` 的兄弟 `trade-data` 优先，其次 `REPO` 本身；由
+`lib/repo_paths.sh` 的 `resolve_repo` 解析）③ mac 常量 `/Users/linhuichen/code/trade-data`
+末位兜底**。云上裸调用时不再误指 mac 路径 ⇒ 落到生产数据目录 `trade-data/data/`。这些大 JSON
+的生产"家"就是 `trade-data/data/`（git 不再跟踪它们），恢复回生产原位与 `db.py`/`export.py`
+读的库同源，不随 cwd 漂移。**非默认目标目录（覆盖了 `STATICDATA_REPO` 或传 `--target`）会打印醒目
 警告**：可能是别的目录，直接覆盖有风险，测试临时目录也应看清再继续。
 
 **还原行为安全网（全在脚本内）**：

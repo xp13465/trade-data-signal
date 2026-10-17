@@ -28,10 +28,12 @@
 #     历史: 原实现(只 flat 非空就用 flat)会静默少还原; 第 1 轮修取「最新一个」legacy 目录
 #     仍漏更老 legacy 独有文件; 第 2 轮改为全 legacy 并集按 rel 取最新日期。
 #   [--target <dir>] 可加在任意位置显式指定目标目录(默认见下)。
-# 恢复目标：默认 = $STATICDATA_REPO/data/(环境变量 STATICDATA_REPO 仅测试用,缺省
-#   /Users/linhuichen/code/trade-data)= 生产数据目录 trade-data/data/(用户 2026-09-25
-#   拍板默认)——这些大 JSON 的生产"家"就是 trade-data/data,git 不再跟踪它们,但恢复
-#   回生产原位最直接,与 db.py/export.py 读的库同源,不随 cwd 漂移。
+# 恢复目标：默认 = <生产数据仓库根>/data/(2026-10-17 用户拍板改**随 REPO 推导**,推翻
+#   09-25 mac 常量默认:云上裸调用时旧默认 mac 路径在云上不存在 ⇒ 恢复错位/失败)。三级回退:
+#   ① STATICDATA_REPO(显式覆盖/测试用)② 随 REPO/GIT_REPO 推导(resolve_repo 已解析出
+#   生产数据仓库根)③ mac 常量 /Users/linhuichen/code/trade-data 末位兜底。这些大 JSON
+#   的生产"家"就是 trade-data/data(生产数据目录),git 不再跟踪它们,恢复回原位最直接,
+#   与 db.py/export.py 读的库同源。
 #   ⚠️ 非默认目标目录(覆盖了 STATICDATA_REPO 或传 --target)会打印醒目警告：可能是
 #   别的目录,直接覆盖有风险,测试临时目录也应看清再继续。
 # 依赖：$REPO/.venv/bin/python(调 scripts/upload_r2.py 的 s3_request,SigV4 签名+凭证复用,不新起连接)。
@@ -95,8 +97,35 @@ except KeyError as e:
 
 BUCKET = upload_r2.BACKUP_BUCKET
 PREFIX = "large-json/"
-# 默认恢复根 = 生产数据目录(用户 2026-09-25 拍板；测试用 STATICDATA_REPO 覆盖,默认必须是生产目录)
+# 默认恢复根 = 生产数据目录(恢复目标 = <root>/data)。
+# 2026-10-17 用户拍板改「随 REPO 推导」(推翻 2026-09-25 mac 常量默认):云上裸调用时旧默认
+#   /Users/linhuichen/code/trade-data 在云上不存在 ⇒ 恢复错位/失败。三级回退(照
+#   scripts/upload_r2.py:3009 _large_json_staticdata_repo 模式):
+#   ① STATICDATA_REPO(显式覆盖/测试用)② 随 REPO/GIT_REPO 推导 ③ mac 常量末位兜底。
 DEFAULT_PRODUCTION_REPO = "/Users/linhuichen/code/trade-data"
+
+
+def _default_data_repo():
+    """生产数据仓库根(恢复目标 = <root>/data)。三级回退,见上方注释。
+
+    ② 推导 = GIT_REPO 的兄弟 trade-data 优先,其次 REPO 本身(两者都来自 lib/repo_paths.sh
+      的 resolve_repo:生产 mac/云上 REPO 即生产数据仓库 trade-data);用「<cand>/data 存在」
+      作“像数据仓库”判据 —— worktree/dev 下两者都不成立 ⇒ 落 ③ mac 常量安全兜底(不误指 dev 树)。
+    """
+    env_sd = os.environ.get("STATICDATA_REPO")
+    if env_sd:
+        return env_sd
+    cands = []
+    git_repo = os.environ.get("GIT_REPO", "")
+    if git_repo:
+        cands.append(os.path.join(os.path.dirname(os.path.abspath(git_repo)), "trade-data"))
+    repo = os.environ.get("REPO", "")
+    if repo:
+        cands.append(repo)
+    for c in cands:
+        if c and os.path.isdir(os.path.join(c, "data")):
+            return c
+    return DEFAULT_PRODUCTION_REPO
 
 
 def _list_all(prefix=PREFIX):
@@ -287,7 +316,7 @@ def restore_one(date, rel, manifest_sha, target_root):
 def parse_args(argv):
     """手写参数解析：--list / <文件名> / --date[=] YYYY-MM-DD / --all,可任意位置加 --target[=] <dir>。
     返回 (mode, payload, target_root)；冲突/缺参直接 sys.exit 清晰报错。"""
-    default_root = os.path.join(os.environ.get("STATICDATA_REPO", DEFAULT_PRODUCTION_REPO), "data")
+    default_root = os.path.join(_default_data_repo(), "data")
     target_root = default_root
     mode = None
     payload = None
@@ -337,11 +366,11 @@ if mode == "date":
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", payload):
         sys.exit(f"✗ 日期格式应为 YYYY-MM-DD,收到 {payload}")
 
-# 非默认目标打印醒目警告(默认 = 当前 env 下 STATICDATA_REPO/data → 生产数据目录 trade-data/data)
-default_root = os.path.join(os.environ.get("STATICDATA_REPO", DEFAULT_PRODUCTION_REPO), "data")
+# 非默认目标打印醒目警告(默认 = 三级回退解析出的生产数据仓库根/data)
+default_root = os.path.join(_default_data_repo(), "data")
 if target_root != default_root:
     print(f"⚠️ 警告:目标目录 = {target_root}", file=sys.stderr)
-    print(f"   这不是默认的生产数据目录 trade-data/data(默认 {default_root})。", file=sys.stderr)
+    print(f"   这不是默认的生产数据目录(默认 {default_root})。", file=sys.stderr)
     print("   该目录可能是测试临时目录或别的位置,直接覆盖有风险,请确认后继续。", file=sys.stderr)
 
 print(f"恢复目标目录: {target_root}")
