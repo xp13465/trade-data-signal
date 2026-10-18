@@ -9,23 +9,40 @@
   42 行含 17 条活条目、5 周无人发现)。本脚本补上这道机检(挂 CI Job1 `quality-gate-static`)。
 
 对账维度(全 PASS 才 exit 0):
-  A. L 计数三方一致:归档 `^L\\d+` 实际条数 == 归档表头声称 == CLAUDE.md §18 声称。
+  A. L 计数三方一致:归档 `^L\d+` 实际条数 == 归档表头声称 == CLAUDE.md §18 声称。
      五项声称数**全部动态解析**(不写死数字)⇒ 日后加锚点只要同步改声称即可,不会又漂。
-  B. E 计数三方一致:同上(`^E\\d+`)。
+  B. E 计数三方一致:同上(`^E\d+`)。
   C. 锚点集完整(无遗漏):L id 必须是 01..N 连续无缺号;E 同理(防「少一条 → 静默过」)。
   D. 无悬空:归档「活索引面」(文件表头 + 防重犯锚点索引块)内**引用**到的每个 L/E 锚点 id
      必须真的在该面里被声明(防引用指向不存在锚点)。
      注:归档「正文」(索引块之前的原文快照)是**历史文本**,其内悬空引用只报 INFO 不清算
-     (守 §6④ 历史不追改;实测现存 1 处:E31 指 docs/main-governance.md §18.1 主控专属账本,
-      属另一编号空间,非本文件锚点)。
+     (守 §6④ 历史不追改)。实测现存 1 处 **E31,同号不同所指**:归档正文 08-13/14 写的是当时那条
+     「派单前先核真值」经验(该条在 08-12 归档提炼时未进入 E01-E30 索引 ⇒ 成悬空);而
+     `docs/main-governance.md` §18.1 里的 E31 是 **2026-08-24 另行补录**的 codex 跨 agent 消息通道条,
+     与本台账编号空间**互不相干**(两处各自编号,只是撞了同一个号)。
+     ⚠️ 勿再写成「E31 指 gov §18.1 主控专属账本」(P1 版此处归因不准,2026-10-18 批2 订正,= F1)。
   E. 根表窗口已归档(无遗漏,跨文档):CLAUDE.md §18 滚动窗每个锚点必须在归档索引块内,
      除非该行自述「未单独归档」(显式豁免,不靠人记)。
+  F. 「机检=」字段在场 + 值域合法(2026-10-18 批2 加,评鉴 P9⑥):索引块**每条**锚点行尾必须带
+     `机检=是(闸门:<名>)` 或 `机检=否`(缺字段/写成裸「机检=是」(无闸门名)/其它值 = FAIL)。
+     本维只机检「字段在场 + 值域合法」;**闸门名指的东西是否真存在、是否真覆盖该条**,留给
+     reviewer 抽样核对 —— 不在此假装机检(诚实边界)。
+  G. 归属清单自洽(2026-10-18 批2 加,= P1 审查 F2):解析四份「零丢失校验」声明
+     (governance §18.1 + 三个 role skill),校验①声称总条数 == 实列 id 数 == 分项括号和 + 「非归档」条数
+     ②每个列出的 id 必须在归档索引块内存在(「非归档」除外)。
+     ⚠️ 只做**正向**(声明自身自洽 + 指向存在);**反向「归档全量 ⊆ 四清单并集」不成立**(实测差集
+     20+ 条存量条目根本没挂归属清单),该项**只报 INFO 不设门** —— 不凭空造一个过不了的检查项(见下)。
+
+F2 处置留痕(2026-10-18):P1 审查提的「归属清单并集」原本是「每一条归档锚点都该被某个角色清单认领」,
+  实测该等式**不成立**(并集 60 余条 < 归档 80 余条),且三份 role skill 清单不在本批可改面内 ⇒
+  如实降级为:**正向自洽设门(G)+ 反向差距报 INFO**,不假装成 PASS/FAIL 门。
 
 防空转(§18 L49/L52「假绿/空转」根治):
-  · **恒在自检** —— 声称数解析不到 / 索引块锚点集为空 / 根表窗口解析为空 / 结构标题缺失,
-    一律直接 FAIL,**不允许静默 PASS**;
-  · **变异自测 `--selftest`** —— 临时树三向:①负对照(未变异)必须 PASS;②删掉归档最后一条 L
-    锚点行 → 必须 FAIL(计数 + 连续性);③把 CLAUDE.md 声称数 50L 篡改成 52L → 必须 FAIL(三方不一致)。
+  · **恒在自检** —— 声称数解析不到 / 索引块锚点集为空 / 根表窗口解析为空 / 结构标题缺失 /
+    四份归属清单一个都读不到,一律直接 FAIL,**不允许静默 PASS**;
+  · **变异自测 `--selftest`** —— 临时树五向:①负对照(未变异)必须 PASS;②删掉归档最后一条 L
+    锚点行 → 必须 FAIL(计数 + 连续性);③把 CLAUDE.md 声称数 nL 篡改成 (n+2)L → 必须 FAIL(三方不一致);
+    ④删掉某锚点行的「机检=」字段 → 必须 FAIL(F 维真响);⑤把某份归属清单的「= n 条」改大 → 必须 FAIL(G 维真响)。
     rc=0 = 自测通过 = 闸门真能响(非空转)。
 
 用法:
@@ -46,6 +63,14 @@ CLAUDE_REL = "CLAUDE.md"
 INDEX_HEADING = "## 防重犯锚点索引"
 MD18_HEADING = "## 18. 防重犯索引表"
 
+# 四份「归属清单」声明(每条带「零丢失校验」等式)—— G 维解析对象
+OWNERSHIP_DECLS = (
+    ("主控归属(governance §18.1)", "docs/main-governance.md"),
+    ("实施归属(implementer skill §7)", ".claude/skills/role-implementer/SKILL.md"),
+    ("调研归属(researcher skill §5)", ".claude/skills/role-researcher/SKILL.md"),
+    ("测试归属(tester skill §6)", ".claude/skills/role-tester/SKILL.md"),
+)
+
 _RE_ANCHOR_LINE = re.compile(r"^([LE])(\d+)\b")
 _RE_ARCH_HEAD_RANGE_L = re.compile(r"L01-L(\d+) 过错锚点")
 _RE_ARCH_HEAD_RANGE_E = re.compile(r"E01-E(\d+) 经验锚点")
@@ -57,6 +82,13 @@ _RE_MD_CLAIM_SLIM = re.compile(r"全量 (\d+)L\+(\d+)E")
 _RE_MD_ROW = re.compile(r"^\|\s*([LE])(\d+)\s*\|")
 _RE_REF_L = re.compile(r"(?<![A-Za-z0-9])L(\d{2})(?![0-9])")
 _RE_REF_E = re.compile(r"(?<![A-Za-z0-9])E(\d{2})(?![0-9])")
+
+# ── F/G 维(2026-10-18 批2)──
+_RE_JIAN = re.compile(r"机检=(是\(闸门:[^)]+\)|否)")
+_RE_OWN_LINE = re.compile(r"零丢失校验[:：]")
+_RE_OWN_TOTAL = re.compile(r"=\s*(\d+)\s*条")
+_RE_OWN_PART = re.compile(r"\((\d+)[^)]*\)")
+_RE_OWN_EXEMPT = re.compile(r"([LE]\d{2})\(非归档\)")
 
 
 # ── 解析 ─────────────────────────────────────────────────────────────────────
@@ -108,6 +140,60 @@ def _md18_rows(md: str):
         if m:
             rows.append((m.group(1), int(m.group(2)), lines[i]))
     return rows
+
+
+def _ownership(root: Path, l_ids, e_ids):
+    """G 维:四份归属清单「零丢失校验」等式自洽 + 列出的 id 必须存在于归档索引块。
+
+    只做**正向**(声明自身自洽 + 指向存在);**反向「归档全量 ⊆ 四清单并集」不成立**
+    (实测差集 20+ 条存量条目未挂归属清单)⇒ 只报 INFO,不设门(见文件头 F2 处置留痕)。
+    """
+    fails, passes, infos = [], [], []
+    files_found, declared_sum, seen = 0, 0, set()
+    for label, rel in OWNERSHIP_DECLS:
+        p = root / rel
+        if not p.is_file():
+            infos.append(f"G. {label}: 声明文件不在({rel})⇒ 该份跳过")
+            continue
+        files_found += 1
+        hits = [ln for ln in p.read_text(encoding="utf-8").splitlines() if _RE_OWN_LINE.search(ln)]
+        if not hits:
+            fails.append(f"G. {label}: {rel} 内找不到「零丢失校验」声明行 ⇒ 声明消失/漂移,拒绝静默通过")
+            continue
+        for ln in hits:
+            rl, reids = _refs(ln)
+            ids = {("L", x) for x in rl} | {("E", x) for x in reids}
+            exempt = {(s[0], int(s[1:])) for s in _RE_OWN_EXEMPT.findall(ln)}
+            totals = _RE_OWN_TOTAL.findall(ln)
+            parts = [int(x) for x in _RE_OWN_PART.findall(ln)]
+            if not totals or not ids or not parts:
+                fails.append(f"G. {label}: 零丢失等式解析不全(总条数/清单/分项括号缺)⇒ 拒绝静默通过")
+                continue
+            declared, calc = int(totals[-1]), sum(parts) + len(exempt)
+            if declared != len(ids) or declared != calc:
+                fails.append(f"G. {label}: 零丢失等式不自洽 → 声称 {declared} 条;实列 {len(ids)} 个 id;"
+                             f"分项和 {sum(parts)} + 「非归档」{len(exempt)} = {calc}")
+            else:
+                passes.append(f"G. {label}: 等式自洽 {declared} 条(= 实列 {len(ids)} 个 id = "
+                              f"分项和 {sum(parts)} + 「非归档」{len(exempt)})")
+            for kind, num in sorted(ids):
+                if (kind, num) in exempt:
+                    continue
+                pool = l_ids if kind == "L" else e_ids
+                if num not in pool:
+                    fails.append(f"G. {label}: 列出的 {kind}{num:02d} 在归档索引块内不存在")
+            declared_sum += declared
+            seen |= ids
+    if files_found == 0:
+        fails.append("G. 四份归属清单声明文件一个都没读到 ⇒ 本维空转,拒绝 PASS")
+    else:
+        pool_all = {("L", x) for x in l_ids} | {("E", x) for x in e_ids}
+        gap = sorted(pool_all - seen)
+        head = ", ".join(f"{k}{n:02d}" for k, n in gap[:10]) + (" …" if len(gap) > 10 else "")
+        infos.append(f"G. 归属清单**并集(反向)**未覆盖归档 {len(gap)} 条 / 归档共 {len(pool_all)} 条"
+                     f"(四份声明合计 {declared_sum} 条,并集 {len(seen)} 个 id)——存量未认领条目,不设门。"
+                     f"差集: {head}")
+    return fails, passes, infos
 
 
 def _one(rx, text, label, group=1):
@@ -208,7 +294,9 @@ def check(root: Path):
     b_e -= e_ids
     if b_l or b_e:
         infos.append("正文(原文快照)悬空引用(历史文本,不清算): "
-                     + ", ".join([f"L%02d" % x for x in sorted(b_l)] + [f"E%02d" % x for x in sorted(b_e)]))
+                     + ", ".join([f"L%02d" % x for x in sorted(b_l)] + [f"E%02d" % x for x in sorted(b_e)])
+                     + " —— E31 同号不同所指:正文当时那条「派单前先核真值」经验未入 E01-E30 索引;"
+                       "gov §18.1 的 E31 是 2026-08-24 另行补录的 codex 通道条,两处编号空间互不相干(F1 订正)")
 
     # ── E:根表窗口锚点已归档(未单独归档显式豁免)──
     rows = _md18_rows(md)
@@ -229,6 +317,33 @@ def check(root: Path):
     else:
         passes.append(f"E. 根表窗口锚点已归档: {len(rows)} 行中 {len(rows) - exempt} 条在归档内"
                       f" + {exempt} 条自述「未单独归档」豁免,缺档 0")
+
+    # ── F:「机检=」字段在场 + 值域合法 ──
+    miss_j, n_yes = [], 0
+    for ln in index_lines:
+        m = _RE_ANCHOR_LINE.match(ln)
+        if not m:
+            continue
+        aid = f"{m.group(1)}{int(m.group(2)):02d}"
+        if "机检=" not in ln:
+            miss_j.append(aid)
+        elif not _RE_JIAN.search(ln):
+            miss_j.append(f"{aid}(值域非法:须是「机检=是(闸门:<名>)」或「机检=否」)")
+        elif "机检=是" in ln:
+            n_yes += 1
+    if miss_j:
+        fails.append(f"F. 「机检=」字段: {len(miss_j)} 行缺字段或值域非法 → {miss_j[:12]}"
+                     f"{' …' if len(miss_j) > 12 else ''}")
+    else:
+        passes.append(f"F. 「机检=」字段: {len(l_ids) + len(e_ids)} 条锚点行全部在场且值域合法"
+                      f"(其中 是(带闸门名) {n_yes} 条 / 否 {len(l_ids) + len(e_ids) - n_yes} 条)。"
+                      f"注:闸门名指的东西是否真存在、是否真覆盖该条,由 reviewer 抽样核对")
+
+    # ── G:四份归属清单「零丢失校验」自洽(正向)+ 并集缺口 INFO(反向)──
+    g_f, g_p, g_i = _ownership(root, l_ids, e_ids)
+    fails += g_f
+    passes += g_p
+    infos += g_i
 
     return fails, passes, infos
 
@@ -253,6 +368,11 @@ def selftest() -> int:
         (t / "docs/archive").mkdir(parents=True)
         shutil.copy2(root / ARCHIVE_REL, t / ARCHIVE_REL)
         shutil.copy2(root / CLAUDE_REL, t / CLAUDE_REL)
+        # G 维要读的 4 份归属清单声明文件也拷进临时树(缺了负对照会因「读不到声明」而 FAIL)
+        for _, rel in OWNERSHIP_DECLS:
+            dst = t / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root / rel, dst)
 
         # ① 负对照(未变异)→ 必须 PASS(否则自测装置本身恒 FAIL,证据无效)
         rc0, out0 = _run(t)
@@ -262,7 +382,7 @@ def selftest() -> int:
             ok = False
             print(f"  FAIL: 负对照(未变异)竟 rc={rc0}, tail={out0.strip().splitlines()[-3:]}")
 
-        # ② 变异:删掉归档索引块最后一条 L 锚点行 → 必须 FAIL(计数 49≠50 + 缺号 50)
+        # ② 变异:删掉归档索引块最后一条 L 锚点行 → 必须 FAIL(计数 (n-1)≠n)
         ap = t / ARCHIVE_REL
         orig = ap.read_text(encoding="utf-8")
         lines = orig.splitlines(keepends=True)
@@ -299,11 +419,52 @@ def selftest() -> int:
             mp.write_text(m_new, encoding="utf-8")
             rc2, out2 = _run(t)
             if rc2 != 0 and "RESULT=FAIL" in out2 and "A. L 计数三方一致" in out2:
-                print("  PASS: 变异样本(CLAUDE.md 声称 50L→52L)→ RESULT=FAIL(A 三方一致闸门真响)")
+                print("  PASS: 变异样本(CLAUDE.md 声称 nL→(n+2)L)→ RESULT=FAIL(A 三方一致闸门真响)")
             else:
                 ok = False
                 print(f"  FAIL: 篡改声称数后竟 rc={rc2}(应 FAIL)⇒ A 闸门空转, "
                       f"tail={out2.strip().splitlines()[-4:]}")
+
+        # ④ 变异:删掉某锚点行的「机检=」字段 → 必须 FAIL(F 维真响)
+        ap2 = t / ARCHIVE_REL
+        orig2 = ap2.read_text(encoding="utf-8")
+        lines2 = orig2.splitlines(keepends=True)
+        hit2 = next((i for i in range(len(lines2) - 1, -1, -1)
+                     if _RE_ANCHOR_LINE.match(lines2[i]) and "机检=" in lines2[i]), None)
+        if hit2 is None:
+            ok = False
+            print("  FAIL: 变异注入失败(归档里找不到带「机检=」的锚点行)")
+        else:
+            dropped2 = lines2[hit2].split("|")[0].strip()
+            lines2[hit2] = lines2[hit2].split(" | 机检=")[0].rstrip() + "\n"
+            ap2.write_text("".join(lines2), encoding="utf-8")
+            rc3, out3 = _run(t)
+            if rc3 != 0 and "RESULT=FAIL" in out3 and "F. 「机检=」字段" in out3:
+                print(f"  PASS: 变异样本(删掉 {dropped2} 的「机检=」字段)→ RESULT=FAIL(F 维真响)")
+            else:
+                ok = False
+                print(f"  FAIL: 删「机检=」字段后竟 rc={rc3}(应 FAIL)⇒ F 维空转, "
+                      f"tail={out3.strip().splitlines()[-4:]}")
+            ap2.write_text(orig2, encoding="utf-8")   # 还原
+
+        # ⑤ 变异:把某份归属清单的「= n 条」改大 → 必须 FAIL(G 维真响)
+        gp = t / OWNERSHIP_DECLS[0][1]
+        gtext = gp.read_text(encoding="utf-8")
+        g_new, g_sub = re.subn(r"(零丢失校验[^\n]*?=\s*)(\d+)(\s*条)",
+                               lambda m: f"{m.group(1)}{int(m.group(2)) + 1}{m.group(3)}", gtext, count=1)
+        if g_sub == 0:
+            ok = False
+            print("  FAIL: 变异注入失败(归属清单里找不到「= n 条」声称)")
+        else:
+            gp.write_text(g_new, encoding="utf-8")
+            rc4, out4 = _run(t)
+            if rc4 != 0 and "RESULT=FAIL" in out4 and "G. " in out4 and "不自洽" in out4:
+                print("  PASS: 变异样本(归属清单声称 n 条→n+1 条)→ RESULT=FAIL(G 维真响)")
+            else:
+                ok = False
+                print(f"  FAIL: 篡改归属清单声称后竟 rc={rc4}(应 FAIL)⇒ G 维空转, "
+                      f"tail={out4.strip().splitlines()[-4:]}")
+            gp.write_text(gtext, encoding="utf-8")    # 还原
 
     print(f"[ledger-selftest] {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1

@@ -2,7 +2,7 @@
 
 > 本节为 CLAUDE.md §18 犯错积累与防重犯(2026-08-08 起)原文全量快照,由 CLAUDE.md 整理提炼(去重12+提炼8+归档3大件)归档。
 > 原文出处:CLAUDE.md L205-287(归档前版本,commit 见 git log)。CLAUDE.md 现保留索引+防重犯精华,索引能反向追到此原文。
-> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L50 过错锚点 + E01-E30 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 50 = 零丢失校验锚(机检 `scripts/check_ledger.py`)。
+> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L53 过错锚点 + E01-E30 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 53 = 零丢失校验锚(机检 `scripts/check_ledger.py`)。
 > 归档日期:2026-08-12
 
 ---
@@ -107,94 +107,101 @@
 ## 防重犯锚点索引(2026-08-12 建立,根 CLAUDE.md §18 索引表反向追原文用)
 
 > 用法:命中场景 → 读根 CLAUDE.md §18 索引表 → grep 锚点 id → 读本文件对应行号原文(含根因+场景+防重犯)。
-> 零丢失校验锚:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` 应 == 本文件表头/根 CLAUDE.md §18 声称的 50,一致=零丢失(机检 `python3 scripts/check_ledger.py`)。
+> 零丢失校验锚:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` 应 == 本文件表头/根 CLAUDE.md §18 声称的 53,一致=零丢失(机检 `python3 scripts/check_ledger.py`)。
 > 注意:本文件行号会随未来编辑漂移,追到后若行号对不上按锚点 id 关键词 grep 定位。
+> 「**机检=**」字段(2026-10-18 加,评鉴 P9⑥):每条锚点行尾带 `机检=是(闸门:<脚本/闸门名>)` 或 `机检=否`。判据:**是** = 该条约束**现存可指认的自动拦闸门**(脚本/CI/hook,改名要跟着改);**否** = 目前只靠纪律执行(其中「是否可机检化」留 P5 逐条评估,此字段只表达现状不表达潜力)。**新增/补录锚点必带此字段**,由 `scripts/check_ledger.py` F 维机检(缺字段即 FAIL)。
 
-### 过错锚点(50 条;线性列表,锚点 id 可 `grep` 反查原文,与根 CLAUDE.md §18 滚动窗锚点 id 一致)
+### 过错锚点(53 条;线性列表,锚点 id 可 `grep` 反查原文,与根 CLAUDE.md §18 滚动窗锚点 id 一致)
 
-L01 | 通知丢失不设cron傻等 → 防重犯:§11 cron兜底必设 | archive:L13
-L02 | DB方案理解反复3次 → 关键决策前复述确认 | archive:L14
-L03 | exclude偏离全量本意 → 全量不擅自exclude先确认 | archive:L15
-L04 | .gz凭memory断定 → 断定前验证 | archive:L16
-L05 | trade/trade-data混淆 → agent关键结论§0验(路径/文件数类) | archive:L17
-L06 | cherry-pick撞冲突 → 切分支前CronList+查后台agent | archive:L18
-L07 | hoverpop方案试错 → 方案先调研再实施 | archive:L19
-L08 | ETF拆档null归属 → 归属/分类前复述口径确认 | archive:L22
-L09 | hoverpop"无数据"误判 → 下结论前验数据产物层(R2旧vs新版) | archive:L23
-L10 | lowconf灰蓝过时规则 → 改灯体系遍历所有return/分支 | archive:L24
-L11 | 需求2加未要求改动 → 不擅自扩展需求(→§23.3) | archive:L25
-L12 | 至今盈亏方向偏差 → 调研先对准UI位置(grep渲染层) | archive:L26
-L13 | 量子"0/不可改善"误判 → 换方法/数据源+多关联维度 | archive:L27
-L14 | annualized口径判断偏差 → 指定口径前验算典型值合理性 | archive:L49
-L15 | 追加A级小改漏做 → 追加任务不靠SendMessage(→§11) | archive:L50
-L16 | 数据没上线R2 → 新类别上线链路三步(→§22) | archive:L51
-L17 | §0证伪查错文件 → §0证伪前grep前端渲染逻辑确认读哪个文件(→§8三查) | archive:L52
-L18 | §21算法公示gap复发(已复发2次) → §21强化款:prompt显式列grep动作+文件名 | archive:L60
-L19 | 前端重算不对齐后端 → replay逐字段对比后端JSON(→memory frontend-replay-align-backend) | archive:L61
-L20 | §0 grep字面量漏常量 → memory verify-grep-constant-not-literal | archive:L65
-L21 | reviewer卡死无进度文件 → prompt显式"每步echo进度文件"(→§11) | archive:L66
-L22 | curl -sv泄漏token → memory curl-v-leaks-auth-token | archive:L67
-L23 | prompt期望数值错误 → 期望值先核实来源 | archive:L68
-L24 | 核心需求方向偏差(误派J1/J2) → 需求拆解清单+复述确认(→§23.3) | archive:L81
-L25 | J1/J2 §21公示复发(已复发2次) → §21强化款 | archive:L82
-L26 | hooks误报"还没生效" → 判断生效先查运行证据 | archive:L83
-L27 | hooks子agent输入也抄送 → hooks区分主会话vs子agent | archive:L84
-L28 | 主控§0抢跑在reviewer前重复验代码 → 派reviewer的改动merge前不grep代码(只验hash),§0只验上线点,下结论先查规范原文 | archive:L94
-L29 | 主控亲自Edit干活违反"只派发" → 主控永不亲自改代码/写代码/跑自测,实施一律派implementer(→根CLAUDE.md §0.1红线) | archive:L95
-L30 | 需求叫停时过度删除同链路中间档 → 复述"删到什么粒度/保留什么档"确认再删,不把可保留档一起删 | archive:L96
-L31 | 派数据重跑/回测任务基准过时 → 派单前先核对当前页面 `_kellyDefaultFilters()`/`_kellyComboPresets` 真值,不沿用旧报告基准;08-27 重犯变种:给用户的拍板/汇报材料沿用旧口径(把默认标成"NEW14+1 现役",实为当日 fb13dbde8 刚切的 S06)——凡引用默认口径的派单/拍板/汇报材料,下笔前先核当前真值 | archive:L97
-L32 | "A/F收益率虚高"标注方向错误 → 判断实操意义先看峰值持仓/单次本金倍数(≤20倍可操作),不从模式快慢预设"虚高"标签 | archive:L98
-L33 | 子agent设"等定时器自唤醒"不可靠(会话停REPL没了定时器永不触发) → 带时点动作(merge/上线避盘后)主控侧设一次性CronCreate兜底,或收到"在等定时器"报告立即改为命令立即执行;主控兜底设在自己会话不指望子agent | archive:L103
-L34 | 报告索引有但报告本体未提交/配套脚本缺指向(用户:"提交记录里看到了次日的报告索引 怎么没看到报告本体?") → 报告落档必走 §23.5 四件套:报告本体+生成脚本+##复现段+配套commit;commit 前 `git ls-files` 验本体/脚本已 tracked,缺=验收不过 | archive:L104
-L35 | Explore agent v4-pro 计费泄漏:派只读/搜索任务误用 Claude Code 内置 Explore subagent(model=claude-opus-5 不在代理白名单,绕过白名单按 v4-pro 计费,12次~45万tokens泄漏) → 只读/搜索/定位任务一律派 researcher(内置 Explore 固定用 claude-opus-5 绕过代理白名单);白名单外 model 一律兜底改写 flash,绝不透传 | archive:L105
-L36 | 汇报并行在跑 agent 数错误(把已完成/已收到通知的还当在跑,用户:"顺带提醒 并行在跑的可没4个"+"这种错不要再犯了") → 汇报"在跑N个"前逐 agent 核对是否已收完成通知;收到通知=已完成立即移出在跑 | archive:L106
-L37 | 非交易日补发买卖点信号邮件(周日没开盘却收到周五买卖点信号) → 信号邮件/backfill 补发前判断交易日,非交易日不补发 | archive:L107
-L38 | daily-brief 周六触发降级(周六20:40收到AI预测且是老版本) → 触发源脚本(run_daily_brief.sh)必带交易日判断,非交易日不触发;降级=模型不守约束加强prompt不放松校验,补原始range日志 | archive:L108
-L39 | 挖掘用裸G不可操作口径当基准(2.0挖掘第一轮用裸G测「剔除整象限G -74,954」,用户质疑后核实确是不可操作口径,结论需重测) → 回测/挖掘第一件事=确认基线落在 v1.1.0 基准(§5.4),测非基准口径(裸G/其他K/P档)必须显式声明+说明为何测+标注口径差异,不作主推结论 | archive:L109
-L40 | 打 tag 只做点名处没举一反三(用户让打 v1.1.1 tag,我打了 v1.1.1 就报完成,但 v1.1.0 从没打过 git tag——首次 `git tag -l` 已看到只有 v1.0.0,却把"v1.1.0 漏打"当顺手小事默默补打,没暴露给用户;用户追问"怎么会1.1.0都没打"才发现这是历史疏漏) → ①「打 tag/发版本」需求第一件事 `git tag -l` 全量核对版本链(v1.0.0→v1.1.0→v1.1.1 三连齐不齐),缺哪个=先报用户确认再补,不默默自己消化;②发版本验收口径=git tag 必须在(页面版本串 a2xx/memory/README 是辅助标记,不替代 git tag,漏没漏要单独验),git tag 必须 push 远端;③发现历史疏漏=上报用户(§23.7⑤同精神),不自己拍板位置;④「打 vN tag」隐含前提=版本链完整,做 A 要举一反三覆盖版本链全貌(§23.3) | archive:L110
-L41 | 同步任务验收口径做窄(用户让"同步 claude-work-mode",我同步了 CLAUDE.md 就报完成,但 agents/skills 执行层没同步、README 全局部署指引停在"单拷 CLAUDE.md"旧阶段——拓扑图声明"含 agents/skills"但实物缺、部署指引与角色化拆分后结构脱节,全是用户点破才发现,不是主动暴露) → ①派"同步/备份/迁移/复制"类任务,先拆解目标的**完整构成**(如同步工作模式=根 CLAUDE.md + 角色执行层 agents/skills + 项目专项 PROJECT-SPECIFIC.md + 使用指引对齐结构),不全量覆盖不算 done;②验收口径=「该有的都有了+结构对齐」,不只「改对没有」(§0 逐字验 diff 只证明改对,不证明该改的都改了);③§23.3 举一反三:同步 A 时先列"同链/同依赖/同结构"清单(agents/skills 是同链、README 使用指引是配套),不全员覆盖不报完成;④带"备份/复现/可移植"字样的任务,自觉查"用这套东西的人按指引能不能跑起来"(指引过时=断链),发现脱节主动上报不待用户点破;⑤自检/reviewer 派单加一句"验证需求全量覆盖,不只点名处" | archive:L111
-L42 | 首页三张分段色图「尖角+颜色不对」前三次声称修好但实际零变化(用户隐私窗口验证),第四次才成功——根因三层:①**问题定义错**:把「视觉观感(整条线切成~100段纯色path、平均1.4点换色=斑马纹锯齿)」当「几何折角(色变点不平滑)」修,三次都奔修色变切换点;②**验证尺子本身坏**:自验脚本 lite-corner-junction-emitted-geom.py 色段边界匹配 bug(prev.re==ds-1 应为 ds)算出假角78-169°,给错误方向「数据背书」,agent 用同一把坏尺子自验全过报修好(实际真实代码几何全平滑<5°);③**自验口径≠用户感知口径**:agent 验色变点折角度数(局部数值全对),用户看整条线观感(路径条数/色段密度/渐变方式),验的不是用户看到的 → 前三次每次都是同一套「坏尺子+错口径」循环 | ①定位 UI 视觉/观感问题先穷举式从零验证(每个点几何+渲染结构+基线对比),复用旧自验脚本前先核对脚本判定逻辑与真实代码路径一致(**验证的验证**);②自验口径必须产出用户描述同一视角的证据(「尖角」→验路径条数/色段密度/渐变,不只验折角度数),拿不出同一视角证据=没修到用户看到的;③「多次修不好」信号=假设可能整个错了(方向错/工具错),立即停方向派独立验证者从零定义问题,不带入旧结论,主控不转达「修好」直到用户确认(→memory lite-svg-four-attempts-rootcause) | (原文即本条,2026-08-17 新加)
-L43 | 主控抢跑亲手验证+数据生成违反"只派发"(L29变种:没Edit代码,但亲手干跑export_summary验证/手动生成summary.json+上传R2/手动curl验收,用户质疑「怎么你亲自在干?符合工作模式么」) → 子agent卡住等时点+用户催=派tester/implementer接手当前验证/数据任务,主控只做派单锚点grep(§8.1)+§0验线上最终结果;数据操作(生成产物/上传R2/重跑)默认归agent,主控不抢跑亲手干(→memory main-controller-ran-verification-hands-on) | (原文即本条,2026-08-18 新加;2026-08-24 补录锚点行修零丢失等式——CLAUDE.md §18 表已有此条但本块此前漏挂)
-L44 | has_track 口径 P0 事故(2026-08-24):「有跟踪ETF」口径三版本——产品文档(信号❓公式)=跟踪分<50 或数据不足(none 30-49 + null <30 同归筛选档4)、首页 hover 与凯利区标注=<50、后端归类实现=只装 none(null 掉卡外);链条=需求记录先错→挖掘报告(mine29c)基于带 bug 现状设计 X1("整剔 none 象限")→实施照单落地→reviewer 校验全程在"报告↔代码"闭环内(报告与实现可能同源继承同一 bug,互证≠正确),全链无人对照 UI 文案,机检全绿但 14+1 卡不归零,用户肉眼发现才暴露,引发多轮校对修复辩论浪费大量 token(用户定性 P0:"这种行为属于p0级问题 不能再犯 如果需求理解不足 可以问我拍板。或者发现不统一也可以找我拍板") → ①语义类改动(分类/档位/象限/阈值/区间)全链路各角色必须有第三方锚点(UI 文案/产品文档):主控派单附三源原文、researcher 设计前核查分析对象、implementer 开工逐字对照、reviewer 查对照记录缺任一源=FAIL、tester 机检备独立于被校验双方的参照锚点+业务守恒断言(卡数归零类不能只靠键集比对)(§23.13);②警惕"报告↔代码"互证闭环:两者一致≠正确,必须引入报告和代码之外的锚点(UI 文案原文/用户拍板记录);③发现同一概念多处说法不一(哪怕些许差距)=停下上报用户拍板,绝不自行选边静默推进(§23.11 同精神;→memory has-track-caliber-p0-reflection) | (原文即本条,2026-08-24 新加)
+L01 | 通知丢失不设cron傻等 → 防重犯:§11 cron兜底必设 | archive:L13 | 机检=否
+L02 | DB方案理解反复3次 → 关键决策前复述确认 | archive:L14 | 机检=否
+L03 | exclude偏离全量本意 → 全量不擅自exclude先确认 | archive:L15 | 机检=否
+L04 | .gz凭memory断定 → 断定前验证 | archive:L16 | 机检=否
+L05 | trade/trade-data混淆 → agent关键结论§0验(路径/文件数类) | archive:L17 | 机检=否
+L06 | cherry-pick撞冲突 → 切分支前CronList+查后台agent | archive:L18 | 机检=否
+L07 | hoverpop方案试错 → 方案先调研再实施 | archive:L19 | 机检=否
+L08 | ETF拆档null归属 → 归属/分类前复述口径确认 | archive:L22 | 机检=否
+L09 | hoverpop"无数据"误判 → 下结论前验数据产物层(R2旧vs新版) | archive:L23 | 机检=否
+L10 | lowconf灰蓝过时规则 → 改灯体系遍历所有return/分支 | archive:L24 | 机检=否
+L11 | 需求2加未要求改动 → 不擅自扩展需求(→§23.3) | archive:L25 | 机检=否
+L12 | 至今盈亏方向偏差 → 调研先对准UI位置(grep渲染层) | archive:L26 | 机检=否
+L13 | 量子"0/不可改善"误判 → 换方法/数据源+多关联维度 | archive:L27 | 机检=否
+L14 | annualized口径判断偏差 → 指定口径前验算典型值合理性 | archive:L49 | 机检=否
+L15 | 追加A级小改漏做 → 追加任务不靠SendMessage(→§11) | archive:L50 | 机检=否
+L16 | 数据没上线R2 → 新类别上线链路三步(→§22) | archive:L51 | 机检=否
+L17 | §0证伪查错文件 → §0证伪前grep前端渲染逻辑确认读哪个文件(→§8三查) | archive:L52 | 机检=否
+L18 | §21算法公示gap复发(已复发2次) → §21强化款:prompt显式列grep动作+文件名 | archive:L60 | 机检=否
+L19 | 前端重算不对齐后端 → replay逐字段对比后端JSON(→memory frontend-replay-align-backend) | archive:L61 | 机检=否
+L20 | §0 grep字面量漏常量 → memory verify-grep-constant-not-literal | archive:L65 | 机检=否
+L21 | reviewer卡死无进度文件 → prompt显式"每步echo进度文件"(→§11) | archive:L66 | 机检=是(闸门:scripts/agent_dispatch_cron_reminder.py 机检派单 prompt 含进度文件路径)
+L22 | curl -sv泄漏token → memory curl-v-leaks-auth-token | archive:L67 | 机检=否
+L23 | prompt期望数值错误 → 期望值先核实来源 | archive:L68 | 机检=否
+L24 | 核心需求方向偏差(误派J1/J2) → 需求拆解清单+复述确认(→§23.3) | archive:L81 | 机检=否
+L25 | J1/J2 §21公示复发(已复发2次) → §21强化款 | archive:L82 | 机检=否
+L26 | hooks误报"还没生效" → 判断生效先查运行证据 | archive:L83 | 机检=否
+L27 | hooks子agent输入也抄送 → hooks区分主会话vs子agent | archive:L84 | 机检=否
+L28 | 主控§0抢跑在reviewer前重复验代码 → 派reviewer的改动merge前不grep代码(只验hash),§0只验上线点,下结论先查规范原文 | archive:L94 | 机检=否
+L29 | 主控亲自Edit干活违反"只派发" → 主控永不亲自改代码/写代码/跑自测,实施一律派implementer(→根CLAUDE.md §0.1红线) | archive:L95 | 机检=否
+L30 | 需求叫停时过度删除同链路中间档 → 复述"删到什么粒度/保留什么档"确认再删,不把可保留档一起删 | archive:L96 | 机检=否
+L31 | 派数据重跑/回测任务基准过时 → 派单前先核对当前页面 `_kellyDefaultFilters()`/`_kellyComboPresets` 真值,不沿用旧报告基准;08-27 重犯变种:给用户的拍板/汇报材料沿用旧口径(把默认标成"NEW14+1 现役",实为当日 fb13dbde8 刚切的 S06)——凡引用默认口径的派单/拍板/汇报材料,下笔前先核当前真值 | archive:L97 | 机检=否
+L32 | "A/F收益率虚高"标注方向错误 → 判断实操意义先看峰值持仓/单次本金倍数(≤20倍可操作),不从模式快慢预设"虚高"标签 | archive:L98 | 机检=否
+L33 | 子agent设"等定时器自唤醒"不可靠(会话停REPL没了定时器永不触发) → 带时点动作(merge/上线避盘后)主控侧设一次性CronCreate兜底,或收到"在等定时器"报告立即改为命令立即执行;主控兜底设在自己会话不指望子agent | archive:L103 | 机检=否
+L34 | 报告索引有但报告本体未提交/配套脚本缺指向(用户:"提交记录里看到了次日的报告索引 怎么没看到报告本体?") → 报告落档必走 §23.5 四件套:报告本体+生成脚本+##复现段+配套commit;commit 前 `git ls-files` 验本体/脚本已 tracked,缺=验收不过 | archive:L104 | 机检=否
+L35 | Explore agent v4-pro 计费泄漏:派只读/搜索任务误用 Claude Code 内置 Explore subagent(model=claude-opus-5 不在代理白名单,绕过白名单按 v4-pro 计费,12次~45万tokens泄漏) → 只读/搜索/定位任务一律派 researcher(内置 Explore 固定用 claude-opus-5 绕过代理白名单);白名单外 model 一律兜底改写 flash,绝不透传 | archive:L105 | 机检=否
+L36 | 汇报并行在跑 agent 数错误(把已完成/已收到通知的还当在跑,用户:"顺带提醒 并行在跑的可没4个"+"这种错不要再犯了") → 汇报"在跑N个"前逐 agent 核对是否已收完成通知;收到通知=已完成立即移出在跑 | archive:L106 | 机检=否
+L37 | 非交易日补发买卖点信号邮件(周日没开盘却收到周五买卖点信号) → 信号邮件/backfill 补发前判断交易日,非交易日不补发 | archive:L107 | 机检=否
+L38 | daily-brief 周六触发降级(周六20:40收到AI预测且是老版本) → 触发源脚本(run_daily_brief.sh)必带交易日判断,非交易日不触发;降级=模型不守约束加强prompt不放松校验,补原始range日志 | archive:L108 | 机检=否
+L39 | 挖掘用裸G不可操作口径当基准(2.0挖掘第一轮用裸G测「剔除整象限G -74,954」,用户质疑后核实确是不可操作口径,结论需重测) → 回测/挖掘第一件事=确认基线落在 v1.1.0 基准(§5.4),测非基准口径(裸G/其他K/P档)必须显式声明+说明为何测+标注口径差异,不作主推结论 | archive:L109 | 机检=否
+L40 | 打 tag 只做点名处没举一反三(用户让打 v1.1.1 tag,我打了 v1.1.1 就报完成,但 v1.1.0 从没打过 git tag——首次 `git tag -l` 已看到只有 v1.0.0,却把"v1.1.0 漏打"当顺手小事默默补打,没暴露给用户;用户追问"怎么会1.1.0都没打"才发现这是历史疏漏) → ①「打 tag/发版本」需求第一件事 `git tag -l` 全量核对版本链(v1.0.0→v1.1.0→v1.1.1 三连齐不齐),缺哪个=先报用户确认再补,不默默自己消化;②发版本验收口径=git tag 必须在(页面版本串 a2xx/memory/README 是辅助标记,不替代 git tag,漏没漏要单独验),git tag 必须 push 远端;③发现历史疏漏=上报用户(§23.7⑤同精神),不自己拍板位置;④「打 vN tag」隐含前提=版本链完整,做 A 要举一反三覆盖版本链全貌(§23.3) | archive:L110 | 机检=否
+L41 | 同步任务验收口径做窄(用户让"同步 claude-work-mode",我同步了 CLAUDE.md 就报完成,但 agents/skills 执行层没同步、README 全局部署指引停在"单拷 CLAUDE.md"旧阶段——拓扑图声明"含 agents/skills"但实物缺、部署指引与角色化拆分后结构脱节,全是用户点破才发现,不是主动暴露) → ①派"同步/备份/迁移/复制"类任务,先拆解目标的**完整构成**(如同步工作模式=根 CLAUDE.md + 角色执行层 agents/skills + 项目专项 PROJECT-SPECIFIC.md + 使用指引对齐结构),不全量覆盖不算 done;②验收口径=「该有的都有了+结构对齐」,不只「改对没有」(§0 逐字验 diff 只证明改对,不证明该改的都改了);③§23.3 举一反三:同步 A 时先列"同链/同依赖/同结构"清单(agents/skills 是同链、README 使用指引是配套),不全员覆盖不报完成;④带"备份/复现/可移植"字样的任务,自觉查"用这套东西的人按指引能不能跑起来"(指引过时=断链),发现脱节主动上报不待用户点破;⑤自检/reviewer 派单加一句"验证需求全量覆盖,不只点名处" | archive:L111 | 机检=否
+L42 | 首页三张分段色图「尖角+颜色不对」前三次声称修好但实际零变化(用户隐私窗口验证),第四次才成功——根因三层:①**问题定义错**:把「视觉观感(整条线切成~100段纯色path、平均1.4点换色=斑马纹锯齿)」当「几何折角(色变点不平滑)」修,三次都奔修色变切换点;②**验证尺子本身坏**:自验脚本 lite-corner-junction-emitted-geom.py 色段边界匹配 bug(prev.re==ds-1 应为 ds)算出假角78-169°,给错误方向「数据背书」,agent 用同一把坏尺子自验全过报修好(实际真实代码几何全平滑<5°);③**自验口径≠用户感知口径**:agent 验色变点折角度数(局部数值全对),用户看整条线观感(路径条数/色段密度/渐变方式),验的不是用户看到的 → 前三次每次都是同一套「坏尺子+错口径」循环 | ①定位 UI 视觉/观感问题先穷举式从零验证(每个点几何+渲染结构+基线对比),复用旧自验脚本前先核对脚本判定逻辑与真实代码路径一致(**验证的验证**);②自验口径必须产出用户描述同一视角的证据(「尖角」→验路径条数/色段密度/渐变,不只验折角度数),拿不出同一视角证据=没修到用户看到的;③「多次修不好」信号=假设可能整个错了(方向错/工具错),立即停方向派独立验证者从零定义问题,不带入旧结论,主控不转达「修好」直到用户确认(→memory lite-svg-four-attempts-rootcause) | (原文即本条,2026-08-17 新加) | 机检=否
+L43 | 主控抢跑亲手验证+数据生成违反"只派发"(L29变种:没Edit代码,但亲手干跑export_summary验证/手动生成summary.json+上传R2/手动curl验收,用户质疑「怎么你亲自在干?符合工作模式么」) → 子agent卡住等时点+用户催=派tester/implementer接手当前验证/数据任务,主控只做派单锚点grep(§8.1)+§0验线上最终结果;数据操作(生成产物/上传R2/重跑)默认归agent,主控不抢跑亲手干(→memory main-controller-ran-verification-hands-on) | (原文即本条,2026-08-18 新加;2026-08-24 补录锚点行修零丢失等式——CLAUDE.md §18 表已有此条但本块此前漏挂) | 机检=否
+L44 | has_track 口径 P0 事故(2026-08-24):「有跟踪ETF」口径三版本——产品文档(信号❓公式)=跟踪分<50 或数据不足(none 30-49 + null <30 同归筛选档4)、首页 hover 与凯利区标注=<50、后端归类实现=只装 none(null 掉卡外);链条=需求记录先错→挖掘报告(mine29c)基于带 bug 现状设计 X1("整剔 none 象限")→实施照单落地→reviewer 校验全程在"报告↔代码"闭环内(报告与实现可能同源继承同一 bug,互证≠正确),全链无人对照 UI 文案,机检全绿但 14+1 卡不归零,用户肉眼发现才暴露,引发多轮校对修复辩论浪费大量 token(用户定性 P0:"这种行为属于p0级问题 不能再犯 如果需求理解不足 可以问我拍板。或者发现不统一也可以找我拍板") → ①语义类改动(分类/档位/象限/阈值/区间)全链路各角色必须有第三方锚点(UI 文案/产品文档):主控派单附三源原文、researcher 设计前核查分析对象、implementer 开工逐字对照、reviewer 查对照记录缺任一源=FAIL、tester 机检备独立于被校验双方的参照锚点+业务守恒断言(卡数归零类不能只靠键集比对)(§23.13);②警惕"报告↔代码"互证闭环:两者一致≠正确,必须引入报告和代码之外的锚点(UI 文案原文/用户拍板记录);③发现同一概念多处说法不一(哪怕些许差距)=停下上报用户拍板,绝不自行选边静默推进(§23.11 同精神;→memory has-track-caliber-p0-reflection) | (原文即本条,2026-08-24 新加) | 机检=否
 
-L45 | S06 快照无每日重生且未上报方向分叉(2026-08-26):S06 大盘领先动态切换上线时只交静态快照(gen_kelly_mode_s06_state.py 手动跑一次),没挂每日重生定时(launchd/update_all 全无),也没把「快照模式 vs 自动动态模式」作为方向性分叉上报用户;2026-08-26 用户拍板切整站默认才暴露(因子已更到 08-26 快照止于 08-24),用户定性:「做出来了就一定会每天执行 而且这是个系统大功能 就应该不是快照就行的 并且做的时候也没有问我确认是快照模式还是自动动态模式 这个问题需要反思 以后不能再发生」「如果今天我不让你改为默认 你不提醒我的话 也许我观察一段时间后 因为没有重生 其实我观察到就不是s06的预期切换结果了」(观察期差点基于死快照得出假结论流入 v1.1.7 版本决策) → ①动态/状态/择时类功能的**数据供给链路四件**(生成脚本→定时挂载→机检校验→过期告警)是功能本体非附属品,缺一不算 done(L16 上线链路三步的状态型扩展);②实现取静态快照/手动生成等降级形态必须作为方向性分叉上报用户拍板(§5),拿不准算不算=算;③主控/reviewer 验收大功能除本体外必查「谁每天更新它」;④用户观察期开始前主动确认被观察对象数据源是活的(→memory s06-static-snapshot-missing-daily-regen) | (原文即本条,2026-08-26 新加) |
-L46 | 告警排查单通道盲区(2026-08-27):用户问「刚才好像有比较严重的邮件告警 你排查过了么」,我只查了 data/alerts/latest.md + schedule_monitor 日志 + “邮件已发送”关键词三种单一通道,把 latest.md 的安静误当全局无告警证据,漏掉 17:56 baostock 封禁熔断(10001011)严重邮件(该类采集管道内部 notify 直发,不走 latest.md 统一出口,也没进 schedule_monitor 关键词面);用户点名“封禁熔断”才定位,用户定性:「所以我让你查告警。但是为什么你查不到这个封禁熔断?是否你的检查范围存在问题?必须要为提醒你才能查到根本问题?这也是很严重的漏洞」→ 防再犯三铁律:①排查告警类问题一律**事件驱动全量扫描**:find 日志目录 -mmin -N 把新鲜日志文件按 mtime 排序逐个 tail 近段让异常自己浮出,关键词 grep 只作补充不作替代(猜词必漏);**任何单一登记点(latest.md/监控OK行)的沉默≠无告警**——多出口架构下第一步先盘点「这条告警链有哪几个出口」再逐出口核对;③架构补丁方向:**所有 severe 级 notify.send() 调用统一镜像登记到 latest.md 或集中注册表**,新增源内告警禁止开旁路出口(并入数据源韧性修复批实施)(→memory alert-triage-event-driven-scan) | (原文即本条,2026-08-27 新加)
-L47 | 外部系统先查社区(2026-09-01):排查商汤 Sensenova deepseek-v4-flash 的 `thinking_budget 400` 错误时,主控闭门做了 11 组本地对照实验自我证伪、自我推演方案,绕了一大圈。用户提醒「去社区或官方查」后,派 researcher 一轮就查到:DashScope/Qwen 与商汤同源网关,官方 issue(Qwen-Agent #941)直接印证「thinking mode 开但未显式传 thinking_budget 时网关自动推导、推导超上限报400」,且「显式注入合法 thinking_budget 值」被验证有效——结论与主控闭门推演完全一致,但本该一开始就上网查当第一手证据。用户明确批评:「我记得规范里就有不要闭门造车 难题需要上网查的逻辑。你怎么不遵守呢」 → 根因剖析:①把"排查 bug"当纯本地诊断,没想到跨到"第三方网关未知行为"域——跨厂商未知行为最该上网查,却一头扎进本地实验 ②陷入"实验证伪"惯性,一路自测自推,没在某个时点停下问"该不该查外部" ③认知狭隘另一形态:固守"自己能实验证伪"这条路径,忽略社区可能已有现成结论。防再犯:凡外部系统/厂商/网关/API参数未知行为,第一动作上网查社区+官方文档,不闭门实验堆到最后;自己推演的方案用社区先例佐证,不等用户提醒才补查(→CLAUDE.md §5.1 强化款;→memory external-unknown-first-research-community) | (原文即本条,2026-09-01 新加)
+L45 | S06 快照无每日重生且未上报方向分叉(2026-08-26):S06 大盘领先动态切换上线时只交静态快照(gen_kelly_mode_s06_state.py 手动跑一次),没挂每日重生定时(launchd/update_all 全无),也没把「快照模式 vs 自动动态模式」作为方向性分叉上报用户;2026-08-26 用户拍板切整站默认才暴露(因子已更到 08-26 快照止于 08-24),用户定性:「做出来了就一定会每天执行 而且这是个系统大功能 就应该不是快照就行的 并且做的时候也没有问我确认是快照模式还是自动动态模式 这个问题需要反思 以后不能再发生」「如果今天我不让你改为默认 你不提醒我的话 也许我观察一段时间后 因为没有重生 其实我观察到就不是s06的预期切换结果了」(观察期差点基于死快照得出假结论流入 v1.1.7 版本决策) → ①动态/状态/择时类功能的**数据供给链路四件**(生成脚本→定时挂载→机检校验→过期告警)是功能本体非附属品,缺一不算 done(L16 上线链路三步的状态型扩展);②实现取静态快照/手动生成等降级形态必须作为方向性分叉上报用户拍板(§5),拿不准算不算=算;③主控/reviewer 验收大功能除本体外必查「谁每天更新它」;④用户观察期开始前主动确认被观察对象数据源是活的(→memory s06-static-snapshot-missing-daily-regen) | (原文即本条,2026-08-26 新加) | 机检=否
+L46 | 告警排查单通道盲区(2026-08-27):用户问「刚才好像有比较严重的邮件告警 你排查过了么」,我只查了 data/alerts/latest.md + schedule_monitor 日志 + “邮件已发送”关键词三种单一通道,把 latest.md 的安静误当全局无告警证据,漏掉 17:56 baostock 封禁熔断(10001011)严重邮件(该类采集管道内部 notify 直发,不走 latest.md 统一出口,也没进 schedule_monitor 关键词面);用户点名“封禁熔断”才定位,用户定性:「所以我让你查告警。但是为什么你查不到这个封禁熔断?是否你的检查范围存在问题?必须要为提醒你才能查到根本问题?这也是很严重的漏洞」→ 防再犯三铁律:①排查告警类问题一律**事件驱动全量扫描**:find 日志目录 -mmin -N 把新鲜日志文件按 mtime 排序逐个 tail 近段让异常自己浮出,关键词 grep 只作补充不作替代(猜词必漏);**任何单一登记点(latest.md/监控OK行)的沉默≠无告警**——多出口架构下第一步先盘点「这条告警链有哪几个出口」再逐出口核对;③架构补丁方向:**所有 severe 级 notify.send() 调用统一镜像登记到 latest.md 或集中注册表**,新增源内告警禁止开旁路出口(并入数据源韧性修复批实施)(→memory alert-triage-event-driven-scan) | (原文即本条,2026-08-27 新加) | 机检=否
+L47 | 外部系统先查社区(2026-09-01):排查商汤 Sensenova deepseek-v4-flash 的 `thinking_budget 400` 错误时,主控闭门做了 11 组本地对照实验自我证伪、自我推演方案,绕了一大圈。用户提醒「去社区或官方查」后,派 researcher 一轮就查到:DashScope/Qwen 与商汤同源网关,官方 issue(Qwen-Agent #941)直接印证「thinking mode 开但未显式传 thinking_budget 时网关自动推导、推导超上限报400」,且「显式注入合法 thinking_budget 值」被验证有效——结论与主控闭门推演完全一致,但本该一开始就上网查当第一手证据。用户明确批评:「我记得规范里就有不要闭门造车 难题需要上网查的逻辑。你怎么不遵守呢」 → 根因剖析:①把"排查 bug"当纯本地诊断,没想到跨到"第三方网关未知行为"域——跨厂商未知行为最该上网查,却一头扎进本地实验 ②陷入"实验证伪"惯性,一路自测自推,没在某个时点停下问"该不该查外部" ③认知狭隘另一形态:固守"自己能实验证伪"这条路径,忽略社区可能已有现成结论。防再犯:凡外部系统/厂商/网关/API参数未知行为,第一动作上网查社区+官方文档,不闭门实验堆到最后;自己推演的方案用社区先例佐证,不等用户提醒才补查(→CLAUDE.md §5.1 强化款;→memory external-unknown-first-research-community) | (原文即本条,2026-09-01 新加) | 机检=否
 
-L48 | 通知类脚本自测打出真告警(2026-10-05):#194 reviewer 为验证 `cloud_unit_patrol.sh` 的漂移判定,在非云上环境跑变异测试;老脚本忽略沙箱环境变量、把"路径对不上"判成真漂移 ⇒ **真发出**邮件(234058394@qq.com)+飞书告警「[告警] 云上 systemd unit 与仓库快照漂移」(21:24:34),一次"测试"变成用户手机可见的真事故,残留 `data/alerts/latest.md` 记录 + `data/notify_dedup.json` 6h 去重键(不可撤回:邮件已进用户信箱)。根因已由 #194 第二轮 F2 环境守卫根治(权威源无效 ⇒ 只记日志 + exit 3,**绝不发通知**)。防再犯:任何带真实发送链路的脚本,自测/变异测试前必须先打桩(dry-run 开关 / monkeypatch 通知函数 / 沙箱并**先证明沙箱判定生效**);派单验收点=「本次自测未产生真实外发」证据;事故真外发后如实上报+留痕不删已发记录(删了=记录与事实不符)(→memory notify-script-selftest-must-stub) | (原文即本条,2026-10-05 新加)
+L48 | 通知类脚本自测打出真告警(2026-10-05):#194 reviewer 为验证 `cloud_unit_patrol.sh` 的漂移判定,在非云上环境跑变异测试;老脚本忽略沙箱环境变量、把"路径对不上"判成真漂移 ⇒ **真发出**邮件(234058394@qq.com)+飞书告警「[告警] 云上 systemd unit 与仓库快照漂移」(21:24:34),一次"测试"变成用户手机可见的真事故,残留 `data/alerts/latest.md` 记录 + `data/notify_dedup.json` 6h 去重键(不可撤回:邮件已进用户信箱)。根因已由 #194 第二轮 F2 环境守卫根治(权威源无效 ⇒ 只记日志 + exit 3,**绝不发通知**)。防再犯:任何带真实发送链路的脚本,自测/变异测试前必须先打桩(dry-run 开关 / monkeypatch 通知函数 / 沙箱并**先证明沙箱判定生效**);派单验收点=「本次自测未产生真实外发」证据;事故真外发后如实上报+留痕不删已发记录(删了=记录与事实不符)(→memory notify-script-selftest-must-stub) | (原文即本条,2026-10-05 新加) | 机检=否
 
-L49 | 假样本养绿:机制层生产空转被 reviewer 判 PASS(2026-10-06):#196 新增 `check_failed_units.py` 的 ②b「脚本存在性」层,reviewer 用云上快照复算「7 守护 unit 解析逐字一致」判 **PASS**;但 `WATCHMAN_UNITS` 全是 `.timer`,而 timer **没有 `ExecStart` 属性**(云上逐 unit 实测 `ExecStart_is_none=True` ×7)⇒ `extract_script_paths` 在**生产恒空**。测试之所以全绿,是**注入样本给 timer 喂了现实中不存在的 `ExecStart`**(人工构造的"看起来合理"样本养绿)。真实缺口:被守护脚本若被删,无任何通道可见 —— 而这恰是 #196「让链路自身死亡可见」的初衷。由 **§0 上线验证(生产侧实跑)** 逮到 → 新登记 #203。防再犯:①凡"解析/遍历生产对象属性"的层,断言输入必须是**真实生产数据的实测样本**(云上 `systemctl show` 实值),不得用人工构造样本 ②reviewer 复算要核「真实对象**有没有**该字段」,而非只核「解析器能否解析出值」③任何"新增守卫/可见性"机制上线前须在生产跑一次并确认**真产生了输出(非空转)**,§0 必含「生产侧实跑实证」一条(同族:§18 L42「自验口径≠用户感知」/ L48「自测未打桩」)(→#203 + memory `mechanism-scope-verify-in-code`,2026-10-06 新加)
-L50 | 审查 harness 误执行生产脚本(2026-10-06):#195 批4 独立审 reviewer 的**首版 probe harness** 把门控写成「`REPO` 与 `GIT_REPO` **同时**非空才拦」,而被验的 main 版 `fapi_daily_syn.sh` **只设 REPO 不设 GIT_REPO** ⇒ DEBUG trap 门**永假** ⇒ 脚本被**真执行约 2 分 16 秒**(03:10:47→03:13:03 pkill wrapper、03:13:08 kill python),cwd=`/Users/linhuichen/code/trade`、REPO 落 main 版自身默认 `trade-data`。**由主控巡检兜底 cron 逮到** reviewer 进度文件的「⚠️ 事故」行 → 主控即刻下发硬指令(此后 static-only、resolve 探针只许 source `scripts/lib/repo_paths.sh`、报告须含完整事故取证)+ **另派独立 tester 取证(不采信自述)**。结论:**零外发 + 零生产写入**(notify_dedup/alert_state/latest.md md5+mtime 全不在事故窗;stock_daily.db 两仓 md5+mtime 未变、近 10 日 0 行 `-wal/-shm`;R2 state mtime 仍 10-02;残留进程 0;云上零痕迹),**唯一副作用 = dev 树 `data/daily-k.parquet`(git-ignored 缓存)被覆盖 181MB**;残余不确定 2 条(该 parquet 原内容不可考 / 事故用生产 API key 做了 1 次**入站下载**调用,非通知外发)。防再犯:①审查/测试探针**一律 static-only**(read/diff/grep/`bash -n`/独立脚本;验 resolve 只 source **lib**、经 stdin 管道喂 `bash -s`,**绝不 source/exec 业务脚本主体**) ②harness 门控**禁用「环境变量是否齐」这类可被真实形态绕过的条件**,必须正面白名单(只许执行显式声明的文件)③派单把「禁跑业务脚本」写成**可核验项**(输出文件时间戳/`pgrep`)④事故后**必须独立取证**,不采信出事故方自述;判不了就写「无法判定」(同族:§18 L48「自测未打桩」/ L49「假样本养绿」)(→memory `probe-harness-must-not-exec-prod-scripts`,2026-10-06 新加)
+L49 | 假样本养绿:机制层生产空转被 reviewer 判 PASS(2026-10-06):#196 新增 `check_failed_units.py` 的 ②b「脚本存在性」层,reviewer 用云上快照复算「7 守护 unit 解析逐字一致」判 **PASS**;但 `WATCHMAN_UNITS` 全是 `.timer`,而 timer **没有 `ExecStart` 属性**(云上逐 unit 实测 `ExecStart_is_none=True` ×7)⇒ `extract_script_paths` 在**生产恒空**。测试之所以全绿,是**注入样本给 timer 喂了现实中不存在的 `ExecStart`**(人工构造的"看起来合理"样本养绿)。真实缺口:被守护脚本若被删,无任何通道可见 —— 而这恰是 #196「让链路自身死亡可见」的初衷。由 **§0 上线验证(生产侧实跑)** 逮到 → 新登记 #203。防再犯:①凡"解析/遍历生产对象属性"的层,断言输入必须是**真实生产数据的实测样本**(云上 `systemctl show` 实值),不得用人工构造样本 ②reviewer 复算要核「真实对象**有没有**该字段」,而非只核「解析器能否解析出值」③任何"新增守卫/可见性"机制上线前须在生产跑一次并确认**真产生了输出(非空转)**,§0 必含「生产侧实跑实证」一条(同族:§18 L42「自验口径≠用户感知」/ L48「自测未打桩」)(→#203 + memory `mechanism-scope-verify-in-code`,2026-10-06 新加) | 机检=否
+L50 | 审查 harness 误执行生产脚本(2026-10-06):#195 批4 独立审 reviewer 的**首版 probe harness** 把门控写成「`REPO` 与 `GIT_REPO` **同时**非空才拦」,而被验的 main 版 `fapi_daily_syn.sh` **只设 REPO 不设 GIT_REPO** ⇒ DEBUG trap 门**永假** ⇒ 脚本被**真执行约 2 分 16 秒**(03:10:47→03:13:03 pkill wrapper、03:13:08 kill python),cwd=`/Users/linhuichen/code/trade`、REPO 落 main 版自身默认 `trade-data`。**由主控巡检兜底 cron 逮到** reviewer 进度文件的「⚠️ 事故」行 → 主控即刻下发硬指令(此后 static-only、resolve 探针只许 source `scripts/lib/repo_paths.sh`、报告须含完整事故取证)+ **另派独立 tester 取证(不采信自述)**。结论:**零外发 + 零生产写入**(notify_dedup/alert_state/latest.md md5+mtime 全不在事故窗;stock_daily.db 两仓 md5+mtime 未变、近 10 日 0 行 `-wal/-shm`;R2 state mtime 仍 10-02;残留进程 0;云上零痕迹),**唯一副作用 = dev 树 `data/daily-k.parquet`(git-ignored 缓存)被覆盖 181MB**;残余不确定 2 条(该 parquet 原内容不可考 / 事故用生产 API key 做了 1 次**入站下载**调用,非通知外发)。防再犯:①审查/测试探针**一律 static-only**(read/diff/grep/`bash -n`/独立脚本;验 resolve 只 source **lib**、经 stdin 管道喂 `bash -s`,**绝不 source/exec 业务脚本主体**) ②harness 门控**禁用「环境变量是否齐」这类可被真实形态绕过的条件**,必须正面白名单(只许执行显式声明的文件)③派单把「禁跑业务脚本」写成**可核验项**(输出文件时间戳/`pgrep`)④事故后**必须独立取证**,不采信出事故方自述;判不了就写「无法判定」(同族:§18 L48「自测未打桩」/ L49「假样本养绿」)(→memory `probe-harness-must-not-exec-prod-scripts`,2026-10-06 新加) | 机检=否
+
+L51 | CI 假绿·时敏测试跨天红(#252 包用例把数据日期写死成"出生当天",被测代码取真实 `date.today()` ⇒ 引入当天 CI 绿、**次日必红**;10-14 引入、10-15 才暴露,期间无人察觉) → 凡**被测代码内部**取 `today()`/`now()`,用例**必须注入/冻结运行日**,禁写死日期字面量;交测试类改动前必验「隔天仍绿」(冻结运行日平移一天跑全量,**别替换标准库 `date`/`datetime` 类**⇒ 假失败)+ 过判别力关(改坏生产逻辑看会不会真红)(→memory `tests-freeze-today-must-inject` + role-tester skill §5.3.1 第三条硬约束) | (2026-10-15 教训,2026-10-18 补归档,逐字取自根 CLAUDE.md §18 滚动窗) | 机检=否
+
+L52 | 改「被 tests/ 源码形状守卫盯的源文件」未跑全量 pytest(P4 `c7e49bf48` 把 `check_data_gap_alerts.py` B2 判据由 mtime+generated_at 双源收敛为 mtime 单源,而 `scripts/tests/test_222_trades_meta_strip.py:162` 源码形状守卫仍断言旧串「ts_cands」⇒ 主干 CI #891 `quality-gate-static` **确定性红**;次日 `bd5c2c697` 同步守卫才绿) → 改 `scripts/` **任何源码**后自验必含**全量 `pytest -q scripts/tests/`**(不止改动直接相关的用例)——`tests/` 里存在**源码形状守卫**(grep 源文件字面量),源形状一变守卫即红,本机只跑「相关用例绿」≠ 全绿(教训族 →memory `tests-freeze-today-must-inject`;CI 门禁口径 →memory `ci-sim-reverify-dispatch-discipline`) | (2026-10-18 新加) | 机检=是(闸门:CI 全量 pytest + scripts/tests/ 源码形状守卫)
+
+L53 | 商汤代理测试实例·命令前缀必须带 `ttp-`(2026-09-07 pkill 误杀生产 8899 事故,用户拍板采纳) → 启动/清理商汤代理测试实例时,命令前缀统一 `ttp-`(如 `python3 ttp-proxy-18999 ...`,或测试脚本/日志命名带 ttp- 前缀,与 sensenova-rotate-proxy.py 既有 TTP_PORT/TTP_LOG 等 TTP_* 环境变量前缀同族);**清理测试实例前必须先排除生产 pid,禁止裸 `pkill -f "sensenova-rotate-proxy.py"`**(2026-09-07 实施清理测试实例时匹配过宽,把生产 8899 进程一起杀了,靠 launchd KeepAlive 自动恢复无持久影响)。杀进程按端口精确定位:`lsof -ti :<port>` 拿 pid 再 kill,或用 `pkill -f "ttp-"`;生产 pid 用 `lsof -ti :8899` 核对排除。| 补录(事故日期 2026-09-07;2026-10-18 补入台账,事实取自 `.claude/skills/role-implementer/SKILL.md`「新增教训」段,该 skill 未改动) | 机检=否
 
 ### 经验锚点(30 条,非过错,适用场景;线性列表,锚点 id 可 `grep` 反查原文)
 
-E01 | R2 purge_cache分批避超时500(每批30+batch sleep) | archive:L55
-E02 | 持仓hold_days改交易日口径 | archive:L56
-E03 | check_data_integrity+check_r2_consistency | archive:L57
-E04 | 凯利卡间比较水印(蓝★+紫◆全局互比) | archive:L58
-E05 | GitHub Actions deploy约90s,curl验上线sleep 90 | archive:L62
-E06 | Edit含em dash行失败用sed行号替换 | archive:L62
-E07 | reviewer FAIL后§0验2点合规(§0允许FAIL时亲自确认) | archive:L62
-E08 | intraday走R2后盘中push代码不避intraday | archive:L62
-E09 | 分时1min轮询自愈(S1-S5+S9) | archive:L62
-E10 | 决策树/子群数据挖掘方法论 | archive:L62
-E11 | 兜底槽按槽差异化(BACKFILL_SLOT env通道) | archive:L70
-E12 | 数据挖掘盲区发现方法论(字段覆盖) | archive:L71
-E13 | 新toggle评估用"叠加边际" | archive:L72
-E14 | 邮件期货风向字段语义修正(静态vs动态) | archive:L73
-E15 | 开源化两仓库分工(数据主体放staticdata仓) | archive:L74
-E16 | check_data_integrity"该有的数据在不在"校验 | archive:L75
-E17 | 0 token抄送方案(hooks,2d1b9206e) | archive:L87
-E18 | TaskCompleted hook发现(2.1.224) | archive:L88
-E19 | 通知架构方案A子agent中间层不可行 | archive:L89
-E20 | 飞书listener需求自动处理(02bd47f8f) | archive:L90
-E21 | "全信号表"双视图方法论 | archive:L91
-E22 | 并发实验/TASKS归档仅记引用(已落§16④/§7) | archive:L92
-E23 | K=1每笔1万≡每日池;K>1每笔1万=虚假杠杆(净利虚高≈K倍,持仓同步放大) | archive:L99
-E24 | 最优toggle组合依卖出模式分裂(G去greedy15/excludeAuxCross/r7+a45最优;A/F维持AI宏7) | archive:L100
-E25 | 口径/基准切换先派影响面审计(会反转/数值变化/自愈三类),并行修根因再全面修正 | archive:L101
-E26 | 发现派单基准过时立即SendMessage同步在跑agent(本次STEP 1/6修正避免全量重跑) | archive:L102
-E27 | v1.1.0 版本发布机制:动 AI 推荐/降亏过滤核心功能必须发中间版本(1.0.0→1.1.0),7键→9键全站对齐审计(后端判定/前端默认/lab/公示四处置0过时) | archive:L110
-E28 | 免费异源自动切换多重兜底(6组+qvix3重):数据源单源项→寻免费异源组合逐源实测,任一源必须有其他源兜底,fallback不走同源 | archive:L111
-E29 | token优化6条0成本行为层(§5.5):输出简洁/命令静默/派单只回结论/@文件直引/小任务不spawn/失败方向用rewind | archive:L112
-E30 | 优化/修复落地后定期巡检机制(每天18:05 cron,6项指标+判定标准+严重止损回滚小问题迭代) | archive:L113
+E01 | R2 purge_cache分批避超时500(每批30+batch sleep) | archive:L55 | 机检=否
+E02 | 持仓hold_days改交易日口径 | archive:L56 | 机检=否
+E03 | check_data_integrity+check_r2_consistency | archive:L57 | 机检=否
+E04 | 凯利卡间比较水印(蓝★+紫◆全局互比) | archive:L58 | 机检=否
+E05 | GitHub Actions deploy约90s,curl验上线sleep 90 | archive:L62 | 机检=否
+E06 | Edit含em dash行失败用sed行号替换 | archive:L62 | 机检=否
+E07 | reviewer FAIL后§0验2点合规(§0允许FAIL时亲自确认) | archive:L62 | 机检=否
+E08 | intraday走R2后盘中push代码不避intraday | archive:L62 | 机检=否
+E09 | 分时1min轮询自愈(S1-S5+S9) | archive:L62 | 机检=否
+E10 | 决策树/子群数据挖掘方法论 | archive:L62 | 机检=否
+E11 | 兜底槽按槽差异化(BACKFILL_SLOT env通道) | archive:L70 | 机检=否
+E12 | 数据挖掘盲区发现方法论(字段覆盖) | archive:L71 | 机检=否
+E13 | 新toggle评估用"叠加边际" | archive:L72 | 机检=否
+E14 | 邮件期货风向字段语义修正(静态vs动态) | archive:L73 | 机检=否
+E15 | 开源化两仓库分工(数据主体放staticdata仓) | archive:L74 | 机检=否
+E16 | check_data_integrity"该有的数据在不在"校验 | archive:L75 | 机检=否
+E17 | 0 token抄送方案(hooks,2d1b9206e) | archive:L87 | 机检=否
+E18 | TaskCompleted hook发现(2.1.224) | archive:L88 | 机检=否
+E19 | 通知架构方案A子agent中间层不可行 | archive:L89 | 机检=否
+E20 | 飞书listener需求自动处理(02bd47f8f) | archive:L90 | 机检=否
+E21 | "全信号表"双视图方法论 | archive:L91 | 机检=否
+E22 | 并发实验/TASKS归档仅记引用(已落§16④/§7) | archive:L92 | 机检=否
+E23 | K=1每笔1万≡每日池;K>1每笔1万=虚假杠杆(净利虚高≈K倍,持仓同步放大) | archive:L99 | 机检=否
+E24 | 最优toggle组合依卖出模式分裂(G去greedy15/excludeAuxCross/r7+a45最优;A/F维持AI宏7) | archive:L100 | 机检=否
+E25 | 口径/基准切换先派影响面审计(会反转/数值变化/自愈三类),并行修根因再全面修正 | archive:L101 | 机检=否
+E26 | 发现派单基准过时立即SendMessage同步在跑agent(本次STEP 1/6修正避免全量重跑) | archive:L102 | 机检=否
+E27 | v1.1.0 版本发布机制:动 AI 推荐/降亏过滤核心功能必须发中间版本(1.0.0→1.1.0),7键→9键全站对齐审计(后端判定/前端默认/lab/公示四处置0过时) | archive:L110 | 机检=否
+E28 | 免费异源自动切换多重兜底(6组+qvix3重):数据源单源项→寻免费异源组合逐源实测,任一源必须有其他源兜底,fallback不走同源 | archive:L111 | 机检=否
+E29 | token优化6条0成本行为层(§5.5):输出简洁/命令静默/派单只回结论/@文件直引/小任务不spawn/失败方向用rewind | archive:L112 | 机检=否
+E30 | 优化/修复落地后定期巡检机制(每天18:05 cron,6项指标+判定标准+严重止损回滚小问题迭代) | archive:L113 | 机检=否
