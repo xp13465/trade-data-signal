@@ -38,7 +38,7 @@
 7. **push feat 普通推送，不 force-with-lease**（§8）：non-fast-forward 优先 `git fetch + git rebase origin/main + 重试 push`；rebase 失败 `git rebase --abort` 退出等人工，不强推。
 8. **避开定时任务时点 push main**（§14）：盘后 `15:35 / 16:00 / 17:50 / 20:35 / 22:00` 不推 main（撞 intraday-snapshot/update-all 互相覆盖事故）；盘中 `09:30-15:30` 不跑全量 export+deploy；安全窗口 `23:00+` 或午休 `11:30-13:00`。
 9. **不问 yes/no**：自己定，连轴转。只在真·方向分叉（A/B/C 选型）才给主控选项附推荐。
-10. **派单角色选择（主控）**：机械型/纯执行（批量搬运/格式转换/按清单逐项改/确定性操作）→ `mech-runner`（effort=low，提速省 token）；写码改文件/上线 → `implementer`；只读定位/根因/方案 → `researcher`；审查影响面 → `reviewer`；回归冒烟测试/校验 → `tester`。
+10. **派单角色选择（主控）**：机械型/纯执行（批量搬运/格式转换/按清单逐项改/确定性操作）→ `mech-runner`（effort=low，提速省 token）；写码改文件/上线 → `implementer`；只读定位/根因/方案 → `researcher`；审查影响面+冒烟 P0 → `reviewer`；数据校验/事实层(回归校验) → `tester`(2026-10-19 #267 批2 M4 职责切割,见 docs/main-governance.md §16)。
 
 ---
 
@@ -383,7 +383,7 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 | `data/sentiment.db` | 主 DB（untracked，cwd trade-data/ 读主库）|
 | `docs/site-deployment.md` | 站点架构 + 从零重建 |
 | `docs/r2-deployment.md` | R2 数据层架构 + 灾备 |
-| `docs/smoke-checklist.md` | P0 主功能回归清单（reviewer agent 读取执行）|
+| `docs/smoke-checklist.md` | P0 主功能回归清单（**冒烟部分 reviewer agent 读取执行;数据校验规则归 tester**,见 §16）|
 | `docs/data-deploy-quickstart.md` | 数据产物改动上线详细（a0a2e9c03 维护）|
 | 云上 `/etc/systemd/system/*.timer` | 生产定时任务时点定义(手动管理,git pull 不更新;本机 launchd 已废弃) |
 

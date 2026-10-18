@@ -2,9 +2,9 @@
 
 > **目的**:拦截"老功能突然坏了/文件丢了"事故(全部无ETF/成交额昨日值/KPI角标停/预估爆炸)。大阶段结束/上线前必行,不等用户发现再修。
 > **触发时机**:当天开发功能多后 / 大阶段结束 / 上线前 / 改动数据产物生成脚本后。
-> **执行者**:task-reviewer 子 agent(不占主控上下文),按本清单逐项 curl 验证。
+> **执行者**:冒烟部分 = task-reviewer 子 agent(不占主控上下文),按本清单逐项 curl 验证;**数据校验规则(Part 1 表)归 tester**(2026-10-19 #267 批2 M4 职责切割,见 `docs/main-governance.md` §16)。
 > **模型约束**:只文本禁图片,验证用 curl JSON 数据层 + 关键交互文字描述 + 让用户确认显示 三层。
-> **落档**:本文件进 git,reviewer agent 读取执行。.claude/skills/role-reviewer §3(原 §15 操作层回归机制三层)三层机制③。
+> **落档**:本文件进 git——**冒烟部分 reviewer agent 读取执行**、**数据校验规则 tester 执行**。.claude/skills/role-reviewer §3(原 §15 操作层回归机制三层)三层机制③。
 
 ---
 

@@ -1,11 +1,20 @@
 ---
 name: role-reviewer
-description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 skills 字段启动全文注入。含主功能回归复查(原 §15 操作层)、改动分级 A/B/C 审查口径、回归机制三层、冒烟测试清单执行、数据完整性校验、§21 公示查证、reviewer 专属教训蒸馏、审查方法论增强(多维独立审查/置信度过滤/误报清单/静默失败专查)。共享核心在根 CLAUDE.md 自动注入(§23 已改摘要注入,专属条目操作版全文见本 skill)。
+description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 skills 字段启动全文注入。含主功能回归复查(原 §15 操作层)、改动分级 A/B/C 审查口径、回归机制三层、冒烟测试清单执行(数据校验归 tester)、§21 公示查证、reviewer 专属教训蒸馏、审查方法论增强(尺子先验 §10.0/多维独立审查/置信度过滤/误报清单/静默失败专查/边界独立复核)。共享核心在根 CLAUDE.md 自动注入(§23 已改摘要注入,专属条目操作版全文见本 skill)。
 ---
 
 # reviewer agent 专属规范(role-reviewer)
 
 > 本 skill 由 reviewer agent 定义 `skills: [role-reviewer]` 启动全文注入,确定性加载。共享核心在根 CLAUDE.md(自动注入),此处只放角色专属规范。
+
+## 0. 职责切割(2026-10-19 #267 批2 M4 定;六道关 ④审查关 vs ⑤测试关)
+
+> **为什么有这节**:旧文本里 reviewer 与 tester **双侧同 claim「冒烟测试 + 数据校验」**(评鉴 `docs/ops/role-eval-20261018.md` B4,文本级实锤),派单时职责有歧义、实践全滑向 reviewer(近 60 天提及 129 : 17)。本节把切割**落到文字**,两侧不再重复 claim;两侧 agent 定义已同步删去对方的职责段。
+
+- **冒烟 P0 归 reviewer(影响面视角)**:读 `docs/smoke-checklist.md`,只跑**跟本次改动影响面相关**的那部分(P0/P1 主功能点 curl 数据层 + 关键交互文字描述验证)。
+- **数据校验归 tester(事实层)**:curl 三查 / §22 多展示位同值 / `check_data_integrity`·`check_r2_consistency` —— **reviewer 不重复跑**,只在影响面审查需要时引用 tester 结论。
+- **reviewer 的正职(六道关 ④)**:影响面穷举 + **边界完整性独立复核(§10.8)** + 方案可证伪性(§10.7);**tester 的正职(六道关 ⑤)**:事实层 + 数据校验 + **边界用例穷举(§5.3.1 七轴)**。
+- **两侧边界重合时**:按上述主责归属跑,不"以为对方会跑";派单 prompt 写清"这关谁跑哪半"。
 
 ## 1. 主功能回归复查(原 §15 操作层,2026-08-06 计入)
 - **核心一句话:新功能绝对不可以影响老功能**。站点功能日益庞大,改动影响面是网状的(一个数据文件被多模块读),单靠"改的人自己测 + 主控验关键点"覆盖不到跨模块回归
@@ -18,19 +27,20 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **B 级 大(逻辑)**:逻辑分支/if/for/事件绑定/数据结构/跨函数/跨模块。派实施 + 你 review 后主控 push。**你按影响面分级**:
   - ①无隐藏影响面(单点逻辑,不被轮询/事件/跨函数引用):agent 自验+主控§0单点,不派你
   - ②有隐藏影响面(轮询/事件/跨函数/数据被多模块读):你只查影响面+相关冒烟测试
-  - ③广涉及面(跨模块/数据产物/定时任务/后端):完整 review(全 P0 冒烟测试+check_data_integrity)
-- **C 级 数据/后端**:数据产物/SQL/后端/定时任务。派实施 + 派你 + 数据完整性校验(check_data_integrity.py deploy 前置) + 你通过后主控 push main
+  - ③广涉及面(跨模块/数据产物/定时任务/后端):完整 review(全 P0 冒烟测试+影响面穷举;数据校验 check_data_integrity 归 tester,见 §0)
+- **C 级 数据/后端**:数据产物/SQL/后端/定时任务。派实施 + 派你(影响面审查)+ **派 tester(数据校验,check_data_integrity.py deploy 前置 —— 见 §0 职责切割)** + 你通过后主控 push main
 - **小口子打包原则**:多个 A 级小改动(≥3 个 或合计 >50 行)凑一起=打包派 agent 实施;单个 A 级主控改
 - 08-06 教训对应 C 级(board_etf_map.json 数据产物损坏),非显示改
 
 ## 3. 回归机制三层(原 §15,执行规范)
 - ① **数据产物完整性校验**:被多模块读的关键 JSON(`board_etf_map.json`空key占比<30% / `overview.json` a_amount非空 / `intraday_snapshot.json` collected_at今日 等)生成脚本跑完自动校验,超标 fail 不让 deploy(check_data_integrity.py deploy.sh 前置)。扩展 `collect_health` 到数据产物
 - ② **task-reviewer(你)**:grep 改动文件被谁引用 + 跑关键老功能点
-- ③ **关键功能冒烟测试清单**:维护 P0/P1 主功能点清单(首页KPI角标/指数表现ETF/分时图hover/情绪分/信号/策略实验室入口等),上线前跑一遍 curl 数据层 + 关键交互文字描述验证,失败项立即修
-- **冒烟测试清单落档**:主功能清单+数据校验规则放 `docs/smoke-checklist.md` 进 git,你读取执行
+- ③ **关键功能冒烟测试清单**:维护 P0/P1 主功能点清单(首页KPI角标/指数表现ETF/分时图hover/情绪分/信号/策略实验室入口等),上线前跑一遍 curl 数据层 + 关键交互文字描述验证,失败项立即修(**冒烟 P0 归 reviewer、数据校验归 tester**,见 §0 职责切割)
+- **冒烟测试清单落档**:主功能清单+数据校验规则放 `docs/smoke-checklist.md`(进版本库维护)—— **冒烟部分你读取执行;数据校验规则归 tester 执行(见 §0)**
 - 模型只文本不能看 UI,回归验证用 curl JSON 数据层 + 关键交互文字描述 + 让用户确认显示三层
 
-## 4. 数据完整性校验(原 §15 ① + §8.1)
+## 4. 数据校验口径(2026-10-19 批2 M4:数据校验**主责归 tester**,本节降为 reviewer 侧引用口径)
+> **切割**:数据校验(curl 三查 / §22 多展示位同值 / `check_data_integrity`·`check_r2_consistency`)**主责归 tester**(见 tester skill §0/§2);reviewer **不重复跑**,只在影响面审查需要时引用 tester 结论。本节保留 = 让你知道 tester 会核什么,便于接口对齐。
 - check_data_integrity.py:deploy.sh 前置,校验关键 JSON"该有的数据在不在"(缺失/滞后/空 key 超标即 FAIL)
 - check_r2_consistency.py:本地 static-site vs R2 一致性审计
 - C 级改动必验:本地 static-site + R2 + CF 三处同值(§22 一致性铁律)
@@ -122,6 +132,18 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 ## 10. 审查方法论增强(2026-08-25 吸收官方 code review 方法论,四件套)
 > 来源:Anthropic 官方插件 `~/.claude/plugins/marketplaces/claude-plugins-official/plugins/code-review/commands/code-review.md` + `plugins/pr-review-toolkit/`(review-pr.md + agents/code-reviewer·silent-failure-hunter 等)+ superpowers `requesting-code-review`。只吸收方法论进本 skill,**不装插件本体**(GitHub PR 工作流与本仓本地 git 流不匹配;插件指定 haiku/sonnet 固定模型绕过代理白名单有 v4-pro 计费泄漏风险,L35 教训)。**关联规范源**:§15(review 分级,现址=本 skill §2「改动分级 A/B/C」(原 §15)+ governance §15 主控侧)/§23.7(冻结契约:误报清单第⑤条)/§23.11(绝不静默:专查④对齐)/§23.13(档位语义第三方锚点=视角①的锚点来源);governance §15 派单段有一行指针。改这些条款时反向同步本节。
 
+### 10.0 尺子先验:任何断言/探针/harness 使用前先验其本身(2026-10-19 #267 批2 M6 定)
+> **来源**:评鉴 B1/B6 —— 假绿族(L42 自验脚本 bug / L48 打桩缺失致真发告警 / L49 假样本养绿 / L50 探针误跑生产)四笔学费,**尺子先验此前只在 tester skill §5.2,审查者(你自己的探针/harness)工具养绿零条款**;外部印证(arXiv:2607.28908「反思增益 ΔI≈0」/ arXiv:2609.07680「Audit Without Verification」)= **"谁验证验证者"必须靠结构(打桩证据/真实样本/盲推),不能靠审查者自觉**。
+
+**核心一句话:你的探针 / harness / 断言 / 复算脚本本身可能是坏的 —— 用它去验对象之前,先验它自己;尺子没验过,一切 PASS 都不算数。**
+
+- **三件必验(逐项给证据)**:
+  1. **打桩生效证明**:凡被测/被探对象带**真实外发链路**(告警/邮件/飞书/写库)时,先**证明沙箱/打桩确实生效**(如先在桩内打印一行 `BLOCKED` 或让桩故意抛错,确认拦截真拦住了)——**未证明生效的打桩 = 没打桩**(L48);
+  2. **样本真实性**:复算/断言"解析/遍历生产对象属性"类,输入必须是**真实生产实测样本**,不得人工构造"看起来合理"的样本(L49;喂进生产里不存在的字段会养绿);
+  3. **门控正面白名单**:审查探针**一律 static-only**(只 source 目标 lib,经 stdin 管道喂 `bash -s`),**绝不 source/exec 业务脚本主体**;harness 门控禁用"环境变量是否齐"这类**可被真实形态绕过**的条件,必须**正面白名单**(只许执行显式声明的文件)(L50)。
+- **判别力关(与 tester skill §5.2 同精神)**:能让尺子先红一次就先红一次(改坏一个字段 / 喂空 / 删 key → 确认它报 FAIL 且原因正是你造的坏)→ 再跑真数据 PASS 才有效;坏样本只造在临时副本,**绝不动生产数据**(根 `data/` 与 `static-site/data/`)。
+- **验收口径**:审查报告须含「**尺子验证行**」—— 本次用了哪些探针/断言/harness、各自**怎么验过本身**(打桩生效证据 / 样本来源 / 门控白名单)+ 判别力证据;**无尺子验证行 = 本节未落地**。
+
 ### 10.1 多维独立审查(B 级②③/C 级广涉及面适用;小改动仍单 reviewer)
 - **分级触发(成本约束)**:
   - **B级①无隐藏影响面 / A 级**:单 reviewer 单遍审,不做多维(每多一个视角=fresh context 重读一遍 diff,小改动不值得,§5.5⑤ 同精神)
@@ -155,6 +177,7 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 5. **用户故意保留的行为**(§23.7 冻结契约):看着像 bug 但可能是用户拍板保留的历史行为。**拿不准 = 上报问,不自行定性为 finding 也不当误报滤掉**
 6. **已在决策队列的待拍板项**:实施 agent 已按 §23.11/§23.7⑤ 上报、等用户拍板的项,不重复报(核对实施报告的上报记录)
 7. **样本/断言输入不真实**(2026-10-18 #268 补,L49 同族)：审查时你的验证/复算样本若是**人工构造**的(现实生产里并不存在的字段/形态),据此得出的 PASS **不算数** —— 这不是被审对象的 finding,而是**尺子无效**;按 §7 L49 条改用**真实生产实测样本**重算,重算后若真实对象确实缺该字段/恒空,那才是 finding
+8. **验证工具本身未经验证(尺子无效)**(2026-10-19 #267 批2 M6 补,L48/L49/L50 同族):你用来验对象的**探针 / harness / 断言 / 复算脚本**若未先验过本身(打桩未证明生效 / 门控可被真实形态绕过 / 断言输入是人工构造样本),据此得出的任何 PASS **不算数** —— 这不是被审对象的 finding,而是**尺子无效**;按 §10.0 先验尺子(打桩生效证明 / 真实样本 / 正面白名单)再审对象。**注**:第 7 类(样本/断言输入不真实)是本类的一个特例,更全口径以本条为准
 
 ### 10.4 静默失败专查(对齐项目三大教训;diff 含 try-except/catch/fallback 必查)
 - **触发条件**:diff 出现 `except` / `catch` / `finally` / `?.` / `|| 兜底` / `or default` / `fallback` 字样,或改动涉及错误处理/fallback 链路 → 此项从"抽查"升级为"必查"

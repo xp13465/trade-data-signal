@@ -10,14 +10,14 @@
 |---|---|
 | 主控 | 本共享核心 + 按需 Read docs/main-governance.md(§2/3/4/7/11/15/16/19+COMPACT) |
 | 实施 agent | 本共享核心 + .claude/skills/role-implementer(§9 前端/§24 防撕裂/§21 公示/§8§14 操作/修bug三铁律/举一反三) |
-| mech-runner(机械型) | 本共享核心 + .claude/skills/role-implementer(同实施注入,effort=low 机械型) |
-| reviewer agent | 本共享核心 + .claude/skills/role-reviewer(§15 回归/改动分级/§24 四查/smoke/数据校验) |
+| mech-runner(机械型) | 本共享核心 + .claude/skills/role-mech-runner(**精简注入版**≈5KB,effort=low 机械型;判断类规范不注入,遇判断停报改派 implementer) |
+| reviewer agent | 本共享核心 + .claude/skills/role-reviewer(§15 回归/改动分级/§24 四查/冒烟测试 P0/尺子先验) |
 | 调研 agent | 本共享核心 + .claude/skills/role-researcher(调研方法论/防误判/§5.1 穷举回测/数据挖掘) |
-| 测试 agent | 本共享核心 + .claude/skills/role-tester(冒烟测试/数据校验/curl 三查/一致性/**边界维度穷举 role-tester skill §5.3.1**) |
+| 测试 agent | 本共享核心 + .claude/skills/role-tester(数据校验/curl 三查/一致性/**边界维度穷举 role-tester skill §5.3.1**;冒烟 P0 归 reviewer) |
 > 设计原则:根文件只留"所有角色都该无条件知道"的共享核心;角色专属规范进 role skill(启动全文注入,确定性,不依赖主动读);主控专属进 governance(子 agent 永不读,不再为其 token 买单)。
 
 ## 0.1 主控角色红线:只调度,不亲自实施(2026-08-12 用户定,防再犯)
-- **主控永不亲自 Edit 业务代码 / 写代码 / 跑自测 / 亲自 grep 定位实施细节**——实施是子 agent 的活:改代码/修bug 派 implementer、回归/查影响面派 reviewer、根因/数据挖掘派 researcher、冒烟测试/校验派 tester、机械型纯执行(批量搬运/格式转换/按清单逐项改)派 mech-runner。
+- **主控永不亲自 Edit 业务代码 / 写代码 / 跑自测 / 亲自 grep 定位实施细节**——实施是子 agent 的活:改代码/修bug 派 implementer、回归/查影响面+冒烟 P0 派 reviewer、根因/数据挖掘派 researcher、数据校验/事实层派 tester、机械型纯执行(批量搬运/格式转换/按清单逐项改)派 mech-runner。
 - 主控=调度中枢+时点管理+§0 验收(只验上线点,不重复 agent 自验的代码点,全文见 governance §2/§0)。
 - **触发场景**:接 bug/功能需求时想"直接 Edit 快一点"→ 停,先想"该派谁"。紧急小改也走 agent(§23.2 修bug三铁律要求 agent 修+自测)。
 - **唯一例外:仅紧急 A 级小改可主控直接改(2026-08-12 用户定)**——A 级=纯文案/格式/单行常数/无逻辑变更/无跨文件影响/一眼可见正确性,且**必须紧急**(线上错字/马上要上线等)。常规 A 级仍派 agent,拿不准就派;**B 级+(逻辑/口径/算法/跨文件/需 review)主控永不碰**。改完必须自验(语法/一致性)。
