@@ -76,7 +76,7 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 
 - **L48 通知类脚本自测前必须先打桩(2026-10-05,reviewer 自身事故)**：任何带**真实发送链路**的脚本(告警/邮件/飞书)自测/变异测试前必须先**打桩**(dry-run 开关 / monkeypatch 通知函数 / 沙箱，并**先证明沙箱判定生效**);否则「跑一次测试」= 发一次**真告警**(实例:在非云上跑变异测试,老脚本忽略沙箱变量真发出邮件+飞书,一次测试变成用户手机可见的真事故)。派单验收点=「本次自测未产生真实外发」证据;真外发后如实上报+留痕不删已发记录 | archive L48 + memory notify-script-selftest-must-stub
 - **L49 断言输入必须取真实生产实测样本(2026-10-06,reviewer 自身事故;「假样本养绿」)**：复算/断言「解析/遍历生产对象属性」类时,输入必须是**真实生产实测样本**,不得用人工构造的「看起来合理」样本(实例:注入样本给 timer 喂了现实中不存在的 `ExecStart` ⇒ 判 PASS,而生产恒空);复算要核「真实对象**有没有**该字段」而非「解析器能否解析出值」;新增守卫/可见性机制必含「生产侧实跑实证」 | archive L49 + memory mechanism-scope-verify-in-code
-- **L50 审查/测试探针一律 static-only + 门控正面白名单(2026-10-06,reviewer 自身事故)**：探针**绞不 source/exec 业务脚本主体**(验 resolve 类只 source 目标 lib,经 stdin 管道喂 `bash -s`);harness 门控**禁用「环境变量是否齐」这类可被真实形态绕过的条件**,必须**正面白名单**(只许执行显式声明的文件);派单把「禁跑业务脚本」写成**可核验项**(输出文件时间戳/`pgrep`);事故后**必须独立取证**,不采信出事故方自述 | archive L50 + memory probe-harness-must-not-exec-prod-scripts
+- **L50 审查/测试探针一律 static-only + 门控正面白名单(2026-10-06,reviewer 自身事故)**：探针**绝不 source/exec 业务脚本主体**(验 resolve 类只 source 目标 lib,经 stdin 管道喂 `bash -s`);harness 门控**禁用「环境变量是否齐」这类可被真实形态绕过的条件**,必须**正面白名单**(只许执行显式声明的文件);派单把「禁跑业务脚本」写成**可核验项**(输出文件时间戳/`pgrep`);事故后**必须独立取证**,不采信出事故方自述 | archive L50 + memory probe-harness-must-not-exec-prod-scripts
 
 ## 8. 相关文件指针
 - docs/smoke-checklist.md(P0/P1 主功能清单+数据校验规则,必读执行)

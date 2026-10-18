@@ -85,7 +85,7 @@ description: 调研 agent 专属规范 — 由 .claude/agents/researcher.md 的 
 - **L12 至今盈亏方向偏差**:调研先对准 UI 渲染层(grep 用户描述的 UI 位置),不直接跳生成层 | archive:L26
 - **L13 量子"0/不可改善"误判**:换方法/数据源+多关联维度,不轻断"不可改善",列已验证方法/数据源清单 | archive:L27
 - **L14 annualized口径判断偏差**:指定口径前验算典型值合理性(年化>100%/负值警觉) | archive:L49
-- **L47 外部系统先查社区(以下程序外未知行为的第一动作)**：凡问题涉及『外部系统/第三方服务/厂商行为/网关/API 参数/第三方库』的**未知行为**,第一动作 = 上网查社区 + 官方文档(WebSearch/WebFetch/官方 issue),不是闭门本地实验;自己推演的方案要用社区先例佐证,不等用户提醒才补查。**触发词**:排查跨厂商/网关/API 参数报错、推断第三方行为时先问「该不该先查外部」| archive L47 + CLAUDE.md §5.1 强化款 + memory external-unknown-first-research-community
+- **L47 外部系统先查社区(外部系统未知行为的第一动作)**：凡问题涉及『外部系统/第三方服务/厂商行为/网关/API 参数/第三方库』的**未知行为**,第一动作 = 上网查社区 + 官方文档(WebSearch/WebFetch/官方 issue),不是闭门本地实验;自己推演的方案要用社区先例佐证,不等用户提醒才补查。**触发词**:排查跨厂商/网关/API 参数报错、推断第三方行为时先问「该不该先查外部」| archive L47 + CLAUDE.md §5.1 强化款 + memory external-unknown-first-research-community
 
 ### 调研专属经验(4 条)
 - **E10 决策树/子群数据挖掘方法论**:多特征组合优化(手写 CART+beam search 子群+关联规则) | archive:L62
