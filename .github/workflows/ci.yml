@@ -30,14 +30,15 @@
 #   Job 2 quality-gate-data(⑥⑦ 步骤级 continue-on-error; 下载步骤 fail-fast + 产物完整性校验 ⇒ #261):
 #     ⑥ scripts/check_loss_rules_vs_mining.py AI降亏 20 新键·三层一致性(特征/谓词/阈值 vs 挖掘权威)
 #     ⑦ scripts/check_fade_predicate_parity.mjs 老37键迁 spec-driven 规格·命中集合逐位一致(单边模式)
-#     下载步骤: 从 R2 ssd.fx8.store 拉两件生产数据产物; **失败即 exit 1 让 job 红**(基础设施故障必报红)
+#     下载步骤: 多路(W1 workers.dev 零凭据 / W2 R2 S3 直连 / v1·v2 ssd 域 / v3 ss 域 + 浏览器头)
+#       拉两件生产数据产物; **任一成功即过; 全败即 exit 1 让 job 红**(基础设施故障必报红)
 #     完整性校验(#261 选项③): 下载后校验两件产物「JSON 可解析 + 大小 ≥ 下限」, 空体/坏体(HTTP 200
 #       但非有效产物)一律 exit 1 —— 堵死「200 空体进 ⑥⑦ 后非零退出又被各自步骤级 c-o-e 吸收 ⇒ job 恒绿」
 #       这条比下载失败更窄的空转面(#261 独立复查边界差集①)。
 #
 # 【为什么 ⑥⑦ 用步骤级 continue-on-error(#261 起, 原为 Job 2 整体; 2026-10-17 #262 后更新)】
 #   ⑥⑦ 依赖 gitignore 的生产数据产物(static-site/data/signal_kelly_trades.json ~86MB +
-#   kelly_loss_features.json ~1.1MB, CI checkout 后不存在, 需从 R2 ssd.fx8.store 下载),
+#   kelly_loss_features.json ~1.1MB, CI checkout 后不存在, 需从 R2 多路下载(见 Job 2「下载生产数据产物」步骤)),
 #   历史上存在已知非代码回归 FAIL 来源:
 #     - (⑥, #262 已治) check_loss_rules_vs_mining 层2 曾对「生产特征日期 > 挖掘快照 mine10 日期」的
 #       新增日期 buy_aux 行判 FAIL(20260903 实测: 20260824 两行 S1/S2 挖掘=False 生产=True,
@@ -176,6 +177,9 @@ jobs:
   # ---------------------------------------------------------------- Job 2: 数据产物一致性门禁
   quality-gate-data:
     runs-on: ubuntu-latest
+    # 挂起型最坏(每路连上不吐数据 + --max-time + retry + 诊断)可达 ~78min 才红 → 收紧到 30min,
+    # 让基础设施/可达性故障早暴露; 现实形态(CF 403 秒级拒)全链秒级~十几秒, 30min 无影响。
+    timeout-minutes: 30
     # #261(B1): 原来这里是 job 级 continue-on-error —— 它把「下载失败(基础设施故障)」和「⑥⑦ 已知数据
     #   窗口差 FAIL」一并吞成恒绿, 门禁空转。现下沉到 ⑥⑦ 步骤级: 只有「已知数据窗口差」这类非代码回归
     #   被吸收, 下载步骤 FAIL(基础设施故障)照常让 job 红。见文件头注释「为什么 ⑥⑦ 用步骤级 continue-on-error」。
@@ -190,19 +194,30 @@ jobs:
 
       - name: 下载生产数据产物(供 ⑥⑦)
         id: download
+        env:
+          # W2(R2 S3 直连)只读凭据: 用户建 R2 "Object Read only" token(scoped signal-data)后入库 repo secrets。
+          # 未建时 secrets 求值为空串 ⇒ 下方 W2 整路跳过(echo「跳过」), CI 不因缺凭据变红。
+          # ⚠️ 只注入环境变量, 绝不 echo 其值(最多 echo 凭据存在性布尔级)。
+          R2_S3_ACCESS_KEY_ID: ${{ secrets.R2_S3_ACCESS_KEY_ID }}
+          R2_S3_SECRET_ACCESS_KEY: ${{ secrets.R2_S3_SECRET_ACCESS_KEY }}
         run: |
           # #261(B1/B3): 本步骤 fail-fast —— 下载失败 = 基础设施/数据产物可达性故障, 该 job 必须红。
           #   旧行为: 失败只打一句 ⚠ 后置 ok=0, 末尾 ls -la 退出码 0 吞掉失败, ⑥⑦ 再被 if 静默 skip
           #   且整体按成功计 ⇒「数据没下到」与「⑥⑦ 全过」在 CI 结论上无法区分(门禁空转)。现改为显式 exit 1。
           #
-          # 下载策略(每文件独立走三路 fallback, 任一成功即通过; 每次 echo 用了哪一路便于下轮 CI 判形):
+          # 下载策略(每文件独立走五路 fallback, 任一成功即通过; 每次 echo 用了哪一路便于下轮 CI 判形):
+          #   W1 = workers.dev(https://trade-data-signal.sugas13465.workers.dev/data/<f>) —— 零凭据新路
+          #        worker 无 routes ⇒ 默认 workers.dev 路由, /data/*.json → R2 直读; 非本 zone ⇒ 不落 zone bot/WAF
+          #   W2 = R2 S3 直连(https://<acct>.r2.cloudflarestorage.com/signal-data/data/<f>) —— 主稳路(需只读凭据)
+          #        结构性绕开 CF zone, 走 CF 公共 S3 端点; 凭据缺失则整路跳过不判失败
           #   v1 = ssd 域(https://ssd.fx8.store/data/<f>) + 仅 UA                     —— 现状路
           #   v2 = ssd 域 + 完整浏览器头(UA/Accept/Accept-Language/Sec-Fetch-*/Referer)
           #   v3 = ss 域(https://ss.fx8.store/data/<f>) + 完整浏览器头
-          #   为什么三路: GitHub Actions runner 是 Azure 数据中心 IP, Cloudflare Bot Management 对
+          #   为什么多路: GitHub Actions runner 是 Azure 数据中心 IP, Cloudflare Bot Management 对
           #   「数据中心 IP + curl 指纹」默认从严; 91645116a(2026-09-16)只加 UA 伪装「提高成功率」未根治
-          #   (10 月上旬抽样: 下载步表 success 实为吞错、⑥⑦ 全 skipped)。多路正交(换域 + 补全浏览器头)
-          #   提高当场成功率; 三路全失败时输出精确诊断(HTTP 码/响应头/响应体摘要)供定方案 B。
+          #   (10 月上旬抽样: 下载步表 success 实为吞错、⑥⑦ 全 skipped; 10-17 #892 起下载步真 FAIL)。
+          #   组合拳: 新路(workers.dev 零凭据 / S3 结构性绕开)+ 旧三路(换域 + 补全浏览器头)正交兜底;
+          #   全失败时输出精确诊断(HTTP 码/响应头/响应体摘要)供定方案 B。
           #   注: 不手加 Accept-Encoding(避免落盘压缩体), 需要压缩用 --compressed 让 curl 自协商。
           mkdir -p "$GITHUB_WORKSPACE/static-site/data"
 
@@ -218,12 +233,44 @@ jobs:
             -H "Referer: https://ssd.fx8.store/"
           )
 
-          # 下载单文件: 按 v1→v2→v3 顺序尝试, 任一成功返回 0 并 echo 命中的路。
+          # W1(零凭据)/ W2(主稳 S3 直连)路常量 + 凭据存在性(布尔级, 不打印值)。
+          W1_BASE="https://trade-data-signal.sugas13465.workers.dev/data"
+          W2_BASE="https://9be954e87f3d28f9c0faaa9e2b3a78b7.r2.cloudflarestorage.com/signal-data/data"
+          R2_AK="${R2_S3_ACCESS_KEY_ID:-}"
+          R2_SK="${R2_S3_SECRET_ACCESS_KEY:-}"
+          if [ -n "$R2_AK" ] && [ -n "$R2_SK" ]; then
+            echo "[download] W2(S3 直连)凭据: 存在"
+          else
+            echo "[download] W2(S3 直连)凭据: 缺失(待用户建 R2 只读 token)⇒ W2 整路跳过, 不判失败"
+          fi
+
+          # 下载单文件: 按 W1→W2→v1→v2→v3 顺序尝试, 任一成功返回 0 并 echo 命中的路。
           download_one() {
             local file="$1"
             local dest="$GITHUB_WORKSPACE/static-site/data/$file"
+            local w1="$W1_BASE/$file"
+            local w2="$W2_BASE/$file"
             local ssd="https://ssd.fx8.store/data/$file"
             local ss="https://ss.fx8.store/data/$file"
+
+            # W1(零凭据): workers.dev; worker 无 routes → 默认 workers.dev 路由, 非本 zone 不落 bot/WAF 规则。
+            echo "[download] $file · 路 W1(workers.dev 零凭据): $w1"
+            if curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+                -o "$dest" "$w1"; then
+              echo "[download] $file 成功(路 W1: workers.dev 零凭据)"; return 0
+            fi
+
+            # W2(主稳): R2 S3 直连(结构性绕开 CF zone); 缺凭据则整路跳过, 不判失败。
+            if [ -n "$R2_AK" ] && [ -n "$R2_SK" ]; then
+              echo "[download] $file · 路 W2(S3 直连 R2): $w2"
+              if curl -fsSL --connect-timeout 20 --max-time 300 \
+                  --aws-sigv4 "aws:amz:auto:s3" --user "$R2_AK:$R2_SK" \
+                  -o "$dest" "$w2"; then
+                echo "[download] $file 成功(路 W2: S3 直连 R2)"; return 0
+              fi
+            else
+              echo "[download] $file · 路 W2 跳过(无凭据, 待用户建 token)"
+            fi
 
             echo "[download] $file · 路 v1(ssd 域 + UA): $ssd"
             if curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 20 --max-time 240 \
@@ -247,8 +294,8 @@ jobs:
           }
 
           # 失败诊断(针对 v1 目标 = ssd 域): 取 HTTP 码 + 响应头 + 响应体摘要, 全部 echo 进日志。
-          #   只诊断 v1: 三路同指纹, v1 的码/头/体即对照基准; 据此可判是 CF 拦截(含 error code 如 1020)
-          #   还是真 404/超时, 供后续定方案 B(CF 白名单 / S3 通道)。
+          #   只诊断 v1: 旧三路同指纹, v1 的码/头/体即对照基准; 据此可判是 CF 拦截(含 error code 如 1020)
+          #   还是真 404/超时, 供后续定方案 B(CF 白名单 等)。
           #   头用 -D(非 -v, 防敏感头混进日志); 体取前 600 字节(-r 0-599 + head -c 双保险)。
           diagnose_one() {
             local file="$1"
@@ -269,13 +316,33 @@ jobs:
             echo "----------------------------------------------------------------"
           }
 
+          # 新增路轻量诊断(D3): 失败时另对 W1/W2 各 echo 一行「路名 + HTTP 码」, 只取码不拉头/体
+          #   (轻量, 供下次红一眼看清哪条新路也挂); 用 -w 且不加 -f(要码不判成败), 无凭据则跳过 W2。
+          diagnose_new_routes_one() {
+            local file="$1"
+            local c1
+            c1=$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 20 --max-time 60 "$W1_BASE/$file" 2>&1) \
+              || c1="curl-failed(exit=$?)"
+            echo "[diag] 路 W1(workers.dev) HTTP 码: $c1"
+            if [ -n "$R2_AK" ] && [ -n "$R2_SK" ]; then
+              local c2
+              c2=$(curl -sS -o /dev/null -w '%{http_code}' --aws-sigv4 "aws:amz:auto:s3" \
+                  --user "$R2_AK:$R2_SK" --connect-timeout 20 --max-time 60 "$W2_BASE/$file" 2>&1) \
+                || c2="curl-failed(exit=$?)"
+              echo "[diag] 路 W2(S3 直连) HTTP 码: $c2"
+            else
+              echo "[diag] 路 W2(S3 直连) 跳过(无凭据)"
+            fi
+          }
+
           ok=1
           for f in kelly_loss_features.json signal_kelly_trades.json; do
             if download_one "$f"; then
               :
             else
-              echo "::error title=下载失败::$f 三路(ssd+UA / ssd+完整头 / ss+完整头)全部失败"
+              echo "::error title=下载失败::$f 五路(W1 workers.dev / W2 S3 直连·缺凭据则跳过 / v1 ssd+UA / v2 ssd+完整头 / v3 ss+完整头)全部失败"
               diagnose_one "$f"
+              diagnose_new_routes_one "$f"
               ok=0
             fi
           done
@@ -288,11 +355,12 @@ jobs:
             echo "  为什么红: ⑥⑦ 依赖 gitignore 的生产数据产物(signal_kelly_trades.json / kelly_loss_features.json),"
             echo "  CI checkout 后仓内不存在, 必须先经本步骤从 R2 下载。下载失败 = 基础设施/数据产物"
             echo "  可达性故障, 属真实故障(非代码回归), 必须显式报红, 不再静默 skip 后按成功计(旧行为见 #261)。"
-            echo "  已试三路: v1 ssd 域+UA / v2 ssd 域+完整浏览器头 / v3 ss 域+完整浏览器头; 各文件命中哪一路见上方 [download] 行,"
-            echo "  全失败时的 HTTP 码/响应头/响应体摘要见上方 [diag] 段。"
+            echo "  已试五路: W1 workers.dev / W2 S3 直连(无凭据则跳过) / v1 ssd 域+UA / v2 ssd 域+完整浏览器头 /"
+            echo "  v3 ss 域+完整浏览器头; 各文件命中哪一路见上方 [download] 行, W1/W2 的码见上方 [diag] 路 W1/W2 行,"
+            echo "  全失败时的 HTTP 码/响应头/响应体摘要(v1 基准)见上方 [diag] 段。"
             echo "  排查方向: [diag] 显示 403 / cf-mitigated / error code 1020 ⇒ GitHub Actions 机房 IP 被 CF bot 规则拦截"
-            echo "  (91645116a 同类, 未根治), 方案 B = CF 白名单 / S3 通道(主控定); 显示 404 ⇒ R2 data/ 前缀下文件缺失"
-            echo "  (见 role-implementer §3.1 R2 架构准则); 显示超时/连接失败 ⇒ 网络可达性故障。"
+            echo "  (91645116a 同类, 未根治); 显示 404 ⇒ R2 data/ 前缀下文件缺失(见 role-implementer §3.1 R2 架构准则);"
+            echo "  显示超时/连接失败 ⇒ 网络可达性故障; W2 为 403 ⇒ 只读凭据权限/scope 不对(token 须 Object Read only + scope signal-data)。"
             echo "  注: 已知数据窗口差(非下载失败)导致的 ⑥⑦ FAIL 由 ⑥⑦ 各自步骤级 continue-on-error 吸收, 不放行本步骤。"
             echo "================================================================"
             exit 1
