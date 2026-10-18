@@ -2,7 +2,7 @@
 
 > 本节为 CLAUDE.md §18 犯错积累与防重犯(2026-08-08 起)原文全量快照,由 CLAUDE.md 整理提炼(去重12+提炼8+归档3大件)归档。
 > 原文出处:CLAUDE.md L205-287(归档前版本,commit 见 git log)。CLAUDE.md 现保留索引+防重犯精华,索引能反向追到此原文。
-> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L49 过错锚点 + E01-E30 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 49 = 零丢失校验锚。
+> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L50 过错锚点 + E01-E30 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 50 = 零丢失校验锚(机检 `scripts/check_ledger.py`)。
 > 归档日期:2026-08-12
 
 ---
@@ -107,10 +107,10 @@
 ## 防重犯锚点索引(2026-08-12 建立,根 CLAUDE.md §18 索引表反向追原文用)
 
 > 用法:命中场景 → 读根 CLAUDE.md §18 索引表 → grep 锚点 id → 读本文件对应行号原文(含根因+场景+防重犯)。
-> 零丢失校验锚:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` 应 == 根 CLAUDE.md §18 过错索引表行数(49),一致=零丢失。
+> 零丢失校验锚:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` 应 == 本文件表头/根 CLAUDE.md §18 声称的 50,一致=零丢失(机检 `python3 scripts/check_ledger.py`)。
 > 注意:本文件行号会随未来编辑漂移,追到后若行号对不上按锚点 id 关键词 grep 定位。
 
-### 过错锚点(49 条,与根索引表 #1-49 一一对应)
+### 过错锚点(50 条;线性列表,锚点 id 可 `grep` 反查原文,与根 CLAUDE.md §18 滚动窗锚点 id 一致)
 
 L01 | 通知丢失不设cron傻等 → 防重犯:§11 cron兜底必设 | archive:L13
 L02 | DB方案理解反复3次 → 关键决策前复述确认 | archive:L14
@@ -166,7 +166,7 @@ L48 | 通知类脚本自测打出真告警(2026-10-05):#194 reviewer 为验证 `
 L49 | 假样本养绿:机制层生产空转被 reviewer 判 PASS(2026-10-06):#196 新增 `check_failed_units.py` 的 ②b「脚本存在性」层,reviewer 用云上快照复算「7 守护 unit 解析逐字一致」判 **PASS**;但 `WATCHMAN_UNITS` 全是 `.timer`,而 timer **没有 `ExecStart` 属性**(云上逐 unit 实测 `ExecStart_is_none=True` ×7)⇒ `extract_script_paths` 在**生产恒空**。测试之所以全绿,是**注入样本给 timer 喂了现实中不存在的 `ExecStart`**(人工构造的"看起来合理"样本养绿)。真实缺口:被守护脚本若被删,无任何通道可见 —— 而这恰是 #196「让链路自身死亡可见」的初衷。由 **§0 上线验证(生产侧实跑)** 逮到 → 新登记 #203。防再犯:①凡"解析/遍历生产对象属性"的层,断言输入必须是**真实生产数据的实测样本**(云上 `systemctl show` 实值),不得用人工构造样本 ②reviewer 复算要核「真实对象**有没有**该字段」,而非只核「解析器能否解析出值」③任何"新增守卫/可见性"机制上线前须在生产跑一次并确认**真产生了输出(非空转)**,§0 必含「生产侧实跑实证」一条(同族:§18 L42「自验口径≠用户感知」/ L48「自测未打桩」)(→#203 + memory `mechanism-scope-verify-in-code`,2026-10-06 新加)
 L50 | 审查 harness 误执行生产脚本(2026-10-06):#195 批4 独立审 reviewer 的**首版 probe harness** 把门控写成「`REPO` 与 `GIT_REPO` **同时**非空才拦」,而被验的 main 版 `fapi_daily_syn.sh` **只设 REPO 不设 GIT_REPO** ⇒ DEBUG trap 门**永假** ⇒ 脚本被**真执行约 2 分 16 秒**(03:10:47→03:13:03 pkill wrapper、03:13:08 kill python),cwd=`/Users/linhuichen/code/trade`、REPO 落 main 版自身默认 `trade-data`。**由主控巡检兜底 cron 逮到** reviewer 进度文件的「⚠️ 事故」行 → 主控即刻下发硬指令(此后 static-only、resolve 探针只许 source `scripts/lib/repo_paths.sh`、报告须含完整事故取证)+ **另派独立 tester 取证(不采信自述)**。结论:**零外发 + 零生产写入**(notify_dedup/alert_state/latest.md md5+mtime 全不在事故窗;stock_daily.db 两仓 md5+mtime 未变、近 10 日 0 行 `-wal/-shm`;R2 state mtime 仍 10-02;残留进程 0;云上零痕迹),**唯一副作用 = dev 树 `data/daily-k.parquet`(git-ignored 缓存)被覆盖 181MB**;残余不确定 2 条(该 parquet 原内容不可考 / 事故用生产 API key 做了 1 次**入站下载**调用,非通知外发)。防再犯:①审查/测试探针**一律 static-only**(read/diff/grep/`bash -n`/独立脚本;验 resolve 只 source **lib**、经 stdin 管道喂 `bash -s`,**绝不 source/exec 业务脚本主体**) ②harness 门控**禁用「环境变量是否齐」这类可被真实形态绕过的条件**,必须正面白名单(只许执行显式声明的文件)③派单把「禁跑业务脚本」写成**可核验项**(输出文件时间戳/`pgrep`)④事故后**必须独立取证**,不采信出事故方自述;判不了就写「无法判定」(同族:§18 L48「自测未打桩」/ L49「假样本养绿」)(→memory `probe-harness-must-not-exec-prod-scripts`,2026-10-06 新加)
 
-### 经验锚点(30 条,非过错,适用场景;对应根索引表经验 1-30)
+### 经验锚点(30 条,非过错,适用场景;线性列表,锚点 id 可 `grep` 反查原文)
 
 E01 | R2 purge_cache分批避超时500(每批30+batch sleep) | archive:L55
 E02 | 持仓hold_days改交易日口径 | archive:L56
