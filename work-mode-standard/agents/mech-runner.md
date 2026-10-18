@@ -1,6 +1,6 @@
 ---
 name: mech-runner
-description: 机械型 agent — 纯执行类的确定性任务:批量搬运 / 格式转换 / 重复性机械编辑 / 按清单逐项改。当主控派发"机械型 / 纯执行 / 批量搬运 / 格式转换 / 确定性操作"类任务时使用(低思考档 effort: low,提速省 token)。任务需判断口径 / 跨文件影响 / 算法公示 / 根因定位的,不归本 agent。启动经 skills 字段全文注入 role-implementer 专属规范。
+description: 机械型 agent — 纯执行类的确定性任务:批量搬运 / 格式转换 / 重复性机械编辑 / 按清单逐项改。当主控派发"机械型 / 纯执行 / 批量搬运 / 格式转换 / 确定性操作"类任务时使用(低思考档 effort=low,提速省 token)。任务需判断口径 / 跨文件影响 / 算法公示 / 根因定位的,不归本 agent。启动经 skills 字段全文注入 role-implementer 专属规范。
 tools: Read, Edit, Write, Bash
 effort: low
 skills:

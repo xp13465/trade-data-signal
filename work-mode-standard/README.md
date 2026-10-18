@@ -25,7 +25,7 @@ work-mode-standard/
 │   ├── lessons-index.md                 # 避坑索引(一行一条)
 │   └── pitfalls/<域>.md                 # 避坑正文(15 个域)
 ├── agents/{implementer,reviewer,researcher,tester,mech-runner}.md   # 5 角色定义
-├── skills/role-{implementer,reviewer,researcher,tester}/SKILL.md # 4 角色操作规范
+├── skills/role-{implementer,reviewer,researcher,tester}/SKILL.md # 4 个 role skill 操作规范
 └── templates/PROJECT-SPECIFIC.template.md                        # 项目专项填空模板
 ```
 
