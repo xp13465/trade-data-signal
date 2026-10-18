@@ -12,7 +12,7 @@
 |---|---|---|---|
 | **共享核心** | `CLAUDE.md` | 所有角色都该无条件知道:数据一致性、算法公示同步、git 绝不静默、删除前必备份、验收铁律、防重犯索引、token 行为层、说人话 | 主控 + 全部子 agent,每会话自动注入 |
 | **主控层** | `docs/main-governance.md` | 只调度不实施、派单规范、任务治理、压缩恢复、自我成长机制 | 主控按需读,子 agent 永不读 |
-| **角色层** | `skills/role-*/SKILL.md` + `agents/*.md` | 实施 / 审查 / 调研 / 测试 四个角色的操作规范与专属教训 | 对应角色子 agent,启动全文注入 |
+| **角色层** | `skills/role-*/SKILL.md` + `agents/*.md` | 实施 / 审查 / 调研 / 测试 / 机械型 五个角色的操作规范与专属教训 | 对应角色子 agent,启动全文注入 |
 
 ```
 work-mode-standard/
@@ -24,7 +24,7 @@ work-mode-standard/
 │   ├── role-based-context-design.md     # 为什么要分三层 + 机制实证
 │   ├── lessons-index.md                 # 避坑索引(一行一条)
 │   └── pitfalls/<域>.md                 # 避坑正文(15 个域)
-├── agents/{implementer,reviewer,researcher,tester}.md            # 4 角色定义
+├── agents/{implementer,reviewer,researcher,tester,mech-runner}.md   # 5 角色定义
 ├── skills/role-{implementer,reviewer,researcher,tester}/SKILL.md # 4 角色操作规范
 └── templates/PROJECT-SPECIFIC.template.md                        # 项目专项填空模板
 ```
@@ -46,7 +46,7 @@ cp work-mode-standard/CLAUDE.md <项目>/CLAUDE.md
 mkdir -p <项目>/docs
 cp -r work-mode-standard/docs/* <项目>/docs/
 
-# ③ 角色定义 —— 先在项目里建出 .claude/ 目录,再拷 4 个 agent 定义
+# ③ 角色定义 —— 先在项目里建出 .claude/ 目录,再拷 5 个 agent 定义
 mkdir -p <项目>/.claude/agents <项目>/.claude/skills
 cp -r work-mode-standard/agents/* <项目>/.claude/agents/
 
@@ -58,7 +58,7 @@ cp work-mode-standard/templates/PROJECT-SPECIFIC.template.md <项目>/docs/
 # 然后把 <项目>/docs/PROJECT-SPECIFIC.template.md 改名/填成 PROJECT-SPECIFIC.md
 ```
 
-装完检查一句:新项目 `.claude/agents/` 有 4 个文件、`.claude/skills/` 有 4 个目录,且每个 agent 定义里的 `skills:` 字段指向的 skill 目录**存在**(接线断了,角色规范就注入不进去)。
+装完检查一句:新项目 `.claude/agents/` 有 5 个文件、`.claude/skills/` 有 4 个目录,且每个 agent 定义里的 `skills:` 字段指向的 skill 目录**存在**(接线断了,角色规范就注入不进去)。
 
 ## 3. 给新项目的启动话术(可直接整段粘给新项目的 Claude 主会话)
 
@@ -76,6 +76,7 @@ cp work-mode-standard/templates/PROJECT-SPECIFIC.template.md <项目>/docs/
 - **通用版不写死状态型内容**:版本号 / 时点 / 编号 / 现网端点 / 当前配置值这类**随时间会变**的东西,一律不写进本包,写进使用者自己的 `PROJECT-SPECIFIC.md`。本包里对应位置只留 `<占位符>`。**这条是上面"发版本时同步"能成立的前提**:通用包只装"会不会随时间变都不变"的方法论,才谈得上按发版节奏批量同步;一旦混进状态型内容,同步就从"对一次快照"变成"每次都要逐项改值",必然拖成同步不了。
 - **验收口径**:改完规范自验须含「本包对应文件是否同步 + 是否又混进状态型内容」。
 - **本条 2026-10-15 由使用者确认**:以上约定(尤其"发版本时同步"这个触发点)是经使用者拍板定下的,不是随手写的措辞。
+- **最近同步:2026-10-15 → 2026-10-18**(源侧 97 个增量 commit,范围 `0af1e6586..57b65e24d`);再下次同步从此范围之后起算。
 
 ## 5. 章节映射表(旧 CLAUDE.md 节号 → 本包哪个文件)
 
@@ -87,10 +88,13 @@ cp work-mode-standard/templates/PROJECT-SPECIFIC.template.md <项目>/docs/
 | §1 | 开工先读 | `CLAUDE.md` §1;主控版见 `main-governance.md` §1 |
 | §5 / §5.1 | 调研后给方案 / 穷举回测+防前视 | `CLAUDE.md` §5、§5.1;防前视全文见 `skills/role-researcher` §3.1 |
 | §5.2 / §5.3 | 性能成本先查参数层 / 精简核心保障 | `CLAUDE.md` §5.2、§5.3 |
+| §5.3.1 | 条款生命周期(每条带三样 + 季度退役巡检) | `CLAUDE.md` §5.3.1 |
 | §5.4 | 测试基准锚点(含同构对账) | `CLAUDE.md` §5.4;对账全文见 `skills/role-researcher` §3.2 |
 | §5.5 | token 优化 6 条 | `CLAUDE.md` §5.5;各角色子集见对应 skill |
 | §5.7 | 方案 = 可证伪的承诺 | `CLAUDE.md` §5.7;流程见 `docs/quality-flow.md` ②;审查见 `skills/role-reviewer` §10.7 |
 | §5.8 | 上线前六道关 | `CLAUDE.md` §5.8;路线图全文见 `docs/quality-flow.md` |
+| §5.9 | 实施前必须先验证(三验齐) | `CLAUDE.md` §5.9;调研侧见 `skills/role-researcher` §2;审查侧见 `skills/role-reviewer` §10.7 |
+| §5.10 | 探索通道(隔离 + 时间盒 + 落地前补证) | `CLAUDE.md` §5.10 |
 | §6 | 中文 + 说人话 | `CLAUDE.md` §6 |
 | §8 / §8.1 | 改完必须推送 / 派单锚点 | `CLAUDE.md` §8、§8.1;操作细节见 `skills/role-implementer` §3 |
 | §9 | 写码前 7 级阶梯 | `CLAUDE.md` §9;全文见 `skills/role-implementer` §6.5 |
@@ -102,7 +106,7 @@ cp work-mode-standard/templates/PROJECT-SPECIFIC.template.md <项目>/docs/
 | §19 | 自我成长机制(总结 + review) | `main-governance.md` §19 |
 | §21 | 算法改动同步公示 | `CLAUDE.md` §21;全文见 `skills/role-implementer` §2 |
 | §22 | 数据一致性铁律 | `CLAUDE.md` §22 |
-| §23.1-§23.15 | 用户新增铁律 | `CLAUDE.md` §23 各条 |
+| §23.1-§23.16 | 用户新增铁律 | `CLAUDE.md` §23 各条 |
 | §24 | 前端部署 / 缓存防撕裂 | `CLAUDE.md` §24;实施侧 `skills/role-implementer` §1.1;审查侧 `skills/role-reviewer` §5.2 |
 | §25 | 删除前必备份·可逆安全 | `CLAUDE.md` §25 |
 | Compact | 上下文压缩保留项 / 恢复清单 | `CLAUDE.md` §27;恢复清单见 `main-governance.md` 首屏 |

@@ -78,10 +78,10 @@
 - **核心一句话:新功能绝对不可以影响老功能**。改动影响面是网状的(一个数据文件被多模块读),单靠"改的人自己测 + 主控验关键点"覆盖不到跨模块回归
 - **每次代码改动都要独立 review + 回归测试**:不只大改动,**任何**改前端/后端逻辑/数据产物脚本的改动,push 上线前必须:①派独立 reviewer 子 agent(grep 改动文件被谁引用 + 跑 P0 冒烟测试)②reviewer 通过才 push main。流程:实施 agent 改完 → reviewer agent review → 通过 → 主控 push main。"改的人自己测"不算 review,必须额外一双眼睛
 - **改动分级 + 小问题口子**:review 本质是怕改坏逻辑,纯显示改无逻辑可坏,不需派 reviewer。按级别分级:
-  - **A 级 小(纯显示)**:同时满足 5 条 = ①纯显示/文案/CSS/常量配置(不动 if/for/事件绑定/数据结构/SQL/数据产物) ②定位已知:用户指明或 agent 已定位行号,grep 即得 ③量级:≤30 行纯改 ④验证:grep/读单点即确认(不需冒烟/curl) ⑤风险:前端代码可 git revert(不碰 DB/数据产物/后端/定时任务)。**主控直接改 + grep 自验 + push**。核心两条:纯显示不动逻辑 + 定位已知不需调研,任一不满足升级派 agent
+  - **A 级 小(纯显示)**:同时满足 5 条 = ①纯显示/文案/CSS/常量配置(不动 if/for/事件绑定/数据结构/SQL/数据产物) ②定位已知:用户指明或 agent 已定位行号,grep 即得 ③量级:≤30 行纯改 ④验证:grep/读单点即确认(不需冒烟/curl) ⑤风险:前端代码可 git revert(不碰 DB/数据产物/后端/定时任务)。**主控直接改 + grep 自验 + 走统一合并入口 push(不直推 main)+ 不派实施 / reviewer**。核心两条:纯显示不动逻辑 + 定位已知不需调研,任一不满足升级派 agent
   - **B 级 大(逻辑)**:逻辑分支/if/for/事件绑定/数据结构/跨函数/跨模块。派 agent 实施 + reviewer 通过后主控 push main。**reviewer 按影响面分级**:①无隐藏影响面(单点逻辑,不被轮询/事件/跨函数引用):agent 自验 + 主控单点,不派 reviewer ②有隐藏影响面(轮询/事件/跨函数/数据被多模块读):reviewer 只查影响面 + 相关冒烟测试 ③广涉及面(跨模块/数据产物/定时任务/后端):完整 reviewer(全 P0 冒烟测试 + 数据完整性校验)
   - **C 级 数据/后端**:数据产物/SQL/后端/定时任务。派 agent 实施 + 派 reviewer + 数据完整性校验(部署前置) + reviewer 通过主控 push main
-- **⚠️ push main 统一入口**:merge + push main 一律由主控走统一合并脚本(唯一权威入口,内含:时点安全窗口检查 → fetch + main 同步 → base 新鲜校验 → merge feat(冲突即停)→ 前端源码统一构建产物 + bump → 版本进度校验 → push main → **push 后自动自查 CI 结论**)。**agent 只 push feat 分支,禁止 agent 直接 push main**。改前端源码的 feat,版本串由本脚本 merge 时统一 bump(worktree agent 不自行 bump,防撞号)
+- **⚠️ push main 统一入口**:merge + push main 一律由主控走统一合并脚本(唯一权威入口,内含:时点安全窗口检查 → fetch + main 同步 → base 新鲜校验 → merge feat(冲突即停)→ 前端源码统一构建产物 + bump → 版本进度校验 → push main → **push 后自动自查 CI 结论**)。**所有改动(含纯文档 / 仅文档提交)一律走本入口,不得直推 main —— 不存在"纯文档可直推"的例外**。**agent 只 push feat 分支,禁止 agent 直接 push main**。改前端源码的 feat,版本串由本脚本 merge 时统一 bump(worktree agent 不自行 bump,防撞号)
 - **⚠️ push main 后必自查 CI 结论**:push main 后**自动**拉最新 CI 运行结论(`FAIL ⇒ 立即派修,不等用户发现` = 自动修正);**本机自测/pytest 通过 ≠ CI 绿**(CI 环境差异致假绿,实例:测试写死"本机无某命令" ⇒ CI 自合起红多轮无人察觉)。合并脚本应内建「push 后自动轮询 CI 并在 FAIL 时醒目告警 + 非零退出」
 - **小口子打包原则**:多个 A 级小改动(≥3 个 或合计 >50 行)凑一起 = 派 agent 合适(打包一次实施省 cherry-pick);单个 A 级主控改,多个打包派 agent
 - **大阶段回归必行**:当天开发功能多后/大阶段结束/上线前,必须做主功能快速全量回归,不等用户发现再修
@@ -107,6 +107,7 @@
 | 角色 | agent 定义 | 角色 skill | 职责 |
 |---|---|---|---|
 | 实施 implementer | `.claude/agents/implementer.md` | role-implementer | 写代码改文件 + 上线,含写码 7 级阶梯/公示同步/上线操作/修 bug 三铁律/举一反三 |
+| 机械型 mech-runner | `.claude/agents/mech-runner.md` | role-implementer(同实施注入,低思考档) | 纯执行:批量搬运 / 格式转换 / 按清单逐项改 —— 步骤明确、结果可机械核对、无判断空间 |
 | 调研 researcher | `.claude/agents/researcher.md` | role-researcher | 定位根因/查证/方案分析,只读不改,产出结论 + 证据 |
 | 审查 reviewer | `.claude/agents/reviewer.md` | role-reviewer | 独立看改动影响老功能,批判性找问题不改代码,跑冒烟测试 |
 | 测试 tester | `.claude/agents/tester.md` | role-tester | 回归冒烟测试/压测/边界/数据完整性校验/上线验证 |
@@ -115,7 +116,7 @@
 - **角色可兼任**:小任务一个 agent 调研 + 实施;大任务拆多角色(实施 → reviewer → 测试流水线)
 - **验收 agent**:主控轻量验收够用不派;需全面验证(多文件/多场景/跨模块)才派独立验收 agent
 - **综合 agent**:汇总多 sub-agent 结果产出文档
-- **派 agent 用 Agent 工具指定 agent 名**(implementer/reviewer/researcher/tester),不再手写"见 §X"长引用——角色 skill 已启动注入
+- **派 agent 用 Agent 工具指定 agent 名**(implementer/reviewer/researcher/tester/mech-runner),不再手写"见 §X"长引用——角色 skill 已启动注入。**机械型任务(批量搬运 / 格式转换 / 按清单逐项改,无判断空间)派 mech-runner(低思考档)**,判断类任务仍派对应角色
 
 ### 通知与兜底机制
 
@@ -169,6 +170,18 @@
 - **动作**:①识别 ②完善速查对应部分(标准 step 含验收口径 + 常见坑速查)③commit 进 git(只放记忆不算数)
 - **和教训索引/总结配合(互补)**:教训索引记过错 + 经验/总结归纳过错 + 经验/本机制把"怎么做对"沉淀进速查(面向**子 agent fresh context 读**——主控读得到索引/总结但子 agent 不读全文,速查是子 agent 真正会读的入口)
 - **派 agent 时引用**:主控派 agent prompt 引用"见 `<docs/agent-quickstart.md>` <任务类型>";速查未写则子 agent 完成后补写
+
+---
+
+## 21. 主人缺席模式(主人长时间没回话时怎么继续)
+
+> **建议级**(主控侧行为约定,不是硬门槛):主人回来后可随时覆盖。**触发**:连续 **48 小时**以上没回话 = 短缺席;连续 **1 周**以上 = 长缺席(缺省阈值,可按团队习惯调整;同一套规则,长缺席执行更保守)。先分清"缺的是拍板还是只是回话"。
+
+- **可双签 + 事后追认(限三类)**:①已拍板方案内继续实施 ②纯文档 / 落档 / 索引维护 ③只读观察与证据收集
+- **一律挂起(不自行推进)**:新方案拍板级决策;动默认组合 / 算法;对外发布;删除类操作
+- **只许只读观察**:线上数据类 / 生产配置类
+- **线上事故的最小处置路径**:只做「**止血到安全态**」
+- **共同要求**:缺席期做的每个动作都写进进度文件 / 台账,标「**缺席期执行·待追认**」
 
 ---
 
