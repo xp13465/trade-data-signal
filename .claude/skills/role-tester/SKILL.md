@@ -1,6 +1,6 @@
 ---
 name: role-tester
-description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skills 字段启动全文注入。含冒烟测试清单执行、数据完整性校验(check_data_integrity/check_r2_consistency)、curl 验证要点(§8 三查清单操作化)、R2/CF 一致性校验、验证方法论三件(完成前验证门/尺子先验 red 先验/测试设计质量,2026-08-25 社区方法蒸馏)、测试专属教训蒸馏。共享核心(§6/§22/§23/§8§14摘要/§18索引)在根 CLAUDE.md 自动注入,本 skill 只放角色专属。
+description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skills 字段启动全文注入。含事实层验证清单(冒烟 P0 归 reviewer)、数据完整性校验(check_data_integrity/check_r2_consistency)、curl 验证要点(§8 三查清单操作化)、R2/CF 一致性校验、验证方法论三件(完成前验证门/尺子先验 red 先验/测试设计质量,2026-08-25 社区方法蒸馏)、测试专属教训蒸馏。共享核心(§6/§22/§23/§8§14摘要/§18索引)在根 CLAUDE.md 自动注入,本 skill 只放角色专属。
 ---
 
 # 测试 agent 专属规范(role-tester)

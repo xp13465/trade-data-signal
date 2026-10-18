@@ -12,7 +12,8 @@
         "implementer": null,
         "reviewer": null,
         "tester": null,
-        "researcher": null
+        "researcher": null,
+        "mech-runner": null
       },
       "skills_sum": null,
       "mem_md": null,
@@ -32,7 +33,8 @@
         "implementer": 26988,
         "reviewer": 17313,
         "tester": 12236,
-        "researcher": 10654
+        "researcher": 10654,
+        "mech-runner": null
       },
       "skills_sum": 67191,
       "mem_md": null,
@@ -52,7 +54,8 @@
         "implementer": 37285,
         "reviewer": 24616,
         "tester": 15045,
-        "researcher": 15629
+        "researcher": 15629,
+        "mech-runner": null
       },
       "skills_sum": 92575,
       "mem_md": 33430,
@@ -72,7 +75,8 @@
         "implementer": 40359,
         "reviewer": 35510,
         "tester": 20765,
-        "researcher": 17235
+        "researcher": 17235,
+        "mech-runner": null
       },
       "skills_sum": 113869,
       "mem_md": 26026,

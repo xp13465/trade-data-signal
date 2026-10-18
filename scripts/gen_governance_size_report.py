@@ -8,7 +8,8 @@ r"""gen_governance_size_report.py — 治理体量月报(P3,2026-10-18 评鉴;�
   `docs/ops/governance-budget-history.json`),并由 CI 对账(rev 逐位复核),防"账已漂移无人知"。
 
 计量对象(设计报告 §A1 全集):
-  · repo 内 7 个文件:CLAUDE.md / docs/main-governance.md / 台账归档 / 四处 role skill;
+  · repo 内文件:CLAUDE.md / docs/main-governance.md / 台账归档 / **全部 role skill**
+    (当前 5 份:implementer/reviewer/tester/researcher/mech-runner;新增 role skill 时须同步本清单);
   · repo 外 1 个:memory 索引 MEMORY.md(每日备份 tarball 内 `memory/MEMORY.md`;只承诺近 30 天,
     更早月份记 null,**不造假**);
   · 条款净增:台账锚点(`^L\d+`/`^E\d+`)季内增量(**教训级口径**,条款级增补不进计数 —— 诚实标注)。
@@ -55,11 +56,16 @@ REPO_PATHS = {
     "governance": "docs/main-governance.md",
     "archive": "docs/archive/CLAUDE-errors-2026-08.md",
 }
+# 全部 role skill(当前 5 份;新增 role skill 时在此登记 + JSON 各行补该键)。
+# ⚠️ skills_sum 语义 = **该行当时存在的 skill 件数之和**(非固定口径):历史行在新增 skill 前
+#    只含当时件数(旧行其新键补 null,值不追改,不额外加权外推)⇒ 与最新行口径不同,
+#    跨行环比(预算 WARN)会**低估**增量(例:2026-10 记 4 件之和 113,869B,5 件真实口径 +28.4%)。
 SKILL_PATHS = {
     "implementer": ".claude/skills/role-implementer/SKILL.md",
     "reviewer": ".claude/skills/role-reviewer/SKILL.md",
     "tester": ".claude/skills/role-tester/SKILL.md",
     "researcher": ".claude/skills/role-researcher/SKILL.md",
+    "mech-runner": ".claude/skills/role-mech-runner/SKILL.md",
 }
 ARCHIVE_REL = REPO_PATHS["archive"]
 INDEX_HEADING = "## 防重犯锚点索引"

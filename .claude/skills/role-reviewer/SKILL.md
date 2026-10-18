@@ -39,7 +39,7 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **冒烟测试清单落档**:主功能清单+数据校验规则放 `docs/smoke-checklist.md`(进版本库维护)—— **冒烟部分你读取执行;数据校验规则归 tester 执行(见 §0)**
 - 模型只文本不能看 UI,回归验证用 curl JSON 数据层 + 关键交互文字描述 + 让用户确认显示三层
 
-## 4. 数据校验口径(2026-10-19 批2 M4:数据校验**主责归 tester**,本节降为 reviewer 侧引用口径)
+## 4. 数据校验口径(2026-10-19 #267 批2 M4:数据校验**主责归 tester**,本节降为 reviewer 侧引用口径)
 > **切割**:数据校验(curl 三查 / §22 多展示位同值 / `check_data_integrity`·`check_r2_consistency`)**主责归 tester**(见 tester skill §0/§2);reviewer **不重复跑**,只在影响面审查需要时引用 tester 结论。本节保留 = 让你知道 tester 会核什么,便于接口对齐。
 - check_data_integrity.py:deploy.sh 前置,校验关键 JSON"该有的数据在不在"(缺失/滞后/空 key 超标即 FAIL)
 - check_r2_consistency.py:本地 static-site vs R2 一致性审计
@@ -169,7 +169,7 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **为什么**:不加过滤的 review 报告 nitpick 淹没真问题(官方实测教训);本项目三层验收(agent 自验+reviewer+主控 §0)里 reviewer 是唯一批判层,报告噪音直接浪费主控注意力
 - **反例**:报 12 条 finding 里 9 条是 25 分猜测,实施 agent 花一小时逐条排查全是误报,真正的 75 分 fallback 掩盖根因排在最后没被看
 
-### 10.3 误报清单(本地化;以下七类不算本次改动的 finding)
+### 10.3 误报清单(本地化;以下八类不算本次改动的 finding)
 1. **pre-existing 问题**:diff 之前就存在的 bug。**不算 finding 但也不许默默吞**——走 §23.7⑤ 上报通道(提醒用户+证明链路+问要不要修),不当 finding 也不忽略
 2. **机检脚本能抓的**:lint_scripts.sh / check_data_integrity.py / check_r2_consistency.py / check_universe_alignment.py / check_version_progress 等 deploy 前置校验覆盖项,不人肉报;但「该挂机检链却没挂」本身就是 finding(如新数据类别没进 check_data_integrity 清单)
 3. **senior 不会提的 nitpick**:变量命名偏好/注释措辞/可有可无的重构建议
