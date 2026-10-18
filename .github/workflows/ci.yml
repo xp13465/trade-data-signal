@@ -17,6 +17,11 @@
 #                                              因 runner 无本地 /tmp agent-progress 文件, C 维度降级跳过)
 #     ⑨ scripts/check_data_gap_alerts.py --self-test  采集缺口/停更告警器 two-way 自测(#250-P4):
 #        自测在临时库里跑(不碰生产 DB、零外发), 把 #250 的回归面固化成 CI 常驻门禁
+#     ⑩ scripts/check_ledger.py               错误台账对账(评鉴 P1, 2026-10-18): CLAUDE.md §18
+#        防重犯索引表 ↔ 归档锚点索引块 —— 计数三方一致 / 锚点集连续无缺号 / 索引面引用无悬空 /
+#        根表窗口锚点已归档。纯仓库内输入(只读 CLAUDE.md + docs/archive/CLAUDE-errors-2026-08.md),
+#        不依赖任何数据产物; 脚本内置 `--selftest` 变异自测防「假绿空转」(§18 L49/L52)。
+#        背景: 账已实际漂移(归档实 50 条 vs 声称 49) —— 全文 docs/ops/sugas-eval-20261018.md §5-P1。
 #     ⑧ 算法核心 pytest(FAIL 阻断, P0-1 产出, 2026-09-06): loss_rules 20 键 / S06 状态机 /
 #       凯利三件套, 固定输入→断言输出, 样本硬编码自线上产物冻结快照, 零外部数据依赖
 #       (#213 方案 A2 起依赖面 = pytest + pyyaml + numpy/pandas/pyarrow 5 件真数值库,
@@ -151,6 +156,14 @@ jobs:
 
       - name: ⑤ 任务状态一致性对账(§23.12-1, CI 跳过僵尸 cron 维度)
         run: python3 scripts/check_task_state.py --repo "$GITHUB_WORKSPACE" --deploy-mode --skip-zombie-crons
+
+      - name: ⑩ 错误台账对账(评鉴 P1, FAIL 阻断)
+        run: python3 scripts/check_ledger.py --repo "$GITHUB_WORKSPACE"
+        # 评鉴 P1(2026-10-18): 账本自身的对账机检 —— CLAUDE.md §18 防重犯索引表 ↔ 归档锚点索引块。
+        #   只读仓内 CLAUDE.md + docs/archive/CLAUDE-errors-2026-08.md, 零外部输入/零外发。
+        #   命令路径 = 仓库根 scripts/check_ledger.py, 与 --repo "$GITHUB_WORKSPACE" 同根 ⇒ 相交(L52 口径)。
+        #   非空转由脚本内 --selftest(变异两向)保证; 本条挂载前已本机跑 `--selftest` PASS。
+        #   全文 docs/ops/sugas-eval-20261018.md §5-P1。
 
       - name: ⑧ 算法核心 pytest(P0-1, FAIL 阻断)
         run: |
