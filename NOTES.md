@@ -8477,3 +8477,7 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 - **§0验上线点**：push 3af0668cd fast-forward main ✓ + style.min.css body无overflow-x(只html) ✓ + lab.min.css sticky 5处+`min(100%,700px)` ✓ + sw.js a73 ✓
 - 周日休市无intraday撞车，push feat备份+main一步到位
 - **教训**：body 加 overflow-x:hidden 会破坏全站 sticky（CSS sticky 相对最近滚动祖先），改 sticky 失效先查祖级 overflow；html overflow-x:hidden 安全（视口层）
+
+## 2026-10 月报(体量 + 成本;数据源 docs/ops/governance-budget-history.json)
+- 体量(截至 10-18,rev fabe7c38):CLAUDE.md 66,377B / MEMORY.md 26,026B / 台账归档 70,628B / skills 合计 113,869B;本季条款净增 +6(≤3) 超预算 ⇒ 触发动作见 docs/ops/clause-retirement-checklist.md。
+- 花费:deepseek 官方 ¥__ / 火山方舟 ¥__ / 各代理 ¥__;规范维护时长 __h(§5.2④;待 §19 月度归并填写)。
