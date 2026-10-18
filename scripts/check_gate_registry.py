@@ -10,7 +10,8 @@ r"""check_gate_registry.py — 机检「保险登记表」对账(P5,2026-10-18 �
 
 四查(全 PASS 才 exit 0):
   ① schema:每行 7 字段齐且非空(闸门名 / 挂点 / 防什么 / 失效条件 / 误伤条件 / 失效时谁接手 + 动作 /
-     自检方式);闸门名唯一。
+     自检方式);闸门名唯一;单元格数与表头不符的行 ⇒ 直接 FAIL(报行号/列数,**不静默丢弃**——
+     静默丢行会让「整体仍 PASS」,正是本脚本「拒绝静默通过」承诺的反面)。
   ② 挂点存在性:挂点里出现的每个 repo 路径必须真存在;若该行提到 `ci.yml`,则行内至少一个反引号
      `` `...` `` 记号必须能在 `.github/workflows/ci.yml` 里逐字找到(防"指到不存在的挂点";
      `gate-verify-in-prod-tree` 精神:在**生产目录**里验,不在干净副本里验)。
@@ -58,20 +59,21 @@ def _split_row(line: str):
 
 
 def parse_tables(text: str):
-    """返回 [(表头 cells, [数据行 cells, ...]), ...](跳过 `|---|` 分隔行)。"""
+    """返回 [(表头 cells, [数据行 cells...], [数据行 1-based 行号...]), ...](跳过 `|---|` 分隔行)。"""
     tables, lines = [], text.splitlines()
     i = 0
     while i < len(lines):
         if lines[i].lstrip().startswith("|") and i + 1 < len(lines) \
                 and re.match(r"^\s*\|[\s:|-]+\|\s*$", lines[i + 1]):
             head = _split_row(lines[i])
-            rows, j = [], i + 2
+            rows, lns, j = [], [], i + 2
             while j < len(lines) and lines[j].lstrip().startswith("|"):
                 cells = _split_row(lines[j])
                 if any(cells):
                     rows.append(cells)
+                    lns.append(j + 1)
                 j += 1
-            tables.append((head, rows))
+            tables.append((head, rows, lns))
             i = j
         else:
             i += 1
@@ -79,16 +81,27 @@ def parse_tables(text: str):
 
 
 def load_registry(path: Path):
-    """→ (gates, legacy):gates=[dict(zip(COLS, cells))], legacy=[(脚本, 理由)]。"""
+    """→ (gates, legacy, text, malformed):gates=[dict(zip(COLS, cells))], legacy=[(脚本, 理由)],
+    malformed=[(表名, 行号, 实际列数, 表头列数)] —— 单元格数与表头不符的行**收集上报**,不静默丢弃。"""
     text = path.read_text(encoding="utf-8")
-    gates, legacy = [], []
-    for head, rows in parse_tables(text):
+    gates, legacy, malformed = [], [], []
+    for head, rows, lns in parse_tables(text):
         if "闸门名" in head:
-            gates += [dict(zip(head, r)) for r in rows if len(r) == len(head)]
+            label = "闸门表"
         elif any("豁免理由" in h for h in head):
-            idx = next(i for i, h in enumerate(head) if "豁免理由" in h)
-            legacy += [(r[0], r[idx]) for r in rows if len(r) > idx]
-    return gates, legacy, text
+            label = "存量豁免表"
+        else:
+            continue
+        for r, ln in zip(rows, lns):
+            if len(r) != len(head):
+                malformed.append((label, ln, len(r), len(head)))
+                continue
+            if label == "闸门表":
+                gates.append(dict(zip(head, r)))
+            else:
+                idx = next(i for i, h in enumerate(head) if "豁免理由" in h)
+                legacy.append((r[0], r[idx]))
+    return gates, legacy, text, malformed
 
 
 # ── 四查 ─────────────────────────────────────────────────────────────────────
@@ -96,7 +109,7 @@ def check(repo: Path, registry: Path):
     fails, passes, infos = [], [], []
     if not registry.is_file():
         return [f"缺 registry 文件: {registry}"], [], []
-    gates, legacy, _ = load_registry(registry)
+    gates, legacy, _, malformed = load_registry(registry)
 
     # ④ 恒在自检(先查,防空转)
     if not gates:
@@ -104,7 +117,9 @@ def check(repo: Path, registry: Path):
     if not legacy:
         fails.append("registry 存量豁免表解析为空(0 行)= 空转,拒绝 PASS")
 
-    # ① schema
+    # ① schema(先报「单元格数与表头不符」的行 —— 这些行在解析时已被拒,不静默丢弃)
+    for label, ln, got, want in malformed:
+        fails.append(f"① {label} 第 {ln} 行单元格数 {got}≠表头 {want}(该行被拒收,拒绝静默丢弃)")
     seen = {}
     for g in gates:
         name = (g.get("闸门名") or "").strip()
@@ -115,7 +130,7 @@ def check(repo: Path, registry: Path):
         if name in seen:
             fails.append(f"① 闸门名重复: {name}")
         seen[name] = g
-    if gates:
+    if gates and not malformed:
         passes.append(f"① schema: {len(gates)} 行 × {len(COLS)} 栏全部在场非空")
 
     # ② 挂点存在性

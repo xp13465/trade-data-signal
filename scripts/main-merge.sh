@@ -407,10 +407,12 @@ fi
 #     背景: 改 `scripts/` **任何源码**后自验必须含**全量** `pytest -q scripts/tests/` —— tests/ 里存在
 #     「源码形状守卫」(grep 生产源文件字面量, 实测 21 个文件), 源形状一变守卫即红; 本机只跑「相关
 #     用例绿」≠ 全绿。CI 侧全量 pytest 早就有了(⑧), 但它跑在 **merge 之后** ⇒ 红在 main 上(#891)。
-#     本步把这道红前移到 merge **之前**(feat 上红, red-first 精神): 检出 scripts/ 变更 → 跑全量
-#     pytest, FAIL 阻断本次 merge。
+#     本步把这道红前移到 **push main 之前**(local main 上红, 护住远端 main; red-first 精神): 检出
+#     scripts/ 变更 → 跑全量 pytest, FAIL 阻断本次 push main(远端 main 不入红)。
 #     爆炸半径(memory gate-position-blast-radius): 本地脚本, 失败=主控这次 merge 停一次(正是目的);
-#     位置在 merge 动作之前, 不拖 deploy 链。成本: 全量 ~150s, merge 频率低(每天个位数), 可接受。
+#     位置在 **merge 之后、push main 之前** ⇒ 失败时 local main 已含本次 merge = 半完成态, 由主控处置
+#     (memory main-merge-fail-leaves-half-merged-main: 重跑 main-merge.sh 即恢复), 不拖 deploy 链。
+#     成本: 全量 ~150s, merge 频率低(每天个位数), 可接受。
 #     逃生门: MAIN_MERGE_SKIP_PYTEST=1(与 CI_SELFCHECK_SKIP 同模式), 跳时打醒目日志, **不静默**。
 #     找解释器: $MAIN_MERGE_PYTEST_PY > $REPO/.venv/bin/python3 > python3(依次试 import pytest);
 #     一个都找不到 ⇒ **阻断**(找不到 = 这道门没跑 = 未验证; 拒绝静默放行, §18 L49 空转闸门教训)。
