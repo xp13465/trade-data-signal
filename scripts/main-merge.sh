@@ -17,6 +17,10 @@
 #   6. 若 feat 改了前端源码(9 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content/index.html): 统一跑 build_min + bump_asset_version(版本串唯一权威入口, 机制 C; index.html 改动触发统一 bump, build_min 无源变更自然产出不变);
 #      触发 bump = 一次「发版」→ 打印「发版本时同步 work-mode-standard/ 通用包」软提醒(README §4 维护约定, 2026-10-15 拍板; 只提醒不阻断)
 #   7. §24⑤ 校验 index 引用 == 实际文件内容 md5(统一 bump 后内容哈希==引用)
+#   7.9 L52 pre-merge 全量 pytest(2026-10-18 批3 挂): feat 改了 scripts/ 下任何源码 ⇒ 跑全量
+#       `pytest -q scripts/tests/`(测试里有源码形状守卫, 源形状一变即红), FAIL 阻断本次 merge ——
+#       把 L52 型红从「merge 后 CI 红在 main(#891)」前移到「merge 前 feat 上红」。约 150s。
+#       逃生门 MAIN_MERGE_SKIP_PYTEST=1(跳时醒目日志, 不静默); 找不到带 pytest 的解释器 = 阻断。
 #   7.7 console 洁净度哨兵(#133 复发防线, 2026-10-03 挂): 打线上真实 URL 验 0 CSP 违规 +
 #       0 pageerror; 违规 exit1 阻断发版; 线上不可达 exit2 打醒目告警后放行; SKIP_CONSOLE_CLEAN=1 逃生门
 #   8. 调 check_version_progress.py(A/B: 版本串倒退哨兵 + merge 净回退校验) → FAIL 阻断
@@ -396,6 +400,58 @@ else
         --dump "$REPO/docs/deploy/systemd-units-cloud-snapshot.txt" --check-doc; then
     echo "✗ systemd 生成源(doc §2)与云上快照不一致, 阻断 merge(#189, 修复: 对齐 doc §2 或刷新快照)" >&2
     exit 1
+  fi
+fi
+
+# 7.9 L52 pre-merge 全量 pytest(scripts/ 有改动时;2026-10-18 批3 挂主入口, 教训 L52)
+#     背景: 改 `scripts/` **任何源码**后自验必须含**全量** `pytest -q scripts/tests/` —— tests/ 里存在
+#     「源码形状守卫」(grep 生产源文件字面量, 实测 21 个文件), 源形状一变守卫即红; 本机只跑「相关
+#     用例绿」≠ 全绿。CI 侧全量 pytest 早就有了(⑧), 但它跑在 **merge 之后** ⇒ 红在 main 上(#891)。
+#     本步把这道红前移到 merge **之前**(feat 上红, red-first 精神): 检出 scripts/ 变更 → 跑全量
+#     pytest, FAIL 阻断本次 merge。
+#     爆炸半径(memory gate-position-blast-radius): 本地脚本, 失败=主控这次 merge 停一次(正是目的);
+#     位置在 merge 动作之前, 不拖 deploy 链。成本: 全量 ~150s, merge 频率低(每天个位数), 可接受。
+#     逃生门: MAIN_MERGE_SKIP_PYTEST=1(与 CI_SELFCHECK_SKIP 同模式), 跳时打醒目日志, **不静默**。
+#     找解释器: $MAIN_MERGE_PYTEST_PY > $REPO/.venv/bin/python3 > python3(依次试 import pytest);
+#     一个都找不到 ⇒ **阻断**(找不到 = 这道门没跑 = 未验证; 拒绝静默放行, §18 L49 空转闸门教训)。
+echo "--- L52 pre-merge 全量 pytest(scripts/ 有改动时, §18 L52) ---"
+CHANGED_SCRIPTS="$($GIT diff --name-only "origin/main...$FEAT" -- scripts/ 2>/dev/null || true)"
+if [[ -z "$CHANGED_SCRIPTS" ]]; then
+  echo "  scripts/ 无变更 → 跳过全量 pytest(L52 只针对源码面; 文档/前端改动不触发)"
+elif [[ "$DRY_RUN" == "1" ]]; then
+  echo "  [dry-run] 检出 scripts/ 变更 $(printf '%s\n' "$CHANGED_SCRIPTS" | wc -l | tr -d ' ') 个 → 跳过全量 pytest"
+else
+  PYTEST_PY=""
+  for cand in "${MAIN_MERGE_PYTEST_PY:-}" "$REPO/.venv/bin/python3" "$(command -v python3 || true)"; do
+    [[ -n "$cand" && -x "$cand" ]] || continue
+    if "$cand" -c 'import pytest' >/dev/null 2>&1; then PYTEST_PY="$cand"; break; fi
+  done
+  if [[ -z "$PYTEST_PY" ]]; then
+    echo "" >&2
+    echo "  ████████████████████████████████████████████████████████████████" >&2
+    echo "  [!!] 找不到带 pytest 的解释器 ⇒ L52 门无法执行 = 未验证, 拒绝静默放行" >&2
+    echo "       (试过: \$MAIN_MERGE_PYTEST_PY / $REPO/.venv/bin/python3 / python3)" >&2
+    echo "       修法: 装 pytest, 或 export MAIN_MERGE_PYTEST_PY=<带 pytest 的解释器>;" >&2
+    echo "             确需跳过: MAIN_MERGE_SKIP_PYTEST=1(跳时打醒目日志)" >&2
+    echo "  ████████████████████████████████████████████████████████████████" >&2
+    exit 1
+  fi
+  if [[ "${MAIN_MERGE_SKIP_PYTEST:-0}" == "1" ]]; then
+    echo ""
+    echo "  ████████████████████████████████████████████████████████████████"
+    echo "  [!!] MAIN_MERGE_SKIP_PYTEST=1(逃生门): 本次 merge 已跳过全量 pytest"
+    echo "       —— 改过 scripts/ 却没跑全量 = 可能把 L52 型红(#891 源码形状守卫)直接带进 main,"
+    echo "          CI ⑧ 会兜底但红在 main 上; 请记得事后补跑:"
+    echo "          $PYTEST_PY -m pytest -q $REPO/scripts/tests/"
+    echo "  ████████████████████████████████████████████████████████████████"
+    echo ""
+  else
+    echo "  检出 scripts/ 变更, 跑全量 pytest(解释器: $PYTEST_PY)…"
+    if ! "$PYTEST_PY" -m pytest -q "$REPO/scripts/tests/"; then
+      echo "✗ 全量 pytest 红, 阻断 merge(§18 L52: 形状守卫可能与改动同批红, 先修好再 merge)" >&2
+      exit 1
+    fi
+    echo "  ✓ 全量 pytest 绿"
   fi
 fi
 

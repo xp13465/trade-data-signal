@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""check_ledger.py — 错误台账对账机检(CLAUDE.md §18 防重犯索引表 ↔ 归档锚点索引块)。
+r"""check_ledger.py — 错误台账对账机检(CLAUDE.md §18 防重犯索引表 ↔ 归档锚点索引块)。
 
 背景(第三方评鉴 P1,2026-10-18;报告全文 `docs/ops/sugas-eval-20261018.md` §4-W1 + §5-P1):
   体系要求「同一事实多处副本必须机检」(§22),却对**自己的账本**(错误台账)零机检 ⇒ 账已实际漂移:
@@ -29,9 +29,12 @@
      reviewer 抽样核对 —— 不在此假装机检(诚实边界)。
   G. 归属清单自洽(2026-10-18 批2 加,= P1 审查 F2):解析四份「零丢失校验」声明
      (governance §18.1 + 三个 role skill),校验①声称总条数 == 实列 id 数 == 分项括号和 + 「非归档」条数
-     ②每个列出的 id 必须在归档索引块内存在(「非归档」除外)。
+     ②每个列出的 id 必须在归档索引块内存在(「非归档」除外)③(**C1,批3 加**)清单**标题**里的计数
+     == 零丢失等式声称(标题是同一事实的**第三登记点**,批3 前漂了没人管:实测把 gov 标题 28→29
+     而等式不动,--check 仍 PASS)。
      ⚠️ 只做**正向**(声明自身自洽 + 指向存在);**反向「归档全量 ⊆ 四清单并集」不成立**(实测差集
      20+ 条存量条目根本没挂归属清单),该项**只报 INFO 不设门** —— 不凭空造一个过不了的检查项(见下)。
+     INFO 行含「(含 N 个非归档:id)」动态计数(C3,批3),不再让人拿「并集数 − 归档数」自己手算(E31 型)。
 
 F2 处置留痕(2026-10-18):P1 审查提的「归属清单并集」原本是「每一条归档锚点都该被某个角色清单认领」,
   实测该等式**不成立**(并集 60 余条 < 归档 80 余条),且三份 role skill 清单不在本批可改面内 ⇒
@@ -40,9 +43,10 @@ F2 处置留痕(2026-10-18):P1 审查提的「归属清单并集」原本是「�
 防空转(§18 L49/L52「假绿/空转」根治):
   · **恒在自检** —— 声称数解析不到 / 索引块锚点集为空 / 根表窗口解析为空 / 结构标题缺失 /
     四份归属清单一个都读不到,一律直接 FAIL,**不允许静默 PASS**;
-  · **变异自测 `--selftest`** —— 临时树五向:①负对照(未变异)必须 PASS;②删掉归档最后一条 L
+  · **变异自测 `--selftest`** —— 临时树六向:①负对照(未变异)必须 PASS;②删掉归档最后一条 L
     锚点行 → 必须 FAIL(计数 + 连续性);③把 CLAUDE.md 声称数 nL 篡改成 (n+2)L → 必须 FAIL(三方不一致);
-    ④删掉某锚点行的「机检=」字段 → 必须 FAIL(F 维真响);⑤把某份归属清单的「= n 条」改大 → 必须 FAIL(G 维真响)。
+    ④删掉某锚点行的「机检=」字段 → 必须 FAIL(F 维真响);⑤把某份归属清单的「= n 条」改大 → 必须 FAIL(G 维真响);
+    ⑥(**C1,批3 加**)把 gov 清单**标题**的 `(28 条` 改成 `(29 条` → 必须 FAIL(第三登记点真响)。
     rc=0 = 自测通过 = 闸门真能响(非空转)。
 
 用法:
@@ -86,6 +90,14 @@ _RE_REF_E = re.compile(r"(?<![A-Za-z0-9])E(\d{2})(?![0-9])")
 # ── F/G 维(2026-10-18 批2)──
 _RE_JIAN = re.compile(r"机检=(是\(闸门:[^)]+\)|否)")
 _RE_OWN_LINE = re.compile(r"零丢失校验[:：]")
+# C1(批3):四份归属清单**标题**里的计数(第三登记点)。键 = OWNERSHIP_DECLS 标签去掉括号后的短名。
+# 实测四文件全命(gov=28 / impl=22(12+10) / res=9(5+4) / tester=3(1+2),@fabe7c38a)。
+_RE_OWN_HEAD = {
+    "主控归属": re.compile(r"^## 18\.1 主控专属教训\((\d+) 条", re.M),
+    "实施归属": re.compile(r"^## 7\.[^\n]*?(\d+) 条 = 过错 (\d+) \+ 经验 (\d+)\)", re.M),
+    "调研归属": re.compile(r"^## 5\.[^\n]*?(\d+) 条 = 过错 (\d+) \+ 经验 (\d+)\)", re.M),
+    "测试归属": re.compile(r"^## 6\.[^\n]*?(\d+) 条 = 过错 (\d+) \+ 经验 (\d+)\)", re.M),
+}
 _RE_OWN_TOTAL = re.compile(r"=\s*(\d+)\s*条")
 _RE_OWN_PART = re.compile(r"\((\d+)[^)]*\)")
 _RE_OWN_EXEMPT = re.compile(r"([LE]\d{2})\(非归档\)")
@@ -156,10 +168,17 @@ def _ownership(root: Path, l_ids, e_ids):
             infos.append(f"G. {label}: 声明文件不在({rel})⇒ 该份跳过")
             continue
         files_found += 1
-        hits = [ln for ln in p.read_text(encoding="utf-8").splitlines() if _RE_OWN_LINE.search(ln)]
+        text = p.read_text(encoding="utf-8")
+        hits = [ln for ln in text.splitlines() if _RE_OWN_LINE.search(ln)]
         if not hits:
             fails.append(f"G. {label}: {rel} 内找不到「零丢失校验」声明行 ⇒ 声明消失/漂移,拒绝静默通过")
             continue
+        # C1(批3):标题计数 = 同一事实的第三登记点,必须在场且与零丢失等式一致
+        head_rx = _RE_OWN_HEAD.get(label.split("(")[0])
+        hm = head_rx.search(text) if head_rx else None
+        if hm is None:
+            fails.append(f"G. {label}: {rel} 标题计数解析不到(标题消失/格式漂移)⇒ "
+                         f"第三登记点失守,拒绝静默通过")
         for ln in hits:
             rl, reids = _refs(ln)
             ids = {("L", x) for x in rl} | {("E", x) for x in reids}
@@ -176,6 +195,19 @@ def _ownership(root: Path, l_ids, e_ids):
             else:
                 passes.append(f"G. {label}: 等式自洽 {declared} 条(= 实列 {len(ids)} 个 id = "
                               f"分项和 {sum(parts)} + 「非归档」{len(exempt)})")
+                if hm is not None:
+                    if int(hm.group(1)) != declared:
+                        fails.append(f"G. {label}: 标题计数({hm.group(1)})与零丢失等式({declared})不一致")
+                    elif hm.lastindex and hm.lastindex >= 3:
+                        head_parts = [int(hm.group(x)) for x in range(2, hm.lastindex + 1)]
+                        if head_parts != parts:
+                            fails.append(f"G. {label}: 标题分项({'/'.join(str(x) for x in head_parts)})"
+                                         f"与零丢失等式分项({'/'.join(str(x) for x in parts)})不一致")
+                        else:
+                            passes.append(f"G. {label}: 标题计数 {declared} 条(分项 "
+                                          f"{'+'.join(str(x) for x in head_parts)})与等式一致")
+                    else:
+                        passes.append(f"G. {label}: 标题计数 {declared} 条与等式一致")
             for kind, num in sorted(ids):
                 if (kind, num) in exempt:
                     continue
@@ -189,10 +221,12 @@ def _ownership(root: Path, l_ids, e_ids):
     else:
         pool_all = {("L", x) for x in l_ids} | {("E", x) for x in e_ids}
         gap = sorted(pool_all - seen)
+        unarch = sorted(seen - pool_all)   # C3(批3):动态计,不让人拿「并集数 − 归档数」自己手算
         head = ", ".join(f"{k}{n:02d}" for k, n in gap[:10]) + (" …" if len(gap) > 10 else "")
+        unarch_s = ",".join(f"{k}{n:02d}" for k, n in unarch) or "无"
         infos.append(f"G. 归属清单**并集(反向)**未覆盖归档 {len(gap)} 条 / 归档共 {len(pool_all)} 条"
-                     f"(四份声明合计 {declared_sum} 条,并集 {len(seen)} 个 id)——存量未认领条目,不设门。"
-                     f"差集: {head}")
+                     f"(四份声明合计 {declared_sum} 条,并集 {len(seen)} 个 id(含 {len(unarch)} 个非归档:"
+                     f"{unarch_s}))——存量未认领条目,不设门。差集: {head}")
     return fails, passes, infos
 
 
@@ -465,6 +499,29 @@ def selftest() -> int:
                 print(f"  FAIL: 篡改归属清单声称后竟 rc={rc4}(应 FAIL)⇒ G 维空转, "
                       f"tail={out4.strip().splitlines()[-4:]}")
             gp.write_text(gtext, encoding="utf-8")    # 还原
+
+        # ⑥ 变异(C1,批3):把 gov 清单**标题**计数 28→29(等式不动)→ 必须 FAIL(第三登记点真响)
+        #    批3 前此变异 rc=0 静默放过(标题漂了没人管);本向把它永久钉死。
+        gp2 = t / OWNERSHIP_DECLS[0][1]
+        g2text = gp2.read_text(encoding="utf-8")
+        g2_new, g2_sub = _RE_OWN_HEAD["主控归属"].subn(
+            lambda m: f"## 18.1 主控专属教训({int(m.group(1)) + 1} 条", g2text, count=1)
+        if g2_sub == 0:
+            ok = False
+            print("  FAIL: 变异注入失败(找不到 `## 18.1 主控专属教训(n 条`)")
+        else:
+            gp2.write_text(g2_new, encoding="utf-8")
+            rc5, out5 = _run(t)
+            if rc5 != 0 and "RESULT=FAIL" in out5 and "标题计数" in out5:
+                detail5 = [ln for ln in out5.splitlines()
+                           if ln.startswith("  FAIL") and "标题计数" in ln]
+                print(f"  PASS: 变异样本(标题计数 n→n+1)→ RESULT=FAIL(C1 第三登记点真响);"
+                      f"{detail5[0].strip() if detail5 else ''}")
+            else:
+                ok = False
+                print(f"  FAIL: 标题变异后竟 rc={rc5}(应 FAIL)⇒ C1 空转, "
+                      f"tail={out5.strip().splitlines()[-4:]}")
+            gp2.write_text(g2text, encoding="utf-8")  # 还原
 
     print(f"[ledger-selftest] {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1

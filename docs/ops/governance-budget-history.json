@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "updated": "2026-10-18",
+  "entries": [
+    {
+      "month": "2026-07",
+      "rev": "160f7ca444efe64d21c0d62e0ec3c72247d269d3",
+      "claude_md": 14451,
+      "governance": null,
+      "archive": null,
+      "skills": {
+        "implementer": null,
+        "reviewer": null,
+        "tester": null,
+        "researcher": null
+      },
+      "skills_sum": null,
+      "mem_md": null,
+      "clauses": {
+        "l": null,
+        "e": null,
+        "net": 0
+      }
+    },
+    {
+      "month": "2026-08",
+      "rev": "878967dd0d08087209b4426294cfcae372e8a370",
+      "claude_md": 73946,
+      "governance": 43250,
+      "archive": 60702,
+      "skills": {
+        "implementer": 26988,
+        "reviewer": 17313,
+        "tester": 12236,
+        "researcher": 10654
+      },
+      "skills_sum": 67191,
+      "mem_md": null,
+      "clauses": {
+        "l": 46,
+        "e": 30,
+        "net": 0
+      }
+    },
+    {
+      "month": "2026-09",
+      "rev": "caad3ffeab5704c8e4bcd0777bb359c1d8d819d4",
+      "claude_md": 47519,
+      "governance": 44783,
+      "archive": 62152,
+      "skills": {
+        "implementer": 37285,
+        "reviewer": 24616,
+        "tester": 15045,
+        "researcher": 15629
+      },
+      "skills_sum": 92575,
+      "mem_md": 33430,
+      "clauses": {
+        "l": 47,
+        "e": 30,
+        "net": 1
+      }
+    },
+    {
+      "month": "2026-10",
+      "rev": "fabe7c38a906e534c4d191d4b832646643a8499c",
+      "claude_md": 66377,
+      "governance": 46226,
+      "archive": 70628,
+      "skills": {
+        "implementer": 40359,
+        "reviewer": 35510,
+        "tester": 20765,
+        "researcher": 17235
+      },
+      "skills_sum": 113869,
+      "mem_md": 26026,
+      "clauses": {
+        "l": 53,
+        "e": 30,
+        "net": 6
+      }
+    }
+  ]
+}

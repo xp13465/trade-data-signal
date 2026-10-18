@@ -165,6 +165,15 @@ jobs:
         #   非空转由脚本内 --selftest(变异两向)保证; 本条挂载前已本机跑 `--selftest` PASS。
         #   全文 docs/ops/sugas-eval-20261018.md §5-P1。
 
+      - name: ⑪ 治理体量月报对账(P3, 账不平才 FAIL)
+        run: python3 scripts/gen_governance_size_report.py --check --repo "$GITHUB_WORKSPACE"
+        # 评鉴 P3(2026-10-18): 体量月报单一事实源 docs/ops/governance-budget-history.json 的
+        #   rev 逐位对账 —— 只有「schema 错 / 记录字节 ≠ git show <rev>:<path>」才 FAIL(账不平=真错);
+        #   字节超阈值、季条款净增 >3 = WARN + 触发动作, **不阻断**(否则任何一次正常写文档都可能随机
+        #   卡全仓 merge, 拦的不是错误而是项目日常形态, 见 memory gate-position-blast-radius)。
+        #   零网络: 只读本地 git 对象 + 本地 JSON(CI checkout fetch-depth=0 ⇒ 历史 rev 可达已核)。
+        #   挂载判法(memory gate-mount-decision-ci-only): 命令路径与 CI step 显式相交, 不靠通配。
+
       - name: ⑧ 算法核心 pytest(P0-1, FAIL 阻断)
         run: |
           # #213(2026-10-07): 装真数值库 numpy/pandas/pyarrow(版本取值依据见下方 pin 说明)。
@@ -178,6 +187,34 @@ jobs:
           #           requirements.txt 未 pin 三件 ⇒ 无仓内权威 pin 源)。
           pip install pytest pyyaml numpy==2.4.6 pandas==3.0.5 pyarrow==25.0.1
           python3 -m pytest -q scripts/tests/
+
+      - name: ⑫ L51 运行日平移复验(测试文件变更时; 首期只报不拦)
+        # 教训 L51(2026-10-15 爆): 时敏用例把「出生当天」写死成日期字面量 ⇒ 引入当天 CI 绿、**次日必红**。
+        #   本步把整仓测试挂到「未来日」(+45d)再跑一遍 —— 任何在**被测代码内部**取真实今天/现在的
+        #   写法都会现形(+45d 把"跨天"放大到跨 1.5 月, 比 +1d 更易现形; 数值可调)。
+        #   环境变量不跨 step 持久 ⇒ 必须同一 step 内用 faketime 包住 pytest(wrapper 形态)。
+        #   ⚠️ 观察期(设计报告 §B2): 头 1~2 周 continue-on-error(只报不拦)收集假红, 确认判别力后转阻断。
+        #   ⚠️ 本机 mac 有 SIP 限制测不了 ⇒ 本步的验收证据 = CI 首跑日志(诚实标注, 不假装本机验过)。
+        continue-on-error: true
+        run: |
+          git diff --name-only "${{ github.event.pull_request.base.sha || github.event.before }}" HEAD > /tmp/changed.txt || true
+          if grep -q '^scripts/tests/' /tmp/changed.txt; then
+            sudo apt-get update -qq && sudo apt-get install -y faketime
+            echo "::group::L51 静态面 INFO(tests 内取时用法; 只报不判)"
+            grep -rnE '(date\.today|datetime\.now|time\.time)\(\)' scripts/tests/ | head -60 || true
+            echo "::endgroup::"
+            DESELECT=""
+            ALLOW=scripts/tests/time-shift-allowlist.txt
+            if [ -f "$ALLOW" ]; then
+              while IFS= read -r line; do
+                case "$line" in ''|\#*) continue ;; esac
+                DESELECT="$DESELECT --deselect $(echo "$line" | awk '{print $1}')"
+              done < "$ALLOW"
+            fi
+            faketime '+45d' python3 -m pytest -q scripts/tests/ $DESELECT
+          else
+            echo "未触及 scripts/tests/, 跳过运行日平移复验"
+          fi
 
       - name: ⑨ 采集缺口/停更告警器 two-way 自测(--self-test, #250-P4)
         run: python3 scripts/check_data_gap_alerts.py --self-test
