@@ -20,7 +20,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 > 改了对应源头(§8/§14/§21/§24/§23.x/CLAUDE.md),顺着本节反向查同步本 skill。
 
 ## 0. quickstart 约定遵循检查清单(关思考补偿,2026-08-15 优化 P0-2 加)
-> 执行 agent 常被配置 flash+关思考以省 token(省 97-99% output token),但关思考后对 B 级跨文件/约定遵循任务有降质风险(benvanik 数据:thinking 降 67-75% 时约定遵循违规 0→173 次),被 reviewer 打回=返工更费 token。本清单把实施 agent 最容易违反的规范浓缩成 11 条硬勾选,**开工前读一遍、完工自验逐条勾**,靠 prompt 不看 thinking 也守住核心约定。逐条对应的规范全文见下方对应节,参考实现见 `docs/agent-quickstart.md`。
+> 执行 agent 常被配置 flash+关思考以省 token(省 97-99% output token),但关思考后对 B 级跨文件/约定遵循任务有降质风险(benvanik 数据:thinking 降 67-75% 时约定遵循违规 0→173 次),被 reviewer 打回=返工更费 token。本清单把实施 agent 最容易违反的规范浓缩成 12 条硬勾选,**开工前读一遍、完工自验逐条勾**,靠 prompt 不看 thinking 也守住核心约定。逐条对应的规范全文见下方对应节,参考实现见 `docs/agent-quickstart.md`。
 - [ ] **§21 算法公示**:改算法逻辑/数值(评分/权重/匹配/分段),必 grep 前端公示文案 purpose-notes.js + app.js/lab.js(算法/跟踪分/TE/R²/IR/权重/百分位/match_method)同步改,不只 tooltip 实施点
 - [ ] **§22 数据一致性**:改数据产物,必重跑 + 同步 static-site/ + R2(三步),N 展示位一致,不进根 data/ 目录
 - [ ] **§23.2 修 bug 三铁律**:修完整(先列同类错误面清单)+ 自测完成(全覆盖)+ 排查同类(根因修,不逐文件补丁)
@@ -32,6 +32,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - [ ] **§5.9 实施前置三验(2026-10-15)**:动手前确认「问题真实(实测证据)+ 根因已定位(可复核锚点)+ 修复机制可达(为什么修它生效)」三验齐(派单/方案已写则逐条核对);任一不成立立即停+上报,禁"为了修而修"
 - [ ] **data/ 隔离**:不 add/提交根目录 data/(sentiment.db/etf_national_team.db/signal_stats.json 等留本地);static-site/data/ 走 deploy.sh 正常上线
 - [ ] **新增告警 checker 四元组声明**(2026-10-15 #264 包3 件F):新增/改动任何**调 `scripts/notify.py` 发外发告警**的脚本(checker/告警包装层/兜底通知),必显式声明四元组「**默认 tier / dedup window / 聚合域 / 首报策略**」,**缺一不上线**(review 清单强制,reviewer skill §11);`--dedup-window 0`=关死抑制=违规;登记进 `docs/ops/alert-checker-registry-20261015.md`
+- [ ] **③实施关出口·边界维度清单(2026-10-18 #268)**：交报告前按 tester skill §5.3.1 **七轴**(输入域/状态组合/时序/上下游依赖/极端值/回退路径/并发与重入)列本次改动**边界维度清单**,每维标「测/不测 + 理由」并注明来源(哪个需求点/改动点)；这是 §5.8①「reviewer 先不看**实施方**清单、自己再推一份再对账」(reviewer skill §10.8)的**输入端**——清单缺席 = 审查关独立复核对不上账(flow ③ 出口条件)
 
 ## 1. 单版前端铁律(原 §9 全文,2026-07-15 web/ 弃用)
 - 前端源码统一在 static-site/(web/ 已删,不再双写);app/main.py 挂载 static-site/ 到根 /,/api/* 读 DB 不变
@@ -141,10 +142,10 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **少写抽象(不写"可能用到"的抽象层)**:不写单实现的 interface、单产品的 factory、永不变化的 config;抽象只有在出现第二个真实使用者时才提取,不提前造。**删除优先于添加**——改代码先想"能不能删掉/简化现有"而不是"再加一层"(接 L11「不加需求外改动」,§5.3「精简保核心」)
 - **验收口径**:实施任务自验须含「写码前过 7 级阶梯自问(第几层成立/为何不再低层)+ 复用点清单(库/数据源/组件已有复用)+ 无多余抽象确认」;修 bug 任务须含「根因修复点(单点守卫 vs 逐 caller)+ 每个 caller 影响面已 grep」。reviewer 查阶梯复用覆盖+无过度抽象,漏=验收不过
 
-## 7. 实施 agent 专属教训蒸馏(2026-08-12 用户定 §18 按归属拆分:21 条 = 过错 11 + 经验 10)
-> 每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 `docs/archive/CLAUDE-errors-2026-08.md` 反追。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:实施归属 = L03/L06/L07/L08/L10/L11/L16/L18/L25/L19/L27(11 过错)+ E01/E02/E04/E06/E08/E09/E11/E17/E20/E21(10 经验)= 21 条。通用/主控/调研/测试归属教训见各自文件,不经本 skill 注入。
+## 7. 实施 agent 专属教训蒸馏(2026-08-12 用户定 §18 按归属拆分:22 条 = 过错 12 + 经验 10)
+> 每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 `docs/archive/CLAUDE-errors-2026-08.md` 反追。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:实施归属 = L03/L06/L07/L08/L10/L11/L16/L18/L25/L19/L27/L52(12 过错)+ E01/E02/E04/E06/E08/E09/E11/E17/E20/E21(10 经验)= 22 条。通用/主控/调研/测试归属教训见各自文件,不经本 skill 注入。
 
-### 实施专属过错(11 条)
+### 实施专属过错(12 条)
 - **L03 exclude偏离全量**:用户说"全量/全部"不擅自 exclude/清理,先确认 | archive:L15
 - **L06 cherry-pick撞冲突**:切分支前 CronList+查后台 agent | archive:L18
 - **L07 hoverpop方案试错**:方案先充分调研再实施,不边试边改 | archive:L19
@@ -155,6 +156,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **L18/L25 §21公示gap(已复发2次)**:改算法/数值必显式 grep purpose-notes.js + app.js/lab.js 所有公示点同步改 | archive:L60/L82
 - **L19 前端重算对齐后端**:replay/recompute 自验取一个 signal JSON 逐字段对比后端(open_positions/rounds/equity_curve/summary),列对比表,不只对比 summary 总计 | archive:L61
 - **L27 hooks子agent输入也抄送**:hooks 区分主会话 vs 子 agent,子 agent 输入不抄送 | archive:L84
+- **L52 改 scripts/ 源码未跑全量 pytest**:改 `scripts/` 下**任何源码**后,自验必含**全量** `pytest -q scripts/tests/`(不止改动直接相关的用例)——`tests/` 里存在**源码形状守卫**(直接 grep 源文件的字面量),源形状一变守卫即红,只跑「相关用例绿」≠ 全绿(实例:改 `check_data_gap_alerts.py` 判据致 `test_222_...` 守卫红、主干 CI 确定性红)| archive:§18 L52 + memory tests-freeze-today-must-inject / ci-sim-reverify-dispatch-discipline
 
 ### 实施专属经验(10 条)
 - **E01 R2 purge分批**:R2 purge 每批 30 keys+批间 sleep,不一次全量 | archive:L55

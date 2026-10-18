@@ -61,7 +61,7 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **待办对账**:方案假设 vs 当前代码/数据现状是否对得上(索引待办项依赖现状,项目变则项失效),实施是否拿过时方案硬套
 - 验收口径与 §23.4/23.5 实施侧全文见 `.claude/skills/role-implementer/SKILL.md §8 团队协作`(实施侧主);主控调度视角见 docs/main-governance.md。本 skill 只留 reviewer 检查要点
 
-## 7. reviewer 专属教训蒸馏(来自 §18 索引,操作化防重犯)
+## 7. reviewer 专属教训蒸馏(来自 §18 索引,操作化防重犯;含 reviewer **自身** 3 条 — L48/L49/L50,2026-10-18 #268 补)
 - **L17 §0证伪查错文件**:验收文件类结论时,先 grep 前端渲染逻辑(fetch/dataUrl/fetchJSON)确认实际读哪个文件,不跟 agent 说的文件名查
 - **L20 §0 grep字面量漏常量**:验"值/配置/阈值"类,grep 字面量无结果先怀疑"值被封装成常量/变量/配置/env",改 grep 常量名+查赋值行确认值,不直接下"未落地/未实现"结论
 - **L21 reviewer卡死无进度文件**:每步 echo 进度文件(/tmp/agent-progress-<名>.md),不写=主控无法监控按卡死重派(曾卡死 22min 致重派)
@@ -73,6 +73,10 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
   - diff 里出现归类函数/quad_map/阈值常量/档位标注文案(如 has_track/象限/筛选档)时,①必须拿到并核对「UI 文案 ↔ 产品文档(❓公式/README/公示)↔ 代码现状」三源对照记录,缺任一源或对不上 = FAIL
   - ②警惕「报告↔代码」互证闭环:挖掘报告/调研结论与实现可能同源继承同一 bug,两者一致≠正确;必须引入报告和代码之外的锚点(UI 文案原文/用户拍板记录)
   - ③回归硬项:改归类逻辑后验卡数守恒类断言(实例:has_track 卡应归零而实现漏装 null 致 14+1 卡不归零,用户肉眼发现,机检全绿)| 来源:memory has-track-caliber-p0-reflection
+
+- **L48 通知类脚本自测前必须先打桩(2026-10-05,reviewer 自身事故)**：任何带**真实发送链路**的脚本(告警/邮件/飞书)自测/变异测试前必须先**打桩**(dry-run 开关 / monkeypatch 通知函数 / 沙箱，并**先证明沙箱判定生效**);否则「跑一次测试」= 发一次**真告警**(实例:在非云上跑变异测试,老脚本忽略沙箱变量真发出邮件+飞书,一次测试变成用户手机可见的真事故)。派单验收点=「本次自测未产生真实外发」证据;真外发后如实上报+留痕不删已发记录 | archive L48 + memory notify-script-selftest-must-stub
+- **L49 断言输入必须取真实生产实测样本(2026-10-06,reviewer 自身事故;「假样本养绿」)**：复算/断言「解析/遍历生产对象属性」类时,输入必须是**真实生产实测样本**,不得用人工构造的「看起来合理」样本(实例:注入样本给 timer 喂了现实中不存在的 `ExecStart` ⇒ 判 PASS,而生产恒空);复算要核「真实对象**有没有**该字段」而非「解析器能否解析出值」;新增守卫/可见性机制必含「生产侧实跑实证」 | archive L49 + memory mechanism-scope-verify-in-code
+- **L50 审查/测试探针一律 static-only + 门控正面白名单(2026-10-06,reviewer 自身事故)**：探针**绞不 source/exec 业务脚本主体**(验 resolve 类只 source 目标 lib,经 stdin 管道喂 `bash -s`);harness 门控**禁用「环境变量是否齐」这类可被真实形态绕过的条件**,必须**正面白名单**(只许执行显式声明的文件);派单把「禁跑业务脚本」写成**可核验项**(输出文件时间戳/`pgrep`);事故后**必须独立取证**,不采信出事故方自述 | archive L50 + memory probe-harness-must-not-exec-prod-scripts
 
 ## 8. 相关文件指针
 - docs/smoke-checklist.md(P0/P1 主功能清单+数据校验规则,必读执行)
@@ -104,6 +108,17 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **时点对≠就绪**:§14 时点安全≠数据就绪,两条都验;数据没就绪=拦截不放行
 - 发现实施"先上残缺版"倾向:上报主控,不默认放行也不默认忽略(§23.11 同精神)
 
+## 9.7 上线后回核(第二数据点)(2026-10-18 用户拍板 #268;§5.8 观察锚点 reviewer 侧)
+> **关联规范源**:CLAUDE.md §5.8(6 道关 + 1 个观察锚点)+ `docs/pre-release-quality-flow.md`「观察锚点回核(上线后,不是关)」+ tester skill §5.5。改了源头时反向同步本节。
+
+**核心一句话:上线后挑一个**真实自然跑**的时刻,派**只读**角色(tester 或 reviewer)回核一次;上线那一刻是**第一个数据点**,自然跑后是**第二个数据点**,两个都 PASS 才算立住。**
+
+- **触发**:主控派「回核单」时;任何上线改动(尤其治本/数据驱动类)上线后。
+- **怎么做**只读核(不改代码/不重跑生产脚本),对比「上线时那一刻」与「自然跑后」的值;不采信实施方自述,读上线文件/线上 JSON(§7 L05 同精神)。
+- **判据**:两个数据点才算立住(实例:伪跳空 10-13 + 10-14 两次自然跑均 PASS);单点 = 未立。
+- **与 §9.6 的界**:§9.6 审「上线前数据就绪(完整版)」;本节管「上线后自然跑一次仍 PASS」——不同时点两道验证。
+- **验收口径**:回核报告含「两个数据点(时点+取值)+ 均为自然跑证据」;单点 = FAIL。
+
 ## 10. 审查方法论增强(2026-08-25 吸收官方 code review 方法论,四件套)
 > 来源:Anthropic 官方插件 `~/.claude/plugins/marketplaces/claude-plugins-official/plugins/code-review/commands/code-review.md` + `plugins/pr-review-toolkit/`(review-pr.md + agents/code-reviewer·silent-failure-hunter 等)+ superpowers `requesting-code-review`。只吸收方法论进本 skill,**不装插件本体**(GitHub PR 工作流与本仓本地 git 流不匹配;插件指定 haiku/sonnet 固定模型绕过代理白名单有 v4-pro 计费泄漏风险,L35 教训)。**关联规范源**:§15(review 分级,现址=本 skill §2「改动分级 A/B/C」(原 §15)+ governance §15 主控侧)/§23.7(冻结契约:误报清单第⑤条)/§23.11(绝不静默:专查④对齐)/§23.13(档位语义第三方锚点=视角①的锚点来源);governance §15 派单段有一行指针。改这些条款时反向同步本节。
 
@@ -132,13 +147,14 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **为什么**:不加过滤的 review 报告 nitpick 淹没真问题(官方实测教训);本项目三层验收(agent 自验+reviewer+主控 §0)里 reviewer 是唯一批判层,报告噪音直接浪费主控注意力
 - **反例**:报 12 条 finding 里 9 条是 25 分猜测,实施 agent 花一小时逐条排查全是误报,真正的 75 分 fallback 掩盖根因排在最后没被看
 
-### 10.3 误报清单(本地化;以下六类不算本次改动的 finding)
+### 10.3 误报清单(本地化;以下七类不算本次改动的 finding)
 1. **pre-existing 问题**:diff 之前就存在的 bug。**不算 finding 但也不许默默吞**——走 §23.7⑤ 上报通道(提醒用户+证明链路+问要不要修),不当 finding 也不忽略
 2. **机检脚本能抓的**:lint_scripts.sh / check_data_integrity.py / check_r2_consistency.py / check_universe_alignment.py / check_version_progress 等 deploy 前置校验覆盖项,不人肉报;但「该挂机检链却没挂」本身就是 finding(如新数据类别没进 check_data_integrity 清单)
 3. **senior 不会提的 nitpick**:变量命名偏好/注释措辞/可有可无的重构建议
 4. **未改动行上的问题**:与本次 diff 无关行的风格/结构问题(处理同①)
 5. **用户故意保留的行为**(§23.7 冻结契约):看着像 bug 但可能是用户拍板保留的历史行为。**拿不准 = 上报问,不自行定性为 finding 也不当误报滤掉**
 6. **已在决策队列的待拍板项**:实施 agent 已按 §23.11/§23.7⑤ 上报、等用户拍板的项,不重复报(核对实施报告的上报记录)
+7. **样本/断言输入不真实**(2026-10-18 #268 补,L49 同族)：审查时你的验证/复算样本若是**人工构造**的(现实生产里并不存在的字段/形态),据此得出的 PASS **不算数** —— 这不是被审对象的 finding,而是**尺子无效**;按 §7 L49 条改用**真实生产实测样本**重算,重算后若真实对象确实缺该字段/恒空,那才是 finding
 
 ### 10.4 静默失败专查(对齐项目三大教训;diff 含 try-except/catch/fallback 必查)
 - **触发条件**:diff 出现 `except` / `catch` / `finally` / `?.` / `|| 兜底` / `or default` / `fallback` 字样,或改动涉及错误处理/fallback 链路 → 此项从"抽查"升级为"必查"
