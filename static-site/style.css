@@ -7511,3 +7511,69 @@ select.tds-fade-mode-sel:hover, select.tds-fade-mode-sel:focus { border-color: v
   .simbt-obs { font-size: 11px; }
   .sim-etf-name-sub { font-size: 11px; }
 }
+
+/* ============ #266 一期 公募基金筛选器（2026-10-19） ============ */
+/* 设计: 面板默认 hidden（.hidden 全站通用）; 桌面内联展开条件网格, 移动端(<=768px)底部抽屉。 */
+/* 关闭面板=快照零网络还原默认视图; 不改动既有列表/搜索/类型/排序任何样式。 */
+.fund-screener-toggle {
+  padding: 8px 16px; border: 1px solid var(--border-strong, var(--border));
+  border-radius: 8px; background: var(--bg-card); color: var(--text-1);
+  font-size: 14px; cursor: pointer; white-space: nowrap;
+}
+.fund-screener-toggle:hover { border-color: var(--primary); color: var(--primary); }
+.fund-screener-toggle.active { border-color: var(--primary); color: var(--primary); background: var(--bg-hover, var(--bg-card)); }
+.fund-screener-panel {
+  margin: 4px 4px 12px; padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--bg-card);
+}
+.fund-screener-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.fund-screener-title { font-size: 15px; font-weight: 600; color: var(--text-1); }
+.fund-screener-tip { font-size: 12px; color: var(--text-3); flex: 1 1 180px; }
+.fund-screener-clear, .fund-screener-collapse, .fund-screener-clear2 {
+  padding: 5px 12px; border: 1px solid var(--border-strong, var(--border)); border-radius: 7px;
+  background: var(--bg-card); color: var(--text-2); font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.fund-screener-clear:hover, .fund-screener-collapse:hover, .fund-screener-clear2:hover { border-color: var(--primary); color: var(--primary); }
+.fund-screener-chips { margin-bottom: 6px; }
+.fund-screener-chipline { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fund-screener-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 12px;
+  border: 1px solid var(--primary); color: var(--primary); background: var(--bg-card); font-size: 12px;
+}
+.fund-screener-chip-x { border: none; background: none; color: inherit; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
+.fund-screener-missing { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 6px; font-size: 12px; color: var(--text-3); }
+.fund-screener-degraded {
+  margin: 4px 0 8px; padding: 8px 10px; border-radius: 8px; font-size: 12px;
+  color: #8a5a00; background: rgba(184,134,11,0.12); border: 1px solid rgba(184,134,11,0.35);
+}
+.fund-screener-group { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 8px; }
+.fund-screener-group-title { font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
+.fund-screener-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 6px 14px; }
+.fund-screener-field { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); min-height: 30px; }
+.fund-screener-field-wide { grid-column: 1 / -1; align-items: flex-start; flex-wrap: wrap; }
+.fund-screener-flabel { flex: 0 0 auto; min-width: 100px; color: var(--text-2); }
+.fund-screener-finputs { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; flex-wrap: wrap; }
+.fund-screener-input {
+  width: 76px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-card); color: var(--text-1); font-size: 12px; outline: none;
+}
+.fund-screener-input:focus { border-color: var(--primary); }
+.fund-screener-input-wide { width: 200px; }
+.fund-screener-tilde { color: var(--text-3); }
+.fund-screener-unit { color: var(--text-3); font-size: 11px; }
+.fund-screener-cov { flex: 0 0 auto; color: var(--text-3); font-size: 11px; white-space: nowrap; }
+.fund-screener-checks { gap: 4px 10px; }
+.fund-screener-check { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--text-2); cursor: pointer; }
+.fund-screener-loading { font-size: 12px; color: var(--text-3); }
+@media (max-width: 768px) {
+  /* 移动端: 底部抽屉（面板内独立滚动; 条件网格单列） */
+  .fund-screener-panel {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 1200;
+    margin: 0; border-radius: 14px 14px 0 0; max-height: 72vh; overflow-y: auto;
+    box-shadow: 0 -6px 24px rgba(0,0,0,0.18);
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .fund-screener-grid { grid-template-columns: 1fr; }
+  .fund-screener-flabel { min-width: 84px; }
+  .fund-screener-collapse { margin-left: auto; }
+}
