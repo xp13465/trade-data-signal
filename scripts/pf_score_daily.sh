@@ -2,6 +2,9 @@
 # pf_score_daily.sh - 公募基金评分引擎日频 (launchd 每日 16:00 头部2000只)
 #
 # 调 python -c compute_all_scores(top_n=2000, resume=True) + export_fund_score.py + upload-fund-score
+#   + sync_fund_score_to_d1.sh（/api/fund_score 数据源; D1 当日分区）
+#   + sync_fund_screener_to_d1.sh（#266 /api/fund_screener 数据源; 全市场平表, 每只基金最新可用分区）
+#   两个 D1 同步均失败不阻塞主流程（仅数据滞后一轮）
 #   头部2000只~2min(实测, 大部分基金无fund_daily_nav快速返回None)
 #
 # 进程互斥:
@@ -48,6 +51,10 @@ RC3=$?
 # D1 全量同步（#79 方案C step3: /api/fund_score 数据源; 失败告警不阻塞评分主流程）
 bash "$GIT_REPO/scripts/sync_fund_score_to_d1.sh" || \
   echo "⚠ sync_fund_score_to_d1 失败（不阻塞主流程, D1 数据滞后一轮）"
+# D1 筛选器平表同步（#266 一期: /api/fund_screener 数据源; 全市场 1 行/只「每只基金最新可用分区」;
+#   失败告警不阻塞评分主流程, 筛选器数据滞后一轮——前端 API 失败自动降级 Top100 兜底明示）
+bash "$GIT_REPO/scripts/sync_fund_screener_to_d1.sh" || \
+  echo "⚠ sync_fund_screener_to_d1 失败（不阻塞主流程, 筛选器 D1 数据滞后一轮）"
 echo "=== $(date '+%F %T') pf-score-daily end compute=$RC1 export=$RC2 upload=$RC3 ==="
 exit $RC1
 } >>"$LOG" 2>&1
