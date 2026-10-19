@@ -26,6 +26,9 @@
   8. 收起面板: 面板隐藏 + body HTML 回到基线 + 收起过程零新增 /api/fund_screener 请求
   9. 排序快照还原（F2 回归面）: 筛选态改排序→收起后 下拉/统计条/localStorage/列表 四方一致
       （修前下拉与统计条仍是筛选态值=夏普、与列表快照序不一致）
+ 10. 在途响应竞态（F4 回归面）: 同一 JS tick 内「改排序(发起请求) + 收起」⇒ 在途响应落地后
+      下拉/localStorage/st.source/列表/body 均保持默认（面板已收起即无消费者, 响应必须被丢弃）
+      （修前该响应会把 st 拉回筛选态并重渲染 ⇒ 面板已收起但列表区显示筛选行）
 """
 import argparse
 import json
@@ -359,6 +362,37 @@ def _run(pw, base, app_js_path, api_log, has_screener=True, tag="A"):
     chk("9 收起: localStorage 排序回写为快照值（控件==持久偏好）", ls_sort == pre_sort, str(ls_sort))
     after9 = _norm(_body_html(page))
     chk("9 收起: body HTML == 默认基线（逐字, 列表回快照序）", after9 == baseline, after9[:160])
+
+    # 10) 在途响应竞态（F4 回归面）
+    #     在**同一 JS tick** 内「改排序(发起 /api/fund_screener) + 收起」⇒ 该请求稍后才落地。
+    #     修前: 响应落地把 st 拉回筛选态并重渲染 ⇒ 面板已收起、下拉/localStorage 已还原,
+    #     但列表区显示筛选行(至下一次交互才自愈)。修后: 该响应被 _fundScreenerStale 丢弃, 四方保持默认。
+    pre_sort10 = page.input_value("#fund-score-sort")
+    page.click("#fund-screener-toggle")
+    page.wait_for_timeout(600)
+    n_scr_before = len([1 for k, _ in api_log if k == "screener"])
+    page.evaluate(
+        "() => { const s = document.querySelector('#fund-score-sort');"
+        " s.value = 'sharpe-desc'; s.dispatchEvent(new Event('change'));"
+        " document.querySelector('#fund-screener-collapse').click(); }")
+    page.wait_for_timeout(1500)   # 让在途响应落地
+    scr_urls = [u for k, u in api_log if k == "screener"]
+    chk("10 竞态: 同 tick 改排序确已发出在途请求（sort=sharpe）",
+        len(scr_urls) > n_scr_before and "sort=sharpe" in scr_urls[-1], scr_urls[-1:])
+    chk("10 竞态: 面板已收起（无消费者）",
+        "hidden" in (page.get_attribute("#fund-screener-panel", "class") or ""))
+    chk("10 竞态: 下拉仍为快照值（在途响应未回写）",
+        page.input_value("#fund-score-sort") == pre_sort10, page.input_value("#fund-score-sort"))
+    chk("10 竞态: localStorage 仍为快照值",
+        page.evaluate("() => localStorage.getItem('fund_score_sort')") == pre_sort10)
+    src10 = page.evaluate("() => (typeof _fundScoreState !== 'undefined') ? _fundScoreState.source : 'N/A'")
+    chk("10 竞态: st.source 未被打回 screener", src10 != "screener", src10)
+    rows10 = page.eval_on_selector_all(
+        "#fund-score-body .fund-score-row", "els => els.map(e => e.getAttribute('data-fund-code')).join(',')")
+    chk("10 竞态: 列表仍是默认 3 行（未显示筛选行）", rows10 == "000001,000002,000003", rows10)
+    chk("10 竞态: 无筛选命中代码残留（013579/013580 不出现）", "01357" not in _body_html(page))
+    after10 = _norm(_body_html(page))
+    chk("10 竞态: body HTML == 默认基线（逐字）", after10 == baseline, after10[:160])
 
     if any("ERROR" in c for c in console):
         print("note  console errors: " + " | ".join(c for c in console if "ERROR" in c)[:300])

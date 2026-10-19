@@ -28554,7 +28554,8 @@ const _fundScreenerState = {
   filters: { nums: {}, types: [], purchase: [], company: "" },
   facets: null, coverage: {}, fundTotal: null,
   missing: {}, degraded: false, degradeMsg: null, needFacets: false,
-  prevSnapshot: null
+  prevSnapshot: null,
+  fetchSeq: 0
 };
 
 function _fundScreenerNumFieldDef(k) {
@@ -28636,16 +28637,29 @@ function _fundScreenerParams(page) {
   return p;
 }
 
+// F4: 在途/过期响应判定。两种情形该响应一律丢弃(不写 st、不重渲染):
+//   ① 面板已收起(ss.open=false) —— 收起=快照恢复默认视图, 筛选数据此时无消费者;
+//   ② 序号已不是最新(seq !== ss.fetchSeq) —— 已被更晚的请求取代, 防乱序落地(旧响应后到覆盖新结果)。
+function _fundScreenerStale(seq) {
+  const ss = _fundScreenerState;
+  return !ss.open || seq !== ss.fetchSeq;
+}
+
 // 拉取当前页（条件/排序/搜索/翻页统一入口）; 失败走显式降级（Top100 + 明示文案）
 async function _fundScreenerFetch() {
   const st = _fundScoreState, ss = _fundScreenerState;
+  const seq = ++ss.fetchSeq;   // 本次请求序号: 用于丢弃过期/在途响应（F4 竞态根治）
   ss.loading = true;
   const chipsEl = document.getElementById("fund-screener-chips");
   if (chipsEl) chipsEl.innerHTML = '<span class="fund-screener-loading">' + _t("fund_score_loading") + '</span>';
   let r;
   try {
     r = await _fundScreenerApiFetch(_fundScreenerParams(st.page).toString());
-  } catch (e) { _fundScreenerDegrade(e); return; }
+  } catch (e) {
+    if (_fundScreenerStale(seq)) return;   // 面板已收起/已被更晚请求取代 → 丢弃, 不降级不重渲染
+    _fundScreenerDegrade(e); return;
+  }
+  if (_fundScreenerStale(seq)) return;
   if (!r || !Array.isArray(r.data)) { _fundScreenerDegrade(new Error("API 返回结构异常")); return; }
   ss.loading = false;
   ss.degraded = false; ss.degradeMsg = null;
