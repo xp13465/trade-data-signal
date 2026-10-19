@@ -11,6 +11,8 @@
   ② 反例: 最新=参照交易日当日/T-1 → OK(不触发)
   ③ 阈值边界(刚好卡线): lag 3 OK / 4 WARN / 7 WARN / 8 FAIL
   ④ 环境缺库/空表/坏格式 三分支
+  ④b 库被锁(sqlite3 OperationalError: database is locked) → FAIL + msg 含「库被占用」提示
+      (审查差集 A 补: 采集进程持写锁时, 机检失败必须 env 可对齐/根因可自解释, 不误判 schema)
   ⑤ 判别力: 改坏阈值 / 换回自然日口径 → 判定翻转(证明测试非空转)
 
 零外发(§18 L48): 本 checker 只读本地 sqlite, 全程 monkeypatch `_find_public_fund_db` 指向临时库,
@@ -146,6 +148,46 @@ def test_04_bad_date_format_is_fail(monkeypatch, tmp_path):
     _patch_db(monkeypatch, _make_db(tmp_path, "abcdefgh"))
     r = cdi.check_fund_index_daily()
     _chk(r.status == "fail", f"坏格式应 FAIL, 实得 {r.status}: {r.msg}")
+
+
+# ══════════════════════ ④b 库被锁(sqlite locked) ══════════════════════
+def test_08_db_locked_is_fail_with_hint(monkeypatch, tmp_path):
+    """库被占用(sqlite3.OperationalError: database is locked)= FAIL 且 msg 显式标注「库被占用」。
+
+    场景(实文 cdi L1672-1679): 采集进程(public_fund_daily 16:30/17:00 → fetch_index_daily)
+    持写锁时, cdi 读库抛异常走 except → _fail。机检失败必须**环境可对齐、根因可自解释**,
+    不许让后续审计者把「锁竞争」误读成「数据缺失 / schema 不匹配」(同 a_fund_north_quarterly
+    2026-08-24 codex 外审误报教训, §23.11 绝不静默精神)。故 locked 类异常必须带「库被占用」提示。
+
+    hermetic: 打桩 `_find_public_fund_db` 返假库路径 + `sqlite3.connect` 直接抛
+    OperationalError, 不触真实 public_fund.db; 零外发由 ZeroOutboundTrap 兜底。
+    判别力(内置): 同样走 except 的**非 locked** 异常不得出现该提示 —— 证明提示是「按异常语境
+    条件触发」而非无条件拼接(下方第二段)。
+    """
+    _freeze(monkeypatch, "20261017")
+    # connect 被替换 ⇒ 该路径无需真实存在
+    _patch_db(monkeypatch, tmp_path / "public_fund.db")
+
+    def _raise_locked(*_a, **_kw):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(cdi.sqlite3, "connect", _raise_locked)
+    with ZeroOutboundTrap() as trap:
+        r = cdi.check_fund_index_daily()
+    _chk(r.status == "fail", f"库被锁应 FAIL, 实得 {r.status}: {r.msg}")
+    _chk("库被占用" in r.msg, f"locked 类异常 msg 应含「库被占用」提示, 实得: {r.msg}")
+    _chk("locked" in r.msg.lower(), f"msg 应保留原始 locked 语境, 实得: {r.msg}")
+    _chk(str(tmp_path / "public_fund.db") in r.msg, f"msg 应带 db 路径(环境可对齐), 实得: {r.msg}")
+    _chk(trap.hits == [], f"零外发被破坏: {trap.hits}")
+
+    # 判别力: 非 locked 异常同走 except, 但**不得**出现锁提示(证明提示条件触发, 非硬编码)
+    def _raise_other(*_a, **_kw):
+        raise sqlite3.OperationalError("no such table: fund_index_daily")
+
+    monkeypatch.setattr(cdi.sqlite3, "connect", _raise_other)
+    r2 = cdi.check_fund_index_daily()
+    _chk(r2.status == "fail", f"其他 sqlite 异常应 FAIL, 实得 {r2.status}: {r2.msg}")
+    _chk("库被占用" not in r2.msg, f"非 locked 异常不得带锁提示(判别力), 实得: {r2.msg}")
 
 
 # ══════════════════════ ⑤ 判别力(改坏 → 判定必然翻转) ══════════════════════
