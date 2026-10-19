@@ -16,12 +16,16 @@
 断言清单（PASS/FAIL 逐条打印）:
   1. 默认视图: 面板收起 + 列表 3 行 + body HTML == HEAD 基线
   2. 展开面板: 发出 /api/fund_screener 且带 facets=1
+  2b. 首开 facets 定点回填（F1 回归面）: 类型/申购多选 + 公司候选 + 覆盖率标签均已渲染
+      （修前首开停在占位「选项加载中…」、覆盖率非空=0; 断言必须跑在「首次展开」后）
   3. 设「成立规模 ≥ 10」: 请求带 min_scale=10 + chip 出现 + 条件计数 1
   4. 统计条: 命中 42 只（服务端 total, 非本页行数）
   5. 缺失提示: 文案与假数据 missing 逐字一致（另有 7 只因「成立规模」缺失被排除）
   6. 删 chip: 重新请求且不再带 min_scale
   7. 清空: chip 清空
   8. 收起面板: 面板隐藏 + body HTML 回到基线 + 收起过程零新增 /api/fund_screener 请求
+  9. 排序快照还原（F2 回归面）: 筛选态改排序→收起后 下拉/统计条/localStorage/列表 四方一致
+      （修前下拉与统计条仍是筛选态值=夏普、与列表快照序不一致）
 """
 import argparse
 import json
@@ -177,6 +181,11 @@ def _jclick(page, sel):
     page.eval_on_selector(sel, "el => el.click()")
 
 
+def _safe_html(page, sel):
+    """取元素 innerHTML; 元素不存在时返回 ""（供「修前代码」上跑判别力关时不抛异常）。"""
+    return page.eval_on_selector(sel, "el => el.innerHTML") if page.query_selector(sel) else ""
+
+
 def _norm(html):
     """抹平「异步 tooltip 增强」带来的属性差异（title → data-tip/data-from-title）。
 
@@ -247,6 +256,31 @@ def _run(pw, base, app_js_path, api_log, has_screener=True, tag="A"):
     chk("2 展开: 发出 /api/fund_screener 且带 facets=1",
         len(scr_urls) > n0 and "facets=1" in scr_urls[-1], scr_urls[-1:])
 
+    # 2b) 首开 facets 到达后「定点回填」（F1 回归面）
+    #     修前: fetch 成功只重渲染列表, 不重渲染面板 → 每次进 tab 首开都停在占位「选项加载中…」、
+    #     各条件覆盖率标签全空（实测首开 0 个非空覆盖率）; 修后: facets 到达即回填这两块。
+    #     本断言必须跑在「第一次展开」之后（这正是该 bug 的触发场景, 二开不受影响）。
+    tc_html = _safe_html(page, "#fund-screener-type-checks")
+    pur_html = _safe_html(page, "#fund-screener-pur-checks")
+    chk("2b 首开: 基金类型多选项已渲染（facets.type_counts=2）",
+        page.eval_on_selector_all('#fund-screener-type-checks input[data-role="types"]',
+                                  "els => els.length") == 2, tc_html[:160])
+    chk("2b 首开: 申购状态多选项已渲染（facets.purchase_status_counts=1）",
+        page.eval_on_selector_all('#fund-screener-pur-checks input[data-role="purchase"]',
+                                  "els => els.length") == 1, pur_html[:160])
+    chk("2b 首开: 类型/申购区不残留「选项加载中…」占位",
+        "选项加载中" not in tc_html and "选项加载中" not in pur_html, tc_html[:120])
+    chk("2b 首开: 基金公司候选已渲染（facets.company_counts=2）",
+        page.eval_on_selector_all("#fund-screener-company-dl option", "els => els.length") == 2)
+    cov_nonempty = page.eval_on_selector_all(
+        ".fund-screener-cov[data-k]", "els => els.filter(e => (e.textContent || '').trim().length > 0).length")
+    chk("2b 首开: 覆盖率标签非空 = 2（facets.coverage 命中 scale/composite_score; 修前=0）",
+        cov_nonempty == 2, cov_nonempty)
+    cov_all = " | ".join(page.eval_on_selector_all(
+        ".fund-screener-cov[data-k]", "els => els.map(e => e.getAttribute('data-k') + '=' + e.textContent)"))
+    chk("2b 首开: 覆盖率数值与 facets.coverage 逐字一致（scale 26500 / composite_score 27700）",
+        "scale=覆盖 26500/27000" in cov_all and "composite_score=覆盖 27700/27000" in cov_all, cov_all)
+
     # 3) 设「成立规模 ≥ 10」
     page.fill('input[data-k="scale"][data-role="min"]', "10")
     page.wait_for_timeout(900)  # 350ms 防抖
@@ -300,6 +334,31 @@ def _run(pw, base, app_js_path, api_log, has_screener=True, tag="A"):
         n = min(len(after), len(baseline))
         i = next((k for k in range(n) if after[k] != baseline[k]), n)
         print("    首个差异 @%d: baseline=%r  after=%r" % (i, baseline[i - 40:i + 60], after[i - 40:i + 60]))
+
+    # 9) 排序快照还原（F2 回归面）
+    #    修前: prevSnapshot 未记 sortKey/sortDir, 收起也不还原 #fund-score-sort 的 value ⇒
+    #    筛选态改排序后收起, 列表回快照序但下拉/统计条/localStorage 仍是筛选态值, 四处不一致。
+    #    修后: 收起时 st/下拉/localStorage/列表 四方一致（均为进筛选器前的快照值）。
+    pre_sort = page.input_value("#fund-score-sort")
+    page.click("#fund-screener-toggle")        # 重开面板（第二次进筛选态, 复用同一上下文）
+    page.wait_for_timeout(600)
+    page.select_option("#fund-score-sort", "sharpe-desc")
+    page.wait_for_timeout(900)
+    scr_urls = [u for k, u in api_log if k == "screener"]
+    chk("9 筛选态: 改排序为夏普 → 请求带 sort=sharpe&dir=desc",
+        "sort=sharpe" in scr_urls[-1] and "dir=desc" in scr_urls[-1], scr_urls[-1])
+    chk("9 筛选态: 统计条显示「夏普」（与列表一致）",
+        "夏普" in page.eval_on_selector("#fund-score-body .fund-score-stat", "el => el.textContent"))
+    page.click("#fund-screener-collapse")
+    page.wait_for_timeout(700)
+    sort_after = page.input_value("#fund-score-sort")
+    chk("9 收起: 排序下拉还原为快照值（%s）" % pre_sort, sort_after == pre_sort, sort_after)
+    stat_after = page.eval_on_selector("#fund-score-body .fund-score-stat", "el => el.textContent")
+    chk("9 收起: 统计条不再显示「夏普」（与列表一致）", "夏普" not in stat_after, stat_after[:160])
+    ls_sort = page.evaluate("() => localStorage.getItem('fund_score_sort')")
+    chk("9 收起: localStorage 排序回写为快照值（控件==持久偏好）", ls_sort == pre_sort, str(ls_sort))
+    after9 = _norm(_body_html(page))
+    chk("9 收起: body HTML == 默认基线（逐字, 列表回快照序）", after9 == baseline, after9[:160])
 
     if any("ERROR" in c for c in console):
         print("note  console errors: " + " | ".join(c for c in console if "ERROR" in c)[:300])
@@ -378,6 +437,7 @@ def _run_mobile(pw, base, api_log):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--head-app", default="", help="HEAD 版 app.js 路径（做默认视图基线对比）")
+    ap.add_argument("--app", default="", help="被测 app.js 路径（默认 static-site/app.js; 用于判别力关: 指向修前版本应 FAILED）")
     a = ap.parse_args()
     try:
         from playwright.sync_api import sync_playwright
@@ -393,7 +453,8 @@ def main():
         with sync_playwright() as pw:
             print("== 场景 A: 新 app.js（含筛选器） ==")
             log_a = []
-            fails_a, base_a = _run(pw, base, str(SITE / "app.js"), log_a, True, "A")
+            app_path = Path(a.app) if a.app else (SITE / "app.js")
+            fails_a, base_a = _run(pw, base, str(app_path), log_a, True, "A")
             all_fails += fails_a
             if Path(head_app).exists():
                 print("== 场景 B: HEAD 老 app.js（默认视图基线） ==")

@@ -28664,6 +28664,9 @@ async function _fundScreenerFetch() {
     ss.facets = r.facets;
     if (r.facets.coverage) ss.coverage = r.facets.coverage;
     if (r.facets.fund_total != null) ss.fundTotal = r.facets.fund_total;
+    // facets 首次到达（每次进 tab 首开都会清空 ⇒ 首开必中）:定点回填面板 facets 区块
+    // （类型/申购勾选+覆盖率标签）,不整体重建面板 ⇒ 不清掉用户未防抖的数值输入
+    _fundScreenerApplyFacets();
   }
   _renderFundScoreBody();
   _fundScreenerRenderChips();
@@ -28776,8 +28779,67 @@ function _fundScreenerNumFieldHTML(fd) {
     + (fd.minOnly ? "" : '<span class="fund-screener-tilde">~</span>' + _fundScreenerNumInputHTML(fd, "max", _t("fund_screener_any")))
     + (fd.unit ? '<span class="fund-screener-unit">' + _esc(fd.unit) + '</span>' : "")
     + '</span>'
-    + '<span class="fund-screener-cov">' + _esc(cov) + '</span>'
+    + '<span class="fund-screener-cov" data-k="' + _esc(fd.k) + '">' + _esc(cov) + '</span>'
     + '</label>';
+}
+
+// 多选项 HTML（类型 / 申购状态）: 选项来自 facets 全市场分布; 未到达则显示「选项加载中…」占位。
+// 拆成独立函数 = 面板整表渲染(_fundScreenerRenderPanel)与 facets 到达定点回填(_fundScreenerApplyFacets)两处共用,
+// 防两处各写一份漂移(§22 代码内常量登记点)。
+function _fundScreenerTypeChecksHTML() {
+  const ss = _fundScreenerState, f = ss.filters;
+  if (!(ss.facets && ss.facets.type_counts)) {
+    return '<span class="fund-screener-loading">' + _t("fund_screener_opts_loading") + '</span>';
+  }
+  return (ss.facets.type_counts || []).map((x) =>
+    '<label class="fund-screener-check"><input type="checkbox" data-role="types" value="' + _esc(x.type) + '"'
+    + ((f.types || []).indexOf(x.type) >= 0 ? " checked" : "") + '><span>' + _esc(x.type) + ' (' + x.n + ')</span></label>').join("");
+}
+function _fundScreenerPurChecksHTML() {
+  const ss = _fundScreenerState, f = ss.filters;
+  if (!(ss.facets && ss.facets.purchase_status_counts)) {
+    return '<span class="fund-screener-loading">' + _t("fund_screener_opts_loading") + '</span>';
+  }
+  return (ss.facets.purchase_status_counts || []).map((x) =>
+    '<label class="fund-screener-check"><input type="checkbox" data-role="purchase" value="' + _esc(x.status) + '"'
+    + ((f.purchase || []).indexOf(x.status) >= 0 ? " checked" : "") + '><span>' + _esc(x.status) + ' (' + x.n + ')</span></label>').join("");
+}
+// 基金公司 datalist（选项来自 facets; 未到达返回空串）。放在独立容器里, 回填时不碰已输入的公司名。
+function _fundScreenerCompanyListHTML() {
+  const ss = _fundScreenerState;
+  if (!(ss.facets && ss.facets.company_counts)) return "";
+  return '<datalist id="fund-screener-company-dl">'
+    + (ss.facets.company_counts || []).map((x) => '<option value="' + _esc(x.company) + '">' + x.n + ' ' + _t("fund_score_count_unit") + '</option>').join("")
+    + '</datalist>';
+}
+// 类型/申购多选的事件绑定（面板整表渲染与 facets 定点回填共用; 改 filters 后回第 1 页重查）
+function _fundScreenerBindMultiChecks(el) {
+  el.querySelectorAll('input[data-role="types"]').forEach((cb) => {
+    cb.onchange = () => {
+      _fundScreenerState.filters.types = Array.prototype.slice.call(el.querySelectorAll('input[data-role="types"]:checked')).map((x) => x.value);
+      _fundScreenerApply();
+    };
+  });
+  el.querySelectorAll('input[data-role="purchase"]').forEach((cb) => {
+    cb.onchange = () => {
+      _fundScreenerState.filters.purchase = Array.prototype.slice.call(el.querySelectorAll('input[data-role="purchase"]:checked')).map((x) => x.value);
+      _fundScreenerApply();
+    };
+  });
+}
+// facets 首次到达后的定点回填: 只换多选/公司 datalist/覆盖率标签三块,
+// 不整表重建 → 不冲掉用户已输入但还没防抖触发的数值/公司输入框（审查 F1 修法）。
+function _fundScreenerApplyFacets() {
+  const el = document.getElementById("fund-screener-panel");
+  if (!el) return;
+  const tc = document.getElementById("fund-screener-type-checks");
+  if (tc) tc.innerHTML = _fundScreenerTypeChecksHTML();
+  const pc = document.getElementById("fund-screener-pur-checks");
+  if (pc) pc.innerHTML = _fundScreenerPurChecksHTML();
+  const cw = document.getElementById("fund-screener-company-dl-wrap");
+  if (cw) cw.innerHTML = _fundScreenerCompanyListHTML();
+  el.querySelectorAll(".fund-screener-cov[data-k]").forEach((s) => { s.textContent = _fundScreenerCovTxt(s.dataset.k); });
+  _fundScreenerBindMultiChecks(el);
 }
 
 // 面板整表渲染（开面板 / facets 到达 / 清空 / 删条件时调用）
@@ -28791,37 +28853,22 @@ function _fundScreenerRenderPanel() {
   const byGroup = {};
   FUND_SCREENER_NUM_FIELDS.forEach((fd) => { (byGroup[fd.g] = byGroup[fd.g] || []).push(fd); });
 
-  // 多选（类型）: 选项来自 facets.type_counts（服务端全市场分布）; 未到达则显示加载中
-  let typeChecks = '<span class="fund-screener-loading">' + _t("fund_screener_opts_loading") + '</span>';
-  if (ss.facets && ss.facets.type_counts) {
-    typeChecks = (ss.facets.type_counts || []).map((x) =>
-      '<label class="fund-screener-check"><input type="checkbox" data-role="types" value="' + _esc(x.type) + '"'
-      + (f.types.indexOf(x.type) >= 0 ? " checked" : "") + '><span>' + _esc(x.type) + ' (' + x.n + ')</span></label>').join("");
-  }
-  let purChecks = '<span class="fund-screener-loading">' + _t("fund_screener_opts_loading") + '</span>';
-  if (ss.facets && ss.facets.purchase_status_counts) {
-    purChecks = (ss.facets.purchase_status_counts || []).map((x) =>
-      '<label class="fund-screener-check"><input type="checkbox" data-role="purchase" value="' + _esc(x.status) + '"'
-      + (f.purchase.indexOf(x.status) >= 0 ? " checked" : "") + '><span>' + _esc(x.status) + ' (' + x.n + ')</span></label>').join("");
-  }
-  let companyList = "";
-  if (ss.facets && ss.facets.company_counts) {
-    companyList = '<datalist id="fund-screener-company-dl">'
-      + (ss.facets.company_counts || []).map((x) => '<option value="' + _esc(x.company) + '">' + x.n + ' ' + _t("fund_score_count_unit") + '</option>').join("")
-      + '</datalist>';
-  }
+  // 多选（类型/申购）与公司 datalist: 选项来自 facets（服务端全市场分布）; 未到达则为占位（见上方共用函数）
+  const typeChecks = _fundScreenerTypeChecksHTML();
+  const purChecks = _fundScreenerPurChecksHTML();
+  const companyList = _fundScreenerCompanyListHTML();
 
   const multiHTML = '<label class="fund-screener-field fund-screener-field-wide">'
     + '<span class="fund-screener-flabel">' + _t("fund_screener_type") + '</span>'
-    + '<span class="fund-screener-finputs fund-screener-checks">' + typeChecks + '</span></label>'
+    + '<span class="fund-screener-finputs fund-screener-checks" id="fund-screener-type-checks">' + typeChecks + '</span></label>'
     + '<label class="fund-screener-field fund-screener-field-wide">'
     + '<span class="fund-screener-flabel">' + _t("fund_screener_purchase") + '</span>'
-    + '<span class="fund-screener-finputs fund-screener-checks">' + purChecks + '</span></label>'
+    + '<span class="fund-screener-finputs fund-screener-checks" id="fund-screener-pur-checks">' + purChecks + '</span></label>'
     + '<label class="fund-screener-field">'
     + '<span class="fund-screener-flabel">' + _t("fund_screener_company") + '</span>'
     + '<span class="fund-screener-finputs"><input class="fund-screener-input fund-screener-input-wide" type="text"'
     + ' list="fund-screener-company-dl" data-role="company" placeholder="' + _esc(_t("fund_screener_company_ph")) + '"'
-    + ' value="' + _esc(f.company || "") + '">' + companyList + '</span></label>';
+    + ' value="' + _esc(f.company || "") + '"><span id="fund-screener-company-dl-wrap">' + companyList + '</span></span></label>';
 
   let html = '<div class="fund-screener-head">'
     + '<span class="fund-screener-title">' + _t("fund_screener_title") + '</span>'
@@ -28857,19 +28904,8 @@ function _fundScreenerRenderPanel() {
     };
   };
   el.querySelectorAll('input[data-role="min"], input[data-role="max"]').forEach(bindNum);
-  // 事件: 类型/申购多选
-  el.querySelectorAll('input[data-role="types"]').forEach((cb) => {
-    cb.onchange = () => {
-      f.types = Array.prototype.slice.call(el.querySelectorAll('input[data-role="types"]:checked')).map((x) => x.value);
-      _fundScreenerApply();
-    };
-  });
-  el.querySelectorAll('input[data-role="purchase"]').forEach((cb) => {
-    cb.onchange = () => {
-      f.purchase = Array.prototype.slice.call(el.querySelectorAll('input[data-role="purchase"]:checked')).map((x) => x.value);
-      _fundScreenerApply();
-    };
-  });
+  // 事件: 类型/申购多选（共用绑定函数, 与 facets 定点回填同源）
+  _fundScreenerBindMultiChecks(el);
   // 事件: 基金公司（精确匹配, 防抖 400ms）
   const cmp = el.querySelector('input[data-role="company"]');
   if (cmp) {
@@ -28902,7 +28938,7 @@ function _fundScreenerTogglePanel(open) {
       ss.prevSnapshot = {
         source: st.source, all: st.all, filtered: st.filtered, total: st.total, pages: st.pages,
         page: st.page, meta: st.meta, typeCounts: st.typeCounts, search: st.search,
-        fundTypeFilter: st.fundTypeFilter
+        fundTypeFilter: st.fundTypeFilter, sortKey: st.sortKey, sortDir: st.sortDir
       };
     }
     // 工具栏类型下拉在筛选器模式下让位给面板的「基金类型」多选（避免两个控件打架）
@@ -28923,11 +28959,18 @@ function _fundScreenerTogglePanel(open) {
       st.source = s.source; st.all = s.all; st.filtered = s.filtered; st.total = s.total;
       st.pages = s.pages; st.page = s.page; st.meta = s.meta; st.typeCounts = s.typeCounts;
       st.search = s.search; st.fundTypeFilter = s.fundTypeFilter;
+      st.sortKey = s.sortKey || "composite_score"; st.sortDir = (s.sortDir === "asc") ? "asc" : "desc";
       ss.prevSnapshot = null;
       const si = document.getElementById("fund-score-search");
       if (si) si.value = st.search || "";
       const ts = document.getElementById("fund-score-type");
       if (ts) { ts.disabled = false; ts.value = st.fundTypeFilter || "all"; ts.title = _t("fund_score_fund_type"); }
+      // 排序还原: 控件值 + localStorage 与快照序(st)四方一致(st==下拉==localStorage==列表),
+      // 否则筛选态改排序后收起 → 列表回快照序但控件/localStorage 仍是筛选态值(F2 一致性缺陷)
+      const srt = document.getElementById("fund-score-sort");
+      const sortValRestore = st.sortKey + "-" + st.sortDir;
+      if (srt) srt.value = sortValRestore;
+      try { localStorage.setItem("fund_score_sort", sortValRestore); } catch (e) {}
     }
     _renderFundScoreBody();
   }
