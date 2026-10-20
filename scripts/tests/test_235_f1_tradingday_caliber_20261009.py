@@ -13,7 +13,7 @@
      的 OK/WARN/FAIL 档 —— 判据 A(长假后首日不误报) + 判据 B(真过期仍报)
   ⑥ s06 档间翻转(稿 §2.2): 自然日 7↔8 致 allow/deny 翻转, 改后稳定
   ⑦ §15 回归: 未改的 overview/fund_score 仍自然日口径; #188 ①b(s06 本地新鲜)兼容
-  ⑧ 静态锁: 恰好 8 处 _lag_trading_days(落在 7 个函数, s06 占 2) + 2 处保留 _days_ago
+  ⑧ 静态锁: 恰好 9 处 _lag_trading_days(落在 8 个函数, s06 占 2) + 2 处保留 _days_ago
      (落在 check_overview / check_fund_score)
 
 零外发(§18 L48): 全程 monkeypatch `_fetch_r2_json`; R2 路径不触真实 urlopen(ZeroOutboundTrap 兜底)。
@@ -357,7 +357,7 @@ def test_07c_188_local_fresh_still_ok(monkeypatch, tmp_path):
     _chk(cdi.check_s06_state_snapshot(dd).status == "warn", "R2 落后 → WARN(#188 原语义)")
 
 
-# ══════════════════════ ⑧ 静态锁(8 处替换 / 2 处保留) ══════════════════════
+# ══════════════════════ ⑧ 静态锁(9 处替换 / 2 处保留) ══════════════════════
 def _calls_by_func(src: str) -> dict[str, dict[str, int]]:
     tree = ast.parse(src)
     out: dict[str, dict[str, int]] = {}
@@ -377,16 +377,18 @@ def _calls_by_func(src: str) -> dict[str, dict[str, int]]:
     return out
 
 
-def test_08a_exactly_eight_lag_calls_in_expected_funcs():
+def test_08a_exactly_nine_lag_calls_in_expected_funcs():
     src = (SCRIPTS / "check_data_integrity.py").read_text(encoding="utf-8")
     calls = _calls_by_func(src)
     lag_funcs = {f: c["_lag_trading_days"] for f, c in calls.items() if "_lag_trading_days" in c}
+    # 2026-10-17 #257 D1: 新增第 8 个交易日口径消费者 check_fund_index_daily(+1 处) ——
+    # 本静态锁随「交易日口径消费者」清单同步(§22 登记点一致性): 由 8 处/7 函数 → 9 处/8 函数。
     _chk(lag_funcs == {
         "check_alert": 1, "check_notifications": 1, "check_ad_line": 1, "check_a_stock": 1,
         "check_trade_sim_indices": 1, "check_accum_nav_map_fresh": 1,
-        "check_s06_state_snapshot": 2,
-    }, f"8 处替换应落在 7 个预期函数, 实得 {lag_funcs}")
-    _chk(sum(lag_funcs.values()) == 8, f"应恰好 8 处 _lag_trading_days, 实得 {sum(lag_funcs.values())}")
+        "check_s06_state_snapshot": 2, "check_fund_index_daily": 1,
+    }, f"9 处替换应落在 8 个预期函数, 实得 {lag_funcs}")
+    _chk(sum(lag_funcs.values()) == 9, f"应恰好 9 处 _lag_trading_days, 实得 {sum(lag_funcs.values())}")
 
 
 def test_08b_days_ago_kept_only_for_overview_and_fund_score():
