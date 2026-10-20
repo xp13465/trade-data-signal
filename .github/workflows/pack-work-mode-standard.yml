@@ -1,0 +1,83 @@
+# 打包 work-mode-standard 通用包 → GitHub Release 附件(固定下载入口)
+#
+# 【用途】别的项目想参考这套「AI 多角色协作工作模式」时,不用克隆整个仓库、也不用拷目录,
+#         直接去 Releases 页下这个 zip 就行 —— 交付 = 甩一条固定链接。
+#         (本机手动打的临时 zip 不入库,Release 附件才是长期入口。)
+#
+# 【触发】① push tag `work-mode-standard-v*`(例如 work-mode-standard-v0.1)
+#         ② workflow_dispatch 手动触发(input `tag`,默认 work-mode-standard-v0.1,供首次发布 / 补发)
+#
+# 【幂等】同 tag 重复跑不会失败:
+#         Release 不存在 → 创建并把 zip 作为附件;已存在 → 覆盖上传同名附件(--clobber)。
+#
+# 【与现有 workflow 风格一致】actions/checkout@v4 + ubuntu-latest + 显式 permissions
+#         (deploy-cf.yml / deploy-pages.yml 同款;动作版本一致)。
+#
+# 【无法本机验证】本 workflow 需真实 tag push / 手动触发才会跑,Release 是否成功建
+#         只能上线后在 Actions 页 + Releases 页核对 —— 本机自验只覆盖 YAML 解析 + 打包命令实跑。
+name: Pack work-mode-standard
+
+on:
+  push:
+    tags:
+      - 'work-mode-standard-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag(默认 work-mode-standard-v0.1)'
+        required: true
+        default: 'work-mode-standard-v0.1'
+        type: string
+
+# 创建/更新 Release 需要写 contents;其余权限不开(最小化)
+permissions:
+  contents: write
+
+# 同一时刻只跑一个打包,排队不取消(避免两个 run 同时写同一个 Release 抢附件)
+concurrency:
+  group: pack-work-mode-standard
+  cancel-in-progress: false
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 全量历史 + fetch tags:tag 触发时要保证被推的 tag 对应的 commit 在本地
+          fetch-depth: 0
+
+      # tag 名合一处理:tag push 取 ref_name;手动触发取 input。
+      # 经 env 传入再拼 GITHUB_OUTPUT,避免把 input 直接插进 shell 造成注入。
+      - name: 解析 tag 名
+        id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "tag=$DISPATCH_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 只打 work-mode-standard/ 一个目录,zip 内顶层前缀也是 work-mode-standard/,
+      # 解压后直接得到可用的包目录(不需再 cd 进去)。
+      - name: 打包 work-mode-standard 为 zip
+        run: |
+          git archive --format=zip --prefix=work-mode-standard/ \
+            -o /tmp/work-mode-standard.zip HEAD:work-mode-standard
+
+      # runner 自带 gh,无需自行安装;GH_TOKEN 用 runner 内置 token。
+      - name: 发布到 GitHub Release(幂等)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" /tmp/work-mode-standard.zip --clobber
+          else
+            gh release create "$TAG" /tmp/work-mode-standard.zip \
+              --title "$TAG" --notes "work-mode-standard 通用包 zip(自动打包)"
+          fi
