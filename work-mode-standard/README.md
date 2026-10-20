@@ -77,6 +77,7 @@ cp work-mode-standard/templates/PROJECT-SPECIFIC.template.md <项目>/docs/
 - **验收口径**:改完规范自验须含「本包对应文件是否同步 + 是否又混进状态型内容」。
 - **本条 2026-10-15 由使用者确认**:以上约定(尤其"发版本时同步"这个触发点)是经使用者拍板定下的,不是随手写的措辞。
 - **最近同步:2026-10-15 → 2026-10-18**(源侧 97 个增量 commit,范围 `0af1e6586..57b65e24d`);再下次同步从此范围之后起算。
+> **打包下载**:GitHub Releases 页 <https://github.com/xp13465/trade-data-signal/releases> —— 打 tag(work-mode-standard-vX.Y)即自动出 zip 附件。
 
 ## 5. 章节映射表(旧 CLAUDE.md 节号 → 本包哪个文件)
 
