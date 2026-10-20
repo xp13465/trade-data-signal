@@ -429,8 +429,9 @@ def fetch_north_fund_ccass_quarterly(n_quarters=2):
         # 1. 爬每个季度末的 CCASS 持股
         holdings = {}  # {quarter_date: {a_code: shareholding}}
         for q in quarters:
-            # 查 q + 20 天（确保数据已发布）
-            query_date = q + _dt.timedelta(days=20)
+            # 查 q + 20 天（确保数据已发布）；翻档日(q+20 恰=当天)CCASS 拒收"不早于当天"的
+            # 日期 → 钳到昨天（today-1 仍是 q 之后，CCASS 返回的仍是最新已发布季度末快照）
+            query_date = min(q + _dt.timedelta(days=20), _dt.date.today() - _dt.timedelta(days=1))
             query_str = query_date.strftime("%Y/%m/%d")
             s = requests.Session()
             # 沪股通
@@ -533,7 +534,8 @@ def backfill_quarterly_close_prices(dates):
     results = []
     for d in dates:
         q = _dt.date(int(d[:4]), int(d[4:6]), int(d[6:8]))
-        query_date = q + _dt.timedelta(days=20)
+        # 同主路径口径：q+20 与 (today-1) 取小（翻档日 CCASS 拒收"不早于当天"）
+        query_date = min(q + _dt.timedelta(days=20), _dt.date.today() - _dt.timedelta(days=1))
         query_str = query_date.strftime("%Y/%m/%d")
         s = requests.Session()
         sh = _fetch_ccass_holdings(s, CCASS_URL_SH, query_str)
