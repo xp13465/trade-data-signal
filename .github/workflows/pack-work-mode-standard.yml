@@ -5,7 +5,8 @@
 #         (本机手动打的临时 zip 不入库,Release 附件才是长期入口。)
 #
 # 【触发】① push tag `work-mode-standard-v*`(例如 work-mode-standard-v0.1)
-#         ② workflow_dispatch 手动触发(input `tag`,默认 work-mode-standard-v0.1,供首次发布 / 补发)
+#         ② workflow_dispatch 手动触发(input `tag`,默认 work-mode-standard-v0.1,供首次发布 / 补发;
+#            **请从 main 分支运行** —— 非 main 会被守卫拒绝,zip 内容须与 tag 目标 commit 一致)
 #
 # 【幂等】同 tag 重复跑不会失败:
 #         Release 不存在 → 创建并把 zip 作为附件;已存在 → 覆盖上传同名附件(--clobber)。
@@ -48,15 +49,23 @@ jobs:
           fetch-depth: 0
 
       # tag 名合一处理:tag push 取 ref_name;手动触发取 input。
+      # 手动触发加「main 守卫」:zip 内容 = 被触发分支的快照,而 Release 建新 tag 时会指向
+      # 默认分支 HEAD ⇒ 从非 main 触发会让「zip 内容」与「tag 目标」对不上。发布物必须来自 main,
+      # 守卫一挡就天然自洽(无需给 release 传 --target)。
       # 经 env 传入再拼 GITHUB_OUTPUT,避免把 input 直接插进 shell 造成注入。
       - name: 解析 tag 名
         id: tag
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
+          REF_FULL: ${{ github.ref }}
           DISPATCH_TAG: ${{ inputs.tag }}
         run: |
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$REF_FULL" != "refs/heads/main" ]; then
+              echo "::error::手动触发请从 main 分支运行(发布物必须来自 main,否则 zip 内容与 tag 目标不一致)"
+              exit 1
+            fi
             echo "tag=$DISPATCH_TAG" >> "$GITHUB_OUTPUT"
           else
             echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
