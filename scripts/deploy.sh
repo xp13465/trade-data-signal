@@ -371,7 +371,11 @@ CHECK_RC=${PIPESTATUS[0]}
 # ⇒ 命中则重出 nav_bucket(with_lock 互斥 + 超时 900s + 最多 1 次) 再重跑校验。
 # **不放宽阻断语义**: 重跑仍 FAIL 照旧走下方原终止+告警(用户拍板保留 fund_nav FAIL 阻断全站)。
 # 临近 17:50 update_all 窗口(17:25-18:35)跳过自愈(§14 避撞, 只告警)。逻辑全在 fund_nav_selfheal.sh。
-if [ "$CHECK_RC" -eq 1 ]; then
+# 2026-10-22 审查 BLOCK-1 返修: 上一批把本门写成 `-eq 1`, 而 fund_nav 曾被误列入告警级
+# ⇒ fund_nav 唯一失败时退出码是 3, 自愈分支永不进入(10-13 自愈机制在自己的设计场景失效)。
+# 现 fund_nav 已回阻断级(唯一失败 ⇒ rc=1), 本门恢复 `-ne 0` 与上方「不放宽阻断语义」逐字一致;
+# rc=3(其余告警级项失败)也过探针, 探针非「DB 领先产物」方向即快速返回 10, 不重出、无害。
+if [ "$CHECK_RC" -ne 0 ]; then
   echo "-> fund_nav 自愈前置检查(scripts/fund_nav_selfheal.sh)..." | tee -a "$LOG"
   REPO="$REPO" GIT_REPO="$GIT_REPO" bash "$REPO/scripts/fund_nav_selfheal.sh" 2>&1 | tee -a "$LOG"
   HEAL_RC=${PIPESTATUS[0]}

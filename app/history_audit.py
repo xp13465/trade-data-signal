@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections import Counter
 
 from .db import get_conn
 from .notify_hook import send_alert
@@ -76,8 +77,8 @@ def audit_signal_daily_store(conn, before: set, after: set, run_date: str | None
             **不落表不告警**(否则批量回填会灌爆审计表 + 制造告警风暴)。
       · **每日全量重算 = 设计行为, 不再报 critical(2026-10-21)**:
         signal_daily 每天两次全量重算, 会把同一 (date,index_id) 的旧 signal 行换成新类型
-        ⇒ 消失/出现成对出现(实测每日 ~1000 条、审计表逐日稳定 5 万行, 见
-        /tmp/alert-week-report.md 类3)。**消失行能在同一 (date,index_id) 找到对应「出现」行
+        ⇒ 消失/出现成对出现(实测每日 ~1000 条、审计表逐日稳定 5 万行, 复现见
+        scripts/alert_weekly_review.py 的周告警盘点口径)。**消失行能在同一 (date,index_id) 找到对应「出现」行
         = 型别变更 ⇒ notice(severe=False)**, 只提示不告警;
         **找不到配对 = 纯丢失(行被抹掉没有替身)⇒ 仍 critical**, 判别力不降。
         判据局限: 若同一天同一指数「删旧行 + 无故新增一条不同类型」, 也会被判成设计行为;
@@ -104,9 +105,22 @@ def audit_signal_daily_store(conn, before: set, after: set, run_date: str | None
             print(f"[history-audit] signal_daily 审计落表失败(不阻断): {type(e).__name__} {e}")
     if n_dis:
         # 2026-10-21: 区分「配对型别变更(每日全量重算的设计行为)」与「纯丢失(真故障)」。
-        appeared_keys = {(c["date"], c["index_id"]) for c in changes if c["kind"] == "appeared"}
-        pure_lost = [c for c in changes if c["kind"] == "disappeared"
-                     and (c["date"], c["index_id"]) not in appeared_keys]
+        # 2026-10-22 审查差集 D6: 配对必须**一对一多重集**(Counter), 不能只用集合判
+        # 「同键出现过」。本地库实测 3155 个键同 (date,index_id) 有多行(如 cgb_10y_etf
+        # 同日 band_hold + buy_special); 若用集合, 同键 2 行消失而只补回 1 行时, 被掩盖的
+        # 那一行消失会被误判成「配对型别变更」⇒ 少报纯丢失/漏 critical。Counter 一对一
+        # 扣减后, 多出来的消失行仍进 pure_lost(真故障判别力不降)。
+        _appeared_left = Counter((c["date"], c["index_id"]) for c in changes
+                                 if c["kind"] == "appeared")
+        pure_lost = []
+        for c in changes:
+            if c["kind"] != "disappeared":
+                continue
+            _k = (c["date"], c["index_id"])
+            if _appeared_left.get(_k, 0) > 0:
+                _appeared_left[_k] -= 1  # 一对一配对: 每条「出现」只能抵一次「消失」
+            else:
+                pure_lost.append(c)
         _alert("signal_daily", changes, run_date, _SIGNAL_DEDUP_WINDOW,
                pure_lost=pure_lost)
     return changes
@@ -296,7 +310,7 @@ def _alert(src_table: str, changes: list, run_date: str, dedup_window: int,
             design_note = (
                 f"其中**型别变更 {n_paired} 条**(同一 date+index_id 的旧 signal 被换成新类型)"
                 "= signal_daily 每日全量重算的设计行为, 非数据损坏"
-                "(实测每日两次、审计表逐日稳定 ~5 万行, 见 /tmp/alert-week-report.md 类3)。"
+                "(实测每日两次、审计表逐日稳定 ~5 万行; 复现见 scripts/alert_weekly_review.py)。"
             )
         if critical:
             design_note += f"\n⚠ **纯丢失 {n_pure} 条**(消失后同 date+index_id 无任何新行)= 真故障信号。"

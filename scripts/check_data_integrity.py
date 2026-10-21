@@ -239,13 +239,26 @@ ALERT_ONLY_CHECKS = {
     "a_fund_north_quarterly": "北向公募季度表(上游季度发布); 季初未发布=正常滞后, 非错数",
     "fund_index_daily": "指数日表(上游采集); 滞后=预估仓位降级展示, deploy 不修复",
     "fund_score": "公募评分表(上游 compute/export_fund_score); 滞后=评分卡旧值, 可降级",
-    "ad_line": "AD 线副图(上游日频); 滞后=副图旧, 不阻断主数据",
+    # ad_line 由 export 链(deploy 内)生成, 但数据源头是 DB/上游采集；上游滞后时 deploy
+    # 重跑也修不了数据源 ⇒ 分级保留, 理由订正(2026-10-22 审查差集, 原写「deploy 不生成」失实)。
+    "ad_line": "AD 线副图(export 链由 DB/上游生成; 上游滞后时 deploy 重跑也修不了源); "
+              "滞后=副图旧, 不阻断主数据",
     "a_stock": "A股 1 年概览(上游日频); 滞后/缺段=该区块降级",
     "trade_sim_indices": "模拟指数对比(展示型衍生产物); 缺失不影响主功能",
-    "etf_since_return": "ETF 至今收益统计(展示型衍生产物); 缺失不影响主功能",
+    # etf_since_return 是 overview.json 的注入字段: 根因可为上游覆盖率不足或 deploy 注入
+    # 失败(混合), 分级保留但理由写清(2026-10-22 审查差集, 原「展示型衍生产物」不精确)。
+    "etf_since_return": "ETF 至今收益统计(overview 注入字段; 根因混合: 上游覆盖率不足 / "
+                        "deploy 注入失败); 缺失只让走势卡少一列, 不阻断主数据",
     "etf_hist": "ETF 全史 K 产物(独立导出/R2 前缀); 缺失=历史图少段, deploy 不重建",
-    "fund_nav": "基金净值桶(独立导出/R2 前缀); 缺失=净值图少段, deploy 不重建",
-    "changelog_current_version": "更新提示条目(仅 toast 预览); 缺失不影响数据正确性",
+    # fund_nav 必须保持阻断级(2026-10-22 审查 BLOCK-1 回退):
+    #   docs/ops/deploy-fundnav-selfheal-20261013.md:6-7 用户明确拍板「保留 fund_nav FAIL
+    #   阻断全站 deploy」, 「按产物隔离/降级为不阻断」已被否。且 check_fund_nav 还包含
+    #   DB↔产物逐位不一致 / DB 整日全 NULL / 覆盖率<98% 的正确性维度(::1600-1665),
+    #   不是「缺文件只让图少段」; deploy 也有重建能力(fund_nav_selfheal.sh 重出 nav_bucket)。
+    #   ⇒ 刻意**不**在此清单中, grade_of 默认阻断(见 deploy.sh 自愈门)。
+    # changelog_current_version 必须保持阻断级(2026-10-22 审查建议项):
+    #   原 docstring(::2095-2131)明写「FAIL 阻断上线, 强制改码补条目」; 放宽 = 策略变更,
+    #   本批不擅自降级, 待用户单独拍板。
 }
 
 BLOCKING_GRADE = "blocking"

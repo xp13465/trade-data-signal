@@ -56,14 +56,17 @@
   **集合缩小(=恢复进展)** 静默; 次日首报照报; 同集合 24h 二次 added 抖动抑制(unit 反复
   fail→clear→fail)。判据见 adr.failed_units_identity / adr.failed_units_daily_judge。
   真故障判别维度保留: 新增立即报 + #196③ 连续 3 天升 critical + 跨日首报。
-  ⚠️ F1 复审(2026-10-09): notify.py **恒 return 0**(含「全部渠道未发出」, notify.py 汇总行([notify] 汇总：全部渠道未发出)),
-  故「是否发出去」判据不能只看 rc(否则渠道全失败照样落签名 → 当日同集合全抑制 = 当天失报);
-  改看输出汇总(_notify_sent)。全渠道失败 → 不落签 → 下轮重试, 不吞真故障。
+  ⚠️ F1 复审(2026-10-09): notify.py **恒 return 0**(含「全部渠道未发出」),
+  故「是否发出去」判据不能只看 rc(否则渠道全失败照样落签名 → 当日同集合全抑制 = 当天失报)。
+  ⚠️ 2026-10-22 审查 BLOCK-2 收口: 判据 = `--result-file` 的 status ∈ {sent, digested}
+  (digested=已并入当日摘要 buffer, 由 23:25 摘要统一交付 = 已处置); 其余/suppressed/failed/
+  结果文件缺失一律不落签 → 下轮重试, 不吞真故障。旧版 notify 的字符串回退已删除(旧 argparse
+  不认 --result-file 会直接报错, 回退分支实为死代码; 两脚本同 commit 部署保证版本一致)。
   「连续 3 天仍异常 → 升 critical」由 notify.py 调用侧拦截(#196③,
   alert_denoise_rules.consecutive_days_escalate, 状态 data/failed_units_patrol_state.json)。
 
 【出口码】0=健康 / 1=发现异常且告警**真发出**或按设计静默(降噪抑制)/ dry 打印
-  / 4=发现异常但告警**未送达**(结构化结果 status!=sent; 不落签名, 下轮重试)
+  / 4=发现异常但告警**未送达**(结构化结果 status ∉ {sent, digested}; 不落签名, 下轮重试)
   / 3=跳过(非云上: 无 systemctl 且无注入样本) / 2=内部错误(如注入样本解析失败)。
   schedule_monitor 侧映射(2026-10-21 起): 1→记日志「异常已告警或按设计静默」(不得自证已发出);
   4→独立 SEVERE 复核项「巡检发现异常但告警未送达」; 其他非 {0,1,3,4} → SEVERE「本巡检自己跑挂了」。
@@ -95,7 +98,6 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).absolute().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 import alert_denoise_rules as adr  # noqa: E402
-from notify_sent import notify_sent  # noqa: E402  #240 F1 判据 + #241 同病根共用唯一实现
 
 # 数据仓候选: env 注入优先(云上 REPO=/home/ubuntu/code/trade-data), 回退 mac 本机 trade-data
 DEFAULT_REPO_CANDIDATES = [
@@ -246,21 +248,6 @@ def _write_sig_state(path, prev_state, *, sent, reason, observed_sig, observed_i
               file=sys.stderr)
 
 
-def _notify_sent(output: str) -> bool:
-    """从 notify.py 输出判定「是否真的发出过」(F1 复审, 2026-10-09)。
-
-    notify.py 恒 return 0(含「全部渠道未发出」, notify.py 汇总行([notify] 汇总：全部渠道未发出))⇒ rc 不能当发出判据。
-    判据已抽为**唯一实现** `scripts/notify_sent.py:notify_sent`(#241 同病根, 2026-10-09):
-    两处(本脚本 + check_s06_freshness)共用同一函数, 杜绝第二份实现漂移。本包装仅为
-    保持既有调用点符号不变(#240 已验收), 判据本体见 notify_sent 模块 docstring。
-
-    ⚠️ 维护契约(#240 复审 P-4, 2026-10-11): 判据依赖 notify.py 的**汇总打印文案**(“汇总：已发出”
-    / “汇总：全部渠道未发出”)。notify.py 若新增「真发但不打印现有标记」的路由, 本判据会退化为
-    判不出(→ 每轮重发)。**改 notify.py 汇总行文案时必须同步 scripts/notify_sent.py 的标记集**。
-    """
-    return notify_sent(output)
-
-
 def _send_notify(repo, subject, body):
     """子进程调 notify.py(--severe 真发)。返回 (sent, detail)。
 
@@ -274,14 +261,17 @@ def _send_notify(repo, subject, body):
     自己的独立窗 `adr.ESCALATED_DEDUP_WINDOW_SECONDS`(实测锚定 72h, 见该常量取值依据)。病灶: 升级档原样复用本窗 ⇒
     check_dedup(key, 0) 恒放行 ⇒ 升级 critical 永不被抑制(10-15 单日 6 封)。本脚本无需改动。
 
-    ⚠️ F1 复审(2026-10-09): 返回的 sent **不是 rc==0**, 而是从 notify.py 输出里判「真发出过」
-    (见 _notify_sent)。rc 恒 0 不含告知力: 全渠道失败也 return 0(notify.py 汇总行([notify] 汇总：全部渠道未发出)), 若按 rc
-    落签名, 渠道故障当天会把同集合告警全部抑制 = 当天失报。
+    ⚠️ F1 复审(2026-10-09): 返回的 sent **不是 rc==0**。rc 恒 0 不含告知力: 全渠道失败也
+    return 0, 若按 rc 落签名, 渠道故障当天会把同集合告警全部抑制 = 当天失报。
 
     ⚠️ 2026-10-21 告警黑洞根因修(主判据改为结构化结果): 传 `--result-file` 读 notify.py 写出的
-    JSON `status` 字段。字符串解析(_notify_sent)降为**旧版 notify 的兼容回退**, 不再作主判据——
-    字符串判据把「升级档 suppress」也判成未发出(实测 7 天零告警的根因之一)。
-    status 口径: sent=真发出 → True; suppressed/failed/noop/缺失 → False(→ 不落状态, 下轮重试)。
+    JSON `status` 字段(字符串判据把「升级档 suppress」也判成未发出 = 7 天零告警根因之一)。
+    ⚠️ 2026-10-22 审查 BLOCK-2: 新增独立态 `digested`(已并入当日摘要 buffer, 由 23:25 摘要
+    统一交付 = 已处置) —— 必须与「未送达」区分, 否则域聚合场景会 rc=4 打出假 SEVERE, 且
+    签名不落盘导致每 15min 重试、域状态滑动窗永不过期(假 SEVERE 持续一整天)。
+    判据: status ∈ {sent, digested} → True; suppressed/failed/noop/缺失 → False(不落状态, 下轮重试)。
+    旧版 notify 字符串回退已删除(旧 argparse 不认 --result-file 直接报错, 回退分支不可达 = 死代码;
+    两脚本同 commit 部署保证版本一致, 见审查差集 D7)。
     """
     fd, result_path = tempfile.mkstemp(prefix="notify_result_", suffix=".json")
     os.close(fd)
@@ -299,13 +289,12 @@ def _send_notify(repo, subject, body):
             payload = json.loads(Path(result_path).read_text(encoding="utf-8"))
             _status = payload.get("status")
             _channels = payload.get("channels") or {}
-        except Exception:  # noqa: BLE001 - 旧版 notify 无结果文件 → 回退字符串判据
+        except Exception:  # noqa: BLE001 - 结果文件缺失/损坏: 按「未送达」处理(不猜)
             _status = None
         if _status is None:
-            sent = _notify_sent(out)
             detail = out.strip()[-300:] or f"rc={proc.returncode}(无输出)"
-            return sent, f"status=missing(回退字符串判据) sent={sent} {detail}"
-        sent = _status == "sent"
+            return False, f"status=missing(结果文件缺失/损坏, 按未送达处理) {detail}"
+        sent = _status in ("sent", "digested")
         detail = (f"status={_status} channels={_channels} "
                   f"recent={(out.strip()[-200:] or '')}")
         return sent, detail

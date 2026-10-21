@@ -66,7 +66,9 @@
 行号锚点: 本文引用的 notify.py 行号已于 2026-10-17 全量核对并更新到当前(notify.py 共 3286 行;
   旧值停在 2026-10-10 前后, 与现状普遍相差约 +910 行)。notify.py 再改动后请同步核对本文锚点。
 
-关联: `check_failed_units._notify_sent`(#240 F1) / `check_s06_freshness`(#241)均委托本函数;
+关联: `check_s06_freshness`(#241)等仍委托本函数; **check_failed_units 已于 2026-10-21 改用
+      notify.py `--result-file` 结构化 status**(#240 F1 的字符串判据 wrapper 已于 2026-10-22
+      审查 D7 删除: 旧版 notify 不认 `--result-file` 直接报错 ⇒ 回退分支不可达)。
       规范 §23.2③(根因修复不只表面症状: 判据只此一份)。notify.py 为冻结面(§23.7), 本判据
       只读其**输出**, 不改其一行。
 """

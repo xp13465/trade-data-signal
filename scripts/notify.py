@@ -110,10 +110,11 @@ DEDUP_FILE = REPO / "data" / "notify_dedup.json"
 # 病灶: 调用方靠解析 stderr 字符串(「汇总: 已发出」)判断是否真发出 ⇒ 通道全失败/
 #   被静默 suppress 时字符串缺失, 调用方无法区分「抑制」与「发送失败」, 只能每轮重试。
 # 修法: 调用方显式传 --result-file <path>, notify 把本次真实路由结果原子写入 JSON:
-#   {"status": "sent"|"suppressed"|"failed"|"noop"|"dry_run", "detail": "...",
+#   {"status": "sent"|"suppressed"|"failed"|"digested"|"noop"|"dry_run", "detail": "...",
 #    "tier": "critical"|..., "channels": {"email": bool, ...}, "dedup_key": "..."}
 # status 口径: sent=至少一个真实渠道发出; suppressed=去重窗内主动抑制(设计行为, 非故障);
-#   failed=走到了发送但全渠道未发出 / 内部异常; noop=批量/摘要等不发送模式;
+#   failed=走到了发送但全渠道未发出 / 内部异常; digested=已并入当日摘要 buffer(由 23:25 摘要
+#   统一交付 = 已处置, 与「未送达」区分开; 2026-10-22 审查 BLOCK-2); noop=批量/flush 等不发送模式;
 #   dry_run=--dry-run 模拟。写入失败只打 stderr, 绝不影响发送主链路。
 _RESULT_FILE: str | None = None
 _OUTCOME: dict = {"status": "failed", "detail": "未走到任何发送/抑制路径",
@@ -1285,11 +1286,13 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     # 被 7~8 个脚本各发 = 28 条)。
     # 豁免(逐条 = 不聚合, 照发; 宁多勿吞): 非告警群消息(业务流 report 群等) / 恢复类
     # (闭环信号必须即时) / 摘要+聚合消息自身(防元噪声) / budget_exempt(critical 升级档) /
-    # dry-run / 域未映射 / 总开关 ALERT_BUDGET_DISABLE=1 或 ALERT_DOMAIN_DISABLE=1。
+    # dry-run / 域未映射 / 总开关 ALERT_BUDGET_DISABLE=1 或 ALERT_DOMAIN_DISABLE=1 /
+    # **关键告警键**(adr.DOMAIN_AGGREGATE_EXEMPT_KEYS: deploy 连续失败停摆, 迟到=没告警)。
     # 状态写盘在「真发出/真并入」之后(发送成功才占窗, 对齐 P1-1), 写失败只是不占窗。
     _dom, _dom_action, _dom_entry = None, None, None
     _agg_exempt = bool(ALERT_AGGREGATE_SUBJECT_RE.match(str(subject))) \
-        or bool(_RECOVERY_PREFIX_RE.match(str(subject)))
+        or bool(_RECOVERY_PREFIX_RE.match(str(subject))) \
+        or (ledger_key in adr.DOMAIN_AGGREGATE_EXEMPT_KEYS)  # D3: 停摆级关键告警直发
     _grp = feishu_group or _resolve_feishu_chat_key(subject, from_prefix, severe)
     if (not dry_run and not budget_exempt and not _agg_exempt and _grp == "alert"
             and os.environ.get("ALERT_DOMAIN_DISABLE") != "1"
@@ -3375,8 +3378,10 @@ def _main_impl(argv: list[str] | None = None) -> int:
                    ledger_key=args.dedup_key, ledger_group=args.feishu_group)
     # #245 批2: gate 已把本条并入摘要 buffer(digested=True) → 不打印「已发出」、不 update_dedup、
     # 不 write_alert(未外发消息不该占窗/不该在最新告警页); rc 恒 0 契约不变。
+    # 2026-10-22 审查 BLOCK-2: 独立态 `digested`(不再借用 noop) —— 摘要吸收 = 已处置(23:25 摘要
+    # 交付), 调用方(check_failed_units)据此落签名、不判 rc=4, 修「假 SEVERE + 滑动窗永不过期」。
     if results.get("digested"):
-        return _finish(0, "noop", "已并入摘要 buffer(digested)",
+        return _finish(0, "digested", "已并入摘要 buffer(digested)",
                        tier=("critical" if args.severe else "notice"),
                        dedup_key=args.dedup_key)
     ok = [ch for ch, v in results.items() if v]

@@ -1897,8 +1897,9 @@ _check_resource("主机swap", "host", _swap_used_pct())
 #   除让「巡检发现异常」经脚本自身通道(notify --severe, dedup failed_units_patrol)发出外,
 #   更关键的是——**巡检脚本自己跑不起来**(被删/异常/意外退出码)时, 本处直接把它变成
 #   本轮主告警邮件里的一条 SEVERE, 让「巡检者死了」当场可见(#196② 核心:
-#   不能「巡检者死了没人知」)。rc 映射: 0=健康 / 1=自身通道已发(仅记日志) /
-#   3=非云上跳过 / 其他(含 FileNotFoundError/非0异常)→ 追加 SEVERE。
+#   不能「巡检者死了没人知」)。rc 映射(2026-10-22 审查差集 D11 同步新语义):
+#   0=健康 / 1=巡检已处理(告警真发出或按设计静默, 仅记日志) / 4=发现异常但告警未送达
+#   (独立 SEVERE 复核) / 3=非云上跳过 / 其他(含 FileNotFoundError/非0异常)→ 追加 SEVERE。
 #   异常消失(脚本恢复可跑)→ 恢复检测循环自动发一条 [恢复](monitor 自身自愈值得一条通知,
 #   与 r2_* 自愈类"静默恢复"口径不同, 故不复用其前缀)。
 # #202 P3-b(2026-10-06): key 首段(task 名, 恢复循环 L1619 取 _key.split("|")[0] 展示)此前误用
@@ -1925,7 +1926,7 @@ try:
         # 真实交付结果由 check_failed_units 的 --result-file 判定; 未送达 ⇒ rc=4 走下方独立复核。
         print(f"[196] 云上 unit 异常(巡检已处理: 告警发出或按设计静默, 交付结果见下轮 rc): {_cfu_out[:300]}")
     elif _r_cfu.returncode == 4:
-        # 巡检发现异常但告警**未送达**(结构化 status!=sent) ⇒ 独立故障维度, 不得被
+        # 巡检发现异常但告警**未送达**(结构化 status ∉ {sent, digested}) ⇒ 独立故障维度, 不得被
         # 「巡检脚本还活着」掩盖: 追加 SEVERE 进本轮主告警邮件, 由 monitor 自己的通道复核送达。
         _cfu_undelivered = (f"云上 failed-unit 巡检发现异常但告警未送达(rc=4): "
                             f"{(_cfu_out + ' ' + (_r_cfu.stderr or '')).strip()[:240]}")
