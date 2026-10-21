@@ -584,7 +584,15 @@ def collect_snapshot(metric, date):
         if isinstance(df, Exception) or df is None:
             return None, f"stock_zh_a_spot unavailable or partial (<{MIN_SPOT_ROWS} rows)"
     else:
-        fn = getattr(ak, func_name, None)
+        if func_name == "bond_zh_cov_value_analysis":
+            # 2026-10-21:akshare 该函数按位置写死 13 个列名,东财接口字段扩到 15 个
+            # (新增 FLOORPRICE_PREMIUM_RATIO_CB/BOND_NAME_ABBR)后恒抛 Length mismatch,
+            # 且最新 1.19.1 仍未修(本机核对源码)。改走本地按字段名解析(A 类无位置假设);
+            # 语义/列名/数值口径与原来一致,见 app/collector/cov_value.py docstring。
+            from .cov_value import fetch_value_analysis
+            fn = fetch_value_analysis
+        else:
+            fn = getattr(ak, func_name, None)
         if fn is None:
             return None, f"no attr {func_name}"
         params = dict(metric.get("params") or {})
