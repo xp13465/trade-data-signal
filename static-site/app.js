@@ -27635,8 +27635,8 @@ function _fundScoreColor(score) {
 }
 
 function _fundScorePages() {
-  // api 模式: 服务端返回的 pages（按 total/size 算）; static 模式: 本地 filtered 算
-  if (_fundScoreState.source === "api") {
+  // api/screener 模式: 服务端返回的 pages（按 total/size 算）; static 模式: 本地 filtered 算
+  if (_fundScoreState.source === "api" || _fundScoreState.source === "screener") {
     return Math.max(1, _fundScoreState.pages || 1);
   }
   return Math.max(1, Math.ceil(_fundScoreState.filtered.length / FUND_SCORE_PAGE_SIZE));
@@ -27721,6 +27721,12 @@ function _sortFundScoreList(arr) {
 }
 
 function _applyFundScoreFilter() {
+  // 筛选器模式(#266 一期): 条件/排序/搜索全部走服务端 /api/fund_screener, 回第 1 页拉取
+  if (_fundScoreState.source === "screener") {
+    _fundScoreState.page = 1;
+    _fundScreenerFetch();
+    return;
+  }
   // api 模式(#79): 筛选/排序/搜索全部走服务端, 回第 1 页拉取; 失败保留旧页并提示
   if (_fundScoreState.source === "api") {
     _fundScoreState.page = 1;
@@ -27818,11 +27824,23 @@ function _renderFundScoreBody() {
   if (!body) return;
   const st = _fundScoreState;
   const isApi = st.source === "api";
+  const isScr = st.source === "screener";   // #266 一期: 筛选器模式（服务端分页, 同 api 的分页/切片口径）
+  const isServer = isApi || isScr;
   const filtered = st.filtered;
 
-  // 统计条（api 模式: 全量 total + 页码; static 模式: Top100 口径保持原文案）
+  // 统计条（api/screener 模式: 全量 total + 页码; static 模式: Top100 口径保持原文案）
   let html;
-  if (isApi) {
+  if (isScr) {
+    const condN = _fundScreenerActiveConds().length;
+    html = '<div class="fund-score-stat">共 ' + st.total + ' ' + _t("fund_score_count_unit")
+      + ' · 第 ' + st.page + '/' + _fundScorePages() + ' 页'
+      + ' · ' + _t("fund_screener_hit") + ' ' + st.total + ' ' + _t("fund_score_count_unit")
+      + (condN > 0 ? '（' + condN + ' ' + _t("fund_screener_cond_unit") + '）' : '')
+      + (st.search ? ' · ' + _t("fund_screener_search") + '「' + _esc(st.search) + '」' : '')
+      + ' · ' + _t("fund_screener_sort") + _fundScoreSortLabel() + _t("fund_score_sort_dir_suffix")
+      + (st.meta && st.meta.date ? ' · ' + _t("fund_score_data_label") + ' ' + _esc(st.meta.date) : '')
+      + '</div>';
+  } else if (isApi) {
     html = '<div class="fund-score-stat">共 ' + st.total + ' ' + _t("fund_score_count_unit")
       + ' · 第 ' + st.page + '/' + _fundScorePages() + ' 页'
       + (st.search || st.fundTypeFilter !== "all" ? ' · 本页 ' + st.all.length + ' 只' : '')
@@ -27838,25 +27856,25 @@ function _renderFundScoreBody() {
       + '</div>';
   }
 
-  const rows = isApi ? st.all : filtered;
+  const rows = isServer ? st.all : filtered;
   if (!rows || rows.length === 0) {
     html += '<div class="fund-score-empty">' + _t("fund_score_empty") + '</div>';
     body.innerHTML = html;
     return;
   }
 
-  // 列表（api 模式 all 即当前页; static 模式本地切片）
+  // 列表（api/screener 模式 all 即当前页; static 模式本地切片）
   const pages = _fundScorePages();
-  if (!isApi) {
+  if (!isServer) {
     if (st.page > pages) st.page = pages;
     if (st.page < 1) st.page = 1;
   }
-  const start = isApi ? 0 : (st.page - 1) * FUND_SCORE_PAGE_SIZE;
-  const slice = isApi ? rows : rows.slice(start, start + FUND_SCORE_PAGE_SIZE);
+  const start = isServer ? 0 : (st.page - 1) * FUND_SCORE_PAGE_SIZE;
+  const slice = isServer ? rows : rows.slice(start, start + FUND_SCORE_PAGE_SIZE);
   html += '<div class="fund-score-list">';
   slice.forEach((e, i) => { html += _renderFundScoreRow(e, start + i + 1); });
   html += '</div>';
-  if (pages > 1) html += _renderFundScorePager(st.page, pages, isApi ? st.total : filtered.length);
+  if (pages > 1) html += _renderFundScorePager(st.page, pages, isServer ? st.total : filtered.length);
   body.innerHTML = html;
 
   // 绑定行点击 -> 详情弹窗(#79 step6)
@@ -27869,7 +27887,10 @@ function _renderFundScoreBody() {
     b.onclick = () => {
       if (b.disabled) return;
       _fundScoreState.page = parseInt(b.dataset.page, 10) || 1;
-      if (_fundScoreState.source === "api") {
+      if (_fundScoreState.source === "screener") {
+        // #266 一期: 筛选器模式服务端翻页（布局/滚动同 api 模式）
+        _fundScreenerFetch();
+      } else if (_fundScoreState.source === "api") {
         // api 模式: 服务端翻页（保留旧页内容 + loading 覆盖层防闪白）
         body.insertAdjacentHTML("afterbegin", '<div class="fund-score-loading">加载中…</div>');
         _loadFundScorePage().catch((err) => {
@@ -28165,7 +28186,9 @@ function openFundScoreDetailModal(code) {
   const starTxt = "★".repeat(starN) + '<span style="opacity:.3">' + "★".repeat(5 - starN) + "</span>";
   const srcTxt = _fundScoreState.source === "api"
     ? (_t("fund_score_data_label") + " " + _esc((_fundScoreState.meta && _fundScoreState.meta.date) || "-") + " · 全市场")
-    : (_t("fund_score_data_label") + " " + _esc((_fundScoreState.meta && _fundScoreState.meta.date) || "-") + " · Top100 兜底");
+    : (_fundScoreState.source === "screener"
+      ? (_t("fund_score_data_label") + " " + _esc((_fundScoreState.meta && _fundScoreState.meta.date) || "-") + " · " + _t("fund_screener_src_tag"))
+      : (_t("fund_score_data_label") + " " + _esc((_fundScoreState.meta && _fundScoreState.meta.date) || "-") + " · Top100 兜底"));
 
   // 区块1: 决策头（名称/代码/类型 + tier chip + 星级 + 综合分大字 + 数据时点）
   const headHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
@@ -28294,6 +28317,7 @@ function closeFundScoreDetailModal() {
 async function renderOffshoreFund(container) {
   const _c = container || content;
   _c.innerHTML = "";
+  _fundScreenerReset();   // #266 一期: 每次进场外 tab 重置筛选器(面板收起/条件清空, 默认视图起点一致)
   renderPurposeNote(_c, PURPOSE_NOTES["offshore"]);
 
   // 加载状态
@@ -28416,6 +28440,8 @@ async function renderOffshoreFund(container) {
     + '<option value="score_drawdown-desc"' + (sortVal === "score_drawdown-desc" ? " selected" : "") + '>' + _t("fund_score_sort_drawdown") + '</option>'
     + '<option value="score_stability-desc"' + (sortVal === "score_stability-desc" ? " selected" : "") + '>' + _t("fund_score_sort_stability") + '</option>'
     + '</select>'
+    // #266 一期: 筛选入口（默认收起, 不点不改列表来源 → 默认视图逐位一致）
+    + '<button id="fund-screener-toggle" class="fund-screener-toggle" type="button" aria-expanded="false" title="' + _esc(_t("fund_screener_toggle_tip")) + '">' + _t("fund_screener_toggle") + '</button>'
     + '<span class="fund-score-updated">' + _t("fund_score_data_label") + ' ' + _esc((_fundScoreState.meta && _fundScoreState.meta.date) || '-') + (_fundScoreState.meta && _fundScoreState.meta.method ? ' · ' + _esc(_fundScoreState.meta.method) : '') + '</span>';
   _c.appendChild(bar);
 
@@ -28449,11 +28475,532 @@ async function renderOffshoreFund(container) {
     _applyFundScoreFilter();
   };
 
+  // #266 一期: 筛选入口按钮（默认收起; 点击展开条件面板, 移动端为底部抽屉, 见 style.css）
+  const scrBtn = bar.querySelector("#fund-screener-toggle");
+  if (scrBtn) scrBtn.onclick = () => _fundScreenerTogglePanel();
+
+  // #266 一期: 筛选条件面板容器（默认 hidden; 桌面内联展开 / 移动端底部抽屉）
+  const scrPanel = document.createElement("div");
+  scrPanel.id = "fund-screener-panel";
+  scrPanel.className = "fund-screener-panel hidden";
+  _c.appendChild(scrPanel);
+
   // 列表容器
   const body = document.createElement("div");
   body.id = "fund-score-body";
   _c.appendChild(body);
   _renderFundScoreBody();
+}
+
+// ===== #266 一期: 公募基金筛选器（场外 tab「筛选」入口 + 条件面板）=====
+// 与 /api/fund_score 并存、互不影响（§23.7 冻结契约）: 面板默认收起, 默认视图/搜索/类型下拉/
+// 排序全部走原链路逐位不变; 只有点「筛选」才把列表切到 source="screener"（服务端条件筛选,
+// 复用现有列表/行/分页器/详情弹窗）。关闭面板 → 快照零网络还原默认视图。
+// 服务端: GET /api/fund_screener（worker/fund_screener.js）; 参数名与下方 FUND_SCREENER_*
+// 规格一一对应（scripts/tests 有「前后端参数名对齐」机检脚本, 防改一处漏一处）。
+const FUND_SCREENER_PAGE_SIZE = FUND_SCORE_PAGE_SIZE;   // 50/页（与服务端 size 一致）
+// 数值区间条件（min_X / max_X）; k 必须与 worker/fund_screener.js RANGE_FIELDS 的 name 逐字一致。
+// g=分组, zh=中文名, unit=单位, minOnly=只有「≥」下界（评级类「至少 N」）
+const FUND_SCREENER_NUM_FIELDS = [
+  { g: "基础", k: "scale", zh: "成立规模", unit: "亿元" },
+  { g: "基础", k: "setup_years", zh: "成立年限", unit: "年" },
+  { g: "收益", k: "return_1m", zh: "近 1 月收益", unit: "%" },
+  { g: "收益", k: "return_3m", zh: "近 3 月收益", unit: "%" },
+  { g: "收益", k: "return_6m", zh: "近 6 月收益", unit: "%" },
+  { g: "收益", k: "return_1y", zh: "近 1 年收益", unit: "%" },
+  { g: "收益", k: "return_3y", zh: "近 3 年收益", unit: "%" },
+  { g: "收益", k: "return_ytd", zh: "今年以来收益", unit: "%" },
+  { g: "收益", k: "return_since_inception", zh: "成立以来收益", unit: "%" },
+  { g: "风险", k: "volatility_1y", zh: "近 1 年波动率", unit: "%" },
+  { g: "风险", k: "volatility_3y", zh: "近 3 年波动率", unit: "%" },
+  { g: "风险", k: "max_drawdown_3y", zh: "近 3 年最大回撤", unit: "%" },
+  { g: "风险", k: "sharpe", zh: "夏普比率（3 年）", unit: "" },
+  { g: "风险", k: "sortino", zh: "索提诺比率（3 年）", unit: "" },
+  { g: "风险", k: "calmar", zh: "卡玛比率（3 年）", unit: "" },
+  { g: "风险", k: "information_ratio", zh: "信息比率（3 年）", unit: "" },
+  { g: "评分", k: "composite_score", zh: "综合评分", unit: "分" },
+  { g: "评分", k: "star_rating", zh: "星级", unit: "★" },
+  { g: "评分", k: "score_return", zh: "子分·业绩", unit: "分" },
+  { g: "评分", k: "score_risk_adjusted", zh: "子分·风险调整", unit: "分" },
+  { g: "评分", k: "score_drawdown", zh: "子分·回撤控制", unit: "分" },
+  { g: "评分", k: "score_stability", zh: "子分·稳定性", unit: "分" },
+  { g: "评分", k: "score_scale", zh: "子分·规模流动性", unit: "分" },
+  { g: "评分", k: "score_fee", zh: "子分·费率友好", unit: "分" },
+  { g: "经理", k: "manager_score", zh: "经理评分", unit: "分" },
+  { g: "经理", k: "tenure_years", zh: "经理任职年限", unit: "年" },
+  { g: "经理", k: "work_years", zh: "经理从业年限", unit: "年" },
+  { g: "经理", k: "manager_scale", zh: "经理在管规模", unit: "亿元" },
+  { g: "经理", k: "manager_best_return", zh: "经理历史最佳回报", unit: "%" },
+  { g: "费用", k: "management_fee", zh: "管理费率", unit: "%/年" },
+  { g: "费用", k: "custody_fee", zh: "托管费率", unit: "%/年" },
+  { g: "费用", k: "purchase_fee", zh: "申购费率", unit: "%" },
+  { g: "费用", k: "service_fee", zh: "销售服务费率", unit: "%/年" },
+  { g: "评级", k: "rating_any", zh: "任一机构评级不低于", unit: "星", minOnly: true },
+  { g: "评级", k: "rating_morningstar", zh: "晨星评级不低于", unit: "星", minOnly: true },
+  { g: "评级", k: "rating_five_star_count", zh: "五星评级家数不低于", unit: "家", minOnly: true },
+  { g: "仓位", k: "half_kelly_position", zh: "半凯利仓位", unit: "%" },
+  { g: "仓位", k: "final_suggestion", zh: "建议仓位", unit: "%" }
+];
+// 多选 / 精确匹配条件（参数名同样必须与 worker 一致）
+const FUND_SCREENER_MULTI_FIELDS = [
+  { p: "types", zh: "基金类型" }, { p: "purchase_status", zh: "申购状态" }
+];
+const FUND_SCREENER_EXACT_FIELDS = [{ p: "company", zh: "基金公司" }];
+// 分组渲染顺序（与「基础」组内多选/公司控件同组）
+const FUND_SCREENER_GROUPS = ["基础", "收益", "风险", "评分", "经理", "费用", "评级", "仓位"];
+
+const _fundScreenerState = {
+  open: false, loaded: false, loading: false,
+  filters: { nums: {}, types: [], purchase: [], company: "" },
+  facets: null, coverage: {}, fundTotal: null,
+  missing: {}, degraded: false, degradeMsg: null, needFacets: false,
+  prevSnapshot: null,
+  fetchSeq: 0
+};
+
+function _fundScreenerNumFieldDef(k) {
+  for (let i = 0; i < FUND_SCREENER_NUM_FIELDS.length; i++) {
+    if (FUND_SCREENER_NUM_FIELDS[i].k === k) return FUND_SCREENER_NUM_FIELDS[i];
+  }
+  return null;
+}
+
+// API helper（同 _fundScoreApiFetch 模式, 路径换 /api/fund_screener）
+function _fundScreenerApiFetch(params) {
+  const base = _authApiBase();
+  const token = _getAuthToken();
+  const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+  const credentials = _isMainSite() ? 'include' : 'omit';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  return fetch(base + "/api/fund_screener?" + params, {
+    headers, credentials, signal: controller.signal, cache: "no-cache"
+  }).then((r) => {
+    clearTimeout(timer);
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }).catch((e) => { clearTimeout(timer); throw e; });
+}
+
+// 覆盖率文案（「覆盖 8201/27758 只」; 无数据返回空串）
+function _fundScreenerCovTxt(k) {
+  const ss = _fundScreenerState;
+  const cov = ss.coverage && ss.coverage[k];
+  const tot = ss.fundTotal;
+  if (cov == null || !tot) return "";
+  return _t("fund_screener_cov") + " " + cov + "/" + tot + " " + _t("fund_score_count_unit");
+}
+
+// 生效条件清单（供 chip 展示 + 统计条计数）
+function _fundScreenerActiveConds() {
+  const f = _fundScreenerState.filters;
+  const out = [];
+  Object.keys(f.nums || {}).forEach((k) => {
+    const c = f.nums[k];
+    if (!c) return;
+    const hasMin = c.min != null && c.min !== "";
+    const hasMax = c.max != null && c.max !== "";
+    if (!hasMin && !hasMax) return;
+    const fd = _fundScreenerNumFieldDef(k) || { zh: k, unit: "" };
+    let txt;
+    if (hasMin && hasMax) txt = c.min + " ~ " + c.max;
+    else if (hasMin) txt = "≥ " + c.min;
+    else txt = "≤ " + c.max;
+    out.push({ k, zh: fd.zh, text: fd.zh + " " + txt + (fd.unit || "") });
+  });
+  (f.types || []).forEach((t) => out.push({ k: "types:" + t, zh: _t("fund_screener_type"), text: _t("fund_screener_type") + " " + t }));
+  (f.purchase || []).forEach((s) => out.push({ k: "purchase:" + s, zh: _t("fund_screener_purchase"), text: _t("fund_screener_purchase") + " " + s }));
+  if (f.company) out.push({ k: "company", zh: _t("fund_screener_company"), text: _t("fund_screener_company") + " " + f.company });
+  return out;
+}
+
+// 请求参数（page/size/sort/dir/search + 全部条件; facets=1 时附带面板数据）
+function _fundScreenerParams(page) {
+  const st = _fundScoreState, f = _fundScreenerState.filters;
+  const p = new URLSearchParams({
+    page: String(page || 1),
+    size: String(FUND_SCREENER_PAGE_SIZE),
+    sort: st.sortKey || "composite_score",
+    dir: st.sortDir === "asc" ? "asc" : "desc"
+  });
+  if (st.search && st.search.trim()) p.set("search", st.search.trim());
+  Object.keys(f.nums || {}).forEach((k) => {
+    const c = f.nums[k];
+    if (!c) return;
+    if (c.min != null && c.min !== "") p.set("min_" + k, String(c.min));
+    if (c.max != null && c.max !== "") p.set("max_" + k, String(c.max));
+  });
+  if ((f.types || []).length) p.set("types", f.types.join(","));
+  if ((f.purchase || []).length) p.set("purchase_status", f.purchase.join(","));
+  if (f.company) p.set("company", f.company);
+  if (_fundScreenerState.needFacets) p.set("facets", "1");
+  return p;
+}
+
+// F4: 在途/过期响应判定。两种情形该响应一律丢弃(不写 st、不重渲染):
+//   ① 面板已收起(ss.open=false) —— 收起=快照恢复默认视图, 筛选数据此时无消费者;
+//   ② 序号已不是最新(seq !== ss.fetchSeq) —— 已被更晚的请求取代, 防乱序落地(旧响应后到覆盖新结果)。
+function _fundScreenerStale(seq) {
+  const ss = _fundScreenerState;
+  return !ss.open || seq !== ss.fetchSeq;
+}
+
+// 拉取当前页（条件/排序/搜索/翻页统一入口）; 失败走显式降级（Top100 + 明示文案）
+async function _fundScreenerFetch() {
+  const st = _fundScoreState, ss = _fundScreenerState;
+  const seq = ++ss.fetchSeq;   // 本次请求序号: 用于丢弃过期/在途响应（F4 竞态根治）
+  ss.loading = true;
+  const chipsEl = document.getElementById("fund-screener-chips");
+  if (chipsEl) chipsEl.innerHTML = '<span class="fund-screener-loading">' + _t("fund_score_loading") + '</span>';
+  let r;
+  try {
+    r = await _fundScreenerApiFetch(_fundScreenerParams(st.page).toString());
+  } catch (e) {
+    if (_fundScreenerStale(seq)) return;   // 面板已收起/已被更晚请求取代 → 丢弃, 不降级不重渲染
+    _fundScreenerDegrade(e); return;
+  }
+  if (_fundScreenerStale(seq)) return;
+  if (!r || !Array.isArray(r.data)) { _fundScreenerDegrade(new Error("API 返回结构异常")); return; }
+  ss.loading = false;
+  ss.degraded = false; ss.degradeMsg = null;
+  ss.needFacets = false;
+  st.source = "screener";
+  st.all = r.data;
+  st.total = r.total || 0;
+  st.pages = r.pages || 1;
+  st.page = Math.min(Math.max(r.page || 1, 1), st.pages);
+  if (r.date || r.method) {
+    st.meta = Object.assign({}, st.meta || {}, { date: r.date || (st.meta && st.meta.date), method: r.method || (st.meta && st.meta.method) });
+  }
+  ss.missing = r.missing || {};
+  if (r.fund_total != null) ss.fundTotal = r.fund_total;
+  if (r.facets) {
+    ss.facets = r.facets;
+    if (r.facets.coverage) ss.coverage = r.facets.coverage;
+    if (r.facets.fund_total != null) ss.fundTotal = r.facets.fund_total;
+    // facets 首次到达（每次进 tab 首开都会清空 ⇒ 首开必中）:定点回填面板 facets 区块
+    // （类型/申购勾选+覆盖率标签）,不整体重建面板 ⇒ 不清掉用户未防抖的数值输入
+    _fundScreenerApplyFacets();
+  }
+  _renderFundScoreBody();
+  _fundScreenerRenderChips();
+}
+
+// 显式降级（API 不可用/未登录 401/结构异常）: 回既有 Top100 链路 + 明示「降级态」, 不白屏
+async function _fundScreenerDegrade(err) {
+  const st = _fundScoreState, ss = _fundScreenerState;
+  ss.loading = false;
+  ss.degraded = true;
+  ss.degradeMsg = (err && err.message) ? err.message : String(err);
+  // 未登录（401）= 登录特权未满足 → 弹登录框（登录权限说明; 与场外评分排行同特权）
+  if (ss.degradeMsg === "HTTP 401") {
+    openLoginPromptForFeature("基金评分筛选", "基金评分筛选为登录用户特权，登录后可筛选全市场场外基金（约 2.7 万只）");
+  }
+  console.warn("[fund_screener] API 不可用, 降级 fund_score_top.json:", ss.degradeMsg);
+  let r = null;
+  try { r = await fetchJSON(FUND_SCORE_TOP_URL_R2); }
+  catch (e1) { try { r = await fetchJSON(FUND_SCORE_TOP_URL_CF); } catch (e2) { r = null; } }
+  st.source = "static";
+  if (r && r.data) {
+    st.all = (r.data || []).slice();
+    st.filtered = st.all.slice();
+    st.total = st.all.length;
+    st.pages = Math.max(1, Math.ceil(st.all.length / FUND_SCORE_PAGE_SIZE));
+    st.meta = { date: r.date, count: r.count, method: r.method, update_date: st.all[0] && st.all[0].update_date };
+  }
+  _renderFundScoreBody();
+  _fundScreenerRenderChips();
+  _fundScreenerRenderPanel();
+}
+
+// 条件变化 → 回第 1 页重查
+function _fundScreenerApply() {
+  _fundScoreState.page = 1;
+  _fundScreenerFetch();
+}
+
+// chip 条 + 结果计数 + 「另有 N 只因该字段缺失被排除」+ 降级提示
+function _fundScreenerRenderChips() {
+  const el = document.getElementById("fund-screener-chips");
+  if (!el) return;
+  const ss = _fundScreenerState;
+  let html = "";
+  if (ss.degraded) {
+    html += '<div class="fund-screener-degraded">' + _esc(_t("fund_screener_degraded").replace("{msg}", ss.degradeMsg || "")) + '</div>';
+  }
+  const conds = _fundScreenerActiveConds();
+  if (conds.length) {
+    html += '<div class="fund-screener-chipline">'
+      + conds.map((c) => '<span class="fund-screener-chip">' + _esc(c.text)
+        + '<button class="fund-screener-chip-x" title="' + _esc(_t("fund_screener_del")) + '" data-cond="' + _esc(c.k) + '">×</button></span>').join("")
+      + '<button class="fund-screener-clear2" id="fund-screener-clear2">' + _t("fund_screener_clear") + '</button>'
+      + '</div>';
+  }
+  // 「另有 N 只因该字段缺失被排除」: 只对生效的数值条件逐条显示（服务端 missing 计数 == 该字段 IS NULL 计数）
+  const miss = [];
+  Object.keys(ss.missing || {}).forEach((k) => {
+    const n = ss.missing[k];
+    if (!n) return;
+    const fd = _fundScreenerNumFieldDef(k) || { zh: k };
+    miss.push(_t("fund_screener_excluded").replace("{n}", String(n)).replace("{f}", fd.zh));
+  });
+  if (miss.length) {
+    html += '<div class="fund-screener-missing">' + miss.map((m) => '<span>' + _esc(m) + '</span>').join("") + '</div>';
+  }
+  el.innerHTML = html;
+
+  // chip 删除
+  el.querySelectorAll(".fund-screener-chip-x[data-cond]").forEach((b) => {
+    b.onclick = () => _fundScreenerRemoveCond(b.dataset.cond);
+  });
+  const c2 = el.querySelector("#fund-screener-clear2");
+  if (c2) c2.onclick = () => _fundScreenerClear();
+}
+
+// 删除单个条件（k = 字段名 / types:类型值 / purchase:值 / company）
+function _fundScreenerRemoveCond(k) {
+  const f = _fundScreenerState.filters;
+  if (k === "company") f.company = "";
+  else if (k.indexOf("types:") === 0) f.types = (f.types || []).filter((t) => t !== k.slice(6));
+  else if (k.indexOf("purchase:") === 0) f.purchase = (f.purchase || []).filter((t) => t !== k.slice(9));
+  else if (f.nums && f.nums[k]) delete f.nums[k];
+  _fundScreenerRenderPanel();
+  _fundScreenerApply();
+}
+
+function _fundScreenerClear() {
+  _fundScreenerState.filters = { nums: {}, types: [], purchase: [], company: "" };
+  _fundScreenerRenderPanel();
+  _fundScreenerApply();
+}
+
+// 单个数值条件输入框 HTML（min / max）
+function _fundScreenerNumInputHTML(fd, role, ph) {
+  const f = _fundScreenerState.filters;
+  const c = (f.nums && f.nums[fd.k]) || {};
+  const v = (role === "min" ? c.min : c.max);
+  return '<input class="fund-screener-input" type="number" inputmode="decimal" step="any"'
+    + ' data-role="' + role + '" data-k="' + _esc(fd.k) + '"'
+    + ' placeholder="' + ph + '" value="' + (v != null && v !== "" ? _esc(String(v)) : "") + '">';
+}
+
+function _fundScreenerNumFieldHTML(fd) {
+  const cov = _fundScreenerCovTxt(fd.k);
+  return '<label class="fund-screener-field">'
+    + '<span class="fund-screener-flabel">' + _esc(fd.zh) + '</span>'
+    + '<span class="fund-screener-finputs">'
+    + _fundScreenerNumInputHTML(fd, "min", _t("fund_screener_any"))
+    + (fd.minOnly ? "" : '<span class="fund-screener-tilde">~</span>' + _fundScreenerNumInputHTML(fd, "max", _t("fund_screener_any")))
+    + (fd.unit ? '<span class="fund-screener-unit">' + _esc(fd.unit) + '</span>' : "")
+    + '</span>'
+    + '<span class="fund-screener-cov" data-k="' + _esc(fd.k) + '">' + _esc(cov) + '</span>'
+    + '</label>';
+}
+
+// 多选项 HTML（类型 / 申购状态）: 选项来自 facets 全市场分布; 未到达则显示「选项加载中…」占位。
+// 拆成独立函数 = 面板整表渲染(_fundScreenerRenderPanel)与 facets 到达定点回填(_fundScreenerApplyFacets)两处共用,
+// 防两处各写一份漂移(§22 代码内常量登记点)。
+function _fundScreenerTypeChecksHTML() {
+  const ss = _fundScreenerState, f = ss.filters;
+  if (!(ss.facets && ss.facets.type_counts)) {
+    return '<span class="fund-screener-loading">' + _t("fund_screener_opts_loading") + '</span>';
+  }
+  return (ss.facets.type_counts || []).map((x) =>
+    '<label class="fund-screener-check"><input type="checkbox" data-role="types" value="' + _esc(x.type) + '"'
+    + ((f.types || []).indexOf(x.type) >= 0 ? " checked" : "") + '><span>' + _esc(x.type) + ' (' + x.n + ')</span></label>').join("");
+}
+function _fundScreenerPurChecksHTML() {
+  const ss = _fundScreenerState, f = ss.filters;
+  if (!(ss.facets && ss.facets.purchase_status_counts)) {
+    return '<span class="fund-screener-loading">' + _t("fund_screener_opts_loading") + '</span>';
+  }
+  return (ss.facets.purchase_status_counts || []).map((x) =>
+    '<label class="fund-screener-check"><input type="checkbox" data-role="purchase" value="' + _esc(x.status) + '"'
+    + ((f.purchase || []).indexOf(x.status) >= 0 ? " checked" : "") + '><span>' + _esc(x.status) + ' (' + x.n + ')</span></label>').join("");
+}
+// 基金公司 datalist（选项来自 facets; 未到达返回空串）。放在独立容器里, 回填时不碰已输入的公司名。
+function _fundScreenerCompanyListHTML() {
+  const ss = _fundScreenerState;
+  if (!(ss.facets && ss.facets.company_counts)) return "";
+  return '<datalist id="fund-screener-company-dl">'
+    + (ss.facets.company_counts || []).map((x) => '<option value="' + _esc(x.company) + '">' + x.n + ' ' + _t("fund_score_count_unit") + '</option>').join("")
+    + '</datalist>';
+}
+// 类型/申购多选的事件绑定（面板整表渲染与 facets 定点回填共用; 改 filters 后回第 1 页重查）
+function _fundScreenerBindMultiChecks(el) {
+  el.querySelectorAll('input[data-role="types"]').forEach((cb) => {
+    cb.onchange = () => {
+      _fundScreenerState.filters.types = Array.prototype.slice.call(el.querySelectorAll('input[data-role="types"]:checked')).map((x) => x.value);
+      _fundScreenerApply();
+    };
+  });
+  el.querySelectorAll('input[data-role="purchase"]').forEach((cb) => {
+    cb.onchange = () => {
+      _fundScreenerState.filters.purchase = Array.prototype.slice.call(el.querySelectorAll('input[data-role="purchase"]:checked')).map((x) => x.value);
+      _fundScreenerApply();
+    };
+  });
+}
+// facets 首次到达后的定点回填: 只换多选/公司 datalist/覆盖率标签三块,
+// 不整表重建 → 不冲掉用户已输入但还没防抖触发的数值/公司输入框（审查 F1 修法）。
+function _fundScreenerApplyFacets() {
+  const el = document.getElementById("fund-screener-panel");
+  if (!el) return;
+  const tc = document.getElementById("fund-screener-type-checks");
+  if (tc) tc.innerHTML = _fundScreenerTypeChecksHTML();
+  const pc = document.getElementById("fund-screener-pur-checks");
+  if (pc) pc.innerHTML = _fundScreenerPurChecksHTML();
+  const cw = document.getElementById("fund-screener-company-dl-wrap");
+  if (cw) cw.innerHTML = _fundScreenerCompanyListHTML();
+  el.querySelectorAll(".fund-screener-cov[data-k]").forEach((s) => { s.textContent = _fundScreenerCovTxt(s.dataset.k); });
+  _fundScreenerBindMultiChecks(el);
+}
+
+// 面板整表渲染（开面板 / facets 到达 / 清空 / 删条件时调用）
+function _fundScreenerRenderPanel() {
+  const el = document.getElementById("fund-screener-panel");
+  if (!el) return;
+  const ss = _fundScreenerState, f = ss.filters;
+  if (!f.nums) f.nums = {};
+  if (!f.types) f.types = [];
+  if (!f.purchase) f.purchase = [];
+  const byGroup = {};
+  FUND_SCREENER_NUM_FIELDS.forEach((fd) => { (byGroup[fd.g] = byGroup[fd.g] || []).push(fd); });
+
+  // 多选（类型/申购）与公司 datalist: 选项来自 facets（服务端全市场分布）; 未到达则为占位（见上方共用函数）
+  const typeChecks = _fundScreenerTypeChecksHTML();
+  const purChecks = _fundScreenerPurChecksHTML();
+  const companyList = _fundScreenerCompanyListHTML();
+
+  const multiHTML = '<label class="fund-screener-field fund-screener-field-wide">'
+    + '<span class="fund-screener-flabel">' + _t("fund_screener_type") + '</span>'
+    + '<span class="fund-screener-finputs fund-screener-checks" id="fund-screener-type-checks">' + typeChecks + '</span></label>'
+    + '<label class="fund-screener-field fund-screener-field-wide">'
+    + '<span class="fund-screener-flabel">' + _t("fund_screener_purchase") + '</span>'
+    + '<span class="fund-screener-finputs fund-screener-checks" id="fund-screener-pur-checks">' + purChecks + '</span></label>'
+    + '<label class="fund-screener-field">'
+    + '<span class="fund-screener-flabel">' + _t("fund_screener_company") + '</span>'
+    + '<span class="fund-screener-finputs"><input class="fund-screener-input fund-screener-input-wide" type="text"'
+    + ' list="fund-screener-company-dl" data-role="company" placeholder="' + _esc(_t("fund_screener_company_ph")) + '"'
+    + ' value="' + _esc(f.company || "") + '"><span id="fund-screener-company-dl-wrap">' + companyList + '</span></span></label>';
+
+  let html = '<div class="fund-screener-head">'
+    + '<span class="fund-screener-title">' + _t("fund_screener_title") + '</span>'
+    + '<span class="fund-screener-tip">' + _esc(_t("fund_screener_tip")) + '</span>'
+    + '<button class="fund-screener-clear" id="fund-screener-clear">' + _t("fund_screener_clear") + '</button>'
+    + '<button class="fund-screener-collapse" id="fund-screener-collapse">' + _t("fund_screener_collapse") + '</button>'
+    + '</div>'
+    + '<div class="fund-screener-chips" id="fund-screener-chips"></div>';
+
+  FUND_SCREENER_GROUPS.forEach((g) => {
+    const fds = byGroup[g] || [];
+    if (!fds.length && g !== "基础") return;
+    html += '<div class="fund-screener-group"><div class="fund-screener-group-title">' + _esc(g) + '</div>'
+      + '<div class="fund-screener-grid">'
+      + (g === "基础" ? multiHTML : "")
+      + fds.map((fd) => _fundScreenerNumFieldHTML(fd)).join("")
+      + '</div></div>';
+  });
+  el.innerHTML = html;
+
+  // 事件: 数值输入（防抖 350ms）
+  let _t1 = null;
+  const bindNum = (inp) => {
+    inp.oninput = () => {
+      if (_t1) clearTimeout(_t1);
+      _t1 = setTimeout(() => {
+        const k = inp.dataset.k, role = inp.dataset.role;
+        f.nums[k] = f.nums[k] || {};
+        const v = inp.value === "" ? null : Number(inp.value);
+        f.nums[k][role] = (v != null && isFinite(v)) ? v : null;
+        _fundScreenerApply();
+      }, 350);
+    };
+  };
+  el.querySelectorAll('input[data-role="min"], input[data-role="max"]').forEach(bindNum);
+  // 事件: 类型/申购多选（共用绑定函数, 与 facets 定点回填同源）
+  _fundScreenerBindMultiChecks(el);
+  // 事件: 基金公司（精确匹配, 防抖 400ms）
+  const cmp = el.querySelector('input[data-role="company"]');
+  if (cmp) {
+    let _t2 = null;
+    cmp.oninput = () => {
+      if (_t2) clearTimeout(_t2);
+      _t2 = setTimeout(() => { f.company = (cmp.value || "").trim(); _fundScreenerApply(); }, 400);
+    };
+  }
+  const clr = el.querySelector("#fund-screener-clear");
+  if (clr) clr.onclick = () => _fundScreenerClear();
+  const col = el.querySelector("#fund-screener-collapse");
+  if (col) col.onclick = () => _fundScreenerTogglePanel(false);
+  _fundScreenerRenderChips();
+}
+
+// 面板开/关（默认收起; 关闭=快照零网络还原默认视图, 逐位一致）
+function _fundScreenerTogglePanel(open) {
+  const ss = _fundScreenerState, st = _fundScoreState;
+  const want = (open === undefined) ? !ss.open : !!open;
+  if (want === ss.open) return;
+  ss.open = want;
+  const el = document.getElementById("fund-screener-panel");
+  const btn = document.getElementById("fund-screener-toggle");
+  if (el) el.classList.toggle("hidden", !want);
+  if (btn) { btn.classList.toggle("active", want); btn.setAttribute("aria-expanded", want ? "true" : "false"); }
+  if (want) {
+    // 进筛选器模式: 先快照默认视图（关闭时零网络逐位还原）, 再拉条件结果 + 面板数据
+    if (!ss.prevSnapshot) {
+      ss.prevSnapshot = {
+        source: st.source, all: st.all, filtered: st.filtered, total: st.total, pages: st.pages,
+        page: st.page, meta: st.meta, typeCounts: st.typeCounts, search: st.search,
+        fundTypeFilter: st.fundTypeFilter, sortKey: st.sortKey, sortDir: st.sortDir
+      };
+    }
+    // 工具栏类型下拉在筛选器模式下让位给面板的「基金类型」多选（避免两个控件打架）
+    st.fundTypeFilter = "all";
+    const ts = document.getElementById("fund-score-type");
+    if (ts) { ts.value = "all"; ts.disabled = true; ts.title = _t("fund_screener_type_tooltip"); }
+    st.search = "";
+    const si = document.getElementById("fund-score-search");
+    if (si) si.value = "";
+    ss.needFacets = true;
+    ss.fundTotal = ss.fundTotal || st.total || null;
+    _fundScreenerRenderPanel();
+    st.page = 1;
+    _fundScreenerFetch();
+  } else {
+    if (ss.prevSnapshot) {
+      const s = ss.prevSnapshot;
+      st.source = s.source; st.all = s.all; st.filtered = s.filtered; st.total = s.total;
+      st.pages = s.pages; st.page = s.page; st.meta = s.meta; st.typeCounts = s.typeCounts;
+      st.search = s.search; st.fundTypeFilter = s.fundTypeFilter;
+      st.sortKey = s.sortKey || "composite_score"; st.sortDir = (s.sortDir === "asc") ? "asc" : "desc";
+      ss.prevSnapshot = null;
+      const si = document.getElementById("fund-score-search");
+      if (si) si.value = st.search || "";
+      const ts = document.getElementById("fund-score-type");
+      if (ts) { ts.disabled = false; ts.value = st.fundTypeFilter || "all"; ts.title = _t("fund_score_fund_type"); }
+      // 排序还原: 控件值 + localStorage 与快照序(st)四方一致(st==下拉==localStorage==列表),
+      // 否则筛选态改排序后收起 → 列表回快照序但控件/localStorage 仍是筛选态值(F2 一致性缺陷)
+      const srt = document.getElementById("fund-score-sort");
+      const sortValRestore = st.sortKey + "-" + st.sortDir;
+      if (srt) srt.value = sortValRestore;
+      try { localStorage.setItem("fund_score_sort", sortValRestore); } catch (e) {}
+    }
+    _renderFundScoreBody();
+  }
+}
+
+// 进场外 tab 时重置筛选器状态（面板收起/条件清空; 默认视图起点与现状一致）
+function _fundScreenerReset() {
+  const ss = _fundScreenerState;
+  ss.open = false; ss.loaded = true; ss.loading = false;
+  ss.filters = { nums: {}, types: [], purchase: [], company: "" };
+  ss.facets = null; ss.coverage = {}; ss.fundTotal = null; ss.missing = {};
+  ss.degraded = false; ss.degradeMsg = null; ss.needFacets = false; ss.prevSnapshot = null;
+  const el = document.getElementById("fund-screener-panel");
+  if (el) { el.classList.add("hidden"); el.innerHTML = ""; }
+  const btn = document.getElementById("fund-screener-toggle");
+  if (btn) { btn.classList.remove("active"); btn.setAttribute("aria-expanded", "false"); }
 }
 
 // ============ B4 持仓面板: 输入/保存/清空 + chips 显示评分排名 ============

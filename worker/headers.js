@@ -15,6 +15,10 @@ import subscriptionServiceHandler from './subscription_service.js';
 // 场外基金评分全量查询 handler（#79 方案C 2026-08-22：/api/fund_score 分页/筛选/排序/搜索，
 // D1 trade-fund-score 数据源，session 鉴权复用 auth.js，需先于通用 /api/* 分发判）
 import fundScoreHandler from './fund_score.js';
+// 公募基金筛选器 handler（#266 一期 2026-10-19：/api/fund_screener 全市场筛选，
+// D1 trade-fund-score.fund_screener 数据源，同为登录用户特权；需先于通用 /api/* 分发判。
+// 与 /api/fund_score 并列、互不影响——原端点行为逐位不动, §23.7 冻结契约）
+import fundScreenerHandler from './fund_screener.js';
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
@@ -321,6 +325,10 @@ export default {
     // #79 方案C（2026-08-22）：场外基金评分全量分页 API（D1 数据源），通用 /api/* 前判
     if (url.pathname === '/api/fund_score') {
       return fundScoreHandler(request, env);
+    }
+    // #266 一期：公募基金筛选器（全市场条件筛选，D1 fund_screener），通用 /api/* 前判
+    if (url.pathname === '/api/fund_screener') {
+      return fundScreenerHandler(request, env);
     }
     // 2026-08-17 AI 每日速递订阅服务：/api/subscribe/register|unregister|status|recipients 分发到此
     // 在通用 /api/*（subscribe.js 信号订阅）前判，避免被其 404 吞掉。
