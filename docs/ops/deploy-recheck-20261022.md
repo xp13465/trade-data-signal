@@ -48,3 +48,7 @@
 ## 7. 纪律声明
 - 未改任何文件、未动 systemd unit/定时任务、未做 git 写操作;未修任何失败项(仅记录)。
 - 只触发一次 deploy,无重试。
+
+## 附:残留后台任务已结清(00:36 通知)
+- 本地 harness 任务 bs84hrwe7 已退出,exit=255;输出末行 `client_loop: send disconnect: Broken pipe`。
+- 性质:ssh 客户端通道断开(远端会话因后台进程而长期挂住),**非 deploy 失败**;deploy 在断开前后均独立运行,云端日志证明 stage1 23:49:57 → stage2 00:00:27 exit=0,且已核对 check_data_integrity 44 ok/0 fail。
