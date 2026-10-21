@@ -1897,8 +1897,9 @@ _check_resource("主机swap", "host", _swap_used_pct())
 #   除让「巡检发现异常」经脚本自身通道(notify --severe, dedup failed_units_patrol)发出外,
 #   更关键的是——**巡检脚本自己跑不起来**(被删/异常/意外退出码)时, 本处直接把它变成
 #   本轮主告警邮件里的一条 SEVERE, 让「巡检者死了」当场可见(#196② 核心:
-#   不能「巡检者死了没人知」)。rc 映射: 0=健康 / 1=自身通道已发(仅记日志) /
-#   3=非云上跳过 / 其他(含 FileNotFoundError/非0异常)→ 追加 SEVERE。
+#   不能「巡检者死了没人知」)。rc 映射(2026-10-22 审查差集 D11 同步新语义):
+#   0=健康 / 1=巡检已处理(告警真发出或按设计静默, 仅记日志) / 4=发现异常但告警未送达
+#   (独立 SEVERE 复核) / 3=非云上跳过 / 其他(含 FileNotFoundError/非0异常)→ 追加 SEVERE。
 #   异常消失(脚本恢复可跑)→ 恢复检测循环自动发一条 [恢复](monitor 自身自愈值得一条通知,
 #   与 r2_* 自愈类"静默恢复"口径不同, 故不复用其前缀)。
 # #202 P3-b(2026-10-06): key 首段(task 名, 恢复循环 L1619 取 _key.split("|")[0] 展示)此前误用
@@ -1906,7 +1907,9 @@ _check_resource("主机swap", "host", _swap_used_pct())
 # = check_failed_units.py 自身存活 ⇒ 恢复邮件会显示错误的 task 名。改为实际被监控脚本名, 订正恢复文案。
 # 行为逐位不变: key 仅是内部标识, 触发/去重/恢复判定逻辑一字未动(详见 #202 报告"同输入输出"段)。
 _cfu_key = "check_failed_units|self|dead"
+_cfu_delivery_key = "check_failed_units|delivery|down"
 _cfu_dead = None
+_cfu_undelivered = None
 try:
     _r_cfu = subprocess.run(
         [sys.executable, str(REPO / "scripts" / "check_failed_units.py"),
@@ -1917,7 +1920,17 @@ try:
     if _r_cfu.returncode == 0:
         print(f"[196] {_cfu_out.splitlines()[0] if _cfu_out else 'failed-unit 巡检 OK'}")
     elif _r_cfu.returncode == 1:
-        print(f"[196] 云上 unit 异常(自身通道已发告警): {_cfu_out[:300]}")
+        # 2026-10-21 告警黑洞根因修: rc=1 只表示「巡检发现异常且已按契约处理」
+        # (告警真发出 或 降噪设计性静默), **不得再自证「自身通道已发告警」**——
+        # 旧文案把「全渠道失败/suppress」也说成已发, 是 7 天零告警无人知的根因之一。
+        # 真实交付结果由 check_failed_units 的 --result-file 判定; 未送达 ⇒ rc=4 走下方独立复核。
+        print(f"[196] 云上 unit 异常(巡检已处理: 告警发出或按设计静默, 交付结果见下轮 rc): {_cfu_out[:300]}")
+    elif _r_cfu.returncode == 4:
+        # 巡检发现异常但告警**未送达**(结构化 status ∉ {sent, digested}) ⇒ 独立故障维度, 不得被
+        # 「巡检脚本还活着」掩盖: 追加 SEVERE 进本轮主告警邮件, 由 monitor 自己的通道复核送达。
+        _cfu_undelivered = (f"云上 failed-unit 巡检发现异常但告警未送达(rc=4): "
+                            f"{(_cfu_out + ' ' + (_r_cfu.stderr or '')).strip()[:240]}")
+        print(f"[196] {_cfu_undelivered}")
     elif _r_cfu.returncode == 3:
         print(f"[196] failed-unit 巡检跳过(非云上环境): {_cfu_out[:200]}")
     else:
@@ -1926,21 +1939,30 @@ try:
 except Exception as _e:
     _cfu_dead = (f"云上 failed-unit 巡检脚本未能运行({type(_e).__name__}: {_e}) —— "
                  f"巡检者自身死亡, 需人工排查 scripts/check_failed_units.py")
-if _cfu_dead:
-    seen_keys_this_run.add(_cfu_key)
-    _cfu_ex = alert_state.get(_cfu_key)
-    if _cfu_ex is None or _cfu_ex.get("status") != "active":
-        alerts.append(f"SEVERE: {_cfu_dead}")
-        alert_state[_cfu_key] = {
+
+
+def _cfu_report(_key, _msg, _kw):
+    """把一条 check_failed_units 故障登记进本轮 alerts/alert_state(带状态去重)。"""
+    seen_keys_this_run.add(_key)
+    _ex = alert_state.get(_key)
+    if _ex is None or _ex.get("status") != "active":
+        alerts.append(f"SEVERE: {_msg}")
+        alert_state[_key] = {
             "status": "active",
             "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
             "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
-            "keyword": "巡检脚本自身异常",
-            "line_sample": _cfu_dead[:200],
+            "keyword": _kw,
+            "line_sample": _msg[:200],
         }
     else:
-        _cfu_ex["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[suppress] {_cfu_key} 持续中, 不重发")
+        _ex["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[suppress] {_key} 持续中, 不重发")
+
+
+if _cfu_dead:
+    _cfu_report(_cfu_key, _cfu_dead, "巡检脚本自身异常")
+if _cfu_undelivered:
+    _cfu_report(_cfu_delivery_key, _cfu_undelivered, "巡检告警未送达")
 
 # #123 R2(2026-10-01): merge key 24h 清理(防 alert_state 无界膨胀; merge key 不参与恢复)
 adr.r2_merge_cleanup(alert_state, NOW)

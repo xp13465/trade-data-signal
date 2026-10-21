@@ -106,6 +106,59 @@ ALERTS_FILE = ALERTS_DIR / "latest.md"
 DEDUP_FILE = REPO / "data" / "notify_dedup.json"
 
 # ---------------------------------------------------------------------------
+# 结构化发送结果(--result-file, 2026-10-21, 告警黑洞根因修)
+# 病灶: 调用方靠解析 stderr 字符串(「汇总: 已发出」)判断是否真发出 ⇒ 通道全失败/
+#   被静默 suppress 时字符串缺失, 调用方无法区分「抑制」与「发送失败」, 只能每轮重试。
+# 修法: 调用方显式传 --result-file <path>, notify 把本次真实路由结果原子写入 JSON:
+#   {"status": "sent"|"suppressed"|"failed"|"digested"|"noop"|"dry_run", "detail": "...",
+#    "tier": "critical"|..., "channels": {"email": bool, ...}, "dedup_key": "..."}
+# status 口径: sent=至少一个真实渠道发出; suppressed=去重窗内主动抑制(设计行为, 非故障);
+#   failed=走到了发送但全渠道未发出 / 内部异常; digested=已并入当日摘要 buffer(由 23:25 摘要
+#   统一交付 = 已处置, 与「未送达」区分开; 2026-10-22 审查 BLOCK-2); noop=批量/flush 等不发送模式;
+#   dry_run=--dry-run 模拟。写入失败只打 stderr, 绝不影响发送主链路。
+_RESULT_FILE: str | None = None
+_OUTCOME: dict = {"status": "failed", "detail": "未走到任何发送/抑制路径",
+                  "tier": None, "channels": {}}
+
+
+def _reset_outcome() -> None:
+    global _OUTCOME
+    _OUTCOME = {"status": "failed", "detail": "未走到任何发送/抑制路径",
+                "tier": None, "channels": {}}
+
+
+def _mark_outcome(status: str, detail: str = "", tier: str | None = None,
+                  channels: dict | None = None, dedup_key: str | None = None) -> None:
+    """记录本次 notify 的真实路由结果(供 --result-file 与调用方机器判定)。"""
+    global _OUTCOME
+    _OUTCOME = {"status": status, "detail": detail, "tier": tier,
+                "channels": dict(channels or {}),
+                "dedup_key": dedup_key}
+
+
+def _finish(rc: int, status: str, detail: str = "", tier: str | None = None,
+            channels: dict | None = None, dedup_key: str | None = None) -> int:
+    """标记结果并返回退出码(替换 main 内各分支 `return rc`)。"""
+    _mark_outcome(status, detail, tier=tier, channels=channels, dedup_key=dedup_key)
+    return rc
+
+
+def _write_result_file(path: str | None = None) -> None:
+    """把 _OUTCOME 原子写入 --result-file(写失败只 stderr, 不阻塞发送主链路)。"""
+    target = path or _RESULT_FILE
+    if not target:
+        return
+    try:
+        p = Path(target)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(json.dumps(_OUTCOME, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(p)
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify][result] 结果文件写入失败(不影响发送): {e}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
 # W1 L1 度量层（2026-10-10，告警系统性收敛第一波；用户已拍板触碰本冻结面）
 # 单点台账 data/alerts/alert_ledger.jsonl —— 记录每一封**实际外发**的通知。
 #   · 纯新增追加写、零现有行为变更；best-effort（写失败绝不阻塞发送，同 _mirror_severe）
@@ -1233,11 +1286,13 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     # 被 7~8 个脚本各发 = 28 条)。
     # 豁免(逐条 = 不聚合, 照发; 宁多勿吞): 非告警群消息(业务流 report 群等) / 恢复类
     # (闭环信号必须即时) / 摘要+聚合消息自身(防元噪声) / budget_exempt(critical 升级档) /
-    # dry-run / 域未映射 / 总开关 ALERT_BUDGET_DISABLE=1 或 ALERT_DOMAIN_DISABLE=1。
+    # dry-run / 域未映射 / 总开关 ALERT_BUDGET_DISABLE=1 或 ALERT_DOMAIN_DISABLE=1 /
+    # **关键告警键**(adr.DOMAIN_AGGREGATE_EXEMPT_KEYS: deploy 连续失败停摆, 迟到=没告警)。
     # 状态写盘在「真发出/真并入」之后(发送成功才占窗, 对齐 P1-1), 写失败只是不占窗。
     _dom, _dom_action, _dom_entry = None, None, None
     _agg_exempt = bool(ALERT_AGGREGATE_SUBJECT_RE.match(str(subject))) \
-        or bool(_RECOVERY_PREFIX_RE.match(str(subject)))
+        or bool(_RECOVERY_PREFIX_RE.match(str(subject))) \
+        or (ledger_key in adr.DOMAIN_AGGREGATE_EXEMPT_KEYS)  # D3: 停摆级关键告警直发
     _grp = feishu_group or _resolve_feishu_chat_key(subject, from_prefix, severe)
     if (not dry_run and not budget_exempt and not _agg_exempt and _grp == "alert"
             and os.environ.get("ALERT_DOMAIN_DISABLE") != "1"
@@ -2993,7 +3048,7 @@ def _tier_send_ok(res: dict, tier: str) -> bool:
     return True
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main_impl(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="update_all 监控通知（邮件 + Telegram + alerts 文件）"
     )
@@ -3042,19 +3097,25 @@ def main(argv: list[str] | None = None) -> int:
                         help="飞书引用回复：把消息作为对指定消息 ID 的引用回复发送"
                              "（body 加 reply_to_message_id，回复挂靠在原消息下方，"
                              "任务状态可挂靠追踪）。仅飞书应用模式生效，email/telegram 忽略")
+    parser.add_argument("--result-file", default=None, metavar="PATH",
+                        help="把本次真实发送结果写成 JSON（status=sent/suppressed/failed/"
+                             "noop/dry_run + detail + tier + channels + dedup_key）。"
+                             "调用方据此判「真发出」, 不再解析 stderr 字符串（2026-10-21）")
     args = parser.parse_args(argv)
+    global _RESULT_FILE
+    _RESULT_FILE = args.result_file
 
     # warning 聚合批发模式（schedule_monitor/monitor_72h 每轮尾部调用）
     if args.flush_warnings:
         r = flush_warning_batch(dry_run=args.dry_run)
         print(f"[notify] flush-warnings: {r}", file=sys.stderr)
-        return 0
+        return _finish(0, "noop", f"flush-warnings: {r}")
 
     # 摘要批发模式（#245 批2；schedule_monitor 每轮尾部调用，自门控静默 no-op）
     if args.flush_digest:
         r = flush_digest(dry_run=args.dry_run)
         print(f"[notify] flush-digest: {r}", file=sys.stderr)
-        return 0
+        return _finish(0, "noop", f"flush-digest: {r}")
 
     # 摘要吸收模式（#245 批2）：monitor 行级预算吸收 / 恢复补列直接入 buffer
     if args.defer_digest:
@@ -3064,18 +3125,18 @@ def main(argv: list[str] | None = None) -> int:
         if os.environ.get("ALERT_BUDGET_DISABLE") == "1":
             print(f"[notify][digest] ALERT_BUDGET_DISABLE=1 → 已停用, 不并入摘要 buffer "
                   f"category={_dg_cat}: {args.subject[:80]}", file=sys.stderr)
-            return 0
+            return _finish(0, "noop", "defer-digest: ALERT_BUDGET_DISABLE=1")
         if args.dry_run:
             print(f"[notify][digest][dry-run] 模拟并入摘要 buffer category={_dg_cat}: "
                   f"{args.subject[:80]}", file=sys.stderr)
-            return 0
+            return _finish(0, "dry_run", "defer-digest dry-run")
         if _absorb_to_digest(args.subject, args.body, key=None, category=_dg_cat,
                              from_prefix=args.from_prefix, bump_hits=True):
             print(f"[notify][digest] 已并入摘要 buffer category={_dg_cat}: "
                   f"{args.subject[:80]}", file=sys.stderr)
-            return 0
+            return _finish(0, "noop", "defer-digest: 已并入摘要 buffer")
         print(f"[notify][digest] 并入失败 category={_dg_cat}: {args.subject[:80]}", file=sys.stderr)
-        return 1
+        return _finish(1, "failed", "defer-digest: 并入失败")
 
     # 三级分级路由（--tier 显式指定时走分级入口；缺省保持原 send() 行为向后兼容）
     # #132 审 C-1（2026-10-01）：此前 tier 分支在通用 check_dedup 之前 return 0，
@@ -3089,7 +3150,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.dedup_key and not args.dry_run and check_dedup(args.dedup_key, args.dedup_window):
             print(f"[notify][tier={args.tier}] dedup 窗口内 suppress "
                   f"key={args.dedup_key}", file=sys.stderr)
-            return 0
+            return _finish(0, "suppressed", "tier dedup 窗口内 suppress",
+                           tier=args.tier, dedup_key=args.dedup_key)
         res = send_tiered(args.subject, args.body, tier=args.tier, dry_run=args.dry_run,
                           from_prefix=args.from_prefix, feishu_group=args.feishu_group,
                           reply_to_message_id=args.reply_to_message_id,
@@ -3097,14 +3159,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[notify][tier={args.tier}] 路由完成：{res}", file=sys.stderr)
         # P1-1 契约（发送成功才占窗，失败不占下次可重发）：tier 分支按 tier 判定成功
         #（critical=真实渠道发出；warning/info=已本地处理）。不动通用路径 L2157 的 and ok。
-        if args.dedup_key and not args.dry_run and _tier_send_ok(res, args.tier):
+        _tier_ok = _tier_send_ok(res, args.tier)
+        if args.dedup_key and not args.dry_run and _tier_ok:
             update_dedup(args.dedup_key)
         # critical 且带 --alert-issue 仍写 latest.md（与原 severe 语义对齐）；dry-run 由
         # write_alert 内部守卫挡下（#184，不落盘）
         if args.tier == TIER_CRITICAL and args.alert_issue:
             write_alert(args.alert_issue, args.body or args.subject, log_path=args.alert_log,
                         dry_run=args.dry_run)
-        return 0
+        _tier_status = "dry_run" if args.dry_run else ("sent" if _tier_ok else "failed")
+        return _finish(0, _tier_status, f"tier={args.tier} 路由完成",
+                       tier=args.tier, channels=res, dedup_key=args.dedup_key)
 
     # agent 完成通知模式：subject=结论摘要，直达用户绕过主控队列
     if args.agent_done:
@@ -3112,7 +3177,8 @@ def main(argv: list[str] | None = None) -> int:
                                     feishu_group=args.feishu_group,
                                     reply_to_message_id=args.reply_to_message_id)
         if results.get("suppressed"):
-            return 0
+            return _finish(0, "suppressed", "agent-done 5min 窗口内 suppress",
+                           tier="info", channels=results)
         ok = [ch for ch, v in results.items() if v]
         # 告警噪音根治 2026-09-11: telegram 未配置不计入"未发出"(未配置=跳过非失败), 与 _mirror_severe 同口径
         fail = [ch for ch, v in results.items()
@@ -3122,7 +3188,8 @@ def main(argv: list[str] | None = None) -> int:
                   + (f"（未发出：{'/'.join(fail)}）" if fail else ""), file=sys.stderr)
         else:
             print(f"[notify][agent-done] 汇总：全部渠道未发出（{'/'.join(fail) or '无渠道'}）", file=sys.stderr)
-        return 0
+        return _finish(0, "dry_run" if args.dry_run else ("sent" if ok else "failed"),
+                       "agent-done 路由完成", tier="info", channels=results)
 
     # #123 R4(2026-10-01): staticdata 备份失败分级——staticdata_backup_async.sh 被并发
     # 改动占用, 分级落在 notify.py 调用侧(dedup_key=staticdata_backup_fail 时拦截)。
@@ -3138,7 +3205,8 @@ def main(argv: list[str] | None = None) -> int:
         _r4_tier, _r4_reason = adr.r4_staticdata_grade(_r4_hb, _r4_st, datetime.now())
         if not args.dry_run and check_dedup(args.dedup_key, 21600):
             print(f"[notify][r4] staticdata_backup_fail 21600s 窗口内已发, suppress", file=sys.stderr)
-            return 0
+            return _finish(0, "suppressed", "R4 staticdata 21600s 窗口内 suppress",
+                           tier=_r4_tier, dedup_key=args.dedup_key)
         print(f"[notify][r4] staticdata_backup_fail 分级={_r4_tier}: {_r4_reason}", file=sys.stderr)
         if _r4_tier == "severe":
             results = send_tiered(args.subject, args.body, tier=TIER_CRITICAL,
@@ -3162,7 +3230,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.alert_issue:
             write_alert(args.alert_issue, args.body, log_path=args.alert_log,
                         dry_run=args.dry_run)
-        return 0
+        if args.dry_run:
+            _r4_status = "dry_run"
+        elif _r4_sent:
+            _r4_status = "sent"
+        elif _r4_tier == "info":
+            _r4_status = "noop"  # info 级只记 dashboard, 不外发=设计行为
+        else:
+            _r4_status = "failed"
+        return _finish(0, _r4_status, f"R4 staticdata 分级={_r4_tier}: {_r4_reason}",
+                       tier=_r4_tier, channels=results, dedup_key=args.dedup_key)
 
     # #160 收口 R7①(2026-10-05, 用户拍板「连续 2 天 FAIL 升 critical」): r2_consistency
     # (§22 三站一致性巡检, check_r2_consistency.sh 包装器) 连续失败天数分级。分级落在
@@ -3179,26 +3256,34 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         if _r7_tier == TIER_CRITICAL:
             if check_dedup(adr.R2_CONSISTENCY_ESCALATED_DEDUP_KEY, args.dedup_window):
-                print("[notify][r7] 升级档窗口内已发, suppress", file=sys.stderr)
-                return 0
-            _r7_subject = f"[告警] §22 三站一致性校验失败(连续 {_r7_days} 天, 升级 critical)"
-            _r7_body = (f"<b>连续失败升级</b>: {_r7_reason} —— 单次失败已升级为持续缺口, "
-                        f"需人工排查(问题明细见下)。<br>" + (args.body or ""))
-            results = send_tiered(_r7_subject, _r7_body, tier=TIER_CRITICAL,
-                                  dry_run=args.dry_run, from_prefix=args.from_prefix,
-                                  feishu_group=args.feishu_group,
-                                  reply_to_message_id=args.reply_to_message_id)
-            print(f"[notify][r7] 升级档路由完成：{results}", file=sys.stderr)
-            if _tier_send_ok(results, TIER_CRITICAL):
-                # 升级档占独立窗 + 同步占首日窗: 让 schedule_monitor 的同实例去重
-                # (r7_r2_consistency_wrapper_alerted 读 r2_consistency_fail)也看到
-                # 「包装器通道本次已发」, 防 monitor 汇总通道在升级日再复述一封。
-                update_dedup(adr.R2_CONSISTENCY_ESCALATED_DEDUP_KEY)
-                update_dedup(args.dedup_key)
-            if args.alert_issue:
-                write_alert(args.alert_issue, _r7_body, log_path=args.alert_log,
-                            dry_run=args.dry_run)
-            return 0
+                # 2026-10-21 告警黑洞根因修: 升级档抑制窗**只抑制「同一对象的重复升级」**,
+                # 不得 `return 0` 吞掉普通首报通道。此前此处直接返回 ⇒ 升级窗内新对象/首报
+                # 全被吞(病灶同 #196 下方)。现改为落回普通路径: 普通路径按 args.dedup_key +
+                # args.dedup_window 自行判重, 语义由对象自己的窗决定(通常与原行为一致)。
+                print("[notify][r7] 升级档窗口内已发, 本次不重复升级; 落回普通路径自行判重",
+                      file=sys.stderr)
+            else:
+                _r7_subject = f"[告警] §22 三站一致性校验失败(连续 {_r7_days} 天, 升级 critical)"
+                _r7_body = (f"<b>连续失败升级</b>: {_r7_reason} —— 单次失败已升级为持续缺口, "
+                            f"需人工排查(问题明细见下)。<br>" + (args.body or ""))
+                results = send_tiered(_r7_subject, _r7_body, tier=TIER_CRITICAL,
+                                      dry_run=args.dry_run, from_prefix=args.from_prefix,
+                                      feishu_group=args.feishu_group,
+                                      reply_to_message_id=args.reply_to_message_id)
+                print(f"[notify][r7] 升级档路由完成：{results}", file=sys.stderr)
+                _r7_ok = _tier_send_ok(results, TIER_CRITICAL)
+                if _r7_ok:
+                    # 升级档占独立窗 + 同步占首日窗: 让 schedule_monitor 的同实例去重
+                    # (r7_r2_consistency_wrapper_alerted 读 r2_consistency_fail)也看到
+                    # 「包装器通道本次已发」, 防 monitor 汇总通道在升级日再复述一封。
+                    update_dedup(adr.R2_CONSISTENCY_ESCALATED_DEDUP_KEY)
+                    update_dedup(args.dedup_key)
+                if args.alert_issue:
+                    write_alert(args.alert_issue, _r7_body, log_path=args.alert_log,
+                                dry_run=args.dry_run)
+                return _finish(0, "dry_run" if args.dry_run else ("sent" if _r7_ok else "failed"),
+                               f"R7 升级档(连续{_r7_days}天)路由完成", tier=TIER_CRITICAL,
+                               channels=results, dedup_key=args.dedup_key)
 
     # #196(F1 族「巡检/链路自身死亡」, 2026-10-05, 用户拍板 #196③): 两个新通道同样上
     # 「连续 3 天仍异常 → 升 critical」档(口径同上方 R7, 先例 R7/R4, 只是阈值 3 天而非 2)。
@@ -3244,33 +3329,46 @@ def main(argv: list[str] | None = None) -> int:
             # 改后: 同档 ≤1 封/_esc_window(failed-unit=72h 实测锚定; patrol_drift=原 6h, 收口见上);
             # 首报「新增立即报」不受影响(仍走 window=0 的普通路径)。
             if check_dedup(_esc_escalated_key, _esc_window):
-                print("[notify][196] 升级档窗口内已发, suppress", file=sys.stderr)
-                return 0
-            _esc_subject = (f"[告警] {_esc_label}(近 {adr.ESCALATE_ROLLING_WINDOW_DAYS} 天出现 "
-                            f"{_esc_days} 天, 升级 critical)")
-            _esc_body = (f"<b>持续异常升级</b>: 该异常自 {_esc_first} 起, 近 "
-                         f"{adr.ESCALATE_ROLLING_WINDOW_DAYS} 天里已出现 {_esc_days} 天未清除"
-                         f"(首日已严重告警, 今升 critical —— 说明人工处置超时, 需立即介入)。<br>"
-                         + (args.body or ""))
-            results = send_tiered(_esc_subject, _esc_body, tier=TIER_CRITICAL,
-                                  dry_run=args.dry_run, from_prefix=args.from_prefix,
-                                  feishu_group=args.feishu_group,
-                                  reply_to_message_id=args.reply_to_message_id)
-            print(f"[notify][196] 升级档路由完成：{results}", file=sys.stderr)
-            if _tier_send_ok(results, TIER_CRITICAL):
-                # 升级档占独立窗 + 同步占首日窗(与 R7 同构: 让 schedule_monitor 的同实例去重
-                # patrol_wrapper_alerted 也看到「包装器通道本次已发」, 防汇总通道升级日再复述)
-                update_dedup(_esc_escalated_key)
-                update_dedup(args.dedup_key)
-            if args.alert_issue:
-                write_alert(args.alert_issue, _esc_body, log_path=args.alert_log,
-                            dry_run=args.dry_run)
-            return 0
+                # 2026-10-21 告警黑洞根因修(云上 7 天零 failed-unit 告警,P0):
+                # 病灶: 升级档 72h 窗内 suppress 直接 `return 0`, 位于普通首报路径**之前**
+                #   ⇒ 72h 内任何**新增 failed unit 的首报**都被吞(10-19 11:00 后彻底黑洞)。
+                # 语义边界: 72h 窗只能抑制「同一对象的重复升级」, 不能抑制首报/新对象。
+                # 修法: 升级档抑制时**落回普通路径**, 由 args.dedup_key + args.dedup_window
+                #   (failed_units 调用方显式传 0=集合有变立即报)自行判重 ⇒ 首报立即恢复,
+                #   重复升级仍被 _esc_window 抑制(不会多打一封)。
+                print("[notify][196] 升级档窗口内已发, 本次不重复升级; 落回普通路径自行判重",
+                      file=sys.stderr)
+            else:
+                _esc_subject = (f"[告警] {_esc_label}(近 {adr.ESCALATE_ROLLING_WINDOW_DAYS} 天出现 "
+                                f"{_esc_days} 天, 升级 critical)")
+                _esc_body = (f"<b>持续异常升级</b>: 该异常自 {_esc_first} 起, 近 "
+                             f"{adr.ESCALATE_ROLLING_WINDOW_DAYS} 天里已出现 {_esc_days} 天未清除"
+                             f"(首日已严重告警, 今升 critical —— 说明人工处置超时, 需立即介入)。<br>"
+                             + (args.body or ""))
+                results = send_tiered(_esc_subject, _esc_body, tier=TIER_CRITICAL,
+                                      dry_run=args.dry_run, from_prefix=args.from_prefix,
+                                      feishu_group=args.feishu_group,
+                                      reply_to_message_id=args.reply_to_message_id)
+                print(f"[notify][196] 升级档路由完成：{results}", file=sys.stderr)
+                _esc_ok = _tier_send_ok(results, TIER_CRITICAL)
+                if _esc_ok:
+                    # 升级档占独立窗 + 同步占首日窗(与 R7 同构: 让 schedule_monitor 的同实例去重
+                    # patrol_wrapper_alerted 也看到「包装器通道本次已发」, 防汇总通道升级日再复述)
+                    update_dedup(_esc_escalated_key)
+                    update_dedup(args.dedup_key)
+                if args.alert_issue:
+                    write_alert(args.alert_issue, _esc_body, log_path=args.alert_log,
+                                dry_run=args.dry_run)
+                return _finish(0, "dry_run" if args.dry_run else ("sent" if _esc_ok else "failed"),
+                               f"#196 升级档({_esc_days}天)路由完成", tier=TIER_CRITICAL,
+                               channels=results, dedup_key=args.dedup_key)
 
     # 去重检查：window 内已告警过则 suppress 静默退出（返回 0，不阻塞调用方）
     # dry-run 不走去重（测试用，需看到发送日志）
     if args.dedup_key and not args.dry_run and check_dedup(args.dedup_key, args.dedup_window):
-        return 0
+        return _finish(0, "suppressed", "普通路径 dedup 窗口内 suppress",
+                       tier=("critical" if args.severe else "notice"),
+                       dedup_key=args.dedup_key)
 
     results = send(args.subject, args.body, severe=args.severe, dry_run=args.dry_run,
                    from_prefix=args.from_prefix, feishu_group=args.feishu_group,
@@ -3280,8 +3378,12 @@ def main(argv: list[str] | None = None) -> int:
                    ledger_key=args.dedup_key, ledger_group=args.feishu_group)
     # #245 批2: gate 已把本条并入摘要 buffer(digested=True) → 不打印「已发出」、不 update_dedup、
     # 不 write_alert(未外发消息不该占窗/不该在最新告警页); rc 恒 0 契约不变。
+    # 2026-10-22 审查 BLOCK-2: 独立态 `digested`(不再借用 noop) —— 摘要吸收 = 已处置(23:25 摘要
+    # 交付), 调用方(check_failed_units)据此落签名、不判 rc=4, 修「假 SEVERE + 滑动窗永不过期」。
     if results.get("digested"):
-        return 0
+        return _finish(0, "digested", "已并入摘要 buffer(digested)",
+                       tier=("critical" if args.severe else "notice"),
+                       dedup_key=args.dedup_key)
     ok = [ch for ch, v in results.items() if v]
     # 告警噪音根治 2026-09-11: telegram 未配置不计入"未发出"(未配置=跳过非失败), 与 _mirror_severe 同口径
     fail = [ch for ch, v in results.items() if not v and (ch != "telegram" or telegram_configured())]
@@ -3299,7 +3401,28 @@ def main(argv: list[str] | None = None) -> int:
         write_alert(args.alert_issue, args.body, log_path=args.alert_log,
                     dry_run=args.dry_run)
 
-    return 0
+    return _finish(0, "dry_run" if args.dry_run else ("sent" if ok else "failed"),
+                   "普通路径发送完成", tier=("critical" if args.severe else "notice"),
+                   channels=results, dedup_key=args.dedup_key)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI 入口: 跑真实实现 + 把本次发送结果写 --result-file(调用方机器判定用)。
+
+    2026-10-21 告警黑洞根因修: 调用方(check_failed_units / schedule_monitor)不得再解析
+    stderr 字符串判断「是否真发出」——字符串匹配会把「抑制」「全渠道失败」都判成未发出。
+    """
+    _reset_outcome()
+    global _RESULT_FILE
+    _RESULT_FILE = None
+    try:
+        rc = _main_impl(argv)
+    except Exception as e:  # noqa: BLE001
+        _mark_outcome("failed", f"notify 内部异常: {type(e).__name__}: {e}")
+        _write_result_file()
+        raise
+    _write_result_file()
+    return rc
 
 
 if __name__ == "__main__":

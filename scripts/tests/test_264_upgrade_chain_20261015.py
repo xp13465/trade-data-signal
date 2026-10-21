@@ -104,7 +104,12 @@ def _escalate_state(last, days, first=None):
 # 件 A: 升级档独立抑制窗(病灶 = 复用调用方首报窗 0 ⇒ 恒放行 ⇒ 永不抑制)
 # ══════════════════════════════════════════════════════════════════
 def test_a1_escalated_window_suppresses_when_already_sent(stubbed_notify):
-    """A-① 升级档独立窗内已发 → 抑制(旧实现: 调用方传 0 ⇒ check_dedup(key,0) 恒放行 ⇒ 真发)。"""
+    """A-① 升级档独立窗内已发 → 不重复升级; 落回普通路径按调用方窗判重(2026-10-21 修)。
+
+    旧实现: 此处直接 return 0(位于普通首报路径之前) ⇒ 72h 内新增 failed unit 的首报被吞
+    (云上 10-19 11:00 后 7 天零告警)。新语义: 升级窗只抑制「同一对象的重复升级」;
+    调用方 window=0(集合有变立即报)⇒ 普通首报必须照发, 只是不再发第二次升级 critical。
+    """
     sent, spy, tmp_path = stubbed_notify
     assert adr.ESCALATED_DEDUP_WINDOW_SECONDS == 259200, \
         "failed-unit 升级档窗 = 72h(件A 实测锚定值, 独立锚点)"
@@ -115,7 +120,8 @@ def test_a1_escalated_window_suppresses_when_already_sent(stubbed_notify):
                       "--dedup-key", adr.FAILED_UNITS_DEDUP_KEY,
                       "--dedup-window", "0"])   # ← 调用方真实形态: 首报窗=0(集合有变立即报)
     assert rc == 0
-    assert not sent, f"升级档窗口内必须抑制, 实际外发={sent}"
+    assert not [s for k, s in sent if k == "tiered"], f"升级档窗口内不得重复升级, 实际={sent}"
+    assert [s for k, s in sent if k == "send"], "首报被升级窗吞 = 黑洞回退(2026-10-21 回归)"
     assert spy.windows_for(adr.FAILED_UNITS_ESCALATED_DEDUP_KEY) == [
         adr.ESCALATED_DEDUP_WINDOW_SECONDS], "升级档必须用独立窗常量, 不得复用调用方窗口"
 
@@ -156,11 +162,13 @@ def test_a4_patrol_drift_channel_keeps_own_window(stubbed_notify):
     assert adr.PATROL_DRIFT_ESCALATED_DEDUP_WINDOW_SECONDS == 21600, \
         "patrol_drift 升级档窗常量必须仍是 6h(独立锚点: cloud_unit_patrol.sh:153)"
     spy.alerted.add(adr.PATROL_DRIFT_ESCALATED_DEDUP_KEY)
+    # 升级档发出时会同步占首报 key(notify 原逻辑), 故普通通道也在 6h 窗内 ⇒ 本次零外发。
+    spy.alerted.add(adr.PATROL_DRIFT_DEDUP_KEY)
     _seed_state(tmp_path, "cloud_unit_patrol_drift_state.json", _escalate_state(YESTERDAY, 2))
     rc = notify.main(["漂移主题", "漂移正文", "--severe",
                       "--dedup-key", adr.PATROL_DRIFT_DEDUP_KEY, "--dedup-window", "21600"])
     assert rc == 0
-    assert not sent, "patrol 漂移升级档窗口内已发 → 必须抑制"
+    assert not sent, "patrol 漂移升级档窗口内已发 → 必须抑制(两条通道都应在窗内)"
     assert spy.windows_for(adr.PATROL_DRIFT_ESCALATED_DEDUP_KEY) == [21600], \
         "patrol_drift 升级档必须真收到 6h(21600), 不得被 72h 统一档吞并"
 

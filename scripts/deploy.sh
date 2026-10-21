@@ -52,6 +52,39 @@ mkdir -p "$LOGDIR"
 # 串行全部 git 写); 测试隔离可经 DEPLOY_LOCK 覆写(见 149a 报告 §自测)。
 LOCK="${DEPLOY_LOCK:-/tmp/trade_deploy.lock}"
 
+# ── 连续部署失败独立告警(2026-10-21, P0 停摆两天无人知) ────────────────────────
+# 病灶: 10-20/10-21 两天 39 次部署零成功, 最后成功 10-19 23:25; 每次失败只有单点
+#   (数据校验/版本串等)各自的 6h 去重告警, **没有「部署连续失败 N 次」这一聚合维度**,
+#   两天停摆期间用户和我方都无感。本块用 EXIT trap 把每次部署结果落状态文件,
+#   连续失败达到阈值(默认 2, 可经 DEPLOY_FAIL_ALERT_THRESHOLD 覆盖)时由本脚本主动发一封
+#   独立告警(不依赖任何单项闸门是否发声)。
+# 注意: 两段式 exec(段1 → with_lock 重入段2) 不会双记 —— `exec` 替换进程时 EXIT trap 不执行;
+#   段1 成功 = 无记录, 段2 成功/失败各记一次, 一次部署只落一条结果。
+# 有意拒绝(交易日盘中闸)不是故障: 置 DEPLOY_RECORD_OFF=1 后再 exit, 不计入连续失败。
+DEPLOY_STAGE="init"
+DEPLOY_RECORD_OFF=0
+_deploy_record_result() {
+  _rc=$?
+  if [ "${DEPLOY_RECORD_OFF:-0}" = "1" ]; then
+    return 0
+  fi
+  if [ "$_rc" -eq 0 ]; then
+    "$PY" "$GIT_REPO/scripts/deploy_fail_tracker.py" success --repo "$REPO" 2>/dev/null || true
+    return 0
+  fi
+  "$PY" "$GIT_REPO/scripts/deploy_fail_tracker.py" failure --repo "$REPO" --rc "$_rc" \
+    --stage "${DEPLOY_STAGE:-unknown}" --log "$LOG" >/dev/null 2>&1
+  _trk=$?
+  if [ "$_trk" -eq 10 ]; then
+    # 阈值命中: 独立告警(6h 去重, 防连续失败期间每 15min 轰炸)。告警本体失败不得再改退出码。
+    "$PY" "$REPO/scripts/notify.py" "[告警] deploy 连续失败(停摆)" \
+      "deploy.sh 连续失败达到阈值(默认 2 次, 本次 rc=${_rc}, 阶段=${DEPLOY_STAGE})——部署链已停摆, 线上数据/静态站不会更新。<br>状态文件: $REPO/data/deploy_fail_state.json<br>日志: $LOG<br>需立即排查最近一次失败原因, 修复后手动重跑 deploy。" \
+      --severe --from-prefix "[告警]" --dedup-key deploy_consecutive_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
+  fi
+  return 0
+}
+trap _deploy_record_result EXIT
+
 # 加载 .env（PURGE_SECRET 等 Worker 凭证）到环境，确保手动跑 deploy.sh 时子进程
 # （upload_r2.py / export.py）能读到 PURGE_SECRET 调 /api/purge-cache 清 edge cache。
 # 根治 2026-08-09 手动部署丢失 PURGE_SECRET 致 edge cache 不清、前端读旧版 4h 事故。
@@ -152,6 +185,8 @@ IS_TRADING=$(cd "$REPO" && "$PY" -c "from app.calendar import is_trading_day; pr
 echo "时段闸门: IS_TRADING=${IS_TRADING} CURRENT_HM=$CURRENT_HM FORCE=$FORCE" | tee -a "$LOG"
 if [ "$IS_TRADING" = "1" ] && [ "$CURRENT_HM" -ge 0930 ] && [ "$CURRENT_HM" -le 1530 ] && [ "$FORCE" != "1" ]; then
   echo "✗ 交易日盘中（09:30-15:30），拒跑全量 export+deploy（防覆盖 intraday 实时版；force 可绕过）" | tee -a "$LOG"
+  # 有意拒绝 ≠ 部署失败: 不计入「连续失败」状态(否则每天盘中手动跑一次就触发误告警)。
+  DEPLOY_RECORD_OFF=1
   exit 1
 fi
 
@@ -284,6 +319,7 @@ fi
 # 其余复用现有文件（消除全量 353 JSON 重复重算）。安全：仅当依赖表 MAX(date) 与上次 export 相同才跳过，
 # 且 overview/signal_*/summary/futures 等必更白名单强制全量（防 8/14 "带日期跳过=静默旧数据"）。
 # 手动跑 export.py 不带 --incremental = 全量，行为不变。
+DEPLOY_STAGE="export"
 echo "→ 运行 export.py --incremental 生成静态 JSON ..." | tee -a "$LOG"
 "$PY" "$EXPORT" --incremental 2>&1 | tee -a "$LOG"
 EXPORT_RC=${PIPESTATUS[0]}
@@ -320,8 +356,11 @@ cp -R "$GIT_REPO/docs/kelly/position/scripts/accum_nav" "$REPO/static-site/data/
 # amount_forecast 爆炸 / 关键文件丢失）。--deploy-mode 仅 fail 阻断（exit 1），
 # warn 不阻断（exit 0），避免预存在 warn（etf_index_map 缺失等）阻塞所有 deploy。
 # 2026-08-06 加：拦 "成交额卡显示昨日值"(boot 嵌旧 overview) / "9.52万亿爆炸" / "ETF 全空" 等事故。
+DEPLOY_STAGE="check_data_integrity"
 echo "-> 运行 check_data_integrity.py 数据产物校验 ..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/check_data_integrity.py" --deploy-mode --data-dir "$REPO/static-site/data" 2>&1 | tee -a "$LOG"
+_INTEGRITY_SUMMARY="$REPO/data/check_data_integrity_summary.json"
+"$PY" "$REPO/scripts/check_data_integrity.py" --deploy-mode --data-dir "$REPO/static-site/data" \
+  --summary-file "$_INTEGRITY_SUMMARY" 2>&1 | tee -a "$LOG"
 CHECK_RC=${PIPESTATUS[0]}
 
 # 1.0.9 fund_nav 自愈(2026-10-13, docs/ops/deploy-fundnav-selfheal-20261013.md):
@@ -332,6 +371,10 @@ CHECK_RC=${PIPESTATUS[0]}
 # ⇒ 命中则重出 nav_bucket(with_lock 互斥 + 超时 900s + 最多 1 次) 再重跑校验。
 # **不放宽阻断语义**: 重跑仍 FAIL 照旧走下方原终止+告警(用户拍板保留 fund_nav FAIL 阻断全站)。
 # 临近 17:50 update_all 窗口(17:25-18:35)跳过自愈(§14 避撞, 只告警)。逻辑全在 fund_nav_selfheal.sh。
+# 2026-10-22 审查 BLOCK-1 返修: 上一批把本门写成 `-eq 1`, 而 fund_nav 曾被误列入告警级
+# ⇒ fund_nav 唯一失败时退出码是 3, 自愈分支永不进入(10-13 自愈机制在自己的设计场景失效)。
+# 现 fund_nav 已回阻断级(唯一失败 ⇒ rc=1), 本门恢复 `-ne 0` 与上方「不放宽阻断语义」逐字一致;
+# rc=3(其余告警级项失败)也过探针, 探针非「DB 领先产物」方向即快速返回 10, 不重出、无害。
 if [ "$CHECK_RC" -ne 0 ]; then
   echo "-> fund_nav 自愈前置检查(scripts/fund_nav_selfheal.sh)..." | tee -a "$LOG"
   REPO="$REPO" GIT_REPO="$GIT_REPO" bash "$REPO/scripts/fund_nav_selfheal.sh" 2>&1 | tee -a "$LOG"
@@ -339,7 +382,8 @@ if [ "$CHECK_RC" -ne 0 ]; then
   case "$HEAL_RC" in
     0)
       echo "→ fund_nav 自愈已重出产物, 重跑数据产物校验 ..." | tee -a "$LOG"
-      "$PY" "$REPO/scripts/check_data_integrity.py" --deploy-mode --data-dir "$REPO/static-site/data" 2>&1 | tee -a "$LOG"
+      "$PY" "$REPO/scripts/check_data_integrity.py" --deploy-mode --data-dir "$REPO/static-site/data" \
+        --summary-file "$_INTEGRITY_SUMMARY" 2>&1 | tee -a "$LOG"
       CHECK_RC=${PIPESTATUS[0]}
       ;;
     10) echo "→ fund_nav 自愈未命中(非「DB 领先产物」方向), 走原终止逻辑" | tee -a "$LOG" ;;
@@ -349,13 +393,30 @@ if [ "$CHECK_RC" -ne 0 ]; then
   esac
 fi
 
-if [ "$CHECK_RC" -ne 0 ]; then
-  echo "✗ 数据产物校验失败(退出码 $CHECK_RC)，终止部署（4 类事故拦截）" | tee -a "$LOG"
+if [ "$CHECK_RC" -eq 3 ]; then
+  # 2026-10-21 部署闸门分级: rc=3 = 只有「告警级」项失败(上游独立产物缺/滞后, deploy 修不了)。
+  # 只发告警、不退出 —— 旧行为会把整条链(静态站同步/R2/备份/次日计划)当人质, 10-20/10-21
+  # 两天 39 次零成功即此病灶。阻断级仍走下方 exit, 真故障判别力不变。
+  echo "⚠ 数据产物校验: 仅有告警级项失败(不阻断部署), 发告警后继续 ..." | tee -a "$LOG"
+  _AO_BODY=$("$PY" -c 'import json,sys
+try:
+    d=json.load(open(sys.argv[1], encoding="utf-8"))
+    items=d.get("alert_only_fails") or []
+    print("<br>".join("- %s: %s" % (i.get("name"), i.get("msg")) for i in items)[:1500] or "(明细见日志)")
+except Exception:
+    print("(明细见日志)")' "$_INTEGRITY_SUMMARY" 2>/dev/null || echo "(明细见日志)")
+  "$PY" "$REPO/scripts/notify.py" "[告警] deploy 数据产物校验: 仅告警级失败(不阻断)" \
+    "deploy.sh check_data_integrity 仅有**告警级**项失败(rc=3), 已按分级继续部署。<br>含义: 以下上游产物缺失/滞后, 相关次要展示会降级(旧数据/少一段), 但不会阻断本次数据上线:<br>${_AO_BODY}<br>处置建议: 人工核查对应上游定时器/采集器；deploy 重跑无法修复它们。<br>日志: $LOG" \
+    --from-prefix "[告警]" --dedup-key deploy_check_data_integrity_alertonly --dedup-window 21600 2>&1 | tee -a "$LOG" || true
+fi
+
+if [ "$CHECK_RC" -ne 0 ] && [ "$CHECK_RC" -ne 3 ]; then
+  echo "✗ 数据产物校验失败(退出码 $CHECK_RC, 阻断级)，终止部署（4 类事故拦截）" | tee -a "$LOG"
   # export-guard L4 (2026-10-03): 校验失败升级 --severe 告警(事故 5 次 deploy 失败无人知)。
-  "$PY" "$REPO/scripts/notify.py" "[告警] deploy 数据产物校验失败" "deploy.sh check_data_integrity FAIL(rc=$CHECK_RC), 已终止部署(4 类事故拦截)。日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_check_data_integrity_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
+  "$PY" "$REPO/scripts/notify.py" "[告警] deploy 数据产物校验失败" "deploy.sh check_data_integrity FAIL(rc=$CHECK_RC, 阻断级), 已终止部署。日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_check_data_integrity_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
   exit "$CHECK_RC"
 fi
-echo "✓ 数据产物校验通过" | tee -a "$LOG"
+echo "✓ 数据产物校验通过(含仅告警级失败继续)" | tee -a "$LOG"
 
 # 1.1.1 任务状态一致性机检(CLAUDE.md §23.12-1, 2026-09-06 用户拍板根治)
 # 对账 A pending-index 编号完整性 / B TASKS 幽灵编号+残留关闭指针 / C 僵尸巡检 cron,
@@ -363,6 +424,7 @@ echo "✓ 数据产物校验通过" | tee -a "$LOG"
 # 用 $GIT_REPO(trade 仓库): TASKS.md/.claude 只在 trade 树(trade-data 仅 docs 是 symlink,
 # TASKS.md/.claude 非 symlink 不存在于 trade-data)。每日运行 = update_all 17:50 O1 统一 deploy 链,
 # 与 check_data_integrity 完全同待遇(每日 + deploy 前双覆盖)。
+DEPLOY_STAGE="check_task_state"
 echo "-> 运行 check_task_state.py 任务状态一致性机检 ..." | tee -a "$LOG"
 "$PY" "$GIT_REPO/scripts/check_task_state.py" --repo "$GIT_REPO" --deploy-mode 2>&1 | tee -a "$LOG"
 TASK_RC=${PIPESTATUS[0]}
@@ -380,6 +442,7 @@ echo "✓ 任务状态一致性机检通过" | tee -a "$LOG"
 # ⟺ board_etf_map 重算 + 候选信号类型⊆白名单 + 回测交易无排除类别 + yaml排除类别⟺map实际缺失。
 # 任一断言 FAIL → 非0退出阻断上线(同 §22 数据一致性校验逻辑)。
 # config/scripts 在 trade-data 是 symlink 指向 trade, 故用 $REPO 相对路径与 check_data_integrity 一致。
+DEPLOY_STAGE="check_universe_alignment"
 echo "-> 运行 check_universe_alignment.py 入样宇宙规则对称校验 ..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/check_universe_alignment.py" --repo "$REPO" --deploy-mode 2>&1 | tee -a "$LOG"
 UNIV_RC=${PIPESTATUS[0]}
@@ -396,6 +459,7 @@ echo "✓ 入样宇宙规则校验通过" | tee -a "$LOG"
 # 默认档键集在 common.js preset / check_signals.py 白名单+中文名两表 / overfit_monitor RECENT_KEYS /
 # app.js 兜底键集各有一份常量副本(v1.1.5 切 NEW14 漏 check_signals 即此病灶 R1/R2), 任一份漏同步
 # =邮件不标「AI降亏·建议回避」而首页灰显删除线的跨端不一致。任一断言 FAIL → 非0退出阻断上线。
+DEPLOY_STAGE="check_fade_keys_alignment"
 echo "-> 运行 check_fade_keys_alignment.py AI降亏默认档键集一致性机检 ..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/check_fade_keys_alignment.py" --repo "$REPO" --deploy-mode 2>&1 | tee -a "$LOG"
 FADE_RC=${PIPESTATUS[0]}
@@ -413,6 +477,7 @@ echo "✓ AI降亏默认档键集一致性机检通过" | tee -a "$LOG"
 # 注意: 本地 static-site/data 两文件由 overfit_monitor.sh 打点产出(gitignore 不进 git),
 # 若打点侧还是老版本产物(主文件无 filtered)本步会拦下——merge 后先跑一次 bash scripts/overfit_monitor.sh force 再 deploy。
 # 任一 FAIL → 非0退出阻断上线。
+DEPLOY_STAGE="check_overfit_split_parity"
 echo "-> 运行 check_overfit_split_parity.py AI监控卡拆分产物结构校验 ..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/check_overfit_split_parity.py" --main "$REPO/static-site/data/overfit_monitor.json" --ext "$REPO/static-site/data/overfit_monitor_ext.json" 2>&1 | tee -a "$LOG"
 OVP_RC=${PIPESTATUS[0]}
@@ -434,6 +499,7 @@ if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
   echo "✗ 找不到可执行的 node(launchd PATH 与 ~/.nvm 均无)，AI监控卡组集校验无法执行，终止部署" | tee -a "$LOG"
   exit 1
 fi
+DEPLOY_STAGE="late_gates(parity/css/version/placeholder)"
 echo "-> 运行 check_overfit_recent_parity.mjs AI监控卡组集一致性校验 ..." | tee -a "$LOG"
 RECENT_JSON="$REPO/static-site/data/overfit_monitor.json" "$NODE_BIN" "$GIT_REPO/scripts/check_overfit_recent_parity.mjs" 2>&1 | tee -a "$LOG"
 OVR_RC=${PIPESTATUS[0]}
@@ -535,6 +601,7 @@ fi
 # 1.5 重新生成 minified JS（确保 app.min.js/lab.min.js 与源 app.js/lab.js 同步）
 # 安全网：dev 改了 app.js 源码但忘跑 build_min.py 时，此处补生成。
 # build_min.py 失败不阻断数据部署（已有 min 文件仍可用），仅告警。
+DEPLOY_STAGE="build_min_rsync"
 echo "→ 运行 build_min.py 重新生成 min JS ..." | tee -a "$LOG"
 # B1(2026-08-18): 传 GIT_REPO 让 build_min 从 git HEAD 读源生成 min（根治脏工作区覆盖），
 # trade-data 跑时 BASE 非 git 仓库，必须靠环境变量定位 trade git 仓库。
@@ -664,6 +731,7 @@ fi
 #   A. 版本串必须 ≥ 最近 first-parent 链天花板（倒退=大概率旧base提交,可能静默覆盖最近改动）
 #   B. 版本串未前进且内容净回退到历史旧 commit = 静默回退
 # 任一 FAIL → 非0退出阻断上线（§23.11 发现问题绝不静默吞掉）。
+DEPLOY_STAGE="check_version_progress"
 echo "-> 运行 check_version_progress.py 版本串倒退/净回退校验（防再犯机制 A/B）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/check_version_progress.py" --site-dir "$GIT_REPO/static-site" --repo "$GIT_REPO" --deploy-mode 2>&1 | tee -a "$LOG"
 PROG_RC=${PIPESTATUS[0]}
@@ -691,6 +759,7 @@ echo "=== deploy.sh 段2(锁内 git add/commit/push)开始 $(date '+%Y-%m-%d %H:
 # 原数据 JSON 已由上面 R2 上传（upload-all-data 等）推到 R2，不再 git push。
 # feed.xml 也走 R2（2026-08-10）：gen_rss 生成后 upload-data-files 上传 R2，不再 git push。
 # 保留 push：min JS/CSS（代码，build_min.py 生成）。
+DEPLOY_STAGE="git_commit_push"
 echo "-> git add min JS/CSS（阶段3：数据走 R2，只 push 代码）..." | tee -a "$LOG"
 DATA_FILES=()
 # min JS/CSS（build_min.py 生成的全部 6 个 min 文件）

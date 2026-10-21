@@ -1029,6 +1029,11 @@ def alert_budget_process(alert_state, alerts, now, repo, day=None):
 ALERT_DOMAIN_STATE_FILENAME = "alert_domains.json"      # data/alerts/ 下: 各域 last_seen/计数
 ALERT_DOMAIN_GROUP_INTERVAL = 7200                      # 域静默窗(秒; 默认 2h = RCA 建议 group_interval)
 DOMAIN_ABSORB_REASON = "domain_inhibited"               # 域聚合并入摘要的 reason 标记
+# 域聚合豁免键(2026-10-22 审查差集 D3): 以下通道是「全局停摆/已连续失败」级的关键告警,
+# 被同域 2h 静默窗吸收会推迟到 23:25 摘要才交付 —— 停摆告警迟到等于没告警。必须直发。
+# deploy_consecutive_fail = deploy 连续失败停摆告警(替代「39 次零成功两天无人知」的兜底通道;
+#   其 dedup_key 以 deploy_ 前缀本会落 r2_deploy 域, 故显式豁免)。
+DOMAIN_AGGREGATE_EXEMPT_KEYS = frozenset({"deploy_consecutive_fail"})
 DOMAIN_R2_RC_RE = re.compile(r"\br2(?:large)?=(\d+)")   # 主题内 R2 rc 值(≠0 ⇒ 该告警派生自 R2 链路失败)
 DOMAIN_LABELS = {                                       # 域 → 人读标签(摘要正文用, 说人话)
     "data_gap": "数据缺口",

@@ -62,7 +62,7 @@ def recorder(monkeypatch):
 # ────────────────────────── T1: signal_daily 重算审计 ──────────────────────────
 
 def test_signal_audit_flags_disappear_and_appear(recorder):
-    """buy→buy_aux 类型漂移: 消失 + 出现两条都记, 且告警一次。"""
+    """buy→buy_aux 类型漂移: 消失 + 出现两条都记; 配对型别变更=设计行为 ⇒ notice 一条。"""
     conn = _mem_conn()
     before = {("20261012", "csi_000673", "buy_aux"), ("20261012", "sz_div", "buy")}
     after = {("20261012", "csi_000673", "buy_aux"), ("20261012", "sz_div", "buy_aux")}
@@ -76,7 +76,11 @@ def test_signal_audit_flags_disappear_and_appear(recorder):
     assert {r[1] for r in rows} == {"disappeared", "appeared"}
     assert len(recorder) == 1
     assert "历史行被重写 2 条" in recorder[0]["subject"]
-    assert recorder[0]["dedup_key"] == f"history_overwrite:signal_daily:{RUN_DATE}"
+    # 2026-10-21: 配对型别变更(每日全量重算设计行为)降为 notice(非 severe, 每日去重)。
+    assert recorder[0]["subject"].startswith("[历史行改写-提示]")
+    assert recorder[0]["severe"] is False
+    assert recorder[0]["dedup_window"] == 86400
+    assert recorder[0]["dedup_key"] == f"history_overwrite:signal_daily:{RUN_DATE}:notice"
 
 
 def test_signal_audit_silent_when_no_change(recorder):

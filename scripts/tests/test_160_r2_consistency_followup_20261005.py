@@ -363,14 +363,20 @@ def test_notify_r7_day2_escalates_to_critical(tmp_path, monkeypatch):
 
 
 def test_notify_r7_escalated_window_suppresses(tmp_path, monkeypatch):
-    """升 critical 档在独立窗口内已发 → suppress(不重复轰炸)。"""
+    """升 critical 档在独立窗口内已发 → 不重复升级; 落回普通路径自行判重(2026-10-21 修)。
+
+    病灶: 旧实现此处直接 return 0, 位于普通首报路径之前 ⇒ 升级窗内首报/新对象被吞。
+    新语义: 升级窗只抑制「同一对象的重复升级」, 普通通道按调用方自己的窗判重。
+    本用例普通窗口(21600)未命中 ⇒ 普通告警照发 1 封, 但**不再发升级档**。
+    """
     rc, cap = _run_notify_main(
         tmp_path, monkeypatch, grade=("critical", 2, "连续 2 天一致性校验失败"),
         send_tiered=lambda s, b, t, **kw: {"email": True, "feishu": True},
         check_dedup=lambda k, w: k == adr.R2_CONSISTENCY_ESCALATED_DEDUP_KEY,  # 升级档窗口内
         update_dedup=lambda k: None)
     assert rc == 0
-    assert cap["tiered"] == [] and cap["generic"] == [], "窗口内应 suppress, 不发任何档"
+    assert cap["tiered"] == [], "升级档窗口内不得重复升级(防轰炸)"
+    assert len(cap["generic"]) == 1, "落回普通路径: 首报不得被升级窗吞(2026-10-21 黑洞根因)"
 
 
 # ============================================================

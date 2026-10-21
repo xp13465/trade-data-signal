@@ -98,10 +98,15 @@ def test_01_notify_sent_parser(out, exp, why):
     _chk(notify_sent(out) is exp, f"{why}: 期望 {exp}, 实得 {notify_sent(out)}")
 
 
-def test_02_cfu_wrapper_delegates_to_shared():
-    """#240 已验收的 `cfu._notify_sent` 委托唯一实现(符号保留, 行为不变)。"""
-    for out in (SUCCESS_GENERAL, FAIL_GENERAL, ESC_OK, ESC_FAIL, TIER_ENQUEUED, TIER_APPEND_FAILED, ""):
-        _chk(cfu._notify_sent(out) == notify_sent(out), f"wrapper 应与共享实现一致: {out!r}")
+def test_02_cfu_uses_result_file_not_string_parser():
+    """2026-10-22 审查 D7: check_failed_units 已改用 `--result-file` 结构化 status,
+    字符串判据 wrapper 已删除(旧版 notify 不认 --result-file ⇒ 回退分支不可达 = 死代码)。
+    本用例锁住「不得回潮」: cfu 里不得再出现 `_notify_sent` 符号/导入。"""
+    _chk(not hasattr(cfu, "_notify_sent"), "cfu._notify_sent 应已删除(结构化结果判据唯一)")
+    src = (SCRIPTS / "check_failed_units.py").read_text(encoding="utf-8")
+    _chk("notify_sent" not in src, "cfu 不得再引用字符串判据(死代码回潮)")
+    _chk("--result-file" in src and 'payload.get("status")' in src, "cfu 应读结构化 status 字段")
+    _chk('_status in ("sent", "digested")' in src, "digested 必须算已处置(BLOCK-2)")
 
 
 def test_02b_source_uses_shared_criterion_not_rc():

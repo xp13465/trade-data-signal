@@ -288,20 +288,34 @@ def test_02c_e2e_dry_run_no_send_and_key_unchanged():
         _chk(trap.hits == [], f"② dry-run 零外发被破坏: {trap.hits}")
 
 
-@pytest.mark.parametrize("out,exp,why", [
-    ("[notify] 汇总：已发出 email/feishu", True, "通用路径成功"),
-    ("[notify] 汇总：已发出 email（未发出：feishu）", True, "有任一渠道成功即算已发出"),
-    ("[notify] 汇总：全部渠道未发出（email/feishu）", False, "全渠道失败 → 不算发出"),
-    ("[notify] 汇总：全部渠道未发出（无渠道）", False, "无渠道 → 不算发出"),
-    ("[notify][196] 升级档路由完成：{'email': True, 'feishu': True}", True,
-     "#196③ 升级档 early return, 靠 dict 判"),
-    ("[notify][196] 升级档路由完成：{'email': False, 'feishu': False}", False,
-     "升级档也全败 → 不算发出"),
-    ("", False, "无输出 → 保守不算发出(下轮重试)"),
+@pytest.mark.parametrize("status,exp,why", [
+    ("sent", True, "通用路径成功"),
+    ("digested", True, "已并入摘要(23:25 统一交付)= 已处置(BLOCK-2 新增独立态)"),
+    ("suppressed", False, "去重/升级档抑制 → 不算发出"),
+    ("failed", False, "全渠道失败 → 不算发出"),
+    ("noop", False, "noop(无事可做) → 保守不算发出"),
+    (None, False, "结果文件缺失 → 按未送达(旧字符串回退已删, 审查 D7)"),
 ])
-def test_02d_notify_sent_parser(out, exp, why):
-    """F1: 落签判据 = 输出汇总(notify.py 恒 rc=0, 不能只看 rc)。"""
-    _chk(cfu._notify_sent(out) is exp, f"F1 {why}: 期望 {exp}, 实得 {cfu._notify_sent(out)}")
+def test_02d_notify_sent_parser(monkeypatch, tmp_path, status, exp, why):
+    """F1/2026-10-21: 落签判据 = notify `--result-file` 的 status(rc 恒 0 不含告知力)。
+
+    2026-10-22 审查 BLOCK-2/D7: 判据改为结构化结果(字符串回退死代码已删);
+    digested 必须算「已处置」, 否则域聚合并入摘要会被误判未送达 → rc=4 假 SEVERE。
+    """
+    class _P:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def _run(cmd, **kw):
+        if status is not None:
+            rf = cmd[cmd.index("--result-file") + 1]
+            Path(rf).write_text(json.dumps({"status": status}), encoding="utf-8")
+        return _P()
+
+    monkeypatch.setattr(cfu.subprocess, "run", _run)
+    sent, detail = cfu._send_notify(tmp_path, "s", "b")
+    _chk(sent is exp, f"{why}: 期望 {exp}, 实得 {sent} ({detail})")
 
 
 def test_02e_all_channels_failed_writes_no_signature_and_retries(monkeypatch, tmp_path):
@@ -319,7 +333,9 @@ def test_02e_all_channels_failed_writes_no_signature_and_retries(monkeypatch, tm
     with ZeroOutboundTrap() as trap:
         rc1, _c1, out1 = _cfu_main(monkeypatch, tmp_path, _FAILED_LINE, sender=_fail)
         rc2, _c2, out2 = _cfu_main(monkeypatch, tmp_path, _FAILED_LINE, sender=_fail)
-    _chk(rc1 == 1 and rc2 == 1, f"F1 发送失败仍应 rc=1, 实得 {rc1}/{rc2}")
+    # 2026-10-21: 未送达改为独立出口码 4(此前误报 rc=1 =「巡检已处理」, schedule_monitor
+    # 据此自证「已发」→ 告警黑洞)。语义仍=「未发出 + 不落抑制 + 下轮重试」。
+    _chk(rc1 == 4 and rc2 == 4, f"F1 发送失败应 rc=4(未送达), 实得 {rc1}/{rc2}")
     _chk(len(calls) == 2, f"F1 全渠道失败必须下轮重试(不得落签抑制), 实得调用 {len(calls)} 次")
     _chk("告警未发出" in out1 and "不落抑制" in out1, f"F1 应响亮报未发出, out={out1[-200:]}")
     _chk(not (tmp_path / "data" / adr.FAILED_UNITS_SIG_STATE_FILENAME).exists(),
