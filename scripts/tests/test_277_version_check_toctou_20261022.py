@@ -108,6 +108,15 @@ def test_case2_race_simulated_retry_once_pass(repo_site, monkeypatch):
     assert sha_b[:12] in det, f"追溯行未指向重试后的 sha: {det}"
 
 
+def test_case5b_min_file_missing_still_fail(repo_site):
+    """改动面边界: 「源在、min 文件缺失」分支仍 FAIL(该分支改从快照取 md5, 语义不得变松)。"""
+    _repo, site = repo_site
+    (site / "style.min.css").unlink()
+    ok, det = cvc.check3(site)
+    assert not ok, f"缺 min 版应 FAIL: {det}"
+    assert "缺 min 版" in det, f"消息应指出缺 min 版: {det}"
+
+
 def test_case3_head_keeps_moving_fail_with_head_change_message(repo_site, monkeypatch):
     """证据用例 3: 三次 HEAD 各不相同 ⇒ FAIL, 消息写明「校验期间 HEAD 变化」, 且不报「min 过期」。"""
     _repo, site = repo_site
