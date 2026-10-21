@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+import types
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -86,11 +87,44 @@ def _touch(pdir: Path, name: str, age_secs: float = 0.0) -> Path:
 
 
 def _fails(res) -> str:
-    return "\n".join(res.detail) if res.status == m.CheckResult.FAIL else ""
+    """只返回**真 FAIL 行**(排除 pending 说明行)。
+
+    实现在 FAIL 时把 detail_fail 与 detail_pending 拼进同一个 `res.detail`
+    (check_task_state.py:515-517), pending 行也带 job id —— 不过滤就会把
+    「ready_at 在将来、本就**不应**判僵尸」的 job 误当成「被 FAIL 提及」, 造成假红
+    (2026-10-22 时敏假红根因, 同 L51 教训族)。
+    """
+    if res.status != m.CheckResult.FAIL:
+        return ""
+    return "\n".join(ln for ln in res.detail if "不判僵尸" not in ln)
+
+
+def _pending_lines(res) -> str:
+    """只取 pending 说明行(含「不判僵尸」), 用于反向断言事故形态确实出现。"""
+    return "\n".join(ln for ln in res.detail if "不判僵尸" in ln)
 
 
 def _pending_text(res) -> str:
     return "\n".join(res.detail)
+
+
+def _freeze_now(monkeypatch, fixed_epoch: float) -> None:
+    """冻结被测模块看到的 now。
+
+    只替换 `check_task_state` 模块里的 `time` 名字, **不动标准库 time 全局**
+    (改全局会影响 pytest/其他线程的计时)。`check_zombie_crons` 用 `m.time.time()`
+    取当前时刻, `_progress_ready_at` / `_cron_next_fire_after` 用 `m.time.localtime`
+    / `mktime` 解释 cron —— 统一走这个桩, 保证「当前时刻」与「cron 解析时区」口径一致。
+    用例因此不依赖真实运行时刻(禁写死某天日期字面量: 冻结值由样本数据推导/固定时钟锚)。
+    """
+    real = m.time
+    stub = types.SimpleNamespace(
+        time=lambda: fixed_epoch,
+        localtime=real.localtime,
+        mktime=real.mktime,
+        strftime=real.strftime,
+    )
+    monkeypatch.setattr(m, "time", stub)
 
 
 # ── ① 一次性 job: 触发前不判僵尸(事故一根治) ────────────────────────────────
@@ -259,19 +293,62 @@ def test_real_sample_shape_parity():
 
 
 @pytest.mark.skipif(not REAL_TASKS.exists(), reason="无真实 .claude/scheduled_tasks.json(CI 干净环境)")
-def test_real_jobs_no_false_zombie_when_pending(monkeypatch, tmp_path):
-    """真实 job 跑判定: 只有「已过 ready_at」的 job 才允许出现在 FAIL 里(其余必须不误报)。"""
+@pytest.mark.parametrize("shift_secs", [0, 2 * 3600, 86400])
+def test_real_jobs_no_false_zombie_when_pending(monkeypatch, tmp_path, shift_secs):
+    """真实 job 跑判定: 只有「已过 ready_at」的 job 才允许出现在**真 FAIL 行**里。
+
+    时钟冻结在「真实 job 最晚 ready_at 前 1 秒」= 不管哪天跑, 都必然至少一个 job 处于
+    pending、其余已过 ready_at -> FAIL detail 必然「fail 行 + pending 行」混排
+    (2026-10-22 假红正是此形态), 断言与真实运行时刻解耦。
+    """
     real = json.loads(REAL_TASKS.read_text(encoding="utf-8"))["tasks"]
-    repo, pdir = _setup(monkeypatch, tmp_path, real)
-    pdir.mkdir(exist_ok=True)                 # 空进度目录 = 模拟"文件尚未产生"
-    res = m.check_zombie_crons(repo)
-    now = time.time()
+    relevant = []
     for j in real:
         p = (j.get("prompt") or "")
         if "巡检兜底" not in p and "agent-progress" not in p:
             continue
         ready_at, _why = m._progress_ready_at(j)
         assert ready_at is not None, f"真实 job {j['id']} 应能算出 ready_at"
-        mentioned = j["id"] in _fails(res)
+        relevant.append((j, ready_at))
+    assert relevant, "真实样本应含巡检类 job"
+    now = max(ra for _, ra in relevant) - 1 + shift_secs
+    repo, pdir = _setup(monkeypatch, tmp_path, real)
+    pdir.mkdir(exist_ok=True)                 # 空进度目录 = 模拟"文件尚未产生"
+    _freeze_now(monkeypatch, now)
+    res = m.check_zombie_crons(repo)
+    fails = _fails(res)
+    pending = _pending_lines(res)
+    for j, ready_at in relevant:
         if ready_at > now:
-            assert not mentioned, f"真实 job {j['id']} ready_at={ready_at} 在将来, 不应被误判僵尸"
+            assert j["id"] not in fails, (
+                f"真实 job {j['id']} ready_at={ready_at} 在将来, 不应被误判僵尸")
+            p = j.get("prompt") or ""
+            if m.PROGRESS_PATH_RE.search(p) or m.PATROL_NAME_RE.search(p):
+                assert j["id"] in pending, (
+                    f"真实 job {j['id']} 应作为 pending 说明出现(未到应产生时刻)")
+
+
+# ── ⑪ FAIL 时 detail 里 fail 行与 pending 行混排: pending 不得被当成"被 FAIL 提及" ──
+# CI 必跑(不依赖真实文件): 这是 2026-10-22 时敏假红的直接回归守卫。
+FROZEN_NOW = 1_800_000_000.0   # 固定时钟锚(2027-01-15 本地时), 与被测数据日期无关, 用例永久稳定(L51)
+
+
+@pytest.mark.parametrize("shift_secs", [0, 2 * 3600, 86400])
+def test_pending_lines_not_counted_as_fail_when_mixed(monkeypatch, tmp_path, shift_secs):
+    now = FROZEN_NOW + shift_secs
+    future_fire = datetime.fromtimestamp(now) + timedelta(days=2)
+    jobs = [
+        # ① 已过 ready_at + 无进度文件 = 真 FAIL(判别力路径, 必须保留)
+        _job("mix-past", PATROL_CRON, _patrol_prompt("224-mix-past"), now - 2 * 86400, recurring=True),
+        # ② ready_at 在将来 = 只能出现在 pending 说明里, 不得算 FAIL
+        _job("mix-future", _dated_cron(future_fire), _patrol_prompt("224-mix-future"), now - 3600),
+    ]
+    repo, _ = _setup(monkeypatch, tmp_path, jobs)
+    _freeze_now(monkeypatch, now)
+    res = m.check_zombie_crons(repo)
+    assert res.status == m.CheckResult.FAIL, f"已过 ready_at + 无文件必须真 FAIL: {res.msg}"
+    fails = _fails(res)
+    assert "mix-past" in fails, "ready_at 已过 + 文件不存在 -> 真 FAIL(判别力不得下降)"
+    assert "mix-future" not in fails, "ready_at 在将来 -> 不得出现在真 FAIL 行"
+    assert "mix-future" in _pending_lines(res), "该 job 应作为 pending 说明出现(事故形态: fail/pending 混排)"
+    assert "mix-future" in _pending_text(res) and "不判僵尸" in _pending_text(res)
