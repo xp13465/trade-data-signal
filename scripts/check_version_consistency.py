@@ -23,6 +23,11 @@ SW更新接管 + 数据同步」三处设计未闭环。
           根治 16:30 事故: 原校验3只比 mtime(min ≥ 源), 拦不住「工作区源被 reset --soft 停旧版、min 是旧版」
           的内容覆盖(mtime 上 min 仍 ≥ 工作区旧源)。升级后 min 必须 == git HEAD 源重建结果, 脏工作区
           旧源生成的旧 min 过不了。源缺失/生成失败视为跳过(与 build_min.py 缺源跳过语义一致, 不 FAIL)。
+          **2026-10-22 TOCTOU 加固(B1)**: 校验窗口自洽 —— 开头只取一次 `git rev-parse HEAD` 并固定该 sha,
+          重建读源全部用 `git show <sha>:<path>`; 重建**前**快照 8 个 min 文件 md5(重建后不再读磁盘);
+          重建+比对后再取一次 HEAD: 变了(典型 = main-merge 第 10 步 ssh 云上 `git pull` 落在窗口内)
+          就重新固定 sha **只重试一次**, 再变才 FAIL 且消息写明「校验期间 HEAD 变化」,不再输出误导性的
+          「min 过期/工作区源脏」。正常路径(同一 HEAD、干净工作区、min 正确)判定语义不变。
 
 用法:
   python3 scripts/check_version_consistency.py --site-dir /path/to/static-site [--deploy-mode]
@@ -189,47 +194,116 @@ def _md5hex(b: bytes) -> str:
     return hashlib.md5(b).hexdigest()
 
 
-def check3(site_dir: Path) -> tuple[bool, str]:
-    """校验3(B2): min 内容 == 从 git HEAD 源重建的 min 内容(防"工作区源脏+min旧版"内容覆盖)。
+def _git_head_sha(repo) -> str | None:
+    """读一次 git HEAD 的 sha(整个校验窗口的唯一基准;取不到返回 None)。
 
-    复用 build_min.build_pairs_in_memory(同一套 terser keep_fnames / rcssmin 生成逻辑, 杜绝两处算法分叉)。
+    2026-10-22 TOCTOU 加固: 原实现每次读源都 `git show HEAD:<path>`、最后才读磁盘 min, 重建那几十秒
+    期间若 main-merge.sh 第 10 步 ssh 云上 `git pull`(Fast-forward)落地, 就会「源按旧 HEAD 读、min
+    按新 HEAD 比」错位 ⇒ 误报 min 过期(deploy_20261022_0042.log:729-733)。
     """
+    if not repo:
+        return None
+    try:
+        r = subprocess.run(
+            ["git", "-C", repo, "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            return r.stdout.strip() or None
+    except Exception:
+        pass
+    return None
+
+
+def _snapshot_min_md5(site_dir: Path) -> dict:
+    """重建**前**快照全部 min 文件的 md5(缺失记 None)。
+
+    先快照再见比对 ⇒ 重建耗时窗口内磁盘 min 被并发 pull 改写, 也不会混进本次比对。
+    """
+    snap = {}
+    for _src, dst in MIN_PAIRS:
+        dp = site_dir / dst
+        snap[dst] = _md5hex(dp.read_bytes()) if dp.exists() else None
+    return snap
+
+
+def _rebuild_from_head(site_dir: Path, repo, head):
+    """按**固定 sha** 重建全部 min(生产恒走 build_min 同一套生成逻辑, 单独成函数便于单测注入)。"""
     scripts_dir = os.path.dirname(os.path.abspath(__file__))
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
-    from build_min import build_pairs_in_memory
+    import build_min
+    return build_min.build_pairs_in_memory(base=site_dir, repo=repo, head=head)
 
-    repo = _git_repo_of(site_dir)
-    rebuilt = build_pairs_in_memory(base=site_dir, repo=repo)
+
+def _check3_once(site_dir: Path, repo, head):
+    """单次比对(窗口自洽): 快照 min → 按固定 head 重建 → 比快照。
+
+    返回 (problems, n_checked, n_skipped, snap)。
+    """
+    snap = _snapshot_min_md5(site_dir)
+    rebuilt = _rebuild_from_head(site_dir, repo, head)
     problems = []
     n_checked = 0
     n_skipped = 0
     for src, dst in MIN_PAIRS:
         sp = site_dir / src
-        dp = site_dir / dst
         if not sp.exists():
             n_skipped += 1            # 源缺失: 与 build_min.py 缺源跳过语义一致, 不 FAIL
             continue
-        if not dp.exists():
+        cur_md5 = snap.get(dst)
+        if cur_md5 is None:
             problems.append(f"缺 min 版(源在 min 无): {dst}  <-  {src}")
             continue
         rebuilt_key = "static-site/" + dst
         if rebuilt_key not in rebuilt:
-            # git HEAD 源重建失败/被 skip(如新源未 commit 到 HEAD) → 保守不 FAIL(避免误伤首次未 commit)
+            # git 该提交源重建失败/被 skip(如新源未 commit) → 保守不 FAIL(避免误伤首次未 commit)
             n_skipped += 1
             continue
         n_checked += 1
-        cur_md5 = _md5hex(dp.read_bytes())
         head_md5 = _md5hex(rebuilt[rebuilt_key])
         if cur_md5 != head_md5:
             problems.append(
                 f"min 内容与 git HEAD 源重建不一致(工作区源脏或 min 过期): {dst}"
                 f"(当前 {cur_md5[:8]} ≠ HEAD重建 {head_md5[:8]})"
             )
+    return problems, n_checked, n_skipped, snap
+
+
+def check3(site_dir: Path) -> tuple[bool, str]:
+    """校验3(B2+TOCTOU 加固): min 内容 == 从 git HEAD 源重建的 min 内容。
+
+    复用 build_min.build_pairs_in_memory(同一套 terser keep_fnames / rcssmin 生成逻辑, 杜绝两处算法分叉)。
+    校验窗口自洽(2026-10-22): 固定一次 HEAD sha + 重建前快照 min + 结束后复验 HEAD; HEAD 变了只重试
+    一次, 仍变则 FAIL 并写明「校验期间 HEAD 变化」(不再报误导性的 min 过期)。
+    """
+    repo = _git_repo_of(site_dir)
+    head0 = _git_head_sha(repo)
+    problems, n_checked, n_skipped, snap = _check3_once(site_dir, repo, head0)
+    head1 = _git_head_sha(repo)
+    retried = False
+    head = head0
+    if head0 and head1 and head0 != head1:
+        # 校验窗口内 HEAD 移动(典型: main-merge 第 10 步 ssh 云上 git pull 落在窗口内)⇒ 重新固定 sha 重试一次
+        retried = True
+        head = head1
+        problems, n_checked, n_skipped, snap = _check3_once(site_dir, repo, head)
+        head2 = _git_head_sha(repo)
+        if head2 and head2 != head:
+            det = (f"校验期间 HEAD 变化(疑似并发 git pull), 已重试 1 次仍不稳定: "
+                   f"head {head0[:12]} → {head[:12]} → {(head2 or '?')[:12]};"
+                   f"本次比对结果不可信, 故不做内容判定(避免误导);请等并发 git pull 结束后重跑")
+            return (False, det)
+
+    trace = (f"head={(head or 'n/a')[:12]} min_snapshot=["
+             + " ".join(f"{dst}={(m or 'missing')[:8]}" for dst, m in snap.items()) + "]")
     if problems:
         det = f"共 {n_checked} 对映射, {len(problems)} 处 min 与 git HEAD 源不一致:\n    " + "\n    ".join(problems)
     else:
         det = (f"build_min 映射 {n_checked} 对 min 内容均 == git HEAD 源重建({n_skipped} 对源缺失/重建跳过)")
+    if retried:
+        det += f"\n    注: 校验期间 HEAD 变化, 已重新固定 sha 重试 1 次"
+    det += f"\n    {trace}"
     return (not problems, det)
 
 

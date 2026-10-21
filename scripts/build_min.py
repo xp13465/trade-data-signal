@@ -74,28 +74,30 @@ def _resolve_git_repo():
     return None
 
 
-def _read_source(src_rel, base=BASE, repo=None):
+def _read_source(src_rel, base=BASE, repo=None, head=None):
     """读源内容：优先从 git HEAD（根治脏工作区覆盖），失败 fallback 工作区文件。
 
     base: 工作区源目录根（默认 build_min.BASE）；repo: git 仓库根（默认自动解析）。
+    head: 固定提交 sha（校验窗口自洽用，2026-10-22 TOCTOU 加固）；None ⇒ 读 HEAD。
     返回 (content_bytes, source_desc)：
-      - git HEAD 成功: (bytes, "git HEAD")
-      - git 仓库存在但 git show 失败(文件未 commit 到 HEAD): (worktree_bytes, "worktree[git show失败回退]") 并告警
+      - git 提交成功: (bytes, "git HEAD (<repo>)")
+      - git 仓库存在但 git show 失败(文件未 commit 到该提交): (worktree_bytes, "worktree[git show失败回退]") 并告警
       - 非 git 环境: (worktree_bytes, "worktree")  # 首次部署无 git，正常
       - 源彻底不存在: (None, None)
     """
     if repo is None:
         repo = _resolve_git_repo()
     if repo:
+        ref = head or "HEAD"
         try:
             r = subprocess.run(
-                ["git", "-C", repo, "show", f"HEAD:{src_rel}"],
+                ["git", "-C", repo, "show", f"{ref}:{src_rel}"],
                 capture_output=True, timeout=60,
             )
             if r.returncode == 0:
                 return r.stdout, f"git HEAD ({repo})"
             # git show 失败（如新文件首次未 commit 到 HEAD）→ fallback 工作区 + 告警
-            print(f"  · 告警: {src_rel} 不在 git HEAD，回退读工作区源（新文件未 commit?）")
+            print(f"  · 告警: {src_rel} 不在 git {ref}，回退读工作区源（新文件未 commit?）")
         except Exception as e:
             print(f"  · 告警: git show {src_rel} 异常({e})，回退读工作区源")
     # fallback 工作区
@@ -179,16 +181,18 @@ def _minify_css_content(content: bytes):
     return rcssmin.cssmin(content.decode("utf-8")).encode("utf-8")
 
 
-def build_pairs_in_memory(base=BASE, repo=None):
+def build_pairs_in_memory(base=BASE, repo=None, head=None):
     """对全部 PAIRS 从 git HEAD（fallback 工作区）读源并生成 min，返回 {dst_rel: min_bytes}。
 
     供 main 写文件与 check_version_consistency.py 内容校验复用（B2：同一套生成逻辑，杜绝两处算法分叉）。
     base: 工作区源目录根（默认 build_min.BASE）；repo: git 仓库根（默认自动解析）。
+    head: 固定提交 sha（校验窗口自洽用，2026-10-22 TOCTOU 加固：整个重建只用这一个 sha，
+          避免重建中途 HEAD 被并发 git pull 移动）；None ⇒ 读 HEAD（写文件路径的原有行为）。
     返回 dict；单个文件生成失败/缺源跳过的不在 dict 中。告警在内部打印。
     """
     out = {}
     for src_rel, dst_rel in PAIRS:
-        content, _desc = _read_source(src_rel, base=base, repo=repo)
+        content, _desc = _read_source(src_rel, base=base, repo=repo, head=head)
         if content is None:
             # 缺源跳过（非失败）：trade-data 架构下 static-site/app.js 等源不在采集仓库，
             # build_min 作为 deploy 的安全网，缺源不应致退出码 1。返回 None 区别 minify 真失败。
