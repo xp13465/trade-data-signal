@@ -26,6 +26,8 @@
 
 分级规则见 ALERT_ONLY_CHECKS: 上游独立产物(缺/滞后只降级展示、deploy 修不了)= 告警级;
 其余(本部署链生成/校验, 错=用户看到错数据或断链)= 阻断级(默认)。
+例外(刻意保持阻断级, 不在 ALERT_ONLY_CHECKS): fund_nav(用户 2026-10-13 拍板 + DB↔产物
+正确性维度 + deploy 有重建能力)与 changelog_current_version(强制改码补条目), 见清单处注释。
 
 deploy.sh 接入:
   "$PY" "$REPO/scripts/check_data_integrity.py" --deploy-mode --data-dir "$REPO/static-site/data" \
