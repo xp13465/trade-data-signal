@@ -14,17 +14,23 @@
   python scripts/check_data_integrity.py                     # 全量校验
   python scripts/check_data_integrity.py --file PATH         # 单文件校验
   python scripts/check_data_integrity.py --strict            # warn 当 fail
-  python scripts/check_data_integrity.py --deploy-mode       # deploy 接入(非 0 退出阻断)
+  python scripts/check_data_integrity.py --deploy-mode       # deploy 接入(阻断级 fail 才阻断)
   python scripts/check_data_integrity.py --data-dir DIR      # 指定 static-site/data/ 路径
+  python scripts/check_data_integrity.py --summary-file P    # 分级明细 JSON(deploy 告警正文用)
 
-退出码:
+退出码(2026-10-21 起分级):
   0 = 全通过(含 warn)
-  1 = 有 fail
+  1 = 有**阻断级** fail(任何模式); 非 deploy 模式下任一 fail 也是 1(手动排查要看见)
   2 = 有 warn 且 --strict（手动排查用；--deploy-mode 不因 warn 阻断）
+  3 = --deploy-mode 下**只有告警级** fail(不阻断部署, deploy.sh 发告警并继续)
 
-deploy.sh 接入(L105 后):
-  "$PY" "$REPO/scripts/check_data_integrity.py" --deploy-mode --data-dir "$REPO/static-site/data"
-  rc=$?; [ $rc -ne 0 ] && exit $rc
+分级规则见 ALERT_ONLY_CHECKS: 上游独立产物(缺/滞后只降级展示、deploy 修不了)= 告警级;
+其余(本部署链生成/校验, 错=用户看到错数据或断链)= 阻断级(默认)。
+
+deploy.sh 接入:
+  "$PY" "$REPO/scripts/check_data_integrity.py" --deploy-mode --data-dir "$REPO/static-site/data" \
+      --summary-file "$REPO/data/check_data_integrity_summary.json"
+  rc=0 继续 / rc=3 告警后继续 / 其他 exit
 """
 from __future__ import annotations
 
@@ -101,6 +107,28 @@ def _load_json(path: Path) -> tuple[object, str | None]:
         return None, f"JSON 解析失败: {path}: {e}"
     except Exception as e:
         return None, f"读取失败: {path}: {type(e).__name__}: {e}"
+
+
+def _load_local_first(data_dir: Path, rel_name: str) -> tuple[object, str | None, str]:
+    """先读**本机待上传副本**(data_dir/rel_name), 缺失才回退 R2; 返回 (data, err, src)。
+
+    2026-10-21 治自锁(10-21 实测): nextday_plan_generator 22:30 生成 → 写本地
+    `data/` + `static-site/data/` → 再**自己** upload 到 R2。deploy(17:50) 若只读 R2,
+    一旦该生成器的 R2 上传超时/滞后, 校验就 FAIL → deploy 退出 → 但 deploy 本身既不生成
+    也不上传该文件 ⇒ R2 永远不会因这次 deploy 变新 = 真自锁(10-20 22:30 upload 480s 超时
+    后, 10-21 全天 19 次部署全被 `nextday_plan date=20261019` 掐死)。
+    本地副本就是 deploy 即将上传的版本, 且生成器先写本地再传 R2 ⇒ 本地更新鲜, 用它校验
+    既能放行正常部署, 又不放松**内容合法性**(解析失败/结构错误照样 FAIL)。
+    """
+    local = data_dir / rel_name
+    if local.exists():
+        data, err = _load_json(local)
+        if err:
+            # 本地副本存在但坏 = 将上传版本损坏 ⇒ 直接 FAIL, 不降级查 R2(同 s06 口径)
+            return None, f"本地副本损坏: {err}", "local"
+        return data, None, "local"
+    data, err = _fetch_r2_json(rel_name)
+    return data, err, "r2"
 
 
 # ── 线上 R2 数据源(生产权威) ──────────────────────────────────────────────────
@@ -190,6 +218,45 @@ def _get_nested(d: dict, *keys, default=None):
     return cur
 
 
+# ── 校验项分级(2026-10-21, 部署闸门分级) ─────────────────────────────────────
+# 病灶(云上实测 10-20/10-21): deploy.sh 对 check_data_integrity 的**任一** FAIL 都 exit,
+# 而其中多项是「上游独立产物缺失/滞后」——deploy 既不能修复它, 它也不代表用户看到错数据。
+# 结果=单项 FAIL 级联掐断整条链(R2 上传/备份/静态站同步/次日计划全部停摆), 两天 39 次零成功。
+# 定级口径(每项必须能回答「用户会不会看到错数据」+「deploy 能不能修」):
+#   阻断级(blocking): 数据由本部署链生成/校验, 错=用户直接看到错数据或页面断链。
+#   告警级(alert-only): 上游独立进程产物(定时器/采集器自己生成并同步), 缺/滞后只让
+#     次要展示降级(旧数据/少一段历史), deploy 重跑也修不了它; 应发告警让人工处置,
+#     但不能拿整条部署链当人质(自锁)。
+# 默认 = 阻断级(fail-safe): 新增校验项未显式定级时保持原有阻断力, 不被静默降级。
+ALERT_ONLY_CHECKS = {
+    # 上游定时器/R2 产物, deploy 不生成:
+    "alert": "告警面板(云上 timer 推 R2); 滞后=面板旧, 不阻断其他数据上线",
+    "notifications": "通知面板(云上 timer 推 R2); 同上",
+    "schedule_stats": "内部监控统计(非用户展示); deploy 不生成",
+    "nextday_plan": "次日计划由 nextday_plan_generator 22:30 独立生成并自传 R2; "
+                    "deploy 不生成 ⇒ 阻断=自锁(10-21 实测)。缺失只让首页沿用昨日计划",
+    "signal_kelly_day_snapshot": "同 nextday_plan 生成器同批产物; 旧快照=历史信号少一天, 可容忍",
+    "a_fund_north_quarterly": "北向公募季度表(上游季度发布); 季初未发布=正常滞后, 非错数",
+    "fund_index_daily": "指数日表(上游采集); 滞后=预估仓位降级展示, deploy 不修复",
+    "fund_score": "公募评分表(上游 compute/export_fund_score); 滞后=评分卡旧值, 可降级",
+    "ad_line": "AD 线副图(上游日频); 滞后=副图旧, 不阻断主数据",
+    "a_stock": "A股 1 年概览(上游日频); 滞后/缺段=该区块降级",
+    "trade_sim_indices": "模拟指数对比(展示型衍生产物); 缺失不影响主功能",
+    "etf_since_return": "ETF 至今收益统计(展示型衍生产物); 缺失不影响主功能",
+    "etf_hist": "ETF 全史 K 产物(独立导出/R2 前缀); 缺失=历史图少段, deploy 不重建",
+    "fund_nav": "基金净值桶(独立导出/R2 前缀); 缺失=净值图少段, deploy 不重建",
+    "changelog_current_version": "更新提示条目(仅 toast 预览); 缺失不影响数据正确性",
+}
+
+BLOCKING_GRADE = "blocking"
+ALERT_ONLY_GRADE = "alert-only"
+
+
+def grade_of(name: str) -> str:
+    """校验项定级: 显式告警级清单之外一律阻断级(默认不降级)。"""
+    return ALERT_ONLY_GRADE if name in ALERT_ONLY_CHECKS else BLOCKING_GRADE
+
+
 # ── 校验结果 ──────────────────────────────────────────────────────────────────
 class CheckResult:
     """单个校验函数的返回结果。"""
@@ -202,6 +269,11 @@ class CheckResult:
         self.status = status
         self.msg = msg
         self.detail = detail
+        self.grade = grade_of(name)
+
+    @property
+    def blocking(self) -> bool:
+        return self.grade == BLOCKING_GRADE
 
     def __repr__(self):
         return f"CheckResult({self.name!r}, {self.status!r}, {self.msg!r})"
@@ -2167,7 +2239,8 @@ def check_nextday_plan(data_dir: Path) -> CheckResult:
     次日买入计划未生成, 前端 T+1 无参考(生成器同链 s06 先例, 缺失=事故级不许静默)。
     """
     name = "nextday_plan"
-    data, err = _fetch_r2_json("nextday_plan.json")
+    # 2026-10-21: 本地待上传副本优先(生成器先写本地再自传 R2; 只读 R2 = 自锁, 见 _load_local_first)
+    data, err, _src = _load_local_first(data_dir, "nextday_plan.json")
     if err:
         return _fail(name, f"{err} (nextday_plan_generator.py 云上盘后未生成?)")
     if not isinstance(data, dict):
@@ -2204,14 +2277,20 @@ def check_nextday_plan(data_dir: Path) -> CheckResult:
             return _fail(name, f"date={d} 距今天 {(datetime.now().date() - dt_val).days} 天 (>7, 交易日历不可用退化校验)")
 
     # auto_trade_steps.json 可选校验 (空计划时不生成, 存在即须 schema_version=v1 + steps 数组)
-    # 数据源=线上 R2(与 nextday_plan 同链云上生成); HTTP 404=生成器未写(空计划日正常态)跳过,
-    # 其他拉取失败=显式 FAIL 不静默(网络问题≠「未生成」)。
-    steps_data, steps_err = _fetch_r2_json("auto_trade_steps.json")
-    if steps_err:
-        if "HTTP 404" in steps_err:
-            steps_data = None   # 空计划日线上无此文件=跳过可选校验
-        else:
-            return _fail(name, f"auto_trade_steps.json: {steps_err}")
+    # 数据源=本地优先(同 nextday_plan, 治自锁); 本地与 R2 都无(HTTP 404)=生成器未写
+    # (空计划日正常态)跳过, 其他拉取失败=显式 FAIL 不静默(网络问题≠「未生成」)。
+    _steps_local = data_dir / "auto_trade_steps.json"
+    if _steps_local.exists():
+        steps_data, steps_err = _load_json(_steps_local)
+        if steps_err:
+            return _fail(name, f"auto_trade_steps.json 本地副本损坏: {steps_err}")
+    else:
+        steps_data, steps_err = _fetch_r2_json("auto_trade_steps.json")
+        if steps_err:
+            if "HTTP 404" in steps_err:
+                steps_data = None   # 空计划日线上无此文件=跳过可选校验
+            else:
+                return _fail(name, f"auto_trade_steps.json: {steps_err}")
     if steps_data is not None:
         sdata = steps_data
         if not isinstance(sdata, dict):
@@ -2290,7 +2369,8 @@ def check_signal_kelly_day_snapshot(data_dir: Path) -> CheckResult:
     生成器未跑/未推 R2 = FAIL 阻断(首页历史信号退回重算漂移, 事故级不许静默)。
     """
     name = "signal_kelly_day_snapshot"
-    data, err = _fetch_r2_json("signal_kelly_day_snapshot.json")
+    # 2026-10-21: 本地优先(同 nextday_plan 自锁修法)
+    data, err, _src = _load_local_first(data_dir, "signal_kelly_day_snapshot.json")
     if err:
         return _fail(name, f"{err} (nextday_plan_generator.py 云上盘后未生成快照?)")
 
@@ -2504,8 +2584,9 @@ def main():
         epilog="""
 退出码:
   0 = 全通过(含 warn)
-  1 = 有 fail
-  2 = 有 warn 且 --strict / --deploy-mode
+  1 = 有 fail(阻断级; 或非 deploy 模式下任一 fail, 手动排查用)
+  2 = 有 warn 且 --strict
+  3 = --deploy-mode 下**只有告警级** fail(不阻断部署, 由 deploy.sh 发告警)
         """,
     )
     parser.add_argument("--file", metavar="PATH", help="单文件校验（存在 + JSON 可解析）")
@@ -2513,6 +2594,8 @@ def main():
     parser.add_argument("--deploy-mode", action="store_true",
                         help="deploy 接入模式（仅 fail 阻断 deploy，warn 不阻断）")
     parser.add_argument("--data-dir", metavar="DIR", help="指定 static-site/data/ 路径")
+    parser.add_argument("--summary-file", metavar="PATH",
+                        help="把结果分级明细写成 JSON(deploy.sh 据此拼告警正文; 2026-10-21)")
     parser.add_argument("--fundnav-stale-probe", action="store_true",
                         help="只探测 nav_bucket 是否「DB 领先产物」(deploy 自愈 C1 用): "
                              "exit 3=命中(可自愈重出) / exit 0=未命中或无法判定")
@@ -2537,7 +2620,7 @@ def main():
         path = Path(args.file).absolute()
         result = run_single_file_check(path)
         print_result(result)
-        return determine_exit_code([result], strict)
+        return determine_exit_code([result], strict, deploy_mode=args.deploy_mode)
 
     # 全量校验
     data_dir, repo_data_dir = detect_dirs(args.data_dir)
@@ -2560,30 +2643,73 @@ def main():
     fails = [r for r in results if r.status == CheckResult.FAIL]
     warns = [r for r in results if r.status == CheckResult.WARN]
     oks = [r for r in results if r.status == CheckResult.OK]
+    blocking_fails = [r for r in fails if r.blocking]
+    alert_fails = [r for r in fails if not r.blocking]
 
     print()
-    print(f"=== 汇总: {len(oks)} ok / {len(warns)} warn / {len(fails)} fail ===")
+    print(f"=== 汇总: {len(oks)} ok / {len(warns)} warn / {len(fails)} fail "
+          f"(阻断级 {len(blocking_fails)} / 告警级 {len(alert_fails)}) ===")
 
-    return determine_exit_code(results, strict)
+    rc = determine_exit_code(results, strict, deploy_mode=args.deploy_mode)
+    if args.summary_file:
+        _write_summary(args.summary_file, results, rc, deploy_mode=args.deploy_mode)
+    return rc
 
 
 def print_result(r: CheckResult):
-    """打印单个校验结果。"""
+    """打印单个校验结果(FAIL 明标阻断级/告警级, 便于 deploy 日志一眼分辨)。"""
     if r.status == CheckResult.OK:
         print(f"  ✓ {r.name}: {r.msg}")
     elif r.status == CheckResult.WARN:
         print(f"  ⚠ {r.name}: {r.msg}")
     elif r.status == CheckResult.FAIL:
-        print(f"  ✗ {r.name}: {r.msg}")
+        _tag = "阻断级" if r.blocking else "告警级"
+        print(f"  ✗[{_tag}] {r.name}: {r.msg}")
 
 
-def determine_exit_code(results: list[CheckResult], strict: bool) -> int:
-    """根据结果 + strict 模式决定退出码。"""
+def _write_summary(path: str, results: list[CheckResult], rc: int,
+                   deploy_mode: bool = False) -> None:
+    """把分级明细写 JSON(原子写), 供 deploy.sh 拼「连续失败/告警级不阻断」告警正文。"""
+    fails = [r for r in results if r.status == CheckResult.FAIL]
+    payload = {
+        "rc": rc,
+        "deploy_mode": deploy_mode,
+        "ok": len([r for r in results if r.status == CheckResult.OK]),
+        "warn": len([r for r in results if r.status == CheckResult.WARN]),
+        "fail_total": len(fails),
+        "blocking_fails": [{"name": r.name, "msg": r.msg} for r in fails if r.blocking],
+        "alert_only_fails": [{"name": r.name, "msg": r.msg} for r in fails if not r.blocking],
+        "alert_only_grade_rules": ALERT_ONLY_CHECKS,
+    }
+    try:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(p)
+    except Exception as e:  # noqa: BLE001 - 汇总文件写失败不得改变校验结论
+        print(f"[summary] 写入失败(不影响校验结论): {e}", file=sys.stderr)
+
+
+def determine_exit_code(results: list[CheckResult], strict: bool,
+                        deploy_mode: bool = False) -> int:
+    """根据结果 + 分级决定退出码(2026-10-21 部署闸门分级)。
+
+    - 阻断级 fail → 1(任何模式都阻断: 用户会看到错数据)
+    - 仅告警级 fail:
+        · --deploy-mode → 3(不阻断, deploy.sh 发告警; 旧行为会 exit=1 掐断整链)
+        · 非 deploy 模式 → 1(手动排查仍要看见问题)
+    - warn + --strict → 2; 其余 0
+    """
     fails = [r for r in results if r.status == CheckResult.FAIL]
     warns = [r for r in results if r.status == CheckResult.WARN]
+    blocking_fails = [r for r in fails if r.blocking]
+    alert_fails = [r for r in fails if not r.blocking]
 
-    if fails:
+    if blocking_fails:
         return 1
+    if alert_fails:
+        return 3 if deploy_mode else 1
     if warns and strict:
         return 2
     return 0

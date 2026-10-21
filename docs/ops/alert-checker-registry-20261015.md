@@ -43,7 +43,7 @@
 
 | # | 脚本 | 触发方式 / 时点 | 默认 tier | dedup window | 聚合域(建议·待对齐) | 首报策略 | 缺项 |
 |---|---|---|---|---|---|---|---|
-| 1 | `check_failed_units.py`(#196 patrol) | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | **0** ⚠️ | `monitor` | 首报必达 | ⚠️ **window=0 关死抑制**(RCA §2.2④.a 病灶;A 包修复) |
+| 1 | `check_failed_units.py`(#196 patrol) | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | **0** ⚠️ | `monitor` | 首报必达 | **2026-10-21 已修黑洞**:window=0 仍为「集合有变立即报」设计值(去重由脚本自管),升级档 72h 窗只抑制同一对象重复升级、suppress 时落回普通首报路径;落状态判据改为 notify `--result-file` 的 `status=sent`,未送达出口码=4 |
 | 2 | `cloud_unit_patrol.sh` | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | 21600 | `deploy` | 首报必达 | 聚合域待对齐 |
 | 3 | `check_data_gap_alerts.py` | `trade-check-data-gap.timer` 22:35 | critical(`--severe`)/warning(子项) | 86400 | `data-gap` | 首报必达 | 聚合域待对齐 |
 | 4 | `check_monitor_heartbeat.py` | `trade-check-monitor-heartbeat.timer` 每 15min | critical(`--severe`) | 3600 | `monitor` | 首报必达 | — |
@@ -88,8 +88,10 @@
 | 43 | `uptime_check.sh` ⚠️**孤儿** | **无触发链**(#210 观察盲区) | critical(`--severe`) | **未声明** | `monitor` | 首报必达 | **dedup window / 聚合域未声明 + 无触发=观察盲区** |
 | 44 | `monitor_72h.sh` ⚠️**孤儿** | **无触发链**(#210;本机 launchd 已自卸载) | critical(`--severe`) | **未声明** | `monitor` | 首报必达 | **dedup window / 聚合域未声明 + 无触发=观察盲区** |
 | 45※ | `check_sentiment_r2_upload.py`(#231 H1,**链尾收口**,2026-10-17 新增) | `intraday_snapshot.sh` 链尾(盘中每轮,非独立 timer) | critical(`--severe`) | 1800 | `r2` | 首报必达 | —(四元组自本表起线后首个全声明条目) |
+| 46※ | `deploy.sh`(**连续部署失败聚合档**,2026-10-21 新增) | deploy.sh EXIT trap(每次部署结果;成功清零) | critical(`--severe`) | 21600 | `deploy` | 首报必达(跨过阈值那一次必发) | —(四元组全声明;状态 `data/deploy_fail_state.json`,阈值默认 2,env `DEPLOY_FAIL_ALERT_THRESHOLD` 可配) |
+| 47※ | `deploy.sh`(**仅告警级校验失败**,2026-10-21 新增) | check_data_integrity rc=3(上游独立产物缺/滞后, deploy 不退出) | notice(send() 旧行为, **未加 `--severe`**) | 21600 | `deploy` | 首报必达 | tier 走 send() 旧行为(与 #46 刻意区分: 阻断级才 severe);清单见 `check_data_integrity.ALERT_ONLY_CHECKS` |
 
-> ※ 编号说明:#45 在 §2.2(业务订阅表)已被 `detect_intraday_anomaly.py` 占用;本行属**故障告警表**(§2.1),两表独立计数,引用时请写「§2.1 #45※」以免混淆。
+> ※ 编号说明:#45 在 §2.2(业务订阅表)已被 `detect_intraday_anomaly.py` 占用;本行属**故障告警表**(§2.1),两表独立计数,引用时请写「§2.1 #45※」以免混淆。#46※/#47※ 同此约定(§2.2 的 46/47 是 run_daily_brief / gen_daily_brief)。
 
 > 说明:#43/#44 是**孤儿 checker**(脚本存在、能发告警,但云上无 timer/无调用方触发)——2026-10-06 #195 批2 已登记 #210;「有告警能力但从不跑」= 观察盲区,须一并纳入治理。
 

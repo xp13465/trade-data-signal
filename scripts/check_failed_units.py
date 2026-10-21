@@ -62,9 +62,11 @@
   「连续 3 天仍异常 → 升 critical」由 notify.py 调用侧拦截(#196③,
   alert_denoise_rules.consecutive_days_escalate, 状态 data/failed_units_patrol_state.json)。
 
-【出口码】0=健康 / 1=发现异常(已告警或 dry 打印) / 3=跳过(非云上: 无 systemctl 且无注入样本)
-  / 2=内部错误(如注入样本解析失败)。schedule_monitor 侧映射: 1→记日志(自身通道已发);
-  其他非 {0,1,3} → 追加一条 SEVERE 进主告警邮件(让「本巡检自己跑挂了」可见)。
+【出口码】0=健康 / 1=发现异常且告警**真发出**或按设计静默(降噪抑制)/ dry 打印
+  / 4=发现异常但告警**未送达**(结构化结果 status!=sent; 不落签名, 下轮重试)
+  / 3=跳过(非云上: 无 systemctl 且无注入样本) / 2=内部错误(如注入样本解析失败)。
+  schedule_monitor 侧映射(2026-10-21 起): 1→记日志「异常已告警或按设计静默」(不得自证已发出);
+  4→独立 SEVERE 复核项「巡检发现异常但告警未送达」; 其他非 {0,1,3,4} → SEVERE「本巡检自己跑挂了」。
 
 【自测桩(生产不设; 全离线、零真通知)】
   --failed-units-file <path>  systemctl --failed 输出的 text(替代真机命令)
@@ -85,6 +87,7 @@ os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))  # #245 批2 
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -274,19 +277,45 @@ def _send_notify(repo, subject, body):
     ⚠️ F1 复审(2026-10-09): 返回的 sent **不是 rc==0**, 而是从 notify.py 输出里判「真发出过」
     (见 _notify_sent)。rc 恒 0 不含告知力: 全渠道失败也 return 0(notify.py 汇总行([notify] 汇总：全部渠道未发出)), 若按 rc
     落签名, 渠道故障当天会把同集合告警全部抑制 = 当天失报。
+
+    ⚠️ 2026-10-21 告警黑洞根因修(主判据改为结构化结果): 传 `--result-file` 读 notify.py 写出的
+    JSON `status` 字段。字符串解析(_notify_sent)降为**旧版 notify 的兼容回退**, 不再作主判据——
+    字符串判据把「升级档 suppress」也判成未发出(实测 7 天零告警的根因之一)。
+    status 口径: sent=真发出 → True; suppressed/failed/noop/缺失 → False(→ 不落状态, 下轮重试)。
     """
+    fd, result_path = tempfile.mkstemp(prefix="notify_result_", suffix=".json")
+    os.close(fd)
     try:
         proc = subprocess.run(
             [sys.executable, str(SCRIPT_DIR / "notify.py"), subject, body.replace("\n", "<br>"),
              "--severe", "--from-prefix", "[告警]",
-             "--dedup-key", adr.FAILED_UNITS_DEDUP_KEY, "--dedup-window", "0"],
+             "--dedup-key", adr.FAILED_UNITS_DEDUP_KEY, "--dedup-window", "0",
+             "--result-file", result_path],
             capture_output=True, text=True, timeout=120, check=False,
         )
         out = (proc.stdout or "") + (proc.stderr or "")
-        detail = out.strip()[-300:] or f"rc={proc.returncode}(无输出)"
-        return _notify_sent(out), detail
+        _status, _channels = None, {}
+        try:
+            payload = json.loads(Path(result_path).read_text(encoding="utf-8"))
+            _status = payload.get("status")
+            _channels = payload.get("channels") or {}
+        except Exception:  # noqa: BLE001 - 旧版 notify 无结果文件 → 回退字符串判据
+            _status = None
+        if _status is None:
+            sent = _notify_sent(out)
+            detail = out.strip()[-300:] or f"rc={proc.returncode}(无输出)"
+            return sent, f"status=missing(回退字符串判据) sent={sent} {detail}"
+        sent = _status == "sent"
+        detail = (f"status={_status} channels={_channels} "
+                  f"recent={(out.strip()[-200:] or '')}")
+        return sent, detail
     except Exception as e:  # noqa: BLE001
         return False, f"{type(e).__name__}: {e}"
+    finally:
+        try:
+            os.unlink(result_path)
+        except OSError:
+            pass
 
 
 def main() -> int:
@@ -454,9 +483,11 @@ def main() -> int:
                              today_str=today_str, now_str=now_str)
             print(f"[failed-units] 告警已发出(--severe, reason={_reason})", file=sys.stderr)
         else:
-            # F1 复审: notify.py 恒 return 0, 全渠道失败也会走到这里(输出含「全部渠道未发出」)
-            # ⇒ 响亮打日志 + 不落签名, 下轮仍会重试
+            # 2026-10-21: 结构化结果判「真发送」; 未发出 ⇒ 不落签名(下轮重试) + **rc=4**
+            # 让 schedule_monitor 把「巡检发现异常但告警没送达」当独立故障复核/上报,
+            # 不再自证「自身通道已发告警」(告警黑洞 7 天无人知的另一半根因)。
             print(f"[failed-units] 告警未发出(不落抑制, 下轮重试): {detail}", file=sys.stderr)
+            return 4
     else:
         # dry-run 打印「将要发送的内容」便于人工排查/自验留证(绝不真发)
         print(f"[failed-units] dry-run: 未真发通知(需 --notify 才发); "

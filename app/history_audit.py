@@ -67,13 +67,21 @@ def audit_signal_daily_store(conn, before: set, after: set, run_date: str | None
 
     before/after: snapshot_signal_daily_history 的前后快照。
 
-    判据(2026-10-14 定):
-      · **消失**(before-after)= 历史行被重算抹除 → P0,落表 + 告警。
+    判据(2026-10-14 定,2026-10-21 修误报口径):
+      · **消失**(before-after)= 历史行被重算抹除 → 落表;是否 critical 见下。
       · **出现**(after-before):
           - 若同轮有消失(信号类型变更 buy→buy_aux 会同时产生一对)= 视作**类型变更佐证**,
             落表(进告警正文),助定位;
           - 若同轮**只有出现**(纯历史回填,如迟到信号补采后重算新增历史行)= 合法补账,
             **不落表不告警**(否则批量回填会灌爆审计表 + 制造告警风暴)。
+      · **每日全量重算 = 设计行为, 不再报 critical(2026-10-21)**:
+        signal_daily 每天两次全量重算, 会把同一 (date,index_id) 的旧 signal 行换成新类型
+        ⇒ 消失/出现成对出现(实测每日 ~1000 条、审计表逐日稳定 5 万行, 见
+        /tmp/alert-week-report.md 类3)。**消失行能在同一 (date,index_id) 找到对应「出现」行
+        = 型别变更 ⇒ notice(severe=False)**, 只提示不告警;
+        **找不到配对 = 纯丢失(行被抹掉没有替身)⇒ 仍 critical**, 判别力不降。
+        判据局限: 若同一天同一指数「删旧行 + 无故新增一条不同类型」, 也会被判成设计行为;
+        这种情形概率低(真丢失通常整行消失、无配对), 但已知并注明(见告警正文)。
     返回完整 diff 清单(调用方/测试可见全貌),落表/告警范围见上。
     """
     run_date = run_date or today_ymd()
@@ -95,7 +103,12 @@ def audit_signal_daily_store(conn, before: set, after: set, run_date: str | None
         except Exception as e:  # noqa: BLE001  审计落表失败不阻断重算
             print(f"[history-audit] signal_daily 审计落表失败(不阻断): {type(e).__name__} {e}")
     if n_dis:
-        _alert("signal_daily", changes, run_date, _SIGNAL_DEDUP_WINDOW)
+        # 2026-10-21: 区分「配对型别变更(每日全量重算的设计行为)」与「纯丢失(真故障)」。
+        appeared_keys = {(c["date"], c["index_id"]) for c in changes if c["kind"] == "appeared"}
+        pure_lost = [c for c in changes if c["kind"] == "disappeared"
+                     and (c["date"], c["index_id"]) not in appeared_keys]
+        _alert("signal_daily", changes, run_date, _SIGNAL_DEDUP_WINDOW,
+               pure_lost=pure_lost)
     return changes
 
 
@@ -245,7 +258,15 @@ def _record(conn, src_table: str, run_date: str, changes: list) -> None:
     conn.commit()
 
 
-def _alert(src_table: str, changes: list, run_date: str, dedup_window: int) -> None:
+def _alert(src_table: str, changes: list, run_date: str, dedup_window: int,
+           pure_lost: list | None = None) -> None:
+    """发历史改写告警。
+
+    pure_lost(2026-10-21): signal_daily 专用 —— 无配对「出现」行的消失清单。
+      · None(未提供, 如 index_daily)= 维持原 critical 行为(不降判别力);
+      · 空 list = 消失行全部是配对型别变更(每日全量重算设计行为)⇒ notice 级(severe=False);
+      · 非空 = 存在纯丢失 ⇒ 仍 critical, 正文写明「其中纯丢失 N 条」。
+    """
     n = len(changes)
     n_dis = sum(1 for c in changes if c["kind"] == "disappeared")
     n_app = sum(1 for c in changes if c["kind"] == "appeared")
@@ -265,20 +286,49 @@ def _alert(src_table: str, changes: list, run_date: str, dedup_window: int) -> N
             return f"{head}(改:{c['before_val']}->{c['after_val']})"
         return f"{head}({c['kind']})"
 
-    subject = f"[历史行改写] {src_table} 历史行被重写 {n} 条({'/'.join(parts)})"
+    # 2026-10-21: 只有「纯丢失」才是 P0; 消失/出现配对的型别变更 = 每日全量重算的设计行为。
+    design_note = ""
+    if pure_lost is not None:
+        n_pure = len(pure_lost)
+        n_paired = n_dis - n_pure
+        critical = n_pure > 0
+        if n_paired:
+            design_note = (
+                f"其中**型别变更 {n_paired} 条**(同一 date+index_id 的旧 signal 被换成新类型)"
+                "= signal_daily 每日全量重算的设计行为, 非数据损坏"
+                "(实测每日两次、审计表逐日稳定 ~5 万行, 见 /tmp/alert-week-report.md 类3)。"
+            )
+        if critical:
+            design_note += f"\n⚠ **纯丢失 {n_pure} 条**(消失后同 date+index_id 无任何新行)= 真故障信号。"
+        else:
+            design_note += (
+                "\n判据局限: 若同一天同一指数「删旧行 + 无故新增一条不同类型」, 也会被判为设计行为;"
+                "该情形概率低(真丢失通常整行消失、无配对), 但已知并在此注明。"
+            )
+    else:
+        critical = True
+    tag = "" if critical else "-提示"
+    subject = f"[历史行改写{tag}] {src_table} 历史行被重写 {n} 条({'/'.join(parts)})"
     sample = "; ".join(_one(c) for c in changes[:_SAMPLE_N])
     body = (
         f"{src_table} 的**历史行**(date < {run_date})在本次重算/采集前后发生改写 {n} 条"
         f"({'/'.join(parts)}), 涉及 {len(iids)} 个指数。\n"
-        "这是「重算/整段重写抹掉历史行」的可见信号(见 docs/ops/trades-wipe-rootfix-20261014.md)。\n"
-        f"明细已落 history_overwrite_audit 表(run_date={run_date})。\n"
+        + (design_note + "\n" if design_note else
+           "这是「重算/整段重写抹掉历史行」的可见信号(见 docs/ops/trades-wipe-rootfix-20261014.md)。\n")
+        + f"明细已落 history_overwrite_audit 表(run_date={run_date})。\n"
         f"样例: {sample}"
     )
     if len(changes) > _SAMPLE_N:
         body += f"\n(仅列前 {_SAMPLE_N} 条, 其余见审计表)"
     try:
         send_alert(subject, body,
-                   dedup_key=f"history_overwrite:{src_table}:{run_date}",
-                   dedup_window=dedup_window)
+                   # 严重度进 dedup key: 防当日先发的 notice 把后来真 critical 压掉(1h 窗)。
+                   dedup_key=f"history_overwrite:{src_table}:{run_date}:"
+                             f"{'critical' if critical else 'notice'}",
+                   # notice 是设计行为, 每天最多一条(实测 signal_daily 每日两次重算);
+                   # critical 沿用原窗口(1h)不放松。
+                   dedup_window=dedup_window if critical else max(dedup_window, 86400),
+                   severe=critical,
+                   from_prefix="[告警]" if critical else "[提示]")
     except Exception as e:  # noqa: BLE001  告警失败不阻断
         print(f"[history-audit] {src_table} 改写告警调用异常: {type(e).__name__} {e}")

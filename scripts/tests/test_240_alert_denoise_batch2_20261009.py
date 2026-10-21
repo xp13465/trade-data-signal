@@ -319,7 +319,9 @@ def test_02e_all_channels_failed_writes_no_signature_and_retries(monkeypatch, tm
     with ZeroOutboundTrap() as trap:
         rc1, _c1, out1 = _cfu_main(monkeypatch, tmp_path, _FAILED_LINE, sender=_fail)
         rc2, _c2, out2 = _cfu_main(monkeypatch, tmp_path, _FAILED_LINE, sender=_fail)
-    _chk(rc1 == 1 and rc2 == 1, f"F1 发送失败仍应 rc=1, 实得 {rc1}/{rc2}")
+    # 2026-10-21: 未送达改为独立出口码 4(此前误报 rc=1 =「巡检已处理」, schedule_monitor
+    # 据此自证「已发」→ 告警黑洞)。语义仍=「未发出 + 不落抑制 + 下轮重试」。
+    _chk(rc1 == 4 and rc2 == 4, f"F1 发送失败应 rc=4(未送达), 实得 {rc1}/{rc2}")
     _chk(len(calls) == 2, f"F1 全渠道失败必须下轮重试(不得落签抑制), 实得调用 {len(calls)} 次")
     _chk("告警未发出" in out1 and "不落抑制" in out1, f"F1 应响亮报未发出, out={out1[-200:]}")
     _chk(not (tmp_path / "data" / adr.FAILED_UNITS_SIG_STATE_FILENAME).exists(),
