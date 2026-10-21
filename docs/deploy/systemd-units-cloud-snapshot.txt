@@ -237,6 +237,22 @@ ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-
 TimeoutStartSec=1080
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.err
+@@@FILE:trade-freeze-orphan-cleanup.service
+[Unit]
+Description=Trade freeze-orphan-cleanup daily 21:50 dry-run (源 #124)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/signal_kelly_freeze_cleanup.py --db /home/ubuntu/code/trade-data/data/sentiment.db
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/freeze_cleanup_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/freeze_cleanup_launchd.err
 @@@FILE:trade-futures-backfill.service
 [Unit]
 Description=Trade futures-backfill (源 com.trade.futures-backfill)
@@ -619,7 +635,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/s06_snapshot.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=3300
+TimeoutStartSec=7020
 @@@FILE:trade-schedule-monitor.service
 [Unit]
 Description=Trade schedule-monitor (源 com.trade.schedule-monitor)
@@ -798,10 +814,10 @@ Persistent=true
 WantedBy=timers.target
 @@@FILE:trade-daily-summary-supplement.timer
 [Unit]
-Description=Trade daily-summary-supplement daily 20:30 (源 com.trade.daily-summary-supplement)
+Description=Trade daily-summary-supplement daily 20:25 (源 com.trade.daily-summary-supplement)
 
 [Timer]
-OnCalendar=*-*-* 20:30:00
+OnCalendar=*-*-* 20:25:00
 Persistent=true
 
 [Install]
@@ -847,13 +863,23 @@ Persistent=true
 
 [Install]
 WantedBy=timers.target
+@@@FILE:trade-freeze-orphan-cleanup.timer
+[Unit]
+Description=Trade freeze-orphan-cleanup daily 21:50 dry-run (源 #124)
+
+[Timer]
+OnCalendar=*-*-* 21:50:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
 @@@FILE:trade-futures-backfill.timer
 [Unit]
 Description=Trade futures-backfill 2 points (源 com.trade.futures-backfill)
 
 [Timer]
-OnCalendar=*-*-* 20:05:00
-OnCalendar=*-*-* 21:00:00
+OnCalendar=*-*-* 19:45:00
+OnCalendar=*-*-* 21:20:00
 Persistent=true
 
 [Install]
@@ -932,7 +958,7 @@ WantedBy=timers.target
 Description=Trade lhb-backfill 2 points (源 com.trade.lhb-backfill)
 
 [Timer]
-OnCalendar=*-*-* 18:30:00
+OnCalendar=*-*-* 18:50:00
 OnCalendar=*-*-* 19:30:00
 Persistent=true
 
@@ -1043,7 +1069,7 @@ WantedBy=timers.target
 Description=Trade public-fund-daily 2 points (源 com.trade.public-fund-daily)
 
 [Timer]
-OnCalendar=*-*-* 16:30:00
+OnCalendar=*-*-* 16:20:00
 OnCalendar=*-*-* 17:00:00
 Persistent=true
 
@@ -1096,11 +1122,10 @@ Persistent=true
 WantedBy=timers.target
 @@@FILE:trade-rzhb-backfill.timer
 [Unit]
-Description=Trade rzhb-backfill 2 points (源 com.trade.rzhb-backfill)
+Description=Trade rzhb-backfill 1 point (源 com.trade.rzhb-backfill)
 
 [Timer]
 OnCalendar=*-*-* 08:00:00
-OnCalendar=*-*-* 19:15:00
 Persistent=true
 
 [Install]

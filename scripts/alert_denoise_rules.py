@@ -115,6 +115,9 @@ WATCHMAN_UNITS = (
     # #264 包3 件F(2026-10-16): 告警周度 review 调度器(巡检类, 不产出数据; 停了没有任何
     # 数据会变旧 ⇒ 纳入本清单直接看 timer 活性 = L45 第 4 件「过期告警」落点)。
     ("trade-alert-weekly-review.timer", "timer"),
+    # #258 云上批(2026-10-22): 孤儿冻结清理调度器(每日 21:50, dry-run)。同属巡检/清理类,
+    # 不产出数据 —— 停跑后孤儿只在冻结表缓慢累积, 没有任何数据会变旧 ⇒ 纳入本清单看 timer 活性。
+    ("trade-freeze-orphan-cleanup.timer", "timer"),
 )
 
 
@@ -419,7 +422,7 @@ def judge_watchman_units(rows):
 def extract_script_paths(exec_start_entries):
     """从 `systemctl show -p ExecStart` 行提取「脚本文件绝对路径」(纯解析, 无 I/O)。
 
-    实测云上 systemd 249 格式(8 个守护 unit 全部同形):
+    实测云上 systemd 249 格式(9 个守护 unit 全部同形):
       `ExecStart={ path=/bin/bash ; argv[]=/bin/bash /home/ubuntu/.../x.sh ; ... }`
       `ExecStart={ path=/home/.../python ; argv[]=/home/.../python /home/.../x.py ; ... }`
     ⇒ 取 argv[] 里「以 / 开头且以 .sh/.py 结尾」的 token = 被执行的脚本本体。

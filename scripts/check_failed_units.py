@@ -13,7 +13,7 @@
 
 【两类判定(都是「真故障判别维度」, 非噪音; memory alert-denoise-keep-fault-discriminator)】
   ① failed-unit: `systemctl list-units --state=failed --no-legend --plain` 非空 → 真故障。
-  ② 巡检者自身存活(= ② 「不能巡检者死了没人知」): 对 WATCHMAN_UNITS(8 个「无数据产物可反证
+  ② 巡检者自身存活(= ② 「不能巡检者死了没人知」): 对 WATCHMAN_UNITS(9 个「无数据产物可反证
      其存活」的守护/巡检/监控 timer: patrol / schedule-monitor / check-monitor-heartbeat /
      self-heal / r2-consistency / check-data-gap / overfit-monitor / alert-weekly-review; 收录边界见
      alert_denoise_rules.WATCHMAN_UNITS 注释)逐个判:
@@ -34,7 +34,7 @@
   schedule_monitor/gen_schedule_stats 的 TASKS, 日志不再出现「开始」行 → 漏跑告警)。
   ⇒ ①②③ 四路(本脚本 failed-unit / 本脚本 timer 存活 / 本脚本脚本存在性 / 注册漏跑)覆盖的
      失败模式互不重叠:
-     脚本被删→注册漏跑(注册过的)或脚本存在性检查(全 8 个守护 unit, 与注册无关);
+     脚本被删→注册漏跑(注册过的)或脚本存在性检查(全 9 个守护 unit, 与注册无关);
      timer 被停/unit 离盘→本脚本存活检查; 跑起来却失败(漂移/exit3)→本脚本 failed-unit +
      gen_schedule_stats exit!=0 通道。
 

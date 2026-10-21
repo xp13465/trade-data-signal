@@ -45,7 +45,7 @@ HEALTHY_SHOW = {u: {"ActiveState": "active", "LoadState": "loaded", "UnitFileSta
 
 # ── 云上实测 fixture(#203, 2026-10-06 只读 `systemctl show` 逐字取证) ──
 # 形态与云上真值同形: `.timer` 只带 `Triggers=<名>.service`(timer 无 ExecStart),
-# ExecStart 落在其触发的 `.service` 上。WATCHMAN_UNITS 8 个 timer 的真实目标脚本:
+# ExecStart 落在其触发的 `.service` 上。WATCHMAN_UNITS 9 个 timer 的真实目标脚本:
 CLOUD_ROOT = "/home/ubuntu/code/trade-data"
 WATCHMAN_SCRIPT_BY_UNIT = {
     "trade-cloud-unit-patrol.timer": f"{CLOUD_ROOT}/scripts/cloud_unit_patrol.sh",
@@ -56,6 +56,8 @@ WATCHMAN_SCRIPT_BY_UNIT = {
     "trade-check-data-gap.timer": f"{CLOUD_ROOT}/scripts/check_data_gap_alerts.sh",
     "trade-overfit-monitor.timer": f"{CLOUD_ROOT}/scripts/overfit_monitor.sh",
     "trade-alert-weekly-review.timer": f"{CLOUD_ROOT}/scripts/alert_weekly_review.py",
+    # #258 云上批(2026-10-22): 新增 WATCHMAN 第 9 项(daily 21:50 dry-run)。
+    "trade-freeze-orphan-cleanup.timer": f"{CLOUD_ROOT}/scripts/signal_kelly_freeze_cleanup.py",
 }
 
 
@@ -192,7 +194,7 @@ def test_resolve_exec_entries_timer_real_cloud_shape_nonempty():
     """#203 根因回归(核心): 云上真实形态(.timer 无 ExecStart, 只带 Triggers 指向 .service)下,
     ②b 层必须解析出**非空**的真实脚本路径 —— 修复前恒空(生产空转/假绿)。
 
-    8 个 WATCHMAN_UNITS timer 逐个断言, 路径与云上 systemctl show 真值一致。"""
+    9 个 WATCHMAN_UNITS timer 逐个断言, 路径与云上 systemctl show 真值一致。"""
     show = _real_cloud_show()
 
     def _lookup(u):
@@ -355,7 +357,7 @@ def test_cfu_watchman_stopped_rc1(tmp_path):
 
 
 def _plant_cloud_scripts(root, skip=None):
-    """在受控 root 下按云上真值文件名铺 8 个守护脚本(供 exists/missing 两分支确定性测试)。"""
+    """在受控 root 下按云上真值文件名铺 9 个守护脚本(供 exists/missing 两分支确定性测试)。"""
     (root / "scripts").mkdir(parents=True, exist_ok=True)
     for script in WATCHMAN_SCRIPT_BY_UNIT.values():
         if script == skip:
@@ -366,7 +368,7 @@ def _plant_cloud_scripts(root, skip=None):
 
 def test_cfu_watchman_script_present_rc0_real_cloud_shape(tmp_path):
     """§18 L49 反向对照-存在侧: 云上实测形态(.timer→Triggers→.service 持 ExecStart)下,
-    8 个脚本都在盘 → rc=0, 零假阳性(该层必须干净, 否则成告警噪音)。"""
+    9 个脚本都在盘 → rc=0, 零假阳性(该层必须干净, 否则成告警噪音)。"""
     root = tmp_path / "cloud"
     _plant_cloud_scripts(root)
     r = _run_cfu(tmp_path, show_map=_real_cloud_show(root=str(root)))

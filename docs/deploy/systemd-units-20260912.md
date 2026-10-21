@@ -423,7 +423,7 @@ StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/fapi_daily_launchd.
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/fapi_daily_launchd.err
 ```
 
-### 2.8 futures-backfill(20:05 / 21:00)
+### 2.8 futures-backfill(19:45 / 21:20)
 - 脚本:`futures_backfill.sh` | ExitTimeOut=3600
 
 `trade-futures-backfill.timer`:
@@ -432,8 +432,8 @@ StandardError=append:/home/ubuntu/code/trade-data/data/logs/fapi_daily_launchd.e
 Description=Trade futures-backfill 2 points (源 com.trade.futures-backfill)
 
 [Timer]
-OnCalendar=*-*-* 20:05:00
-OnCalendar=*-*-* 21:00:00
+OnCalendar=*-*-* 19:45:00
+OnCalendar=*-*-* 21:20:00
 Persistent=true
 
 [Install]
@@ -496,7 +496,7 @@ StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/gold_night_launchd.
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/gold_night_launchd.err
 ```
 
-### 2.10 lhb-backfill(18:30 / 19:30 龙虎榜)
+### 2.10 lhb-backfill(18:50 / 19:30 龙虎榜)
 - 脚本:`lhb_backfill.sh` | ExitTimeOut=3600
 
 `trade-lhb-backfill.timer`:
@@ -505,7 +505,7 @@ StandardError=append:/home/ubuntu/code/trade-data/data/logs/gold_night_launchd.e
 Description=Trade lhb-backfill 2 points (源 com.trade.lhb-backfill)
 
 [Timer]
-OnCalendar=*-*-* 18:30:00
+OnCalendar=*-*-* 18:50:00
 OnCalendar=*-*-* 19:30:00
 Persistent=true
 
@@ -533,17 +533,16 @@ StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/lhb_backfill_launch
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/lhb_backfill_launchd.err
 ```
 
-### 2.11 rzhb-backfill(8:00 / 19:15 融资融券)
+### 2.11 rzhb-backfill(8:00 融资融券)
 - 脚本:`rzhb_backfill.sh` | ExitTimeOut=3600
 
 `trade-rzhb-backfill.timer`:
 ```ini
 [Unit]
-Description=Trade rzhb-backfill 2 points (源 com.trade.rzhb-backfill)
+Description=Trade rzhb-backfill 1 point (源 com.trade.rzhb-backfill)
 
 [Timer]
 OnCalendar=*-*-* 08:00:00
-OnCalendar=*-*-* 19:15:00
 Persistent=true
 
 [Install]
@@ -712,7 +711,7 @@ TimeoutStartSec=1800
 
 ### 2.15 s06-snapshot(周一~五 20:35)
 - 脚本:`s06_snapshot.sh`(timeout 降级链阶段4 Linux 化)| ExitTimeOut=600(launchd 源值;云上 service `TimeoutStartSec` 见下)
-- **超时梯度修正(2026-10-05,根因)**:内层 `s06_snapshot.sh` 有 6 次串行 `run_to` 调用(5 段代码,posrating 段双树跑 2 次)——gen 300 + check 300 + R2 上传 900 + posrating 300×2 + 快照上传 900 = **串行合计 3000s**。原云上 `TimeoutStartSec=600` **< 内层合计**无梯度:脚本跑到 R2 段未及内层 `run_to 900` 就先把 systemd 杀掉(退出码 143),「结束」行写不出、`notify`(脚本 L138)也发不出——即「告警与链路同亡」(#162 已把此病根的监控副作用兜底,schedule_monitor 判据见 `scripts/schedule_monitor.sh:427-431`)。修正 = 外层提到 **3300s**(= 内层串行合计 3000 + 300 余量,余量口径采研究者 2026-10-05 建议值,覆盖段间非上传耗时:双树 610KB 原子写×2 / posrating×2 / notify 子进程 / bash-python 启动),使每段 `run_to` 都先于 systemd 生效,脚本必能跑完并写「结束」行 + 发告警。**为何不是 1200(内层 900 + 300)**:R2 网障属**相关失败**——③`upload-data-files` 与 ④b`upload-kelly-snapshots` 同时吃满 900(sched 300+300+900+600+900=3000),外层 1200 仍会先杀 ⇒ 恰在**最需要告警**的场景丢 notify。同类梯度原则见 `memory watchdog-inner-timeout-no-gradient`(外层 > 内层留梯度)。
+- **超时梯度修正(2026-10-05,根因)**:内层 `s06_snapshot.sh` 有 6 次串行 `run_to` 调用(5 段代码,posrating 段双树跑 2 次)——gen 300 + check 300 + R2 上传 900 + posrating 300×2 + 快照上传 900 = **串行合计 3000s**。原云上 `TimeoutStartSec=600` **< 内层合计**无梯度:脚本跑到 R2 段未及内层 `run_to 900` 就先把 systemd 杀掉(退出码 143),「结束」行写不出、`notify`(脚本 L138)也发不出——即「告警与链路同亡」(#162 已把此病根的监控副作用兜底,schedule_monitor 判据见 `scripts/schedule_monitor.sh:427-431`)。修正 = 外层提到 **3300s**(= 内层串行合计 3000 + 300 余量,余量口径采研究者 2026-10-05 建议值,覆盖段间非上传耗时:双树 610KB 原子写×2 / posrating×2 / notify 子进程 / bash-python 启动),使每段 `run_to` 都先于 systemd 生效,脚本必能跑完并写「结束」行 + 发告警。**2026-10-22 再抬到 7020s(#258)**:E1 已把锁等待从步骤预算剥离(内层上界 6720 = 6 段 run_to 预算上调后的串行合计),外层须继续 ≥ 内层并留 300 余量 ⇒ 7020(= 6720 + 300),否则锁等待期仍可能被 systemd 先杀。**为何不是 1200(内层 900 + 300)**:R2 网障属**相关失败**——③`upload-data-files` 与 ④b`upload-kelly-snapshots` 同时吃满 900(sched 300+300+900+600+900=3000),外层 1200 仍会先杀 ⇒ 恰在**最需要告警**的场景丢 notify。同类梯度原则见 `memory watchdog-inner-timeout-no-gradient`(外层 > 内层留梯度)。
 
 `trade-s06-snapshot.timer`:
 ```ini
@@ -742,7 +741,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/s06_snapshot.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=3300
+TimeoutStartSec=7020
 ```
 
 ### 2.16 check-data-gap(周一~五 22:35)
@@ -818,16 +817,16 @@ StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/daily_brief_launchd
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/daily_brief_launchd.err
 ```
 
-### 2.18 daily-summary-supplement(20:30)
+### 2.18 daily-summary-supplement(20:25)
 - 脚本:`daily_summary_email.py --mode supplement`(venv python)| ExitTimeOut=600
 
 `trade-daily-summary-supplement.timer`:
 ```ini
 [Unit]
-Description=Trade daily-summary-supplement daily 20:30 (源 com.trade.daily-summary-supplement)
+Description=Trade daily-summary-supplement daily 20:25 (源 com.trade.daily-summary-supplement)
 
 [Timer]
-OnCalendar=*-*-* 20:30:00
+OnCalendar=*-*-* 20:25:00
 Persistent=true
 
 [Install]
@@ -1142,7 +1141,7 @@ StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/stage0-manager-laun
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/stage0-manager-launchd.log
 ```
 
-### 2.27 public-fund-daily(16:30 / 17:00)
+### 2.27 public-fund-daily(16:20 / 17:00)
 - 脚本:`public_fund_daily.sh` | ExitTimeOut=300
 
 `trade-public-fund-daily.timer`:
@@ -1151,7 +1150,7 @@ StandardError=append:/home/ubuntu/code/trade-data/data/logs/stage0-manager-launc
 Description=Trade public-fund-daily 2 points (源 com.trade.public-fund-daily)
 
 [Timer]
-OnCalendar=*-*-* 16:30:00
+OnCalendar=*-*-* 16:20:00
 OnCalendar=*-*-* 17:00:00
 Persistent=true
 
@@ -1580,6 +1579,7 @@ TimeoutStartSec=0
 > - 每日跑**不限交易日**:「各源一致」是不变量,周末被外部覆盖同样要抓 → timer `*-*-*`(非 Mon..Fri)
 > - **顺序坑根治**:service 含 `ConditionPathExists=`——脚本未 merge 到位时 timer 触发 service 直接 skip(不算 failed);到位后自动生效(同 heartbeat 先例)
 > - **无 StandardOutput append**:本脚本自己写同名 `r2_consistency_launchd.log`,按 §1.4 例外条款(2026-09-15 root 属主冲突根治)刻意不设 append,日志走 journal
+> - **超时梯度**:外层 `TimeoutStartSec=960` > 内层 `run_to 900`,留梯度防 systemd SIGKILL 打断 wrapper 的「结束」日志行 → schedule_monitor 漏跑检查误判 runaway(2026-10-22 注:原写在 ini 块内注释,云上实际文件无该注释,为过 main-merge 7.8 生成源一致性闸门,注释知识移入本说明段)
 
 `trade-r2-consistency.timer`:
 ```ini
@@ -1610,8 +1610,6 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/check_r2_consistency.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-# 外层 960 > 内层 run_to 900(留梯度,防 systemd SIGKILL 打断 wrapper 的「结束」日志行
-#   → schedule_monitor 漏跑检查误判 runaway;memory watchdog-inner-timeout-no-gradient)
 TimeoutStartSec=960
 ```
 
@@ -1696,6 +1694,47 @@ EnvironmentFile=/home/ubuntu/code/trade-data/.env
 TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/alert-weekly-review-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/alert-weekly-review-launchd.err
+```
+
+### 2.40 freeze-orphan-cleanup(每日 21:50,dry-run,#124)
+
+> 追加于 2026-10-22(#258 云上批,用户当场授权):本任务是 `signal_kelly_freeze_cleanup.py`(#124 孤儿冻结清理,实施 + 独立审查 PASS 见 `docs/ops/124-freeze-orphan-cleanup-20261001.md`)的**调度器挂载**,非迁移批新增(无 launchd 源)。对齐 L45 教训四件本 unit 补「定时挂载」。**首月 dry-run 不加 `--commit`**:脚本默认只报告不删除(`--commit` 才真删),`--commit` 的启用须另经用户拍板(审查报告 §8 建议)。
+> - script:`signal_kelly_freeze_cleanup.py --db data/sentiment.db`(**不带 --commit**)
+> - 时点依据(§14):每日 21:50 盘后,收盘 signal_daily 定稿后;避开 17:50 update-all / 20:35 s06-snapshot / 22:00 public-fund-full 与 22:35 check-data-gap,21:50 无其他 trade timer
+> - `Persistent=true` 保证宕机错过当日补跑
+> - 读 `data/signal_kelly_etf_freeze.json` + `data/sentiment.db`,dry-run 零写入(不删键、不写冻结表);仅 systemd append 日志留报告
+> - 云上首次实跑(2026-10-22 00:15,手动 start 验证 unit 可跑通):`[dry-run] 将删除 28 键, 未执行`,err 空
+
+`trade-freeze-orphan-cleanup.timer`:
+```ini
+[Unit]
+Description=Trade freeze-orphan-cleanup daily 21:50 dry-run (源 #124)
+
+[Timer]
+OnCalendar=*-*-* 21:50:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-freeze-orphan-cleanup.service`:
+```ini
+[Unit]
+Description=Trade freeze-orphan-cleanup daily 21:50 dry-run (源 #124)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/signal_kelly_freeze_cleanup.py --db /home/ubuntu/code/trade-data/data/sentiment.db
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=600
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/freeze_cleanup_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/freeze_cleanup_launchd.err
 ```
 
 ## 7. 落地注意事项(stage4 用)
