@@ -16,7 +16,12 @@ min 文件 md5(重建后不再读磁盘); 重建+比对后复验 HEAD; HEAD 变�
   3 持续变化(A→B→C) ⇒ FAIL, 消息含「校验期间 HEAD 变化」, **不含**「min 过期」
   4 真脏工作区(源脏 + min 由脏源生成) ⇒ 仍 FAIL(原语义), 消息含「工作区源脏」
   5 min 真过期(干净源 + 旧 min) ⇒ FAIL(防误判回归)
+  5b 源在 / min 缺 ⇒ FAIL(改动面快照取值的 None 分支)
   + 真实并发 pull 模拟(重建过程中真提交新 HEAD 且 min 同步更新) ⇒ 重试后 PASS
+  M2 快照时机钉住: 重建窗口内 min 被换新(HEAD 不动)⇒ 必须按**重建前**快照判定(PASS, 追溯行给旧 hash);
+     把快照移到重建之后 ⇒ 本用例红(reviewer 变异证据盲区)
+  M4 固定 sha 钉住: 读源收到的 head 必须 == 首次 `git rev-parse HEAD` 值;
+     重建忽略固定 sha(head=None)⇒ 本用例红(reviewer 变异证据盲区)
 
 边界声明(§10.8 七轴之「外部依赖/压缩器」): 本文件**不测**真实 terser/rcssmin 压缩路径——那属外部工具,
 由 `test_261_build_min_deps.py`(CSS 真压缩 + 映射一致性)与 CI ③b 步覆盖; 这里把
@@ -25,6 +30,7 @@ HEAD 复验/重试」这一本次改动面。选 CSS 配对是因为它不走 te
 """
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -157,6 +163,63 @@ def test_case5_stale_min_still_fail(repo_site):
     ok, det = cvc.check3(site)
     assert not ok, f"min 过期应 FAIL: {det}"
     assert "min 内容与 git HEAD 源重建不一致" in det, f"消息应指出内容不一致: {det}"
+
+
+def test_m2_snapshot_must_be_taken_before_rebuild(repo_site, monkeypatch):
+    """M2 变异盲区钉住: 快照必须在**重建之前**。
+
+    场景: 重建窗口内 min 文件被并发方换新(HEAD 不动, 隔离"快照时机"这一个变量)。
+    - 正确实现(重建前快照): 比对基准 = 窗口开始时的旧 min, 与按旧 sha 重建的产物一致 ⇒ PASS,
+      追溯行给的是**旧** hash;
+    - 错误实现(快照挪到重建之后): 比对基准 = 被换新的 min ≠ 旧 sha 重建产物 ⇒ FAIL。
+    故本用例断言 PASS + 追溯行含旧 hash、不含新 hash;把 `_snapshot_min_md5` 挪到重建之后本用例必红。
+    """
+    _repo, site = repo_site
+    old_bytes = (site / "style.min.css").read_bytes()
+    old_md5 = hashlib.md5(old_bytes).hexdigest()
+    new_bytes = b"MIN:changed-mid-window\n"
+    new_md5 = hashlib.md5(new_bytes).hexdigest()
+    assert old_md5 != new_md5
+    real_rebuild = cvc._rebuild_from_head
+
+    def racing_rebuild(site_dir, repo_arg, head):
+        out = real_rebuild(site_dir, repo_arg, head)      # 先按固定 sha 重建(产物 = 旧 min)
+        (site / "style.min.css").write_bytes(new_bytes)   # 重建窗口内被换新
+        return out
+
+    monkeypatch.setattr(cvc, "_rebuild_from_head", racing_rebuild)
+    ok, det = cvc.check3(site)
+    assert ok, f"快照应取重建前的旧 min(换新发生在窗口内, 不应参与本次判定): {det}"
+    assert f"style.min.css={old_md5[:8]}" in det, f"追溯行应给重建前快照的旧 hash: {det}"
+    assert f"style.min.css={new_md5[:8]}" not in det, f"追溯行混进了窗口内换新的 hash(说明快照在重建之后): {det}"
+
+
+def test_m4_rebuild_must_use_fixed_head_sha(repo_site, monkeypatch):
+    """M4 变异盲区钉住: 读源必须用**固定的 head sha**。
+
+    桩掉 `build_min._read_source` 记录收到的 head 参数: 全部必须 == 首次 `git rev-parse HEAD`。
+    若重建忽略固定 sha(传 head=None / 退回"每次读 HEAD")⇒ 收到 None 或别的值 ⇒ 本用例必红。
+    """
+    repo, site = repo_site
+    head = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        capture_output=True, text=True, timeout=60,
+    ).stdout.strip()
+    assert len(head) == 40, f"取 HEAD sha 失败: {head!r}"
+
+    real_read = build_min._read_source
+    seen: list[str | None] = []
+
+    def spy(src_rel, base=build_min.BASE, repo=None, head=None):
+        seen.append(head)
+        return real_read(src_rel, base=base, repo=repo, head=head)
+
+    monkeypatch.setattr(build_min, "_read_source", spy)
+    ok, det = cvc.check3(site)
+    assert ok, f"正常态应 PASS: {det}"
+    assert seen, "重建阶段没有发生任何读源(测试未覆盖到目标路径)"
+    assert all(h == head for h in seen), f"读源未使用固定 sha, 收到的 head: {sorted({str(h) for h in seen})}"
+    assert head[:12] in det, f"追溯行应给出固定 sha: {det}"
 
 
 def test_real_head_advance_during_rebuild_retries_and_passes(repo_site, monkeypatch):
