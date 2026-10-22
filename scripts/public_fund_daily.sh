@@ -70,6 +70,7 @@ fi
 # 避免推旧数据上线(原 bug: 撞锁 exit0 当成功, 继续 export+deploy 旧 position_estimate.json)
 EXPORT_RC=0
 DEPLOY_RC=0
+NAV_REFRESH_RC=0   # #278 净值桶刷新: 0=已刷新/无变更, 10=锁或窗口跳过(非失败), 其它=失败
 if [ "$COLLECT_RC" -ne 0 ]; then
   echo "[public_fund_daily] daily 失败/撞锁跳过 exit=$COLLECT_RC, 跳过 export+deploy 避免推旧数据上线" | tee -a "$LOG"
 else
@@ -78,12 +79,28 @@ else
   EXPORT_RC=${PIPESTATUS[0]}
   echo "导出退出码=$EXPORT_RC" | tee -a "$LOG"
   if [ "$EXPORT_RC" -eq 0 ]; then
-    # 推送（deploy.sh public-fund 重新 export + git push + R2 上传; #149 方案① 外层锁去掉,
-    # 段1 锁外可并发, 段2 git 内部锁串行）
-    echo "-> 推送 deploy public-fund（export+R2 锁外并发, git 段内部锁串行）..." | tee -a "$LOG"
-    bash "$REPO/scripts/deploy.sh" public-fund 2>&1 | tee -a "$LOG"
-    DEPLOY_RC=${PIPESTATUS[0]}
-    [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
+    # 2.5) nav_bucket 净值桶增量刷新（#278, 2026-10-22 用户拍板方案 A, 根因见
+    #   docs/ops/failed-units-rca-20261022.md「trade-public-fund-daily」行）:
+    #   日更早于 17:50 全量链, 当日新净值/同日修正值已入库而 nav_bucket 产物还是旧值 ⇒
+    #   deploy 内 fund_nav 闸门(阻断级)必 FAIL。修复 = deploy 前先刷新净值桶再校验;
+    #   与 17:50 全量链**同一脚本同一 payload 实现**(export_fund_nav.py --daily-refresh),
+    #   只重建最近 7 天有净值写入的基金所在桶, 内容未变不重写(幂等)。
+    #   失败语义: 刷新失败 ⇒ 明确阻断本次 deploy(不静默继续, 防把「刷新失败」误报成 fund_nav 失败)。
+    #   fund_nav 阻断级 / 校验阈值 / 17:50 全量链行为均不动。
+    . "$REPO/scripts/lib/nav_bucket_refresh.sh"
+    echo "-> 刷新 nav_bucket 净值桶（增量, 与 17:50 全量链同脚本同口径）..." | tee -a "$LOG"
+    NAV_REFRESH_LOG="$LOG" nav_bucket_refresh_run
+    NAV_REFRESH_RC=$?
+    if nav_bucket_refresh_blocks_deploy "$NAV_REFRESH_RC"; then
+      echo "✗ nav_bucket 刷新失败(rc=$NAV_REFRESH_RC) —— 阻断本次 deploy: 净值桶未与 DB 对齐; 若继续, fund_nav 闸门(阻断级)会拦下并把「刷新失败」误报成 fund_nav 失败" | tee -a "$LOG"
+    else
+      # 推送（deploy.sh public-fund 重新 export + git push + R2 上传; #149 方案① 外层锁去掉,
+      # 段1 锁外可并发, 段2 git 内部锁串行）
+      echo "-> 推送 deploy public-fund（export+R2 锁外并发, git 段内部锁串行）..." | tee -a "$LOG"
+      bash "$REPO/scripts/deploy.sh" public-fund 2>&1 | tee -a "$LOG"
+      DEPLOY_RC=${PIPESTATUS[0]}
+      [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
+    fi
   else
     echo "[public_fund_daily] export 失败 exit=$EXPORT_RC, 跳过 deploy" | tee -a "$LOG"
   fi
@@ -93,6 +110,8 @@ fi
 FINAL_RC=0
 [ "$COLLECT_RC" -ne 0 ] && FINAL_RC=$COLLECT_RC
 [ "$EXPORT_RC" -ne 0 ] && FINAL_RC=$EXPORT_RC
+# nav_bucket 刷新失败(非 0 且非 10=跳过)才算失败; 10 只是「锁/窗口跳过」, 不算失败(§5.8 不假绿)
+[ "$NAV_REFRESH_RC" -ne 0 ] && [ "$NAV_REFRESH_RC" -ne 10 ] && FINAL_RC=$NAV_REFRESH_RC
 [ "$DEPLOY_RC" -ne 0 ] && FINAL_RC=$DEPLOY_RC
 
 echo "=== public_fund_daily.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') deploy=$DEPLOY_RC ===" | tee -a "$LOG"
