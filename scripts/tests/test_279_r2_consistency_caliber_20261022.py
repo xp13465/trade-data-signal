@@ -74,7 +74,8 @@ def test_case1_local_only_diff_is_pass_with_info(monkeypatch, tmp_path, capsys):
     _patch_local(monkeypatch, tmp_path, _overview("20261019", 87.0))
     rc, out = _run_main(monkeypatch, capsys, files=[("overview", "overview.json", OVERVIEW_REMOTES)])
     assert rc == 0, f"local-only 差异必须 PASS,实际 rc={rc}\n{out}"
-    assert "[INFO] [overview] local 未同步" in out, out
+    assert "[INFO] [overview] local 落后于三站" in out, out
+    assert "local方向=落后" in out, out
     assert "三站不一致" not in out and "✗" not in out, out
     assert "[SUMMARY]" in out and "结果=PASS" in out, out
 
@@ -160,11 +161,11 @@ def test_case4_replay_1021_2320_diffs_are_info_only(monkeypatch, tmp_path, capsy
     _patch_fetch(monkeypatch, {"ssd.fx8.store": (_overview("20261021", 87.4), None),
                                "ss.fx8.store": (_overview("20261021", 87.4), None)})
     _patch_local(monkeypatch, tmp_path, _overview("20261019", 87.0))
-    probs, warns, infos = crc.check_file("overview", "overview.json", OVERVIEW_REMOTES, quiet=True)
+    probs, warns, infos, state = crc.check_file("overview", "overview.json", OVERVIEW_REMOTES, quiet=True)
     out = capsys.readouterr().out
     assert probs == [], probs
     assert warns == [], warns
-    assert len(infos) == 1 and "local 未同步" in infos[0], infos
+    assert len(infos) == 1 and "local 落后于三站" in infos[0], infos
     assert "date" in out and "20261019" in out and "87.0" in out, out
 
     # concepts: 三站 thsc_300816_159258=36.6, local=35.7
@@ -174,13 +175,14 @@ def test_case4_replay_1021_2320_diffs_are_info_only(monkeypatch, tmp_path, capsy
         return _concepts(36.6), None
     monkeypatch.setattr(crc, "_fetch_json", _fake)
     _patch_local(monkeypatch, tmp_path, _concepts(35.7))
-    probs, warns, infos = crc.check_file(
+    probs, warns, infos, state = crc.check_file(
         "concepts", "industry-all-concepts.json",
         [("R2", "https://ssd.fx8.store/industry/industry-all-concepts.json"),
          ("CF", "https://ss.fx8.store/r2/industry/industry-all-concepts.json")], quiet=True)
     out = capsys.readouterr().out
     assert probs == [], probs
-    assert any("local 未同步" in i and "300816_159258" in i for i in infos), infos
+    assert any("local 与三站不一致" in i and "方向不明" in i and "300816_159258" in i
+               for i in infos), infos
 
 
 # ============================================================
@@ -194,8 +196,8 @@ def test_case5_info_path_never_calls_notify(tmp_path):
     stub.write_text(
         "#!/bin/sh\n"
         'echo "$*" >> "$CALLS"\n'
-        'printf "[INFO] [overview] local 未同步(部署可能未完成/被跳过): date 三站=20261021 vs local=20261019\\n"\n'
-        'printf "[SUMMARY] 文件=9 三站一致=9/9 local差异=1 结果=PASS\\n"\n'
+        'printf "[INFO] [overview] local 落后于三站(部署可能未完成/被跳过): date 三站=20261021 vs local=20261019\\n"\n'
+        'printf "[SUMMARY] 文件=9 三站一致=9/9 local差异=1 local方向=落后 结果=PASS\\n"\n'
         "exit 0\n",
         encoding="utf-8")
     stub.chmod(0o755)
@@ -252,7 +254,7 @@ def test_case4b_local_structure_anomaly_is_info(tmp_path, monkeypatch, capsys):
     _patch_fetch(monkeypatch, {"ssd.fx8.store": (_overview("20261021", 87.4), None),
                                "ss.fx8.store": (_overview("20261021", 87.4), None)})
     _patch_local(monkeypatch, tmp_path, {})
-    probs, warns, infos = crc.check_file("overview", "overview.json", OVERVIEW_REMOTES, quiet=True)
+    probs, warns, infos, state = crc.check_file("overview", "overview.json", OVERVIEW_REMOTES, quiet=True)
     assert probs == [], probs
     assert any("local 结构异常" in i for i in infos), infos
 
@@ -262,7 +264,7 @@ def test_case4c_local_unreadable_is_info(monkeypatch, tmp_path, capsys):
     _patch_fetch(monkeypatch, {"ssd.fx8.store": (_overview("20261021", 87.4), None),
                                "ss.fx8.store": (_overview("20261021", 87.4), None)})
     monkeypatch.setattr(crc, "_local_candidates", lambda kind, rel: [tmp_path / "nope.json"])
-    probs, warns, infos = crc.check_file("overview", "overview.json", OVERVIEW_REMOTES, quiet=True)
+    probs, warns, infos, state = crc.check_file("overview", "overview.json", OVERVIEW_REMOTES, quiet=True)
     assert probs == [], probs
     assert any("local 读取失败" in i for i in infos), infos
 
@@ -279,7 +281,7 @@ def test_case4d_overfit_primary_lag_warns_not_fails(monkeypatch, tmp_path, capsy
     good.write_text(json.dumps(good_data), encoding="utf-8")
     monkeypatch.setattr(crc, "_fetch_json", lambda url: (good_data, None))
     monkeypatch.setattr(crc, "_local_candidates", lambda kind, rel: [lag, good])
-    probs, warns, infos = crc.check_file(
+    probs, warns, infos, state = crc.check_file(
         "overfit_monitor", "overfit_monitor.json", OVERVIEW_REMOTES, quiet=True)
     assert probs == [], probs
     assert warns and "primary" in warns[0], warns
@@ -298,3 +300,78 @@ def test_case7_exit_code_contract_and_summary_always_printed(monkeypatch, tmp_pa
     assert rc == 0
     assert out.count("[SUMMARY]") == 1, out
     assert "三站一致=1/1" in out and "local差异=1" in out, out
+    assert "local方向=落后" in out, out# ============================================================
+# 证据用例 8（#279 nits 改 1）: local 方向区分 —— 领先 = WARN、落后 = INFO、两者 rc 均 0
+# ============================================================
+def _board(score):
+    """board_etf_map 最小指纹载体（只有 code→track_score，无时点字段 ⇒ 方向不可判定）。"""
+    return {"sh": [{"code": "510300", "track_score": score}]}
+
+
+def test_case8_local_lead_warns_not_fail(monkeypatch, tmp_path, capsys):
+    """local 领先三站（上传漏传/传旧）⇒ [WARN] 明确提示, 但 rc=0 不告警。"""
+    _patch_fetch(monkeypatch, {"ssd.fx8.store": (_overview("20261021", 87.4), None),
+                               "ss.fx8.store": (_overview("20261021", 87.4), None)})
+    _patch_local(monkeypatch, tmp_path, _overview("20261022", 88.0))
+    probs, warns, infos, state = crc.check_file(
+        "overview", "overview.json", OVERVIEW_REMOTES, quiet=True)
+    out = capsys.readouterr().out
+    assert probs == [], probs
+    assert len(warns) == 1 and warns[0].startswith("[WARN] [overview] local 领先三站"), warns
+    assert "疑似上传漏传/滞后" in warns[0], warns
+    assert infos == [], infos
+    assert state == "领先", state
+
+    rc, out = _run_main(monkeypatch, capsys, files=[("overview", "overview.json", OVERVIEW_REMOTES)])
+    assert rc == 0, f"local 领先不得计入 rc, 实际 rc={rc}\n{out}"
+    assert "[WARN] [overview] local 领先三站(疑似上传漏传/滞后)" in out, out
+    assert "local 落后于三站" not in out, out
+    assert "local方向=领先" in out and "结果=PASS" in out, out
+    assert "✗" not in out, out
+
+
+def test_case8b_local_lag_info_only_no_warn(monkeypatch, tmp_path, capsys):
+    """local 落后三站（部署未完成/被跳过）⇒ 只有 [INFO], 不得出现 WARN, rc=0。"""
+    _patch_fetch(monkeypatch, {"ssd.fx8.store": (_overview("20261021", 87.4), None),
+                               "ss.fx8.store": (_overview("20261021", 87.4), None)})
+    _patch_local(monkeypatch, tmp_path, _overview("20261019", 87.0))
+    probs, warns, infos, state = crc.check_file(
+        "overview", "overview.json", OVERVIEW_REMOTES, quiet=True)
+    assert probs == [] and warns == [], (probs, warns)
+    assert len(infos) == 1 and "local 落后于三站" in infos[0], infos
+    assert state == "落后", state
+
+    rc, out = _run_main(monkeypatch, capsys, files=[("overview", "overview.json", OVERVIEW_REMOTES)])
+    assert rc == 0, out
+    assert "[INFO] [overview] local 落后于三站(部署可能未完成/被跳过)" in out, out
+    assert "[WARN]" not in out, out
+    assert "local方向=落后" in out, out
+
+
+def test_case8c_direction_unknown_reported_honestly(monkeypatch, tmp_path, capsys):
+    """无可比时点字段(board_etf_map)⇒ 报「方向不明」, 不硬扣「落后」帽子, rc=0。"""
+    _patch_fetch(monkeypatch, {"ssd.fx8.store": (_board(36.6), None),
+                               "ss.fx8.store": (_board(36.6), None)})
+    _patch_local(monkeypatch, tmp_path, _board(30.0))
+    probs, warns, infos, state = crc.check_file(
+        "board_etf_map", "board_etf_map.json", OVERVIEW_REMOTES, quiet=True)
+    assert probs == [] and warns == [], (probs, warns)
+    assert any("方向不明" in i for i in infos), infos
+    assert not any("落后于三站" in i for i in infos), infos
+    assert state == "不明", state
+
+    rc, out = _run_main(monkeypatch, capsys, files=[
+        ("board_etf_map", "board_etf_map.json", OVERVIEW_REMOTES)])
+    assert rc == 0, out
+    assert "local 与三站不一致(方向不明" in out, out
+    assert "local方向=不明" in out, out
+
+
+def test_case8d_local_in_sync_reports_consistent(monkeypatch, tmp_path, capsys):
+    """正控: local 与三站一致 ⇒ SUMMARY local方向=一致。"""
+    _patch_fetch(monkeypatch, {"ssd.fx8.store": (_overview("20261021", 87.4), None),
+                               "ss.fx8.store": (_overview("20261021", 87.4), None)})
+    _patch_local(monkeypatch, tmp_path, _overview("20261021", 87.4))
+    rc, out = _run_main(monkeypatch, capsys, files=[("overview", "overview.json", OVERVIEW_REMOTES)])
+    assert rc == 0, out
+    assert "local方向=一致" in out and "local差异=0" in out, out

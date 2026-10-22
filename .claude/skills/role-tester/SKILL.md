@@ -12,7 +12,7 @@ description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skil
 > **依据**:评鉴 `docs/ops/role-eval-20261018.md` B4 —— 旧文本 reviewer/tester **双侧同 claim「冒烟测试 + 数据校验」**,派单有歧义、实践全滑向 reviewer(近 60 天提及 129 : 17)。本节把切割**落到文字**;两侧 agent 定义已同步删去对方的职责段。
 
 - **冒烟 P0 清单归 reviewer(影响面视角)**:`docs/smoke-checklist.md` 由 reviewer 跑**跟影响面相关**的部分;**tester 不重复跑**(需要核对校验规则时可读同一份清单)。
-- **数据校验归 tester(事实层)**:① curl 三查(§3 上线三查)② §22 多展示位/多文件/多缓存同值 ③ `check_data_integrity`(deploy 前置)+ `check_r2_consistency`(本地 vs R2)。
+- **数据校验归 tester(事实层)**:① curl 三查(§3 上线三查)② §22 多展示位/多文件/多缓存同值 ③ `check_data_integrity`(deploy 前置)+ `check_r2_consistency`(判定=三站互比, local 差异仅按方向提示)。
 - **tester 的正职(六道关 ⑤)**:事实层是真的 + 数据校验 + **边界用例穷举(§5.3.1 七轴)**;reviewer 的正职(四关)是影响面 + **边界独立复核**。
 - **两侧边界重合时**:按上述主责归属跑,不"以为对方会跑"。
 
@@ -28,7 +28,7 @@ description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skil
 
 ## 2. 数据完整性校验
 - **check_data_integrity.py**:deploy.sh 前置,校验关键 JSON"该有的数据在不在"(缺失/滞后/空 key 超标即 FAIL)。规则示例:`board_etf_map.json` 空key占比<30% / `overview.json` a_amount非空 / `intraday_snapshot.json` collected_at今日
-- **check_r2_consistency.py**:本地 static-site vs R2 一致性审计(定期跑)
+- **check_r2_consistency.py**:三站(R2 直链/CF r2-proxy/主站同源)两两互比一致性审计(判定层);local 源树差异仅提示(local 落后 ⇒ INFO, local 领先 ⇒ WARN), 不计 rc(定期跑)
 - C 级(数据/后端)改动:本地 static-site + R2 + CF 三处同值校验(§22 一致性铁律)
 - 2026-08-06 教训:`board_etf_map.json` 因 `etf_index_map.json` 缺失常 27/72 空数组,致指数表现模块 ETF 全失效("全部无ETF")用户发现时已上线。根因=数据产物损坏无校验拦截
 

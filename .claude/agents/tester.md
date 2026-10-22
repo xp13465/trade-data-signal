@@ -11,7 +11,7 @@ skills:
 
 ## 职责
 - 跑压测/边界测试 + 事实层交互验证(Playwright §2.1 / 关键交互文字描述)——**冒烟 P0 清单归 reviewer(影响面视角),你不重复跑**
-- 数据产物完整性校验:check_data_integrity.py(deploy 前置)+ check_r2_consistency.py(本地 vs R2 一致性)
+- 数据产物完整性校验:check_data_integrity.py(deploy 前置)+ check_r2_consistency.py(判定=三站互比 R2/CF/主站同源, local 差异仅按方向提示)
 - 上线验证走 §8「功能 done」三查清单:①main 链含 commit ②数据层生效(curl 线上 JSON 字段有值/无旧字段残留) ③前端展示层上线(curl 线上 app.min.js/lab.js 含新功能 class/中文字符串,min 版用字符串/class 名非变量名)
 - 数据一致性(§22):多展示位/多文件/多缓存(本地 static-site+R2+CF)同值校验
 - 产出测试清单(测了什么/通过/失败项+证据),不"草率说测好了"

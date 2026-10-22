@@ -4,10 +4,17 @@
 **判定口径（2026-10-22 #279 用户拍板方案 A）**：两层分离
   - 判定层（决定退出码/告警等级）：三站两两互比 —— R2 直链 / CF r2-proxy / 主站同源。
     任两站不一致、或任一站 404/缺文件/读取失败 ⇒ FAIL（rc=1，真故障判别维度不丢）。
-  - 提示层（不阻断）：local 源树 vs 三站差异 ⇒ 只输出 `[INFO] local 未同步(...)`。
-    local 是 deploy 段1 rsync 的目标；部署闸门跳过 rsync 时 local 会滞后/领先，而用户侧
-    三站仍完全一致 —— 旧口径把 local 当第 4 源直接比 ⇒ 误报 severe 连续 2 天（#279）。
-    提示层仍有价值：local 与三站不一致=部署链被掐断的真实症状，需要人看但不该发告警。
+  - 提示层（不阻断）：local 源树 vs 三站差异，按方向分两种措辞（都不计 rc/不发告警）:
+      · local 落后于三站 ⇒ `[INFO] local 落后于三站(部署可能未完成/被跳过)`
+        （部署闸门跳过 rsync 时 local 滞后属常态症状）
+      · local 领先三站 ⇒ `[WARN] local 领先三站(疑似上传漏传/滞后)`
+        （local 有新版但三站还是旧版 = 上传链路漏传/传旧，方向相反必须明确提示）
+      · 无可比时点字段或同时点内容漂移 ⇒ `[INFO] local 与三站不一致(方向不明)`，
+        不硬扣「落后」帽子（旧口径对领先也报「未同步」，方向反且无提示，#279 nits）。
+    每轮 `[SUMMARY]` 追加 `local方向=落后|领先|一致`（方向不可判定时 `不明`）供事后核对。
+    local 是 deploy 段1 rsync 的目标；旧口径把 local 当第 4 源直接比 ⇒ 误报 severe 连续
+    2 天（#279）。提示层仍有价值：local 与三站不一致=部署链被掐断的真实症状，需要人看
+    但不该发告警。
 
 非 deploy 前置（需网络），作定期监控任务跑（2026-10-05 #160 起由云上
 trade-r2-consistency.timer 每日拉取，经 scripts/check_r2_consistency.sh 包装）。
@@ -415,22 +422,59 @@ def _fmt_local_diff(mm: list[tuple[str, dict[str, object]]], ref: str,
     return "; ".join(parts)
 
 
+# local 差异方向判定（#279 nits）: 只读指纹里已有的「时点字段」，不改指纹函数口径。
+# 无可比时点字段的产物（board_etf_map/concepts/accum_nav_map 指纹只有 code→track_score）
+# 方向不可判定 ⇒ 诚实报「方向不明」，不硬扣「落后」帽子。
+_RECENCY_KEYS: dict[str, tuple[str, ...]] = {
+    "overview": ("date",),
+    "overfit_monitor": ("generated_at",),
+    "overfit_monitor_ext": ("generated_at",),
+    "nextday_plan": ("date",),
+    "auto_trade_steps": ("latest_date",),
+    "signal_kelly_day_snapshot": ("latest_date",),
+}
+
+
+def _recency(kind: str, fp: dict[str, object]) -> int | None:
+    """取指纹内时点字段的可比较值（抽数字比较，兼容 20261021 / 2026-10-21T21:40:00）。"""
+    for key in _RECENCY_KEYS.get(kind, ()):
+        val = fp.get(key)
+        if val is None:
+            continue
+        digits = "".join(ch for ch in str(val) if ch.isdigit())
+        if digits:
+            return int(digits)
+    return None
+
+
+def _local_direction(kind: str, ref_fp: dict[str, object],
+                     local_fp: dict[str, object]) -> str:
+    """local 相对三站的方向: lag(落后) / lead(领先) / unknown(不可判定)。"""
+    ref, loc = _recency(kind, ref_fp), _recency(kind, local_fp)
+    if ref is None or loc is None or ref == loc:
+        return "unknown"
+    return "lead" if loc > ref else "lag"
+
+
 def check_file(kind: str, local_rel: str, remotes: list[tuple[str, str]],
-               quiet: bool) -> tuple[list[str], list[str], list[str]]:
-    """比对单文件指纹，返回 (problems, warnings, infos)。
+               quiet: bool) -> tuple[list[str], list[str], list[str], str]:
+    """比对单文件指纹，返回 (problems, warnings, infos, local_state)。
 
     两层划分（#279 方案 A）:
       - problems（判定层，决定 rc/告警）: 三站两两互比不一致；任一站 404/缺文件/读取失败；
         站点可读但指纹为空（结构异常，等同不可用）。真故障判别维度不允许被降噪吞掉。
-      - infos（提示层，不阻断）: local 源树与三站差异 / local 读取失败。部署链被闸门掐断
-        跳过 rsync 时 local 滞后属常态症状，用户侧三站无损 ⇒ 只提示不发告警。
+      - infos（提示层，不阻断）: local 落后于三站 / 方向不明 / local 读取失败或结构异常。
+        部署链被闸门掐断跳过 rsync 时 local 滞后属常态症状，用户侧三站无损 ⇒ 只提示不发告警。
       - warnings（提示层强化，不阻断）: overfit 双树里 primary 滞后、后续候选与三站一致
-        （2026-08-19 R2 被渠道树旧库覆盖事故同款形态的唯一探针，必须醒目可见）。
+        （2026-08-19 R2 被渠道树旧库覆盖事故同款形态的唯一探针，必须醒目可见）；
+        local 领先三站（上传漏传/传旧，方向与「落后」相反，必须明确 WARN）。
+      - local_state: 一致 / 落后 / 领先 / 不明（供 [SUMMARY] 汇总，不影响 rc）。
 
     remotes = [(源标签, URL), ...]（R2 直链 / CF r2-proxy / 主站同源，见 FILES 头注释）。
     """
     problems: list[str] = []
     infos: list[str] = []
+    local_state = "一致"
     remote_fps: dict[str, dict[str, object]] = {}
     for sname, url in remotes:
         data, err = _fetch_json(url)
@@ -467,17 +511,19 @@ def check_file(kind: str, local_rel: str, remotes: list[tuple[str, str]],
     for cand, data in readable:
         fp = _fingerprint(data, kind)
         if not _fp_usable(fp):
-            infos.append(f"[{kind}] local 结构异常(指纹为空, 不计入判定): {cand}")
+            infos.append(f"[{kind}] local 结构异常(指纹为空, 不计入判定, 方向不明): {cand}")
+            local_state = "不明"
             continue
         usable.append((cand, fp))
     if not readable:
         err_detail = next((err for _, _, err in loaded if err), "无候选路径")
-        infos.append(f"[{kind}] local 读取失败(不计入判定): {err_detail}")
+        infos.append(f"[{kind}] local 读取失败(不计入判定, 方向不明): {err_detail}")
+        local_state = "不明"
     elif remote_fps and usable:
         ref_name, ref_fp = next(iter(remote_fps.items()))
         matched: tuple[int, Path] | None = None   # (指纹项数, 命中路径)
         lagged_primary: Path | None = None        # 先于命中路径出现的不一致候选(滞后树)
-        first_diff: tuple[list[tuple[str, dict[str, object]]], Path] | None = None
+        first_diff: tuple[list[tuple[str, dict[str, object]]], Path, dict[str, object]] | None = None
         for cand, lfp in usable:
             mm, n_keys = _mismatches({ref_name: ref_fp, "local": lfp})
             if not mm:
@@ -485,9 +531,12 @@ def check_file(kind: str, local_rel: str, remotes: list[tuple[str, str]],
                 break
             if lagged_primary is None:
                 lagged_primary = cand
-                first_diff = (mm, cand)
+                first_diff = (mm, cand, lfp)
         if matched is not None:
             n_keys, cand = matched
+            # 双树探测: 前一候选结构异常/滞后但后续候选与三站一致 ⇒ local 实际同步,
+            # 方向回到「一致」(异常明细仍保留在 INFO/WARN 里供人看)
+            local_state = "一致"
             if lagged_primary is not None:
                 warnings.append(
                     f"[{kind}] primary({lagged_primary}) 滞后于三站(一致候选={cand})"
@@ -500,11 +549,27 @@ def check_file(kind: str, local_rel: str, remotes: list[tuple[str, str]],
                 print(line)
         else:
             assert first_diff is not None
-            mm, cand = first_diff
-            infos.append(
-                f"[{kind}] local 未同步(部署可能未完成/被跳过): "
-                f"{_fmt_local_diff(mm, ref_name, ref_fp)} (local={cand})"
-            )
+            mm, cand, lfp = first_diff
+            direction = _local_direction(kind, ref_fp, lfp)
+            detail = f"{_fmt_local_diff(mm, ref_name, ref_fp)} (local={cand})"
+            if direction == "lead":
+                # local 有新版、三站还是旧版 = 上传漏传/传旧，与「落后」方向相反，必须明确 WARN
+                warnings.append(
+                    f"[WARN] [{kind}] local 领先三站(疑似上传漏传/滞后): {detail}"
+                )
+                local_state = "领先"
+            elif direction == "lag":
+                infos.append(
+                    f"[{kind}] local 落后于三站(部署可能未完成/被跳过): {detail}"
+                )
+                local_state = "落后"
+            else:
+                # 无可比时点字段(board_etf_map/concepts/accum_nav_map)或同时点内容漂移:
+                # 判不出先后就报「方向不明」，不硬扣「落后」帽子（#279 nits）
+                infos.append(
+                    f"[{kind}] local 与三站不一致(方向不明: 无可比时点字段或同时点内容漂移): {detail}"
+                )
+                local_state = "不明"
 
     if problems and not quiet:
         print(f"  ✗ {kind}: 三站不一致/不可读(详见问题段)")
@@ -512,7 +577,7 @@ def check_file(kind: str, local_rel: str, remotes: list[tuple[str, str]],
         # 提示层始终输出（含 --quiet）：部署链症状需要日志可追溯, 但绝不进判定/告警
         print(f"[INFO] {info}")
 
-    return problems, warnings, infos
+    return problems, warnings, infos, local_state
 
 
 def main() -> int:
@@ -532,29 +597,41 @@ def main() -> int:
     all_warnings: list[str] = []
     station_ok = 0
     local_diff = 0
+    local_states: list[str] = []
     for kind, local_rel, remotes in FILES:
-        probs, warns, infos = check_file(kind, local_rel, remotes, args.quiet)
+        probs, warns, infos, state = check_file(kind, local_rel, remotes, args.quiet)
         all_problems.extend(probs)
         all_warnings.extend(warns)
+        local_states.append(state)
         if not probs:
             station_ok += 1
-        if infos:
+        if infos or state in ("领先", "落后"):
             local_diff += 1
 
     # P1-b: WARN 汇总段重复计数(「primary 滞后靠后续候选救回」不阻断但必须醒目可见,
-    # 防 8-19 R2 被渠道树覆盖类事故在唯一探针处静默滑过)
+    # 防 8-19 R2 被渠道树覆盖类事故在唯一探针处静默滑过；local 领先三站同属必须醒目项)
     if all_warnings:
         print()
-        print(f"=== {len(all_warnings)} 条 WARN(primary 树滞后, 三站判据仍 PASS) ===")
+        print(f"=== {len(all_warnings)} 条 WARN(local 领先 / primary 树滞后, 三站判据仍 PASS) ===")
         for w in all_warnings:
-            print(f"  ⚠️ {w}")
+            # local 领先行自带 [WARN] 前缀(用户/日志检索锚点)，primary 滞后维持 ⚠️ 形式
+            print(w if w.startswith("[WARN] ") else f"  ⚠️ {w}")
 
-    # 每轮一行摘要(历史可追溯): 三站一致文件数 / local 差异文件数 / 结果。
+    # 每轮一行摘要(历史可追溯): 三站一致文件数 / local 差异文件数 / local 方向 / 结果。
+    # 方向聚合优先级: 领先(WARN 级) > 落后 > 不明 > 一致。
     # 注意: 本脚本比对的是指纹字段而非整文件 md5(见 _fingerprint), 摘要口径与之一致。
+    if "领先" in local_states:
+        local_direction = "领先"
+    elif "落后" in local_states:
+        local_direction = "落后"
+    elif "不明" in local_states:
+        local_direction = "不明"
+    else:
+        local_direction = "一致"
     result = "FAIL" if all_problems else "PASS"
     print()
     print(f"[SUMMARY] 文件={len(FILES)} 三站一致={station_ok}/{len(FILES)} "
-          f"local差异={local_diff} 结果={result}")
+          f"local差异={local_diff} local方向={local_direction} 结果={result}")
 
     if all_problems:
         print()

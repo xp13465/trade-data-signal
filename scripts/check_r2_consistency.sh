@@ -36,9 +36,12 @@
 # 判定/出口(#279 方案 A, 2026-10-22 用户拍板):
 #   判定层 = 三站两两互比(R2直链 / CF r2-proxy / 主站同源), 任两站不一致或某站
 #   404/缺文件/读取失败 ⇒ rc=1 → notify --severe(去重 6h), 真故障判别维度不降。
-#   提示层 = local 源树 vs 三站差异 ⇒ 脚本只打 [INFO] local 未同步, **不进 rc、不发告警**
+#   提示层 = local 源树 vs 三站差异, 按方向分措辞, **不进 rc、不发告警**:
+#     local 落后 ⇒ [INFO] local 落后于三站(部署可能未完成/被跳过);
+#     local 领先 ⇒ [WARN] local 领先三站(疑似上传漏传/滞后)——方向相反必须明确提示;
+#     无可比时点字段 ⇒ [INFO] 方向不明(不硬扣「落后」帽子)。
 #   (旧口径把 local 当第 4 源直接比, 部署闸门跳过 rsync 时误报 severe, #279)。
-#   rc=0 静默(仅日志, 每轮含一行 [SUMMARY] 供事后核对)。
+#   rc=0 静默(仅日志, 每轮含一行 [SUMMARY] + local方向=落后|领先|一致 供事后核对)。
 #   **preflight 跳过**(update-all 在跑)也是 rc=0 + 静默, 但日志留 [preflight-skip] 痕。
 #   连续 2 天 FAIL 由 notify.py 侧 R7① 升级 critical(见 alert_denoise_rules.py:r7_*)。
 #   仅告警不阻断: 本检查不在任何推送链上,不存在"阻断谁"的动作,告警即收敛口。
