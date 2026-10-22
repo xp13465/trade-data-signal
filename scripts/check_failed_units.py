@@ -79,8 +79,9 @@
       `alert_denoise_rules.WATCHMAN_UNITS` + 仓库 unit 文档经 `gen_systemd_units.py` 枚举;
       动态 = 运行时 `systemctl list-unit-files` 的 trade-*.{service,timer,socket};
       动态取不到 ⇒ 回退静态 + 一行 INFO)。任一 pattern 用 fnmatch 命中任一真实 unit ⇒
-      exit 2(消息写明「会静音真实 unit Y」)。另加命名空间结构判据: `*.socket` 这类以项目
-      unit 后缀结尾的通配即使当前无该类真实 unit 也拒绝, 防未来新增 unit 被旧白名单静音;
+      exit 2(消息写明「会静音真实 unit Y」)。另加命名空间判据: 用三个后缀的真实探针
+      (`trade-zzz.service|timer|socket`)实测 pattern, 任一命中 ⇒ exit 2 —— 即使当前无该类
+      真实 unit 也拒绝, 防未来新增 unit 被旧白名单静音;
     - 白名单文件缺失/为空 ⇒ 按空白名单处理 + 打印 INFO, **不崩**(安全降级);
       而「真实 unit 全集取不到」是另一种情况: **拒绝加载**(exit 2), 不因判不了而放行。
 
@@ -166,11 +167,15 @@ ALLOWLIST_DEFAULT_PATH = (
 #   ② 动态源(运行时): `systemctl list-unit-files` 里当前 trade-*.{service,timer,socket};
 #   ③ 动态取不到 ⇒ 回退静态集合并打一行 INFO(不崩、不放行)。
 # 任一 pattern 用 fnmatch 命中任一真实 unit ⇒ error, rc=2 拒绝启动。
-# 另加**命名空间结构判据**(防未来新增 unit 绕过列举): 凡以项目 unit 后缀
-# (.service/.timer/.socket)结尾、且字面前缀不排除 trade- 的模式(`*.socket` 等)一律拒绝 ——
-# 即使当前还没有该后缀的真实 unit, 也不能留「以后新增同类 unit 就被静音」的口子。
+# 另加**命名空间判据**(防未来新增 unit 绕过列举): 用三个后缀的**真实探针 unit**
+# (`trade-zzz.service|timer|socket`)与真实 unit 全集走**同一个** fnmatch 判定 —— 任一
+# pattern 命中任一探针 ⇒ 拒绝。只判「字面前缀是否与 trade- 相容」不够: `*ocket` /
+# `*.sock*` / `*[.]socke*` 字面后缀都不是 `.socket`, 但 fnmatch 实测都能命中
+# `trade-zzz.socket`(2026-10-22 复审实测绕过)。探针法 = 同一语义实测, 不看写法。
 FORBIDDEN_ALLOW_PREFIX = "trade-"
 PROJECT_UNIT_SUFFIXES = (".service", ".timer", ".socket")
+# 探针名固定用 `zzz` 占位: 只要 pattern 能命中「trade- + 任意名字 + 后缀」, 就必然命中本探针。
+PROJECT_NAMESPACE_PROBES = tuple(f"{FORBIDDEN_ALLOW_PREFIX}zzz{s}" for s in PROJECT_UNIT_SUFFIXES)
 # 代码仓根(resolve 后): 云上 $REPO/scripts 是 symlink, 静态 unit 文档在代码仓而非数据仓。
 _CODE_REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -233,28 +238,16 @@ def collect_real_units():
     return units
 
 
-def _literal_prefix(pattern):
-    """fnmatch 模式的字面前缀(第一个通配符之前的部分)。"""
-    out = []
-    for ch in pattern:
-        if ch in "*?[":
-            break
-        out.append(ch)
-    return "".join(out)
-
-
 def _could_match_project_namespace(pattern):
-    """结构判据: 模式是否可能命中 trade-*.<service|timer|socket> 中的**任意**名字。
+    """命名空间判据: 用三个真实探针实测 pattern, 与真实 unit 全集判定同一 fnmatch 语义。
 
-    fnmatch 整串锚定 ⇒ 若字面前缀与 `trade-` 不相容(如 `fwupd`), 永远匹配不到本项目 unit;
-    反之(空前缀 / `trade` / `trade-` / `t*`) 就存在命中可能。这里只对**项目 unit 后缀**结尾的
-    模式启用(如 `*.socket`): 当前可能还没有该后缀的真实 unit, 但未来新增不能被静音。
-    无后缀的通配(`*patrol*`)交给真实 unit 全集判定, 避免过度拦截 `fwupd*` 这类合法条目。
+    为什么不再看字面前缀: `*ocket` / `*.sock*` / `*[.]socke*` 字面后缀都不是 `.socket`,
+    但 fnmatch 实测都能命中 `trade-zzz.socket`(2026-10-22 复审实测绕过)。判据改为实测,
+    写法再怎么变只要真能命中项目命名空间就被拦。
+    无项目后缀的模式(如 `fwupd*` / `systemd-tmpfiles-clean.timer`)探针命中为 False,
+    交给真实 unit 全集判定, 避免过度拦截合法系统噪音。
     """
-    if not pattern.endswith(PROJECT_UNIT_SUFFIXES):
-        return False
-    lit = _literal_prefix(pattern)
-    return FORBIDDEN_ALLOW_PREFIX.startswith(lit) or lit.startswith(FORBIDDEN_ALLOW_PREFIX)
+    return any(fnmatch.fnmatchcase(probe, pattern) for probe in PROJECT_NAMESPACE_PROBES)
 
 
 def _run_failed_units_cmd():
@@ -276,9 +269,9 @@ def load_allowlist(path, probe_units=None):
     - **效果判据(防通配绕过)**: 探针集合 = 项目真实 unit 全集
       (静态 WATCHMAN_UNITS + 仓库 unit 文档, 动态 systemctl 现状; 取不到动态则回退静态 + INFO)。
       每个 pattern 用 `fnmatch` 对任一真实 unit 实测命中 ⇒ 记错并写明「会静音真实 unit X」;
-    - **命名空间结构判据**: 以项目 unit 后缀结尾、且字面前缀不排除 trade- 的模式
-      (`*.socket` / `trade-*.timer` 等)一律拒绝 —— 防「当前没有该后缀真实 unit」时漏判,
-      也防未来新增 unit 被旧白名单静音;
+    - **命名空间判据**: 用三个真实探针 unit(`trade-zzz.service|timer|socket`)实测 pattern
+      (与真实 unit 全集判定同一 fnmatch 语义), 任一命中 ⇒ 拒绝 —— 防「当前没有该后缀真实
+      unit」时漏判, 也防 `*ocket` / `*[.]socke*` 这类编码式后缀改写绕过;
     - 真实 unit 全集为空(静态/动态都取不到)⇒ 记错拒绝加载, **不放行**任何模式。
     `probe_units` 仅供单测注入(默认 None = 现场收集)。
     """

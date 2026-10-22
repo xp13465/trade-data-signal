@@ -22,6 +22,11 @@
   ⑩ `*.socket` 当前无真实 socket unit 也拒绝(命名空间结构判据, 防未来新增被静音)
   ⑪ 合法系统条目 `fwupd-refresh.service` / `fwupd*` / `systemd-tmpfiles-clean.timer`
      仍 rc=0 + `[INFO] 白名单忽略`(禁令不外溢)
+  ⑫ 动态源并集(2026-10-22 复审 must-fix): `systemctl list-unit-files` 报的
+     `trade-foo.service` **不在静态文档里**, 也必须进探针全集 ⇒ `*foo*` rc=2;
+     同一动态源下合法 `fwupd*` 仍 rc=0 + INFO(并集不误伤)
+  ⑬ 编码式后缀改写(2026-10-22 复审 must-fix): `*ocket` / `*.sock*` / `*[.]socke*`
+     字面后缀都不是 `.socket`, 但 fnmatch 实测命中 `trade-zzz.socket` ⇒ 全部 rc=2
 
 ⚠️ 零外发自证(§18 L48): 全部子进程用例**不传 --notify**(dry 模式); 另有一条进程内用例
    在 `--notify --dry-run` 下把 `_send_notify` 换成「调用即报错」, 证明 dry 时绝不触达通知链。
@@ -31,6 +36,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -53,7 +59,7 @@ TRADE_LINE = "trade-xxx.service loaded failed failed Some project unit\n"
 TMPFILES_LINE = "systemd-tmpfiles-clean.timer loaded failed failed Cleanup tmp\n"
 
 
-def _run(tmp_path, failed_text="", allowlist=None, extra=None):
+def _run(tmp_path, failed_text="", allowlist=None, extra=None, env=None):
     """子进程跑 check_failed_units.py(注入样本; 默认 dry, 绝不真发通知)。"""
     f = tmp_path / "failed.txt"
     f.write_text(failed_text, encoding="utf-8")
@@ -65,7 +71,35 @@ def _run(tmp_path, failed_text="", allowlist=None, extra=None):
         cmd += ["--allowlist-file", str(allowlist)]
     if extra:
         cmd += extra
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=90, check=False)
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=90, check=False,
+                          env=env)
+
+
+def _fake_systemctl(tmp_path, unit_files):
+    """造一个假 systemctl(只答 list-unit-files), 模拟「运行时系统有静态文档之外的 unit」。
+
+    返回带 PATH 前缀的 env: 让被测脚本 `shutil.which("systemctl")` 命中这个桩, 从而走
+    **真实** `_dynamic_project_units` 解析路径(不是 monkeypatch 掉函数, 防测了个空壳)。
+    """
+    bindir = tmp_path / "fakebin"
+    bindir.mkdir(exist_ok=True)
+    listing = "".join(f"{u} enabled enabled\n" for u in unit_files)
+    shim = bindir / "systemctl"
+    shim.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        "  list-unit-files)\n"
+        f"    printf '%s' '{listing}'\n"
+        "    exit 0\n"
+        "    ;;\n"
+        "  *) exit 1 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    shim.chmod(0o755)
+    env = dict(os.environ)
+    env["PATH"] = f"{bindir}{os.pathsep}{env.get('PATH', '')}"
+    return env
 
 
 def _allowlist(tmp_path, *lines):
@@ -232,6 +266,66 @@ def test_socket_namespace_guard_without_real_socket_unit(tmp_path):
     r = _run(tmp_path, "", allowlist=allow)
     assert r.returncode == 2, r.stdout + r.stderr
     assert "命名空间" in r.stderr, r.stderr
+
+
+# ══════════════════════════════════════════════════════════════════
+# ⑫ 动态源并集(2026-10-22 复审 must-fix ①): 静态文档之外的运行时 unit 也要进探针全集
+# ══════════════════════════════════════════════════════════════════
+def test_dynamic_union_unit_outside_static_docs_blocks_pattern(tmp_path):
+    """`systemctl list-unit-files` 报的 trade-foo.service 不在静态文档里, 也必须被拦。
+
+    走真实 `_dynamic_project_units` 解析路径(假 systemctl 桩 + 真子进程), 不是 monkeypatch
+    掉函数 —— 变异检验: 把 collect_real_units 的 `static | set(dynamic)` 改回只 static 时,
+    本用例必须真红(rc 从 2 掉成 0)。
+    """
+    assert "trade-foo.service" not in cfu._static_project_units(), \
+        "前提: trade-foo.service 必须是静态文档之外的 unit(否则测不到动态并集)"
+    env = _fake_systemctl(tmp_path, ["trade-foo.service", "fwupd-refresh.service"])
+    allow = _allowlist(tmp_path, "*foo*")
+    r = _run(tmp_path, "", allowlist=allow, env=env)
+    assert r.returncode == 2, \
+        f"动态源里的 trade-foo.service 必须使 *foo* 被拒(rc=2): rc={r.returncode}\n{r.stdout}\n{r.stderr}"
+    assert "会静音真实 unit trade-foo.service" in r.stderr, r.stderr
+    assert "系统现状" in r.stdout, f"INFO 须显示动态源已并入: {r.stdout}"
+
+
+def test_dynamic_union_does_not_overblock_system_noise(tmp_path):
+    """同一动态源下合法 `fwupd*` 仍 rc=0 + INFO(并集不误伤系统噪音)。"""
+    env = _fake_systemctl(tmp_path, ["trade-foo.service", "fwupd-refresh.service"])
+    allow = _allowlist(tmp_path, "fwupd*")
+    r = _run(tmp_path, FWUPD_LINE, allowlist=allow, env=env)
+    assert r.returncode == 0, f"合法系统噪音不应被并集误伤: rc={r.returncode}\n{r.stderr}"
+    assert "[INFO] 白名单忽略: fwupd-refresh.service" in r.stdout, r.stdout
+
+
+# ══════════════════════════════════════════════════════════════════
+# ⑬ 编码式后缀改写(2026-10-22 复审 must-fix ②): 实测探针判据, 不看字面后缀
+# ══════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize("pattern", ["*ocket", "*.sock*", "*[.]socke*"])
+def test_encoded_socket_suffix_patterns_rejected(tmp_path, pattern):
+    """字面后缀不是 `.socket`, 但 fnmatch 实测命中 trade-zzz.socket ⇒ 必须 rc=2。
+
+    变异检验: 命名空间判据退回「字面前缀是否与 trade- 相容」时, 这些写法全部放行(rc=1)。
+    """
+    allow = _allowlist(tmp_path, pattern)
+    r = _run(tmp_path, TRADE_LINE, allowlist=allow)
+    assert r.returncode == 2, f"{pattern!r} 可静音 trade-*.socket, 必须拒绝: {r.stdout}\n{r.stderr}"
+    assert "命名空间" in r.stderr, r.stderr
+    assert "白名单忽略" not in r.stdout, "拒绝启动时不得先静音任何 unit"
+
+
+@pytest.mark.parametrize("pattern,unit", [
+    ("fwupd-refresh.service", "fwupd-refresh.service"),
+    ("fwupd*", "fwupd-refresh.service"),
+    ("systemd-tmpfiles-clean.timer", "systemd-tmpfiles-clean.timer"),
+])
+def test_legal_system_patterns_still_rc0_with_info(tmp_path, pattern, unit):
+    """⑪ 合法系统条目在探针判据下仍 rc=0 + `[INFO] 白名单忽略`(真实子进程口径)。"""
+    line = f"{unit} loaded failed failed OS noise\n"
+    allow = _allowlist(tmp_path, pattern)
+    r = _run(tmp_path, line, allowlist=allow)
+    assert r.returncode == 0, f"{pattern!r} 属合法系统噪音, 不应被拦: {r.stdout}\n{r.stderr}"
+    assert f"[INFO] 白名单忽略: {unit}" in r.stdout, r.stdout
 
 
 def test_legal_system_entries_pass_with_real_unit_universe(tmp_path):
