@@ -8,6 +8,8 @@
 #
 # 铁律(启动机检, 违反则巡检 exit 2 拒绝运行):
 #   **禁止把本项目 unit(以 trade- 开头)写进本文件** —— 那等于把真故障静音。
+#   判定是**效果判据**: 任何能匹配 trade-*.service 的写法(`*` / `trade*` / `*.service`)
+#   同样 exit 2 —— 别指望用通配绕过。
 #   白名单只允许「系统/第三方」unit; 本项目 unit 失败必须走告警, 不得为安静而降等级。
 #
 # 收录依据: docs/ops/failed-units-rca-20261022.md(fwupd-refresh.service = OS 侧 LVFS

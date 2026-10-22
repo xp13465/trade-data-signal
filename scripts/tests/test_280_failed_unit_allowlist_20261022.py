@@ -13,6 +13,8 @@
   ④ 白名单文件缺失 ⇒ 安全降级(按空白名单 + INFO, 不崩; 此时 fwupd 照常告警)
   ⑤ 通配模式(fwupd*)可用(与文件头声明一致)
   ⑥ 随仓默认白名单只含 fwupd、且不含任何 trade-*
+  ⑦ 通配绕过(2026-10-22 审查 P1): 白名单写 `*` / `trade*` / `*.service` ⇒ 同样 rc=2;
+     对照组 `fwupd*` 仍 rc=0 + INFO(禁令不外溢)
 
 ⚠️ 零外发自证(§18 L48): 全部子进程用例**不传 --notify**(dry 模式); 另有一条进程内用例
    在 `--notify --dry-run` 下把 `_send_notify` 换成「调用即报错」, 证明 dry 时绝不触达通知链。
@@ -105,6 +107,29 @@ def test_case3b_trade_glob_also_rejected(tmp_path):
     r = _run(tmp_path, "", allowlist=allow)
     assert r.returncode == 2, r.stderr
     assert "禁止包含本项目 unit" in r.stderr
+
+
+@pytest.mark.parametrize("pattern", ["*", "trade*", "*.service"])
+def test_case3c_wildcard_pattern_matching_trade_rejected(tmp_path, pattern):
+    """效果判据(2026-10-22 审查 P1): 任何能命中 trade-*.service 的模式都必须 exit 2。
+
+    旧实现只判字面前缀 `startswith("trade-")`, 上面三种写法都能让 fnmatch 命中本项目
+    unit 从而把真故障静音(审查实测 `*` ⇒ trade-foo failed 被静音 rc=0)。
+    """
+    allow = _allowlist(tmp_path, pattern)
+    r = _run(tmp_path, TRADE_LINE, allowlist=allow)
+    assert r.returncode == 2, f"白名单 {pattern!r} 可静音本项目 unit, 必须拒绝运行: {r.stdout}\n{r.stderr}"
+    assert "禁止包含" in r.stderr, r.stderr
+    assert pattern in r.stderr, f"报错须写明违规 pattern: {r.stderr}"
+    assert "白名单忽略" not in r.stdout, "拒绝启动时不得先静音任何 unit"
+
+
+def test_case3d_generic_service_glob_not_silently_allowed(tmp_path):
+    """对照组: 不会命中 trade-*.service 的系统噪音模式仍可用(禁令不外溢成「一律拒绝」)。"""
+    allow = _allowlist(tmp_path, "fwupd*")
+    r = _run(tmp_path, FWUPD_LINE, allowlist=allow)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "[INFO] 白名单忽略: fwupd-refresh.service" in r.stdout
 
 
 # ══════════════════════════════════════════════════════════════════

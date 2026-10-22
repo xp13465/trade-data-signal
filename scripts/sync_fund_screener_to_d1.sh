@@ -66,13 +66,18 @@ else
 fi
 
 # 失败出口：非 DRY_RUN 才记录状态（DRY_RUN 是本机验证，不进生产状态）。
+# 状态写失败不盖掉原失败码，但**必须可见**：捕获记录器摘要转述到本脚本日志
+# （2026-10-22 审查缺口 A：旧版 >/dev/null 2>&1 且记录器 rc 恒 0 ⇒ WARN 永不出现 = 静默）。
 _fail() {
-  local msg="$1" cred="${2:-unknown}"
+  local msg="$1" cred="${2:-unknown}" state_out=""
   echo "$LOG_PREFIX ERROR: $msg" >&2
   if [ "$DRY_RUN" != "1" ]; then
-    "$PY" "$SCRIPT_SELF_DIR/d1_sync_state.py" record-failure --script "$SCRIPT_NAME" \
-      --error "$msg" --credential "$cred" --state-dir "$STATE_DIR" >/dev/null 2>&1 \
-      || echo "$LOG_PREFIX WARN: 失败状态写入失败（巡检可能看不到本次失败）: $STATE_DIR" >&2
+    if ! state_out=$("$PY" "$SCRIPT_SELF_DIR/d1_sync_state.py" record-failure \
+          --script "$SCRIPT_NAME" --error "$msg" --credential "$cred" \
+          --state-dir "$STATE_DIR" 2>&1); then
+      echo "$LOG_PREFIX WARN: 失败状态写入失败（巡检会漏报本次失败）: $STATE_DIR" >&2
+      echo "$LOG_PREFIX WARN: 原因: $(printf '%s' "$state_out" | tail -n 2 | tr '\n' ' ' | cut -c1-500)" >&2
+    fi
   fi
   exit 1
 }

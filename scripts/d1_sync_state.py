@@ -43,6 +43,7 @@
       只打印摘要（不打印任何 token；wrangler whoami 本身也不回显 token）
   d1_sync_state.py record-failure --script NAME --error TEXT
       [--credential valid|invalid|unknown] [--state-dir DIR] [--now "YYYY-MM-DD HH:MM:SS"]
+      0=已记录 / 3=状态落盘失败(stderr 打错误摘要, 绝不含 token; 调用方须转述不吞)
   d1_sync_state.py record-success --script NAME [--state-dir DIR]
   d1_sync_state.py status [--state-dir DIR]      # 人读清单（排查用）
 
@@ -117,10 +118,16 @@ def _atomic_write(path: Path, payload: dict) -> None:
 
 
 def record_failure(state_dir: Path, script: str, error: str,
-                   credential: str = "unknown", now: datetime | None = None) -> dict:
+                   credential: str = "unknown", now: datetime | None = None,
+                   raise_on_write_error: bool = False) -> dict:
     """记一次失败：连续计数 +1；首次失败记 first_failure_at；保留已告警标记。
 
-    写失败不抛异常（否则会盖掉调用方原本的失败退出码），只 warn 到 stderr。
+    写失败一律 warn 到 stderr（含异常摘要与路径，绝不含 token）。
+    `raise_on_write_error=True`（CLI 用）：写失败再抛 RuntimeError ⇒ 调用方**非零退出**。
+    ⚠️ 2026-10-22 审查缺口 A：旧版写失败只 warn 且 rc 恒 0，同步脚本的 `|| WARN` 永不
+    触发 ⇒ 「状态没落下」这件事继续静默（chmod 500 复现：零输出、无文件、rc=0）。状态
+    落不下 = 巡检看不见本次失败 = 静默方向，必须吼出来。
+    参数默认 False 是给既有进程内调用方（测试/未来复用）保持不抛异常的行为。
     """
     now = now or datetime.now()
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -141,11 +148,14 @@ def record_failure(state_dir: Path, script: str, error: str,
         "alerted_count": int(prev.get("alerted_count") or 0),
         "updated_at": now_str,
     }
+    p = state_path(state_dir, script)
     try:
-        _atomic_write(state_path(state_dir, script), new)
+        _atomic_write(p, new)
     except Exception as e:  # noqa: BLE001
-        print(f"[d1-state] WARN 失败状态写入失败({type(e).__name__}: {e})："
-              f"本次失败可能无法被巡检看见", file=sys.stderr)
+        summary = f"失败状态写入失败({type(e).__name__}: {e}): {p}"
+        print(f"[d1-state] WARN {summary} —— 本次失败不会被巡检看见", file=sys.stderr)
+        if raise_on_write_error:
+            raise RuntimeError(summary) from e
     return new
 
 
@@ -285,8 +295,13 @@ def main(argv: list[str] | None = None) -> int:
             except ValueError:
                 print(f"[d1-state] WARN --now 格式非法，改用当前时间: {args.now}",
                       file=sys.stderr)
-        st = record_failure(state_dir, args.script, args.error,
-                            credential=args.credential, now=now)
+        try:
+            st = record_failure(state_dir, args.script, args.error,
+                                credential=args.credential, now=now,
+                                raise_on_write_error=True)
+        except RuntimeError:
+            # 摘要已由 record_failure 打到 stderr；非零退出让同步脚本能转述、不吞。
+            return 3
         print(f"[d1-state] 已记录失败: {format_problem(st)}", file=sys.stderr)
         return 0
 

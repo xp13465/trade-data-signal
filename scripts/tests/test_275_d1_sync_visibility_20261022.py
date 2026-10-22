@@ -16,6 +16,8 @@
   ⑥ 真实成功路径不残留状态(bash 端到端: 假 wrangler 全链路跑真脚本)
   + 告警未送达 ⇒ rc=4 且不落 alerted(下轮重试, 不吞真故障)
   + dry 模式绝不动通知链(L48 零外发)
+  + 状态写失败可见化(2026-10-22 审查缺口 A): 目录不可写 ⇒ 记录器 rc!=0 + 摘要,
+    bash `_fail` 转述摘要(旧版 >/dev/null 2>&1 ⇒ 零输出静默); 全程不含 token
 
 跑法: python3 -m pytest -q scripts/tests/test_275_d1_sync_visibility_20261022.py
 """
@@ -284,6 +286,49 @@ def test_case5b_bash_whoami_failure_records_credential_error(tmp_path):
     assert st["credential"] == "invalid"
     leaked = r.stdout + r.stderr + json.dumps(st, ensure_ascii=False)
     assert "SECRET-TOKEN-XYZ" not in leaked, "任何输出/状态都不得带 token"
+
+
+def test_case7_state_write_failure_is_loud_not_silent(tmp_path):
+    """审查缺口 A(2026-10-22 批内修): 状态目录不可写 ⇒ 记录器 rc!=0 + stderr 摘要。
+
+    旧版写失败只 warn(stderr) 且 rc 恒 0, 同步脚本又 `>/dev/null 2>&1` ⇒ 复合命令
+    零输出、无状态文件 —— 「巡检看不见本次失败」这件事本身也静默。
+    """
+    if os.geteuid() == 0:  # root 无视目录权限, 无法构造不可写(CI 为普通用户)
+        pytest.skip("root 下 chmod 不生效, 无法复现不可写目录")
+    ro_parent = tmp_path / "ro"
+    ro_parent.mkdir()
+    state_dir = ro_parent / d1ss.STATE_DIRNAME
+    ro_parent.chmod(0o500)
+    try:
+        r = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "d1_sync_state.py"), "record-failure",
+             "--script", "sync_fund_score_to_d1", "--error", "boom",
+             "--credential", "invalid", "--state-dir", str(state_dir)],
+            capture_output=True, text=True, timeout=60, check=False)
+    finally:
+        ro_parent.chmod(0o755)
+    assert r.returncode != 0, f"状态写失败必须非零退出(旧版静默 rc=0): {r.stdout}\n{r.stderr}"
+    assert "失败状态写入失败" in r.stderr, f"必须给出可见错误摘要: {r.stderr}"
+    assert str(state_dir) in r.stderr, "摘要须带路径, 便于现场定位"
+    if state_dir.exists():
+        assert not list(state_dir.glob("*.json")), "写失败时不得留下半截状态文件"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root 下目录权限不生效")
+def test_case8_bash_fail_path_surfaces_state_write_error(tmp_path):
+    """bash 端到端: 状态写失败时 `_fail` 必须把摘要转述到脚本日志(不再整段丢弃)。"""
+    repo = _make_sync_repo(tmp_path)
+    (repo / "data").chmod(0o500)  # DB 仍可读, 但状态目录无法创建/写入
+    try:
+        r = _run_sync(repo, "fail", tmp_path)
+    finally:
+        (repo / "data").chmod(0o755)
+    assert r.returncode == 1, f"同步失败码保持 1(whoami 失败): {r.stdout}\n{r.stderr}"
+    assert "失败状态写入失败（巡检会漏报本次失败）" in r.stderr, \
+        f"写状态失败必须可见(旧版被 2>&1 吞掉): {r.stderr}"
+    assert "原因:" in r.stderr, f"须转述记录器摘要: {r.stderr}"
+    assert "SECRET-TOKEN-XYZ" not in (r.stdout + r.stderr), "转述摘要绝不能带 token"
 
 
 def test_case6_bash_success_path_leaves_no_state(tmp_path):

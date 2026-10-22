@@ -75,6 +75,8 @@
     - 命中白名单 ⇒ **不告警**, 但每轮都打印 `[INFO] 白名单忽略: <unit>`(可追溯, 不是静默丢弃);
     - **禁止白名单 `trade-*`**(本项目的 unit 全部以 trade- 开头)——启动即机检, 命中 ⇒
       stderr 报错 + exit 2(防止有人用白名单把本项目真故障静音, 告警等级不得为安静而降);
+      机检是**效果判据**: 每个 pattern 用 fnmatch 对代表性真故障样例实测, `*` / `trade*` /
+      `*.service` 这类通配写法同样 exit 2(2026-10-22 审查 P1: 只判字面前缀可被通配绕过);
     - 白名单文件缺失/为空 ⇒ 按空白名单处理 + 打印 INFO, **不崩**(安全降级)。
 
 【#275 D1 同步失败消费(2026-10-22)】
@@ -149,7 +151,12 @@ PATROL_UNIT = "trade-cloud-unit-patrol.service"
 ALLOWLIST_DEFAULT_PATH = (
     Path(__file__).resolve().parent.parent / "docs" / "deploy" / "failed-unit-allowlist.txt")
 # 白名单禁止项: 本项目 unit 全部以 trade- 开头, 允许进白名单 = 允许把真故障静音 ⇒ 启动机检拦下。
+# ⚠️ 只用字面前缀判**不够**: 匹配走 fnmatch(`apply_allowlist`), 白名单写 `*` / `trade*` /
+# `*.service` 都能命中 trade-*.service 而前缀判看不出(2026-10-22 审查 P1 实测复现:
+# 白名单 `*` ⇒ trade-foo.service failed 被静音 rc=0)。故对每个 pattern 再用下列
+# 「代表性真故障样例」实测匹配 —— 任一命中即记 error, rc=2 拒绝启动(效果判据, 覆盖通配)。
 FORBIDDEN_ALLOW_PREFIX = "trade-"
+FORBIDDEN_PROBE_UNITS = ("trade-zzz.service", "trade-foo.service")
 
 
 def _run_failed_units_cmd():
@@ -167,7 +174,9 @@ def load_allowlist(path):
     - 文件缺失 ⇒ ([], []) 且打印 INFO(安全降级: 按空白名单处理, 绝不崩);
     - 空行 / `#` 注释行忽略;
     - 命中 `FORBIDDEN_ALLOW_PREFIX`(trade-*)⇒ 记入 errors(调用方 exit 2 拒绝运行),
-      防止用白名单把本项目真故障静音。
+      防止用白名单把本项目真故障静音;
+    - **效果判据(防通配绕过)**: 每个 pattern 再用 `fnmatch` 对 `FORBIDDEN_PROBE_UNITS`
+      实测, 任一命中即记错 —— `*` / `trade*` / `*.service` 这类写法同样 exit 2。
     """
     p = Path(path)
     if not p.is_file():
@@ -186,6 +195,11 @@ def load_allowlist(path):
         if item.startswith(FORBIDDEN_ALLOW_PREFIX):
             errors.append(f"白名单禁止包含本项目 unit(以 {FORBIDDEN_ALLOW_PREFIX} 开头, "
                           f"会把真故障静音): {item} ({p})")
+            continue
+        hit = next((u for u in FORBIDDEN_PROBE_UNITS if fnmatch.fnmatchcase(u, item)), None)
+        if hit:
+            errors.append(f"白名单禁止包含会命中本项目 unit 的模式(会把真故障静音): "
+                          f"{item} → 命中样例 {hit} ({p})")
             continue
         if item not in patterns:
             patterns.append(item)
