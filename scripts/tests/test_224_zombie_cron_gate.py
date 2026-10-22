@@ -9,13 +9,16 @@
   ③ `createdAt` 是**毫秒** epoch(约 1.79e12);
   ④ 一次性 job 的 cron 是「月+日定点」(如 `12 21 8 10 *`), 巡检 cron 是「分钟列表 + * * *」
      (如 `11,26,41,56 * * * *`)。
-本机若存在真实 `.claude/scheduled_tasks.json`(未跟踪入 git, CI 无)→ 额外跑真实样本对账
-(skipif); 其余用例不依赖 /tmp 真实进度文件(monkeypatch PROGRESS_DIR 到 tmp_path)、
-不依赖 .env、不产生任何外发/生产写。
+本机若存在真实 `.claude/scheduled_tasks.json`(未跟踪入 git, CI 无)→ 额外跑真实样本对账;
+**真实样本优先, 缺失/为空/无巡检类 job 时退回测试自造的固定样本继续跑同一套断言**
+(不 skip 核心判定逻辑)—— 本机 cron 状态(巡检 job 在跑 / 已删净 / 只有普通 job)不再
+影响用例结论(环境依赖型 flaky, §18 L51 同族)。其余用例不依赖 /tmp 真实进度文件
+(monkeypatch PROGRESS_DIR 到 tmp_path)、不依赖 .env、不产生任何外发/生产写。
 """
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import types
@@ -26,10 +29,16 @@ import pytest
 
 import check_task_state as m
 
-REAL_TASKS = Path("/Users/linhuichen/code/trade/.claude/scheduled_tasks.json")
+# 真实样本路径(默认生产路径; 环境变量仅为测试夹具覆盖用, 不改生产行为)
+REAL_TASKS = Path(os.environ.get(
+    "TRADE_SCHEDULED_TASKS",
+    "/Users/linhuichen/code/trade/.claude/scheduled_tasks.json"))
 
 # 真实形态: 巡检兜底 cron(每小时的 11/26/41/56 分; prompt 含 agent-progress 路径)
 PATROL_CRON = "11,26,41,56 * * * *"
+
+# 固定时钟锚(2027-01-15 本地时), 与被测数据日期无关, 用例永久稳定(L51)
+FROZEN_NOW = 1_800_000_000.0
 
 
 def _patrol_prompt(name: str) -> str:
@@ -125,6 +134,33 @@ def _freeze_now(monkeypatch, fixed_epoch: float) -> None:
         strftime=real.strftime,
     )
     monkeypatch.setattr(m, "time", stub)
+
+
+def _patrol_relevant(jobs: list[dict]) -> list[tuple[dict, float | None]]:
+    """筛出巡检类 job 并算 ready_at(与 check_zombie_crons 同一判据, 顺序保持)。"""
+    out: list[tuple[dict, float | None]] = []
+    for j in jobs:
+        p = (j.get("prompt") or "")
+        if "巡检兜底" not in p and "agent-progress" not in p:
+            continue
+        ready_at, _why = m._progress_ready_at(j)
+        out.append((j, ready_at))
+    return out
+
+
+def _fixed_patrol_jobs() -> list[dict]:
+    """真实样本无巡检类 job 时的固定兜底样本。
+
+    ≥2 个巡检类 job、createdAt 不同、键集与真实 job 一致(`_job` 逐字取自生产样本),
+    且 prompt 含可解析的 /tmp/agent-progress-*.md 路径 —— 保证「pending 侧 + 真 FAIL 侧」
+    两条断言路径都能被走到, 不因本机 cron 状态变化而失去判别力。
+    """
+    return [
+        _job("fixed-patrol-old", PATROL_CRON, _patrol_prompt("224-fixed-old"),
+             FROZEN_NOW - 3 * 86400, recurring=True),
+        _job("fixed-patrol-new", PATROL_CRON, _patrol_prompt("224-fixed-new"),
+             FROZEN_NOW - 3600, recurring=True),
+    ]
 
 
 # ── ① 一次性 job: 触发前不判僵尸(事故一根治) ────────────────────────────────
@@ -274,45 +310,60 @@ def test_skip_zombie_crons_semantics_unchanged(monkeypatch, tmp_path, capsys):
     assert "僵尸巡检" not in out and "✗" not in out   # C 维度整段未跑, 无任何 FAIL
 
 
-# ── ⑩ 真实生产样本对账(本机有真实文件才跑; CI 自动 skip) ────────────────────
+# ── ⑩ 真实生产样本对账(真实样本优先; 缺失/空/无巡检类 job 退回固定样本) ─────
 @pytest.mark.skipif(not REAL_TASKS.exists(), reason="无真实 .claude/scheduled_tasks.json(CI 干净环境)")
 def test_real_sample_shape_parity():
-    """fixture 的键集/类型必须与真实 job 逐字一致(L49: 别用"看起来合理"的样本)。"""
+    """fixture 的键集/类型必须与真实 job 逐字一致(L49: 别用"看起来合理"的样本)。
+
+    真实清单为空 / 只有巡检类 job 都是**合法 cron 状态**(本机可能刚清空 / 只剩巡检),
+    不再把它当成失败; 空清单时只校验 fixture 制造器的形状契约。
+    """
     real = json.loads(REAL_TASKS.read_text(encoding="utf-8"))["tasks"]
-    assert real, "真实 cron 清单为空?"
     for j in real:
         assert set(j) >= {"id", "cron", "prompt", "createdAt"}
         assert isinstance(j["createdAt"], int) and j["createdAt"] > 1e11, "createdAt 应为毫秒 epoch"
         assert isinstance(j["cron"], str) and len(j["cron"].split()) == 5, "真实 cron 为 5 字段"
         assert m._job_created_epoch(j) is not None
-    # fixture 形状与真实一致(同键集 + 同类 job 的 recurring 键行为一致)
-    fixture = _job("x", PATROL_CRON, _patrol_prompt("x"), time.time(), recurring=True)
-    assert set(fixture) == (set(real[0]) | {"recurring"})
-    oneshot = [j for j in real if "recurring" not in j]
-    assert oneshot, "真实样本应含一次性 job(无 recurring 键)"
+    # fixture 制造器的形状契约(不依赖真实文件内容, 空清单/全巡检也能校验)
+    patrol_fixture = _job("x", PATROL_CRON, _patrol_prompt("x"), time.time(), recurring=True)
+    oneshot_fixture = _job("x", "0 9 * * *", "每日日报, 无进度文件字样", time.time())
+    assert patrol_fixture["recurring"] is True
+    assert "recurring" not in oneshot_fixture, "一次性 job 不得写 recurring 键"
+    if real:
+        assert set(patrol_fixture) == (set(real[0]) | {"recurring"})
+        # 真实样本含一次性 job 时对账「无 recurring 键」形态; 全巡检样本也合法, 不判失败
+        oneshot = [j for j in real if "recurring" not in j]
+        if oneshot:
+            assert set(oneshot_fixture) == set(oneshot[0])
 
 
-@pytest.mark.skipif(not REAL_TASKS.exists(), reason="无真实 .claude/scheduled_tasks.json(CI 干净环境)")
 @pytest.mark.parametrize("shift_secs", [0, 2 * 3600, 86400])
 def test_real_jobs_no_false_zombie_when_pending(monkeypatch, tmp_path, shift_secs):
     """真实 job 跑判定: 只有「已过 ready_at」的 job 才允许出现在**真 FAIL 行**里。
 
-    时钟冻结在「真实 job 最晚 ready_at 前 1 秒」= 不管哪天跑, 都必然至少一个 job 处于
-    pending、其余已过 ready_at -> FAIL detail 必然「fail 行 + pending 行」混排
-    (2026-10-22 假红正是此形态), 断言与真实运行时刻解耦。
+    真实样本优先(保留真实 job 的校验价值); **真实文件缺失 / 为空 / 无巡检类 job 时,
+    退回固定样本继续跑同一套完整断言**(不 skip 核心逻辑) —— 本机 cron 状态不再影响结论。
+
+    时钟冻结在「样本最晚 ready_at 前 1 秒」= 不管哪天跑, 都必然至少一个 job 处于 pending、
+    其余已过 ready_at -> FAIL detail 必然「fail 行 + pending 行」混排
+    (2026-10-22 假红正是此形态), 断言与真实运行时刻/本机 cron 状态解耦。
     """
-    real = json.loads(REAL_TASKS.read_text(encoding="utf-8"))["tasks"]
-    relevant = []
-    for j in real:
-        p = (j.get("prompt") or "")
-        if "巡检兜底" not in p and "agent-progress" not in p:
-            continue
-        ready_at, _why = m._progress_ready_at(j)
-        assert ready_at is not None, f"真实 job {j['id']} 应能算出 ready_at"
-        relevant.append((j, ready_at))
-    assert relevant, "真实样本应含巡检类 job"
+    real = (json.loads(REAL_TASKS.read_text(encoding="utf-8"))["tasks"]
+            if REAL_TASKS.exists() else [])
+    relevant = _patrol_relevant(real)
+    source = "real"
+    if relevant:
+        for j, ready_at in relevant:
+            assert ready_at is not None, f"真实 job {j['id']} 应能算出 ready_at"
+        sample = real
+    else:
+        # 无巡检类 job(巡检已删净 / 只剩普通 job / 文件不存在) -> 固定样本兜底
+        source = "fixed"
+        sample = _fixed_patrol_jobs()
+        relevant = _patrol_relevant(sample)
+        assert len(relevant) >= 2, "固定样本应含 ≥2 个巡检类 job(createdAt 不同)"
     now = max(ra for _, ra in relevant) - 1 + shift_secs
-    repo, pdir = _setup(monkeypatch, tmp_path, real)
+    repo, pdir = _setup(monkeypatch, tmp_path, sample)
     pdir.mkdir(exist_ok=True)                 # 空进度目录 = 模拟"文件尚未产生"
     _freeze_now(monkeypatch, now)
     res = m.check_zombie_crons(repo)
@@ -321,16 +372,20 @@ def test_real_jobs_no_false_zombie_when_pending(monkeypatch, tmp_path, shift_sec
     for j, ready_at in relevant:
         if ready_at > now:
             assert j["id"] not in fails, (
-                f"真实 job {j['id']} ready_at={ready_at} 在将来, 不应被误判僵尸")
+                f"{source} job {j['id']} ready_at={ready_at} 在将来, 不应被误判僵尸")
             p = j.get("prompt") or ""
             if m.PROGRESS_PATH_RE.search(p) or m.PATROL_NAME_RE.search(p):
                 assert j["id"] in pending, (
-                    f"真实 job {j['id']} 应作为 pending 说明出现(未到应产生时刻)")
+                    f"{source} job {j['id']} 应作为 pending 说明出现(未到应产生时刻)")
+    if source == "fixed":
+        # 固定样本判别力: 已过 ready_at + 无进度文件必须真 FAIL(不只 pending 侧生效)
+        assert "fixed-patrol-old" in fails, (
+            "已过 ready_at + 无进度文件 -> 必须真 FAIL(判别力不得下降)")
 
 
 # ── ⑪ FAIL 时 detail 里 fail 行与 pending 行混排: pending 不得被当成"被 FAIL 提及" ──
 # CI 必跑(不依赖真实文件): 这是 2026-10-22 时敏假红的直接回归守卫。
-FROZEN_NOW = 1_800_000_000.0   # 固定时钟锚(2027-01-15 本地时), 与被测数据日期无关, 用例永久稳定(L51)
+# 固定时钟锚 FROZEN_NOW 定义在文件头(与固定样本共用, 单一事实源)。
 
 
 @pytest.mark.parametrize("shift_secs", [0, 2 * 3600, 86400])
