@@ -4,7 +4,8 @@
 # 调 python -c compute_all_scores(top_n=2000, resume=True) + export_fund_score.py + upload-fund-score
 #   + sync_fund_score_to_d1.sh（/api/fund_score 数据源; D1 当日分区）
 #   + sync_fund_screener_to_d1.sh（#266 /api/fund_screener 数据源; 全市场平表, 每只基金最新可用分区）
-#   两个 D1 同步均失败不阻塞主流程（仅数据滞后一轮）
+#   两个 D1 同步失败不阻塞主流程（仅数据滞后一轮）; 但**不再静默**:
+#   失败会写 data/d1_sync_state/ 状态, 连续 ≥2 次由 check_failed_units.py 巡检告警(#275)
 #   头部2000只~2min(实测, 大部分基金无fund_daily_nav快速返回None)
 #
 # 进程互斥:
@@ -48,13 +49,15 @@ RC2=$?
 [ "$REPO" = "$GIT_REPO" ] || rsync -a --checksum "$REPO/static-site/data/fund_score"* "$GIT_REPO/static-site/data/" 2>/dev/null || true
 "$PY" "$REPO/scripts/upload_r2.py" upload-fund-score
 RC3=$?
-# D1 全量同步（#79 方案C step3: /api/fund_score 数据源; 失败告警不阻塞评分主流程）
+# D1 全量同步（#79 方案C step3: /api/fund_score 数据源）。失败不阻塞评分主流程, 但状态已落盘,
+#   连续 ≥2 次失败由 check_failed_units.py 巡检告警(#275, 不再静默 20 天)
 bash "$GIT_REPO/scripts/sync_fund_score_to_d1.sh" || \
-  echo "⚠ sync_fund_score_to_d1 失败（不阻塞主流程, D1 数据滞后一轮）"
+  echo "⚠ sync_fund_score_to_d1 失败（不阻塞主流程, D1 数据滞后一轮; 连续失败会告警）"
 # D1 筛选器平表同步（#266 一期: /api/fund_screener 数据源; 全市场 1 行/只「每只基金最新可用分区」;
-#   失败告警不阻塞评分主流程, 筛选器数据滞后一轮——前端 API 失败自动降级 Top100 兜底明示）
+#   失败不阻塞评分主流程, 筛选器数据滞后一轮——前端 API 失败自动降级 Top100 兜底明示;
+#   同样写失败状态, 连续 ≥2 次由巡检告警(#275)）
 bash "$GIT_REPO/scripts/sync_fund_screener_to_d1.sh" || \
-  echo "⚠ sync_fund_screener_to_d1 失败（不阻塞主流程, 筛选器 D1 数据滞后一轮）"
+  echo "⚠ sync_fund_screener_to_d1 失败（不阻塞主流程, 筛选器 D1 数据滞后一轮; 连续失败会告警）"
 echo "=== $(date '+%F %T') pf-score-daily end compute=$RC1 export=$RC2 upload=$RC3 ==="
 exit $RC1
 } >>"$LOG" 2>&1

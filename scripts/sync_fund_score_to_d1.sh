@@ -14,21 +14,64 @@
 #       （或主仓库 bash scripts/sync_fund_score_to_d1.sh，REPO 环境变量可覆盖）
 # 调用方: pf_score_daily.sh / pf_score_weekly.sh 末尾（评分导出后自动同步）
 # 注意: 需要 wrangler 已登录（npx wrangler whoami 可验）；D1 database_id 见 wrangler.jsonc。
+#
+# ── #275 失败可见化（2026-10-22，根治「39 次失败零告警」）──────────────────────
+# 背景：2026-10-01~10-22 云上 wrangler 未登录，本脚本连续 39 次失败且调用方只 echo 一行
+#   「失败不阻塞主流程」⇒ D1 fund_score 静默停更 20 天无人知。
+# 现在：①同步开始前先 `wrangler whoami` 预检凭据，凭据无效/过期=明确错误（不打印 token）；
+#   ②任何失败分支统一走 `_fail()`：写 <REPO>/data/d1_sync_state/sync_fund_score_to_d1.json
+#   （连续失败计数，原子写）；③成功走 `_success()` 删除状态文件（清零、无残留）；
+#   ④既有巡检 check_failed_units.py（云上 trade-schedule-monitor.timer，15min 一轮）读状态，
+#   连续 ≥2 次失败发一条告警（只报一次，防每轮轰炸）。
+# 「失败不阻塞评分主流程」保持不变（调用方语义），但**不再静默**。
 set -uo pipefail
 
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
+SCRIPT_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_SELF_DIR/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
 resolve_repo "${BASH_SOURCE[0]}"
 PY="$REPO/.venv/bin/python"
 DB="$REPO/data/public_fund.db"
 LOG_PREFIX="[sync-d1]"
+SCRIPT_NAME="sync_fund_score_to_d1"
+STATE_DIR="$REPO/data/d1_sync_state"
 GEN_DIR=$(mktemp -d /tmp/fund-score-d1.XXXXXX)
 BATCH=80   # 每条 INSERT 的行数（控制单语句体积，D1 单语句建议 <200KB）
 
 trap 'rm -rf "$GEN_DIR"' EXIT
 
-if [ ! -f "$DB" ]; then
-  echo "$LOG_PREFIX ERROR: DB 不存在: $DB"
+# 失败出口：统一记录状态（供巡检消费）后以 1 退出。
+# 状态写失败不盖掉原失败码，但**必须可见**：捕获 record-failure 的摘要转述到本脚本日志
+# （2026-10-22 审查缺口 A：旧版 >/dev/null 2>&1 且记录器 rc 恒 0 ⇒ WARN 永不出现 = 静默）。
+_fail() {
+  local msg="$1" cred="${2:-unknown}" state_out=""
+  echo "$LOG_PREFIX ERROR: $msg" >&2
+  if ! state_out=$("$PY" "$SCRIPT_SELF_DIR/d1_sync_state.py" record-failure \
+        --script "$SCRIPT_NAME" --error "$msg" --credential "$cred" \
+        --state-dir "$STATE_DIR" 2>&1); then
+    echo "$LOG_PREFIX WARN: 失败状态写入失败（巡检会漏报本次失败）: $STATE_DIR" >&2
+    # 摘要截断转述（记录器只打异常类型/路径，不打印任何 token）
+    echo "$LOG_PREFIX WARN: 原因: $(printf '%s' "$state_out" | tail -n 2 | tr '\n' ' ' | cut -c1-500)" >&2
+  fi
   exit 1
+}
+
+_success() {
+  "$PY" "$SCRIPT_SELF_DIR/d1_sync_state.py" record-success --script "$SCRIPT_NAME" \
+    --state-dir "$STATE_DIR" >/dev/null 2>&1 || true
+}
+
+if [ ! -f "$DB" ]; then
+  _fail "DB 不存在: $DB"
+fi
+
+# 凭据预检（#275）：把「未登录」这类失败前移到同步开始前，错误语义明确。
+echo "$LOG_PREFIX 凭据预检: wrangler whoami"
+"$PY" "$SCRIPT_SELF_DIR/d1_sync_state.py" whoami-check
+_WC=$?
+if [ "$_WC" -eq 1 ]; then
+  _fail "wrangler 凭据无效/过期（whoami 失败）。请重新登录: npx wrangler login" invalid
+elif [ "$_WC" -ne 0 ]; then
+  _fail "无法验证 wrangler 凭据（whoami 超时/工具缺失），本轮按失败处理" unknown
 fi
 
 cd "$REPO"
@@ -166,18 +209,18 @@ print(f"[sync-d1-python] score_date={latest} rows={len(rows)} files={len(files)}
 PYEOF
 RC=$?
 if [ $RC -ne 0 ]; then
-  echo "$LOG_PREFIX ERROR: 生成 SQL 失败 rc=$RC"
-  exit 1
+  _fail "生成 SQL 失败 rc=$RC"
 fi
 
 # 2) 逐文件 wrangler d1 execute --remote（schema 先, 数据后; -y 跳过确认）
 EXPECT_ROWS=$("$PY" -c "import json;print(json.load(open('$GEN_DIR/meta.json'))['rows'])")
 for f in "$GEN_DIR"/*.sql; do
   echo "$LOG_PREFIX execute $(basename "$f") ($(wc -c < "$f" | tr -d ' ') bytes)"
-  if ! npx wrangler d1 execute trade-fund-score --remote -y --file="$f" > /dev/null 2>&1; then
-    echo "$LOG_PREFIX ERROR: wrangler d1 execute 失败: $(basename "$f")"
-    npx wrangler d1 execute trade-fund-score --remote -y --file="$f" 2>&1 | tail -5
-    exit 1
+  # 失败时用**本次**输出诊断（旧版失败后重跑一遍只为打印 tail = 二次执行同一 SQL，已去掉）
+  _OUT="$GEN_DIR/execute.out"
+  if ! npx wrangler d1 execute trade-fund-score --remote -y --file="$f" > "$_OUT" 2>&1; then
+    tail -5 "$_OUT" >&2 || true
+    _fail "wrangler d1 execute 失败: $(basename "$f")"
   fi
 done
 
@@ -187,7 +230,7 @@ D1_COUNT=$(npx wrangler d1 execute trade-fund-score --remote -y --json \
   | "$PY" -c "import json,sys;d=json.load(sys.stdin);print(d[0]['results'][0]['n'])")
 echo "$LOG_PREFIX 本地 rows=$EXPECT_ROWS D1 count=$D1_COUNT"
 if [ "$D1_COUNT" != "$EXPECT_ROWS" ]; then
-  echo "$LOG_PREFIX ERROR: D1 count 与本地不一致!"
-  exit 1
+  _fail "D1 count 与本地不一致: 本地 $EXPECT_ROWS vs D1 ${D1_COUNT:-读取失败}"
 fi
+_success
 echo "$LOG_PREFIX 完成: $(date '+%F %T') 同步成功且校验一致"

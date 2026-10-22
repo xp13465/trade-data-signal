@@ -1,0 +1,28 @@
+# failed-unit 白名单(#280, 2026-10-22)
+#
+# 用途: 云上 `systemctl --failed` 里有些 unit 是**系统层已知噪音**, 与本项目无关。
+#   命中本文件的 unit 不会触发告警, 但每轮巡检都会打印 `[INFO] 白名单忽略: <unit>`(可追溯)。
+#   消费方: scripts/check_failed_units.py(云上 trade-schedule-monitor.timer, 15min 一轮)。
+#
+# 格式: 一行一个 unit 名, 支持通配(如 `fwupd*`); 空行与 `#` 注释忽略。
+#
+# 铁律(启动机检, 违反则巡检 exit 2 拒绝运行):
+#   **禁止把本项目 unit(以 trade- 开头)写进本文件** —— 那等于把真故障静音。
+#   判定是**效果判据, 不是列举样例**: 探针集合 = 项目真实 unit 全集, **service / timer /
+#   socket 三种后缀全覆盖** ——
+#     静态: alert_denoise_rules.WATCHMAN_UNITS + 仓库 unit 文档(gen_systemd_units.py 枚举);
+#     动态: 运行时 systemctl 现状里的 trade-*.{service,timer,socket};
+#     动态取不到 ⇒ 回退静态集合并打一行 INFO(不崩、不放行)。
+#   任何 pattern 只要能 fnmatch 命中任一真实 unit(`*` / `trade*` / `*schedule-monitor.timer`
+#   等)就 exit 2, 消息写明会静音哪个真实 unit —— 别指望用更长的通配绕过。
+#   另外, 命名空间判据用三个真实探针 unit(`trade-zzz.service` / `.timer` / `.socket`)
+#   与真实 unit 全集走**同一个** fnmatch 实测: 只要某种写法能命中 trade-* 项目的命名空间
+#   (`*.socket` / `*ocket` / `*[.]socke*` 等)就 exit 2 —— 即使当前还没有该后缀的真实 unit,
+#   也不给未来新增 unit 留静音口子。
+#   白名单只允许「系统/第三方」unit; 本项目 unit 失败必须走告警, 不得为安静而降等级。
+#
+# 收录依据: docs/ops/failed-units-rca-20261022.md(fwupd-refresh.service = OS 侧 LVFS
+#   固件刷新服务, 退出码 1 与本项目无关; 历史上让巡检长期误报)。
+# 增删条目要求: 附根因证据(日志/状态原文) + 更新本段依据, 不允许凭"看着像噪音"加入。
+
+fwupd-refresh.service

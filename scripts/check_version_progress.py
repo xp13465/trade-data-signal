@@ -34,7 +34,14 @@
 
 退出码:
   0 = PASS(或仅告警)
-  1 = FAIL(版本倒退 / 净回退 → 阻断上线)
+  1 = FAIL(版本倒退 / 净回退 / 校验期间 HEAD 变化且重试 1 次仍不稳定 → 阻断上线)
+
+竞态加固(#281, 2026-10-22):
+  原实现 `rev-parse HEAD` 与 `rev-parse HEAD^` 是两次独立调用(实测窗口 ~2.42s, 期间 ~320 次
+  git show), 并发 `git pull` 落地时 head/parent 可能来自两个不同提交, 误判方向是 **stale PASS**。
+  现在: head 只取一次 → parent 由该固定 sha 派生 → 磁盘内容(版本串/源文件 md5)在窗口开始时
+  一次性快照 → 校验结束后复验 HEAD; HEAD 变了只重试 1 次, 仍变则 FAIL 并明确写「校验期间
+  HEAD 变化」(不给出可能过期的 PASS)。A/B 判定语义不变, 不新增误报。
 
 deploy.sh 接入(push main 之前的 安全网 阶段):
   "$PY" "$REPO/scripts/check_version_progress.py" --site-dir "$GIT_REPO/static-site" --repo "$GIT_REPO" --deploy-mode
@@ -107,6 +114,38 @@ def _md5hex(b: bytes) -> str:
     return hashlib.md5(b).hexdigest()
 
 
+def _head_sha(repo: str) -> str | None:
+    """读一次 git HEAD 的 sha(整个校验窗口的唯一基准; 取不到返回 None)。
+
+    #281 TOCTOU 加固(2026-10-22): 原实现先 `rev-parse HEAD`、再 `rev-parse HEAD^`,
+    两次调用之间(实测窗口 ~2.42s, 期间约 320 次 `git show`)若并发 `git pull` 落地,
+    head 与 parent 就可能来自**两个不同提交**; 磁盘内容/天花板链对不上 ⇒ 误判方向是
+    **stale PASS**(该拦的倒退被放过)。现在 head 只取一次, parent 由该固定 sha 派生。
+    """
+    out = _run_git(repo, "rev-parse", "HEAD")
+    return out.strip() or None if out else None
+
+
+def _parent_of(repo: str, head: str) -> str | None:
+    """取**固定 sha** 的 first-parent(不读实时 HEAD, 消除 head/parent 跨提交错位)。"""
+    out = _run_git(repo, "rev-parse", f"{head}^")
+    return out.strip() or None if out else None
+
+
+def snapshot_disk(site_dir: Path) -> dict:
+    """校验窗口**开始时**一次性快照磁盘: index.html 版本串 + 关键源文件 md5。
+
+    之后整个 A/B 校验只用这份快照, 窗口内磁盘被并发 pull/构建改写也不会混进本次判定
+    (与 check_version_consistency.py #277 的 `_snapshot_min_md5` 同款思路)。
+    """
+    versions = load_versions(site_dir)
+    md5 = {}
+    for src in sorted(set(KEY_SOURCES) | set(B_FILES)):
+        p = site_dir / src
+        md5[src] = _md5hex(p.read_bytes()) if p.exists() else None
+    return {"versions": versions, "md5": md5}
+
+
 def load_versions(site_dir: Path) -> dict[str, str]:
     """从 index.html 解析 {asset: version}, 仅返回匹配 <YYYYMMDD>-a<N> 的引用。"""
     index = site_dir / "index.html"
@@ -143,14 +182,16 @@ def version_key(repo: str, site_rel: str, commit: str) -> tuple[int, int] | None
     return None
 
 
-def _changed_sources(site_dir: Path, repo: str, parent: str) -> list[str]:
-    """返回相对 first-parent 有 diff 的关键源文件列表(相对 --site-dir 路径)。"""
+def _changed_sources(snap: dict, repo: str, parent: str) -> list[str]:
+    """返回相对 first-parent 有 diff 的关键源文件列表(用窗口开始的快照 md5)。
+
+    #281: 不在这里再读磁盘 —— 快照之后磁盘变化不影响本次判定(窗口自洽)。
+    """
     changed = []
     for src in KEY_SOURCES:
-        cur = site_dir / src
-        if not cur.exists():
+        cur_md5 = snap.get("md5", {}).get(src)
+        if cur_md5 is None:
             continue
-        cur_md5 = _md5hex(cur.read_bytes())
         parent_blob = _git_file_at(repo, parent, f"static-site/{src}")
         if parent_blob is None or _md5hex(parent_blob) != cur_md5:
             changed.append(src)
@@ -178,7 +219,7 @@ def _min_asset(src: str) -> str:
 
 
 def check_a(
-    repo: str, site_dir: Path, parent: str, versions: dict[str, str]
+    repo: str, parent: str, versions: dict[str, str], snap: dict
 ) -> tuple[bool, list[str], list[str]]:
     """任务 A: 版本串倒退哨兵。
 
@@ -231,7 +272,7 @@ def check_a(
             )
 
     # 源码有 diff 但版本串未前进(相对 immediate 父) → 告警
-    changed = _changed_sources(site_dir, repo, parent)
+    changed = _changed_sources(snap, repo, parent)
     if changed:
         cur_batches = {parse_version(v)[1] for v in versions.values() if parse_version(v)}
         parent_batches = set()
@@ -249,7 +290,7 @@ def check_a(
 
 
 def check_b(
-    repo: str, site_dir: Path, parent: str, versions: dict[str, str]
+    repo: str, parent: str, versions: dict[str, str], snap: dict
 ) -> tuple[bool, list[str]]:
     """任务 B: merge 净回退校验。
 
@@ -280,10 +321,9 @@ def check_b(
         return (False, [])
 
     for src in B_FILES:
-        cur_file = site_dir / src
-        if not cur_file.exists():
+        cur_md5 = snap.get("md5", {}).get(src)
+        if cur_md5 is None:
             continue
-        cur_md5 = _md5hex(cur_file.read_bytes())
         parent_blob = _git_file_at(repo, parent, f"static-site/{src}")
         if parent_blob is None:
             continue
@@ -338,33 +378,59 @@ def main() -> int:
     print(f"  site-dir : {site_dir}")
     print(f"  repo     : {repo}")
 
-    # 当前 HEAD 与 first-parent
-    head = _run_git(repo, "rev-parse", "HEAD")
-    parent = _run_git(repo, "rev-parse", "HEAD^")
-    if not head:
+    # ── #281 固定 sha + 窗口开始快照(与 check_version_consistency.py #277 同款加固) ──
+    # head 只取一次; parent 由固定 sha 派生; 磁盘快照一次; 校验后复验 HEAD。
+    # HEAD 在校验窗口内变了 ⇒ 重新固定 sha + 重新快照, 只重试 1 次; 仍变 ⇒ FAIL 并明说原因
+    # (不再静默给出可能过期的 PASS)。本体判定语义(A/B)一字未改。
+    head0 = _head_sha(repo)
+    if not head0:
         # 非 git 仓库 / 无任何提交 → 校验不可执行, 宁拦不放(§23.11 发现问题绝不静默)
         print("✗ 无法解析 HEAD(非 git 仓库或无任何提交)。校验不可执行, 阻断上线而非静默放行(§23.11)", file=sys.stderr)
         return 1
-    head = head.strip()
-    if not parent:
-        # 仅「首提交」(HEAD 存在、无父) 才合法 PASS(无历史可比对, 天然无倒退)
-        print("✓ 首提交(HEAD^ 无父), 版本串倒退/净回退校验 PASS", file=sys.stderr)
-        return 0
-    parent = parent.strip()
-    print(f"  HEAD     : {head[:10]}")
-    print(f"  first-parent: {parent[:10]}")
-    print()
+    head = head0
+    retried = False
+    while True:
+        parent = _parent_of(repo, head)
+        if not parent:
+            # 仅「首提交」(HEAD 存在、无父) 才合法 PASS(无历史可比对, 天然无倒退)
+            print("✓ 首提交(HEAD^ 无父), 版本串倒退/净回退校验 PASS", file=sys.stderr)
+            return 0
+        print(f"  HEAD     : {head[:10]}")
+        print(f"  first-parent: {parent[:10]}")
+        snap = snapshot_disk(site_dir)
+        if not snap["versions"]:
+            print("✗ index.html 未解析到任何 <YYYYMMDD>-a<N> 版本串引用", file=sys.stderr)
+            return 1
+        print(f"  快照      : 版本串 {len(snap['versions'])} 条, 关键源 {len(snap['md5'])} 个"
+              f"(窗口内不再读磁盘)")
 
-    versions = load_versions(site_dir)
-    if not versions:
-        print("✗ index.html 未解析到任何 <YYYYMMDD>-a<N> 版本串引用", file=sys.stderr)
-        return 1
+        a_fail, a_problems, a_warns = check_a(repo, parent, snap["versions"], snap)
+        b_fail, b_problems = check_b(repo, parent, snap["versions"], snap)
+
+        head_after = _head_sha(repo)
+        if head_after is None:
+            # 复验读不到 HEAD = 窗口是否被并发改动无法确认, 宁拦不放(§23.11)
+            print("✗ 校验结束后无法复验 HEAD(git rev-parse 失败): 本次结果是否来自同一个提交"
+                  "无法确认, 阻断上线而非静默放行(§23.11)", file=sys.stderr)
+            return 1
+        if head_after == head:
+            break
+        if retried:
+            print(f"✗ 校验期间 HEAD 变化(疑似并发 git pull), 已重试 1 次仍不稳定: "
+                  f"head {head0[:12]} → {head[:12]} → {(head_after or '?')[:12]};"
+                  f"本次结果不可信, 不做判定(避免误导), 请等并发 pull 结束后重跑",
+                  file=sys.stderr)
+            return 1
+        retried = True
+        print(f"[info] 校验期间 HEAD 变化({head[:12]} → {(head_after or '?')[:12]}): "
+              f"已重新固定 sha 并重新快照, 重试 1 次")
+        head = head_after or head
+    print()
 
     ok = True
     results = []
 
     # 任务 A
-    a_fail, a_problems, a_warns = check_a(repo, site_dir, parent, versions)
     for w in a_warns:
         print(f"[告警] {w}")
     if a_fail:
@@ -379,7 +445,6 @@ def main() -> int:
     print()
 
     # 任务 B
-    b_fail, b_problems = check_b(repo, site_dir, parent, versions)
     if b_fail:
         print("[FAIL] 任务 B: merge 净回退校验")
         for p in b_problems:
@@ -390,6 +455,8 @@ def main() -> int:
     results.append(("B-merge净回退校验", not b_fail))
     print()
 
+    if retried:
+        print(f"[info] 注: 校验期间 HEAD 变化, 已重新固定 sha 重试 1 次(head={head[:12]})")
     if not ok:
         print("✗ 版本串倒退/净回退校验未通过(任一 FAIL 阻断上线, 防静默覆盖事故再犯, 2026-08-18 §23.11)")
         return 1

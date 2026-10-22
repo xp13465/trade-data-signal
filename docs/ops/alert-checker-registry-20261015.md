@@ -43,7 +43,8 @@
 
 | # | 脚本 | 触发方式 / 时点 | 默认 tier | dedup window | 聚合域(建议·待对齐) | 首报策略 | 缺项 |
 |---|---|---|---|---|---|---|---|
-| 1 | `check_failed_units.py`(#196 patrol) | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | **0** ⚠️ | `monitor` | 首报必达 | **2026-10-21 已修黑洞**:window=0 仍为「集合有变立即报」设计值(去重由脚本自管),升级档 72h 窗只抑制同一对象重复升级、suppress 时落回普通首报路径;落状态判据改为 notify `--result-file` 的 `status=sent`,未送达出口码=4 |
+| 1 | `check_failed_units.py`(#196 patrol) | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | **0** ⚠️ | `monitor` | 首报必达 | **2026-10-21 已修黑洞**:window=0 仍为「集合有变立即报」设计值(去重由脚本自管),升级档 72h 窗只抑制同一对象重复升级、suppress 时落回普通首报路径;落状态判据改为 notify `--result-file` 的 `status=sent`,未送达出口码=4。**2026-10-22(#280)**:新增可配置白名单 `docs/deploy/failed-unit-allowlist.txt`(命中只打 `[INFO] 白名单忽略`,不进告警);白名单禁含 trade-*;净 rc 可能与 D1 通道合并(见 1b) |
+| 1b | `check_failed_units.py` 内 D1 同步失败通道(#275) | 同一巡逻(`trade-cloud-unit-patrol.timer` 08:27/15min 链) | critical(`--severe`) | **0**(自管:alerted 标记 = 每个连续失败段只报一次) | `collect` | 首报必达(连续 ≥2 次才报) | 无(四元组显式声明于代码 `d1_sync_state.py`;告警未送达 rc=4 不落 alerted,下轮重试;dry 不动状态) |
 | 2 | `cloud_unit_patrol.sh` | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | 21600 | `deploy` | 首报必达 | 聚合域待对齐 |
 | 3 | `check_data_gap_alerts.py` | `trade-check-data-gap.timer` 22:35 | critical(`--severe`)/warning(子项) | 86400 | `data-gap` | 首报必达 | 聚合域待对齐 |
 | 4 | `check_monitor_heartbeat.py` | `trade-check-monitor-heartbeat.timer` 每 15min | critical(`--severe`) | 3600 | `monitor` | 首报必达 | — |
@@ -107,7 +108,7 @@
 ## 3. 缺项清单(汇总,供 264b/后续收口)
 
 **A. dedup window 未声明(10 处)**:`check_s06_freshness`、`self_heal`、`backup_db`、`verify_backup`、`on_skip_notify`、`turnover_backfill_skip_notify`、`pick_repo`、`uptime_check`、`monitor_72h`、`sensenova-proxy-healthcheck`(其中 #5/#18 为自管落签、#22/#23 触发频次低、#41 主告警路径靠状态机自管)。
-**B. dedup window 取值违规(=0 关死抑制,1 处)**:`check_failed_units.py`(RCA §2.2④.a 已立案 → A 包修复)。
+**B. dedup window 取值违规(=0 关死抑制,1 处)**:`check_failed_units.py`(RCA §2.2④.a 已立案 → A 包修复);其 2026-10-22 新增的 D1 通道同样用 0,但**去重由脚本自管(每连续失败段只报一次)**,属设计值而非关死抑制(见 §2.1 行 1b)。
 **C. 默认 tier 未声明(走 send() 旧行为,5 处)**:`r2_upload_skip_notify`、`staticdata_backup_async`、`staticdata_sync`、`run_daily_brief`、`gen_daily_brief`。
 
 > **A/C 判定口径(2026-10-16 复核订正,逐轴独立判)**:按「**默认告警路径**(常规、非降级、非 opt-in 的告警路径)是否显式声明」判定;**注释里提及不算声明**(旧版扫描器全文子串会把注释当声明 = 假 OK)。
