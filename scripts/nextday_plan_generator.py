@@ -84,6 +84,7 @@ from app.collector.fetchers import load_config  # noqa: E402  (indicators.yaml i
 from signal_kelly_backtest import PSEUDO_GAP_EXCLUDE  # noqa: E402  (伪跳空阈值同源, 不各写一个数)
 from notify_sent import notify_state  # noqa: E402  (#241 Pattern B/W2: 三态判据, 同 notify_sent 唯一实现)
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+from r2_lock_probe import build_lock_timeout_diag  # noqa: E402  (C 方案 2026-10-23: 等锁超时诊断, 只读 lsof + 子进程输出尾段)
 
 K = 1                       # K 档(每日 top1, 与首页 AI仓位建议默认 K=1 一致)
 BUY_AMOUNT = 10000          # 每日资金池 1 万等分
@@ -1209,14 +1210,22 @@ def main():
                     f"<br>日志: {REPO}/data/logs/nextday_plan_launchd.log",
                 )
                 r2_rc = 1
-        except subprocess.TimeoutExpired:
-            log("⚠ R2 上传超时(480s, 将告警)")
-            _severe_alert(
-                f"[告警] 次日买入计划 R2 上传超时 {T}",
-                "nextday_plan_generator.py: R2 upload-data-files 480s 超时, "
-                "次日买入计划本地已落盘但 R2 未同步确认(线上备站可能滞后)。<br>日志: "
-                f"{REPO}/data/logs/nextday_plan_launchd.log",
+        except subprocess.TimeoutExpired as e:
+            # C 方案(2026-10-23): 480s 超时的真实原因多半是「排队等锁」而不是「上传慢」。
+            # 子进程 stderr 每 30s 一行等锁心跳, 此前被 capture_output=True 吞掉、日志里只能反推;
+            # 这里把尾段 + 只读 lsof 查到的持锁进程 + 说人话文案一起落到日志与告警
+            # (字段口径/依据见 docs/ops/r2-lock-plan-20261023.md §4)。超时值/控制流未变。
+            _diag_log, _diag_subject, _diag_body = build_lock_timeout_diag(
+                e,
+                lock_path=os.environ.get("R2_UPLOAD_LOCK", "/tmp/trade_r2_upload.lock"),
+                log_path=REPO / "data" / "logs" / "nextday_plan_launchd.log",
+                date_tag=T,
+                subject_prefix="[告警] 次日买入计划 R2",
+                source="nextday_plan_generator.py",
+                file_names=r2_files,
             )
+            log(_diag_log)
+            _severe_alert(_diag_subject, _diag_body)
             r2_rc = 1
         except Exception as e:
             log(f"⚠ R2 上传异常: {e}")

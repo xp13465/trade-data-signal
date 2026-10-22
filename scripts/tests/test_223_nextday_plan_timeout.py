@@ -90,10 +90,14 @@ def test_223_nextday_plan_timeout():
     _ck("508" in win and "600" in win, "注释应含算式 508 与外墙 600")
     _ck("不加运行时梯度守卫" in win, "注释应写明「不加运行时梯度守卫」的判定")
 
-    # ── ④ 日志/告警文案同步(300s → 480s, 三处口径一致, §22)
-    _ck("R2 上传超时(480s, 将告警)" in src, "TimeoutExpired 日志应改为 480s")
+    # ── ④ 日志/告警文案同步(2026-10-23 C 方案: 480s 超时改走「上传前排队等锁超时」说人话版,
+    #     文案本体在 scripts/r2_lock_probe.py::build_lock_timeout_diag, 三段口径仍须一致, §22)
+    _ck("build_lock_timeout_diag(" in src,
+        "TimeoutExpired 分支应走等锁诊断(打印子进程 stderr 尾段 + 只读 lsof 持锁进程)")
+    _ck('subject_prefix="[告警] 次日买入计划 R2"' in src, "告警标题应保留「次日买入计划 R2」渠道前缀")
+    _ck("R2 上传超时(480s, 将告警)" not in src, "旧「R2 上传超时」黑话日志应已替换")
+    _ck("R2 upload-data-files 480s 超时" not in src, "旧 severe 告警文案应已替换")
     _ck("R2 上传超时(300s" not in src, "旧 300s 超时日志应已清除")
-    _ck("R2 upload-data-files 480s 超时" in src, "severe 告警文案应改为 480s")
     _ck("R2 upload-data-files 300s 超时" not in src, "旧 300s severe 文案应已清除")
 
     # ── ⑤ 不变量 + 算式复算(用真实生产样本)

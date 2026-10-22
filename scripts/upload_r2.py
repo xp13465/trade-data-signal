@@ -38,6 +38,13 @@ import os, sys, re, io, hashlib, hmac, http.client, datetime, ssl, json, time, t
 from pathlib import Path
 from urllib.parse import urlparse, quote, unquote
 
+try:  # C 方案(2026-10-23): 等锁超时时只读探测「持锁进程」, 写进 fail-closed 提示。
+    # 辅助模块缺失/异常也不得影响上传主流程(fail-safe): 退化为「探测不到」空串。
+    from r2_lock_probe import probe_lock_holder  # noqa: E402
+except Exception:  # noqa: BLE001
+    def probe_lock_holder(_lock_path, _max_items=3):  # noqa: D401
+        return ""
+
 # stdout 行缓冲:遇换行就 flush,防止 `| tee -a` 管道时 block-buffered
 # 致 industry(268文件~10分钟)等长任务日志静默被误判卡死。
 # Python 3.7+ 支持。覆盖 intraday/deploy/手动所有调用场景。
@@ -1342,6 +1349,22 @@ def _now():
         return datetime.datetime.now()
 
 
+def _phase_timing(label, phase, started_at, extra=""):
+    """B-0(2026-10-23): data-large 上传三段耗时埋点(**纯日志, 零行为变更**)。
+
+    只对 data-large 输出(其余 11 个增量通道日志保持原样, 不增噪音)。格式固定可 grep:
+      [timing] phase=fingerprint elapsed=12.3s channel=data-large files=23 pending=21
+      [timing] phase=preupload_backup elapsed=947.8s channel=data-large copied=21 skipped=2 failed=0
+      [timing] phase=upload elapsed=473.0s channel=data-large ok=21 total=21
+      [timing] phase=total elapsed=1420.8s channel=data-large
+    目的: 把「备份约占持锁时长 2/3」从模型推断变成实测(方案 docs/ops/r2-lock-plan-20261023.md §3.1/§3.2)。
+    """
+    if label != "data-large":
+        return
+    print(f"[timing] phase={phase} elapsed={time.time() - started_at:.1f}s "
+          f"channel={label}{(' ' + extra) if extra else ''}", flush=True)
+
+
 def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
                         fingerprint=None, exclude_fn=None, checkpoint_every=0,
                         dry_run=None, label=None, on_fail=None):
@@ -1478,6 +1501,8 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
 
     print(f"[{label}] 模式={mode} 本次待传 {len(changed)}/{len(all_json)}"
           f"(其余 {len(all_json) - len(changed)} 个内容未变化跳过)")
+    # B-0(2026-10-23): 指纹扫描段耗时(纯日志; data-large 之外不输出)
+    _phase_timing(label, "fingerprint", t0, f"files={len(all_json)} pending={len(changed)}")
 
     def _save_state(sig_map, run_mode, changed_rels):
         """原子写状态清单(tmp + os.replace); 仅在上传全部成功后调用。
@@ -1508,6 +1533,7 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
                 marker_path.unlink(missing_ok=True)   # 本轮完整结束, 清理残留 marker
             except OSError:
                 pass
+        _phase_timing(label, "total", t0)   # B-0: 无待传也在总耗时段收口
         return 0, 0, [], []
 
     changed_rels = [str(p.relative_to(local_dir)) for p in changed]
@@ -1616,14 +1642,19 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
     # C 级 fail-fast 阻断须待 A 观测 ≥1 交易日 failed≈0 后由用户拍板再开。
     # 2026-10-05 并行化+减量(#176): 传 {r2_key: 本地 md5} 让备份函数对「R2 已有且指纹未变」
     # 的 key 跳过(覆盖无损失), 只备份真正将被覆盖不同内容的 key。
+    _backup_started_at = time.time()   # B-0(2026-10-23): 备份段耗时起点(纯日志)
     try:
         _bc, _bs, _bf, _bsamples = _backup_overwritten_keys(
             {f"{r2_prefix}/{str(p.relative_to(local_dir))}": sigs[str(p.relative_to(local_dir))]["md5"]
              for p in changed}, label)
         print(f"[{label}] 备份完成 copied={_bc} skipped={_bs} failed={_bf}", flush=True)
+        _phase_timing(label, "preupload_backup", _backup_started_at,
+                      f"copied={_bc} skipped={_bs} failed={_bf}")
     except Exception as _e:  # noqa: BLE001
         print(f"[{label}] ⚠ 覆盖前备份异常(不阻断): {_e}", file=sys.stderr)
         print(f"[{label}] 备份完成 copied=0 skipped=0 failed=-1", flush=True)
+        _phase_timing(label, "preupload_backup", _backup_started_at,
+                      "copied=0 skipped=0 failed=-1")
 
     def _on_success(f, rel):
         nonlocal since_ckpt
@@ -1633,15 +1664,18 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
             _save_ckpt(done_map)
             since_ckpt = 0
 
+    _upload_started_at = time.time()   # B-0(2026-10-23): 上传段耗时起点(纯日志)
     ok, total, failed_rels, uploaded_keys = _upload_glob(
         local_dir, glob_patterns, r2_prefix, only_files=changed,
         on_success=_on_success if checkpoint_every > 0 else None,
         verify_etag=True)
+    _phase_timing(label, "upload", _upload_started_at, f"ok={ok} total={total}")   # B-0
     elapsed = time.time() - t0
     if total == 0:
         sys.exit(f"[{label}] 无文件可传: {local_dir}")
     print(f"[{label}] ✓ 上传完成 {ok}/{total}, 耗时 {elapsed:.1f}s "
           f"(较全量少传 {len(all_json) - total} 个)")
+    _phase_timing(label, "total", t0)   # B-0: 总耗时段收口(失败分支也会走到, 便于定位)
 
     if ok != total:
         # 失败也把已成功部分刷进 checkpoint(下轮续传), 但 state 保持旧值不写 —— 宁多传不漏传。
@@ -4259,6 +4293,11 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
                     f"请人工 `lsof {lock_path}` 排查持锁进程, 等其结束或等 timeout 后重试)",
                     file=sys.stderr,
                 )
+                # C 方案(2026-10-23): 只读探测「谁占着锁」并落一行, 排障不用再反推。
+                # 探测本身失败(无 lsof/超时/权限)只返回空串, 绝不影响 fail-closed 语义。
+                _holder = probe_lock_holder(lock_path)
+                if _holder:
+                    print(f"   占锁进程候选(lsof 只读): {_holder}", file=sys.stderr, flush=True)
                 sys.exit(1)
             # #239 止血(仅加可见性): 排队等锁期间每 _R2_LOCK_HEARTBEAT_SECS 秒打一行到 stderr,
             # **刷新 tmp_log mtime** ⇒ 外层看门狗停滞判据(默认 900s)不再把「合法等锁」误判成
