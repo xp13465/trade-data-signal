@@ -51,7 +51,12 @@ nav_bucket_refresh_run() {
   local skip_end="${NAV_REFRESH_SKIP_END:-1835}"
   local lock="${NAV_REFRESH_LOCK:-/tmp/trade_fund_nav_export.lock}"
   local lock_wait="${NAV_REFRESH_LOCK_WAIT:-120}"
-  local exec_timeout="${NAV_REFRESH_TIMEOUT:-600}"
+  # 执行超时预算默认 300s(2026-10-22 审查 D3: 原 600s 过大)。依据:
+  #   · 外层 systemd unit `trade-public-fund-daily.service` 的 `TimeoutStartSec=15min`(900s);
+  #   · 该 unit 前半段日更本身耗时 7-9min(420-540s) ⇒ 600+540 最坏 19min > 900s, 会被 systemd 强杀;
+  #   · 实测刷新估算 86-120s ⇒ 300s 相对实测仍有 2.5 倍余量, 超 300s 说明确实卡住, 应判失败阻断 deploy。
+  # 等锁 120s(下一行 lock_wait)不动: 它由 with_lock --block-timeout 管, 且在 systemd 预算之外可容忍。
+  local exec_timeout="${NAV_REFRESH_TIMEOUT:-300}"
   local py="${NAV_REFRESH_PY:-${REPO:-}/.venv/bin/python}"
   local hook="${NAV_REFRESH_HOOK:-${REPO:-}/scripts/nav_refresh_lock_timeout_mark.sh}"
   local with_lock="${NAV_REFRESH_WITH_LOCK:-${REPO:-}/scripts/with_lock.py}"
