@@ -161,7 +161,8 @@ TASKS = [
      "schedules": ["22:35"]},
     # r2_consistency: 2026-10-05 补入(#160 / D5 P0-1, §22 三站一致性 HTTP 层零校验收口)。
     # 云上 trade-r2-consistency.timer 每日 23:20 跑 check_r2_consistency.sh
-    # (local vs R2直链 vs CF r2-proxy vs 主站同源 四源比对 9 个核心产物; rc!=0 → notify --severe)。
+    # (判定=三站 R2直链/CF r2-proxy/主站同源 两两互比 9 个核心产物; local 差异仅 [INFO] 不计 rc;
+    #  三站不一致或某站不可读 rc!=0 → notify --severe; #279 方案 A)。
     # 每日跑不限交易日: 「各源一致」是不变量, 周末被外部覆盖同样要抓(故 trading_day_only=False)。
     # 固定 append + 标准开始/结束行, standard 模式可解析; 此处只管漏跑。
     # ⚠️ 进行中超时/执行耗时两通道**刻意不覆盖本任务**(未入 DUR_THRESHOLDS; #160 收口

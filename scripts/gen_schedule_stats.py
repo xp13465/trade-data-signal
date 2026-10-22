@@ -108,7 +108,8 @@ TASKS = [
     # r2_consistency: 2026-10-05 补入(#160 / D5 P0-1, §22 三站一致性 HTTP 层零校验收口;
     # 与 schedule_monitor.sh TASKS + LABEL_MAP 同步注册)。
     # systemd trade-r2-consistency.timer 每日 23:20 跑 check_r2_consistency.sh
-    # (local vs R2直链 vs CF r2-proxy vs 主站同源 四源比对 9 产物, rc!=0 → notify --severe)。
+    # (判定=三站 R2直链/CF r2-proxy/主站同源 两两互比 9 产物; local 差异仅 [INFO] 不计 rc;
+    #  三站不一致或某站不可读 rc!=0 → notify --severe; #279 方案 A)。
     # 日志固定 append + 标准开始/结束行, standard 直读; 每日跑不限交易日。
     {"task": "r2_consistency", "name": "三站一致性巡检", "script": "check_r2_consistency.sh",
      "schedule": "23:20", "log": "r2_consistency_launchd.log", "mode": "standard"},

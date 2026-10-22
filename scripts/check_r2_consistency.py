@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
 """check_r2_consistency.py - R2 产物多源一致性审计（P2-2）
 
-比对 local static-site/data/ 与远端各到达路径（R2 直链 / CF r2-proxy / 主站同源）
-关键数据产物指纹，防 159335 类多版本不一致事故（§22 数据一致性铁律）。
+**判定口径（2026-10-22 #279 用户拍板方案 A）**：两层分离
+  - 判定层（决定退出码/告警等级）：三站两两互比 —— R2 直链 / CF r2-proxy / 主站同源。
+    任两站不一致、或任一站 404/缺文件/读取失败 ⇒ FAIL（rc=1，真故障判别维度不丢）。
+  - 提示层（不阻断）：local 源树 vs 三站差异 ⇒ 只输出 `[INFO] local 未同步(...)`。
+    local 是 deploy 段1 rsync 的目标；部署闸门跳过 rsync 时 local 会滞后/领先，而用户侧
+    三站仍完全一致 —— 旧口径把 local 当第 4 源直接比 ⇒ 误报 severe 连续 2 天（#279）。
+    提示层仍有价值：local 与三站不一致=部署链被掐断的真实症状，需要人看但不该发告警。
 
 非 deploy 前置（需网络），作定期监控任务跑（2026-10-05 #160 起由云上
 trade-r2-consistency.timer 每日拉取，经 scripts/check_r2_consistency.sh 包装）。
 
 用法:
   python scripts/check_r2_consistency.py              # 全量比对
-  python scripts/check_r2_consistency.py --quiet      # 仅告警输出
+  python scripts/check_r2_consistency.py --quiet      # 仅问题/提示/摘要输出
 
-退出码: 0=各源一致, 1=有不一致或网络错误
+退出码: 0=三站一致（local 差异仅提示）, 1=三站不一致或某站不可读
 """
 from __future__ import annotations
 
 import argparse
 import gzip
+import itertools
 import json
 import os
 import ssl
@@ -42,7 +48,7 @@ OVERFIT_LOCAL_TREES = [
 ]
 TIMEOUT = 25
 # 传输用 Accept-Encoding: gzip(2026-10-05 #160 接线实测):云上(阿里云境内)→ CF 边缘
-# 未压缩下载极慢(concepts 32.3MB 需 95s;identity 下行 ~0.34MB/s),全量四源裸跑 >12min。
+# 未压缩下载极慢(concepts 32.3MB 需 95s;identity 下行 ~0.34MB/s),全量三站裸跑 >12min。
 # gzip 后同文件 7.6MB / 7s(CF 对 application/json 自动压缩),全量降到 ~1-2min。
 # TIMEOUT=25:境内首包 TTFB 抖动可达 12-14s(实测),socket 级超时留余量。
 # track_score 跨源容差（同 build 产物应完全一致，留 0.01 防 JSON float repr 误差）
@@ -359,108 +365,164 @@ def _local_candidates(kind: str, local_rel: str) -> list[Path]:
     return out or [LOCAL_DATA / local_rel]
 
 
-def _mismatches(fps: dict[str, dict[str, object]]) -> tuple[list[str], int]:
-    """跨源指纹 union key 逐项比对，返回 (不一致描述行, 参比指纹项数)。空列表=一致。"""
+def _mismatches(fps: dict[str, dict[str, object]],
+                strict_presence: bool = False) -> tuple[list[tuple[str, dict[str, object]]], int]:
+    """跨源指纹 union key 逐项比对，返回 ([(key, {源: 值}) ...], 参比指纹项数)。空列表=一致。
+
+    strict_presence=True（三站互比）: 某字段只在一站存在（另一站缺该键）也算不一致——
+    三站本应完全一致，键集不对称=版本错位，不能当「版本差异字段」放过（#279 红线：
+    不得吞真三站漂移）。local 差异对照保持宽松（键集不对称只进 INFO 提示层）。
+    """
     all_keys: set[str] = set()
     for fp in fps.values():
         all_keys.update(fp.keys())
-    mismatches: list[str] = []
+    mismatches: list[tuple[str, dict[str, object]]] = []
     for key in sorted(all_keys):
         vals = {sname: fp.get(key) for sname, fp in fps.items()}
         present = {s: v for s, v in vals.items() if v is not None}
         if len(present) < 2:
-            continue  # 只有一处有值，不判（可能版本差异字段）
+            if strict_presence and len(present) == 1:
+                mismatches.append((key, present))
+            continue
         ref_s, ref_v = next(iter(present.items()))
         for s, v in present.items():
             if not _values_equal(ref_v, v):
-                mismatches.append(f"{key}: {dict(present)}")
+                mismatches.append((key, present))
                 break
     return mismatches, len(all_keys)
 
 
-def check_file(kind: str, local_rel: str, remotes: list[tuple[str, str]], quiet: bool) -> tuple[list[str], list[str]]:
-    """比对单文件多源指纹，返回 (问题行, WARN 行)。
+def _fp_usable(fp: dict[str, object]) -> bool:
+    """指纹是否有可判定值。全 None(如空壳 {} 只剩 date=None)= 产物结构不可用,
+    不能参与「一致」判定(否则空壳会被当成与任何版本一致而静默放过)。"""
+    return any(v is not None for v in fp.values())
+
+
+def _fmt_station_diff(mm: list[tuple[str, dict[str, object]]], a: str, b: str) -> str:
+    """把两站不一致明细格式化为「哪两站 + 哪个字段 + 两边值」。"""
+    parts = []
+    for key, vals in mm[:5]:
+        parts.append(f"{key}: {a}={vals.get(a)!r} vs {b}={vals.get(b)!r}")
+    return "; ".join(parts)
+
+
+def _fmt_local_diff(mm: list[tuple[str, dict[str, object]]], ref: str,
+                    ref_fp: dict[str, object]) -> str:
+    """把 local 差异明细格式化（三站基准值 vs local 值），最多 5 项。"""
+    parts = []
+    for key, vals in mm[:5]:
+        parts.append(f"{key}: 三站({ref})={ref_fp.get(key)!r} vs local={vals.get('local')!r}")
+    return "; ".join(parts)
+
+
+def check_file(kind: str, local_rel: str, remotes: list[tuple[str, str]],
+               quiet: bool) -> tuple[list[str], list[str], list[str]]:
+    """比对单文件指纹，返回 (problems, warnings, infos)。
+
+    两层划分（#279 方案 A）:
+      - problems（判定层，决定 rc/告警）: 三站两两互比不一致；任一站 404/缺文件/读取失败；
+        站点可读但指纹为空（结构异常，等同不可用）。真故障判别维度不允许被降噪吞掉。
+      - infos（提示层，不阻断）: local 源树与三站差异 / local 读取失败。部署链被闸门掐断
+        跳过 rsync 时 local 滞后属常态症状，用户侧三站无损 ⇒ 只提示不发告警。
+      - warnings（提示层强化，不阻断）: overfit 双树里 primary 滞后、后续候选与三站一致
+        （2026-08-19 R2 被渠道树旧库覆盖事故同款形态的唯一探针，必须醒目可见）。
 
     remotes = [(源标签, URL), ...]（R2 直链 / CF r2-proxy / 主站同源，见 FILES 头注释）。
-    各远端网络错误单独报；local 候选与远端指纹逐项比对（_mismatches）。
-    WARN(P1-b review 2026-08-25): 「primary 权威树滞后、后续候选与远端一致」判据仍 PASS
-    (正常打点窗口合法滞后不误伤), 但该形态=2026-08-19 R2 被渠道树旧库覆盖的事故同款,
-    唯一探针不可静默——独立 WARN 行+汇总段重复计数, 不进 problems 不阻断。
     """
     problems: list[str] = []
+    infos: list[str] = []
     remote_fps: dict[str, dict[str, object]] = {}
     for sname, url in remotes:
         data, err = _fetch_json(url)
         if err:
             problems.append(f"[{kind}] {sname} 拉取失败: {err}")
-        elif data is not None:
-            remote_fps[sname] = _fingerprint(data, kind)
+            continue
+        if data is None:
+            # json.loads("null") 可成功返回 None —— 产物文件为空/不可用, 与读取失败同类对待
+            problems.append(f"[{kind}] {sname} 读取失败: 内容为空(JSON null)")
+            continue
+        fp = _fingerprint(data, kind)
+        if not _fp_usable(fp):
+            # 可读但指纹无可判定值 = 数据结构不是预期产物(如空壳 {}), 不能当「一致」放过
+            problems.append(f"[{kind}] {sname} 指纹为空(数据结构异常/产物为空)")
+            continue
+        remote_fps[sname] = fp
 
+    # ── 判定层: 三站两两互比（R2 vs CF、R2 vs MAIN、CF vs MAIN）──
+    station_names = [n for n, _ in remotes if n in remote_fps]
+    for a, b in itertools.combinations(station_names, 2):
+        mm, _ = _mismatches({a: remote_fps[a], b: remote_fps[b]}, strict_presence=True)
+        if mm:
+            problems.append(
+                f"[{kind}] 三站不一致 {a}≠{b}: {_fmt_station_diff(mm, a, b)}"
+            )
+
+    # ── 提示层: local 源树 vs 三站（基准取首个可用站, FILES 顺序 R2 优先）──
+    warnings: list[str] = []
     loaded: list[tuple[Path, object, str | None]] = [
         (cand, *_load_local(cand)) for cand in _local_candidates(kind, local_rel)
     ]
-    # local 全候选不可读: 单独报(保留 local 维度审计), 远端仍照比(与旧版行为一致)
-    if loaded and all(err for _, _, err in loaded):
-        for cand, _, err in loaded:
-            problems.append(f"[{kind}] local({cand}) 拉取失败: {err}")
-
-    passed: tuple[int, Path] | None = None      # (指纹项数, 命中路径)
-    lagged_primary: Path | None = None          # 先于命中路径出现的不一致候选(滞后树)
-    mismatch_report: str | None = None          # 全候选不一致时的首个报告
-    for cand, data, err in loaded:
-        if err:
+    readable = [(cand, data) for cand, data, err in loaded if err is None]
+    usable: list[tuple[Path, dict[str, object]]] = []
+    for cand, data in readable:
+        fp = _fingerprint(data, kind)
+        if not _fp_usable(fp):
+            infos.append(f"[{kind}] local 结构异常(指纹为空, 不计入判定): {cand}")
             continue
-        fps = dict(remote_fps)
-        fps["local"] = _fingerprint(data, kind)
-        if len(fps) < 2:
-            continue  # 可用源 <2 无从比对(网络问题已单独报)
-        mm, n_keys = _mismatches(fps)
-        if not mm:
-            passed = (n_keys, cand)
-            break
-        if lagged_primary is None:
-            lagged_primary = cand
-            mismatch_report = f"[{kind}] 各源 track_score/top1 不一致: {'; '.join(mm[:5])} (local={cand})"
-
-    warnings: list[str] = []
-    if passed is not None:
-        n_keys, cand = passed
-        line = f"  ✓ {kind}: 各源一致 ({n_keys} 项指纹)"
-        if lagged_primary is not None:
-            line += f" [primary({lagged_primary}) 滞后, 以 {cand} 为 local 权威源]"
-            warnings.append(
-                f"[{kind}] primary({lagged_primary}) 滞后于远端(local 权威={cand})"
-                "——若非刚打点窗口期(21:40 后短窗口属合法滞后), 请人工核查是否渠道树旧库覆盖事故"
-            )
-            if not quiet:
-                print(line)
-                print(
-                    f"  ⚠️ WARN {kind}: primary 树滞后于远端, 若非刚打点窗口期"
-                    "请人工核查是否覆盖事故(判据仍 PASS, 汇总段有计数)"
+        usable.append((cand, fp))
+    if not readable:
+        err_detail = next((err for _, _, err in loaded if err), "无候选路径")
+        infos.append(f"[{kind}] local 读取失败(不计入判定): {err_detail}")
+    elif remote_fps and usable:
+        ref_name, ref_fp = next(iter(remote_fps.items()))
+        matched: tuple[int, Path] | None = None   # (指纹项数, 命中路径)
+        lagged_primary: Path | None = None        # 先于命中路径出现的不一致候选(滞后树)
+        first_diff: tuple[list[tuple[str, dict[str, object]]], Path] | None = None
+        for cand, lfp in usable:
+            mm, n_keys = _mismatches({ref_name: ref_fp, "local": lfp})
+            if not mm:
+                matched = (n_keys, cand)
+                break
+            if lagged_primary is None:
+                lagged_primary = cand
+                first_diff = (mm, cand)
+        if matched is not None:
+            n_keys, cand = matched
+            if lagged_primary is not None:
+                warnings.append(
+                    f"[{kind}] primary({lagged_primary}) 滞后于三站(一致候选={cand})"
+                    "——若非刚打点窗口期(21:40 后短窗口属合法滞后), 请人工核查是否渠道树旧库覆盖事故"
                 )
-        else:
-            if len(loaded) > 1 and not quiet:
-                line += f" [local={cand}]"
             if not quiet:
+                line = f"  ✓ {kind}: 三站一致 ({n_keys} 项指纹) [local 同步]"
+                if len(usable) > 1:
+                    line += f" [local={cand}]"
                 print(line)
-    elif mismatch_report is not None:
-        problems.append(mismatch_report)
-        if not quiet:
-            print(f"  ✗ {kind}: local 候选均与远端不一致")
-    elif not quiet:
-        print(f"  ~ {kind}: 可用源不足，跳过比对")
+        else:
+            assert first_diff is not None
+            mm, cand = first_diff
+            infos.append(
+                f"[{kind}] local 未同步(部署可能未完成/被跳过): "
+                f"{_fmt_local_diff(mm, ref_name, ref_fp)} (local={cand})"
+            )
 
-    return problems, warnings
+    if problems and not quiet:
+        print(f"  ✗ {kind}: 三站不一致/不可读(详见问题段)")
+    for info in infos:
+        # 提示层始终输出（含 --quiet）：部署链症状需要日志可追溯, 但绝不进判定/告警
+        print(f"[INFO] {info}")
+
+    return problems, warnings, infos
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="R2 产物三版本一致性审计")
-    parser.add_argument("--quiet", action="store_true", help="仅输出不一致项")
+    parser = argparse.ArgumentParser(description="R2 产物三站一致性审计")
+    parser.add_argument("--quiet", action="store_true", help="仅输出问题/提示/摘要")
     args = parser.parse_args()
 
     if not args.quiet:
-        print("=== R2 产物多源一致性审计 ===")
-        print(f"  local: {LOCAL_DATA}")
+        print("=== R2 产物三站一致性审计(判定=三站互比, local 差异仅提示) ===")
+        print(f"  local: {LOCAL_DATA}(提示层, 不参与判定)")
         print(f"  R2:    ssd.fx8.store/data")
         print(f"  CF:    ss.fx8.store/r2/data")
         print(f"  MAIN:  ss.fx8.store/data")
@@ -468,18 +530,31 @@ def main() -> int:
 
     all_problems: list[str] = []
     all_warnings: list[str] = []
+    station_ok = 0
+    local_diff = 0
     for kind, local_rel, remotes in FILES:
-        probs, warns = check_file(kind, local_rel, remotes, args.quiet)
+        probs, warns, infos = check_file(kind, local_rel, remotes, args.quiet)
         all_problems.extend(probs)
         all_warnings.extend(warns)
+        if not probs:
+            station_ok += 1
+        if infos:
+            local_diff += 1
 
     # P1-b: WARN 汇总段重复计数(「primary 滞后靠后续候选救回」不阻断但必须醒目可见,
     # 防 8-19 R2 被渠道树覆盖类事故在唯一探针处静默滑过)
     if all_warnings:
         print()
-        print(f"=== {len(all_warnings)} 条 WARN(primary 树滞后, 判据仍 PASS) ===")
+        print(f"=== {len(all_warnings)} 条 WARN(primary 树滞后, 三站判据仍 PASS) ===")
         for w in all_warnings:
             print(f"  ⚠️ {w}")
+
+    # 每轮一行摘要(历史可追溯): 三站一致文件数 / local 差异文件数 / 结果。
+    # 注意: 本脚本比对的是指纹字段而非整文件 md5(见 _fingerprint), 摘要口径与之一致。
+    result = "FAIL" if all_problems else "PASS"
+    print()
+    print(f"[SUMMARY] 文件={len(FILES)} 三站一致={station_ok}/{len(FILES)} "
+          f"local差异={local_diff} 结果={result}")
 
     if all_problems:
         print()
@@ -489,7 +564,7 @@ def main() -> int:
         return 1
     if not args.quiet:
         print()
-        print("=== 各源一致 ===")
+        print("=== 三站一致(local 差异仅提示) ===")
     return 0
 
 
