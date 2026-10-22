@@ -468,6 +468,13 @@ def test_b_monitor_wiring_and_comment_consistency():
          < src.index("alerts, _absorbed = adr.alert_budget_process("),
          "停摆行拆分必须早于批次预算(否则仍会被预算吸收)")
     _chk('"--dedup-window", str(adr.STALL_DEDUP_WINDOW)' in src, "停摆直发必须带 2h 窗")
+    # 边界④上下游依赖(失败路径): 停摆直发未确认送达必须 fail-open 回批 + 回滚本轮状态,
+    # 否则一次发送故障 = 该条停摆告警被静默吞掉(不能因新增通道制造新黑洞)。
+    _chk("alerts.append(_line)" in src, "直发失败必须把行放回普通批次(fail-open)")
+    _chk("alert_state[_st_state_key] = dict(_STATE_PRE[_st_state_key])" in src,
+         "直发失败须回滚本轮新写的 active 状态(否则下轮被当持续中抑制)")
+    _chk("alert_state.pop(_st_state_key, None)" in src,
+         "直发失败须清掉本轮新建的状态键(原状态不存在时)")
 
 
 # ══════════════════════════ C. 抑制/合并审计台账 ══════════════════════════
