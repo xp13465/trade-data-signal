@@ -155,8 +155,15 @@ ALLOWLIST_DEFAULT_PATH = (
 # `*.service` 都能命中 trade-*.service 而前缀判看不出(2026-10-22 审查 P1 实测复现:
 # 白名单 `*` ⇒ trade-foo.service failed 被静音 rc=0)。故对每个 pattern 再用下列
 # 「代表性真故障样例」实测匹配 —— 任一命中即记 error, rc=2 拒绝启动(效果判据, 覆盖通配)。
+# 样例须覆盖 unit 后缀全类型(service / timer / socket): 本项目活跃巡检多为 `.timer`
+# (真实形态如 trade-cloud-unit-patrol.timer), 只放 `.service` 样例时 `*.timer` 白名单
+# 仍能把 failed 的 timer 静音(2026-10-22 复审实测)。
 FORBIDDEN_ALLOW_PREFIX = "trade-"
-FORBIDDEN_PROBE_UNITS = ("trade-zzz.service", "trade-foo.service")
+FORBIDDEN_PROBE_UNITS = (
+    "trade-zzz.service", "trade-foo.service",          # service
+    "trade-zzz.timer", "trade-cloud-unit-patrol.timer",  # timer(真实形态)
+    "trade-zzz.socket",                                  # socket
+)
 
 
 def _run_failed_units_cmd():
