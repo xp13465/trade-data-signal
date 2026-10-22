@@ -1,0 +1,4 @@
+=== backfill_metrics.sh 开始 2026-10-20 21:00:01 ===
+[backfill] 目标日期 20261020
+  signal_kelly_snapshot --check 通过(无告警)
+=== backfill_metrics.sh 结束 2026-10-20 21:36:49 退出码=1(idx=0/direct=1/snap=0) ===

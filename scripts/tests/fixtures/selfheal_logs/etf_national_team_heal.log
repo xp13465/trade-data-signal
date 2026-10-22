@@ -1,0 +1,4 @@
+=== etf_national_team_backfill.sh 开始 2026-10-22 00:37:03 ===
+[etf_nt] daily 开始 2026-10-22 00:37:04
+[etf_nt] daily 完成 169.4s exit=1
+=== etf_national_team_backfill.sh 结束 2026-10-22 00:52:50 deploy=1 ===

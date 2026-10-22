@@ -12,19 +12,23 @@
 本模块做三件事(**纯逻辑**:文件/命令/通知全部由调用方注入,便于打桩自测):
   1. 配额:每任务每日 3 次(独立计数)+ 全局宽松总上限 12 次/日(防总爆炸)。
      state 文件向后兼容旧格式(旧格式只有全局 count,缺 per_task/pending 不崩)。
-  2. 结果校验:heal 触发时记 pending;后续轮次按「该任务日志里 heal 之后的新一次
-     运行记录(退出码)+ 目标产物新鲜度」判 PASS/FAIL,结果写 audit:
+  2. 结果校验:heal 触发时记 pending;后续轮次按「heal 之后**开始**的那次运行记录
+     (退出码,来自 <task>_heal.log 与 launchd 任务日志的合并视图)+ 目标产物新鲜度」
+     判 PASS/FAIL,结果写 audit:
      `[时间] VERIFY task=<任务> action=heal result=PASS|FAIL basis=<校验依据>`。
+     重跑仍在进行(有开始无结束)→ 保持 pending 不判 FAIL;长跑超过 6h 才判卡死。
   3. 连续失败 ≥2 次 → 产出升级告警事件(真正调用 notify.py 的是 self_heal.sh 适配层)。
 
 告警四元组声明(#264 件F):
   - 默认 tier:    warning
-  - dedup window: 21600s(6h)
+  - dedup window: 21600s(6h)(由 notify.py 的 --dedup-window 执行,发送成功才占窗)
   - 聚合域:       collect(子域 self_heal_repeat_fail_<task>,按任务独立)
-  - 首报策略:     该任务连续失败计数**首次达到 2** 时发一次;计数归零后再次达到 2 才再发
-                 (实现:本模块只在 fail_streak == ESCALATE_AFTER_FAILS 时产出事件)。
+  - 首报策略:     该任务连续失败计数达到 ≥ ESCALATE_AFTER_FAILS 即尝试发送,靠 6h 去重窗
+                 压成「每 6h 最多一条」;发送失败记 escalate_pending,下一轮补发(仍受 6h 窗约束)。
+                 连败计数在「任务自身恢复」或「heal 校验 PASS」时归零,归零后新事故重新计数。
   适配层实际参数:`--tier warning --dedup-key self_heal_repeat_fail_<task>
-  --dedup-window 21600 --alert-issue 自愈连续失败:<task>`。
+  --dedup-window 21600 --from-prefix [告警]`(warning 级不写 data/alerts/latest.md,
+  那是 critical 专属;值班入口以邮件/飞书为准)。
 
 只读边界:本模块不直接跑任务、不直接发通知;命令内嵌非法字符/异常一律降级为 FAIL/SKIP,
 不向调用方抛异常(自愈脚本本身挂掉 = 没人自愈)。
@@ -41,8 +45,10 @@ PER_TASK_DAILY_LIMIT = 3      # 每任务每日自愈次数上限(独立计数)
 TOTAL_DAILY_LIMIT = 12        # 全站每日总上限(宽松值,防单日总爆炸)
 ESCALATE_AFTER_FAILS = 2      # 同一任务连续 heal 校验失败达到该值 → 升级告警
 VERIFY_DEADLINE_SEC = 3 * 3600  # heal 后超过该时长仍无新运行记录 → 判 FAIL(超时)
-ARTIFACT_SLACK_SEC = 120      # 产物 mtime 允许比 heal 起点早 2min(文件系统秒级误差)
-RUN_END_SLACK_SEC = 60        # 运行结束时间允许比 heal 起点早 1min(时点取整误差)
+ARTIFACT_SLACK_SEC = 60       # 产物 mtime 允许比 heal 起点早 60s(文件系统时间戳精度)
+RUN_START_SLACK_SEC = 5       # 只认「开始时间 ≥ heal 起点 - 5s」的运行(同机时钟,几乎零误差)
+RUN_INFLIGHT_MAX_SEC = 6 * 3600  # 重跑进行中超过 6h 仍未结束 → 判 FAIL(疑似卡死)
+_RECENT_RUNS = 20             # 日志证据里保留的最近运行条数(双源合并后,判据只需 heal 后第一条)
 NOTIFY_DEDUP_WINDOW_SEC = 21600  # 告警去重窗 6h(四元组声明见模块 docstring)
 
 # 任务 → 目标产物(存在且新鲜 = heal 生效的**第二路证据**,与运行记录退出码互证)。
@@ -66,6 +72,7 @@ def empty_state(today: str) -> dict:
         "healed": [],
         "skipped": [],
         "limit_notified": False,
+        "escalate_pending": {},
     }
 
 
@@ -94,7 +101,8 @@ def load_state(path, today: str) -> dict:
     旧格式(2026-10-22 之前)只有 {"date","count","healed",...},没有 per_task/pending:
       - per_task 按 healed 列表里每任务出现次数折算(不额外赠额度);
       - pending 视为空(旧版没有待校验记录)。
-    跨天:计数清零,但 pending(跨天没校验完的 heal)与 fail_streak 保留。
+    跨天:计数清零,但 pending(跨天没校验完的 heal)/fail_streak/escalate_pending
+    (上轮发送失败待补发的升级告警)保留 —— 告警丢失比多试一次更糟。
     """
     path = Path(path)
     try:
@@ -130,6 +138,11 @@ def load_state(path, today: str) -> dict:
     pending = raw.get("pending")
     state["pending"] = [p for p in pending if isinstance(p, dict) and isinstance(p.get("task"), str)] \
         if isinstance(pending, list) else []
+    esc = raw.get("escalate_pending")
+    if isinstance(esc, dict):
+        for task, rec in esc.items():
+            if isinstance(task, str) and task and isinstance(rec, dict):
+                state["escalate_pending"][task] = rec
     if same_day:
         for key in ("healed", "skipped"):
             val = raw.get(key)
@@ -225,13 +238,103 @@ def probe_artifact(repo, task: str, heal_at: datetime,
     return False, f"产物陈旧 {label} mtime={_fmt(mtime_dt)} < heal 起点 {_fmt(heal_at)}"
 
 
+def lookup_run_from_logs(task: str, spec: dict, log_dir, parser=None):
+    """合并「heal 重跑日志」与「定时任务日志」,给出该任务最近一次运行的证据。
+
+    为什么必须双源(M1,审查实测):heal 重跑是 `nohup ... >> data/logs/<task>_heal.log 2>&1`,
+    只写 <task>_heal.log;**launchd/systemd 的任务日志只有定时运行**。只读后者 ⇒ heal 成功
+    也判「heal 后无新运行记录」= 假 FAIL(update_all/backfill_evening/rzhb_backfill/lab_auto
+    每次必假 FAIL;高频任务又会被下一次定时跑顶包成假 PASS)。
+    任务脚本自身的 `tee` per-run 日志(<task>_YYYYMMDD_HHMM.log)不再单读:开始/结束行会同时
+    进 stdout(→ heal.log)与 per-run 日志,heal.log 已覆盖,少读一份不丢证据。
+
+    解析复用 gen_schedule_stats 的 parse_standard/parse_etf_nt(不另写第二份日志解析)。
+    `parser`=gen_schedule_stats 模块(调用方注入,便于测试与避免循环导入);缺省按名字导入。
+
+    返回 {"start","end","exit","source","pending_start","runs"} 或 None:
+      - start/end/exit = end 最大的那次已结束运行(来自 heal.log 或定时任务日志);
+      - pending_start  = 有开始无结束的最新一次(进行中),由 verify_pending 判「保持 pending」;
+      - runs           = 最近 _RECENT_RUNS 条已结束运行(时间升序,带 source)。给 verify_pending
+                         用「heal 之后**开始**的第一条运行」当判据 —— 只看 end 最大者会让
+                         「下一次定时跑」顶包成本次 heal 的假 PASS(审查 §2 已点出)。
+    """
+    if parser is None:
+        import gen_schedule_stats as parser  # noqa: F401  (调用方通常在 scripts/ 下)
+    log_dir = Path(log_dir)
+    best = None      # (end, start, exit, 日志名)
+    pending = None   # (pending_start, 日志名)
+    runs = []        # [(start, end, exit, 日志名)]
+    seen = set()
+    for log_path in (log_dir / f"{task}_heal.log", log_dir / spec["log"]):
+        try:
+            if spec.get("mode") == "etf_nt":
+                pairs, pend = parser.parse_etf_nt(log_path)
+            else:
+                pairs, pend = parser.parse_standard(log_path, spec["script"])
+        except Exception:
+            continue
+        for _start, _end, _code, _dur in pairs:
+            key = (_start, _end, _code)
+            if key not in seen:   # 同一运行可能两边都有(定时跑也会 tee 进 stdout 之外的日志)
+                seen.add(key)
+                runs.append((_start, _end, _code, log_path.name))
+            if best is None or _end > best[0]:
+                best = (_end, _start, _code, log_path.name)
+        if pend is not None and (pending is None or pend > pending[0]):
+            pending = (pend, log_path.name)
+    if best is None and pending is None:
+        return None
+    out = {"source": best[3] if best else pending[1]}
+    if best is not None:
+        out["start"] = best[1].isoformat(timespec="seconds")
+        out["end"] = best[0].isoformat(timespec="seconds")
+        out["exit"] = best[2]
+    if pending is not None:
+        out["pending_start"] = pending[0].isoformat(timespec="seconds")
+    runs.sort(key=lambda r: r[0])
+    out["runs"] = [{"start": r[0].isoformat(timespec="seconds"),
+                    "end": r[1].isoformat(timespec="seconds"),
+                    "exit": r[2], "source": r[3]}
+                   for r in runs[-_RECENT_RUNS:]]
+    return out
+
+
+def _run_fields(run) -> tuple:
+    """从 lookup_run 返回值里取 (start, end, pending_start, exit)。
+
+    兼容只给 {"end","exit"} 的注入型调用(老测试/其他调用方):缺 start/pending_start 时
+    由 verify_pending 退回「按 end 判定」的宽松口径(见 _run_started_after_heal)。
+    """
+    run = run if isinstance(run, dict) else {}
+    return (_parse_dt(run.get("start")), _parse_dt(run.get("end")),
+            _parse_dt(run.get("pending_start")), run.get("exit"))
+
+
+def _run_started_after_heal(start, end, pending_start, heal_at: datetime,
+                            slack_sec: int = RUN_START_SLACK_SEC) -> bool:
+    """这条运行是不是「本次 heal 触发的重跑」——判据=运行**开始时间** ≥ heal 起点。
+
+    M5:旧口径只看 end(还带 60s 容差),heal 前 60s 内跑完的旧运行会被当成本次重跑,
+    导致「旧运行失败 → 判新 heal FAIL」的错误归因。开始时间没有歧义:heal 触发时
+    这次运行还没开始。只有调用方没给 start/pending_start(注入型)时,才退回 end 判据。
+    """
+    ref = start or pending_start or end
+    if ref is None:
+        return False
+    return ref >= heal_at - timedelta(seconds=slack_sec)
+
+
 def verify_pending(state: dict, lookup_run, artifact_probe, now: datetime,
-                   deadline_sec: int = VERIFY_DEADLINE_SEC) -> list[dict]:
+                   deadline_sec: int = VERIFY_DEADLINE_SEC,
+                   inflight_max_sec: int = RUN_INFLIGHT_MAX_SEC) -> list[dict]:
     """校验 state["pending"] 里的 heal 结果,返回事件列表(除 state 外不产生副作用)。
 
-    PASS: heal 之后该任务有新运行记录且退出码 0,并且(有产物规格时)产物新鲜。
-    FAIL: 新运行记录退出码 != 0 / 产物缺失或陈旧 / 超过 deadline 仍无新运行记录。
-    证据不足(还没跑完)的 pending 原样留到下一轮。
+    PASS: heal 之后该任务有新运行记录(开始时间晚于 heal 起点)且退出码 0,
+          并且(有产物规格时)产物新鲜。
+    FAIL: 该次重跑退出码 != 0 / 产物缺失或陈旧 / 超过 deadline 仍无新运行记录 /
+          重跑进行中超过 inflight_max_sec(疑似卡死)。
+    重跑仍在进行(有 start 无 end,且 start 晚于 heal 起点)→ **不判 FAIL**,原样留到下一轮
+    (M4:长跑任务 heal 后 3h 还在跑属于正常,判 FAIL 会白烧配额并重复触发)。
     """
     events: list[dict] = []
     keep: list[dict] = []
@@ -245,36 +348,84 @@ def verify_pending(state: dict, lookup_run, artifact_probe, now: datetime,
         except Exception as e:  # 查日志失败按「暂无可判证据」处理,不崩
             run = {}
             p.setdefault("lookup_error", str(e))
-        end = _parse_dt(run.get("end"))
+        start, end, pend, raw_exit = _run_fields(run)
+        source = run.get("source") if isinstance(run, dict) else None
+        src = f"[{source}]" if source else ""
         result = None
         basis = ""
-        if end and end >= heal_at - timedelta(seconds=RUN_END_SLACK_SEC):
+
+        # ①-pre 判据选集:heal 之后**开始**的第一条已结束运行 = 本次 heal 触发的重跑本身。
+        # 只看「end 最大者」会被之后的定时跑顶包成假 PASS(高频任务尤甚,审查 §2);
+        # 本次重跑是 heal 一触发就跑的那条,所以取「开始时间最早且 ≥ heal 起点」。
+        picked = None
+        for r in (run.get("runs") or []) if isinstance(run, dict) else []:
+            if not isinstance(r, dict):
+                continue
+            r_start = _parse_dt(r.get("start"))
+            r_end = _parse_dt(r.get("end"))
+            if r_start is None or r_end is None:
+                continue
+            if r_start < heal_at - timedelta(seconds=RUN_START_SLACK_SEC):
+                continue
+            if picked is None or r_start < picked[0]:
+                picked = (r_start, r)
+        if picked is not None:
+            start, end = picked[0], _parse_dt(picked[1].get("end"))
+            raw_exit = picked[1].get("exit")
+            source = picked[1].get("source") or source
+            src = f"[{source}]" if source else ""
+
+        # ① 进行中:开始晚于最后一次结束 → 还在跑,不判死
+        inflight = None
+        if pend is not None and (end is None or pend > end):
+            if pend >= heal_at - timedelta(seconds=RUN_START_SLACK_SEC):
+                inflight = pend
+        if inflight is not None:
+            running_sec = (now - inflight).total_seconds()
+            if running_sec > inflight_max_sec:
+                result = "FAIL"
+                basis = (f"重跑{src} {_fmt(inflight)} 开始后 {running_sec / 3600:.1f}h "
+                         f"仍未结束(超过上限 {inflight_max_sec // 3600}h,疑似卡死)")
+            else:
+                keep.append(p)
+                continue
+
+        # ② 已有结束后运行记录:必须是「本次 heal 之后开始」的那一次
+        if result is None and end is not None and _run_started_after_heal(
+                start, end, pend, heal_at):
             try:
-                exit_code = int(run.get("exit") or 0)
+                exit_code = int(raw_exit or 0)
             except (TypeError, ValueError):
                 exit_code = 1
             if exit_code != 0:
                 result = "FAIL"
-                basis = f"重跑结束 {_fmt(end)} 退出码={exit_code}"
+                basis = f"重跑{src} 结束 {_fmt(end)} 退出码={exit_code}"
             else:
                 ok, art_basis = artifact_probe(task, heal_at)
                 if ok:
                     result = "PASS"
-                    basis = f"重跑结束 {_fmt(end)} 退出码=0; {art_basis}"
+                    basis = f"重跑{src} 结束 {_fmt(end)} 退出码=0; {art_basis}"
                 else:
                     result = "FAIL"
-                    basis = f"重跑结束 {_fmt(end)} 退出码=0 但产物校验未过: {art_basis}"
-        elif (now - heal_at).total_seconds() > deadline_sec:
+                    basis = f"重跑{src} 结束 {_fmt(end)} 退出码=0 但产物校验未过: {art_basis}"
+        elif result is None and (now - heal_at).total_seconds() > deadline_sec:
             result = "FAIL"
             age_h = (now - heal_at).total_seconds() / 3600
+            stale_txt = ""
+            if end is not None:
+                stale_txt = (f";日志里最近一次运行 {_fmt(start or end)}→{_fmt(end)} "
+                             f"开始于 heal 之前,不是本次重跑")
             basis = (f"heal 后 {age_h:.1f}h 无新运行记录"
-                     f"(超过判定时限 {deadline_sec // 3600}h)")
-        else:
+                     f"(超过判定时限 {deadline_sec // 3600}h){stale_txt}")
+        elif result is None:
+            # 证据还没到(未超时限)→ 留到下轮。注意这里必须显式 `result is None`:
+            # 进行中判卡死(① 分支)已经把 result 置成 FAIL,若写成裸 else 会把结论吞掉。
             keep.append(p)
             continue
         entry = state.setdefault("per_task", {}).setdefault(task, _task_entry(None))
         if result == "PASS":
             entry["fail_streak"] = 0
+            (state.get("escalate_pending") or {}).pop(task, None)
         else:
             entry["fail_streak"] = int(entry.get("fail_streak") or 0) + 1
         entry["last_verify"] = {
@@ -291,6 +442,74 @@ def verify_pending(state: dict, lookup_run, artifact_probe, now: datetime,
         })
     state["pending"] = keep
     return events
+
+
+def reset_healthy_streaks(state: dict, stats, now: datetime,
+                          skip_tasks=None) -> list[str]:
+    """任务自己恢复了(不是 heal 治好的)→ 连败计数清零 + 清掉待补发告警。
+
+    M2 根因:fail_streak 只在 heal 校验 PASS 时归零。任务若靠下一次定时跑自愈(很常见),
+    计数就永远停在 2/3/4 —— 该任务这辈子只会告警一次,之后任何事故都不再告警。
+    判据:监控数据(gen_schedule_stats 读任务自身日志)显示该任务最近一次运行成功,
+    且这次成功**晚于上次 heal**(否则只是 heal 之前那次旧成功,不能算恢复)。
+    `skip_tasks`=本轮校验已有新鲜结论的任务(新鲜证据优先,不被监控数据的滞后覆盖)。
+    """
+    skip = set(skip_tasks or ())
+    by_task = {}
+    for s in stats or []:
+        if isinstance(s, dict) and isinstance(s.get("task"), str):
+            by_task[s["task"]] = s
+    reset: list[str] = []
+    for task, entry in (state.get("per_task") or {}).items():
+        if task in skip or not isinstance(entry, dict):
+            continue
+        if int(entry.get("fail_streak") or 0) <= 0:
+            continue
+        s = by_task.get(task)
+        if not s or bool(s.get("log_anomaly")):
+            continue
+        if s.get("last_exit") not in (0, "0"):
+            continue
+        try:
+            last_run = datetime.strptime(str(s.get("last_run")), "%Y-%m-%d %H:%M")
+        except (TypeError, ValueError):
+            continue
+        heal_at = _parse_dt(entry.get("last_heal_at"))
+        # stats 里的 last_run 只到分钟:同一分钟内无法区分「heal 前跑完」还是「heal 后跑完」,
+        # 按保守方向处理(只有严格晚于 heal 所在分钟的成功才算恢复),不拿旧成功抹掉本次失败。
+        if heal_at is not None and last_run <= heal_at.replace(second=0, microsecond=0):
+            continue
+        entry["fail_streak"] = 0
+        (state.get("escalate_pending") or {}).pop(task, None)
+        reset.append(task)
+    return reset
+
+
+def escalation_targets(state: dict, events, threshold: int = ESCALATE_AFTER_FAILS) -> list[dict]:
+    """本轮要尝试发送的升级告警:新达阈值的 FAIL 事件 + 上轮发送失败待补发的。
+
+    M2:`fail_streak >= threshold` 而不是 `== threshold` —— 发送失败那轮如果恰好 == 阈值,
+    之后 streak 继续增长条件就再不成立,一次丢就永久静默。重复发送由 notify.py 的
+    6h 去重窗(--dedup-window,发送成功才占窗)压住,不会轰炸。
+    """
+    targets: dict[str, dict] = {}
+    for ev in events or []:
+        if ev.get("result") != "FAIL":
+            continue
+        streak = int(ev.get("fail_streak") or 0)
+        if streak < threshold:
+            continue
+        targets[ev["task"]] = {"task": ev["task"], "streak": streak,
+                               "basis": ev.get("basis", ""), "retry": False}
+    for task, rec in (state.get("escalate_pending") or {}).items():
+        if not isinstance(rec, dict) or task in targets:
+            continue
+        streak = int((state.get("per_task", {}).get(task) or {}).get("fail_streak") or 0)
+        if streak <= 0:
+            continue  # 已恢复/已清偿,不再补发
+        targets[task] = {"task": task, "streak": streak,
+                         "basis": rec.get("basis") or "", "retry": True}
+    return list(targets.values())
 
 
 # ── 任务筛选(保持旧版口径,只把 IO 回调化)──────────────────────────────────
@@ -348,16 +567,17 @@ def run_cycle(*, repo, stats, state_path, audit_path, now: datetime,
               total_limit: int = TOTAL_DAILY_LIMIT,
               verify_deadline_sec: int = VERIFY_DEADLINE_SEC,
               stale_threshold_sec: int = 24 * 3600,
-              intraday_skip=None) -> dict:
+              intraday_skip=None, task_running=None) -> dict:
     """跑一轮:校验上一轮 heal → 升级连续失败 → 按每任务配额触发新 heal。
 
     注入回调:
       trigger(task, cmd) -> (ok: bool, err: str)     后台触发重跑
       notify_info(subject, body) -> bool              达总上限的 info(只落盘,不邮件)
       notify_escalate(task, streak, basis) -> bool    连续失败升级告警
-      lookup_run(task) -> {"end": iso, "exit": int}|None
+      lookup_run(task) -> {"start","end","exit","source","pending_start","runs"}|None
       artifact_probe(task, heal_at) -> (ok, basis)
       intraday_skip(task, now) -> bool                update_all 盘中保护(旧版 §8 口径)
+      task_running(task) -> bool                      任务脚本进程仍在跑(M4:不重复触发)
     """
     lookup_run = lookup_run or (lambda task: None)
     artifact_probe = artifact_probe or (lambda task, heal_at: (True, "无产物规格(按运行记录判定)"))
@@ -375,20 +595,35 @@ def run_cycle(*, repo, stats, state_path, audit_path, now: datetime,
                      f"basis={ev['basis']}", now)
         summary["verified"].append(ev)
 
-    # 2) 同一任务连续 heal 失败达到阈值 → 升级告警(只在计数恰为阈值时发一次)
-    for ev in events:
-        if ev["result"] != "FAIL" or ev["fail_streak"] != ESCALATE_AFTER_FAILS:
-            continue
+    # 1.5) 任务自己恢复了(下一次定时跑成功)→ 连败计数清零(M2:否则一辈子只告警一次)
+    for task in reset_healthy_streaks(
+            state, stats, now, skip_tasks={ev["task"] for ev in events}):
+        append_audit(audit_path,
+                     f"STREAK_RESET {task} reason=task_recovered "
+                     f"last_exit=0(任务自身最近一次运行成功,晚于上次 heal)", now)
+
+    # 2) 连败达到阈值 → 升级告警;发送失败记待补发,下一轮重试
+    for tgt in escalation_targets(state, events):
+        task = tgt["task"]
         try:
-            sent = bool(notify_escalate(ev["task"], ev["fail_streak"], ev["basis"]))
+            sent = bool(notify_escalate(task, tgt["streak"], tgt["basis"]))
         except Exception:
             sent = False
+        if sent:
+            (state.get("escalate_pending") or {}).pop(task, None)
+        else:
+            prev = (state.get("escalate_pending") or {}).get(task) or {}
+            state.setdefault("escalate_pending", {})[task] = {
+                "streak": tgt["streak"], "basis": tgt["basis"],
+                "since": prev.get("since") or now.isoformat(timespec="seconds"),
+            }
         append_audit(audit_path,
-                     f"ESCALATE {ev['task']} action=notify result="
-                     f"{'SENT' if sent else 'FAILED'} streak={ev['fail_streak']} "
-                     f"basis={ev['basis']}", now)
-        summary["escalated"].append({"task": ev["task"], "streak": ev["fail_streak"],
-                                     "sent": sent, "basis": ev["basis"]})
+                     f"ESCALATE {task} action=notify result="
+                     f"{'SENT' if sent else 'FAILED'} streak={tgt['streak']} "
+                     f"retry={int(tgt['retry'])} basis={tgt['basis']}", now)
+        summary["escalated"].append({"task": task, "streak": tgt["streak"],
+                                     "sent": sent, "retry": tgt["retry"],
+                                     "basis": tgt["basis"]})
 
     # 3) 全局总上限:达上限就不再触发新 heal(旧版「达上限只记 info 一次」保留)
     if int(state.get("count") or 0) >= total_limit:
@@ -417,6 +652,23 @@ def run_cycle(*, repo, stats, state_path, audit_path, now: datetime,
     # 5) 逐个按配额触发
     for cand in candidates:
         task = cand["task"]
+        # M4:任务脚本进程仍在跑(长跑那一轮/上一次 heal 的重跑还没结束)→ 不重复触发。
+        # 重复触发的坏处不只是浪费:update_all 撞锁会经 on_skip_notify.sh 发 --severe 真告警,
+        # 而被锁跳过的那次没有 per-run 日志,校验层又看不到证据 → 连环假 FAIL。
+        if task_running is not None:
+            try:
+                busy = bool(task_running(task))
+            except Exception as e:
+                busy = False
+                append_audit(audit_path,
+                             f"WARN {task} 进程检查失败(按未运行处理): {e}", now)
+            if busy:
+                append_audit(audit_path,
+                             f"SKIP_RUNNING_PROC {task} reason=process_running "
+                             f"(任务脚本进程在跑,本轮不重复触发) "
+                             f"last_exit={cand['exit']} last_run={cand['last_run']}", now)
+                summary["skipped"].append({"task": task, "reason": "process_running"})
+                continue
         allowed, reason, snap = quota_decision(
             state, task, per_task_limit=per_task_limit, total_limit=total_limit)
         if not allowed:

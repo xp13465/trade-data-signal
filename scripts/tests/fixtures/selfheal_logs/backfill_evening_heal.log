@@ -1,0 +1,5 @@
+=== backfill_metrics.sh 开始 2026-10-21 00:07:02 ===
+[backfill] 未收盘(<15:00),回退到前一交易日 20261020(避免非交易时段幽灵当日数据)
+=== backfill_metrics.sh 开始 2026-10-21 00:22:03 ===
+[fundnav-stale-probe] rc=0 未命中 DB 领先产物(抽样 0 只, 不一致 0 只且方向非 DB 领先)
+=== backfill_metrics.sh 结束 2026-10-21 00:23:19 退出码=0(idx=0/direct=0/snap=0) ===

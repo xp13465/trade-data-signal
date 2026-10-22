@@ -10,16 +10,20 @@
 #      heal 之后下一轮校验结果(PASS/FAIL + 校验依据)也写这里(旧版只记触发不记结果)。
 #   4) 任务在跑跳过：launchctl state 含 running 时跳过（不误杀正在跑的任务）
 #   5) 旧问题不 heal：last_run 距今 >24h 的失败任务跳过（旧问题等下次任务跑更新 stats）
-#   6) 连续 heal 失败 ≥2 次 → 走 notify.py 升级告警(--tier warning，按任务 6h 去重)
+#   6) 连续 heal 失败 ≥2 次 → 走 notify.py 升级告警(--tier warning，按任务 6h 去重；
+#      warning 级只发邮件/飞书，不写 data/alerts/latest.md —— 那是 critical 专属)
 #
 # 决策逻辑：
 #   读 schedule_stats.json -> 对每个任务 last_exit!=0(或 log_anomaly) 且 last_run 24h 内
-#   -> 检查 launchctl state 不是 running -> 每任务配额内后台触发 HEAL_ACTIONS force 重跑
-#   -> 记 pending -> 下一轮按「任务日志新运行记录 + 产物新鲜度」判 PASS/FAIL
+#   -> 检查 launchctl state 不是 running + 任务脚本进程不在跑(pgrep) -> 每任务配额内后台
+#      触发 HEAL_ACTIONS force 重跑 -> 记 pending
+#   -> 下一轮按「<task>_heal.log 与 launchd 日志里 heal 之后**开始**的运行记录 + 产物新鲜度」
+#      判 PASS/FAIL(重跑进行中不判 FAIL)
 #
 # 触发：systemd trade-self-heal.timer 每15分钟(云上 Minute=7/22/37/52，错开 schedule_monitor
 #   的 0/15/30/45，让 monitor 先告警 self_heal 后自愈，避免撞 deploy.lock)。
-# 告警链路：复用 scripts/notify.py(邮件 + 飞书 + alerts/latest.md)。
+# 告警链路：复用 scripts/notify.py(升级告警 tier=warning → 邮件 + 飞书；warning 级不写
+#   data/alerts/latest.md，那是 critical 专属；达每日上限的 info 只落 dashboard)。
 # 自测桩：SELF_HEAL_NOTIFY_DRYRUN=1 时所有 notify.py 调用追加 --dry-run(零外发)，仅供测试。
 set -uo pipefail
 # ── REPO/GIT_REPO 单点解析(#195 批2):共享 lib(env 优先零改写 > $0 双布局推导 > fail-loud)──
@@ -71,7 +75,9 @@ NOW = datetime.now()
 
 # task -> force 重跑命令（force 参数仅加给支持 force 的脚本）
 # grep 确认 force 支持：update_all/intraday_snapshot/futures_backfill/lhb_backfill/
-# rzhb_backfill/etf_national_team_backfill 支持；backfill_metrics/update_lab 不支持。
+# rzhb_backfill/etf_national_team_backfill/update_lab 支持（update_lab.sh:76-83 的 force
+# 绕过「非交易日跳过」闸门，这正是 M3 要的：否则周末 heal 跑完也不刷新产物 = 假 FAIL）；
+# backfill_metrics.sh 无 force 参数（不需要：它没有交易日闸门）。
 # ⚠️ 收录边界（#196 §22 登记点判定，2026-10-05）：**只收「自动重跑能真正解除故障」的任务**。
 #    只读巡检/监控类（cloud_unit_patrol / r2_consistency / check_data_gap / overfit_monitor /
 #    schedule_monitor 自身）**故意不登记**：它们失败时重跑无意义（漂移/一致性问题重跑一遍还是
@@ -87,7 +93,7 @@ HEAL_ACTIONS = {
     "lhb_backfill":        ["bash", "scripts/lhb_backfill.sh", "force"],
     "rzhb_backfill":       ["bash", "scripts/rzhb_backfill.sh", "force"],
     "etf_national_team":   ["bash", "scripts/etf_national_team_backfill.sh", "force"],
-    "lab_auto":            ["bash", "scripts/update_lab.sh"],
+    "lab_auto":            ["bash", "scripts/update_lab.sh", "force"],
 }
 # task -> launchctl label（与 gen_schedule_stats.py LABEL_MAP 同步）
 LABELS = {
@@ -140,11 +146,7 @@ def launchctl_state(label):
 
 
 def _lookup_run(task):
-    """取该任务日志里最近一次「已结束」运行(end, exit)。
-
-    复用 gen_schedule_stats 的解析器(parse_standard/parse_etf_nt)，不另写一份日志解析，
-    避免第二份实现各自漂移。返回 {"end": iso, "exit": int} 或 None。
-    """
+    """取该任务最近一次运行的证据(逻辑在 core.lookup_run_from_logs,双源:heal.log+定时日志)。"""
     try:
         import gen_schedule_stats as g
     except Exception as e:
@@ -153,19 +155,38 @@ def _lookup_run(task):
     spec = next((t for t in g.TASKS if t.get("task") == task), None)
     if spec is None:
         return None
-    log_path = LOG_DIR / spec["log"]
     try:
-        if spec.get("mode") == "etf_nt":
-            pairs, _pending = g.parse_etf_nt(log_path)
-        else:
-            pairs, _pending = g.parse_standard(log_path, spec["script"])
+        return core.lookup_run_from_logs(task, spec, LOG_DIR, g)
     except Exception as e:
-        print(f"[self_heal] 解析 {log_path.name} 失败: {e}", file=sys.stderr)
+        print(f"[self_heal] 解析 {task} 日志失败: {e}", file=sys.stderr)
         return None
-    if not pairs:
-        return None
-    _start, end, code, _dur = pairs[-1]
-    return {"end": end.isoformat(timespec="seconds"), "exit": code}
+
+
+# 任务 → 进程特征(pgrep -f 正则,M4)。触发前查:任务脚本/上一次 heal 的重跑仍在跑 → 不重复触发。
+# `[x]` 写法让正则匹配 "update_all.sh" 但**不匹配 pgrep 自己的命令行**(经典 -f 自匹配坑)。
+PGREP_PATTERNS = {
+    "update_all":        r"[u]pdate_all\.sh",
+    "backfill_evening":  r"[b]ackfill_(metrics|indices)\.sh",
+    "intraday_snapshot": r"[i]ntraday_snapshot\.sh",
+    "futures_backfill":  r"[f]utures_backfill\.sh",
+    "lhb_backfill":      r"[l]hb_backfill\.sh",
+    "rzhb_backfill":     r"[r]zhb_backfill\.sh",
+    "etf_national_team": r"[e]tf_national_team_backfill\.sh",
+    "lab_auto":          r"[u]pdate_lab\.sh",
+}
+
+
+def task_process_running(task):
+    """任务脚本进程是否在跑(查不到 pgrep/异常 → 按「未运行」处理,不阻塞自愈)。"""
+    pat = PGREP_PATTERNS.get(task)
+    if not pat:
+        return False
+    try:
+        r = subprocess.run(["pgrep", "-f", pat], capture_output=True, text=True, timeout=10)
+    except Exception as e:
+        print(f"[self_heal] pgrep 检查 {task} 失败(按未运行处理): {e}", file=sys.stderr)
+        return False
+    return any(pid.strip().isdigit() for pid in (r.stdout or "").splitlines())
 
 
 def _trigger(task, cmd):
@@ -208,7 +229,10 @@ def _notify_escalate(task, streak, basis):
     """同一任务连续 heal 失败 ≥2 次 → 升级告警。
 
     四元组(#264 件F):tier=warning / dedup 21600s / 域=collect(self_heal_repeat_fail_<task>)
-    / 首报=首次达到 2 次即发(模块只在 fail_streak==2 时产出事件)。
+    / 首报=连败达到 ≥2 即尝试发送,靠 6h 去重窗压成每 6h 最多一条;发送失败由 core
+    记 escalate_pending,下一轮补发(仍受 6h 窗约束)。
+    ⚠️ 不带 --alert-issue:notify.py 只在 tier=critical 时写 data/alerts/latest.md
+    (notify.py:3167),warning 级带这个参数是死参数,会误导值班以为 latest.md 有记录。
     """
     subject = f"[告警] 自愈连续失败 {task} 累计 {streak} 次"
     body = (f"任务 {task} 连续 {streak} 次自愈后校验结果仍为 FAIL。\n"
@@ -221,7 +245,6 @@ def _notify_escalate(task, streak, basis):
         "--dedup-key", f"self_heal_repeat_fail_{task}",
         "--dedup-window", str(core.NOTIFY_DEDUP_WINDOW_SEC),
         "--from-prefix", "[告警]",
-        "--alert-issue", f"自愈连续失败:{task} x{streak}",
     ])
 
 
@@ -257,6 +280,7 @@ summary = core.run_cycle(
     heal_actions=HEAL_ACTIONS, labels=LABELS, launch_state=launchctl_state,
     trigger=_trigger, notify_info=_notify_info, notify_escalate=_notify_escalate,
     lookup_run=_lookup_run, artifact_probe=_probe, intraday_skip=_intraday_skip,
+    task_running=task_process_running,
 )
 
 ts = NOW.strftime("%Y-%m-%d %H:%M:%S")
