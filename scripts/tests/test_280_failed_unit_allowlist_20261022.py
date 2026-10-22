@@ -196,6 +196,36 @@ def test_dynamic_fetch_failure_falls_back_static_and_still_blocks(monkeypatch, c
     assert any("会静音真实 unit trade-schedule-monitor.timer" in e for e in errors), errors
 
 
+def test_static_doc_parse_failure_falls_back_watchman(monkeypatch, capsys, tmp_path):
+    """回退路径②: 仓库 unit 文档不可解析 ⇒ 仅用 WATCHMAN_UNITS, 不崩且仍能拦。"""
+    import gen_systemd_units as gsu
+
+    def _boom(*a, **kw):
+        raise RuntimeError("simulated broken doc")
+
+    monkeypatch.setattr(gsu, "parse_units", _boom)
+    monkeypatch.setattr(cfu, "_dynamic_project_units", lambda: [])
+    units = cfu.collect_real_units()
+    out = capsys.readouterr().out
+    assert "仅用 WATCHMAN_UNITS" in out, out
+    assert {u for u, _ in adr.WATCHMAN_UNITS} <= set(units)
+
+    allow = _allowlist(tmp_path, "*schedule-monitor.timer")
+    patterns, errors = cfu.load_allowlist(allow, probe_units=units)
+    assert patterns == [], patterns
+    assert any("会静音真实 unit trade-schedule-monitor.timer" in e for e in errors), errors
+
+
+def test_empty_universe_refuses_allowlist(monkeypatch, tmp_path):
+    """全部取不到 ⇒ 拒绝加载白名单(exit 2), 绝不因判不了而放行。"""
+    monkeypatch.setattr(cfu, "_static_project_units", lambda: set())
+    monkeypatch.setattr(cfu, "_dynamic_project_units", lambda: [])
+    allow = _allowlist(tmp_path, "fwupd-refresh.service")
+    patterns, errors = cfu.load_allowlist(allow)
+    assert patterns == [], patterns
+    assert any("拒绝加载白名单" in e for e in errors), errors
+
+
 def test_socket_namespace_guard_without_real_socket_unit(tmp_path):
     """⑩ 项目当前没有 trade-*.socket 真实 unit, `*.socket` 仍须拒绝(防未来新增被静音)。"""
     allow = _allowlist(tmp_path, "*.socket")

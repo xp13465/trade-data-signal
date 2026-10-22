@@ -299,6 +299,7 @@ def load_allowlist(path, probe_units=None):
     if not real_units:
         errors.append("无法取得项目真实 unit 全集(静态+动态均为空), 拒绝加载白名单: "
                       f"无法证明任一 pattern 不会静音本项目 unit ({p})")
+        return [], errors  # 不放行: 判不了就不加载任何 pattern
     for ln in lines:
         item = ln.strip()
         if not item or item.startswith("#"):
