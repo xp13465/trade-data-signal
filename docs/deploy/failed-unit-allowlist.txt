@@ -8,8 +8,15 @@
 #
 # 铁律(启动机检, 违反则巡检 exit 2 拒绝运行):
 #   **禁止把本项目 unit(以 trade- 开头)写进本文件** —— 那等于把真故障静音。
-#   判定是**效果判据**: 任何能匹配 trade-*.service 的写法(`*` / `trade*` / `*.service`)
-#   同样 exit 2 —— 别指望用通配绕过。
+#   判定是**效果判据, 不是列举样例**: 探针集合 = 项目真实 unit 全集, **service / timer /
+#   socket 三种后缀全覆盖** ——
+#     静态: alert_denoise_rules.WATCHMAN_UNITS + 仓库 unit 文档(gen_systemd_units.py 枚举);
+#     动态: 运行时 systemctl 现状里的 trade-*.{service,timer,socket};
+#     动态取不到 ⇒ 回退静态集合并打一行 INFO(不崩、不放行)。
+#   任何 pattern 只要能 fnmatch 命中任一真实 unit(`*` / `trade*` / `*schedule-monitor.timer`
+#   等)就 exit 2, 消息写明会静音哪个真实 unit —— 别指望用更长的通配绕过。
+#   另外, 以 `.service` / `.timer` / `.socket` 结尾且字面前缀不排除 trade- 的模式
+#   (`*.socket` 等)同样拒绝: 即使当前还没有该后缀的真实 unit, 也不给未来新增 unit 留静音口子。
 #   白名单只允许「系统/第三方」unit; 本项目 unit 失败必须走告警, 不得为安静而降等级。
 #
 # 收录依据: docs/ops/failed-units-rca-20261022.md(fwupd-refresh.service = OS 侧 LVFS

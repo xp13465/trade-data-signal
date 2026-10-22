@@ -14,8 +14,14 @@
   ⑤ 通配模式(fwupd*)可用(与文件头声明一致)
   ⑥ 随仓默认白名单只含 fwupd、且不含任何 trade-*
   ⑦ 通配绕过(2026-10-22 审查 P1): 白名单写 `*` / `trade*` / `*.service` /
-     `*.timer` / `trade*.timer` / `*.socket` ⇒ 同样 rc=2(探测样例覆盖
-     service / timer / socket 三种后缀);对照组 `fwupd*` 仍 rc=0 + INFO(禁令不外溢)
+     `*.timer` / `trade*.timer` / `*.socket` ⇒ 同样 rc=2
+  ⑧ 第三次同类绕过(2026-10-22 复审): `*schedule-monitor.timer` /
+     `*schedule-monitor.service` / `*patrol*` ⇒ rc=2, 且报错**写明会静音哪个真实 unit**
+     (探针 = 项目真实 unit 全集, 不是列举样例; 样例永远追不上组合)
+  ⑨ 动态取数失败 ⇒ 回退静态集合(INFO)仍能拦 `*schedule-monitor.timer`, 不崩
+  ⑩ `*.socket` 当前无真实 socket unit 也拒绝(命名空间结构判据, 防未来新增被静音)
+  ⑪ 合法系统条目 `fwupd-refresh.service` / `fwupd*` / `systemd-tmpfiles-clean.timer`
+     仍 rc=0 + `[INFO] 白名单忽略`(禁令不外溢)
 
 ⚠️ 零外发自证(§18 L48): 全部子进程用例**不传 --notify**(dry 模式); 另有一条进程内用例
    在 `--notify --dry-run` 下把 `_send_notify` 换成「调用即报错」, 证明 dry 时绝不触达通知链。
@@ -44,6 +50,7 @@ HEALTHY_SHOW = {u: {"ActiveState": "active", "LoadState": "loaded", "UnitFileSta
 
 FWUPD_LINE = "fwupd-refresh.service loaded failed failed Refresh fwupd metadata\n"
 TRADE_LINE = "trade-xxx.service loaded failed failed Some project unit\n"
+TMPFILES_LINE = "systemd-tmpfiles-clean.timer loaded failed failed Cleanup tmp\n"
 
 
 def _run(tmp_path, failed_text="", allowlist=None, extra=None):
@@ -111,7 +118,10 @@ def test_case3b_trade_glob_also_rejected(tmp_path):
 
 
 @pytest.mark.parametrize("pattern", ["*", "trade*", "*.service",
-                                     "*.timer", "trade*.timer", "*.socket"])
+                                     "*.timer", "trade*.timer", "*.socket",
+                                     "*schedule-monitor.timer",
+                                     "*schedule-monitor.service",
+                                     "*patrol*"])
 def test_case3c_wildcard_pattern_matching_trade_rejected(tmp_path, pattern):
     """效果判据(2026-10-22 审查 P1): 任何能命中 trade-* unit 的模式都必须 exit 2。
 
@@ -134,6 +144,81 @@ def test_case3d_generic_service_glob_not_silently_allowed(tmp_path):
     r = _run(tmp_path, FWUPD_LINE, allowlist=allow)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "[INFO] 白名单忽略: fwupd-refresh.service" in r.stdout
+
+
+# ══════════════════════════════════════════════════════════════════
+# ③b 第三次同类绕过(2026-10-22 复审): 报错必须点名「会静音哪个真实 unit」
+# ══════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize("pattern,unit", [
+    ("*schedule-monitor.timer", "trade-schedule-monitor.timer"),
+    ("*schedule-monitor.service", "trade-schedule-monitor.service"),
+])
+def test_case3e_extended_wildcard_names_the_real_unit(tmp_path, pattern, unit):
+    """列举式样例的洞: 补 `.timer`/`.socket` 样例后 `*schedule-monitor.timer` 仍绕过。
+    根治后的判据是真实 unit 全集 ⇒ 报错必须写明会静音的真实 unit 名。"""
+    allow = _allowlist(tmp_path, pattern)
+    r = _run(tmp_path, "", allowlist=allow)
+    assert r.returncode == 2, f"{pattern} 可静音真实 {unit}: {r.stdout}\n{r.stderr}"
+    assert f"会静音真实 unit {unit}" in r.stderr, f"报错须点名真实 unit: {r.stderr}"
+
+
+def test_case3f_patrol_glob_rejected_by_real_units(tmp_path):
+    """`*patrol*` 只能靠真实 unit 全集拦住(无项目后缀, 命名空间判据不兜底)。"""
+    allow = _allowlist(tmp_path, "*patrol*")
+    r = _run(tmp_path, "", allowlist=allow)
+    assert r.returncode == 2, r.stdout + r.stderr
+    assert "会静音真实 unit trade-cloud-unit-patrol." in r.stderr, r.stderr
+
+
+def test_real_unit_universe_covers_all_watchman_and_repo_units():
+    """静态全集必须同时覆盖 WATCHMAN_UNITS 与仓库 unit 文档(不只 9 个 timer)。"""
+    units = cfu.collect_real_units()
+    assert "trade-schedule-monitor.timer" in units, units
+    assert "trade-schedule-monitor.service" in units, units
+    assert "trade-cloud-unit-patrol.timer" in units, units
+    assert all(u.startswith("trade-") for u in units), units
+
+
+def test_dynamic_fetch_failure_falls_back_static_and_still_blocks(monkeypatch, capsys, tmp_path):
+    """⑨ 动态取数失败(抛异常)⇒ 回退静态集合 + INFO, 仍能拦 `*schedule-monitor.timer`, 不崩。"""
+    def _boom():
+        raise RuntimeError("simulated systemctl failure")
+
+    monkeypatch.setattr(cfu, "_dynamic_project_units", _boom)
+    units = cfu.collect_real_units()          # 不得抛异常
+    out = capsys.readouterr().out
+    assert "回退静态 unit 集合" in out, out
+    assert "trade-schedule-monitor.timer" in units
+
+    allow = _allowlist(tmp_path, "*schedule-monitor.timer")
+    patterns, errors = cfu.load_allowlist(allow, probe_units=units)
+    assert patterns == [], patterns
+    assert any("会静音真实 unit trade-schedule-monitor.timer" in e for e in errors), errors
+
+
+def test_socket_namespace_guard_without_real_socket_unit(tmp_path):
+    """⑩ 项目当前没有 trade-*.socket 真实 unit, `*.socket` 仍须拒绝(防未来新增被静音)。"""
+    allow = _allowlist(tmp_path, "*.socket")
+    r = _run(tmp_path, "", allowlist=allow)
+    assert r.returncode == 2, r.stdout + r.stderr
+    assert "命名空间" in r.stderr, r.stderr
+
+
+def test_legal_system_entries_pass_with_real_unit_universe(tmp_path):
+    """⑪ 合法系统条目不受影响(禁令不外溢)。"""
+    for pat in ("fwupd-refresh.service", "fwupd*", "systemd-tmpfiles-clean.timer"):
+        allow = _allowlist(tmp_path, pat)
+        patterns, errors = cfu.load_allowlist(allow)
+        assert errors == [], f"{pat}: {errors}"
+        assert pat in patterns
+
+
+def test_systemd_tmpfiles_allowlisted_rc0_with_info(tmp_path):
+    """⑩ 合法 timer 噪音: rc=0 + `[INFO] 白名单忽略`。"""
+    allow = _allowlist(tmp_path, "systemd-tmpfiles-clean.timer")
+    r = _run(tmp_path, TMPFILES_LINE, allowlist=allow)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "[INFO] 白名单忽略: systemd-tmpfiles-clean.timer" in r.stdout
 
 
 # ══════════════════════════════════════════════════════════════════

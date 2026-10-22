@@ -75,9 +75,14 @@
     - 命中白名单 ⇒ **不告警**, 但每轮都打印 `[INFO] 白名单忽略: <unit>`(可追溯, 不是静默丢弃);
     - **禁止白名单 `trade-*`**(本项目的 unit 全部以 trade- 开头)——启动即机检, 命中 ⇒
       stderr 报错 + exit 2(防止有人用白名单把本项目真故障静音, 告警等级不得为安静而降);
-      机检是**效果判据**: 每个 pattern 用 fnmatch 对代表性真故障样例实测, `*` / `trade*` /
-      `*.service` 这类通配写法同样 exit 2(2026-10-22 审查 P1: 只判字面前缀可被通配绕过);
-    - 白名单文件缺失/为空 ⇒ 按空白名单处理 + 打印 INFO, **不崩**(安全降级)。
+      机检是**效果判据**且**不用列举样例**: 探针集合 = 项目真实 unit 全集(静态 =
+      `alert_denoise_rules.WATCHMAN_UNITS` + 仓库 unit 文档经 `gen_systemd_units.py` 枚举;
+      动态 = 运行时 `systemctl list-unit-files` 的 trade-*.{service,timer,socket};
+      动态取不到 ⇒ 回退静态 + 一行 INFO)。任一 pattern 用 fnmatch 命中任一真实 unit ⇒
+      exit 2(消息写明「会静音真实 unit Y」)。另加命名空间结构判据: `*.socket` 这类以项目
+      unit 后缀结尾的通配即使当前无该类真实 unit 也拒绝, 防未来新增 unit 被旧白名单静音;
+    - 白名单文件缺失/为空 ⇒ 按空白名单处理 + 打印 INFO, **不崩**(安全降级);
+      而「真实 unit 全集取不到」是另一种情况: **拒绝加载**(exit 2), 不因判不了而放行。
 
 【#275 D1 同步失败消费(2026-10-22)】
   `scripts/sync_fund_score_to_d1.sh` / `sync_fund_screener_to_d1.sh` 失败时写
@@ -151,19 +156,105 @@ PATROL_UNIT = "trade-cloud-unit-patrol.service"
 ALLOWLIST_DEFAULT_PATH = (
     Path(__file__).resolve().parent.parent / "docs" / "deploy" / "failed-unit-allowlist.txt")
 # 白名单禁止项: 本项目 unit 全部以 trade- 开头, 允许进白名单 = 允许把真故障静音 ⇒ 启动机检拦下。
-# ⚠️ 只用字面前缀判**不够**: 匹配走 fnmatch(`apply_allowlist`), 白名单写 `*` / `trade*` /
-# `*.service` 都能命中 trade-*.service 而前缀判看不出(2026-10-22 审查 P1 实测复现:
-# 白名单 `*` ⇒ trade-foo.service failed 被静音 rc=0)。故对每个 pattern 再用下列
-# 「代表性真故障样例」实测匹配 —— 任一命中即记 error, rc=2 拒绝启动(效果判据, 覆盖通配)。
-# 样例须覆盖 unit 后缀全类型(service / timer / socket): 本项目活跃巡检多为 `.timer`
-# (真实形态如 trade-cloud-unit-patrol.timer), 只放 `.service` 样例时 `*.timer` 白名单
-# 仍能把 failed 的 timer 静音(2026-10-22 复审实测)。
+# ⚠️ 只用字面前缀判**不够**, 也不能靠「列举代表性样例」: 匹配走 fnmatch(`apply_allowlist`),
+# 每补一次样例就会有新写法绕过(第一轮 `*` / `trade*`; 第二轮补 `.timer`/`.socket` 样例后
+# `*schedule-monitor.timer` 仍能静音真实 trade-schedule-monitor.timer —— 2026-10-22 三次实测)。
+# 根治 = **效果判据用项目真实 unit 全集**, 不是样例:
+#   ① 静态源(始终可得): WATCHMAN_UNITS(单一事实源) + 仓库 unit 文档
+#      (`gen_systemd_units.py` 解析 docs/deploy/systemd-units-20260912.md, 复用既有入口,
+#      不新造第三份清单);
+#   ② 动态源(运行时): `systemctl list-unit-files` 里当前 trade-*.{service,timer,socket};
+#   ③ 动态取不到 ⇒ 回退静态集合并打一行 INFO(不崩、不放行)。
+# 任一 pattern 用 fnmatch 命中任一真实 unit ⇒ error, rc=2 拒绝启动。
+# 另加**命名空间结构判据**(防未来新增 unit 绕过列举): 凡以项目 unit 后缀
+# (.service/.timer/.socket)结尾、且字面前缀不排除 trade- 的模式(`*.socket` 等)一律拒绝 ——
+# 即使当前还没有该后缀的真实 unit, 也不能留「以后新增同类 unit 就被静音」的口子。
 FORBIDDEN_ALLOW_PREFIX = "trade-"
-FORBIDDEN_PROBE_UNITS = (
-    "trade-zzz.service", "trade-foo.service",          # service
-    "trade-zzz.timer", "trade-cloud-unit-patrol.timer",  # timer(真实形态)
-    "trade-zzz.socket",                                  # socket
-)
+PROJECT_UNIT_SUFFIXES = (".service", ".timer", ".socket")
+# 代码仓根(resolve 后): 云上 $REPO/scripts 是 symlink, 静态 unit 文档在代码仓而非数据仓。
+_CODE_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _static_project_units():
+    """静态真实 unit 集合: WATCHMAN_UNITS + 仓库 unit 文档枚举(既有入口,不新造清单)。"""
+    units = {u for u, _ in WATCHMAN_UNITS}
+    try:
+        import gen_systemd_units as gsu  # 复用既有枚举器(docs/deploy/systemd-units-20260912.md)
+        md_path = _CODE_REPO_ROOT / gsu.MD_REL_PATH
+        order, _ = gsu.parse_units(str(md_path))
+        units.update(order)
+    except Exception as e:  # noqa: BLE001 - 文档缺失/解析失败 ⇒ 降级用 WATCHMAN_UNITS, 不崩
+        print(f"[INFO] 静态 unit 文档枚举失败({type(e).__name__}), 本次仅用 WATCHMAN_UNITS "
+              f"({len(units)} 个)做白名单效果判定")
+    return {u for u in units if u.startswith(FORBIDDEN_ALLOW_PREFIX)}
+
+
+def _dynamic_project_units():
+    """运行时系统现状: 当前 trade-*.{service,timer,socket}(取不到返回空, 由调用方回退静态)。"""
+    if not shutil.which("systemctl"):
+        return []
+    try:
+        r = subprocess.run(
+            ["systemctl", "list-unit-files", "--no-legend", "--no-pager"],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+        if r.returncode != 0:
+            return []
+    except Exception:  # noqa: BLE001 - 无 systemd/超时 ⇒ 回退静态集合
+        return []
+    names = set()
+    for line in (r.stdout or "").splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        name = parts[0]
+        if name.startswith(FORBIDDEN_ALLOW_PREFIX) and name.endswith(PROJECT_UNIT_SUFFIXES):
+            names.add(name)
+    return sorted(names)
+
+
+def collect_real_units():
+    """收集项目真实 unit 全集 = 静态(WATCHMAN_UNITS + 仓库文档) ∪ 动态(systemctl 现状)。
+
+    动态取不到 ⇒ 回退静态集合并打印一行 INFO —— **不崩、不因取不到而放行**
+    (放行由 load_allowlist 的「全集为空 ⇒ 拒绝加载」兜底)。
+    """
+    static = _static_project_units()
+    try:
+        dynamic = _dynamic_project_units()
+    except Exception:  # noqa: BLE001 - 动态源任何异常都回退静态, 绝不因此放行
+        dynamic = []
+    units = sorted(static | set(dynamic))
+    if dynamic:
+        print(f"[INFO] failed-unit 白名单探针: 真实 unit 全集 {len(units)} 个"
+              f"(静态 {len(static)} + 系统现状 {len(dynamic)})")
+    else:
+        print(f"[INFO] 动态 unit 现状取不到, 回退静态 unit 集合({len(static)} 个)判定白名单")
+    return units
+
+
+def _literal_prefix(pattern):
+    """fnmatch 模式的字面前缀(第一个通配符之前的部分)。"""
+    out = []
+    for ch in pattern:
+        if ch in "*?[":
+            break
+        out.append(ch)
+    return "".join(out)
+
+
+def _could_match_project_namespace(pattern):
+    """结构判据: 模式是否可能命中 trade-*.<service|timer|socket> 中的**任意**名字。
+
+    fnmatch 整串锚定 ⇒ 若字面前缀与 `trade-` 不相容(如 `fwupd`), 永远匹配不到本项目 unit;
+    反之(空前缀 / `trade` / `trade-` / `t*`) 就存在命中可能。这里只对**项目 unit 后缀**结尾的
+    模式启用(如 `*.socket`): 当前可能还没有该后缀的真实 unit, 但未来新增不能被静音。
+    无后缀的通配(`*patrol*`)交给真实 unit 全集判定, 避免过度拦截 `fwupd*` 这类合法条目。
+    """
+    if not pattern.endswith(PROJECT_UNIT_SUFFIXES):
+        return False
+    lit = _literal_prefix(pattern)
+    return FORBIDDEN_ALLOW_PREFIX.startswith(lit) or lit.startswith(FORBIDDEN_ALLOW_PREFIX)
 
 
 def _run_failed_units_cmd():
@@ -175,15 +266,21 @@ def _run_failed_units_cmd():
     return (r.stdout or "") + (("\n" + r.stderr) if r.stderr else "")
 
 
-def load_allowlist(path):
+def load_allowlist(path, probe_units=None):
     """读 failed-unit 白名单(#280)。返回 (patterns, errors)。
 
     - 文件缺失 ⇒ ([], []) 且打印 INFO(安全降级: 按空白名单处理, 绝不崩);
     - 空行 / `#` 注释行忽略;
     - 命中 `FORBIDDEN_ALLOW_PREFIX`(trade-*)⇒ 记入 errors(调用方 exit 2 拒绝运行),
       防止用白名单把本项目真故障静音;
-    - **效果判据(防通配绕过)**: 每个 pattern 再用 `fnmatch` 对 `FORBIDDEN_PROBE_UNITS`
-      实测, 任一命中即记错 —— `*` / `trade*` / `*.service` 这类写法同样 exit 2。
+    - **效果判据(防通配绕过)**: 探针集合 = 项目真实 unit 全集
+      (静态 WATCHMAN_UNITS + 仓库 unit 文档, 动态 systemctl 现状; 取不到动态则回退静态 + INFO)。
+      每个 pattern 用 `fnmatch` 对任一真实 unit 实测命中 ⇒ 记错并写明「会静音真实 unit X」;
+    - **命名空间结构判据**: 以项目 unit 后缀结尾、且字面前缀不排除 trade- 的模式
+      (`*.socket` / `trade-*.timer` 等)一律拒绝 —— 防「当前没有该后缀真实 unit」时漏判,
+      也防未来新增 unit 被旧白名单静音;
+    - 真实 unit 全集为空(静态/动态都取不到)⇒ 记错拒绝加载, **不放行**任何模式。
+    `probe_units` 仅供单测注入(默认 None = 现场收集)。
     """
     p = Path(path)
     if not p.is_file():
@@ -195,6 +292,13 @@ def load_allowlist(path):
     except Exception as e:  # noqa: BLE001 - 读失败按空白名单 + 提示, 不阻断其余巡检
         print(f"[INFO] failed-unit 白名单读取失败({type(e).__name__}), 按空白名单处理: {p}")
         return [], []
+    if probe_units is None:
+        real_units = collect_real_units()
+    else:
+        real_units = sorted(set(probe_units))
+    if not real_units:
+        errors.append("无法取得项目真实 unit 全集(静态+动态均为空), 拒绝加载白名单: "
+                      f"无法证明任一 pattern 不会静音本项目 unit ({p})")
     for ln in lines:
         item = ln.strip()
         if not item or item.startswith("#"):
@@ -203,10 +307,14 @@ def load_allowlist(path):
             errors.append(f"白名单禁止包含本项目 unit(以 {FORBIDDEN_ALLOW_PREFIX} 开头, "
                           f"会把真故障静音): {item} ({p})")
             continue
-        hit = next((u for u in FORBIDDEN_PROBE_UNITS if fnmatch.fnmatchcase(u, item)), None)
+        hit = next((u for u in real_units if fnmatch.fnmatchcase(u, item)), None)
         if hit:
-            errors.append(f"白名单禁止包含会命中本项目 unit 的模式(会把真故障静音): "
-                          f"{item} → 命中样例 {hit} ({p})")
+            errors.append(f"白名单禁止包含会静音真实 unit 的模式: {item} → 会静音真实 unit "
+                          f"{hit} ({p})")
+            continue
+        if _could_match_project_namespace(item):
+            errors.append(f"白名单禁止包含会命中本项目 unit 命名空间的模式: {item} → 可匹配 "
+                          f"{FORBIDDEN_ALLOW_PREFIX}*.<service|timer|socket> ({p})")
             continue
         if item not in patterns:
             patterns.append(item)
