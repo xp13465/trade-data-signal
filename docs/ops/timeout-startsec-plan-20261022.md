@@ -1,6 +1,6 @@
 # 计划任务外层超时(TimeoutStartSec)建议值清单(2026-10-22,只读盘点)
 
-> 状态:**只读盘点,尚未应用**。本文只给建议值与落地步骤,云上 unit 一个字节都没改。
+> 状态:**第一批 7 个已应用(2026-10-22,见 §9)**;第二批 / 第三批 14 个仍未应用(云上仍为 `TimeoutStartSec=0`)。
 > 基线:`origin/main` = `7b767f9dc`;盘点时点 2026-10-22 13:43(北京时间)。
 > 依据:稳定性评估报告 §5 单点 #5「21/43 个 unit 没设 TimeoutStartSec」、§7 P1-2。
 > 目的:单机云上,一个挂死的任务会一直占着锁/内存,还可能挡住下一个定时任务;
@@ -277,3 +277,22 @@ grep -H '^TimeoutStartSec' /etc/systemd/system/trade-*.service
 - `intraday-snapshot` 按 §7.2 等用户拍板(3060 / 6200)后再应用;在此之前**保持现状不改**。
 - 自愈重跑的超时兜底按 §7.1 单独评估(是否给重跑命令加 `timeout`),不在本批范围。
 - 本文只是清单,**不构成已应用事实**;上线动作与快照/doc 同步必须同一批完成(§4.3)。
+
+## 9. 第一批应用记录(2026-10-22)
+
+**只应用了 §4.4 第一批 7 个 unit**;§3 表内其余 14 个(第二批 / 第三批)**仍为 `TimeoutStartSec=0`(无限等)**,所以没有把 §3「建议值」列整体改名成「已应用值」——那会把未应用的 14 个也标成已应用(§22 一致性:文档不得与生产实况相反)。逐 unit 应用事实登记在本节。
+
+| unit | 改前 | 已应用值 | 云上核对(`systemctl show -p TimeoutStartUSec`) |
+|---|---|---|---|
+| `trade-fapi-daily.service` | 0 | **300s** | 5min ✓ |
+| `trade-lof-track-index.service` | 0 | **360s** | 6min ✓ |
+| `trade-overfit-monitor.service` | 0 | **360s** | 6min ✓ |
+| `trade-pf-score-weekly.service` | 0 | **4140s** | 1h 9min ✓ |
+| `trade-pf-stage0-overview.service` | 0 | **660s** | 11min ✓ |
+| `trade-backup-db.service` | 0 | **5640s** | 1h 34min ✓ |
+| `trade-gold-night.service` | 0 | **1920s** | 32min ✓ |
+
+- 三处同步已同批完成:云上 `/etc/systemd/system/*.service` → 仓库快照 `docs/deploy/systemd-units-cloud-snapshot.txt`(从云上重新 dump,非手改)→ doc §2 生成源(`docs/deploy/systemd-units-20260912.md`,用 `systemd_timeout_gradient_audit.py --align-doc` 对齐)。#189 `--check-doc` 与 `--check-snapshot` 均 PASS。
+- 每 unit 只改 `TimeoutStartSec` 这一行(改前改后 diff 逐文件确认只有 1 行);未 restart / start 任何服务;`daemon-reload` 时 `systemctl list-jobs` 有 3 个**不属于本批**的任务在跑(turnover-backfill / etf-national-team / public-fund-full),reload 前后均 `running`,未受影响。
+- 改前备份:云上 `/tmp/timeoutsec-bak-20261022/<unit>.service`(回滚 = 拷回 + `daemon-reload`)。
+- 待办:**7 天后(2026-10-29 之后)复核一次**——查这 7 个 unit 有无 `Failed ... timeout` 生命周期消息、次日任务是否正常补跑;若某 unit 在建议值内被杀,先看 §3 风险列再决定调大还是查挂死。

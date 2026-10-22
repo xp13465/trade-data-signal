@@ -378,7 +378,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/fetch_lof_track_index.py
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=0
+TimeoutStartSec=360
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/lof-track-index-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/lof-track-index-launchd.err
 ```
@@ -415,7 +415,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/fapi_daily_syn.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=0
+TimeoutStartSec=300
 MemoryHigh=1.5G
 MemoryMax=2G
 MemorySwapMax=512M
@@ -491,7 +491,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/gold_night.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=0
+TimeoutStartSec=1920
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/gold_night_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/gold_night_launchd.err
 ```
@@ -992,7 +992,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/pf_score_weekly.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=0
+TimeoutStartSec=4140
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/pf-score-weekly-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/pf-score-weekly-launchd.log
 ```
@@ -1064,7 +1064,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/stage0_overview.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=0
+TimeoutStartSec=660
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/stage0-overview-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/stage0-overview-launchd.log
 ```
@@ -1322,7 +1322,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/overfit_monitor.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=0
+TimeoutStartSec=360
 ```
 
 ### 2.32 lab-auto(19:00 lab 页数据)
@@ -1550,7 +1550,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/backup_db.sh
 Environment=RETAIN_DAYS=7
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=0
+TimeoutStartSec=5640
 ```
 > 注:backup_db.sh 自身写 `$LOG`(data/logs 下)并 `notify.py --severe` 告警,stdout/stderr 走 journal 即可;如要保留文件可加 `StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/backup_db_systemd.log`。
 
