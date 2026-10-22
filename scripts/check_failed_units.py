@@ -65,9 +65,33 @@
   「连续 3 天仍异常 → 升 critical」由 notify.py 调用侧拦截(#196③,
   alert_denoise_rules.consecutive_days_escalate, 状态 data/failed_units_patrol_state.json)。
 
+【#280 failed-unit 白名单(2026-10-22)】
+  有些 failed unit 是**系统层已知噪音**、不是本项目故障(典型: `fwupd-refresh.service`,
+  OS 侧 LVFS 固件刷新服务, 退出码 1 与本站无关, 见 docs/ops/failed-units-rca-20261022.md)。
+  白名单文件: `docs/deploy/failed-unit-allowlist.txt`(代码仓内, 随 git 走; 云上经
+  `$REPO/scripts` symlink 的 resolve() 找到代码仓, 不依赖数据仓有 docs/)。
+  格式: 一行一个 unit 名, 支持 `fnmatch` 通配(如 `fwupd*`), `#` 开头为注释。
+  规则:
+    - 命中白名单 ⇒ **不告警**, 但每轮都打印 `[INFO] 白名单忽略: <unit>`(可追溯, 不是静默丢弃);
+    - **禁止白名单 `trade-*`**(本项目的 unit 全部以 trade- 开头)——启动即机检, 命中 ⇒
+      stderr 报错 + exit 2(防止有人用白名单把本项目真故障静音, 告警等级不得为安静而降);
+    - 白名单文件缺失/为空 ⇒ 按空白名单处理 + 打印 INFO, **不崩**(安全降级)。
+
+【#275 D1 同步失败消费(2026-10-22)】
+  `scripts/sync_fund_score_to_d1.sh` / `sync_fund_screener_to_d1.sh` 失败时写
+  `<REPO>/data/d1_sync_state/<script>.json`(连续失败计数, 见 scripts/d1_sync_state.py)。
+  本脚本作为**既有巡检链**的消费方(不新增 systemd unit):
+    - 连续失败 >= 2 且该连续段尚未告警 ⇒ 发**一条** `--dedup-key d1_sync_fail --dedup-window 0`
+      告警(脚本名/连续次数/首失败时间/最后错误/wrangler 凭据状态), 发出后落 `alerted` 标记;
+    - 已告警 ⇒ 打印 INFO 不重发(防 15min 一轮轰炸, #269 教训);
+    - 单次失败(=1)⇒ 只打印 INFO, 不告警;
+    - 同步成功后状态文件被同步脚本删除 ⇒ 自动清零、无残留。
+    告警未送达 ⇒ rc=4(与 failed-unit 通道同约定, 由 schedule_monitor 独立复核)。
+
 【出口码】0=健康 / 1=发现异常且告警**真发出**或按设计静默(降噪抑制)/ dry 打印
   / 4=发现异常但告警**未送达**(结构化结果 status ∉ {sent, digested}; 不落签名, 下轮重试)
-  / 3=跳过(非云上: 无 systemctl 且无注入样本) / 2=内部错误(如注入样本解析失败)。
+  / 3=跳过(非云上: 无 systemctl 且无注入样本) / 2=内部错误(如注入样本解析失败、
+    白名单非法)。
   schedule_monitor 侧映射(2026-10-21 起): 1→记日志「异常已告警或按设计静默」(不得自证已发出);
   4→独立 SEVERE 复核项「巡检发现异常但告警未送达」; 其他非 {0,1,3,4} → SEVERE「本巡检自己跑挂了」。
 
@@ -84,6 +108,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))  # #245 批2 W1: 台账 source 溯源
@@ -98,6 +123,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).absolute().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 import alert_denoise_rules as adr  # noqa: E402
+import d1_sync_state as d1ss  # noqa: E402  (#275 状态文件模块: 常量/读写单一事实源)
 
 # 数据仓候选: env 注入优先(云上 REPO=/home/ubuntu/code/trade-data), 回退 mac 本机 trade-data
 DEFAULT_REPO_CANDIDATES = [
@@ -116,6 +142,15 @@ WATCHMAN_UNITS = adr.WATCHMAN_UNITS
 # patrol 包装器通道的 dedup key(= cloud_unit_patrol.sh 字面量)与其 unit 名
 PATROL_UNIT = "trade-cloud-unit-patrol.service"
 
+# #280 failed-unit 白名单默认路径。
+# resolve() 而非 absolute(): 云上 `$REPO/scripts` 是指向 `$GIT_REPO/scripts` 的 symlink,
+# 数据仓里没有 docs/; resolve() 落到代码仓(<GIT_REPO>/scripts/check_failed_units.py),
+# 父父目录即代码仓根, 白名单随 git pull 更新。
+ALLOWLIST_DEFAULT_PATH = (
+    Path(__file__).resolve().parent.parent / "docs" / "deploy" / "failed-unit-allowlist.txt")
+# 白名单禁止项: 本项目 unit 全部以 trade- 开头, 允许进白名单 = 允许把真故障静音 ⇒ 启动机检拦下。
+FORBIDDEN_ALLOW_PREFIX = "trade-"
+
 
 def _run_failed_units_cmd():
     """真机取 failed unit 列表(--no-legend 无表头/图例; --plain 不染色)。"""
@@ -124,6 +159,54 @@ def _run_failed_units_cmd():
         capture_output=True, text=True, timeout=30, check=False,
     )
     return (r.stdout or "") + (("\n" + r.stderr) if r.stderr else "")
+
+
+def load_allowlist(path):
+    """读 failed-unit 白名单(#280)。返回 (patterns, errors)。
+
+    - 文件缺失 ⇒ ([], []) 且打印 INFO(安全降级: 按空白名单处理, 绝不崩);
+    - 空行 / `#` 注释行忽略;
+    - 命中 `FORBIDDEN_ALLOW_PREFIX`(trade-*)⇒ 记入 errors(调用方 exit 2 拒绝运行),
+      防止用白名单把本项目真故障静音。
+    """
+    p = Path(path)
+    if not p.is_file():
+        print(f"[INFO] failed-unit 白名单文件缺失, 按空白名单处理(不静默丢故障): {p}")
+        return [], []
+    patterns, errors = [], []
+    try:
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception as e:  # noqa: BLE001 - 读失败按空白名单 + 提示, 不阻断其余巡检
+        print(f"[INFO] failed-unit 白名单读取失败({type(e).__name__}), 按空白名单处理: {p}")
+        return [], []
+    for ln in lines:
+        item = ln.strip()
+        if not item or item.startswith("#"):
+            continue
+        if item.startswith(FORBIDDEN_ALLOW_PREFIX):
+            errors.append(f"白名单禁止包含本项目 unit(以 {FORBIDDEN_ALLOW_PREFIX} 开头, "
+                          f"会把真故障静音): {item} ({p})")
+            continue
+        if item not in patterns:
+            patterns.append(item)
+    return patterns, errors
+
+
+def apply_allowlist(failed, patterns):
+    """把 failed unit 列表按白名单拆成 (剩余待报, 已白名单忽略)。
+
+    命中项逐个打印 `[INFO] 白名单忽略: <unit>` —— 忽略但**可追溯**, 不是静默丢弃。
+    """
+    if not patterns:
+        return list(failed), []
+    kept, ignored = [], []
+    for u in failed:
+        if any(fnmatch.fnmatchcase(u, pat) for pat in patterns):
+            ignored.append(u)
+            print(f"[INFO] 白名单忽略: {u}")
+        else:
+            kept.append(u)
+    return kept, ignored
 
 
 def _run_unit_show(unit):
@@ -248,8 +331,11 @@ def _write_sig_state(path, prev_state, *, sent, reason, observed_sig, observed_i
               file=sys.stderr)
 
 
-def _send_notify(repo, subject, body):
+def _send_notify(repo, subject, body, dedup_key=None):
     """子进程调 notify.py(--severe 真发)。返回 (sent, detail)。
+
+    dedup_key: 告警通道去重键, 默认 failed_units_patrol(原通道一字不改);
+    #275 D1 同步通道传 d1_sync_fail(各自独立闸门, 互不占键)。
 
     ⚠️ #240 ② 起 `--dedup-window 0`: 每日 1 次/集合变化的闸门已由本脚本自管
     (failed_units_daily_judge), 若仍用 6h 窗则「集合有变立即报」会被 notify 的通用去重
@@ -273,13 +359,17 @@ def _send_notify(repo, subject, body):
     旧版 notify 字符串回退已删除(旧 argparse 不认 --result-file 直接报错, 回退分支不可达 = 死代码;
     两脚本同 commit 部署保证版本一致, 见审查差集 D7)。
     """
+    # 默认键必须仍是 failed_units_patrol(#196③ 升档接线靠它精确匹配);仅 D1 通道
+    # (#275)显式传入自己的键, 两者互不干扰。
+    key_args = (["--dedup-key", dedup_key] if dedup_key
+                else ["--dedup-key", adr.FAILED_UNITS_DEDUP_KEY])
     fd, result_path = tempfile.mkstemp(prefix="notify_result_", suffix=".json")
     os.close(fd)
     try:
         proc = subprocess.run(
             [sys.executable, str(SCRIPT_DIR / "notify.py"), subject, body.replace("\n", "<br>"),
              "--severe", "--from-prefix", "[告警]",
-             "--dedup-key", adr.FAILED_UNITS_DEDUP_KEY, "--dedup-window", "0",
+             *key_args, "--dedup-window", "0",
              "--result-file", result_path],
             capture_output=True, text=True, timeout=120, check=False,
         )
@@ -307,6 +397,79 @@ def _send_notify(repo, subject, body):
             pass
 
 
+def _check_d1_sync(repo, do_notify):
+    """消费 D1 同步失败状态(#275, 2026-10-22)。返回通道 rc: 0=无待报 / 1=已报或按设计静默 / 4=告警未送达。
+
+    只读 `<repo>/data/d1_sync_state/*.json`(同步脚本写, 成功即删), **不跑同步脚本、不改生产**。
+    告警闸门 = 状态文件里的 alerted 标记(一轮连续失败只报一次, 防 15min 一轮轰炸):
+      连续失败 >= ALERT_THRESHOLD(2) 且 alerted=false ⇒ 发一条; 发出后 mark_alerted;
+      alerted=true ⇒ 只打印 INFO; 单次失败 ⇒ 只打印 INFO。
+    """
+    state_dir = Path(repo) / "data" / d1ss.STATE_DIRNAME
+    if not state_dir.is_dir():
+        print(f"[INFO] D1 同步状态目录不存在(无失败记录): {state_dir}")
+        return 0
+
+    pending, single = [], []
+    for p in sorted(state_dir.glob("*.json")):
+        st = d1ss.load_state(state_dir, p.stem)
+        if not st:
+            print(f"[INFO] D1 同步状态文件不可读, 按无状态处理: {p.name}")
+            continue
+        name = str(st.get("script") or p.stem)
+        try:
+            n = int(st.get("consecutive_failures") or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if n < d1ss.ALERT_THRESHOLD:
+            single.append(f"{name} 连续 {n} 次(未达告警阈值 {d1ss.ALERT_THRESHOLD})")
+        elif st.get("alerted"):
+            print(f"[INFO] D1 同步连续失败已告警过, 不重复: {name} 连续 {n} 次")
+        else:
+            pending.append((name, st))
+
+    for line in single:
+        print(f"[INFO] D1 同步失败: {line}")
+
+    if not pending:
+        return 0
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    subject = f"[告警] D1 数据同步连续失败({len(pending)} 个脚本) {now_str[5:16]}"
+    body_lines = ["<b>D1 数据同步连续失败</b>(同一脚本连续 ≥2 次失败, 每个连续段只报一次):"]
+    body_lines.extend("　- " + d1ss.format_problem(st) for _, st in pending)
+    body_lines.append("处置: 云上 `npx wrangler whoami` 确认登录状态; 修复后重跑对应 sync 脚本"
+                      "(成功会自动清零、不再告警)。")
+    body = "<br>".join(body_lines)
+    for name, st in pending:
+        print(f"[d1-sync] 待告警: {d1ss.format_problem(st)}")
+
+    if not do_notify:
+        print("[d1-sync] dry-run: 未真发通知(需 --notify 才发); 将发送内容如下:", file=sys.stderr)
+        print(f"  SUBJECT: {subject}", file=sys.stderr)
+        print(f"  BODY: {body}", file=sys.stderr)
+        return 1
+
+    sent, detail = _send_notify(repo, subject, body, dedup_key=d1ss.DEDUP_KEY)
+    if not sent:
+        print(f"[d1-sync] 告警未发出(不落标记, 下轮重试): {detail}", file=sys.stderr)
+        return 4
+    for name, _st in pending:
+        d1ss.mark_alerted(state_dir, name)
+    print(f"[d1-sync] 告警已发出并落 alerted 标记({len(pending)} 个脚本; "
+          f"reason=threshold, dedup_key={d1ss.DEDUP_KEY})", file=sys.stderr)
+    return 1
+
+
+def _merge_d1_rc(base_rc, d1_rc):
+    """合并两条通道的出口码: 4(未送达)最优先; D1 有待报/已报时把健康轮抬成 1。"""
+    if d1_rc == 4:
+        return 4
+    if d1_rc == 1 and base_rc == 0:
+        return 1
+    return base_rc
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="云上 failed-unit 巡检 + 巡检者自身存活检查(#196①)")
@@ -320,10 +483,20 @@ def main() -> int:
                     help="自测桩: {unit: {ActiveState,LoadState,UnitFileState}} JSON(替代 systemctl show)")
     ap.add_argument("--stats-file", default=None,
                     help="自测桩: schedule_stats.json 路径(抑制判定读 patrol last_run)")
+    ap.add_argument("--allowlist-file", default=str(ALLOWLIST_DEFAULT_PATH),
+                    help="failed-unit 白名单文件(#280; 默认 docs/deploy/failed-unit-allowlist.txt)")
     args = ap.parse_args()
 
     repo = Path(args.repo)
     do_notify = args.notify and not args.dry_run
+
+    # ── #280 白名单: 先加载+机检(含 trade-* 禁令) ──
+    # 放在环境守卫**之前**: 白名单被塞真故障 = 配置事故, 任何环境都必须当场拒绝运行(exit 2)。
+    allow_patterns, allow_errors = load_allowlist(args.allowlist_file)
+    if allow_errors:
+        for e in allow_errors:
+            print(f"CHECK_FAILED_UNITS_ERROR {e}", file=sys.stderr)
+        return 2
 
     _inj_failed = args.failed_units_file is not None
     _inj_show = args.unit_show_json is not None
@@ -345,7 +518,11 @@ def main() -> int:
               file=sys.stderr)
         return 2
     failed = adr.parse_failed_units(out)
+    failed, allowlisted = apply_allowlist(failed, allow_patterns)
     suppressed = []
+    if allowlisted:
+        print(f"[INFO] 本轮白名单忽略 {len(allowlisted)} 个 failed unit: "
+              f"{', '.join(allowlisted)}")
     if failed:
         # patrol unit 定向抑制: 包装器通道已为本次运行实例发过 → 本项降日志(详见文件头)
         _stats_path = (Path(args.stats_file) if args.stats_file
@@ -404,6 +581,10 @@ def main() -> int:
     if script_missing:
         watchman.extend(script_missing)
 
+    # ── #275 D1 同步失败消费(独立通道; 不并入 failed-units 签名/降噪, 各自闸门) ──
+    # 放在汇总前: 即便 failed-unit 全健康, D1 连续失败也必须让本次运行 rc!=0 被看见。
+    _d1_rc = _check_d1_sync(repo, do_notify)
+
     # ── 汇总 ──
     problems = []
     if failed:
@@ -433,7 +614,7 @@ def main() -> int:
                              today_str=today_str, now_str=now_str)
             print("[failed-units] 记录「集合已空」观测(供方向判定)", file=sys.stderr)
         print(f"CHECK_FAILED_UNITS_OK failed=0 watchman={len(WATCHMAN_UNITS)} 个 timer 全部在跑")
-        return 0
+        return _merge_d1_rc(0, _d1_rc)
 
     # ── ③ 降噪(#240 ② + 方向感知精修, 2026-10-09) ──
     # 同一失败集合当日只报 1 次(消除 09:45/16:00/22:15 三封同文); **新增** failed unit 立即报;
@@ -463,7 +644,7 @@ def main() -> int:
                              today_str=today_str, now_str=now_str)
             print(f"[failed-units] 降噪: 本轮不重发(reason={_reason}; "
                   f"仅「新增 failed unit」/「次日首报」才发)", file=sys.stderr)
-            return 1
+            return _merge_d1_rc(1, _d1_rc)
         sent, detail = _send_notify(repo, subject, body)
         if sent:
             # 只有真发出才落状态(发送失败→不落→下轮重试, 不吞真故障)
@@ -476,14 +657,14 @@ def main() -> int:
             # 让 schedule_monitor 把「巡检发现异常但告警没送达」当独立故障复核/上报,
             # 不再自证「自身通道已发告警」(告警黑洞 7 天无人知的另一半根因)。
             print(f"[failed-units] 告警未发出(不落抑制, 下轮重试): {detail}", file=sys.stderr)
-            return 4
+            return _merge_d1_rc(4, _d1_rc)
     else:
         # dry-run 打印「将要发送的内容」便于人工排查/自验留证(绝不真发)
         print(f"[failed-units] dry-run: 未真发通知(需 --notify 才发); "
               f"降噪判定 send={_send} reason={_reason}; 将发送内容如下:", file=sys.stderr)
         print(f"  SUBJECT: {subject}", file=sys.stderr)
         print(f"  BODY: {body}", file=sys.stderr)
-    return 1
+    return _merge_d1_rc(1, _d1_rc)
 
 
 if __name__ == "__main__":

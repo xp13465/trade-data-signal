@@ -1,0 +1,17 @@
+# failed-unit 白名单(#280, 2026-10-22)
+#
+# 用途: 云上 `systemctl --failed` 里有些 unit 是**系统层已知噪音**, 与本项目无关。
+#   命中本文件的 unit 不会触发告警, 但每轮巡检都会打印 `[INFO] 白名单忽略: <unit>`(可追溯)。
+#   消费方: scripts/check_failed_units.py(云上 trade-schedule-monitor.timer, 15min 一轮)。
+#
+# 格式: 一行一个 unit 名, 支持通配(如 `fwupd*`); 空行与 `#` 注释忽略。
+#
+# 铁律(启动机检, 违反则巡检 exit 2 拒绝运行):
+#   **禁止把本项目 unit(以 trade- 开头)写进本文件** —— 那等于把真故障静音。
+#   白名单只允许「系统/第三方」unit; 本项目 unit 失败必须走告警, 不得为安静而降等级。
+#
+# 收录依据: docs/ops/failed-units-rca-20261022.md(fwupd-refresh.service = OS 侧 LVFS
+#   固件刷新服务, 退出码 1 与本项目无关; 历史上让巡检长期误报)。
+# 增删条目要求: 附根因证据(日志/状态原文) + 更新本段依据, 不允许凭"看着像噪音"加入。
+
+fwupd-refresh.service
