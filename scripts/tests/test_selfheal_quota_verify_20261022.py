@@ -39,17 +39,28 @@ NOW = datetime(2026, 10, 22, 18, 0, 0)  # 周四盘后,固定时点(L51:禁真�
 
 
 # ── 测试脚手架 ────────────────────────────────────────────────────────────────
-def _stats(*tasks, last_run="2026-10-22 17:50", exit_code=1, anomaly=False):
+def _stats(*tasks, last_run=None, exit_code=1, anomaly=False):
+    """构造 schedule_stats;last_run 默认相对 NOW(不写死日期,冻结日平移一天仍绿)。"""
+    if last_run is None:
+        last_run = (NOW - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M")
     return [{"task": t, "last_exit": exit_code, "last_run": last_run,
              "log_anomaly": anomaly} for t in tasks]
 
 
 def _cycle(tmp_path, stats, now, *, lookup_run=None, artifact_probe=None,
            trigger=None, escalate=None, info=None, launch_state=None,
-           intraday_skip=None, state_name="state.json", total_limit=12,
-           per_task_limit=3, heal_actions=None, labels=None):
-    """跑一轮 run_cycle,返回 (summary, audit 文本)。"""
+           intraday_skip=None, state_name="state.json", total_limit=None,
+           per_task_limit=None, heal_actions=None, labels=None):
+    """跑一轮 run_cycle,返回 (summary, audit 文本)。
+
+    配额默认值取模块常量(调用时读取),不许在这里再写死 3/12——
+    否则常量改坏了用例照样绿,判别力关(§5.3.1 硬约束③)会失效。
+    """
     calls = {"trigger": [], "escalate": [], "info": []}
+    if per_task_limit is None:
+        per_task_limit = core.PER_TASK_DAILY_LIMIT
+    if total_limit is None:
+        total_limit = core.TOTAL_DAILY_LIMIT
 
     def _trigger(task, cmd):
         calls["trigger"].append((task, tuple(cmd)))
@@ -66,8 +77,10 @@ def _cycle(tmp_path, stats, now, *, lookup_run=None, artifact_probe=None,
     summary = core.run_cycle(
         repo=tmp_path, stats=stats, state_path=tmp_path / state_name,
         audit_path=tmp_path / "audit.log", now=now,
-        heal_actions=heal_actions or {t: ["bash", f"scripts/{t}.sh"] for t in
-                                      {s["task"] for s in stats}},
+        heal_actions=heal_actions or {
+            t: ["bash", f"scripts/{t}.sh"]
+            for t in {s.get("task") for s in stats
+                      if isinstance(s, dict) and s.get("task")}},
         labels=labels or {}, launch_state=launch_state or (lambda label: None),
         trigger=trigger or _trigger, notify_info=info or _info,
         notify_escalate=escalate or _escalate,
@@ -107,31 +120,33 @@ def test_per_task_quota_independent(tmp_path):
     stats = _stats(*tasks)
     lookup = _mutable_lookup({"dir": str(tmp_path), "code": 1})
     probe = lambda task, heal_at: (True, "无产物规格(按运行记录判定)")  # noqa: E731
+    limit = core.PER_TASK_DAILY_LIMIT
     total_triggers = 0
-    for i in range(4):
+    for i in range(limit + 1):
         now = NOW + timedelta(minutes=15 * i)
         summary, audit, calls = _cycle(tmp_path, stats, now, lookup_run=lookup,
                                        artifact_probe=probe)
         total_triggers += len(calls["trigger"])
 
-    # 前 3 轮每轮 3 个任务各触发一次 = 9 次;第 4 轮三任务各自达 3 次上限被拒
-    assert total_triggers == 9, f"触发了 {total_triggers} 次(期望 9=3 任务×3 次)"
-    assert len(calls["trigger"]) == 0, "第 4 轮不应再触发"
+    # 前 limit 轮每轮 3 个任务各触发一次;第 limit+1 轮三任务各自达上限被拒
+    assert total_triggers == len(tasks) * limit, \
+        f"触发了 {total_triggers} 次(期望 {len(tasks) * limit}=3 任务×{limit} 次)"
+    assert len(calls["trigger"]) == 0, "达上限后不应再触发"
     assert sorted(s["task"] for s in summary["skipped"]) == sorted(tasks)
     for t in tasks:
         assert f"SKIP_QUOTA {t} reason=per_task_limit" in audit, f"{t} 缺 per_task_limit 审计"
-        assert f"task_count=3/3" in audit
+        assert f"task_count={limit}/{limit}" in audit
     state = core.load_state(tmp_path / "state.json", NOW.strftime("%Y-%m-%d"))
     for t in tasks:
-        assert state["per_task"][t]["count"] == 3, f"{t} 每任务计数={state['per_task'][t]['count']}"
-    assert state["count"] == 9, f"全站计数={state['count']}(期望 9)"
+        assert state["per_task"][t]["count"] == limit, f"{t} 每任务计数={state['per_task'][t]['count']}"
+    assert state["count"] == len(tasks) * limit, f"全站计数={state['count']}"
 
 
 def test_total_limit_loose_cap(tmp_path):
     """全站总上限 12 次(防总爆炸):达上限后不再触发,info 只发一次。"""
     stats = _stats("a_task", "b_task")
     state = core.empty_state(NOW.strftime("%Y-%m-%d"))
-    state["count"] = 12
+    state["count"] = core.TOTAL_DAILY_LIMIT
     core.save_state(tmp_path / "state.json", state)
     summary, audit, calls = _cycle(tmp_path, stats, NOW)
     assert calls["trigger"] == []
@@ -210,17 +225,18 @@ def test_escalate_once_after_two_consecutive_failures(tmp_path):
         escalate_calls.append((task, streak, basis))
         return True
 
-    # 3 轮 heal + 其后校验 FAIL:streak 1 → 2(发) → 3(不发)
-    for i in range(4):
+    # heal + 其后校验 FAIL:streak 递增到阈值时发一次,再往后不再发
+    need = core.ESCALATE_AFTER_FAILS
+    for i in range(need + 2):
         _cycle(tmp_path, _stats("intraday_snapshot"), NOW + timedelta(minutes=15 * i),
                lookup_run=lookup, artifact_probe=probe, escalate=_esc)
 
     assert len(escalate_calls) == 1, f"升级告警发了 {len(escalate_calls)} 次(期望恰 1)"
     task, streak, basis = escalate_calls[0]
-    assert task == "intraday_snapshot" and streak == 2
+    assert task == "intraday_snapshot" and streak == need
     assert basis, "升级告警必须带校验依据"
     audit = (tmp_path / "audit.log").read_text(encoding="utf-8")
-    assert "ESCALATE intraday_snapshot action=notify result=SENT streak=2" in audit
+    assert f"ESCALATE intraday_snapshot action=notify result=SENT streak={need}" in audit
 
 
 def test_pass_resets_streak_no_escalate(tmp_path):
@@ -261,7 +277,7 @@ def test_legacy_state_compatible(tmp_path):
     # 旧格式下继续跑一轮不崩(且 update_all 只剩 1 次额度)
     summary, audit, calls = _cycle(tmp_path, _stats("update_all"), NOW)
     assert len(calls["trigger"]) == 1, "update_all 旧计数 2 → 还可自愈 1 次"
-    assert "task_count=3/3" in audit
+    assert f"task_count={core.PER_TASK_DAILY_LIMIT}/{core.PER_TASK_DAILY_LIMIT}" in audit
 
 
 def test_corrupt_and_missing_state_no_crash(tmp_path):
@@ -273,7 +289,7 @@ def test_corrupt_and_missing_state_no_crash(tmp_path):
     assert state2["count"] == 0
     # 跨天:计数清零,pending / fail_streak 保留
     p.write_text(json.dumps({
-        "date": "2026-10-21", "count": 5,
+        "date": (NOW - timedelta(days=1)).strftime("%Y-%m-%d"), "count": 5,
         "per_task": {"update_all": {"count": 3, "fail_streak": 2, "last_heal_at": None}},
         "pending": [{"task": "update_all", "heal_at": NOW.isoformat(timespec="seconds")}],
     }), encoding="utf-8")
@@ -294,8 +310,10 @@ def test_pending_blocks_duplicate_trigger(tmp_path):
 
 # ── 旧筛选口径保留 + 盘中保护 ────────────────────────────────────────────────
 def test_stale_and_running_skip_preserved(tmp_path):
-    stats = [{"task": "update_all", "last_exit": 1, "last_run": "2026-10-20 17:50"},
-             {"task": "lhb_backfill", "last_exit": 1, "last_run": "2026-10-22 17:50"}]
+    stats = [{"task": "update_all", "last_exit": 1,
+              "last_run": (NOW - timedelta(days=2)).strftime("%Y-%m-%d %H:%M")},
+             {"task": "lhb_backfill", "last_exit": 1,
+              "last_run": (NOW - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M")}]
     summary, audit, calls = _cycle(
         tmp_path, stats, NOW,
         launch_state=lambda label: "running" if label == "com.trade.lhb-backfill" else None,
@@ -309,11 +327,107 @@ def test_intraday_update_all_skipped(tmp_path):
     """§8 盘中(周四 10:00)不重跑 update_all 全量 export+deploy。"""
     now = datetime(2026, 10, 22, 10, 0, 0)
     summary, audit, calls = _cycle(
-        tmp_path, _stats("update_all", last_run="2026-10-22 09:30"), now,
+        tmp_path, _stats("update_all",
+                         last_run=(now - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M")), now,
         intraday_skip=lambda task, n: task == "update_all" and n.isoweekday() <= 5
         and 930 <= int(n.strftime("%H%M")) <= 1530)
     assert calls["trigger"] == []
     assert "SKIP_INTRADAY update_all" in audit
+
+
+# ── 输入域/回退路径/上下游依赖补测 ──────────────────────────────────────────
+def test_malformed_stats_entries_ignored(tmp_path):
+    """stats 里非 dict / 缺 last_run / 日期非法 / exit=None 无 anomaly 都不崩、不误触发。"""
+    recent = (NOW - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M")
+    stats = [
+        "坏条目",
+        {"task": "a_task"},                                   # 缺 last_run
+        {"task": "b_task", "last_exit": 1, "last_run": "昨天"},
+        {"task": "c_task", "last_exit": None,
+         "last_run": recent},
+        {"task": "d_task", "last_exit": 0, "last_run": recent,
+         "log_anomaly": True},                                # 异常标记=要 heal
+    ]
+    summary, audit, calls = _cycle(tmp_path, stats, NOW,
+                                   lookup_run=lambda t: None)
+    assert [c[0] for c in calls["trigger"]] == ["d_task"], "只应触发 log_anomaly 任务"
+    assert "HEAL d_task" in audit
+
+
+def test_trigger_failure_not_counted_and_audited(tmp_path):
+    """触发失败:记 FAIL、不占配额、不写 pending(下一轮还能再试)。"""
+    def _bad_trigger(task, cmd):
+        return False, "nohup 失败"
+    summary, audit, _ = _cycle(tmp_path, _stats("lhb_backfill"), NOW, trigger=_bad_trigger)
+    assert summary["healed"] == []
+    assert "FAIL lhb_backfill 触发失败: nohup 失败" in audit
+    st = core.load_state(tmp_path / "state.json", NOW.strftime("%Y-%m-%d"))
+    assert st["count"] == 0 and st["pending"] == []
+
+
+def test_lookup_run_exception_keeps_pending(tmp_path):
+    """查日志抛异常:本轮不判死,保留 pending 等下一轮(自愈脚本不能因查日志崩)。"""
+    def _boom(task):
+        raise RuntimeError("日志读不了")
+    _cycle(tmp_path, _stats("lab_auto"), NOW, lookup_run=lambda t: None)  # 先触发
+    summary, audit, _ = _cycle(tmp_path, _stats("lab_auto"), NOW + timedelta(minutes=15),
+                               lookup_run=_boom)
+    assert summary["verified"] == []
+    st = core.load_state(tmp_path / "state.json", NOW.strftime("%Y-%m-%d"))
+    assert len(st["pending"]) == 1, "证据不足应保留 pending"
+    assert "lookup_error" in st["pending"][0]
+
+
+def test_escalate_notify_failure_does_not_block(tmp_path):
+    """升级告警发送失败:记 FAILED,但本轮其余 heal 照常进行(自愈不能因通知挂掉)。"""
+    lookup = _mutable_lookup({"dir": str(tmp_path), "code": 1})
+    state = core.empty_state(NOW.strftime("%Y-%m-%d"))
+    state["pending"] = [{"task": "lhb_backfill",
+                         "heal_at": (NOW - timedelta(minutes=15)).isoformat(timespec="seconds"),
+                         "reason": "exit=1", "last_exit": 1, "last_run": "2026-10-22 17:50"}]
+    state["per_task"]["lhb_backfill"] = {"count": 1, "fail_streak": 1, "last_heal_at": None}
+    core.save_state(tmp_path / "state.json", state)
+
+    def _boom(task, streak, basis):
+        raise RuntimeError("notify 挂了")
+    summary, audit, calls = _cycle(tmp_path, _stats("lhb_backfill"), NOW,
+                                   lookup_run=lookup, escalate=_boom)
+    assert summary["verified"][0]["result"] == "FAIL"
+    assert summary["escalated"][0]["sent"] is False
+    assert "ESCALATE lhb_backfill action=notify result=FAILED" in audit
+    assert len(calls["trigger"]) == 1, "通知失败不应阻塞本轮自愈触发"
+
+
+def test_probe_artifact_dir_glob(tmp_path):
+    """目录型产物:目录不存在/无匹配 → FAIL;有匹配且新鲜 → PASS。"""
+    ok, basis = core.probe_artifact(tmp_path, "etf_national_team", NOW)
+    assert not ok and "产物目录缺失" in basis
+    d = tmp_path / "static-site" / "data" / "etf"
+    d.mkdir(parents=True)
+    ok, basis = core.probe_artifact(tmp_path, "etf_national_team", NOW)
+    assert not ok and "无匹配" in basis
+    f = d / "20261022.json"
+    f.write_text("{}", encoding="utf-8")
+    import os
+    ts = NOW.timestamp() + 60
+    os.utime(f, (ts, ts))
+    ok, basis = core.probe_artifact(tmp_path, "etf_national_team", NOW)
+    assert ok and "20261022.json" in basis
+
+
+def test_negative_and_bad_counts_clamped(tmp_path):
+    """旧 state 里的负数/非数字计数一律夹到 0(坏数据不能把配额算成负数白送额度)。"""
+    p = tmp_path / "state.json"
+    p.write_text(json.dumps({
+        "date": NOW.strftime("%Y-%m-%d"), "count": -5,
+        "per_task": {"update_all": {"count": -3, "fail_streak": "x"}},
+    }), encoding="utf-8")
+    st = core.load_state(p, NOW.strftime("%Y-%m-%d"))
+    assert st["count"] == 0 and st["per_task"]["update_all"]["count"] == 0
+    assert st["per_task"]["update_all"]["fail_streak"] == 0
+    # 空 stats 不崩、不触发
+    summary, _a, calls = _cycle(tmp_path, [], NOW)
+    assert calls["trigger"] == [] and summary["healed"] == []
 
 
 # ── 证据用例 ⑤ 零真实外发(先证陷阱生效,再证全程零触达)─────────────────────
