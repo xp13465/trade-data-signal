@@ -11,11 +11,12 @@ import notify 崩溃(硬编码他人 worktree 绝对路径) → CI 门禁 ⑧ �
 
 验证点(与 docstring 顶部对应):
   1. 正例 all_ok  : 发送成功 -> dedup 更新(去重语义保留)
-  2. 正例续跑     : 停摆通道 2h 窗口内同 key suppress(不引入告警轰炸)
+  2. 正例续跑     : R4 6h 窗口内同 key suppress(不引入告警轰炸)
   3. 反例 all_fail: 发送全失败 -> dedup 不更新(不静默吞真故障)
   4. 反例续跑     : 失败后下次调用不被 suppress, 必重试
   5. info 级      : 只记 dashboard 不推送 -> 不占窗(也不占 severe 窗)
   6. tg_only      : telegram 任一渠道成功 -> 照常占窗
+  7. 窗径判别力   : 3h 前发过⇒抑制 / 7h 前发过⇒重发(2h/6h 分界线, 窗回退即红)
 
 跑法(pytest, CI ⑧同):
   python3 -m pytest -q scripts/tests/test_notify_r4_dedup_20261001.py
@@ -32,7 +33,8 @@ TMP = Path(tempfile.mkdtemp(prefix="r4-dedup-"))
 notify.DEDUP_FILE = TMP / "notify_dedup.json"  # 生产隔离: dedup 落临时目录, 不碰生产 data/notify_dedup.json
 
 # R4 分支只在 dedup-key=staticdata_backup_fail 时触发(notify.py 硬编码), 键不能换。
-# #282(A)(2026-10-22) 起该键升停摆级: R4 的 6h 窗被停摆通道的 2h 地板窗取代(更短),
+# #282 审查 MF(2026-10-22): 该键虽是停摆级, 但属**低频高危**(连续 >=2 天未追平), 保持
+# 原 6h 窗(21600s), 不跟停摆通道的 2h 地板(2h 会把提醒量从 4 条/天推到 12 条/天)。
 # 占窗/重试/成功才占窗三条契约不变 —— 本文件验证的是这三条契约本身。
 R4_DEDUP_KEY = "staticdata_backup_fail"
 
@@ -107,9 +109,9 @@ def test_1_all_ok_updates_dedup():
 
 
 def test_2_all_ok_rerun_suppressed():
-    """正例续跑: 停摆通道 2h 窗口内同 key suppress(不引入告警轰炸)。
+    """正例续跑: R4 6h 窗口内同 key suppress(不引入告警轰炸)。
 
-    调用方传 3600(现网 staticdata_backup_async.sh:521) ⇒ 抬到 2h 地板, 第 2 轮仍在窗内。
+    调用方传 3600(现网 staticdata_backup_async.sh:521), 但 R4 分支固定 21600s(6h)。
     """
     clear_dedup()
     run_once("all_ok")          # 第1轮: 发送成功 -> dedup 更新占窗
@@ -155,3 +157,23 @@ def test_6_tg_only_occupies_window():
     assert n6 == 1, f"send={n6}(telegram渠道成功)"
     assert R4_DEDUP_KEY in st, \
         f"任一渠道成功应占窗, 实得 st={st}"
+
+
+def test_7_window_is_6h_not_2h():
+    """窗径判别力(3h 是 2h/6h 分界线): 3h 前发过 ⇒ 仍抑制; 7h 前发过 ⇒ 重发。
+
+    把 R4 窗改回 2h/7200 时, 本用例第一步必红(3h > 2h 会重发)。
+    """
+    from datetime import datetime, timedelta
+
+    clear_dedup()
+    old3 = (datetime.now() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    notify.DEDUP_FILE.write_text(
+        json.dumps({R4_DEDUP_KEY: {"last_alerted": old3}}), encoding="utf-8")
+    assert run_once("all_ok") == 0, "3h 前发过, 6h 窗内必须抑制"
+
+    clear_dedup()
+    old7 = (datetime.now() - timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S")
+    notify.DEDUP_FILE.write_text(
+        json.dumps({R4_DEDUP_KEY: {"last_alerted": old7}}), encoding="utf-8")
+    assert run_once("all_ok") == 1, "7h 前发过, 6h 窗已过必须重发"

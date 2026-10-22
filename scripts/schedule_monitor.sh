@@ -70,6 +70,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -3052,19 +3053,41 @@ for _a in alerts:
 alerts = _rest
 for _line, _sk in _stall_batch:
     _stripped = (_line[8:] if _line.startswith("SEVERE: ") else _line)
-    _st_state_key = "staticdata_backup_stale" if "staticdata" in _line else None
-    _r_st = subprocess.run(
-        [sys.executable, str(REPO / "scripts" / "notify.py"),
-         f"[告警] {_stripped[:120]}", _stripped,
-         "--severe", "--from-prefix", "[告警]",
-         "--alert-issue", "计划任务停摆告警", "--alert-log", str(MONITOR_LOG),
-         "--dedup-key", _sk, "--dedup-window", str(adr.STALL_DEDUP_WINDOW)],
-        capture_output=True, text=True, timeout=30, check=False)
-    _st_out = (_r_st.stdout or "") + (_r_st.stderr or "")
-    if _st_out.strip():
-        print(_st_out.strip())
-    if notify_sent(_st_out):
-        print(f"[stall-direct] 停摆级已独立直发: {_stripped[:100]}")
+    # #282 审查 MF1/MF3(2026-10-22): 状态键由 adr.stall_state_key 统一给出 —— EXTRA 任务
+    # 停摆的键是 `{task}|extra_stale`(原实现只认含 "staticdata" 的行, EXTRA 行无从回滚)。
+    _st_state_key = adr.stall_state_key(_line)
+    # #282 审查 MF3(2026-10-22): 改用 --result-file 读结构化 status。原判据只看输出文本,
+    # 「被 2h 去重窗抑制」也会被判成未送达 ⇒ 回普通批次(回批没有 dedup key ⇒ 2h 去重
+    # 形同虚设、可能重复外发) + 每轮打 warn + 回滚本轮新 active 状态。
+    # 口径: sent/suppressed = **已处置**(不回批、不回滚); 其余(failed/未知)才 fail-open 回批。
+    _st_rf = Path(tempfile.mkdtemp(prefix="stall-direct-")) / "notify_result.json"
+    _st_status = "failed"
+    _r_st = None
+    try:
+        _r_st = subprocess.run(
+            [sys.executable, str(REPO / "scripts" / "notify.py"),
+             f"[告警] {_stripped[:120]}", _stripped,
+             "--severe", "--from-prefix", "[告警]",
+             "--alert-issue", "计划任务停摆告警", "--alert-log", str(MONITOR_LOG),
+             "--dedup-key", _sk, "--dedup-window", str(adr.STALL_DEDUP_WINDOW),
+             "--result-file", str(_st_rf)],
+            capture_output=True, text=True, timeout=30, check=False)
+        _st_out = (_r_st.stdout or "") + (_r_st.stderr or "")
+        if _st_out.strip():
+            print(_st_out.strip())
+        try:
+            _st_status = str(json.loads(_st_rf.read_text(encoding="utf-8")).get("status") or "")
+        except (OSError, ValueError):
+            _st_status = ""
+        if not _st_status:
+            # 兼容旧版 notify / 结果文件写失败: 退回输出文本判据(宁多勿吞, 判不出就当未送达)
+            _st_status = "sent" if notify_sent(_st_out) else "failed"
+    except (OSError, subprocess.SubprocessError) as _st_e:  # noqa: BLE001
+        print(f"[warn] 停摆直发子进程异常: {_st_e}", file=sys.stderr)
+    finally:
+        shutil.rmtree(_st_rf.parent, ignore_errors=True)
+    if _st_status in ("sent", "suppressed"):
+        print(f"[stall-direct] 停摆级已独立直发({_st_status}): {_stripped[:100]}")
     else:
         # fail-open: 直发失败 ⇒ 回普通批次(宁多勿吞); 同时回滚本轮新 active 落签让人下轮重试
         alerts.append(_line)
@@ -3073,7 +3096,8 @@ for _line, _sk in _stall_batch:
                 alert_state[_st_state_key] = dict(_STATE_PRE[_st_state_key])
             else:
                 alert_state.pop(_st_state_key, None)
-        print(f"[warn] 停摆直发未确认送达(rc={_r_st.returncode}) ⇒ 回批重试: {_stripped[:80]}",
+        print(f"[warn] 停摆直发未确认送达(status={_st_status or 'unknown'}, "
+              f"rc={getattr(_r_st, 'returncode', 'n/a')}) ⇒ 回批重试: {_stripped[:80]}",
               file=sys.stderr)
 alerts, _absorbed = adr.alert_budget_process(alert_state, alerts, NOW, REPO)
 save_alert_state(alert_state)

@@ -3259,16 +3259,17 @@ def _main_impl(argv: list[str] | None = None) -> int:
         _r4_hb = _r4_repo / "data" / "staticdata_backup_heartbeat.json"
         _r4_st = _r4_repo / "data" / "staticdata_backup_fail_state.json"
         _r4_tier, _r4_reason = adr.r4_staticdata_grade(_r4_hb, _r4_st, datetime.now())
-        # #282(A): 停摆级键不走 R4 的 6h 窗 —— 改停摆通道自己的窗(2h 地板, 更短),
-        # 6h 窗会把「仍在停摆」的 2h 提醒吞掉; 但**仍必须做去重**(R4 提前 return,
-        # 不走后面的通用 dedup, 不在这里判就等于每次调用都重发)。非停摆键保持原 21600 一字不差。
-        _r4_stall = adr.is_stall_key(args.dedup_key)
-        _r4_win = adr.stall_dedup_window(args.dedup_window) if _r4_stall else 21600
+        # #282 审查 MF(2026-10-22): `staticdata_backup_fail` 虽是停摆级键, 但它是**低频高危**
+        # 事件(连续 >=2 天未追平才到 severe 档), 2h 地板只会把提醒量从 4 条/天推到 12 条/天,
+        # 与降噪目标相反 ⇒ 本键**保持原 6h 窗(21600s)**, 不跟停摆通道的 2h 地板走。
+        # 其他停摆键的 2h 直发不受影响(它们在通用路径, 不走 R4 分支)。
+        # 去重仍必须做: R4 提前 return, 不走后面的通用 dedup, 不在这里判就等于每次调用都重发。
+        _r4_win = 21600
         if not args.dry_run and check_dedup(args.dedup_key, _r4_win):
             print(f"[notify][r4] staticdata_backup_fail {_r4_win}s 窗口内已发, suppress",
                   file=sys.stderr)
             adr.record_suppression(
-                mechanism=("stall_dedup" if _r4_stall else "escalation_window"),
+                mechanism="stall_dedup",
                 key=args.dedup_key,
                 reason=f"R4 staticdata {_r4_win}s 窗口内已发",
                 repo=Path(os.environ.get("REPO") or REPO))

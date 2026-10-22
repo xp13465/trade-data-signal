@@ -1266,6 +1266,9 @@ def rollover_prune(seen, now, days=None) -> dict:
 #   超集 + 统一判据; notify.py 在预算/域 gate **之前**短路, D3 原豁免保留(向后兼容)。
 STALL_DEDUP_WINDOW = 7200                    # 停摆级同键最短去重窗(2h, 报告 §7.3 时限)
 STALL_PREFIX = "【停摆】"                     # 外发标题醒目前缀(邮件/飞书/telegram 同一 subject)
+# active 升级提醒自己的标题标记(schedule_monitor.sh:_active_escalate 生成) ——
+# 见到它就**禁止** subject 兜底判停摆(MF2: 升级提醒必须用自己的键与去重窗)。
+STALL_ESCALATE_SUBJECT_MARK = "【持续故障升级】"
 
 # 停摆级键登记表(按**生产真实键名**登记, 覆盖报告点名的 5 类; 新增键必须在此或 NON_STALL_KEYS)
 STALL_KEYS = frozenset({
@@ -1327,14 +1330,26 @@ NON_STALL_KEYS = frozenset({
 })
 
 # 文本兜底: 没有 dedup key 的批次行(monitor 聚合通道)按行文特征识别停摆级
+# ⚠️ #282 审查 MF1(2026-10-22): 原泛化 marker ("停摆", "staticdata_backup_stale") 会把
+#   EXTRA 任务停摆行(`<task> 停摆(超 Nh 未运行)`, schedule_monitor.sh:1397)也判成
+#   staticdata 心跳停摆 ⇒ 两者共用同一去重键互相 2h 抑制, 正文还张冠李戴成
+#   「备份心跳超 36h」。现改为两条精确判据(见下方 _EXTRA_STALL_RE/_STATICDATA_STALL_RE),
+#   本表不再收泛化「停摆」二字。
 STALL_LINE_MARKERS = (
     # ⚠️ 顺序敏感: 具体特征必须排在泛化「连续失败」之前, 否则 D1 行会被抢判成合成键。
-    ("停摆", "staticdata_backup_stale"),
     ("D1 同步连续失败", "d1_sync_fail"),
     ("cloud_unit_patrol_drift", "cloud_unit_patrol_drift"),
     ("failed_units_patrol", "failed_units_patrol"),
     ("连续失败", "stall|consecutive_fail"),
 )
+
+# 停摆行文精确判据(#282 审查 MF1, 2026-10-22):
+#   ① EXTRA 任务停摆: `<task> 停摆(超 Nh 未运行)`(schedule_monitor.sh:1397)
+#      → 按行首任务名合成独立键族 `stall|extra_stale|<task>`(每个任务各发各的);
+#   ② staticdata 心跳停摆: 行内**同时**有 staticdata 与「停摆」(schedule_monitor.sh:1743)
+#      → 只认这份自身行文, 不再吃泛化「停摆」(否则 EXTRA 行会被抢判)。
+_EXTRA_STALL_RE = re.compile(r"^(?P<task>[A-Za-z0-9_.\-]+) 停摆\(超\d+h 未运行\)")
+_STATICDATA_STALL_RE = re.compile(r"staticdata.*停摆")
 
 
 def is_stall_key(key) -> bool:
@@ -1380,6 +1395,13 @@ def stall_line_key(line):
     **同一行文每轮得到同一键** ⇒ 2h 去重成立, 不会每轮重复外发。
     """
     _t = _strip_severe(line)
+    # ① EXTRA 任务停摆(独立键族, 键内含任务名 ⇒ 去重逐任务独立 + 正文可回查任务状态)
+    _m = _EXTRA_STALL_RE.match(_t)
+    if _m:
+        return f"stall|extra_stale|{_m.group('task')}"
+    # ② staticdata 心跳停摆(只认自身行文)
+    if _STATICDATA_STALL_RE.search(_t):
+        return "staticdata_backup_stale"
     for _marker, _canon in STALL_LINE_MARKERS:
         if _marker in _t:
             if _canon in STALL_KEYS:
@@ -1393,12 +1415,37 @@ def is_stall_line(line) -> bool:
     return stall_line_key(line) is not None
 
 
+def stall_state_key(line) -> str | None:
+    """批次停摆行 → schedule_monitor 的 alert_state 键(仅用于「直发失败回滚本轮落签」)。
+
+    EXTRA 任务停摆的 state 键是 `{task}|extra_stale`(schedule_monitor.sh:1404 写入),
+    与去重合成键 `stall|extra_stale|{task}` 不同 —— 回滚必须落回前者, 否则回滚写不进去。
+    其余键(schedule_monitor 只管 staticdata 状态)只认 staticdata_backup_stale。
+    """
+    _k = stall_line_key(line)
+    if not _k:
+        return None
+    if _k.startswith("stall|extra_stale|"):
+        return _k[len("stall|extra_stale|"):] + "|extra_stale"
+    if _k == "staticdata_backup_stale":
+        return "staticdata_backup_stale"
+    return None
+
+
 def stall_canonical_key(key, subject=None) -> str | None:
     """统一判定: dedup key 命中登记表, 或主题命中停摆族(无 key 的旧调用路径)。"""
     _k = str(key or "")
     if _k in STALL_KEYS or _k.startswith("stall|"):
         return _k
+    # ⚠️ #282 审查 MF2(2026-10-22): 升级提醒(`active_escalate|...`)必须走自己的键族与去重窗,
+    #   绝不能被下面的 subject 兜底改写成「被升级故障」的停摆键 —— 否则
+    #   【持续故障升级】staticdata_backup 异步备份停摆 会被写成 staticdata_backup_fail,
+    #   与真实 R4 告警共用 86400s 窗 ⇒ 满 24h 升级提醒永久发不出(= 本次改动要根治的病)。
+    if _k.startswith("active_escalate|"):
+        return None
     _s = str(subject or "")
+    if STALL_ESCALATE_SUBJECT_MARK in _s:
+        return None
     if "staticdata" in _s and ("备份失败" in _s or "备份停摆" in _s or "未追平" in _s):
         return "staticdata_backup_fail"
     if "deploy 连续失败" in _s or "deploy连续失败" in _s:
@@ -1445,8 +1492,16 @@ def stall_context(key, repo=None, now=None) -> dict:
     _canon = stall_canonical_key(key) or str(key or "")
     _ctx = {"key": _canon, "first_seen": "未知", "consecutive": "未知",
             "impact": STALL_IMPACT.get(_canon, "未知(该键无状态文件, 见告警正文)")}
+    # EXTRA 任务停摆(合成键 `stall|extra_stale|<task>`): 正文必须按任务名说清受影响产物,
+    # 状态回查 schedule_monitor 写的 `{task}|extra_stale` —— 修复前两者都不认, 正文会
+    # 张冠李戴成「staticdata 备份心跳超 36h」(审查 MF1)。
+    _state_key = _canon
+    if _canon.startswith("stall|extra_stale|"):
+        _task = _canon[len("stall|extra_stale|"):]
+        _state_key = f"{_task}|extra_stale"
+        _ctx["impact"] = f"{_task} 生成器停摆(定时器/脚本可能被删或崩溃): 该任务产物停止更新"
     # 通用兜底: monitor 自己维护的 alert_state(所有 active 告警都有 first_seen)
-    _st = _read_json(_repo / "data" / "alert_state.json").get(_canon)
+    _st = _read_json(_repo / "data" / "alert_state.json").get(_state_key)
     if isinstance(_st, dict):
         _ctx["first_seen"] = str(_st.get("first_seen") or "未知")
         if _st.get("consecutive_count") not in (None, ""):
