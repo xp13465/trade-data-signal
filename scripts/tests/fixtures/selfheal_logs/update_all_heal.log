@@ -1,0 +1,4 @@
+=== update_all.sh 开始 2026-09-15 00:07:01 ===
+交易日判断: IS_TRADING=1 FORCE=1
+-> 公募基金评分引擎（compute_all_scores top_n=2000 + export）...
+=== update_all.sh 结束 2026-09-15 00:44:56 ===

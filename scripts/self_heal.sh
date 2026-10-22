@@ -1,20 +1,30 @@
 #!/bin/bash
-# self_heal.sh - 计划任务自愈（P0 稳定性 2026-07-20）
+# self_heal.sh - 计划任务自愈(P0 稳定性 2026-07-20;2026-10-22 每任务配额+结果校验)
 #
-# 设计原则（白名单 + 限流 + audit）：
+# 设计原则(白名单 + 限流 + audit)：
 #   1) 白名单动作：只 force 重跑失败任务，禁止 force push/删文件/改代码（绝不破坏代码或数据）
-#   2) 每日 3 次上限：self_heal_state.json 记每日计数，超上限发 SEVERE 邮件停止（防失控连环重跑）
-#   3) audit log：每动作（HEAL/SKIP/LIMIT/FAIL）写 data/logs/self_heal_audit.log
+#   2) 配额(2026-10-22 起)：**每任务**每日 3 次(独立计数) + 全站总上限 12 次/日。
+#      旧版是全局共享 3 次，单个反复失败的任务会吃光全站额度(评估报告 §4)。
+#      计数/校验逻辑在 scripts/self_heal_core.py(纯函数，pytest 可打桩)，本脚本只做 IO。
+#   3) audit log：每动作(HEAL/SKIP/LIMIT/FAIL/VERIFY/ESCALATE)写 data/logs/self_heal_audit.log；
+#      heal 之后下一轮校验结果(PASS/FAIL + 校验依据)也写这里(旧版只记触发不记结果)。
 #   4) 任务在跑跳过：launchctl state 含 running 时跳过（不误杀正在跑的任务）
 #   5) 旧问题不 heal：last_run 距今 >24h 的失败任务跳过（旧问题等下次任务跑更新 stats）
+#   6) 连续 heal 失败 ≥2 次 → 走 notify.py 升级告警(--tier warning，按任务 6h 去重；
+#      warning 级只发邮件/飞书，不写 data/alerts/latest.md —— 那是 critical 专属)
 #
-# 决策逻辑（P0 只实现模式1：force 重跑失败任务）：
-#   读 schedule_stats.json -> 对每个任务 last_exit!=0 且 last_run 24h 内
-#   -> 检查 launchctl state 不是 running -> 后台触发 HEAL_ACTIONS force 重跑
+# 决策逻辑：
+#   读 schedule_stats.json -> 对每个任务 last_exit!=0(或 log_anomaly) 且 last_run 24h 内
+#   -> 检查 launchctl state 不是 running + 任务脚本进程不在跑(pgrep) -> 每任务配额内后台
+#      触发 HEAL_ACTIONS force 重跑 -> 记 pending
+#   -> 下一轮按「<task>_heal.log 与 launchd 日志里 heal 之后**开始**的运行记录 + 产物新鲜度」
+#      判 PASS/FAIL(重跑进行中不判 FAIL)
 #
-# 触发：launchd com.trade.self-heal 每15分钟（Minute=7/22/37/52，错开 schedule_monitor
-#   的 0/15/30/45，让 monitor 先告警 self_heal 后自愈，避免撞 deploy.lock）。
-# 告警链路：复用 scripts/notify.py（邮件 + alerts/latest.md），达到上限时发 SEVERE。
+# 触发：systemd trade-self-heal.timer 每15分钟(云上 Minute=7/22/37/52，错开 schedule_monitor
+#   的 0/15/30/45，让 monitor 先告警 self_heal 后自愈，避免撞 deploy.lock)。
+# 告警链路：复用 scripts/notify.py(升级告警 tier=warning → 邮件 + 飞书；warning 级不写
+#   data/alerts/latest.md，那是 critical 专属；达每日上限的 info 只落 dashboard)。
+# 自测桩：SELF_HEAL_NOTIFY_DRYRUN=1 时所有 notify.py 调用追加 --dry-run(零外发)，仅供测试。
 set -uo pipefail
 # ── REPO/GIT_REPO 单点解析(#195 批2):共享 lib(env 优先零改写 > $0 双布局推导 > fail-loud)──
 # 去掉写死的 mac 默认值(原靠 unit 的 Environment= 兜住,env 一丢即静默坏);原 export
@@ -27,7 +37,7 @@ export REPO GIT_REPO
 # 单项指标失败自动重采(2026-07-31 自动修复机制,在任务级 force-heal 之前轻量重采):
 # 读 collect_log 当日 error 项,对每个 error 指标调 collect_snapshot/collect_direct 重采。
 # 复用 fetchers.collect_snapshot(含 zt_pool 交叉验证:跌停池空+涨停池有数据=真0跌停,写0+ok)。
-# 不受下方每日3次上限限制(轻量重采,不像 force 重跑整个 update_all);失败保留 error下次再试。
+# 不受下方每任务配额限制(轻量重采,不像 force 重跑整个 update_all);失败保留 error下次再试。
 # 场景:17:50 update_all 跌停池空 error -> 18:07 本脚本重采交叉验证涨停池有数据 -> 写0+ok,collect_health 变 ok。
 echo "=== retry_failed_metrics 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$REPO/data/logs/self_heal_audit.log"
 # 2026-10-01 #132 并发双通知修复: 经 with_lock.py --nb 进程互斥(复用仓内既有机制,
@@ -40,7 +50,7 @@ echo "=== retry_failed_metrics 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a
     "$REPO/.venv/bin/python" "$REPO/scripts/retry_failed_metrics.py" 2>&1 | tee -a "$REPO/data/logs/self_heal_audit.log" || echo "⚠ retry_failed_metrics.py 失败(不阻塞,继续任务级 heal)" | tee -a "$REPO/data/logs/self_heal_audit.log"
 echo "=== retry_failed_metrics 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$REPO/data/logs/self_heal_audit.log"
 
-# 用 python heredoc 做决策 + 触发（bash 处理 JSON/launchctl 太繁琐易错）
+# 用 python heredoc 做 IO 适配(决策逻辑在 scripts/self_heal_core.py)
 "$REPO/.venv/bin/python" <<'PYEOF' 2>&1
 import json
 import os
@@ -57,19 +67,20 @@ LOG_DIR = REPO / "data" / "logs"
 STATS_FILE = REPO / "static-site" / "data" / "schedule_stats.json"
 STATE_FILE = LOG_DIR / "self_heal_state.json"
 AUDIT_LOG = LOG_DIR / "self_heal_audit.log"
-MONITOR_LOG = LOG_DIR / "self_heal_launchd.log"
+
+sys.path.insert(0, str(REPO / "scripts"))
+import self_heal_core as core  # noqa: E402
 
 NOW = datetime.now()
-TODAY = NOW.strftime("%Y-%m-%d")
-DAILY_LIMIT = 3
-STALE_THRESHOLD_SEC = 24 * 3600  # last_run 超 24h 不 heal（旧问题等下次任务跑更新）
 
 # task -> force 重跑命令（force 参数仅加给支持 force 的脚本）
 # grep 确认 force 支持：update_all/intraday_snapshot/futures_backfill/lhb_backfill/
-# rzhb_backfill/etf_national_team_backfill 支持；backfill_metrics/update_lab 不支持。
+# rzhb_backfill/etf_national_team_backfill/update_lab 支持（update_lab.sh:76-83 的 force
+# 绕过「非交易日跳过」闸门，这正是 M3 要的：否则周末 heal 跑完也不刷新产物 = 假 FAIL）；
+# backfill_metrics.sh 无 force 参数（不需要：它没有交易日闸门）。
 # ⚠️ 收录边界（#196 §22 登记点判定，2026-10-05）：**只收「自动重跑能真正解除故障」的任务**。
 #    只读巡检/监控类（cloud_unit_patrol / r2_consistency / check_data_gap / overfit_monitor /
-#    schedule-monitor 自身）**故意不登记**：它们失败时重跑无意义（漂移/一致性问题重跑一遍还是
+#    schedule_monitor 自身）**故意不登记**：它们失败时重跑无意义（漂移/一致性问题重跑一遍还是
 #    那个结果），且登记进来会把「人工确认」降级成「自动重跑」，反而掩盖真问题。
 #    它们"死了没人知"的问题由 #196 的 check_failed_units.py（failed-unit + timer 存活 +
 #    脚本存在性）与注册漏跑两条通道兜住，不靠自愈。
@@ -82,7 +93,7 @@ HEAL_ACTIONS = {
     "lhb_backfill":        ["bash", "scripts/lhb_backfill.sh", "force"],
     "rzhb_backfill":       ["bash", "scripts/rzhb_backfill.sh", "force"],
     "etf_national_team":   ["bash", "scripts/etf_national_team_backfill.sh", "force"],
-    "lab_auto":            ["bash", "scripts/update_lab.sh"],
+    "lab_auto":            ["bash", "scripts/update_lab.sh", "force"],
 }
 # task -> launchctl label（与 gen_schedule_stats.py LABEL_MAP 同步）
 LABELS = {
@@ -134,50 +145,123 @@ def launchctl_state(label):
     return m.group(1).strip() if m else None
 
 
-def load_state():
-    """读 self_heal_state.json：{"date":"2026-07-20","count":2,"healed":[...]}。
-    跨天自动重置计数。
-    """
-    if not STATE_FILE.exists():
-        return {"date": TODAY, "count": 0, "healed": []}
+def _lookup_run(task):
+    """取该任务最近一次运行的证据(逻辑在 core.lookup_run_from_logs,双源:heal.log+定时日志)。"""
     try:
-        s = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-        if s.get("date") != TODAY:
-            return {"date": TODAY, "count": 0, "healed": []}
-        return s
-    except Exception:
-        return {"date": TODAY, "count": 0, "healed": []}
-
-
-def save_state(s):
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def audit(msg):
-    """append 写 audit log。"""
-    AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
-    ts = NOW.strftime("%Y-%m-%d %H:%M:%S")
-    with open(AUDIT_LOG, "a", encoding="utf-8") as f:
-        f.write(f"[{ts}] {msg}\n")
-
-
-def notify_limit_info(subject, body):
-    """复用 notify.py 记 info 级 dashboard(达每日上限=正常状态, 不推送邮件)。
-
-    2026-09-24 告警降噪 P2: 原 --severe 邮件降级 --tier info 只落盘。额度用光=自愈机制
-    正常工作的信号(次日自动重置), 不是故障; 真自愈机制失效由 schedule_monitor 的
-    launchctl failed 通道(self-heal 不在 schedule_stats TASKS → 降级 SEVERE 直发)兜底,
-    与任务 exit!=0 通道互不掩盖。
-    """
+        import gen_schedule_stats as g
+    except Exception as e:
+        print(f"[self_heal] 载入 gen_schedule_stats 失败(无法校验结果): {e}", file=sys.stderr)
+        return None
+    spec = next((t for t in g.TASKS if t.get("task") == task), None)
+    if spec is None:
+        return None
     try:
-        subprocess.run(
-            [sys.executable, str(REPO / "scripts" / "notify.py"),
-             subject, body, "--tier", "info"],
-            check=False, capture_output=True, text=True, timeout=60,
-        )
+        return core.lookup_run_from_logs(task, spec, LOG_DIR, g)
+    except Exception as e:
+        print(f"[self_heal] 解析 {task} 日志失败: {e}", file=sys.stderr)
+        return None
+
+
+# 任务 → 进程特征(pgrep -f 正则,M4)。触发前查:任务脚本/上一次 heal 的重跑仍在跑 → 不重复触发。
+# `[x]` 写法让正则匹配 "update_all.sh" 但**不匹配 pgrep 自己的命令行**(经典 -f 自匹配坑)。
+PGREP_PATTERNS = {
+    "update_all":        r"[u]pdate_all\.sh",
+    "backfill_evening":  r"[b]ackfill_(metrics|indices)\.sh",
+    "intraday_snapshot": r"[i]ntraday_snapshot\.sh",
+    "futures_backfill":  r"[f]utures_backfill\.sh",
+    "lhb_backfill":      r"[l]hb_backfill\.sh",
+    "rzhb_backfill":     r"[r]zhb_backfill\.sh",
+    "etf_national_team": r"[e]tf_national_team_backfill\.sh",
+    "lab_auto":          r"[u]pdate_lab\.sh",
+}
+
+
+def task_process_running(task):
+    """任务脚本进程是否在跑(查不到 pgrep/异常 → 按「未运行」处理,不阻塞自愈)。"""
+    pat = PGREP_PATTERNS.get(task)
+    if not pat:
+        return False
+    try:
+        r = subprocess.run(["pgrep", "-f", pat], capture_output=True, text=True, timeout=10)
+    except Exception as e:
+        print(f"[self_heal] pgrep 检查 {task} 失败(按未运行处理): {e}", file=sys.stderr)
+        return False
+    return any(pid.strip().isdigit() for pid in (r.stdout or "").splitlines())
+
+
+def _trigger(task, cmd):
+    """后台触发重跑：nohup + & detach(self_heal 退出不杀重跑任务)。"""
+    cmd_str = " ".join(cmd)
+    log_file = LOG_DIR / f"{task}_heal.log"
+    full_cmd = f"nohup {cmd_str} >> {log_file} 2>&1 &"
+    try:
+        subprocess.run(full_cmd, shell=True, cwd=str(REPO), timeout=5)
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+_DRYRUN = os.environ.get("SELF_HEAL_NOTIFY_DRYRUN") == "1"
+
+
+def _notify(args):
+    """调用 scripts/notify.py(不改 notify.py 本身);失败只告警不阻塞自愈主流程。"""
+    cmd = [sys.executable, str(REPO / "scripts" / "notify.py")] + args
+    if _DRYRUN:
+        cmd.append("--dry-run")
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            print(f"[self_heal] notify rc={r.returncode}: {(r.stderr or '')[-300:]}",
+                  file=sys.stderr)
+        return r.returncode == 0
     except Exception as e:
         print(f"[self_heal] notify 失败(不阻塞): {e}", file=sys.stderr)
+        return False
+
+
+def _notify_info(subject, body):
+    """达每日上限=正常状态, 只落 dashboard(info), 不推送邮件/飞书(2026-09-24 降噪口径)。"""
+    return _notify([subject, body, "--tier", "info"])
+
+
+def _notify_escalate(task, streak, basis):
+    """同一任务连续 heal 失败 ≥2 次 → 升级告警。
+
+    四元组(#264 件F):tier=warning / dedup 21600s / 域=collect(self_heal_repeat_fail_<task>)
+    / 首报=连败达到 ≥2 即尝试发送,靠 6h 去重窗压成每 6h 最多一条;发送失败由 core
+    记 escalate_pending,下一轮补发(仍受 6h 窗约束)。
+    ⚠️ 不带 --alert-issue:notify.py 只在 tier=critical 时写 data/alerts/latest.md
+    (notify.py:3167),warning 级带这个参数是死参数,会误导值班以为 latest.md 有记录。
+    """
+    subject = f"[告警] 自愈连续失败 {task} 累计 {streak} 次"
+    body = (f"任务 {task} 连续 {streak} 次自愈后校验结果仍为 FAIL。\n"
+            f"最近一次校验依据: {basis}\n"
+            f"说明:自愈只是自动重跑;连续失败通常代表重跑解决不了(部署闸门/外部源/口径),"
+            f"请人工排查,避免继续消耗配额。")
+    return _notify([
+        subject, body,
+        "--tier", "warning",
+        "--dedup-key", f"self_heal_repeat_fail_{task}",
+        "--dedup-window", str(core.NOTIFY_DEDUP_WINDOW_SEC),
+        "--from-prefix", "[告警]",
+    ])
+
+
+def _intraday_skip(task, now):
+    """§8 盘中保护:update_all 的 force = 全量 export+deploy,交易日盘中跳过。
+
+    其他任务(backfill/futures/lhb/rzhb/etf_nt)不涉及全量 export,盘中可跑不加保护。
+    节假日未严格判断(盘中跳过即使节假日也无害,只是少跑一次自愈,收盘后/次日正常触发)。
+    """
+    if task != "update_all":
+        return False
+    hhmm = int(now.strftime("%H%M"))
+    return now.isoweekday() <= 5 and 930 <= hhmm <= 1530
+
+
+def _probe(task, heal_at):
+    return core.probe_artifact(REPO, task, heal_at)
 
 
 # 1) 读 schedule_stats.json
@@ -190,122 +274,31 @@ except Exception as e:
     print(f"[self_heal] stats 解析失败: {e}", file=sys.stderr)
     sys.exit(0)
 
-# 2) 读计数 state，达上限停止 + 发 SEVERE
-state = load_state()
-if state["count"] >= DAILY_LIMIT:
-    msg = (f"已达每日上限 {DAILY_LIMIT} 次停止自愈。今日 healed: "
-           f"{json.dumps(state['healed'], ensure_ascii=False)}")
-    print(f"[self_heal] {msg}", file=sys.stderr)
-    audit(f"LIMIT 达上限 count={state['count']}: {msg}")
-    # 2026-09-24 降噪 P2: 达上限记 info 一次(limit_notified 防每 15 分钟重复落盘, 跨天随 state 重置自然清空)
-    if not state.get("limit_notified"):
-        notify_limit_info("自愈脚本达到每日上限停止", msg)
-        state["limit_notified"] = True
-        save_state(state)
-    sys.exit(0)
+# 2) 一轮决策(校验上一轮 heal → 升级连续失败 → 每任务配额内触发)
+summary = core.run_cycle(
+    repo=REPO, stats=stats, state_path=STATE_FILE, audit_path=AUDIT_LOG, now=NOW,
+    heal_actions=HEAL_ACTIONS, labels=LABELS, launch_state=launchctl_state,
+    trigger=_trigger, notify_info=_notify_info, notify_escalate=_notify_escalate,
+    lookup_run=_lookup_run, artifact_probe=_probe, intraday_skip=_intraday_skip,
+    task_running=task_process_running,
+)
 
-# 3) 筛选需 heal 的任务：last_exit!=0 且 last_run 24h 内 且 launchctl state 不是 running
-to_heal = []
-for s in stats:
-    task = s.get("task")
-    exit_code = s.get("last_exit")
-    last_run_str = s.get("last_run")
-    log_anomaly = s.get("log_anomaly", False)
-    # null/0 且无 log_anomaly 不 heal（null=进行中/无数据，0=成功）
-    # 第4盲区修复: log_anomaly=true 时即使 exit=0 也 heal（脚本吞异常场景）
-    if (exit_code is None or exit_code == 0) and not log_anomaly:
-        continue
-    # last_run 时效检查
-    if not last_run_str:
-        continue
-    try:
-        last_run_dt = datetime.strptime(last_run_str, "%Y-%m-%d %H:%M")
-    except ValueError:
-        print(f"[self_heal] {task} last_run 格式异常: {last_run_str}", file=sys.stderr)
-        continue
-    age_sec = (NOW - last_run_dt).total_seconds()
-    if age_sec > STALE_THRESHOLD_SEC:
-        print(f"[self_heal] {task} last_run={last_run_str} 距今>"
-              f"{int(STALE_THRESHOLD_SEC//3600)}h，旧问题等下次任务跑，不 heal")
-        audit(f"SKIP_STALE {task} last_run={last_run_str} age={int(age_sec//3600)}h last_exit={exit_code}")
-        continue
-    # launchctl state 检查（在跑跳过，不误杀）
-    label = LABELS.get(task)
-    st = launchctl_state(label)
-    if st and "running" in st:
-        print(f"[self_heal] {task} launchctl state={st}（在跑），跳过避免误杀")
-        audit(f"SKIP_RUNNING {task} state={st} last_exit={exit_code}")
-        continue
-    to_heal.append((task, exit_code, last_run_str, st, log_anomaly))
-
-if not to_heal:
-    print(f"[{NOW.strftime('%Y-%m-%d %H:%M:%S')}] OK 无需 heal 的任务"
-          f"（无失败/失败任务在跑/旧问题）")
-    sys.exit(0)
-
-# 4) 执行 heal（每日上限内，逐个后台触发重跑，不阻塞 self_heal 退出）
-healed_now = []
-for task, exit_code, last_run_str, st, log_anomaly in to_heal:
-    if state["count"] >= DAILY_LIMIT:
-        msg = (f"执行中达到每日上限 {DAILY_LIMIT} 次，剩余任务跳过。"
-               f"已 heal: {json.dumps(state['healed'], ensure_ascii=False)}")
-        print(f"[self_heal] {msg}", file=sys.stderr)
-        audit(f"LIMIT {msg}")
-        # 同样用 limit_notified 只记一次 info（本分支本身只触发一次，统一标志更稳）
-        if not state.get("limit_notified"):
-            notify_limit_info("自愈脚本达到每日上限停止", msg)
-            state["limit_notified"] = True
-        break
-    cmd = HEAL_ACTIONS.get(task)
-    if not cmd:
-        print(f"[self_heal] {task} 无 HEAL_ACTIONS 配置，跳过", file=sys.stderr)
-        continue
-    # 盘中保护（§8）：update_all 的 force = 全量 export+deploy，交易日盘中
-    # (09:30-15:30) 跳过避免撞 intraday-snapshot 定时任务推 main 致互相覆盖事故。
-    # 其他任务（backfill/futures/lhb/rzhb/etf_nt）不涉及全量 export，盘中可跑不加保护。
-    # 节假日未严格判断（盘中跳过即使节假日也无害，只是少跑一次自愈，收盘后/次日正常触发）。
-    if task == "update_all":
-        hhmm = int(NOW.strftime("%H%M"))
-        is_weekday = NOW.isoweekday() <= 5  # 1-5 周一到周五（等价 date +%u 1-5）
-        if is_weekday and 930 <= hhmm <= 1530:
-            audit(f"SKIP_INTRADAY {task} reason=intraday_skip "
-                  f"now={NOW.strftime('%H:%M')} §8 盘中不跑全量，收盘后自愈 "
-                  f"last_exit={exit_code} last_run={last_run_str} log_anomaly={log_anomaly}")
-            state.setdefault("skipped", []).append({
-                "task": task, "time": NOW.strftime("%H:%M:%S"),
-                "reason": "intraday_skip",
-                "last_exit": exit_code, "last_run": last_run_str,
-                "log_anomaly": log_anomaly,
-            })
-            save_state(state)
-            print(f"[self_heal] {task} 盘中跳过 update_all force（§8 盘中不跑全量），"
-                  f"收盘后自愈。now={NOW.strftime('%H:%M')}", file=sys.stderr)
-            continue
-    # 后台触发重跑：nohup + & 让子进程 detach（self_heal 退出不杀重跑任务）
-    cmd_str = " ".join(cmd)
-    log_file = LOG_DIR / f"{task}_heal.log"
-    full_cmd = f"nohup {cmd_str} >> {log_file} 2>&1 &"
-    try:
-        subprocess.run(full_cmd, shell=True, cwd=str(REPO), timeout=5)
-    except Exception as e:
-        print(f"[self_heal] {task} 触发失败: {e}", file=sys.stderr)
-        audit(f"FAIL {task} 触发失败: {e}")
-        continue
-    state["count"] += 1
-    state["healed"].append({
-        "task": task, "time": NOW.strftime("%H:%M:%S"),
-        "exit": exit_code, "last_run": last_run_str,
-        "log_anomaly": log_anomaly,
-    })
-    healed_now.append(task)
-    reason = "log_anomaly" if (log_anomaly and (exit_code is None or exit_code == 0)) else f"exit={exit_code}"
-    audit(f"HEAL {task} reason={reason} last_exit={exit_code} last_run={last_run_str} "
-          f"log_anomaly={log_anomaly} state={st} -> 触发 {cmd_str} (log={log_file.name})")
-
-save_state(state)
-print(f"[{NOW.strftime('%Y-%m-%d %H:%M:%S')}] HEAL 触发 {len(healed_now)} 个任务: {healed_now}")
-print(f"[self_heal] 今日已 heal {state['count']}/{DAILY_LIMIT} 次")
+ts = NOW.strftime("%Y-%m-%d %H:%M:%S")
+if summary["verified"]:
+    print(f"[{ts}] VERIFY {len(summary['verified'])} 次: " + ", ".join(
+        f"{e['task']}={e['result']}" for e in summary["verified"]))
+if summary["escalated"]:
+    print("[self_heal] ESCALATE: " + ", ".join(
+        f"{e['task']}x{e['streak']}({'SENT' if e['sent'] else 'FAILED'})"
+        for e in summary["escalated"]))
+if summary["healed"]:
+    print(f"[{ts}] HEAL 触发 {len(summary['healed'])} 个任务: {summary['healed']}")
+elif not summary["verified"]:
+    print(f"[{ts}] OK 无需 heal 的任务（无失败/失败任务在跑/旧问题/配额已用尽）")
+state = core.load_state(STATE_FILE, NOW.strftime("%Y-%m-%d"))
+print(f"[self_heal] 今日已 heal {state['count']}/{core.TOTAL_DAILY_LIMIT} 次"
+      f"（每任务上限 {core.PER_TASK_DAILY_LIMIT}）")
 PYEOF
 
-# 总是 exit 0：自愈动作已后台触发，避免 launchd 因非0退出重试
+# 总是 exit 0：自愈动作已后台触发，避免 systemd/launchd 因非0退出重试
 exit 0
