@@ -64,7 +64,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/backup_db.sh
 Environment=RETAIN_DAYS=7
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=5640
+TimeoutStartSec=12600
 @@@FILE:trade-brief-push.service
 [Unit]
 Description=Trade brief-push (源 com.trade.brief-push)
@@ -215,7 +215,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/fapi_daily_syn.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=300
+TimeoutStartSec=1800
 MemoryHigh=1.5G
 MemoryMax=2G
 MemorySwapMax=512M
@@ -284,7 +284,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/gold_night.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=1920
+TimeoutStartSec=2700
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/gold_night_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/gold_night_launchd.err
 @@@FILE:trade-intraday-snapshot.service
@@ -500,7 +500,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/stage0_overview.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=660
+TimeoutStartSec=26820
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/stage0-overview-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/stage0-overview-launchd.log
 @@@FILE:trade-pf-stage0-risk.service
