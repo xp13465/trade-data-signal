@@ -55,6 +55,26 @@
    (本次事故:stage0-overview 拿 2026-10-18 的 327s 增量样本当全量,而历史全量最长 17395s,660s 的建议值会把正常全量跑拦腰砍断。)
 3. **每条建议值必须写出来源**:要么「历史 max(日期)+×1.2」,要么「内层看门狗 N×2」,要么「脚本头文档时长(行号)+×1.2」;
    写不出可复核来源的值不许进表。
+4. **脚本头文档时长与实测全量冲突时,以实测全量为准并注明**:脚本头注释里的「~2.3h / ~6.2h」是作者当时的估计,
+   不是实测;两者冲突时按**实测全量 max** 定值,并在表里写明「脚本头写 X,实测 Y,取实测」;**脚本头明显过时的顺手改注释**
+   (本次未改 `scripts/` 代码,只在此登记待改,见 §9.2)。
+
+### 2.2 第 8 轴:生成器回灌风险(#189 `--check-doc` 怎么防)
+
+前面 7 个维度都在算「值给多少」;第 8 个维度是**值会不会被写回去时被人为改回旧值**。风险链:
+
+1. 云上 unit 是**生成源**(`docs/deploy/systemd-units-20260912.md` §2 ini 块)渲染/比对的对象,而 doc §2 是仓库里的一份**副本**;
+2. 若只改云上 unit + 刷新快照,**没同步 doc §2**,那么下次有人重跑生成器(`gen_systemd_units.py`)按 doc §2 重新出 unit 时,
+   就会把 **doc 里的旧值(如 `TimeoutStartSec=0`)静默装回云上** ⇒ 前面的改动全白做,且没人会报错。
+3. **防线 = #189 `--check-doc`**:`scripts/systemd_timeout_gradient_audit.py --check-doc` 把
+   「doc §2 解析结果」与「权威 unit 源(云上 `--units-dir` 或仓库快照 `--dump`)」**逐字段全量比对**(`key=value` 多重集、顺序无关),
+   任一字段不一致即 `exit 1`;`--align-doc` 则是把 doc §2 就地改写成权威源值(改文档,不碰云上)。
+4. **挂载点**:`scripts/main-merge.sh:389-400` 的 **7.8 闸门**在合并主入口自动跑 `--check-doc`
+   ⇒ doc §2 与快照不一致时**合不进 main**,「旧值回灌」在合并这一步被拦住,不靠人记着同步。
+5. 配套:`--check-snapshot`(#191,云上 `cloud_unit_patrol` 每日 08:27)补另一半——
+   「快照 == 云上当前」,消掉 `--check-doc` 只看「doc == 快照」时的快照陈旧窗口。
+
+⇒ 所以 §4.3 的「云上改 → 快照 → doc §2 对齐」三步里,**第三步(doc §2)不是可选项**,它是第 8 轴的防线本身。
 
 ## 3. 21 个未设超时的 unit:建议值(逐行可执行)
 
@@ -65,13 +85,13 @@
 |---|---|---|---|---|---|---|---|---|
 | 1 | `trade-backfill-evening.service` | 8829.0 | 106(102) | 9355.0 | 17700s | 295min | P99=8829.0s×2,n=106 | 长任务(2.5h);被杀则当日回填中断,次日 update_all 前须确认补完。无内层看门狗,封顶=唯一上限。 |
 | 2 | `trade-backup-db.service` | 2793.2 | 6(6) | **10220**(09-29) | **12600s**(已应用) | 210min | 历史 max 10220s(09-29,含 R2 下载/上传)×1.2=12264 → 取 12600 | 旧值 5640s 也是 2×P99 但从 P99 样本里漏掉了 09-26(9797s)/09-29(10220s)两次 R2 慢跑,按旧值会砍断;备份被杀只是少一份当日备份,不动线上数据,下一轮续。 |
-| 3 | `trade-etf-national-team.service` | 2671.7 | 44(25) | 2671.7 | 5400s | 90min | P99=2671.7s×2,n=44 | 44 样本中 19 次非零退出;被杀会缺当日 ETF 国家队数据,次日重跑可补。 |
+| 3 | `trade-etf-national-team.service` | 2671.7 | 44(25) | 2671.7 | 6240s | 104min | 历史 max 5170s(10-22 13:30→14:56,journal 墙钟)×1.2=6204 → 取 6240(§10 #5) | 44 样本中 19 次非零退出;被杀会缺当日 ETF 国家队数据,次日重跑可补。 |
 | 4 | `trade-fapi-daily.service` | 61.3 | 6(6) | **639**(09-27) | **1800s**(已应用) | 30min | **内层 subprocess 超时 900s×2=1800s**(`scripts/fapi_bj_width_export.py:76 _R2_UPLOAD_TIMEOUT = 900`);历史 max 639s(09-27)×1.2=767s 也远小于此 | 旧值 300s **比内层 R2 上传超时(900s)还短**,等锁/上传时会先被 systemd 杀掉,连脚本自己的诊断输出都拿不到;现 1800s 保证内层先到。 |
-| 5 | `trade-futures-backfill.service` | 4961.0 | 74(68) | 4961.0 | 9960s | 166min | P99=4961.0s×2,n=74 | 回填按日写入,中断后次日续跑;不影响当日行情。 |
+| 5 | `trade-futures-backfill.service` | 4961.0 | 74(68) | 4961.0 | 13380s | 223min | 历史全量 max 11102s(09-18 20:05,日志)×1.2=13322 → 取 13380(§10 #3) | 回填按日写入,中断后次日续跑;不影响当日行情。 |
 | 6 | `trade-gold-night.service` | 953.4 | 6(5) | **10615**(09-30)/近期正常 1336(10-01) | **2700s**(已应用) | 45min | **例外口径**:历史 max 10615s(09-30)是 R2 全局锁等待(~2h56m,日志显示等 `--skip-if-locked`),该故障由 R2 分锁优化独立治理;按近期正常 max 1336s(10-01)×2=2672 → 取 2700 | 锁复发时本任务被杀属**预期**(外层兜底生效),不因此再抬值;夜间数据延迟可重跑。无内层看门狗。 |
-| 7 | `trade-intraday-snapshot.service` | 1526.0 | 1079(1079) | 5122.6 | 3060s | 51min | P99=1526.0s×2,n=1079 | 实测最大 5122.6s(85min,且该次成功),会被 51min 砍掉(1/1079);被杀只少一次快照,10min 后下一轮补。若在意极端长跑,可改 max×1.2≈6200s(非 P99×2 口径,需另议;两条口径的取舍见 §7.2,**应用前需用户拍板,不得自行选 3060**)。 |
+| 7 | `trade-intraday-snapshot.service` | 1526.0 | 1079(1079) | 5122.6 | 3060s | 51min | P99=1526.0s×2,n=1079 | **用户 2026-10-22 已拍板取 3060s**(P99×2 口径;接受约 45 天一次长跑被杀,代价 = 少一张快照、10 分钟后下一轮自动补);规则值 6180s 不采用。用户拍板优先于规则值。 |
 | 8 | `trade-lab-auto.service` | 5401.0 | 36(35) | 5401.0 | 10860s | 181min | P99=5401.0s×2,n=36 | 样本 36<100 → P99=最大值(保守);lab 产物非交易关键,误杀影响小。 |
-| 9 | `trade-lhb-backfill.service` | 5061.0 | 72(66) | 5061.0 | 10140s | 169min | P99=5061.0s×2,n=72 | 回填中断次日续跑;169min 覆盖实测 84min 的 2 倍。 |
+| 9 | `trade-lhb-backfill.service` | 5061.0 | 72(66) | 5061.0 | 18660s | 311min | 历史全量 max 15510s(09-18,日志)×1.2=18612 → 取 18660(§10 #4) | 回填中断次日续跑;18660s 覆盖历史全量 max 15510s 的 ×1.2。 |
 | 10 | `trade-lof-track-index.service` | 154.1 | 1(1) | 154.1 | 360s | 6min | P99=154.1s×2,n=1 | 仅 1 个样本,P99=该样本;2×=308s 低于 5min 下限,按 6min 给,待样本积累复算。 |
 | 11 | `trade-overfit-monitor.service` | 169.9 | 20(20) | 169.9 | 360s | 6min | P99=169.9s×2,n=20 | 只读监控,误杀只是少一次巡检;6min 已覆盖实测 170s 的 2 倍。 |
 | 12 | `trade-pf-score-weekly.service` | 2052.1 | 1(1) | 2052.1 | 4140s | 69min | P99=2052.1s×2,n=1 | 仅 1 个样本,P99=max 保守;周频任务,误杀下周重跑。 |
@@ -79,9 +99,9 @@
 | 14 | `trade-pf-stage0-nav.service` | — | 0(0) | — | 3600s | 60min | 无实测样本;脚本头注明 5 年净值分批断点续采(`scripts/stage0_nav.sh:4-5`),单次封顶 1h 不影响最终完成(下周续跑),待首个实测样本后按 §1 新规则复算 | 断点续采:封顶只降低单次进度,完成时间可能延后;若发现进度长期不推进,应改 6h。 |
 | 15 | `trade-pf-stage0-overview.service` | 326.7 | 1(1) | **17395**(10-04) | **26820s**(已应用) | 447min | 历史全量 max 17395s(10-04 02:17→07:06)×1.2=20874;脚本头「~6.2h」=22320s×1.2=26784 → 向上取整 26820 | **定时是每周日 02:17(周频,不是月频)**。**该 unit 被杀代价高于普通任务**:断点进度文件在 `/tmp` 且非原子写,SIGTERM 会丢进度 → 下次仍从头补;加**内层 public_fund.lock** 撞锁直接跳过。原 660s 是拿 2026-10-18 的 327s **增量样本**当全量(实际那轮只补了几只),会砍断正常全量跑。 |
 | 16 | `trade-pf-stage0-risk.service` | — | 0(0) | — | 32400s | 540min | 无实测样本;脚本头注明季报后逐只采 ~4.5h(`scripts/stage0_risk.sh:4`),按 2×4.5h 封顶 | 季度月(1/4/7/10)才真跑,下一次实测 2027-01;9h 依脚本头文档值,首次实跑后复算。 |
-| 17 | `trade-public-fund-full.service` | 5151.5 | 6(4) | 5151.5 | 10320s | 172min | P99=5151.5s×2,n=6 | 全量基金任务;6 样本中 2 次非零退出,封顶后被杀可次日重跑。 |
+| 17 | `trade-public-fund-full.service` | 5151.5 | 6(4) | 5151.5 | 22680s | 378min | 脚本头 5.25h=18900s×1.2=22680(历史全量 max 16614s×1.2=19937,取大者;§10 #10) | 全量基金任务;6 样本中 2 次非零退出,封顶后被杀可次日重跑。 |
 | 18 | `trade-public-fund-quarterly.service` | 2350.0 | 18(12) | 2350.0 | 4740s | 79min | P99=2350.0s×2,n=18 | 18 样本中 6 次非零退出;季度任务,中断下周重跑。 |
-| 19 | `trade-turnover-backfill.service` | 7691.0 | 26(19) | 7691.0 | 15420s | 257min | P99=7691.0s×2,n=26;内层 13620s | 必须大于内层 `run_to` 合计 13620s(227min);257min 给内层留 30min 余量,倒挂=外杀内层未完成。 |
+| 19 | `trade-turnover-backfill.service` | 7691.0 | 26(19) | 7691.0 | 27240s | 454min | 内层 `run_to` 合计 13620s(7200+900+2760+2760)×2=27240(§10 #9) | 必须大于内层 `run_to` 合计 13620s(227min);454min = 内层×2,倒挂=外杀内层未完成。 |
 | 20 | `trade-update-all.service` | 10055.0 | 36(36) | 10055.0 | 20160s | 336min | P99=10055.0s×2,n=36 | 最长任务(2.8h)。若在 export/deploy 阶段被杀,deploy 可能半途;数据产物原子写,git push 中断需次日重跑确认。上线后首周重点看有无 >5h 长跑。 |
 | 21 | `trade-us-stock-morning.service` | 7149.0 | 37(37) | 7149.0 | 14340s | 239min | P99=7149.0s×2,n=37 | 美股早间任务;被杀则当日美股数据缺失,可手动/下次重跑补。 |
 
@@ -89,13 +109,16 @@
 > 表里已改用脚本头注释的文档时长兜底,并写明「首次实跑后复算」。
 > 若审核要求「必须全部由实测 P99 推导」,则这 3 个只能等有样本后再定值——本清单选择先给安全兜底,不让它们继续无限等。
 
+> **本 5 条同步自 §10 复查表(2026-10-22 复核后修正)**:futures-backfill 9960→**13380**、lhb-backfill 10140→**18660**、etf-national-team 5400→**6240**、turnover-backfill 15420→**27240**、public-fund-full 10320→**22680**(对应 §10 表 #3/#4/#5/#9/#10)。
+> 其余行未动:已应用的 7 行见 §9 / §9.1;`intraday-snapshot` 见 §7.2 用户拍板(3060s)。
+
 ## 4. 怎么应用(本次**未执行**,留给后续上线)
 
 ### 4.1 为什么不能只 `systemctl edit`(drop-in)
 
 仓库有两道一致性检查依赖**主 unit 文件**:
 
-- `scripts/cloud_unit_patrol.sh`(云上每 10min)比对云上 unit 文件 vs 仓库快照 `docs/deploy/systemd-units-cloud-snapshot.txt`,漂移就告警;
+- `scripts/cloud_unit_patrol.sh`(**每日 08:27**:云上 `trade-cloud-unit-patrol.timer` `OnCalendar=*-*-* 08:27:00`)比对云上 `/etc/systemd/system/trade-*.{service,timer}` vs **云上仓库**里的快照 `/home/ubuntu/code/trade-data-signal/docs/deploy/systemd-units-cloud-snapshot.txt`——比对源是**云上仓库**该文件(脚本取 `$GIT_REPO/docs/deploy/...`),**不是本机工作区那份**,漂移就告警;
 - `scripts/main-merge.sh` 用 `systemd_timeout_gradient_audit.py --check-doc` 比对 doc §2 生成源 vs 快照;
 - `systemd_timeout_gradient_audit.py` 读 unit 文件(`--units-dir` / `--dump`),**不读 drop-in**。
 
@@ -123,6 +146,22 @@ systemctl show "$U" -p TimeoutStartUSec        # 应显示建议值
 
 `sudo systemctl show` 回来若是建议值即生效;**不要**在应用后立刻重启 timer,下一轮触发自然生效。
 回滚 = 把 `.bak-20261022` 拷回 + `daemon-reload`。
+
+### 4.2.1 回滚源:临时备份 vs 持久回滚源(2026-10-22 补)
+
+- **云上 `/tmp/timeoutsec-bak-*` 只算临时备份**:云上 `/tmp` 重启即失(不做持久化),不能当唯一回滚依据。
+- **权威回滚源 = git 快照**(仓库内固化,任何时候都能取回):
+  - **原始态**(21 个未设超时的 unit 全部 `TimeoutStartSec=0`):`git show 6fe1c59c2^:docs/deploy/systemd-units-cloud-snapshot.txt`
+    (即 `5a0e654b7` 时的快照;实测 43 条 `TimeoutStartSec` 行中 21 条为 `=0`)。
+  - **第一批应用态**(7 个值,其中 4 个后被复查修正):`git show 6fe1c59c2:docs/deploy/systemd-units-cloud-snapshot.txt`
+  - **修正后 / 当前态**:`git show ced9366b6:docs/deploy/systemd-units-cloud-snapshot.txt`
+- 回滚步骤(目标态换成任意上述 commit 均可):
+  1. 取快照:`git show <commit>:docs/deploy/systemd-units-cloud-snapshot.txt > /tmp/snapshot-target.txt`
+  2. 按 `@@@FILE:<name>` 切出目标 unit 段,写回云上 `/etc/systemd/system/<name>`
+     (写前仍先 `cp -a` 现文件到 `/tmp/timeoutsec-bak-<日期>/`);
+  3. `sudo systemctl daemon-reload`;
+  4. 验:`python3 scripts/systemd_timeout_gradient_audit.py --dump /tmp/snapshot-target.txt --check-snapshot`
+     (云上可直接用 `--units-dir /etc/systemd/system --check-snapshot`),rc=0 即云上已回到目标态。
 
 ### 4.3 同批必做的三件(否则巡检告警/合并被拦)
 
@@ -272,7 +311,7 @@ grep -H '^TimeoutStartSec' /etc/systemd/system/trade-*.service
 本批只调整外层 `TimeoutStartSec`,**不会**改变这条;要不要给 `HEAL_ACTIONS` 的重跑命令加一层显式
 `timeout <秒>`(秒数按 §6.2 实测 max×1.2 定),需要单独评估后另行拍板,不与本批混在一起改。
 
-### 7.2 `intraday-snapshot` 的 3060s 是「会砍掉历史极端长跑」的口径,**应用前需用户拍板**
+### 7.2 `intraday-snapshot` 的 3060s 是「会砍掉历史极端长跑」的口径(**2026-10-22 已拍板 3060s**)
 
 §3 表里 `trade-intraday-snapshot.service` 的建议值是 **3060s(P99 1526.0s×2)**;但同一份样本里
 实测 **max = 5122.6s(85min,该次还是成功的)**,n=1079。两条口径的结果不同:
@@ -282,22 +321,24 @@ grep -H '^TimeoutStartSec' /etc/systemd/system/trade-*.service
 | P99×2(本表建议) | 3060s | 历史上会砍掉 1/1079 次(那次成功的长跑);被杀只少一张快照,10min 后下一轮补 | n=1079 实测 |
 | max×1.2(非本表口径) | ≈6200s | 不砍历史样本;极端挂死时多挂 ~1h 才被杀 | 同上,另需确认 85min 长跑是否正常业务 |
 
-**这两条都要用户拍板后才能应用,实施方不得自行选 3060**:
+**这两条都要用户拍板后才能应用,实施方不得自行选 3060**(拍板结论见下):
 - 选 3060 = 接受「1/1079 概率少一张快照」的取舍;
 - 选 6200 = 接受「极端挂死时外层要等 ~1h」的取舍;
 
 拍板结果要写回本表「建议值/已应用值」列并注明口径,否则后续复核会再次对不上。
 
 > **2026-10-22 复查补**:按 §1 现行规则(历史 max×1.2),`intraday-snapshot` 的规则值是 **6180s**
-> (max 5120s(10-19 09:25 成功长跑)×1.2=6144,向上取整 60 倍数),与旧「max×1.2≈6200」一致;
-> 3060s 已被历史成功长跑反证为不够。**仍待用户拍板,本批不动云上**(§10 复查表同口径标注)。
+> (max 5120s(10-19 09:25 成功长跑)×1.2=6144,向上取整 60 倍数),与旧「max×1.2≈6200」一致。
+
+> **2026-10-22 拍板(最终)**:用户已拍板取 **3060s**(P99×2 口径;接受约 45 天一次长跑被杀,代价 = 少一张快照、
+> 10 分钟后下一轮自动补);**规则值 6180s 不采用,用户拍板优先于规则值**。本批仍未应用到云上(状态见 `#306`)。
 
 ## 8. 后续
 
 - 第一批 7 个已应用并同批完成三处同步(§9);**7 天后(2026-10-29 之后)复核一次**有无 `Failed ... timeout`。
 - 第二批 / 第三批 14 个:按 §10 复查表的值再走一轮「云上改 → 快照 → doc §2」同一批(**本次未应用**)。
 - 3 个无样本 unit(manager / risk / nav)在首次真实运行后按 §10 重算,替换兜底值。
-- `intraday-snapshot` 按 §7.2 等用户拍板(3060 / 6180)后再应用;在此之前**保持现状不改**。
+- `intraday-snapshot` 已按 §7.2 拍板取 **3060s**(2026-10-22);云上应用与第二批一起走(在此之前**保持现状不改**)。
 - 自愈重跑的超时兜底按 §7.1 单独评估(是否给重跑命令加 `timeout`),不在本批范围。
 - 本文 §9 是**已应用事实**(与云上一致);§3 其余 14 行与 §10 仍是**建议**,不构成已应用事实;上线动作与快照/doc 同步必须同一批完成(§4.3)。
 
@@ -350,6 +391,26 @@ stage0 用 `stage0-overview.log`、fapi 用 `fapi_daily_launchd.log`、gold 用 
 - 未 restart / stop / start 任何服务;`daemon-reload` 在盘后 22:58 执行(本机与云上均无盘后定时任务重叠)。
 - 三处同步:云上 unit → 仓库快照(从云上重新 dump,`diff` 仅这 4 行)→ doc §2(`--align-doc` 对齐 4 处);#189 `--check-doc` / `--check-snapshot` 均 rc=0。
 
+### 9.2 脚本头文档时长 vs 实测:7 个已应用值逐个核对(2026-10-22 按 §2.1 第 4 条复查)
+
+口径 = §2.1 第 4 条:**脚本头文档时长与实测全量冲突时,以实测全量为准并注明**。逐个读脚本头(本次只核对,未改 `scripts/` 任何文件):
+
+| unit | 已应用值 | 脚本头写什么 | 实测依据 | 结论 |
+|---|---|---|---|---|
+| `trade-fapi-daily` | 1800s | `fapi_daily_syn.sh` 头无时长描述 | 内层 subprocess 900s(`fapi_bj_width_export.py:76,102`)×2 | 无冲突 |
+| `trade-lof-track-index` | 360s | `fetch_lof_track_index.py` 头无时长描述(只写数据源稳定性) | P99 154.1s(n=1)×2 → 5min 下限取 360 | 无冲突 |
+| `trade-overfit-monitor` | 360s | `overfit_monitor.sh` 头无时长描述(只写时点/依赖) | P99 169.9s(n=20)×2 → 360 | 无冲突 |
+| `trade-pf-score-weekly` | 4140s | `pf_score_weekly.sh:5` 写「全量27409只~2.3h」(≈8280s;×1.2=9936) | **实测全量约 34min**(P99 2052.1s,n=1);4140 = 2052.1×2 | **冲突 → 取实测**(按 §2.1 第 4 条);脚本头 2.3h 明显过时,建议顺手改注释(本批不动代码) |
+| `trade-pf-stage0-overview` | 26820s | `stage0_overview.sh:5` 写「~6.2h」=22320s;×1.2=26784 → 26820 | 历史全量 max 17395s(10-04)×1.2=20874,小于脚本头派生值 | **无冲突**(取两者较大 = 脚本头×1.2) |
+| `trade-backup-db` | 12600s | `backup_db.sh` 头无时长描述(只写备份语义/保留期) | 历史 max 10220s(09-29)×1.2=12264 → 12600 | 无冲突 |
+| `trade-gold-night` | 2700s | `gold_night.sh` 头无时长描述(只写闸门/锁/时点) | 近期正常 max 1336s(10-01)×2=2672 → 2700(例外口径) | 无冲突 |
+
+> 小注:`trade-backup-db` 的历史 max 10220s(09-29)含 R2 下载/上传慢段,已按 §1 例外说明处理;与脚本头无冲突。
+> **gold-night 的 R2 分锁「独立治理项」立案状态(A8 核查)**:在 `docs/pending-features-index.md` grep「分锁」**0 命中**,
+> 「上传锁 / R2 锁」只命中 #129(R2 独占锁事故)/#237(pre-upload 备份)/#258(R2 锁等待计入预算)等**在办条目,均非本条治理项**
+> ⇒ **未立案,建议新立案**,本批已按 B2 登记为 **#308**「R2 上传全局锁独立治理(超时兜底依赖项)」。
+> 在 #308 落地前,gold-night 的 2700s 属**预期内例外**(锁复发时任务被杀 = 外层兜底生效,不因此抬值)。
+
 ## 10. 剩余 14 个未上云 unit:按新规则复查(2026-10-22,**只落文档,未应用**)
 
 口径 = §1 现行规则。历史 max 两路来源:`journalctl`(云上只留 ~7 天)+ `data/logs` **全历史原始 start/end 行配对**(补 `parse_standard` 丢弃的 >3h 轮,见 §2 局限 5);
@@ -362,7 +423,7 @@ stage0 用 `stage0-overview.log`、fapi 用 `fapi_daily_launchd.log`、gold 用 
 | 3 | `trade-futures-backfill.service` | 11102s(09-18 20:05,日志) | 79 | 无 | 13380 | 9960 | **改 → 13380**(原值会砍断 11102s 正常长跑) |
 | 4 | `trade-lhb-backfill.service` | 15510s(09-18,日志) | 79 | 无 | 18660 | 10140 | **改 → 18660**(同上) |
 | 5 | `trade-etf-national-team.service` | 5170s(10-22 13:30→14:56,journal) | 12(journal) | 无 | 6240 | 5400 | **改 → 6240**(日志解析器给的 204s 是完成行「耗时」字段、不是墙钟;journal 才是墙钟) |
-| 6 | `trade-intraday-snapshot.service` | 5120s(10-19 09:25,成功长跑) | 1158 | 无 | 6180 | 3060(待拍板) | **仍待用户拍板**(§7.2),规则值 6180 |
+| 6 | `trade-intraday-snapshot.service` | 5120s(10-19 09:25,成功长跑) | 1158 | 无 | 6180 | 3060 | **已拍板 3060s(2026-10-22,§7.2)**:P99×2 口径,规则值 6180 不采用,用户拍板优先;未上云 |
 | 7 | `trade-lab-auto.service` | 5401s(09-22,日志) | 39 | 无 | 6540 | 10860 | **保持** |
 | 8 | `trade-us-stock-morning.service` | 11678s(09-20,日志) | 38 | 无 | 14040 | 14340 | **保持**(max 更正) |
 | 9 | `trade-turnover-backfill.service` | 7691s(09-24,exit=124=内层超时) | 27 | **13620**(7200+900+2760+2760) | 27240(内层×2) | 15420 | **改 → 27240**(原值只比内层多 1800s,不满足「外层 > 内层×2」) |
@@ -372,15 +433,48 @@ stage0 用 `stage0-overview.log`、fapi 用 `fapi_daily_launchd.log`、gold 用 
 | 13 | `trade-pf-stage0-nav.service` | 无样本 | 0 | 无 | 脚本头无时长(断点续采) | 3600 | **保持**(断点续采,单次封顶只影响进度) |
 | 14 | `trade-pf-stage0-risk.service` | 无样本 | 0 | 无 | 19440(脚本头 4.5h×1.2) | 32400 | **保持**(同 manager) |
 
-**内层看门狗逐个对照(本次 grep 实文)**:14 个里**只有 `trade-turnover-backfill` 有内层 `run_to`**(7200+900+2760+2760=13620s);
-其余 13 个脚本(`update_all.sh` / `backfill_metrics.sh` / `futures_backfill.sh` / `lhb_backfill.sh` / `etf_national_team_backfill.sh` /
-`intraday_snapshot.sh` / `update_lab.sh` / `us_stock_morning.sh` / `public_fund_full.sh` / `public_fund_quarterly.sh` /
-`stage0_manager.sh` / `stage0_nav.sh` / `stage0_risk.sh`)**无 `run_to` / `timeout` 内层看门狗**,外层即唯一墙钟;
-它们调用的 `deploy.sh` 也无内层 `timeout`(grep 确认)。
+**内层超时逐个对照(2026-10-22 补:shell 层 + Python 层实扫)**
+
+> ⚠️ **修正上一版结论**:上一版写「其余 13 个无内层看门狗」,那是**只扫 shell 的结论,不成立**——
+> 它只 grep 了 `run_to` / shell `timeout`。本次按 `grep -rn "subprocess\.\(run\|Popen\|call\|check_output\)" scripts/*.py` 实扫后发现
+> **Python 层普遍存在内层等待**;`systemd_timeout_gradient_audit.py` 的 docstring 也自己写明「Python 侧 subprocess timeout 不计入,
+> 这类 service 判定为无 shell 内层看门狗」⇒ 旧表述只是**工具口径**,不等于这些 unit 真没有内层等待。
+>
+> - **shell 层**:`run_to` 仍然**只有 `trade-turnover-backfill`** 有(7200+900+2760+2760=13620s,`turnover_backfill.sh:128,140,177,181`)。
+> - **Python 层**(与超时兜底直接相关的两类,量级够大):
+>   1. **R2 上传锁排队等待**:`scripts/upload_r2.py:4181,4210`,缺省上限 **7300s**(`R2_UPLOAD_LOCK_TIMEOUT`;带 `--skip-if-locked` 的调用只等 60s 有界窗口(`R2_UPLOAD_SKIP_RETRY_SECS`)后跳过,其余 blocking 调用按 7300s 排队)。
+>   2. **git 锁排队等待**:`scripts/deploy.sh:750` `with_lock.py --block-timeout "${GIT_LOCK_TIMEOUT:-3600}"` ⇒ 最长 **3600s**。
+> - **不构成内层等待的**(已核,免得下一轮重复怀疑):`with_lock.py --nb` 拿不到锁立即跳过(`scripts/with_lock.py` nonblock 分支);
+>   `app/collector/public_fund.py:545,555` 的 `_acquire_lock` 默认 nonblock,撞锁直接放弃;其余 subprocess 超时都是通知/小工具级(≤120s:
+>   `detect_intraday_anomaly.py:290` 120s、`:322` 60s;`check_sentiment_r2_upload.py:159` 60s;`lock_watchdog.py:49` 10s),
+>   相对外层值是 1~2 个数量级以下,不会倒挂。
+> - **无上限(根本没传 timeout)的内层调用**(这类**不提供**内层兜底,外层 `TimeoutStartSec` 就是唯一封顶,与旧结论「外层即唯一墙钟」同向):
+>   `app/collector/index_backfill.py:1145`(`app.compute.runner`)、`:1158`(deploy.sh)、`:1178`(check_signals.sh)subprocess 均不传 timeout;
+>   `app/collector/baostock_parallel.py:201-212` 的 worker 监控是 `while True`(所有 worker 退出才结束,无时限),经 `app/collector/runner.py:412,613` 被 update_all 等主链调用。
+
+| unit | 脚本:行号(内层等待) | 内层值 | 外层要求(=内层×2) | 本表值 / 判断 |
+|---|---|---|---|---|
+| `trade-update-all` | `upload_r2.py:4210`(R2 锁)+ `deploy.sh:750`(git 锁) | 7300 / 3600 | ≥14600 / ≥7200 | 20160 ✓ |
+| `trade-backfill-evening` | `deploy.sh:750`(经 `index_backfill.py:1158` 调 deploy) | 3600 | ≥7200 | 17700 ✓ |
+| `trade-futures-backfill` | `deploy.sh:750`(`futures_backfill.sh:99`) | 3600 | ≥7200 | 13380 ✓ |
+| `trade-lhb-backfill` | `deploy.sh:750`(`lhb_backfill.sh:109`) | 3600 | ≥7200 | 18660 ✓ |
+| `trade-etf-national-team` | `upload_r2.py:4210` + `deploy.sh:750`(`etf_national_team_backfill.sh:124`) | 7300 / 3600 | ≥14600 / ≥7200 | 6240 **⚠ 低于 14600** |
+| `trade-intraday-snapshot` | `upload_r2.py:4210`;通知类 120 / 60 / 10 | 7300 | ≥14600 | 3060(已拍板)**⚠ 低于 14600** |
+| `trade-lab-auto` | `upload_r2.py:4210`(`update_lab.sh:294,311`) | 7300 | ≥14600 | 10860 **⚠ 低于 14600** |
+| `trade-us-stock-morning` | `deploy.sh:750`(`us_stock_morning.sh:71`) | 3600 | ≥7200 | 14340 ✓ |
+| `trade-turnover-backfill` | `turnover_backfill.sh:128,140,177,181`(run_to)+ `upload_r2.py`(env 改 1800) | 13620 / 1800 | ≥27240 / ≥3600 | 27240 ✓ |
+| `trade-public-fund-full` | `deploy.sh:750`(`public_fund_full.sh:89`) | 3600 | ≥7200 | 22680 ✓ |
+| `trade-public-fund-quarterly` | `deploy.sh:750`(`public_fund_quarterly.sh:92`) | 3600 | ≥7200 | 4740 **⚠ 低于 7200** |
+| `trade-pf-stage0-manager` / `-nav` / `-risk` | 无(`public_fund` 锁 nonblock,撞锁跳过) | — | — | 保持 ✓ |
+
+> **⚠ 4 处冲突只登记、不改值(下一批复核)**:上表 4 个 ⚠ = 按「外层 ≥ 内层×2」口径,本表值小于内层等待上限。
+> 但 R2 锁 / git 锁的等待是**合法排队**(共享锁竞争),不是挂死,和 `run_to` 那种「步骤跑不完」性质不同。
+> 是否要这些 unit 一律抬到 14600 / 7200,还是给「锁等待类内层」单列豁免口径,**属口径决策**,
+> 本批不擅自改值(§23.7 版本冻结精神),留待下一批拍板;定了再按 §4.3 同一批同步云上 / 快照 / doc §2。
 
 **被改动的 5 条(上表 #3/#4/#5/#9/#10)汇总**:futures-backfill 9960→13380、lhb-backfill 10140→18660、
 etf-national-team 5400→6240、turnover-backfill 15420→27240、public-fund-full 10320→22680。
-其余 9 条保持原值(#6 仍待拍板;#1/#2/#8 仅更正 max 数字;#7/#11/#12/#13/#14 无变化)。
+其余 9 条保持原值(#6 已拍板 3060s,待上云;#1/#2/#8 仅更正 max 数字;#7/#11/#12/#13/#14 无变化)。
 
 > **口径冲突标注(诚实留痕)**:已设超时的 `trade-s06-snapshot.service`(7020s)内层串行合计 6720s,按本轮「外层 > 内层×2」会要求 13440s。
 > 它属于「已有超时值」的 22 个(不在本次 14 个、也不在 §3 无超时清单),2026-10-22 的 7020s 是审查通过的「内层+300 余量」口径,**本表不改**,留待下一批评估两条口径如何收敛。
