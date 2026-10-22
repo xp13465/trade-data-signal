@@ -15,8 +15,10 @@
 #     动态取不到 ⇒ 回退静态集合并打一行 INFO(不崩、不放行)。
 #   任何 pattern 只要能 fnmatch 命中任一真实 unit(`*` / `trade*` / `*schedule-monitor.timer`
 #   等)就 exit 2, 消息写明会静音哪个真实 unit —— 别指望用更长的通配绕过。
-#   另外, 以 `.service` / `.timer` / `.socket` 结尾且字面前缀不排除 trade- 的模式
-#   (`*.socket` 等)同样拒绝: 即使当前还没有该后缀的真实 unit, 也不给未来新增 unit 留静音口子。
+#   另外, 命名空间判据用三个真实探针 unit(`trade-zzz.service` / `.timer` / `.socket`)
+#   与真实 unit 全集走**同一个** fnmatch 实测: 只要某种写法能命中 trade-* 项目的命名空间
+#   (`*.socket` / `*ocket` / `*[.]socke*` 等)就 exit 2 —— 即使当前还没有该后缀的真实 unit,
+#   也不给未来新增 unit 留静音口子。
 #   白名单只允许「系统/第三方」unit; 本项目 unit 失败必须走告警, 不得为安静而降等级。
 #
 # 收录依据: docs/ops/failed-units-rca-20261022.md(fwupd-refresh.service = OS 侧 LVFS
