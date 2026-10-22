@@ -57,6 +57,10 @@ LIB = ROOT / "scripts" / "lib" / "nav_bucket_refresh.sh"
 DAILY = ROOT / "scripts" / "public_fund_daily.sh"
 WITH_LOCK = ROOT / "scripts" / "with_lock.py"
 HOOK = ROOT / "scripts" / "nav_refresh_lock_timeout_mark.sh"
+TESTS_DIR = Path(__file__).absolute().parent
+
+# 子进程桩目录(session fixture 填入, 见 _ci_stub_pythonpath): None = 尚未建立
+_STUB_PYTHONPATH = None
 
 # 固定日期(不取今天: §18 L51 —— 被测代码按 **DB 最新净值日** 推窗口, 不依赖运行时钟)
 D0, D1, D2 = "20260202", "20260203", "20260204"
@@ -82,11 +86,46 @@ def _make_db(path: Path, rows) -> None:
     conn.close()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _ci_stub_pythonpath(tmp_path_factory):
+    """给**裸子进程**也装 CI 缺省第三方库 stub(与 conftest 同一事实源 scripts/tests/_ci_stubs.py)。
+
+    为什么必须: CI ⑧ 只装 pytest + pyyaml + numpy/pandas/pyarrow(见 .github/workflows/ci.yml
+    `pip install` 行), **不装 requests**; 本文件的 `_full_export` / `_refresh` 起子进程跑生产
+    脚本 export_fund_nav.py, 它顶层 `from app.collector.public_fund import DB_PATH, ...`
+    → app/collector/base.py `import requests`。conftest 的 stub 只作用于 pytest **进程内**,
+    子进程不加载 conftest ⇒ CI 上 ModuleNotFoundError; 本机 venv 装了真 requests ⇒ 假绿
+    (2026-10-22 主干 CI run #924 红; 同型事故见 _ci_stubs.py 头注 CI #727 / §18 L49)。
+
+    做法: 造一个只含 sitecustomize.py 的目录注入 PYTHONPATH —— 子进程启动时 site 模块自动
+    执行 sitecustomize, 调 install_missing_third_party_stubs(); 本地装了真库时 find_spec
+    命中 ⇒ 不 stub, 保持与生产同构。⇒ 用例不再依赖「本机有没有 requests」(§5.8 上线关)。
+    """
+    global _STUB_PYTHONPATH
+    d = tmp_path_factory.mktemp("ci_stubs")
+    (d / "sitecustomize.py").write_text(
+        "import sys\n"
+        f"sys.path.insert(0, {str(TESTS_DIR)!r})\n"
+        "from _ci_stubs import install_missing_third_party_stubs\n"
+        "install_missing_third_party_stubs()\n",
+        encoding="utf-8",
+    )
+    prev = _STUB_PYTHONPATH
+    _STUB_PYTHONPATH = str(d)
+    yield d
+    _STUB_PYTHONPATH = prev
+
+
 def _run(cmd, env=None, cwd=None, timeout=180):
     e = dict(os.environ)
     e.setdefault("PYTHONIOENCODING", "utf-8")
     if env:
         e.update(env)
+    if _STUB_PYTHONPATH:
+        # 子进程沿用同一套 CI 桩(见 _ci_stub_pythonpath); 不覆盖调用方自带的 PYTHONPATH
+        e["PYTHONPATH"] = os.pathsep.join(
+            [p for p in (_STUB_PYTHONPATH, e.get("PYTHONPATH", "")) if p]
+        )
     return subprocess.run(cmd, capture_output=True, text=True, errors="replace",
                           env=e, cwd=cwd, timeout=timeout)
 
