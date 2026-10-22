@@ -1573,7 +1573,7 @@ TimeoutStartSec=0
 | sentiment | com.trade.sentiment(launchd/ 目录) | 同上,历史遗留(旧 scheduler 入口) |
 
 ### 2.37 r2-consistency(每日 23:20,#160 §22 三站一致性巡检)
-> 追加于 2026-10-05:本任务是 `check_r2_consistency.sh`(包装既有 `check_r2_consistency.py`,D5 P0-1 / #160)的**调度器挂载**,非迁移批新增(无 launchd 源)。此前该审计器全仓无调度点(§22 HTTP 层一致性零自动校验)。判定=local / R2直链(ssd) / CF r2-proxy(ss/r2) / 主站同源(ss/data) 四源指纹比对 9 个核心产物;rc!=0 → notify --severe --dedup-key r2_consistency_fail --dedup-window 21600。**仅告警不阻断**(不在任何推送链上)。
+> 追加于 2026-10-05:本任务是 `check_r2_consistency.sh`(包装既有 `check_r2_consistency.py`,D5 P0-1 / #160)的**调度器挂载**,非迁移批新增(无 launchd 源)。此前该审计器全仓无调度点(§22 HTTP 层一致性零自动校验)。判定=三站(R2直链(ssd) / CF r2-proxy(ss/r2) / 主站同源(ss/data))两两互比 9 个核心产物;局部 local 源树差异只打 `[INFO]`、不进 rc 不发告警(#279 方案 A,2026-10-22);三站不一致或某站 404/读取失败 rc!=0 → notify --severe --dedup-key r2_consistency_fail --dedup-window 21600。**仅告警不阻断**(不在任何推送链上)。
 > - script:`check_r2_consistency.sh` → `check_r2_consistency.py`(**需主控 merge 后在云上 git pull 才存在**)
 > - 时点依据(§14):23:20 在 23:00 安全窗口内、当日晚链终态后(overfit 21:40 / public-fund-full 22:00 / nextday-plan 22:30 / check-data-gap 22:35);23 点档无其他 trade timer,已避开 hdszf cron(:07/:37)
 > - 每日跑**不限交易日**:「各源一致」是不变量,周末被外部覆盖同样要抓 → timer `*-*-*`(非 Mon..Fri)

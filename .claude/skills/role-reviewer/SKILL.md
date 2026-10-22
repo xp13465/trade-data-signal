@@ -42,7 +42,7 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 ## 4. 数据校验口径(2026-10-19 #267 批2 M4:数据校验**主责归 tester**,本节降为 reviewer 侧引用口径)
 > **切割**:数据校验(curl 三查 / §22 多展示位同值 / `check_data_integrity`·`check_r2_consistency`)**主责归 tester**(见 tester skill §0/§2);reviewer **不重复跑**,只在影响面审查需要时引用 tester 结论。本节保留 = 让你知道 tester 会核什么,便于接口对齐。
 - check_data_integrity.py:deploy.sh 前置,校验关键 JSON"该有的数据在不在"(缺失/滞后/空 key 超标即 FAIL)
-- check_r2_consistency.py:本地 static-site vs R2 一致性审计
+- check_r2_consistency.py:三站(R2 直链/CF r2-proxy/主站同源)两两互比一致性审计(判定层);local 源树差异仅提示(local 落后 ⇒ INFO, local 领先 ⇒ WARN), 不计 rc
 - C 级改动必验:本地 static-site + R2 + CF 三处同值(§22 一致性铁律)
 - 2026-08-06 教训:`board_etf_map.json` 因 `etf_index_map.json` 缺失常 27/72 空数组,致指数表现模块 ETF 全失效("全部无ETF")用户发现时已上线。根因=数据产物损坏无校验拦截
 

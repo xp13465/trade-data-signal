@@ -33,8 +33,15 @@
 #   半完成态(§23.11/main-merge-fail)。独立日巡检:采样点在稳定态、零 deploy 爆炸
 #   半径,且覆盖「deploy 根本没跑 / R2 被外部覆盖」的持续态(10-02 类正是持续态)。
 #
-# 判定/出口: check_r2_consistency.py rc!=0(local/R2直链/CF r2-proxy/主站同源 四源
-#   指纹不一致,或某源拉取失败)→ notify --severe(去重 6h);rc=0 静默(仅日志)。
+# 判定/出口(#279 方案 A, 2026-10-22 用户拍板):
+#   判定层 = 三站两两互比(R2直链 / CF r2-proxy / 主站同源), 任两站不一致或某站
+#   404/缺文件/读取失败 ⇒ rc=1 → notify --severe(去重 6h), 真故障判别维度不降。
+#   提示层 = local 源树 vs 三站差异, 按方向分措辞, **不进 rc、不发告警**:
+#     local 落后 ⇒ [INFO] local 落后于三站(部署可能未完成/被跳过);
+#     local 领先 ⇒ [WARN] local 领先三站(疑似上传漏传/滞后)——方向相反必须明确提示;
+#     无可比时点字段 ⇒ [INFO] 方向不明(不硬扣「落后」帽子)。
+#   (旧口径把 local 当第 4 源直接比, 部署闸门跳过 rsync 时误报 severe, #279)。
+#   rc=0 静默(仅日志, 每轮含一行 [SUMMARY] + local方向=落后|领先|一致 供事后核对)。
 #   **preflight 跳过**(update-all 在跑)也是 rc=0 + 静默, 但日志留 [preflight-skip] 痕。
 #   连续 2 天 FAIL 由 notify.py 侧 R7① 升级 critical(见 alert_denoise_rules.py:r7_*)。
 #   仅告警不阻断: 本检查不在任何推送链上,不存在"阻断谁"的动作,告警即收敛口。
@@ -111,7 +118,7 @@ if update_all_running; then
 fi
 
 # 相对路径走 trade-data/scripts symlink(merge 即生效,与全站任务同哲学)。
-# 超时 900s: 全量四源×(9 产物)HTTP 拉取, 大件(concepts 32.6MB / accum_nav 26MB)
+# 超时 900s: 全量三站×(9 产物)HTTP 拉取(local 仅本地读), 大件(concepts 32.6MB / accum_nav 26MB)
 # 在云上秒级, 900s 为宽余(含单源 2 次重试的 12s 超时窗口)。
 OUT="$(run_to 900 "$PY" scripts/check_r2_consistency.py --quiet 2>&1)"
 RC=$?
@@ -122,9 +129,9 @@ if [ "$RC" -ne 0 ]; then
   BODY="$(printf '%s\n' "$OUT" | sed -n '/项问题/,$p' | head -12)"
   [ -z "$BODY" ] && BODY="$(printf '%s\n' "$OUT" | tail -8)"
   BODY_ESC="$(printf '%s' "$BODY" | sed 's/&/\&amp;/g; s/</\&lt;/g' | tr '\n' '|')"
-  echo "✗ §22 多源一致性校验失败 rc=${RC},发 severe 告警" >> "$LOG"
+  echo "✗ §22 三站一致性校验失败 rc=${RC},发 severe 告警" >> "$LOG"
   "$PY" scripts/notify.py "[告警] §22 三站一致性校验失败" \
-    "check_r2_consistency 检出 local / R2直链 / CF r2-proxy / 主站同源 多源不一致或某源拉取失败(rc=${RC})。<br>${BODY_ESC}<br>脚本: scripts/check_r2_consistency.py &nbsp;日志: ${LOG}" \
+    "check_r2_consistency 检出 三站(R2直链 / CF r2-proxy / 主站同源)互不一致或某站 404/读取失败(rc=${RC})。<br>${BODY_ESC}<br>脚本: scripts/check_r2_consistency.py &nbsp;日志: ${LOG}" \
     --severe --from-prefix "[告警]" --dedup-key r2_consistency_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
 fi
 
