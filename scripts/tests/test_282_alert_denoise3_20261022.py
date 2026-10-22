@@ -185,12 +185,21 @@ def _load_stall_direct_block() -> str:
     return py_src[start:end]
 
 
+class _TmpDirUnavailable:
+    """MF5 打桩: 模拟磁盘满(ENOSPC) —— mkdtemp 直接抛 OSError。"""
+
+    @staticmethod
+    def mkdtemp(prefix=""):
+        raise OSError(28, "No space left on device")
+
+
 def _run_stall_direct(lines: list[str], state: dict, state_pre: dict,
-                      status: dict) -> dict:
+                      status: dict, mkdtemp_raises: bool = False) -> dict:
     """执行真实停摆直发块; subprocess.run 打桩为「按 status 写 --result-file」。
 
     返回 {alerts, alert_state, stderr, cmds}。status={"v": "sent"/"suppressed"/"failed"/""}
     —— "" 表示不写结果文件(模拟旧版 notify/写失败)。
+    mkdtemp_raises=True: tempfile.mkdtemp 抛 OSError(ENOSPC), 验 MF5 fail-open。
     """
     import contextlib
     import io
@@ -212,7 +221,8 @@ def _run_stall_direct(lines: list[str], state: dict, state_pre: dict,
     from notify_sent import notify_sent as _ns
     ns = {
         "adr": adr, "sys": sys, "json": json, "shutil": __import__("shutil"),
-        "tempfile": _tempfile, "Path": Path, "REPO": ROOT,
+        "tempfile": (_TmpDirUnavailable if mkdtemp_raises else _tempfile),
+        "Path": Path, "REPO": ROOT,
         "MONITOR_LOG": ROOT / "data" / "logs" / "schedule_monitor_launchd.log",
         "subprocess": types.SimpleNamespace(run=_run, SubprocessError=Exception),
         "notify_sent": _ns, "alerts": list(lines), "alert_state": state,
@@ -223,6 +233,64 @@ def _run_stall_direct(lines: list[str], state: dict, state_pre: dict,
         exec(compile(_load_stall_direct_block(), "<monitor:stall-direct>", "exec"), ns)
     return {"alerts": ns["alerts"], "alert_state": ns["alert_state"],
             "stderr": buf.getvalue(), "cmds": cmds}
+
+
+class _AdrShim:
+    """adr 的薄代理: 只需覆写 alert_budget_process(避免测试触碰真实台账/预算)。"""
+
+    def __getattr__(self, name):
+        return getattr(adr, name)
+
+    @staticmethod
+    def alert_budget_process(state, alerts, now, repo):
+        return (list(alerts), [])
+
+
+def _run_stall_direct_with_save(lines: list[str], state: dict, state_pre: dict,
+                                mkdtemp_raises: bool = False) -> dict:
+    """MF5: 执行「真实直发块 + 紧随的 save_alert_state」, 验证异常时后续落盘仍执行。
+
+    与 _run_stall_direct 的区别: 抽取范围延伸到 `save_alert_state(alert_state)`,
+    用桩记录落盘调用 —— 断言「磁盘满时 save 仍被调用 + 告警仍回批」。
+    """
+    import contextlib
+    import io
+    import tempfile as _tempfile
+
+    py_src = _monitor_py_src()
+    start = py_src.index("_stall_batch = []")
+    _tail = "save_alert_state(alert_state)"
+    end = py_src.index(_tail, start) + len(_tail)
+    block = py_src[start:end]
+
+    cmds: list[list[str]] = []
+    saved: list[dict] = []
+
+    def _run(cmd, **kw):
+        cmds.append([str(c) for c in cmd])
+        rf = Path(cmd[cmd.index("--result-file") + 1])
+        rf.parent.mkdir(parents=True, exist_ok=True)
+        rf.write_text(json.dumps({"status": "sent"}, ensure_ascii=False), encoding="utf-8")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    def _save(st):
+        saved.append({k: dict(v) if isinstance(v, dict) else v for k, v in st.items()})
+
+    from notify_sent import notify_sent as _ns
+    ns = {
+        "adr": _AdrShim(), "sys": sys, "json": json, "shutil": __import__("shutil"),
+        "tempfile": (_TmpDirUnavailable if mkdtemp_raises else _tempfile),
+        "Path": Path, "REPO": ROOT,
+        "MONITOR_LOG": ROOT / "data" / "logs" / "schedule_monitor_launchd.log",
+        "subprocess": types.SimpleNamespace(run=_run, SubprocessError=Exception),
+        "notify_sent": _ns, "alerts": list(lines), "alert_state": state,
+        "NOW": datetime.now(), "_STATE_PRE": state_pre, "save_alert_state": _save,
+    }
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        exec(compile(block, "<monitor:stall-direct+save>", "exec"), ns)
+    return {"alerts": ns["alerts"], "alert_state": ns["alert_state"],
+            "stderr": buf.getvalue(), "cmds": cmds, "saved": saved}
 
 
 def _load_active_escalate_inprocess(tmp_path: Path):
@@ -261,6 +329,37 @@ def _load_active_escalate_inprocess(tmp_path: Path):
     }
     exec(compile(code, "<monitor:_active_escalate>", "exec"), ns)
     return ns["_active_escalate"], events
+
+
+def _load_extra_stale_loop() -> str:
+    """取 monitor 里 EXTRA 任务停摆检测循环的**真实源码段**(模块级 for, 非函数)。"""
+    src = _monitor_py_src()
+    tree = ast.parse(src)
+    # 循环嵌在模块级 with/try 块内, 不能用 tree.body(只扫顶层)
+    for node in ast.walk(tree):
+        seg = ast.get_source_segment(src, node)
+        if (isinstance(node, ast.For) and seg
+                and "EXTRA_MARKER_STALE_LOOPS[_et]" in seg):
+            return seg
+    raise AssertionError("monitor 源码中找不到 EXTRA 停摆循环(行文/结构已漂移)")
+
+
+def _run_extra_stale_loop(state: dict, stats: list[dict], now: datetime,
+                          loops: dict) -> tuple:
+    """跑真实 EXTRA 停摆循环; _active_escalate 打桩记录调用(零外发)。"""
+    escalates: list[tuple] = []
+    ns = {
+        "stats": stats,
+        "EXTRA_MARKER_STALE_LOOPS": loops,
+        "NOW": now,
+        "datetime": datetime,
+        "alerts": [],
+        "alert_state": state,
+        "seen_keys_this_run": set(),
+        "_active_escalate": lambda entry, key, label: escalates.append((key, label)),
+    }
+    exec(compile(_load_extra_stale_loop(), "<monitor:extra-stale>", "exec"), ns)
+    return ns, escalates
 
 
 # ══════════════════════════ 0. 先证明沙箱判定生效 ══════════════════════════
@@ -317,6 +416,21 @@ def test_a_stall_line_markers_real_lines(iso):
         _chk(adr.stall_state_key(line) == f"{task}|extra_stale",
              f"EXTRA 回滚状态键应对齐 monitor 写法: {adr.stall_state_key(line)}")
 
+    # R2 建议(2026-10-22): 新任务名格式/行文变体不得静默降级进普通批次。
+    # 原正则 `[A-Za-z0-9_.\-]+` + 精确 `停摆(超Nh 未运行)` 会把下列行漏判成普通告警。
+    variants = [
+        ("fetch_news_v2.beta-1", "超4h"),
+        ("采集-新闻@v2", "超 4.5h"),
+        ("gen_daily_brief:night", "超26h"),
+        ("intraday_snapshot", "超2.5h"),
+    ]
+    for task, threshold in variants:
+        line = f"SEVERE: {task} 停摆({threshold} 未运行) last_run=2026-10-22 06:00"
+        _chk(adr.stall_line_key(line) == f"stall|extra_stale|{task}",
+             f"新任务名/行文变体被降级: {line!r} → {adr.stall_line_key(line)}")
+        _chk(adr.stall_state_key(line) == f"{task}|extra_stale",
+             f"新任务名变体的状态键须与 monitor 写法一致: {task}")
+
     _chk(adr.stall_line_key(sd) == "staticdata_backup_stale",
          f"真实 staticdata 心跳停摆行 → {adr.stall_line_key(sd)}")
     _chk(adr.stall_state_key(sd) == "staticdata_backup_stale")
@@ -354,10 +468,13 @@ def test_a_extra_context_reads_task_state(iso):
     """MF1: EXTRA 停摆正文三字段从 `{task}|extra_stale` 状态回查(不是合成去重键)。"""
     _write_json(iso["tmp"] / "data" / "alert_state.json", {
         "fetch_news|extra_stale": {"first_seen": "2026-10-21 03:00:00",
+                                   "consecutive_count": 2,
                                    "suppress_count": 2},
     })
     ctx = adr.stall_context("stall|extra_stale|fetch_news", iso["tmp"])
     _chk(ctx["first_seen"] == "2026-10-21 03:00:00", f"首次发生应取任务状态: {ctx}")
+    # MF6(2026-10-22): 连续失败次数必须读状态里的 consecutive_count, 不许恒「未知」
+    _chk(ctx["consecutive"] == 2, f"连续失败次数应取任务状态 2: {ctx}")
     _chk("fetch_news" in ctx["impact"], f"影响产物必须点名任务: {ctx}")
     _chk("staticdata" not in ctx["impact"], f"不得串成 staticdata 影响: {ctx}")
 
@@ -375,6 +492,7 @@ def test_a_omission_guard_all_producer_keys_classified():
         "agent_done_": "agent 完成通知按键名动态, 非告警",
         "r2_upload_async_skip:": "按锁路径动态跳过键, 非停摆",
         "p0_smoke_": "测试用键",
+        "self_heal_repeat_fail_": "自愈连续失败提醒按任务动态(self_heal.sh 自愈通道, 非发布/备份停摆)",
     }
     pats = [
         r'--dedup-key"?\s*,\s*"([A-Za-z0-9_|.:-]+)"',
@@ -398,8 +516,11 @@ def test_a_omission_guard_all_producer_keys_classified():
                 k = m.group(1).rstrip(":")
                 if "_" in k:
                     found.add(k)
+    # 文档串里写作 `<task>` 的动态键会被静态正则当成字面量收进来(self_heal_core.py docstring
+    # 的 `--dedup-key self_heal_repeat_fail_<task>`): 已登记动态前缀的一律按动态键处理。
     unclassified = {k for k in found
-                    if k not in adr.STALL_KEYS and k not in adr.NON_STALL_KEYS}
+                    if k not in adr.STALL_KEYS and k not in adr.NON_STALL_KEYS
+                    and not any(k.startswith(x) for x in dynamic_prefixes)}
     _chk(not unclassified, f"未登记的新 dedup key(必须判停摆/非停摆): {sorted(unclassified)}")
     for pre in dynamic:
         _chk(any(pre.startswith(x) for x in dynamic_prefixes),
@@ -744,6 +865,23 @@ def test_b_monitor_wiring_and_comment_consistency():
          "suppressed 必须视为已处置(不回批/不回滚)")
     _chk("adr.stall_state_key(_line)" in src,
          "回滚状态键必须走 adr.stall_state_key(EXTRA 任务键才会被正确回滚)")
+    # MF5(2026-10-22): mkdtemp 必须在 try 内 + _st_rf 先置 None + finally 空值守卫,
+    # 否则磁盘满(ENOSPC)时 OSError 逃逸整块 ⇒ 本轮全部告警(含磁盘告警自己)全丢。
+    _chk("_st_rf = None" in src, "MF5: _st_rf 必须先置 None(清理守卫用)")
+    _chk('        _st_rf = Path(tempfile.mkdtemp(prefix="stall-direct-"))'
+         in src, "MF5: mkdtemp 必须在 try 内(缩进 8 空格)")
+    _chk(src.index("_st_rf = None") < src.index('_st_rf = Path(tempfile.mkdtemp('),
+         "MF5: 初始化必须早于 mkdtemp")
+    _chk("if _st_rf is not None:" in src, "MF5: finally 清理必须先判 _st_rf 非空")
+    _chk('_st_status = "failed"' in src and
+         src.index('_st_status = "failed"') < src.index('_st_rf = Path(tempfile.mkdtemp('),
+         "MF5: mkdtemp 失败必须落到 fail-open 回批(默认 failed)")
+    # MF6(2026-10-22): EXTRA 停摆状态首建记 consecutive_count=1, active 分支递增
+    _ext_start = src.index("alert_state[_stale_key] = {")
+    _chk('"consecutive_count": 1,' in src[_ext_start:_ext_start + 700],
+         "MF6: EXTRA 停摆状态须首建 consecutive_count=1")
+    _chk('_ex_stale["consecutive_count"] = int(_ex_stale.get("consecutive_count") or 0) + 1'
+         in src, "MF6: EXTRA active 分支须递增连续次数")
 
 
 # ══════════════════════════ D. 停摆直发 status 语义(MF3) ══════════════════════════
@@ -796,6 +934,86 @@ def test_d_ordinary_line_untouched_by_stall_block(iso):
     out = _run_stall_direct([line], {}, {}, {"v": "sent"})
     _chk(out["alerts"] == [line], "普通行必须原样留在普通批次")
     _chk(out["cmds"] == [], "普通行不得触发停摆直发子进程")
+
+
+# ══════════════════════════ E. MF5/MF6 磁盘满与连续次数 ══════════════════════════
+def test_e_mkdtemp_enospc_keeps_whole_round(iso):
+    """MF5: 磁盘满(ENOSPC)注入 —— 直发块不逃逸, 普通告警与停摆告警都仍回批。"""
+    stall_line = _real_extra_line("fetch_news", 4)
+    ordinary = "SEVERE: 主机磁盘 / 使用率 98%(SEVERE 阈值)"
+    state = {"fetch_news|extra_stale": {"status": "active"}}
+    out = _run_stall_direct([stall_line, ordinary], state, {}, {"v": "sent"},
+                            mkdtemp_raises=True)
+    _chk(len(out["alerts"]) == 2,
+         f"mkdtemp 失败不得丢任何一行(本轮整轮告警全丢=MF5): {out['alerts']}")
+    _chk(stall_line in out["alerts"], "停摆行必须 fail-open 回批")
+    _chk(ordinary in out["alerts"], "同批普通告警(含磁盘告警本身)不得被吞")
+    _chk(out["cmds"] == [], f"mkdtemp 已失败, 不应再起子进程: {out['cmds']}")
+    _chk("[warn]" in out["stderr"], "必须打 warn 留痕(磁盘满)")
+    _chk("fetch_news|extra_stale" not in out["alert_state"],
+         "回批后须回滚本轮新写状态(下轮重试)")
+
+    # 真实行文反证: 同轮磁盘满告警本身也必须仍能被识别为普通批次行
+    _chk(adr.stall_line_key(ordinary) is None, "普通磁盘告警不得被误判成停摆级")
+
+
+def test_e_enospc_still_saves_state_and_sends(iso):
+    """MF5: mkdtemp 抛 OSError 时, 后续 save_alert_state 仍执行、普通行仍留在批次发送。"""
+    stall_line = _real_extra_line("fetch_news", 4)
+    ordinary = "SEVERE: backfill_evening exit=1 单次失败"
+    state = {"fetch_news|extra_stale": {"status": "active"}}
+    out = _run_stall_direct_with_save([stall_line, ordinary], state, {}, mkdtemp_raises=True)
+    _chk(len(out["saved"]) == 1, f"save_alert_state 必须仍被调用(异常不得逃逸整块): {out['saved']}")
+    _chk(out["alerts"] == [ordinary, stall_line],
+         f"普通行 + 回批停摆行都须进入后续批次: {out['alerts']}")
+    _chk(out["cmds"] == [], "mkdtemp 失败时不得起发送子进程")
+
+
+def test_e_enospc_absent_control_still_direct_sends(iso):
+    """MF5 判别力: mkdtemp 正常时 sent ⇒ 不回批(证明上两条红不是恒真)。"""
+    stall_line = _real_extra_line("fetch_news", 4)
+    ordinary = "SEVERE: backfill_evening exit=1 单次失败"
+    state = {"fetch_news|extra_stale": {"status": "active"}}
+    out = _run_stall_direct_with_save([stall_line, ordinary], state, {}, mkdtemp_raises=False)
+    _chk(out["alerts"] == [ordinary], f"正常直发成功不得回批: {out['alerts']}")
+    _chk(len(out["saved"]) == 1 and len(out["cmds"]) == 1,
+         f"正常路径: 一次发送 + 一次落盘, 实得 {out['cmds']} / {out['saved']}")
+
+
+def test_e_extra_stall_consecutive_count_real_loop(iso):
+    """MF6: 跑真实 EXTRA 停摆循环 —— 首报 1、持续递增、恢复重建从 1 起, 正文不再「未知」。"""
+    now = datetime(2026, 10, 22, 12, 0, 0)
+    loops = {"fetch_news": timedelta(hours=4)}
+    stats = [{"task": "fetch_news", "last_run": "2026-10-22 01:00"}]
+    key = "fetch_news|extra_stale"
+    state: dict = {}
+
+    ns1, esc1 = _run_extra_stale_loop(state, stats, now, loops)
+    _chk(len(ns1["alerts"]) == 1 and "fetch_news 停摆" in ns1["alerts"][0],
+         f"首轮须发停摆告警: {ns1['alerts']}")
+    _chk(key in ns1["seen_keys_this_run"], "首轮须标 seen(防误恢复)")
+    _chk(state[key]["consecutive_count"] == 1, f"首报连续次数应为 1: {state[key]}")
+    _chk(esc1 == [], "首报不走 active 升级(还没 active)")
+
+    ns2, esc2 = _run_extra_stale_loop(state, stats, now + timedelta(minutes=15), loops)
+    _chk(ns2["alerts"] == [], "持续中不重发普通告警")
+    _chk(state[key]["consecutive_count"] == 2, f"第二轮连续次数应递增为 2: {state[key]}")
+    _chk(len(esc2) == 1 and esc2[0][0] == key, f"active 分支须走 _active_escalate: {esc2}")
+
+    _run_extra_stale_loop(state, stats, now + timedelta(minutes=30), loops)
+    _chk(state[key]["consecutive_count"] == 3, f"第三轮应为 3: {state[key]}")
+
+    # 正文三字段: 连续失败次数读真实状态(不许「未知」)
+    _write_json(iso["tmp"] / "data" / "alert_state.json", {key: state[key]})
+    ctx = adr.stall_context("stall|extra_stale|fetch_news", iso["tmp"])
+    _chk(ctx["consecutive"] == 3, f"正文应显示连续 3 轮: {ctx}")
+    body = adr.format_stall_body("原始正文", ctx)
+    _chk("连续失败: 3" in body, f"正文连续失败不得为「未知」: {body[:200]}")
+
+    # 任务恢复 ⇒ 状态键被主恢复循环删除; 再停摆 = 重建从 1 起
+    state.clear()
+    _run_extra_stale_loop(state, stats, now + timedelta(hours=6), loops)
+    _chk(state[key]["consecutive_count"] == 1, f"恢复后重建应从 1 起: {state[key]}")
 
 
 # ══════════════════════════ C. 抑制/合并审计台账 ══════════════════════════

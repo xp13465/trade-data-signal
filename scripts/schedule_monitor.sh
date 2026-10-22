@@ -1404,8 +1404,14 @@ if STATS_FILE.exists():
                     "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                     "keyword": "extra_stale",
                     "line_sample": f"last_run={_elr}",
+                    # #282 审查 MF6(2026-10-22): 首次即记连续轮次, 否则停摆正文
+                    # 「连续失败」恒为「未知」(评估报告 §7.3 三字段硬要求)。
+                    "consecutive_count": 1,
                 }
             else:
+                # MF6: active = 停摆持续, 每轮 +1(监控 15min 一轮)。恢复后状态键删除,
+                # 下次重建从 1 起 —— 与其它通道的 consecutive_count 语义一致。
+                _ex_stale["consecutive_count"] = int(_ex_stale.get("consecutive_count") or 0) + 1
                 _active_escalate(_ex_stale, _stale_key, f"{_et} 停摆告警")
         # #228 M1(2026-10-07): EXTRA 任务「轮次完整性」通道 —— 判「本轮开始了没跑完」。
         # 与上面停摆通道天然互斥: 停摆 = 无开始标记(round_state='no_start'); 完整性 = 有开始
@@ -3060,10 +3066,16 @@ for _line, _sk in _stall_batch:
     # 「被 2h 去重窗抑制」也会被判成未送达 ⇒ 回普通批次(回批没有 dedup key ⇒ 2h 去重
     # 形同虚设、可能重复外发) + 每轮打 warn + 回滚本轮新 active 状态。
     # 口径: sent/suppressed = **已处置**(不回批、不回滚); 其余(failed/未知)才 fail-open 回批。
-    _st_rf = Path(tempfile.mkdtemp(prefix="stall-direct-")) / "notify_result.json"
+    # #282 审查 MF5(2026-10-22): mkdtemp 原先在 try **之外** —— 磁盘满(ENOSPC)/FD 耗尽
+    #   时 OSError 会逃逸整个直发块: 本轮 alerts 不发送、save_alert_state 不执行, 连磁盘/FD
+    #   告警自己都被吞(且磁盘满时每 15min 复现)。现改为: _st_rf 先置 None、mkdtemp 进 try,
+    #   失败保持 _st_status="failed" ⇒ 按文本判据 fail-open 回批(宁多勿吞, 绝不丢弃);
+    #   finally 只在 _st_rf 非空时清理, 且清理自身失败也绝不外抛(告警主路径优先)。
+    _st_rf = None
     _st_status = "failed"
     _r_st = None
     try:
+        _st_rf = Path(tempfile.mkdtemp(prefix="stall-direct-")) / "notify_result.json"
         _r_st = subprocess.run(
             [sys.executable, str(REPO / "scripts" / "notify.py"),
              f"[告警] {_stripped[:120]}", _stripped,
@@ -3085,7 +3097,12 @@ for _line, _sk in _stall_batch:
     except (OSError, subprocess.SubprocessError) as _st_e:  # noqa: BLE001
         print(f"[warn] 停摆直发子进程异常: {_st_e}", file=sys.stderr)
     finally:
-        shutil.rmtree(_st_rf.parent, ignore_errors=True)
+        if _st_rf is not None:
+            try:
+                shutil.rmtree(_st_rf.parent, ignore_errors=True)
+            except OSError:
+                # 清理失败(含 /tmp/stall-direct-* 残留)也不许冒泡 —— 仅打印留痕
+                print(f"[warn] 停摆直发临时目录清理失败: {_st_rf.parent}", file=sys.stderr)
     if _st_status in ("sent", "suppressed"):
         print(f"[stall-direct] 停摆级已独立直发({_st_status}): {_stripped[:100]}")
     else:

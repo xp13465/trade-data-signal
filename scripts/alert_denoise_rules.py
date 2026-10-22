@@ -1348,7 +1348,10 @@ STALL_LINE_MARKERS = (
 #      → 按行首任务名合成独立键族 `stall|extra_stale|<task>`(每个任务各发各的);
 #   ② staticdata 心跳停摆: 行内**同时**有 staticdata 与「停摆」(schedule_monitor.sh:1743)
 #      → 只认这份自身行文, 不再吃泛化「停摆」(否则 EXTRA 行会被抢判)。
-_EXTRA_STALL_RE = re.compile(r"^(?P<task>[A-Za-z0-9_.\-]+) 停摆\(超\d+h 未运行\)")
+# ⚠️ #282 审查 R2 建议(2026-10-22): 任务名由 `[A-Za-z0-9_.\-]+` 放宽为 `\S+`, 阈值放宽为
+#   `\S+` —— 新 EXTRA 任务名(含中文/冒号/@ 等)或行文微调(超 4.5h / 多空格)不再静默降级
+#   进普通批次。任务名仍原样取用 ⇒ 与 schedule_monitor 的 `{task}|extra_stale` 状态键一致。
+_EXTRA_STALL_RE = re.compile(r"^(?P<task>\S+)\s+停摆\(\s*超\s*\S+\s+未运行\s*\)")
 _STATICDATA_STALL_RE = re.compile(r"staticdata.*停摆")
 
 
