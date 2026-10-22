@@ -8,7 +8,9 @@
   ② 「兜底巡检」cron 才有 `recurring: True`;
   ③ `createdAt` 是**毫秒** epoch(约 1.79e12);
   ④ 一次性 job 的 cron 是「月+日定点」(如 `12 21 8 10 *`), 巡检 cron 是「分钟列表 + * * *」
-     (如 `11,26,41,56 * * * *`)。
+     (如 `11,26,41,56 * * * *`);
+  ⑤ 调度器**触发后会写运行期键**(如 `lastFiredAt`, 毫秒 epoch) —— 这类键不属于 job 的
+     固定 schema 面, 形状对账前先剔除(见 `RUNTIME_VOLATILE_KEYS`), 不要求固定样本包含。
 本机若存在真实 `.claude/scheduled_tasks.json`(未跟踪入 git, CI 无)→ 额外跑真实样本对账;
 **真实样本优先, 缺失/为空/无巡检类 job 时退回测试自造的固定样本继续跑同一套断言**
 (不 skip 核心判定逻辑)—— 本机 cron 状态(巡检 job 在跑 / 已删净 / 只有普通 job)不再
@@ -67,6 +69,21 @@ def _job(cid: str, cron: str, prompt: str, created_epoch: float, recurring: bool
     if recurring is not None:
         j["recurring"] = recurring
     return j
+
+
+# 调度器**运行期**写入的易变键(随每次触发变化, 不属于 job 的固定 schema 面):
+# 2026-10-22 独立审查实证 —— 真实巡检 job(如 `5b5ce7a9`)触发后带 `lastFiredAt`(共 10 键),
+# 固定样本没有; 旧断言 `set(fixture) == set(real) | {"recurring"}` 在「真实文件只剩巡检
+# job」时必 AssertionError(与新 docstring 承诺"全巡检样本也合法"自相矛盾)。
+# 注意: 只列**已观察到**的运行期键, 不做通配/前缀匹配 —— 通配会把固定 schema 字段改名
+# (如 `createdAt` -> `created_at`)一并放过, 形状对账就失去意义。发现新运行期键=形状漂移,
+# 显式登记到这里并说明依据。
+RUNTIME_VOLATILE_KEYS = frozenset({"lastFiredAt"})
+
+
+def _stable_keys(job: dict) -> set:
+    """job 的「固定 schema 键集」= 全部键 - 调度器运行期易变键。"""
+    return set(job) - RUNTIME_VOLATILE_KEYS
 
 
 def _dated_cron(dt: datetime) -> str:
@@ -311,15 +328,14 @@ def test_skip_zombie_crons_semantics_unchanged(monkeypatch, tmp_path, capsys):
 
 
 # ── ⑩ 真实生产样本对账(真实样本优先; 缺失/空/无巡检类 job 退回固定样本) ─────
-@pytest.mark.skipif(not REAL_TASKS.exists(), reason="无真实 .claude/scheduled_tasks.json(CI 干净环境)")
-def test_real_sample_shape_parity():
-    """fixture 的键集/类型必须与真实 job 逐字一致(L49: 别用"看起来合理"的样本)。
+def _assert_shape_parity(real_jobs: list[dict]) -> None:
+    """固定样本 vs 真实 job 的**固定 schema 键集**对账(L49: 别用"看起来合理"的样本)。
 
-    真实清单为空 / 只有巡检类 job 都是**合法 cron 状态**(本机可能刚清空 / 只剩巡检),
-    不再把它当成失败; 空清单时只校验 fixture 制造器的形状契约。
+    对账面先剔除 `RUNTIME_VOLATILE_KEYS`(调度器运行期写入的易变键), 否则真实文件
+    「只剩巡检 job 且刚触发过」时会误红。真实清单为空 / 只有巡检类 job 都是**合法 cron
+    状态**(本机可能刚清空 / 只剩巡检), 不判失败; 空清单时只校验 fixture 制造器契约。
     """
-    real = json.loads(REAL_TASKS.read_text(encoding="utf-8"))["tasks"]
-    for j in real:
+    for j in real_jobs:
         assert set(j) >= {"id", "cron", "prompt", "createdAt"}
         assert isinstance(j["createdAt"], int) and j["createdAt"] > 1e11, "createdAt 应为毫秒 epoch"
         assert isinstance(j["cron"], str) and len(j["cron"].split()) == 5, "真实 cron 为 5 字段"
@@ -329,12 +345,51 @@ def test_real_sample_shape_parity():
     oneshot_fixture = _job("x", "0 9 * * *", "每日日报, 无进度文件字样", time.time())
     assert patrol_fixture["recurring"] is True
     assert "recurring" not in oneshot_fixture, "一次性 job 不得写 recurring 键"
-    if real:
-        assert set(patrol_fixture) == (set(real[0]) | {"recurring"})
+    if real_jobs:
+        # 真实首个 job 可能是一次性(无 recurring 键) -> 并集归一后只比固定 schema 面
+        assert _stable_keys(patrol_fixture) == (_stable_keys(real_jobs[0]) | {"recurring"}), (
+            f"巡检固定样本与真实 job 的固定键集不一致: fixture={sorted(_stable_keys(patrol_fixture))} "
+            f"real={sorted(real_jobs[0])}(运行期键 {sorted(RUNTIME_VOLATILE_KEYS)} 已剔除)")
         # 真实样本含一次性 job 时对账「无 recurring 键」形态; 全巡检样本也合法, 不判失败
-        oneshot = [j for j in real if "recurring" not in j]
+        oneshot = [j for j in real_jobs if "recurring" not in j]
         if oneshot:
-            assert set(oneshot_fixture) == set(oneshot[0])
+            assert _stable_keys(oneshot_fixture) == _stable_keys(oneshot[0]), (
+                f"一次性固定样本与真实 job 的固定键集不一致: "
+                f"fixture={sorted(_stable_keys(oneshot_fixture))} real={sorted(oneshot[0])}")
+
+
+@pytest.mark.skipif(not REAL_TASKS.exists(), reason="无真实 .claude/scheduled_tasks.json(CI 干净环境)")
+def test_real_sample_shape_parity():
+    """真实文件存在时的形状对账(内容依赖本机 cron 状态, CI 无真实文件故 skip)。"""
+    real = json.loads(REAL_TASKS.read_text(encoding="utf-8"))["tasks"]
+    _assert_shape_parity(real)
+
+
+def test_shape_parity_tolerates_runtime_keys_but_catches_rename():
+    """CI 必跑: 形状对账必须容忍运行期易变键, 同时仍能抓住固定字段改名。
+
+    这是 2026-10-22 审查 must-fix 的回归守卫(真实文件缺失时也能守住):
+      ① 真实文件只剩巡检 job 且带 `lastFiredAt` -> 不得误红(旧断言此处必 AssertionError);
+      ② `createdAt` 改名 `created_at` -> 必须仍红(剔键不得把对账变成恒真)。
+    """
+    patrol = _job("real-patrol", PATROL_CRON, _patrol_prompt("real-patrol"),
+                  time.time(), recurring=True)
+    patrol["lastFiredAt"] = int(time.time() * 1000)      # 运行期键(调度器触发后写)
+    oneshot = _job("real-oneshot", "0 9 * * *", "每日日报, 无进度文件字样", time.time())
+    oneshot["lastFiredAt"] = int(time.time() * 1000)
+    _assert_shape_parity([patrol])                        # 只有巡检 job(带运行期键)
+    _assert_shape_parity([oneshot, patrol])               # 首个是一次性 job
+    _assert_shape_parity([patrol, oneshot])               # 首个是巡检 job
+    _assert_shape_parity([])                              # 空清单只校验 fixture 契约
+    # 固定 schema 字段改名不得被运行期键剔除逻辑放过
+    renamed_required = dict(patrol)                       # createdAt 是必填校验项 -> 早退红
+    renamed_required["created_at"] = renamed_required.pop("createdAt")
+    with pytest.raises(AssertionError, match="createdAt"):
+        _assert_shape_parity([renamed_required])
+    renamed_optional = dict(patrol)                       # 非必填固定字段 -> 红在键集对账
+    renamed_optional["createdByPidX"] = renamed_optional.pop("createdByPid")
+    with pytest.raises(AssertionError, match="固定键集不一致"):
+        _assert_shape_parity([renamed_optional])
 
 
 @pytest.mark.parametrize("shift_secs", [0, 2 * 3600, 86400])
@@ -369,6 +424,24 @@ def test_real_jobs_no_false_zombie_when_pending(monkeypatch, tmp_path, shift_sec
     res = m.check_zombie_crons(repo)
     fails = _fails(res)
     pending = _pending_lines(res)
+    # 判别力兜底(2026-10-22 审查建议): 不论 shift 多大/样本多少, 都必须真的产生一条
+    # 结论性断言 —— 只要存在「可解析进度路径 + 已过 ready_at」的 job, 空进度目录就必须
+    # 真 FAIL; 反之全部未到 ready_at 时不得 FAIL 且必须出现 pending 说明。
+    decidable = [(j, ready_at) for j, ready_at in relevant
+                 if ready_at is not None and (
+                     m.PROGRESS_PATH_RE.search(j.get("prompt") or "")
+                     or m.PATROL_NAME_RE.search(j.get("prompt") or ""))]
+    assert decidable, "样本应至少有一个含可解析进度路径的巡检 job"
+    overdue = [j["id"] for j, ready_at in decidable if ready_at <= now]
+    if overdue:
+        assert res.status == m.CheckResult.FAIL, (
+            f"{source} 已过 ready_at 的 job {overdue} + 空进度目录 -> 必须真 FAIL: {res.msg}")
+        for jid in overdue:
+            assert jid in fails, f"{source} job {jid} 已过 ready_at, 应出现在真 FAIL 行"
+    else:
+        assert res.status != m.CheckResult.FAIL, (
+            f"{source} 全部 job 均未到 ready_at -> 不得 FAIL: {res.msg}")
+        assert pending, f"{source} 全部 job 未到 ready_at -> 至少应出现一条 pending 说明"
     for j, ready_at in relevant:
         if ready_at > now:
             assert j["id"] not in fails, (
