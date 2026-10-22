@@ -505,14 +505,19 @@ def _run_patrol(tmp_path: Path, monkeypatch, notify_ret):
 
 
 def test_d1_domain_absorbed_notify_reports_digested(notify_real_send_env, tmp_path):
-    """BLOCK-2 证据①前半: 同域 2h 内第二条巡检告警 ⇒ notify 结果文件 status=digested。"""
+    """BLOCK-2 证据①前半: 同域 2h 内第二条告警 ⇒ notify 结果文件 status=digested。
+
+    #282(A)(2026-10-22) 改键不改语义: unit 域的两个真实键(failed_units_patrol /
+    cloud_unit_patrol_drift)已升**停摆级独立直发**(不进域摘要), 故改用 snapshot 域真实键
+    `s06_snapshot_fail` 验证「域聚合并入 ⇒ status=digested」这条通用契约本身。
+    """
     env = notify_real_send_env
-    _seed_domain_state(env["alerts"], "unit", seconds_ago=3600)
+    _seed_domain_state(env["alerts"], "snapshot", seconds_ago=3600)
     rf = tmp_path / "r.json"
     with ZeroOutboundTrap() as trap:
-        rc = notify.main(["[告警] 云上 unit 巡检发现异常(1 项) 10:00", "trade-foo.service failed",
+        rc = notify.main(["[告警] S06 快照异常(1 项) 10:00", "trade-foo.service failed",
                           "--severe", "--from-prefix", "[告警]",
-                          "--dedup-key", adr.FAILED_UNITS_DEDUP_KEY,
+                          "--dedup-key", "s06_snapshot_fail",
                           "--dedup-window", "0", "--result-file", str(rf)])
     assert rc == 0
     payload = json.loads(rf.read_text(encoding="utf-8"))
@@ -521,7 +526,7 @@ def test_d1_domain_absorbed_notify_reports_digested(notify_real_send_env, tmp_pa
     digest = env["alerts"] / "alert_digest.jsonl"
     assert digest.exists() and "trade-foo.service failed" in digest.read_text(encoding="utf-8")
     st = json.loads((env["alerts"] / adr.ALERT_DOMAIN_STATE_FILENAME).read_text(encoding="utf-8"))
-    assert st["unit"]["n_absorbed"] == 1
+    assert st["snapshot"]["n_absorbed"] == 1
     assert trap.hits == []
 
 

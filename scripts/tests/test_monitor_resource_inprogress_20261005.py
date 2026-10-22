@@ -25,6 +25,7 @@ import io
 import os
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -269,6 +270,11 @@ def res_env(fresh_ns):
     fresh_ns["REPO"] = ROOT
     fresh_ns["_recurrence_suppressed"] = lambda _ex: False
     fresh_ns["_rec"] = rec
+    # #282(B/C)(2026-10-22): _check_resource 的 active / recurrence 分支改为调
+    # _active_escalate() + adr.record_suppression()(审计台账)。本文件只测资源判定本身,
+    # 故注入桩: 升级提醒恒不发(计数由专项用例覆盖), 台账写入恒成功。
+    fresh_ns["_active_escalate"] = lambda _entry, _key, _label: False
+    fresh_ns["adr"] = types.SimpleNamespace(record_suppression=lambda **_k: True)
     return fresh_ns
 
 

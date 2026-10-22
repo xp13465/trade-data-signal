@@ -559,18 +559,22 @@ def test_l2_b1b2_public_fund_severe_is_direct(tmp_path, monkeypatch):
 
 def test_l2_b2_new_signature_direct_repeat_digested(tmp_path, monkeypatch):
     """B2 门级: 同类别已耗额度时 —— 新签名直发 / 同签名重复并入(deploy 同因复报仍收敛)。
-    判别力: 回退 B2 时第一条(新签名直发)必红。"""
+    判别力: 回退 B2 时第一条(新签名直发)必红。
+
+    #282(A)(2026-10-22) 换键不改门: deploy_r2_upload_fail 已升停摆级独立直发(绕 L2 预算),
+    故改用同为 deploy 类别的非停摆键 deploy_check_version_fail 验证 B2 门本身。
+    """
     alerts, calls = _l2_env(tmp_path, monkeypatch)
     today = datetime.now().strftime("%Y-%m-%d")
     _seed_ledger_rows(alerts, [
         {"ts": f"{today} 00:15:55", "group": "alert", "tier": "critical",
-         "key": "deploy_r2_upload_fail", "subject": "[告警] R2上传失败"},
+         "key": "deploy_check_version_fail", "subject": "[告警] 版本校验失败"},
     ])
     with ZeroOutboundTrap() as trap:
         r_new = notify.send("[告警] deploy 数据产物校验失败", "body", severe=True,
                             ledger_key="deploy_check_data_integrity_fail", feishu_group="alert")
-        r_rep = notify.send("[告警] R2上传失败", "body", severe=True,
-                            ledger_key="deploy_r2_upload_fail", feishu_group="alert")
+        r_rep = notify.send("[告警] 版本校验失败", "body", severe=True,
+                            ledger_key="deploy_check_version_fail", feishu_group="alert")
     assert r_new.get("digested") is not True, f"新签名必须直发, 得 {r_new}"
     assert r_rep.get("digested") is True, f"同签名重复应并入(收敛), 得 {r_rep}"
     assert trap.hits == [], f"零外发被破坏(§18 L48): {trap.hits}"

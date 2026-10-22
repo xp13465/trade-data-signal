@@ -25,6 +25,7 @@ daily_brief 的 3 个 fixture 与其余各行均为真实切片, 无合成。fix
 import ast
 import datetime
 import sys
+import types
 from pathlib import Path
 from unittest import mock
 
@@ -239,7 +240,11 @@ def m1_run(m1_src):
         ns = {"datetime": datetime.datetime, "timedelta": datetime.timedelta,
               "NOW": now or datetime.datetime(2026, 10, 7, 21, 30, 0),
               "alerts": [], "alert_state": {} if alert_state is None else alert_state,
-              "seen_keys_this_run": set(), "print": lambda *a, **k: None}
+              "seen_keys_this_run": set(), "print": lambda *a, **k: None,
+              # #282: active 抑制已收敛到 _active_escalate; 本文件只验 M1 状态机,
+              # 注入不外发假实现(升级阶梯由 test_282 专测)。
+              "_active_escalate": lambda entry, key, label: False,
+              "adr": types.SimpleNamespace(record_suppression=lambda **k: True)}
         exec(compile(consts, "<m1-consts>", "exec"), ns)  # noqa: S102
         ns["stats"] = rows
         exec(compile(block, "<m1-block>", "exec"), ns)    # noqa: S102

@@ -313,9 +313,12 @@ def test_02l_gate_new_signature_over_budget_still_direct(_iso):
 
 def test_02m_gate_repeat_signature_over_budget_digested(_iso):
     """B2 门级另一半: 同签名重复(已直发过) ⇒ 仍并入(保 L2 收益, deploy 同因复报收敛)。"""
-    _seed_ledger(_iso["alerts"], [_ledger_row("deploy_r2_upload_fail", "R2 上传失败")])
+    # #282(A, 2026-10-22): deploy_r2_upload_fail 已登记为**停摆级**(报告 §7.3) ⇒ 它
+    # 走独立直发通道、不再并入摘要。本用例验的是 L2 预算 gate 本身, 换成同类目(deploy)
+    # 的非停摆级键, 保持断言口径不变; 停摆级新行为由 test_282 专测。
+    _seed_ledger(_iso["alerts"], [_ledger_row("deploy_check_version_fail", "R2 上传失败")])
     res = notify.send("[告警] R2上传失败", "body", severe=True,
-                      ledger_key="deploy_r2_upload_fail", feishu_group="alert")
+                      ledger_key="deploy_check_version_fail", feishu_group="alert")
     _chk(res.get("digested") is True, f"同签名重复应 digested, 得 {res}")
     _chk(_iso["calls"] == [], "digested 不应触达渠道")
 
@@ -624,6 +627,8 @@ def _run_absorb_loop(rc: int, absorbed: list[dict]) -> list[str]:
 
     g = {"subprocess": types.SimpleNamespace(run=_run), "sys": sys,
          "REPO": Path("/x"), "alerts": alerts, "_absorbed": absorbed,
+         # #282(C): 吸收成功分支新增审计台账写入(repo=/x 不可写也无妨, 但换成假实现隔离)
+         "adr": types.SimpleNamespace(record_suppression=lambda **k: True),
          "print": lambda *a, **k: None}
     exec(_absorb_loop_code(), g)  # noqa: S102  (真源码块: 只 append alerts)
     return alerts

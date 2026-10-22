@@ -32,6 +32,7 @@ import os
 import socket
 import subprocess
 import textwrap
+import types
 import urllib.request
 from collections import namedtuple
 from pathlib import Path
@@ -185,6 +186,10 @@ def _drive(block_code, ticks, consts, pre_state=None, in_progress=frozenset()):
             "alerts": [], "alert_state": st, "seen_keys_this_run": seen,
             "NOW": T, "print": (lambda *a, **k: None), "s": entry,
             "exit_code": entry.get("last_exit"),
+            # #282: active 抑制已收敛到 _active_escalate(本文件只验 marker buffer,
+            # 注入不外发假实现, 升级阶梯由 test_282 专测)。
+            "_active_escalate": lambda entry_, key, label: False,
+            "adr": types.SimpleNamespace(record_suppression=lambda **k: True),
         }
         exec(block_code, run)  # noqa: S102
         before = dict(st.get(BUCKET) or {})  # 本 tick 计数分支刚写入的桶(恢复循环前)

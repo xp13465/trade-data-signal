@@ -1034,6 +1034,9 @@ DOMAIN_ABSORB_REASON = "domain_inhibited"               # 域聚合并入摘要�
 # deploy_consecutive_fail = deploy 连续失败停摆告警(替代「39 次零成功两天无人知」的兜底通道;
 #   其 dedup_key 以 deploy_ 前缀本会落 r2_deploy 域, 故显式豁免)。
 DOMAIN_AGGREGATE_EXEMPT_KEYS = frozenset({"deploy_consecutive_fail"})
+# 前缀豁免: monitor 的「持续故障升级提醒」(B,#282) 是人工处置超时的强制提醒, 不得被同域
+# 2h 静默窗吸收(其主题可能带 R2/备份等字样 ⇒ 会误落 r2_deploy 域)。
+DOMAIN_AGGREGATE_EXEMPT_PREFIXES = ("active_escalate|",)
 DOMAIN_R2_RC_RE = re.compile(r"\br2(?:large)?=(\d+)")   # 主题内 R2 rc 值(≠0 ⇒ 该告警派生自 R2 链路失败)
 DOMAIN_LABELS = {                                       # 域 → 人读标签(摘要正文用, 说人话)
     "data_gap": "数据缺口",
@@ -1129,6 +1132,12 @@ def domain_inhibit_judge(state, domain, now, interval_seconds=None) -> tuple:
                         else _now_ts,
         "n_direct": int(_cur.get("n_direct") or 0) + (1 if action == "first" else 0),
         "n_absorbed": int(_cur.get("n_absorbed") or 0) + (1 if action == "absorb" else 0),
+        # #282(2026-10-22 报告盲区 10): n_absorbed 是**累计**值, 旧日志却写「本日该域已并入
+        # N 条」= 口径误导。新增「本日」独立字段(跨日归零); 旧状态无此字段时从本日 0 起算,
+        # 绝不把历史累计冒充本日。累计值 n_absorbed 保留供排查趋势。
+        "n_absorbed_today": (
+            (int(_cur.get("n_absorbed_today") or 0) if _cur.get("last_day") == _today else 0)
+            + (1 if action == "absorb" else 0)),
         "interval": _iv,
     }
     return action, _entry
@@ -1245,4 +1254,438 @@ def rollover_prune(seen, now, days=None) -> dict:
                 _out[_sig] = _d
         except ValueError:
             continue
-    return _out
+    return _out# ══ 停摆级告警独立通道(A, 2026-10-22) ════════════════════════════════════════════
+# 依据(只读评估报告 /tmp/research-alert-denoise-eval.md §5 盲区 1/2/5/6/14):
+#   · 10-20/21 deploy 连续失败 39 次零成功, 15 条 deploy/R2 失败被域聚合埋进 23:30 摘要;
+#   · staticdata 备份停摆 36h 才出现一条泛化的「1项计划任务异常」;
+#   · D1 同步连续失败 39 次零告警(修前); unit 异常同样会进 2h 域静默窗。
+# 口径(§7.3 之 1): 停摆级 = 「整条链路/数据产物已停止产出」, 必须 2 小时内独立直发,
+#   **永不进域摘要、不受日预算限制**; 但保留同键 2h 去重(防每轮重复轰炸)。
+#   例外: 调用方显式传 --dedup-window 0(脚本自管闸门)时保留 0 —— 见 stall_dedup_window()。
+# 与 D3(DOMAIN_AGGREGATE_EXEMPT_KEYS 只豁免 deploy_consecutive_fail)的关系: 本表是它的
+#   超集 + 统一判据; notify.py 在预算/域 gate **之前**短路, D3 原豁免保留(向后兼容)。
+STALL_DEDUP_WINDOW = 7200                    # 停摆级同键最短去重窗(2h, 报告 §7.3 时限)
+STALL_PREFIX = "【停摆】"                     # 外发标题醒目前缀(邮件/飞书/telegram 同一 subject)
+
+# 停摆级键登记表(按**生产真实键名**登记, 覆盖报告点名的 5 类; 新增键必须在此或 NON_STALL_KEYS)
+STALL_KEYS = frozenset({
+    # ① deploy 连续失败停摆
+    "deploy_consecutive_fail",
+    "deploy_r2_upload_fail",          # deploy 主链 R2 上传失败 ⇒ 整条发布链没产出
+    "deploy_purge_low_freq_fail",     # deploy 收尾 purge 失败 ⇒ CDN 旧缓存长期不刷新
+    # ② staticdata 备份失败/停摆
+    "staticdata_backup_fail",         # 备份收口失败(连续 >=2 天仍 severe; 单日分级见 R4)
+    "staticdata_backup_trigger_fail", # 异步备份触发失败 ⇒ 本轮备份根本没启动
+    "staticdata_backup_stale",        # 心跳 >36h 无完成 = 备份停摆(monitor 兜底)
+    # ③ R2 上传失败/超时(链路级, 非单数据集单轮上传)
+    "r2_upload_trigger_fail",         # 统一上传触发器失败 ⇒ 全量上传停摆
+    # ④ D1 同步连续失败
+    "d1_sync_fail",
+    # ⑤ unit 连续失败(同一 unit/集合 >=N 轮)
+    "failed_units_patrol",
+    "cloud_unit_patrol_drift",
+})
+
+# 非停摆级键登记表(防遗漏机制: 测试扫描 scripts/ 全部 --dedup-key 字面量, 必须二者其一)。
+# 每条都写明「为什么不是停摆级」——新增/改名键未登记 ⇒ 防遗漏测试直接红, 逼人做判定。
+NON_STALL_KEYS = frozenset({
+    # 单轮/单次失败: 下一次调度会自愈, 且已有各自的去重/域窗; 不构成整条产物停摆
+    "brief_push_fail", "daily_brief_fail", "nextday_plan_fail", "nextday_gap_check_fail",
+    "board_etf_map_stale", "s06_snapshot_fail", "turnover_backfill_fail",
+    "gold_night_collect_fail", "gold_night_r2_upload_fail",
+    "intraday_upload_index_r2_fail", "intraday_upload_intraday_r2_fail",
+    "intraday_schedule_stats_r2_fail", "intraday_sentiment_r2_upload_fail",
+    "schedule_stats_r2_fail", "fund_nav_async_upload_fail",
+    "kelly_intraday_upload_r2_fail", "kelly_intraday_rerun_fail",
+    "kelly_intraday_verify_fail", "kelly_intraday_gate_decider_crash",
+    "update_lab_r2_upload_fail", "update_lab_labjson_r2_fail", "update_lab_tradesim_r2_fail",
+    "preupload_backup_fail", "r2_upload_async_skip", "update_all_severe",
+    # deploy 单次闸门失败(非连续失败聚合通道; 连续停摆由 deploy_consecutive_fail 覆盖)
+    "deploy_check_data_integrity_fail", "deploy_check_data_integrity_alertonly",
+    "deploy_check_placeholder_residue_fail", "deploy_check_task_state_fail",
+    "deploy_check_universe_fail", "deploy_check_version_fail",
+    # staticdata 守卫/跳过类: 明确是「按设计跳过」或可自愈的单环节错误, 不是停摆
+    "staticdata_backup_repo_missing", "staticdata_backup_oversize_skip",
+    "staticdata_backup_nonprod_skip", "staticdata_backup_r2_nonprod_skip",
+    "staticdata_backup_guard_error", "staticdata_backup_r2_guard_error",
+    "staticdata_backup_gate_reject", "staticdata_backup_gate_error",
+    "staticdata_sync_gate_error", "staticdata_sync_gate_reject",
+    "staticdata_sync_guard_error", "staticdata_sync_nonprod_skip",
+    "staticdata_sync_oversize_skip",
+    # 巡检者自身存活心跳 + 三站一致性(语义待 #279 收口, 不是产出停摆)
+    "schedule_monitor_heartbeat", "r2_consistency_fail",
+    # 状态文件写失败(写不了状态 ≠ 数据产物停摆; 下一轮会重试, 属本次动作失败)
+    "agent_inbox_state_write_fail", "anomaly_dedup_write_fail",
+    "data_gap_state_write_fail", "feishu_cursor_write_fail",
+    "healthcheck_state_write_fail", "r4_state_write_fail",
+    "retry_fm_count_file_write_fail",
+    # 冻结表/信号缺失: 是「缺输入数据」告警, 由回测链路自身重跑补齐, 非发布/备份停摆
+    "kelly_freeze_orphan_buy", "signal_kelly_frozen_missing",
+    "signal_kelly_frozen_missing_small",
+    # 恢复通知(报「已恢复」, 不是故障本身)
+    "schedule_monitor_recovery",
+})
+
+# 文本兜底: 没有 dedup key 的批次行(monitor 聚合通道)按行文特征识别停摆级
+STALL_LINE_MARKERS = (
+    # ⚠️ 顺序敏感: 具体特征必须排在泛化「连续失败」之前, 否则 D1 行会被抢判成合成键。
+    ("停摆", "staticdata_backup_stale"),
+    ("D1 同步连续失败", "d1_sync_fail"),
+    ("cloud_unit_patrol_drift", "cloud_unit_patrol_drift"),
+    ("failed_units_patrol", "failed_units_patrol"),
+    ("连续失败", "stall|consecutive_fail"),
+)
+
+
+def is_stall_key(key) -> bool:
+    """dedup key 是否停摆级(精确登记表 + monitor 批次行合成键 `stall|...`)。
+
+    不做前缀泛猜(防把普通 deploy_* 误升);唯一例外是 stall_line_key() 自己合成的
+    `stall|...` 键 —— 它只可能由停摆行产生, 前缀即身份。
+    """
+    _k = str(key or "")
+    return _k in STALL_KEYS or _k.startswith("stall|")
+
+
+def stall_dedup_window(caller_window=None) -> int:
+    """停摆通道的实际去重窗(秒)。
+
+    - 调用方**显式传 0** = 「本通道由脚本自管闸门, 新集合/新连续段立即报」(现网
+      `check_failed_units.py:51`、`d1_sync_state.py` 均如此, 注释写明留 6h 窗会吞掉新增立即报)
+      ⇒ **原样保留 0**。降噪不得吞真故障判别维度(否则「新失败集合」会被 2h 窗静默)。
+    - 非零窗取 max(调用方窗, STALL_DEDUP_WINDOW): 保住「同键 1 条/2h」下限, 但不缩短
+      调用方更宽的窗(deploy_consecutive_fail 现网 6h 保持 6h, 不因本通道变密)。
+    - 未传窗(None = 进程内直调)按停摆通道默认 2h。
+    """
+    if caller_window is None:
+        return STALL_DEDUP_WINDOW
+    try:
+        _w = int(caller_window)
+    except (TypeError, ValueError):
+        return STALL_DEDUP_WINDOW
+    if _w <= 0:
+        return 0
+    return max(_w, STALL_DEDUP_WINDOW)
+
+
+def _strip_severe(line) -> str:
+    _t = str(line or "")
+    return _t[len("SEVERE: "):] if _t.startswith("SEVERE: ") else _t
+
+
+def stall_line_key(line):
+    """批次行 → 停摆级去重键; 非停摆级返回 None。
+
+    批次行没有 dedup key, 只能按行文特征判定; 命中后给稳定键(sha1 前 12 位),
+    **同一行文每轮得到同一键** ⇒ 2h 去重成立, 不会每轮重复外发。
+    """
+    _t = _strip_severe(line)
+    for _marker, _canon in STALL_LINE_MARKERS:
+        if _marker in _t:
+            if _canon in STALL_KEYS:
+                return _canon
+            _h = hashlib.sha1(re.sub(r"\d+", "#", _t).encode("utf-8")).hexdigest()[:12]
+            return f"{_canon}|{_h}"
+    return None
+
+
+def is_stall_line(line) -> bool:
+    return stall_line_key(line) is not None
+
+
+def stall_canonical_key(key, subject=None) -> str | None:
+    """统一判定: dedup key 命中登记表, 或主题命中停摆族(无 key 的旧调用路径)。"""
+    _k = str(key or "")
+    if _k in STALL_KEYS or _k.startswith("stall|"):
+        return _k
+    _s = str(subject or "")
+    if "staticdata" in _s and ("备份失败" in _s or "备份停摆" in _s or "未追平" in _s):
+        return "staticdata_backup_fail"
+    if "deploy 连续失败" in _s or "deploy连续失败" in _s:
+        return "deploy_consecutive_fail"
+    if "D1 同步连续失败" in _s:
+        return "d1_sync_fail"
+    return None
+
+
+STALL_IMPACT = {
+    "deploy_consecutive_fail": "整条发布链停摆: R2 上传/static-site/数据备份全部未更新",
+    "deploy_r2_upload_fail": "deploy 主链 R2 上传失败: 线上静态站仍读旧产物",
+    "deploy_purge_low_freq_fail": "CDN 低频资源未 purge: 线上可能长期读旧缓存",
+    "staticdata_backup_fail": "staticdata 灾备第 2 层仓库未追平",
+    "staticdata_backup_trigger_fail": "staticdata 异步备份本轮未启动",
+    "staticdata_backup_stale": "staticdata 备份心跳超 36h: 灾备副本已停止更新",
+    "r2_upload_trigger_fail": "统一 R2 上传停摆: 新数据未进入线上存储",
+    "d1_sync_fail": "Cloudflare D1 数据未更新: 对外查询读旧数据",
+    "failed_units_patrol": "云上 systemd unit 持续 failed(服务/定时链可能已死)",
+    "cloud_unit_patrol_drift": "云上 unit 清单漂移: 预期服务缺失/多出, 巡检基线失真",
+}
+
+
+def _read_json(path):
+    try:
+        _obj = json.loads(Path(path).read_text(encoding="utf-8"))
+        return _obj if isinstance(_obj, dict) else {}
+    except Exception:  # noqa: BLE001 - 状态缺失/损坏都当「未知」, 绝不影响告警主路径
+        return {}
+
+
+def stall_context(key, repo=None, now=None) -> dict:
+    """停摆告警正文三字段: 首次发生时间 / 连续失败次数 / 影响产物。
+
+    取值优先级: 各生产方状态文件 > alert_state[key] > 「未知」。
+    ⚠️ 「未知」是**显式诚实标注**(报告 §7.3 要求「拿不到就写未知」), 不是占位符:
+       · deploy 连续失败状态文件(deploy_fail_tracker.py)只记 last_fail_at/consecutive_fail,
+         没有 first_fail_at; 该文件不在本次改动允许范围 ⇒ 首次发生时间只能写「未知」
+         (代码注释说明, 不臆造)。
+       · R2 上传触发器无持久状态 ⇒ 连续次数写「未知」。
+    """
+    _now = now or datetime.now()
+    _repo = Path(repo or os.environ.get("REPO") or Path(__file__).absolute().parent.parent)
+    _canon = stall_canonical_key(key) or str(key or "")
+    _ctx = {"key": _canon, "first_seen": "未知", "consecutive": "未知",
+            "impact": STALL_IMPACT.get(_canon, "未知(该键无状态文件, 见告警正文)")}
+    # 通用兜底: monitor 自己维护的 alert_state(所有 active 告警都有 first_seen)
+    _st = _read_json(_repo / "data" / "alert_state.json").get(_canon)
+    if isinstance(_st, dict):
+        _ctx["first_seen"] = str(_st.get("first_seen") or "未知")
+        if _st.get("consecutive_count") not in (None, ""):
+            _ctx["consecutive"] = int(_st["consecutive_count"])
+        _ctx["suppress_count"] = int(_st.get("suppress_count") or 0)
+    # 各生产方状态文件补充
+    if _canon.startswith("deploy_"):
+        _d = _read_json(_repo / "data" / "deploy_fail_state.json")
+        if _d.get("consecutive_fail") is not None:
+            _ctx["consecutive"] = int(_d["consecutive_fail"])
+        _ctx["last_fail_at"] = str(_d.get("last_fail_at") or "未知")
+        _ctx["impact"] = STALL_IMPACT.get(_canon, _ctx["impact"])
+    elif _canon.startswith("staticdata_"):
+        _d = _read_json(_repo / "data" / "staticdata_backup_fail_state.json")
+        if _d.get("first_fail_date"):
+            _ctx["first_seen"] = str(_d["first_fail_date"])
+        if _d.get("consecutive_days") is not None:
+            _ctx["consecutive"] = f"{int(_d['consecutive_days'])} 天"
+        _hb = _read_json(_repo / "data" / "staticdata_backup_heartbeat.json")
+        if _hb.get("ts"):
+            _ctx["last_backup_ok"] = str(_hb["ts"])
+    elif _canon == "d1_sync_fail":
+        _dir = _repo / "data" / "d1_sync_state"
+        _firsts, _maxn, _scripts = [], 0, []
+        try:
+            for _p in sorted(_dir.glob("*.json")):
+                _d = _read_json(_p)
+                if not _d:
+                    continue
+                _scripts.append(str(_d.get("script") or _p.stem))
+                if _d.get("first_failure_at"):
+                    _firsts.append(str(_d["first_failure_at"]))
+                _maxn = max(_maxn, int(_d.get("consecutive_failures") or 0))
+        except Exception:  # noqa: BLE001
+            pass
+        if _firsts:
+            _ctx["first_seen"] = min(_firsts)
+        if _maxn:
+            _ctx["consecutive"] = _maxn
+        if _scripts:
+            _ctx["impact"] = (STALL_IMPACT["d1_sync_fail"]
+                              + "；受影响同步脚本: " + ", ".join(_scripts[:6]))
+    elif _canon in ("failed_units_patrol", "cloud_unit_patrol_drift"):
+        _name = ("failed_units_patrol_state.json" if _canon == "failed_units_patrol"
+                 else "cloud_unit_patrol_drift_state.json")
+        _d = _read_json(_repo / "data" / _name)
+        if _d.get("first_fail_date"):
+            _ctx["first_seen"] = str(_d["first_fail_date"])
+        if _d.get("consecutive_days") is not None:
+            _ctx["consecutive"] = f"{int(_d['consecutive_days'])} 天"
+    return _ctx
+
+
+def format_stall_body(body, ctx) -> str:
+    """停摆告警正文头: 三字段 + 分隔线 + 原始正文(原正文一字不减)。"""
+    _c = ctx or {}
+    _head = (f"<b>【停摆级告警】</b><br>"
+             f"· 首次发生: {_c.get('first_seen', '未知')}<br>"
+             f"· 连续失败: {_c.get('consecutive', '未知')}<br>"
+             f"· 影响产物: {_c.get('impact', '未知')}")
+    if _c.get("suppress_count"):
+        _head += f"<br>· 本轮已抑制轮次: {_c['suppress_count']}"
+    return _head + "<br><br>" + str(body or "")
+
+
+# ══ 持续 active 故障升级阶梯(B, 2026-10-22) ═════════════════════════════════════
+# 依据(报告 §4.3 + §5 盲区 3): nextday_gap_check|ConnectionError 自 10-13 09:30 起 active
+# 9 天, 1,125 条 suppress 零再提醒; schedule_monitor.sh:371 注释写「真卡死(持续 active >6h)
+# 仍响」但实现无条件静默 —— 注释与代码不符。
+# 口径: active 抑制 ≠ 永久静音。首次告警后满 24h、且距上次升级提醒满 24h ⇒ 强制发一次
+# 升级提醒(正文带首次时间/已持续时长/累计抑制次数); 之后每 24h 一次, 直到恢复。
+ACTIVE_ESCALATE_AFTER_HOURS = 24
+ACTIVE_REMIND_INTERVAL_HOURS = 24
+
+
+def _dt_of(value):
+    _v = str(value or "")
+    if not _v:
+        return None
+    for _fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(_v, _fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def active_escalation_judge(entry, now=None, escalate_after_hours=None,
+                            remind_interval_hours=None) -> tuple:
+    """active 状态是否该发升级提醒。返回 (should_send, info)。
+
+    · 老状态无 first_alerted → 退回 first_seen → last_alerted → 视为刚发生(不升级, 不崩);
+    · 持续 <24h 或距上次升级 <24h ⇒ 不发;
+    · 纯函数, 时间全部可注入, 可单测。
+    """
+    _now = now or datetime.now()
+    _after = (ACTIVE_ESCALATE_AFTER_HOURS if escalate_after_hours is None
+              else float(escalate_after_hours))
+    _interval = (ACTIVE_REMIND_INTERVAL_HOURS if remind_interval_hours is None
+                 else float(remind_interval_hours))
+    _e = entry if isinstance(entry, dict) else {}
+    _first = _dt_of(_e.get("first_alerted")) or _dt_of(_e.get("first_seen")) \
+        or _dt_of(_e.get("last_alerted"))
+    _info = {
+        "first_alerted": (_first.strftime("%Y-%m-%d %H:%M:%S") if _first else "未知"),
+        "elapsed_hours": None,
+        "suppress_count": int(_e.get("suppress_count") or 0),
+    }
+    if _first is None:
+        _info["reason"] = "无首次时间(老状态), 本轮不升级"
+        return False, _info
+    _elapsed = (_now - _first).total_seconds() / 3600.0
+    _info["elapsed_hours"] = round(_elapsed, 1)
+    if _elapsed < _after:
+        _info["reason"] = f"持续 {_elapsed:.1f}h < {_after:g}h"
+        return False, _info
+    _last_esc = _dt_of(_e.get("last_escalated"))
+    if _last_esc is not None:
+        _gap = (_now - _last_esc).total_seconds() / 3600.0
+        if _gap < _interval:
+            _info["reason"] = f"距上次升级 {_gap:.1f}h < {_interval:g}h"
+            return False, _info
+    _info["reason"] = f"持续 {_elapsed:.1f}h, 满足升级条件"
+    return True, _info
+
+
+# ══ 抑制/合并审计台账(C, 2026-10-22) ════════════════════════════════════════════
+# 依据(报告 §5 盲区 10/11): alert_ledger.jsonl 只记外发, 无法回答「这条故障为什么没通知我」;
+# n_absorbed 是累计值但日志文案说「本日」。
+# 口径: 每次 suppress/absorb/dedup 命中写一条结构化记录(**只落本地, 永不外发**);
+# 写失败只 stderr, 绝不抛异常/绝不影响告警主路径; 保留 30 天, 按日/按大小轮转。
+SUPPRESSION_LEDGER_FILENAME = "suppression_ledger.jsonl"
+SUPPRESSION_LEDGER_RETAIN_DAYS = 30
+SUPPRESSION_LEDGER_MAX_BYTES = 8 * 1024 * 1024
+SUPPRESSION_LEDGER_PRUNE_MARKER = "suppression_ledger.prune"
+SUPPRESS_MECHANISMS = (
+    "budget",              # A: 日预算 gate 并入摘要
+    "domain_aggregate",    # B: 2h 域静默窗并入摘要
+    "notice_budget",       # C: 非 critical 重复类预算/rollover
+    "dedup",               # D: 通用 dedup 窗口
+    "stall_dedup",         # A: 停摆通道 2h 同键去重
+    "active",              # B: monitor active 持续抑制
+    "recurrence",          # D: 恢复后 6h 复现抑制
+    "escalation_window",   # E: 升级档抑制窗(重复升级)
+    "monitor_budget",      # A: monitor 批次行级预算并入
+    "deploy_budget",       # A: deploy 独立告警预算
+)
+
+
+def suppression_ledger_path(repo=None) -> Path:
+    _repo = Path(repo or os.environ.get("REPO") or Path(__file__).absolute().parent.parent)
+    return _repo / "data" / "alerts" / SUPPRESSION_LEDGER_FILENAME
+
+
+def record_suppression(*, mechanism, key=None, domain=None, reason="", source=None,
+                       first_seen=None, event_id=None, repo=None, now=None,
+                       extra=None) -> bool:
+    """写一条「被抑制/被合并」审计记录。返回 True=已写。
+
+    失败**绝不抛出**、绝不改变调用方行为(报告要求: 台账不能影响告警主路径)。
+    并发: 与会写外发台账的进程共用 data/alerts/ 目录, 本函数用独立 lock 文件串行化
+    append + 轮转, 防两条 append 交错/轮转时丢行。
+    """
+    try:
+        _now = now or datetime.now()
+        _p = suppression_ledger_path(repo)
+        _p.parent.mkdir(parents=True, exist_ok=True)
+        _day = _now.strftime("%Y-%m-%d")
+        _src = source or os.environ.get("NOTIFY_SOURCE") or "unknown"
+        _rec = {
+            "ts": _now.strftime("%Y-%m-%d %H:%M:%S"),
+            "day": _day,
+            "mechanism": str(mechanism),
+            "key": str(key) if key else None,
+            "fingerprint": (hashlib.sha1(str(key).encode("utf-8")).hexdigest()[:12]
+                            if key else None),
+            "domain": domain,
+            "reason": str(reason or ""),
+            "source": _src,
+            "first_seen": first_seen,
+            "event_id": event_id,
+        }
+        if extra and isinstance(extra, dict):
+            for _k, _v in extra.items():
+                if _k not in _rec and _k != "ts":
+                    _rec[_k] = _v
+        import fcntl
+        _lock = _p.with_name(_p.name + ".lock")
+        with open(_lock, "a+") as _lf:
+            fcntl.flock(_lf, fcntl.LOCK_EX)
+            try:
+                _maybe_prune_suppression_ledger(_p, _now)
+                with open(_p, "a", encoding="utf-8") as _f:
+                    fcntl.flock(_f, fcntl.LOCK_EX)
+                    _f.write(json.dumps(_rec, ensure_ascii=False) + "\n")
+                    fcntl.flock(_f, fcntl.LOCK_UN)
+            finally:
+                fcntl.flock(_lf, fcntl.LOCK_UN)
+        return True
+    except Exception as e:  # noqa: BLE001 - 审计台账失败绝不影响告警主路径
+        print(f"[adr][suppression-ledger] 写入失败(忽略, 不影响告警): "
+              f"{type(e).__name__}: {e}", file=sys.stderr)
+        return False
+
+
+def _maybe_prune_suppression_ledger(path: Path, now: datetime) -> None:
+    """30 天保留 + 8MB 上限轮转(按日检查标记, 每天最多重写一次; 大小超标随时触发)。"""
+    try:
+        if not path.exists():
+            return
+        _marker = path.with_name(SUPPRESSION_LEDGER_PRUNE_MARKER)
+        _today = now.strftime("%Y-%m-%d")
+        _last = ""
+        try:
+            _last = _marker.read_text(encoding="utf-8").strip()
+        except Exception:  # noqa: BLE001
+            pass
+        _too_big = path.stat().st_size > SUPPRESSION_LEDGER_MAX_BYTES
+        if _last == _today and not _too_big:
+            return
+        _cut = now - timedelta(days=SUPPRESSION_LEDGER_RETAIN_DAYS)
+        _kept = []
+        for _ln in path.read_text(encoding="utf-8").splitlines():
+            _ln2 = _ln.strip()
+            if not _ln2:
+                continue
+            try:
+                _ts = json.loads(_ln2).get("ts", "")
+            except Exception:  # noqa: BLE001
+                continue
+            _dt = _dt_of(_ts)
+            if _dt is None or _dt >= _cut:
+                _kept.append(_ln2)
+            if len(_kept) >= 200000:  # 防极端体量把内存打爆(相当于硬上限 ~60MB)
+                break
+        _tmp = path.with_name(path.name + ".tmp")
+        _tmp.write_text("\n".join(_kept) + ("\n" if _kept else ""), encoding="utf-8")
+        os.replace(_tmp, path)
+        _marker.write_text(_today, encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        print(f"[adr][suppression-ledger] 轮转失败(忽略): {type(e).__name__}: {e}",
+              file=sys.stderr)

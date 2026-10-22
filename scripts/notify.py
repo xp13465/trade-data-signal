@@ -1210,7 +1210,7 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
          source: str | None = None,
          ledger_tier: str | None = None, ledger_key: str | None = None,
          ledger_group: str | None = None, merged_count: int = 0,
-         budget_exempt: bool = False) -> dict:
+         budget_exempt: bool = False, dedup_window: int | None = None) -> dict:
     """多渠道分发通知（邮件 + Telegram + 飞书）。各渠道独立失败不互相阻塞。
 
     先邮件后 Telegram 再飞书，任一渠道失败不影响其他。返回聚合结果：
@@ -1262,7 +1262,36 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     #   新故障签名(首现)永远直发(复用 #240②「added→立即报」方法论)。
     # 反例保证: 台账缺失/坏行 → 计数 0/签名空 → 直发; digest append 失败 → fail-open 直发;
     # ALERT_BUDGET_DISABLE=1 → gate 全停; budget_exempt=True(critical 升级档) → 直发。
-    if (severe and not dry_run and not budget_exempt
+    # ── 停摆级独立通道(A, #282, 2026-10-22)────────────────────────────────────
+    # 铁律: 停摆级必须 2h 内独立直发, **在日预算/域聚合 gate 之前短路**, 不进摘要、不占额度;
+    # 只保留同键 2h 去重(通知级, 防 15min 一轮重复轰炸)。判定键在
+    # scripts/alert_denoise_rules.py:STALL_KEYS(报告 §7.3 点名的 5 类: deploy 连续失败 /
+    # staticdata 备份失败停摆 / R2 上传失败超时 / D1 同步连续失败 / unit 连续失败)。
+    # 依据: 10-20 15 条 deploy/R2 停摆告警被域静默窗埋进 23:30 摘要(报告 §4.1/§5 盲区 5/14)。
+    _grp = feishu_group or _resolve_feishu_chat_key(subject, from_prefix, severe)
+    _stall_key = (adr.stall_canonical_key(ledger_key, subject)
+                  if severe and not dry_run and _grp == "alert" else None)
+    _stall = bool(_stall_key)
+    if _stall:
+        # 窗径见 adr.stall_dedup_window(): 调用方传 0(脚本自管闸门)保留 0;
+        # 非零取 max(调用方, 2h) —— 不吞「新增立即报」, 也不缩短 deploy 现网 6h 窗。
+        _stall_win = adr.stall_dedup_window(dedup_window)
+        if check_dedup(_stall_key, _stall_win):
+            print(f"[notify][stall] 停摆通道 {_stall_win}s 窗口内已发, suppress key={_stall_key}",
+                  file=sys.stderr)
+            adr.record_suppression(
+                mechanism="stall_dedup", key=_stall_key,
+                reason=f"同键停摆通道去重窗 {_stall_win}s 内",
+                source=source, event_id=_ledger_key_of(subject, ledger_key), repo=REPO)
+            return {"email": False, "telegram": False, "feishu": False,
+                    "suppressed": True, "stall": True}
+        _sctx = adr.stall_context(_stall_key, REPO)
+        subject = adr.STALL_PREFIX + subject
+        body = adr.format_stall_body(body, _sctx)
+        print(f"[notify][stall] 停摆级直发(绕过预算/域聚合) key={_stall_key} "
+              f"首现={_sctx.get('first_seen')} 连续={_sctx.get('consecutive')}",
+              file=sys.stderr)
+    if (severe and not dry_run and not budget_exempt and not _stall
             and os.environ.get("ALERT_BUDGET_DISABLE") != "1"):
         _cat = adr.category_of(ledger_key, subject)
         if _cat:
@@ -1272,6 +1301,10 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
                 if _absorb_to_digest(subject, body, key=ledger_key, category=_cat,
                                      source=source, from_prefix=from_prefix,
                                      bump_hits=True):
+                    adr.record_suppression(
+                        mechanism="budget", key=_k, domain=None,
+                        reason=f"日预算 {_cat} 已用 {_n}/{adr.ALERT_BUDGET[_cat]}, 同签名重复",
+                        source=source, repo=REPO)
                     print(f"[notify][budget] 并入当日摘要 "
                           f"key={ledger_key or '<subject>'} sig={_k} category={_cat} "
                           f"(今日 {_cat} 直发 {_n}/{adr.ALERT_BUDGET[_cat]}, 同签名重复)",
@@ -1290,11 +1323,15 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     # **关键告警键**(adr.DOMAIN_AGGREGATE_EXEMPT_KEYS: deploy 连续失败停摆, 迟到=没告警)。
     # 状态写盘在「真发出/真并入」之后(发送成功才占窗, 对齐 P1-1), 写失败只是不占窗。
     _dom, _dom_action, _dom_entry = None, None, None
-    _agg_exempt = bool(ALERT_AGGREGATE_SUBJECT_RE.match(str(subject))) \
-        or bool(_RECOVERY_PREFIX_RE.match(str(subject))) \
+    _agg_exempt = (
+        bool(ALERT_AGGREGATE_SUBJECT_RE.match(str(subject)))
+        or bool(_RECOVERY_PREFIX_RE.match(str(subject)))
         or (ledger_key in adr.DOMAIN_AGGREGATE_EXEMPT_KEYS)  # D3: 停摆级关键告警直发
-    _grp = feishu_group or _resolve_feishu_chat_key(subject, from_prefix, severe)
-    if (not dry_run and not budget_exempt and not _agg_exempt and _grp == "alert"
+        # B: 升级提醒键前缀豁免(active_escalate|...)
+        or str(ledger_key or "").startswith(adr.DOMAIN_AGGREGATE_EXEMPT_PREFIXES)
+    )
+    if (not dry_run and not budget_exempt and not _agg_exempt and not _stall
+            and _grp == "alert"
             and os.environ.get("ALERT_DOMAIN_DISABLE") != "1"
             and os.environ.get("ALERT_BUDGET_DISABLE") != "1"):
         _dom = adr.domain_of(ledger_key, subject)
@@ -1308,9 +1345,14 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
                                      reason=adr.DOMAIN_ABSORB_REASON, domain=_dom,
                                      bump_hits=True):
                     _commit_domain_state(_dom, _dom_entry)
+                    adr.record_suppression(
+                        mechanism="domain_aggregate", key=ledger_key, domain=_dom,
+                        reason=f"同域 {adr.ALERT_DOMAIN_GROUP_INTERVAL}s 静默窗内派生",
+                        source=source, repo=REPO)
                     print(f"[notify][domain] 并入当日域摘要 domain={_dom} "
                           f"key={ledger_key or '<subject>'} "
-                          f"(同域 2h 静默窗内派生, 本日该域已并入 {_dom_entry['n_absorbed']} 条)",
+                          f"(同域 2h 静默窗内派生, 本日该域已并入 "
+                          f"{_dom_entry['n_absorbed_today']} 条 / 累计 {_dom_entry['n_absorbed']} 条)",
                           file=sys.stderr)
                     return {"email": False, "telegram": False, "feishu": False,
                             "digested": True}
@@ -1326,7 +1368,7 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     #   的结构保证, 故必须显式限群 —— 否则 report 群的业务订阅流(买卖点/汪汪队信号/
     #   异动)一旦同签名重复就会被并入「告警摘要」而**从报告群消失** = 丢业务信号。
     #   (report/follow 群消息不属「告警重复播报」问题面, 与域 gate 同口径。)
-    if (not severe and not dry_run and not budget_exempt and not _agg_exempt
+    if (not severe and not dry_run and not budget_exempt and not _agg_exempt and not _stall
             and _grp == "alert"
             and os.environ.get("ALERT_NOTICE_BUDGET_DISABLE") != "1"
             and os.environ.get("ALERT_BUDGET_DISABLE") != "1"):
@@ -1342,6 +1384,9 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
                 if _absorb_to_digest(subject, body, key=ledger_key, category=_ncat,
                                      source=source, from_prefix=from_prefix,
                                      reason=_nreason, mark_seen=True, bump_hits=True):
+                    adr.record_suppression(
+                        mechanism="notice_budget", key=_nsig, reason=_nreason,
+                        source=source, repo=REPO)
                     print(f"[notify][notice-budget] 并入当日摘要 "
                           f"key={ledger_key or '<subject>'} sig={_nsig} category={_ncat} "
                           f"reason={_nreason} (非 critical 重复类; critical 额度不动)",
@@ -1364,6 +1409,9 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
                             feishu_post=feishu_post)
     finally:
         _LEDGER_LOCAL.depth = _ledger_depth() - 1
+    # 停摆通道: 只有真发出才占 2h 去重窗(发送失败不占窗 ⇒ 下一轮重试, 对齐 P1-1)
+    if _stall and any((email_ok, tg_ok, fs_ok)):
+        update_dedup(_stall_key)
     # L46④:告警群消息统一镜像 latest.md 追加流水(所有出口留痕防旁路沉默);
     # #218-⑥-K1(2026-10-17):镜像面由「仅 severe」扩到**非 severe 告警群消息** ——
     #   「凡当日有告警产生, latest.md 必有痕迹」, 堵住 standalone_stale/mass_mismatch
@@ -2984,7 +3032,8 @@ def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
                 dry_run: bool = False, from_prefix: str | None = None,
                 feishu_group: str | None = None,
                 reply_to_message_id: str | None = None,
-                ledger_key: str | None = None) -> dict:
+                ledger_key: str | None = None,
+                dedup_window: int | None = None) -> dict:
     """三级分级统一入口（2026-08-24）。按 tier 路由：
 
     - critical：立即全渠道（=send(severe=True)，真故障即时可达用户，冻结契约不变）
@@ -3021,7 +3070,7 @@ def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
                from_prefix=from_prefix, feishu_group=feishu_group,
                reply_to_message_id=reply_to_message_id,
                ledger_tier=tier, ledger_key=ledger_key, ledger_group=feishu_group,
-               budget_exempt=(tier == TIER_CRITICAL))
+               budget_exempt=(tier == TIER_CRITICAL), dedup_window=dedup_window)
     return {"tier": tier, **res}
 
 
@@ -3147,9 +3196,16 @@ def _main_impl(argv: list[str] | None = None) -> int:
     # 调用方），发送成功后 update_dedup（占窗）。dry-run 不走去重（与通用路径 L2140 同
     # 口径，自测需看到发送日志）。
     if args.tier:
-        if args.dedup_key and not args.dry_run and check_dedup(args.dedup_key, args.dedup_window):
+        # 停摆级通道: 窗径统一走 stall_dedup_window() —— 2h 地板; 调用方显式 0
+        # (脚本自管闸门, 新集合立即报)原样保留, 否则会吞真故障判别维度。
+        _tier_win = adr.stall_dedup_window(args.dedup_window) \
+            if adr.is_stall_key(args.dedup_key) else args.dedup_window
+        if args.dedup_key and not args.dry_run and check_dedup(args.dedup_key, _tier_win):
             print(f"[notify][tier={args.tier}] dedup 窗口内 suppress "
                   f"key={args.dedup_key}", file=sys.stderr)
+            adr.record_suppression(mechanism="dedup", key=args.dedup_key,
+                                   reason=f"tier 路径 dedup 窗 {_tier_win}s 内",
+                                   repo=Path(os.environ.get("REPO") or REPO))
             return _finish(0, "suppressed", "tier dedup 窗口内 suppress",
                            tier=args.tier, dedup_key=args.dedup_key)
         res = send_tiered(args.subject, args.body, tier=args.tier, dry_run=args.dry_run,
@@ -3203,16 +3259,29 @@ def _main_impl(argv: list[str] | None = None) -> int:
         _r4_hb = _r4_repo / "data" / "staticdata_backup_heartbeat.json"
         _r4_st = _r4_repo / "data" / "staticdata_backup_fail_state.json"
         _r4_tier, _r4_reason = adr.r4_staticdata_grade(_r4_hb, _r4_st, datetime.now())
-        if not args.dry_run and check_dedup(args.dedup_key, 21600):
-            print(f"[notify][r4] staticdata_backup_fail 21600s 窗口内已发, suppress", file=sys.stderr)
-            return _finish(0, "suppressed", "R4 staticdata 21600s 窗口内 suppress",
+        # #282(A): 停摆级键不走 R4 的 6h 窗 —— 改停摆通道自己的窗(2h 地板, 更短),
+        # 6h 窗会把「仍在停摆」的 2h 提醒吞掉; 但**仍必须做去重**(R4 提前 return,
+        # 不走后面的通用 dedup, 不在这里判就等于每次调用都重发)。非停摆键保持原 21600 一字不差。
+        _r4_stall = adr.is_stall_key(args.dedup_key)
+        _r4_win = adr.stall_dedup_window(args.dedup_window) if _r4_stall else 21600
+        if not args.dry_run and check_dedup(args.dedup_key, _r4_win):
+            print(f"[notify][r4] staticdata_backup_fail {_r4_win}s 窗口内已发, suppress",
+                  file=sys.stderr)
+            adr.record_suppression(
+                mechanism=("stall_dedup" if _r4_stall else "escalation_window"),
+                key=args.dedup_key,
+                reason=f"R4 staticdata {_r4_win}s 窗口内已发",
+                repo=Path(os.environ.get("REPO") or REPO))
+            return _finish(0, "suppressed", f"R4 staticdata {_r4_win}s 窗口内 suppress",
                            tier=_r4_tier, dedup_key=args.dedup_key)
         print(f"[notify][r4] staticdata_backup_fail 分级={_r4_tier}: {_r4_reason}", file=sys.stderr)
         if _r4_tier == "severe":
             results = send_tiered(args.subject, args.body, tier=TIER_CRITICAL,
                                   dry_run=args.dry_run, from_prefix=args.from_prefix,
                                   feishu_group=args.feishu_group,
-                                  reply_to_message_id=args.reply_to_message_id)
+                                  reply_to_message_id=args.reply_to_message_id,
+                                  ledger_key=args.dedup_key,
+                                  dedup_window=args.dedup_window)
         else:
             results = send_tiered(args.subject, args.body, tier=TIER_INFO,
                                   dry_run=args.dry_run, from_prefix=args.from_prefix,
@@ -3232,6 +3301,9 @@ def _main_impl(argv: list[str] | None = None) -> int:
                         dry_run=args.dry_run)
         if args.dry_run:
             _r4_status = "dry_run"
+        elif results.get("suppressed"):
+            # #282(A): 停摆通道 2h 窗内 suppress = 已处置, 不是失败(否则调用方日志误报)
+            _r4_status = "suppressed"
         elif _r4_sent:
             _r4_status = "sent"
         elif _r4_tier == "info":
@@ -3262,6 +3334,10 @@ def _main_impl(argv: list[str] | None = None) -> int:
                 # args.dedup_window 自行判重, 语义由对象自己的窗决定(通常与原行为一致)。
                 print("[notify][r7] 升级档窗口内已发, 本次不重复升级; 落回普通路径自行判重",
                       file=sys.stderr)
+                adr.record_suppression(
+                    mechanism="escalation_window", key=adr.R2_CONSISTENCY_ESCALATED_DEDUP_KEY,
+                    reason="R7 升级档窗口内, 落回普通路径",
+                    repo=Path(os.environ.get("REPO") or REPO))
             else:
                 _r7_subject = f"[告警] §22 三站一致性校验失败(连续 {_r7_days} 天, 升级 critical)"
                 _r7_body = (f"<b>连续失败升级</b>: {_r7_reason} —— 单次失败已升级为持续缺口, "
@@ -3338,6 +3414,10 @@ def _main_impl(argv: list[str] | None = None) -> int:
                 #   重复升级仍被 _esc_window 抑制(不会多打一封)。
                 print("[notify][196] 升级档窗口内已发, 本次不重复升级; 落回普通路径自行判重",
                       file=sys.stderr)
+                adr.record_suppression(
+                    mechanism="escalation_window", key=_esc_escalated_key,
+                    reason="#196 升级档窗口内, 落回普通路径",
+                    repo=Path(os.environ.get("REPO") or REPO))
             else:
                 _esc_subject = (f"[告警] {_esc_label}(近 {adr.ESCALATE_ROLLING_WINDOW_DAYS} 天出现 "
                                 f"{_esc_days} 天, 升级 critical)")
@@ -3348,7 +3428,9 @@ def _main_impl(argv: list[str] | None = None) -> int:
                 results = send_tiered(_esc_subject, _esc_body, tier=TIER_CRITICAL,
                                       dry_run=args.dry_run, from_prefix=args.from_prefix,
                                       feishu_group=args.feishu_group,
-                                      reply_to_message_id=args.reply_to_message_id)
+                                      reply_to_message_id=args.reply_to_message_id,
+                                      ledger_key=args.dedup_key,
+                                      dedup_window=args.dedup_window)
                 print(f"[notify][196] 升级档路由完成：{results}", file=sys.stderr)
                 _esc_ok = _tier_send_ok(results, TIER_CRITICAL)
                 if _esc_ok:
@@ -3365,7 +3447,15 @@ def _main_impl(argv: list[str] | None = None) -> int:
 
     # 去重检查：window 内已告警过则 suppress 静默退出（返回 0，不阻塞调用方）
     # dry-run 不走去重（测试用，需看到发送日志）
-    if args.dedup_key and not args.dry_run and check_dedup(args.dedup_key, args.dedup_window):
+    # #282(A): 停摆级键窗径统一走 stall_dedup_window() —— 非零窗给 2h 地板
+    # (传更大窗口如 deploy_consecutive_fail 6h 保持原样不缩短); 调用方显式 0
+    # (check_failed_units.py / d1_sync_state.py 脚本自管闸门)原样保留, 不吞「新增立即报」。
+    _eff_win = adr.stall_dedup_window(args.dedup_window) \
+        if adr.is_stall_key(args.dedup_key) else args.dedup_window
+    if args.dedup_key and not args.dry_run and check_dedup(args.dedup_key, _eff_win):
+        adr.record_suppression(mechanism="dedup", key=args.dedup_key,
+                               reason=f"通用 dedup 窗 {_eff_win}s 内",
+                               repo=Path(os.environ.get("REPO") or REPO))
         return _finish(0, "suppressed", "普通路径 dedup 窗口内 suppress",
                        tier=("critical" if args.severe else "notice"),
                        dedup_key=args.dedup_key)
@@ -3375,11 +3465,17 @@ def _main_impl(argv: list[str] | None = None) -> int:
                    feishu_only=args.feishu_only,
                    reply_to_message_id=args.reply_to_message_id,
                    ledger_tier=("critical" if args.severe else "notice"),
-                   ledger_key=args.dedup_key, ledger_group=args.feishu_group)
+                   ledger_key=args.dedup_key, ledger_group=args.feishu_group,
+                   dedup_window=args.dedup_window)
     # #245 批2: gate 已把本条并入摘要 buffer(digested=True) → 不打印「已发出」、不 update_dedup、
     # 不 write_alert(未外发消息不该占窗/不该在最新告警页); rc 恒 0 契约不变。
     # 2026-10-22 审查 BLOCK-2: 独立态 `digested`(不再借用 noop) —— 摘要吸收 = 已处置(23:25 摘要
     # 交付), 调用方(check_failed_units)据此落签名、不判 rc=4, 修「假 SEVERE + 滑动窗永不过期」。
+    if results.get("suppressed"):
+        # 停摆通道在 send() 内部兜底抑制(直调 send() 的调用方也会走到这里)
+        return _finish(0, "suppressed", "停摆通道 dedup 窗内 suppress",
+                       tier=("critical" if args.severe else "notice"),
+                       dedup_key=args.dedup_key)
     if results.get("digested"):
         return _finish(0, "digested", "已并入摘要 buffer(digested)",
                        tier=("critical" if args.severe else "notice"),

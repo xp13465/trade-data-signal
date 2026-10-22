@@ -369,7 +369,10 @@ in_progress_tasks = set()
 # 状态仍置 recovered(异常确已消失), 仅抑制恢复邮件。
 # 2026-09-24 告警降噪 P1(告警噪音证据 2026-09-24): 30min->6h。计划任务异常 57 封的半噪音
 # 根因 = recovered->active 振荡(瞬时异常每轮复现被当"新异常"反复 SEVERE)。6h 同时充当
-# 恢复邮件静默窗 + _recurrence_suppressed 复现抑制窗: 真卡死(持续 active >6h)仍响, 振荡不轰炸。
+# 恢复邮件静默窗 + _recurrence_suppressed 复现抑制窗。
+# ⚠️ 2026-10-22(#282) 修正注释与实现不一致: 本常量**不**负责「持续 active 仍响」——
+#   那是 active 抑制分支的职责, 由 _active_escalate + adr.active_escalation_judge 实现
+#   (首次告警满 24h 且距上次升级满 24h ⇒ 强制升级提醒一次, 不留永久静音)。
 RECOVERY_COOLDOWN = timedelta(hours=6)
 
 
@@ -403,6 +406,61 @@ def _recurrence_suppressed(existing):
     except (ValueError, TypeError):
         return False
     return NOW - _lr_dt < RECOVERY_COOLDOWN
+
+# ── B(#282, 2026-10-22): active 抑制统一出口 = 计数 + 审计台账 + 24h 升级阶梯 ──
+# 依据(报告 §4.3/§5 盲区 3): nextday_gap_check|ConnectionError 自 10-13 09:30 起 active
+# 9 天、1,125 条 suppress 零再提醒; 原注释声称「真卡死仍响」但实现无条件静默。
+# 口径: active ≠ 永久静音。首次告警满 24h 且距上次升级满 24h ⇒ 强制发一次升级提醒
+# (正文: 首次告警时间 / 已持续时长 / 累计抑制轮次), 之后每 24h 一次直到恢复。
+# 每次抑制都写 data/alerts/suppression_ledger.jsonl(结构化审计, 永不外发)。
+# 老状态无 first_alerted ⇒ 退回 first_seen/last_alerted 回填, 绝不崩(向后兼容)。
+def _active_escalate(entry, key, label):
+    """在既有 active 抑制分支调用。返回 True=已发升级提醒(状态已记 last_escalated)。"""
+    _now_s = NOW.strftime("%Y-%m-%d %H:%M:%S")
+    _e = entry if isinstance(entry, dict) else {}
+    if not _e.get("first_alerted"):
+        _e["first_alerted"] = (_e.get("first_seen") or _e.get("last_alerted") or _now_s)
+    _e["suppress_count"] = int(_e.get("suppress_count") or 0) + 1
+    _should, _info = adr.active_escalation_judge(_e, NOW)
+    adr.record_suppression(
+        mechanism="active", key=key,
+        reason=("满 24h 发升级提醒" if _should else str(_info.get("reason") or "")),
+        first_seen=_e.get("first_alerted"), source="schedule_monitor", repo=REPO,
+        extra={"label": str(label)[:200], "suppress_count": _e["suppress_count"]})
+    if not _should:
+        print(f"[suppress] {label} 持续中, last_alerted={_e.get('last_alerted')}, 不重发 "
+              f"(持续 {_info.get('elapsed_hours')}h, 累计抑制 {_e['suppress_count']} 轮)")
+        return False
+    _subject = f"[告警] 【持续故障升级】{label}"
+    _body = (f"<b>持续故障升级提醒</b>: {label}<br>"
+             f"· 首次告警: {_info.get('first_alerted')}<br>"
+             f"· 已持续: {_info.get('elapsed_hours')} 小时<br>"
+             f"· 累计抑制: {_e['suppress_count']} 轮(监控每 15min 一轮)<br>"
+             f"该故障从首次告警至今一直未恢复 —— 已超过 24h 人工处置窗口, "
+             f"强制提醒一次; 若仍未处理, 之后每 24h 再提醒。")
+    _esc_key = "active_escalate|" + hashlib.sha1(str(key).encode("utf-8")).hexdigest()[:12]
+    try:
+        _r = subprocess.run(
+            [sys.executable, str(REPO / "scripts" / "notify.py"), _subject, _body,
+             "--severe", "--from-prefix", "[告警]",
+             "--alert-issue", "计划任务持续异常升级", "--alert-log", str(MONITOR_LOG),
+             "--dedup-key", _esc_key,
+             "--dedup-window", str(int(adr.ACTIVE_REMIND_INTERVAL_HOURS * 3600))],
+            capture_output=True, text=True, timeout=30, check=False)
+    except Exception as _e2:  # noqa: BLE001
+        print(f"[warn] 升级提醒发送异常({label}): {_e2}", file=sys.stderr)
+        return False
+    _out = (_r.stdout or "") + (_r.stderr or "")
+    if _out.strip():
+        print(_out.strip())
+    if notify_sent(_out):
+        _e["last_escalated"] = _now_s
+        _e["n_escalated"] = int(_e.get("n_escalated") or 0) + 1
+        print(f"[active-escalate] {label} 已持续 {_info.get('elapsed_hours')}h, 升级提醒已发出")
+        return True
+    print(f"[warn] 升级提醒未确认送达({label}, rc={_r.returncode}), 下轮重试", file=sys.stderr)
+    return False
+
 
 # 通知分级(2026-08-10): 自愈类(not_loaded/r2_unreachable 等可被 self_heal.sh/网络自愈)
 # 连续N次仍异常才通知, 严重类(漏跑/exit失败/数据错)首次即通知。N=2 = 30min(15min频率×2)。
@@ -481,11 +539,9 @@ for t in TASKS:
                             f"{MISSED_CONTINUOUS_THRESHOLD} 轮, 暂不通知(单轮=瞬时, 补跑即自愈)"
                         )
                 else:
-                    # 已 active = suppress 不重发, 只 log
-                    print(
-                        f"[suppress] {t['task']} 漏跑 计划<{sch_hm}> 持续中, "
-                        f"last_alerted={_existing.get('last_alerted')}, 不重发"
-                    )
+                    # 已 active = 抑制不重发, 但满 24h 强制升级提醒一次(_active_escalate)
+                    _active_escalate(_existing, missed_key,
+                                     f"{t['task']} 漏跑 计划<{sch_hm}>")
 
 # 2) 退出失败检查：从 schedule_stats.json 读 last_exit（非 null 且非 0 = 失败）
 #    去重(2026-07-25)：exit!=0 但 last_run 距今 >24h 的旧告警不重复 SEVERE。
@@ -818,6 +874,11 @@ if STATS_FILE.exists():
                         # 状态翻 active 保持, 防持续复现时每轮重复进本分支仍被抑制。
                         existing["status"] = "active"
                         existing["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                        adr.record_suppression(
+                            mechanism="recurrence", key=dedup_key,
+                            reason="recovered 后 <6h 复现(同事件振荡)",
+                            source="schedule_monitor", repo=REPO,
+                            extra={"label": f"{s['task']} 退出失败", "exit": exit_code})
                         print(
                             f"[recurrence-suppress] {s['task']} 退出失败(exit={exit_code}) "
                             f"恢复后<6h复现, 抑制不重发"
@@ -836,11 +897,9 @@ if STATS_FILE.exists():
                             "line_sample": f"last_run={last_run_str}",
                         }
                     else:
-                        # 已 active = 抑制不重发,只 log
-                        print(
-                            f"[suppress] {s['task']} 退出失败(exit={exit_code}) 持续中, "
-                            f"last_alerted={existing.get('last_alerted')}, 不重发"
-                        )
+                        # 已 active = 抑制不重发, 满 24h 强制升级提醒一次
+                        _active_escalate(existing, dedup_key,
+                                         f"{s['task']} 退出失败(exit={exit_code})")
             # 第4盲区修复: log 异常关键词检查(脚本吞异常 exit=0 漏报)
             # 即使 last_exit=0(异常被 try/except 吞),log 里有 Traceback/异常类名也算失败
             # 复用 24h stale 去重(与 exit!=0 同逻辑, 旧告警不重复 SEVERE)
@@ -893,6 +952,11 @@ if STATS_FILE.exists():
                         # 状态翻 active 保持, 防持续复现每轮重复进本分支仍被抑制。
                         existing["status"] = "active"
                         existing["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                        adr.record_suppression(
+                            mechanism="recurrence", key=dedup_key,
+                            reason="recovered 后 <6h 复现(同事件振荡)",
+                            source="schedule_monitor", repo=REPO,
+                            extra={"label": f"{s['task']} {keyword} 异常"})
                         print(
                             f"[recurrence-suppress] {s['task']} {keyword} 恢复后<6h复现, 抑制不重发"
                         )
@@ -969,11 +1033,9 @@ if STATS_FILE.exists():
                                 "line_sample": line_sample,
                             }
                     else:
-                        # 已 active = 抑制不重发,只 log
-                        print(
-                            f"[suppress] {s['task']} {keyword} 异常持续中, "
-                            f"last_alerted={existing.get('last_alerted')}, 不重发"
-                        )
+                        # 已 active = 抑制不重发, 满 24h 强制升级提醒一次(报告实证病灶:
+                        # nextday_gap_check|ConnectionError 连续 9 天 1,125 轮零提醒)
+                        _active_escalate(existing, dedup_key, f"{s['task']} {keyword} 异常")
             # 2026-08-24 瞬时超时桶自愈重置: 本轮该任务无 log 异常=抖动已过去,
             # 桶翻 recovered 静默(不发恢复邮件); 若已达阈值发过 SEVERE, 原告警 key
             # 的恢复通知仍由主恢复循环负责(桶只管计数,不管通知生命周期)。
@@ -1118,8 +1180,8 @@ if STATS_FILE.exists():
                             }
                             adr.r2_merge_mark(alert_state, _dur_task, _dur_lr, NOW)
                         else:
-                            print(f"[suppress] {_dur_task} 耗时超阈值持续中, "
-                                  f"last_alerted={_ex_dur.get('last_alerted')}, 不重发")
+                            _active_escalate(_ex_dur, _dur_key,
+                                             f"{_dur_task} 耗时超阈值(>{_dur_thresh}s)")
                 else:
                     # #240 ③: 耗时回到阈值内 = 碰线/退化已过去 → 计数桶复位(静默; 已发 SEVERE 的
                     # 恢复通知仍由主恢复循环负责, 不在此发)。archive 语义与 marker_buffer 复位同款。
@@ -1275,8 +1337,8 @@ if STATS_FILE.exists():
                         # (与现有 durable 告警语义一致)
                         _r2_exist["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
                         _r2_exist["line_sample"] = f"r2_skip_count={_r2_skip_cnt} 连续{_r2_n}轮"
-                        print(f"[suppress] {s['task']} R2 锁连续skip持续中, "
-                              f"last_alerted={_r2_exist.get('last_alerted')}, 不重发")
+                        _active_escalate(_r2_exist, _r2_alert_key,
+                                         f"{s['task']} R2 锁连续 skip")
                 elif _r2_n > 0:
                     if _r2_same_round:
                         print(f"[r2-skip-dup] {s['task']} R2 锁skip 同轮重复tick"
@@ -1343,7 +1405,7 @@ if STATS_FILE.exists():
                     "line_sample": f"last_run={_elr}",
                 }
             else:
-                print(f"[suppress] {_et} 停摆告警持续中, last_alerted={_ex_stale.get('last_alerted')}, 不重发")
+                _active_escalate(_ex_stale, _stale_key, f"{_et} 停摆告警")
         # #228 M1(2026-10-07): EXTRA 任务「轮次完整性」通道 —— 判「本轮开始了没跑完」。
         # 与上面停摆通道天然互斥: 停摆 = 无开始标记(round_state='no_start'); 完整性 = 有开始
         #   无收尾(round_state='started_unfinished')。判别三元素见常量区 EXTRA_ROUND_INCOMPLETE。
@@ -1394,7 +1456,7 @@ if STATS_FILE.exists():
                 }
             else:
                 _ex_ri["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
-                print(f"[suppress] {_et} 轮次未收尾告警持续中, last_alerted={_ex_ri.get('last_alerted')}, 不重发")
+                _active_escalate(_ex_ri, _ri_key, f"{_et} 轮次未收尾告警")
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 
@@ -1471,8 +1533,7 @@ for _ip_task in sorted(in_progress_tasks):
         }
         adr.r2_merge_mark(alert_state, _ip_task, _ip_lr, NOW)
     else:
-        print(f"[suppress] {_ip_task} 进行中超时持续中, "
-              f"last_alerted={_ex_ip.get('last_alerted')}, 不重发")
+        _active_escalate(_ex_ip, _ip_key, f"{_ip_task} 进行中超时")
 
 # 5) launchctl 加载检查（2026-07-20 补缺口，方案D）
 #    11个 com.trade label（9监控任务 + self-heal，不含 schedule-monitor 自己防递归）。
@@ -1615,11 +1676,9 @@ for _label in LAUNCHCTL_LABELS:
             }
             print(f"[self-heal failed] {_label} 运行失败且无 exit!=0 通道覆盖, 首次发 SEVERE")
         else:
-            # 已 active = 抑制不重发,只 log
-            print(
-                f"[suppress] {_label} systemd is-active=failed(无 exit!=0 覆盖) 持续中, "
-                f"last_alerted={_existing_failed.get('last_alerted')}, 不重发"
-            )
+            # 已 active = 抑制不重发, 满 24h 强制升级提醒一次
+            _active_escalate(_existing_failed, _failed_key,
+                             f"{_label} systemd is-active=failed(无 exit!=0 覆盖)")
         continue
     dedup_key = f"{_label}|not_loaded"
     seen_keys_this_run.add(dedup_key)
@@ -1651,11 +1710,8 @@ for _label in LAUNCHCTL_LABELS:
             _existing["consecutive_count"] = _nl_count
             print(f"[self_heal pending] {_label} 连续{_nl_count}/{SELF_HEAL_THRESHOLD}次未加载, 暂不通知")
     elif _existing.get("status") == "active":
-        # 已 active = 抑制不重发,只 log
-        print(
-            f"[suppress] {_label} 未加载持续中, "
-            f"last_alerted={_existing.get('last_alerted')}, 不重发"
-        )
+        # 已 active = 抑制不重发, 满 24h 强制升级提醒一次
+        _active_escalate(_existing, dedup_key, f"{_label} 未加载")
 
 # ── C3 staticdata 备份心跳新鲜度检查(2026-09-25 审查整改) ──
 # 背景: staticdata 灾备第2层备份已拆异步(scripts/staticdata_backup_async.sh), 若异步任务
@@ -1696,12 +1752,10 @@ if STATICDATA_HB_FILE.exists():
                         "line_sample": f"last_ok={_hb_ts}",
                     }
                 else:
-                    # 已 active = 抑制不重发, 只 log(恢复由下方恢复检测循环处理:
-                    # 心跳恢复 fresh 后未 seen → 自动发恢复邮件)
-                    print(
-                        f"[suppress] staticdata_backup 异步备份停摆持续中, "
-                        f"last_alerted={_hb_existing.get('last_alerted')}, 不重发"
-                    )
+                    # 已 active = 抑制不重发, 满 24h 强制升级提醒一次(备份停摆是停摆级:
+                    # 报告 §5 盲区 6 实证 36h 延迟, 绝不允许永久静音)
+                    _active_escalate(_hb_existing, _hb_key,
+                                     "staticdata_backup 异步备份停摆")
     except (ValueError, TypeError, KeyError) as _e:
         # 心跳格式异常/解析失败: 按无有效状态处理, 不告警(防上线即假 SEVERE, 盲区写入注释)。
         print(f"[warn] staticdata 备份心跳解析失败(按无有效状态跳过): {_e}", file=sys.stderr)
@@ -1840,10 +1894,15 @@ def _check_resource(_label, _scope, _pct):
         seen_keys_this_run.add(_key)
         _ex = alert_state.get(_key)
         if _ex is not None and _ex.get("status") == "active":
-            print(f"[suppress] {_key} {_pct:.1f}% 持续中, 不重发")
+            _active_escalate(_ex, _key, f"{_key} 资源占用 {_pct:.1f}%")
         elif _recurrence_suppressed(_ex):
             _ex["status"] = "active"
             _ex["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+            adr.record_suppression(
+                mechanism="recurrence", key=_key,
+                reason="recovered 后 <6h 复现(同事件振荡)",
+                source="schedule_monitor", repo=REPO,
+                extra={"label": f"{_key} 资源占用 {_pct:.1f}%"})
             print(f"[recurrence-suppress] {_key} {_pct:.1f}% 恢复后 <6h 复现, 抑制不重发")
         else:
             alerts.append(
@@ -1957,7 +2016,7 @@ def _cfu_report(_key, _msg, _kw):
         }
     else:
         _ex["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[suppress] {_key} 持续中, 不重发")
+        _active_escalate(_ex, _key, f"{_key} 持续异常")
 
 
 if _cfu_dead:
@@ -2239,8 +2298,7 @@ try:
                   f"暂不通知(单次=上传间隙瞬时)")
         elif _r1_action == "suppress":
             _existing = alert_state.get(dedup_key)
-            print(f"[suppress] overview 时效滞后持续中, "
-                  f"last_alerted={_existing.get('last_alerted')}, 不重发")
+            _active_escalate(_existing, dedup_key, "线上 overview 时效滞后")
         elif _r1_action == "recover":
             # 时效恢复: was active -> resolved, 发恢复邮件(内联, 不复用 L476 恢复循环
             # 因 overview 检查在恢复循环之后运行, 复用会被误报恢复)
@@ -2348,8 +2406,7 @@ try:
                 _ex_r2["consecutive_count"] = _r2_count
                 print(f"[self_heal pending] R2 直连不可达, 连续{_r2_count}/{SELF_HEAL_THRESHOLD}, 暂不通知")
         elif _ex_r2.get("status") == "active":
-            print(f"[suppress] R2 直连不可达持续中, "
-                  f"last_alerted={_ex_r2.get('last_alerted')}, 不重发")
+            _active_escalate(_ex_r2, _r2_key, "R2 直连不可达")
     else:
         # R2 可达 -> 恢复检测(r2_unreachable)
         _ex_r2u = alert_state.get("r2_unreachable")
@@ -2418,8 +2475,7 @@ try:
                           f"暂不通知(单次=上传间隙瞬时)")
                 elif _r2_ov_act == "suppress":
                     _ex_r2ov = alert_state.get(_r2_ov_key)
-                    print(f"[suppress] R2 overview 滞后持续中, "
-                          f"last_alerted={_ex_r2ov.get('last_alerted')}, 不重发")
+                    _active_escalate(_ex_r2ov, _r2_ov_key, "R2 overview 滞后")
             else:
                 # 恢复检测(r1_buffer_judge 内部已清 buffer)
                 _r2_ov_act = adr.r1_buffer_judge(
@@ -2502,8 +2558,7 @@ try:
                             "line_sample": f"lag={id_lag_min_r2}min collected_at={id_collected_r2}",
                         }
                     else:
-                        print(f"[suppress] R2 intraday 滞后持续中, "
-                              f"last_alerted={_ex_r2id.get('last_alerted')}, 不重发")
+                        _active_escalate(_ex_r2id, _r2_id_key, "R2 intraday 滞后")
                 else:
                     # 恢复检测
                     _ex_r2id = alert_state.get("r2_intraday_lag")
@@ -2603,8 +2658,7 @@ try:
                                 else str(_feishu_cfg_path)),
             }
         else:
-            print(f"[suppress] 飞书配置缺失持续中, "
-                  f"last_alerted={_ex_fs.get('last_alerted')}, 不重发")
+            _active_escalate(_ex_fs, _feishu_key, "飞书配置缺失")
     else:
         # 恢复检测（inline，与 r2_ 同模式）：异常已消失 -> 发恢复邮件
         _ex_fs = alert_state.get(_feishu_key)
@@ -2738,8 +2792,7 @@ try:
                 "line_sample": "feishu_hook_heartbeat 心跳陈旧/缺失",
             }
         else:
-            print(f"[suppress] 飞书 hook 心跳陈旧持续中, "
-                  f"last_alerted={_ex_hb.get('last_alerted')}, 不重发")
+            _active_escalate(_ex_hb, _hb_key, "飞书 hook 心跳陈旧")
     else:
         if _hb_hb_bad:
             # b) 心跳仍异常但会话不活跃(用户暂时没用)= 预期, 降级 warn 只记日志不发邮件(#84 C3)
@@ -2882,8 +2935,7 @@ try:
                 "line_sample": "feishu_ws_last_event 心跳陈旧/缺失",
             }
         else:
-            print(f"[suppress] 飞书 ws listener 心跳陈旧持续中, "
-                  f"last_alerted={_ex_ws.get('last_alerted')}, 不重发")
+            _active_escalate(_ex_ws, _ws_key, "飞书 ws listener 心跳陈旧")
     else:
         # 恢复检测（inline，与维度⑦/⑧同模式）：异常已消失 -> 发恢复邮件
         _ex_ws = alert_state.get(_ws_key)
@@ -2984,6 +3036,45 @@ _orig_has_alerts = bool(alerts)
 # ⚠️ B1(2026-10-13 修「降噪吞 severe」): 计数口径 = 台账 tier=="critical" 行(severe 直发
 # 登记口径), notice/warning 行不吃额度 —— 与 notify.py send() gate 共用
 # adr.ledger_day_direct_counts/ledger_day_direct_index 同一函数, 一刀两端。
+# ── A(#282, 2026-10-22): 停摆级批次行抽出独立直发 ─────────────────────────────
+# 依据(报告 §4.1/§5 盲区 5/14): monitor 把多脚本异常合成一条「N项计划任务异常」, subject
+# 含「计划任务异常」⇒ domain_of 归 r2_deploy ⇒ 2h 内派生条目全被并进 23:30 摘要。
+# 停摆级(adr.stall_line_key 命中: 备份停摆/连续失败/unit 漂移)必须 **2h 内独立直发**,
+# 因此先抽出来逐条走 notify(带稳定 dedup key + 2h 窗), 剩余普通行照旧走批次预算/聚合。
+_stall_batch = []
+_rest = []
+for _a in alerts:
+    _sk = adr.stall_line_key(_a)
+    if _sk:
+        _stall_batch.append((_a, _sk))
+    else:
+        _rest.append(_a)
+alerts = _rest
+for _line, _sk in _stall_batch:
+    _stripped = (_line[8:] if _line.startswith("SEVERE: ") else _line)
+    _st_state_key = "staticdata_backup_stale" if "staticdata" in _line else None
+    _r_st = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "notify.py"),
+         f"[告警] {_stripped[:120]}", _stripped,
+         "--severe", "--from-prefix", "[告警]",
+         "--alert-issue", "计划任务停摆告警", "--alert-log", str(MONITOR_LOG),
+         "--dedup-key", _sk, "--dedup-window", str(adr.STALL_DEDUP_WINDOW)],
+        capture_output=True, text=True, timeout=30, check=False)
+    _st_out = (_r_st.stdout or "") + (_r_st.stderr or "")
+    if _st_out.strip():
+        print(_st_out.strip())
+    if notify_sent(_st_out):
+        print(f"[stall-direct] 停摆级已独立直发: {_stripped[:100]}")
+    else:
+        # fail-open: 直发失败 ⇒ 回普通批次(宁多勿吞); 同时回滚本轮新 active 落签让人下轮重试
+        alerts.append(_line)
+        if _st_state_key:
+            if _st_state_key in _STATE_PRE:
+                alert_state[_st_state_key] = dict(_STATE_PRE[_st_state_key])
+            else:
+                alert_state.pop(_st_state_key, None)
+        print(f"[warn] 停摆直发未确认送达(rc={_r_st.returncode}) ⇒ 回批重试: {_stripped[:80]}",
+              file=sys.stderr)
 alerts, _absorbed = adr.alert_budget_process(alert_state, alerts, NOW, REPO)
 save_alert_state(alert_state)
 # defer 调用在 save_alert_state **之后**、批次发送 **之前**: 被吸收行从批次剔除 ⇒ 下方
@@ -3001,6 +3092,11 @@ for _ent in _absorbed:
         alerts.append(_ent["line"])
         print(f"[warn] digest defer 失败, 回批直发: {_ent['line'][:80]}", file=sys.stderr)
     else:
+        adr.record_suppression(
+            mechanism="monitor_budget", key=_ent.get("key"),
+            reason=f"monitor 批次行级预算 category={_ent.get('category')}",
+            source="schedule_monitor", repo=REPO,
+            extra={"line": _ent["line"][:300], "category": _ent.get("category")})
         print(f"[budget-absorb] {_ent['category']} 并入当日摘要: {_ent['line'][:80]}")
 if alerts:
     print(f"[{now_str}] 检测到 {len(alerts)} 个告警:")

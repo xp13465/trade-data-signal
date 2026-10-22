@@ -46,6 +46,22 @@ import pytest
 import gen_schedule_stats as G  # conftest 已把 scripts/ 入 sys.path(数据层断言真模块)
 
 ROOT = Path(__file__).absolute().parent.parent.parent
+
+
+# #282(2026-10-22): monitor 真块的 active 抑制分支收敛到 _active_escalate + adr.record_suppression。
+# 本文件只验 r2_skip 状态机(升级阶梯由 test_282 专测), 故注入不外发/不改状态的假实现,
+# 保持原断言口径(抑制=不重发)不变。
+def _active_escalate_stub(entry, key, label):
+    return False
+
+
+class _AdrStub:
+    @staticmethod
+    def record_suppression(**_k):
+        return True
+
+
+_adr_stub = _AdrStub()
 MONITOR = ROOT / "scripts" / "schedule_monitor.sh"
 CSV = Path(__file__).absolute().parent / "fixtures" / "181" / "ticks.csv"
 
@@ -176,6 +192,10 @@ def _drive(code, consts, ticks, task=TASK_MECH):
             "alerts": [], "alert_state": st, "seen_keys_this_run": set(), "NOW": T,
             "print": (lambda *a, **k: None),
             "s": s,
+            # #282: 真块 active 抑制分支已收敛到 _active_escalate; 本用例只验 r2_skip 状态机,
+            # 注入不动状态/不外发的假实现(升级阶梯另由 test_282 专测)。
+            "_active_escalate": _active_escalate_stub,
+            "adr": _adr_stub,
             # 假 subprocess(记录 argv) + 真实 sys/REPO(仅取路径, 不执行) —— 保证零真实外发。
             "subprocess": sub, "sys": sys, "REPO": ROOT,
         }
@@ -578,6 +598,7 @@ def test_l3c_state_tier_progression(code, r2_src):
         run = {**{"datetime": datetime.datetime, "timedelta": datetime.timedelta,
                   **consts, "alerts": [], "alert_state": st, "seen_keys_this_run": set(),
                   "NOW": T, "print": (lambda *a, **k: None), "s": s,
+                  "_active_escalate": _active_escalate_stub, "adr": _adr_stub,
                   "subprocess": _FakeSub(), "sys": sys, "REPO": ROOT}}
         exec(code, run)  # noqa: S102
         if alert_key in st:
