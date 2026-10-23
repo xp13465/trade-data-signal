@@ -133,6 +133,11 @@ def test_route_total_bytes_threshold_default_and_env(lane, monkeypatch):
     # 恰好等于阈值不算超(> 才退回)
     monkeypatch.setenv("R2_SMALL_CHANNEL_MAX_BYTES", "120")
     assert ur._route_upload_lock("upload-data-files", ["a.json", "b.json"]) == small_lock
+    # 非法值(非数字 / 负数)回默认 8MB —— 坏 env 不能把阈值误判成 0 导致小锁通道被悄悄关掉
+    monkeypatch.setenv("R2_SMALL_CHANNEL_MAX_BYTES", "abc")
+    assert ur._small_channel_max_bytes() == 8 * 1024 * 1024
+    monkeypatch.setenv("R2_SMALL_CHANNEL_MAX_BYTES", "-5")
+    assert ur._small_channel_max_bytes() == 8 * 1024 * 1024
 
 
 def test_route_missing_file_still_small(lane):
