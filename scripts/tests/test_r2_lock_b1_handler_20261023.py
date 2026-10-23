@@ -127,7 +127,9 @@ def test_gap_check_timeout_logs_tail_and_holder(monkeypatch, capsys):
         raise _timeout_exc(timeout=300)
 
     monkeypatch.setattr(g.subprocess, "run", _boom)
-    monkeypatch.setattr(g, "probe_lock_holder", lambda _p, _m=3: "pid=41022(已运行 24:13) upload_r2.py")
+    monkeypatch.setattr(g, "probe_locks", lambda _paths: (
+        "全局锁(/tmp/trade_r2_upload.lock)=无占用/探测不到; "
+        "小锁(/tmp/trade_r2_upload_small.lock)=pid=41022(已运行 24:13) upload_r2.py"))
     monkeypatch.setattr(g, "subprocess_output_tail",
                         lambda e, limit=2000: "⏳ 等待 R2 上传锁 419s(上限 7300s)")
 
@@ -138,7 +140,9 @@ def test_gap_check_timeout_logs_tail_and_holder(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "R2 上传异常: Command" in out, "原告警文案保留"
     assert "子进程输出尾段(等锁心跳): ⏳ 等待 R2 上传锁 419s" in out, out
-    assert "占锁进程候选(lsof 只读): pid=41022" in out, out
+    assert "锁占用探测(lsof 只读, 全局锁/小锁逐把): " in out, out
+    assert "小锁(/tmp/trade_r2_upload_small.lock)=pid=41022" in out, \
+        "A 方案后必须报出小锁被占(只报全局锁会指错方向)"
 
 
 # ══════════════════════ ③ 同类面: fapi_bj_width_export ══════════════════════
@@ -152,7 +156,9 @@ def test_fapi_timeout_logs_tail_and_holder(monkeypatch, capsys):
         raise _timeout_exc(timeout=900)
 
     monkeypatch.setattr(f.subprocess, "run", _boom)
-    monkeypatch.setattr(f, "probe_lock_holder", lambda _p, _m=3: "pid=999(已运行 01:02) upload-data-large")
+    monkeypatch.setattr(f, "probe_locks", lambda _paths: (
+        "全局锁(/tmp/trade_r2_upload.lock)=pid=999(已运行 01:02) upload-data-large; "
+        "小锁(/tmp/trade_r2_upload_small.lock)=无占用/探测不到"))
     monkeypatch.setattr(f, "subprocess_output_tail", lambda e, limit=2000: "⏳ 等待 R2 上传锁 880s")
 
     assert f._upload_r2(["overview.json"]) is False, "降级行为未变(仍 return False)"
@@ -160,7 +166,8 @@ def test_fapi_timeout_logs_tail_and_holder(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "✗ upload-data-files 超时(900s)" in out, "原超时文案保留"
     assert "子进程输出尾段(等锁心跳): ⏳ 等待 R2 上传锁 880s" in out, out
-    assert "占锁进程候选(lsof 只读): pid=999" in out, out
+    assert "锁占用探测(lsof 只读, 全局锁/小锁逐把): " in out, out
+    assert "全局锁(/tmp/trade_r2_upload.lock)=pid=999" in out, out
 
 
 # ══════════════════════ ④ 同类面: gen_daily_brief(degrade 判定严禁变) ══════════════════════
@@ -171,7 +178,9 @@ def test_brief_timeout_logs_tail_and_degrade_unchanged(monkeypatch, capsys):
         raise _timeout_exc(timeout=120)
 
     monkeypatch.setattr(b.subprocess, "run", _boom)
-    monkeypatch.setattr(b, "probe_lock_holder", lambda _p, _m=3: "pid=777(已运行 03:04) upload_r2.py")
+    monkeypatch.setattr(b, "probe_locks", lambda _paths: (
+        "全局锁(/tmp/trade_r2_upload.lock)=无占用/探测不到; "
+        "小锁(/tmp/trade_r2_upload_small.lock)=pid=777(已运行 03:04) upload_r2.py"))
     monkeypatch.setattr(b, "subprocess_output_tail", lambda e, limit=2000: "⏳ 等待 R2 上传锁 110s")
 
     # degrade 分支: 兜底已到位 ⇒ 只打 ⚠ 不视为缺口(原判定逐字保留)
@@ -179,7 +188,8 @@ def test_brief_timeout_logs_tail_and_degrade_unchanged(monkeypatch, capsys):
     b.upload_to_r2(Path(REPO), False, ["daily_brief.json"])
     out = capsys.readouterr().out
     assert "子进程输出尾段(等锁心跳): ⏳ 等待 R2 上传锁 110s" in out, out
-    assert "占锁进程候选(lsof 只读): pid=777" in out, out
+    assert "锁占用探测(lsof 只读, 全局锁/小锁逐把): " in out, out
+    assert "小锁(/tmp/trade_r2_upload_small.lock)=pid=777" in out, out
     assert "⚠ R2 上传超 120s 但 R2 已有较新版 daily_brief.json" in out, out
     assert "R2_UPLOAD_TIMEOUT" not in out, "degrade 分支不得打 critical 标记(判定未变)"
 

@@ -7,9 +7,11 @@
 (每 30s 一行「⏳ 等待 R2 上传锁 Ns」心跳)全吞掉 ⇒ 日志里看不见「在等锁」, 只能反推。
 根因报告 docs/ops/r2-lock-contention-20261023.md; 方案 docs/ops/r2-lock-plan-20261023.md §4。
 
-本模块只做两件事, 都是**只读/纯函数**, 零业务副作用:
+本模块只做三件事, 都是**只读/纯函数**, 零业务副作用:
   1) `probe_lock_holder(lock_path)` —— lsof 找出「打开了锁文件」的进程(候选集), ps 补运行时长与命令行;
-  2) `build_lock_timeout_diag(...)` —— 把 `subprocess.TimeoutExpired` 变成
+  2) `probe_locks(paths)` / `lock_paths_from_env()` —— 逐把锁探测(全局锁 + 小锁),
+     明确标出**哪把被占**(A 方案后上传可能走小锁, 只探全局锁会指错方向);
+  3) `build_lock_timeout_diag(...)` —— 把 `subprocess.TimeoutExpired` 变成
      (日志文本, 告警标题, 告警正文), 正文说人话:「上传前排队等锁超时(等了 N 秒, 被 X 占着)」。
 
 ⚠ 语义边界(诚实标注): `lsof` 只能看到「打开了这个锁文件」的进程, 而 `upload_r2.py` 的**排队者**
@@ -19,11 +21,29 @@
 §18 L50 / §25 对齐: 纯只读(lsof + ps), 不 exec 任何业务脚本、不写文件、不碰网络;
 任何异常(含 lsof 不存在的精简镜像)一律返回空串, **绝不让诊断反过来把链路弄挂**。
 """
+import os
 import re
 import subprocess
 
 # ps etime 形如 `MM:SS` / `HH:MM:SS` / `DD-HH:MM:SS`; 行首是 pid。
 _PS_ROW_RE = re.compile(r"^\s*(\d+)\s+([\d:-]+)\s+(.*)$")
+
+# ── A 方案(2026-10-23)后上传可能走两把锁: 全局锁 / 小锁 ──────────────────────
+# 审查建议 2: 超时时若只报「全局锁无占用」, 而实际是小锁被占, 诊断会把人指错方向。
+# 故诊断统一走「逐把探测」, 由调用方传两把锁的路径; 路径 env 与 upload_r2.py 同名同缺省
+# (改默认路径必须两处一起改, 否则诊断看错文件)。
+_LOCK_PATH_ENVS = (
+    ("全局锁", "R2_UPLOAD_LOCK", "/tmp/trade_r2_upload.lock"),
+    ("小锁", "R2_UPLOAD_SMALL_LOCK", "/tmp/trade_r2_upload_small.lock"),
+)
+
+
+def lock_paths_from_env():
+    """返回 [(标签, 锁路径), ...]: 上传可能用到的全部锁(先全局后小锁)。
+
+    纯读环境变量, 不 stat/不打开文件; 零副作用。
+    """
+    return [(label, os.environ.get(env, default)) for label, env, default in _LOCK_PATH_ENVS]
 
 
 def _etime_secs(etime: str) -> int:
@@ -76,6 +96,27 @@ def probe_lock_holder(lock_path, max_items: int = 3, row_limit: int = 160) -> st
     return "; ".join(out)
 
 
+def probe_locks(paths, probe=None) -> str:
+    """逐把锁探测并标明占用情况, 返回单行人类可读串; 永不抛异常。
+
+    paths: ``[(标签, 锁路径), ...]``(一般用 ``lock_paths_from_env()``)。
+    返回形如 ``全局锁(/tmp/a.lock)=无占用/探测不到; 小锁(/tmp/b.lock)=pid=123(已运行 00:42) ...``
+    —— 明确回答「哪把锁被占」, 而不是只报一把(审查建议 2)。
+
+    ⚠ 语义边界同 probe_lock_holder: 「无占用/探测不到」既可能是确实没人打开, 也可能是
+    lsof 缺失/超时, 故不写成「确定无占用」。
+    """
+    fn = probe or probe_lock_holder
+    parts = []
+    for label, path in paths:
+        try:
+            holder = fn(str(path))
+        except Exception:  # noqa: BLE001  (诊断绝不反过来把链路弄挂)
+            holder = ""
+        parts.append(f"{label}({path})={holder or '无占用/探测不到'}")
+    return "; ".join(parts)
+
+
 def subprocess_output_tail(exc, limit: int = 2000) -> str:
     """取 TimeoutExpired 上挂的超时前输出尾段。
 
@@ -99,13 +140,17 @@ def parse_lock_wait_secs(text: str):
     return max((int(x) for x in found), default=None)
 
 
-def build_lock_timeout_diag(exc, *, lock_path, log_path, date_tag,
+def build_lock_timeout_diag(exc, *, lock_path, log_path, date_tag, lock_paths=None,
                             subject_prefix="[告警]", source="", file_names=None,
                             limit: int = 2000, probe=None) -> tuple:
     """超时诊断三件套:(日志文本, 告警标题, 告警正文)。纯函数(除只读 lsof), 不触发任何通知。
 
     「等锁秒数」优先取子进程心跳里的最大值;没有心跳(例如子进程还没轮到打第一行)则回落到
     本次超时上限 —— 后者是「最多等了这么久」的保守说法, 不谎称精确值。
+
+    lock_paths(A 方案后推荐): ``[(标签, 锁路径), ...]``, 逐把探测并标明哪把被占 ——
+    上传可能走全局锁或小锁, 只探一把会在小锁被占时指错方向(审查建议 2)。
+    不传则退回只探 ``lock_path`` 一把(向后兼容, 现有调用方/用例行为不变)。
     """
     lock_path = str(lock_path)
     timeout_s = int(getattr(exc, "timeout", 0) or 0)
@@ -114,8 +159,14 @@ def build_lock_timeout_diag(exc, *, lock_path, log_path, date_tag,
     waited_exact = waited_s is not None
     if waited_s is None:
         waited_s = timeout_s
-    holder = (probe or probe_lock_holder)(lock_path) or (
-        "未知(只读探测不到持锁进程, 可人工 `lsof " + lock_path + "` 排查)")
+    if lock_paths:
+        lock_desc = "; ".join(f"{label}={path}" for label, path in lock_paths)
+        holder = probe_locks(lock_paths, probe=probe) or (
+            "未知(只读探测不到持锁进程, 可人工 `lsof` 逐个锁文件排查)")
+    else:
+        lock_desc = lock_path
+        holder = (probe or probe_lock_holder)(lock_path) or (
+            "未知(只读探测不到持锁进程, 可人工 `lsof " + lock_path + "` 排查)")
     files_txt = ""
     if file_names:
         files_txt = f"本次要传的是 {len(file_names)} 个小文件({', '.join(map(str, file_names))}); "
@@ -124,7 +175,7 @@ def build_lock_timeout_diag(exc, *, lock_path, log_path, date_tag,
 
     log_text = (
         f"⚠ {src_txt}上传前排队等锁超时({waited_txt} / 上限 {timeout_s}s), "
-        f"占锁进程候选={holder}, 锁文件={lock_path}\n"
+        f"占锁进程候选={holder}, 锁文件={lock_desc}\n"
         f"子进程输出尾段(等锁心跳):\n{tail or '(空)'}"
     )
     subject = f"{subject_prefix} 上传前排队等锁超时 {date_tag}"
@@ -132,7 +183,7 @@ def build_lock_timeout_diag(exc, *, lock_path, log_path, date_tag,
         f"{src_txt}上传前排队等锁超时({waited_txt}, 被 {holder} 占着)。"
         f"{files_txt}"
         f"本地已落盘但 R2 未同步(线上备站可能滞后)。"
-        f"<br>锁文件: {lock_path}"
+        f"<br>锁文件: {lock_desc}"
         f"<br>子进程输出尾段(等锁心跳): <pre>{tail or '(空)'}</pre>"
         f"<br>日志: {log_path}"
     )
