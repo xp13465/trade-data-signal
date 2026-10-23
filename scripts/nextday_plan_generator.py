@@ -84,7 +84,22 @@ from app.collector.fetchers import load_config  # noqa: E402  (indicators.yaml i
 from signal_kelly_backtest import PSEUDO_GAP_EXCLUDE  # noqa: E402  (伪跳空阈值同源, 不各写一个数)
 from notify_sent import notify_state  # noqa: E402  (#241 Pattern B/W2: 三态判据, 同 notify_sent 唯一实现)
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
-from r2_lock_probe import build_lock_timeout_diag  # noqa: E402  (C 方案 2026-10-23: 等锁超时诊断, 只读 lsof + 子进程输出尾段)
+try:  # C 方案(2026-10-23): 等锁超时诊断, 只读 lsof + 子进程输出尾段。
+    # 辅助模块缺失(新文件还没同步到云上)/导入异常也不得让生成器 import 期直接崩(fail-safe),
+    # 退化为占位实现: 仍吐一句简单文案 ⇒ 超时路径照样有告警(与 upload_r2.py 同款兜底)。
+    from r2_lock_probe import build_lock_timeout_diag  # noqa: E402
+except Exception:  # noqa: BLE001
+    def build_lock_timeout_diag(exc, *, lock_path, log_path, date_tag,  # noqa: D401
+                                subject_prefix="[告警]", source="", file_names=None,
+                                limit=2000, probe=None):
+        _to = getattr(exc, "timeout", "?")
+        _src = f"{source}: " if source else ""
+        return (
+            f"⚠ {_src}R2 上传超时({_to}s); 等锁诊断模块 r2_lock_probe 不可用, 无法给出等锁/持锁细节",
+            f"{subject_prefix} 超时 {date_tag}",
+            f"{_src}R2 upload-data-files 超时({_to}s), 本地已落盘但 R2 未同步。"
+            f"等锁诊断模块不可用(r2_lock_probe 未能导入)。<br>日志: {log_path}",
+        )
 
 K = 1                       # K 档(每日 top1, 与首页 AI仓位建议默认 K=1 一致)
 BUY_AMOUNT = 10000          # 每日资金池 1 万等分
@@ -935,6 +950,84 @@ def _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_
     return changed
 
 
+def _uphold_plan_r2_upload(r2_files, T):
+    """把次日计划相关文件传 R2(upload-data-files); 返回 r2_rc(0=成功, 1=失败或超时)。
+
+    C 方案(2026-10-23): 480s 超时的真实原因多半是「排队等锁」而不是「上传慢」, 子进程 stderr
+    每 30s 一行等锁心跳被 capture_output=True 吞掉 ⇒ 这里把尾段 + 只读 lsof 查到的持锁进程 +
+    说人话文案一起落到日志与告警(字段口径/依据见 docs/ops/r2-lock-plan-20261023.md §4)。
+
+    ⚠ 诊断整段**自带兜底**(2026-10-23 审查阻断项 B1): except handler 里抛出的异常不会被同一个
+    try 后面的 except 兜住, 会一路逃到 main() 顶层兜底 ⇒ 后面的「明日计划」通知整段被跳过。
+    故: ①诊断调用包内层 try/except, 失败回落成简单告警(保证至少发一条); ②r2_rc=1 的赋值放在
+    内层 try/except **之外**, 任何诊断异常都跳不过它。超时值(480)与整体控制流未变。
+    """
+    cmd = [PY, str(SCRIPT_DIR / "upload_r2.py"), "upload-data-files"] + list(r2_files)
+    log("R2: " + " ".join(cmd))
+    try:
+        env = dict(os.environ)
+        env.setdefault("REPO", str(REPO))
+        # #223②(2026-10-07 用户拍板): 本层 timeout 300 → 480(把慢传带纳入忍耐)。
+        # 算式(逐字见 docs/ops/223-123-inner-timeout-evidence-20261006.md §3.3):
+        #   480 + 28(上传前 ≤10s + 超时后处理实测 18s) = 508 < 600(本链外层 systemd
+        #   TimeoutStartSec 硬墙), 余 92s; 480 亦 > 观测触发的下界 300s(2026-09-30 318s 事件)。
+        # 不加运行时梯度守卫(对齐 #6.5 少写抽象: 无第二真实使用者不造抽象):
+        #   · #217② 版(无外层感知)照抄会越墙、不可用 —— 其「内层 HTTP(云上 .env=600)≥ 本层
+        #     则抬到 内层+300」规则会把 480 抬到 900 > 600(越 systemd 墙, 禁止);
+        #   · #223④ overfit 版(有外层感知)在本处行为中性但产噪 —— 代入 外层 600 + 内层 HTTP 600,
+        #     走其「外层优先不越墙」分支保持 480(不抬过 600), 但该倒置条件恒真 ⇒ 每次运行打一行永久 warn。
+        # 外层固定 600 ⇒ 480 < 600 无倒置, 改由本注释 +
+        # tests/test_223_nextday_plan_timeout.py 固化「480 < 600」不变量。
+        # 仍 < 内层 HTTP 600 的倒置经拍板接受(外层优先不越墙, 保本层优雅超时先于 systemd SIGKILL)。
+        r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=480)
+        log(f"R2 退出码={r.returncode}\n{r.stdout}")
+        if r.returncode != 0:
+            _err = r.stderr[-2000:]
+            log(f"⚠ R2 上传失败(将告警): {_err}")
+            _severe_alert(
+                f"[告警] 次日买入计划 R2 上传失败 rc={r.returncode} {T}",
+                f"nextday_plan_generator.py: R2 upload-data-files 退出码 {r.returncode}, "
+                f"次日买入计划本地已落盘但 R2 未同步(线上 sss/s 备站可能滞后)。"
+                f"<br>R2 stderr: <pre>{_err}</pre>"
+                f"<br>日志: {REPO}/data/logs/nextday_plan_launchd.log",
+            )
+            return 1
+        return 0
+    except subprocess.TimeoutExpired as e:
+        r2_rc = 1  # 内层诊断 try/except 之外: 诊断抛任何异常都不会跳过这个赋值
+        try:
+            _diag_log, _diag_subject, _diag_body = build_lock_timeout_diag(
+                e,
+                lock_path=os.environ.get("R2_UPLOAD_LOCK", "/tmp/trade_r2_upload.lock"),
+                log_path=REPO / "data" / "logs" / "nextday_plan_launchd.log",
+                date_tag=T,
+                subject_prefix="[告警] 次日买入计划 R2",
+                source="nextday_plan_generator.py",
+                file_names=r2_files,
+            )
+            log(_diag_log)
+            _severe_alert(_diag_subject, _diag_body)
+        except Exception as _diag_err:  # noqa: BLE001
+            # 诊断本身挂了也必须告警: 回落成原来那句简单告警(保证「至少一条」), 并按原控制流继续。
+            log(f"⚠ 等锁诊断失败({type(_diag_err).__name__}: {_diag_err}), 回落简单告警")
+            _severe_alert(
+                f"[告警] 次日买入计划 R2 上传超时 {T}",
+                f"nextday_plan_generator.py: R2 upload-data-files 超时({getattr(e, 'timeout', '?')}s), "
+                f"次日买入计划本地已落盘但 R2 未同步(线上 sss/s 备站可能滞后)。"
+                f"等锁诊断不可用: {type(_diag_err).__name__}: {_diag_err}。"
+                f"<br>日志: {REPO}/data/logs/nextday_plan_launchd.log",
+            )
+        return r2_rc
+    except Exception as e:
+        log(f"⚠ R2 上传异常: {e}")
+        _severe_alert(
+            f"[告警] 次日买入计划 R2 上传异常 {T}",
+            f"nextday_plan_generator.py: R2 上传异常 {type(e).__name__}: {e}。<br>日志: "
+            f"{REPO}/data/logs/nextday_plan_launchd.log",
+        )
+        return 1
+
+
 def main():
     ap = argparse.ArgumentParser(description="次日买入计划生成器(PRD 阶段一 §3/§6, 干跑)")
     ap.add_argument("--date", default=None, help="信号日 T(YYYYMMDD, 缺省=今天)")
@@ -1180,61 +1273,7 @@ def main():
         if steps_changed:
             r2_files.append("auto_trade_steps.json")
         r2_files.append(SNAPSHOT_FILE)
-        cmd = [PY, str(SCRIPT_DIR / "upload_r2.py"), "upload-data-files"] + r2_files
-        log("R2: " + " ".join(cmd))
-        try:
-            env = dict(os.environ)
-            env.setdefault("REPO", str(REPO))
-            # #223②(2026-10-07 用户拍板): 本层 timeout 300 → 480(把慢传带纳入忍耐)。
-            # 算式(逐字见 docs/ops/223-123-inner-timeout-evidence-20261006.md §3.3):
-            #   480 + 28(上传前 ≤10s + 超时后处理实测 18s) = 508 < 600(本链外层 systemd
-            #   TimeoutStartSec 硬墙), 余 92s; 480 亦 > 观测触发的下界 300s(2026-09-30 318s 事件)。
-            # 不加运行时梯度守卫(对齐 #6.5 少写抽象: 无第二真实使用者不造抽象):
-            #   · #217② 版(无外层感知)照抄会越墙、不可用 —— 其「内层 HTTP(云上 .env=600)≥ 本层
-            #     则抬到 内层+300」规则会把 480 抬到 900 > 600(越 systemd 墙, 禁止);
-            #   · #223④ overfit 版(有外层感知)在本处行为中性但产噪 —— 代入 外层 600 + 内层 HTTP 600,
-            #     走其「外层优先不越墙」分支保持 480(不抬过 600), 但该倒置条件恒真 ⇒ 每次运行打一行永久 warn。
-            # 外层固定 600 ⇒ 480 < 600 无倒置, 改由本注释 +
-            # tests/test_223_nextday_plan_timeout.py 固化「480 < 600」不变量。
-            # 仍 < 内层 HTTP 600 的倒置经拍板接受(外层优先不越墙, 保本层优雅超时先于 systemd SIGKILL)。
-            r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=480)
-            log(f"R2 退出码={r.returncode}\n{r.stdout}")
-            if r.returncode != 0:
-                _err = r.stderr[-2000:]
-                log(f"⚠ R2 上传失败(将告警): {_err}")
-                _severe_alert(
-                    f"[告警] 次日买入计划 R2 上传失败 rc={r.returncode} {T}",
-                    f"nextday_plan_generator.py: R2 upload-data-files 退出码 {r.returncode}, "
-                    f"次日买入计划本地已落盘但 R2 未同步(线上 sss/s 备站可能滞后)。"
-                    f"<br>R2 stderr: <pre>{_err}</pre>"
-                    f"<br>日志: {REPO}/data/logs/nextday_plan_launchd.log",
-                )
-                r2_rc = 1
-        except subprocess.TimeoutExpired as e:
-            # C 方案(2026-10-23): 480s 超时的真实原因多半是「排队等锁」而不是「上传慢」。
-            # 子进程 stderr 每 30s 一行等锁心跳, 此前被 capture_output=True 吞掉、日志里只能反推;
-            # 这里把尾段 + 只读 lsof 查到的持锁进程 + 说人话文案一起落到日志与告警
-            # (字段口径/依据见 docs/ops/r2-lock-plan-20261023.md §4)。超时值/控制流未变。
-            _diag_log, _diag_subject, _diag_body = build_lock_timeout_diag(
-                e,
-                lock_path=os.environ.get("R2_UPLOAD_LOCK", "/tmp/trade_r2_upload.lock"),
-                log_path=REPO / "data" / "logs" / "nextday_plan_launchd.log",
-                date_tag=T,
-                subject_prefix="[告警] 次日买入计划 R2",
-                source="nextday_plan_generator.py",
-                file_names=r2_files,
-            )
-            log(_diag_log)
-            _severe_alert(_diag_subject, _diag_body)
-            r2_rc = 1
-        except Exception as e:
-            log(f"⚠ R2 上传异常: {e}")
-            _severe_alert(
-                f"[告警] 次日买入计划 R2 上传异常 {T}",
-                f"nextday_plan_generator.py: R2 上传异常 {type(e).__name__}: {e}。<br>日志: "
-                f"{REPO}/data/logs/nextday_plan_launchd.log",
-            )
-            r2_rc = 1
+        r2_rc = _uphold_plan_r2_upload(r2_files, T)
 
     # ---- 通知(邮件+飞书, 复用 notify.send 链路; 干跑阶段通知内容是「明日计划」) ----
     notify_rc = 0
