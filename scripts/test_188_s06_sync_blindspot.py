@@ -115,7 +115,12 @@ def run_ledger():
     u._record_standalone_keys(["data/kelly_mode_s06_state.json", "data/schedule_stats.json"])
     want = {"data/kelly_mode_s06_state.json", "data/overview.json", "data/schedule_stats.json"}
     _ok(u._load_standalone_keys() == (want, u._LEDGER_OK), "去重合并(二次登记不重复) + state=ok")
-    _ok(json.loads(p.read_text()) == sorted(want), "落盘 = 排序后的去重集合")
+    # 2026-10-23(A 方案 B0-1): 落盘格式由 list 升级为 dict{key: 最后登记时刻} —— 供 all-data
+    # 判定「该 key 仍由 data-files 维护」用。契约意图不变: 去重 + 键有序; 新增: 每键必须有可解析时间戳。
+    _saved = json.loads(p.read_text())
+    _ok(isinstance(_saved, dict) and list(_saved) == sorted(want), "落盘 = 排序后的去重键集合(dict 形态)")
+    _ok(all(isinstance(_v, str) and len(_v) == len("YYYY-mm-dd HH:MM:SS") and _v[4] == "-"
+            for _v in _saved.values()), "落盘 = 每键带最后登记时刻(B0-1 过期判定依据)")
 
     p.write_text("{坏 json")
     _ok(u._load_standalone_keys() == (set(), u._LEDGER_CORRUPT), "损坏台账 → 空集 + state=corrupt(不抛)")

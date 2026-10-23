@@ -103,7 +103,10 @@ def test_queue_branch_static_contract():
     p = UR_PY.read_text(encoding="utf-8")
     # 默认排队: 只读/单文件小命令豁免, 其余持锁排队; skip 仅在显式 flag 下生效
     assert 'if cmd and cmd not in {"list", "delete", "download-db", "clean-data-backup", "upload"}:' in p
-    assert "_acquire_r2_upload_lock(skip_if_locked=_SKIP_IF_LOCKED)" in p, "排队分支接线丢失"
+    # 2026-10-23 A 方案(小文件独立锁): __main__ 取锁改为单点 _acquire_lock_for_command(按命令路由到
+    # 小锁/全局锁), 契约不变 —— 默认排队、skip 仅在显式 flag 下生效(helper 内部照旧传 skip_if_locked)。
+    assert "_acquire_lock_for_command(cmd, sys.argv[2:], skip_if_locked=_SKIP_IF_LOCKED)" in p, "排队分支接线丢失"
+    assert "_acquire_r2_upload_lock(skip_if_locked=skip_if_locked)" in p, "取锁单点默认排队接线丢失"
     # 跨文件字面量契约: 镜像函数 grep 的锚点必须仍是生产心跳的文案前缀
     assert "等待 R2 上传锁" in p, "生产心跳文案漂移(镜像会静默失效)"
     assert re.search(r"等待 R2 上传锁 \{int\(now - wait_started_at\)\}s", p), \
@@ -114,7 +117,8 @@ def test_queue_branch_static_contract():
         "禁止用 `grep -o '[0-9]+'` 抠秒数(会带出文案里 R2 的 2 ⇒ 脏值; 见本函数注释)"
     # 未动锁语义: 心跳常量 30s 未变 + 锁文件默认路径未变 + 超时语义未变(仍在排队超时时报错)
     assert ur._R2_LOCK_HEARTBEAT_SECS == 30
-    assert 'R2_UPLOAD_LOCK", "/tmp/trade_r2_upload.lock"' in p
+    assert ur._GLOBAL_LOCK_PATH_DEFAULT == "/tmp/trade_r2_upload.lock", "全局锁默认路径被改"
+    assert ur._GLOBAL_LOCK_PATH_ENV == "R2_UPLOAD_LOCK", "全局锁 env 名被改"
     assert "排队等待超" in p
 
 

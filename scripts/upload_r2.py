@@ -2387,11 +2387,26 @@ def cmd_upload_all_data():
     2026-09-15 迁增量引擎(A 档整文件 md5): purge 只清本次实际上传 key(未变化文件 R2 已最新)。
     #212(2026-10-07): 失败 loud 化(on_fail → _notify_channel_upload_fail, 见 _channel_on_fail);
     此前该通道无任何 deterministic 告警, 用户侧静默。
+
+    A 方案 B0-1(2026-10-23): 再排除「独立链产物台账内且未过期」的 key(_active_standalone_keys)。
+    背景: data-files 与 all-data 的取件范围有真实重叠(nextday_plan / schedule_stats /
+    signal_kelly_day_snapshot 等), 同 key 两个写入者; 小文件通道独立上锁后两者可能在同秒并发写
+    (last-writer-wins, 最坏写回一版旧内容 = 数据新鲜度问题)。台账即「这些 key 归 data-files 管」
+    的权威声明 ⇒ 两边集合结构性拆开。台账缺失/读失败 ⇒ _active_standalone_keys 返回空集,
+    行为完全回到改动前(不跳过任何文件), 不会因台账异常少传。
+    过期规则: 条目超 R2_STANDALONE_KEY_TTL_DAYS(默认 14 天)未再被 data-files 登记 ⇒ 失效,
+    本通道重新接管(防「某 key 停传后 all-data 永久跳过」的新型漏传, 方案 §2.6(d))。
     """
     data_dir = STATIC_DIR / "data"
+    _active_standalone = _active_standalone_keys()
+
+    def _exclude_small(f):
+        return (_is_all_data_excluded(f)
+                or f"data/{f.relative_to(data_dir).as_posix()}" in _active_standalone)
+
     _, _, _, uploaded_keys = _incremental_upload(
         data_dir, ["*.json"], "data", ".r2_all_data_state.json",
-        exclude_fn=_is_all_data_excluded, label="all-data",
+        exclude_fn=_exclude_small, label="all-data",
         on_fail=_channel_on_fail(
             "all-data", "upload-all-data", "data",
             "(board_etf_map/daily_brief*/signal_stats/news_digest 等为首页 AI 建议/每日前瞻/"
@@ -2464,6 +2479,17 @@ def cmd_upload_intraday():
 _STANDALONE_KEYS_NAME = ".r2_standalone_keys.json"
 # 台账状态码(#188 P2-1, 2026-10-05): 非 ok = 平日对账覆盖静默退化为空集, 必须显式发声
 _LEDGER_OK, _LEDGER_MISSING, _LEDGER_CORRUPT = "ok", "missing", "corrupt"
+# ---- 台账条目过期规则(A 方案 §2.6(d) B0-1 配套, 2026-10-23) ----
+# 背景: A 方案让 upload-all-data 跳过「台账内 key」(结构性拆开与 upload-data-files 的同 key
+# 双写者)。台账只增不减 ⇒ 某 key 哪天不再由 data-files 上传, all-data 会永久跳过它 = 新型漏传。
+# 故条目必须带「最后一次被 data-files 更新时刻」, 超过 TTL 未更新 ⇒ 失效(交回 all-data 覆盖)。
+# TTL 取值依据: data-files 现有调用链里最长间隔是周链(≤7 天; s06/nextday/daily_brief/feed/
+# intraday 均为每日甚至每 10 分钟)⇒ 14 天 = 2 个周链周期, 既容忍「周末不跑」也不容忍长期停更。
+# ⚠️ 诚实标注: 方案文档(§2.6(d))只写「≥N 天未更新则失效」, **未给出 N 的数值**; 本实现取
+# 14 天并以 env 覆盖, 已在上报里单列为「待主控/用户确认的取舍」, 改值只动一个 env 即可。
+_STANDALONE_KEY_TTL_ENV = "R2_STANDALONE_KEY_TTL_DAYS"
+_STANDALONE_KEY_TTL_DAYS = 14
+_STANDALONE_TS_FMT = "%Y-%m-%d %H:%M:%S"
 
 
 def _standalone_keys_path() -> Path:
@@ -2472,6 +2498,110 @@ def _standalone_keys_path() -> Path:
     该目录由 deploy.sh 段1 的 `rsync -a`(无 --delete)双向传递, 台账不会随部署被清(见报告已知边界)。
     """
     return STATIC_DIR.parent / "data" / _STANDALONE_KEYS_NAME
+
+
+def _standalone_key_ttl_days() -> int:
+    """台账条目有效期(天): env R2_STANDALONE_KEY_TTL_DAYS 覆盖, 非法/负数回默认。
+
+    A 方案 B0-1 配套(见常量注释)。改这个值只影响「all-data 是否跳过该 key」,
+    不影响 verify-r2 的对账覆盖面, 也不影响任何上传正确性。
+    """
+    try:
+        val = int(os.environ.get(_STANDALONE_KEY_TTL_ENV, str(_STANDALONE_KEY_TTL_DAYS)))
+    except ValueError:
+        return _STANDALONE_KEY_TTL_DAYS
+    return val if val > 0 else _STANDALONE_KEY_TTL_DAYS
+
+
+def _parse_standalone_ts(value):
+    """解析台账时间戳; 支持 'YYYY-mm-dd HH:MM:SS' 与 epoch 秒。解析不了 → None。"""
+    if value is None:
+        return None
+    try:
+        return datetime.datetime.strptime(str(value), _STANDALONE_TS_FMT)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return datetime.datetime.fromtimestamp(float(value))
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _load_standalone_ledger(warn: bool = True):
+    """读独立链产物台账, 返回 (ledger: dict[key, ts|None], state, migrated_legacy)。
+
+    磁盘格式两种都认(向后兼容):
+      - dict  {key: "YYYY-mm-dd HH:MM:SS"}  ← 2026-10-23 起由 _record_standalone_keys 写出
+      - list  [key, ...]                    ← 旧格式: ts=None, 由读侧按「迁移时刻=当前」处理;
+                                              下一次 _record_standalone_keys 会落成 dict
+    state 语义/告警文案与旧 _load_standalone_keys 逐字一致(#188 P2-1: 非 ok 必须显式发声)。
+    """
+    p = _standalone_keys_path()
+    if not p.exists():
+        if warn:
+            print(f"⚠ 独立链产物 key 台账不存在({p}) — 平日对账暂退回旧行为(抽样/周日); "
+                  f"正常应由 upload-data-files/intraday 每次上传成功自动登记", file=sys.stderr)
+        return {}, _LEDGER_MISSING, False
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        if warn:
+            print(f"⚠ 独立链产物 key 台账损坏({p}): {e} — 平日对账退回旧行为, 待下次上传重新登记", file=sys.stderr)
+        return {}, _LEDGER_CORRUPT, False
+    if isinstance(raw, dict):
+        ledger = {str(k): v for k, v in raw.items()}
+        migrated = False
+    elif isinstance(raw, list):
+        ledger = {str(x): None for x in raw}
+        migrated = True
+    else:
+        if warn:
+            print(f"⚠ 独立链产物 key 台账格式异常({p}): {type(raw).__name__} — 平日对账退回旧行为", file=sys.stderr)
+        return {}, _LEDGER_CORRUPT, False
+    if not ledger:
+        if warn:
+            print(f"⚠ 独立链产物 key 台账为空({p}) — 平日对账暂退回旧行为; "
+                  f"若非首次冷启动(尚无任一独立链产物上传成功)则疑台账被清空", file=sys.stderr)
+        return {}, _LEDGER_MISSING, migrated
+    return ledger, _LEDGER_OK, migrated
+
+
+def _standalone_entry_active(ts, now, ttl_days: int) -> bool:
+    """台账条目是否仍在有效期内(用于 all-data 跳过判定)。
+
+    ts=None(旧格式 list)⇒ 视为「迁移时刻=当前」, 有效(否则升级瞬间全部键回落 all-data,
+    在下次 data-files 登记前反而重开同 key 双写窗口)。
+    时间戳解析不了 ⇒ 按过期处理并打 stderr(宁可让 all-data 重新覆盖, 也不无限期静默跳过
+    —— 漏传是本方案要防的新型风险; 双写最坏只是可能写回一版旧内容, 且有 verify-r2 兜底)。
+    """
+    if ts is None:
+        return True
+    when = _parse_standalone_ts(ts)
+    if when is None:
+        print(f"⚠ 独立链产物台账条目时间戳不可解析({ts!r}), 按过期处理(交回 all-data 覆盖)",
+              file=sys.stderr)
+        return False
+    # 时区归一: 台账只存「YYYY-mm-dd HH:MM:SS」(不带 tz), 而 _now() 生产态返回
+    # Asia/Shanghai 的 **aware** datetime(zoneinfo 缺失时才 naive)⇒ 直接相减会
+    # TypeError(offset-naive vs offset-aware)。统一按 now 的时区解释台账时间。
+    if when.tzinfo is None and now.tzinfo is not None:
+        when = when.replace(tzinfo=now.tzinfo)
+    elif when.tzinfo is not None and now.tzinfo is None:
+        now = now.replace(tzinfo=when.tzinfo)
+    return (now - when) <= datetime.timedelta(days=ttl_days)
+
+
+def _active_standalone_keys(now=None) -> set:
+    """返回「仍在有效期内的独立链产物 key 集合」(all-data 据此跳过, 方案 A §2.6(d) B0-1)。
+
+    只读、失败降级为空集(读不到台账 = 不跳过任何文件 = 维持改动前的 all-data 行为)。
+    """
+    ledger, _state, _migrated = _load_standalone_ledger(warn=False)
+    if not ledger:
+        return set()
+    now = now or _now()
+    ttl_days = _standalone_key_ttl_days()
+    return {k for k, ts in ledger.items() if _standalone_entry_active(ts, now, ttl_days)}
 
 
 def _record_standalone_keys(keys) -> None:
@@ -2486,6 +2616,9 @@ def _record_standalone_keys(keys) -> None:
     注(#193 2026-10-05): data/news_digest/... 归档键现由 news-digest 通道覆盖 = 可对账, 不再属死键。
     #188 P3-2(2026-10-05): 读-改-写用 flock 串行化(台账为跨进程共享文件: intraday 每 10min /
     deploy / s06 主链均会写), 防极端并发窗口丢更新(丢失的 key 次日重登记可自愈, 但锁成本极低)。
+    A 方案 B0-1(2026-10-23): 每条目带「最后一次登记时刻」(dict 格式), 供 all-data 侧做过期判定;
+    写侧顺手清理超 TTL 的旧条目(交回 all-data 覆盖), 防台账只增不减致新型漏传。旧 list 格式
+    读侧兼容(ts=None=迁移时刻), 本函数下一次写出即落成 dict。
     """
     p = _standalone_keys_path()
     try:
@@ -2499,21 +2632,22 @@ def _record_standalone_keys(keys) -> None:
         keys &= reconcilable
         if not keys:
             return
+        now = _now()
+        now_str = now.strftime(_STANDALONE_TS_FMT)
+        ttl_days = _standalone_key_ttl_days()
         p.parent.mkdir(parents=True, exist_ok=True)
         lock_path = p.with_name(p.name + ".lock")
         with open(lock_path, "a+", encoding="utf-8") as _lf:
             fcntl.flock(_lf.fileno(), fcntl.LOCK_EX)
             try:
-                existing = set()
-                if p.exists():
-                    try:
-                        raw = json.loads(p.read_text(encoding="utf-8"))
-                        if isinstance(raw, list):
-                            existing = {str(x) for x in raw}
-                    except (OSError, ValueError):
-                        existing = set()
-                merged = sorted(existing | keys)
-                if merged == sorted(existing):
+                ledger, _state, migrated_legacy = _load_standalone_ledger(warn=False)
+                merged = dict(ledger)
+                for k in keys:
+                    merged[k] = now_str
+                # 过期清理: 本次未登记且超 TTL 的条目移出台账 ⇒ 该 key 重新归 all-data 覆盖
+                merged = {k: v for k, v in merged.items()
+                          if k in keys or _standalone_entry_active(v, now, ttl_days)}
+                if merged == ledger and not migrated_legacy:
                     return
                 tmp = p.with_name(p.name + ".tmp")
                 tmp.write_text(json.dumps(merged, ensure_ascii=False, sort_keys=True), encoding="utf-8")
@@ -2611,30 +2745,13 @@ def _load_standalone_keys(warn: bool = True):
     warn(2026-10-11 hotfix): 上述 stderr 文案针对**平日增量**语义(full 全池覆盖不受台账影响)。
     full(周日)模式调用方传 warn=False —— 台账仅用于「独立链产物脱节」告警记名, 缺台账不降级
     覆盖面, 故不打「平日退回旧行为」误导文案。
+
+    A 方案(2026-10-23): 实现移到 _load_standalone_ledger(dict 格式 + 向后兼容旧 list)。
+    本函数语义与返回不变 = 「台账内全部 key」(**不做**过期过滤 —— verify-r2 覆盖面只增不减;
+    过期只影响 all-data 是否跳过该 key, 见 _active_standalone_keys)。
     """
-    p = _standalone_keys_path()
-    if not p.exists():
-        if warn:
-            print(f"⚠ 独立链产物 key 台账不存在({p}) — 平日对账暂退回旧行为(抽样/周日); "
-                  f"正常应由 upload-data-files/intraday 每次上传成功自动登记", file=sys.stderr)
-        return set(), _LEDGER_MISSING
-    try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        if warn:
-            print(f"⚠ 独立链产物 key 台账损坏({p}): {e} — 平日对账退回旧行为, 待下次上传重新登记", file=sys.stderr)
-        return set(), _LEDGER_CORRUPT
-    if not isinstance(raw, list):
-        if warn:
-            print(f"⚠ 独立链产物 key 台账格式异常({p}): {type(raw).__name__} — 平日对账退回旧行为", file=sys.stderr)
-        return set(), _LEDGER_CORRUPT
-    keys = {str(x) for x in raw}
-    if not keys:
-        if warn:
-            print(f"⚠ 独立链产物 key 台账为空({p}) — 平日对账暂退回旧行为; "
-                  f"若非首次冷启动(尚无任一独立链产物上传成功)则疑台账被清空", file=sys.stderr)
-        return set(), _LEDGER_MISSING
-    return keys, _LEDGER_OK
+    ledger, state, _migrated = _load_standalone_ledger(warn=warn)
+    return set(ledger), state
 
 
 def _fmt_name_list(names, cap: int = 50) -> str:
@@ -4187,6 +4304,73 @@ def cmd_verify_channels(desc_list):
 # --skip-if-locked 拿不到锁时的哨兵返回值(区别于正常持锁 fd 与 None=锁不可用)。
 _SKIP_R2_LOCKED = object()
 
+# ---- A 方案(2026-10-23, 止血): upload-data-files 小载荷走独立小锁, 不排全局长队 ----
+# 依据(docs/ops/r2-lock-plan-20261023.md §2.1): nextday 的三个小文件合计 121,870B、真实上传 <1s,
+# 却排在单次持锁 1420–2575s 的 data-large 后面 ⇒ 480s 内层窗口数学上必输(10-20/10-22 exit 1)。
+# 全局锁的设计目的是「防跨境带宽互抢」, 121KB 相对 279MB 可忽略 ⇒ 小载荷不需要这把锁的主要保护。
+# 路由规则写死为纯函数(可单测, 不碰网络):
+#   cmd != upload-data-files                    → 全局锁(原行为, 其余命令一字不动)
+#   任一文件命中 _is_data_large_file            → 全局锁(**硬闸门**: 该判据 = data-large 的取件
+#                                                范围, 命中就可能与 data-large 同 key, 必须退回串行)
+#   文件总字节 > R2_SMALL_CHANNEL_MAX_BYTES     → 全局锁(默认 8MB; 阈值只决定走哪把锁, 不影响正确性)
+#   否则                                        → 小锁(所有小载荷共用 = 彼此仍互斥, 相对顺序同现状)
+# 回滚 = 一行 env: R2_SMALL_CHANNEL=0 ⇒ 恒全局锁, 回到改动前, 不用回滚代码。
+_GLOBAL_LOCK_PATH_DEFAULT = "/tmp/trade_r2_upload.lock"
+_SMALL_LOCK_PATH_DEFAULT = "/tmp/trade_r2_upload_small.lock"
+_GLOBAL_LOCK_PATH_ENV = "R2_UPLOAD_LOCK"          # 既有 env(默认路径见上; 保持原样)
+_SMALL_LOCK_PATH_ENV = "R2_UPLOAD_SMALL_LOCK"     # 小锁路径(单测/演练用它把两个路径都指向 /tmp 测试文件)
+_SMALL_CHANNEL_MAX_BYTES_ENV = "R2_SMALL_CHANNEL_MAX_BYTES"
+_SMALL_CHANNEL_MAX_BYTES_DEFAULT = 8 * 1024 * 1024   # 8MB(方案 §2.2.1 定的默认值, 不许另定)
+_SMALL_CHANNEL_SWITCH_ENV = "R2_SMALL_CHANNEL"       # 0 = 关闭小锁通道(回滚开关)
+
+
+def _global_upload_lock_path() -> Path:
+    """全局上传锁路径(env R2_UPLOAD_LOCK 覆盖; 缺省 = 生产现路径)。"""
+    return Path(os.environ.get(_GLOBAL_LOCK_PATH_ENV, _GLOBAL_LOCK_PATH_DEFAULT))
+
+
+def _small_upload_lock_path() -> Path:
+    """小载荷专用锁路径(env R2_UPLOAD_SMALL_LOCK 覆盖; 缺省 = 生产小锁路径)。"""
+    return Path(os.environ.get(_SMALL_LOCK_PATH_ENV, _SMALL_LOCK_PATH_DEFAULT))
+
+
+def _small_channel_max_bytes() -> int:
+    """小载荷通道字节上限; env 覆盖, 非法/负数回默认 8MB。"""
+    try:
+        val = int(os.environ.get(_SMALL_CHANNEL_MAX_BYTES_ENV, str(_SMALL_CHANNEL_MAX_BYTES_DEFAULT)))
+    except ValueError:
+        return _SMALL_CHANNEL_MAX_BYTES_DEFAULT
+    return val if val >= 0 else _SMALL_CHANNEL_MAX_BYTES_DEFAULT
+
+
+def _route_upload_lock(cmd, files) -> Path:
+    """按命令 + 载荷选锁路径(纯函数: 只 stat 本地文件, 零网络/零写入)。
+
+    files: upload-data-files 的文件名列表(相对 STATIC_DIR/data, 也接受绝对路径)。
+    见上方常量区的规则说明; 返回 Path, 不创建/不打开任何锁文件。
+    """
+    global_lock = _global_upload_lock_path()
+    if cmd != "upload-data-files":
+        return global_lock
+    if (os.environ.get(_SMALL_CHANNEL_SWITCH_ENV, "1").strip() == "0"):
+        return global_lock
+    data_dir = STATIC_DIR / "data"
+    total_bytes = 0
+    for name in files or ():
+        p = Path(name)
+        if not p.is_absolute():
+            p = data_dir / p
+        # 硬闸门: 命中 data-large 取件判据 ⇒ 可能同 key, 一律退回全局锁(不受大小影响)
+        if _is_data_large_file(p):
+            return global_lock
+        try:
+            total_bytes += p.stat().st_size
+        except OSError:
+            continue          # 不存在的文件由 cmd 侧照旧打印「⚠ 无文件」; 不因 stat 失败改变路由
+    if total_bytes > _small_channel_max_bytes():
+        return global_lock
+    return _small_upload_lock_path()
+
 # #239 止血(2026-10-09): 排队等锁心跳间隔(秒,纯可见性)。排队等锁期间每 N 秒往 stderr 打一行,
 # 刷新外层看门狗(tmp_log mtime) ⇒ 停滞判据不再把「合法等锁」误判为卡死 kill。取值远小于看门狗
 # 停滞阈值(r2_upload_async.sh R2_UPLOAD_STALL_SECS 默认 900s):既足以持续刷新 mtime,又不制造噪音洪流。
@@ -4194,7 +4378,7 @@ _SKIP_R2_LOCKED = object()
 _R2_LOCK_HEARTBEAT_SECS = 30
 
 
-def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
+def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_override=None):
     """R2 上传统一进程互斥锁(2026-09-23 ④: 直传通道无 deploy.lock → 三路并发抢带宽)。
 
     deploy 主链的 R2 段在 deploy.lock 内, 但 etf_national_team_backfill.sh:112(upload-etf-hist)、
@@ -4238,13 +4422,20 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
     list/delete/download-db/clean-data-backup 等只读/低频调试命令不走本锁(避免排查时被上传阻塞);
     upload(单文件 <100KB)轻量命令豁免。upload-db/upload-claude-backup/upload-decommissioned
     等私有桶备份也持锁(与主数据上传互斥, 防抢带宽)。
+
+    lock_path_override(A 方案, 2026-10-23): 指定本次要拿哪把锁文件; None(默认)= 沿用
+    env R2_UPLOAD_LOCK / 生产全局锁路径 ⇒ **现有调用方行为逐字不变**。设计意图是让同一条
+    flock/心跳/超时/fail-closed 逻辑服务两个锁文件(零行为分叉), 供 upload-data-files 的小载荷
+    走独立小锁(见 _route_upload_lock)。两把锁的键集不相交前提见方案 §2.6 与
+    cmd_upload_all_data 的台账排除(B0-1)。
     """
     if timeout is None:
         try:
             timeout = int(os.environ.get("R2_UPLOAD_LOCK_TIMEOUT", "7300"))
         except ValueError:
             timeout = 7300
-    lock_path = Path(os.environ.get("R2_UPLOAD_LOCK", "/tmp/trade_r2_upload.lock"))
+    lock_path = (Path(lock_path_override) if lock_path_override is not None
+                 else _global_upload_lock_path())
     try:
         fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
     except OSError as e:
@@ -4313,6 +4504,22 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
             time.sleep(2)
 
 
+def _acquire_lock_for_command(cmd, filenames, skip_if_locked=False):
+    """__main__ 取锁段单点(A 方案 A3, 2026-10-23): 先路由目标锁, 再统一拿锁。
+
+    - upload-data-files ⇒ _route_upload_lock 决定「小锁 or 全局锁」, 以 lock_path_override 传入;
+    - 其余命令 ⇒ 不传 override = 沿用全局锁(env R2_UPLOAD_LOCK / 生产路径), 行为逐字不变。
+    返回值与 _acquire_r2_upload_lock 一致(fd / _SKIP_R2_LOCKED / None), fail-closed 语义沿用。
+    抽成函数只为让「__main__ 到底拿了哪把锁」可被单测直接断言(原内联在 __main__ 里不可测,
+    若改用子进程验证会被本机 export-guard L2 拦在取锁之前, 见 docs/ops/r2-lock-plan-20261023.md §2.4 用例2)。
+    """
+    if cmd == "upload-data-files":
+        return _acquire_r2_upload_lock(
+            skip_if_locked=skip_if_locked,
+            lock_path_override=_route_upload_lock(cmd, filenames))
+    return _acquire_r2_upload_lock(skip_if_locked=skip_if_locked)
+
+
 if __name__ == "__main__":
     # --dry-run 全局标志(验收自测): 引擎只打印「将传 N/M」不 PUT(不写状态, 不 purgate)。
     _dry_requested = "--dry-run" in sys.argv
@@ -4339,8 +4546,9 @@ if __name__ == "__main__":
         )
     guard_repo_default(cmd)                     # #75 分级闸:REPO 缺省且非白名单命令 → exit 3
     # ④ R2 上传统一互斥锁: 只读/单文件小命令豁免, 其余 upload_*/verify_*/purge_* 持锁排队。
+    #    A 方案(2026-10-23): upload-data-files 小载荷改走独立小锁(其余命令不变), 见 _acquire_lock_for_command。
     if cmd and cmd not in {"list", "delete", "download-db", "clean-data-backup", "upload"}:
-        _lock = _acquire_r2_upload_lock(skip_if_locked=_SKIP_IF_LOCKED)
+        _lock = _acquire_lock_for_command(cmd, sys.argv[2:], skip_if_locked=_SKIP_IF_LOCKED)
         if _lock is _SKIP_R2_LOCKED:
             sys.exit(0)   # SKIPPED_LOCKED 已在 _acquire 内打印到 stderr; 退出码 0 不触发告警邮件
     if cmd == "list":
