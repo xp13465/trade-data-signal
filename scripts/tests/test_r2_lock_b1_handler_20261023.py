@@ -80,6 +80,12 @@ def test_b1_import_fallback_when_probe_module_missing():
 import importlib.abc
 import sys
 
+# 裸子进程不加载 conftest: 先补 CI 缺省第三方库的导入级桩(否则 CI 无 akshare ⇒ import 失败;
+# 本机装了真库时该函数不补桩, 保持与生产同构。同款先例见 test_278_nav_bucket_refresh.py)
+sys.path.insert(0, {str(REPO / "scripts" / "tests")!r})
+from _ci_stubs import install_missing_third_party_stubs
+install_missing_third_party_stubs()
+
 
 class _BlockProbe(importlib.abc.MetaPathFinder):
     def find_spec(self, name, path=None, target=None):
