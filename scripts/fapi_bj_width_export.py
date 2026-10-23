@@ -35,10 +35,14 @@ import sys
 from pathlib import Path
 
 try:  # R2 等锁超时诊断(2026-10-23 同类面): 只读 lsof + 子进程输出尾段。
+    # A 方案后上传可能走全局锁或小锁 ⇒ 逐把探测(probe_locks + lock_paths_from_env)。
     # 辅助模块缺失/异常不得影响上传主流程(fail-safe): 退化为空串。
-    from r2_lock_probe import probe_lock_holder, subprocess_output_tail  # noqa: E402
+    from r2_lock_probe import lock_paths_from_env, probe_locks, subprocess_output_tail  # noqa: E402
 except Exception:  # noqa: BLE001
-    def probe_lock_holder(_lock_path, _max_items=3):  # noqa: D401
+    def lock_paths_from_env():  # noqa: D401
+        return []
+
+    def probe_locks(_paths):  # noqa: D401
         return ""
 
     def subprocess_output_tail(_exc, limit=2000):  # noqa: D401
@@ -121,12 +125,11 @@ def _upload_r2(files) -> bool:
         # 子进程 stderr 的等锁心跳, 日志里只剩「超时(Ns)」看不出在等锁。补 stderr 尾段 + 只读
         # 持锁候选; **不改 timeout(见 _r2_upload_timeout)、不改降级行为(仍 return False)**。
         _tail = subprocess_output_tail(e)
-        _holder = probe_lock_holder(
-            os.environ.get("R2_UPLOAD_LOCK", "/tmp/trade_r2_upload.lock"))
+        _holder = probe_locks(lock_paths_from_env())
         print(f"  ✗ upload-data-files 超时({_to}s)", flush=True)
         print(f"    子进程输出尾段(等锁心跳): {_tail or '(空)'}", flush=True)
-        print(f"    占锁进程候选(lsof 只读): {_holder or '(探测不到, 可人工 lsof 排查)'}",
-              flush=True)
+        print(f"    锁占用探测(lsof 只读, 全局锁/小锁逐把): "
+              f"{_holder or '(探测不到, 可人工 lsof 排查)'}", flush=True)
         return False
     except Exception as e:  # noqa: BLE001
         print(f"  ✗ upload-data-files 异常: {e}", flush=True)

@@ -2527,13 +2527,43 @@ def _parse_standalone_ts(value):
         return None
 
 
+def _ledger_file_mtime(p: Path):
+    """台账文件 mtime(epoch 秒); 取不到返回 None(旧 list 迁移据此定时间基准)。"""
+    try:
+        return p.stat().st_mtime
+    except OSError:
+        return None
+
+
+def _legacy_ledger_ts(p: Path):
+    """旧 list 格式迁移用的条目时间基准 = 台账文件 mtime(格式化串); 取不到 ⇒ None(= 立即过期)。
+
+    取舍(审查建议 1, 2026-10-23): 旧条目正是最可能陈旧的存量, 而旧实现把 ts=None 当
+    「永久有效」⇒ 这批条目**永不过期**, 与「过期防永久跳过」的设计意图恰好相反。
+    故迁移时给合理基准(mtime), 取不到 mtime 就按「立即过期」处理 —— 宁可多传一次
+    (交回 all-data 覆盖), 不可永久跳过。台账刚迁移时 mtime≈今天 ⇒ 条目仍有效, 不会一把全过期。
+
+    实现用 `time.strftime + localtime`(与本文件其它 updated_at 时间戳同款, 不引入
+    `datetime.datetime` 依赖): 本机/云上本地时区与 `_now()` 的 Asia/Shanghai 最多差 8h,
+    相对 14 天 TTL 可忽略, 且偏差方向是「偏早过期」(= 多传一次, 安全方向)。
+    """
+    mtime = _ledger_file_mtime(p)
+    if mtime is None:
+        return None
+    try:
+        return time.strftime(_STANDALONE_TS_FMT, time.localtime(mtime))
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def _load_standalone_ledger(warn: bool = True):
     """读独立链产物台账, 返回 (ledger: dict[key, ts|None], state, migrated_legacy)。
 
     磁盘格式两种都认(向后兼容):
       - dict  {key: "YYYY-mm-dd HH:MM:SS"}  ← 2026-10-23 起由 _record_standalone_keys 写出
-      - list  [key, ...]                    ← 旧格式: ts=None, 由读侧按「迁移时刻=当前」处理;
-                                              下一次 _record_standalone_keys 会落成 dict
+      - list  [key, ...]                    ← 旧格式: ts = 台账文件 mtime(取不到 ⇒ None,
+                                              按「立即过期」处理); 下一次
+                                              _record_standalone_keys 会落成 dict
     state 语义/告警文案与旧 _load_standalone_keys 逐字一致(#188 P2-1: 非 ok 必须显式发声)。
     """
     p = _standalone_keys_path()
@@ -2552,7 +2582,10 @@ def _load_standalone_ledger(warn: bool = True):
         ledger = {str(k): v for k, v in raw.items()}
         migrated = False
     elif isinstance(raw, list):
-        ledger = {str(x): None for x in raw}
+        # 旧 list 格式: 条目时间基准 = 台账文件 mtime(取不到 ⇒ None ⇒ 立即过期)。
+        # 不可沿用「None = 永久有效」——旧条目正是最可能陈旧的存量(审查建议 1)。
+        legacy_ts = _legacy_ledger_ts(p)
+        ledger = {str(x): legacy_ts for x in raw}
         migrated = True
     else:
         if warn:
@@ -2569,13 +2602,15 @@ def _load_standalone_ledger(warn: bool = True):
 def _standalone_entry_active(ts, now, ttl_days: int) -> bool:
     """台账条目是否仍在有效期内(用于 all-data 跳过判定)。
 
-    ts=None(旧格式 list)⇒ 视为「迁移时刻=当前」, 有效(否则升级瞬间全部键回落 all-data,
-    在下次 data-files 登记前反而重开同 key 双写窗口)。
-    时间戳解析不了 ⇒ 按过期处理并打 stderr(宁可让 all-data 重新覆盖, 也不无限期静默跳过
-    —— 漏传是本方案要防的新型风险; 双写最坏只是可能写回一版旧内容, 且有 verify-r2 兜底)。
+    ts=None(无可用时间基准: 旧 list 且台账 mtime 取不到, 或台账值写成 null)⇒ **过期**。
+    旧实现这里 return True(永久有效), 与「过期防永久跳过」的设计意图相反(审查建议 1):
+    漏传是本方案要防的新型风险, 宁可多传一次也不能无限期跳过。
+    时间戳解析不了 ⇒ 同样按过期处理并打 stderr。
     """
     if ts is None:
-        return True
+        print("⚠ 独立链产物台账条目无可用时间基准, 按过期处理(交回 all-data 覆盖)",
+              file=sys.stderr)
+        return False
     when = _parse_standalone_ts(ts)
     if when is None:
         print(f"⚠ 独立链产物台账条目时间戳不可解析({ts!r}), 按过期处理(交回 all-data 覆盖)",
@@ -2618,7 +2653,7 @@ def _record_standalone_keys(keys) -> None:
     deploy / s06 主链均会写), 防极端并发窗口丢更新(丢失的 key 次日重登记可自愈, 但锁成本极低)。
     A 方案 B0-1(2026-10-23): 每条目带「最后一次登记时刻」(dict 格式), 供 all-data 侧做过期判定;
     写侧顺手清理超 TTL 的旧条目(交回 all-data 覆盖), 防台账只增不减致新型漏传。旧 list 格式
-    读侧兼容(ts=None=迁移时刻), 本函数下一次写出即落成 dict。
+    读侧兼容(条目时间基准=台账文件 mtime; 取不到 mtime ⇒ 按过期处理), 本函数下一次写出即落成 dict。
     """
     p = _standalone_keys_path()
     try:

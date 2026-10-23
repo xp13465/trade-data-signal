@@ -17,11 +17,15 @@
   ⑤ 默认参数路径:不传 lock_path_override = 沿用 env R2_UPLOAD_LOCK(现有调用方行为不变);
   ⑥ B0-1:all-data 跳过台账内有效 key;过期后重新纳入;env TTL 覆盖;
   ⑦ 台账格式:dict 带时间戳、旧 list 格式兼容并迁移、时间戳坏按过期、写侧清理过期条目;
-  ⑧ verify-r2 侧 _load_standalone_keys 语义不变(不过滤过期, 覆盖面只增不减)。
+  ⑧ verify-r2 侧 _load_standalone_keys 语义不变(不过滤过期, 覆盖面只增不减);
+  ⑨ 审查建议 1: 旧 list 条目按台账 mtime 定基准(取不到 mtime ⇒ 立即过期, 不永真);
+  ⑩ 审查建议 2: 超时诊断逐把探测全局锁 + 小锁(哪把被占能在文案里定位到);
+  ⑪ 审查建议 2 防漂移: 4 处调用方统一走 probe_locks/lock_paths_from_env, 不复制路由判定。
 """
 import fcntl
 import json
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
@@ -34,6 +38,7 @@ SCRIPTS = REPO / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(REPO))   # conftest 已铺 .env 垫片, upload_r2 顶层 load_env() 可过
 
+import r2_lock_probe as probe  # noqa: E402
 import upload_r2 as ur  # noqa: E402
 
 T0 = datetime(2026, 10, 22, 22, 30, 0)
@@ -69,6 +74,26 @@ def _mk(data_dir, name, size):
     p = data_dir / name
     p.write_bytes(b"x" * size)
     return p
+
+
+def _set_mtime(path, when):
+    """把文件 mtime 冻结成 when(按本地墙钟换算, 与 _legacy_ledger_ts 的 fromtimestamp 对称)。
+
+    用例一律显式设置 mtime, 不依赖「测试运行时真实日期」(§18 L51: 禁写死/依赖运行日)。
+    """
+    ts = time.mktime(when.timetuple())
+    os.utime(path, (ts, ts))
+
+
+def _write_legacy_ledger(lane, keys, mtime):
+    """造一份旧 list 格式台账, 并把 mtime 冻结成给定时刻。"""
+    _static, _data_dir, _global_lock, _small_lock, _clock = lane
+    ledger_path = ur._standalone_keys_path()
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.write_text(json.dumps(list(keys)), encoding="utf-8")
+    if mtime is not None:
+        _set_mtime(ledger_path, mtime)
+    return ledger_path
 
 
 # ══════════════════════ ① 路由: 非 data-files 命令 ══════════════════════
@@ -370,10 +395,12 @@ def test_ledger_legacy_list_still_readable_and_migrated(lane):
     ledger_path = ur._standalone_keys_path()
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     ledger_path.write_text(json.dumps(["data/nextday_plan.json"]), encoding="utf-8")
+    _set_mtime(ledger_path, T0)   # 刚迁移: 台账 mtime = 今天(冻结, 不依赖运行日)
 
     keys, state = ur._load_standalone_keys(warn=False)
     assert state == ur._LEDGER_OK and keys == {"data/nextday_plan.json"}
-    assert ur._active_standalone_keys() == {"data/nextday_plan.json"}, "旧格式条目按迁移时刻=当前处理"
+    assert ur._active_standalone_keys() == {"data/nextday_plan.json"}, \
+        "旧格式条目按台账 mtime 定基准; mtime=今天 ⇒ 仍有效(不一把全过期)"
 
     ur._record_standalone_keys(["data/nextday_plan.json"])
     assert isinstance(json.loads(ledger_path.read_text(encoding="utf-8")), dict)
@@ -412,3 +439,114 @@ def test_load_standalone_keys_ignores_expiry(lane):
     assert state == ur._LEDGER_OK
     assert keys == {"data/nextday_plan.json"}, "过期键仍须被 verify-r2 覆盖(只能多查, 不能少查)"
     assert ur._active_standalone_keys() == set()
+
+
+# ══════════════════════ ⑨ 审查建议 1: 旧 list 条目必须有时间基准, 不许永不过期 ══════════════════════
+# 病因: 旧 list 迁移成 dict 时 ts=None, 而 _standalone_entry_active(None) 恒 True
+#       ⇒ 旧条目(最可能陈旧的存量)永不过期, 与「过期防永久跳过」的意图相反。
+# 修法: 迁移时用台账文件 mtime 作基准; 取不到 mtime ⇒ 立即过期(宁可多传一次)。
+def test_legacy_list_entry_active_when_ledger_mtime_is_today(lane):
+    """用例 A: 旧 list + 台账 mtime = 今天 + now = 今天 ⇒ 有效(不能一把全过期)。
+
+    同时断言「时间基准真的落到了 mtime」——否则 ts=None(旧实现)也能让本条「有效」,
+    用例就没有判别力(回滚修复时本条必须一起红)。
+    """
+    _static, _data_dir, _global_lock, _small_lock, _clock = lane
+    _write_legacy_ledger(lane, ["data/nextday_plan.json"], mtime=T0)
+    ledger, state, migrated = ur._load_standalone_ledger(warn=False)
+    assert state == ur._LEDGER_OK and migrated is True
+    assert ledger == {"data/nextday_plan.json": "2026-10-22 22:30:00"}, \
+        "旧条目必须带 mtime 基准(不是 None)"
+    assert ur._active_standalone_keys() == {"data/nextday_plan.json"}
+
+
+def test_legacy_list_entry_expires_by_ledger_mtime(lane):
+    """用例 B: 旧 list + 台账 mtime = 222 天前 ⇒ 过期(修前这里会误判有效)。"""
+    _static, _data_dir, _global_lock, _small_lock, _clock = lane
+    _write_legacy_ledger(lane, ["data/nextday_plan.json"], mtime=T0 - timedelta(days=222))
+    assert ur._active_standalone_keys() == set(), "旧条目超 TTL 必须失效(交回 all-data)"
+
+
+def test_legacy_list_entry_expired_when_mtime_unavailable(lane, monkeypatch, capsys):
+    """用例 C: 旧 list + 台账 mtime 取不到 ⇒ 过期(不永真), 且显式打 stderr。"""
+    _static, _data_dir, _global_lock, _small_lock, _clock = lane
+    _write_legacy_ledger(lane, ["data/nextday_plan.json"], mtime=T0)
+    monkeypatch.setattr(ur, "_ledger_file_mtime", lambda _p: None)
+    assert ur._active_standalone_keys() == set(), "取不到时间基准 ⇒ 按过期处理, 不得永久有效"
+    assert "无可用时间基准" in capsys.readouterr().err, "不得静默改变行为"
+
+
+# ══════════════════════ ⑩ 审查建议 2: 超时诊断必须看两把锁(全局锁 + 小锁) ══════════════════════
+def test_lock_paths_from_env_reads_both_envs(monkeypatch):
+    """锁路径 env 与 upload_r2.py 同名同缺省(诊断不许另写一份路径默认值)。"""
+    monkeypatch.setenv("R2_UPLOAD_LOCK", "/tmp/g.lock")
+    monkeypatch.setenv("R2_UPLOAD_SMALL_LOCK", "/tmp/s.lock")
+    assert probe.lock_paths_from_env() == [("全局锁", "/tmp/g.lock"), ("小锁", "/tmp/s.lock")]
+    monkeypatch.delenv("R2_UPLOAD_LOCK")
+    monkeypatch.delenv("R2_UPLOAD_SMALL_LOCK")
+    assert probe.lock_paths_from_env() == [
+        ("全局锁", "/tmp/trade_r2_upload.lock"), ("小锁", "/tmp/trade_r2_upload_small.lock")]
+
+
+def test_probe_locks_locates_small_lock(monkeypatch):
+    """小锁被占: 诊断必须点出小锁(修前只探全局锁 ⇒ 会报「全局锁无占用」指错方向)。"""
+    monkeypatch.setenv("R2_UPLOAD_LOCK", "/tmp/g.lock")
+    monkeypatch.setenv("R2_UPLOAD_SMALL_LOCK", "/tmp/s.lock")
+    text = probe.probe_locks(probe.lock_paths_from_env(),
+                             probe=lambda p: "pid=42(已运行 00:09) upload_r2.py" if p == "/tmp/s.lock" else "")
+    assert "小锁(/tmp/s.lock)=pid=42" in text, text
+    assert "全局锁(/tmp/g.lock)=无占用/探测不到" in text, text
+
+
+def test_probe_locks_locates_global_lock(monkeypatch):
+    """全局锁被占(大载荷/非 data-files 命令): 仍能定位到全局锁。"""
+    monkeypatch.setenv("R2_UPLOAD_LOCK", "/tmp/g.lock")
+    monkeypatch.setenv("R2_UPLOAD_SMALL_LOCK", "/tmp/s.lock")
+    text = probe.probe_locks(probe.lock_paths_from_env(),
+                             probe=lambda p: "pid=7(已运行 24:13) upload-data-large" if p == "/tmp/g.lock" else "")
+    assert "全局锁(/tmp/g.lock)=pid=7" in text, text
+    assert "小锁(/tmp/s.lock)=无占用/探测不到" in text, text
+
+
+def test_probe_locks_never_raises(monkeypatch):
+    """探测函数自身抛异常也不得把诊断链路弄挂(§ L50 同精神: 诊断只读且 fail-safe)。"""
+    def _boom(_p):
+        raise RuntimeError("lsof 炸了")
+
+    text = probe.probe_locks([("全局锁", "/tmp/g.lock")], probe=_boom)
+    assert text == "全局锁(/tmp/g.lock)=无占用/探测不到"
+
+
+def test_lock_timeout_diag_with_two_locks_reports_small_lock(monkeypatch):
+    """nextday 侧诊断文案: 构造「小通道等锁超时」, 文案必须出现小锁路径且标注其被占。"""
+    monkeypatch.setenv("R2_UPLOAD_LOCK", "/tmp/g.lock")
+    monkeypatch.setenv("R2_UPLOAD_SMALL_LOCK", "/tmp/s.lock")
+    exc = subprocess.TimeoutExpired(cmd=["python3", "upload_r2.py"], timeout=480)
+    exc.stderr = "⏳ 等待 R2 上传锁 120s(上限 7300s)\n".encode("utf-8")
+    exc.stdout = b""
+    log_text, _subject, body = probe.build_lock_timeout_diag(
+        exc, lock_path="/tmp/g.lock", lock_paths=probe.lock_paths_from_env(),
+        log_path="/tmp/x.log", date_tag="20261023",
+        source="nextday_plan_generator.py", file_names=["nextday_plan.json"],
+        probe=lambda p: "pid=42(已运行 00:09) upload_r2.py" if p == "/tmp/s.lock" else "")
+    assert "/tmp/s.lock" in log_text and "小锁(/tmp/s.lock)=pid=42" in log_text, log_text
+    assert "小锁(/tmp/s.lock)=pid=42" in body, body
+    assert "上传前排队等锁超时(等了 120 秒" in body
+
+
+# ══════════════════════ ⑪ 防漂移: 4 处调用方必须走统一探测(不许各写一份路由判定) ══════════════════════
+_CALL_SITES = ["nextday_plan_generator.py", "fapi_bj_width_export.py",
+               "gen_daily_brief.py", "nextday_gap_check.py"]
+
+
+@pytest.mark.parametrize("name", _CALL_SITES)
+def test_call_sites_probe_both_locks_not_single(name):
+    """源码形状守卫: 4 处超时诊断必须用 probe_locks/lock_paths_from_env, 且不再只探全局锁。
+
+    只探一把会在 A 方案后(小载荷走小锁)把超时指错方向; 统一入口 = 不会出现第二份路由判定。
+    """
+    src = (SCRIPTS / name).read_text(encoding="utf-8")
+    assert "lock_paths_from_env" in src, f"{name} 未按统一入口取两把锁路径"
+    assert ("probe_locks(" in src) or ("lock_paths=lock_paths_from_env()" in src), \
+        f"{name} 未逐把探测(全局锁 + 小锁)"
+    assert "_route_upload_lock" not in src, f"{name} 不得复制路由判定(第二实现必然漂移)"

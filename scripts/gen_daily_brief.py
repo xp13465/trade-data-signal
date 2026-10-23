@@ -105,10 +105,14 @@ from pick_repo import (  # noqa: E402
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 try:  # R2 等锁超时诊断(2026-10-23 同类面): 只读 lsof + 子进程输出尾段。
+    # A 方案后上传可能走全局锁或小锁 ⇒ 逐把探测(probe_locks + lock_paths_from_env)。
     # 辅助模块缺失/异常不得影响主流程(fail-safe): 退化为空串(与传统日志一致)。
-    from r2_lock_probe import probe_lock_holder, subprocess_output_tail  # noqa: E402
+    from r2_lock_probe import lock_paths_from_env, probe_locks, subprocess_output_tail  # noqa: E402
 except Exception:  # noqa: BLE001
-    def probe_lock_holder(_lock_path, _max_items=3):  # noqa: D401
+    def lock_paths_from_env():  # noqa: D401
+        return []
+
+    def probe_locks(_paths):  # noqa: D401
         return ""
 
     def subprocess_output_tail(_exc, limit=2000):  # noqa: D401
@@ -3141,11 +3145,10 @@ def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) ->
         # 子进程 stderr 的等锁心跳 ⇒ 先补 stderr 尾段 + 只读持锁候选到日志。
         # **只追加日志行, 严禁改动下面的 degrade 判定逻辑**(它有降噪语义, 动了会改变告警行为)。
         _tail = subprocess_output_tail(e)
-        _holder = probe_lock_holder(
-            os.environ.get("R2_UPLOAD_LOCK", "/tmp/trade_r2_upload.lock"))
+        _holder = probe_locks(lock_paths_from_env())
         print(f"[R2] 子进程输出尾段(等锁心跳): {_tail or '(空)'}", flush=True)
-        print(f"[R2] 占锁进程候选(lsof 只读): {_holder or '(探测不到, 可人工 lsof 排查)'}",
-              flush=True)
+        print(f"[R2] 锁占用探测(lsof 只读, 全局锁/小锁逐把): "
+              f"{_holder or '(探测不到, 可人工 lsof 排查)'}", flush=True)
         # 2026-09-29 告警降噪(改动5): 上传超时后先查 R2 兜底已生效(17:50 deploy 的
         # upload-all-data 或次日任务已补齐) → 已到位则只打 ⚠ degrade(gen_schedule_stats
         # severity=degrade, schedule_monitor 连续 3 轮未自愈才 SEVERE, 不即时轰炸);
