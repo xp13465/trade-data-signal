@@ -165,6 +165,18 @@ def test_route_total_bytes_threshold_default_and_env(lane, monkeypatch):
     assert ur._small_channel_max_bytes() == 8 * 1024 * 1024
 
 
+def test_route_total_equals_threshold_stays_small(lane, monkeypatch):
+    """边界(审查建议 4): 总字节 **== 阈值** ⇒ 仍走小锁(判据是 `>`, 不是 `>=`)。"""
+    _static, data_dir, _global_lock, small_lock, _clock = lane
+    monkeypatch.setenv("R2_SMALL_CHANNEL_MAX_BYTES", "1024")
+    _mk(data_dir, "a.json", 512)
+    _mk(data_dir, "b.json", 512)
+    assert ur._route_upload_lock("upload-data-files", ["a.json", "b.json"]) == small_lock
+    _mk(data_dir, "c.json", 1)
+    assert ur._route_upload_lock("upload-data-files", ["a.json", "b.json", "c.json"]) != small_lock, \
+        "超阈值 1 字节即回全局锁"
+
+
 def test_route_missing_file_still_small(lane):
     """不存在的文件(stat 失败)按 0 字节处理 ⇒ 小锁; cmd 侧照旧打印「⚠ 无文件」。
 
@@ -361,6 +373,8 @@ def test_ledger_ttl_env_override(lane, monkeypatch):
     assert ur._active_standalone_keys() == set(), "TTL=1 天时 2 天前的条目应失效"
     monkeypatch.setenv("R2_STANDALONE_KEY_TTL_DAYS", "not-a-number")
     assert ur._standalone_key_ttl_days() == ur._STANDALONE_KEY_TTL_DAYS, "非法值回默认"
+    monkeypatch.setenv("R2_STANDALONE_KEY_TTL_DAYS", "-5")
+    assert ur._standalone_key_ttl_days() == ur._STANDALONE_KEY_TTL_DAYS, "负数回默认(不许负 TTL 全过期)"
 
 
 def test_all_data_behaves_as_before_when_ledger_missing(lane, monkeypatch):
@@ -474,6 +488,34 @@ def test_legacy_list_entry_expired_when_mtime_unavailable(lane, monkeypatch, cap
     monkeypatch.setattr(ur, "_ledger_file_mtime", lambda _p: None)
     assert ur._active_standalone_keys() == set(), "取不到时间基准 ⇒ 按过期处理, 不得永久有效"
     assert "无可用时间基准" in capsys.readouterr().err, "不得静默改变行为"
+
+
+def test_ledger_concurrent_first_migration(lane):
+    """边界(审查建议 4): 台账缺失时两路并发登记(首次迁移窗口), flock 串行 ⇒ 不丢 key、格式合法。"""
+    import threading
+
+    _static, data_dir, _global_lock, _small_lock, _clock = lane
+    _mk(data_dir, "nextday_plan.json", 246)
+    _mk(data_dir, "schedule_stats.json", 500)
+    errs = []
+
+    def _rec(keys):
+        try:
+            ur._record_standalone_keys(keys)
+        except Exception as e:  # noqa: BLE001  (并发登记不许抛到主链)
+            errs.append(e)
+
+    threads = [threading.Thread(target=_rec, args=([k],))
+               for k in ("data/nextday_plan.json", "data/schedule_stats.json")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errs, errs
+    raw = json.loads(ur._standalone_keys_path().read_text(encoding="utf-8"))
+    assert isinstance(raw, dict), "并发首次登记也必须落成 dict"
+    assert set(raw) == {"data/nextday_plan.json", "data/schedule_stats.json"}, \
+        "两路并发登记不得互相覆盖丢 key"
 
 
 # ══════════════════════ ⑩ 审查建议 2: 超时诊断必须看两把锁(全局锁 + 小锁) ══════════════════════
