@@ -42,6 +42,9 @@ data/public_fund.lock
 data/public_fund.db
 data/public_fund.db-wal
 data/public_fund.db-shm
+# upload-db 大库「未变更跳过」台账（运行时本地状态，不进 git）
+data/.r2_db_backup_state.json
+data/.r2_db_backup_state.json.tmp
 # export_offshore_fund 新鲜度闸门标记（P2-15，本地状态不进 git）
 data/offshore_fund_export_state.json
 data/public_fund_stage0.lock

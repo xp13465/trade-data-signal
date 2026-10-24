@@ -846,15 +846,16 @@ def _parse_upload_id(resp_body):
     return None
 
 
-def _upload_multipart(key, payload, content_type, bucket=None):
+def _multipart_upload(key, total, read_part, content_type, bucket=None):
     """大文件 multipart 上传: create -> 并行 upload-part -> complete(R2 官方流程)。
 
     2026-09-21 R2 上传失败根治: >100MB 单文件单 PUT 卡 600s 超时重试 5 次(放大器) →
     改 multipart 分片并行, 单片 64MiB 单请求时长 << HTTP/看门狗超时, 失败只重传片不整文件。
     注意: multipart 上传对象 ETag=分片组合(non-md5), 不参与 ETag=md5 对账(调用方以 complete
     200 视为内容就位; verify-r2 对 multipart 大文件改「存在 + Content-Length==本地大小」判定)。
-    bucket(2026-10-10 #237): 目标桶; None = 默认主桶 BUCKET(既有调用方行为不变)。
-      备份段(pre-upload 中转)上传目标为 BACKUP_BUCKET, 必须显式传入, 否则会写到主桶。
+
+    read_part(offset, size) -> bytes: 分片读取回调。内存 payload 与本地文件流两条来源共用本函数
+    (后者见 _upload_multipart_file, 2026-10-25 public_fund.db 2.9G 备份新增, 防整文件进内存)。
     """
     # 1) create (POST /key?uploads=)
     st, data = s3_request("POST", key, payload=b"", query="uploads=", content_type=content_type, bucket=bucket)
@@ -865,20 +866,23 @@ def _upload_multipart(key, payload, content_type, bucket=None):
         return st, data
 
     # 2) 分片并行 upload-part (PUT /key?partNumber=N&uploadId=)
-    sizes = _multipart_part_sizes(len(payload))
+    sizes = _multipart_part_sizes(total)
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    parts = {}
+    starts = {}
     offset = 0
     for i, sz in enumerate(sizes, 1):
-        parts[i] = payload[offset:offset + sz]
+        starts[i] = offset
         offset += sz
 
     def _put_part(pn):
+        part = read_part(starts[pn], sizes[pn - 1])
+        if len(part) != sizes[pn - 1]:
+            return pn, None, f"part {pn} 读取不完整({len(part)}!={sizes[pn - 1]})"
         q = "partNumber=%d&uploadId=%s" % (pn, quote(upload_id, safe=""))
         # keep_alive(2026-09-22 同类根治): 每线程连续传多个 part 复用线程本地连接, 省 part 间握手
-        s, d, hdrs = s3_request("PUT", key, payload=parts[pn], query=q,
+        s, d, hdrs = s3_request("PUT", key, payload=part, query=q,
                                 content_type=content_type, with_headers=True, keep_alive=True,
-                                progress_label=f"{key} part{pn}/{len(parts)}", bucket=bucket)
+                                progress_label=f"{key} part{pn}/{len(sizes)}", bucket=bucket)
         if s == 200:
             etag = _header_lookup(hdrs, "ETag")
             if etag:
@@ -888,7 +892,7 @@ def _upload_multipart(key, payload, content_type, bucket=None):
 
     uploaded = {}   # pn -> etag
     with ThreadPoolExecutor(max_workers=_MULTIPART_WORKERS) as pool:
-        futs = {pool.submit(_put_part, pn): pn for pn in parts}
+        futs = {pool.submit(_put_part, pn): pn for pn in starts}
         for fut in as_completed(futs):
             pn, etag, err = fut.result()
             if err:
@@ -900,7 +904,7 @@ def _upload_multipart(key, payload, content_type, bucket=None):
             uploaded[pn] = etag
 
     # 3) complete (POST /key?uploadId= + CompleteMultipartUpload XML)
-    if sorted(uploaded) != sorted(parts):
+    if sorted(uploaded) != sorted(starts):
         try:
             s3_request("DELETE", key, query="uploadId=%s" % quote(upload_id, safe=""), bucket=bucket)
         except Exception:
@@ -914,6 +918,42 @@ def _upload_multipart(key, payload, content_type, bucket=None):
                           query="uploadId=%s" % quote(upload_id, safe=""),
                           content_type="application/xml", bucket=bucket)
     return st, data
+
+
+def _upload_multipart(key, payload, content_type, bucket=None):
+    """大文件 multipart 上传(内存 payload 入口, 既有调用方行为不变)。
+
+    bucket(2026-10-10 #237): 目标桶; None = 默认主桶 BUCKET(既有调用方行为不变)。
+      备份段(pre-upload 中转)上传目标为 BACKUP_BUCKET, 必须显式传入, 否则会写到主桶。
+    """
+    return _multipart_upload(key, len(payload), lambda off, n: payload[off:off + n], content_type, bucket=bucket)
+
+
+def _read_file_part(path, offset, size):
+    """读本地文件 [offset, offset+size) 一片; 短读返回实际字节, 由调用方判定不完整。"""
+    with open(path, "rb") as f:
+        f.seek(offset)
+        return f.read(size)
+
+
+def _upload_multipart_file(key, path, content_type, bucket=None):
+    """大文件 multipart 上传(本地文件流式入口, 不把整文件读进内存)。
+
+    为什么需要独立入口(2026-10-25 public_fund.db 2.9G R2 备份):
+      云上 RAM 仅 3G, `_upload_multipart` 要求 payload 全量常驻内存, 且原实现还把每片 slice
+      再复制一份(payload 内存翻倍) ⇒ 2.9G 文件必 OOM。本入口每片现读现传(4 并发 × 64MiB
+      ≈ 峰值 256MiB), 分片/complete/失败 abort 语义与 _multipart_upload 完全一致。
+    """
+    return _multipart_upload(key, os.path.getsize(path),
+                             lambda off, n: _read_file_part(path, off, n), content_type, bucket=bucket)
+
+
+def _upload_file_to_key(key, path, content_type, bucket=None):
+    """把一个本地文件上传到 R2 指定 key: >=100MB 走流式 multipart, 否则整文件单 PUT。"""
+    if os.path.getsize(path) >= _MULTIPART_THRESHOLD:
+        return _upload_multipart_file(key, path, content_type, bucket=bucket)
+    with open(path, "rb") as f:
+        return s3_request("PUT", key, f.read(), content_type=content_type, bucket=bucket)
 
 
 def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_fn=None,
@@ -2990,15 +3030,57 @@ def _maybe_upload_monthly(name, payload, today_str, bucket=None):
     return False
 
 
-def _prune_layer(prefix, keep_days, bucket=None):
+def _maybe_upload_weekly_file(name, path, today_str, bucket=None):
+    """同 _maybe_upload_weekly, 但分片流式上传本地 .gz 文件(大库用, 不整文件进内存)。"""
+    import datetime as _dt
+    bkt = bucket or BACKUP_BUCKET
+    today = _dt.datetime.strptime(today_str, "%Y%m%d").date()
+    latest = _latest_dated_key("weekly/", name, bucket=bkt)
+    if latest is not None:
+        latest_date = _dt.datetime.strptime(latest[0], "%Y%m%d").date()
+        if latest_date.isocalendar()[:2] == today.isocalendar()[:2]:  # 同 ISO 年 + 周
+            print(f"  周备份: 本周已有 {latest[1]}, 跳过")
+            return False
+    key = f"weekly/{name}_{today_str}.db.gz"
+    status, data = _upload_file_to_key(key, path, "application/gzip", bucket=bkt)
+    if status == 200:
+        print(f"  ✓ 周备份副本 -> {bkt}/{key} (本周首次)")
+        return True
+    print(f"  ⚠ 周备份上传失败 status={status} {data.decode('utf-8', errors='replace')[:200]}")
+    return False
+
+
+def _maybe_upload_monthly_file(name, path, today_str, bucket=None):
+    """同 _maybe_upload_monthly, 但分片流式上传本地 .gz 文件(大库用, 不整文件进内存)。"""
+    import datetime as _dt
+    bkt = bucket or BACKUP_BUCKET
+    today = _dt.datetime.strptime(today_str, "%Y%m%d").date()
+    latest = _latest_dated_key("monthly/", name, bucket=bkt)
+    if latest is not None:
+        latest_date = _dt.datetime.strptime(latest[0], "%Y%m%d").date()
+        if latest_date.year == today.year and latest_date.month == today.month:
+            print(f"  月备份: 本月已有 {latest[1]}, 跳过")
+            return False
+    key = f"monthly/{name}_{today_str}.db.gz"
+    status, data = _upload_file_to_key(key, path, "application/gzip", bucket=bkt)
+    if status == 200:
+        print(f"  ✓ 月备份副本 -> {bkt}/{key} (本月首次)")
+        return True
+    print(f"  ⚠ 月备份上传失败 status={status} {data.decode('utf-8', errors='replace')[:200]}")
+    return False
+
+
+def _prune_layer(prefix, keep_days, bucket=None, per_name_days=None):
     """删 prefix 下日期 >keep_days 的 key(从 key 名解析 YYYYMMDD)。
 
     泛化版清理:backup/ weekly/ monthly/ 三层共用此函数。
-    正则兼容 .db(旧)与 .db.gz(新,压缩上传后),避免旧 .db 残留堆积。"""
+    正则兼容 .db(旧)与 .db.gz(新,压缩上传后),避免旧 .db 残留堆积。
+    per_name_days(2026-10-25): {name: days} 按备份对象覆盖保留天数(public_fund 大库单独
+      缩短, 不改变 sentiment/etf_national_team 的既有天数)。"""
     import re, datetime as _dt
     bkt = bucket or BACKUP_BUCKET
     keys = _list_keys(prefix, bucket=bkt)
-    cutoff = _dt.datetime.now() - _dt.timedelta(days=keep_days)
+    now = _dt.datetime.now()
     deleted = 0
     for key in keys:
         m = re.search(r"(\d{8})\.db(?:\.gz)?$", key)
@@ -3008,7 +3090,13 @@ def _prune_layer(prefix, keep_days, bucket=None):
             kd = _dt.datetime.strptime(m.group(1), "%Y%m%d")
         except ValueError:
             continue
-        if kd < cutoff:
+        keep = keep_days
+        if per_name_days:
+            for nm, days in per_name_days.items():
+                if key.startswith(f"{prefix}{nm}_"):
+                    keep = days
+                    break
+        if kd < now - _dt.timedelta(days=keep):
             st, _ = s3_request("DELETE", key, bucket=bkt, keep_alive=True)
             if st == 204:
                 deleted += 1
@@ -3018,7 +3106,7 @@ def _prune_layer(prefix, keep_days, bucket=None):
     return deleted
 
 
-def _prune_r2_backup(keep_days=14, bucket=None):
+def _prune_r2_backup(keep_days=14, bucket=None, per_name_days=None):
     """分层清理 R2 备份(日/周/月三层独立清理):
       - backup/  日备份: keep_days (默认 14 天,2026-10-03 由 30 天缩减)
       - weekly/  周备份: 28 天 (4 周)
@@ -3029,15 +3117,139 @@ def _prune_r2_backup(keep_days=14, bucket=None):
     但 GetBucketLifecycleConfiguration 实测 403(凭证无权限)未验证——实际清理
     以本代码为准,lifecycle 是否在位需 CF 控制台或更高权限 token 确认。
     历史 key 为 backup/<name>_YYYYMMDD.db,2026-07-15 起改压缩上传
-    backup/<name>_YYYYMMDD.db.gz;weekly/monthly 自 2026-07 起新增,均为 .db.gz。"""
+    backup/<name>_YYYYMMDD.db.gz;weekly/monthly 自 2026-07 起新增,均为 .db.gz。
+    per_name_days: {prefix: {name: days}} 按对象覆盖保留天数(大库 public_fund 专用,
+      不传 = 全部沿用上面三层默认值)。"""
     bkt = bucket or BACKUP_BUCKET
+    per = per_name_days or {}
     total = 0
-    total += _prune_layer("backup/", keep_days, bucket=bkt)
-    total += _prune_layer("weekly/", 28, bucket=bkt)
-    total += _prune_layer("monthly/", 365, bucket=bkt)
+    total += _prune_layer("backup/", keep_days, bucket=bkt, per_name_days=per.get("backup/"))
+    total += _prune_layer("weekly/", 28, bucket=bkt, per_name_days=per.get("weekly/"))
+    total += _prune_layer("monthly/", 365, bucket=bkt, per_name_days=per.get("monthly/"))
     if total:
         print(f"{bkt} 分层清理共 {total} 个旧备份"
-              f" (backup/ {keep_days}天 + weekly/ 28天 + monthly/ 365天)")
+              f" (backup/ {keep_days}天 + weekly/ 28天 + monthly/ 365天"
+              f"{', 大库按 per_name_days 覆盖' if per else ''})")
+
+
+# ---- public_fund.db 大库备份(2026-10-25)----
+# 为什么单独一条链路: 云上 public_fund.db 2.9G(2026-10-24 实测 2,921,410,560 B), 云主机
+# RAM 仅 3G, 且库有 -wal/-shm 伴生文件(WAL 模式) ⇒ 不能像小库那样 read_bytes()+gzip 进内存,
+# 也不能直接 cp 正在写的 .db 上传(主库与 -wal 不同步 = 可能拿到缺最新事务/打不开的损坏副本)。
+# 处理: ①sqlite3 在线 backup API 生成一致快照(与 backup_db.sh 热备同方式, 不锁采集方读写)
+#       ②4MiB 分块流式 gzip 到临时文件(内存恒定) ③分片流式 multipart 上传(每片现读现传)
+#       ④成功/失败都删临时文件, 不留垃圾占生产盘(该盘只剩 6.6G)。
+_DB_BACKUP_STATE_FILE = ".r2_db_backup_state.json"
+# 保留期: 2.9G 库压缩后约 0.75GB/份(2026-10-25 云上实测 790,650,717 B = 754MiB)。若沿用
+# 14/28/365 最高会到 ~25GB, 远超账号级免费额度 10GB 存储(R2 免费额度按账号合计, 非单桶),
+# 且每日全传无收益; 大库单独缩短为日 7 + 周 28(4 份) + 月 180(半年, 约 6 份)
+# ≈ 12.8GB(稳态, 另加小库约 4GB)。小库(sentiment/etf_national_team)保留期不变。
+_PUBLIC_FUND_RETENTION_DAYS = {
+    "backup/": {"public_fund": 7},
+    "weekly/": {"public_fund": 28},
+    "monthly/": {"public_fund": 180},
+}
+
+
+def _load_db_backup_state(repo):
+    """读「上次成功备份时的源文件 stat」台账(本地小 JSON), 用于跳过未变更的大库。"""
+    try:
+        return json.loads((repo / "data" / _DB_BACKUP_STATE_FILE).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_db_backup_state(repo, state):
+    """原子写台账(先写临时文件再 os.replace), 防半写 JSON 致下次读失败静默重传。"""
+    p = repo / "data" / _DB_BACKUP_STATE_FILE
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2, sort_keys=True))
+    os.replace(tmp, p)
+
+
+def _sqlite_snapshot_to_gz(src_path, dst_gz_path):
+    """用 SQLite 在线 backup API 取一致快照, 再分块 gzip 到 dst(全程不把整库读进内存)。
+
+    WAL 说明: 库处于 WAL 模式时直接 cp 主文件会漏掉 -wal 里未 checkpoint 的事务, 且
+    -wal/-shm 与主文件不同步 ⇒ 拉回的副本可能缺最新数据甚至打不开。backup API 在读事务里
+    拷贝页面, 自动包含已提交的 WAL 内容, 产出的快照是自洽的单个 .db(不需要伴生文件)。
+    实现细节: 快照先落临时目录(同盘, 需 ~源大小空间), gzip 完成即删快照, 峰值 ≈ 源大小 +
+    压缩后大小; 磁盘不够时调用方先判空间并放弃(见 _backup_public_fund_db)。
+    """
+    import sqlite3, gzip, shutil, tempfile
+    tmpdir = tempfile.mkdtemp(prefix="r2-db-snapshot-")
+    snap = os.path.join(tmpdir, "snapshot.db")
+    try:
+        src = sqlite3.connect(str(src_path))
+        dst = sqlite3.connect(snap)
+        try:
+            src.backup(dst)          # 在线热备: 不阻塞采集方读写, 拿到一致快照
+        finally:
+            dst.close()
+            src.close()
+        with open(snap, "rb") as fin, gzip.open(dst_gz_path, "wb", compresslevel=6) as fout:
+            shutil.copyfileobj(fin, fout, 4 * 1024 * 1024)   # 4MiB 分块, 内存恒定
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    return os.path.getsize(dst_gz_path)
+
+
+def _backup_public_fund_db(dbdir, repo, today):
+    """public_fund.db -> R2: 未变更跳过 -> 快照+gzip -> 分片上传 -> 周/月副本。
+
+    返回 True=成功/已是最新, False=失败, None=源文件不存在(不计入总数, 不误报失败)。
+    「未变更跳过」判据 = 源文件 size+mtime_ns 与上次成功备份台账一致: 数据没变就不重复传
+    0.79GB(2026-10-25 实测 gz = 790,650,717 B; 重跑/非交易日省带宽); 源文件一变(采集写入)
+    就照常传, 覆盖当日 key 拿最新内容。
+    """
+    import shutil, tempfile
+    src = dbdir / "public_fund.db"
+    if not src.exists():
+        print(f"⚠ {src} 不存在，跳过")
+        return None
+    st_before = src.stat()
+    state = _load_db_backup_state(repo)
+    prev = state.get("public_fund.db") or {}
+    if prev.get("size") == st_before.st_size and prev.get("mtime_ns") == st_before.st_mtime_ns:
+        print(f"  public_fund.db 自上次备份({prev.get('date', '?')})未变更, 跳过"
+              f"(省 {st_before.st_size // 1024 // 1024}MB 上传)")
+        return True
+    # 磁盘预检: 快照(≈源大小) + gz(≈30%) 必须放得下, 否则不冒险占满生产盘(全盘 59G 已用 89%)。
+    need = int(st_before.st_size * 1.4)
+    free = shutil.disk_usage(tempfile.gettempdir()).free
+    if free < need:
+        print(f"✗ public_fund.db 备份放弃: 临时目录可用 {free // 1024 // 1024}MB < 需要约 "
+              f"{need // 1024 // 1024}MB(快照+gz); 未动生产盘")
+        return False
+    tmpdir = tempfile.mkdtemp(prefix="r2-pfdb-gz-")
+    gz = os.path.join(tmpdir, "public_fund.db.gz")
+    try:
+        gz_size = _sqlite_snapshot_to_gz(src, gz)
+        key = f"backup/public_fund_{today}.db.gz"
+        status, data = _upload_file_to_key(key, gz, "application/gzip", bucket=BACKUP_BUCKET)
+        if status != 200:
+            print(f"✗ public_fund.db status={status} {data.decode('utf-8', errors='replace')[:300]}")
+            return False
+        print(f"✓ public_fund.db ({st_before.st_size // 1024 // 1024}MB -> "
+              f"{gz_size // 1024 // 1024}MB gzip) -> {BACKUP_BUCKET}/{key} (私有桶)")
+        _maybe_upload_weekly_file("public_fund", gz, today)
+        _maybe_upload_monthly_file("public_fund", gz, today)
+        st_after = src.stat()
+        if (st_after.st_size, st_after.st_mtime_ns) != (st_before.st_size, st_before.st_mtime_ns):
+            print("  ⚠ 备份期间源库被写入, 本次不记「已备份」状态(下一轮会重传最新内容)")
+        else:
+            state["public_fund.db"] = {
+                "size": st_before.st_size,
+                "mtime_ns": st_before.st_mtime_ns,
+                "date": today,
+                "key": key,
+                "gz_size": gz_size,
+            }
+            _save_db_backup_state(repo, state)
+        return True
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def cmd_upload_db():
@@ -3047,13 +3259,16 @@ def cmd_upload_db():
                 -> weekly/sentiment_YYYYMMDD.db.gz  (周备份,本周首次,28天/4周)
                 -> monthly/sentiment_YYYYMMDD.db.gz (月备份,本月首次,365天/12月)
     etf_national_team.db 同上(<name>=etf_national_team)。
+    public_fund.db 同一套三层前缀, 但走大库链路(快照+gzip+流式 multipart, 保留期更短,
+    见 _PUBLIC_FUND_RETENTION_DAYS 与 _backup_public_fund_db)。
 
     上传前 gzip 压缩（实测 sentiment.db 82MB->24MB,29%），R2 key 带 .gz 后缀。
     本地 .db 备份不变（backup_db.sh 仍存 .db，方便直接恢复），仅 R2 侧压缩。
     周月副本复用日备份已压缩的 payload(同 gz 内容,不同 prefix),不额外压缩。
 
     上传到 BACKUP_BUCKET(signal-backup2 独立账号私有桶,不绑公开域名,#178);
-    _prune_r2_backup 分层清 signal-backup2(backup/14 + weekly/28 + monthly/365)。
+    _prune_r2_backup 分层清 signal-backup2(backup/14 + weekly/28 + monthly/365,
+    public_fund 按 per_name_days 覆盖)。
     DB 路径取 $REPO/data（与 backup_db.sh 一致，launchd 下 REPO=trade-data）。"""
     import datetime as _dt, gzip
     repo = Path(os.environ.get("REPO", str(ROOT)))
@@ -3082,9 +3297,14 @@ def cmd_upload_db():
             _maybe_upload_monthly(name, payload, today)
         else:
             print(f"✗ {fname} status={status} {data.decode('utf-8', errors='replace')[:300]}")
-    _prune_r2_backup(keep_days=14)
-    print(f"DB 上传 {ok}/{len(targets)} -> {BACKUP_BUCKET}/backup/ ({today})")
-    if ok != len(targets):
+    # public_fund.db 大库(2.9G): 走独立快照/流式链路; 不存在时 None=不计入分母, 不误报失败。
+    pf_ok = _backup_public_fund_db(dbdir, repo, today)
+    total = len(targets) + (0 if pf_ok is None else 1)
+    if pf_ok:
+        ok += 1
+    _prune_r2_backup(keep_days=14, per_name_days=_PUBLIC_FUND_RETENTION_DAYS)
+    print(f"DB 上传 {ok}/{total} -> {BACKUP_BUCKET}/backup/ ({today})")
+    if ok != total:
         sys.exit(1)
 
 

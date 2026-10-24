@@ -74,7 +74,7 @@
 | `upload-offshore-fund` | data/offshore_fund*.json | offshore_fund/ |
 | `upload-data-large` | data/ 顶层 >1MB .json | data/（exclude industry-/public_fund 防双副本） |
 | `upload-all-data` | data/ 全量小 .json | data/（阶段1a 双写） |
-| `upload-db` | 每日 DB 备份推 signal-backup2 私有桶（独立 CF 账号；#178 2026-10-05 起的新写入桶，老桶 signal-backup 为迁移前 legacy 存量、只读不搬） | backup/ |
+| `upload-db` | 每日 DB 备份推 signal-backup2 私有桶（sentiment + etf_national_team + public_fund；public_fund 2.9G 走快照+流式分片，未变更跳过。独立 CF 账号；#178 2026-10-05 起的新写入桶，老桶 signal-backup 为迁移前 legacy 存量、只读不搬） | backup/ |
 | `download-db <name>` | 下载最新备份（解压后 .db 路径到 stdout） | - |
 
 > 走 R2 的判定（implementer skill §3.1，按数据类别不按单文件大小）：全量品种多 / 有大 range 历史序列（`-all/-5y/-3y` 单文件 >1MB）/ 类别整体大。走 CF Workers Static Assets 的小文件：单文件 <100KB 且类别总量 <5MB 的状态/监控小文件。
@@ -295,7 +295,7 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 ### DB 备份
 
 - 每天 3:17 `com.trade.self-backup`（launchd）备份 memory + CLAUDE.md + NOTES/TASKS 到 `~/.claude/backups/daily/`（保留 30 天）。
-- R2 `signal-backup2` 私有桶（独立 CF 账号；#178 2026-10-05 起的新写入桶，老桶 `signal-backup` 为迁移前 legacy 存量、只读不搬）：DB gz 分层（backup/14 天 + weekly/28 天 + monthly/365 天，日备份 2026-10-03 由 30 天减至 14 天）。`upload_r2.py upload-db` 推，`download-db <name>` 下载恢复。
+- R2 `signal-backup2` 私有桶（独立 CF 账号；#178 2026-10-05 起的新写入桶，老桶 `signal-backup` 为迁移前 legacy 存量、只读不搬）：DB gz 分层（小库 backup/14 天 + weekly/28 天 + monthly/365 天，日备份 2026-10-03 由 30 天减至 14 天；大库 public_fund 2.9G 为 7/28/180 天，走快照+流式分片、未变更跳过）。`upload_r2.py upload-db` 推，`download-db <name>` 下载恢复。
 
 ---
 
