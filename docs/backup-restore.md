@@ -17,12 +17,14 @@ sentiment.db / etf_national_team.db 的备份机制 + 事故恢复流程。
    - 产出 `data/backups/<name>_YYYYMMDD_HHMM.db`，保留 14 天滚动（`find -mtime +14 -delete`）
 2. **R2 异地备份**（`backup_db.sh` L82-88 调 `upload_r2.py upload-db`）：
    - gzip 压缩上传（102MB→30MB），私有桶 `signal-backup2`（独立 CF 账号；#178 2026-10-05 起的新写入桶，老桶 `signal-backup` 为迁移前 legacy 存量、只读不搬）
-   - 三层保留：日 `backup/` 14 天 + 周 `weekly/` 28 天 + 月 `monthly/` 365 天（日备份 2026-10-03 由 30 天缩减至 14 天，方案见 docs/ops/r2-backup-bucket-capacity-20261002.md）
+   - 覆盖 sentiment.db + etf_national_team.db + **public_fund.db**（2026-10-25 补入；2.9GB 大库走「SQLite 在线 backup 快照 → 4MiB 分块流式 gzip → 64MiB 分片流式上传」，不整库进内存；源文件 size+mtime 未变时跳过上传，台账 `data/.r2_db_backup_state.json`）
+   - 三层保留：日 `backup/` 14 天 + 周 `weekly/` 28 天 + 月 `monthly/` 365 天（日备份 2026-10-03 由 30 天缩减至 14 天，方案见 docs/ops/r2-backup-bucket-capacity-20261002.md）；public_fund 因单份约 0.87GB，单独缩短为 7/28/180 天
    - `_prune_r2_backup` 分层清理（代码为主；R2 lifecycle 是否在位未实测——GetBucketLifecycleConfiguration 403，需 CF 控制台/更高权限 token 确认）
 3. **恢复演练**（`backup_db.sh` L95-101 调 `verify_backup.sh`）：
    - 从 R2 下载最新 → `PRAGMA integrity_check` → 关键表 `COUNT(*)` 与本地对比
    - 全程只读 `mode=ro`，不动真实 `data/*.db`
    - 失败发 severe 邮件告警 + 写 `data/alerts/latest.md`
+   - ⚠️ 该演练脚本只拉 **sentiment / etf_national_team** 两个小库；public_fund（0.87GB/份）不每日全量拉回，改按需抽样校验：对象大小 == 本地 gz 大小 + 头部/尾部各 50MB 哈希逐位比对（2026-10-25 首备份实测口径见 docs/ops/pfdb-r2-backup-20261025.md）
 4. **失败告警**（`backup_db.sh` L109-119）：本地热备失败（退出码非 0）时 `notify.py --severe` 发邮件
 
 **最近一次可用备份** = 当日 17:50 后的 R2 `backup/<name>_YYYYMMDD.db.gz`（约 19:03 前后完成上传+演练）。

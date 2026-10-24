@@ -465,7 +465,7 @@ cd /Users/linhuichen/code/trade
 | `upload-all-data` | data/ 全量小 .json | `data/` | 全量小文件上 R2（排除已走独立命令的） |
 | `upload-intraday` | intraday 相关 23 文件 | `data/` | 盘中实时快照 |
 | `upload-data-files <f1> [f2]...` | 指定文件列表 | `data/` | 精准上传指定文件 |
-| `upload-db` | sentiment.db + etf_national_team.db | `backup/` + `weekly/` + `monthly/` | DB 异地备份（signal-backup2 桶） |
+| `upload-db` | sentiment.db + etf_national_team.db + public_fund.db | `backup/` + `weekly/` + `monthly/` | DB 异地备份（signal-backup2 桶；public_fund 走快照+流式分片） |
 | `upload-claude-backup` | Claude 自我备份 tar.gz | `claude-backup/` | Claude 配置异地备份 |
 | `list [prefix]` | 列对象 | - | 查询 |
 | `download-db <name>` | 下载最新 DB 备份 | - | 恢复用 |
