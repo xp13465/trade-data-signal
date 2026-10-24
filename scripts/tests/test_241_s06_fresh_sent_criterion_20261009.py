@@ -21,6 +21,7 @@ red-before-green(判别力证明, 见 docs/ops/check-s06-sent-criterion-fix-2026
 from __future__ import annotations
 
 import contextlib
+import http.client
 import io
 import json
 import subprocess
@@ -73,11 +74,28 @@ TIER_APPEND_FAILED = ("[notify][warning] buffer 追加失败（未入队，不�
 
 # ══════════════════════ ⓪ 打桩生效自证(§18 L48) ══════════════════════
 def test_00_zero_outbound_trap_armed():
-    """先证 ZeroOutboundTrap 确已武装: 真触达出口即 raise + 计数(hits==1)。"""
+    """先证 ZeroOutboundTrap 确已武装: 真触达出口即 raise + 计数。
+
+    2026-10-25 补(http.client 正控): trap 新增的两个 `connect` 建连点(R2 底座,
+    upload_r2 的 s3_head/s3_request 直连 http.client)此前只有声明、没有用例证明它真武装了
+    —— 看守卫被改坏/漏挂也没人发现。这里用 **127.0.0.1:1**(回环地址 + 必然拒绝)补正控:
+      · trap 武装 ⇒ AssertionError(trap 命中, 计数 +1);
+      · trap 未武装 ⇒ 变成**真实的本地建连尝试**(回环, 不碰任何外部地址)⇒ ConnectionRefusedError。
+    即「未武装时这条正控会先炸 ConnectionRefusedError 而不是过」, 判别力成立。
+    """
     with ZeroOutboundTrap() as trap:
         with pytest.raises(AssertionError):
             urllib.request.urlopen("http://example.invalid/")  # noqa: S310 (打桩验证, 必抛)
-    _chk(trap.hits == ["urllib.request.urlopen"], f"trap 应计数 1, 实得 {trap.hits}")
+        # R2 底座两个建连点正控(回环地址 127.0.0.1:1, 禁止任何真实外部地址)
+        with pytest.raises(AssertionError):
+            http.client.HTTPSConnection("127.0.0.1", 1).connect()
+        with pytest.raises(AssertionError):
+            http.client.HTTPConnection("127.0.0.1", 1).connect()
+    _chk(trap.hits == [
+        "urllib.request.urlopen",
+        "http.client.HTTPSConnection.connect",
+        "http.client.HTTPConnection.connect",
+    ], f"trap 应计数 3 条出口, 实得 {trap.hits}")
 
 
 # ══════════════════════ ① 判据判别力(单元) ══════════════════════

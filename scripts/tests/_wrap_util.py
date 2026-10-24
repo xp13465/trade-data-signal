@@ -201,7 +201,10 @@ def run_script_main(module_name, *, pre_import=None, capture=True, isolate_repo=
     """import `module_name` 并调其 `main()`(进程式), 接住 SystemExit。
 
     capture=True 时把 stdout/stderr 收进命名空间(脚本大量 print, 避免污染 pytest 输出),
-    原样返回供调用方按各自计数断言。返回 SimpleNamespace(rc, out, mod, trap_hits)。
+    原样返回供调用方按各自计数断言。返回 SimpleNamespace(rc, out, err, mod, trap_hits)。
+    ⚠️ `err`(2026-10-25 审查补): 生产脚本的**强信号**常写 stderr(upload_r2 verify-r2 的
+    「大量不一致」阈值告警即 stderr, upload_r2.py:4122-4123); 只收 stdout 会让对 stderr 的断言
+    变成**永远通过的空断言**。`out` 语义不变(仍只含 stdout), 既有调用方零影响。
     isolate_repo=True 同 `run_unittest_module`(REPO/GIT_REPO→临时树)。
     """
     env_snapshot = dict(os.environ)
@@ -210,6 +213,7 @@ def run_script_main(module_name, *, pre_import=None, capture=True, isolate_repo=
     _prepare(pre_import)
     rc = None
     out = ""
+    err = ""
     try:
         with ZeroOutboundTrap() as trap:
             mod = importlib.import_module(module_name)
@@ -217,12 +221,14 @@ def run_script_main(module_name, *, pre_import=None, capture=True, isolate_repo=
                 _redirect_repo_paths(iso_dir)
             if capture:
                 buf = _CapStdout()
-                with contextlib.redirect_stdout(buf):
+                err_buf = _CapStdout()
+                with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err_buf):
                     try:
                         mod.main()
                     except SystemExit as e:      # 原脚本以 sys.exit(0/1) 收尾
                         rc = e.code
                 out = buf.getvalue()
+                err = err_buf.getvalue()
             else:
                 try:
                     mod.main()
@@ -233,4 +239,4 @@ def run_script_main(module_name, *, pre_import=None, capture=True, isolate_repo=
         _restore_env(env_snapshot)
         if iso_dir is not None:
             shutil.rmtree(iso_dir, ignore_errors=True)
-    return types.SimpleNamespace(rc=rc, out=out, mod=mod, trap_hits=trap.hits)
+    return types.SimpleNamespace(rc=rc, out=out, err=err, mod=mod, trap_hits=trap.hits)

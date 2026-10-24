@@ -27,6 +27,9 @@
     `_patch(s3_head=..., _upload_glob=...)`; patch 一旦被人改坏, 文件会真的 PUT 到真桶且**陷阱不响**。
     现在补 `http.client.HTTPConnection.connect` / `HTTPSConnection.connect` 两个**建连点**
     (真正的网络动作起点; mock 命中时根本不建连 → 计数 0, 与既有 mock 正交)。
+    这两个点的**正控**在 `test_241_s06_fresh_sent_criterion_20261009.py::test_00`: 用回环
+    `127.0.0.1:1` 真触达, 断言 trap 命中(未武装时会变成真实本地建连 → ConnectionRefusedError,
+    故「trap 漏挂」不会静默通过)。新增/改动出口拦截点时, 同步在那里补一条正控。
   · 仍**不** trap `socket.*`: 避免与 multiprocessing / DNS 等正常调用误撞(白名单式最小面);
     也**不** trap `requests`/`urllib3`(项目内它们只在采集侧使用, 相关用例各自打桩;
     若未来 tests 里出现真实 requests 外发路径, 需在此补一条)。
