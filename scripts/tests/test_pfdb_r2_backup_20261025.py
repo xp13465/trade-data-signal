@@ -11,7 +11,9 @@ sentiment.db + etf_national_team.db, 盘毁即全失; docs/r2-deployment.md 却�
   ④ `_upload_multipart_file` 流式分片: 每片读到的字节拼回去 == 原文件(防分片偏移算错传坏);
   ⑤ `_upload_multipart`(内存入口)重构后行为不变;
   ⑥ WAL 一致性: 库有未 checkpoint 的 -wal 数据时, 快照仍包含已提交事务(这就是不能直接 cp 的理由);
-  ⑦ 分层清理 per-name: public_fund 按缩短保留期清理, 小库保留期不受影响。
+  ⑦ 分层清理 per-name: public_fund 按缩短保留期清理, 小库保留期不受影响;
+  ⑧ 上传失败(500) → 命令非零退出且**不写「已备份」台账**(下一轮会重传, 不会误跳过);
+  ⑨ 备份期间源库被写入 → 不记台账(避免把旧快照记成最新, 下一轮重传)。
 
 零网络 / 零外发: 全部 s3_request 打桩(§18 L48), 只用临时目录里的小 SQLite 文件。
 """
@@ -152,6 +154,42 @@ def test_missing_public_fund_not_counted_as_failure(repo_dir, monkeypatch, quiet
 
     ur.cmd_upload_db()  # 不应 sys.exit(1)
     assert "DB 上传 2/2" in capsys.readouterr().out
+
+
+# ── ⑧ 上传失败: 非零退出 + 不写台账 ─────────────────────────────────────────
+def test_upload_failure_not_recorded_as_backed_up(repo_dir, monkeypatch, quiet):
+    fake = FakeS3()
+    monkeypatch.setattr(ur, "s3_request", fake)
+    monkeypatch.setattr(ur, "_upload_file_to_key", lambda *a, **k: (500, b"boom"))
+    monkeypatch.setenv("REPO", str(repo_dir))
+
+    with pytest.raises(SystemExit) as ei:
+        ur.cmd_upload_db()
+    assert ei.value.code == 1
+    state_file = repo_dir / "data" / ur._DB_BACKUP_STATE_FILE
+    assert not state_file.exists(), "失败不应写「已备份」台账(否则下一轮误跳过)"
+
+
+# ── ⑨ 备份期间源库被写: 不记台账 ────────────────────────────────────────────
+def test_source_changed_during_backup_not_recorded(repo_dir, monkeypatch, quiet, capsys):
+    fake = FakeS3()
+    monkeypatch.setattr(ur, "s3_request", fake)
+    monkeypatch.setenv("REPO", str(repo_dir))
+    real = ur._sqlite_snapshot_to_gz
+
+    def snapshot_then_touch(src_path, dst_gz_path):
+        n = real(src_path, dst_gz_path)
+        st = os.stat(src_path)
+        os.utime(src_path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
+        return n
+
+    monkeypatch.setattr(ur, "_sqlite_snapshot_to_gz", snapshot_then_touch)
+    ur.cmd_upload_db()
+
+    state_file = repo_dir / "data" / ur._DB_BACKUP_STATE_FILE
+    state = json.loads(state_file.read_text()) if state_file.exists() else {}
+    assert "public_fund.db" not in state, "源库在备份期间变化时不得记「已备份」"
+    assert "备份期间源库被写入" in capsys.readouterr().out
 
 
 # ── ④ 流式分片: 拼回内容 == 原文件 ──────────────────────────────────────────

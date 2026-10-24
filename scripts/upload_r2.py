@@ -3140,9 +3140,10 @@ def _prune_r2_backup(keep_days=14, bucket=None, per_name_days=None):
 #       ②4MiB 分块流式 gzip 到临时文件(内存恒定) ③分片流式 multipart 上传(每片现读现传)
 #       ④成功/失败都删临时文件, 不留垃圾占生产盘(该盘只剩 6.6G)。
 _DB_BACKUP_STATE_FILE = ".r2_db_backup_state.json"
-# 保留期: 2.9G 库压缩后约 0.87G/份(本地样本压缩率 30% 实测)。若沿用 14/28/365 最高会到
-# ~25GB, 撑爆备份桶免费额度(10GB/月)且每日全传无收益; 大库单独缩短为
-# 日 7 + 周 28(4 份) + 月 180(半年, 约 6 份) ≈ 上限 15GB。小库(sentiment/etf_national_team)保留期不变。
+# 保留期: 2.9G 库压缩后约 0.75GB/份(2026-10-25 云上实测 790,650,717 B = 754MiB)。若沿用
+# 14/28/365 最高会到 ~25GB, 远超账号级免费额度 10GB 存储(R2 免费额度按账号合计, 非单桶),
+# 且每日全传无收益; 大库单独缩短为日 7 + 周 28(4 份) + 月 180(半年, 约 6 份)
+# ≈ 12.8GB(稳态, 另加小库约 4GB)。小库(sentiment/etf_national_team)保留期不变。
 _PUBLIC_FUND_RETENTION_DAYS = {"backup/": 7, "weekly/": 28, "monthly/": 180}
 
 
