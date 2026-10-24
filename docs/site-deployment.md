@@ -420,7 +420,7 @@ cd /Users/linhuichen/code/trade
 
 详见 [docs/backup-restore.md](backup-restore.md)，三层备份机制：
 
-1. **本地热备**：`backup_db.sh` 每日 17:50 后自动跑，Python `sqlite3.Connection.backup()` 在线 API（不锁库），`data/backups/` 保留 14 天
+1. **本地热备**：`backup_db.sh` 每日 21:00 由云上独立 timer `trade-backup-db.timer` 拉起（不再由 `update_all.sh` 串接），Python `sqlite3.Connection.backup()` 在线 API（不锁库），`data/backups/` 保留 7 天（`RETAIN_DAYS=7`）
 2. **R2 异地备份**：gzip 压缩上传到私有桶 `signal-backup2`（独立 CF 账号；#178 2026-10-05 起的新写入桶，老桶 `signal-backup` 为迁移前 legacy 存量、只读不搬），三层保留（日 14 天 / 周 28 天 / 月 365 天，日备份 2026-10-03 由 30 天减至 14 天）
 3. **恢复演练**：`verify_backup.sh` 每日自动跑，从 R2 下载 → `PRAGMA integrity_check` → 关键表行数对比
 

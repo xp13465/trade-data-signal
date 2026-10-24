@@ -8,13 +8,13 @@ sentiment.db / etf_national_team.db / public_fund.db 的备份机制 + 事故恢
 
 ---
 
-## 一、备份机制（每日自动，17:50 后）
+## 一、备份机制（每日自动，云上 21:00 起）
 
-`scripts/backup_db.sh` 由 `update_all.sh` L202 串接，交易日收盘后自动跑，无需手动触发。流程：
+`scripts/backup_db.sh` 由云上独立 timer `trade-backup-db.timer`（`OnCalendar=*-*-* 21:00:00`，`Persistent=true`）每日拉起，**不再由 `update_all.sh` 串接**（2026-10-25 核对：`update_all.sh:450` 已写明从主链移除，避免双跑）；无需手动触发。`trade-backup-db.service` 的 `ExecStart=backup_db.sh`、`TimeoutStartSec=12600`（3.5 小时）。流程：
 
 1. **本地在线热备**（`backup_db.sh` L42-52）：Python `sqlite3.Connection.backup()`（SQLite 在线 backup API）
    - 不锁库、不阻塞读写（WAL 模式下也拿一致快照），比直接 `cp` 文件安全（cp 可能拷到半写状态）
-   - 产出 `data/backups/<name>_YYYYMMDD_HHMM.db`，保留 14 天滚动（`find -mtime +14 -delete`）
+   - 产出 `data/backups/<name>_YYYYMMDD_HHMM.db`，保留 **7 天**滚动（`RETAIN_DAYS` 默认 7，云上 unit `Environment=RETAIN_DAYS=7`；`find -mtime +"$RETAIN_DAYS" -delete`）
 2. **R2 异地备份**（`backup_db.sh` L82-88 调 `upload_r2.py upload-db`）：
    - gzip 压缩上传（102MB→30MB），私有桶 `signal-backup2`（独立 CF 账号；#178 2026-10-05 起的新写入桶，老桶 `signal-backup` 为迁移前 legacy 存量、只读不搬）
    - 覆盖 sentiment.db + etf_national_team.db + **public_fund.db**（2026-10-25 补入；2.9GB 大库走「SQLite 在线 backup 快照 → 4MiB 分块流式 gzip → 64MiB 分片流式上传」，不整库进内存；源文件 size+mtime 未变时跳过上传，台账 `data/.r2_db_backup_state.json`）
@@ -27,7 +27,7 @@ sentiment.db / etf_national_team.db / public_fund.db 的备份机制 + 事故恢
    - ⚠️ 该演练脚本只拉 **sentiment / etf_national_team** 两个小库；public_fund（0.79GB gz/份）不每日全量拉回，改按需全量拉回校验：对象大小 == 本地 gz 大小 + 整库 md5 + 头部/尾部各 50MB 哈希逐位比对 + `integrity_check`（2026-10-25 首备份实测口径见 docs/ops/pfdb-r2-backup-20261025.md；流式恢复脚本 `docs/scripts/restore_r2_db_backup.py`）
 4. **失败告警**（`backup_db.sh` L109-119）：本地热备失败（退出码非 0）时 `notify.py --severe` 发邮件
 
-**最近一次可用备份** = 当日 17:50 后的 R2 `backup/<name>_YYYYMMDD.db.gz`（约 19:03 前后完成上传+演练）。
+**最近一次可用备份** = 当日 21:00 起的 R2 `backup/<name>_YYYYMMDD.db.gz`（常态约 23-25 分钟完成上传+演练 ⇒ 约 21:25 前后；2026-10-25 首备实测约 70 分钟。「演练」= `verify_backup.sh` 只拉 sentiment / etf_national_team 两个小库，public_fund 不每日拉回；public_fund 源库自上次备份未变时整条上传跳过）。
 
 **日志**：`data/logs/backup_db_YYYYMMDD_HHMM.log`（备份）/ `data/logs/verify_backup_*.log`（演练）。
 
@@ -51,7 +51,7 @@ sentiment.db / etf_national_team.db / public_fund.db 的备份机制 + 事故恢
 
 注意：`download-db` 默认只取 `backup/` 最新（日备份层）；周/月归档如需恢复，用 `upload_r2.py list` 查 key 后手动 GET。
 
-本地还有 `data/backups/` 14 天热备（`backup_db.sh` 直接 `.db` 不压缩，路径更直接，优先尝试本地再上 R2）。
+本地还有 `data/backups/` 7 天热备（`RETAIN_DAYS` 默认 7、云上 unit 注入同为 7；`backup_db.sh` 直接 `.db` 不压缩，路径更直接，优先尝试本地再上 R2）。
 
 ---
 

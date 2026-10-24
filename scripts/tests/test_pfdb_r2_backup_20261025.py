@@ -6,7 +6,7 @@ sentiment.db + etf_national_team.db, 盘毁即全失; docs/r2-deployment.md 却�
 
 覆盖:
   ① `cmd_upload_db` 清单包含 public_fund.db, 且 sentiment/etf 两项的 key 形态/上传方式不变;
-  ② 大库链路「未变更跳过」: 源文件 size+mtime 未变 → 第二次不再上传(省 0.87GB/轮);
+  ② 大库链路「未变更跳过」: 源文件 size+mtime 未变 → 第二次不再上传(省 0.79GB/轮, 实测 790,650,717 B);
   ③ 大库链路源文件不存在 → 不计入分母(不误报失败), 原两项照常;
   ④ `_upload_multipart_file` 流式分片: 每片读到的字节拼回去 == 原文件(防分片偏移算错传坏);
   ⑤ `_upload_multipart`(内存入口)重构后行为不变;

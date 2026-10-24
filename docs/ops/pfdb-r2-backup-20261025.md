@@ -49,7 +49,10 @@ public_fund.db 自上次备份(20261025)未变更, 跳过(省 2786MB 上传)
 DB 上传 3/3 -> signal-backup2/backup/ (20261025)
 ```
 
-- 定时化就绪(云上只读核对):`trade-backup-db.timer` 每日 **21:00**(`systemctl list-timers` 显示下次 2026-10-25 21:00),unit `trade-backup-db.service` `ExecStart=backup_db.sh`、`TimeoutStartSec=12600`(3.5h)。首备全程 70 分钟 < 3.5h;此后源库未变则跳过,变了单次约 23-25 分钟,仍在窗口内。相邻 21:15/21:20/21:30 任务不直接调 `upload_r2`,且 `upload-db` 持全局锁 `/tmp/trade_r2_upload.lock`。
+- 定时化就绪(云上只读核对):`trade-backup-db.timer` 每日 **21:00**(`systemctl list-timers` 显示下次 2026-10-25 21:00),unit `trade-backup-db.service` `ExecStart=backup_db.sh`、`TimeoutStartSec=12600`(3.5h);`update_all.sh` 已不再串接备份(`update_all.sh:450` 写明移除,避免双跑)。首备全程 70 分钟 < 3.5h;此后源库未变则跳过,变了单次约 23-25 分钟,仍在窗口内。
+- 相邻任务(2026-10-25 02:39 `systemctl list-timers --all` 实测,不是凭印象):20:40 `trade-daily-brief`、20:45 `trade-brief-push`、**21:00 `trade-backup-db`(本任务)**、21:15 `trade-ab-direction-anchor`、21:50 `trade-freeze-orphan-cleanup`、22:00 `trade-public-fund-full`、22:30 `trade-update-all`、23:20 `trade-r2-consistency`;**没有 21:20 / 21:30 的 timer**。
+  - 会与本任务抢 **R2 全局锁 `/tmp/trade_r2_upload.lock`** 的:①**21:10 `trade-turnover-backfill`(`OnCalendar=Mon..Fri *-*-* 21:10:00`,工作日触发;节假日是否空跑由脚本自身判定,未在本次核对范围)**,`turnover_backfill.sh:177,182` 直接跑 `upload-intraday` / `upload-data-large`;本任务常态 21:00-21:25 与之重叠约 15 分钟,靠全局锁串行(谁先拿谁先跑,等锁有超时预算,不会并发上传)。②**22:00 `trade-public-fund-full`** 与 **22:30 `trade-update-all`** 走 `deploy.sh`,而 `deploy.sh` 自己跑 4 条 `upload_r2` 命令,也受同一把锁约束;常态 21:25 前本任务已结束,不重叠(若某天 public_fund 变慢拖到 22:00 后,则由锁串行兜底)。
+  - 不碰 R2 上传锁的:20:40/20:45 两个简报任务、21:15 `ab-direction-anchor`、21:50 `freeze-orphan-cleanup`(本地 `sentiment.db`)、23:20 `r2-consistency`(只读核对)。依据:`grep "upload_r2\|upload-\|export.py\|deploy.sh"` 上述脚本无命中;`upload_r2.py` 取锁单点 `_acquire_lock_for_command` 对 `upload-db`/`upload-data-large`/`upload-all-data` 等一律走全局锁(仅 `upload-data-files` 按载荷路由小锁)。
 
 ## 4. 从 R2 实际拉回校验(PASS)
 
@@ -97,7 +100,21 @@ python3 docs/scripts/restore_r2_db_backup.py --name public_fund --out-dir /tmp/v
 
 脚本做的事:Range 分片流式下载(默认 32MiB/片、6 线程)→ 大小校验 → 流式解压 → `integrity_check`;`--verify-against-src` 时再生成参考快照做整库 + 头尾 50MiB md5 对账。**恢复文件写在 out-dir,不要直接覆盖生产库**;确认 integrity 后再停采集/写库进程替换,旧库先留一份。
 
-## 7. 复现与测试
+## 7. 边界维度清单(七轴,实施方交审查关的输入端)
+
+> 供 reviewer §10.8「先不看本清单、自己再推一份」独立复核对账。判定口径:测=有自动化用例/实测证据;不测=写明理由。
+
+| 轴 | 涉及点与来源 | 判定 |
+|---|---|---|
+| ① 输入域 | 源库缺失/为空、WAL 未 checkpoint、台账缺失或损坏(来源:§23.2 同类错误面 + 首备实测) | **测**:缺库不计入分母(用例③)、WAL 未 checkpoint 的已提交事务仍进快照(用例⑥);**不测**:台账文件损坏/不可读 → 代码按「无台账」处理(try/except → 空 dict),理由:失败方向是「重新上传」,只会多传不会漏传,且非本 feat 新增数据结构 |
+| ② 状态组合 | 非交易日首备、源库自上次备份变/未变(来源:首备实测 + 定时化) | **测**:首备在非交易日实跑通过;未变跳过(用例②+二次运行日志 `跳过(省 2786MB 上传)`);变则重传(用例⑨) |
+| ③ 时序 | 同日重跑、备份期间源库被写、跨日 key、清理发生在上传之后(来源:首跑 prune 崩溃事故) | **测**:同日重跑跳过(用例②/二次运行);备份期间被写不记台账,下一轮重传(用例⑨);清理按前缀+日期在整批上传成功后执行(用例⑦/⑦b 真实入口) |
+| ④ 上下游依赖 | R2 PUT 失败、周/月副本判重、`_prune_r2_backup` 消费保留期常量、`backup_db.sh`→`upload-db` 调用链(来源:首跑崩溃 + 定时化核对) | **测**:PUT 500 → 非零退出且不写台账(用例⑧);周/月判重(二次运行实证);保留期结构被真实入口消费(用例⑦b);**不测**:`backup_db.sh` 端到端(改的是 `upload_r2.py`,shell 调用未变,已在云上实跑两轮) |
+| ⑤ 极端值 | 2.9GB 源库、0.79GB gz、12 分片、临时目录剩余空间不足(来源:首备实测 + 磁盘预检代码 `upload_r2.py:3219-3222`) | **测**:真实 2.9GB 全链路上传+拉回;分片偏移(用例④);**不测**:磁盘不足预检分支无单测,理由:纯前置判断(打印并 `return False`),不影响数据正确性;**已知真实触发**:2026-10-25 云上拉回校验留了 `/tmp/pfdb-verify` 约 6.2G,根盘余量降到 2.5G < 预检需要约 3.81G ⇒ 当晚 21:00 备份会打印「空间不足放弃」;需清理目录后恢复(非代码缺陷,属运维留痕) |
+| ⑥ 回退路径 | 上传失败后的下一轮重传、恢复脚本失败/源库已变拒绝对账、大库误用 `download-db`(来源:§23.2 + 恢复手册) | **测**:失败不写台账(用例⑧);恢复脚本「源库已变则拒绝对账」失败路径本地打桩 PASS;**不测**:整机盘毁端到端演练(见 §4「没验证什么」①) |
+| ⑦ 并发与重入 | 与 21:10 `turnover-backfill`、22:00/22:30 deploy 链抢 `/tmp/trade_r2_upload.lock`;同任务重入(来源:list-timers 实测) | **测**:首备与二跑均走全局锁实跑;锁互斥逻辑属既有机制(`_acquire_lock_for_command`),本 feat 未改锁;**不测**:专门造并发上传用例,理由:锁实现未改动,且失败语义是排队等锁而非数据损坏;另见 §3 相邻任务时点表 |
+
+## 8. 复现与测试
 
 - 全量测试:`python3 -m pytest -q scripts/tests/` → **1396 passed, 2 skipped**(245.57s,改动提交后跑)。
 - 新增用例:`python3 -m pytest -q scripts/tests/test_pfdb_r2_backup_20261025.py` → 10 passed。
