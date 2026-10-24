@@ -250,6 +250,43 @@ def test_snapshot_includes_uncheckpointed_wal(tmp_path):
         writer.close()
 
 
+# ── ⑦b 分层清理总入口: 常量结构必须被 _prune_r2_backup 正确消费 ──────────────
+def test_prune_r2_backup_consumes_public_fund_retention(monkeypatch):
+    """回归: 常量曾是 {"backup/": 7,...}(int),总入口 .items() 崩(2026-10-25 云上首跑实证)。
+
+    这条走真实入口 `_prune_r2_backup(per_name_days=常量)`, 不只测 `_prune_layer`,
+    防止「常量结构错但单层测试绿」的假绿。
+    """
+    now = datetime.now()
+    d10 = (now - timedelta(days=10)).strftime("%Y%m%d")
+    d30 = (now - timedelta(days=30)).strftime("%Y%m%d")
+    d100 = (now - timedelta(days=100)).strftime("%Y%m%d")
+    d400 = (now - timedelta(days=400)).strftime("%Y%m%d")
+    keys_by_prefix = {
+        "backup/": [f"backup/public_fund_{d10}.db.gz", f"backup/sentiment_{d10}.db.gz"],
+        "weekly/": [f"weekly/public_fund_{d30}.db.gz", f"weekly/sentiment_{d30}.db.gz"],
+        "monthly/": [f"monthly/public_fund_{d100}.db.gz", f"monthly/sentiment_{d400}.db.gz"],
+    }
+    deleted = []
+    monkeypatch.setattr(ur, "_list_keys", lambda prefix, bucket=None: keys_by_prefix[prefix])
+
+    def fake_s3(method, key, payload=b"", query="", bucket=None, **kw):
+        assert method == "DELETE"
+        deleted.append(key)
+        return 204, b""
+
+    monkeypatch.setattr(ur, "s3_request", fake_s3)
+    ur._prune_r2_backup(keep_days=14, per_name_days=ur._PUBLIC_FUND_RETENTION_DAYS)
+
+    assert len(deleted) == 4
+    assert f"backup/public_fund_{d10}.db.gz" in deleted       # 7 天 → 删
+    assert f"backup/sentiment_{d10}.db.gz" not in deleted     # 小库 14 天 → 留
+    assert f"weekly/public_fund_{d30}.db.gz" in deleted       # 28 天 → 删(边界同日)
+    assert f"weekly/sentiment_{d30}.db.gz" in deleted         # 默认 28 天 → 删
+    assert f"monthly/public_fund_{d100}.db.gz" not in deleted  # 180 天 → 留
+    assert f"monthly/sentiment_{d400}.db.gz" in deleted       # 365 天 → 删
+
+
 # ── ⑦ per-name 分层清理 ────────────────────────────────────────────────────
 def test_prune_layer_per_name_days(monkeypatch):
     now = datetime.now()

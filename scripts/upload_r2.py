@@ -3144,7 +3144,11 @@ _DB_BACKUP_STATE_FILE = ".r2_db_backup_state.json"
 # 14/28/365 最高会到 ~25GB, 远超账号级免费额度 10GB 存储(R2 免费额度按账号合计, 非单桶),
 # 且每日全传无收益; 大库单独缩短为日 7 + 周 28(4 份) + 月 180(半年, 约 6 份)
 # ≈ 12.8GB(稳态, 另加小库约 4GB)。小库(sentiment/etf_national_team)保留期不变。
-_PUBLIC_FUND_RETENTION_DAYS = {"backup/": 7, "weekly/": 28, "monthly/": 180}
+_PUBLIC_FUND_RETENTION_DAYS = {
+    "backup/": {"public_fund": 7},
+    "weekly/": {"public_fund": 28},
+    "monthly/": {"public_fund": 180},
+}
 
 
 def _load_db_backup_state(repo):
