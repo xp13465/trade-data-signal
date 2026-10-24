@@ -21,9 +21,15 @@
   · 只覆盖**当前进程**: spawn 子进程(notify_dedup U11 / flush_race T1)是全新解释器, 不继承
     本陷阱; 那些子进程自身在 `_patch_channels`/worker 内重新 mock 渠道(既有设计), 故零外发
     由「子进程自打桩」保证, 不由本陷阱保证。
-  · 只覆盖 urllib/smtplib 两条协议出口; R2 写入由各脚本自身的 `_upload_glob`/`s3_head` 打桩
-    承担(test_204 / test_193 / test_188 均有), 不在本工具范围。
-  · 不 trap `socket.*`: 避免与 multiprocessing / DNS 等正常调用误撞(白名单式最小面)。
+  · 覆盖 `urllib` / `smtplib` / `http.client` 三条协议出口。**http.client 是 R2 的底座**
+    (upload_r2 `s3_head` / `s3_request` 直接用 `http.client.HTTPSConnection`, 见 upload_r2.py:344/610/698):
+    2026-10-25 之前这里只包 urllib/smtplib, 于是「R2 零写入」全靠各用例自己的两行
+    `_patch(s3_head=..., _upload_glob=...)`; patch 一旦被人改坏, 文件会真的 PUT 到真桶且**陷阱不响**。
+    现在补 `http.client.HTTPConnection.connect` / `HTTPSConnection.connect` 两个**建连点**
+    (真正的网络动作起点; mock 命中时根本不建连 → 计数 0, 与既有 mock 正交)。
+  · 仍**不** trap `socket.*`: 避免与 multiprocessing / DNS 等正常调用误撞(白名单式最小面);
+    也**不** trap `requests`/`urllib3`(项目内它们只在采集侧使用, 相关用例各自打桩;
+    若未来 tests 里出现真实 requests 外发路径, 需在此补一条)。
 
 用法
   from _zero_outbound import ZeroOutboundTrap
@@ -33,6 +39,7 @@
 """
 from __future__ import annotations
 
+import http.client
 import smtplib
 import urllib.request
 
@@ -48,6 +55,10 @@ class ZeroOutboundTrap:
         self._orig["urlopen"] = urllib.request.urlopen
         self._orig["SMTP"] = smtplib.SMTP
         self._orig["SMTP_SSL"] = smtplib.SMTP_SSL
+        # R2 底座(upload_r2 s3_head/s3_request 直连 http.client) —— 只拦「建连」这一点,
+        # 不换整个类(避免 isinstance/子类化代码误伤), 也不拦 socket 层(见 docstring 局限)。
+        self._orig["HTTPConnection.connect"] = http.client.HTTPConnection.connect
+        self._orig["HTTPSConnection.connect"] = http.client.HTTPSConnection.connect
 
         def _boom(kind: str):
             def _trap(*_a, **_k):
@@ -59,10 +70,14 @@ class ZeroOutboundTrap:
         urllib.request.urlopen = _boom("urllib.request.urlopen")
         smtplib.SMTP = _boom("smtplib.SMTP")
         smtplib.SMTP_SSL = _boom("smtplib.SMTP_SSL")
+        http.client.HTTPConnection.connect = _boom("http.client.HTTPConnection.connect")
+        http.client.HTTPSConnection.connect = _boom("http.client.HTTPSConnection.connect")
         return self
 
     def __exit__(self, *_exc) -> bool:
         urllib.request.urlopen = self._orig["urlopen"]
         smtplib.SMTP = self._orig["SMTP"]
         smtplib.SMTP_SSL = self._orig["SMTP_SSL"]
+        http.client.HTTPConnection.connect = self._orig["HTTPConnection.connect"]
+        http.client.HTTPSConnection.connect = self._orig["HTTPSConnection.connect"]
         return False
