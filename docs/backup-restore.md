@@ -1,6 +1,6 @@
 # DB 备份与恢复手册（backup-restore.md）
 
-sentiment.db / etf_national_team.db 的备份机制 + 事故恢复流程。
+sentiment.db / etf_national_team.db / public_fund.db 的备份机制 + 事故恢复流程。
 三层备份 + 在线热备 + R2 异地 + 每日恢复演练，确保任意单点失效都能恢复。
 
 > 本文档为 DB 灾备唯一权威文档（合并原 `docs/restore-db.md`，A7 2026-07-20 整理）。
@@ -18,13 +18,13 @@ sentiment.db / etf_national_team.db 的备份机制 + 事故恢复流程。
 2. **R2 异地备份**（`backup_db.sh` L82-88 调 `upload_r2.py upload-db`）：
    - gzip 压缩上传（102MB→30MB），私有桶 `signal-backup2`（独立 CF 账号；#178 2026-10-05 起的新写入桶，老桶 `signal-backup` 为迁移前 legacy 存量、只读不搬）
    - 覆盖 sentiment.db + etf_national_team.db + **public_fund.db**（2026-10-25 补入；2.9GB 大库走「SQLite 在线 backup 快照 → 4MiB 分块流式 gzip → 64MiB 分片流式上传」，不整库进内存；源文件 size+mtime 未变时跳过上传，台账 `data/.r2_db_backup_state.json`）
-   - 三层保留：日 `backup/` 14 天 + 周 `weekly/` 28 天 + 月 `monthly/` 365 天（日备份 2026-10-03 由 30 天缩减至 14 天，方案见 docs/ops/r2-backup-bucket-capacity-20261002.md）；public_fund 因单份约 0.87GB，单独缩短为 7/28/180 天
+   - 三层保留：日 `backup/` 14 天 + 周 `weekly/` 28 天 + 月 `monthly/` 365 天（日备份 2026-10-03 由 30 天缩减至 14 天，方案见 docs/ops/r2-backup-bucket-capacity-20261002.md）；public_fund 因单份约 0.79GB（790,650,717 B，2026-10-25 实测），单独缩短为 7/28/180 天
    - `_prune_r2_backup` 分层清理（代码为主；R2 lifecycle 是否在位未实测——GetBucketLifecycleConfiguration 403，需 CF 控制台/更高权限 token 确认）
 3. **恢复演练**（`backup_db.sh` L95-101 调 `verify_backup.sh`）：
    - 从 R2 下载最新 → `PRAGMA integrity_check` → 关键表 `COUNT(*)` 与本地对比
    - 全程只读 `mode=ro`，不动真实 `data/*.db`
    - 失败发 severe 邮件告警 + 写 `data/alerts/latest.md`
-   - ⚠️ 该演练脚本只拉 **sentiment / etf_national_team** 两个小库；public_fund（0.87GB/份）不每日全量拉回，改按需抽样校验：对象大小 == 本地 gz 大小 + 头部/尾部各 50MB 哈希逐位比对（2026-10-25 首备份实测口径见 docs/ops/pfdb-r2-backup-20261025.md）
+   - ⚠️ 该演练脚本只拉 **sentiment / etf_national_team** 两个小库；public_fund（0.79GB gz/份）不每日全量拉回，改按需全量拉回校验：对象大小 == 本地 gz 大小 + 整库 md5 + 头部/尾部各 50MB 哈希逐位比对 + `integrity_check`（2026-10-25 首备份实测口径见 docs/ops/pfdb-r2-backup-20261025.md；流式恢复脚本 `docs/scripts/restore_r2_db_backup.py`）
 4. **失败告警**（`backup_db.sh` L109-119）：本地热备失败（退出码非 0）时 `notify.py --severe` 发邮件
 
 **最近一次可用备份** = 当日 17:50 后的 R2 `backup/<name>_YYYYMMDD.db.gz`（约 19:03 前后完成上传+演练）。
@@ -81,6 +81,15 @@ cd /Users/linhuichen/code/trade
 .venv/bin/python scripts/upload_r2.py download-db sentiment /tmp/restore
 ```
 
+⚠️ **public_fund 大库不要用 `download-db`**：它整对象 GET 进内存再 `gzip.decompress`，0.79GB gz + 2.9GB 解压同时驻留，云主机 3.7G RAM 可能 OOM。改用流式脚本（Range 分片落盘 + 流式解压 + `integrity_check`）：
+```bash
+# 先确认输出盘余量 ≥ gz 0.79GB + 解压后 2.9GB
+python3 docs/scripts/restore_r2_db_backup.py --name public_fund --out-dir /home/ubuntu/restore
+# 可选：与源库当前状态生成的参考快照逐位对账（额外再占 2.9GB）
+python3 docs/scripts/restore_r2_db_backup.py --name public_fund --out-dir /tmp/verify \
+    --verify-against-src /home/ubuntu/code/trade-data/data/public_fund.db
+```
+
 ---
 
 ## 四、完整性校验
@@ -105,6 +114,7 @@ bash scripts/verify_backup.sh
 
 - 云上生产主库：`/home/ubuntu/code/trade-data/data/sentiment.db`
 - 云上生产主库：`/home/ubuntu/code/trade-data/data/etf_national_team.db`
+- 云上生产主库：`/home/ubuntu/code/trade-data/data/public_fund.db`（2.9G，恢复前先停采集/写库进程，旧库留一份）
 - 本机开发库：`/Users/linhuichen/code/trade-data/data/`（本机 mac 纯开发不跑生产定时任务）
 
 **注意**：`trade/data/sentiment.db` 与 `trade-data/data/sentiment.db` 是两个独立文件（同 inode 的 hard link 不存在，是两份副本）。**生产恢复必须 ssh 云上对云上 `data/` 操作**，不要恢复到代码仓侧目录；本机开发库恢复直接覆盖本机 `trade-data/data/` 即可（本机无生产定时任务，无需停任务）。

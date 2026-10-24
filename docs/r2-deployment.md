@@ -60,7 +60,7 @@
 
 DB 原件（sentiment.db 125MB / etf_national_team.db 179MB / public_fund.db 2.9GB，2026-10-24 云上实测 2,921,410,560 B）超 GitHub 100MB 限制，且 sqlite 二进制 git diff 无差异化日志价值。**DB 只靠 R2 signal-backup2 私有桶异地备份**（独立 CF 账号；gz 分层：小库 14 daily + 28 weekly + 365 monthly，大库 public_fund 为 7 daily + 28 weekly + 180 monthly）+ 本地双副本（trade/data 主库 + staticdata/db rsync，同 Mac 防误删不防硬盘挂）。
 
-`public_fund.db` 走独立链路（2026-10-25 补入 `upload-db`）：SQLite 在线 backup API 取一致快照（WAL 模式下含未 checkpoint 的已提交事务）→ 4MiB 分块流式 gzip → 64MiB 分片流式 multipart 上传，全程不把 2.9GB 读进内存（云主机 RAM 3G）。源文件 size+mtime 与 `data/.r2_db_backup_state.json` 台账一致时跳过上传（数据没变不重复传 0.87GB）；落桶 `backup/public_fund_YYYYMMDD.db.gz`，与 sentiment/etf 同一套 `backup/ weekly/ monthly/` 前缀。
+`public_fund.db` 走独立链路（2026-10-25 补入 `upload-db`）：SQLite 在线 backup API 取一致快照（WAL 模式下含未 checkpoint 的已提交事务）→ 4MiB 分块流式 gzip → 64MiB 分片流式 multipart 上传，全程不把 2.9GB 读进内存（云主机 RAM 3G）。源文件 size+mtime 与 `data/.r2_db_backup_state.json` 台账一致时跳过上传（数据没变不重复传 0.79GB）；落桶 `backup/public_fund_YYYYMMDD.db.gz`，与 sentiment/etf 同一套 `backup/ weekly/ monthly/` 前缀。
 
 ---
 

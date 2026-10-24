@@ -3200,7 +3200,8 @@ def _backup_public_fund_db(dbdir, repo, today):
 
     返回 True=成功/已是最新, False=失败, None=源文件不存在(不计入总数, 不误报失败)。
     「未变更跳过」判据 = 源文件 size+mtime_ns 与上次成功备份台账一致: 数据没变就不重复传
-    0.87GB(重跑/非交易日省带宽); 源文件一变(采集写入)就照常传, 覆盖当日 key 拿最新内容。
+    0.79GB(2026-10-25 实测 gz = 790,650,717 B; 重跑/非交易日省带宽); 源文件一变(采集写入)
+    就照常传, 覆盖当日 key 拿最新内容。
     """
     import shutil, tempfile
     src = dbdir / "public_fund.db"
