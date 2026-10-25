@@ -31,6 +31,7 @@ from pathlib import Path
 REPO = Path(__file__).parent.parent  # 不用 .resolve()：trade-data/scripts 是 trade/scripts 的 symlink，resolve() 会跳回 trade 导致读旧日志。保留 symlink 路径让 REPO=实际调用方(trade-data)
 sys.path.insert(0, str(Path(__file__).parent))
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+import unit_truth as ut  # noqa: E402  #309 W1/W2: systemd 真值 + ledger(单一事实源)
 LOG_DIR = REPO / "data" / "logs"
 OUT = REPO / "static-site" / "data" / "schedule_stats.json"
 MAX_GAP_SEC = 3 * 3600  # >3h 视为错位，丢弃
@@ -223,6 +224,13 @@ _ROUND_TS_RE = re.compile(_TS)
 START_RE = re.compile(r'=== (\S+\.sh) 开始 ' + _TS + r' ===')
 # 结束:=== xxx.sh 结束 [(非交易日)] <ts> [退出码=N | deploy=N] ===  (退出码可选)
 END_RE = re.compile(r'=== (\S+\.sh) 结束.*?' + _TS + r'(?:.*?退出码=(\d+))?')
+# #309 W2(2026-10-25): 结束行子步骤字段独立抽取(机制 A/B 的 B 类补充)。
+#   旧实现只认 `退出码=`, 缺它就直接默认 0(33.6% 结束行缺该字段 ⇒ 假成功)。
+#   lhb/etf_nt 等脚本只写 `deploy=`, 采集链只写 `采集=`; 两者非 0 都是真实失败信号,
+#   不能因为「主字段没写」就吞掉。判定与分级见 `_derive_log_exit()`。
+_EXIT_FIELD_RE = re.compile(r'退出码=(\d+)')
+_DEPLOY_FIELD_RE = re.compile(r'deploy=(\d+)')
+_COLLECT_FIELD_RE = re.compile(r'(?:采集|collect)=(\d+)')
 # etf_nt
 ETF_START_RE = re.compile(r'\[etf_nt\] daily 开始 ' + _TS)
 # 2026-07-25: 兼容 collector crash 的 fallback "失败 exit=N" 行
@@ -259,6 +267,93 @@ LABEL_MAP = {
     # (缺此项 standard 模式读不到真实码 → 回退启发式猜 143 误报, 同 nextday_gap_check 病根)。
     "cloud_unit_patrol": "com.trade.cloud-unit-patrol",
 }
+
+# ── #309 W2(2026-10-25): 43 unit 全覆盖登记(方案 §3.2 全表, 用户拍板点 2 = A)──
+# 口径: 40 业务+基础进执行统计表; 3 个自监控 unit(monitor/self-heal/heartbeat)排除出表
+#    但仍做 unit 级体检(monitor 自己算 3/3), 详见 schedule_monitor.sh 结论行。
+# 回滚第②层: 任一行改 `include: False` 即从表里消失(全部 False ⇒ 退回旧 19 行);
+#    `MONITOR_EXIT_SOURCE=log` 一键退回旧口径(单位行不输出 + 不读 systemd)。
+# 为什么必须 systemd 口径: 5 个 unit 没有任何日志文件(freeze-orphan-cleanup /
+#   pf-stage0-manager/nav/overview/risk), 日志解析路线对它们无解(方案 §3.3)。
+TASK_UNITS = {
+    "update_all": "trade-update-all.service",
+    "backfill_evening": "trade-backfill-evening.service",
+    "intraday_snapshot": "trade-intraday-snapshot.service",
+    "futures_backfill": "trade-futures-backfill.service",
+    "lhb_backfill": "trade-lhb-backfill.service",
+    "rzhb_backfill": "trade-rzhb-backfill.service",
+    "us_stock_morning": "trade-us-stock-morning.service",
+    "etf_national_team": "trade-etf-national-team.service",
+    "lab_auto": "trade-lab-auto.service",
+    "overfit_monitor": "trade-overfit-monitor.service",
+    "s06_snapshot": "trade-s06-snapshot.service",
+    "check_data_gap": "trade-check-data-gap.service",
+    "r2_consistency": "trade-r2-consistency.service",
+    "cloud_unit_patrol": "trade-cloud-unit-patrol.service",
+    "turnover_backfill": "trade-turnover-backfill.service",
+    "nextday_plan": "trade-nextday-plan.service",
+    "nextday_gap_check": "trade-nextday-gap-check.service",
+    "gen_daily_brief": "trade-daily-brief.service",
+    "fetch_news": "trade-fetch-news.service",
+}
+
+# 21 个此前完全不在监控范围的 unit(只有 systemd 口径可行; 不硬编码时点)。
+UNIT_ONLY = [
+    {"unit": "trade-ab-direction-anchor.service", "task": "ab_direction_anchor", "name": "AB方向锚"},
+    {"unit": "trade-alert-weekly-review.service", "task": "alert_weekly_review", "name": "告警周报"},
+    {"unit": "trade-backup-db.service", "task": "backup_db", "name": "数据库备份"},
+    {"unit": "trade-brief-push.service", "task": "brief_push", "name": "AI速递推送"},
+    {"unit": "trade-daily-summary-supplement.service", "task": "daily_summary_supplement", "name": "摘要补采"},
+    {"unit": "trade-etf-track-index.service", "task": "etf_track_index", "name": "ETF跟踪指数"},
+    {"unit": "trade-fapi-daily.service", "task": "fapi_daily", "name": "fapi日采集"},
+    {"unit": "trade-freeze-orphan-cleanup.service", "task": "freeze_orphan_cleanup", "name": "冻结表清理"},
+    {"unit": "trade-gold-night.service", "task": "gold_night", "name": "黄金夜盘"},
+    {"unit": "trade-kelly-intraday-rerun.service", "task": "kelly_intraday_rerun", "name": "凯利盘中重算"},
+    {"unit": "trade-lof-track-index.service", "task": "lof_track_index", "name": "LOF跟踪指数"},
+    {"unit": "trade-pf-score-daily.service", "task": "pf_score_daily", "name": "场外基金评分"},
+    {"unit": "trade-pf-score-weekly.service", "task": "pf_score_weekly", "name": "场外基金周评分"},
+    {"unit": "trade-pf-stage0-manager.service", "task": "pf_stage0_manager", "name": "基金经理底座"},
+    {"unit": "trade-pf-stage0-nav.service", "task": "pf_stage0_nav", "name": "基金净值底座"},
+    {"unit": "trade-pf-stage0-overview.service", "task": "pf_stage0_overview", "name": "基金基础底座"},
+    {"unit": "trade-pf-stage0-risk.service", "task": "pf_stage0_risk", "name": "基金风险底座"},
+    {"unit": "trade-public-fund-daily.service", "task": "public_fund_daily", "name": "公募日更"},
+    {"unit": "trade-public-fund-estimation.service", "task": "public_fund_estimation", "name": "盘中估值"},
+    {"unit": "trade-public-fund-full.service", "task": "public_fund_full", "name": "公募全量"},
+    {"unit": "trade-public-fund-quarterly.service", "task": "public_fund_quarterly", "name": "季报采集"},
+]
+
+# 自监控 3 个: 不进执行统计表(拍板点 2 = A), 但仍做 unit 级体检。
+SELF_MONITOR_UNITS = [
+    {"unit": "trade-schedule-monitor.service", "task": "schedule_monitor", "name": "监控本体"},
+    {"unit": "trade-self-heal.service", "task": "self_heal", "name": "自愈本体"},
+    {"unit": "trade-check-monitor-heartbeat.service", "task": "check_monitor_heartbeat", "name": "监控心跳看门狗"},
+]
+
+
+def _mk_registry():
+    """把 TASKS / EXTRA / UNIT_ONLY / SELF_MONITOR 展开成 43 行登记表。"""
+    rows = []
+    for t in TASKS:
+        rows.append({
+            "unit": TASK_UNITS[t["task"]], "task": t["task"], "name": t["name"],
+            "kind": "business", "include": True, "display": t["name"],
+        })
+    for m in EXTRA_MARKER_SCANS:
+        rows.append({
+            "unit": TASK_UNITS[m["task"]], "task": m["task"], "name": m["name"],
+            "kind": "business", "include": True, "display": m["name"],
+        })
+    for u in UNIT_ONLY:
+        rows.append({**u, "kind": "business", "include": True, "display": u["name"]})
+    for s in SELF_MONITOR_UNITS:
+        rows.append({**s, "kind": "self_monitor", "include": False, "display": s["name"]})
+    return rows
+
+
+UNIT_REGISTRY = _mk_registry()
+# 日志侧可解析的任务(=旧 19 行: 17 TASKS + 2 EXTRA), 用于 log 口径回滚与覆盖数。
+LOG_TASKS = {t["task"] for t in TASKS} | {m["task"] for m in EXTRA_MARKER_SCANS}
+_UNIT_BY_TASK = {r["task"]: r["unit"] for r in UNIT_REGISTRY}
 
 # launchctl print "last exit code = N" 行（N 可为 143/0/1/None，None 显 "last exit code = (none)"）
 _LAUNCHCTL_LAST_EXIT_RE = re.compile(r'last exit code = \(?(-?\d+|none)\)?', re.IGNORECASE)
@@ -975,10 +1070,17 @@ def _iter_lines(path: Path):
             yield line
 
 
-def parse_standard(path: Path, script: str):
-    """标准 .sh 任务:返回 (pairs, pending_start)
-    pairs=[(start_dt, end_dt, exit_code, duration_sec), ...]
-    pending_start=最新一个"有 start 无 end"的 start_dt(进行中或被 SIGTERM 杀)。
+def parse_standard_detail(path: Path, script: str):
+    """标准 .sh 任务(**带结束行字段明细**):返回 (pairs, pending_start, pair_meta)。
+
+    pairs 与旧口径逐元素一致: [(start_dt, end_dt, exit_code, duration_sec), ...]
+      - exit_code 仍是「日志主字段 `退出码=`」; 缺失时为 0 —— **保持旧 API 语义**,
+        供 self_heal_core.lookup_run_from_logs 等既有消费方零改动(它们只看日志侧)。
+      - 新口径「缺退出码不再默认 0」只在 build() 合并 systemd 之后生效。
+    pair_meta: 与 pairs 等长, 每项
+      {"exit_field": int|None, "deploy": int|None, "collect": int|None,
+       "has_exit_code": bool}
+      exit_field=None 表示结束行**确实没写** `退出码=`(机制 A 的输入, 不是 0)。
 
     2026-07-23 修复(根治 schedule 超时被杀致 last_run 错乱):
     1) 不再 break 于首个 pending_start,改 continue 遍历所有 start 取最新 pending。
@@ -997,10 +1099,20 @@ def parse_standard(path: Path, script: str):
         m = END_RE.search(line)
         if m and re.fullmatch(script, m.group(1)):
             ts = datetime.strptime(m.group(2), "%Y-%m-%d %H:%M:%S")
-            code = int(m.group(3)) if m.group(3) is not None else 0
-            ends.append((ts, code))
+            exit_field = int(m.group(3)) if m.group(3) is not None else None
+            code = exit_field if exit_field is not None else 0
+            deploy = _DEPLOY_FIELD_RE.search(line)
+            collect = _COLLECT_FIELD_RE.search(line)
+            ends.append((
+                ts, code, {
+                    "exit_field": exit_field,
+                    "deploy": int(deploy.group(1)) if deploy else None,
+                    "collect": int(collect.group(1)) if collect else None,
+                    "has_exit_code": exit_field is not None,
+                },
+            ))
     # 双指针配对:每个 start 找首个未消耗的 end>=start 且 end<next_start 且 gap<=3h
-    pairs, ei, pending_start = [], 0, None
+    pairs, pair_meta, ei, pending_start = [], [], 0, None
     for i, s in enumerate(starts):
         next_s = starts[i + 1] if i + 1 < len(starts) else None
         while ei < len(ends) and ends[ei][0] < s:
@@ -1008,7 +1120,7 @@ def parse_standard(path: Path, script: str):
         if ei >= len(ends):
             pending_start = s  # 无 end:进行中或被杀,continue 取最新
             continue
-        e_ts, e_code = ends[ei]
+        e_ts, e_code, e_meta = ends[ei]
         # end 属于下一轮(e_ts >= next_start) -> 本次 start 被杀(孤儿),不消耗 end
         if next_s is not None and e_ts >= next_s:
             pending_start = s
@@ -1016,44 +1128,69 @@ def parse_standard(path: Path, script: str):
         dur = (e_ts - s).total_seconds()
         if 0 <= dur <= MAX_GAP_SEC:
             pairs.append((s, e_ts, e_code, dur))
+            pair_meta.append(e_meta)
             ei += 1
         # dur>MAX_GAP_SEC:错位，丢弃该 start 不配对（不消耗 end）
+    return pairs, pending_start, pair_meta
+
+
+def parse_standard(path: Path, script: str):
+    """旧 API 包装(返回 2 元组): self_heal_core 等既有消费方零改动。"""
+    pairs, pending_start, _meta = parse_standard_detail(path, script)
     return pairs, pending_start
 
 
-def parse_etf_nt(path: Path):
-    """etf_nt:完成行无时间戳，耗时直接给出。last_run 用开始时间。
-    返回 (pairs, pending_start)，pending_start=开始但未完成的进行中任务。
+def parse_etf_nt_detail(path: Path):
+    """etf_nt(**带结束行字段明细**):返回 (pairs, pending_start, pair_meta)。
+
+    pairs 与旧口径逐元素一致; pair_meta 每项
+    {"exit_field": int|None, "deploy": None, "collect": None, "has_exit_code": bool}
+      - DONE 行写了 `exit=N` → exit_field=N(显式主字段)
+      - 只有 `完成` 无 exit → exit_field=None(不得被当成显式成功)
     2026-07-25: 兼容 "失败 exit=N" fallback 行(collector crash 时 shell 补写),
     解析真实 exit code 而非启发式 143。
     2026-07-25: 同一 pending 内多个 DONE 行取最后一个(覆盖),支持 backfill.sh 在
     collector 完成行后补写最终 DONE 行(带综合 exit code),让 gen_stats 记录真实
     backfill.sh 退出码而非 collector 的 exit=0(collector 成功+deploy 失败场景)。
     """
-    pairs, pending, last_done = [], None, None
+    pairs, pair_meta, pending, last_done = [], [], None, None
     for line in _iter_lines(path):
         m = ETF_START_RE.search(line)
         if m:
             # 上一个 pending 有 DONE -> 入 pairs(取最后一个 DONE,覆盖 collector 完成行)
             if pending is not None and last_done is not None:
                 pairs.append((pending, pending, last_done[0], last_done[1]))
+                pair_meta.append(last_done[2])
             pending = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
             last_done = None
             continue
         m = ETF_DONE_RE.search(line)
         if m and pending is not None:
-            # group(1)=完成/失败, group(2)=duration(可选), group(3)=exit(可选,默认0)
+            # group(1)=完成/失败, group(2)=duration(可选), group(3)=exit(可选)
             # 不立即 append,记录最后一个 DONE(覆盖),让 backfill.sh 最终 DONE 行生效
             dur = float(m.group(2)) if m.group(2) else 0
-            code = int(m.group(3)) if m.group(3) else 0
-            last_done = (code, dur)
+            exit_field = int(m.group(3)) if m.group(3) else None
+            code = exit_field if exit_field is not None else 0
+            last_done = (code, dur, {
+                "exit_field": exit_field,
+                "deploy": None,
+                "collect": None,
+                "has_exit_code": exit_field is not None,
+            })
     # 处理最后一个 pending
     pending_start = None
     if pending is not None:
         if last_done is not None:
             pairs.append((pending, pending, last_done[0], last_done[1]))
+            pair_meta.append(last_done[2])
         else:
             pending_start = pending  # 无 DONE:进行中或被杀
+    return pairs, pending_start, pair_meta
+
+
+def parse_etf_nt(path: Path):
+    """旧 API 包装(返回 2 元组)。"""
+    pairs, pending_start, _meta = parse_etf_nt_detail(path)
     return pairs, pending_start
 
 
@@ -1068,189 +1205,421 @@ def est_text(pairs):
     return f"约{round(avg / 60)}分钟"
 
 
-def build():
-    result = []
-    for t in TASKS:
-        log_path = LOG_DIR / t["log"]
-        if _resolve_log(log_path) is None:
-            result.append({**{k: t[k] for k in ("task", "name", "schedule")},
-                           "est_text": "-", "last_run": None, "last_exit": None,
-                           "last_duration_sec": None,
-                           "log_anomaly": False, "log_anomaly_keyword": None,
-                           "log_anomaly_line": None,
-                           # P2-2(2026-09-24): 无日志分支也补 r2_skip_count,17 条字段一致
-                           # (schedule_monitor 消费 + 前端渲染需字段在位)
-                           "r2_skip_count": 0})
-            continue
-        if t["mode"] == "etf_nt":
-            pairs, pending_start = parse_etf_nt(log_path)
+def _iso(dt) -> str | None:
+    """datetime → 'YYYY-MM-DD HH:MM:SS' (None 原样返回 None)。"""
+    return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else None
+
+
+def _log_exit_evidence(meta: dict | None) -> dict:
+    """结束行明细 → 日志侧退出证据 `{code, source, tier}`(无证据返回 {})。
+
+    判定顺序(拍板点 1 = A):
+      1. 主字段 `退出码=` 在 → 以它为准(source=log)
+      2. `采集!=0` → SEVERE(source=log-collect)
+      3. `deploy!=0` 且采集=0/缺失 → **warning 聚合**(source=log-deploy)
+      4. 子字段显式 0(仅 deploy=0/采集=0) → 0, 算显式成功证据(不是「没写」)
+      5. 全缺 → {} = 未知(调用方会标明 exit_source=unknown, 不再默认 0)
+    """
+    if not meta:
+        return {}
+    primary = meta.get("exit_field")
+    deploy = meta.get("deploy")
+    collect = meta.get("collect")
+    if primary is not None:
+        return {"code": primary, "source": "log", "tier": None,
+                "has_exit_code": True}
+    if collect is not None and collect != 0:
+        return {"code": collect, "source": "log-collect", "tier": "severe",
+                "has_exit_code": False}
+    if deploy is not None and deploy != 0:
+        return {"code": deploy, "source": "log-deploy", "tier": "warning",
+                "has_exit_code": False}
+    if collect is not None:
+        return {"code": collect, "source": "log-collect", "tier": None,
+                "has_exit_code": False}
+    if deploy is not None:
+        return {"code": deploy, "source": "log-deploy", "tier": None,
+                "has_exit_code": False}
+    return {"has_exit_code": False}
+
+
+def _trust_unit_state(unit_state: dict | None, log_start) -> dict | None:
+    """判断 systemd 终态是否可采信(方案 §7.2 W2: invocation 时间 ≥ 日志 start)。
+
+    - 无状态 / source 不是真值(systemd/ledger/ledger-stale) → 不可信。
+    - systemd 记录的启动时间**明显早于**日志最新 start(>120s) → 判为上一轮残留, 不可信
+      (脚本「开始」行总在 unit 启动之后, 允许 ≤120s 的固有先后差)。
+    """
+    if not unit_state:
+        return None
+    if unit_state.get("source") not in ("systemd", "ledger", "ledger-stale"):
+        return None
+    sd_start = unit_state.get("start")
+    if log_start is not None and sd_start is not None:
+        if (log_start - sd_start).total_seconds() > 120:
+            return None
+    return unit_state
+
+
+def _merge_exit_truth(log_ev: dict, unit_state: dict | None, mode: str) -> dict:
+    """合并「日志证据」与「systemd 真值」→ 最终 last_exit 口径。
+
+    返回 `{last_exit, exit_source, exit_conflict, last_exit_tier}`。
+    - log 模式: 完全旧口径(日志缺失当 0), 不读 systemd(一行回滚)。
+    - systemd 模式: systemd 为权威; 日志子步骤字段可**升级/补充**失败(systemd 看不见的
+      那部分), 两边不一致显式 `exit_conflict=True`, 不二选一悄悄吞。
+    """
+    if mode == "log":
+        return {"last_exit": log_ev.get("code", 0), "exit_source": "log",
+                "exit_conflict": False, "last_exit_tier": None}
+    log_code = log_ev.get("code")
+    log_src = log_ev.get("source")
+    log_tier = log_ev.get("tier")
+    unit_code = unit_state.get("code") if unit_state else None
+    unit_ok = unit_state is not None and unit_state.get("source") in (
+        "systemd", "ledger", "ledger-stale")
+    # 口径冲突: 日志子步骤显示失败(即使数值恰好等于 systemd 码, 也是两套口径;
+# 纯粹「结束行没写退出码」不算冲突, 只算缺失)。
+    conflict = bool(
+        (log_src in ("log-deploy", "log-collect") and log_code not in (None, 0))
+        or (log_src == "log" and log_code is not None and log_code != unit_code)
+    )
+    if unit_ok:
+        if log_code is not None and log_code != unit_code:
+            conflict = True
+        if unit_code not in (None, 0):
+            return {"last_exit": unit_code, "exit_source": "systemd",
+                    "exit_conflict": conflict, "last_exit_tier": None}
+        if log_code not in (None, 0):
+            return {"last_exit": log_code, "exit_source": log_src,
+                    "exit_conflict": conflict, "last_exit_tier": log_tier}
+        return {"last_exit": 0, "exit_source": "systemd",
+                "exit_conflict": conflict, "last_exit_tier": None}
+    if log_code is not None:
+        return {"last_exit": log_code, "exit_source": log_src,
+                "exit_conflict": False, "last_exit_tier": log_tier}
+    return {"last_exit": None, "exit_source": "unknown",
+            "exit_conflict": False, "last_exit_tier": None}
+
+
+def _unit_output_fields(unit: str, state: dict | None, now: datetime,
+                        trusted: bool = True) -> dict:
+    """输出给 schedule_stats.json 的 unit 侧字段(新增, 追加不破坏旧字段)。"""
+    if not state or not trusted:
+        return {
+            "unit": unit, "unit_result": None, "unit_exit": None,
+            "unit_exit_ts": None, "unit_start": None, "next_elapse": None,
+            "unit_timer_health": "unknown", "unit_missed": False,
+        }
+    health = ut.timer_health(state, now)
+    return {
+        "unit": unit,
+        "unit_result": state.get("result"),
+        "unit_exit": state.get("code"),
+        "unit_exit_ts": _iso(state.get("exit")),
+        "unit_start": _iso(state.get("start")),
+        "next_elapse": _iso(state.get("next_elapse")),
+        "unit_timer_health": health,
+        "unit_missed": health == "missed",
+    }
+
+
+def _build_log_task_row(row, spec, log_dir, now, unit_state, mode):
+    """有标准开始/结束行的任务行(17 条 TASKS)。"""
+    task, unit = row["task"], row["unit"]
+    log_path = log_dir / spec["log"]
+    pairs, pending_start, pair_meta = [], None, []
+    if _resolve_log(log_path) is not None:
+        if spec["mode"] == "etf_nt":
+            pairs, pending_start, pair_meta = parse_etf_nt_detail(log_path)
         else:
-            pairs, pending_start = parse_standard(log_path, t["script"])
-        last_run, code, last_dur = None, None, None
-        pending_crash_retry = False  # P1(2026-07-29): pending_start + last_exit!=0 (crash重试中)
-        if pairs:
-            s, e, code, dur = pairs[-1]
-            last_run = s.strftime("%Y-%m-%d %H:%M")
-            last_dur = round(dur)
-        # 进行中/被杀任务(有 start 无 end):若比最近配对更晚,覆盖 last_run
-        # 区分 pending_start 性质:
-        #   距今 >MAX_GAP_SEC(3h) = 被 SIGTERM 杀(launchd ExitTimeOut 超时),
-        #     标 exit_code=143(128+SIGTERM15),前端显 ⚠️"退出码=143"提示异常;
-        #   否则为进行中(刚启动未结束),exit=null 不显⚠️
-        # (2026-07-23 修复:旧逻辑被杀任务 exit=null 与"进行中"混同,前端不显⚠️看不出异常)
-        if pending_start is not None:
-            if last_run is None or pending_start > pairs[-1][0]:
-                last_run = pending_start.strftime("%Y-%m-%d %H:%M")
-                age = (datetime.now() - pending_start).total_seconds()
-                # P1 稳定性(2026-07-29): 所有模式(含 etf_nt)pending_start 都读 launchctl_last_exit
-                # 真实退出码,不读 None(7-24 ETF SIGTRAP 退出码133被 None 掩盖 crash)。
-                # etf_nt 仍不回退启发式 143(假 SIGTERM 告警代价大),launchctl 读不到才 None;
-                # standard 模式 launchctl 读不到回退原启发式(143 if age>3h else None)。
-                # backfill.sh 保证写最终 DONE 行(带真实 exit),无 DONE = 极端(SIGKILL 整个脚本),
-                # 真问题靠漏跑检查/耗时检查/launchd err log + launchctl 真实码。
-                real_exit = launchctl_last_exit(LABEL_MAP.get(t["task"]))
-                # [Bug1 补修·路径B, 2026-08-15] 与路径A(CRASH_RETRY_GAP_SEC=6h)同口径。
-                # 上一轮(b1a5111b5)只修了 pending_crash_retry 标注(路径A), 此处
-                # `code = real_exit` 一字未动 -> last_exit 仍被 launchctl 无时间戳残留码
-                # (如 8/12 deploy exit=1 污染 8/13 17:50 正常在跑)污染, 致 schedule_monitor
-                # L304"退出失败 last_exit=1" + 前端 last_exit!=0 弹窗"上次执行异常"双误报。
-                # launchctl 真实码无时间戳, 不能无条件采信。仅当确属"同槽 crash-retry"
-                # (上一轮配对 exit!=0 且距本 pending_start < CRASH_RETRY_GAP_SEC) 才显
-                # launchctl 真实码; 否则 pending 在跑期间 last_exit 保持 null
-                # (进行中不算失败, 与路径A同口径: 跨天残留码与本次 pending 无关联)。
-                _prev_crash_code = None
-                if pairs and pairs[-1][1] is not None:
-                    _pe, _pc = pairs[-1][1], pairs[-1][2]
-                    _retry_gap = (pending_start - _pe).total_seconds()
-                    if _pc != 0 and 0 <= _retry_gap <= CRASH_RETRY_GAP_SEC:
-                        _prev_crash_code = _pc
-                # [Bug1 复审FAIL补修·恢复被杀/卡死检测, 2026-08-15] 上轮(4784f0326)把
-                # real_exit 有值时一律采 None(残留码不采信),修好了 8/13 在跑误报,但把
-                # 2026-07-23/07-24 建立的「被杀/崩溃检测」弄坏: 上次配对 exit=0 的任务本轮
-                # 被 SIGTERM 杀(launchctl 码 143, age>3h)时,last_exit 从 143 变 null,
-                # 前端弹窗 + monitor "退出失败" 双漏报。
-                # 判定分层(见下方每分支注释): ①同槽 crash-retry ②被杀/卡死(age>3h 强信号,
-                # launchctl 码可信) ③在跑(age<=3h, 残留码不采信——8/13 误报的根本)。
-                if real_exit is not None and _prev_crash_code is not None:
-                    code = real_exit  # 同槽 crash-retry(场景C): launchctl 真实码(0/143/133/1)
-                elif real_exit is not None and age > MAX_GAP_SEC:
-                    code = real_exit  # 被杀/卡死(场景A, age>3h): launchctl 码可信 — 恢复 07-23/07-24 检测
-                elif real_exit is not None:
-                    code = None  # 在跑(场景B/D, age<=3h): 残留码不采信, last_exit=null
-                elif t["mode"] == "etf_nt":
-                    code = None  # etf_nt 不启发式标 143(launchctl 读不到才 None)
-                elif sys.platform.startswith("linux"):
-                    # 云上 systemd(TimeoutStartSec=0 不杀, journal 实证 Deactivated successfully
-                    # 退出码 0)读不到真实码 = 未知(None), 绝不回退猜 143 —— 2026-09-22 治误报根因:
-                    # 旧逻辑 launchctl 在 Linux 必然失败 -> 启发式 age>3h 猜 143, 所有跑超 3h 任务误报。
-                    code = None
-                else:
-                    code = 143 if age > MAX_GAP_SEC else None  # macOS launchd 回退启发式(ExitTimeOut 真杀)
-                # P1(2026-07-29): pending_start(当前在跑) + 上次运行确实 crash = 重试中,
-                # 标记 pending_crash_retry 供后续 log_anomaly 标注。
-                # 2026-08-15 Bug1 修复(运维告警误报根因): 判定依据从 launchctl 历史残留码
-                # 改为 [日志最近一次完整配对运行的退出码 + 时间间隔]。
-                #   旧: launchctl_last_exit 是"任务上一次整体运行"的退出码(无时间戳)，
-                #       8/12 deploy 残留 exit=1 污染 8/13 全天正常在跑任务 -> 误报 5 条。
-                #   新: 只有"上一轮配对运行 exit!=0 且 其结束时间距本 pending_start < 6h"
-                #       (同一调度时槽内崩溃后立刻重启) 才判真 crash-retry；
-                #       跨天/跨调度周期的历史残留码不关联本 pending,不再误报。
-                if pairs and pairs[-1][1] is not None:
-                    _prev_end, _prev_code = pairs[-1][1], pairs[-1][2]
-                    _retry_gap = (pending_start - _prev_end).total_seconds()
-                    if _prev_code != 0 and 0 <= _retry_gap <= CRASH_RETRY_GAP_SEC:
-                        pending_crash_retry = True
-                last_dur = None
-        # 第4盲区修复: 扫最近一次运行窗口的 log 找异常关键词,
-        # 即使 exit=0(异常被 try/except 吞)也能抓到告警
-        # (2026-08-24: 传 last_exit=code,push 失败类仅最终 exit!=0 才报)
-        anomaly, r2_skip_count = scan_log_anomaly(log_path, t["script"], t["mode"], last_exit=code)
-        # P1 稳定性(2026-07-29): pending_start + last_exit!=0 = 上次crash现在重试中,
-        # log_anomaly 标注 "pending但上次exit非0"(不覆盖 log 关键词扫描已发现的 anomaly)
-        if not anomaly and pending_crash_retry:
-            anomaly = {
-                "keyword": "pending但上次exit非0",
-                "line": f"pending_start={pending_start.strftime('%Y-%m-%d %H:%M')} last_exit={code}",
-            }
-        result.append({
-            "task": t["task"], "name": t["name"], "schedule": t["schedule"],
-            "est_text": est_text(pairs), "last_run": last_run,
-            "last_exit": code, "last_duration_sec": last_dur,
-            "log_anomaly": bool(anomaly),
-            "log_anomaly_keyword": anomaly["keyword"] if anomaly else None,
-            "log_anomaly_line": anomaly["line"] if anomaly else None,
-            # Fix C(2026-09-24, 用户拍板"自愈识别"方案): 普通路径也输出 severity 语义,
-            # monitor 缓冲条件去掉任务名单限制改按 severity 判断(见 schedule_monitor.sh)。
-            # severity=degrade(⚠ 瞬态未定论/任务在跑)→ 连续 N 轮缓冲; critical/None
-            # (真失败/非瞬态)→ 首报 SEVERE。None = 非瞬态普通异常或 pending_crash_retry,
-            # 维持既有首报语义。
-            "log_anomaly_severity": anomaly.get("severity") if anomaly else None,
-            # P2-2(2026-09-24): R2 上传锁 skip 次数独立计数(schedule_monitor 不升级 SEVERE,
-            # 前端"执行统计"可见; 连续 skip 多轮=上传缺口信号需人工关注)
-            "r2_skip_count": r2_skip_count,
-        })
-    # P1-1/P1-2(2026-09-24, r2-false-success-rootfix): 补扫 deploy 外生成器日志
-    # (gen_daily_brief/fetch_news)。这两个任务不在 TASKS 表, 无标准开始/结束行,
-    # 此前 ✗ R2_UPLOAD_TIMEOUT / ✗ [fetch_news] 标记悬空无自动消费方。尾部窗口扫描
-    # 结果并入 schedule_stats.json, schedule_monitor 全量遍历自动消费
-    # (log_anomaly→SEVERE 告警 / r2_skip_count→连续跳过计数, 见 schedule_monitor.sh)。
-    for m in EXTRA_MARKER_SCANS:
-        log_path = LOG_DIR / m["log"]
-        anomaly, skip_count, _rstart_ts, _completion_seen, _window_round_ts = scan_marker_log(
-            log_path, m["tail_lines"],
-            round_start_re=_compile_rsre(m.get("round_start_re")),
-            completion_re=_compile_rsre(m.get("completion_re")),
-            round_begin_re=_compile_rsre(m.get("round_begin_re")),
-        )
-        # #228 M1(2026-10-07): 轮次完整性状态(供 schedule_monitor 判「开始了没跑完」)。
-        #   no_start          = 尾部窗口内无「开始标记」(尚未跑过 / 刚部署未见 M2 新标记)
-        #   completed         = 本轮有开始 + 有完成/失败标记
-        #   started_unfinished= 本轮有开始、无完成/失败 = 疑被 systemd TimeoutStartSec 杀/FAIL
-        if _rstart_ts is None:
-            _round_state = "no_start"
-        elif _completion_seen:
-            _round_state = "completed"
+            pairs, pending_start, pair_meta = parse_standard_detail(log_path, spec["script"])
+    last_run, code, last_dur = None, None, None
+    pending_crash_retry = False  # P1(2026-07-29): pending_start + last_exit!=0 (crash重试中)
+    if pairs:
+        s, e, code, dur = pairs[-1]
+        last_run = s.strftime("%Y-%m-%d %H:%M")
+        last_dur = round(dur)
+    # 进行中/被杀任务(有 start 无 end):若比最近配对更晚,覆盖 last_run
+    # 区分 pending_start 性质:
+    #   距今 >MAX_GAP_SEC(3h) = 被 SIGTERM 杀(launchd ExitTimeOut 超时),
+    #     标 exit_code=143(128+SIGTERM15),前端显 ⚠️"退出码=143"提示异常;
+    #   否则为进行中(刚启动未结束),exit=null 不显⚠️
+    # (2026-07-23 修复:旧逻辑被杀任务 exit=null 与"进行中"混同,前端不显⚠️看不出异常)
+    pending_running = False
+    if pending_start is not None and (last_run is None or pending_start > pairs[-1][0]):
+        last_run = pending_start.strftime("%Y-%m-%d %H:%M")
+        age = (now - pending_start).total_seconds()
+        # P1 稳定性(2026-07-29): 所有模式(含 etf_nt)pending_start 都读真实退出码,
+        # 不读 None(7-24 ETF SIGTRAP 退出码133被 None 掩盖 crash)。
+        # #309 W2: systemd 模式下优先用本模块已读到的 unit 真值(避免重复 systemctl);
+        # 其余情形沿用旧的 launchctl_last_exit(内部按平台分支)。
+        if unit_state and unit_state.get("source") in ("systemd", "ledger", "ledger-stale"):
+            real_exit = unit_state.get("code")
         else:
-            _round_state = "started_unfinished"
-        # unit 状态(仅供 M1 判定元素② + 文案; 非 Linux/探测不到 → None)
-        _u_active = _unit_active_state(m.get("systemd_label"))
-        _u_exit = _systemd_last_exit(m.get("systemd_label"))
-        # last_run = 文件最后写入时刻(近似最近运行时刻; 无标准开始行可解析时间戳)
+            real_exit = launchctl_last_exit(LABEL_MAP.get(task))
+        # [Bug1 补修·路径B, 2026-08-15] 与路径A(CRASH_RETRY_GAP_SEC=6h)同口径。
+        # [Bug1 复审FAIL补修·恢复被杀/卡死检测, 2026-08-15] 上轮(4784f0326)把
+        # real_exit 有值时一律采 None(残留码不采信),修好了 8/13 在跑误报,但把
+        # 2026-07-23/07-24 建立的「被杀/崩溃检测」弄坏: 上次配对 exit=0 的任务本轮
+        # 被 SIGTERM 杀(launchctl 码 143, age>3h)时,last_exit 从 143 变 null,
+        # 前端弹窗 + monitor "退出失败" 双漏报。
+        # 判定分层: ①同槽 crash-retry ②被杀/卡死(age>3h 强信号, 真值码可信)
+        #           ③在跑(age<=3h, 残留码不采信——8/13 误报的根本)。
+        _prev_crash_code = None
+        if pairs and pairs[-1][1] is not None:
+            _pe, _pc = pairs[-1][1], pairs[-1][2]
+            _retry_gap = (pending_start - _pe).total_seconds()
+            if _pc != 0 and 0 <= _retry_gap <= CRASH_RETRY_GAP_SEC:
+                _prev_crash_code = _pc
+        if real_exit is not None and _prev_crash_code is not None:
+            code = real_exit  # 同槽 crash-retry(场景C): 真实码(0/143/133/1)
+        elif real_exit is not None and age > MAX_GAP_SEC:
+            code = real_exit  # 被杀/卡死(场景A, age>3h): 真值码可信
+        elif real_exit is not None:
+            code = None  # 在跑(场景B/D, age<=3h): 残留码不采信, last_exit=null
+        elif spec["mode"] == "etf_nt":
+            code = None  # etf_nt 不启发式标 143(真值读不到才 None)
+        elif sys.platform.startswith("linux"):
+            # 云上 systemd(TimeoutStartSec=0 不杀)读不到真实码 = 未知(None), 绝不猜 143
+            code = None
+        else:
+            code = 143 if age > MAX_GAP_SEC else None  # macOS launchd 回退启发式
+        # 在跑判据(供 unit 通道抑制误报): 距 pending <=3h 且 unit 运行中/读不到运行态
+        _active = (unit_state or {}).get("active_state")
+        pending_running = age <= MAX_GAP_SEC and _active in (None,) + ut.RUNNING_STATES
+        # P1(2026-07-29): pending_start + 上次运行确实 crash = 重试中
+        if pairs and pairs[-1][1] is not None:
+            _prev_end, _prev_code = pairs[-1][1], pairs[-1][2]
+            _retry_gap = (pending_start - _prev_end).total_seconds()
+            if _prev_code != 0 and 0 <= _retry_gap <= CRASH_RETRY_GAP_SEC:
+                pending_crash_retry = True
+        last_dur = None
+    # #309 W2: 合并 systemd 真值(仅当可采信)。在跑任务不合并, 防把上一轮残留码当本轮失败。
+    trusted_state = None if pending_running else _trust_unit_state(unit_state, pairs[-1][0] if pairs else None)
+    if pending_running:
+        truth = {"last_exit": None, "exit_source": "running",
+                 "exit_conflict": False, "last_exit_tier": None}
+    elif pairs and pair_meta:
+        if mode == "log":
+            # 旧口径: 只看主字段, 缺失按 0(rollback 必须与今天逐位一致)
+            log_ev = {"code": pairs[-1][2], "source": "log", "tier": None,
+                      "has_exit_code": pair_meta[-1].get("has_exit_code", True)}
+        else:
+            log_ev = _log_exit_evidence(pair_meta[-1])
+        truth = _merge_exit_truth(log_ev, trusted_state, mode)
+    elif code is not None:
+        # pending 被杀/卡死或无可解析日志但旧逻辑已给码: 以真值为准, 无真值则旧码
+        truth = _merge_exit_truth({"code": code, "source": "log", "tier": None},
+                                  trusted_state, mode)
+    elif mode == "log":
+        # 回滚口径逐位对齐旧实现: 无日志/无配对时旧代码给 last_exit=None, 不是 0
+        truth = {"last_exit": None, "exit_source": "log",
+                 "exit_conflict": False, "last_exit_tier": None}
+    else:
+        truth = _merge_exit_truth({}, trusted_state, mode)
+    final_exit = truth["last_exit"]
+    # 第4盲区修复: 扫最近一次运行窗口的 log 找异常关键词,
+    # 即使 exit=0(异常被 try/except 吞)也能抓到告警
+    # (2026-08-24: 传 last_exit=final_exit,push 失败类仅最终 exit!=0 才报)
+    _log_missing = _resolve_log(log_path) is None
+    if not _log_missing:
+        anomaly, r2_skip_count = scan_log_anomaly(
+            log_path, spec["script"], spec["mode"], last_exit=final_exit)
+    else:
+        anomaly, r2_skip_count = None, 0
+    # P1 稳定性(2026-07-29): pending_start + last_exit!=0 = 上次crash现在重试中,
+    # log_anomaly 标注 "pending但上次exit非0"(不覆盖 log 关键词扫描已发现的 anomaly)
+    if not anomaly and pending_crash_retry:
+        anomaly = {
+            "keyword": "pending但上次exit非0",
+            "line": f"pending_start={pending_start.strftime('%Y-%m-%d %H:%M')} last_exit={final_exit}",
+        }
+    # unit 侧字段: 在跑时不给 unit_exit(防上一轮残留码触发 unit 退出通道)
+    ufields = _unit_output_fields(unit, unit_state, now, trusted=not pending_running)
+    _meta = pair_meta[-1] if pair_meta else {}
+    return {
+        "task": task, "name": row["name"], "schedule": spec["schedule"],
+        # 无日志文件时旧实现显式给 "-"(不走 est_text 的 "—"), rollback 逐位对齐
+        "est_text": "-" if _log_missing else est_text(pairs), "last_run": last_run,
+        "last_exit": final_exit, "last_duration_sec": last_dur,
+        # 日志侧子步骤证据(结论行解释 exit_conflict 用; 新增字段, 旧消费方忽略)
+        "log_exit_field": _meta.get("exit_field"),
+        "log_deploy": _meta.get("deploy"),
+        "log_collect": _meta.get("collect"),
+        "log_anomaly": bool(anomaly),
+        "log_anomaly_keyword": anomaly["keyword"] if anomaly else None,
+        "log_anomaly_line": anomaly["line"] if anomaly else None,
+        "log_anomaly_severity": anomaly.get("severity") if anomaly else None,
+        "r2_skip_count": r2_skip_count,
+        # #309 W2 新增字段(追加不破坏旧消费方)
+        **ufields,
+        "exit_source": truth["exit_source"],
+        "exit_conflict": bool(truth["exit_conflict"]),
+        "last_exit_tier": truth["last_exit_tier"],
+    }
+
+
+def _build_extra_row(row, spec, log_dir, now, unit_state, mode):
+    """EXTRA 任务(daily_brief / fetch_news): 无标准结束行, 尾部窗口扫描 + unit 退出码。"""
+    task, unit = row["task"], row["unit"]
+    log_path = log_dir / spec["log"]
+    anomaly, skip_count, _rstart_ts, _completion_seen, _window_round_ts = scan_marker_log(
+        log_path, spec["tail_lines"],
+        round_start_re=_compile_rsre(spec.get("round_start_re")),
+        completion_re=_compile_rsre(spec.get("completion_re")),
+        round_begin_re=_compile_rsre(spec.get("round_begin_re")),
+    )
+    # #228 M1(2026-10-07): 轮次完整性状态(供 schedule_monitor 判「开始了没跑完」)。
+    if _rstart_ts is None:
+        _round_state = "no_start"
+    elif _completion_seen:
+        _round_state = "completed"
+    else:
+        _round_state = "started_unfinished"
+    # unit 状态(仅供 M1 判定元素② + 文案; 非 Linux/探测不到 → None)
+    # #309 W2: systemd 口径下直接用本轮已读到的状态, 不再二次调 systemctl(测试可注入)。
+    if unit_state is not None:
+        _u_active = unit_state.get("active_state")
+        _u_exit = unit_state.get("code")
+    elif mode == "log":
+        _u_active = _unit_active_state(spec.get("systemd_label"))
+        _u_exit = _systemd_last_exit(spec.get("systemd_label"))
+    else:
+        _u_active, _u_exit = None, None
+    _mtime = None
+    try:
+        _mresolved = _resolve_log(log_path)
+        if _mresolved is not None:
+            _mtime = datetime.fromtimestamp(_mresolved.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+    except (OSError, ValueError):
         _mtime = None
-        try:
-            _mresolved = _resolve_log(log_path)
-            if _mresolved is not None:
-                _mtime = datetime.fromtimestamp(_mresolved.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-        except (OSError, ValueError):
-            _mtime = None
-        result.append({
-            "task": m["task"], "name": m["name"], "schedule": m["schedule"],
-            "est_text": "-", "last_run": _mtime, "last_exit": None,
-            "last_duration_sec": None,
-            "log_anomaly": bool(anomaly),
-            "log_anomaly_keyword": anomaly["keyword"] if anomaly else None,
-            "log_anomaly_line": anomaly["line"] if anomaly else None,
-            # P1-A(2026-09-24 r2 终审): ⚠ 降级标记(不阻塞/兜底)标注 severity=degrade,
-            # schedule_monitor 对 EXTRA 任务走连续 N 轮缓冲不首报 SEVERE(见 monitor 消费端)
-            "log_anomaly_severity": anomaly.get("severity") if anomaly else None,
-            "r2_skip_count": skip_count,
-            # #181race(2026-10-09): r2_skip 轮去重标识 —— 拥有当前 skip 窗口那一轮的
-            # 「轮次开始」时间戳(与窗口同源, 替代消费端此前用的文件 mtime; 见 scan_marker_log
-            # docstring + schedule_monitor 消费块)。None ⇒ 消费端回退 last_run(向后兼容)。
-            "r2_round_id": _window_round_ts,
-            # #228 M1(2026-10-07): 轮次完整性 + unit 状态(新增判别轴, 不影响既有字段)
-            "round_state": _round_state,
-            "round_start_ts": _rstart_ts,
-            "unit_active_state": _u_active,
-            "unit_last_exit": _u_exit,
-        })
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(OUT, result, indent=2)
-    print(f"✓ {OUT.relative_to(REPO)} ({len(result)} tasks)")
+    trusted_state = _trust_unit_state(unit_state, None)
+    if mode == "log":
+        final_exit, source, conflict, tier = None, "log", False, None
+    elif trusted_state is not None:
+        final_exit = trusted_state.get("code")
+        source = "systemd"
+        conflict, tier = False, None
+    else:
+        final_exit, source, conflict, tier = None, "unknown", False, None
+    ufields = _unit_output_fields(unit, unit_state, now, trusted=trusted_state is not None)
+    return {
+        "task": task, "name": row["name"], "schedule": spec["schedule"],
+        "est_text": "-", "last_run": _mtime, "last_exit": final_exit,
+        "last_duration_sec": None,
+        "log_exit_field": None, "log_deploy": None, "log_collect": None,
+        "log_anomaly": bool(anomaly),
+        "log_anomaly_keyword": anomaly["keyword"] if anomaly else None,
+        "log_anomaly_line": anomaly["line"] if anomaly else None,
+        "log_anomaly_severity": anomaly.get("severity") if anomaly else None,
+        "r2_skip_count": skip_count,
+        "r2_round_id": _window_round_ts,
+        "round_state": _round_state,
+        "round_start_ts": _rstart_ts,
+        "unit_active_state": _u_active,
+        "unit_last_exit": _u_exit,
+        **ufields,
+        "exit_source": source,
+        "exit_conflict": conflict,
+        "last_exit_tier": tier,
+    }
+
+
+def _build_unit_only_row(row, now, unit_state, mode):
+    """只有 systemd 口径的 21 个新 unit(无日志/日志格式不标准)。
+
+    时点一律不硬编码: schedule 列展示 NextElapseUSecRealtime 派生值(方案 §3.3 ①)。
+    """
+    unit = row["unit"]
+    trusted = _trust_unit_state(unit_state, None) if mode == "systemd" else None
+    ufields = _unit_output_fields(unit, unit_state, now, trusted=trusted is not None)
+    if mode == "log":
+        last_run = None
+        final_exit, source, conflict, tier = None, "unknown", False, None
+        duration = None
+    elif trusted is not None:
+        start, exit_ts = trusted.get("start"), trusted.get("exit")
+        last_trigger = trusted.get("last_trigger")
+        last_run = (start or last_trigger).strftime("%Y-%m-%d %H:%M") if (start or last_trigger) else None
+        final_exit = trusted.get("code")
+        source = trusted.get("source")
+        conflict, tier = False, None
+        duration = round((exit_ts - start).total_seconds()) if start and exit_ts else None
+    else:
+        last_run = None
+        final_exit, source, conflict, tier = None, "unknown", False, None
+        duration = None
+    nxt = (unit_state or {}).get("next_elapse")
+    schedule = f"下次 {nxt.strftime('%m-%d %H:%M')}" if nxt else "systemd 派生"
+    return {
+        "task": row["task"], "name": row["name"], "schedule": schedule,
+        "est_text": "-", "last_run": last_run, "last_exit": final_exit,
+        "last_duration_sec": duration,
+        "log_exit_field": None, "log_deploy": None, "log_collect": None,
+        "log_anomaly": False, "log_anomaly_keyword": None, "log_anomaly_line": None,
+        "log_anomaly_severity": None, "r2_skip_count": 0,
+        **ufields,
+        "exit_source": source,
+        "exit_conflict": conflict,
+        "last_exit_tier": tier,
+    }
+
+
+def build(log_dir=None, out=None, now=None, unit_reader=None, ledger_path=None):
+    """生成 schedule_stats.json(日本批: 40 行全覆盖)。
+
+    参数(测试注入点, 生产不传):
+      log_dir / out: 沙箱日志目录 / 输出文件(默认仓库内路径)
+      now: 冻结时钟(E1-E4 重放必须注入, 禁"当天绿次日红"的时敏断言)
+      unit_reader: 假 systemctl 的 props 读取函数
+      ledger_path: 账本路径(默认 REPO/data/unit_exit_ledger.json)
+    """
+    log_dir = Path(log_dir) if log_dir is not None else LOG_DIR
+    out = Path(out) if out is not None else OUT
+    now = now or datetime.now()
+    mode = ut.exit_source_mode()
+    use_systemd = mode == "systemd" and (unit_reader is not None or ut.systemd_available())
+    # 无 systemd 环境(本机 mac / 非 Linux)强制降级为旧日志口径: 只输出 19 行旧任务,
+    # 不把 21 个 unit-only 行写成"未知"(X6: 不许谎称 43/43)。
+    eff_mode = mode if use_systemd else "log"
+    included = [
+        r for r in UNIT_REGISTRY
+        if r.get("include") and (eff_mode != "log" or r["task"] in LOG_TASKS)
+    ]
+    states = {}
+    if use_systemd:
+        ledger = ut.load_ledger(Path(ledger_path) if ledger_path is not None
+                                else ut.default_ledger_path(REPO))
+        raw = ut.read_unit_states([r["unit"] for r in included], runner=unit_reader)
+        for r in included:
+            st = ut.derive_unit_state(r["unit"], raw.get(r["unit"]) or {})
+            states[r["unit"]] = ut.merge_ledger_state(st, ledger.get(r["unit"]))
+    _task_specs = {t["task"]: t for t in TASKS}
+    _extra_specs = {m["task"]: m for m in EXTRA_MARKER_SCANS}
+    result = []
+    for row in included:
+        task, unit = row["task"], row["unit"]
+        st = states.get(unit)
+        if task in _task_specs:
+            result.append(_build_log_task_row(row, _task_specs[task], log_dir, now, st, eff_mode))
+        elif task in _extra_specs:
+            result.append(_build_extra_row(row, _extra_specs[task], log_dir, now, st, eff_mode))
+        else:
+            result.append(_build_unit_only_row(row, now, st, eff_mode))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(out, result, indent=2)
+    try:
+        shown = out.relative_to(REPO)
+    except ValueError:
+        shown = out
+    print(f"✓ {shown} ({len(result)} tasks, 口径={eff_mode}, "
+          f"systemd={'on' if use_systemd else 'off'})")
     for r in result:
         flag = " ⚠ANOMALY" if r.get("log_anomaly") else ""
         print(f"  {r['name']:8s} {r['schedule']:22s} est={r['est_text']:8s} "
-              f"last={r['last_run']} exit={r['last_exit']} dur={r['last_duration_sec']}s{flag}")
+              f"last={r['last_run']} exit={r['last_exit']} "
+              f"src={r.get('exit_source')} dur={r['last_duration_sec']}s{flag}")
     return result
 
 

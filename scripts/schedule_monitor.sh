@@ -83,6 +83,16 @@ import alert_denoise_rules as adr  # noqa: E402
 # main() 所有出口恒 return 0)。用于「先落签后 fire-and-forget 通知」病灶的回滚判定。
 from notify_sent import notify_sent, notify_state  # noqa: E402
 
+# #309 W1/W2/W3: systemd unit 真值(单一事实源) + 43 unit 登记表。
+# 导入失败按「仅日志口径」降级(不崩监控), 但结论行会如实写覆盖降级。
+try:
+    import unit_truth as ut  # noqa: E402
+    import gen_schedule_stats as gss  # noqa: E402
+except Exception as _e_ut:  # pragma: no cover - 只在本模块损坏时触发
+    ut, gss = None, None
+    print(f"[warn] unit_truth/gen_schedule_stats 导入失败(降级仅日志口径): {_e_ut}",
+          file=sys.stderr)
+
 REPO = Path(os.environ["REPO"])
 LOG_DIR = REPO / "data" / "logs"
 STATS_FILE = REPO / "static-site" / "data" / "schedule_stats.json"
@@ -569,6 +579,29 @@ try:
 except Exception as e:
     print(f"[warn] gen_schedule_stats 刷新失败(读旧 schedule_stats.json): {e}", file=sys.stderr)
 
+# ── #309 W3/W5: 43 unit 真值扫描(含 3 自监控; ledger 单写者=本监控) ──
+# 覆盖口径见方案 §3.4: 40 业务/基础进执行统计表, 3 自监控不入表但仍做 unit 级体检。
+EXIT_MODE = ut.exit_source_mode() if ut else "log"
+UNIT_REGISTRY = list(gss.UNIT_REGISTRY) if gss else []
+SYSTEMD_TRUTH_ON = bool(ut and EXIT_MODE == "systemd" and ut.systemd_available())
+UNIT_STATES = {}
+UNIT_LEDGER = ut.load_ledger(ut.default_ledger_path(REPO)) if ut else {}
+if SYSTEMD_TRUTH_ON:
+    try:
+        _raw_units = ut.read_unit_states([r["unit"] for r in UNIT_REGISTRY])
+        for _r in UNIT_REGISTRY:
+            _u = _r["unit"]
+            _st = ut.derive_unit_state(_u, _raw_units.get(_u) or {})
+            UNIT_STATES[_u] = ut.merge_ledger_state(_st, UNIT_LEDGER.get(_u))
+        try:
+            _ledger_new = ut.update_ledger_records(UNIT_STATES, UNIT_LEDGER, NOW)
+            ut.save_ledger_atomic(ut.default_ledger_path(REPO), _ledger_new, NOW)
+        except Exception as _e_lg:
+            print(f"[warn] unit ledger 写入失败(不阻塞告警): {_e_lg}", file=sys.stderr)
+    except Exception as _e_sw:
+        SYSTEMD_TRUTH_ON = False
+        print(f"[warn] unit 真值扫描失败(降级仅日志口径): {_e_sw}", file=sys.stderr)
+
 STALE_EXIT_THRESHOLD = timedelta(hours=24)
 
 # #162(2026-10-05, 云上健康巡检 D2 P1-b): "进行中"判定的陈旧起点上限。
@@ -620,6 +653,201 @@ def _in_progress_state(_s, _now):
     except ValueError:
         return "no"
     return "running" if _age <= IN_PROGRESS_MAX_AGE else "stale"
+
+
+# ── #309 W3: 结论行合成(纯函数, AST 可抽取; 单测 test_309_ok_line_truth) ──
+# 铁律: 只有「无退出失败 + 无漏跑 + 无未知退出码 + 无 CFU failed」才允许打
+# 「OK 所有任务按计划执行」; 覆盖数必须每次写明(43/43 或仅日志 17/40)。
+COVERAGE_BUSINESS_TOTAL = 40
+COVERAGE_SELF_MONITOR = 3
+LOG_CALIBER_COVERAGE = 17
+
+
+def _unit_short_name(unit):
+    """trade-pf-score-daily.service → pf-score-daily(结论行用短名)。"""
+    u = str(unit or "")
+    if u.startswith("trade-"):
+        u = u[len("trade-"):]
+    if u.endswith(".service"):
+        u = u[:-len(".service")]
+    return u
+
+
+def _fmt_time_part(dt, ref_date):
+    """同一参照日 → HH:MM:SS; 跨日 → MM-DD HH:MM:SS(X1 逐字口径)。"""
+    if dt is None:
+        return "?"
+    if ref_date is not None and dt.date() == ref_date:
+        return dt.strftime("%H:%M:%S")
+    return dt.strftime("%m-%d %H:%M:%S")
+
+
+def _fmt_span(start, exit_ts, now):
+    """起止时间展示: 16:00:01→16:10:01 / 10-23 20:35:01→20:58:01。"""
+    if not start or not exit_ts:
+        return ""
+    try:
+        s = datetime.strptime(start, "%Y-%m-%d %H:%M:%S")
+        e = datetime.strptime(exit_ts, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return ""
+    return f"{_fmt_time_part(s, now.date())}→{_fmt_time_part(e, s.date())}"
+
+
+def _stat_exit_code(s):
+    """单行最终退出码: 优先 unit 真值, 回退 last_exit(0/None 视为无失败)。"""
+    code = s.get("unit_exit")
+    if code in (None, 0):
+        code = s.get("last_exit")
+    return code
+
+
+def _failed_stats(stats):
+    """退出失败行(systemd 真值优先; 同 task 只留第一条; systemd 失败排前)。"""
+    out, seen = [], set()
+    for s in stats:
+        if not isinstance(s, dict):
+            continue
+        code = _stat_exit_code(s)
+        if code in (None, 0):
+            continue
+        task = s.get("task") or "?"
+        if task in seen:
+            continue
+        seen.add(task)
+        out.append(s)
+    sys_rows = sorted([s for s in out if s.get("unit_exit") not in (None, 0)],
+                      key=lambda s: s.get("unit") or "")
+    log_rows = [s for s in out if s.get("unit_exit") in (None, 0)]
+    return sys_rows + log_rows
+
+
+def _failure_name(s):
+    if s.get("unit") and s.get("exit_source") in ("systemd", "ledger", "ledger-stale"):
+        return _unit_short_name(s["unit"])
+    return s.get("task") or "?"
+
+
+def _failure_detail(s, now):
+    """单条失败明细(退出码 + 源 + 起止; exit_conflict 时附日志侧证据)。"""
+    code = _stat_exit_code(s)
+    if s.get("exit_conflict"):
+        bits = f"exit={code}, 源={s.get('exit_source') or 'unknown'}"
+        logs = []
+        if s.get("log_deploy") is not None:
+            logs.append(f"日志 deploy={s['log_deploy']}")
+        if s.get("log_collect") is not None:
+            logs.append(f"采集={s['log_collect']}")
+        if s.get("log_exit_field") is None and logs:
+            logs.append("且无 退出码=")
+        if logs:
+            bits += "; " + " ".join(logs)
+        return bits + ", exit_conflict=true"
+    if s.get("unit_exit") is not None and s.get("unit_result"):
+        bits = f"Result={s['unit_result']}, exit={code}"
+        span = _fmt_span(s.get("unit_start"), s.get("unit_exit_ts"), now)
+        if span:
+            bits += f", {span}"
+        return bits
+    return f"exit={code}"
+
+
+def _coverage_text(stats):
+    total = len([s for s in stats if isinstance(s, dict)]) + COVERAGE_SELF_MONITOR
+    expected = COVERAGE_BUSINESS_TOTAL + COVERAGE_SELF_MONITOR
+    return f"覆盖 {total}/{expected}(40 业务+基础, 3 自监控)"
+
+
+def _build_conclusion(stats, now, cfu_failed=0, alerts=0,
+                      mode="systemd", systemd_available=True):
+    """合成唯一结论行。返回文本(不含时间前缀)。纯函数, 供单测 AST 抽取。
+
+    「OK 所有任务」只允许在 **alerts 空 + CFU failed 空 + 未知退出码空 + 漏跑空 +
+    退出失败空** 时出现(方案 W3 铁律); 任一非空都必须显式写明, 不许假 OK。
+    """
+    stats = [s for s in (stats or []) if isinstance(s, dict)]
+    if mode != "systemd" or not systemd_available:
+        fails = _failed_stats(stats)
+        if fails:
+            names = "; ".join(
+                f"{s.get('task')}(exit={_stat_exit_code(s)})" for s in fails)
+            return (f"{len(fails)} 个任务退出失败: {names}; "
+                    f"覆盖 {LOG_CALIBER_COVERAGE}/40(仅日志口径)")
+        if alerts:
+            return (f"有 {alerts} 条告警(见上方), 不判 OK"
+                    f"(仅日志口径, 覆盖 {LOG_CALIBER_COVERAGE}/40); 本机无 systemd")
+        return "OK(仅日志口径, 覆盖 17/40; 本机无 systemd)"
+    fails = _failed_stats(stats)
+    missed = [s for s in stats if s.get("unit_missed")]
+    coverage = _coverage_text(stats)
+    if fails or missed:
+        parts = []
+        if fails:
+            bits = [f"{_failure_name(s)}({_failure_detail(s, now)})" for s in fails]
+            parts.append(f"{len(fails)} 个任务退出失败: " + "; ".join(bits))
+        parts.append(f"漏跑 {len(missed)}")
+        parts.append(coverage)
+        return "; ".join(parts)
+    unknown = [s for s in stats
+               if s.get("exit_source") == "unknown" and not s.get("unit_missed")]
+    if unknown:
+        return f"退出码未知 {len(unknown)} 个(无法确认成功); {coverage}"
+    if alerts:
+        return f"有 {alerts} 条告警(见上方), 不判 OK; {coverage}"
+    if cfu_failed:
+        return f"OK(除 {cfu_failed} 个云上 unit failed, 详见 [196]); {coverage}"
+    return f"OK 所有任务按计划执行，无漏跑，无退出失败; {coverage}"
+
+
+def _unit_alert_events(unit_registry, unit_states, stats_by_task, now):
+    """#309 W3 新通道①②的纯判定: unit 退出失败 + timer 漏跑 → 事件列表。
+
+    返回每个事件的 dict(不改任何状态, 纯函数, 供 test_309_no_false_alarm 直接验证):
+      {"kind": "dedup"|"exit"|"missed", "key": ..., "task": ..., "msg": ...,
+       "keyword": ..., "line_sample": ..., "escalate_label": ...}
+    - `dedup`: unit 真值失败但 stats.last_exit 已是同一 code ⇒ 由既有 exit 通道报,
+      本通道只打印一行「不重复」, 不进 alerts。
+    - `exit`: stats 仍 0/未知(日志无行 / 刷新失败 / 自监控 unit) ⇒ SEVERE。
+    - `missed`: now > next_elapse + 10min 宽限(运行中除外) ⇒ SEVERE。
+    """
+    events = []
+    for row in unit_registry or []:
+        unit = row.get("unit")
+        task = row.get("task") or unit
+        st = (unit_states or {}).get(unit) or {}
+        code = st.get("code")
+        short = _unit_short_name(unit)
+        if code not in (None, 0):
+            key = f"{task}|unit_exit!=0|{code}"
+            srow = (stats_by_task or {}).get(task) or {}
+            if srow.get("last_exit") == code:
+                events.append({
+                    "kind": "dedup", "key": key, "task": task,
+                    "msg": (f"[unit-exit-dedup] {task} unit_exit={code} 同 last_exit, "
+                            f"exit 通道负责告警, 不重复"),
+                })
+            else:
+                events.append({
+                    "kind": "exit", "key": key, "task": task,
+                    "msg": (f"SEVERE: {task} systemd 退出失败 {short} "
+                            f"Result={st.get('result')} exit={code} 源=systemd "
+                            f"(stats last_exit={srow.get('last_exit')!r}, 需人工排查)"),
+                    "keyword": f"unit_exit={code}",
+                    "line_sample": (f"unit={unit} result={st.get('result')} exit={code}"),
+                    "escalate_label": f"{task} systemd 退出失败",
+                })
+        if ut is not None and ut.timer_health(st, now) == "missed":
+            nxt = st.get("next_elapse")
+            events.append({
+                "kind": "missed", "key": f"{task}|unit_missed", "task": task,
+                "msg": (f"SEVERE: {task} timer 漏跑 {short} "
+                        f"(next_elapse={nxt.strftime('%Y-%m-%d %H:%M:%S') if nxt else '?'}, "
+                        f"已超 10min 宽限; timer 可能被停/改点/机器睡死)"),
+                "keyword": "unit_missed",
+                "line_sample": f"unit={unit} next_elapse={nxt}",
+                "escalate_label": f"{task} timer 漏跑",
+            })
+    return events
 
 # 2026-08-24 瞬时超时降噪: 瞬时/降级类 log 异常按"连续>=3轮未自愈才 SEVERE"处理
 # (单次/两次视为瞬时抖动,只记 dashboard 不通知)。教训=intraday_snapshot R2 PUT
@@ -776,7 +1004,32 @@ if STATS_FILE.exists():
         for s in stats:
             exit_code = s.get("last_exit")
             # null=进行中/无数据不算失败；非0=退出失败
-            if exit_code is not None and exit_code != 0:
+            # #309 拍板点1=A: 采集=0 且 deploy!=0(=主流程成功、子步骤失败) → warning 聚合,
+            # 不进 alerts(不首报 SEVERE), 也不落 active(避免占恢复闭环)。
+            if (exit_code is not None and exit_code != 0
+                    and s.get("last_exit_tier") == "warning"):
+                _dwk = f"{s['task']}|deploy_warn"
+                seen_keys_this_run.add(_dwk)
+                _dmsg = (f"{s['task']} 子步骤失败 last_exit={exit_code} "
+                         f"last_run={s.get('last_run') or ''} "
+                         f"(deploy={s.get('log_deploy')}, 采集={s.get('log_collect')}; "
+                         f"主流程成功, 按 warning 聚合不首报 SEVERE)")
+                try:
+                    subprocess.run(
+                        [
+                            sys.executable, str(REPO / "scripts" / "notify.py"),
+                            f"[告警] {s['task']} 子步骤失败(deploy={s.get('log_deploy')})",
+                            _dmsg, "--tier", "warning",
+                            "--dedup-key", _dwk, "--dedup-window", "21600",
+                            "--from-prefix", "[告警]",
+                        ],
+                        capture_output=True, text=True, timeout=30, check=False,
+                    )
+                except Exception as _dwe:
+                    print(f"[warn] {s['task']} deploy warning 入队失败: {_dwe}",
+                          file=sys.stderr)
+                print(f"[deploy-warn] {_dmsg}")
+            elif exit_code is not None and exit_code != 0:
                 last_run_str = s.get("last_run") or ""
                 is_stale = False
                 if last_run_str:
@@ -1467,6 +1720,33 @@ if STATS_FILE.exists():
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 
+# ── #309 W3 新通道①: systemd `unit_exit!=0`(覆盖 43 unit, 含 3 自监控) ──
+# 与既有 last_exit 通道去重: gen_schedule_stats 已把 unit 真值合并进 last_exit,
+# 同一 task + 同一 code 只由 exit 通道报一次; 这里只补「stats 还是 0/未知但 unit 明确失败」
+# (stats 刷新失败/日志无行/新增 unit)以及自监控 3 个 unit。
+# 注意 Result=not-found(unit 不存在)code=None, 不在此报(由 registry/漂移巡检负责)。
+_unit_stats_by_task = {s.get("task"): s for s in stats if isinstance(s, dict)}
+if SYSTEMD_TRUTH_ON:
+    for _ev in _unit_alert_events(UNIT_REGISTRY, UNIT_STATES, _unit_stats_by_task, NOW):
+        _ux_key = _ev["key"]
+        seen_keys_this_run.add(_ux_key)
+        if _ev["kind"] == "dedup":
+            print(_ev["msg"])
+            continue
+        _ex_ux = alert_state.get(_ux_key)
+        if _ex_ux is None or _ex_ux.get("status") != "active":
+            alerts.append(_ev["msg"])
+            alert_state[_ux_key] = {
+                "status": "active",
+                "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "keyword": _ev.get("keyword"),
+                "line_sample": _ev.get("line_sample"),
+            }
+        else:
+            _ex_ux["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+            _active_escalate(_ex_ux, _ux_key, _ev.get("escalate_label") or _ev["task"])
+
 # A1 进行中超时检测（2026-08-14 告警优化）: 任务卡死/异常慢(未完成)检测。
 # 背景: 原 dur 检查只查"已完成"任务(last_duration_sec 非 null), 任务进行中超时
 #   (未完成, dur=null)完全不检查 -> 8-14 update_all 17:50 卡死 54min+ 无超时告警;
@@ -1653,12 +1933,39 @@ for _label in LAUNCHCTL_LABELS:
     if _lstate == "failed":
         # 2026-09-19 语义修正 第一层: failed=已加载但运行失败, 不是"未加载"。
         if _label in _schedule_stats_labels:
-            # 被 exit!=0 通道覆盖的 label: 运行失败信息由 exit!=0 通道
-            # (schedule_stats.json last_exit)登记并去重, launchctl 通道不在此登记
-            # (消除同一现象 not_loaded+exit!=0 两条告警噪音)。
-            # 不 add seen: 本通道不认 failed 为 not_loaded, 若此前 not_loaded 已 active,
-            # 由恢复检测按未 seen 判"未加载已消失"(语义正确: 不再未加载, 转为运行失败由 exit!=0 通道接管)。
-            print(f"[skip] {_label} systemd is-active=failed(已加载但运行失败), 交给 exit!=0 通道登记, 不重复 not_loaded")
+            # 被 exit!=0 通道覆盖的 label: 运行失败信息由 exit!=0 通道登记并去重。
+            # #309 W3 新通道③(杀机制 C): 只有 exit 通道**真的登记了非 0/非未知**才允许 skip;
+            # 若 stats 仍显示 0/None(刷新失败/日志无码), 旧逻辑会把它转交给瞎掉的通道 →
+            # 假 OK。这里兜底直接 SEVERE(通道失效本身就是要报的故障)。
+            _ftask = _label[len("com.trade."):].replace("-", "_")
+            _fsrow = _unit_stats_by_task.get(_ftask) or {}
+            _fcovered = (_fsrow.get("last_exit") not in (None, 0)
+                         or _fsrow.get("unit_exit") not in (None, 0))
+            if _fcovered:
+                # 不 add seen: 若此前 not_loaded 已 active, 由恢复检测按未 seen 判
+                # "未加载已消失"(语义正确: 转为运行失败由 exit!=0 通道接管)。
+                print(f"[skip] {_label} systemd is-active=failed(已加载但运行失败), "
+                      f"exit 通道已登记非 0/非未知, 不重复 not_loaded")
+                continue
+            _ff_key = f"{_label}|failed_no_exit"
+            seen_keys_this_run.add(_ff_key)
+            _ex_ff = alert_state.get(_ff_key)
+            _ff_msg = (f"SEVERE: {_ftask.replace('_', '-')} systemd failed 但 exit 通道"
+                       f"显示 0/未知（通道失效, last_exit={_fsrow.get('last_exit')!r}, "
+                       f"unit_exit={_fsrow.get('unit_exit')!r}）")
+            if _ex_ff is None or _ex_ff.get("status") != "active":
+                alerts.append(_ff_msg)
+                alert_state[_ff_key] = {
+                    "status": "active",
+                    "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                    "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                    "keyword": "failed_no_exit",
+                    "line_sample": _ff_msg[:200],
+                }
+            else:
+                _ex_ff["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                _active_escalate(_ex_ff, _ff_key, f"{_ftask} systemd failed(通道失效)")
+            print(f"[failed-no-exit] {_ftask} systemd failed 但 exit 通道 0/未知, 已直发 SEVERE")
             continue
         # ⚠️ 语义修正 第二层(2026-09-19 review 阻断项): self-heal 等不在 gen_schedule_stats
         # TASKS 的 label, exit!=0 通道读不到, 上面 continue 会让 failed 状态彻底静默
@@ -1977,6 +2284,7 @@ _cfu_key = "check_failed_units|self|dead"
 _cfu_delivery_key = "check_failed_units|delivery|down"
 _cfu_dead = None
 _cfu_undelivered = None
+_cfu_failed = 0  # #309 W3: 结论行必须知道「巡检真发现了几个 failed」
 try:
     _r_cfu = subprocess.run(
         [sys.executable, str(REPO / "scripts" / "check_failed_units.py"),
@@ -1984,6 +2292,9 @@ try:
         capture_output=True, text=True, timeout=120, check=False,
     )
     _cfu_out = (_r_cfu.stdout or "").strip()
+    _cfu_m = re.search(r"CHECK_FAILED_UNITS_FAIL\((\d+) 项\)", _cfu_out)
+    if _cfu_m:
+        _cfu_failed = int(_cfu_m.group(1))
     if _r_cfu.returncode == 0:
         print(f"[196] {_cfu_out.splitlines()[0] if _cfu_out else 'failed-unit 巡检 OK'}")
     elif _r_cfu.returncode == 1:
@@ -3139,6 +3450,12 @@ for _ent in _absorbed:
             source="schedule_monitor", repo=REPO,
             extra={"line": _ent["line"][:300], "category": _ent.get("category")})
         print(f"[budget-absorb] {_ent['category']} 并入当日摘要: {_ent['line'][:80]}")
+# #309 W3 结论行: 唯一结论=事实合成(43 unit 真值 + 漏跑 + 未知码 + CFU)。
+# 无论 alerts 是否为空都打印, 让每轮日志都能对账「覆盖多少 / 有没有失败」。
+_concl = _build_conclusion(
+    stats, NOW, cfu_failed=_cfu_failed, alerts=len(alerts),
+    mode=EXIT_MODE, systemd_available=SYSTEMD_TRUTH_ON,
+)
 if alerts:
     print(f"[{now_str}] 检测到 {len(alerts)} 个告警:")
     for a in alerts:
@@ -3174,11 +3491,13 @@ if alerts:
         save_alert_state(alert_state)
         print(f"[warn] 聚合告警未确认送达(rc={_r_main.returncode}) ⇒ 回滚本轮 {_rb} 个新告警落签"
               f"(下轮重试)", file=sys.stderr)
+    print(f"[{now_str}] {_concl}")
 elif _orig_has_alerts or _absorbed:
     # 本轮原有过告警但已全部被吸收(批次 kept 空) ⇒ 记日志(仅日志, 不影响发送)。
     print(f"[{now_str}] 本轮告警已由类别日预算吸收, 见当日摘要 alert_digest.jsonl")
+    print(f"[{now_str}] {_concl}")
 else:
-    print(f"[{now_str}] OK 所有任务按计划执行，无漏跑，无退出失败")
+    print(f"[{now_str}] {_concl}")
 
 # 恢复邮件(独立于 SEVERE,异常消失即发,不加 --severe 前缀)
 # 2026-09-22 告警去噪: r2_* 前缀为自愈类(网络抖动/R2 故障可被 self_heal/网络自愈,
