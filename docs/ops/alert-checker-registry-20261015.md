@@ -150,16 +150,36 @@ python3 scripts/alert_weekly_review.py --check-four-tuple --scripts-dir scripts
 
 | 键 | tier | 产生条件 | 锚点 |
 |---|---|---|---|
-| `{task}\|unit_exit!=0\|{code}` | critical(SEVERE) | systemd 真值退出码非 0(覆盖全部 43 unit, 含 3 自监控);**systemd 真值失败的唯一权威通道** | `schedule_monitor.sh:873`、消费于 `:1775` |
-| `{task}\|unit_missed` | critical(SEVERE) | timer 的 `NextElapseUSecRealtime` 超 10min 宽限仍未触发;运行中(active/activating/reloading)不算 | `schedule_monitor.sh:887`、`:816` |
-| `{label}\|failed_no_exit` | critical(SEVERE) | `is-active=failed` 但 stats 仍 0/未知(exit 通道失效兜底),只在 stats 覆盖的 label 上产生 | `schedule_monitor.sh:2013` |
-| `{label}\|failed` | critical(SEVERE) | 自监控 label(如 self-heal)failed 且 unit 真值码读不到(降级告警);unit 码非 0 时让位给 `unit_exit!=0`(P2-4 合一) | `schedule_monitor.sh:2039`、defer `:1990-1999` |
-| `{task}\|deploy_warn` | warning(聚合) | 日志 `deploy!=0` 而退出码/采集均为 0(P1-2 合并口径);直发 `notify.py --tier warning`,不进 SEVERE alerts | `schedule_monitor.sh:1063`、分级在 `gen_schedule_stats.py:_log_exit_evidence` |
+| `{task}\|unit_exit!=0\|{code}` | critical(SEVERE) | systemd 真值退出码非 0(覆盖全部 43 unit, 含 3 自监控);**systemd 真值失败的唯一权威通道** | 产生 `schedule_monitor.sh:1067`、消费于 `:1988` |
+| `{task}\|unit_missed` | critical(SEVERE) | timer 的 `NextElapseUSecRealtime` 超 10min 宽限仍未触发;运行中(active/activating/reloading)不算 | `schedule_monitor.sh:1083` |
+| `{label}\|failed_no_exit` | critical(SEVERE) | `is-active=failed` 但 stats 仍 0/未知(exit 通道失效兜底),只在 stats 覆盖的 label 上产生 | `schedule_monitor.sh:2232` |
+| `{label}\|failed` | critical(SEVERE) | 自监控 label(如 self-heal)failed 且 unit 真值码读不到(降级告警);unit 通道**确实会登记**时让位给 `unit_exit!=0`(P2-4 合一) | `schedule_monitor.sh:2259`、defer 判据 `_unit_channel_will_register` `:2207-2216` |
+| `{task}\|deploy_warn` | warning(聚合) | 日志 `deploy!=0` 而退出码/采集均为 0(P1-2 合并口径);直发 `notify.py --tier warning`,不进 SEVERE alerts | `schedule_monitor.sh:1264`、分级在 `gen_schedule_stats.py:_log_exit_evidence` |
 
 > 一跳原则(P2-3):stats 刷新失败轮由 unit 通道报 `{task}|unit_exit!=0|{code}`;下轮
 > stats 合并同一 code + `exit_source∈{systemd,ledger,ledger-stale}` 后,exit 通道跳过该行
 > (`schedule_monitor.sh:_unit_channel_owns_row`,用例 `test_unit_channel_is_single_hop_across_stats_refresh`)。
 > 旧日志键 `{task}|exit!=0|{code}` 仅保留给非 systemd 真值口径,不再与 unit 通道同轮双报。
+
+### 2.3.1 恢复语义(2026-10-25 第三轮审查补)
+
+> 为什么单列:去重键不只是「发不发」,还决定「恢复邮件会不会发」。恢复环的判据是
+> **「alert_state 里 active 且本轮不在 `seen_keys_this_run` ⇒ 发已恢复」**。
+> 键名迁移/通道让位时若忘了标 seen,就会发出与事实相反的恢复邮件(故障同轮还在)。
+> 锚点:`schedule_monitor.sh:_migrate_unit_owned_keys`、恢复检测循环、用例
+> `test_309_key_migration_20261025.py`。
+
+1. **正常恢复**:故障消失 ⇒ 本轮该键不进 seen ⇒ 发「已恢复」并把状态改 `recovered`。
+2. **键迁移(旧日志键 → unit 键,一次性)**:当 stats 行被 unit 通道接管
+   (`_unit_channel_owns_row` 为真)时,`_migrate_unit_owned_keys` 把旧键
+   `{task}|exit!=0|{旧code}` **标记为 seen 并静默退休**(状态 `recovered`,
+   `recovery_reason=migrated_to_unit_key`;若码不同则 `superseded_by_new_code`),
+   不再发恢复邮件;同轮由新键 `{task}|unit_exit!=0|{code}` 正常首报 SEVERE。
+   验收用例断言「旧键 active + 新键首报」同轮 recovered 条数 = 0。
+3. **有失败但本轮无事件**(如 `ledger-stale` 不发 SEVERE):新键仍必须标 seen,
+   否则已 active 的新键会被误判「已恢复」;可见性由结论行标注兜底,不靠恢复邮件。
+4. **只认 seen,不认时间**:恢复不看「多久没报」,只看本轮是否覆盖该键;因此每一轮
+   所有仍然存在的故障都必须进 seen(新增通道时这是必查项)。
 
 ---
 (报告完;本文件随 #264 包3 落档。生成:2026-10-15;§2.3 于 2026-10-25 #309 审查修复时同步。)
