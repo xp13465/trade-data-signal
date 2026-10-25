@@ -3,6 +3,7 @@
 > 任务:修 #309 独立审查的 2 个 P1 + 8 个 P2/P3;第三轮追加「新 P1 双盲假 OK +
 > 首轮假恢复 + defer 判据 + timer 真实键集」等(P1b/P2/P3),本清单同步扩四轴:
 > **两次独立读取一致性 / fixture 键集忠实度 / 键迁移恢复语义 / ledger 新鲜度**。
+> 第四轮追加 F1(必修)/F3/F4 三项:刷新返回码 / 账本 exit 未来时间 / 跑过信号全缺。
 > 分支:`feat/fix-309-fake-ok-20261025`;日期:2026-10-25。
 > 口径:按 role-tester skill §5.3.1 七轴(输入域 / 状态组合 / 时序 / 上下游 / 极端值 /
 > 回退路径 / 并发)逐项列「来源 + 判定(测/不测)+ 依据与理由」,供 reviewer §10.8
@@ -30,6 +31,9 @@
 | I14 | 全批 | 非 UTF-8 / 中文日志乱码 | 不测 | 与本次改动无关(既有 `read_text` 口径未动);新增判定只吃已解析的整数字段 |
 | I15 | P3 fixture 键集忠实度 | fixture 的 timer 键集与云上真实形状不一致(旧 4 键缺 Result/InvocationID) | 测 | 云上实测原文 `/tmp/309-review2-show4.txt`(timer 6 键);`REAL_TIMER_KEYS` 4→6 + 三套 fixture 补齐;变异「退回 4 键」→3 条红;`test_309_gen_stats_exit_source.py` 的 `TIMER_KEYS` 同步 6 键(举手一反三) |
 | I16 | P3 timer 属性 | `Result`/`InvocationID` 在 service 与 timer 上同名(两处都有), 是否串味 | 测 | `test_fixture_read_does_not_leak_timer_result_or_invocation`:逐 unit 对账 service Result/InvocationID;变异「timer 属性全量合并」→6 红 |
+| I17 | F1 刷新返回码 | `gen_schedule_stats.py` 顶层未捕获异常 → 进程退出码 1(`subprocess.run` 不 raise) | 测 | `test_nonzero_rc_marks_refresh_failed`(rc=1 ⇒ `STATS_REFRESH_OK=False` + stderr 记退出码与尾部)+ 端到端 `test_nonzero_rc_conclusion_never_says_ok`(全绿 stats + rc=1 ⇒ 结论行不含「OK 所有任务」);变异注释判据 →3 条红 |
+| I18 | F1 刷新返回码(反向) | rc=0 正常刷新 | 测 | `test_zero_rc_keeps_refresh_ok`、`test_zero_rc_all_green_still_says_ok`(全绿 + rc=0 ⇒ OK 必须回来, 防本次修复把结论打成恒不 OK) |
+| I19 | F1 刷新返回码 | rc≠0 但 stderr 为空 / stderr 是超长 traceback | 测 | `test_nonzero_rc_with_empty_stderr_still_flags`(空 stderr 仍判失败)、`test_stderr_tail_is_truncated`(只留最后一行且截断 200 字, 防刷屏/带出无关内容) |
 
 ## 2. 状态组合
 
@@ -54,6 +58,9 @@
 | S17 | P2 defer 判据 | unit 通道本次**不会**登记但 failed 循环仍 defer(ledger-stale live 码 / unit 不在 43 行注册表 / stats 码超 24h) | 测 | `test_ledger_stale_live_code_does_not_silence_failed_loop`、`test_unit_outside_registry_does_not_defer`、`test_stale_stats_failure_is_not_covered_by_exit_channel`;变异还原旧判据 →3 条红 |
 | S18 | P2 defer 判据(反向) | unit 通道会登记(新鲜 stats 兜底码)⇒ 不重复报 | 测 | `test_fresh_stats_failure_is_covered_reverse_control` + `_unit_channel_will_register` 10 行参数化(含 systemd 通道关/注册表外/live=0 不采信 stats) |
 | S19 | P3 ledger 新鲜度 | 重启补位码:24h 内=ledger(可发 SEVERE) / 超 24h / 无 exit 时间 / 本轮 start 更新=ledger-stale(不发, 结论可见) | 测 | `test_merge_ledger_old_exit_is_stale_with_now`、`..._fresh_exit_stays_ledger`、`..._missing_exit_is_stale_with_now`、`..._newer_start_marks_stale_without_last_trigger`、端到端 `test_old_ledger_filled_code_does_not_email_but_stays_visible`;变异删新鲜度分支 →3 条红 |
+| S20 | F4 跑过信号全缺 | live `InvocationID` + `ExecMainStartTimestamp` + `LastTriggerUSec` 三样全缺 + 账本 exit 才 1h(旧逻辑判新鲜) | 测(stale) | 生产依据:2026-10-25 云上 `systemctl show` 43/43 unit 实测三样**都非空**(service 43/43 + timer 43/43)⇒ 全缺只出现在「restart 后还没跑过 / 本轮读取失败」这种没有运行证据的形态, 此时拿旧账本码当新鲜必误报。`test_merge_ledger_all_run_signals_missing_is_stale`(reason=`no_run_signal`);变异删该分支 → 1 红 |
+| S21 | F4 跑过信号全缺(反向) | 只要有一个跑过信号(例:仅 `LastTriggerUSec` 有值且早于账本 exit) | 测(fresh) | `test_merge_ledger_one_run_signal_present_stays_ledger`:不许把「有证据」也打成 stale(防修复过度变静默) |
+| S22 | F4 跑过信号全缺 | 调用方不传 `now`(离线/纯单测) | 测(旧行为) | `test_merge_ledger_no_run_signal_without_now_keeps_old_behavior`:不传 now = 不判新鲜度, 既有调用方语义不变 |
 
 ## 3. 时序
 
@@ -70,6 +77,9 @@
 | T9 | P2-3 键迁移恢复语义 | 本轮有失败但通道不发事件(ledger-stale)且新键已 active | 测 | `test_failure_without_event_still_marked_seen`:新键仍标 seen, 不许被误判「已恢复」;旧键同时退休 |
 | T10 | P1b 两次独立读取一致性 | stats 快照(gen_schedule_stats 读一次 systemd)与 monitor live(再读一次)在两个时刻读到的码不同: stats 124/live 0 或 stats 0/live 124 | 测 | 双盲穷举 #3(stats124/live0: 不邮件但结论不得 OK)与 #13(stats0/live124: 必邮件且不得 OK);两侧任一非 0 就不得打 OK(硬不变式) |
 | T11 | P3 结论层 | 有失败时「退出码未知 N 个」被提前 return 吞掉 | 测 | `test_conclusion_does_not_truncate_unknown_when_failure_present`(1 失败 + 1 未知 同轮同时展示) |
+| T12 | F3 账本 exit 未来时间 | 账本 exit = now + 1h(时钟回拨/账本写坏) | 测(stale) | 负差值会让「now - exit > 24h」恒假 ⇒ 旧码被当新鲜发 SEVERE。`test_merge_ledger_future_exit_is_stale`:source=ledger-stale, reason=`future_exit`, code 仍可见(只挡 SEVERE);变异注释判据 → 1 红(reason 退化成 no_run_signal) |
+| T13 | F3 允许偏差 | 未来 1min(偏差内) / 恰好 now+5min(判据 `>` 不含等号) | 测(fresh) | `test_merge_ledger_slightly_future_exit_stays_ledger`、`test_merge_ledger_exact_tolerance_boundary_stays_ledger`:时钟微差不算账本损坏, 不许一律打死 |
+| T14 | F3+F4 叠加 | exit 在未来 + 跑过信号全缺同时成立 | 不测(两者同判 stale) | 判据链 future_exit 在前、no_run_signal 在后, 结论都是 ledger-stale;差异只在 reason 诊断文案, 无告警行为差异, 不单列用例 |
 
 ## 4. 上下游
 
@@ -84,6 +94,9 @@
 | U7 | P2-4 | launchctl 分支在云上 systemd 生产是否可达 | 不测(环境既有) | 云上 `LOCAL_DEV=0` 时 launchctl 列表为空;分支为 mac 开发/兜底路径, 本批只保证两通道不双报 |
 | U8 | P1-1 | 前端/其他页面消费 `schedule_stats.json` 新字段 | 不测(无展示改动) | 前端未消费 `exit_signals`;既有字段名与语义未破坏, 无需 UI 回归;上线后由结论行/告警验证 |
 | U9 | P1-2 | 行格式白名单守卫(`test_log_gz_compat_20261010`)拒绝未申报新字段 | 测 | 全量 pytest 首跑即红(3 行 `白名单外新字段 ['exit_signals']`)⇒ 按新增字段申报进 `NEW_KEYS_309`, 旧字段逐键对账仍 PASS(L52 同类: 改 scripts 必跑全量) |
+| U10 | F3/F4 下游消费方 | `merge_ledger_state` 的两个生产调用方(`gen_schedule_stats.py:1649` 生成 40 行 / `schedule_monitor.sh:610` live 扫描)都受新判据影响 | 测 | 全量 grep 确认只有这两个生产调用方(其余均在 `scripts/tests/`);两者都传 `now` ⇒ 新判据生效, 输出 `exit_source=ledger-stale` 走既有「不发 SEVERE、结论行可见」路径(`_unit_alert_events` L824 守卫);全量 pytest 无回归 |
+| U11 | F1 同类调用面 | `schedule_monitor.sh` 内其它 `subprocess.run`(notify 发送 6 处 / sysctl-vm_stat / 心跳 pgrep)是否也丢返回码致假 OK | 不测(已逐处核) | 逐处读码:5 处 notify 丢弃返回值但**不参与 OK 判定**(属 F2「结论行不进邮件」范畴, 本批明确不动);其余把结果收进变量并有 rc/输出判据;唯一喂结论的 gen 刷新即 F1 修复点 |
+| U12 | F1 同类调用面 | 其它任务脚本(`update_all.sh`/`gold_night.sh`/`public_fund_*.sh` 等 10+ 处)调 `gen_schedule_stats.py` 失败 | 不测(不改) | 这些调用失败只打「⚠ 失败, 不阻塞」进各自日志, **不参与任何 OK 判定**(monitor 每轮开头自己重生成);monitor 侧 F1 修复已覆盖「喂结论」唯一路径 |
 
 ## 5. 极端值
 
@@ -97,6 +110,7 @@
 | E6 | P2-5 | failed unit 列表很长(43 个全 failed) | 不测 | 只影响结论行长度, 不改变判定;云上当前 failed=2;超长展示可读性归观察锚点 |
 | E7 | P1-2 | 采集/退出码/deploy 同时缺(全 None) | 测 | `has_exit_code=False` + systemd 口径兜底, 全绿用例覆盖 |
 | E8 | 全批 | stats 0 行 / 空 registry | 不测 | build 固定 40 行, 空 registry 属配置损坏;既有代码会抛错暴露, 不新增静默分支 |
+| E9 | F3 允许偏差取值 | 为什么是 5min(不是 0、不是 1h) | 测(边界两点) | 账本与 monitor 同机同进程写/读, 大额未来时间只可能是写坏或时钟被大步拨;但 `ExecMainExitTimestamp` 来自 systemd、与读取时刻可能有 NTP 微调级抖动 ⇒ 留 5min 余量(远大于抖动, 远小于「旧账本」的 24h 窗口)。偏差内/外各有用例(T13/T12), 恰好 5min 边界也测 |
 
 ## 6. 回退路径
 
@@ -109,6 +123,8 @@
 | R5 | P2-2 回滚 | 分支未命中时零 notify(不会误报) | 测 | 0/None tier 两条用例 |
 | R6 | 全批 | 回滚后旧键与旧口径逐位一致(不再产生 unit 新键) | 测 | R1 断言 19 行 + `unit_exit is None`;`test_seven...` 不启用新口径时旧结论路径不变 |
 | R7 | 部署回滚 | feat 分支 revert 后线上行为恢复 | 不测(部署操作) | 本批无数据产物/前端版本串改动, `git revert` 即恢复;上线由主控统一入口 |
+| R8 | F1 回滚 | 去掉 rc 判据 = 回到「只看异常」的旧行为 | 测(判别力已证) | 注释掉 `if _stats_refresh.returncode != 0` → 3 条红(I17/I19), 还原 → 绿;无数据结构/接口改动, 回滚只删该判断块 |
+| R9 | F3/F4 回滚 | 去掉 future_exit / no_run_signal 判据 = 回到「只看 24h」旧行为 | 测(判别力已证) | 分别注释 → 对应 1 条红(T12 / S20), 还原 → 绿;新增常量 `LEDGER_FUTURE_TOLERANCE` 只被本判据用, 回滚无残留依赖 |
 
 ## 7. 并发
 
@@ -121,10 +137,15 @@
 
 ## 8. 结论与未测项处置
 
-- 测:61 项;不测:13 项(每项已给理由:既有机制/不改文件/无生产路径/仅展示长度)。
+- 测:73 项;不测:16 项(每项已给理由:既有机制/不改文件/无生产路径/仅展示长度/
+  诊断文案差异)。
 - 「不测」项若 reviewer 独立推导出遗漏, 按 §10.8 差集报主控;本清单不代替 reviewer 自查。
 - 验收证据:309 专项用例全绿(条数见实施报告)、全量 pytest 数字;判别力自证覆盖
   双盲抑制判据 / 键迁移 recovered / defer 一致性 / timer 6 键与串味 / ledger 新鲜度
-  五组(逐个改坏→红→还原→绿,证据见实施报告)。
+  五组 + 第四轮 F1 刷新返回码 / F3 未来时间 / F4 跑过信号全缺 三组
+  (逐个改坏→红→还原→绿,证据见实施报告)。
 - 四轴落点索引(第三轮新增):两次独立读取一致性 → T10;fixture 键集忠实度 → I15/I16;
   键迁移恢复语义 → T8/T9(登记表 §2.3.1);ledger 新鲜度 → S19。
+- 第四轮落点索引:F1 刷新返回码 → I17/I18/I19 + U11/U12(同类调用面) + R8;
+  F3 账本 exit 未来时间 → T12/T13/T14 + E9(偏差取值) + R9;
+  F4 跑过信号全缺 → S20/S21/S22(选型依据=云上 43/43 实测)+ U10(两个生产调用方)。
