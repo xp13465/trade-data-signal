@@ -17,6 +17,7 @@
 """
 import datetime
 import json
+from pathlib import Path
 
 import pytest
 
@@ -192,16 +193,134 @@ def test_update_ledger_ignores_unknown_and_keeps_old_units():
 
 # ---------------------------------------------------------------- 读取注入 / 开关
 
-def test_read_unit_states_uses_injected_runner_only():
+def test_read_unit_states_reads_service_and_same_name_timer():
+    """P1-1: service 读 8 属性 + 同名 timer 读 NextElapse/LastTrigger, 一次合并。"""
     calls = []
+    payload = {
+        "a.service": {
+            "LoadState": "loaded", "Result": "exit-code", "ExecMainCode": "1",
+            "ExecMainStatus": "1", "ExecMainStartTimestamp": "2026-10-25 16:00:01",
+            "ExecMainExitTimestamp": "2026-10-25 16:10:01",
+            "InvocationID": "inv-a", "ActiveState": "inactive",
+        },
+        "a.timer": {
+            "LoadState": "loaded", "ActiveState": "active",
+            "NextElapseUSecRealtime": "2026-10-26 16:00:00",
+            "LastTriggerUSec": "2026-10-25 16:00:01",
+            "Result": "success", "ExecMainStatus": "0",
+        },
+    }
 
     def runner(unit):
         calls.append(unit)
-        return {"LoadState": "loaded", "Result": "success"}
+        return payload.get(unit, {})
 
-    out = ut.read_unit_states(["a.service", "b.service"], runner=runner)
-    assert calls == ["a.service", "b.service"]
-    assert out["a.service"]["Result"] == "success"
+    out = ut.read_unit_states(["a.service"], runner=runner)
+    # 每个任务读两个 unit: 自己的 service + 同名 timer
+    assert calls == ["a.service", "a.timer"]
+    merged = out["a.service"]
+    # service 侧属性(退出码以 service 为准)
+    assert ut.derive_exit_code(merged) == (1, "systemd")
+    assert merged["ActiveState"] == "inactive"
+    # timer 侧属性来自 timer
+    assert merged["NextElapseUSecRealtime"] == "2026-10-26 16:00:00"
+    assert merged["LastTriggerUSec"] == "2026-10-25 16:00:01"
+
+
+def test_timer_result_never_leaks_into_service_truth():
+    """P1-1 核心防回归: timer 的 Result=success/ExecMainStatus=0 绝不许洗白失败的 service。"""
+
+    def runner(unit):
+        if unit.endswith(".timer"):
+            return {"LoadState": "loaded", "ActiveState": "active",
+                    "Result": "success", "ExecMainCode": "1", "ExecMainStatus": "0"}
+        return {"LoadState": "loaded", "Result": "exit-code", "ExecMainCode": "1",
+                "ExecMainStatus": "7", "ExecMainStartTimestamp": "2026-10-25 16:00:01",
+                "ExecMainExitTimestamp": "2026-10-25 16:01:01", "InvocationID": "x",
+                "ActiveState": "inactive"}
+
+    merged = ut.read_unit_states(["a.service"], runner=runner)["a.service"]
+    assert merged["Result"] == "exit-code"
+    assert merged["ExecMainStatus"] == "7"
+    assert ut.derive_exit_code(merged) == (7, "systemd")
+
+
+def test_service_props_cannot_smuggle_timer_attrs():
+    """P1-1 形状白名单: 即使假 systemctl 把 timer 属性塞进 service 块, 也只认 timer 块的值。"""
+
+    def runner(unit):
+        if unit.endswith(".timer"):
+            return {"LoadState": "loaded", "NextElapseUSecRealtime": "2026-10-26 09:00:00",
+                    "LastTriggerUSec": "2026-10-25 09:00:00"}
+        return {"LoadState": "loaded", "Result": "success",
+                "NextElapseUSecRealtime": "1999-01-01 00:00:00",
+                "LastTriggerUSec": "1999-01-01 00:00:00"}
+
+    merged = ut.read_unit_states(["a.service"], runner=runner)["a.service"]
+    assert merged["NextElapseUSecRealtime"] == "2026-10-26 09:00:00"
+    assert merged["LastTriggerUSec"] == "2026-10-25 09:00:00"
+
+
+def _parse_multi(raw):
+    return ut._parse_multi(raw)
+
+
+def test_parse_multi_real_systemctl_shape():
+    """真实形状(2026-10-25 云上实测): 块间空行分隔, Id 可能排在中部, timer 块也带 Result。"""
+    raw = (
+        "Result=success\n"
+        "ExecMainStatus=0\n"
+        "Id=trade-gold-night.service\n"
+        "LoadState=loaded\n"
+        "\n"
+        "NextElapseUSecRealtime=Mon 2026-10-26 02:40:00 CST\n"
+        "LastTriggerUSec=Sun 2026-10-25 02:40:01 CST\n"
+        "Result=success\n"
+        "Id=trade-gold-night.timer\n"
+        "LoadState=loaded\n"
+    )
+    parsed = _parse_multi(raw)
+    assert set(parsed) == {"trade-gold-night.service", "trade-gold-night.timer"}
+    assert parsed["trade-gold-night.service"]["Result"] == "success"
+    assert "NextElapseUSecRealtime" not in parsed["trade-gold-night.service"]
+    assert parsed["trade-gold-night.timer"]["NextElapseUSecRealtime"].startswith("Mon 2026-10-26")
+
+
+# 真实 systemd 属性白名单(2026-10-25 云上 `systemctl show` 实测, 硬编码不引用
+# unit_truth.SERVICE_PROPS: 生产常量若被误改成含 timer 属性, 本守卫必须仍然红)
+REAL_SERVICE_KEYS = {"LoadState", "Result", "ExecMainCode", "ExecMainStatus",
+                     "ExecMainStartTimestamp", "ExecMainExitTimestamp",
+                     "InvocationID", "ActiveState"}
+REAL_TIMER_KEYS = {"LoadState", "ActiveState", "NextElapseUSecRealtime",
+                   "LastTriggerUSec"}
+FIXTURES_309 = sorted((Path(__file__).absolute().parent / "fixtures" / "309")
+                      .glob("x*_units.json"))
+
+
+@pytest.mark.parametrize("path", FIXTURES_309, ids=lambda p: p.name)
+def test_fixture_service_timer_shape_matches_real_systemd(path):
+    """防假样本养绿(L49): fixture 的 `.service` 键不得含 timer 专属属性, 反之亦然。
+
+    若 `.service` 上出现 `NextElapseUSecRealtime`/`LastTriggerUSec`(现实中不存在),
+    读取层会「碰巧」从 service 块拿到值, 真机却拿不到 ⇒ 用例全绿但生产漏跑全盲。
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    svc = sorted(k for k in data if k.endswith(".service"))
+    tmr = sorted(k for k in data if k.endswith(".timer"))
+    assert len(svc) == len(tmr) == 43, f"{path.name}: service/timer 不是 43+43"
+    assert {k[:-len(".service")] for k in svc} == {k[:-len(".timer")] for k in tmr}, \
+        f"{path.name}: 存在没有同名 timer 的 service(漏跑检测会瞎)"
+    for k in svc:
+        extra = set(data[k]) - REAL_SERVICE_KEYS
+        assert not extra, (
+            f"{path.name}:{k} 含真实 .service 不存在的属性 {sorted(extra)}"
+            " —— 假样本会把读取层 bug 养绿(L49)"
+        )
+    for k in tmr:
+        extra = set(data[k]) - REAL_TIMER_KEYS
+        assert not extra, f"{path.name}:{k} 含真实 .timer 不存在的属性 {sorted(extra)}"
+    assert "NextElapseUSecRealtime" not in data[svc[0]]
+    assert "Result" not in data[tmr[0]], "真实 .timer 的 Result 恒 success, 不许作为任务结果"
 
 
 def test_read_unit_states_runner_exception_becomes_empty():

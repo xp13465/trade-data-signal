@@ -10,9 +10,18 @@
   (memory `repro-script-second-implementation-drift` 的同精神: 判定逻辑只留一份)。
 
 本模块只做「读 + 纯函数映射」, 不写任何生产数据:
-  - 读: `read_unit_states()` 一次 systemctl show 读 9 个属性(43 unit 实测 0.125s)。
+  - 读: `read_unit_states()` 一次 systemctl show 批量读 service + 同名 timer 的属性
+    (43 service + 43 timer 共 86 个 unit 实测 0.093s, 2026-10-25 云上实测)。
   - 映射: `derive_exit_code()` / `derive_unit_state()` / `timer_health()` 全纯函数。
   - 持久化: `data/unit_exit_ledger.json` 的读写工具(单写者=schedule_monitor.sh, W5)。
+
+⚠️ timer 属性的唯一来源(2026-10-25 独立审查 P1-1 修正):
+  `NextElapseUSecRealtime` / `LastTriggerUSec` **只存在于同名 `.timer` 上**, `.service`
+  没有这两个属性。因此读取层必须按 `.service` → **同名 `.timer`** 去取; 反过来,
+  timer 上的 `Result` / `ExecMainStatus` **绝不**能当任务退出码(timer 的 Result 恒为
+  success, 混进来会把失败的 service 洗成成功 —— 实测 `systemctl show a.service a.timer`
+  的 timer 块确实带 `Result=success`)。本模块用 `SERVICE_PROPS` / `TIMER_PROPS`
+  两张白名单分别合并, 物理上杜绝串味。
 
 关键陷阱(方案 §2.1 S1 + §6.1 B14, 均有云上实测):
   1. `systemctl show <不存在的 unit>` 返回 **rc=0** 且 `LoadState=not-found` /
@@ -38,8 +47,9 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
-# systemd 属性: 一次 show 全读(--value 会有顺序/空值歧义, 用 key=value 前缀式)。
-UNIT_PROPS = (
+# systemd 属性白名单: 一次 show 全读(--value 会有顺序/空值歧义, 用 key=value 前缀式)。
+# SERVICE_PROPS 只能从 `.service` 读; TIMER_PROPS 只能从同名 `.timer` 读(见模块头 ⚠️)。
+SERVICE_PROPS = (
     "LoadState",
     "Result",
     "ExecMainCode",
@@ -48,9 +58,13 @@ UNIT_PROPS = (
     "ExecMainExitTimestamp",
     "InvocationID",
     "ActiveState",
+)
+TIMER_PROPS = (
     "NextElapseUSecRealtime",
     "LastTriggerUSec",
 )
+# 请求给 systemctl 的并集(+ Id 用于按 unit 切分多 unit 输出), 顺序稳定便于调试。
+UNIT_PROPS = SERVICE_PROPS + TIMER_PROPS
 
 # 退出码合成口径(方案 §7.2 W1):
 #   Result=success → 0
@@ -107,13 +121,19 @@ def _parse_props(stdout: str) -> dict:
     return props
 
 
+def _show_cmd(unit_names) -> list:
+    """构造 `systemctl show <unit...> -p a -p b ...`(多 unit 一次调用, 低耗时)。"""
+    cmd = ["systemctl", "show", *unit_names]
+    for p in ("Id",) + UNIT_PROPS:
+        cmd.extend(["-p", p])
+    return cmd
+
+
 def _read_one(unit: str, timeout: float = 10) -> dict:
     """调一次 `systemctl show <unit>` 读 UNIT_PROPS; 失败返回 {} (未知, 不猜)。"""
-    cmd = ["systemctl", "show", unit]
-    for p in UNIT_PROPS:
-        cmd.extend(["-p", p])
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(_show_cmd([unit]), capture_output=True, text=True,
+                           timeout=timeout)
     except Exception:
         return {}
     if r.returncode != 0:
@@ -121,22 +141,105 @@ def _read_one(unit: str, timeout: float = 10) -> dict:
     return _parse_props(r.stdout)
 
 
-def read_unit_states(units, *, runner=None, timeout: float = 10) -> dict:
-    """批量读 unit 终态 → `{unit: props}`。
+def _parse_multi(stdout: str) -> dict:
+    """解析多 unit 的 `systemctl show` 输出 → `{unit: props}`。
 
-    runner: 测试注入点 `runner(unit) -> props dict|None`(假 systemctl), 生产不传。
-    读失败/unit 不存在时对应值为 {} (调用方会得到 code=None/missing, 不会假成功)。
+    实测形状(2026-10-25 云上): 每个 unit 一块, **块间空行分隔**, 块内某处必有一行
+    `Id=<unit>`(位置不固定, 可能排在中部), 因此不能靠「Id 开头」切块, 只能空行切块 +
+    块内取 Id。没有 Id 的残块直接丢弃(未知, 不猜)。
+    """
+    out, block = {}, {}
+
+    def _flush():
+        if not block:
+            return
+        name = block.get("Id")
+        if name:
+            out[name] = {k: v for k, v in block.items() if k != "Id"}
+        block.clear()
+
+    for line in (stdout or "").splitlines():
+        if not line.strip():
+            _flush()
+            continue
+        if "=" in line:
+            k, _, v = line.partition("=")
+            block[k.strip()] = v.strip()
+    _flush()
+    return out
+
+
+def _read_many(unit_names, timeout: float = 10) -> dict:
+    """一次 `systemctl show` 批量读多个 unit; 失败返回 {}(调用方回退逐个读)。"""
+    if not unit_names:
+        return {}
+    try:
+        r = subprocess.run(_show_cmd(unit_names), capture_output=True, text=True,
+                           timeout=timeout)
+    except Exception:
+        return {}
+    if r.returncode != 0:
+        return {}
+    return _parse_multi(r.stdout)
+
+
+def timer_unit_name(unit: str) -> str | None:
+    """service 名 → 同名 timer 名; `.timer` 原样返回; 无后缀的按 `<unit>.timer`。"""
+    if not unit:
+        return None
+    if unit.endswith(".timer"):
+        return unit
+    if unit.endswith(".service"):
+        return unit[:-len(".service")] + ".timer"
+    return unit + ".timer"
+
+
+def _merge_unit_props(service_props: dict | None, timer_props: dict | None) -> dict:
+    """按白名单合并: service 8 属性 + timer 2 属性, 绝不让 timer 的 Result 串味。"""
+    out = {k: (service_props or {})[k] for k in SERVICE_PROPS
+           if k in (service_props or {})}
+    for k in TIMER_PROPS:
+        if k in (timer_props or {}):
+            out[k] = timer_props[k]
+    return out
+
+
+def _safe_runner(runner, unit) -> dict:
+    try:
+        return runner(unit) or {}
+    except Exception:
+        return {}
+
+
+def read_unit_states(units, *, runner=None, timeout: float = 10) -> dict:
+    """批量读 unit 终态 → `{unit: props}`(props 已按白名单合并 service + 同名 timer)。
+
+    runner: 测试注入点 `runner(unit_name) -> props dict|None`(假 systemctl), 生产不传。
+      注入时对每个 unit 各调两次(service 名 + 同名 timer 名), 测试用真实形状假数据。
+    读失败/unit 不存在时对应值为 {}(调用方会得到 code=None/missing, 不会假成功)。
     """
     out = {}
+    if runner is not None:
+        for unit in units:
+            svc = {} if unit.endswith(".timer") else _safe_runner(runner, unit)
+            timer = _safe_runner(runner, timer_unit_name(unit))
+            out[unit] = _merge_unit_props(svc, timer)
+        return out
+
+    # 生产: 86 个 unit(43 service + 43 timer)一次 show(云上实测 0.093s)。
+    names = []
     for unit in units:
-        if runner is not None:
-            try:
-                st = runner(unit)
-            except Exception:
-                st = None
-        else:
-            st = _read_one(unit, timeout=timeout)
-        out[unit] = st or {}
+        for name in (unit, timer_unit_name(unit)):
+            if name and name not in names:
+                names.append(name)
+    props = _read_many(names, timeout=timeout)
+    if not props:
+        # 批量失败 → 逐个读兜底(仍然只信白名单合并, 不猜成功)
+        props = {n: _read_one(n, timeout=timeout) for n in names}
+    for unit in units:
+        svc_name = None if unit.endswith(".timer") else unit
+        out[unit] = _merge_unit_props(props.get(svc_name or "", {}),
+                                      props.get(timer_unit_name(unit) or "", {}))
     return out
 
 
