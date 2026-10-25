@@ -186,6 +186,25 @@ def test_ledger_stale_no_email_but_annotated_in_conclusion():
     assert "OK 所有任务" not in text
 
 
+def test_old_ledger_filled_code_does_not_email_but_stays_visible():
+    """P3#1: 重启后用账本补位的旧非 0 码, 不许发 SEVERE, 但结论行必须可见。"""
+    no_record = ut.derive_unit_state(UNIT, {"LoadState": "loaded", "Result": ""})
+    live = ut.merge_ledger_state(
+        no_record,
+        {"code": 1, "result": "exit-code", "exit": "2026-10-20 20:58:01",
+         "invocation_id": "old-inv"}, NOW)
+    assert live["source"] == "ledger-stale"
+    row = _srow("ledger-stale", 1, unit_exit_ts="2026-10-20 20:58:01",
+                unit_start="2026-10-20 20:35:01", last_run="2026-10-20 20:35")
+    ns = namespace()
+    events = ns["_unit_alert_events"](REGISTRY, {UNIT: live}, {TASK: row}, NOW)
+    assert [e for e in events if e["kind"] == "exit"] == []
+    text = ns["_build_conclusion"]([row], NOW, cfu_failed=0, alerts=0,
+                                   unit_failures=[], stats_refresh_ok=True)
+    assert "OK 所有任务" not in text
+    assert "账本补位码" in text
+
+
 def test_missed_not_suppressed_by_stats_unknown():
     """漏跑与 stats 真值可信度无关, 不许被 _row_unknown 一并抑制(#7 同族)。"""
     row = _srow("log", None, health="unknown")

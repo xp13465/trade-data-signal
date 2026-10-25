@@ -1646,7 +1646,7 @@ def build(log_dir=None, out=None, now=None, unit_reader=None, ledger_path=None):
         raw = ut.read_unit_states([r["unit"] for r in included], runner=unit_reader)
         for r in included:
             st = ut.derive_unit_state(r["unit"], raw.get(r["unit"]) or {})
-            states[r["unit"]] = ut.merge_ledger_state(st, ledger.get(r["unit"]))
+            states[r["unit"]] = ut.merge_ledger_state(st, ledger.get(r["unit"]), now)
     _task_specs = {t["task"]: t for t in TASKS}
     _extra_specs = {m["task"]: m for m in EXTRA_MARKER_SCANS}
     result = []

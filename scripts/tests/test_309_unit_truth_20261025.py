@@ -144,6 +144,46 @@ def test_merge_ledger_does_not_override_live_truth():
     assert ut.merge_ledger_state(st, {"code": 0})["code"] == 1
 
 
+# --- P3#1(2026-10-25): 重启补位旧码的新鲜度/invocation 校验(防天天发 SEVERE) ---
+
+def _no_record():
+    return _state({"LoadState": "loaded", "Result": ""})
+
+
+def test_merge_ledger_old_exit_is_stale_with_now():
+    """账本 exit 早于 24h → ledger-stale(码仍可见, 但不据此发 SEVERE)。"""
+    entry = {"code": 1, "result": "exit-code", "exit": "2026-10-23 20:58:01"}
+    merged = ut.merge_ledger_state(_no_record(), entry, NOW)
+    assert merged["source"] == "ledger-stale"
+    assert merged["ledger_stale_reason"] == "ledger_exit_too_old"
+    assert merged["code"] == 1
+
+
+def test_merge_ledger_fresh_exit_stays_ledger():
+    """反向对照: 24h 内的补位码照常可信(不许一律降级成 stale)。"""
+    entry = {"code": 1, "result": "exit-code", "exit": "2026-10-25 15:00:01"}
+    merged = ut.merge_ledger_state(_no_record(), entry, NOW)
+    assert merged["source"] == "ledger"
+    assert "ledger_stale_reason" not in merged
+
+
+def test_merge_ledger_missing_exit_is_stale_with_now():
+    """账本没有 exit 时间 → 新鲜度无法确认, 不猜, 标 stale。"""
+    merged = ut.merge_ledger_state(_no_record(), {"code": 1}, NOW)
+    assert merged["source"] == "ledger-stale"
+    assert merged["ledger_stale_reason"] == "no_exit_time"
+
+
+def test_merge_ledger_newer_start_marks_stale_without_last_trigger():
+    """本轮 systemd 的 start 晚于账本 exit ⇒ unit 之后又跑过, 账本码是旧的。"""
+    st = _state({"LoadState": "loaded", "Result": "",
+                 "ExecMainStartTimestamp": "2026-10-25 15:00:00"})
+    entry = {"code": 1, "result": "exit-code", "exit": "2026-10-24 20:58:01"}
+    merged = ut.merge_ledger_state(st, entry, NOW)
+    assert merged["source"] == "ledger-stale"
+    assert merged["ledger_stale_reason"] == "newer_start"
+
+
 # ---------------------------------------------------------------- 账本持久化(W5)
 
 def test_ledger_load_missing_or_corrupt_is_empty(tmp_path):

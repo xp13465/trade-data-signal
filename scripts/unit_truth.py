@@ -86,6 +86,9 @@ _USEC_RE = re.compile(r"^\d{10,}$")
 
 LEDGER_REL_PATH = Path("data") / "unit_exit_ledger.json"
 LEDGER_VERSION = 1
+# 账本补位码的新鲜度窗口(P3, 2026-10-25): 超过这个时长还没被新记录覆盖的补位码
+# 视为「重启后的旧码」, 只做诊断可见, 不许据此发 SEVERE(防重启后旧失败天天响)。
+LEDGER_FRESH_WINDOW = timedelta(hours=24)
 
 
 # ────────────────────────────────────────────────────────────────
@@ -460,13 +463,17 @@ def update_ledger_records(states: dict, prev: dict, now: datetime) -> dict:
     return out
 
 
-def merge_ledger_state(state: dict, entry: dict | None) -> dict:
+def merge_ledger_state(state: dict, entry: dict | None, now: datetime | None = None) -> dict:
     """重启/清空时用账本补位(纯函数, 返回新 dict)。
 
     - 只补「当前无记录」的情形(source ∈ {no-record, never-ran}); `missing`(unit 真不存在)
       不补, 否则拼错 unit 名会被历史账本永久掩盖成「上次成功」。
     - 若 systemd 报了 LastTriggerUSec 且晚于账本 exit, 说明 unit 在账本之后又跑过但记录
       已被清空(重启), 仍补账本数据但标 `source="ledger-stale"`(诊断用, code 照给)。
+    - **新鲜度/invocation 校验(P3, 2026-10-25, 传入 now 时生效)**: 账本 exit 时间缺失、
+      或早于 now - `LEDGER_FRESH_WINDOW`, 或本轮 systemd start/invocation 比账本更新
+      (unit 在账本之后跑过), 一律标 `ledger-stale` 并写 `ledger_stale_reason`。
+      不传 now = 不判新鲜度(兼容纯单测/离线场景), 但「跑过」信号仍会判。
     - 当前已有 systemd 真值时原样返回(账本不覆盖实时真值)。
     """
     st = dict(state or {})
@@ -484,8 +491,23 @@ def merge_ledger_state(state: dict, entry: dict | None) -> dict:
     st["exit"] = parse_systemd_timestamp(entry.get("exit")) or st.get("exit")
     last_trigger = st.get("last_trigger")
     exit_ts = st.get("exit")
-    stale = bool(last_trigger and exit_ts and last_trigger > exit_ts)
-    st["source"] = "ledger-stale" if stale else "ledger"
+    reason = None
+    if last_trigger and exit_ts and last_trigger > exit_ts:
+        reason = "ran_after_ledger"
+    elif st.get("start") and exit_ts and st["start"] > exit_ts:
+        reason = "newer_start"
+    elif (st.get("invocation_id") and entry.get("invocation_id")
+          and st["invocation_id"] != entry.get("invocation_id") and st.get("start")
+          and exit_ts and st["start"] > exit_ts):
+        reason = "newer_invocation"
+    if reason is None and now is not None:
+        if exit_ts is None:
+            reason = "no_exit_time"
+        elif now - exit_ts > LEDGER_FRESH_WINDOW:
+            reason = "ledger_exit_too_old"
+    st["source"] = "ledger-stale" if reason else "ledger"
+    if reason:
+        st["ledger_stale_reason"] = reason
     st["ledger_consecutive"] = entry.get("consecutive")
     st["ledger_first_bad_at"] = entry.get("first_bad_at")
     return st

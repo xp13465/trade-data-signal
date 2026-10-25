@@ -597,7 +597,7 @@ if SYSTEMD_TRUTH_ON:
         for _r in UNIT_REGISTRY:
             _u = _r["unit"]
             _st = ut.derive_unit_state(_u, _raw_units.get(_u) or {})
-            UNIT_STATES[_u] = ut.merge_ledger_state(_st, UNIT_LEDGER.get(_u))
+            UNIT_STATES[_u] = ut.merge_ledger_state(_st, UNIT_LEDGER.get(_u), NOW)
         try:
             _ledger_new = ut.update_ledger_records(UNIT_STATES, UNIT_LEDGER, NOW)
             ut.save_ledger_atomic(ut.default_ledger_path(REPO), _ledger_new, NOW)
