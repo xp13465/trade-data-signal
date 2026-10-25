@@ -573,10 +573,20 @@ for t in TASKS:
 # 跑前调 gen_schedule_stats.py 重生成(读最新 launchd.log),保证读到当前真实状态。
 STATS_REFRESH_OK = True
 try:
-    subprocess.run(
+    _stats_refresh = subprocess.run(
         [sys.executable, str(REPO / "scripts" / "gen_schedule_stats.py")],
         capture_output=True, text=True, timeout=60,
     )
+    # #309 F1(2026-10-25): 只兜异常不够 —— gen_schedule_stats.py 顶层没有 try/except,
+    # 任何未捕获异常都表现为「进程退出码 1」而不是 raise, 旧写法会把它漏判成刷新成功
+    # ⇒ 结论层照打「OK 所有任务」= 残余假 OK。现在按返回码判定。
+    # stderr 只留最后一行(截断 200 字)便于排查, 不整段打印(防刷屏/带出敏感内容)。
+    if _stats_refresh.returncode != 0:
+        STATS_REFRESH_OK = False
+        _err_tail = [ln for ln in (_stats_refresh.stderr or "").strip().splitlines() if ln.strip()]
+        _err_tail = (_err_tail[-1].strip()[:200] if _err_tail else "")
+        print(f"[warn] gen_schedule_stats 退出码 {_stats_refresh.returncode}"
+              f"(读旧 schedule_stats.json): {_err_tail}", file=sys.stderr)
 except Exception as e:
     # #309 P1b(2026-10-25): 刷新失败 = 本轮只能读旧快照。旧行为只打一行 stderr warn,
     # 结论仍可能打「OK 所有任务」⇒ 用户看到假绿。现在显式传给结论层, 一律不判 OK。
