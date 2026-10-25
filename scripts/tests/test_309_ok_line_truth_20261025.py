@@ -17,6 +17,7 @@ import datetime
 import pytest
 
 from _monitor_conclusion_309 import conclusion as _conclusion
+from _monitor_conclusion_309 import namespace as _namespace
 
 
 @pytest.fixture(scope="module")
@@ -63,10 +64,31 @@ def test_all_green_exact_ok_with_coverage(concl):
 # ---------------------------------------------------------------- CFU failed
 
 def test_cfu_failed_blocks_ok_all(concl):
-    text = concl(_green_stats(), NOW, cfu_failed=2, alerts=0)
+    """P2-5: 巡检输出的 N=问题类别数, 结论行必须展示真实 unit 名 + 真实个数。"""
+    text = concl(_green_stats(), NOW, cfu_failed=1, alerts=0,
+                 cfu_units=["pf-score-daily", "s06-snapshot"])
     assert "OK 所有任务" not in text
-    assert "2 个云上 unit failed" in text
+    assert "2 个云上 unit 处于 failed 状态: pf-score-daily、s06-snapshot" in text
+    assert "1 个云上 unit failed" not in text  # 旧误导文案不得再出现
     assert "覆盖 43/43" in text
+
+
+def test_cfu_failed_without_names_says_problem_categories(concl):
+    """名字解析不到(输出格式变了)→ 只报「N 类巡检问题」, 不许把类别数说成 unit 数。"""
+    text = concl(_green_stats(), NOW, cfu_failed=2, alerts=0)
+    assert "2 类云上 unit 巡检问题" in text
+    assert "2 个云上 unit 处于 failed" not in text
+
+
+def test_cfu_failed_units_parses_real_output(concl):
+    """真实形状(scripts/check_failed_units.py:759): 1 类问题含 2 个 unit 名。"""
+    fn = _namespace()["_cfu_failed_units"]
+    out = ("CHECK_FAILED_UNITS_FAIL(1 项): 云上 failed unit: "
+           "trade-pf-score-daily.service, trade-s06-snapshot.service | "
+           "存活异常: monitor 心跳过期")
+    assert fn(out) == ["pf-score-daily", "s06-snapshot"]
+    assert fn("CHECK_FAILED_UNITS_OK: 云上 43 unit 全部正常") == []
+    assert fn("") == []
 
 
 def test_removing_cfu_failure_restores_ok(concl):
@@ -110,6 +132,24 @@ def test_unknown_exit_blocks_ok(concl):
     text = concl(stats, NOW)
     assert "OK 所有任务" not in text
     assert "退出码未知 1 个(无法确认成功)" in text
+
+
+@pytest.mark.parametrize("src", ["never-ran", "no-record", "missing", "unknown-result"])
+def test_unconfirmed_sources_block_ok(concl, src):
+    """P2-6: 没有可信终态的四种诊断标签都必须阻断 OK(危险的是「以为成功」)。"""
+    stats = _green_stats()
+    stats[3] = _row("gold_night", unit_exit=None, last_exit=None, exit_source=src)
+    text = concl(stats, NOW)
+    assert "OK 所有任务" not in text
+    assert "退出码未知 1 个(无法确认成功)" in text
+
+
+def test_running_source_does_not_block_ok(concl):
+    """在跑(exit_source=running)不是失败/无记录, 保持旧行为(不阻断 OK)。"""
+    stats = _green_stats()
+    stats[4] = _row("update_all", unit_exit=None, last_exit=None,
+                    exit_source="running", unit_start=None, unit_exit_ts=None)
+    assert concl(stats, NOW).startswith("OK 所有任务")
 
 
 # ---------------------------------------------------------------- 仅日志口径(回滚 / 本机 mac)

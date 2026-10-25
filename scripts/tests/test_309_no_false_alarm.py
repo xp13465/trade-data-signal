@@ -110,21 +110,38 @@ def test_injected_unit_failure_emits_severe(NOW_BY_DAY):
     assert "OK 所有任务" not in text
 
 
-def test_same_code_in_stats_is_deduped_not_repeated(NOW_BY_DAY):
-    """stats.last_exit 已是同一 code → exit 通道负责, 新通道只出 dedup。"""
+def test_unit_channel_is_single_hop_across_stats_refresh(NOW_BY_DAY):
+    """P2-3: stats 刷新失败→恢复两轮, 同一故障只允许一个告警 key(一跳)。"""
     day = DAY0 + datetime.timedelta(days=2)
     states = _states(day, {"trade-lhb-backfill.service": {
         "Result": "exit-code", "ExecMainStatus": "1"}})
-    stats = _stats_all_zero(day)
     import gen_schedule_stats as gss
+    from _monitor_conclusion_309 import namespace
 
-    for s in stats:
+    owns = namespace()["_unit_channel_owns_row"]
+
+    # 第 1 轮: stats 仍是旧的 0(刷新失败), unit 真值 1 → unit 通道报
+    stats_round1 = _stats_all_zero(day)
+    ev1 = unit_alert_events()(gss.UNIT_REGISTRY, states,
+                              {s["task"]: s for s in stats_round1}, NOW_BY_DAY[day])
+    assert [e["kind"] for e in ev1] == ["exit"]
+    assert ev1[0]["key"] == "lhb_backfill|unit_exit!=0|1"
+
+    # 第 2 轮: stats 已合并同一 code, exit 通道必须让位(否则第二次告警)
+    stats_round2 = _stats_all_zero(day)
+    for s in stats_round2:
         if s["task"] == "lhb_backfill":
-            s["last_exit"] = 1
-    events = unit_alert_events()(gss.UNIT_REGISTRY, states,
-                                 {s["task"]: s for s in stats}, NOW_BY_DAY[day])
-    assert [e["kind"] for e in events] == ["dedup"]
-    assert not any(e["kind"] == "exit" for e in events)
+            s.update({"last_exit": 1, "unit_exit": 1, "exit_source": "systemd"})
+    ev2 = unit_alert_events()(gss.UNIT_REGISTRY, states,
+                              {s["task"]: s for s in stats_round2}, NOW_BY_DAY[day])
+    row2 = next(s for s in stats_round2 if s["task"] == "lhb_backfill")
+    assert owns(row2, True) is True
+    assert [e["key"] for e in ev2] == ["lhb_backfill|unit_exit!=0|1"]
+
+    # 反向对照: 日志口径(非 systemd 真值)行不由 unit 通道负责, exit 通道照常报
+    row_log = dict(row2, exit_source="log-deploy", unit_exit=0, last_exit=1)
+    assert owns(row_log, True) is False
+    assert owns(row2, False) is False
 
 
 def test_untrusted_state_in_stats_row_does_not_alert(NOW_BY_DAY):

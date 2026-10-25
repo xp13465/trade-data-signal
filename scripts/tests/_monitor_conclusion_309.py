@@ -14,6 +14,7 @@ from __future__ import annotations
 import ast
 import datetime
 import functools
+import re
 from pathlib import Path
 
 import unit_truth as ut
@@ -23,9 +24,9 @@ MONITOR = ROOT / "scripts" / "schedule_monitor.sh"
 
 WANT_ASSIGN = {"COVERAGE_BUSINESS_TOTAL", "COVERAGE_SELF_MONITOR", "LOG_CALIBER_COVERAGE"}
 WANT_FUNC = {
-    "_unit_short_name", "_fmt_time_part", "_fmt_span", "_stat_exit_code",
+    "_unit_short_name", "_fmt_time_part", "_fmt_span", "_stat_exit_code", "_unit_channel_owns_row",
     "_failed_stats", "_failure_name", "_failure_detail", "_coverage_text",
-    "_build_conclusion", "_unit_alert_events",
+    "_cfu_failed_units", "_build_conclusion", "_unit_alert_events",
 }
 
 
@@ -56,7 +57,7 @@ def namespace() -> dict:
     assert not missing, (
         f"schedule_monitor.sh 里未找到 {sorted(missing)}: 被重命名/删除了? 本测试锚点需同步"
     )
-    ns = {"datetime": datetime.datetime, "ut": ut}
+    ns = {"datetime": datetime.datetime, "ut": ut, "re": re}
     exec(compile("\n".join(picked), "<monitor-conclusion>", "exec"), ns)  # noqa: S102
     return ns
 

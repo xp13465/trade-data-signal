@@ -702,6 +702,17 @@ def _stat_exit_code(s):
     return code
 
 
+def _unit_channel_owns_row(s, systemd_truth_on):
+    """P2-3(2026-10-25): 该 stats 行是否由 unit 通道唯一负责。
+
+    True = systemd 真值明确非 0 ⇒ 由 `{task}|unit_exit!=0|{code}` 一跳登记,
+    既有 exit 通道必须跳过, 否则 stats 刷新前后同一故障会两跳两次。
+    """
+    return bool(systemd_truth_on and isinstance(s, dict)
+                and s.get("exit_source") in ("systemd", "ledger", "ledger-stale")
+                and s.get("unit_exit") not in (None, 0))
+
+
 def _failed_stats(stats):
     """退出失败行(systemd 真值优先; 同 task 只留第一条; systemd 失败排前)。"""
     out, seen = [], set()
@@ -758,12 +769,36 @@ def _coverage_text(stats):
     return f"覆盖 {total}/{expected}(40 业务+基础, 3 自监控)"
 
 
+def _cfu_failed_units(out):
+    """从 check_failed_units.py 输出提取 failed unit 短名列表(纯函数, 供单测)。
+
+    真实输出形状(scripts/check_failed_units.py:759):
+      `CHECK_FAILED_UNITS_FAIL(N 项): 云上 failed unit: a.service, b.service | 其他问题`
+    N 是**问题类别数**, 不是 unit 数(今日 2 个 failed unit 却显 1 类 ⇒ 旧文案「1 个
+    云上 unit failed」误导)。这里按真实的 unit 名列表提取, 结论行直接展示名字。
+    """
+    m = re.search(r"云上 failed unit: ([^|]+)", out or "")
+    if not m:
+        return []
+    names = []
+    for raw in m.group(1).split(","):
+        name = raw.strip()
+        if name:
+            names.append(_unit_short_name(name))
+    return names
+
+
 def _build_conclusion(stats, now, cfu_failed=0, alerts=0,
-                      mode="systemd", systemd_available=True):
+                      mode="systemd", systemd_available=True, cfu_units=None):
     """合成唯一结论行。返回文本(不含时间前缀)。纯函数, 供单测 AST 抽取。
 
     「OK 所有任务」只允许在 **alerts 空 + CFU failed 空 + 未知退出码空 + 漏跑空 +
     退出失败空** 时出现(方案 W3 铁律); 任一非空都必须显式写明, 不许假 OK。
+
+    P2-6(2026-10-25): 未知判据从「只认 exit_source=='unknown'」扩为「不在已知成功/失败
+    口径集合内都算无法确认」—— never-ran / no-record / missing / unknown-result 都是
+    systemd 明确表示「没有可信终态」, 不许被当成成功放过 OK。`running`(运行中)例外:
+    在跑不等于失败/无记录, 保留旧行为(不阻断 OK)。
     """
     stats = [s for s in (stats or []) if isinstance(s, dict)]
     if mode != "systemd" or not systemd_available:
@@ -788,14 +823,20 @@ def _build_conclusion(stats, now, cfu_failed=0, alerts=0,
         parts.append(f"漏跑 {len(missed)}")
         parts.append(coverage)
         return "; ".join(parts)
+    known_sources = ("systemd", "ledger", "ledger-stale", "log", "log-deploy",
+                     "log-collect", "running")
     unknown = [s for s in stats
-               if s.get("exit_source") == "unknown" and not s.get("unit_missed")]
+               if s.get("exit_source") not in known_sources and not s.get("unit_missed")]
     if unknown:
         return f"退出码未知 {len(unknown)} 个(无法确认成功); {coverage}"
     if alerts:
         return f"有 {alerts} 条告警(见上方), 不判 OK; {coverage}"
     if cfu_failed:
-        return f"OK(除 {cfu_failed} 个云上 unit failed, 详见 [196]); {coverage}"
+        units = [u for u in (cfu_units or []) if u]
+        if units:
+            return (f"OK(除 {len(units)} 个云上 unit 处于 failed 状态: "
+                    f"{'、'.join(units)}, 详见 [196]); {coverage}")
+        return f"OK(除 {cfu_failed} 类云上 unit 巡检问题, 详见 [196]); {coverage}"
     return f"OK 所有任务按计划执行，无漏跑，无退出失败; {coverage}"
 
 
@@ -803,11 +844,12 @@ def _unit_alert_events(unit_registry, unit_states, stats_by_task, now):
     """#309 W3 新通道①②的纯判定: unit 退出失败 + timer 漏跑 → 事件列表。
 
     返回每个事件的 dict(不改任何状态, 纯函数, 供 test_309_no_false_alarm 直接验证):
-      {"kind": "dedup"|"exit"|"missed", "key": ..., "task": ..., "msg": ...,
+      {"kind": "exit"|"missed", "key": ..., "task": ..., "msg": ...,
        "keyword": ..., "line_sample": ..., "escalate_label": ...}
-    - `dedup`: unit 真值失败但 stats.last_exit 已是同一 code ⇒ 由既有 exit 通道报,
-      本通道只打印一行「不重复」, 不进 alerts。
-    - `exit`: stats 仍 0/未知(日志无行 / 刷新失败 / 自监控 unit) ⇒ SEVERE。
+    - `exit`: unit 真值非 0 ⇒ SEVERE。**本通道是 systemd 真值失败的唯一权威**
+      (stats 仍 0/未知 / 已合并同一 code / 自监控 unit 都一样发; 去重靠 alert_state 的
+      key 持久化, 不靠「交给 exit 通道」—— 旧 dedup 分支导致 stats 刷新前后同一故障
+      两跳两次告警, 2026-10-25 P2-3 修正)。
     - `missed`: now > next_elapse + 10min 宽限(运行中除外) ⇒ SEVERE。
     """
     events = []
@@ -829,22 +871,15 @@ def _unit_alert_events(unit_registry, unit_states, stats_by_task, now):
             code = None
         if code not in (None, 0):
             key = f"{task}|unit_exit!=0|{code}"
-            if srow.get("last_exit") == code:
-                events.append({
-                    "kind": "dedup", "key": key, "task": task,
-                    "msg": (f"[unit-exit-dedup] {task} unit_exit={code} 同 last_exit, "
-                            f"exit 通道负责告警, 不重复"),
-                })
-            else:
-                events.append({
-                    "kind": "exit", "key": key, "task": task,
-                    "msg": (f"SEVERE: {task} systemd 退出失败 {short} "
-                            f"Result={st.get('result')} exit={code} 源=systemd "
-                            f"(stats last_exit={srow.get('last_exit')!r}, 需人工排查)"),
-                    "keyword": f"unit_exit={code}",
-                    "line_sample": (f"unit={unit} result={st.get('result')} exit={code}"),
-                    "escalate_label": f"{task} systemd 退出失败",
-                })
+            events.append({
+                "kind": "exit", "key": key, "task": task,
+                "msg": (f"SEVERE: {task} systemd 退出失败 {short} "
+                        f"Result={st.get('result')} exit={code} 源=systemd "
+                        f"(stats last_exit={srow.get('last_exit')!r}, 需人工排查)"),
+                "keyword": f"unit_exit={code}",
+                "line_sample": (f"unit={unit} result={st.get('result')} exit={code}"),
+                "escalate_label": f"{task} systemd 退出失败",
+            })
         if (ut is not None and not _row_unknown
                 and ut.timer_health(st, now) == "missed"):
             nxt = st.get("next_elapse")
@@ -1013,6 +1048,13 @@ if STATS_FILE.exists():
             stats = json.load(f)
         for s in stats:
             exit_code = s.get("last_exit")
+            # P2-3(2026-10-25): systemd 真值失败由 unit 通道({task}|unit_exit!=0|{code})
+            # 唯一负责。本通道只处理日志口径(log / log-deploy / log-collect)与 sysd 不可用
+            # 的回退; 否则同一故障会两跳两次: 本轮 stats 刷新失败 → unit 通道报, 下轮 stats
+            # 恢复后 → 本通道用 {task}|exit!=0|{code} 再报一次。旧 key 若曾 active, 本轮
+            # 未 seen 会由恢复检测发一次 [恢复](口径迁移的一次性收尾, 不是漏报)。
+            if _unit_channel_owns_row(s, SYSTEMD_TRUTH_ON):
+                continue
             # null=进行中/无数据不算失败；非0=退出失败
             # #309 拍板点1=A: 采集=0 且 deploy!=0(=主流程成功、子步骤失败) → warning 聚合,
             # 不进 alerts(不首报 SEVERE), 也不落 active(避免占恢复闭环)。
@@ -1731,18 +1773,17 @@ if STATS_FILE.exists():
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 
 # ── #309 W3 新通道①: systemd `unit_exit!=0`(覆盖 43 unit, 含 3 自监控) ──
-# 与既有 last_exit 通道去重: gen_schedule_stats 已把 unit 真值合并进 last_exit,
-# 同一 task + 同一 code 只由 exit 通道报一次; 这里只补「stats 还是 0/未知但 unit 明确失败」
-# (stats 刷新失败/日志无行/新增 unit)以及自监控 3 个 unit。
+# **systemd 真值失败的唯一权威通道**(2026-10-25 P2-3/P2-4): 43 unit 全走这里, 无论
+# stats 是否已合并同一 code、无论是否自监控/日志无行。既有 last_exit 通道遇到
+# exit_source∈{systemd,ledger,ledger-stale} 且 unit_exit!=0 的行会显式跳过(见上方),
+# 同一故障因此只有一跳(旧行为: stats 刷新失败时本通道报一次, 下轮 stats 恢复后
+# exit 通道用 {task}|exit!=0|{code} 再报一次)。
 # 注意 Result=not-found(unit 不存在)code=None, 不在此报(由 registry/漂移巡检负责)。
 _unit_stats_by_task = {s.get("task"): s for s in stats if isinstance(s, dict)}
 if SYSTEMD_TRUTH_ON:
     for _ev in _unit_alert_events(UNIT_REGISTRY, UNIT_STATES, _unit_stats_by_task, NOW):
         _ux_key = _ev["key"]
         seen_keys_this_run.add(_ux_key)
-        if _ev["kind"] == "dedup":
-            print(_ev["msg"])
-            continue
         _ex_ux = alert_state.get(_ux_key)
         if _ex_ux is None or _ex_ux.get("status") != "active":
             alerts.append(_ev["msg"])
@@ -1942,12 +1983,24 @@ for _label in LAUNCHCTL_LABELS:
         continue  # 已加载，不 add seen（让恢复检测处理 active/pending->recovered）
     if _lstate == "failed":
         # 2026-09-19 语义修正 第一层: failed=已加载但运行失败, 不是"未加载"。
+        # P2-4(2026-10-25): systemd 真值通道覆盖全部 43 unit(含 self-heal 等自监控),
+        # 且本轮真读到非 0 退出码 ⇒ 由它唯一登记, 本通道(两条分支)都不再二次登记。
+        # 旧行为: self_heal failed 同轮两条(unit_exit!=0 + {label}|failed);且本 defer
+        # 早先误放进 stats 分支里, 对不在 stats 的自监控 label 完全无效。
+        _ftask = _label[len("com.trade."):].replace("-", "_")
+        _funit = _label.replace("com.trade.", "trade-", 1)
+        if not _funit.endswith(".service"):
+            _funit += ".service"
+        _fucode = ((UNIT_STATES or {}).get(_funit) or {}).get("code")
+        if SYSTEMD_TRUTH_ON and _fucode not in (None, 0):
+            print(f"[skip] {_label} systemd failed, unit 真值通道已登记 "
+                  f"{_ftask}|unit_exit!=0|{_fucode}, 不重复")
+            continue
         if _label in _schedule_stats_labels:
             # 被 exit!=0 通道覆盖的 label: 运行失败信息由 exit!=0 通道登记并去重。
             # #309 W3 新通道③(杀机制 C): 只有 exit 通道**真的登记了非 0/非未知**才允许 skip;
             # 若 stats 仍显示 0/None(刷新失败/日志无码), 旧逻辑会把它转交给瞎掉的通道 →
             # 假 OK。这里兜底直接 SEVERE(通道失效本身就是要报的故障)。
-            _ftask = _label[len("com.trade."):].replace("-", "_")
             _fsrow = _unit_stats_by_task.get(_ftask) or {}
             _fcovered = (_fsrow.get("last_exit") not in (None, 0)
                          or _fsrow.get("unit_exit") not in (None, 0))
@@ -2295,6 +2348,7 @@ _cfu_delivery_key = "check_failed_units|delivery|down"
 _cfu_dead = None
 _cfu_undelivered = None
 _cfu_failed = 0  # #309 W3: 结论行必须知道「巡检真发现了几个 failed」
+_cfu_out = ""    # P2-5: 结论行展示真实 failed unit 名列表(解析自本轮巡检输出)
 try:
     _r_cfu = subprocess.run(
         [sys.executable, str(REPO / "scripts" / "check_failed_units.py"),
@@ -3465,6 +3519,7 @@ for _ent in _absorbed:
 _concl = _build_conclusion(
     stats, NOW, cfu_failed=_cfu_failed, alerts=len(alerts),
     mode=EXIT_MODE, systemd_available=SYSTEMD_TRUTH_ON,
+    cfu_units=_cfu_failed_units(_cfu_out),
 )
 if alerts:
     print(f"[{now_str}] 检测到 {len(alerts)} 个告警:")
