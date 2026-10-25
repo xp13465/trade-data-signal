@@ -69,7 +69,7 @@ FROZEN_OLD_ROWS_JSON = "log_mode_old_rows.json"
 NEW_KEYS_309 = {
     "exit_source", "exit_conflict", "last_exit_tier",
     "log_exit_field", "log_deploy", "log_collect", "log_anomaly_severity",
-    "unit", "unit_result", "unit_exit", "unit_exit_ts", "unit_start",
+    "unit", "unit_result", "unit_exit", "unit_exit_source", "unit_exit_ts", "unit_start",
     "unit_timer_health", "unit_missed", "next_elapse",
     # 2026-10-25 P1-2: 三信号原样带出供审计(如 退出码=0 采集=0 deploy=1);
     # 纯新增字段, 旧消费方忽略, 旧字段值逐位不变。

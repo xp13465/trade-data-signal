@@ -1327,12 +1327,19 @@ def _unit_output_fields(unit: str, state: dict | None, now: datetime,
             "unit": unit, "unit_result": None, "unit_exit": None,
             "unit_exit_ts": None, "unit_start": None, "next_elapse": None,
             "unit_timer_health": "unknown", "unit_missed": False,
+            # #309 P1b(2026-10-25): 供 monitor 判断该退出码来源是否可作告警依据。
+            # 不可信/未知一律 None, 绝不猜 systemd。
+            "unit_exit_source": None,
         }
     health = ut.timer_health(state, now)
     return {
         "unit": unit,
         "unit_result": state.get("result"),
         "unit_exit": state.get("code"),
+        # #309 P1b(2026-10-25): systemd | ledger | ledger-stale | missing | ...
+        # monitor 侧只用它决定「stats 兜底码能否当失败依据」: ledger-stale = 账本后
+        # 又跑过(记录被清空), 码的新鲜度未确认, 不许据此发 SEVERE。
+        "unit_exit_source": state.get("source"),
         "unit_exit_ts": _iso(state.get("exit")),
         "unit_start": _iso(state.get("start")),
         "next_elapse": _iso(state.get("next_elapse")),
