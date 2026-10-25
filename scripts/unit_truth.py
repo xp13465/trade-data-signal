@@ -89,6 +89,9 @@ LEDGER_VERSION = 1
 # 账本补位码的新鲜度窗口(P3, 2026-10-25): 超过这个时长还没被新记录覆盖的补位码
 # 视为「重启后的旧码」, 只做诊断可见, 不许据此发 SEVERE(防重启后旧失败天天响)。
 LEDGER_FRESH_WINDOW = timedelta(hours=24)
+# 账本 exit 时间允许的「未来偏差」(F3, 2026-10-25): 账本被时钟回拨/写坏时 exit 可能晚于 now,
+# 与 now 的差值为负 ⇒ 「now - exit > 24h」恒假 ⇒ 旧码被当新鲜发 SEVERE。超出偏差一律判 stale。
+LEDGER_FUTURE_TOLERANCE = timedelta(minutes=5)
 
 
 # ────────────────────────────────────────────────────────────────
@@ -484,18 +487,28 @@ def merge_ledger_state(state: dict, entry: dict | None, now: datetime | None = N
     code = entry.get("code")
     if code is None:
         return st
+    # 先抓「本轮 live 侧」的原值再让账本填进来(下面 start/exit 会被账本值覆盖)。
     cur_inv = st.get("invocation_id")
+    live_start = st.get("start")
+    live_last_trigger = st.get("last_trigger")
+    # F4(2026-10-25): 三个「跑过」信号全缺 = 本轮没有任何该 unit 跑过的证据 ——
+    # 生产实测(2026-10-25 云上 `systemctl show` 43/43 unit): 正常终态下 InvocationID /
+    # ExecMainStartTimestamp / LastTriggerUSec 三样都非空; 全缺只出现在「restart 后还没跑过
+    # / 本轮读取失败」这类没有运行证据的形态。此时把账本旧码当新鲜必然误报 ⇒ 判 stale。
+    no_run_signal = not (cur_inv or live_start or live_last_trigger)
     st["code"] = int(code)
     st["result"] = entry.get("result")
     st["invocation_id"] = entry.get("invocation_id")
     st["start"] = parse_systemd_timestamp(entry.get("start")) or st.get("start")
     st["exit"] = parse_systemd_timestamp(entry.get("exit")) or st.get("exit")
-    last_trigger = st.get("last_trigger")
+    last_trigger = live_last_trigger
     exit_ts = st.get("exit")
     reason = None
     if last_trigger and exit_ts and last_trigger > exit_ts:
         reason = "ran_after_ledger"
     elif st.get("start") and exit_ts and st["start"] > exit_ts:
+        # st["start"] 已优先取本轮 live start; 只剩账本 start 时, 账本内 start>exit 属自相矛盾
+        # 的坏数据, 保守判 stale(不据此发 SEVERE), 因此这里保留合并后的值。
         reason = "newer_start"
     elif (cur_inv and entry.get("invocation_id")
           and cur_inv != entry.get("invocation_id")):
@@ -503,10 +516,15 @@ def merge_ledger_state(state: dict, entry: dict | None, now: datetime | None = N
         reason = "newer_invocation"
         st["live_invocation_id"] = cur_inv
     if reason is None and now is not None:
-        if exit_ts is None:
+        if exit_ts is not None and exit_ts > now + LEDGER_FUTURE_TOLERANCE:
+            # F3(2026-10-25): exit 在未来 = 账本时钟回拨/写坏, 负差值骗过 24h 新鲜度判据。
+            reason = "future_exit"
+        elif exit_ts is None:
             reason = "no_exit_time"
         elif now - exit_ts > LEDGER_FRESH_WINDOW:
             reason = "ledger_exit_too_old"
+        elif no_run_signal:
+            reason = "no_run_signal"
     st["source"] = "ledger-stale" if reason else "ledger"
     if reason:
         st["ledger_stale_reason"] = reason

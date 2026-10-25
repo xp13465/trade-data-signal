@@ -160,9 +160,15 @@ def test_merge_ledger_old_exit_is_stale_with_now():
 
 
 def test_merge_ledger_fresh_exit_stays_ledger():
-    """反向对照: 24h 内的补位码照常可信(不许一律降级成 stale)。"""
+    """反向对照: 24h 内的补位码照常可信(不许一律降级成 stale)。
+
+    F4(2026-10-25)后「三信号全缺」另有判据(见 no_run_signal 用例), 本用例专门守住
+    「有跑过证据 + exit 在 24h 内」这条仍然新鲜的主路径 —— start 早于账本 exit。
+    """
+    st = _state({"LoadState": "loaded", "Result": "",
+                 "ExecMainStartTimestamp": "2026-10-25 14:00:00"})
     entry = {"code": 1, "result": "exit-code", "exit": "2026-10-25 15:00:01"}
-    merged = ut.merge_ledger_state(_no_record(), entry, NOW)
+    merged = ut.merge_ledger_state(st, entry, NOW)
     assert merged["source"] == "ledger"
     assert "ledger_stale_reason" not in merged
 
@@ -192,6 +198,70 @@ def test_merge_ledger_newer_start_marks_stale_without_last_trigger():
     merged = ut.merge_ledger_state(st, entry, NOW)
     assert merged["source"] == "ledger-stale"
     assert merged["ledger_stale_reason"] == "newer_start"
+
+
+# --- F3(2026-10-25): 账本 exit 落在未来(时钟回拨/账本写坏)必须判 stale ---
+
+def test_merge_ledger_future_exit_is_stale():
+    """exit 比 now 晚 1h: 负差值会骗过「now-exit>24h」判据 ⇒ 必须显式判 stale。"""
+    entry = {"code": 1, "result": "exit-code", "exit": "2026-10-25 17:15:00"}
+    merged = ut.merge_ledger_state(_no_record(), entry, NOW)
+    assert merged["source"] == "ledger-stale"
+    assert merged["ledger_stale_reason"] == "future_exit"
+    assert merged["code"] == 1  # 码仍可见, 只挡 SEVERE
+
+
+def test_merge_ledger_slightly_future_exit_stays_ledger():
+    """反向对照: 未来 1min 在 5min 允许偏差内(时钟微差) ⇒ 仍当新鲜码, 不许一律打死。"""
+    entry = {"code": 1, "result": "exit-code", "exit": "2026-10-25 16:16:00"}
+    merged = ut.merge_ledger_state(
+        _state({"LoadState": "loaded", "Result": "",
+                "InvocationID": "cur-inv"}),
+        entry, NOW)
+    assert merged["source"] == "ledger"
+    assert "ledger_stale_reason" not in merged
+
+
+def test_merge_ledger_exact_tolerance_boundary_stays_ledger():
+    """边界: 恰好 now+5min 不算未来(判据用「>」不含等号) ⇒ 仍新鲜, 不误杀。"""
+    entry = {"code": 1, "result": "exit-code", "exit": "2026-10-25 16:20:00"}
+    merged = ut.merge_ledger_state(
+        _state({"LoadState": "loaded", "Result": "",
+                "InvocationID": "cur-inv"}),
+        entry, NOW)
+    assert merged["source"] == "ledger"
+    assert "ledger_stale_reason" not in merged
+
+
+# --- F4(2026-10-25): 三个「跑过」信号全缺时, 旧账本码不许当新鲜 ---
+# 生产依据(2026-10-25 云上 `systemctl show` 43/43 unit 实测): 正常终态下 InvocationID /
+# ExecMainStartTimestamp / LastTriggerUSec 三样都非空; 全缺只出现在「restart 后还没跑过 /
+# 本轮读取失败」这种没有运行证据的形态 ⇒ 判 stale(不据此发 SEVERE)。
+
+def test_merge_ledger_all_run_signals_missing_is_stale():
+    """live 三信号全缺 + 账本 exit 才 1h(旧逻辑判新鲜) ⇒ 必须 stale。"""
+    entry = {"code": 1, "result": "exit-code", "exit": "2026-10-25 15:00:01"}
+    merged = ut.merge_ledger_state(_no_record(), entry, NOW)
+    assert merged["source"] == "ledger-stale"
+    assert merged["ledger_stale_reason"] == "no_run_signal"
+
+
+def test_merge_ledger_one_run_signal_present_stays_ledger():
+    """只有 timer 触发过(LastTriggerUSec 有值且早于账本 exit) ⇒ 有跑过证据, 不当全缺。"""
+    st = _state({"LoadState": "loaded", "Result": "",
+                 "LastTriggerUSec": "2026-10-25 14:30:00"})
+    entry = {"code": 1, "result": "exit-code", "exit": "2026-10-25 15:00:01"}
+    merged = ut.merge_ledger_state(st, entry, NOW)
+    assert merged["source"] == "ledger"
+    assert "ledger_stale_reason" not in merged
+
+
+def test_merge_ledger_no_run_signal_without_now_keeps_old_behavior():
+    """不传 now(离线/纯单测)时不做新鲜度判定 —— 兼容既有调用方, 行为不许变。"""
+    entry = {"code": 1, "result": "exit-code", "exit": "2026-10-25 15:00:01"}
+    merged = ut.merge_ledger_state(_no_record(), entry)
+    assert merged["source"] == "ledger"
+    assert "ledger_stale_reason" not in merged
 
 
 # ---------------------------------------------------------------- 账本持久化(W5)
