@@ -659,8 +659,11 @@ def _exit_segment_code():
                 if isinstance(n, ast.If) and isinstance(n.test, ast.BoolOp)
                 and any(isinstance(v, ast.Compare) and isinstance(v.left, ast.Name)
                         and v.left.id == "exit_code" for v in n.test.values))
-    return compile(textwrap.dedent(ast.get_source_segment(src, node)),
-                   "<exit-segment>", "exec")
+    # get_source_segment 首行从 col_offset 起切(已去掉缩进), 后续行保留原缩进,
+    # 直接 dedent 会因首行 0 缩进而失效(elif 与 if 同级 → IndentationError)。
+    # 补回首行缩进再统一 dedent, 让 if/elif 链整体落到 0 缩进。
+    seg = " " * node.col_offset + ast.get_source_segment(src, node)
+    return compile(textwrap.dedent(seg), "<exit-segment>", "exec")
 
 
 def _keyword_segment_code():

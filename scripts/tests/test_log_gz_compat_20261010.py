@@ -14,7 +14,8 @@
 用例:
   ①helper 单元: .log 优先 / 缺失回退 .log.gz / 都无=None
   ②parse_last_run: 未压缩 == 改造前固化期望(同输入逐位); == gz(逐位); 缺失 → None
-  ③gen_schedule_stats 端到端回归: 未压缩输入 == 改造前固化输出 md5(逐字节一致)
+  ③gen_schedule_stats 端到端回归: 未压缩输入 == 改造前固化输出(旧字段逐键一致,
+    新增字段仅限白名单; #309 起输出新增 systemd 真值字段, 原整文件 md5 改为逐字段对账)
   ④gen_schedule_stats 端到端 gz: 单任务日志 gz 化 → last_run 不丢(==未压缩, 治漏跑误报)
   ⑤check_data_gap _scan_cap_giveup_log: 未压缩 == gz(逐位)
 
@@ -31,8 +32,8 @@ from __future__ import annotations
 
 import ast
 import gzip
-import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -60,9 +61,17 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 #
 # ② 改造前 parse_last_run 在未压缩 INTRA 样本上的末次开始时间(改造前后逐位一致)
 FROZEN_OLD_PARSE_LAST_RUN_PLAIN = "2026-10-10 09:35:02"
-# ③ 改造前 gen_schedule_stats 在同一 3 日志沙箱(INTRA/ETF/UPDATE_ALL)上的输出 md5
-#    (改造前后逐字节一致; reviewer 独立复核证据 A 同结论 —— 未压缩场景零行为变化)
-FROZEN_OLD_E2E_MD5 = "0cf8f13b12d9b710b055e11531792454"
+# ③ 改造前 gen_schedule_stats 在同一 3 日志沙箱(INTRA/ETF/UPDATE_ALL)上的逐行输出。
+#    #309 起输出新增 systemd 真值字段(旧字段值必须逐位不变, 只允许新增白名单字段),
+#    故由「整文件 md5」改为「旧字段逐键对账 + 新字段白名单」两项, 保住原意(旧行为零变化)。
+FROZEN_OLD_ROWS_JSON = "log_mode_old_rows.json"
+# #309 新增字段白名单(旧消费方忽略; 出现白名单外的新字段 = 未申报的行格式变更 → FAIL)
+NEW_KEYS_309 = {
+    "exit_source", "exit_conflict", "last_exit_tier",
+    "log_exit_field", "log_deploy", "log_collect", "log_anomaly_severity",
+    "unit", "unit_result", "unit_exit", "unit_exit_ts", "unit_start",
+    "unit_timer_health", "unit_missed", "next_elapse",
+}
 # ④ gz-only(INTRA 仅剩 .log.gz)场景: 改造前该任务 last_run=None(=缺陷: .log 缺失 →
 #    「无日志」→ 落计划窗口即漏跑误报), 且未压缩沙箱的 null 计数未变; 改造后 null 计数减 1
 FROZEN_OLD_GZ_ONLY_NULL_COUNT = 17
@@ -237,6 +246,8 @@ def main() -> int:
         (sb / "static-site" / "data").mkdir(parents=True)
         (sb / "scripts" / "gen_schedule_stats.py").write_text(src, encoding="utf-8")
         shutil.copy2(SCRIPTS / "util_atomic.py", sb / "scripts" / "util_atomic.py")
+        # #309: gen_schedule_stats 新增 unit_truth 依赖(systemd 真值读取), 沙箱须一并带上
+        shutil.copy2(SCRIPTS / "unit_truth.py", sb / "scripts" / "unit_truth.py")
         for nm, content in (("intraday_snapshot_launchd.log", INTRA),
                             ("etf_national_team_launchd.log", ETF),
                             ("update_all_launchd.log", UPDATE_ALL)):
@@ -255,21 +266,45 @@ def main() -> int:
         "print('ZERO_HITS='+repr(t.hits))"
     )
 
+    # 本测试只验「日志解析兼容」链路 ⇒ 强制日志口径, 避免 CI 机器有 systemctl 时
+    # 自动切 systemd 口径(40 行)导致沙箱期望失真。
+    _env = {**os.environ, "MONITOR_EXIT_SOURCE": "log"}
+
     def run_script(sb: Path) -> dict:
         r = subprocess.run([PY, str(sb / "scripts" / "gen_schedule_stats.py")],
-                           capture_output=True, text=True, timeout=180)
+                           capture_output=True, text=True, timeout=180, env=_env)
         assert r.returncode == 0, f"script rc={r.returncode}\n{r.stdout}\n{r.stderr}"
         out = sb / "static-site" / "data" / "schedule_stats.json"
         return json.loads(out.read_text(encoding="utf-8"))
 
     j_mod = run_script(sb_mod)
-    # ③ 未压缩端到端回归(固化期望 md5,弃 git 自引用): 断言改造后输出**逐字节** == 改造前
-    #    固化的 md5(捕获自 baseline 64946a079; 二者逐字节一致 = 未压缩场景零行为变化)。
-    _md5_mod = hashlib.md5(
-        (sb_mod / "static-site" / "data" / "schedule_stats.json").read_bytes()).hexdigest()
-    check("③ 未压缩端到端: 输出 == 改造前固化 md5(逐字节)",
-          _md5_mod == FROZEN_OLD_E2E_MD5,
-          f"got={_md5_mod} frozen={FROZEN_OLD_E2E_MD5}")
+    # ③ 未压缩端到端回归(固化期望样本,弃 git 自引用):
+    #    a) 旧字段逐键逐值 == 改造前样本(旧行为零变化)
+    #    b) 新增字段必须全在白名单内, 且无旧字段被删(行格式变更须显式申报)
+    _old_rows = {r["task"]: r
+                 for r in json.loads((TESTS / "fixtures" / "309" / FROZEN_OLD_ROWS_JSON)
+                                     .read_text(encoding="utf-8"))}
+    _value_diffs = []
+    _schema_diffs = []
+    for row in j_mod:
+        old = _old_rows.get(row["task"])
+        if old is None:
+            _schema_diffs.append(f"多出任务 {row['task']}")
+            continue
+        for k, v in old.items():
+            if k not in row:
+                _schema_diffs.append(f"{row['task']}: 旧字段被删 {k}")
+            elif row[k] != v:
+                _value_diffs.append(f"{row['task']}.{k}: {v!r} -> {row[k]!r}")
+        extra = set(row) - set(old)
+        if extra - NEW_KEYS_309:
+            _schema_diffs.append(f"{row['task']}: 白名单外新字段 {sorted(extra - NEW_KEYS_309)}")
+    _missing_tasks = set(_old_rows) - {r["task"] for r in j_mod}
+    check("③ 未压缩端到端: 旧字段逐键 == 改造前固化样本",
+          not _value_diffs and not _missing_tasks,
+          f"diffs={_value_diffs[:3]} missing={sorted(_missing_tasks)}")
+    check("③ 未压缩端到端: 仅新增白名单字段, 无旧字段被删",
+          not _schema_diffs, f"diffs={_schema_diffs[:3]}")
 
     # ④ 单任务日志真 gz 化(修复同族假绿: 原实现未 gz 化, out_gz 恒 == j_mod = 空转)
     #    + ZeroOutboundTrap 包裹跑
@@ -277,7 +312,8 @@ def main() -> int:
     with gzip.open(str(_intra_log) + ".gz", "wt", encoding="utf-8") as f:
         f.write(INTRA)
     _intra_log.unlink()
-    r = subprocess.run([PY, "-c", runner], capture_output=True, text=True, timeout=180)
+    r = subprocess.run([PY, "-c", runner], capture_output=True, text=True,
+                       timeout=180, env=_env)
     assert r.returncode == 0, f"gz runner rc={r.returncode}\n{r.stdout}\n{r.stderr}"
     check("③ 零外发: gen_schedule_stats 端到端 ZeroOutboundTrap hits==[]",
           "ZERO_HITS=[]" in r.stdout, r.stdout.strip().splitlines()[-1] if r.stdout else "")
