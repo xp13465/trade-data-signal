@@ -484,6 +484,7 @@ def merge_ledger_state(state: dict, entry: dict | None, now: datetime | None = N
     code = entry.get("code")
     if code is None:
         return st
+    cur_inv = st.get("invocation_id")
     st["code"] = int(code)
     st["result"] = entry.get("result")
     st["invocation_id"] = entry.get("invocation_id")
@@ -496,10 +497,11 @@ def merge_ledger_state(state: dict, entry: dict | None, now: datetime | None = N
         reason = "ran_after_ledger"
     elif st.get("start") and exit_ts and st["start"] > exit_ts:
         reason = "newer_start"
-    elif (st.get("invocation_id") and entry.get("invocation_id")
-          and st["invocation_id"] != entry.get("invocation_id") and st.get("start")
-          and exit_ts and st["start"] > exit_ts):
+    elif (cur_inv and entry.get("invocation_id")
+          and cur_inv != entry.get("invocation_id")):
+        # 每跑一次 systemd 就换 InvocationID: 与账本不一致 = 账本之后又跑过
         reason = "newer_invocation"
+        st["live_invocation_id"] = cur_inv
     if reason is None and now is not None:
         if exit_ts is None:
             reason = "no_exit_time"

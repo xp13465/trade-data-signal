@@ -174,6 +174,16 @@ def test_merge_ledger_missing_exit_is_stale_with_now():
     assert merged["ledger_stale_reason"] == "no_exit_time"
 
 
+def test_merge_ledger_different_invocation_marks_stale():
+    """InvocationID 每跑一次就换: 与账本不一致 = 账本之后又跑过, 账本码不是本轮终态。"""
+    st = _state({"LoadState": "loaded", "Result": "", "InvocationID": "cur-inv"})
+    entry = {"code": 1, "result": "exit-code", "exit": "2026-10-25 15:00:01",
+             "invocation_id": "old-inv"}
+    merged = ut.merge_ledger_state(st, entry, NOW)
+    assert merged["source"] == "ledger-stale"
+    assert merged["ledger_stale_reason"] == "newer_invocation"
+
+
 def test_merge_ledger_newer_start_marks_stale_without_last_trigger():
     """本轮 systemd 的 start 晚于账本 exit ⇒ unit 之后又跑过, 账本码是旧的。"""
     st = _state({"LoadState": "loaded", "Result": "",
