@@ -127,6 +127,28 @@ def test_same_code_in_stats_is_deduped_not_repeated(NOW_BY_DAY):
     assert not any(e["kind"] == "exit" for e in events)
 
 
+def test_untrusted_state_in_stats_row_does_not_alert(NOW_BY_DAY):
+    """统计行已判真值不可信(unit_exit/unit_start 空 + health=unknown) ⇒ 本通道同口径静默。
+
+    场景: systemd 记的是上一轮残留码(早于日志 start >120s), 若本通道照用旧码 =
+    下一轮用上一轮失败假报 SEVERE(正是 #309 要治的假告警)。
+    """
+    day = DAY0 + datetime.timedelta(days=6)
+    states = _states(day, {"trade-lhb-backfill.service": {
+        "Result": "exit-code", "ExecMainStatus": "1",
+        "NextElapseUSecRealtime": f"{day.isoformat()} 09:25:00"}})
+    stats = _stats_all_zero(day)
+    for s in stats:
+        if s["task"] == "lhb_backfill":
+            s.update({"unit_exit": None, "unit_start": None,
+                      "unit_timer_health": "unknown", "unit_missed": False})
+    import gen_schedule_stats as gss
+
+    events = unit_alert_events()(gss.UNIT_REGISTRY, states,
+                                 {s["task"]: s for s in stats}, NOW_BY_DAY[day])
+    assert not [e for e in events if e["task"] == "lhb_backfill"], events
+
+
 def test_missed_timer_emits_severe(NOW_BY_DAY):
     day = DAY0 + datetime.timedelta(days=4)
     events, stats = _events(day, NOW_BY_DAY[day], {"trade-gold-night.service": {

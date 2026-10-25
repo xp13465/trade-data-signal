@@ -139,6 +139,32 @@ def test_primary_exit_code_uses_log_value(tmp_path, monkeypatch):
     assert r["exit_conflict"] is True
 
 
+# ---------------------------------------------------------------- 真值采信窗口
+
+@pytest.mark.parametrize("unit_start,trusted", [
+    ("2026-10-20 18:30:00", True),   # 与日志 start 同秒 → 采信
+    ("2026-10-20 18:28:00", True),   # 早 120s(边界, 不 >120) → 采信
+    ("2026-10-20 18:27:59", False),  # 早 121s → 判上一轮残留, 不采信
+])
+def test_unit_truth_trust_window_is_120s(tmp_path, monkeypatch, unit_start, trusted):
+    """脚本「开始」行天然晚于 unit 启动几秒; 超过 120s 视为残留真值, 回退日志口径。"""
+    monkeypatch.setenv("MONITOR_EXIT_SOURCE", "systemd")
+    _write_log(tmp_path, "lhb_backfill_launchd.log",
+               "=== lhb_backfill.sh 开始 2026-10-20 18:30:00 ===\n"
+               "=== lhb_backfill.sh 结束 2026-10-20 18:31:00 退出码=0 ===\n")
+    runner = _Runner({"trade-lhb-backfill.service":
+                      _props(result="exit-code", status=1, start=unit_start,
+                             exit_ts="2026-10-20 18:31:02")})
+    rows, _ = _build(tmp_path, runner)
+    r = _row(rows, "lhb_backfill")
+    if trusted:
+        assert r["last_exit"] == 1 and r["exit_source"] == "systemd"
+        assert r["unit_exit"] == 1
+    else:
+        assert r["last_exit"] == 0 and r["exit_source"] == "log"
+        assert r["unit_exit"] is None and r["unit_timer_health"] == "unknown"
+
+
 # ---------------------------------------------------------------- 覆盖与全绿
 
 def test_systemd_mode_emits_40_rows_and_43_registry(tmp_path, monkeypatch):

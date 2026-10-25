@@ -817,9 +817,18 @@ def _unit_alert_events(unit_registry, unit_states, stats_by_task, now):
         st = (unit_states or {}).get(unit) or {}
         code = st.get("code")
         short = _unit_short_name(unit)
+        srow = (stats_by_task or {}).get(task) or {}
+        # 统计刷新时已判「真值不可信」(早于日志 start >120s 的残留 / 读取失败) ⇒
+        # 本通道同口径不许拿它发 SEVERE, 否则下一轮用上一轮旧码假报(治假告警同一原则)。
+        # 注意: 只认「行存在且明确 unknown」; stats 文件整体陈旧(行仍 0)不属于此列,
+        # 那种情况正是本通道要兜的真失败(stats 刷新失败时 unit 真值才是唯一依据)。
+        _row_unknown = bool(srow and srow.get("unit_exit") is None
+                            and srow.get("unit_start") is None
+                            and srow.get("unit_timer_health") == "unknown")
+        if _row_unknown and code not in (None, 0):
+            code = None
         if code not in (None, 0):
             key = f"{task}|unit_exit!=0|{code}"
-            srow = (stats_by_task or {}).get(task) or {}
             if srow.get("last_exit") == code:
                 events.append({
                     "kind": "dedup", "key": key, "task": task,
@@ -836,7 +845,8 @@ def _unit_alert_events(unit_registry, unit_states, stats_by_task, now):
                     "line_sample": (f"unit={unit} result={st.get('result')} exit={code}"),
                     "escalate_label": f"{task} systemd 退出失败",
                 })
-        if ut is not None and ut.timer_health(st, now) == "missed":
+        if (ut is not None and not _row_unknown
+                and ut.timer_health(st, now) == "missed"):
             nxt = st.get("next_elapse")
             events.append({
                 "kind": "missed", "key": f"{task}|unit_missed", "task": task,

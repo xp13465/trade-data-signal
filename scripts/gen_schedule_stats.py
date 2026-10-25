@@ -1436,7 +1436,10 @@ def _build_log_task_row(row, spec, log_dir, now, unit_state, mode):
             "line": f"pending_start={pending_start.strftime('%Y-%m-%d %H:%M')} last_exit={final_exit}",
         }
     # unit 侧字段: 在跑时不给 unit_exit(防上一轮残留码触发 unit 退出通道)
-    ufields = _unit_output_fields(unit, unit_state, now, trusted=not pending_running)
+    # 残留/不可信真值(早于日志 start >120s)不许外泄为 unit_exit:
+    # 否则下一轮 unit 通道会拿上一轮的旧码发假 SEVERE(正是 #309 要治的假告警)。
+    ufields = _unit_output_fields(unit, unit_state, now,
+                                  trusted=(trusted_state is not None and not pending_running))
     _meta = pair_meta[-1] if pair_meta else {}
     return {
         "task": task, "name": row["name"], "schedule": spec["schedule"],
