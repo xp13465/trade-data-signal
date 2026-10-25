@@ -707,6 +707,38 @@ def _stat_exit_code(s):
     return code
 
 
+def _migrate_unit_owned_keys(task, unit_code, last_code, alert_state, seen_keys, now_str):
+    """unit 通道接管 stats 行时的一次性键迁移(P2 假恢复根治, 2026-10-25)。
+
+    旧键 `{task}|exit!=0|{code}` 曾由 exit 通道登记; 新口径下该行被 unit 通道接管
+    (`{task}|unit_exit!=0|{code}`), 旧键本轮不会进 seen ⇒ 恢复环会误发「已恢复」
+    邮件, 而同一轮新键首报 SEVERE = 用户同时收到「故障」和「已恢复」(与事实相反)。
+
+    做法: 旧键一律加进 seen(恢复环跳过); 仍 active 的旧键静默退休
+    (status=recovered + recovery_reason, 说明是键迁移, 不是真恢复), **不发恢复邮件**。
+    新键也加 seen: stats 有非 0 码但本轮无事件(ledger-stale 不告警)时, 恢复环不许
+    把仍然存在的失败判成已消失。返回被退休的旧键列表(供审计/测试)。
+    """
+    moved = []
+    codes = []
+    for code in (unit_code, last_code):
+        if code not in (None, 0) and code not in codes:
+            codes.append(code)
+    for code in codes:
+        old = f"{task}|exit!=0|{code}"
+        seen_keys.add(old)
+        info = (alert_state or {}).get(old)
+        if isinstance(info, dict) and info.get("status") == "active":
+            info["status"] = "recovered"
+            info["last_recovered"] = now_str
+            info["recovery_reason"] = ("migrated_to_unit_key" if code == unit_code
+                                       else "superseded_by_new_code")
+            moved.append(old)
+    if unit_code not in (None, 0):
+        seen_keys.add(f"{task}|unit_exit!=0|{unit_code}")
+    return moved
+
+
 def _truth_source(s):
     """stats 行 unit 退出码的真实来源: 优先 unit_exit_source(新), 回退 exit_source(旧)。
 
@@ -1216,9 +1248,13 @@ if STATS_FILE.exists():
             # P2-3(2026-10-25): systemd 真值失败由 unit 通道({task}|unit_exit!=0|{code})
             # 唯一负责。本通道只处理日志口径(log / log-deploy / log-collect)与 sysd 不可用
             # 的回退; 否则同一故障会两跳两次: 本轮 stats 刷新失败 → unit 通道报, 下轮 stats
-            # 恢复后 → 本通道用 {task}|exit!=0|{code} 再报一次。旧 key 若曾 active, 本轮
-            # 未 seen 会由恢复检测发一次 [恢复](口径迁移的一次性收尾, 不是漏报)。
+            # 恢复后 → 本通道用 {task}|exit!=0|{code} 再报一次。
+            # P2(2026-10-25): 跳过前必须做一次性键迁移 —— 旧键 `{task}|exit!=0|{code}`
+            # 若不标记 seen, 恢复环会发「已恢复」, 而同轮新键首报 SEVERE = 自相矛盾。
             if _unit_channel_owns_row(s, SYSTEMD_TRUTH_ON):
+                _migrate_unit_owned_keys(
+                    s.get("task"), s.get("unit_exit"), s.get("last_exit"),
+                    alert_state, seen_keys_this_run, NOW.strftime("%Y-%m-%d %H:%M:%S"))
                 continue
             # null=进行中/无数据不算失败；非0=退出失败
             # #309 拍板点1=A: 采集=0 且 deploy!=0(=主流程成功、子步骤失败) → warning 聚合,

@@ -26,6 +26,7 @@ WANT_ASSIGN = {"COVERAGE_BUSINESS_TOTAL", "COVERAGE_SELF_MONITOR", "LOG_CALIBER_
                "STATS_FRESH_WINDOW"}
 WANT_FUNC = {
     "_unit_short_name", "_fmt_time_part", "_fmt_span", "_stat_exit_code", "_unit_channel_owns_row",
+    "_migrate_unit_owned_keys",
     "_truth_source", "_row_failure_ts", "_stats_failure_fresh", "_stats_failure_alertable",
     "_unit_channel_will_register", "_stats_failure_covered",
     "_failed_stats", "_failure_name", "_failure_detail", "_coverage_text",
