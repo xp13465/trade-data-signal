@@ -571,18 +571,23 @@ for t in TASKS:
 # 根因:schedule_monitor 每15min跑,但 schedule_stats.json 只在各任务脚本结尾刷新,
 # 若任务没跑(如周末),json 滞后旧值(如 etf 143 假告警),schedule_monitor 持续读旧值误告警。
 # 跑前调 gen_schedule_stats.py 重生成(读最新 launchd.log),保证读到当前真实状态。
+STATS_REFRESH_OK = True
 try:
     subprocess.run(
         [sys.executable, str(REPO / "scripts" / "gen_schedule_stats.py")],
         capture_output=True, text=True, timeout=60,
     )
 except Exception as e:
+    # #309 P1b(2026-10-25): 刷新失败 = 本轮只能读旧快照。旧行为只打一行 stderr warn,
+    # 结论仍可能打「OK 所有任务」⇒ 用户看到假绿。现在显式传给结论层, 一律不判 OK。
+    STATS_REFRESH_OK = False
     print(f"[warn] gen_schedule_stats 刷新失败(读旧 schedule_stats.json): {e}", file=sys.stderr)
 
 # ── #309 W3/W5: 43 unit 真值扫描(含 3 自监控; ledger 单写者=本监控) ──
 # 覆盖口径见方案 §3.4: 40 业务/基础进执行统计表, 3 自监控不入表但仍做 unit 级体检。
 EXIT_MODE = ut.exit_source_mode() if ut else "log"
 UNIT_REGISTRY = list(gss.UNIT_REGISTRY) if gss else []
+UNIT_REGISTRY_UNITS = {r.get("unit") for r in UNIT_REGISTRY if r.get("unit")}
 SYSTEMD_TRUTH_ON = bool(ut and EXIT_MODE == "systemd" and ut.systemd_available())
 UNIT_STATES = {}
 UNIT_LEDGER = ut.load_ledger(ut.default_ledger_path(REPO)) if ut else {}
@@ -702,15 +707,116 @@ def _stat_exit_code(s):
     return code
 
 
+def _truth_source(s):
+    """stats 行 unit 退出码的真实来源: 优先 unit_exit_source(新), 回退 exit_source(旧)。
+
+    #309 P1b(2026-10-25): gen_schedule_stats 的 `exit_source` 在可信时统一写 systemd,
+    ledger/ledger-stale 只体现在新字段 `unit_exit_source`; 判断「账本补位码能否告警」
+    必须看后者, 否则重启补位旧码会被当 systemd 真值发 SEVERE。
+    """
+    if not isinstance(s, dict):
+        return None
+    return s.get("unit_exit_source") or s.get("exit_source")
+
+
 def _unit_channel_owns_row(s, systemd_truth_on):
     """P2-3(2026-10-25): 该 stats 行是否由 unit 通道唯一负责。
 
     True = systemd 真值明确非 0 ⇒ 由 `{task}|unit_exit!=0|{code}` 一跳登记,
     既有 exit 通道必须跳过, 否则 stats 刷新前后同一故障会两跳两次。
+    来源判断见 `_truth_source`(ledger/ledger-stale 不再被误认成 systemd)。
     """
     return bool(systemd_truth_on and isinstance(s, dict)
-                and s.get("exit_source") in ("systemd", "ledger", "ledger-stale")
+                and _truth_source(s) in ("systemd", "ledger", "ledger-stale")
                 and s.get("unit_exit") not in (None, 0))
+
+
+STATS_FRESH_WINDOW = timedelta(hours=24)
+
+
+def _row_failure_ts(s):
+    """stats 行失败发生时间(判断新鲜度)。解析不到 → None(不猜)。"""
+    for key in ("unit_exit_ts", "unit_start"):
+        raw = s.get(key) if isinstance(s, dict) else None
+        if not raw:
+            continue
+        try:
+            return datetime.strptime(str(raw)[:19], "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+    raw_lr = (s or {}).get("last_run") or ""
+    if raw_lr:
+        try:
+            return datetime.strptime(raw_lr, "%Y-%m-%d %H:%M")
+        except ValueError:
+            return None
+    return None
+
+
+def _stats_failure_fresh(s, now, window=STATS_FRESH_WINDOW):
+    """stats 行非 0 码是否足够新鲜(默认 24h)。**没有时间可判 = 不新鲜**(防旧码假报)。
+
+    只约束「是否发邮件」; 结论行展示非 0 码不受此限(硬不变式: 非 0 绝不打 OK)。
+    """
+    ts = _row_failure_ts(s)
+    return bool(ts is not None and now - ts <= window)
+
+
+def _stats_failure_alertable(s, now):
+    """stats 行非 0 码能否作为**邮件告警**依据(不是结论行依据)。
+
+    可采信: systemd / ledger(账本补位), 且近 24h 内。
+    ledger-stale = 账本之后 unit 又跑过(记录被清空), 码的新鲜度未确认 → 不据此发
+    SEVERE, 但结论行照常展示并标注原因(可见性由结论行兜底, 见 `_failure_detail`)。
+    """
+    if not isinstance(s, dict) or s.get("unit_exit") in (None, 0):
+        return False
+    if _truth_source(s) not in ("systemd", "ledger"):
+        return False
+    return _stats_failure_fresh(s, now)
+
+
+def _unit_channel_will_register(unit, unit_states, systemd_truth_on, registry_units,
+                                stats_row=None, now=None):
+    """该 unit 的失败会不会由 `_unit_alert_events` 真正登记(各通道 defer 的唯一判据)。
+
+    只有「本通道确实会产出一个可登记事件」才允许别的通道让位; 任何不确定 → False,
+    让调用方照常登记(宁可多一条, 不许双静默)。
+    """
+    if not systemd_truth_on:
+        return False
+    if unit not in (registry_units or ()):
+        return False
+    st = (unit_states or {}).get(unit) or {}
+    code = st.get("code")
+    if code not in (None, 0) and st.get("source") != "ledger-stale":
+        return True
+    # live 读不到 → stats 兜底, 与 `_unit_alert_events` 用同一判据
+    return bool(code is None and now is not None
+                and _stats_failure_alertable(stats_row, now))
+
+
+def _stats_failure_covered(s, now):
+    """stats 行失败是否已被**某个真实通道**登记(供 failed 循环 `_fcovered` 用)。
+
+    - unit 真值/可信账本码 + 新鲜 → unit 通道会登记
+    - 日志口径非 0 且 last_run 在 24h 内 → exit!=0 通道会登记(stale 降级不登记)
+    任何「时间判不出来」都算未覆盖 → 调用方必须自己登记(不许双静默)。
+    """
+    if not isinstance(s, dict):
+        return False
+    if _stats_failure_alertable(s, now):
+        return True
+    code = s.get("last_exit")
+    if code in (None, 0) or _truth_source(s) not in ("log", "log-deploy", "log-collect"):
+        return False
+    lr = s.get("last_run") or ""
+    if not lr:
+        return False
+    try:
+        return now - datetime.strptime(lr, "%Y-%m-%d %H:%M") <= STATS_FRESH_WINDOW
+    except ValueError:
+        return False
 
 
 def _failed_stats(stats):
@@ -759,6 +865,12 @@ def _failure_detail(s, now):
         span = _fmt_span(s.get("unit_start"), s.get("unit_exit_ts"), now)
         if span:
             bits += f", {span}"
+        # #309 P3(2026-10-25): 账本补位码的新鲜度未确认 → 不据此发 SEVERE
+        # (见 _stats_failure_alertable), 必须在结论行写明原因, 不许静默消失。
+        if _truth_source(s) == "ledger-stale":
+            bits += "(账本补位码, 新鲜度未确认, 不单独告警)"
+        elif _truth_source(s) == "ledger":
+            bits += "(账本补位码)"
         return bits
     return f"exit={code}"
 
@@ -789,16 +901,25 @@ def _cfu_failed_units(out):
 
 
 def _build_conclusion(stats, now, cfu_failed=0, alerts=0,
-                      mode="systemd", systemd_available=True, cfu_units=None):
+                      mode="systemd", systemd_available=True, cfu_units=None,
+                      unit_failures=None, stats_refresh_ok=True):
     """合成唯一结论行。返回文本(不含时间前缀)。纯函数, 供单测 AST 抽取。
 
     「OK 所有任务」只允许在 **alerts 空 + CFU failed 空 + 未知退出码空 + 漏跑空 +
-    退出失败空** 时出现(方案 W3 铁律); 任一非空都必须显式写明, 不许假 OK。
+    退出失败空 + stats 刷新成功** 时出现(方案 W3 铁律); 任一非空都必须显式写明, 不许假 OK。
 
     P2-6(2026-10-25): 未知判据从「只认 exit_source=='unknown'」扩为「不在已知成功/失败
     口径集合内都算无法确认」—— never-ran / no-record / missing / unknown-result 都是
     systemd 明确表示「没有可信终态」, 不许被当成成功放过 OK。`running`(运行中)例外:
     在跑不等于失败/无记录, 保留旧行为(不阻断 OK)。
+
+    P1b(2026-10-25) 双盲修复:
+      - `unit_failures`: monitor 自己 live 读到的失败(即使 stats 行仍绿/为 running)。
+        非空即不得打 OK(去重不发邮件时, 结论行就是可见性兜底)。
+      - `stats_refresh_ok=False`: 本轮 stats 刷新失败、读的是旧快照 ⇒ 无法确认成功,
+        不得打 OK(旧行为只打一行 stderr warn, 结论照打 OK)。
+      - **信息不截断**: 旧实现「有失败/漏跑就提前 return」会吞掉「退出码未知 N 个」,
+        现在全部拼进同一行。
     """
     stats = [s for s in (stats or []) if isinstance(s, dict)]
     if mode != "systemd" or not systemd_available:
@@ -811,80 +932,124 @@ def _build_conclusion(stats, now, cfu_failed=0, alerts=0,
         if alerts:
             return (f"有 {alerts} 条告警(见上方), 不判 OK"
                     f"(仅日志口径, 覆盖 {LOG_CALIBER_COVERAGE}/40); 本机无 systemd")
+        if not stats_refresh_ok:
+            return (f"stats 刷新失败(本轮读旧快照), 不判 OK"
+                    f"(仅日志口径, 覆盖 {LOG_CALIBER_COVERAGE}/40); 本机无 systemd")
         return "OK(仅日志口径, 覆盖 17/40; 本机无 systemd)"
     fails = _failed_stats(stats)
     missed = [s for s in stats if s.get("unit_missed")]
     coverage = _coverage_text(stats)
-    if fails or missed:
-        parts = []
-        if fails:
-            bits = [f"{_failure_name(s)}({_failure_detail(s, now)})" for s in fails]
-            parts.append(f"{len(fails)} 个任务退出失败: " + "; ".join(bits))
-        parts.append(f"漏跑 {len(missed)}")
-        parts.append(coverage)
-        return "; ".join(parts)
     known_sources = ("systemd", "ledger", "ledger-stale", "log", "log-deploy",
                      "log-collect", "running")
     unknown = [s for s in stats
                if s.get("exit_source") not in known_sources and not s.get("unit_missed")]
+    parts = []
+    if fails:
+        bits = [f"{_failure_name(s)}({_failure_detail(s, now)})" for s in fails]
+        parts.append(f"{len(fails)} 个任务退出失败: " + "; ".join(bits))
+    # live 实测失败(unit 通道)与 stats 行失败按 task/unit 去重, 只补 stats 没覆盖的部分。
+    extra_live = []
+    if unit_failures:
+        seen = {s.get("task") for s in fails} | {s.get("unit") for s in fails}
+        for lf in unit_failures:
+            if not isinstance(lf, dict):
+                continue
+            if lf.get("task") in seen or lf.get("unit") in seen:
+                continue
+            seen.add(lf.get("task"))
+            seen.add(lf.get("unit"))
+            name = _unit_short_name(lf.get("unit")) if lf.get("unit") else (lf.get("task") or "?")
+            extra_live.append(
+                f"{name}(live exit={lf.get('code')}, 源={lf.get('source') or 'systemd'})")
+        if extra_live:
+            parts.append(f"live 实测另有 {len(extra_live)} 个失败: " + "; ".join(extra_live))
+    # 「漏跑 N」在有任何失败时一并写明(旧文案保留, 防读者以为漏跑未检查)。
+    if fails or extra_live or missed:
+        parts.append(f"漏跑 {len(missed)}")
     if unknown:
-        return f"退出码未知 {len(unknown)} 个(无法确认成功); {coverage}"
+        parts.append(f"退出码未知 {len(unknown)} 个(无法确认成功)")
     if alerts:
-        return f"有 {alerts} 条告警(见上方), 不判 OK; {coverage}"
+        parts.append(f"有 {alerts} 条告警(见上方), 不判 OK")
+    if not stats_refresh_ok:
+        parts.append("stats 刷新失败(本轮读旧快照), 无法确认成功, 不判 OK")
     if cfu_failed:
         units = [u for u in (cfu_units or []) if u]
         if units:
-            return (f"OK(除 {len(units)} 个云上 unit 处于 failed 状态: "
-                    f"{'、'.join(units)}, 详见 [196]); {coverage}")
-        return f"OK(除 {cfu_failed} 类云上 unit 巡检问题, 详见 [196]); {coverage}"
+            parts.append(f"{len(units)} 个云上 unit 处于 failed 状态: "
+                         f"{'、'.join(units)} (详见 [196])")
+        else:
+            parts.append(f"{cfu_failed} 类云上 unit 巡检问题 (详见 [196])")
+    if parts:
+        parts.append(coverage)
+        return "; ".join(parts)
     return f"OK 所有任务按计划执行，无漏跑，无退出失败; {coverage}"
 
 
 def _unit_alert_events(unit_registry, unit_states, stats_by_task, now):
     """#309 W3 新通道①②的纯判定: unit 退出失败 + timer 漏跑 → 事件列表。
 
-    返回每个事件的 dict(不改任何状态, 纯函数, 供 test_309_no_false_alarm 直接验证):
-      {"kind": "exit"|"missed", "key": ..., "task": ..., "msg": ...,
-       "keyword": ..., "line_sample": ..., "escalate_label": ...}
+    返回每个事件的 dict(不改任何状态, 纯函数, 供 test_309_* 直接验证):
+      {"kind": "exit"|"missed", "key": ..., "task": ..., "unit": ...,
+       "code": ..., "source": ..., "msg": ..., "keyword": ..., "line_sample": ...,
+       "escalate_label": ...}
     - `exit`: unit 真值非 0 ⇒ SEVERE。**本通道是 systemd 真值失败的唯一权威**
       (stats 仍 0/未知 / 已合并同一 code / 自监控 unit 都一样发; 去重靠 alert_state 的
       key 持久化, 不靠「交给 exit 通道」—— 旧 dedup 分支导致 stats 刷新前后同一故障
       两跳两次告警, 2026-10-25 P2-3 修正)。
     - `missed`: now > next_elapse + 10min 宽限(运行中除外) ⇒ SEVERE。
+
+    P1b(2026-10-25) 双盲修复(方案 b + 统计兜底):
+      1. **删掉旧 `_row_unknown` 抑制**: stats 判「真值不可信」只说明 stats 那一路
+         无法确认, 不等于 monitor live 读到的码是假的。旧代码把 live 非 0 码一并置
+         None(还连 cue 漏跑一起抑制) ⇒ 实测到真失败仍打 OK + 零邮件(#4/#7)。
+      2. **抑制只靠 key 去重**: 同一 task 同一码的 key 已在 alert_state active 时不重发
+         (防轰炸), 但事件照常产出; 结论行通过 unit_failures 展示 ⇒ 去重也有可见性。
+         任何**新码**一律出事件(不拿时间戳精度做抑制判据)。
+      3. **live 读不到时用 stats 兜底**: 仅 `systemd` / `ledger` 来源且近 24h 新鲜
+         (与 `_stats_failure_alertable` 同判据), 防 #2/#10「两边都以为对方会报」。
+         `ledger-stale` = 账本之后又跑过、码新鲜度未确认 ⇒ 不发 SEVERE, 只由结论行
+         标注可见(P3#1)。
     """
     events = []
     for row in unit_registry or []:
         unit = row.get("unit")
         task = row.get("task") or unit
         st = (unit_states or {}).get(unit) or {}
-        code = st.get("code")
         short = _unit_short_name(unit)
         srow = (stats_by_task or {}).get(task) or {}
-        # 统计刷新时已判「真值不可信」(早于日志 start >120s 的残留 / 读取失败) ⇒
-        # 本通道同口径不许拿它发 SEVERE, 否则下一轮用上一轮旧码假报(治假告警同一原则)。
-        # 注意: 只认「行存在且明确 unknown」; stats 文件整体陈旧(行仍 0)不属于此列,
-        # 那种情况正是本通道要兜的真失败(stats 刷新失败时 unit 真值才是唯一依据)。
-        _row_unknown = bool(srow and srow.get("unit_exit") is None
-                            and srow.get("unit_start") is None
-                            and srow.get("unit_timer_health") == "unknown")
-        if _row_unknown and code not in (None, 0):
-            code = None
+        code = None
+        source = None
+        live_code = st.get("code")
+        if live_code not in (None, 0):
+            if st.get("source") == "ledger-stale":
+                # 重启补位旧码, 新鲜度未确认(P3#1): 不发 SEVERE, 结论行标注。
+                pass
+            else:
+                code = live_code
+                source = st.get("source") or "systemd"
+        elif live_code is None and _stats_failure_alertable(srow, now):
+            # live 读取失败/没有记录 → stats 的可信码兜底(stats→unit 方向的双盲).
+            code = srow.get("unit_exit")
+            source = "stats-" + str(_truth_source(srow))
         if code not in (None, 0):
             key = f"{task}|unit_exit!=0|{code}"
             events.append({
-                "kind": "exit", "key": key, "task": task,
+                "kind": "exit", "key": key, "task": task, "unit": unit,
+                "code": code, "source": source,
                 "msg": (f"SEVERE: {task} systemd 退出失败 {short} "
-                        f"Result={st.get('result')} exit={code} 源=systemd "
+                        f"Result={st.get('result') or srow.get('unit_result')} "
+                        f"exit={code} 源={source} "
                         f"(stats last_exit={srow.get('last_exit')!r}, 需人工排查)"),
                 "keyword": f"unit_exit={code}",
-                "line_sample": (f"unit={unit} result={st.get('result')} exit={code}"),
+                "line_sample": (f"unit={unit} result={st.get('result')} exit={code} "
+                                f"source={source}"),
                 "escalate_label": f"{task} systemd 退出失败",
             })
-        if (ut is not None and not _row_unknown
-                and ut.timer_health(st, now) == "missed"):
+        if ut is not None and ut.timer_health(st, now) == "missed":
             nxt = st.get("next_elapse")
             events.append({
                 "kind": "missed", "key": f"{task}|unit_missed", "task": task,
+                "unit": unit,
                 "msg": (f"SEVERE: {task} timer 漏跑 {short} "
                         f"(next_elapse={nxt.strftime('%Y-%m-%d %H:%M:%S') if nxt else '?'}, "
                         f"已超 10min 宽限; timer 可能被停/改点/机器睡死)"),
@@ -1780,9 +1945,17 @@ if STATS_FILE.exists():
 # exit 通道用 {task}|exit!=0|{code} 再报一次)。
 # 注意 Result=not-found(unit 不存在)code=None, 不在此报(由 registry/漂移巡检负责)。
 _unit_stats_by_task = {s.get("task"): s for s in stats if isinstance(s, dict)}
+# #309 P1b(2026-10-25): live 实测失败清单, 传给结论层做可见性兜底 —— 即使同码告警
+# 已被 key 去重(不发邮件), 结论行也必须写明「live 实测有失败」, 不许打 OK。
+UNIT_FAILURES = []
 if SYSTEMD_TRUTH_ON:
     for _ev in _unit_alert_events(UNIT_REGISTRY, UNIT_STATES, _unit_stats_by_task, NOW):
         _ux_key = _ev["key"]
+        if _ev.get("kind") == "exit":
+            UNIT_FAILURES.append({
+                "task": _ev.get("task"), "unit": _ev.get("unit"),
+                "code": _ev.get("code"), "source": _ev.get("source"),
+            })
         seen_keys_this_run.add(_ux_key)
         _ex_ux = alert_state.get(_ux_key)
         if _ex_ux is None or _ex_ux.get("status") != "active":
@@ -3520,6 +3693,7 @@ _concl = _build_conclusion(
     stats, NOW, cfu_failed=_cfu_failed, alerts=len(alerts),
     mode=EXIT_MODE, systemd_available=SYSTEMD_TRUTH_ON,
     cfu_units=_cfu_failed_units(_cfu_out),
+    unit_failures=UNIT_FAILURES, stats_refresh_ok=STATS_REFRESH_OK,
 )
 if alerts:
     print(f"[{now_str}] 检测到 {len(alerts)} 个告警:")

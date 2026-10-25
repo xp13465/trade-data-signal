@@ -22,9 +22,12 @@ import unit_truth as ut
 ROOT = Path(__file__).absolute().parent.parent.parent
 MONITOR = ROOT / "scripts" / "schedule_monitor.sh"
 
-WANT_ASSIGN = {"COVERAGE_BUSINESS_TOTAL", "COVERAGE_SELF_MONITOR", "LOG_CALIBER_COVERAGE"}
+WANT_ASSIGN = {"COVERAGE_BUSINESS_TOTAL", "COVERAGE_SELF_MONITOR", "LOG_CALIBER_COVERAGE",
+               "STATS_FRESH_WINDOW"}
 WANT_FUNC = {
     "_unit_short_name", "_fmt_time_part", "_fmt_span", "_stat_exit_code", "_unit_channel_owns_row",
+    "_truth_source", "_row_failure_ts", "_stats_failure_fresh", "_stats_failure_alertable",
+    "_unit_channel_will_register", "_stats_failure_covered",
     "_failed_stats", "_failure_name", "_failure_detail", "_coverage_text",
     "_cfu_failed_units", "_build_conclusion", "_unit_alert_events",
 }
@@ -57,7 +60,7 @@ def namespace() -> dict:
     assert not missing, (
         f"schedule_monitor.sh 里未找到 {sorted(missing)}: 被重命名/删除了? 本测试锚点需同步"
     )
-    ns = {"datetime": datetime.datetime, "ut": ut, "re": re}
+    ns = {"datetime": datetime.datetime, "timedelta": datetime.timedelta, "ut": ut, "re": re}
     exec(compile("\n".join(picked), "<monitor-conclusion>", "exec"), ns)  # noqa: S102
     return ns
 

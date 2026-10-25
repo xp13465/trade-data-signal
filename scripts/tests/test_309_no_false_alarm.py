@@ -144,11 +144,11 @@ def test_unit_channel_is_single_hop_across_stats_refresh(NOW_BY_DAY):
     assert owns(row2, False) is False
 
 
-def test_untrusted_state_in_stats_row_does_not_alert(NOW_BY_DAY):
-    """统计行已判真值不可信(unit_exit/unit_start 空 + health=unknown) ⇒ 本通道同口径静默。
+def test_untrusted_stats_row_does_not_hide_live_failure(NOW_BY_DAY):
+    """P1b 反向对照: stats 行判「不可信」≠ monitor live 码是假的, 不许拿它一起置 None。
 
-    场景: systemd 记的是上一轮残留码(早于日志 start >120s), 若本通道照用旧码 =
-    下一轮用上一轮失败假报 SEVERE(正是 #309 要治的假告警)。
+    旧行为(`_row_unknown`)把 live 真实非 0 码也压成 None ⇒ 双盲假 OK(#4/#7)。
+    新行为: live 非 0 一律出事件; 同码重复靠 alert_state 的 key 去重(不在本纯函数内)。
     """
     day = DAY0 + datetime.timedelta(days=6)
     states = _states(day, {"trade-lhb-backfill.service": {
@@ -163,7 +163,10 @@ def test_untrusted_state_in_stats_row_does_not_alert(NOW_BY_DAY):
 
     events = unit_alert_events()(gss.UNIT_REGISTRY, states,
                                  {s["task"]: s for s in stats}, NOW_BY_DAY[day])
-    assert not [e for e in events if e["task"] == "lhb_backfill"], events
+    exits = [e for e in events if e["task"] == "lhb_backfill" and e["kind"] == "exit"]
+    assert len(exits) == 1, events
+    assert exits[0]["key"] == "lhb_backfill|unit_exit!=0|1"
+    assert exits[0]["source"] == "systemd"
 
 
 def test_missed_timer_emits_severe(NOW_BY_DAY):
