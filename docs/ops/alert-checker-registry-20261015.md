@@ -59,7 +59,7 @@
 | 13 | `kelly_intraday_gate_decider.py` | `trade-kelly-intraday-rerun.timer` 09:40 | warning | 1800 / 21600 / 86400 / 7d(按子类) | `kelly` | 首报必达 | — |
 | 14 | `kelly_intraday_rerun.sh` | `trade-kelly-intraday-rerun.timer` 09:40 | warning / critical(`--severe`,失败分支) | 1800 | `kelly` | 首报必达 | — |
 | 15 | `alert_denoise_rules.py`(R4 状态写失败) | 各调用点(备份链) | warning | 86400 | `backup` | 入聚合 | — |
-| 16 | `schedule_monitor.sh` | `trade-schedule-monitor.timer` 每 15min | warning / critical | 21600(r2-skip/恢复各自键) | `monitor` | 首报必达 | 聚合域待对齐 |
+| 16 | `schedule_monitor.sh` | `trade-schedule-monitor.timer` 每 15min | warning / critical | 21600(r2-skip/恢复各自键);进程内 `alert_state` 键见 §2.3 | `monitor` | 首报必达 | 聚合域待对齐 |
 | 17 | `retry_failed_metrics.py` | schedule_monitor | warning | 21600 | `collect` | 入聚合 | — |
 | 18 | `self_heal.sh` | `trade-self-heal.timer` 每 15min | info(达上限只落盘) | **未声明** | `collect` | — | **dedup window / 聚合域未声明** |
 | 19 | `update_all.sh` | `trade-update-all.timer` 17:50 | critical(`--severe`) | 1800 | `collect` | 首报必达 | 聚合域待对齐 |
@@ -141,5 +141,25 @@ grep -nE "\-\-tier|\-\-severe|\-\-dedup-key|\-\-dedup-window" scripts/<checker>
 python3 scripts/alert_weekly_review.py --check-four-tuple --scripts-dir scripts
 ```
 
+## 2.3 `schedule_monitor.sh` 进程内 `alert_state` 去重键清单(#309 同步,2026-10-25)
+
+> 与 §2.1 的 `notify.py --dedup-key` 不是一层:这些键写在 monitor 自己的
+> `alert_state`(每轮 seen/恢复检测),决定「同一故障跨轮只发一次 + 恢复发一次」。
+> 改动键名/新增通道必须同步本表(否则 review 无法对账告警面)。
+> 锚点 = 2026-10-25 `feat/fix-309-fake-ok-20261025` 仓内实测行号。
+
+| 键 | tier | 产生条件 | 锚点 |
+|---|---|---|---|
+| `{task}\|unit_exit!=0\|{code}` | critical(SEVERE) | systemd 真值退出码非 0(覆盖全部 43 unit, 含 3 自监控);**systemd 真值失败的唯一权威通道** | `schedule_monitor.sh:873`、消费于 `:1775` |
+| `{task}\|unit_missed` | critical(SEVERE) | timer 的 `NextElapseUSecRealtime` 超 10min 宽限仍未触发;运行中(active/activating/reloading)不算 | `schedule_monitor.sh:887`、`:816` |
+| `{label}\|failed_no_exit` | critical(SEVERE) | `is-active=failed` 但 stats 仍 0/未知(exit 通道失效兜底),只在 stats 覆盖的 label 上产生 | `schedule_monitor.sh:2013` |
+| `{label}\|failed` | critical(SEVERE) | 自监控 label(如 self-heal)failed 且 unit 真值码读不到(降级告警);unit 码非 0 时让位给 `unit_exit!=0`(P2-4 合一) | `schedule_monitor.sh:2039`、defer `:1990-1999` |
+| `{task}\|deploy_warn` | warning(聚合) | 日志 `deploy!=0` 而退出码/采集均为 0(P1-2 合并口径);直发 `notify.py --tier warning`,不进 SEVERE alerts | `schedule_monitor.sh:1063`、分级在 `gen_schedule_stats.py:_log_exit_evidence` |
+
+> 一跳原则(P2-3):stats 刷新失败轮由 unit 通道报 `{task}|unit_exit!=0|{code}`;下轮
+> stats 合并同一 code + `exit_source∈{systemd,ledger,ledger-stale}` 后,exit 通道跳过该行
+> (`schedule_monitor.sh:_unit_channel_owns_row`,用例 `test_unit_channel_is_single_hop_across_stats_refresh`)。
+> 旧日志键 `{task}|exit!=0|{code}` 仅保留给非 systemd 真值口径,不再与 unit 通道同轮双报。
+
 ---
-(报告完;本文件随 #264 包3 落档。生成:2026-10-15。)
+(报告完;本文件随 #264 包3 落档。生成:2026-10-15;§2.3 于 2026-10-25 #309 审查修复时同步。)
