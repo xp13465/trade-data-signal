@@ -2201,18 +2201,28 @@ for _label in LAUNCHCTL_LABELS:
         if not _funit.endswith(".service"):
             _funit += ".service"
         _fucode = ((UNIT_STATES or {}).get(_funit) or {}).get("code")
-        if SYSTEMD_TRUTH_ON and _fucode not in (None, 0):
+        # P2(2026-10-25) defer 判据必须与实际登记条件一致: 旧代码只看 live 码非 0,
+        # 但 unit 通道在 live=ledger-stale、或该 unit 不在 43 行注册表时**不会登记**
+        # ⇒ 两边都让位 = 双静默。这里改用 unit 通道同一判据(含 stats 兜底)。
+        _fstats = _unit_stats_by_task.get(_ftask)
+        if _unit_channel_will_register(
+                _funit, UNIT_STATES, SYSTEMD_TRUTH_ON, UNIT_REGISTRY_UNITS,
+                _fstats, NOW):
+            # 日志里的码要与真实登记的 key 一致(可能是 stats 兜底的码, 不是 live 码)
+            _fcode_show = (_fucode if _fucode not in (None, 0)
+                           else (_fstats or {}).get("unit_exit"))
             print(f"[skip] {_label} systemd failed, unit 真值通道已登记 "
-                  f"{_ftask}|unit_exit!=0|{_fucode}, 不重复")
+                  f"{_ftask}|unit_exit!=0|{_fcode_show}, 不重复")
             continue
         if _label in _schedule_stats_labels:
             # 被 exit!=0 通道覆盖的 label: 运行失败信息由 exit!=0 通道登记并去重。
             # #309 W3 新通道③(杀机制 C): 只有 exit 通道**真的登记了非 0/非未知**才允许 skip;
             # 若 stats 仍显示 0/None(刷新失败/日志无码), 旧逻辑会把它转交给瞎掉的通道 →
             # 假 OK。这里兜底直接 SEVERE(通道失效本身就是要报的故障)。
+            # P2(2026-10-25): `_fcovered` 必须看新鲜度 —— 24h 前的旧非 0 码会被 exit
+            # 通道 stale 降级(不发), 旧判据却当它「已覆盖」⇒ 双静默。改用同一判据。
             _fsrow = _unit_stats_by_task.get(_ftask) or {}
-            _fcovered = (_fsrow.get("last_exit") not in (None, 0)
-                         or _fsrow.get("unit_exit") not in (None, 0))
+            _fcovered = _stats_failure_covered(_fsrow, NOW)
             if _fcovered:
                 # 不 add seen: 若此前 not_loaded 已 active, 由恢复检测按未 seen 判
                 # "未加载已消失"(语义正确: 转为运行失败由 exit!=0 通道接管)。

@@ -110,17 +110,20 @@ FAILED_LOOP_PRED = lambda s: "LAUNCHCTL_LABELS" in s and "failed_no_exit" in s
 
 
 def _run_failed_loop(label, state, *, stats_row=None, unit_code=None,
-                     systemd_on=True, alert_state=None):
+                     systemd_on=True, alert_state=None, unit_source="systemd",
+                     registry_units=None):
     seg = _segment(FAILED_LOOP_PRED, kind=ast.For)
     notify_calls = []
+    funit = label.replace("com.trade.", "trade-", 1) + ".service"
+    from _monitor_conclusion_309 import namespace
     ns = {
         "LAUNCHCTL_LABELS": [label],
         "launchctl_loaded": lambda _l: state,
         "notify": lambda *a, **k: notify_calls.append((a, k)),
         "_schedule_stats_labels": {label} if stats_row is not None else set(),
         "_unit_stats_by_task": {"lhb_backfill": stats_row} if stats_row is not None else {},
-        "UNIT_STATES": {label.replace("com.trade.", "trade-", 1) + ".service":
-                        {"code": unit_code, "source": "systemd"}},
+        "UNIT_STATES": {funit: {"code": unit_code, "source": unit_source}},
+        "UNIT_REGISTRY_UNITS": ({funit} if registry_units is None else registry_units),
         "SYSTEMD_TRUTH_ON": systemd_on,
         "NOW": __import__("datetime").datetime(2026, 10, 20, 18, 45),
         "alert_state": alert_state if alert_state is not None else {},
@@ -130,6 +133,9 @@ def _run_failed_loop(label, state, *, stats_row=None, unit_code=None,
         "not_loaded_help": lambda _l: ("probe", "recover"),
         "SELF_HEAL_THRESHOLD": 3,
         "print": lambda *a, **k: None,
+        # P2(2026-10-25): defer/_fcovered 判据本身也从生产 AST 取, 不复制。
+        "_unit_channel_will_register": namespace()["_unit_channel_will_register"],
+        "_stats_failure_covered": namespace()["_stats_failure_covered"],
     }
     exec(seg, ns)  # noqa: S102
     ns["notify_calls"] = notify_calls
@@ -188,3 +194,83 @@ def test_self_heal_alerts_again_when_unit_channel_rolled_back():
     )
     assert len(ns["alerts"]) == 1
     assert "com.trade.self-heal|failed" in ns["alert_state"]
+
+
+# ---------------------------------------------------------------- P2 defer 判据一致性
+
+def _stats_row(**kw):
+    row = {"task": "lhb_backfill", "last_exit": 1, "unit_exit": 1,
+           "unit_exit_source": "systemd", "last_run": "2026-10-20 18:31",
+           "unit_exit_ts": "2026-10-20 18:31:02", "unit_start": "2026-10-20 18:30:02"}
+    row.update(kw)
+    return row
+
+
+def test_ledger_stale_live_code_does_not_silence_failed_loop():
+    """live 码是 ledger-stale(新鲜度未确认)⇒ unit 通道不会登记 ⇒ 本通道必须报。"""
+    ns = _run_failed_loop(
+        "com.trade.lhb-backfill", "failed",
+        stats_row=_stats_row(unit_exit_source="ledger-stale"), unit_code=1,
+        unit_source="ledger-stale",
+    )
+    assert len(ns["alerts"]) == 1
+    assert "通道失效" in ns["alerts"][0]
+    assert "com.trade.lhb-backfill|failed_no_exit" in ns["alert_state"]
+
+
+def test_unit_outside_registry_does_not_defer():
+    """unit 不在 43 行注册表 ⇒ 新通道根本不遍历它 ⇒ 本通道不许 defer。"""
+    ns = _run_failed_loop(
+        "com.trade.self-heal", "failed", unit_code=1, registry_units=set())
+    assert len(ns["alerts"]) == 1
+    assert "com.trade.self-heal|failed" in ns["alert_state"]
+
+
+def test_stale_stats_failure_is_not_covered_by_exit_channel():
+    """24h 前的旧非 0 码会被 exit 通道 stale 降级(不发) ⇒ 不许当已覆盖。"""
+    ns = _run_failed_loop(
+        "com.trade.lhb-backfill", "failed",
+        stats_row=_stats_row(last_run="2026-10-15 18:31",
+                             unit_exit_ts="2026-10-15 18:31:02"),
+        unit_code=None,
+    )
+    assert len(ns["alerts"]) == 1
+    assert "通道失效" in ns["alerts"][0]
+
+
+def test_fresh_stats_failure_is_covered_reverse_control():
+    """反向对照: 同一形状但码新鲜 ⇒ 真被覆盖, 本通道不重复报。"""
+    ns = _run_failed_loop(
+        "com.trade.lhb-backfill", "failed", stats_row=_stats_row(), unit_code=None)
+    assert ns["alerts"] == []
+    assert ns["alert_state"] == {}
+
+
+NOW_H = __import__("datetime").datetime(2026, 10, 20, 18, 45)
+
+
+@pytest.mark.parametrize(
+    "unit_code,unit_source,stats_row,systemd_on,registry,expect",
+    [
+        (124, "systemd", None, True, "in", True),                # live 非0, 注册表内
+        (124, "ledger-stale", None, True, "in", False),          # 账本旧码不登记
+        (None, "missing", None, True, "in", False),              # live 读不到且无 stats
+        (None, "missing", _stats_row(), True, "in", True),       # stats 兜底(新鲜)
+        (None, "missing", _stats_row(unit_exit_ts="2026-10-15 18:31:02"),
+         True, "in", False),                                    # stats 太旧不兜底
+        (None, "missing", _stats_row(unit_exit_source="ledger"), True, "in", True),
+        (None, "missing", _stats_row(unit_exit_source="ledger-stale"),
+         True, "in", False),
+        (124, "systemd", None, False, "in", False),              # 通道关
+        (124, "systemd", None, True, "out", False),              # 不在注册表
+        (0, "systemd", _stats_row(), True, "in", False),         # live 0, stats 旧码不采信
+    ],
+)
+def test_unit_channel_will_register_matches_real_registration(
+        unit_code, unit_source, stats_row, systemd_on, registry, expect):
+    """defer 判据必须与 `_unit_alert_events` 的实际登记条件逐项一致。"""
+    from _monitor_conclusion_309 import namespace
+    fn = namespace()["_unit_channel_will_register"]
+    states = {"u.service": {"code": unit_code, "source": unit_source}}
+    units = {"u.service"} if registry == "in" else set()
+    assert fn("u.service", states, systemd_on, units, stats_row, NOW_H) is expect
