@@ -71,6 +71,9 @@ NEW_KEYS_309 = {
     "log_exit_field", "log_deploy", "log_collect", "log_anomaly_severity",
     "unit", "unit_result", "unit_exit", "unit_exit_ts", "unit_start",
     "unit_timer_health", "unit_missed", "next_elapse",
+    # 2026-10-25 P1-2: 三信号原样带出供审计(如 退出码=0 采集=0 deploy=1);
+    # 纯新增字段, 旧消费方忽略, 旧字段值逐位不变。
+    "exit_signals",
 }
 # ④ gz-only(INTRA 仅剩 .log.gz)场景: 改造前该任务 last_run=None(=缺陷: .log 缺失 →
 #    「无日志」→ 落计划窗口即漏跑误报), 且未压缩沙箱的 null 计数未变; 改造后 null 计数减 1

@@ -40,8 +40,18 @@ def _props(result="success", status=0, start="2026-10-20 18:30:02",
     }
 
 
+SERVICE_KEYS = ("LoadState", "Result", "ExecMainCode", "ExecMainStatus",
+                "ExecMainStartTimestamp", "ExecMainExitTimestamp", "InvocationID",
+                "ActiveState")
+TIMER_KEYS = ("LoadState", "ActiveState", "NextElapseUSecRealtime", "LastTriggerUSec")
+
+
 class _Runner:
-    """假 systemctl: 默认全绿; 可按 unit 覆盖 props。"""
+    """假 systemctl(真实形状): `.service` 块只有 service 属性, `.timer` 块只有 timer 属性。
+
+    P1-1 后读取层会对每个任务问两个 unit(service + 同名 timer); 覆盖按 service 名给,
+    timer 查询自动复用同一份覆盖里的 timer 字段(如 NextElapseUSecRealtime)。
+    """
 
     def __init__(self, overrides=None):
         self.overrides = overrides or {}
@@ -49,7 +59,12 @@ class _Runner:
 
     def __call__(self, unit):
         self.calls.append(unit)
-        return self.overrides.get(unit) or _props()
+        base = unit[:-len(".timer")] + ".service" if unit.endswith(".timer") else unit
+        merged = dict(_props())
+        merged.update(self.overrides.get(base) or self.overrides.get(unit) or {})
+        if unit.endswith(".timer"):
+            return {k: merged[k] for k in TIMER_KEYS if k in merged}
+        return {k: merged[k] for k in SERVICE_KEYS if k in merged}
 
 
 def _write_log(tmp_path: Path, name: str, text: str) -> Path:
@@ -127,6 +142,58 @@ def test_systemd_nonzero_wins_over_log_success(tmp_path, monkeypatch):
     assert r["exit_conflict"] is True
 
 
+def test_zero_exit_with_deploy_failure_is_warning_not_zero(tmp_path, monkeypatch):
+    """P1-2 核心真实行: `退出码=0 采集=0 deploy=1` 不许被 退出码=0 吞掉。"""
+    monkeypatch.setenv("MONITOR_EXIT_SOURCE", "systemd")
+    _write_log(tmp_path, "lhb_backfill_launchd.log",
+               "=== lhb_backfill.sh 开始 2026-10-20 18:30:00 ===\n"
+               "=== lhb_backfill.sh 结束 2026-10-20 18:31:00 退出码=0 采集=0 deploy=1 ===\n")
+    rows, _ = _build(tmp_path, _Runner())
+    r = _row(rows, "lhb_backfill")
+    assert r["last_exit"] == 1, "deploy 失败被 退出码=0 吞掉 = 假 OK"
+    assert r["exit_source"] == "log-deploy"
+    assert r["last_exit_tier"] == "warning"
+    assert r["exit_conflict"] is True
+    # 三个信号都保留供审计
+    assert r["exit_signals"] == {"exit": 0, "collect": 0, "deploy": 1}
+
+
+def test_zero_exit_with_collect_failure_is_severe(tmp_path, monkeypatch):
+    monkeypatch.setenv("MONITOR_EXIT_SOURCE", "systemd")
+    _write_log(tmp_path, "lhb_backfill_launchd.log",
+               "=== lhb_backfill.sh 开始 2026-10-20 18:30:00 ===\n"
+               "=== lhb_backfill.sh 结束 2026-10-20 18:31:00 退出码=0 采集=1 ===\n")
+    rows, _ = _build(tmp_path, _Runner())
+    r = _row(rows, "lhb_backfill")
+    assert (r["last_exit"], r["exit_source"], r["last_exit_tier"]) == (
+        1, "log-collect", "severe")
+
+
+def test_primary_failure_with_deploy_failure_keeps_deploy_signal(tmp_path, monkeypatch):
+    """`退出码=1 deploy=1` → SEVERE(不退化成 warning), 同时保留 deploy 信号供审计。"""
+    monkeypatch.setenv("MONITOR_EXIT_SOURCE", "systemd")
+    _write_log(tmp_path, "lhb_backfill_launchd.log",
+               "=== lhb_backfill.sh 开始 2026-10-20 18:30:00 ===\n"
+               "=== lhb_backfill.sh 结束 2026-10-20 18:31:00 退出码=1 deploy=1 ===\n")
+    rows, _ = _build(tmp_path, _Runner())
+    r = _row(rows, "lhb_backfill")
+    assert (r["last_exit"], r["exit_source"], r["last_exit_tier"]) == (1, "log", "severe")
+    assert r["log_deploy"] == 1
+    assert r["exit_signals"] == {"exit": 1, "collect": None, "deploy": 1}
+
+
+def test_collect_and_primary_both_fail_keeps_both_signals(tmp_path, monkeypatch):
+    """采集+退出码同时非 0: code 用任务整体码, 但两个失败信号都保留。"""
+    monkeypatch.setenv("MONITOR_EXIT_SOURCE", "systemd")
+    _write_log(tmp_path, "lhb_backfill_launchd.log",
+               "=== lhb_backfill.sh 开始 2026-10-20 18:30:00 ===\n"
+               "=== lhb_backfill.sh 结束 2026-10-20 18:31:00 退出码=3 采集=2 deploy=1 ===\n")
+    rows, _ = _build(tmp_path, _Runner())
+    r = _row(rows, "lhb_backfill")
+    assert (r["last_exit"], r["exit_source"], r["last_exit_tier"]) == (3, "log", "severe")
+    assert r["exit_signals"] == {"exit": 3, "collect": 2, "deploy": 1}
+
+
 def test_primary_exit_code_uses_log_value(tmp_path, monkeypatch):
     monkeypatch.setenv("MONITOR_EXIT_SOURCE", "systemd")
     _write_log(tmp_path, "lhb_backfill_launchd.log",
@@ -198,7 +265,10 @@ def test_not_found_unit_is_unknown_not_success(tmp_path, monkeypatch):
     r = _row(rows, "fapi_daily")
     assert r["unit_exit"] is None
     assert r["last_exit"] is None
-    assert r["exit_source"] == "unknown"
+    # P2-6(2026-10-25): 诊断标签缺 unit 就必须原样保留(missing), 不再抹成笼统 unknown;
+    # 两者都不在结论层 known_sources ⇒ 同样阻断 OK, 但保留标签便于定位。
+    assert r["exit_source"] == "missing"
+    assert r["exit_source"] != "unknown"
 
 
 # ---------------------------------------------------------------- 一行回滚

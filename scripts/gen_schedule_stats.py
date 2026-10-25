@@ -1211,36 +1211,53 @@ def _iso(dt) -> str | None:
 
 
 def _log_exit_evidence(meta: dict | None) -> dict:
-    """结束行明细 → 日志侧退出证据 `{code, source, tier}`(无证据返回 {})。
+    """结束行明细 → 日志侧退出证据 `{code, source, tier, signals}`(无证据返回 {})。
 
-    判定顺序(拍板点 1 = A):
-      1. 主字段 `退出码=` 在 → 以它为准(source=log)
-      2. `采集!=0` → SEVERE(source=log-collect)
-      3. `deploy!=0` 且采集=0/缺失 → **warning 聚合**(source=log-deploy)
-      4. 子字段显式 0(仅 deploy=0/采集=0) → 0, 算显式成功证据(不是「没写」)
-      5. 全缺 → {} = 未知(调用方会标明 exit_source=unknown, 不再默认 0)
+    口径(拍板点 1 = A + 2026-10-25 独立审查 P1-2 修正):
+      1. **先收集全部信号再取最严重者**, 不许 first-match 吞掉低优先级字段
+         (旧实现 `退出码=` 一到就 return, 真实行 `退出码=0 采集=0 deploy=1` 的 deploy
+         失败被静默吞成 0)。
+      2. `采集!=0` → SEVERE(source=log-collect); 同时 `退出码!=0` 时以 退出码 为 code
+         (任务整体码更可读), 但 collect_failed 标记保留。
+      3. `退出码!=0` → SEVERE(source=log)。
+      4. 仅 `deploy!=0`(主流程成功、子步骤失败) → **warning 聚合**(source=log-deploy)。
+      5. 全字段显式 0 → 0(显式成功证据, 不是「没写」)。
+      6. 全缺 → {} = 未知(调用方标 exit_source=unknown, 不默认 0)。
+    `signals` 原样带出三个字段(供审计/排查多信号并存), 消费方只读不依赖其顺序。
     """
     if not meta:
         return {}
     primary = meta.get("exit_field")
     deploy = meta.get("deploy")
     collect = meta.get("collect")
-    if primary is not None:
-        return {"code": primary, "source": "log", "tier": None,
-                "has_exit_code": True}
-    if collect is not None and collect != 0:
-        return {"code": collect, "source": "log-collect", "tier": "severe",
-                "has_exit_code": False}
-    if deploy is not None and deploy != 0:
-        return {"code": deploy, "source": "log-deploy", "tier": "warning",
-                "has_exit_code": False}
-    if collect is not None:
-        return {"code": collect, "source": "log-collect", "tier": None,
-                "has_exit_code": False}
-    if deploy is not None:
-        return {"code": deploy, "source": "log-deploy", "tier": None,
-                "has_exit_code": False}
-    return {"has_exit_code": False}
+    signals = {"exit": primary, "collect": collect, "deploy": deploy}
+    has_exit_code = primary is not None
+    collect_failed = collect is not None and collect != 0
+    primary_failed = primary is not None and primary != 0
+    deploy_failed = deploy is not None and deploy != 0
+
+    if collect_failed:
+        # 采集失败 = 数据层真故障, 最高优先级; 退出码也非 0 时以它作 code(更可读)。
+        code = primary if primary_failed else collect
+        source = "log" if primary_failed else "log-collect"
+        tier = "severe"
+    elif primary_failed:
+        code, source, tier = primary, "log", "severe"
+    elif deploy_failed:
+        code, source, tier = deploy, "log-deploy", "warning"
+    elif primary is not None:
+        code, source, tier = primary, "log", None
+    elif collect is not None:
+        code, source, tier = collect, "log-collect", None
+    elif deploy is not None:
+        code, source, tier = deploy, "log-deploy", None
+    else:
+        return {"has_exit_code": False, "signals": signals}
+    return {"code": code, "source": source, "tier": tier,
+            "has_exit_code": has_exit_code, "signals": signals,
+            "collect_failed": collect_failed,
+            "primary_failed": primary_failed,
+            "deploy_failed": deploy_failed}
 
 
 def _trust_unit_state(unit_state: dict | None, log_start) -> dict | None:
@@ -1397,6 +1414,7 @@ def _build_log_task_row(row, spec, log_dir, now, unit_state, mode):
         last_dur = None
     # #309 W2: 合并 systemd 真值(仅当可采信)。在跑任务不合并, 防把上一轮残留码当本轮失败。
     trusted_state = None if pending_running else _trust_unit_state(unit_state, pairs[-1][0] if pairs else None)
+    log_ev = {}
     if pending_running:
         truth = {"last_exit": None, "exit_source": "running",
                  "exit_conflict": False, "last_exit_tier": None}
@@ -1450,6 +1468,8 @@ def _build_log_task_row(row, spec, log_dir, now, unit_state, mode):
         "log_exit_field": _meta.get("exit_field"),
         "log_deploy": _meta.get("deploy"),
         "log_collect": _meta.get("collect"),
+        # #309 P1-2: 三个日志信号原样带出(多信号并存时审计用, 如 退出码=0 采集=0 deploy=1)
+        "exit_signals": log_ev.get("signals"),
         "log_anomaly": bool(anomaly),
         "log_anomaly_keyword": anomaly["keyword"] if anomaly else None,
         "log_anomaly_line": anomaly["line"] if anomaly else None,
@@ -1533,13 +1553,30 @@ def _build_unit_only_row(row, now, unit_state, mode):
     """只有 systemd 口径的 21 个新 unit(无日志/日志格式不标准)。
 
     时点一律不硬编码: schedule 列展示 NextElapseUSecRealtime 派生值(方案 §3.3 ①)。
+
+    P2-7(2026-10-25): 运行态 guard —— 任务正在跑(active/activating/reloading)时,
+    systemd 的 `Result` 仍是上一轮/默认 success 且 ExecMainExitTimestamp 为空, 若照常
+    采信会给出「exit=0 + 旧 start」甚至负 duration(now 取的是本模块时钟, 不是 exit)。
+    运行中一律 last_exit=None / exit_source=running / unit 字段不外泄, 等结束后下一轮再判。
+
+    P2-6(2026-10-25): 不可确认的终态(never-ran / no-record / missing / unknown-result)
+    保留**诊断标签**作为 exit_source(不再统一抹成 unknown), 结论层据此阻断 OK
+    (见 schedule_monitor.sh `_build_conclusion` 的 KNOWN_SOURCES)。
     """
     unit = row["unit"]
-    trusted = _trust_unit_state(unit_state, None) if mode == "systemd" else None
+    running = bool(mode == "systemd" and unit_state
+                   and unit_state.get("active_state") in ut.RUNNING_STATES)
+    trusted = (None if (mode != "systemd" or running)
+               else _trust_unit_state(unit_state, None))
     ufields = _unit_output_fields(unit, unit_state, now, trusted=trusted is not None)
     if mode == "log":
         last_run = None
         final_exit, source, conflict, tier = None, "unknown", False, None
+        duration = None
+    elif running:
+        start = (unit_state or {}).get("start") or (unit_state or {}).get("last_trigger")
+        last_run = start.strftime("%Y-%m-%d %H:%M") if start else None
+        final_exit, source, conflict, tier = None, "running", False, None
         duration = None
     elif trusted is not None:
         start, exit_ts = trusted.get("start"), trusted.get("exit")
@@ -1551,7 +1588,12 @@ def _build_unit_only_row(row, now, unit_state, mode):
         duration = round((exit_ts - start).total_seconds()) if start and exit_ts else None
     else:
         last_run = None
-        final_exit, source, conflict, tier = None, "unknown", False, None
+        # 保留 systemd 诊断标签(never-ran/no-record/missing/unknown-result)供结论层阻断;
+        # 其他未知一律 unknown。
+        _src = (unit_state or {}).get("source")
+        source = _src if _src in ("never-ran", "no-record", "missing",
+                                  "unknown-result") else "unknown"
+        final_exit, conflict, tier = None, False, None
         duration = None
     nxt = (unit_state or {}).get("next_elapse")
     schedule = f"下次 {nxt.strftime('%m-%d %H:%M')}" if nxt else "systemd 派生"
