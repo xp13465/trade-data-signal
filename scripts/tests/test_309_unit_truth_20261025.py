@@ -287,22 +287,31 @@ def test_parse_multi_real_systemctl_shape():
 
 
 # 真实 systemd 属性白名单(2026-10-25 云上 `systemctl show` 实测, 硬编码不引用
-# unit_truth.SERVICE_PROPS: 生产常量若被误改成含 timer 属性, 本守卫必须仍然红)
+# unit_truth.SERVICE_PROPS / TIMER_PROPS: 生产常量若被误改成含对方属性, 本守卫必须仍然红)
+# 云上实测原文(/tmp/309-review2-show4.txt): 一个 timer 块 = NextElapseUSecRealtime /
+# LastTriggerUSec / Result=success / Id / LoadState / ActiveState / InvocationID 共 6 属性
+# —— Result 与 InvocationID 在 timer 上确实存在, 但恒为 success / 触发器的 ID, 不许当
+# 任务结果; ExecMain* 只在 service 上, timer 块里没有。
 REAL_SERVICE_KEYS = {"LoadState", "Result", "ExecMainCode", "ExecMainStatus",
                      "ExecMainStartTimestamp", "ExecMainExitTimestamp",
                      "InvocationID", "ActiveState"}
-REAL_TIMER_KEYS = {"LoadState", "ActiveState", "NextElapseUSecRealtime",
-                   "LastTriggerUSec"}
+REAL_TIMER_KEYS = {"LoadState", "ActiveState", "Result", "InvocationID",
+                   "NextElapseUSecRealtime", "LastTriggerUSec"}
+# service 没有、只有 timer 才有的属性(漏跑检测必须从同名 timer 读)
+TIMER_ONLY_KEYS = {"NextElapseUSecRealtime", "LastTriggerUSec"}
+# timer 没有、只有 service 才有的属性(退出码只能从 service 推导)
+EXEC_ONLY_KEYS = {"ExecMainCode", "ExecMainStatus",
+                  "ExecMainStartTimestamp", "ExecMainExitTimestamp"}
 FIXTURES_309 = sorted((Path(__file__).absolute().parent / "fixtures" / "309")
                       .glob("x*_units.json"))
 
 
 @pytest.mark.parametrize("path", FIXTURES_309, ids=lambda p: p.name)
 def test_fixture_service_timer_shape_matches_real_systemd(path):
-    """防假样本养绿(L49): fixture 的 `.service` 键不得含 timer 专属属性, 反之亦然。
+    """防假样本养绿(L49): fixture 必须与云上真实 systemctl 形状逐键一致。
 
-    若 `.service` 上出现 `NextElapseUSecRealtime`/`LastTriggerUSec`(现实中不存在),
-    读取层会「碰巧」从 service 块拿到值, 真机却拿不到 ⇒ 用例全绿但生产漏跑全盲。
+    旧 fixture 的 timer 只有 4 键, 把真实存在的 `Result`/`InvocationID` 删掉了 ——
+    这属于「真实形状反而判红」: 拿云上原始输出校对时会被误判为非法样本。
     """
     data = json.loads(path.read_text(encoding="utf-8"))
     svc = sorted(k for k in data if k.endswith(".service"))
@@ -316,11 +325,58 @@ def test_fixture_service_timer_shape_matches_real_systemd(path):
             f"{path.name}:{k} 含真实 .service 不存在的属性 {sorted(extra)}"
             " —— 假样本会把读取层 bug 养绿(L49)"
         )
+        assert not (set(data[k]) & TIMER_ONLY_KEYS), (
+            f"{path.name}:{k} 含 timer 专属属性 {sorted(set(data[k]) & TIMER_ONLY_KEYS)}"
+            " —— 真机上 service 拿不到, 漏跑检测会假绿"
+        )
     for k in tmr:
         extra = set(data[k]) - REAL_TIMER_KEYS
         assert not extra, f"{path.name}:{k} 含真实 .timer 不存在的属性 {sorted(extra)}"
-    assert "NextElapseUSecRealtime" not in data[svc[0]]
-    assert "Result" not in data[tmr[0]], "真实 .timer 的 Result 恒 success, 不许作为任务结果"
+        assert not (set(data[k]) & EXEC_ONLY_KEYS), (
+            f"{path.name}:{k} 含 service 专属的 {sorted(set(data[k]) & EXEC_ONLY_KEYS)}"
+            " —— timer 没有退出码, 用它推导必假成功"
+        )
+        assert data[k].get("Result") == "success", (
+            f"{path.name}:{k} 的 Result 不是 success —— 真实 timer 恒 success,"
+            " 这正是它不许当任务结果的原因"
+        )
+
+
+@pytest.mark.parametrize("path", FIXTURES_309, ids=lambda p: p.name)
+def test_fixture_read_does_not_leak_timer_result_or_invocation(path):
+    """读取层只从 service 取 Result/InvocationID: 用真实 6 键 fixture 逐行对账。"""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    services = [k for k in data if k.endswith(".service")]
+    merged_all = ut.read_unit_states(services, runner=lambda u: data.get(u, {}))
+    assert len(merged_all) == len(services)
+    for unit, merged in merged_all.items():
+        st = ut.derive_unit_state(unit, merged)
+        assert st["result"] == data[unit]["Result"], f"{path.name}:{unit} Result 串味"
+        assert st["invocation_id"] == data[unit]["InvocationID"], \
+            f"{path.name}:{unit} InvocationID 串味(timer 的触发 ID 混进任务终态)"
+        assert ut.derive_exit_code(merged) == ut.derive_exit_code(data[unit]), \
+            f"{path.name}:{unit} 退出码被 timer 属性影响"
+
+
+def test_timer_result_success_never_washes_failed_service():
+    """timer 恒 Result=success: 失败的 service + 成功的 timer 必须仍得非 0 码。"""
+    svc = {"LoadState": "loaded", "Result": "timeout", "ExecMainCode": "2",
+           "ExecMainStatus": "15", "ExecMainStartTimestamp": "2026-10-25 20:35:01",
+           "ExecMainExitTimestamp": "2026-10-25 20:58:01",
+           "InvocationID": "svc-inv", "ActiveState": "failed"}
+    tmr = {"LoadState": "loaded", "ActiveState": "active", "Result": "success",
+           "InvocationID": "tmr-inv",
+           "NextElapseUSecRealtime": "2026-10-26 20:35:00",
+           "LastTriggerUSec": "2026-10-25 20:35:01"}
+
+    def runner(u):
+        return tmr if u.endswith(".timer") else svc
+
+    merged = ut.read_unit_states(["trade-x.service"], runner=runner)["trade-x.service"]
+    assert merged["Result"] == "timeout"
+    assert merged["InvocationID"] == "svc-inv"
+    assert merged["NextElapseUSecRealtime"] == "2026-10-26 20:35:00"
+    assert ut.derive_exit_code(merged) == (124, "systemd")
 
 
 def test_read_unit_states_runner_exception_becomes_empty():

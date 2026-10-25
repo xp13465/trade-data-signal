@@ -43,7 +43,8 @@ def _props(result="success", status=0, start="2026-10-20 18:30:02",
 SERVICE_KEYS = ("LoadState", "Result", "ExecMainCode", "ExecMainStatus",
                 "ExecMainStartTimestamp", "ExecMainExitTimestamp", "InvocationID",
                 "ActiveState")
-TIMER_KEYS = ("LoadState", "ActiveState", "NextElapseUSecRealtime", "LastTriggerUSec")
+TIMER_KEYS = ("LoadState", "ActiveState", "Result", "InvocationID",
+              "NextElapseUSecRealtime", "LastTriggerUSec")
 
 
 class _Runner:
@@ -63,7 +64,11 @@ class _Runner:
         merged = dict(_props())
         merged.update(self.overrides.get(base) or self.overrides.get(unit) or {})
         if unit.endswith(".timer"):
-            return {k: merged[k] for k in TIMER_KEYS if k in merged}
+            out = {k: merged[k] for k in TIMER_KEYS if k in merged}
+            # 云上真实 timer 形状: Result 恒 success, InvocationID 是触发器自己的 ID
+            out["Result"] = "success"
+            out["InvocationID"] = "timer-" + str(out.get("InvocationID"))
+            return out
         return {k: merged[k] for k in SERVICE_KEYS if k in merged}
 
 

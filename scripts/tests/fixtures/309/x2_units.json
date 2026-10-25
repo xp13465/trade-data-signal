@@ -13,7 +13,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "9e69c79b275b608536b810f333cb9a1c"
   },
   "trade-backfill-evening.service": {
     "LoadState": "loaded",
@@ -29,7 +31,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "5d477d969797c9de7770414bbce2b6c7"
   },
   "trade-intraday-snapshot.service": {
     "LoadState": "loaded",
@@ -45,7 +49,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "5d38fa04b2bb5f2f39f40b99d5ab3c37"
   },
   "trade-futures-backfill.service": {
     "LoadState": "loaded",
@@ -61,7 +67,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "245c4f1edacdca6e6e4c6e160224a0ab"
   },
   "trade-lhb-backfill.service": {
     "LoadState": "loaded",
@@ -77,7 +85,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-21 18:30:00",
-    "LastTriggerUSec": "2026-10-20 18:30:02"
+    "LastTriggerUSec": "2026-10-20 18:30:02",
+    "Result": "success",
+    "InvocationID": "64dce36dbda17e5ab7df85b391b03e96"
   },
   "trade-rzhb-backfill.service": {
     "LoadState": "loaded",
@@ -93,7 +103,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "94dba09f6b18df7c8f2e2f7f97227eed"
   },
   "trade-us-stock-morning.service": {
     "LoadState": "loaded",
@@ -109,7 +121,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "4176b48a5082faf9b3f9c2fd3e68357a"
   },
   "trade-etf-national-team.service": {
     "LoadState": "loaded",
@@ -125,7 +139,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "08c0e5a199a0585707856cae59dbfa81"
   },
   "trade-lab-auto.service": {
     "LoadState": "loaded",
@@ -141,7 +157,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "8d02db728ef38e24bc4f3c4d5f0f58e8"
   },
   "trade-overfit-monitor.service": {
     "LoadState": "loaded",
@@ -157,7 +175,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "774313cf90b5565c2213653081864ee9"
   },
   "trade-s06-snapshot.service": {
     "LoadState": "loaded",
@@ -173,7 +193,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "b7677a7fe249202f468e3f6f7468c014"
   },
   "trade-check-data-gap.service": {
     "LoadState": "loaded",
@@ -189,7 +211,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "b18a453880d5bb8bd63f49803568706f"
   },
   "trade-r2-consistency.service": {
     "LoadState": "loaded",
@@ -205,7 +229,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "f4a206029684cae5596fe4cf84a293f7"
   },
   "trade-cloud-unit-patrol.service": {
     "LoadState": "loaded",
@@ -221,7 +247,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "984205df8f3b1dcc2ac5a11bb164d49f"
   },
   "trade-turnover-backfill.service": {
     "LoadState": "loaded",
@@ -237,7 +265,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "8d86b870123212c4f64bc83f9706d914"
   },
   "trade-nextday-plan.service": {
     "LoadState": "loaded",
@@ -253,7 +283,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "dfef393200634c0f596df2941a2451ac"
   },
   "trade-nextday-gap-check.service": {
     "LoadState": "loaded",
@@ -269,7 +301,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "b84816feb34056dfe828e0d9a09dd06d"
   },
   "trade-daily-brief.service": {
     "LoadState": "loaded",
@@ -285,7 +319,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "d6b299d28fe021adab4519676dbcefe1"
   },
   "trade-fetch-news.service": {
     "LoadState": "loaded",
@@ -301,7 +337,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "bbff901ae30ff369d53de670fa5853ff"
   },
   "trade-ab-direction-anchor.service": {
     "LoadState": "loaded",
@@ -317,7 +355,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "0b8480d3da12a5e4e1165b9d0134609d"
   },
   "trade-alert-weekly-review.service": {
     "LoadState": "loaded",
@@ -333,7 +373,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "13c41288e9dc478e0ab5ae90309f59a1"
   },
   "trade-backup-db.service": {
     "LoadState": "loaded",
@@ -349,7 +391,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "bd891b27b58d53c4fd8bebe83658b949"
   },
   "trade-brief-push.service": {
     "LoadState": "loaded",
@@ -365,7 +409,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "660bdf6afbfdbb6bbe8a3d3930d21ccf"
   },
   "trade-daily-summary-supplement.service": {
     "LoadState": "loaded",
@@ -381,7 +427,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "29ea8647165c6712e0f6da02f30a766a"
   },
   "trade-etf-track-index.service": {
     "LoadState": "loaded",
@@ -397,7 +445,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "b4fe577c9c4e1433cef9f8d4f2b87d16"
   },
   "trade-fapi-daily.service": {
     "LoadState": "loaded",
@@ -413,7 +463,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "b5b23141b50a0227d69b3355e6e403e0"
   },
   "trade-freeze-orphan-cleanup.service": {
     "LoadState": "loaded",
@@ -429,7 +481,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "4c6b34f9d98ad3117c24feb92e995a8c"
   },
   "trade-gold-night.service": {
     "LoadState": "loaded",
@@ -445,7 +499,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "f7c3837180126fc87dd8f6d8f17a4a62"
   },
   "trade-kelly-intraday-rerun.service": {
     "LoadState": "loaded",
@@ -461,7 +517,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "b0d1855f2a85d4c9a495de69168d40d7"
   },
   "trade-lof-track-index.service": {
     "LoadState": "loaded",
@@ -477,7 +535,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "aa2f871ac3562016f8f9ff10de37329f"
   },
   "trade-pf-score-daily.service": {
     "LoadState": "loaded",
@@ -493,7 +553,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "1cc14adf19b4f323ac22bfd752e3c047"
   },
   "trade-pf-score-weekly.service": {
     "LoadState": "loaded",
@@ -509,7 +571,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "f143b74c5885d397f80c859ee8ef1997"
   },
   "trade-pf-stage0-manager.service": {
     "LoadState": "loaded",
@@ -525,7 +589,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "a66116041a44764eb7c8c15bc4a61d5e"
   },
   "trade-pf-stage0-nav.service": {
     "LoadState": "loaded",
@@ -541,7 +607,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "84bc197e96394f3e2a93819e389c89e2"
   },
   "trade-pf-stage0-overview.service": {
     "LoadState": "loaded",
@@ -557,7 +625,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "b6ef35c9a47252f8be4f9cb572aaa06f"
   },
   "trade-pf-stage0-risk.service": {
     "LoadState": "loaded",
@@ -573,7 +643,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "1218d27e79268034acbc7a3801acaebf"
   },
   "trade-public-fund-daily.service": {
     "LoadState": "loaded",
@@ -589,7 +661,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "fa441bf2e312c0b0534a5650fb31aac6"
   },
   "trade-public-fund-estimation.service": {
     "LoadState": "loaded",
@@ -605,7 +679,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "1c8e6e0ded262480a5d9671876a485c7"
   },
   "trade-public-fund-full.service": {
     "LoadState": "loaded",
@@ -621,7 +697,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "988b32e717a4eb26f850fd92e6eaf58e"
   },
   "trade-public-fund-quarterly.service": {
     "LoadState": "loaded",
@@ -637,7 +715,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "1643724d31846534ca5df5e5e374fc42"
   },
   "trade-schedule-monitor.service": {
     "LoadState": "loaded",
@@ -653,7 +733,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "260068861f098d09e184eff56542da6b"
   },
   "trade-self-heal.service": {
     "LoadState": "loaded",
@@ -669,7 +751,9 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "6124d7a6b91eb5ac83cdeae7581ee7c0"
   },
   "trade-check-monitor-heartbeat.service": {
     "LoadState": "loaded",
@@ -685,6 +769,8 @@
     "LoadState": "loaded",
     "ActiveState": "active",
     "NextElapseUSecRealtime": "2026-10-26 12:00:00",
-    "LastTriggerUSec": "2026-10-24 12:00:00"
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "c24fe8952b42fe685ec1b03cf65fc428"
   }
 }
