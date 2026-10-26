@@ -114,7 +114,8 @@ DEDUP_FILE = REPO / "data" / "notify_dedup.json"
 #    "tier": "critical"|..., "channels": {"email": bool, ...}, "dedup_key": "..."}
 # status 口径: sent=至少一个真实渠道发出; suppressed=去重窗内主动抑制(设计行为, 非故障);
 #   failed=走到了发送但全渠道未发出 / 内部异常; digested=已并入当日摘要 buffer(由 23:25 摘要
-#   统一交付 = 已处置, 与「未送达」区分开; 2026-10-22 审查 BLOCK-2); noop=批量/flush 等不发送模式;
+#   统一交付 = 已处置, 与「未送达」区分开; 2026-10-22 审查 BLOCK-2); noop=本轮没有真正外发
+#   (含 flush 无到期条目/无内容可发; #309 F2 2026-10-26 起 flush 真发出时 status=sent);
 #   dry_run=--dry-run 模拟。写入失败只打 stderr, 绝不影响发送主链路。
 _RESULT_FILE: str | None = None
 _OUTCOME: dict = {"status": "failed", "detail": "未走到任何发送/抑制路径",
@@ -3158,13 +3159,19 @@ def _main_impl(argv: list[str] | None = None) -> int:
     if args.flush_warnings:
         r = flush_warning_batch(dry_run=args.dry_run)
         print(f"[notify] flush-warnings: {r}", file=sys.stderr)
-        return _finish(0, "noop", f"flush-warnings: {r}")
+        # #309 F2 P1(2026-10-26): status 如实上报「这批批发邮件到底发没发出」
+        # (sent/noop) —— 只改结果文件的状态标注, **不碰任何发送语义**; 调用方据此
+        # 把批发的 1 封计入「本轮告警邮件数」(旧版恒 noop ⇒ 漏计 ⇒ 同轮重复发信)。
+        return _finish(0, "sent" if r.get("sent_batch") else "noop",
+                       f"flush-warnings: {r}")
 
     # 摘要批发模式（#245 批2；schedule_monitor 每轮尾部调用，自门控静默 no-op）
     if args.flush_digest:
         r = flush_digest(dry_run=args.dry_run)
         print(f"[notify] flush-digest: {r}", file=sys.stderr)
-        return _finish(0, "noop", f"flush-digest: {r}")
+        # 同上(#309 F2 P1): 摘要批发真发出 1 封 ⇒ status=sent, 供调用方计数。
+        return _finish(0, "sent" if r.get("sent") else "noop",
+                       f"flush-digest: {r}")
 
     # 摘要吸收模式（#245 批2）：monitor 行级预算吸收 / 恢复补列直接入 buffer
     if args.defer_digest:
