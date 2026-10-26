@@ -103,6 +103,12 @@
   schedule_monitor 侧映射(2026-10-21 起): 1→记日志「异常已告警或按设计静默」(不得自证已发出);
   4→独立 SEVERE 复核项「巡检发现异常但告警未送达」; 其他非 {0,1,3,4} → SEVERE「本巡检自己跑挂了」。
 
+【外发计数标记(2026-10-26, #309 F2 P1)】
+  本进程**真实发出**的告警邮件数(notify 结构化 status ∈ {sent, digested})在进程尾部
+  无条件打印一行 `NOTIFY_SENT=<n>`(stdout, 机器可解析, 非日志模糊匹配)。
+  调用方(schedule_monitor)据此判「本轮到底有没有告警邮件真发出」——子进程自己发的
+  severe 邮件不再被主进程漏计。**读不到该标记 ⇒ 调用方按「可能发过」保守处理**(不猜没发)。
+
 【自测桩(生产不设; 全离线、零真通知)】
   --failed-units-file <path>  systemctl --failed 输出的 text(替代真机命令)
   --unit-show-json <path>     {unit: {ActiveState,LoadState,UnitFileState,Triggers,ExecStart}} JSON
@@ -149,6 +155,11 @@ DEFAULT_REPO = next((p for p in DEFAULT_REPO_CANDIDATES if (p / "static-site" / 
 WATCHMAN_UNITS = adr.WATCHMAN_UNITS
 # patrol 包装器通道的 dedup key(= cloud_unit_patrol.sh 字面量)与其 unit 名
 PATROL_UNIT = "trade-cloud-unit-patrol.service"
+
+# #309 F2 P1(2026-10-26): 本进程真实发出的告警邮件数, 由 _send_notify 单一发送点累加,
+# main() 包装层在进程尾部无条件打印 `NOTIFY_SENT=<n>` 供 schedule_monitor 解析。
+# digested(并入当日摘要 buffer)也算「已处置 = 会有一封告警类邮件交付」⇒ 计入(保守一侧)。
+_NOTIFY_SENT_COUNT = {"sent": 0}
 
 # #280 failed-unit 白名单默认路径。
 # resolve() 而非 absolute(): 云上 `$REPO/scripts` 是指向 `$GIT_REPO/scripts` 的 symlink,
@@ -508,6 +519,10 @@ def _send_notify(repo, subject, body, dedup_key=None):
             detail = out.strip()[-300:] or f"rc={proc.returncode}(无输出)"
             return False, f"status=missing(结果文件缺失/损坏, 按未送达处理) {detail}"
         sent = _status in ("sent", "digested")
+        if sent:
+            # #309 F2 P1: 真发出(含并入当日摘要)才计数 —— 单一发送点累加, 不逐 caller 打补丁
+            # (7 级阶梯: 共享函数里一处守卫, 而非每个发送点各写一份)。
+            _NOTIFY_SENT_COUNT["sent"] += 1
         detail = (f"status={_status} channels={_channels} "
                   f"recent={(out.strip()[-200:] or '')}")
         return sent, detail
@@ -593,7 +608,7 @@ def _merge_d1_rc(base_rc, d1_rc):
     return base_rc
 
 
-def main() -> int:
+def _main_impl() -> int:
     ap = argparse.ArgumentParser(
         description="云上 failed-unit 巡检 + 巡检者自身存活检查(#196①)")
     ap.add_argument("--repo", default=str(DEFAULT_REPO), help="数据仓根(默认按 env/存在性探测)")
@@ -788,6 +803,21 @@ def main() -> int:
         print(f"  SUBJECT: {subject}", file=sys.stderr)
         print(f"  BODY: {body}", file=sys.stderr)
     return _merge_d1_rc(1, _d1_rc)
+
+
+def main() -> int:
+    """CLI 入口包装: 跑真实实现, **进程尾部无条件打印 `NOTIFY_SENT=<n>`**。
+
+    #309 F2 P1(2026-10-26): 调用方(schedule_monitor)必须知道「本进程这一轮到底发了几封
+    告警邮件」, 才能判「本轮零告警邮件」是否成立。标记用结构化 `key=value` 单行, 不做
+    日志文本模糊匹配; `try/finally` 保证即便 _main_impl 中途抛异常(发送已完成的部分
+    照样计数)也会打印 —— 例外路径(进程被 SIGKILL / 根本没跑起来)由调用方按「可能发过」
+    保守处理, 见 schedule_monitor._cfu_alert_mail_delta。
+    """
+    try:
+        return _main_impl()
+    finally:
+        print(f"NOTIFY_SENT={_NOTIFY_SENT_COUNT['sent']}", flush=True)
 
 
 if __name__ == "__main__":
