@@ -14,16 +14,20 @@ from __future__ import annotations
 import ast
 import datetime
 import functools
+import hashlib
 import re
+import sys
 from pathlib import Path
 
 import unit_truth as ut
+from notify_sent import notify_sent
 
 ROOT = Path(__file__).absolute().parent.parent.parent
 MONITOR = ROOT / "scripts" / "schedule_monitor.sh"
 
 WANT_ASSIGN = {"COVERAGE_BUSINESS_TOTAL", "COVERAGE_SELF_MONITOR", "LOG_CALIBER_COVERAGE",
-               "STATS_FRESH_WINDOW"}
+               "STATS_FRESH_WINDOW", "RECOVERY_COOLDOWN",
+               "CONCLUSION_STATUS_KEY_PREFIX", "CONCLUSION_STATUS_SUBJECT_PREFIX"}
 WANT_FUNC = {
     "_unit_short_name", "_fmt_time_part", "_fmt_span", "_stat_exit_code", "_unit_channel_owns_row",
     "_migrate_unit_owned_keys",
@@ -31,6 +35,9 @@ WANT_FUNC = {
     "_unit_channel_will_register", "_stats_failure_covered",
     "_failed_stats", "_failure_name", "_failure_detail", "_coverage_text",
     "_cfu_failed_units", "_build_conclusion", "_unit_alert_events",
+    "_conclusion_is_ok", "_conclusion_digest", "_conclusion_recurrence_ok",
+    "_conclusion_status_decision", "_conclusion_status_mark_recovered",
+    "_conclusion_status_email_body", "_maybe_send_conclusion_status_email",
 }
 
 
@@ -61,7 +68,9 @@ def namespace() -> dict:
     assert not missing, (
         f"schedule_monitor.sh 里未找到 {sorted(missing)}: 被重命名/删除了? 本测试锚点需同步"
     )
-    ns = {"datetime": datetime.datetime, "timedelta": datetime.timedelta, "ut": ut, "re": re}
+    ns = {"datetime": datetime.datetime, "timedelta": datetime.timedelta, "ut": ut, "re": re,
+          "hashlib": hashlib, "sys": sys, "notify_sent": notify_sent,
+          "REPO": ROOT, "MONITOR_LOG": Path("/tmp/schedule_monitor_launchd.log")}
     exec(compile("\n".join(picked), "<monitor-conclusion>", "exec"), ns)  # noqa: S102
     return ns
 
@@ -72,3 +81,7 @@ def conclusion():
 
 def unit_alert_events():
     return namespace()["_unit_alert_events"]
+
+
+def maybe_send_conclusion_status_email():
+    return namespace()["_maybe_send_conclusion_status_email"]

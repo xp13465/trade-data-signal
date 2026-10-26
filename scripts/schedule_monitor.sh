@@ -309,6 +309,20 @@ recoveries = []  # 异常恢复通知(log_anomaly 从 true 变 false)
 # state 文件不进 git(与 sentiment.db 同级),丢失时 24h stale 降级兜底
 ALERT_STATE_FILE = REPO / "data" / "alert_state.json"
 
+# ── #309 F2(2026-10-26): 结论行可见性补位(「状态说明」邮件)───────────────
+# 背景: 结论行此前只 print 到监控日志; 而有些异常**故意不发邮件**(账本旧码不可信
+# ledger-stale / 同码去重 / 行级预算吸收) ⇒ 用户不主动翻日志就等于看不到 ⇒ 与「假 OK」
+# 同源病(拿沉默冒充没事)。
+# 口径(用户 2026-10-26 拍板): 只在「结论非 OK 且本轮真发出告警邮件数 = 0」时补发一封
+# 「状态说明」, 不是每轮发; 同一份结论内容只发一次(摘要键 active=不重发); 恢复正常后
+# 自然解除(恢复本身不额外发信), 恢复后 6h 内同内容复发不重发(复用 RECOVERY_COOLDOWN
+# 防结论 OK/异常抖动导致每轮发信)。
+CONCLUSION_STATUS_KEY_PREFIX = "conclusion_status|"
+CONCLUSION_STATUS_SUBJECT_PREFIX = "[状态说明]"
+# 本轮「真发出」的告警邮件数: 只有 notify 确认送达才 +1(被去重/并入摘要 = 0)。
+# 三个 severe 发送点: active 升级提醒(见 _active_escalate) / 停摆级直发 / 收尾聚合批次。
+_ALERT_MAIL_COUNTER = {"sent": 0}
+
 
 def load_alert_state():
     """读 alert_state.json,不存在/异常返回 {}"""
@@ -465,6 +479,7 @@ def _active_escalate(entry, key, label):
     if _out.strip():
         print(_out.strip())
     if notify_sent(_out):
+        _ALERT_MAIL_COUNTER["sent"] += 1
         _e["last_escalated"] = _now_s
         _e["n_escalated"] = int(_e.get("n_escalated") or 0) + 1
         print(f"[active-escalate] {label} 已持续 {_info.get('elapsed_hours')}h, 升级提醒已发出")
@@ -1025,6 +1040,163 @@ def _build_conclusion(stats, now, cfu_failed=0, alerts=0,
         parts.append(coverage)
         return "; ".join(parts)
     return f"OK 所有任务按计划执行，无漏跑，无退出失败; {coverage}"
+
+
+# ── #309 F2(2026-10-26): 结论「状态说明」邮件(可见性补位) ────────────────────
+# 纯函数 + 依赖注入(notify_runner / save_state), 单测 AST 直接提取本段, 不跑业务脚本、
+# 不真实外发(§18 L48)。判据与落签语义见顶部常量注释。
+def _conclusion_is_ok(concl):
+    """结论行是否为 OK(两种 OK 文案都以 OK 开头: 「OK 所有任务…」/「OK(仅日志口径…」)。"""
+    return str(concl or "").strip().startswith("OK")
+
+
+def _conclusion_digest(concl):
+    """结论内容摘要(前 8 位, 与同文件行级去重 key 同口径 md5[:8])。"""
+    return hashlib.md5(
+        str(concl or "").strip().encode("utf-8", errors="replace")).hexdigest()[:8]
+
+
+def _conclusion_recurrence_ok(entry, now):
+    """同一结论摘要「恢复后 6h 内复发」是否已过冷却窗(复用 RECOVERY_COOLDOWN 口径)。
+
+    无 last_recovered / 解析失败 / now 不是 datetime ⇒ 放行(与 _recovery_cooldown_ok 同语义)。
+    """
+    _lr = entry.get("last_recovered") if isinstance(entry, dict) else None
+    if not _lr:
+        return True
+    try:
+        _lr_dt = datetime.strptime(str(_lr), "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return True
+    if not isinstance(now, datetime):
+        return True
+    return (now - _lr_dt) >= RECOVERY_COOLDOWN
+
+
+def _conclusion_status_decision(concl, alert_mail_sent, state, now):
+    """纯判定: 要不要为本轮结论行补发「状态说明」。返回 dict, **不改 state**。
+
+    reason:
+      empty               结论为空(理论不可达, 保守不发)
+      ok                  结论 OK ⇒ 不发(场景 C)
+      has_alert_mail      本轮已有告警邮件真发出 ⇒ 不发(场景 A)
+      same_content_sent   同一结论内容已发过 ⇒ 不发(频率保护)
+      recurrence_cooldown 同内容恢复后 6h 内再次非 OK ⇒ 不发(防 OK/异常抖动刷屏)
+      send                补发(场景 B: 结论非 OK 且本轮零告警邮件)
+    """
+    txt = str(concl or "").strip()
+    digest = _conclusion_digest(txt)
+    key = CONCLUSION_STATUS_KEY_PREFIX + digest
+    d = {"reason": "", "send": False, "key": key, "digest": digest}
+    if not txt:
+        d["reason"] = "empty"
+        return d
+    if _conclusion_is_ok(txt):
+        d["reason"] = "ok"
+        return d
+    if int(alert_mail_sent or 0) > 0:
+        d["reason"] = "has_alert_mail"
+        return d
+    ent = state.get(key) if isinstance(state, dict) else None
+    if isinstance(ent, dict):
+        if ent.get("status") == "active":
+            d["reason"] = "same_content_sent"
+            return d
+        if not _conclusion_recurrence_ok(ent, now):
+            d["reason"] = "recurrence_cooldown"
+            return d
+    d["reason"] = "send"
+    d["send"] = True
+    return d
+
+
+def _conclusion_status_mark_recovered(state, now_str):
+    """结论恢复正常: 现存摘要键置 recovered(不发信); 返回改动条数。"""
+    n = 0
+    if not isinstance(state, dict):
+        return 0
+    for k, v in list(state.items()):
+        if str(k).startswith(CONCLUSION_STATUS_KEY_PREFIX) and isinstance(v, dict):
+            if v.get("status") != "recovered":
+                v["status"] = "recovered"
+                v["last_recovered"] = now_str
+                n += 1
+    return n
+
+
+def _conclusion_status_email_body(concl, now_str):
+    """状态说明邮件正文: 完整结论行 + 一句「为什么没有对应的告警邮件」(大白话)。"""
+    _txt = str(concl or "")
+    _esc = _txt.replace("<", "&lt;").replace(">", "&gt;")
+    if "新鲜度未确认" in _txt or "账本补位码" in _txt:
+        _why = ("其中账本里补位的旧退出码「新鲜度未确认」, 按设计不单独发告警邮件; "
+                "以前这种情况只有监控日志可查, 不主动翻日志就看不到。")
+    elif "条告警" in _txt:
+        _why = ("本轮检测到的告警已经被同码去重或并入当日摘要, 没有再单独发一封; "
+                "以前这种情况只有监控日志可查, 不主动翻日志就看不到。")
+    else:
+        _why = ("本轮没有任何告警被真正外发(部分异常按设计只标注在结论里); "
+                "以前这种情况只有监控日志可查, 不主动翻日志就看不到。")
+    return ("<b>本轮监控结论(状态说明, 不是新故障)</b><br>"
+            f"结论: {_esc}<br><br>"
+            f"为什么没有对应的告警邮件: {_why}<br>"
+            "同一份结论只发一次状态说明; 结论变化或恢复正常后自动解除, 不会每轮重复打扰。<br>"
+            f"时间: {now_str}")
+
+
+def _maybe_send_conclusion_status_email(concl, alert_mail_sent, state, now,
+                                        notify_runner, save_state):
+    """结论可见性补位唯一入口: 判定 → 补发「状态说明」→ 确认送达才落签。
+
+    返回 dict(decision + sent/subject/error), 供调用方日志与单测断言。
+    notify_runner(cmd)->notify 输出文本; **本函数绝不直接外发** —— 生产注入 notify.py
+    子进程 runner, 测试注入 stub ⇒ 自测零真实外发(§18 L48)。
+    """
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    d = _conclusion_status_decision(concl, alert_mail_sent, state, now)
+    d["sent"] = False
+    if d["reason"] == "ok":
+        # 恢复正常: 解除频率保护(标记 recovered), 不额外发信
+        if _conclusion_status_mark_recovered(state, now_str):
+            save_state(state)
+        return d
+    if not d["send"]:
+        return d
+    # 内容变化: 退休其它摘要键(同一时刻最多留一条, 防 alert_state 无界膨胀)
+    for _k in [k for k in list(state) if str(k).startswith(CONCLUSION_STATUS_KEY_PREFIX)
+               and k != d["key"]]:
+        state.pop(_k, None)
+    subject = (f"{CONCLUSION_STATUS_SUBJECT_PREFIX} 监控结论异常(本轮无告警邮件) "
+               f"{now.strftime('%m-%d %H:%M')}")
+    body = _conclusion_status_email_body(concl, now_str)
+    cmd = [
+        sys.executable, str(REPO / "scripts" / "notify.py"),
+        subject, body,
+        "--from-prefix", CONCLUSION_STATUS_SUBJECT_PREFIX,
+        "--alert-issue", "计划任务监控结论说明",
+        "--alert-log", str(MONITOR_LOG),
+    ]
+    try:
+        out = notify_runner(cmd) or ""
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] 状态说明邮件发送异常: {e}", file=sys.stderr)
+        d["error"] = str(e)
+        return d
+    if not notify_sent(out):
+        print("[warn] 状态说明邮件未确认送达 ⇒ 不落签, 下轮重试", file=sys.stderr)
+        return d
+    state[d["key"]] = {
+        "status": "active",
+        "first_seen": now_str,
+        "last_alerted": now_str,
+        "keyword": "conclusion_status",
+        "line_sample": str(concl or "")[:200],
+        "digest": d["digest"],
+    }
+    save_state(state)
+    d["sent"] = True
+    d["subject"] = subject
+    return d
 
 
 def _unit_alert_events(unit_registry, unit_states, stats_by_task, now):
@@ -2652,6 +2824,11 @@ for _key, _info in list(alert_state.items()):
     # "异常告警", 不参与恢复检测——否则 pending 键未 seen 会被误判"异常已消失"翻转/误发。
     if _key.startswith("monitor_recovery|"):
         continue
+    # #309 F2(2026-10-26): 结论「状态说明」摘要键不是异常告警, 不参与恢复检测 —— 否则它
+    # 永远不在 seen_keys_this_run 里, 下一轮就被误判「异常已消失」翻 recovered 并发假恢复邮件。
+    # 它的生命周期由 _maybe_send_conclusion_status_email 自己管(OK 轮置 recovered)。
+    if _key.startswith(CONCLUSION_STATUS_KEY_PREFIX):
+        continue
     # #240 ③ 复审 F2(2026-10-09): dur 计数桶(|dur_buffer|)由 dur 块**内联自管复位**
     # (耗时回到阈值内 → recovered; 起止都在同一块), 不参与本恢复循环 —— 否则 dur=None 轮
     # (最新 run 进行中)进不了 dur 块、不登记 seen, pending 桶被此处静默翻 recovered、计数从头
@@ -3708,6 +3885,9 @@ for _line, _sk in _stall_batch:
                 # 清理失败(含 /tmp/stall-direct-* 残留)也不许冒泡 —— 仅打印留痕
                 print(f"[warn] 停摆直发临时目录清理失败: {_st_rf.parent}", file=sys.stderr)
     if _st_status in ("sent", "suppressed"):
+        if _st_status == "sent":
+            # #309 F2: 只有「真发出」计告警邮件数; suppressed=同键去重窗内(本轮零邮件)
+            _ALERT_MAIL_COUNTER["sent"] += 1
         print(f"[stall-direct] 停摆级已独立直发({_st_status}): {_stripped[:100]}")
     else:
         # fail-open: 直发失败 ⇒ 回普通批次(宁多勿吞); 同时回滚本轮新 active 落签让人下轮重试
@@ -3786,6 +3966,9 @@ if alerts:
         save_alert_state(alert_state)
         print(f"[warn] 聚合告警未确认送达(rc={_r_main.returncode}) ⇒ 回滚本轮 {_rb} 个新告警落签"
               f"(下轮重试)", file=sys.stderr)
+    else:
+        # #309 F2: 聚合批次确认送达 ⇒ 本轮告警邮件数 +1(结论补位逻辑据此不再发状态说明)
+        _ALERT_MAIL_COUNTER["sent"] += 1
     print(f"[{now_str}] {_concl}")
 elif _orig_has_alerts or _absorbed:
     # 本轮原有过告警但已全部被吸收(批次 kept 空) ⇒ 记日志(仅日志, 不影响发送)。
@@ -3793,6 +3976,28 @@ elif _orig_has_alerts or _absorbed:
     print(f"[{now_str}] {_concl}")
 else:
     print(f"[{now_str}] {_concl}")
+
+# ── #309 F2(2026-10-26): 结论可见性补位 ────────────────────────────────────
+# 结论行只进日志时，「结论非 OK 但本轮零告警邮件」对用户不可见 ⇒ 补一封「状态说明」。
+# 判定/频率保护/落签全在 _maybe_send_conclusion_status_email(纯函数+依赖注入, 单测直提);
+# 这里只注入生产 runner(notify.py 子进程)与 save_alert_state。
+def _notify_capture(cmd):
+    """跑 notify.py 子进程并返回合并输出(只给状态说明邮件用, 失败由调用方兜)。"""
+    _r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
+    _out = (_r.stdout or "") + (_r.stderr or "")
+    if _out.strip():
+        print(_out.strip())
+    return _out
+
+
+_concl_email = _maybe_send_conclusion_status_email(
+    _concl, _ALERT_MAIL_COUNTER["sent"], alert_state, NOW,
+    _notify_capture, save_alert_state)
+if _concl_email.get("sent"):
+    print(f"[{now_str}] [状态说明] 结论非 OK 且本轮零告警邮件, 已补发状态说明邮件 "
+          f"(摘要 {_concl_email['digest']})")
+elif _concl_email.get("reason") == "same_content_sent":
+    print(f"[{now_str}] [状态说明] 同一结论内容已发过状态说明, 不重复发送")
 
 # 恢复邮件(独立于 SEVERE,异常消失即发,不加 --severe 前缀)
 # 2026-09-22 告警去噪: r2_* 前缀为自愈类(网络抖动/R2 故障可被 self_heal/网络自愈,

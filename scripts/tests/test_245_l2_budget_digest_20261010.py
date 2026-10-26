@@ -36,6 +36,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).absolute().parent))
 from _zero_outbound import ZeroOutboundTrap  # noqa: E402
+from _monitor_conclusion_309 import namespace as _conclusion_ns  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).absolute().parent.parent))
 import notify  # noqa: E402
@@ -767,7 +768,9 @@ def _run_recovery_loop(state, seen, now):
          "recoveries": [], "in_progress_tasks": set(),
          "print": lambda *a, **k: None,
          "_recovery_cooldown_ok": lambda k, i: True,
-         "RECOVERY_COOLDOWN": timedelta(hours=6)}
+         "RECOVERY_COOLDOWN": timedelta(hours=6),
+         # #309 F2(2026-10-26): 恢复环新增跳过前缀(取生产常量, 不复制字面量)
+         "CONCLUSION_STATUS_KEY_PREFIX": _conclusion_ns()["CONCLUSION_STATUS_KEY_PREFIX"]}
     exec(_recovery_loop_code(), g)  # noqa: S102
     return g["recoveries"], state
 

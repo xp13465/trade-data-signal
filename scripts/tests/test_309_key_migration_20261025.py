@@ -56,6 +56,8 @@ def _run_recovery(alert_state, seen):
         ),
         "_recovery_cooldown_ok": lambda _k, _i: True,
         "RECOVERY_COOLDOWN": datetime.timedelta(hours=6),
+        # #309 F2(2026-10-26): 恢复环新增跳过前缀(取生产常量, 不复制字面量)
+        "CONCLUSION_STATUS_KEY_PREFIX": namespace()["CONCLUSION_STATUS_KEY_PREFIX"],
         "print": lambda *a, **k: None,
     }
     exec(_recovery_loop(), ns)  # noqa: S102

@@ -285,6 +285,8 @@ def _run_stall_direct_with_save(lines: list[str], state: dict, state_pre: dict,
         "subprocess": types.SimpleNamespace(run=_run, SubprocessError=Exception),
         "notify_sent": _ns, "alerts": list(lines), "alert_state": state,
         "NOW": datetime.now(), "_STATE_PRE": state_pre, "save_alert_state": _save,
+        # #309 F2(2026-10-26): 直发块真发出时累加告警邮件数(本用例不关心计数, 只需名字存在)
+        "_ALERT_MAIL_COUNTER": {"sent": 0},
     }
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
@@ -326,6 +328,8 @@ def _load_active_escalate_inprocess(tmp_path: Path):
         "MONITOR_LOG": tmp_path / "monitor.log",
         "subprocess": types.SimpleNamespace(run=_run, SubprocessError=Exception),
         "notify_sent": _ns,
+        # #309 F2(2026-10-26): 升级真发出时累加告警邮件数(本用例不关心计数, 只需名字存在)
+        "_ALERT_MAIL_COUNTER": {"sent": 0},
     }
     exec(compile(code, "<monitor:_active_escalate>", "exec"), ns)
     return ns["_active_escalate"], events
@@ -758,6 +762,8 @@ def _load_active_escalate(tmp_path: Path):
         "REPO": tmp_path, "MONITOR_LOG": tmp_path / "monitor.log",
         "subprocess": types.SimpleNamespace(run=_run),
         "notify_sent": lambda out: "sent" in out,
+        # #309 F2(2026-10-26): 升级真发出时累加告警邮件数(本用例不关心计数, 只需名字存在)
+        "_ALERT_MAIL_COUNTER": {"sent": 0},
     }
     exec(compile(code, "<monitor:_active_escalate>", "exec"), ns)
     return ns["_active_escalate"], events

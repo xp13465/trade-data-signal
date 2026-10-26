@@ -53,6 +53,7 @@ import alert_denoise_rules as adr  # noqa: E402
 import check_data_gap_alerts as cdg  # noqa: E402
 import check_failed_units as cfu  # noqa: E402
 import gen_schedule_stats as gss  # noqa: E402
+from _monitor_conclusion_309 import namespace as _conclusion_ns  # noqa: E402
 
 ROOT = Path(__file__).absolute().parent.parent.parent
 SCRIPTS = ROOT / "scripts"
@@ -535,7 +536,9 @@ def _run_recovery_loop(state, seen, now):
          "recoveries": [], "in_progress_tasks": set(),
          "print": lambda *a, **k: None,
          "_recovery_cooldown_ok": lambda k, i: True,
-         "RECOVERY_COOLDOWN": datetime.timedelta(hours=6)}
+         "RECOVERY_COOLDOWN": datetime.timedelta(hours=6),
+         # #309 F2(2026-10-26): 恢复环新增跳过前缀(取生产常量, 不复制字面量)
+         "CONCLUSION_STATUS_KEY_PREFIX": _conclusion_ns()["CONCLUSION_STATUS_KEY_PREFIX"]}
     exec(_recovery_loop_code(), g)  # noqa: S102  (真源码块: 只改 alert_state + 追加 recoveries)
     return g["recoveries"]
 
