@@ -253,3 +253,233 @@ def test_recovery_loop_skips_conclusion_status_key():
     seg = src[i:i + 4000]
     assert "CONCLUSION_STATUS_KEY_PREFIX" in seg, (
         "恢复检测循环必须跳过 conclusion_status| 键, 否则会被误判「异常已消失」发假恢复邮件")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# #309 F2 P1(2026-10-26 审查阻塞项): 告警邮件计数必须覆盖**全部**真发通道
+#   漏点 1 = check_failed_units 子进程自己发的 severe(机器标记 NOTIFY_SENT=<n>)
+#   漏点 2 = 尾部 --flush-warnings 批发(+ 举一反三: --flush-digest 摘要批发)
+# 修法 = 全通道累计 + 判定点后移到所有外发动作之后; 判不出标记一律按「可能发过」保守。
+# ══════════════════════════════════════════════════════════════════════════════
+CFU_SENT_OUT = ("CHECK_FAILED_UNITS_FAIL(1 项): trade-x.service\n"
+                "NOTIFY_SENT=1\n")
+BAD_CFU = ("1 个云上 unit 处于 failed 状态: trade-x.service (详见 [196]); "
+           "覆盖 43/43(40 业务+基础, 3 自监控)")
+
+
+def _ns():
+    return m309.namespace()
+
+
+# ── 漏点 1: CFU 子进程标记 → 计入 → 不发状态说明 ───────────────────────────
+def test_scene_a_cfu_child_severe_counts_and_blocks_status_mail():
+    """stub 子进程返回「已发送标记」⇒ 结论非 OK ⇒ 状态说明邮件 0 次调用。"""
+    total = _ns()["_cfu_alert_mail_delta"](CFU_SENT_OUT)
+    assert total == 1
+    res, stub, saves, state = _run(BAD_CFU, alert_mail_sent=total)
+    assert res["reason"] == "has_alert_mail"
+    assert res["sent"] is False
+    assert stub.calls == []
+    assert saves == []
+    assert not any(k.startswith("conclusion_status|") for k in state)
+
+
+def test_cfu_marker_zero_counts_as_no_mail():
+    """子进程明确回报 0 封 ⇒ 本轮零告警邮件成立(不因有子进程就误判)。"""
+    out = "CHECK_FAILED_UNITS_OK failed=0 watchman=3 个 timer 全部在跑\nNOTIFY_SENT=0\n"
+    assert _ns()["_cfu_alert_mail_delta"](out) == 0
+    res, stub, _s, _st = _run(BAD_LEDGER, alert_mail_sent=_ns()["_cfu_alert_mail_delta"](out))
+    assert res["sent"] is True and len(stub.calls) == 1
+
+
+@pytest.mark.parametrize("out", [
+    "",                                   # 子进程没跑起来/被杀: 没标记
+    "CHECK_FAILED_UNITS_FAIL(1 项): t\n",  # 有输出但没标记(旧版/异常退出)
+    "NOTIFY_SENT=abc\n",                  # 标记格式坏
+    "告警已发出 NOTIFY_SENT=1\n",          # 不是独立行(不许从日志里抠)
+])
+def test_cfu_marker_missing_or_broken_is_conservative(out):
+    """标记缺失/坏 ⇒ 按「可能发过」= 1, 宁漏发状态说明也不发假「零外发」。"""
+    assert _ns()["_cfu_alert_mail_delta"](out) == 1
+
+
+def test_cfu_marker_multiple_sends_counted():
+    assert _ns()["_cfu_alert_mail_delta"]("x\nNOTIFY_SENT=2\n") == 2
+
+
+def test_cfu_child_really_prints_marker(monkeypatch, tmp_path, capsys):
+    """子进程侧行为证据: check_failed_units 真发出 1 封 ⇒ stdout 有 NOTIFY_SENT=1。
+
+    notify.py 子进程用「写 --result-file」的假 run 代替(零真实外发, §18 L48)。
+    """
+    import json as _json
+
+    import check_failed_units as cfu
+
+    failed = tmp_path / "failed.txt"
+    failed.write_text("trade-x.service loaded failed failed Trade X\n", encoding="utf-8")
+    show = {u: {"ActiveState": "active", "LoadState": "loaded", "UnitFileState": "enabled"}
+            for u, _k in cfu.WATCHMAN_UNITS}
+    show_path = tmp_path / "show.json"
+    show_path.write_text(_json.dumps(show), encoding="utf-8")
+
+    class _R:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def _fake_run(cmd, **_kw):
+        if "--result-file" in cmd:
+            p = cmd[cmd.index("--result-file") + 1]
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(_json.dumps({"status": "sent", "channels": {"email": True}}))
+        return _R()
+
+    cfu._NOTIFY_SENT_COUNT["sent"] = 0
+    monkeypatch.setattr(cfu, "subprocess", type("S", (), {"run": staticmethod(_fake_run)}))
+    monkeypatch.setattr("sys.argv", [
+        "check_failed_units.py", "--repo", str(tmp_path), "--notify",
+        "--failed-units-file", str(failed), "--unit-show-json", str(show_path),
+        "--allowlist-file", str(tmp_path / "no-allowlist.txt")])
+    rc = cfu.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "NOTIFY_SENT=1" in out
+
+
+def test_cfu_child_prints_zero_marker_on_healthy_round(monkeypatch, tmp_path, capsys):
+    import json as _json
+
+    import check_failed_units as cfu
+
+    failed = tmp_path / "failed.txt"
+    failed.write_text("", encoding="utf-8")
+    show = {u: {"ActiveState": "active", "LoadState": "loaded", "UnitFileState": "enabled"}
+            for u, _k in cfu.WATCHMAN_UNITS}
+    show_path = tmp_path / "show.json"
+    show_path.write_text(_json.dumps(show), encoding="utf-8")
+
+    cfu._NOTIFY_SENT_COUNT["sent"] = 0
+    monkeypatch.setattr("sys.argv", [
+        "check_failed_units.py", "--repo", str(tmp_path), "--notify",
+        "--failed-units-file", str(failed), "--unit-show-json", str(show_path),
+        "--allowlist-file", str(tmp_path / "no-allowlist.txt")])
+    rc = cfu.main()
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "NOTIFY_SENT=0" in out
+
+
+# ── 漏点 2: 尾部聚合批发真发出 → 计入 → 不发状态说明 ──────────────────────
+@pytest.mark.parametrize("status,expect", [
+    ("sent", 1),        # 真发出 1 封
+    ("noop", 0),        # 无到期条目 = 本轮确实没发
+    ("failed", 0),      # 发送失败 = 本轮没发出
+    ("", 1),            # 结果文件缺失/损坏 ⇒ 判不出 ⇒ 保守
+])
+def test_flush_status_mapping(status, expect):
+    assert _ns()["_flush_alert_mail_delta"](status) == expect
+
+
+@pytest.mark.parametrize("status", ["sent", "sent-digest"])
+def test_scene_a_flush_batch_sent_blocks_status_mail(status):
+    """聚合/摘要批发真发出 1 封 ⇒ 状态说明邮件 0 次调用。"""
+    total = _ns()["_flush_alert_mail_delta"]("sent")
+    assert total == 1
+    res, stub, saves, state = _run(BAD_LEDGER, alert_mail_sent=total)
+    assert res["reason"] == "has_alert_mail" and stub.calls == [] and saves == []
+
+
+def test_read_notify_result_status(tmp_path):
+    ns = _ns()
+    import json as _json
+    ok = tmp_path / "ok.json"
+    ok.write_text(_json.dumps({"status": "sent"}), encoding="utf-8")
+    assert ns["_read_notify_result_status"](str(ok)) == "sent"
+    assert ns["_read_notify_result_status"](str(tmp_path / "missing.json")) == ""
+    bad = tmp_path / "bad.json"
+    bad.write_text("{oops", encoding="utf-8")
+    assert ns["_read_notify_result_status"](str(bad)) == ""
+
+
+# ── D3 防御: 非数字/None/空 一律按「已发过」保守 ──────────────────────────
+@pytest.mark.parametrize("bad", ["not-a-number", None, "", object(), "  "])
+def test_non_numeric_alert_mail_sent_is_conservative(bad):
+    res, stub, saves, state = _run(BAD_LEDGER, alert_mail_sent=bad)
+    assert res["reason"] == "has_alert_mail" and stub.calls == [] and saves == []
+
+
+def test_numeric_string_alert_mail_sent_still_parsed():
+    res, stub, _s, _st = _run(BAD_LEDGER, alert_mail_sent="2")
+    assert res["reason"] == "has_alert_mail" and stub.calls == []
+
+
+# ── D7: & 也要转义(&& / &amp; 进正文不许失真) ────────────────────────────
+def test_conclusion_html_ampersand_escaped():
+    weird = "1 个任务退出失败: a && b &amp; c; 覆盖 43/43(40 业务+基础, 3 自监控)"
+    _res, stub, _s, _st = _run(weird)
+    body = stub.calls[0][3]
+    assert "a &amp;&amp; b &amp;amp; c" in body
+    assert "&&" not in body
+
+
+def test_body_wording_matches_real_frequency_protection():
+    """D8: 正文不许再说「同一份结论只发一次」(内容 A→B→A 会再发 A)。"""
+    _res, stub, _s, _st = _run(BAD_LEDGER)
+    body = stub.calls[0][3]
+    assert "同一份结论内容只发一次" in body
+    assert "结论内容变了会再发一次" in body
+
+
+# ── D9: 运行时总开关 ──────────────────────────────────────────────────────
+@pytest.mark.parametrize("val", ["0", "false", "off", "no", " FALSE "])
+def test_env_switch_off_disables_everything(monkeypatch, val):
+    monkeypatch.setenv("MONITOR_CONCLUSION_STATUS_EMAIL", val)
+    assert _ns()["_conclusion_email_enabled"]() is False
+    res, stub, saves, state = _run(BAD_LEDGER, alert_mail_sent=0)
+    assert res["reason"] == "disabled" and res["sent"] is False
+    assert stub.calls == [] and saves == [] and state == {}
+
+
+def test_env_switch_default_on(monkeypatch):
+    monkeypatch.delenv("MONITOR_CONCLUSION_STATUS_EMAIL", raising=False)
+    assert _ns()["_conclusion_email_enabled"]() is True
+    res, stub, _s, _st = _run(BAD_LEDGER, alert_mail_sent=0)
+    assert res["sent"] is True and len(stub.calls) == 1
+
+
+# ── 判定点定位: 必须在两条批发通道之后(源码形状护栏) ──────────────────────
+def test_decision_point_is_after_all_send_channels():
+    src = m309.MONITOR.read_text(encoding="utf-8")
+    i_call = src.find("_concl_email = _maybe_send_conclusion_status_email(")
+    assert i_call > 0
+    i_flush_warn = src.find('"--flush-warnings"', src.find("<<'PYEOF'"))
+    i_flush_dig = src.find('"--flush-digest"', src.find("<<'PYEOF'"))
+    assert 0 < i_flush_warn < i_call, "判定点必须晚于 --flush-warnings(否则漏计批发邮件)"
+    assert 0 < i_flush_dig < i_call, "判定点必须晚于 --flush-digest(同日摘要批发也是告警邮件)"
+    # 六条真实外发通道全在判定点之前累加
+    assert 0 < src.find('_ALERT_MAIL_COUNTER["sent"] += _cfu_alert_mail_delta(') < i_call
+    assert 0 < src.rfind('_ALERT_MAIL_COUNTER["sent"] += _flush_alert_mail_delta(') < i_call
+    assert 0 < src.find('_ALERT_MAIL_COUNTER["sent"] += 1', src.find("<<'PYEOF'")) < i_call
+
+
+# ── 审查要求 3: 行为级假恢复用例(不是源码形状守卫) ────────────────────────
+def test_recovery_loop_behavior_skips_conclusion_status_key():
+    """真实路径: 键 active + 下一轮不在 seen ⇒ 不得翻 recovered、不得进 recoveries。
+
+    阳性对照(同轮一条普通 active 键不在 seen)必须照常进 recoveries —— 证明循环真的跑了,
+    避免「什么都没跑也算过」的假绿。
+    """
+    state = {
+        "conclusion_status|deadbeef": {
+            "status": "active", "first_seen": "2026-10-26 09:00:00",
+            "keyword": "conclusion_status", "digest": "deadbeef"},
+        "taskA|ledger_stale|1": {
+            "status": "active", "keyword": "账本补位码", "first_seen": "2026-10-26 08:00:00"},
+    }
+    ns = m309.recovery_loop(state, seen_keys_this_run=set(), now=NOW)
+    rec = ns["recoveries"]
+    assert [r["task"] for r in rec] == ["taskA"], (
+        "只有真异常才产生 [恢复]; conclusion_status| 键不许出现(否则发假恢复邮件)")
+    assert state["conclusion_status|deadbeef"]["status"] == "active"
+    assert state["taskA|ledger_stale|1"]["status"] == "recovered"
