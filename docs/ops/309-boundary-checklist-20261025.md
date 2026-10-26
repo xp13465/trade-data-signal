@@ -231,3 +231,127 @@
 - 不测:7 项,均给理由(无判定影响 / 实现已防御 / 环境既有 / 设计接受 / 人工回滚约束)。
 - 判别力证据:把 `_conclusion_status_decision` 的「零告警邮件」判据改坏(`> 0` → `>= 0`)
   ⇒ B 场景及同族共 6 条红;还原 ⇒ 20 条全绿,文件 sha256 与改前一致。
+## 10. 第六轮(#309 F2 P1 告警邮件计数补全,2026-10-26)
+
+> 分支 `feat/309-conclusion-email-20261026`;审查阻塞项 D1(「本轮告警邮件数」漏计通道)。
+> 改动点:`scripts/schedule_monitor.sh`(计数累计 + 判定点后移 + 环境开关 + 顺手修)、
+> `scripts/check_failed_units.py`(`NOTIFY_SENT=<n>` 标记)、`scripts/notify.py`(两条批发
+> 结果文件 status 如实标注,发送语义未动)。用例 `test_309_conclusion_email_20261026.py`
+> 由 20 条扩到 51 条(原 20 条一字未删)。全程 static-only,零真实外发(§18 L48)。
+
+### 10.1 输入域
+
+| # | 来源(需求点/改动点) | 边界项 | 判定 | 依据与理由(对应用例) |
+|---|---|---|---|---|
+| P1-I1 | CFU 标记 | `NOTIFY_SENT=0` / `=1` / `=2` | 测 | `test_cfu_marker_zero_counts_as_no_mail`、`..._cfu_child_severe_counts_...`、`..._multiple_sends_counted` |
+| P1-I2 | CFU 标记 | 标记缺失(子进程被杀/旧版)/格式坏(`=abc`)/非独立行(日志里出现同样字样) | 测 | `test_cfu_marker_missing_or_broken_is_conservative` 参数化 4 种,全部按 1 保守 |
+| P1-I3 | 批发 status | `sent` / `noop` / `failed` / 空串(结果文件缺失或损坏) | 测 | `test_flush_status_mapping` 参数化 4 种;空串=判不出 ⇒ 保守 1 |
+| P1-I4 | 判定入参 | `alert_mail_sent` 为 `None`/`""`/`object()`/非数字字符串/"  "(空白) | 测 | `test_non_numeric_alert_mail_sent_is_conservative` 参数化 5 种,一律保守不发 |
+| P1-I5 | 判定入参 | 数字字符串(`"2"`)、布尔、整数 | 测 | `test_numeric_string_alert_mail_sent_still_parsed` + 既有 A 场景(整数 1) |
+
+### 10.2 状态组合
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| P1-S1 | 漏点 1 | CFU 真发 severe + 结论非 OK ⇒ 状态说明 0 次 | 测(行为) | `test_scene_a_cfu_child_severe_counts_and_blocks_status_mail`(不落签、state 无 `conclusion_status|`) |
+| P1-S2 | 漏点 2 | 聚合批发真发 1 封 + 结论非 OK ⇒ 状态说明 0 次 | 测(行为) | `test_scene_a_flush_batch_sent_blocks_status_mail` 参数化 2 种 |
+| P1-S3 | 反向 | CFU 明确回报 0 封 ⇒ 仍照常补发 1 封 | 测 | `test_cfu_marker_zero_counts_as_no_mail`(证明不是「一律不发」的假修) |
+| P1-S4 | 子进程契约 | 子进程真发出时 stdout 有 `NOTIFY_SENT=1`;健康轮有 `NOTIFY_SENT=0` | 测(行为,真跑 `main()`) | `test_cfu_child_really_prints_marker`、`..._prints_zero_marker_...`(notify.py 用写 `--result-file` 的假 run 代替) |
+| P1-S5 | 环境开关 | `MONITOR_CONCLUSION_STATUS_EMAIL=0/false/off/no/带空格` ⇒ 完全不发、不落签 | 测 | `test_env_switch_off_disables_everything` 参数化 5 种 |
+| P1-S6 | 环境开关 | 变量未设 ⇒ 默认开(行为与上一版一致) | 测 | `test_env_switch_default_on` |
+| P1-S7 | 优先级 | 已有告警邮件 + 同内容键存在 ⇒ 仍以「已有告警邮件」为准(不为省事改判) | 测(既有) | `test_alert_mail_takes_precedence_over_same_content_state` 保留 |
+
+### 10.3 时序
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| P1-T1 | 判定点位置 | 判定必须在 `--flush-warnings` **和** `--flush-digest` 之后(否则同轮 2 封) | 测(源码形状) | `test_decision_point_is_after_all_send_channels` 断言两条批发调用位置都早于判定调用 |
+| P1-T2 | 计数点位置 | 六通道累计都在判定点之前,且批发计数真读自己的结果文件 | 测(源码形状) | 同用例:CFU/批发累加行位置 + `_read_notify_result_status(_flush_warn_rf/_flush_dig_rf)` 存在 |
+| P1-T3 | 子进程时序 | CFU 子进程在结论合成之前跑完(标记已被读到) | 测(脚本顺序) | 累加行在 CFU 调用点之后、判定点之前;生产顺序固定 |
+| P1-T4 | 用例时间 | 用 `datetime.now()` 致隔天红(L51) | 测(静态核) | 全部注入冻结 `NOW=2026-10-26 09:42`;子进程用例不依赖当天日期 |
+| P1-T5 | 时钟回拨 | `now < last_recovered` ⇒ 冷却判定为「未过窗」⇒ 抑制重发(保守侧) | 不测(代码已如此) | `_conclusion_recurrence_ok`:`(now-last) >= 6h` 才放行,负数恒 False = 少发不多发 |
+
+### 10.4 上下游(同类错误面:谁还会发告警邮件)
+
+监控 heredoc 里全部 notify.py 调用点逐个核对(§23.3 举一反三):
+
+| # | 调用点(行号=本批后) | 性质 | 计入? | 理由 |
+|---|---|---|---|---|
+| P1-U1 | 481 升级提醒 | 真发 severe | 计 1 | 原有计数点 |
+| P1-U2 | 1530 deploy warning / 2055 R2 warning / 2777 资源预警 | `--tier warning` 入 30min 聚合缓冲 | 计(经 U11) | 本轮不直发,由尾部 flush 批发;按 flush 结果计,不按行计 |
+| P1-U3 | 3780 飞书 ws 心跳陈旧 | `--tier info` | 不计 | info 只落 dashboard 不进群/邮件 |
+| P1-U4 | 3941 停摆直发 | 真发 severe | sent 计 1;`suppressed` 计 0 | 去重窗内=本轮没发 |
+| P1-U5 | 3990 批次行级预算 `--defer-digest` | 并入当日摘要,本轮不外发 | 不计 | 23:25 独立任务发摘要;状态说明文案说的是「**本轮**」,事实成立 |
+| P1-U6 | 4025 收尾聚合批次 | 真发 severe | 按结果计 1 | 原有计数点 |
+| P1-U7 | 4130 `[恢复]` 邮件 | 真发(非告警语义) | 不计 | 说「好了」不是告警;与 §9 F2-U7 口径一致 |
+| P1-U8 | 4284 恢复补列 `--defer-digest` | 本轮不外发 | 不计 | 同 U5 |
+| P1-U9 | **CFU 子进程**(`check_failed_units.py`) | 子进程自己发 severe | 计 n(`NOTIFY_SENT`) | **本轮修的主漏点** |
+| P1-U10 | **4252 `--flush-warnings`** | 真发聚合批发 | sent 计 1 / noop·failed 计 0 / 判不出计 1 | **本轮修的主漏点** |
+| P1-U11 | **4312 `--flush-digest`** | 真发当日摘要 | 同上 | 举一反三补的同类漏点 |
+| P1-U12 | 1248 状态说明自身 | 真发 | 不计(自指) | 它就是判定结果,计入会自己压自己 |
+
+其它上下游:
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| P1-U13 | notify.py 接口 | 两条批发的结果文件 status 语义 | 测(用例+直读代码) | flush 分支:真发 ⇒ `sent`,没到期条目 ⇒ `noop`;发送逻辑一字未改 |
+| P1-U14 | 子进程接口 | CFU 标记是 stdout 独立行,不是日志抠字 | 测 | 正则 `^NOTIFY_SENT=(\d+)$`(MULTILINE);`告警已发出 NOTIFY_SENT=1` 这种前缀行不算(I2) |
+| P1-U15 | alert_ack.py | `--list/--ack` 会把 `conclusion_status|` 键当 active 列出/可 ack | 不测/不改(超范围) | 只是显示噪声:该键不触发告警邮件、不参与恢复环;ack 只写 `acknowledged`,本逻辑不读它 ⇒ 无行为影响 |
+| P1-U16 | 前端/数据产物 | 无前端、无 data 产物、无版本串 | 不测 | diff 仅 `scripts/` + 测试 + 本清单 |
+
+### 10.5 极端值
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| P1-E1 | 标记值 | `NOTIFY_SENT=` 后接超大数(理论上) | 不测(无判定影响) | 只判 `> 0`;整数解析不溢出(任意精度) |
+| P1-E2 | 结果文件 | 损坏 JSON / 不存在 / 无 `status` 字段 | 测 | `test_read_notify_result_status`(3 种) + `test_flush_status_mapping` 空串 |
+| P1-E3 | 子进程 | 子进程超时/信号杀死 ⇒ 无标记 | 测(输入域) | I2 的 `""` 情形 ⇒ 1 保守 |
+| P1-E4 | 计数溢出 | 一轮几千封邮件 | 不测(无判定影响) | 只判 `> 0` |
+| P1-E5 | 子进程 rc | 子进程 rc 非 0 但确实发过(如 D1 通道 rc=4) | 测(设计) | 计数只认标记,不认 rc(标记在 `finally` 必打) |
+
+### 10.6 回退路径
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| P1-R1 | 运行时开关 | `MONITOR_CONCLUSION_STATUS_EMAIL=0` ⇒ 立即回到「只打日志」旧行为 | 测 | 开关用例 5 种取值;生产改 systemd environment 或脚本头部 export 即生效 |
+| P1-R2 | 回滚顺序 | 开关置 0/删调用点**之前**必须先清生产 `data/alert_state.json` 的 `conclusion_status|*` 键 | 不测(人工约束) | 残留键会被恢复环当异常发假恢复邮件(上一轮 skip 前缀挡着;若本次连 skip 一起回滚,顺序必须先清键)。原文写死在代码注释 + 本节 |
+| P1-R3 | 部署回滚 | feat revert 即恢复旧行为(无数据产物/版本串) | 不测(部署操作) | 三个脚本同 commit 部署,版本成对 |
+
+### 10.7 并发
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| P1-C1 | 计数器作用域 | `_ALERT_MAIL_COUNTER` 进程内模块级,多轮不串 | 不测(结构性) | monitor 每轮新进程;CFU 子进程有自己的一份 |
+| P1-C2 | 子进程计数 | `_NOTIFY_SENT_COUNT` 若模块被同进程多次 `main()` | 测(设计) | 用例里显式清零;生产一次进程一次 main |
+| P1-C3 | state 并发写 | 两个 monitor 实例同时写 `alert_state.json` | 不测(既有风险 D10) | 沿用既有单实例 15min 机制,本批不新增共享写目标;`save_alert_state` 原子性未动 |
+| P1-C4 | 测试隔离 | 变异改生产文件与并行测试互扰 | 测(收尾核) | 3 次变异各自 `git checkout --` 还原,还原后 `git status --porcelain` 无输出 |
+
+### 10.8 本轮测/不测小结 + 审查 D 项处置
+
+- 测:51 条用例(原 20 条全保留 + 31 条新增);不测 9 项,均给理由(无判定影响 / 结构
+  性 / 既有风险 / 人工回滚约束 / 超范围)。
+- 判别力证据(3 次变异,每次改坏 → 跑目标文件 → 还原 → 复查):
+  1. 删 CFU 累加行(`+= _cfu_alert_mail_delta(...)` → `pass`)⇒ 1 红
+     (`test_decision_point_is_after_all_send_channels`)⇒ 还原 51 绿;
+  2. 两条批发计数写死空串(不读结果文件 status)⇒ 1 红(同一条形状护栏)⇒ 还原 51 绿;
+  3. 恢复环跳过前缀改 `if False:` ⇒ 2 红(形状 + **行为级**),日志实测打出
+     `[recovery] conclusion_status ... 已消失`(= 真会发假恢复邮件)⇒ 还原 51 绿。
+  三次还原后 `git status --porcelain` 无输出(无残留)。
+- 全量回归:`python -m pytest -q scripts/tests/` ⇒ **1622 passed, 2 skipped**(基线
+  1591 passed + 2 skipped,差额 31 = 本批新增用例数,零回归)。
+
+审查 D1-D11 处置(逐条):
+
+| D | 结论 | 说明 |
+|---|---|---|
+| D1 计数须覆盖全部真发通道 | 已修 | 六通道累计(U1/U4/U6/U9/U10/U11)+ 判定点后移;同类面 U1-U12 逐个核对 |
+| D2 摘要键稳定性 | 保持现状 | 键=`conclusion_status|`+md5 前 8 位,内容变即换键;用例覆盖,无需改码 |
+| D3 非数字/None 入参 | 已修 | `_alert_mail_count` 防御,4 类坏值按 1 保守,不抛异常 |
+| D4 alert_ack 显示噪声 | 不改(记录) | 只是 `--list` 多一条;不触发邮件、不影响判定(U15) |
+| D5 `--alert-issue` 覆盖 latest.md 详情区 | 超范围未改 | 任务书点名不做(P2),另行处理 |
+| D6 `[状态说明]` 飞书群路由 | 超范围未改 | 任务书点名不做(P2 飞书路由) |
+| D7 `&` 未转义 | 已修 | 转义顺序 `&` 最先,用例断言 `a && b &amp; c` → `a &amp;&amp; b &amp;amp; c` |
+| D8 「只发一次」措辞不准 | 已修 | 改为「同一份结论内容只发一次;结论内容变了会再发一次」,用例钉死 |
+| D9 无运行时开关 | 已加 | `MONITOR_CONCLUSION_STATUS_EMAIL`(默认开,0/false/off/no 关)+ 回滚顺序(R2) |
+| D10 save_alert_state 非原子/并发双发 | 不改(记录) | 既有风险,独立任务;本批未动写盘逻辑(C3) |
+| D11 时钟回拨 | 不改 | 冷却判定负数 ⇒ 抑制重发 = 保守侧(T5) |

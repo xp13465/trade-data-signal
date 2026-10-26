@@ -381,8 +381,7 @@ def test_flush_status_mapping(status, expect):
     assert _ns()["_flush_alert_mail_delta"](status) == expect
 
 
-@pytest.mark.parametrize("status", ["sent", "sent-digest"])
-def test_scene_a_flush_batch_sent_blocks_status_mail(status):
+def test_scene_a_flush_batch_sent_blocks_status_mail():
     """聚合/摘要批发真发出 1 封 ⇒ 状态说明邮件 0 次调用。"""
     total = _ns()["_flush_alert_mail_delta"]("sent")
     assert total == 1
