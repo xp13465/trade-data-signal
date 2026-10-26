@@ -538,7 +538,9 @@ grep -an '^\[2026-10-25 16:15:01\]' schedule_monitor_launchd.log | head -1
 ### 11.6 本次未覆盖(另立任务,不在本批动手)
 
 1. **monitor 自身异常的外层可见性**:本批只修根因 + 加静态守卫;「某轮 monitor 内嵌块异常 ⇒ 至少留一条可见告警」尚未做(与本文 §4 机制 B 同族,建议并入「脚本退出码诚实化」批)。
-2. **同一时点表的其他展示位仍是旧值**(均为同一事实副本,改它们需要产品口径决定展示哪个值,故只记录不动手):`static-site/app.js:33882,33884`(用户可见「更新时间表」弹窗,且该表另有 intraday 30 分钟/15:33/20:00/23:00 等多项与云上不符)、`docs/data-sources.md:273,274,292`、`docs/data-dictionary.md:619`、`docs/site-deployment.md:632,635,657,658`、`docs/signal-finalize-time.md:55,72,77,103,113`、`docs/72h-monitor-plan.md:35,345,346`。
+2. **同一时点表的其他展示位仍有旧值**(均为同一事实副本,改它们需要产品口径决定展示哪个值):
+   - **已处理(2026-10-26,`feat/monitor-nameerror-fix-20261026`)**:`static-site/app.js:33882,33884`「更新时间表」弹窗里 futures/lhb 两行**硬编码**时点已对齐云上 systemd 实文与 `scripts/gen_schedule_stats.py:72,74` —— lhb `18:30 + 19:30(兜底)` → `18:50 + 19:30(兜底)`;futures `20:05 + 21:00(兜底)` → `19:45 + 21:20(兜底)`(同行说明里的「21:00二次槽」同步改为「21:20二次槽」,否则同一行内时点自相矛盾)。依据:同一弹窗另一张 `#schedule-stats-table` 由 `schedule_stats.json` 渲染、已是新值,同屏两表不能互相打脸(§22);`app.min.js` 同 commit 重建。
+   - **仍待办**:`static-site/app.js` 该硬编码表其余行(盘中30分钟/15:33/20:00/23:00 等)与云上不符,需产品口径决定展示哪个值;`docs/data-sources.md:273,274,292`、`docs/data-dictionary.md:619`、`docs/site-deployment.md:632,635,657,658`、`docs/signal-finalize-time.md:55,72,77,103,113`、`docs/72h-monitor-plan.md:35,345,346` 仍是旧值(5 份活文档,含 futures `20:05/21:00`、lhb `18:30/19:30`)。
 
 ---
 
