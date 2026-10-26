@@ -50,7 +50,14 @@
 #   D1_MAX_STMT_BYTES=60000       单条语句切批软上限
 #   D1_MAX_STMT_BYTES_ASSERT=90000 单条语句硬断言(>= 即生成失败)
 #   D1_RETRY_DELAYS="30 90"      网络类失败重试退避(最多重试 2 次)
-#   D1_SYNC_BUDGET_SEC=1800      D1 执行段总时间预算(重试前打印剩余)
+#   D1_RETRY_BUDGET=360          D1 执行段总时间预算(重试前打印已用/剩余)。旧名
+#                                `D1_SYNC_BUDGET_SEC` 仍兼容。
+#                                为什么是 360: daily 的墙只有 10 分钟(TimeoutStartUSec=10min,
+#                                10-23/10-25 实测 16:10 被杀), 预算必须远小于墙 —— 旧的 1800s
+#                                永远用不到(systemd 先杀整组, 连 trap 都跑不到)。360s 给
+#                                生成段(~几十秒)与 D1 计数校验留出约 4 分钟余量。
+#   D1_EXEC_TIMEOUT_SEC=300      单次 `wrangler d1 execute` 上限(超时=网络类失败, 可重试)
+#   D1_VERIFY_TIMEOUT_SEC=60     结尾 D1 计数查询上限(小查询, 不需要 300s)
 # 注意: 一个导入文件 = 一个事务, 所以文件里**不写 BEGIN/COMMIT**（导入作业自带事务）。
 #
 # ── #275 失败可见化（2026-10-22，与 sync_fund_score_to_d1.sh 同一机制）──────────
@@ -77,7 +84,10 @@ SPLIT_MODE="${D1_SPLIT_MODE:-single}"
 MAX_STMT_BYTES="${D1_MAX_STMT_BYTES:-60000}"
 ASSERT_MAX_STMT_BYTES="${D1_MAX_STMT_BYTES_ASSERT:-90000}"
 RETRY_DELAYS="${D1_RETRY_DELAYS:-30 90}"
-BUDGET_SEC="${D1_SYNC_BUDGET_SEC:-1800}"
+# 预算默认 360s(远小于 daily 10min 墙; 旧默认 1800s 永远用不到)。旧名 D1_SYNC_BUDGET_SEC 兼容。
+BUDGET_SEC="${D1_RETRY_BUDGET:-${D1_SYNC_BUDGET_SEC:-360}}"
+EXEC_TIMEOUT_SEC="${D1_EXEC_TIMEOUT_SEC:-300}"
+VERIFY_TIMEOUT_SEC="${D1_VERIFY_TIMEOUT_SEC:-60}"
 BUNDLE_FILE="full_import.sql"
 
 case "$SPLIT_MODE" in
@@ -429,7 +439,6 @@ meta_payload = {
     },
     "coverage": coverage,
 }
-(gen_dir / "meta.json").write_text(json.dumps(meta_payload, ensure_ascii=False), encoding="utf-8")
 
 
 def sql_lit(v):
@@ -510,6 +519,12 @@ else:
     print(f"[sync-screener-python] mode=legacy rows={len(rows)} cols={len(COLS)} "
           f"files={len(files)} batch={batch} max_stmt_bytes={max_bytes} "
           f"coverage_cols={len(coverage)}", flush=True)
+
+# meta.json 放在**全部生成动作之后**写(2026-10-26 审查 M3): 硬断言/写盘失败时
+#   生成目录里连 meta.json 都没有 —— 与「超限时一个字节都不写盘」的口径一致
+#   (旧版在断言之前写, 超限会残留 1,779B 的 meta.json)。它只供调用方读期望行数,
+#   不参与 SQL 内容, 后写无副作用。
+(gen_dir / "meta.json").write_text(json.dumps(meta_payload, ensure_ascii=False), encoding="utf-8")
 PYEOF
 RC=$?
 if [ $RC -ne 0 ]; then
@@ -543,9 +558,11 @@ fi
 
 # 2) 导入 D1: 默认整表一个文件只调一次(--file 本身是 import 管线); legacy 逐文件
 #    网络类失败由 lib/d1_execute.sh 重试(最多 2 次, 30s/90s 退避), SQL 类错误不重试
-echo "$LOG_PREFIX 执行计划: mode=$SPLIT_MODE files=${#SQL_FILES[@]} budget=${BUDGET_SEC}s"
-D1_SYNC_DEADLINE=$(( $(date +%s) + BUDGET_SEC ))
+echo "$LOG_PREFIX 执行计划: mode=$SPLIT_MODE files=${#SQL_FILES[@]} budget=${BUDGET_SEC}s exec_timeout=${EXEC_TIMEOUT_SEC}s"
+D1_BUDGET_START=$(date +%s)
+D1_SYNC_DEADLINE=$(( D1_BUDGET_START + BUDGET_SEC ))
 export D1_SYNC_DEADLINE D1_RETRY_DELAYS="$RETRY_DELAYS" LOG_PREFIX
+export D1_BUDGET_START D1_BUDGET_TOTAL_SEC="$BUDGET_SEC" D1_EXEC_TIMEOUT_SEC="$EXEC_TIMEOUT_SEC"
 source "$SCRIPT_SELF_DIR/lib/d1_execute.sh" || _fail "d1_execute.sh missing"
 for f in "${SQL_FILES[@]}"; do
   echo "$LOG_PREFIX execute $(basename "$f") ($(wc -c < "$f" | tr -d ' ') bytes)"
@@ -557,7 +574,8 @@ for f in "${SQL_FILES[@]}"; do
 done
 
 # 3) 验证: D1 侧 count 与本地一致
-D1_COUNT=$(npx wrangler d1 execute "$D1_DB" --remote -y --json \
+D1_COUNT=$(_d1_run_with_timeout "$VERIFY_TIMEOUT_SEC" \
+  npx wrangler d1 execute "$D1_DB" --remote -y --json \
   --command "SELECT COUNT(*) AS n FROM fund_screener" 2>/dev/null \
   | "$PY" -c "import json,sys;d=json.load(sys.stdin);print(d[0]['results'][0]['n'])")
 echo "$LOG_PREFIX 本地 rows=$EXPECT_ROWS D1 count=$D1_COUNT"

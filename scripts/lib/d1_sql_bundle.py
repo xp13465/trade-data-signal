@@ -68,11 +68,15 @@ class Bundle:
         head        : `INSERT INTO t (a, b) VALUES`(不含换行/分号)
         rows        : 每个元素形如 `('x', 1, NULL)`
         delete_stmt : 可选, 作为**第一条数据语句**插在最前(如 `DELETE FROM t;`)
+
+        空行集**先报错、且不把 DELETE 入队**(2026-10-26 审查 L2): 否则调用方一旦
+        吞掉异常继续写盘, 就会产出一个「只有 DELETE、没有 INSERT」的包 —— 导入即
+        清空线上表。本模块从结构上让这种情况产不出半成品。
         """
-        if delete_stmt:
-            self.add(delete_stmt)
         if not rows:
             raise ValueError("add_inserts 收到空行集: 生成段应在此之前报错, 不应静默产出空包")
+        if delete_stmt:
+            self.add(delete_stmt)
         batch: list[str] = []
 
         def flush() -> None:

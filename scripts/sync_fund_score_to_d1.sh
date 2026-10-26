@@ -22,8 +22,12 @@
 #   一次导入**; 切批从「只按 80 行」改为**按实际 UTF-8 字节**(默认单条 ≤60,000, 官方单语句
 #   上限 100,000 字节), 生成完硬断言 max_stmt_bytes < 90,000, 超了生成阶段直接失败。
 # 可调环境变量: D1_SPLIT_MODE=legacy 回退旧多文件模式 / D1_MAX_STMT_BYTES /
-#   D1_MAX_STMT_BYTES_ASSERT / D1_RETRY_DELAYS="30 90" / D1_SYNC_BUDGET_SEC=1800
+#   D1_MAX_STMT_BYTES_ASSERT / D1_RETRY_DELAYS="30 90" / D1_RETRY_BUDGET=360 /
+#   D1_EXEC_TIMEOUT_SEC=300 / D1_VERIFY_TIMEOUT_SEC=60
 #   (详表见 docs/ops/pfscore-d1-single-import-20261026.md)
+# 预算为什么是 360s: daily 的墙只有 10 分钟(TimeoutStartUSec=10min, 10-23/10-25 实测
+#   16:10 被杀), 预算必须远小于墙 —— 旧默认 1800s 永远用不到(systemd 先杀整组)。
+#   单次 `wrangler d1 execute` 另加 300s 上限, 防止进程卡死挂到墙。
 # 注意: 一个导入文件 = 一个事务 ⇒ 文件里不写 BEGIN/COMMIT。
 #
 # ── #275 失败可见化（2026-10-22，根治「39 次失败零告警」）──────────────────────
@@ -52,7 +56,10 @@ SPLIT_MODE="${D1_SPLIT_MODE:-single}"
 MAX_STMT_BYTES="${D1_MAX_STMT_BYTES:-60000}"
 ASSERT_MAX_STMT_BYTES="${D1_MAX_STMT_BYTES_ASSERT:-90000}"
 RETRY_DELAYS="${D1_RETRY_DELAYS:-30 90}"
-BUDGET_SEC="${D1_SYNC_BUDGET_SEC:-1800}"
+# 预算默认 360s(远小于 daily 10min 墙; 旧默认 1800s 永远用不到)。旧名 D1_SYNC_BUDGET_SEC 兼容。
+BUDGET_SEC="${D1_RETRY_BUDGET:-${D1_SYNC_BUDGET_SEC:-360}}"
+EXEC_TIMEOUT_SEC="${D1_EXEC_TIMEOUT_SEC:-300}"
+VERIFY_TIMEOUT_SEC="${D1_VERIFY_TIMEOUT_SEC:-60}"
 BUNDLE_FILE="full_import.sql"
 
 case "$SPLIT_MODE" in
@@ -170,6 +177,12 @@ rows = conn.execute(
 ).fetchall()
 n_int = lambda v: int(v) if v is not None else None
 rows = [dict(r) for r in rows]  # sqlite3.Row 不可赋值, 先转 dict
+# 空输入为什么不会产出「只有 DELETE、没有 INSERT」的清空包(2026-10-26 审查 L2 结论):
+#   ① 上面已按同一谓词 `composite_score IS NOT NULL` 取 MAX(score_date), 取不到就 sys.exit(1);
+#   ② 本条查询用**同一个谓词** ⇒ latest 有值时 rows 必非空(这里不存在空行集);
+#   ③ 纵深防御: Bundle.add_inserts 收到空行集先抛错、且**不把 DELETE 入队**
+#      (scripts/lib/d1_sql_bundle.py) ⇒ 即使 ① 将来被删, 也产不出 DELETE-only 包。
+#   因此不在这里再加一个不可达的 `if not rows` 守卫(不可达分支测不到, 只会掩盖真实防线)。
 for r in rows:
     # star_rating 从 sqlite 动态类型可能回读 float, 统一转 int 保持与本地一致
     if r["star_rating"] is not None:
@@ -214,9 +227,8 @@ schema_stmts = ["""CREATE TABLE IF NOT EXISTS fund_score (
 );"""]
 schema = "\n".join(schema_stmts) + "\n"  # legacy 模式落盘用（与旧版逐字节一致）
 
-# meta（记录同步的 score_date 与行数, 供验证）
-(gen_dir / "meta.json").write_text(
-    json.dumps({"score_date": latest, "rows": len(rows)}), encoding="utf-8")
+# meta（记录同步的 score_date 与行数, 供验证）; 落盘时机见文件末尾
+#   (2026-10-26 审查 M3: 挪到全部生成动作之后, 硬断言失败时不留残留)
 
 # 同步元数据（最后写入, 供 worker 返回数据日期/行数）
 import datetime as _dt
@@ -275,6 +287,12 @@ else:
     (gen_dir / "999_meta.sql").write_text(meta_stmt + "\n", encoding="utf-8")
     print(f"[sync-d1-python] mode=legacy score_date={latest} rows={len(rows)} "
           f"files={len(files)} batch={batch}", flush=True)
+
+# meta.json 放在**全部生成动作之后**写(2026-10-26 审查 M3): 硬断言/写盘失败时
+#   生成目录里连 meta.json 都没有 —— 与「超限时一个字节都不写盘」的口径一致
+#   (旧版在断言之前写, 超限会残留 meta.json)。它只供调用方读期望行数, 不参与 SQL 内容。
+(gen_dir / "meta.json").write_text(
+    json.dumps({"score_date": latest, "rows": len(rows)}), encoding="utf-8")
 PYEOF
 RC=$?
 if [ $RC -ne 0 ]; then
@@ -308,9 +326,11 @@ fi
 
 # 2) 导入 D1: 默认整表一个文件只调一次(--file 本身是 import 管线); legacy 逐文件
 #    网络类失败由 lib/d1_execute.sh 重试(最多 2 次, 30s/90s 退避), SQL 类错误不重试
-echo "$LOG_PREFIX 执行计划: mode=$SPLIT_MODE files=${#SQL_FILES[@]} budget=${BUDGET_SEC}s"
-D1_SYNC_DEADLINE=$(( $(date +%s) + BUDGET_SEC ))
+echo "$LOG_PREFIX 执行计划: mode=$SPLIT_MODE files=${#SQL_FILES[@]} budget=${BUDGET_SEC}s exec_timeout=${EXEC_TIMEOUT_SEC}s"
+D1_BUDGET_START=$(date +%s)
+D1_SYNC_DEADLINE=$(( D1_BUDGET_START + BUDGET_SEC ))
 export D1_SYNC_DEADLINE D1_RETRY_DELAYS="$RETRY_DELAYS" LOG_PREFIX
+export D1_BUDGET_START D1_BUDGET_TOTAL_SEC="$BUDGET_SEC" D1_EXEC_TIMEOUT_SEC="$EXEC_TIMEOUT_SEC"
 source "$SCRIPT_SELF_DIR/lib/d1_execute.sh" || _fail "d1_execute.sh missing"
 for f in "${SQL_FILES[@]}"; do
   echo "$LOG_PREFIX execute $(basename "$f") ($(wc -c < "$f" | tr -d ' ') bytes)"
@@ -322,7 +342,8 @@ for f in "${SQL_FILES[@]}"; do
 done
 
 # 3) 验证: D1 侧 count 与本地一致
-D1_COUNT=$(npx wrangler d1 execute trade-fund-score --remote -y --json \
+D1_COUNT=$(_d1_run_with_timeout "$VERIFY_TIMEOUT_SEC" \
+  npx wrangler d1 execute trade-fund-score --remote -y --json \
   --command "SELECT COUNT(*) AS n FROM fund_score" 2>/dev/null \
   | "$PY" -c "import json,sys;d=json.load(sys.stdin);print(d[0]['results'][0]['n'])")
 echo "$LOG_PREFIX 本地 rows=$EXPECT_ROWS D1 count=$D1_COUNT"
