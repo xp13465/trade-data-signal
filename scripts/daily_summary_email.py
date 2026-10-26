@@ -20,7 +20,7 @@
   main(默认):T日盘后情绪速递 -- 恐贪/情绪/涨跌/成交额/板块/冰点等,不含期货/汪汪队/公募。
              17:50 由 update_all.sh 调用(summary_history.json 已就绪)。
   supplement:T日补充速递 -- 期货风向 + 汪汪队 + 公募基金段。
-             20:30 独立 launchd plist 调用(20:05 期货 backfill + 20:07 ETF backfill 后数据就绪)。
+             20:30 独立 launchd plist 调用(19:45 期货 backfill + 20:07 ETF backfill 后数据就绪)。
              内置交易日闸门(非交易日跳过)。
 
 == 调度集成说明 ==

@@ -69,9 +69,9 @@ TASKS = [
     {"task": "intraday_snapshot", "name": "盘中快照", "script": "intraday_snapshot.sh",
      "schedule": "盘中 09:35-15:35", "log": "intraday_snapshot_launchd.log", "mode": "standard"},
     {"task": "futures_backfill", "name": "期货机构持仓", "script": "futures_backfill.sh",
-     "schedule": "20:05 + 21:00(兜底)", "log": "futures_backfill_launchd.log", "mode": "standard"},
+     "schedule": "19:45 + 21:20(兜底)", "log": "futures_backfill_launchd.log", "mode": "standard"},
     {"task": "lhb_backfill", "name": "龙虎榜", "script": "lhb_backfill.sh",
-     "schedule": "18:30 + 19:30(兜底)", "log": "lhb_backfill_launchd.log", "mode": "standard"},
+     "schedule": "18:50 + 19:30(兜底)", "log": "lhb_backfill_launchd.log", "mode": "standard"},
     {"task": "rzhb_backfill", "name": "两融", "script": "rzhb_backfill.sh",
      "schedule": "T+1 08:00", "log": "rzhb_backfill_launchd.log", "mode": "standard"},
     # us_stock_morning: 2026-07-29 新增美股早采 05:00(commit 4425366c schedule_monitor已加监控，

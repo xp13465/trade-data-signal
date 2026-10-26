@@ -1,10 +1,10 @@
 #!/bin/bash
-# lhb_backfill.sh - 龙虎榜当日单采（launchd 18:30 定时，根治 lhb_count 46h 滞后）
+# lhb_backfill.sh - 龙虎榜当日单采（定时 18:50 + 19:30 兜底，根治 lhb_count 46h 滞后）
 #
 # 问题：龙虎榜（lhb_count / lhb_inst_net）东财约 18:00 后才发布完整当日数据，
 #   17:50 update_all 采不到（<18:00 或仅部分值，如 0710@16:45 得 62 而完整值 105）；
 #   backfill 不补（stock_lhb_detail_em 不在 SERIES_FUNCS）-> 滞后最久 46h。
-#   18:30 单采当日（数据已完整）-> 滞后 0.5h。
+#   18:50 单采当日（数据已完整）-> 滞后 ≈0.8h。
 #
 # 只做：单采 group=lhb 的指标（lhb_count / lhb_inst_net）当日值 -> (有新数据则)
 #   重算情绪分 + 持 deploy 锁推送。轻量（几秒采集 + compute + export）。
@@ -57,7 +57,7 @@ fi
 
 # 1) 单采龙虎榜当日（group=lhb：lhb_count / lhb_inst_net）
 #    collect_snapshot 对 DATE_RANGE_FUNCS 传 start_date=end_date=date 单日采；
-#    18:30 数据已完整发布，避开 17:50 的部分值问题。
+#    18:50 数据已完整发布，避开 17:50 的部分值问题。
 echo "-> 单采龙虎榜当日 (group=lhb) ..." | tee -a "$LOG"
 "$PY" -c "
 from app.collector import fetchers, runner

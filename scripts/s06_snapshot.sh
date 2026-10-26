@@ -21,7 +21,7 @@
 #   输入 csi1000/hs300-all.json 由 update_all.sh(17:50 启动)统一 deploy 的
 #   static-site/export.py 第 8 步生成, 实测 export 完成 ≈18:11、update_all 全链最晚结束
 #   19:48(近5日观测 17:56~19:48), 20:35 留 ≥47min 缓冲保证收盘定型数据已就绪;
-#   与 20:05 futures / 20:07 etf-national-team 错峰半小时, 早于 20:40 daily-brief 且本任务
+#   与 19:45/21:20 futures / 20:07 etf-national-team 错峰, 早于 20:40 daily-brief 且本任务
 #   秒级完成不抢资源; 属既有盘后节奏槽位(15:35/16:00/17:50/20:35/22:00), 不推 main 不写 DB,
 #   §14「盘后时点不推 main」约束天然满足。
 #   pmset 无需新增唤醒: 既有 wakepoweron=工作日 17:48(为 17:50 update-all 配置), 机器持续

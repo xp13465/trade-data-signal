@@ -1,11 +1,12 @@
 #!/bin/bash
-# futures_backfill.sh - 期货机构持仓当日单采（launchd 20:05 定时，根治期货 46h 滞后）
+# futures_backfill.sh - 期货机构持仓当日单采（定时 19:45 + 21:20 兜底，根治期货 46h 滞后）
 #
 # 问题：CFFEX 股指期货（IF/IC/IH/IM）前20名会员持仓次日约 20:00 后才发布当日数据，
-#   17:50 update_all 采不到 -> 第三日才采到，滞后最久 46h。20:05 单采当日 -> 滞后 0.05h。
+#   17:50 update_all 采不到 -> 第三日才采到，滞后最久 46h。19:45 先采一次；
+#   CFFEX 约 20:00 后才发布完整数据，21:20 兜底复查 -> 滞后 ≈1.3h。
 #
 # 只做：期货 collect_daily(当日) + compute_accuracy -> (有新数据则) 持 deploy 锁推送。
-#   等价于 pipeline.sh futures，但加自身互斥 + 交易日闸门 + 20:05 定时。
+#   等价于 pipeline.sh futures，但加自身互斥 + 交易日闸门 + 19:45 / 21:20 定时。
 #   不跑 compute_runner（期货 accuracy 已在本步算，export 直接读 DB，与 pipeline futures DO_COMPUTE=0 一致）。
 #
 # 进程互斥：

@@ -131,12 +131,18 @@ TASKS = [
          "13:01", "13:05", "13:15", "13:25", "13:35", "13:45", "13:55",
          "14:05", "14:15", "14:25", "14:35", "14:45", "14:55", "15:02",
          "15:35", "20:35"]},
+    # 2026-10-26 时点同步(以云上 systemd 实文为准, 2026-10-22 用户当场授权 4 个 timer 错峰):
+    #   trade-futures-backfill.timer = 19:45 / 21:20(原表写 20:05/21:00, 已漂移);
+    #   trade-lhb-backfill.timer     = 18:50 / 19:30(原表写 18:30/19:30, 已漂移)。
+    #   核对命令: systemctl cat trade-futures-backfill.timer trade-lhb-backfill.timer
+    #   ⚠️ 时点表必须与云上 timer 实文一致, 否则漏跑判定会在错误时点误报/漏报;
+    #     改云上 timer 时同步改此处 + gen_schedule_stats.py 的 schedule 展示串。
     {"task": "futures_backfill",    "log": "futures_backfill_launchd.log",
      "trading_day_only": True,
-     "schedules": ["20:05", "21:00"]},
+     "schedules": ["19:45", "21:20"]},
     {"task": "lhb_backfill",        "log": "lhb_backfill_launchd.log",
      "trading_day_only": True,
-     "schedules": ["18:30", "19:30"]},
+     "schedules": ["18:50", "19:30"]},
     {"task": "rzhb_backfill",       "log": "rzhb_backfill_launchd.log",
      "trading_day_only": True,
      "schedules": ["08:00"]},  # 2026-07-29 19:15->T+1 08:00：SSE官方T+1早晨发布T日(非误判18-19点)，19:15连续采不到T日

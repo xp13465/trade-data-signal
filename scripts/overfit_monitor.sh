@@ -6,7 +6,7 @@
 #
 # 非交易日: 跳过打点(指数/信号数据不更新), 不产生新预警。传 force 绕过闸门强制跑(周末补数据)。
 #
-# 时点选择(§14): 21:40 避开盘后定时任务(17:50 update_all / 20:05 futures / 20:07 etf /
+# 时点选择(§14): 21:40 避开盘后定时任务(17:50 update_all / 19:45+21:20 futures / 20:07 etf /
 #   20:30 daily-summary / 20:40 daily-brief / 21:00 backfill-evening / 21:30 etf-national-team / 22:00)。
 # 依赖: signal_kelly_trades.json(回测) + signal_daily/index_daily(实盘) + indicators.yaml(指数大类)。
 #
