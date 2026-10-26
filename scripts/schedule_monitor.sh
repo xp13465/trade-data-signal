@@ -508,6 +508,20 @@ def _active_escalate(entry, key, label):
 # 连续N次仍异常才通知, 严重类(漏跑/exit失败/数据错)首次即通知。N=2 = 30min(15min频率×2)。
 SELF_HEAL_THRESHOLD = 2
 
+# P3(2026-09-29 告警降噪 改动1/2): 连续轮阈值。
+#   R2_LAG_CONTINUOUS_THRESHOLD=3: R2 intraday_snapshot 时效滞后单次多为上传间隙瞬时
+#     (09-28 13:45/14:15 各 1 封=检查落在上传间隙), 连续 3 轮(≈45min, 15min/轮)仍滞后
+#     才 SEVERE; 真断供(前端分时读旧)不会被吞。参照 marker_buffer 计数语义。
+#   MISSED_CONTINUOUS_THRESHOLD=2: 单轮漏跑多为瞬时(15:35 轮自动补跑 exit=0), 连续 2 轮
+#     (30min, 15min频率×2)仍无运行才 SEVERE; TOLERANCE=30min 窗口内一个 sch 最多被检查 2 轮。
+# ⚠️ 2026-10-26 顺序修复(P1, NameError 事故): 本块原先定义在模块尾部(原 1438-1445 行),
+#   但下面的漏跑检查是**模块级** `for t in TASKS` 循环, Python 模块级顺序执行 —— 它用到
+#   MISSED_CONTINUOUS_THRESHOLD 时该名字尚未绑定 ⇒ 任何任务首次漏跑必 NameError, 整轮监控
+#   中止(且脚本末尾 exit 0 ⇒ systemd 恒 success, 完全静默)。故必须定义在所有引用点之前;
+#   新增模块级常量的位置约束同此, 由 scripts/check_embedded_py_name_order.py 机检兜底。
+R2_LAG_CONTINUOUS_THRESHOLD = 3
+MISSED_CONTINUOUS_THRESHOLD = 2
+
 # 1) 漏跑检查：对每个任务的每个计划时点，若 now 落在 [sch, sch+30min] 窗口内
 #    且 last_run < sch（任务在该计划时点之后没跑过）= 漏跑
 #    非交易日跳过 trading_day_only 任务(避免周末误报: etf 等非交易日脚本不启动,
@@ -1435,14 +1449,6 @@ R2_SKIP_ESCALATE_ROUNDS = 6
 # fetch_news 30min 轮)每轮/隔轮必有新运行, last_run 恒在窗口内 -> 连续 N 轮 SEVERE 行为一条
 # 不改; 每日一轮任务 ~2 轮后即出窗口 -> 单次 skip 最大计数 2 < 阈值 3, 跨轮累积误报根治。
 R2_SKIP_OBS_WINDOW = timedelta(minutes=30)
-# P3(2026-09-29 告警降噪 改动1/2): 连续轮阈值。
-#   R2_LAG_CONTINUOUS_THRESHOLD=3: R2 intraday_snapshot 时效滞后单次多为上传间隙瞬时
-#     (09-28 13:45/14:15 各 1 封=检查落在上传间隙), 连续 3 轮(≈45min, 15min/轮)仍滞后
-#     才 SEVERE; 真断供(前端分时读旧)不会被吞。参照 marker_buffer 计数语义。
-#   MISSED_CONTINUOUS_THRESHOLD=2: 单轮漏跑多为瞬时(15:35 轮自动补跑 exit=0), 连续 2 轮
-#     (30min, 15min频率×2)仍无运行才 SEVERE; TOLERANCE=30min 窗口内一个 sch 最多被检查 2 轮。
-R2_LAG_CONTINUOUS_THRESHOLD = 3
-MISSED_CONTINUOUS_THRESHOLD = 2
 # #240 ③(2026-10-09) 执行耗时「单轮碰线」降噪(只降噪不降灵敏度, memory
 #   alert-denoise-keep-fault-discriminator): 病灶(docs/ops/alert-triage-1008-20261008.md R7)——
 #   intraday 10-08 15:02 轮 928s vs 阈值 900s(**仅超 3%**)被判 SEVERE + 15min 后 [恢复],
