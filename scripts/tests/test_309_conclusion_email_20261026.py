@@ -13,6 +13,7 @@
 真实渠道)⇒ 零真实外发(§18 L48)。判定/正文/落签全部来自 schedule_monitor.sh 的**生产
 实现**(AST 提取, 非第二份实现 —— memory repro-script-second-implementation-drift)。
 """
+import ast
 import datetime
 
 import pytest
@@ -305,6 +306,77 @@ def test_cfu_marker_missing_or_broken_is_conservative(out):
 
 def test_cfu_marker_multiple_sends_counted():
     assert _ns()["_cfu_alert_mail_delta"]("x\nNOTIFY_SENT=2\n") == 2
+
+
+# ── 复审 F1(2026-10-26): 实参必须钉死是 CFU 子进程的真实输出, 不是空串/常量 ──────
+def _cfu_delta_call_arg():
+    """从生产 heredoc(AST) 取累加行传给 `_cfu_alert_mail_delta` 的实参节点。"""
+    tree = ast.parse(m309.heredoc_source())
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AugAssign):
+            continue
+        tgt = node.target
+        if not (isinstance(tgt, ast.Subscript) and isinstance(tgt.value, ast.Name)
+                and tgt.value.id == "_ALERT_MAIL_COUNTER"):
+            continue
+        # AugAssign 的 value 就是右值表达式(`x[...] += f(a)` ⇒ value=Call); 也兼容显式 Add。
+        candidates = []
+        if isinstance(node.value, ast.BinOp) and isinstance(node.value.op, ast.Add):
+            candidates = [node.value.left, node.value.right]
+        else:
+            candidates = [node.value]
+        for side in candidates:
+            if (isinstance(side, ast.Call) and isinstance(side.func, ast.Name)
+                    and side.func.id == "_cfu_alert_mail_delta"):
+                return side.args[0] if side.args else None
+    return None
+
+
+def _assign_values_for(tree, name):
+    """模块内(含 try 块)所有 `name = <expr>` 的右值节点。"""
+    return [
+        n.value for n in ast.walk(tree)
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == name for t in n.targets)
+    ]
+
+
+def test_cfu_delta_receives_real_cfu_subprocess_output():
+    """复审 F1: 旧用例只钉了调用前缀, 把实参改成 "" 仍然全绿(假绿洞)。
+
+    这里从生产源码 AST 逐层钉死: 实参是某个变量 → 该变量 = `<子进程 stdout>.strip()` →
+    该子进程就是跑 `check_failed_units.py` 的那次 `subprocess.run`。
+    任何改成常量/空串/别的变量的写法都会红。
+    """
+    arg = _cfu_delta_call_arg()
+    assert arg is not None, "找不到 `_ALERT_MAIL_COUNTER['sent'] += _cfu_alert_mail_delta(...)`"
+    assert isinstance(arg, ast.Name), (
+        f"传给 _cfu_alert_mail_delta 的必须是 CFU 子进程输出变量, 不许常量/空串: {ast.dump(arg)}")
+
+    tree = ast.parse(m309.heredoc_source())
+    var = arg.id
+    strip_vals = [
+        v for v in _assign_values_for(tree, var)
+        if isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute) and v.func.attr == "strip"
+    ]
+    assert strip_vals, f"{var} 必须由 `<子进程输出>.strip()` 赋值(实际找不到该形状)"
+
+    inner = strip_vals[0].func.value
+    assert isinstance(inner, ast.BoolOp) and isinstance(inner.op, ast.Or), (
+        f"{var} 必须取 `<stdout or \"\">`, 实际: {ast.dump(inner)[:120]}")
+    stdout_node = inner.values[0]
+    assert isinstance(stdout_node, ast.Attribute) and stdout_node.attr == "stdout", (
+        "CFU 输出变量必须来自子进程结果的 .stdout")
+    run_var = stdout_node.value.id
+
+    runs = [
+        v for v in _assign_values_for(tree, run_var)
+        if isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute) and v.func.attr == "run"
+    ]
+    assert runs, f"{run_var} 必须来自 subprocess.run(...)"
+    consts = [e.value for e in ast.walk(runs[0]) if isinstance(e, ast.Constant)]
+    assert "check_failed_units.py" in consts, (
+        f"{run_var} 的子进程命令必须是真的 check_failed_units.py, 实际常量: {consts}")
 
 
 def test_cfu_child_really_prints_marker(monkeypatch, tmp_path, capsys):
