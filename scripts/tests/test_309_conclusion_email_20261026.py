@@ -571,8 +571,15 @@ def test_recovery_block_exception_does_not_block_status_mail(capsys, monkeypatch
     sent = []
     ns = dict(m309.namespace())
     ns.update({
-        "recoveries": [{"task": "taskA", "keyword": "exit失败",
-                        "first_seen": "2026-10-26 09:00:00", "tier": "severe"}],
+        # 3 条 = 本批恢复条数; 异常日志必须报出这个数(P4)
+        "recoveries": [
+            {"task": "taskA", "keyword": "exit失败",
+             "first_seen": "2026-10-26 09:00:00", "tier": "severe"},
+            {"task": "taskB", "keyword": "账本补位码",
+             "first_seen": "2026-10-26 09:05:00", "tier": "severe"},
+            {"task": "taskC", "keyword": "单位通道",
+             "first_seen": "2026-10-26 09:10:00", "tier": "warning"},
+        ],
         "_pend_items": [], "_pend_tks": set(), "_pend_n": 0,
         "_PEND_KEY": "monitor_recovery|pending", "alert_state": {}, "NOW": NOW,
         "now_str": NOW.strftime("%Y-%m-%d %H:%M:%S"),
@@ -598,11 +605,38 @@ def test_recovery_block_exception_does_not_block_status_mail(capsys, monkeypatch
     err = capsys.readouterr().err
     assert "恢复邮件发送段异常" in err, "异常必须打日志(不许静默吞掉)"
     assert "TimeoutExpired" in err and "状态说明/心跳照常" in err
+    # P4(2026-10-26): 这批恢复不进 pending 不重试 ⇒ 日志必须带条数, 否则看不出丢了几封
+    assert "本批 3 条恢复通知发送中断" in err, (
+        "异常日志缺本批条数(丢了几封看不出来); 去掉条数 ⇒ 本断言红")
 
     exec(compile(ast.get_source_segment(src, concl_assign),
                  "<monitor-conclusion-call>", "exec"), ns)  # noqa: S102
     assert ns["_concl_email"].get("sent") is True, "异常后状态说明必须照常补发"
     assert len(sent) == 1 and sent[0][2].startswith("[状态说明]")
+
+    # 心跳: 异常后仍要跑到(真实源码段原样 exec, 只把写盘换成记录)
+    hb_node = next(
+        (n for n in tree.body
+         if isinstance(n, ast.Try) and n.body and isinstance(n.body[0], ast.Assign)
+         and any(getattr(t, "id", "") == "heartbeat_path" for t in n.body[0].targets)),
+        None)
+    assert hb_node is not None, "找不到心跳写入段(生产结构变了?)"
+    assert hb_node.lineno > try_node.end_lineno, "心跳必须在恢复发送块之后执行"
+
+    hb_writes = []
+
+    class _FakePath:
+        def __init__(self, _p):
+            pass
+
+        def write_text(self, text, encoding=None):
+            hb_writes.append(text)
+
+    ns["Path"] = _FakePath
+    ns["alerts"] = []
+    exec(compile(ast.get_source_segment(src, hb_node),
+                 "<monitor-heartbeat>", "exec"), ns)  # noqa: S102
+    assert hb_writes and "alerts=" in hb_writes[0], "异常后心跳必须照跳"
 
 
 # ── 审查要求 3: 行为级假恢复用例(不是源码形状守卫) ────────────────────────
