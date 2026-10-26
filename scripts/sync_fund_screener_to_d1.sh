@@ -35,7 +35,23 @@
 # 调用方: scripts/pf_score_daily.sh 末尾（16:00 后, 避开 17:50; 失败不阻塞评分主流程）
 # 幂等: CREATE TABLE IF NOT EXISTS + 全量替换（首个数据文件先 DELETE 再分批 INSERT）,
 #       同一 DB 同一运行日下重复跑结果逐行一致（派生年限列随运行日变, 属预期）。
-# 注意: BATCH 可用 SCREENER_D1_BATCH 覆盖（默认 80 行/语句, 与 sync_fund_score_to_d1.sh 同档）。
+# 注意: BATCH 可用 SCREENER_D1_BATCH 覆盖（默认 80 行/语句, **仅 legacy 多文件模式**用）。
+#
+# ── 2026-10-26 一表一文件 · 一次导入（D1 导入提速 + 单语句字节封顶）──────────────
+# 旧做法每 80 行一个 SQL 文件、逐文件 `wrangler d1 execute --file`: 单表 347~354 次调用,
+#   实测 6.35 秒/次 × 354 = 37~44 分钟, 而 D1 侧真正执行只占 0.19%（其余是进程冷启动
+#   + import 握手）。现在默认 **整表合成一个文件、只调用一次**（`d1 execute --file` 本身
+#   就是 import 管线: PUT 到 R2 → ingest → poll）。
+# 同时给单条语句加**字节封顶**: 按实际 UTF-8 字节切批（默认单条 ≤60,000, 官方单语句硬
+#   上限 100,000 字节 / SQLITE_TOOBIG, 旧口径最大 78,105 字节只剩 22% 余量）; 生成完硬断言
+#   max_stmt_bytes < 90,000, 超了**生成阶段直接失败**（不上传半个包）。
+# 可调环境变量:
+#   D1_SPLIT_MODE=legacy          回退旧的多文件逐批模式(见 docs/ops/pfscore-d1-single-import-20261026.md)
+#   D1_MAX_STMT_BYTES=60000       单条语句切批软上限
+#   D1_MAX_STMT_BYTES_ASSERT=90000 单条语句硬断言(>= 即生成失败)
+#   D1_RETRY_DELAYS="30 90"      网络类失败重试退避(最多重试 2 次)
+#   D1_SYNC_BUDGET_SEC=1800      D1 执行段总时间预算(重试前打印剩余)
+# 注意: 一个导入文件 = 一个事务, 所以文件里**不写 BEGIN/COMMIT**（导入作业自带事务）。
 #
 # ── #275 失败可见化（2026-10-22，与 sync_fund_score_to_d1.sh 同一机制）──────────
 # 本脚本与 fund_score 同步共用同一个 D1 库 + 同一套 wrangler 凭据，凭据失效时同样会
@@ -56,6 +72,18 @@ SCRIPT_NAME="sync_fund_screener_to_d1"
 STATE_DIR="$REPO/data/d1_sync_state"
 BATCH="${SCREENER_D1_BATCH:-80}"
 DRY_RUN="${DRY_RUN:-}"
+# 一表一文件 / 字节封顶 / 重试(2026-10-26); D1_SPLIT_MODE=legacy 回退旧多文件模式
+SPLIT_MODE="${D1_SPLIT_MODE:-single}"
+MAX_STMT_BYTES="${D1_MAX_STMT_BYTES:-60000}"
+ASSERT_MAX_STMT_BYTES="${D1_MAX_STMT_BYTES_ASSERT:-90000}"
+RETRY_DELAYS="${D1_RETRY_DELAYS:-30 90}"
+BUDGET_SEC="${D1_SYNC_BUDGET_SEC:-1800}"
+BUNDLE_FILE="full_import.sql"
+
+case "$SPLIT_MODE" in
+  single|legacy) ;;
+  *) echo "[sync-screener] FATAL: D1_SPLIT_MODE='$SPLIT_MODE' 非法(只支持 single|legacy)" >&2; exit 2 ;;
+esac
 
 if [ "$DRY_RUN" = "1" ]; then
   GEN_DIR="${TMPDIR:-/tmp}/fund-screener-d1.$$"
@@ -107,8 +135,10 @@ fi
 cd "$REPO"
 echo "$LOG_PREFIX 开始: $(date '+%F %T') db=$DB batch=$BATCH dry_run=${DRY_RUN:-0}"
 
-# 1) 生成 schema.sql + 分批数据 SQL（python 生成, NULL/引号安全转义）
-"$PY" - "$DB" "$GEN_DIR" "$BATCH" <<'PYEOF'
+# 1) 生成导入包（默认整表一个文件; legacy 模式退回 schema + 分批数据多文件）
+#    参数: db 路径 / 生成目录 / legacy 行批 / 脚本目录 / 模式 / 软上限字节 / 硬断言字节 / 包文件名
+"$PY" - "$DB" "$GEN_DIR" "$BATCH" "$SCRIPT_SELF_DIR" "$SPLIT_MODE" \
+      "$MAX_STMT_BYTES" "$ASSERT_MAX_STMT_BYTES" "$BUNDLE_FILE" <<'PYEOF'
 import datetime as dt
 import json
 import math
@@ -117,6 +147,11 @@ import sys
 from pathlib import Path
 
 db_path, gen_dir, batch = sys.argv[1], Path(sys.argv[2]), int(sys.argv[3])
+script_dir, split_mode = Path(sys.argv[4]), sys.argv[5]
+MAX_STMT_BYTES, ASSERT_MAX_BYTES = int(sys.argv[6]), int(sys.argv[7])
+BUNDLE_NAME = sys.argv[8]
+sys.path.insert(0, str(script_dir / "lib"))
+from d1_sql_bundle import Bundle, BundleTooLargeError  # noqa: E402
 conn = sqlite3.connect(db_path)
 conn.row_factory = sqlite3.Row
 RUN_DATE = dt.date.today()
@@ -363,16 +398,17 @@ def d1_type(c):
     return "REAL"
 
 
-schema = "CREATE TABLE IF NOT EXISTS fund_screener (\n  " + ",\n  ".join(
-    f"{c} {d1_type(c)}" for c in COLS) + "\n);\n"
+schema_stmts = ["CREATE TABLE IF NOT EXISTS fund_screener (\n  " + ",\n  ".join(
+    f"{c} {d1_type(c)}" for c in COLS) + "\n);"]
 # 索引只保留高频排序/分组三列（表小, COUNT/排序无索引也快; 少索引=少写入开销, 同 sync_fund_score_to_d1.sh 风格）
 for idx, col in (("idx_fscr_composite", "composite_score"),
                  ("idx_fscr_type", "fund_type"),
                  ("idx_fscr_scale", "scale")):
-    schema += f"DROP INDEX IF EXISTS {idx};\nCREATE INDEX {idx} ON fund_screener({col});\n"
-schema += ("CREATE TABLE IF NOT EXISTS screener_meta (\n"
-           "  key TEXT PRIMARY KEY,\n  value TEXT\n);\n")
-(gen_dir / "000_schema.sql").write_text(schema, encoding="utf-8")
+    schema_stmts.append(f"DROP INDEX IF EXISTS {idx};")
+    schema_stmts.append(f"CREATE INDEX {idx} ON fund_screener({col});")
+schema_stmts.append("CREATE TABLE IF NOT EXISTS screener_meta (\n"
+                    "  key TEXT PRIMARY KEY,\n  value TEXT\n);")
+schema = "\n".join(schema_stmts) + "\n"  # legacy 模式落盘用（与旧版逐字节一致）
 
 # ---------- 覆盖率统计（各字段非空行数; 前端逐条件标注 + 「另有 N 只因缺失被排除」底座） ----------
 coverage = {c: sum(1 for r in rows if r[c] is not None) for c in COLS if c != "fund_code"}
@@ -411,18 +447,8 @@ def sql_lit(v):
 
 
 col_list = ", ".join(COLS)
-files = []
-for i in range(0, len(rows), batch):
-    chunk = rows[i:i + batch]
-    vals = ",\n".join(
-        "(" + ", ".join(sql_lit(r[c]) for c in COLS) + ")" for r in chunk)
-    body = ""
-    if not files:
-        body += "DELETE FROM fund_screener;\n"  # 全量替换（幂等; 同 sync_fund_score_to_d1.sh 模式）
-    body += f"INSERT INTO fund_screener ({col_list}) VALUES\n{vals};\n"
-    p = gen_dir / f"{len(files)+1:03d}_data.sql"
-    p.write_text(body, encoding="utf-8")
-    files.append(p)
+head = f"INSERT INTO fund_screener ({col_list}) VALUES"
+row_values = ["(" + ", ".join(sql_lit(r[c]) for c in COLS) + ")" for r in rows]
 
 # 元数据（最后写, 供 worker 返回数据日期/行数/覆盖率）
 meta_items = (
@@ -432,39 +458,99 @@ meta_items = (
     ("source_dates", meta_payload["source_dates"]),
     ("coverage", meta_payload["coverage"]),
 )
-meta_sql = "".join(
+meta_stmts = [
     "INSERT INTO screener_meta (key, value) VALUES ('{k}', '{v}') "
-    "ON CONFLICT(key) DO UPDATE SET value=excluded.value;\n".format(
+    "ON CONFLICT(key) DO UPDATE SET value=excluded.value;".format(
         k=k, v=json.dumps(v, ensure_ascii=False).replace("'", "''"))
     for k, v in meta_items
-)
-(gen_dir / "999_meta.sql").write_text(meta_sql, encoding="utf-8")
+]
 
-max_bytes = max(p.stat().st_size for p in files)
-print(f"[sync-screener-python] rows={len(rows)} cols={len(COLS)} files={len(files)} "
-      f"batch={batch} max_stmt_bytes={max_bytes} coverage_cols={len(coverage)}", flush=True)
+if split_mode == "single":
+    # 一表一文件: schema → DELETE(第一条数据语句) → 字节封顶的 INSERT → meta
+    bundle = Bundle(max_stmt_bytes=MAX_STMT_BYTES, assert_max_bytes=ASSERT_MAX_BYTES)
+    for s in schema_stmts:
+        bundle.add(s)
+    bundle.add_inserts(head, row_values, delete_stmt="DELETE FROM fund_screener;")
+    for s in meta_stmts:
+        bundle.add(s)
+    # 硬断言先于写盘: 超限 = 直接失败, 绝不留半个包
+    try:
+        bundle.assert_limits()
+    except BundleTooLargeError as e:
+        print(f"[sync-screener-python] ERROR: {e}", flush=True)
+        sys.exit(3)
+    bundle_path = gen_dir / BUNDLE_NAME
+    written = bundle.write(bundle_path)
+    st = bundle.stats()
+    if written != st["total_bytes"]:
+        print(f"[sync-screener-python] ERROR: 写盘字节 {written} != 统计 {st['total_bytes']}", flush=True)
+        sys.exit(4)
+    print(f"[sync-screener-python] mode=single rows={len(rows)} cols={len(COLS)} "
+          f"files=1 path={bundle_path} total_bytes={st['total_bytes']} "
+          f"statements={st['statements']} max_stmt_bytes={st['max_stmt_bytes']} "
+          f"soft_cap={MAX_STMT_BYTES} hard_cap={ASSERT_MAX_BYTES} "
+          f"oversize_single_row_stmts={st['oversize_single_row_stmts']} "
+          f"coverage_cols={len(coverage)}", flush=True)
+else:
+    # legacy: 旧的多文件逐批模式（回退开关）, 产出与改动前逐字节一致
+    (gen_dir / "000_schema.sql").write_text(schema, encoding="utf-8")
+    files = []
+    for i in range(0, len(rows), batch):
+        chunk = row_values[i:i + batch]
+        vals = ",\n".join(chunk)
+        body = ""
+        if not files:
+            body += "DELETE FROM fund_screener;\n"  # 全量替换（幂等; 同 sync_fund_score_to_d1.sh 模式）
+        body += f"{head}\n{vals};\n"
+        p = gen_dir / f"{len(files)+1:03d}_data.sql"
+        p.write_text(body, encoding="utf-8")
+        files.append(p)
+    (gen_dir / "999_meta.sql").write_text("\n".join(meta_stmts) + "\n", encoding="utf-8")
+    max_bytes = max(p.stat().st_size for p in files)
+    print(f"[sync-screener-python] mode=legacy rows={len(rows)} cols={len(COLS)} "
+          f"files={len(files)} batch={batch} max_stmt_bytes={max_bytes} "
+          f"coverage_cols={len(coverage)}", flush=True)
 PYEOF
 RC=$?
 if [ $RC -ne 0 ]; then
+  if [ $RC -eq 3 ]; then
+    _fail "生成失败: 单条 SQL 语句超过硬上限(见上方 ERROR 行, 修复超长行后重跑)"
+  fi
   _fail "生成 SQL 失败 rc=$RC"
 fi
 
 EXPECT_ROWS=$("$PY" -c "import json;print(json.load(open('$GEN_DIR/meta.json'))['fund_total'])")
 
+# 待执行的 SQL 文件清单: 默认只有一个整包文件; legacy 模式沿用旧的多文件
+if [ "$SPLIT_MODE" = "single" ]; then
+  SQL_FILES=("$GEN_DIR/$BUNDLE_FILE")
+  if [ ! -f "${SQL_FILES[0]}" ]; then
+    _fail "生成产物缺失: ${SQL_FILES[0]}"
+  fi
+else
+  SQL_FILES=("$GEN_DIR"/*.sql)
+fi
+
 if [ "$DRY_RUN" = "1" ]; then
-  echo "$LOG_PREFIX DRY_RUN 完成: 生成目录 ${GEN_DIR}(未推 D1, 本机可验证语法/幂等)"
+  echo "$LOG_PREFIX DRY_RUN 完成: mode=$SPLIT_MODE 生成目录 ${GEN_DIR} 待执行文件数=${#SQL_FILES[@]}(未推 D1)"
   echo "$LOG_PREFIX   验证例: db=/tmp/fscr_test.db; rm -f \$db"
-  echo "$LOG_PREFIX     for f in ${GEN_DIR}/*.sql; do sqlite3 \$db < \"\$f\"; done"
+  for f in "${SQL_FILES[@]}"; do
+    echo "$LOG_PREFIX     sqlite3 \$db < \"$f\""
+  done
   echo "$LOG_PREFIX     sqlite3 \$db 'SELECT COUNT(*) FROM fund_screener'   # 期望 ${EXPECT_ROWS}"
   exit 0
 fi
 
-# 2) 逐文件 wrangler d1 execute --remote（schema 先, 数据后; -y 跳过确认）
-for f in "$GEN_DIR"/*.sql; do
+# 2) 导入 D1: 默认整表一个文件只调一次(--file 本身是 import 管线); legacy 逐文件
+#    网络类失败由 lib/d1_execute.sh 重试(最多 2 次, 30s/90s 退避), SQL 类错误不重试
+echo "$LOG_PREFIX 执行计划: mode=$SPLIT_MODE files=${#SQL_FILES[@]} budget=${BUDGET_SEC}s"
+D1_SYNC_DEADLINE=$(( $(date +%s) + BUDGET_SEC ))
+export D1_SYNC_DEADLINE D1_RETRY_DELAYS="$RETRY_DELAYS" LOG_PREFIX
+source "$SCRIPT_SELF_DIR/lib/d1_execute.sh" || _fail "d1_execute.sh missing"
+for f in "${SQL_FILES[@]}"; do
   echo "$LOG_PREFIX execute $(basename "$f") ($(wc -c < "$f" | tr -d ' ') bytes)"
-  # 失败时用**本次**输出诊断（旧版失败后重跑一遍只为打印 tail = 二次执行同一 SQL，已去掉）
   _OUT="$GEN_DIR/execute.out"
-  if ! npx wrangler d1 execute "$D1_DB" --remote -y --file="$f" > "$_OUT" 2>&1; then
+  if ! d1_execute_sql_file "$D1_DB" "$f" "$_OUT"; then
     tail -5 "$_OUT" >&2 || true
     _fail "wrangler d1 execute 失败: $(basename "$f")"
   fi
