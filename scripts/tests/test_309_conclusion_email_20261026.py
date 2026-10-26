@@ -539,6 +539,72 @@ def test_decision_point_is_after_all_send_channels():
     assert 0 < i_dig_read < i_call, "--flush-digest 计数必须读它自己的结果文件 status"
 
 
+# ── 复审 F2(2026-10-26): 恢复发送块异常不许连带吞掉状态说明/心跳 ──────────────
+def test_recovery_block_exception_does_not_block_status_mail(capsys, monkeypatch):
+    """行为级: 让恢复块里的 subprocess 抛超时 ⇒ 异常被记录, 后续状态说明照发。
+
+    做法 = AST 提取生产 `try: if _combined: ...` 整块原样 exec(不是第二份实现), 注入会
+    抛 `TimeoutExpired` 的 subprocess 替身; 再 exec 紧随其后的结论判定调用语句, 断言
+    stub notify 真被调用 1 次。去掉 try/except 外壳 ⇒ 这里直接抛异常 ⇒ 红。
+    """
+    monkeypatch.delenv("MONITOR_CONCLUSION_STATUS_EMAIL", raising=False)
+    src = m309.heredoc_source()
+    tree = ast.parse(src)
+    try_node = next(
+        (n for n in tree.body
+         if isinstance(n, ast.Try) and n.body and isinstance(n.body[0], ast.If)
+         and getattr(n.body[0].test, "id", "") == "_combined"),
+        None)
+    assert try_node is not None, "恢复邮件发送段必须包在 try 里(复审 F2 外壳缺失)"
+    assert try_node.handlers, "try 必须有 except(不许静默吞掉)"
+    handler_src = ast.get_source_segment(src, try_node.handlers[0]) or ""
+    assert "Exception" in handler_src and "_e_rec" in handler_src
+
+    concl_assign = next(
+        (n for n in tree.body if isinstance(n, ast.Assign)
+         and any(isinstance(t, ast.Name) and t.id == "_concl_email" for t in n.targets)),
+        None)
+    assert concl_assign is not None, "找不到结论判定调用语句"
+    assert concl_assign.lineno > try_node.end_lineno, (
+        "结论判定与心跳必须在恢复发送块之后(顺序是防吞掉的前提)")
+
+    sent = []
+    ns = dict(m309.namespace())
+    ns.update({
+        "recoveries": [{"task": "taskA", "keyword": "exit失败",
+                        "first_seen": "2026-10-26 09:00:00", "tier": "severe"}],
+        "_pend_items": [], "_pend_tks": set(), "_pend_n": 0,
+        "_PEND_KEY": "monitor_recovery|pending", "alert_state": {}, "NOW": NOW,
+        "now_str": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+        "save_alert_state": lambda s: None,
+        "notify_state": lambda out: "sent",
+        "_concl": BAD_CFU, "_ALERT_MAIL_COUNTER": {"sent": 0},
+        "_notify_capture": lambda cmd: (sent.append(list(cmd)) or SENT_OUT),
+    })
+    ns["_combined"] = list(ns["recoveries"])
+
+    class _TimeoutSubprocess:
+        class TimeoutExpired(Exception):
+            pass
+
+        @staticmethod
+        def run(*_a, **_kw):
+            raise _TimeoutSubprocess.TimeoutExpired("notify 超时(模拟)")
+
+    ns["subprocess"] = _TimeoutSubprocess
+    exec(compile(ast.get_source_segment(src, try_node),
+                 "<monitor-recovery-block>", "exec"), ns)  # noqa: S102
+
+    err = capsys.readouterr().err
+    assert "恢复邮件发送段异常" in err, "异常必须打日志(不许静默吞掉)"
+    assert "TimeoutExpired" in err and "状态说明/心跳照常" in err
+
+    exec(compile(ast.get_source_segment(src, concl_assign),
+                 "<monitor-conclusion-call>", "exec"), ns)  # noqa: S102
+    assert ns["_concl_email"].get("sent") is True, "异常后状态说明必须照常补发"
+    assert len(sent) == 1 and sent[0][2].startswith("[状态说明]")
+
+
 # ── 审查要求 3: 行为级假恢复用例(不是源码形状守卫) ────────────────────────
 def test_recovery_loop_behavior_skips_conclusion_status_key():
     """真实路径: 键 active + 下一轮不在 seen ⇒ 不得翻 recovered、不得进 recoveries。
