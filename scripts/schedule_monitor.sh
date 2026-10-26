@@ -319,8 +319,20 @@ ALERT_STATE_FILE = REPO / "data" / "alert_state.json"
 # 防结论 OK/异常抖动导致每轮发信)。
 CONCLUSION_STATUS_KEY_PREFIX = "conclusion_status|"
 CONCLUSION_STATUS_SUBJECT_PREFIX = "[状态说明]"
+# 运行时总开关(#309 F2 P1 审查 D9, 2026-10-26): `MONITOR_CONCLUSION_STATUS_EMAIL=0`
+# (也接受 false/off/no)⇒ 整块停用(不判定、不发信、不写 state), 无需发版删代码。
+# 回滚顺序(错了会发假「已恢复」邮件): ①先清生产 data/alert_state.json 里的
+# `conclusion_status|*` 键 ②再删调用点(或置开关为 0)。顺序反了恢复环会把残留键当异常
+# 消失处理 ⇒ 下一轮发假恢复邮件(审查已实测)。
+CONCLUSION_STATUS_EMAIL_ENV = "MONITOR_CONCLUSION_STATUS_EMAIL"
 # 本轮「真发出」的告警邮件数: 只有 notify 确认送达才 +1(被去重/并入摘要 = 0)。
-# 三个 severe 发送点: active 升级提醒(见 _active_escalate) / 停摆级直发 / 收尾聚合批次。
+# #309 F2 P1(2026-10-26) 全部外发通道都计入, 一个不落 —— 否则「本轮零告警邮件」判据造假:
+#   ① active 升级提醒(见 _active_escalate) ② 停摆级独立直发 ③ 收尾聚合批次
+#   ④ check_failed_units 子进程自己发的 severe(子进程尾部 `NOTIFY_SENT=<n>` 标记,
+#      **标记缺失按 1 保守计入**: 判不出就当可能发过, 宁漏发状态说明也不发假话)
+#   ⑤ 尾部 `--flush-warnings` 批发(结构化 --result-file status=sent)
+#   ⑥ 尾部 `--flush-digest` 当日摘要批发(同上)
+# 判定点已后移到 ①~⑥ 全部动作之后(见脚本尾部), 顺序变了别再往前挪。
 _ALERT_MAIL_COUNTER = {"sent": 0}
 
 
@@ -1073,13 +1085,71 @@ def _conclusion_recurrence_ok(entry, now):
     return (now - _lr_dt) >= RECOVERY_COOLDOWN
 
 
+def _cfu_alert_mail_delta(cfu_out):
+    """CFU 子进程本轮真发出的告警邮件数, 来自机器可解析标记 `NOTIFY_SENT=<n>`。
+
+    #309 F2 P1(2026-10-26) 漏点 1: check_failed_units.py 在子进程里自己发 severe 邮件,
+    主进程此前数不到 ⇒ 同轮发 2 封、第二封正文还假称「没有任何告警被真正外发」。
+    **标记缺失/格式不对 ⇒ 返回 1(保守: 当作可能已发过)** —— 判不出时宁可不补发状态说明,
+    绝不发一封假话; 也不用子进程返回码/日志文本模糊匹配做判据。
+    """
+    _m = re.search(r"^NOTIFY_SENT=(\d+)\s*$", str(cfu_out or ""), re.MULTILINE)
+    return int(_m.group(1)) if _m else 1
+
+
+def _read_notify_result_status(path):
+    """读 notify.py `--result-file` 里的结构化 status; 文件缺失/损坏返回 ""(判不出)。"""
+    try:
+        return str(json.loads(Path(path).read_text(encoding="utf-8")).get("status") or "")
+    except (OSError, ValueError, TypeError):
+        return ""
+
+
+def _flush_alert_mail_delta(status):
+    """notify `--flush-warnings`/`--flush-digest` 的结构化结果 ⇒ 本轮真发的告警邮件数。
+
+    #309 F2 P1 漏点 2(2026-10-26): 批发邮件在结论判定点之后才发, 天然不在旧计数里。
+    sent ⇒ 1; noop/failed/suppressed/dry_run/digested ⇒ 0(可确知本轮没发出);
+    空/其它 ⇒ 1(判不出 ⇒ 保守当作可能发过, 与 CFU 标记同一侧)。
+    """
+    _s = str(status or "").strip().lower()
+    if _s == "sent":
+        return 1
+    if _s in ("noop", "failed", "suppressed", "dry_run", "digested"):
+        return 0
+    return 1
+
+
+def _alert_mail_count(alert_mail_sent):
+    """把「本轮真发出告警邮件数」规整成 int。
+
+    审查 D3(2026-10-26): 旧写法 `int(alert_mail_sent or 0)` 遇到非数字字符串会 ValueError
+    ⇒ 监控进程自己崩掉。生产恒传 int, 但**判不出一律按 1(已发过)保守处理**: 宁可漏发
+    一封状态说明, 也不因解析问题多发一封说「零外发」的邮件。
+    """
+    if isinstance(alert_mail_sent, bool):
+        return 1 if alert_mail_sent else 0
+    if isinstance(alert_mail_sent, int):
+        return alert_mail_sent
+    try:
+        return int(str(alert_mail_sent).strip())
+    except (TypeError, ValueError):
+        return 1
+
+
+def _conclusion_email_enabled(env=None):
+    """运行时总开关(审查 D9): 默认开; `=0/false/off/no` 关闭整块(判定/发信/写 state 全不做)。"""
+    _v = (os.environ if env is None else env).get(CONCLUSION_STATUS_EMAIL_ENV)
+    return str("1" if _v is None else _v).strip().lower() not in ("0", "false", "off", "no")
+
+
 def _conclusion_status_decision(concl, alert_mail_sent, state, now):
     """纯判定: 要不要为本轮结论行补发「状态说明」。返回 dict, **不改 state**。
 
     reason:
       empty               结论为空(理论不可达, 保守不发)
       ok                  结论 OK ⇒ 不发(场景 C)
-      has_alert_mail      本轮已有告警邮件真发出 ⇒ 不发(场景 A)
+      has_alert_mail      本轮已有告警邮件真发出(或计数判不出=按已发过) ⇒ 不发(场景 A)
       same_content_sent   同一结论内容已发过 ⇒ 不发(频率保护)
       recurrence_cooldown 同内容恢复后 6h 内再次非 OK ⇒ 不发(防 OK/异常抖动刷屏)
       send                补发(场景 B: 结论非 OK 且本轮零告警邮件)
@@ -1094,7 +1164,7 @@ def _conclusion_status_decision(concl, alert_mail_sent, state, now):
     if _conclusion_is_ok(txt):
         d["reason"] = "ok"
         return d
-    if int(alert_mail_sent or 0) > 0:
+    if _alert_mail_count(alert_mail_sent) > 0:
         d["reason"] = "has_alert_mail"
         return d
     ent = state.get(key) if isinstance(state, dict) else None
@@ -1127,7 +1197,8 @@ def _conclusion_status_mark_recovered(state, now_str):
 def _conclusion_status_email_body(concl, now_str):
     """状态说明邮件正文: 完整结论行 + 一句「为什么没有对应的告警邮件」(大白话)。"""
     _txt = str(concl or "")
-    _esc = _txt.replace("<", "&lt;").replace(">", "&gt;")
+    # 审查 D7(2026-10-26): HTML 转义 `&` 必须最先做(否则 `&&` / `&amp;` 进正文会失真)。
+    _esc = (_txt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
     if "新鲜度未确认" in _txt or "账本补位码" in _txt:
         _why = ("其中账本里补位的旧退出码「新鲜度未确认」, 按设计不单独发告警邮件; "
                 "以前这种情况只有监控日志可查, 不主动翻日志就看不到。")
@@ -1140,7 +1211,8 @@ def _conclusion_status_email_body(concl, now_str):
     return ("<b>本轮监控结论(状态说明, 不是新故障)</b><br>"
             f"结论: {_esc}<br><br>"
             f"为什么没有对应的告警邮件: {_why}<br>"
-            "同一份结论只发一次状态说明; 结论变化或恢复正常后自动解除, 不会每轮重复打扰。<br>"
+            "同一份结论内容只发一次状态说明; 结论内容变了会再发一次; "
+            "结论恢复正常后自动解除, 不会每轮重复打扰。<br>"
             f"时间: {now_str}")
 
 
@@ -1152,6 +1224,9 @@ def _maybe_send_conclusion_status_email(concl, alert_mail_sent, state, now,
     notify_runner(cmd)->notify 输出文本; **本函数绝不直接外发** —— 生产注入 notify.py
     子进程 runner, 测试注入 stub ⇒ 自测零真实外发(§18 L48)。
     """
+    if not _conclusion_email_enabled():
+        # 审查 D9 运行时开关: 关=整块停用(不判定/不发信/不写 state), 无需发版删代码。
+        return {"reason": "disabled", "send": False, "key": "", "digest": "", "sent": False}
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     d = _conclusion_status_decision(concl, alert_mail_sent, state, now)
     d["sent"] = False
@@ -2760,6 +2835,9 @@ try:
     _cfu_m = re.search(r"CHECK_FAILED_UNITS_FAIL\((\d+) 项\)", _cfu_out)
     if _cfu_m:
         _cfu_failed = int(_cfu_m.group(1))
+    # #309 F2 P1 漏点 1(2026-10-26): 子进程自己发的 severe 也要计入本轮告警邮件数。
+    # 机器标记 `NOTIFY_SENT=<n>`; 缺失 ⇒ _cfu_alert_mail_delta 返回 1(保守当可能发过)。
+    _ALERT_MAIL_COUNTER["sent"] += _cfu_alert_mail_delta(_cfu_out)
     if _r_cfu.returncode == 0:
         print(f"[196] {_cfu_out.splitlines()[0] if _cfu_out else 'failed-unit 巡检 OK'}")
     elif _r_cfu.returncode == 1:
@@ -2782,6 +2860,8 @@ try:
 except Exception as _e:
     _cfu_dead = (f"云上 failed-unit 巡检脚本未能运行({type(_e).__name__}: {_e}) —— "
                  f"巡检者自身死亡, 需人工排查 scripts/check_failed_units.py")
+    # #309 F2 P1: 子进程没跑起来 ⇒ 它发过没发过无从得知 ⇒ 按 1 保守计入(宁漏发状态说明)。
+    _ALERT_MAIL_COUNTER["sent"] += 1
 
 
 def _cfu_report(_key, _msg, _kw):
@@ -3977,27 +4057,10 @@ elif _orig_has_alerts or _absorbed:
 else:
     print(f"[{now_str}] {_concl}")
 
-# ── #309 F2(2026-10-26): 结论可见性补位 ────────────────────────────────────
-# 结论行只进日志时，「结论非 OK 但本轮零告警邮件」对用户不可见 ⇒ 补一封「状态说明」。
-# 判定/频率保护/落签全在 _maybe_send_conclusion_status_email(纯函数+依赖注入, 单测直提);
-# 这里只注入生产 runner(notify.py 子进程)与 save_alert_state。
-def _notify_capture(cmd):
-    """跑 notify.py 子进程并返回合并输出(只给状态说明邮件用, 失败由调用方兜)。"""
-    _r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
-    _out = (_r.stdout or "") + (_r.stderr or "")
-    if _out.strip():
-        print(_out.strip())
-    return _out
-
-
-_concl_email = _maybe_send_conclusion_status_email(
-    _concl, _ALERT_MAIL_COUNTER["sent"], alert_state, NOW,
-    _notify_capture, save_alert_state)
-if _concl_email.get("sent"):
-    print(f"[{now_str}] [状态说明] 结论非 OK 且本轮零告警邮件, 已补发状态说明邮件 "
-          f"(摘要 {_concl_email['digest']})")
-elif _concl_email.get("reason") == "same_content_sent":
-    print(f"[{now_str}] [状态说明] 同一结论内容已发过状态说明, 不重复发送")
+# ── #309 F2(2026-10-26): 结论「状态说明」补位调用点在脚本尾部 ────────────────
+# 为什么在尾部(不是在结论打印后): 判据是「本轮**真的**没有发出任何告警类邮件」, 而尾部
+# 还有两条真实外发通道(--flush-warnings 批发 / --flush-digest 当日摘要)。判定点放它们之前
+# 就会漏计 ⇒ 同轮 2 封且第二封正文假称「零外发」(审查 P1 漏点 2)。调用点见本 heredoc 末尾。
 
 # 恢复邮件(独立于 SEVERE,异常消失即发,不加 --severe 前缀)
 # 2026-09-22 告警去噪: r2_* 前缀为自愈类(网络抖动/R2 故障可被 self_heal/网络自愈,
@@ -4178,16 +4241,31 @@ except Exception as e:
 # 2026-08-24 三级分级接线: 冲出 warning 缓冲区里到期的条目(30min 聚合窗口),
 # 满窗聚合一封发出(不逐条轰炸); info 级在 notify.py 内只落盘不推送。
 # 放 heartbeat 后=每轮收尾兜底 flush, 与各检查点 defer_warning 配对。
+# #309 F2 P1 漏点 2(2026-10-26): 批发真发出 1 封 ⇒ 计入本轮告警邮件数。判据=notify 的
+# 结构化 --result-file(status=sent/noop), 不解析日志文本; 结果文件读不到 ⇒ 保守按 1 计。
+_flush_warn_rf = None
 try:
+    _fd_fw, _flush_warn_rf = tempfile.mkstemp(prefix="notify_flush_warn_", suffix=".json")
+    os.close(_fd_fw)
     subprocess.run(
         [
             sys.executable, str(REPO / "scripts" / "notify.py"),
             "--flush-warnings",
+            "--result-file", _flush_warn_rf,
         ],
         capture_output=True, text=True, timeout=120, check=False,
     )
+    _ALERT_MAIL_COUNTER["sent"] += _flush_alert_mail_delta(
+        _read_notify_result_status(_flush_warn_rf))
 except Exception as e:
+    _ALERT_MAIL_COUNTER["sent"] += _flush_alert_mail_delta("")  # 判不出 ⇒ 保守 +1
     print(f"[warn] warning 聚合 flush 失败: {e}", file=sys.stderr)
+finally:
+    if _flush_warn_rf:
+        try:
+            os.unlink(_flush_warn_rf)
+        except OSError:
+            pass
 
 # #245 批2 D5(2026-10-10) 当日摘要补列兜底: monitor_recovery|pending 非空时, 逐条
 # --defer-digest --digest-category recovery 补列进当日摘要 buffer(被吞的恢复在 23:25 摘要
@@ -4224,16 +4302,57 @@ except Exception as e:
 # #245 批2 L2(2026-10-10) 摘要 flush: 冲出 alert_digest buffer 里到期的条目
 # (23:25 后首轮发 1 条汇总; 隔日 stale 兜底)。flush 自身按门控: 非 23:25 且无 stale
 # ⇒ 静默 no-op, 每轮调用安全。放 flush-warnings 之后、alert_meter recount 之前。
+# #309 F2 P1 举一反三(2026-10-26): 摘要批发也是「真发出告警类邮件」的通道之一(23:25 那轮),
+# 同样按结构化 --result-file 计入, 否则同轮 2 封(摘要 + 假「零外发」状态说明)。
+_flush_dig_rf = None
 try:
+    _fd_fd, _flush_dig_rf = tempfile.mkstemp(prefix="notify_flush_digest_", suffix=".json")
+    os.close(_fd_fd)
     _r_dig = subprocess.run(
-        [sys.executable, str(REPO / "scripts" / "notify.py"), "--flush-digest"],
+        [sys.executable, str(REPO / "scripts" / "notify.py"), "--flush-digest",
+         "--result-file", _flush_dig_rf],
         capture_output=True, text=True, timeout=120, check=False,
     )
     if _r_dig.returncode != 0 or "未发出" in ((_r_dig.stdout or "") + (_r_dig.stderr or "")):
         print(f"[warn] digest flush: {((_r_dig.stdout or '') + (_r_dig.stderr or '')).strip()[:200]}",
               file=sys.stderr)
+    _ALERT_MAIL_COUNTER["sent"] += _flush_alert_mail_delta(
+        _read_notify_result_status(_flush_dig_rf))
 except Exception as e:
+    _ALERT_MAIL_COUNTER["sent"] += _flush_alert_mail_delta("")  # 判不出 ⇒ 保守 +1
     print(f"[warn] digest flush 异常: {e}", file=sys.stderr)
+finally:
+    if _flush_dig_rf:
+        try:
+            os.unlink(_flush_dig_rf)
+        except OSError:
+            pass
+
+# ── #309 F2(2026-10-26): 结论可见性补位(判定点在**所有外发动作之后**)────────────
+# 结论行只进日志时,「结论非 OK 但本轮零告警邮件」对用户不可见 ⇒ 补一封「状态说明」。
+# 判据 = _ALERT_MAIL_COUNTER["sent"](六大通道累计, 见顶部常量注释); 判定/频率保护/落签
+# 全在 _maybe_send_conclusion_status_email(纯函数+依赖注入, 单测直提), 这里只注入生产
+# runner(notify.py 子进程)与 save_alert_state。
+def _notify_capture(cmd):
+    """跑 notify.py 子进程并返回合并输出(只给状态说明邮件用, 失败由调用方兜)。"""
+    _r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
+    _out = (_r.stdout or "") + (_r.stderr or "")
+    if _out.strip():
+        print(_out.strip())
+    return _out
+
+
+_concl_email = _maybe_send_conclusion_status_email(
+    _concl, _ALERT_MAIL_COUNTER["sent"], alert_state, NOW,
+    _notify_capture, save_alert_state)
+if _concl_email.get("sent"):
+    print(f"[{now_str}] [状态说明] 结论非 OK 且本轮零告警邮件, 已补发状态说明邮件 "
+          f"(摘要 {_concl_email['digest']})")
+elif _concl_email.get("reason") == "same_content_sent":
+    print(f"[{now_str}] [状态说明] 同一结论内容已发过状态说明, 不重复发送")
+elif _concl_email.get("reason") == "disabled":
+    print(f"[{now_str}] [状态说明] 已由环境变量 "
+          f"{CONCLUSION_STATUS_EMAIL_ENV}=0 关闭, 本轮不判定也不发信")
 
 # 2026-10-10 W1-L1 度量层：幂等重算 data/alerts/alert_daily.json（读单点台账派生，
 # 跨两树写同一结果）。best-effort，失败不阻塞主流程，且**本机制自身绝不告警**。
