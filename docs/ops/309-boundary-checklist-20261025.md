@@ -416,7 +416,7 @@
 |---|---|---|---|---|
 | V1-R1 | F1 回滚 | 新增用例删掉即回旧 | 测(性质) | 生产代码未因 F1 改动 ⇒ 回滚只影响测试覆盖 |
 | V1-R2 | F2 回滚 | 去掉 try/except 外壳 | 测(判别力实测) | 变异整块去壳 ⇒ 1 红(`..._does_not_block_status_mail` 找不到 try);还原 53 绿 + sha256 一致 |
-| V1-R3 | **F6 三文件成对** | `scripts/check_failed_units.py`(`NOTIFY_SENT=<n>` 标记)/ `scripts/notify.py`(两条批发的 `--result-file` status)/ `scripts/schedule_monitor.sh`(计数 + 判定点) | **不测(人工回滚约束,写死)** | **回滚必须三文件一起回,或整体 `git revert` 本批 commit;只回滚其中一处 = 状态说明永久保守静默(不再补发)。** 逐组合说明:①只回滚 monitor(另两处留新)⇒ 标记/结果文件没人读,无副作用但新功能也没了;②只回滚 CFU 标记 ⇒ 健康轮没有 `NOTIFY_SENT=0`,`_cfu_alert_mail_delta` 判不出 ⇒ 恒按 1 ⇒ 每轮都当"已发过" ⇒ **永远不发状态说明**;③只回滚 notify 结果文件 ⇒ `_read_notify_result_status` 恒空 ⇒ `_flush_alert_mail_delta("")=1` ⇒ 同样**永久静默**。三处是同一契约的三个半边,拆开部署即语义错位 |
+| V1-R3 | **F6 三文件成对** | `scripts/check_failed_units.py`(`NOTIFY_SENT=<n>` 标记)/ `scripts/notify.py`(两条批发的 `--result-file` status)/ `scripts/schedule_monitor.sh`(计数 + 判定点) | **不测(人工回滚约束,写死)** | **回滚必须三文件一起回,或整体 `git revert` 本批 commit;只回滚其中一处 = 语义错位(②永远不发状态说明 / ③少计 1 封 ⇒ 多发假「零外发」说明)。** 逐组合说明:①只回滚 monitor(另两处留新)⇒ 标记/结果文件没人读,无副作用但新功能也没了;②只回滚 CFU 标记 ⇒ 健康轮没有 `NOTIFY_SENT=0`,`_cfu_alert_mail_delta` 判不出 ⇒ 恒按 1 ⇒ 每轮都当"已发过" ⇒ **永远不发状态说明**;③只回滚 notify 结果标注(`--result-file` 机制 base 已有,base 的两条批发恒写 `status=noop`)⇒ flush **真发出也标 noop** ⇒ `_read_notify_result_status` 读到 `"noop"`(不是空)⇒ `_flush_alert_mail_delta("noop")=0` ⇒ **少计 1 封** ⇒ 若同轮结论异常且其余通道零外发,会误判「零告警邮件」⇒ **多发一封假称「本轮没有任何告警被真正外发」的状态说明 —— 正好是 P1 漏点 2 的复发形态**;**不是「永久静默」**。三处是同一契约的三个半边,拆开部署即语义错位 |
 | V1-R4 | F3 开关回滚 | 开关置 0 与删代码的顺序 | 不测(人工约束) | 开关=0 **无需**清键(S4);删代码**必须**先清键(S5)。代码注释 + 本节双处写死 |
 | V1-R5 | 部署回滚 | `git revert` 本批 commit | 不测(部署操作) | 无数据产物 / 前端版本串改动 |
 
@@ -437,7 +437,7 @@
 | F3 回滚注释与实测不符 | 已改 | 注释改为两条路分开写:开关=0 跳过行还在 ⇒ 不清键也不会发假恢复;删代码/整块回滚必须先清键 |
 | F4 开关取值口径没写明 | 已补 | `_conclusion_email_enabled` docstring 写明:除 0/false/off/no(忽略大小写与首尾空格)外,其它任何值(含空串/非法值)一律视为开启 |
 | F5 rc=4 时 `[:240]` 可能带出 `NOTIFY_SENT=0` 进正文 | 不改(已知项) | 纯展示噪声:计数只认标记行,不影响判定;改正文截断属发送内容调整,超出本次"只加外壳/注释"范围 |
-| F6 回滚清单 | 已写死 | 见 11.6 R3:三文件成对,只回滚一处 = 状态说明永久保守静默 |
+| F6 回滚清单 | 已写死 | 见 11.6 R3:三文件成对,只回滚一处 = 语义错位(②永远不发状态说明 / ③少计 1 封 ⇒ 多发假「零外发」说明) |
 | F7 `monitor_72h.sh` 也 flush-warnings,云上无对应 timer | 不改(已知项) | 云上无该 timer ⇒ 不与主 monitor 的 flush 竞争;若将来上云需同步计数口径,记录在案 |
 
 ### 11.9 本轮测/不测小结 + 判别力
