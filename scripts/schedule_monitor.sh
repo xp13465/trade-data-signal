@@ -321,9 +321,13 @@ CONCLUSION_STATUS_KEY_PREFIX = "conclusion_status|"
 CONCLUSION_STATUS_SUBJECT_PREFIX = "[状态说明]"
 # 运行时总开关(#309 F2 P1 审查 D9, 2026-10-26): `MONITOR_CONCLUSION_STATUS_EMAIL=0`
 # (也接受 false/off/no)⇒ 整块停用(不判定、不发信、不写 state), 无需发版删代码。
-# 回滚顺序(错了会发假「已恢复」邮件): ①先清生产 data/alert_state.json 里的
-# `conclusion_status|*` 键 ②再删调用点(或置开关为 0)。顺序反了恢复环会把残留键当异常
-# 消失处理 ⇒ 下一轮发假恢复邮件(审查已实测)。
+# 回滚只有两条路, 顺序要求**不同**(复审 F3 订正, 2026-10-26 实测):
+#   ① 置开关为 0(推荐, 最小回滚): 恢复检测环里那条「跳过 `conclusion_status|*` 键」的
+#      continue 行**还在**, 所以残留键不会被当作「异常已消失」⇒ **不会**发假恢复邮件。
+#      无需先清键, 直接改环境变量即可。
+#   ② 删代码/整块回滚(会把恢复环的 skip 行一起删掉): 必须先清生产 data/alert_state.json
+#      里的 `conclusion_status|*` 键, 再删代码。顺序反了 ⇒ 恢复环把残留键当异常消失处理
+#      ⇒ 下一轮发假恢复邮件(审查已实测)。
 CONCLUSION_STATUS_EMAIL_ENV = "MONITOR_CONCLUSION_STATUS_EMAIL"
 # 本轮「真发出」的告警邮件数: 只有 notify 确认送达才 +1(被去重/并入摘要 = 0)。
 # #309 F2 P1(2026-10-26) 全部外发通道都计入, 一个不落 —— 否则「本轮零告警邮件」判据造假:
@@ -1138,7 +1142,12 @@ def _alert_mail_count(alert_mail_sent):
 
 
 def _conclusion_email_enabled(env=None):
-    """运行时总开关(审查 D9): 默认开; `=0/false/off/no` 关闭整块(判定/发信/写 state 全不做)。"""
+    """运行时总开关(审查 D9): 默认开; `=0/false/off/no` 关闭整块(判定/发信/写 state 全不做)。
+
+    取值口径(复审 F4, 2026-10-26): **除** 0/false/off/no(忽略大小写与首尾空格)**外**,
+    其它任何值(含空串、非法值如 "maybe")一律视为**开启** —— 只有明确写「关」才关,
+    防手误拼错把可见性补位静默关掉。
+    """
     _v = (os.environ if env is None else env).get(CONCLUSION_STATUS_EMAIL_ENV)
     return str("1" if _v is None else _v).strip().lower() not in ("0", "false", "off", "no")
 

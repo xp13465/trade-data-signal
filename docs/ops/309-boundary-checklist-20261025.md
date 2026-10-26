@@ -355,3 +355,97 @@
 | D9 无运行时开关 | 已加 | `MONITOR_CONCLUSION_STATUS_EMAIL`(默认开,0/false/off/no 关)+ 回滚顺序(R2) |
 | D10 save_alert_state 非原子/并发双发 | 不改(记录) | 既有风险,独立任务;本批未动写盘逻辑(C3) |
 | D11 时钟回拨 | 不改 | 冷却判定负数 ⇒ 抑制重发 = 保守侧(T5) |
+
+## 11. 复审 F1-F7 定点修复(2026-10-26)
+
+> 触发 = 第二轮独立审查 PASS 后的非阻塞项。改动面:`scripts/schedule_monitor.sh`(F2 加
+> try/except 外壳 + F3/F4 注释订正)、`scripts/tests/test_309_conclusion_email_20261026.py`
+> (F1 实参钉死 + F2 行为用例,51 → 53 条)、本清单(F6 回滚清单 + F5/F7 已知项)。
+> 全程 static-only(不真发邮件/飞书,§18 L48);云上只读。F1/F2 各做一次「改坏 → 红 →
+> 还原 → 绿」判别力实测,还原后文件 sha256 与改前一致。
+
+### 11.1 输入域
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| V1-I1 | F1 实参钉死 | 把 `_cfu_alert_mail_delta(_cfu_out)` 的实参改成空串 `""` | 测(判别力实测) | 变异后 `test_cfu_delta_receives_real_cfu_subprocess_output` 红(实参是 `ast.Constant(value='')` 而非 `ast.Name`);还原 53 绿 + sha256 一致 |
+| V1-I2 | F1 实参来源 | 实参换成"另一个同名空变量"/常量/切片等绕法 | 测(结构全链) | 用例除「必须是变量」外,还钉死该变量 = `<子进程 stdout or ''>.strip()`,且该子进程命令常量含 `check_failed_units.py` ⇒ 换变量/改来源都红。比「断言实参含 NOTIFY_SENT= 片段」更严(直接钉生产者,不依赖样本长得像) |
+| V1-I3 | F2 异常类型 | 恢复块内 `subprocess.run` 抛 `TimeoutExpired` | 测(行为) | `test_recovery_block_exception_does_not_block_status_mail`:AST 提取生产 try 块**原样 exec**(非第二份实现),注入抛超时的 subprocess 替身 ⇒ stderr 有「恢复邮件发送段异常 / TimeoutExpired / 状态说明心跳照常」,随后真的发出 1 封状态说明 |
+| V1-I4 | F2 异常类型 | 其它 `Exception` 子类(AttributeError/KeyError/OSError…) | 不测(同一处理器) | 处理器是 `except Exception as _e_rec`,与 I3 同一路径;不另造第二份样本 |
+| V1-I5 | F2 异常类型 | `BaseException`(KeyboardInterrupt/SystemExit/信号) | 不测(有意不捕获) | 进程被信号终止/系统退出应保留原有行为,不许伪装成"继续跑" |
+
+### 11.2 状态组合
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| V1-S1 | F2 | 异常发生在第一个批次(alert 批)发送时 | 测 | I3 即此形态(第一批 `_send_recovery_batch` 就抛) |
+| V1-S2 | F2 | 异常发生在 warning 批 / 两批之间 / pending 落盘时 | 不测(同块处理器) | 整块同一个 try,处理动作相同(只打日志继续);任务书要求"只加外壳"不动发送/落签逻辑 |
+| V1-S3 | F2 已知限制 | 异常轮已翻 recovered 的条目本轮不发恢复、也不进 pending ⇒ 该批恢复通知丢失 | 不测(与旧行为同向,不因外壳变差) | 旧代码整进程崩:恢复通知同样丢失,还额外丢状态说明与心跳。外壳只补回后者;任务书点名不改恢复语义 |
+| V1-S4 | F3 | 环境开关置 0 时 `alert_state` 里残留 `conclusion_status|*` 键 | 测(读码确认) | 开关只停「判定/发信/写 state」;恢复环 `if _key.startswith(CONCLUSION_STATUS_KEY_PREFIX): continue` 仍在 ⇒ 残留键不会被当异常消失 ⇒ **不发假恢复**,无需先清键 |
+| V1-S5 | F3 | 删代码/整块回滚(连 skip 行一起删)且残留键未清 | 测(既有行为用例) | `test_recovery_loop_behavior_skips_conclusion_status_key` 的反向即此:S4 的 continue 一旦没有,键会翻 recovered ⇒ 假恢复邮件 ⇒ 必须先清键 |
+
+### 11.3 时序
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| V1-T1 | F2 | 恢复块异常后,本轮结论判定与心跳仍执行 | 测(行为) | 用例断言 `_concl_email` 赋值行号 > try 块结束行,并真跑出状态说明(1 次 notify 调用) |
+| V1-T2 | F1/F2 用例时间 | 用例取真实 `today()/now()` 致隔天红(L51) | 测(静态核) | 全部用冻结 `NOW=2026-10-26 09:42`;新增两条用例不取实时时间 |
+| V1-T3 | F2 | 异常发生在 CFU/批发计数之后、判定之前 | 不测(顺序固定) | 计数点在恢复块之前;外壳没有移动任何调用点 |
+
+### 11.4 上下游
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| V1-U1 | F1 | `_cfu_out` 的生产者链 | 测(AST 三层) | 实参变量 → `<stdout or ''>.strip()` → `subprocess.run([...check_failed_units.py...])`,逐层断言,任何一环被替换都红 |
+| V1-U2 | F2 | 下游 `_PEND_KEY` / `save_alert_state` | 不测(不改) | 成功路径原样;异常路径不写 pending(见 S3),外壳未新增写点 |
+| V1-U3 | F3/F4 | 运行时判定行为 | 不测(纯注释/docstring) | 只改说明文字;`_conclusion_email_enabled` 取值逻辑一字未动(既有开/关用例仍绿) |
+| V1-U4 | 同类错误面 | 尾部收尾序列里其它"块内异常会整轮静默"的位置 | 不测(已逐处核) | 逐个读码核 4183-4400:CFU/s06/preupload/心跳/flush-warnings/补列/flush-digest/alert_meter **都已有 try/except**;唯一裸块 = 恢复发送段 ⇒ 本次补齐。结论 helper 自身 try 在 `_maybe_send_conclusion_status_email` 内 |
+| V1-U5 | F6 | 三文件成对契约 | 不测(人工回滚约束) | 见 11.6 R3 |
+
+### 11.5 极端值
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| V1-E1 | F2 | 异常消息超长/含命令全文 | 不测(不影响判定) | 只打 stderr(`{type}: {e}` 原样),无外发、不改状态 |
+| V1-E2 | F1 | CFU 输出超长/多行/无标记 | 不测(无判定影响) | 用例只钉"实参来自真实 stdout",长度无关;标记缺失的保守语义由既有 I2 覆盖 |
+| V1-E3 | F2 | 日志 `print` 本身失败 | 不测(理论不可达) | 写 stderr,无外发链路 |
+
+### 11.6 回退路径(含 F6 三文件成对关系)
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| V1-R1 | F1 回滚 | 新增用例删掉即回旧 | 测(性质) | 生产代码未因 F1 改动 ⇒ 回滚只影响测试覆盖 |
+| V1-R2 | F2 回滚 | 去掉 try/except 外壳 | 测(判别力实测) | 变异整块去壳 ⇒ 1 红(`..._does_not_block_status_mail` 找不到 try);还原 53 绿 + sha256 一致 |
+| V1-R3 | **F6 三文件成对** | `scripts/check_failed_units.py`(`NOTIFY_SENT=<n>` 标记)/ `scripts/notify.py`(两条批发的 `--result-file` status)/ `scripts/schedule_monitor.sh`(计数 + 判定点) | **不测(人工回滚约束,写死)** | **回滚必须三文件一起回,或整体 `git revert` 本批 commit;只回滚其中一处 = 状态说明永久保守静默(不再补发)。** 逐组合说明:①只回滚 monitor(另两处留新)⇒ 标记/结果文件没人读,无副作用但新功能也没了;②只回滚 CFU 标记 ⇒ 健康轮没有 `NOTIFY_SENT=0`,`_cfu_alert_mail_delta` 判不出 ⇒ 恒按 1 ⇒ 每轮都当"已发过" ⇒ **永远不发状态说明**;③只回滚 notify 结果文件 ⇒ `_read_notify_result_status` 恒空 ⇒ `_flush_alert_mail_delta("")=1` ⇒ 同样**永久静默**。三处是同一契约的三个半边,拆开部署即语义错位 |
+| V1-R4 | F3 开关回滚 | 开关置 0 与删代码的顺序 | 不测(人工约束) | 开关=0 **无需**清键(S4);删代码**必须**先清键(S5)。代码注释 + 本节双处写死 |
+| V1-R5 | 部署回滚 | `git revert` 本批 commit | 不测(部署操作) | 无数据产物 / 前端版本串改动 |
+
+### 11.7 并发与重入
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| V1-C1 | 测试隔离 | 变异改生产文件与其它用例并发读 | 测(收尾核) | 每次变异前备份 `/tmp/sm-309-backup.sh`,变异后 `cp` 还原 + sha256 比对一致 |
+| V1-C2 | 变量作用域 | 新增 `_e_rec` 与既有变量撞名 | 测(grep) | `grep -n _e_rec` 仅处理器内 3 处,无同名复用 |
+| V1-C3 | state 并发写 | 两 monitor 实例同时写 `alert_state.json` | 不测(既有风险 D10) | 外壳不新增写点 |
+
+### 11.8 F1-F7 逐条处置
+
+| 项 | 处置 | 说明 |
+|---|---|---|
+| F1 测试假绿(实参没钉住) | 已修 | 新增 `test_cfu_delta_receives_real_cfu_subprocess_output`:AST 三层钉死「实参 = CFU 子进程真实 stdout」;判别力实测(改 `""` ⇒ 1 红 ⇒ 还原 53 绿) |
+| F2 恢复块无 try/except | 已修 | 只加外壳(`try: if _combined: … except Exception as _e_rec:`),异常打日志含类型与原因并继续;发送/落签逻辑未动;行为用例证明异常后状态说明照发 |
+| F3 回滚注释与实测不符 | 已改 | 注释改为两条路分开写:开关=0 跳过行还在 ⇒ 不清键也不会发假恢复;删代码/整块回滚必须先清键 |
+| F4 开关取值口径没写明 | 已补 | `_conclusion_email_enabled` docstring 写明:除 0/false/off/no(忽略大小写与首尾空格)外,其它任何值(含空串/非法值)一律视为开启 |
+| F5 rc=4 时 `[:240]` 可能带出 `NOTIFY_SENT=0` 进正文 | 不改(已知项) | 纯展示噪声:计数只认标记行,不影响判定;改正文截断属发送内容调整,超出本次"只加外壳/注释"范围 |
+| F6 回滚清单 | 已写死 | 见 11.6 R3:三文件成对,只回滚一处 = 状态说明永久保守静默 |
+| F7 `monitor_72h.sh` 也 flush-warnings,云上无对应 timer | 不改(已知项) | 云上无该 timer ⇒ 不与主 monitor 的 flush 竞争;若将来上云需同步计数口径,记录在案 |
+
+### 11.9 本轮测/不测小结 + 判别力
+
+- 新增边界项:测 8 项、不测 9 项(每条给理由:同处理器 / 有意不捕获 / 不改逻辑 /
+  既有风险 / 人工回滚约束 / 无判定影响 / 理论不可达)。
+- 判别力 2 次(每次改坏 → 跑目标文件 → 还原 → sha256 核对):
+  1. F1 实参改 `""` ⇒ 1 红(`test_cfu_delta_receives_real_cfu_subprocess_output`)⇒ 还原 53 绿;
+  2. F2 整块去壳 ⇒ 1 红(`test_recovery_block_exception_does_not_block_status_mail`)⇒ 还原 53 绿。
+  两次还原后 `git status --porcelain` 仅本批预期改动,无残留。
+- 全量回归:`python -m pytest -q scripts/tests/` 数字见实施报告(基线 1622 passed, 2 skipped)。
