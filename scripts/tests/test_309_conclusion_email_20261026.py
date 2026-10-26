@@ -461,6 +461,11 @@ def test_decision_point_is_after_all_send_channels():
     assert 0 < src.find('_ALERT_MAIL_COUNTER["sent"] += _cfu_alert_mail_delta(') < i_call
     assert 0 < src.rfind('_ALERT_MAIL_COUNTER["sent"] += _flush_alert_mail_delta(') < i_call
     assert 0 < src.find('_ALERT_MAIL_COUNTER["sent"] += 1', src.find("<<'PYEOF'")) < i_call
+    # 两条批发必须真读自己的结果文件(不许写死空串/固定值, 否则永远保守多算一笔)
+    i_warn_read = src.find('_read_notify_result_status(_flush_warn_rf)')
+    i_dig_read = src.find('_read_notify_result_status(_flush_dig_rf)')
+    assert 0 < i_warn_read < i_call, "--flush-warnings 计数必须读它自己的结果文件 status"
+    assert 0 < i_dig_read < i_call, "--flush-digest 计数必须读它自己的结果文件 status"
 
 
 # ── 审查要求 3: 行为级假恢复用例(不是源码形状守卫) ────────────────────────
