@@ -381,7 +381,7 @@
 | V1-S1 | F2 | 异常发生在第一个批次(alert 批)发送时 | 测 | I3 即此形态(第一批 `_send_recovery_batch` 就抛) |
 | V1-S2 | F2 | 异常发生在 warning 批 / 两批之间 / pending 落盘时 | 不测(同块处理器) | 整块同一个 try,处理动作相同(只打日志继续);任务书要求"只加外壳"不动发送/落签逻辑 |
 | V1-S3 | F2 已知限制 | 异常轮已翻 recovered 的条目本轮不发恢复、也不进 pending ⇒ 该批恢复通知丢失 | 不测(与旧行为同向,不因外壳变差) | 旧代码整进程崩:恢复通知同样丢失,还额外丢状态说明与心跳。外壳只补回后者;任务书点名不改恢复语义 |
-| V1-S4 | F3 | 环境开关置 0 时 `alert_state` 里残留 `conclusion_status|*` 键 | 测(读码确认) | 开关只停「判定/发信/写 state」;恢复环 `if _key.startswith(CONCLUSION_STATUS_KEY_PREFIX): continue` 仍在 ⇒ 残留键不会被当异常消失 ⇒ **不发假恢复**,无需先清键 |
+| V1-S4 | F3 | 环境开关置 0 时 `alert_state` 里残留 `conclusion_status\|*` 键 | 测(读码确认) | 开关只停「判定/发信/写 state」;恢复环 `if _key.startswith(CONCLUSION_STATUS_KEY_PREFIX): continue` 仍在 ⇒ 残留键不会被当异常消失 ⇒ **不发假恢复**,无需先清键 |
 | V1-S5 | F3 | 删代码/整块回滚(连 skip 行一起删)且残留键未清 | 测(既有行为用例) | `test_recovery_loop_behavior_skips_conclusion_status_key` 的反向即此:S4 的 continue 一旦没有,键会翻 recovered ⇒ 假恢复邮件 ⇒ 必须先清键 |
 
 ### 11.3 时序
@@ -442,8 +442,11 @@
 
 ### 11.9 本轮测/不测小结 + 判别力
 
-- 新增边界项:测 8 项、不测 9 项(每条给理由:同处理器 / 有意不捕获 / 不改逻辑 /
+- 新增边界项:**共 29 行 = 测 13 / 不测 16**(按 11.1-11.7 分表实数:输入域 5=测3/不测2、状态组合 5=3/2、时序 3=2/1、上下游 5=1/4、极端值 3=0/3、回退路径 5=2/3、并发与重入 3=2/1;逐条给理由:同处理器 / 有意不捕获 / 不改逻辑 /
   既有风险 / 人工回滚约束 / 无判定影响 / 理论不可达)。
+  核对说明:29 条编号 V1-I1~I5/S1~S5/T1~T3/U1~U5/E1~E3/R1~R5/C1~C3 无缺号、无重复;
+  唯一「同一对象跨两轴」= V1-U5(上下游轴)与 V1-R3(回退轴)都讲 F6 三文件成对契约,
+  U5 依据已指向 11.6 R3,属引用不属重复项。
 - 判别力 2 次(每次改坏 → 跑目标文件 → 还原 → sha256 核对):
   1. F1 实参改 `""` ⇒ 1 红(`test_cfu_delta_receives_real_cfu_subprocess_output`)⇒ 还原 53 绿;
   2. F2 整块去壳 ⇒ 1 红(`test_recovery_block_exception_does_not_block_status_mail`)⇒ 还原 53 绿。
