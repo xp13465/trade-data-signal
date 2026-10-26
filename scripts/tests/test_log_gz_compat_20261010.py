@@ -64,6 +64,9 @@ FROZEN_OLD_PARSE_LAST_RUN_PLAIN = "2026-10-10 09:35:02"
 # ③ 改造前 gen_schedule_stats 在同一 3 日志沙箱(INTRA/ETF/UPDATE_ALL)上的逐行输出。
 #    #309 起输出新增 systemd 真值字段(旧字段值必须逐位不变, 只允许新增白名单字段),
 #    故由「整文件 md5」改为「旧字段逐键对账 + 新字段白名单」两项, 保住原意(旧行为零变化)。
+#    例外:sample 里的 "schedule" 是 TASKS 硬编码展示文案, 与云上 timer 真值同源同改
+#    (2026-10-26 futures 19:45/21:20、lhb 18:50/19:30, 依据 systemctl cat 实文);
+#    改时点表必须显式同步本样本 —— 本字段仍参与逐位对账, 不许绕过。
 FROZEN_OLD_ROWS_JSON = "log_mode_old_rows.json"
 # #309 新增字段白名单(旧消费方忽略; 出现白名单外的新字段 = 未申报的行格式变更 → FAIL)
 NEW_KEYS_309 = {

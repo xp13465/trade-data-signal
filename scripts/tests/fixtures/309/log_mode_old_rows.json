@@ -50,7 +50,7 @@
   "log_anomaly_line": null,
   "name": "期货机构持仓",
   "r2_skip_count": 0,
-  "schedule": "20:05 + 21:00(兜底)",
+  "schedule": "19:45 + 21:20(兜底)",
   "task": "futures_backfill"
  },
  {
@@ -63,7 +63,7 @@
   "log_anomaly_line": null,
   "name": "龙虎榜",
   "r2_skip_count": 0,
-  "schedule": "18:30 + 19:30(兜底)",
+  "schedule": "18:50 + 19:30(兜底)",
   "task": "lhb_backfill"
  },
  {
