@@ -149,3 +149,85 @@
 - 第四轮落点索引:F1 刷新返回码 → I17/I18/I19 + U11/U12(同类调用面) + R8;
   F3 账本 exit 未来时间 → T12/T13/T14 + E9(偏差取值) + R9;
   F4 跑过信号全缺 → S20/S21/S22(选型依据=云上 43/43 实测)+ U10(两个生产调用方)。
+
+## 9. 第五轮(#309 F2 结论「状态说明」邮件,2026-10-26)
+
+> 分支 `feat/309-conclusion-email-20261026`;改动点=`scripts/schedule_monitor.sh` 的
+> `_conclusion_status_*`/`_maybe_send_conclusion_status_email` + 结论调用点 + 恢复环跳过前缀。
+> 需求 = 用户 2026-10-26 拍板:结论非 OK **且**本轮零告警邮件时补发一封「状态说明」,
+> 不是每轮发;同一份结论只发一次。全程 static-only:notify 全 stub、零真实外发(§18 L48)。
+> 用例文件 `scripts/tests/test_309_conclusion_email_20261026.py`(20 条)。
+
+### 9.1 输入域
+
+| # | 来源(需求点/改动点) | 边界项 | 判定 | 依据与理由(对应用例) |
+|---|---|---|---|---|
+| F2-I1 | 实现预期 C | 两种 OK 文案(「OK 所有任务…」/「OK(仅日志口径…」) | 测 | `test_scene_c_ok_never_sends` 参数化 2 种,断言 0 次调用 |
+| F2-I2 | 实现预期 B | 非 OK 的三种真实形状:账本旧码不可信 / 有 N 条告警被去重吸收 / stats 刷新失败 | 测 | `test_scene_b_all_non_ok_text_variants_send_with_full_conclusion` 参数化 3 种;正文含原结论 + 「为什么」 |
+| F2-I3 | 正文文案 | 结论含 `<`/`>`(HTML 注入/展示错乱) | 测 | `test_conclusion_html_special_chars_are_escaped` |
+| F2-I4 | 防御 | 空结论(理论不可达) | 测 | `test_empty_conclusion_never_sends`:不发、不落签 |
+| F2-I5 | 展示长度 | 超长结论行 | 不测(无判定影响) | `line_sample` 只截 200 字防 state 膨胀;正文照原样(结论行本身受 CFU 名单长度影响,E6 已说明) |
+
+### 9.2 状态组合
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| F2-S1 | 频率保护 | 同内容摘要 `active` ⇒ 不重发 | 测 | `test_frequency_same_conclusion_twice_only_first_sends`(第二轮 0 次、不落盘) |
+| F2-S2 | 频率保护 | 内容变化 ⇒ 重新发 + 旧键退休(同一时刻最多 1 条) | 测 | `test_content_change_resends_and_retires_old_key`(state 长度恒 1) |
+| F2-S3 | 恢复语义 | 结论 OK ⇒ 摘要键置 recovered、**不额外发信** | 测 | `test_recovery_releases_guard_without_mail_then_cooldown_blocks_flicker` |
+| F2-S4 | 防抖动 | 恢复后 6h 内同内容复发 ⇒ 不重发 | 测 | 同用例 +1h ⇒ `recurrence_cooldown` |
+| F2-S5 | 优先级 | 非 OK + 已有告警邮件 + 同内容键存在 ⇒ 以「已有告警邮件」为准,不发不改 state | 测 | `test_alert_mail_takes_precedence_over_same_content_state` |
+| F2-S6 | 防御 | `state` 不是 dict | 不测(实现已 isinstance 防御) | 生产入口恒为 `load_alert_state()` 返回的 dict |
+| F2-S7 | 恢复环交互 | `conclusion_status|` 键不参与恢复检测(否则被误判异常消失发假恢复邮件) | 测(源码形状守卫) | `test_recovery_loop_skips_conclusion_status_key`;`test_309_key_migration_20261025.py` 恢复环 harness 同步注入新常量 |
+
+### 9.3 时序
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| F2-T1 | 防抖动 | 恰好 6h(RECOVERY_COOLDOWN 判据 `>=`) | 测 | `..._cooldown_blocks_flicker` 第 3 段:now+6h ⇒ 重新发 |
+| F2-T2 | 时序 | 跑用例取 `date.today()/datetime.now()` 致隔天红(L51) | 测(静态核) | 用例显式注入固定 `NOW=2026-10-26 09:42`;helper 内所有时间取自注入的 `now` |
+| F2-T3 | 轮内时序 | 告警邮件计数须在结论补位判定**之前**完成(聚合批次/停摆直发/升级提醒都在前) | 不测(代码顺序已定) | 补位调用点在结论打印之后;`grep _ALERT_MAIL_COUNTER` 三处发送点均在前 |
+
+### 9.4 上下游
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| F2-U1 | 告警计数源 | 「本轮告警邮件数」只能数**真发出**(notify 确认送达),不能数 `len(alerts)`(含去重/吸收行) | 测(源码形状) | `test_severe_alert_paths_all_increment_alert_mail_counter`:3 个 severe 发送点都 +1 + 调用点传计数器 |
+| F2-U2 | notify.py 接口 | 新主题/键被 notify 的域聚合或预算 gate 静默并入摘要 | 测 | `test_new_subject_and_key_are_not_absorbed_by_notify_gates` 直接调生产 `adr.domain_of/category_of`,均 None |
+| F2-U3 | notify.py 调用形态 | 主题/正文/`--from-prefix`/`--alert-issue`/`--alert-log`;不打 `--severe` | 测 | `test_scene_b_...` 断言完整 cmd |
+| F2-U4 | state 落盘 | 确认送达才落签;未送达/异常不落签(下轮重试) | 测 | `test_notify_not_confirmed_does_not_record_state`、`..._runner_exception_...` |
+| F2-U5 | 既有 notify 调用面 | 部署 warning / R2 skip warning / 资源 warning / info 级不计入「告警邮件数」 | 不测(设计即如此) | 它们是入 30min 聚合 buffer 或仅 dashboard,本轮没有真正外发邮件;若计入会导致「用户其实没收到邮件也不补位」的漏洞 |
+| F2-U6 | 前端/数据产物 | 无前端、无 data 产物、无版本串改动 | 不测 | diff 仅 `scripts/` + 测试 + 本清单 |
+| F2-U7 | 恢复邮件同轮 | 结论补位与恢复邮件可同轮各发 1 封 | 不测(设计接受) | 恢复邮件不是告警邮件,语义不同(一个说「好了」一个说「结论仍异常」);频率保护保证结论邮件只发一次 |
+
+### 9.5 极端值
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| F2-E1 | 发送失败 | notify 全渠道未发出 | 测 | `test_notify_not_confirmed_does_not_record_state` |
+| F2-E2 | 发送异常 | runner 抛异常(超时等) | 测 | `test_notify_runner_exception_is_swallowed_and_retried_next_round`(不外抛、不落签) |
+| F2-E3 | 结论长度/内容 | 超长、含换行 | 不测(无判定影响) | 正文原样拼 HTML `<br>` 前缀;结论行本身是单行(dev 侧 `_build_conclusion` 用 `; ` 拼接) |
+| F2-E4 | 摘要键膨胀 | 长期运行累积无数 `conclusion_status|` 键 | 测(设计保证) | 内容变化即退休旧键、同一时刻最多 1 条(S2 断言 state 长度=1);OK 轮保留单条 recovered 供 6h 抖动判定 |
+
+### 9.6 回退路径
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| F2-R1 | 一行关闭 | 删掉调用点(或让 `send` 恒 False)⇒ 回到「只打日志」旧行为 | 测(判别力已证) | 变异「零邮件判据」⇒ 6 条用例红(含 B 场景),还原 ⇒ 绿(sha256 一致) |
+| F2-R2 | 回滚顺序 | 删恢复环 skip 前缀必须与删键写入同时做,否则残留键会触发假恢复邮件 | 不测(人工回滚约束,已写死在本表 + 代码注释) | 生产 `alert_state.json` 若残留 `conclusion_status|` 键,恢复环会把它们当异常发假恢复 ⇒ 回滚须同时清键或删 skip 一起删 |
+| F2-R3 | 部署回滚 | feat revert 即恢复旧行为 | 不测(部署操作) | 无数据产物/版本串改动 |
+
+### 9.7 并发
+
+| # | 来源 | 边界项 | 判定 | 依据与理由 |
+|---|---|---|---|---|
+| F2-C1 | 计数器作用域 | 多轮之间计数不串(每轮独立进程) | 不测(结构性) | `_ALERT_MAIL_COUNTER` 是进程内模块级变量,monitor 每 15min 新进程 |
+| F2-C2 | state 并发写 | 两个 monitor 实例同时写 `alert_state.json` | 不测(既有风险) | 沿用既有单实例 15min 机制,本批不新增共享写目标 |
+| F2-C3 | 测试隔离 | 变异改生产文件与并行测试互扰 | 测(收尾核) | 变异脚本 try/finally 还原并 sha256 校验;全量 pytest 在还原后单独跑 |
+
+### 9.8 本轮测/不测小结
+
+- 测:20 条用例(含 3 类非 OK 输入参数化 / 6h 边界 / 发送失败与异常 / 两个源码形状守卫)。
+- 不测:7 项,均给理由(无判定影响 / 实现已防御 / 环境既有 / 设计接受 / 人工回滚约束)。
+- 判别力证据:把 `_conclusion_status_decision` 的「零告警邮件」判据改坏(`> 0` → `>= 0`)
+  ⇒ B 场景及同族共 6 条红;还原 ⇒ 20 条全绿,文件 sha256 与改前一致。
