@@ -15,7 +15,10 @@
      绝不写/传半个包;
   ④ 回退开关 `D1_SPLIT_MODE=legacy` 仍产出旧的多文件结构; 非法值快速失败;
   ⑤ 空输入(上游采集失败)在**生成阶段**失败, 绝不产出「只有 DELETE 没有 INSERT」的包
-     (那样的包导进去 = 清空线上表; 2026-10-26 审查 L2)。
+     (那样的包导进去 = 清空线上表; 2026-10-26 审查 L2);
+  ⑥ 预算默认值随模式(2026-10-26 复审 N1: legacy 单表实测 2220~2640s, 共享 360s 预算会在
+     `DELETE FROM` 早已生效之后掐断 ⇒ 线上表留半成品): single 360s / legacy 3600s,
+     legacy 显式预算 <2700s 必须打印醒目警告。
 
 另含 `scripts/lib/d1_execute.sh` 重试/超时语义(假 npx 打桩, 零真实外发 / L48、L50 精神):
   · 网络类失败重试(最多 2 次), 第三次成功 ⇒ rc=0;
@@ -311,6 +314,74 @@ def test_invalid_split_mode_fails_fast(tmp_path):
     assert "D1_SPLIT_MODE" in (r.stdout + r.stderr)
 
 
+# ============ ②c 预算默认值随模式(复审 N1: legacy 回退不得把线上表留成半成品) ============
+def _budget_repo(tmp_path, script):
+    """按脚本造最小可跑 fixture(screener / score 两套 DDL 不同)。"""
+    if script == SYNC_SCREENER:
+        return _make_repo(tmp_path, SCREENER_DDL, lambda c: _build_screener_rows(c, n_normal=2))
+
+    def build(con):
+        con.executemany(
+            "INSERT INTO fund_basic VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            [("S1", "基金一", "股票型", "公司A", "经理甲", "20150501", 12.5, 1.5,
+              0.25, 0.15, "策略", "基准")])
+        con.executemany(
+            "INSERT INTO fund_score (fund_code, score_date, composite_score, star_rating) "
+            "VALUES (?,?,?,?)", [("S1", "20260913", 70.0, 4)])
+    return _make_repo(tmp_path, SCORE_DDL, build)
+
+
+@pytest.mark.parametrize("script", [SYNC_SCREENER, SYNC_SCORE], ids=["screener", "score"])
+def test_single_default_budget_stays_360(tmp_path, script):
+    """single 模式不受 N1 影响: 默认预算仍是 360s(小于 daily 现网 1800s 墙)。"""
+    repo = _budget_repo(tmp_path, script)
+    r, _ = _run_script(script, repo, tmp_path)
+    out = r.stdout + r.stderr
+    assert r.returncode == 0, out
+    assert "预算=360s" in out, out
+    assert "半成品表" not in out, out
+
+
+@pytest.mark.parametrize("script", [SYNC_SCREENER, SYNC_SCORE], ids=["screener", "score"])
+def test_legacy_default_budget_is_at_least_3000(tmp_path, script):
+    """legacy 单表实测 2220~2640s ⇒ 默认预算必须 ≥3000s, 且启动日志提示墙要 ≥6000s。
+
+    判别力: 把 legacy 默认预算改回 360 ⇒ 本用例红(且小预算警告用例的断言方向反转)。
+    """
+    repo = _budget_repo(tmp_path, script)
+    r, _ = _run_script(script, repo, tmp_path, {"D1_SPLIT_MODE": "legacy"})
+    out = r.stdout + r.stderr
+    assert r.returncode == 0, out
+    assert "预算=3600s" in out, out
+    assert int(re.search(r"预算=(\d+)s", out).group(1)) >= 3000, out
+    assert "≥6000s" in out, out
+    assert "半成品表" not in out, out
+
+
+@pytest.mark.parametrize("script", [SYNC_SCREENER, SYNC_SCORE], ids=["screener", "score"])
+def test_legacy_explicit_small_budget_warns_about_half_finished_table(tmp_path, script):
+    """显式小预算以用户值为准, 但必须醒目警告「DELETE 之后被掐断 ⇒ 半成品表」。"""
+    repo = _budget_repo(tmp_path, script)
+    r, _ = _run_script(script, repo, tmp_path,
+                       {"D1_SPLIT_MODE": "legacy", "D1_RETRY_BUDGET": "600"})
+    out = r.stdout + r.stderr
+    assert r.returncode == 0, out
+    assert "预算=600s" in out, out
+    assert "半成品表" in r.stderr, out
+    assert "600 秒" in r.stderr and "2600 秒" in r.stderr, out
+
+
+@pytest.mark.parametrize("budget,expect_warn", [("2699", True), ("2700", False)])
+def test_legacy_budget_warning_threshold_is_2700(tmp_path, budget, expect_warn):
+    """阈值边界: 2699 必警告, 2700 不警告(任务书定的硬线)。"""
+    repo = _budget_repo(tmp_path, SYNC_SCREENER)
+    r, _ = _run_script(SYNC_SCREENER, repo, tmp_path,
+                       {"D1_SPLIT_MODE": "legacy", "D1_RETRY_BUDGET": budget})
+    out = r.stdout + r.stderr
+    assert r.returncode == 0, out
+    assert ("半成品表" in r.stderr) is expect_warn, out
+
+
 # ============== ②b 空输入(上游采集失败): 两种模式都不得产出可清空线上表的包 ==============
 def _assert_no_delete_anywhere(gen_dir):
     for p in gen_dir.rglob("*"):
@@ -335,13 +406,18 @@ def test_screener_empty_input_single_fails_without_package(tmp_path):
 
 
 def test_screener_empty_input_legacy_fails_without_delete(tmp_path):
-    """L2: legacy 模式空输入同样非 0, 且落盘的 schema 文件里没有 DELETE(旧数据保留)。"""
+    """L2: legacy 模式空输入同样非 0, 且**一个文件都不写**(与 single 一致)。
+
+    复审实测(2026-10-26 N3): 空输入守卫 `fund_basic 无数据` 在 schema 落盘之前就
+    `sys.exit(1)` ⇒ 生成目录 0 个文件, 不是「只写 000_schema.sql」(旧文档说法不实)。
+    """
     repo = _make_repo(tmp_path, SCREENER_DDL, lambda c: None)
     r, gen_dir = _run_script(SYNC_SCREENER, repo, tmp_path, {"D1_SPLIT_MODE": "legacy"})
-    assert r.returncode != 0, "空输入必须失败:\n" + r.stdout
+    assert r.returncode == 1, "空输入必须失败(rc=1, 与 single 一致):\n" + r.stdout
+    assert "fund_basic 无数据" in (r.stdout + r.stderr), r.stdout + r.stderr
     assert gen_dir is not None
     _assert_no_delete_anywhere(gen_dir)
-    assert (gen_dir / "001_data.sql").exists() is False, "空输入不该产数据文件"
+    assert sorted(p.name for p in gen_dir.iterdir()) == [], "空输入不该写任何文件"
 
 
 # ============================ ③ 真脚本 DRY_RUN: score 单文件 ============================

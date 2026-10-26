@@ -50,12 +50,17 @@
 #   D1_MAX_STMT_BYTES=60000       单条语句切批软上限
 #   D1_MAX_STMT_BYTES_ASSERT=90000 单条语句硬断言(>= 即生成失败)
 #   D1_RETRY_DELAYS="30 90"      网络类失败重试退避(最多重试 2 次)
-#   D1_RETRY_BUDGET=360          D1 执行段总时间预算(重试前打印已用/剩余)。旧名
-#                                `D1_SYNC_BUDGET_SEC` 仍兼容。
-#                                为什么是 360: daily 的墙只有 10 分钟(TimeoutStartUSec=10min,
-#                                10-23/10-25 实测 16:10 被杀), 预算必须远小于墙 —— 旧的 1800s
-#                                永远用不到(systemd 先杀整组, 连 trap 都跑不到)。360s 给
-#                                生成段(~几十秒)与 D1 计数校验留出约 4 分钟余量。
+#   D1_RETRY_BUDGET=<秒>         D1 执行段总时间预算(重试前打印已用/剩余)。旧名
+#                                `D1_SYNC_BUDGET_SEC` 仍兼容。默认值随模式(2026-10-26 复审 N1):
+#                                · single: 360s —— daily 的墙现为 1800s(30 分钟, 云上 drop-in
+#                                  `timeout-1800.conf`); 旧的 1800s 预算和墙同值, 永远用不到
+#                                  (systemd 先杀整组, 连 trap 都跑不到)。360s 给生成段
+#                                  (~几十秒)与 D1 计数校验留出约 4 分钟余量。
+#                                · legacy: 3600s —— 旧多文件模式单表实测 2220~2640s(347 文件
+#                                  × 6.35s/次)。**360s 会在 `DELETE FROM` 早已生效之后被掐断,
+#                                  把线上表留成半成品(比不改更糟)**; 且调用方 unit 墙必须
+#                                  **同时**提到 ≥6000s(两表 4440~5280s)。
+#                                显式设置以用户值为准, 但 legacy + 预算 <2700s 会打印醒目警告。
 #   D1_EXEC_TIMEOUT_SEC=300      单次 `wrangler d1 execute` 上限(超时=网络类失败, 可重试)
 #   D1_VERIFY_TIMEOUT_SEC=60     结尾 D1 计数查询上限(小查询, 不需要 300s)
 # 注意: 一个导入文件 = 一个事务, 所以文件里**不写 BEGIN/COMMIT**（导入作业自带事务）。
@@ -84,8 +89,6 @@ SPLIT_MODE="${D1_SPLIT_MODE:-single}"
 MAX_STMT_BYTES="${D1_MAX_STMT_BYTES:-60000}"
 ASSERT_MAX_STMT_BYTES="${D1_MAX_STMT_BYTES_ASSERT:-90000}"
 RETRY_DELAYS="${D1_RETRY_DELAYS:-30 90}"
-# 预算默认 360s(远小于 daily 10min 墙; 旧默认 1800s 永远用不到)。旧名 D1_SYNC_BUDGET_SEC 兼容。
-BUDGET_SEC="${D1_RETRY_BUDGET:-${D1_SYNC_BUDGET_SEC:-360}}"
 EXEC_TIMEOUT_SEC="${D1_EXEC_TIMEOUT_SEC:-300}"
 VERIFY_TIMEOUT_SEC="${D1_VERIFY_TIMEOUT_SEC:-60}"
 BUNDLE_FILE="full_import.sql"
@@ -94,6 +97,26 @@ case "$SPLIT_MODE" in
   single|legacy) ;;
   *) echo "[sync-screener] FATAL: D1_SPLIT_MODE='$SPLIT_MODE' 非法(只支持 single|legacy)" >&2; exit 2 ;;
 esac
+
+# 预算默认值随模式(2026-10-26 复审 N1):
+#   single 360s 远小于 daily 现网 1800s 墙;
+#   legacy 单表实测 2220~2640s ⇒ 必须 ≥3000s, 否则会在 DELETE 早已生效之后被掐断、
+#   把线上表留成半成品(比不改更糟)。旧名 D1_SYNC_BUDGET_SEC 兼容。
+if [ "$SPLIT_MODE" = "legacy" ]; then
+  DEFAULT_BUDGET_SEC=3600
+else
+  DEFAULT_BUDGET_SEC=360
+fi
+BUDGET_SEC="${D1_RETRY_BUDGET:-${D1_SYNC_BUDGET_SEC:-$DEFAULT_BUDGET_SEC}}"
+
+# 启动日志(N1 要求): 模式 / 预算 / 单次超时是回退时最容易看错的三项, 固定打印。
+echo "$LOG_PREFIX 启动: mode=$SPLIT_MODE 预算=${BUDGET_SEC}s 单次超时=${EXEC_TIMEOUT_SEC}s"
+if [ "$SPLIT_MODE" = "legacy" ]; then
+  echo "$LOG_PREFIX 提示: legacy 单表实测 2220~2640s ⇒ 调用方 unit 墙必须 ≥6000s(两表 4440~5280s)"
+  if [ "$BUDGET_SEC" -lt 2700 ]; then
+    echo "$LOG_PREFIX ⚠ 警告: legacy 模式 + 预算 ${BUDGET_SEC} 秒 < 单表所需 ~2600 秒 ⇒ 会在 DELETE 之后被掐断, 留下半成品表" >&2
+  fi
+fi
 
 if [ "$DRY_RUN" = "1" ]; then
   GEN_DIR="${TMPDIR:-/tmp}/fund-screener-d1.$$"

@@ -22,11 +22,14 @@
 #   一次导入**; 切批从「只按 80 行」改为**按实际 UTF-8 字节**(默认单条 ≤60,000, 官方单语句
 #   上限 100,000 字节), 生成完硬断言 max_stmt_bytes < 90,000, 超了生成阶段直接失败。
 # 可调环境变量: D1_SPLIT_MODE=legacy 回退旧多文件模式 / D1_MAX_STMT_BYTES /
-#   D1_MAX_STMT_BYTES_ASSERT / D1_RETRY_DELAYS="30 90" / D1_RETRY_BUDGET=360 /
+#   D1_MAX_STMT_BYTES_ASSERT / D1_RETRY_DELAYS="30 90" / D1_RETRY_BUDGET=<秒> /
 #   D1_EXEC_TIMEOUT_SEC=300 / D1_VERIFY_TIMEOUT_SEC=60
 #   (详表见 docs/ops/pfscore-d1-single-import-20261026.md)
-# 预算为什么是 360s: daily 的墙只有 10 分钟(TimeoutStartUSec=10min, 10-23/10-25 实测
-#   16:10 被杀), 预算必须远小于墙 —— 旧默认 1800s 永远用不到(systemd 先杀整组)。
+# 预算默认值随模式(2026-10-26 复审 N1): single 360s(远小于 daily 现网 1800s 墙, 30 分钟,
+#   云上 drop-in `timeout-1800.conf`); legacy 3600s —— 旧多文件模式单表实测 2220~2640s,
+#   360s 会在 `DELETE FROM` 早已生效之后被掐断、把线上表留成半成品; legacy 还要求
+#   调用方 unit 墙 **同时**提到 ≥6000s(两表 4440~5280s)。显式设置以用户值为准,
+#   但 legacy + 预算 <2700s 会打印醒目警告。
 #   单次 `wrangler d1 execute` 另加 300s 上限, 防止进程卡死挂到墙。
 # 注意: 一个导入文件 = 一个事务 ⇒ 文件里不写 BEGIN/COMMIT。
 #
@@ -56,8 +59,6 @@ SPLIT_MODE="${D1_SPLIT_MODE:-single}"
 MAX_STMT_BYTES="${D1_MAX_STMT_BYTES:-60000}"
 ASSERT_MAX_STMT_BYTES="${D1_MAX_STMT_BYTES_ASSERT:-90000}"
 RETRY_DELAYS="${D1_RETRY_DELAYS:-30 90}"
-# 预算默认 360s(远小于 daily 10min 墙; 旧默认 1800s 永远用不到)。旧名 D1_SYNC_BUDGET_SEC 兼容。
-BUDGET_SEC="${D1_RETRY_BUDGET:-${D1_SYNC_BUDGET_SEC:-360}}"
 EXEC_TIMEOUT_SEC="${D1_EXEC_TIMEOUT_SEC:-300}"
 VERIFY_TIMEOUT_SEC="${D1_VERIFY_TIMEOUT_SEC:-60}"
 BUNDLE_FILE="full_import.sql"
@@ -66,6 +67,26 @@ case "$SPLIT_MODE" in
   single|legacy) ;;
   *) echo "[sync-d1] FATAL: D1_SPLIT_MODE='$SPLIT_MODE' 非法(只支持 single|legacy)" >&2; exit 2 ;;
 esac
+
+# 预算默认值随模式(2026-10-26 复审 N1):
+#   single 360s 远小于 daily 现网 1800s 墙;
+#   legacy 单表实测 2220~2640s ⇒ 必须 ≥3000s, 否则会在 DELETE 早已生效之后被掐断、
+#   把线上表留成半成品(比不改更糟)。旧名 D1_SYNC_BUDGET_SEC 兼容。
+if [ "$SPLIT_MODE" = "legacy" ]; then
+  DEFAULT_BUDGET_SEC=3600
+else
+  DEFAULT_BUDGET_SEC=360
+fi
+BUDGET_SEC="${D1_RETRY_BUDGET:-${D1_SYNC_BUDGET_SEC:-$DEFAULT_BUDGET_SEC}}"
+
+# 启动日志(N1 要求): 模式 / 预算 / 单次超时是回退时最容易看错的三项, 固定打印。
+echo "$LOG_PREFIX 启动: mode=$SPLIT_MODE 预算=${BUDGET_SEC}s 单次超时=${EXEC_TIMEOUT_SEC}s"
+if [ "$SPLIT_MODE" = "legacy" ]; then
+  echo "$LOG_PREFIX 提示: legacy 单表实测 2220~2640s ⇒ 调用方 unit 墙必须 ≥6000s(两表 4440~5280s)"
+  if [ "$BUDGET_SEC" -lt 2700 ]; then
+    echo "$LOG_PREFIX ⚠ 警告: legacy 模式 + 预算 ${BUDGET_SEC} 秒 < 单表所需 ~2600 秒 ⇒ 会在 DELETE 之后被掐断, 留下半成品表" >&2
+  fi
+fi
 
 if [ "$DRY_RUN" = "1" ]; then
   GEN_DIR="${TMPDIR:-/tmp}/fund-score-d1.$$"
