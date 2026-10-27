@@ -106,6 +106,29 @@ def test_a2_no_prev_keeps_null():
     assert out[0][6] is None
 
 
+def test_a2b_prev_skips_null_close_row():
+    """A2b(回归锁):库里最近一条记录 close 为 NULL ⇒ prev 必须继续往前取到更早的非空 close。
+
+    构造:D-3 close=100、D-2 close=NULL、D-1 缺 pct。若 prev 查询丢了 `close IS NOT NULL`,
+    会把 D-2 的 NULL 当 prev ⇒ 补不出 pct(变异必须红)。
+    """
+    conn = _mem_conn()
+    _insert_row(conn, "20250906", "thsc_nullprev", 100.0, pct=0.0)
+    _insert_row(conn, "20250907", "thsc_nullprev", None)
+    rows = [("20250908", "thsc_nullprev", None, None, None, 110.0, None, None)]
+    out = index_pct.fill_first_pct(rows, conn, "thsc_nullprev")
+    assert out[0][6] == pytest.approx(10.0, abs=1e-9)
+
+
+def test_a2c_only_null_close_prev_keeps_null():
+    """A2c(对照组):更早的记录仅有一条且 close 为 NULL、再无更早行 ⇒ 保持 NULL,不编数。"""
+    conn = _mem_conn()
+    _insert_row(conn, "20250907", "thsc_onlynull", None)
+    rows = [("20250908", "thsc_onlynull", None, None, None, 110.0, None, None)]
+    out = index_pct.fill_first_pct(rows, conn, "thsc_onlynull")
+    assert out[0][6] is None
+
+
 def test_a3_close_null_not_filled():
     """A3:close 为 NULL 的行是真缺行,即使有 prev 也不许填 pct。"""
     conn = _mem_conn()
