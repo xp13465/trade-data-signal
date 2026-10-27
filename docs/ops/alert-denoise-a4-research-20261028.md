@@ -7,7 +7,8 @@
 - 复现锚点：回放结果 **760 行真实变化 / 491,532 行**，与修复 commit 自述「旧 491,532 → 新 760（-99.85%）」**逐位一致** ⇒ 回放口径可信
 - 落档：2026-10-28（本文件即 ★4 的实施依据；§6 = 落地方案，§8 = 未验证项，§9 = 复现命令清单）
   - 数据源口径：云上只读（`sqlite3` 以 `mode=ro` URI 打开），本机库仅镜像、不作断言依据
-  - 实施回放：`/tmp/a4_replay_20261028.py`（用真函数 `plan_index_daily_alerts` / `plan_signal_daily_alert` 复跑 25 个 index_daily 批 + 21 个 signal_daily 批 = PASS：真实变化 760 / 假 490,772 / critical 0 / old_overwrite 0）
+  - 实施回放：`/tmp/a4_replay_20261028.py`（用真函数 `plan_index_daily_alerts` / `plan_signal_daily_alert` 复跑历史改写**全部 37 个 index_daily 批** + 21 个 signal_daily 批 = PASS：真实变化 760 / 假 490,772 / critical 0 / old_overwrite 0）
+    - 37 批里 **26 批有真实变化**（全部 small 档）；其余 11 批真实变化为 0：10 个 21:xx 计划内回填批（每批审计 ~2.3~2.5 万行、真实变化全 0 ⇒ `caller=index_backfill` 实测有样本且一条都不发）+ 10-22 02:xx 那批 2062 行（同样全假）
 
 ---
 
