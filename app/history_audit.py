@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 from collections import Counter
 
 from .db import get_conn
@@ -37,6 +38,21 @@ from .notify_hook import send_alert
 # 源端舍入抖动(如 2987.8 vs 2987.8000001)不算改写,防噪声。
 _IDX_REL_TOL = 1e-4
 _IDX_ABS_TOL = 1e-6
+
+# 字段级绝对容差(2026-10-28 加,治「发布精度抖动」误报)。依据 = 云上
+# history_overwrite_audit 表 2026-10-14~10-27 全量 index_daily 行(491,532 行)实测:
+#   · 剔除 NULL↔NaN 表示变化后剩 1,148 行真实变化,其中 450 行「四价全同、只有 pct/amount 变」;
+#     再拆:156 行只有 pct 变(全为「快照 2 位小数 vs 源端全精度」,如 -0.88 vs -0.884983),
+#     11 行 pct 与 amount 都变,其余 283 行是 pct 一端缺失(271 条 缺→有、12 条 有→缺;
+#     其中 50 条 amount 同为缺→有)——值↔缺失,按铁律仍算变化,不许吞。
+#   · 这 156 行的 |Δpct| 分布:p50=0.0019 / p99=0.00497 / 最大 0.00501
+#     ⇒ 与「pct 发布保留 2 位小数,量化半格 0.005」吻合(0.00501 来自源值本身多于 2 位小数),
+#     故 pct_change 取 0.006(0.005 + 余量),不做全局放大。
+#   · amount 实测无需额外绝对容差:两端都有值时 |Δamount| 有值行 296 条中 285 条为 0,
+#     另 11 条是真实成交额修正(5e5~3.9e9 元,相对 8e-6~6.5%)——加绝对容差会吞掉真修正,
+#     故沿用相对 1e-4 判据(1e-4 已覆盖纯舍入抖动)。
+#   · 红线:close 真纠错(6562.71→3367.89)幅度 48%,远超所有容差,仍判变化。
+_FIELD_ABS_TOL = {"pct_change": 0.006}
 
 # 告警去重窗口(秒): signal_daily 是 P0(丢成交) → 1h; index_daily 量大噪音面广 → 24h 日报
 _SIGNAL_DEDUP_WINDOW = 3600
@@ -185,7 +201,8 @@ def audit_index_row_partial(conn, run_date: str, date: str, index_id: str, updat
         return []  # 新增行, 不算改写
     before_v = tuple(row)
     after_v = tuple(updates[c] for c in cols)
-    if not _values_changed(before_v, after_v):
+    # cols 顺序跟随 updates(可能不是 _IDX_VALUE_COLS 原序)⇒ 传实际列顺序, 字段级容差才对齐
+    if not _values_changed(before_v, after_v, fields=cols):
         return []
     change = {"kind": "changed", "date": date, "index_id": index_id, "signal": None,
               "before_val": _fmt_vals(before_v), "after_val": _fmt_vals(after_v)}
@@ -226,12 +243,40 @@ def _diff_index_history(conn, hist: list) -> list:
     return changes
 
 
-def _values_changed(before: tuple, after: tuple) -> bool:
-    """6 个价量字段任一超出容差即算实质变化。None↔None 不算; None↔值 算。"""
-    for a, b in zip(before, after):
-        if a is None and b is None:
+def _is_missing(x) -> bool:
+    """「缺失」的统一定义:None 与 NaN 等价(2026-10-28 修)。
+
+    为什么必须等价:csindex 等源对缺失值返回 float('nan'),而 SQLite 把 NaN 存成 NULL
+    ⇒ 库里读出来是 None、采集回来是 nan ⇒ 旧比较器(None↔值 → 变化)会把同一行
+    「NULL→NaN」判成每次都在改写(实测 491,532 行审计里 490,384 行 = 99.77% 是这种
+    纯表示变化,同一个 (date,index_id) 被记了 20 次)。math.isnan 对 int/float 及
+    numpy.float32/64(NaN)均可用,对 str 等抛 TypeError ⇒ 按非缺失处理。
+    """
+    if x is None:
+        return True
+    try:
+        return math.isnan(x)
+    except (TypeError, ValueError):
+        return False
+
+
+def _values_changed(before: tuple, after: tuple, fields: tuple = _IDX_VALUE_COLS) -> bool:
+    """逐字段比对, 任一字段「实质变化」即算改写。
+
+    判据(2026-10-28 修订):
+      · 两端都缺失(None/NaN 任意组合)⇒ 该字段不算变化(纯表示差异);
+      · 一端缺失、另一端有值 ⇒ **算变化**(值→缺失可能是真丢行, 绝不吞);
+      · 数值差异在容差内 ⇒ 不算变化:先看字段级绝对容差 `_FIELD_ABS_TOL`,
+        再看全局相对 1e-4 + 绝对 1e-6;
+      · 非数值型不一致 ⇒ 算变化。
+    fields: 与 before/after 逐位对应的列名(局部字段审计时列顺序由 updates 决定,
+    必须传入实际列顺序才能命中字段级容差)。
+    """
+    for i, (a, b) in enumerate(zip(before, after)):
+        a_missing, b_missing = _is_missing(a), _is_missing(b)
+        if a_missing and b_missing:
             continue
-        if a is None or b is None:
+        if a_missing or b_missing:
             return True
         try:
             fa, fb = float(a), float(b)
@@ -239,9 +284,13 @@ def _values_changed(before: tuple, after: tuple) -> bool:
             if a != b:
                 return True
             continue
-        if fa == fb:
+        delta = abs(fa - fb)
+        if delta == 0:
             continue
-        if abs(fa - fb) > _IDX_ABS_TOL and abs(fa - fb) / max(abs(fa), abs(fb), 1e-12) > _IDX_REL_TOL:
+        field_tol = _FIELD_ABS_TOL.get(fields[i]) if i < len(fields) else None
+        if field_tol is not None and delta <= field_tol:
+            continue
+        if delta > _IDX_ABS_TOL and delta / max(abs(fa), abs(fb), 1e-12) > _IDX_REL_TOL:
             return True
     return False
 

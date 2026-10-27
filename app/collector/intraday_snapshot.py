@@ -1388,15 +1388,21 @@ def _backfill_concept_daily(concepts: list[dict]) -> int:
 # → upload-index 传 R2 → 前端当日点。
 # 映射实测 2026-09-11（逐码请求 qt.gtimg.cn 验证）：48/103 可补；
 # 规则：csi_000xxx→sh、csi_399xxx→sz、csi_000330(深证100)→sz399330、
-# csi_000673(创业板50)→sz399673、gz_399xxx→sz、hk 3 个 r_hk 前缀、
-# sz_div→sz399324、csi_div(中证红利)→sh000922、csi_970070→sz970070。
+# csi_000673(创业板50)→sz399673、csi_000102(创业板综)→sz399102、gz_399xxx→sz、
+# hk 3 个 r_hk 前缀、sz_div→sz399324、csi_div(中证红利)→sh000922、csi_970070→sz970070。
+# ⚠ 例外表(不走机械规则的条目)是唯一正确性来源：`csi_000102` 就是「机械规则按
+#   csi_000xxx→sh 套成 sh000102=沪投资品」而漏进例外表,导致每交易日盘中该指数
+#   当日点位/涨跌幅错成另一个标的(6562 vs 3354,差 ~96%),要到 17:50 采集/21:00
+#   回填才纠回。**新增/改动本表任一映射必须逐条对照 config/indicators.yaml 的
+#   id→symbol(scripts/tests/test_288_history_audit_nan_index_map_20261028.py 已把
+#   48 条做成「配置驱动」全量断言,别再靠人眼抽查)。**
 # 跳过 55 个：930/931/932/H 系列腾讯无码（r_hkCSHKLRE/r_hkCSHKLC 亦无码），
 # 外盘(us_*/cac40/dax/ftse100/kospi/nikkei225)按 global 源口径不强行补，
 # 商品/汇率(g.*)/情绪(s.*)非指数不补，cgb_10y_future 实时源不支持。
 # 风险容错：单批失败不阻断主链路（try/except 跳过继续）；非交易日闸门不采。
 _SIGNAL_UNIVERSE_TENCENT_MAP = {
     "csi_000010": "sh000010",  # 上证180
-    "csi_000102": "sh000102",  # 沪投资品
+    "csi_000102": "sz399102",  # 创业板综(2026-10-28 纠错: 原误写 sh000102=沪投资品, 详见例外表注释)
     "csi_000510": "sh000510",  # 中证A500
     "csi_000680": "sh000680",  # 科创综指
     "csi_000698": "sh000698",  # 科创100
