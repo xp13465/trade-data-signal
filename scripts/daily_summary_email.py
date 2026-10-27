@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""daily_summary_email.py - 每日收盘情绪速递邮件。
+"""daily_summary_email.py - 每日收盘情绪速递(飞书报告群)。
 
 读 static-site/data/summary_history.json 取指定日期(默认当日 YYYYMMDD)的
-收盘情绪速递,生成纯文本 + 简单 HTML 邮件,复用 config/email.json 的 SMTP
-配置发送。非交易日或当日数据未生成时优雅跳过(只 log,不发邮件,不报错)。
+收盘情绪速递,生成纯文本 + 简单 HTML 正文。非交易日或当日数据未生成时优雅跳过。
+
+投递口径(2026-10-27 用户拍板,告警降噪批次1 ★1):**邮件只发告警和真故障**,
+业务速递属业务报告 ⇒ 只发飞书 report 报告群(notify.send_feishu),不再走 smtplib
+直发管理员邮箱。文件名保留历史标识(调度/日志已引用),内容口径以本段为准。
+email.json / send_email() 保留为底层能力(尚未被本脚本调用)。
 
 数据源:static-site/data/summary_history.json(由 deploy.sh 部署流水线生成,
 含恐贪指数 / 情绪分 / 涨跌家数 / 涨停跌停 / 成效额 / 关注风险点 / 领涨领跌板块 /
@@ -1582,6 +1586,25 @@ def send_email(cfg: dict, subject: str, text_body: str, html_body: str, from_tag
         return False
 
 
+def send_report_to_feishu(subject: str, text_body: str) -> bool:
+    """业务报告改走飞书 report 群(2026-10-27 用户拍板:邮件只发告警和真故障)。
+
+    情绪速递 / 补充速递都是业务播报,不是故障 ⇒ 只进飞书报告群。
+    失败只 log 不抛(与旧 send_email 同契约:不阻塞 update_all 主流程)。
+    """
+    try:
+        import notify as _notify  # 同目录 scripts/;懒导入避免模块级硬依赖
+        ok = _notify.send_feishu(subject, text_body, chat_key="report")
+        if ok:
+            log.info("✓ 飞书报告群已发送:%s", subject)
+        else:
+            log.warning("飞书报告群未发出(配置缺失/发送失败):%s", subject)
+        return bool(ok)
+    except Exception as e:  # noqa: BLE001
+        log.error("飞书报告群发送异常(不阻塞):%s", e)
+        return False
+
+
 # ---------------------------------------------------------------- main
 def _run_main(date: str, dry_run: bool) -> int:
     """main 模式:T日盘后情绪速递(恐贪/情绪/涨跌/成交额/板块/冰点),不含期货/汪汪队/公募。"""
@@ -1608,11 +1631,8 @@ def _run_main(date: str, dry_run: bool) -> int:
         print(html_body)
         return 0
 
-    cfg = load_email_config()
-    if cfg is None:
-        return 0
-
-    send_email(cfg, subject, text_body, html_body, from_tag="情绪速递")
+    # 2026-10-27 用户拍板(告警降噪批次1 ★1):业务速递只走飞书报告群,不再发邮件。
+    send_report_to_feishu(subject, text_body)
     return 0
 
 
@@ -1650,11 +1670,8 @@ def _run_supplement(date: str, dry_run: bool) -> int:
         print(html_body)
         return 0
 
-    cfg = load_email_config()
-    if cfg is None:
-        return 0
-
-    send_email(cfg, subject, text_body, html_body, from_tag="补充速递")
+    # 2026-10-27 用户拍板(告警降噪批次1 ★1):补充速递同属业务报告,只走飞书报告群。
+    send_report_to_feishu(subject, text_body)
     return 0
 
 
