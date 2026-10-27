@@ -188,10 +188,12 @@ async function run(width, isMobile, tag) {
     const polNote = pol.length ? `  我们策略=${pol.length}条` : "  我们策略=无(fail-closed)";
     console.log(`  路由 ${r.tab}: HTTP ${http} ${r.state}${why}${landed}${cf}${polNote}`);
     // 策略原文打一次即可(排障要看「我们到底声明了什么」, 三路由 hash 导航共用同一个 document)
+    // ⚠️ 必须**全文打印不截断**(2026-10-27 #319: 线上策略 907 字, 旧版截到 400 字正好把
+    //    connect-src 白名单截掉 —— 排障最需要看的就是那一段)。这里带上字数便于对账「是否全打」。
     const sig = pol.join("\n");
     if (pol.length && !printedPolicies.has(sig)) {
       printedPolicies.add(sig);
-      for (const p of pol) console.log(`    我们文档策略: ${p.length > 400 ? `${p.slice(0,400)}…` : p}`);
+      for (const p of pol) console.log(`    我们文档策略(${p.length} 字): ${p}`);
     }
   }
   if (consoleErrors.length) console.log("  errors:", JSON.stringify([...new Set(consoleErrors.map(r => r.text))].slice(0,5)));

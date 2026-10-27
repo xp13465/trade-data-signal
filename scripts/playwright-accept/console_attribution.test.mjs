@@ -7,6 +7,8 @@
 //      E8(外来注入策略⇒INFO) · E9(拿不到我们的策略⇒fail-closed) · E10(第三方恒 INFO)
 //      + compareDirectiveToOurPolicy 三态与归一化
 //   ③ 分组计数口径 + 空 location 兜底 + 非 CSP 文本不进违规通道
+//   ④ 2026-10-27 #319: Chrome 141 的「内联脚本(单引号无冒号)」「eval(冒号后名字)」两种真实方言
+//      (原文逐字取自 /tmp/probe-csp2/out.log) —— E2/E3 用例, 断言抽出 script-src 'self' 并按策略判 ours/foreign
 // 变异判别力: 把 compareDirectiveToOurPolicy 改成恒 ours ⇒ E8 类必红; 恒 foreign ⇒ E7/E9 类必红。
 // 放同目录顶层而非 tests/ 子目录: .gitignore 只 re-include `scripts/playwright-accept/*.mjs`。
 import test from "node:test";
@@ -279,6 +281,63 @@ test("compareDirectiveToOurPolicy: 「Note that ... fallback」兜底句式 —�
     compareDirectiveToOurPolicy(fb.replace('"default-src \'self\'"', '"default-src \'none\'"'), OUR_POLICIES).relation,
     "foreign",
   );
+});
+
+// ── E2/E3(2026-10-27 #319): Chrome 141 的「内联脚本 / eval」两种真实报文方言 ──────
+// 原文逐字取自 /tmp/probe-csp2/out.log(Chromium 141 实测记录), 不许自己编。
+// 注意: 探针在 eval 报文前打了 "EVALERR " 标签, Chrome 原文从 "Evaluating" 起; 两种都测,
+// 顺带证明前缀不影响抽取。
+const INLINE_CSP_TEXT =
+  "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. " +
+  "Either the 'unsafe-inline' keyword, a hash ('sha256-3ILSSvr4jUs5/OxJwOKm6BRvFZpGvkV4VBm6c61ib7k='), " +
+  "or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.";
+const INLINE_CSP_TEXT_REPORT_ONLY =
+  INLINE_CSP_TEXT +
+  " The policy is report-only, so the violation has been logged but no further action has been taken.";
+const EVAL_CSP_TEXT =
+  "EVALERR Evaluating a string as JavaScript violates the following Content Security Policy directive because " +
+  "'unsafe-eval' is not an allowed source of script: script-src 'self'\".";
+const EVAL_CSP_TEXT_REPORT_ONLY =
+  "Evaluating a string as JavaScript violates the following Content Security Policy directive because " +
+  "'unsafe-eval' is not an allowed source of script: \"script-src 'self'\".\n" +
+  " The policy is report-only, so the violation has been logged but no further action has been taken.";
+
+// 探针 /b 路由真实响应头(script-src 'self'), 与报文里引用的 directive 逐字一致 ⇒ 应判 ours。
+const DIALECT_OUR_POLICY = "default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'";
+// 注入侧策略: 同名 directive 但值不同 ⇒ 应判 foreign(不阻断)。
+const DIALECT_FOREIGN_POLICY = "default-src 'self'; script-src 'none'; connect-src 'none'; img-src 'self'";
+
+test("E2 内联脚本方言(单引号 + 无冒号)⇒ 抽得出 script-src 'self', 不再落 unknown", () => {
+  for (const text of [INLINE_CSP_TEXT, INLINE_CSP_TEXT_REPORT_ONLY]) {
+    assert.deepEqual(extractViolatedDirective(text), { directive: "script-src", value: "'self'" }, text.slice(0, 40));
+    // 配我们真实策略 ⇒ ours(FAIL 真违规), 不再是 unknown
+    assert.equal(compareDirectiveToOurPolicy(text, [DIALECT_OUR_POLICY]).relation, "ours");
+    const ours = attributeWithPolicies(`${BASE}/`, OK_ROUTE, text, [DIALECT_OUR_POLICY]);
+    assert.equal(ours.verdict, VERDICT_FAIL);
+    assert.equal(ours.reason, "our-policy-violated");
+    // 配注入策略 ⇒ foreign(INFO 噪音), 不再假红
+    assert.equal(compareDirectiveToOurPolicy(text, [DIALECT_FOREIGN_POLICY]).relation, "foreign");
+    const foreign = attributeWithPolicies(`${BASE}/`, OK_ROUTE, text, [DIALECT_FOREIGN_POLICY]);
+    assert.equal(foreign.verdict, VERDICT_INFO);
+    assert.equal(foreign.reason, "foreign-policy(注入/挑战侧)");
+    // 拿不到我们的策略 ⇒ 仍 fail-closed(不是 unknown 放行)
+    assert.equal(attributeWithPolicies(`${BASE}/`, OK_ROUTE, text, []).reason, "our-policy-unverifiable");
+  }
+});
+
+test("E3 eval 方言(冒号后名字 + 末尾值)⇒ 抽得出 script-src 'self', 不再落 unknown", () => {
+  for (const text of [EVAL_CSP_TEXT, EVAL_CSP_TEXT_REPORT_ONLY]) {
+    assert.deepEqual(extractViolatedDirective(text), { directive: "script-src", value: "'self'" }, text.slice(0, 40));
+    assert.equal(compareDirectiveToOurPolicy(text, [DIALECT_OUR_POLICY]).relation, "ours");
+    const ours = attributeWithPolicies(`${BASE}/`, OK_ROUTE, text, [DIALECT_OUR_POLICY]);
+    assert.equal(ours.verdict, VERDICT_FAIL);
+    assert.equal(ours.reason, "our-policy-violated");
+    assert.equal(compareDirectiveToOurPolicy(text, [DIALECT_FOREIGN_POLICY]).relation, "foreign");
+    const foreign = attributeWithPolicies(`${BASE}/`, OK_ROUTE, text, [DIALECT_FOREIGN_POLICY]);
+    assert.equal(foreign.verdict, VERDICT_INFO);
+    assert.equal(foreign.reason, "foreign-policy(注入/挑战侧)");
+    assert.equal(attributeWithPolicies(`${BASE}/`, OK_ROUTE, text, []).reason, "our-policy-unverifiable");
+  }
 });
 
 test("E7 我们自己的策略被违反 ⇒ FAIL —— 不论 location 是 document 还是我们自己的脚本(app.min.js)", () => {

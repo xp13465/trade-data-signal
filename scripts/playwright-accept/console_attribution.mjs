@@ -163,6 +163,60 @@ const VIOLATED_DIRECTIVE_RES = [
   /Content Security Policy directive:\s*'([^']*)'/i,
 ];
 
+// ── Chrome 141 实测的两种方言(2026-10-27 #319, 原文见 /tmp/probe-csp2/out.log) ──
+//  ① 内联脚本: ...Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, ...
+//     单引号包裹且**没有冒号**, 而且值本身又含单引号 ⇒ 上面两条正则都抽不出(落 unknown ⇒
+//     外来注入策略被内联脚本违反时会假红)。
+//  ② eval: ...Content Security Policy directive because 'unsafe-eval' is not an allowed source of script: script-src 'self'".
+//     名字在冒号后、值在末尾、句号在外; 外层双引号「有的版本带、有的不带」(同批实测两种都有)。
+// 这两种不能靠「引号配对」抓(值里的引号会把配对抓歪), 改按 CSP 文法 tokenize:
+//   <directive-name> <source>...; 其中带引号的 source 是**封闭关键字集合**,
+//   所以单引号包裹的 `'script-src 'self''` 里, 结尾那个包裹引号不会被误吃成一个 source。
+const INLINE_DIRECTIVE_MARKER_RE = /Content Security Policy directive\s+'/i;
+const EVAL_SOURCE_MARKER_RE = /allowed source of script:\s*/i;
+const DIRECTIVE_NAME_RE = /^[A-Za-z][A-Za-z0-9-]*/;
+const QUOTED_SOURCE_RE =
+  /^'(?:self|none|unsafe-inline|unsafe-eval|unsafe-hashes|strict-dynamic|report-sample|wasm-unsafe-eval|inline-speculation-rules|sha256-[^']*|sha384-[^']*|sha512-[^']*|nonce-[^']*)'/i;
+// 裸 source: URL / 主机 / scheme / `*` 等; 遇引号、分号、逗号、空白即停
+// (逗号之后是 Chrome 的散文「Either the …」, 不能当成 source 的一部分)。
+const BARE_SOURCE_RE = /^[^\s'";,]+/;
+
+/**
+ * 从「directive 名 + source-list」片段按 CSP 文法取 token(上面两种新方言专用)。
+ * @returns {{directive:string, value:string}|null} null = 片段开头不是合法 directive 名
+ */
+function tokenizeDirective(segment) {
+  let rest = String(segment == null ? "" : segment)
+    .replace(/^\s+/, "")
+    .replace(/^["']/, ""); // eval 方言的外层双引号时有时无
+  const name = DIRECTIVE_NAME_RE.exec(rest);
+  if (!name) return null;
+  const directive = name[0].toLowerCase();
+  rest = rest.slice(name[0].length);
+  const values = [];
+  for (;;) {
+    const ws = /^\s+/.exec(rest);
+    if (ws) {
+      rest = rest.slice(ws[0].length);
+      continue;
+    }
+    if (!rest) break;
+    const quoted = QUOTED_SOURCE_RE.exec(rest);
+    if (quoted) {
+      values.push(quoted[0]);
+      rest = rest.slice(quoted[0].length);
+      continue;
+    }
+    // 包裹引号收尾 / 句子结束 / 引号外的散文: 都表示 directive 到此为止
+    if (rest[0] === "'" || rest[0] === '"' || rest[0] === "." || rest[0] === ",") break;
+    const bare = BARE_SOURCE_RE.exec(rest);
+    if (!bare) break;
+    values.push(bare[0]);
+    rest = rest.slice(bare[0].length);
+  }
+  return { directive, value: values.join(" ") };
+}
+
 /**
  * source-list 归一化(用于逐 token 比较):
  *  - 小写: CSP 关键字('self'/'none')、scheme、主机名都是 ASCII 大小写不敏感;
@@ -195,6 +249,13 @@ export function extractViolatedDirective(text) {
     const tokens = normalizeDirectiveTokens(m[1]).filter(Boolean);
     if (!tokens.length) continue;
     return { directive: tokens[0], value: tokens.slice(1).join(" ") };
+  }
+  // 新方言: 内联脚本(单引号无冒号) / eval(冒号后名字、末尾值)
+  for (const marker of [INLINE_DIRECTIVE_MARKER_RE, EVAL_SOURCE_MARKER_RE]) {
+    const m = marker.exec(s);
+    if (!m) continue;
+    const parsed = tokenizeDirective(s.slice(m.index + m[0].length));
+    if (parsed) return parsed;
   }
   return null;
 }
