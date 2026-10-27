@@ -9,7 +9,11 @@
 //   ③ 分组计数口径 + 空 location 兜底 + 非 CSP 文本不进违规通道
 //   ④ 2026-10-27 #319: Chrome 141 的「内联脚本(单引号无冒号)」「eval(冒号后名字)」两种真实方言
 //      (原文逐字取自 /tmp/probe-csp2/out.log) —— E11/E12 用例, 断言抽出 script-src 'self' 并按策略判 ours/foreign
-// 变异判别力: 把 compareDirectiveToOurPolicy 改成恒 ours ⇒ E8 类必红; 恒 foreign ⇒ E7/E9 类必红。
+//   ⑤ 2026-10-28 双同名 CSP 头: Playwright 用 "\n" 拼同名头(线上实测 1319 = 我们 907 + 换行 1 +
+//      CF Script Monitor 注入 411) —— E13 切策略/第三方判据, E14/E15 注入策略违规⇒INFO,
+//      E16 命门(真踩我们白名单⇒仍 FAIL), E17 location 空的两分支
+// 变异判别力: 把 compareDirectiveToOurPolicy 改成恒 ours ⇒ E8 类必红; 恒 foreign ⇒ E7/E9/E16 类必红;
+//   把 splitPolicies 改回不切 ⇒ E13/E14/E15/E17 必红; 让 isThirdPartyPolicy 永不判第三方 ⇒ E13/E14/E15/E17 必红。
 // 放同目录顶层而非 tests/ 子目录: .gitignore 只 re-include `scripts/playwright-accept/*.mjs`。
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -29,6 +33,8 @@ import {
   isChallengePage,
   evaluateRoute,
   extractViolatedDirective,
+  splitPolicies,
+  isThirdPartyPolicy,
   parsePolicyDirectives,
   compareDirectiveToOurPolicy,
   attributeCspMessage,
@@ -455,4 +461,119 @@ test("空 location: 我们路由正常加载 ⇒ 仍算 FAIL(不把真违规弄�
 // ── 非 CSP 文本不进违规通道 ────────────────────────────────────────────────
 test("非 CSP 文本 → INFO(不因归因改动把普通日志算成违规)", () => {
   assert.equal(attribute(`${BASE}/#/overview`, OK_ROUTE, "普通 console 日志").verdict, VERDICT_INFO);
+});
+
+// ── E14–E17(2026-10-28): 双同名 CSP 头(Playwright 用 \n 拼接)导致的 58 条假违规 ──
+// 真实失败样本(逐字取自 /tmp/main-merge-hardening.log:83, 2026-10-28 00:34 mobile 视口):
+//   头声明 1319 字 = 我们的策略 907 字 + Playwright 同名头拼接换行 1 字 + CF Script Monitor(Page Shield)
+//   注入策略 411 字。旧版 parsePolicyDirectives 只按 ";" 切, 不认 "\n"/"," 的策略分隔 ⇒ 注入策略的
+//   `connect-src 'none'` 被并进「我们」的 directive 表 ⇒ 57 条外来违规判 our-policy-violated(FAIL)。
+// 下列用例锁死修好后的口径, 同时锁死「真踩我们白名单仍 FAIL」这条红线。
+const REAL_OUR_POLICY = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://hm.baidu.com https://zz.bdstatic.com https://push.zhanzhang.baidu.com https://static.cloudflareinsights.com https://widgets.tradingview-widget.com https://s3.tradingview.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://web.ifzq.gtimg.cn https://hm.baidu.com https://push2delay.eastmoney.com https://push2.eastmoney.com https://2.push2.eastmoney.com https://10.push2.eastmoney.com https://20.push2.eastmoney.com https://proxy.finance.qq.com https://ifzq.finance.qq.com https://qt.gtimg.cn https://d.10jqka.com.cn https://open.er-api.com https://api.gold-api.com https://*.tradingview.com wss://*.tradingview.com; frame-src 'self' https://www.tradingview.com https://s.tradingview.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'";
+const REAL_DUAL_HEADER = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://hm.baidu.com https://zz.bdstatic.com https://push.zhanzhang.baidu.com https://static.cloudflareinsights.com https://widgets.tradingview-widget.com https://s3.tradingview.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://web.ifzq.gtimg.cn https://hm.baidu.com https://push2delay.eastmoney.com https://push2.eastmoney.com https://2.push2.eastmoney.com https://10.push2.eastmoney.com https://20.push2.eastmoney.com https://proxy.finance.qq.com https://ifzq.finance.qq.com https://qt.gtimg.cn https://d.10jqka.com.cn https://open.er-api.com https://api.gold-api.com https://*.tradingview.com wss://*.tradingview.com; frame-src 'self' https://www.tradingview.com https://s.tradingview.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'\nscript-src 'unsafe-inline' 'unsafe-eval'; connect-src 'none'; report-uri https://csp-reporting.cloudflare.com/cdn-cgi/script_monitor/report?m=l0kSHFO43S2WjgzETIy1ZLAgOCGyBQGzYlqAq313tj4-1793119260.8401728-1.0.1.1-QjCRsknHn5SKMcwNVJtRsxMgV9IyeeDxCF_rZX0LaehZ3.a7Q5atR8V9vqpBSjhGSQ6frOTS3FiLCCTpCBWW1_iiPcq.xHI0XiI748DWrW7iRMVav.QbMRUSWhRset6SgdCMrZffsI5s8dQw9Abo5w9M6j8GDrs1zyJ7U_np80Y; report-to cf-csp-endpoint";
+
+// 真实违规文本(逐字取自同一日志的 sample 行, 原文照抄, 不自己编).
+const REAL_TEXT_CF_CONNECT =
+  "Connecting to 'https://ss.fx8.store/data/boot.json' violates the following Content Security Policy " +
+  'directive: "connect-src \'none\'". The policy is report-only, so the violation has been logged but no ' +
+  "further action has been taken.";
+const REAL_TEXT_CF_SCRIPT =
+  "Loading the script 'https://ss.fx8.store/inline-init.js?v=20261027-a651' violates the following " +
+  'Content Security Policy directive: "script-src \'unsafe-inline\' \'unsafe-eval\'". Note that ' +
+  "'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The policy is " +
+  "report-only, so the violation has been logged but no further action has been taken.";
+// 我们自己的 connect-src 白名单原文(从真实 907 字策略里逐字取,不手工抄)
+const REAL_OUR_CONNECT_DIRECTIVE = REAL_OUR_POLICY.split(";")
+  .map((d) => d.trim())
+  .find((d) => d.startsWith("connect-src "));
+const REAL_TEXT_OURS_CONNECT =
+  "Connecting to 'https://evil.example/steal' violates the following Content Security Policy directive: " +
+  `"${REAL_OUR_CONNECT_DIRECTIVE}". The policy is report-only, so the violation has been logged but no ` +
+  "further action has been taken.";
+
+// 同名头的拼接顺序取决于响应头顺序(本机双同名头实验实测): 实测失败样本是「我们 → 注入」,
+// 但「注入 → 我们」同样可能出现, 所以两种顺序都锁(后者在旧代码上是必红的那一半, 判别力靠它)。
+const REAL_CF_POLICY = REAL_DUAL_HEADER.slice(REAL_OUR_POLICY.length + 1);
+const DUAL_ORDERS = [REAL_DUAL_HEADER, `${REAL_CF_POLICY}\n${REAL_OUR_POLICY}`];
+
+test("E14 双同名 CSP 头拼接 + 违规引用注入策略的 connect-src 'none' ⇒ INFO(不再假红)", () => {
+  for (const header of DUAL_ORDERS) {
+    for (const url of [`${BASE}/`, `${BASE}/#overview`, `${BASE}/app.min.js?v=20261027-a651`]) {
+      const r = attributeWithPolicies(url, OK_ROUTE, REAL_TEXT_CF_CONNECT, [header]);
+      assert.equal(r.verdict, VERDICT_INFO, url);
+      assert.equal(r.reason, "foreign-policy(注入/挑战侧)", url);
+    }
+  }
+});
+
+test("E15 双同名 CSP 头拼接 + 违规引用注入策略的 script-src 'unsafe-inline' 'unsafe-eval' ⇒ INFO", () => {
+  for (const header of DUAL_ORDERS) {
+    for (const url of [`${BASE}/`, `${BASE}/#overview`, `${BASE}/inline-init.js?v=20261027-a651`]) {
+      const r = attributeWithPolicies(url, OK_ROUTE, REAL_TEXT_CF_SCRIPT, [header]);
+      assert.equal(r.verdict, VERDICT_INFO, url);
+      assert.equal(r.reason, "foreign-policy(注入/挑战侧)", url);
+    }
+  }
+});
+
+test("E16 命门: 注入策略同时在场, 违规真踩我们自己的 connect-src 白名单 ⇒ 仍 FAIL", () => {
+  // 拼接头 / 只有我们那条 两种输入都必须 FAIL —— 修假红不许把闸门修瞎
+  for (const policies of [[REAL_DUAL_HEADER], [REAL_OUR_POLICY]]) {
+    const r = attributeWithPolicies(`${BASE}/app.min.js?v=20261027-a651`, OK_ROUTE, REAL_TEXT_OURS_CONNECT, policies);
+    assert.equal(r.verdict, VERDICT_FAIL);
+    assert.equal(r.reason, "our-policy-violated");
+  }
+  // location 空也不许放行(能核验出 directive 是 ours 时)
+  const noLoc = attributeWithPolicies("", OK_ROUTE, REAL_TEXT_OURS_CONNECT, [REAL_DUAL_HEADER]);
+  assert.equal(noLoc.verdict, VERDICT_FAIL);
+  assert.equal(noLoc.reason, "our-policy-violated");
+});
+
+test("E17 location 空: 命中注入策略签名 ⇒ INFO; 抽不出可核验 directive ⇒ 仍 FAIL(fail-closed)", () => {
+  for (const text of [REAL_TEXT_CF_SCRIPT, REAL_TEXT_CF_CONNECT]) {
+    const r = attributeWithPolicies("", OK_ROUTE, text, [REAL_DUAL_HEADER]);
+    assert.equal(r.verdict, VERDICT_INFO, text.slice(0, 40));
+    assert.equal(r.reason, "foreign-policy(注入/挑战侧)", text.slice(0, 40));
+  }
+  // fail-closed 红线: 抽不出可核验的 directive(无值/非 directive 文本)⇒ 仍 FAIL, 旧 reason 保留
+  for (const text of ['Content Security Policy directive: "img-src"', "Content Security Policy: 别的东西"]) {
+    const r = attributeWithPolicies("", OK_ROUTE, text, [REAL_DUAL_HEADER]);
+    assert.equal(r.verdict, VERDICT_FAIL, text);
+    assert.equal(r.reason, "unlocated-message-on-our-route", text);
+  }
+  // 挑战/未导航窗口仍 INFO(旧口径不变)
+  assert.equal(attributeWithPolicies("", CHALLENGE_ROUTE, REAL_TEXT_CF_SCRIPT, [REAL_DUAL_HEADER]).verdict, VERDICT_INFO);
+});
+
+test("E13 真实 1319 字拼接串切成 2 条策略(第一条逐字等于我们 907 字) + 第三方判据", () => {
+  // 真实样本的算术: 907(我们) + 1(拼接换行) + 411(注入) = 1319
+  assert.equal(REAL_OUR_POLICY.length, 907);
+  assert.equal(REAL_CF_POLICY.length, 411);
+  assert.equal(REAL_DUAL_HEADER.length, 1319);
+  assert.equal(REAL_DUAL_HEADER[907], "\n");
+  const parts = splitPolicies(REAL_DUAL_HEADER);
+  assert.equal(parts.length, 2);
+  assert.equal(parts[0], REAL_OUR_POLICY);
+  assert.equal(parts[1], REAL_CF_POLICY);
+  // CSP 规范: 逗号也是多策略分隔符 ⇒ 也要切
+  assert.deepEqual(splitPolicies("default-src 'self', script-src 'self'"), ["default-src 'self'", "script-src 'self'"]);
+  // 逗号出现在 directive 值里(report-uri 地址带逗号)⇒ 不许切坏(fail-safe 退回整段)
+  const withComma = "default-src 'self'; report-uri https://r.example/a,b";
+  assert.deepEqual(splitPolicies(withComma), [withComma]);
+  // 第三方正向识别: 带报告指令 + 报告目标不是本站 ⇒ 第三方
+  assert.equal(isThirdPartyPolicy(REAL_OUR_POLICY, { baseOrigin: ORIGIN }), false);
+  assert.equal(isThirdPartyPolicy(REAL_CF_POLICY, { baseOrigin: ORIGIN }), true);
+  assert.equal(isThirdPartyPolicy(REAL_CF_POLICY, {}), true); // CF Script Monitor 强签名, 不依赖 origin
+  assert.equal(isThirdPartyPolicy("default-src 'self'; connect-src 'none'", { baseOrigin: ORIGIN }), false);
+  // 报告目标恰好是本站 ⇒ 保守当「我们的」(宁可假红不假绿)
+  assert.equal(
+    isThirdPartyPolicy(`default-src 'self'; report-uri ${ORIGIN}/csp-report`, { baseOrigin: ORIGIN }),
+    false,
+  );
+  // 排除后 ours 表里不再有注入策略的 connect-src 'none' / report-uri / report-to(= 58 条误判的根因)
+  const dirs = parsePolicyDirectives([REAL_DUAL_HEADER], { baseOrigin: ORIGIN });
+  assert.equal(dirs.get("connect-src").size, 1);
+  assert.equal([...dirs.get("connect-src")][0].includes("'none'"), false);
+  assert.equal(dirs.has("report-uri"), false);
+  assert.equal(dirs.has("report-to"), false);
 });

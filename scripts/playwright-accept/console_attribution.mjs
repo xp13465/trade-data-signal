@@ -8,6 +8,10 @@
 // 没有来源 document URL ⇒ 无法归因、无法复现, 白阻了一次纯文档发版。13 次复跑全 0 违规后
 // 只能推断是临时抖动(疑为 Cloudflare 挑战页/子 frame 噪音)。所以本模块的职责是:
 //   一条 CSP 消息 + 它发生在哪次导航  ⇒  判「算我们的真违规(FAIL)」还是「别人的噪音(INFO)」。
+//
+// 2026-10-28 补: 同名响应头被 Playwright 用 "\n" 拼成一串 ⇒ 必须先把「策略」这一层切开
+// (见 splitPolicies / isThirdPartyPolicy), 否则 Cloudflare Script Monitor 注入的 report-only
+// 策略会被当成我们的, 它自己拦下的 58 条请求全报 FAIL(详见下方「策略列表切分」段的注释)。
 
 // 哨兵要走的三个路由(与改前逐字一致)。hash 路由: 真实 document 恒为站点根 /。
 export const DEFAULT_ROUTE_TABS = ["#overview", "#market/a-stock", "#lab?sub=sigkelly"];
@@ -260,21 +264,185 @@ export function extractViolatedDirective(text) {
   return null;
 }
 
+// ── 策略列表切分 + 第三方注入策略识别(2026-10-28: 治同名头拼接造成的 58 条假违规) ──
+//
+// 病(2026-10-28 00:34 实测, 证据 /tmp/main-merge-hardening.log): HTTP 允许同名响应头重复出现
+// (CSP 多策略的标准投递方式), 而 Playwright 的 response.headers() 把同名头**用 "\n" 拼成一串**
+// (本机双同名头实验实证)。旧版 parsePolicyDirectives 只按 ";" 切 directive, 不认 "\n" / ","
+// 这一层「策略」分隔 ⇒ 第二条策略(Cloudflare Script Monitor / Page Shield 注入的 report-only)的
+// directive 被并进「我们的策略」表 ⇒ 它自己拦下的请求全被判 our-policy-violated。
+// 那次样本: 头声明 1319 字 = 我们的 907 字 + 拼接换行 1 字 + 注入 411 字, 58 条 FAIL 全是误报。
+//
+// 修法: ① 先切策略(CSP 文法: 策略由 "," 分隔, directive 由 ";" 分隔), ② 正面识别第三方注入策略
+// 并排除出 ours, ③ 判定顺序把「directive 比对」提到未知 location 的 fail-closed 之前(仍保住 fail-closed)。
+
+// CSP 规范里的 directive 名(含 CSP2/CSP3 与已废弃项)。用途: 校验「逗号切出来的每段」到底是不是一条策略。
+export const KNOWN_CSP_DIRECTIVES = new Set([
+  "default-src",
+  "script-src",
+  "script-src-elem",
+  "script-src-attr",
+  "style-src",
+  "style-src-elem",
+  "style-src-attr",
+  "img-src",
+  "font-src",
+  "connect-src",
+  "media-src",
+  "object-src",
+  "frame-src",
+  "child-src",
+  "worker-src",
+  "manifest-src",
+  "prefetch-src",
+  "fenced-frame-src",
+  "navigate-to",
+  "form-action",
+  "frame-ancestors",
+  "base-uri",
+  "sandbox",
+  "report-uri",
+  "report-to",
+  "require-trusted-types-for",
+  "trusted-types",
+  "upgrade-insecure-requests",
+  "block-all-mixed-content",
+  "plugin-types",
+  "require-sri-for",
+]);
+
+function policyHasKnownDirective(segment) {
+  for (const part of String(segment == null ? "" : segment).split(";")) {
+    const tokens = normalizeDirectiveTokens(part);
+    if (tokens.length && KNOWN_CSP_DIRECTIVES.has(tokens[0])) return true;
+  }
+  return false;
+}
+
 /**
- * 把我们的 CSP 策略字符串(可多条: enforce + report-only, 见 driver)解析成 directive → 值集合。
- * 同名 directive 出现在多条 header 里时全部收进集合(任一命中即算我们的)。
+ * 把一条响应头值切成**独立策略串**列表(纯函数)。
+ *  - 先按 "\n" 切: Playwright 对同名头就是这样拼接的(实证);
+ *  - 再按 "," 切: CSP 规范的多策略分隔符。**不能无脑全局切** —— 逗号也可能出现在 directive 的
+ *    值里(如 report-uri 的 URL)。所以逗号切分必须逐段校验: 每一段都必须含一个已知 directive 名,
+ *    否则视为切错 ⇒ 该段**退回不切**(fail-safe: 宁可少切一条策略, 也不能把一条策略切坏)。
+ *  - 校验失败会打一行日志说明原因(降噪过程必须可追, 不许静默)。
+ * 注: 切成多条策略本身只会让「ours 集合」更准确(每条独立判断归属), 不会放宽 FAIL 红线。
  */
-export function parsePolicyDirectives(ourPolicies = []) {
+export function splitPolicies(raw) {
+  if (typeof raw !== "string") return [];
+  const out = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const seg = line.trim();
+    if (!seg) continue;
+    if (!policyHasKnownDirective(seg)) {
+      // 整行都认不出 directive: 原样保留交下游(绝不因认不出就当它不存在)
+      console.warn(`[console-attribution] CSP 政策片段认不出已知 directive, 原样保留: ${seg.slice(0, 80)}…`);
+      out.push(seg);
+      continue;
+    }
+    const parts = seg.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length <= 1) {
+      out.push(seg);
+      continue;
+    }
+    if (parts.every(policyHasKnownDirective)) {
+      out.push(...parts);
+      continue;
+    }
+    console.warn(`[console-attribution] CSP 头按逗号切分后有不合法策略, 退回整段不切: ${seg.slice(0, 80)}…`);
+    out.push(seg);
+  }
+  return out;
+}
+
+const REPORT_DIRECTIVE_NAMES = new Set(["report-uri", "report-to"]);
+// Cloudflare Script Monitor / Page Shield 注入策略的已知报告端点(强签名, 与本站 origin 无关也能认)
+export const THIRD_PARTY_REPORT_HOSTS = new Set(["csp-reporting.cloudflare.com"]);
+const THIRD_PARTY_REPORT_PATH_RE = /cdn-cgi\/script_monitor/i;
+
+function directiveList(policy) {
+  const list = [];
+  for (const part of String(policy == null ? "" : policy).split(";")) {
+    const tokens = normalizeDirectiveTokens(part);
+    if (!tokens.length) continue;
+    list.push({ name: tokens[0], values: tokens.slice(1) });
+  }
+  return list;
+}
+
+function hostOfValue(value) {
+  const v = String(value == null ? "" : value).trim();
+  if (!v) return "";
+  for (const candidate of [v, v.replace(/^["']|["']$/g, "")]) {
+    try {
+      return new URL(candidate).host.toLowerCase();
+    } catch {
+      // 不是绝对 URL(report-to 的端点名就是这样): 换下一种写法
+    }
+  }
+  return "";
+}
+
+/**
+ * 判断**一条** CSP 策略是不是第三方注入的(纯函数)。
+ * 判据: 含 report-uri / report-to, 且报告目标不是本站(尤其 csp-reporting.cloudflare.com /
+ * 路径 cdn-cgi/script_monitor = Cloudflare Script Monitor / Page Shield 注入)。
+ *
+ * 为什么这条判据安全: **我们自己的策略里没有任何 report-uri / report-to**(2026-10-28 已核线上
+ * content-security-policy 与 content-security-policy-report-only 两条, 只含 default/script/style/
+ * img/font/connect/frame/object/base-uri/form-action/frame-ancestors), 所以「带报告指令 +
+ * 报告目标不是本站」只可能来自边缘注入。
+ * 反向保守: 报告目标恰好是本站(host 相同)时**不算**第三方 —— 宁可假红(fail-closed)也不假绿。
+ * 这个函数只用于「把外来策略排除出 ours 集合」, 不参与任何 FAIL→INFO 的降级决策。
+ */
+export function isThirdPartyPolicy(policy, { baseOrigin = "" } = {}) {
+  if (typeof policy !== "string" || !policy.trim()) return false;
+  const reports = directiveList(policy).filter((d) => REPORT_DIRECTIVE_NAMES.has(d.name));
+  if (!reports.length) return false; // 我们从不声明报告指令 ⇒ 没有它就不可能被判成第三方
+  // ① 强签名: CF Script Monitor / Page Shield(与本机 origin 无关也能认)
+  for (const d of reports) {
+    for (const v of d.values) {
+      if (THIRD_PARTY_REPORT_PATH_RE.test(v)) return true;
+      const host = hostOfValue(v);
+      if (host && THIRD_PARTY_REPORT_HOSTS.has(host)) return true;
+    }
+  }
+  // ② report-to 的值是端点名(不是 URL、不含 host), 无从比对 host; 我们从不声明 report-to ⇒ 带它的策略是外来的
+  if (reports.some((d) => d.name === "report-to")) return true;
+  // ③ report-uri 指向的 host 不是本站 ⇒ 第三方(host 相同则保守认定为我们的, 交给 fail-closed)
+  const ourHost = hostOfValue(baseOrigin);
+  for (const d of reports) {
+    if (d.name !== "report-uri") continue;
+    for (const v of d.values) {
+      const host = hostOfValue(v);
+      if (host && ourHost && host !== ourHost) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 把我们的 CSP 策略字符串(可多条: enforce + report-only, 见 driver; 每条还可能是同名头拼接串)
+ * 解析成 directive → 值集合。
+ *  ① 每串先 splitPolicies 切成独立策略(治 2026-10-28 同名头 "\n" 拼接根因);
+ *  ② 第三方注入策略(CF Script Monitor 等)排除出 ours —— 它们不是我们声明的, 其违规不该判 FAIL;
+ *  ③ 同名 directive 出现在多条策略里时全部收进集合(任一命中即算我们的)。
+ * @param {{baseOrigin?:string}} [opts] baseOrigin 用于判断报告端点是否本站(缺省 = 只认强签名)
+ */
+export function parsePolicyDirectives(ourPolicies = [], { baseOrigin = "" } = {}) {
   const map = new Map();
   const list = Array.isArray(ourPolicies) ? ourPolicies : [];
   for (const raw of list) {
     if (typeof raw !== "string") continue;
-    for (const part of raw.split(";")) {
-      const tokens = normalizeDirectiveTokens(part);
-      const [name, ...rest] = tokens;
-      if (!name) continue;
-      if (!map.has(name)) map.set(name, new Set());
-      map.get(name).add(canonicalSourceList(rest));
+    for (const policy of splitPolicies(raw)) {
+      if (isThirdPartyPolicy(policy, { baseOrigin })) continue;
+      for (const part of policy.split(";")) {
+        const tokens = normalizeDirectiveTokens(part);
+        const [name, ...rest] = tokens;
+        if (!name) continue;
+        if (!map.has(name)) map.set(name, new Set());
+        map.get(name).add(canonicalSourceList(rest));
+      }
     }
   }
   return map;
@@ -287,12 +455,12 @@ export function parsePolicyDirectives(ourPolicies = []) {
  *   foreign = 同名 directive 存在但值不同, 或我们策略里根本没有这个 directive(不可能是我们的策略原文)
  *   unknown = 消息里抽不出 directive / 抽出来没有值 / 拿不到我们的策略(空) ⇒ 调用方 fail-closed
  */
-export function compareDirectiveToOurPolicy(text, ourPolicies = []) {
+export function compareDirectiveToOurPolicy(text, ourPolicies = [], { baseOrigin = "" } = {}) {
   const parsed = extractViolatedDirective(text);
   if (!parsed || !parsed.value) {
     return { relation: "unknown", directive: parsed ? parsed.directive : "", value: parsed ? parsed.value : "" };
   }
-  const ours = parsePolicyDirectives(ourPolicies);
+  const ours = parsePolicyDirectives(ourPolicies, { baseOrigin });
   if (!ours.size) return { relation: "unknown", directive: parsed.directive, value: parsed.value };
   const values = ours.get(parsed.directive);
   if (!values) return { relation: "foreign", directive: parsed.directive, value: parsed.value };
@@ -314,14 +482,16 @@ function routeInfo(route) {
 /**
  * 归因一条 CSP 消息(纯函数)。判定顺序即优先级:
  *   1. 不是 CSP 违规文本                → INFO(not-csp)
- *   2. 第三方 origin                    → INFO(third-party-origin, 无条件: 第三方 iframe 自带策略)
- *   3. about:/data:/blob: 继承父策略 frame → INFO(inherited-frame)
- *   4. 这次导航不可达(挑战/4xx/加载失败) → INFO(challenge-document / route-unreachable)
- *   5. 其余同源情形(我们的 document / 我们自己的静态资源如 app.min.js) → 走「策略归属比对」:
+ *   2. about:/data:/blob: 继承父策略 frame → INFO(inherited-frame)
+ *   3. 第三方 origin                    → INFO(third-party-origin, 无条件: 第三方 iframe 自带策略)
+ *   4. 同源但这次导航不可达(挑战/4xx/加载失败) → INFO(challenge-document / route-unreachable)
+ *   5. location 空/无法解析 + 这次导航不是 OK → INFO(unattributable-url)
+ *   6. 其余(我们的 document / 我们自己的静态资源如 app.min.js / location 空但我们这次导航正常)
+ *      → 走「策略归属比对」(⚠️ 2026-10-28 起这条**提前**到未知 location 的 fail-closed 之前):
  *        ours    ⇒ FAIL(our-policy-violated)
  *        foreign ⇒ INFO(foreign-policy(注入/挑战侧))
- *        unknown ⇒ FAIL(our-policy-unverifiable, fail-closed)
- *   6. location 空/无法解析              → 用「这次导航是谁」兜底(不变)
+ *        unknown ⇒ FAIL(fail-closed: 我们路由正常且 location 空 ⇒ unlocated-message-on-our-route,
+ *                   其余 ⇒ our-policy-unverifiable)
  *
  * @param {{text?:string, locationUrl?:string}} msg
  *        locationUrl = msg.location().url。**实测口径(2026-10-27)**:
@@ -351,12 +521,6 @@ export function attributeCspMessage(msg = {}, ctx = {}) {
   const r = routeInfo(route);
   const kind = documentUrlKind(docUrl, { baseOrigin });
 
-  if (kind === "unknown") {
-    if (r.state === ROUTE_OK) {
-      return { verdict: VERDICT_FAIL, docUrl: docUrl || r.url, reason: "unlocated-message-on-our-route" };
-    }
-    return { verdict: VERDICT_INFO, docUrl, reason: "unattributable-url" };
-  }
   if (kind === "inherited-frame") {
     return { verdict: VERDICT_INFO, docUrl, reason: "inherited-frame(about:/data:/blob: 无法定位父 document)" };
   }
@@ -365,21 +529,30 @@ export function attributeCspMessage(msg = {}, ctx = {}) {
     return { verdict: VERDICT_INFO, docUrl, reason: "third-party-origin" };
   }
 
-  // 到这里 = 同源(我们的 document, 或我们自己的静态资源 / 同源子页面)。
+  // 到这里 = 同源(我们的 document, 或我们自己的静态资源 / 同源子页面), 或 location 空/无法解析。
   // 若这次导航本身没校验成(挑战页 / 4xx / 加载失败), 这条违规不属于我们的策略。
-  if (r.state === ROUTE_UNREACHABLE) {
+  if (kind !== "unknown" && r.state === ROUTE_UNREACHABLE) {
     return {
       verdict: VERDICT_INFO,
       docUrl,
       reason: r.reason === "challenge" ? "challenge-document" : `route-unreachable(${r.reason})`,
     };
   }
+  // location 空/无法解析 且 这次导航不是正常加载完的: 无从归因(旧口径不变)
+  if (kind === "unknown" && r.state !== ROUTE_OK) {
+    return { verdict: VERDICT_INFO, docUrl, reason: "unattributable-url" };
+  }
 
-  // 归属靠「被违反的 directive 是不是我们文档自己的策略」——不看 location 是谁(外部脚本报的是脚本 URL)
-  const cmp = compareDirectiveToOurPolicy(text, ourPolicies);
+  // 归属靠「被违反的 directive 是不是我们文档自己的策略」——不看 location 是谁(外部脚本报的是脚本 URL)。
+  // ⚠️ 2026-10-28 判定顺序调整: 这一步必须在「未知 location ⇒ fail-closed」之前, 否则 location 空、
+  //    但文本明确引用外来注入策略(CF jsd 的 script-src 'unsafe-inline' 'unsafe-eval')的那条仍会假红。
+  const cmp = compareDirectiveToOurPolicy(text, ourPolicies, { baseOrigin });
   if (cmp.relation === "ours") return { verdict: VERDICT_FAIL, docUrl, reason: "our-policy-violated" };
   if (cmp.relation === "foreign") return { verdict: VERDICT_INFO, docUrl, reason: "foreign-policy(注入/挑战侧)" };
   // 拿不到我们的策略 / 抽不出 directive: fail-closed(保持旧版严格度, 宁可假红不假绿)
+  if (kind === "unknown") {
+    return { verdict: VERDICT_FAIL, docUrl: docUrl || r.url, reason: "unlocated-message-on-our-route" };
+  }
   return { verdict: VERDICT_FAIL, docUrl, reason: "our-policy-unverifiable" };
 }
 

@@ -22,12 +22,23 @@
 //      「跳转到别处 ⇒ 三个路由都算 OK ⇒ 静默 exit 0」的闸门变瞎路径。
 //   归类规则是纯函数, 见同目录 console_attribution.mjs;
 //   测试: node --test scripts/playwright-accept/console_attribution.test.mjs
+//
+// 2026-10-28 修根因(那次 mobile 报 58 条 FAIL, 实为误报):
+//   HTTP 允许同名 CSP 头重复投递, 而 Playwright 把同名头用 "\n" 拼成一串(本机实验实证)。
+//   线上实际声明 1319 字 = 我们 907 + 换行 1 + Cloudflare Script Monitor(Page Shield)注入的
+//   report-only 411 字; 旧版只按 ";" 切 directive, 第二条策略的 connect-src 'none' 被并进
+//   「我们的策略」表 ⇒ 57 条外来违规判 our-policy-violated + 1 条 location 空的 ⇒ 白阻发版。
+//   现在: ① 按 "\n"/"," 先切策略(collectOurPolicies) ② 带 report-uri/report-to 且报告目标不是
+//   本站 ⇒ 判第三方、排除出 ours(并打印出来) ③ 判定顺序: 策略比对先于「未知 location ⇒ fail-closed」。
+//   ⚠️ 红线不变: 真踩我们白名单 ⇒ 仍 FAIL; 拿不到策略 / 抽不出可核验 directive ⇒ 仍 fail-closed。
 import { createRequire } from "module";
 import {
   DEFAULT_ROUTE_TABS,
   baseOriginOf,
   normalizeBase,
   isCspText,
+  splitPolicies,
+  isThirdPartyPolicy,
   evaluateRoute,
   attributeCspMessage,
   attributePageError,
@@ -69,25 +80,38 @@ function safeLocation(msg) {
 const POLICY_HEADERS = ["content-security-policy", "content-security-policy-report-only"];
 
 /**
- * 取「我们文档自己的 CSP 策略原文」= 主文档响应里的策略头(enforce + report-only 两条都收;
+ * 取「我们文档自己的 CSP 策略」= 主文档响应里的策略头(enforce + report-only 两条都收;
  * 2026-10-27 13:35 那批 `connect-src 'none'` 噪声来自 report-only 侧, 少收一条就判不准)。
  * 302 链: 以**最终文档响应**为准(CSP 只对交付该 document 的响应生效); 若最终响应一个策略头都没有
  * (策略可能被边缘剥离), 再沿 redirectedFrom() 向上游找最近一层带策略的响应 —— 保守, 宁可多收。
- * 都没有 ⇒ 返回 [] ⇒ 归因侧 fail-closed 判 FAIL(绝不静默放绿)。
+ *
+ * 2026-10-28 修根因(那次 mobile 58 条假 FAIL): HTTP 允许同名头重复出现(CSP 多策略的标准投递),
+ * 而 Playwright 把同名头**用 "\n" 拼成一串** ⇒ 必须先用 splitPolicies 切成**独立策略**再谈归属;
+ * 再正面识别第三方注入策略(CF Script Monitor / Page Shield: 带 report-uri/report-to 且报告目标
+ * 不是本站)并**排除出 ours**。排除的清单一并返回 —— 降噪必须看得见, 不许静默吞掉。
+ * 都没有 ⇒ policies=[] ⇒ 归因侧 fail-closed 判 FAIL(绝不静默放绿)。
+ * @returns {Promise<{policies:string[], thirdParty:string[]}>}
  */
 async function collectOurPolicies(resp) {
-  const out = [];
   let r = resp;
   for (let hops = 0; r && hops < 10; hops++) {
     const h = r.headers() || {};
     const found = POLICY_HEADERS.map(k => (typeof h[k] === "string" ? h[k].trim() : "")).filter(Boolean);
-    if (found.length) return [...new Set(found)];
+    if (found.length) {
+      const policies = [], thirdParty = [];
+      for (const raw of found) {
+        for (const p of splitPolicies(raw)) {
+          (isThirdPartyPolicy(p, { baseOrigin: BASE_ORIGIN }) ? thirdParty : policies).push(p);
+        }
+      }
+      return { policies: [...new Set(policies)], thirdParty: [...new Set(thirdParty)] };
+    }
     let prev = null;
     try { prev = typeof r.request().redirectedFrom === "function" ? r.request().redirectedFrom() : null; } catch { prev = null; }
     if (!prev) break;
     try { r = await prev.response(); } catch { r = null; }
   }
-  return out;
+  return { policies: [], thirdParty: [] };
 }
 
 async function run(width, isMobile, tag) {
@@ -111,7 +135,7 @@ async function run(width, isMobile, tag) {
   page.on("pageerror", e => records.push({ type:"pageerror", text:String(e), docUrl:"", route:activeRoute }));
 
   for (const tab of DEFAULT_ROUTE_TABS) {
-    const route = { tab, url: BASE+"/"+tab, status:null, cfMitigated:null, title:"", gotoError:"", finalUrl:"", state:"PENDING", reason:null, ourPolicies:[] };
+    const route = { tab, url: BASE+"/"+tab, status:null, cfMitigated:null, title:"", gotoError:"", finalUrl:"", state:"PENDING", reason:null, ourPolicies:[], thirdPartyPolicies:[] };
     routes.push(route);
     activeRoute = route; // 之后到达的 console/pageerror 归到这次导航(直到下一次导航开始)
     try {
@@ -121,11 +145,15 @@ async function run(width, isMobile, tag) {
         route.status = resp.status();
         const h = resp.headers() || {};
         route.cfMitigated = Object.prototype.hasOwnProperty.call(h, "cf-mitigated") ? h["cf-mitigated"] : null;
-        route.ourPolicies = await collectOurPolicies(resp);
+        const collected = await collectOurPolicies(resp);
+        route.ourPolicies = collected.policies;
+        route.thirdPartyPolicies = collected.thirdParty;
       } else {
         // 同文档导航: 还是同一个 document ⇒ 策略沿用上一路由(不沿用会误判成「拿不到策略」fail-closed)
         const prevRoute = routes.length >= 2 ? routes[routes.length-2] : null;
         route.ourPolicies = prevRoute && Array.isArray(prevRoute.ourPolicies) ? [...prevRoute.ourPolicies] : [];
+        route.thirdPartyPolicies =
+          prevRoute && Array.isArray(prevRoute.thirdPartyPolicies) ? [...prevRoute.thirdPartyPolicies] : [];
       }
     } catch(e){
       route.gotoError = String(e).slice(0,200);
@@ -185,15 +213,19 @@ async function run(width, isMobile, tag) {
       ? `  落地=${r.finalUrl || "(读不到)"}`
       : "";
     const pol = Array.isArray(r.ourPolicies) ? r.ourPolicies : [];
+    const thirdParty = Array.isArray(r.thirdPartyPolicies) ? r.thirdPartyPolicies : [];
     const polNote = pol.length ? `  我们策略=${pol.length}条` : "  我们策略=无(fail-closed)";
-    console.log(`  路由 ${r.tab}: HTTP ${http} ${r.state}${why}${landed}${cf}${polNote}`);
+    // 被排除的外来策略必须看得见(2026-10-28: CF Script Monitor 注入的 report-only 就藏在同名头里)
+    const tpNote = thirdParty.length ? `  排除第三方注入策略=${thirdParty.length}条` : "";
+    console.log(`  路由 ${r.tab}: HTTP ${http} ${r.state}${why}${landed}${cf}${polNote}${tpNote}`);
     // 策略原文打一次即可(排障要看「我们到底声明了什么」, 三路由 hash 导航共用同一个 document)
     // ⚠️ 必须**全文打印不截断**(2026-10-27 #319: 线上策略 907 字, 旧版截到 400 字正好把
     //    connect-src 白名单截掉 —— 排障最需要看的就是那一段)。这里带上字数便于对账「是否全打」。
-    const sig = pol.join("\n");
-    if (pol.length && !printedPolicies.has(sig)) {
+    const sig = [...pol, "---", ...thirdParty].join("\n");
+    if ((pol.length || thirdParty.length) && !printedPolicies.has(sig)) {
       printedPolicies.add(sig);
       for (const p of pol) console.log(`    我们文档策略(${p.length} 字): ${p}`);
+      for (const p of thirdParty) console.log(`    第三方注入策略(排除, ${p.length} 字): ${p}`);
     }
   }
   if (consoleErrors.length) console.log("  errors:", JSON.stringify([...new Set(consoleErrors.map(r => r.text))].slice(0,5)));
