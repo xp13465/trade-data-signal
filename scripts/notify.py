@@ -1398,11 +1398,27 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
 
     if severe:
         subject = SEVERE_PREFIX + subject
+    # ── 邮件按群分流（2026-10-27 用户拍板，告警降噪批次1 ★1）──────────────────
+    # 拍板口径：**邮件只发告警和真故障**；业务报告（买卖点/盘中异动/速递/完成通知
+    # agent_done/跟单）只走飞书对应群，不再进管理员邮箱。
+    # 依据：RCA2 §1（近 7 天 391 条外发里 384 条有 email 通道 = 54.9 封/天，其中
+    #   report/follow/agent_done 192 条全是业务播报），详见 docs/ops/alert-noise-rca2-20261027.md
+    #   与 docs/ops/alert-denoise-spec-20261027.md §★1。
+    # 群变量 _grp（L1272 算出）到此处无重算/覆盖，直接复用。
+    # [状态说明] 白名单 = 防假绿保险：它是「监控自判异常、但本轮没有任何告警邮件」的
+    #   兜底可见性（#309 F2，schedule_monitor.sh），路由在 report 群但属真故障通道，
+    #   **必须保留邮件**；新增非 alert 群的真故障要么主题含 [告警]/[恢复]/[监控]（自动进
+    #   alert 群），要么加进本白名单。
+    _EMAIL_GROUPS = frozenset({"alert"})
+    _EMAIL_KEEP_PREFIXES = ("[状态说明]",)
+    _email_wanted = (_grp in _EMAIL_GROUPS
+                     or str(subject).lstrip().startswith(_EMAIL_KEEP_PREFIXES))
     # W1 台账重入守卫：分发期间 depth>0，令底层 _send_email/send_feishu/send_telegram
     # 不各自单独记账（本消息在下方按「消息级」记一条，含全渠道结果）。
     _LEDGER_LOCAL.depth = _ledger_depth() + 1
     try:
-        email_ok = _send_email(subject, body, dry_run=dry_run, from_prefix=from_prefix) if not feishu_only else False
+        email_ok = (_send_email(subject, body, dry_run=dry_run, from_prefix=from_prefix)
+                    if (not feishu_only and _email_wanted) else False)
         tg_ok = send_telegram(subject, body, dry_run=dry_run) if not feishu_only else False
         fs_ok = send_feishu(subject, body, chat_key=feishu_group, dry_run=dry_run,
                             severe=severe, from_prefix=from_prefix,

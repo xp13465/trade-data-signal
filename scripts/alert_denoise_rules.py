@@ -1076,9 +1076,15 @@ def domain_of(key, subject) -> str | None:
             or "r2_pipeline" in _k or _k.startswith("deploy_")
             or _k.startswith("update_all_severe")):
         return "r2_deploy"
+    # 「R2 脱节 / 异源覆盖」= verify-r2 兜底的两个 key（subject 哈希，无显式 --dedup-key）:
+    #   `[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)`
+    #   `[告警] R2 可能被异源覆盖(verify-r2 大量不一致)`
+    # 7 天台账 17 条同域重复直发（RCA2 §2），补域映射后按 2h 静默窗聚合（首报仍直发）。
+    # ⚠️ 禁写裸 `"R2 "`：会把「R2 上传」以外的无关主题一起吸进本域。
     if ("R2 上传" in _s or "R2上传" in _s or "ssd.fx8.store" in _s or "双树" in _s
             or "三站一致性" in _s or "锁跳过" in _s or "计划任务异常" in _s
-            or "统一deploy" in _s or "数据产物校验失败" in _s):
+            or "统一deploy" in _s or "数据产物校验失败" in _s
+            or "R2 脱节" in _s or "R2脱节" in _s or "异源覆盖" in _s):
         return "r2_deploy"
     if any(int(_m) != 0 for _m in DOMAIN_R2_RC_RE.findall(_sl)):
         return "r2_deploy"

@@ -359,8 +359,11 @@ def test_02f_report_group_business_signals_untouched(_iso, monkeypatch):
     for _i in range(3):
         r = notify.send("R2上传异步锁跳过 10-15 17:2%d" % _i, "b", severe=False,
                         ledger_key="r2_upload_async_skip:/tmp/x.lock")
-        _chk(r.get("email") is True and not r.get("digested"),
-             f"report 群消息应照发, 得 {r}")
+        # 2026-10-27 ★1 用户拍板：邮件只发告警和真故障 ⇒ report 群**不发邮件**，
+        # 但必须仍「照发」到飞书报告群且不被域 gate 并进告警摘要（本条判别力不变）。
+        _chk(r.get("email") is False and r.get("feishu") is True
+             and not r.get("digested"),
+             f"report 群消息应照发(飞书)/不发邮件/不并入摘要, 得 {r}")
     _chk(_domain_state(_iso["alerts"]) == {}, "report 群消息不得写域状态")
     _chk(_digest_rows(_iso["alerts"]) == [], "report 群消息不得进告警摘要")
 
@@ -611,7 +614,9 @@ def test_03h_notice_gate_skips_report_group(_iso, monkeypatch):
     # 无方括号告警标记 ⇒ _resolve_feishu_chat_key 判为 report 群(业务订阅流)
     r = notify.send("R2上传异步锁跳过 10-15 17:25", "b", severe=False,
                     ledger_key="r2_upload_async_skip:/tmp/x.lock")
-    _chk(r.get("email") is True and not r.get("digested"), f"report 群必须照发, 得 {r}")
+    # 2026-10-27 ★1：report 群不发邮件（业务报告只走飞书），但仍须照发飞书、不进告警摘要。
+    _chk(r.get("email") is False and r.get("feishu") is True and not r.get("digested"),
+         f"report 群必须照发(飞书)/不发邮件, 得 {r}")
     _chk(_digest_rows(_iso["alerts"]) == [], "report 群消息不得进告警摘要")
 
 
