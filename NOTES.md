@@ -8478,6 +8478,73 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 - 周日休市无intraday撞车，push feat备份+main一步到位
 - **教训**：body 加 overflow-x:hidden 会破坏全站 sticky（CSS sticky 相对最近滚动祖先），改 sticky 失效先查祖级 overflow；html overflow-x:hidden 安全（视口层）
 
+## §48 小节BE：2026-10-27 pf-score D1 同步恢复 + console 哨兵 CF 挑战误判修复 + 期货角标阈值 21:20
+
+> 一天三条主线：数据层止血（D1 残缺 2 天）、发版门禁误报根治、字段时点对齐。三个 commit 全部 CI 绿、线上已验证。
+
+### 一、pf-score D1 同步恢复（main `1e50db109`, CI #945 success）
+
+**根因（两层）**
+1. **表层**：云上 `sync_fund_score_to_d1.sh` / `sync_fund_screener_to_d1.sh` 靠 wrangler **OAuth 登录态**认证，该态于 2026-10-25T11:27:30Z 过期；同类故障 2026-10-01~10-22 已连挂 39 次（D1 `fund_score` 静默停更 20 天）。
+2. **深层**：旧同步是**多文件分批导入**，`DELETE` 与 `INSERT` 分处不同文件/事务 ⇒ 中途被掐断会留下"旧数据删光、新数据没进"的半成品表；legacy 模式单表实测 2220~2640s，远超 unit 原 600s 墙。
+
+**修复**
+- **凭据层（零代码改动）**：云上 `/home/ubuntu/code/trade-data/.env` 补 `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`；unit 早有 `EnvironmentFile=`，wrangler 天生认这个变量 ⇒ **脚本一行未改即通**。实测 `wrangler 凭据有效`。
+- **脚本层**：`feat/pfscore-d1-single-import-20261026`（7 commit）改「一表一文件一次导入」——`schema → DELETE → 字节封顶(60000) INSERT → meta` 全在一个文件、服务端一文件一事务 ⇒ 失败整包回滚，DELETE 不留中间态。生产实测（2026-10-27 早）三步判别法确认真原子回滚。
+
+**上线动作与证据**
+1. 云上 git 仓库 pull 到 `1e50db109`；`trade-data/scripts/*` 与 git 树 md5 逐位一致（硬链接跟得上）。
+2. 拆 stopgap：**只删** `stopgap-20261026.conf`（先备份至 `/home/ubuntu/backup-stopgap-20261026/`，md5 `efc030fc…` 比对一致），**保留** `timeout-1800.conf`（30min 墙）。⚠️ stopgap 注释里的"恢复命令"写的是 `rm -rf .../service.d`（整目录），会连带删掉 1800s 墙 ⇒ 必须只删单文件。
+3. 拆后核对：`ExecStart=/home/ubuntu/code/trade-data/scripts/pf_score_daily.sh`、`TimeoutStartUSec=30min`、`User=ubuntu`。
+4. `DRY_RUN=1` 演练：`mode=single rows=28328 cols=80 files=1 total_bytes=25,173,822 max_stmt_bytes=59999 oversize_single_row_stmts=0`——与锚点逐项吻合。
+5. 手动 `systemctl start`：全链 **2 分钟**跑通，`compute=0 export=0 upload=0`，两表均 `同步成功且校验一致`。
+
+**验收（连生产库直查，不采信脚本自述）**
+- `fund_screener`：**2000 → 28328 行**（铁证）。
+- `fund_score`：3520 → **2000 行**。**不是丢数据**：合并前旧版脚本同样是 `DELETE FROM fund_score;` 整表替换（`git show 0eda23329:` 已核），3520 是旧版遗留的混合态；本地库同日评分宇宙即 2000 只。
+- `/api/fund_screener`、`/api/fund_score` 均 401（登录鉴权正常，非无数据）。
+
+### 二、console 洁净度哨兵被 Cloudflare 挑战误判（main `044abe1a1`, CI #946 success）
+
+**现象**：`main-merge.sh` 7.7 步 exit 1 阻断发版（`#market/a-stock` 报 CSP 违规）。
+
+**关键反转（差点修错地方）**：一开始以为是我方 CSP 白名单缺项。实测推翻了：
+- 线上**只有一个** CSP 头，且是 `Content-Security-Policy-Report-Only`（只报告不阻断），其 `connect-src` 里**没有任何** `challenges.cloudflare.com`；
+- Playwright 抓到的违规消息里那个含 `hagen/brunhild.challenges.cloudflare.com` 的 CSP，是 **Cloudflare 挑战页自带的**；
+- 同一时刻 `curl` 访问站点 **200**（真实用户正常）。
+
+**根因**：Playwright 默认 UA 含 `HeadlessChrome` 字样 → 被 CF 判定机器人 → 踢到挑战页 → 挑战页自身 `fetch('data:,')` 被它自己的 CSP 拦 → 哨兵误报。
+
+**实测对照（判据）**：默认 UA = CSP 违规 4 条 / 挑战请求 13 次；真实 Chrome UA = CSP 违规 **0** 条 / 挑战 3 次。
+
+**修复**：`accept_console_clean.mjs` 加 `SENTINEL_UA` 常量（env 可覆盖）+ `newContext({ userAgent })`，仅 1 文件 +7/−1。
+
+**审查结论 PASS（判别力是关键）**：把 `SENTINEL_UA` 打回 `HeadlessChrome` 立刻复现 CSP=8 / exit=1 ⇒ 证明是真绕过挑战，不是把检查弄瞎；默认 UA 三次 exit=0。另补两条不依赖 CF 的确定性锚点：本地违规页 exit=1、不可达地址 exit=2。
+**这次合并未用逃生门**——哨兵拿自己的修复验自己，自然放行，等于端到端验过。
+
+**遗留待办（reviewer 提，未修）**
+- 硬编码 `Chrome/141.0.0.0`，实际引擎 151，越拉越远；建议从 `browser.version()` 取主版本。
+- 哨兵不识别"这页是 CF 挑战页"，CF 策略再变仍会误阻断；建议判 `UNREACHABLE`(exit 2)。
+- `page.goto` **不校验 HTTP 状态码**（pre-existing）：若 CF 换成不带 CSP 违规的拦截页，会 **exit 0 假 PASS**。
+- `scripts/playwright-accept/README.md` 未记 `SENTINEL_UA` 开关。
+
+### 三、期货角标「最晚可得时刻」21:00 → 21:20（`0c6a75529`）
+
+云上 timer 实际是 `19:45` + `21:20(兜底)` 两轮；阈值取"兜底时点"，与 lhb(19:30)/etf(21:30) 惯例一致。影响面经 reviewer 核实为 4 个消费点（`_t1Relax` / `_pastCollectDeadline` / `getCardTimeBadge` / `_buildHealthSources`），盘中路径 `is_closed===false` 上限 930min，远小于 1280min ⇒ 盘中零变化。上线后线上 `app.min.js` 含 `futures_date:"21:20"`，版本串 `20261027-a651` 本地线上逐字一致。
+两处"只报不改"经判定接受：`:11903` 纯注释；`:12620`「次日20:00后更新」说的是 CFFEX **源端发布时点**，与本站 21:20 采集不矛盾。
+
+### 四、Cloudflare 凭据落位（索引见 `docs/ops/cloudflare-credentials-index.md`）
+
+两账号 + 两把 API Token 已建档：A(`9be954e8…`=数据桶/D1)、B(`24553524…`=备份桶)。均 `expires_on=None`（永不过期）、**均只有 D1 权限、无 R2 权限**（R2 走 `R2_S3_*` S3 密钥，不依赖 token）。云上 `.env` 值带 `_BACKUP2` 后缀防 wrangler 误用；本机存 macOS 钥匙串。**三套凭据互不相通**：API Token / R2 S3 密钥 / wrangler OAuth 登录态（会过期＝本次事故根因）。
+
+### 五、本次踩过的坑（防重犯）
+
+1. **差点给 CSP 乱加白名单**：违规消息里的 CSP 未必是我们的——先核"线上实际返回的头"，再核"消息里的值是否与线上一致"；不一致 ⇒ 大概率是第三方页面自带的。
+2. **`Report-Only` ≠ 拦截**：只报告不阻断的失败不该等同真故障。
+3. **`curl` 200 但 Playwright 被挑战**：UA 指纹是新型故障维度，和 IP/网络无关（IPv4/IPv6 都 200 已实测排除）。
+4. **`| tail -N` 会缓冲**：后台跑 main-merge 时输出文件长时间 0 字节，别误判卡死。
+5. **rebase 前先清占分支的遗留 worktree**：本次清理 6 个（全部干净、commit 均可从分支取回），否则 `fatal: already checked out` 会逼人 cherry-pick 造成分支漂移。
+
 ## 2026-10 月报(体量 + 成本;数据源 docs/ops/governance-budget-history.json)
 - 体量(截至 10-18,rev fabe7c38):CLAUDE.md 66,377B / MEMORY.md 26,026B / 台账归档 70,628B / skills 合计 113,869B;本季条款净增 +6(≤3) 超预算 ⇒ 触发动作见 docs/ops/clause-retirement-checklist.md。
 - 花费:deepseek 官方 ¥__ / 火山方舟 ¥__ / 各代理 ¥__;规范维护时长 __h(§5.2④;待 §19 月度归并填写)。
