@@ -297,7 +297,7 @@ key = history_overwrite:index_daily:{run_date}:{source}:{large|mid|small}
 2. **10-14 之前到底有没有 4.3 万行/天，无法直接证实**（表不存在）。按代码推算应同样存在（比较器与采集路径都没变），但这是推断不是实测。
 3. **`csi_000102` 的下游影响未展开**：只证实了盘中占位行是错标的；没有追查「这个错值有没有进入 signal_daily / trades / 前端展示的具体时段」。需要单独立项核实。
 4. **没有做外部数据源交叉验证**：`csi_000330`/`csi_000102` 的"哪边对"是靠①配置定义 ②点位量级 ③前后收盘自洽 三条内部证据判定的，未拉第三方行情源比对（云上只读、禁止跑采集脚本）。
-5. **`_SIGNAL_UNIVERSE_TENCENT_MAP` 48 条已全量核对**（与 `indicators.yaml` id→symbol 逐条比），真错只有 `csi_000102` 1 条；3 条港股 id 不在 indicators.yaml，未纳入比对。
+5. **`_SIGNAL_UNIVERSE_TENCENT_MAP` 48 条已全量核对**（与 `indicators.yaml` id→symbol 逐条比），真错只有 `csi_000102` 1 条；3 条港股 id 在 indicators.yaml（`hk_cesg10` L155 / `hk_hsmpi` L158 / `hk_hscci` L161），此前漏纳入比对。
 6. **本报告未提交**（按任务书要求，主控后续派机械 agent 提交）。
 
 ---

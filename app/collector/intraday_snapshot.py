@@ -1386,17 +1386,19 @@ def _backfill_concept_daily(concepts: list[dict]) -> int:
 # UPSERT 写 index_daily 当日行（与 _backfill_index_daily 同模式，写真实 OHLC）
 # → 9/7 affected 重导逻辑（index_daily 当日行 ∩ 历史信号宇宙）自动覆盖
 # → upload-index 传 R2 → 前端当日点。
-# 映射实测 2026-09-11（逐码请求 qt.gtimg.cn 验证）：48/103 可补；
+# 映射实测 2026-09-11（逐码请求 qt.gtimg.cn 验证）：本表 48 条可补，
+# 其余信号宇宙内指数腾讯无实时码；
 # 规则：csi_000xxx→sh、csi_399xxx→sz、csi_000330(深证100)→sz399330、
 # csi_000673(创业板50)→sz399673、csi_000102(创业板综)→sz399102、gz_399xxx→sz、
 # hk 3 个 r_hk 前缀、sz_div→sz399324、csi_div(中证红利)→sh000922、csi_970070→sz970070。
 # ⚠ 例外表(不走机械规则的条目)是唯一正确性来源：`csi_000102` 就是「机械规则按
 #   csi_000xxx→sh 套成 sh000102=沪投资品」而漏进例外表,导致每交易日盘中该指数
-#   当日点位/涨跌幅错成另一个标的(6562 vs 3354,差 ~96%),要到 17:50 采集/21:00
-#   回填才纠回。**新增/改动本表任一映射必须逐条对照 config/indicators.yaml 的
+#   当日点位/涨跌幅错成另一个标的(6562 vs 3354,差 ~96%),要到**次日** 17:50 采集才
+#   纠回(21:00/02:00 缺口补采是缺口驱动、跳过已有当日行,不会覆盖)。
+#   **新增/改动本表任一映射必须逐条对照 config/indicators.yaml 的
 #   id→symbol(scripts/tests/test_288_history_audit_nan_index_map_20261028.py 已把
 #   48 条做成「配置驱动」全量断言,别再靠人眼抽查)。**
-# 跳过 55 个：930/931/932/H 系列腾讯无码（r_hkCSHKLRE/r_hkCSHKLC 亦无码），
+# 未纳入本表的：930/931/932/H 系列腾讯无码（r_hkCSHKLRE/r_hkCSHKLC 亦无码），
 # 外盘(us_*/cac40/dax/ftse100/kospi/nikkei225)按 global 源口径不强行补，
 # 商品/汇率(g.*)/情绪(s.*)非指数不补，cgb_10y_future 实时源不支持。
 # 风险容错：单批失败不阻断主链路（try/except 跳过继续）；非交易日闸门不采。
