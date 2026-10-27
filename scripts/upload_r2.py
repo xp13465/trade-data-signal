@@ -539,9 +539,9 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
       canonical query 按名升序, 未排序 403(#126); 签名与实际请求 URI 都用规范化后的 query, 保证一致。
     extra_headers(2026-10-03 export-guard L5): 自定义附加请求头(如 COPY 的 x-amz-copy-source),
       随 headers 一起进 SigV4 签名与 signed-headers; 用于需自定义头的 S3 操作。
-      ⚠️ 现状无调用方使用: #237(2026-10-10)后覆盖前备份改客户端中转(GET+PUT), 服务端 COPY
-      (x-amz-copy-source)已从 L5 移除(跨账号 COPY 在 R2 恒 404, 见 _backup_overwritten_keys docstring);
-      参数保留为通用能力, 不删(避免动公共签名)。
+      #237(2026-10-10)后覆盖前备份改客户端中转(GET+PUT), L5 不再用本参数(跨账号 COPY 在 R2 恒 404,
+      见 _backup_overwritten_keys docstring); 2026-10-27 起**同桶同账号**的周备份复制复用本参数
+      (_maybe_upload_weekly_file), 是本参数唯一活的调用方。
     progress_label(2026-10-05 #180): 非 None 且 payload>=_PROGRESS_PUT_MIN 时用 _ProgressBody 作请求体 +
       显式带 Content-Length(否则 http.client 退化 chunked 致 SigV4 失配), 上传中按字节打进度行,
       消掉「大文件单 PUT 全程零日志 → 看门狗停滞判据误杀」回归(治 data-large 死循环复发)。
@@ -3031,7 +3031,15 @@ def _maybe_upload_monthly(name, payload, today_str, bucket=None):
 
 
 def _maybe_upload_weekly_file(name, path, today_str, bucket=None):
-    """同 _maybe_upload_weekly, 但分片流式上传本地 .gz 文件(大库用, 不整文件进内存)。"""
+    """同 _maybe_upload_weekly, 但分片流式上传本地 .gz 文件(大库用, 不整文件进内存)。
+
+    [2026-10-27] 周副本改**同桶服务端复制**(S3 CopyObject: PUT + x-amz-copy-source):
+      源 = 当日日备份 key `backup/<name>_<today>.db.gz`(调用方刚上传完), 目标 = `weekly/...`,
+      两者**同桶同账号**(均由 _route_bucket 按 BACKUP_BUCKET=signal-backup2 选同一套端点/凭据)。
+      动机: 原实现把同一个 790MB .gz 再跨境 PUT 一遍, 白占全局上传锁 ~28 分钟(实测跨境 500-580KB/s)。
+    **失败一律回退原 PUT 上传路径**(异常 / 非 200 / 200 带 <Error> 体): 备份是最后一道保险,
+      宁可多走一次跨境, 也不能因复制失败丢备份。回退路径与改动前逐字一致(_upload_file_to_key)。
+    """
     import datetime as _dt
     bkt = bucket or BACKUP_BUCKET
     today = _dt.datetime.strptime(today_str, "%Y%m%d").date()
@@ -3042,6 +3050,22 @@ def _maybe_upload_weekly_file(name, path, today_str, bucket=None):
             print(f"  周备份: 本周已有 {latest[1]}, 跳过")
             return False
     key = f"weekly/{name}_{today_str}.db.gz"
+    src_key = f"backup/{name}_{today_str}.db.gz"
+    copy_err = ""
+    try:
+        # R2 要求 copy-source 带前导 `/`(官方 changelog); key 按 SigV4 规范 URL 编码(保留 `/`)。
+        status, data = s3_request(
+            "PUT", key, bucket=bkt, content_type="application/gzip",
+            extra_headers={"x-amz-copy-source": f"/{bkt}/{quote(src_key, safe='/')}"},
+        )
+        # S3/R2 语义: 复制在响应流开始后才失败时仍返回 200 + <Error> 体 ⇒ 不能只看状态码。
+        if status == 200 and b"<Error>" not in data:
+            print(f"  ✓ 周备份副本(同桶服务端复制) -> {bkt}/{key} (本周首次)")
+            return True
+        copy_err = f"status={status} {data.decode('utf-8', errors='replace')[:200]}"
+    except Exception as e:  # noqa: BLE001 — 任何异常(权限/限流/网络/超时)都回退, 备份不可丢
+        copy_err = f"{type(e).__name__}: {e}"
+    print(f"  ⚠ 周备份服务端复制失败({copy_err}), 回退 PUT 上传 -> {bkt}/{key}")
     status, data = _upload_file_to_key(key, path, "application/gzip", bucket=bkt)
     if status == 200:
         print(f"  ✓ 周备份副本 -> {bkt}/{key} (本周首次)")
@@ -3264,7 +3288,8 @@ def cmd_upload_db():
 
     上传前 gzip 压缩（实测 sentiment.db 82MB->24MB,29%），R2 key 带 .gz 后缀。
     本地 .db 备份不变（backup_db.sh 仍存 .db，方便直接恢复），仅 R2 侧压缩。
-    周月副本复用日备份已压缩的 payload(同 gz 内容,不同 prefix),不额外压缩。
+    周月副本复用日备份已压缩的 payload(同 gz 内容,不同 prefix),不额外压缩;
+    public_fund 的周副本(2026-10-27 起)改为同桶服务端复制(源=当日 backup/ key),不再重传 790MB。
 
     上传到 BACKUP_BUCKET(signal-backup2 独立账号私有桶,不绑公开域名,#178);
     _prune_r2_backup 分层清 signal-backup2(backup/14 + weekly/28 + monthly/365,
