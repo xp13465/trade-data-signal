@@ -12,12 +12,16 @@
   ③ 复制抛异常 ⇒ 回退 PUT(参数与改动前逐字一致),打「回退 PUT 上传」日志,返回回退结果;
   ④ 复制返回非 200 ⇒ 同上回退;
   ⑤ 复制返回 200 但 body 是 <Error>(S3/R2「响应开始后才失败」语义)⇒ 同上回退;
+     成功判据是**正向断言**(200 且 body 含 <CopyObjectResult 且不含 <Error>): 200+空体 / 200+非 XML
+     也一律判失败回退(否则「对象没建」会被误判成成功 —— reviewer ★3 口子);
   ⑥ 复制失败 + 回退也失败 ⇒ 返回 False 并打「周备份上传失败」(告警行保留);
   ⑦ 范围锁:源码形状守卫「copy 只在 file 版周/月副本函数里, 且互不越界(周函数无 monthly key,
      月函数无 weekly key)」;内存版 payload 入口仍走原 s3_request PUT(本次不改);
   ⑧ 零外发交叉证据: ZeroOutboundTrap 武装下跑复制路径,hits 必须为空。
   ⑨ 月副本(2026-10-27 追加, 与周副本逐字同构): 本月首次复制成功 / 本月已有零请求 /
-     异常回退 / 非 200 或 200+<Error> 回退 / 复制与回退都失败 / 零外发。
+     异常回退 / 非 200 或 200+<Error> 或 200+空体/非 XML 回退 / 复制与回退都失败 / 零外发;
+  ⑩ 成功判据正向断言: 200 + 空体 / 200 + 非 XML 均判失败回退(周+月各 2 参数);
+     200 + <CopyObjectResult ...>(带 xmlns)判成功不回退(周+月各一条)。
 """
 from __future__ import annotations
 
@@ -139,6 +143,8 @@ def test_fallback_to_put_on_exception(env, monkeypatch, capsys):
     (404, b"<Error><Code>NoSuchKey</Code></Error>"),
     (500, b"<Error><Code>InternalError</Code></Error>"),
     (200, b"<Error><Code>InternalError</Code></Error>"),   # S3 语义: 200 + Error 体 = 失败
+    (200, b""),      # 200 + 空体: 对象其实没建 ⇒ 必须判失败(成功判据改正向断言后堵住)
+    (200, b"ok"),    # 200 + 非 XML 内容: 同上
 ])
 def test_fallback_on_failed_copy_result(env, monkeypatch, capsys, result):
     _latest(monkeypatch, ("20261020", PREV_WEEK_KEY))
@@ -253,6 +259,8 @@ def test_monthly_fallback_to_put_on_exception(env, monkeypatch, capsys):
     (404, b"<Error><Code>NoSuchKey</Code></Error>"),
     (500, b"<Error><Code>InternalError</Code></Error>"),
     (200, b"<Error><Code>InternalError</Code></Error>"),   # 200 + Error 体 = 失败
+    (200, b""),      # 200 + 空体 ⇒ 必须判失败(同周副本)
+    (200, b"ok"),    # 200 + 非 XML 内容 ⇒ 同上
 ])
 def test_monthly_fallback_on_failed_copy_result(env, monkeypatch, capsys, result):
     _latest(monkeypatch, ("20260930", PREV_MONTH_KEY))
@@ -284,6 +292,17 @@ def test_monthly_copy_and_fallback_both_fail(env, monkeypatch, capsys):
     assert "月备份上传失败 status=503" in out, "分项失败告警行必须保留"
 
 
+def test_monthly_copy_success_body_copy_object_result(env, monkeypatch, capsys):
+    """月副本: 200 + <CopyObjectResult ...>(带 xmlns)⇒ 判成功, 不触发回退 PUT。"""
+    _latest(monkeypatch, ("20260930", PREV_MONTH_KEY))
+    monkeypatch.setattr(ur, "s3_request", FakeS3(result=(200, COPY_OK_BODY)))
+
+    assert ur._maybe_upload_monthly_file("public_fund", env["gz"], TODAY) is True
+    assert env["uploads"] == [], "成功体命中时不得回退 PUT"
+    out = capsys.readouterr().out
+    assert "月备份副本(同桶服务端复制)" in out and "回退" not in out
+
+
 def test_monthly_copy_path_zero_outbound(env, monkeypatch):
     _latest(monkeypatch, ("20260930", PREV_MONTH_KEY))
     monkeypatch.setattr(ur, "s3_request", FakeS3())
@@ -299,6 +318,26 @@ def test_copy_path_zero_outbound(env, monkeypatch):
     with ZeroOutboundTrap() as trap:
         assert ur._maybe_upload_weekly_file("public_fund", env["gz"], TODAY) is True
         assert trap.hits == [], f"零外发被破坏: {trap.hits}"
+
+
+# ── 成功判据正向断言(R2 真实成功体形态, 含 xmlns 属性) ────────────────────
+COPY_OK_BODY = (
+    b'<?xml version="1.0" encoding="UTF-8"?>\n'
+    b'<CopyObjectResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+    b'<ETag>"d41d8cd98f00b204e9800998ecf8427e"</ETag>'
+    b"<LastModified>2026-10-27T12:34:56.000Z</LastModified></CopyObjectResult>"
+)
+
+
+def test_copy_success_body_copy_object_result(env, monkeypatch, capsys):
+    """周副本: 200 + <CopyObjectResult ...>(带 xmlns)⇒ 判成功, 不触发回退 PUT。"""
+    _latest(monkeypatch, ("20261020", PREV_WEEK_KEY))
+    monkeypatch.setattr(ur, "s3_request", FakeS3(result=(200, COPY_OK_BODY)))
+
+    assert ur._maybe_upload_weekly_file("public_fund", env["gz"], TODAY) is True
+    assert env["uploads"] == [], "成功体命中时不得回退 PUT"
+    out = capsys.readouterr().out
+    assert "周备份副本(同桶服务端复制)" in out and "回退" not in out
 
 
 if __name__ == "__main__":

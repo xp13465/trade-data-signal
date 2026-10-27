@@ -3037,8 +3037,10 @@ def _maybe_upload_weekly_file(name, path, today_str, bucket=None):
       源 = 当日日备份 key `backup/<name>_<today>.db.gz`(调用方刚上传完), 目标 = `weekly/...`,
       两者**同桶同账号**(均由 _route_bucket 按 BACKUP_BUCKET=signal-backup2 选同一套端点/凭据)。
       动机: 原实现把同一个 790MB .gz 再跨境 PUT 一遍, 白占全局上传锁 ~28 分钟(实测跨境 500-580KB/s)。
-    **失败一律回退原 PUT 上传路径**(异常 / 非 200 / 200 带 <Error> 体): 备份是最后一道保险,
+    **失败一律回退原 PUT 上传路径**(异常 / 非 200 / 200 但响应体不带 <CopyObjectResult): 备份是最后一道保险,
       宁可多走一次跨境, 也不能因复制失败丢备份。回退路径与改动前逐字一致(_upload_file_to_key)。
+    ⚠ 维护耦合: 复制路径隐含假设「源 = 同桶内 `backup/<name>_<today>.db.gz`」。若日后日常备份改桶或改前缀,
+      复制会恒 404 并静默回退 PUT(安全, 但白跑一次跨境), 届时须同步改此处的 src_key。
     """
     import datetime as _dt
     bkt = bucket or BACKUP_BUCKET
@@ -3058,8 +3060,10 @@ def _maybe_upload_weekly_file(name, path, today_str, bucket=None):
             "PUT", key, bucket=bkt, content_type="application/gzip",
             extra_headers={"x-amz-copy-source": f"/{bkt}/{quote(src_key, safe='/')}"},
         )
-        # S3/R2 语义: 复制在响应流开始后才失败时仍返回 200 + <Error> 体 ⇒ 不能只看状态码。
-        if status == 200 and b"<Error>" not in data:
+        # 正向断言: CopyObject 成功体必含 <CopyObjectResult(可带 xmlns 属性, 不影响子串匹配)。
+        # 反向补充: 复制在响应流开始后才失败时仍返回 200 + <Error> 体 ⇒ 不能只看状态码;
+        #           而 200 + 空体/非 XML 体(对象其实没建)也不得判成功 ⇒ 必须正向命中才算成功。
+        if status == 200 and b"<CopyObjectResult" in data and b"<Error>" not in data:
             print(f"  ✓ 周备份副本(同桶服务端复制) -> {bkt}/{key} (本周首次)")
             return True
         copy_err = f"status={status} {data.decode('utf-8', errors='replace')[:200]}"
@@ -3081,8 +3085,10 @@ def _maybe_upload_monthly_file(name, path, today_str, bucket=None):
       源 = 当日日备份 key `backup/<name>_<today>.db.gz`(调用方刚上传完), 目标 = `monthly/...`,
       两者**同桶同账号**(均由 _route_bucket 按 BACKUP_BUCKET=signal-backup2 选同一套端点/凭据)。
       动机同周副本: 原实现把同一个 790MB .gz 再跨境 PUT 一遍(每月一次, 白占全局上传锁 ~28 分钟)。
-    **失败一律回退原 PUT 上传路径**(异常 / 非 200 / 200 带 <Error> 体): 备份是最后一道保险,
+    **失败一律回退原 PUT 上传路径**(异常 / 非 200 / 200 但响应体不带 <CopyObjectResult): 备份是最后一道保险,
       宁可多走一次跨境, 也不能因复制失败丢备份。回退路径与改动前逐字一致(_upload_file_to_key)。
+    ⚠ 维护耦合: 复制路径隐含假设「源 = 同桶内 `backup/<name>_<today>.db.gz`」。若日后日常备份改桶或改前缀,
+      复制会恒 404 并静默回退 PUT(安全, 但白跑一次跨境), 届时须同步改此处的 src_key。
     """
     import datetime as _dt
     bkt = bucket or BACKUP_BUCKET
@@ -3102,8 +3108,10 @@ def _maybe_upload_monthly_file(name, path, today_str, bucket=None):
             "PUT", key, bucket=bkt, content_type="application/gzip",
             extra_headers={"x-amz-copy-source": f"/{bkt}/{quote(src_key, safe='/')}"},
         )
-        # S3/R2 语义: 复制在响应流开始后才失败时仍返回 200 + <Error> 体 ⇒ 不能只看状态码。
-        if status == 200 and b"<Error>" not in data:
+        # 正向断言: CopyObject 成功体必含 <CopyObjectResult(可带 xmlns 属性, 不影响子串匹配)。
+        # 反向补充: 复制在响应流开始后才失败时仍返回 200 + <Error> 体 ⇒ 不能只看状态码;
+        #           而 200 + 空体/非 XML 体(对象其实没建)也不得判成功 ⇒ 必须正向命中才算成功。
+        if status == 200 and b"<CopyObjectResult" in data and b"<Error>" not in data:
             print(f"  ✓ 月备份副本(同桶服务端复制) -> {bkt}/{key} (本月首次)")
             return True
         copy_err = f"status={status} {data.decode('utf-8', errors='replace')[:200]}"
