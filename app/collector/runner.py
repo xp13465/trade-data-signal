@@ -127,10 +127,14 @@ def upsert_metrics_many(metric_id, rows, source="akshare"):
     conn.close()
 
 
-def upsert_index_rows(rows, source="collect"):
+def upsert_index_rows(rows, source="collect", caller="runner"):
     """整段 UPSERT index_daily；source 标记写入来源(T5)。
 
     source 取值: collect(行情源真实价) / intraday_snapshot(盘中快照反哺) / calc(计算法合成)。
+    caller(2026-10-28 告警降噪 ★4): 历史行改写的**写入方**维度, 原样传给
+    `history_audit.audit_index_rows_upsert`(分级判据: runner 中/大批量 ⇒ critical;
+    index_backfill 计划内回填 ⇒ notice)。**计划内回填模块(index_backfill / hk_industry_backfill)
+    的每个调用点都必须显式传 caller="index_backfill"**, 漏一处 = 该批被判成 runner(判据漂移)。
     旧行为不变(全字段替换)，新增: ①写 source 列 ②T3 历史行改写审计(见下)。
     """
     conn = get_conn()
@@ -140,7 +144,7 @@ def upsert_index_rows(rows, source="collect"):
     # 审计失败不阻断采集主流程。
     try:
         from ..history_audit import audit_index_rows_upsert
-        audit_index_rows_upsert(rows, conn=conn)
+        audit_index_rows_upsert(rows, conn=conn, caller=caller)
     except Exception as e:  # noqa: BLE001
         print(f"[history-audit] index_daily 历史行审计失败(不阻断): {type(e).__name__} {e}",
               flush=True)

@@ -151,7 +151,10 @@ def test_1_failsafe_all_alert_when_table_missing(monkeypatch, tmp_path):
     calls = _run_alert(monkeypatch, ACCEPTED_8, tmp_path / "nope.json")
     _chk(len(calls) == 1, f"表缺失应告警, 实发 {len(calls)}")
     _chk("8 个" in calls[0][2], "表缺失时应按全量 8 个报")
-    _chk("signal_kelly_frozen_missing_small" in calls[0], "<10 应走 small dedup key")
+    # ★4(2026-10-28): <10 不再走 small dedup key 单发, 改为只进当日摘要(--defer-digest)
+    _chk("--defer-digest" in calls[0], "<10 应走 --defer-digest(只进摘要, 不单发)")
+    _chk("kelly_frozen_missing" in calls[0], "摘要条目应带 digest-category")
+    _chk("signal_kelly_frozen_missing_small" not in calls[0], "<10 不应再用 small dedup key 单发")
 
 
 def test_1_no_notify_when_all_accepted(monkeypatch, accepted_file):

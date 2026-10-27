@@ -350,8 +350,10 @@ def _alert_frozen_missing(events):
     事件不写入冻结表, 若事件非空说明生产冻结流程有缺口(如 dev sync 后本机冻结表落后),
     通过 notify.py 提醒人工核查, 防止静默跳过导致回测缺信号。
     2026-09-24 分级(告警降噪 P1): >=FROZEN_MISSING_SEVERE_THRESHOLD(10) 个 = 批量历史事件,
-    保持 SEVERE + 1h dedup 直发(真 P0 不降级); <10 个 = 单键漂移(读侧兜底已接住), 降
-    普通邮件(WARN 语义: 不写 latest.md 镜像) + 24h dedup 低频提醒。
+    保持 SEVERE + 1h dedup 直发(真 P0 不降级); <10 个 = 单键漂移(读侧兜底已接住)。
+    2026-10-28 降噪 ★4(c): <10 档**不再发任何邮件/单发**, 只写日志 + 并入当日 23:25 摘要
+    (`notify.py --defer-digest`)。依据: 18 条台账里 15 条 <10(每日同型噪音)、3 条 ≥10 是真事件;
+    阈值 10 保留不动(正常最大 8, +25% 余量)。
     2026-10-11 降噪(①): 先按 config/signal_kelly_frozen_missing_accepted.json 过滤掉
     已确认接受(跳过)的精确键事件(仅写日志); 只剩「表外新事件」才进入分级告警路径,
     全部命中接受表 ⇒ 不发任何通知(治根, 消除每日 report 噪音; 判别维度保留: 新事件照报)。
@@ -381,12 +383,15 @@ def _alert_frozen_missing(events):
         cmd += ["--severe",
                 "--dedup-key", "signal_kelly_frozen_missing", "--dedup-window", "3600"]
     else:
-        # 小缺口(1 个/次级重复键)降普通邮件 + 24h dedup(读侧兜底已接住, 不影响回测结果)
-        cmd += ["--dedup-key", "signal_kelly_frozen_missing_small", "--dedup-window", "86400"]
+        # 2026-10-28 告警降噪 ★4(c): 小缺口(<10)**不发信、不单发**, 只进当日 23:25 摘要
+        # (--defer-digest, 由 schedule_monitor 的 --flush-digest 批发)。
+        # 依据: 台账 18 条逐条复核 = 15 条 <10(噪音) / 3 条 ≥10(11/12/14, 真 P0), 阈值 10 不动。
+        # 备选「key 集合 md5 去重」的前提(集合是否每天不变)未验证, 不采用(research §8①)。
+        cmd += ["--defer-digest", "--digest-category", "kelly_frozen_missing"]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         print(f"   ⚠ 冻结缺失告警 rc={r.returncode} ({n} 个历史信号事件拒绝补冻, "
-              f"{'SEVERE' if n >= FROZEN_MISSING_SEVERE_THRESHOLD else 'WARN'})",
+              f"{'SEVERE' if n >= FROZEN_MISSING_SEVERE_THRESHOLD else '仅进摘要'})",
               file=sys.stderr)
         if r.returncode != 0:
             print(f"      notify stderr: {(r.stderr or r.stdout or '')[-300:]}", file=sys.stderr)
@@ -413,6 +418,17 @@ def _alert_frozen_missing(events):
 #   登记表可随时删/清空回退到本改动前行为(§25 可逆)。
 FREEZE_UNION_ENV = "SIGNAL_KELLY_FREEZE_UNION"
 FREEZE_ORPHAN_ALERT_ENV = "SIGNAL_KELLY_FREEZE_ORPHAN_ALERT"
+
+# ★4 告警降噪(2026-10-28): 孤儿买事件**按「新增条数」门控, 不按「累计条数」每轮照发**。
+# 依据(docs/ops/alert-denoise-a4-research-20261028.md §3.2, 9 天云上真实流水):
+#   累计 2→11→16→21→21→21→24 ⇒ 原始「n>=1 每轮发」= 7 条(其中 4 条数字完全一样 = 纯噪音);
+#   delta>0 = 5 条(只降到 5 条/9 天, 达不到降噪目标)、delta>=5 = 3 条(达到目标, 且真故障日不丢)。
+# 基线 = 「上次实际发出告警时的累计数」, 落状态文件(原子写), 与「每轮当前累计」相减得新增。
+# 只在 FREEZE_ORPHAN_ALERT_ENV=1(告警开启)时才读写状态: 默认关闭的纯日志模式不落文件(不制造本地脏产物)。
+FREEZE_ORPHAN_GROWTH_THRESHOLD = 5
+FREEZE_ORPHAN_STATE_ENV = "SIGNAL_KELLY_FREEZE_ORPHAN_STATE"
+FREEZE_ORPHAN_STATE_PATH = os.path.join(
+    ROOT, "data", "alerts", "kelly_freeze_orphan_state.json")
 
 # #252 A1 定向补账登记表(2026-10-16 用户拍板「一次性定向补孤儿买事件, 不动全局入账源」):
 # 只把本表列出的孤儿买事件并进买信号集合(引擎入账侧), **不改 signal_daily**(下一次全表重算仍会抹)= 治标不动源;
@@ -504,33 +520,97 @@ def _union_freeze_backfill_rows(buy_rows, freeze, registry_keys, present_di):
     return merged
 
 
+def _freeze_orphan_state_path():
+    """孤儿基线状态文件路径(env 可覆盖, 测试/演练指到临时文件用)。"""
+    return os.environ.get(FREEZE_ORPHAN_STATE_ENV) or FREEZE_ORPHAN_STATE_PATH
+
+
+def _load_freeze_orphan_reported_n():
+    """读「上次实际发出告警时的孤儿累计数」。缺失/损坏/形状不对 ⇒ None(= 无基线)。
+
+    返回 None 时调用方 fail-open(照发一次并写入基线): 宁可多发一条, 也不因状态文件丢失
+    而永久静默(告警降噪的前提是「真故障不丢」)。
+    """
+    try:
+        with open(_freeze_orphan_state_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        n = data.get("reported_n") if isinstance(data, dict) else None
+        if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+            return None
+        return n
+    except (OSError, json.JSONDecodeError, AttributeError, TypeError):
+        return None
+
+
+def _save_freeze_orphan_reported_n(n):
+    """写基线(原子写, 参考 memory `atomic-write-data-artifacts`)。写失败只留痕不抛。"""
+    path = _freeze_orphan_state_path()
+    try:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        atomic_write_json(path, {
+            "reported_n": int(n),
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+    except Exception as e:  # noqa: BLE001
+        print(f"   ⚠ 冻结孤儿告警基线写入失败({path}): {e}", file=sys.stderr)
+
+
+def _freeze_orphan_delta(n, prev_n):
+    """新增条数 = 当前累计 n - 上次告警时累计 prev_n; 无基线(None)⇒ 视作全部新增(fail-open)。"""
+    return n if prev_n is None else n - prev_n
+
+
 def _alert_freeze_orphans(orphans, handled_n=0):
     """孤儿买事件告警(默认不告警, 由 SIGNAL_KELLY_FREEZE_ORPHAN_ALERT=1 开启)。
 
     这些事件在冻结表有固化记录(frozen_at 齐全)却已从 signal_daily 现值表消失 = 历史行被
     重算抹除的直接证据。默认只打印(stderr)避免首跑制造告警风暴, 由主控/用户评估规模后开启。
     handled_n: 已登记 #252 定向补账的条数(调用方已从 orphans 里剔除), 只用于日志可读性。
+
+    ★4(2026-10-28 告警降噪): 开启告警时**只按新增门控**——累计数较「上次实际告警时的累计」
+    增长 `FREEZE_ORPHAN_GROWTH_THRESHOLD` 条及以上才发; 增量不足只写 stderr 不打扰人。
+    累计下降(孤儿被修复/消解)时基线跟随下调到当前值, 免得旧高基线长期压住后续新孤儿;
+    孤儿归零时基线归零。发送失败不更新基线(下一轮还会重试, 不静默丢掉真故障)。
     """
     n = len(orphans)
+    alert_on = os.environ.get(FREEZE_ORPHAN_ALERT_ENV, "0") == "1"
     if n == 0:
         if handled_n:
             print(f"   冻结表孤儿买事件: 共 {handled_n} 条, 全在 #252 补账登记表内(已处置, 不告警)",
                   file=sys.stderr)
+        if alert_on and _load_freeze_orphan_reported_n():
+            _save_freeze_orphan_reported_n(0)   # 孤儿全消 ⇒ 基线归零, 下次从 0 重新累计
         return
     sample = "; ".join(f"{d}|{i}|{s}" for d, i, s in orphans[:8])
-    msg = (f"   冻结表孤儿买事件(未登记): {n} 条(冻结表有键、现值 signal_daily 无对应行)。"
+    msg = (f"   冻结表孤儿买事件(未登记): 累计 {n} 条(冻结表有键、现值 signal_daily 无对应行)。"
            f"样例: {sample}")
     if handled_n:
         msg += f"(另有 {handled_n} 条已在 #252 补账登记表内, 跳过)"
     print(msg, file=sys.stderr)
-    if os.environ.get(FREEZE_ORPHAN_ALERT_ENV, "0") != "1":
+    if not alert_on:
         print(f"   (未告警: 设 {FREEZE_ORPHAN_ALERT_ENV}=1 开启)", file=sys.stderr)
         return
+    prev_n = _load_freeze_orphan_reported_n()
+    delta = _freeze_orphan_delta(n, prev_n)
+    if delta < 0:
+        # 孤儿被修复/消解: 基线跟随下调(不发告警), 保留「从当前水位再长 5 条才报」的灵敏度
+        _save_freeze_orphan_reported_n(n)
+        print(f"   (未告警: 累计由 {prev_n} 降到 {n}, 基线已下调)", file=sys.stderr)
+        return
+    if delta < FREEZE_ORPHAN_GROWTH_THRESHOLD:
+        basis = "无历史基线" if prev_n is None else f"上次告警时 {prev_n} 条"
+        print(f"   (未告警: 新增 {delta} 条 < 阈值 {FREEZE_ORPHAN_GROWTH_THRESHOLD}, "
+              f"{basis}; 累计 {n} 条)", file=sys.stderr)
+        return
+    basis = "首次告警(无历史基线, fail-open 照发)" if prev_n is None else f"上次告警时 {prev_n} 条"
     try:
-        subprocess.run(
+        r = subprocess.run(
             [sys.executable, os.path.join(SCRIPT_DIR, "notify.py"),
-             f"[kelly] 冻结表新增孤儿买事件 {n} 条",
-             f"冻结表已固化但已从 signal_daily 现值表消失、且不在 #252 补账登记表内的买类事件 {n} 条"
+             f"[kelly] 冻结表新增孤儿买事件 {delta} 条(累计 {n} 条)",
+             f"冻结表已固化但已从 signal_daily 现值表消失、且不在 #252 补账登记表内的买类事件"
+             f"新增 {delta} 条(累计 {n} 条; {basis})"
              f"(历史行被重算抹除的直接证据, docs/ops/trades-wipe-rootfix-20261014.md)。样例: {sample}",
              "--from-prefix", "[kelly]", "--feishu-group", "alert",
              "--dedup-key", "kelly_freeze_orphan_buy", "--dedup-window", "86400"],
@@ -538,6 +618,13 @@ def _alert_freeze_orphans(orphans, handled_n=0):
         )
     except Exception as e:  # noqa: BLE001
         print(f"   ⚠ 冻结孤儿告警调用异常: {e}", file=sys.stderr)
+        return
+    if r.returncode != 0:
+        tail = (((r.stderr or "") + " " + (r.stdout or "")).strip())[-200:]
+        print(f"   ⚠ 冻结孤儿告警发送失败 rc={r.returncode} {tail}(基线不更新, 下轮重试)",
+              file=sys.stderr)
+        return
+    _save_freeze_orphan_reported_n(n)   # 只在真发出去之后才抬高基线
 
 
 def _union_freeze_buy_rows(buy_rows, freeze):
