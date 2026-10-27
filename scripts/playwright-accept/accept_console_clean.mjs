@@ -12,13 +12,19 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const BASE = process.env.BASE_URL || "https://ss.fx8.store";
+// 线上经 Cloudflare,默认 Playwright UA 带 "HeadlessChrome" 字样会被判定为机器人,
+// 踢到挑战页; 挑战页自身 fetch('data:,...') 会被它自己的 CSP 拦下, 产生与我们无关的
+// "CSP 违规"噪音(2026-10-27 实测: 默认 UA 4 条违规/13 次挑战, 真实 UA 0 条/3 次)。
+// 用真实 Chrome UA 规避; 如需覆盖可用 SENTINEL_UA 环境变量。
+const SENTINEL_UA = process.env.SENTINEL_UA ||
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 let pass = 0, fail = 0;
 const ok = (n, c, d="") => { c ? pass++ : fail++; console.log(`${c?"PASS":"FAIL"}  ${n}${d?`  [${d}]`:""}`); };
 // 跨视口汇总: 违规(阻断) / 未校验路由(不可达)
 let cspTotal = 0, perrTotal = 0, gotoFailTotal = 0, gotoRoutesTotal = 0;
 
 async function run(width, isMobile, tag) {
-  const ctx = await (await chromium.launch({ headless: true })).newContext({ viewport:{width,height:844}, isMobile, hasTouch:isMobile });
+  const ctx = await (await chromium.launch({ headless: true })).newContext({ viewport:{width,height:844}, isMobile, hasTouch:isMobile, userAgent: SENTINEL_UA });
   const page = await ctx.newPage();
   const csp = [], errors = [], pageerrors = [];
   let gotoFail = 0, gotoRoutes = 0;
