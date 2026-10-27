@@ -257,8 +257,11 @@ def test_upsert_index_rows_wires_t3_audit_and_source(tmp_prod_db, monkeypatch):
     monkeypatch.setattr(history_audit, "send_alert", lambda s, b, **kw: calls.append(s) or 0)
 
     # 行情源全历史重采: 历史行 close 由占位 3126 被真实 3057.907 覆盖
+    # 2026-10-28 ★4 审查 F2: caller 已改为显式登记(缺省 None = 未登记 fail-closed),
+    # 这里验证的就是 runner 常规采集路径, 故显式传 caller="runner"。
     runner.upsert_index_rows(
-        [("20261013", "csi_000673", 3125.973, 3126.0, 3057.216, 3057.907, -2.87, 1e9)], source="collect")
+        [("20261013", "csi_000673", 3125.973, 3126.0, 3057.216, 3057.907, -2.87, 1e9)],
+        source="collect", caller="runner")
 
     c = sqlite3.connect(str(tmp_prod_db))
     src = c.execute("SELECT source FROM index_daily WHERE date='20261013' AND index_id='csi_000673'").fetchone()[0]

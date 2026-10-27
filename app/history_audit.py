@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import sys
 from collections import Counter
 
 from .db import get_conn
@@ -83,6 +84,27 @@ _SIGNAL_DATE_DROP_RATIO = 0.30
 
 # notice 走 23:25 摘要(不单发)时的摘要类别标注(notify.py --digest-category)
 _DIGEST_CATEGORY = "history_overwrite"
+
+# ──────────────────── 写入方 caller 值域(单一事实源, 2026-10-28 审查 F2) ────────────────────
+# 同一事实(「谁写的这批 index_daily」)只在这里登记一次;`upsert_index_rows` /
+# `audit_index_row_partial` 的 caller 参数必须取下列值, 不得自造新名字(新写入面先登记再加调用点)。
+#   runner              = 行情源常规采集(app/collector/runner.py::upsert_index_rows)
+#   index_backfill      = 计划内回填(index_backfill.py / hk_industry_backfill.py / intraday 历史补采)
+#   partial             = 单行局部字段写入(audit_index_row_partial)
+#   roadb_backfill      = scripts/collect_roadb_indices.py 全历史回填(2010→今, 计划内)
+#   us_morning_backfill = scripts/us_stock_morning.py 美股指数 sina 兜底全历史回填(计划内)
+# 未登记值(None / 拼错 / 新写入面漏登记)= **fail-closed**: mid/large 判 critical + WARN 日志
+# (「漏标不许把闸门弄瞎」—— 宁可多报一次, 不可让漏标批静默降级成提示)。
+CALLER_RUNNER = "runner"
+CALLER_INDEX_BACKFILL = "index_backfill"
+CALLER_PARTIAL = "partial"
+CALLER_ROADB_BACKFILL = "roadb_backfill"
+CALLER_US_MORNING_BACKFILL = "us_morning_backfill"
+CALLER_VALUES = (CALLER_RUNNER, CALLER_INDEX_BACKFILL, CALLER_PARTIAL,
+                 CALLER_ROADB_BACKFILL, CALLER_US_MORNING_BACKFILL)
+# 计划内全历史回填: 即便 mid/large 也只进摘要(实测 12 天真实变化全 0 条)
+_PLANNED_BACKFILL_CALLERS = (CALLER_INDEX_BACKFILL, CALLER_ROADB_BACKFILL,
+                             CALLER_US_MORNING_BACKFILL)
 
 _SAMPLE_N = 8  # 告警正文样例条数上限
 
@@ -177,18 +199,20 @@ def audit_signal_daily_store(conn, before: set, after: set, run_date: str | None
 # ────────────────────────── index_daily 整段重写审计(T3) ──────────────────────────
 
 def audit_index_rows_upsert(rows, conn=None, run_date: str | None = None,
-                            caller: str = "runner") -> list:
+                            caller: str | None = None) -> list:
     """采集整段 UPSERT 前, detach 出「历史行被实质改写」清单 → 落审计表 + 汇总告警。
 
     rows: [(date, index_id, open, high, low, close, pct_change, amount), ...](采集返回值)。
     只审 date < run_date 的行;只为「库里已存在且值实质变化」的行记改写(新增行不算)。
     不禁止改写(源值确实可能被修正),只暴露。
-    caller: 写入来源(**同一事实的唯一判据维度**,2026-10-28 ★4 加)——"runner"(行情源采集,
-      默认)/ "index_backfill"(计划内回填,`index_backfill.py` / `hk_industry_backfill.py`
-      全部写入点)/ "partial"(单行局部字段写入)。分级由此分流: 计划内回填实测 12 天真实
-      变化全 0 条 ⇒ notice;runner 批中/大批量 ⇒ critical(见 plan_index_daily_alerts)。
-      漏传 = 回填批被当 runner 判 critical(判据漂移),故该模块所有 index_backfill 写入点
-      必须显式传 caller="index_backfill"。
+    caller: 写入来源(**同一事实的唯一判据维度**,2026-10-28 ★4 加;值域见模块常量 `CALLER_VALUES`)
+      —— runner(行情源常规采集)/ index_backfill / roadb_backfill / us_morning_backfill
+      (后三者 = 计划内回填)/ partial(单行局部字段写入)。
+      分级由此分流: 计划内回填实测 12 天真实变化全 0 条 ⇒ notice;runner 批中/大批量 ⇒
+      critical(见 plan_index_daily_alerts)。**默认 None = 未登记 ⇒ fail-closed**(mid/large 判
+      critical + WARN),不再隐式假设 "runner"——历次漏标正是靠这个默认吞掉的(2026-10-28 审查
+      F2: collect_roadb_indices / us_stock_morning 两处全历史回填就漏传了)。
+      **新增写入面必须先加进 CALLER_VALUES 再显式传 caller**,不许靠默认值。
     返回变化清单(供测试断言)。默认自开连接;传入 conn 时复用(调用方随后自己 commit)。
     """
     run_date = run_date or today_ymd()
@@ -221,14 +245,14 @@ def audit_index_rows_upsert(rows, conn=None, run_date: str | None = None,
 
 
 def audit_index_row_partial(conn, run_date: str, date: str, index_id: str, updates: dict,
-                            caller: str = "partial") -> list:
+                            caller: str | None = None) -> list:
     """单行**局部字段**改写审计(2026-10-14 加,补全 index_daily 同类写入面)。
 
     用于只 UPDATE 少数列、其余列不动的写入点(如 `intraday_snapshot._backfill_industry_daily_historical`
     的计算法 `UPDATE index_daily SET close=?, source='calc'`)——这类点若整行入参会误报(未动的列被判成变化)。
     只审 `date < run_date` 的历史行,且只比对 updates 里给出的列。返回变化清单。
-    caller: 写入来源(2026-10-28 ★4,dedup key 分键用);单行写入恒为 small 档 ⇒ notice,
-    但「旧历史行真覆盖」判据照常生效(值→值 且行龄 ≥30 天 ⇒ critical)。
+    caller: 写入来源(2026-10-28 ★4,dedup key 分键用;值域同 `CALLER_VALUES`,缺省 None =
+    未登记 ⇒ fail-closed 走 WARN + 旧行判据;单行写入恒 small,「旧历史行真覆盖」仍照常 critical)。
     """
     run_date = run_date or today_ymd()
     if not date or date >= run_date or not updates:
@@ -409,8 +433,10 @@ def plan_index_daily_alerts(changes: list, run_date: str, caller: str) -> list[d
     分级(2026-10-28 ★4, 依据 docs/ops/alert-denoise-a4-research-20261028.md §6(b)):
       · 数量档 = 本批真实变化条数: small < 200 / mid 200–999 / large >= 1000;
       · critical ⇔ `caller == "runner"` 且 档位 ∈ {mid, large};
-        其余(index_backfill 计划内回填 / partial 单行 / runner 的 small 常态 T+1 修正)
-        ⇒ notice(进 23:25 摘要, 不单发);
+        其余(index_backfill / roadb_backfill / us_morning_backfill 计划内回填 / partial 单行 /
+        runner 的 small 常态 T+1 修正)⇒ notice(进 23:25 摘要, 不单发);
+      · **未登记的 caller(None / 拼错)⇒ fail-closed**: mid/large 判 critical 并打 WARN,
+        small 仍 notice(2026-10-28 审查 F2「漏标不许把闸门弄瞎」);
       · **旧行真覆盖**独立成一条 critical(独立 dedup key, 行龄 ≥30 天 且 存在字段 值→值):
         哪怕只有 1 行也照报, 不被数量档稀释;若本批同时有 small/mid 数据, 两条告警各自发出
         (critical 不被吞, 小批信息也不丢)。
@@ -419,14 +445,32 @@ def plan_index_daily_alerts(changes: list, run_date: str, caller: str) -> list[d
     if not changes:
         return []
     bucket = _index_bucket(len(changes))
-    critical = caller == "runner" and bucket in ("mid", "large")
+    known = caller in CALLER_VALUES
+    label = caller if known else "unknown"
+    if not known:
+        # fail-closed(2026-10-28 审查 F2): 未登记 = 无法确认是计划内回填, 不许默认当 runner 静默降级。
+        print(f"[history-audit] ⚠ 未登记写入方 caller={caller!r} ⇒ fail-closed"
+              f"({bucket} 档); 新写入面请先加进 history_audit.CALLER_VALUES 再显式传 caller",
+              file=sys.stderr, flush=True)
+        critical = bucket in ("mid", "large")
+        why = ("**未登记写入方 ⇒ fail-closed**: 无法确认是计划内回填, 中/大批量按 critical 处理"
+               "(漏标不许把闸门弄瞎)。" if critical
+               else "未登记写入方 + small 档 ⇒ 提示级(量级太小, 不构成闸门盲区)。")
+    elif caller in _PLANNED_BACKFILL_CALLERS:
+        critical = False
+        why = f"计划内回填(caller={caller}) ⇒ 提示级(并入当日摘要, 不单独发信)。"
+    elif caller == CALLER_RUNNER:
+        critical = bucket in ("mid", "large")
+        why = ("runner 批达到中/大批量改写 ⇒ critical。" if critical
+               else "runner 常态量级 ⇒ 提示级(并入当日摘要, 不单独发信)。")
+    else:  # partial(单行局部改写恒 small)
+        critical = False
+        why = "单行局部改写(partial) ⇒ 提示级(并入当日摘要, 不单独发信)。"
     plan = [{
         "changes": changes,
         "critical": critical,
-        "dedup_suffix": f"{caller}:{bucket}",
-        "note": (f"本批真实变化 {len(changes)} 条 ⇒ **{bucket} 档**(写入方 caller={caller})。"
-                 + ("runner 批达到中/大批量改写 ⇒ critical。" if critical
-                    else "常态量级/计划内回填 ⇒ 提示级(并入当日摘要, 不单独发信)。")),
+        "dedup_suffix": f"{label}:{bucket}",
+        "note": (f"本批真实变化 {len(changes)} 条 ⇒ **{bucket} 档**(写入方 caller={caller})。" + why),
     }]
     old_rows = [c for c in changes
                 if "correct" in (c.get("kinds") or ())
@@ -458,6 +502,10 @@ def plan_signal_daily_alert(changes: list, before: set, after: set) -> dict:
       · 逐 date: before = after + 消失 - 出现(this is exactly the set counts),
         drop = before - after;任一 date「drop >= 20 且 drop/before >= 30%」⇒ critical;
       · 否则 notice(进 23:25 摘要)。
+    已知下限(知情选择, 2026-10-28 审查差集 D): 某日原本就 <20 行时, **整日消失**也只到
+      notice(drop < 20 且无净 -200)。这是刻意取舍: 近 40 天有 24 天行数在 2–19 之间(小日,
+      且多为海外/小众指数), 若对它们也判 critical, 会把「按日 29–34 条正常型别漂移」的噪声
+      变成每日告警; 1–2 行级真丢失由 kelly 孤儿买检测承担。**不是漏判, 是量级判据的边界。**
     只统计本批有变化的 date(其余 date drop 恒 0), 用调用方已拿到的前后集合计数,
     不额外扫表(before/after 已是 71,836 行三元组集合, 计数是毫秒级)。
     返回 {"critical": bool, "note": str}。

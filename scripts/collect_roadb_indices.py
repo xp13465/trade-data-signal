@@ -64,7 +64,9 @@ def main():
         try:
             rows, msg = fetchers.collect_index(idx, start, end)
             if rows:
-                upsert_index_rows(rows)
+                # 2010→今**全历史回填**(计划内), 显式登记 caller=roadb_backfill ⇒ 审计走 notice 语义;
+                # 不许靠默认值(曾漏传 ⇒ 被当成 runner 判 critical, 2026-10-28 审查 F2)。
+                upsert_index_rows(rows, caller="roadb_backfill")
                 ok += 1
                 elapsed = time.time() - t0
                 print(f"[{i}/{len(NEW_IDS)}] {idx_id} OK: {len(rows)} rows ({elapsed:.1f}s)")

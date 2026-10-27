@@ -78,7 +78,7 @@ def _audit_hist_partial(conn, date, idx_id, updates):
     """
     try:
         from ..history_audit import audit_index_row_partial
-        audit_index_row_partial(conn, None, date, idx_id, updates)
+        audit_index_row_partial(conn, None, date, idx_id, updates, caller="partial")
     except Exception as e:  # noqa: BLE001
         print(f"[history-audit] index_daily 单行局部审计失败(不阻断): {type(e).__name__} {e}")
 

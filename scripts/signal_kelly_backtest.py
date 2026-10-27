@@ -376,25 +376,27 @@ def _alert_frozen_missing(events):
     body = (f"回测拒绝补冻历史信号事件 {n} 个(冻结分时点防御闸触发)。"
             f"冻结表缺失 {n} 个历史信号事件, 拒绝补冻已跳过, 请核查生产冻结流程。"
             f"样例: {sample}")
-    cmd = [sys.executable, os.path.join(SCRIPT_DIR, "notify.py"), subject, body,
-           "--from-prefix", "[kelly]", "--feishu-group", "alert"]
-    if n >= FROZEN_MISSING_SEVERE_THRESHOLD:
-        # 大事件(批量历史暴露)保持 SEVERE + 1h dedup 直发(真 P0 不降级)
-        cmd += ["--severe",
-                "--dedup-key", "signal_kelly_frozen_missing", "--dedup-window", "3600"]
-    else:
-        # 2026-10-28 告警降噪 ★4(c): 小缺口(<10)**不发信、不单发**, 只进当日 23:25 摘要
-        # (--defer-digest, 由 schedule_monitor 的 --flush-digest 批发)。
-        # 依据: 台账 18 条逐条复核 = 15 条 <10(噪音) / 3 条 ≥10(11/12/14, 真 P0), 阈值 10 不动。
-        # 备选「key 集合 md5 去重」的前提(集合是否每天不变)未验证, 不采用(research §8①)。
-        cmd += ["--defer-digest", "--digest-category", "kelly_frozen_missing"]
+    # 2026-10-28 审查 F1: 改走 app/notify_hook.send_alert(与 history_audit 共用**单一** defer
+    # fail-open 实现), 不再自己拼 notify.py 参数——原先直调 notify.py 且只打印 rc, 摘要未吸收
+    # (ALERT_BUDGET_DISABLE / ALERT_DIGEST_DISABLE / 吸收失败)时条目会被静默丢掉。
+    from app.notify_hook import send_alert
+    severe = n >= FROZEN_MISSING_SEVERE_THRESHOLD
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        print(f"   ⚠ 冻结缺失告警 rc={r.returncode} ({n} 个历史信号事件拒绝补冻, "
-              f"{'SEVERE' if n >= FROZEN_MISSING_SEVERE_THRESHOLD else '仅进摘要'})",
+        result = send_alert(
+            subject, body,
+            dedup_key="signal_kelly_frozen_missing", dedup_window=3600,
+            # 大事件(批量历史暴露)保持 SEVERE + 1h dedup 直发(真 P0 不降级);
+            # 小缺口(<10)只进当日 23:25 摘要(--defer-digest, 由 schedule_monitor 批发)。
+            # 依据: 台账 18 条逐条复核 = 15 条 <10(噪音) / 3 条 ≥10(11/12/14, 真 P0), 阈值 10 不动。
+            # 备选「key 集合 md5 去重」的前提(集合是否每天不变)未验证, 不采用(research §8①)。
+            severe=severe, from_prefix="[kelly]", feishu_group="alert",
+            defer_digest=not severe,
+            digest_category=None if severe else "kelly_frozen_missing",
+        )
+        print(f"   ⚠ 冻结缺失告警 rc={result.rc} route={result.route} "
+              f"({n} 个历史信号事件拒绝补冻, "
+              f"{'SEVERE' if severe else '仅进摘要'})",
               file=sys.stderr)
-        if r.returncode != 0:
-            print(f"      notify stderr: {(r.stderr or r.stdout or '')[-300:]}", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
         print(f"   ⚠ 冻结缺失告警调用异常: {e}", file=sys.stderr)
 

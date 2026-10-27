@@ -668,9 +668,11 @@ def test_c3_index_daily_old_row_overwrite_still_critical(audit_calls):
     conn.execute("INSERT INTO index_daily (date, index_id, close) VALUES (?,?,?)",
                  ("20250101", "idx_a", 100.0))
     conn.commit()
+    # 2026-10-28 ★4 审查 F2: caller 改为显式登记(未登记 caller 现在 fail-closed),
+    # 这里验证的就是 runner 常态量级档, 故显式传 caller="runner"(断言口径不变)。
     history_audit.audit_index_rows_upsert(
         [("20250101", "idx_a", 1.0, 1.0, 1.0, 90.0, 0.0, 1e8)],
-        conn=conn, run_date="20261014")
+        conn=conn, run_date="20261014", caller="runner")
     old = [c for c in audit_calls if c["dedup_key"].endswith(":old_overwrite")]
     assert len(old) == 1, [c["dedup_key"] for c in audit_calls]
     assert old[0]["severe"] is True and old[0]["defer_digest"] is False

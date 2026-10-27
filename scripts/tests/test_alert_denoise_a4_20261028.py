@@ -11,6 +11,12 @@
   ③ kelly 常态降级(scripts/signal_kelly_backtest):
      冻结表缺失 <10 ⇒ 只进摘要(--defer-digest, 不单发);>=10 仍 --severe;
      冻结孤儿买事件按「新增条数 >=5」门控(基线落原子写状态文件, 无基线 fail-open 照发)。
+④ notice 通道 fail-open(app/notify_hook.send_alert, 2026-10-28 审查 F1):
+     摘要禁用(ALERT_DIGEST_DISABLE=1)/ 预算禁用(ALERT_BUDGET_DISABLE=1 ⇒ defer 返回 noop)/
+     吸收失败(status=failed、rc!=0、result-file 缺失)⇒ 一律**退回直发**, 绝不「两边都不发」;
+     吸收成功(status==digested)⇒ 只进摘要, 不重复直发(「不会两边都发」正控)。
+     ⚠ 本分支 notify.py 早于批次2(成功态仍返回 noop), merge 到 main 后才是 digested;
+     假件按 **main 版契约**回写 status, 即本套用例守护的是 merge 后生效的行为。
 
 【零外发(§18 L48/L50)】全程 static-only: notify 出口一律替换为「记录参数」的假函数/假
   subprocess.run, 真子进程/真网络不起;收尾套 `_zero_outbound.ZeroOutboundTrap` 兜底。
@@ -36,6 +42,7 @@ pytest.importorskip("yaml", reason="CI 需 pyyaml 才能 import signal_kelly_bac
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from app import history_audit as ha  # noqa: E402
+from app import notify_hook as nh  # noqa: E402
 
 try:
     import signal_kelly_backtest as sk  # noqa: E402
@@ -43,7 +50,7 @@ except Exception as _e:  # pragma: no cover
     pytest.skip(f"kelly 依赖不可用: {_e}", allow_module_level=True)
 
 RUN_DATE = "20261028"          # 冻结运行日: 判定只看它, 不看真实今天
-_MIN_ASSERTIONS = 55
+_MIN_ASSERTIONS = 90
 _N = [0]
 
 
@@ -67,14 +74,23 @@ class _Recorder:
 
 
 class _FakeRun:
-    """记录 argv 的假 subprocess.run(不真起子进程 = 零真实外发)。"""
+    """记录 argv 的假 subprocess.run(不真起子进程 = 零真实外发)。
 
-    def __init__(self, rc=0):
+    digest_status: 若 argv 带 --result-file, 按 notify.py 的契约回写该文件
+      (main 版契约: 吸收成功 = status "digested"; noop/failed = 未吸收)。
+      None ⇒ 不写文件(模拟 result-file 缺失)。
+    """
+
+    def __init__(self, rc=0, digest_status="digested"):
         self.calls = []
         self.rc = rc
+        self.digest_status = digest_status
 
     def __call__(self, argv, **kw):
         self.calls.append(list(argv))
+        if "--result-file" in argv and self.digest_status is not None:
+            p = Path(argv[argv.index("--result-file") + 1])
+            p.write_text(json.dumps({"status": self.digest_status}), encoding="utf-8")
         return types.SimpleNamespace(returncode=self.rc, stdout="", stderr="")
 
 
@@ -192,6 +208,38 @@ def test_a10_missing_or_malformed_inputs_tolerated():
                                        RUN_DATE, "runner")
     _chk(all(p["dedup_suffix"] != "old_overwrite" for p in plan2),
          "行龄解析失败不得触发旧行判据")
+
+
+def test_a11_unknown_caller_fails_closed(monkeypatch, capsys):
+    """审查 F2 回归: caller 值域单一事实源 + 未登记(None/拼错)⇒ fail-closed(中/大批判 critical)。"""
+    for v in ("runner", "index_backfill", "partial", "roadb_backfill", "us_morning_backfill"):
+        _chk(v in ha.CALLER_VALUES, f"值域应登记 {v}: {ha.CALLER_VALUES}")
+    # None + mid(250 条)⇒ critical(漏标不许把闸门弄瞎)+ WARN
+    plan = ha.plan_index_daily_alerts(_batch(250), RUN_DATE, None)
+    _chk(plan[0]["critical"] is True, "未登记 caller 的 mid 批应 fail-closed 判 critical")
+    _chk(plan[0]["dedup_suffix"] == "unknown:mid", f"键尾={plan[0]['dedup_suffix']}")
+    _chk("未登记" in capsys.readouterr().err, "应有 WARN 日志(便于发现漏标)")
+    # 拼错的 caller + large ⇒ 同样 critical
+    plan2 = ha.plan_index_daily_alerts(_batch(1000), RUN_DATE, "runnr")
+    _chk(plan2[0]["critical"] is True, "拼错 caller 的 large 批也应 critical")
+    # 未登记 + small ⇒ notice(量级太小, 不构成闸门盲区)
+    plan3 = ha.plan_index_daily_alerts(_batch(5), RUN_DATE, None)
+    _chk(plan3[0]["critical"] is False, "未登记 caller 的 small 批仍提示")
+    _chk(plan3[0]["dedup_suffix"] == "unknown:small", f"键尾={plan3[0]['dedup_suffix']}")
+
+
+def test_a12_row_age_cross_year_and_types():
+    """审查差集 E 回归: 跨年行龄 + date 两种类型(int/横线格式)的安全侧行为。"""
+    _chk(ha._row_age_days("20251231", "20260102") == 2, "跨年应为 2 天")
+    _chk(ha._row_age_days(20251231, 20260102) == 2, "int 型 date 也应可解析")
+    _chk(ha._row_age_days("2025-12-31", "20260102") == 0, "横线格式解析失败 ⇒ 0 天(安全侧)")
+    # 跨年旧行(2024-12-31)值→值 仍触发 old_overwrite critical
+    plan = ha.plan_index_daily_alerts(
+        [_chg("20241231", "csi_000300", kinds=("correct",))], "20260102", "runner")
+    _chk(len(plan) == 2, f"small 提示 + 旧行 critical 应各一条, 得 {len(plan)}")
+    _chk(plan[1]["dedup_suffix"] == "old_overwrite" and plan[1]["critical"] is True,
+         "跨年旧行值→值应 critical")
+    _chk(ha._row_age_days("20241231", "20260102") == 367, "跨年行龄应 367 天")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -387,6 +435,19 @@ def test_d3_frozen_missing_threshold_boundary(monkeypatch, accepted_file):
     _chk("--severe" in calls[0] and "--defer-digest" not in calls[0], "10 个应 severe")
 
 
+def test_d4_frozen_missing_small_absorb_failure_fails_open(monkeypatch, accepted_file):
+    """审查差集 B: <10 通道吸收失败 ⇒ 必须 fail-open 直发(旧实现只打印 rc 就完事)。"""
+    fake = _FakeRun(digest_status="noop")          # 等价 ALERT_BUDGET_DISABLE=1 / 吸收失败
+    monkeypatch.setattr(sk, "FROZEN_MISSING_ACCEPTED_PATH", str(accepted_file))
+    monkeypatch.setattr(sk.subprocess, "run", fake)
+    events = {("20261020", f"idx{k:03d}", "buy") for k in range(9)}
+    sk._alert_frozen_missing(events)
+    _chk(len(fake.calls) == 2, f"defer + 直发应 2 次, 得 {len(fake.calls)}")
+    _chk("--defer-digest" in fake.calls[0], "第 1 次应尝试进摘要")
+    _chk("--defer-digest" not in fake.calls[1], "未吸收 ⇒ 第 2 次直发")
+    _chk("--severe" not in fake.calls[1], "仍是 <10 提示档, 不得升级 severe")
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # ④ kelly 冻结孤儿买事件: 按新增 >=5 门控
 # ════════════════════════════════════════════════════════════════════════════
@@ -484,6 +545,97 @@ def test_e7_delta_helper_pure():
     _chk(sk._freeze_orphan_delta(21, 16) == 5, "21-16=5")
     _chk(sk._freeze_orphan_delta(3, 11) == -8, "下降为负")
     _chk(sk.FREEZE_ORPHAN_GROWTH_THRESHOLD == 5, "阈值=5(报告 §3.2 定)")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ⑤ notice 通道 fail-open(2026-10-28 审查 F1;审查变异 M4 曾 0 红)
+#    三问:摘要禁用 / 预算禁用(noop)/ 吸收失败 ⇒ 必须走直发, 且「不会两边都发」。
+# ════════════════════════════════════════════════════════════════════════════
+def _send_deferred(fake):
+    """打桩 notify_hook 的 subprocess.run 后发一条 defer 告警。返回 SendResult。"""
+    return nh.send_alert(" [提示] 测试历史行改写 3 条", "body 正文",
+                         dedup_key="history_overwrite:test", severe=False,
+                         from_prefix="[提示]", defer_digest=True,
+                         digest_category="history_overwrite")
+
+
+def test_g1_budget_disabled_fails_open_direct(monkeypatch, capsys):
+    """ALERT_BUDGET_DISABLE=1(notify defer 返回 noop)⇒ fail-open 直发, 不静默丢。"""
+    monkeypatch.setenv("ALERT_BUDGET_DISABLE", "1")
+    monkeypatch.delenv("ALERT_DIGEST_DISABLE", raising=False)
+    fake = _FakeRun(digest_status="noop")          # 回滚态: 不写 buffer, 返回 noop
+    monkeypatch.setattr(nh.subprocess, "run", fake)
+    with _zero_outbound.ZeroOutboundTrap() as trap:
+        res = _send_deferred(fake)
+    _chk(len(fake.calls) == 2, f"defer + 直发应 2 次调用, 得 {len(fake.calls)}")
+    _chk("--defer-digest" in fake.calls[0], "第 1 次应尝试并入摘要")
+    _chk("--result-file" in fake.calls[0], "defer 必须带 --result-file(才能判吸收)")
+    _chk("--defer-digest" not in fake.calls[1], "fail-open 第 2 次必须是直发")
+    _chk(fake.calls[0][2] == fake.calls[1][2] and fake.calls[0][3] == fake.calls[1][3],
+         "直发必须同一 subject + body")
+    _chk(res.route == "fail_open_direct" and res.absorbed is False,
+         f"route={res.route} absorbed={res.absorbed}")
+    _chk(trap.hits == [], f"零外发被破坏: {trap.hits}")
+
+
+def test_g2_digest_disabled_sends_direct_without_buffer(monkeypatch):
+    """ALERT_DIGEST_DISABLE=1(buffer 永不 flush)⇒ 根本不许写 buffer, 只直发一次。"""
+    monkeypatch.setenv("ALERT_DIGEST_DISABLE", "1")
+    monkeypatch.delenv("ALERT_BUDGET_DISABLE", raising=False)
+    fake = _FakeRun()
+    monkeypatch.setattr(nh.subprocess, "run", fake)
+    with _zero_outbound.ZeroOutboundTrap() as trap:
+        res = _send_deferred(fake)
+    _chk(len(fake.calls) == 1, f"摘要禁用时应只直发 1 次, 得 {len(fake.calls)}")
+    _chk("--defer-digest" not in fake.calls[0], "不得写进永不外发的 buffer")
+    _chk("--result-file" not in fake.calls[0], "直发不需要 result-file")
+    _chk(res.route == "fail_open_direct" and res.absorbed is False,
+         f"route={res.route} absorbed={res.absorbed}")
+    _chk(trap.hits == [], f"零外发被破坏: {trap.hits}")
+
+
+@pytest.mark.parametrize("status, rc, label", [
+    ("failed", 0, "status=failed"),
+    (None, 0, "result-file 缺失"),
+    ("digested", 1, "rc!=0"),
+])
+def test_g3_absorb_failure_fails_open(monkeypatch, status, rc, label):
+    """吸收失败三种形态(失败态/文件缺失/rc≠0)⇒ 一律退回直发。"""
+    monkeypatch.delenv("ALERT_BUDGET_DISABLE", raising=False)
+    monkeypatch.delenv("ALERT_DIGEST_DISABLE", raising=False)
+    fake = _FakeRun(rc=rc, digest_status=status)
+    monkeypatch.setattr(nh.subprocess, "run", fake)
+    with _zero_outbound.ZeroOutboundTrap() as trap:
+        res = _send_deferred(fake)
+    _chk(len(fake.calls) == 2, f"[{label}] defer + 直发应 2 次, 得 {len(fake.calls)}")
+    _chk("--defer-digest" not in fake.calls[1], f"[{label}] 第 2 次必须是直发")
+    _chk(res.absorbed is False, f"[{label}] absorbed 应 False")
+    _chk(trap.hits == [], f"零外发被破坏: {trap.hits}")
+
+
+def test_g4_absorbed_sends_only_once(monkeypatch):
+    """正控(不会两边都发): status==digested ⇒ 只进摘要, 不得再直发一份。"""
+    monkeypatch.delenv("ALERT_BUDGET_DISABLE", raising=False)
+    monkeypatch.delenv("ALERT_DIGEST_DISABLE", raising=False)
+    fake = _FakeRun(digest_status="digested")
+    monkeypatch.setattr(nh.subprocess, "run", fake)
+    with _zero_outbound.ZeroOutboundTrap() as trap:
+        res = _send_deferred(fake)
+    _chk(len(fake.calls) == 1, f"吸收成功应只 1 次调用, 得 {len(fake.calls)}")
+    _chk("--defer-digest" in fake.calls[0], "唯一一次应是 defer")
+    _chk(res.route == "digest" and res.absorbed is True, f"route={res.route}")
+    _chk(trap.hits == [], f"零外发被破坏: {trap.hits}")
+
+
+def test_g5_direct_failure_leaves_trace(monkeypatch, capsys):
+    """直发也失败 ⇒ 必须留痕(stderr), 且不向上抛异常阻塞主流程。"""
+    monkeypatch.delenv("ALERT_BUDGET_DISABLE", raising=False)
+    monkeypatch.delenv("ALERT_DIGEST_DISABLE", raising=False)
+    fake = _FakeRun(rc=1, digest_status="noop")
+    monkeypatch.setattr(nh.subprocess, "run", fake)
+    res = _send_deferred(fake)                     # 不得抛异常
+    _chk(res.rc == 1 and res.route == "fail_open_direct", f"rc={res.rc} route={res.route}")
+    _chk("告警发送失败" in capsys.readouterr().err, "直发失败必须留痕, 不许静默")
 
 
 # ════════════════════════════════════════════════════════════════════════════

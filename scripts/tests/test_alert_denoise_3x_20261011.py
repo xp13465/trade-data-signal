@@ -76,13 +76,20 @@ ACCEPTED_8 = [
 
 
 class _FakeRun:
-    """记录 argv 的假 subprocess.run(不真起子进程 = 零真实外发)。"""
+    """记录 argv 的假 subprocess.run(不真起子进程 = 零真实外发)。
+
+    --result-file 契约(2026-10-28 审查 F1): defer 成功态 = 回写 status "digested";
+    不回写的话调用方会按 fail-open 再直发一次, 断言「只 1 条」就失真。
+    """
 
     def __init__(self):
         self.calls = []
 
     def __call__(self, argv, **kw):
         self.calls.append(list(argv))
+        if "--result-file" in argv:
+            p = Path(argv[argv.index("--result-file") + 1])
+            p.write_text(json.dumps({"status": "digested"}), encoding="utf-8")
         return types.SimpleNamespace(returncode=0, stdout="", stderr="")
 
 
