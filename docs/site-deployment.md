@@ -629,7 +629,7 @@ s.sugas.site 有 300MB 总大小限制。`static-site/data/` 已移出 git（走
 | 指数回填 | com.trade.backfill-evening | 16:35, 21:00, 02:00 | backfill_indices.sh | 多源补采缺失指数 | 是（deploy.sh） |
 | ETF 国家队 | com.trade.etf-national-team | 20:07, 21:30 | etf_national_team_backfill.sh | ETF 国家队资金采集 | 是（deploy.sh） |
 | ETF 跟踪指数 | com.trade.etf-track-index | 周日 03:30 | fetch_etf_track_index.py | ETF 跟踪指数映射刷新 | 否（写 data/） |
-| 期货回填 | com.trade.futures-backfill | 20:05, 21:00 | futures_backfill.sh | 中金所期货持仓补采 | 是（deploy.sh） |
+| 期货回填 | com.trade.futures-backfill | 19:45, 21:20 | futures_backfill.sh | 中金所期货持仓补采 | 是（deploy.sh） |
 | 夜盘黄金 | com.trade.gold-night | 02:40 | gold_night.sh | 夜盘黄金/白银采集 | 是（deploy.sh） |
 | 策略实验室 | com.trade.lab-auto | 19:00 | update_lab.sh | 策略实验室回测 | 是（deploy.sh） |
 | 龙虎榜回填 | com.trade.lhb-backfill | 18:30, 19:30 | lhb_backfill.sh | 龙虎榜数据补采 | 是（deploy.sh） |
@@ -654,7 +654,7 @@ s.sugas.site 有 300MB 总大小限制。`static-site/data/` 已移出 git（走
 - 15:35 / 20:35（intraday-snapshot 推 main）
 - 16:35 / 21:00 / 02:00（backfill-evening 推 main）
 - 17:50（update-all 推 main）
-- 20:05 / 21:00（futures-backfill 推 main）
+- 19:45 / 21:20（futures-backfill 推 main）
 - 18:30 / 19:30（lhb-backfill 推 main）
 - 19:00（lab-auto 推 main）
 - 20:07 / 21:30（etf-national-team 推 main）

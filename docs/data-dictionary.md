@@ -616,7 +616,7 @@ ETF 元素：
 ]
 ```
 
-8 个任务：`update_all`(17:50) / `intraday_snapshot`(09:35起每15分) / `futures-backfill`(20:05,21:00) / `lhb-backfill`(18:30,19:30) / `rzhb-backfill`(19:15) / `etf-national-team`(20:07,21:30) / `backfill-evening`(16:35,02:00) / `lab-auto`(19:00)。
+8 个任务：`update_all`(17:50) / `intraday_snapshot`(09:35起每15分) / `futures-backfill`(19:45,21:20) / `lhb-backfill`(18:30,19:30) / `rzhb-backfill`(19:15) / `etf-national-team`(20:07,21:30) / `backfill-evening`(16:35,02:00) / `lab-auto`(19:00)。
 
 ### 18.2 signal_freq.json · 信号频率统计
 

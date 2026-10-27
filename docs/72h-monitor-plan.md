@@ -32,7 +32,7 @@
 | 8 | R2时效 | R2 overview/intraday collected_at | 交易日盘中 overview<20min/intraday<15min | SEVERE邮件 | alert_state.json (r2_overview_lag/r2_intraday_lag) |
 
 **9个监控任务**（gen_schedule_stats.py TASKS）：
-update_all(17:50) / backfill_evening(02:00,16:35,21:00) / intraday_snapshot(30时点盘中+15:35+20:35) / futures_backfill(20:05,21:00) / lhb_backfill(18:30,19:30) / rzhb_backfill(08:00,19:15) / etf_national_team(20:07,21:30) / lab_auto(19:00) / us_stock_morning(05:00)
+update_all(17:50) / backfill_evening(02:00,16:35,21:00) / intraday_snapshot(30时点盘中+15:35+20:35) / futures_backfill(19:45,21:20) / lhb_backfill(18:30,19:30) / rzhb_backfill(08:00,19:15) / etf_national_team(20:07,21:30) / lab_auto(19:00) / us_stock_morning(05:00)
 
 ### 1.2 self_heal.sh（launchd 每15分钟，Minute=7/22/37/52）
 
@@ -342,7 +342,7 @@ rm /tmp/monitor-72h-start.txt
 | update-all | 17:50 | 交易日 |
 | backfill-evening | 02:00, 16:35, 21:00 | 交易日 |
 | intraday-snapshot | 30时点(09:25-15:02盘中+15:35+20:35) | 交易日 |
-| futures-backfill | 20:05, 21:00 | 交易日 |
+| futures-backfill | 19:45, 21:20 | 交易日 |
 | lhb-backfill | 18:30, 19:30 | 交易日 |
 | rzhb-backfill | 08:00, 19:15 | 交易日 |
 | etf-national-team | 20:07, 21:30 | 交易日 |

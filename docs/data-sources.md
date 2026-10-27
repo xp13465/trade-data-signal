@@ -270,7 +270,7 @@ akshare 封装的同花顺接口。
 | `com.trade.sentiment` | 15:33 | 主调度（旧入口，已切 update_all） |
 | `com.trade.update-all` | 17:50 | 主采集：4 条并行 pipeline（core/width/futures/stock_daily），约 31 分钟 |
 | `com.trade.intraday-snapshot` | 09:35 起每 15 分钟（09:35/09:50/10:05/...） | 盘中实时快照 + 指数反哺 + 推 intraday_snapshot.json |
-| `com.trade.futures-backfill` | 20:05, 21:00 | 期货机构持仓补采 |
+| `com.trade.futures-backfill` | 19:45, 21:20 | 期货机构持仓补采 |
 | `com.trade.lhb-backfill` | 18:30, 19:30 | 龙虎榜补采 |
 | `com.trade.rzhb-backfill` | 19:15 | 融资融券补采 |
 | `com.trade.etf-national-team` | 20:07, 21:30 | 国家队 ETF 份额 + 信号 |
@@ -289,7 +289,7 @@ akshare 封装的同花顺接口。
 ## 数据完整性兜底
 
 1. **多源补采**：[`index_backfill.py`](../app/collector/index_backfill.py) 主源采后校验 8 核心 A 股指数，缺失则 baostock（7/8）→ 腾讯（兜底 kc50/bj50）补采
-2. **CFFEX 双时点**：20:05 + 21:00 两次拉期货持仓（避免 CFFEX 当晚数据延迟）
+2. **CFFEX 双时点**：19:45 + 21:20 两次拉期货持仓（19:45 先采一次，20:00 后 CFFEX 才发完整数据，21:20 兜底复查）
 3. **mootdx → BaoStock fallback**：mootdx 通达信行情接口全 empty 时自动切 BaoStock 采剩余
 4. **ETF 份额双源**：沪市 `fund_etf_scale_sse`（上交所）+ 深市 `fund_scale_daily_szse`（深交所）+ mootdx bars 兜底
 5. **backfill-evening 02:00 + 16:35**：凌晨 + 下午两次兜底补漏
