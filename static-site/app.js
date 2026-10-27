@@ -12324,7 +12324,7 @@ const T1_COLLECT_DEADLINE = {
   a_fund_margin: "next_day", // 两融(沪市融资余额): 源端T+1日才发当日值(上交所次日盘后),23:00 rzhb单采永远采不到当日 -> next_day盘中恒放宽,消除T日23:00后误报红
   us_dji_date:   "16:35",   // 美股道指: 美股收盘=北京次日04:00,backfill-evening 16:35采集
   lhb_count:     "19:30",   // 龙虎榜: 东财18:00发当日,lhb-backfill 18:30+19:30(兜底)采集
-  futures_date:  "21:00",   // 期货机构持仓: CFFEX 20:00发当日,futures-backfill 20:05+21:00(兜底)采集
+  futures_date:  "21:20",   // 期货机构持仓: CFFEX 20:00发当日,futures-backfill 19:45+21:20(兜底)采集
   csi_div_date:  "18:00",   // 中证红利: 中证指数公司盘后发布,update_all 17:50采集,18:00后应已到
   etf_date:      "21:30",   // ETF汪汪队份额: 交易所盘后发布,etf-national-team 20:07+21:30(兜底)采集
   // 2026-07-29 T+1治理: gold(沪金AU0)采集侧改新浪/腾讯实时源变T+0,不再列入T+1截止时点表(原 gold: "18:00" 已移除)
