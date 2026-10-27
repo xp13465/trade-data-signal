@@ -118,9 +118,12 @@ if update_all_running; then
 fi
 
 # 相对路径走 trade-data/scripts symlink(merge 即生效,与全站任务同哲学)。
-# 超时 900s: 全量三站×(9 产物)HTTP 拉取(local 仅本地读), 大件(concepts 32.6MB / accum_nav 26MB)
-# 在云上秒级, 900s 为宽余(含单源 2 次重试的 12s 超时窗口)。
-OUT="$(run_to 900 "$PY" scripts/check_r2_consistency.py --quiet 2>&1)"
+# 超时 1500s: 全量三站×(9 产物)HTTP 拉取(local 仅本地读), 大件(concepts 32.6MB / accum_nav 26MB)
+# 在云上秒级; 最坏 26 URL × 2 次尝试(range(2))× 25s 单次超时 ≈ 1300s, 加每次失败 2s 退避
+# 上界 ≈ 1352s ⇒ 1500s 覆盖并留 ~150s 余量
+# (2026-10-26 实测 904s 撞旧 900s 上限被杀, CPU 仅 5.4s = 全程等 I/O)。外层 systemd 1600s 留梯度。
+# -u 关 python 缓冲: 超时被 SIGTERM 杀掉时已打印的行已落日志, 能看出卡在哪个 URL。
+OUT="$(run_to 1500 "$PY" -u scripts/check_r2_consistency.py --quiet 2>&1)"
 RC=$?
 printf '%s\n' "$OUT" >> "$LOG"
 

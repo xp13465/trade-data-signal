@@ -1579,7 +1579,8 @@ TimeoutStartSec=12600
 > - 每日跑**不限交易日**:「各源一致」是不变量,周末被外部覆盖同样要抓 → timer `*-*-*`(非 Mon..Fri)
 > - **顺序坑根治**:service 含 `ConditionPathExists=`——脚本未 merge 到位时 timer 触发 service 直接 skip(不算 failed);到位后自动生效(同 heartbeat 先例)
 > - **无 StandardOutput append**:本脚本自己写同名 `r2_consistency_launchd.log`,按 §1.4 例外条款(2026-09-15 root 属主冲突根治)刻意不设 append,日志走 journal
-> - **超时梯度**:外层 `TimeoutStartSec=960` > 内层 `run_to 900`,留梯度防 systemd SIGKILL 打断 wrapper 的「结束」日志行 → schedule_monitor 漏跑检查误判 runaway(2026-10-22 注:原写在 ini 块内注释,云上实际文件无该注释,为过 main-merge 7.8 生成源一致性闸门,注释知识移入本说明段)
+> - **超时梯度**:外层 `TimeoutStartSec=1600` > 内层 `run_to 1500`,留 100s 梯度防 systemd SIGKILL 打断 wrapper 的「结束」日志行 → schedule_monitor 漏跑检查误判 runaway(2026-10-22 注:原写在 ini 块内注释,云上实际文件无该注释,为过 main-merge 7.8 生成源一致性闸门,注释知识移入本说明段)
+> - **预算复算(2026-10-27)**:旧 `run_to 900` / 外层 `960` 结构性不够 —— 26 URL × 每源 2 次尝试(`range(2)`)× 单次 `TIMEOUT=25` ≈ **1300s**(加每次失败 2s 退避上界 ≈1352s)> 900s;10-26 23:20 那轮实测 **904s 被杀**(`status=124`,CPU 仅 5.4s/904s = 全程等 I/O,非算力)。故内层抬 **1500s**、外层抬 **1600s**;同时 python 调用加 `-u` 关缓冲,超时被 SIGTERM 杀掉时已打印的行已落日志(能看出卡在哪个 URL)。
 
 `trade-r2-consistency.timer`:
 ```ini
@@ -1610,7 +1611,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/check_r2_consistency.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=960
+TimeoutStartSec=1600
 ```
 
 ### 2.38 cloud-unit-patrol(每日 8:27,#191 云上 unit 直连巡检)
