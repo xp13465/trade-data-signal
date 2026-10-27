@@ -226,11 +226,27 @@ def _df_global():
     ])
 
 
+def _stub_ths_ak(monkeypatch, df):
+    """thsc 采集器打桩: 守卫 + **源函数名**两样都要给。
+
+    CI 门禁 ⑧ 不装 akshare(scripts/tests/conftest.py 对未装库注入空 ModuleType stub),而
+    `_collect_ths_concept` 是**先把 `ak.stock_board_concept_index_ths` 取出来当参数**再交给
+    `_safe_call_guarded(...)`(fetchers.py:746)⇒ 只打桩守卫不够:属性 deref 发生在调用之前,
+    空 stub 上没这个属性 ⇒ AttributeError(CI #965 第⑧步红 / 本机装真 akshare 才绿)。
+    故先显式把源函数名放到 stub 上(与 test_254 既有 `raising=False` 约定一致),再打桩守卫。
+    **断言口径不变**:仍走真实 `_collect_ths_concept` 的解析/首行 pct 逻辑。
+    """
+    from app.collector import fetchers
+    monkeypatch.setattr(fetchers.ak, "stock_board_concept_index_ths",
+                        lambda **kw: df, raising=False)
+    monkeypatch.setattr(fetchers, "_safe_call_guarded", lambda fn, **kw: df)
+
+
 def test_e2e_thsc_first_row_pct_filled(tmp_db, monkeypatch):
     """E2E-1:thsc 采集器返回的首行(pct=None)经 upsert 后库里 pct 有值。"""
     from app.collector import fetchers
     df = _df_thsc()
-    monkeypatch.setattr(fetchers, "_safe_call_guarded", lambda fn, **kw: df)
+    _stub_ths_ak(monkeypatch, df)
     idx = {"id": "thsc_300816", "func": "index_hist_ths_concept", "symbol": "第三代半导体"}
     rows, status = fetchers.collect_index(idx, "20250908", "20250910")
     assert status == "ok"
@@ -275,7 +291,7 @@ def test_e2e_thsc_year_gap_warns(monkeypatch, capsys):
     import pandas as pd
     df = pd.DataFrame([{"日期": "2026-01-05", "开盘价": 1.0, "最高价": 1.0, "最低价": 1.0,
                         "收盘价": 1.0, "成交额": 1.0}])
-    monkeypatch.setattr(fetchers, "_safe_call_guarded", lambda fn, **kw: df)
+    _stub_ths_ak(monkeypatch, df)
     idx = {"id": "thsc_300816", "func": "index_hist_ths_concept", "symbol": "x"}
     fetchers.collect_index(idx, "20250101", "20260105")
     out = capsys.readouterr().out
