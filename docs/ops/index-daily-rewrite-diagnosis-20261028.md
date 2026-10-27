@@ -281,7 +281,7 @@ key = history_overwrite:index_daily:{run_date}:{source}:{large|mid|small}
 
 1. **`csi_000102` 张冠李戴（P1）**：`intraday_snapshot.py:1399` 把 `csi_000102` 映射成 `sh000102`（沪投资品），而配置 `config/indicators.yaml:301` 里它是创业板综 `sz399102`。后果：每交易日盘中该指数当日行是错标的、错点位（差 ~96%，6562 vs 3354）。
    - **根因**：该映射的生成规则写在 `intraday_snapshot.py:1390-1392` 注释里——「`csi_000xxx→sh`、`csi_399xxx→sz`」，例外清单只列了 `csi_000330(深证100)→sz399330`、`csi_000673(创业板50)→sz399673` 等，**`csi_000102`（创业板综，实为 399102）没进例外表**，被机械规则套成 `sh000102`。
-   - **全量核对结果（已做，不是"可能还有"）**：`_SIGNAL_UNIVERSE_TENCENT_MAP` 共 **48 条**，逐条与 `indicators.yaml` 的 id→symbol 比对，**真错 1 条（就是本条）**；另 1 条 `csi_div: sh000922` 与 yaml `000922` 只是"腾讯码需市场前缀 / csindex 源用裸码"的口径差异，不算错；3 条港股 id 不在 indicators.yaml（`hk_cesg10/hk_hscci/hk_hsmpi`），另行核对。
+   - **全量核对结果（已做，不是"可能还有"）**：`_SIGNAL_UNIVERSE_TENCENT_MAP` 共 **48 条**，逐条与 `indicators.yaml` 的 id→symbol 比对，**真错 1 条（就是本条）**；另 1 条 `csi_div: sh000922` 与 yaml `000922` 只是"腾讯码需市场前缀 / csindex 源用裸码"的口径差异，不算错；3 条港股 id 在 indicators.yaml（`hk_cesg10` L155 / `hk_hsmpi` L158 / `hk_hscci` L161），此前漏纳入比对。
    - **修法方向**：把该条改成 `sz399102`；再在生成规则里加一条"以 `indicators.yaml` 的 symbol 为准"的兜底/机检（防下次按规则批量生成再错）。
 2. **spec A1 的三个数字需要更正**：行数 23,931/19,476 → 实测 **24,647/24,572**；抽样 `6562.71→3367.89` 的 3367.89 是开盘价，收盘是 **3354.83**；10-22 的 2,062 条被 spec 当作"真异常必须保住"的正样本，实测**也是 NaN 误报**，不能当反例用例。
 

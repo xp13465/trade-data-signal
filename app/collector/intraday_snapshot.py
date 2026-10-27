@@ -1379,8 +1379,9 @@ def _backfill_concept_daily(concepts: list[dict]) -> int:
 
 # ============ 历史信号宇宙盘中补采（#107，2026-09-11）============
 # 背景：首页历史信号弹窗走势图盘中无当日点，根因=盘中 affected 只重导
-# 「今日 index_daily 有当日行 ∩ 历史信号宇宙」，103 个历史信号指数
-# （csi_*/gz_*/港股行业/外盘等）今日盘中 index_daily 无行 → 不重导 →
+# 「今日 index_daily 有当日行 ∩ 历史信号宇宙」，历史信号宇宙那一批指数
+# （csi_*/gz_*/港股行业/外盘等；宇宙 = signal_daily 出现过的指数集合，
+# 数量随数据增长、不写死）今日盘中 index_daily 无行 → 不重导 →
 # R2 index/{iid}-all.json 停昨日 → 前端无当日点可画。
 # 方案：历史信号宇宙中腾讯 qt 有实时码的指数，盘中批量补采实时价 →
 # UPSERT 写 index_daily 当日行（与 _backfill_index_daily 同模式，写真实 OHLC）
