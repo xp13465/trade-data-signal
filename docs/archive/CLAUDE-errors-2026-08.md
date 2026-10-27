@@ -2,7 +2,7 @@
 
 > 本节为 CLAUDE.md §18 犯错积累与防重犯(2026-08-08 起)原文全量快照,由 CLAUDE.md 整理提炼(去重12+提炼8+归档3大件)归档。
 > 原文出处:CLAUDE.md L205-287(归档前版本,commit 见 git log)。CLAUDE.md 现保留索引+防重犯精华,索引能反向追到此原文。
-> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L53 过错锚点 + E01-E30 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 53 = 零丢失校验锚(机检 `scripts/check_ledger.py`)。
+> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L55 过错锚点 + E01-E31 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 55 = 零丢失校验锚(机检 `scripts/check_ledger.py`)。
 > 归档日期:2026-08-12
 
 ---
@@ -107,11 +107,11 @@
 ## 防重犯锚点索引(2026-08-12 建立,根 CLAUDE.md §18 索引表反向追原文用)
 
 > 用法:命中场景 → 读根 CLAUDE.md §18 索引表 → grep 锚点 id → 读本文件对应行号原文(含根因+场景+防重犯)。
-> 零丢失校验锚:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` 应 == 本文件表头/根 CLAUDE.md §18 声称的 53,一致=零丢失(机检 `python3 scripts/check_ledger.py`)。
+> 零丢失校验锚:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` 应 == 本文件表头/根 CLAUDE.md §18 声称的 55,一致=零丢失(机检 `python3 scripts/check_ledger.py`)。
 > 注意:本文件行号会随未来编辑漂移,追到后若行号对不上按锚点 id 关键词 grep 定位。
 > 「**机检=**」字段(2026-10-18 加,评鉴 P9⑥):每条锚点行尾带 `机检=是(闸门:<脚本/闸门名>)` 或 `机检=否`。判据:**是** = 该条约束**现存可指认的自动拦闸门**(脚本/CI/hook,改名要跟着改);**否** = 目前只靠纪律执行(其中「是否可机检化」留 P5 逐条评估,此字段只表达现状不表达潜力)。**新增/补录锚点必带此字段**,由 `scripts/check_ledger.py` F 维机检(缺字段即 FAIL)。
 
-### 过错锚点(53 条;线性列表,锚点 id 可 `grep` 反查原文,与根 CLAUDE.md §18 滚动窗锚点 id 一致)
+### 过错锚点(55 条;线性列表,锚点 id 可 `grep` 反查原文,与根 CLAUDE.md §18 滚动窗锚点 id 一致)
 
 L01 | 通知丢失不设cron傻等 → 防重犯:§11 cron兜底必设 | archive:L13 | 机检=否
 L02 | DB方案理解反复3次 → 关键决策前复述确认 | archive:L14 | 机检=否
@@ -173,7 +173,11 @@ L52 | 改「被 tests/ 源码形状守卫盯的源文件」未跑全量 pytest(P
 
 L53 | 商汤代理测试实例·命令前缀必须带 `ttp-`(2026-09-07 pkill 误杀生产 8899 事故,用户拍板采纳) → 启动/清理商汤代理测试实例时,命令前缀统一 `ttp-`(如 `python3 ttp-proxy-18999 ...`,或测试脚本/日志命名带 ttp- 前缀,与 sensenova-rotate-proxy.py 既有 TTP_PORT/TTP_LOG 等 TTP_* 环境变量前缀同族);**清理测试实例前必须先排除生产 pid,禁止裸 `pkill -f "sensenova-rotate-proxy.py"`**(2026-09-07 实施清理测试实例时匹配过宽,把生产 8899 进程一起杀了,靠 launchd KeepAlive 自动恢复无持久影响)。杀进程按端口精确定位:`lsof -ti :<port>` 拿 pid 再 kill,或用 `pkill -f "ttp-"`;生产 pid 用 `lsof -ti :8899` 核对排除。| 补录(事故日期 2026-09-07;2026-10-18 补入台账,事实取自 `.claude/skills/role-implementer/SKILL.md`「新增教训」段,该 skill 未改动) | 机检=否
 
-### 经验锚点(30 条,非过错,适用场景;线性列表,锚点 id 可 `grep` 反查原文)
+L54 | 改了生产定时任务的**执行时点**，文档无人跟(2026-10-22 云上 `trade-futures-backfill.timer` 时点改为 **19:45/21:20**(原 20:05/21:00)，而 5 份活文档共 7 处仍写旧时点，至 2026-10-27 才被发现 —— 漂了 **5 天零症状**：无告警、无机检、无人察觉) → ①生产定时任务的**时点**在云上**手动管理**(`/etc/systemd/system/*.timer`，**不在 git，`git pull` 不更新**)，改它时必须**同批**扫全文时点副本逐处同步(`docs/site-deployment.md` / `docs/data-sources.md` / `docs/data-dictionary.md` / `docs/72h-monitor-plan.md` / 前端 `app.js` 文案 等)；②判「文档写错还是代码写错」**前先查云上真实 timer**(`systemctl list-timers`)，不许按文档反推(本次先假设代码错，实为文档过时)；③时点类散文无闸门可拦 ⇒ 每次改动后**主动上报主控**复核，不指望机检兜(同族：§14 定时任务时点 / §22 同一事实多副本) | (2026-10-27 新加；来源：2026-10-22 timer 改时点 vs 2026-10-27 文档全扫) | 机检=否
+
+L55 | 超时预算**内外层只改一边 + 多副本不同步**(r2-consistency 2026-10-26 23:20 那轮跑 **904s** 被**脚本自己**的 `run_to 900` 杀掉 `status=124`；复算最坏 **26 URL × 2 次尝试 × 25s + 退避 ≈ 1352s > 900s** ⇒ 预算结构性不足；且内层 `run_to 900` 与外层 systemd `TimeoutStartSec=960` 是**成对**的同一事实，存在 **4 份副本**：代码 `.sh` / unit 生成源 `docs/deploy/systemd-units-20260912.md` / 云上快照 `docs/deploy/systemd-units-cloud-snapshot.txt` / 云上真实 unit(**手动管理，git pull 不更新**)) → ①改超时预算前必须按**最坏路径**复算(重试次数 × 单次超时 + 退避)，禁用中位数/常态耗时估；②内层 `run_to`/`timeout` 与外层 `TimeoutStartSec` **成对改**、外层必须 > 内层并留梯度(否则外层先杀，内层修复**完全无效**)；③四副本同步，云上真实 unit 必须手工改 + `daemon-reload` + `systemctl show -p TimeoutStartUSec` 核生效值；④机检 `scripts/systemd_timeout_gradient_audit.py --dump <云上快照> --check-doc`(doc==快照，挂 `main-merge.sh` 7.8) + `--units-dir /etc/systemd/system --snapshot <仓库快照> --check-snapshot`(快照==云上，挂云上 `trade-cloud-unit-patrol.timer`) | (2026-10-27 新加；来源：r2-consistency 904s 被杀 + 修复 `5b0ebe018` / 云上 unit 960→1600) | 机检=是(闸门:scripts/systemd_timeout_gradient_audit.py)
+
+### 经验锚点(31 条,非过错,适用场景;线性列表,锚点 id 可 `grep` 反查原文)
 
 E01 | R2 purge_cache分批避超时500(每批30+batch sleep) | archive:L55 | 机检=否
 E02 | 持仓hold_days改交易日口径 | archive:L56 | 机检=否
@@ -205,3 +209,4 @@ E27 | v1.1.0 版本发布机制:动 AI 推荐/降亏过滤核心功能必须发�
 E28 | 免费异源自动切换多重兜底(6组+qvix3重):数据源单源项→寻免费异源组合逐源实测,任一源必须有其他源兜底,fallback不走同源 | archive:L111 | 机检=否
 E29 | token优化6条0成本行为层(§5.5):输出简洁/命令静默/派单只回结论/@文件直引/小任务不spawn/失败方向用rewind | archive:L112 | 机检=否
 E30 | 优化/修复落地后定期巡检机制(每天18:05 cron,6项指标+判定标准+严重止损回滚小问题迭代) | archive:L113 | 机检=否
+E31 | 判定「某机制是否**真在生效**」禁用「日志没报错 / 日志里没出现」当证据(日志沉默可能是该组件根本不写这条日志、子进程 stderr 不落主日志、缓冲丢失) → 改用两条确定性证据：①**代码路径确定性**(读判定/路由代码，确认给定输入下必然走哪条分支，如 `_route_upload_lock` 只有 `cmd == "upload-data-files"` 才进小锁路由)②**环境反证**(构造「只有机制真生效才可能出现」的观测事实并实测，如全局锁被 etf 占着时 nextday 10 秒完成 ⇒ 结构上不可能走全局锁)。两条都不成立 = 证据不足，如实说不下结论 | archive:正文·2026-10-27(nextday 小锁通道判定) —— 注：归档正文历史文本另有 1 处悬空「E31」指「派单前先核真值」，属未入索引的不同所指(§6④ 历史不追改) | 机检=否
