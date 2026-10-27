@@ -189,8 +189,10 @@ def test_09_static_lock_source_shape():
     """静态锁: 送达门控在源码中到位, 旧的无条件 pop / `subj` 已消失(§18 L49 防假绿)。"""
     src = Path(rfm.__file__).read_text(encoding="utf-8")
     _chk("if _notify_repeat_failure(mid, n, today, msg):" in src, "缺送达门控 if")
-    _chk("counts.pop(mid, None)  # 送达后清零暂歇" in src, "缺送达后清零分支")
-    _chk("counts[mid] = n  # 未送达: 保留计数, 下轮重试(不静默丢告警)" in src, "缺未送达保留分支")
+    # 2026-10-28 告警降噪批次3-A(A2): 返回值语义由「已发出」改为「已处置」
+    # (sent/suppressed/digested), 清零分支注释随之更新; 门控结构不变。
+    _chk("counts.pop(mid, None)  # 已处置后清零暂歇" in src, "缺已处置后清零分支")
+    _chk("counts[mid] = n  # 未处置: 保留计数, 下轮重试(不静默丢告警)" in src, "缺未处置保留分支")
     _chk("counts.pop(mid, None)  # 达标发一次后清零暂歇" not in src, "旧无条件 pop 仍在")
     _chk("notify_sent(out)" in src, "缺 notify_sent 判据")
     _chk("\n           subj, body," not in src, "旧 subj 未定义名仍在(片段)")

@@ -29,13 +29,19 @@ self_heal 重试或明日 update_all 兜底)。
   发邮件+飞书(复用既有通道)。计数跨轮持久化(独立 state 文件 data/retry_failed_metrics_count.json,
   按 mid 计), 达阈值发一次后清零暂歇, 防每轮轰炸(memory alert-dedup-mechanism 同精神)。
 - 配置/disabled/no-func 类失败不累计(重试无意义, 告警无价值, 防噪音)。
+- 2026-10-28 告警降噪 3-A(A2): 上述通知补 `--dedup-key retry_failed_<mid> --dedup-window 86400`
+  ⇒ 同一指标 24h 内最多 1 封(原: 清零后每 3 轮≈45min 又直发, 7 天台账 22 条)。返回值语义由
+  「已发出」改为「**已处置**」= 发出(sent) / 去重窗抑制(suppressed) / 已并入当日摘要(digested);
+  未处置(failed/结果文件缺失且无旧判据/超时/异常)仍不清零, 下轮重试(fail-open, 宁多勿吞)。
 """
 import datetime as dt
 import json
 import os
 os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))  # #245 批2 W1: 台账 source 溯源
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # 定位 REPO(脚本所在目录的父目录)。用 .absolute() 不用 .resolve():
@@ -143,12 +149,33 @@ def _is_collect_failure(msg: str) -> bool:
     return not (msg or "").startswith(_CONFIG_FAIL_PREFIX)
 
 
+# notify.py `--result-file` 的 status 口径(notify.py:113-118): sent=至少一个真渠道发出;
+# suppressed=去重窗内主动抑制(设计行为, 非故障); digested=已并入当日摘要 buffer(23:25 统一
+# 交付 = 已处置, notify.py:116/3572, 与 check_failed_units 同口径)。三者都是「已处置」。
+# failed / noop / dry_run / 未知 ⇒ 未处置(保守, 下轮重试)。
+_DISPOSED_STATUSES = frozenset({"sent", "suppressed", "digested"})
+
+
+def _result_status(result_path: Path) -> str | None:
+    """读 notify.py `--result-file` 的 status; 读不到(缺失/损坏/无 status)= None ⇒ 走文本兜底。"""
+    try:
+        payload = json.loads(result_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — 文件缺失/损坏/权限异常一律回落旧判据, 绝不外抛
+        return None
+    status = payload.get("status") if isinstance(payload, dict) else None
+    return status if isinstance(status, str) and status else None
+
+
 def _notify_repeat_failure(mid: str, count: int, date: str, msg: str) -> bool:
     """重采连续失败达阈值 → 调 notify.py 发邮件+飞书(复用既有通道, 不另起炉灶)。
 
-    返回**是否真发出**(notify_sent 判据, rc 不可信: notify.py main() 全出口恒 return 0)。
-    调用方据此决定是否清零计数(2026-10-09 #241 同族B波): 未送达 ⇒ **不清零** ⇒ 保留计数
-    下轮重试; 送达才清零暂歇, 否则「先清零后 fire-and-forget」会让达标告警永久丢失。
+    返回**是否已处置**(不再是「是否已发出」):
+      · 已处置 = result-file status ∈ {sent, suppressed, digested} —— 真发出 / 24h 去重窗内
+        主动抑制(设计行为) / 已并入当日摘要 buffer(23:25 交付)。三者都说明告警已被接住。
+      · 未处置 = status ∈ {failed, noop, dry_run} 或未知; 或结果文件读不到且旧文本判据
+        (notify_sent)也判不出真发出; 或子进程超时/异常 ⇒ 调用方**不清零**计数, 下轮重试
+        (fail-open, 宁多勿吞, 与 #241/#282 MF3 同口径 —— 不因本次改造丢掉「未送达不清零」防线)。
+    rc 不可信(notify.py main() 全出口恒 return 0), 判据以 result-file 为准、文本判据只兜底。
     """
     subject = f"[告警][重采失败] {mid} 连续 {count} 轮重采失败"
     body = (f"<b>{mid}</b> 在 <b>{date}</b> 自愈重采(每15min一轮)已连续 <b>{count}</b> 轮失败"
@@ -156,23 +183,50 @@ def _notify_repeat_failure(mid: str, count: int, date: str, msg: str) -> bool:
             f"最近失败原因: <code>{msg}</code><br>"
             f"这是 2026-09-30 资金面 6 源全败盲区根治#3: 前序 17 轮失败零告警(只 return False 打日志)。<br>"
             f"建议: 查该数据源(fetch_market_fund_flow 等)是否封禁/停服, 必要时手动补采或人工介入。")
-    cmd = [sys.executable, str(_ROOT / "scripts" / "notify.py"),
-           subject, body, "--from-prefix", "[告警]"]
+    tmpdir: Path | None = None
     try:
+        # 临时结果文件目录(对齐 schedule_monitor.sh 停摆直发块的既有写法)。
+        # mkdtemp 失败(磁盘满/FD 耗尽)不阻塞告警: 退化为不传 --result-file, 只走文本兜底。
+        tmpdir = Path(tempfile.mkdtemp(prefix="retry-failed-notify-"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify] 结果文件目录创建失败(本次仅用文本兜底判据): {e}", file=sys.stderr)
+    result_path = tmpdir / "result.json" if tmpdir is not None else None
+    try:
+        cmd = [sys.executable, str(_ROOT / "scripts" / "notify.py"),
+               subject, body, "--from-prefix", "[告警]",
+               # 2026-10-28 告警降噪 3-A(A2): 同一 mid 24h 内最多 1 封。不去重时失败持续期
+               # 每 3 轮≈45min 直发一封(7 天台账 22 条)。去重统一走 notify 的 dedup,
+               # 本脚本不另建状态文件(§5.4⑦: 不搞第二份实现)。
+               "--dedup-key", f"retry_failed_{mid}", "--dedup-window", "86400"]
+        if result_path is not None:
+            cmd += ["--result-file", str(result_path)]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         out = (r.stdout or "") + (r.stderr or "")
-        sent = notify_sent(out)
         if r.returncode != 0:
             print(f"[notify] retry_failed 通知退出码 {r.returncode}: {(r.stderr or '')[-200:]}", file=sys.stderr)
-        elif sent:
-            print(f"[notify] {mid} 连续 {count} 轮失败已发通知", flush=True)
+        status = _result_status(result_path) if result_path is not None else None
+        if status is None:
+            # 兜底(旧判据保留): 结果文件读不到 ⇒ 退回 notify_sent 文本判据, 判「已发」才算已处置。
+            disposed = notify_sent(out)
+            why = "文本兜底判据"
         else:
-            print(f"[notify] {mid} 连续 {count} 轮失败告警**未确认送达** ⇒ 不清零计数, 下轮重试: {out[-200:]}",
-                  file=sys.stderr)
-        return sent
-    except Exception as e:  # noqa: BLE001
-        print(f"[notify] retry_fail 通知异常: {e}", file=sys.stderr)
+            disposed = status in _DISPOSED_STATUSES
+            why = f"result-file status={status}"
+        if disposed:
+            print(f"[notify] {mid} 连续 {count} 轮失败已处置({why})", flush=True)
+        else:
+            print(f"[notify] {mid} 连续 {count} 轮失败告警**未处置**({why}) ⇒ 不清零计数, 下轮重试: "
+                  f"{out[-200:]}", file=sys.stderr)
+        return disposed
+    except Exception as e:  # noqa: BLE001 — 超时/子进程异常 ⇒ 未处置, 不清零(下轮重试)
+        print(f"[notify] retry_fail 通知异常(未处置, 下轮重试): {e}", file=sys.stderr)
         return False
+    finally:
+        if tmpdir is not None:
+            try:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+            except Exception:  # noqa: BLE001 — 清理失败绝不外抛(告警主路径优先)
+                pass
 
 
 def get_failed_metrics(date: str) -> list[dict]:
@@ -297,11 +351,13 @@ def main() -> int:
                     # 送达才清零(2026-10-09 #241 同族B波): 旧实现「先 counts.pop 后
                     # fire-and-forget」= 先落签(记 已告警)后通知且丢返回值 ⇒ 通道全挂时
                     # 计数已被清零暂歇, 达标告警永久丢失(下轮从 0 重新累计)。改为
-                    # 判 notify_sent 返回: 未送达 ⇒ 保留计数下轮重试(不占「已发一次」位)。
+                    # 判「已处置」返回(2026-10-28 A2): 发出/24h 去重窗抑制/已并入摘要 都算
+                    # 已处置 ⇒ 清零暂歇; 未处置(failed/结果读不到且旧判据不认/超时)⇒ 保留
+                    # 计数, 下轮重试(不占「已发一次」位, 不静默丢告警)。
                     if _notify_repeat_failure(mid, n, today, msg):
-                        counts.pop(mid, None)  # 送达后清零暂歇, 防每轮轰炸(去重)
+                        counts.pop(mid, None)  # 已处置后清零暂歇, 防每轮轰炸(另加 24h dedup 双保险)
                     else:
-                        counts[mid] = n  # 未送达: 保留计数, 下轮重试(不静默丢告警)
+                        counts[mid] = n  # 未处置: 保留计数, 下轮重试(不静默丢告警)
                 else:
                     counts[mid] = n  # 未达阈值, 累加后下次再判
             else:

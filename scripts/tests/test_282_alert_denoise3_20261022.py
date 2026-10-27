@@ -497,6 +497,9 @@ def test_a_omission_guard_all_producer_keys_classified():
         "r2_upload_async_skip:": "按锁路径动态跳过键, 非停摆",
         "p0_smoke_": "测试用键",
         "self_heal_repeat_fail_": "自愈连续失败提醒按任务动态(self_heal.sh 自愈通道, 非发布/备份停摆)",
+        # 2026-10-28 告警降噪批次3-A(A2): retry_failed_metrics 的重采失败通知按 metric_id
+        # 动态键; 单指标失败下一轮重采即可能自愈(非发布/备份产物停摆), 显式 24h 窗 ⇒ 非停摆级。
+        "retry_failed_": "按 metric_id 动态的重采连续失败键(单指标自愈, 24h 窗, 非停摆)",
     }
     pats = [
         r'--dedup-key"?\s*,\s*"([A-Za-z0-9_|.:-]+)"',
