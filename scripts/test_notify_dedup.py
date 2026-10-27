@@ -30,6 +30,7 @@ U15  P2⑥ 身份标识 token（sh510300/sz159915）异源不互吞；计量数�
 跑法：python3 scripts/test_notify_dedup.py   （可重复跑；全部 tmp 目录隔离）
 """
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -68,6 +69,12 @@ class DedupTests(unittest.TestCase):
                             setattr(notify, a, o))
         # 三渠道全 mock 成功（绝不真发）；仅邮件侧记录调用参数供断言（每条消息恰记 1 次）
         self.sent = []
+        # 批次3-B(2026-10-28): warning 聚合批默认改为「并入当日摘要」(不直发)。本模块验的是
+        # buffer/指纹状态语义, 需要**可观测的直发路径** ⇒ 显式关闭摘要链路, notify 走
+        # fail-open 直发(生产同样存在的分支, 不是测试专用后门)。摘要并入语义见
+        # scripts/tests/test_alert_denoise_batch3b_20261028.py。
+        os.environ["ALERT_DIGEST_DISABLE"] = "1"
+        self.addCleanup(os.environ.pop, "ALERT_DIGEST_DISABLE", None)
 
         def fake_channel(subject, body, **k):
             return True

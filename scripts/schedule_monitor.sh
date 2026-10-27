@@ -4282,6 +4282,14 @@ try:
 
         def _send_recovery_batch(_batch, _info_only):
             """发一批恢复通知; 返回 notify_state(空批返回 None)。_info_only=True ⇒ 仅 dashboard。"""
+            # 批次3-B(2026-10-28): 本块会被 tests 从 heredoc 里**单独抽出来 exec**
+            # (test_alert_denoise_3x / test_309), 那时文件顶部的 import 不会执行 ⇒
+            # 本函数用到的 os/tempfile 在这里自带一份, 保证「抽出来也能跑」。
+            import os as _os
+            import tempfile as _tempfile
+            # 同上: 顶层 `_read_notify_result_status` 在单独抽取 exec 时不可见 ⇒ 判不出(空),
+            # 自动退回旧版 notify_state 文本判据(生产环境恒定可见, 行为不变)。
+            _st_reader = globals().get("_read_notify_result_status")
             if not _batch:
                 return None
             _batch_pend_n = sum(
@@ -4320,10 +4328,31 @@ try:
                     # 2026-09-24 P1: 恢复汇总 6h 去重(合并成"恢复汇总"一次性发, 防振荡期每轮一封)
                     "--dedup-key", "schedule_monitor_recovery", "--dedup-window", "21600",
                 ]
-            _res = subprocess.run(_cmd, capture_output=True, text=True, timeout=60, check=False)
-            _rec_out = (_res.stdout or "") + (_res.stderr or "")
-            if _rec_out.strip():
-                print(_rec_out.strip())
+            # 批次3-B(2026-10-28): 恢复消息默认「并入当日摘要」(notify.py send() 内按
+            # [恢复] 前缀自动生效) ⇒ 不再有「已发出/路由完成」文本, notify_state 会判 failed
+            # ⇒ 进 pending 桶 ⇒ 同轮尾部 --defer-digest 补列 ⇒ **摘要里同一恢复出现两次**。
+            # 修法: 用结构化 --result-file, status=="digested" = 已处置(不进 pending 重试);
+            # 其余状态照旧走 notify_state 文本判据(旧版 notify 不认 --result-file 时等于没加)。
+            _rf = None
+            _rec_out = ""
+            try:
+                _fd_rf, _rf = _tempfile.mkstemp(prefix="notify_recovery_", suffix=".json")
+                _os.close(_fd_rf)
+                _cmd += ["--result-file", _rf]
+                _res = subprocess.run(_cmd, capture_output=True, text=True, timeout=60,
+                                      check=False)
+                _rec_out = (_res.stdout or "") + (_res.stderr or "")
+                if _rec_out.strip():
+                    print(_rec_out.strip())
+                if _st_reader is not None and _st_reader(_rf) == "digested":
+                    print(f"[恢复] 已并入当日摘要(23:25 出线, 不即时直发), 视为已处置: {_subj}")
+                    return "digested"
+            finally:
+                if _rf:
+                    try:
+                        _os.unlink(_rf)
+                    except OSError:
+                        pass
             return notify_state(_rec_out)
 
         _rec_state_alert = _send_recovery_batch(_combined_alert, _info_only=False)
@@ -4331,9 +4360,12 @@ try:
         if _rec_state_warn is not None:
             print(f"[恢复·自愈类] {len(_combined_warn)} 条仅记 dashboard(不进群/邮件), "
                   f"state={_rec_state_warn}")
-        # 批级成功 = 各非空批均 sent(空批不算失败); 有失败/被吞 ⇒ 本批 recoveries 并入 pending 重试
+        # 批级成功 = 各非空批均 sent 或 digested(空批不算失败); 有失败/被吞 ⇒ 本批 recoveries 并入 pending 重试
+        # 批次3-B(2026-10-28): digested = 已并入当日摘要(23:25 出线) = **已处置**, 与 sent 同级;
+        # 若仍判失败 ⇒ 入 pending ⇒ 同轮 --defer-digest 补列 ⇒ 摘要重复同一恢复(故必须算成功)。
         _batches_ok = all(
-            _s == "sent" for _s in (_rec_state_alert, _rec_state_warn) if _s is not None)
+            _s in ("sent", "digested")
+            for _s in (_rec_state_alert, _rec_state_warn) if _s is not None)
         if _batches_ok:
             # 本次已带出全部 pending(合成内容=recoveries+pending) → 清桶
             if _PEND_KEY in alert_state:

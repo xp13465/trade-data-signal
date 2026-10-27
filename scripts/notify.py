@@ -47,6 +47,7 @@ except ImportError:  # launchd/裸系统 python 无 certifi: _ssl_cafile() 回�
     certifi = None  # (rebase 冲突解决: main 侧 certifi 回退 + 本分支 hashlib 指纹, 两边全保留)
 import functools
 import hashlib
+import html
 import json
 import os
 import re
@@ -197,9 +198,36 @@ def _ledger_key_of(subject: str, key: str | None) -> str:
     return hashlib.sha1(str(subject).encode("utf-8")).hexdigest()[:12]
 
 
+# 升级提醒主题标记(发送侧 noise_class="escalation" 判据, 覆盖两处模板):
+#   · #196 / R7: "[告警] ... 连续 N 天, 升级 critical)"
+#   · schedule_monitor._active_escalate: "[告警] 【持续故障升级】{label}"
+_ESCALATION_SUBJECT_MARKERS = ("升级 critical", "【持续故障升级】")
+
+
+def _noise_class_of(subject: str) -> str | None:
+    """发送侧噪音标签（告警降噪批次3-B，2026-10-28）：按主题判定，只打四类。
+
+    值域与 `scripts/alert_noise_count.py` docstring 的映射表逐字一致：
+      digest / warning_batch / recovery / escalation；其余（普通告警/业务通知）→ None。
+    「只打标不改行为」：本函数只喂 `_record_ledger(noise_class=...)`，不参与任何路由/
+    抑制判定；重复类(repeat)与 routine_notice 由尺子读侧按谓词计算，不在发送侧打标。
+    """
+    s = str(subject or "").strip()
+    if s.startswith("[告警·摘要]"):
+        return "digest"
+    if s.startswith("[告警·聚合]"):
+        return "warning_batch"
+    if _RECOVERY_PREFIX_RE.match(s):
+        return "recovery"
+    if any(m in s for m in _ESCALATION_SUBJECT_MARKERS):
+        return "escalation"
+    return None
+
+
 def _record_ledger(subject: str, results: dict, *, tier: str | None = None,
                    key: str | None = None, source: str | None = None,
                    group: str | None = None, merged_count: int = 0,
+                   noise_class: str | None = None,
                    dry_run: bool = False) -> None:
     """向单点台账追加一行 JSONL（best-effort，任何失败不影响通知主链路）。
 
@@ -209,6 +237,12 @@ def _record_ledger(subject: str, results: dict, *, tier: str | None = None,
     key ：dedup_key 或 subject 哈希；source：显式 > NOTIFY_SOURCE > sys.argv[0]。
     group：飞书群 key（alert/report/...），供查询面区分告警群 vs 报告群功能输出口径。
     merged_count：本条聚合消息「被并入的条目数」（L2 预算/摘要层预留，默认 0）。
+    noise_class：**发送侧噪音标签**（告警降噪批次3-B，2026-10-28；可选，默认 None）。
+      发送侧打标值域（单一事实源，与 scripts/alert_noise_count.py 模块 docstring
+      逐字一致）= digest / warning_batch / recovery / escalation；routine_notice 是尺子
+      预测值、不在发送侧打标；repeat 由读侧按 24h 谓词算出、不发标签。
+      只影响 `alert_noise_count.py` 的归因口径，不改变任何发送行为；旧行无此字段=None，
+      读侧一律 `.get()` 兼容。
     dry_run=True 直接短路（不写台账，与 latest.md 同契约）。
     """
     if dry_run or os.environ.get("ALERT_LEDGER_DISABLE") == "1":
@@ -233,6 +267,9 @@ def _record_ledger(subject: str, results: dict, *, tier: str | None = None,
         }
         if merged_count:
             rec["merged_count"] = int(merged_count)
+        if noise_class:
+            # 批次3-B：只打四类（见 docstring 值域）；None 不写字段（=旧行形态，读侧兼容）
+            rec["noise_class"] = str(noise_class)
         line = json.dumps(rec, ensure_ascii=False) + "\n"
         p = _ledger_path()
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -336,6 +373,21 @@ ALERT_DOMAIN_STATE_FILE_NAME = adr.ALERT_DOMAIN_STATE_FILENAME
 ALERT_DIGEST_SEEN_FILE_NAME = adr.ALERT_DIGEST_SEEN_FILENAME
 ALERT_AGGREGATE_SUBJECT_RE = re.compile(r"^\[告警·(?:摘要|聚合)\]")   # 聚合/摘要消息自身绝不入聚合
 DIGEST_RECOVERY_TRACE_REASON = "recovery_closure"       # 恢复类「已直发」留痕条目的 reason
+# 批次3-B(2026-10-28): 恢复类「只入摘要、未即时直发」条目的 reason(与上面「已直发」区分,
+# 摘要正文措辞不得把未外发写成已外发)。
+DIGEST_RECOVERY_ABSORB_REASON = "recovery_digest_only"
+# 批次3-B(2026-10-28): warning 聚合批「并入摘要」条目的 reason(与超预算/域聚合区分)。
+DIGEST_WARNING_BATCH_REASON = "warning_batch_digest_only"
+# 摘要**单条**正文字符上限(原有 3000 字截断的单一实现)。批次3-B(2026-10-28)起:
+# 汇聚类正文(warning 聚合批/恢复批, 可能 20+ 条明细)一律走 `_absorb_split_to_digest`
+# **按行拆成多段**分别入摘要 —— 保证每段都在本上限内, 明细一条不少(§23.10 内容保真:
+# 超长只能拆段, 不许截断/省略/「等 N 条」)。禁在别处重复写 3000 字面量。
+DIGEST_ENTRY_BODY_LIMIT = 3000
+# 「成批」条目的 reason：摘要正文必须把**明细逐条**展开(内容保真 §23.10)。
+# 单条告警条目的 body 是告警正文, 摘要里只列标题即可; 但 warning 聚合批/恢复批的**全部
+# 信息都在 body 的逐条明细里**(20 条 warning / 20 条恢复), 只列 subject 等于丢内容
+# ⇒ flush_digest 对这些 reason 额外展开明细行(见 _split_body_lines)。
+_DIGEST_DETAIL_REASONS = (DIGEST_WARNING_BATCH_REASON, DIGEST_RECOVERY_ABSORB_REASON)
 # 摘要正文里的人读原因标签(§6 说人话: 用户可见文案不暴露英文标识; jsonl 里仍是原标识符)
 DIGEST_REASON_LABELS = {
     "over_budget": "超当日类别预算",
@@ -343,6 +395,8 @@ DIGEST_REASON_LABELS = {
     "domain_inhibited": "同一故障域静默窗内派生",
     "rollover_digested": "前日已并入的同一重复",
     DIGEST_RECOVERY_TRACE_REASON: "闭环信号留痕(已直发)",
+    DIGEST_RECOVERY_ABSORB_REASON: "恢复信号(本次并入摘要, 未即时单独外发)",
+    DIGEST_WARNING_BATCH_REASON: "warning 聚合批(本次并入摘要, 未单独外发)",
     "unmapped": "未映射类别(兜底)",
 }
 
@@ -1240,7 +1294,8 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
          source: str | None = None,
          ledger_tier: str | None = None, ledger_key: str | None = None,
          ledger_group: str | None = None, merged_count: int = 0,
-         budget_exempt: bool = False, dedup_window: int | None = None) -> dict:
+         budget_exempt: bool = False, dedup_window: int | None = None,
+         digest_only: bool = False) -> dict:
     """多渠道分发通知（邮件 + Telegram + 飞书）。各渠道独立失败不互相阻塞。
 
     先邮件后 Telegram 再飞书，任一渠道失败不影响其他。返回聚合结果：
@@ -1264,6 +1319,12 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     feishu_post（2026-08-11 飞书格式模板）：post 富文本数据（build_feishu_post 产出）。
       仅 report 群生效（买卖点/汪汪队信号消息用），alert/agent_done/follow 群忽略保持 text。
     邮件兜底保留：飞书失败不阻塞、邮件照发（SEVERE 告警邮件始终发，防飞书故障无通知）。
+    digest_only（告警降噪批次3-B，2026-10-28）：True ⇒ 本消息**默认只并入当日摘要**
+      （23:25 一条出线），不即时外发。仅对「非 severe + 告警群 + 非停摆通道」生效；
+      摘要链路不可用（ALERT_DIGEST_DISABLE=1 / ALERT_BUDGET_DISABLE=1 / buffer 追加失败）
+      ⇒ **fail-open 退回即时直发**（宁多发不吞）。恢复类前缀自动开启本开关（见下方
+      「恢复留痕并入摘要」段），调用方无需改；返回体在吸收成功时为
+      {"email": False, "telegram": False, "feishu": False, "digested": True}。
     """
     # B3 恢复即静默清零（2026-08-26）：恢复类消息（[恢复]/[72h恢复] 等）到达时清除
     # warning 同源指纹的去重状态，下次同源告警从第 1 次重新计（防「已恢复→复发却被旧
@@ -1321,6 +1382,44 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
         print(f"[notify][stall] 停摆级直发(绕过预算/域聚合) key={_stall_key} "
               f"首现={_sctx.get('first_seen')} 连续={_sctx.get('consecutive')}",
               file=sys.stderr)
+    # ── 批次3-B(2026-10-28): 恢复留痕「改为并入摘要」而非即时直发 ─────────────
+    # 口径: 恢复类 = 闭环信号, 但现网每天 ~11 条各自一封邮件+飞书, 信息价值低于打扰成本
+    # ⇒ 默认并入当日摘要【闭环信号(恢复)】段(23:25 一条出线), 使「恢复即静默清零」的
+    # 语义保留、外发收敛。三条硬边界:
+    #   ① B3 清零在上面**已经执行**(本段不改它、也不绕开 send() 直接吸收 ⇒ CLI/恢复留痕
+    #      各调用点一条路径统一生效, 旧调用点不会漏)。
+    #   ② 停摆通道(critical/stall)在上面已短路 ⇒ 绝不被本段吸收(停摆必须 2h 内独立直发)。
+    #   ③ 摘要链路不可用(ALERT_DIGEST_DISABLE=1 / ALERT_BUDGET_DISABLE=1 / append 失败)
+    #      ⇒ **fail-open 退回即时直发**(宁多发不吞, 与预算/域 gate 同取舍)。
+    # 选「改 send() 默认值」而非「逐个改调用方」的理由: 恢复类前缀的发送点分散在 CLI 直调
+    # (schedule_monitor.sh / monitor_72h.sh / check_data_gap_alerts.py)与 send_tiered 等多处,
+    # 改调用方 = 新增恢复点必漏; 挂在 send() 内按 _RECOVERY_PREFIX_RE 自动识别, 一条规则
+    # 覆盖全部现有与未来恢复点。digest_only=True 供调用方显式声明同类「只入摘要」消息。
+    _digest_only = bool(digest_only or _is_recovery)
+    if _digest_only and not dry_run and not severe and not _stall and _grp == "alert":
+        _dg_ok, _dg_why = _digest_chain_available()
+        if not _dg_ok:
+            print(f"[notify][digest] 恢复留痕并入摘要跳过({_dg_why}) → fail-open 直发: "
+                  f"{str(subject)[:80]}", file=sys.stderr)
+        elif _absorb_split_to_digest(
+                subject, body,
+                # 键 = 恢复类去重键 + **内容哈希**：schedule_monitor 的全部恢复批共用
+                # dedup_key="schedule_monitor_recovery"，若只用它，当日多批不同恢复会被
+                # 幂等并成 1 行而丢掉后续批次的正文明细(内容保真 §23.10)。
+                key=(f"recovery|{_ledger_key_of(subject, ledger_key)}|"
+                     f"{hashlib.sha1((str(subject) + chr(10) + str(body)).encode('utf-8')).hexdigest()[:8]}"),
+                category="recovery", source=source, from_prefix=from_prefix,
+                reason=DIGEST_RECOVERY_ABSORB_REASON):
+            print(f"[notify][digest] 恢复留痕已并入当日摘要 buffer(23:25 出线, 不即时直发): "
+                  f"{str(subject)[:80]}", file=sys.stderr)
+            # latest.md 留痕(L46④): 吸收=不外发, 但「当日有信号」仍要在流水里可查,
+            # 不占通道口径(results 传 None ⇒ 不渲染通道行, 防误读成「已发出又失败」)。
+            _mirror_latest_entry("notice", subject, body, results=None, source=source)
+            return {"email": False, "telegram": False, "feishu": False,
+                    "digested": True}
+        else:
+            print(f"[notify][digest] 恢复留痕并入失败(buffer append) → fail-open 直发: "
+                  f"{str(subject)[:80]}", file=sys.stderr)
     if (severe and not dry_run and not budget_exempt and not _stall
             and os.environ.get("ALERT_BUDGET_DISABLE") != "1"):
         _cat = adr.category_of(ledger_key, subject)
@@ -1516,7 +1615,8 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
                    key=ledger_key, source=source,
                    group=(ledger_group or feishu_group
                           or _resolve_feishu_chat_key(subject, from_prefix, severe)),
-                   merged_count=merged_count, dry_run=dry_run)
+                   merged_count=merged_count,
+                   noise_class=_noise_class_of(subject), dry_run=dry_run)
     return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
 
@@ -2092,6 +2192,20 @@ def _commit_rollover_seen(sig: str, now=None) -> None:
         print(f"[notify][state] rollover 记忆写入失败: {e}", file=sys.stderr)
 
 
+def _digest_chain_available() -> tuple[bool, str]:
+    """摘要链路是否可用（告警降噪批次3-B 的 fail-open 判据，单一实现防两份漂移）。
+
+    不可用的两种显式状态：`ALERT_DIGEST_DISABLE=1`（摘要 flush 全停）与
+    `ALERT_BUDGET_DISABLE=1`（预算/吸收总开关）。返回 (可用?, 不可用原因)。
+    append 失败由调用方各自按返回值 fail-open，不在本函数内探测。
+    """
+    if os.environ.get("ALERT_DIGEST_DISABLE") == "1":
+        return False, "ALERT_DIGEST_DISABLE=1"
+    if os.environ.get("ALERT_BUDGET_DISABLE") == "1":
+        return False, "ALERT_BUDGET_DISABLE=1"
+    return True, ""
+
+
 def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str,
                       source: str | None = None,
                       from_prefix: str | None = None,
@@ -2103,7 +2217,9 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
 
     返回 True=已并入(或当日同 key 已在 buffer, 幂等命中); False=append 失败
     (调用方 fail-open 落直发, 宁多发不吞, 与 warning defer 的「先 buffer 后状态」取舍一致)。
-    条目字段与 defer_warning 同构(ts/rid 供 _stable_rid 精确清理; body 截 3000)。
+    条目字段与 defer_warning 同构(ts/rid 供 _stable_rid 精确清理; body 截
+    DIGEST_ENTRY_BODY_LIMIT=3000)。**汇聚类多明细正文不要直接塞本函数**——先用
+    `_absorb_split_to_digest` 按行拆段, 否则明细尾部会被本函数截掉(§23.10 内容保真)。
 
     #264(2026-10-15)新增参数(全部**默认值 = 老行为**, L2 既有调用方逐字节不变):
       reason     并入原因标记(域聚合 domain_inhibited / 非 critical 重复 notice_over_budget
@@ -2147,7 +2263,7 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
             "key": _k,
             "category": category,
             "subject": re.sub(r"\s+", " ", str(subject)).strip()[:200],
-            "body": str(body)[:3000],
+            "body": str(body)[:DIGEST_ENTRY_BODY_LIMIT],
             "from_prefix": from_prefix,
             "source": source or os.environ.get("NOTIFY_SOURCE") or "notify.py",
             "reason": reason,
@@ -2163,6 +2279,76 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
     except Exception as e:  # noqa: BLE001
         print(f"[notify][digest] 并入异常(转直发)：{e}", file=sys.stderr)
         return False
+
+
+# 明细里认作「排版标签」的 HTML 元素(去掉标签本身, 保留文字)。**白名单制**:
+# 不在表里的尖括号内容原样保留 —— 告警正文里 `<kw>` / `<YYYYMMDD>` / `<path>` 这类
+# 是**业务占位符/关键词**, 不能当标签吃掉(§23.10 内容保真, 实测踩过: 关键词<kw00> 被删)。
+_HTML_LAYOUT_TAGS = (
+    "b", "i", "u", "s", "strong", "em", "span", "div", "p", "a", "code", "pre",
+    "table", "thead", "tbody", "tfoot", "tr", "td", "th", "ul", "ol", "li",
+    "font", "small", "big", "blockquote", "section", "article", "header", "footer",
+)
+_HTML_LAYOUT_TAG_RE = re.compile(
+    r"</?(?:" + "|".join(_HTML_LAYOUT_TAGS) + r")(?:\s[^<>]*)?/?>", re.IGNORECASE)
+
+
+def _split_body_lines(body) -> list[str]:
+    """把告警正文拆成「一行一条」的纯文本明细(`<br>`/`<hr>` 当换行, 排版标签去掉)。
+
+    HTML 实体还原(生产方对明细里的 < > 已做过转义)。空行丢弃。
+    **不截断条数、不加省略号** —— 内容保真 §23.10(20 条明细必须逐条可见)。
+    """
+    txt = re.sub(r"<hr\s*/?>", "\n", str(body or ""), flags=re.IGNORECASE)
+    txt = re.sub(r"<br\s*/?>", "\n", txt, flags=re.IGNORECASE)
+    txt = _HTML_LAYOUT_TAG_RE.sub(" ", txt)
+    txt = html.unescape(txt)
+    out: list[str] = []
+    for part in txt.split("\n"):
+        line = re.sub(r"\s+", " ", part).strip()
+        if line:
+            out.append(line)
+    return out
+
+
+def _absorb_split_to_digest(subject: str, body: str, *, key: str | None, category: str,
+                            reason: str, from_prefix: str | None = None,
+                            source: str | None = None) -> bool:
+    """把**可能很长**的正文按行拆段并入当日摘要(每段 ≤ DIGEST_ENTRY_BODY_LIMIT)。
+
+    用途 = 汇聚类正文(warning 聚合批 / 恢复批, 可能 20+ 条明细)。§23.10 内容保真:
+    超长只许「拆条/分段落」,**不许截断、省略号、「等 N 条」**; 每段是独立摘要条目
+    (key = `<key>#<段号>`), 明细一条不少, 且同批重试自动幂等(同段 key 命中即不重复写)。
+
+    返回 True = 全部并入(含幂等命中); False = 任一段 append 失败, 或**单行本身超上限**
+    (无法再按行拆) ⇒ 调用方 fail-open 直发全文, 绝不截断。极端下(前几段已写、后面失败)
+    直发内容会与已并入段重复 —— 宁重复不丢(与既有 fail-open 取舍一致)。
+    """
+    lines = _split_body_lines(body)
+    if not lines:
+        lines = [re.sub(r"\s+", " ", str(subject or "")).strip() or "-"]
+    parts: list[str] = []
+    cur: list[str] = []
+    cur_len = 0
+    for ln in lines:
+        if len(ln) > DIGEST_ENTRY_BODY_LIMIT:
+            return False  # 单行超上限: 不能再拆 ⇒ 交给调用方直发全文
+        if cur and cur_len + len(ln) + 1 > DIGEST_ENTRY_BODY_LIMIT:
+            parts.append("\n".join(cur))
+            cur, cur_len = [], 0
+        cur.append(ln)
+        cur_len += len(ln) + 1
+    if cur:
+        parts.append("\n".join(cur))
+    _base = _ledger_key_of(subject, key)
+    for _i, _part in enumerate(parts):
+        if not _absorb_to_digest(subject if len(parts) == 1 else f"{subject} [{_i + 1}/{len(parts)}]",
+                                 _part, key=f"{_base}#{_i}", category=category,
+                                 source=source, from_prefix=from_prefix, reason=reason):
+            print(f"[notify][digest] 拆段并入失败(第 {_i + 1}/{len(parts)} 段) → 调用方直发全量",
+                  file=sys.stderr)
+            return False
+    return True
 
 
 def _bump_digest_hits(key: str, day: str, rid: str = "") -> bool:
@@ -2659,7 +2845,13 @@ def _parse_buffer_lines(raw: bytes) -> tuple[list[dict], list[str]]:
 def flush_warning_batch(dry_run: bool = False) -> dict:
     """把 buffer 中满 30min 窗口的 warning 条目聚合成一封发出（未满窗口的留下轮）。
 
-    返回 {"sent_batch": bool, "n_due": int, "n_remaining": int}。
+    返回 {"sent_batch": bool, "n_due": int, "n_remaining": int, "digested": bool}。
+    - **批次3-B(2026-10-28)**：默认先并入当日摘要（category="warning_batch"，23:25 随
+      摘要一条出线），成功 = 视为「已处置」⇒ `sent_batch=True` + `digested=True`（清 buffer
+      语义与真发出相同）；摘要链路不可用（ALERT_DIGEST_DISABLE=1 / ALERT_BUDGET_DISABLE=1 /
+      append 失败 / 单行本身超摘要单条上限无法拆段）⇒ fail-open 退回直发
+      （同 subject+body），此时 `digested=False`。既有两字段语义不变（新增字段只做说明）。
+      并入是**一组一条摘要条目**（拆条，不把整批塞一条），明细逐条保留（§23.10）。
     - due 条目全部合并为一条消息（标题 N 条聚合 + 正文逐条列出，内容一条不少——
       与 §23.10「拆条拼接不精简」同精神），走 critical 同款渠道（邮件+飞书 alert 群），
       from_prefix 默认 [告警·聚合]。
@@ -2756,6 +2948,9 @@ def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
     dedup_state = _load_warning_dedup_state()
     esc = lambda s: str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")  # noqa: E731
     rows = []
+    # 批次3-B(2026-10-28): 逐组留存「并入摘要」用的明细(组标题 + 该条正文)。
+    # 并入摘要时**一组一条**摘要条目(而不是整批塞一条), 正文短且不会被 3000 字上限截断。
+    group_digests: list[tuple[str, str, str]] = []   # (fp, label, body)
     for fp in group_order:
         grp = groups[fp]
         latest = grp[-1]
@@ -2774,13 +2969,55 @@ def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
         rows.append(
             f"<b>{esc(latest.get('ts', ''))} {label}</b><br>{esc(latest.get('body', ''))}"
         )
+        # 摘要并入用的纯文本明细(时间 + 组标题 + 正文), 一条一组、不省略任何内容。
+        group_digests.append((
+            fp,
+            f"{latest.get('ts', '')} {label}",
+            str(latest.get("body", "")),
+        ))
     body = "<hr>".join(rows)
     prefix = str(due[0].get("from_prefix") or "[告警·聚合]")
-    results = send(subject, body, severe=False, dry_run=dry_run,
-                   from_prefix=prefix, feishu_group="alert",
-                   ledger_tier="warning", merged_count=n)
-    sent = any(results.values())
-    sent = any(results.values())
+    # ── 批次3-B(2026-10-28): 聚合批次「先并入当日摘要」，失败才 fail-open 直发 ────
+    # 口径: warning 聚合批与 23:25 摘要内容同质(都是「未即时外发/等待汇总」的信息),
+    # 每天 ~3-4 封各自一封 ⇒ 改为并入当日摘要(category="warning_batch")。
+    # 成功 = 视为「已处置」(清 buffer, 与 sent 同语义, 下面清理段原样复用)。
+    # 不可用(ALERT_DIGEST_DISABLE=1 / ALERT_BUDGET_DISABLE=1 / append 失败)
+    # ⇒ fail-open 退回现直发(同 subject+body, 下面 send 调用逐字节保留)。
+    # **一组一条摘要条目**(拆条): 每组的标题+正文各自入摘要, 明细一条不少且单条不超
+    # 摘要单条上限(§23.10 内容保真: 超长只拆段不截断)。幂等键 = 组指纹 + **正文哈希**:
+    # 同批重试幂等不重复; 同日后面的新批次即使同指纹但正文不同也各留一条(不丢新明细)。
+    _wb_ok, _wb_why = _digest_chain_available()
+    _digested = False
+    if dry_run:
+        pass  # dry-run 只模拟「若真跑会走哪条路」, 仍走直发打印(不写 buffer)
+    elif not _wb_ok:
+        print(f"[notify][digest] warning 聚合批并入摘要跳过({_wb_why}) → fail-open 直发: "
+              f"n={n}", file=sys.stderr)
+    else:
+        _digested = True
+        for _fp, _label, _gbody in group_digests:
+            _gkey = ("wbatch|" + hashlib.sha1(
+                (_fp + "|" + _gbody).encode("utf-8")).hexdigest()[:16])
+            if not _absorb_split_to_digest(
+                    f"{subject} · {_label}", _gbody, key=_gkey,
+                    category="warning_batch", from_prefix=prefix,
+                    reason=DIGEST_WARNING_BATCH_REASON):
+                _digested = False
+                break
+        if _digested:
+            print(f"[notify][digest] warning 聚合批已并入当日摘要 buffer(23:25 出线, "
+                  f"不即时直发): n={n} 组数={len(group_digests)}", file=sys.stderr)
+        else:
+            print(f"[notify][digest] warning 聚合批并入失败(buffer append) → fail-open 直发: "
+                  f"n={n}", file=sys.stderr)
+    if _digested:
+        results = {"email": False, "telegram": False, "feishu": False, "digested": True}
+    else:
+        results = send(subject, body, severe=False, dry_run=dry_run,
+                       from_prefix=prefix, feishu_group="alert",
+                       ledger_tier="warning", merged_count=n)
+    # 「已处置」= 真发出 或 已并入摘要(两者都要清 buffer; 下面清理段按 sent 判定复用)
+    sent = _digested or any(results.get(ch) for ch in ("email", "telegram", "feishu"))
     snapshot_ok = False
     did_clean = False
     if sent and not dry_run:
@@ -2868,9 +3105,11 @@ def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
     else:
         # 未清理路径（发送失败 / dry_run / 快照失败）：buffer 内容未被删改，按全量计
         n_remaining = max(len(entries), remaining or 0)
-    print(f"[notify][warning] 批发 {n} 条（剩余 {n_remaining} 条）："
-          f"{'已发' if sent else '发送失败留待下轮'}", file=sys.stderr)
-    return {"sent_batch": sent, "n_due": n, "n_remaining": n_remaining}
+    _disp = ("已并入摘要(23:25 出线)" if _digested
+             else ("已发" if sent else "发送失败留待下轮"))
+    print(f"[notify][warning] 批发 {n} 条（剩余 {n_remaining} 条）：{_disp}", file=sys.stderr)
+    return {"sent_batch": sent, "n_due": n, "n_remaining": n_remaining,
+            "digested": _digested}
 
 
 def flush_digest(dry_run: bool = False) -> dict:
@@ -3020,10 +3259,21 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
         _lbl = adr.DOMAIN_LABELS.get(_d, _d)
         rows.append(f"【故障域 {_lbl}】共 {_g['n']} 条, 涉及 {len(_g['sources'])} 个来源脚本: "
                     f"{'、'.join(_g['sources']) or '-'}(域内首条 {_g['first_hm']})")
-    # ② 逐条明细(可逐条检索; 恢复补列条目沿用 [恢复补列] 标注)
+    # ② 逐条明细(可逐条检索; 恢复类条目按来源标注, 措辞不得把未外发写成已外发)
+    #    批次3-B(2026-10-28): send() 恢复默认吸收(reason=recovery_digest_only) ⇒
+    #    「本次并入摘要, 未即时单独外发」; monitor 行级 --defer-digest 的恢复补列沿用旧标。
+    #    成批条目(warning 聚合批/恢复批)的全部信息在 body 明细里 ⇒ 逐条展开(不截断、不省略)。
     for e in merged:
-        _tag = "[恢复补列] " if str(e.get("category")) == "recovery" else ""
+        if str(e.get("category")) == "recovery":
+            _tag = ("[恢复·并入摘要] "
+                    if str(e.get("reason")) == DIGEST_RECOVERY_ABSORB_REASON
+                    else "[恢复补列] ")
+        else:
+            _tag = ""
         rows.append(_row(e, _tag))
+        if str(e.get("reason")) in _DIGEST_DETAIL_REASONS:
+            for _ln in _split_body_lines(e.get("body")):
+                rows.append(f"    · {_ln}")
     # ③ 闭环信号段(#264 件E「恢复类入摘要且可见」): 已直发的恢复只留痕, 不计入被合并数
     if traces:
         rows.append(f"【闭环信号(恢复)】以下 {len(traces)} 条恢复消息**已即时直发**, "
@@ -3231,8 +3481,12 @@ def _main_impl(argv: list[str] | None = None) -> int:
         # #309 F2 P1(2026-10-26): status 如实上报「这批批发邮件到底发没发出」
         # (sent/noop) —— 只改结果文件的状态标注, **不碰任何发送语义**; 调用方据此
         # 把批发的 1 封计入「本轮告警邮件数」(旧版恒 noop ⇒ 漏计 ⇒ 同轮重复发信)。
-        return _finish(0, "sent" if r.get("sent_batch") else "noop",
-                       f"flush-warnings: {r}")
+        # 批次3-B(2026-10-28): 并入摘要成功亦为「已处置」但**没有邮件发出** ⇒ status
+        # 单独报 "digested"(schedule_monitor 的 _flush_alert_mail_delta 只认 sent ⇒
+        # 本批不计入「本轮告警邮件数」, 与事实一致)。
+        _st = ("digested" if r.get("digested")
+               else ("sent" if r.get("sent_batch") else "noop"))
+        return _finish(0, _st, f"flush-warnings: {r}")
 
     # 摘要批发模式（#245 批2；schedule_monitor 每轮尾部调用，自门控静默 no-op）
     if args.flush_digest:

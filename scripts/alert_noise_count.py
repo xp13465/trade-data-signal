@@ -26,6 +26,11 @@
          ⚠️ 打标值与计数分类名不是一回事（标签 ≠ 分类名）：打标值 `routine_notice`
             对应计数分类 `routine`；其余五个同名。映射见 NOISE_CLASS_TO_CATEGORY，
             未知标签原样保留（不静默改写成别的类）。
+         **发送侧打标值域（单一事实源，与 scripts/notify.py:_record_ledger docstring
+         逐字一致）= digest / warning_batch / recovery / escalation；routine_notice 是
+         尺子预测值、不在发送侧打标；repeat 由读侧按 24h 谓词算出、不发标签。**
+         critical 兜底（批次3-B 2026-10-28）：`tier == "critical"` 的行除 escalation 外，
+         任何显式 noise_class 都不得把它降级成噪音（critical 一律按真故障计）。
       ② 否则按谓词回算，**按下表顺序首个命中为准**（互斥，保证各构成之和 = 噪音总数）：
          digest         tier == "digest"
          warning_batch  subject 以 "[告警·聚合]" 开头
@@ -288,6 +293,12 @@ def classify_rows(records: list[dict], days: list[str]) -> dict:
         if tag:
             # 标签 → 分类名映射（routine_notice 标签对应 routine 分类；未知标签原样保留）。
             label = NOISE_CLASS_TO_CATEGORY.get(tag, tag)
+            # C2(2026-10-28 批次3-B): critical 行 = 真故障事件（用户口径「真故障不设上限」），
+            # 除升级提醒(escalation)外, **任何显式 noise_class 都不得把它降级成噪音**。
+            # 发送侧(_noise_class_of)已不产 repeat/routine 标签 ⇒ 本处是读侧兜底, 防将来
+            # 有人在发送侧误打标把真故障洗成噪音。升级提醒仍单列(escalation, 口径待拍板)。
+            if tier == CRITICAL_TIER and label != "escalation":
+                label = None
         else:
             label = predicate_class(rec)
             if label is None and is_repeat and tier != CRITICAL_TIER:

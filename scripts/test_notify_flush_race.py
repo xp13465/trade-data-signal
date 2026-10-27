@@ -31,6 +31,13 @@ sys.path.insert(0, str(ROOT))
 
 import notify  # noqa: E402
 
+# 批次3-B(2026-10-28): warning 聚合批默认改为「并入当日摘要」(不直发)。本用例要验的是
+# 「flush 并发 + 按稳定 rid 精确清理 + 每条目至多推送一次」, 需要**可观测的直发路径**;
+# 故显式关闭摘要链路 ⇒ notify fail-open 直发(生产同样存在的分支, 不是测试专用后门)。
+# 摘要并入路径(含清 buffer 语义/内容保真)由
+# scripts/tests/test_alert_denoise_batch3b_20261028.py 覆盖。
+os.environ.setdefault("ALERT_DIGEST_DISABLE", "1")
+
 # 子进程 worker 用 spawn 启动时需要能重新 import 本测试模块（__main__ 保护下安全）
 N_DUE = 6        # 每个 writer 预写的满窗条目数
 N_APPEND = 8     # append 进程持续追加的新条目数
