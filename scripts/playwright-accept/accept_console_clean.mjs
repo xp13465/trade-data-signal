@@ -13,8 +13,11 @@
 //   ① 每条 CSP 消息记 location(url/line/column) + 完整文本, 按「报告 document URL」分组计数;
 //   ② 只有「我们三个路由的 document」产生的违规判 FAIL, 其它(第三方 origin / about:srcdoc /
 //      data: / 挑战侧同源 document / 4xx 页)降级 INFO 不阻断;
-//   ③ 加挑战页识别(cf-mitigated 头 / 挑战标题)判 UNREACHABLE, 并记录/断言 goto 的 HTTP 状态码。
-//   归类规则是纯函数, 见同目录 console_attribution.mjs; 测试: node --test scripts/playwright-accept/tests/
+//   ③ 加挑战页识别(cf-mitigated 头 / 挑战标题)判 UNREACHABLE, 并记录/断言 goto 的 HTTP 状态码;
+//   ④ 导航落地后核「是不是我们的 document」(跨 origin / 同源异路径 ⇒ UNREACHABLE), 堵住
+//      「跳转到别处 ⇒ 三个路由都算 OK ⇒ 静默 exit 0」的闸门变瞎路径。
+//   归类规则是纯函数, 见同目录 console_attribution.mjs;
+//   测试: node --test scripts/playwright-accept/console_attribution.test.mjs
 import { createRequire } from "module";
 import {
   DEFAULT_ROUTE_TABS,
@@ -79,7 +82,7 @@ async function run(width, isMobile, tag) {
   page.on("pageerror", e => records.push({ type:"pageerror", text:String(e), docUrl:"", route:activeRoute }));
 
   for (const tab of DEFAULT_ROUTE_TABS) {
-    const route = { tab, url: BASE+"/"+tab, status:null, cfMitigated:null, title:"", gotoError:"", state:"PENDING", reason:null };
+    const route = { tab, url: BASE+"/"+tab, status:null, cfMitigated:null, title:"", gotoError:"", finalUrl:"", state:"PENDING", reason:null };
     routes.push(route);
     activeRoute = route; // 之后到达的 console/pageerror 归到这次导航(直到下一次导航开始)
     try {
@@ -96,6 +99,9 @@ async function run(width, isMobile, tag) {
     await page.waitForTimeout(5000);
     // 挑战页标题可能由脚本后置写入, 取等待后的最终标题再判一次
     try { route.title = await page.title(); } catch { route.title = ""; }
+    // 导航落地 URL(含跳转后的最终地址): 跨 origin / 同源异路径 ⇒ 根本没校验到目标页,
+    // 必须判 UNREACHABLE 留痕, 不能静默当 OK(否则三道全"通过"= 静默 exit 0)。
+    try { route.finalUrl = page.url(); } catch { route.finalUrl = ""; }
     const prev = routes.length >= 2 ? routes[routes.length-2] : null;
     const verdict = evaluateRoute({
       status: route.status,
@@ -103,6 +109,8 @@ async function run(width, isMobile, tag) {
       cfMitigated: route.cfMitigated,
       gotoError: route.gotoError,
       prevRouteState: prev ? prev.state : null,
+      finalUrl: route.finalUrl,
+      baseOrigin: BASE_ORIGIN,
     });
     route.state = verdict.state;
     route.reason = verdict.reason;
@@ -134,7 +142,11 @@ async function run(width, isMobile, tag) {
     const http = r.status === null ? (r.gotoError ? "-" : "(same-document)") : String(r.status);
     const cf = r.cfMitigated ? `  cf-mitigated=${r.cfMitigated}` : "";
     const why = r.reason ? `  原因=${r.reason}` : "";
-    console.log(`  路由 ${r.tab}: HTTP ${http} ${r.state}${why}${cf}`);
+    // 落地地址与预期不符时把实际地址打出来(否则只有一句 origin-mismatch, 没法归因到跳去哪了)
+    const landed = (r.reason === "origin-mismatch" || r.reason === "path-mismatch")
+      ? `  落地=${r.finalUrl || "(读不到)"}`
+      : "";
+    console.log(`  路由 ${r.tab}: HTTP ${http} ${r.state}${why}${landed}${cf}`);
   }
   if (consoleErrors.length) console.log("  errors:", JSON.stringify([...new Set(consoleErrors.map(r => r.text))].slice(0,5)));
 

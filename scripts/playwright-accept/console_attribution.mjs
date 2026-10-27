@@ -85,13 +85,45 @@ export function isChallengePage({ title, cfMitigated } = {}) {
 }
 
 /**
+ * 校验一次导航「最终落地的 URL」是否仍是我们的 document(2026-10-27 补, 治闸门变瞎)。
+ * 病: BASE_URL 指向的站点若发生跨 origin 跳转(CDN/Worker/门户拦截页/登录页), 或落地到同源
+ * 但非我们的 document 路径, 旧版照样判 OK ⇒ 三个路由全"正常" ⇒ 静默 exit 0, 等于没校验却报洁净。
+ * 所以导航落地后必须再核一次「这是不是我们的页面」, 不是就判 UNREACHABLE(放行+醒目提示)。
+ *
+ * 返回值与 evaluateRoute 同形: {state, reason}。
+ *   跨 origin                    → UNREACHABLE(origin-mismatch)
+ *   同源但路径不在 OUR_DOCUMENT_PATHS → UNREACHABLE(path-mismatch)
+ *   其它(含拿不到/无法解析的 URL)→ OK(不据此判死, 交给其它判据, 避免把正常情况误判成不可达)
+ */
+export function evaluateNavigationTarget(
+  finalUrl,
+  { baseOrigin = "", ourDocumentPaths = OUR_DOCUMENT_PATHS } = {},
+) {
+  // baseOrigin 缺失(调用方没给 / BASE_URL 非法)时无从判断, 不据此判不可达
+  if (!baseOrigin) return { state: ROUTE_OK, reason: null };
+  let parsed;
+  try {
+    parsed = new URL(String(finalUrl == null ? "" : finalUrl).trim());
+  } catch {
+    return { state: ROUTE_OK, reason: null };
+  }
+  if (parsed.origin !== baseOrigin) return { state: ROUTE_UNREACHABLE, reason: "origin-mismatch" };
+  const path = parsed.pathname || "/";
+  if (!ourDocumentPaths.includes(path)) return { state: ROUTE_UNREACHABLE, reason: "path-mismatch" };
+  return { state: ROUTE_OK, reason: null };
+}
+
+/**
  * 判定一次路由导航的结果。判定顺序即优先级:
  *   1. goto 抛错                          → UNREACHABLE(goto-error)
- *   2. cf-mitigated 头 / 挑战标题          → UNREACHABLE(challenge)
- *   3. HTTP 状态码 >= 400                 → UNREACHABLE(http-status)
- *   4. 状态码 null 且上一条路由已不可达      → UNREACHABLE(prev-route-unreachable)
+ *   2. 落地 URL 不是我们的 document        → UNREACHABLE(origin-mismatch / path-mismatch)
+ *      (跨 origin / 同源异路径跳转 = 根本没校验到目标页, 必须留痕不可静默放行;
+ *       只在调用方传了 finalUrl 时才判, 不传 = 跳过这条, 保持老调用语义不变)
+ *   3. cf-mitigated 头 / 挑战标题          → UNREACHABLE(challenge)
+ *   4. HTTP 状态码 >= 400                 → UNREACHABLE(http-status)
+ *   5. 状态码 null 且上一条路由已不可达      → UNREACHABLE(prev-route-unreachable)
  *      (hash 同文档跳转 page.goto 返回 null 没有新响应; 上一页就是挑战页时不能当成功)
- *   5. 其它                               → OK
+ *   6. 其它                               → OK
  */
 export function evaluateRoute({
   status = null,
@@ -99,8 +131,14 @@ export function evaluateRoute({
   cfMitigated = null,
   gotoError = "",
   prevRouteState = null,
+  finalUrl = "",
+  baseOrigin = "",
 } = {}) {
   if (gotoError) return { state: ROUTE_UNREACHABLE, reason: "goto-error" };
+  if (finalUrl) {
+    const target = evaluateNavigationTarget(finalUrl, { baseOrigin });
+    if (target.state === ROUTE_UNREACHABLE) return target;
+  }
   if (isChallengePage({ title, cfMitigated })) return { state: ROUTE_UNREACHABLE, reason: "challenge" };
   if (typeof status === "number" && status >= 400) return { state: ROUTE_UNREACHABLE, reason: "http-status" };
   if (status === null && prevRouteState === ROUTE_UNREACHABLE) {

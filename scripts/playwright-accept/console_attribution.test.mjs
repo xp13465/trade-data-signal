@@ -15,6 +15,7 @@ import {
   isCspText,
   baseOriginOf,
   normalizeBase,
+  evaluateNavigationTarget,
   documentUrlKind,
   isChallengePage,
   evaluateRoute,
@@ -138,6 +139,49 @@ test("E5 边界: hash 同文档跳转 status=null 且上一路由不可达 → �
     reason: "prev-route-unreachable",
   });
   assert.deepEqual(evaluateRoute({ status: null, prevRouteState: ROUTE_OK }), { state: ROUTE_OK, reason: null });
+});
+
+// ── E7(2026-10-27 补): 导航落地校验 —— 跨 origin / 同源异路径不能静默放行 ─────
+test("E7 导航落地 URL: 我们的 document → OK; 跨 origin → UNREACHABLE(origin-mismatch)", () => {
+  // 正常形态: 根 / 显式 index.html / hash 路由(document 仍是 /)都算我们的
+  for (const url of [`${BASE}/`, `${BASE}/index.html`, `${BASE}/#overview`, `${BASE}/?tab=lab`]) {
+    assert.deepEqual(evaluateNavigationTarget(url, { baseOrigin: ORIGIN }), { state: ROUTE_OK, reason: null }, url);
+  }
+  // 跨 origin 跳转(门户拦截页 / 登录页 / 别的站点): 根本没校验到目标页 ⇒ 不可达, 不能当 OK
+  for (const url of ["https://sss.sugas.site/", "https://challenges.cloudflare.com/x", "http://ss.fx8.store/"]) {
+    assert.deepEqual(
+      evaluateNavigationTarget(url, { baseOrigin: ORIGIN }),
+      { state: ROUTE_UNREACHABLE, reason: "origin-mismatch" },
+      url,
+    );
+  }
+});
+
+test("E7 导航落地 URL: 同源但非我们的 document 路径 → UNREACHABLE(path-mismatch); 读不到 URL 不据此判死", () => {
+  for (const url of [`${BASE}/cdn-cgi/challenge-platform/h/b`, `${BASE}/some/portal/page`]) {
+    assert.deepEqual(
+      evaluateNavigationTarget(url, { baseOrigin: ORIGIN }),
+      { state: ROUTE_UNREACHABLE, reason: "path-mismatch" },
+      url,
+    );
+  }
+  // 空 / 非法 / 没给 baseOrigin: 不据此判不可达(避免把正常情况误判), 交给其它判据
+  for (const url of ["", "   ", "::::not-a-url", null, undefined]) {
+    assert.deepEqual(evaluateNavigationTarget(url, { baseOrigin: ORIGIN }), { state: ROUTE_OK, reason: null }, String(url));
+  }
+  assert.deepEqual(evaluateNavigationTarget(`${BASE}/`, { baseOrigin: "" }), { state: ROUTE_OK, reason: null });
+});
+
+test("E7 路由判定接线: finalUrl 跨 origin ⇒ 该路由 UNREACHABLE, 三路由都如此 ⇒ exit 2(绝不静默 exit 0)", () => {
+  // 三种"看起来正常"的响应(200 + 正常标题 + 无挑战头)也不许把异 origin 判成 OK
+  const verdict = evaluateRoute({ status: 200, title: "某个别家页面", finalUrl: "https://sss.sugas.site/", baseOrigin: ORIGIN });
+  assert.deepEqual(verdict, { state: ROUTE_UNREACHABLE, reason: "origin-mismatch" });
+  // 三个路由全跨 origin ⇒ 不可达 3 ⇒ exit 2(旧版这里是 0 = 闸门变瞎)
+  assert.equal(decideExitCode({ failCount: 0, unreachableRoutes: 3 }), 2);
+  // 违规优先契约不变: 即便同时有不可达, 有真违规仍 exit 1
+  assert.equal(decideExitCode({ failCount: 1, unreachableRoutes: 3 }), 1);
+  // 老调用(不传 finalUrl)语义不变
+  assert.deepEqual(evaluateRoute({ status: 200, title: "信号凯利" }), { state: ROUTE_OK, reason: null });
 });
 
 // ── E6: 退出码契约不变 + 违规优先于不可达 ──────────────────────────────────

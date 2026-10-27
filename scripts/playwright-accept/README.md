@@ -37,9 +37,9 @@ tester 可直接读。
 | `verify_nav_lazy_consistency.mjs` | accum_nav_map 按 ETF 懒加载「前端同构对账机检(§5.4⑦ 强制)」(2026-09-17 feat/nav-lazy-loading):三场景——A block 全量放行 per-ETF(纯懒加载)/B block per-ETF 放行全量(全量 fallback)逐 cell 逐位一致;D 单 code 缺失注入(block 某 code 拆分文件→failed→`__gih_missing_px_`>0 且渲「— 缺价」,证三态门控「未载被吞」bug 未发生)。首页 sim/演进表复用同一 common 内核由 lab 路径覆盖 |
 | `verify_bj50_intraday_degrade.mjs` | 北证50分时双加固验收(2026-09-30 feat 盘中注入minute_series+东财熔断+腾讯day/query备用腿):A EM mock 合法成功路径零变化/A2 腾讯腿/B 实时源全失败+快照带minute_series→画曲线非文字降级/C1 熔断短路(前触发+day兜底取数/C2 偶发失败不误熔断;⚠️ 需本地起 http.server serve worktree static-site 且 data 目录可访问,route 拦截外部源 |
 | `cal_render_regression.mjs` | 情绪日历「旧版 vs 新版」渲染逐位一致回归 + 点日期弹当天明细(2026-09-30 feat 情绪日历加维度说明):双视口(1280/375)断言 D3 日期集合+格子文本+sig+idx+val 逐位一致证明「只增不改」、D5/D6 点日期弹明细、M 系列移动端点击目标/字号;⚠️ 前置依赖=需同时起 8133(新版)/ 8134(旧版)两个本地服务器,单跑必失败 |
-| `accept_console_clean.mjs` | console 洁净度哨兵(#133 复发防线,2026-10-03 加严并挂 main-merge.sh 7.7 发版验收):判 0 CSP 违规 + 0 pageerror;退出码 0=PASS/1=FAIL(违规,发版阻断)/2=UNREACHABLE(路由加载失败未能校验,放行+醒目提示)以与「检测到违规」区分;⚠️ 打线上真实 URL,约 1 分钟;`SKIP_CONSOLE_CLEAN=1` 只在 main-merge 逃生,本脚本本身无逃生钩;2026-10-27 起默认用真实 Chrome UA 访问:Playwright 默认 UA 含 HeadlessChrome 字样会被 Cloudflare 判为机器人 → 踢到挑战页 → 挑战页自身 fetch('data:,') 触发它自己的 CSP 违规 ⇒ 哨兵误报 FAIL(实测默认 UA 4 条违规/13 次挑战,真实 UA 0 条/3 次)。可用 `SENTINEL_UA` 环境变量覆盖;把它改回 HeadlessChrome UA 可复现原误报,用于验证「检测没被弄瞎」。**2026-10-27 可归因化**:每条 CSP 消息记来源 document URL(location)+ 完整文本,按 document 分组计数;只有「我们三个路由的 document」产生的违规算 FAIL,第三方 origin / `about:srcdoc` / `data:` / 挑战侧同源 document / 4xx 页降级 `INFO noise` 不阻断(仍打印可见);加挑战页识别(`cf-mitigated` 头 / 挑战标题)→ UNREACHABLE,并记录+断言 `page.goto` 的 HTTP 状态码。归类规则见 `console_attribution.mjs`(纯函数,单测 `console_attribution.test.mjs`) |
+| `accept_console_clean.mjs` | console 洁净度哨兵(#133 复发防线,2026-10-03 加严并挂 main-merge.sh 7.7 发版验收):判 0 CSP 违规 + 0 pageerror;退出码 0=PASS/1=FAIL(违规,发版阻断)/2=UNREACHABLE(路由加载失败未能校验,放行+醒目提示)以与「检测到违规」区分;⚠️ 打线上真实 URL,约 1 分钟;`SKIP_CONSOLE_CLEAN=1` 只在 main-merge 逃生,本脚本本身无逃生钩;2026-10-27 起默认用真实 Chrome UA 访问:Playwright 默认 UA 含 HeadlessChrome 字样会被 Cloudflare 判为机器人 → 踢到挑战页 → 挑战页自身 fetch('data:,') 触发它自己的 CSP 违规 ⇒ 哨兵误报 FAIL(实测默认 UA 4 条违规/13 次挑战,真实 UA 0 条/3 次)。可用 `SENTINEL_UA` 环境变量覆盖;把它改回 HeadlessChrome UA 可复现原误报,用于验证「检测没被弄瞎」。**2026-10-27 可归因化**:每条 CSP 消息记来源 document URL(location)+ 完整文本,按 document 分组计数;只有「我们三个路由的 document」产生的违规算 FAIL,第三方 origin / `about:srcdoc` / `data:` / 挑战侧同源 document / 4xx 页降级 `INFO noise` 不阻断(仍打印可见);加挑战页识别(`cf-mitigated` 头 / 挑战标题)→ UNREACHABLE,并记录+断言 `page.goto` 的 HTTP 状态码;导航落地 URL 不是我们的 document(跨 origin / 同源异路径)也判 UNREACHABLE(2026-10-27 堵「跳转到别处仍静默 exit 0」)。归类规则见 `console_attribution.mjs`(纯函数,单测 `console_attribution.test.mjs`) |
 | `console_attribution.mjs` | 哨兵归因纯函数模块(2026-10-27,零依赖不 import playwright):document URL 归类 / 挑战页识别 / 路由结果判定 / CSP 与 pageerror 归因 / 按 document 分组计数 / 退出码决策。独立成模块是为了能离线单测 + 变异判别力验证 |
-| `console_attribution.test.mjs` | 上者的自动化测试(node 内置 test runner):`node --test scripts/playwright-accept/console_attribution.test.mjs`,覆盖「我们的 document→FAIL / 第三方·srcdoc→INFO / 挑战页→UNREACHABLE / 4xx→加载失败 / 退出码优先级」五类 + 边界 |
+| `console_attribution.test.mjs` | 上者的自动化测试(node 内置 test runner):`node --test scripts/playwright-accept/console_attribution.test.mjs`,覆盖「我们的 document→FAIL / 第三方·srcdoc→INFO / 挑战页→UNREACHABLE / 4xx→加载失败 / 退出码优先级 / 导航落地跨 origin·同源异路径→UNREACHABLE」六类 + 边界 |
 
 > 新增脚本在此索引追加一行。(2026-08-26 补登历史 16 个一次性/专项探针;small-items-batch 六件验收为内联临时断言未落脚本文件,无新增行)
 
@@ -137,11 +137,14 @@ NODE_PATH=/Users/linhuichen/code/trade/scripts/playwright-accept/node_modules \
   BASE_URL=https://ss.fx8.store node scripts/playwright-accept/accept_console_clean.mjs
 
 # 归因规则的自动化测试(不需要浏览器/网络)
-node --test scripts/playwright-accept/tests/*.test.mjs
+node --test scripts/playwright-accept/console_attribution.test.mjs
 ```
 
 退出码契约(与 2026-10-03 版**逐字不变**,main-merge.sh 7.7 依赖它):
 `0` 洁净 / `1` 有真违规(阻断) / `2` 不可达或命中挑战页(放行+醒目提示),违规优先于不可达。
+「不可达」含三种原因:路由加载失败(`goto-error`/`http-status`)、命中挑战页(`challenge`)、
+**导航落地不是我们的 document**(`origin-mismatch` 跨 origin / `path-mismatch` 同源异路径,
+2026-10-27 补:旧版这种情况会静默判 OK ⇒ 三个路由全"通过" ⇒ exit 0,等于没校验却报洁净)。
 
 输出怎么读:
 - `路由 #xxx: HTTP <状态码> OK|UNREACHABLE 原因=<reason>` —— hash 同文档跳转没有新响应,显 `(same-document)`;挑战页显 `原因=challenge` 并带 `cf-mitigated` 头值。
@@ -150,6 +153,7 @@ node --test scripts/playwright-accept/tests/*.test.mjs
 - 空/无法解析 location 的浏览器自产消息:若当时正在校验的路由加载正常 ⇒ 仍算我们的 FAIL(避免把真违规弄瞎);挑战/失败路由 ⇒ INFO。
 
 已知取舍(诚实标注):`about:srcdoc` / `about:blank` / `data:` / `blob:` 这类**继承父 document 策略**的 frame,Playwright 的 `ConsoleMessage` 不暴露所属 Frame ⇒ 拿不到父 document,一律保守降级 INFO。代价:万一我们自己页面的 srcdoc iframe 触发 CSP 违规会被当噪音;目前站点无 srcdoc 用法(`grep -rn srcdoc static-site/ --include=*.js --include=*.html` 零命中),风险可接受。若将来引入 srcdoc,需要改成按 frame 追踪。
+另一条已知取舍(诚实标注):**同源但非根路径的 document**(`same-origin-other-path`,如 `/cdn-cgi/...`)的 CSP 违规不计 FAIL、只降级 INFO —— 理由是这类 document 推测为 Cloudflare/Worker 侧文档(挑战平台脚本等),不是我们页面产生的;代价是万一将来我们自己引入同源子页面 iframe,它的违规会被当噪音,届时需把这条收窄到 `/cdn-cgi/` 前缀再判。
 
 ## 派单模板句(给 reviewer/tester 派单 prompt 复制)
 
