@@ -33,6 +33,7 @@
 import os
 
 from .base import log_collect
+from .index_pct import PCT_CHANGE_PRESERVE_SQL, fill_row_pct
 from ..db import get_conn
 
 # 10 个核心 A 股指数：(baostock_code, tencent_symbol)
@@ -613,13 +614,15 @@ def _tencent_hk_fallback(idx_id: str, date: str, conn, verbose: bool = False) ->
     high = f(33)
     low = f(34)
 
+    # 首行/无 prev 场景兜底(2026-10-29): 源端没给 pct 时用库里更早的前收补(单一实现)
+    pct = fill_row_pct(date, idx_id, price, pct, conn)
     _audit_hist_row(conn, date, idx_id, (open_, high, low, price, pct, amount))
     conn.execute(
         "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, source) "
         "VALUES (?,?,?,?,?,?,?,?, 'backfill') "
         "ON CONFLICT(date, index_id) DO UPDATE SET "
         "open=excluded.open, high=excluded.high, low=excluded.low, "
-        "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount, "
+        f"close=excluded.close, {PCT_CHANGE_PRESERVE_SQL}, amount=excluded.amount, "
         "source=excluded.source",
         (date, idx_id, open_, high, low, price, pct, amount),
     )
@@ -715,6 +718,8 @@ def _sina_global_realtime_fallback(idx_id: str, date: str, conn, verbose: bool =
     # pct 兜底：源端未给则用 price/pre_close 算
     if pre_close and pre_close != 0 and (chg_pct is None or abs(chg_pct) < 1e-9):
         chg_pct = (price - pre_close) / pre_close * 100
+    # 首行/无 prev 场景兜底(2026-10-29): 仍算不出时用库里更早的前收补(单一实现)
+    chg_pct = fill_row_pct(date, idx_id, price, chg_pct, conn)
 
     _audit_hist_row(conn, date, idx_id, (open_, high, low, price, chg_pct, None))
     conn.execute(
@@ -722,7 +727,7 @@ def _sina_global_realtime_fallback(idx_id: str, date: str, conn, verbose: bool =
         "VALUES (?,?,?,?,?,?,?,?, 'backfill') "
         "ON CONFLICT(date, index_id) DO UPDATE SET "
         "open=excluded.open, high=excluded.high, low=excluded.low, "
-        "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount, "
+        f"close=excluded.close, {PCT_CHANGE_PRESERVE_SQL}, amount=excluded.amount, "
         "source=excluded.source",
         (date, idx_id, open_, high, low, price, chg_pct, None),
     )
@@ -797,13 +802,15 @@ def _sina_spot_hk_fallback(idx_id: str, date: str, conn, verbose: bool = False) 
         return False
 
     # spot 无成交额字段,amount 写 None(daily_sina 后续 upsert 覆盖补全)
+    # 首行/无 prev 场景兜底(2026-10-29): 源端没给 pct 时用库里更早的前收补(单一实现)
+    pct = fill_row_pct(date, idx_id, close, pct, conn)
     _audit_hist_row(conn, date, idx_id, (open_, high, low, close, pct, None))
     conn.execute(
         "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, source) "
         "VALUES (?,?,?,?,?,?,?,?, 'backfill') "
         "ON CONFLICT(date, index_id) DO UPDATE SET "
         "open=excluded.open, high=excluded.high, low=excluded.low, "
-        "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount, "
+        f"close=excluded.close, {PCT_CHANGE_PRESERVE_SQL}, amount=excluded.amount, "
         "source=excluded.source",
         (date, idx_id, open_, high, low, close, pct, None),
     )

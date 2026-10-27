@@ -34,6 +34,7 @@ from util_atomic import atomic_write_text  # noqa: E402  (原子写公共模块,
 
 from ..db import get_conn
 from .base import UA, throttle, log_collect, safe_call
+from .index_pct import PCT_CHANGE_PRESERVE_SQL
 from .industry_extras import THS_TO_SW
 
 # 9 核心 A 股指数 + 3 港股宽基 + 4 signals 触发指数（腾讯 qt 支持混合请求）
@@ -1180,7 +1181,7 @@ def _backfill_index_daily(indices: list[dict]) -> int:
             "VALUES (?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(date, index_id) DO UPDATE SET "
             "open=excluded.open, high=excluded.high, low=excluded.low, "
-            "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount, "
+            f"close=excluded.close, {PCT_CHANGE_PRESERVE_SQL}, amount=excluded.amount, "
             "source=excluded.source",
             (today, index_id, idx.get("open"), idx.get("high"), idx.get("low"),
              price, idx.get("pct_change"), idx.get("amount"), "intraday_snapshot"),
@@ -1249,7 +1250,7 @@ def _backfill_industry_daily(industries: list[dict], target_date: str = None) ->
             "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, net_inflow, source) "
             "VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?) "
             "ON CONFLICT(date, index_id) DO UPDATE SET "
-            "pct_change=excluded.pct_change, net_inflow=excluded.net_inflow, "
+            f"{PCT_CHANGE_PRESERVE_SQL}, net_inflow=excluded.net_inflow, "
             "close=excluded.close, amount=excluded.amount, source=excluded.source",
             (today, sw_code, close_val, pct, amt, net, "calc"),
         )
@@ -1367,7 +1368,7 @@ def _backfill_concept_daily(concepts: list[dict]) -> int:
             "VALUES (?,?,?,?,?,?,?,?, 'intraday_snapshot') "
             "ON CONFLICT(date, index_id) DO UPDATE SET "
             "open=excluded.open, high=excluded.high, low=excluded.low, "
-            "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount, "
+            f"close=excluded.close, {PCT_CHANGE_PRESERVE_SQL}, amount=excluded.amount, "
             "source=excluded.source",
             (today, cid, c.get("open"), c.get("high"), c.get("low"),
              c.get("close"), pct, c.get("amount")),
@@ -1524,7 +1525,7 @@ def _backfill_signal_universe_tencent(today: str = None) -> int:
                 "VALUES (?,?,?,?,?,?,?,?, 'intraday_snapshot') "
                 "ON CONFLICT(date, index_id) DO UPDATE SET "
                 "open=excluded.open, high=excluded.high, low=excluded.low, "
-                "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount, "
+                f"close=excluded.close, {PCT_CHANGE_PRESERVE_SQL}, amount=excluded.amount, "
                 "source=excluded.source",
                 (today, iid, d.get("open"), d.get("high"), d.get("low"),
                  price, d.get("pct_change"), d.get("amount")),

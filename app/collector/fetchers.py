@@ -5,6 +5,7 @@
 multisource.py(美财政部/HKEX官方/东财 push2delay/futsseapi/上交所IV自算QVIX)。
 """
 import threading
+import datetime as dt
 from pathlib import Path
 
 import akshare as ak
@@ -748,6 +749,21 @@ def _collect_ths_concept(idx, start_date, end_date):
         return [], f"ths_concept error: {df}"
     if df is None or len(df) == 0:
         return [], "ths_concept empty"
+
+    # 跳年可见化(2026-10-29 根治配套): akshare `stock_board_concept_ths.py` 按年分 chunk
+    # 抓取、某年 chunk 失败静默 `continue`(整年缺失) ⇒ df 首行直接从次年首个交易日开始
+    # ⇒ 首行无 prev ⇒ pct 缺失(下一轮恢复又算回来,表现为「清空↔回填」抖动)。
+    # 这里只打一条 warn 日志便于观察,**不进 collect_log/不告警**:collect_log 里非 ok 状态
+    # 会让前端采集健康度亮黄点(queries.collect_health),那是用户可见告警,与本条「先观察」相悖。
+    try:
+        _first = str(df.iloc[0]["日期"])[:10].replace("-", "")
+        _gap = (dt.datetime.strptime(_first, "%Y%m%d")
+                - dt.datetime.strptime(start_date, "%Y%m%d")).days
+        if _gap > 5:
+            print(f"[warn] thsc 分年 chunk 缺失: {idx['id']} 首行={_first} 请求起={start_date} "
+                  f"(gap={_gap}天,整年 chunk 可能被静默跳过)", flush=True)
+    except Exception:  # noqa: BLE001
+        pass
 
     rows = []
     prev = None

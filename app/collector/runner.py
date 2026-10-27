@@ -17,6 +17,7 @@ from ..db import get_conn
 from ..calendar import last_trading_day
 from . import fetchers
 from .base import log_collect
+from .index_pct import PCT_CHANGE_PRESERVE_SQL, fill_first_pct
 
 # notify.py 路径（告警触发通知用，见 P3-②）
 _NOTIFY_PY = Path(__file__).absolute().parent.parent.parent / "scripts" / "notify.py"
@@ -140,6 +141,14 @@ def upsert_index_rows(rows, source="collect", caller: str | None = None):
     旧行为不变(全字段替换)，新增: ①写 source 列 ②T3 历史行改写审计(见下)。
     """
     conn = get_conn()
+    # pct_change 首行补齐(2026-10-29 根治)：采集返回的 df 第一行没有「上一行 close」⇒
+    # pct=None；而下方 ON CONFLICT 是整段覆盖 ⇒ 好值被抹成 NULL。写库前用库里更早的
+    # 最近一条 close 补 prev(单一实现见 `index_pct.fill_first_pct`)；该序列真正的第一行
+    # 仍保持 NULL(语义正确)。补算失败不阻断采集。
+    try:
+        rows = fill_first_pct(rows, conn)
+    except Exception as e:  # noqa: BLE001
+        print(f"[index-pct] 首行 pct 补算失败(不阻断): {type(e).__name__} {e}", flush=True)
     # T3 历史行改写审计(2026-10-14)：整段全历史 UPSERT 会覆盖历史行(date < 运行日)的值，
     # 此前零保护(docs/ops/trades-wipe-rootfix-20261014.md ③U2)。此处只对「已存在且值实质变化」
     # 的历史行记审计 + 告警(不禁止改写——源值确实可能被修正),新增行不算改写。
@@ -155,7 +164,8 @@ def upsert_index_rows(rows, source="collect", caller: str | None = None):
         "VALUES (?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(date, index_id) DO UPDATE SET "
         "open=excluded.open, high=excluded.high, low=excluded.low, close=excluded.close, "
-        "pct_change=excluded.pct_change, amount=excluded.amount, source=excluded.source",
+        f"{PCT_CHANGE_PRESERVE_SQL}, "
+        "amount=excluded.amount, source=excluded.source",
         [tuple(r) + (source,) for r in rows],
     )
     conn.commit()
