@@ -11,8 +11,12 @@
 // 2026-10-27 可归因化(治「136 条无来源、无法复现、白阻一次发版」):
 //   旧版只留 160 字文本、不记来源 document URL, 出事无法归因。现在:
 //   ① 每条 CSP 消息记 location(url/line/column) + 完整文本, 按「报告 document URL」分组计数;
-//   ② 只有「我们三个路由的 document」产生的违规判 FAIL, 其它(第三方 origin / about:srcdoc /
-//      data: / 挑战侧同源 document / 4xx 页)降级 INFO 不阻断;
+//   ② 归因靠「被违反的 directive 是不是我们文档自己的 CSP 策略」(拿 page.goto 的主文档响应头
+//      content-security-policy + content-security-policy-report-only):
+//        等于我们的策略 ⇒ FAIL; 外来注入策略(如 CF jsd 的 connect-src 'none')⇒ INFO;
+//        拿不到我们的策略 ⇒ fail-closed 判 FAIL(宁可假红不假绿)。
+//      ⚠️ 不能按 location 归因: 实测外部脚本发起的违规, location 报的是**脚本 URL**
+//      (如 /app.min.js), 那正是我们自己的 bundle ⇒ 按 location 归因会把真违规当噪音(闸门变瞎)。
 //   ③ 加挑战页识别(cf-mitigated 头 / 挑战标题)判 UNREACHABLE, 并记录/断言 goto 的 HTTP 状态码;
 //   ④ 导航落地后核「是不是我们的 document」(跨 origin / 同源异路径 ⇒ UNREACHABLE), 堵住
 //      「跳转到别处 ⇒ 三个路由都算 OK ⇒ 静默 exit 0」的闸门变瞎路径。
@@ -62,12 +66,37 @@ function safeLocation(msg) {
   }
 }
 
+const POLICY_HEADERS = ["content-security-policy", "content-security-policy-report-only"];
+
+/**
+ * 取「我们文档自己的 CSP 策略原文」= 主文档响应里的策略头(enforce + report-only 两条都收;
+ * 2026-10-27 13:35 那批 `connect-src 'none'` 噪声来自 report-only 侧, 少收一条就判不准)。
+ * 302 链: 以**最终文档响应**为准(CSP 只对交付该 document 的响应生效); 若最终响应一个策略头都没有
+ * (策略可能被边缘剥离), 再沿 redirectedFrom() 向上游找最近一层带策略的响应 —— 保守, 宁可多收。
+ * 都没有 ⇒ 返回 [] ⇒ 归因侧 fail-closed 判 FAIL(绝不静默放绿)。
+ */
+async function collectOurPolicies(resp) {
+  const out = [];
+  let r = resp;
+  for (let hops = 0; r && hops < 10; hops++) {
+    const h = r.headers() || {};
+    const found = POLICY_HEADERS.map(k => (typeof h[k] === "string" ? h[k].trim() : "")).filter(Boolean);
+    if (found.length) return [...new Set(found)];
+    let prev = null;
+    try { prev = typeof r.request().redirectedFrom === "function" ? r.request().redirectedFrom() : null; } catch { prev = null; }
+    if (!prev) break;
+    try { r = await prev.response(); } catch { r = null; }
+  }
+  return out;
+}
+
 async function run(width, isMobile, tag) {
   const ctx = await (await chromium.launch({ headless: true })).newContext({ viewport:{width,height:844}, isMobile, hasTouch:isMobile, userAgent: SENTINEL_UA });
   const page = await ctx.newPage();
   // records: 原始消息(带「发生时的导航」引用; 导航结束后最终判定回填到 route 对象上)
-  // routes:  每次导航的最终判定 {tab,url,status,cfMitigated,title,gotoError,state,reason}
+  // routes:  每次导航的最终判定 {tab,url,status,cfMitigated,title,gotoError,state,reason,ourPolicies}
   const records = [], routes = [];
+  const printedPolicies = new Set(); // 同一个 document 的策略只打一次(三路由 hash 导航共用一份)
   let activeRoute = null;
   page.on("console", m => {
     const t = m.text();
@@ -82,7 +111,7 @@ async function run(width, isMobile, tag) {
   page.on("pageerror", e => records.push({ type:"pageerror", text:String(e), docUrl:"", route:activeRoute }));
 
   for (const tab of DEFAULT_ROUTE_TABS) {
-    const route = { tab, url: BASE+"/"+tab, status:null, cfMitigated:null, title:"", gotoError:"", finalUrl:"", state:"PENDING", reason:null };
+    const route = { tab, url: BASE+"/"+tab, status:null, cfMitigated:null, title:"", gotoError:"", finalUrl:"", state:"PENDING", reason:null, ourPolicies:[] };
     routes.push(route);
     activeRoute = route; // 之后到达的 console/pageerror 归到这次导航(直到下一次导航开始)
     try {
@@ -92,6 +121,11 @@ async function run(width, isMobile, tag) {
         route.status = resp.status();
         const h = resp.headers() || {};
         route.cfMitigated = Object.prototype.hasOwnProperty.call(h, "cf-mitigated") ? h["cf-mitigated"] : null;
+        route.ourPolicies = await collectOurPolicies(resp);
+      } else {
+        // 同文档导航: 还是同一个 document ⇒ 策略沿用上一路由(不沿用会误判成「拿不到策略」fail-closed)
+        const prevRoute = routes.length >= 2 ? routes[routes.length-2] : null;
+        route.ourPolicies = prevRoute && Array.isArray(prevRoute.ourPolicies) ? [...prevRoute.ourPolicies] : [];
       }
     } catch(e){
       route.gotoError = String(e).slice(0,200);
@@ -116,10 +150,14 @@ async function run(width, isMobile, tag) {
     route.reason = verdict.reason;
   }
 
-  // 归因(纯函数): 一条消息记在「发生时的导航」下, 用该导航的最终判定决定算不算我们的
+  // 归因(纯函数): 一条消息记在「发生时的导航」下, 用该导航的最终判定 + 该 document 的 CSP 策略原文
+  // 决定算不算我们的(⚠️ 不看 location 是谁 —— 外部脚本发起的违规报的是脚本 URL, 如 /app.min.js)
   const cspRecords = records.filter(r => r.type === "csp").map(r => ({
     ...r,
-    ...attributeCspMessage({ text:r.text, locationUrl:r.docUrl }, { baseOrigin:BASE_ORIGIN, route:r.route }),
+    ...attributeCspMessage(
+      { text:r.text, locationUrl:r.docUrl },
+      { baseOrigin:BASE_ORIGIN, route:r.route, ourPolicies:(r.route && r.route.ourPolicies) || [] },
+    ),
   }));
   const perrRecords = records.filter(r => r.type === "pageerror").map(r => ({
     ...r,
@@ -146,14 +184,24 @@ async function run(width, isMobile, tag) {
     const landed = (r.reason === "origin-mismatch" || r.reason === "path-mismatch")
       ? `  落地=${r.finalUrl || "(读不到)"}`
       : "";
-    console.log(`  路由 ${r.tab}: HTTP ${http} ${r.state}${why}${landed}${cf}`);
+    const pol = Array.isArray(r.ourPolicies) ? r.ourPolicies : [];
+    const polNote = pol.length ? `  我们策略=${pol.length}条` : "  我们策略=无(fail-closed)";
+    console.log(`  路由 ${r.tab}: HTTP ${http} ${r.state}${why}${landed}${cf}${polNote}`);
+    // 策略原文打一次即可(排障要看「我们到底声明了什么」, 三路由 hash 导航共用同一个 document)
+    const sig = pol.join("\n");
+    if (pol.length && !printedPolicies.has(sig)) {
+      printedPolicies.add(sig);
+      for (const p of pol) console.log(`    我们文档策略: ${p.length > 400 ? `${p.slice(0,400)}…` : p}`);
+    }
   }
   if (consoleErrors.length) console.log("  errors:", JSON.stringify([...new Set(consoleErrors.map(r => r.text))].slice(0,5)));
 
-  // 按「报告 document URL」分组计数(任务书 E1/E2 的可观测输出)
+  // 按「msg.location().url」分组计数(任务书 E1/E2 的可观测输出)。
+  // ⚠️ 这个 URL 是「报告来源」: 内联脚本/Document ⇒ document URL; 外部脚本 ⇒ **脚本 URL**。
+  //    判归属靠策略比对(见上), 这里的 URL 只用于分组/排障, 不参与谁家策略的判定。
   const groups = groupByDocument([...cspRecords, ...perrRecords]);
   // 分组表恒打(即使 0 条): 出事时能一眼看出「本次到底有没有可归因记录」, 也便于事后 grep
-  console.log("  归因分组(按报告 document URL):");
+  console.log("  归因分组(按 location):");
   if (!groups.length) console.log("    (本视口无 CSP/pageerror 记录)");
   for (const g of groups) {
     console.log(`    [${g.verdict}] ${g.docUrl} × ${g.count}(唯一文本 ${g.uniqueCount})  原因=${g.reason}`);

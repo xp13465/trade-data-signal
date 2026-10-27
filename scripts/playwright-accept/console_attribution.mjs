@@ -147,6 +147,101 @@ export function evaluateRoute({
   return { state: ROUTE_OK, reason: null };
 }
 
+// ── 策略归属比对(2026-10-27 第 3 轮: 从「看 location 是谁」升级为「看被违反的策略是不是我们的」) ──
+//
+// 为什么必须改: Chromium 的 msg.location().url 对**内联脚本 / Document** 报的是 document URL,
+// 但对外部脚本报的是**脚本自己的 URL**(实测: 我们自己的 app.min.js 发起的违规, location 是 /app.min.js)。
+// 旧规则「同源非根路径 ⇒ 一律 INFO」于是把我们自己 bundle 的真违规全降成噪音 ⇒ 闸门变瞎。
+// 新规则: 从消息文本里抽出「被违反的 directive 原文」, 与我们文档自己的 CSP 响应头逐 token 比对——
+//   等于我们的策略 ⇒ 我们的真违规(FAIL); 不等于(注入/挑战侧, 如 CF jsd 的 connect-src 'none')⇒ INFO。
+
+// 消息里「被违反的 directive 原文」句式(Chromium/Edge 引号包裹; 含
+// `Note that 'x' was not explicitly set, so 'default-src' is used as a fallback.` 兜底句式——
+// 那种情况引号里写的就是实际生效的那条 fallback directive, 同一个正则直接命中)。
+const VIOLATED_DIRECTIVE_RES = [
+  /Content Security Policy directive:\s*"([^"]*)"/i,
+  /Content Security Policy directive:\s*'([^']*)'/i,
+];
+
+/**
+ * source-list 归一化(用于逐 token 比较):
+ *  - 小写: CSP 关键字('self'/'none')、scheme、主机名都是 ASCII 大小写不敏感;
+ *  - 去多余空白; 去掉每个 token 尾部的 `;`(消息偶尔把结尾分号一起引进来);
+ *  - 排序: CSP source-list **顺序无语义**(任一 token 命中即放行), 排序后才比得准。
+ * 诚实标注的取舍: URL **路径**部分理论上大小写敏感, 小写化可能把 `/A` 与 `/a` 判成同一值 ⇒ 判 ours(FAIL)。
+ * 方向是「宁可假红不假绿」, 可接受。
+ */
+function canonicalSourceList(tokens) {
+  return [...tokens].sort().join(" ");
+}
+
+function normalizeDirectiveTokens(raw) {
+  return String(raw == null ? "" : raw)
+    .trim()
+    .split(/\s+/)
+    .map((t) => t.replace(/;+$/, "").toLowerCase())
+    .filter(Boolean); // 去空白 + 去掉「只剩分号」的 token
+}
+
+/**
+ * 从一条 CSP 违规消息里抽出被违反的 directive 名与值(纯函数)。
+ * @returns {{directive:string, value:string}|null} null = 抽不出(调用方按 unknown fail-closed)
+ */
+export function extractViolatedDirective(text) {
+  const s = typeof text === "string" ? text : "";
+  for (const re of VIOLATED_DIRECTIVE_RES) {
+    const m = re.exec(s);
+    if (!m) continue;
+    const tokens = normalizeDirectiveTokens(m[1]).filter(Boolean);
+    if (!tokens.length) continue;
+    return { directive: tokens[0], value: tokens.slice(1).join(" ") };
+  }
+  return null;
+}
+
+/**
+ * 把我们的 CSP 策略字符串(可多条: enforce + report-only, 见 driver)解析成 directive → 值集合。
+ * 同名 directive 出现在多条 header 里时全部收进集合(任一命中即算我们的)。
+ */
+export function parsePolicyDirectives(ourPolicies = []) {
+  const map = new Map();
+  const list = Array.isArray(ourPolicies) ? ourPolicies : [];
+  for (const raw of list) {
+    if (typeof raw !== "string") continue;
+    for (const part of raw.split(";")) {
+      const tokens = normalizeDirectiveTokens(part);
+      const [name, ...rest] = tokens;
+      if (!name) continue;
+      if (!map.has(name)) map.set(name, new Set());
+      map.get(name).add(canonicalSourceList(rest));
+    }
+  }
+  return map;
+}
+
+/**
+ * 比对「消息引用的 directive」与我们自己的策略(纯函数, 可单测)。
+ * @returns {{relation:"ours"|"foreign"|"unknown", directive:string, value:string}}
+ *   ours    = 我们策略里有同名 directive 且值逐 token 相同 ⇒ 这条违规是我们自己的策略造成的
+ *   foreign = 同名 directive 存在但值不同, 或我们策略里根本没有这个 directive(不可能是我们的策略原文)
+ *   unknown = 消息里抽不出 directive / 抽出来没有值 / 拿不到我们的策略(空) ⇒ 调用方 fail-closed
+ */
+export function compareDirectiveToOurPolicy(text, ourPolicies = []) {
+  const parsed = extractViolatedDirective(text);
+  if (!parsed || !parsed.value) {
+    return { relation: "unknown", directive: parsed ? parsed.directive : "", value: parsed ? parsed.value : "" };
+  }
+  const ours = parsePolicyDirectives(ourPolicies);
+  if (!ours.size) return { relation: "unknown", directive: parsed.directive, value: parsed.value };
+  const values = ours.get(parsed.directive);
+  if (!values) return { relation: "foreign", directive: parsed.directive, value: parsed.value };
+  const want = canonicalSourceList(parsed.value.split(/\s+/).filter(Boolean));
+  for (const v of values) {
+    if (v === want) return { relation: "ours", directive: parsed.directive, value: parsed.value };
+  }
+  return { relation: "foreign", directive: parsed.directive, value: parsed.value };
+}
+
 function routeInfo(route) {
   return {
     state: route && route.state ? route.state : "PENDING",
@@ -156,15 +251,28 @@ function routeInfo(route) {
 }
 
 /**
- * 归因一条 CSP 消息(纯函数)。
+ * 归因一条 CSP 消息(纯函数)。判定顺序即优先级:
+ *   1. 不是 CSP 违规文本                → INFO(not-csp)
+ *   2. 第三方 origin                    → INFO(third-party-origin, 无条件: 第三方 iframe 自带策略)
+ *   3. about:/data:/blob: 继承父策略 frame → INFO(inherited-frame)
+ *   4. 这次导航不可达(挑战/4xx/加载失败) → INFO(challenge-document / route-unreachable)
+ *   5. 其余同源情形(我们的 document / 我们自己的静态资源如 app.min.js) → 走「策略归属比对」:
+ *        ours    ⇒ FAIL(our-policy-violated)
+ *        foreign ⇒ INFO(foreign-policy(注入/挑战侧))
+ *        unknown ⇒ FAIL(our-policy-unverifiable, fail-closed)
+ *   6. location 空/无法解析              → 用「这次导航是谁」兜底(不变)
+ *
  * @param {{text?:string, locationUrl?:string}} msg
- *        locationUrl = msg.location().url —— Chromium 报的是**发出这条消息的 document/frame** 的 URL
- *        (子 frame 的 console 也会被 page.on('console') 收到, 此时 url 是子 frame 的 URL)。
- * @param {{baseOrigin?:string, route?:object}} ctx
- *        route = 这条消息发生时正在校验的那次导航(最终判定在导航结束后回填, 见 accept_console_clean.mjs)
+ *        locationUrl = msg.location().url。**实测口径(2026-10-27)**:
+ *        内联脚本 / Document 发起的违规 ⇒ 报的是 document 的 URL;
+ *        外部脚本(如我们自己的 app.min.js / common.js)发起的违规 ⇒ 报的是**脚本自己的 URL**。
+ *        所以「location 是同源非根路径」并不等于「不是我们的违规」—— 归属必须看被违反的是谁家策略。
+ * @param {{baseOrigin?:string, route?:object, ourPolicies?:string[]}} ctx
+ *        route        = 这条消息发生时正在校验的那次导航(最终判定在导航结束后回填, 见 accept_console_clean.mjs)
+ *        ourPolicies  = 我们文档自己的 CSP 策略头原文(enforce + report-only 两条都收, 见 driver)
  * @returns {{verdict:string, docUrl:string, reason:string}}
  *
- * 规则要点:
+ * 其余规则要点:
  *  ① 「同源」不等于「我们的」: Cloudflare 挑战页也可能是同源 document(URL 仍是 ss.fx8.store)。
  *     所以同源还必须叠加 route 判定 —— 判成挑战/加载失败的那次导航, 其 document 的违规降级 INFO。
  *  ② about: / data: / blob: 这类继承父策略的 frame: 拿不到父 frame(Playwright ConsoleMessage 不暴露
@@ -178,7 +286,7 @@ export function attributeCspMessage(msg = {}, ctx = {}) {
   const docUrl = typeof msg.locationUrl === "string" ? msg.locationUrl : "";
   if (!isCspText(text)) return { verdict: VERDICT_INFO, docUrl, reason: "not-csp" };
 
-  const { baseOrigin = "", route = null } = ctx;
+  const { baseOrigin = "", route = null, ourPolicies = [] } = ctx;
   const r = routeInfo(route);
   const kind = documentUrlKind(docUrl, { baseOrigin });
 
@@ -192,13 +300,12 @@ export function attributeCspMessage(msg = {}, ctx = {}) {
     return { verdict: VERDICT_INFO, docUrl, reason: "inherited-frame(about:/data:/blob: 无法定位父 document)" };
   }
   if (kind === "third-party-origin") {
+    // E10: 恒 INFO —— 第三方 iframe 自己的策略即使文本与我们的完全相同, 也不能误判成我们的 FAIL
     return { verdict: VERDICT_INFO, docUrl, reason: "third-party-origin" };
   }
-  if (kind === "same-origin-other-path") {
-    return { verdict: VERDICT_INFO, docUrl, reason: "same-origin-non-route-document" };
-  }
 
-  // 到这里 = our-document。若这次导航本身没校验成(挑战页 / 4xx / 加载失败), 违规不属于我们。
+  // 到这里 = 同源(我们的 document, 或我们自己的静态资源 / 同源子页面)。
+  // 若这次导航本身没校验成(挑战页 / 4xx / 加载失败), 这条违规不属于我们的策略。
   if (r.state === ROUTE_UNREACHABLE) {
     return {
       verdict: VERDICT_INFO,
@@ -206,7 +313,13 @@ export function attributeCspMessage(msg = {}, ctx = {}) {
       reason: r.reason === "challenge" ? "challenge-document" : `route-unreachable(${r.reason})`,
     };
   }
-  return { verdict: VERDICT_FAIL, docUrl, reason: "our-route-document" };
+
+  // 归属靠「被违反的 directive 是不是我们文档自己的策略」——不看 location 是谁(外部脚本报的是脚本 URL)
+  const cmp = compareDirectiveToOurPolicy(text, ourPolicies);
+  if (cmp.relation === "ours") return { verdict: VERDICT_FAIL, docUrl, reason: "our-policy-violated" };
+  if (cmp.relation === "foreign") return { verdict: VERDICT_INFO, docUrl, reason: "foreign-policy(注入/挑战侧)" };
+  // 拿不到我们的策略 / 抽不出 directive: fail-closed(保持旧版严格度, 宁可假红不假绿)
+  return { verdict: VERDICT_FAIL, docUrl, reason: "our-policy-unverifiable" };
 }
 
 /**
@@ -227,10 +340,12 @@ export function attributePageError(errorText, ctx = {}) {
 }
 
 /**
- * 按「判定 + 报告 document URL + 原因」分组计数。
+ * 按「判定 + 报告来源 location + 原因」分组计数。
  * 计数口径: count = 累计条数(浏览器每报一次记 1, 不去重);
  *           uniqueCount = 同一完整文本只算 1(看「一类问题刷了多少条」)。
  * 单帧/多帧重复上报都能被这两列同时表达, 不丢信息。
+ * 注意 docUrl 字段 = msg.location().url: 内联脚本/Document 报 document URL, 外部脚本报**脚本 URL**;
+ * 它只用于分组排障, 不参与「算不算我们的违规」判定(判定看 compareDirectiveToOurPolicy)。
  */
 export function groupByDocument(records = []) {
   const map = new Map();
