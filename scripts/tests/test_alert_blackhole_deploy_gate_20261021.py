@@ -19,10 +19,13 @@
     B5 deploy.sh 接线静态守卫(trap / rc=3 分支 / 盘中拒跑不计数)。
     B6 **BLOCK-1**: fund_nav / changelog_current_version 回阻断级; fund_nav 唯一失败 ⇒ rc=1,
        deploy.sh 自愈门(rc≠0)被进入; D3 deploy_consecutive_fail 免域聚合(停摆告警直发)。
-  C history_overwrite 误报口径:
+  C history_overwrite 误报口径(2026-10-28 ★4 修订严重度判据, 见 app/history_audit
+    .plan_signal_daily_alert 与 docs/ops/alert-denoise-a4-research-20261028.md §6):
     C1 消失行能在同 (date,index_id) 找到「出现」行 = 型别变更(每日全量重算设计行为)→ notice。
-    C2 无配对 = 纯丢失 → 仍 critical(判别力不降); 混合场景写明纯丢失条数。
-    C4 **D6**: 配对必须一对一多重集(Counter), 同键多行少补回时仍计入纯丢失。
+    C2 单行纯丢失不再 critical(降噪); 单日大额消失(drop>=20 且占比>=30%)仍 critical 且
+      正文写明纯丢失条数(判别保留)。
+    C3 index_daily「旧行真覆盖」(行龄>=30 天 且 值→值)仍 critical, 独立 dedup key。
+    C4 **D6**: 配对必须一对一多重集(Counter), 同键多行少补回时仍计入纯丢失(正文可核)。
 
 零外发铁律(§18 L48): 全部用例打桩通知出口 + ZeroOutboundTrap 包裹; 不跑任何生产业务脚本
 (deploy.sh / schedule_monitor.sh 只做 `bash -n` 语法校验与源码形状断言, 绝不执行主流程)。
@@ -614,53 +617,74 @@ def test_c1_paired_type_change_is_notice(audit_calls):
     c = audit_calls[0]
     assert c["severe"] is False
     assert c["subject"].startswith("[历史行改写-提示]")
-    assert "设计行为" in c["body"] and "判据局限" in c["body"]
+    assert "设计行为" in c["body"] and "判据(2026-10-28 ★4)" in c["body"]
+    assert c["defer_digest"] is True and c["digest_category"] == "history_overwrite"
     assert c["dedup_key"].endswith(":notice") and c["dedup_window"] == 86400
 
 
-def test_c2_pure_loss_still_critical(audit_calls):
-    """C2: 无配对的消失 = 纯丢失 ⇒ 仍 critical(真故障判别力不降)。"""
+def test_c2_single_pure_loss_is_notice(audit_calls):
+    """C2(★4 修订): 1 行纯丢失不再 critical(会被每日 ~1000 行型别漂移淹没)⇒ 只进摘要;
+    该能力由 kelly 孤儿买检测承担, 判据局限见 audit_signal_daily_store docstring。"""
     conn = _mem_conn()
-    before = {("20261012", "idx_a", "buy")}
-    history_audit.audit_signal_daily_store(conn, before, set(), run_date="20261014")
+    history_audit.audit_signal_daily_store(conn, {("20261012", "idx_a", "buy")}, set(),
+                                           run_date="20261014")
+    assert len(audit_calls) == 1
+    c = audit_calls[0]
+    assert c["severe"] is False
+    assert "纯丢失 1 条" in c["body"] and "待观察" in c["body"]
+    assert c["dedup_key"].endswith(":notice") and c["defer_digest"] is True
+
+
+def test_c2b_bulk_pure_loss_still_critical(audit_calls):
+    """判别保留: 单日大额消失(100 行丢 30, 30%)⇒ critical, 正文写明纯丢失条数。"""
+    conn = _mem_conn()
+    before = {("20261012", f"idx{k:03d}", "buy") for k in range(100)}
+    after = {("20261012", f"idx{k:03d}", "buy") for k in range(70)}
+    history_audit.audit_signal_daily_store(conn, before, after, run_date="20261014")
     assert len(audit_calls) == 1
     c = audit_calls[0]
     assert c["severe"] is True
     assert c["subject"].startswith("[历史行改写]")
-    assert "纯丢失 1 条" in c["body"]
-    assert c["dedup_key"].endswith(":critical")
+    assert "纯丢失 30 条" in c["body"]
+    assert c["dedup_key"].endswith(":critical") and c["defer_digest"] is False
 
 
-def test_c2b_mixed_paired_plus_loss_is_critical(audit_calls):
-    """C2 混合: 有配对型别变更 + 有纯丢失 ⇒ critical, 正文分别标注两类条数。"""
+def test_c2c_mixed_paired_plus_bulk_loss_is_critical(audit_calls):
+    """C2 混合: 配对型别变更 + 大额纯丢失 ⇒ critical, 正文分别标注两类条数。"""
     conn = _mem_conn()
-    before = {("20261012", "idx_a", "buy"), ("20261012", "idx_lost", "buy")}
-    after = {("20261012", "idx_a", "buy_aux")}
+    before = {("20261012", f"idx{k:03d}", "buy") for k in range(60)}
+    after = ({("20261012", f"idx{k:03d}", "buy_aux") for k in range(5)}
+             | {("20261012", f"idx{k:03d}", "buy") for k in range(35, 60)})
     history_audit.audit_signal_daily_store(conn, before, after, run_date="20261014")
     c = audit_calls[0]
     assert c["severe"] is True
-    assert "型别变更 1 条" in c["body"] and "纯丢失 1 条" in c["body"]
+    assert "型别变更 5 条" in c["body"] and "纯丢失 30 条" in c["body"]
 
 
-def test_c3_index_daily_keeps_critical(audit_calls):
-    """举一反三: index_daily 值改写(源值修正)未改动口径 ⇒ 仍 critical(不借机降噪)。"""
+def test_c3_index_daily_old_row_overwrite_still_critical(audit_calls):
+    """举一反三: index_daily「旧行真覆盖」(行龄 300+ 天, 值→值)仍 critical, 独立 dedup key;
+    同批的数量档(small)只是提示 —— 两条各自发出, 旧行不被小批稀释。"""
     conn = _mem_conn()
     conn.execute("INSERT INTO index_daily (date, index_id, close) VALUES (?,?,?)",
-                 ("20261012", "idx_a", 100.0))
+                 ("20250101", "idx_a", 100.0))
     conn.commit()
+    # 2026-10-28 ★4 审查 F2: caller 改为显式登记(未登记 caller 现在 fail-closed),
+    # 这里验证的就是 runner 常态量级档, 故显式传 caller="runner"(断言口径不变)。
     history_audit.audit_index_rows_upsert(
-        [("20261012", "idx_a", 1.0, 1.0, 1.0, 90.0, 0.0, 1e8)],
-        conn=conn, run_date="20261014")
-    assert len(audit_calls) == 1
-    assert audit_calls[0]["severe"] is True
+        [("20250101", "idx_a", 1.0, 1.0, 1.0, 90.0, 0.0, 1e8)],
+        conn=conn, run_date="20261014", caller="runner")
+    old = [c for c in audit_calls if c["dedup_key"].endswith(":old_overwrite")]
+    assert len(old) == 1, [c["dedup_key"] for c in audit_calls]
+    assert old[0]["severe"] is True and old[0]["defer_digest"] is False
+    assert any(c["dedup_key"].endswith(":runner:small") for c in audit_calls), "数量档提示仍在"
 
 
 def test_c4_multiset_pairing_pure_loss_not_masked(audit_calls):
-    """D6: 同 (date,index_id) 多行时配对必须一对一 —— 2 消失只补回 1 行 ⇒ 仍有 1 条纯丢失。
+    """D6: 同 (date,index_id) 多行时配对必须一对一 —— 2 消失只补回 1 行 ⇒ 仍计 1 条纯丢失。
 
     实测依据: 本地库 3155 个键同 (date,index_id) 有多行(如 cgb_10y_etf 同日
     band_hold + buy_special)。用集合判「同键出现过」会把被掩盖的那一行也算成配对,
-    纯丢失漏报 ⇒ critical 漏发(真故障判别力下降)。
+    纯丢失漏报(★4 后严重度看量级, 但正文条数是排查依据, 仍须逐位正确)。
     """
     conn = _mem_conn()
     before = {("20261012", "idx_multi", "buy"), ("20261012", "idx_multi", "buy_special")}
@@ -670,5 +694,5 @@ def test_c4_multiset_pairing_pure_loss_not_masked(audit_calls):
     assert sum(1 for c in changes if c["kind"] == "appeared") == 1
     assert len(audit_calls) == 1
     c = audit_calls[0]
-    assert c["severe"] is True, "有未配对消失行 ⇒ 必须 critical(不得被同键配对掩盖)"
     assert "纯丢失 1 条" in c["body"] and "型别变更 1 条" in c["body"]
+    assert c["severe"] is False, "1 行级不触发 critical(★4 量级判据)"

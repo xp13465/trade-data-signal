@@ -78,7 +78,7 @@ def _audit_hist_partial(conn, date, idx_id, updates):
     """
     try:
         from ..history_audit import audit_index_row_partial
-        audit_index_row_partial(conn, None, date, idx_id, updates)
+        audit_index_row_partial(conn, None, date, idx_id, updates, caller="partial")
     except Exception as e:  # noqa: BLE001
         print(f"[history-audit] index_daily 单行局部审计失败(不阻断): {type(e).__name__} {e}")
 
@@ -1293,7 +1293,9 @@ def _backfill_industry_daily_historical(target_date: str) -> int:
         rows, _msg = _fetch_sw_ohlc_ths(sw_code, target_date, target_date, verbose=False)
         rows = [rw for rw in rows if rw[0] == target_date]
         if rows:
-            upsert_index_rows(rows)
+            # caller=index_backfill(2026-10-28 ★4): 本函数是**历史日期**补采(target_date 可早于今天),
+            # 属计划内回填, 不能沿用 runner 默认(否则回填批被当行情源采集判级, 判据漂移)。
+            upsert_index_rows(rows, caller="index_backfill")
             ths_n += 1
             n += 1
             db_pct = r["pct_change"] if r else None

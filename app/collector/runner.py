@@ -127,10 +127,16 @@ def upsert_metrics_many(metric_id, rows, source="akshare"):
     conn.close()
 
 
-def upsert_index_rows(rows, source="collect"):
+def upsert_index_rows(rows, source="collect", caller: str | None = None):
     """整段 UPSERT index_daily；source 标记写入来源(T5)。
 
     source 取值: collect(行情源真实价) / intraday_snapshot(盘中快照反哺) / calc(计算法合成)。
+    caller(2026-10-28 告警降噪 ★4): 历史行改写的**写入方**维度, 原样传给
+    `history_audit.audit_index_rows_upsert`(分级判据: runner 中/大批量 ⇒ critical;
+    计划内回填 ⇒ notice)。**每个调用点都必须显式传 caller**(值域见
+    `history_audit.CALLER_VALUES`);缺省 None = 未登记 ⇒ 审计侧 fail-closed(WARN + mid/large
+    判 critical)。字符串默认值会让漏标静默继承「runner」语义(2026-10-28 审查 F2 两处全历史
+    回填就是这样漏的),故不再提供默认 caller。
     旧行为不变(全字段替换)，新增: ①写 source 列 ②T3 历史行改写审计(见下)。
     """
     conn = get_conn()
@@ -140,7 +146,7 @@ def upsert_index_rows(rows, source="collect"):
     # 审计失败不阻断采集主流程。
     try:
         from ..history_audit import audit_index_rows_upsert
-        audit_index_rows_upsert(rows, conn=conn)
+        audit_index_rows_upsert(rows, conn=conn, caller=caller)
     except Exception as e:  # noqa: BLE001
         print(f"[history-audit] index_daily 历史行审计失败(不阻断): {type(e).__name__} {e}",
               flush=True)
@@ -233,7 +239,7 @@ def _collect_one_index(idx, start, date):
     try:
         rows, msg = fetchers.collect_index(idx, start, date)
         if rows:
-            upsert_index_rows(rows)
+            upsert_index_rows(rows, caller="runner")
             return iid, "ok", f"{len(rows)} rows"
         return iid, "fail", msg
     except Exception as e:  # noqa: BLE001

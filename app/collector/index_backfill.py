@@ -75,7 +75,8 @@ def _audit_hist_row(conn, date, idx_id, row6):
     """
     try:
         from ..history_audit import audit_index_rows_upsert
-        audit_index_rows_upsert([(date, idx_id) + tuple(row6)], conn=conn)
+        audit_index_rows_upsert([(date, idx_id) + tuple(row6)], conn=conn,
+                                caller="index_backfill")
     except Exception as e:  # noqa: BLE001
         print(f"[history-audit] index_daily 兜底行审计失败(不阻断): {type(e).__name__} {e}")
 
@@ -307,7 +308,7 @@ def verify_and_backfill_indices(date, verbose=True):
                     if rows:
                         src = "tencent"
                 if rows:
-                    upsert_index_rows(rows)
+                    upsert_index_rows(rows, caller="index_backfill")
                     ok += 1
                     details.append((idx_id, "ok", f"backfill {src} close={rows[0][5]}"))
                     if verbose:
@@ -358,7 +359,7 @@ def verify_and_backfill_indices(date, verbose=True):
                 rows = [r for r in rows2 if r[0] == date]
                 src = "ths"
             if rows:
-                upsert_index_rows(rows)
+                upsert_index_rows(rows, caller="index_backfill")
                 ok += 1
                 details.append((sw_id, "ok", f"backfill {src} close={rows[0][5]}"))
                 if verbose:
@@ -394,7 +395,7 @@ def verify_and_backfill_indices(date, verbose=True):
         for tc in thsc_missing:
             rows = _ths_concept_info_fetch(tc["id"], tc["symbol"], date)
             if rows:
-                upsert_index_rows(rows)
+                upsert_index_rows(rows, caller="index_backfill")
                 ok += 1
                 details.append((tc["id"], "ok", f"backfill ths-snapshot close={rows[0][5]} pct={rows[0][6]}"))
                 if verbose:
@@ -484,7 +485,7 @@ def verify_and_backfill_indices(date, verbose=True):
         rows, msg = _fetchers_mod.collect_index(idx_cfg, "20200101", date)
         has_today = rows and any(r[0] == date for r in rows)
         if has_today:
-            upsert_index_rows(rows)
+            upsert_index_rows(rows, caller="index_backfill")
             # 取最新行确认
             latest = conn.execute(
                 "SELECT date, close FROM index_daily WHERE index_id=? ORDER BY date DESC LIMIT 1",
@@ -500,7 +501,7 @@ def verify_and_backfill_indices(date, verbose=True):
             # 3个中证指数(cshklre/cshklc/cshkdiv)腾讯无代码，_tencent_hk_fallback 安全返回 False
             # -> 再用 _sina_spot_hk_fallback(新浪实时行情接口)兜底(2026-07-26 彻底收尾)
             if rows:
-                upsert_index_rows(rows)  # 仍 UPSERT 历史数据
+                upsert_index_rows(rows, caller="index_backfill")  # 仍 UPSERT 历史数据
             fixed = _tencent_hk_fallback(idx_id, date, conn, verbose)
             fallback_src = "腾讯"
             if not fixed:
@@ -522,7 +523,7 @@ def verify_and_backfill_indices(date, verbose=True):
             # (2026-07-31 三重根因修复: 前端 t1 分类已让7-30数据不报红, 此兜底进一步补当日实时价)
             if idx_id in ("dax", "cac40", "ftse100"):
                 if rows:
-                    upsert_index_rows(rows)  # 仍 UPSERT 历史数据
+                    upsert_index_rows(rows, caller="index_backfill")  # 仍 UPSERT 历史数据
                 fixed = _sina_global_realtime_fallback(idx_id, date, conn, verbose)
                 if fixed:
                     ok += 1
@@ -940,7 +941,7 @@ def backfill_history_gaps(date, verbose=True, strict_global=False):
             # 判断是否补到比 latest 更新的数据(rows 第0列=date "YYYYMMDD")
             newer = [rw for rw in rows if rw[0] > latest] if rows else []
             if newer:
-                upsert_index_rows(rows)
+                upsert_index_rows(rows, caller="index_backfill")
                 new_latest = max(rw[0] for rw in newer)
                 fixed += 1
                 if verbose:

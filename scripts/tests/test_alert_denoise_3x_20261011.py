@@ -76,13 +76,20 @@ ACCEPTED_8 = [
 
 
 class _FakeRun:
-    """记录 argv 的假 subprocess.run(不真起子进程 = 零真实外发)。"""
+    """记录 argv 的假 subprocess.run(不真起子进程 = 零真实外发)。
+
+    --result-file 契约(2026-10-28 审查 F1): defer 成功态 = 回写 status "digested";
+    不回写的话调用方会按 fail-open 再直发一次, 断言「只 1 条」就失真。
+    """
 
     def __init__(self):
         self.calls = []
 
     def __call__(self, argv, **kw):
         self.calls.append(list(argv))
+        if "--result-file" in argv:
+            p = Path(argv[argv.index("--result-file") + 1])
+            p.write_text(json.dumps({"status": "digested"}), encoding="utf-8")
         return types.SimpleNamespace(returncode=0, stdout="", stderr="")
 
 
@@ -151,7 +158,10 @@ def test_1_failsafe_all_alert_when_table_missing(monkeypatch, tmp_path):
     calls = _run_alert(monkeypatch, ACCEPTED_8, tmp_path / "nope.json")
     _chk(len(calls) == 1, f"表缺失应告警, 实发 {len(calls)}")
     _chk("8 个" in calls[0][2], "表缺失时应按全量 8 个报")
-    _chk("signal_kelly_frozen_missing_small" in calls[0], "<10 应走 small dedup key")
+    # ★4(2026-10-28): <10 不再走 small dedup key 单发, 改为只进当日摘要(--defer-digest)
+    _chk("--defer-digest" in calls[0], "<10 应走 --defer-digest(只进摘要, 不单发)")
+    _chk("kelly_frozen_missing" in calls[0], "摘要条目应带 digest-category")
+    _chk("signal_kelly_frozen_missing_small" not in calls[0], "<10 不应再用 small dedup key 单发")
 
 
 def test_1_no_notify_when_all_accepted(monkeypatch, accepted_file):

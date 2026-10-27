@@ -275,7 +275,9 @@ def main():
 
     # 批量 upsert 美股指数
     if rows_to_upsert:
-        upsert_index_rows(rows_to_upsert)
+        # 含 sina 兜底返回的**全历史**行(计划内回填), 显式登记 caller=us_morning_backfill ⇒ notice;
+        # 不许靠默认值(曾漏传 ⇒ 被当成 runner 判 critical, 2026-10-28 审查 F2)。
+        upsert_index_rows(rows_to_upsert, caller="us_morning_backfill")
         print(f"=== upsert {len(rows_to_upsert)} 行指数完成 ===", flush=True)
     else:
         print("=== 无指数数据可 upsert ===", flush=True)

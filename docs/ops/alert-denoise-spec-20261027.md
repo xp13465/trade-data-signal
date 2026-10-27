@@ -222,6 +222,8 @@ or "R2 脱节" in _s or "R2脱节" in _s or "异源覆盖" in _s
 
 ## ★4 history_overwrite / kelly 常态事件降级
 
+> ⚠️ 2026-10-28 复核：本段数字前提（4.3 万行/天、2062 条真异常、pending+2h）已被真实数据推翻，实施请看 docs/ops/alert-denoise-a4-research-20261028.md §6。
+
 ### 现状
 - `[历史行改写]` 发送点：`app/history_audit.py:275-350` `_alert`。
   - critical 判据 **L305-308**：`critical = n_pure > 0`（`pure_lost` 为空才 notice；`pure_lost=None`（index_daily）恒 critical，L323）。

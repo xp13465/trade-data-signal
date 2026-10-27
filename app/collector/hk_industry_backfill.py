@@ -28,7 +28,9 @@ def main(verbose: bool = True):
         try:
             rows, msg = fetchers.collect_index(idx, "20100101", "20991231")
             if rows:
-                upsert_index_rows(rows)
+                # 回填类写入(拉全量历史): 告知审计层「计划内回填」, 免得被当行情源 critical
+                # (2026-10-28 告警降噪 ★4; 同 index_backfill.py 全部写入点口径)。
+                upsert_index_rows(rows, caller="index_backfill")
                 ok += 1
                 last = rows[-1]
                 print(f"  ✓ {idx_id} ({idx['name']}): {len(rows)} 行, 最新 {last[0]} close={last[5]}")
