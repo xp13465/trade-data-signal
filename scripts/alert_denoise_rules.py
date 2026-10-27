@@ -1271,23 +1271,40 @@ def ledger_day_notice_index(repo, day=None):
 #   · 停摆级在 gate 之前短路(notify.py, 不进本判据);
 #   · 台账缺失/坏行/异常 ⇒ 空集 ⇒ 直发(fail-open 宁多发不吞)。
 ALERT_REPEAT_ABSORB_DAYS_DEFAULT = 7           # 近 N 天窗口默认值(env 可配)
+ALERT_REPEAT_ABSORB_DAYS_MAX = 3650            # 上限夹紧: env 误配(N 过大)会让窗口起点早于公元 1 年
+                                               # ⇒ strptime - timedelta 抛 OverflowError, 把 notify.send
+                                               # 整条通知链打崩(审查实测 N=1000000); 3650 天=10 年, 远超业务需要。
 ALERT_REPEAT_ABSORB_DAYS_ENV = "ALERT_REPEAT_ABSORB_DAYS"
 REPEAT_RECENT_ABSORB_REASON = "repeat_recent_direct"   # 摘要条目的并入原因(非 tier/noise_class)
 
 
 def repeat_absorb_days() -> int:
-    """近 N 天重复吸收窗口(env `ALERT_REPEAT_ABSORB_DAYS`, 默认 7; 非法值 → 7 + WARN)。"""
+    """近 N 天重复吸收窗口(env `ALERT_REPEAT_ABSORB_DAYS`, 默认 7; 非法值 → 7 + WARN)。
+
+    空值/非整数/<=0 → 回退 7 + WARN; > 3650 → 夹紧到 3650 + WARN(见 ALERT_REPEAT_ABSORB_DAYS_MAX:
+    上限存在的唯一理由是别让 env 误配把窗口起点算到公元 1 年之前, 从而把 notify.send 打崩)。
+    """
     _raw = os.environ.get(ALERT_REPEAT_ABSORB_DAYS_ENV)
-    if _raw is None or str(_raw).strip() == "":
+    if _raw is None:
+        return ALERT_REPEAT_ABSORB_DAYS_DEFAULT
+    _s = str(_raw).strip()
+    if _s == "":
+        print(f"[alert_denoise][warn] {ALERT_REPEAT_ABSORB_DAYS_ENV}={_raw!r} 为空"
+              f"(需 >=1 的整数) → 回退默认 {ALERT_REPEAT_ABSORB_DAYS_DEFAULT} 天", file=sys.stderr)
         return ALERT_REPEAT_ABSORB_DAYS_DEFAULT
     try:
-        _n = int(str(_raw).strip())
+        _n = int(_s)
     except (TypeError, ValueError):
         _n = 0
     if _n < 1:
         print(f"[alert_denoise][warn] {ALERT_REPEAT_ABSORB_DAYS_ENV}={_raw!r} 非法"
               f"(需 >=1 的整数) → 回退默认 {ALERT_REPEAT_ABSORB_DAYS_DEFAULT} 天", file=sys.stderr)
         return ALERT_REPEAT_ABSORB_DAYS_DEFAULT
+    if _n > ALERT_REPEAT_ABSORB_DAYS_MAX:
+        print(f"[alert_denoise][warn] {ALERT_REPEAT_ABSORB_DAYS_ENV}={_raw!r} 超出上限"
+              f" → 夹紧到 {ALERT_REPEAT_ABSORB_DAYS_MAX} 天(防窗口起点越界打崩 notify.send)",
+              file=sys.stderr)
+        return ALERT_REPEAT_ABSORB_DAYS_MAX
     return _n
 
 

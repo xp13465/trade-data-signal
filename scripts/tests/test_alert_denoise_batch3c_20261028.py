@@ -293,6 +293,54 @@ def test_b7_window_configurable_and_illegal_falls_back(env, monkeypatch, capsys)
     assert "ALERT_REPEAT_ABSORB_DAYS" in err and "非法" in err and "回退默认 7" in err
 
 
+def test_b8_huge_env_clamped_and_never_crashes(env, monkeypatch, capsys):
+    """审查返工项: env 超大 N(1000000) 必须夹紧到安全上限, 不许把 notify.send 打崩。
+
+    病根: 窗口起点 = today-(N-1) 天, N 过大 ⇒ 早于公元 1 年 ⇒ `datetime.strptime - timedelta`
+    抛 OverflowError(在 try 之外)⇒ 整条通知链崩(审查实测 `ALERT_REPEAT_ABSORB_DAYS=1000000`)。
+    """
+    monkeypatch.setenv("ALERT_REPEAT_ABSORB_DAYS", "1000000")
+    assert adr.repeat_absorb_days() == adr.ALERT_REPEAT_ABSORB_DAYS_MAX
+    err = capsys.readouterr().err
+    assert "超出上限" in err and str(adr.ALERT_REPEAT_ABSORB_DAYS_MAX) in err, err
+
+    fixed = _freeze(monkeypatch)
+    # 实际窗口断言(夹紧到 3650 天的真实效果): 8 天前(=默认 7 天窗外)的行仍在窗内 ⇒ 并入
+    _seed_ledger(env, [{"ts": (fixed - timedelta(days=8)).strftime("%Y-%m-%d %H:%M:%S"),
+                        "tier": "notice", "key": KEY_STALE, "subject": SUBJ_STALE}])
+    assert KEY_STALE in adr.ledger_recent_direct_keys(env["tmp"], tiers={"notice", "warning"})
+    r = notify.send(SUBJ_STALE, "超大 N 样本", severe=False, ledger_key=KEY_STALE)
+    assert r.get("digested") is True, f"超大 N 下 notify.send 不许崩且窗口按夹紧值生效: {r}"
+
+
+@pytest.mark.parametrize("raw", ["abc", "", "   "])
+def test_b9_blank_or_non_numeric_env_falls_back_with_warn(monkeypatch, capsys, raw):
+    """审查返工项: 非整数 / 空串 / 纯空白 ⇒ 回退 7 且**必须 WARN**(此前空值静默回落)。"""
+    monkeypatch.setenv("ALERT_REPEAT_ABSORB_DAYS", raw)
+    assert adr.repeat_absorb_days() == adr.ALERT_REPEAT_ABSORB_DAYS_DEFAULT
+    err = capsys.readouterr().err
+    assert "ALERT_REPEAT_ABSORB_DAYS" in err and "回退默认 7" in err, err
+
+
+def test_b10_user_ruling_72h_notice_repeat_absorbed_critical_still_direct(env, monkeypatch):
+    """用户拍板(2026-10-28)钉死: **notice 级同签名隔 72 小时复发也要并入摘要**(不即时),
+    critical 同场景仍直发(首报必达不变)。防以后有人按「尺子 24h 窗」改回 24h 口径。
+    """
+    fixed = _freeze(monkeypatch)
+    _seed_ledger(env, [{"ts": (fixed - timedelta(hours=72)).strftime("%Y-%m-%d %H:%M:%S"),
+                        "tier": "notice", "key": KEY_MASS, "subject": SUBJ_MASS}])
+    r = notify.send(SUBJ_MASS, "72 小时前的同签名", severe=False, ledger_key=KEY_MASS)
+    assert r.get("digested") is True, f"用户拍板: notice 隔 72h 复发应并入摘要: {r}"
+    assert env["rec"].mails == [], "并入后不得即时单独外发一封"
+
+    # 对照组: critical 行同场景(台账里有 72h 前同签名 notice 行)仍必须直发
+    env["rec"].mails.clear()
+    r2 = notify.send(SUBJ_MASS, "critical 同场景", severe=False,
+                     ledger_tier="critical", ledger_key=KEY_MASS)
+    assert not r2.get("digested"), f"critical 永不吸收(用户拍板口径不变): {r2}"
+    assert len(env["rec"].mails) == 1, r2
+
+
 # ─────────────────────────── C. 跨日窗口边界(第 6/7/8 天) ───────────────────────────
 @pytest.mark.parametrize("offset_days,expect_digested", [
     (5, True),   # 第 6 天: 窗内
