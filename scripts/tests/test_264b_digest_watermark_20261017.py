@@ -7,6 +7,9 @@
     (10-13~10-16 摘要连续滑到次日 00:00)。
   · 修法(选项②):`last_sent_day` 改记「**已发条目所属最大 day**」(水位线),门控比较改 `<`
     (已发水位未达今日才发)。
+  · ★5a(2026-10-28 批次2)口径变更:00:00 **不再补发** stale,前日遗留并入当晚 23:25 后的
+    摘要(subject 自带「含前日遗留 N 条」)⇒ 本文件用例统一按新口径断言(00:00 no-op、
+    当晚 23:30 发)。
 
 被测面:`scripts/notify.py:flush_digest` / `_flush_digest_locked`(门控 + state 写入)。
 
@@ -19,6 +22,7 @@
   若 00:00 的 stale flush 里的 buffer **同时**含"前日遗留 + 当日(新一日)早期条目",则水位
   会被推到当日至当天 ⇒ 当日 23:25 被挡。此形态仅在"前日真有未发遗留"时出现(修好后正常路径
   不再产生 stale);且条目零丢失(会在次日以 stale 补发)。见 /tmp/pack2-p1-report.md。
+  ★5a(2026-10-28) 起:00:00 根本不 flush(门控要求 HM 到点)⇒ 上述残余形态结构性消失。
 
 跑法: python3 -m pytest -q scripts/tests/test_264b_digest_watermark_20261017.py
 """
@@ -142,29 +146,33 @@ DAY2 = (D0 + timedelta(days=2)).strftime("%Y-%m-%d")
 
 # ══════════ ① 核心回归: 00:00 stale 兜底 flush 不再"抢记新一日" ══════════
 def test_01_stale_flush_midnight_does_not_block_next_day_2325(_iso, monkeypatch):
-    """病灶复现 + 修复验证(判别力核心):
-    第1天 23:30 未发出(模拟失败: 本轮不 flush, 条目留 buffer)→ 次日 00:00 stale flush
-    把第1天条目补发。旧语义下 state=次日 ⇒ 次日晚 23:25 被挡;新语义 state=第1天 ⇒ 次日晚
-    23:25 正常发出。"""
+    """★5a(2026-10-28)口径: 次日 00:00 **不再补发** stale(前日遗留并入当晚 23:30)。
+
+    原 #264b 病灶(00:00 stale flush 抢占「新一日」水位 ⇒ 当晚 23:25 被永久挡住)在新口径下
+    结构性消失。本用例继续守两件事:
+      ① 00:00 不发、不写 state、不清 buffer(不抢水位);
+      ② 当晚 23:25 前日遗留 + 新条目一起发, 水位 = 已发条目最大 day。"""
     alerts = _iso["alerts"]
     # 第1天 23:30 条目(未发, 留 buffer)
     _seed(alerts, [_entry(DAY0, "r2_d1")])
-    # 次日 00:00 → stale flush 补发第1天遗留
+    # 次日 00:00 → 新口径: 不补发(旧口径此处补发并抢写水位)
     _patch_now(monkeypatch, datetime.strptime(DAY1 + " 00:00:30", "%Y-%m-%d %H:%M:%S"))
     calls = _stub_send(monkeypatch)
     r1 = notify.flush_digest()
-    _chk(r1["sent"] is True, f"次日 00:00 stale 应补发, 得 {r1}")
-    st = _state(alerts)
-    _chk(st.get("last_sent_day") == DAY0,
-         f"水位线应=已发条目最大 day(第1天), 不是发送日 {DAY1}, 得 {st}")
-    _chk(_digest_lines(alerts) == [], "已发条目应清空")
-    # 次日晚 23:25(修复点): 新一日条目 → 应正常发出
-    _seed(alerts, [_entry(DAY1, "r2_d2")])
+    _chk(r1["sent"] is False and r1["n"] == 0, f"次日 00:00 应不补发, 得 {r1}")
+    _chk(calls == [], "00:00 不得发送")
+    _chk(len(_digest_lines(alerts)) == 1, "00:00 不得清 buffer")
+    _chk(not (alerts / "alert_digest_state.json").exists(),
+         "00:00 不得写 state(否则可能挡住当晚)")
+    # 次日晚 23:25: 前日遗留 + 新一日条目 → 一起发
+    _seed(alerts, [_entry(DAY0, "r2_d1"), _entry(DAY1, "r2_d2")])
     _patch_now(monkeypatch, datetime.strptime(DAY1 + " 23:30:00", "%Y-%m-%d %H:%M:%S"))
     r2 = notify.flush_digest()
-    _chk(r2["sent"] is True,
-         f"次日晚 23:25 应正常发(旧语义此处被永久挡住), 得 {r2}")
-    _chk(len(calls) == 2, f"应恰 2 次 send, 得 {len(calls)}")
+    _chk(r2["sent"] is True and r2["n"] == 2,
+         f"次日晚 23:25 应发前日遗留+新条目, 得 {r2}")
+    _chk("含前日遗留" in calls[0][0][0], f"subject 应标前日遗留: {calls[0][0][0]}")
+    _chk(_digest_lines(alerts) == [], "已发条目应清空")
+    _chk(len(calls) == 1, f"应恰 1 次 send, 得 {len(calls)}")
     _chk(_state(alerts).get("last_sent_day") == DAY1, "水位线应推进到次日")
 
 
@@ -220,13 +228,14 @@ def test_03_before_2325_noop(_iso, monkeypatch):
 
 # ══════════ ④ 纯 stale 发送 → 水位 = 最大 stale day ══════════
 def test_04_pure_stale_watermark(_iso, monkeypatch):
+    """纯 stale(无当日条目)在水位门控下仍会发 —— ★5a 后只在**当晚 23:25 后**发。"""
     alerts = _iso["alerts"]
     d_prev2 = (D0 - timedelta(days=2)).strftime("%Y-%m-%d")
     _seed(alerts, [_entry(d_prev2, "a"), _entry(DAY0, "b")])
-    _patch_now(monkeypatch, datetime.strptime(DAY1 + " 06:00:00", "%Y-%m-%d %H:%M:%S"))
+    _patch_now(monkeypatch, datetime.strptime(DAY1 + " 23:30:00", "%Y-%m-%d %H:%M:%S"))
     calls = _stub_send(monkeypatch)
     r = notify.flush_digest()
-    _chk(r["sent"] is True, f"隔日 stale 必发, 得 {r}")
+    _chk(r["sent"] is True, f"隔日 stale 应在当晚 23:25 后发, 得 {r}")
     _chk("含前日遗留" in calls[0][0][0], f"subject 应标前日遗留: {calls[0][0][0]}")
     _chk(_state(alerts).get("last_sent_day") == DAY0,
          f"水位=最大已发条目 day(第1天), 得 {_state(alerts)}")

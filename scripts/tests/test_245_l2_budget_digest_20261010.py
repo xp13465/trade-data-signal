@@ -436,20 +436,26 @@ def test_04c_flush_send_fail_keeps_entries(_iso, monkeypatch):
          "失败后不得写 state(否则当日永不重试)")
 
 
-def test_04d_flush_stale_next_day_sends(_iso, monkeypatch):
+def test_04d_flush_stale_next_day_waits_2325_then_sends(_iso, monkeypatch):
     # 日期无关(2026-10-11 修 P0): 条目日 = patch 日的前一天(**同源**), 才恒判 stale。
-    # 原病灶 = 条目日取自真实 `datetime.now()-1d`, patch 却硬编码 10-10; 真实日期 == 10-10
-    # 时 yday == now 日(非 stale)→ 断言语义反转(必发变 no-op)。
+    # ★5a 批次2(2026-10-28)口径变更: 旧行为「隔日 stale 在任何时刻立即发」⇒ 23:30 后的
+    # 遗留条目会在 00:00 再发一条; 现统一只在 >=23:25 窗口发。故 12:00 必须 no-op、条目保留,
+    # 次日 23:30 才发且 subject 标注前日遗留 —— 「隔日仍然发」的可见性语义不丢, 只改时点。
     _now = datetime(2026, 10, 10, 12, 0, 0)
     yday = (_now - timedelta(days=1)).strftime("%Y-%m-%d")
-    _patch_now(monkeypatch, _now)  # 非 23:25 也发(stale)
+    _patch_now(monkeypatch, _now)
     _seed_digest(_iso["alerts"], [_entry(yday)])
     calls = []
     monkeypatch.setattr(notify, "send", lambda *a, **k: (calls.append((a, k)),
                                                          {"email": True, "telegram": False,
                                                           "feishu": True})[1])
     r = notify.flush_digest()
-    _chk(r["sent"] is True and r["n"] == 1, f"隔日 stale 必发, 得 {r}")
+    _chk(r["sent"] is False and calls == [], f"★5a: 非 23:25 窗口不得发 stale, 得 {r}")
+    _chk(len(_digest_lines(_iso["alerts"])) == 1, "滞后时条目必须原样保留")
+
+    _patch_now(monkeypatch, datetime(2026, 10, 11, 23, 30, 0))
+    r2 = notify.flush_digest()
+    _chk(r2["sent"] is True and r2["n"] == 1, f"次日 23:30 隔日 stale 必发, 得 {r2}")
     _chk("含前日遗留" in calls[0][0][0], f"stale 摘要 subject 应标注前日遗留: {calls[0][0][0]}")
 
 

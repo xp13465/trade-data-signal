@@ -103,6 +103,20 @@ def _today() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
+def _freeze_now(monkeypatch, dtv: datetime) -> None:
+    """★5a(2026-10-28): 摘要合并口径改为「00:00 不补发, 前日遗留并入当晚 23:30」。
+
+    flush 门控要求 `HM` 到点(23:25 后)才发, 故凡是靠「前日 stale 必触发」的渲染用例,
+    必须把**被测模块**的时钟钉到当晚 23:30(日期仍由运行时 now() 动态推导, 不写死字面量,
+    隔天仍绿 —— §18 L51)。只替换 notify.datetime 引用, 不动标准库 datetime 类。
+    """
+    class _DT(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dtv
+    monkeypatch.setattr(notify, "datetime", _DT)
+
+
 def _ledger_row(key: str, subject: str = "", *, day=None, group="alert",
                 tier="critical") -> dict:
     return {"ts": f"{day or _today()} 09:00:00", "group": group, "tier": tier,
@@ -353,7 +367,7 @@ def test_d2_l2_over_budget_path_bumps_hits(_iso):
     _chk(recs[0].get("hits_ts"), "L2 路径命中后应有 hits_ts")
 
 
-def test_d2_flush_renders_recent_hm(_iso):
+def test_d2_flush_renders_recent_hm(_iso, monkeypatch):
     """flush 摘要把 hits>1 的行渲染成 `xN(最近 HH:MM)`(仍 1 行)。"""
     a = _iso["alerts"]
     yday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -361,14 +375,16 @@ def test_d2_flush_renders_recent_hm(_iso):
                       "key": "r2_unreachable", "category": "r2", "subject": "r2 不可达",
                       "body": "b", "from_prefix": None, "source": "pipe.sh",
                       "reason": "over_budget", "hits": 2, "hits_ts": f"{yday} 21:16:00"}])
-    res = notify.flush_digest(dry_run=False)  # stale(前日) ⇒ 必触发
+    # ★5a: 前日 stale 不再 00:00 立即补发, 并入当晚 23:30 ⇒ 时钟钉到当晚(见 _freeze_now)
+    _freeze_now(monkeypatch, datetime.now().replace(hour=23, minute=30, second=0, microsecond=0))
+    res = notify.flush_digest(dry_run=False)  # stale(前日) ⇒ 当晚 23:25 后触发
     _chk(res.get("sent") is True, f"stale 条目应触发 flush, 实 {res}")
     bodies = [s["args"][1] for s in _iso["sent"] if len(s["args"]) >= 2]
     _chk(any("x2(最近 21:16)" in b for b in bodies),
          f"摘要正文应含 `x2(最近 21:16)`, 实 {bodies[:1]}")
 
 
-def test_d2_old_row_flush_no_ts_renders_plain_x(_iso):
+def test_d2_old_row_flush_no_ts_renders_plain_x(_iso, monkeypatch):
     """hits>1 但无 hits_ts(旧行) ⇒ 只渲染 `xN`, 不带时刻;不崩。"""
     a = _iso["alerts"]
     yday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -376,6 +392,8 @@ def test_d2_old_row_flush_no_ts_renders_plain_x(_iso):
                       "key": "k", "category": "r2", "subject": "旧重复",
                       "body": "b", "from_prefix": None, "source": "pipe.sh",
                       "reason": "over_budget", "hits": 3}])  # 无 hits_ts
+    # ★5a: 前日 stale 并入当晚 23:30(00:00 不再补发) ⇒ 时钟钉到当晚
+    _freeze_now(monkeypatch, datetime.now().replace(hour=23, minute=30, second=0, microsecond=0))
     res = notify.flush_digest(dry_run=False)
     _chk(res.get("sent") is True, f"应触发 flush, 实 {res}")
     bodies = [s["args"][1] for s in _iso["sent"] if len(s["args"]) >= 2]

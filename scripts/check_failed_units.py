@@ -465,11 +465,13 @@ def _write_sig_state(path, prev_state, *, sent, reason, observed_sig, observed_i
               file=sys.stderr)
 
 
-def _send_notify(repo, subject, body, dedup_key=None):
+def _send_notify(repo, subject, body, dedup_key=None, escalation_only=False):
     """子进程调 notify.py(--severe 真发)。返回 (sent, detail)。
 
     dedup_key: 告警通道去重键, 默认 failed_units_patrol(原通道一字不改);
     #275 D1 同步通道传 d1_sync_fail(各自独立闸门, 互不占键)。
+    escalation_only(★2 批次2, 2026-10-28): 只跑 #196 升级档判定, 不直发首报
+      (notify 侧 --escalation-only)。非升级命中 ⇒ notify 返回 noop(本函数判「未发出」)。
 
     ⚠️ #240 ② 起 `--dedup-window 0`: 每日 1 次/集合变化的闸门已由本脚本自管
     (failed_units_daily_judge), 若仍用 6h 窗则「集合有变立即报」会被 notify 的通用去重
@@ -504,6 +506,7 @@ def _send_notify(repo, subject, body, dedup_key=None):
             [sys.executable, str(SCRIPT_DIR / "notify.py"), subject, body.replace("\n", "<br>"),
              "--severe", "--from-prefix", "[告警]",
              *key_args, "--dedup-window", "0",
+             *(["--escalation-only"] if escalation_only else []),
              "--result-file", result_path],
             capture_output=True, text=True, timeout=120, check=False,
         )
@@ -526,6 +529,40 @@ def _send_notify(repo, subject, body, dedup_key=None):
         detail = (f"status={_status} channels={_channels} "
                   f"recent={(out.strip()[-200:] or '')}")
         return sent, detail
+    except Exception as e:  # noqa: BLE001
+        return False, f"{type(e).__name__}: {e}"
+    finally:
+        try:
+            os.unlink(result_path)
+        except OSError:
+            pass
+
+
+def _defer_digest(repo, subject, body):
+    """把本轮「跨日同集合」告警并入当日摘要 buffer(★2 批次2, 2026-10-28)。返回 (absorbed, detail)。
+
+    与 notify 的 gate 吸收同一条交付路径(23:25 摘要): 该轮不直发, 但可见性不丢。
+    ⚠️ 判据用 `--result-file` 的 status == "digested"(notify.py 2d 已把 `--defer-digest`
+    成功态由 noop 改为 digested)。ALERT_BUDGET_DISABLE=1 回滚态下 defer 返回 noop(不写
+    buffer) ⇒ absorbed=False, 调用方必须 fail-open 退回直发, 绝不静默丢条目。
+    """
+    fd, result_path = tempfile.mkstemp(prefix="notify_defer_", suffix=".json")
+    os.close(fd)
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_DIR / "notify.py"), subject, body.replace("\n", "<br>"),
+             "--defer-digest", "--digest-category", "unit",
+             "--from-prefix", "[告警]", "--result-file", result_path],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+        out = (proc.stdout or "") + (proc.stderr or "")
+        _status = None
+        try:
+            _status = json.loads(Path(result_path).read_text(encoding="utf-8")).get("status")
+        except Exception:  # noqa: BLE001 - 结果文件缺失/损坏: 按「未吸收」处理(不猜)
+            _status = None
+        detail = f"status={_status} rc={proc.returncode} recent={out.strip()[-200:]}"
+        return _status == "digested", detail
     except Exception as e:  # noqa: BLE001
         return False, f"{type(e).__name__}: {e}"
     finally:
@@ -782,6 +819,34 @@ def _main_impl() -> int:
                              today_str=today_str, now_str=now_str)
             print(f"[failed-units] 降噪: 本轮不重发(reason={_reason}; "
                   f"仅「新增 failed unit」/「次日首报」才发)", file=sys.stderr)
+            return _merge_d1_rc(1, _d1_rc)
+        if _reason == "same-set-prev-day":
+            # ★2 批次2(2026-10-28): 跨日且集合与上次真发出的完全一致 ⇒ **不直发**。
+            # ① 只跑 #196 升级档(持续 3 天仍异常 → critical 照发, 升级不被杀)
+            # ② 并入当日摘要(23:25 摘要交付, 可见性不丢)
+            # ③ 写 state(一天只做一次; 下轮 same-set-same-day 静默)
+            # ④ rc 合并(1=按设计处置完毕, 由 schedule_monitor 记日志)
+            _esc_sent, _esc_detail = _send_notify(repo, subject, body, escalation_only=True)
+            _abs_ok, _abs_detail = _defer_digest(repo, subject, body)
+            print(f"[failed-units] 跨日同集合: 不直发(升级档 sent={_esc_sent}; "
+                  f"摘要吸收={_abs_ok}); {_esc_detail} | {_abs_detail}", file=sys.stderr)
+            if not _abs_ok:
+                # fail-open(回滚/写失败): 摘要没接住 ⇒ 这条会彻底消失, 退回直发, 宁多勿吞。
+                print("[failed-units] 摘要吸收未生效(如 ALERT_BUDGET_DISABLE=1/写失败) ⇒ "
+                      "退回直发, 不吞可见性", file=sys.stderr)
+                sent, detail = _send_notify(repo, subject, body)
+                if not sent:
+                    print(f"[failed-units] 告警未发出(不落抑制, 下轮重试): {detail}",
+                          file=sys.stderr)
+                    return _merge_d1_rc(4, _d1_rc)
+                _write_sig_state(_sig_state_path, _prev_state, sent=True, reason=_reason,
+                                 observed_sig=_sig, observed_items=_identity,
+                                 today_str=today_str, now_str=now_str)
+                return _merge_d1_rc(1, _d1_rc)
+            # 摘要已接住 = 已处置 ⇒ 落签(与 digested 路径同语义), 不再每 15min 重试。
+            _write_sig_state(_sig_state_path, _prev_state, sent=True, reason=_reason,
+                             observed_sig=_sig, observed_items=_identity,
+                             today_str=today_str, now_str=now_str)
             return _merge_d1_rc(1, _d1_rc)
         sent, detail = _send_notify(repo, subject, body)
         if sent:

@@ -2875,8 +2875,10 @@ def flush_digest(dry_run: bool = False) -> dict:
 
     返回 {"sent": bool, "n": int, "n_remaining": int}。结构 mirror flush_warning_batch:
     - 抢 ALERT_DIGEST_LOCK_FILE 全生命周期锁(抢不到=另一 flusher 在处理, return 静默)。
-    - 触发 = stale 非空; 或 now >= ALERT_DIGEST_HM(23:25) 且 due 非空 且 state.last_sent_day
+    - 触发 = now >= ALERT_DIGEST_HM(23:25) 且 (stale 非空 或 due 非空) 且 state.last_sent_day
       < today(水位线语义: 今日尚未发送才发, 防 23:25 后连续轮次重复发)。不满足 → 原样保留 return。
+      ★5a(2026-10-28): 旧版 stale 不分时点立即发 ⇒ 23:30 后的遗留条目会在 00:00 又发一条;
+      现统一只在 23:25 窗口发, 前日遗留顺延并入下一个 23:30。
     - state.last_sent_day = 「**已发条目所属最大 day**」(水位线), **不是发送时刻的日期**
       (#264b 时序修复 2026-10-17 选项②): 旧语义把 00:00 的 stale 兜底 flush 记成"新一日已发",
       致该日 23:25 被 `!= today` 永久挡住(10-13~10-16 摘要连续滑到次日 00:00 的根因)。
@@ -2940,7 +2942,12 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
         _last_day = ""
     # #264b(2026-10-17)门控比较用 `<`(水位线)而非 `!=`: 已发水位未达今日才发。
     # 旧 `!=` 下, 00:00 的 stale 兜底 flush 把 last_sent_day 写成"新一日"后, 该日 23:25 被永久挡住。
-    if not (bool(stale) or (_hm_ok and bool(due) and _last_day < _today)):
+    # ★5a 批次2(2026-10-28): 旧条件 `bool(stale) or (...)` 让前日遗留(stale)在**任何**时刻
+    # 都能立刻发出 ⇒ 23:30 之后 23:45/00:00 轮新吸收的条目会各自再发一条 00:00 摘要
+    # (7 天摘要 1.57 条/天)。改成「只在 ≥23:25 窗口发」: 00:00 不再单发, 前日遗留并入下一个
+    # 23:30(subject 自带「(含前日遗留 N 条)」⇒ 可见性不丢)。条目保留契约不变——不满足条件
+    # 只是 return, buffer 一条不删; 发送失败路径的「不清理」逻辑在下方 sent 判定之后, 未动。
+    if not (_hm_ok and (bool(stale) or bool(due)) and _last_day < _today):
         return {"sent": False, "n": 0, "n_remaining": len(entries)}
     send_entries = stale + due
     # #264 件E(2026-10-15)分段: 真被并入的(merged) vs 恢复类**已直发**的留痕(traces)。
@@ -3175,6 +3182,11 @@ def _main_impl(argv: list[str] | None = None) -> int:
     parser.add_argument("--defer-digest", action="store_true",
                         help="把 positional subject/body 并入当日摘要 buffer"
                              "（monitor 行级预算吸收 / 恢复补列用；成功 rc=0，失败 rc=1 供回批）")
+    parser.add_argument("--escalation-only", action="store_true",
+                        help="只跑 #196 升级档判定（连续 N 天仍异常 → critical），**不直发**首报；"
+                             "供停摆通道「跨日同集合」轮复用（★2 批次2, 2026-10-28）："
+                             "该轮谜面走摘要并档，升级档仍必须有机会发出。"
+                             "非升级命中 ⇒ status=noop, rc=0")
     parser.add_argument("--digest-category", default=None, metavar="CAT",
                         help="配合 --defer-digest：吸收条目的类别标注（如 r2/deploy/recovery）")
     parser.add_argument("--alert-issue", help="写 data/alerts/latest.md，值为问题一句话")
@@ -3243,7 +3255,11 @@ def _main_impl(argv: list[str] | None = None) -> int:
                              from_prefix=args.from_prefix, bump_hits=True):
             print(f"[notify][digest] 已并入摘要 buffer category={_dg_cat}: "
                   f"{args.subject[:80]}", file=sys.stderr)
-            return _finish(0, "noop", "defer-digest: 已并入摘要 buffer")
+            # ★2 批次2(2026-10-28, 2d): 成功并入 = `digested`(与 gate 路径 L3541 对齐)。
+            # 旧 `noop` 会被 _send_notify(只认 sent/digested) 判成「未送达」⇒ rc=4 假 SEVERE
+            # + 签名不落盘 ⇒ 每 15min 重试。影响面已全量 grep(defer-digest 调用方=monitor
+            # 两处 + 测试, 均只判 rc/落 buffer, 无人依赖 status=="noop")。
+            return _finish(0, "digested", "defer-digest: 已并入摘要 buffer")
         print(f"[notify][digest] 并入失败 category={_dg_cat}: {args.subject[:80]}", file=sys.stderr)
         return _finish(1, "failed", "defer-digest: 并入失败")
 
@@ -3447,7 +3463,9 @@ def _main_impl(argv: list[str] | None = None) -> int:
             "云上 failed unit 持续未清", adr.FAILED_UNITS_ESCALATE_DAYS,
             adr.ESCALATED_DEDUP_WINDOW_SECONDS),
     }
-    if args.dedup_key in _ESCALATE_CHANNELS and not args.dry_run:
+    # ★2 批次2(2026-10-28): `--escalation-only --dry-run` 也必须跑到「分级=critical」这行,
+    # 否则「升级档没被杀」无法离线取证(E2-3)。dry-run 分支只打印、不发不占窗, 见下。
+    if args.dedup_key in _ESCALATE_CHANNELS and (not args.dry_run or args.escalation_only):
         (_esc_escalated_key, _esc_state_name, _esc_label,
          _esc_escalate_days, _esc_window) = _ESCALATE_CHANNELS[args.dedup_key]
         _esc_repo = Path(os.environ.get("REPO") or REPO)
@@ -3456,7 +3474,8 @@ def _main_impl(argv: list[str] | None = None) -> int:
         _esc_tier, _esc_days, _esc_first = adr.consecutive_days_escalate(
             _esc_repo / "data" / _esc_state_name, datetime.now(),
             _esc_escalate_days, log_prefix="[notify][196]",
-            rolling_window_days=adr.ESCALATE_ROLLING_WINDOW_DAYS)
+            rolling_window_days=adr.ESCALATE_ROLLING_WINDOW_DAYS,
+            persist=not args.dry_run)
         print(f"[notify][196] {args.dedup_key} 近{adr.ESCALATE_ROLLING_WINDOW_DAYS}天异常分级="
               f"{_esc_tier}({_esc_days}天)", file=sys.stderr)
         if _esc_tier == TIER_CRITICAL:
@@ -3465,6 +3484,13 @@ def _main_impl(argv: list[str] | None = None) -> int:
             # ⇒ check_dedup(key, 0) 恒放行 ⇒ 升级 critical 永不被抑制(10-15 单日 6 封, 6 天 19 封)。
             # 改后: 同档 ≤1 封/_esc_window(failed-unit=72h 实测锚定; patrol_drift=原 6h, 收口见上);
             # 首报「新增立即报」不受影响(仍走 window=0 的普通路径)。
+            if args.dry_run:
+                # dry-run: 只证明「升级档判定跑到了 critical」, 绝不发送、绝不占窗。
+                print(f"[notify][196] dry-run: 升级档将发 critical(subject 略), "
+                      f"未真发、未占窗(近 {adr.ESCALATE_ROLLING_WINDOW_DAYS} 天出现 "
+                      f"{_esc_days} 天)", file=sys.stderr)
+                return _finish(0, "dry_run", f"#196 升级档({_esc_days}天) dry-run",
+                               tier=TIER_CRITICAL, dedup_key=args.dedup_key)
             if check_dedup(_esc_escalated_key, _esc_window):
                 # 2026-10-21 告警黑洞根因修(云上 7 天零 failed-unit 告警,P0):
                 # 病灶: 升级档 72h 窗内 suppress 直接 `return 0`, 位于普通首报路径**之前**
@@ -3505,6 +3531,15 @@ def _main_impl(argv: list[str] | None = None) -> int:
                 return _finish(0, "dry_run" if args.dry_run else ("sent" if _esc_ok else "failed"),
                                f"#196 升级档({_esc_days}天)路由完成", tier=TIER_CRITICAL,
                                channels=results, dedup_key=args.dedup_key)
+
+    # ★2 批次2(2026-10-28): `--escalation-only` —— 只跑升级判定, 不直发。
+    # 位置硬约束: 必须在 `_ESCALATE_CHANNELS` 块**之后**(升级档有机会发出)、通用 dedup
+    # **之前**(不得让首报窗把只跑升级的调用静默成「已告警」)。走到这里 = 升级档没命中/
+    # 被升级窗抑制/非升级通道 ⇒ 本轮不直发, rc=0。
+    if args.escalation_only:
+        print("[notify][escalation-only] 仅跑升级判定, 未直发", file=sys.stderr)
+        return _finish(0, "noop", "escalation-only: 仅跑升级判定, 未直发",
+                       dedup_key=args.dedup_key)
 
     # 去重检查：window 内已告警过则 suppress 静默退出（返回 0，不阻塞调用方）
     # dry-run 不走去重（测试用，需看到发送日志）

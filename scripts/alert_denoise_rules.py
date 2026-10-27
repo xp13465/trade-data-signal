@@ -223,6 +223,7 @@ def failed_units_daily_judge(state: dict, signature: str, items, today_str: str,
     reason ∈ {"empty"(无异常, 调用方本不该调) / "added"(有新增→立即报) /
               "added-jitter"(同集合二次新增→静默) / "shrunk"(只有移除→静默) /
               "changed"(迁移期无成员快照→保守照报) /
+              "same-set-prev-day"(跨日且集合与上次真发出的完全一致 → 不直发, 只升级档+摘要) /
               "daily-first"(今日首报) / "same-set-same-day"(当日同集合重复→跳过)}。
     """
     if not signature:
@@ -256,13 +257,30 @@ def failed_units_daily_judge(state: dict, signature: str, items, today_str: str,
         if signature != prev_sig:
             return True, "changed"
     if last_alert_date != today_str:
+        # ★2(批次2, 2026-10-28): 跨日「集合与上次**真发出**的完全相同」不再直发。
+        # 病灶: 集合长期不变时每天 00:00 必发一条同文告警(7 天 5 条纯重复)。
+        # 处置: 转 same-set-prev-day ⇒ 调用方只跑升级档(#196 critical)+ 并入当日摘要,
+        # 一天仍做一次(保证「持续 3 天升 critical」的滚动窗继续推进, 不吞升级)。
+        # ⚠️ 必须放在 added 分支之后(上方 early return): 新增失败单元仍立即报, 不被本分支吞。
+        # signature 口径 = 最近一次**真发出**的集合签名(check_failed_units._write_sig_state
+        # 的 `signature` 字段), 不另造。
+        _last_sent_sig = str(state.get("signature") or "")
+        # fail-open: signature 与 last_alert_date 本应同步伴随(都只在真发出时写)。
+        # 若 last_alert_date 缺失(状态不全/手工改坏)⇒ 视为「从未真发出」, 必须照报,
+        # 绝不因签名巧合相同而静默(宁可多发一条, 不吞首报)。
+        if _last_sent_sig and last_alert_date and signature == _last_sent_sig:
+            return True, "same-set-prev-day"
         return True, "daily-first"
     return False, "same-set-same-day"
 
 
 def consecutive_days_escalate(state_path, now, escalate_days, log_prefix="",
-                              rolling_window_days=None):
+                              rolling_window_days=None, persist=True):
     """通用「连续 N 自然日异常 → 升 critical」判定(单一事实源; R7 与 #196 共用)。
+
+    persist(★2 批次2, 2026-10-28, 默认 True=现有行为逐位不变): False = **只算不落盘**,
+    供 `--escalation-only --dry-run` 离线取证升级档没被杀(E2-3)时用 —— dry-run 不得
+    悄悄推进滚动窗(否则人工 dry-run 可能提前触发 critical)。
 
     「连续 N 天」定义: 相邻自然日各发生一次异常。中间夹一个正常日/未跑日(间隔 >1 自然日)
     即视为连续链中断, 从 1 重新计; 同日重复调用(手动重跑/重试)不重复计数。
@@ -358,10 +376,12 @@ def consecutive_days_escalate(state_path, now, escalate_days, log_prefix="",
     if rolling_window_days is not None:
         _new_state["seen_dates"] = _seen
     try:
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        _tmp = state_path.with_name(state_path.name + ".tmp")
-        _tmp.write_text(json.dumps(_new_state, ensure_ascii=False, indent=2), encoding="utf-8")
-        _tmp.replace(state_path)
+        if persist:
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            _tmp = state_path.with_name(state_path.name + ".tmp")
+            _tmp.write_text(json.dumps(_new_state, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+            _tmp.replace(state_path)
     except Exception as _e:  # noqa: BLE001
         print(f"{log_prefix} 状态落盘失败(连续天数计数可能丢失, 升级档或失效): {_e}",
               file=sys.stderr)
