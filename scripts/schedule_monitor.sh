@@ -1062,8 +1062,14 @@ def _build_conclusion(stats, now, cfu_failed=0, alerts=0,
         if extra_live:
             parts.append(f"live 实测另有 {len(extra_live)} 个失败: " + "; ".join(extra_live))
     # 「漏跑 N」在有任何失败时一并写明(旧文案保留, 防读者以为漏跑未检查)。
+    # ★5b 补强(2026-10-28 审查 F3): 能拿到任务名就一并写明 —— 「漏跑 1」换个人/换个任务
+    # 是真不同的判别维度, 只留个数会被签名合并成同一故障(读者也看不到是谁漏)。
     if fails or extra_live or missed:
-        parts.append(f"漏跑 {len(missed)}")
+        _missed_names = sorted({str(s.get("task")) for s in missed if s.get("task")})
+        if _missed_names:
+            parts.append(f"漏跑 {len(missed)}: " + "、".join(_missed_names))
+        else:
+            parts.append(f"漏跑 {len(missed)}")
     if unknown:
         parts.append(f"退出码未知 {len(unknown)} 个(无法确认成功)")
     if alerts:
@@ -1102,7 +1108,10 @@ _CONCLUSION_PAIR_RE = re.compile(
 
 
 def _conclusion_signature(concl):
-    """★5b 归一化签名: 只留「任务名 + Result/exit」三元组 + 结构性计数, 丢掉时间戳/耗时。
+    """★5b 归一化签名: 只留「任务名 + Result/exit」三元组 + 结构性计数 + 名单, 丢掉时间戳/耗时。
+
+    F3(2026-10-28 审查): failed unit / 漏跑任务的**名单**也进签名(排序去重归一);只留个数会让
+    「单位换人」的真故障被同一签名吞掉。名单拿不到时退回只留个数, 并由 24h 再提醒兜底。
 
     病灶(10-27 三条 / 10-26 一条): 结论文本里的起止时间(09:26:00→09:41:00)每轮都变,
     旧实现对全文 md5 ⇒ 每轮换新 key ⇒ 立即再发一封「状态说明」。归一化后同一故障集合签名
@@ -1122,10 +1131,26 @@ def _conclusion_signature(concl):
         else:
             pairs.append(f"{name}|exit={m.group(6)}")
     extras = []
-    # 计数类信息也要进签名: 结论正文只有个数没有漏跑任务名 ⇒ 至少保留个数,
-    # 防「漏跑 1 → 漏跑 3」被同一签名吞掉(可见性判别维度)。
-    for pat, tag in ((r"漏跑 (\d+)", "missed"),
-                     (r"退出码未知 (\d+) 个", "unknown"),
+    # 计数 **+ 名单** 都要进签名(2026-10-28 审查 F3): 只留个数 ⇒「failed 的 unit 从 A 换成 B」
+    # 或「漏跑的任务换了人」会被同一签名吞掉, 真故障判别维度丢失(可见性判别维度)。
+    # 名单排序+去重后归一, 防采集顺序抖动制造假"新故障"反复发信。
+    def _norm_names(raw):
+        return ",".join(sorted({
+            _n.strip() for _n in re.split("[、,]", raw or "") if _n.strip()}))
+
+    _m = re.search(r"漏跑 (\d+)(?:\s*个任务)?(?::\s*([^;]+))?", txt)
+    if _m:
+        _n = _norm_names(_m.group(2))
+        extras.append(f"missed={_m.group(1)}" + (f":{_n}" if _n else ""))
+    _m = re.search(r"(\d+) 个云上 unit 处于 failed 状态:\s*([^;(]+)", txt)
+    if _m:
+        _n = _norm_names(_m.group(2))
+        extras.append(f"units={_m.group(1)}" + (f":{_n}" if _n else ""))
+    else:
+        _m = re.search(r"(\d+) 类云上 unit 巡检问题", txt)
+        if _m:
+            extras.append(f"units={_m.group(1)}")
+    for pat, tag in ((r"退出码未知 (\d+) 个", "unknown"),
                      (r"有 (\d+) 条告警", "alerts")):
         _m = re.search(pat, txt)
         if _m:

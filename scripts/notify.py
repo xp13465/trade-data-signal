@@ -310,6 +310,9 @@ WARNING_FLUSH_LOCK_FILE = ALERTS_DIR / "warning_buffer.flushlock"
 # 回滚开关(零代码改动): ALERT_BUDGET_DISABLE=1 = master(gate 全停, 完全回滚);
 #   ALERT_DIGEST_DISABLE=1 = flush 全停(⚠️ gate 吸收仍发生 → 条目积压但不外发,
 #   完整回滚须置 master。两开关关系见 docs/ops/245-batch2-impl-20261010.md)。
+#   ⚠️ 例外(★2, 2026-10-28 审查 F2): failed-units 停摆通道的 `_defer_digest` 见到
+#   ALERT_DIGEST_DISABLE=1 会**主动 fail-open 直发**,不把该通道告警吸进永不外发的 buffer
+#   (同集合跨日 = 真故障信号, 宁多勿吞)。即: 摘要关停期间该通道直发照常。
 ALERT_DIGEST_FILE = ALERTS_DIR / "alert_digest.jsonl"
 ALERT_DIGEST_LOCK_FILE = ALERTS_DIR / "alert_digest.flushlock"
 ALERT_DIGEST_STATE_FILE = ALERTS_DIR / "alert_digest_state.json"
@@ -2885,7 +2888,8 @@ def flush_digest(dry_run: bool = False) -> dict:
     - 成功(真实发出)→ 按 _stable_rid 精确清理已发条目 + 写 state(**只在发送成功后做**);
       失败 → 条目全保留, 下轮/次日重试(「绝不丢条目」与 warning flush 同契约)。
     - ALERT_DIGEST_DISABLE=1 → 直接 return(flush 全停; ⚠️ gate 吸收仍发生 → 完整回滚须置
-      ALERT_BUDGET_DISABLE=1, 见常量区注释)。
+      ALERT_BUDGET_DISABLE=1, 见常量区注释)。例外: 停摆通道(check_failed_units._defer_digest)
+      见该开关即 fail-open 直发, 不依赖 buffer 出线(★2, 2026-10-28 审查 F2)。
     """
     if os.environ.get("ALERT_DIGEST_DISABLE") == "1":
         return {"sent": False, "n": 0, "n_remaining": 0}

@@ -545,7 +545,12 @@ def _defer_digest(repo, subject, body):
     ⚠️ 判据用 `--result-file` 的 status == "digested"(notify.py 2d 已把 `--defer-digest`
     成功态由 noop 改为 digested)。ALERT_BUDGET_DISABLE=1 回滚态下 defer 返回 noop(不写
     buffer) ⇒ absorbed=False, 调用方必须 fail-open 退回直发, 绝不静默丢条目。
+    ⚠️ F2(审查 2026-10-28): ALERT_DIGEST_DISABLE=1 = **摘要 flush 全停**(notify.flush_digest
+    直接 return), 但 gate 吸收仍会写 buffer 并返回 digested ⇒ 若按 digested 判「已送达」,
+    停摆同集合告警在开关打开期间**哪都不发**(黑洞)。本通道宁多勿吞: 见开关即 fail-open 直发。
     """
+    if os.environ.get("ALERT_DIGEST_DISABLE") == "1":
+        return False, "ALERT_DIGEST_DISABLE=1 ⇒ 摘要永不出线, 走直发(fail-open)"
     fd, result_path = tempfile.mkstemp(prefix="notify_defer_", suffix=".json")
     os.close(fd)
     try:
@@ -832,8 +837,8 @@ def _main_impl() -> int:
                   f"摘要吸收={_abs_ok}); {_esc_detail} | {_abs_detail}", file=sys.stderr)
             if not _abs_ok:
                 # fail-open(回滚/写失败): 摘要没接住 ⇒ 这条会彻底消失, 退回直发, 宁多勿吞。
-                print("[failed-units] 摘要吸收未生效(如 ALERT_BUDGET_DISABLE=1/写失败) ⇒ "
-                      "退回直发, 不吞可见性", file=sys.stderr)
+                print("[failed-units] 摘要吸收未生效(如 ALERT_BUDGET_DISABLE=1 / "
+                      "ALERT_DIGEST_DISABLE=1 / 写失败) ⇒ 退回直发, 不吞可见性", file=sys.stderr)
                 sent, detail = _send_notify(repo, subject, body)
                 if not sent:
                     print(f"[failed-units] 告警未发出(不落抑制, 下轮重试): {detail}",

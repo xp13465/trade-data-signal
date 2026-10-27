@@ -15,6 +15,9 @@
   E5-3 同签名 active: 25h → 再发(remind_24h); 6h → 不发; 本轮有告警邮件门保留; 6h 复发冷却保留
   E5-4 buffer「前日 2 条 + 当日 0 条」: 00:00 不发; 次日 23:30 发 1 条且 subject 含
        「(含前日遗留 2 条)」; 发送失败不清理 buffer 契约不变
+  F2(审查补) `ALERT_DIGEST_DISABLE=1` ⇒ 停摆通道 fail-open 直发(摘要关停≠告警可消失)
+  F3(审查补) 结论签名纳入 failed unit 数量+名单(排序归一)与漏跑任务名; 换人/换数换签名
+  F5(审查补) `last_alert_date` 畸形值 fail-open 到 daily-first
 
 零外发铁律(§18 L48 / memory notify-script-selftest-must-stub):
   `_send_email` / `send_telegram` / `send_feishu` 在 fixture 内整体打桩为「只记录、返回 True」,
@@ -48,7 +51,7 @@ import notify  # noqa: E402
 ROOT = Path(__file__).absolute().parent.parent.parent
 
 # 断言计数下限(防收集/执行异常致「0 断言假绿」, §18 L49 / 仿 #201/#193/#240)
-_MIN_ASSERTIONS = 45
+_MIN_ASSERTIONS = 65
 _N = [0]
 
 
@@ -175,6 +178,28 @@ def test_e2_1_judge_reasons(_iso):
          == (False, "shrunk"), "集合缩小=恢复进展, 必须静默")
     # ⑥ 空集合短路
     _chk(adr.failed_units_daily_judge(st, "", [], today) == (False, "empty"))
+
+
+def test_f5_malformed_last_alert_date_fails_open(_iso):
+    """F5(审查 2026-10-28): last_alert_date 畸形值(如 "bogus/")必须按 daily-first 照报。
+
+    旧实现只判「非空」⇒ 畸形串在签名巧合相同时仍走 same-set-prev-day 被吞, 与「宁可多报」相反。
+    """
+    today = "2026-10-28"
+    p_a = ["云上 failed unit: a.service"]
+    sig_a = adr.failed_units_signature(p_a)
+    items_a = adr.failed_units_identity(["a.service"])
+    for bad in ("bogus/", "2026-13-40", "20261027", " 2026-10-27 "):
+        st = {"prev_signature": sig_a, "signature": sig_a, "items": items_a,
+              "last_alert_date": bad}
+        _chk(adr.failed_units_daily_judge(st, sig_a, items_a, today)
+             == (True, "daily-first"),
+             f"畸形 last_alert_date={bad!r} 必须 fail-open 照报(daily-first)")
+    # 合法日期仍按设计走 same-set-prev-day(别把正常路径改坏)
+    st_ok = {"prev_signature": sig_a, "signature": sig_a, "items": items_a,
+             "last_alert_date": "2026-10-27"}
+    _chk(adr.failed_units_daily_judge(st_ok, sig_a, items_a, today)
+         == (True, "same-set-prev-day"), "合法日期仍走 same-set-prev-day")
 
 
 # ══════════════════ 2b/2c 集成桩: 造 check_failed_units 的真实输入 ══════════════════
@@ -424,6 +449,38 @@ def test_e2_4d_added_still_direct(_iso, monkeypatch):
     _chk(defer_rec == [], "added 不得被并入摘要")
 
 
+def test_f2_digest_disabled_falls_open_to_direct(_iso, monkeypatch):
+    """F2(审查 2026-10-28): ALERT_DIGEST_DISABLE=1 = 摘要永不出线 ⇒ 本通道必须直发。
+
+    病灶: 该开关只停 flush, gate 吸收照旧写 buffer 并返回 digested ⇒ 若按 digested 判
+    「已送达」, 跨日同集合告警在开关打开期间哪都不发(黑洞)。本用例走**真实** _defer_digest
+    (不打桩), 只置开关, 断言: ①升级档照跑 ②普通直发发生 ③buffer 无残留 ④state 落签。
+    """
+    tmp, now = _iso["tmp"], datetime(2026, 10, 28, 10, 0, 0)
+    units = ["trade-x.service"]
+    sig = adr.failed_units_signature(["云上 failed unit: trade-x.service"])
+    items = adr.failed_units_identity(units)
+    repo, argv, _sig, _items, state_path = _cfu_setup(
+        tmp, monkeypatch, units=units, state=_state_for(sig, items, "2026-10-27"), now=now)
+    sends = _send_stub(monkeypatch)
+    monkeypatch.setenv("ALERT_DIGEST_DISABLE", "1")
+
+    monkeypatch.setattr(sys, "argv", argv + ["--notify"])
+    rc = cfu._main_impl()
+
+    _chk(rc == 1, f"摘要关停 ⇒ fail-open 直发成功 rc=1, 实得 {rc}")
+    _chk(len(sends) == 2, f"升级档 + 退回直发 = 2 次, 实得 {len(sends)}")
+    _chk(sends[0]["escalation_only"] is True, "升级档照跑(开关不许杀 #196)")
+    _chk(sends[1]["escalation_only"] is False,
+         "ALERT_DIGEST_DISABLE=1 时同集合跨日必须直发(不得黑洞/不得静默)")
+    buf = tmp / "data" / "alerts" / "alert_digest.jsonl"
+    _chk(not buf.exists() or _digest_rows(buf) == [],
+         f"开关下不得再往永不外发的 buffer 里塞条目, 实得 {_digest_rows(buf) if buf.exists() else []}")
+    st = json.loads(state_path.read_text(encoding="utf-8"))
+    _chk(st.get("signature") == sig and st.get("last_alert_date") == "2026-10-28",
+         "直发成功必须落签(同日后续静默)")
+
+
 # ══════════════════ E5-1/E5-2 结论签名归一化(★5b) ══════════════════
 def _concl_funcs():
     ns = _conclusion_ns()
@@ -461,6 +518,60 @@ def test_e5_2_task_set_change_changes_digest():
     # fallback: 完全匹配不上三元组 ⇒ 原文(当前行为), 不静默丢
     weird = "非 OK: 某种全新文案 without pairs 2026-10-28"
     _chk(sig(weird) == weird.strip(), "正则不匹配必须回退原文")
+
+
+def test_f3a_unit_names_in_signature():
+    """F3①(审查 2026-10-28): failed unit 名单不同 ⇒ 签名/digest 必须不同。
+
+    病灶: 旧签名只收「个数」, 「failed 的 unit 从 A 换成 B」被判同一故障 ⇒ 新一轮真故障
+    被静默(真故障判别维度被签名吃掉)。
+    """
+    sig, dig, _ns = _concl_funcs()
+    a = ("非 OK: 2 个云上 unit 处于 failed 状态: trade-a.service、trade-b.service "
+         "(详见 [196]); 覆盖 43/43")
+    b = ("非 OK: 2 个云上 unit 处于 failed 状态: trade-c.service、trade-d.service "
+         "(详见 [196]); 覆盖 43/43")
+    _chk(sig(a) != sig(b), f"unit 名单不同必须换签名: {sig(a)!r} vs {sig(b)!r}")
+    _chk(dig(a) != dig(b), "unit 名单不同 ⇒ digest 必须不同(否则状态说明被静默)")
+    _chk("units=2:" in sig(a) and "trade-a.service" in sig(a) and "trade-b.service" in sig(a))
+
+
+def test_f3b_unit_count_in_signature():
+    """F3②: 失败 unit 数量 1 vs 5 ⇒ 签名不同(计数也是判别维度)。"""
+    sig, dig, _ns = _concl_funcs()
+    one = "非 OK: 1 个云上 unit 处于 failed 状态: trade-a.service (详见 [196])"
+    five = ("非 OK: 5 个云上 unit 处于 failed 状态: trade-a.service、trade-b.service、"
+            "trade-c.service、trade-d.service、trade-e.service (详见 [196])")
+    _chk(sig(one) != sig(five), "数量 1 vs 5 必须换签名")
+    _chk(dig(one) != dig(five))
+    # 巡检问题兜底形态(拿不到名单)也要有计数, 不许整段被吞掉
+    p1 = "非 OK: 1 类云上 unit 巡检问题 (详见 [196])"
+    p2 = "非 OK: 3 类云上 unit 巡检问题 (详见 [196])"
+    _chk(sig(p1) != sig(p2), f"巡检问题计数必须进签名: {sig(p1)!r} vs {sig(p2)!r}")
+
+
+def test_f3c_unit_order_normalized():
+    """F3③: 名单顺序不同但集合相同 ⇒ 签名相同(防采集顺序抖动造假新故障反复发信)。"""
+    sig, dig, _ns = _concl_funcs()
+    a = "非 OK: 3 个云上 unit 处于 failed 状态: trade-a.service、trade-b.service、trade-c.service (详见 [196])"
+    b = "非 OK: 3 个云上 unit 处于 failed 状态: trade-c.service、trade-a.service、trade-b.service (详见 [196])"
+    _chk(sig(a) == sig(b), f"同集合不同顺序必须归一: {sig(a)!r} vs {sig(b)!r}")
+    _chk(dig(a) == dig(b))
+
+
+def test_f3d_missed_names_in_signature():
+    """F3④: 漏跑任务名进签名(个数相同但换人 = 不同故障, 不许静默)。"""
+    sig, dig, _ns = _concl_funcs()
+    a = "非 OK: 漏跑 1: trade-a.sh; 覆盖 43/43"
+    b = "非 OK: 漏跑 1: trade-b.sh; 覆盖 43/43"
+    _chk(sig(a) != sig(b), f"漏跑任务换人必须换签名: {sig(a)!r} vs {sig(b)!r}")
+    _chk(dig(a) != dig(b))
+    # 顺序归一 + 旧文案(无名单)兜底仍保留个数
+    c = "非 OK: 漏跑 2: trade-b.sh、trade-a.sh; 覆盖 43/43"
+    d = "非 OK: 漏跑 2: trade-a.sh、trade-b.sh; 覆盖 43/43"
+    _chk(sig(c) == sig(d), "漏跑名单顺序不同必须归一")
+    old = "非 OK: 任务失败(见上方); 漏跑 2"
+    _chk("missed=2" in sig(old), f"拿不到名单时至少保留个数: {sig(old)!r}")
 
 
 # ══════════════════ E5-3 24h 再提醒(★5c) ══════════════════

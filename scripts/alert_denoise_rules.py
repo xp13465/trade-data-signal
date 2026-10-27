@@ -266,9 +266,18 @@ def failed_units_daily_judge(state: dict, signature: str, items, today_str: str,
         # 的 `signature` 字段), 不另造。
         _last_sent_sig = str(state.get("signature") or "")
         # fail-open: signature 与 last_alert_date 本应同步伴随(都只在真发出时写)。
-        # 若 last_alert_date 缺失(状态不全/手工改坏)⇒ 视为「从未真发出」, 必须照报,
-        # 绝不因签名巧合相同而静默(宁可多发一条, 不吞首报)。
-        if _last_sent_sig and last_alert_date and signature == _last_sent_sig:
+        # 若 last_alert_date 缺失或**格式不合法**(状态不全/手工改坏, 如 "bogus/")⇒ 视为
+        # 「从未真发出」, 必须照报, 绝不因签名巧合相同而静默(宁可多发一条, 不吞首报)。
+        # F5(2026-10-28 审查): 空串/畸形值一律 daily-first —— 旧实现只判真值, 畸形串仍会
+        # 走 same-set-prev-day 被吞, 与「宁可多报」相反。
+        _la_ok = False
+        if last_alert_date:
+            try:
+                datetime.strptime(last_alert_date, "%Y-%m-%d")
+                _la_ok = True
+            except (ValueError, TypeError):
+                _la_ok = False
+        if _last_sent_sig and _la_ok and signature == _last_sent_sig:
             return True, "same-set-prev-day"
         return True, "daily-first"
     return False, "same-set-same-day"
