@@ -2318,7 +2318,8 @@ def _absorb_split_to_digest(subject: str, body: str, *, key: str | None, categor
 
     用途 = 汇聚类正文(warning 聚合批 / 恢复批, 可能 20+ 条明细)。§23.10 内容保真:
     超长只许「拆条/分段落」,**不许截断、省略号、「等 N 条」**; 每段是独立摘要条目
-    (key = `<key>#<段号>`), 明细一条不少, 且同批重试自动幂等(同段 key 命中即不重复写)。
+    (key = `<key>#<段号>`), 明细一条不少, 且同批重试自动幂等(同段 key 命中即不重复写,
+    但按 #253-d2 传 `bump_hits=True` ⇒ 同日同段再吸收会 hits+1 并记最近时刻, 不静默吞)。
 
     返回 True = 全部并入(含幂等命中); False = 任一段 append 失败, 或**单行本身超上限**
     (无法再按行拆) ⇒ 调用方 fail-open 直发全文, 绝不截断。极端下(前几段已写、后面失败)
@@ -2344,7 +2345,11 @@ def _absorb_split_to_digest(subject: str, body: str, *, key: str | None, categor
     for _i, _part in enumerate(parts):
         if not _absorb_to_digest(subject if len(parts) == 1 else f"{subject} [{_i + 1}/{len(parts)}]",
                                  _part, key=f"{_base}#{_i}", category=category,
-                                 source=source, from_prefix=from_prefix, reason=reason):
+                                 source=source, from_prefix=from_prefix, reason=reason,
+                                 # 2026-10-28 审查返工: 本处曾漏传, 违反 #253-d2「全部调用点
+                                 # 均传 True」不变式 ⇒ 同日同组同正文第二次吸收被幂等静默吞掉
+                                 # (摘要只显示 x1、无最近时刻)。补上后同段重试照旧幂等, 但留痕。
+                                 bump_hits=True):
             print(f"[notify][digest] 拆段并入失败(第 {_i + 1}/{len(parts)} 段) → 调用方直发全量",
                   file=sys.stderr)
             return False

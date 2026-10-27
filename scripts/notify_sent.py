@@ -129,6 +129,17 @@ _SUPPRESS_SIGNATURES: tuple[tuple[str, str | None], ...] = (
     ("[notify][budget] 并入当日摘要", None),
     # --defer-digest 直接并入 buffer 的成功行（monitor 行级吸收/恢复补列；同构登记防后续调试）。
     ("[notify][digest] 已并入摘要 buffer", None),
+    # 批次3-B（2026-10-28）审查返工：warning 聚合批 / 恢复留痕「并入摘要」成功行。
+    # 这两行的措辞在 `[notify][digest] ` 与 `已并入摘要 buffer` 之间各插了一个类别词
+    # （「warning 聚合批」/「恢复留痕」）⇒ **行首锚定**匹配不上上面那条通用前缀 ⇒ 会被判
+    # failed。真实生产形状（整句固定字面量，notify.py:1413 / notify.py:3013）：
+    #   `[notify][digest] 恢复留痕已并入当日摘要 buffer(23:25 出线, 不即时直发): [恢复] …`
+    #   `[notify][digest] warning 聚合批已并入当日摘要 buffer(23:25 出线, 不即时直发): n=… 组数=…`
+    # 误判后果（schedule_monitor 读不到 --result-file 的文本兜底路径）：已吸收的恢复被当
+    # 未发 ⇒ 进 pending ⇒ 同轮补列 ⇒ 摘要里同一恢复出现两次（重复不丢，但违反不重复外发）。
+    # 语义与上一条完全一致 = 「成功且已知」（已登记待 23:25 摘要出线），非未发出。
+    ("[notify][digest] 恢复留痕已并入当日摘要 buffer", None),
+    ("[notify][digest] warning 聚合批已并入当日摘要 buffer", None),
     # #264 件C/E（2026-10-15）：域聚合 / 非 critical 重复类预算的并入成功行
     # （同样是「成功且已知」= 已登记待 23:25 摘要出线，非未发出 ⇒ 不得判 failed 触发重试）。
     ("[notify][domain] 并入当日域摘要", None),

@@ -772,6 +772,20 @@ def test_05a_source_invariants_machine_checked():
     sent = (SCRIPTS / "notify_sent.py").read_text(encoding="utf-8")
     _chk("[notify][domain] 并入当日域摘要" in sent and "[notify][notice-budget] 并入当日摘要" in sent,
          "新并入行必须登记进 notify_sent 抑制签名表(否则被判 failed 触发重试)")
+    # 2026-10-28 审查返工(批次3-B): 两条新并入成功行同样必须登记(行首前缀各带类别词,
+    # 通用前缀匹配不上 ⇒ 漏登记即被判 failed ⇒ 监控重列恢复 ⇒ 摘要重复同一条)。
+    import notify_sent as _ns
+    _prefixes = {p for p, _m in _ns._SUPPRESS_SIGNATURES}
+    _chk("[notify][digest] 恢复留痕已并入当日摘要 buffer" in _prefixes
+         and "[notify][digest] warning 聚合批已并入当日摘要 buffer" in _prefixes,
+         "批次3-B 恢复留痕/聚合批两条并入成功行必须登记进 notify_sent 抑制签名表")
+    # #253-d2 不变式(审查返工补机检): `_absorb_to_digest` **全部**调用点必须传 bump_hits=True
+    # (漏传 ⇒ 同日同形事件第二次被幂等静默吞掉, 摘要无 xN/最近时刻)。
+    import ast as _ast
+    _no_bump = [n.lineno for n in _ast.walk(_ast.parse(src))
+                if isinstance(n, _ast.Call) and getattr(n.func, "id", "") == "_absorb_to_digest"
+                and not any(k.arg == "bump_hits" for k in n.keywords)]
+    _chk(_no_bump == [], f"_absorb_to_digest 调用点漏传 bump_hits=True: 行 {_no_bump}")
     adr_src = (SCRIPTS / "alert_denoise_rules.py").read_text(encoding="utf-8")
     _chk("def domain_of(" in adr_src and "def domain_inhibit_judge(" in adr_src,
          "域判定纯函数应在共享模块(单一实现, 无第二副本)")

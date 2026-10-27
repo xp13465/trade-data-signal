@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -393,3 +394,104 @@ def test_f3_recovery_block_digested_not_pending():
     exec(block, ns)  # noqa: S102
     assert ns["alert_state"].get("monitor_recovery|pending") is None, \
         f"digested 不应入 pending: {ns['alert_state']}"
+
+
+# ────────── G. 审查返工1：拆段吸收必须传 bump_hits(#253-d2 不变式) ──────────
+def _freeze_datetime(monkeypatch, at: str) -> None:
+    """冻结 `notify.datetime.now()`（L51：用例不得依赖真实运行日/墙钟）。
+
+    只替换 notify 模块里那个名字（`from datetime import datetime`），不动标准库类。
+    """
+    fixed = datetime.strptime(at, "%Y-%m-%d %H:%M:%S")
+
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed
+
+    monkeypatch.setattr(notify, "datetime", _Frozen)
+
+
+def _wbatch_key(fp: str, body: str) -> str:
+    """与生产 flush_warning_batch 同式（内容哈希入键）：不同正文落不同摘要条目。"""
+    return "wbatch|" + hashlib.sha1((fp + "|" + body).encode("utf-8")).hexdigest()[:16]
+
+
+def test_g1_split_absorb_same_group_twice_bumps_hits(env, monkeypatch):
+    """同 group 同正文吸收两次 ⇒ 仍是 1 条摘要, 但 hits=2 且最近时刻被更新。
+
+    漏传 `bump_hits=True` 时第二次被幂等静默吞掉（hits 停在 1、无 hits_ts）——
+    这正是审查实测到的缺陷，也是 `_absorb_to_digest` docstring「全部调用点均传 True」的
+    不变式被破坏点。
+    """
+    body = "same-body-alpha"
+    key = _wbatch_key("fp-alpha", body)
+    subj = "[告警·聚合] 1条 warning 汇总 10-28 03:00"
+    _freeze_datetime(monkeypatch, "2026-10-28 03:00:00")
+    assert notify._absorb_split_to_digest(subj, body, key=key,
+                                          category="warning_batch",
+                                          reason="review_rework") is True
+    _freeze_datetime(monkeypatch, "2026-10-28 03:25:00")
+    assert notify._absorb_split_to_digest(subj, body, key=key,
+                                          category="warning_batch",
+                                          reason="review_rework") is True
+    entries = _digest_entries(env["digest"])
+    assert len(entries) == 1, f"同 group 同正文只该 1 条(幂等不重复写): {entries}"
+    assert entries[0]["hits"] == 2, f"第二次吸收必须 hits+1: {entries[0]}"
+    assert entries[0]["hits_ts"] == "2026-10-28 03:25:00", \
+        f"最近时刻必须被更新: {entries[0]}"
+
+
+def test_g2_split_absorb_different_body_not_merged(env, monkeypatch):
+    """对照组: 同指纹不同正文 ⇒ 两条并列、各自 hits=1（不得串成一条）。"""
+    _freeze_datetime(monkeypatch, "2026-10-28 03:00:00")
+    subj = "[告警·聚合] 1条 warning 汇总 10-28 03:00"
+    for body in ("body-A", "body-B"):
+        assert notify._absorb_split_to_digest(subj, body,
+                                              key=_wbatch_key("fp-alpha", body),
+                                              category="warning_batch",
+                                              reason="review_rework") is True
+    entries = _digest_entries(env["digest"])
+    assert len(entries) == 2, f"不同正文必须各留一条: {entries}"
+    assert [e["hits"] for e in entries] == [1, 1], entries
+    assert {e["body"] for e in entries} == {"body-A", "body-B"}, entries
+
+
+# ────── H. 审查返工2：两条新并入成功行必须判「已处置」而非 failed ──────
+# 样本一律由**被测代码自己打印**(真跑吸收路径 + capsys 捕获), 不手写"看起来合理"的假样本(L49)。
+def test_h1_notify_state_recovery_digest_line(env, capsys):
+    """恢复留痕并入成功行 ⇒ notify_state == suppressed（判 failed 会让监控重列 ⇒ 摘要重复）。"""
+    from notify_sent import notify_state
+
+    r = notify.send("[恢复] schedule_monitor taskA 异常关键词<exit> 已消失 10-28 03:25",
+                    "taskA 异常关键词<exit> 已消失<br>— 无需操作, 异常已自动恢复 —",
+                    severe=False)
+    assert r.get("digested") is True, f"恢复应并入摘要: {r}"
+    out, err = capsys.readouterr()
+    got = notify_state(out + err)
+    assert got == "suppressed", f"恢复并入行应判 suppressed, 实际 {got}: {(out + err)[:300]}"
+
+
+def test_h2_notify_state_warning_batch_digest_line(env, capsys):
+    """warning 聚合批并入成功行 ⇒ notify_state == suppressed。"""
+    from notify_sent import notify_state
+
+    _seed_warning_buffer(env["buffer"], [("A-due-alpha", "body-alpha")])
+    r = notify.flush_warning_batch(dry_run=False)
+    assert r.get("digested") is True, r
+    out, err = capsys.readouterr()
+    got = notify_state(out + err)
+    assert got == "suppressed", f"聚合批并入行应判 suppressed, 实际 {got}: {(out + err)[:300]}"
+
+
+def test_h3_notify_state_real_failure_still_failed(env):
+    """对照组: 真失败/真「并入失败」文本仍判 failed（防「一律放过」的假修）。"""
+    from notify_sent import notify_state
+
+    assert notify_state("[notify] 汇总：全部渠道未发出（email/feishu 均失败）") == "failed"
+    assert notify_state(
+        "[notify][digest] warning 聚合批并入失败(buffer append) → fail-open 直发: n=1"
+    ) == "failed"
+    assert notify_state(
+        "[notify][digest] 恢复留痕并入失败(buffer append) → fail-open 直发: [恢复] x"
+    ) == "failed"
