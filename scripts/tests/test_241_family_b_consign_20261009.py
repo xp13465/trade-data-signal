@@ -203,7 +203,9 @@ def test_04_sched_static_locks_main_notify_gated():
          "失败应回滚本轮新 active 落签")
     _chk("_STATE_PRE = {k:" in src, "应有本轮开始前状态快照")
     # 不得残留旧的 fire-and-forget 直调(裸 subprocess.run(...check=False) 无捕获)
-    _chk("f\"[告警] {len(alerts)}项计划任务异常 {_sm_time}\"" in src, "主告警模板仍在")
+    # 2026-10-28 告警降噪批次3-A(A3): subject 由 `_sm_alert_subject(alerts, _sm_time)` 生成
+    # (带归一化任务名, 长度 ≤120); 原硬编码模板串已随改法替换。
+    _chk("_sm_alert_subject(alerts, _sm_time)" in src, "主告警模板仍在(subject 生成函数)")
     _chk(len(re.findall(r"capture_output=True, text=True, check=False,", src)) >= 1,
          "至少主 notify 一处已捕获")
 

@@ -3981,15 +3981,68 @@ _SUGGEST_MAP = {
 _LOG_MAP = {t["task"]: str(LOG_DIR / t["log"]) for t in TASKS}
 
 
+def _task_name_of(line):
+    """告警行 -> 归一化任务名(唯一归一化规则, `_format_alert_item` 与 subject 共用)。
+
+    A3(2026-10-28 告警降噪批次3-A): 同一事实不加第二份实现 —— 原先规则只写在
+    `_format_alert_item` 里, subject 拿不到任务名 ⇒ 不同故障被并成同一签名。抽成共用函数后
+    两处口径永不漂移。
+    规则: 剥 `SEVERE: ` 前缀; `com.trade.<x>` -> `<x>` 且 `-`->`_`; `线上` -> `overview`。
+    """
+    _text = line[8:] if line.startswith("SEVERE: ") else line  # "SEVERE: "=8字符
+    _first = _text.split(" ", 1)[0] if " " in _text else _text
+    if _first.startswith("com.trade."):
+        return _first.replace("com.trade.", "").replace("-", "_")
+    if _first == "线上":
+        return "overview"
+    return _first
+
+
+def _task_names_of(alerts, max_chars=60):
+    """告警列表 -> 去重 + 字典序 + `/` 连接的任务名串(供 subject 用)。
+
+    长度硬约束(A3): 返回串 ≤ max_chars。超了取前 3 个 + `等N个`(N=任务总数); 仍超则继续
+    减名(最少留 1 个); 单个名字自身过长时硬截加省略号。排序保证乱序输入同一集合结果相同。
+    """
+    names = sorted({_task_name_of(a) for a in alerts if _task_name_of(a)})
+    if not names:
+        return ""
+    joined = "/".join(names)
+    if len(joined) <= max_chars:
+        return joined
+    suffix = f"等{len(names)}个"
+    for keep in range(min(3, len(names)), 0, -1):
+        cand = "/".join(names[:keep]) + suffix
+        if len(cand) <= max_chars:
+            return cand
+    out = names[0] + suffix
+    return out if len(out) <= max_chars else out[:max_chars - 1] + "…"
+
+
+def _sm_alert_subject(alerts, sm_time, limit=120):
+    """主聚合告警 subject: `[告警] N项计划任务异常 [任务名/任务名] MM-DD HH:MM`。
+
+    A3(2026-10-28): 不同任务集的告警 subject 不再相同 ⇒ 下游(域聚合签名/重复判定/噪音计数)
+    能区分「同一故障重复」与「不同故障」; 单条告警时人一眼看出是哪个任务坏了。
+    长度硬约束: 任务串 ≤60 字符; 总长 ≤120 字符(超了继续砍任务串, **时间戳必须保留**)。
+    正文(body)不归本函数管, 一个字节不改。
+    """
+    head = f"[告警] {len(alerts)}项计划任务异常"
+    tail = f" {sm_time}"
+    names = _task_names_of(alerts, 60)
+    if names:
+        _budget = limit - len(head) - len(tail) - len(" []")
+        if _budget < 2:
+            names = ""
+        elif len(names) > _budget:
+            names = names[:_budget - 1] + "…"
+    return head + (f" [{names}]" if names else "") + tail
+
+
 def _format_alert_item(line):
     """B2: 单条 SEVERE 告警行 -> 4 行模板 HTML。"""
     _text = line[8:] if line.startswith("SEVERE: ") else line  # "SEVERE: "=8字符
-    _first = _text.split(" ", 1)[0] if " " in _text else _text
-    _task = _first
-    if _first.startswith("com.trade."):
-        _task = _first.replace("com.trade.", "").replace("-", "_")
-    elif _first == "线上":
-        _task = "overview"
+    _task = _task_name_of(line)
     _impact = _IMPACT_MAP.get(_task, "对应任务数据可能过期或未更新, 前端可能读到旧数据")
     _sugg = _SUGGEST_MAP.get(_task, "自动恢复中; 若持续异常请人工介入检查")
     _log = _LOG_MAP.get(_task, str(MONITOR_LOG))
@@ -4143,7 +4196,11 @@ if alerts:
     _r_main = subprocess.run(
         [
             sys.executable, str(REPO / "scripts" / "notify.py"),
-            f"[告警] {len(alerts)}项计划任务异常 {_sm_time}",
+            # A3(2026-10-28 告警降噪批次3-A): subject 带归一化任务名(去重+排序, ≤60 字符,
+            # 总长 ≤120), 不同任务集不再共用同一签名; 正文 body 一字不改。
+            # 不加 --dedup-key: alert_state 的 active/cleared 状态机已在正确抑制重复,
+            # 加 2h 集合去重会吞掉「同集合清了又复发」的真故障复发。
+            _sm_alert_subject(alerts, _sm_time),
             body,
             "--severe",
             "--from-prefix", "[告警]",
