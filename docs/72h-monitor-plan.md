@@ -32,7 +32,7 @@
 | 8 | R2时效 | R2 overview/intraday collected_at | 交易日盘中 overview<20min/intraday<15min | SEVERE邮件 | alert_state.json (r2_overview_lag/r2_intraday_lag) |
 
 **9个监控任务**（gen_schedule_stats.py TASKS）：
-update_all(17:50) / backfill_evening(02:00,16:35,21:00) / intraday_snapshot(30时点盘中+15:35+20:35) / futures_backfill(19:45,21:20) / lhb_backfill(18:30,19:30) / rzhb_backfill(08:00,19:15) / etf_national_team(20:07,21:30) / lab_auto(19:00) / us_stock_morning(05:00)
+update_all(17:50) / backfill_evening(02:00,16:35,21:00) / intraday_snapshot(30时点盘中+15:35+20:35) / futures_backfill(19:45,21:20) / lhb_backfill(18:50,19:30) / rzhb_backfill(08:00,19:15) / etf_national_team(20:07,21:30) / lab_auto(19:00) / us_stock_morning(05:00)
 
 ### 1.2 self_heal.sh（launchd 每15分钟，Minute=7/22/37/52）
 
@@ -94,7 +94,7 @@ update_all(17:50) / backfill_evening(02:00,16:35,21:00) / intraday_snapshot(30�
 或检查 launchd log 时效：`data/logs/{pf-stage0-*,public-fund-*,pf-score-*}_launchd.log` 最近运行时间。
 
 **public_fund 系列 plist 时点**：
-- `public-fund-daily`: 16:30, 17:00
+- `public-fund-daily`: 16:20, 17:00
 - `public-fund-estimation`: 10:00, 11:00, 13:30, 14:30（盘中实时估值）
 - `public-fund-full`: 22:00
 - `public-fund-quarterly`: 03:00, 04:00, 07:00
@@ -343,7 +343,7 @@ rm /tmp/monitor-72h-start.txt
 | backfill-evening | 02:00, 16:35, 21:00 | 交易日 |
 | intraday-snapshot | 30时点(09:25-15:02盘中+15:35+20:35) | 交易日 |
 | futures-backfill | 19:45, 21:20 | 交易日 |
-| lhb-backfill | 18:30, 19:30 | 交易日 |
+| lhb-backfill | 18:50, 19:30 | 交易日 |
 | rzhb-backfill | 08:00, 19:15 | 交易日 |
 | etf-national-team | 20:07, 21:30 | 交易日 |
 | lab-auto | 19:00 | 交易日 |
@@ -353,7 +353,7 @@ rm /tmp/monitor-72h-start.txt
 | gold-night | 02:40 | 每天 |
 | etf-track-index | 周日 03:30 | weekly |
 | daily-summary-supplement | 20:30 | 每天 |
-| public-fund-daily | 16:30, 17:00 | 交易日 |
+| public-fund-daily | 16:20, 17:00 | 交易日 |
 | public-fund-estimation | 10:00, 11:00, 13:30, 14:30 | 交易日盘中 |
 | public-fund-full | 22:00 | 每天 |
 | public-fund-quarterly | 03:00, 04:00, 07:00 | 每天 |

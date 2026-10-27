@@ -271,7 +271,7 @@ akshare 封装的同花顺接口。
 | `com.trade.update-all` | 17:50 | 主采集：4 条并行 pipeline（core/width/futures/stock_daily），约 31 分钟 |
 | `com.trade.intraday-snapshot` | 09:35 起每 15 分钟（09:35/09:50/10:05/...） | 盘中实时快照 + 指数反哺 + 推 intraday_snapshot.json |
 | `com.trade.futures-backfill` | 19:45, 21:20 | 期货机构持仓补采 |
-| `com.trade.lhb-backfill` | 18:30, 19:30 | 龙虎榜补采 |
+| `com.trade.lhb-backfill` | 18:50, 19:30 | 龙虎榜补采 |
 | `com.trade.rzhb-backfill` | 19:15 | 融资融券补采 |
 | `com.trade.etf-national-team` | 20:07, 21:30 | 国家队 ETF 份额 + 信号 |
 | `com.trade.backfill-evening` | 16:35, 02:00 | 多源补采兜底（指数/宽度） |

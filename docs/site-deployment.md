@@ -632,14 +632,14 @@ s.sugas.site 有 300MB 总大小限制。`static-site/data/` 已移出 git（走
 | 期货回填 | com.trade.futures-backfill | 19:45, 21:20 | futures_backfill.sh | 中金所期货持仓补采 | 是（deploy.sh） |
 | 夜盘黄金 | com.trade.gold-night | 02:40 | gold_night.sh | 夜盘黄金/白银采集 | 是（deploy.sh） |
 | 策略实验室 | com.trade.lab-auto | 19:00 | update_lab.sh | 策略实验室回测 | 是（deploy.sh） |
-| 龙虎榜回填 | com.trade.lhb-backfill | 18:30, 19:30 | lhb_backfill.sh | 龙虎榜数据补采 | 是（deploy.sh） |
+| 龙虎榜回填 | com.trade.lhb-backfill | 18:50, 19:30 | lhb_backfill.sh | 龙虎榜数据补采 | 是（deploy.sh） |
 | 公募评分(日) | com.trade.pf-score-daily | 16:00 | pf_score_daily.sh | 公募基金每日评分 | 否（写 DB） |
 | 公募评分(周) | com.trade.pf-score-weekly | 周日 03:17 | pf_score_weekly.sh | 公募基金周度评分 | 否（写 DB） |
 | 公募阶段0-经理 | com.trade.pf-stage0-manager | 每月1日 02:47 | stage0_manager.sh | 基金经理数据采集 | 否（写 DB） |
 | 公募阶段0-净值 | com.trade.pf-stage0-nav | 周五 01:43 | stage0_nav.sh | 基金净值采集 | 否（写 DB） |
 | 公募阶段0-概览 | com.trade.pf-stage0-overview | 周日 02:17 | stage0_overview.sh | 基金概览采集 | 否（写 DB） |
 | 公募阶段0-风险 | com.trade.pf-stage0-risk | 每月15日 02:33 | stage0_risk.sh | 基金风险指标采集 | 否（写 DB） |
-| 公募日更 | com.trade.public-fund-daily | 16:30, 17:00 | public_fund_daily.sh | 公募基金每日数据 | 是（deploy.sh） |
+| 公募日更 | com.trade.public-fund-daily | 16:20, 17:00 | public_fund_daily.sh | 公募基金每日数据 | 是（deploy.sh） |
 | 公募估值 | com.trade.public-fund-estimation | 10:00, 11:00, 13:30, 14:30 | public_fund_estimation.sh | 盘中基金估值 | 否（写 DB） |
 | 公募全量 | com.trade.public-fund-full | 22:00 | public_fund_full.sh | 公募基金全量采集 | 否（写 DB） |
 | 公募季报 | com.trade.public-fund-quarterly | 03:00, 04:00, 07:00 | public_fund_quarterly.sh | 季报数据采集 | 否（写 DB） |
@@ -655,7 +655,7 @@ s.sugas.site 有 300MB 总大小限制。`static-site/data/` 已移出 git（走
 - 16:35 / 21:00 / 02:00（backfill-evening 推 main）
 - 17:50（update-all 推 main）
 - 19:45 / 21:20（futures-backfill 推 main）
-- 18:30 / 19:30（lhb-backfill 推 main）
+- 18:50 / 19:30（lhb-backfill 推 main）
 - 19:00（lab-auto 推 main）
 - 20:07 / 21:30（etf-national-team 推 main）
 - 08:00 / 19:15（rzhb-backfill 推 main）

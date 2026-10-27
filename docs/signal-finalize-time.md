@@ -52,7 +52,7 @@
 | A 股指数信号(9 宽基/31 行业/概念/申万) | **15:03(收盘价首轮)** | 收盘价固定,后续 17:50 幂等重算结果相同 |
 | 港股指数信号(hsi/hscei/hstech) | **17:50 update_all** | 港股 16:00 收盘,update_all 的 intraday_snapshot 反哺收盘价 |
 | 全球/欧股/国债信号(DAX/CAC40/cgb_10y_future) | **约 18:42(update_all 末尾)** | 欧股 15:00 开盘、国债期货 15:15 收盘,当日数据晚间入库 |
-| 情绪分 s.* 信号(s.cross_market 含龙虎榜/两融) | **20:36 晚间快照后** | 龙虎榜 18:30 采集、两融 19:15 采集,晚间快照重算含全分项;首页 signals_today 已排除 s.*,仅 KPI 卡片/弹窗可见 |
+| 情绪分 s.* 信号(s.cross_market 含龙虎榜/两融) | **20:36 晚间快照后** | 龙虎榜 18:50 采集、两融 19:15 采集,晚间快照重算含全分项;首页 signals_today 已排除 s.*,仅 KPI 卡片/弹窗可见 |
 | 美股指数信号(us_dji 等) | 次日 5:00 后 | 美股 21:30(北京)开盘,us_stock_morning 5:00 采集 |
 | **当天全部信号整体** | **20:36 晚间快照后** | 08-11 实测 18:42=20:36,20:36 为当天最终;21:00/2:00 backfill 不重算信号 |
 
@@ -69,12 +69,12 @@
 | 国债期货 cgb_10y_future | 15:15 收盘 | 国债信号(仅 cgb 系列) |
 | 欧股 DAX/CAC40 | **15:00 开盘,当日数据晚间才入库** | 全球信号(buy_special) |
 | 港股 hsi/hscei | 16:00 收盘 | 港股信号 |
-| 龙虎榜 lhb_count/lhb_inst_net | **18:30/19:30 采集**(交易所盘后发布) | 仅 s.cross_market 情绪分信号(首页 signals_today 已排除) |
+| 龙虎榜 lhb_count/lhb_inst_net | **18:50/19:30 采集**(交易所盘后发布) | 仅 s.cross_market 情绪分信号(首页 signals_today 已排除) |
 | 两融余额 a_fund_margin | 19:15/8:00 采集(T+1) | 仅 s.cross_market 情绪分 |
 | 北向资金 a_fund_north | 盘中实时(HKEX),盘后定稿回填 | 仅 s.cross_market 情绪分 |
 | 美股 us_* | 次日 5:00 | 美股信号 |
 
-**最晚发布、卡最终定稿的瓶颈源 = 欧股当日数据(15:00 开盘,当日值晚间才入库)+ 港股收盘价(16:00)**,其次是晚间情绪分源(龙虎榜 18:30、两融 19:15,但只影响首页不展示的 s.* 信号)。
+**最晚发布、卡最终定稿的瓶颈源 = 欧股当日数据(15:00 开盘,当日值晚间才入库)+ 港股收盘价(16:00)**,其次是晚间情绪分源(龙虎榜 18:50、两融 19:15,但只影响首页不展示的 s.* 信号)。
 
 ### 5.2 若提前到 15:00-15:15(收盘价固定后立即算)会缺什么
 
@@ -100,7 +100,7 @@
 - **A 股指数信号(首页主体):理论上 15:05 即可定稿**(收盘价 15:00 后几分钟就绪),当前实为 15:03 快照已做到,无需等 17:50 update_all —— **已有提前空间,且已在用**。
 - **含港股版:最早 16:10**(港股 16:00 收盘价就绪后立即重算)。
 - **含全球/欧股完整版:最早约 17:00-18:00**(依赖欧股当日数据入库,update_all 17:50 起跑,实际约 18:42 完成)。
-- **含晚间情绪分最终版:最早 19:45**(龙虎榜 18:30 采集 + 两融 19:15 采集完成后),当前实为 20:36 晚间快照。
+- **含晚间情绪分最终版:最早 19:45**(龙虎榜 18:50 采集 + 两融 19:15 采集完成后),当前实为 20:36 晚间快照。
 - **结论**:若用户要的"交易信号最终报告"= A 股指数信号,**15:05 就能出,比现在的 17:50 update_all 提前约 3 小时,且当前 15:03 快照已在做**;若要"全市场完整版",瓶颈是港股 16:00 与欧股晚间,理论最早 16:10(港股版)/约 18:00(含欧股版)。
 
 ## 6. 已验证方法/数据源清单(证据复核点)
@@ -110,7 +110,7 @@
 - `app/collector/intraday_snapshot.py:1750` _recompute_signals()/`:2122` 调用/`:1099` _backfill_index_daily(UPSERT)/`:1103` 港股注释/`:1814` _export_affected_json 导出 overview
 - `app/queries.py:941` signals_today(排除 s.*)/`static-site/app.js:1529` 前端消费
 - `config/indicators.yaml` —— 158 enabled 指数(含 hsi/hscei/us_*/cgb_*);metric 分组 lhb(龙虎榜)/a_fund(两融北向)/global
-- 生产定时任务时点(2026-09-12 起云上 systemd timer,原 launchd label 保留作对照):`trade-update-all`(=com.trade.update-all) 17:50 / `trade-intraday-snapshot` 每10min + 15:02/15:35/20:35 / `trade-lhb-backfill` 18:30/19:30 / `trade-backfill-evening` 16:35/21:00/2:00 / `trade-us-stock-morning` 5:00
+- 生产定时任务时点(2026-09-12 起云上 systemd timer,原 launchd label 保留作对照):`trade-update-all`(=com.trade.update-all) 17:50 / `trade-intraday-snapshot` 每10min + 15:02/15:35/20:35 / `trade-lhb-backfill` 18:50/19:30 / `trade-backfill-evening` 16:35/21:00/2:00 / `trade-us-stock-morning` 5:00
 - **实测数据(2026-08-11,DB)**:`signal_intraday_log` 09:26-14:56 每轮 4-6 条波动;15:03=15:36=5 条(内容完全相同);18:42=20:36=8 条;signal_daily 当日最终 8 条
 - 日志:`update_all_20260811_1750.log`(17:50:05 开始,18:41 check_signals,18:49 结束,末尾 intraday_snapshot signals 重算 70304 条)
 

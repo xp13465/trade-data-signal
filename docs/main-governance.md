@@ -185,7 +185,7 @@
 ---
 
 ## 18.1 主控专属教训(28 条,2026-08-12 用户定 §18 按归属拆分;2026-08-24 补回填 E25/E26/E27/E29/E30 + L29指针/L30/L31/L32/L33/L35/L36 + E31)
-> 根 CLAUDE.md §18 索引表中**归属主控**的条目在此:过错 16 条(L29 为指针,全文在根 CLAUDE.md §0.1)+ 经验 11 条 + E31(codex 回馈新增,非 archive 归档条目)。每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 `docs/archive/CLAUDE-errors-2026-08.md` 反追(grep 锚点id)。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:主控归属 = L01/L15/L17/L20/L21/L23/L24/L26/L28/L29/L30/L31/L32/L33/L35/L36(16)+ E05/E07/E15/E18/E19/E22/E25/E26/E27/E29/E30(11)+ E31(非归档)= 28 条。
+> 根 CLAUDE.md §18 索引表中**归属主控**的条目在此:过错 16 条(L29 为指针,全文在根 CLAUDE.md §0.1)+ 经验 11 条 + E31(codex 回馈新增,本条不入归档块;与归档锚点块同号 E31「生效判定」不同所指,见下)。每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 `docs/archive/CLAUDE-errors-2026-08.md` 反追(grep 锚点id)。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:主控归属 = L01/L15/L17/L20/L21/L23/L24/L26/L28/L29/L30/L31/L32/L33/L35/L36(16)+ E05/E07/E15/E18/E19/E22/E25/E26/E27/E29/E30(11)+ E31(非归档)= 28 条(注:E31 指本条 codex 通道条,与归档锚点块同号 E31「生效判定」不同所指)。
 > 设计意图(用户原话):"不同角色的经验对其他角色不通用",主控全栈需要全部教训,故主控归属条目最多。实施/调研/测试专属教训不进本文件,见对应角色 skill。
 
 ### 主控专属过错(16 条,含 1 条指针)
@@ -218,7 +218,7 @@
 - **E27 v1.1.0 版本发布机制**:动 AI 推荐/降亏过滤核心功能必须发中间版本(1.0.0→v1.1.0 先例,7键→9键全站对齐审计:后端判定/前端默认/lab/公示四处置0过时);现行版本升级原则全文见根 CLAUDE.md §5.4⑥ | archive:L110
 - **E29 token优化6条0成本行为层**:输出简洁指令/命令静默化/派单只回结论/@文件直引/小任务不 spawn/失败方向用 rewind;六条全文见根 CLAUDE.md §5.5(与 §5.2 模型参数层互补) | archive:L112
 - **E30 优化/修复落地后定期巡检机制**:每天 18:05 cron 巡检 6 项指标+判定标准,严重止损回滚、小问题迭代;机制细节见 memory optimization-followup-inspection | archive:L113
-- **E31 codex 跨 agent 消息通道防误读**:git blob ref 作跨 agent 消息通道(refs/codex/req/*)天生无时间戳无状态标记,配套报告文件 `/tmp/codex-reports/<id>.json` 有两个误读源——半成品(report.sh json.load 天然防御)+**同 id 重跑时旧完整报告残留**(完整可解析,真缺口) | How to apply:①request 必带 status 字段(pending|processing|completed,Codex 开工自行推进 processing)②发起侧先清场——写 ref 前 `rm -f` 旧报告(codex-review-request.sh 已内置,保证 ref 出现时绝无旧报告)③报告原子写(先 `<id>.json.tmp` 再 rename)④同 id 重跑必须换新 id 或确认旧报告已清,禁止依赖残留报告 | 来源:外部 reviewer codex 回馈 2026-08-24(docs/codex-collab-protocol.md「写入与清理规范」)
+- **E31 codex 跨 agent 消息通道防误读**:git blob ref 作跨 agent 消息通道(refs/codex/req/*)天生无时间戳无状态标记,配套报告文件 `/tmp/codex-reports/<id>.json` 有两个误读源——半成品(report.sh json.load 天然防御)+**同 id 重跑时旧完整报告残留**(完整可解析,真缺口) | How to apply:①request 必带 status 字段(pending|processing|completed,Codex 开工自行推进 processing)②发起侧先清场——写 ref 前 `rm -f` 旧报告(codex-review-request.sh 已内置,保证 ref 出现时绝无旧报告)③报告原子写(先 `<id>.json.tmp` 再 rename)④同 id 重跑必须换新 id 或确认旧报告已清,禁止依赖残留报告 | 来源:外部 reviewer codex 回馈 2026-08-24(docs/codex-collab-protocol.md「写入与清理规范」) | **编号消歧(2026-10-27)**:本处 E31 与归档锚点块 E31(「生效判定用代码确定性+环境反证」,2026-10-27 新加)同号不同所指;归档正文历史文本里的 E31 又是第三条「派单前先核真值」。引用时务必写明「gov §18.1 E31(codex 通道)」或「归档 E31(生效判定)」,禁只写「E31」
 
 ---
 

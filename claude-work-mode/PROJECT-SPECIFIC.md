@@ -119,11 +119,11 @@
 | intraday-snapshot | 盘中 09:25/09:35/.../11:32 + 13:01/13:05/.../15:02（每 10min 共 27 次）+ 15:35 + 20:35 |
 | update-all | 17:50 |
 | pf-score-daily | 16:00 |
-| public-fund-daily | 16:30 / 17:00 |
+| public-fund-daily | 16:20 / 17:00 |
 | backfill-evening | 16:35 / 21:00 / 02:00 |
-| lhb-backfill | 18:30 / 19:30 |
+| lhb-backfill | 18:50 / 19:30 |
 | lab-auto | 19:00 |
-| futures-backfill | 20:05 / 21:00 |
+| futures-backfill | 19:45 / 21:20 |
 | etf-national-team | 20:07 / 21:30 |
 | daily-summary-supplement | 20:30 |
 | **daily-brief**（AI 速递，gen_daily_brief.py） | 20:40 |
