@@ -31,7 +31,9 @@ MONITOR = ROOT / "scripts" / "schedule_monitor.sh"
 WANT_ASSIGN = {"COVERAGE_BUSINESS_TOTAL", "COVERAGE_SELF_MONITOR", "LOG_CALIBER_COVERAGE",
                "STATS_FRESH_WINDOW", "RECOVERY_COOLDOWN",
                "CONCLUSION_STATUS_KEY_PREFIX", "CONCLUSION_STATUS_SUBJECT_PREFIX",
-               "CONCLUSION_STATUS_EMAIL_ENV"}
+               "CONCLUSION_STATUS_EMAIL_ENV",
+               # ★5b/5c 批次2(2026-10-28): 签名归一化 + 24h 再提醒
+               "CONCLUSION_STATUS_REMIND_HOURS", "_CONCLUSION_PAIR_RE"}
 WANT_FUNC = {
     "_unit_short_name", "_fmt_time_part", "_fmt_span", "_stat_exit_code", "_unit_channel_owns_row",
     "_migrate_unit_owned_keys",
@@ -40,6 +42,7 @@ WANT_FUNC = {
     "_failed_stats", "_failure_name", "_failure_detail", "_coverage_text",
     "_cfu_failed_units", "_build_conclusion", "_unit_alert_events",
     "_conclusion_is_ok", "_conclusion_digest", "_conclusion_recurrence_ok",
+    "_conclusion_signature", "_conclusion_remind_due",
     "_conclusion_status_decision", "_conclusion_status_mark_recovered",
     "_conclusion_status_email_body", "_maybe_send_conclusion_status_email",
     "_cfu_alert_mail_delta", "_read_notify_result_status", "_flush_alert_mail_delta",

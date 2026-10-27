@@ -337,6 +337,9 @@ CONCLUSION_STATUS_SUBJECT_PREFIX = "[状态说明]"
 #      里的 `conclusion_status|*` 键, 再删代码。顺序反了 ⇒ 恢复环把残留键当异常消失处理
 #      ⇒ 下一轮发假恢复邮件(审查已实测)。
 CONCLUSION_STATUS_EMAIL_ENV = "MONITOR_CONCLUSION_STATUS_EMAIL"
+# ★5c 批次2(2026-10-28): 同签名持续异常每 24h 再提醒一次(归一化后防长期失声)。
+# 同日同签名 <24h ⇒ 不重发(旧行为「每轮内容稍有不同就发」正是 10-27 三条的根因)。
+CONCLUSION_STATUS_REMIND_HOURS = 24
 # 本轮「真发出」的告警邮件数: 只有 notify 确认送达才 +1(被去重/并入摘要 = 0)。
 # #309 F2 P1(2026-10-26) 全部外发通道都计入, 一个不落 —— 否则「本轮零告警邮件」判据造假:
 #   ① active 升级提醒(见 _active_escalate) ② 停摆级独立直发 ③ 收尾聚合批次
@@ -1059,8 +1062,14 @@ def _build_conclusion(stats, now, cfu_failed=0, alerts=0,
         if extra_live:
             parts.append(f"live 实测另有 {len(extra_live)} 个失败: " + "; ".join(extra_live))
     # 「漏跑 N」在有任何失败时一并写明(旧文案保留, 防读者以为漏跑未检查)。
+    # ★5b 补强(2026-10-28 审查 F3): 能拿到任务名就一并写明 —— 「漏跑 1」换个人/换个任务
+    # 是真不同的判别维度, 只留个数会被签名合并成同一故障(读者也看不到是谁漏)。
     if fails or extra_live or missed:
-        parts.append(f"漏跑 {len(missed)}")
+        _missed_names = sorted({str(s.get("task")) for s in missed if s.get("task")})
+        if _missed_names:
+            parts.append(f"漏跑 {len(missed)}: " + "、".join(_missed_names))
+        else:
+            parts.append(f"漏跑 {len(missed)}")
     if unknown:
         parts.append(f"退出码未知 {len(unknown)} 个(无法确认成功)")
     if alerts:
@@ -1088,10 +1097,93 @@ def _conclusion_is_ok(concl):
     return str(concl or "").strip().startswith("OK")
 
 
+# ★5b 批次2(2026-10-28): 结论里「一个失败/异常对象」的三元组形态:
+#   foo.service(Result=failed, exit=1, 09:26:00→09:41:00)   ← _failure_detail 主形态
+#   foo.service(exit=1, 源=...; ..., exit_conflict=true)     ← 冲突形态(无 Result)
+#   bar(live exit=1, 源=systemd)                             ← live 实测补充
+_CONCLUSION_PAIR_RE = re.compile(
+    r"([A-Za-z0-9_.-]+)\((?:Result=([a-z-]+), exit=(\d+)"
+    r"|live exit=(\d+), 源=([a-z-]+)"
+    r"|exit=(\d+))")
+
+
+def _conclusion_signature(concl):
+    """★5b 归一化签名: 只留「任务名 + Result/exit」三元组 + 结构性计数 + 名单, 丢掉时间戳/耗时。
+
+    F3(2026-10-28 审查): failed unit / 漏跑任务的**名单**也进签名(排序去重归一);只留个数会让
+    「单位换人」的真故障被同一签名吞掉。名单拿不到时退回只留个数, 并由 24h 再提醒兜底。
+
+    病灶(10-27 三条 / 10-26 一条): 结论文本里的起止时间(09:26:00→09:41:00)每轮都变,
+    旧实现对全文 md5 ⇒ 每轮换新 key ⇒ 立即再发一封「状态说明」。归一化后同一故障集合签名
+    稳定; 持续异常靠 24h 再提醒(_conclusion_remind_due)保证不长期失声。
+    正则不匹配(新文案形态)⇒ 回退原文(当前行为), 不静默丢信息。
+    """
+    txt = str(concl or "").strip()
+    if not txt:
+        return ""
+    pairs = []
+    for m in _CONCLUSION_PAIR_RE.finditer(txt):
+        name = m.group(1)
+        if m.group(2) is not None:
+            pairs.append(f"{name}|Result={m.group(2)}|exit={m.group(3)}")
+        elif m.group(4) is not None:
+            pairs.append(f"{name}|live|exit={m.group(4)}|源={m.group(5)}")
+        else:
+            pairs.append(f"{name}|exit={m.group(6)}")
+    extras = []
+    # 计数 **+ 名单** 都要进签名(2026-10-28 审查 F3): 只留个数 ⇒「failed 的 unit 从 A 换成 B」
+    # 或「漏跑的任务换了人」会被同一签名吞掉, 真故障判别维度丢失(可见性判别维度)。
+    # 名单排序+去重后归一, 防采集顺序抖动制造假"新故障"反复发信。
+    def _norm_names(raw):
+        return ",".join(sorted({
+            _n.strip() for _n in re.split("[、,]", raw or "") if _n.strip()}))
+
+    _m = re.search(r"漏跑 (\d+)(?:\s*个任务)?(?::\s*([^;]+))?", txt)
+    if _m:
+        _n = _norm_names(_m.group(2))
+        extras.append(f"missed={_m.group(1)}" + (f":{_n}" if _n else ""))
+    _m = re.search(r"(\d+) 个云上 unit 处于 failed 状态:\s*([^;(]+)", txt)
+    if _m:
+        _n = _norm_names(_m.group(2))
+        extras.append(f"units={_m.group(1)}" + (f":{_n}" if _n else ""))
+    else:
+        _m = re.search(r"(\d+) 类云上 unit 巡检问题", txt)
+        if _m:
+            extras.append(f"units={_m.group(1)}")
+    for pat, tag in ((r"退出码未知 (\d+) 个", "unknown"),
+                     (r"有 (\d+) 条告警", "alerts")):
+        _m = re.search(pat, txt)
+        if _m:
+            extras.append(f"{tag}={_m.group(1)}")
+    if "stats 刷新失败" in txt:
+        extras.append("stats-stale")
+    if not pairs and not extras:
+        return txt
+    return ";".join(sorted(set(pairs)) + extras)
+
+
 def _conclusion_digest(concl):
-    """结论内容摘要(前 8 位, 与同文件行级去重 key 同口径 md5[:8])。"""
+    """结论**归一化签名**摘要(前 8 位, 与同文件行级去重 key 同口径 md5[:8])。"""
     return hashlib.md5(
-        str(concl or "").strip().encode("utf-8", errors="replace")).hexdigest()[:8]
+        _conclusion_signature(concl).encode("utf-8", errors="replace")).hexdigest()[:8]
+
+
+def _conclusion_remind_due(entry, now):
+    """★5c: 同签名 status=active 且距上次发送 >= 24h → 再提醒一次。
+
+    归一化后「一轮内容不变 ⇒ 同一签名」, 若无再提醒, 持续异常会静默到恢复为止(长期失声)。
+    last_alerted 缺失/损坏 ⇒ 按「到期」处理(宁可多发一次也不静默); now 不是 datetime ⇒ 不判。
+    """
+    if not isinstance(now, datetime):
+        return False
+    _la = entry.get("last_alerted") if isinstance(entry, dict) else None
+    if not _la:
+        return True
+    try:
+        _la_dt = datetime.strptime(str(_la), "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return True
+    return (now - _la_dt) >= timedelta(hours=CONCLUSION_STATUS_REMIND_HOURS)
 
 
 def _conclusion_recurrence_ok(entry, now):
@@ -1181,7 +1273,8 @@ def _conclusion_status_decision(concl, alert_mail_sent, state, now):
       empty               结论为空(理论不可达, 保守不发)
       ok                  结论 OK ⇒ 不发(场景 C)
       has_alert_mail      本轮已有告警邮件真发出(或计数判不出=按已发过) ⇒ 不发(场景 A)
-      same_content_sent   同一结论内容已发过 ⇒ 不发(频率保护)
+      same_content_sent   同一结论(归一化签名)已发过且未满 24h ⇒ 不发(频率保护)
+      remind_24h          同签名持续异常满 24h ⇒ 再提醒一次(★5c 防长期失声)
       recurrence_cooldown 同内容恢复后 6h 内再次非 OK ⇒ 不发(防 OK/异常抖动刷屏)
       send                补发(场景 B: 结论非 OK 且本轮零告警邮件)
     """
@@ -1201,6 +1294,10 @@ def _conclusion_status_decision(concl, alert_mail_sent, state, now):
     ent = state.get(key) if isinstance(state, dict) else None
     if isinstance(ent, dict):
         if ent.get("status") == "active":
+            if _conclusion_remind_due(ent, now):
+                d["reason"] = "remind_24h"
+                d["send"] = True
+                return d
             d["reason"] = "same_content_sent"
             return d
         if not _conclusion_recurrence_ok(ent, now):
@@ -1242,8 +1339,8 @@ def _conclusion_status_email_body(concl, now_str):
     return ("<b>本轮监控结论(状态说明, 不是新故障)</b><br>"
             f"结论: {_esc}<br><br>"
             f"为什么没有对应的告警邮件: {_why}<br>"
-            "同一份结论内容只发一次状态说明; 结论内容变了会再发一次; "
-            "结论恢复正常后自动解除, 不会每轮重复打扰。<br>"
+            "同一份结论内容只发一次状态说明(持续异常每 24 小时再提醒一次); "
+            "结论内容变了会再发一次; 结论恢复正常后自动解除, 不会每轮重复打扰。<br>"
             f"时间: {now_str}")
 
 
