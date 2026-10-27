@@ -8,7 +8,7 @@
 //      + compareDirectiveToOurPolicy 三态与归一化
 //   ③ 分组计数口径 + 空 location 兜底 + 非 CSP 文本不进违规通道
 //   ④ 2026-10-27 #319: Chrome 141 的「内联脚本(单引号无冒号)」「eval(冒号后名字)」两种真实方言
-//      (原文逐字取自 /tmp/probe-csp2/out.log) —— E2/E3 用例, 断言抽出 script-src 'self' 并按策略判 ours/foreign
+//      (原文逐字取自 /tmp/probe-csp2/out.log) —— E11/E12 用例, 断言抽出 script-src 'self' 并按策略判 ours/foreign
 // 变异判别力: 把 compareDirectiveToOurPolicy 改成恒 ours ⇒ E8 类必红; 恒 foreign ⇒ E7/E9 类必红。
 // 放同目录顶层而非 tests/ 子目录: .gitignore 只 re-include `scripts/playwright-accept/*.mjs`。
 import test from "node:test";
@@ -283,7 +283,7 @@ test("compareDirectiveToOurPolicy: 「Note that ... fallback」兜底句式 —�
   );
 });
 
-// ── E2/E3(2026-10-27 #319): Chrome 141 的「内联脚本 / eval」两种真实报文方言 ──────
+// ── E11/E12(2026-10-27 #319): Chrome 141 的「内联脚本 / eval」两种真实报文方言 ──────
 // 原文逐字取自 /tmp/probe-csp2/out.log(Chromium 141 实测记录), 不许自己编。
 // 注意: 探针在 eval 报文前打了 "EVALERR " 标签, Chrome 原文从 "Evaluating" 起; 两种都测,
 // 顺带证明前缀不影响抽取。
