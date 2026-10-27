@@ -63,13 +63,16 @@ def test_six_classes_counts_and_render():
     ]
     res = anc.classify_rows(rows, ["2026-10-27"])
     d = res["days"][0]
-    assert (d["alert"], d["noise"], d["real"]) == (7, 6, 1)
+    # 两条「信号凯利回测停滞」都是 tier=critical ⇒ 第 2 条不再被写成 repeat（2026-10-28 审查 F1）
+    assert (d["alert"], d["noise"], d["real"]) == (7, 5, 2)
     assert d["breakdown"] == {
         "digest": 1, "warning_batch": 1, "escalation": 1,
-        "recovery": 1, "routine": 1, "repeat": 1,
+        "recovery": 1, "routine": 1, "repeat": 0,
     }
-    assert d["pass"] is False
-    assert res["totals"]["noise"] == 6 and res["totals"]["real"] == 1
+    assert d["escalation"] == 1 and d["noise_excl_escalation"] == 4
+    assert d["pass"] is False and d["no_data"] is False
+    assert res["totals"]["noise"] == 5 and res["totals"]["real"] == 2
+    assert res["totals"]["pass"] is False
     assert res["warn_untagged"] == []  # 全未标注 ⇒ 不报漏标
 
     text = anc.render({
@@ -77,9 +80,11 @@ def test_six_classes_counts_and_render():
         "days": res["days"], "totals": res["totals"],
         "warn_untagged": res["warn_untagged"],
     })
-    assert "日期 2026-10-27  告警群 7 条 = 噪音 6 条 + 真故障 1 条" in text
-    assert "构成：digest 1 / warning_batch 1 / escalation 1 / recovery 1 / routine 1 / repeat 1" in text
-    assert "验收：噪音 6 <= 3 ? FAIL（真故障不设上限）" in text
+    assert "日期 2026-10-27  告警群 7 条 = 噪音 5 条 + 真故障 2 条" in text
+    # 两种口径都能读：升级提醒单列 + 噪音不含升级
+    assert "其中：升级提醒 1 条；噪音(不含升级) 4 条" in text
+    assert "构成：digest 1 / warning_batch 1 / escalation 1 / recovery 1 / routine 1 / repeat 0" in text
+    assert "验收：噪音 5 <= 3 ? FAIL（真故障不设上限）" in text
     # repeat 诚实提示必须每次出现（A3 未修，不许静默）
     assert anc.REPEAT_CAVEAT in text
 
@@ -142,6 +147,36 @@ def test_repeat_cross_day_history_outside_window():
     assert d["breakdown"]["repeat"] == 1
 
 
+def test_repeat_signature_includes_tier():
+    """同 subject、不同 tier、24h 内 ⇒ 不算 repeat（守 (tier, subject) 签名，2026-10-28 审查 F2）。"""
+    rows = [
+        rec("2026-10-27 10:00:00", "[告警] 某任务异常 2026-10-27 10:00", tier="critical"),
+        rec("2026-10-27 10:30:00", "[告警] 某任务异常 2026-10-27 10:30", tier="warning"),
+        rec("2026-10-27 11:00:00", "[告警] 某任务异常 2026-10-27 11:00", tier="notice"),
+    ]
+    d = anc.classify_rows(rows, ["2026-10-27"])["days"][0]
+    assert (d["alert"], d["noise"], d["real"]) == (3, 0, 3)
+    assert d["breakdown"]["repeat"] == 0
+
+
+def test_critical_never_tagged_repeat_or_routine():
+    """critical 行不被 repeat / routine 吞掉；非 critical 行照常吃 repeat / routine。"""
+    rows = [
+        # critical 重复两次（同 tier 同签名）⇒ 两条都算真故障，不是 repeat
+        rec("2026-10-27 09:45:07", "[告警] 【停摆】云上 unit 巡检发现异常(1 项)", tier="critical"),
+        rec("2026-10-27 10:45:07", "[告警] 【停摆】云上 unit 巡检发现异常(1 项)", tier="critical"),
+        # critical + routine 谓词 ⇒ 仍是真故障（「常态提示」帽子不扣 critical）
+        rec("2026-10-27 11:00:00", "[kelly] 冻结表新增孤儿买事件 3 条", tier="critical"),
+        # 对照组：非 critical 的同模式行照常算 repeat
+        rec("2026-10-27 11:30:00", "[告警] 某任务异常 2026-10-27 11:30", tier="notice"),
+        rec("2026-10-27 12:30:00", "[告警] 某任务异常 2026-10-27 12:30", tier="notice"),
+    ]
+    res = anc.classify_rows(rows, ["2026-10-27"])
+    d = res["days"][0]
+    assert (d["alert"], d["noise"], d["real"]) == (5, 1, 4)
+    assert d["breakdown"]["repeat"] == 1 and d["breakdown"]["routine"] == 0
+
+
 # ---------------------------------------------------------------------------
 # 4. 归一化：同任务不同时间 ⇒ 同签名；不同任务名 ⇒ 不同签名；数字归一但单位保留
 # ---------------------------------------------------------------------------
@@ -181,6 +216,18 @@ def test_noise_class_wins_over_predicate():
     assert res["warn_untagged"] == []  # 该行已标, 不产生 WARN
 
 
+def test_noise_class_routine_notice_maps_to_routine():
+    """打标值 routine_notice（规格 ★6 标签名）对应计数分类 routine（2026-10-28 审查 F7）。"""
+    rows = [
+        rec("2026-10-27 04:00:00", "[kelly] 某常态提示", noise_class="routine_notice"),
+    ]
+    d = anc.classify_rows(rows, ["2026-10-27"])["days"][0]
+    assert (d["noise"], d["real"]) == (1, 0)
+    assert d["breakdown"]["routine"] == 1
+    assert "routine_notice" not in d["breakdown"]
+    assert anc.NOISE_CLASS_TO_CATEGORY["routine_notice"] == "routine"
+
+
 def test_partial_tagging_produces_warn_not_fail():
     rows = [
         rec("2026-10-27 01:00:00", "[告警·摘要] 当日合并 2 条", tier="digest",
@@ -216,20 +263,24 @@ def test_empty_ledger_and_day_without_rows():
     res = anc.classify_rows([], ["2026-10-27"])
     d = res["days"][0]
     assert (d["alert"], d["noise"], d["real"]) == (0, 0, 0)
-    assert res["totals"]["pass"] is True
+    # 无数据 ⇒ pass=null，不许「噪音 0 ⇒ PASS」（2026-10-28 审查 F5）
+    assert d["pass"] is None and d["no_data"] is True
+    assert res["totals"]["pass"] is None and res["totals"]["no_data"] is True
 
     rows = [rec("2026-10-26 10:00:00", "[告警] 别的日期", tier="critical")]
     res2 = anc.classify_rows(rows, ["2026-10-27"])
     assert res2["days"][0]["alert"] == 0
+    assert res2["days"][0]["pass"] is None
 
-    # --days 多天窗口也允许 0（不除零）
+    # --days 多天窗口也允许 0（不除零），无数据不判 PASS
     res3 = anc.classify_rows([], ["2026-10-25", "2026-10-26", "2026-10-27"])
     assert res3["totals"]["noise"] == 0
+    assert res3["totals"]["pass"] is None
     text = anc.render({"date": "2026-10-27",
                        "date_range": ["2026-10-25", "2026-10-27"],
                        "days": res3["days"], "totals": res3["totals"],
                        "warn_untagged": []})
-    assert "日均噪音 0.00 条/天" in text
+    assert "无数据" in text and "pass=null" in text and "PASS（" not in text
 
 
 def test_missing_ledger_file_is_zero_and_warns(tmp_path, capsys):
@@ -239,6 +290,9 @@ def test_missing_ledger_file_is_zero_and_warns(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["ledger_exists"] is False
     assert payload["totals"]["alert"] == 0
+    # 文件不存在 ⇒ no_data=true + pass=null（配错路径不许骗成 PASS）
+    assert payload["no_data"] is True
+    assert payload["totals"]["pass"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -253,17 +307,21 @@ def test_json_output_schema(tmp_path, capsys):
     rc = anc.main(["--date", "2026-10-27", "--ledger", str(p), "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    for key in ("date", "date_range", "ledger", "ledger_exists", "noise_max",
+    for key in ("date", "date_range", "ledger", "ledger_exists", "no_data", "noise_max",
                 "days", "totals", "repeat_caveat", "warn_untagged",
                 "skipped_bad_lines", "skipped_undated_alert_rows", "records_scanned"):
         assert key in payload, key
     assert payload["noise_max"] == 3
+    assert payload["no_data"] is False
     assert payload["date"] == "2026-10-27"
     assert payload["date_range"] == ["2026-10-27", "2026-10-27"]
     assert payload["records_scanned"] == 2
     d = payload["days"][0]
-    for key in ("date", "alert", "noise", "real", "breakdown", "pass"):
+    for key in ("date", "alert", "noise", "real", "escalation",
+                "noise_excl_escalation", "breakdown", "pass", "no_data"):
         assert key in d, key
+    for key in ("escalation", "noise_excl_escalation", "no_data"):
+        assert key in payload["totals"], key
     assert set(d["breakdown"]) >= set(anc.CANONICAL_CLASSES)
     assert payload["totals"]["alert"] == 2
     assert payload["totals"]["noise"] == 1 and payload["totals"]["real"] == 1
@@ -318,7 +376,7 @@ def test_no_wall_clock_dependency(tmp_path, capsys, monkeypatch):
     rc = anc.main(["--date", "2026-10-27", "--ledger", str(p), "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["totals"]["noise"] == 6
+    assert payload["totals"]["noise"] == 5
 
 
 def test_bad_lines_skipped(tmp_path, capsys):
@@ -330,6 +388,22 @@ def test_bad_lines_skipped(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["skipped_bad_lines"] == 1
     assert payload["totals"]["alert"] == 1
+
+
+def test_missing_subject_alert_row_counted_as_bad(tmp_path, capsys):
+    """group=alert 缺 subject ⇒ 按坏行计入 skipped_bad_lines，不当真实故障计入（审查 F4）。"""
+    p = _write_ledger(tmp_path / "alert_ledger.jsonl", [
+        rec("2026-10-27 01:00:00", "[告警] 正常行", tier="critical"),
+    ])
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"ts": "2026-10-27 02:00:00", "group": "alert",
+                            "tier": "critical"}, ensure_ascii=False) + "\n")
+    rc = anc.main(["--date", "2026-10-27", "--ledger", str(p), "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["skipped_bad_lines"] == 1
+    assert payload["totals"]["alert"] == 1
+    assert payload["records_scanned"] == 1
 
 
 def test_invalid_date_returns_2(capsys):

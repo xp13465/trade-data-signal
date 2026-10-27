@@ -405,6 +405,10 @@ print(len(noise), len(real))   # 验收只看 noise <= 3；real 不设上限
 | repeat | 同 `(tier, 归一化 subject)` 在 24h 内已出现过 | 70 |
 
 > 归一化 = 去掉日期/时间/纯数字（保留任务名/单位名）。类别间可重叠（如 digest 行的 subject 也会撞重复），故上表合计 156 > 154，主口径打标时 `noise_class` 取单值互斥、以打标结果为准。⚠️ 该归一化会把「1项计划任务异常」的不同任务误并成同一签名 → 必须先修附录 A3（subject 带任务名），否则 repeat 会被高估、真故障会被误判成噪音。
+>
+> **2026-10-28 审查补（口径，只加不改上表与历史基线）**：
+> 1. `repeat` / `routine` 判定跳过 `tier=critical`：critical 行一律按真故障事件计（同一事件当天再次发生也是新事件，不是噪音）。
+> 2. `noise_class` 打标值 `routine_notice` 对应计数分类 `routine`；标签与分类名不同名，映射见 `scripts/alert_noise_count.py` docstring。
 
 ### 当前基线（近 7 天台账，按上述主口径回算）
 - 告警群 199 条/7 天（28.4/天）：

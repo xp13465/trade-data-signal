@@ -23,18 +23,37 @@
     分类优先级：
       ① 行内已有非空 noise_class ⇒ 直接用（为 notify.py 将来打标预留；
          **未标注 = 真故障/业务，不计数**；标签只应取下面六个噪音类之一）
+         ⚠️ 打标值与计数分类名不是一回事（标签 ≠ 分类名）：打标值 `routine_notice`
+            对应计数分类 `routine`；其余五个同名。映射见 NOISE_CLASS_TO_CATEGORY，
+            未知标签原样保留（不静默改写成别的类）。
       ② 否则按谓词回算，**按下表顺序首个命中为准**（互斥，保证各构成之和 = 噪音总数）：
          digest         tier == "digest"
          warning_batch  subject 以 "[告警·聚合]" 开头
          escalation     subject 含 "升级 critical" 或 "持续故障升级"
          recovery       subject 以 "[恢复]" 开头
          routine        subject 含 孤儿买 / 缺失历史信号 / 历史行改写-提示 / 锁跳过
+                        （tier == "critical" 的行**不算** routine）
          repeat         同一 (tier, 归一化 subject) 在 **前 24h 内已出现过**
                         （归一化 = 去日期/时间/纯数字，保留任务名/单位名；
                           恰好在 24h00m 的算「在内」，24h01m 的算「不在内」）
+                        （tier == "critical" 的行**不算** repeat）
       ③ 都不命中 ⇒ 真故障首报（不设上限）
     谓词表照抄规格 ★6 交叉校验表，不得为了数字好看调整。
     重复判定只在 group == "alert" 的行之间比较（report 群消息不会让 alert 行变成 repeat）。
+
+    critical 与噪音的关系（2026-10-28 审查补，用户口径「真故障不设上限」）
+        critical 行**仍是 repeat 的历史参照**（后续同签名行照常可比），但**不许被打上
+        repeat / routine 标签**——它们是真故障事件（同一事件当天再发生也是新事件）。
+        escalation 保持规格原样（升级提醒暂按噪音计，是否改口径待用户拍板）。
+        因此输出会同时给两种读法：`噪音 M`（含升级提醒）与
+        `噪音(不含升级) M-E`（E = 升级提醒条数）；验收判定仍按 M 与阈值比较
+        （escalation 口径未定，不擅改判定）。
+
+    坏行与无数据（2026-10-28 审查补，防「0 条 ⇒ PASS」骗人）
+        - JSON 解析不了的行、非对象行、**group=alert 但缺/空 subject 的行**
+          一律计入 skipped_bad_lines 并打印，不参与计数。
+        - 台账不存在 / 台账为空 / 该日无 alert 行 ⇒ 该日 `pass = null`（无数据，不判达标）；
+          顶层 `no_data = true`。绝不用「噪音 0」冒充「达标」。
 
 已知局限（诚实标注，不静默）
     repeat 的归一化会把「N 项计划任务异常」这类**不带任务名**的 subject 误并成同一签名
@@ -52,20 +71,25 @@ JSON 结构（--json，字段稳定）
       "date_range": ["2026-10-27", "2026-10-27"],  # --days N 时是 N 天窗口
       "ledger": "<绝对路径>",
       "ledger_exists": true,
+      "no_data": false,                         # 台账不存在/为空/窗口内无 alert 行 ⇒ true
       "noise_max": 3,
       "days": [
         {"date": "...", "alert": 47, "noise": 41, "real": 6,
-         "breakdown": {"digest": 2, "warning_batch": 0, ...}, "pass": false}
+         "escalation": 2, "noise_excl_escalation": 39,
+         "breakdown": {"digest": 2, "warning_batch": 0, ...},
+         "pass": false, "no_data": false}
       ],
       "totals": {"alert": 47, "noise": 41, "real": 6,
-                 "breakdown": {...}, "pass": false},
+                 "escalation": 2, "noise_excl_escalation": 39,
+                 "breakdown": {...}, "pass": false, "no_data": false},
       "repeat_caveat": "repeat 类在 A3 修复前可能高估（不带任务名的 subject 会被误并）",
       "warn_untagged": [{"date": "...", "subject": "...", "suggested_class": "..."}],
-      "skipped_bad_lines": 0,             # JSON 解析不了的行数
+      "skipped_bad_lines": 0,             # JSON 解析不了的行数 + group=alert 却缺 subject 的行数
       "skipped_undated_alert_rows": 0,    # group=alert 但 ts 解析不了的行数（无法归日，显式计数不静默丢）
       "records_scanned": 815
     }
     判定 PASS = 窗口内**每一天**噪音 <= noise_max（真故障不参与判定）。
+    该日无 alert 行 ⇒ pass = null（无数据，无法判定）；窗口内全无 alert 行 ⇒ totals.pass = null。
     本脚本是量具：永远 exit 0（不因 FAIL 非零退出，避免误伤调用方；参数错误才 exit 2）。
 
 用法
@@ -107,6 +131,20 @@ ROUTINE_MARKERS = ("孤儿买", "缺失历史信号", "历史行改写-提示", 
 # 构成输出顺序（固定六类在前，未来新增标签追加在后）。
 CANONICAL_CLASSES = ("digest", "warning_batch", "escalation", "recovery", "routine", "repeat")
 
+# tier 为 critical 的行 = 真故障事件：不进 repeat / routine 噪音分类（规格 ★6 2026-10-28 审查补）。
+CRITICAL_TIER = "critical"
+
+# 打标值 → 计数分类名（标签 ≠ 分类名：规格 ★6 里标签叫 routine_notice，计数分类叫 routine）。
+# 未列出的标签原样保留，避免将来新增标签被静默改写。
+NOISE_CLASS_TO_CATEGORY = {
+    "digest": "digest",
+    "warning_batch": "warning_batch",
+    "escalation": "escalation",
+    "recovery": "recovery",
+    "routine_notice": "routine",
+    "repeat": "repeat",
+}
+
 REPEAT_CAVEAT = "repeat 类在 A3 修复前可能高估（不带任务名的 subject 会被误并成同一签名）"
 
 # 归一化：先去日期/时间（整段丢掉），再把纯数字换成占位符，保留任务名/单位名。
@@ -145,7 +183,10 @@ def parse_ts(value) -> datetime | None:
 
 
 def predicate_class(rec: dict) -> str | None:
-    """按规格 ★6 谓词表回算类别（不含 repeat；顺序即优先级）。"""
+    """按规格 ★6 谓词表回算类别（不含 repeat；顺序即优先级）。
+
+    tier == "critical" 的行不落 routine（critical 一律按真故障事件计）。
+    """
     tier = str(rec.get("tier") or "")
     subject = str(rec.get("subject") or "")
     if tier == "digest":
@@ -156,15 +197,21 @@ def predicate_class(rec: dict) -> str | None:
         return "escalation"
     if subject.startswith(RECOVERY_PREFIX):
         return "recovery"
-    if any(m in subject for m in ROUTINE_MARKERS):
+    if tier != CRITICAL_TIER and any(m in subject for m in ROUTINE_MARKERS):
         return "routine"
     return None
 
 
-def load_records(path: Path) -> tuple[list[dict], int]:
-    """读 JSONL 台账。返回 (记录列表, 坏行数)；文件不存在返回 ([], 0)。"""
+def load_records(path: Path) -> tuple[list[dict], int, int]:
+    """读 JSONL 台账。
+
+    返回 (记录列表, JSON 坏行数, group=alert 缺 subject 的坏行数)；文件不存在返回 ([], 0, 0)。
+    缺 subject 的 alert 行无法判别事件身份，按坏行跳过（规格 ★4.2，2026-10-28 审查补 F4），
+    不静默当成真故障计入。
+    """
     records: list[dict] = []
     bad = 0
+    bad_subject = 0
     try:
         with open(path, encoding="utf-8") as f:
             for raw in f:
@@ -179,10 +226,14 @@ def load_records(path: Path) -> tuple[list[dict], int]:
                 if not isinstance(rec, dict):
                     bad += 1
                     continue
+                if (str(rec.get("group") or "") == ALERT_GROUP
+                        and not str(rec.get("subject") or "").strip()):
+                    bad_subject += 1
+                    continue
                 records.append(rec)
     except FileNotFoundError:
-        return [], 0
-    return records, bad
+        return [], 0, 0
+    return records, bad, bad_subject
 
 
 def _ordered_breakdown(counter: Counter) -> dict:
@@ -220,11 +271,13 @@ def classify_rows(records: list[dict], days: list[str]) -> dict:
     history: dict[tuple[str, str], list[datetime]] = {}
 
     for ts, rec in alert_rows:
-        sig = (str(rec.get("tier") or ""), normalize_subject(rec.get("subject")))
+        tier = str(rec.get("tier") or "")
+        sig = (tier, normalize_subject(rec.get("subject")))
         prior = history.setdefault(sig, [])
         # 只留 24h 窗口内的历史（含恰好 24h），防长跑内存增长。
         prior[:] = [t for t in prior if (ts - t) <= REPEAT_WINDOW]
         is_repeat = bool(prior)
+        # critical 行仍进历史（后续同签名行照常可比），但自己不被打 repeat 标签。
         prior.append(ts)
 
         day = ts.strftime("%Y-%m-%d")
@@ -233,10 +286,11 @@ def classify_rows(records: list[dict], days: list[str]) -> dict:
 
         tag = str(rec.get("noise_class") or "").strip()
         if tag:
-            label = tag
+            # 标签 → 分类名映射（routine_notice 标签对应 routine 分类；未知标签原样保留）。
+            label = NOISE_CLASS_TO_CATEGORY.get(tag, tag)
         else:
             label = predicate_class(rec)
-            if label is None and is_repeat:
+            if label is None and is_repeat and tier != CRITICAL_TIER:
                 label = "repeat"
             if any_labeled and label is not None:
                 warn.append({
@@ -257,28 +311,39 @@ def classify_rows(records: list[dict], days: list[str]) -> dict:
     totals = {"alert": 0, "noise": 0, "real": 0, "breakdown": Counter()}
     for d in days:
         b = per_day[d]
+        esc = int(b["breakdown"].get("escalation", 0))
+        has_rows = b["alert"] > 0
         day_reports.append({
             "date": d,
             "alert": b["alert"],
             "noise": b["noise"],
             "real": b["real"],
+            "escalation": esc,
+            "noise_excl_escalation": b["noise"] - esc,
             "breakdown": _ordered_breakdown(b["breakdown"]),
-            "pass": b["noise"] <= NOISE_MAX,
+            # 无 alert 行 ⇒ 无数据，pass = null（不许用「噪音 0」冒充达标）
+            "pass": (b["noise"] <= NOISE_MAX) if has_rows else None,
+            "no_data": not has_rows,
         })
         totals["alert"] += b["alert"]
         totals["noise"] += b["noise"]
         totals["real"] += b["real"]
         totals["breakdown"].update(b["breakdown"])
 
+    judged = [r for r in day_reports if r["alert"] > 0]
+    total_esc = int(totals["breakdown"].get("escalation", 0))
     return {
         "days": day_reports,
         "totals": {
             "alert": totals["alert"],
             "noise": totals["noise"],
             "real": totals["real"],
+            "escalation": total_esc,
+            "noise_excl_escalation": totals["noise"] - total_esc,
             "breakdown": _ordered_breakdown(totals["breakdown"]),
-            # 窗口 PASS = 每一天都达标（验收口径是「每天」0~3，不是平均值）
-            "pass": all(r["pass"] for r in day_reports),
+            # 窗口 PASS = 有数据的天每一天都达标（验收口径是「每天」0~3，不是平均值）
+            "pass": all(r["pass"] for r in judged) if judged else None,
+            "no_data": not judged,
         },
         "warn_untagged": warn,
         "any_labeled": any_labeled,
@@ -291,29 +356,47 @@ def _fmt_breakdown(breakdown: dict) -> str:
 
 
 def render(payload: dict) -> str:
-    """人读输出（日期 / 告警群 N = 噪音 M + 真故障 K / 构成 / 验收 + 诚实提示）。"""
+    """人读输出（日期 / 告警群 N = 噪音 M + 真故障 K / 升级提醒 E + 噪音不含升级 / 构成 / 验收）。"""
     lines: list[str] = []
     days = payload["days"]
     if len(days) == 1:
         d = days[0]
-        lines.append(f"日期 {d['date']}  告警群 {d['alert']} 条 = "
-                     f"噪音 {d['noise']} 条 + 真故障 {d['real']} 条")
-        lines.append(f"构成：{_fmt_breakdown(d['breakdown'])}")
-        lines.append(f"验收：噪音 {d['noise']} <= {NOISE_MAX} ? "
-                     f"{'PASS' if d['pass'] else 'FAIL'}（真故障不设上限）")
+        if d["alert"] == 0:
+            lines.append(f"日期 {d['date']}  告警群 0 条（无数据，无法判定；"
+                         f"请核对 --ledger 路径与该日是否真无告警）")
+            lines.append(f"验收：无数据，pass=null（不判 PASS）")
+        else:
+            lines.append(f"日期 {d['date']}  告警群 {d['alert']} 条 = "
+                         f"噪音 {d['noise']} 条 + 真故障 {d['real']} 条")
+            lines.append(f"其中：升级提醒 {d['escalation']} 条；"
+                         f"噪音(不含升级) {d['noise_excl_escalation']} 条")
+            lines.append(f"构成：{_fmt_breakdown(d['breakdown'])}")
+            lines.append(f"验收：噪音 {d['noise']} <= {NOISE_MAX} ? "
+                         f"{'PASS' if d['pass'] else 'FAIL'}（真故障不设上限）")
     else:
         lines.append(f"窗口 {payload['date_range'][0]} ~ {payload['date_range'][1]}"
                      f"（{len(days)} 天）")
         for d in days:
+            if d["alert"] == 0:
+                lines.append(f"  {d['date']}  告警群 0 条（无数据）")
+                continue
             lines.append(f"  {d['date']}  告警群 {d['alert']} = 噪音 {d['noise']}"
-                         f" + 真故障 {d['real']}  |  {_fmt_breakdown(d['breakdown'])}")
+                         f" + 真故障 {d['real']}（其中升级提醒 {d['escalation']}）"
+                         f"  |  {_fmt_breakdown(d['breakdown'])}")
         t = payload["totals"]
-        avg = (t["noise"] / len(days)) if days else 0.0
-        lines.append(f"  合计 告警群 {t['alert']} = 噪音 {t['noise']} + 真故障 {t['real']}")
-        lines.append(f"  构成：{_fmt_breakdown(t['breakdown'])}")
-        lines.append(f"  日均噪音 {avg:.2f} 条/天")
-        lines.append(f"验收：噪音每天 <= {NOISE_MAX} ? "
-                     f"{'PASS' if t['pass'] else 'FAIL'}（真故障不设上限）")
+        if t["no_data"]:
+            lines.append(f"  合计 告警群 0 条（无数据）")
+            lines.append(f"验收：无数据，pass=null（不判 PASS）")
+        else:
+            avg = (t["noise"] / len(days)) if days else 0.0
+            lines.append(f"  合计 告警群 {t['alert']} = 噪音 {t['noise']} + 真故障 {t['real']}")
+            lines.append(f"  其中：升级提醒 {t['escalation']} 条；"
+                         f"噪音(不含升级) {t['noise_excl_escalation']} 条")
+            lines.append(f"  构成：{_fmt_breakdown(t['breakdown'])}")
+            lines.append(f"  日均噪音 {avg:.2f} 条/天")
+            lines.append(f"验收：噪音每天 <= {NOISE_MAX} ? "
+                         f"{'PASS' if t['pass'] else 'FAIL'}（真故障不设上限；"
+                         f"无数据的天不参与判定）")
 
     lines.append(f"提示：{REPEAT_CAVEAT}")
 
@@ -354,10 +437,13 @@ def main(argv: list[str] | None = None) -> int:
     path = Path(args.ledger) if args.ledger else default_ledger_path()
     exists = path.exists()
     if not exists:
-        print(f"[alert_noise_count] 台账不存在，按 0 条处理：{path}", file=sys.stderr)
-    records, bad = load_records(path)
+        print(f"[alert_noise_count] 台账不存在，无数据（不判 PASS）：{path}", file=sys.stderr)
+    records, bad, bad_subject = load_records(path)
     if bad:
         print(f"[alert_noise_count] 跳过 {bad} 行无法解析的台账行", file=sys.stderr)
+    if bad_subject:
+        print(f"[alert_noise_count] 跳过 {bad_subject} 行 group=alert 但缺 subject 的台账行"
+              f"（无法判别事件身份，按坏行计）", file=sys.stderr)
 
     res = classify_rows(records, days)
     if res["skipped_undated_alert_rows"]:
@@ -368,12 +454,13 @@ def main(argv: list[str] | None = None) -> int:
         "date_range": [days[0], days[-1]],
         "ledger": str(path),
         "ledger_exists": exists,
+        "no_data": (not exists) or res["totals"]["no_data"],
         "noise_max": NOISE_MAX,
         "days": res["days"],
         "totals": res["totals"],
         "repeat_caveat": REPEAT_CAVEAT,
         "warn_untagged": res["warn_untagged"],
-        "skipped_bad_lines": bad,
+        "skipped_bad_lines": bad + bad_subject,
         "skipped_undated_alert_rows": res["skipped_undated_alert_rows"],
         "records_scanned": len(records),
     }
