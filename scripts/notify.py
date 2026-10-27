@@ -394,6 +394,8 @@ DIGEST_REASON_LABELS = {
     "notice_over_budget": "非 critical 重复类超预算",
     "domain_inhibited": "同一故障域静默窗内派生",
     "rollover_digested": "前日已并入的同一重复",
+    # 批次3-C(2026-10-28): 近 N 天同签名已直发过 ⇒ 本次并入(跨日收敛)。
+    adr.REPEAT_RECENT_ABSORB_REASON: "近 N 天同签名已直发过(跨日重复)",
     DIGEST_RECOVERY_TRACE_REASON: "闭环信号留痕(已直发)",
     DIGEST_RECOVERY_ABSORB_REASON: "恢复信号(本次并入摘要, 未即时单独外发)",
     DIGEST_WARNING_BATCH_REASON: "warning 聚合批(本次并入摘要, 未单独外发)",
@@ -1504,25 +1506,51 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
         _ncat = adr.category_of(ledger_key, subject)
         if _ncat:
             _nsig = _ledger_key_of(subject, ledger_key)
+            # 批次3-C(2026-10-28): 本条**将要落台账**的 tier —— 显式 ledger_tier 优先
+            # (与 _record_ledger 同式)。critical ⇒ 本门永不吸收(硬约束1: 首报必达)。
+            _cur_tier = ledger_tier or ("critical" if severe else "notice")
             _dup_today = _nsig in _budget_today_notice_keys(_ncat)
             _roll, _ = adr.rollover_absorb_judge(_rollover_seen(), _nsig, datetime.now())
-            if (_budget_today_notice_count(_ncat) >= adr.ALERT_NOTICE_BUDGET.get(_ncat, 1)
-                    and (_dup_today or _roll)):
-                _nreason = (adr.ROLLOVER_ABSORB_REASON if (_roll and not _dup_today)
-                            else adr.NOTICE_OVER_BUDGET_REASON)
-                if _absorb_to_digest(subject, body, key=ledger_key, category=_ncat,
-                                     source=source, from_prefix=from_prefix,
-                                     reason=_nreason, mark_seen=True, bump_hits=True):
-                    adr.record_suppression(
-                        mechanism="notice_budget", key=_nsig, reason=_nreason,
-                        source=source, repo=REPO)
-                    print(f"[notify][notice-budget] 并入当日摘要 "
-                          f"key={ledger_key or '<subject>'} sig={_nsig} category={_ncat} "
-                          f"reason={_nreason} (非 critical 重复类; critical 额度不动)",
+            # 批次3-C: 判据由「当日重复」扩为「**近 N 天同签名已直发**」(默认 7 天, env
+            # ALERT_REPEAT_ABSORB_DAYS 可配)。两个判据**并列 OR**, 绝不因「当日计数=0」
+            # 短路放行绕过近 N 天检查(病根本身: 调用方 6h/24h 前置 dedup ⇒ 当日不可能有
+            # 第 2 条, 旧判据恒判首条 ⇒ 每天各发一封永不收敛)。新签名不在集合内 ⇒ 直发。
+            _ndays = adr.repeat_absorb_days()
+            _repeat_recent = adr.repeat_recent_absorb_judge(
+                _cur_tier, _nsig,
+                _budget_recent_direct_keys(("notice", "warning"), _ndays))
+            _over_today = (
+                _budget_today_notice_count(_ncat) >= adr.ALERT_NOTICE_BUDGET.get(_ncat, 1)
+                and (_dup_today or _roll))
+            if _repeat_recent or _over_today:
+                _chain_ok, _chain_why = _digest_chain_available()
+                if not _chain_ok:
+                    # fail-open(复用 3B 口径与 helper): 摘要链路不可用 ⇒ 直发;
+                    # 绝不把条目写进「永远不会 flush」的 buffer(那才是真吞)。
+                    print(f"[notify][notice-budget] 跳过并入({_chain_why}) → fail-open 直发: "
+                          f"key={ledger_key or '<subject>'} sig={_nsig} category={_ncat}",
                           file=sys.stderr)
-                    return {"email": False, "telegram": False, "feishu": False,
-                            "digested": True}
-                # append 失败 → fail-open 落直发
+                else:
+                    # reason 标注**沿用既有优先级**(跨日重复排最后): 当日超额度/换挡
+                    # 这两个 2026-10-10 起的既有并入原因, 其文案已被既有用例与摘要渲染
+                    # 依赖(§23.7 冻结契约: 新增判据不改老路径的可见标注); 只有「当日
+                    # 两条老判据都不成立、纯靠近 N 天同签名」才标 repeat_recent_direct。
+                    _nreason = (adr.ROLLOVER_ABSORB_REASON if (_roll and not _dup_today)
+                                else adr.NOTICE_OVER_BUDGET_REASON if _over_today
+                                else adr.REPEAT_RECENT_ABSORB_REASON)
+                    if _absorb_to_digest(subject, body, key=ledger_key, category=_ncat,
+                                         source=source, from_prefix=from_prefix,
+                                         reason=_nreason, mark_seen=True, bump_hits=True):
+                        adr.record_suppression(
+                            mechanism="notice_budget", key=_nsig, reason=_nreason,
+                            source=source, repo=REPO)
+                        print(f"[notify][notice-budget] 并入当日摘要 "
+                              f"key={ledger_key or '<subject>'} sig={_nsig} category={_ncat} "
+                              f"reason={_nreason} (非 critical 重复类; critical 额度不动)",
+                              file=sys.stderr)
+                        return {"email": False, "telegram": False, "feishu": False,
+                                "digested": True}
+                    # append 失败 → fail-open 落直发
 
     if severe:
         subject = SEVERE_PREFIX + subject
@@ -2131,6 +2159,17 @@ def _budget_today_notice_keys(cat: str) -> set:
     """类别当日「非 critical 直发(notice/warning)」的签名集合(#264 件E 重复判据)。"""
     _repo = Path(os.environ.get("REPO") or REPO)
     return set(adr.ledger_day_notice_index(_repo).get(cat, ()))
+
+
+def _budget_recent_direct_keys(tiers, days: int | None = None) -> set:
+    """类别无关的「近 N 天已直发」签名集合(批次3-C, 单一实现 = adr.ledger_recent_direct_keys)。
+
+    tiers 由调用方按「本门管哪套额度」指定(notice 门传 {"notice","warning"} —— critical 行
+    不进本集合 ⇒「critical 永不吸收」结构性成立, 也不与 severe 额度互相挤占)。
+    读不到/坏行 → 空集 ⇒ 条款视为新签名 ⇒ 直发(fail-open 宁多发不吞)。
+    """
+    _repo = Path(os.environ.get("REPO") or REPO)
+    return adr.ledger_recent_direct_keys(_repo, days=days, tiers=tiers)
 
 
 def _state_path(name: str) -> Path:

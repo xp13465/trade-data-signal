@@ -875,7 +875,11 @@ def category_of(key, subject):
     _s = str(subject or "")
     if "unit_patrol" in _k or "failed_units" in _k or "cloud_unit_patrol" in _k:
         return "unit"
-    if _k.startswith("r2_") or "r2_pipeline_congestion" in _k:
+    # 批次3-C(2026-10-28): verify-r2 的两个告警点(upload_r2.py 「独立链产物脱节」
+    # `verify_r2_standalone_stale` / 「异源覆盖」`verify_r2_mass_mismatch`)此前**不以 r2_
+    # 开头 ⇒ category_of=None ⇒ severe/notice/域三门整门跳过**(7 天 17 条实测绕过)。
+    # 只补前缀, 不新增类别(仍归 r2, 额度/域/摘要口径全部沿用)。
+    if _k.startswith("r2_") or _k.startswith("verify_r2_") or "r2_pipeline_congestion" in _k:
         return "r2"
     if "data_gap" in _k or "[数据缺口]" in _s:
         return "data_gap"
@@ -1254,6 +1258,107 @@ def ledger_day_notice_index(repo, day=None):
     except Exception:  # noqa: BLE001  台账问题绝不吞告警
         return index
     return index
+
+
+# ══ 批次3-C「跨日同签名并入摘要」判据(2026-10-28) ═════════════════════════════════
+# 病根(B 侧, 见 /tmp/gate-gap-report.md Q5): 调用方自带 6h/24h 前置 dedup(upload_r2.py /
+# r2_upload_skip_notify.sh / signal_kelly_backtest.py)⇒ 同一自然日**不可能**有第 2 条到达
+# notify ⇒ 旧判据「当日已直发≥额度 且 当日同签名」恒判首条 ⇒ 每天各发一封, 永不收敛。
+# 新口径(用户拍板「近 N 天同签名已直发 ⇒ 并入当日摘要」):
+#   · 同一签名近 N 天(默认 7)台账**已直发**过 ⇒ 本次并入当日摘要(23:25 一条出线);
+#   · 新签名(近 N 天无直发记录)⇒ 永远直发(首现必达);
+#   · critical 永不吸收(硬约束1: 首报必达 / 升级通道不动);
+#   · 停摆级在 gate 之前短路(notify.py, 不进本判据);
+#   · 台账缺失/坏行/异常 ⇒ 空集 ⇒ 直发(fail-open 宁多发不吞)。
+ALERT_REPEAT_ABSORB_DAYS_DEFAULT = 7           # 近 N 天窗口默认值(env 可配)
+ALERT_REPEAT_ABSORB_DAYS_ENV = "ALERT_REPEAT_ABSORB_DAYS"
+REPEAT_RECENT_ABSORB_REASON = "repeat_recent_direct"   # 摘要条目的并入原因(非 tier/noise_class)
+
+
+def repeat_absorb_days() -> int:
+    """近 N 天重复吸收窗口(env `ALERT_REPEAT_ABSORB_DAYS`, 默认 7; 非法值 → 7 + WARN)。"""
+    _raw = os.environ.get(ALERT_REPEAT_ABSORB_DAYS_ENV)
+    if _raw is None or str(_raw).strip() == "":
+        return ALERT_REPEAT_ABSORB_DAYS_DEFAULT
+    try:
+        _n = int(str(_raw).strip())
+    except (TypeError, ValueError):
+        _n = 0
+    if _n < 1:
+        print(f"[alert_denoise][warn] {ALERT_REPEAT_ABSORB_DAYS_ENV}={_raw!r} 非法"
+              f"(需 >=1 的整数) → 回退默认 {ALERT_REPEAT_ABSORB_DAYS_DEFAULT} 天", file=sys.stderr)
+        return ALERT_REPEAT_ABSORB_DAYS_DEFAULT
+    return _n
+
+
+def ledger_row_signature(rec) -> str:
+    """台账行的故障签名: `key` 优先; 无 key 时用 subject 的 sha1 前 12 位。
+
+    公式与 `notify.py:_ledger_key_of` **逐字一致**(台账行由 _record_ledger 写入, 恒带 key,
+    本兜底只防手工/旧格式行); 一致性由 test_alert_denoise_batch3c 的漂移守卫用例守住。
+    """
+    _k = str((rec or {}).get("key") or "")
+    if _k:
+        return _k
+    return hashlib.sha1(str((rec or {}).get("subject") or "").encode("utf-8")).hexdigest()[:12]
+
+
+def ledger_recent_direct_keys(repo, days=None, tiers=None, today=None) -> set:
+    """台账「近 N 天**已直发**」的故障签名集合(批次3-C 单一实现, 供两套额度各自调用)。
+
+    窗口: `ts` 前 10 位 >= today-(N-1)(含今天, 共 N 个自然日);
+    过滤: group=="alert" 且 tier ∈ tiers(默认 {"notice","warning"} —— critical 行**不进**
+      本集合 ⇒ 结构上保证「critical 永不吸收」, 且不与 severe 额度互相挤占(B1 不破))。
+    签名: `ledger_row_signature`(key 优先)。
+    坏行跳过 / 文件缺失 / 任何异常 → 空集(调用方据此直发 = fail-open 宁多发不吞)。
+    """
+    _days = repeat_absorb_days() if days is None else int(days)
+    _tiers = {"notice", "warning"} if tiers is None else {str(t) for t in tiers}
+    _base = (today or datetime.now()).strftime("%Y-%m-%d")
+    _start = (datetime.strptime(_base, "%Y-%m-%d") - timedelta(days=max(_days - 1, 0))).strftime("%Y-%m-%d")
+    out: set = set()
+    if repo is None:
+        return out
+    try:
+        _p = Path(repo) / "data" / "alerts" / "alert_ledger.jsonl"
+        if not _p.exists():
+            return out
+        for _ln in _p.read_text(encoding="utf-8").splitlines():
+            _ln = _ln.strip()
+            if not _ln:
+                continue
+            try:
+                _r = json.loads(_ln)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(_r, dict):
+                continue
+            _d = str(_r.get("ts", ""))[:10]
+            if not _d or _d < _start or _d > _base:
+                continue
+            if _r.get("group") != "alert":
+                continue
+            if str(_r.get("tier") or "") not in _tiers:
+                continue
+            out.add(ledger_row_signature(_r))
+    except Exception:  # noqa: BLE001  台账问题绝不吞告警
+        return set()
+    return out
+
+
+def repeat_recent_absorb_judge(tier, sig, recent_keys) -> bool:
+    """判据本体(纯函数): 本条是否因「近 N 天同签名已直发」并入摘要。
+
+    硬约束1: tier=="critical" ⇒ **永不吸收**(首报必达; 升级通道不动)。
+    新签名(sig 不在 recent_keys)⇒ False = 直发(首现必达)。
+    空 sig ⇒ False(签名不可判 ⇒ 直发, fail-open)。
+    """
+    if str(tier or "") == "critical":
+        return False
+    _s = str(sig or "")
+    if not _s:
+        return False
+    return _s in set(recent_keys or ())
 
 
 def rollover_absorb_judge(seen, sig, now, days=None) -> tuple:

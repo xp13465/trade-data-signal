@@ -488,3 +488,50 @@ print(len(noise), len(real))   # 验收只看 noise <= 3；real 不设上限
 - kelly 分布样本：18 天（台账最早 10-10，不足 30 天；**诚实标注：阈值依据是 18 天，不是 30 天**）。
 - 本地代码基线：main `457201a5e`（2026-10-27）。
 - 本报告只读产出，未 commit、未部署、云上零写。
+
+---
+
+## ★7 批次 3-C 实施记录（2026-10-28）
+
+> 本节只**追加**实施结果与回放数据；前面各节的预测数字**原样保留**，不作回溯改写。凡结论与此前预测不一致，在本节内单独说明。
+
+### 7.1 根因（沿用 `/tmp/gate-gap-report.md` 的实测定位，不重复推演）
+
+- **唯一根因**：`notify.send()` 的公共闸门（severe 额度 / notice 额度 / 域聚合）整段挂在 `category_of(key)` 上，`category_of` 返回 `None` ⇒ 三门全跳过。而 `upload_r2.py` 进程内直发的两个告警点 key 是 `verify_r2_standalone_stale` / `verify_r2_mass_mismatch`，**不以 `r2_` 开头** ⇒ 恒为 `None`，7 天 17 条实测整门绕过。
+- **不是**签名不稳定的问题：`sha1(subject)[:12]` 的签名对所有「同一天同任务重复失败」是稳定的，根因在「跨天不去重」。
+
+### 7.2 改法（两处，均为单点结构修复，不加第二套机制）
+
+| 编号 | 位置 | 改什么 |
+|---|---|---|
+| A | `scripts/alert_denoise_rules.py:category_of` | r2 分支由「以 `r2_` 开头」扩为「`r2_` 前缀 **或** `verify_r2_` 前缀 **或** key 含 `r2_pipeline_congestion`」。只补前缀判定，**不新增类别**，额度/域/摘要口径全部沿用 r2。 |
+| B | `scripts/notify.py` notice 额度闸门 | 判据由「当天次数超额度且同签名重复」扩为「**近 N 天（默认 7，`ALERT_REPEAT_ABSORB_DAYS` 可调）同签名已直发过 ⇒ 并入当日摘要**」；新签名永远直发；`critical` 永不吸收。并入动作**复用** 3-B 已落地的 `_absorb_to_digest(..., bump_hits=True)` / `_absorb_split_to_digest` / fail-open 三态 / `_SUPPRESS_SIGNATURES` 登记。 |
+| B′ | `scripts/upload_r2.py` 三处告警 | 显式传 `ledger_key`（`verify_r2_mass_mismatch` / `verify_r2_standalone_stale` / `ledger_gap`），让台账签名与闸门签名是同一个显式 key（此前靠 subject 哈希，跨天 subject 带时间戳则签名漂移）。第三处 `ledger_gap` 属举一反三补点，不在任务书点名范围。 |
+
+### 7.3 回放（云上真实台账逐行重放，硬门禁）
+
+- 快照：云上 `~/code/trade-data/data/alerts/alert_ledger.jsonl` 只读 scp 到 `/tmp`，**818 行**，10-10 08:27:04 ~ 10-28 03:06:05，`sha256[:16]=30db9e47e5afb7ec`；云上零写入。
+- 窗口：**2026-10-21 ~ 2026-10-27**（与本文 ★6「当前基线 7 天」同窗口；`alert_noise_count.py --days 7 --date 2026-10-27` 复现一致）。
+- 方法：逐行喂**真实代码** `notify.send()`（不另写模拟），隔离临时 `REPO`、三个发送通道全部打桩返回 False（`ZeroOutboundTrap` 断言零外发）、`datetime.now()` 冻结成该行 ts。
+
+| 指标 | 结果 | 门禁 |
+|---|---|---|
+| 窗口内告警行 | 173 | — |
+| 按新判据会并入摘要 | **25** | — |
+| ├ `schedule_monitor_recovery` | 11 | — |
+| ├ `signal_kelly_frozen_missing_small` | 5 | — |
+| ├ `kelly_freeze_orphan_buy` | 5 | — |
+| └ `r2_upload_async_skip` | 4 | — |
+| 其中 `tier=="critical"` | **0** | 必须 0 ✅ |
+| 其中被尺子判为「真故障」 | **0** | 必须 0 ✅ |
+
+- 改造后预计（直发行 + 每天至多 1 条摘要行，按 `alert_noise_count.py` 同口径）：告警群 155 = **噪音 88 + 真故障 67**（升级提醒 18，噪音不含升级 70）。
+  - 噪音 **106 → 88**（−18）；**真故障 67 → 67（±0）**。
+  - 按天噪音：10-21 17 / 10-22 22 / 10-23 12 / 10-24 11 / 10-25 8 / 10-26 9 / 10-27 9（每天仍远高于「0~3/天」目标，本批次只治跨天重复，不承诺达标）。
+- 与早期预测的差异说明：本文 ★6 曾按「同日重复才并」估算降噪幅度；实测按「近 7 天同签名」口径，降噪面比「同日」大 18 条噪音，**真故障面零变化**（判据只并非 critical 的重复噪音签名，首现必达）。
+
+### 7.4 不可并入 / 明确不做的边界
+
+- `critical`（severe 直发）**永不**走本判据；同日重复的 severe 仍走 3-B 既有 severe 额度逻辑（冻结契约，未改）。
+- 恢复留痕（`[恢复] ...`）走的是 3-B 的「只入摘要」通道，不经过本判据。
+- 台账不可读 / 文件缺失 / 坏行 / 追加失败 / `ALERT_DIGEST_DISABLE=1` ⇒ 一律 **fail-open 直发**（宁多发不吞）。

@@ -4416,6 +4416,8 @@ def cmd_verify_r2():
                     f"—— 请查本机是否误跑 export.py/upload_r2.py。\n"
                     f"(若为周日全量对账设计内补传可忽略此提示)",
                     from_prefix="[告警]",
+                    # 批次3-C(2026-10-28): 台账键 = 本条 dedup key(可读可反查; 签名恒稳定)。
+                    ledger_key=_dedup_key,
                 )
                 notify.update_dedup(_dedup_key)
         except Exception as _e:
@@ -4468,6 +4470,8 @@ def cmd_verify_r2():
                         f"(b)【真故障】该链连续失败或被截断(生成成功但 R2 没跟上), 本应由该链自己的告警触达 —— "
                         f"若未收到该链告警, 说明告警与链路同亡, 需查链内 notify 在异常/trap 路径下是否也能触达。",
                         from_prefix="[告警]",
+                        # 批次3-C(2026-10-28): 同上, 台账键 = dedup key。
+                        ledger_key=_dedup_key,
                     )
                     notify.update_dedup(_dedup_key)
             except Exception as _e:
@@ -4495,6 +4499,8 @@ def cmd_verify_r2():
                     f"查 REPO/data/.r2_standalone_keys.json 是否被清理/权限异常。\n"
                     f"(若为首次冷启动——今天尚无任一独立链产物上传成功——可忽略本条。)",
                     from_prefix="[告警]",
+                    # 批次3-C(2026-10-28): 同一 verify-r2 族统一传台账键(三类告警点一致)。
+                    ledger_key=_dk,
                 )
                 notify.update_dedup(_dk)
         except Exception as _e:
