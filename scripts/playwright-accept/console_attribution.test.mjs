@@ -292,8 +292,10 @@ const INLINE_CSP_TEXT =
   "Either the 'unsafe-inline' keyword, a hash ('sha256-3ILSSvr4jUs5/OxJwOKm6BRvFZpGvkV4VBm6c61ib7k='), " +
   "or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.";
 const INLINE_CSP_TEXT_REPORT_ONLY =
-  INLINE_CSP_TEXT +
-  " The policy is report-only, so the violation has been logged but no further action has been taken.";
+  "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. " +
+  "Either the 'unsafe-inline' keyword, a hash ('sha256-3ILSSvr4jUs5/OxJwOKm6BRvFZpGvkV4VBm6c61ib7k='), " +
+  "or a nonce ('nonce-...') is required to enable inline execution. The policy is report-only, so the " +
+  "violation has been logged but no further action has been taken.";
 const EVAL_CSP_TEXT =
   "EVALERR Evaluating a string as JavaScript violates the following Content Security Policy directive because " +
   "'unsafe-eval' is not an allowed source of script: script-src 'self'\".";
@@ -307,7 +309,7 @@ const DIALECT_OUR_POLICY = "default-src 'self'; script-src 'self'; connect-src '
 // 注入侧策略: 同名 directive 但值不同 ⇒ 应判 foreign(不阻断)。
 const DIALECT_FOREIGN_POLICY = "default-src 'self'; script-src 'none'; connect-src 'none'; img-src 'self'";
 
-test("E2 内联脚本方言(单引号 + 无冒号)⇒ 抽得出 script-src 'self', 不再落 unknown", () => {
+test("E11 内联脚本方言(单引号 + 无冒号)⇒ 抽得出 script-src 'self', 不再落 unknown", () => {
   for (const text of [INLINE_CSP_TEXT, INLINE_CSP_TEXT_REPORT_ONLY]) {
     assert.deepEqual(extractViolatedDirective(text), { directive: "script-src", value: "'self'" }, text.slice(0, 40));
     // 配我们真实策略 ⇒ ours(FAIL 真违规), 不再是 unknown
@@ -325,7 +327,7 @@ test("E2 内联脚本方言(单引号 + 无冒号)⇒ 抽得出 script-src 'self
   }
 });
 
-test("E3 eval 方言(冒号后名字 + 末尾值)⇒ 抽得出 script-src 'self', 不再落 unknown", () => {
+test("E12 eval 方言(冒号后名字 + 末尾值)⇒ 抽得出 script-src 'self', 不再落 unknown", () => {
   for (const text of [EVAL_CSP_TEXT, EVAL_CSP_TEXT_REPORT_ONLY]) {
     assert.deepEqual(extractViolatedDirective(text), { directive: "script-src", value: "'self'" }, text.slice(0, 40));
     assert.equal(compareDirectiveToOurPolicy(text, [DIALECT_OUR_POLICY]).relation, "ours");

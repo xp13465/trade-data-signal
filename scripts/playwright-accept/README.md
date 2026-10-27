@@ -156,7 +156,7 @@ node --test scripts/playwright-accept/console_attribution.test.mjs
 已知取舍(诚实标注):`about:srcdoc` / `about:blank` / `data:` / `blob:` 这类**继承父 document 策略**的 frame,Playwright 的 `ConsoleMessage` 不暴露所属 Frame ⇒ 拿不到父 document,一律保守降级 INFO。代价:万一我们自己页面的 srcdoc iframe 触发 CSP 违规会被当噪音;目前站点无 srcdoc 用法(`grep -rn srcdoc static-site/ --include=*.js --include=*.html` 零命中),风险可接受。若将来引入 srcdoc,需要改成按 frame 追踪。
 另一条已知取舍(诚实标注,2026-10-27 第 3 轮改写):**按「被违反的策略文本是不是我们文档自己的」判归属**,不再按 location 路径判(实测外部脚本发起的违规 location 报的是脚本 URL,`/app.min.js` 这类正是我们自己的 bundle,按路径判必把真违规当噪音)。残余代价两条:①**text 撞车**:若 CF 注入的策略里某条 directive 的文本与我们的**完全相同**(例如两边都是 `default-src 'self'`),单看消息文本分辨不出来 ⇒ 判 `ours`(FAIL)。方向是「宁可假红不假绿」,可接受;②**同名 directive 缺失即判 foreign**:我们策略里没有某个 directive 时,引用该 directive 的消息判外来(理论依据:Chromium 引用的就是策略原文,我们没写这条就不可能是我们的原文;缺 `connect-src` 由 `default-src` 兜底时,Chromium 引的是 `default-src`,仍能命中)。
 **`enforce` 与 `report-only` 都算违规源**(两条头都收、都参与比对):report-only 的越权同样说明「页面确实在请求策略不允许的东西」,只是浏览器没硬拦;对我们自己声明的策略来说,report-only 越权是**该修的真问题**,所以不降级。2026-10-27 13:35 那批 `connect-src 'none'` 噪音之所以判 INFO,靠的是「值不等于我们声明的策略」,不是靠 report-only 标志。
-第三条已知取舍(诚实标注,2026-10-27 #319):**外来注入策略只保证「一个头只含一条 directive」的形态能被识别成外来**。判归属靠「消息里引用的 directive 原文 vs 我们文档自己的策略头」比对;若注入的头是「一个头里含两条 directive」(如 `script-src …; connect-src 'none'`),注入的那条会被当成我们策略的一部分 ⇒ 仍判 `ours`(FAIL)⇒ **仍可能假红**。与旧版(按 location 路径判)同为阻断,**不是退化**;注入头的真实形态目前未获社区/官方文档证实,所以本轮只如实披露、不改算法(不做多指令头拆分猜测)。
+- **CF 注入策略的识别有边界（2026-10-27 复验补）**：我们靠「消息里引用的规则原文 vs 我们自己策略头的同名规则」比对来判归属。如果 Cloudflare 把自己注入的策略塞进**我们同一个策略头**（一个头里写两条规则），我们就分不清哪条是外来的，会把它当成自己的违规拦下来 —— 属于**多报（误拦）**，不会漏报。相对第 3 轮（按策略文本判）这一处不变；相对更早「按消息来源页面路径判」的版本，这类误拦是那时被降噪放掉的、本批又恢复为拦截。注入头的真实形态未经证实。
 
 ## 派单模板句(给 reviewer/tester 派单 prompt 复制)
 
