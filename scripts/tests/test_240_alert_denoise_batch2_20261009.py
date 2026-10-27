@@ -168,9 +168,11 @@ def test_02_signature_and_judge_pure():
     _chk(adr.failed_units_daily_judge({"signature": sig, "last_alert_date": "2026-10-09"},
                                       sig, items, "2026-10-09") == (False, "same-set-same-day"),
          "② 迁移期旧状态+签名同+当日已报 → 跳过(不因精修平白多报)")
+    # ★2 批次2(2026-10-28) 口径变更: 跨日且集合与上次**真发出**的完全一致 → same-set-prev-day
+    # (不直发, 转升级档+摘要), 旧断言 daily-first 随之订正。纯「跨日但集合变了」仍是 daily-first/added。
     _chk(adr.failed_units_daily_judge({"signature": sig, "last_alert_date": "2026-10-08"},
-                                      sig, items, "2026-10-09") == (True, "daily-first"),
-         "② 迁移期旧状态+签名同+跨日 → 次日首报照报")
+                                      sig, items, "2026-10-09") == (True, "same-set-prev-day"),
+         "② 迁移期旧状态+签名同+跨日 → 转升级档+摘要(same-set-prev-day), 不再每天直发")
 
     # 方向: 有 items 快照
     sig_ab = adr.failed_units_signature(["a.service", "b.service"])
