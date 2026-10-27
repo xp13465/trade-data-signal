@@ -125,10 +125,15 @@ if [ "${STATICDATA_BACKUP_ASYNC_R2_DONE:-}" != "1" ]; then
     # 改3 C-5(2026-09-25 审查整改): 两个候选仓库($STATICDATA_REPO 与 ${GIT_REPO}-staticdata)
     # 都不存在 → 原实现静默 exit 0(备份缺口无人知)。改为降级 notify(不必 --severe) + 日志
     # 写清两个候选路径都查过(路径打出来)。dedup 6h 防每次 deploy 重复轰炸。
+    # H1(2026-10-27 批次1 审查加固): 这条是**真故障**(备份缺口), 但旧 subject 走 [通知] 会被
+    #   路由到 report 群 ⇒ 批次1「邮件只发告警群」后不再发邮件。二选一里选**主题前缀**路线:
+    #   主题即路由的唯一事实源(_resolve_feishu_chat_key 对该 subject 直接返回 alert), 不留
+    #   「主题说通知、flag 说告警」两处说法; 改动面 = 主题串 + 发件人前缀两个字面量, 同调用内。
+    #   不含 --severe(severity 语义不变: 降级失败仍不触发 Telegram/critical 档)。
     echo "⚠ staticdata 仓库不存在(已查候选1: ${STATICDATA_REPO:-无}, 候选2: ${GIT_REPO:-无}-staticdata), 跳过备份" | tee -a "$LOG"
-    "$PY" "$REPO/scripts/notify.py" "[通知] staticdata 仓库不存在, 跳过备份" \
+    "$PY" "$REPO/scripts/notify.py" "[告警] staticdata 仓库不存在, 跳过备份" \
       "staticdata 备份仓库不存在, 本次跳过备份(降级, 非 severe, 不影响 deploy 主链)。<br>已查两个候选路径: 候选1 ${STATICDATA_REPO:-无} / 候选2 ${GIT_REPO:-无}-staticdata<br>生产云上至少应存在 ${GIT_REPO:-无}-staticdata 灾备第2层仓库, 若缺失需人工核查 staticdata git 仓库初始化/迁移。<br>日志: $LOG" \
-      --from-prefix "[通知]" --alert-issue "staticdata备份仓库缺失" --alert-log "$LOG" \
+      --from-prefix "[告警]" --alert-issue "staticdata备份仓库缺失" --alert-log "$LOG" \
       --dedup-key staticdata_backup_repo_missing --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
     exit 0
   fi

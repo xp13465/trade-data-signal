@@ -886,6 +886,32 @@ def _send_feishu_webhook(url: str, subject: str, text: str,
     return False
 
 
+_EMAIL_GATE_DISABLE_WARNED = False
+
+
+def _email_group_gate_disabled() -> bool:
+    """邮件按群分流门控的逃生门（2026-10-27 批次1 审查加固 H3）。
+
+    `EMAIL_GROUP_GATE_DISABLE=1` / `=true`（大小写不敏感）⇒ 门控失效，恢复
+    「所有群都发邮件」的旧行为；其余值（含 `0`/未设置）⇒ 门控照常生效。
+    读法照抄 `ALERT_BUDGET_DISABLE` 的零代码回滚思路（云上改环境变量即可回滚，
+    不用等发版），只是额外接受 `true` 写法，防运维习惯写成 true 却静默不生效。
+
+    首次读到禁用时打一行 WARNING（进程内只一次）：门控失效是「临时排障态」，
+    必须留痕，且不能每条消息刷一行把日志淹掉。
+    """
+    global _EMAIL_GATE_DISABLE_WARNED
+    raw = (os.environ.get("EMAIL_GROUP_GATE_DISABLE") or "").strip().lower()
+    if raw not in ("1", "true"):
+        return False
+    if not _EMAIL_GATE_DISABLE_WARNED:
+        _EMAIL_GATE_DISABLE_WARNED = True
+        print("[notify][WARNING] EMAIL_GROUP_GATE_DISABLE=%s → 邮件按群分流门控已禁用,"
+              " 恢复全群发邮件(临时排障态, 记得排障后删掉该环境变量)"
+              % (raw,), file=sys.stderr)
+    return True
+
+
 def _resolve_feishu_chat_key(subject: str, from_prefix: str | None,
                              severe: bool) -> str:
     """按通知类别路由飞书群：severe/[告警]/[恢复]/[监控] -> alert 群；[完成] -> agent_done 群；
@@ -1411,8 +1437,19 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     #   alert 群），要么加进本白名单。
     _EMAIL_GROUPS = frozenset({"alert"})
     _EMAIL_KEEP_PREFIXES = ("[状态说明]",)
+    # H2（2026-10-27 批次1 审查加固）：`or severe` 兜底。上面按群分流的前提是「群路由
+    #   如实反映严重度」，但群是调用方可显式覆盖的（feishu_group="report"），一旦显式
+    #   指错群，真故障就会跟着业务播报一起掉邮件 —— 这属于「路由失误」而非「业务播报」，
+    #   必须让 severe 兜住：**严重度是最高优先判据，群名再显式也压不过它**。
+    # H3（同批加固）：EMAIL_GROUP_GATE_DISABLE=1/true ⇒ 门控整体失效，恢复旧行为（全群发
+    #   邮件）。出问题时云上改环境变量即回滚，不用等发版（读法同 ALERT_BUDGET_DISABLE）。
+    # 逃生门先求值（不走 or 短路）：否则告警群消息命中前几项就短路，WARNING 可能
+    #   永远不打 —— 首次真正「用上」门控的进程必须留痕。
+    _email_gate_disabled = _email_group_gate_disabled()
     _email_wanted = (_grp in _EMAIL_GROUPS
-                     or str(subject).lstrip().startswith(_EMAIL_KEEP_PREFIXES))
+                     or str(subject).lstrip().startswith(_EMAIL_KEEP_PREFIXES)
+                     or bool(severe)
+                     or _email_gate_disabled)
     # W1 台账重入守卫：分发期间 depth>0，令底层 _send_email/send_feishu/send_telegram
     # 不各自单独记账（本消息在下方按「消息级」记一条，含全渠道结果）。
     _LEDGER_LOCAL.depth = _ledger_depth() + 1

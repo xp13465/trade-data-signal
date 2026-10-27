@@ -1632,7 +1632,13 @@ def _run_main(date: str, dry_run: bool) -> int:
         return 0
 
     # 2026-10-27 用户拍板(告警降噪批次1 ★1):业务速递只走飞书报告群,不再发邮件。
-    send_report_to_feishu(subject, text_body)
+    # H4(2026-10-27 批次1 审查加固): 发送没成功必须 **返回非 0**, 让上层既有失败告警
+    #   (update_all.sh「情绪速递邮件失败」分支)真的触发 —— 旧版恒 return 0 导致
+    #   「邮件停了 + 飞书也挂了」两头都没声, 彻底黑箱。
+    #   复用既有告警通道, 不新增第二条; 配置缺失/发送失败同属「没发出去」, 一律非 0。
+    if not send_report_to_feishu(subject, text_body):
+        log.error("情绪速递(main)未发出, 返回非 0 交给上层告警")
+        return 1
     return 0
 
 
@@ -1671,7 +1677,11 @@ def _run_supplement(date: str, dry_run: bool) -> int:
         return 0
 
     # 2026-10-27 用户拍板(告警降噪批次1 ★1):补充速递同属业务报告,只走飞书报告群。
-    send_report_to_feishu(subject, text_body)
+    # H4(2026-10-27 批次1 审查加固): 同 main 模式, 失败返回非 0 —— supplement 是独立
+    #   systemd oneshot(20:30), 非 0 退出由既有单元失败看护(check_failed_units)接住。
+    if not send_report_to_feishu(subject, text_body):
+        log.error("补充速递(supplement)未发出, 返回非 0 交给上层告警")
+        return 1
     return 0
 
 
