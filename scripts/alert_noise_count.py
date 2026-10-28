@@ -95,7 +95,13 @@ JSON 结构（--json，字段稳定）
     }
     判定 PASS = 窗口内**每一天**噪音 <= noise_max（真故障不参与判定）。
     该日无 alert 行 ⇒ pass = null（无数据，无法判定）；窗口内全无 alert 行 ⇒ totals.pass = null。
-    本脚本是量具：永远 exit 0（不因 FAIL 非零退出，避免误伤调用方；参数错误才 exit 2）。
+
+退出码三态（2026-10-28 #321，供定时任务/机检直接判结果）：
+    0 = PASS（有数据且每天噪音 <= noise_max）
+    1 = FAIL（有数据且至少一天超阈值）
+    2 = 测不了（参数错误 / 台账不存在 / 窗口内无 alert 数据 ⇒ pass=null）
+改道到 report 群的 digest/recovery/escalation 条数只在输出里单列（diverted），
+**不参与 PASS 判定**：尺子的口径始终是「飞书 alert 群里有几条机制噪音」。
 
 用法
     python scripts/alert_noise_count.py --date 2026-10-27
@@ -116,7 +122,10 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+# 2026-10-28 #321: 用 absolute() 而非 resolve() —— scripts/ 是 trade-data -> trade 的
+# symlink, resolve() 会穿透到真实仓库根(云上/开发树不一致), 致默认台账路径落到另一棵树,
+# 表现为「台账不存在 ⇒ pass=null」。absolute() 保留调用侧路径形状, 与 $REPO 约定一致。
+ROOT = Path(__file__).absolute().parent.parent
 LEDGER_REL = Path("data") / "alerts" / "alert_ledger.jsonl"
 
 # 用户拍板阈值：机制噪音 0~3 条/天（真故障不设上限）。
@@ -126,6 +135,9 @@ NOISE_MAX = 3
 REPEAT_WINDOW = timedelta(hours=24)
 
 ALERT_GROUP = "alert"
+REPORT_GROUP = "report"
+# 改道到 report 群、但本质是「告警流水」的三类 noise_class（#321 出口分层后出现）。
+DIVERTED_CLASSES = ("digest", "recovery", "escalation")
 
 # 谓词表（照抄规格 ★6，顺序 = 分类优先级，互斥）。
 WARNING_BATCH_PREFIX = "[告警·聚合]"
@@ -362,6 +374,32 @@ def classify_rows(records: list[dict], days: list[str]) -> dict:
     }
 
 
+def count_diverted(records: list[dict], days: list[str]) -> dict:
+    """纯函数：#321 出口分层后改道 report 群的告警流水条数（只展示，不参与 PASS）。
+
+    口径：同一天、group == "report"、noise_class ∈ {digest, recovery, escalation}。
+    升级 escalation 若 fail-open 直发则仍在 alert 群，由 classify_rows 正常计数，不重复算。
+    """
+    day_set = set(days)
+    c: Counter = Counter()
+    for rec in records:
+        if str(rec.get("group") or "") != REPORT_GROUP:
+            continue
+        ts = parse_ts(rec.get("ts"))
+        if ts is None or ts.strftime("%Y-%m-%d") not in day_set:
+            continue
+        tag = str(rec.get("noise_class") or "").strip()
+        label = NOISE_CLASS_TO_CATEGORY.get(tag, tag)
+        if label in DIVERTED_CLASSES:
+            c[label] += 1
+    return {
+        "digest": int(c.get("digest", 0)),
+        "recovery": int(c.get("recovery", 0)),
+        "escalation": int(c.get("escalation", 0)),
+        "total": sum(int(c.get(k, 0)) for k in DIVERTED_CLASSES),
+    }
+
+
 def _fmt_breakdown(breakdown: dict) -> str:
     return " / ".join(f"{k} {v}" for k, v in breakdown.items())
 
@@ -409,6 +447,10 @@ def render(payload: dict) -> str:
                          f"{'PASS' if t['pass'] else 'FAIL'}（真故障不设上限；"
                          f"无数据的天不参与判定）")
 
+    dv = payload.get("diverted") or {}
+    if dv.get("total"):
+        lines.append(f"改道 report 群（不计入告警群、不参与验收）：摘要 {dv['digest']} 条 / "
+                     f"恢复 {dv['recovery']} 条 / 升级 {dv['escalation']} 条 = 共 {dv['total']} 条")
     lines.append(f"提示：{REPEAT_CAVEAT}")
 
     warn = payload["warn_untagged"]
@@ -474,13 +516,24 @@ def main(argv: list[str] | None = None) -> int:
         "skipped_bad_lines": bad + bad_subject,
         "skipped_undated_alert_rows": res["skipped_undated_alert_rows"],
         "records_scanned": len(records),
+        "diverted": count_diverted(records, days),
     }
+
+    # 退出码三态（#321）：无数据 = 测不了(2)，超阈值 = FAIL(1)，达标 = PASS(0)。
+    # 与 PASS 判定同源（totals.pass），避免机检读 rc 和人读 PASS 两套口径分叉。
+    if payload["no_data"] or payload["totals"]["pass"] is None:
+        rc = 2
+    elif payload["totals"]["pass"]:
+        rc = 0
+    else:
+        rc = 1
+    payload["rc"] = rc
 
     if args.as_json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(render(payload))
-    return 0
+    return rc
 
 
 if __name__ == "__main__":

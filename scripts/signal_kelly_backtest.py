@@ -615,6 +615,13 @@ def _alert_freeze_orphans(orphans, handled_n=0):
              f"新增 {delta} 条(累计 {n} 条; {basis})"
              f"(历史行被重算抹除的直接证据, docs/ops/trades-wipe-rootfix-20261014.md)。样例: {sample}",
              "--from-prefix", "[kelly]", "--feishu-group", "alert",
+             # #321 出口分层(2026-10-28): 孤儿买是**例行数据完整性提示**(同根因首报已由
+             # critical 的 [历史行改写] signal_daily 覆盖), 每天 1 条进告警群 = 纯噪音。
+             # --digest-only ⇒ 并入当日 23:25 摘要(report 群 + 邮件, reason=routine_digest_only),
+             # 正文明细照常展开; 摘要链路不可用 ⇒ fail-open 直发 alert 群(不吞)。
+             # --feishu-group alert 仍保留: 它是吸收块的前置条件(只对告警群生效),
+             # 也是 fail-open 时的落点, 不代表常态真的进 alert 群。
+             "--digest-only",
              "--dedup-key", "kelly_freeze_orphan_buy", "--dedup-window", "86400"],
             capture_output=True, text=True, timeout=60,
         )
@@ -626,7 +633,9 @@ def _alert_freeze_orphans(orphans, handled_n=0):
         print(f"   ⚠ 冻结孤儿告警发送失败 rc={r.returncode} {tail}(基线不更新, 下轮重试)",
               file=sys.stderr)
         return
-    _save_freeze_orphan_reported_n(n)   # 只在真发出去之后才抬高基线
+    # 只在真发出去(或已并入当日摘要, notify 对 digested 同样返回 rc=0)之后才抬高基线。
+    # 「并入摘要」= 已交付(23:25 一条出线), 与直发同属处置完毕, 不重试防刷 buffer。
+    _save_freeze_orphan_reported_n(n)
 
 
 def _union_freeze_buy_rows(buy_rows, freeze):

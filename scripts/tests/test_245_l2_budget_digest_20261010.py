@@ -410,10 +410,12 @@ def test_04b_flush_after_2325_sends_once(_iso, monkeypatch):
     subj, body = calls[0][0][0], calls[0][0][1]
     kw = calls[0][1]
     _chk(subj.startswith("[告警·摘要] 当日合并 2 条"), f"subject 模板不对: {subj}")
+    # #321(2026-10-28): 摘要出口由 alert 群改为 report 群(用户拍板: digest 移群 +
+    # 邮件保留)。这里断言新口径; 其余字段(severe/前缀/tier/key/merged_count)逐字不变。
     _chk(kw.get("severe") is False and kw.get("from_prefix") == "[告警·摘要]"
-         and kw.get("feishu_group") == "alert" and kw.get("ledger_tier") == "digest"
+         and kw.get("feishu_group") == "report" and kw.get("ledger_tier") == "digest"
          and kw.get("ledger_key") == "alert_digest" and kw.get("merged_count") == 2,
-         f"send 参数字段应逐字对标 §1.5 模板, 得 {kw}")
+         f"send 参数字段应逐字对标 §1.5 模板(#321 后群=report), 得 {kw}")
     _chk(_digest_lines(_iso["alerts"]) == [], "成功后应精确清理已发条目")
     st = json.loads((_iso["alerts"] / "alert_digest_state.json").read_text(encoding="utf-8"))
     _chk(st.get("last_sent_day") == today, f"state 应写 last_sent_day=today, 得 {st}")

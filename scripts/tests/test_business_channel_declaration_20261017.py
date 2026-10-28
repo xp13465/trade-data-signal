@@ -14,8 +14,10 @@
   · 业务出口显式渠道(=report): check_signals.py(买卖点全局/订阅) / check_nt_signals.py(汪汪队)
     / detect_intraday_anomaly.py(盘中异动) / gen_daily_brief.py / brief_push.py;
     跟单渠道(=follow): nextday_plan_generator.py / nextday_gap_check.py。
-  · 故障出口显式渠道(=alert): r2_upload_skip_notify.sh / signal_kelly_backtest.py
-    (冻结表缺失历史信号事件 + 冻结表新增孤儿买事件)。
+  · 故障出口显式渠道(=alert): signal_kelly_backtest.py(冻结表缺失历史信号事件);
+    例行吸收摘要(=alert 作吸收前置 + fail-open 落点): signal_kelly_backtest.py 孤儿买事件。
+  · #321(2026-10-28) 口径变更: r2_upload_skip_notify.sh 由故障出口降级为「例行降级」,
+    显式渠道由 alert 改 report(仍必须显式声明, 不许靠主题推断)。
 
 证据用例:
   E2 误路由回归 —— 未显式声明的无括号主题(如「R2上传异步锁跳过」)兜底落 report(说明修法在
@@ -67,13 +69,18 @@ EGRESS_REGISTRY = [
      r'"--dedup-window", "86400",\s*"--feishu-group", "follow"'),
     ("次日伪跳空剔除·跟单渠道", "scripts/nextday_gap_check.py",
      r'"--dedup-window", "86400",\s*"--feishu-group", "follow"'),
-    ("R2上传异步锁跳过·故障", "scripts/r2_upload_skip_notify.sh",
-     r'--from-prefix "\[提示\]" \\\s*--feishu-group alert'),
+    # #321(2026-10-28)口径变更: 锁跳过=正常降级(同日在跑实例补跑) ⇒ 显式落 report 业务群,
+    # 不再占 alert 通道(三处留痕 deploy 日志/skip 流水/latest.md 全保留)。仍是**显式声明**,
+    # 守卫目的(不许靠主题文本推断)不变。
+    ("R2上传异步锁跳过·例行降级", "scripts/r2_upload_skip_notify.sh",
+     r'--from-prefix "\[提示\]" \\\s*--feishu-group report'),
     ("冻结表缺失历史信号事件·故障", "scripts/signal_kelly_backtest.py",
      r'"--from-prefix", "\[kelly\]", "--feishu-group", "alert"'),
-    ("冻结表新增孤儿买事件·故障", "scripts/signal_kelly_backtest.py",
-     r'"--from-prefix", "\[kelly\]", "--feishu-group", "alert",\s*'
-     r'"--dedup-key", "kelly_freeze_orphan_buy"'),
+    # #321: 孤儿买=例行数据完整性提示(同根因首报由 critical 的 [历史行改写] 覆盖) ⇒ 加
+    # --digest-only 并入摘要; --feishu-group alert 保留 = 吸收块前置条件 + fail-open 落点。
+    ("冻结表新增孤儿买事件·例行吸收摘要", "scripts/signal_kelly_backtest.py",
+     r'"--from-prefix", "\[kelly\]", "--feishu-group", "alert",(?s:.*?)'
+     r'"--digest-only",\s*"--dedup-key", "kelly_freeze_orphan_buy"'),
     ("订阅台账 group 记实际落群", "scripts/notify.py",
      r'group=feishu_group or _resolve_feishu_chat_key\(subject, from_prefix, False\)'),
     ("send 台账 group 优先级含显式渠道", "scripts/notify.py",
@@ -187,9 +194,9 @@ def test_guard_has_discriminating_power():
     texts = _load_texts()
     assert not _missing_declarations(texts), "基线应为全声明"
 
-    label, rel, _pat = EGRESS_REGISTRY[8]  # R2上传异步锁跳过·故障
+    label, rel, _pat = EGRESS_REGISTRY[8]  # R2上传异步锁跳过·例行降级(#321 后=report)
     mutated = dict(texts)
-    mutated[rel] = mutated[rel].replace("--feishu-group alert", "")
+    mutated[rel] = mutated[rel].replace("--feishu-group report", "")
     miss = _missing_declarations(mutated)
     assert any(label in m for m in miss), "判据未检出缺声明(假绿): %s" % (miss,)
 

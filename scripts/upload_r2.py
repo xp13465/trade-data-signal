@@ -4407,7 +4407,11 @@ def cmd_verify_r2():
             sys.path.insert(0, str(ROOT / "scripts"))
             import notify  # noqa: E402
             _dedup_key = "verify_r2_mass_mismatch"
-            if not notify.check_dedup(_dedup_key, 21600):
+            # #321 D-2(2026-10-28): 去重窗 21600(6h) → 86400(24h)。实测真实重复间隔
+            # 6h05m~10h09m(10-26 17:19→23:24 = 6h05m; 10-27 07:23→17:32 = 10h09m),
+            # 6h 窗每次都刚好过期 ⇒ 每次照发 ⇒ 被尺子记成 repeat(实测 3~4 条/天)。
+            # 24h 窗: 首报/超 24h 照发(必达不变), 窗口内不再重复。回退=改回 21600。
+            if not notify.check_dedup(_dedup_key, 86400):
                 notify.send(
                     "[告警] R2 可能被异源覆盖(verify-r2 大量不一致)",
                     f"verify-r2 对账发现 {total_mismatch_found} 个 key 与本地不一致(阈值 50), "
@@ -4456,7 +4460,9 @@ def cmd_verify_r2():
                 sys.path.insert(0, str(ROOT / "scripts"))
                 import notify  # noqa: E402
                 _dedup_key = "verify_r2_standalone_stale"
-                if not notify.check_dedup(_dedup_key, 21600):
+                # #321 D-2(2026-10-28): 同上一处, 21600(6h) → 86400(24h)。依据=实测重复间隔
+                # 6h05m~10h09m 恰好跨过 6h 窗; 24h 窗保住首报必达、压掉窗口内重复。
+                if not notify.check_dedup(_dedup_key, 86400):
                     notify.send(
                         "[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)",
                         f"verify-r2 发现以下「脱离 deploy 主链的独立上传产物」R2 副本与本地不一致/缺失"
