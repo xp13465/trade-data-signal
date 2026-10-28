@@ -90,7 +90,7 @@ try:  # C 方案(2026-10-23): 等锁超时诊断, 只读 lsof + 子进程输出�
     # 退化为占位实现: 仍吐一句简单文案 ⇒ 超时路径照样有告警(与 upload_r2.py 同款兜底)。
     from r2_lock_probe import build_lock_timeout_diag, lock_paths_from_env  # noqa: E402
 except Exception:  # noqa: BLE001
-    def lock_paths_from_env():  # noqa: D401
+    def lock_paths_from_env(include_domains=False):  # noqa: D401
         return []
 
     def build_lock_timeout_diag(exc, *, lock_path, log_path, date_tag,  # noqa: D401
@@ -1007,7 +1007,7 @@ def _uphold_plan_r2_upload(r2_files, T):
             _diag_log, _diag_subject, _diag_body = build_lock_timeout_diag(
                 e,
                 lock_path=os.environ.get("R2_UPLOAD_LOCK", "/tmp/trade_r2_upload.lock"),
-                lock_paths=lock_paths_from_env(),   # 全局锁 + 小锁逐把探测(A 方案后可能走小锁)
+                lock_paths=lock_paths_from_env(include_domains=True),   # 全局锁+小锁+20 把域锁逐把探测
                 log_path=REPO / "data" / "logs" / "nextday_plan_launchd.log",
                 date_tag=T,
                 subject_prefix="[告警] 次日买入计划 R2",

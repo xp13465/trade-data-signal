@@ -39,7 +39,7 @@ try:  # R2 等锁超时诊断(2026-10-23 同类面): 只读 lsof + 子进程输�
     # 辅助模块缺失/异常不得影响上传主流程(fail-safe): 退化为空串。
     from r2_lock_probe import lock_paths_from_env, probe_locks, subprocess_output_tail  # noqa: E402
 except Exception:  # noqa: BLE001
-    def lock_paths_from_env():  # noqa: D401
+    def lock_paths_from_env(include_domains=False):  # noqa: D401
         return []
 
     def probe_locks(_paths):  # noqa: D401
@@ -128,7 +128,7 @@ def _upload_r2(files) -> bool:
         # 子进程 stderr 的等锁心跳, 日志里只剩「超时(Ns)」看不出在等锁。补 stderr 尾段 + 只读
         # 持锁候选; **不改 timeout(见 _r2_upload_timeout)、不改降级行为(仍 return False)**。
         _tail = subprocess_output_tail(e)
-        _holder = probe_locks(lock_paths_from_env())
+        _holder = probe_locks(lock_paths_from_env(include_domains=True))
         print(f"  ✗ upload-data-files 超时({_to}s)", flush=True)
         print(f"    子进程输出尾段(等锁心跳): {_tail or '(空)'}", flush=True)
         print(f"    锁占用探测(lsof 只读, 全局锁/小锁逐把): "

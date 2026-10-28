@@ -25,6 +25,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SNAPSHOT = REPO / "docs" / "deploy" / "systemd-units-cloud-snapshot.txt"
 UR_PY = REPO / "scripts" / "upload_r2.py"
+PROBE_PY = REPO / "scripts" / "r2_lock_probe.py"
+
+if str(REPO / "scripts") not in sys.path:
+    sys.path.insert(0, str(REPO / "scripts"))
+# 域名白名单的唯一事实源(与 upload_r2.py / r2_lock_probe.py 同源, 禁止手抄第二份)。
+from r2_lock_paths import DOMAIN_ENV, LOCK_DOMAINS  # noqa: E402
 
 # 产物域登记表: 域 → 该域写者共同占用的对象 key 前缀(证明域间不重叠的权威清单;
 # 勘察依据 = docs/ops/r2-lock-domains-20261028.md)。
@@ -78,7 +84,9 @@ SITES = [
     ("scripts/turnover_backfill.sh", "intraday + data-large", "data", 1800, 2760, "trade-turnover-backfill.service", 'R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" R2_UPLOAD_LOCK_DOMAIN=data'),
     ("scripts/intraday_snapshot.sh", "index/intraday/schedule_stats(盘中)", "index", 600, None, "trade-intraday-snapshot.service", 'R2_UPLOAD_LOCK_DOMAIN=index R2_UPLOAD_LOCK_TIMEOUT=600'),
     ("scripts/intraday_snapshot.sh", "intraday + schedule_stats(盘中)", "data", 600, None, "trade-intraday-snapshot.service", 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=600'),
-    ("scripts/update_lab.sh", "lab + trade_sim + lab_*.json", None, 600, None, "trade-lab-auto.service", 'R2_UPLOAD_LOCK_DOMAIN=lab R2_UPLOAD_LOCK_TIMEOUT=600'),
+    ("scripts/update_lab.sh", "lab", "lab", 600, None, "trade-lab-auto.service", 'R2_UPLOAD_LOCK_DOMAIN=lab R2_UPLOAD_LOCK_TIMEOUT=600'),
+    ("scripts/update_lab.sh", "trade_sim_data", "trade_sim_data", 600, None, "trade-lab-auto.service", 'R2_UPLOAD_LOCK_DOMAIN=trade_sim_data R2_UPLOAD_LOCK_TIMEOUT=600'),
+    ("scripts/update_lab.sh", "lab_*.json(顶层 data)", "data", 600, None, "trade-lab-auto.service", 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=600'),
     ("scripts/gold_night.sh", "gold 数据", "data", 900, None, "trade-gold-night.service", 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=900'),
     ("scripts/etf_national_team_backfill.sh", "etf hist", "etf", 900, None, "trade-etf-national-team.service", 'R2_UPLOAD_LOCK_DOMAIN=etf R2_UPLOAD_LOCK_TIMEOUT=900'),
     ("scripts/fund_nav_upload_async.sh", "fund nav", "fund_nav", 1800, None, None, 'R2_UPLOAD_LOCK_DOMAIN=fund_nav R2_UPLOAD_LOCK_TIMEOUT=1800'),
@@ -88,7 +96,8 @@ SITES = [
     ("scripts/staticdata_backup_async.sh", "large json 私有桶", "large_json", 3000, None, None, 'R2_UPLOAD_LOCK_DOMAIN=large_json R2_UPLOAD_LOCK_TIMEOUT=3000'),
     ("scripts/migrate_large_json_out_of_git.sh", "large json 迁移", "large_json", 3000, None, None, 'R2_UPLOAD_LOCK_DOMAIN=large_json R2_UPLOAD_LOCK_TIMEOUT=3000'),
     ("scripts/update_all.sh", "alert 预警数据", "data", 300, None, "trade-update-all.service", 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=300'),
-    ("scripts/update_all.sh", "etf score + fund score", "etf_score", 600, None, "trade-update-all.service", 'R2_UPLOAD_LOCK_DOMAIN=etf_score R2_UPLOAD_LOCK_TIMEOUT=600'),
+    ("scripts/update_all.sh", "etf score", "etf_score", 600, None, "trade-update-all.service", 'R2_UPLOAD_LOCK_DOMAIN=etf_score R2_UPLOAD_LOCK_TIMEOUT=600'),
+    ("scripts/update_all.sh", "fund score", "fund_score", 600, None, "trade-update-all.service", 'R2_UPLOAD_LOCK_DOMAIN=fund_score R2_UPLOAD_LOCK_TIMEOUT=600'),
     ("scripts/kelly_intraday_rerun.sh", "盘中增量档", "data", 400, None, "trade-kelly-intraday-rerun.service", 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=400'),
     ("scripts/push_schedule_stats.sh", "schedule_stats", "data", 120, None, None, 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=120'),
     # ── Python 调用方(subprocess timeout = 内层预算) ──
@@ -113,6 +122,20 @@ KNOWN_INNER_OVER_OUTER = {
     ("scripts/overfit_monitor.py", "trade-overfit-monitor.service"):
         "#223④(2026-10-06) 本层 960 > 外层 360 为既有倒置, 已由运行时梯度守卫兜底; 抬外层属另案",
 }
+
+# 已知「变量形式的域声明」= 静态不可解析, 必须逐条给出明确处置(不许静默放过)。
+# key = (文件, 行内可辨识标记子串), value = 处置理由。
+KNOWN_VARIABLE_FORMS = {
+    ("scripts/r2_upload_async.sh", '${_lock_domain:+R2_UPLOAD_LOCK_DOMAIN="$_lock_domain"}'):
+        "转发包装层的 pass-through 行: 域由各 run_r2_upload 调用的 --lock-domain <字面量> 决定, "
+        "逐通道已在 SITES 登记(本行只是把解析结果注入子进程 env, 不单独代表某个调用点)",
+}
+
+# 域声明出现的位置: shell 的字面量赋值 / Python 的 env 字典赋值(2026-10-28 返工,R3 补盲:
+# 原审计只扫 shell 同行字面量 ⇒ 新增 Python 调用方 / 变量形式全靠人眼)。
+_SHELL_DOMAIN_LITERAL = re.compile(r"""R2_UPLOAD_LOCK_DOMAIN=["']?([a-z0-9_-]+)["']?\s""")
+_PY_DOMAIN_LITERAL = re.compile(r'''R2_UPLOAD_LOCK_DOMAIN"\]\s*=\s*"([a-z0-9_-]+)"''')
+_SHELL_DOMAIN_VARIABLE = re.compile(r"""(?:R2_UPLOAD_LOCK_DOMAIN=["']?\$|--lock-domain\s+["']?\$)""")
 
 
 def _parse_outer_timeouts() -> dict[str, int]:
@@ -166,6 +189,72 @@ def _upload_callers() -> set[str]:
     return found
 
 
+def _python_caller_domains() -> dict[str, set[str]]:
+    """扫 scripts/*.py 的 Python 调用方: 文件 → 它声明过的域集合。
+
+    审查实证(2026-10-28): 原审计只扫 shell 同行字面量, 新增一个 Python 调用方(或把字面量改成
+    变量)不会被发现 ⇒ 漏改调用方回落全局锁却审计全绿。这里按「env 字典赋值」收集, 与 SITES 对账。
+    排除本审计脚本自身与 upload_r2.py(实现侧)。
+    """
+    found: dict[str, set[str]] = {}
+    for p in sorted((REPO / "scripts").glob("*.py")):
+        rel = f"scripts/{p.name}"
+        if rel in ("scripts/upload_r2.py", "scripts/r2_lock_gradient_audit.py",
+                   "scripts/r2_lock_paths.py", "scripts/r2_lock_probe.py"):
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        domains = set(_PY_DOMAIN_LITERAL.findall(text))
+        if domains:
+            found[rel] = domains
+    return found
+
+
+def _shell_domain_literals() -> list[tuple[str, str]]:
+    """扫 scripts/*.sh 的**字面量**域声明, 返回 [(文件, 域), ...](去重)。
+
+    用途: 与 SITES 登记对账 —— 同一脚本里写了两处不同域、SITES 只登记了一行时, 原审计会因为
+    「标记字符串存在」而 PASS(实证: update_all.sh 的 etf_score/fund_score 两处曾合并成一行,
+    fund_score 那处无人核对)。变量形式不在此列(由 `_shell_variable_forms` 单独给处置)。
+    """
+    out = set()
+    for p in sorted((REPO / "scripts").glob("*.sh")):
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            st = line.strip()
+            if st.startswith("#"):
+                continue
+            for d in _SHELL_DOMAIN_LITERAL.findall(line):
+                out.add((f"scripts/{p.name}", d))
+    return sorted(out)
+
+
+def _shell_variable_forms() -> list[tuple[str, str]]:
+    """扫 scripts/*.sh 里**静态不可解析的域声明**(变量形式), 返回 [(文件, 行内容), ...]。
+
+    注释行不算(不执行)。每一处都要有明确处置: 命中 KNOWN_VARIABLE_FORMS ⇒ 已登记; 否则
+    列入「人工确认清单」并 FAIL(不许静默放过 —— 变量形式既可能解析成合法域, 也可能拼错)。
+    """
+    out = []
+    for p in sorted((REPO / "scripts").glob("*.sh")):
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            st = line.strip()
+            if st.startswith("#"):
+                continue
+            if _SHELL_DOMAIN_VARIABLE.search(line):
+                out.append((f"scripts/{p.name}", line.strip()))
+    return out
+
+
 def audit() -> tuple[list[dict], list[str]]:
     rows, errs = [], []
     outer = _parse_outer_timeouts()
@@ -217,16 +306,78 @@ def audit() -> tuple[list[dict], list[str]]:
         rows.append({"owner": caller, "site": "?", "domain": None, "lock_wait": 0,
                      "inner": None, "unit": None, "outer": 0, "status": "FAIL",
                      "note": "上传调用方未登记域/锁等待(漏改 ⇒ 回落全局锁)"})
-    # 实现侧契约: 域锁 + 全局 SH 屏障 + 未声明回落全局
+    # 实现侧契约: 域锁 + 全局 SH 屏障 + 未声明回落全局 + 白名单回落
     ur = UR_PY.read_text(encoding="utf-8", errors="replace")
     for needle, why in [
         ('_LOCK_DOMAIN_ENV = "R2_UPLOAD_LOCK_DOMAIN"', "域 env 常量丢失"),
         ("_domain_upload_lock_path", "域锁路径派生丢失"),
         ("fcntl.LOCK_SH", "全局 SH 屏障丢失(未声明写者将无法挡住域写者)"),
         ("lock_plan = [(lock_path, fcntl.LOCK_EX)]", "未声明域回落全局 EX 丢失"),
+        ("_rlp.LOCK_DOMAINS", "域名白名单校验丢失(打错域名会自建新锁、静默失去同 key 互斥)"),
+        ("return _rlp.domain_lock_path(domain)", "域锁路径未走单一事实源(手抄第二份必然漂移)"),
     ]:
         if needle not in ur:
             errs.append(f"upload_r2.py 契约缺失: {why}(找不到 {needle!r})")
+    if f'_LOCK_DOMAIN_ENV = "{DOMAIN_ENV}"' not in ur:
+        errs.append(f"upload_r2.py 的 _LOCK_DOMAIN_ENV 与 r2_lock_paths.DOMAIN_ENV({DOMAIN_ENV!r})不同值")
+
+    # 域名登记表 ↔ 白名单双向一致(单一事实源 = r2_lock_paths.LOCK_DOMAINS)
+    missing = sorted(LOCK_DOMAINS - set(DOMAINS))
+    extra = sorted(set(DOMAINS) - LOCK_DOMAINS)
+    if missing:
+        errs.append(f"域登记表缺白名单域名 {missing}(补本表说明文字; 白名单已承认但审计无对象 key 依据)")
+    if extra:
+        errs.append(f"域登记表含白名单外域名 {extra}(upload_r2 会回落全局锁, 分域形同虚设)")
+
+    # Python 调用方补盲: 声明了域却未登记 / 声明域与登记不一致
+    registered: dict[str, set[str]] = {}
+    for owner, _site, domain, *_rest in SITES:
+        if domain:
+            registered.setdefault(owner, set()).add(domain)
+    for owner, domains in _python_caller_domains().items():
+        if owner not in registered:
+            errs.append(f"{owner}: Python 调用方声明了域 {sorted(domains)} 但未在 SITES 登记"
+                        f"(新增调用方漏登记 ⇒ 域/梯度无人核对)")
+            continue
+        stranger = sorted(domains - registered[owner])
+        if stranger:
+            errs.append(f"{owner}: 声明域 {stranger} 与 SITES 登记 {sorted(registered[owner])} 不一致")
+
+    # shell 字面量域 ↔ SITES 登记对账(同一脚本多域只登记一行 = 漏核对)
+    for owner, domain in _shell_domain_literals():
+        if domain not in LOCK_DOMAINS:
+            errs.append(f"{owner}: 脚本内声明了未登记域名 {domain!r}(会回落全局锁)")
+        elif domain not in registered.get(owner, set()):
+            errs.append(f"{owner}: 脚本内声明域 {domain!r} 无对应 SITES 登记行"
+                        f"(该调用点的锁等待/梯度无人核对)")
+
+    # shell 变量形式: 逐条明确处置(已登记给理由 / 未登记进人工确认清单 + FAIL)
+    for owner, line in _shell_variable_forms():
+        if any(owner == k[0] and k[1] in line for k in KNOWN_VARIABLE_FORMS):
+            continue
+        errs.append(f"{owner}: 域声明是变量形式, 静态不可解析 ⇒ 人工确认清单: {line[:140]}")
+
+    # 诊断探针完整性(R1): 调用方必须显式要求带域锁, 否则分域后超时诊断会指错文件
+    probe = PROBE_PY.read_text(encoding="utf-8", errors="replace")
+    for needle, why in [
+        ("import r2_lock_paths as _rlp", "探针未复用锁路径单一事实源(手抄第二份会漏域锁)"),
+        ("_rlp.lock_endpoints(include_domains=include_domains)", "探针未把域锁纳入探测集"),
+    ]:
+        if needle not in probe:
+            errs.append(f"r2_lock_probe.py 契约缺失: {why}(找不到 {needle!r})")
+    for p in sorted((REPO / "scripts").glob("*.py")):
+        if p.name in ("r2_lock_probe.py", "r2_lock_gradient_audit.py"):
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            st = line.strip()
+            if st.startswith("def ") or "lock_paths_from_env(" not in line:
+                continue
+            if "include_domains=True" not in line:
+                errs.append(f"scripts/{p.name}: 诊断未探测域锁(缺 include_domains=True): {st[:140]}")
     for r in rows:
         if r["status"] == "FAIL":
             errs.append(f"{r['owner']} [{r['site']}]: {r['note']}")
@@ -253,6 +404,16 @@ def main(argv: list[str]) -> int:
         return 1 if errs else 0
     print("== R2 上传锁域 + 超时梯度审计(只读) ==")
     print(_fmt(rows))
+    manual = _shell_variable_forms()
+    print("\n-- 人工确认清单(变量形式的域声明: 静态不可解析, 逐条给处置) --")
+    if not manual:
+        print("  (无)")
+    for owner, line in manual:
+        known = next((v for k, v in KNOWN_VARIABLE_FORMS.items()
+                      if owner == k[0] and k[1] in line), None)
+        print(f"  {'已登记' if known else '待确认'} {owner}: {line[:140]}")
+        if known:
+            print(f"      ↳ {known}")
     bad = [r for r in rows if r["status"] == "FAIL"]
     waived = [r for r in rows if r["status"] == "WAIVED"]
     print(f"\n合计 {len(rows)} 个调用点: PASS={len(rows) - len(bad) - len(waived)} "

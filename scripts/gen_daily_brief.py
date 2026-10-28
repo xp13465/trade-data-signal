@@ -109,7 +109,7 @@ try:  # R2 等锁超时诊断(2026-10-23 同类面): 只读 lsof + 子进程输�
     # 辅助模块缺失/异常不得影响主流程(fail-safe): 退化为空串(与传统日志一致)。
     from r2_lock_probe import lock_paths_from_env, probe_locks, subprocess_output_tail  # noqa: E402
 except Exception:  # noqa: BLE001
-    def lock_paths_from_env():  # noqa: D401
+    def lock_paths_from_env(include_domains=False):  # noqa: D401
         return []
 
     def probe_locks(_paths):  # noqa: D401
@@ -3148,7 +3148,7 @@ def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) ->
         # 子进程 stderr 的等锁心跳 ⇒ 先补 stderr 尾段 + 只读持锁候选到日志。
         # **只追加日志行, 严禁改动下面的 degrade 判定逻辑**(它有降噪语义, 动了会改变告警行为)。
         _tail = subprocess_output_tail(e)
-        _holder = probe_locks(lock_paths_from_env())
+        _holder = probe_locks(lock_paths_from_env(include_domains=True))
         print(f"[R2] 子进程输出尾段(等锁心跳): {_tail or '(空)'}", flush=True)
         print(f"[R2] 锁占用探测(lsof 只读, 全局锁/小锁逐把): "
               f"{_holder or '(探测不到, 可人工 lsof 排查)'}", flush=True)

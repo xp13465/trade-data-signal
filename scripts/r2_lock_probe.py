@@ -9,8 +9,9 @@
 
 本模块只做三件事, 都是**只读/纯函数**, 零业务副作用:
   1) `probe_lock_holder(lock_path)` —— lsof 找出「打开了锁文件」的进程(候选集), ps 补运行时长与命令行;
-  2) `probe_locks(paths)` / `lock_paths_from_env()` —— 逐把锁探测(全局锁 + 小锁),
-     明确标出**哪把被占**(A 方案后上传可能走小锁, 只探全局锁会指错方向);
+  2) `probe_locks(paths)` / `lock_paths_from_env(include_domains=...)` —— 逐把锁探测
+     (全局锁 + 小锁 + 20 把产物域锁), 明确标出**哪把被占**(2026-10-23 起上传可能走小锁、
+     2026-10-28 起按产物域分锁, 只探全局锁会指错方向);
   3) `build_lock_timeout_diag(...)` —— 把 `subprocess.TimeoutExpired` 变成
      (日志文本, 告警标题, 告警正文), 正文说人话:「上传前排队等锁超时(等了 N 秒, 被 X 占着)」。
 
@@ -21,29 +22,36 @@
 §18 L50 / §25 对齐: 纯只读(lsof + ps), 不 exec 任何业务脚本、不写文件、不碰网络;
 任何异常(含 lsof 不存在的精简镜像)一律返回空串, **绝不让诊断反过来把链路弄挂**。
 """
-import os
 import re
 import subprocess
 
 # ps etime 形如 `MM:SS` / `HH:MM:SS` / `DD-HH:MM:SS`; 行首是 pid。
 _PS_ROW_RE = re.compile(r"^\s*(\d+)\s+([\d:-]+)\s+(.*)$")
 
-# ── A 方案(2026-10-23)后上传可能走两把锁: 全局锁 / 小锁 ──────────────────────
-# 审查建议 2: 超时时若只报「全局锁无占用」, 而实际是小锁被占, 诊断会把人指错方向。
-# 故诊断统一走「逐把探测」, 由调用方传两把锁的路径; 路径 env 与 upload_r2.py 同名同缺省
-# (改默认路径必须两处一起改, 否则诊断看错文件)。
-_LOCK_PATH_ENVS = (
-    ("全局锁", "R2_UPLOAD_LOCK", "/tmp/trade_r2_upload.lock"),
-    ("小锁", "R2_UPLOAD_SMALL_LOCK", "/tmp/trade_r2_upload_small.lock"),
-)
+# ── 锁路径唯一来源: r2_lock_paths.py(2026-10-28 返工,R1) ────────────────────
+# 历史: 2026-10-23 A 方案后上传可能走两把锁(全局/小锁), 本模块手抄了这两条的 env+缺省;
+# 2026-10-28 按产物域分锁后出现 20 把域锁, 手抄的第二份列表**必然漏**(审查实证: 探针认不出
+# 域锁 ⇒ 超时诊断指向错误文件)。故路径/env/域名一律 import `r2_lock_paths`(与 upload_r2.py
+# 同一实现来源), 本模块不再持有任何路径或缺省值。
+# ⚠ 该模块缺失时 import 失败 ⇒ 调用方的既有 try/except 退化为「诊断不可用」占位文案
+#   (绝不返回一份过期/不完整的锁清单去误导排障, 比"看着有结果但指错文件"更安全)。
+import r2_lock_paths as _rlp
+
+# 无占用的域锁折叠成一行(域锁最多 20 把, 全展开会把日志/告警正文冲垮); 全局锁/小锁保持逐条。
+_DOMAIN_LABEL_PREFIX = _rlp.DOMAIN_LABEL_PREFIX
 
 
-def lock_paths_from_env():
-    """返回 [(标签, 锁路径), ...]: 上传可能用到的全部锁(先全局后小锁)。
+def lock_paths_from_env(include_domains: bool = False):
+    """返回 [(标签, 锁路径), ...]: 上传可能用到的全部锁(先全局 → 小锁 → 各域锁)。
+
+    `include_domains=True`(推荐, 超时诊断必用): 额外附上 20 把域锁, 由 `probe_locks` 逐把探测
+    —— 2026-10-28 起调用方会声明产物域, 只探全局/小锁会在域锁被占时指错方向(§18 L44 同精神:
+    诊断指错文件 = 排障被误导)。
+    `include_domains=False`(默认): 保持 2026-10-23 的两把锁清单, 既有调用方/用例行为不变。
 
     纯读环境变量, 不 stat/不打开文件; 零副作用。
     """
-    return [(label, os.environ.get(env, default)) for label, env, default in _LOCK_PATH_ENVS]
+    return _rlp.lock_endpoints(include_domains=include_domains)
 
 
 def _etime_secs(etime: str) -> int:
@@ -108,12 +116,19 @@ def probe_locks(paths, probe=None) -> str:
     """
     fn = probe or probe_lock_holder
     parts = []
+    idle_domains = 0
     for label, path in paths:
         try:
             holder = fn(str(path))
         except Exception:  # noqa: BLE001  (诊断绝不反过来把链路弄挂)
             holder = ""
+        if not holder and str(label).startswith(_DOMAIN_LABEL_PREFIX):
+            # 无占用的域锁折叠(20 把全展开会淹没日志/告警正文); 有占用的逐条列出。
+            idle_domains += 1
+            continue
         parts.append(f"{label}({path})={holder or '无占用/探测不到'}")
+    if idle_domains:
+        parts.append(f"域锁(其余 {idle_domains} 把)=无占用/探测不到")
     return "; ".join(parts)
 
 

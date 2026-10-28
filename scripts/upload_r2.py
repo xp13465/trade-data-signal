@@ -45,6 +45,11 @@ except Exception:  # noqa: BLE001
     def probe_lock_holder(_lock_path, _max_items=3):  # noqa: D401
         return ""
 
+# 锁路径推导 + 产物域白名单的唯一实现(r2_lock_paths.py): 探针/审计/本文件同源, 不各写一份。
+# 该模块与本文件同目录, 按脚本运行时 sys.path[0] 即 scripts/; 缺失 = ImportError 响亮失败
+# (宁可取锁报错也不静默退化成无锁并发)。
+import r2_lock_paths as _rlp  # noqa: E402
+
 # stdout 行缓冲:遇换行就 flush,防止 `| tee -a` 管道时 block-buffered
 # 致 industry(268文件~10分钟)等长任务日志静默被误判卡死。
 # Python 3.7+ 支持。覆盖 intraday/deploy/手动所有调用场景。
@@ -4633,10 +4638,11 @@ _SKIP_R2_LOCKED = object()
 #   文件总字节 > R2_SMALL_CHANNEL_MAX_BYTES     → 全局锁(默认 8MB; 阈值只决定走哪把锁, 不影响正确性)
 #   否则                                        → 小锁(所有小载荷共用 = 彼此仍互斥, 相对顺序同现状)
 # 回滚 = 一行 env: R2_SMALL_CHANNEL=0 ⇒ 恒全局锁, 回到改动前, 不用回滚代码。
-_GLOBAL_LOCK_PATH_DEFAULT = "/tmp/trade_r2_upload.lock"
-_SMALL_LOCK_PATH_DEFAULT = "/tmp/trade_r2_upload_small.lock"
-_GLOBAL_LOCK_PATH_ENV = "R2_UPLOAD_LOCK"          # 既有 env(默认路径见上; 保持原样)
-_SMALL_LOCK_PATH_ENV = "R2_UPLOAD_SMALL_LOCK"     # 小锁路径(单测/演练用它把两个路径都指向 /tmp 测试文件)
+# 路径/域名一律取 r2_lock_paths.py(单一事实源), 这里只保留既有名字供单测与审计按源码形状断言。
+_GLOBAL_LOCK_PATH_DEFAULT = _rlp.GLOBAL_DEFAULT
+_SMALL_LOCK_PATH_DEFAULT = _rlp.SMALL_DEFAULT
+_GLOBAL_LOCK_PATH_ENV = _rlp.GLOBAL_ENV           # 既有 env(默认路径见上; 保持原样)
+_SMALL_LOCK_PATH_ENV = _rlp.SMALL_ENV             # 小锁路径(单测/演练用它把两个路径都指向 /tmp 测试文件)
 _SMALL_CHANNEL_MAX_BYTES_ENV = "R2_SMALL_CHANNEL_MAX_BYTES"
 _SMALL_CHANNEL_MAX_BYTES_DEFAULT = 8 * 1024 * 1024   # 8MB(方案 §2.2.1 定的默认值, 不许另定)
 _SMALL_CHANNEL_SWITCH_ENV = "R2_SMALL_CHANNEL"       # 0 = 关闭小锁通道(回滚开关)
@@ -4659,7 +4665,12 @@ _BARRIER_FDS = {}
 
 
 def _lock_domain():
-    """读 env R2_UPLOAD_LOCK_DOMAIN; 空/非法 → 返回 None 并 WARN 回落全局锁(不改变并发语义)。"""
+    """读 env R2_UPLOAD_LOCK_DOMAIN; 空/形状非法/未登记白名单 → 返回 None 并 WARN 回落全局锁。
+
+    白名单(2026-10-28 返工,R3): 只校验形状不够 —— 打错成一个**合法的**别的域名会自建一把
+    新锁, 与真正的同 key 写者静默失去互斥。未登记域名 ⇒ 回落全局锁 + WARN(fail-open 到串行,
+    并发语义只会更保守, 绝不会变成无锁并发)。白名单单一事实源 = r2_lock_paths.LOCK_DOMAINS。
+    """
     raw = os.environ.get(_LOCK_DOMAIN_ENV, "").strip()
     if not raw:
         return None
@@ -4670,13 +4681,19 @@ def _lock_domain():
             file=sys.stderr,
         )
         return None
+    if raw not in _rlp.LOCK_DOMAINS:
+        print(
+            f"⚠ R2_UPLOAD_LOCK_DOMAIN={raw!r} 未登记(白名单见 scripts/r2_lock_paths.py "
+            f"LOCK_DOMAINS), 本次回落全局锁(不改并发语义; 未登记域自建新锁会静默失去同 key 互斥)",
+            file=sys.stderr,
+        )
+        return None
     return raw
 
 
 def _domain_upload_lock_path(domain: str) -> Path:
-    """域锁路径 = 全局锁路径同目录派生(stem + '_' + domain + suffix)。"""
-    base = _global_upload_lock_path()
-    return base.with_name(f"{base.stem}_{domain}{base.suffix}")
+    """域锁路径 = 全局锁路径同目录派生(实现见 r2_lock_paths.domain_lock_path, 单一来源)。"""
+    return _rlp.domain_lock_path(domain)
 
 
 def _release_r2_upload_lock(fd):
@@ -4694,13 +4711,13 @@ def _release_r2_upload_lock(fd):
 
 
 def _global_upload_lock_path() -> Path:
-    """全局上传锁路径(env R2_UPLOAD_LOCK 覆盖; 缺省 = 生产现路径)。"""
-    return Path(os.environ.get(_GLOBAL_LOCK_PATH_ENV, _GLOBAL_LOCK_PATH_DEFAULT))
+    """全局上传锁路径(实现见 r2_lock_paths.global_lock_path, 单一来源)。"""
+    return _rlp.global_lock_path()
 
 
 def _small_upload_lock_path() -> Path:
-    """小载荷专用锁路径(env R2_UPLOAD_SMALL_LOCK 覆盖; 缺省 = 生产小锁路径)。"""
-    return Path(os.environ.get(_SMALL_LOCK_PATH_ENV, _SMALL_LOCK_PATH_DEFAULT))
+    """小载荷专用锁路径(实现见 r2_lock_paths.small_lock_path, 单一来源)。"""
+    return _rlp.small_lock_path()
 
 
 def _small_channel_max_bytes() -> int:

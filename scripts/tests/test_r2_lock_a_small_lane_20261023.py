@@ -589,6 +589,9 @@ def test_call_sites_probe_both_locks_not_single(name):
     """
     src = (SCRIPTS / name).read_text(encoding="utf-8")
     assert "lock_paths_from_env" in src, f"{name} 未按统一入口取两把锁路径"
-    assert ("probe_locks(" in src) or ("lock_paths=lock_paths_from_env()" in src), \
-        f"{name} 未逐把探测(全局锁 + 小锁)"
+    # 2026-10-28 返工(R1)强化: 逐把探测必须**带上域锁**(include_domains=True), 否则分域后
+    # 域锁被占时诊断仍会指错文件。原断言只认「两把锁」, 现收紧为「全局+小锁+域锁」。
+    assert ("probe_locks(lock_paths_from_env(include_domains=True))" in src
+            or "lock_paths=lock_paths_from_env(include_domains=True)" in src), \
+        f"{name} 未逐把探测(全局锁 + 小锁 + 分域锁)"
     assert "_route_upload_lock" not in src, f"{name} 不得复制路由判定(第二实现必然漂移)"
