@@ -12,7 +12,7 @@
   - `scripts/public_fund_daily.sh` L80 / `public_fund_full.sh` L85 / `public_fund_quarterly.sh` L88(持 `/tmp/trade_deploy.lock` 调 deploy.sh)
   - backfill 等(经 index_backfill 内部触发)
 - **同步内容**(deploy.sh L507-558 四步):
-  1. rsync `$REPO/data/*.db` → staticdata/db/(本地备份,不进 git,`db/*.db` gitignore)
+  1. **step1 默认跳过**:rsync `$REPO/data/*.db` → staticdata/db/ —— 默认**不执行**,只有 `STATICDATA_DB_LOCAL_COPY=1` 时才跑(日志打 `[step1 DB rsync] skipped (...)`,心跳不变);DB 备份统一走 R2 分层链(backup/weekly/monthly)。真复制时也不进 git(`db/*.db` gitignore)
   2. cp wrangler.jsonc + systemd 单元配置(脱敏)→ staticdata/config/
   3. **rsync 全量 `$REPO/static-site/data/` → staticdata/data/**(全量镜像,无白名单)
   4. `git -C staticdata add -A` + commit + push origin main(best-effort,失败不阻塞 deploy)

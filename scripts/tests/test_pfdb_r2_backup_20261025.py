@@ -88,6 +88,7 @@ def repo_dir(tmp_path):
     data.mkdir()
     _make_db(data / "sentiment.db")
     _make_db(data / "etf_national_team.db")
+    _make_db(data / "stock_daily.db")      # 2026-10-28 起进 upload-db 清单(与生产同形态)
     _make_db(data / "public_fund.db", rows=5)
     return tmp_path
 
@@ -117,9 +118,10 @@ def test_upload_db_includes_public_fund_and_keeps_old_two(repo_dir, monkeypatch,
     today = _today()
     assert f"backup/sentiment_{today}.db.gz" in keys
     assert f"backup/etf_national_team_{today}.db.gz" in keys
+    assert f"backup/stock_daily_{today}.db.gz" in keys   # 2026-10-28 补入
     assert f"backup/public_fund_{today}.db.gz" in keys
     # 小库仍是内存 gzip 单 PUT(与改动前一致): payload 是合法 gzip, 解压后 == 原库字节
-    for name in ("sentiment", "etf_national_team"):
+    for name in ("sentiment", "etf_national_team", "stock_daily"):
         call = next(c for c in generic_puts if c["key"] == f"backup/{name}_{today}.db.gz")
         raw = gzip.decompress(call["payload"])
         assert raw == (repo_dir / "data" / f"{name}.db").read_bytes()
@@ -153,7 +155,8 @@ def test_missing_public_fund_not_counted_as_failure(repo_dir, monkeypatch, quiet
     monkeypatch.setenv("REPO", str(repo_dir))
 
     ur.cmd_upload_db()  # 不应 sys.exit(1)
-    assert "DB 上传 2/2" in capsys.readouterr().out
+    # 2026-10-28: 小库由 2 个变 3 个(sentiment/etf_national_team/stock_daily), 分母 3
+    assert "DB 上传 3/3" in capsys.readouterr().out
 
 
 # ── ⑧ 上传失败: 非零退出 + 不写台账 ─────────────────────────────────────────

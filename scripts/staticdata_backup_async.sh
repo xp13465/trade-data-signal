@@ -144,13 +144,21 @@ if [ "${STATICDATA_BACKUP_ASYNC_R2_DONE:-}" != "1" ]; then
   _SKIP_NONPROD=0   # 2026-09-26 feat/staticdata-write-guard: 非生产机守卫拦截/闸门拒绝 → 心跳 skip_nonprod
   _hb_write "running"   # 改4 C-3: 开始心跳(备份启动前; 仓库缺失早退不写, 留上次 ok 心跳自然变旧触发 C3 停摆告警)
 
-# 1. rsync DB原件到 staticdata/db/（本地备份，不进 git，.gitignore 排除 db/*.db）
-_STEP_START=$(date +%s)
-rsync -a "$REPO/data/"*.db "$STATICDATA_REPO/db/" 2>&1 | tee -a "$LOG" || {
-  echo "⚠ staticdata DB rsync 失败,不阻塞" | tee -a "$LOG"
-  STATICDATA_FAIL=1
-}
-echo "  [step1 DB rsync] $(( $(date +%s) - _STEP_START ))s" | tee -a "$LOG"
+# 1. rsync DB原件到 staticdata/db/ —— 2026-10-28 起默认关闭(开关 STATICDATA_DB_LOCAL_COPY=1 可开回)
+# 为什么关:本仓 db/ 全仓零读取方(恢复链路一律走 R2 signal-backup2,见 scripts/verify_backup.sh
+# 与 docs/scripts/restore_r2_db_backup.py),3.38G 纯重复副本,每次备份还整体重写一遍。
+# DB 异地备份统一由 backup_db.sh -> upload_r2.py upload-db 承担
+# (sentiment / etf_national_team / public_fund / stock_daily;stock_daily 2026-10-28 补入)。
+if [ "${STATICDATA_DB_LOCAL_COPY:-0}" = "1" ]; then
+  _STEP_START=$(date +%s)
+  rsync -a "$REPO/data/"*.db "$STATICDATA_REPO/db/" 2>&1 | tee -a "$LOG" || {
+    echo "⚠ staticdata DB rsync 失败,不阻塞" | tee -a "$LOG"
+    STATICDATA_FAIL=1
+  }
+  echo "  [step1 DB rsync] $(( $(date +%s) - _STEP_START ))s" | tee -a "$LOG"
+else
+  echo "  [step1 DB rsync] skipped (DB 本地副本已关闭,需 STATICDATA_DB_LOCAL_COPY=1 开启)" | tee -a "$LOG"
+fi
 
 # 2. rsync 配置（wrangler.jsonc + launchd plist 模板脱敏）
 # mkdir -p config/launchd 补原 deploy.sh 缺失(原代码假设目录已存在, 新仓库首跑会 sed 重定向失败)。

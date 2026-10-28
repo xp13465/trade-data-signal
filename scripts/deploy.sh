@@ -628,11 +628,11 @@ if [ "$REPO" != "$GIT_REPO" ]; then
   echo "✓ rsync 完成($REPO -> $GIT_REPO)" | tee -a "$LOG"
 fi
 
-# 1.7 rsync 采集 DB/数据到 trade 仓库（保持 trade/data/ 同步：诊断 + 手动从 trade 跑 deploy 能读最新 DB）
-# 仅 trade-data 跑时触发（REPO != GIT_REPO）；排除 logs/（日志各自独立不互相同步）。
-# 失败不阻断部署（static-site/data/ JSON 已上线，DB 同步仅兜底）。
+# 1.7 rsync 采集「非 DB 数据」到 trade 仓库（JSON / parquet 等镜像；DB 自 2026-10-28 起不再复制）
+# 仅 trade-data 跑时触发（REPO != GIT_REPO）；排除 logs/（日志各自独立不互相同步）+ 全部 *.db。
+# 失败不阻断部署（static-site/data/ JSON 已上线，本步仅镜像兜底）。
 if [ "$REPO" != "$GIT_REPO" ]; then
-  echo "-> rsync 采集数据: $REPO/data/ -> $GIT_REPO/data/ (exclude logs + 告警状态文件 + 4 tracked 种子) ..." | tee -a "$LOG"
+  echo "-> rsync 采集数据: $REPO/data/ -> $GIT_REPO/data/ (exclude logs + 告警状态文件 + 4 tracked 种子 + 全部 *.db) ..." | tee -a "$LOG"
   # 2026-09-29 告警降噪(改动6): 排除告警状态文件, 防双树(REPO 数据树 + GIT_REPO git 树)
   # 各维护一份 data/notify_dedup.json / alert_state.json 被 rsync -a 覆盖互相丢 key
   # (dedup 失效根因, 09-28 sigkelly_snapshot_stagnation 同 key 24h 内 2 次)。
@@ -647,16 +647,24 @@ if [ "$REPO" != "$GIT_REPO" ]; then
   # refresh_trade_dates / trade.db 0B 占位), 代码仓(GIT_REPO)侧保留 clone 种子不再被覆盖写;
   # 运行期消费方优先读 REPO 数据仓侧新版(_trade_calendar_dates 遍历 db_path.parent→ROOT/data
   # →REPO/data, 数据仓侧先命中), 种子语义不破坏。
+  # 2026-10-28 磁盘治理(本次): 再排除全部 *.db / *.db-wal / *.db-shm —— 代码仓(GIT_REPO)的
+  # data/*.db 在云上零读取方(运行期所有 unit 都带 REPO=trade-data,脚本解析到的库=主库;
+  # 镜像兜底 gen_daily_brief.py pick_db/aggregate_shadow.py _pick_db 都容忍文件不存在),
+  # 却每次部署被全量复制一轮(今日实测待传 491MB,public_fund 刷新日最多 3.5G 写放大)。
+  # 停掉后 DB 唯一副本 = 主库 data/(异地靠 R2 signal-backup2 日/周/月备份),
+  # 代码仓只保留 JSON/parquet(如 daily-k.parquet / holdings_overlap_cache.json)镜像用途。
+  # 注意: --exclude='*.db' 不带前导斜杠, 会匹配 data/ 下任意层级的 .db 文件(含子目录)。
   rsync -a --exclude=logs/ --exclude=notify_dedup.json --exclude=alert_state.json \
         --exclude=alerts/ --exclude=warning_* --exclude=backups/ \
         --exclude=index_etf_map.json --exclude=stock_codes.json \
         --exclude=trade.db --exclude=trade_dates.txt \
+        --exclude='*.db' --exclude='*.db-wal' --exclude='*.db-shm' \
         "$REPO/data/" "$GIT_REPO/data/" 2>&1 | tee -a "$LOG"
   RSYNC_DB_RC=${PIPESTATUS[0]}
   if [ "$RSYNC_DB_RC" -ne 0 ]; then
     echo "⚠ rsync data/ 失败(退出码 $RSYNC_DB_RC)，不阻断部署(static-site/data/ JSON 已上线)" | tee -a "$LOG"
   else
-    echo "✓ rsync data/ 完成（DB 同步到 $GIT_REPO/data/）" | tee -a "$LOG"
+    echo "✓ rsync data/ 完成（数据文件同步到 $GIT_REPO/data/(不含 DB)）" | tee -a "$LOG"
   fi
 fi
 

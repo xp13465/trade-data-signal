@@ -3204,7 +3204,8 @@ _DB_BACKUP_STATE_FILE = ".r2_db_backup_state.json"
 # 保留期: 2.9G 库压缩后约 0.75GB/份(2026-10-25 云上实测 790,650,717 B = 754MiB)。若沿用
 # 14/28/365 最高会到 ~25GB, 远超账号级免费额度 10GB 存储(R2 免费额度按账号合计, 非单桶),
 # 且每日全传无收益; 大库单独缩短为日 7 + 周 28(4 份) + 月 180(半年, 约 6 份)
-# ≈ 12.8GB(稳态, 另加小库约 4GB)。小库(sentiment/etf_national_team)保留期不变。
+# ≈ 12.8GB(稳态, 另加小库约 4GB)。小库(sentiment/etf_national_team/stock_daily)保留期不变
+# (stock_daily 2026-10-28 补入, gz 约 30MB/份 × 14+4+12 ≈ 0.9GB 稳态增量, 见 docs/ops/disk-reclaim-20261028.md)。
 _PUBLIC_FUND_RETENTION_DAYS = {
     "backup/": {"public_fund": 7},
     "weekly/": {"public_fund": 28},
@@ -3320,6 +3321,8 @@ def cmd_upload_db():
                 -> weekly/sentiment_YYYYMMDD.db.gz  (周备份,本周首次,28天/4周)
                 -> monthly/sentiment_YYYYMMDD.db.gz (月备份,本月首次,365天/12月)
     etf_national_team.db 同上(<name>=etf_national_team)。
+    stock_daily.db 同上(<name>=stock_daily,2026-10-28 补入:本地两份重复副本停档后
+    它是唯一没有异地备份的库)。
     public_fund.db 同一套三层前缀, 但走大库链路(快照+gzip+流式 multipart, 保留期更短,
     见 _PUBLIC_FUND_RETENTION_DAYS 与 _backup_public_fund_db)。
 
@@ -3339,6 +3342,9 @@ def cmd_upload_db():
     targets = [
         ("sentiment.db", "sentiment"),
         ("etf_national_team.db", "etf_national_team"),
+        # 2026-10-28 补入: 代码仓 data/*.db 与 staticdata/db 两份本地副本停档后, stock_daily.db
+        # 只剩主库一份 ⇒ 必须进 R2 异地备份链(与 etf_national_team 同形态, 走默认 14/28/365 保留)。
+        ("stock_daily.db", "stock_daily"),
     ]
     ok = 0
     for fname, name in targets:
