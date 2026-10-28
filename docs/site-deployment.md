@@ -906,7 +906,7 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 "systemctl list-timers | grep trade"
 `git@github.com:xp13465/trade-data-signal-staticdata.git`，本地路径 `/Users/linhuichen/code/trade-data-signal-staticdata`。
 
 deploy.sh 每次 deploy 后自动备份（best-effort，失败不阻塞 deploy）：
-- **DB 原件** rsync 到 `staticdata/db/`（本地备份，不进 git，GitHub 100MB 限制）
+- **DB 原件默认不复制**：rsync 到 `staticdata/db/` 那步（`staticdata_backup_async.sh` step1）**默认跳过**，仅 `STATICDATA_DB_LOCAL_COPY=1` 时执行；DB 备份统一走 R2 分层链（backup/weekly/monthly）。真复制时也不进 git（`db/*.db` gitignore，GitHub 100MB 限制）
 - **配置**（wrangler.jsonc + systemd 单元配置脱敏）cp 到 `staticdata/config/`
 - **全量 JSON** rsync 到 `staticdata/data/`（git diff 追踪每日变化）
 - **git commit + push** 差异化日志（`data backup [deploy] YYYY-MM-DD_HH:MM`）

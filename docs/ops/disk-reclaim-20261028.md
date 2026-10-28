@@ -35,7 +35,8 @@
 - **改前**：`rsync -a --exclude=logs/ ... "$REPO/data/" "$GIT_REPO/data/"`，只排日志/告警状态/backups/4 个 clone 种子，**DB 全部照搬**。
 - **改后**：排除列表**增补** `--exclude='*.db' --exclude='*.db-wal' --exclude='*.db-shm'`（`scripts/deploy.sh:661`）；段首注释与完成日志文案同步改为「数据文件同步…（不含 DB）」（`scripts/deploy.sh:629-631`、`:667`）。
 - **为什么不整段删**：这条 rsync 还搬 `daily-k.parquet`(173M)、`holdings_overlap_cache.json`(112M)、`signal_kelly_*` 等非 DB 文件的镜像 —— 只加排除，影响面最小。
-- **反例检查（第二处把 DB 复制进代码仓？）**：`grep -rn "GIT_REPO/data" scripts/*.sh` 只剩 `deploy.sh`（`board_etf_map.json` 的 `cp`，JSON 不受影响）与 `sync_dev_from_r2.sh`（同样只搬 `board_etf_map.json`）——**无第二处 DB 拷贝**；已经由用例 ② 机检守死（新增任何未排除的 rsync / 搬 `.db` 的 cp 都会红）。
+- **反例检查（第二处把 DB 复制进代码仓？）**：`grep -rn "GIT_REPO/data" scripts/*.sh` 只剩 `deploy.sh`（`board_etf_map.json` 的 `cp`，JSON 不受影响）与 `sync_dev_from_r2.sh`。**但 `sync_dev_from_r2.sh` 并不只搬 JSON**：实文 `scripts/sync_dev_from_r2.sh:76-79` 把 `sentiment.db` / `etf_national_team.db` 两个库 `cp` 进本机代码仓 `trade/data/`（同时刷 `trade-data/data/`）；它是本机手动跑的 dev 同步脚本（路径写死本机），不在云上部署链里。云上部署链路侧仍由用例 ② 机检守死（新增任何未排除的 rsync / 搬 `.db` 的 cp 都会红）。
+- **由此带来的影响（本单之后）**：云上部署不再复制 DB ⇒ 本机 `trade/data` 那份镜像**今后不再被自动刷新**（只有手动跑 `sync_dev_from_r2.sh` 才会更新）。所以「本机读镜像」这件事，要么显式改指 `trade-data/data/`，要么别再假设它是最新的。
 
 ### B. `scripts/staticdata_backup_async.sh` —— 本地 DB 副本默认不复制
 
@@ -68,7 +69,7 @@
 | Y2 | 部署后代码仓 `data/*.db` | 每次部署都被刷新/新建 | 不再新增、不再更新（存量文件要等删除单才清） |
 | Y3 | 空转部署待传字节 | 491,109,559 B（含 DB） | 不含任何 `.db`；只剩 JSON/parquet 量级 |
 | Y4 | 下轮 staticdata 备份 | step1 搬 3.38G DB、日志 `[step1 DB rsync] 12s` | 日志 `[step1 DB rsync] skipped (…)`，`db/` 不再被写 |
-| Y5 | 下轮 `backup_db.sh`（云上 21:30） | 日志只有 sentiment/etf 两条备份成功 | 多一条 `✓ stock_daily 备份完成`，`data/backups/` 出现 `stock_daily_YYYYMMDD_HHMM.db` |
+| Y5 | 下轮 `backup_db.sh`（云上 21:00，`trade-backup-db.timer` 的 `OnCalendar=*-*-* 21:00:00`） | 日志只有 sentiment/etf 两条备份成功 | 多一条 `✓ stock_daily 备份完成`，`data/backups/` 出现 `stock_daily_YYYYMMDD_HHMM.db` |
 | Y6 | 下轮 `upload-db` | `DB 上传 2/2 → signal-backup2/backup/` | `DB 上传 3/3 …`；R2 出现 `backup/stock_daily_<today>.db.gz` |
 
 > Y5/Y6 依赖云上定时链下一轮实跑（本单不跑脚本、不碰云上）；验证时以日志 + R2 列举为准，不看代码推断。
@@ -109,7 +110,7 @@
 | 改动 | 回退动作 | 后果 |
 |---|---|---|
 | A deploy.sh 排除 | 删掉 `--exclude='*.db' …` 那一行（其余不动） | 下次部署 DB 自动补齐回代码仓（源在主库），不用手工拷 |
-| B staticdata 副本 | `STATICDATA_DB_LOCAL_COPY=1` 跑一次 `staticdata_backup_async.sh`（或在 unit 里加环境变量） | `db/` 立即恢复为最新副本；不改代码即可 |
+| B staticdata 副本 | ①临时要开 = 手动带 `STATICDATA_DB_LOCAL_COPY=1` 跑一次 `staticdata_backup_async.sh`；②长期开回 = 改 `scripts/deploy.sh:1030` 附近的 `systemd-run --setenv`，把该变量传进去（云上**没有** staticdata 常驻 unit：`deploy.sh:1030` 是 `systemd-run` 瞬态起，所以「在 unit 里加环境变量」这条路不存在） | `db/` 立即恢复为最新副本；临时开不改代码，长期开需改 deploy.sh 一行 |
 | C stock_daily 备份 | 从 `targets` / `backup_one` 去掉那两行 | 回到"stock_daily 无异地备份"的旧状态（**不建议**，等于回到单副本风险） |
 
 单文件级回滚：`git checkout <merge-base> -- scripts/deploy.sh scripts/staticdata_backup_async.sh scripts/backup_db.sh scripts/upload_r2.py`。
