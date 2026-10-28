@@ -12,7 +12,7 @@
 
 | 对象 | 位置 | 改前规模 | 是否有人读 |
 |---|---|---|---|
-| 代码仓 DB 副本 | `/home/ubuntu/code/trade-data-signal/data/*.db` | **3.51 GB**（19 文件：public_fund 2.80G + etf 247M + sentiment 221M + stock_daily 175M 等） | **零读取方**（所有 unit 带 `REPO=trade-data`；镜像兜底 `gen_daily_brief.py pick_db` / `aggregate_shadow.py _pick_db` 遇文件不存在直接跳过） |
+| 代码仓 DB 副本 | `/home/ubuntu/code/trade-data-signal/data/*.db` | **3.63 GB**（19 个 `*.db*`，其中 10 个 `.db`：public_fund 2.95G + etf 258M + sentiment 231M + stock_daily 183M，其余 6 个为空库或 `-wal/-shm` 侧文件） | **零读取方**（所有 unit 带 `REPO=trade-data`；镜像兜底 `gen_daily_brief.py pick_db` / `aggregate_shadow.py _pick_db` 遇文件不存在直接跳过） |
 | 灾备仓 DB 副本 | `/home/ubuntu/code/trade-data-signal-staticdata/db/` | **3.38 GB**（16 文件） | **零读取方**（恢复演练一律走 R2：`scripts/verify_backup.sh` + `docs/scripts/restore_r2_db_backup.py`） |
 | 主库（唯一活副本） | `/home/ubuntu/code/trade-data/data/*.db` | 3.6 GB 级 | 是（生产链路全部指向它） |
 
