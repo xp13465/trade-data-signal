@@ -67,6 +67,8 @@ from . import base  # noqa: F401
 import akshare as ak
 
 from .base import safe_call, throttle
+# pct/prev 的单一计算实现(§23.2③:禁止在本文件或回填脚本里再复制第二份比较/计算逻辑)
+from .fund_pct import PrevNavCache, fill_row_prev_pct
 
 # ── 路径与常量 ──────────────────────────────────────────────────────────────────
 _ROOT = Path(__file__).absolute().parent.parent.parent
@@ -915,10 +917,16 @@ def fetch_daily_nav() -> int:
     today_col_acc = acc_by_date.get(target_date)
     today_str = target_date
     # 前一交易日列 = 目标日期之后的次新日期列（存在则取单位净值作 prev_unit_nav）
+    # ⚠️ 列名日期必须一起记下来：源端缺了某个交易日时，次新列的日期会**早于**真正的前一交易日
+    #    （如 2026-10-15 无净值 ⇒ 10-16 的次新列是 10-14），此时该列值是跨多日累计，不能当日增长率
+    #    的基准。判据由 fund_pct 统一裁定（`is_prev_trading_day`），本文件只如实传列日期。
     _idx = dates_desc.index(target_date)
-    prev_col_unit = unit_by_date[dates_desc[_idx + 1]] if _idx + 1 < len(dates_desc) else None
+    prev_col_date = dates_desc[_idx + 1] if _idx + 1 < len(dates_desc) else None
+    prev_col_unit = unit_by_date[prev_col_date] if prev_col_date else None
     # 日增长率只有一行、归属「最新日期列」；目标日期≠最新日期（当日未发布回退）时，该值属未发布
-    # 的当日，不可挂到回退日 → 置 None，避免把当日涨跌算到前一日头上。
+    # 的当日，不可挂到回退日 → 置 None（不当成回退日的涨跌幅）。
+    # 2026-10-28 根治：置 None 之后**不再直接落库为 NULL**，由下面 `fill_row_prev_pct` 用
+    # 「库内更早一条 unit_nav」派生（回退路径 prev 也一并补），该基金首条/unit 为空才保持 NULL。
     use_pct = target_date == dates_desc[0]
     rows = []
     for _, r in df.iterrows():
@@ -932,9 +940,23 @@ def fetch_daily_nav() -> int:
         nav_pct = _safe_float(r.get("日增长率")) if use_pct else None
         rows.append((today_str, fund_code, fund_name, unit_nav, acc_nav, prev_unit, nav_pct))
     conn = get_conn()
+    # 缺 pct / prev 的兜底（**单一实现** `app/collector/fund_pct.py`，2026-10-28 根治）：
+    #   正常路径：源端该日没给「日增长率」⇒ 用**前一交易日**那一行 unit_nav 派生 pct；
+    #   回退路径：次新列缺失 ⇒ prev 用库值（前一交易日那一行），nav_pct 不再一律 None 而一并派生。
+    #   列值优先但**必须列日期==前一交易日**；跨多日（gap≥2）一律不派生（审查裁定，见 fund_pct 头）。
+    #   该基金库里首条 / unit_nav 为空 ⇒ 保持 NULL（不编数）。pct 已有值的不动。
+    #   取数走 PrevNavCache：按基准日一次性预取，禁止逐行查库（16:20 槽余量只剩 39-57s）。
+    prev_cache = PrevNavCache(conn)
+    fixed = []
+    for (d, code, name, unit, acc, prev, pct) in rows:
+        nprev, npct = fill_row_prev_pct(d, code, unit, prev, pct, prev_cache,
+                                        prev_unit_date=prev_col_date)
+        fixed.append((d, code, name, unit, acc, nprev, npct))
+    prev_cache.clear()
+    rows = fixed
     # UPSERT + COALESCE：只补空、不覆盖已有非空值。回退路径会重写「前一交易日」行，若用
     # INSERT OR REPLACE 会把该行已有的 prev_unit_nav/nav_change_pct 抹成 NULL（踩踏）；COALESCE
-    # 保证回退写只补 unit/acc，已有值原样保留。
+    # 保证回退写只补 unit/acc/prev/pct 的空位，已有值原样保留。
     conn.executemany(
         "INSERT INTO fund_daily_nav"
         "(date, fund_code, fund_name, unit_nav, acc_nav, prev_unit_nav, nav_change_pct) "

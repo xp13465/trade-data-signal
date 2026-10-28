@@ -145,7 +145,8 @@ P1 是一张表，按领域分组；P2 只列表。每条建议都写了"从 X �
 - **证据（本次云上只读复算，全部与方向1 一致或更强）**：
   - `public_fund.db fund_daily_nav`：总行数 `22,793,757`；`nav_change_pct IS NULL` 共 `78,455` 行，
     **按月分布：2026-10 = 49,295 行、2026-09 = 15,895、2026-08 = 13,204** ⇒ 不是历史遗留，是当月产出且明显加速。
-  - `fund_purchase_status`：`purchase_status=''` 共 `7,866` 行（按 `update_date` 分月：2026-10 = 1,908、09 = 2,953、08 = 3,005）⇒ 每天约 100 行空串进库。
+  - `public_fund.db fund_purchase_status`（**独立表、另一条采集分支** `fetch_fund_purchase_status()`，不是 `fund_daily_nav` 的内容）：`purchase_status=''` 共 `7,866` 行（按 `update_date` 分月：2026-10 = 1,908、09 = 2,953、08 = 3,005；2026-10 涉及 410 只基金）⇒ 每天约 100 行空串进库；与当月 `fund_daily_nav` 空值基金只重叠 19 只，不是同一批基金。
+    > **2026-10-28 更正**：原文把 `purchase_status=''` 当作 `fund_daily_nav` 表内的内容（该表无此列），实测它在 `fund_purchase_status` 表、由另一条采集分支产生，数字不变；来源 `/tmp/navnull-rootcause-report.md` 题6（云上只读复算）。
   - `etf_national_team.db etf_daily`：`amount=0` 共 21 个日期命中，但**只有 2024-11-01 是整批（154 行，同日另有 684 行 amount>0）**，
     其余 20 天各 1 行 ⇒ 方向1"每次源端故障即一批"的表述**夸大**，实际那次整批故障发生在 2024 年 11 月，此后没有第二例。
   - `sentiment.db index_daily`：`close<=0` 仅 1 行（`20130628 / csi_H30199 / close=0.0 / source=collect`），与方向1 一致。
