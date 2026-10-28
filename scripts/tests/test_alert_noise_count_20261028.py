@@ -283,16 +283,18 @@ def test_empty_ledger_and_day_without_rows():
     assert "无数据" in text and "pass=null" in text and "PASS（" not in text
 
 
-def test_missing_ledger_file_is_zero_and_warns(tmp_path, capsys):
+def test_missing_ledger_file_is_no_data_rc2(tmp_path, capsys):
+    """#321 三态退出码：台账不存在 = 测不了 ⇒ rc=2（不再是「永远 0」，防机检把无数据读成 PASS）。"""
     missing = tmp_path / "nope.jsonl"
     rc = anc.main(["--date", "2026-10-27", "--ledger", str(missing), "--json"])
-    assert rc == 0
+    assert rc == 2
     payload = json.loads(capsys.readouterr().out)
     assert payload["ledger_exists"] is False
     assert payload["totals"]["alert"] == 0
     # 文件不存在 ⇒ no_data=true + pass=null（配错路径不许骗成 PASS）
     assert payload["no_data"] is True
     assert payload["totals"]["pass"] is None
+    assert payload["rc"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -307,10 +309,13 @@ def test_json_output_schema(tmp_path, capsys):
     rc = anc.main(["--date", "2026-10-27", "--ledger", str(p), "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
+    # rc 字段随 #321 三态退出码新增，机检与人读同源
     for key in ("date", "date_range", "ledger", "ledger_exists", "no_data", "noise_max",
                 "days", "totals", "repeat_caveat", "warn_untagged",
-                "skipped_bad_lines", "skipped_undated_alert_rows", "records_scanned"):
+                "skipped_bad_lines", "skipped_undated_alert_rows", "records_scanned",
+                "diverted", "rc"):
         assert key in payload, key
+    assert payload["rc"] == rc
     assert payload["noise_max"] == 3
     assert payload["no_data"] is False
     assert payload["date"] == "2026-10-27"
@@ -339,6 +344,7 @@ def test_json_days_window(tmp_path, capsys):
     assert payload["date_range"] == ["2026-10-26", "2026-10-27"]
     assert [d["noise"] for d in payload["days"]] == [1, 1]
     assert payload["totals"]["noise"] == 2
+    assert payload["totals"]["pass"] is True and payload["rc"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -374,9 +380,11 @@ def test_no_wall_clock_dependency(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(anc, "date", _NoToday)
     p = _write_ledger(tmp_path / "alert_ledger.jsonl", _fixture_all_classes("2026-10-27"))
     rc = anc.main(["--date", "2026-10-27", "--ledger", str(p), "--json"])
-    assert rc == 0
+    # #321 三态：该 fixture 噪音 5 > 3 ⇒ FAIL 必须由 rc=1 表达（不再恒 0）
+    assert rc == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["totals"]["noise"] == 5
+    assert payload["rc"] == 1
 
 
 def test_bad_lines_skipped(tmp_path, capsys):

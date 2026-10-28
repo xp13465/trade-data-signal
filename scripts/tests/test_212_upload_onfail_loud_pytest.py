@@ -371,6 +371,8 @@ def test_e_pre_change_source_static():
 
     = 病灶真存在的静态证据; 且反向机检: 改前 13 通道 on_fail 挂点为 0(那时确实静默)。
     CI(改动已提交, HEAD==工作区)自动 skip, 不误杀。
+    2026-10-28 补: 本批改动早已入 main ⇒ HEAD 版已含 `_channel_on_fail`, 「改前版」不可得;
+    此时同样必须 skip, 否则任何后续碰 upload_r2.py 的未提交改动都会误触发本条(假红)。
     """
     repo = SCRIPTS.parent
     try:
@@ -384,6 +386,8 @@ def test_e_pre_change_source_static():
     cur_src = (SCRIPTS / "upload_r2.py").read_text(encoding="utf-8")
     if head_src == cur_src:
         pytest.skip("已提交态(HEAD==工作区): 改前版不可得, 跳过静态对照")
+    if "_channel_on_fail" in head_src:
+        pytest.skip("HEAD 版已含 _channel_on_fail(本批改动早已提交): 改前版不可得, 跳过静态对照")
     assert head_src.count("_channel_on_fail") == 0, "改前版不应有 _channel_on_fail(病灶证据)"
     assert head_src.count("on_fail=_etf_score_on_fail") == 1, "改前版仅 #204 etf-score 一处挂点"
     seg = head_src.split("def cmd_upload_data_files", 1)[1].split("\ndef ", 1)[0]

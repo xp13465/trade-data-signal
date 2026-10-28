@@ -378,6 +378,16 @@ DIGEST_RECOVERY_TRACE_REASON = "recovery_closure"       # 恢复类「已直发�
 DIGEST_RECOVERY_ABSORB_REASON = "recovery_digest_only"
 # 批次3-B(2026-10-28): warning 聚合批「并入摘要」条目的 reason(与超预算/域聚合区分)。
 DIGEST_WARNING_BATCH_REASON = "warning_batch_digest_only"
+# 批次3-D(2026-10-28, #321 出口分层): 持续故障升级档「并入摘要、未即时直发」的 reason。
+# 升级档原为每 24h 直发一封建警(带 --severe), 现改为非 severe + digest_only ⇒ 并入当日
+# 摘要(report 群 + 邮件), 摘要里以「同日升级 N 次」计次留痕。**critical 不受影响**:
+# 本吸收块要求 not severe, check_failed_units 的「升级 critical」走 --severe 不可达。
+DIGEST_ESCALATION_REASON = "escalation_digest_only"
+
+# 批次3-D(2026-10-28, #321 出口分层): 例行提示(如 kelly 冻结表孤儿买、R2 锁跳过)经
+# CLI `--digest-only` 并入摘要的 reason。与升级档分开记: 升级=真故障持续未处置(要显眼),
+# 例行=数据/作业提示(带 category="routine"), 摘要与账本语义不得混为一谈。
+DIGEST_ROUTINE_REASON = "routine_digest_only"
 # 摘要**单条**正文字符上限(原有 3000 字截断的单一实现)。批次3-B(2026-10-28)起:
 # 汇聚类正文(warning 聚合批/恢复批, 可能 20+ 条明细)一律走 `_absorb_split_to_digest`
 # **按行拆成多段**分别入摘要 —— 保证每段都在本上限内, 明细一条不少(§23.10 内容保真:
@@ -387,7 +397,8 @@ DIGEST_ENTRY_BODY_LIMIT = 3000
 # 单条告警条目的 body 是告警正文, 摘要里只列标题即可; 但 warning 聚合批/恢复批的**全部
 # 信息都在 body 的逐条明细里**(20 条 warning / 20 条恢复), 只列 subject 等于丢内容
 # ⇒ flush_digest 对这些 reason 额外展开明细行(见 _split_body_lines)。
-_DIGEST_DETAIL_REASONS = (DIGEST_WARNING_BATCH_REASON, DIGEST_RECOVERY_ABSORB_REASON)
+_DIGEST_DETAIL_REASONS = (DIGEST_WARNING_BATCH_REASON, DIGEST_RECOVERY_ABSORB_REASON,
+                          DIGEST_ESCALATION_REASON, DIGEST_ROUTINE_REASON)
 # 摘要正文里的人读原因标签(§6 说人话: 用户可见文案不暴露英文标识; jsonl 里仍是原标识符)
 DIGEST_REASON_LABELS = {
     "over_budget": "超当日类别预算",
@@ -399,6 +410,8 @@ DIGEST_REASON_LABELS = {
     DIGEST_RECOVERY_TRACE_REASON: "闭环信号留痕(已直发)",
     DIGEST_RECOVERY_ABSORB_REASON: "恢复信号(本次并入摘要, 未即时单独外发)",
     DIGEST_WARNING_BATCH_REASON: "warning 聚合批(本次并入摘要, 未单独外发)",
+    DIGEST_ESCALATION_REASON: "持续故障升级(本次并入摘要, 未单独外发)",
+    DIGEST_ROUTINE_REASON: "例行提示(本次并入摘要, 未单独外发)",
     "unmapped": "未映射类别(兜底)",
 }
 
@@ -977,6 +990,8 @@ def _resolve_feishu_chat_key(subject: str, from_prefix: str | None,
     其余（收盘分析/盘中信号/小时级节点/买卖点信号等）-> report 群。
 
     [恢复] 与 [告警] 成对（异常发生/恢复闭环），同走 alert 告警群，让运维看到完整闭环。
+    ⚠️ #321(2026-10-28): `[告警·摘要]` 虽命中本函数的 告警 词根，但 flush_digest **显式**
+    传 feishu_group="report" ⇒ 不受本兜底影响（摘要移业务群是用户拍板，见该处注释）。
     2026-08-11 修复：改为方括号内词根匹配（正则 [Xxx告警]/[Xxx恢复]/[Xxx监控] 均命中），
     覆盖 monitor_72h.sh 的 [72h恢复]/[72h监控]——原精确串 [告警]/[恢复] 匹配失败，
     致 [72h恢复] 恢复通知误落 report 报告群（用户反馈"监控消息应发运维群"）。"""
@@ -1335,6 +1350,10 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     # P2④（codex007）：dry_run 冒烟/测试全路径只读——不触碰真实 dedup state 文件；
     # 同时把 body 传下去，聚合恢复消息靠正文明细行逐源清零（泛化 subject 匹配不全）。
     _is_recovery = bool(_RECOVERY_PREFIX_RE.match(str(subject)))
+    # 批次3-D(2026-10-28, #321): 恢复类「摘要链路不可用」fail-open 落 report 群时,
+    # 主题不是 [告警] 也不在 _EMAIL_KEEP_PREFIXES 里 ⇒ 会被邮件按群分流机制掐掉。
+    # 恢复闭环是必须可达的信号(§23.10 邮件/飞书内容一致), 故用本开关显式保留邮件。
+    _keep_email = False
     if not dry_run and _is_recovery:
         try:
             clear_warning_dedup_for_recovery(subject, body)
@@ -1400,10 +1419,12 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     _digest_only = bool(digest_only or _is_recovery)
     if _digest_only and not dry_run and not severe and not _stall and _grp == "alert":
         _dg_ok, _dg_why = _digest_chain_available()
+        _absorbed = False
         if not _dg_ok:
-            print(f"[notify][digest] 恢复留痕并入摘要跳过({_dg_why}) → fail-open 直发: "
+            print(f"[notify][digest] 并入摘要跳过({_dg_why}) → fail-open 直发: "
                   f"{str(subject)[:80]}", file=sys.stderr)
-        elif _absorb_split_to_digest(
+        elif _is_recovery:
+            _absorbed = _absorb_split_to_digest(
                 subject, body,
                 # 键 = 恢复类去重键 + **内容哈希**：schedule_monitor 的全部恢复批共用
                 # dedup_key="schedule_monitor_recovery"，若只用它，当日多批不同恢复会被
@@ -1411,16 +1432,46 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
                 key=(f"recovery|{_ledger_key_of(subject, ledger_key)}|"
                      f"{hashlib.sha1((str(subject) + chr(10) + str(body)).encode('utf-8')).hexdigest()[:8]}"),
                 category="recovery", source=source, from_prefix=from_prefix,
-                reason=DIGEST_RECOVERY_ABSORB_REASON):
-            print(f"[notify][digest] 恢复留痕已并入当日摘要 buffer(23:25 出线, 不即时直发): "
+                reason=DIGEST_RECOVERY_ABSORB_REASON)
+            if not _absorbed:
+                print(f"[notify][digest] 恢复留痕并入失败(buffer append) → fail-open 直发: "
+                      f"{str(subject)[:80]}", file=sys.stderr)
+        else:
+            # 批次3-D(2026-10-28, #321): 调用方显式 digest_only=True 的消息并入当日摘要。
+            #   ① 升级档(#196 每 24h 重复提醒, 主题含「升级 critical / 持续故障升级」):
+            #      同键幂等 + bump_hits ⇒ 摘要里显示「x N(最近 HH:MM)」, 不丢「同日升级几次」。
+            #   ② 其他例行提示(kelly 孤儿买 / R2 锁跳过): category=routine + 独立 reason,
+            #      不得借用「升级」语义(摘要里两件事可区分)。
+            # 硬边界: 本块要求 not severe ⇒ check_failed_units 的「升级 critical」(--severe)
+            # 物理不可达, 真故障即时可达的冻结契约不变。
+            _is_esc = any(_m in str(subject) for _m in _ESCALATION_SUBJECT_MARKERS)
+            _absorbed = _absorb_to_digest(
+                subject, body, key=ledger_key,
+                category=("escalation" if _is_esc else "routine"),
+                source=source, from_prefix=from_prefix,
+                reason=(DIGEST_ESCALATION_REASON if _is_esc else DIGEST_ROUTINE_REASON),
+                bump_hits=True)
+            if not _absorbed:
+                print(f"[notify][digest] digest-only 并入失败(buffer append) → fail-open 直发: "
+                      f"{str(subject)[:80]}", file=sys.stderr)
+        if _absorbed:
+            print(f"[notify][digest] 已并入当日摘要 buffer(23:25 出线, 不即时直发): "
                   f"{str(subject)[:80]}", file=sys.stderr)
             # latest.md 留痕(L46④): 吸收=不外发, 但「当日有信号」仍要在流水里可查,
             # 不占通道口径(results 传 None ⇒ 不渲染通道行, 防误读成「已发出又失败」)。
             _mirror_latest_entry("notice", subject, body, results=None, source=source)
             return {"email": False, "telegram": False, "feishu": False,
                     "digested": True}
-        else:
-            print(f"[notify][digest] 恢复留痕并入失败(buffer append) → fail-open 直发: "
+        if _is_recovery:
+            # STEP0-1 实文核对(2026-10-28): 原 fail-open 既不 return 也不改群 ⇒ 继续
+            # send_feishu(chat_key=None) 按主题推断, [恢复] 主题落 alert 群。
+            # #321 出口分层口径: 恢复类与摘要同属报告口径 ⇒ 显式落 report 群,
+            # 并强制保留邮件(_keep_email), 不让闭环信号在 fail-open 时静默丢失。
+            # 升级档 fail-open 保持 alert 群直发(真故障必须即时可见), 故只对恢复类改群。
+            feishu_group = "report"
+            _grp = "report"
+            _keep_email = True
+            print(f"[notify][digest] 恢复类 fail-open 改落 report 群(邮件保留): "
                   f"{str(subject)[:80]}", file=sys.stderr)
     if (severe and not dry_run and not budget_exempt and not _stall
             and os.environ.get("ALERT_BUDGET_DISABLE") != "1"):
@@ -1566,7 +1617,10 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     #   **必须保留邮件**；新增非 alert 群的真故障要么主题含 [告警]/[恢复]/[监控]（自动进
     #   alert 群），要么加进本白名单。
     _EMAIL_GROUPS = frozenset({"alert"})
-    _EMAIL_KEEP_PREFIXES = ("[状态说明]",)
+    # 批次3-D(2026-10-28, #321): `[告警·摘要]` 加入白名单 —— 摘要从 alert 群移到
+    # report 群后, 若不显式保留, 邮件会跟着业务播报一起被掐掉(§23.10 要求摘要这条
+    # 「当日全量告警的汇总」必须双通道可达; 用户拍板口径 = digest 移群但邮件保留)。
+    _EMAIL_KEEP_PREFIXES = ("[状态说明]", "[告警·摘要]")
     # H2（2026-10-27 批次1 审查加固）：`or severe` 兜底。上面按群分流的前提是「群路由
     #   如实反映严重度」，但群是调用方可显式覆盖的（feishu_group="report"），一旦显式
     #   指错群，真故障就会跟着业务播报一起掉邮件 —— 这属于「路由失误」而非「业务播报」，
@@ -1579,6 +1633,7 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     _email_wanted = (_grp in _EMAIL_GROUPS
                      or str(subject).lstrip().startswith(_EMAIL_KEEP_PREFIXES)
                      or bool(severe)
+                     or _keep_email          # 恢复类摘要 fail-open 改落 report 群时保留邮件
                      or _email_gate_disabled)
     # W1 台账重入守卫：分发期间 depth>0，令底层 _send_email/send_feishu/send_telegram
     # 不各自单独记账（本消息在下方按「消息级」记一条，含全渠道结果）。
@@ -1603,7 +1658,11 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     #   仅限告警群(_grp=="alert": 告警/恢复/监控/摘要/聚合);业务报告群(report)/完成
     #   通知(agent_done)不入(非告警, 旧行为不变)。
     # dry_run 冒烟只读不落盘;镜像失败 best-effort 不影响发送结果。
-    if not dry_run and (severe or _grp == "alert"):
+    # #321(2026-10-28): 摘要本身虽已移 report 群, 但它承载「当日被吸收的全部告警条目」,
+    #   若因此不镜像, latest.md 就只剩真故障行 ⇒ 被吸收的告警在订货面彻底消失(L46④回退)。
+    #   故按主题显式保留摘要镜像(与邮件白名单同一前缀, 两处必须同步)。
+    if not dry_run and (severe or _grp == "alert" or _keep_email
+                        or str(subject).lstrip().startswith("[告警·摘要]")):
         _mirror_level = "severe" if severe else (
             ledger_tier if ledger_tier in _LATEST_ENTRY_LEVELS else "notice")
         _mirror_latest_entry(_mirror_level, subject, body,
@@ -3325,8 +3384,12 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
         for e in traces:
             rows.append(_row(e, "[恢复留痕·已直发] "))
     body = intro + "<br>" + "<br>".join(esc(r) for r in rows)
+    # 批次3-D(2026-10-28, #321 出口分层): 摘要从 alert 群移到 report 群。
+    # 依据: 尺子 8 天台账里 digest 占 alert 群噪音的固定一笔/天, 且摘要是「汇总播报」
+    # 不是「当前故障」, 与业务报告同订阅方的可读性诉求一致。邮件用 [告警·摘要] 白名单保留
+    # (见 send() 的 _EMAIL_KEEP_PREFIXES), 台账 group 随之记 report(尺子不再计入 alert)。
     results = send(subject, body, severe=False, dry_run=dry_run,
-                   from_prefix="[告警·摘要]", feishu_group="alert",
+                   from_prefix="[告警·摘要]", feishu_group="report",
                    ledger_tier="digest", ledger_key="alert_digest", merged_count=n)
     sent = any(results.get(ch) for ch in ("email", "telegram", "feishu"))
     if dry_run:
@@ -3480,6 +3543,12 @@ def _main_impl(argv: list[str] | None = None) -> int:
     parser.add_argument("--defer-digest", action="store_true",
                         help="把 positional subject/body 并入当日摘要 buffer"
                              "（monitor 行级预算吸收 / 恢复补列用；成功 rc=0，失败 rc=1 供回批）")
+    parser.add_argument("--digest-only", action="store_true",
+                        help="非 severe 消息默认只并入当日摘要（23:25 一条出线，report 群+邮件），"
+                             "不即时外发；摘要链路不可用/并入失败 ⇒ fail-open 直发 alert 群。"
+                             "仅对告警群生效（主题含 [告警]/[恢复]/[监控] 或显式 --feishu-group alert）。"
+                             "配合 --result-file 时 status=digested 表示已并入（调用方据此落状态，"
+                             "防每轮重试刷 buffer）。")
     parser.add_argument("--escalation-only", action="store_true",
                         help="只跑 #196 升级档判定（连续 N 天仍异常 → critical），**不直发**首报；"
                              "供停摆通道「跨日同集合」轮复用（★2 批次2, 2026-10-28）："
@@ -3864,7 +3933,7 @@ def _main_impl(argv: list[str] | None = None) -> int:
                    reply_to_message_id=args.reply_to_message_id,
                    ledger_tier=("critical" if args.severe else "notice"),
                    ledger_key=args.dedup_key, ledger_group=args.feishu_group,
-                   dedup_window=args.dedup_window)
+                   dedup_window=args.dedup_window, digest_only=args.digest_only)
     # #245 批2: gate 已把本条并入摘要 buffer(digested=True) → 不打印「已发出」、不 update_dedup、
     # 不 write_alert(未外发消息不该占窗/不该在最新告警页); rc 恒 0 契约不变。
     # 2026-10-22 审查 BLOCK-2: 独立态 `digested`(不再借用 noop) —— 摘要吸收 = 已处置(23:25 摘要

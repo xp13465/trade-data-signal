@@ -464,6 +464,8 @@ def _recurrence_suppressed(existing):
 # 9 天、1,125 条 suppress 零再提醒; 原注释声称「真卡死仍响」但实现无条件静默。
 # 口径: active ≠ 永久静音。首次告警满 24h 且距上次升级满 24h ⇒ 强制发一次升级提醒
 # (正文: 首次告警时间 / 已持续时长 / 累计抑制轮次), 之后每 24h 一次直到恢复。
+# #321 出口分层(2026-10-28): 升级提醒并入当日摘要(digest_only, report 群 + 邮件),
+# 不再每 24h 单独一封即时告警; 「必然会提醒」的语义不变(摘要 23:25 出线, 失败 fail-open 直发)。
 # 每次抑制都写 data/alerts/suppression_ledger.jsonl(结构化审计, 永不外发)。
 # 老状态无 first_alerted ⇒ 退回 first_seen/last_alerted 回填, 绝不崩(向后兼容)。
 def _active_escalate(entry, key, label):
@@ -491,27 +493,60 @@ def _active_escalate(entry, key, label):
              f"该故障从首次告警至今一直未恢复 —— 已超过 24h 人工处置窗口, "
              f"强制提醒一次; 若仍未处理, 之后每 24h 再提醒。")
     _esc_key = "active_escalate|" + hashlib.sha1(str(key).encode("utf-8")).hexdigest()[:12]
+    # 批次3-D(2026-10-28, #321 出口分层): 升级档从「--severe 即时直发」改为
+    # 「--digest-only 并入当日摘要」(摘要 23:25 出线, report 群 + 邮件)。
+    #   · 不用 --severe: severe 会让 notify 的摘要吸收块(要求 not severe)物理不可达,
+    #     升级档又变回每 24h 一封即时告警; 且 critical 档(check_failed_units)仍走 --severe,
+    #     两者互不影响。
+    #   · 必须读 --result-file 的 status: 吸收后 notify 返回 digested(不是 sent),
+    #     只认 notify_sent(文本) 会把吸收判成「未送达」⇒ 每 15min 重试刷 buffer。
+    #   · status ∈ {sent, digested} 都算「已处置」→ 落 last_escalated; 只有真直发(sent)
+    #     才计入 _ALERT_MAIL_COUNTER(本轮告警邮件数, 不能把摘要吸收算成已发邮件)。
+    fd, _result_path = tempfile.mkstemp(prefix="notify_escalate_", suffix=".json")
+    os.close(fd)
     try:
         _r = subprocess.run(
             [sys.executable, str(REPO / "scripts" / "notify.py"), _subject, _body,
-             "--severe", "--from-prefix", "[告警]",
+             "--digest-only", "--from-prefix", "[告警]",
              "--alert-issue", "计划任务持续异常升级", "--alert-log", str(MONITOR_LOG),
              "--dedup-key", _esc_key,
-             "--dedup-window", str(int(adr.ACTIVE_REMIND_INTERVAL_HOURS * 3600))],
+             "--dedup-window", str(int(adr.ACTIVE_REMIND_INTERVAL_HOURS * 3600)),
+             "--result-file", _result_path],
             capture_output=True, text=True, timeout=30, check=False)
     except Exception as _e2:  # noqa: BLE001
+        try:
+            os.unlink(_result_path)
+        except OSError:
+            pass
         print(f"[warn] 升级提醒发送异常({label}): {_e2}", file=sys.stderr)
         return False
     _out = (_r.stdout or "") + (_r.stderr or "")
     if _out.strip():
         print(_out.strip())
-    if notify_sent(_out):
-        _ALERT_MAIL_COUNTER["sent"] += 1
+    _status = None
+    try:
+        _status = json.loads(Path(_result_path).read_text(encoding="utf-8")).get("status")
+    except Exception:  # noqa: BLE001 - 缺失/损坏按「未确认送达」处理(不猜)
+        _status = None
+    try:
+        os.unlink(_result_path)
+    except OSError:
+        pass
+    # suppressed = notify 24h 去重窗判定「窗内已发过」(只可能出现在 monitor 状态
+    # 文件丢/回滚而 dedup 台账仍在时)。去重窗内已送达过一次 ⇒ 同样算已处置,
+    # 否则每 15min 重试一次、连续 24h(96 轮)刷日志且一封也发不出。
+    if _status in ("sent", "digested", "suppressed"):
+        if _status == "sent":
+            _ALERT_MAIL_COUNTER["sent"] += 1
         _e["last_escalated"] = _now_s
         _e["n_escalated"] = int(_e.get("n_escalated") or 0) + 1
-        print(f"[active-escalate] {label} 已持续 {_info.get('elapsed_hours')}h, 升级提醒已发出")
+        _where = {"sent": "已发出",
+                  "digested": "已并入当日摘要(23:25 出线)",
+                  "suppressed": "命中 24h 去重窗(窗内已发过),本轮不再重复"}[_status]
+        print(f"[active-escalate] {label} 已持续 {_info.get('elapsed_hours')}h, 升级提醒{_where}")
         return True
-    print(f"[warn] 升级提醒未确认送达({label}, rc={_r.returncode}), 下轮重试", file=sys.stderr)
+    print(f"[warn] 升级提醒未确认送达({label}, status={_status}, rc={_r.returncode}), 下轮重试",
+          file=sys.stderr)
     return False
 
 

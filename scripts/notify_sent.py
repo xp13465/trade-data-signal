@@ -140,6 +140,11 @@ _SUPPRESS_SIGNATURES: tuple[tuple[str, str | None], ...] = (
     # 语义与上一条完全一致 = 「成功且已知」（已登记待 23:25 摘要出线），非未发出。
     ("[notify][digest] 恢复留痕已并入当日摘要 buffer", None),
     ("[notify][digest] warning 聚合批已并入当日摘要 buffer", None),
+    # 批次3-D(2026-10-28, #321): digest_only 通用并入成功行(升级档/例行提示同用这一句)。
+    # 语义同上面几条 = 「成功且已知」(已登记待 23:25 摘要出线), 不是未发出 ⇒ 不得判 failed
+    # 触发调用方重试(重试会重复吸收/重复告警)。真实行 notify.py:`[notify][digest] 已并入
+    # 当日摘要 buffer(23:25 出线, 不即时直发): <subject>`。
+    ("[notify][digest] 已并入当日摘要 buffer", None),
     # #264 件C/E（2026-10-15）：域聚合 / 非 critical 重复类预算的并入成功行
     # （同样是「成功且已知」= 已登记待 23:25 摘要出线，非未发出 ⇒ 不得判 failed 触发重试）。
     ("[notify][domain] 并入当日域摘要", None),
