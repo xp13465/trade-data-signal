@@ -63,6 +63,16 @@ def _to_yyyymmdd(d) -> str:
     raise TypeError(d)
 
 
+def calendar_available() -> bool:
+    """交易日历是否可用(有本地缓存文件或能从 akshare 拉到)。
+
+    调用方(如 `app/collector/fund_pct.py`)用它决定「能不能按交易日口径算」:
+    日历不可用时 `is_trading_day()` 会退化成「周末启发式」= 自然日口径,那个口径对
+    「前一交易日」这类判据是不安全的,宁可放弃派生(留 NULL)也不拿错口径算。
+    """
+    return bool(_load_trade_dates())
+
+
 def is_trading_day(d=None) -> bool:
     if d is None:
         d = dt.date.today()
