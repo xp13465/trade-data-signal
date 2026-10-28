@@ -240,7 +240,7 @@ else
   if [ "$_R2_SKIP" = "0" ]; then
   _R2_TMP=$(mktemp)
   if STATICDATA_REPO="$STATICDATA_REPO" GIT_REPO="$GIT_REPO" "$PY" "$GIT_REPO/scripts/with_lock.py" --nb "$R2_LOCK" \
-      bash -c 'STATICDATA_REPO="$1" GIT_REPO="$2" "$3" "$4" upload-large-json' \
+      bash -c 'STATICDATA_REPO="$1" GIT_REPO="$2" R2_UPLOAD_LOCK_DOMAIN=large_json R2_UPLOAD_LOCK_TIMEOUT=3000 "$3" "$4" upload-large-json' \
       _ "$STATICDATA_REPO" "$GIT_REPO" "$PY" "$GIT_REPO/scripts/upload_r2.py" >"$_R2_TMP" 2>&1; then
     if grep -q "已被占用" "$_R2_TMP"; then
       echo "  [step3.5b large-json R2 上传] 跳过(trade_backup_r2.lock 被占, 非阻塞不排队; 灾备1/2层磁盘+git 留档, 次日幂等补传)" | tee -a "$LOG"

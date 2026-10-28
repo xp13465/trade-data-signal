@@ -154,7 +154,7 @@ echo "-> 同步 intraday 数据 JSON 到 R2（阶段3：去 git push，前端走
 # 2.5) 同步 index/ 到 R2（走势图源 kc50-all.json 等）
 #      非阻塞：R2 失败发告警邮件（notify.py --severe），不阻断后续 upload-intraday。
 echo "-> 同步 index 到 R2（前端 R2 源）..." | tee -a "$LOG"
-if ! "$PY" "$REPO/scripts/upload_r2.py" $SKIP_OR_EMPTY upload-index 2>&1 | tee -a "$LOG"; then
+if ! env R2_UPLOAD_LOCK_DOMAIN=index R2_UPLOAD_LOCK_TIMEOUT=600 "$PY" "$REPO/scripts/upload_r2.py" $SKIP_OR_EMPTY upload-index 2>&1 | tee -a "$LOG"; then
   echo "✗ upload-index R2 失败，发告警邮件" | tee -a "$LOG"
   FAILED_FILES=$(grep "^FAILED_FILES:" "$LOG" | tail -1 | sed "s/^FAILED_FILES: //") || true
   OK_TOTAL=$(grep "^共上传" "$LOG" | tail -1) || true
@@ -167,7 +167,7 @@ fi
 #       + a-stock/hk/global/sentiment-3m/6m/1y + etf_national_team-1m/3m/6m/1y。
 #       R2 上传失败发告警邮件（notify.py --severe），让 schedule_monitor 发现。
 echo "-> 同步 intraday 数据到 R2（upload-intraday）..." | tee -a "$LOG"
-if ! "$PY" "$REPO/scripts/upload_r2.py" $SKIP_OR_EMPTY upload-intraday 2>&1 | tee -a "$LOG"; then
+if ! env R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=600 "$PY" "$REPO/scripts/upload_r2.py" $SKIP_OR_EMPTY upload-intraday 2>&1 | tee -a "$LOG"; then
   echo "✗ upload-intraday R2 失败，发告警邮件" | tee -a "$LOG"
   "$PY" "$REPO/scripts/notify.py" "[告警] intraday R2上传失败 ${ALERT_TIME}" "intraday 数据(overview/intraday_snapshot/a-stock等)未推 R2，前端将读旧数据，需手动补刷: bash scripts/upload_r2.py upload-intraday<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key intraday_upload_intraday_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 fi
@@ -177,7 +177,7 @@ fi
 #       此处上传 R2 + purge(ttl=0 no-cache，purge 无害)，前端盘中视图 60s 轮询重拉即见跳变。
 #       文件不存在(9:40 前/非交易日 force 补测时)自动跳过;失败不阻塞快照(下一轮 10min 后重试)。
 if [ -f "$REPO/static-site/data/signal_kelly_trades_intraday.json" ]; then
-  "$PY" "$REPO/scripts/upload_r2.py" $SKIP_OR_EMPTY upload-data-files signal_kelly_trades_intraday.json 2>&1 | tee -a "$LOG" || {
+  env R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=600 "$PY" "$REPO/scripts/upload_r2.py" $SKIP_OR_EMPTY upload-data-files signal_kelly_trades_intraday.json 2>&1 | tee -a "$LOG" || {
     echo "⚠ signal_kelly_trades_intraday R2 上传失败(不阻塞快照，下一轮重试)" | tee -a "$LOG"
   }
 fi
@@ -229,7 +229,7 @@ echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 =
 # 5) schedule_stats.json 上传 R2（阶段3：替代 git push，gen_stats 后立即上传无滞后）
 #    gen_stats 刷新本地 schedule_stats.json 后，upload-data-files 上传到 R2 + purge_cache。
 #    失败不阻塞：下一轮 intraday 或其他任务脚本结尾会再上传。R2 失败发告警邮件与其他脚本一致。
-"$PY" "$REPO/scripts/upload_r2.py" $SKIP_OR_EMPTY upload-data-files schedule_stats.json 2>&1 | tee -a "$LOG" || {
+env R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=600 "$PY" "$REPO/scripts/upload_r2.py" $SKIP_OR_EMPTY upload-data-files schedule_stats.json 2>&1 | tee -a "$LOG" || {
   echo "⚠ schedule_stats R2 上传失败，不阻塞" | tee -a "$LOG"
   "$PY" "$REPO/scripts/notify.py" "[告警] intraday schedule_stats R2上传失败 ${ALERT_TIME}" "schedule_stats R2 上传失败，前端"执行统计"将读旧数据，下一轮 intraday 自动重试。需手动补刷: bash scripts/upload_r2.py upload-data-files schedule_stats.json<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key intraday_schedule_stats_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 }

@@ -1977,6 +1977,10 @@ def build_output(rebuild=False, dry_run=False):
             # (R2 没传但监控显通过)。带该 flag = 拿不到锁立即跳过本轮, 不改打点主流程; 当日 R2
             # 同步缺口由 deploy 日链 upload-data-large 兜底(OVERFIT_SKIP_R2 语义同侧)。
             _env = force_env(dict(os.environ), REPO)
+            # 2026-10-28 分域+梯度: data-large 属顶层 data 域; 锁等待 240s < 外层 systemd 360s
+            # (_r2_upload_timeout()=900 + skip 重试窗口)。--skip-if-locked 路径实际只等 skip 窗口。
+            _env["R2_UPLOAD_LOCK_DOMAIN"] = "data"
+            _env["R2_UPLOAD_LOCK_TIMEOUT"] = "240"
             # #217①: 上游 upload_r2 --skip-if-locked 撞锁时先等锁重试 R2_UPLOAD_SKIP_RETRY_SECS
             # (默认 60s)再判跳过; 本 subprocess timeout 须把该重试窗口算进去, 否则重试期间被
             # 外层 timeout 杀掉 → 走 TimeoutExpired(✗ 标记)而非 SKIPPED_LOCKED(设计让路)。

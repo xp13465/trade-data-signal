@@ -35,7 +35,7 @@ mkdir -p "$(dirname "$LOG")"
 echo "=== fund_nav_upload_async 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "REPO=$REPO GIT_REPO=$GIT_REPO" | tee -a "$LOG"
 
-"$PY" "$REPO/scripts/upload_r2.py" upload-fund-nav >> "$LOG" 2>&1
+env R2_UPLOAD_LOCK_DOMAIN=fund_nav R2_UPLOAD_LOCK_TIMEOUT=1800 "$PY" "$REPO/scripts/upload_r2.py" upload-fund-nav >> "$LOG" 2>&1
 rc=$?
 if [ "$rc" -ne 0 ]; then
   echo "✗ upload-fund-nav 异步上传失败 rc=$rc (不静默, 走 notify 告警)" | tee -a "$LOG"

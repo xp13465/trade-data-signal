@@ -70,7 +70,7 @@ echo "-> 上传 schedule_stats.json 到 R2（upload-data-files + purge, 带 --sk
 # (云上 2026-09-24 21:40:41 日志实证 skip 后仍打 ✓, r2-false-success-rootfix 未收口)。
 # 修: 捕获合并输出 + PIPESTATUS[0] 取 upload_r2 真实退出码, 区分「跳过(下轮重试, 非成功)」
 # 与「真上传成功」, 假成功标记不再出现。
-R2_UPLOAD_OUT=$("$PY" "$REPO/scripts/upload_r2.py" --skip-if-locked upload-data-files schedule_stats.json 2>&1 | tee -a "$LOG")
+R2_UPLOAD_OUT=$(env R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=120 "$PY" "$REPO/scripts/upload_r2.py" --skip-if-locked upload-data-files schedule_stats.json 2>&1 | tee -a "$LOG")
 _R2_UPLOAD_RC=${PIPESTATUS[0]}
 if [ "$_R2_UPLOAD_RC" -ne 0 ]; then
   echo "✗ schedule_stats R2 上传失败(rc=${_R2_UPLOAD_RC})，发告警邮件" | tee -a "$LOG"

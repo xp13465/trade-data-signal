@@ -967,11 +967,14 @@ def _uphold_plan_r2_upload(r2_files, T):
     故: ①诊断调用包内层 try/except, 失败回落成简单告警(保证至少发一条); ②r2_rc=1 的赋值放在
     内层 try/except **之外**, 任何诊断异常都跳不过它。超时值(480)与整体控制流未变。
     """
+    # 2026-10-28 分域+梯度: 顶层 data/*.json 域; 锁等待 320s < 本层 subprocess timeout 480s。
+    env = dict(os.environ)
+    env.setdefault("REPO", str(REPO))
+    env["R2_UPLOAD_LOCK_DOMAIN"] = "data"
+    env["R2_UPLOAD_LOCK_TIMEOUT"] = "320"
     cmd = [PY, str(SCRIPT_DIR / "upload_r2.py"), "upload-data-files"] + list(r2_files)
     log("R2: " + " ".join(cmd))
     try:
-        env = dict(os.environ)
-        env.setdefault("REPO", str(REPO))
         # #223②(2026-10-07 用户拍板): 本层 timeout 300 → 480(把慢传带纳入忍耐)。
         # 算式(逐字见 docs/ops/223-123-inner-timeout-evidence-20261006.md §3.3):
         #   480 + 28(上传前 ≤10s + 超时后处理实测 18s) = 508 < 600(本链外层 systemd

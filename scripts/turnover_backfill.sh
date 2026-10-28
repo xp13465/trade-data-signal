@@ -174,11 +174,11 @@ fi
 if [ "$RC_EXPORT" -eq 0 ]; then
   echo "-> 上传 R2(upload-intraday + upload-data-large) ..." >> "$LOG"
   # #258 A1: 等锁段/工作段两预算各自独立计时(与 #258 E1 同款); 兜底 2760 只兜进程内计时器生效前
-  run_to 2760 env R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET" R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" \
+  run_to 2760 env R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET" R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" R2_UPLOAD_LOCK_DOMAIN=data \
     "$PY" scripts/upload_r2.py upload-intraday >> "$LOG" 2>&1
   RC_R2=$?
   [ "$RC_R2" -ne 0 ] && echo "⚠ upload-intraday R2 同步失败 rc=${RC_R2}(git 渠道随次日 deploy 追上)" >> "$LOG"
-  run_to 2760 env R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET" R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" \
+  run_to 2760 env R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET" R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" R2_UPLOAD_LOCK_DOMAIN=data \
     "$PY" scripts/upload_r2.py upload-data-large >> "$LOG" 2>&1
   RC_R2L=$?
   [ "$RC_R2L" -ne 0 ] && echo "⚠ upload-data-large R2 同步失败 rc=${RC_R2L}(git 渠道随次日 deploy 追上)" >> "$LOG"

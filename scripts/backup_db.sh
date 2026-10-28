@@ -91,7 +91,7 @@ echo "当前备份数：${N}（${BACKUP_DIR}）" | tee -a "$LOG"
 # 失败不影响本地备份退出码（RC 保持本地备份结果）。
 if [ -f "$REPO/scripts/upload_r2.py" ]; then
   echo "-> 推 R2 异地备份 ..." | tee -a "$LOG"
-  "$PY" "$REPO/scripts/upload_r2.py" upload-db >> "$LOG" 2>&1 \
+  env R2_UPLOAD_LOCK_DOMAIN=backup_db R2_UPLOAD_LOCK_TIMEOUT=9000 "$PY" "$REPO/scripts/upload_r2.py" upload-db >> "$LOG" 2>&1 \
     || echo "⚠ R2 上传失败(不影响本地备份) rc=$?" | tee -a "$LOG"
 else
   echo "⚠ $REPO/scripts/upload_r2.py 不存在，跳过 R2 异地备份" | tee -a "$LOG"

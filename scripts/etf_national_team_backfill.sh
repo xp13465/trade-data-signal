@@ -109,7 +109,7 @@ if [ "$COLLECT_RC" -eq 0 ]; then
   else
     [ "$REPO" = "$GIT_REPO" ] || rsync -a --delete --checksum "$REPO/static-site/data/etf/" "$GIT_REPO/static-site/data/etf/" 2>>"$LOG" || \
       echo "⚠ etf rsync 同步失败, 可能发布不全" | tee -a "$LOG"
-    "$PY" "$REPO/scripts/upload_r2.py" upload-etf-hist 2>&1 | tee -a "$LOG" || \
+    env R2_UPLOAD_LOCK_DOMAIN=etf R2_UPLOAD_LOCK_TIMEOUT=900 "$PY" "$REPO/scripts/upload_r2.py" upload-etf-hist 2>&1 | tee -a "$LOG" || \
       echo "⚠ upload-etf-hist R2上传失败（不阻塞主流程）" | tee -a "$LOG"
   fi
 else

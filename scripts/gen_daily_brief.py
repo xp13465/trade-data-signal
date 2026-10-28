@@ -3123,6 +3123,9 @@ def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) ->
     # REPO=pick_repo() 选中的部署源树, GIT_REPO=trade git 仓, 上传链与写入位置同树,
     # 防 launchd 注入 REPO 与 pick_repo 决策不一致导致 STATIC_DIR 错位读旧版。
     env = force_env(dict(os.environ), repo)
+    # 2026-10-28 分域+梯度: 顶层 data/*.json 域; 锁等待 80s < 本层 subprocess timeout 120s。
+    env["R2_UPLOAD_LOCK_DOMAIN"] = "data"
+    env["R2_UPLOAD_LOCK_TIMEOUT"] = "80"
     # #223(2026-10-06) 记录(勿擅改): 本层 timeout=120 vs 内层 R2 HTTP 超时(云上 .env=600)
     # = 梯度倒置;但**不能单独抬到 900** —— 本链外层 systemd TimeoutStartSec=600, 抬过 600 会
     # 先被 systemd SIGKILL, 下面 except TimeoutExpired 的 degrade/critical 分支永不执行

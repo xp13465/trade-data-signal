@@ -62,11 +62,11 @@ fi
 #    static-site/data/ 仍 tracked，R2 故障时可手动 git push 兜底。
 ALERT_TIME=$(date '+%m-%d %H:%M')
 echo "-> 上传 global 大 range JSON 到 R2（upload-data-large）..." | tee -a "$LOG"
-if ! "$PY" "$REPO/scripts/upload_r2.py" upload-data-large 2>&1 | tee -a "$LOG"; then
+if ! env R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=900 "$PY" "$REPO/scripts/upload_r2.py" upload-data-large 2>&1 | tee -a "$LOG"; then
   echo "⚠ upload-data-large 失败/无大文件，继续上传小 range" | tee -a "$LOG"
 fi
 echo "-> 上传 global-3m/6m/1y.json 到 R2（upload-data-files + purge）..." | tee -a "$LOG"
-if ! "$PY" "$REPO/scripts/upload_r2.py" upload-data-files global-3m.json global-6m.json global-1y.json 2>&1 | tee -a "$LOG"; then
+if ! env R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=900 "$PY" "$REPO/scripts/upload_r2.py" upload-data-files global-3m.json global-6m.json global-1y.json 2>&1 | tee -a "$LOG"; then
   echo "✗ global R2 上传失败，发告警邮件" | tee -a "$LOG"
   "$PY" "$REPO/scripts/notify.py" \
     "[告警] gold_night R2上传失败 ${ALERT_TIME}" \

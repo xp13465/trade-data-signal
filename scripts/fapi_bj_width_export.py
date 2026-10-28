@@ -111,6 +111,9 @@ def _upload_r2(files) -> bool:
     """复用 upload_r2.py upload-data-files 精准上传 R2 data/ 前缀(自动 purge edge cache)。"""
     cmd = [str(PY), str(REPO / "scripts" / "upload_r2.py"), "upload-data-files", *files]
     env = {**os.environ, "REPO": str(REPO)}
+    # 2026-10-28 分域+梯度: 顶层 data/*.json 域; 锁等待 600s < 本层 subprocess timeout 900s。
+    env["R2_UPLOAD_LOCK_DOMAIN"] = "data"
+    env["R2_UPLOAD_LOCK_TIMEOUT"] = "600"
     _to = _r2_upload_timeout()
     try:
         r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=_to)

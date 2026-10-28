@@ -130,7 +130,10 @@ else
   else
     # ③ R2 兜底副本即时同步(上传+purge 一条龙; 含网络往返给 900s; 失败不阻断——git 渠道随次日 deploy 追上)
     #    (900s 对齐 deploy.sh 看门狗 900: 内层 R2_UPLOAD_HTTP_TIMEOUT=600 重试须有梯度余量, 2026-09-21)
-    run_to 900 "$PY" scripts/upload_r2.py upload-data-files kelly_mode_s06_state.json >> "$LOG" 2>&1
+    # 2026-10-28 分域+梯度: 声明 data 域(与 data-large/all-data/intraday 同域串行, 与其他域并行);
+    # 锁等待上限 600s < 本行内层 run_to 900s(10-27 实测等锁 870s 被杀 = rc=124 的根因)。
+    run_to 900 env R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=600 \
+      "$PY" scripts/upload_r2.py upload-data-files kelly_mode_s06_state.json >> "$LOG" 2>&1
     RC_R2=$?
     [ "$RC_R2" -ne 0 ] && echo "⚠ S06 快照 R2 同步失败 rc=${RC_R2}(git 渠道随次日 deploy 追上)" >> "$LOG"
   fi
@@ -158,7 +161,9 @@ for _D in "$REPO/static-site/data" "$GIT_REPO/static-site/data"; do
   [ "$_rc" -ne 0 ] && echo "⚠ latest_posrating.json 生成失败 rc=${_rc} data-dir=$_D(首页回退静态兜底 86.60%)" >> "$LOG"
   [ "$RC_PR" -eq 0 ] && RC_PR=$_rc
 done
-run_to 900 "$PY" scripts/upload_r2.py upload-kelly-snapshots >> "$LOG" 2>&1
+# 2026-10-28 分域+梯度: 独立域 kelly_snapshots(与顶层 data/*.json 写入者 key 不重叠), 锁等待 600 < 900。
+run_to 900 env R2_UPLOAD_LOCK_DOMAIN=kelly_snapshots R2_UPLOAD_LOCK_TIMEOUT=600 \
+  "$PY" scripts/upload_r2.py upload-kelly-snapshots >> "$LOG" 2>&1
 RC_PR_R2=$?
 [ "$RC_PR_R2" -ne 0 ] && echo "⚠ latest_posrating R2 同步失败 rc=${RC_PR_R2}(git 渠道随次日 deploy 追上)" >> "$LOG"
 

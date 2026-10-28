@@ -582,6 +582,9 @@ def _sync_r2_and_notify(excluded, steps_changed, today, no_r2=False, no_notify=F
             try:
                 env = dict(os.environ)
                 env.setdefault("REPO", str(REPO))
+                # 2026-10-28 分域+梯度: 顶层 data/*.json 域; 锁等待 200s < 本层 subprocess timeout 300s。
+                env["R2_UPLOAD_LOCK_DOMAIN"] = "data"
+                env["R2_UPLOAD_LOCK_TIMEOUT"] = "200"
                 # #223(2026-10-06 记录 / 2026-10-13 更新): timeout=300 vs 内层 R2 HTTP 超时
                 # (云上 .env=600)本为梯度倒置; 但本链外层 systemd TimeoutStartSec 已由 600 抬到
                 # 1800(2026-10-13 跨窗口治本, 见 trade-nextday-gap-check.service), 300 仍安全

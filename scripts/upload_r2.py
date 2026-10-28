@@ -4641,6 +4641,57 @@ _SMALL_CHANNEL_MAX_BYTES_ENV = "R2_SMALL_CHANNEL_MAX_BYTES"
 _SMALL_CHANNEL_MAX_BYTES_DEFAULT = 8 * 1024 * 1024   # 8MB(方案 §2.2.1 定的默认值, 不许另定)
 _SMALL_CHANNEL_SWITCH_ENV = "R2_SMALL_CHANNEL"       # 0 = 关闭小锁通道(回滚开关)
 
+# ---- 按产物域分锁(2026-10-28, #268 后续单) ----
+# 背景: 全局单锁下夜间二十几个任务排队, 10-27 实测 S06 等锁 870s 被自身 900s 上限杀掉, 最长等锁
+# 3990s。产物域之间对象 key 不相交(勘察表见 docs/ops/r2-lock-domains-20261028.md), 因此可让
+# 不同域并行, 同域仍逐条串行。
+# 安全模型(向后兼容第一):
+#   - 声明了域(env R2_UPLOAD_LOCK_DOMAIN)的写者: 持「域锁 EX」+「全局锁 SH」屏障;
+#   - 未声明域的写者: 仍持「全局锁 EX」(逐字保持改动前行为) ⇒ 会挡下所有域写者,
+#     漏改一个调用方的后果是「它继续全局串行」, 绝不会变成无锁并发;
+#   - upload-data-files 小载荷通道(2026-10-23 A 方案)保持独立小锁, 不进域(既有例外, 见文档)。
+# 域锁路径 = 全局锁路径同目录派生: /tmp/trade_r2_upload.lock → /tmp/trade_r2_upload_<domain>.lock
+_LOCK_DOMAIN_ENV = "R2_UPLOAD_LOCK_DOMAIN"
+_LOCK_DOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+# 域写者持有的全局 SH 屏障 fd(主 fd → 屏障 fd); 进程退出由内核自动释放。
+# 单测里显式关闭时用 _release_r2_upload_lock 一并释放(防同进程后续用例被自己的屏障挡住)。
+_BARRIER_FDS = {}
+
+
+def _lock_domain():
+    """读 env R2_UPLOAD_LOCK_DOMAIN; 空/非法 → 返回 None 并 WARN 回落全局锁(不改变并发语义)。"""
+    raw = os.environ.get(_LOCK_DOMAIN_ENV, "").strip()
+    if not raw:
+        return None
+    if not _LOCK_DOMAIN_RE.match(raw):
+        print(
+            f"⚠ R2_UPLOAD_LOCK_DOMAIN={raw!r} 非法(只允许小写字母/数字/下划线/连字符, 1-32 位), "
+            f"本次回落全局锁(不改并发语义)",
+            file=sys.stderr,
+        )
+        return None
+    return raw
+
+
+def _domain_upload_lock_path(domain: str) -> Path:
+    """域锁路径 = 全局锁路径同目录派生(stem + '_' + domain + suffix)。"""
+    base = _global_upload_lock_path()
+    return base.with_name(f"{base.stem}_{domain}{base.suffix}")
+
+
+def _release_r2_upload_lock(fd):
+    """释放一次域取锁(关闭主 fd 与全局 SH 屏障 fd); 非域锁 fd 直接关闭。"""
+    barrier = _BARRIER_FDS.pop(fd, None)
+    if barrier is not None:
+        try:
+            os.close(barrier)
+        except OSError:
+            pass
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
 
 def _global_upload_lock_path() -> Path:
     """全局上传锁路径(env R2_UPLOAD_LOCK 覆盖; 缺省 = 生产现路径)。"""
@@ -4752,13 +4803,55 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
             timeout = int(os.environ.get("R2_UPLOAD_LOCK_TIMEOUT", "7300"))
         except ValueError:
             timeout = 7300
-    lock_path = (Path(lock_path_override) if lock_path_override is not None
-                 else _global_upload_lock_path())
-    try:
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
-    except OSError as e:
-        print(f"⚠ 无法打开 R2 上传锁 {lock_path}({e}), 不持锁继续(并发风险自知)", file=sys.stderr)
-        return None
+    # 锁方案(按产物域分锁, 2026-10-28):
+    #   lock_path_override(小载荷通道) ⇒ 单锁, 行为逐字不变;
+    #   未声明域                    ⇒ 全局锁 EX, 行为逐字不变;
+    #   声明域                      ⇒ 域锁 EX + 全局锁 SH 屏障。
+    # fcntl 常量在运行期取(便于单测断言 modes), 一律 LOCK_NB 轮询 + 统一 deadline。
+    lock_path_override = (Path(lock_path_override) if lock_path_override is not None else None)
+    domain = None
+    if lock_path_override is not None:
+        lock_path = lock_path_override
+        lock_plan = [(lock_path_override, fcntl.LOCK_EX)]
+    else:
+        domain = _lock_domain()
+        if domain is None:
+            lock_path = _global_upload_lock_path()
+            lock_plan = [(lock_path, fcntl.LOCK_EX)]
+        else:
+            lock_path = _domain_upload_lock_path(domain)
+            lock_plan = [(lock_path, fcntl.LOCK_EX),
+                         (_global_upload_lock_path(), fcntl.LOCK_SH)]
+            print(f"🔒 R2 上传锁域: {domain}(域锁 {lock_path}, 并持全局屏障 SH)",
+                  file=sys.stderr, flush=True)
+    fds = []
+    for _p, _mode in lock_plan:
+        try:
+            fds.append(os.open(str(_p), os.O_CREAT | os.O_RDWR, 0o644))
+        except OSError as e:
+            if _p == lock_path:
+                print(f"⚠ 无法打开 R2 上传锁 {_p}({e}), 不持锁继续(并发风险自知)", file=sys.stderr)
+                for _fd in fds:
+                    try:
+                        os.close(_fd)
+                    except OSError:
+                        pass
+                return None
+            # 全局屏障打不开: 退化为仅持域锁(与既有 fail-open 同精神, 但必须留痕)
+            print(f"⚠ 无法打开 R2 全局屏障锁 {_p}({e}), 本次仅持域锁 {lock_path} 继续",
+                  file=sys.stderr)
+    fd = fds[0]
+    if len(fds) > 1:
+        _BARRIER_FDS[fd] = fds[1]
+
+    def _release_all():
+        _BARRIER_FDS.pop(fd, None)
+        for _fd in fds:
+            try:
+                os.close(_fd)
+            except OSError:
+                pass
+
     deadline = time.time() + timeout
     # #217①: skip_if_locked 的有界等锁重试窗口(秒)。撞锁后先轮询重试(2s 间隔), 窗口内
     # 拿到锁 -> 正常上传(静默, 不打印 SKIPPED_LOCKED、不参与连续轮次计数); 窗口内仍拿不到
@@ -4777,17 +4870,23 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
     wait_started_at = time.time()
     last_beat_at = wait_started_at
     while True:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        pending_path = None
+        for _i, (_p, _mode) in enumerate(lock_plan):
+            try:
+                fcntl.flock(fds[_i], _mode | fcntl.LOCK_NB)
+            except OSError:
+                pending_path = _p
+                break
+        if pending_path is None:
             return fd
-        except OSError:
+        if pending_path:  # 恒真(走到这里必然有锁没拿到); 保持原分支缩进层级
             if skip_if_locked:
                 if skip_deadline is None:
                     skip_deadline = time.time() + skip_retry_secs
                 if skip_retry_secs > 0 and time.time() < skip_deadline:
                     time.sleep(2)
                     continue
-                os.close(fd)
+                _release_all()
                 print(
                     "SKIPPED_LOCKED: R2 上传锁被占用, 跳过本轮上传"
                     f"(--skip-if-locked, 已等锁重试 {skip_retry_secs}s 仍未拿到, 下轮重试)",
@@ -4797,16 +4896,17 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
             now = time.time()
             if now >= deadline:
                 print(
-                    f"✗ R2 上传锁 {lock_path} 排队等待超 {timeout}s 仍被占用, 拒绝本次上传"
+                    f"✗ R2 上传锁 {pending_path} 排队等待超 {timeout}s 仍被占用, 拒绝本次上传"
                     f"(fail-closed, 防与持锁进程并发抢带宽; 持锁进程退出自动释放锁, 若长期占用"
-                    f"请人工 `lsof {lock_path}` 排查持锁进程, 等其结束或等 timeout 后重试)",
+                    f"请人工 `lsof {pending_path}` 排查持锁进程, 等其结束或等 timeout 后重试)",
                     file=sys.stderr,
                 )
                 # C 方案(2026-10-23): 只读探测「谁占着锁」并落一行, 排障不用再反推。
                 # 探测本身失败(无 lsof/超时/权限)只返回空串, 绝不影响 fail-closed 语义。
-                _holder = probe_lock_holder(lock_path)
+                _holder = probe_lock_holder(pending_path)
                 if _holder:
                     print(f"   占锁进程候选(lsof 只读): {_holder}", file=sys.stderr, flush=True)
+                _release_all()
                 sys.exit(1)
             # #239 止血(仅加可见性): 排队等锁期间每 _R2_LOCK_HEARTBEAT_SECS 秒打一行到 stderr,
             # **刷新 tmp_log mtime** ⇒ 外层看门狗停滞判据(默认 900s)不再把「合法等锁」误判成
@@ -4815,7 +4915,7 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
             if now - last_beat_at >= _R2_LOCK_HEARTBEAT_SECS:
                 print(
                     f"⏳ 等待 R2 上传锁 {int(now - wait_started_at)}s(上限 {timeout}s, "
-                    f"持锁进程可用 lsof {lock_path} 排查)",
+                    f"持锁进程可用 lsof {pending_path} 排查)",
                     file=sys.stderr, flush=True,
                 )
                 last_beat_at = now
@@ -4825,16 +4925,21 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
 def _acquire_lock_for_command(cmd, filenames, skip_if_locked=False):
     """__main__ 取锁段单点(A 方案 A3, 2026-10-23): 先路由目标锁, 再统一拿锁。
 
-    - upload-data-files ⇒ _route_upload_lock 决定「小锁 or 全局锁」, 以 lock_path_override 传入;
-    - 其余命令 ⇒ 不传 override = 沿用全局锁(env R2_UPLOAD_LOCK / 生产路径), 行为逐字不变。
+    - upload-data-files 命中**小载荷通道** ⇒ 传 lock_path_override=小锁(单锁, 行为同 2026-10-23 方案);
+    - upload-data-files 落**全局路径**(大载荷/回滚开关) 或其余命令 ⇒ 不传 override,
+      由 _acquire_r2_upload_lock 按 env R2_UPLOAD_LOCK_DOMAIN 决定「域锁 EX + 全局 SH」或全局 EX;
+      未声明域 = 逐字保持改动前行为。
     返回值与 _acquire_r2_upload_lock 一致(fd / _SKIP_R2_LOCKED / None), fail-closed 语义沿用。
     抽成函数只为让「__main__ 到底拿了哪把锁」可被单测直接断言(原内联在 __main__ 里不可测,
     若改用子进程验证会被本机 export-guard L2 拦在取锁之前, 见 docs/ops/r2-lock-plan-20261023.md §2.4 用例2)。
     """
     if cmd == "upload-data-files":
+        target = _route_upload_lock(cmd, filenames)
+        if target == _global_upload_lock_path():
+            return _acquire_r2_upload_lock(skip_if_locked=skip_if_locked)
         return _acquire_r2_upload_lock(
             skip_if_locked=skip_if_locked,
-            lock_path_override=_route_upload_lock(cmd, filenames))
+            lock_path_override=target)
     return _acquire_r2_upload_lock(skip_if_locked=skip_if_locked)
 
 

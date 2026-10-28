@@ -65,7 +65,7 @@ fi
 
 # 2. 硬顺序①: 先上传(确认 R2 私有桶副本齐全 + manifest 已生成), 失败中止不摘 git
 echo "-> [1/2] 上传到 R2 私有桶 large-json/ ..."
-if ! STATICDATA_REPO="$STATICDATA_REPO" GIT_REPO="$GIT_REPO" "$PY" "$GIT_REPO/scripts/upload_r2.py" upload-large-json 2>&1; then
+if ! STATICDATA_REPO="$STATICDATA_REPO" GIT_REPO="$GIT_REPO" R2_UPLOAD_LOCK_DOMAIN=large_json R2_UPLOAD_LOCK_TIMEOUT=3000 "$PY" "$GIT_REPO/scripts/upload_r2.py" upload-large-json 2>&1; then
   echo "✗ 上传失败, 中止(不摘 git)。修复后重跑本脚本(幂等)。"
   exit 1
 fi

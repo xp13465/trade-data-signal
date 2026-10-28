@@ -728,6 +728,10 @@ def sync_news_digest_live(day_str: str) -> None:
             _r2_skip_retry = 60
         if _r2_skip_retry < 0:
             _r2_skip_retry = 0
+        # 2026-10-28 分域+梯度: news_digest 归档属顶层 data/*.json 域; 锁等待 120s < 本层 subprocess
+        # timeout(120 + skip 重试窗口)。--skip-if-locked 路径实际只等 skip 窗口, 该值作 fail-closed 兜底声明。
+        env["R2_UPLOAD_LOCK_DOMAIN"] = "data"
+        env["R2_UPLOAD_LOCK_TIMEOUT"] = "120"
         r = subprocess.run(
             [str(repo / ".venv/bin/python"), str(repo / "scripts/upload_r2.py"),
              # --skip-if-locked(2026-09-24 硬化 P1-A): 本调用可被 deploy 全量持锁窗口拖住排队,

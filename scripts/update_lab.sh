@@ -291,7 +291,7 @@ fi
 
 # A) upload_r2 刷 R2（lab/ 子目录 65 文件）
 echo "-> upload_r2.py upload-lab（刷 R2）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/upload_r2.py" upload-lab 2>&1 | tee -a "$LOG"
+env R2_UPLOAD_LOCK_DOMAIN=lab R2_UPLOAD_LOCK_TIMEOUT=600 "$PY" "$REPO/scripts/upload_r2.py" upload-lab 2>&1 | tee -a "$LOG"
 R2_RC=${PIPESTATUS[0]:-1}
 if [ "$R2_RC" -ne 0 ]; then
   echo "⚠ upload-lab 失败（退出码 ${R2_RC}），lab R2 可能过期" | tee -a "$LOG"
@@ -308,7 +308,7 @@ fi
 # upload-trade-sim-json: 上传 trade_sim JSON 到 R2（含自动 purge）
 # 2026-08-09 补：simulate_trade --all 生成的 JSON 需上传 R2 供前端走势卡/策略实验室读取。
 echo "-> upload_r2.py upload-trade-sim-json（刷 R2 trade_sim JSON）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/upload_r2.py" upload-trade-sim-json 2>&1 | tee -a "$LOG"
+env R2_UPLOAD_LOCK_DOMAIN=trade_sim_data R2_UPLOAD_LOCK_TIMEOUT=600 "$PY" "$REPO/scripts/upload_r2.py" upload-trade-sim-json 2>&1 | tee -a "$LOG"
 R2_TSJ_RC=${PIPESTATUS[0]:-1}
 if [ "$R2_TSJ_RC" -ne 0 ]; then
   echo "⚠ upload-trade-sim-json 失败（退出码 ${R2_TSJ_RC}），trade_sim R2 可能过期" | tee -a "$LOG"
@@ -325,7 +325,7 @@ fi
 # B) 上传顶层 lab_*.json 到 R2（阶段3：去 git push 数据，前端走 R2）
 #    lab/ 子目录已由上面 upload-lab 上传。顶层 4 个 lab_*.json 走 upload-data-files + purge。
 echo "-> 上传顶层 lab_*.json 到 R2（upload-data-files + purge）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/upload_r2.py" upload-data-files \
+env R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=600 "$PY" "$REPO/scripts/upload_r2.py" upload-data-files \
   lab_ablation.json lab_cost_compare.json lab_param_scan.json lab_short_symmetry.json 2>&1 | tee -a "$LOG"
 LAB_R2_RC=${PIPESTATUS[0]:-1}
 if [ "$LAB_R2_RC" -ne 0 ]; then

@@ -43,7 +43,9 @@ echo "[$(date '+%F %T')] Claude 自我备份完成: $OUT ($SIZE)"
 PY="$TRADE_DIR/.venv/bin/python"
 UPLOAD_PY="$TRADE_DIR/scripts/upload_r2.py"
 if [ -x "$PY" ] && [ -r "$UPLOAD_PY" ]; then
-  if "$PY" "$UPLOAD_PY" upload-claude-backup "$OUT" 2>&1; then
+  # 2026-10-28 分域+梯度: 私有桶 claude-backup 独立域; 锁等待 900s(外层=本机 cron/手动, 无 systemd 墙)。
+  if env R2_UPLOAD_LOCK_DOMAIN=claude_backup R2_UPLOAD_LOCK_TIMEOUT=900 \
+      "$PY" "$UPLOAD_PY" upload-claude-backup "$OUT" 2>&1; then
     # #199(2026-10-06): 不再写死桶名(曾写死 signal-backup, 切 signal-backup2 后 10-06 起与实际不符)。
     # 真实桶名由上一行 upload_r2.py 自身输出(单一事实源, 见 upload_r2.py cmd_upload_claude_backup),
     # 此处只回显 key(前缀+文件名), 杜绝本地再复制一份会漂移的桶名常量。

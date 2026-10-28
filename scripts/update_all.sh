@@ -216,7 +216,7 @@ echo "-> 预警分析快照（alert_analyze 40 宽基+行业）..." | tee -a "$L
 alert_r2_upload() {
   local win="${1:-60}" tag="${2:-}" out rc
   out="$( cd "$REPO/static-site/data" && R2_UPLOAD_SKIP_RETRY_SECS="$win" \
-          "$PY" "$REPO/scripts/upload_r2.py" --skip-if-locked \
+          env R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=300 "$PY" "$REPO/scripts/upload_r2.py" --skip-if-locked \
           upload-data-files alert.json alert_analyze_*.json 2>&1 )"
   rc=$?
   printf '%s\n' "$out" >> "$LOG"   # 原文入日志（留痕，不静默）
@@ -256,7 +256,7 @@ else
 [ "$REPO" = "$GIT_REPO" ] || rsync -a --checksum "$REPO/static-site/data/etf_score_list_"* "$GIT_REPO/static-site/data/" 2>>"$LOG" || \
   SCORE_LIST_RSYNC_RC=$?
 [ "${SCORE_LIST_RSYNC_RC:-0}" -ne 0 ] && echo "⚠ etf_score_list rsync 同步失败, 可能发布不全" | tee -a "$LOG"
-"$PY" "$REPO/scripts/upload_r2.py" upload-etf-score >> "$LOG" 2>&1 || \
+env R2_UPLOAD_LOCK_DOMAIN=etf_score R2_UPLOAD_LOCK_TIMEOUT=600 "$PY" "$REPO/scripts/upload_r2.py" upload-etf-score >> "$LOG" 2>&1 || \
   echo "⚠ upload-etf-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 fi
 
@@ -308,7 +308,7 @@ else
   [ "$REPO" = "$GIT_REPO" ] || rsync -a --checksum "$REPO/static-site/data/fund_score"* "$GIT_REPO/static-site/data/" 2>>"$LOG" || \
     FUND_SCORE_RSYNC_RC=$?
   [ "${FUND_SCORE_RSYNC_RC:-0}" -ne 0 ] && echo "⚠ fund_score rsync 同步失败, 可能发布不全" | tee -a "$LOG"
-  "$PY" "$REPO/scripts/upload_r2.py" upload-fund-score >> "$LOG" 2>&1 || \
+  env R2_UPLOAD_LOCK_DOMAIN=fund_score R2_UPLOAD_LOCK_TIMEOUT=600 "$PY" "$REPO/scripts/upload_r2.py" upload-fund-score >> "$LOG" 2>&1 || \
     echo "⚠ upload-fund-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 fi
 

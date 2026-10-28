@@ -171,7 +171,7 @@ fi
 
 # 3) 上传 R2 + purge(对账 PASS 后; 与 intraday-snapshot 的 R2 上传时段错开: 9:40-9:43)
 echo "-> 上传盘中档到 R2(upload-data-files + purge)... " | tee -a "$LOG"
-if ! "$PY" "$REPO/scripts/upload_r2.py" upload-data-files signal_kelly_trades_intraday.json signal_kelly_backtest_intraday.json 2>&1 | tee -a "$LOG"; then
+if ! env R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=400 "$PY" "$REPO/scripts/upload_r2.py" upload-data-files signal_kelly_trades_intraday.json signal_kelly_backtest_intraday.json 2>&1 | tee -a "$LOG"; then
   echo "✗ 盘中档 R2 上传失败, 发告警邮件" | tee -a "$LOG"
   "$PY" "$REPO/scripts/notify.py" "[告警] 凯利盘中增量档 R2 上传失败 ${ALERT_TIME}" \
     "盘中增量档已生成但对账 PASS 后 R2 上传失败, 前端盘中视图读旧/无。需手动补刷: bash $REPO/scripts/upload_r2.py upload-data-files signal_kelly_trades_intraday.json signal_kelly_backtest_intraday.json<br>日志: $LOG" \
