@@ -106,20 +106,88 @@
 > 内层「无界」= 该脚本对 upload_r2 子进程不设 timeout, 由外层/停滞判据兜底; 审计脚本对此类
 > 只校验「显式声明了锁等待上限」, 不强行编造内层预算。
 
+> **脚注: 小载荷通道的「域」列是名义值 —— 域名根本不生效(2026-10-28 核实, 共 14 处)。**
+> `upload_r2.py::_acquire_lock_for_command`(L4942)先让 `_route_upload_lock` 判目标锁: 凡命令是
+> `upload-data-files` 且「未命中大文件判据 + 文件总字节 ≤ 8MB」⇒ 返回小锁路径, 再以
+> `lock_path_override=小锁` 取锁; 而 `_acquire_r2_upload_lock`(L4830)里 **override 分支优先于域**,
+> 所以 env 里写的域名被**整条忽略**, 实际持的是 `/tmp/trade_r2_upload_small.lock`(所有小载荷共用、
+> 彼此仍互斥, 但**不吃全局 SH 屏障**)。上表这些行里的 `data` 只是"如果它退回全局路径时会用哪个域",
+> 当前实际不生效。涉及清单(实文核实, 每条都是 `upload-data-files`):
+> - shell **9 处**: `s06_snapshot.sh:136`(kelly_mode_s06_state.json)、`update_lab.sh:328`(lab_*.json 4 个)、
+>   `update_all.sh:220`(alert.json + alert_analyze_*.json)、`intraday_snapshot.sh:180`(signal_kelly_trades_intraday.json)、
+>   `intraday_snapshot.sh:232`(schedule_stats.json)、`kelly_intraday_rerun.sh:174`(signal_kelly_trades_intraday.json +
+>   signal_kelly_backtest_intraday.json)、`gold_night.sh:69`(global-3m/6m/1y.json)、
+>   `push_schedule_stats.sh:73`(schedule_stats.json)、`r2_upload_async.sh:331`(upload-feed → feed.xml);
+> - Python **5 处**: `fetch_news.py`、`gen_daily_brief.py`、`nextday_plan_generator.py`、
+>   `nextday_gap_check.py`、`fapi_bj_width_export.py`。
+>
+> **例外(不在这 14 处里)**: `overfit_monitor.py` 用的是 `upload-data-large`(不是 data-files), 域锁照常生效;
+> 任何一次 `upload-data-files` 若命中 `_is_data_large_file`(≥1MB / `-all|5y|3y.json` / `overfit_monitor*`
+> 前缀)或文件总量 > 8MB, 也会退回全局/域路径 —— 那种情况下表里的域名才真正生效。当前实测这 14 处
+> 涉及的文件最大 608KB(`kelly_mode_s06_state.json`), 都远低于 1MB 阈值 ⇒ 现在全部走小锁。
+> 判定与阈值实文: `upload_r2.py:4630-4758`(路由) + `:2196-2213`(大文件判据/1MB 阈值)。
+> 小锁与 data 域仍同 key 写 `schedule_stats.json` 的既有例外见 §2.1 E-1。
+
 ## 5. 验收锚点(E1/E2/E3)与观察口径
 
 | 编号 | 目标 | 本单能自证到哪一步 | 上线后怎么验 |
 |---|---|---|---|
 | E1 | 等锁单条时长 P100 < 300s | 机制层: 最长锁等待上限从 7300 降到 ≤1800, s06=600; 域间并行已由单测证明 | 上线后 7 天 `grep '等待 R2 上传锁'` 取最大值 |
 | E2 | S06 rc=124 不再由等锁引起 | s06 锁等待 600 < run_to 900; 单测钉死字面量 | 观察 s06 退出码与日志等锁秒数 |
-| E3 | 锁等待 < 内层 < 外层 | `r2_lock_gradient_audit.py` PASS(**44 PASS / 1 既有豁免, 共 45 行**) | 每次改调用方重跑审计 |
+| E3 | 锁等待 < 内层 < 外层 | `r2_lock_gradient_audit.py` PASS(**45 PASS / 1 既有豁免, 共 46 行**) | 每次改调用方重跑审计 |
 
-> **调用点计数口径(2026-10-28 返工校正)**: 审计表 `SITES` = **45 行**, 是"登记行数", 不是"取锁
-> 调用次数"。按每次 `upload_r2.py` 实际取锁调用展开 = **46 次**, 差 1 的来源: `intraday_snapshot.sh`
-> 的「intraday + schedule_stats」一行里写了两次调用(index 是另一行)。**改前那次审计输出的"42 个
-> 调用点"是行数**, 且当时把 `update_all.sh` 的 etf_score/fund_score、`update_lab.sh` 的 lab/
-> trade_sim_data/data 各合并成一行 ⇒ 那些调用点当时没被单独核对(本次已拆开, 并加机检
-> 「脚本内字面量域必须有对应登记行」)。审查报告里的"约 48"是估算, 实测 46, 差异已在此说明。
+> **调用点计数口径(2026-10-28 二轮审查后按实文重算)**: 审计表 `SITES` = **46 行**, 这是"登记
+> 行数", 不等于"取锁调用次数"。按每个 `upload_r2.py` 真实取锁调用逐处展开 = **49 次**; 差额 3 =
+> **三行各覆盖 2 处调用**(登记算 1 行, 运行时算 2 次):
+> ① `turnover_backfill.sh` 一行写「intraday + data-large」, 实为 `:177` upload-intraday 与
+>   `:181` upload-data-large 两次串行调用(同一 `if` 块内, 每次运行都各取一次锁);
+> ② `gold_night.sh` 一行, 实为 `:65` upload-data-large + `:69` upload-data-files 两次;
+> ③ `intraday_snapshot.sh` 的 data 域一行, 实为 `:170` upload-intraday + `:232`
+>   upload-data-files(schedule_stats.json)两次。
+> 其余计数方式: `r2_upload_async.sh` 17 行 = 17 个通道各 1 次; Python 6 个调用方各 1 次;
+> `intraday_snapshot.sh` 的 index 行(`:157`)与 `:180`(signal_kelly_trades_intraday.json,
+> 本次补登记)各 1 次; 其余 shell 行均 1 行 1 次(逐个 `grep -n 'upload_r2.py'` 核实)。
+> **改前审计输出的"42 个调用点"是行数**; 二轮审查写的"45 行 / 46 次"只算了 intraday 一处合并行,
+> 漏算 ①② 两个合并行 ⇒ 本次按实文逐处重数为 **46 行 / 49 次**。
+> 复现方法(只读): 对 `scripts/*.sh` 跳过注释行与含「手动/补刷」的行、合并 `\` 续行后, 数含
+> `upload_r2.py <上传子命令>` 的真调用行, 与 `python scripts/r2_lock_gradient_audit.py` 的合计
+> 行数对照; 二者差额应等于"合并行覆盖的额外调用次数"(本机 = 3)。
+
+> **观察口径补充(2026-10-28 二轮审查后; 只定口径, 本单不加监控代码)**:
+> ① **超时诊断自身的耗时账要写「理论最坏 / 实测」两个数**: 等锁超时后 `r2_lock_probe.py` 会逐把探
+> **22 把锁**(全局 + 小锁 + 20 把域锁), 每把 `lsof` 超时上限 5s(查到 pid 再加 `ps` 5s) ⇒ 理论最坏
+> **22 × (5+5) = 220s**; 无占用时只跑 lsof ⇒ 上界 **110s**。而 `nextday_plan_generator` 内层 480s /
+> 外层 600s 只余 **120s** ⇒ 探针若真按最坏跑, **诊断本身会把外层撞穿**(等于"为了报错把自己杀了")。
+> 本机实测(2026-10-28, 22 把锁全部无占用): **0.638s**, 与理论最坏差三个数量级。上线后若出现
+> "等锁超时之后外层又被杀", 第一嫌疑是探针吃满 lsof 超时(锁文件所在 fs 卡顿 / 被大量进程打开时
+> 可复现), 不是域锁失效。
+> ② **除等锁时长外, 还要按通道看墙钟时长 + 失败率**(防"等锁降了, 单通道变慢被看门狗杀"):
+> 分域后跨域**真并行**, 多个通道会同时抢跨境带宽 ⇒ 单通道墙钟比改前**变长是设计预期, 不是故障**;
+> 上线后 7 天按通道统计 ①`systemd` 运行时长 P50/P95 ②失败率(rc≠0 / rc=124 / `SKIPPED_LOCKED`
+> 次数), 与改前 30 天基线逐通道对比。判据 = **等锁 P100 下降 且 无通道失败率显著上升**(尤其
+> rc=124); 两者只满足一半时要看是谁在变慢, 不能只报"等锁变快了"就算达标。
+
+## 5.1 审计的静态盲区(读结论前必看: 它不是全量机检)
+
+`r2_lock_gradient_audit.py` 是**按字面量扫源码**的静态检查 —— **审计 PASS ≠ 所有调用方都被核对过**。
+下面这些形态会逃过扫描(2026-10-28 用脚本自身的正则/函数逐条实测, 不是照抄审查结论); 新增或改写
+调用点时仍要人眼过一遍。
+
+| # | 盲区 | 为什么逃过(实文) | 本次实测 | 现实风险 |
+|---|---|---|---|---|
+| B-1a | shell 拼接写法 `R2_UPLOAD_LOCK_DOMAIN="etf""_score"` | 字面量正则 `_SHELL_DOMAIN_LITERAL` 要求域名后紧跟空白, 而拼接里域名后面是引号 | 字面量=无匹配、变量形式=否(对照: 正常写法匹配 `etf_score`) | **真实**: 拼接是合法 shell, 进程照样拿到 `etf_score` 域, 审计却看不见 |
+| B-1b | `=` 前带空格 `R2_UPLOAD_LOCK_DOMAIN ="etf_score"` | 同一正则要求 `DOMAIN=` 紧邻 | 两条扫描均不匹配 | 仅理论: shell 里这不是赋值语句(会被当成命令名执行并报错), 生产脚本不会这么写(语法规则判定, 本机未实跑) |
+| B-1c | 行尾无空白 `export R2_UPLOAD_LOCK_DOMAIN=etf_score` 后直接换行 | 该正则结尾要求 `\s` | 不匹配 | **真实**: 合法赋值, 算漏扫 |
+| B-2a | Python 侧变量赋值 `env["R2_UPLOAD_LOCK_DOMAIN"] = domain` | `_PY_DOMAIN_LITERAL` 只认引号字面量 | 匹配=无 | **真实** |
+| B-2b | Python 侧 `env.setdefault("R2_UPLOAD_LOCK_DOMAIN", "data")` | 同上(只认 `"] =` 赋值形式) | 匹配=无 | **真实** |
+| B-3a | `.sh` 只扫**顶层**, `scripts/子目录/*.sh` 不扫 | `glob("*.sh")` 非递归 | 假 REPO 实测: 顶层命中、`sub/nested.sh` 不出现 | 真实(目前 scripts 下没有子目录 shell 脚本, 属未来风险) |
+| B-3b | 含「手动」或「补刷」字样的行**整行跳过** | `_upload_callers()` 的 `if st.startswith("#") or "手动" in line or "补刷" in line: continue` | 假 REPO 实测: 同一行真调用 + 行尾 `# 手动补刷` ⇒ 该脚本不进"待登记"检查 | **真实**: 一条真调用只要同行带这两个词就整行失明 |
+| B-4 | `r2_upload_async.sh` 新增通道漏写 `--lock-domain` | 覆盖检查是**脚本级**(脚本登记过任意一行就算覆盖); `--lock-domain` 缺省时 `${_lock_domain:+...}` 展开为空 ⇒ 不注入 env ⇒ 静默回落全局锁 | 假 REPO 实测: 同脚本两处调用(1 带域 1 不带)只返回脚本名一次 ⇒ 第 2 通道无人核对 | **真实**: 语义安全(回落全局=更保守)但**零告警**, 新增通道会悄悄失去并行收益 |
+
+> 实测方式(只读): 用脚本自身的 `_SHELL_DOMAIN_LITERAL` / `_SHELL_DOMAIN_VARIABLE` /
+> `_PY_DOMAIN_LITERAL` 对构造字符串跑 `findall/search`; B-3/B-4 用临时目录 + 临时把模块的
+> `REPO` 指向假目录调真函数 `_upload_callers()`(用完还原)。结论与上表逐条一致。
+> 回归期望: B-1a/B-1c/B-2a/B-2b/B-3b/B-4 属**已知未覆盖项**, 不要据此认为"审计绿就是全绿"。
 
 ## 6. 排障探针(超时后「谁占着锁」)
 
