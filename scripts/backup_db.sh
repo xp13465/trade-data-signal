@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# backup_db.sh - 每日 SQLite 热备 sentiment.db + etf_national_team.db 到独立路径。
+# backup_db.sh - 每日 SQLite 热备 sentiment.db + etf_national_team.db + stock_daily.db 到独立路径。
+#   stock_daily.db 2026-10-28 补入: 代码仓/staticdata 两份本地 DB 副本停掉后, 它是唯一没有
+#   R2 备份的库(只剩主库一份), 盘毁即全失; 故与 etf_national_team 同样进本地热备 + R2 上传链。
 #
 # 用 Python sqlite3.Connection.backup()（SQLite 在线 backup API）做热备：
 #   - 不锁库、不阻塞读写（WAL 模式下也能拿到一致快照）
@@ -77,6 +79,7 @@ RC=0
 FAILED_DBS=""
 backup_one "$DBDIR/sentiment.db"        sentiment       || RC=1
 backup_one "$DBDIR/etf_national_team.db" etf_national_team || RC=1
+backup_one "$DBDIR/stock_daily.db"       stock_daily      || RC=1   # 2026-10-28 补入(唯一无 R2 备份的库)
 
 # 保留策略：删 RETAIN_DAYS 天前的 *_*.db 备份（按 mtime）
 echo "-> 清理 ${RETAIN_DAYS} 天前的备份 ..." | tee -a "$LOG"

@@ -58,7 +58,7 @@
 
 ### 1.3 DB 备份方案
 
-DB 原件（sentiment.db 125MB / etf_national_team.db 179MB / public_fund.db 2.9GB，2026-10-24 云上实测 2,921,410,560 B）超 GitHub 100MB 限制，且 sqlite 二进制 git diff 无差异化日志价值。**DB 只靠 R2 signal-backup2 私有桶异地备份**（独立 CF 账号；gz 分层：小库 14 daily + 28 weekly + 365 monthly，大库 public_fund 为 7 daily + 28 weekly + 180 monthly）+ 本地双副本（trade/data 主库 + staticdata/db rsync，同 Mac 防误删不防硬盘挂）。
+DB 原件（sentiment.db 125MB / etf_national_team.db 179MB / stock_daily.db 175MB / public_fund.db 2.9GB，2026-10-24 云上实测 2,921,410,560 B）超 GitHub 100MB 限制，且 sqlite 二进制 git diff 无差异化日志价值。**DB 只靠 R2 signal-backup2 私有桶异地备份**（独立 CF 账号；gz 分层：小库 14 daily + 28 weekly + 365 monthly，大库 public_fund 为 7 daily + 28 weekly + 180 monthly）+ 主库单副本（trade/data，盘毁靠 R2 恢复）。**2026-10-28 起 `staticdata/db/` 与代码仓 `data/*.db` 两份本地重复副本均不再复制**（deploy.sh 加 `*.db` 排除；staticdata 侧开关 `STATICDATA_DB_LOCAL_COPY=1` 可开回），异地唯一保障=R2。
 
 `public_fund.db` 走独立链路（2026-10-25 补入 `upload-db`）：SQLite 在线 backup API 取一致快照（WAL 模式下含未 checkpoint 的已提交事务）→ 4MiB 分块流式 gzip → 64MiB 分片流式 multipart 上传，全程不把 2.9GB 读进内存（云主机 RAM 3G）。源文件 size+mtime 与 `data/.r2_db_backup_state.json` 台账一致时跳过上传（数据没变不重复传 0.79GB）；落桶 `backup/public_fund_YYYYMMDD.db.gz`，与 sentiment/etf 同一套 `backup/ weekly/ monthly/` 前缀。
 
@@ -338,7 +338,7 @@ upload-data-large / upload-all-data
 
 每次 deploy 后（best-effort，失败不阻塞 deploy）：
 
-1. **rsync DB 原件**到 `staticdata/db/`（本地备份，不进 git，`.gitignore` 排除 `db/*.db`）
+1. **（2026-10-28 起默认关闭）rsync DB 原件**到 `staticdata/db/`（需 `STATICDATA_DB_LOCAL_COPY=1` 开启；DB 异地备份改由 `backup_db.sh` → `upload_r2.py upload-db` 统一承担）
 2. **cp 配置**到 `staticdata/config/`：wrangler.jsonc + systemd 单元配置（sed 脱敏 `/Users/linhuichen` -> `/Users/USER`）
 3. **rsync 全量 JSON**到 `staticdata/data/`（全量备份，DB 不在此目录）
 4. **git commit + push**（差异化日志，`data backup [deploy] YYYY-MM-DD_HH:MM`）
@@ -347,7 +347,7 @@ upload-data-large / upload-all-data
 
 | 内容 | 位置 | 进 git | 说明 |
 |---|---|---|---|
-| DB 原件 | `staticdata/db/*.db` | 否（.gitignore 排除，GitHub 100MB 限制） | 本地双副本防误删 |
+| DB 原件 | `staticdata/db/*.db` | 否（.gitignore 排除，GitHub 100MB 限制） | 2026-10-28 起默认不复制（`STATICDATA_DB_LOCAL_COPY=1` 可开回）；异地备份走 R2 |
 | 配置（脱敏） | `staticdata/config/` | 是 | wrangler.jsonc + systemd 单元配置（路径脱敏） |
 | 小 JSON | `staticdata/data/` | 是 | git diff 追踪每日变化 |
 | 大文件 | 只 R2 公开桶 | 否 | 体量大 git 不适合 |
