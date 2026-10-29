@@ -1,12 +1,12 @@
 #!/bin/bash
-# public_fund_daily.sh - 公募基金日更（launchd 16:30 定时）
+# public_fund_daily.sh - 公募基金日更（云上 systemd timer 16:20 / 17:00 两档）
 #
 # 调 python -m app.collector.public_fund daily（日更净值+盘中估算+三指数刷新+估算仓位变化, ~15s）
 # + 持 deploy 锁推送 static-site/data/public_fund_*.json
 #
-# 时点: 每交易日 16:30（主槽，收盘后 1h）+ 17:00（兜槽）。
-# akshare fund_open_fund_daily_em 约 16:00-17:00 发布当日净值，16:30 采可能部分，
-# 17:00 兜槽补完整。轻量 15s，幂等覆盖重采。
+# 时点: 每交易日 16:20（主档，收盘后 50min）+ 17:00（补档）。
+# akshare fund_open_fund_daily_em 约 16:00-17:00 发布当日净值，16:20 采可能部分，
+# 17:00 补档补完整。轻量 15s，幂等覆盖重采。
 # pipeline_daily 含 fetch_index_daily(三指数baostock ~5s), 确保 fund_index_daily 每日更新,
 # _compute_position_estimate 有最新指数算当日预估仓位(2026-08-02 根治: 原不调致算法缺当日r_hs300跳过)。
 #
@@ -15,10 +15,10 @@
 #   - python 内 public_fund.lock: 防 quarterly/full/daily 互相并发（共用，撞锁跳过）
 #   - deploy 锁 /tmp/trade_deploy.lock（阻塞）: 串行化 git
 #
-# 预算表(2026-10-29 #352, 内外层成对 L55; 外层 systemd TimeoutStartSec=1860s):
-#   pipeline 300s / export(deploy.sh 内 export.py --incremental) 600s / nav_bucket 300s(既有) / 外层 1860s。
+# 预算表(2026-10-29 #352, 内外层成对 L55; 外层 systemd TimeoutStartSec=2100s=35min):
+#   pipeline 300s / export(deploy.sh 内 export.py --incremental) 600s / nav_bucket 300s(既有) / 等 deploy 锁 420s / 外层 2100s。
 #   依据: 16:20 档实测 845-890s(其中 export 463s=52%, pipeline 161.6s, nav_bucket 70s, 其余~195s);
-#   最坏路径 300+600+300+195=1395s < 1860s 留梯度。详见 docs/ops/pf-daily-timeout-rca-20261029.md
+#   最坏路径 300+600+2(杀宽限)+300+420+195=1817s < 2100s, 梯度 283s。详见 docs/ops/pf-daily-timeout-rca-20261029.md
 #   ⚠ 只在本脚本给预算, 不改 deploy.sh 全局默认(17:50 全量链共享, 改默认=行为变更不是预算变更)。
 #
 # 非交易日: 默认跳过。force 可绕过。

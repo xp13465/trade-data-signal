@@ -1,7 +1,7 @@
 # 公募基金日更 内外层成对预算（止血）RCA — 2026-10-29（#352）
 
 > **性质**：止血——只把「超时预算」改对，不治本（export 提速另开待办）。
-> **结论**：外层 `TimeoutStartSec` 900 → 1860s；内层按阶段给预算（采集 300 / export 600 / nav_bucket 300 既有）；`deploy.sh` 的 `EXPORT_TIMEOUT` 默认 0（不限时），只有公募日更这条调用链给 600s，其它调用方（17:50 全量链等）行为逐位不变。
+> **结论**：外层 `TimeoutStartSec` 900 → 2100s（35min）；内层按阶段给预算（采集 300 / export 600 / nav_bucket 300 既有）；`deploy.sh` 的 `EXPORT_TIMEOUT` 默认 0（不限时），只有公募日更这条调用链给 600s，其它调用方（17:50 全量链等）行为逐位不变。
 
 ## 1. 现象（实测）
 
@@ -46,13 +46,13 @@
 
 | 层 / 段 | 值 | 依据 |
 |---|---|---|
-| 外层 `TimeoutStartSec` | **1860s** | 实测 max 900.2s × 2 = 1800.4 → 向上取 60 倍数 = 1860 |
+| 外层 `TimeoutStartSec` | **2100s（35min）** | 按内层最坏和 1817s + 283s 梯度取 2100（35min），并满足两个安全窗口（见 §6） |
 | 内层 采集 pipeline | **300s** | 实测 161.6s / 24.4s，余量约 2x |
 | 内层 export（`export.py --incremental`） | **600s** | 实测 463s，余量约 1.3x（只对公募日更调用链生效） |
 | 内层 nav_bucket 刷新 | 300s（既有） | #278 既有预算，本次不动 |
 | 等 deploy 锁（调用侧） | 420s | 只覆盖公募日更这一次；`deploy.sh` 全局默认 3600 不动 |
 
-**最坏路径复算**：300 + 600 + 300 + 其余≈195 = **1395s < 1860s**（留 465s 梯度，外层恒大于内层，避免「外杀内层」）。
+**最坏路径复算（含全部项）**：300（采集）+ 600（export）+ 2（杀宽限）+ 300（nav_bucket）+ 420（等 deploy 锁）+ 195（其余） = **1817s**，外层 2100s，梯度 **283s**（外层恒大于内层，避免「外杀内层」）。
 
 **代码改动**
 
@@ -61,30 +61,35 @@
 - `scripts/public_fund_daily.sh`：采集 `run_to 300`（云上即 `timeout 300`，与 `s06_snapshot.sh` 同惯用法）；deploy 调用处 `EXPORT_TIMEOUT=600 GIT_LOCK_TIMEOUT=420`。
 - 测试：`scripts/tests/test_pf_budget_20261029.py`（默认零变化 / 2s 预算被杀 rc=124 / 接线值 / 全局默认 3600 不动，含变异判别力）。
 
+**失败语义（本次引入的语义降级，已知并接受）**
+
+等锁超 `GIT_LOCK_TIMEOUT=420s` ⇒ 走 `scripts/with_lock.py` 的「warning 级通知 + exit 0 优雅跳过」，**unit 仍是绿的**；而改动前是「被外层 900s 硬杀 = unit failed」。`check_failed_units` 这类只看 unit 失败态的看板看不到这次跳过 ⇒ 数据可能缺当日档，靠 warning 通知 + 下一档（17:00）兜。这是本次引入的语义降级，已知并接受。
+
 **四副本同步（L55，改预算必须四处同批对齐）**
 
 | # | 副本 | 路径 | 状态 |
 |---|---|---|---|
 | 1 | 代码 `.sh` | `scripts/public_fund_daily.sh` + `scripts/deploy.sh`（内层预算） | ✅ 本次已改 |
-| 2 | unit 生成源 doc | `docs/deploy/systemd-units-20260912.md:1176-1177` | ✅ 本次已改 1860 |
-| 3 | 云上快照 txt | `docs/deploy/systemd-units-cloud-snapshot.txt:537` | ⏳ **待云上 unit 改完后从云上重 dump 刷新**（该文件语义=云上真实状态固化快照，先改=文件撒谎 + 云上巡检 `--check-snapshot` 报漂移） |
-| 4 | 云上真实 unit | `/etc/systemd/system/trade-public-fund-daily.service`（手动管理，git pull 不更新） | ⏳ 待执行（合并后另派） |
+| 2 | unit 生成源 doc | `docs/deploy/systemd-units-20260912.md:1176-1177` | ✅ 已改 2100 |
+| 3 | 云上快照 txt | `docs/deploy/systemd-units-cloud-snapshot.txt:537` | ✅ 云上 unit 改完后从云上重 dump 刷新（`git diff --stat` 恰好 1 行） |
+| 4 | 云上真实 unit | `/etc/systemd/system/trade-public-fund-daily.service`（手动管理，git pull 不更新） | ✅ 已改 2100 + `daemon-reload`，`TimeoutStartUSec=35min` |
 
-⚠ **已知冲突（须主控处置）**：`scripts/main-merge.sh` 第 7.8 步机检 `systemd_timeout_gradient_audit.py --check-doc` 比对「doc §2 == 云上快照」，副本 2 改了 1860、副本 3 仍是 900 ⇒ **该门会 FAIL 阻断 merge**。正确顺序：先在云上改 unit（+ dump 刷新快照）→ 再 merge；或由主控拍板「快照同批预改（接受云上巡检窗口内报一次漂移）」。
+**合并门（已解除）**：`scripts/main-merge.sh` 第 7.8 步机检 `systemd_timeout_gradient_audit.py --check-doc` 比对「doc §2 == 云上快照」。收尾时按「先改云上 unit（+ 重 dump 快照）→ 再 merge」顺序执行，四副本已对齐，`--check-doc` rc=0。
 
 **核生效值**
 
-- `systemctl show trade-public-fund-daily -p TimeoutStartUSec`（应 = 1860s，不是文件字面量）
+- `systemctl show trade-public-fund-daily -p TimeoutStartUSec`（应 = 2100s（35min），不是文件字面量）
 - `python3 scripts/systemd_timeout_gradient_audit.py --dump docs/deploy/systemd-units-cloud-snapshot.txt --check-doc`（doc == 快照）
 - 云上：`python3 scripts/systemd_timeout_gradient_audit.py --units-dir /etc/systemd/system --snapshot docs/deploy/systemd-units-cloud-snapshot.txt --check-snapshot`（快照 == 云上）
 
 ## 6. 时点影响（§14）
 
-- 16:20 档最长到 **16:51**（早于 17:00 档 9min），17:00 档最长到 **17:31**（早于 17:50 全量链 19min）⇒ 调大预算不会让两次运行互相踩，也不会撞 17:50。
+- 16:20 + 35min = **16:55**（早于 17:00 档 5min），17:00 + 35min = **17:35**（早于 17:50 全量链 15min）⇒ 调大预算不会让两次运行互相踩，也不会撞 17:50。
 - 改云上 unit 需 `systemctl daemon-reload`；建议在当日两档跑完之后（17:35 后至次日 16:00 前）操作，不影响当天已在跑的那次。
 
 ## 7. 待办
 
-1. **云上 unit 改 1860 + 刷新云上快照**（合并后另派，需 `daemon-reload`，按 §14 时点）。
+1. ~~云上 unit 改值 + 刷新云上快照~~ **已完成（2026-10-29 收尾）**：unit 改 2100 + `daemon-reload`（`TimeoutStartUSec=35min`）+ 重 dump 快照（`git diff --stat` 1 行）。
 2. **治本：export 提速**（463s/52%）——指纹口径（mtime → 稳定内容哈希）+ 增量粒度，另开调研。
 3. 观察锚点：改动上线后看 16:20 / 17:00 两档的 `journalctl` 时长与退出码，连续 3 个交易日无 `timeout` 被杀即收口。
+4. **遗留（审查建议 3，本次不做）**：`run_to` 只发一次 TERM（2s 宽限后未升级 KILL），子进程若忽略 TERM 可能残留；二次 KILL（`-k`）不由本次收尾引入，留待后续评估。

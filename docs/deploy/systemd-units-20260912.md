@@ -1173,8 +1173,8 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_daily.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-# 1860s = 实测 max 900.2s × 2（向上取 60 倍数）；16:20 档 → 16:51 结束(早于 17:00 档 9min)，17:00 档 → 17:31 结束(早于 17:50 全量链 19min)。见 docs/ops/pf-daily-timeout-rca-20261029.md
-TimeoutStartSec=1860
+# 2100s(35min) = 内层最坏和 1817s(采集300+export600+杀宽限2+nav_bucket300+等锁420+其余195) + 283s 梯度；16:20 档 → 16:55 结束(早于 17:00 档 5min)，17:00 档 → 17:35 结束(早于 17:50 全量链 15min)。见 docs/ops/pf-daily-timeout-rca-20261029.md
+TimeoutStartSec=2100
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/public_fund_daily_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/public_fund_daily_launchd.err
 ```
