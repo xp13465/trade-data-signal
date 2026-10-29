@@ -13,22 +13,57 @@
 //   (响应带 access-control-allow-origin:*,无 CF 边缘缓存 cf-cache-status: DYNAMIC),与主站 /r2/ 同一份对象,
 //   作为失败阶梯的最后一层 —— 只在主站链路全失败后才打,主站正常时零请求。
 // 映射(单一实现,app.js/lab.js/common.js 共用,禁第二份副本防漂移):
-//   https://ss.fx8.store/r2/<key>   ⇔ https://ssd.fx8.store/<key>
-//   https://ss.fx8.store/data/<key> ⇔ https://ssd.fx8.store/data/<key>   (worker rewrite 的 R2 键=data/<key>)
-//   ./data/<key>                    ⇔ https://ssd.fx8.store/data/<key>
+//   https://ss.fx8.store/r2/<key>   ⇔ https://ssd.fx8.store/<key>   (同一 R2 key,原样搬)
+//   本地 ./data/<rel> / 主站 /data/<rel> ⇔ https://ssd.fx8.store/<_tdsR2KeyForLocal(rel)>
 // 返回 null = 无对应腿(外链/API/第三方域名),调用方据此跳过兜底。
 window._TDS_SSD_BASE = "https://ssd.fx8.store/";
+
+// === #326 返修(2026-10-29): 本地 ./data/<rel> → 真实 R2 key ===
+// 旧版无脑拼 "data/" + rel, 对 5 类分类目录全 404(审查实测: /r2/data/etf/… 404, 真实键 /r2/etf/…)。
+// 逐个目录拿 ssd.fx8.store 只读 GET 实测(2026-10-29, 状态码见 #326 报告),真实布局是 3 类 + 1 个别名:
+//   · 顶层文件(rel 不含 "/")        → data/<rel>           实测 ssd/data/boot.json、ssd/data/public_fund_holdings.json、
+//                                                          ssd/data/fund_score_top.json 均 200
+//   · signal_kelly_* 系列目录        → data/<rel>           实测 ssd/data/signal_kelly_snapshots/… 200、ssd/signal_kelly_snapshots/… 404
+//   · trade_sim/                    → trade_sim_data/<文件>  实测 ssd/trade_sim_data/trade_sim_bj50_stats.json 200、data/trade_sim/… 404
+//   · 顶层 industry-*.json           → industry/<rel>        实测 ssd/data/industry-3m.json 404、ssd/industry/industry-3m.json 200
+//   · 其余分类目录(etf/index/lab/nav_bucket/accum_nav/public_fund/fund_score as 目录)
+//                                   → <rel> 同名前缀        实测 ssd/etf/… 200 而 ssd/data/etf/… 404;index/lab/nav_bucket/accum_nav 同
+// 为什么不是「一律剥掉 data/ 前缀」的单条规则: 顶层文件与 signal_kelly_* 在 R2 里确实带 data/ 前缀,
+//   一刀剥会把它们改坏(§22 修一处坏一处);一刀加 data/ 就是本次要修的 bug。按实测分 3 类 + 1 目录别名,新增目录走同名前缀默认分支。
+window._tdsR2KeyForLocal = function (rel) {
+  if (!rel) return null;
+  rel = String(rel).replace(/^\/+/, "");
+  var i = rel.indexOf("/");
+  if (i < 0) return /^industry-/.test(rel) ? "industry/" + rel : "data/" + rel;
+  var dir = rel.slice(0, i);
+  if (dir === "trade_sim") return "trade_sim_data/" + rel.slice(i + 1);
+  if (/^signal_kelly_/.test(dir)) return "data/" + rel;
+  return rel;
+};
 window._tdsSsdUrlFor = function (u) {
   if (!u || typeof u !== "string") return null;
   var R2 = "https://ss.fx8.store/r2/";
   var MAIN_DATA = "https://ss.fx8.store/data/";
+  var k;
   if (u.indexOf(R2) === 0) return window._TDS_SSD_BASE + u.slice(R2.length);
-  if (u.indexOf(MAIN_DATA) === 0) return window._TDS_SSD_BASE + "data/" + u.slice(MAIN_DATA.length);
-  if (u.indexOf("./data/") === 0) return window._TDS_SSD_BASE + "data/" + u.slice(7);
+  if (u.indexOf(MAIN_DATA) === 0) {
+    k = window._tdsR2KeyForLocal(u.slice(MAIN_DATA.length));
+    return k ? window._TDS_SSD_BASE + k : null;
+  }
+  if (u.indexOf("./data/") === 0) {
+    k = window._tdsR2KeyForLocal(u.slice(7));
+    return k ? window._TDS_SSD_BASE + k : null;
+  }
+  if (u.indexOf("/data/") === 0) {
+    k = window._tdsR2KeyForLocal(u.slice(6));
+    return k ? window._TDS_SSD_BASE + k : null;
+  }
   return null;
 };
-// 会话级「ssd 可用」记忆(毫秒时间戳): 任一文件经 ssd 兜底成功后置 now+10min,
-// 后续文件优先走 ssd,避免主站整域挂掉时 13 个首屏文件每个都要从头等一遍阶梯。
+// 会话级「ssd 可用」记忆(毫秒时间戳): 任一文件经 ssd 兜底成功后置 now+90s(返修: 原 10min 过长,
+// 主站短暂抖动也会让用户 10 分钟都走 ssd, §22 混源风险), 后续文件优先走 ssd,
+// 避免主站整域挂掉时 13 个首屏文件每个都要从头等一遍阶梯。
+// 解除条件: ①90s 到期 ②任一次主站请求成功(app.js fetchJSON 里清零) ③主站 boot 预取失败不置闩(index.html)
 // 用 || 保留: index.html 的 boot 预取在本文件之前执行, 备站场景可能已置过值(不能覆盖回 0)。
 window._tdsSsdPreferredUntil = window._tdsSsdPreferredUntil || 0;
 

@@ -48,9 +48,11 @@
       .catch(function () { return null; })
       .then(function (d) {
         if (d) return d;
-        return grab(ssd, 4000).catch(function () { return null; }).then(function (d2) {
-          // ssd 成功=主站疑似整域故障,记会话级优先(common.js 用 || 保留,不会被覆盖)
-          if (d2) window._tdsSsdPreferredUntil = Date.now() + 10 * 60 * 1000;
+        // 第二腿(ssd)预留 6000ms(返修 4s→6s): 946KB 未压缩实测 3.89s, 4s 顶满(97%)会误杀慢网真可用链路, 6s≈65% 留余量。
+        return grab(ssd, 6000).catch(function () { return null; }).then(function (d2) {
+          // ssd 成功=主站疑似整域故障,记会话级优先。返修(2026-10-29):
+          //   ①TTL 10min→90s ②主站/本地页面 boot 预取失败**不置闩** —— 原来主站一次抖动就走 ssd 10 分钟(§22 混源)。
+          if (d2 && !(isMain || isLocal)) window._tdsSsdPreferredUntil = Date.now() + 90 * 1000;
           return d2;
         });
       });

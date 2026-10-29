@@ -9709,6 +9709,9 @@ const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全部跳 .gz，根治 CF .gz 4h edge 缓存滞后）。
 // 匹配 -(all|5y|3y).json 结尾 -> R2；其余 -> 本地 ./data/。
 const _R2_DATA_BASE = "https://ss.fx8.store/r2/data/";
+// #326 返修(2026-10-29): 分类目录的真实 R2 键不在 /r2/data/ 下(实测 /r2/data/etf/… 404, /r2/etf/… 200),
+// 兜底腿改用「根前缀 + 真实 key」(key 由 common.js 的 _tdsR2KeyForLocal 单一实现算, 不在本文件复制映射表)。
+const _R2_ROOT_BASE = "https://ss.fx8.store/r2/";
 const _R2_LARGE_RANGE_RE = /-(?:all|5y|3y)\.json$/;
 // 备用站 R2 兜底（2026-08-11 方案A）：sss.sugas.site(GitHub Pages)/s.sugas.site(MaoziYun) 纯静态无 Worker
 // /data/*.json rewrite（R2 迁移阶段4a 后 static-site/data/ 移出 git，备站 ./data/ 全 404）。
@@ -9719,7 +9722,7 @@ const _R2_FALLBACK_BASE = "https://ss.fx8.store/data/";
 function dataUrl(filename) {
   return _R2_LARGE_RANGE_RE.test(filename) ? _R2_DATA_BASE + filename : "./data/" + filename;
 }
-async function fetchJSON(url, timeoutMs) {
+async function fetchJSON(url, timeoutMs, extSignal) {
   // 主动域名策略(2026-08-11 备站主动域名方案A): 备站(sss.sugas.site/s.sugas.site 等非主站非本地)首次加载
   // 即把 ./data/* 直接重写为主站 /data/ rewrite, 不等 404 探测再 fallback(现状每请求慢一拍)。
   // 主站/localhost 同源不变; 大 range(-all/-5y/-3y) 已在 dataUrl() L3658 直链 _R2_DATA_BASE(/r2/ 代理),
@@ -9771,30 +9774,40 @@ async function fetchJSON(url, timeoutMs) {
   const controller = new AbortController();
   // 超时可参数化(2026-08-21 P1-2): 默认仍 15s 不影响既有调用; 大文件调用方(如 sim 弹窗 64MB trades)传 60000
   const _timeoutMs = timeoutMs || 15000;
-  // === #326(2026-10-29) 有界超时阶梯 ===
-  // 现状最坏路径 = 15s×3(首试+2次重试) + 0.5s 退避 + 15s(R2 直链) ≈ 60.5s 才轮到备源,
-  // 用户等一分钟才知道有没有数据 = 等于没有兜底。改为「总预算 + 每腿独立短超时」:
-  //   · 普通数据(默认超时 15000): 单文件总预算 12000ms,其中为 ssd 最后一级预留 4000ms
-  //     (ssd 是 R2 origin 直读、无 CF 边缘缓存,首包可能较慢,必须留够)。
-  //   · 大文件(调用方显式传 timeoutMs>15000,如 60000): 总预算 = timeoutMs + 4000,首腿保持原超时不变。
-  //   · 12s 依据:首屏「看起来还在加载」的可接受上限(超过用户就刷新/关页),同时保证 E4 主站挂起场景
-  //     能在 12s 内落到备源。预算只在失败/挂起路径可观测 —— 主站 200 快路径仍是 1 次请求、立即返回。
-  //   · 无 ssd 对应腿且非 ./data/ 的 URL(API/外链)完全不进预算体系,保持原 _timeoutMs 零变化。
+  // === #326(2026-10-29) 有界超时阶梯 (+2026-10-29 返修: 首腿不再砍主站) ===
+  // 改前最坏路径 = 15s×3(首试+2次重试) + 0.5s 退避 + 15s(R2 直链) ≈ 60.5s 才轮到备源,
+  // 用户等一分钟才知道有没有数据 = 等于没有兜底。改为「总预算 + 每腿独立超时」:
+  //   · 主站/localhost: 首腿 = 原 _timeoutMs(绝不砍), 总预算 = _timeoutMs + ssd 预留。
+  //     返修理由(审查实测): 旧版把「12s 总预算 − 4s 预留」算成首腿 8s 对主站也生效 ⇒
+  //     主站 9s/11s 能回的文件被 abort 成失败(9003ms 成功 → 12003ms AbortError), 是可见回归。
+  //   · 备站(非主站非本地)普通文件: 首腿 8000ms 封顶(备站首腿打的就是主站绝对 URL,
+  //     主站挂起时短 cap 才有意义), 总预算 8000+4000=12000 —— E4「备站+主站全域挂起」仍 ≤8.5s 拿到数据。
+  //   · 大文件(调用方显式传 timeoutMs>15000, 如 60000): 首腿保持原超时, 总预算 = timeoutMs + 同额预留(上限 60000)。
+  //   · 无 ssd 对应腿且非 ./data/ 的 URL(API/外链)完全不进预算体系, 保持原 _timeoutMs 零变化。
+  // 预算只在失败/挂起路径可观测 —— 主站 200 快路径仍是 1 次请求、立即返回(R5 不退化)。
   // 注意用 _base(已剥 query)映射: 用 url 会把 ?v=/_= 带进 ssd 腿, 再拼一次 _bustQuery 就变成双 query
   const _ssdUrl = (typeof window._tdsSsdUrlFor === "function") ? window._tdsSsdUrlFor(_base) : null;
   const _ladderEligible = _isDataReq || !!_ssdUrl;
   // ssd 预留时长: 普通文件 4000ms;大文件(调用方显式 >15s, 如 lab 60MB 融合文件)按原超时同额预留,
   // 否则 4s 连首包都拿不完,兜底等于没兜。封顶 60000 防单文件总等待失控。
   const _SSD_RESERVE_MS = (_ladderEligible && _timeoutMs > 15000) ? Math.min(_timeoutMs, 60000) : 4000;
-  const _totalBudgetMs = _ladderEligible
-    ? (_timeoutMs > 15000 ? _timeoutMs + _SSD_RESERVE_MS : 12000)
-    : _timeoutMs;
+  // 备站普通文件的首腿短 cap(只对备站生效, 主站/localhost 永不削减首腿)
+  const _BACKUP_FIRST_CAP_MS = 8000;
+  const _shortFirstLeg = _ladderEligible && _isBackupSite && _timeoutMs <= 15000;
+  const _totalBudgetMs = !_ladderEligible
+    ? _timeoutMs
+    : (_shortFirstLeg ? (_BACKUP_FIRST_CAP_MS + _SSD_RESERVE_MS) : (_timeoutMs + _SSD_RESERVE_MS));
   const _deadline = Date.now() + _totalBudgetMs;
   const _budgetLeft = () => _deadline - Date.now();
-  // 首腿超时: 有兜底腿的数据请求 = min(原超时, 总预算-ssd预留);其余维持原超时不变
-  const _firstTimeoutMs = _ladderEligible
-    ? Math.max(1000, Math.min(_timeoutMs, _totalBudgetMs - _SSD_RESERVE_MS))
+  const _firstTimeoutMs = _shortFirstLeg
+    ? Math.max(1000, Math.min(_BACKUP_FIRST_CAP_MS, _totalBudgetMs - _SSD_RESERVE_MS))
     : _timeoutMs;
+  // #326 返修: 外部取消信号透传(lab.js fetchJSONProgress 超时重试时传入) —— 用户主动取消立刻中止,
+  // 不再等内部超时; 外部取消的 AbortError 在下面 catch 里原样抛出(不当作超时吞成 null)。
+  let _extAborted = !!(extSignal && extSignal.aborted);
+  const _onExtAbort = () => { _extAborted = true; controller.abort(); };
+  if (extSignal && !extSignal.aborted) extSignal.addEventListener("abort", _onExtAbort);
+  if (_extAborted) { const e0 = new Error("Aborted"); e0.name = "AbortError"; throw e0; }
   const slowTimer = setTimeout(() => controller.abort(), _firstTimeoutMs);
   // cache: 'no-cache' 走条件请求(带 If-None-Match/If-Modified-Since), 绕过 R2 .gz 的 cache-control: max-age=14400 强制缓存
   // 否则 stats 等数据更新后浏览器仍读 4h 旧缓存 (2026-07-22 csi_div tooltip 显示旧版 sell_stop_loss n 而非新版 86 的根因)
@@ -9820,20 +9833,41 @@ async function fetchJSON(url, timeoutMs) {
       // 主站正常时该分支永不进入(零额外请求), 主站 200 快路径行为逐位不变。
       // ssd 优先腿失败则立刻回落原主路径(不因 ssd 故障把正常页面拖坏)。
       if (_ssdUrl && window._tdsSsdPreferredUntil > Date.now()) {
+        // 返修(2026-10-29): 闩期间**主站与 ssd 并发竞速**, 谁先成功用谁 ——
+        //   旧版只串行打 ssd, 主站根本没被请求, 于是「主站恢复后成功即清零」永远触发不了,
+        //   用户被锁在 ssd 整整一个 TTL(原 10min); 且 ssd 慢(800ms)时比主站(30ms)还拖慢首屏。
+        //   竞速只在闩窗口内(主站刚失败过 ≤90s)多打 1 个请求, 主站一成功立刻清零、后续回主站。
         const c0 = new AbortController();
-        const t0 = setTimeout(() => c0.abort(), Math.max(300, Math.min(_SSD_RESERVE_MS, _budgetLeft())));
+        const c1 = new AbortController();
+        const _raceCap = Math.max(300, Math.min(_SSD_RESERVE_MS, _budgetLeft()));
+        const t0 = setTimeout(() => { c0.abort(); c1.abort(); }, _raceCap);
+        const _tryRace = (u, cc, isMainLeg) => fetch(u, { signal: cc.signal, cache: _cacheMode })
+          .then(async (r) => {
+            if (!r || !r.ok) throw new Error("HTTP " + (r && r.status) + " " + u);
+            const d = await r.json();
+            if (isMainLeg && window._tdsSsdPreferredUntil) window._tdsSsdPreferredUntil = 0; // 主站成功即解除
+            return d;
+          });
         try {
-          const r0 = await fetch(_ssdUrl + _bustQuery, { signal: c0.signal, cache: _cacheMode });
-          if (r0 && r0.ok) return await r0.json();
+          return await Promise.any([
+            _tryRace(_ssdUrl + _bustQuery, c0, false),
+            _tryRace(_fetchUrl, c1, true),
+          ]);
         } catch (e0) {
-          console.warn("[fetchJSON] ssd 优先腿失败, 回落主站: " + _ssdUrl, e0?.message || e0);
+          console.warn("[fetchJSON] 闩期间主站/ssd 均失败, 走常规失败阶梯: " + url, e0?.message || e0);
         } finally {
           clearTimeout(t0);
+          c0.abort();
+          c1.abort();
         }
       }
       resp = await doFetch(_fetchUrl);
+      // #326 返修: 主站成功即提前解除 ssd 优先(原本只能等 TTL 到期, 主站已恢复还让用户走 ssd = §22 混源)
+      if (window._tdsSsdPreferredUntil) window._tdsSsdPreferredUntil = 0;
       return await resp.json();
     } catch (e) {
+      // #326 返修: 外部取消(用户关弹窗/切页) → 不进兜底阶梯, 直接抛(否则取消后还会继续打兜底腿)
+      if (_extAborted) throw e;
       // .gz 失败(404/解压错/不支持/body null) -> fallback 原 .json(只对原本就是 .gz 尝试的 URL)
       // 用 _fetchUrl(带 cache-busting) 而非 url(原始), 保持与主路径一致的 cache-busting 语义
       if (gzUrl && !(e && e.name === "AbortError")) {
@@ -9869,9 +9903,14 @@ async function fetchJSON(url, timeoutMs) {
         : null;
       if (_dataFile) {
         let lastErr = e;
+        // #326 返修: 腿②用真实 R2 key(_tdsR2KeyForLocal 单一实现), 不再无脑 /r2/data/<rel>
+        // (旧版对 etf/index/industry/lab/trade_sim 拼成 /r2/data/<dir>/… 全 404, 放开子目录等于空转)。
+        const _r2Key = (typeof window._tdsR2KeyForLocal === "function")
+          ? window._tdsR2KeyForLocal(_dataFile)
+          : ("data/" + _dataFile); // 兜底: common.min.js 未更新(旧缓存)时保持旧行为, 不崩
         const legs = [
           { name: "主站/data/", url: (_base.indexOf("./data/") === 0 ? _R2_FALLBACK_BASE + _dataFile : _base) + _bustQuery },
-          { name: "主站/r2/data/", url: _R2_DATA_BASE + _dataFile + _bustQuery },
+          { name: "主站/r2/", url: _r2Key ? _R2_ROOT_BASE + _r2Key + _bustQuery : null },
           { name: "ssd", url: _ssdUrl ? _ssdUrl + _bustQuery : null },
         ];
         for (let i = 0; i < legs.length; i++) {
@@ -9886,7 +9925,8 @@ async function fetchJSON(url, timeoutMs) {
               ? _SSD_RESERVE_MS
               : Math.max(300, Math.floor((_budgetLeft() - _SSD_RESERVE_MS) / _legsLeft));
             const d = await _tryLeg(legs[i].url, _capMs);
-            if (i === 2) window._tdsSsdPreferredUntil = Date.now() + 10 * 60 * 1000; // 记住 10min
+            if (i === 2) window._tdsSsdPreferredUntil = Date.now() + 90 * 1000; // 返修: 10min → 90s
+            else if (window._tdsSsdPreferredUntil) window._tdsSsdPreferredUntil = 0; // 主站腿成功 → 解除 ssd 优先
             return d;
           } catch (e2) {
             lastErr = e2;
@@ -9899,7 +9939,7 @@ async function fetchJSON(url, timeoutMs) {
         console.warn("[fetchJSON] 绝对 URL 失败, 兜底 ssd: " + url + " -> " + _ssdUrl, e?.message || e);
         try {
           const d = await _tryLeg(_ssdUrl + _bustQuery, _SSD_RESERVE_MS);
-          window._tdsSsdPreferredUntil = Date.now() + 10 * 60 * 1000;
+          window._tdsSsdPreferredUntil = Date.now() + 90 * 1000;
           return d;
         } catch (e2) {
           throw e2;
@@ -9916,6 +9956,8 @@ async function fetchJSON(url, timeoutMs) {
     .catch((e) => {
       // 超时（abort）：renderFailCard 存在则向上抛由调用方兜底渲染，否则 console.error 并返回 null
       if (e && e.name === "AbortError") {
+        // #326 返修: 外部 signal 取消 → 原样抛给调用方(不记超时、不按「超时吞 null」处理)
+        if (_extAborted) throw e;
         console.error("fetchJSON timeout (" + _timeoutMs + "ms): " + url);
         if (typeof renderFailCard !== "function") return null;
       } else {
@@ -9924,7 +9966,11 @@ async function fetchJSON(url, timeoutMs) {
       }
       throw e;
     })
-    .finally(() => { clearTimeout(slowTimer); _inflightFetch.delete(url); });
+    .finally(() => {
+      clearTimeout(slowTimer);
+      if (extSignal) extSignal.removeEventListener("abort", _onExtAbort);
+      _inflightFetch.delete(url);
+    });
   _inflightFetch.set(url, p);
   return p;
 }
