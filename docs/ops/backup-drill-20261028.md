@@ -202,22 +202,24 @@ except ModuleNotFoundError:
 
 ### 8.6 证据用例（真执行，不经替身 python）
 
-新增 `scripts/tests/test_importpath_p0_20261029.py`（3 条，全部子进程 + `cwd=REPO 根` + 去掉 `PYTHONPATH`）：
+新增 `scripts/tests/test_importpath_p0_20261029.py`（4 条，全部子进程 + `cwd=REPO 根` + 去掉 `PYTHONPATH`）：
 
 1. `test_T_REAL_1_import_upload_r2_from_repo_root`：REPO 根 cwd 下 importlib 加载 `upload_r2.py` ⇒ 退出码 0（**改前实测红：`ModuleNotFoundError`；改后绿**）。
 2. `test_T_REAL_2_restore_script_help_from_repo_root`：`python docs/scripts/restore_r2_db_backup.py --help` ⇒ 退出码 0（改前红、改后绿）。
 3. `test_T_REAL_3_upload_r2_guards_lock_paths_import`：源码形状守卫，防兜底被"顺手简化"回去。
+4. `test_T_REAL_4_mutation_dropping_guard_turns_t1_red`：变异自证——把兜底删回裸 import 时 T-REAL-1 必须变红（判据本身有判别力，不是恒绿摆设）。
 
 另用生产同形态（`python -` 内嵌块、cwd=假 REPO 根、无 `PYTHONPATH`）真跑只读验证：
 
 - LIST 块 ⇒ `sentiment` 取到 `20261028`（与 10-28 日志一致）、`stock_daily` = `NONE`（与"今晚 21:00 才首备"一致）；
 - HEAD 对账块 ⇒ `200|804241131`，与云上 `data/.r2_db_backup_state.json` 里 `public_fund.db.gz_size` **逐位相同**；
 - `restore_r2_db_backup.py --help` ⇒ 退出码 0。
+- 说明：内嵌块里的 `_diag` 走 stderr，systemd 下与 stdout 一起进 `data/logs/verify_backup_*.log`，所以日志里看到重复段落是正常现象，不是重复执行。
 
 ### 8.7 上线后观察锚点（首个执行夜）
 
 今晚 21:00 后的 `data/logs/verify_backup_*.log` 应满足：
-1. 出现 `stock_daily: SKIP(尚无 stock_daily 备份)`（首备 21:00 之前无 key 属设计内），且**不含** `stock_daily=ERR`；
+1. **不含** `stock_daily=ERR`。两种正常形态二选一：①云上若存在 `data/stock_daily.db`，21:00 会先上传生成本日 key，演练走**正常下载**分支（日志看到 `stock_daily=<下载路径>`）——这是正常；②云上若无该库，才看到 `stock_daily: SKIP(尚无 stock_daily 备份)`。**不要**拿「必须出现 SKIP」当判据，否则会把正常下载误判成修复没生效。
 2. 不再出现「R2 备份下载失败(60s 重试后仍失败)」；
 3. 结论行回到 `✓ 通过`（public_fund 非周日 SKIP）。
 若仍是 `ERR`，说明修复没生效或云上拉的不是新 commit —— 先核云上 `scripts/upload_r2.py` 是否含 `except ModuleNotFoundError`。
