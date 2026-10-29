@@ -42,7 +42,8 @@
         .then(function (r) { return r && r.ok ? r.json() : null; })
         .finally(function () { clearTimeout(t); });
     }
-    // 主站/localhost 首取不加超时(URL/选项/时机与改动前逐位一致); 其它域名(=备站)首取 8000ms 封顶,该值=总预算 12000 − ssd 预留 4000
+    // 主站/localhost 首取不加超时(URL/选项/时机与改动前逐位一致); 其它域名(=备站)首取 8000ms 封顶(与 fetchJSON 备站首腿 cap 同值)。
+    // boot 预取不走 fetchJSON 的总预算体系: 第二腿 ssd 单独给 6000ms, 故备站 boot 最坏 8000+6000=14000ms。
     var firstMs = (isMain || isLocal) ? 0 : 8000;
     window.__bootPrefetch = grab(primary, firstMs)
       .catch(function () { return null; })
