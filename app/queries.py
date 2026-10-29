@@ -190,11 +190,27 @@ def _freeze_hint(conn, today_scores, overview_date):
       ① 6 宽基逐卡判冰点：is_freeze 真值 或 value<20；
       ② 今日共振需 >=3 个宽基冰点，当前锚 = 按 BROAD_SENT_IDS 顺序第一个冰点卡的 date
          （缺失则回退 overview.date）；
-      ③ 历史上"同日 >=3 宽基冰点"的日期里，取最近一个（!= 当前锚）；月差 >=12 → 近 N 年首次、
+      ③ 历史上"同日 >=3 宽基冰点"的日期里，取当前锚之前最近的一个；月差 >=12 → 近 N 年首次、
          >=1 → 近 N 月首次、<1 → 近期持续冰点；没有更早共振日 → 数据期内首次。
-    例外（按 #325 需求）：今日不足 3 个冰点、或历史表拿不到/为空 → 返回 None，前端据此
-    不显示这句（不回退拉全史）。旧前端在"历史为空"时会显示"数据期内首次"，本字段不再显示。
+
+    None 的三种含义（前端 app.js `r.freeze_hint || ""` 三种都只少显示这一句修饰，绝不回退
+    去拉 4.6MB 的 sentiment-all.json 全史）：
+      ① 今日不足 3 个宽基冰点——横幅本就不该显示这句；
+      ② 历史表为空/取不到（无 20100101 之后的 score_daily 行）；
+      ③ 计算过程抛异常——本函数已在此吞掉并记 warning，保证 overview/export 不因一句文案崩掉。
     """
+    try:
+        return _freeze_hint_impl(conn, today_scores, overview_date)
+    except Exception as e:  # noqa: BLE001 —— 一句文案绝不能拖垮整个 overview/export（审查 M1）
+        logger.warning(
+            "freeze_hint 计算失败，降级为 None（首页仅少一句冰点文案）: %s: %s",
+            type(e).__name__, e,
+        )
+        return None
+
+
+def _freeze_hint_impl(conn, today_scores, overview_date):
+    """_freeze_hint 的实际算法体；异常由外层统一兜住（见 _freeze_hint 的 None 三种含义）。"""
     frozen = []
     for sid in BROAD_SENT_IDS:
         sc = (today_scores or {}).get(sid)
@@ -206,19 +222,31 @@ def _freeze_hint(conn, today_scores, overview_date):
     if len(frozen) < 3:
         return None
     cur_date = frozen[0].get("date") or overview_date
+    # 上界 date < cur_date（审查 M2）：历史只允许取"当前锚之前"，防某宽基停更导致 cur_date
+    # 回退后把当前锚之后的共振日当 prev（会算出负月差 → 误报"近期持续冰点"）。
     rows = conn.execute(
         "SELECT date, COUNT(*) AS n FROM score_daily "
-        "WHERE score_id IN (%s) AND date >= ? "
+        "WHERE score_id IN (%s) AND date >= ? AND date < ? "
         "AND (CAST(IFNULL(is_freeze, 0) AS INTEGER) != 0 "
         "     OR (value IS NOT NULL AND value < 20)) "
         "GROUP BY date" % ",".join("?" * len(BROAD_SENT_IDS)),
-        (*BROAD_SENT_IDS, _FREEZE_HISTORY_START),
+        (*BROAD_SENT_IDS, _FREEZE_HISTORY_START, cur_date),
     ).fetchall()
     if not rows:
-        return None
+        # 当前锚之前没有任何共振日 —— 需区分两种：历史表有数据（只是没共振过）⇒ 数据期内首次；
+        # 历史表为空/取不到 ⇒ None（与旧前端"历史为空不显示"的降级语义一致，见 docstring ②）。
+        # 存在性探测用 <= cur_date：当前锚当天的行也算"历史表有数据"（对齐旧前端在数据首日
+        # 显示"数据期内首次"的口径）；prev 选取仍严格用 rows 的 date < cur_date。
+        has_history = conn.execute(
+            "SELECT 1 FROM score_daily "
+            "WHERE score_id IN (%s) AND date >= ? AND date <= ? LIMIT 1"
+            % ",".join("?" * len(BROAD_SENT_IDS)),
+            (*BROAD_SENT_IDS, _FREEZE_HISTORY_START, cur_date),
+        ).fetchone()
+        return "数据期内首次" if has_history else None
     prev = None
     for r in rows:
-        if r["date"] == cur_date or r["n"] < 3:
+        if r["n"] < 3:
             continue
         if prev is None or r["date"] > prev:
             prev = r["date"]
