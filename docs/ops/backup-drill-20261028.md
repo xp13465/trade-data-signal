@@ -155,3 +155,69 @@
 - 台账 HEAD 对账的**前提**是 `upload_r2.py` 在源库未变时写入台账（`:3304-3310`）；若某次备份期间源库被写入，台账不更新 ⇒ 日期与最新 key 不一致 ⇒ 按设计 SKIP 并点名，不会假红也不会假绿。
 - **新增告警点四元组声明**（`docs/ops/alert-checker-registry-20261015.md` 行 23 已登记本脚本）：新路径「public_fund 演练空间不足被跳过」= **tier** `critical`（`--severe`）/ **dedup window** 未声明（沿用本脚本既有通道，与登记表 #23 的存量口径一致，本单不改去重策略）/ **聚合域** `backup` / **首报策略** 首报必达（`--alert-issue` + `--alert-log` 写 `data/alerts/latest.md`）。登记表无需新增行（同一脚本同一域）。
 - **超时预算（L55）**：`trade-backup-db.service` 外层 `TimeoutStartSec=12600`（3.5h，见 `docs/ops/pfdb-r2-backup-20261025.md:52`），10-28 实测当日运行 76 分钟（21:00:01→22:16:46）；周日多一段 public_fund 演练（预计 +5~8 分钟，最坏按 6 线程 2~10 分钟估）仍有大量余量。**本单没有改任何超时值** ⇒ 不存在"内外层成对 + 四副本同步"的改动面；内层唯一等待是既有「下载失败 60s 重试 1 次」，未改。
+## 8. 补记（2026-10-29）：导入路径缺陷（P0）与根治
+
+> 本节是**事后补记**：10-28 上线的这套演练，在云上**一次都没真跑过**就差点带着故障进入首个执行夜。事实与证据如下，供后来人反查。
+
+### 8.1 事实（实测，不是推断）
+
+- 10-28 21:00 那次 `trade-backup-db.service` 跑的还是**老版** `verify_backup.sh`（云上脚本 mtime = 2026-10-29 08:49，今早 deploy 才更新），那份日志 1849 字节、无 stock_daily 段，结论 `✓ 通过 退出码=0`；10-24～10-28 五份日志同为老格式。
+- 也就是说：**新代码在云上零次真实执行**，告警台账里也没有任何新命中（唯一 `verify_backup` 记录仍是 2026-10-23 22:21:34 的旧文案）。
+- 若未修复，**今晚 21:00 首次执行**会这样走：sentiment/etf 下载成功 → `r2_latest_backup_date stock_daily` 恒 `ERR` → `rc=1` → 睡 60s 重试一次（再下 ~130MB 白跑）→ `exit 1`，发出**通用** severe「R2 备份下载失败…请排查 R2 凭证/网络」（指向错误方向），且 **integrity/行数/新鲜度/public_fund 全部不跑**——演练形同关掉，每晚重复。
+
+### 8.2 根因
+
+`python -` 的 `sys.path[0]` 是 **cwd**；生产 unit `WorkingDirectory=/home/ubuntu/code/trade-data`。而 `scripts/upload_r2.py:51` 有模块级 `import r2_lock_paths`（同目录），2026-10-28 的 R2 锁域改造（#320）加进来之后，所有用 `importlib` 加载 `upload_r2.py` 的调用方在「cwd=REPO 根」下都会 `ModuleNotFoundError: No module named 'r2_lock_paths'`。以脚本方式跑（`python <REPO>/scripts/upload_r2.py`）不受影响，因为那时 `sys.path[0]` 是脚本所在目录。
+
+### 8.3 影响面（逐个核过）
+
+| 位置 | 状态 |
+|---|---|
+| `scripts/verify_backup.sh` `r2_latest_backup_date()`（`stock_daily` 存在性 + `public_fund` 台账日期） | 受影响，恒 `ERR` |
+| `scripts/verify_backup.sh` 台账 HEAD 对账内嵌块 | 受影响，恒 `FAIL(HEAD … status=)` |
+| `docs/scripts/restore_r2_db_backup.py`（public_fund 流式还原；`docs/backup-restore.md` 教人从 REPO 根手工跑的也是它） | 受影响，`--help` 都跑不起来 |
+| `download-db sentiment / etf_national_team / stock_daily`、`notify.py`、报告块、台账 JSON 块 | 不受影响（脚本方式运行 / 不 import upload_r2） |
+| 其余 10 处 `import upload_r2` 的调用方 | 不受影响（各自早已把 `scripts/` 塞进 sys.path） |
+
+### 8.4 为什么 28 条用例没抓到（假绿的真正来源）
+
+`test_255_backup_drill_20261028.py` 的替身 python（`:57-82`）把 `$PY - …/upload_r2.py` **整段拦截**，内嵌块从不执行；假 REPO 里的 `upload_r2.py` 只是一行注释（`:179`）。再加上 `scripts/tests/conftest.py` 把 `scripts/` 塞进 pytest 进程的 `sys.path`，进程内 import 永远绿。⇒ 桩把"能不能加载起来"这一层整个替掉了。
+
+### 8.5 根治（主控 2026-10-29 拍板：载荷侧一处，不做无条件 insert）
+
+`scripts/upload_r2.py` 的锁模块导入改成「先试后补」：
+
+```python
+try:
+    import r2_lock_paths as _rlp
+except ModuleNotFoundError:
+    import os as _os, sys as _sys
+    _sys.path.insert(0, _os.path.dirname(_os.path.realpath(__file__)))
+    import r2_lock_paths as _rlp
+```
+
+- 只在**已经坏掉**的分支里动 `sys.path`：不做无条件 insert，避免把 `scripts/` 顶到搜索路径最前（将来 `scripts/` 里若出现与标准库同名的文件会把全仓 import 打歪）。
+- 一处根治 ⇒ 上述三处全好，且未来任何新加载方不再踩。
+- **不改** `verify_backup.sh` 的 loader 侧（明确不加 `sys.path.insert`，由 `test_345_…::test_D1` 守着）。
+
+### 8.6 证据用例（真执行，不经替身 python）
+
+新增 `scripts/tests/test_importpath_p0_20261029.py`（3 条，全部子进程 + `cwd=REPO 根` + 去掉 `PYTHONPATH`）：
+
+1. `test_T_REAL_1_import_upload_r2_from_repo_root`：REPO 根 cwd 下 importlib 加载 `upload_r2.py` ⇒ 退出码 0（**改前实测红：`ModuleNotFoundError`；改后绿**）。
+2. `test_T_REAL_2_restore_script_help_from_repo_root`：`python docs/scripts/restore_r2_db_backup.py --help` ⇒ 退出码 0（改前红、改后绿）。
+3. `test_T_REAL_3_upload_r2_guards_lock_paths_import`：源码形状守卫，防兜底被"顺手简化"回去。
+
+另用生产同形态（`python -` 内嵌块、cwd=假 REPO 根、无 `PYTHONPATH`）真跑只读验证：
+
+- LIST 块 ⇒ `sentiment` 取到 `20261028`（与 10-28 日志一致）、`stock_daily` = `NONE`（与"今晚 21:00 才首备"一致）；
+- HEAD 对账块 ⇒ `200|804241131`，与云上 `data/.r2_db_backup_state.json` 里 `public_fund.db.gz_size` **逐位相同**；
+- `restore_r2_db_backup.py --help` ⇒ 退出码 0。
+
+### 8.7 上线后观察锚点（首个执行夜）
+
+今晚 21:00 后的 `data/logs/verify_backup_*.log` 应满足：
+1. 出现 `stock_daily: SKIP(尚无 stock_daily 备份)`（首备 21:00 之前无 key 属设计内），且**不含** `stock_daily=ERR`；
+2. 不再出现「R2 备份下载失败(60s 重试后仍失败)」；
+3. 结论行回到 `✓ 通过`（public_fund 非周日 SKIP）。
+若仍是 `ERR`，说明修复没生效或云上拉的不是新 commit —— 先核云上 `scripts/upload_r2.py` 是否含 `except ModuleNotFoundError`。

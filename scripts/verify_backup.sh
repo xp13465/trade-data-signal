@@ -29,7 +29,8 @@
 # 环境变量：
 #   VERIFY_NOTIFY_DRY_RUN=1        notify.py --dry-run（验证用，不真发邮件）
 #   VERIFY_PUBLIC_FUND=auto|1|0    public_fund 周频演练门控（默认 auto=仅周日；1=强制；0=关）
-#   VERIFY_PUBLIC_FUND_MIN_KB      空间门限 KiB（默认 4718592 = 4.5GiB）
+#   VERIFY_PUBLIC_FUND_MIN_KB      空间门限 KiB（默认 4718592 = 4.5GiB）；必须是正整数，
+#                                  非数字/0/负数一律回落默认（0 会让空间门永不触发 = 网关掉）
 #   VERIFY_BACKUP_SKIP=1           由 backup_db.sh 判，整段跳过演练（既有开关，不属本脚本）
 # 日志：data/logs/verify_backup_YYYYMMDD_HHMM.log
 # 退出码：0=通过（含设计内 SKIP）；1=失败（下载/integrity/行数/新鲜度异常）
@@ -49,12 +50,20 @@ TMPDIR=$(mktemp -d /tmp/verify-backup-XXXXXX)
 PF_DIR="$TMPDIR/pf"
 # 空间门限：演练峰值 3.51GiB（gz 0.75 + 解压后 2.76）+ 0.7GiB 余量给同期采集/日志
 PF_MIN_KB="${VERIFY_PUBLIC_FUND_MIN_KB:-4718592}"
-# 非法值(非整数)会让 `[ -lt ]` 报 integer expression expected 后判 false ⇒ 门开(fail-open)，
-# 等于把安全网关掉还不告警。这里显式校验：非法即回落默认。
+# 非法值会让空间门失效(fail-open)，等于把安全网关掉还不告警。这里显式校验：非法即回落默认。
+# 两个分支分工(#343)：
+#   - 负数与非数字命中同一个分支（`*[!0-9]*`：'-' 也不是数字字符）；
+#   - `0` 是纯数字，会穿过上面那个分支 ⇒ 必须单独判 `-le 0`；否则门限变 0，空间门永不触发。
 case "$PF_MIN_KB" in
   *[!0-9]*)
     echo "⚠ VERIFY_PUBLIC_FUND_MIN_KB='$PF_MIN_KB' 非法(需整数 KiB)，回落默认 4718592" >&2
     PF_MIN_KB=4718592
+    ;;
+  *)
+    if [ "$PF_MIN_KB" -le 0 ]; then
+      echo "⚠ VERIFY_PUBLIC_FUND_MIN_KB='$PF_MIN_KB' 非法(需整数 KiB)，回落默认 4718592" >&2
+      PF_MIN_KB=4718592
+    fi
     ;;
 esac
 
@@ -77,6 +86,7 @@ RC=0
 
 # ---- 0. 判 R2 上 backup/<name>_ 是否存在（分页/截断安全边界：日备份保留 7 天 ≤7 个对象）----
 # 输出：最新备份日期 YYYYMMDD / NONE（无对象）/ ERR（LIST 失败，不许当成"无备份"）
+#       / LIST_FAIL(分页未取全)（#345：部分页失败或截断未闭合，不许当成"备份过旧"）
 # 复习 #338：stock_daily 现阶段 R2 零对象，upload_r2.py download-db 无 key 时 exit 非零
 # （upload_r2.py:3462-3463）⇒ 直接下载会被误判成"下载失败"发 severe，必须先预判存在性。
 # 注意：必须走 upload_r2 的 BACKUP_BUCKET（signal-backup2/环境 R2_BACKUP_BUCKET）。
@@ -92,15 +102,52 @@ import io
 import re
 import sys
 
-_spec = importlib.util.spec_from_file_location("upload_r2_vb", sys.argv[1])
+_ur_path = sys.argv[1]
+# 注意 `python -` 的 sys.path[0] 是 cwd（生产 unit WorkingDirectory=<REPO> 根），
+# upload_r2.py 同目录的 r2_lock_paths 因此默认不可见 —— 由 upload_r2.py 自身的
+# ModuleNotFoundError 兜底补齐（根治在载荷侧，见 upload_r2.py:51 附近注释）。
+_spec = importlib.util.spec_from_file_location("upload_r2_vb", _ur_path)
 _ur = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_ur)
 name = sys.argv[2]
+
+# #345 分页完整性判据：_list_keys 有两种"静默少取"的形态 ——
+#   ① 某页 status != 200：只打印警告后 `return out`，返回**部分** key（upload_r2.py:2957-2960）；
+#   ② 返回 IsTruncated=true 但没有 NextContinuationToken：直接 break，同样只拿到部分 key（:2963-2967）。
+# 两种都会把"最新 key"取成旧日期 ⇒ 演练侧误报「备份过旧」，把真因（LIST 部分失败）盖掉。
+# 不改 upload_r2.py 的公共行为（其他调用方敏感）：只在**本进程**给已加载模块的 s3_request
+# 套一层旁路探针记录每页状态与截断标记；照旧复用 _list_keys 自己的分页循环，不复制一份。
+_calls = []
+_real_s3_request = _ur.s3_request
+
+
+def _probe_s3_request(*args, **kwargs):
+    status, data = _real_s3_request(*args, **kwargs)
+    try:
+        text = data.decode("utf-8", errors="replace") if isinstance(data, (bytes, bytearray)) else str(data)
+    except Exception:  # noqa: BLE001
+        text = ""
+    _calls.append((status, text))
+    return status, data
+
+
+_ur.s3_request = _probe_s3_request
 _buf = io.StringIO()
-with contextlib.redirect_stdout(_buf):
-    keys = _ur._list_keys(f"backup/{name}_", bucket=_ur.BACKUP_BUCKET)
-if not keys and "失败 status=" in _buf.getvalue():
-    print("ERR")          # LIST 失败 ≠ 没有备份
+try:
+    with contextlib.redirect_stdout(_buf):
+        keys = _ur._list_keys(f"backup/{name}_", bucket=_ur.BACKUP_BUCKET)
+finally:
+    _ur.s3_request = _real_s3_request
+
+_diag = _buf.getvalue().strip()
+if _diag:
+    print(_diag, file=sys.stderr)   # 保留 _list_keys 原始失败打印，落 $LOG 供排查
+
+bad_page = any(status != 200 for status, _t in _calls)
+truncation_open = bool(_calls) and "<IsTruncated>true</IsTruncated>" in _calls[-1][1]
+if bad_page or truncation_open:
+    # 有 key 时是"部分取全"，无 key 时是"完全看不见"——两种都不许当成"没有备份"
+    print("LIST_FAIL(分页未取全)" if keys else "ERR")
     sys.exit(0)
 dates = sorted({m.group(1) for k in keys
                 for m in [re.search(r"(\d{8})\.db(?:\.gz)?$", k)] if m}, reverse=True)
@@ -137,6 +184,13 @@ download_backups() {
     ERR)
       echo "✗ stock_daily R2 LIST 失败(无法判定是否有备份)" | tee -a "$LOG"
       rc=1
+      ;;
+    LIST_FAIL*)
+      # #345：分页未取全 ⇒ 取到的是旧日期，若照常下载会误报「备份过旧」把真因盖掉。
+      # 与 NONE/日期闸同理**不置 rc**（rc 会走 60s 重试→通用"下载失败"告警），
+      # 改由 STOCK_STATUS=FAIL 进结论行点名 ⇒ overall_ok=0 ⇒ 统一失败通道，退出码仍为 1。
+      STOCK_STATUS="FAIL(LIST_FAIL(分页未取全),无法判定 stock_daily 备份)"
+      echo "✗ stock_daily: LIST_FAIL(分页未取全) —— R2 列举部分页失败或截断未闭合，判 FAIL（不回落成'备份过旧'）" | tee -a "$LOG"
       ;;
     NONE)
       # 首份备份 2026-10-29 21:00 才产生(backup_db.sh:82)。过了首备日仍无任何 key = 备份链断了，
@@ -279,7 +333,9 @@ PYEOF
       LEDGER_STATUS="SKIP(台账无 public_fund.db 记录或字段不全)"
     else
       latest=$(r2_latest_backup_date public_fund)
-      if [ "$latest" = "ERR" ] || [ -z "$latest" ] || [ "$latest" = "NONE" ]; then
+      # #345：LIST_FAIL(分页未取全) 与 ERR/NONE 同属"无法判定"，不许当成日期不一致去 SKIP
+      if [ "$latest" = "ERR" ] || [ -z "$latest" ] || [ "$latest" = "NONE" ] \
+        || [ "${latest#LIST_FAIL}" != "$latest" ]; then
         LEDGER_STATUS="FAIL(无法判定最新 key 日期: $latest)"
       elif [ "$ldate" != "$latest" ]; then
         LEDGER_STATUS="SKIP(台账日期 $ldate != 最新 key 日期 $latest)"
@@ -481,7 +537,10 @@ if skip_notes:
 
 lines.append("")
 covered = ",".join(c[0] for c in CHECKS) if CHECKS else "无"
-skip_txt = f"；跳过: {'; '.join(skip_notes)}" if skip_notes else ""
+# 跳过/失败项只在这里 join 一次：结论行与告警正文（#342 的「失败/跳过项：」行）共用同一串，
+# 不许各自二次拼接（否则两处措辞/分隔符会漂移）。
+notes_joined = "; ".join(skip_notes)
+skip_txt = f"；跳过: {notes_joined}" if skip_notes else ""
 if overall_ok:
     lines.append(f"=== 结论：✓ 通过（integrity 逐库 ok + 关键表行数正常；已覆盖: {covered}{skip_txt}）===")
 else:
@@ -489,6 +548,8 @@ else:
 
 # 首行输出标记供 bash 解析
 print(f"VERIFY_OK={overall_ok}")
+# #342：机器行，供 bash 拼告警正文；无跳过/失败项时为空串（bash 侧据此不留空尾巴）
+print(f"VERIFY_SKIP_NOTES={notes_joined}")
 print("\n".join(lines))
 PYEOF
 )
@@ -497,6 +558,8 @@ echo "$VERIFY_REPORT" | tee -a "$LOG"
 
 # 解析结果
 VERIFY_OK=$(printf '%s\n' "$VERIFY_REPORT" | head -1 | sed 's/^VERIFY_OK=//')
+# 与结论行「跳过: …」同一串（同一次 join 产出）；为空 = 无跳过/失败项
+VERIFY_SKIP_NOTES=$(printf '%s\n' "$VERIFY_REPORT" | sed -n 's/^VERIFY_SKIP_NOTES=//p' | head -1)
 
 # public_fund 演练产物（gz 0.75GiB + db 2.76GiB）校验完立即清，不等 EXIT trap
 rm -rf "$PF_DIR"
@@ -507,7 +570,11 @@ if [ "$VERIFY_OK" != "1" ] || [ "$PF_RC" -ne 0 ]; then
   NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
   DRY_FLAG=""
   [ "${VERIFY_NOTIFY_DRY_RUN:-0}" = "1" ] && DRY_FLAG="--dry-run"
-  BODY="R2 备份恢复演练失败（integrity/行数/新鲜度异常或 public_fund 恢复失败）。<br>时间：$NOW_STR<br>日志：$LOG<br>临时目录：${TMPDIR}（已清理）<br>请排查：备份是否损坏/本地是否丢数据/R2 上传是否正常。"
+  BODY="R2 备份恢复演练失败（integrity/行数/新鲜度异常或 public_fund 恢复失败）。<br>时间：$NOW_STR"
+  # #342：点名真因（结论行同一串），免收件人只看到通用文案还得翻日志。
+  # 为空=本次没有跳过/失败项 ⇒ 不追加，禁止留「失败/跳过项：」空尾巴。
+  [ -n "${VERIFY_SKIP_NOTES:-}" ] && BODY="$BODY<br>失败/跳过项：$VERIFY_SKIP_NOTES"
+  BODY="$BODY<br>日志：$LOG<br>临时目录：${TMPDIR}（已清理）<br>请排查：备份是否损坏/本地是否丢数据/R2 上传是否正常。"
   echo "-> 发送演练失败告警邮件 ..." | tee -a "$LOG"
   [ -f "$REPO/scripts/notify.py" ] && \
     "$PY" "$REPO/scripts/notify.py" "[告警] verify_backup 校验失败 $(date '+%m-%d %H:%M')" "$BODY" --severe \

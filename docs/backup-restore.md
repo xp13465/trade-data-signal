@@ -89,6 +89,10 @@ python3 docs/scripts/restore_r2_db_backup.py --name public_fund --out-dir /home/
 python3 docs/scripts/restore_r2_db_backup.py --name public_fund --out-dir /tmp/verify \
     --verify-against-src /home/ubuntu/code/trade-data/data/public_fund.db
 ```
+> 上面两条在**仓库根**（云上 `/home/ubuntu/code/trade-data`）直接跑即可，不用手工设 `PYTHONPATH`。
+> 该脚本模块级加载 `scripts/upload_r2.py`，而 `upload_r2.py` 自 2026-10-29 起对同目录的
+> `r2_lock_paths` 做了「先试、找不到再补 sys.path」的兜底（缺陷与根治全过程见
+> `docs/ops/backup-drill-20261028.md` §8）。改前在仓库根跑会 `ModuleNotFoundError`。
 
 ---
 

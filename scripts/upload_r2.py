@@ -48,7 +48,19 @@ except Exception:  # noqa: BLE001
 # 锁路径推导 + 产物域白名单的唯一实现(r2_lock_paths.py): 探针/审计/本文件同源, 不各写一份。
 # 该模块与本文件同目录, 按脚本运行时 sys.path[0] 即 scripts/; 缺失 = ImportError 响亮失败
 # (宁可取锁报错也不静默退化成无锁并发)。
-import r2_lock_paths as _rlp  # noqa: E402
+#
+# 但本文件也会被 importlib 加载(verify_backup.sh 的内嵌 python、docs/scripts/restore_r2_db_backup.py):
+# 那时 `python -` 的 sys.path[0] 是 **cwd**, 生产 unit 的 cwd 是 REPO 根 ⇒ 同目录模块不可见。
+# 2026-10-29 P0: 10-28 上线的备份演练因此在云上一次都没真跑过(存在性预判恒 ERR)。
+# 修法: 只在"已经找不到"的分支里补 sys.path(引擎位置=载荷侧, 一处根治所有加载方);
+# 不做无条件 insert —— 那会把 scripts/ 顶到搜索路径最前, 以后 scripts/ 里若出现与标准库同名的
+# 文件(json.py 之类)会把全仓 import 打歪。
+try:
+    import r2_lock_paths as _rlp  # noqa: E402
+except ModuleNotFoundError:
+    import os as _os, sys as _sys
+    _sys.path.insert(0, _os.path.dirname(_os.path.realpath(__file__)))
+    import r2_lock_paths as _rlp  # noqa: E402
 
 # stdout 行缓冲:遇换行就 flush,防止 `| tee -a` 管道时 block-buffered
 # 致 industry(268文件~10分钟)等长任务日志静默被误判卡死。
