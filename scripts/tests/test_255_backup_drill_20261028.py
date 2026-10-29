@@ -36,6 +36,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "verify_backup.sh"
 REPO_PATHS_LIB = REPO_ROOT / "scripts" / "lib" / "repo_paths.sh"
 
+# stock_daily 首份备份 2026-10-29 21:00 才产生（backup_db.sh:82 首次含该库）；过了次日仍无 key ⇒ FAIL。
+# 这两个是业务日期字面量（不是"今天"），用 fake date 注入，防 L51 跨天红。
+BEFORE_FIRST_BACKUP = "20261029"   # 首备日当天：尚无 key 属设计内过渡态
+FIRST_BACKUP_DEADLINE = "20261030"  # 首备日之后：仍无 key ⇒ 备份链断了，必须 FAIL
+
 SENT_TABLES = ["score_daily", "daily_metric", "signal_daily", "index_daily",
                "industry_width_daily", "futures_position", "futures_accuracy", "collect_log"]
 ETF_TABLES = ["etf_daily", "etf_signal", "etf_holder_quarterly", "national_team_holders"]
@@ -118,6 +123,12 @@ printf '%s\n' "$*" >> "$STUB_SLEEP_LOG"
 exit 0
 """
 
+STUB_DF = r"""#!/bin/bash
+# df -Pk → 固定可用空间(KiB)，用例不依赖本机磁盘余量（否则某台机器剩得少就红）
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "/dev/stub 99999999 0 ${STUB_AVAIL_KB:-99999999} 0% /"
+"""
+
 
 def _mkdb(path: Path, tables, rows: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -169,6 +180,7 @@ class Drill:
         (self.repo / "scripts" / "notify.py").write_text("# stub（被替身 python 拦截，永不真发）\n")
         _write_exec(self.bin / "date", STUB_DATE)
         _write_exec(self.bin / "sleep", STUB_SLEEP)
+        _write_exec(self.bin / "df", STUB_DF)
 
     def set_list_keys(self, name: str, dates) -> None:
         keys = "".join(f"<Key>backup/{name}_{d}.db.gz</Key>" for d in dates)
@@ -211,6 +223,7 @@ class Drill:
             "STUB_RESTORE_FAIL": "0",
             "STUB_HEAD_STATUS": "200",
             "STUB_HEAD_LEN": "0",
+            "STUB_AVAIL_KB": "99999999",
             "VERIFY_PUBLIC_FUND": mode,
             "VERIFY_PUBLIC_FUND_MIN_KB": min_kb,
             "VERIFY_NOTIFY_DRY_RUN": "1",
@@ -239,6 +252,11 @@ def test_source_shape_declares_stock_daily_and_public_fund_drill():
     # A1 stock_daily 走 download-db，且下载前有存在性预判（#338）
     assert "download-db stock_daily" in src
     assert "r2_latest_backup_date stock_daily" in src
+    # 无 key 不许永久静默：过首备日仍无 key ⇒ FAIL（日期闸，TODAY 由 date 注入，不写死今天）
+    assert '"$TODAY" -ge 20261030' in src
+    assert "FAIL(无 stock_daily 备份,已过首备日)" in src
+    # 非数字空间门限不许 fail-open
+    assert "*[!0-9]*" in src and "回落默认 4718592" in src
     # 存在性预判必须查备份桶（upload_r2.py list 子命令默认 signal-data，查错桶=假 SKIP）
     assert "._list_keys(" in src and "BACKUP_BUCKET" in src
     assert '"status=200"' not in src
@@ -262,7 +280,8 @@ def test_source_shape_declares_stock_daily_and_public_fund_drill():
 def test_stock_daily_absent_skips_without_severe(tmp_path):
     drill = Drill(tmp_path)
     drill.set_list_keys("stock_daily", [])          # R2 上零对象（2026-10-28 现实状态）
-    r = drill.run(dow=3)                            # 非周日：public_fund 也 SKIP
+    # 冻结到首备日之前（L51：不许靠"跑的那天恰好还没到阈值"才绿，否则 10-30 起定红）
+    r = drill.run(dow=3, extra_env={"STUB_TODAY": BEFORE_FIRST_BACKUP})  # 非周日：public_fund 也 SKIP
     assert r.returncode == 0, f"SKIP 不该失败: rc={r.returncode}\n{r.stdout}\n{r.stderr}"
     assert "SKIP(尚无 stock_daily 备份)" in r.stdout
     assert "跳过" in r.stdout and "stock_daily=" in r.stdout
@@ -279,6 +298,29 @@ def test_stock_daily_list_failure_is_fail_not_skip(tmp_path):
     assert "✗ stock_daily R2 LIST 失败" in r.stdout
     assert "SKIP(尚无 stock_daily 备份)" not in r.stdout
     assert "--severe" in drill.notified
+
+
+def test_stock_daily_absent_after_deadline_fails_with_severe(tmp_path):
+    """首备日之后仍无 key ⇒ FAIL + severe（否则"永久缺失"会一路静默 rc=0）。"""
+    drill = Drill(tmp_path)
+    drill.set_list_keys("stock_daily", [])
+    r = drill.run(dow=3, extra_env={"STUB_TODAY": FIRST_BACKUP_DEADLINE})
+    assert r.returncode == 1, f"过首备日无备份必须 FAIL: rc={r.returncode}\n{r.stdout}\n{r.stderr}"
+    assert "FAIL(无 stock_daily 备份,已过首备日)" in r.stdout
+    assert "✗ 失败" in r.stdout                  # 结论行翻成失败
+    assert "--severe" in drill.notified
+
+
+def test_stock_daily_date_gate_is_not_today_hardcoded(tmp_path):
+    """运行日往后平移一天：有 key 时仍绿（门槛只惩罚"过了首备日还一个 key 都没有"）。"""
+    drill = Drill(tmp_path)                       # 默认各库都有 key
+    tomorrow = (drill.base_date + datetime.timedelta(days=1)).strftime("%Y%m%d")
+    r = drill.run(dow=3, extra_env={"STUB_TODAY": tomorrow})
+    assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
+    assert "FAIL(无 stock_daily 备份" not in r.stdout
+    assert "stock_daily: 最新备份" in r.stdout     # 新鲜度行仍参与且为 OK
+
+
 def test_pf_space_insufficient_skips_and_notifies_severe(tmp_path):
     drill = Drill(tmp_path)
     r = drill.run(dow=7, mode="1", min_kb=str(10 ** 12))   # 门限 1e12KiB：必然"空间不足"
@@ -286,6 +328,15 @@ def test_pf_space_insufficient_skips_and_notifies_severe(tmp_path):
     assert "SKIP(空间不足" in r.stdout
     assert not drill.restore_called, "空间不足时不该启动大库还原"
     assert "--severe" in drill.notified, f"空间不足必须发 severe（安全网被关）:\n{drill.notified}"
+
+
+def test_invalid_min_kb_falls_back_to_default(tmp_path):
+    """非数字门限会让 [ -lt ] 报错后判 false ⇒ 门开(fail-open)。必须显式回落默认值。"""
+    drill = Drill(tmp_path)
+    r = drill.run(dow=7, mode="1", min_kb="abc")
+    assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
+    assert "VERIFY_PUBLIC_FUND_MIN_KB='abc' 非法(需整数 KiB)，回落默认 4718592" in r.stderr
+    assert drill.restore_called, "回落默认值后应按空间正常放行（不是直接关掉演练）"
 
 
 # ---------------------------------------------------------------- 4. 周日门控
@@ -499,6 +550,36 @@ def test_mutation_space_gate_disabled_turns_case3_red(tmp_path):
     assert "SKIP(空间不足" not in r.stdout, (
         "变异后仍输出空间不足 SKIP ⇒ 用例 3 没有判别力")
     assert drill.restore_called, "变异后应直接进入还原（门失效）"
+
+
+def test_mutation_stock_gate_removed_turns_deadline_case_red(tmp_path):
+    """变异③：去掉「过首备日仍无 key 就 FAIL」的日期闸 ⇒ 新用例（过首备日 FAIL+severe）必红。"""
+    mut = _mutated_script(tmp_path)
+    old = 'if [ "$TODAY" -ge 20261030 ]; then'
+    src = mut.read_text()
+    assert old in src
+    mut.write_text(src.replace(old, "if false; then", 1))
+
+    drill = Drill(tmp_path / "run")
+    drill.set_list_keys("stock_daily", [])
+    r = drill.run(dow=3, script=mut, extra_env={"STUB_TODAY": FIRST_BACKUP_DEADLINE})
+    assert not (r.returncode == 1 and "--severe" in drill.notified), (
+        "变异后过首备日仍判失败 ⇒ 该用例没有判别力")
+
+
+def test_mutation_stock_gate_inverted_turns_before_case_red(tmp_path):
+    """变异④：把日期闸反向（首备日前就 FAIL）⇒ 用例（首备日前应 SKIP 不告警）必红。"""
+    mut = _mutated_script(tmp_path)
+    old = 'if [ "$TODAY" -ge 20261030 ]; then'
+    src = mut.read_text()
+    assert old in src
+    mut.write_text(src.replace(old, 'if [ "$TODAY" -lt 20261030 ]; then', 1))
+
+    drill = Drill(tmp_path / "run")
+    drill.set_list_keys("stock_daily", [])
+    r = drill.run(dow=3, script=mut, extra_env={"STUB_TODAY": BEFORE_FIRST_BACKUP})
+    assert r.returncode != 0 or drill.notified.strip(), (
+        "变异后首备日前也应绿 ⇒ 该用例没有判别力")
 
 
 def test_no_real_network_or_notify_by_construction(tmp_path):

@@ -24,10 +24,10 @@ sentiment.db / etf_national_team.db / public_fund.db 的备份机制 + 事故恢
    - 从 R2 下载最新 → `PRAGMA integrity_check` → 关键表 `COUNT(*)` 与本地对比
    - 全程只读 `mode=ro`，不动真实 `data/*.db`
    - 失败发 severe 邮件告警 + 写 `data/alerts/latest.md`
-   - ⚠️ 该演练脚本只拉 **sentiment / etf_national_team** 两个小库；public_fund（0.79GB gz/份）不每日全量拉回，改按需全量拉回校验：对象大小 == 本地 gz 大小 + 整库 md5 + 头部/尾部各 50MB 哈希逐位比对 + `integrity_check`（2026-10-25 首备份实测口径见 docs/ops/pfdb-r2-backup-20261025.md；流式恢复脚本 `docs/scripts/restore_r2_db_backup.py`）
+   - 拉回范围：**sentiment / etf_national_team / stock_daily** 每日拉回（`stock_daily` 2026-10-29 21:00 首备，首备日之前无 key 记 SKIP、过了首备日仍无 key 记 FAIL 告警）；**public_fund 周频**（默认仅周日跑，`VERIFY_PUBLIC_FUND=auto|1|0` 门控），因单份 0.79GB gz / 解压 2.76GiB，`download-db` 整对象进内存会在云上 OOM，改走 `docs/scripts/restore_r2_db_backup.py` 6 线程 32MiB Range GET 流式拉回 → gunzip → `integrity_check` → 关键表行数比对（口径见 docs/ops/backup-drill-20261028.md；2026-10-25 首备份实测见 docs/ops/pfdb-r2-backup-20261025.md）
 4. **失败告警**（`backup_db.sh` L109-119）：本地热备失败（退出码非 0）时 `notify.py --severe` 发邮件
 
-**最近一次可用备份** = 当日 21:00 起的 R2 `backup/<name>_YYYYMMDD.db.gz`（常态约 23-25 分钟完成上传+演练 ⇒ 约 21:25 前后；2026-10-25 首备实测约 70 分钟。「演练」= `verify_backup.sh` 只拉 sentiment / etf_national_team 两个小库，public_fund 不每日拉回；public_fund 源库自上次备份未变时整条上传跳过）。
+**最近一次可用备份** = 当日 21:00 起的 R2 `backup/<name>_YYYYMMDD.db.gz`（常态约 23-25 分钟完成上传+演练 ⇒ 约 21:25 前后；2026-10-25 首备实测约 70 分钟。「演练」= `verify_backup.sh` 每日拉回 sentiment / etf_national_team / stock_daily 三个小库，public_fund 大库仅周日跑一次流式拉回演练；public_fund 源库自上次备份未变时整条上传跳过）。
 
 **日志**：`data/logs/backup_db_YYYYMMDD_HHMM.log`（备份）/ `data/logs/verify_backup_*.log`（演练）。
 

@@ -49,6 +49,14 @@ TMPDIR=$(mktemp -d /tmp/verify-backup-XXXXXX)
 PF_DIR="$TMPDIR/pf"
 # 空间门限：演练峰值 3.51GiB（gz 0.75 + 解压后 2.76）+ 0.7GiB 余量给同期采集/日志
 PF_MIN_KB="${VERIFY_PUBLIC_FUND_MIN_KB:-4718592}"
+# 非法值(非整数)会让 `[ -lt ]` 报 integer expression expected 后判 false ⇒ 门开(fail-open)，
+# 等于把安全网关掉还不告警。这里显式校验：非法即回落默认。
+case "$PF_MIN_KB" in
+  *[!0-9]*)
+    echo "⚠ VERIFY_PUBLIC_FUND_MIN_KB='$PF_MIN_KB' 非法(需整数 KiB)，回落默认 4718592" >&2
+    PF_MIN_KB=4718592
+    ;;
+esac
 
 # #44 日志不可写隐患根治(同 s06_snapshot 先例): 日志目录/文件不可写时(磁盘满/权限),
 # 非交互 bash 里 `2>>"$LOG"` 重定向失败会让 notify.py 告警命令根本不执行 → 告警静默跳过。
@@ -131,8 +139,18 @@ download_backups() {
       rc=1
       ;;
     NONE)
-      STOCK_STATUS="SKIP(尚无 stock_daily 备份)"
-      echo "⤵ stock_daily: R2 上尚无备份 key，跳过(SKIP，不告警；第一份备份 2026-10-29 21:00)" | tee -a "$LOG"
+      # 首份备份 2026-10-29 21:00 才产生(backup_db.sh:82)。过了首备日仍无任何 key = 备份链断了，
+      # 必须 FAIL（否则"永久无备份"会一路 SKIP+rc=0 静默下去，正是本单要堵的洞）。
+      # 这里**不置 rc**：rc 会走"下载失败→60s 重试→通用告警(请排查 R2 凭证/网络)"，
+      # 把真实原因盖掉且重试无意义。改由 STOCK_STATUS=FAIL 进结论行点名 → overall_ok=0
+      # → 统一失败通道 severe，退出码同样为 1。
+      if [ "$TODAY" -ge 20261030 ]; then
+        STOCK_STATUS="FAIL(无 stock_daily 备份,已过首备日)"
+        echo "✗ stock_daily: 已过首备日(R2 上仍无任何备份 key)，按失败处理（备份链可能断了）" | tee -a "$LOG"
+      else
+        STOCK_STATUS="SKIP(尚无 stock_daily 备份)"
+        echo "⤵ stock_daily: R2 上尚无备份 key，跳过(SKIP，不告警；第一份备份 2026-10-29 21:00)" | tee -a "$LOG"
+      fi
       ;;
     *)
       if ! STOCK_BACKUP=$("$PY" "$REPO/scripts/upload_r2.py" download-db stock_daily "$TMPDIR" 2>>"$LOG"); then
