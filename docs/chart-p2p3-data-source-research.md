@@ -91,6 +91,7 @@
 
 **采集链路（已读脚本）**：
 - 日更：`public_fund_daily.sh`（launchd 16:30 主 + 17:00 兜）→ `python -m app.collector.public_fund daily` → `fetch_daily_nav()`（akshare `fund_open_fund_daily_em` ~23738 只/日）
+  > **注(2026-10-30 补)**:时点已变 —— 现为**云上 systemd timer**,主档 **16:20**、兜底 **17:00**;launchd 已废弃(本机纯开发不跑定时任务)。原文保留为当时事实。
 - 5 年历史回填：`stage0_nav.sh`（launchd 周五 01:43）→ `stage0-nav --days 1825`（27409 只分批断点续采）；另 `fetch_nav_history`（E4）回填头部偏股 200 只 400 日（反推仓位用）
 
 **是否已有导出 JSON 产物**：**无**。`export_fund_score.py` 只导 fund_score.json（头部 2000）+ fund_score_top.json（Top100），均不含净值序列（已读脚本 L1-113 确认）。`queries.py public_fund_position_estimate`（L1754）用 fund_daily_nav 算仓位估计但不导前端。fund_score.json/fund_score_top.json 已在 check_data_integrity.py（L61/370 校验 date+count）。
@@ -148,5 +149,6 @@
 - fund_score_top.json item 34 字段**无 nav/series/history**（python 实测）
 - export_fund_score.py L1-113（只导列表无序列）；queries.py L1754（nav 只用于仓位估计不导前端）
 - fetch_daily_nav public_fund.py L861-908（日更 ~23738 只）；stage0-nav --days 1825（5 年断点续采）；public_fund_daily.sh（launchd 16:30/17:00）
+  > **注(2026-10-30 补)**:`public_fund_daily.sh` 现由云上 systemd timer 驱动,主档 **16:20**、兜底 **17:00**(原 16:30 已改,见 #352)。
 - 场外基金 tab renderOffshoreFund L17700，行无 click 绑定（grep `openFundScoreDetail`/`fund-score-row` onclick 均无）
 - check_data_integrity.py 只有 fund_score 校验（L61/370），无 etf_score_list 校验

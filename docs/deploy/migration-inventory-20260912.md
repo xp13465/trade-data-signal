@@ -126,7 +126,7 @@ requirements.txt 只有 9 个包(fastapi/uvicorn/akshare/mootdx/stockstats/pyyam
 | 24 | pf-stage0-overview | stage0_overview.sh | 周日 2:17 | |
 | 25 | pf-stage0-risk | stage0_risk.sh | 每月 15 日 2:33 | |
 | 26 | pf-stage0-manager | stage0_manager.sh | 每月 1 日 2:47 | |
-| 27 | public-fund-daily | public_fund_daily.sh | 16:30 / 17:00 | |
+| 27 | public-fund-daily | public_fund_daily.sh | 16:30 / 17:00 | 注(2026-10-30):主档已改 **16:20**(2026-10-22 起,见 #352),兜底 17:00 不变;本表「时点」列保留迁当时的原值 |
 | 28 | public-fund-estimation | public_fund_estimation.sh | 10:00/11:00/13:30/14:30 | |
 | 29 | public-fund-full | public_fund_full.sh | 22:00 | |
 | 30 | public-fund-quarterly | public_fund_quarterly.sh | 3:00/4:00/7:00 | |
