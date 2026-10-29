@@ -15,6 +15,12 @@
 #   - python 内 public_fund.lock: 防 quarterly/full/daily 互相并发（共用，撞锁跳过）
 #   - deploy 锁 /tmp/trade_deploy.lock（阻塞）: 串行化 git
 #
+# 预算表(2026-10-29 #352, 内外层成对 L55; 外层 systemd TimeoutStartSec=1860s):
+#   pipeline 300s / export(deploy.sh 内 export.py --incremental) 600s / nav_bucket 300s(既有) / 外层 1860s。
+#   依据: 16:20 档实测 845-890s(其中 export 463s=52%, pipeline 161.6s, nav_bucket 70s, 其余~195s);
+#   最坏路径 300+600+300+195=1395s < 1860s 留梯度。详见 docs/ops/pf-daily-timeout-rca-20261029.md
+#   ⚠ 只在本脚本给预算, 不改 deploy.sh 全局默认(17:50 全量链共享, 改默认=行为变更不是预算变更)。
+#
 # 非交易日: 默认跳过。force 可绕过。
 #
 # 用法: bash scripts/public_fund_daily.sh [force]
@@ -35,6 +41,21 @@ LOCK="/tmp/trade_public_fund_daily.lock"
 
 mkdir -p "$LOGDIR"
 cd "$REPO"
+
+# 可移植超时包装(与 scripts/s06_snapshot.sh / check_data_gap_alerts.sh 同一惯用法):
+# 云上 Linux 走 coreutils timeout(即真正的 `timeout N`); 本机 mac 无 timeout 走 gtimeout/perl alarm。
+# 超时=非零退出, 与「命令自己失败」走同一失败分支(不改失败语义)。
+run_to() {
+  local t="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$t" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$t" "$@"
+  else
+    perl -e 'alarm shift; exec @ARGV or exit 127' "$t" "$@"
+  fi
+}
 
 # 自包装: 首次调用经 with_lock.py --nb 持 daily 锁重跑自己，PF_DAILY_LOCKED=1 防递归。
 if [ -z "${PF_DAILY_LOCKED:-}" ]; then
@@ -57,8 +78,9 @@ fi
 
 # 1) 日更采集（fund_open_fund_daily_em ~23738 行 + 估算仓位变化, ~8s）
 #    pipeline_daily 不调 export_json_files（只更新 fund_daily_nav 表），需手动 export 推 JSON。
-echo "-> 采集公募基金日更净值（~8s）..." | tee -a "$LOG"
-"$PY" -m app.collector.public_fund daily 2>&1 | tee -a "$LOG"
+#    预算 300s（实测 161.6s / 24.4s, 余量约 2x）; 被杀=非零退出, 走下面「跳过 export+deploy」既有分支。
+echo "-> 采集公募基金日更净值（预算 300s）..." | tee -a "$LOG"
+run_to 300 "$PY" -m app.collector.public_fund daily 2>&1 | tee -a "$LOG"
 COLLECT_RC=${PIPESTATUS[0]}
 echo "公募基金日更采集退出码=$COLLECT_RC" | tee -a "$LOG"
 if [ "$COLLECT_RC" -ne 0 ]; then
@@ -97,7 +119,10 @@ else
       # 推送（deploy.sh public-fund 重新 export + git push + R2 上传; #149 方案① 外层锁去掉,
       # 段1 锁外可并发, 段2 git 内部锁串行）
       echo "-> 推送 deploy public-fund（export+R2 锁外并发, git 段内部锁串行）..." | tee -a "$LOG"
-      bash "$REPO/scripts/deploy.sh" public-fund 2>&1 | tee -a "$LOG"
+      # 预算(2026-10-29 #352) 只对这条调用链生效, 不改 deploy.sh 全局默认:
+      #   EXPORT_TIMEOUT=600 包 deploy.sh 内 export.py --incremental（实测 463s）;
+      #   GIT_LOCK_TIMEOUT=420 只覆盖本次等 deploy 锁上限（deploy.sh 全局默认 3600 共享给 17:50 全量链, 不动）。
+      EXPORT_TIMEOUT=600 GIT_LOCK_TIMEOUT=420 bash "$REPO/scripts/deploy.sh" public-fund 2>&1 | tee -a "$LOG"
       DEPLOY_RC=${PIPESTATUS[0]}
       [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
     fi

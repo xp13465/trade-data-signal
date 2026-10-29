@@ -169,6 +169,40 @@ git_push_timeout() {
   return "$rc"
 }
 
+# 通用超时预算 helper(2026-10-29 #352, 公募日更内外层成对预算):
+# 与上面 git_fetch_timeout / git_push_timeout 同一套 background+sleep+kill 原生实现
+# (macOS 无 timeout 命令, 不引 coreutils 依赖), 但命令可定制、超时秒级轮询。
+# 用法: run_with_budget <秒数> <命令...>
+# 返回 0=命令成功 / 124=超预算被杀(与「命令自己失败」用退出码区分) / 其它=命令自身退出码。
+# ⚠ 只被「调用方显式给预算」的分支调用(如 EXPORT_TIMEOUT>0); 默认路径不经过本函数,
+#   保证不设预算时命令 argv 与改动前逐位一致。
+run_with_budget() {
+  local limit="$1"; shift
+  local pid slept rc
+  "$@" &
+  pid=$!
+  slept=0
+  rc=""
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 1
+    slept=$((slept + 1))
+    if [ "$slept" -ge "$limit" ]; then
+      echo "⚠ 命令超预算 ${limit}s 未退出，kill pid=${pid}：$*" >&2
+      pkill -TERM -P "$pid" 2>/dev/null || true
+      kill -TERM "$pid" 2>/dev/null; sleep 2
+      pkill -KILL -P "$pid" 2>/dev/null || true
+      kill -KILL "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      rc=124
+      break
+    fi
+  done
+  if [ -z "$rc" ]; then
+    wait "$pid"; rc=$?
+  fi
+  return "$rc"
+}
+
 if [ "$GIT_PHASE" != "1" ]; then
 echo "=== deploy.sh 段1(锁外 export+R2+rsync)开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 
@@ -321,10 +355,30 @@ fi
 # 手动跑 export.py 不带 --incremental = 全量，行为不变。
 DEPLOY_STAGE="export"
 echo "→ 运行 export.py --incremental 生成静态 JSON ..." | tee -a "$LOG"
-"$PY" "$EXPORT" --incremental 2>&1 | tee -a "$LOG"
+# 预算(2026-10-29 #352): EXPORT_TIMEOUT 默认 0 = 不限时 = 改动前行为逐位不变
+#   (17:50 全量链等其它调用方完全不受影响; 只有调用方显式给 >0 才包预算)。
+# 为什么需要: 公募日更 16:20 档实测 export.py --incremental 占 463s(52%), 见
+#   docs/ops/pf-daily-timeout-rca-20261029.md。调用侧(public_fund_daily.sh)给 600s。
+EXPORT_TIMEOUT="${EXPORT_TIMEOUT:-0}"
+case "$EXPORT_TIMEOUT" in
+  ''|*[!0-9]*)
+    echo "⚠ EXPORT_TIMEOUT 非整数($EXPORT_TIMEOUT)，按 0(不限时)处理" | tee -a "$LOG"
+    EXPORT_TIMEOUT=0
+    ;;
+esac
+if [ "$EXPORT_TIMEOUT" -gt 0 ]; then
+  echo "→ export 预算 ${EXPORT_TIMEOUT}s（超时即杀，按失败处理）" | tee -a "$LOG"
+  run_with_budget "$EXPORT_TIMEOUT" "$PY" "$EXPORT" --incremental 2>&1 | tee -a "$LOG"
+else
+  "$PY" "$EXPORT" --incremental 2>&1 | tee -a "$LOG"
+fi
 EXPORT_RC=${PIPESTATUS[0]}
 if [ "$EXPORT_RC" -ne 0 ]; then
-  echo "✗ export.py 失败(退出码 $EXPORT_RC)，终止部署" | tee -a "$LOG"
+  if [ "$EXPORT_RC" -eq 124 ] && [ "$EXPORT_TIMEOUT" -gt 0 ]; then
+    echo "✗ export.py 超预算 ${EXPORT_TIMEOUT}s 被杀(EXPORT_TIMEOUT，退出码 124)，终止部署（不当成功）" | tee -a "$LOG"
+  else
+    echo "✗ export.py 失败(退出码 $EXPORT_RC)，终止部署" | tee -a "$LOG"
+  fi
   exit "$EXPORT_RC"
 fi
 echo "✓ export.py 完成" | tee -a "$LOG"
