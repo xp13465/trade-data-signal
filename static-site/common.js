@@ -18,18 +18,34 @@
 // 返回 null = 无对应腿(外链/API/第三方域名),调用方据此跳过兜底。
 window._TDS_SSD_BASE = "https://ssd.fx8.store/";
 
-// === #326 返修(2026-10-29): 本地 ./data/<rel> → 真实 R2 key ===
-// 旧版无脑拼 "data/" + rel, 对 5 类分类目录全 404(审查实测: /r2/data/etf/… 404, 真实键 /r2/etf/…)。
-// 逐个目录拿 ssd.fx8.store 只读 GET 实测(2026-10-29, 状态码见 #326 报告),真实布局是 3 类 + 1 个别名:
-//   · 顶层文件(rel 不含 "/")        → data/<rel>           实测 ssd/data/boot.json、ssd/data/public_fund_holdings.json、
-//                                                          ssd/data/fund_score_top.json 均 200
-//   · signal_kelly_* 系列目录        → data/<rel>           实测 ssd/data/signal_kelly_snapshots/… 200、ssd/signal_kelly_snapshots/… 404
-//   · trade_sim/                    → trade_sim_data/<文件>  实测 ssd/trade_sim_data/trade_sim_bj50_stats.json 200、data/trade_sim/… 404
-//   · 顶层 industry-*.json           → industry/<rel>        实测 ssd/data/industry-3m.json 404、ssd/industry/industry-3m.json 200
-//   · 其余分类目录(etf/index/lab/nav_bucket/accum_nav/public_fund/fund_score as 目录)
-//                                   → <rel> 同名前缀        实测 ssd/etf/… 200 而 ssd/data/etf/… 404;index/lab/nav_bucket/accum_nav 同
-// 为什么不是「一律剥掉 data/ 前缀」的单条规则: 顶层文件与 signal_kelly_* 在 R2 里确实带 data/ 前缀,
-//   一刀剥会把它们改坏(§22 修一处坏一处);一刀加 data/ 就是本次要修的 bug。按实测分 3 类 + 1 目录别名,新增目录走同名前缀默认分支。
+// === #326 返修 v2(2026-10-29): 本地 ./data/<rel> → 真实 R2 key(显式白名单) ===
+// 旧版无脑拼 "data/" + rel,对分类目录全 404;v1 返修改成「其余目录一律同名前缀」,又让真实键带
+// data/ 前缀的 news_digest 静默 404(二审实测 ssd/news_digest/_index.json 404 而 data/ 版 200)。
+// 本版改为两张显式白名单 + 3 条固定规则,所有条目逐个拿 ssd.fx8.store 只读 GET 实测(2026-10-29):
+//   A. 真实键【带】data/ 前缀的目录(实测 <dir>/… 404、data/<dir>/… 200):
+//      news_digest / signal_kelly_snapshots / signal_kelly_trades_parts / signal_kelly_trades_sdc_parts
+//   B. 真实键【与本地同名】的目录(实测 <dir>/… 200、data/<dir>/… 404):
+//      etf / index / industry / lab / nav_bucket / accum_nav / public_fund / fund_score /
+//      offshore_fund / trade_sim_data
+//   C. 别名: trade_sim/ → trade_sim_data/(本地 data/trade_sim/ 放的是 json;裸 .html 走 /r2/trade_sim/ 原样搬,
+//      不经本函数,见 _tdsSsdUrlFor 的 R2 分支)
+//   D. 顶层文件(rel 不含 "/") → data/<rel>(实测 data/boot.json、data/public_fund_holdings.json 200)
+//   E. 顶层 industry-*.json 与 industry-*-indices/ 目录 → industry/<rel>
+//      (实测 data/industry-3m.json 404 / industry/industry-3m.json 200;
+//       industry-all-indices/sw_801010.json、industry-5y-indices/…、industry-3y-indices/… 均 200)
+//   F. 未知目录默认走 data/ 前缀 —— 与改造前行为完全一致:将来任何新增目录即使漏登记,
+//      也不会比改造前更差(改造前就是 data/<rel>);反之若默认同名前缀,真实键带 data/ 的新目录
+//      会静默 404 且无报错(news_digest 本次就是这样被漏成 404 的)。
+var _TDS_SSD_DATA_PREFIX_DIRS = {
+  news_digest: 1,
+  signal_kelly_snapshots: 1,
+  signal_kelly_trades_parts: 1,
+  signal_kelly_trades_sdc_parts: 1
+};
+var _TDS_SSD_SAME_PREFIX_DIRS = {
+  etf: 1, index: 1, industry: 1, lab: 1, nav_bucket: 1, accum_nav: 1,
+  public_fund: 1, fund_score: 1, offshore_fund: 1, trade_sim_data: 1
+};
 window._tdsR2KeyForLocal = function (rel) {
   if (!rel) return null;
   rel = String(rel).replace(/^\/+/, "");
@@ -37,8 +53,10 @@ window._tdsR2KeyForLocal = function (rel) {
   if (i < 0) return /^industry-/.test(rel) ? "industry/" + rel : "data/" + rel;
   var dir = rel.slice(0, i);
   if (dir === "trade_sim") return "trade_sim_data/" + rel.slice(i + 1);
-  if (/^signal_kelly_/.test(dir)) return "data/" + rel;
-  return rel;
+  if (_TDS_SSD_DATA_PREFIX_DIRS.hasOwnProperty(dir)) return "data/" + rel;
+  if (_TDS_SSD_SAME_PREFIX_DIRS.hasOwnProperty(dir)) return rel;
+  if (/^industry-/.test(dir)) return "industry/" + rel;
+  return "data/" + rel;
 };
 window._tdsSsdUrlFor = function (u) {
   if (!u || typeof u !== "string") return null;
