@@ -9771,7 +9771,31 @@ async function fetchJSON(url, timeoutMs) {
   const controller = new AbortController();
   // 超时可参数化(2026-08-21 P1-2): 默认仍 15s 不影响既有调用; 大文件调用方(如 sim 弹窗 64MB trades)传 60000
   const _timeoutMs = timeoutMs || 15000;
-  const slowTimer = setTimeout(() => controller.abort(), _timeoutMs);
+  // === #326(2026-10-29) 有界超时阶梯 ===
+  // 现状最坏路径 = 15s×3(首试+2次重试) + 0.5s 退避 + 15s(R2 直链) ≈ 60.5s 才轮到备源,
+  // 用户等一分钟才知道有没有数据 = 等于没有兜底。改为「总预算 + 每腿独立短超时」:
+  //   · 普通数据(默认超时 15000): 单文件总预算 12000ms,其中为 ssd 最后一级预留 4000ms
+  //     (ssd 是 R2 origin 直读、无 CF 边缘缓存,首包可能较慢,必须留够)。
+  //   · 大文件(调用方显式传 timeoutMs>15000,如 60000): 总预算 = timeoutMs + 4000,首腿保持原超时不变。
+  //   · 12s 依据:首屏「看起来还在加载」的可接受上限(超过用户就刷新/关页),同时保证 E4 主站挂起场景
+  //     能在 12s 内落到备源。预算只在失败/挂起路径可观测 —— 主站 200 快路径仍是 1 次请求、立即返回。
+  //   · 无 ssd 对应腿且非 ./data/ 的 URL(API/外链)完全不进预算体系,保持原 _timeoutMs 零变化。
+  // 注意用 _base(已剥 query)映射: 用 url 会把 ?v=/_= 带进 ssd 腿, 再拼一次 _bustQuery 就变成双 query
+  const _ssdUrl = (typeof window._tdsSsdUrlFor === "function") ? window._tdsSsdUrlFor(_base) : null;
+  const _ladderEligible = _isDataReq || !!_ssdUrl;
+  // ssd 预留时长: 普通文件 4000ms;大文件(调用方显式 >15s, 如 lab 60MB 融合文件)按原超时同额预留,
+  // 否则 4s 连首包都拿不完,兜底等于没兜。封顶 60000 防单文件总等待失控。
+  const _SSD_RESERVE_MS = (_ladderEligible && _timeoutMs > 15000) ? Math.min(_timeoutMs, 60000) : 4000;
+  const _totalBudgetMs = _ladderEligible
+    ? (_timeoutMs > 15000 ? _timeoutMs + _SSD_RESERVE_MS : 12000)
+    : _timeoutMs;
+  const _deadline = Date.now() + _totalBudgetMs;
+  const _budgetLeft = () => _deadline - Date.now();
+  // 首腿超时: 有兜底腿的数据请求 = min(原超时, 总预算-ssd预留);其余维持原超时不变
+  const _firstTimeoutMs = _ladderEligible
+    ? Math.max(1000, Math.min(_timeoutMs, _totalBudgetMs - _SSD_RESERVE_MS))
+    : _timeoutMs;
+  const slowTimer = setTimeout(() => controller.abort(), _firstTimeoutMs);
   // cache: 'no-cache' 走条件请求(带 If-None-Match/If-Modified-Since), 绕过 R2 .gz 的 cache-control: max-age=14400 强制缓存
   // 否则 stats 等数据更新后浏览器仍读 4h 旧缓存 (2026-07-22 csi_div tooltip 显示旧版 sell_stop_loss n 而非新版 86 的根因)
   // 时效敏感URL用no-store(浏览器完全不读HTTP缓存每次发GET, 避免CF HIT旧etag返回304浏览器读旧缓存)
@@ -9792,6 +9816,21 @@ async function fetchJSON(url, timeoutMs) {
         const txt = await new Response(decompressed).text();
         return JSON.parse(txt);
       }
+      // #326: 会话级 ssd 优先 —— 仅当本会话此前已有文件经 ssd 兜底成功(主站疑似整域故障)。
+      // 主站正常时该分支永不进入(零额外请求), 主站 200 快路径行为逐位不变。
+      // ssd 优先腿失败则立刻回落原主路径(不因 ssd 故障把正常页面拖坏)。
+      if (_ssdUrl && window._tdsSsdPreferredUntil > Date.now()) {
+        const c0 = new AbortController();
+        const t0 = setTimeout(() => c0.abort(), Math.max(300, Math.min(_SSD_RESERVE_MS, _budgetLeft())));
+        try {
+          const r0 = await fetch(_ssdUrl + _bustQuery, { signal: c0.signal, cache: _cacheMode });
+          if (r0 && r0.ok) return await r0.json();
+        } catch (e0) {
+          console.warn("[fetchJSON] ssd 优先腿失败, 回落主站: " + _ssdUrl, e0?.message || e0);
+        } finally {
+          clearTimeout(t0);
+        }
+      }
       resp = await doFetch(_fetchUrl);
       return await resp.json();
     } catch (e) {
@@ -9802,59 +9841,69 @@ async function fetchJSON(url, timeoutMs) {
         resp = await doFetch(_fetchUrl);
         return await resp.json();
       }
-      // 备用站 R2 兜底（2026-08-11 方案A+B）：./data/*.json 失败(404/网络/CORS/超时) -> 主站 /data/ rewrite 兜底。
-      // 仅 ./data/ 前缀触发（备站无 Worker 路由全 404），跳过 /api/* 与外链；主站有 rewrite 不会失败零影响。
-      // 方案B：首挂 abort(15s) 不连带杀兜底——兜底用独立 controller+独立 15s 超时；再加 1 次退避重试(500ms)防单次抖动。
-      if (_isDataReq) {
-        // 主动域名衔接: 备站 url 已被重写为主站绝对 URL(不以 ./data/ 开头)时, _r2Url 即同一 URL+同一 cache-busting,
-        // 500ms 退避重试 1 次作网络抖动/单次 404 兜底; 主站/本地仍为 ./data/ 前缀时重构主站 /data/ 兜底 URL
-        const _r2Url = url.startsWith("./data/")
-          ? _R2_FALLBACK_BASE + _base.slice("./data/".length) + _bustQuery
-          : _fetchUrl;
-        console.warn("[fetchJSON] ./data/ failed, fallback to R2: " + url + " -> " + _r2Url, e?.message || e);
-        // 主站 /data/ rewrite 失败 -> 二级兜底(2026-08-15 §24#47 消除主站 Worker 单点):
-        //   备站数据本就走主站 Worker rewrite(主动域名 L4330), 若主站该 rewrite 路由失效(/data/  purge/TTL 异常、CF 路由抖动、worker 部分故障),
-        //   同一主站 URL 退避重试 2 次仍失败 -> 再追加一次主站 R2 直链 /r2/data/ 兜底。
-        //   /r2/* 是 R2 binding 直读 + Cache API 边缘缓存 1h 的对象存储通道, 可用性/新鲜度独立于 /data/ rewrite, 作为最后一层保底。
-        //   仅 _isBackupSite && _isDataReq(备站 + 原本 ./data/ 请求) 触发, 不误伤 main/local 与 R2 大 range 直链(后者失败仍直接抛)。
-        //   兜底 URL 用 _R2_DATA_BASE(/r2/data/) + 原始文件名, 复用 _base/_bustQuery 保持与主站重写一致的 gz/json 与 cache-busting 逻辑。
-        let finalErr = e;
-        for (let i = 0; i < 2; i++) {
-          const fc = new AbortController();
-          const ft = setTimeout(() => fc.abort(), _timeoutMs);
+      // === #326 失败阶梯(2026-10-29 B 方案) ===
+      // 只在失败路径追加, 主站正常路径 1 次请求零变化。阶梯(全部复用同一 _bustQuery / _cacheMode):
+      //   ① 主站 /data/ rewrite(备站主动域名重写后的同一 URL;主站 ./data/ 失败时补主站绝对 URL)
+      //   ② 主站 R2 直链 /r2/data/<key> —— 全站放开子目录 key(旧版 L9841 仅单层文件, 子目录一律不兜 = #326 bug)
+      //   ③ ssd.fx8.store 直读同一 R2 key —— 主站整域挂掉时的最后一级(B 方案)
+      // 每腿独立 AbortController + 独立超时, 总预算 _totalBudgetMs 封顶(不再 15s×3 串成一分钟)。
+      // 每腿只打一次(同一文件不重复打 ssd); 任一腿成功即返回。
+      const _tryLeg = async (u, capMs) => {
+        const left = _budgetLeft();
+        if (!u) throw new Error("空兜底腿");
+        if (left <= 300) throw new Error("兜底总预算(" + _totalBudgetMs + "ms)已耗尽");
+        const lc = new AbortController();
+        const lt = setTimeout(() => lc.abort(), Math.max(300, Math.min(capMs, left)));
+        try {
+          const r = await fetch(u, { signal: lc.signal, cache: _cacheMode });
+          if (!r.ok) throw new Error("HTTP " + r.status + " " + u);
+          return await r.json();
+        } finally {
+          clearTimeout(lt);
+        }
+      };
+      // 本次请求对应的 data 文件名(不带 query): 备站重写后从 _R2_FALLBACK_BASE 反推, 主站/本地从 ./data/ 推
+      const _dataFile = _isDataReq
+        ? (_base.indexOf("./data/") === 0 ? _base.slice("./data/".length)
+          : (_base.indexOf(_R2_FALLBACK_BASE) === 0 ? _base.slice(_R2_FALLBACK_BASE.length) : null))
+        : null;
+      if (_dataFile) {
+        let lastErr = e;
+        const legs = [
+          { name: "主站/data/", url: (_base.indexOf("./data/") === 0 ? _R2_FALLBACK_BASE + _dataFile : _base) + _bustQuery },
+          { name: "主站/r2/data/", url: _R2_DATA_BASE + _dataFile + _bustQuery },
+          { name: "ssd", url: _ssdUrl ? _ssdUrl + _bustQuery : null },
+        ];
+        for (let i = 0; i < legs.length; i++) {
+          if (!legs[i].url) continue;
+          // 与首试完全同一 URL(备站重写后 ① 腿 = 首试 URL)时不再重复打: 挂起场景白等一轮超时, 挤掉 ssd 的预算
+          if (legs[i].url === _fetchUrl) continue;
+          console.warn("[fetchJSON] 失败阶梯 " + (i + 1) + "/3 " + legs[i].name + ": " + legs[i].url, lastErr?.message || lastErr);
           try {
-            resp = await fetch(_r2Url, { signal: fc.signal, cache: _cacheMode })
-              .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + _r2Url); return r; });
-            return await resp.json();
+            // 每腿超时按剩余预算动态分: 非 ssd 腿平分「剩余预算 - ssd 预留」,ssd 腿固定拿预留
+            const _legsLeft = Math.max(1, 2 - i);
+            const _capMs = i === 2
+              ? _SSD_RESERVE_MS
+              : Math.max(300, Math.floor((_budgetLeft() - _SSD_RESERVE_MS) / _legsLeft));
+            const d = await _tryLeg(legs[i].url, _capMs);
+            if (i === 2) window._tdsSsdPreferredUntil = Date.now() + 10 * 60 * 1000; // 记住 10min
+            return d;
           } catch (e2) {
-            finalErr = e2;
-            if (i === 1) break; // 两端都失败: 不立即 throw, 若为备站则再试 R2 直链
-            await new Promise((r) => setTimeout(r, 500)); // 退避 500ms 后重试一次
-          } finally {
-            clearTimeout(ft);
+            lastErr = e2;
           }
         }
-        // 二级兜底: 备站 + 原本 ./data/ + 主站 rewrite 重试全失败 -> 主站 R2 直链 _R2_DATA_BASE(/r2/data/) 最后试一次
-        if (_isBackupSite && _isDataReq) {
-          // 原始文件名: 备站主动重写后 url = _R2_FALLBACK_BASE + <filename>; 由 _base(去 query)反推 filename, 复用 _bustQuery
-          const _baseFile = _base.slice(_R2_FALLBACK_BASE.length);
-          if (_baseFile && _baseFile.indexOf("/") < 0) { // 仅兜底 /data/ 下单层文件, 子目录/外链不动
-            const _r2DUrl = _R2_DATA_BASE + _baseFile + _bustQuery;
-            console.warn("[fetchJSON] 主站/data/重写失败, 二级兜底 R2 直链: " + url + " -> " + _r2DUrl, finalErr?.message || finalErr);
-            const fc = new AbortController();
-            const ft = setTimeout(() => fc.abort(), _timeoutMs);
-            try {
-              resp = await fetch(_r2DUrl, { signal: fc.signal, cache: _cacheMode })
-                .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + _r2DUrl); return r; });
-              return await resp.json();
-            } catch (e2) {
-              throw e2; // 最终兜底失败: 向上抛给调用方 renderFailCard
-            } finally {
-              clearTimeout(ft);
-            }
-          }
+        throw lastErr || e;
+      }
+      // 绝对 URL(/r2/<key> 或 /data/<key>): 失败后只补一条 ssd 腿(主站正常时零额外请求)
+      if (_ssdUrl) {
+        console.warn("[fetchJSON] 绝对 URL 失败, 兜底 ssd: " + url + " -> " + _ssdUrl, e?.message || e);
+        try {
+          const d = await _tryLeg(_ssdUrl + _bustQuery, _SSD_RESERVE_MS);
+          window._tdsSsdPreferredUntil = Date.now() + 10 * 60 * 1000;
+          return d;
+        } catch (e2) {
+          throw e2;
         }
-        throw finalErr || e;
       }
       throw e;
     }
