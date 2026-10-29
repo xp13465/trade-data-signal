@@ -23,11 +23,41 @@
   <!-- C2(弱网第三批): boot.json 预取。boot 是首屏渲染的第一块数据(含 overview 副本/signal_stats/config),
        原来要等 app.min.js 下载+执行后才发起(串行); 此处提前发起, 与 JS 下载并行, 首屏数据到位提前约 1 个 JS 下载时长。
        ⚠️ 不用 <link rel=preload as=fetch>(SW 拦截下 as=fetch 的 preload 与页面 fetch 命中同一请求但语义易错),
-       直接起一个 fetch Promise 挂 window, 由 app.js fetchBoot() 消费(消费一次即置空, 失败回退原链路含 R2 兜底)。 -->
+       直接起一个 fetch Promise 挂 window, 由 app.js fetchBoot() 消费(消费一次即置空, 失败回退原链路含 R2 兜底)。
+       #326(2026-10-29): 原写法裸 fetch('./data/boot.json') —— 备站(无 Worker rewrite)必 404 且绕过所有兜底,
+       改为与 fetchJSON 同口径的域名解析 + ssd 最后一级兜底。主站/localhost 仍就是 './data/boot.json'(URL/选项/时机逐位不变)。 -->
   <script>
-  window.__bootPrefetch = fetch('./data/boot.json', { cache: 'no-cache' })
-    .then(function (r) { return r && r.ok ? r.json() : null; })
-    .catch(function () { return null; });
+  (function () {
+    var host = location.hostname;
+    var isMain = host === 'ss.fx8.store';
+    var isLocal = /^localhost$|^127\.0\.0\.1$/.test(host);
+    var primary = (isMain || isLocal) ? './data/boot.json' : 'https://ss.fx8.store/data/boot.json';
+    var ssd = 'https://ssd.fx8.store/data/boot.json';
+    // ms>0 时给这次 fetch 加超时: 主站「挂着不回」时预取不能无限等(否则 app 初始化被它拖死, ssd 兜底轮不到)
+    function grab(u, ms) {
+      if (!ms) return fetch(u, { cache: 'no-cache' }).then(function (r) { return r && r.ok ? r.json() : null; });
+      var c = new AbortController();
+      var t = setTimeout(function () { c.abort(); }, ms);
+      return fetch(u, { cache: 'no-cache', signal: c.signal })
+        .then(function (r) { return r && r.ok ? r.json() : null; })
+        .finally(function () { clearTimeout(t); });
+    }
+    // 主站/localhost 首取不加超时(URL/选项/时机与改动前逐位一致); 其它域名(=备站)首取 8000ms 封顶(与 fetchJSON 备站首腿 cap 同值)。
+    // boot 预取不走 fetchJSON 的总预算体系: 第二腿 ssd 单独给 6000ms, 故备站 boot 最坏 8000+6000=14000ms。
+    var firstMs = (isMain || isLocal) ? 0 : 8000;
+    window.__bootPrefetch = grab(primary, firstMs)
+      .catch(function () { return null; })
+      .then(function (d) {
+        if (d) return d;
+        // 第二腿(ssd)预留 6000ms(返修 4s→6s): 946KB 未压缩实测 3.89s, 4s 顶满(97%)会误杀慢网真可用链路, 6s≈65% 留余量。
+        return grab(ssd, 6000).catch(function () { return null; }).then(function (d2) {
+          // ssd 成功=主站疑似整域故障,记会话级优先。返修(2026-10-29):
+          //   ①TTL 10min→90s ②主站/本地页面 boot 预取失败**不置闩** —— 原来主站一次抖动就走 ssd 10 分钟(§22 混源)。
+          if (d2 && !(isMain || isLocal)) window._tdsSsdPreferredUntil = Date.now() + 90 * 1000;
+          return d2;
+        });
+      });
+  })();
   </script>
   <link rel="icon" type="image/x-icon" href="./favicon.ico?v=1dbb579c">
   <link rel="manifest" href="./manifest.json">
@@ -165,7 +195,7 @@
     <span class="msb-text">📊 盘中预估中 · 数据实时更新 · 收盘后17:50同步最终</span>
     <button class="msb-close" type="button" title="本次关闭" aria-label="关闭盘中状态提示">×</button>
   </div>
-  <main id="content"><div class="loading">加载中…</div></main>
+  <main id="content"><div class="loading loading--active"><span class="loading__spinner" role="status" aria-label="加载中"></span><span class="loading__text">加载中…</span></div></main>
   <!-- H5 底部固定导航：5 主 tab，复用 data-tab 切换逻辑（PC 隐藏）-->
   <nav class="h5-bottomnav">
     <button data-tab="overview" class="active"><span class="bn-icon">📊</span><span class="bn-label">市场全景</span></button>

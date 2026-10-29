@@ -7,6 +7,84 @@
 //   直接调用 _labCustomScoreCardHTML(...) 等同名函数(本文件末尾挂到 window,且 lab.js 用 var 别名引用)
 //   常量 _LAB_CUSTOM_BROAD / _LAB_CUSTOM_SW 同样挂 window
 
+// === #326 B 方案(2026-10-29 用户拍板): 备站数据兜底最后一级 —— R2 自定义域直读 ===
+// 背景: 备站(s.sugas.site / sss.sugas.site)的 ./data/* 全被前端主动改写到主站 ss.fx8.store,
+//   主站整域不可达时备站正文只剩「加载失败」(实测 394 字)。ssd.fx8.store 是 R2 桶直读域
+//   (响应带 access-control-allow-origin:*,无 CF 边缘缓存 cf-cache-status: DYNAMIC),与主站 /r2/ 同一份对象,
+//   作为失败阶梯的最后一层 —— 只在主站链路全失败后才打,主站正常时零请求。
+// 映射(单一实现,app.js/lab.js/common.js 共用,禁第二份副本防漂移):
+//   https://ss.fx8.store/r2/<key>   ⇔ https://ssd.fx8.store/<key>   (同一 R2 key,原样搬)
+//   本地 ./data/<rel> / 主站 /data/<rel> ⇔ https://ssd.fx8.store/<_tdsR2KeyForLocal(rel)>
+// 返回 null = 无对应腿(外链/API/第三方域名),调用方据此跳过兜底。
+window._TDS_SSD_BASE = "https://ssd.fx8.store/";
+
+// === #326 返修 v2(2026-10-29): 本地 ./data/<rel> → 真实 R2 key(显式白名单) ===
+// 旧版无脑拼 "data/" + rel,对分类目录全 404;v1 返修改成「其余目录一律同名前缀」,又让真实键带
+// data/ 前缀的 news_digest 静默 404(二审实测 ssd/news_digest/_index.json 404 而 data/ 版 200)。
+// 本版改为两张显式白名单 + 3 条固定规则,所有条目逐个拿 ssd.fx8.store 只读 GET 实测(2026-10-29):
+//   A. 真实键【带】data/ 前缀的目录(实测 <dir>/… 404、data/<dir>/… 200):
+//      news_digest / signal_kelly_snapshots / signal_kelly_trades_parts / signal_kelly_trades_sdc_parts
+//   B. 真实键【与本地同名】的目录(实测 <dir>/… 200、data/<dir>/… 404):
+//      etf / index / industry / lab / nav_bucket / accum_nav / public_fund / fund_score /
+//      offshore_fund / trade_sim_data
+//   C. 别名: trade_sim/ → trade_sim_data/(本地 data/trade_sim/ 放的是 json;裸 .html 走 /r2/trade_sim/ 原样搬,
+//      不经本函数,见 _tdsSsdUrlFor 的 R2 分支)
+//   D. 顶层文件(rel 不含 "/") → data/<rel>(实测 data/boot.json、data/public_fund_holdings.json 200)
+//   E. 顶层 industry-*.json 与 industry-*-indices/ 目录 → industry/<rel>
+//      (实测 data/industry-3m.json 404 / industry/industry-3m.json 200;
+//       industry-all-indices/sw_801010.json、industry-5y-indices/…、industry-3y-indices/… 均 200)
+//   F. 未知目录默认走 data/ 前缀 —— 与改造前行为完全一致:将来任何新增目录即使漏登记,
+//      也不会比改造前更差(改造前就是 data/<rel>);反之若默认同名前缀,真实键带 data/ 的新目录
+//      会静默 404 且无报错(news_digest 本次就是这样被漏成 404 的)。
+var _TDS_SSD_DATA_PREFIX_DIRS = {
+  news_digest: 1,
+  signal_kelly_snapshots: 1,
+  signal_kelly_trades_parts: 1,
+  signal_kelly_trades_sdc_parts: 1
+};
+var _TDS_SSD_SAME_PREFIX_DIRS = {
+  etf: 1, index: 1, industry: 1, lab: 1, nav_bucket: 1, accum_nav: 1,
+  public_fund: 1, fund_score: 1, offshore_fund: 1, trade_sim_data: 1
+};
+window._tdsR2KeyForLocal = function (rel) {
+  if (!rel) return null;
+  rel = String(rel).replace(/^\/+/, "");
+  var i = rel.indexOf("/");
+  if (i < 0) return /^industry-/.test(rel) ? "industry/" + rel : "data/" + rel;
+  var dir = rel.slice(0, i);
+  if (dir === "trade_sim") return "trade_sim_data/" + rel.slice(i + 1);
+  if (_TDS_SSD_DATA_PREFIX_DIRS.hasOwnProperty(dir)) return "data/" + rel;
+  if (_TDS_SSD_SAME_PREFIX_DIRS.hasOwnProperty(dir)) return rel;
+  if (/^industry-/.test(dir)) return "industry/" + rel;
+  return "data/" + rel;
+};
+window._tdsSsdUrlFor = function (u) {
+  if (!u || typeof u !== "string") return null;
+  var R2 = "https://ss.fx8.store/r2/";
+  var MAIN_DATA = "https://ss.fx8.store/data/";
+  var k;
+  if (u.indexOf(R2) === 0) return window._TDS_SSD_BASE + u.slice(R2.length);
+  if (u.indexOf(MAIN_DATA) === 0) {
+    k = window._tdsR2KeyForLocal(u.slice(MAIN_DATA.length));
+    return k ? window._TDS_SSD_BASE + k : null;
+  }
+  if (u.indexOf("./data/") === 0) {
+    k = window._tdsR2KeyForLocal(u.slice(7));
+    return k ? window._TDS_SSD_BASE + k : null;
+  }
+  if (u.indexOf("/data/") === 0) {
+    k = window._tdsR2KeyForLocal(u.slice(6));
+    return k ? window._TDS_SSD_BASE + k : null;
+  }
+  return null;
+};
+// 会话级「ssd 可用」记忆(毫秒时间戳): 任一文件经 ssd 兜底成功后置 now+90s(返修: 原 10min 过长,
+// 主站短暂抖动也会让用户 10 分钟都走 ssd, §22 混源风险), 后续文件优先走 ssd,
+// 避免主站整域挂掉时 13 个首屏文件每个都要从头等一遍阶梯。
+// 解除条件: ①90s 到期 ②任一次主站请求成功(app.js fetchJSON 里清零) ③主站 boot 预取失败不置闩(index.html)
+// 用 || 保留: index.html 的 boot 预取在本文件之前执行, 备站场景可能已置过值(不能覆盖回 0)。
+window._tdsSsdPreferredUntil = window._tdsSsdPreferredUntil || 0;
+
 // === 40 个预生成 iid + 中文名(与 app/alert_match.py PREGEN_TARGETS 对齐) ===
 var _LAB_CUSTOM_BROAD = [
   { iid: "sh", name: "上证指数" },
@@ -1456,12 +1534,24 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
     if (!s || String(s).length !== 8) return s;
     return String(parseInt(s.slice(4, 6), 10)) + "/" + String(parseInt(s.slice(6, 8), 10));
   }
+  // #326(2026-10-29): 本文件这两处是裸 fetch(不复用 fetchJSON),备站 ./data/ 必 404 → 原逻辑静默 null。
+  //   主站正常时行为逐位不变(第一腿成功即返回);失败才补 ssd 最后一级(同一 R2 key)。
+  function _intraFetchJsonOrNull(u) {
+    return fetch(u, { cache: "no-store" })
+      .then(function (r) { if (!r.ok) return null; return r.json(); })
+      .catch(function () { return null; });
+  }
+  function _intraFetchWithFallback(u) {
+    return _intraFetchJsonOrNull(u).then(function (d) {
+      if (d) return d;
+      var ssd = (typeof window._tdsSsdUrlFor === "function") ? window._tdsSsdUrlFor(u) : null;
+      return ssd ? _intraFetchJsonOrNull(ssd) : null;
+    });
+  }
   function _fetch() {
     if (_promise) return _promise;
     var cb = (typeof _labCustomCacheBust === "function" && _labCustomCacheBust()) || "";
-    _promise = fetch(_INTRA_URL + (cb ? "?v=" + cb : ""), { cache: "no-store" })
-      .then(function (r) { if (!r.ok) return null; return r.json(); })
-      .catch(function () { return null; });
+    _promise = _intraFetchWithFallback(_INTRA_URL + (cb ? "?v=" + cb : ""));
     return _promise;
   }
   function _esc(x) {
@@ -1824,9 +1914,7 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
   }
   function _fetchFresh() {
     var cb = (typeof _labCustomCacheBust === "function" && _labCustomCacheBust()) || "";
-    return fetch(_INTRA_URL + (cb ? "?v=" + cb : ""), { cache: "no-store" })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; });
+    return _intraFetchWithFallback(_INTRA_URL + (cb ? "?v=" + cb : ""));
   }
   function _ensurePoll(anchorEl, opts, d) {
     if (!_pollActive(anchorEl, d)) { _stopPoll(anchorEl); return; }

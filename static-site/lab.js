@@ -1809,16 +1809,27 @@ async function fetchJSONProgress(url, onProgress, signal, timeoutMs) {
     if (e && e.name === "AbortError") {
       // perf批一 P8-D: 超时触发的 abort 记日志便于排查弱网问题(外部手动取消不打扰)
       if (_timedOut) console.error("fetchJSONProgress timeout (" + timeoutMs + "ms): " + url);
+      // #326(2026-10-29): 本函数自己超时(非用户主动取消)时不再直接放弃 —— 交给 fetchJSON 走
+      //   「主站 → 主站 /r2/ → ssd」失败阶梯, 并把外部 signal 一起传下去(返修: 原来不传,
+      //   交接给 fetchJSON 后用户再取消就中止不了, 请求会一路跑完)。
+      //   注意耗时: 普通文件走阶梯总预算是 _timeoutMs + 4s;但 >15s 的大文件(lab 融合 60MB 等)
+      //   总预算 = timeoutMs + 同额预留,最坏 ≈2×timeoutMs(如 60s → 120s),且失败重试是**整文件重下**,
+      //   不要指望它「再多等一分钟」就够 —— 弱网大文件仍可能等两三分钟。
+      //   用户主动取消(外部 signal.aborted 且非本函数超时)保持原语义: 直接抛,不触发兜底。
+      if (_timedOut) {
+        if (onProgress) onProgress(-1, 0);
+        return fetchJSON(url, timeoutMs, signal);
+      }
       throw e; // 中止不降级，向上抛
     }
-    // .gz 失败(404/解压错/不支持) -> fallback 原 .json 走 fetchJSON (透传同额超时)
+    // .gz 失败(404/解压错/不支持) -> fallback 原 .json 走 fetchJSON (透传同额超时 + 外部 signal)
     if (gzUrl) {
       if (onProgress) onProgress(-1, 0);
-      return fetchJSON(url, timeoutMs);
+      return fetchJSON(url, timeoutMs, signal);
     }
-    // 流式读取失败（如浏览器不支持），降级普通 fetch (透传同额超时)
+    // 流式读取失败（如浏览器不支持），降级普通 fetch (透传同额超时 + 外部 signal)
     if (onProgress) onProgress(-1, 0);
-    return fetchJSON(url, timeoutMs);
+    return fetchJSON(url, timeoutMs, signal);
   } finally {
     // perf批一 P8-D: 清理超时定时器+外部 signal 监听(所有返回路径统一走 finally, 防泄漏)
     if (_timer) clearTimeout(_timer);
@@ -8667,6 +8678,9 @@ function _loadKellyReviewNotes() {
 function _labKellyFetchTrades(name) {
   var r2 = _labKellyTradesUrl(name);
   var cf = _labKellyTradesUrlCf(name);
+  // #326(2026-10-29): 第三腿 = ssd.fx8.store 直读同一 R2 key(主站/R2 代理整域挂掉时的最后一级)。
+  // 主站正常时第二腿就成功,第三腿零请求;映射走 common.js 的单一实现(_tdsSsdUrlFor),不重复拼字符串。
+  var ssd = (typeof window._tdsSsdUrlFor === "function") ? window._tdsSsdUrlFor(r2) : null;
   var controller = new AbortController();
   var to = setTimeout(function() { controller.abort(); }, 60000);
   return fetch(r2, { signal: controller.signal })
@@ -8677,7 +8691,15 @@ function _labKellyFetchTrades(name) {
       var t2 = setTimeout(function() { c2.abort(); }, 60000);
       return fetch(cf, { signal: c2.signal })
         .then(function(r) { clearTimeout(t2); if (!r.ok) throw new Error("CF " + r.status); return r.json(); })
-        .catch(function(e2) { clearTimeout(t2); throw e2; });
+        .catch(function(e2) {
+          clearTimeout(t2);
+          if (!ssd) throw e2;
+          var c3 = new AbortController();
+          var t3 = setTimeout(function() { c3.abort(); }, 60000);
+          return fetch(ssd, { signal: c3.signal })
+            .then(function(r) { clearTimeout(t3); if (!r.ok) throw new Error("SSD " + r.status); return r.json(); })
+            .catch(function(e3) { clearTimeout(t3); throw e3; });
+        });
     });
 }
 // 分片带重试的 fetch(2026-08-29): 单片至多 attempts 次尝试(首次+重试), 每次失败按 delays 指数退避后重试, 全败才抛出
