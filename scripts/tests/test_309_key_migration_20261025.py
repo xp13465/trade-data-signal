@@ -12,6 +12,7 @@
 """
 import ast
 import datetime
+import functools
 import textwrap
 import types
 
@@ -28,16 +29,28 @@ def _active(key):
             "first_seen": "2026-10-24 00:00:01", "last_alerted": "2026-10-24 00:00:01"}
 
 
+@functools.lru_cache(maxsize=None)
 def _recovery_loop():
-    """提取恢复检测 for 块(depends: seen_keys_this_run / alert_state / recoveries)。"""
+    """提取恢复检测 for 块(depends: seen_keys_this_run / alert_state / recoveries)。
+
+    性能(#357): `ast.get_source_segment` 每次调用都要把整份源码切一遍行, 所以
+    ① 先按类型筛 ② 再用「节点所在行的整段文本」做必要条件预筛(行范围文本是
+    精确段的超集, 超集里不含 ⇒ 精确段必不含, 不必真去取段) ③ 结果按 lru_cache
+    缓存(同进程源码不变, 4 个用例只算一次) ④ 最终入选仍由精确段子串判定, 语义不变。
+    """
     src = heredoc_source()
     tree = ast.parse(src)
+    lines = src.split("\n")
     segs = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.For):
-            seg = ast.get_source_segment(src, node) or ""
-            if "recoveries.append" in seg and "_key not in seen_keys_this_run" in seg:
-                segs.append(textwrap.dedent(" " * node.col_offset + seg))
+        if not isinstance(node, ast.For):
+            continue
+        span = "\n".join(lines[node.lineno - 1: node.end_lineno or node.lineno])
+        if "recoveries.append" not in span or "_key not in seen_keys_this_run" not in span:
+            continue
+        seg = ast.get_source_segment(src, node) or ""
+        if "recoveries.append" in seg and "_key not in seen_keys_this_run" in seg:
+            segs.append(textwrap.dedent(" " * node.col_offset + seg))
     assert segs, "schedule_monitor.sh 恢复检测循环被重命名/重构了? 本测试锚点需同步"
     return max(segs, key=len)
 

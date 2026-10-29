@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import ast
+import functools
 import json
 import os
 import re
@@ -338,15 +339,22 @@ def _load_active_escalate_inprocess(tmp_path: Path):
     return ns["_active_escalate"], events
 
 
+@functools.lru_cache(maxsize=None)
 def _load_extra_stale_loop() -> str:
-    """取 monitor 里 EXTRA 任务停摆检测循环的**真实源码段**(模块级 for, 非函数)。"""
+    """取 monitor 里 EXTRA 任务停摆检测循环的**真实源码段**(模块级 for, 非函数)。
+
+    性能: 先按类型筛再取源码段(ast.get_source_segment 每次调用都要把整份
+    221KB 源码切一遍行, 先对 2 万多个 AST 节点逐个取曾是 36s, 见 #357);
+    结果按 lru_cache 缓存(同进程源码不变, 用例调多次只算一次)。
+    """
     src = _monitor_py_src()
     tree = ast.parse(src)
     # 循环嵌在模块级 with/try 块内, 不能用 tree.body(只扫顶层)
     for node in ast.walk(tree):
+        if not isinstance(node, ast.For):
+            continue  # 先筛类型, 别对全部节点各切一次全源码
         seg = ast.get_source_segment(src, node)
-        if (isinstance(node, ast.For) and seg
-                and "EXTRA_MARKER_STALE_LOOPS[_et]" in seg):
+        if seg and "EXTRA_MARKER_STALE_LOOPS[_et]" in seg:
             return seg
     raise AssertionError("monitor 源码中找不到 EXTRA 停摆循环(行文/结构已漂移)")
 

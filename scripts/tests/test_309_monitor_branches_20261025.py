@@ -16,6 +16,7 @@
 不触达真实 notify/邮件/飞书。
 """
 import ast
+import functools
 import sys
 import textwrap
 from pathlib import Path
@@ -32,17 +33,40 @@ def _source():
     return heredoc_source()
 
 
-def _segment(pred, *, kind=ast.If, pick="smallest"):
-    """取代码块并抹平原始缩进(首行无缩进、续行带原缩进, 需要按 col_offset 对齐)。"""
+@functools.lru_cache(maxsize=None)
+def _candidate_segments(kind, needles):
+    """按(节点类型, 必要子串)缓存源码段, 同一组合只提取一次。
+
+    性能(#357): `ast.get_source_segment` 每次调用都要把整份源码切一遍行,
+    对 393 个 If 逐个取曾要 8.6s, 整文件 35s。于是:
+      1. 先 isinstance 筛类型;
+      2. 再用 `needles` 做**必要条件预筛**——节点所在行的整段文本是精确
+         源码段的超集(精确段只在行内按列裁剪), 超集里都不含该子串 ⇒ 精确段
+         必然不含, 可以跳过, 不必真去取段;
+      3. 结果缓存, 22 个用例重复取同一代码块只算一次。
+    `needles` 只做预筛, 最终是否入选仍由调用方的 `pred(精确段)` 判定, 语义不变。
+    """
     src = _source()
     tree = ast.parse(src)
-    segs = []
+    lines = src.split("\n")
+    out = []
     for node in ast.walk(tree):
-        if isinstance(node, kind):
-            seg = ast.get_source_segment(src, node) or ""
-            if pred(seg):
-                # 给首行补回 col_offset 个空格后统一 dedent, 续行缩进才与首行同基准
-                segs.append(textwrap.dedent(" " * node.col_offset + seg))
+        if not isinstance(node, kind):
+            continue
+        span = "\n".join(lines[node.lineno - 1: node.end_lineno or node.lineno])
+        if any(n not in span for n in needles):
+            continue
+        out.append((node, ast.get_source_segment(src, node) or ""))
+    return tuple(out)
+
+
+def _segment(pred, *, kind=ast.If, pick="smallest", needles=()):
+    """取代码块并抹平原始缩进(首行无缩进、续行带原缩进, 需要按 col_offset 对齐)。"""
+    segs = []
+    for node, seg in _candidate_segments(kind, tuple(needles)):
+        if pred(seg):
+            # 给首行补回 col_offset 个空格后统一 dedent, 续行缩进才与首行同基准
+            segs.append(textwrap.dedent(" " * node.col_offset + seg))
     assert segs, "schedule_monitor.sh 里找不到目标代码块: 被重命名/重构了? 本测试锚点需同步"
     return min(segs, key=len) if pick == "smallest" else max(segs, key=len)
 
@@ -50,7 +74,7 @@ def _segment(pred, *, kind=ast.If, pick="smallest"):
 # ---------------------------------------------------------------- P2-2 deploy warning
 
 def _run_deploy_branch(row, calls):
-    seg = _segment(lambda s: "deploy_warn" in s)
+    seg = _segment(lambda s: "deploy_warn" in s, needles=("deploy_warn",))
     ns = {
         "s": row,
         "exit_code": row.get("last_exit"),
@@ -112,7 +136,8 @@ FAILED_LOOP_PRED = lambda s: "LAUNCHCTL_LABELS" in s and "failed_no_exit" in s
 def _run_failed_loop(label, state, *, stats_row=None, unit_code=None,
                      systemd_on=True, alert_state=None, unit_source="systemd",
                      registry_units=None):
-    seg = _segment(FAILED_LOOP_PRED, kind=ast.For)
+    seg = _segment(FAILED_LOOP_PRED, kind=ast.For,
+                   needles=("LAUNCHCTL_LABELS", "failed_no_exit"))
     notify_calls = []
     funit = label.replace("com.trade.", "trade-", 1) + ".service"
     from _monitor_conclusion_309 import namespace
