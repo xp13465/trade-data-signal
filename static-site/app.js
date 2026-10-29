@@ -2286,12 +2286,63 @@ function _ovAggregateRecent(recent, modeId, bullStopOn, fadeOn, k) {
 // 重写 ts; 过期/无 ts(旧格式)/解析异常 → 回默认并清键(工具内置 removeItem)。
 // v1.1.5(2026-08-24) overfit_monitor.json 共享获取器(app.js 作用域内单份 promise):
 // 监控卡主图 + 首页 AI 建议区枯竭 chip 共用同一份 27MB 数据, 防同页双拉; 失败 resolve null(chip 静默隐藏)。
+// #325(2026-10-29 首屏瘦身): 监控卡在页面中下部(不在首屏可见区), 原"初始化即拉"白拉 27MB。
+// 改为"可见/要用才拉"——IntersectionObserver(rootMargin 200px 提前预取) 监听监控卡;
+// IO 不存在 → setTimeout 5s 退化; 再兜一层用户首次交互(scroll/touchstart/click, once)。
+// 单次语义不变: _overfitMonitorPromise 仍是单例, 重复调用返回同一个 Promise, 请求只发一次。
 let _overfitMonitorPromise = null;
+let _overfitMonitorWanted = false;        // 已出现"要用"信号(卡进预取区/首次交互/IO 不可用兜底)
+let _overfitMonitorWake = null;           // 未触发时挂起的唤醒器(触发后释放, 只释放一次)
+let _overfitMonitorFallbackArmed = false; // 兜底触发器只装一次
+let _overfitMonitorCardEl = null;         // 已监听的监控卡(防重复 observe)
+
+function _overfitMonitorTrigger() {
+  if (_overfitMonitorWanted) return;
+  _overfitMonitorWanted = true;
+  const wake = _overfitMonitorWake;
+  _overfitMonitorWake = null;
+  if (wake) wake();
+}
+
+function _armOverfitMonitorFallbacks() {
+  if (_overfitMonitorFallbackArmed) return;
+  _overfitMonitorFallbackArmed = true;
+  // 兜底1: 无 IntersectionObserver(老浏览器/极端环境) → 5s 后照拉, 退化为"首帧后延迟",
+  // 不会永久停在占位(监控卡仍能加载, 只是省不到首屏)。
+  if (typeof IntersectionObserver !== "function") setTimeout(_overfitMonitorTrigger, 5000);
+  // 兜底2: 用户首次交互也算"要用"(用户已在操作页面, 提前拉减少滚到卡时的等待)。
+  const onFirst = () => _overfitMonitorTrigger();
+  ["scroll", "touchstart", "click"].forEach((t) => {
+    try { window.addEventListener(t, onFirst, { once: true, passive: true }); } catch (e) { window.addEventListener(t, onFirst, { once: true }); }
+  });
+}
+
+// 由 _appendOverfitCard 在卡片入 DOM 后调用: 卡进入视口前 200px 即触发预取。
+function _watchOverfitCard(el) {
+  if (!el || el === _overfitMonitorCardEl) return;
+  _overfitMonitorCardEl = el;
+  _armOverfitMonitorFallbacks();
+  if (typeof IntersectionObserver !== "function") return; // 兜底 setTimeout 已负责
+  if (_overfitMonitorWanted) return;
+  const io = new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (en.isIntersecting) { io.disconnect(); _overfitMonitorTrigger(); return; }
+    }
+  }, { rootMargin: "200px" });
+  io.observe(el);
+}
+
 function _fetchOverfitMonitor() {
   if (_overfitMonitorPromise) return _overfitMonitorPromise;
+  _armOverfitMonitorFallbacks();
+  const gate = _overfitMonitorWanted
+    ? Promise.resolve()
+    : new Promise((res) => { _overfitMonitorWake = res; });
   // D防超时(2026-08-24 提速A+B+C+D): timeoutMs=60000 对齐模拟回测弹窗大文件先例,
   // 防弱网/无 br 压缩环境撞默认 15s abort 报「监控数据加载失败」。
-  _overfitMonitorPromise = fetchJSON(dataUrl("overfit_monitor.json"), 60000).catch(() => null);
+  _overfitMonitorPromise = gate
+    .then(() => fetchJSON(dataUrl("overfit_monitor.json"), 60000))
+    .catch(() => null);
   return _overfitMonitorPromise;
 }
 // B拆分(2026-08-24): K档扩展 bank 单独文件 overfit_monitor_ext.json(by_k/filtered_by_k,
@@ -2598,9 +2649,14 @@ async function _appendOverfitCard(colA2, r, snap) {
     syncOverfitCharts();
   });
   colA2.appendChild(card);
+  // #325: 卡入 DOM 后挂"进视口前 200px 预取"(可见才拉, 见 _watchOverfitCard 注释)。
+  _watchOverfitCard(card);
 
   // 空数据/加载失败守卫: 不裸崩(fetchJSON 自带 .gz fallback + 15s 超时; 本卡 fetch 已传 60000, D件套)
   const emptyEl = card.querySelector(".overfit-empty");
+  // #325: 未加载时给稳定占位(灰字一行, 不空白/不报错样式); 加载成功隐藏, 失败替换为原失败文案。
+  emptyEl.style.display = "";
+  emptyEl.textContent = "监控数据加载中…";
   let _overfitData = null;
   // B拆分(2026-08-24): K档扩展文件拉取状态(idle→loading→done/failed), 卡内闭包态
   let _extLoadState = "idle";
@@ -16484,28 +16540,12 @@ async function renderOverview() {
         }
       }
       if (_frozenList.length >= 3) {
-        let _firstSince = "";
-        try {
-          const sall = await fetchJSON(dataUrl("sentiment-all.json"));
-          if (state.tab !== 'overview') return;
-          // 扫描历史，找上一个 ≥3 宽基同日冰点的日期，算"近X月首次"
-          const _dfc = {};
-          for (const sid of _BROAD_SENT_IDS) {
-            for (const d of (sall[sid] || [])) {
-              if (d.is_freeze || (d.value != null && d.value < 20)) _dfc[d.date] = (_dfc[d.date] || 0) + 1;
-            }
-          }
-          const _curDate = _frozenList[0].date || r.date;
-          const _prevDates = Object.keys(_dfc).filter(d => d !== _curDate && _dfc[d] >= 3).sort();
-          if (_prevDates.length) {
-            const _prev = _prevDates[_prevDates.length - 1];
-            const _mo = (+_curDate.slice(0, 4) - +_prev.slice(0, 4)) * 12 + (+_curDate.slice(4, 6) - +_prev.slice(4, 6));
-            // 诚信口径：距上次≥3冰点间隔≥1月才称"近X月首次"；<1月=近期持续冰点(不夸大稀缺性)
-            _firstSince = _mo >= 12 ? `近${Math.floor(_mo / 12)}年首次` : _mo >= 1 ? `近${_mo}月首次` : "近期持续冰点";
-          } else {
-            _firstSince = "数据期内首次";
-          }
-        } catch (e) { /* best-effort，无历史数据则不显示"首次" */ }
+        // #325(2026-10-29 首屏瘦身): "近X月首次"改读后端预算字段 overview.freeze_hint
+        // (app/queries.py:_freeze_hint 与旧前端逐位同构, 含 20100101 历史下界)。原来的全史扫描删掉,
+        // 首屏不再为一句文案拉 4.6MB sentiment-all.json。
+        // 缺字段/为 null 的两种原因: ①旧数据层(前端新码先于 overview.json 重建落地) ②历史不足。
+        // 此时不显示这句修饰即可——不回退拉全史(那正是本次要消掉的成本), 也不显示占位/错句子。
+        const _firstSince = r.freeze_hint || "";
         const _names = _frozenList.map(f => `${f.name}=${f.value != null ? f.value.toFixed(1) : "-"}`).join("、");
         const resBanner = document.createElement("div");
         resBanner.className = "freeze-resonance-banner";

@@ -171,6 +171,71 @@ def score_series(conn, score_id, start, end, *, cache=None):
     return [dict(r) for r in rows]
 
 
+# 6 宽基情绪分（冰点共振口径）—— 前端 app.js `_BROAD_SENT_IDS` 的同源登记点。
+# §22 一致性：改这里（增删/换序）必须同步前端 app.js 同名常量，否则"近X月首次"文案会漂。
+BROAD_SENT_IDS = (
+    "sentiment_sz50", "sentiment_hs300", "sentiment_csi500",
+    "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50",
+)
+# 前端 sentiment-all.json 的取数下界（= range_for("all") 的 20100101）。DB 里 sentiment_* 还有
+# 2002~2010 更早的历史，但前端历史只能看到 20100101 起；冰点共振历史必须同界，否则"数据期内首次"
+# 与前端现算结果对不上（#325 同构对账）。
+_FREEZE_HISTORY_START = "20100101"
+
+
+def _freeze_hint(conn, today_scores, overview_date):
+    """预算首页冰点横幅的"近 X 月首次"文案（#325 首屏瘦身，纯派生，几十字节）。
+
+    与前端原现算逻辑（app.js:16486-16508）逐位同构：
+      ① 6 宽基逐卡判冰点：is_freeze 真值 或 value<20；
+      ② 今日共振需 >=3 个宽基冰点，当前锚 = 按 BROAD_SENT_IDS 顺序第一个冰点卡的 date
+         （缺失则回退 overview.date）；
+      ③ 历史上"同日 >=3 宽基冰点"的日期里，取最近一个（!= 当前锚）；月差 >=12 → 近 N 年首次、
+         >=1 → 近 N 月首次、<1 → 近期持续冰点；没有更早共振日 → 数据期内首次。
+    例外（按 #325 需求）：今日不足 3 个冰点、或历史表拿不到/为空 → 返回 None，前端据此
+    不显示这句（不回退拉全史）。旧前端在"历史为空"时会显示"数据期内首次"，本字段不再显示。
+    """
+    frozen = []
+    for sid in BROAD_SENT_IDS:
+        sc = (today_scores or {}).get(sid)
+        if not sc:
+            continue
+        val = sc.get("value")
+        if sc.get("is_freeze") or (val is not None and val < 20):
+            frozen.append(sc)
+    if len(frozen) < 3:
+        return None
+    cur_date = frozen[0].get("date") or overview_date
+    rows = conn.execute(
+        "SELECT date, COUNT(*) AS n FROM score_daily "
+        "WHERE score_id IN (%s) AND date >= ? "
+        "AND (CAST(IFNULL(is_freeze, 0) AS INTEGER) != 0 "
+        "     OR (value IS NOT NULL AND value < 20)) "
+        "GROUP BY date" % ",".join("?" * len(BROAD_SENT_IDS)),
+        (*BROAD_SENT_IDS, _FREEZE_HISTORY_START),
+    ).fetchall()
+    if not rows:
+        return None
+    prev = None
+    for r in rows:
+        if r["date"] == cur_date or r["n"] < 3:
+            continue
+        if prev is None or r["date"] > prev:
+            prev = r["date"]
+    if not prev:
+        return "数据期内首次"
+    try:
+        months = ((int(cur_date[:4]) - int(prev[:4])) * 12
+                  + (int(cur_date[4:6]) - int(prev[4:6])))
+    except (TypeError, ValueError):
+        return None
+    if months >= 12:
+        return f"近{months // 12}年首次"
+    if months >= 1:
+        return f"近{months}月首次"
+    return "近期持续冰点"
+
+
 def signals(conn, index_id=None, start=None, end=None, *, cache=None):
     """signal_daily 序列。index_id=None 取全局。"""
     if cache is not None:
@@ -1944,6 +2009,11 @@ def overview(conn, cfg):
     if sig_dates and sig_dates[0] > _overview_date:
         _overview_date = sig_dates[0]
 
+    # #325 首屏瘦身：把首页"近 X 月首次"派生文案在后端预算好（前端不再拉 4.6MB 全史现算）。
+    # 入参用与返回 today.scores 完全相同的映射（含每卡 date 兜底），保证与前端现算逐位同构。
+    _today_scores = {k: {**v, "date": v.get("date") or score_date} for k, v in scores.items()}
+    freeze_hint = _freeze_hint(conn, _today_scores, _overview_date)
+
     return {
         "date": _overview_date,
         "collected_at": collected_at,
@@ -1956,10 +2026,13 @@ def overview(conn, cfg):
         # #19 近90日「情绪日历」：按 date 合并冰点+情绪分信号(date → {freeze, signals})。
         # 新增旁路字段, 与既存 recent_freeze/signals_today 兼容不冲突(§22/§5.3)。
         "sentiment_calendar": sentiment_calendar,
+        # #325: 冰点横幅"近 X 月首次"预算文案（字符串；不足3冰点/无历史=null，前端不显示该句）。
+        # 与 overview.json 同步进 boot.json 内嵌副本（export_boot 整份拷贝，§22 同一事实两处一致）。
+        "freeze_hint": freeze_hint,
         # 今日快照：每张卡自带独立 date(自身 score_id 的 max(date))，
         # 单指标缺失不拖垮其它卡；无 date 的行(理论上不会发生)回退 score_date。
         "today": {
-            "scores": {k: {**v, "date": v.get("date") or score_date} for k, v in scores.items()},
+            "scores": _today_scores,
             "metrics": today_metrics,
         },
         "indices_sparkline": indices_sparkline,
