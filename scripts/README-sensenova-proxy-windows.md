@@ -14,7 +14,7 @@
   - `sensenova-rotate-proxy.py`(代理本体)
   - `sensenova-proxy-ctl.py`(控制工具,主入口)
   - `keys.txt.example`(key 模板)
-- 复制 `keys.txt.example` 为 `keys.txt`,填入你的商汤 key(每行一把,最多 7 把,`#` 开头注释)
+- 复制 `keys.txt.example` 为 `keys.txt`,填入你的商汤 key(每行一把,建议 ≤7 把与设计池一致;代码不强制上限,有多少用多少,`#` 开头注释)
   - key 从 https://token.sensenova.cn 控制台获取
 
 ### 2. 启动
@@ -38,9 +38,12 @@ python3 sensenova-proxy-ctl.py config claude
 ```
 python3 sensenova-proxy-ctl.py config codex
 ```
-自动备份 `~/.codex/config.toml`,追加 `[model_providers.sensenova]` 段(base_url 指向代理,`wire_api = "chat"`),顶层 `model = "glm-5.2"`。**重启 codex 生效。**
+自动备份 `~/.codex/config.toml`,写入 `[model_providers.sensenova]` 段(base_url 指向代理,`wire_api = "responses"`),并在**顶层**写 `model_provider = "sensenova"` + `model = "glm-5.2"`。**重启 codex 生效。**
 
-> codex wire_api 暂定 `chat`(OpenAI 兼容协议)。商汤端点 `/v1/chat/completions` 与 `/v1/responses` 都在(返回 429 限流非 404),协议层可行;若实测 chat 不通可改 `responses`。当前商汤全端 RPM 限流中,实测可能 429,如实标注。
+> wire_api 用 `responses`:codex 0.154.0 起 `chat` 已废弃(配置加载即报 "chat is no longer supported")。
+> 本版已用本机 codex 0.154.0 实测:隔离 CODEX_HOME 加载生成配置正常,`codex exec` 经本地代理打通商汤
+> `/v1/responses` 并正常返回。顶层 `model_provider` 必须写,否则 codex 仍走默认 openai provider、请求不发代理。
+> 只改顶层 `model`/`model_provider`,`[profiles.*]` 等其它段内的同名键一律不动。
 
 ### 5. 查当前指向
 ```
@@ -68,6 +71,8 @@ mac/linux 不能交叉编译 PyInstaller,**exe 必须在 Windows 机器上生成
 3. 产物在 `dist\sensenova-proxy.exe`
 4. 把 `sensenova-proxy.exe` 与 `keys.txt` 放同目录,双击 exe 即用
 
+> exe(PyInstaller onefile)运行时按 **exe 所在目录**找 `keys.txt`:onefile 的 `__file__` 指向临时解包目录,
+> 本版已改用 `sys.executable` 目录做基准,所以"exe 与 keys.txt 同目录"确实可用(本机已模拟冻结态实测)。
 > exe 版只能双击启动代理本体,**ctl 控制工具的 config/status/restore 等功能仍需 .py 版**(ctl 不打成 exe,因为它要读写用户家目录配置文件,Python 脚本更灵活)。要一键配置 Claude/codex 仍需装 Python 跑 ctl。
 
 ## 四、验证(curl 等价)
@@ -102,7 +107,15 @@ curl http://127.0.0.1:8899/v1/messages \
 
 ## 七、mac 用户(对照)
 
-mac 现状仍可用 `scripts/sensenova-rotate-proxy.sh`(从 trade-data/.env 导 key)+ launchd 守护;ctl 工具是跨平台统一入口,mac 也能用 `python3 sensenova-proxy-ctl.py start`。env(TTP_LOG/SENSENOVA_ENV_FILE/TTP_COOLDOWN_FILE 等)设了仍优先,mac 现状行为零变化。
+mac 现状仍可用 `scripts/sensenova-rotate-proxy.sh`(从 trade-data/.env 导 key)+ launchd 守护;ctl 工具是跨平台统一入口,mac 也能用 `python3 sensenova-proxy-ctl.py start`。
+
+mac 行为零变化的实现方式:默认路径已改为 `~/.sensenova-proxy/`,但生产 plist
+(`scripts/com.trade.thinking-proxy.plist`)现**显式设全** `SENSENOVA_ENV_FILE` / `TTP_LOG` /
+`TTP_COOLDOWN_FILE` / `TTP_REQDUMP_DIR` 指回原 `trade-data/...` 路径,所以重启后日志、冷却文件、
+请求 dump 位置都不变(功能与路径均零变化)。env 设了仍然优先。
+
+> mac 的 key 在 `trade-data/.env`(env 注入),不在代理目录 `keys.txt`,所以 ctl 的 `status` 显示 key 数 0、
+> `test` 会提示无 key 拒跑;mac 上验证请直接看 8899 代理的 `/healthz` 或原有日志。
 
 ## 参考
 

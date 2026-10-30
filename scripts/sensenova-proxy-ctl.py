@@ -16,12 +16,12 @@ sensenova-proxy-ctl.py - 商汤轮换代理跨平台统一控制工具(纯标准
   config claude        生成/切换 Claude Code 配置指向本地代理(改前备份 ~/.claude/settings.json)
   config codex         生成/切换 codex 配置(改前备份 ~/.codex/config.toml)
   config status        显示 claude/codex 当前指向(代理 or 直连)
-  config restore [t]   从最新备份恢复(claude|codex,不填则都恢复)
+  config restore [t]   恢复配置(优先回首次生成的 ORIGINAL 原始备份;没有则回最新备份)
   (无参数)            打印交互菜单
 
 真实 key 禁进 git:本脚本不硬编码 key,运行时从 keys.txt / 代理运行实例读。
 """
-import os, sys, subprocess, time, json, socket, http.client, shutil, signal, tempfile
+import os, sys, re, subprocess, time, json, socket, http.client, shutil, signal, tempfile
 
 IS_WIN = sys.platform == "win32"
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 脚本同目录(找 sensenova-rotate-proxy.py / keys.txt)
@@ -78,6 +78,41 @@ def _proc_alive(pid):
         return False
 
 
+def _pid_cmdline(pid):
+    """取 pid 的完整命令行;取不到返回 None(调用方据此拒绝误杀)。"""
+    try:
+        if IS_WIN:
+            try:
+                out = subprocess.check_output(
+                    ["wmic", "process", "where", "processid=%d" % pid, "get", "commandline"],
+                    stderr=subprocess.DEVNULL, creationflags=0x08000000).decode(errors="replace")
+                rows = [l.strip() for l in out.splitlines()
+                        if l.strip() and l.strip().lower() != "commandline"]
+                if rows:
+                    return " ".join(rows)
+            except Exception:
+                pass
+            try:
+                out = subprocess.check_output(
+                    ["powershell", "-NoProfile", "-Command",
+                     "(Get-CimInstance Win32_Process -Filter 'ProcessId=%d').CommandLine" % pid],
+                    stderr=subprocess.DEVNULL, creationflags=0x08000000).decode(errors="replace")
+                return out.strip() or None
+            except Exception:
+                return None
+        out = subprocess.check_output(["ps", "-o", "command=", "-p", str(pid)],
+                                      stderr=subprocess.DEVNULL).decode(errors="replace")
+        return out.strip() or None
+    except Exception:
+        return None
+
+
+def _is_proxy_cmdline(cmdline):
+    """命令行为空(读不到)时返回 False = 不敢认定,拒绝杀。"""
+    low = (cmdline or "").lower()
+    return "sensenova-rotate-proxy" in low or "sensenova-proxy.exe" in low
+
+
 def _port_listening(port):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(0.6)
@@ -99,7 +134,8 @@ def _keys_txt_path():
 def _load_keys_from_file(path):
     keys = []
     try:
-        with open(path) as f:
+        # utf-8-sig:去 Windows 记事本写入的 UTF-8 BOM(否则首行 key 带 BOM 变垃圾 key)
+        with open(path, encoding="utf-8-sig") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
@@ -167,6 +203,16 @@ def cmd_stop():
         except OSError:
             pass
         return 0
+    # S2:杀前核命令行,防 PID 复用/stale PID 误杀无关进程(Windows taskkill /T 更会杀整棵树)
+    cmdline = _pid_cmdline(pid)
+    if not _is_proxy_cmdline(cmdline):
+        _echo("PID %d 不是商汤轮换代理(cmdline: %s),拒绝停止以免误杀无关进程。已清理该 PID 文件。"
+              % (pid, cmdline or "(读取失败)"))
+        try:
+            os.remove(PID_FILE)
+        except OSError:
+            pass
+        return 1
     try:
         if IS_WIN:
             subprocess.check_call(["taskkill", "/PID", str(pid), "/T", "/F"],
@@ -271,7 +317,8 @@ def cmd_test():
         conn.request("POST", "/v1/messages", body=body, headers={
             "content-type": "application/json",
             "anthropic-version": "2023-06-01",
-            "x-api-key": keys[0],
+            # S7:只发 authorization(与 Claude Code 真实接入一致);不再发 x-api-key,
+            # 否则上游若优先 x-api-key,test 通过也证明不了轮换生效。
             "authorization": "Bearer " + keys[0],
         })
         resp = conn.getresponse()
@@ -292,8 +339,26 @@ def _backup_path(path):
     return path + ".bak-sensenova-proxyctl-" + ts
 
 
+def _original_bak_path(path):
+    """首次 config 时固存的原始备份;后续 config 再多次也不覆盖,restore 优先回它。"""
+    return path + ".bak-sensenova-proxyctl-ORIGINAL"
+
+
+def _backup_before_write(path):
+    """写前备份:首次额外固存 ORIGINAL,并总是留一份带时间戳备份(便于反查)。返回 (made_original, 时间戳备份路径)。"""
+    orig = _original_bak_path(path)
+    made = False
+    if not os.path.exists(orig):
+        shutil.copy2(path, orig)
+        made = True
+    bak = _backup_path(path)
+    shutil.copy2(path, bak)
+    return made, bak
+
+
 def _atomic_write(path, content_bytes):
     d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)  # S3:~/.codex 等目录不存在时先建,别在 mkstemp 抛 Traceback
     fd, tmp = tempfile.mkstemp(prefix=".sensenova-ctl-", dir=d)
     try:
         with os.fdopen(fd, "wb") as f:
@@ -315,6 +380,83 @@ def _codex_path():
     return os.path.expanduser("~/.codex/config.toml")
 
 
+def _toml_join(lines, content):
+    """按原文件换行风格(LF/CRLF)拼回,避免改 Windows 配置时整文件换行风格被换掉。"""
+    nl = "\r\n" if "\r\n" in content else "\n"
+    return nl.join(lines)
+
+
+# 段头识别:`[表]` / `[[数组表]]`(允许行尾注释)。故意不把裸数组值 `[1, 2]` 当段头。
+_SECTION_RE = re.compile(r"^\s*\[\[?[A-Za-z0-9_.\- \"']+\]\]?\s*(#.*)?$")
+
+
+def _is_section_header(line):
+    return _SECTION_RE.match(line) is not None
+
+
+def _replace_toml_table(content, header, new_block):
+    """替换(或追加)一个 TOML 表的内容行。
+
+    只吞该表自身行:遇到下一个段头(`[x]` 或 `[[x]]`)立即停 ⇒ 不误伤后续表,
+    也修复旧正则不认 `[[数组表]]` 导致整段被删的问题(S4)。
+    """
+    lines = content.splitlines()
+    header_re = re.compile(r"^\s*\[%s\]\s*(#.*)?$" % re.escape(header))
+    out, i, found = [], 0, False
+    while i < len(lines):
+        if header_re.match(lines[i]):
+            found = True
+            j = i + 1
+            while j < len(lines) and not _is_section_header(lines[j]):
+                j += 1
+            out.extend(new_block.rstrip("\r\n").splitlines())
+            if j < len(lines) and (not out or out[-1].strip() != ""):
+                out.append("")  # 与下一个段之间留空行,保持原文件排版风格
+            i = j
+            continue
+        out.append(lines[i])
+        i += 1
+    if not found:
+        out.extend(new_block.rstrip("\r\n").splitlines())
+    return _toml_join(out, content).rstrip() + ("\r\n" if "\r\n" in content else "\n")
+
+
+def _set_top_level_key(content, key, value):
+    """只在顶层区(文件开头到第一个段头之前)设置 key = "value"。
+
+    进入任何 `[...]`/`[[...]]` 段后一律不动 ⇒ 不误改 [profiles.*] 等段内的同名键(F3)。
+    """
+    lines = content.splitlines()
+    end = len(lines)
+    for i, line in enumerate(lines):
+        if _is_section_header(line):
+            end = i
+            break
+    key_re = re.compile(r"^\s*%s\s*=" % re.escape(key))
+    out, replaced = [], False
+    for i, line in enumerate(lines):
+        if i < end and key_re.match(line):
+            out.append('%s = "%s"' % (key, value))
+            replaced = True
+        else:
+            out.append(line)
+    if not replaced:
+        out.insert(0, '%s = "%s"' % (key, value))
+    return _toml_join(out, content).rstrip() + ("\r\n" if "\r\n" in content else "\n")
+
+
+def _top_level_value(content, key):
+    """读顶层 key 的字符串值;只扫第一个段头之前,读不到返回 None。"""
+    val_re = re.compile(r"^\s*%s\s*=\s*\"([^\"]*)\"" % re.escape(key))
+    for line in content.splitlines():
+        if _is_section_header(line):
+            break
+        m = val_re.match(line)
+        if m:
+            return m.group(1)
+    return None
+
+
 def _config_claude():
     path = _settings_path()
     port = _port()
@@ -327,9 +469,8 @@ def _config_claude():
     # 读现有
     data = {}
     if os.path.exists(path):
-        bak = _backup_path(path)
-        shutil.copy2(path, bak)
-        _echo("已备份: %s" % bak)
+        made, bak = _backup_before_write(path)
+        _echo("已备份: %s%s" % (bak, "(另存原始备份 ORIGINAL)" if made else ""))
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -377,18 +518,18 @@ def _config_codex():
         return 1
     base_url = "http://127.0.0.1:%d/v1" % port
     token = keys[0]
-    wire_api = "chat"  # 默认 chat(OpenAI 兼容);限流恢复后实测校准
+    # codex 0.154.0 起 wire_api="chat" 已废弃(加载即报错);实测 "responses" 与商汤
+    # /v1/responses 协议兼容(codex exec 经代理端到端跑通),故固定 responses。
+    wire_api = "responses"
     had_existing = os.path.exists(path)
     if had_existing:
-        bak = _backup_path(path)
-        shutil.copy2(path, bak)
-        _echo("已备份: %s" % bak)
-        with open(path, "r", encoding="utf-8") as f:
+        made, bak = _backup_before_write(path)
+        _echo("已备份: %s%s" % (bak, "(另存原始备份 ORIGINAL)" if made else ""))
+        with open(path, "r", encoding="utf-8-sig") as f:
             content = f.read()
     else:
         _echo("config.toml 不存在,新建。")
         content = ""
-    # 用 tomllib 读现有顶层 model/model_provider(只读不改结构,Python 3.11+)
     new_block = (
         "\n[model_providers.sensenova]\n"
         "name = \"sensenova\"\n"
@@ -396,24 +537,16 @@ def _config_codex():
         "wire_api = \"%s\"\n"
         "experimental_bearer_token = \"%s\"\n"
     ) % (base_url, wire_api, token)
-    # 替换或追加 sensenova provider 段
-    import re
-    pattern = re.compile(r"\n\[model_providers\.sensenova\][\s\S]*?(?=\n\[[^\]]+\]\n|\Z)", re.MULTILINE)
-    if pattern.search("\n" + content):
-        content = pattern.sub(new_block.rstrip() + "\n", "\n" + content).lstrip("\n")
-    else:
-        content = (content.rstrip() + "\n" + new_block).lstrip("\n")
-    # 顶层 model 行:有则替换,无则在文件开头加
-    model_pattern = re.compile(r"^model\s*=.*$", re.MULTILINE)
-    model_line = "model = \"glm-5.2\""
-    if model_pattern.search(content):
-        content = model_pattern.sub(model_line, content)
-    else:
-        content = model_line + "\n" + content
+    # ① 替换/追加 sensenova provider 段(段感知,不吞 [[数组表]] 与后续段)
+    content = _replace_toml_table(content, "model_providers.sensenova", new_block)
+    # ② 顶层 model_provider 指向 sensenova(否则 codex 仍走默认 openai,请求不发代理)
+    content = _set_top_level_key(content, "model_provider", "sensenova")
+    # ③ 顶层 model:只在顶层区改,不动 [profiles.*] 等段内的 model
+    content = _set_top_level_key(content, "model", "glm-5.2")
     _atomic_write(path, content.encode("utf-8"))
     _echo("已写入 %s" % path)
     _echo("provider sensenova: base_url=%s wire_api=%s" % (base_url, wire_api))
-    _echo("顶层 model = glm-5.2(原有 model 行已备份)")
+    _echo("顶层 model_provider = sensenova, model = glm-5.2(原有文件已备份)")
     _echo("重启 codex 生效。")
     return 0
 
@@ -441,12 +574,14 @@ def _config_status():
     codex_state = "未配置"
     if os.path.exists(cp):
         try:
-            with open(cp, "r", encoding="utf-8") as f:
+            with open(cp, "r", encoding="utf-8-sig") as f:
                 content = f.read()
-            import re
             m = re.search(r"\[model_providers\.sensenova\][\s\S]*?base_url\s*=\s*\"([^\"]+)\"", content)
-            if m and expect in m.group(1):
+            provider = _top_level_value(content, "model_provider")
+            if m and expect in m.group(1) and provider == "sensenova":
                 codex_state = "走代理 (%s)" % m.group(1)
+            elif m and expect in m.group(1):
+                codex_state = "provider 段已配但顶层 model_provider=%s(请求不会走代理)" % (provider or "(缺省=openai)")
             elif m:
                 codex_state = "sensenova provider 存在但指向 %s" % m.group(1)
             else:
@@ -471,13 +606,21 @@ def _config_restore(target):
         d = os.path.dirname(path) or "."
         base = os.path.basename(path)
         import glob
-        baks = sorted(glob.glob(os.path.join(d, base + ".bak-sensenova-proxyctl-*")))
-        if not baks:
+        # 优先回首次固存的 ORIGINAL;连跑多次 config 后仍能回到最初原始配置(S1)。
+        orig = _original_bak_path(path)
+        src = ""
+        if os.path.exists(orig):
+            src = orig
+        else:
+            baks = [b for b in sorted(glob.glob(os.path.join(d, base + ".bak-sensenova-proxyctl-*")))
+                    if not b.endswith("-ORIGINAL")]
+            if baks:
+                src = baks[-1]
+        if not src:
             _echo("[%s] 无备份文件。" % t)
             continue
-        latest = baks[-1]
-        _atomic_write(path, open(latest, "rb").read())
-        _echo("[%s] 已从 %s 恢复。" % (t, latest))
+        _atomic_write(path, open(src, "rb").read())
+        _echo("[%s] 已从 %s 恢复。" % (t, src))
         done += 1
     return 0 if done else 1
 

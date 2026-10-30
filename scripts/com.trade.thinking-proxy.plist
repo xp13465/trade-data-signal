@@ -24,6 +24,14 @@
     <dict>
         <key>SENSENOVA_ENV_FILE</key>
         <string>/Users/linhuichen/code/trade-data/.env</string>
+        <!-- 代理默认路径已改为 ~/.sensenova-proxy/(跨平台);以下三个显式指回原 trade-data 路径,
+             保证 mac 重启后日志/冷却文件/请求 dump 位置完全不变(行为零变化)。 -->
+        <key>TTP_LOG</key>
+        <string>/Users/linhuichen/code/trade-data/data/logs/sensenova-rotate-req.log</string>
+        <key>TTP_COOLDOWN_FILE</key>
+        <string>/Users/linhuichen/code/trade-data/data/sensenova-cooldown.json</string>
+        <key>TTP_REQDUMP_DIR</key>
+        <string>/Users/linhuichen/code/trade-data/data/logs/sensenova-req-dump</string>
     </dict>
     <key>KeepAlive</key>
     <true/>

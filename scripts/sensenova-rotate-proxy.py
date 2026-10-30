@@ -57,7 +57,12 @@ SSL_CTX = ssl._create_unverified_context()  # 本地代理,跳过证书验证(�
 # ~/.sensenova-proxy/(mac/linux ~ / Windows %USERPROFILE%),env(TTP_LOG/SENSENOVA_ENV_FILE/
 # TTP_COOLDOWN_FILE)设了仍优先(mac 现状 env 设了行为零变化)。
 _HOME = os.path.expanduser("~")
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 脚本同目录(找 keys.txt)
+# 运行基准目录(找同目录 keys.txt):源码运行=脚本同目录;PyInstaller onefile 冻结态下
+# __file__ 指向临时解包目录(sys._MEIPASS),必须改用 exe 自身所在目录(sys.executable)。
+if getattr(sys, "frozen", False):
+    _BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _DATA_DIR = os.path.join(_HOME, ".sensenova-proxy")
 _LOG_DIR = os.path.join(_DATA_DIR, "logs")
 try:
@@ -100,7 +105,8 @@ def _read_keys_txt(path):
     """读 keys.txt(每行一把 key,# 注释/空行跳过),返回 (keys, nums);不存在/空返回 ([], [])。"""
     _keys, _nums = [], []
     try:
-        with open(path) as _f:
+        # utf-8-sig:去掉 Windows 记事本等编辑器写入的 UTF-8 BOM(否则首行 key 带 BOM 变垃圾 key)
+        with open(path, encoding="utf-8-sig") as _f:
             for _line in _f:
                 _line = _line.strip()
                 if not _line or _line.startswith("#"):
@@ -224,8 +230,9 @@ COOL_L0_SEC = 180          # level 0 冷却 180 秒(3min)起步(数据定档,替
 COOL_MAX_LEVEL = 5         # level 封顶(180/360/720/1440/2880s 五档,真死 key 递增隔离)
 _cool = {}                 # key -> {"until": epoch, "level": int}(内存 + 落盘,重启不丢)
 _cool_lock = threading.Lock()
-# 2026-09-06 P0-2 冷却持久化(litellm 同款设计):冷却状态落盘 /Users/linhuichen/code/trade-data/data/
-# (仓外,真实 key 绝不落盘,只存 keyN 序号)。KeepAlive 重启秒级拉起后病 key 不立即回池再撞 429。
+# 2026-09-06 P0-2 冷却持久化(litellm 同款设计):冷却状态落盘默认 ~/.sensenova-proxy/
+# (mac 现状经 plist 显式设 TTP_COOLDOWN_FILE 指回 trade-data/data/,仓外,真实 key 绝不落盘,只存 keyN 序号)。
+# KeepAlive 重启秒级拉起后病 key 不立即回池再撞 429。
 # 存储格式:{"keys": {"key1": {"cooled_until_ms": int, "level": int}, ...}, "updated_at": int(ms)}
 # 路径可用 TTP_COOLDOWN_FILE 覆盖(kimi 版用独立文件隔离,防两进程并发覆盖)。
 # 默认放 ~/.sensenova-proxy/sensenova-cooldown.json(跨平台家目录;mac env 设了仍优先)。
@@ -490,7 +497,8 @@ def _detect_log(command, path, body, content_type):
 # 不碰注入/轮换/冷却/重试业务逻辑,纯旁路写盘。
 # env:
 #   TTP_REQDUMP=0          # 关闭(默认关;=1 才开,2026-09-01 用户定日志关闭)
-#   TTP_REQDUMP_DIR        # dump 目录(默认 trade-data/data/logs/sensenova-req-dump,仓外 gitignore)
+#   TTP_REQDUMP_DIR        # dump 目录(默认 ~/.sensenova-proxy/logs/sensenova-req-dump;
+#                          #   mac 现状经 plist 显式设回 trade-data/data/logs/sensenova-req-dump,仓外 gitignore)
 #   TTP_REQDUMP_KEEP       # 非 ERR 保留最近 N 个(默认 30)
 #   TTP_REQDUMP_KEEP_ERR   # ERR 保留最近 N 个(默认 30)
 REQDUMP_ON = os.environ.get("TTP_REQDUMP", "0") == "1"  # 2026-09-01 用户定:默认关(原默认开)
