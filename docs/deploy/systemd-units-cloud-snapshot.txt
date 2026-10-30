@@ -686,7 +686,8 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/turnover_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 # 云上实测 systemctl show -p TimeoutStartUSec ⇒ infinity(0=无界);真正的外层墙在 shell run_to
-# (#364: intraday 2460 / data-large 4260, 内层工作预算 600 / 2400)
+# (#364 二版 2026-10-30: 外层 shell run_to = intraday 2760 / data-large 4980, 内层工作预算 900 / 3120;
+#  均为 等锁 1800 + 工作 + 60 的算式值, 与实际 unit 无关(本行 TimeoutStartSec=0 无界))
 TimeoutStartSec=0
 @@@FILE:trade-update-all.service
 [Unit]

@@ -172,33 +172,37 @@ def _code_only(src: str) -> str:
 
 
 def test_a1_turnover_two_budget_wiring():
-    """A1: turnover_backfill.sh 两个 R2 步 = 两段预算 + 各自外层兜底(#364: 2460 / 4260)。
+    """A1: turnover_backfill.sh 两个 R2 步 = 两段预算 + 各自外层兜底(#364)。
 
-    #364 起 intraday 工作预算 600(外层 2460)、data-large 2400(外层 4260), 两步不再共用一个
-    run_to 字面量 —— 各自都要满足「外层 > 等锁 + 工作」。
+    #364 起 intraday / data-large 各自独立工作预算 + 独立外层 run_to, 两步不再共用一个字面量。
+    **数值不写死**(#364 二版 S1/S4 会调值): 从源码抽真实 `run_to <N>` 字面量与三个常量,
+    按算式「外层 = 等锁 + 工作 + 60」核对 —— 改任一边漏另一边必红。
     """
     src = _sh("turnover_backfill.sh")
     code = _code_only(src)
     n_lock = code.count('R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET"')
     n_work_large = code.count('R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" ')
     n_work_intraday = code.count('R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET_INTRADAY" ')
-    n_fallback_intraday = code.count("run_to 2460 env R2_UPLOAD_LOCK_TIMEOUT")
-    n_fallback_large = code.count("run_to 4260 env R2_UPLOAD_LOCK_TIMEOUT")
     _chk(n_lock == 2, f"两个 R2 步都应传等锁预算(实得 {n_lock} 处)")
     _chk(n_work_large == 1, f"data-large 步应传工作预算 $R2_WORK_BUDGET(实得 {n_work_large} 处)")
     _chk(n_work_intraday == 1,
          f"intraday 步应传独立工作预算 $R2_WORK_BUDGET_INTRADAY(实得 {n_work_intraday} 处)")
     _chk('run_to 900 "$PY" scripts/upload_r2.py' not in code,
          "旧 900 整段口径应已从代码消失(否则等锁吃预算的病灶还在)")
-    _chk(n_fallback_intraday == 1, f"intraday 应为 run_to 2460 兜底(实得 {n_fallback_intraday} 处)")
-    _chk(n_fallback_large == 1, f"data-large 应为 run_to 4260 兜底(实得 {n_fallback_large} 处)")
     lock_wait = int(re.search(r'^R2_LOCK_WAIT_BUDGET=(\d+)', src, re.M).group(1))
     work = int(re.search(r'^R2_WORK_BUDGET=(\d+)', src, re.M).group(1))
     work_intraday = int(re.search(r'^R2_WORK_BUDGET_INTRADAY=(\d+)', src, re.M).group(1))
-    _chk(lock_wait + work < 4260,
-         f"梯度倒挂: data-large 外层 4260 应严格 > 等锁 {lock_wait} + 工作 {work}")
-    _chk(lock_wait + work_intraday < 2460,
-         f"梯度倒挂: intraday 外层 2460 应严格 > 等锁 {lock_wait} + 工作 {work_intraday}")
+    for name, work_var, work_val in (("intraday", "R2_WORK_BUDGET_INTRADAY", work_intraday),
+                                     ("data-large", "R2_WORK_BUDGET", work)):
+        pat = (r'^\s*run_to (\d+) env R2_UPLOAD_LOCK_TIMEOUT="\$R2_LOCK_WAIT_BUDGET" '
+               rf'R2_UPLOAD_WORK_TIMEOUT="\${work_var}"')
+        lits = re.findall(pat, code, re.M)
+        _chk(len(lits) == 1, f"{name} 应为恰好 1 处 run_to 兜底(实得 {len(lits)} 处)")
+        lit = int(lits[0])
+        _chk(lit > lock_wait + work_val,
+             f"梯度倒挂: {name} 外层 {lit} 应严格 > 等锁 {lock_wait} + 工作 {work_val}")
+        _chk(lit == lock_wait + work_val + 60,
+             f"{name} 外层 {lit} != 等锁 {lock_wait} + 工作 {work_val} + 60(改一边漏另一边)")
 
 
 def test_a2_selfheal_two_budget_wiring():

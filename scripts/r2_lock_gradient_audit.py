@@ -82,8 +82,13 @@ SITES = [
     ("scripts/s06_snapshot.sh", "s06 state(顶层 data)", "data", 600, 900, "trade-s06-snapshot.service", 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=600'),
     ("scripts/s06_snapshot.sh", "kelly snapshots", "kelly_snapshots", 600, 900, "trade-s06-snapshot.service", 'R2_UPLOAD_LOCK_DOMAIN=kelly_snapshots R2_UPLOAD_LOCK_TIMEOUT=600'),
     # #364: 两步各自内层工作预算 + 外层 shell run_to(unit TimeoutStartSec=infinity ⇒ 外层墙在 shell)。
-    ("scripts/turnover_backfill.sh", "intraday(外层 run_to 2460 / 工作 600)", "data", 1800, 2460, "trade-turnover-backfill.service", 'R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET_INTRADAY" R2_UPLOAD_LOCK_DOMAIN=data'),
-    ("scripts/turnover_backfill.sh", "data-large(外层 run_to 4260 / 工作 2400)", "data", 1800, 4260, "trade-turnover-backfill.service", 'R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" R2_UPLOAD_LOCK_DOMAIN=data'),
+    # ⚠ 第 5 列(turnover 两行)= **外层 shell `run_to` 墙字面量**, 不是其他行的「内层工作预算」:
+    #   这两步的内层预算由脚本常量 R2_WORK_BUDGET_INTRADAY / R2_WORK_BUDGET 经 env 注入 upload_r2.py,
+    #   静态表里另注在站点说明括号内(工作 900 / 3120); 第 5 列填外层是因为 unit 无界(TimeoutStartSec=0),
+    #   ③ 检查不适用, 真正兜底的墙是 shell 的 run_to —— 填外层才让「锁等待 1800 < 墙」这条梯度有意义。
+    #   脚本内另有运行时自检(_r2_check_step)真读 run_to 字面量比对, 双保险。
+    ("scripts/turnover_backfill.sh", "intraday(外层 run_to 2760 / 工作 900)", "data", 1800, 2760, "trade-turnover-backfill.service", 'R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET_INTRADAY" R2_UPLOAD_LOCK_DOMAIN=data'),
+    ("scripts/turnover_backfill.sh", "data-large(外层 run_to 4980 / 工作 3120)", "data", 1800, 4980, "trade-turnover-backfill.service", 'R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" R2_UPLOAD_LOCK_DOMAIN=data'),
     ("scripts/intraday_snapshot.sh", "index(盘中 :157)", "index", 600, None, "trade-intraday-snapshot.service", 'R2_UPLOAD_LOCK_DOMAIN=index R2_UPLOAD_LOCK_TIMEOUT=600'),
     ("scripts/intraday_snapshot.sh", "intraday + schedule_stats(盘中 :170/:232)", "data", 600, None, "trade-intraday-snapshot.service", 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=600'),
     ("scripts/intraday_snapshot.sh", "signal_kelly_trades_intraday.json(盘中 :180)", "data", 600, None, "trade-intraday-snapshot.service", 'upload-data-files signal_kelly_trades_intraday.json'),

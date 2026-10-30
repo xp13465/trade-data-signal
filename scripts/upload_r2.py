@@ -609,10 +609,13 @@ def _sigv4_canonical_query(query):
 #   ② 网络真停滞/黑洞时 sock.sendall 阻塞, read() 不被调用 → 不打点 → 停滞判据仍能正确 kill。
 # 即「健康的慢」被放行、「真卡住」仍被 kill, 不削弱故障检测(对齐业界 IO-idle 判据精神, 见
 # memory batch-upload-arch-industry-refs)。
-# 进度行含 (NB) 增量字节: 看门狗**低速判据**按日志里所有 (NB) 求和看增量; 大文件在飞期间完成行
+# 进度行尾带 (NB) 增量字节: 看门狗**低速判据**按日志里所有 (NB) 求和看增量; 大文件在飞期间完成行
 # 不产生(旧遗漏), 低速判据会误判「字节不涨」→ 也误杀。带上真实增量字节后, 健康慢传的增速会被
-# 正确计入(注意: 与备份进度行刻意不带 (sizeB) 不同——备份不是上传流量, 带它会掩盖备份停滞)。
-_PROGRESS_PUT_MIN = 8 * 1024 * 1024        # 单 PUT 体积 >= 8MiB 才打进度(小文件秒级完成, 打了是噪音)
+# 正确计入。**所有进度行(主上传 PUT / 备份 PUT / 备份 GET 下载)统一带 (NB)**, 不再区分「备份不带」:
+# turnover 链的低速判据按批次文件数门控(<=10 个文件时不启用, 见 r2_upload_async.sh), 备份段本就
+# 不在该判据管辖内, 带了也不会掩盖备份停滞; 而日志里统一格式便于人工/脚本按同一正则对账。
+# GET 下载进度行与 PUT 共用 _PROGRESS_PUT_MIN/STEP/MAX_INTERVAL 三个阈值(见 _read_with_progress)。
+_PROGRESS_PUT_MIN = 8 * 1024 * 1024        # 单次传输(PUT 请求体 / GET 响应体)>= 8MiB 才打进度(小文件秒级完成, 打了是噪音)
 _PROGRESS_PUT_STEP = 4 * 1024 * 1024       # 每累计 4MiB 打一行
 _PROGRESS_PUT_MAX_INTERVAL = 60            # 或每 60s 至少一行(极慢链路上 4MiB 间隔可能 >停滞阈值, 兜一道时间上限)
 
@@ -653,6 +656,43 @@ class _ProgressBody:
         return chunk
 
 
+def _read_with_progress(resp, label):
+    """GET 响应体分块读 + 进度行(#364 S3, 2026-10-30)。
+
+    病灶: 备份段 `GET`(老账号源 → 新账号备份桶中转)此前是 `resp.read()` 一次性读完整包,
+    85MB 级 key 在 51KB/s 这类退化链路上能静默 ~28 分钟(黑屏)— PUT 侧已修, GET 侧同病未治。
+    语义与 `_ProgressBody` 对称: 只在①有 progress_label ②Content-Length ≥ _PROGRESS_PUT_MIN
+    时启用(小文件零新增日志); 按「累计字节 / 时间」双阈值打点, 真停滞时不打点(看门狗判据不削弱)。
+    返回值与 `resp.read()` 逐字节一致(等价于读完整个 body)。
+    """
+    raw_len = resp.getheader("Content-Length")
+    try:
+        total = int(raw_len) if raw_len is not None else -1
+    except (TypeError, ValueError):
+        total = -1
+    if total < _PROGRESS_PUT_MIN:
+        return resp.read()
+    chunks = []
+    got = 0
+    mark = 0
+    mark_t = time.monotonic()
+    while True:
+        chunk = resp.read(1024 * 1024)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        got += len(chunk)
+        now = time.monotonic()
+        if got - mark >= _PROGRESS_PUT_STEP or now - mark_t >= _PROGRESS_PUT_MAX_INTERVAL:
+            delta = got - mark
+            mark = got
+            mark_t = now
+            sys.stdout.write(
+                f"[{label}] ↓ 下载中 {got / 1048576:.1f}/{total / 1048576:.1f} MiB ({delta}B)\n")
+            sys.stdout.flush()
+    return b"".join(chunks)
+
+
 def s3_request(method, key, payload=b"", query="", bucket=None, content_type=None, with_headers=False, keep_alive=False, extra_headers=None, progress_label=None):
     """path-style: /BUCKET/key, host = endpoint host。bucket=None 用默认 BUCKET。
 
@@ -672,6 +712,8 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
       显式带 Content-Length(否则 http.client 退化 chunked 致 SigV4 失配), 上传中按字节打进度行,
       消掉「大文件单 PUT 全程零日志 → 看门狗停滞判据误杀」回归(治 data-large 死循环复发)。
       进度只在字节真实流动时打点, 真停滞(socket 阻塞)仍无输出 → 检测能力不削弱。
+      2026-10-30(#364 S3) 起 GET 也认这个参数: 非 None 时响应体改分块读(_read_with_progress),
+      Content-Length >= _PROGRESS_PUT_MIN 才按「[label] ↓ 下载中 x/y MiB (NB)」打点。
     """
     if content_type is None:
         ext = os.path.splitext(key)[1].lower()
@@ -744,7 +786,13 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 body = payload if method in ("PUT", "POST") else None
             conn.request(method, uri, body=body, headers=headers)
             resp = conn.getresponse()
-            data = resp.read()
+            # #364 S3: GET 侧对称补进度(备份中转是老账号源 → 新账号备份桶的整包下载, 此前
+            # `resp.read()` 一次读完, 85MB 在 51KB/s 下静默 ~28 分钟)。仅 GET + 有 label 时走
+            # 分块读; `_read_with_progress` 内部再按 Content-Length 判大小(小文件不打点)。
+            if method == "GET" and progress_label is not None:
+                data = _read_with_progress(resp, progress_label)
+            else:
+                data = resp.read()
             resp_headers = dict(resp.getheaders()) if with_headers else None
             if not keep_alive:
                 conn.close()
@@ -1405,8 +1453,12 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
             skipped += 1
             return
         # ---- P3: GET 源体(老账号) ----
+        # #364 S3: 带 progress_label —— 备份中转是「老账号 GET 整包 + 新账号 PUT 整包」两段,
+        # PUT 段已打「↑ 上传中」, GET 段此前零输出(85MB 慢链路可静默数十分钟)。同一标签下用
+        # 「↓ 下载中」区分方向; 小文件(<8MiB)不打点。
         try:
-            gst, body = s3_request("GET", key, bucket=BUCKET, keep_alive=True)
+            gst, body = s3_request("GET", key, bucket=BUCKET, keep_alive=True,
+                                   progress_label=f"备份 {key}")
         except Exception as _e:
             _fail(key, "GET", f"异常 {_e}")
             return
@@ -1468,8 +1520,9 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
             fut.result()  # 异常已被 _backup_one 内部消化(失败记样本不抛)
             done += 1
             # 进度行(看门狗 #174 停滞判据放行: 备份阶段有输出=有工作, 不被停滞判据误杀);
-            # 刻意不用 `[N/M]` 方括号格式 + 不带 (sizeB), 避免被 r2_upload_async.sh 低速判据
-            # 当作「批量上传字节进度」误判(备份是 GET+PUT 中转, 不是 _upload_glob 批量上传流量)。
+            # 它是「完成计数」不是字节流动, 故刻意不用 `[N/M]` 方括号格式、不带 (NB) ——
+            # `(NB)` 只留给真实字节流动的进度行(PUT ↑ / GET ↓), 这样 r2_upload_async.sh 按
+            # `(NB)` 求和得到的就纯是流量增量, 不被计数行污染(低速判据按 >10 文件批次才启用)。
             if done % 64 == 0 or done == total:
                 print(f"[{label}] 备份 {done}/{total} 已备份 {copied} 跳过 {skipped}", flush=True)
     if copied:

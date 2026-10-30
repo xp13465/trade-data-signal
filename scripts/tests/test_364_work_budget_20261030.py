@@ -6,6 +6,10 @@
   - 三个拦截点: a) 单请求 socket 超时 = min(配置, 剩余); b) 重试门(attempt 前 + 退避前);
     c) 文件间门(主上传 `_upload_glob._upload_one` / 备份 `_backup_one`)
   - 备份阶段单 PUT 的 progress_label(`[备份 xxx] ↑ 上传中 ...`)
+  - 备份阶段 GET 下载进度 `_read_with_progress`(`[备份 xxx] ↓ 下载中 x/y MiB`, ≥8MiB 才打点;
+    S3 二版补, T8)
+  - 真 8 线程池(`_upload_glob`)里 worker 到期 ⇒ 主线程 fut.result() 收 SystemExit 124、日志只一行
+    (S7 二版补, T7)
 
 对照病灶(10-29 实测): 单文件最坏 5 次重试 × 600s + 15s 退避 = 3015s > 外层 run_to 2760s,
 外层先杀、python 来不及打失败日志 ⇒ 43 分钟黑屏。
@@ -400,6 +404,94 @@ def test_t6b_after_first_failure_no_backoff_no_second_attempt(monkeypatch, capsy
     assert slept == [], "剩余已耗尽 ⇒ 连退避 sleep 都不许做"
     assert "attempt 1 失败" in captured.err and "attempt 2" not in captured.err
     assert "工作预算 60s 到期" in captured.out
+
+
+# ---------------- T7: 真 8 线程池的 SystemExit 传播(S7) ----------------
+def test_t7_thread_pool_propagates_expiry_to_main_thread(tmp_path, monkeypatch, capsys):
+    """真 `_upload_glob`(8 线程池)里 worker 到期 ⇒ 主线程 fut.result() 收到 SystemExit 124。
+
+    构造: 16 个文件 / 预算 2s / 假 PUT 每次睡 2.5s ⇒ 第一批 8 个 worker 在 deadline 后才完成,
+    第二批 8 个 worker 一启动就撞上文件间门(拦截点 c) ⇒ 到期发生在 worker 线程, 必须由主线程
+    接住并 exit 124; 若有人把 `except Exception` 改成 `except BaseException`(或在线程池汇合处
+    包一层吞掉), 本用例必红。
+    """
+    n = 16
+    local, _ps = _mk_tree(tmp_path, monkeypatch, n=n)
+    peak = {"now": 0, "max": 0}
+    lock = __import__("threading").Lock()
+
+    def _slow_put(method, key, payload=b"", **kw):
+        with lock:
+            peak["now"] += 1
+            peak["max"] = max(peak["max"], peak["now"])
+        try:
+            time.sleep(3.0)          # 跨过 2s deadline(留 1s 余量防 CI 抖动)
+            return 200, b""
+        finally:
+            with lock:
+                peak["now"] -= 1
+
+    monkeypatch.setattr(ur, "s3_request", _slow_put)
+    monkeypatch.setenv("R2_UPLOAD_WORK_TIMEOUT", "2")
+    ur._work_budget_begin("data-large")
+    t0 = time.monotonic()
+    with pytest.raises(SystemExit) as ei:
+        ur._upload_glob(local, ["*.json"], "data")
+    elapsed = time.monotonic() - t0
+    out = capsys.readouterr().out
+    assert ei.value.code == 124, f"线程池到期必须 exit 124, 实得 {ei.value.code}"
+    assert out.count("工作预算 2s 到期") == 1, "并发到期日志只许一行"
+    assert "✗" not in out, "SystemExit 不许被 worker 的 except Exception 降级成普通失败"
+    assert peak["max"] >= 2, f"必须真并发(峰值 in-flight={peak['max']}), 否则本用例没测到线程池"
+    assert elapsed < 10.0, f"应≈3s 收口(串行需 {n * 3:.0f}s), 实得 {elapsed:.1f}s"
+
+
+# ---------------- T8: 备份 GET 下载进度(#364 S3) ----------------
+class _FakeGetResp:
+    """假 GET 响应: 支持 getheader('Content-Length') + read(n) 分块吐。"""
+
+    def __init__(self, total, headers=None):
+        self._left = total
+        self._total = total
+        self._headers = {"Content-Length": str(total)} if headers is None else headers
+
+    def getheader(self, name):
+        return self._headers.get(name)
+
+    def read(self, n=-1):
+        if self._left <= 0:
+            return b""
+        n = self._left if n is None or n < 0 else min(n, self._left)
+        self._left -= n
+        return b"x" * n
+
+
+def test_t8a_get_small_file_no_progress_line(capsys):
+    """< 8MiB 或没有 Content-Length ⇒ 零新增日志(小文件不刷屏), 内容仍逐字节完整。"""
+    for total, headers in ((ur._PROGRESS_PUT_MIN - 1, None),
+                           (0, {"Content-Length": "n/a"}),
+                           (0, {})):
+        resp = _FakeGetResp(total, headers)
+        data = ur._read_with_progress(resp, "备份 data/x.json")
+        assert len(data) == total
+        assert capsys.readouterr().out == "", "小文件/长度未知不许打进度行"
+
+
+def test_t8b_get_large_file_progress_lines(capsys):
+    """≥ 8MiB ⇒ 按 4MiB 步长打「[label] ↓ 下载中 x/y MiB (NB)」, 内容逐字节完整。"""
+    total = 8 * 1024 * 1024
+    resp = _FakeGetResp(total)
+    data = ur._read_with_progress(resp, "备份 data/big.bin")
+    out = capsys.readouterr().out
+    assert len(data) == total and data == b"x" * total
+    lines = [ln for ln in out.splitlines() if "↓ 下载中" in ln]
+    assert len(lines) >= 2, f"8MiB 文件应至少 2 行进度, 实得 {lines!r}"
+    assert lines[0].startswith("[备份 data/big.bin] ↓ 下载中 4.0/8.0 MiB ("), lines[0]
+    assert lines[-1].endswith("/8.0 MiB (4194304B)"), lines[-1]
+    # 源码形状守卫: s3_request 的 GET 分支确实走分块读(不是又退回一次性 read)
+    src = Path(ur.__file__).read_text(encoding="utf-8")
+    assert 'if method == "GET" and progress_label is not None:' in src
+    assert "data = _read_with_progress(resp, progress_label)" in src
 
 
 # ---------------- 静态守卫: 三个拦截点在源码里确实存在(防回退) ----------------

@@ -81,8 +81,8 @@
 |---|---|---|---|---|
 | s06_snapshot.sh | data | 600 | 900(run_to) | 7020 |
 | s06_snapshot.sh(④b) | kelly_snapshots | 600 | 900(run_to) | 7020 |
-| turnover_backfill.sh(intraday) | data | 1800 | 2460(run_to; 工作预算 600) | 0(无界) |
-| turnover_backfill.sh(data-large) | data | 1800 | 4260(run_to; 工作预算 2400) | 0(无界) |
+| turnover_backfill.sh(intraday) | data | 1800 | 2760(run_to; 内层工作预算 900) | 0(无界) |
+| turnover_backfill.sh(data-large) | data | 1800 | 4980(run_to; 内层工作预算 3120) | 0(无界) |
 | intraday_snapshot.sh | index / data | 600 | 无界 | 0 |
 | update_lab.sh | lab / trade_sim_data / data | 600 | 无界 | 0 |
 | gold_night.sh | data | 900 | 无界 | 2700 |
@@ -106,6 +106,14 @@
 
 > 内层「无界」= 该脚本对 upload_r2 子进程不设 timeout, 由外层/停滞判据兜底; 审计脚本对此类
 > 只校验「显式声明了锁等待上限」, 不强行编造内层预算。
+>
+> **turnover 两行口径不同(2026-10-30 #364 二版注明)**: 这两行的「内层预算」列填的是**外层 shell
+> `run_to` 墙字面量**(2760 / 4980), 不是其他行的「upload_r2 进程内工作预算」——该 unit 的
+> `TimeoutStartSec=0`(无界), 真正兜底的墙在 shell。真实内层工作预算由脚本常量
+> `R2_WORK_BUDGET_INTRADAY=900` / `R2_WORK_BUDGET=3120` 经 env 注入, 写在括号里了。
+> 梯度关系: 锁等待 1800 < 工作 900/3120 < 外层 2760/4980, 且外层 = 等锁 + 工作 + 60。
+> 脚本运行时另有 `_r2_check_step` 自检真读 `run_to <N>` 字面量比对算式(抽不到/多个/倒挂/不等一律 FATAL),
+> 与本表静态审计双保险; 改任一边漏另一边 → 自检红 + 本表对不上。
 
 > **脚注: 小载荷通道的「域」列是名义值 —— 域名根本不生效(2026-10-28 核实, 共 14 处)。**
 > `upload_r2.py::_acquire_lock_for_command`(L4942)先让 `_route_upload_lock` 判目标锁: 凡命令是
@@ -135,13 +143,14 @@
 |---|---|---|---|
 | E1 | 等锁单条时长 P100 < 300s | 机制层: 最长锁等待上限从 7300 降到 ≤1800, s06=600; 域间并行已由单测证明 | 上线后 7 天 `grep '等待 R2 上传锁'` 取最大值 |
 | E2 | S06 rc=124 不再由等锁引起 | s06 锁等待 600 < run_to 900; 单测钉死字面量 | 观察 s06 退出码与日志等锁秒数 |
-| E3 | 锁等待 < 内层 < 外层 | `r2_lock_gradient_audit.py` PASS(**45 PASS / 1 既有豁免, 共 46 行**) | 每次改调用方重跑审计 |
+| E3 | 锁等待 < 内层 < 外层 | `r2_lock_gradient_audit.py` PASS(**46 PASS / 1 既有豁免, 共 47 行**; 2026-10-30 #364 二版实跑值, 旧记 45/46 已随登记行增长过时) | 每次改调用方重跑审计 |
 
-> **调用点计数口径(2026-10-28 二轮审查后按实文重算)**: 审计表 `SITES` = **46 行**, 这是"登记
+> **调用点计数口径(2026-10-28 二轮审查后按实文重算; 行数随后续新增登记增长, 2026-10-30 实跑 = 47 行)**:
+> 当时审计表 `SITES` = **46 行**, 这是"登记
 > 行数", 不等于"取锁调用次数"。按每个 `upload_r2.py` 真实取锁调用逐处展开 = **49 次**; 差额 3 =
 > **三行各覆盖 2 处调用**(登记算 1 行, 运行时算 2 次):
-> ① `turnover_backfill.sh` 一行写「intraday + data-large」, 实为 `:177` upload-intraday 与
->   `:181` upload-data-large 两次串行调用(同一 `if` 块内, 每次运行都各取一次锁);
+> ① `turnover_backfill.sh` 一行写「intraday + data-large」, 实为 `:241` upload-intraday 与
+>   `:245` upload-data-large 两次串行调用(同一 `if` 块内, 每次运行都各取一次锁);
 > ② `gold_night.sh` 一行, 实为 `:65` upload-data-large + `:69` upload-data-files 两次;
 > ③ `intraday_snapshot.sh` 的 data 域一行, 实为 `:170` upload-intraday + `:232`
 >   upload-data-files(schedule_stats.json)两次。
