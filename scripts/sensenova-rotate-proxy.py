@@ -425,6 +425,11 @@ def _do_upstream(command, upstream_path, body, headers, auth_key):
     h = {k: v for k, v in headers.items() if k.lower() not in ("host", "content-length", "connection")}
     h["Host"] = UPSTREAM_HOST
     if auth_key is not None:
+        # 大小写不敏感地先摘掉客户端自带的 Authorization 再写轮换 key:客户端(Claude Code /
+        # ctl test 等)常发小写 authorization,若只做 h["Authorization"]=... 会与它并存成两个
+        # Authorization 头,上游商汤回 400 code=11 OUT_OF_RANGE(2026-10-30 自测 V9 定位)。
+        for _hk in [k for k in h if k.lower() == "authorization"]:
+            h.pop(_hk, None)
         h["Authorization"] = "Bearer " + auth_key
     try:
         conn.request(command, upstream_path, body=body, headers=h)
