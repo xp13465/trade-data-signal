@@ -125,6 +125,17 @@ def test_symlinked_app_dir_is_scanned(tmp_path):
     assert fp_link == md._code_fingerprint()
 
 
+def test_util_atomic_change_invalidates(tmp_path):
+    """scripts/util_atomic.py 经 sys.path 注入被 export 依赖(:40 import)，改它必须失效"""
+    root = _make_tree(tmp_path)
+    m = _load_export(root / "static-site" / "export.py")
+    fp1 = m._code_fingerprint()
+    target = root / "scripts" / "util_atomic.py"
+    with open(target, "a", encoding="utf-8") as f:
+        f.write("\n# fingerprint regression test: util_atomic\n")
+    assert m._code_fingerprint() != fp1, "改 scripts/util_atomic.py 后指纹未变(会增量跳过陈腐产物)"
+
+
 def test_missing_app_dir_is_unreadable(tmp_path):
     """app/ 缺失(或符号链接断链)时扫描为空 -> 必须失效，不许哈希退化"""
     m = _load_export(EXPORT_PY)

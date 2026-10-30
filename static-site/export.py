@@ -910,12 +910,13 @@ def _board_etf_map_hash() -> str:
         return ""
 
 
-# 代码指纹的配置覆盖（#356）：除 app/ 下的 .py 与 export.py 自身，导出还依赖站点配置。
-_CODE_FINGERPRINT_CONFIG = ("config/site.yaml",)
+# 代码指纹的配置/脚本覆盖（#356）：除 app/ 下的 .py 与 export.py 自身，导出还依赖站点配置，
+# 以及经 sys.path 注入的 ROOT/scripts 公共模块（:40 `from util_atomic import ...`）。
+_CODE_FINGERPRINT_CONFIG = ("config/site.yaml", "scripts/util_atomic.py")
 
 
 def _code_fingerprint() -> str:
-    """导出逻辑内容指纹（#356）：app/**/*.py + 本文件 + config/site.yaml 的 sha256。
+    """导出逻辑内容指纹（#356）：app/**/*.py + 本文件 + config/site.yaml + scripts/util_atomic.py 的 sha256。
 
     正确性目标（不是性能优化）：导出产物依赖 app/ 全部模块与站点配置，凡这些内容一变即令增量
     manifest 失效 -> 本次强制全量重算，防"改了依赖代码但指纹不变 -> 增量跳过 -> 陈旧产物上线"。
@@ -1186,7 +1187,7 @@ def main():
         # #29: map 内容哈希作伪表 key 入 manifest，map 单独刷新也能触发 index 重导
         current_fresh["board_etf_map"] = _board_etf_map_hash()
         manifest = _load_manifest()
-        # 导出逻辑版本失效：app/**/*.py / export.py / config/site.yaml 内容一变（指纹不同），
+        # 导出逻辑版本失效：app/**/*.py / export.py / config/site.yaml / scripts/util_atomic.py 内容一变（指纹不同），
         # 本次强制全量重算，防"改了导出算法但源数据日期未变时增量跳过用旧算法产物"。
         if manifest is not None and manifest.get("code") != _code_fingerprint():
             print("-> 导出逻辑代码已变更，本次强制全量重算（增量缓存失效）", flush=True)
