@@ -910,17 +910,65 @@ def _board_etf_map_hash() -> str:
         return ""
 
 
+# 代码指纹的配置覆盖（#356）：除 app/ 下的 .py 与 export.py 自身，导出还依赖站点配置。
+_CODE_FINGERPRINT_CONFIG = ("config/site.yaml",)
+
+
 def _code_fingerprint() -> str:
-    """导出逻辑版本指纹：export.py + 其核心依赖(queries.py / signal_stats.py) 的 mtime。
-    用于增量失效：导出逻辑代码一变，指纹即变 -> 本次强制全量重算（防"改了导出算法但源数据日期
-    未变时增量跳过用旧算法产物"）。"""
-    parts = []
-    for _p in (__file__, str(ROOT / "app/queries.py"), str(ROOT / "app/compute/signal_stats.py")):
-        try:
-            parts.append(str(int(Path(_p).stat().st_mtime)))
-        except Exception:  # noqa: BLE001
-            parts.append("0")
-    return "-".join(parts)
+    """导出逻辑内容指纹（#356）：app/**/*.py + 本文件 + config/site.yaml 的 sha256。
+
+    正确性目标（不是性能优化）：导出产物依赖 app/ 全部模块与站点配置，凡这些内容一变即令增量
+    manifest 失效 -> 本次强制全量重算，防"改了依赖代码但指纹不变 -> 增量跳过 -> 陈旧产物上线"。
+    - 用内容哈希而非 mtime：云上 git pull/rsync 会刷新源文件 mtime（内容没变也算变），反之改了
+      内容再用 touch -r 还原 mtime 也不会漏判。
+    - 相对路径字节一并进摘要：文件增删/改名同样触发失效。
+    - 禁用 git HEAD 当指纹：本仓每天提交数据文件，HEAD 天天变 -> 每天强制全量。
+    - 任一文件读不到 / 扫描结果为空 -> 返回随机串（必然与上次不同）= 本次走全量重算；绝不返回
+      恒定值（恒定 = 永远命中缓存 = 陈旧产物，比按 mtime 更糟）。
+    """
+    import hashlib
+    import uuid
+
+    digest = hashlib.sha256()
+    files = []
+    app_files = []
+    app_root = ROOT / "app"
+    try:
+        # followlinks=True：云上 ROOT/app 可能是 symlink。os.walk 默认不跟随目录符号链接，
+        # 不跟就会扫出空集合 = 指纹恒定 = 永久误命中。
+        seen_dirs = set()
+        for dirpath, dirnames, filenames in os.walk(app_root, followlinks=True):
+            real = os.path.realpath(dirpath)
+            if real in seen_dirs:  # 防符号链接成环导致无限遍历
+                dirnames[:] = []
+                continue
+            seen_dirs.add(real)
+            dirnames[:] = sorted(d for d in dirnames if d not in ("__pycache__", ".git"))
+            for fn in sorted(filenames):
+                if fn.endswith(".py"):
+                    app_files.append(Path(dirpath) / fn)
+    except Exception:  # noqa: BLE001
+        return "v2:unreadable-" + uuid.uuid4().hex
+    if not app_files:  # app/ 扫不到任何 .py -> 必须失效，不许落成"只哈希自身"的近似恒定指纹
+        return "v2:unreadable-" + uuid.uuid4().hex
+    files.extend(app_files)
+    files.append(Path(__file__).absolute())
+    for rel in _CODE_FINGERPRINT_CONFIG:
+        p = ROOT / rel
+        if p.exists():
+            files.append(p)
+    try:
+        for p in sorted(files, key=str):
+            try:
+                rel = str(p.relative_to(ROOT))
+            except ValueError:  # 不在 ROOT 下时用绝对路径，仍保证路径字节进摘要
+                rel = str(p)
+            digest.update(rel.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(hashlib.sha256(p.read_bytes()).digest())
+    except Exception:  # noqa: BLE001  读不到 = 无法确认代码未变 -> 失效走全量
+        return "v2:unreadable-" + uuid.uuid4().hex
+    return "v2:" + digest.hexdigest()
 
 
 def _load_manifest():
@@ -1138,8 +1186,8 @@ def main():
         # #29: map 内容哈希作伪表 key 入 manifest，map 单独刷新也能触发 index 重导
         current_fresh["board_etf_map"] = _board_etf_map_hash()
         manifest = _load_manifest()
-        # 导出逻辑版本失效：export.py/queries.py 代码一变（指纹不同），本次强制全量重算，
-        # 防"改了导出算法但源数据日期未变时增量跳过用旧算法产物"。
+        # 导出逻辑版本失效：app/**/*.py / export.py / config/site.yaml 内容一变（指纹不同），
+        # 本次强制全量重算，防"改了导出算法但源数据日期未变时增量跳过用旧算法产物"。
         if manifest is not None and manifest.get("code") != _code_fingerprint():
             print("-> 导出逻辑代码已变更，本次强制全量重算（增量缓存失效）", flush=True)
             manifest = None
