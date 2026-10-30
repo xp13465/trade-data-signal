@@ -1567,21 +1567,36 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
     # (data-large: turnover 21:10 / async 21:31+), 一方失败留下的 marker 不该让另一方的
     # 下一轮整轮重传(10-27~10-29 连续三天全量即此路径)。
     # 无进度 / 进度损坏 ⇒ 仍全量(fail-closed 不削弱); 未开本开关的通道行为逐字不变。
-    marker_resume = bool(marker_stale and resume_on_stale_marker and resumed_rels)
+    # 周日(weekday==6)是每周一次的「全量校验」——哪怕残留 marker + 完整进度(上一轮其实已传完
+    # 全部文件), 也不许用续传把这一轮整轮跳过, 否则周日的全量校验会被静默取消。
+    _sunday_no_resume = (today_weekday == 6 and resume_on_stale_marker and bool(resumed_rels))
+    marker_resume = bool(marker_stale and resume_on_stale_marker and resumed_rels
+                         and not _sunday_no_resume)
+    _ckpt_usable_n = len(resumed_rels)                # 日志用(下面周日分支会清空 resumed_rels)
     if marker_stale:
         if marker_resume:
             print(f"[{label}] ⚠ 检测到上次上传未正常结束({marker_path.name}), "
                   f"但有可用进度 {len(resumed_rels)} 个 → 按进度续传(只补未完成)")
+        elif _sunday_no_resume:
+            print(f"[{label}] ⚠ 检测到上次上传未正常结束({marker_path.name}), "
+                  f"有可用进度 {_ckpt_usable_n} 个, 但今天是周日 → 仍强制全量"
+                  f"(周日每周一次的全量校验, 不给续传开口子)")
         elif resume_on_stale_marker:
             print(f"[{label}] ⚠ 检测到上次上传未正常结束({marker_path.name}), 无可用进度"
                   f"({'进度文件损坏/不可读' if not ckpt_readable else '无进度文件'}), "
                   f"强制全量重传(fail-closed)")
         else:
             print(f"[{label}] ⚠ 检测到上次上传未正常结束({marker_path.name}), 强制全量重传(fail-closed)")
+    # 周日全量校验必须真全量: 开了 resume_on_stale_marker 的通道(data-large)在周日不认进度,
+    # 否则后面的「checkpoint 命中就剔除」会把 changed 剔空(完整进度 ⇒ 实传 0), 周日校验白跑。
+    if today_weekday == 6 and resume_on_stale_marker:
+        resumed_rels = set()
     incr_changed = list(changed)                      # 指纹增量集(force_full 覆盖前留存, 延后分支用)
     force_full = (not old_files) or today_weekday == 6 or (marker_stale and not marker_resume)
     if marker_stale and not marker_resume:
-        mode = "上次上传中断强制全量"
+        # 周日撞上残留 marker + 完整进度: full 的来源是「周日全量校验」而不是「上次中断」,
+        # 点名避免日志误导(只影响开了 resume_on_stale_marker 的通道的周日分支)。
+        mode = "周日强制全量(残留进度不续传)" if _sunday_no_resume else "上次上传中断强制全量"
     elif marker_resume:
         mode = "上次中断按进度续传"
     elif today_weekday == 6 and old_files:
@@ -1612,11 +1627,19 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         mode = f"增量(周日白天 full 延后到夜间/凌晨轮)"
 
     _n_progress = sum(1 for p in changed if str(p.relative_to(local_dir)) in resumed_rels)
-    if _n_progress:
-        _skip_desc = (f"其余 {len(all_json) - len(changed)} 个未传, "
+    # 只有**真正按进度续传**(marker 残留 + 可用进度 ⇒ marker_resume 为真)时才点名「跳过」
+    # —— 全量路径(force_full, changed 被覆盖成全集)里 progress 只是「稍后会被剔掉的旧进度」,
+    # 若也写「本次待传 24/24(…含 20 个跳过)」就自相矛盾(10-30 收口: 这几天正靠这行日志
+    # 定位事故, 不能误导)。其余通道(未开 resume_on_stale_marker)保持改前原文, 逐字不变。
+    _unchanged_n = len(all_json) - len(changed)
+    if marker_resume and _n_progress:
+        _skip_desc = (f"其余 {_unchanged_n} 个未传, "
                       f"含断点续传已完成 {_n_progress} 个跳过")
+    elif force_full and resume_on_stale_marker:
+        # data-large 的全量路径不出现「跳过」字样: 本轮待传=全集, 没有任何文件被跳过。
+        _skip_desc = f"其余 {_unchanged_n} 个未传"
     else:
-        _skip_desc = f"其余 {len(all_json) - len(changed)} 个内容未变化跳过"
+        _skip_desc = f"其余 {_unchanged_n} 个内容未变化跳过"
     print(f"[{label}] 模式={mode} 本次待传 {len(changed)}/{len(all_json)}({_skip_desc})")
     # B-0(2026-10-23): 指纹扫描段耗时(纯日志; data-large 之外不输出)
     _phase_timing(label, "fingerprint", t0, f"files={len(all_json)} pending={len(changed)}")
@@ -1700,7 +1723,10 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
             print(f"  - {r2_prefix}/{rel}")
         return len(changed), len(changed), [], []
 
-    # 上传开始标记: 正常结束(_save_state)时删除; 中途被 kill(看门狗/系统)则残留 → 下轮强制全量。
+    # 上传开始标记: 正常结束(_save_state)时删除; 中途被 kill(看门狗/系统)则残留。
+    # 残留后的处置: 未开 resume_on_stale_marker 的通道仍强制全量(本注释原口径, 对它们准确);
+    # data-large 已被续传取代 —— 有可用进度按进度续传、无进度/进度损坏才全量, 详见 §3
+    # marker 判定处的 #360 注释(本函数 marker_resume 一带)。周日例外: 仍强制全量(全量校验)。
     try:
         marker_path.parent.mkdir(parents=True, exist_ok=True)
         marker_path.write_text(time.strftime("%Y-%m-%dT%H:%M:%S") + f" pid={os.getpid()}", encoding="utf-8")

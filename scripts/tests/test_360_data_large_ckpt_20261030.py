@@ -32,6 +32,7 @@ N_FILES = 24                     # data-large 常态文件数(实测 24/24)
 CKPT_EVERY = 5                   # 每 5 个落一次进度
 STATE_NAME = ".r2_test_360_state.json"          # 测试私有名(不碰生产 .r2_*_state.json)
 FROZEN_NOW = "2026-10-29T21:10:00"               # 周四(避开周日强制全量, 结论与真实日期无关)
+SUNDAY_NOW = "2026-11-01T21:10:00"               # 周日(F3: 周日全量校验不许被续传吃掉)
 
 
 def _paths(tmp_path):
@@ -265,9 +266,70 @@ def test_other_channel_default_keeps_full_on_stale_marker(tmp_path, monkeypatch,
     assert ("⚠ 检测到上次上传未正常结束(.r2_test_360_uploading.marker), 强制全量重传(fail-closed)") in out
     assert "模式=上次上传中断强制全量" in out
     assert "按进度续传" not in out
+    # V4(F4): 其它通道日志逐字节不变 —— 全量行仍是改前原文(含「内容未变化跳过」)
+    assert "模式=上次上传中断强制全量 本次待传 24/24(其余 0 个内容未变化跳过)" in out
+    assert "含断点续传已完成" not in out
     # force_full 口径的可观测残留: 状态里 changed 记的是「全量 24」而不是增量 4(改前即如此)
     st = json.loads(_ps["state"].read_text(encoding="utf-8"))
     assert st["mode"] == "上次上传中断强制全量" and len(st["changed"]) == N_FILES
+
+
+# ---------------- T3s(F3): 周日 + marker 残留 + 完整进度 ⇒ 仍全量, 且日志不许出现续传/跳过 ----------------
+def test_t3s_sunday_with_complete_ckpt_still_full(tmp_path, monkeypatch, capsys):
+    """周日是每周一次的全量校验: 哪怕 marker 残留 + 进度已「全部完成」, 也不许整轮跳过。
+
+    改前(361 主体): marker_resume=True ⇒ changed 被剔空 ⇒ 实传 0, 周日校验被静默取消;
+    改后: 周日不认进度 ⇒ 实传=全集。同时这行日志不得出现「按进度续传」/「断点续传…跳过」。
+    """
+    monkeypatch.setenv("R2_NOW_OVERRIDE", SUNDAY_NOW)
+    local, ps = _mk_tree(tmp_path, monkeypatch, state="match",
+                         marker="2026-10-31T21:10:00 pid=999999", ckpt=N_FILES)
+    sent = _fake_bits(monkeypatch)
+    ok, total, failed, _keys = _run(local)
+    out = capsys.readouterr().out
+
+    assert (ok, total, failed) == (N_FILES, N_FILES, []), "周日必须真全量, 不许被完整进度剔空"
+    assert len(sent) == N_FILES
+    assert "但今天是周日 → 仍强制全量" in out
+    assert "模式=周日强制全量(残留进度不续传)" in out
+    assert "按进度续传" not in out, "周日分支不许出现「按进度续传」"
+    assert "↩ 断点续传" not in out, "周日分支不许按进度剔除"
+    # F4(V3): 全量场景日志 — 无「含断点续传已完成 N 个跳过」, 也不出现「跳过」字样
+    assert "含断点续传已完成" not in out
+    assert "跳过" not in out, f"data-large 全量路径日志不许出现「跳过」: {out}"
+    assert "本次待传 24/24(其余 0 个未传)" in out
+    assert ps["marker"].exists() is False and ps["ckpt"].exists() is False
+    st = json.loads(ps["state"].read_text(encoding="utf-8"))
+    assert st["mode"] == "周日强制全量(残留进度不续传)" and len(st["changed"]) == N_FILES
+    print("T3s 全量日志:", [ln for ln in out.splitlines() if "模式=" in ln])
+
+
+def test_t3s_discriminating_power_same_case_on_thursday_resumes(tmp_path, monkeypatch, capsys):
+    """判别力关: 同一场景挪到周四 ⇒ 按进度续传(0 实传), 证明 T3s 咬住的是「周日」这个条件。"""
+    local, ps = _mk_tree(tmp_path, monkeypatch, state="match",
+                         marker="2026-10-28T21:31:24 pid=999999", ckpt=N_FILES)
+    sent = _fake_bits(monkeypatch)
+    ok, total, failed, _keys = _run(local)
+    out = capsys.readouterr().out
+    assert (ok, total, failed, len(sent)) == (0, 0, [], 0)
+    assert "有可用进度 24 个 → 按进度续传(只补未完成)" in out
+    assert "模式=上次中断按进度续传" in out
+    assert ps["marker"].exists() is False and ps["ckpt"].exists() is False
+    print("T3s-对照(周四)日志:", [ln for ln in out.splitlines() if "模式=" in ln])
+
+
+# ---------------- T3c(F4/V3): 真续传剔除时日志要点名「跳过 N 个」 ----------------
+def test_t3c_resume_log_names_skipped_count(tmp_path, monkeypatch, capsys):
+    """非周日 + marker 残留 + 全状态指纹失配 + 进度 20/24 ⇒ 续传, 日志必须点名 20 个跳过。"""
+    local, _ps = _mk_tree(tmp_path, monkeypatch, state="stale",
+                          marker="2026-10-28T21:31:24 pid=999999", ckpt=20)
+    sent = _fake_bits(monkeypatch)
+    ok, total, failed, _keys = _run(local)
+    out = capsys.readouterr().out
+    assert (ok, total, failed) == (4, 4, [])
+    assert len(sent) == 4
+    assert "模式=上次中断按进度续传 本次待传 24/24(其余 0 个未传, 含断点续传已完成 20 个跳过)" in out
+    print("T3c 续传日志:", [ln for ln in out.splitlines() if "模式=" in ln])
 
 
 # ---------------- T4: marker 残留但无进度 / 进度损坏 ⇒ 必须全量 ----------------
@@ -281,6 +343,10 @@ def test_t4a_stale_marker_without_ckpt_forces_full(tmp_path, monkeypatch, capsys
     assert ("⚠ 检测到上次上传未正常结束(.r2_test_360_uploading.marker), 无可用进度"
             "(无进度文件), 强制全量重传(fail-closed)") in out
     assert "模式=上次上传中断强制全量" in out
+    # V3(F4): 全量路径不出现「跳过」字样, 也不出现续传剔除的措辞
+    assert "跳过" not in out
+    assert "含断点续传已完成" not in out
+    assert "本次待传 24/24(其余 0 个未传)" in out
 
 
 def test_t4b_stale_marker_with_corrupt_ckpt_forces_full(tmp_path, monkeypatch, capsys):
