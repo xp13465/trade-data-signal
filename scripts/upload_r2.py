@@ -1422,8 +1422,32 @@ def _phase_timing(label, phase, started_at, extra=""):
           f"channel={label}{(' ' + extra) if extra else ''}", flush=True)
 
 
+def _read_checkpoint(ckpt_path):
+    """读分片续传进度文件, 返回 (files_map, readable)。**不打印**(调用方按场景决定是否发声)。
+
+    readable 语义:
+      - True  + 非空 dict ⇒ 有可用进度;
+      - True  + 空 dict   ⇒ 没有进度文件(首次/上轮已清理), 不算损坏;
+      - False             ⇒ 文件在但 parse 不出合法结构(写坏/半截/被改成别的东西)。
+    调用方约定(#360): marker 残留时 readable=False **必须退全量**(fail-closed),
+    不许把「读失败」当「空进度」静默续传 —— 空集与全量在本引擎等价安全, 但一旦将来
+    有人在这里加「按空集跳过」的分支就会变成漏传, 所以损坏必须能被识别出来。
+    """
+    try:
+        with open(ckpt_path, "r", encoding="utf-8") as f:
+            st = json.load(f)
+        if not isinstance(st, dict) or not isinstance(st.get("files"), dict):
+            return {}, False
+        return st["files"], True
+    except FileNotFoundError:
+        return {}, True
+    except (OSError, ValueError):
+        return {}, False
+
+
 def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
                         fingerprint=None, exclude_fn=None, checkpoint_every=0,
+                        resume_on_stale_marker=False,
                         dry_run=None, label=None, on_fail=None):
     """通用增量上传引擎(2026-09-15 R2 上传增量化, 12 通道复用; 参数化 etf-hist 先例全套机制)。
 
@@ -1451,6 +1475,10 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         verify_etag=True), 不一致记入 failed_rels(传上去的内容不对=失败, 触发调用方告警);
       - checkpoint_every>0 时启用分片 checkpoint 断点续传(fund-nav 模式, 治「超时 kill->状态
         缺失->下次更慢全量->再被 kill」恶性循环); checkpoint 落 data/.r2_<channel>_ckpt.json;
+      - resume_on_stale_marker(可选, #360 2026-10-30, 默认 False=原行为): marker 残留时若存在
+        **可用进度**(进度里指纹与当前一致), 按进度续传而不是整轮全量重传。只给「同一 channel
+        有多个调用方共享 marker/state」的通道开(data-large: turnover 21:10 / async 21:31+),
+        避免一方的失败被另一方继承成全量重传。默认 False 的通道行为逐字不变。
       - dry_run=True 只打印「将传 N/M」不 PUT(验收自测用)。
       - on_fail(可选, #204 2026-10-06): 回调 (ok, total, failed_rels) -> None, 仅在 ok!=total
         的失败分支、sys.exit(1) 之前调用一次 —— 给增量通道预留「失败 loud」发声点(此前引擎
@@ -1522,13 +1550,40 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
 
     now = _now()                                      # 可注入冻结的运行时刻(§18 L51)
     today_weekday = now.weekday()                     # Monday=0 ... Sunday=6
+    # 进度文件提前读一次(§4 复用同一份, 不再二次读盘): marker 判定必须先知道「有没有可用进度」。
+    ckpt_path = None
+    ckpt_files = {}
+    ckpt_readable = True
+    if checkpoint_every > 0:
+        ckpt_path = state_path.with_name(state_name.replace("_state.json", "_ckpt.json"))
+        ckpt_files, ckpt_readable = _read_checkpoint(ckpt_path)
+    # 指纹与当前仍一致 ⇒ 该文件在中断那轮确实 PUT 成功且 ETag 对账过(_upload_glob 的
+    # on_success 只在成功分支回调), 可以放心从待传清单剔除。
+    resumed_rels = {rel for rel, md5 in ckpt_files.items()
+                    if rel in sigs and md5 == sigs[rel]["md5"]}
     marker_stale = marker_path.exists()
+    # #360(2026-10-30): resume_on_stale_marker=True 的通道, marker 残留时由「无条件罚全量」
+    # 改为「有可用进度就按进度续传」—— 同一 channel 有多个调用方共享 marker 与 state 时
+    # (data-large: turnover 21:10 / async 21:31+), 一方失败留下的 marker 不该让另一方的
+    # 下一轮整轮重传(10-27~10-29 连续三天全量即此路径)。
+    # 无进度 / 进度损坏 ⇒ 仍全量(fail-closed 不削弱); 未开本开关的通道行为逐字不变。
+    marker_resume = bool(marker_stale and resume_on_stale_marker and resumed_rels)
     if marker_stale:
-        print(f"[{label}] ⚠ 检测到上次上传未正常结束({marker_path.name}), 强制全量重传(fail-closed)")
+        if marker_resume:
+            print(f"[{label}] ⚠ 检测到上次上传未正常结束({marker_path.name}), "
+                  f"但有可用进度 {len(resumed_rels)} 个 → 按进度续传(只补未完成)")
+        elif resume_on_stale_marker:
+            print(f"[{label}] ⚠ 检测到上次上传未正常结束({marker_path.name}), 无可用进度"
+                  f"({'进度文件损坏/不可读' if not ckpt_readable else '无进度文件'}), "
+                  f"强制全量重传(fail-closed)")
+        else:
+            print(f"[{label}] ⚠ 检测到上次上传未正常结束({marker_path.name}), 强制全量重传(fail-closed)")
     incr_changed = list(changed)                      # 指纹增量集(force_full 覆盖前留存, 延后分支用)
-    force_full = (not old_files) or today_weekday == 6 or marker_stale
-    if marker_stale:
+    force_full = (not old_files) or today_weekday == 6 or (marker_stale and not marker_resume)
+    if marker_stale and not marker_resume:
         mode = "上次上传中断强制全量"
+    elif marker_resume:
+        mode = "上次中断按进度续传"
     elif today_weekday == 6 and old_files:
         mode = "周日强制全量"
     elif not old_files:
@@ -1556,8 +1611,13 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         changed = incr_changed
         mode = f"增量(周日白天 full 延后到夜间/凌晨轮)"
 
-    print(f"[{label}] 模式={mode} 本次待传 {len(changed)}/{len(all_json)}"
-          f"(其余 {len(all_json) - len(changed)} 个内容未变化跳过)")
+    _n_progress = sum(1 for p in changed if str(p.relative_to(local_dir)) in resumed_rels)
+    if _n_progress:
+        _skip_desc = (f"其余 {len(all_json) - len(changed)} 个未传, "
+                      f"含断点续传已完成 {_n_progress} 个跳过")
+    else:
+        _skip_desc = f"其余 {len(all_json) - len(changed)} 个内容未变化跳过"
+    print(f"[{label}] 模式={mode} 本次待传 {len(changed)}/{len(all_json)}({_skip_desc})")
     # B-0(2026-10-23): 指纹扫描段耗时(纯日志; data-large 之外不输出)
     _phase_timing(label, "fingerprint", t0, f"files={len(all_json)} pending={len(changed)}")
 
@@ -1586,10 +1646,13 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
             print(f"[{label}] [dry-run] 无待传文件")
         else:
             _save_state(sigs, mode, [])
-            try:
-                marker_path.unlink(missing_ok=True)   # 本轮完整结束, 清理残留 marker
-            except OSError:
-                pass
+            # 本轮完整结束: 清残留 marker; 进度文件此时也无意义(全部已是最新), 一并清掉,
+            # 防陈旧进度文件长期滞留(#360: 进度只剩「路由是否有进度」这一个用途)。
+            for _p in ((marker_path, ckpt_path) if ckpt_path is not None else (marker_path,)):
+                try:
+                    _p.unlink(missing_ok=True)
+                except OSError:
+                    pass
         _phase_timing(label, "total", t0)   # B-0: 无待传也在总耗时段收口
         return 0, 0, [], []
 
@@ -1645,10 +1708,8 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         print(f"[{label}] ⚠ 上传标记写入失败({e})", file=sys.stderr)
 
     # 4. checkpoint 续传(checkpoint_every>0, fund-nav 模式)
-    ckpt_path = None
-    ckpt_files = {}
-    if checkpoint_every > 0:
-        ckpt_path = state_path.with_name(state_name.replace("_state.json", "_ckpt.json"))
+    #    进度文件已在上面(§3 marker 判定前)读过一次, 这里只装配落盘器 + 剔除已完成文件。
+    if ckpt_path is not None:
 
         def _save_ckpt(done_map):
             """checkpoint 原子写(tmp + fsync + rename), 崩溃不留半截。"""
@@ -1670,22 +1731,27 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
                     pass
                 raise
 
-        try:
-            with open(ckpt_path, "r", encoding="utf-8") as f:
-                st = json.load(f)
-            if isinstance(st.get("files"), dict):
-                ckpt_files = st["files"]
-        except (OSError, ValueError):
-            ckpt_files = {}
         if ckpt_files:
             # 上次中断的 checkpoint 里, 指纹与当前仍一致的文件视为已传成功, 从待传清单剔除
-            resumed_rels = {str(p.relative_to(local_dir)) for p in changed
-                            if ckpt_files.get(str(p.relative_to(local_dir))) == sigs[str(p.relative_to(local_dir))]["md5"]}
-            n_resumed = len(resumed_rels)
+            # (resumed_rels 已在 §3 按 sigs 算好, 覆盖全集; changed ⊆ 全集, 直接按成员判定)。
+            resumed_here = [p for p in changed if str(p.relative_to(local_dir)) in resumed_rels]
             changed = [p for p in changed if str(p.relative_to(local_dir)) not in resumed_rels]
-            if n_resumed:
-                print(f"[{label}] ↩ 断点续传: checkpoint 命中 {n_resumed} 个已上传(跳过), "
+            if resumed_here:
+                print(f"[{label}] ↩ 断点续传: checkpoint 命中 {len(resumed_here)} 个已上传(跳过), "
                       f"本次实传 {len(changed)} 个")
+            if not changed:
+                # 边界: 中断那轮其实已把整批传完(只差收尾写状态)。此时不能进 _upload_glob
+                # (total=0 会被判「无文件可传」并 exit 1 = 假失败), 直接按完成收口:
+                # 进度里的条目都是 PUT 成功 + ETag 对账过的, 可据此写状态、清 marker 与进度。
+                print(f"[{label}] ✓ 进度显示全部 {len(all_json)} 个已上传完成, 无需重传")
+                _save_state(sigs, mode, changed_rels)
+                for _p in (marker_path, ckpt_path):
+                    try:
+                        _p.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                _phase_timing(label, "total", t0)
+                return 0, 0, [], []
 
     # 5. 上传(only_files + 8 线程 + 层2 ETag 对账)
     done_map = dict(ckpt_files)   # 继承旧 checkpoint, 累积本次新成功
@@ -2266,9 +2332,16 @@ def cmd_upload_data_large():
     此前 gold_night 链明确静默 + deploy 链抽样, 双静默面。
     """
     data_dir = STATIC_DIR / "data"
+    # checkpoint_every=5(#360, 2026-10-30): 本通道常态只有 ~24 个文件、单文件大(全量 ~270MB),
+    # 每 5 个落一次进度 ⇒ 一轮约 5 个落盘点, 被看门狗/超时打断最多重传 4 个文件;
+    # 不能沿用 fund-nav 的 200(24 个文件永远落不了盘 = 等于没启用)。
     _, _, _, uploaded_keys = _incremental_upload(
         data_dir, ["*.json"], "data", ".r2_data_large_state.json",
         exclude_fn=lambda f: not _is_data_large_file(f), label="data-large",
+        checkpoint_every=5,
+        # 本通道 marker/state 由两个调用方共享(turnover 21:10 / async 21:31+),
+        # marker 残留时按进度续传, 不再整轮全量重传(#360)。
+        resume_on_stale_marker=True,
         on_fail=_channel_on_fail(
             "data-large", "upload-data-large", "data",
             "(signal_kelly_trades.json 主档/overfit_monitor*/大 range {id}-{all,5y,3y}.json "
