@@ -40,7 +40,7 @@ env:
                             #   off  =完全关(连 print 都不出,仅用于彻底静默)
   TTP_REQDUMP=0             # 请求原文滚动 dump(默认关,=1 才开;2026-09-01 用户定日志关闭);
                             #   只落 body 不落 header;该目录历史文件不自动清理,手动处置
-  TTP_REQDUMP_DIR=.../sensenova-req-dump  # dump 目录(默认 trade-data/data/logs/sensenova-req-dump,仓外)
+  TTP_REQDUMP_DIR=.../sensenova-req-dump  # dump 目录(默认 ~/.sensenova-proxy/logs/sensenova-req-dump)
   TTP_REQDUMP_KEEP=30       # 非 ERR 保留最近 N 个(默认 30)
   TTP_REQDUMP_KEEP_ERR=30   # ERR(>=400)保留最近 N 个(默认 30,报错原文不滚删)
   TTP_DETECT_LOG=0          # 结构化请求检测日志(默认关;=1 开,量控第一道,全局计数 50000 条封顶)
