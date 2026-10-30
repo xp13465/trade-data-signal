@@ -912,11 +912,24 @@ def _board_etf_map_hash() -> str:
 
 # 代码指纹的配置/脚本覆盖（#356）：除 app/ 下的 .py 与 export.py 自身，导出还依赖站点配置，
 # 以及经 sys.path 注入的 ROOT/scripts 公共模块（:40 `from util_atomic import ...`）。
-_CODE_FINGERPRINT_CONFIG = ("config/site.yaml", "scripts/util_atomic.py")
+# config/indicators.yaml（#356 补）：它是 app/ 代码的**输入**而不是代码——指数宇宙、中文名
+# （queries.py:1293 注入）、per-index 买卖点阈值（compute/signals.py:475/508/534）全在里面，
+# 改它而指纹不变 ⇒ index-*.json 增量跳过 ⇒ 产品仍是旧名字/旧阈值/缺新品种。
+# 其余 config/ 文件逐个核过不进指纹：universe_rules.yaml 的唯一产出 data/board_etf_map.json
+# 已按内容哈希作伪表 key 进 idx_deps（:1188/:1436），改它照样触发 index 重导；
+# daily_brief.yaml 归 gen_daily_brief.py 写 daily_brief.json（不在 export 产物内）；
+# email/feishu/telegram/sub_pwd/subscriptions/brief_push 只喂通知与订阅、不进任何产物 JSON；
+# signal_kelly_freeze_*.json 是回测入账登记表，而 signal_kelly 段每次 export 无条件重跑（:1277 起）不参与增量跳过。
+_CODE_FINGERPRINT_CONFIG = (
+    "config/site.yaml",
+    "config/indicators.yaml",
+    "scripts/util_atomic.py",
+)
 
 
 def _code_fingerprint() -> str:
-    """导出逻辑内容指纹（#356）：app/**/*.py + 本文件 + config/site.yaml + scripts/util_atomic.py 的 sha256。
+    """导出逻辑内容指纹（#356）：app/**/*.py + 本文件 + config/site.yaml + config/indicators.yaml
+    + scripts/util_atomic.py 的 sha256。
 
     正确性目标（不是性能优化）：导出产物依赖 app/ 全部模块与站点配置，凡这些内容一变即令增量
     manifest 失效 -> 本次强制全量重算，防"改了依赖代码但指纹不变 -> 增量跳过 -> 陈旧产物上线"。
@@ -1187,7 +1200,7 @@ def main():
         # #29: map 内容哈希作伪表 key 入 manifest，map 单独刷新也能触发 index 重导
         current_fresh["board_etf_map"] = _board_etf_map_hash()
         manifest = _load_manifest()
-        # 导出逻辑版本失效：app/**/*.py / export.py / config/site.yaml / scripts/util_atomic.py 内容一变（指纹不同），
+        # 导出逻辑版本失效：app/**/*.py / export.py / config/{site,indicators}.yaml / scripts/util_atomic.py 内容一变（指纹不同），
         # 本次强制全量重算，防"改了导出算法但源数据日期未变时增量跳过用旧算法产物"。
         if manifest is not None and manifest.get("code") != _code_fingerprint():
             print("-> 导出逻辑代码已变更，本次强制全量重算（增量缓存失效）", flush=True)

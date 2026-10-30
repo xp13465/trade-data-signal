@@ -15,6 +15,12 @@
        云上 ROOT/app 为目录符号链接时仍能扫描(不跟随 ⇒ 空集 = 永久误命中)
   [兜底] 文件读不到 ⇒ 不返回正常指纹(不可匹配)
 
+补(config/indicators.yaml,reviewer F1):
+  [补1] config/indicators.yaml 在覆盖内(指数宇宙/中文名/per-index 阈值 = app/ 代码的输入)
+  [补2] 判别力: 改它内容 ⇒ 指纹必须变;改回 ⇒ 恢复(不靠断言常量字面量自证)
+  [补3] config/ 下参与哈希的恰好 site.yaml + indicators.yaml,不含 data/DB/log
+  [补4] 反向对照: 不产出 export 产物的 config(daily_brief.yaml/email.json.example)改了不许让指纹变
+
 零生产触达: 只在 pytest tmp_path 副本里改文件;不读生产 DB、不写仓库文件、不上传 R2、零网络。
 """
 import importlib.util
@@ -134,6 +140,56 @@ def test_util_atomic_change_invalidates(tmp_path):
     with open(target, "a", encoding="utf-8") as f:
         f.write("\n# fingerprint regression test: util_atomic\n")
     assert m._code_fingerprint() != fp1, "改 scripts/util_atomic.py 后指纹未变(会增量跳过陈腐产物)"
+
+
+def test_indicators_yaml_in_fingerprint_config():
+    """#356 补(config/indicators.yaml): 指数宇宙/中文名/per-index 阈值都是 app/ 代码的输入,
+    改它必须让指纹变,否则 index-*.json 增量跳过 => 旧名字/旧阈值/缺新品种。"""
+    m = _load_export(EXPORT_PY)
+    assert "config/indicators.yaml" in m._CODE_FINGERPRINT_CONFIG, \
+        "config/indicators.yaml 未纳入指纹覆盖"
+    assert (ROOT / "config" / "indicators.yaml").exists(), "生产仓缺 config/indicators.yaml"
+
+
+def test_indicators_yaml_change_invalidates(tmp_path):
+    """判别力用例:改 indicators.yaml 内容(临时副本) => 指纹必须变;改回 => 恢复原值。
+    不是断言常量字面量,而是真跑两次 _code_fingerprint()。"""
+    root = _make_tree(tmp_path)
+    m = _load_export(root / "static-site" / "export.py")
+    target = root / "config" / "indicators.yaml"
+    original = target.read_text(encoding="utf-8")
+    fp1 = m._code_fingerprint()
+    target.write_text(original + "\n# fingerprint regression test: indicators\n", encoding="utf-8")
+    fp2 = m._code_fingerprint()
+    assert fp2 != fp1, "改 config/indicators.yaml 后指纹未变(index 详情会增量跳过用旧名字/旧阈值)"
+    target.write_text(original, encoding="utf-8")
+    assert m._code_fingerprint() == fp1, "改回原内容后指纹未恢复(内容哈希口径被破坏)"
+
+
+def test_config_coverage_only_product_inputs(tmp_path):
+    """覆盖范围核对: 指纹真正参与哈希的 config/ 文件 = `_CODE_FINGERPRINT_CONFIG` 里存在的那些,
+    必须恰好是 site.yaml + indicators.yaml,不含 data/DB/log/凭据(凭据文件改了只会平白全量重算)。"""
+    m = _load_export(EXPORT_PY)
+    picked = [rel for rel in m._CODE_FINGERPRINT_CONFIG if rel.startswith("config/")]
+    assert sorted(picked) == ["config/indicators.yaml", "config/site.yaml"], \
+        f"config/ 下参与指纹的文件集不符: {picked}"
+    for rel in picked:
+        assert (ROOT / rel).exists(), f"{rel} 不存在,指纹会静默少算一个输入"
+        assert not rel.endswith((".db", ".log")), f"{rel} 是数据/日志,不该进代码指纹"
+
+
+def test_non_product_config_does_not_invalidate(tmp_path):
+    """反向对照(§23.3 逐个判定): 不产出 export 产物的 config 改动不许让指纹变——
+    daily_brief.yaml(→gen_daily_brief.py 写 daily_brief.json,不在 export 产物内)
+    与 email.json.example(通知凭据模板)改了都只该触发各自链路,不该强制全量重算。"""
+    root = _make_tree(tmp_path)
+    m = _load_export(root / "static-site" / "export.py")
+    fp1 = m._code_fingerprint()
+    for rel in ("config/daily_brief.yaml", "config/email.json.example"):
+        p = root / rel
+        assert p.exists(), f"测试前置: 临时仓缺 {rel}"
+        p.write_text(p.read_text(encoding="utf-8") + "\n# not a product input\n", encoding="utf-8")
+    assert m._code_fingerprint() == fp1, "非产物输入配置进了代码指纹(会平白触发全量重算)"
 
 
 def test_missing_app_dir_is_unreadable(tmp_path):
