@@ -344,13 +344,38 @@ def _original_bak_path(path):
     return path + ".bak-sensenova-proxyctl-ORIGINAL"
 
 
+def _looks_already_proxied(path):
+    """当前文件是否已是本工具写过的代理配置(codex provider 段 / claude 的 127.0.0.1 base_url)。
+
+    S-2:迁移用户(老版本已 config 过)当前文件本身就带代理配置,拿它当"原始"备份,
+    restore 就回不到真正原始 —— 所以先识别出来,不标 ORIGINAL。
+    """
+    try:
+        with open(path, "r", encoding="utf-8-sig", newline="") as f:
+            text = f.read()
+    except OSError:
+        return False
+    if re.search(r"^[ \t]*\[\s*model_providers\.sensenova\s*\]", text, re.M):
+        return True
+    # 只认 ANTHROPIC_BASE_URL 自己的值(避免 settings 里别的字段碰巧含 127.0.0.1 被误判 ⇒ 白丢 ORIGINAL)
+    return re.search(r'"ANTHROPIC_BASE_URL"\s*:\s*"[^"]*127\.0\.0\.1', text) is not None
+
+
 def _backup_before_write(path):
-    """写前备份:首次额外固存 ORIGINAL,并总是留一份带时间戳备份(便于反查)。返回 (made_original, 时间戳备份路径)。"""
+    """写前备份:首次额外固存 ORIGINAL,并总是留一份带时间戳备份(便于反查)。
+
+    返回 (made_original, 时间戳备份路径)。
+    S-2:当前文件若已是代理配置,不创建 ORIGINAL(否则"原始"是假话),只留时间戳备份 + 提示。
+    """
     orig = _original_bak_path(path)
     made = False
     if not os.path.exists(orig):
-        shutil.copy2(path, orig)
-        made = True
+        if _looks_already_proxied(path):
+            _echo("当前配置已是代理配置(不是原始),不创建 ORIGINAL 原始备份;"
+                  "原始配置不可追回,请自行确认。已另存时间戳备份,可用 config restore 回退到它。")
+        else:
+            shutil.copy2(path, orig)
+            made = True
     bak = _backup_path(path)
     shutil.copy2(path, bak)
     return made, bak
@@ -381,24 +406,29 @@ def _codex_path():
 
 
 def _toml_join(lines, content):
-    """按原文件换行风格(LF/CRLF)拼回,避免改 Windows 配置时整文件换行风格被换掉。"""
+    """按原文件换行风格(LF/CRLF)拼回,避免改 Windows 配置时整文件换行风格被换掉。
+
+    ⚠️ 调用方读文件时必须 `open(..., newline="")`:文本模式默认的 universal newline
+    已在读入时把 CRLF 统一成 LF,那样这里就永远判不出 CRLF(死代码,S-1)。
+    """
     nl = "\r\n" if "\r\n" in content else "\n"
     return nl.join(lines)
 
 
-# 段头识别:`[表]` / `[[数组表]]`(允许行尾注释)。故意不把裸数组值 `[1, 2]` 当段头。
-_SECTION_RE = re.compile(r"^\s*\[\[?[A-Za-z0-9_.\- \"']+\]\]?\s*(#.*)?$")
-
-
+# 段头判定:TOML 段头必须独占一行,行首(可含缩进)是 `[` 即为段头 ——
+# `[a]` / `[[a]]` / `[plugins."x@y"]` / `[projects."/abs/path"]` / `[quoted."中文 段"]` 全满足。
+# 故意不用"字符白名单"正则:白名单会把带引号/`@`/`/`/中文的真实段头当普通行,
+# 替换或删段时把紧随其后的段整段吞掉(F-1 回归,真实 codex config 里这类段头 14 个)。
+# 裸数组值 `[1, 2]` 不会独占行首(TOML 要求 `key = [...]`),故无歧义。
 def _is_section_header(line):
-    return _SECTION_RE.match(line) is not None
+    return line.lstrip().startswith("[")
 
 
 def _replace_toml_table(content, header, new_block):
     """替换(或追加)一个 TOML 表的内容行。
 
-    只吞该表自身行:遇到下一个段头(`[x]` 或 `[[x]]`)立即停 ⇒ 不误伤后续表,
-    也修复旧正则不认 `[[数组表]]` 导致整段被删的问题(S4)。
+    只吞该表自身行:遇到下一个段头(行首 `[`,含 `[[数组表]]`/带引号段)立即停
+    ⇒ 既不误伤后续表(S4),也不吞带引号/含 @ / 中文的真实段头(F-1)。
     """
     lines = content.splitlines()
     header_re = re.compile(r"^\s*\[%s\]\s*(#.*)?$" % re.escape(header))
@@ -525,7 +555,8 @@ def _config_codex():
     if had_existing:
         made, bak = _backup_before_write(path)
         _echo("已备份: %s%s" % (bak, "(另存原始备份 ORIGINAL)" if made else ""))
-        with open(path, "r", encoding="utf-8-sig") as f:
+        # newline="":保住原文件 CRLF,否则文本模式已把它统一成 LF,写回就换了 Windows 换行风格(S-1)
+        with open(path, "r", encoding="utf-8-sig", newline="") as f:
             content = f.read()
     else:
         _echo("config.toml 不存在,新建。")
@@ -616,6 +647,7 @@ def _config_restore(target):
                     if not b.endswith("-ORIGINAL")]
             if baks:
                 src = baks[-1]
+                _echo("[%s] 无 ORIGINAL 原始备份,回退到最近时间戳备份(可能是旧版工具写的代理配置,不保证是真正的原始配置)。" % t)
         if not src:
             _echo("[%s] 无备份文件。" % t)
             continue
