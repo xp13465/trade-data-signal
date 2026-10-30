@@ -81,7 +81,9 @@ SITES = [
     # ── 定时链 shell 调用方 ──
     ("scripts/s06_snapshot.sh", "s06 state(顶层 data)", "data", 600, 900, "trade-s06-snapshot.service", 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=600'),
     ("scripts/s06_snapshot.sh", "kelly snapshots", "kelly_snapshots", 600, 900, "trade-s06-snapshot.service", 'R2_UPLOAD_LOCK_DOMAIN=kelly_snapshots R2_UPLOAD_LOCK_TIMEOUT=600'),
-    ("scripts/turnover_backfill.sh", "intraday + data-large", "data", 1800, 2760, "trade-turnover-backfill.service", 'R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" R2_UPLOAD_LOCK_DOMAIN=data'),
+    # #364: 两步各自内层工作预算 + 外层 shell run_to(unit TimeoutStartSec=infinity ⇒ 外层墙在 shell)。
+    ("scripts/turnover_backfill.sh", "intraday(外层 run_to 2460 / 工作 600)", "data", 1800, 2460, "trade-turnover-backfill.service", 'R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET_INTRADAY" R2_UPLOAD_LOCK_DOMAIN=data'),
+    ("scripts/turnover_backfill.sh", "data-large(外层 run_to 4260 / 工作 2400)", "data", 1800, 4260, "trade-turnover-backfill.service", 'R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" R2_UPLOAD_LOCK_DOMAIN=data'),
     ("scripts/intraday_snapshot.sh", "index(盘中 :157)", "index", 600, None, "trade-intraday-snapshot.service", 'R2_UPLOAD_LOCK_DOMAIN=index R2_UPLOAD_LOCK_TIMEOUT=600'),
     ("scripts/intraday_snapshot.sh", "intraday + schedule_stats(盘中 :170/:232)", "data", 600, None, "trade-intraday-snapshot.service", 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=600'),
     ("scripts/intraday_snapshot.sh", "signal_kelly_trades_intraday.json(盘中 :180)", "data", 600, None, "trade-intraday-snapshot.service", 'upload-data-files signal_kelly_trades_intraday.json'),

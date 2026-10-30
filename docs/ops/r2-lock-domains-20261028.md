@@ -81,7 +81,8 @@
 |---|---|---|---|---|
 | s06_snapshot.sh | data | 600 | 900(run_to) | 7020 |
 | s06_snapshot.sh(④b) | kelly_snapshots | 600 | 900(run_to) | 7020 |
-| turnover_backfill.sh | data | 1800 | 2760(run_to) | 0(无界) |
+| turnover_backfill.sh(intraday) | data | 1800 | 2460(run_to; 工作预算 600) | 0(无界) |
+| turnover_backfill.sh(data-large) | data | 1800 | 4260(run_to; 工作预算 2400) | 0(无界) |
 | intraday_snapshot.sh | index / data | 600 | 无界 | 0 |
 | update_lab.sh | lab / trade_sim_data / data | 600 | 无界 | 0 |
 | gold_night.sh | data | 900 | 无界 | 2700 |

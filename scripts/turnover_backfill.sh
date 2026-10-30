@@ -21,14 +21,16 @@
 #   病灶: 旧写法 `run_to 900 "$PY" scripts/upload_r2.py …` 量的是「进程启动→结束」整段墙钟
 #   (**含排队等锁**), 撞上长持锁者时「等锁 870s + 工作 30s」就撞 900s(rc=124): 等锁吃掉工作预算。
 #   修法: 预算拆两段各自独立计时 —— 等锁段 = R2_UPLOAD_LOCK_TIMEOUT(=R2_LOCK_WAIT_BUDGET 1800,
-#   超时 fail-closed exit 1); 工作段 = R2_UPLOAD_WORK_TIMEOUT(=R2_WORK_BUDGET 900, 与旧值同数
-#   **未放宽**), 计时起点 = 真正拿到锁之后(在 upload_r2.py 进程内 arm)。shell `run_to` 保留为
-#   外层兜底 2760(只兜「进程内计时器生效之前」的窗口), 口径与 E1 完全对齐。
-#   ⚠ 依赖: 进程内工作预算来自 #258 E1(upload_r2.py); 若该支持尚未上线, 下方探测会写日志留痕
-#     (两段退化为「整段兜底 2760s」, 不静默失真)。
-#   ⚠ 外层墙: 本任务 unit `trade-turnover-backfill.service` 的 TimeoutStartSec=0(=无限, 快照
-#     docs/deploy/systemd-units-cloud-snapshot.txt), 故内层上界抬高(900→2760×2)不产生倒挂,
-#     无需配套抬墙(与 s06 链的配套①不同)。
+#   超时 fail-closed exit 1); 工作段 = R2_UPLOAD_WORK_TIMEOUT(=各步工作预算, 现行 600/2400),
+#   计时起点 = 真正拿到锁之后(在 upload_r2.py 进程内 arm)。shell `run_to` 保留为外层兜底
+#   (现行 2460/4260, 只兜「进程内计时器生效之前」的窗口), 口径与 E1 完全对齐。
+#   ⚠ 依赖: 进程内工作预算来自 upload_r2.py 的 R2_UPLOAD_WORK_TIMEOUT 读取(#258 E1 声称提供,
+#     实际 #364 才真正实现); 下方反查守卫会 grep 读取代码, 缺失即 FATAL。
+#   ⚠ 外层墙: 本任务 unit `trade-turnover-backfill.service` 的 TimeoutStartUSec=infinity
+#     (云上实测 `systemctl show -p TimeoutStartUSec` = infinity; 快照
+#     docs/deploy/systemd-units-cloud-snapshot.txt), 故真正的外层墙在 shell(run_to), 不在 systemd。
+# #364(2026-10-30): 现行数值 = upload-intraday 外层 2460(工作 600) / upload-data-large 外层 4260
+#   (工作 2400), 详见下方「R2 步骤预算」段与第 4 步注释(含取证)。
 # 用法: bash scripts/turnover_backfill.sh [force]
 set -uo pipefail
 
@@ -70,21 +72,39 @@ run_to() {
   fi
 }
 
-# #258 A1: R2 步骤「等锁段 / 工作段」两预算(口径与 #258 E1 同款, 见文件头 #258 A1 段)。
-#   2760 是 shell 兜底字面量(必须写字面量: 梯度审计 systemd_timeout_gradient_audit.py 只认
-#   `run_to <字面量>`, 见 E1 配套③) = 等锁 1800 + 工作 900 + 60 余量(进程启动/开锁/收尾)。
+# #364(2026-10-30)重定两个 R2 步骤的预算(按最坏路径复算, 见 #364 实施报告):
+#   - upload-data-large 工作预算 900 → 2400。依据: 实测最坏 = 备份 1359 + 上传 665 ≈ 2024s,
+#     2400 留 ~19% 余量; 且 2400 < 单文件理论最坏 3015s(5×600+15), 由 upload_r2.py 的内层
+#     拦截点 a/b 在预算内打断, 不再被单文件理论值绑死。
+#   - upload-data-large 外层兜底 2760 → 4260 = 等锁 1800 + 工作 2400 + 60 余量(必须写字面量:
+#     梯度审计 systemd_timeout_gradient_audit.py 只认 `run_to <字面量>`)。
+#   - upload-intraday 工作预算 600(= max(600, ceil(M*3)) 且 ≤1200; M = 实测纯工作耗时 ≈30–70s,
+#     见 :180 一带取证注释), 外层兜底 2460 = 1800 + 600 + 60。
 R2_LOCK_WAIT_BUDGET=1800
-R2_WORK_BUDGET=900
-# 梯度自检: 兜底必须严格大于「等锁 + 工作」, 否则合法等锁会被 shell 先杀 = #258 原病复发。
-if [ 2760 -le $((R2_LOCK_WAIT_BUDGET + R2_WORK_BUDGET)) ]; then
-  echo "$(date '+%F %T') FATAL: turnover R2 步骤预算梯度倒挂(shell 兜底 2760 <= 等锁 ${R2_LOCK_WAIT_BUDGET} + 工作 ${R2_WORK_BUDGET}) —— 见文件头 #258 A1 段" >> "$LOG"
+R2_WORK_BUDGET=2400
+R2_WORK_BUDGET_INTRADAY=600
+OUTER_LARGE=$((R2_LOCK_WAIT_BUDGET + R2_WORK_BUDGET + 60))              # 4260
+OUTER_INTRADAY=$((R2_LOCK_WAIT_BUDGET + R2_WORK_BUDGET_INTRADAY + 60))  # 2460
+# 梯度自检(**逐步骤各自校验**, #364): 每步的外层兜底必须严格大于「等锁 + 该步工作」,
+# 否则合法等锁会被 shell 先杀 = #258/#364 倒挂原病复发。任一条倒挂 ⇒ FATAL exit 2。
+if [ 4260 -le $((R2_LOCK_WAIT_BUDGET + R2_WORK_BUDGET)) ]; then
+  echo "$(date '+%F %T') FATAL: upload-data-large 预算梯度倒挂(外层 4260 <= 等锁 ${R2_LOCK_WAIT_BUDGET} + 工作 ${R2_WORK_BUDGET}) —— 见 #364" >> "$LOG"
   exit 2
 fi
-# #258 A1 依赖探测(一次性, 只写日志、不改退出码): 进程内工作预算由 #258 E1 的 upload_r2.py 提供。
-#   若它尚未上线, 两个 R2 步骤退化为「整段兜底 2760s」(等锁仍占用预算, 仅比旧的 900 宽松)——
-#   不静默失真: 写一行日志留痕, E1 上线后自动生效(无需再改本脚本)。
-if ! grep -q "R2_UPLOAD_WORK_TIMEOUT" "$REPO/scripts/upload_r2.py" 2>/dev/null; then
-  echo "⚠ #258 A1: upload_r2.py 尚未支持 R2_UPLOAD_WORK_TIMEOUT(进程内工作预算), 本次两个 R2 步骤 = 整段兜底 2760s(等锁仍计入预算); 待 #258 E1 上线后自动生效" >> "$LOG"
+if [ 2460 -le $((R2_LOCK_WAIT_BUDGET + R2_WORK_BUDGET_INTRADAY)) ]; then
+  echo "$(date '+%F %T') FATAL: upload-intraday 预算梯度倒挂(外层 2460 <= 等锁 ${R2_LOCK_WAIT_BUDGET} + 工作 ${R2_WORK_BUDGET_INTRADAY}) —— 见 #364" >> "$LOG"
+  exit 2
+fi
+# 算式与 run_to 字面量必须一致(改一边漏另一边 = L55 的老病): 字面量改了这里就红。
+if [ "$OUTER_LARGE" -ne 4260 ] || [ "$OUTER_INTRADAY" -ne 2460 ]; then
+  echo "$(date '+%F %T') FATAL: 外层兜底算式(${OUTER_LARGE}/${OUTER_INTRADAY})与 run_to 字面量(4260/2460)不一致 —— 见 #364" >> "$LOG"
+  exit 2
+fi
+# 反查守卫(#364): 「传了 env 但 python 压根不读」正是本次事故根因, 故不再只探测"变量名出现过",
+# 而是要求 upload_r2.py 里真有读取代码。缺 ⇒ FATAL(改坏了就当场停, 不让倒挂重新上线)。
+if ! grep -q 'os\.environ\.get("R2_UPLOAD_WORK_TIMEOUT"' "$REPO/scripts/upload_r2.py" 2>/dev/null; then
+  echo "$(date '+%F %T') FATAL: upload_r2.py 未真正读取 R2_UPLOAD_WORK_TIMEOUT(已支持, 此处为防回退守卫) —— 内层工作预算会再次失效, 见 #364" >> "$LOG"
+  exit 2
 fi
 
 # 进程互斥: 自包装经 with_lock.py --nb 持独立锁重跑自己, TURNOVER_BACKFILL_LOCKED=1 防递归。
@@ -173,12 +193,21 @@ fi
 #    upload-data-large 兜底大 range 3y/5y/all; 失败仅告警不阻断——git 渠道随次日 deploy 追上)
 if [ "$RC_EXPORT" -eq 0 ]; then
   echo "-> 上传 R2(upload-intraday + upload-data-large) ..." >> "$LOG"
-  # #258 A1: 等锁段/工作段两预算各自独立计时(与 #258 E1 同款); 兜底 2760 只兜进程内计时器生效前
-  run_to 2760 env R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET" R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" R2_UPLOAD_LOCK_DOMAIN=data \
+  # #364: 等锁段/工作段两预算各自独立计时; 外层兜底只兜「进程内计时器生效之前」的窗口。
+  #   upload-intraday 内层工作预算 600s 的取证(云上 data/logs/turnover_backfill_launchd.log):
+  #     · 段耗时大头是**等锁**(心跳行「⏳ 等待 R2 上传锁 Ns」每 30s 一行, 10-23 有 22 行≈660s),
+  #       内层预算按口径**不含等锁**, 故 M 取「拿到锁后的纯工作耗时」;
+  #     · 用 (脚本结束 - 重导结束) 减去 data-large 实测总耗时可得残差, 包括重导+工作+purge:
+  #       10-23=72.7s / 10-26=65.9s / 10-27=73s / 10-28=49.6s / 10-29=48s
+  #       (10-29 由 rc=124 反推 data-large 起点 22:01:24, 与结束 22:47:24 逐秒吻合)
+  #       ⇒ 纯工作 M ≤ ~73s(上界还含 7 个展示文件重导与 purge);
+  #     · 取 max(600, ceil(M*3)) 且 ≤1200 ⇒ **600**。
+  #   历史警惕: 10-17 前旧口径下 intraday 曾跑到 ~450–900s(10-13 撞 900s 上限), 故不取更小值。
+  run_to 2460 env R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET" R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET_INTRADAY" R2_UPLOAD_LOCK_DOMAIN=data \
     "$PY" scripts/upload_r2.py upload-intraday >> "$LOG" 2>&1
   RC_R2=$?
   [ "$RC_R2" -ne 0 ] && echo "⚠ upload-intraday R2 同步失败 rc=${RC_R2}(git 渠道随次日 deploy 追上)" >> "$LOG"
-  run_to 2760 env R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET" R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" R2_UPLOAD_LOCK_DOMAIN=data \
+  run_to 4260 env R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET" R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" R2_UPLOAD_LOCK_DOMAIN=data \
     "$PY" scripts/upload_r2.py upload-data-large >> "$LOG" 2>&1
   RC_R2L=$?
   [ "$RC_R2L" -ne 0 ] && echo "⚠ upload-data-large R2 同步失败 rc=${RC_R2L}(git 渠道随次日 deploy 追上)" >> "$LOG"

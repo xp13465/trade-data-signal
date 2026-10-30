@@ -339,6 +339,99 @@ except ValueError:
     # 非法值(如 "600s"/"abc")回退默认 30,不崩在 import(云上手写 env 写错不全线停摆)
     R2_UPLOAD_HTTP_TIMEOUT = 30
 
+# ---- 内层工作预算(#364, 2026-10-30):让 R2_UPLOAD_WORK_TIMEOUT 真的存在 ----
+# 病灶(10-29 实测): turnover_backfill.sh 传了 R2_UPLOAD_WORK_TIMEOUT, 但本脚本从不读它 ⇒
+#   「900s 工作预算」只是名义值; 单文件最坏路径 = 5 次重试 × 600s + 15s 退避 = 3015s > 外层
+#   run_to 2760s ⇒ **外层必先杀、python 来不及打失败日志**, 日志 43 分钟黑屏(结构性倒挂)。
+# 语义(严格按任务书):
+#   - env R2_UPLOAD_WORK_TIMEOUT = 秒(整数); 未设 / 空 / 0 / 非数字 ⇒ **禁用**, 行为与改前逐字节一致
+#     (其余通道 + 所有其它调用方零影响)。
+#   - 计时起点 = R2 上传锁**拿到之后**(等锁由 R2_UPLOAD_LOCK_TIMEOUT 管, 不占工作预算);
+#     覆盖 = 该通道整轮(备份阶段 + 主上传段), 不含进程启动/参数解析/锁等待。
+#   - 到期 ⇒ 打一行可 grep 日志 + exit 124(与外层 timeout 同码), 且**不写** _state.json
+#     (marker / checkpoint 保留, 下轮可续传)。
+# 三个拦截点(缺一即倒挂未根治): a) 单请求 socket 超时取 min(配置, 剩余); b) 重试门(attempt 前 +
+#   退避前); c) 文件间门(备份循环 / 主上传每个文件开始前)。
+_WORK_DEADLINE = None      # time.monotonic() 截止时刻; None = 未启用(行为逐字节不变)
+_WORK_BUDGET_S = 0         # 预算秒数(日志用)
+_WORK_LABEL = ""           # 通道标签(日志用)
+_WORK_EXPIRED = False      # 到期日志只打一行(多线程并发到期去重)
+_WORK_LOCK = threading.Lock()
+
+
+class WorkBudgetExceeded(SystemExit):
+    """内层工作预算到期。
+
+    故意继承 SystemExit 而非 Exception: ①退出码 124 直接生效(与外层 timeout 同码, 监控认得);
+    ②不会被沿线各处 `except Exception` 当成「普通失败重试」吞掉后继续跑(任务书硬要求 4)。
+    """
+
+    def __init__(self, msg=""):
+        super().__init__(124)
+        self.msg = msg
+
+    def __str__(self):
+        return self.msg or "R2 工作预算到期"
+
+
+def _work_budget_begin(label=""):
+    """锁后启动内层工作预算。未设/空/0/非数字 ⇒ 禁用(不打日志、不改任何行为)。"""
+    global _WORK_DEADLINE, _WORK_BUDGET_S, _WORK_LABEL, _WORK_EXPIRED
+    # 幂等: 每次 begin 先归零(生产进程只调一次; 测试/嵌套调用时避免上一轮 deadline 残留)
+    _WORK_DEADLINE = None
+    _WORK_BUDGET_S = 0
+    _WORK_LABEL = label or ""
+    _WORK_EXPIRED = False
+    raw = (os.environ.get("R2_UPLOAD_WORK_TIMEOUT") or "").strip()
+    try:
+        budget = int(raw)
+    except ValueError:
+        budget = 0
+    if budget <= 0:
+        return
+    _WORK_BUDGET_S = budget
+    _WORK_LABEL = label or ""
+    _WORK_DEADLINE = time.monotonic() + budget
+    print(f"[{_WORK_LABEL}] R2 工作预算: {budget}s(内层,等锁后开始计时)", flush=True)
+
+
+def _remaining_work():
+    """剩余工作预算秒数; 未启用返回 None。"""
+    if _WORK_DEADLINE is None:
+        return None
+    return _WORK_DEADLINE - time.monotonic()
+
+
+def _effective_request_timeout():
+    """单请求有效超时 = min(配置超时, 剩余预算), 下限 1s; 未启用 ⇒ 配置值(逐字不变)。"""
+    rem = _remaining_work()
+    if rem is None:
+        return R2_UPLOAD_HTTP_TIMEOUT
+    return max(1, min(R2_UPLOAD_HTTP_TIMEOUT, int(rem)))
+
+
+def _work_budget_check(where=""):
+    """拦截点统一门: 剩余 ≤ 0 ⇒ 打一行到期日志(仅一次)并抛 WorkBudgetExceeded。"""
+    global _WORK_EXPIRED
+    rem = _remaining_work()
+    if rem is None or rem > 0:
+        return
+    with _WORK_LOCK:
+        if not _WORK_EXPIRED:
+            _WORK_EXPIRED = True
+            print(f"[{_WORK_LABEL}] ⚠ 工作预算 {_WORK_BUDGET_S}s 到期(内层,非外层 timeout),"
+                  f"本轮中止;marker/断点续传进度保留", flush=True)
+    raise WorkBudgetExceeded(f"工作预算 {_WORK_BUDGET_S}s 到期(门={where})")
+
+
+def _work_sleep(wait):
+    """退避 sleep: 启用预算时不超过剩余预算(睡完由下一轮 attempt 前的门中止, 不越过预算)。"""
+    rem = _remaining_work()
+    if rem is not None:
+        wait = max(0.0, min(wait, rem))
+    if wait > 0:
+        time.sleep(wait)
+
 # macOS 系统 Python 缺 CA 束（CERTIFICATE_VERIFY_FAILED），用系统 /etc/ssl/cert.pem
 _CA = "/etc/ssl/cert.pem"
 _CTX = ssl.create_default_context(cafile=_CA) if Path(_CA).exists() else ssl._create_unverified_context()
@@ -358,9 +451,25 @@ def _get_keepalive_conn(host):
         _KA_TLS.conns = conns
     conn = conns.get(host)
     if conn is None:
-        conn = http.client.HTTPSConnection(host, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
+        conn = http.client.HTTPSConnection(host, timeout=_effective_request_timeout(), context=_CTX)
         conns[host] = conn
     return conn
+
+
+def _set_conn_timeout(conn):
+    """复用连接时把 socket 超时刷成「当前有效超时」(#364 拦截点 a)。
+
+    未启用工作预算 ⇒ 直接返回(不碰任何既有连接, 行为逐字不变); 启用 ⇒ socket 超时 =
+    min(配置, 剩余预算), 让「只剩 40s 时还在等 600s 停滞」被打断, 不再吃掉整个外层墙。
+    """
+    if _WORK_DEADLINE is None:
+        return
+    sock = getattr(conn, "sock", None)
+    if sock is not None:
+        try:
+            sock.settimeout(_effective_request_timeout())
+        except OSError:
+            pass
 
 
 def _drop_keepalive_conn(host):
@@ -572,6 +681,8 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
     last_exc = None
     for attempt in range(5):
         conn = None
+        # #364 拦截点 b(第 1 道): 每次 attempt 开始前查剩余预算 —— 剩 0 不再开新请求/新重试。
+        _work_budget_check("s3_request-attempt")
         try:
             now = datetime.datetime.utcnow()
             amz_date = now.strftime("%Y%m%dT%H%M%SZ")
@@ -623,8 +734,9 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
 
             if keep_alive:
                 conn = _get_keepalive_conn(host)
+                _set_conn_timeout(conn)
             else:
-                conn = http.client.HTTPSConnection(host, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
+                conn = http.client.HTTPSConnection(host, timeout=_effective_request_timeout(), context=_CTX)
             uri = path + ("?" + canonical_query if canonical_query else "")
             if _use_progress:
                 body = _ProgressBody(payload, progress_label)   # 每次重试重建(exhausted 不可复用)
@@ -646,7 +758,8 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 print(f"  ⚠ {method} {key} HTTP {resp.status} attempt {attempt+1}, {wait}s 后重试", file=sys.stderr)
                 if keep_alive:
                     _drop_keepalive_conn(host)
-                time.sleep(wait)
+                _work_budget_check("s3_request-backoff")   # #364 拦截点 b(第 2 道): 退避前
+                _work_sleep(wait)
                 continue
             if with_headers:
                 return resp.status, data, resp_headers
@@ -659,7 +772,8 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 import time
                 wait = 2 ** attempt  # 1s, 2s, 4s, 8s
                 print(f"  ⚠ {method} {key} attempt {attempt+1} 失败({type(e).__name__}: {e}), {wait}s 后重试", file=sys.stderr)
-                time.sleep(wait)
+                _work_budget_check("s3_request-backoff")   # #364 拦截点 b(第 2 道): 退避前
+                _work_sleep(wait)
             else:
                 raise
     raise last_exc  # 不可达,防 mypy
@@ -680,6 +794,8 @@ def s3_head(key, bucket=None, keep_alive=False, with_len=False):
     host, ak, sk = _route_bucket(bkt)   # #178: 按目标桶选端点/凭据(备份桶→独立新账号)
     for attempt in range(5):
         conn = None
+        # #364: HEAD 也是该轮内请求, 同样受内层预算约束(未启用时逐字不变)。
+        _work_budget_check("s3_head-attempt")
         try:
             now = datetime.datetime.utcnow()
             amz_date = now.strftime("%Y%m%dT%H%M%SZ")
@@ -711,8 +827,9 @@ def s3_head(key, bucket=None, keep_alive=False, with_len=False):
             )
             if keep_alive:
                 conn = _get_keepalive_conn(host)
+                _set_conn_timeout(conn)
             else:
-                conn = http.client.HTTPSConnection(host, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
+                conn = http.client.HTTPSConnection(host, timeout=_effective_request_timeout(), context=_CTX)
             conn.request("HEAD", path, headers=headers)
             resp = conn.getresponse()
             etag = resp.getheader("ETag")
@@ -726,7 +843,8 @@ def s3_head(key, bucket=None, keep_alive=False, with_len=False):
                 if keep_alive:
                     _drop_keepalive_conn(host)
                 print(f"  ⚠ HEAD {key} HTTP {status} attempt {attempt+1}, {wait}s 后重试", file=sys.stderr)
-                time.sleep(wait)
+                _work_budget_check("s3_head-backoff")
+                _work_sleep(wait)
                 continue
             if with_len:
                 return status, etag, content_len
@@ -737,7 +855,8 @@ def s3_head(key, bucket=None, keep_alive=False, with_len=False):
             if attempt < 4:
                 wait = 2 ** attempt
                 print(f"  ⚠ HEAD {key} attempt {attempt+1} 失败({type(e).__name__}: {e}), {wait}s 后重试", file=sys.stderr)
-                time.sleep(wait)
+                _work_budget_check("s3_head-backoff")
+                _work_sleep(wait)
             else:
                 if with_len:
                     return 0, None, None
@@ -1033,6 +1152,8 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
 
     def _upload_one(idx_f):
         i, f = idx_f
+        # #364 拦截点 c: 每个文件开始前查剩余预算 —— 剩余不够再开一个新文件是纯浪费。
+        _work_budget_check("upload-file")
         rel = f.relative_to(local_dir)
         key = f"{r2_prefix}/{rel}"
         try:
@@ -1262,6 +1383,8 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
 
     def _backup_one(key, local_md5):
         nonlocal copied, skipped
+        # #364 拦截点 c: 备份阶段每个文件开始前查剩余预算(备份段实测可占 679–1359s, 是预算大户)。
+        _work_budget_check("backup-file")
         backup_key = f"pre-upload/{today}/{key}"
         # ---- P1: 源 HEAD(带长度)。源桶 = 主桶 BUCKET(老账号端点, _route_bucket 自动路由) ----
         try:
@@ -1306,8 +1429,12 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
             pst, pdata = _upload_multipart(backup_key, body, ctype, bucket=BACKUP_BUCKET)
             tgt_multipart = True
         else:
+            # #364 ④: 备份 PUT 补 progress_label —— 85MB 级大文件单 PUT 慢时也打「[备份 xxx] ↑ 上传中
+            # x/y MiB」, 消灭 10-29 那 43 分钟黑屏(此前只有主上传 PUT 带标签, 备份段全程零输出)。
+            # 阈值沿用 s3_request 内的 _PROGRESS_PUT_MIN(8MiB): 小于它不打点, 小文件不刷屏。
             pst, pdata = s3_request("PUT", backup_key, payload=body, bucket=BACKUP_BUCKET,
-                                    content_type=ctype, keep_alive=True)
+                                    content_type=ctype, keep_alive=True,
+                                    progress_label=f"备份 {key}")
             tgt_multipart = False
         if pst != 200:
             _fail(key, "PUT", f"status={pst} "
@@ -5114,6 +5241,9 @@ if __name__ == "__main__":
         _lock = _acquire_lock_for_command(cmd, sys.argv[2:], skip_if_locked=_SKIP_IF_LOCKED)
         if _lock is _SKIP_R2_LOCKED:
             sys.exit(0)   # SKIPPED_LOCKED 已在 _acquire 内打印到 stderr; 退出码 0 不触发告警邮件
+        # #364: 内层工作预算**锁拿到之后**才起表(等锁由 R2_UPLOAD_LOCK_TIMEOUT 管, 不占工作预算)。
+        # env 未设 ⇒ 空操作, 行为逐字不变。
+        _work_budget_begin(cmd)
     if cmd == "list":
         # list [prefix] [bucket]   bucket 默认 signal-data;查私有桶(如 signal-backup)时显式传
         prefix = sys.argv[2] if len(sys.argv) > 2 else ""
