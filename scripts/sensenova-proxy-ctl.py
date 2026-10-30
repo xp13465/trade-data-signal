@@ -12,12 +12,16 @@ sensenova-proxy-ctl.py - 商汤轮换代理跨平台统一控制工具(纯标准
   stop                 读 PID 停止,删 PID 文件
   status               查 PID/进程/端口/key 数
   keys                 用 $EDITOR 打开同目录 keys.txt 编辑(首次从 example 复制)
-  test                 经代理发最小 glm-5.2 请求验证可用(http.client,不依赖 curl)
-  config claude        生成/切换 Claude Code 配置指向本地代理(改前备份 ~/.claude/settings.json)
-  config codex         生成/切换 codex 配置(改前备份 ~/.codex/config.toml)
-  config status        显示 claude/codex 当前指向(代理 or 直连)
+  test [--model X]     经代理发最小请求验证可用(http.client,不依赖 curl)
+  config claude [--model X]  生成/切换 Claude Code 配置指向本地代理(改前备份 ~/.claude/settings.json)
+  config codex [--model X]   生成/切换 codex 配置(改前备份 ~/.codex/config.toml)
+  config status        显示 claude/codex 当前指向(代理 or 直连)+ 持久化模型
   config restore [t]   恢复配置(优先回首次生成的 ORIGINAL 原始备份;没有则回最新备份)
   (无参数)            打印交互菜单
+
+--model 不传时:交互终端弹菜单选(回车=上次选择);非交互(定时/管道)直接用上次持久化的模型,
+没有持久化则用默认 glm-5.2。选择写进 ~/.sensenova-proxy/config.json,下次自动沿用。
+可用模型见 AVAILABLE_MODELS(实测经代理可用的 5 个)。
 
 真实 key 禁进 git:本脚本不硬编码 key,运行时从 keys.txt / 代理运行实例读。
 """
@@ -37,6 +41,9 @@ PID_FILE = os.path.join(_DATA_DIR, "proxy.pid")
 PROXY_SCRIPT = os.path.join(_BASE_DIR, "sensenova-rotate-proxy.py")
 CTL_LOG = os.path.join(_LOG_DIR, "proxy-ctl.log")
 DEFAULT_PORT = int(os.environ.get("TTP_PORT", "8899"))
+# 实测经本代理可用的模型(其余模型会 403/404,见 README 模型表)
+AVAILABLE_MODELS = ["glm-5.2", "deepseek-v4-flash", "deepseek-flash", "kimi-k3", "sensenova-6.8-flash-lite"]
+DEFAULT_MODEL = "glm-5.2"
 
 
 def _port():
@@ -146,6 +153,93 @@ def _load_keys_from_file(path):
     except Exception:
         pass
     return keys
+
+
+# ───────────── 模型选择(持久化) ─────────────
+def _state_config_path():
+    """持久化选择文件,与 keys.txt 同区(~/.sensenova-proxy/config.json)。"""
+    return os.path.join(_DATA_DIR, "config.json")
+
+
+def _load_saved_model():
+    """读上次持久化的模型;文件缺失/损坏/已下架的一律当没有(返回 None)。"""
+    try:
+        with open(_state_config_path(), "r", encoding="utf-8-sig") as f:
+            m = (json.load(f) or {}).get("model")
+        if m in AVAILABLE_MODELS:
+            return m
+    except Exception:
+        pass
+    return None
+
+
+def _save_model(model):
+    """持久化选择(原子写)。失败只告警不阻断——本次配置已生效,只是下次记不住。"""
+    try:
+        _atomic_write(_state_config_path(),
+                      json.dumps({"model": model}, ensure_ascii=False, indent=2).encode("utf-8"))
+        return True
+    except Exception as e:
+        _echo("提示:模型选择持久化失败(%s),本次已生效但下次不会记住。" % e)
+        return False
+
+
+def _extract_model_arg(args):
+    """从参数里抽出 --model X / --model=X,返回 (model, 剩余参数, 错误信息)。"""
+    out, model, err = [], None, None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--model":
+            if i + 1 >= len(args):
+                err = "--model 后面要跟模型名"
+                break
+            model = args[i + 1]
+            i += 2
+            continue
+        if a.startswith("--model="):
+            model = a.split("=", 1)[1]
+            i += 1
+            continue
+        out.append(a)
+        i += 1
+    return model, out, err
+
+
+def _pick_model(explicit, interactive=True):
+    """定模型:显式 --model 优先(须在 AVAILABLE_MODELS 内),否则交互菜单(仅 tty),
+    非交互则用上次持久化/默认。返回模型名;非法/无可用返回 None(已打印原因)。
+    """
+    if explicit is not None:
+        if explicit in AVAILABLE_MODELS:
+            return explicit
+        _echo("不支持的模型: %s" % explicit)
+        _echo("可用模型: %s" % ", ".join(AVAILABLE_MODELS))
+        return None
+
+    saved = _load_saved_model()
+    fallback = saved or DEFAULT_MODEL
+    if not (interactive and sys.stdin.isatty()):
+        _echo("未指定 --model,使用%s %s(换模型: --model <名字>)"
+              % ("上次选的" if saved else "默认", fallback))
+        return fallback
+
+    _echo("选择模型(直接回车 = %s):" % fallback)
+    for idx, m in enumerate(AVAILABLE_MODELS, 1):
+        _echo("  %d) %s%s" % (idx, m, "   ← 上次选的" if m == saved else ""))
+    try:
+        raw = input("序号: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        _echo("无输入,使用 %s" % fallback)
+        return fallback
+    if not raw:
+        return fallback
+    if raw.isdigit() and 1 <= int(raw) <= len(AVAILABLE_MODELS):
+        return AVAILABLE_MODELS[int(raw) - 1]
+    if raw in AVAILABLE_MODELS:
+        return raw
+    _echo("无效输入 %r,使用 %s" % (raw, fallback))
+    return fallback
 
 
 def cmd_start():
@@ -298,7 +392,7 @@ def cmd_keys():
     return 0
 
 
-def cmd_test():
+def cmd_test(model=None):
     port = _port()
     keys = _load_keys_from_file(_keys_txt_path())
     if not keys:
@@ -307,8 +401,13 @@ def cmd_test():
     if not _port_listening(port):
         _echo("代理未在 %d 监听,先 start。" % port)
         return 1
+    # test 是诊断命令:不弹菜单(tty 里也不打断),不传 --model 就沿用持久化/默认
+    model = _pick_model(model, interactive=False)
+    if model is None:
+        return 2
+    _echo("探测模型: %s" % model)
     body = json.dumps({
-        "model": "glm-5.2",
+        "model": model,
         "max_tokens": 16,
         "messages": [{"role": "user", "content": "ping"}],
     })
@@ -487,13 +586,16 @@ def _top_level_value(content, key):
     return None
 
 
-def _config_claude():
+def _config_claude(model=None):
     path = _settings_path()
     port = _port()
     keys = _load_keys_from_file(_keys_txt_path())
     if not keys:
         _echo("keys.txt 无 key,先 sensenova-proxy-ctl.py keys 添加。")
         return 1
+    model = _pick_model(model, interactive=True)
+    if model is None:
+        return 2
     base_url = "http://127.0.0.1:%d" % port
     token = keys[0]
     # 读现有
@@ -513,39 +615,45 @@ def _config_claude():
     if not isinstance(env, dict):
         env = {}
     changed = []
+    # 所有模型键一次写同一个模型:Claude Code 会按用途取不同键(主模型/子 agent/各档),
+    # 少写一个就会出现"改了模型但子 agent 还是旧的"⇒ 故整组键统一写。
     updates = {
         "ANTHROPIC_BASE_URL": base_url,
         "ANTHROPIC_AUTH_TOKEN": token,
-        "ANTHROPIC_MODEL": "glm-5.2",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.2",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.2",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.2",
-        "ANTHROPIC_DEFAULT_FABLE_MODEL": "glm-5.2",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "glm-5.2",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "glm-5.2",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "glm-5.2",
-        "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "glm-5.2",
-        "CLAUDE_CODE_SUBAGENT_MODEL": "glm-5.2",
+        "ANTHROPIC_MODEL": model,
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
+        "ANTHROPIC_DEFAULT_FABLE_MODEL": model,
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": model,
+        "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": model,
+        "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": model,
+        "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": model,
+        "CLAUDE_CODE_SUBAGENT_MODEL": model,
     }
     for k, v in updates.items():
         env[k] = v
         changed.append(k)
     data["env"] = env
     _atomic_write(path, json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8"))
+    _save_model(model)
     _echo("已写入 %s" % path)
     _echo("更新键: %s" % ", ".join(changed))
-    _echo("BASE_URL=%s  MODEL=glm-5.2" % base_url)
-    _echo("重启 Claude Code 生效。")
+    _echo("BASE_URL=%s  MODEL=%s" % (base_url, model))
+    _echo("重启 Claude Code 生效(Claude Code 桌面版同样读这份 settings.json,重启桌面会话即生效)。")
     return 0
 
 
-def _config_codex():
+def _config_codex(model=None):
     path = _codex_path()
     port = _port()
     keys = _load_keys_from_file(_keys_txt_path())
     if not keys:
         _echo("keys.txt 无 key,先 sensenova-proxy-ctl.py keys 添加。")
         return 1
+    model = _pick_model(model, interactive=True)
+    if model is None:
+        return 2
     base_url = "http://127.0.0.1:%d/v1" % port
     token = keys[0]
     # codex 0.154.0 起 wire_api="chat" 已废弃(加载即报错);实测 "responses" 与商汤
@@ -573,11 +681,12 @@ def _config_codex():
     # ② 顶层 model_provider 指向 sensenova(否则 codex 仍走默认 openai,请求不发代理)
     content = _set_top_level_key(content, "model_provider", "sensenova")
     # ③ 顶层 model:只在顶层区改,不动 [profiles.*] 等段内的 model
-    content = _set_top_level_key(content, "model", "glm-5.2")
+    content = _set_top_level_key(content, "model", model)
     _atomic_write(path, content.encode("utf-8"))
+    _save_model(model)
     _echo("已写入 %s" % path)
     _echo("provider sensenova: base_url=%s wire_api=%s" % (base_url, wire_api))
-    _echo("顶层 model_provider = sensenova, model = glm-5.2(原有文件已备份)")
+    _echo("顶层 model_provider = sensenova, model = %s(原有文件已备份)" % model)
     _echo("重启 codex 生效。")
     return 0
 
@@ -620,6 +729,8 @@ def _config_status():
         except Exception as e:
             codex_state = "读取失败: %s" % e
     _echo("codex: %s" % codex_state)
+    saved = _load_saved_model()
+    _echo("持久化模型: %s(%s)" % (saved or "%s,默认" % DEFAULT_MODEL, _state_config_path()))
     return 0
 
 
@@ -658,14 +769,20 @@ def _config_restore(target):
 
 
 def cmd_config(args):
-    if not args:
-        _echo("用法: config [claude|codex|status|restore [claude|codex]]")
+    model_arg, rest, err = _extract_model_arg(args)
+    if err:
+        _echo(err)
+        _echo("可用模型: %s" % ", ".join(AVAILABLE_MODELS))
+        return 2
+    if not rest:
+        _echo("用法: config [claude|codex|status|restore [claude|codex]] [--model X]")
+        _echo("可用模型: %s" % ", ".join(AVAILABLE_MODELS))
         return 1
-    sub = args[0]
+    sub = rest[0]
     if sub == "claude":
-        return _config_claude()
+        return _config_claude(model_arg)
     if sub == "codex":
-        return _config_codex()
+        return _config_codex(model_arg)
     if sub == "status":
         return _config_status()
     if sub == "restore":
@@ -711,7 +828,15 @@ def main():
     if cmd == "keys":
         return cmd_keys()
     if cmd == "test":
-        return cmd_test()
+        model_arg, rest, err = _extract_model_arg(rest)
+        if err:
+            _echo(err)
+            _echo("可用模型: %s" % ", ".join(AVAILABLE_MODELS))
+            return 2
+        if rest:
+            _echo("未知参数: %s" % " ".join(rest))
+            return 1
+        return cmd_test(model_arg)
     if cmd == "config":
         return cmd_config(rest)
     _echo(__doc__)

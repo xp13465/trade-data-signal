@@ -107,10 +107,13 @@ def env(ctl, tmp_path, monkeypatch):
     settings = tmp_path / "claude" / "settings.json"
     keys = tmp_path / "keys.txt"
     keys.write_text("sk-fake-test-0001\n", encoding="utf-8")
+    state = tmp_path / "state" / "config.json"
     monkeypatch.setattr(ctl, "_codex_path", lambda: str(codex))
     monkeypatch.setattr(ctl, "_settings_path", lambda: str(settings))
     monkeypatch.setattr(ctl, "_keys_txt_path", lambda: str(keys))
-    return types.SimpleNamespace(mod=ctl, codex=codex, settings=settings, keys=keys, dir=tmp_path)
+    monkeypatch.setattr(ctl, "_state_config_path", lambda: str(state))
+    return types.SimpleNamespace(mod=ctl, codex=codex, settings=settings, keys=keys,
+                                 state=state, dir=tmp_path)
 
 
 def _baks(env, path: Path):
@@ -266,3 +269,138 @@ def test_09_claude_clean_settings_gets_original(env):
     assert env.mod._config_claude() == 0
     orig = Path(env.mod._original_bak_path(str(env.settings)))
     assert orig.exists() and orig.read_text(encoding="utf-8") == clean
+
+
+# ───────── 模型可选(2026-10-31 增量) ─────────
+CLA_MODEL_KEYS = [
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
+    "CLAUDE_CODE_SUBAGENT_MODEL",
+]
+
+
+def test_10_claude_model_written_to_every_model_key_others_kept(env):
+    env.settings.parent.mkdir(parents=True, exist_ok=True)
+    old = json.dumps({"env": {
+        "FOO": "bar",
+        "API_TIMEOUT_MS": "600000",
+        "ANTHROPIC_MODEL": "glm-5.2",
+    }}, ensure_ascii=False, indent=2)
+    env.settings.write_text(old, encoding="utf-8")
+    assert env.mod.cmd_config(["claude", "--model", "deepseek-v4-flash"]) == 0
+    envd = json.loads(env.settings.read_text(encoding="utf-8"))["env"]
+    for k in CLA_MODEL_KEYS:
+        assert envd[k] == "deepseek-v4-flash", k
+    # 非模型 env 键原样保留
+    assert envd["FOO"] == "bar"
+    assert envd["API_TIMEOUT_MS"] == "600000"
+    assert envd["ANTHROPIC_BASE_URL"].startswith("http://127.0.0.1:8897")
+    # --model=X 等价写法
+    assert env.mod.cmd_config(["claude", "--model=kimi-k3"]) == 0
+    envd = json.loads(env.settings.read_text(encoding="utf-8"))["env"]
+    for k in CLA_MODEL_KEYS:
+        assert envd[k] == "kimi-k3", k
+    assert envd["API_TIMEOUT_MS"] == "600000"
+
+
+def test_11_codex_model_only_toplevel_profiles_untouched(env):
+    env.codex.parent.mkdir(parents=True, exist_ok=True)
+    env.codex.write_text(SAMPLE, encoding="utf-8")
+    assert env.mod.cmd_config(["codex", "--model", "kimi-k3"]) == 0
+    data = tomllib.loads(env.codex.read_text(encoding="utf-8"))
+    assert data["model"] == "kimi-k3"
+    assert data["model_provider"] == "sensenova"
+    assert data["profiles"]["fast"]["model"] == "o4-mini", "profiles 段内 model 不许被改"
+    assert data["plugins"]["documents@openai-primary-runtime"]["enabled"] is True
+
+
+def test_12_invalid_model_rejected_available_listed_no_write(env, capsys):
+    env.settings.parent.mkdir(parents=True, exist_ok=True)
+    before = json.dumps({"env": {"FOO": "bar"}}, ensure_ascii=False, indent=2)
+    env.settings.write_text(before, encoding="utf-8")
+    rc = env.mod.cmd_config(["claude", "--model", "gpt-9-ultra"])
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "不支持" in out
+    for m in env.mod.AVAILABLE_MODELS:
+        assert m in out, "报错须列出可用模型: %s" % m
+    assert env.settings.read_text(encoding="utf-8") == before, "非法模型不许写文件"
+    assert env.mod.cmd_config(["codex", "--model", "nope"]) != 0
+    assert env.mod.cmd_config(["claude", "--model"]) != 0, "--model 缺值须报错"
+
+
+def test_13_persisted_model_is_default_next_time(env, capsys):
+    env.settings.parent.mkdir(parents=True, exist_ok=True)
+    assert env.mod.cmd_config(["claude", "--model", "deepseek-flash"]) == 0
+    assert json.loads(env.state.read_text(encoding="utf-8"))["model"] == "deepseek-flash"
+    # 下次不传 --model(非交互)⇒ 用上次持久化的
+    assert env.mod.cmd_config(["codex"]) == 0
+    data = tomllib.loads(env.codex.read_text(encoding="utf-8"))
+    assert data["model"] == "deepseek-flash"
+    out = capsys.readouterr().out
+    assert "上次选的 deepseek-flash" in out
+    assert env.mod.cmd_config(["status"]) == 0
+    assert "持久化模型: deepseek-flash" in capsys.readouterr().out
+
+
+def test_14_menu_selection_by_number(env, monkeypatch, capsys):
+    env.settings.parent.mkdir(parents=True, exist_ok=True)
+
+    class _FakeStdin:
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(env.mod.sys, "stdin", _FakeStdin())
+    monkeypatch.setattr("builtins.input", lambda prompt="": "4")
+    assert env.mod.cmd_config(["claude"]) == 0
+    out = capsys.readouterr().out
+    for i, m in enumerate(env.mod.AVAILABLE_MODELS, 1):
+        assert "%d) %s" % (i, m) in out, "菜单必须带序号列出全部可用模型"
+    envd = json.loads(env.settings.read_text(encoding="utf-8"))["env"]
+    assert envd["ANTHROPIC_MODEL"] == env.mod.AVAILABLE_MODELS[3]
+    assert json.loads(env.state.read_text(encoding="utf-8"))["model"] == env.mod.AVAILABLE_MODELS[3]
+
+
+def test_15_test_subcommand_uses_given_model(env, monkeypatch):
+    """test --model X 必须真把 X 发到代理(本地假代理收包核对,不碰 8899 生产)。"""
+    import http.server
+    import threading
+
+    seen = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            n = int(self.headers.get("content-length") or 0)
+            seen.append(json.loads(self.rfile.read(n).decode("utf-8")))
+            body = b'{"ok":true}'
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    port = srv.server_address[1]
+    th = threading.Thread(target=srv.serve_forever, daemon=True)
+    th.start()
+    try:
+        monkeypatch.setenv("TTP_PORT", str(port))
+        assert env.mod.cmd_config(["claude", "--model", "sensenova-6.8-flash-lite"]) == 0
+        assert env.mod.cmd_test("sensenova-6.8-flash-lite") == 0
+        assert seen and seen[0]["model"] == "sensenova-6.8-flash-lite"
+        # 不传 --model ⇒ 用持久化的那一个
+        assert env.mod.cmd_test() == 0
+        assert seen[-1]["model"] == "sensenova-6.8-flash-lite"
+        # 非法模型:拒绝且不发请求
+        n0 = len(seen)
+        assert env.mod.cmd_test("bad-model") != 0
+        assert len(seen) == n0
+    finally:
+        srv.shutdown()
+        srv.server_close()
