@@ -75,7 +75,7 @@
 | 29 | `agent_inbox_watcher.py`(状态写失败) | 本机 watcher(codex review 链) | warning | 86400 | `monitor` | 首报必达 | 聚合域待对齐 |
 | 30 | `feishu_missed_fetch.py`(游标写失败) | 独立 CLI / 采集链 | warning | 86400 | `collect` | 首报必达 | 聚合域待对齐 |
 | 31 | `gold_night.sh` | `trade-gold-night.timer` 02:40 | critical(`--severe`) | 3600 | `collect` | 首报必达 | 聚合域待对齐 |
-| 32 | `turnover_backfill.sh` | `trade-turnover-backfill.timer` 21:10 | critical(`--severe`) | 3600 | `collect` | 首报必达 | 聚合域待对齐 |
+| 32 | `turnover_backfill.sh` | `trade-turnover-backfill.timer` 21:10 | critical(`--severe`) | 3600 / 3600 | `collect` | 首报必达 | 聚合域待对齐;**2 个告警点**:链路失败 + 预算自检 FATAL(`turnover_backfill_budget_fatal`,2026-10-30 #364 补),同 tier/窗/域/首报 |
 | 33 | `update_lab.sh` | `trade-lab-auto.timer` 19:00 | critical(`--severe`) | 1800 | `deploy` | 首报必达 | 聚合域待对齐 |
 | 34 | `deploy.sh` | `trade-update-all.timer` 17:50(update_all 主链)+ main-merge | critical(`--severe`) | 21600 | `deploy` | 首报必达 | 聚合域待对齐 |
 | 35 | `r2_upload_async.sh` | update_all 段1 异步任务 | critical(`--severe`) | 21600 / 1800 | `r2` | 首报必达 | 聚合域待对齐 |

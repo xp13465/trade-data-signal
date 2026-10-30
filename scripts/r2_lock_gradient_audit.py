@@ -26,6 +26,7 @@ REPO = Path(__file__).resolve().parent.parent
 SNAPSHOT = REPO / "docs" / "deploy" / "systemd-units-cloud-snapshot.txt"
 UR_PY = REPO / "scripts" / "upload_r2.py"
 PROBE_PY = REPO / "scripts" / "r2_lock_probe.py"
+TB_SH = REPO / "scripts" / "turnover_backfill.sh"
 
 if str(REPO / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO / "scripts"))
@@ -86,7 +87,9 @@ SITES = [
     #   这两步的内层预算由脚本常量 R2_WORK_BUDGET_INTRADAY / R2_WORK_BUDGET 经 env 注入 upload_r2.py,
     #   静态表里另注在站点说明括号内(工作 900 / 3120); 第 5 列填外层是因为 unit 无界(TimeoutStartSec=0),
     #   ③ 检查不适用, 真正兜底的墙是 shell 的 run_to —— 填外层才让「锁等待 1800 < 墙」这条梯度有意义。
-    #   脚本内另有运行时自检(_r2_check_step)真读 run_to 字面量比对, 双保险。
+    #   #364 三轮 S2: 这两行的四个数值 + 两处 run_to 字面量**不再手抄** ——
+    #   `_check_turnover_literals` 从脚本实读再与本表逐值比对(脚本内还有运行时自检
+    #   `_r2_check_step`, 两边独立实现, 交叉验证)。
     ("scripts/turnover_backfill.sh", "intraday(外层 run_to 2760 / 工作 900)", "data", 1800, 2760, "trade-turnover-backfill.service", 'R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET_INTRADAY" R2_UPLOAD_LOCK_DOMAIN=data'),
     ("scripts/turnover_backfill.sh", "data-large(外层 run_to 4980 / 工作 3120)", "data", 1800, 4980, "trade-turnover-backfill.service", 'R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" R2_UPLOAD_LOCK_DOMAIN=data'),
     ("scripts/intraday_snapshot.sh", "index(盘中 :157)", "index", 600, None, "trade-intraday-snapshot.service", 'R2_UPLOAD_LOCK_DOMAIN=index R2_UPLOAD_LOCK_TIMEOUT=600'),
@@ -263,6 +266,66 @@ def _shell_variable_forms() -> list[tuple[str, str]]:
     return out
 
 
+# ---- #364 三轮 S2: turnover 预算表 ←→ 脚本字面量 真机检(表不再手抄) ----
+_TB_ASSIGN = re.compile(
+    r"^(R2_LOCK_WAIT_BUDGET|R2_WORK_BUDGET_INTRADAY|R2_WORK_BUDGET)=(\d+)[ \t]*$", re.M)
+# ⚠ 与 shell 自检 `_r2_step_run_to`(grep -E + sed)**各自独立实现**, 刻意不共用抽取函数:
+#   共用一份抽取逻辑 ⇒ 一处写错两边一起错, 交叉验证价值归零(任务书 §四硬要求)。
+_TB_RUN_TO = re.compile(
+    r"^[ \t]*run_to[ \t]+(\d+)[ \t]+env[ \t]+R2_UPLOAD_LOCK_TIMEOUT=\"\$R2_LOCK_WAIT_BUDGET\"[ \t]+"
+    r"R2_UPLOAD_WORK_TIMEOUT=\"\$(R2_WORK_BUDGET_INTRADAY|R2_WORK_BUDGET)\"", re.M)
+_SITE_NUMS = re.compile(r"外层 run_to (\d+) / 工作 (\d+)")
+
+
+def _check_turnover_literals(errs: list[str]) -> None:
+    """turnover 两行的预算数值必须与 `turnover_backfill.sh` 里的真实字面量逐值一致。
+
+    病灶(S2): 本表原先手抄常量 ⇒ 脚本改字面量、表没改, 审计照样 PASS(文档里「改任一边漏另一边
+    ⇒ 本表对不上」是空话)。这里从脚本**实读**再逐值比对; 抽不到/抽到多处/非数字一律 FAIL。
+    """
+    if not TB_SH.exists():
+        errs.append("turnover_backfill.sh 不存在, 预算表无从校验(不许静默放过)")
+        return
+    text = TB_SH.read_text(encoding="utf-8", errors="replace")
+    vals: dict[str, int] = {k: int(v) for k, v in _TB_ASSIGN.findall(text)}
+    missing = [k for k in ("R2_LOCK_WAIT_BUDGET", "R2_WORK_BUDGET_INTRADAY", "R2_WORK_BUDGET")
+               if k not in vals]
+    if missing:
+        errs.append(f"turnover_backfill.sh 里抽不到 {missing}=<数字>(表内对应值无从校验)")
+        return
+    calls: dict[str, list[int]] = {}
+    for lit, work_var in _TB_RUN_TO.findall(text):
+        calls.setdefault(work_var, []).append(int(lit))
+    bad = [w for w in ("R2_WORK_BUDGET_INTRADAY", "R2_WORK_BUDGET")
+           if len(calls.get(w, [])) != 1]
+    if bad:
+        errs.append(f"turnover_backfill.sh 的 {bad} 步 run_to 字面量抽不到或抽到多处"
+                    f"(分别 {[len(calls.get(w, [])) for w in bad]} 处), 无法校验梯度")
+        return
+    lock = vals["R2_LOCK_WAIT_BUDGET"]
+    rows = [r for r in SITES if r[0] == "scripts/turnover_backfill.sh"]
+    if len(rows) != 2:
+        errs.append(f"turnover_backfill.sh 应为 2 条 SITES 登记(实得 {len(rows)} 条)")
+        return
+    for owner, site, _domain, t_lock, t_inner, _unit, marker in rows:
+        mvar = ("R2_WORK_BUDGET_INTRADAY" if "R2_WORK_BUDGET_INTRADAY" in marker
+                else "R2_WORK_BUDGET")
+        m = _SITE_NUMS.search(site)
+        if not m:
+            errs.append(f"turnover 表行 {site!r} 缺「外层 run_to <N> / 工作 <M>」字样, 无法机检")
+            continue
+        t_outer, t_work = int(m.group(1)), int(m.group(2))
+        s_outer, s_work = calls[mvar][0], vals[mvar]
+        if (t_outer, t_work, t_lock, int(t_inner)) != (s_outer, s_work, lock, s_outer):
+            errs.append(
+                f"turnover 表行 {mvar} 与脚本字面量不一致: 表(外层 {t_outer}/工作 {t_work}/"
+                f"等锁 {t_lock}/内层列 {t_inner}) vs 脚本(外层 {s_outer}/工作 {s_work}/等锁 {lock})"
+                f" —— 改任一边漏另一边")
+        if s_outer != lock + s_work + 60:
+            errs.append(f"turnover 脚本内 {mvar} 梯度不成立: run_to {s_outer} != "
+                        f"等锁 {lock} + 工作 {s_work} + 60")
+
+
 def audit() -> tuple[list[dict], list[str]]:
     rows, errs = [], []
     outer = _parse_outer_timeouts()
@@ -386,6 +449,9 @@ def audit() -> tuple[list[dict], list[str]]:
                 continue
             if "include_domains=True" not in line:
                 errs.append(f"scripts/{p.name}: 诊断未探测域锁(缺 include_domains=True): {st[:140]}")
+    # #364 三轮 S2: turnover 两行的预算数值/run_to 字面量 ←→ 脚本实读比对(表不再手抄)
+    _check_turnover_literals(errs)
+
     for r in rows:
         if r["status"] == "FAIL":
             errs.append(f"{r['owner']} [{r['site']}]: {r['note']}")

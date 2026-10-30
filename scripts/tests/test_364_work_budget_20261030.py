@@ -23,16 +23,26 @@
 
 跑法: .venv/bin/python -m pytest -q scripts/tests/test_364_work_budget_20261030.py
 """
+import gzip
+import hashlib
+import http.client
 import json
 import os
+import random
 import re
 import socket
+import subprocess
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
 import upload_r2 as ur  # noqa: E402  (conftest 已注入 scripts/ 与仓库根路径)
+
+REPO = Path(__file__).resolve().parents[2]
+TB_SH = REPO / "scripts" / "turnover_backfill.sh"
 
 STATE_NAME = ".r2_test_364_state.json"        # 测试私有名(不碰生产 .r2_*_state.json)
 FROZEN_NOW = os.environ.get("R2_TEST_NOW", "2026-10-29T21:10:00")   # 周四(非周日)
@@ -132,16 +142,42 @@ def _budget_reset(monkeypatch):
     ur._WORK_EXPIRED = False
 
 
+_LOCAL_HTTP_OK = False      # 由 local_http_ok fixture 打开(F1 真传输用例专用)
+_ORIG_CONNECT: dict = {}    # 类名 → 原始 connect(loopback 放行时调用)
+
+
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
-    """自测零外发机检: 任何真实 HTTP(S) 连接尝试直接报错。"""
-    import http.client
+    """自测零外发机检: 真实 HTTP(S) 连接一律直接报错。
 
-    def _boom(*_a, **_k):
-        raise AssertionError("自测期禁止真实网络连接(零外发铁律)")
+    唯一放行孔 = 测试显式 `local_http_ok` **且** 目标 host 是 loopback(F1 起本地 http.server
+    验真传输)。非 loopback 依然报错 ⇒「零外发」在结构上仍然成立, 不是「整体关掉守卫」。
+    """
+    def _guard(cls):
+        orig = cls.connect
+        _ORIG_CONNECT[cls.__name__] = orig
+
+        def _connect(self, *a, **k):
+            if _LOCAL_HTTP_OK and getattr(self, "host", "") in ("127.0.0.1", "localhost"):
+                return orig(self, *a, **k)
+            raise AssertionError("自测期禁止真实网络连接(零外发铁律)")
+
+        return _connect
 
     for cls in (http.client.HTTPConnection, http.client.HTTPSConnection):
-        monkeypatch.setattr(cls, "connect", _boom, raising=False)
+        monkeypatch.setattr(cls, "connect", _guard(cls), raising=False)
+
+
+@pytest.fixture
+def local_http_ok():
+    """F1 专用: 只放行本机 loopback(F1 之外没有任何用例使用)。"""
+    global _LOCAL_HTTP_OK
+    assert _ORIG_CONNECT, "网络守卫未安装(测试基础设施坏了)"
+    _LOCAL_HTTP_OK = True
+    try:
+        yield
+    finally:
+        _LOCAL_HTTP_OK = False
 
 
 # ---------------- T1: 未设 / 空 / 0 / 非数字 ⇒ 完全禁用, 行为不变 ----------------
@@ -514,3 +550,335 @@ def test_source_shape_three_interception_points_present():
     m = re.search(r"def _work_budget_check.*?WorkBudgetExceeded\(f", src, re.S)
     assert m, "工作预算门实现缺失/形状变了, 需同步本测试"
     assert "super().__init__(124)" in src
+
+
+# =====================================================================================
+# F1(三轮阻断项): 真 http.client 字节等价 —— 本地 http.server, 零外发
+# -------------------------------------------------------------------------------------
+# 病灶: T8a/T8b 用自造 `_FakeGetResp` 建模 read(), 只证明「拼接不丢不重」, 盖不到
+#   chunked 解码 / gzip / Content-Length 非法 / 截断 这些**真实传输语义**。
+# 做法(F1): 起本地 ThreadingHTTPServer + 真 http.client, 五形态各比一次
+#   `_read_with_progress(...)` vs 原 `resp.read()`: **长度 + md5 逐位一致**。
+# =====================================================================================
+_F1_BIG = 8 * 1024 * 1024 + 12345                       # 8.4MiB(> 8MiB 打点阈值)
+_F1_BODY = (bytes(range(256)) * (_F1_BIG // 256 + 1))[:_F1_BIG]   # 确定性非零内容(能识别错位)
+_F1_SMALL = b"hello-small-" * 100
+_F1_BOGUS = b"bogus-length-body"
+_F1_GZ = gzip.compress(random.Random(42).randbytes(_F1_BIG), 1)   # 随机正文 ⇒ gzip 仍 >= 8MiB
+_F1_CUT = 1000
+
+
+class _FixedHandler(BaseHTTPRequestHandler):
+    """五形态之①~⑤(除 chunked): HTTP/1.0; 无合法 CL 时靠关连接收尾。"""
+
+    protocol_version = "HTTP/1.0"
+
+    def log_message(self, *_a):     # 静默(否则 stderr 刷屏)
+        pass
+
+    def do_GET(self):
+        p = self.path
+        if p == "/big":
+            self._fixed(_F1_BIG, _F1_BODY)
+        elif p == "/small":
+            self._fixed(len(_F1_SMALL), _F1_SMALL)
+        elif p == "/bogus-cl":
+            self.send_response(200)
+            self.send_header("Content-Length", "n/a")      # 非法 CL ⇒ client 读不到长度
+            self.end_headers()
+            self.wfile.write(_F1_BOGUS)
+            self.wfile.flush()
+            self.close_connection = True
+        elif p == "/gzip":
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(_F1_GZ)))
+            self.send_header("Content-Encoding", "gzip")
+            self.end_headers()
+            self.wfile.write(_F1_GZ)
+            self.wfile.flush()
+        elif p == "/trunc":
+            self.send_response(200)
+            self.send_header("Content-Length", str(_F1_BIG))   # 声明整包, 实际只发前 1000B
+            self.end_headers()
+            self.wfile.write(_F1_BODY[:_F1_CUT])
+            self.wfile.flush()
+            self.close_connection = True
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def _fixed(self, n, body):
+        self.send_response(200)
+        self.send_header("Content-Length", str(n))
+        self.end_headers()
+        self.wfile.write(body)
+        self.wfile.flush()
+
+
+class _ChunkedHandler(BaseHTTPRequestHandler):
+    """⑤ HTTP/1.1 chunked(自己按 chunk 帧写, client 侧 http.client 负责解码)。"""
+
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *_a):
+        pass
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        step = 700_000
+        for i in range(0, _F1_BIG, step):
+            part = _F1_BODY[i:i + step]
+            self.wfile.write(b"%x\r\n" % len(part) + part + b"\r\n")
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
+        self.close_connection = True
+
+
+@pytest.fixture(scope="module")
+def http_forms():
+    """起本地服务(127.0.0.1:随机端口), 跑完必关(不留残留端口/线程)。"""
+    servers = []
+
+    def _start(handler):
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        srv.daemon_threads = True
+        th = threading.Thread(target=srv.serve_forever, daemon=True)
+        th.start()
+        servers.append((srv, th))
+        return srv.server_address[1]
+
+    port = _start(_FixedHandler)
+    cport = _start(_ChunkedHandler)
+    forms = {name: (port, path) for name, path in (
+        ("plain-big", "/big"), ("small", "/small"),
+        ("bogus-cl", "/bogus-cl"), ("gzip", "/gzip"), ("trunc", "/trunc"))}
+    forms["chunked"] = (cport, "/chunked")
+    try:
+        yield forms
+    finally:
+        for srv, th in servers:
+            srv.shutdown()
+            srv.server_close()
+            th.join(timeout=5)
+
+
+def _f1_fetch(port, path, *, progress, label="f1"):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+    try:
+        conn.request("GET", path)
+        resp = conn.getresponse()
+        if progress:
+            return ur._read_with_progress(resp, label)
+        return resp.read()
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("form", ["plain-big", "small", "bogus-cl", "gzip", "chunked"])
+def test_f1_real_http_transport_byte_identical(form, http_forms, local_http_ok, capsys):
+    """五形态: 分块读 == 原 read(), 长度 + md5 逐位一致(真 socket, 禁 mock)。
+
+    「走没走分块读路径」也钉住: ≥8MiB(plain-big/gzip) 必须真打进度行; 小文件/长度未知/chunked
+    (client 侧 CL=None)必须零进度行 —— 否则「等价」可能只是两边都退化成一次 read()。
+    """
+    port, path = http_forms[form]
+    capsys.readouterr()                       # 清掉基线输出
+    base = _f1_fetch(port, path, progress=False)
+    got = _f1_fetch(port, path, progress=True, label=f"f1 {form}")
+    out = capsys.readouterr().out
+    expect = {"plain-big": _F1_BODY, "small": _F1_SMALL, "bogus-cl": _F1_BOGUS,
+              "gzip": _F1_GZ, "chunked": _F1_BODY}[form]
+    print(f"[F1 {form:10s}] len={len(got):9d} md5={hashlib.md5(got).hexdigest()} "
+          f"进度行={out.count('↓ 下载中')}")
+    assert len(got) == len(expect), f"{form}: 长度 {len(got)} != 服务端原始 {len(expect)}"
+    assert hashlib.md5(got).digest() == hashlib.md5(expect).digest(), f"{form}: 内容 md5 不一致"
+    assert len(got) == len(base) and got == base, f"{form}: 与 resp.read() 不等价"
+    if form in ("plain-big", "gzip"):
+        assert out.count("↓ 下载中") >= 2, f"{form}: 应走分块读并打进度, 实际没打(可能退化成一次 read)"
+    else:
+        assert "↓ 下载中" not in out, f"{form}: <8MiB/长度未知不该打进度行"
+
+
+def test_f1_truncated_body_short_read_not_silently_accepted(http_forms, local_http_ok, monkeypatch):
+    """截断体: 分块读**返回短包**(不抛、也不假装读全) ⇒ 必须靠下游 size 校验兜住。
+
+    真实语义差异(实测): `HTTPResponse.read(n)` 读到 EOF 只返回短包; `read()` 才抛
+    IncompleteRead。故分块读路径本身「安静」, 安全性完全依赖下游 `len(body) != size` 判定 ——
+    本用例把那条链路真跑一遍(HEAD 报整包大小, GET 返回短包 ⇒ 记 GET 短读失败)。
+    """
+    port, path = http_forms["trunc"]
+    short = _f1_fetch(port, path, progress=True, label="f1 trunc")
+    print(f"[F1 trunc     ] 分块读返回 {len(short)}B / 声明 {_F1_BIG}B(短包被识别为短包)")
+    assert 0 < len(short) < _F1_BIG, f"截断体应返回短包, 实得 {len(short)}B"
+    assert short == _F1_BODY[:_F1_CUT]
+    with pytest.raises(http.client.IncompleteRead):
+        _f1_fetch(port, path, progress=False)     # 对照: read-all 会抛
+
+    # 下游判定链路(upload_r2.py 的 P3 源体长度校验): 源码形状守卫 + 给出行号
+    src = Path(ur.__file__).read_text(encoding="utf-8")
+    needle = "if size_s is not None and len(body) != int(size_s):"
+    assert needle in src, "短读判定(P3 源体长度校验)被删/改形, 截断体会静默放行"
+    line_no = src[:src.index(needle)].count("\n") + 1
+    assert "短读 len=" in src
+    print(f"[F1 trunc     ] 依赖 upload_r2.py:{line_no} 的 size 校验(_fail GET 短读)")
+
+    # 真跑该链路: 短包 + HEAD 声明整包 ⇒ 必须 failed(不许当成功备份)
+    key = "data/f1_trunc.json"
+    monkeypatch.setattr(ur, "s3_head",
+                        lambda k, **_kw: (200, "0" * 32, _F1_BIG) if k == key else (404, None))
+    monkeypatch.setattr(ur, "s3_request", lambda method, k, **_kw: (200, short))
+    copied, skipped, failed, samples = ur._backup_overwritten_keys({key: "0" * 32}, "data-large")
+    assert (copied, skipped, failed) == (0, 0, 1), f"短读必须记失败, 实得 {(copied, skipped, failed)}"
+    assert samples and samples[0]["stage"] == "GET" and "短读" in samples[0]["detail"], samples
+
+
+# =====================================================================================
+# S1 / S3: turnover_backfill.sh 自检段(抠段到临时副本; 绝不跑脚本主体)
+# -------------------------------------------------------------------------------------
+# 红线: turnover_backfill.sh 主体含 pipeline/export/upload, 一律不执行。这里只把
+#   「run_to 包装 + 三个预算常量 + FATAL/区间/梯度自检函数 + 两行真实 run_to 调用文本」
+#   抠进临时宿主; 调用行放在 `if false; then ... fi` 里 —— 文本在场(供自检 grep 读字面量),
+#   但永不执行。告警目标打桩: PY 指向记录器脚本(真 notify.py 永不执行, §18 L48)。
+# =====================================================================================
+def _slice(src: str, start: str, end: str) -> str:
+    i = src.index(start)
+    j = src.index(end, i)
+    return src[i:j]
+
+
+def _build_selfcheck_harness(tmp_path, *, splice=()):
+    """用真实脚本的原文抠出可跑宿主; splice=[(旧,新)] 做变异。返回 (harness.sh, 记录器, 日志)。"""
+    src = TB_SH.read_text(encoding="utf-8")
+    run_to_fn = _slice(src, "run_to() {", "\n}\n") + "\n}\n"
+    budget = _slice(src, "R2_LOCK_WAIT_BUDGET=", "\n\n# 进程互斥")
+    checks = _slice(src, '_self_src="${BASH_SOURCE[0]}"', "\n\n# 4) 上传 R2")
+    calls = re.findall(r"^[ \t]*run_to [0-9]+ env [^\n]*\\\n[^\n]*$", src, re.M)
+    assert len(calls) == 2, f"脚本里 R2 调用行应为 2 处(实得 {len(calls)}), 本测试锚点需同步"
+
+    stub = tmp_path / "notify-stub.sh"
+    rec = tmp_path / "notify-calls.txt"
+    log = tmp_path / "run.log"
+    stub.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "' + str(rec) + '"\nexit 0\n',
+                    encoding="utf-8")
+    stub.chmod(0o755)
+
+    lines = [
+        "set -uo pipefail",
+        f'PY="{stub}"',
+        f'LOG="{log}"',
+        f'REPO="{tmp_path}"',
+        run_to_fn,
+        budget,
+        checks,
+        "# 真实调用行原样内联(永不被执行; 仅供自检 grep 读 run_to 字面量)",
+        "if false; then",
+        *calls,
+        "fi",
+        "_r2_check_ranges",
+        '_r2_check_step "upload-intraday" "R2_WORK_BUDGET_INTRADAY" '
+        '"$R2_WORK_BUDGET_INTRADAY" "$OUTER_INTRADAY"',
+        '_r2_check_step "upload-data-large" "R2_WORK_BUDGET" '
+        '"$R2_WORK_BUDGET" "$OUTER_LARGE"',
+        'echo HARNESS-PASS >> "$LOG"',
+        'exit 0',
+        "",
+    ]
+    body = "\n".join(lines)
+    for old, new in splice:
+        assert old in body, f"变异锚点不在宿主里: {old!r}"
+        body = body.replace(old, new, 1)
+    harness = tmp_path / "harness.sh"
+    harness.write_text(body, encoding="utf-8")
+    return harness, stub, rec, log
+
+
+def _run_harness(harness, log):
+    proc = subprocess.run(["bash", str(harness)], capture_output=True, text=True,
+                          errors="replace", timeout=60)
+    return proc, (log.read_text(encoding="utf-8") if log.exists() else "")
+
+
+def test_s1_s3_selfcheck_passes_on_real_values(tmp_path):
+    """基线: 现行真实数值 ⇒ 自检全过、无告警调用(守卫不误杀)。"""
+    harness, _stub, rec, log = _build_selfcheck_harness(tmp_path)
+    proc, logtxt = _run_harness(harness, log)
+    assert proc.returncode == 0, proc.stderr + logtxt
+    assert "HARNESS-PASS" in logtxt
+    assert not rec.exists(), "自检通过时不许发任何告警"
+
+
+def test_s1_notify_sandbox_proven_before_fatal_run(tmp_path):
+    """§18 L48「先证沙箱生效」: PY 已被替换成本地记录器, 真 notify.py / 真外发链路不可达。"""
+    harness, stub, rec, _log = _build_selfcheck_harness(tmp_path)
+    text = harness.read_text(encoding="utf-8")
+    assert f'PY="{stub}"' in text, "宿主必须把 PY 指向记录器(打桩)"
+    assert "notify.py" in text, "脚本侧调用点仍在(打桩=替换 PY, 不是删调用)"
+    stub_src = stub.read_text(encoding="utf-8")
+    assert "curl" not in stub_src and "sendmail" not in stub_src and "python" not in stub_src
+    # 记录器自证: 任何 `"$PY" scripts/notify.py …` 只落到本地文件, 不可能外发
+    subprocess.run(["bash", str(stub), "scripts/notify.py", "[告警]", "--severe"],
+                   capture_output=True, timeout=30, check=True)
+    assert rec.read_text(encoding="utf-8").count("\n") == 1
+    rec.unlink()          # 清掉自证记录, 保证后续用例的「零外发」计数从 0 起
+
+
+def test_s1_fatal_branch_alerts_and_writes_end_line(tmp_path):
+    """V3: 真倒挂(run_to 2760→2000) ⇒ FATAL 行 + 告警调用(打桩) + 标准「结束」行, exit 2。"""
+    harness, _stub, rec, log = _build_selfcheck_harness(
+        tmp_path, splice=[("run_to 2760 env", "run_to 2000 env")])
+    proc, logtxt = _run_harness(harness, log)
+    assert proc.returncode == 2, f"FATAL 应 exit 2, 实得 {proc.returncode}: {proc.stderr}"
+    assert "FATAL: upload-intraday 预算梯度倒挂" in proc.stderr
+    assert "FATAL: upload-intraday 预算梯度倒挂" in logtxt, "FATAL 必须同时落日志"
+    calls = rec.read_text(encoding="utf-8")
+    assert calls.count("\n") == 1, f"应恰好一条告警调用, 实得 {calls!r}"
+    for needle in ("[告警]", "turnover 预算自检 FATAL", "--severe",
+                   "--dedup-key turnover_backfill_budget_fatal", "--dedup-window 3600"):
+        assert needle in calls, f"告警参数缺 {needle!r}: {calls!r}"
+    assert "=== turnover_backfill.sh 结束" in logtxt and "退出码=2" in logtxt, logtxt[-400:]
+
+
+@pytest.mark.parametrize("work_var,old_lit,new_lit,new_outer", [
+    ("R2_WORK_BUDGET", "R2_WORK_BUDGET=3120", "R2_WORK_BUDGET=1200", ("run_to 4980 env", "run_to 3060 env")),
+    ("R2_WORK_BUDGET_INTRADAY", "R2_WORK_BUDGET_INTRADAY=900", "R2_WORK_BUDGET_INTRADAY=300",
+     ("run_to 2760 env", "run_to 2160 env")),
+])
+def test_s3_absolute_shrink_fails_even_when_relation_holds(
+        tmp_path, work_var, old_lit, new_lit, new_outer):
+    """V5: 工作预算缩水且外层同步(关系式仍成立) ⇒ 绝对值区间断言必须 FATAL。"""
+    harness, _stub, _rec, log = _build_selfcheck_harness(
+        tmp_path, splice=[(old_lit, new_lit), new_outer])
+    proc, logtxt = _run_harness(harness, log)
+    assert proc.returncode == 2, f"{work_var} 缩水应 FATAL, 实得 rc={proc.returncode}"
+    assert f"{work_var}=" in proc.stderr and "越出区间" in proc.stderr, proc.stderr
+    assert "=== turnover_backfill.sh 结束" in logtxt
+    assert "HARNESS-PASS" not in logtxt
+
+
+# =====================================================================================
+# S2: r2_lock_gradient_audit.py 必须**从脚本实读**预算字面量(表不手抄)
+# =====================================================================================
+def test_s2_audit_reads_turnover_literals_and_fails_on_drift(tmp_path, monkeypatch, capsys):
+    """V4: 副本 `run_to 4980→3000` / 工作 3120→1200 制造漂移 ⇒ 审计 FAIL(不许照抄表就过)。"""
+    import r2_lock_gradient_audit as aud
+
+    errs = []
+    aud._check_turnover_literals(errs)
+    assert errs == [], f"现行脚本与本表应一致, 实得 {errs}"
+
+    src = TB_SH.read_text(encoding="utf-8")
+    for old, new, why in [
+        ("run_to 4980 env", "run_to 3000 env", "外层 run_to 漂移"),
+        ("R2_WORK_BUDGET=3120", "R2_WORK_BUDGET=1200", "工作预算常量漂移"),
+    ]:
+        mut = tmp_path / f"tb_{why}.sh"
+        mut.write_text(src.replace(old, new, 1), encoding="utf-8")
+        monkeypatch.setattr(aud, "TB_SH", mut)
+        errs2 = []
+        aud._check_turnover_literals(errs2)
+        assert errs2, f"{why}: 审计必须 FAIL(实得无错)"
+        assert any("不一致" in e or "梯度不成立" in e for e in errs2), errs2
+        capsys.readouterr()                        # 清掉 aud.main 的表格输出
+        assert aud.main([]) == 1, f"{why}: 完整审计应以 FAIL 退出"

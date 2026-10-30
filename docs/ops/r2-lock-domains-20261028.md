@@ -113,7 +113,11 @@
 > `R2_WORK_BUDGET_INTRADAY=900` / `R2_WORK_BUDGET=3120` 经 env 注入, 写在括号里了。
 > 梯度关系: 锁等待 1800 < 工作 900/3120 < 外层 2760/4980, 且外层 = 等锁 + 工作 + 60。
 > 脚本运行时另有 `_r2_check_step` 自检真读 `run_to <N>` 字面量比对算式(抽不到/多个/倒挂/不等一律 FATAL),
-> 与本表静态审计双保险; 改任一边漏另一边 → 自检红 + 本表对不上。
+> 且有 `_r2_check_ranges` 拦绝对值越界(工作 2400–3600 / intraday 600–1800, 防「三者一起缩水」时关系式全绿)。
+> 本表这四行数值**不是手抄**: `r2_lock_gradient_audit.py::_check_turnover_literals` 从
+> `turnover_backfill.sh` 实读 `R2_LOCK_WAIT_BUDGET` / `R2_WORK_BUDGET` / `R2_WORK_BUDGET_INTRADAY`
+> 与两处 `run_to <N>` 字面量, 与本表逐值比对(两边独立实现, 不共用抽取函数)。
+> 改任一边漏另一边 → 自检红 + 本表对不上(两处都会红)。
 
 > **脚注: 小载荷通道的「域」列是名义值 —— 域名根本不生效(2026-10-28 核实, 共 14 处)。**
 > `upload_r2.py::_acquire_lock_for_command`(L4942)先让 `_route_upload_lock` 判目标锁: 凡命令是

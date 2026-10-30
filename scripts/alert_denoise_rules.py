@@ -1452,6 +1452,8 @@ NON_STALL_KEYS = frozenset({
     # 单轮/单次失败: 下一次调度会自愈, 且已有各自的去重/域窗; 不构成整条产物停摆
     "brief_push_fail", "daily_brief_fail", "nextday_plan_fail", "nextday_gap_check_fail",
     "board_etf_map_stale", "s06_snapshot_fail", "turnover_backfill_fail",
+    # 预算自检 FATAL: 开跑前中止本轮 R2 上传(下一轮 21:10 自愈;数据已落 REPO 主库, 次日 deploy 追上)
+    "turnover_backfill_budget_fatal",
     "gold_night_collect_fail", "gold_night_r2_upload_fail",
     "intraday_upload_index_r2_fail", "intraday_upload_intraday_r2_fail",
     "intraday_schedule_stats_r2_fail", "intraday_sentiment_r2_upload_fail",

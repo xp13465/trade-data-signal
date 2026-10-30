@@ -32,6 +32,9 @@
 # #364(2026-10-30): 二版现行数值 = upload-intraday 外层 2760(工作 900, 用户拍板) /
 #   upload-data-large 外层 4980(工作 3120, 按 10-20 实测纯工作复算)。一版曾是 2460(600)/4260(2400),
 #   详见下方「R2 步骤预算」段与第 4 步注释(含取证)。
+# #364 三轮(2026-10-30): ①预算自检 FATAL 补告警 + 标准「结束」行(旧版直接 exit 2 ⇒ 无声死);
+#   ②补绝对值区间断言(R2_WORK_BUDGET ∈ [2400,3600] / R2_WORK_BUDGET_INTRADAY ∈ [600,1800]),
+#   防「三者一起缩水」时关系式全绿。
 # 用法: bash scripts/turnover_backfill.sh [force]
 set -uo pipefail
 
@@ -183,10 +186,43 @@ fi
 # 注意: `$0` 在 with_lock.py 重跑自己时仍是本脚本路径, 但这里用 BASH_SOURCE[0] 更稳(重跑发生在
 #   自检之后的 exec 处, 且 V10 变异跑的是临时副本, 两者取值都指向「正在跑的这个文件」)。
 _self_src="${BASH_SOURCE[0]}"
+# S1(#364 三轮): FATAL 不许「无声死」。旧版直接 exit 2, 跳过末尾的 notify.py 与「结束」行;
+#   而 turnover 不在 schedule_monitor.sh 的 DUR_THRESHOLDS 里 ⇒ 「进行中超时」也不报 ⇒
+#   一晚没传上 R2 只能靠 systemd failed / 次日数据陈旧才发现。这里照抄末尾失败路径的文案口径
+#   补一条 severe 告警 + 写标准「结束」行(gen_schedule_stats / 漏跑检查直读该行)。
+#   告警四元组(必声明, 缺一不上线): 默认 tier=severe / dedup window=3600s /
+#   聚合域=turnover_backfill_budget_fatal(与链路失败键 turnover_backfill_fail 分开:
+#   预算自检失败是配置错, 不是链路偶发) / 首报策略=立即(无静默期)。
 _r2_budget_fatal() {
-  echo "$(date '+%F %T') FATAL: $1 —— 见 #364" >> "$LOG"
-  echo "FATAL: $1" >&2
+  local msg="$1"
+  echo "$(date '+%F %T') FATAL: $msg —— 见 #364" >> "$LOG"
+  echo "FATAL: $msg" >&2
+  "$PY" scripts/notify.py \
+    "[告警] turnover 预算自检 FATAL ${msg} $(date '+%m-%d %H:%M')" \
+    "turnover 独立延后任务(21:10)的 R2 预算自检在开跑上传前失败: ${msg}。<br>已中止本轮 R2 上传(数据已落盘 REPO 主库树, git 渠道随次日 17:50 deploy 追上)。<br>日志: $LOG (尾部 50 行)<br>影响: 当日 a_turnover_* 相关文件可能未同步到 R2, 首页折叠区/A股走势图换手率读 T-1(缺当日不报错, 前端 T1_COLLECT_DEADLINE 18:00 会标红色异常至数据上线)。" \
+    --severe --from-prefix "[告警]" \
+    --alert-issue "turnover 预算自检 FATAL" --alert-log "$LOG" \
+    --dedup-key turnover_backfill_budget_fatal --dedup-window 3600 2>&1 | tee -a "$LOG" || true
+  echo "=== turnover_backfill.sh 结束 $(date '+%F %T') 退出码=2（预算自检 FATAL）===" >> "$LOG"
   exit 2
+}
+# S3(#364 三轮): 绝对数值区间断言。关系式「外层 = 等锁 + 工作 + 60」只钉相对关系,
+#   三者一起缩水/膨胀时全绿(如工作 3120→1200、外层 4980→3060, 见 V5 变异)。区间与上方
+#   预算注释同源: data-large 工作 ∈ [2400, 3600](下限 2400 = 实测纯工作 2574.8 的保守下限;
+#   上限 3600 见上方口径), intraday 工作 ∈ [600, 1800](下限 600 = max(600, ceil(M*3));
+#   上限 1800 = 等锁预算同量级, 再大等于把「有日志的保险」变成第二道等锁)。
+_r2_check_ranges() {
+  local v
+  v=$R2_WORK_BUDGET
+  case "$v" in ''|*[!0-9]*) _r2_budget_fatal "R2_WORK_BUDGET 不是整数(实得 '${v}')" ;; esac
+  if [ "$v" -lt 2400 ] || [ "$v" -gt 3600 ]; then
+    _r2_budget_fatal "R2_WORK_BUDGET=$v 越出区间 [2400, 3600](绝对值缩水/膨胀, 关系式仍可能成立)"
+  fi
+  v=$R2_WORK_BUDGET_INTRADAY
+  case "$v" in ''|*[!0-9]*) _r2_budget_fatal "R2_WORK_BUDGET_INTRADAY 不是整数(实得 '${v}')" ;; esac
+  if [ "$v" -lt 600 ] || [ "$v" -gt 1800 ]; then
+    _r2_budget_fatal "R2_WORK_BUDGET_INTRADAY=$v 越出区间 [600, 1800](绝对值缩水/膨胀, 关系式仍可能成立)"
+  fi
 }
 # 抽某一步调用处的「行号:run_to 字面量」行(以该步的工作预算变量名区分两步)
 _r2_step_run_to() {
@@ -216,7 +252,8 @@ _r2_check_step() {
 # 4) 上传 R2 + purge CF edge(§22 N 缓存同步; upload-intraday 覆盖 overview/a-stock-3m/6m/1y,
 #    upload-data-large 兜底大 range 3y/5y/all; 失败仅告警不阻断——git 渠道随次日 deploy 追上)
 if [ "$RC_EXPORT" -eq 0 ]; then
-  # 倒挂自检(逐步骤各自校验): 任一条倒挂 ⇒ FATAL exit 2(此时数据已落盘, 由退出码告警接管)。
+  # 倒挂自检(逐步骤各自校验): 任一条倒挂/越界 ⇒ FATAL(此时数据已落盘, 由退出码告警接管)。
+  _r2_check_ranges
   _r2_check_step "upload-intraday" "R2_WORK_BUDGET_INTRADAY" "$R2_WORK_BUDGET_INTRADAY" "$OUTER_INTRADAY"
   _r2_check_step "upload-data-large" "R2_WORK_BUDGET" "$R2_WORK_BUDGET" "$OUTER_LARGE"
   # 反查守卫(#364, S5 降级为 WARN 不 exit): 「传了 env 但 python 压根不读」= 回到改前行为(只是内层
