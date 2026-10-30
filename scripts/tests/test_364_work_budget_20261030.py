@@ -752,7 +752,9 @@ def _build_selfcheck_harness(tmp_path, *, splice=()):
     """用真实脚本的原文抠出可跑宿主; splice=[(旧,新)] 做变异。返回 (harness.sh, 记录器, 日志)。"""
     src = TB_SH.read_text(encoding="utf-8")
     run_to_fn = _slice(src, "run_to() {", "\n}\n") + "\n}\n"
-    budget = _slice(src, "R2_LOCK_WAIT_BUDGET=", "\n\n# 进程互斥")
+    # 四轮: _r2_budget_fatal 已上移到预算常量之前(供给它前面的纯数字前置校验用), 故切片起点
+    #   改从函数定义起 —— 宿主里必须先有 FATAL 收口, 才能验「非数字预算走同一条收口」。
+    budget = _slice(src, "_r2_budget_fatal() {", "\n\n# 进程互斥")
     checks = _slice(src, '_self_src="${BASH_SOURCE[0]}"', "\n\n# 4) 上传 R2")
     calls = re.findall(r"^[ \t]*run_to [0-9]+ env [^\n]*\\\n[^\n]*$", src, re.M)
     assert len(calls) == 2, f"脚本里 R2 调用行应为 2 处(实得 {len(calls)}), 本测试锚点需同步"
@@ -807,6 +809,32 @@ def test_s1_s3_selfcheck_passes_on_real_values(tmp_path):
     assert proc.returncode == 0, proc.stderr + logtxt
     assert "HARNESS-PASS" in logtxt
     assert not rec.exists(), "自检通过时不许发任何告警"
+
+
+@pytest.mark.parametrize("var_line", [
+    "R2_LOCK_WAIT_BUDGET=1800",
+    "R2_WORK_BUDGET=3120",
+    "R2_WORK_BUDGET_INTRADAY=900",
+])
+@pytest.mark.parametrize("bad", ["abc", "3_120", ""])
+def test_s6_non_numeric_budget_fails_loudly(tmp_path, var_line, bad):
+    """四轮: 非数字预算必须在算术展开前拦下, 走同一条 FATAL 收口(删任意一条都退回静默失败)。
+
+    基线实测(脚本原文抠段): abc ⇒ rc=0 无 FATAL; 3_120 ⇒ rc=1 无 FATAL; 空 ⇒ 算术当 0,
+    OUTER 静默算成 1860。三者都必须 exit 2 + FATAL 行 + 「结束」行, 禁静默。
+    """
+    old = var_line
+    new = var_line.split("=")[0] + "=" + bad
+    harness, _stub, rec, log = _build_selfcheck_harness(tmp_path, splice=[(old, new)])
+    proc, logtxt = _run_harness(harness, log)
+    assert proc.returncode == 2, f"{new!r} 应 exit 2, 实得 rc={proc.returncode}: {proc.stderr}"
+    assert "FATAL:" in proc.stderr and "必须是纯数字整数" in proc.stderr, proc.stderr
+    assert "HARNESS-PASS" not in logtxt, "非法预算不许走到后续自检"
+    assert "FATAL:" in logtxt, "FATAL 必须同时落日志"
+    assert "=== turnover_backfill.sh 结束" in logtxt and "退出码=2" in logtxt, logtxt[-400:]
+    calls = rec.read_text(encoding="utf-8")
+    assert calls.count("\n") == 1, f"应恰好一条告警调用, 实得 {calls!r}"
+    assert "--dedup-key turnover_backfill_budget_fatal" in calls, calls
 
 
 def test_s1_notify_sandbox_proven_before_fatal_run(tmp_path):

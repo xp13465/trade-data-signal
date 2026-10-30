@@ -76,6 +76,31 @@ run_to() {
   fi
 }
 
+# S1(#364 三轮, 四轮上移): FATAL 不许「无声死」。旧版自检失败直接 exit 2, 跳过末尾的 notify.py
+#   与「结束」行; 而 turnover 不在 schedule_monitor.sh 的 DUR_THRESHOLDS 里 ⇒ 「进行中超时」也不报
+#   ⇒ 一晚没传上 R2 只能靠 systemd failed / 次日数据陈旧才发现。这里照抄末尾失败路径的文案口径
+#   补一条 severe 告警 + 写标准「结束」行(gen_schedule_stats / 漏跑检查直读该行)。
+#   为什么定义要放在预算常量**之前**(四轮): 下面的「纯数字前置校验」必须在任何 `$((...))` 算术
+#   展开之前就能用 —— 否则 R2_WORK_BUDGET 写成 abc 时 bash 3.2 在算术展开里炸掉, 脚本 rc=0
+#   静默退出、无 FATAL、无「结束」行(实测基线; 写成 3_120 则 rc=1 同样无 FATAL)。= 静默失败。
+#   告警四元组(必声明, 缺一不上线): 默认 tier=severe / dedup window=3600s /
+#   聚合域=collect(alert_denoise_rules.py 按 key 含 backfill 判域; 登记表 row32 同) /
+#   首报策略=立即(该域 2h 内无其它告警时直发); 同域 2h 内已有告警 ⇒ 本条并入 23:25 摘要
+#   (延迟、不丢失, 不是静默丢弃)。与链路失败键 turnover_backfill_fail 分开: 预算自检失败是配置错。
+_r2_budget_fatal() {
+  local msg="$1"
+  echo "$(date '+%F %T') FATAL: $msg —— 见 #364" >> "$LOG"
+  echo "FATAL: $msg" >&2
+  "$PY" scripts/notify.py \
+    "[告警] turnover 预算自检 FATAL ${msg} $(date '+%m-%d %H:%M')" \
+    "turnover 独立延后任务(21:10)的 R2 预算自检在开跑上传前失败: ${msg}。<br>已中止本轮 R2 上传(数据已落盘 REPO 主库树, git 渠道随次日 17:50 deploy 追上)。<br>日志: $LOG (尾部 50 行)<br>影响: 当日 a_turnover_* 相关文件可能未同步到 R2, 首页折叠区/A股走势图换手率读 T-1(缺当日不报错, 前端 T1_COLLECT_DEADLINE 18:00 会标红色异常至数据上线)。" \
+    --severe --from-prefix "[告警]" \
+    --alert-issue "turnover 预算自检 FATAL" --alert-log "$LOG" \
+    --dedup-key turnover_backfill_budget_fatal --dedup-window 3600 2>&1 | tee -a "$LOG" || true
+  echo "=== turnover_backfill.sh 结束 $(date '+%F %T') 退出码=2（预算自检 FATAL）===" >> "$LOG"
+  exit 2
+}
+
 # #364(2026-10-30)重定两个 R2 步骤的预算(按最坏路径复算, 取证见 #364 实施报告):
 #   - upload-data-large 工作预算 900 → 2400 → **3120**(二版, 按实测纯工作复算):
 #     云上 10-20 晚 `[data-large] ✓ 上传完成 23/23, 耗时 2574.8s` —— 该「耗时」的计时起点 =
@@ -93,6 +118,20 @@ run_to() {
 R2_LOCK_WAIT_BUDGET=1800
 R2_WORK_BUDGET=3120
 R2_WORK_BUDGET_INTRADAY=900
+# S6(#364 四轮): 三个预算变量必须**先过纯数字前置校验**, 再进任何算术展开。
+#   基线实测(脚本原文抠段跑): R2_WORK_BUDGET=abc ⇒ rc=0 无 FATAL 无「结束」行(静默退出);
+#   =3_120 ⇒ rc=1 同样无 FATAL; =' '(空) 更坏 —— 算术把空当 0, OUTER_LARGE 静默算成 1860。
+#   三者都是「配置写错 → 静默跑偏」, 与本轮修复目标同型, 故统一走 _r2_budget_fatal
+#   (severe 告警 + 「结束」行 + exit 2), 绝不裸 exit / 绝不静默 exit 0。
+_r2_require_int() {
+  local name="$1" v="$2"
+  case "$v" in
+    ''|*[!0-9]*) _r2_budget_fatal "${name} 必须是纯数字整数(实得 '${v}')" ;;
+  esac
+}
+_r2_require_int R2_LOCK_WAIT_BUDGET "$R2_LOCK_WAIT_BUDGET"
+_r2_require_int R2_WORK_BUDGET "$R2_WORK_BUDGET"
+_r2_require_int R2_WORK_BUDGET_INTRADAY "$R2_WORK_BUDGET_INTRADAY"
 OUTER_LARGE=$((R2_LOCK_WAIT_BUDGET + R2_WORK_BUDGET + 60))              # 4980
 OUTER_INTRADAY=$((R2_LOCK_WAIT_BUDGET + R2_WORK_BUDGET_INTRADAY + 60))  # 2760
 
@@ -186,26 +225,7 @@ fi
 # 注意: `$0` 在 with_lock.py 重跑自己时仍是本脚本路径, 但这里用 BASH_SOURCE[0] 更稳(重跑发生在
 #   自检之后的 exec 处, 且 V10 变异跑的是临时副本, 两者取值都指向「正在跑的这个文件」)。
 _self_src="${BASH_SOURCE[0]}"
-# S1(#364 三轮): FATAL 不许「无声死」。旧版直接 exit 2, 跳过末尾的 notify.py 与「结束」行;
-#   而 turnover 不在 schedule_monitor.sh 的 DUR_THRESHOLDS 里 ⇒ 「进行中超时」也不报 ⇒
-#   一晚没传上 R2 只能靠 systemd failed / 次日数据陈旧才发现。这里照抄末尾失败路径的文案口径
-#   补一条 severe 告警 + 写标准「结束」行(gen_schedule_stats / 漏跑检查直读该行)。
-#   告警四元组(必声明, 缺一不上线): 默认 tier=severe / dedup window=3600s /
-#   聚合域=turnover_backfill_budget_fatal(与链路失败键 turnover_backfill_fail 分开:
-#   预算自检失败是配置错, 不是链路偶发) / 首报策略=立即(无静默期)。
-_r2_budget_fatal() {
-  local msg="$1"
-  echo "$(date '+%F %T') FATAL: $msg —— 见 #364" >> "$LOG"
-  echo "FATAL: $msg" >&2
-  "$PY" scripts/notify.py \
-    "[告警] turnover 预算自检 FATAL ${msg} $(date '+%m-%d %H:%M')" \
-    "turnover 独立延后任务(21:10)的 R2 预算自检在开跑上传前失败: ${msg}。<br>已中止本轮 R2 上传(数据已落盘 REPO 主库树, git 渠道随次日 17:50 deploy 追上)。<br>日志: $LOG (尾部 50 行)<br>影响: 当日 a_turnover_* 相关文件可能未同步到 R2, 首页折叠区/A股走势图换手率读 T-1(缺当日不报错, 前端 T1_COLLECT_DEADLINE 18:00 会标红色异常至数据上线)。" \
-    --severe --from-prefix "[告警]" \
-    --alert-issue "turnover 预算自检 FATAL" --alert-log "$LOG" \
-    --dedup-key turnover_backfill_budget_fatal --dedup-window 3600 2>&1 | tee -a "$LOG" || true
-  echo "=== turnover_backfill.sh 结束 $(date '+%F %T') 退出码=2（预算自检 FATAL）===" >> "$LOG"
-  exit 2
-}
+# S1 的 _r2_budget_fatal 定义已上移到预算常量之前(四轮, 供纯数字前置校验先用), 见上方。
 # S3(#364 三轮): 绝对数值区间断言。关系式「外层 = 等锁 + 工作 + 60」只钉相对关系,
 #   三者一起缩水/膨胀时全绿(如工作 3120→1200、外层 4980→3060, 见 V5 变异)。区间与上方
 #   预算注释同源: data-large 工作 ∈ [2400, 3600](下限 2400 = 实测纯工作 2574.8 的保守下限;
