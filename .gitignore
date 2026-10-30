@@ -294,3 +294,7 @@ docs/archive/*.bak*
 config/email.json.bak*
 # Playwright 测试状态文件(每次跑自动覆盖,非报告)
 test-results/
+
+# 商汤轮换代理 key 文件(真实 key 禁进 git,只留 keys.txt.example 模板)
+scripts/keys.txt
+scripts/*.env
