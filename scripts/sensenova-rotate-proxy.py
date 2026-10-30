@@ -27,7 +27,8 @@ sensenova-rotate-proxy.py - 商汤 Sensenova 多 token 轮换本地代理(纯 ke
 
 env:
   SENSENOVA_KEY1/2/3/4/5/6/7  # 7 把商汤 key;缺 N 把则仅用已有 key 轮换(round-robin 长度=已有 key 数)
-  SENSENOVA_ENV_FILE        # 回退读 .env 的路径,默认 /Users/linhuichen/code/trade-data/.env
+  SENSENOVA_ENV_FILE        # 回退读 .env 的路径(最末回退);默认 ~/.sensenova-proxy/.env。
+                            # key 读取顺序:env > 同目录 keys.txt > ~/.sensenova-proxy/keys.txt > SENSENOVA_ENV_FILE
   TTP_RETRY_ON_429=1        # 上游 429 时换下一把 key 重试(默认开)
   TTP_ROTATE_BACKOFF=0.3    # 429 换 key 重试的轻退避秒数(默认 0.3,避免把 3 池全打满)
   TTP_PORT=8899             # 监听端口(默认 8899,可改用于隔离测试实例)
@@ -51,7 +52,19 @@ UPSTREAM_PORT = 443
 UPSTREAM_BASE = "/"
 SSL_CTX = ssl._create_unverified_context()  # 本地代理,跳过证书验证(转发到已知 upstream)
 
-LOG = os.environ.get("TTP_LOG", "/Users/linhuichen/code/trade-data/data/logs/sensenova-rotate-req.log")
+# ═══ 跨平台默认目录(2026-10-30 Windows 打包)═══
+# 历史 mac 硬编码 /Users/linhuichen/code/trade-data/... 已废,默认路径统一放用户家目录
+# ~/.sensenova-proxy/(mac/linux ~ / Windows %USERPROFILE%),env(TTP_LOG/SENSENOVA_ENV_FILE/
+# TTP_COOLDOWN_FILE)设了仍优先(mac 现状 env 设了行为零变化)。
+_HOME = os.path.expanduser("~")
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 脚本同目录(找 keys.txt)
+_DATA_DIR = os.path.join(_HOME, ".sensenova-proxy")
+_LOG_DIR = os.path.join(_DATA_DIR, "logs")
+try:
+    os.makedirs(_LOG_DIR, exist_ok=True)
+except Exception:
+    pass  # 建目录失败不阻断加载(后续 LOG 写盘兜底)
+LOG = os.environ.get("TTP_LOG", os.path.join(_LOG_DIR, "sensenova-rotate-req.log"))
 
 # ═══ 日志级别控制(2026-09-01 用户定「日志可以关闭了」)═══
 # 背景:代理每请求写 RESP 行 + REQDUMP 全量落盘(req.log 13MB+、sensenova-req-dump 16MB),
@@ -72,11 +85,34 @@ def _log_enabled(level):
     return _LOG_LEVEL_RANK_VAL <= _LOG_LEVEL_RANK.get(level, 30)
 
 # ═══ 多把 key 加载(真实 key 禁进 git/日志)═══
-# 读取顺序:先看 env(SENSENOVA_KEY1..KEY7),再回退读 ../trade-data/.env(仓外)。
+# 读取顺序(env > 同目录 keys.txt > 家目录 keys.txt > SENSENOVA_ENV_FILE 指向的 .env):
+#   1. env(SENSENOVA_KEY1..KEY7)有任一即用 env(mac 现状走这里,行为零变化);
+#   2. 脚本同目录 keys.txt(每行一把 key,# 注释/空行跳过)——Windows 开箱即用主入口;
+#   3. 家目录 ~/.sensenova-proxy/keys.txt(ctl/全局放置回退);
+#   4. SENSENOVA_ENV_FILE 指向的 .env(mac 旧 .env 格式 KEY=value,env 设了仍优先生效)。
 # 缺 key 的:只加入有值 key 轮换;一把都没有 = 不启用轮换(回到单 key 直发,失败透明)。
 # 返回 (keys, key_nums):key_nums 与 keys 并行,记录每把 key 的序号(1/2/3/4/5/6/7),用于冷却日志标识。
 # 2026-09-06 扩展 KEY6/KEY7(用户新增 2 key):序列动态生成,没配 KEY6/7 时向后兼容(长度=已有 key 数)。
 _KEY_ENV_NAMES = tuple("SENSENOVA_KEY%d" % i for i in range(1, 8))
+
+
+def _read_keys_txt(path):
+    """读 keys.txt(每行一把 key,# 注释/空行跳过),返回 (keys, nums);不存在/空返回 ([], [])。"""
+    _keys, _nums = [], []
+    try:
+        with open(path) as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if not _line or _line.startswith("#"):
+                    continue
+                _keys.append(_line)
+                _nums.append(len(_keys))  # 序号按 keys.txt 出现顺序
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logmsg(f"WARN keys.txt read failed ({path}): {e}", level="warn")
+    return _keys, _nums
+
 
 def _load_keys():
     keys, nums = [], []
@@ -87,7 +123,19 @@ def _load_keys():
             nums.append(_i)
     if keys:
         return keys, nums
-    _env_file = os.environ.get("SENSENOVA_ENV_FILE", "/Users/linhuichen/code/trade-data/.env")
+    # 回退 1:脚本同目录 keys.txt(Windows 主入口)
+    _k1 = os.path.join(_BASE_DIR, "keys.txt")
+    keys, nums = _read_keys_txt(_k1)
+    if keys:
+        return keys, nums
+    # 回退 2:家目录 ~/.sensenova-proxy/keys.txt
+    _k2 = os.path.join(_DATA_DIR, "keys.txt")
+    if os.path.abspath(_k2) != os.path.abspath(_k1):
+        keys, nums = _read_keys_txt(_k2)
+        if keys:
+            return keys, nums
+    # 回退 3:SENSENOVA_ENV_FILE(默认家目录 ~/.sensenova-proxy/.env;历史 mac trade-data/.env 已不作默认)
+    _env_file = os.environ.get("SENSENOVA_ENV_FILE", os.path.join(_DATA_DIR, ".env"))
     try:
         with open(_env_file) as _f:
             _m = {}
@@ -180,7 +228,8 @@ _cool_lock = threading.Lock()
 # (仓外,真实 key 绝不落盘,只存 keyN 序号)。KeepAlive 重启秒级拉起后病 key 不立即回池再撞 429。
 # 存储格式:{"keys": {"key1": {"cooled_until_ms": int, "level": int}, ...}, "updated_at": int(ms)}
 # 路径可用 TTP_COOLDOWN_FILE 覆盖(kimi 版用独立文件隔离,防两进程并发覆盖)。
-COOLDOWN_FILE = os.environ.get("TTP_COOLDOWN_FILE", "/Users/linhuichen/code/trade-data/data/sensenova-cooldown.json")
+# 默认放 ~/.sensenova-proxy/sensenova-cooldown.json(跨平台家目录;mac env 设了仍优先)。
+COOLDOWN_FILE = os.environ.get("TTP_COOLDOWN_FILE", os.path.join(_DATA_DIR, "sensenova-cooldown.json"))
 
 def _cool_duration_sec(level):
     """递增退避:level0=180s,level1=360s,...,封顶 2880s(48min)。
@@ -440,7 +489,7 @@ def _detect_log(command, path, body, content_type):
 #   TTP_REQDUMP_KEEP       # 非 ERR 保留最近 N 个(默认 30)
 #   TTP_REQDUMP_KEEP_ERR   # ERR 保留最近 N 个(默认 30)
 REQDUMP_ON = os.environ.get("TTP_REQDUMP", "0") == "1"  # 2026-09-01 用户定:默认关(原默认开)
-REQDUMP_DIR = os.environ.get("TTP_REQDUMP_DIR", "/Users/linhuichen/code/trade-data/data/logs/sensenova-req-dump")
+REQDUMP_DIR = os.environ.get("TTP_REQDUMP_DIR", os.path.join(_LOG_DIR, "sensenova-req-dump"))
 REQDUMP_KEEP = _env_num("TTP_REQDUMP_KEEP", 30, int)
 REQDUMP_KEEP_ERR = _env_num("TTP_REQDUMP_KEEP_ERR", 30, int)
 
