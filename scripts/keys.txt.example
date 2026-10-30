@@ -1,0 +1,5 @@
+# 商汤轮换代理 key 列表(每行一把,最多 7 把;# 开头注释,空行跳过)
+# 从 https://token.sensenova.cn 控制台获取,粘贴到下面(去掉前面的 #):
+# sk-xxxx...key1
+# sk-xxxx...key2
+# sk-xxxx...key3
