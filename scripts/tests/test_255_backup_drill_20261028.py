@@ -16,7 +16,7 @@
   3. public_fund 空间不足 ⇒ SKIP 且发 severe（安全网被关要人处理）
   4. 周日门控：`date +%u`=7 进入 / 非 7 SKIP
   5. 行数三态：备份空 / 备份>本地 / 备份 < 本地×0.95
-  6. 三态结论行点名 SKIP，且 SKIP 不把 VERIFY_OK 置 0
+  6. 三态结论行点名 SKIP，且 SKIP 不把 VERIFY_OK 置 0（运行日冻结在首备日前，防 L51 跨天红）
   7. 新鲜度：备份日期落后 >1 天 ⇒ FAIL
   8. 变异 ≥2：去掉存在性预判 / 空间分支改成不拦，验证用例 2、3 真有判别力
 """
@@ -462,7 +462,10 @@ def test_ledger_head_http_error_fails(tmp_path):
 def test_conclusion_names_skips_and_keeps_verify_ok(tmp_path):
     drill = Drill(tmp_path)
     drill.set_list_keys("stock_daily", [])
-    r = drill.run(dow=3)
+    # 本用例要的是「stock_daily 无 key ⇒ SKIP」这一态，而该态只在首备日之前成立；
+    # 不冻结运行日的话，2026-10-30 起日期闸会把 SKIP 翻成 FAIL，用例随真实日历翻红（L51）。
+    # 这里不能靠"补一份 stock_daily 备份"来脱敏——那会直接消灭被测的 SKIP 项。
+    r = drill.run(dow=3, extra_env={"STUB_TODAY": BEFORE_FIRST_BACKUP})
     lines = r.stdout.splitlines()
     ok_lines = [ln for ln in lines if ln.startswith("VERIFY_OK=")]
     assert ok_lines == ["VERIFY_OK=1"], f"SKIP 不该把 VERIFY_OK 置 0: {ok_lines}\n{r.stdout}"
