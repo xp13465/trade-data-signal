@@ -216,6 +216,11 @@
     var IDLE_DELAY_MS = 5000;           // 用户空闲 5s 才考虑 reload
     var PROBE_TIMEOUT_MS = 8000;        // 探活单次 fetch 上限
     var CHECK_DELAY_MS = 5000;          // 启动后首次比对延后 5s（不抢首屏）
+    // 防循环 reload（#327 P0 止血, 2026-10-31）: __build.json 陈旧致 meta!=fetchBid 时,
+    //   reload 后仍不一致 → 单 tab 内同一不一致签名(metaBid|fetchBid)只 reload 一次,
+    //   之后只 console.warn 不再裸 reload（避免 reload→仍 stale→reload 循环白屏）。
+    //   新签名（新部署产生的新不一致）不受旧标记阻断, 仍可 reload 一次兜底。
+    var _reloadGuardKey = 'feBuildIdReloadSig';
     var autoReloadOff = false;
     try {
       autoReloadOff = localStorage.getItem('feAutoReloadOff') === '1';
@@ -259,6 +264,22 @@
       try { location.reload(); } catch (e) {}
     }
 
+    // 防循环 reload: 单 tab 内同一不一致签名已 reload 过 → 返 true 阻断重复 reload
+    function _alreadyReloadedFor(sig) {
+      try {
+        var raw = sessionStorage.getItem(_reloadGuardKey);
+        if (!raw) return false;
+        var o = JSON.parse(raw);
+        return !!(o && o.sig === sig);
+      } catch (e) { return false; }
+    }
+
+    function _markReloaded(sig) {
+      try {
+        sessionStorage.setItem(_reloadGuardKey, JSON.stringify({ sig: sig, ts: Date.now() }));
+      } catch (e) {}
+    }
+
     // 空闲判定: requestIdleCallback(timeout) 或 setTimeout 兜底 + 最近交互重置
     //   用户最近 5s 内有交互（pointerdown/keydown）则不 reload（不打断）
     var _lastInteractTs = Date.now();
@@ -295,13 +316,20 @@
           fetchBid = String(data.build_id || '');
           if (!fetchBid) return;
           if (fetchBid === metaBid) return;   // 一致, 无操作
+          // 不一致 → 防循环: 同一签名本 tab 已 reload 过 → 只 warn 不再 reload
+          var mismatchSig = metaBid + '|' + fetchBid;
+          if (_alreadyReloadedFor(mismatchSig)) {
+            try { console.warn('[build-id] mismatch ' + mismatchSig + ' 已 reload 一次仍未一致, 暂停自动 reload 防循环, 等待部署修正或用户手动刷新'); } catch (e) {}
+            return;
+          }
           // 不一致 → 空闲 + 探活就绪才 reload
           _scheduleIdle(function () {
             if (autoReloadOff) return;
             if (!_idleEnough()) return;       // 用户刚交互过, 等下次空闲（不 reload）
             _probeCoreReady().then(function (ok) {
-              if (ok) _reload();
-              // 探活未就绪 → 不 reload（避免白屏）, 等下次空闲重试
+              if (!ok) return;                // 探活未就绪 → 不 reload（避免白屏）, 等下次空闲重试
+              _markReloaded(mismatchSig);     // 先标记防循环, 再 reload
+              _reload();
             });
           });
         }).catch(function () {

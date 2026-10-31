@@ -142,6 +142,39 @@ def write_build_json(ss_dir, ver):
     print(f"  ✓ static-site/__build.json build_id={ver}")
 
 
+def verify_build_id_coverage(ss_dir, ver):
+    """#327 P0 根因加固（2026-10-31）: bump 后校验所有前端入口 HTML 的 build-id meta == ver。
+
+    背景: #327 首发提交手工把 meta 写进 index.html, 漏了 databrief.html / trade_sim.html,
+    且 __build.json 写成陈旧值, 致 inline-init.js 比对不一致 → 循环 reload 白屏风险（§22 一致性）。
+    bump() 已通过 glob 全量 *.html 覆盖（无 meta 自动插入）, 本函数做**事后断言**:
+    扫所有 *.html, 任何一个缺 meta 或 content != ver 都 FAIL 退出, 防 bump 逻辑回归或新 HTML 入口漏加。
+    """
+    html_files = sorted(glob.glob(os.path.join(ss_dir, "*.html")))
+    missing = []
+    stale = []
+    for hp in html_files:
+        rel = os.path.relpath(hp, BASE)
+        with open(hp, encoding="utf-8") as f:
+            html = f.read()
+        m = BUILD_ID_META_RE.search(html)
+        if not m:
+            missing.append(rel)
+            continue
+        # 提取 content="..." 值
+        cm = re.search(r'content="([^"]*)"', m.group(0))
+        if not cm or cm.group(1) != ver:
+            stale.append((rel, cm.group(1) if cm else ''))
+    if missing or stale:
+        print("FAIL: build-id 覆盖校验不通过（§22 一致性）:")
+        for r in missing:
+            print(f"  · 缺 build-id meta: {r}")
+        for r, old in stale:
+            print(f"  · build-id 陈旧: {r} (当前={old!r}, 期望={ver!r})")
+        raise SystemExit(2)
+    print(f"  ✓ build-id 覆盖校验 PASS: {len(html_files)} 个 HTML 全部 == {ver}")
+
+
 def sync_sw_version(sw_path, major_prefix, date_str, batch):
     """同步 sw.js CACHE_VERSION 为 'v<N>-<today>-a<M+1>'(日期+批次,与 index 同源)。
 
@@ -195,6 +228,17 @@ def main():
 
     # 4. #327 写 __build.json（与 meta build-id / ?v= / CACHE_VERSION 同源同值）
     write_build_json(ss_dir, ver)
+
+    # 5. #327 P0 根因加固: 校验所有 HTML build-id meta == ver + __build.json == ver
+    #    防 #327 首发漏改 databrief/trade_sim/__build.json 致循环 reload 的事故复发
+    verify_build_id_coverage(ss_dir, ver)
+    _bj = os.path.join(ss_dir, "__build.json")
+    with open(_bj, encoding="utf-8") as f:
+        bj = json.load(f)
+    if bj.get("build_id") != ver:
+        print(f"FAIL: __build.json build_id={bj.get('build_id')!r} != {ver!r}（§22 一致性）")
+        raise SystemExit(2)
+    print(f"  ✓ __build.json build_id={ver} 一致")
 
     print("完成。记得 commit + push。")
 
