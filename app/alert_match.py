@@ -18,8 +18,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .db import resolve_db_path
+
 _REPO = Path(__file__).absolute().parent.parent
-_SENT_DB = _REPO / "data" / "sentiment.db"
+# sentiment.db 统一走 app.db 解析阶梯(#335),缺库明确报错而不是静默建空库。
+# etf_national_team.db 是另一套库(可合法不存在),仍沿用本地推导。
 _NT_DB = _REPO / "data" / "etf_national_team.db"
 _BOARD_ETF_MAP = _REPO / "data" / "board_etf_map.json"
 
@@ -80,7 +83,7 @@ def _load_index_amounts() -> dict[str, float]:
     20260715 后变 0/NULL),故取每个 index_id 自己的最新非零值。
     """
     out = {}
-    with sqlite3.connect(_SENT_DB) as c:
+    with sqlite3.connect(resolve_db_path()) as c:
         rows = c.execute(
             "SELECT index_id, amount FROM index_daily t1 WHERE amount IS NOT NULL AND amount > 0 "
             "AND date = (SELECT MAX(date) FROM index_daily t2 "
@@ -138,7 +141,7 @@ def _load_etf_latest_amount() -> dict[str, float]:
 def _all_index_candidates(name_map: dict[str, str],
                           amount_map: dict[str, float]) -> list[dict]:
     """全部指数候选 (含宽基/行业/概念/港股/全球)。"""
-    with sqlite3.connect(_SENT_DB) as c:
+    with sqlite3.connect(resolve_db_path()) as c:
         rows = c.execute(
             "SELECT DISTINCT index_id FROM index_daily"
         ).fetchall()

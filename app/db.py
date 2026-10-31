@@ -1,8 +1,23 @@
 """SQLite 连接与建表。"""
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).absolute().parent.parent / "data" / "sentiment.db"
+# 仓库根。刻意**不**用 resolve():从 trade-data/ 运行(__file__ 落在 trade-data/app/,
+# 该目录是 trade/app 的 symlink)时,只有保留 symlink 路径才能把本仓定位到实时数据树;
+# realpath 会把它折回 trade/,读到的是陈旧镜像。
+_HERE = Path(__file__).absolute().parent.parent
+
+# #335 根因:旧版直接把 DB_PATH 定死成「本仓 data/sentiment.db」,路径推导错(worktree /
+# 非 trade-data 树 / symlink 视角)时会 mkdir + sqlite3.connect 静默建出 0 字节空库,
+# 之后所有查询返回空结果集而不报错,读方拿不到「库不在」的信号。
+# 现在改为:首次 get_conn() 时按 resolve_db_path() 的解析阶梯找真实库,全都不存在就
+# 明确报错;DB_PATH 仅作为「尚未解析」的哨兵(兼容既有 from app.db import DB_PATH 的读方,
+# 也兼容测试 monkeypatch.setattr(app.db, "DB_PATH", tmp) 的显式覆盖)。
+_DEFAULT_DB_PATH = _HERE / "data" / "sentiment.db"
+DB_PATH = _DEFAULT_DB_PATH
+
+_resolved_db_path: Path | None = None
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS daily_metric (
@@ -196,12 +211,103 @@ CREATE INDEX IF NOT EXISTS idx_history_overwrite_audit_run ON history_overwrite_
 _schema_ensured = False
 
 
-def get_conn() -> sqlite3.Connection:
-    """统一 DB 连接入口：首次调用时自动建表 + 迁移（幂等），保证 clone 仓库后
-    首次跑任何采集/脚本都不会缺列。后续调用仅返回连接（_schema_ensured 标志
-    避免重复开销，幂等操作多线程/多进程并发也安全）。
+def _is_usable_db(p: Path) -> bool:
+    """候选是否是一个真正可用的库文件。
+
+    0 字节文件也算「不可用」:那正是旧版静默建空库留下的残骸,打开它查询只会得到
+    空结果集,必须当缺库处理(#335)。
     """
-    global _schema_ensured
+    try:
+        return p.is_file() and p.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _db_candidates() -> list[tuple[str, Path]]:
+    """解析阶梯候选(按优先级,去重保序)。"""
+    cands: list[tuple[str, Path]] = []
+    for var in ("TRADE_SENTIMENT_DB", "REPO", "MAIN_REPO"):
+        raw = os.environ.get(var)
+        if not raw:
+            continue
+        p = Path(raw).expanduser()
+        # TRADE_SENTIMENT_DB 是「库文件路径」;REPO/MAIN_REPO 是「仓库根」。
+        cands.append((var, p if var == "TRADE_SENTIMENT_DB" else p / "data" / "sentiment.db"))
+    cands.append(("兄弟仓 ../trade-data", _HERE.parent / "trade-data" / "data" / "sentiment.db"))
+    cands.append(("本仓 data", _DEFAULT_DB_PATH))
+    seen: set[str] = set()
+    out: list[tuple[str, Path]] = []
+    for src, p in cands:
+        key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((src, p))
+    return out
+
+
+def resolve_db_path() -> Path:
+    """按解析阶梯找真实的 sentiment.db;全都不存在则明确报错(#335)。
+
+    阶梯(按序,第一个「存在且非空的普通文件」胜出):
+      ① TRADE_SENTIMENT_DB —— 显式指定的库文件路径(最高优先;设了但无效 → 直接报错,
+         绝不静默回退到别的库,免得读错数据)
+      ② REPO/data/sentiment.db —— 云上 systemd unit 全量注入 REPO,本机手动跑也可显式指定
+      ③ MAIN_REPO/data/sentiment.db —— 云上同规注入(双仓布局)
+      ④ 兄弟仓 ../trade-data/data/sentiment.db —— 本机 trade/ 与 trade-data/ 双树布局
+      ⑤ 本仓 data/sentiment.db
+    全部不存在 ⇒ raise SystemExit 明说「找不到库」并列出每个候选的状态与修法,**绝不建空库**。
+    """
+    global _resolved_db_path
+    if _resolved_db_path is not None:
+        return _resolved_db_path
+
+    explicit = os.environ.get("TRADE_SENTIMENT_DB")
+    if explicit:
+        p = Path(explicit).expanduser()
+        if _is_usable_db(p):
+            _resolved_db_path = p
+            return p
+        raise SystemExit(
+            f"TRADE_SENTIMENT_DB={p} 指向的 sentiment.db 不存在 / 不是普通文件 / 为 0 字节。\n"
+            "已停止:不会创建空库(#335)。请把它指向真实的 sentiment.db。"
+        )
+
+    candidates = _db_candidates()
+    for _src, p in candidates:
+        if _is_usable_db(p):
+            _resolved_db_path = p
+            return p
+
+    lines = ["找不到 sentiment.db,已停止(拒绝静默创建 0 字节空库,#335)。候选清单:"]
+    for src, p in candidates:
+        if not p.exists():
+            state = "不存在"
+        elif not p.is_file():
+            state = "不是普通文件"
+        elif p.stat().st_size == 0:
+            state = "0 字节空库(旧版静默建库的残骸,视为缺库)"
+        else:
+            state = "不可用"
+        lines.append(f"  - {src}: {p} → {state}")
+    lines.append("修法:把真实库放到上述任一位置,或显式指定其一:")
+    lines.append("  export TRADE_SENTIMENT_DB=/path/to/sentiment.db")
+    lines.append("  export REPO=/path/to/repo   # 该仓 data/sentiment.db")
+    raise SystemExit("\n".join(lines))
+
+
+def get_conn() -> sqlite3.Connection:
+    """统一 DB 连接入口：首次调用时按 resolve_db_path() 解析真实库(找不到直接报错,
+    绝不建空库,#335),再自动建表 + 迁移(幂等),保证 clone 仓库后首次跑任何采集/脚本
+    都不会缺列。后续调用仅返回连接(_schema_ensured 标志避免重复开销,幂等操作
+    多线程/多进程并发也安全)。
+    """
+    global _schema_ensured, DB_PATH
+    # DB_PATH 仍是未解析哨兵 ⇒ 按阶梯解析(找不到直接报错,不建空库)。
+    # 调用方/测试已显式改写 DB_PATH(≠ 哨兵)则尊重其值,允许在指定路径上新建库
+    # (既有测试 fixture 用法,如 monkeypatch.setattr(app.db, "DB_PATH", tmp))。
+    if DB_PATH == _DEFAULT_DB_PATH:
+        DB_PATH = resolve_db_path()
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row

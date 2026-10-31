@@ -21,8 +21,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .db import resolve_db_path
+
 _REPO = Path(__file__).absolute().parent.parent
-_SENT_DB = _REPO / "data" / "sentiment.db"
+# sentiment.db 路径统一走 app.db 的解析阶梯(#335):库不在就明确报错,
+# 不再让 sqlite3.connect 静默建出 0 字节空库、导致预警算出来全是空数据。
+# etf_national_team.db 是另一套库(可合法不存在),仍沿用本地推导。
 _NT_DB = _REPO / "data" / "etf_national_team.db"
 
 _WINDOW = 120          # 滚动百分位窗口(与 normalize._WINDOW 一致)
@@ -105,7 +109,7 @@ _HANDS_TH_3 = 60.0
 # 数据加载
 # ---------------------------------------------------------------------------
 def _conn_sent() -> sqlite3.Connection:
-    return sqlite3.connect(_SENT_DB)
+    return sqlite3.connect(resolve_db_path())
 
 
 def _conn_nt() -> sqlite3.Connection:

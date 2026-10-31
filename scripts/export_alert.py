@@ -36,8 +36,10 @@ from app.alert_score import (  # noqa: E402
     load_index_close,
 )
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+from app.db import resolve_db_path  # noqa: E402  (#335: 缺库明确报错,不静默建空库)
 
-_SENT_DB = ROOT / "data" / "sentiment.db"
+# sentiment.db 统一走 app.db 解析阶梯(#335),不再用 ROOT 本地推导:
+# 缺库时 sqlite3.connect 会静默建 0 字节空库,导出全套空预警 JSON 而不报错。
 DATA_DIR = ROOT / "static-site" / "data"
 ALERT_JSON = DATA_DIR / "alert.json"
 
@@ -162,7 +164,7 @@ def backfill(start: str = "20160101") -> int:
     hkeys = list(HIGH_WEIGHTS)
     lkeys = list(LOW_WEIGHTS)
     n = 0
-    with sqlite3.connect(_SENT_DB) as c:
+    with sqlite3.connect(resolve_db_path()) as c:
         c.execute("BEGIN")
         for date, row in df.iterrows():
             ha = _round4(row.get("high_alert"))  # 入库值, 与标记同口径
@@ -214,7 +216,7 @@ def export_for_date(date: str | None = None) -> dict:
     # 入库当日
     hcomps = {k: (None if pd.isna(row.get(k)) else round(float(row[k]), 2)) for k in hkeys}
     lcomps = {k: (None if pd.isna(row.get(k)) else round(float(row[k]), 2)) for k in lkeys}
-    with sqlite3.connect(_SENT_DB) as c:
+    with sqlite3.connect(resolve_db_path()) as c:
         _store_score(c, actual_date, "high_alert", ha_db,
                      is_overheat=1 if (ha_db is not None and ha_db > 75) else 0,
                      is_freeze=0, components=hcomps)
@@ -255,7 +257,7 @@ def export_for_date(date: str | None = None) -> dict:
 
 def _recent_history(cur_date: str) -> list[dict]:
     """近 HISTORY_DAYS 日内 is_overheat/is_freeze=1 的预警日 (排除当日)。"""
-    with sqlite3.connect(_SENT_DB) as c:
+    with sqlite3.connect(resolve_db_path()) as c:
         rows = c.execute(
             "SELECT date, score_id, value, is_freeze, is_overheat FROM score_daily "
             "WHERE (score_id='high_alert' AND is_overheat=1) "
