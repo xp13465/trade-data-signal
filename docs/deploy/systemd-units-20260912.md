@@ -1294,6 +1294,11 @@ StandardError=append:/home/ubuntu/code/trade-data/data/logs/public_fund_quarterl
 
 ### 2.31 overfit-monitor(周一~五 21:40)
 - 脚本:`overfit_monitor.sh` | ExitTimeOut=900
+- **TimeoutStartSec=1920s(2026-10-31 修,台账 L55 / #364 同类)**:内层=对 `upload_r2.py` 的
+  subprocess 预算 900s + `--skip-if-locked` 等锁重试 60s = 960s;内层 R2 单请求 HTTP 超时 600s。
+  旧外层 360s 与内层 960s **倒置**(每天打「本层 R2 上传超时 900s >= 外层 systemd 墙 360s」并被迫
+  收到 60s,上传易被 systemd 抢杀)。按最坏路径 960×2=1920 定外层,留足梯度;实测单次 100~192s
+  (10-15~10-30 云上日志),1920s 上限只兜挂死,不影响正常跑。
 
 `trade-overfit-monitor.timer`:
 ```ini
@@ -1323,7 +1328,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/overfit_monitor.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=360
+TimeoutStartSec=1920
 ```
 
 ### 2.32 lab-auto(19:00 lab 页数据)

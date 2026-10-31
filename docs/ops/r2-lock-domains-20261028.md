@@ -104,6 +104,11 @@
 | fapi_bj_width_export.py | data | 600 | 900 | 1800 |
 | r2_upload_async.sh 全部通道 | 各域 | 600(verify 6000) | 7200(停滞/硬兜底) | - (systemd-run 瞬时) |
 
+> **2026-10-31 更新(台账 L55 / #364 同类全仓审计)**:上表 `overfit_monitor.py` 行外层
+> **360 → 1920s**(内层 960s,内层<外层梯度恢复),原「既有倒置 #223④ 已豁免」失效,
+> `r2_lock_gradient_audit.py` 的 `KNOWN_INNER_OVER_OUTER` 豁免已同步清空。以台账 L55 与
+> `docs/deploy/systemd-units-20260912.md` §2.31 为准。
+>
 > 内层「无界」= 该脚本对 upload_r2 子进程不设 timeout, 由外层/停滞判据兜底; 审计脚本对此类
 > 只校验「显式声明了锁等待上限」, 不强行编造内层预算。
 >

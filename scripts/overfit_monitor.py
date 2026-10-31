@@ -1665,7 +1665,9 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal, 
 # 三层梯度(逐层实测锚定, 见 docs/ops/223-overfit-monitor-timeout-20261006.md):
 #   L0 内层 = R2 单请求 HTTP 超时 R2_UPLOAD_HTTP_TIMEOUT(本机默认 30, 云上 .env = 600)
 #   L1 本层 = 对 upload_r2.py 的 subprocess 超时(_R2_UPLOAD_TIMEOUT, #223④ 由 180 抬到 900)
-#   L2 外层 = systemd TimeoutStartSec(trade-overfit-monitor.service, 云上实测 **0 = 无界**)
+#   L2 外层 = systemd TimeoutStartSec(trade-overfit-monitor.service, 2026-10-31 起 **1920s**;
+#      旧值 360s 与本层 900+60 倒置, 每天打「本层 R2 上传超时 900s >= 外层 systemd 墙 360s」告警,
+#      见台账 L55 / #364 同类全仓审计)
 # 判据(优雅 vs 激进): L1 超时后被 except subprocess.TimeoutExpired 捕获 → 打 ✗ R2_UPLOAD_TIMEOUT
 #   标记(优雅); L2 = systemd SIGKILL, 进程内无任何捕获(激进)。正确梯度 = 激进必须更慢 ⇒ L1 < L2;
 #   L2 = 0(无界)时无上界约束, 放行(不生硬比较)。另守 #217② 先例: L1 > L0 —— 否则本层在 upload_r2
@@ -1977,7 +1979,7 @@ def build_output(rebuild=False, dry_run=False):
             # (R2 没传但监控显通过)。带该 flag = 拿不到锁立即跳过本轮, 不改打点主流程; 当日 R2
             # 同步缺口由 deploy 日链 upload-data-large 兜底(OVERFIT_SKIP_R2 语义同侧)。
             _env = force_env(dict(os.environ), REPO)
-            # 2026-10-28 分域+梯度: data-large 属顶层 data 域; 锁等待 240s < 外层 systemd 360s
+            # 2026-10-28 分域+梯度: data-large 属顶层 data 域; 锁等待 240s < 外层 systemd 1920s
             # (_r2_upload_timeout()=900 + skip 重试窗口)。--skip-if-locked 路径实际只等 skip 窗口。
             _env["R2_UPLOAD_LOCK_DOMAIN"] = "data"
             _env["R2_UPLOAD_LOCK_TIMEOUT"] = "240"

@@ -417,7 +417,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/overfit_monitor.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-TimeoutStartSec=360
+TimeoutStartSec=1920
 @@@FILE:trade-pf-score-daily.service
 [Unit]
 Description=Trade pf-score-daily (源 com.trade.pf-score-daily)

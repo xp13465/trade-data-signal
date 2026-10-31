@@ -128,11 +128,11 @@ KNOWN_NON_CALLERS = {
     "scripts/r2_lock_gradient_audit.py": "本审计脚本(只读扫描, 不调用)",
 }
 
-# 已知「内层 > 外层」旧账(本单不改调度/不抬 outer, 只登记; 锚点可反查)。
-KNOWN_INNER_OVER_OUTER = {
-    ("scripts/overfit_monitor.py", "trade-overfit-monitor.service"):
-        "#223④(2026-10-06) 本层 960 > 外层 360 为既有倒置, 已由运行时梯度守卫兜底; 抬外层属另案",
-}
+# 已知「内层 > 外层」豁免表(必须写清旧账锚点, 不许静默放过)。
+# 当前为空:唯一的历史豁免项(overfit_monitor 内层 960 > 外层 360)已于 2026-10-31 治本
+# —— 外层 unit 抬到 1920s(旧豁免理由「抬外层属另案」已执行, 见台账 L55 / #364 同类全仓审计)。
+# 保留机制供未来确需暂缓的项登记。
+KNOWN_INNER_OVER_OUTER = {}
 
 # 已知「变量形式的域声明」= 静态不可解析, 必须逐条给出明确处置(不许静默放过)。
 # key = (文件, 行内可辨识标记子串), value = 处置理由。
