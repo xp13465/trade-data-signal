@@ -217,7 +217,7 @@ if ! "$PY" "$REPO/scripts/detect_intraday_anomaly.py" 2>&1 | tee -a "$LOG"; then
   echo "⚠ detect_intraday_anomaly 失败，不阻塞快照" | tee -a "$LOG"
 fi
 
-echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
+echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$SNAP_RC 采集=${ETF_RC:-0} ===" | tee -a "$LOG"
 
 # 4) 刷新 schedule_stats.json（在"结束"行写入后调用，确保 gen_stats 看到当前运行配对）
 #    原 L124 在 push 前调用太早：当前"结束"行未写，被杀旧 pending_start 冒充 last_run。
