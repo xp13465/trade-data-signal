@@ -3049,6 +3049,13 @@ if _cfu_undelivered:
 # #123 R2(2026-10-01): merge key 24h 清理(防 alert_state 无界膨胀; merge key 不参与恢复)
 adr.r2_merge_cleanup(alert_state, NOW)
 
+# 2026-10-31 P2: 清理跨日一次性状态键(buffer / R5 日汇总桶 / 已清零 skip 计数键)。
+# 这些键带当天日期, 过期后无任何读取点, 不清理只会无限堆积(云上实测 11+10+3 条滞留)。
+_removed_stale = adr.stale_dated_state_cleanup(alert_state, NOW)
+if _removed_stale:
+    print(f"[stale-cleanup] 清理跨日一次性状态键 {len(_removed_stale)} 条: "
+          f"{sorted(_removed_stale)}")
+
 # 恢复检测: state 里 active 但本次未 seen = 异常已消失,发恢复邮件
 # (gen_schedule_stats 每任务只记首个命中,故每 task 至多1个 active key)
 # 漏跑 key(missed|...) 特殊处理: 不发恢复邮件(漏跑补跑不需通知, 任务补跑 stats
@@ -3077,8 +3084,10 @@ for _key, _info in list(alert_state.items()):
         continue
     # 通知分级(2026-08-10): pending(自愈类未通知) 未 seen = 静默恢复(不发恢复邮件)
     if _info.get("status") == "pending":
-        # r2_/72h_ 有自己的 inline 恢复检测, 不在此处理
-        if _key.startswith("r2_") or _key.startswith("72h_"):
+        # R2 inline 自管键(白名单精确判定) / 72h_ 有自己的恢复检测, 不在此处理。
+        # 2026-10-31 P1: 不能用 startswith("r2_") —— 任务名本身以 r2_ 开头的普通告警键
+        # (r2_consistency|...) 会被一并跳过, 服务恢复后永远 pending/active。
+        if adr.is_r2_inline_managed_key(_key) or _key.startswith("72h_"):
             continue
         if _key not in seen_keys_this_run:
             _info["status"] = "recovered"
@@ -3087,11 +3096,15 @@ for _key, _info in list(alert_state.items()):
         continue
     if _info.get("status") != "active":
         continue
-    if _key == "overview_lag_3domain" or _key.startswith("r2_") or _key.startswith("72h_") or _key.startswith("feishu_"):
+    if (_key == "overview_lag_3domain" or adr.is_r2_inline_managed_key(_key)
+            or _key.startswith("72h_") or _key.startswith("feishu_")):
         # overview 时效滞后的去重+恢复由 overview 检查块内联处理
         # （该块在恢复检测循环之后运行，不能复用此循环，否则未 seen 被误报恢复）
         # R2 keys(r2_unreachable/r2_overview_lag/r2_intraday_lag)同理: R2检查块在
         # 恢复循环之后运行, 由 R2块内联处理恢复(C1修复: 否则每15min 2封邮件)
+        # 2026-10-31 P1: 白名单精确判定(不再 startswith("r2_")) —— 见
+        # adr.is_r2_inline_managed_key 注释: r2_consistency|exit!=0|1 这类「任务名以
+        # r2_ 开头」的普通告警键此前被一并跳过, 服务恢复后不翻 recovered。
         # 72h_ keys 由 monitor_72h.sh 独立管理(自己的恢复检测循环 L689-705),
         # schedule_monitor 不检查 72h 条件(sw_version/S5/stale_alert), 不应对其做
         # 恢复检测 -- 否则 72h_ active key 不在 seen_keys_this_run 被误判"已恢复"
