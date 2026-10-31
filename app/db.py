@@ -257,10 +257,19 @@ def resolve_db_path() -> Path:
       ④ 兄弟仓 ../trade-data/data/sentiment.db —— 本机 trade/ 与 trade-data/ 双树布局
       ⑤ 本仓 data/sentiment.db
     全部不存在 ⇒ raise SystemExit 明说「找不到库」并列出每个候选的状态与修法,**绝不建空库**。
+
+    DB_PATH 覆盖口(与 get_conn() 同口径): 若调用方/测试已显式改写 DB_PATH(≠ 默认哨兵),
+    直接尊重其值返回(**不缓存**, 避免测试 monkeypatch 污染模块级缓存), 允许在指定路径上
+    新建库(既有测试 fixture 用法)。生产路径 DB_PATH 仍是默认哨兵 ⇒ 走阶梯, 不建空库。
     """
     global _resolved_db_path
     if _resolved_db_path is not None:
         return _resolved_db_path
+
+    # DB_PATH 被显式改写(≠ 默认哨兵)⇒ 尊重其值, 不走阶梯、不缓存(测试 fixture 用法,
+    # 与 get_conn() 同口径;避免模块级缓存锁定首次值致后续 monkeypatch 失效)。
+    if DB_PATH != _DEFAULT_DB_PATH:
+        return DB_PATH
 
     explicit = os.environ.get("TRADE_SENTIMENT_DB")
     if explicit:

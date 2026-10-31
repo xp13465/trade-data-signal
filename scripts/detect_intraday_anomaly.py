@@ -31,9 +31,12 @@ from pathlib import Path
 # 时 REPO=trade-data/，读 trade-data/data/ 的实时 DB（非 trade/data/ 滞后镜像，§9）。
 REPO = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(Path(__file__).absolute().parent))
+sys.path.insert(0, str(REPO))  # for `from app.db import resolve_db_path`（#335 举一反三补漏）
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 from notify_sent import notify_sent  # noqa: E402  (#241 同族: notify 真发出判据, 唯一实现)
-SENT_DB = REPO / "data" / "sentiment.db"
+from app.db import resolve_db_path  # noqa: E402  (#335 举一反三: 缺库明确报错, 不静默建空库)
+# sentiment.db 统一走 app.db 解析阶梯(#335), 不再用本仓 SENT_DB 本地推导:
+# 缺库时 sqlite3.connect 会静默建 0 字节空库, 盘中异动算空数据不报错(同 alert_match/score/export_alert 同病)。
 SNAPSHOT_JSON = REPO / "static-site" / "data" / "intraday_snapshot.json"
 NOTIFY_PY = REPO / "scripts" / "notify.py"
 DEDUP_FILE = REPO / "data" / "anomaly_notified.json"
@@ -62,7 +65,8 @@ SNAPSHOT_TO_INDEX_ID = {
 
 
 def _conn():
-    c = sqlite3.connect(SENT_DB, timeout=10.0)
+    # #335 举一反三: 走 resolve_db_path() 解析阶梯, 缺库直接报错(绝不静默建 0 字节空库)。
+    c = sqlite3.connect(resolve_db_path(), timeout=10.0)
     c.row_factory = sqlite3.Row
     return c
 
