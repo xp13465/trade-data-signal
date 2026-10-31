@@ -283,5 +283,8 @@
   ],
   "20261029-a653": [
     "fix(\u5907\u7ad9): \u5b50\u76ee\u5f55\u952e\u6620\u5c04\u6539\u663e\u5f0f\u767d\u540d\u5355+\u672a\u77e5\u9ed8\u8ba4data\u524d\u7f00,\u4feenews_digest\u56de\u5f52(#326)"
+  ],
+  "20261031-a654": [
+    "feat(fe): #327 \u524d\u7aef\u9519\u8bef\u4e0a\u62a5+BUILD_ID\u6536\u655b+\u6bcf\u65e5\u6c47\u603b(v1.1.8)"
   ]
 }
