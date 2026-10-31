@@ -16,6 +16,7 @@ import functools
 import textwrap
 import types
 
+import alert_denoise_rules as adr
 from _monitor_conclusion_309 import heredoc_source, namespace
 
 NOW = datetime.datetime(2026, 10, 25, 21, 0)
@@ -66,6 +67,8 @@ def _run_recovery(alert_state, seen):
             MERGE_PREFIX="merge|",
             R2_CONGESTION_SUMMARY_KEY_PREFIX="r2_pipeline_congestion|",
             DUR_BUFFER_KEY_MARK="|dur_buffer|",
+            # 2026-10-31 P1: 恢复环改用白名单判定(取生产实现, 不复制字面量)
+            is_r2_inline_managed_key=adr.is_r2_inline_managed_key,
         ),
         "_recovery_cooldown_ok": lambda _k, _i: True,
         "RECOVERY_COOLDOWN": datetime.timedelta(hours=6),

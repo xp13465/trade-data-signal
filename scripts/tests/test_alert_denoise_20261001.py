@@ -120,11 +120,12 @@ def r1_with_recovery_loop(lag_mins, thresh_min=20, buf_prefix="overview_lag_3dom
     NOW = datetime(2026, 9, 30, 14, 30)
     for i, lm in enumerate(lag_mins):
         now_round = NOW + timedelta(minutes=15 * i)
-        # --- 恢复循环(L1178-1200)真实逻辑精简版: pending 未在本轮 seen → recovered ---
+        # --- 恢复循环真实逻辑精简版: pending 未在本轮 seen → recovered ---
+        # 2026-10-31: R2 豁免走生产白名单 adr.is_r2_inline_managed_key(防副本漂移)
         if insert_recovery_loop:
             for _k, _info in list(st.items()):
                 if _info.get("status") == "pending":
-                    if _k.startswith("r2_") or _k.startswith("72h_"):
+                    if adr.is_r2_inline_managed_key(_k) or _k.startswith("72h_"):
                         continue
                     if _k not in {alert_key}:  # buffer key 不会进 seen_keys_this_run
                         _info["status"] = "recovered"

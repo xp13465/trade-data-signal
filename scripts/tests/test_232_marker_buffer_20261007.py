@@ -39,6 +39,8 @@ from pathlib import Path
 
 import pytest
 
+import alert_denoise_rules as adr
+
 ROOT = Path(__file__).absolute().parent.parent.parent
 # 支持 red-先验覆盖(默认读工作树真文件; 覆盖仅改"读哪个文件", 不改变任何逻辑)
 MONITOR = Path(os.environ.get("SCHEDULE_MONITOR_SH", str(ROOT / "scripts" / "schedule_monitor.sh")))
@@ -147,14 +149,15 @@ def _degrade(anomaly=True, severity="degrade", keyword="ConnectionError", line="
 
 
 def _simulate_recovery_loop(st, seen, T, in_progress=frozenset()):
-    """忠实复刻 schedule_monitor.sh L1670-1737 的**状态翻转**语义(不发邮件, 邮件与断言无关):
-      pending 未 seen 且非 r2_/72h_ 前缀 ⇒ recovered;  active 未 seen 且非特殊前缀 ⇒ recovered。
-    前两个 continue 是 L1673 的 merge/congestion 豁免。"""
+    """忠实复刻 schedule_monitor.sh 恢复环的**状态翻转**语义(不发邮件, 邮件与断言无关):
+      pending 未 seen 且非 R2 inline 自管键/72h_ ⇒ recovered; active 未 seen 且非特殊 ⇒ recovered。
+    前两个 continue 是 merge/congestion 豁免。2026-10-31: R2 豁免改用生产白名单
+    `adr.is_r2_inline_managed_key`(不再 `startswith("r2_")`, 防与生产语义漂移)。"""
     for k, info in list(st.items()):
         if k.startswith("merge|") or k.startswith("r2_pipeline_congestion|"):
             continue
         if info.get("status") == "pending":
-            if k.startswith("r2_") or k.startswith("72h_"):
+            if adr.is_r2_inline_managed_key(k) or k.startswith("72h_"):
                 continue
             if k not in seen:
                 info["status"] = "recovered"
@@ -162,8 +165,8 @@ def _simulate_recovery_loop(st, seen, T, in_progress=frozenset()):
             continue
         if info.get("status") != "active":
             continue
-        if (k == "overview_lag_3domain" or k.startswith("r2_") or k.startswith("72h_")
-                or k.startswith("feishu_")):
+        if (k == "overview_lag_3domain" or adr.is_r2_inline_managed_key(k)
+                or k.startswith("72h_") or k.startswith("feishu_")):
             continue
         if "|" in k and k.split("|", 1)[0] in in_progress:
             continue
@@ -228,7 +231,9 @@ def test_generic_recovery_loop_untouched():
     """不串味前置:通用恢复循环的 pending 分支必须仍带 r2_/72h_ 前缀豁免 + 未 seen 判据
     (本任务只动 marker_buffer 局部, 不得碰这条 30 天 121 次 silent recovery 的公共路径)。"""
     src = MONITOR.read_text(encoding="utf-8")
-    _chk('if _key.startswith("r2_") or _key.startswith("72h_"):' in src, "恢复循环前缀豁免被删")
+    # 2026-10-31 P1: 前缀豁免改成白名单函数(R2 inline 自管键); 豁免机制本身必须还在
+    _chk('if adr.is_r2_inline_managed_key(_key) or _key.startswith("72h_"):' in src,
+         "恢复循环 R2/72h_ 豁免被删")
     _chk("if _key not in seen_keys_this_run:" in src, "恢复循环未 seen 判据被删")
     # 本任务不得给 marker_buffer 加前缀豁免(应靠 seen 局部解决, 而非动通用代码)
     _chk('.startswith("marker_buffer")' not in src, "marker_buffer 被加前缀豁免(越界动通用代码)")
@@ -361,14 +366,22 @@ def test_seen_set_contains_only_own_keys(code, consts):
 
 
 def test_r2_and_72h_prefix_protection_holds(code, consts):
-    """前缀保护边界:恢复循环模拟下, pending 的 r2_*/72h_* key 不被翻; 本桶照常被处理。"""
-    pre = {"r2_something|buffer|20261102": {"status": "pending", "consecutive_count": 2},
+    """跨域保护边界:恢复循环模拟下, R2 inline 自管键 / 72h_* key 不被翻; 本桶照常被处理。
+
+    2026-10-31 P1 口径变更: 保护范围由「一切 r2_ 文本前缀」收敛为**白名单精确键**
+    (`adr.is_r2_inline_managed_key`)。任务名本身以 r2_ 开头的普通告警键
+    (`r2_consistency|exit!=0|1`)必须交回恢复环 —— 否则服务恢复后永远 active(云上实证)。
+    """
+    pre = {"r2_intraday_lag|buffer|20261102": {"status": "pending", "consecutive_count": 2},
            "72h_r2_prefix_demo": {"status": "pending"},
+           "r2_consistency|exit!=0|1": {"status": "active", "first_seen": "2026-10-21 00:00:01"},
            BUCKET: {"status": "pending", "consecutive_count": 1}}
     recs = _drive(code, [_t("10:00")], consts, pre_state=pre)
     end = recs[-1].state
-    _chk(end["r2_something|buffer|20261102"]["status"] == "pending", "r2_ 前缀被误翻")
+    _chk(end["r2_intraday_lag|buffer|20261102"]["status"] == "pending", "R2 inline 自管键被误翻")
     _chk(end["72h_r2_prefix_demo"]["status"] == "pending", "72h_ 前缀被误翻")
+    _chk(end["r2_consistency|exit!=0|1"]["status"] == "recovered",
+         "任务名以 r2_ 开头的普通告警键应被恢复环接管(P1 根因)")
     _chk(end[BUCKET]["consecutive_count"] == 2, f"本桶应正常累积: {end[BUCKET]}")
     _chk(end[BUCKET]["status"] == "pending")
 

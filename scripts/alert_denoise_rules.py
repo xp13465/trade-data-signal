@@ -568,6 +568,68 @@ def r2_merge_cleanup(alert_state, now):
                 pass
 
 
+# ---- 恢复环归属 + 跨日一次性状态键清理(2026-10-31 P1/P2 根因修复) ----
+# P1(2026-10-31): 恢复环原来用 `startswith("r2_")` 一刀切跳过, 本意是放过「R2 块自己
+# 检测+自己置 recovered」的三个状态键; 但它同时吃掉了**任务名本身以 r2_ 开头**的普通
+# 告警键(`r2_consistency|exit!=0|1` / `r2_consistency|unit_exit!=0|124`), 这些键没有
+# 任何 inline 恢复点 ⇒ 服务恢复后永远停在 active(云上 10-22 exit=1 / 10-27 exit=124 实证)。
+# 修法 = 白名单精确列出 inline 自管的键, 其余一律交回通用恢复环(真故障时键每轮都进
+# seen_keys_this_run, 不会被误恢复)。
+R2_INLINE_ALERT_KEYS = ("r2_unreachable", "r2_overview_lag", "r2_intraday_lag")
+_R2_INLINE_BUFFER_PREFIXES = ("r2_intraday_lag|buffer|", "r2_overview_lag|buffer|")
+_DATED_BUFFER_KEY_RE = re.compile(r"\|buffer\|\d{8}$")
+_DATED_CONGESTION_KEY_RE = re.compile(
+    r"^" + re.escape(R2_CONGESTION_SUMMARY_KEY_PREFIX) + r"\d{8}$")
+
+
+def is_r2_inline_managed_key(key):
+    """该 alert_state 键是否由 R2 检查块 inline 自管(检测+恢复都在块内)。
+
+    只有这些键才允许跳过通用恢复环; `r2_consistency|exit!=0|1` 这类「任务名以 r2_
+    开头」的普通告警键必须返回 False, 否则服务恢复后不翻 recovered(P1 根因)。
+    """
+    if not isinstance(key, str):
+        return False
+    return key in R2_INLINE_ALERT_KEYS or key.startswith(_R2_INLINE_BUFFER_PREFIXES)
+
+
+def stale_dated_state_cleanup(alert_state, now):
+    """清理「按日期一次性」的状态键(跨日即失效, 任何后续判定都不再读), 返回删除的键列表。
+
+    P2(2026-10-31)滞留根因 + 治本: 下列键都带当天日期, 过期后没有任何清理点, 只会
+    无限堆积(云上实测 202 build 里有 11 条 buffer + 10 条日汇总桶 + 3 条清零计数键):
+      ① `{task}|buffer|YYYYMMDD`(pending/alerted/recovered 都可能滞留, 例:
+         `r2_intraday_lag|buffer|20260929` pending、`overview_lag_3domain|buffer|20261016` alerted);
+      ② `r2_pipeline_congestion|YYYYMMDD`(R5 日汇总桶, 只在当天 23:25 收尾轮使用);
+      ③ `{task}|r2_skip_rounds` 且 skip_rounds==0(已清零的计数键无信息量; 真告警键是
+         `{task}|r2_skip_alert`, 与计数键分离, 删计数键不影响恢复判定)。
+
+    **不误删活跃状态**: 判据只看「日期 != 今天」「计数 == 0」这类确定性事实, 不按名字猜;
+    其余 active/pending 告警键一律不碰。幂等(再跑一次返回空列表)。
+    """
+    today = now.strftime("%Y%m%d")
+    removed = []
+    for key in list(alert_state.keys()):
+        if not isinstance(key, str):
+            continue
+        if (_DATED_BUFFER_KEY_RE.search(key)
+                or _DATED_CONGESTION_KEY_RE.match(key)):
+            if key.rsplit("|", 1)[-1] != today:
+                del alert_state[key]
+                removed.append(key)
+            continue
+        if key.endswith("|r2_skip_rounds"):
+            info = alert_state.get(key)
+            if isinstance(info, dict):
+                try:
+                    if int(info.get("skip_rounds") or 0) == 0:
+                        del alert_state[key]
+                        removed.append(key)
+                except (TypeError, ValueError):
+                    pass
+    return removed
+
+
 def r3_nextday_product_generated_today(repo, today):
     """R3: nextday_plan 产物是否「今日生成」。
 
