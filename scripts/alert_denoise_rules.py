@@ -1520,6 +1520,12 @@ STALL_KEYS = frozenset({
     # 与 cloud_unit_patrol_drift 同族的基础设施配置漂移 —— 倒置意味着任务会被外层先杀、
     # 自身看门狗/告警来不及收尾, 持续不放会把整条上传链变成"随机超时", 判停摆级。
     "r2_lock_gradient_drift",
+    # UNIT_REGISTRY vs 真实 unit 集合漂移(2026-10-31 #309/#310 收尾 A, cloud_unit_patrol ③段):
+    # 登记表多=已销账未删 / 真实侧多=新增 timer 漏进监控(#310 同类根因)—— 监控盲区可藏停摆,
+    # 与 cloud_unit_patrol_drift 同族, 判停摆级。rc=3 装载失败(导入/解析异常)独立 key:
+    # checker 自身崩溃 ⇒ 漂移检测失明, 同属监控基础设施停摆。
+    "unit_registry_drift",
+    "unit_registry_load_fail",
 })
 
 # 非停摆级键登记表(防遗漏机制: 测试扫描 scripts/ 全部 --dedup-key 字面量, 必须二者其一)。
@@ -1704,6 +1710,8 @@ STALL_IMPACT = {
     "d1_sync_fail": "Cloudflare D1 数据未更新: 对外查询读旧数据",
     "failed_units_patrol": "云上 systemd unit 持续 failed(服务/定时链可能已死)",
     "cloud_unit_patrol_drift": "云上 unit 清单漂移: 预期服务缺失/多出, 巡检基线失真",
+    "unit_registry_drift": "UNIT_REGISTRY 与真实 unit 集合漂移: 新增/改名 timer 漏进监控, 巡检范围失真",
+    "unit_registry_load_fail": "UNIT_REGISTRY 漂移机检自身装载失败: 漂移检测失明, 巡检盲区",
 }
 
 

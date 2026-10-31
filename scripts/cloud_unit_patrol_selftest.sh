@@ -15,6 +15,10 @@
 #   T8   R2 锁/超时梯度告警通道(2026-10-31 常态化的第二段): systemd 审计 PASS 但 R2 梯度 FAIL
 #        → notify 可达, 且带独立去重键 r2_lock_gradient_drift(与 systemd 漂移键互不吞)
 #   T9   R2 梯度在 dump 诊断模式同样不发通知(仅日志)
+#   T10  ③ UNIT_REGISTRY 漂移机检(2026-10-31 #309/#310 收尾 A 第三段): rc=0 → PASS 静默(零通知)
+#   T11  ③ rc=2 漂移 → notify 可达 + 独立键 unit_registry_drift + 正文含「登记表多」+ DRYRUN --dry-run 桩生效
+#   T12  ③ rc=3 装载失败 → notify 独立键 unit_registry_load_fail(≠漂移键, 语义不同)
+#   T13  ③ dump 诊断模式 + rc=2 漂移 → 不发通知(仅日志, 同①②守卫)
 #   F3   固定日志路径带 $(id -un) 后缀(每用户独立,避开 root 残留)—— 由 T1 的落盘路径间接覆盖
 #
 # 用法: bash scripts/cloud_unit_patrol_selftest.sh
@@ -97,6 +101,24 @@ elif "--units-dir" in args:
 print("R2 合计 47 个调用点: PASS=47 WAIVED=0 FAIL=0 (外层真值源 = %s)" % src)
 sys.exit(int(os.environ.get("MOCK_R2_AUDIT_RC", "0")))
 PY
+  # UNIT_REGISTRY 漂移机检桩(2026-10-31 第三段): rc 由 MOCK_REGISTRY_RC 控制
+  #   0=PASS / 2=漂移(stderr「登记表多/真实侧多」) / 3=装载失败(独立语义)
+  cat > "$D/gitrepo/scripts/check_unit_registry_drift.py" <<'PY'
+import os, sys
+rc = int(os.environ.get("MOCK_REGISTRY_RC", "0"))
+if rc == 0:
+    print("登记表 43 个 .service; 真实集 43 个 .service (仅静态)")
+    print("✓ 无漂移: 登记表 43 == 真实集 43 个 .service")
+elif rc == 2:
+    print("[FAIL] UNIT_REGISTRY 与真实 unit 漂移:", file=sys.stderr)
+    print("  登记表多(已登记但 docs/systemd 找不到, 可能改名/删除未销账):", file=sys.stderr)
+    print("    - trade-fake-removed.service", file=sys.stderr)
+    print("  真实侧多(docs/systemd 有但登记表没收录, 新增 timer 漏进监控):", file=sys.stderr)
+    print("    - trade-fake-new.service", file=sys.stderr)
+elif rc == 3:
+    print("[FAIL] 装载 UNIT_REGISTRY 失败(ImportError): No module named 'gen_schedule_stats'", file=sys.stderr)
+sys.exit(rc)
+PY
   # notify 桩:被调用则写哨兵文件(用于判定「是否外发通知」), 并记录 argv(判定去重键)
   cat > "$D/gitrepo/scripts/notify.py" <<'PY'
 import os, sys
@@ -173,6 +195,52 @@ if command -v python3 >/dev/null 2>&1; then
   { [ "$r9" -eq 1 ] && [ ! -f "$D9/notify.sentinel" ] && grep -q "R2 梯度 FAIL rc=1" "$log9"; } \
     && ok "exit=$r9, 零通知, 日志标 R2 dump 诊断模式" \
     || bad "r9=$r9 sentinel=$([ -f "$D9/notify.sentinel" ] && echo EXISTS || echo none) out=[$o9]"
+
+  echo "== T10 ③ UNIT_REGISTRY rc=0 → PASS 静默(零通知, DRYRUN 桩不触发) =="
+  D10="$TMP/d10"; mk_sbx "$D10"
+  o10="$(run_sbx "$D10" 0 CLOUD_UNIT_PATROL_UNITS_DIR="$D10/units" \
+           CLOUD_UNIT_PATROL_NOTIFY_DRYRUN=1 MOCK_REGISTRY_RC=0)"; r10=$?
+  log10="$D10/runtime/data/logs/cloud_unit_patrol_launchd.log"
+  { [ "$r10" -eq 0 ] && [ ! -f "$D10/notify.sentinel" ] \
+    && grep -q "unit_registry_drift: PASS" "$log10"; } \
+    && ok "exit=0, 零通知(sentinel 不存在), 日志含 PASS 行" \
+    || bad "r10=$r10 sentinel=$([ -f "$D10/notify.sentinel" ] && echo EXISTS || echo none) out=[$o10]"
+
+  echo "== T11 ③ rc=2 漂移 → notify 可达 + 独立键 unit_registry_drift + DRYRUN 桩生效 =="
+  D11="$TMP/d11"; mk_sbx "$D11"
+  o11="$(run_sbx "$D11" 0 CLOUD_UNIT_PATROL_UNITS_DIR="$D11/units" \
+           CLOUD_UNIT_PATROL_NOTIFY_DRYRUN=1 MOCK_REGISTRY_RC=2)"; r11=$?
+  log11="$D11/runtime/data/logs/cloud_unit_patrol_launchd.log"
+  { [ "$r11" -eq 2 ] && [ -f "$D11/notify.sentinel" ] \
+    && grep -q "unit_registry_drift" "$D11/notify.sentinel" \
+    && grep -q "登记表多" "$D11/notify.sentinel" \
+    && grep -q -- "--dry-run" "$D11/notify.sentinel" \
+    && grep -q "UNIT_REGISTRY 与真实 unit 漂移 rc=2" "$log11"; } \
+    && ok "exit=$r11, notify 已调用(独立键 unit_registry_drift, 正文含「登记表多」, DRYRUN --dry-run 桩生效)" \
+    || bad "r11=$r11 sentinel=[$(cat "$D11/notify.sentinel" 2>/dev/null | tr '\n' '|')] out=[$o11]"
+
+  echo "== T12 ③ rc=3 装载失败 → notify 独立键 unit_registry_load_fail(≠漂移键) =="
+  D12="$TMP/d12"; mk_sbx "$D12"
+  o12="$(run_sbx "$D12" 0 CLOUD_UNIT_PATROL_UNITS_DIR="$D12/units" \
+           CLOUD_UNIT_PATROL_NOTIFY_DRYRUN=1 MOCK_REGISTRY_RC=3)"; r12=$?
+  log12="$D12/runtime/data/logs/cloud_unit_patrol_launchd.log"
+  { [ "$r12" -eq 3 ] && [ -f "$D12/notify.sentinel" ] \
+    && grep -q "unit_registry_load_fail" "$D12/notify.sentinel" \
+    && ! grep -q "dedup-key unit_registry_drift " "$D12/notify.sentinel" \
+    && grep -q "UNIT_REGISTRY 装载失败 rc=3" "$log12"; } \
+    && ok "exit=$r12, notify 已调用(独立键 unit_registry_load_fail, 不含漂移键)" \
+    || bad "r12=$r12 sentinel=[$(cat "$D12/notify.sentinel" 2>/dev/null | tr '\n' '|')] out=[$o12]"
+
+  echo "== T13 ③ dump 诊断模式 + rc=2 漂移 → 不发通知(仅日志) =="
+  D13="$TMP/d13"; mk_sbx "$D13"
+  printf '@@@FILE:trade-mock.service\n[Service]\nTimeoutStartSec=600\n' > "$D13/dump.txt"
+  o13="$(run_sbx "$D13" 0 CLOUD_UNIT_PATROL_ARBITER_DUMP="$D13/dump.txt" MOCK_REGISTRY_RC=2)"; r13=$?
+  log13="$D13/runtime/data/logs/cloud_unit_patrol_launchd.log"
+  { [ "$r13" -eq 2 ] && [ ! -f "$D13/notify.sentinel" ] \
+    && grep -q "UNIT_REGISTRY 漂移 rc=2" "$log13" \
+    && grep -q "dump 诊断模式" "$log13"; } \
+    && ok "exit=$r13, 零通知, 日志标 dump 诊断模式(③ 同守卫)" \
+    || bad "r13=$r13 sentinel=$([ -f "$D13/notify.sentinel" ] && echo EXISTS || echo none) out=[$o13]"
 else
   echo "  SKIP: 本机无 python3,T4-T7 跳过(云上/CI 有 python 时再跑)"
 fi

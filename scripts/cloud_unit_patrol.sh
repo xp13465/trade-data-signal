@@ -19,12 +19,17 @@
 #   且避开 check-monitor-heartbeat 的 :11/:26/:41/:56 分钟位。
 #   每日跑不限交易日:「快照==云上」是不变量,周末手改同样要抓。
 #
-# 判定/出口:两段审计,任一 rc!=0 即 notify --severe,均只告警不阻断(不在任何推送链上):
+# 判定/出口:三段审计,任一 rc!=0 即 notify --severe,均只告警不阻断(不在任何推送链上):
 #   ① systemd_timeout_gradient_audit.py --check-snapshot:云上 unit vs 仓库快照逐字段漂移;
 #   ② r2_lock_gradient_audit.py --check-snapshot(2026-10-31 常态化, L55):用云上真 unit 的
 #      TimeoutStartSec 重算「锁等待 < 内层工作预算 < 外层墙」梯度 —— 抓云上被手改成 360 这类
 #      倒置(快照仍是 1920 时,①的逐字段比对也会报;但②是语义层,直接说清哪条调用点倒置)。
-#   去重键:① cloud_unit_patrol_drift / ② r2_lock_gradient_drift(各 6h);rc=0 静默(仅日志)。
+#   ③ check_unit_registry_drift.py(2026-10-31 #309/#310 收尾 A):gen_schedule_stats.UNIT_REGISTRY
+#      vs 真实 unit(docs §2 静态 ∪ 云上 systemctl 动态)集合对称差 —— 抓「新增/改名 timer 漏进
+#      登记表」(#310 同类根因,登记表多=已销账未删 / 真实侧多=漏进监控)。rc=2 漂移 / rc=3 装载
+#      失败(导入/解析异常,≠漂移,独立 key)。
+#   去重键:① cloud_unit_patrol_drift / ② r2_lock_gradient_drift / ③ unit_registry_drift(rc=2)
+#      或 unit_registry_load_fail(rc=3,各 6h);rc=0 静默(仅日志)。
 #   日志:data/logs/cloud_unit_patrol_launchd.log(固定名 append;脚本自己写同名
 #   *_launchd.log ⇒ unit 刻意不设 StandardOutput append,§1.4 例外条款)。
 #
@@ -185,6 +190,53 @@ if [ "$RC2" -ne 0 ]; then
     echo "✗ R2 梯度 FAIL rc=${RC2},但当前为 dump 诊断模式(#194-F2),不发通知(仅日志)" >> "$LOG"
   fi
   [ "$RC" -eq 0 ] && RC="$RC2"
+fi
+
+# ── ③ UNIT_REGISTRY 与真实 unit 漂移(#309/#310 收尾 A, 2026-10-31): 登记表 vs systemd/docs ──
+# check_unit_registry_drift.py: 0=无漂移 / 2=漂移(集合对称差非空, stderr「登记表多/真实侧多」) /
+#   3=装载失败(导入/解析异常, ≠漂移, 独立 key)。dev 无 systemd ⇒ 回退静态 docs 集合;
+#   云上动态 systemctl 取得到 ⇒ 静态 ∪ 动态。只告警不改生产(同①②), 复用 _NOTIFY 门控。
+OUT3="$("$PY" scripts/check_unit_registry_drift.py 2>&1)"
+RC3=$?
+printf '%s\n' "$OUT3" >> "$LOG"
+if [ "$RC3" -eq 0 ]; then
+  printf '[patrol] unit_registry_drift: PASS %s\n' \
+    "$(printf '%s\n' "$OUT3" | grep -E '无漂移|==' | head -1)" >> "$LOG"
+elif [ "$RC3" -eq 2 ]; then
+  # 漂移: 摘录 stderr「登记表多/真实侧多」两组(check_unit_registry_drift.py:141-149)
+  BODY3="$(printf '%s\n' "$OUT3" | head -1)"
+  DIFF3="$(printf '%s\n' "$OUT3" | sed -n '/登记表多/,$p' | head -12 | tr '\n' '|')"
+  BODY3_ESC="$(printf '%s' "$BODY3" | sed 's/&/\&amp;/g; s/</\&lt;/g')"
+  DIFF3_ESC="$(printf '%s' "$DIFF3" | sed 's/&/\&amp;/g; s/</\&lt;/g')"
+  if [ "$_NOTIFY" = 1 ]; then
+    echo "✗ UNIT_REGISTRY 与真实 unit 漂移 rc=${RC3},发 severe 告警" >> "$LOG"
+    NOTIFY_DRYRUN=""
+    [ "${CLOUD_UNIT_PATROL_NOTIFY_DRYRUN:-}" = "1" ] && NOTIFY_DRYRUN="--dry-run"
+    "$PY" scripts/notify.py "[告警] UNIT_REGISTRY 与真实 systemd unit 漂移" \
+      "${BODY3_ESC}<br>gen_schedule_stats.UNIT_REGISTRY 与真实 unit(docs/systemctl)集合对称差非空(rc=${RC3})。<br>处置:①登记表多=已登记但 docs/systemd 找不到, 可能改名/删除未销账 ②真实侧多=docs/systemd 有但登记表没收录, 新增 timer 漏进监控(#310 同类根因)。对齐 UNIT_REGISTRY 与 docs/deploy/systemd-units-*.md + (云上)systemctl list-unit-files。<br>差异:<br>${DIFF3_ESC}<br>脚本: scripts/cloud_unit_patrol.sh &nbsp;日志: ${LOG}" \
+      --severe --from-prefix "[告警]" --dedup-key unit_registry_drift --dedup-window 21600 $NOTIFY_DRYRUN 2>&1 | tee -a "$LOG" || true
+  else
+    echo "✗ UNIT_REGISTRY 漂移 rc=${RC3},但当前为 dump 诊断模式(#194-F2),不发通知(仅日志)" >> "$LOG"
+  fi
+  [ "$RC" -eq 0 ] && RC="$RC3"
+elif [ "$RC3" -eq 3 ]; then
+  # 装载失败(导入/解析异常): 独立 key unit_registry_load_fail, ≠漂移(语义不同)
+  BODY3="$(printf '%s\n' "$OUT3" | head -1)"
+  BODY3_ESC="$(printf '%s' "$BODY3" | sed 's/&/\&amp;/g; s/</\&lt;/g')"
+  if [ "$_NOTIFY" = 1 ]; then
+    echo "✗ UNIT_REGISTRY 装载失败 rc=${RC3},发 severe 告警(独立 key)" >> "$LOG"
+    NOTIFY_DRYRUN=""
+    [ "${CLOUD_UNIT_PATROL_NOTIFY_DRYRUN:-}" = "1" ] && NOTIFY_DRYRUN="--dry-run"
+    "$PY" scripts/notify.py "[告警] UNIT_REGISTRY 装载失败" \
+      "${BODY3_ESC}<br>check_unit_registry_drift.py 装载 UNIT_REGISTRY 或解析 docs/systemctl 失败(rc=${RC3}, ≠漂移, 不并入漂移去重键)。<br>处置: 核 gen_schedule_stats.UNIT_REGISTRY 导入路径 / docs/deploy/systemd-units-*.md 解析 / 云上 systemctl list-unit-files 可达性。详见 stderr。<br>脚本: scripts/cloud_unit_patrol.sh &nbsp;日志: ${LOG}" \
+      --severe --from-prefix "[告警]" --dedup-key unit_registry_load_fail --dedup-window 21600 $NOTIFY_DRYRUN 2>&1 | tee -a "$LOG" || true
+  else
+    echo "✗ UNIT_REGISTRY 装载失败 rc=${RC3},但当前为 dump 诊断模式(#194-F2),不发通知(仅日志)" >> "$LOG"
+  fi
+  [ "$RC" -eq 0 ] && RC="$RC3"
+else
+  echo "✗ check_unit_registry_drift 未知 rc=${RC3}(仅日志, 不通知)" >> "$LOG"
+  [ "$RC" -eq 0 ] && RC="$RC3"
 fi
 
 echo "=== cloud_unit_patrol.sh 结束 $(date '+%F %T') 退出码=$RC ===" >> "$LOG"
