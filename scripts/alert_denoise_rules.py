@@ -1526,6 +1526,9 @@ STALL_KEYS = frozenset({
     # checker 自身崩溃 ⇒ 漂移检测失明, 同属监控基础设施停摆。
     "unit_registry_drift",
     "unit_registry_load_fail",
+    # ③段 else 分支: checker 非预期退出(rc=1 Python 崩溃 / rc=127 脚本缺失 / 其他未知非零,
+    # 2026-11-01 reviewer 低分项补丁)—— 监控自身崩溃 ⇒ 漂移检测失明, 同属监控基础设施停摆。
+    "unit_registry_unexpected",
 })
 
 # 非停摆级键登记表(防遗漏机制: 测试扫描 scripts/ 全部 --dedup-key 字面量, 必须二者其一)。
@@ -1712,6 +1715,7 @@ STALL_IMPACT = {
     "cloud_unit_patrol_drift": "云上 unit 清单漂移: 预期服务缺失/多出, 巡检基线失真",
     "unit_registry_drift": "UNIT_REGISTRY 与真实 unit 集合漂移: 新增/改名 timer 漏进监控, 巡检范围失真",
     "unit_registry_load_fail": "UNIT_REGISTRY 漂移机检自身装载失败: 漂移检测失明, 巡检盲区",
+    "unit_registry_unexpected": "UNIT_REGISTRY 漂移机检非预期退出(rc=1/127/其他): checker 崩溃/缺失, 漂移检测失明, 巡检盲区",
 }
 
 

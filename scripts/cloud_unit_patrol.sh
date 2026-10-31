@@ -29,7 +29,8 @@
 #      登记表」(#310 同类根因,登记表多=已销账未删 / 真实侧多=漏进监控)。rc=2 漂移 / rc=3 装载
 #      失败(导入/解析异常,≠漂移,独立 key)。
 #   去重键:① cloud_unit_patrol_drift / ② r2_lock_gradient_drift / ③ unit_registry_drift(rc=2)
-#      或 unit_registry_load_fail(rc=3,各 6h);rc=0 静默(仅日志)。
+#      / unit_registry_load_fail(rc=3) / unit_registry_unexpected(rc=1/127/其他非预期, 各 6h);
+#      rc=0 静默(仅日志)。③段 else 分支也通知(对齐①②段「任何 rc!=0 都通知」, reviewer 低分项)。
 #   日志:data/logs/cloud_unit_patrol_launchd.log(固定名 append;脚本自己写同名
 #   *_launchd.log ⇒ unit 刻意不设 StandardOutput append,§1.4 例外条款)。
 #
@@ -235,7 +236,21 @@ elif [ "$RC3" -eq 3 ]; then
   fi
   [ "$RC" -eq 0 ] && RC="$RC3"
 else
-  echo "✗ check_unit_registry_drift 未知 rc=${RC3}(仅日志, 不通知)" >> "$LOG"
+  # 非预期 rc(1=checker Python 崩溃 / 127=脚本缺失 / 其他未知非零): 对齐①②段「任何 rc!=0
+  # 都通知」语义 —— patrol 自身目的就是抓异常, checker 崩溃/缺失不能静默(reviewer 低分项)。
+  # 独立 key unit_registry_unexpected: 区别于 rc=2 漂移 / rc=3 装载失败(语义不同, 同③段拆键惯例)。
+  BODY3="$(printf '%s\n' "$OUT3" | head -1)"
+  BODY3_ESC="$(printf '%s' "$BODY3" | sed 's/&/\&amp;/g; s/</\&lt;/g')"
+  if [ "$_NOTIFY" = 1 ]; then
+    echo "✗ check_unit_registry_drift 非预期 rc=${RC3},发 severe 告警(独立 key unit_registry_unexpected)" >> "$LOG"
+    NOTIFY_DRYRUN=""
+    [ "${CLOUD_UNIT_PATROL_NOTIFY_DRYRUN:-}" = "1" ] && NOTIFY_DRYRUN="--dry-run"
+    "$PY" scripts/notify.py "[告警] UNIT_REGISTRY 漂移机检非预期退出" \
+      "${BODY3_ESC}<br>check_unit_registry_drift.py 以非预期 rc=${RC3} 退出(rc=1=checker Python 崩溃 / rc=127=脚本缺失 / 其他未知非零, ≠漂移 rc=2 / ≠装载失败 rc=3, 不并入既有去重键)。<br>处置: 核 check_unit_registry_drift.py 可执行性 / gen_schedule_stats 导入链 / stderr 异常栈。详见 stderr。<br>脚本: scripts/cloud_unit_patrol.sh &nbsp; 日志: ${LOG}" \
+      --severe --from-prefix "[告警]" --dedup-key unit_registry_unexpected --dedup-window 21600 $NOTIFY_DRYRUN 2>&1 | tee -a "$LOG" || true
+  else
+    echo "✗ check_unit_registry_drift 非预期 rc=${RC3},但当前为 dump 诊断模式(#194-F2),不发通知(仅日志)" >> "$LOG"
+  fi
   [ "$RC" -eq 0 ] && RC="$RC3"
 fi
 

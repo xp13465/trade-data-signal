@@ -19,6 +19,8 @@
 #   T11  ③ rc=2 漂移 → notify 可达 + 独立键 unit_registry_drift + 正文含「登记表多」+ DRYRUN --dry-run 桩生效
 #   T12  ③ rc=3 装载失败 → notify 独立键 unit_registry_load_fail(≠漂移键, 语义不同)
 #   T13  ③ dump 诊断模式 + rc=2 漂移 → 不发通知(仅日志, 同①②守卫)
+#   T14  ③ else 分支 rc=1(checker 崩溃) → notify 独立键 unit_registry_unexpected + DRYRUN 桩(2026-11-01 reviewer 低分项)
+#   T15  ③ else 分支 rc=127(脚本缺失) → notify 独立键 unit_registry_unexpected(对齐①②段)
 #   F3   固定日志路径带 $(id -un) 后缀(每用户独立,避开 root 残留)—— 由 T1 的落盘路径间接覆盖
 #
 # 用法: bash scripts/cloud_unit_patrol_selftest.sh
@@ -103,6 +105,7 @@ sys.exit(int(os.environ.get("MOCK_R2_AUDIT_RC", "0")))
 PY
   # UNIT_REGISTRY 漂移机检桩(2026-10-31 第三段): rc 由 MOCK_REGISTRY_RC 控制
   #   0=PASS / 2=漂移(stderr「登记表多/真实侧多」) / 3=装载失败(独立语义)
+  #   1=checker Python 崩溃 / 127=脚本缺失 / 其他未知非零 → else 分支(unit_registry_unexpected)
   cat > "$D/gitrepo/scripts/check_unit_registry_drift.py" <<'PY'
 import os, sys
 rc = int(os.environ.get("MOCK_REGISTRY_RC", "0"))
@@ -117,6 +120,11 @@ elif rc == 2:
     print("    - trade-fake-new.service", file=sys.stderr)
 elif rc == 3:
     print("[FAIL] 装载 UNIT_REGISTRY 失败(ImportError): No module named 'gen_schedule_stats'", file=sys.stderr)
+elif rc == 1:
+    print("[FAIL] checker 内部异常(模拟 Python 崩溃): Traceback (most recent call last):", file=sys.stderr)
+    print("  KeyError: 'UNIT_REGISTRY'", file=sys.stderr)
+elif rc == 127:
+    print("[FAIL] 模拟脚本缺失/不可执行(实际 patrol 调用时 $PY 找不到该 .py)", file=sys.stderr)
 sys.exit(rc)
 PY
   # notify 桩:被调用则写哨兵文件(用于判定「是否外发通知」), 并记录 argv(判定去重键)
@@ -241,6 +249,31 @@ if command -v python3 >/dev/null 2>&1; then
     && grep -q "dump 诊断模式" "$log13"; } \
     && ok "exit=$r13, 零通知, 日志标 dump 诊断模式(③ 同守卫)" \
     || bad "r13=$r13 sentinel=$([ -f "$D13/notify.sentinel" ] && echo EXISTS || echo none) out=[$o13]"
+
+  echo "== T14 ③ else 分支 rc=1(checker 崩溃) → notify 独立键 unit_registry_unexpected + DRYRUN 桩 =="
+  D14="$TMP/d14"; mk_sbx "$D14"
+  o14="$(run_sbx "$D14" 0 CLOUD_UNIT_PATROL_UNITS_DIR="$D14/units" \
+           CLOUD_UNIT_PATROL_NOTIFY_DRYRUN=1 MOCK_REGISTRY_RC=1)"; r14=$?
+  log14="$D14/runtime/data/logs/cloud_unit_patrol_launchd.log"
+  { [ "$r14" -eq 1 ] && [ -f "$D14/notify.sentinel" ] \
+    && grep -q "unit_registry_unexpected" "$D14/notify.sentinel" \
+    && grep -q -- "--dry-run" "$D14/notify.sentinel" \
+    && ! grep -q "dedup-key unit_registry_drift " "$D14/notify.sentinel" \
+    && ! grep -q "dedup-key unit_registry_load_fail " "$D14/notify.sentinel" \
+    && grep -q "非预期 rc=1" "$log14"; } \
+    && ok "exit=$r14, notify 已调用(独立键 unit_registry_unexpected, 不含漂移/装载键, DRYRUN --dry-run 桩生效)" \
+    || bad "r14=$r14 sentinel=[$(cat "$D14/notify.sentinel" 2>/dev/null | tr '\n' '|')] out=[$o14]"
+
+  echo "== T15 ③ else 分支 rc=127(脚本缺失) → notify 独立键 unit_registry_unexpected =="
+  D15="$TMP/d15"; mk_sbx "$D15"
+  o15="$(run_sbx "$D15" 0 CLOUD_UNIT_PATROL_UNITS_DIR="$D15/units" \
+           CLOUD_UNIT_PATROL_NOTIFY_DRYRUN=1 MOCK_REGISTRY_RC=127)"; r15=$?
+  log15="$D15/runtime/data/logs/cloud_unit_patrol_launchd.log"
+  { [ "$r15" -eq 127 ] && [ -f "$D15/notify.sentinel" ] \
+    && grep -q "unit_registry_unexpected" "$D15/notify.sentinel" \
+    && grep -q "非预期 rc=127" "$log15"; } \
+    && ok "exit=$r15, notify 已调用(独立键 unit_registry_unexpected, rc=127 脚本缺失对齐①②段)" \
+    || bad "r15=$r15 sentinel=[$(cat "$D15/notify.sentinel" 2>/dev/null | tr '\n' '|')] out=[$o15]"
 else
   echo "  SKIP: 本机无 python3,T4-T7 跳过(云上/CI 有 python 时再跑)"
 fi
