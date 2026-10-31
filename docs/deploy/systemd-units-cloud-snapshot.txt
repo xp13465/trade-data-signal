@@ -603,7 +603,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/check_r2_consistency.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=1600
+TimeoutStartSec=1800
 @@@FILE:trade-rzhb-backfill.service
 [Unit]
 Description=Trade rzhb-backfill (源 com.trade.rzhb-backfill)

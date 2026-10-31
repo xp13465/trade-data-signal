@@ -11,12 +11,19 @@
   ③ 每个调用方「内层预算 < 外层 systemd TimeoutStartSec」(外层 0/无=不适用; 已知例外入
      KNOWN_INNER_OVER_OUTER 豁免并写清旧账锚点, 不许静默放过)。
 
-用法: python3 scripts/r2_lock_gradient_audit.py            # 表格 + PASS/FAIL, FAIL 退出 1
-      python3 scripts/r2_lock_gradient_audit.py --json     # 机读输出
+用法(2026-10-31 常态化: 挂 main-merge 7.8b + 云上 cloud_unit_patrol.sh):
+  # 仓库侧(默认): 脚本字面量 + 仓库内云上快照 —— 闸门用, FAIL 退出 1
+  python3 scripts/r2_lock_gradient_audit.py --check-doc
+  # 云上侧: 权威 unit 源(云上真 unit 目录 / dump)跑梯度 —— 只告警不改生产
+  python3 scripts/r2_lock_gradient_audit.py --check-snapshot --units-dir /etc/systemd/system
+  python3 scripts/r2_lock_gradient_audit.py --check-snapshot --dump /tmp/units-dump.txt
+  # 其它: --snapshot PATH 覆盖仓库快照; --json 机读; --quiet 只打合计/FAIL(闸门日志用)
+  不带旗标 = 旧行为(等价 --check-doc), 向后兼容既有 pytest 调用。
 只读: 不跑上传/不碰锁文件/不发网络(static-only, §18 L50)。
 """
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
@@ -149,16 +156,34 @@ _PY_DOMAIN_LITERAL = re.compile(r'''R2_UPLOAD_LOCK_DOMAIN"\]\s*=\s*"([a-z0-9_-]+
 _SHELL_DOMAIN_VARIABLE = re.compile(r"""(?:R2_UPLOAD_LOCK_DOMAIN=["']?\$|--lock-domain\s+["']?\$)""")
 
 
-def _parse_outer_timeouts() -> dict[str, int]:
-    if not SNAPSHOT.exists():
-        return {}
-    text = SNAPSHOT.read_text(encoding="utf-8", errors="replace")
-    out: dict[str, int] = {}
+def _parse_units_file(path: Path) -> dict[str, str]:
+    """把 `@@@FILE:<name>` 分隔的 unit dump 解析为 {name: block 文本}(与快照格式同源)。"""
+    out: dict[str, str] = {}
+    text = path.read_text(encoding="utf-8", errors="replace")
     for block in re.split(r"^@@@FILE:", text, flags=re.M)[1:]:
-        name = block.splitlines()[0].strip()
-        m = re.search(r"^TimeoutStartSec=(\S+)", block, flags=re.M)
+        name = block.splitlines()[0].strip() if block.strip() else ""
+        if name:
+            out[name] = block
+    return out
+
+
+def _read_units_dir(units_dir: Path) -> dict[str, str]:
+    """直连云上真 unit: 读 trade-*.service(梯度只看 service; timer 无 TimeoutStartSec 语义)。"""
+    out: dict[str, str] = {}
+    for p in sorted(units_dir.glob("trade-*.service")):
+        out[p.name] = p.read_text(encoding="utf-8", errors="replace")
+    return out
+
+
+def _parse_outer_timeouts(units: dict[str, str] | None = None) -> dict[str, int]:
+    """{unit: TimeoutStartSec}; units=None 时读仓库快照(旧行为)。值 0/非数字 = 无界。"""
+    if units is None:
+        units = _parse_units_file(SNAPSHOT)
+    out: dict[str, int] = {}
+    for name, block in units.items():
         if not name.endswith(".service"):
             continue
+        m = re.search(r"^TimeoutStartSec=(\S+)", block, flags=re.M)
         if not m:
             out[name] = 0
             continue
@@ -326,9 +351,11 @@ def _check_turnover_literals(errs: list[str]) -> None:
                         f"等锁 {lock} + 工作 {s_work} + 60")
 
 
-def audit() -> tuple[list[dict], list[str]]:
+def audit(outer_units: dict[str, str] | None = None,
+          strict_missing: bool = False) -> tuple[list[dict], list[str]]:
+    """outer_units=None → 仓库快照(旧行为); strict_missing=True(云上巡检)时引用 unit 缺失即 FAIL。"""
     rows, errs = [], []
-    outer = _parse_outer_timeouts()
+    outer = _parse_outer_timeouts(outer_units)
     cache: dict[str, str] = {}
     for owner, site, domain, lock_wait, inner, unit, marker in SITES:
         row = {"owner": owner, "site": site, "domain": domain, "lock_wait": lock_wait,
@@ -363,8 +390,13 @@ def audit() -> tuple[list[dict], list[str]]:
                     row["status"] = "FAIL"
                     row["note"] = f"内层 {inner}s ≥ 外层 {unit} {row['outer']}s(梯度倒置)"
         if row["status"] == "PASS" and unit and not row["outer"] and unit not in outer:
-            row["status"] = "WAIVED"
-            row["note"] = f"外层 unit {unit} 不在快照(0/未登记 ⇒ 无界)"
+            if strict_missing:
+                # 云上巡检: 权威源里找不到引用的 unit ⇒ 外层墙无从确认, 不许静默放过(WAIVED)。
+                row["status"] = "FAIL"
+                row["note"] = f"权威 unit 源里找不到 {unit}(云上巡检无法确认外层墙)"
+            else:
+                row["status"] = "WAIVED"
+                row["note"] = f"外层 unit {unit} 不在快照(0/未登记 ⇒ 无界)"
         if domain is not None and domain not in DOMAINS:
             row["status"] = "FAIL"
             row["note"] = f"域 {domain} 不在域登记表"
@@ -471,27 +503,67 @@ def _fmt(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def main(argv: list[str]) -> int:
-    rows, errs = audit()
-    if "--json" in argv:
-        print(json.dumps({"rows": rows, "errors": errs}, ensure_ascii=False, indent=2))
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    ap = argparse.ArgumentParser(description="R2 上传锁域 + 超时梯度审计(只读)")
+    ap.add_argument("--check-doc", action="store_true",
+                    help="仓库侧(脚本文面量 + 仓库快照);默认行为, 显式命名供 main-merge 闸门")
+    ap.add_argument("--check-snapshot", action="store_true",
+                    help="云上侧: 权威 unit 源(--units-dir/--dump)真值 vs 内层预算重算梯度(只告警)")
+    ap.add_argument("--snapshot", default=None, help=f"仓库快照路径(默认 {SNAPSHOT})")
+    ap.add_argument("--units-dir", default="/etc/systemd/system", help="云上 unit 目录(--check-snapshot)")
+    ap.add_argument("--dump", default=None, help="@@@FILE: 分隔 unit dump(--check-snapshot 用)")
+    ap.add_argument("--json", action="store_true", help="机读输出")
+    ap.add_argument("--quiet", action="store_true", help="只打合计/FAIL(闸门/巡检日志用)")
+    args = ap.parse_args(argv)
+
+    units: dict[str, str] | None = None
+    if args.check_snapshot:
+        if args.dump:
+            dump = Path(args.dump)
+            if not dump.is_file():
+                print(f"权威 unit dump 不存在: {dump}", file=sys.stderr)
+                return 2
+            units, source = _parse_units_file(dump), f"云上 dump {dump}"
+        else:
+            udir = Path(args.units_dir)
+            if not udir.is_dir():
+                print(f"unit 目录不存在: {udir}", file=sys.stderr)
+                return 2
+            units, source = _read_units_dir(udir), f"云上 unit 目录 {udir}"
+            if not units:
+                print(f"unit 目录里没有 trade-*.service: {udir}", file=sys.stderr)
+                return 2
+    else:
+        snap = Path(args.snapshot) if args.snapshot else SNAPSHOT
+        if not snap.is_file():
+            print(f"仓库快照不存在: {snap}", file=sys.stderr)
+            return 2
+        units, source = _parse_units_file(snap), f"仓库快照 {snap}"
+
+    rows, errs = audit(outer_units=units, strict_missing=args.check_snapshot)
+    if args.json:
+        print(json.dumps({"source": source, "rows": rows, "errors": errs},
+                         ensure_ascii=False, indent=2))
         return 1 if errs else 0
-    print("== R2 上传锁域 + 超时梯度审计(只读) ==")
-    print(_fmt(rows))
-    manual = _shell_variable_forms()
-    print("\n-- 人工确认清单(变量形式的域声明: 静态不可解析, 逐条给处置) --")
-    if not manual:
-        print("  (无)")
-    for owner, line in manual:
-        known = next((v for k, v in KNOWN_VARIABLE_FORMS.items()
-                      if owner == k[0] and k[1] in line), None)
-        print(f"  {'已登记' if known else '待确认'} {owner}: {line[:140]}")
-        if known:
-            print(f"      ↳ {known}")
+    if not args.quiet:
+        print(f"== R2 上传锁域 + 超时梯度审计(只读;外层真值源 = {source}) ==")
+        print(_fmt(rows))
+        manual = _shell_variable_forms()
+        print("\n-- 人工确认清单(变量形式的域声明: 静态不可解析, 逐条给处置) --")
+        if not manual:
+            print("  (无)")
+        for owner, line in manual:
+            known = next((v for k, v in KNOWN_VARIABLE_FORMS.items()
+                          if owner == k[0] and k[1] in line), None)
+            print(f"  {'已登记' if known else '待确认'} {owner}: {line[:140]}")
+            if known:
+                print(f"      ↳ {known}")
     bad = [r for r in rows if r["status"] == "FAIL"]
     waived = [r for r in rows if r["status"] == "WAIVED"]
-    print(f"\n合计 {len(rows)} 个调用点: PASS={len(rows) - len(bad) - len(waived)} "
-          f"WAIVED={len(waived)} FAIL={len(bad)}")
+    print(f"{'' if args.quiet else chr(10)}合计 {len(rows)} 个调用点: "
+          f"PASS={len(rows) - len(bad) - len(waived)} WAIVED={len(waived)} FAIL={len(bad)}"
+          f"{f' (外层真值源 = {source})' if args.quiet else ''}")
     if errs:
         print("\nFAIL 明细:")
         for e in errs:

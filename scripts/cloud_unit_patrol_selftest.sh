@@ -12,6 +12,9 @@
 #   T5   环境守卫(#194-F2): 权威 unit 目录不存在(非云上/开发机)→ exit 3 且 **绝不调用 notify**
 #   T6   环境守卫不误伤: unit 目录像云上(含 trade-*.service)且 audit 报漂移 → notify 被调用(可达)
 #   T7   dump 诊断模式(#194-F2): ARBITER_DUMP 非空 + 漂移 → 仍不发通知(仅日志)
+#   T8   R2 锁/超时梯度告警通道(2026-10-31 常态化的第二段): systemd 审计 PASS 但 R2 梯度 FAIL
+#        → notify 可达, 且带独立去重键 r2_lock_gradient_drift(与 systemd 漂移键互不吞)
+#   T9   R2 梯度在 dump 诊断模式同样不发通知(仅日志)
 #   F3   固定日志路径带 $(id -un) 后缀(每用户独立,避开 root 残留)—— 由 T1 的落盘路径间接覆盖
 #
 # 用法: bash scripts/cloud_unit_patrol_selftest.sh
@@ -82,12 +85,25 @@ snap = args[args.index("--snapshot") + 1] if "--snapshot" in args else "(none)"
 print("unit mock | TimeoutStartSec | cloud=600 | snapshot=90  (snapshot=%s)" % snap)
 sys.exit(int(os.environ.get("MOCK_AUDIT_RC", "0")))
 PY
-  # notify 桩:被调用则写哨兵文件(用于判定「是否外发通知」)
+  # R2 梯度审计桩(2026-10-31 第二段): rc 由 MOCK_R2_AUDIT_RC 控制, 回显真值源
+  cat > "$D/gitrepo/scripts/r2_lock_gradient_audit.py" <<'PY'
+import os, sys
+args = sys.argv[1:]
+src = "(none)"
+if "--dump" in args:
+    src = args[args.index("--dump") + 1]
+elif "--units-dir" in args:
+    src = args[args.index("--units-dir") + 1]
+print("R2 合计 47 个调用点: PASS=47 WAIVED=0 FAIL=0 (外层真值源 = %s)" % src)
+sys.exit(int(os.environ.get("MOCK_R2_AUDIT_RC", "0")))
+PY
+  # notify 桩:被调用则写哨兵文件(用于判定「是否外发通知」), 并记录 argv(判定去重键)
   cat > "$D/gitrepo/scripts/notify.py" <<'PY'
 import os, sys
 s = os.environ.get("NOTIFY_SENTINEL")
 if s:
-    open(s, "a").write("notify-called\n")
+    with open(s, "a") as f:
+        f.write("notify-called " + " ".join(sys.argv[1:]) + "\n")
 sys.exit(0)
 PY
 }
@@ -138,6 +154,25 @@ if command -v python3 >/dev/null 2>&1; then
   { [ "$r7" -ne 0 ] && [ ! -f "$D7/notify.sentinel" ] && grep -q "dump 诊断模式" "$log7"; } \
     && ok "exit=$r7, 零通知, 日志标 dump 诊断模式" \
     || bad "r7=$r7 sentinel=$([ -f "$D7/notify.sentinel" ] && echo EXISTS || echo none) out=[$o7]"
+
+  echo "== T8 R2 梯度告警通道: systemd 审计 PASS + R2 梯度 FAIL → notify 可达且键独立 =="
+  D8="$TMP/d8"; mk_sbx "$D8"
+  o8="$(run_sbx "$D8" 0 CLOUD_UNIT_PATROL_UNITS_DIR="$D8/units" MOCK_R2_AUDIT_RC=1)"; r8=$?
+  log8="$D8/runtime/data/logs/cloud_unit_patrol_launchd.log"
+  { [ "$r8" -eq 1 ] && [ -f "$D8/notify.sentinel" ] \
+    && grep -q "r2_lock_gradient_drift" "$D8/notify.sentinel" \
+    && grep -q "R2 上传锁/超时梯度 FAIL" "$log8"; } \
+    && ok "exit=$r8, notify 已调用(独立去重键 r2_lock_gradient_drift)" \
+    || bad "r8=$r8 sentinel=[$(cat "$D8/notify.sentinel" 2>/dev/null | tr '\n' '|')] out=[$o8]"
+
+  echo "== T9 dump 诊断模式 + R2 梯度 FAIL → 不发通知(仅日志) =="
+  D9="$TMP/d9"; mk_sbx "$D9"
+  printf '@@@FILE:trade-mock.service\n[Service]\nTimeoutStartSec=600\n' > "$D9/dump.txt"
+  o9="$(run_sbx "$D9" 0 CLOUD_UNIT_PATROL_ARBITER_DUMP="$D9/dump.txt" MOCK_R2_AUDIT_RC=1)"; r9=$?
+  log9="$D9/runtime/data/logs/cloud_unit_patrol_launchd.log"
+  { [ "$r9" -eq 1 ] && [ ! -f "$D9/notify.sentinel" ] && grep -q "R2 梯度 FAIL rc=1" "$log9"; } \
+    && ok "exit=$r9, 零通知, 日志标 R2 dump 诊断模式" \
+    || bad "r9=$r9 sentinel=$([ -f "$D9/notify.sentinel" ] && echo EXISTS || echo none) out=[$o9]"
 else
   echo "  SKIP: 本机无 python3,T4-T7 跳过(云上/CI 有 python 时再跑)"
 fi

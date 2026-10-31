@@ -19,9 +19,12 @@
 #   且避开 check-monitor-heartbeat 的 :11/:26/:41/:56 分钟位。
 #   每日跑不限交易日:「快照==云上」是不变量,周末手改同样要抓。
 #
-# 判定/出口:systemd_timeout_gradient_audit.py --check-snapshot rc!=0(云上 vs 快照
-#   漂移,或快照缺失/空)→ notify --severe(去重 6h);rc=0 静默(仅日志)。
-#   仅告警不阻断(不在任何推送链上)。
+# 判定/出口:两段审计,任一 rc!=0 即 notify --severe,均只告警不阻断(不在任何推送链上):
+#   ① systemd_timeout_gradient_audit.py --check-snapshot:云上 unit vs 仓库快照逐字段漂移;
+#   ② r2_lock_gradient_audit.py --check-snapshot(2026-10-31 常态化, L55):用云上真 unit 的
+#      TimeoutStartSec 重算「锁等待 < 内层工作预算 < 外层墙」梯度 —— 抓云上被手改成 360 这类
+#      倒置(快照仍是 1920 时,①的逐字段比对也会报;但②是语义层,直接说清哪条调用点倒置)。
+#   去重键:① cloud_unit_patrol_drift / ② r2_lock_gradient_drift(各 6h);rc=0 静默(仅日志)。
 #   日志:data/logs/cloud_unit_patrol_launchd.log(固定名 append;脚本自己写同名
 #   *_launchd.log ⇒ unit 刻意不设 StandardOutput append,§1.4 例外条款)。
 #
@@ -154,6 +157,34 @@ if [ "$RC" -ne 0 ]; then
   else
     echo "✗ 漂移 rc=${RC},但当前为 dump 诊断模式(#194-F2),不发通知(仅日志)" >> "$LOG"
   fi
+fi
+
+# ── ② R2 上传锁域/超时梯度(2026-10-31 常态化, L55): 云上真 unit 值 vs 脚本内层预算 ──
+# 与上方 systemd 审计同一权威源(dump/units-dir), 只读静态; FAIL = 某调用点锁等待/内层预算
+# 不再低于外层墙(实例: overfit_monitor 内层 960 > 外层 360 曾漏网多天)。只告警不改生产。
+R2_ARGS=( --check-snapshot --quiet --units-dir "$_UNITS_DIR" )
+if [ "$_MODE" = dump ]; then
+  R2_ARGS=( --dump "$_SRC" "${R2_ARGS[@]}" )
+fi
+OUT2="$("$PY" scripts/r2_lock_gradient_audit.py "${R2_ARGS[@]}" 2>&1)"
+RC2=$?
+printf '%s\n' "$OUT2" >> "$LOG"
+if [ "$RC2" -ne 0 ]; then
+  BODY2="$(printf '%s\n' "$OUT2" | head -1)"
+  DIFF2="$(printf '%s\n' "$OUT2" | sed -n '/FAIL 明细/,$p' | head -12 | tr '\n' '|')"
+  BODY2_ESC="$(printf '%s' "$BODY2" | sed 's/&/\&amp;/g; s/</\&lt;/g')"
+  DIFF2_ESC="$(printf '%s' "$DIFF2" | sed 's/&/\&amp;/g; s/</\&lt;/g')"
+  if [ "$_NOTIFY" = 1 ]; then
+    echo "✗ R2 上传锁/超时梯度 FAIL rc=${RC2},发 severe 告警" >> "$LOG"
+    NOTIFY_DRYRUN=""
+    [ "${CLOUD_UNIT_PATROL_NOTIFY_DRYRUN:-}" = "1" ] && NOTIFY_DRYRUN="--dry-run"
+    "$PY" scripts/notify.py "[告警] R2 上传锁/超时梯度审计失败" \
+      "${BODY2_ESC}<br>云上真 unit 的 TimeoutStartSec 与脚本内层锁等待/工作预算梯度不成立(rc=${RC2})。<br>处置:核对该调用点「锁等待 < 内层预算 < 外层 TimeoutStartSec」(L55 四副本同步: 代码 .sh / unit 生成源 doc §2 / 仓库快照 / 云上真 unit + daemon-reload)。<br>差异:<br>${DIFF2_ESC}<br>脚本: scripts/cloud_unit_patrol.sh &nbsp;日志: ${LOG}" \
+      --severe --from-prefix "[告警]" --dedup-key r2_lock_gradient_drift --dedup-window 21600 $NOTIFY_DRYRUN 2>&1 | tee -a "$LOG" || true
+  else
+    echo "✗ R2 梯度 FAIL rc=${RC2},但当前为 dump 诊断模式(#194-F2),不发通知(仅日志)" >> "$LOG"
+  fi
+  [ "$RC" -eq 0 ] && RC="$RC2"
 fi
 
 echo "=== cloud_unit_patrol.sh 结束 $(date '+%F %T') 退出码=$RC ===" >> "$LOG"

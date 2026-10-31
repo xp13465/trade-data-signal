@@ -1617,7 +1617,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/check_r2_consistency.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=1600
+TimeoutStartSec=1800
 ```
 
 ### 2.38 cloud-unit-patrol(每日 8:27,#191 云上 unit 直连巡检)

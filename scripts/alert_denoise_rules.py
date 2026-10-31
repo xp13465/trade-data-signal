@@ -1506,6 +1506,10 @@ STALL_KEYS = frozenset({
     # ⑤ unit 连续失败(同一 unit/集合 >=N 轮)
     "failed_units_patrol",
     "cloud_unit_patrol_drift",
+    # R2 锁等待/工作预算 vs 外层 TimeoutStartSec 梯度倒置(2026-10-31 常态化, L55):
+    # 与 cloud_unit_patrol_drift 同族的基础设施配置漂移 —— 倒置意味着任务会被外层先杀、
+    # 自身看门狗/告警来不及收尾, 持续不放会把整条上传链变成"随机超时", 判停摆级。
+    "r2_lock_gradient_drift",
 })
 
 # 非停摆级键登记表(防遗漏机制: 测试扫描 scripts/ 全部 --dedup-key 字面量, 必须二者其一)。

@@ -17,6 +17,9 @@
 #   6. 若 feat 改了前端源码(9 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content/index.html): 统一跑 build_min + bump_asset_version(版本串唯一权威入口, 机制 C; index.html 改动触发统一 bump, build_min 无源变更自然产出不变);
 #      触发 bump = 一次「发版」→ 打印「发版本时同步 work-mode-standard/ 通用包」软提醒(README §4 维护约定, 2026-10-15 拍板; 只提醒不阻断)
 #   7. §24⑤ 校验 index 引用 == 实际文件内容 md5(统一 bump 后内容哈希==引用)
+#   7.8b R2 上传锁超时梯度审计(2026-10-31 常态化): 内层锁等待/工作预算 vs 外层 systemd 墙,
+#       仓库侧(脚本文面量 + 云上快照)FAIL 阻断; 云上侧由 trade-cloud-unit-patrol.timer 跑
+#       --check-snapshot(真 unit 值)只告警。背景 = overfit_monitor 倒置漏网多天(L55/§22)。
 #   7.9 L52 pre-merge 全量 pytest(2026-10-18 批3 挂): feat 改了 scripts/ 下任何源码 ⇒ 跑全量
 #       `pytest -q scripts/tests/`(测试里有源码形状守卫, 源形状一变即红), FAIL 阻断本次 merge ——
 #       把 L52 型红从「merge 后 CI 红在 main(#891)」前移到「merge 前 feat 上红」。约 150s。
@@ -401,6 +404,22 @@ else
     echo "✗ systemd 生成源(doc §2)与云上快照不一致, 阻断 merge(#189, 修复: 对齐 doc §2 或刷新快照)" >&2
     exit 1
   fi
+fi
+
+# 7.8b R2 上传锁域/超时梯度审计(2026-10-31 常态化, L55 同类: overfit 倒置漏网多天)
+#     背景: scripts/r2_lock_gradient_audit.py(2026-10-28 建)只被 pytest 间接覆盖, 无自动闸门 ⇒
+#     「内层工作预算 ≥ 外层 systemd 墙」这类倒置能静默上线(overfit_monitor 960 vs 360 实例)。
+#     本步跑仓库侧(--check-doc = 脚本文面量 + 仓库云上快照), FAIL 阻断 merge; 云上真值侧由
+#     trade-cloud-unit-patrol.timer 跑 --check-snapshot, 只告警不改生产。只读静态, 不跑上传。
+echo "--- R2 上传锁域/超时梯度审计(L55, --check-doc) ---"
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "  [dry-run] 跳过 R2 超时梯度审计"
+else
+  if ! "$PY" "$REPO/scripts/r2_lock_gradient_audit.py" --check-doc --quiet; then
+    echo "✗ R2 上传锁域/超时梯度审计 FAIL, 阻断 merge(L55: 修内层预算或外层 TimeoutStartSec, 四副本同步)" >&2
+    exit 1
+  fi
+  echo "✓ R2 上传锁域/超时梯度审计通过"
 fi
 
 # 7.9 L52 pre-merge 全量 pytest(scripts/ 有改动时;2026-10-18 批3 挂主入口, 教训 L52)

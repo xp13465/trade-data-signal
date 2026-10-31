@@ -45,7 +45,7 @@
 |---|---|---|---|---|---|---|---|
 | 1 | `check_failed_units.py`(#196 patrol) | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | **0** ⚠️ | `monitor` | 首报必达 | **2026-10-21 已修黑洞**:window=0 仍为「集合有变立即报」设计值(去重由脚本自管),升级档 72h 窗只抑制同一对象重复升级、suppress 时落回普通首报路径;落状态判据改为 notify `--result-file` 的 `status=sent`,未送达出口码=4。**2026-10-22(#280)**:新增可配置白名单 `docs/deploy/failed-unit-allowlist.txt`(命中只打 `[INFO] 白名单忽略`,不进告警);白名单禁含 trade-*;净 rc 可能与 D1 通道合并(见 1b) |
 | 1b | `check_failed_units.py` 内 D1 同步失败通道(#275) | 同一巡逻(`trade-cloud-unit-patrol.timer` 08:27/15min 链) | critical(`--severe`) | **0**(自管:alerted 标记 = 每个连续失败段只报一次) | `collect` | 首报必达(连续 ≥2 次才报) | 无(四元组显式声明于代码 `d1_sync_state.py`;告警未送达 rc=4 不落 alerted,下轮重试;dry 不动状态) |
-| 2 | `cloud_unit_patrol.sh` | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | 21600 | `deploy` | 首报必达 | 聚合域待对齐 |
+| 2 | `cloud_unit_patrol.sh` | `trade-cloud-unit-patrol.timer` 08:27 | critical(`--severe`) | 21600 | `deploy` | 首报必达 | 聚合域待对齐。**2026-10-31 增第二通道**(L55 常态化): R2 锁等待/工作预算梯度 vs 云上真 unit, dedup-key `r2_lock_gradient_drift` / 21600 / `deploy` / 首报必达; 与 `cloud_unit_patrol_drift` 键独立(互不吞); dump 诊断模式零通知 |
 | 3 | `check_data_gap_alerts.py` | `trade-check-data-gap.timer` 22:35 | critical(`--severe`)/warning(子项) | 86400 | `data-gap` | 首报必达 | 聚合域待对齐 |
 | 4 | `check_monitor_heartbeat.py` | `trade-check-monitor-heartbeat.timer` 每 15min | critical(`--severe`) | 3600 | `monitor` | 首报必达 | — |
 | 5 | `check_s06_freshness.py` | schedule_monitor 尾部(每 15min) | warning | **未声明**(自管 `_state_matches` 落签,无 `--dedup-key`) | `snapshot` | 入聚合 | **dedup window 未声明** |

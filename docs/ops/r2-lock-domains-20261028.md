@@ -222,3 +222,47 @@
 - 单任务回滚: 去掉该调用方的 `R2_UPLOAD_LOCK_DOMAIN` ⇒ 该任务回落全局锁(其他任务不受影响);
 - 全局回滚: 所有调用方均不设域 ⇒ 等价 2026-10-27 全局单锁;
 - 锁文件残留: 内核自动释放, 无需清理; `/tmp` 重启即清。
+
+## 8. 2026-10-31 审计常态化 + check_r2_consistency 余量评估
+
+### 8.1 为什么补挂(真实依据,§5.9)
+
+`r2_lock_gradient_audit.py`(2026-10-28 建)此前**只被 pytest 间接覆盖, 没有任何自动闸门**:
+`--check-doc`/`--check-snapshot` 这类 CLI 旗标当时**并不存在**(默认只读仓库快照), 也没有
+云上巡检段。结果 = overfit_monitor「内层 960s ≥ 外层 360s」的倒置在 main 上活了多天, 直到
+2026-10-31 全仓超时审计(#364 同类)才被抓到。同型已挂好的 `systemd_timeout_gradient_audit.py`
+有 `main-merge 7.8` + 云上 `trade-cloud-unit-patrol.timer` 双挂点, 本审计照此补齐。
+
+### 8.2 挂载点(本次新增)
+
+| 侧 | 位置 | 模式 | 出口 |
+|---|---|---|---|
+| 仓库 | `scripts/main-merge.sh` **7.8b** | `r2_lock_gradient_audit.py --check-doc --quiet` | FAIL **阻断 merge** |
+| 云上 | `scripts/cloud_unit_patrol.sh` **第二段**(同 `trade-cloud-unit-patrol.timer`, 08:27) | `--check-snapshot --units-dir /etc/systemd/system`(dump 诊断模式则 `--dump`) | FAIL → `notify --severe --dedup-key r2_lock_gradient_drift --dedup-window 21600`, **只告警不改生产** |
+
+CLI 语义: `--check-doc` = 脚本文面量 + 仓库快照(默认行为, 显式命名供闸门); `--check-snapshot` =
+用**云上真 unit** 的 `TimeoutStartSec` 重算梯度, 且引用的 unit 在权威源里缺失 = FAIL(不再当"无界"静默放过)。
+`--quiet` 只打合计/FAIL; `--json`/`--snapshot`/`--dump`/`--units-dir` 供机读与自测。
+自测: `cloud_unit_patrol_selftest.sh` T8/T9(告警可达 + dump 模式零通知) +
+`scripts/tests/test_r2_lock_gradient_audit_normalize_20261031.py`(三态)。闸门登记见
+`docs/ops/machine-check-registry.md`。
+
+### 8.3 check_r2_consistency 余量评估:决定「抬外层 1600 → 1800」(已改, 四副本同步)
+
+**实测数据(云上只读)**: `trade-r2-consistency.service` 近 10 次运行 147 / 203 / 207 / 208 /
+228 / 235 / 255 / 287 / 290s; 唯一异常 = 2026-10-26 **904s**(rc=124, 撞当时 900s 内层上限,
+CPU 仅 5.4s = 全程等 I/O)。当时结构: 内层 `run_to 1500` vs 外层 `TimeoutStartSec 1600` = **余量 100s**。
+判定「不是倒置, 但偏紧」: 内层到期后还要跑 `notify --severe`(邮件+飞书, 带渠道重试) 与结束行落盘;
+而**内层恰好在网络坏的时候到期**——那也正是 notify 最慢的场景。100s 对正常路径够, 对"故障态下
+还要把告警发出去"不够稳。故按 L55「外层 > 内层并留梯度」: 外层抬到 **1800**(内层 1500 + 300),
+对正常运行零影响(实测最长 290s, 且 oneshot 每日一次无重叠)。
+
+**四副本同步(全部已核)**:
+1. 代码 `.sh` 注释 `scripts/check_r2_consistency.sh`(内层值 1500 不变, 注释改为 1800 并记依据);
+2. unit 生成源 `docs/deploy/systemd-units-20260912.md` §2.37 `TimeoutStartSec=1800`;
+3. 仓库快照 `docs/deploy/systemd-units-cloud-snapshot.txt` 同名 unit `1800`;
+4. 云上真 unit `/etc/systemd/system/trade-r2-consistency.service`(已备份 `.bak-20261031-r2timeout`,
+   改后 `systemctl daemon-reload`; `systemctl show -p TimeoutStartUSec` = `30min`)。
+
+上线后核验(只读): `systemd_timeout_gradient_audit.py --check-doc`(doc==快照)与云上 patrol
+`--check-snapshot`(快照==云上)均 PASS; 下次 23:20 跑完看日志「开始/结束」间隔仍应在 150–300s。
