@@ -1,0 +1,5 @@
+{
+  "build_id": "20261029-a653",
+  "built_at": "2026-10-31T00:00:00+08:00",
+  "_note": "#327 BUILD_ID 收敛: build_id 与 index.html <meta name=build-id> / ?v= 串 / sw.js CACHE_VERSION 同源同值 (§22 一致性). bump_asset_version.py 每次部署覆盖写本文件. headers.js 规则 2b 给本文件加 no-store."
+}

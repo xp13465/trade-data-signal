@@ -67,6 +67,7 @@
 | scripts/check_s06_state.py | S06 状态核对,手动跑,未挂链 |
 | scripts/check_sentiment_r2_upload.py | 情绪数据 R2 上传核对,手动跑,未挂链 |
 | scripts/check_signals.py | 邮件/飞书信号推送脚本(update_all.sh 调它发通知),**不是守门员**;键集一致性由 ① 门(check_fade_keys_alignment.py)兜 |
+| scripts/check_fe_err_stats.py | #327 前端错误每日汇总,schedule_monitor 23:25 调度拉 /api/err/stats ≥20 → notify severe + alert_ledger;**不是守门员**(只读+告警,不拦部署/merge),未挂 CI/merge 链 |
 
 ## 三、明确不建(诚实条目,防日后被当遗漏补造)
 

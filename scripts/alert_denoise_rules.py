@@ -50,6 +50,16 @@ R2_CONSISTENCY_DEDUP_KEY = "r2_consistency_fail"           # R7: 包装器自身
 R2_CONSISTENCY_ESCALATED_DEDUP_KEY = "r2_consistency_fail_escalated"  # R7: 连续失败升级档独立 key(不复用首日 6h 窗)
 R2_CONSISTENCY_ESCALATE_DAYS = 2                            # R7: 连续失败天数达此值 → severe 升 critical
 
+# ── #327 前端错误每日汇总（2026-10-31, 纯新增）──────────────────────────────
+# schedule_monitor.sh 23:25 轮调 scripts/check_fe_err_stats.py 拉 /api/err/stats,
+# 任一错误采样 count ≥ FE_ERR_SEVERE_THRESHOLD → notify --severe
+#   --dedup-key fe-err|<YYYYMMDD>|<md5>。dedup 走 notify 默认 severe 6h 窗（同 alert_state 机制）,
+#   不复用 R7 升级档（前端错误每日一汇总, 6h 窗足够防同日重复）。
+# FE_ERR_DEDUP_KEY_PREFIX = "fe-err|"（与 alert_ledger.jsonl 行前缀同源, 供排障 grep）
+# FE_ERR_SEVERE_THRESHOLD = 20（D5 拍板: 1% 采样估算全量 ≥2000 次/天, 站点量级小够"有人踩坑"信号）
+FE_ERR_DEDUP_KEY_PREFIX = "fe-err|"
+FE_ERR_SEVERE_THRESHOLD = 20
+
 # #196(F1 族「巡检/链路自身死亡」可见性统一, 2026-10-05): failed-unit 巡检 + 巡检者自身存活 +
 # 「连续 N 天仍异常 → 升 critical」档。与 R7 同口径(首日 severe 不降噪 / 连续第 N 日起 critical
 # 换独立 dedup key 必达 / 连续天数持久化), 共用下面的 consecutive_days_escalate 单一实现。

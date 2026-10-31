@@ -22,6 +22,7 @@
 静态站 (Cloudflare Pages) 依赖本脚本 + static-site/_headers 的 no-cache 策略。
 """
 import glob
+import json
 import os
 import re
 from datetime import datetime
@@ -29,6 +30,13 @@ from zoneinfo import ZoneInfo
 
 BASE = os.path.dirname(os.path.dirname(__file__))
 ASSETS = ["style.min.css", "common.min.js", "purpose-notes.min.js", "kelly-review-notes.min.js", "kelly-reports-content.min.js", "app.min.js", "lab.min.css", "lab.min.js", "qr.js", "vendor/echarts.min.js", "i18n.js", "inline-init.js"]
+
+# #327 BUILD_ID 收敛（2026-10-31）: index.html 内嵌 <meta name="build-id"> + 静态 __build.json
+#   两处同源同值（= CACHE_VERSION = ?v= 串的 YYYYMMDD-aM 部分, §22 一致性）。
+#   前端 inline-init.js 启动后 fetch('/__build.json', no-store) 比对 meta, 不一致+空闲+探活就绪
+#   → location.reload()（兜底用户不点刷新导致老壳常驻; SW_UPDATED 提示保留不变）。
+BUILD_ID_META_RE = re.compile(r'<meta\s+name="build-id"\s+content="[^"]*"\s*/?>', re.IGNORECASE)
+BUILD_ID_META_TEMPLATE = '<meta name="build-id" content="{ver}">'
 
 # 显式 Asia/Shanghai 时区，根治日期逻辑隐患：
 # datetime.now() 不带 tz 时取系统本地时区，若系统 TZ 配错或脚本在 UTC 环境(如某些 CI/Launchd
@@ -73,12 +81,14 @@ def read_sw_batch(sw_path):
 
 
 def bump(html_path, prefix, asset_dir, ver):
-    """把 html 里所有 `?v=...` 替换为 `?v=<ver>`。
+    """把 html 里所有 `?v=...` 替换为 `?v=<ver>`，并同步 <meta name="build-id">。
 
     ver = '<YYYYMMDD>-a<M+1>'（日期+批次，随每次跑必换新串）。
     prefix='/static' (web) 或 '' (static-site 用 './')；asset_dir 为资源所在目录。
     正则 `\?v=[A-Za-z0-9-]+` 兼容存量 md5 十六进制串(a-f0-9)与新日期+批次串(含 -)，
     二者都能被正确替换为最新变量串。
+    #327: 同步把 <meta name="build-id" content="..."> 的 content 改为 ver（与 ?v= / CACHE_VERSION
+          三处同源同值, §22 一致性）。首次部署若无此 meta 则插入到 <head> 第一个 <meta> 之后。
     """
     with open(html_path, encoding="utf-8") as f:
         html = f.read()
@@ -89,13 +99,47 @@ def bump(html_path, prefix, asset_dir, ver):
         html, n = pattern.subn(f"{ref}?v={ver}", html)
         if n:
             changed = True
+    # #327 同步 <meta name="build-id"> content
+    new_meta = BUILD_ID_META_TEMPLATE.format(ver=ver)
+    if BUILD_ID_META_RE.search(html):
+        html, n_meta = BUILD_ID_META_RE.subn(new_meta, html)
+        if n_meta:
+            changed = True
+    else:
+        # 首次部署无此 meta: 插入到 <head> 内首个 <meta ...> 之后（找不到则插入 <head> 之后）
+        if "<head>" in html:
+            insert_at = html.find("<head>") + len("<head>")
+            # 找首个 <meta> 把插入点挪到其后（保 charset/viewport 在前）
+            m_first = re.search(r'<meta\s[^>]*?>', html[insert_at:])
+            if m_first:
+                insert_at = insert_at + m_first.end()
+            html = html[:insert_at] + "\n  " + new_meta + html[insert_at:]
+            changed = True
     if changed:
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(html)
-        print(f"  ✓ {os.path.relpath(html_path, BASE)} ?v={ver}")
+        print(f"  ✓ {os.path.relpath(html_path, BASE)} ?v={ver} build-id={ver}")
     else:
         print(f"  · {os.path.relpath(html_path, BASE)}（未找到资源引用，跳过）")
     return changed
+
+
+def write_build_json(ss_dir, ver):
+    """#327 写 static-site/__build.json（{ "build_id": ver, "built_at": now_iso }）。
+
+    与 index.html meta build-id 同源同值（同一 ver 变量写入, §22 一致性）。
+    headers.js 规则 2b 给 __build.json 加 no-store, 防 CF/浏览器缓存旧 build_id 致前端比对
+    永远一致假象。每次跑覆盖写（无则新建）。
+    """
+    path = os.path.join(ss_dir, "__build.json")
+    payload = {
+        "build_id": ver,
+        "built_at": datetime.now(TZ_SHANGHAI).isoformat(),
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    print(f"  ✓ static-site/__build.json build_id={ver}")
 
 
 def sync_sw_version(sw_path, major_prefix, date_str, batch):
@@ -148,6 +192,9 @@ def main():
 
     # 3. 同步 sw.js CACHE_VERSION 为同源 日期+批次
     sync_sw_version(sw_path, major_prefix, date_str, new_batch)
+
+    # 4. #327 写 __build.json（与 meta build-id / ?v= / CACHE_VERSION 同源同值）
+    write_build_json(ss_dir, ver)
 
     print("完成。记得 commit + push。")
 

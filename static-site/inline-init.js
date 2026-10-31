@@ -71,4 +71,248 @@
   } else {
     window.addEventListener('load', _scheduleStats, { once: true });
   }
+
+  // ============================================================
+  // #327 前端错误上报（2026-10-31, 纯新增）
+  //   1% 采样 → navigator.sendBeacon('/api/err', ...) 异步不阻塞首屏
+  //   单 tab 去重上限 5 条（sessionStorage 记已报 key, 防刷屏）
+  //   字段: message/filename/lineno/colno/stack(截断2000)/build_id/UA/pathname/tab/ts
+  //   防循环: 上报本身 try/catch, 出错静默不再报
+  //   隐私: 不采 cookie/输入/查询参数
+  //   Worker 端 /api/err: KV 计数 + R2 样本（详见 worker/err_report.js）
+  // ============================================================
+  (function () {
+    var SAMPLE_RATE = 0.01;            // 1% 采样（D2 拍板）
+    var DEDUP_MAX = 5;                  // 单 tab 同 (message+filename) 去重上限
+    var STACK_MAX = 2000;
+    var _inFlight = false;              // 防循环: 上报进行中再抛错不再报
+    var _dedupKey = 'feErrSentKeys';
+
+    function _buildId() {
+      try {
+        var meta = document.querySelector('meta[name="build-id"]');
+        if (meta && meta.content) return String(meta.content);
+      } catch (e) {}
+      return '';
+    }
+
+    function _loadDedupSet() {
+      try {
+        var raw = sessionStorage.getItem(_dedupKey);
+        if (!raw) return { keys: [], set: {} };
+        var arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) return { keys: [], set: {} };
+        var s = {};
+        for (var i = 0; i < arr.length; i++) s[arr[i]] = true;
+        return { keys: arr, set: s };
+      } catch (e) {
+        return { keys: [], set: {} };
+      }
+    }
+
+    function _markDedup(dedup, key) {
+      try {
+        dedup.set[key] = true;
+        dedup.keys.push(key);
+        while (dedup.keys.length > DEDUP_MAX) {
+          var old = dedup.keys.shift();
+          delete dedup.set[old];
+        }
+        sessionStorage.setItem(_dedupKey, JSON.stringify(dedup.keys));
+      } catch (e) {}
+    }
+
+    function _trunc(s, max) {
+      if (typeof s !== 'string') return '';
+      return s.length > max ? s.slice(0, max) : s;
+    }
+
+    function _send(payload) {
+      if (_inFlight) return;            // 防循环
+      try {
+        _inFlight = true;
+        var body = JSON.stringify(payload);
+        if (navigator && typeof navigator.sendBeacon === 'function') {
+          navigator.sendBeacon('/api/err', body);
+        }
+      } catch (e) {
+        // 上报本身出错: 静默, 不再抛
+      } finally {
+        _inFlight = false;
+      }
+    }
+
+    function _report(kind, ev) {
+      try {
+        // 1% 采样（一次性判定, 同 tab 内每条独立采样）
+        if (Math.random() >= SAMPLE_RATE) return;
+        var message = '';
+        var filename = '';
+        var lineno = 0;
+        var colno = 0;
+        var stack = '';
+        if (kind === 'error') {
+          // window.onerror: ev = (msg, src, lineno, colno, err)
+          message = String(ev && ev[0] || '');
+          filename = String(ev && ev[1] || '');
+          lineno = (ev && ev[2]) || 0;
+          colno = (ev && ev[3]) || 0;
+          var errObj = ev && ev[4];
+          if (errObj && errObj.stack) stack = String(errObj.stack);
+        } else if (kind === 'unhandledrejection') {
+          // ev = PromiseRejectionEvent, ev.reason
+          var reason = ev && ev.reason;
+          message = (reason && (reason.message || String(reason))) || 'unhandledrejection';
+          stack = (reason && reason.stack) ? String(reason.stack) : '';
+          filename = (reason && reason.fileName) ? String(reason.fileName) : '';
+          lineno = (reason && reason.lineNumber) || 0;
+        }
+        if (!message) return;
+        var key = String(message).slice(0, 100) + '|' + String(filename).slice(0, 100);
+        var dedup = _loadDedupSet();
+        if (dedup.set[key]) return;     // 单 tab 同源已报过, 不刷屏
+        _markDedup(dedup, key);
+        _send({
+          message: _trunc(message, 500),
+          filename: _trunc(filename, 500),
+          lineno: lineno,
+          colno: colno,
+          stack: _trunc(stack, STACK_MAX),
+          build_id: _buildId(),
+          ua: _trunc(navigator.userAgent || '', 300),
+          pathname: _trunc(location.pathname || '', 200),
+          tab: _trunc((sessionStorage.tabId || ''), 64),
+          ts: new Date().toISOString(),
+        });
+      } catch (e) {
+        // 兜底防循环
+      }
+    }
+
+    try {
+      if (window.addEventListener) {
+        window.addEventListener('error', function () {
+          _report('error', arguments);
+        });
+        window.addEventListener('unhandledrejection', function (ev) {
+          _report('unhandledrejection', ev);
+        });
+      } else if (window.attachEvent) {
+        // IE 兜底（项目实际不需, 留作纯新增防御）
+        window.attachEvent('onerror', function () { _report('error', arguments); });
+      }
+    } catch (e) {}
+  })();
+
+  // ============================================================
+  // #327 BUILD_ID 收敛（2026-10-31, 纯新增, 双路径）
+  //   构建期 bump_asset_version.py 写两处同值: index.html <meta name="build-id"> + __build.json
+  //   本段: 空闲时 fetch('/__build.json', {cache:'no-store'}) 比对 meta build-id,
+  //         不一致 + 用户空闲 5s 无交互 + 探活 app.min.js 就绪 → location.reload()
+  //   SW_UPDATED 提示（app.js + #sw-update-toast）保留不变, 本段是兜底（用户不点）
+  //   红线: 禁裸 reload（必须探活核心 JS 就绪, 防 8-14 白屏 §24 防撕裂）
+  // ============================================================
+  (function () {
+    var IDLE_DELAY_MS = 5000;           // 用户空闲 5s 才考虑 reload
+    var PROBE_TIMEOUT_MS = 8000;        // 探活单次 fetch 上限
+    var CHECK_DELAY_MS = 5000;          // 启动后首次比对延后 5s（不抢首屏）
+    var autoReloadOff = false;
+    try {
+      autoReloadOff = localStorage.getItem('feAutoReloadOff') === '1';
+    } catch (e) {}
+
+    function _metaBuildId() {
+      try {
+        var m = document.querySelector('meta[name="build-id"]');
+        return m && m.content ? String(m.content) : '';
+      } catch (e) { return ''; }
+    }
+
+    // 探活核心 JS: HEAD no-store, 复用 sw.js:124 isCoreShellReady 思路（核心壳就绪才接管）
+    //   返 true 表示核心 JS 可达（status 200 且 Content-Type 为 JS）, 才允许 reload。
+    //   返 false / 失败 / 超时 → 不 reload（避免 reload 后拿不到核心 JS 致白屏）。
+    function _probeCoreReady() {
+      return new Promise(function (resolve) {
+        var done = false;
+        var timer = setTimeout(function () {
+          if (done) return; done = true; resolve(false);
+        }, PROBE_TIMEOUT_MS);
+        try {
+          // 探活 app.min.js（首屏渲染 JS, 缺=全白; 与 sw.js CORE_SHELL_URLS 同口径）
+          fetch('./app.min.js', { method: 'HEAD', cache: 'no-store' }).then(function (res) {
+            if (done) return; done = true;
+            clearTimeout(timer);
+            var ok = !!(res && res.status === 200);
+            var ct = (res && res.headers && res.headers.get('content-type')) || '';
+            if (ok && /javascript/i.test(ct)) resolve(true);
+            else resolve(false);
+          }).catch(function () {
+            if (done) return; done = true; clearTimeout(timer); resolve(false);
+          });
+        } catch (e) {
+          if (done) return; done = true; clearTimeout(timer); resolve(false);
+        }
+      });
+    }
+
+    function _reload() {
+      try { location.reload(); } catch (e) {}
+    }
+
+    // 空闲判定: requestIdleCallback(timeout) 或 setTimeout 兜底 + 最近交互重置
+    //   用户最近 5s 内有交互（pointerdown/keydown）则不 reload（不打断）
+    var _lastInteractTs = Date.now();
+    function _markInteract() { _lastInteractTs = Date.now(); }
+    try {
+      ['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) {
+        document.addEventListener(ev, _markInteract, { passive: true });
+      });
+    } catch (e) {}
+
+    function _idleEnough() {
+      return (Date.now() - _lastInteractTs) >= IDLE_DELAY_MS;
+    }
+
+    function _scheduleIdle(cb) {
+      if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(function () { cb(); }, { timeout: IDLE_DELAY_MS + PROBE_TIMEOUT_MS + 5000 });
+      } else {
+        setTimeout(cb, IDLE_DELAY_MS);
+      }
+    }
+
+    function _check() {
+      if (autoReloadOff) return;
+      var metaBid = _metaBuildId();
+      if (!metaBid) return;              // meta 未注入（旧版部署/构建期未写）→ 不比对, 不 reload
+      var fetchBid = '';
+      try {
+        fetch('/__build.json', { cache: 'no-store' }).then(function (res) {
+          if (!res || res.status !== 200) return null;
+          return res.json();
+        }).then(function (data) {
+          if (!data || typeof data !== 'object') return;
+          fetchBid = String(data.build_id || '');
+          if (!fetchBid) return;
+          if (fetchBid === metaBid) return;   // 一致, 无操作
+          // 不一致 → 空闲 + 探活就绪才 reload
+          _scheduleIdle(function () {
+            if (autoReloadOff) return;
+            if (!_idleEnough()) return;       // 用户刚交互过, 等下次空闲（不 reload）
+            _probeCoreReady().then(function (ok) {
+              if (ok) _reload();
+              // 探活未就绪 → 不 reload（避免白屏）, 等下次空闲重试
+            });
+          });
+        }).catch(function () {
+          // __build.json fetch 失败（断网/部署中）→ 无操作（不 reload 不报错）
+        });
+      } catch (e) {}
+    }
+
+    // 启动后延后比对（不抢首屏）
+    try {
+      setTimeout(_check, CHECK_DELAY_MS);
+    } catch (e) {}
+  })();
 })();

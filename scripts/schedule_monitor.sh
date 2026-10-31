@@ -4654,6 +4654,32 @@ try:
                   f"{(_r_meter.stdout + _r_meter.stderr).strip()[:200]}", file=sys.stderr)
 except Exception as e:
     print(f"[warn] alert_meter recount 失败(不阻塞): {e}", file=sys.stderr)
+
+# ============================================================
+# #327 前端错误每日汇总（2026-10-31, 纯新增）
+#   每日 ~23:25 窗口（±5min）拉 /api/err/stats, ≥20 条同一错误采样 → notify --severe
+#   实际逻辑在 scripts/check_fe_err_stats.py（鉴权/阈值/去重/台账统一在此）。
+#   仅在 23:20-23:30 窗口触发一次（避免每轮都跑; 与 R5 23:25 收尾轮同口径）。
+#   不阻塞主流程: 失败只 warn, exit 0。
+#   云上 systemd 调度时 REPO 已由 unit Environment 注入（同 notify/gen_schedule_stats 引用模式）。
+# ============================================================
+try:
+    _fe_err_hhmm = NOW.strftime("%H:%M")
+    if "23:20" <= _fe_err_hhmm <= "23:30":
+        print(f"[{NOW_STR}] [fe-err] 23:25 窗口, 拉 /api/err/stats 汇总")
+        _fe_err_args = [sys.executable, str(REPO / "scripts" / "check_fe_err_stats.py")]
+        # FE_ERR_DRY_RUN=1 时透传 --dry-run 1（单测/灰度用, 生产默认 0 真发）
+        if os.environ.get("FE_ERR_DRY_RUN", "0") == "1":
+            _fe_err_args += ["--dry-run", "1"]
+        _r_fe = subprocess.run(_fe_err_args, capture_output=True, text=True,
+                               timeout=90, check=False)
+        if _r_fe.stdout:
+            print(_r_fe.stdout.strip()[:600])
+        if _r_fe.returncode != 0:
+            print(f"[warn] fe-err check rc={_r_fe.returncode}: "
+                  f"{_r_fe.stderr.strip()[:200]}", file=sys.stderr)
+except Exception as e:
+    print(f"[warn] fe-err check 失败(不阻塞): {e}", file=sys.stderr)
 PYEOF
 
 # 总是 exit 0：告警已发邮件，避免 launchd 因非0退出重试

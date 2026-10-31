@@ -19,6 +19,9 @@ import fundScoreHandler from './fund_score.js';
 // D1 trade-fund-score.fund_screener 数据源，同为登录用户特权；需先于通用 /api/* 分发判。
 // 与 /api/fund_score 并列、互不影响——原端点行为逐位不动, §23.7 冻结契约）
 import fundScreenerHandler from './fund_screener.js';
+// #327 前端错误上报 handler（2026-10-31, 纯新增）: /api/err POST 上报 + /api/err/stats GET 查询
+// 需先于通用 /api/* 分发判（避免被 subscribe.js 404 吞）。原端点行为逐位不动, §23.7 冻结契约。
+import errReportHandler from './err_report.js';
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
@@ -53,6 +56,12 @@ const CACHE_RULES = [
       /^\/((style|lab)\.min\.css|(app|common|lab|purpose-notes|kelly-review-notes|kelly-reports-content)\.min\.js|qr\.js|i18n\.js|inline-init\.js)$/.test(p) ||
       p.startsWith('/vendor/'),
     cc: 'public, max-age=31536000, immutable',
+  },
+  // 2b) #327 BUILD_ID 收敛: __build.json no-store（CF 边缘+浏览器每次回源拿最新构建 id,
+  //     与 HTML 入口同新鲜度, 防 SW/边缘缓存旧 build_id 致前端比对永远一致假象）
+  {
+    match: p => p === '/__build.json',
+    cc: 'no-store, max-age=0',
   },
   // 2) HTML 入口 / feed / trade_sim：no-store 彻底禁止缓存(CF 边缘+浏览器)
   //    private/no-cache 实测均无效(CF Workers Static Assets 仍 HIT 不重验)，
@@ -329,6 +338,10 @@ export default {
     // #266 一期：公募基金筛选器（全市场条件筛选，D1 fund_screener），通用 /api/* 前判
     if (url.pathname === '/api/fund_screener') {
       return fundScreenerHandler(request, env);
+    }
+    // #327: /api/err POST 上报 + /api/err/stats GET 查询（管理员鉴权）
+    if (url.pathname === '/api/err' || url.pathname === '/api/err/stats') {
+      return errReportHandler(request, env, ctx);
     }
     // 2026-08-17 AI 每日速递订阅服务：/api/subscribe/register|unregister|status|recipients 分发到此
     // 在通用 /api/*（subscribe.js 信号订阅）前判，避免被其 404 吞掉。
