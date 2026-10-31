@@ -422,6 +422,23 @@ else
   echo "✓ R2 上传锁域/超时梯度审计通过"
 fi
 
+# 7.8c UNIT_REGISTRY 漂移机检(#309/#310 收尾 A, 2026-10-31)
+#     背景: gen_schedule_stats.UNIT_REGISTRY 硬编码 43 个 unit; schedule_monitor._coverage_text
+#     用 len(stats)+3 ⇒ 缺行时仍显 43/43 假 OK(#309); 新增/改名 timer 漏进登记表 ⇒ 静默退出
+#     监控范围(#310: 24 timer 不在巡检范围同类根因)。本步对比「登记表 vs 真实 unit 集」
+#     (静态 docs §2 + 动态 systemctl), 任一侧多/少一个 .service ⇒ 阻断 merge。
+#     本机无 systemd ⇒ 回退静态 docs 集合(43 个), 拦「登记表 vs 文档」漂移; 云上巡检另挂。
+echo "--- UNIT_REGISTRY 漂移机检(#309/#310 收尾 A) ---"
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "  [dry-run] 跳过 UNIT_REGISTRY 漂移机检"
+else
+  if ! "$PY" "$REPO/scripts/check_unit_registry_drift.py" --quiet; then
+    echo "✗ UNIT_REGISTRY 与真实 unit 漂移, 阻断 merge(#309/#310: 对齐 UNIT_REGISTRY 与 docs/deploy/systemd-units-*.md)" >&2
+    exit 1
+  fi
+  echo "✓ UNIT_REGISTRY 漂移机检通过"
+fi
+
 # 7.9 L52 pre-merge 全量 pytest(scripts/ 有改动时;2026-10-18 批3 挂主入口, 教训 L52)
 #     背景: 改 `scripts/` **任何源码**后自验必须含**全量** `pytest -q scripts/tests/` —— tests/ 里存在
 #     「源码形状守卫」(grep 生产源文件字面量, 实测 21 个文件), 源形状一变守卫即红; 本机只跑「相关

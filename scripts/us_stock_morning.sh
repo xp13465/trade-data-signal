@@ -72,6 +72,6 @@ bash "$GIT_REPO/scripts/deploy.sh" 2>&1 | tee -a "$LOG"
 DEPLOY_RC=${PIPESTATUS[0]}
 echo "deploy 退出码=$DEPLOY_RC" | tee -a "$LOG"
 
-echo "=== us_stock_morning.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 采集=$COLLECT_RC deploy=$DEPLOY_RC ===" | tee -a "$LOG"
+echo "=== us_stock_morning.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$COLLECT_RC 采集=$COLLECT_RC deploy=$DEPLOY_RC ===" | tee -a "$LOG"
 # deploy 失败不阻塞（采集已成功，下次 deploy 会带上）
 exit 0
