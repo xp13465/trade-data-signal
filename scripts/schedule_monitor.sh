@@ -4174,7 +4174,8 @@ for _line, _sk in _stall_batch:
         if _st_out.strip():
             print(_st_out.strip())
         try:
-            _st_status = str(json.loads(_st_rf.read_text(encoding="utf-8")).get("status") or "")
+            _r = json.loads(_st_rf.read_text(encoding="utf-8"))
+            _st_status = str((_r.get("status") if isinstance(_r, dict) else "") or "")
         except (OSError, ValueError):
             _st_status = ""
         if not _st_status:
@@ -4184,11 +4185,7 @@ for _line, _sk in _stall_batch:
         print(f"[warn] 停摆直发子进程异常: {_st_e}", file=sys.stderr)
     finally:
         if _st_rf is not None:
-            try:
-                shutil.rmtree(_st_rf.parent, ignore_errors=True)
-            except OSError:
-                # 清理失败(含 /tmp/stall-direct-* 残留)也不许冒泡 —— 仅打印留痕
-                print(f"[warn] 停摆直发临时目录清理失败: {_st_rf.parent}", file=sys.stderr)
+            shutil.rmtree(_st_rf.parent, ignore_errors=True)
     if _st_status in ("sent", "suppressed"):
         if _st_status == "sent":
             # #309 F2: 只有「真发出」计告警邮件数; suppressed=同键去重窗内(本轮零邮件)
