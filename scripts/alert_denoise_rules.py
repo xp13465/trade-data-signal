@@ -1887,6 +1887,8 @@ SUPPRESSION_LEDGER_FILENAME = "suppression_ledger.jsonl"
 SUPPRESSION_LEDGER_RETAIN_DAYS = 30
 SUPPRESSION_LEDGER_MAX_BYTES = 8 * 1024 * 1024
 SUPPRESSION_LEDGER_PRUNE_MARKER = "suppression_ledger.prune"
+# 防极端体量把内存打爆(相当于硬上限 ~60MB);提为命名常量便于测试 monkeypatch(2026-11-01 #A)
+SUPPRESSION_LEDGER_MAX_ROWS = 200000
 SUPPRESS_MECHANISMS = (
     "budget",              # A: 日预算 gate 并入摘要
     "domain_aggregate",    # B: 2h 域静默窗并入摘要
@@ -1985,7 +1987,7 @@ def _maybe_prune_suppression_ledger(path: Path, now: datetime) -> None:
             _dt = _dt_of(_ts)
             if _dt is None or _dt >= _cut:
                 _kept.append(_ln2)
-            if len(_kept) >= 200000:  # 防极端体量把内存打爆(相当于硬上限 ~60MB)
+            if len(_kept) >= SUPPRESSION_LEDGER_MAX_ROWS:  # 防极端体量把内存打爆(相当于硬上限 ~60MB)
                 break
         _tmp = path.with_name(path.name + ".tmp")
         _tmp.write_text("\n".join(_kept) + ("\n" if _kept else ""), encoding="utf-8")
