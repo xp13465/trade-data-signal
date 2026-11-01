@@ -95,3 +95,8 @@ os.environ.setdefault("GIT_REPO", str(_ENV_SHIM_DIR))
 #   清理失败不影响测试结论)。仅在**本进程创建**垫片时注册(setdefault 命中已设 GIT_REPO 的
 #   分支同样注册, 因其 mkdtemp 已执行)——atexit 保证 pytest 正常退出必回收。
 atexit.register(shutil.rmtree, _ENV_SHIM_DIR, ignore_errors=True)
+
+
+# 注册自定义 mark(避免 PytestUnknownMarkWarning; #333 批1 collect_fof_nav 用)
+def pytest_configure(config):
+    config.addinivalue_line("markers", "network: 需真实外网(CI 默认跳过, 本机 -m network 手动跑)")
