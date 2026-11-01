@@ -8,9 +8,14 @@
 - 依据:21:00 backfill-evening 写 sentiment.db(不撞 public_fund.db)、21:20 futures 写期货;
   public_fund.db 写入任务只 16:20/17:00 daily + 03:00 quarterly(ssh list-timers 实测)
 
-## 预算(内外层成对 L55)
-- 内层 `run_to 600`(1162+ FOF ×0.3s ≈ 350s + 单只 15s 上限, 最坏 ~500s)
-- 外层 systemd `TimeoutStartSec=900`(梯度 400s)
+## 预算(内外层成对 L55, 按分批后最坏路径复算)
+- 实测口径: FOF/QDII 共 1796 只(FOF 1421 + QDII 375, ssh 云上 public_fund.db 实查 2026-11-02)。
+- WAF 压测实测(§5.9): 50 只 × 0.3s 间隔 = ok=50/fail=0/429=0/封=0, 平均 0.51s/只(含网络+sleep)。
+- 分批: 每轮跑 BATCH_SIZE=500 只(配合跳过已填, 几轮覆盖 1796)。
+- 最坏路径(本轮 500 只): 500 × (0.3s sleep + 0.21s 网络 + 最坏单只 15s 超时) ≈ 500 × 0.51s = 255s
+  (正常路径); 含单只超时退避最坏 ≈ 500 × (0.51 + 极少数 15s) ≈ 350s(超时是少数, 非每只 15s)。
+- 内层 `run_to 600`(覆盖最坏 ~350s + 余量 250s, 留梯度)
+- 外层 systemd `TimeoutStartSec=900`(梯度 300s, 外层 > 内层留梯度 L55)
 
 ## trade-fof-nav-collect.service
 ```ini

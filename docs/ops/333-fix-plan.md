@@ -6,7 +6,7 @@
 ## 一、可修正的依据(§5.7①,带行号/实测)
 1. **根因代码锚点**:`app/collector/public_fund.py:873 fetch_daily_nav()` 用 `ak.fund_open_fund_daily_em`(东财每日快照,只最新 2 日列)+ 只写 `target_date` 单日(`:941 rows.append((today_str, ...))`)+ 次新列只喂 `prev_unit_nav`(`:919-925`)+ 无回填(`:957-969` COALESCE 只保留非空)。FOF/QDII T+1/T+2 跨日发布,16:20/17:00 采集时当日 `unit_nav` 列为空→写 NULL,次日 target_date 滚到 T+1,FOF 的 T 日净值落进次新列只成 T+1 行的 `prev_unit_nav`,永不作为 T 日 `unit_nav` 落行(`:905-906` 注释即此)。
 2. **上游有值实测**:curl lsjz API(`https://api.fund.eastmoney.com/f10/lsjz?fundCode=005827&pageIndex=1&pageSize=5&startDate=2026-10-20&endDate=2026-10-31`,带 Referer)返回 FOF 005827 的 2026-10-26~10-30 每日 DWJZ/JZZZL 全有值(实测 2026-11-01 23:07)。
-3. **影响面实测**:云上 `data/public_fund.db` 查 `fund_basic.fund_type`:`FOF-*` 共 1421 只(稳健 805+均衡 378+进取 238)、`QDII-*` 共 375 只;调研 20 只样本中 13 只上游有值我方整月 NULL(11 FOF)。
+3. **影响面实测**:云上 `data/public_fund.db` 查 `fund_basic.fund_type`:`FOF-*` 共 1421 只(稳健 805+均衡 378+进取 238)、`QDII-*` 共 375 只;**合计 1796 只**(2026-11-02 ssh 实查);调研 20 只样本中 13 只上游有值我方整月 NULL(11 FOF)。
 4. **时点空档实测**:云上 `systemctl list-timers` —— 21:00 `trade-backfill-evening`(backfill_metrics.sh,grep 确认只碰指数+sentiment.db metrics,**不碰 public_fund.db**)、21:20 `trade-futures-backfill`;public_fund.db 写入任务只有 16:20/17:00 `trade-public-fund-daily` 与 03:00 `trade-public-fund-quarterly`。**21:10 空档**(21:00 任务写 sentiment.db 不撞同库,21:20 任务写期货数据不撞同库)。
 
 ## 二、实现预期(§5.7②,可观测 X→Y)
@@ -39,8 +39,10 @@
     prev_unit_nav=COALESCE(fund_daily_nav.prev_unit_nav, excluded.prev_unit_nav),
     nav_change_pct=COALESCE(fund_daily_nav.nav_change_pct, excluded.nav_change_pct)
   ```
-  (COALESCE(库值, 新值)=库值非空保留库值,只补 NULL;与 fetch_daily_nav 同口径)
-- **失败兜底**:单只 try/except 记日志 continue;限速 0.3s/只(防 WAF,参考 intraday 多源教训);urllib timeout 15s。
+  (COALESCE(库值, 新值)=库值非空保留库值,只补 NULL;方向与 fetch_daily_nav **相反**——fetch_daily_nav 用 COALESCE(新值,库值)=新值非空优先用新值可覆盖库值;本采集器用 COALESCE(库值,新值)=库值非空永不被覆盖,更保守止漏不踩踏)
+- **失败兜底**:单只 try/except 记日志 continue;限速 0.3s/只(防 WAF);urllib timeout 15s。
+- **跳过已填 + 分批**(review/tester ISSUE-2 修正):先查库中目标日期范围已有非空 unit_nav 的 fund_code 排除,只对未填的发 API(解决"每轮重头跑→后段永不触达");每轮最多采 BATCH_SIZE=500 只,剩余下轮续(配合跳过已填几轮覆盖 1796)。
+- **WAF 压测实测**(§5.9, 2026-11-02):50 只 FOF × 0.3s 间隔实拉东财 lsjz,ok=50/fail=0/429=0/封=0,平均 0.51s/只(含网络+sleep)→ 0.3s 间隔安全,维持不加大。
 - **断点续跑**:幂等(只补 NULL,重跑不覆盖,天然续跑)。
 - **原子写**:每只一个 transaction(commit 后再下一只);DB WAL 模式(get_conn 已设)。
 - **锁**:acquire `public_fund.lock`(非阻塞,撞锁跳过,防与 daily/quarterly 并发写同库)。
@@ -48,7 +50,7 @@
 ## 五、时点与部署
 - **timer 时点**:21:10(交易日;21:00 backfill-evening 写 sentiment.db 不撞,21:20 futures 写期货不撞,public_fund.db 写入只 16:20/17:00+03:00)。
 - **systemd unit 四副本纪律(L54/L55)**:本批只产**代码 + 生成源 doc(本文件)+ unit 模板**;云上真实 unit 部署待批1 验证后由主控派部署任务(不直播主 unit)。timer OnCalendar=`*-*-* 21:10:00`(仅交易日,脚本内 `is_trading_day` 闸门)。
-- **预算**:内层 `run_to 600`(1162+ 只 ×0.3s ≈ 350s + 请求 15s 单只上限,最坏 ~500s);外层 systemd `TimeoutStartSec=900`(梯度 400s)。
+- **预算**:分批后每轮 BATCH_SIZE=500 只 ×0.51s(含网络+sleep, WAF 实测)≈ 255s 正常 / ~350s 含少数超时;内层 `run_to 600`(余量 250s);外层 systemd `TimeoutStartSec=900`(梯度 300s)。FOF/QDII 合计 1796 只,几轮分批覆盖。
 
 ## 六、批2/批3 待办(不在本批)
 - 批2:份额类清理(QDII 后端/港币/美元现钞映射主份额);定开/封闭识别(封闭期 lsjz 空,从 fund_basic 状态剔除)。

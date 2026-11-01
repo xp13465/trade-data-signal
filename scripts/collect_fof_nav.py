@@ -11,12 +11,19 @@
   - 走天天基金 lsjz 历史 API(api.fund.eastmoney.com/f10/lsjz, 带 Referer)补近 7 自然日净值。
   - 只选 fund_basic.fund_type LIKE 'FOF%' OR 'QDII%'。
   - 只补「缺行 or NULL」, 不覆盖已有非空(COALESCE(库值, 新值) = 库值非空保留库值)。
-  - 单只失败不中断; 限速 0.3s/只防 WAF; 幂等(重跑只补 NULL, 天然断点续跑)。
+    注: 方向与 fetch_daily_nav **相反**——fetch_daily_nav 用 COALESCE(新值, 库值)=新值非空优先
+    用新值(可覆盖库值); 本采集器用 COALESCE(库值, 新值)=库值非空永不被覆盖(更保守, 止漏不踩踏)。
+  - 跳过已填: 先查库中目标日期范围内已有非空 unit_nav 的 fund_code, 从待采列表排除,
+    只对未填的发 API(解决"每轮重头跑→后段永不触达")。
+  - 分批: 每轮最多采 BATCH_SIZE 只(默认 500, 可配), 剩余下轮续(配合跳过已填, 几轮覆盖 1796)。
+  - 单只失败不中断; 限速 0.3s/只防 WAF(实测 50 只 0.3s 间隔零 429/零封, 见 docs/ops/333-fix-plan.md);
+    幂等(重跑只补 NULL + 跳过已填, 天然断点续跑)。
   - 原子写: 每只一个 transaction。
 
-入口: python -m scripts.collect_fof_nav [--days N] [--limit N] [--dry-run]
+入口: python -m scripts.collect_fof_nav [--days N] [--limit N] [--batch N] [--dry-run]
   --days   拉 lsjz 的近 N 自然日(默认 7, 覆盖 T-1/T-2 + 周末)
-  --limit  只跑前 N 只(调试/小样)
+  --limit  只跑前 N 只(调试/小样, 优先于 --batch)
+  --batch  每轮最多采 N 只(默认 500, 配合跳过已填分批续跑)
   --dry-run 只拉不写
 
 时点(云上 timer): 21:10 交易日(21:00 backfill-evening 写 sentiment.db 不撞同库,
@@ -50,14 +57,16 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 )
 REQ_TIMEOUT = 15  # 单只请求上限(秒)
-RATE_LIMIT = 0.3  # 每只间隔(秒, 防 WAF)
+RATE_LIMIT = 0.3  # 每只间隔(秒, 防 WAF; 实测 50 只 0.3s 间隔零 429/零封, 见 docs/ops/333-fix-plan.md)
+BATCH_SIZE = 500  # 每轮最多采 N 只(配合跳过已填分批续跑, 几轮覆盖 1796)
 SELECT_SQL = (
     "SELECT fund_code, fund_name, fund_type FROM fund_basic "
     "WHERE fund_type LIKE 'FOF%' OR fund_type LIKE 'QDII%' "
     "ORDER BY fund_code"
 )
 # 只补 NULL/缺行: COALESCE(库值, 新值) = 库值非空保留库值, 新值只填空位。
-# 与 fetch_daily_nav(public_fund.py:960-969) 同口径, 永不覆盖非空。
+# 方向与 fetch_daily_nav **相反**: fetch_daily_nav 用 COALESCE(新值, 库值)=新值非空优先用新值
+# (可覆盖库值); 本采集器用 COALESCE(库值, 新值)=库值非空永不被覆盖(更保守, 止漏不踩踏)。
 UPSERT_SQL = (
     "INSERT INTO fund_daily_nav"
     "(date, fund_code, fund_name, unit_nav, acc_nav, prev_unit_nav, nav_change_pct) "
@@ -115,28 +124,67 @@ def fetch_lsjz(fund_code: str, start_date: str, end_date: str) -> list[dict]:
     return out
 
 
-def collect(days: int = 7, limit: int | None = None, dry_run: bool = False) -> int:
-    """主流程。返回写入行数。"""
+def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
+            batch: int = BATCH_SIZE) -> int:
+    """主流程。返回写入行数。
+
+    跳过已填 + 分批:
+      - 跳过已填: 查库中目标日期范围内已有非空 unit_nav 的 fund_code, 从待采列表排除,
+        只对未填的发 API(解决"每轮重头跑→后段永不触达")。
+      - 分批: 每轮最多采 batch 只(默认 BATCH_SIZE), 剩余下轮续(配合跳过已填, 几轮覆盖 1796)。
+      - limit: 调试小样, 优先于 batch(只取前 N 只, 不分批续跑)。
+    """
     init_db()  # 幂等(确保表存在)
     if not _acquire_lock(nonblock=True, lock_name="public_fund"):
         print("[fof_nav] WARN public_fund.lock 被占, 跳过(防与 daily/quarterly 并发写同库)",
               flush=True)
         return 0
     conn = get_conn()
-    funds = list(conn.execute(SELECT_SQL))
-    if limit:
-        funds = funds[:limit]
     end = date.today()
     start = end - timedelta(days=days)
     start_str = start.strftime("%Y-%m-%d")
     end_str = end.strftime("%Y-%m-%d")
-    print(f"[fof_nav] {len(funds)} 只 FOF/QDII, 拉近{days}日({start_str}~{end_str}) "
-          f"dry_run={dry_run}", flush=True)
+    start_yyyymmdd = start.strftime("%Y%m%d")
+    end_yyyymmdd = end.strftime("%Y%m%d")
+
+    all_funds = list(conn.execute(SELECT_SQL))
+    total_pool = len(all_funds)
+
+    # 跳过已填: 目标日期范围内已有非空 unit_nav 的 fund_code(只对未填的发 API)
+    if not dry_run:
+        filled = {
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT fund_code FROM fund_daily_nav "
+                "WHERE date BETWEEN ? AND ? AND unit_nav IS NOT NULL",
+                (start_yyyymmdd, end_yyyymmdd),
+            )
+        }
+    else:
+        filled = set()  # dry-run 不查库已填(只验 API)
+    pending = [(c, n, t) for (c, n, t) in all_funds if c not in filled]
+    skipped_filled = total_pool - len(pending)
+
+    if limit:
+        pending = pending[:limit]
+        run_batch = len(pending)  # limit 模式不分批, 一次性跑完
+    else:
+        run_batch = min(batch, len(pending))
+    pending = pending[:run_batch]
+
+    print(f"[fof_nav] FOF/QDII 总数={total_pool} 已填跳过={skipped_filled} "
+          f"待采={len(pending)}/{len(all_funds)-skipped_filled} 本轮跑 "
+          f"(拉近{days}日 {start_str}~{end_str} batch={run_batch} dry_run={dry_run})",
+          flush=True)
+    if not pending:
+        print("[fof_nav] 全部已填, 无待采, 跳过", flush=True)
+        conn.close()
+        return 0
+
     total_written = 0
     ok = 0
     fail = 0
     t0 = time.time()
-    for idx, (fund_code, fund_name, fund_type) in enumerate(funds, 1):
+    for idx, (fund_code, fund_name, fund_type) in enumerate(pending, 1):
         try:
             rows = fetch_lsjz(fund_code, start_str, end_str)
             if not rows:
@@ -159,22 +207,26 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False) -> i
             fail += 1
             print(f"[fof_nav] FAIL {fund_code} {fund_type}: {e}", flush=True)
         if idx % 50 == 0:
-            print(f"[fof_nav] 进度 {idx}/{len(funds)} ok={ok} fail={fail} "
+            print(f"[fof_nav] 进度 {idx}/{len(pending)} ok={ok} fail={fail} "
                   f"written={total_written} {time.time()-t0:.0f}s", flush=True)
         time.sleep(RATE_LIMIT)
     conn.close()
+    remaining = (total_pool - skipped_filled) - len(pending)
     print(f"[fof_nav] 完成 ok={ok} fail={fail} written={total_written} "
-          f"{time.time()-t0:.0f}s", flush=True)
+          f"{time.time()-t0:.0f}s 剩余待采={remaining}(下轮续)",
+          flush=True)
     return total_written
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="#333 批1 FOF/QDII 净值采集器")
     ap.add_argument("--days", type=int, default=7, help="拉近 N 自然日(默认 7)")
-    ap.add_argument("--limit", type=int, default=None, help="只跑前 N 只(调试)")
+    ap.add_argument("--limit", type=int, default=None, help="只跑前 N 只(调试, 优先于 --batch)")
+    ap.add_argument("--batch", type=int, default=BATCH_SIZE,
+                    help=f"每轮最多采 N 只(默认 {BATCH_SIZE}, 配合跳过已填分批续跑)")
     ap.add_argument("--dry-run", action="store_true", help="只拉不写")
     args = ap.parse_args()
-    n = collect(days=args.days, limit=args.limit, dry_run=args.dry_run)
+    n = collect(days=args.days, limit=args.limit, dry_run=args.dry_run, batch=args.batch)
     print(f"[fof_nav] return written={n}", flush=True)
     return 0
 

@@ -232,6 +232,64 @@ def test_single_failure_does_not_break(tmp_db, monkeypatch):
     assert cnt_c == 1
 
 
+# ── 跳过已填(ISSUE-2) ───────────────────────────────────────────────
+def test_skip_already_filled(tmp_db, monkeypatch):
+    """跳过已填: 预置部分 fund 已有非空 unit_nav, 跑后只采未填的, 已填的不发 API。"""
+    _seed_basic(tmp_db, [
+        ("005827", "FOF-A", "FOF-均衡型"),
+        ("005828", "FOF-B", "FOF-进取型"),
+        ("005829", "FOF-C", "FOF-稳健型"),
+    ])
+    c = _conn(tmp_db)
+    # 005827 已有非空 unit_nav → 应被跳过
+    c.execute("INSERT INTO fund_daily_nav(date,fund_code,fund_name,unit_nav) "
+              "VALUES('20261101','005827','FOF-A',1.5)")
+    c.commit()
+    c.close()
+
+    called = []
+
+    def fake_fetch(code, start, end):
+        called.append(code)
+        return [{"date": "20261101", "fund_code": code, "unit_nav": 1.2, "acc_nav": 1.2,
+                 "prev_unit_nav": 1.1, "nav_change_pct": 0.5}]
+
+    monkeypatch.setattr(mod, "fetch_lsjz", fake_fetch)
+    monkeypatch.setattr(mod, "RATE_LIMIT", 0.0)
+    # 用固定日期范围覆盖 20261101
+    from datetime import date as _d
+    monkeypatch.setattr(mod, "date", type("_D", (), {"today": staticmethod(lambda: _d(2026, 11, 2))}))
+
+    n = mod.collect(days=7, limit=None, dry_run=False, batch=10)
+    # 005827 已填被跳过, 不发 API
+    assert "005827" not in called
+    assert set(called) == {"005828", "005829"}
+    assert n >= 2
+
+
+# ── 分批(ISSUE-2) ────────────────────────────────────────────────────
+def test_batch_limits_per_run(tmp_db, monkeypatch):
+    """分批: 每轮最多采 batch 只, 超出的本轮不跑(剩余下轮续)。"""
+    funds = [(f"{i:06d}", f"FOF-{i}", "FOF-均衡型") for i in range(1, 6)]  # 5 只
+    _seed_basic(tmp_db, funds)
+    called = []
+
+    def fake_fetch(code, start, end):
+        called.append(code)
+        return [{"date": "20261101", "fund_code": code, "unit_nav": 1.2, "acc_nav": 1.2,
+                 "prev_unit_nav": 1.1, "nav_change_pct": 0.5}]
+
+    monkeypatch.setattr(mod, "fetch_lsjz", fake_fetch)
+    monkeypatch.setattr(mod, "RATE_LIMIT", 0.0)
+    from datetime import date as _d
+    monkeypatch.setattr(mod, "date", type("_D", (), {"today": staticmethod(lambda: _d(2026, 11, 2))}))
+
+    n = mod.collect(days=7, limit=None, dry_run=False, batch=2)
+    # batch=2, 只跑前 2 只
+    assert len(called) == 2
+    assert n >= 2
+
+
 def test_select_only_fof_qdii(tmp_db):
     """V3: 选基 SQL 只选 FOF/QDII, 不选股票型。"""
     _seed_basic(tmp_db, [

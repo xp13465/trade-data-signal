@@ -100,3 +100,19 @@ atexit.register(shutil.rmtree, _ENV_SHIM_DIR, ignore_errors=True)
 # 注册自定义 mark(避免 PytestUnknownMarkWarning; #333 批1 collect_fof_nav 用)
 def pytest_configure(config):
     config.addinivalue_line("markers", "network: 需真实外网(CI 默认跳过, 本机 -m network 手动跑)")
+
+
+# F2/ISSUE-1: network 标记的用例默认 skip(防 CI 全量 pytest 实跑东财 API 非确定性)。
+#   仅当①显式 `-m network` 或②环境变量 COLLECT_NETWORK_TESTS=1 开启时才实跑。
+#   CI 全量 pytest 走默认路径 ⇒ 收集到 network 用例自动 skip(CI 路径不跑网络)。
+def pytest_collection_modifyitems(config, items):
+    import pytest  # 局部 import, conftest 顶层已有 pytest 依赖(测试文件都 import)
+    markexpr = getattr(config.option, "markexpr", "") or ""
+    if markexpr and "network" in markexpr:
+        return  # 显式 -m network ⇒ 跑 network 用例, 不 skip
+    if os.environ.get("COLLECT_NETWORK_TESTS") == "1":
+        return  # 环境变量显式开启 ⇒ 跑, 不 skip
+    skip_net = pytest.mark.skip(reason="network 用例: CI 默认跳过(-m network 或 COLLECT_NETWORK_TESTS=1 手动跑)")
+    for it in items:
+        if "network" in {m.name for m in it.iter_markers()}:
+            it.add_marker(skip_net)
