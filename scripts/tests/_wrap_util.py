@@ -175,6 +175,7 @@ def run_unittest_module(module_name, min_tests, *, pre_import=None, isolate_repo
     mod_snapshot = _snapshot_modules()
     iso_dir = _isolate_repo_env() if isolate_repo else None
     _prepare(pre_import)
+    err = ""
     try:
         with ZeroOutboundTrap() as trap:
             mod = importlib.import_module(module_name)
@@ -182,15 +183,21 @@ def run_unittest_module(module_name, min_tests, *, pre_import=None, isolate_repo
                 _redirect_repo_paths(iso_dir)
             suite = unittest.defaultTestLoader.loadTestsFromModule(mod)
             buf = io.StringIO()
-            res = unittest.TextTestRunner(verbosity=2, stream=buf).run(suite)
-        out = buf.getvalue()
+            err_buf = _CapStdout()
+            # #318(2026-11-01): 同时收 stderr —— 用例/被测代码的强信号常写 stderr(logging/print(file=
+            # sys.stderr)), 只收 stdout(buf)会让排障时丢线索。out 语义不变(仍只含 TextTestRunner 输出)。
+            with contextlib.redirect_stderr(err_buf):
+                res = unittest.TextTestRunner(verbosity=2, stream=buf).run(suite)
+            out = buf.getvalue()
+            err = err_buf.getvalue()
     finally:
         _restore_modules(mod_snapshot)
         _restore_env(env_snapshot)
         if iso_dir is not None:
             shutil.rmtree(iso_dir, ignore_errors=True)
     assert res.wasSuccessful(), (
-        f"{module_name}: 有失败/异常用例(failures={len(res.failures)} errors={len(res.errors)})\n{out}")
+        f"{module_name}: 有失败/异常用例(failures={len(res.failures)} errors={len(res.errors)})\n{out}"
+        + (f"\n--- stderr 尾部 ---\n{err[-2000:]}" if err else ""))
     assert res.testsRun >= min_tests, (
         f"{module_name}: 仅跑到 {res.testsRun} 个用例(下限 {min_tests}), 疑似收集/执行异常(§18 L49)")
     assert trap.hits == [], f"{module_name}: 零外发被破坏(§18 L48) hits={trap.hits}"

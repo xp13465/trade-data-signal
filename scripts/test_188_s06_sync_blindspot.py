@@ -158,6 +158,23 @@ def run_verify_r2(td):
         sys.path.insert(0, str(SCRIPTS))
     import upload_r2 as u
 
+    # #317(2026-11-01): standalone 也冻结运行日 → 周一(非周日), 与 F 段/pytest 包装(_FakeDate)一致。
+    # 不冻结则真实星期日 weekday()==6 时 cmd_verify_r2 走「周日全量对账」, 经 ROOT 回退解析器
+    # (_resolve_lab_dir/_resolve_trade_sim_* , upload_r2.py:3790-3808)拖入主仓真实产物 → 大面积
+    # 404「不一致」误报(2026-10-25 周日实测 572/569, L51 时间炸弹族; pytest 包装已用 import 钩子冻结,
+    # standalone 直跑路径未冻结)。只覆盖 date.today(), 其余委托真 datetime(L51 教训: 不替换标准库类)。
+    import datetime as _dt
+    class _FakeDate(_dt.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 10, 5)      # 周一(非周日) → 走平日增量分支
+    class _FakeDT:
+        date = _FakeDate
+        datetime = _dt.datetime
+        timedelta = _dt.timedelta
+        timezone = _dt.timezone
+    _patch(u, datetime=_FakeDT)
+
     dd = pathlib.Path(td, "static-site", "data")
     (dd / "kelly_mode_s06_state.json").write_text('{"coverage_end":"20260930"}')
     (dd / "tiny.json").write_text('{"a":1}')

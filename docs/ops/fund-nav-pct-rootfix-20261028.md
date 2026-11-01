@@ -136,3 +136,12 @@
    的增量应同样低；若整日全空 ⇒ 回退路径没走到 `PrevNavCache`，查 `prev_col_date` 是否被正确传入。
 4. 回填执行后：`nav_change_pct IS NULL` 总量应从 78,455（10-28 云上实测）明显下降；
    10 月应从 49,295 降到 ≈26,505（按本版口径）。
+5. **下游产物 `position_estimate.json` 可读核**（#332 补，2026-11-01）：`nav_change_pct` 是
+   `_compute_position_estimate`（`app/collector/public_fund.py`）仓位反推的输入之一，回填后下游必须仍可正常产出。
+   合并次日核：① `curl -s https://ss.fx8.store/data/position_estimate.json | head -c 200` 应返回含
+   `report_date` / `current.position_estimate` 的 JSON（非 404 / 非空对象）；② 云上
+   `python3 -c "from app.collector.public_fund import _compute_position_estimate, get_conn; r=_compute_position_estimate(get_conn()); print(r.get('report_date'), r['current']['position_estimate'])"`
+   不抛异常且 `report_date` 为最近交易日；③ `scripts/check_data_integrity.py` 对
+   `fund_daily_nav` 的陈旧判定（`check_data_integrity.py:1738/1778`，position_estimate 反推 / IR-Alpha 基准）
+   不因本版多留的 NULL（跨多日正确留空）误判为停更——若误判，回查 `STALE_DAYS_FAIL` 口径是否把
+   「跨多日不补的 NULL」当成了「缺数据」。
