@@ -91,11 +91,28 @@ N=$(find "$BACKUP_DIR" -maxdepth 1 -name '*_*.db' 2>/dev/null | wc -l | tr -d ' 
 echo "当前备份数：${N}（${BACKUP_DIR}）" | tee -a "$LOG"
 
 # R2 异地备份（异地防盘毁：本地盘毁则 DB 与本地备份同失，R2 是底线）。
-# 失败不影响本地备份退出码（RC 保持本地备份结果）。
+# 失败不影响本地备份退出码（RC 保持本地备份结果），但独立发 notify --severe 告警
+# (#313, 2026-11-01：对照 verify_backup 内部告警, upload-db 失败不再静默只 echo)。
+# BACKUP_NOTIFY_DRY_RUN=1 时 --dry-run(验证用,不真发邮件, L48 打桩纪律)。
+R2_RC=0
 if [ -f "$REPO/scripts/upload_r2.py" ]; then
   echo "-> 推 R2 异地备份 ..." | tee -a "$LOG"
-  env R2_UPLOAD_LOCK_DOMAIN=backup_db R2_UPLOAD_LOCK_TIMEOUT=9000 "$PY" "$REPO/scripts/upload_r2.py" upload-db >> "$LOG" 2>&1 \
-    || echo "⚠ R2 上传失败(不影响本地备份) rc=$?" | tee -a "$LOG"
+  env R2_UPLOAD_LOCK_DOMAIN=backup_db R2_UPLOAD_LOCK_TIMEOUT=9000 "$PY" "$REPO/scripts/upload_r2.py" upload-db >> "$LOG" 2>&1 || R2_RC=$?
+  if [ "$R2_RC" -ne 0 ]; then
+    echo "⚠ R2 上传失败(不影响本地备份) rc=$R2_RC" | tee -a "$LOG"
+    if [ -f "$REPO/scripts/notify.py" ]; then
+      NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
+      DRY_FLAG=""
+      [ "${BACKUP_NOTIFY_DRY_RUN:-0}" = "1" ] && DRY_FLAG="--dry-run"
+      BODY="R2 异地备份上传失败(upload_r2.py upload-db 退出码=${R2_RC})。<br>时间：$NOW_STR<br>日志：$LOG<br>本地备份仍完成(RC=$RC)，但异地备份缺失，请排查（R2 凭据/网络/限流）。"
+      echo "-> 发送 R2 上传失败告警邮件 ..." | tee -a "$LOG"
+      "$PY" "$REPO/scripts/notify.py" "[告警] backup_db R2上传失败 rc=$R2_RC $(date '+%m-%d %H:%M')" "$BODY" --severe \
+        --from-prefix "[告警]" \
+        --alert-issue "backup_db.sh R2 上传失败(rc=$R2_RC)" \
+        --alert-log "$LOG" \
+        $DRY_FLAG 2>&1 | tee -a "$LOG" || true
+    fi
+  fi
 else
   echo "⚠ $REPO/scripts/upload_r2.py 不存在，跳过 R2 异地备份" | tee -a "$LOG"
 fi

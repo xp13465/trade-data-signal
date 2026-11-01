@@ -1101,6 +1101,13 @@ def _multipart_upload(key, total, read_part, content_type, bucket=None):
     st, data = s3_request("POST", key, payload=body,
                           query="uploadId=%s" % quote(upload_id, safe=""),
                           content_type="application/xml", bucket=bucket)
+    # complete 非 200: best-effort abort(DELETE?uploadId=), 与 part 失败/缺分片两分支同款;
+    # 避免 dangling multipart upload 仅靠 R2 lifecycle 兜底(#315, 2026-11-01)。
+    if st != 200:
+        try:
+            s3_request("DELETE", key, query="uploadId=%s" % quote(upload_id, safe=""), bucket=bucket)
+        except Exception:
+            pass
     return st, data
 
 
@@ -3565,9 +3572,30 @@ def _backup_public_fund_db(dbdir, repo, today):
     state = _load_db_backup_state(repo)
     prev = state.get("public_fund.db") or {}
     if prev.get("size") == st_before.st_size and prev.get("mtime_ns") == st_before.st_mtime_ns:
-        print(f"  public_fund.db 自上次备份({prev.get('date', '?')})未变更, 跳过"
-              f"(省 {st_before.st_size // 1024 // 1024}MB 上传)")
-        return True
+        # 跳过前核 R2 对象真实存在 + Content-Length==台账 gz_size(#312, 2026-11-01)：
+        # 仅信本地台账会致「台账在但 R2 对象被删→连续跳过」漏传。head 异常/404/不匹配→不跳过(重传,
+        # 安全侧: 宁可重传不漏传)。仅 public_fund 路径加该校验, 小库 cmd_upload_db 无 skip 不受影响。
+        prev_key = prev.get("key")
+        prev_gz_size = prev.get("gz_size")
+        skip_ok = False
+        if prev_key and prev_gz_size is not None:
+            try:
+                h_st, _etag, clen = s3_head(prev_key, bucket=BACKUP_BUCKET, keep_alive=True, with_len=True)
+            except Exception as e:
+                clen = None
+                h_st = None
+                print(f"  ⚠ public_fund.db head 校验异常({e!r}), 不跳过, 走重传")
+            if h_st == 200 and clen == prev_gz_size:
+                skip_ok = True
+            else:
+                print(f"  ⚠ public_fund.db head 不匹配(status={h_st}, R2 len={clen} != 台账 gz_size={prev_gz_size}),"
+                      f" 不跳过, 走重传")
+        else:
+            print(f"  ⚠ 台账缺 key/gz_size(prev={prev}), 不跳过, 走重传")
+        if skip_ok:
+            print(f"  public_fund.db 自上次备份({prev.get('date', '?')})未变更 + R2 对象核验存在, 跳过"
+                  f"(省 {st_before.st_size // 1024 // 1024}MB 上传)")
+            return True
     # 磁盘预检: 快照(≈源大小) + gz(≈30%) 必须放得下, 否则不冒险占满生产盘(全盘 59G 已用 89%)。
     need = int(st_before.st_size * 1.4)
     free = shutil.disk_usage(tempfile.gettempdir()).free
@@ -3680,19 +3708,38 @@ def cmd_upload_decommissioned(local, key_name):
       参考 cmd_upload_claude_backup 的 gzip+s3_request(PUT) 范式;key_name=上传后 R2 文件名,
         自动加 decommissioned/ 前缀。R2 key 建议带日期(如 xxx-20260903.gz)便于反查上传时刻。
     """
-    import gzip
+    import gzip, tempfile, shutil
     src = Path(local)
     if not src.exists():
         sys.exit(f"文件不存在: {src}")
-    raw = src.read_bytes()
-    if src.name.endswith((".gz", ".tar.gz")):
-        payload = raw  # 已压缩，直接传
-        size_note = f"{len(raw) // 1024}KB(已压缩直传)"
-    else:
-        payload = gzip.compress(raw, compresslevel=6)
-        size_note = f"{len(raw) // 1024}KB -> {len(payload) // 1024}KB gzip"
     key = f"decommissioned/{key_name}"
-    status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET)
+    src_size = src.stat().st_size
+    # 流式分片(#316, 2026-11-01): >_MULTIPART_THRESHOLD(100MB) 走 _upload_multipart_file@1130 流式
+    # 分片(每片现读现传, 峰值 ≈ 并发×片大小, 不整文件进内存); ≤阈值保持单 PUT。
+    # 已 .gz/.tar.gz 直接流式上传原始文件; 未压缩文件先落盘临时 gz 再按大小走流式/单 PUT,
+    # 上传完删 temp(禁 read_bytes 整文件进内存)。
+    already_gz = src.name.endswith((".gz", ".tar.gz"))
+    tmpdir = None
+    try:
+        if already_gz:
+            upload_path = str(src)
+            size_note = f"{src_size // 1024}KB(已压缩直传)"
+        else:
+            tmpdir = tempfile.mkdtemp(prefix="r2-decom-gz-")
+            gz_path = os.path.join(tmpdir, src.name + ".gz")
+            with open(src, "rb") as fin, gzip.GzipFile(gz_path, "wb", compresslevel=6, mtime=0) as gout:
+                shutil.copyfileobj(fin, gout, length=1024 * 1024)
+            upload_path = gz_path
+            gz_size = os.path.getsize(gz_path)
+            size_note = f"{src_size // 1024}KB -> {gz_size // 1024}KB gzip"
+        if os.path.getsize(upload_path) >= _MULTIPART_THRESHOLD:
+            status, data = _upload_multipart_file(key, upload_path, "application/gzip", bucket=BACKUP_BUCKET)
+        else:
+            with open(upload_path, "rb") as f:
+                status, data = s3_request("PUT", key, f.read(), content_type="application/gzip", bucket=BACKUP_BUCKET)
+    finally:
+        if tmpdir:
+            shutil.rmtree(tmpdir, ignore_errors=True)
     if status == 200:
         print(f"✓ {src.name} ({size_note}) -> {BACKUP_BUCKET}/{key} (私有桶,退役归档)")
         return key
