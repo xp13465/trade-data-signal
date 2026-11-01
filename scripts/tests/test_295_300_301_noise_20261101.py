@@ -151,6 +151,16 @@ class TestMidnightDedupState:
 #   ⑤ 通用 check_dedup(~L2119)
 # 本节用纯函数验证: 多规则同时命中时按固定序短路 → 单一抑制, 结果确定,
 # 与「概念上先调谁」无关(纯函数层不重新排 notify 顺序, 只验可观测结果稳定)。
+#
+# 举一反三·同模式覆盖来源(2026-11-01 #B 订正: 原降噪批报告张冠李戴标 test_282/245,
+# 实际如下, 已逐文件 grep 核实):
+#   · failed_units_daily_judge(集合未变+当日已报→跳过)→ test_240_alert_denoise_batch2
+#     _20261009.py:165-210(adr.failed_units_daily_judge 6 分支直测)
+#   · rollover(窗内命中/跨日首现/超窗/裁剪)→ test_264_alert_domain_budget_20261015
+#     .py:576-611(rollover_absorb_judge / rollover_prune 纯函数 + 吸收路径)
+#   · notice_budget(非 critical 重复类预算)→ 零独立直测; 同构「日预算+叠加序」由
+#     本节 #300(TestOverlayOrderDeterministic)投影覆盖(notify.py send() gate 固定序
+#     的纯函数层可观测结果, 不重跑 notify 主路径)。
 
 
 class TestOverlayOrderDeterministic:
@@ -312,6 +322,55 @@ class TestSuppressionLedgerRotation:
         kept = [ln for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
         assert len(kept) == 1 and json.loads(kept[0])["key"] == "good", \
             "坏行应跳过, 好行保留"
+
+    def test_rotation_truncates_at_max_rows_hard_cap(self, tmp_path, monkeypatch):
+        """#A(2026-11-01): 窗内行数 > SUPPRESSION_LEDGER_MAX_ROWS → 截断到上限, 不爆内存。
+
+        alert_denoise_rules.py:1988 的 `len(_kept) >= SUPPRESSION_LEDGER_MAX_ROWS` 硬上限
+        分支(#301 批只测 50000 行 < 200000, 未触该分支)。本用例 monkeypatch MAX_ROWS=5,
+        造 10 行全在 30 天窗内的台账 → 截断后留前 5 行 + marker 写 + 行不丢(保留前 MAX_ROWS 行)。
+        全程 tmp_path, 禁碰生产台账。
+        """
+        # 把硬上限压到 5(避免造 200000 行真台账 ~40MB 拖慢测试)
+        monkeypatch.setattr(adr, "SUPPRESSION_LEDGER_MAX_ROWS", 5)
+        p = adr.suppression_ledger_path(tmp_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        base = datetime.now() - timedelta(days=1)
+        rows = []
+        for i in range(10):
+            ts = (base + timedelta(seconds=i)).strftime("%Y-%m-%d %H:%M:%S")
+            rows.append(json.dumps({
+                "ts": ts, "day": ts[:10], "mechanism": "dedup",
+                "key": f"cap{i}", "source": "test",
+            }, ensure_ascii=False))
+        p.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+        adr._maybe_prune_suppression_ledger(p, datetime.now())
+
+        kept = [ln for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        # 截断到 MAX_ROWS=5(硬上限分支触发); 全在窗内 ⇒ 不是日期裁剪, 是上限裁剪
+        assert len(kept) == 5, f"应截断到 MAX_ROWS=5, 实得 {len(kept)} 行"
+        # 保留的是文件前 5 行(顺序保留, 不丢前段)
+        keys = [json.loads(ln)["key"] for ln in kept]
+        assert keys == [f"cap{i}" for i in range(5)], f"应保留前 5 行, 实得 {keys}"
+        # marker 写(说明轮转分支真的跑了, 不是短路)
+        marker = p.with_name(adr.SUPPRESSION_LEDGER_PRUNE_MARKER)
+        assert marker.exists(), "截断轮转应写 prune marker"
+
+    def test_rotation_max_rows_branch_distinguishable(self, tmp_path, monkeypatch):
+        """#A 反证判别力: MAX_ROWS=5 但只造 3 行(< 上限)→ 不截断, 全留(证明上例不是巧合)。"""
+        monkeypatch.setattr(adr, "SUPPRESSION_LEDGER_MAX_ROWS", 5)
+        p = adr.suppression_ledger_path(tmp_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        base = datetime.now() - timedelta(days=1)
+        rows = []
+        for i in range(3):
+            ts = (base + timedelta(seconds=i)).strftime("%Y-%m-%d %H:%M:%S")
+            rows.append(json.dumps({"ts": ts, "key": f"nocap{i}", "source": "t"}))
+        p.write_text("\n".join(rows) + "\n", encoding="utf-8")
+        adr._maybe_prune_suppression_ledger(p, datetime.now())
+        kept = [ln for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        assert len(kept) == 3, f"<上限应全留 3 行, 实得 {len(kept)}(判别力: 上例截断非巧合)"
 
 
 # ════════════════════════════════════════════════════════════════════

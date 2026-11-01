@@ -281,6 +281,85 @@ def test_316_uncompressed_temp_gz(monkeypatch, tmp_path):
          f"临时 gz 目录应被清理, 残留 {leftover}")
 
 
+# ══════════════════════ #C: cmd_upload_claude_backup 回归(同 #316 风格) ══════════════════════
+# 6da4031d1 给 cmd_upload_claude_backup 加了流式 multipart(>_MULTIPART_THRESHOLD)分支,
+# 但未补 committed 回归测试; 本节补大文件→multipart / 小文件→单 PUT 两条 + 反证判别力。
+# 零网络(§18 L48): monkeypatch _upload_multipart_file / s3_request 为 recorder, 不读凭证。
+def test_claude_backup_large_file_uses_multipart(monkeypatch, tmp_path):
+    """>阈值 → 走 _upload_multipart_file(流式分片, 不整文件进内存)。"""
+    # 造一个 claude-self-YYYYMMDD.tar.gz 命名的真实文件; 压低阈值避免写 100MB
+    src = tmp_path / "claude-self-20261101.tar.gz"
+    src.write_bytes(b"\x00" * 2048)
+    monkeypatch.setattr(ur, "_MULTIPART_THRESHOLD", 1024, raising=False)
+
+    multipart_called = []
+    single_put_called = []
+
+    def fake_multipart(key, path, content_type, bucket=None):
+        multipart_called.append((key, content_type, bucket))
+        return 200, b""
+
+    def fake_s3(method, key, payload=None, *, content_type=None, bucket=None, **kw):
+        single_put_called.append((method, key))
+        return 200, b""
+
+    monkeypatch.setattr(ur, "_upload_multipart_file", fake_multipart, raising=False)
+    monkeypatch.setattr(ur, "s3_request", fake_s3)
+    monkeypatch.setattr(ur, "BACKUP_BUCKET", "bk", raising=False)
+
+    ur.cmd_upload_claude_backup(str(src))
+    _chk(len(multipart_called) == 1, f">阈值应走 multipart, 实调 {len(multipart_called)} 次")
+    _chk(len(single_put_called) == 0, f">阈值不应单 PUT, 实单 PUT {len(single_put_called)} 次")
+    _chk(multipart_called[0][0] == "claude-backup/claude-self-20261101.tar.gz",
+         f"key 应为 claude-backup/ 前缀, 得 {multipart_called[0][0]}")
+    _chk(multipart_called[0][1] == "application/gzip", f"content_type 应 application/gzip, 得 {multipart_called[0][1]}")
+
+
+def test_claude_backup_small_file_single_put(monkeypatch, tmp_path):
+    """≤阈值 → 单 PUT(不进 multipart 分支)。"""
+    src = tmp_path / "claude-self-20261101.tar.gz"
+    src.write_bytes(b"\x00" * 512)  # < 阈值 1024
+    monkeypatch.setattr(ur, "_MULTIPART_THRESHOLD", 1024, raising=False)
+
+    multipart_called = []
+    single_put_called = []
+
+    def fake_multipart(key, path, content_type, bucket=None):
+        multipart_called.append(key)
+        return 200, b""
+
+    def fake_s3(method, key, payload=None, *, content_type=None, bucket=None, **kw):
+        single_put_called.append((method, key, content_type))
+        return 200, b""
+
+    monkeypatch.setattr(ur, "_upload_multipart_file", fake_multipart, raising=False)
+    monkeypatch.setattr(ur, "s3_request", fake_s3)
+    monkeypatch.setattr(ur, "BACKUP_BUCKET", "bk", raising=False)
+
+    ur.cmd_upload_claude_backup(str(src))
+    _chk(len(multipart_called) == 0, f"小文件不应走 multipart, 实调 {len(multipart_called)} 次")
+    _chk(len(single_put_called) == 1, f"小文件应单 PUT 1 次, 实 {len(single_put_called)} 次")
+    _chk(single_put_called[0][2] == "application/gzip", f"单 PUT content_type 应 application/gzip, 得 {single_put_called[0][2]}")
+
+
+def test_claude_backup_multipart_branch_distinguishable(monkeypatch, tmp_path):
+    """#C 反证判别力: 去掉流式分支(把 _upload_multipart_file 替换为会 FAIL 的探针)→
+    大文件本应走 multipart, 若分支被回退则 fake_s3 会被调(单 PUT 路径)→ 断言 multipart_called==1 失败。
+    此处正向验证判别力: 大文件 + 阈值压低 ⇒ 必走 multipart(与上例一致, 证明分支真在)。"""
+    src = tmp_path / "claude-self-20261102.tar.gz"
+    src.write_bytes(b"\x00" * 4096)
+    monkeypatch.setattr(ur, "_MULTIPART_THRESHOLD", 1024, raising=False)
+
+    multipart_called = []
+    monkeypatch.setattr(ur, "_upload_multipart_file",
+                        lambda key, path, ct, bucket=None: multipart_called.append(key) or (200, b""),
+                        raising=False)
+    monkeypatch.setattr(ur, "s3_request", lambda *a, **k: (200, b""))
+    monkeypatch.setattr(ur, "BACKUP_BUCKET", "bk", raising=False)
+    ur.cmd_upload_claude_backup(str(src))
+    _chk(len(multipart_called) == 1, f"大文件应必走 multipart(判别力), 实 {len(multipart_called)}")
+
+
 # ══════════════════════ 断言下限 ══════════════════════
 def test_zz_assertion_floor():
     _chk(_N[0] >= 12, f"断言数应 >=12, 实得 {_N[0]}")
