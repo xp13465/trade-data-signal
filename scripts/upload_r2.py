@@ -3771,10 +3771,18 @@ def cmd_upload_claude_backup(local_path=None):
         sys.exit(f"文件名日期解析失败: {src.name}")
     date_str = m.group(1)
     key = f"claude-backup/claude-self-{date_str}.tar.gz"
-    payload = src.read_bytes()
-    status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET, content_type="application/gzip")
+    # 流式分片(同 #316 模式, 2026-11-01): >_MULTIPART_THRESHOLD(100MB) 走 _upload_multipart_file@1130
+    # 流式分片(每片现读现传, 峰值 ≈ 并发×片大小, 不整文件进内存, 防 OOM);
+    # ≤阈值保持单 PUT。备份恒为 .tar.gz(已压缩), 直接按原始文件流式上传, 无需 temp gz。
+    upload_path = str(src)
+    src_size = os.path.getsize(upload_path)
+    if src_size >= _MULTIPART_THRESHOLD:
+        status, data = _upload_multipart_file(key, upload_path, "application/gzip", bucket=BACKUP_BUCKET)
+    else:
+        with open(upload_path, "rb") as f:
+            status, data = s3_request("PUT", key, f.read(), content_type="application/gzip", bucket=BACKUP_BUCKET)
     if status == 200:
-        print(f"✓ {src.name} ({len(payload) // 1024}KB) -> {BACKUP_BUCKET}/{key} (私有桶)")
+        print(f"✓ {src.name} ({src_size // 1024}KB) -> {BACKUP_BUCKET}/{key} (私有桶)")
     else:
         sys.exit(f"✗ 上传失败 status={status} {data.decode('utf-8', errors='replace')[:300]}")
 
