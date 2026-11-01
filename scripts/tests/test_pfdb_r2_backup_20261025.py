@@ -140,11 +140,27 @@ def test_public_fund_skips_when_source_unchanged(repo_dir, monkeypatch, quiet, c
     state = json.loads((repo_dir / "data" / ur._DB_BACKUP_STATE_FILE).read_text())
     assert state["public_fund.db"]["size"] == (repo_dir / "data" / "public_fund.db").stat().st_size
 
+    # #312(2026-11-01): 跳过前会 s3_head 校验 R2 对象存在 + Content-Length==台账 gz_size。
+    # 用台账里的 key/gz_size 构造 head 命中, 模拟「R2 对象真实存在且大小一致」。
+    pf_state = state["public_fund.db"]
+
+    def fake_head(key, *, bucket=None, with_len=False, keep_alive=False, **kw):
+        if key == pf_state["key"]:
+            clen = str(pf_state["gz_size"])  # str 匹配真实 getheader 返回类型
+            return (200, "etag-fake", clen) if with_len else (200, "etag-fake")
+        if with_len:
+            return 404, None, None
+        return 404, None
+
+    monkeypatch.setattr(ur, "s3_head", fake_head)
+
     fake.calls.clear()
+    capsys.readouterr()  # 清空首轮输出
     ur.cmd_upload_db()
     second = [c for c in fake.calls if c["method"] == "PUT" and c["key"].startswith("backup/public_fund_")]
-    assert second == [], "源库未变更时不应重复上传大库"
-    assert "未变更, 跳过" in capsys.readouterr().out
+    assert second == [], "源库未变更 + R2 对象存在时不应重复上传大库"
+    out2 = capsys.readouterr().out
+    assert "未变更" in out2 and "跳过" in out2, f"应提示未变更跳过, 实输出: {out2!r}"
 
 
 # ── ③ 源库不存在: 不计入分母 ─────────────────────────────────────────────────
