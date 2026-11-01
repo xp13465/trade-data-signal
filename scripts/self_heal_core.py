@@ -48,8 +48,20 @@ VERIFY_DEADLINE_SEC = 3 * 3600  # heal 后超过该时长仍无新运行记录 �
 ARTIFACT_SLACK_SEC = 60       # 产物 mtime 允许比 heal 起点早 60s(文件系统时间戳精度)
 RUN_START_SLACK_SEC = 5       # 只认「开始时间 ≥ heal 起点 - 5s」的运行(同机时钟,几乎零误差)
 RUN_INFLIGHT_MAX_SEC = 6 * 3600  # 重跑进行中超过 6h 仍未结束 → 判 FAIL(疑似卡死)
-_RECENT_RUNS = 20             # 日志证据里保留的最近运行条数(双源合并后,判据只需 heal 后第一条)
+_RECENT_RUNS = 20             # 日志证据里保留的最近运行条数默认值(可被环境变量覆盖,见 _recent_runs_limit)
 NOTIFY_DEDUP_WINDOW_SEC = 21600  # 告警去重窗 6h(四元组声明见模块 docstring)
+
+
+def _recent_runs_limit() -> int:
+    """日志证据里保留的最近运行条数;默认 _RECENT_RUNS,环境变量 `self_heal_recent_runs` 覆盖。
+
+    运行时读取(非 import 期固化),便于运维不重启进程按现场日志量调档;非法值回退默认。
+    """
+    try:
+        v = int(os.environ.get("self_heal_recent_runs") or _RECENT_RUNS)
+    except (TypeError, ValueError):
+        v = _RECENT_RUNS
+    return max(0, v)
 
 # 任务 → 目标产物(存在且新鲜 = heal 生效的**第二路证据**,与运行记录退出码互证)。
 # 只登记产出路径明确的 4 个任务;其余任务无稳定单产物,按「运行记录退出码」判定
@@ -88,6 +100,10 @@ def _task_entry(raw) -> dict:
     except (TypeError, ValueError):
         streak = 0
     last_heal = raw.get("last_heal_at")
+    # last_heal_at 语义:该任务最近一次触发 heal 的时点(ISO 字符串);None = 该任务
+    # 自本轮 state 起从未被 heal 过(新建条目/旧格式迁移条目)。各消费方均已 None-safe:
+    #   - reset_healthy_streaks:_parse_dt(None)→None,heal_at is None 时跳过「晚于 heal」判定;
+    #   - load_state 跨天保留 fail_streak/escalate_pending,last_heal_at 透传不依赖非空。
     entry = {"count": max(0, count), "fail_streak": max(0, streak),
              "last_heal_at": last_heal if isinstance(last_heal, str) else None}
     if isinstance(raw.get("last_verify"), dict):
@@ -295,7 +311,7 @@ def lookup_run_from_logs(task: str, spec: dict, log_dir, parser=None):
     out["runs"] = [{"start": r[0].isoformat(timespec="seconds"),
                     "end": r[1].isoformat(timespec="seconds"),
                     "exit": r[2], "source": r[3]}
-                   for r in runs[-_RECENT_RUNS:]]
+                   for r in runs[-_recent_runs_limit():]]
     return out
 
 
@@ -376,6 +392,7 @@ def verify_pending(state: dict, lookup_run, artifact_probe, now: datetime,
             src = f"[{source}]" if source else ""
 
         # ① 进行中:开始晚于最后一次结束 → 还在跑,不判死
+        direct_escalate = False  # 6h 卡死等单列升级路径置 True(直接升级,不等 fail_streak≥2)
         inflight = None
         if pend is not None and (end is None or pend > end):
             if pend >= heal_at - timedelta(seconds=RUN_START_SLACK_SEC):
@@ -384,6 +401,7 @@ def verify_pending(state: dict, lookup_run, artifact_probe, now: datetime,
             running_sec = (now - inflight).total_seconds()
             if running_sec > inflight_max_sec:
                 result = "FAIL"
+                direct_escalate = True  # 6h 疑似卡死:单列升级路径,首轮即升级不等连败计数
                 basis = (f"重跑{src} {_fmt(inflight)} 开始后 {running_sec / 3600:.1f}h "
                          f"仍未结束(超过上限 {inflight_max_sec // 3600}h,疑似卡死)")
             else:
@@ -439,6 +457,8 @@ def verify_pending(state: dict, lookup_run, artifact_probe, now: datetime,
             "basis": basis,
             "heal_at": p.get("heal_at"),
             "fail_streak": entry["fail_streak"],
+            "source_log": source,        # #285:归因证据来源日志(如 update_all_heal.log),可追溯
+            "direct_escalate": direct_escalate,  # #293:6h 卡死等单列升级路径标记
         })
     state["pending"] = keep
     return events
@@ -497,7 +517,9 @@ def escalation_targets(state: dict, events, threshold: int = ESCALATE_AFTER_FAIL
         if ev.get("result") != "FAIL":
             continue
         streak = int(ev.get("fail_streak") or 0)
-        if streak < threshold:
+        # direct_escalate(6h 疑似卡死等单列路径)首轮即升级,不等 streak≥阈值;
+        # 否则一次卡死要等两轮(每轮 15min)才告警,生产卡死拖半小时才有人知道。
+        if streak < threshold and not ev.get("direct_escalate"):
             continue
         targets[ev["task"]] = {"task": ev["task"], "streak": streak,
                                "basis": ev.get("basis", ""), "retry": False}
@@ -692,6 +714,12 @@ def run_cycle(*, repo, stats, state_path, audit_path, now: datetime,
             continue
         cmd = (heal_actions or {}).get(task)
         if not cmd:
+            append_audit(
+                audit_path,
+                f"WARN {task} 候选已选中但 HEAL_ACTIONS 未登记该任务的修复命令,跳过 "
+                f"(需在 self_heal.sh 的 HEAL_ACTIONS 补该任务命令,否则该任务失败永远不会被自愈) "
+                f"last_exit={cand['exit']} last_run={cand['last_run']}", now)
+            summary["skipped"].append({"task": task, "reason": "no_heal_action"})
             continue
         if intraday_skip(task, now):
             append_audit(audit_path,
