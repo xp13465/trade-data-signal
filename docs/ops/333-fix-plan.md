@@ -55,3 +55,16 @@
 ## 六、批2/批3 待办(不在本批)
 - 批2:份额类清理(QDII 后端/港币/美元现钞映射主份额);定开/封闭识别(封闭期 lsjz 空,从 fund_basic 状态剔除)。
 - 批3:历史回填(补 2026-10 整月 + 更早缺失);prev_unit_nav 跨日 gap 派生(fund_pct 联动)。
+
+## 七、部署进度(2026-11-02 起,四副本纪律 L54/L55)
+### 本步产物(只补仓库,不碰云上)
+- [x] `scripts/run_fof_nav_collect.sh` 包装层已新建(`chmod +x` + `bash -n` 语法 PASS);内容照抄 `docs/ops/333-systemd-unit-template.md` L48-74(交易日闸门 + `run_to 600` + 日志)。
+- [x] 入口核实:`python -m scripts.collect_fof_nav` 可运行(namespace package,`scripts/__init__.py` 不存在但 `-m` 可用);实际 CLI 参数=`--days/--limit/--batch/--dry-run`(**无 `--force`**,任务描述里写的 `--force` 不存在于代码,包装脚本亦未传该参数,以代码为准)。
+- [x] 测试:`pytest -q scripts/tests/test_collect_fof_nav_333.py` = 9 passed/1 skipped;全量 `pytest -q scripts/tests/` = 2279 passed/3 skipped(L52 铁律源码形状守卫全过)。
+- [x] feat 分支 `feat/333-batch1-deploy` 已建 + commit + push feat。
+
+### 待云上部署(等主控 SendMessage 派第二步)
+- [ ] 落 unit `trade-fof-nav-collect.service`(照模板 L21-33,`TimeoutStartSec=900`)
+- [ ] 落 timer `trade-fof-nav-collect.timer`(OnCalendar `*-*-* 21:10:00`,Persistent=true)
+- [ ] 手动小样验证:云上 `scripts/run_fof_nav_collect.sh` 非交易日→跳过;交易日→小样 `--limit 5` 观察日志/落库
+- [ ] 四副本同步(L55):代码 `.sh`(本步已就位)/ unit 生成源 doc(模板本文件已就位)/ 云上快照 dump 到 `docs/deploy/systemd-units-cloud-snapshot.txt` / 云上真实 unit 手动落+`systemctl show -p TimeoutStartUSec` 核生效值=900s
