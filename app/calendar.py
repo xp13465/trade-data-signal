@@ -18,8 +18,16 @@ def _load_trade_dates() -> set[str]:
         return {line.strip() for line in _CACHE_PATH.read_text().splitlines() if line.strip()}
     if ak is None:
         return set()
-    df = ak.tool_trade_date_hist_sina()
-    dates = {str(d).replace("-", "") for d in df["trade_date"]}
+    # #328: akshare 断网/限流时 _load_trade_dates 不得向上抛带崩采集链路;
+    # 根因修复(不只 calendar_available):在此兜底返回空集,空集被 lru_cache 缓存
+    # (避免同进程内每次调用都重试 akshare 的 retry storm),所有调用方
+    # (calendar_available/is_trading_day/last_trading_day 等)一并受保护。
+    # refresh_trade_dates 的 cache_clear() 可在恢复后重读。
+    try:
+        df = ak.tool_trade_date_hist_sina()
+        dates = {str(d).replace("-", "") for d in df["trade_date"]}
+    except Exception:  # noqa: BLE001  akshare ConnectionError/限流/解析异常 → 空集兜底
+        return set()
     _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     # 原子写：先写临时文件再 rename（与 refresh 路径通用，避免半写文件污染缓存）
     tmp = _CACHE_PATH.with_suffix(".txt.tmp")
@@ -70,7 +78,13 @@ def calendar_available() -> bool:
     日历不可用时 `is_trading_day()` 会退化成「周末启发式」= 自然日口径,那个口径对
     「前一交易日」这类判据是不安全的,宁可放弃派生(留 NULL)也不拿错口径算。
     """
-    return bool(_load_trade_dates())
+    # #328: _load_trade_dates 已在根因层兜底(akshare 失败返回空集);
+    # 此处再加一道 try/except 防 _load_trade_dates 因缓存文件损坏等
+    # 预期外原因抛异常带崩采集(防御纵深,正常路径不触发)。
+    try:
+        return bool(_load_trade_dates())
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def is_trading_day(d=None) -> bool:

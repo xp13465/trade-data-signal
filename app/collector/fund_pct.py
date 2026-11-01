@@ -39,6 +39,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections import OrderedDict
 from functools import lru_cache
 
 from ..calendar import calendar_available, last_trading_day
@@ -105,11 +106,17 @@ class PrevNavCache:
 
     每个基准日一条 SQL(走 `(date, fund_code)` 主键),之后的派生全部是内存 dict 查表。
     用 `navs_on()` 取到整日映射后,采集端/回填脚本可按需要再做统计,不必二次查库。
+
+    #329: 内存上限 = ``_MAX_DATES`` 个基准日映射(LRU 淘汰最旧)。全史回填按 fund_code/date
+    顺序遍历,旧基准日不再被访问,淘汰后重查也只是一条 SQL,不 OOM。正常采集/近期回填
+    命中率接近 100%(一日只需 1-2 个基准日)。
     """
+
+    _MAX_DATES = 64
 
     def __init__(self, conn):
         self._conn = conn
-        self._by_prev_date: dict[str, dict[str, float]] = {}
+        self._by_prev_date: OrderedDict[str, dict[str, float]] = OrderedDict()
 
     def navs_on(self, prev_date: str) -> dict[str, float]:
         """该交易日全部基金的 unit_nav 映射(首次访问才查库,之后命中缓存)。"""
@@ -121,6 +128,11 @@ class PrevNavCache:
                 "WHERE date=? AND unit_nav IS NOT NULL", (prev_date,)):
                 m[r[0]] = r[1]
             self._by_prev_date[prev_date] = m
+            # #329: LRU 上限 — 超过 _MAX_DATES 淘汰最旧(never-used-again 的基准日)
+            if len(self._by_prev_date) > self._MAX_DATES:
+                self._by_prev_date.popitem(last=False)
+        else:
+            self._by_prev_date.move_to_end(prev_date)
         return m
 
     def prev_nav(self, fund_code, date):

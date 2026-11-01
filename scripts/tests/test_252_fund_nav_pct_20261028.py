@@ -532,13 +532,21 @@ def test_c3_apply_fills_only_null_and_rollback(tmp_path):
 
 
 def test_c4_apply_idempotent(tmp_path):
-    """C4:apply 可中断可续跑——重跑一次写入 0 行(只补 NULL ⇒ 天然幂等)。"""
+    """C4:apply 可中断可续跑——重跑一次写入 0 行(只补 NULL ⇒ 天然幂等)。
+
+    #330: _verify_backup 加严(行数+integrity_check+抽样内容),apply 改了库后
+    旧备份内容不再匹配当前库 ⇒ 第二次 apply 前必须重新备份(生产同理:apply 改库后
+    旧备份就过期了)。旧版只比行数,apply 不改行数所以不报;新版抽样内容逐位比对
+    正确拦下「备份 != 当前库」。
+    """
     db = _bf_fixture(tmp_path)
     bak = _copy_db(db, tmp_path)
     log1 = tmp_path / "r1.jsonl"
     log2 = tmp_path / "r2.jsonl"
     assert bf.do_apply(db, "20261001", "20261031", 5000, log_path=log1, backup_path=bak) == 0
-    assert bf.do_apply(db, "20261001", "20261031", 5000, log_path=log2, backup_path=bak) == 0
+    # 第一次 apply 已改库,旧备份内容过期 → 重新备份(与生产一致)
+    bak2 = _copy_db(db, tmp_path)
+    assert bf.do_apply(db, "20261001", "20261031", 5000, log_path=log2, backup_path=bak2) == 0
     assert log2.read_text(encoding="utf-8") == ""
 
 

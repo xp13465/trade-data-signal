@@ -12,12 +12,13 @@ app/collector/public_fund.py:fetch_daily_nav（列名日期解析 + 未发布回
      累计净值/前日单价/日增长率，写回该日期行（COALESCE 只补空、不覆盖）。
   B) 链式回填：对每个 `--dates` 传入的日期 D，unit_nav(D) = 次一交易日行(D') 的
      prev_unit_nav（= D 的真实单位净值）；再派生 nav_change_pct(D) =
-     (unit_nav(D)/prev_unit_nav(D)-1)*100（D 行现存 prev_unit_nav 即有）。
+     `app/collector/fund_pct.calc_pct(unit_nav, prev_unit_nav)`（单一实现,
+     D 行现存 prev_unit_nav 即有,不再内联第二份公式）。
      acc_nav 在 B 路无来源 → **保持 NULL 并计数上报**，绝不推算（累计净值含分红，无法由单位
      净值反推）。
 
      口径差异(nit-2 订正, 2026-10-12 独立审查): B 路派生的 nav_change_pct 是 **raw 比值**
-     (unit_nav/prev_unit_nav-1), 而**采集器存的是数据源给的「日增长率」——分红日为调整口径**
+     (`calc_pct(unit_nav, prev_unit_nav)`, 与 #252/采集器同一实现),
      (源把当日分红额并入涨幅, 故与前一日累计净值口径自洽)。两者在**分红日**不等: 实测
      10-12 023751 (1.6215+0.086)/1.7446-1 = -2.13% 与源 pct 逐位吻合, acc−unit 差 0.086 =
      当日分红。故 B 路 pct 在分红日与源口径有微差(非缺陷、非造数; 事故 14 条不符即此根因);
@@ -38,7 +39,15 @@ import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_ROOT))
 _DEFAULT_DB = _ROOT / "data" / "public_fund.db"
+
+# #331: 消除本地第二份 pct 公式,统一 import app/collector/fund_pct.calc_pct(单一实现)
+try:
+    from app.collector.fund_pct import calc_pct  # noqa: E402
+except ImportError:  # 云上临时目录(同 #252 的兼容写法)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from fund_pct import calc_pct  # noqa: E402
 
 
 def _safe_float(v, default=None):
@@ -176,11 +185,21 @@ def chain_fill(c: sqlite3.Connection, date: str, dry: bool) -> dict:
         "UPDATE fund_daily_nav AS t SET unit_nav=(SELECT p.prev_unit_nav FROM fund_daily_nav p "
         "WHERE p.date=? AND p.fund_code=t.fund_code AND p.prev_unit_nav IS NOT NULL) "
         "WHERE t.date=? AND t.unit_nav IS NULL", (nxt, date))
-    # 派生涨跌幅（用该行现存 prev_unit_nav，口径与采集器一致：单位净值相对前一日 %）
-    c.execute(
-        "UPDATE fund_daily_nav SET nav_change_pct=ROUND((unit_nav/prev_unit_nav-1)*100,2) "
+    # #331: 派生涨跌幅统一走 app/collector/fund_pct.calc_pct(单一实现),
+    # 不再内联第二份 (unit_nav/prev_unit_nav-1)*100 公式(改一处漏一处风险)。
+    # 存储精度保持 ROUND(,2) 与历史一致(#252 存原始比值不取整,此处分历史数据
+    # 防微差,取整口径单独标注在函数 docstring「口径差异」段)。
+    pct_rows = c.execute(
+        "SELECT date, fund_code, unit_nav, prev_unit_nav FROM fund_daily_nav "
         "WHERE date=? AND unit_nav IS NOT NULL AND prev_unit_nav IS NOT NULL "
-        "AND prev_unit_nav>0 AND nav_change_pct IS NULL", (date,))
+        "AND prev_unit_nav>0 AND nav_change_pct IS NULL", (date,)).fetchall()
+    for pr in pct_rows:
+        pct = calc_pct(pr["unit_nav"], pr["prev_unit_nav"])
+        if pct is not None:
+            c.execute(
+                "UPDATE fund_daily_nav SET nav_change_pct=? "
+                "WHERE date=? AND fund_code=? AND nav_change_pct IS NULL",
+                (round(pct, 2), date, pr["fund_code"]))
     c.commit()
     print(f"[B] 已回填 {date}（unit_nav + 派生 nav_change_pct）")
     return dict(filled=n_fill)

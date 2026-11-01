@@ -68,6 +68,7 @@ except ImportError:  # 云上 dry-run 的临时目录（同一文件复制，内
 _DEFAULT_DB = Path(os.environ.get("REPO", str(_ROOT))) / "data" / "public_fund.db"
 _MAX_BATCH = 5000
 _SAMPLE_N = 20
+_VERIFY_SAMPLE_N = 50  # #330: _verify_backup 抽样内容逐位比对行数
 _SENTINEL = ("00000000", "99999999")
 
 
@@ -227,6 +228,10 @@ def _verify_backup(db: Path, backup_path: Path | None) -> tuple[bool, str]:
     判据（比「文件大小」硬）：①提供了路径 ②存在且是普通文件 ③不是当前库本身
     ④SQLite 文件头正确 ⑤`fund_daily_nav` 行数与当前库逐位相等（WAL 模式下用 `cp`
     拷出来的库可能缺最新提交 ⇒ 行数不等 ⇒ 拒绝，提示改用 `sqlite3 .backup`）。
+
+    #330 加严：⑥ 备份库 `PRAGMA integrity_check` == ok（物理损坏能拦）；
+    ⑦ 随机抽样 ``_VERIFY_SAMPLE_N`` 行,对 `unit_nav/prev_unit_nav/nav_change_pct`
+    逐位比对当前库（行数同但内容被篡改/截断的假备份能拦）。
     """
     if backup_path is None:
         return False, ("未提供 --backup-confirm；--apply 前必须先备份整库：\n"
@@ -242,23 +247,67 @@ def _verify_backup(db: Path, backup_path: Path | None) -> tuple[bool, str]:
             return False, f"--backup-confirm 不是 SQLite 库文件: {backup_path}"
     try:
         bconn = _open_ro(backup_path)
-        try:
-            n_backup = bconn.execute("SELECT COUNT(*) FROM fund_daily_nav").fetchone()[0]
-        finally:
-            bconn.close()
         conn = _open_ro(db)
         try:
+            # ⑥ #330: integrity_check
+            integ = str(bconn.execute("PRAGMA integrity_check").fetchone()[0]).lower()
+            if integ != "ok":
+                return False, f"备份完整性检查失败(PRAGMA integrity_check): {integ[:200]}"
+            # ⑤ 行数比对
+            n_backup = bconn.execute("SELECT COUNT(*) FROM fund_daily_nav").fetchone()[0]
             n_db = conn.execute("SELECT COUNT(*) FROM fund_daily_nav").fetchone()[0]
+            if n_backup != n_db:
+                return False, (f"备份与当前库不是一致副本：备份 fund_daily_nav={n_backup} 行，"
+                               f"当前库={n_db} 行。WAL 模式下 `cp` 可能丢最新提交，请用\n"
+                               f"  sqlite3 {db} \".backup /path/public_fund_backup.db\"\n重新备份后再 --apply")
+            # ⑦ #330: 抽样内容逐位比对
+            mismatch = _sample_verify(conn, bconn, n_db)
+            if mismatch > 0:
+                return False, (f"备份抽样内容比对失败：{mismatch}/{min(_VERIFY_SAMPLE_N, n_db)} 行"
+                               f"字段不一致（行数相同但内容被篡改/截断）。")
         finally:
+            bconn.close()
             conn.close()
     except sqlite3.Error as e:
         return False, f"--backup-confirm 打不开/不是本库结构: {backup_path}（{e}）"
-    if n_backup != n_db:
-        return False, (f"备份与当前库不是一致副本：备份 fund_daily_nav={n_backup} 行，"
-                       f"当前库={n_db} 行。WAL 模式下 `cp` 可能丢最新提交，请用\n"
-                       f"  sqlite3 {db} \".backup /path/public_fund_backup.db\"\n重新备份后再 --apply")
     size_mb = backup_path.stat().st_size / 1024 / 1024
-    return True, f"备份校验 PASS: {backup_path}（{size_mb:.1f}MB，{n_backup} 行，与当前库一致）"
+    return True, (f"备份校验 PASS: {backup_path}（{size_mb:.1f}MB，{n_backup} 行，"
+                  f"integrity_check=ok，抽样 {min(_VERIFY_SAMPLE_N, n_db)} 行逐位一致）")
+
+
+def _field_eq(a, b) -> bool:
+    """两字段逐位相等（None 与 None 相等；数值允许浮点噪声 1e-9）。"""
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    try:
+        return abs(float(a) - float(b)) <= 1e-9
+    except (TypeError, ValueError):
+        return str(a) == str(b)
+
+
+def _sample_verify(conn, bconn, n_db: int) -> int:
+    """随机抽样 ``_VERIFY_SAMPLE_N`` 行,对 unit_nav/prev_unit_nav/nav_change_pct 逐位比对。
+    返回不一致行数（0 = 全一致）。"""
+    sample_n = min(_VERIFY_SAMPLE_N, n_db)
+    rows = conn.execute(
+        "SELECT date, fund_code, unit_nav, prev_unit_nav, nav_change_pct "
+        "FROM fund_daily_nav ORDER BY RANDOM() LIMIT ?", (sample_n,)).fetchall()
+    mismatch = 0
+    for r in rows:
+        br = bconn.execute(
+            "SELECT unit_nav, prev_unit_nav, nav_change_pct "
+            "FROM fund_daily_nav WHERE date=? AND fund_code=?",
+            (r["date"], r["fund_code"])).fetchone()
+        if br is None:
+            mismatch += 1
+            continue
+        if not (_field_eq(r["unit_nav"], br["unit_nav"])
+                and _field_eq(r["prev_unit_nav"], br["prev_unit_nav"])
+                and _field_eq(r["nav_change_pct"], br["nav_change_pct"])):
+            mismatch += 1
+    return mismatch
 
 
 def do_apply(db: Path, date_from: str, date_to: str, batch_size: int,
