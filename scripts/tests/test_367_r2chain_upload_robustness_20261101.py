@@ -147,7 +147,7 @@ def test_312_head_size_mismatch_no_skip(monkeypatch, tmp_path):
     def fake_head(key, *, bucket=None, with_len=False, keep_alive=False, **kw):
         # 对象存在但大小与台账(50)不符
         if with_len:
-            return 200, "etag", 999
+            return 200, "etag", "999"  # str 匹配真实 getheader 返回类型
         return 200, "etag"
 
     monkeypatch.setattr(ur, "s3_head", fake_head)
@@ -174,7 +174,7 @@ def test_312_head_match_skips(monkeypatch, tmp_path):
 
     def fake_head(key, *, bucket=None, with_len=False, keep_alive=False, **kw):
         if with_len:
-            return 200, "etag", 50  # 匹配台账 gz_size=50
+            return 200, "etag", "50"  # str 匹配真实 getheader 返回类型; 匹配台账 gz_size=50
         return 200, "etag"
 
     upload_called = []

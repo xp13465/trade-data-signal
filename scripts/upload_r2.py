@@ -3585,7 +3585,7 @@ def _backup_public_fund_db(dbdir, repo, today):
                 clen = None
                 h_st = None
                 print(f"  ⚠ public_fund.db head 校验异常({e!r}), 不跳过, 走重传")
-            if h_st == 200 and clen == prev_gz_size:
+            if h_st == 200 and clen is not None and int(clen) == prev_gz_size:
                 skip_ok = True
             else:
                 print(f"  ⚠ public_fund.db head 不匹配(status={h_st}, R2 len={clen} != 台账 gz_size={prev_gz_size}),"

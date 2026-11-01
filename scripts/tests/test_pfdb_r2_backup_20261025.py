@@ -146,7 +146,7 @@ def test_public_fund_skips_when_source_unchanged(repo_dir, monkeypatch, quiet, c
 
     def fake_head(key, *, bucket=None, with_len=False, keep_alive=False, **kw):
         if key == pf_state["key"]:
-            clen = pf_state["gz_size"]
+            clen = str(pf_state["gz_size"])  # str 匹配真实 getheader 返回类型
             return (200, "etag-fake", clen) if with_len else (200, "etag-fake")
         if with_len:
             return 404, None, None
