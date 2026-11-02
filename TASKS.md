@@ -10,7 +10,7 @@
 
 > 🧭 **本次会话状态(2026-11-02,主控)——接力先看这段**
 > **①改了哪些**:#333 批1 FOF/QDII 净值独立采集器完成并合 main(`d223e228f`,CI #1017 success,云上已同步)。新增 `scripts/collect_fof_nav.py` 走天天基金 lsjz 历史 API 补 T-1/T-2 日净值,只补 NULL 不覆盖非空(COALESCE 库值优先)+ 跳过已填 + 分批 500 + 21:00+ 新 systemd unit 模板(内层 600/外层 900);覆盖 1796 只(FOF 1421 + QDII 375,ssh 实查)。reviewer 复验 9 点 PASS,§10.8 差集 2 条非阻断。配套 `docs/ops/333-fix-plan.md` + `docs/ops/333-systemd-unit-template.md`。
-> **②在跑 / 待办**:无在跑 agent,巡检 cron 已清,feat 分支与 worktree 已删。**批1 云上 timer 尚未部署**(待批1 数据验证后另派);批2/批3 待办见 pending-index #333(份额类清理 / 定开封闭识别 / 历史回填);§10.8 差集「skip 判据『范围内任一非空』需改『全填才跳』」→ 批2 跟进。
+> **②在跑 / 待办**:无在跑 agent,巡检 cron 已清,feat 分支与 worktree 已删。**批1 云上 timer 已部署**(2026-11-02,`trade-fof-nav-collect` 21:10 / TimeoutStartSec=900 / enabled,四副本已同步,reviewer PASS + tester 7/7;今晚 21:10 首跑,21:32 一次性 cron 已排只读核验);批2/批3 待办见 pending-index #333(份额类清理 / 定开封闭识别 / 历史回填);§10.8 差集「skip 判据『范围内任一非空』需改『全填才跳』」→ 批2 跟进。
 > **③状态**:main → `d223e228f`。#333 状态列已更新为「批1 完成 + 批2/3 待办」。
 > 📜 **上一轮落档(2026-10-14 上午,主控)——接力次看**
 > **①改了哪些**:①**#256 前提证伪、台账已撤销** —— 全史穷举扫描(1590 交易日)**100% 与 ≥95% NULL 日均为 0 个**;`2026-09-11` 云库 `26120 行 / NULL 仅 55`;**根因 = 原发现误用「本机 mac 库(陈旧镜像)」当生产事实证据**(本机该日仅 24015 行)⇒ 教训落 memory `prod-fact-must-use-cloud-authoritative-db` + 索引行。②**#254 遗留闭环** —— 10-13 09:40 盘中档首跑 **PASS**(rc=0 / `verdict=tolerate tier=silent` / **误拦无 · 漏拦无 · 豁免 0**)⇒ **不需要执行 confirm**;`rerun_date` 已由 `20261008` 前进到 `20261012`。③**两个锚点 PASS** —— 10-13 16:30 公募槽后 DB 24241 行 / 非空 22106(**无全 NULL 日**,#251 首验);10-14 02:00 a_fund 槽 **0 条「重采失败」**(修复后首验)。
