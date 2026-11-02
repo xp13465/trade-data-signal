@@ -4,7 +4,7 @@
 > 批1 只产代码 + 本模板;上线 timer 由主控派部署任务,届时同步四副本(代码/.sh/快照/云上 unit)。
 
 ## 时点
-- OnCalendar: `*-*-* 21:10:00`(仅交易日,脚本内 `is_trading_day` 闸门 + force 绕过)
+- OnCalendar: `*-*-* 21:10:00`(仅交易日,脚本内 `is_trading_day` 闸门;非交易日需手动验证时直调 `python -m scripts.collect_fof_nav`,不走包装脚本——CLI 无 `--force` 绕闸门参数)
 - 依据:21:00 backfill-evening 写 sentiment.db(不撞 public_fund.db)、21:20 futures 写期货;
   public_fund.db 写入任务只 16:20/17:00 daily + 03:00 quarterly(ssh list-timers 实测)
 
