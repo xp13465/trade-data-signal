@@ -110,8 +110,8 @@ PY
 import os, sys
 rc = int(os.environ.get("MOCK_REGISTRY_RC", "0"))
 if rc == 0:
-    print("登记表 43 个 .service; 真实集 43 个 .service (仅静态)")
-    print("✓ 无漂移: 登记表 43 == 真实集 43 个 .service")
+    print("登记表 44 个 .service; 真实集 44 个 .service (仅静态)")
+    print("✓ 无漂移: 登记表 44 == 真实集 44 个 .service")
 elif rc == 2:
     print("[FAIL] UNIT_REGISTRY 与真实 unit 漂移:", file=sys.stderr)
     print("  登记表多(已登记但 docs/systemd 找不到, 可能改名/删除未销账):", file=sys.stderr)

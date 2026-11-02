@@ -436,7 +436,7 @@ def test_fixture_service_timer_shape_matches_real_systemd(path):
     data = json.loads(path.read_text(encoding="utf-8"))
     svc = sorted(k for k in data if k.endswith(".service"))
     tmr = sorted(k for k in data if k.endswith(".timer"))
-    assert len(svc) == len(tmr) == 43, f"{path.name}: service/timer 不是 43+43"
+    assert len(svc) == len(tmr) == 44, f"{path.name}: service/timer 不是 44+44"
     assert {k[:-len(".service")] for k in svc} == {k[:-len(".timer")] for k in tmr}, \
         f"{path.name}: 存在没有同名 timer 的 service(漏跑检测会瞎)"
     for k in svc:

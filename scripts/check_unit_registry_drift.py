@@ -3,14 +3,14 @@
 (#309/#310 收尾 A, 2026-10-31)
 
 【为什么需要它(病灶)】
-  `gen_schedule_stats.py` 的 `UNIT_REGISTRY` 硬编码 43 个 unit(40 业务+基础 + 3 自监控)。
+  `gen_schedule_stats.py` 的 `UNIT_REGISTRY` 硬编码 44 个 unit(41 业务+基础 + 3 自监控)。
   `schedule_monitor.sh:_coverage_text` 用 `len(stats)+3` 算覆盖数 ⇒ 缺行时仍可能显示 43/43
   「OK 所有任务按计划执行」(假 OK, #309)。新增/改名 timer 若不进登记表 → 静默退出监控
   范围(#310: 24 个 timer 不在巡检范围的同类根因)。本脚本 = 把「登记表 vs 真实 unit 集」
   的漂移做成可机检闸门, 任一侧多/少一个 unit ⇒ 非零退出 + 明列差异。
 
 【口径(单事实源复用, 不新造第三份清单)】
-  - 登记表侧: `gen_schedule_stats.UNIT_REGISTRY`(43 个 `.service`, 含 3 个自监控);
+  - 登记表侧: `gen_schedule_stats.UNIT_REGISTRY`(44 个 `.service`, 含 3 个自监控);
   - 真实侧: 仿 `check_failed_units.collect_real_units()` = 静态(`docs/deploy/systemd-units-*.md`
     经 `gen_systemd_units.parse_units` 枚举) ∪ 动态(`systemctl list-unit-files` 现状);
   - 动态取不到(dev/CI 无 systemd)⇒ 回退静态集合 + 打 INFO(不崩、不因此放行);

@@ -83,7 +83,7 @@ import alert_denoise_rules as adr  # noqa: E402
 # main() 所有出口恒 return 0)。用于「先落签后 fire-and-forget 通知」病灶的回滚判定。
 from notify_sent import notify_sent, notify_state  # noqa: E402
 
-# #309 W1/W2/W3: systemd unit 真值(单一事实源) + 43 unit 登记表。
+# #309 W1/W2/W3: systemd unit 真值(单一事实源) + 44 unit 登记表。
 # 导入失败按「仅日志口径」降级(不崩监控), 但结论行会如实写覆盖降级。
 try:
     import unit_truth as ut  # noqa: E402
@@ -685,7 +685,7 @@ except Exception as e:
     print(f"[warn] gen_schedule_stats 刷新失败(读旧 schedule_stats.json): {e}", file=sys.stderr)
 
 # ── #309 W3/W5: 43 unit 真值扫描(含 3 自监控; ledger 单写者=本监控) ──
-# 覆盖口径见方案 §3.4: 40 业务/基础进执行统计表, 3 自监控不入表但仍做 unit 级体检。
+# 覆盖口径见方案 §3.4: 41 业务/基础进执行统计表, 3 自监控不入表但仍做 unit 级体检。
 EXIT_MODE = ut.exit_source_mode() if ut else "log"
 UNIT_REGISTRY = list(gss.UNIT_REGISTRY) if gss else []
 UNIT_REGISTRY_UNITS = {r.get("unit") for r in UNIT_REGISTRY if r.get("unit")}
@@ -763,8 +763,8 @@ def _in_progress_state(_s, _now):
 
 # ── #309 W3: 结论行合成(纯函数, AST 可抽取; 单测 test_309_ok_line_truth) ──
 # 铁律: 只有「无退出失败 + 无漏跑 + 无未知退出码 + 无 CFU failed」才允许打
-# 「OK 所有任务按计划执行」; 覆盖数必须每次写明(43/43 或仅日志 17/40)。
-COVERAGE_BUSINESS_TOTAL = 40
+# 「OK 所有任务按计划执行」; 覆盖数必须每次写明(44/44 或仅日志 17/41)。
+COVERAGE_BUSINESS_TOTAL = 41
 COVERAGE_SELF_MONITOR = 3
 LOG_CALIBER_COVERAGE = 17
 
@@ -1011,7 +1011,7 @@ def _failure_detail(s, now):
 def _coverage_text(stats):
     total = len([s for s in stats if isinstance(s, dict)]) + COVERAGE_SELF_MONITOR
     expected = COVERAGE_BUSINESS_TOTAL + COVERAGE_SELF_MONITOR
-    return f"覆盖 {total}/{expected}(40 业务+基础, 3 自监控)"
+    return f"覆盖 {total}/{expected}({COVERAGE_BUSINESS_TOTAL} 业务+基础, {COVERAGE_SELF_MONITOR} 自监控)"
 
 
 def _cfu_failed_units(out):
@@ -1061,14 +1061,14 @@ def _build_conclusion(stats, now, cfu_failed=0, alerts=0,
             names = "; ".join(
                 f"{s.get('task')}(exit={_stat_exit_code(s)})" for s in fails)
             return (f"{len(fails)} 个任务退出失败: {names}; "
-                    f"覆盖 {LOG_CALIBER_COVERAGE}/40(仅日志口径)")
+                    f"覆盖 {LOG_CALIBER_COVERAGE}/{COVERAGE_BUSINESS_TOTAL}(仅日志口径)")
         if alerts:
             return (f"有 {alerts} 条告警(见上方), 不判 OK"
-                    f"(仅日志口径, 覆盖 {LOG_CALIBER_COVERAGE}/40); 本机无 systemd")
+                    f"(仅日志口径, 覆盖 {LOG_CALIBER_COVERAGE}/{COVERAGE_BUSINESS_TOTAL}); 本机无 systemd")
         if not stats_refresh_ok:
             return (f"stats 刷新失败(本轮读旧快照), 不判 OK"
-                    f"(仅日志口径, 覆盖 {LOG_CALIBER_COVERAGE}/40); 本机无 systemd")
-        return "OK(仅日志口径, 覆盖 17/40; 本机无 systemd)"
+                    f"(仅日志口径, 覆盖 {LOG_CALIBER_COVERAGE}/{COVERAGE_BUSINESS_TOTAL}); 本机无 systemd")
+        return "OK(仅日志口径, 覆盖 17/41; 本机无 systemd)"
     fails = _failed_stats(stats)
     missed = [s for s in stats if s.get("unit_missed")]
     coverage = _coverage_text(stats)

@@ -268,8 +268,8 @@ LABEL_MAP = {
     "cloud_unit_patrol": "com.trade.cloud-unit-patrol",
 }
 
-# ── #309 W2(2026-10-25): 43 unit 全覆盖登记(方案 §3.2 全表, 用户拍板点 2 = A)──
-# 口径: 40 业务+基础进执行统计表; 3 个自监控 unit(monitor/self-heal/heartbeat)排除出表
+# ── #309 W2(2026-10-25): 44 unit 全覆盖登记(方案 §3.2 全表, 用户拍板点 2 = A)──
+# 口径: 41 业务+基础进执行统计表; 3 个自监控 unit(monitor/self-heal/heartbeat)排除出表
 #    但仍做 unit 级体检(monitor 自己算 3/3), 详见 schedule_monitor.sh 结论行。
 # 回滚第②层: 任一行改 `include: False` 即从表里消失(全部 False ⇒ 退回旧 19 行);
 #    `MONITOR_EXIT_SOURCE=log` 一键退回旧口径(单位行不输出 + 不读 systemd)。
@@ -297,7 +297,7 @@ TASK_UNITS = {
     "fetch_news": "trade-fetch-news.service",
 }
 
-# 21 个此前完全不在监控范围的 unit(只有 systemd 口径可行; 不硬编码时点)。
+# 22 个此前完全不在监控范围的 unit(只有 systemd 口径可行; 不硬编码时点)。
 UNIT_ONLY = [
     {"unit": "trade-ab-direction-anchor.service", "task": "ab_direction_anchor", "name": "AB方向锚"},
     {"unit": "trade-alert-weekly-review.service", "task": "alert_weekly_review", "name": "告警周报"},
@@ -306,6 +306,7 @@ UNIT_ONLY = [
     {"unit": "trade-daily-summary-supplement.service", "task": "daily_summary_supplement", "name": "摘要补采"},
     {"unit": "trade-etf-track-index.service", "task": "etf_track_index", "name": "ETF跟踪指数"},
     {"unit": "trade-fapi-daily.service", "task": "fapi_daily", "name": "fapi日采集"},
+    {"unit": "trade-fof-nav-collect.service", "task": "fof_nav_collect", "name": "FOF净值止漏"},
     {"unit": "trade-freeze-orphan-cleanup.service", "task": "freeze_orphan_cleanup", "name": "冻结表清理"},
     {"unit": "trade-gold-night.service", "task": "gold_night", "name": "黄金夜盘"},
     {"unit": "trade-kelly-intraday-rerun.service", "task": "kelly_intraday_rerun", "name": "凯利盘中重算"},
@@ -331,7 +332,7 @@ SELF_MONITOR_UNITS = [
 
 
 def _mk_registry():
-    """把 TASKS / EXTRA / UNIT_ONLY / SELF_MONITOR 展开成 43 行登记表。"""
+    """把 TASKS / EXTRA / UNIT_ONLY / SELF_MONITOR 展开成 44 行登记表。"""
     rows = []
     for t in TASKS:
         rows.append({
@@ -1619,7 +1620,7 @@ def _build_unit_only_row(row, now, unit_state, mode):
 
 
 def build(log_dir=None, out=None, now=None, unit_reader=None, ledger_path=None):
-    """生成 schedule_stats.json(日本批: 40 行全覆盖)。
+    """生成 schedule_stats.json(日本批: 41 行全覆盖)。
 
     参数(测试注入点, 生产不传):
       log_dir / out: 沙箱日志目录 / 输出文件(默认仓库内路径)
@@ -1633,7 +1634,7 @@ def build(log_dir=None, out=None, now=None, unit_reader=None, ledger_path=None):
     mode = ut.exit_source_mode()
     use_systemd = mode == "systemd" and (unit_reader is not None or ut.systemd_available())
     # 无 systemd 环境(本机 mac / 非 Linux)强制降级为旧日志口径: 只输出 19 行旧任务,
-    # 不把 21 个 unit-only 行写成"未知"(X6: 不许谎称 43/43)。
+    # 不把 22 个 unit-only 行写成"未知"(X6: 不许谎称 44/44)。
     eff_mode = mode if use_systemd else "log"
     included = [
         r for r in UNIT_REGISTRY

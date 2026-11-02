@@ -772,5 +772,23 @@
     "LastTriggerUSec": "2026-10-24 12:00:00",
     "Result": "success",
     "InvocationID": "517921daa1b2b523f0fe8bace6f6e9c1"
+  },
+  "trade-fof-nav-collect.service": {
+    "LoadState": "loaded",
+    "Result": "success",
+    "ExecMainCode": "1",
+    "ExecMainStatus": "0",
+    "ExecMainStartTimestamp": "2026-10-24 12:00:00",
+    "ExecMainExitTimestamp": "2026-10-24 12:05:00",
+    "InvocationID": "base-inv",
+    "ActiveState": "inactive"
+  },
+  "trade-fof-nav-collect.timer": {
+    "LoadState": "loaded",
+    "ActiveState": "active",
+    "NextElapseUSecRealtime": "2026-10-26 12:00:00",
+    "LastTriggerUSec": "2026-10-24 12:00:00",
+    "Result": "success",
+    "InvocationID": "fof-timer-inv"
   }
 }

@@ -423,11 +423,11 @@ else
 fi
 
 # 7.8c UNIT_REGISTRY 漂移机检(#309/#310 收尾 A, 2026-10-31)
-#     背景: gen_schedule_stats.UNIT_REGISTRY 硬编码 43 个 unit; schedule_monitor._coverage_text
-#     用 len(stats)+3 ⇒ 缺行时仍显 43/43 假 OK(#309); 新增/改名 timer 漏进登记表 ⇒ 静默退出
+#     背景: gen_schedule_stats.UNIT_REGISTRY 硬编码 44 个 unit; schedule_monitor._coverage_text
+#     用 len(stats)+3 ⇒ 缺行时仍显 44/44 假 OK(#309); 新增/改名 timer 漏进登记表 ⇒ 静默退出
 #     监控范围(#310: 24 timer 不在巡检范围同类根因)。本步对比「登记表 vs 真实 unit 集」
 #     (静态 docs §2 + 动态 systemctl), 任一侧多/少一个 .service ⇒ 阻断 merge。
-#     本机无 systemd ⇒ 回退静态 docs 集合(43 个), 拦「登记表 vs 文档」漂移; 云上巡检另挂。
+#     本机无 systemd ⇒ 回退静态 docs 集合(44 个), 拦「登记表 vs 文档」漂移; 云上巡检另挂。
 echo "--- UNIT_REGISTRY 漂移机检(#309/#310 收尾 A) ---"
 if [[ "$DRY_RUN" == "1" ]]; then
   echo "  [dry-run] 跳过 UNIT_REGISTRY 漂移机检"

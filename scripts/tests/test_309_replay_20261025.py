@@ -35,14 +35,14 @@ X1_EXPECT = (
     "2 个任务退出失败: "
     "pf-score-daily(Result=timeout, exit=124, 16:00:01→16:10:01); "
     "s06-snapshot(Result=exit-code, exit=124, 10-23 20:35:01→20:58:01); "
-    "漏跑 0; 覆盖 43/43(40 业务+基础, 3 自监控)"
+    "漏跑 0; 覆盖 44/44(41 业务+基础, 3 自监控)"
 )
 X2_EXPECT = (
     "1 个任务退出失败: lhb-backfill(exit=1, 源=systemd; "
     "日志 deploy=1 且无 退出码=, exit_conflict=true); "
-    "漏跑 0; 覆盖 43/43(40 业务+基础, 3 自监控)"
+    "漏跑 0; 覆盖 44/44(41 业务+基础, 3 自监控)"
 )
-X3_EXPECT = "OK 所有任务按计划执行，无漏跑，无退出失败; 覆盖 43/43(40 业务+基础, 3 自监控)"
+X3_EXPECT = "OK 所有任务按计划执行，无漏跑，无退出失败; 覆盖 44/44(41 业务+基础, 3 自监控)"
 
 
 def _load_units(name):
@@ -139,7 +139,7 @@ def test_three_cases_do_not_cross_contaminate(tmp_path):
     x1_rows, x1_text = _run(tmp_path / "x1", _load_units("x1_units.json"), X1_NOW, "x1")
     x2_rows, x2_text = _run(tmp_path / "x2", _load_units("x2_units.json"), X2_NOW, "x2")
     x3_rows, x3_text = _run(tmp_path / "x3", _load_units("x3_units.json"), X3_NOW, "x3")
-    assert (len(x1_rows), len(x2_rows), len(x3_rows)) == (40, 40, 40)
+    assert (len(x1_rows), len(x2_rows), len(x3_rows)) == (41, 41, 41)
     assert x1_text == X1_EXPECT and x2_text == X2_EXPECT and x3_text == X3_EXPECT
     assert x1_text != x2_text != x3_text
     # X1 的失败不得漏进 X3 / X2 的行里
