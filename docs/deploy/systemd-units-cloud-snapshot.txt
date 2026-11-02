@@ -237,6 +237,18 @@ ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-
 TimeoutStartSec=1080
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.err
+@@@FILE:trade-fof-nav-collect.service
+[Unit]
+Description=Trade FOF/QDII net-value collector (#333 batch1, 源 com.trade.fof-nav-collect)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_fof_nav_collect.sh
+TimeoutStartSec=900
 @@@FILE:trade-freeze-orphan-cleanup.service
 [Unit]
 Description=Trade freeze-orphan-cleanup daily 21:50 dry-run (源 #124)
@@ -685,9 +697,6 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/turnover_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-# 云上实测 systemctl show -p TimeoutStartUSec ⇒ infinity(0=无界);真正的外层墙在 shell run_to
-# (#364 二版 2026-10-30: 外层 shell run_to = intraday 2760 / data-large 4980, 内层工作预算 900 / 3120;
-#  均为 等锁 1800 + 工作 + 60 的算式值, 与实际 unit 无关(本行 TimeoutStartSec=0 无界))
 TimeoutStartSec=0
 @@@FILE:trade-update-all.service
 [Unit]
@@ -862,6 +871,16 @@ Description=Trade fetch-news hourly :01/:45 (源 com.trade.fetch-news)
 
 [Timer]
 OnCalendar=*-*-* *:01,45:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-fof-nav-collect.timer
+[Unit]
+Description=Trade FOF/QDII nav collect daily 21:10
+
+[Timer]
+OnCalendar=*-*-* 21:10:00
 Persistent=true
 
 [Install]

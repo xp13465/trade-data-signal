@@ -1744,6 +1744,43 @@ StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/freeze_cleanup_laun
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/freeze_cleanup_launchd.err
 ```
 
+### 2.41 fof-nav-collect(每日 21:10,#333 批1 FOF/QDII 净值止漏)
+
+> 追加于 2026-11-02(#333 批1,用户 2026-11-01 拍板方案 A 独立采集器走历史 API 止漏):非迁移批新增(无 launchd 源)。生成源模板见 `docs/ops/333-systemd-unit-template.md`,四副本纪律 L54/L55。
+> - script:`scripts/run_fof_nav_collect.sh`(交易日闸门 `is_trading_day` + `run_to 600` + STAMP 日志 `data/logs/fof_nav_collect_*.log`)→ 调 `python -m scripts.collect_fof_nav`(只补 NULL,幂等不覆盖)
+> - 时点依据(§14):每日 21:10 盘后;21:00 backup-db 写 sentiment.db、21:10 turnover-backfill 写 sentiment.db、21:15 ab-direction-anchor 写 sentiment.db——均不撞 public_fund.db(本任务唯一写入对象);public_fund.db 写入任务只 16:20 daily + 17:00 estimation + 03:00 quarterly + 22:00 full,21:10 无重叠
+> - `Persistent=true` 保证宕机错过当日补跑
+> - 预算(内外层成对 L55,按分批后最坏路径复算):FOF/QDII 共 1796 只,每轮 BATCH_SIZE=500;最坏 ~350s;内层 `run_to 600`(余量 250s);外层 `TimeoutStartSec=900`(梯度 300s,外>内留梯度)
+> - 云上首次部署(2026-11-02):`systemctl show -p TimeoutStartUSec`=`15min`、is-enabled=enabled、next=21:10;手动小样 `--limit 5 --days 5` written=8(冲突 no-op,5 只 nulls=0 无 NULL 可补)、0 覆盖(60 行 presnap 逐位零覆盖、计数/max_date 不变)
+
+`trade-fof-nav-collect.timer`:
+```ini
+[Unit]
+Description=Trade FOF/QDII nav collect daily 21:10
+
+[Timer]
+OnCalendar=*-*-* 21:10:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-fof-nav-collect.service`:
+```ini
+[Unit]
+Description=Trade FOF/QDII net-value collector (#333 batch1, 源 com.trade.fof-nav-collect)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_fof_nav_collect.sh
+TimeoutStartSec=900
+```
+
 ## 7. 落地注意事项(stage4 用)
 
 1. **只生成配置,不 enable/start**:本文件是配置落档;`systemctl daemon-reload && systemctl enable --now trade-<name>.timer` 由阶段4 执行。

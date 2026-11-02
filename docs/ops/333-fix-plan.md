@@ -64,7 +64,15 @@
 - [x] feat 分支 `feat/333-batch1-deploy` 已建 + commit + push feat。
 
 ### 待云上部署(等主控 SendMessage 派第二步)
-- [ ] 落 unit `trade-fof-nav-collect.service`(照模板 L21-33,`TimeoutStartSec=900`)
-- [ ] 落 timer `trade-fof-nav-collect.timer`(OnCalendar `*-*-* 21:10:00`,Persistent=true)
-- [ ] 手动小样验证:云上 `scripts/run_fof_nav_collect.sh` 非交易日→跳过;交易日→小样 `--limit 5` 观察日志/落库
-- [ ] 四副本同步(L55):代码 `.sh`(本步已就位)/ unit 生成源 doc(模板本文件已就位)/ 云上快照 dump 到 `docs/deploy/systemd-units-cloud-snapshot.txt` / 云上真实 unit 手动落+`systemctl show -p TimeoutStartUSec` 核生效值=900s
+- [x] 落 unit `trade-fof-nav-collect.service`(TimeoutStartSec=900;ExecStart 直调 `/bin/bash /home/ubuntu/code/trade-data/scripts/run_fof_nav_collect.sh`,非 `bash -c`——审计脚本 sh_target 取末位 token endswith .sh,`bash -c '...'` 单引号致末位带 `'` 漏检 run_to,改直调与既有 unit 同惯例)
+- [x] 落 timer `trade-fof-nav-collect.timer`(OnCalendar `*-*-* 21:10:00`,Persistent=true)
+- [x] 核生效:`systemctl show -p TimeoutStartUSec`=`15min`(=900s)、`is-enabled`=enabled、下次触发=Mon 2026-11-02 21:10(今天周一交易日,今晚首跑)
+- [x] 手动小样(2026-11-02 08:06,开盘前):5 只 FOF(017579/018302/018303/017184/018498)`REPO=... .venv/bin/python -m scripts.collect_fof_nav --limit 5 --days 5` → written=8 ok=4 fail=1;**无覆盖证明**:5 只 nulls=0、API 返回日期均已存在→ON CONFLICT+COALESCE(库值,新值)=库值→8 次 upsert 全 no-op,5 只行数(694/681/681/682/726)与 max_date(20260602/0602/0602/0609/0612)跑前后完全不变、60 行 presnap 逐位零覆盖。fail=1=该只近 5 日 lsjz 无数据。
+- [x] 四副本同步(L55):①代码 `.sh`(git)②生成源 doc(333 模板 + 主 doc §2.41 已登记)③云上快照 `docs/deploy/systemd-units-cloud-snapshot.txt`(88 unit)④云上真实 unit
+- [x] 四项校验全绿:`--check-doc`(doc==快照 88 unit)/`--check-snapshot` 云上(快照==云上 88 unit)/梯度(fof outer 900 inner run_to 600 余量 300s 无倒挂)/`--align-doc`(0 处)
+- [x] 附带修正:本次同步发现 trade-turnover-backfill.service 云上 unit 早已删 3 行注释、旧快照未跟的既存漂移(L54),新快照已反映云上真值(非本次改动)
+- [x] feat 分支 `feat/333-batch1-deploy-snapshot` 已建 + commit + push feat
+
+### 今晚首跑观察点(2026-11-02 21:10)
+- timer 今晚 21:10 首次真实触发(今天周一交易日);观察 `data/logs/fof_nav_collect_*.log` 与 public_fund.db 落行
+- 主控 §0 验证点:21:10 后 `journalctl -u trade-fof-nav-collect.service --since "2026-11-02 21:10"` + `systemctl status trade-fof-nav-collect.service`

@@ -28,7 +28,7 @@ Type=oneshot
 User=ubuntu
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=REPO=/home/ubuntu/code/trade-data
-ExecStart=/bin/bash -c '/home/ubuntu/code/trade-data/scripts/run_fof_nav_collect.sh'
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_fof_nav_collect.sh
 TimeoutStartSec=900
 ```
 
