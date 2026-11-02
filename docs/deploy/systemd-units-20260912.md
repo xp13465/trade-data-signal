@@ -1748,8 +1748,8 @@ StandardError=append:/home/ubuntu/code/trade-data/data/logs/freeze_cleanup_launc
 
 > 追加于 2026-11-02(#333 批1,用户 2026-11-01 拍板方案 A 独立采集器走历史 API 止漏):非迁移批新增(无 launchd 源)。生成源模板见 `docs/ops/333-systemd-unit-template.md`,四副本纪律 L54/L55。
 > - script:`scripts/run_fof_nav_collect.sh`(交易日闸门 `is_trading_day` + `run_to 600` + STAMP 日志 `data/logs/fof_nav_collect_*.log`)→ 调 `python -m scripts.collect_fof_nav`(只补 NULL,幂等不覆盖)
-> - 时点依据(§14):每日 21:10 盘后;21:00 backup-db 写 sentiment.db、21:10 turnover-backfill 写 sentiment.db、21:15 ab-direction-anchor 写 sentiment.db——均不撞 public_fund.db(本任务唯一写入对象);public_fund.db 写入任务只 16:20 daily + 17:00 estimation + 03:00 quarterly + 22:00 full,21:10 无重叠
-> - `Persistent=true` 保证宕机错过当日补跑
+> - 时点依据(§14):每日 21:10 盘后;21:00 backup-db 写 sentiment.db、21:10 turnover-backfill 写 sentiment.db、21:15 ab-direction-anchor 写 sentiment.db——均不撞 public_fund.db(本任务唯一写入对象);public_fund.db 写入任务(2026-11-02 云上 `systemctl cat` 实查):`trade-public-fund-daily.timer` 16:20+17:00(写 fund_daily_nav 净值表)、`trade-public-fund-estimation.timer` 10:00/11:00/13:30/14:30(写 fund_estimation_nav 估算表)、`trade-public-fund-full.timer` 22:00、`trade-public-fund-quarterly.timer` 03:00/04:00/07:00;21:10 无重叠
+> - `Persistent=true` 保证宕机错过当日补跑;宕机跨日补跑若落在非交易日会被 `is_trading_day` 闸门拦住,靠 `--days 7` 默认窗口在下个交易日自然拾回(只补 NULL,幂等)
 > - 预算(内外层成对 L55,按分批后最坏路径复算):FOF/QDII 共 1796 只,每轮 BATCH_SIZE=500;最坏 ~350s;内层 `run_to 600`(余量 250s);外层 `TimeoutStartSec=900`(梯度 300s,外>内留梯度)
 > - 云上首次部署(2026-11-02):`systemctl show -p TimeoutStartUSec`=`15min`、is-enabled=enabled、next=21:10;手动小样 `--limit 5 --days 5` written=8(冲突 no-op,5 只 nulls=0 无 NULL 可补)、0 覆盖(60 行 presnap 逐位零覆盖、计数/max_date 不变)
 

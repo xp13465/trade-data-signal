@@ -1,12 +1,18 @@
-# #333 批1 systemd unit 模板(生成源, 云上部署待批1 验证后由主控派部署任务)
+# #333 批1 systemd unit 模板(生成源,云上已部署)
 
-> 本文件是 unit 生成源(四副本纪律 L54/L55 之一)。**云上真实 unit 部署不在本批范围**——
-> 批1 只产代码 + 本模板;上线 timer 由主控派部署任务,届时同步四副本(代码/.sh/快照/云上 unit)。
+> 本文件是 unit 生成源(四副本纪律 L54/L55 之一)。**云上已部署(2026-11-02,TimeoutStartSec=900,21:10)**;
+> 本文件仍是生成源,改动须四副本同步(代码 .sh / 本模板 / 主 doc §2.41 / 云上快照 / 云上真实 unit)。
 
 ## 时点
 - OnCalendar: `*-*-* 21:10:00`(仅交易日,脚本内 `is_trading_day` 闸门;非交易日需手动验证时直调 `python -m scripts.collect_fof_nav`,不走包装脚本——CLI 无 `--force` 绕闸门参数)
-- 依据:21:00 backfill-evening 写 sentiment.db(不撞 public_fund.db)、21:20 futures 写期货;
-  public_fund.db 写入任务只 16:20/17:00 daily + 03:00 quarterly(ssh list-timers 实测)
+- 依据:21:00 backup-db 写 sentiment.db(不撞 public_fund.db)、21:10 turnover-backfill 写 sentiment.db、21:15 ab-direction-anchor 写 sentiment.db、21:20 futures 写期货——均不撞 public_fund.db(本任务唯一写入对象)
+- public_fund.db 写入任务(2026-11-02 云上 `systemctl cat <unit>.timer` 实查):
+  - `trade-public-fund-daily.timer`:16:20 + 17:00(2 点,写 fund_daily_nav 净值表)
+  - `trade-public-fund-estimation.timer`:10:00/11:00/13:30/14:30(4 点,写 fund_estimation_nav 估算表,非净值表)
+  - `trade-public-fund-full.timer`:22:00
+  - `trade-public-fund-quarterly.timer`:03:00/04:00/07:00(3 点)
+  - 21:10 无重叠(本任务 run_to 600 上限 21:20,与 22:00 full 隔 40 分钟)
+- Persistent=true 补注:宕机跨日补跑若落在非交易日会被 is_trading_day 闸门拦住,靠 `--days 7` 默认窗口在下个交易日自然拾回(只补 NULL,幂等)
 
 ## 预算(内外层成对 L55, 按分批后最坏路径复算)
 - 实测口径: FOF/QDII 共 1796 只(FOF 1421 + QDII 375, ssh 云上 public_fund.db 实查 2026-11-02)。

@@ -73,6 +73,11 @@
 - [x] 附带修正:本次同步发现 trade-turnover-backfill.service 云上 unit 早已删 3 行注释、旧快照未跟的既存漂移(L54),新快照已反映云上真值(非本次改动)
 - [x] feat 分支 `feat/333-batch1-deploy-snapshot` 已建 + commit + push feat
 
+### 复验记录(2026-11-02,reviewer + tester)
+- reviewer PASS:3 条非阻断差集(template 头措辞 / 主 doc §2.41 时点误标 17:00=estimation / Persistent 拾回未述)→ 本批文档校正已逐条修正
+- tester PASS 7/7:2 条偏差(dry-run 模式 written 计数命名与实跑略异;模板 force 措辞与 CLI 不符——已于批1第3步修正)
+- 关键纠正:reviewer 初报称 daily timer 无 17:00、OnCalendar=10:00/11:00/13:30/14:30;实施侧 ssh `systemctl cat trade-public-fund-daily.timer` 实查 = 16:20+17:00,而 10:00/11:00/13:30/14:30 属 `trade-public-fund-estimation.timer`(写 fund_estimation_nav 估算表,非净值表)——reviewer 混淆 daily↔estimation;已按真实值校正文档(§23.11 不静默,如实落档)
+
 ### 今晚首跑观察点(2026-11-02 21:10)
 - timer 今晚 21:10 首次真实触发(今天周一交易日);观察 `data/logs/fof_nav_collect_*.log` 与 public_fund.db 落行
 - 主控 §0 验证点:21:10 后 `journalctl -u trade-fof-nav-collect.service --since "2026-11-02 21:10"` + `systemctl status trade-fof-nav-collect.service`
