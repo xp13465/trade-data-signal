@@ -209,6 +209,128 @@ def test_batch_fail_discriminator_red(tmp_db, monkeypatch):
     )
 
 
+# ── 场景 a: 待采 N 只全部合法空(LSJZList=[]) → exit 0, 不误报, empty=N ──
+def test_legit_empty_response_all_no_alarm(tmp_db, monkeypatch):
+    """验收 a(F01-R1): 待采 N 只全部合法空(区间内无净值, 封闭期/份额类常态)
+    → LAST_BATCH_FAILED=False, empty=N, error=0, 不打印 BATCH_FAIL。
+
+    改前红证据: 旧判定 batch_fail = had_pending and ok==0 and written==0
+    (无 error_count>0 守卫) → 本场景 ok=0/written=0/had_pending=True ⇒ 误置位
+    ⇒ LAST_BATCH_FAILED=True ⇒ exit 2 假告警(回归)。
+    """
+    _seed_basic(tmp_db, [
+        ("005827", "FOF-A", "FOF-均衡型"),
+        ("005828", "FOF-B", "FOF-进取型"),
+        ("005829", "FOF-C", "FOF-稳健型"),
+    ])
+    # 合法空: fetch_lsjz 正常返回 [](LSJZList=[])
+    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, s, e: [])
+    monkeypatch.setattr(mod, "RATE_LIMIT", 0.0)
+    from datetime import date as _d
+    monkeypatch.setattr(mod, "date",
+                        type("_D", (), {"today": staticmethod(lambda: _d(2026, 11, 2))}))
+
+    n = mod.collect(days=7, limit=None, dry_run=False)
+    assert n == 0  # 零写入(合法空, 不是失败)
+    assert mod.LAST_BATCH_FAILED is False  # 合法空不误报整批失败(F01-R1 修复点)
+
+
+# ── 场景 b: 全部真实异常(TimeoutError) → exit 2(既有行为不回归) ────────
+def test_all_timeout_exit2(tmp_db, monkeypatch):
+    """验收 b: 待采 N 只全部 TimeoutError(真实异常)→ LAST_BATCH_FAILED=True。
+    与既有场景 2(RuntimeError)同语义, 显式覆盖 TimeoutError 这类 urlopen 真异常。
+    """
+    _seed_basic(tmp_db, [
+        ("005827", "FOF-A", "FOF-均衡型"),
+        ("005828", "FOF-B", "FOF-进取型"),
+    ])
+
+    def fake_fetch(code, start, end):
+        raise TimeoutError("mock urlopen 超时")
+
+    monkeypatch.setattr(mod, "fetch_lsjz", fake_fetch)
+    monkeypatch.setattr(mod, "RATE_LIMIT", 0.0)
+
+    mod.collect(days=7, limit=None, dry_run=False)
+    assert mod.LAST_BATCH_FAILED is True  # 真实异常全失败 → 整批失败信号置位
+
+
+# ── 场景 c: 合法空 + 真实异常混合、无成功、零写入 → exit 2 ────────────
+def test_mixed_empty_and_error_no_success_exit2(tmp_db, monkeypatch):
+    """验收 c: 一只合法空([])、一只真实异常 → ok=0/written=0 但 error_count>0
+    → LAST_BATCH_FAILED=True(Codex 明确要求混合无成功仍判整批失败)。
+
+    这是 F01-R1 修复的判据核心: 区分「全合法空」(exit 0)与「含真实异常且零成功」(exit 2)。
+    """
+    _seed_basic(tmp_db, [
+        ("005827", "FOF-A", "FOF-均衡型"),
+        ("005828", "FOF-B", "FOF-进取型"),
+    ])
+
+    def fake_fetch(code, start, end):
+        if code == "005827":
+            return []  # 合法空
+        raise RuntimeError("mock 真实异常")
+
+    monkeypatch.setattr(mod, "fetch_lsjz", fake_fetch)
+    monkeypatch.setattr(mod, "RATE_LIMIT", 0.0)
+
+    mod.collect(days=7, limit=None, dry_run=False)
+    assert mod.LAST_BATCH_FAILED is True  # 混合但零成功+有真实异常 → exit 2
+
+
+# ── 场景 d: 混合(合法空+异常+一只成功)→ exit 0, 已写数据保留 ──────────
+def test_mixed_empty_error_with_success_exit0(tmp_db, monkeypatch):
+    """验收 d: 一只合法空、一只异常、一只成功写入 → ok=1/written>0
+    → LAST_BATCH_FAILED=False, 已写数据保留(部分成功)。
+    """
+    _seed_basic(tmp_db, [
+        ("005827", "FOF-A", "FOF-均衡型"),
+        ("005828", "FOF-B", "FOF-进取型"),
+        ("005829", "FOF-C", "FOF-稳健型"),
+    ])
+
+    def fake_fetch(code, start, end):
+        if code == "005827":
+            return []  # 合法空
+        if code == "005828":
+            raise RuntimeError("mock 异常")
+        return [{"date": "20261101", "fund_code": code, "unit_nav": 1.1, "acc_nav": 1.1,
+                 "prev_unit_nav": 1.0, "nav_change_pct": 0.5}]
+
+    monkeypatch.setattr(mod, "fetch_lsjz", fake_fetch)
+    monkeypatch.setattr(mod, "RATE_LIMIT", 0.0)
+
+    n = mod.collect(days=7, limit=None, dry_run=False)
+    assert n >= 1  # 有一只写入, 数据保留
+    assert mod.LAST_BATCH_FAILED is False  # 部分成功不判整批失败
+
+
+# ── 场景 a 判别力(红先验): 破坏 error_count>0 守卫 → 场景 a 用例必红 ────
+def test_legit_empty_discriminator_red(tmp_db, monkeypatch):
+    """红先验锚点(F01-R1): 合法空全场景 MUST NOT 置位 LAST_BATCH_FAILED。
+
+    若有人把判据改回旧的 `ok==0 and written==0`(去掉 error_count>0 守卫),
+    本场景 ok=0/written=0/had_pending=True 会误置位 True,
+    断言 `is False` 会红, 暴露破坏(回归到 F01-R1 修复前的假告警)。
+    """
+    _seed_basic(tmp_db, [
+        ("005827", "FOF-A", "FOF-均衡型"),
+        ("005828", "FOF-B", "FOF-进取型"),
+    ])
+    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, s, e: [])
+    monkeypatch.setattr(mod, "RATE_LIMIT", 0.0)
+    from datetime import date as _d
+    monkeypatch.setattr(mod, "date",
+                        type("_D", (), {"today": staticmethod(lambda: _d(2026, 11, 2))}))
+
+    mod.collect(days=7, limit=None, dry_run=False)
+    assert mod.LAST_BATCH_FAILED is False, (
+        "判别力失败: 全部合法空响应但 LAST_BATCH_FAILED 被置位 → "
+        "error_count>0 守卫可能被破坏(回归 F01-R1 修复前假告警), 用例无效"
+    )
+
+
 # ── main() 退出码端到端(锁住信号链最后一段) ──────────────────────────
 def test_main_returns_2_when_batch_fail(monkeypatch):
     """main() 真调: collect 置位 LAST_BATCH_FAILED=True → main() 返回 2。
