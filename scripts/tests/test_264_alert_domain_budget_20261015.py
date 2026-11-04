@@ -483,11 +483,15 @@ def test_02k_send_failure_does_not_claim_window(_iso, monkeypatch):
 
 
 def test_02l_absorb_append_failure_fail_open(_iso, monkeypatch):
-    """buffer 写失败 ⇒ fail-open 直发(宁多发不吞, 绝不因降噪机制故障吞告警)。"""
+    """buffer 写失败 ⇒ fail-open 直发(宁多发不吞, 绝不因降噪机制故障吞告警)。
+
+    F03(2026-11-04): _absorb_to_digest 改为原子 rb+ 临界区, 不再调 _append_jsonl;
+    改 patch _flock_ex_wait → False(锁获取失败) 模拟写入不可用, 同样触发 fail-open。
+    """
     clk = _Clock(datetime(2026, 10, 15, 18, 25, 19))
     _patch_clock(monkeypatch, clk)
     notify.send("[告警] R2 上传失败: a", "b", severe=True, ledger_key="r2_a")
-    monkeypatch.setattr(notify, "_append_jsonl", lambda *a, **k: False)
+    monkeypatch.setattr(notify, "_flock_ex_wait", lambda *a, **k: False)
     clk.set(datetime(2026, 10, 15, 18, 28, 0))
     r = notify.send("[告警] R2 上传失败: b", "b", severe=True, ledger_key="r2_b")
     _chk(r.get("email") is True and not r.get("digested"),
