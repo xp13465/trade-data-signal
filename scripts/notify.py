@@ -2146,6 +2146,27 @@ Agent：{agent_name}
     return results
 
 
+def _flock_ex_wait(fh, timeout_s: float = 10.0, label: str = "alert_digest") -> bool:
+    """带超时上限的排他锁获取(LOCK_EX | LOCK_NB 轮询 + 短 sleep)。
+
+    临界区内操作都是毫秒级(读小 JSON + 写回), 10s 超时只在真死锁/进程卡死时触发;
+    超时 → 打 stderr 日志 + 返回 False(调用方 fail-open 直发, 不静默吞)。
+    复用 fcntl.flock 同一套机制, 不造第二套锁。"""
+    import fcntl as _fcntl
+    import time as _time
+    _deadline = _time.monotonic() + timeout_s
+    while True:
+        try:
+            _fcntl.flock(fh, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+            return True
+        except (BlockingIOError, OSError):
+            if _time.monotonic() >= _deadline:
+                print(f"[notify][digest] {label} 排他锁等待超时({timeout_s}s)→ fail-open 直发",
+                      file=sys.stderr)
+                return False
+            _time.sleep(0.05)
+
+
 def _append_jsonl(path: Path, rec: dict) -> bool:
     """jsonl 追加（flock 防并发交错；schedule_monitor 15min / monitor_72h 30min 错峰，
     同刻概率低但 flock 保险）。返回是否成功——defer_warning 靠它做「先 buffer 后状态」
@@ -2304,6 +2325,45 @@ def _digest_chain_available() -> tuple[bool, str]:
     return True, ""
 
 
+def _atomic_write_digest(entries: list[dict], bad_lines: list[str]) -> None:
+    """原子替换 ALERT_DIGEST_FILE: 临时文件 + fsync + os.replace。
+
+    F03-R1(2026-11-04) 根治版写路径。**调用方必须已持有 ALERT_DIGEST_LOCK_FILE
+    侧车锁**(它是为「文件会被 replace 换 inode」这种情况准备的稳定锁, 不依赖数据
+    文件 inode)。原文件在 os.replace 成功之前一个字节都不动 ⇒ 「部分写入」「ENOSPC」
+    「fsync 失败」「replace 失败」四种情况下原文件**必然完好**, 不需要「恢复原字节」
+    这一步(结构上消除 Codex 开放边界)。
+
+    临时文件建在同一目录(保证 os.replace 同文件系统原子)。失败时 best-effort 删除
+    残留 .tmp, **不吞原始异常**(向上抛, 由调用方按语义决定返回值)。
+
+    旧取舍(已废弃): 原来用 seek/write/truncate 原地重写, 担心 tmp+rename 换 inode
+    会撕裂「以数据文件 inode 为锁」的契约。改用侧车锁后该担心不成立——所有写方都
+    抢同一把 ALERT_DIGEST_LOCK_FILE, 数据文件 inode 谁换都行, 旧 inode 的持有者
+    早就因为拿不到侧车锁而阻塞, 不会在旧 inode 上交错写。
+    """
+    _path = ALERT_DIGEST_FILE
+    _path.parent.mkdir(parents=True, exist_ok=True)
+    _tmp = _path.with_name(f"{_path.name}.tmp.{os.getpid()}.{time.time_ns()}")
+    try:
+        with open(_tmp, "wb") as f:
+            for e in entries:
+                f.write(json.dumps(e, ensure_ascii=False).encode("utf-8") + b"\n")
+            for ln in bad_lines:
+                f.write(ln.encode("utf-8", errors="replace") + b"\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(_tmp, _path)
+    except Exception:
+        # best-effort 清理残留 tmp; 不吞原始异常
+        try:
+            if _tmp.exists():
+                _tmp.unlink()
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+
+
 def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str,
                       source: str | None = None,
                       from_prefix: str | None = None,
@@ -2315,6 +2375,14 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
 
     返回 True=已并入(或当日同 key 已在 buffer, 幂等命中); False=append 失败
     (调用方 fail-open 落直发, 宁多发不吞, 与 warning defer 的「先 buffer 后状态」取舍一致)。
+
+    F03-R1(2026-11-04) 失败语义(与 Codex 验收矩阵一致):
+      - 新条目追加失败 ⇒ return False(调用方 fail-open 直发); 原有记录逐字节未变。
+      - 既有条目只更新 hits 失败 ⇒ return True(保持「已并入」语义, 零渠道外发),
+        stderr 打一行明确标记; mark_seen 等后续逻辑照旧。
+      - 读失败 / 侧车锁等待超时 ⇒ return False(无法证明幂等时宁可直接发, 不吞)。
+    写路径 = _atomic_write_digest(临时文件+fsync+os.replace 原子替换), 原文件在 replace
+    成功前一字节不动 ⇒ 部分写入/ENOSPC/fsync/replace 任一失败原文件都必然完好。
     条目字段与 defer_warning 同构(ts/rid 供 _stable_rid 精确清理; body 截
     DIGEST_ENTRY_BODY_LIMIT=3000)。**汇聚类多明细正文不要直接塞本函数**——先用
     `_absorb_split_to_digest` 按行拆段, 否则明细尾部会被本函数截掉(§23.10 内容保真)。
@@ -2330,47 +2398,76 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
                  重复 / 恢复留痕 / CLI 直并)⇒ 任何「同日第二次同形事件」都留痕, 不再有
                  被幂等静默吞掉的路径(原仅件E 路径传, L2/CLI 缺 ⇒ #253 trade-sim 场景无痕)。
     """
+    # F03-R1(2026-11-04): 读-判-算-原子替换 全程在 ALERT_DIGEST_LOCK_FILE 侧车锁
+    # 临界区内完成。原 F03 在数据文件 rb+ 句柄上 LOCK_EX 原地重写(seek/write/truncate),
+    # 有两个硬伤: ① 写到一半失败时原文件可能已被 truncate/写脏, 无恢复步骤; ② 与
+    # flush_digest 的侧车锁是两套互斥机制(两条写路径两把锁 = 本次根治对象)。
+    # 现统一到侧车锁 + _atomic_write_digest(tmp+fsync+os.replace): 原文件在 replace
+    # 成功前一字节不动, 部分写入/ENOSPC/fsync/replace 任一失败原文件都必然完好。
+    import fcntl
+    _now = datetime.now()
+    _day = _now.strftime("%Y-%m-%d")
+    _k = _ledger_key_of(subject, key)
     try:
-        _now = datetime.now()
-        _day = _now.strftime("%Y-%m-%d")
-        _k = _ledger_key_of(subject, key)
-        try:
-            with open(ALERT_DIGEST_FILE, "rb") as f:
-                import fcntl
-                fcntl.flock(f, fcntl.LOCK_SH)
-                _raw = f.read()
-                fcntl.flock(f, fcntl.LOCK_UN)
-            _entries, _ = _parse_buffer_lines(_raw)
-        except FileNotFoundError:
-            _entries = []
-        except OSError as e:  # noqa: BLE001
-            print(f"[notify][digest] buffer 读失败(继续尝试 append)：{e}", file=sys.stderr)
-            _entries = []
-        for _e in _entries:
-            if str(_e.get("day")) == _day and str(_e.get("key")) == _k:
-                if bump_hits:
-                    # hits 累加失败也不改变「已并入」结论(否则会因计数失败多发一条直发 = 噪声)
-                    _bump_digest_hits(_k, _day, str(_e.get("rid") or ""))
-                if mark_seen:
-                    _commit_rollover_seen(_k, _now)
-                return True  # 幂等: 当日已并入, 不重复 append
-        _rec = {
-            "ts": _now.strftime("%Y-%m-%d %H:%M:%S"),
-            "rid": f"d{time.time_ns()}",
-            "day": _day,
-            "key": _k,
-            "category": category,
-            "subject": re.sub(r"\s+", " ", str(subject)).strip()[:200],
-            "body": str(body)[:DIGEST_ENTRY_BODY_LIMIT],
-            "from_prefix": from_prefix,
-            "source": source or os.environ.get("NOTIFY_SOURCE") or "notify.py",
-            "reason": reason,
-            "hits": 1,
-        }
-        if domain:
-            _rec["domain"] = domain
-        if not _append_jsonl(ALERT_DIGEST_FILE, _rec):
-            return False
+        ALERT_DIGEST_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(ALERT_DIGEST_LOCK_FILE, "a+") as lock_f:
+            if not _flock_ex_wait(lock_f, label="alert_digest_absorb"):
+                print(f"[notify][digest] 侧车锁等待超时→ fail-open 直发(key={_k})",
+                      file=sys.stderr)
+                return False  # 锁等待超时 → fail-open 直发, 不吞
+            try:
+                # 读源(不存在→空)
+                try:
+                    _raw = ALERT_DIGEST_FILE.read_bytes() if ALERT_DIGEST_FILE.exists() else b""
+                except OSError as re_:
+                    print(f"[notify][digest] buffer 读取失败(转直发): {re_}",
+                          file=sys.stderr)
+                    return False
+                _entries, _bad = _parse_buffer_lines(_raw)
+                _found = False
+                for _e in _entries:
+                    if str(_e.get("day")) == _day and str(_e.get("key")) == _k:
+                        _found = True
+                        if bump_hits:
+                            _e["hits"] = int(_e.get("hits") or 1) + 1
+                            _e["hits_ts"] = _now.strftime("%Y-%m-%d %H:%M:%S")
+                        break
+                _is_new = not _found
+                if _is_new:
+                    _rec = {
+                        "ts": _now.strftime("%Y-%m-%d %H:%M:%S"),
+                        "rid": f"d{time.time_ns()}",
+                        "day": _day,
+                        "key": _k,
+                        "category": category,
+                        "subject": re.sub(r"\s+", " ", str(subject)).strip()[:200],
+                        "body": str(body)[:DIGEST_ENTRY_BODY_LIMIT],
+                        "from_prefix": from_prefix,
+                        "source": source or os.environ.get("NOTIFY_SOURCE") or "notify.py",
+                        "reason": reason,
+                        "hits": 1,
+                    }
+                    if domain:
+                        _rec["domain"] = domain
+                    _entries.append(_rec)
+                # 原子替换; 原文件在 replace 成功前一字节不动
+                try:
+                    _atomic_write_digest(_entries, _bad)
+                except Exception as we:
+                    # 写失败: 原文件必然完好(原子替换语义), 按条目新旧分流返回值
+                    if _is_new:
+                        # 新条目追加失败 → fail-open 直发(调用方直发, 宁多不吞)
+                        print(f"[notify][digest] 新条目写入失败(原文件未改,转直发): {we}",
+                              file=sys.stderr)
+                        return False
+                    # 既有条目 hits 更新失败 → 保持「已并入」语义, 零渠道外发
+                    print(f"[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): {we}",
+                          file=sys.stderr)
+                    if mark_seen:
+                        _commit_rollover_seen(_k, _now)
+                    return True
+            finally:
+                fcntl.flock(lock_f, fcntl.LOCK_UN)
         if mark_seen:
             _commit_rollover_seen(_k, _now)
         return True
@@ -2457,42 +2554,50 @@ def _absorb_split_to_digest(subject: str, body: str, *, key: str | None, categor
 def _bump_digest_hits(key: str, day: str, rid: str = "") -> bool:
     """幂等命中时给当日同 key 的摘要条目 hits+1 并记「最近一次并入时刻」。
 
+    注: F03(2026-11-04)后本函数已被 _absorb_to_digest 内联取代(原子临界区内直接
+    bump hits), 当前无调用方(grep 确认零引用, 仅 docstring/注释提及); 保留并同步
+    改写为同一原子口径, 以免日后有人独立调用时踩到旧的「原地重写」地雷。
+
     目的(#264 件E「被合并 N 条」可核 / #253-d2「同日第二次同形事件留痕」):
     同签名重复并入时不静默 no-op, 计数 + **最近时刻**(hits_ts)留在条目上, 摘要正文
     渲染成 `xN(最近 HH:MM)`(仍 1 行, 不新增条目 = 不破坏摘要收敛)。
     旧行无 hits/hits_ts 字段按 1 计(hits_ts 缺则渲染不带时刻)。
     失败 → 不改文件(返回 False, 调用方仍当「已并入」)。
 
-    写入方式(#253-d2 实施取舍): 在 ALERT_DIGEST_FILE 自身 flock 临界区内**原地重写**
-    (read→seek→write→truncate)。全部写方(_append_jsonl / flush_digest / 本函数)都以该
-    文件 inode 的 flock 互斥 ⇒ 原地重写与并发追加不互丢; 不用 tmp+rename 是因 rename
-    换 inode 会撕裂这套「以数据文件 inode 为锁」的契约(另一个已 open 旧 inode 的写方
-    会锁在已 unlink 的文件上, 互斥失效 → 反而可能交错写坏)。详见实施报告取舍段。
+    写入方式 F03-R1(2026-11-04) 根治: 在 ALERT_DIGEST_LOCK_FILE 侧车锁临界区内
+    _atomic_write_digest(tmp+fsync+os.replace)。旧「原地重写」取舍已废弃——原担心
+    tmp+rename 换 inode 会撕裂「以数据文件 inode 为锁」的契约, 但改用侧车锁后该
+    担心不成立(所有写方抢同一把侧车锁, 数据文件 inode 谁换都行)。
     """
     import fcntl
     try:
         _now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(ALERT_DIGEST_FILE, "rb+") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            _cur, _bad = _parse_buffer_lines(f.read())
-            _touched = False
-            for _e in _cur:
-                if (str(_e.get("day")) == day and str(_e.get("key")) == key
-                        and (not rid or str(_e.get("rid") or "") == rid)):
-                    _e["hits"] = int(_e.get("hits") or 1) + 1
-                    _e["hits_ts"] = _now
-                    _touched = True
-            if not _touched:
-                fcntl.flock(f, fcntl.LOCK_UN)
+        ALERT_DIGEST_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(ALERT_DIGEST_LOCK_FILE, "a+") as lock_f:
+            if not _flock_ex_wait(lock_f, label="alert_digest_bump"):
+                print("[notify][digest] 侧车锁等待超时(hits 累加放弃, 不影响并入)",
+                      file=sys.stderr)
                 return False
-            _out = b"".join(json.dumps(e, ensure_ascii=False).encode("utf-8") + b"\n" for e in _cur)
-            _out += b"".join(ln.encode("utf-8", errors="replace") + b"\n" for ln in _bad)
-            f.seek(0)
-            f.write(_out)
-            f.flush()
-            os.fsync(f.fileno())
-            f.truncate(len(_out))
-            fcntl.flock(f, fcntl.LOCK_UN)
+            try:
+                try:
+                    _raw = ALERT_DIGEST_FILE.read_bytes() if ALERT_DIGEST_FILE.exists() else b""
+                except OSError as re_:
+                    print(f"[notify][digest] hits 读取失败(不影响并入): {re_}",
+                          file=sys.stderr)
+                    return False
+                _cur, _bad = _parse_buffer_lines(_raw)
+                _touched = False
+                for _e in _cur:
+                    if (str(_e.get("day")) == day and str(_e.get("key")) == key
+                            and (not rid or str(_e.get("rid") or "") == rid)):
+                        _e["hits"] = int(_e.get("hits") or 1) + 1
+                        _e["hits_ts"] = _now
+                        _touched = True
+                if not _touched:
+                    return False
+                _atomic_write_digest(_cur, _bad)
+            finally:
+                fcntl.flock(lock_f, fcntl.LOCK_UN)
         return True
     except Exception as e:  # noqa: BLE001
         print(f"[notify][digest] hits 累加失败(不影响并入): {e}", file=sys.stderr)
@@ -3255,13 +3360,15 @@ def flush_digest(dry_run: bool = False) -> dict:
 
 
 def _flush_digest_locked(dry_run: bool = False) -> dict:
-    """flush_digest 的持锁主体（调用方必须已持有 ALERT_DIGEST_LOCK_FILE 锁）。"""
-    import fcntl
+    """flush_digest 的持锁主体（调用方必须已持有 ALERT_DIGEST_LOCK_FILE 锁）。
+
+    F03-R1(2026-11-04): 读/写都不再对数据文件 inode 上 flock——调用方已持侧车锁,
+    且所有写方(_absorb_to_digest / _bump_digest_hits / 本函数)统一用侧车锁互斥,
+    数据文件 inode 的 flock 是多余的「第二把锁」(本次根治对象)。写回改用
+    _atomic_write_digest(tmp+fsync+os.replace), 原文件在 replace 成功前一字节不动。
+    """
     try:
-        with open(ALERT_DIGEST_FILE, "rb") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            raw = f.read()
-            fcntl.flock(f, fcntl.LOCK_UN)
+        raw = ALERT_DIGEST_FILE.read_bytes()
     except FileNotFoundError:
         return {"sent": False, "n": 0, "n_remaining": 0}
     except OSError as e:
@@ -3401,34 +3508,26 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
     _drop = {_stable_rid(e) for e in send_entries}
     _did = False
     try:
-        with open(ALERT_DIGEST_FILE, "rb+") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            cur_raw = f.read()
-            cur_entries, cur_bad = _parse_buffer_lines(cur_raw)
-            out_entries = []
-            _seen = set()
-            for ce in cur_entries:
-                rid = _stable_rid(ce)
-                if rid in _drop and rid not in _seen:
-                    _seen.add(rid)  # 同内容重复行只删一条（宁留勿多删）
-                    continue
-                out_entries.append(ce)
-            out = b"".join(json.dumps(e, ensure_ascii=False).encode("utf-8") + b"\n"
-                           for e in out_entries)
-            out += b"".join(ln.encode("utf-8", errors="replace") + b"\n" for ln in cur_bad)
-            f.seek(0)
-            f.write(out)          # 先写：失败则原文件完好
-            f.flush()
-            os.fsync(f.fileno())  # 落盘后再缩，缩完断电也是完整合法 JSONL
-            f.truncate(len(out))
-            fcntl.flock(f, fcntl.LOCK_UN)
+        # F03-R1(2026-11-04): 调用方已持侧车锁, 这里只需读→算→原子替换(不再对数据
+        # 文件 inode 上 flock)。_atomic_write_digest 保证原文件在 replace 成功前
+        # 一字节不动, 清理失败时下轮重试(原条目全保留)。
+        cur_raw = ALERT_DIGEST_FILE.read_bytes()
+        cur_entries, cur_bad = _parse_buffer_lines(cur_raw)
+        out_entries = []
+        _seen = set()
+        for ce in cur_entries:
+            rid = _stable_rid(ce)
+            if rid in _drop and rid not in _seen:
+                _seen.add(rid)  # 同内容重复行只删一条（宁留勿多删）
+                continue
+            out_entries.append(ce)
+        _atomic_write_digest(out_entries, cur_bad)
         _did = True
     except Exception as e:  # noqa: BLE001
         print(f"[notify][digest] buffer 清理失败（下轮可能重发）：{e}", file=sys.stderr)
     if _did:
         try:
-            with open(ALERT_DIGEST_FILE, "rb") as f:
-                _n_rem = len(_parse_buffer_lines(f.read())[0])
+            _n_rem = len(_parse_buffer_lines(ALERT_DIGEST_FILE.read_bytes())[0])
         except OSError:
             _n_rem = 0
     else:
