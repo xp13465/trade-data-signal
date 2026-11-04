@@ -1,0 +1,383 @@
+{
+  "research_id": "research-20261104",
+  "report_type": "用户点名只读调研，非上线放行审查",
+  "date": "2026-11-04",
+  "baseline": {
+    "main": "58fabc61efdf35b1331a2ac09c737a9e6fee28be",
+    "commit_time": "2026-11-02T09:17:06+08:00",
+    "remote_main_verified": true,
+    "worktree": "clean",
+    "recent_window": "2026-10-21 至 2026-11-04，必要时追溯10月背景"
+  },
+  "summary": "优先复核六项边界缺陷，随后完善CI放行、任务状态对账，再测前端与Git提速。全部建议交Claude独立复核和实施。",
+  "issues": [
+    {
+      "severity": "P2",
+      "title": "FOF整批请求异常仍成功退出，已接入的systemd统计不读取其失败日志",
+      "path": "scripts/collect_fof_nav.py:206; scripts/collect_fof_nav.py:231; scripts/gen_schedule_stats.py:309; scripts/gen_schedule_stats.py:1613",
+      "status": "newly_verified_integration_gap",
+      "scope": "in-scope",
+      "impact": "有明确FAIL日志，不能称无日志静默；但在全部请求异常而进程正常收尾的场景，本任务的systemd/日志状态通道无法识别采集失败。本轮未证明生产发生。",
+      "why": "collect捕获单只异常后仅计fail并打印字符串；main无条件return 0。fof_nav_collect只在UNIT_ONLY，未接TASKS/EXTRA日志扫描；该行log_anomaly固定False。包装脚本:21-24忠实传递0。",
+      "fix": "保留单只best-effort；分开统计transport_errors/no_data/succeeded。attempted>0且transport_errors==attempted时返回失败或输出受监控消费的结构化degraded结果，不把合法空列表等同故障。",
+      "trace": {
+        "diff_range": "f069a8f1e 新入口 + 8d34df6d4 UNIT_ONLY注册；main@58fabc61e",
+        "linkage": "满足",
+        "user_request": "只读核查近期数据管线/发布/监控可靠性，尤其最近两周commit涉及 scripts、systemd timeout、锁、去重/告警",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+        "expected": "全部模拟请求TimeoutError时，整批失败应有可消费信号，同时继续容忍单只失败。",
+        "observed": {
+          "collector": {
+            "main_return": 0,
+            "stdout": "[fof_nav] FOF/QDII 总数=1 已填跳过=0 待采=1/1 本轮跑 (拉近7日 2026-10-28~2026-11-04 batch=1 dry_run=False)\n[fof_nav] FAIL 005827 FOF-稳健型: offline simulated request timeout\n[fof_nav] 完成 ok=0 fail=1 written=0 0s 剩余待采=0(下轮续)\n[fof_nav] return written=0\n",
+            "stderr": ""
+          },
+          "monitor": {
+            "task": "fof_nav_collect",
+            "last_exit": 0,
+            "log_anomaly": false,
+            "unit_exit": 0,
+            "unit_timer_health": "ok",
+            "exit_source": "systemd",
+            "fof_in_LOG_TASKS": false,
+            "FAIL_line_matches_ANOMALY_RE": false
+          }
+        }
+      },
+      "acceptance": [
+        "全请求TimeoutError => 可消费失败信号；部分异常仍处理其余基金；无待采和合法空列表不误报。",
+        "通过真实gen_schedule_stats注入结果确认显示降级/失败，而非last_exit=0且log_anomaly=False。"
+      ],
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 0,
+        "rationale": "优先复用既有SQL/结果汇总/标准库flock，收敛判定与错误处理；0表示无法证明净删行，不为减行强删防御。"
+      },
+      "title_zh": "FOF整批请求异常仍成功退出，当前监控无法识别",
+      "suggestion_zh": "保留单只容错；把正常无新值、部分失败、整批网络异常分别计数并输出可被现有监控消费的结果。不要将written=0直接等同失败。",
+      "acceptance_zh": "注入全请求超时必须可监控告警；合法空数据不误报；部分成功保留已写数据。"
+    },
+    {
+      "severity": "P2",
+      "title": "窗口内任一天非空导致整只基金跳过：已知未闭环、独立证实",
+      "path": "scripts/collect_fof_nav.py:155; scripts/collect_fof_nav.py:164; TASKS.md:13",
+      "status": "known_open_independently_confirmed",
+      "scope": "in-scope",
+      "impact": "隔离输入旧日有值、新日NULL、上游新值已可用时，当前collect不能补新日；未推断生产首跑已失败。",
+      "why": "SELECT DISTINCT按基金而非基金/日期排除；同基金有旧日非空时新日期NULL也不请求。最新台账明确“全填才跳”待批2；不是本轮新发现。",
+      "fix": "批2按应发布日期覆盖判断，或用成功请求游标/日期优先级控制批次；保留COALESCE不覆盖已有值，不要求定开/停发基金填不存在的数据。",
+      "trace": {
+        "diff_range": "d223e228f:collect筛选；ecc099863:TASKS.md:13已登记差集；docs/ops/333-fix-plan.md:13,18,44",
+        "linkage": "满足",
+        "user_request": "只读核查近期数据管线/发布/监控可靠性，尤其最近两周commit涉及 scripts、systemd timeout、锁、去重/告警",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+        "expected": "同基金旧日已有值保持不变，新日有可用上游值且本地NULL时应补入。",
+        "observed": {
+          "written": 0,
+          "api_calls": [],
+          "new_date_nav": null,
+          "log": "[fof_nav] FOF/QDII 总数=1 已填跳过=1 待采=0/0 本轮跑 (拉近7日 2026-10-28~2026-11-04 batch=0 dry_run=False)\n[fof_nav] 全部已填, 无待采, 跳过\n"
+        }
+      },
+      "acceptance": [
+        "固定2026-11-04：10/29=1.0且11/02=NULL；模拟11/02上游=1.2，真实collect后旧值仍1.0、新值为1.2。",
+        "跨批/跨日续采覆盖新增发布日期；与批2定开/封闭状态规则一致。"
+      ],
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 0,
+        "rationale": "优先复用既有SQL/结果汇总/标准库flock，收敛判定与错误处理；0表示无法证明净删行，不为减行强删防御。"
+      },
+      "title_zh": "FOF窗口内任一天有值就跳过整只基金",
+      "suggestion_zh": "这是#333批2已登记差集。按目标交易日/实际发布节奏判断缺口并补缺，已有非空值继续保留。",
+      "acceptance_zh": "旧日有值、新日NULL且上游可提供新值时实际调用API并补入；不覆盖旧值。"
+    },
+    {
+      "severity": "P2",
+      "title": "摘要同签名并发吸收不满足单行幂等",
+      "path": "scripts/notify.py:2342; scripts/notify.py:2349; scripts/notify.py:2372",
+      "status": "isolated_concurrency_confirmed",
+      "scope": "in-scope",
+      "impact": "两生产者同日同key同时读到空buffer，可落2行hits各1，放大摘要重复；未观察生产重复率，不影响critical直发的结论范围。",
+      "why": "读buffer的共享锁在判断/追加前释放；_append_jsonl单独排他锁只防字节交错，无法原子保证“查重+hits更新/追加”。CLI main与send入口未给这一流程统一加锁。",
+      "fix": "让同一排他临界区完成读取、同key判断、hits更新或追加，复用现有flock与原地重写契约；避免改用rename造成inode锁失效。",
+      "trace": {
+        "diff_range": "pre-existing:5a92e6f815引入；本期fe8d55ab8/fc89892e3扩大恢复/例行摘要调用",
+        "linkage": "满足",
+        "user_request": "只读核查近期数据管线/发布/监控可靠性，尤其最近两周commit涉及 scripts、systemd timeout、锁、去重/告警",
+        "origin": "pre-existing"
+      },
+      "verifier": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+        "expected": "同日同key两次吸收应1行hits=2。",
+        "observed": {
+          "returns": [
+            true,
+            true
+          ],
+          "rows": 2,
+          "keys": [
+            "same-key",
+            "same-key"
+          ],
+          "hits": [
+            1,
+            1
+          ]
+        }
+      },
+      "acceptance": [
+        "并发2/20进程同key => 1行hits=2/20；异key不丢；与flush交叠不坏行、不漏条；无网络发送。"
+      ],
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 0,
+        "rationale": "优先复用既有SQL/结果汇总/标准库flock，收敛判定与错误处理；0表示无法证明净删行，不为减行强删防御。"
+      },
+      "title_zh": "摘要同签名并发可产生两条记录",
+      "suggestion_zh": "用同一个排他临界区覆盖读取、判断、计数和写回；复用现有文件锁机制。",
+      "acceptance_zh": "两个同日同签名并发吸收后仅一行、hits=2；追加失败保持原有可见失败语义。"
+    },
+    {
+      "severity": "P2",
+      "title": "R2全局屏障open失败后锁计划与fd列表失配",
+      "path": "scripts/upload_r2.py:5215; scripts/upload_r2.py:5251",
+      "status": "isolated_fault_confirmed",
+      "scope": "in-scope",
+      "impact": "锁文件权限/IO错误触发不可解释的二次异常，覆盖原错误；实际上传尚未进入。本轮未验证线上锁权限异常，也未声称发生并发覆盖。",
+      "why": "域锁open成功但全局屏障open抛OSError时仅打印“仅持域锁继续”，lock_plan仍2项、fds仅1项，随后fds[1]抛IndexError。",
+      "fix": "域锁或全局屏障任一打开失败统一关闭已打开fd并显式失败，保留原errno/路径；删除半初始化继续分支，减少双轨错误处理。",
+      "trace": {
+        "diff_range": "62a069228:域锁双锁计划与open失败分支",
+        "linkage": "满足",
+        "user_request": "只读核查近期数据管线/发布/监控可靠性，尤其最近两周commit涉及 scripts、systemd timeout、锁、去重/告警",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+        "expected": "屏障不可打开时明确拒绝上传并报告原OSError，释放已开fd，避免IndexError。",
+        "observed": {
+          "exception": "IndexError",
+          "message": "list index out of range",
+          "stderr": "🔒 R2 上传锁域: data(域锁 /tmp/trade-r2-lock-reliability-7hld7q9g/data.lock, 并持全局屏障 SH)\n⚠ 无法打开 R2 全局屏障锁 /tmp/trade-r2-lock-reliability-7hld7q9g/global.lock(offline simulated barrier permissions), 本次仅持域锁 /tmp/trade-r2-lock-reliability-7hld7q9g/data.lock 继续\n"
+        }
+      },
+      "acceptance": [
+        "注入domain-open成功/global-open失败 => 失败结果保留权限原因，0上传调用，已打开fd全部关闭。",
+        "正常域锁双锁与未声明域全局锁语义不变。"
+      ],
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 5,
+        "rationale": "优先复用既有SQL/结果汇总/标准库flock，收敛判定与错误处理；0表示无法证明净删行，不为减行强删防御。"
+      },
+      "title_zh": "R2全局屏障锁打开失败后发生IndexError",
+      "suggestion_zh": "锁获取应保存路径/模式/fd的对应关系；失败时释放已开的fd并明确拒绝上传，保留原始原因。",
+      "acceptance_zh": "注入第二把锁PermissionError：无IndexError、无fd遗留、无上传调用。"
+    },
+    {
+      "severity": "P2",
+      "title": "fetchJSONProgress missing-Content-Length branch clears timeout and external-abort linkage before JSON body completes",
+      "path": "static-site/lab.js:1794",
+      "related_paths": [
+        "static-site/lab.js:1833",
+        "static-site/lab.js:1862",
+        "static-site/lab.js:4848",
+        "static-site/lab.js:4959"
+      ],
+      "impact": "Stalled large-response body can leave detail modal loading; 60s inner timeout and outer 15s abort no longer interrupt the body.",
+      "why": "Returning resp.json() without awaiting exits try immediately; finally clears _timer and removes _onOuterAbort before body parsing settles.",
+      "fix": "Keep body reading within try (return await resp.json()) so timeout/abort linkage lasts through response consumption; review analogous promise-returning fallback boundaries.",
+      "trace": {
+        "diff_range": "58fabc61efdf35b1331a2ac09c737a9e6fee28be:static-site/lab.js:1792-1794,1833-1836",
+        "linkage": "满足",
+        "user_request": "只读核查前端现状和近期优化空间",
+        "origin": "pre-existing",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "node /tmp/codex-reports/research-20261104-frontend-repro.cjs",
+        "expected": "20ms timeout aborts stalled body, or external abort propagates; pending promise must settle or enter intended fallback.",
+        "observed": "timeout_after_headers: PENDING_AFTER_80MS, innerAborted=false, activeTimers=0, fallbackCalls=0. external_abort_after_headers: same, outerAborted=true."
+      },
+      "reachability": "lab.js:4959 detail modal -> _labRetestEnsureFull:4841 -> fetchLabSimFullData:4852 -> fetchJSONProgress:1862 with 60000ms. Also ranking/fusion detail loaders call it.",
+      "online_evidence": {
+        "command": "curl --connect-timeout 5 --max-time 20 --max-filesize 1024 --compressed -sS -D /tmp/codex-reports/research-20261104-frontend-full-get.headers https://ss.fx8.store/r2/lab/lab_sim_sh_full.json -o /tmp/codex-reports/research-20261104-frontend-full-get-prefix.bin",
+        "observed": "2026-11-04 06:50:39 UTC: real normal GET HTTP/2 200, content-encoding:gzip, NO Content-Length header. curl intentionally stopped by max-filesize (exit63). No full historical body downloaded. Actual production body stall/timeouts NOT observed."
+      },
+      "acceptance": "Repeat absent-Content-Length fault injection: timeout and external-abort each interrupt pending body; intended timeout fallback occurs; normal streamed JSON and present-Content-Length path still complete.",
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 0,
+        "rationale": "Retain existing single controller and finally; one await fixes cleanup lifetime without introducing another timer."
+      },
+      "title_zh": "实验室无Content-Length响应的正文读取失去超时和取消",
+      "suggestion_zh": "正文读取须在try生命周期内等待完成，使现有计时器和取消监听到真正结束才清理。",
+      "acceptance_zh": "无长度+停滞正文：超时、用户取消均生效；正常JSON与有长度分支正常完成。"
+    },
+    {
+      "severity": "P2",
+      "title": "Main-origin boot prefetch has no application deadline while global render awaits it",
+      "path": "static-site/index.html:50",
+      "related_paths": [
+        "static-site/index.html:41",
+        "static-site/app.js:10046",
+        "static-site/app.js:53",
+        "static-site/app.js:11745",
+        "static-site/app.js:16116"
+      ],
+      "impact": "If main-origin boot fetch/body hangs, overview render and other tabs awaiting SIM_INDICES do not reach existing data/error fallback until browser/network eventually rejects.",
+      "why": "Main/localhost firstMs=0 chooses fetch with no AbortSignal. _bootJSON directly awaits that promise before any fetchJSON budget can apply.",
+      "fix": "Add a finite deadline covering main-origin boot response consumption, then enter existing backup/degradation path; preserve request deduplication.",
+      "trace": {
+        "diff_range": "58fabc61efdf35b1331a2ac09c737a9e6fee28be:static-site/index.html:40-56;static-site/app.js:10041-10052",
+        "linkage": "满足",
+        "user_request": "先看真实index入口/加载路径",
+        "origin": "pre-existing",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "node /tmp/codex-reports/research-20261104-frontend-repro.cjs",
+        "expected": "Main boot has a finite application deadline and eventually settles via fallback/error.",
+        "observed": "main_boot_hanging_fetch: signalAttached=false, timers=[], fallbacks=0, PENDING_AFTER_40MS. Structural absence of deadline is verified; no real production hang observed."
+      },
+      "acceptance": "Simulated main boot with stalled headers and separately stalled body reaches fallback/error within declared budget; successful boot still issues one shared request.",
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 0,
+        "rationale": "Reuse the existing abort/timer pattern and fallback chain; do not add a separate render-specific retry mechanism."
+      },
+      "title_zh": "主站boot预取没有应用级超时",
+      "suggestion_zh": "复用有限超时与已有兜底链，预算覆盖响应头和正文；保持同一初始化请求复用。",
+      "acceptance_zh": "挂起响应头/正文均可在声明预算内进入兜底或可见错误；正常首取只有一次共享请求。"
+    }
+  ],
+  "process_and_performance_recommendations": [
+    {
+      "id": "release-gate",
+      "kind": "confirmed_flow_gap",
+      "priority": "优先复核",
+      "evidence": [
+        "scripts/main-merge.sh:657 push main; :707 sync_cloud_pull; :717 ci_selfcheck",
+        "deploy-pages.yml push main trigger independent of CI",
+        "ecc099863: Pages success run 41329089542; CI failure run 41329089452 (task-state check)"
+      ],
+      "limit": "该次仅文档变更，不证明业务或数据错误；Cloudflare该次未触发。",
+      "suggestion": "统一同一SHA的检查通过与上线放行，覆盖云上代码同步和两条静态站部署通道。"
+    },
+    {
+      "id": "ci-coverage",
+      "kind": "confirmed_coverage_gap",
+      "priority": "优先复核",
+      "evidence": [
+        ".github/workflows/ci.yml:126/198/466/473 continue-on-error=true",
+        "scripts/check_fade_predicate_parity.mjs:305-312 默认无BASE/REF时old=null，仅输出不对比"
+      ],
+      "limit": "最新CI实际结果成功；不声称本轮发生了被忽略的失败。",
+      "suggestion": "把预期不可验证状态与真实断言失败分开；一致性对比必须有权威基线。"
+    },
+    {
+      "id": "git-cost",
+      "kind": "measured_baseline_candidate",
+      "priority": "之后试验",
+      "evidence": [
+        "git count-objects -vH: pack 1.27GiB + loose 257.62MiB",
+        "git ls-tree:2358文件未压缩共136.43MiB；前三大研究JSON共65.71MiB",
+        "latest static CI checkout 66s; pytest+pip step221s; workflow5m08s"
+      ],
+      "limit": "本地pack包含所有可达/可能不可达对象，不代表单次pull传输量；未测partial clone收益。",
+      "suggestion": "保留历史拓扑，用blob过滤检出做A/B；先核所有历史git show检查可用，再考虑迁出未来新增大型研究产物。"
+    },
+    {
+      "id": "task-state",
+      "kind": "已核实的状态记录滞后",
+      "evidence": [
+        "docs/pending-features-index.md:498-501 仍待办",
+        "app/collector/fund_pct.py:115 已有64日期LRU",
+        "scripts/backfill_fund_nav_pct_252.py:252 已有integrity_check+抽样",
+        "scripts/backfill_fund_nav_null_days_251.py:197 已复用calc_pct",
+        "docs/ops/fund-nav-pct-rootfix-20261028.md:139 已补position_estimate观察项"
+      ],
+      "suggestion": "同步为实现已补/效果待验；生产观察有证据后再关闭，当前状态只维护pending-index。",
+      "limit": "未实测LRU峰值内存及云上下一交易日效果，不能由静态代码推出根治效果已验。"
+    },
+    {
+      "id": "prefetch-measurement",
+      "kind": "待测优化建议",
+      "evidence": "overview也预加载lab CSS；review notes在首次/新版SW安装时预缓存；lab JS按lab入口加载。",
+      "suggestion": "分别量冷/热缓存overview与lab，再决定延后实验室CSS、说明预缓存；验证弹窗样式与离线行为。",
+      "measured_sizes": [
+        {
+          "asset": "app.min.js",
+          "decoded_file_bytes": 1093222,
+          "curl_compressed_body_bytes": 342523
+        },
+        {
+          "asset": "lab.min.css",
+          "decoded_file_bytes": 119410,
+          "curl_compressed_body_bytes": 18178
+        },
+        {
+          "asset": "kelly-review-notes.min.js",
+          "decoded_file_bytes": 138293,
+          "curl_compressed_body_bytes": 43904
+        }
+      ],
+      "limit": "curl压缩响应体及本地解码体积不等于浏览器首屏总传输，不保证加载提速幅度。"
+    }
+  ],
+  "open_questions": [
+    "#333生产11-02/03首跑日志、实际NULL转非空数量、失败与剩余量尚需Claude云上只读取证；已有手动小样为no-op，不能证明补缺成功。",
+    "六项边界问题本轮已隔离复现；未证明已在生产触发。摘要仅证实重复buffer行，不扩大为重复外发已发生。",
+    "未开展手机真机、浏览器Core Web Vitals或完整视觉回归。",
+    "未做历史Git packed对象贡献归因、增量pull测速或partial-clone A/B；不把1.27GiB包等同每次pull流量。"
+  ],
+  "checks": {
+    "external_request_refs": "无待处理request；本次用户明确调研不构造正式request，不发完成信号。",
+    "latest_ci": {
+      "id": 41371761199,
+      "status": "success",
+      "url": "https://github.com/xp13465/trade-data-signal/actions/runs/41371761199",
+      "data_job_seconds": 47,
+      "static_job_seconds": 308,
+      "checkout_seconds": 66,
+      "pip_and_pytest_step_seconds": 221
+    },
+    "sample_ci": "最近100条workflow记录覆盖10-29~11-02；CI 46次success、1次failure，其余为部署workflow。不是完整两周CI统计。",
+    "isolated_commands": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+      "node /tmp/codex-reports/research-20261104-frontend-repro.cjs"
+    ],
+    "independent_verification": "主会话复读实际分支/调用链，重跑两个隔离脚本，并另用真实fetchJSONProgress函数VM验证20ms预算后60ms仍pending且外部取消未传递。",
+    "production_mutations": "无；未改源码、未创建分支、未commit/push、未发通知。"
+  },
+  "reference_docs": [
+    {
+      "title": "GitHub continue-on-error语义",
+      "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepscontinue-on-error"
+    },
+    {
+      "title": "GitHub workflow_run与结论判断",
+      "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run"
+    },
+    {
+      "title": "Git partial clone文件按需下载",
+      "url": "https://git-scm.com/docs/git-clone#Documentation/git-clone.txt---filterltfilter-specgt"
+    },
+    {
+      "title": "actions/checkout filter选项",
+      "url": "https://github.com/actions/checkout"
+    }
+  ],
+  "annexes": {
+    "recent": "/tmp/codex-reports/research-20261104-recent.md",
+    "reliability": "/tmp/codex-reports/research-20261104-reliability.json",
+    "frontend": "/tmp/codex-reports/research-20261104-frontend.json"
+  }
+}

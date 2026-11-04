@@ -1,0 +1,236 @@
+{
+  "request_id": "research-20261104-reliability",
+  "verdict": "PASS",
+  "review_status": "Ready (仅P2建议；不是生产或发布全面通过声明)",
+  "baseline": "58fabc61efdf35b1331a2ac09c737a9e6fee28be",
+  "summary": "4项源码/隔离复现结论：FOF全请求异常的监控集成缺口；FOF已知skip差集独立证实；摘要并发幂等边界；R2屏障开锁异常分支。无生产故障定性。",
+  "issues": [
+    {
+      "severity": "P2",
+      "title": "FOF整批请求异常仍成功退出，已接入的systemd统计不读取其失败日志",
+      "path": "scripts/collect_fof_nav.py:206; scripts/collect_fof_nav.py:231; scripts/gen_schedule_stats.py:309; scripts/gen_schedule_stats.py:1613",
+      "status": "newly_verified_integration_gap",
+      "scope": "in-scope",
+      "impact": "有明确FAIL日志，不能称无日志静默；但在全部请求异常而进程正常收尾的场景，本任务的systemd/日志状态通道无法识别采集失败。本轮未证明生产发生。",
+      "why": "collect捕获单只异常后仅计fail并打印字符串；main无条件return 0。fof_nav_collect只在UNIT_ONLY，未接TASKS/EXTRA日志扫描；该行log_anomaly固定False。包装脚本:21-24忠实传递0。",
+      "fix": "保留单只best-effort；分开统计transport_errors/no_data/succeeded。attempted>0且transport_errors==attempted时返回失败或输出受监控消费的结构化degraded结果，不把合法空列表等同故障。",
+      "trace": {
+        "diff_range": "f069a8f1e 新入口 + 8d34df6d4 UNIT_ONLY注册；main@58fabc61e",
+        "linkage": "满足",
+        "user_request": "只读核查近期数据管线/发布/监控可靠性，尤其最近两周commit涉及 scripts、systemd timeout、锁、去重/告警",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+        "expected": "全部模拟请求TimeoutError时，整批失败应有可消费信号，同时继续容忍单只失败。",
+        "observed": {
+          "collector": {
+            "main_return": 0,
+            "stdout": "[fof_nav] FOF/QDII 总数=1 已填跳过=0 待采=1/1 本轮跑 (拉近7日 2026-10-28~2026-11-04 batch=1 dry_run=False)\n[fof_nav] FAIL 005827 FOF-稳健型: offline simulated request timeout\n[fof_nav] 完成 ok=0 fail=1 written=0 0s 剩余待采=0(下轮续)\n[fof_nav] return written=0\n",
+            "stderr": ""
+          },
+          "monitor": {
+            "task": "fof_nav_collect",
+            "last_exit": 0,
+            "log_anomaly": false,
+            "unit_exit": 0,
+            "unit_timer_health": "ok",
+            "exit_source": "systemd",
+            "fof_in_LOG_TASKS": false,
+            "FAIL_line_matches_ANOMALY_RE": false
+          }
+        }
+      },
+      "acceptance": [
+        "全请求TimeoutError => 可消费失败信号；部分异常仍处理其余基金；无待采和合法空列表不误报。",
+        "通过真实gen_schedule_stats注入结果确认显示降级/失败，而非last_exit=0且log_anomaly=False。"
+      ],
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 0,
+        "rationale": "优先复用既有SQL/结果汇总/标准库flock，收敛判定与错误处理；0表示无法证明净删行，不为减行强删防御。"
+      }
+    },
+    {
+      "severity": "P2",
+      "title": "窗口内任一天非空导致整只基金跳过：已知未闭环、独立证实",
+      "path": "scripts/collect_fof_nav.py:155; scripts/collect_fof_nav.py:164; TASKS.md:13",
+      "status": "known_open_independently_confirmed",
+      "scope": "in-scope",
+      "impact": "隔离输入旧日有值、新日NULL、上游新值已可用时，当前collect不能补新日；未推断生产首跑已失败。",
+      "why": "SELECT DISTINCT按基金而非基金/日期排除；同基金有旧日非空时新日期NULL也不请求。最新台账明确“全填才跳”待批2；不是本轮新发现。",
+      "fix": "批2按应发布日期覆盖判断，或用成功请求游标/日期优先级控制批次；保留COALESCE不覆盖已有值，不要求定开/停发基金填不存在的数据。",
+      "trace": {
+        "diff_range": "d223e228f:collect筛选；ecc099863:TASKS.md:13已登记差集；docs/ops/333-fix-plan.md:13,18,44",
+        "linkage": "满足",
+        "user_request": "只读核查近期数据管线/发布/监控可靠性，尤其最近两周commit涉及 scripts、systemd timeout、锁、去重/告警",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+        "expected": "同基金旧日已有值保持不变，新日有可用上游值且本地NULL时应补入。",
+        "observed": {
+          "written": 0,
+          "api_calls": [],
+          "new_date_nav": null,
+          "log": "[fof_nav] FOF/QDII 总数=1 已填跳过=1 待采=0/0 本轮跑 (拉近7日 2026-10-28~2026-11-04 batch=0 dry_run=False)\n[fof_nav] 全部已填, 无待采, 跳过\n"
+        }
+      },
+      "acceptance": [
+        "固定2026-11-04：10/29=1.0且11/02=NULL；模拟11/02上游=1.2，真实collect后旧值仍1.0、新值为1.2。",
+        "跨批/跨日续采覆盖新增发布日期；与批2定开/封闭状态规则一致。"
+      ],
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 0,
+        "rationale": "优先复用既有SQL/结果汇总/标准库flock，收敛判定与错误处理；0表示无法证明净删行，不为减行强删防御。"
+      }
+    },
+    {
+      "severity": "P2",
+      "title": "摘要同签名并发吸收不满足单行幂等",
+      "path": "scripts/notify.py:2342; scripts/notify.py:2349; scripts/notify.py:2372",
+      "status": "isolated_concurrency_confirmed",
+      "scope": "in-scope",
+      "impact": "两生产者同日同key同时读到空buffer，可落2行hits各1，放大摘要重复；未观察生产重复率，不影响critical直发的结论范围。",
+      "why": "读buffer的共享锁在判断/追加前释放；_append_jsonl单独排他锁只防字节交错，无法原子保证“查重+hits更新/追加”。CLI main与send入口未给这一流程统一加锁。",
+      "fix": "让同一排他临界区完成读取、同key判断、hits更新或追加，复用现有flock与原地重写契约；避免改用rename造成inode锁失效。",
+      "trace": {
+        "diff_range": "pre-existing:5a92e6f815引入；本期fe8d55ab8/fc89892e3扩大恢复/例行摘要调用",
+        "linkage": "满足",
+        "user_request": "只读核查近期数据管线/发布/监控可靠性，尤其最近两周commit涉及 scripts、systemd timeout、锁、去重/告警",
+        "origin": "pre-existing"
+      },
+      "verifier": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+        "expected": "同日同key两次吸收应1行hits=2。",
+        "observed": {
+          "returns": [
+            true,
+            true
+          ],
+          "rows": 2,
+          "keys": [
+            "same-key",
+            "same-key"
+          ],
+          "hits": [
+            1,
+            1
+          ]
+        }
+      },
+      "acceptance": [
+        "并发2/20进程同key => 1行hits=2/20；异key不丢；与flush交叠不坏行、不漏条；无网络发送。"
+      ],
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 0,
+        "rationale": "优先复用既有SQL/结果汇总/标准库flock，收敛判定与错误处理；0表示无法证明净删行，不为减行强删防御。"
+      }
+    },
+    {
+      "severity": "P2",
+      "title": "R2全局屏障open失败后锁计划与fd列表失配",
+      "path": "scripts/upload_r2.py:5215; scripts/upload_r2.py:5251",
+      "status": "isolated_fault_confirmed",
+      "scope": "in-scope",
+      "impact": "锁文件权限/IO错误触发不可解释的二次异常，覆盖原错误；实际上传尚未进入。本轮未验证线上锁权限异常，也未声称发生并发覆盖。",
+      "why": "域锁open成功但全局屏障open抛OSError时仅打印“仅持域锁继续”，lock_plan仍2项、fds仅1项，随后fds[1]抛IndexError。",
+      "fix": "域锁或全局屏障任一打开失败统一关闭已打开fd并显式失败，保留原errno/路径；删除半初始化继续分支，减少双轨错误处理。",
+      "trace": {
+        "diff_range": "62a069228:域锁双锁计划与open失败分支",
+        "linkage": "满足",
+        "user_request": "只读核查近期数据管线/发布/监控可靠性，尤其最近两周commit涉及 scripts、systemd timeout、锁、去重/告警",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+        "expected": "屏障不可打开时明确拒绝上传并报告原OSError，释放已开fd，避免IndexError。",
+        "observed": {
+          "exception": "IndexError",
+          "message": "list index out of range",
+          "stderr": "🔒 R2 上传锁域: data(域锁 /tmp/trade-r2-lock-reliability-7hld7q9g/data.lock, 并持全局屏障 SH)\n⚠ 无法打开 R2 全局屏障锁 /tmp/trade-r2-lock-reliability-7hld7q9g/global.lock(offline simulated barrier permissions), 本次仅持域锁 /tmp/trade-r2-lock-reliability-7hld7q9g/data.lock 继续\n"
+        }
+      },
+      "acceptance": [
+        "注入domain-open成功/global-open失败 => 失败结果保留权限原因，0上传调用，已打开fd全部关闭。",
+        "正常域锁双锁与未声明域全局锁语义不变。"
+      ],
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 5,
+        "rationale": "优先复用既有SQL/结果汇总/标准库flock，收敛判定与错误处理；0表示无法证明净删行，不为减行强删防御。"
+      }
+    }
+  ],
+  "open_questions": [
+    "生产11/02~11/04的FOF批次成功率、最近2交易日覆盖率、首跑真实结果均未读取，不能从未观察推断失败。",
+    "全空响应可能为定开/停发而非网络故障，需与transport_errors区分；监控结论仅覆盖FOF注册的systemd/日志任务链。",
+    "摘要并发重复发生频率与R2权限错误是否在生产存在，均未观测。"
+  ],
+  "impact_surface": [
+    "FOF/QDII近7日采集→run_to600→systemd/unit-only stats",
+    "notify摘要同key并发吸收",
+    "R2域锁/全局共享屏障错误处理"
+  ],
+  "smoke_results": {
+    "known_skip": {
+      "written": 0,
+      "api_calls": [],
+      "new_date_nav": null,
+      "log": "[fof_nav] FOF/QDII 总数=1 已填跳过=1 待采=0/0 本轮跑 (拉近7日 2026-10-28~2026-11-04 batch=0 dry_run=False)\n[fof_nav] 全部已填, 无待采, 跳过\n"
+    },
+    "all_network_failure": {
+      "main_return": 0,
+      "stdout": "[fof_nav] FOF/QDII 总数=1 已填跳过=0 待采=1/1 本轮跑 (拉近7日 2026-10-28~2026-11-04 batch=1 dry_run=False)\n[fof_nav] FAIL 005827 FOF-稳健型: offline simulated request timeout\n[fof_nav] 完成 ok=0 fail=1 written=0 0s 剩余待采=0(下轮续)\n[fof_nav] return written=0\n",
+      "stderr": ""
+    },
+    "monitor_on_synthetic_all_failure": {
+      "task": "fof_nav_collect",
+      "last_exit": 0,
+      "log_anomaly": false,
+      "unit_exit": 0,
+      "unit_timer_health": "ok",
+      "exit_source": "systemd",
+      "fof_in_LOG_TASKS": false,
+      "FAIL_line_matches_ANOMALY_RE": false
+    },
+    "digest_concurrent_same_key": {
+      "returns": [
+        true,
+        true
+      ],
+      "rows": 2,
+      "keys": [
+        "same-key",
+        "same-key"
+      ],
+      "hits": [
+        1,
+        1
+      ]
+    },
+    "r2_barrier_open_fault": {
+      "exception": "IndexError",
+      "message": "list index out of range",
+      "stderr": "🔒 R2 上传锁域: data(域锁 /tmp/trade-r2-lock-reliability-7hld7q9g/data.lock, 并持全局屏障 SH)\n⚠ 无法打开 R2 全局屏障锁 /tmp/trade-r2-lock-reliability-7hld7q9g/global.lock(offline simulated barrier permissions), 本次仅持域锁 /tmp/trade-r2-lock-reliability-7hld7q9g/data.lock 继续\n"
+    }
+  },
+  "checks": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+    "method": "AST提取原始collect/main、摘要函数、R2取锁函数；只替换DB/网络/时间/故障边界。真实gen_schedule_stats模块+注入systemd props。",
+    "artifacts_only": "/tmp/codex-reports",
+    "repository_status": "git status --short为空，HEAD维持58fabc61e/main",
+    "not_executed": [
+      "生产采集",
+      "付费/外部API",
+      "SSH",
+      "部署",
+      "全量pytest",
+      "CI与部署顺序扫描",
+      "通知与review_complete信号"
+    ]
+  },
+  "recommendation": "主会话先评估FOF整批异常业务结果信号，并按既定批2关闭skip差集。摘要与R2为独立隔离证实的P2边界项，按优先级安排。保留部分失败容错，不以日志存在替代告警链路验收。"
+}

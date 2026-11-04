@@ -1,0 +1,3 @@
+{"case":"timeout_after_headers","timeoutMs":20,"contentLength":null,"result":"PENDING_AFTER_80MS","outerAborted":false,"innerAborted":false,"activeTimers":0,"fallbackCalls":0}
+{"case":"external_abort_after_headers","timeoutMs":20,"contentLength":null,"result":"PENDING_AFTER_80MS","outerAborted":true,"innerAborted":false,"activeTimers":0,"fallbackCalls":0}
+{"case":"main_boot_hanging_fetch","calls":[{"url":"./data/boot.json","signalAttached":false}],"timers":[],"fallbacks":0,"result":"PENDING_AFTER_40MS"}

@@ -1,0 +1,155 @@
+{
+  "handoff_id": "handoff-20261104-recent-issues-v1",
+  "ack_revision": 1,
+  "acknowledged_at": "2026-11-04 16:25 Asia/Shanghai",
+  "acknowledged_by": "Claude 主会话(主控)",
+  "baseline_reported": "58fabc61efdf35b1331a2ac09c737a9e6fee28be",
+  "current_head_verified": "58fabc61efdf35b1331a2ac09c737a9e6fee28be",
+  "head_equal_baseline": true,
+  "worktree_state": "clean",
+  "report_sha256_verified": "e67c87e5e74f7032d5d053f2a67b57ee69349f039474eb28f5e99d77c429dbfe",
+  "files_sha256_verified": "9/9 与交接包声明逐位一致",
+  "verification_method": "主控派出 4 个只读复核任务独立取证:后端 F01-F04 代码级复核 + 亲跑 Codex 复现脚本;前端 F05-F06 独立复算 + node 复现;S01-S03 流程与状态对账;#333 云上生产证据取证(只读)",
+  "active_overlapping_work": [
+    "无 agent 正在改 collect_fof_nav.py / gen_schedule_stats.py / notify.py / upload_r2.py / static-site/lab.js / static-site/index.html / static-site/app.js",
+    "今晚 21:48 有一次性的云上全量镜像传输任务(只动数据,不动代码,21:45-05:00)",
+    "备用源与指数换源调研已完成(只读,未改代码),涉及 public_fund.py / signal_kelly_backtest.py,与本批六个文件无交集"
+  ],
+  "items": [
+    {
+      "id": "F01",
+      "decision": "认可",
+      "evidence": "collect_fof_nav.py:231 main() 恒 return 0(不看 collect 结果);:206 单只失败只 fail+=1;gen_schedule_stats.py:356 LOG_TASKS = TASKS ∪ EXTRA_MARKER_SCANS 不含 UNIT_ONLY,而 fof_nav_collect 在 UNIT_ONLY(:309);:372-384 ANOMALY_RE 匹配异常类名,不匹配 'FAIL <code> <类型>: ...' 行;复现脚本 rc=0 断言全过,FAIL_line_matches_ANOMALY_RE=false。生产触发=能(全批失败时 systemd exit=0,监控判成功)",
+      "existing_task": null,
+      "new_task": 366,
+      "owner": "implementer",
+      "branch": "feat/codex-f01-fof-batch-signal-20261104",
+      "scope_and_acceptance": "目标行为:单只失败仍容错继续;整批请求异常(全部失败且零写入)产生监控可消费的明确信号;合法空数据(无待采/全部已填)不误报;部分成功保留已写数据。手段不限(日志可消费信号 + 监控规则纳管,或受控非零退出码),但不得把 written=0 直接等同失败。验收:注入全请求 TimeoutError → 现有监控链路出现告警;注入'全部已填无待采' → 无告警;注入单只失败 → 成功退出且已写数据保留。"
+    },
+    {
+      "id": "F02",
+      "decision": "重复已有任务",
+      "evidence": "collect_fof_nav.py:155-160 以 DISTINCT fund_code WHERE date BETWEEN ? AND ? AND unit_nav IS NOT NULL 建 filled 集,:164 pending 过滤整只跳过;docs/pending-features-index.md:502 已登记'§10.8 差集:skip 判据「范围内任一非空」需改「全填才跳」→ 批2 跟进'。与 Codex 交接包 existing_task=333 一致",
+      "existing_task": 333,
+      "new_task": null,
+      "owner": "#333 批2 统一实施时负责",
+      "branch": null,
+      "scope_and_acceptance": "不新建单、不另派。并入 #333 批2(份额类清理 / 定开封闭识别 / 历史回填同批)。验收沿用 #333:旧日有值保持不变,新日 NULL 且上游有值时实际调用 API 补入。"
+    },
+    {
+      "id": "F03",
+      "decision": "认可",
+      "evidence": "notify.py:2338-2342 读用 LOCK_SH 读完即 LOCK_UN;:2349-2356 无锁遍历判幂等;:2372 命中失败才调 _append_jsonl,其内 :2158 用 LOCK_EX。读-释放-判-写四步不原子。调用方为各 shell 脚本独立起 python3 notify.py(如 backup_db.sh:109、check_r2_consistency.sh:139、cloud_unit_patrol.sh:160),属多进程并发。复现输出 digest_concurrent_same_key: 2 行同 key、hits 各 1(期望 1 行 hits=2)。生产触发=不确定偏能(窗口窄但真实存在)",
+      "existing_task": null,
+      "new_task": 367,
+      "owner": "implementer",
+      "branch": "feat/codex-f03-digest-atomic-20261104",
+      "scope_and_acceptance": "目标行为:读取、幂等判断、计数、写回在同一排他临界区内完成(复用现有文件锁机制,不引入新依赖)。验收:两个真实进程(非线程)同日同签名并发吸收 → 摘要文件仅 1 行、hits=2;追加失败时保持原有可见失败语义(不静默吞);正常单进程吸收行为不变。"
+    },
+    {
+      "id": "F04",
+      "decision": "认可",
+      "evidence": "upload_r2.py:5198-5199 lock_plan 两项(域锁 EX + 全局屏障 SH);:5203-5217 open 循环里全局屏障 PermissionError 被 except OSError 接住后 continue,fds 只剩 1 项;:5249-5251 while 用 enumerate(lock_plan) 遍历 2 项,取 fds[1] 越界 → IndexError;fds[0] 的域锁 fd 无 try/finally 兜底而泄漏。复现 rc=0,IndexError 断言通过。生产触发=不确定偏不能(正常带 O_CREAT 几乎不失败),触发即上传崩溃 + fd 泄漏",
+      "existing_task": null,
+      "new_task": 368,
+      "owner": "implementer",
+      "branch": "feat/codex-f04-r2-barrier-lock-20261104",
+      "scope_and_acceptance": "目标行为:锁获取保存 路径/模式/fd 对应关系;任一锁失败时释放已开 fd、明确拒绝上传并保留原始 OSError;正常双锁路径行为不变。验收:注入第二把锁 PermissionError → 无 IndexError、无 fd 泄漏(复算 /proc/self/fd 或 opened 集合)、零上传调用、异常类型为原始 OSError 并带原因;正常路径既有锁域测试全绿。"
+    },
+    {
+      "id": "F05",
+      "decision": "认可",
+      "evidence": "lab.js:1794 无 Content-Length 分支 return resp.json() 无 await ⇒ finally(:1835 clearTimeout)在正文读完前执行,超时定时器失效,不会 abort,不会走 fetchJSON 兜底(:1819-1822)。独立复算:仅把 return 改 return await 即从 PENDING_AFTER_80MS 变为 rejected:AbortError。生产必走此路径:浏览器默认 br,CF 对 lab_sim_sh_full.json / lab_sim_sh_fusion_full.json 回 brotli 且剥掉 Content-Length ⇒ total=0。调用点 lab.js:1683、:1862。线上 lab.min.js 同病(实测 t.json(); 无 await)",
+      "existing_task": null,
+      "new_task": 369,
+      "owner": "implementer",
+      "branch": "feat/codex-frontend-timeouts-20261104(F05+F06 合一支,避免两次版本串 bump)",
+      "scope_and_acceptance": "目标行为:正文读取在 try 生命周期内被等待完成,超时与外部取消在无 Content-Length 分支同样生效。验收:①无 CL + 停滞正文 → 20ms 超时触发 abort 并走 fetchJSON 兜底;②外部 AbortController 取消 → 及时停止;③有 CL 的流式分支与正常 JSON 返回不回归;④重建 lab.min.js 并确认上线版含修复逻辑(§24:版本串同 commit bump、部署后哈希==引用)。"
+    },
+    {
+      "id": "F06",
+      "decision": "认可",
+      "evidence": "index.html:50 firstMs=(isMain||isLocal)?0:8000 ⇒ 主站 boot 预取无应用级超时;:41 grab(u,0) 用 fetch 无 AbortController;:52 .catch(()=>null) 只在 reject 时触发,:56 ssd 兜底不触发;app.js:10046 await pre → fetchBoot(:10093) → init(:16116) 挂起。复现:signalAttached=false、timers=[]、fallbacks=0、PENDING_AFTER_40MS。生产触发=中(需 CF/R2 回源 stall),触发即首屏挂死",
+      "existing_task": null,
+      "new_task": 370,
+      "owner": "implementer",
+      "branch": "feat/codex-frontend-timeouts-20261104(与 F05 同一分支)",
+      "scope_and_acceptance": "目标行为:主站 boot 预取设有限应用级预算(覆盖响应头与正文),超时进入既有兜底链或可见错误;正常首取仍复用同一请求(不重复抓取)。验收:①响应头永不到 → 预算内进入兜底;②响应头到但正文停滞 → 预算内进入兜底;③正常路径只有一次共享请求且初始化完成;④上线版 app.min.js 含修复逻辑 + 线上无回归(§24 四查)。"
+    },
+    {
+      "id": "S01",
+      "decision": "本轮不纳入(需用户拍板)",
+      "evidence": "四个 workflow 无依赖:ci.yml、deploy-cf.yml、deploy-pages.yml 各自触发;deploy-cf.yml:7-16 触发=push main + paths 过滤 + workflow_dispatch,不读 CI 结论;deploy-pages.yml:3-5 同;全仓无 workflow_run/needs 关联 CI;scripts/deploy.sh 与 systemd timer 独立于 CI。Codex 说法成立",
+      "existing_task": null,
+      "new_task": null,
+      "owner": null,
+      "branch": null,
+      "scope_and_acceptance": "这是架构现状而非缺陷。若要收紧为'CI 绿才部署',属流程性变更(改 deploy-cf/deploy-pages 为 workflow_run + 关联 CI 结论),会改变发布节奏与故障处置方式,需用户拍板后再立任务。"
+    },
+    {
+      "id": "S02",
+      "decision": "认可(登记为独立任务,不混入本批缺陷修复)",
+      "evidence": "ci.yml 4 处 continue-on-error(:126/:198/:466/:473)。⑦ fade 谓词迁移检查:ci.yml:476 运行 check_fade_predicate_parity.mjs 不传任何参数,而该脚本 :312 在无 --base/--ref 时 process.exit(0) ⇒ CI 形态恒绿 no-op,真差异永不报。③b check_version_consistency.py:251-261 缺源 n_skipped++ 不 FAIL(缺源即绿)。⑥ check_loss_rules_vs_mining.py:98-99 缺产物回退本地硬编码路径,CI 必不存在,靠步骤级 continue-on-error 吸收,ci.yml:58-60 已自注'真回归也会被吸收'",
+      "existing_task": null,
+      "new_task": 371,
+      "owner": "待排期(researcher 先固化基线,再 implementer)",
+      "branch": null,
+      "scope_and_acceptance": "目标行为:要么让检查真能失败(先固化迁移前基线,CI 传 --base),要么在 CI 注释与文档显式标注'当前形态=恒绿,不构成门禁'。验收:分别演示真实断言失败→红、缺数据/缺基线→显式跳过而非绿、通过→绿三种结果;对比必须存在可追溯基线。"
+    },
+    {
+      "id": "S03",
+      "decision": "认可(纳入本次文档销账,与回执归档同分支)",
+      "evidence": "#329 fund_pct.py:110/131 LRU 已实现(8d1dc0f7a);#330 backfill_fund_nav_pct_252.py:71/232 已实现;#331 backfill_fund_nav_null_days_252.py 已不存在(第二份公式已收敛);#332 docs/ops/fund-nav-pct-rootfix-20261028.md:139-145 已补(ee46abef6);索引 498-501 仍写'待办',销账 commit 1fdc0a6b7 早于四个修复。#333 索引 502 仍写'待今晚首跑',实际已跑两晚:11-02 21:10 rc=0/168s/ok=492/fail=8/written=2185/剩余1219;11-03 21:10 rc=0/160s/ok=461/fail=39/written=1952/剩余727。库内:date=20261102 非空从 10-28 18:48 历史快照的 0 条 → 11-04 当前的 22352 条;因云上无跨 11-02/11-03 两晚的相邻快照,单晚贡献取不到,不推断",
+      "existing_task": 333,
+      "new_task": null,
+      "owner": "implementer(docs 分支)",
+      "branch": "feat/codex-handoff-ack-20261104",
+      "scope_and_acceptance": "更新 docs/pending-features-index.md:498-502——#329-#332 状态改'已完成'并附 commit 与证据行;#332 注明'观察项已补,实测结果待补';#333 补两晚首跑数字与剩余量,批2/批3 保持待办。验收:四行与实现一致,不把静态核对写成'根治已验',批1 效果与批2/3 分开记录。"
+    },
+    {
+      "id": "M01",
+      "decision": "本轮不纳入",
+      "evidence": "Codex 自标'仅测量建议,收益未证实';未给冷/热缓存实测数据",
+      "existing_task": null,
+      "new_task": null,
+      "owner": null,
+      "branch": null,
+      "scope_and_acceptance": "不建任务、不改代码。待性能专项时按'先测冷/热缓存 overview 与 lab 请求、首屏指标'再做,且不得牺牲弹窗样式/移动端布局/离线功能。"
+    },
+    {
+      "id": "M02",
+      "decision": "本轮不纳入",
+      "evidence": "Codex 自标'仅试验建议,收益未证实';未给检出耗时/传输量对照",
+      "existing_task": null,
+      "new_task": null,
+      "owner": null,
+      "branch": null,
+      "scope_and_acceptance": "不建任务、不改历史。若后续试验,须保留提交号与所需历史,对照检出耗时/传输量/全部历史检查,不改写历史、不批量清理。"
+    }
+  ],
+  "agreed_implementation_scope": [
+    "F01 → #366(监控可消费信号)",
+    "F03 → #367(摘要并发原子性)",
+    "F04 → #368(R2 屏障锁失败路径)",
+    "F05+F06 → #369/#370(前端超时,同一分支,一次版本串 bump)",
+    "S03 → pending-features-index 状态销账(同 docs 分支)",
+    "F02 并入 #333 批2,不另建单",
+    "S02 → #371 独立登记,不混入本批",
+    "S01/M01/M02 本轮不做"
+  ],
+  "execution_order": [
+    "第一批(纯后端,互不冲突):#368 → #367 → #366",
+    "第二批(前端,需构建+版本串+上线):#369+#370",
+    "第三批:docs 销账 + 本回执归档(已随本回执提交)",
+    "每批:implementer → reviewer → tester → main-merge → §0 上线三查"
+  ],
+  "questions_for_codex": [
+    "F03 复现用线程 Barrier 放大窗口,我方实测调用方是多进程;请确认复验时用两个真实进程(而非线程)作为验收场景。",
+    "F05 生产路径依赖 CF 对 br 剥 Content-Length 的行为,请确认该结论基于实测响应头(而非推断),并给出实测 URL 与 header 片段。"
+  ],
+  "questions_for_user": [
+    "S01:是否要把'CI 绿才允许部署'改成真门禁?这会改变发布节奏,需要拍板;不改则维持现状并登记为已知架构。",
+    "S02:恒绿门禁(⑦ fade 谓词)是先修成真门禁(需固化基线),还是先显式标注'不构成门禁'?",
+    "本批四条代码修复 + 前端两条,是否按'后端先行、前端随后'两批推进?今晚 21:45 起云上跑全量镜像,前端上线需避开该窗口的构建/R2 上传竞争。"
+  ]
+}

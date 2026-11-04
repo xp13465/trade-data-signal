@@ -1,0 +1,163 @@
+{
+  "request_id": "research-20261104-frontend",
+  "baseline": "58fabc61efdf35b1331a2ac09c737a9e6fee28be",
+  "verdict": "PASS",
+  "verdict_scope": "Read-only research; two P2 findings, no verified P0/P1; not an approval to deploy.",
+  "summary": "Two verified frontend reliability defects, plus prefetch measurement advice. No formal CWV/browser UX audit.",
+  "issues": [
+    {
+      "severity": "P2",
+      "title": "fetchJSONProgress missing-Content-Length branch clears timeout and external-abort linkage before JSON body completes",
+      "path": "static-site/lab.js:1794",
+      "related_paths": [
+        "static-site/lab.js:1833",
+        "static-site/lab.js:1862",
+        "static-site/lab.js:4848",
+        "static-site/lab.js:4959"
+      ],
+      "impact": "Stalled large-response body can leave detail modal loading; 60s inner timeout and outer 15s abort no longer interrupt the body.",
+      "why": "Returning resp.json() without awaiting exits try immediately; finally clears _timer and removes _onOuterAbort before body parsing settles.",
+      "fix": "Keep body reading within try (return await resp.json()) so timeout/abort linkage lasts through response consumption; review analogous promise-returning fallback boundaries.",
+      "trace": {
+        "diff_range": "58fabc61efdf35b1331a2ac09c737a9e6fee28be:static-site/lab.js:1792-1794,1833-1836",
+        "linkage": "满足",
+        "user_request": "只读核查前端现状和近期优化空间",
+        "origin": "pre-existing",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "node /tmp/codex-reports/research-20261104-frontend-repro.cjs",
+        "expected": "20ms timeout aborts stalled body, or external abort propagates; pending promise must settle or enter intended fallback.",
+        "observed": "timeout_after_headers: PENDING_AFTER_80MS, innerAborted=false, activeTimers=0, fallbackCalls=0. external_abort_after_headers: same, outerAborted=true."
+      },
+      "reachability": "lab.js:4959 detail modal -> _labRetestEnsureFull:4841 -> fetchLabSimFullData:4852 -> fetchJSONProgress:1862 with 60000ms. Also ranking/fusion detail loaders call it.",
+      "online_evidence": {
+        "command": "curl --connect-timeout 5 --max-time 20 --max-filesize 1024 --compressed -sS -D /tmp/codex-reports/research-20261104-frontend-full-get.headers https://ss.fx8.store/r2/lab/lab_sim_sh_full.json -o /tmp/codex-reports/research-20261104-frontend-full-get-prefix.bin",
+        "observed": "2026-11-04 06:50:39 UTC: real normal GET HTTP/2 200, content-encoding:gzip, NO Content-Length header. curl intentionally stopped by max-filesize (exit63). No full historical body downloaded. Actual production body stall/timeouts NOT observed."
+      },
+      "acceptance": "Repeat absent-Content-Length fault injection: timeout and external-abort each interrupt pending body; intended timeout fallback occurs; normal streamed JSON and present-Content-Length path still complete.",
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 0,
+        "rationale": "Retain existing single controller and finally; one await fixes cleanup lifetime without introducing another timer."
+      }
+    },
+    {
+      "severity": "P2",
+      "title": "Main-origin boot prefetch has no application deadline while global render awaits it",
+      "path": "static-site/index.html:50",
+      "related_paths": [
+        "static-site/index.html:41",
+        "static-site/app.js:10046",
+        "static-site/app.js:53",
+        "static-site/app.js:11745",
+        "static-site/app.js:16116"
+      ],
+      "impact": "If main-origin boot fetch/body hangs, overview render and other tabs awaiting SIM_INDICES do not reach existing data/error fallback until browser/network eventually rejects.",
+      "why": "Main/localhost firstMs=0 chooses fetch with no AbortSignal. _bootJSON directly awaits that promise before any fetchJSON budget can apply.",
+      "fix": "Add a finite deadline covering main-origin boot response consumption, then enter existing backup/degradation path; preserve request deduplication.",
+      "trace": {
+        "diff_range": "58fabc61efdf35b1331a2ac09c737a9e6fee28be:static-site/index.html:40-56;static-site/app.js:10041-10052",
+        "linkage": "满足",
+        "user_request": "先看真实index入口/加载路径",
+        "origin": "pre-existing",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "node /tmp/codex-reports/research-20261104-frontend-repro.cjs",
+        "expected": "Main boot has a finite application deadline and eventually settles via fallback/error.",
+        "observed": "main_boot_hanging_fetch: signalAttached=false, timers=[], fallbacks=0, PENDING_AFTER_40MS. Structural absence of deadline is verified; no real production hang observed."
+      },
+      "acceptance": "Simulated main boot with stalled headers and separately stalled body reaches fallback/error within declared budget; successful boot still issues one shared request.",
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 0,
+        "rationale": "Reuse the existing abort/timer pattern and fallback chain; do not add a separate render-specific retry mechanism."
+      }
+    }
+  ],
+  "open_questions": [
+    {
+      "title": "Prefetch budget and mobile rendering: measure before claiming benefit",
+      "status": "measurement advice, not confirmed performance regression",
+      "entry_preload_urls": [
+        "https://ss.fx8.store/style.min.css?v=20261031-a654",
+        "https://ss.fx8.store/lab.min.css?v=20261031-a654"
+      ],
+      "boot_prefetch": {
+        "primary": "https://ss.fx8.store/data/boot.json",
+        "trigger": "HTML head executes on every load including overview; fallback https://ssd.fx8.store/data/boot.json only if primary fails/non-ok/invalid JSON, not while primary remains pending."
+      },
+      "sw_install_precache_urls": [
+        "https://ss.fx8.store/",
+        "https://ss.fx8.store/index.html",
+        "https://ss.fx8.store/app.min.js?v=20261031-a654",
+        "https://ss.fx8.store/common.min.js?v=20261031-a654",
+        "https://ss.fx8.store/style.min.css?v=20261031-a654",
+        "https://ss.fx8.store/purpose-notes.min.js?v=20261031-a654",
+        "https://ss.fx8.store/kelly-review-notes.min.js?v=20261031-a654",
+        "https://ss.fx8.store/qr.js?v=20261031-a654",
+        "https://ss.fx8.store/manifest.json",
+        "https://ss.fx8.store/favicon.svg",
+        "https://ss.fx8.store/favicon.ico",
+        "https://ss.fx8.store/icon-192.png",
+        "https://ss.fx8.store/icon-512.png",
+        "https://ss.fx8.store/apple-touch-icon.png"
+      ],
+      "sw_trigger": "index.html:488-489 registers after window.load on every route; sw.js:75-109 downloads the 4 core entries, then 10 extras only on install/new SW version. Attempts may use HTTP cache; not a claim of 14 browser transfers per visit. No tab guard.",
+      "overview_lab_boundary": "overview entry eagerly requests lab.min.css; first/new SW install also precaches kelly-review-notes.min.js. lab.min.js only when tab=lab or #lab route (app.js:89,11759,34441). No /r2/lab/* JSON is listed in HTML/SW unconditional prefetch inventory. Shared strategy data is legitimately used on overview: /data/signal_kelly_snapshots/latest_posrating.json (app.js:16151), /data/kelly_mode_s06_state.json when home S06 mode is active (app.js:7273,common.js:1053/1066). /data/overfit_monitor.json only when observer reaches 200px margin, first scroll/touchstart/click, or no-IO 5s fallback (app.js:2312-2344); ext bank conditional (2355). Not an exhaustive browser network inventory.",
+      "sizes": [
+        {
+          "asset": "app.min.js",
+          "decoded_file_bytes": 1093222,
+          "curl_compressed_body_bytes": 342523
+        },
+        {
+          "asset": "lab.min.css",
+          "decoded_file_bytes": 119410,
+          "curl_compressed_body_bytes": 18178
+        },
+        {
+          "asset": "kelly-review-notes.min.js",
+          "decoded_file_bytes": 138293,
+          "curl_compressed_body_bytes": 43904
+        }
+      ],
+      "size_scope": "Local/decoded source bytes differ from curl compressed response-body bytes; neither is browser first-screen total, LCP/INP/CLS, wire overhead, or guaranteed savings. Live app/lab/SW/CSS/notes SHA256 equal current checkout.",
+      "recommendation": "Measure cold/warm overview and #lab separately; consider loading lab CSS on first lab/sim-modal use and moving review-notes prefetch to report use/idle if waterfall confirms contention. Preserve offline behavior.",
+      "acceptance": "Browser waterfall records actual request counts, transferSize/encodedBodySize, cache source and timing on desktop/mobile; prove improvement with no unstyled modal or offline regression before rollout."
+    }
+  ],
+  "checks": {
+    "baseline": "58fabc61e",
+    "worktree": "clean at start; final git status separately checked",
+    "browser_cwv": "NOT EXECUTED: no Chrome DevTools tool; no installation/config changes requested",
+    "online": "Small static asset GETs, boot HEAD, one capped historical GET headers only; no full history download",
+    "scope_exclusions": [
+      "CI/deployment ordering",
+      "Cloudflare implementation",
+      "production mutations",
+      "notifications"
+    ]
+  },
+  "artifacts": {
+    "repro_script": "/tmp/codex-reports/research-20261104-frontend-repro.cjs",
+    "repro_output": "/tmp/codex-reports/research-20261104-frontend-repro-output.txt",
+    "online_response_headers": "/tmp/codex-reports/research-20261104-frontend-full-get.headers"
+  },
+  "impact_surface": [
+    "boot/render initialization",
+    "lab full-data loading and abort lifetime",
+    "entry/SW asset request budget"
+  ],
+  "smoke_results": {
+    "VM": "two independent failure conditions reproduced",
+    "live_assets": "hash matches current checkout",
+    "UX/CWV": "not measured"
+  },
+  "recommendation": "Claude主控复核两项P2并实施；预取仅作为待测优化，不保证首屏收益。",
+  "primary_references": [
+    "https://developer.mozilla.org/en-US/docs/Web/API/AbortController/abort",
+    "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/rel/preload"
+  ]
+}

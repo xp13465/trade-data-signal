@@ -1,0 +1,401 @@
+{
+  "handoff_id": "handoff-20261104-recent-issues-v1",
+  "revision": 1,
+  "prepared_at": "2026-11-04 Asia/Shanghai",
+  "status": "prepared_not_delivered_or_acknowledged",
+  "baseline": {
+    "main": "58fabc61efdf35b1331a2ac09c737a9e6fee28be",
+    "commit_time": "2026-11-02T09:17:06+08:00",
+    "remote_main_verified": true,
+    "worktree": "clean",
+    "recent_window": "2026-10-21 至 2026-11-04，必要时追溯10月背景"
+  },
+  "user_scope": "修之前先确认沟通和同步、准备双方接力；本交接包不代表已经获准实施所有建议。",
+  "authority": {
+    "codex": "只读报告、解释证据、按用户点名复验；发现误报须更正。",
+    "claude": "主控独立复核、任务登记/去重、实施分配、内部审查测试、merge和部署。",
+    "canonical_task_state": "docs/pending-features-index.md，关联固定finding id；TASKS/报告写指针，不重复维护当前状态。"
+  },
+  "transport": {
+    "chosen": "用户转达给正在使用的Claude主会话，主会话回执；也可由该主会话读取本地交接包。",
+    "not_used": "不创建ready信号、不启动自动Claude消费者。",
+    "reason": "docs/codex-collab-protocol.md写watcher仅校验提醒；scripts/agent_inbox_watcher.py:369及scripts/claude-inbox-consumer.sh:23-45则会启动可编辑的新Claude会话，不能代表现有主会话认领。",
+    "delivery_proof_required": "指定Claude主会话返回handoff_id、所读报告sha256、当前HEAD及逐项决策；未收到前只标待接收。"
+  },
+  "reconciliation": {
+    "before_implementation": [
+      "Claude先核当前HEAD、活跃分支/agent和同模块占用，与基线不同则先重现/对账。",
+      "逐项用F01-F06及S/M编号回应，不能只说整体认可；复用#333等既有任务避免重派。",
+      "每项决策=认可/不认可/需补证/重复已有任务/本轮不纳入；附理由、代码或测试证据、owner、分支和既有任务编号。",
+      "双方先对齐目标行为及验收用例；实现手段可不同。存在重大产品语义/既有用户决定分歧则列差异请用户拍板，不自行选边。"
+    ],
+    "during_implementation": [
+      "实现归Claude；同文件任务由Claude串行或集中一支，禁止独立并行覆盖；不强制每finding建独立分支。",
+      "范围、根因或验收变化要更新同一编号及版本，保留旧结论，不能静默扩大修复或把测量建议当已证实bug。"
+    ],
+    "after_implementation": [
+      "Claude返回finding id→任务→分支/修复commit→实际验证输出→上线证据→剩余风险/观察点。",
+      "需要Codex复验时按用户点名范围提供固定base/head、需求与逐项映射，以协议正式request回传；本交接不另造空request。",
+      "实现完成、内审通过、外审结论、已上线、生产效果已验分别记录；不互相替代。",
+      "Codex若被反例证伪，按原id注明误报/修正；Claude若不采纳，保留证据与决策，争议不静默销账。"
+    ]
+  },
+  "findings": [
+    {
+      "id": "F01",
+      "classification": "隔离复现的边界问题，生产触发未证实",
+      "severity": "P2",
+      "title": "FOF整批请求异常仍成功退出，当前监控无法识别",
+      "source_path": "scripts/collect_fof_nav.py:206; scripts/collect_fof_nav.py:231; scripts/gen_schedule_stats.py:309; scripts/gen_schedule_stats.py:1613",
+      "evidence": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+        "expected": "全部模拟请求TimeoutError时，整批失败应有可消费信号，同时继续容忍单只失败。",
+        "observed": {
+          "collector": {
+            "main_return": 0,
+            "stdout": "[fof_nav] FOF/QDII 总数=1 已填跳过=0 待采=1/1 本轮跑 (拉近7日 2026-10-28~2026-11-04 batch=1 dry_run=False)\n[fof_nav] FAIL 005827 FOF-稳健型: offline simulated request timeout\n[fof_nav] 完成 ok=0 fail=1 written=0 0s 剩余待采=0(下轮续)\n[fof_nav] return written=0\n",
+            "stderr": ""
+          },
+          "monitor": {
+            "task": "fof_nav_collect",
+            "last_exit": 0,
+            "log_anomaly": false,
+            "unit_exit": 0,
+            "unit_timer_health": "ok",
+            "exit_source": "systemd",
+            "fof_in_LOG_TASKS": false,
+            "FAIL_line_matches_ANOMALY_RE": false
+          }
+        }
+      },
+      "acceptance": "注入全请求超时必须可监控告警；合法空数据不误报；部分成功保留已写数据。",
+      "proposed_fix": "保留单只容错；把正常无新值、部分失败、整批网络异常分别计数并输出可被现有监控消费的结果。不要将written=0直接等同失败。",
+      "claude_decision": null,
+      "owner": null,
+      "existing_task": null,
+      "branch": null,
+      "fix_commit": null,
+      "verification_evidence": null,
+      "production_observation": null
+    },
+    {
+      "id": "F02",
+      "classification": "已知未闭环、独立复现",
+      "severity": "P2",
+      "title": "FOF窗口内任一天有值就跳过整只基金",
+      "source_path": "scripts/collect_fof_nav.py:155; scripts/collect_fof_nav.py:164; TASKS.md:13",
+      "evidence": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+        "expected": "同基金旧日已有值保持不变，新日有可用上游值且本地NULL时应补入。",
+        "observed": {
+          "written": 0,
+          "api_calls": [],
+          "new_date_nav": null,
+          "log": "[fof_nav] FOF/QDII 总数=1 已填跳过=1 待采=0/0 本轮跑 (拉近7日 2026-10-28~2026-11-04 batch=0 dry_run=False)\n[fof_nav] 全部已填, 无待采, 跳过\n"
+        }
+      },
+      "acceptance": "旧日有值、新日NULL且上游可提供新值时实际调用API并补入；不覆盖旧值。",
+      "proposed_fix": "这是#333批2已登记差集。按目标交易日/实际发布节奏判断缺口并补缺，已有非空值继续保留。",
+      "claude_decision": null,
+      "owner": null,
+      "existing_task": 333,
+      "branch": null,
+      "fix_commit": null,
+      "verification_evidence": null,
+      "production_observation": null
+    },
+    {
+      "id": "F03",
+      "classification": "隔离复现的边界问题，生产触发未证实",
+      "severity": "P2",
+      "title": "摘要同签名并发可产生两条记录",
+      "source_path": "scripts/notify.py:2342; scripts/notify.py:2349; scripts/notify.py:2372",
+      "evidence": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+        "expected": "同日同key两次吸收应1行hits=2。",
+        "observed": {
+          "returns": [
+            true,
+            true
+          ],
+          "rows": 2,
+          "keys": [
+            "same-key",
+            "same-key"
+          ],
+          "hits": [
+            1,
+            1
+          ]
+        }
+      },
+      "acceptance": "两个同日同签名并发吸收后仅一行、hits=2；追加失败保持原有可见失败语义。",
+      "proposed_fix": "用同一个排他临界区覆盖读取、判断、计数和写回；复用现有文件锁机制。",
+      "claude_decision": null,
+      "owner": null,
+      "existing_task": null,
+      "branch": null,
+      "fix_commit": null,
+      "verification_evidence": null,
+      "production_observation": null
+    },
+    {
+      "id": "F04",
+      "classification": "隔离复现的边界问题，生产触发未证实",
+      "severity": "P2",
+      "title": "R2全局屏障锁打开失败后发生IndexError",
+      "source_path": "scripts/upload_r2.py:5215; scripts/upload_r2.py:5251",
+      "evidence": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/research-20261104-reliability-repro.py",
+        "expected": "屏障不可打开时明确拒绝上传并报告原OSError，释放已开fd，避免IndexError。",
+        "observed": {
+          "exception": "IndexError",
+          "message": "list index out of range",
+          "stderr": "🔒 R2 上传锁域: data(域锁 /tmp/trade-r2-lock-reliability-7hld7q9g/data.lock, 并持全局屏障 SH)\n⚠ 无法打开 R2 全局屏障锁 /tmp/trade-r2-lock-reliability-7hld7q9g/global.lock(offline simulated barrier permissions), 本次仅持域锁 /tmp/trade-r2-lock-reliability-7hld7q9g/data.lock 继续\n"
+        }
+      },
+      "acceptance": "注入第二把锁PermissionError：无IndexError、无fd遗留、无上传调用。",
+      "proposed_fix": "锁获取应保存路径/模式/fd的对应关系；失败时释放已开的fd并明确拒绝上传，保留原始原因。",
+      "claude_decision": null,
+      "owner": null,
+      "existing_task": null,
+      "branch": null,
+      "fix_commit": null,
+      "verification_evidence": null,
+      "production_observation": null
+    },
+    {
+      "id": "F05",
+      "classification": "隔离复现的边界问题，生产触发未证实",
+      "severity": "P2",
+      "title": "实验室无Content-Length响应的正文读取失去超时和取消",
+      "source_path": "static-site/lab.js:1794",
+      "evidence": {
+        "command": "node /tmp/codex-reports/research-20261104-frontend-repro.cjs",
+        "expected": "20ms timeout aborts stalled body, or external abort propagates; pending promise must settle or enter intended fallback.",
+        "observed": "timeout_after_headers: PENDING_AFTER_80MS, innerAborted=false, activeTimers=0, fallbackCalls=0. external_abort_after_headers: same, outerAborted=true."
+      },
+      "acceptance": "无长度+停滞正文：超时、用户取消均生效；正常JSON与有长度分支正常完成。",
+      "proposed_fix": "正文读取须在try生命周期内等待完成，使现有计时器和取消监听到真正结束才清理。",
+      "claude_decision": null,
+      "owner": null,
+      "existing_task": null,
+      "branch": null,
+      "fix_commit": null,
+      "verification_evidence": null,
+      "production_observation": null
+    },
+    {
+      "id": "F06",
+      "classification": "隔离复现的边界问题，生产触发未证实",
+      "severity": "P2",
+      "title": "主站boot预取没有应用级超时",
+      "source_path": "static-site/index.html:50",
+      "evidence": {
+        "command": "node /tmp/codex-reports/research-20261104-frontend-repro.cjs",
+        "expected": "Main boot has a finite application deadline and eventually settles via fallback/error.",
+        "observed": "main_boot_hanging_fetch: signalAttached=false, timers=[], fallbacks=0, PENDING_AFTER_40MS. Structural absence of deadline is verified; no real production hang observed."
+      },
+      "acceptance": "挂起响应头/正文均可在声明预算内进入兜底或可见错误；正常首取只有一次共享请求。",
+      "proposed_fix": "复用有限超时与已有兜底链，预算覆盖响应头和正文；保持同一初始化请求复用。",
+      "claude_decision": null,
+      "owner": null,
+      "existing_task": null,
+      "branch": null,
+      "fix_commit": null,
+      "verification_evidence": null,
+      "production_observation": null
+    }
+  ],
+  "other_items": [
+    {
+      "id": "S01",
+      "title": "CI检查结果与同一提交部署放行关系",
+      "kind": "流程优化待复核，非本轮实证业务事故",
+      "acceptance": "注入真实门禁失败时，不放行对应提交；检查通过才部署该提交；云端同步和两站部署入口均核清。"
+    },
+    {
+      "id": "S02",
+      "title": "CI允许失败与单边一致性脚本的覆盖边界",
+      "kind": "检查覆盖改进待复核",
+      "acceptance": "分别演示真实断言失败、缺数据/缺基线和通过三种结果；真实失败不被吸收，对比须存在可追溯基线。"
+    },
+    {
+      "id": "S03",
+      "title": "#329–332实现/文档已补但台账仍待办；#333首跑证据待补",
+      "kind": "状态与取证对账",
+      "acceptance": "分别标明实现已补、效果待验和剩余批次；补首跑日志与实际NULL转非空数量后再定结论。"
+    },
+    {
+      "id": "M01",
+      "title": "前端资源延后加载",
+      "kind": "仅测量建议，收益未证实",
+      "acceptance": "先测冷/热缓存overview及lab请求与首屏指标；不得牺牲弹窗样式、移动端布局或离线功能。"
+    },
+    {
+      "id": "M02",
+      "title": "Git/CI按需取文件内容的提速试验",
+      "kind": "仅试验建议，收益未证实",
+      "acceptance": "保留提交号和所需历史；对照检出耗时、传输量及全部历史检查；本次不改写历史或批量清理。"
+    }
+  ],
+  "claude_ack_template": {
+    "handoff_id": "handoff-20261104-recent-issues-v1",
+    "report_sha256": "e67c87e5e74f7032d5d053f2a67b57ee69349f039474eb28f5e99d77c429dbfe",
+    "current_head": null,
+    "active_overlapping_work": [],
+    "items": [
+      {
+        "id": "F01",
+        "decision": null,
+        "evidence": null,
+        "existing_task": null,
+        "owner": null,
+        "branch": null,
+        "scope_and_acceptance": null
+      },
+      {
+        "id": "F02",
+        "decision": null,
+        "evidence": null,
+        "existing_task": 333,
+        "owner": null,
+        "branch": null,
+        "scope_and_acceptance": null
+      },
+      {
+        "id": "F03",
+        "decision": null,
+        "evidence": null,
+        "existing_task": null,
+        "owner": null,
+        "branch": null,
+        "scope_and_acceptance": null
+      },
+      {
+        "id": "F04",
+        "decision": null,
+        "evidence": null,
+        "existing_task": null,
+        "owner": null,
+        "branch": null,
+        "scope_and_acceptance": null
+      },
+      {
+        "id": "F05",
+        "decision": null,
+        "evidence": null,
+        "existing_task": null,
+        "owner": null,
+        "branch": null,
+        "scope_and_acceptance": null
+      },
+      {
+        "id": "F06",
+        "decision": null,
+        "evidence": null,
+        "existing_task": null,
+        "owner": null,
+        "branch": null,
+        "scope_and_acceptance": null
+      },
+      {
+        "id": "S01",
+        "decision": null,
+        "evidence": null,
+        "existing_task": null,
+        "owner": null,
+        "branch": null,
+        "scope_and_acceptance": null
+      },
+      {
+        "id": "S02",
+        "decision": null,
+        "evidence": null,
+        "existing_task": null,
+        "owner": null,
+        "branch": null,
+        "scope_and_acceptance": null
+      },
+      {
+        "id": "S03",
+        "decision": null,
+        "evidence": null,
+        "existing_task": null,
+        "owner": null,
+        "branch": null,
+        "scope_and_acceptance": null
+      },
+      {
+        "id": "M01",
+        "decision": null,
+        "evidence": null,
+        "existing_task": null,
+        "owner": null,
+        "branch": null,
+        "scope_and_acceptance": null
+      },
+      {
+        "id": "M02",
+        "decision": null,
+        "evidence": null,
+        "existing_task": null,
+        "owner": null,
+        "branch": null,
+        "scope_and_acceptance": null
+      }
+    ],
+    "agreed_implementation_scope": [],
+    "questions_for_codex": [],
+    "questions_for_user": []
+  },
+  "archive_request": "由Claude主会话按仓库既有流程将交接包、复现脚本和逐项回执落入版本化审查文档并更新任务指针；/tmp只是本次临时传递，不能当长期唯一依据。",
+  "files": [
+    {
+      "path": "/tmp/codex-reports/research-20261104-report.json",
+      "bytes": 23440,
+      "sha256": "e67c87e5e74f7032d5d053f2a67b57ee69349f039474eb28f5e99d77c429dbfe"
+    },
+    {
+      "path": "/tmp/codex-reports/research-20261104-reliability.json",
+      "bytes": 13285,
+      "sha256": "e1c7a9bb830c79b5782b608433ad53cfbcf9f7c8a427961da440e83fd9fc5cfc"
+    },
+    {
+      "path": "/tmp/codex-reports/research-20261104-reliability-repro.py",
+      "bytes": 7893,
+      "sha256": "31d5409e7899a33a877f8800958c478ee53fd819b985566b52496868d95be443"
+    },
+    {
+      "path": "/tmp/codex-reports/research-20261104-reliability-observed.json",
+      "bytes": 1558,
+      "sha256": "5d3c8988e9db00f343fc5feeb52445915f7d8e9fc1feb30d0ebd55090a5ca732"
+    },
+    {
+      "path": "/tmp/codex-reports/research-20261104-frontend.json",
+      "bytes": 10247,
+      "sha256": "c1fbc18a77d58c512a5717f5d9ef310558a6f1259795113a105c4b23271fca73"
+    },
+    {
+      "path": "/tmp/codex-reports/research-20261104-frontend-repro.cjs",
+      "bytes": 3302,
+      "sha256": "8e81ff14a98cd7a10c0670645b092da0f499258ddb5690a0bc8cb6539cac65bd"
+    },
+    {
+      "path": "/tmp/codex-reports/research-20261104-frontend-repro-output.txt",
+      "bytes": 509,
+      "sha256": "ba2af0df08757cdb807b482bbc7508e31d310e31877a930e34a7ef0230fd3494"
+    },
+    {
+      "path": "/tmp/codex-reports/research-20261104-frontend-main-verification.json",
+      "bytes": 139,
+      "sha256": "d94cd4728cbcad3462d2820f302fb2cf1c1b2225cfe441936fb3ec5ddeed0cc4"
+    },
+    {
+      "path": "/tmp/codex-reports/research-20261104-recent.md",
+      "bytes": 4101,
+      "sha256": "9aa5acfa701c34dfba99dbd11b104d9ae45cad7e4290dddfbf6b79a3112e02c2"
+    }
+  ],
+  "execution_authorization": "本轮仅准备与对账；收到交接包不等于获准业务修复，先返回逐项复核及拟修复范围。"
+}

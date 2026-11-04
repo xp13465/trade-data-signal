@@ -1,0 +1,43 @@
+{
+  "known_skip": {
+    "written": 0,
+    "api_calls": [],
+    "new_date_nav": null,
+    "log": "[fof_nav] FOF/QDII 总数=1 已填跳过=1 待采=0/0 本轮跑 (拉近7日 2026-10-28~2026-11-04 batch=0 dry_run=False)\n[fof_nav] 全部已填, 无待采, 跳过\n"
+  },
+  "all_network_failure": {
+    "main_return": 0,
+    "stdout": "[fof_nav] FOF/QDII 总数=1 已填跳过=0 待采=1/1 本轮跑 (拉近7日 2026-10-28~2026-11-04 batch=1 dry_run=False)\n[fof_nav] FAIL 005827 FOF-稳健型: offline simulated request timeout\n[fof_nav] 完成 ok=0 fail=1 written=0 0s 剩余待采=0(下轮续)\n[fof_nav] return written=0\n",
+    "stderr": ""
+  },
+  "monitor_on_synthetic_all_failure": {
+    "task": "fof_nav_collect",
+    "last_exit": 0,
+    "log_anomaly": false,
+    "unit_exit": 0,
+    "unit_timer_health": "ok",
+    "exit_source": "systemd",
+    "fof_in_LOG_TASKS": false,
+    "FAIL_line_matches_ANOMALY_RE": false
+  },
+  "digest_concurrent_same_key": {
+    "returns": [
+      true,
+      true
+    ],
+    "rows": 2,
+    "keys": [
+      "same-key",
+      "same-key"
+    ],
+    "hits": [
+      1,
+      1
+    ]
+  },
+  "r2_barrier_open_fault": {
+    "exception": "IndexError",
+    "message": "list index out of range",
+    "stderr": "🔒 R2 上传锁域: data(域锁 /tmp/trade-r2-lock-reliability-7hld7q9g/data.lock, 并持全局屏障 SH)\n⚠ 无法打开 R2 全局屏障锁 /tmp/trade-r2-lock-reliability-7hld7q9g/global.lock(offline simulated barrier permissions), 本次仅持域锁 /tmp/trade-r2-lock-reliability-7hld7q9g/data.lock 继续\n"
+  }
+}
