@@ -1791,7 +1791,8 @@ async function fetchJSONProgress(url, onProgress, signal, timeoutMs) {
     // 非 .gz 路径(原逻辑): 流式累计 + text parse
     if (!total || !resp.body || !resp.body.getReader) {
       if (onProgress) onProgress(-1, 0);
-      return resp.json();
+      // #369: 等正文读取完成再进 finally，避免提前清掉超时和外部取消监听。
+      return await resp.json();
     }
     const reader = resp.body.getReader();
     let received = 0;
