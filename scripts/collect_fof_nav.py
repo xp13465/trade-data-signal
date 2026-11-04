@@ -233,8 +233,8 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
     # 单只失败是常态(封闭期/份额类),ok>0 或 written>0 即判部分成功,不触发。
     batch_fail = had_pending and (not dry_run) and ok == 0 and total_written == 0
     if batch_fail:
-        print(f"[fof_nav] BATCH_FAIL 本轮待采={len(pending)} 全部失败零写入 "
-              f"(疑似整批网络异常/WAF, 已写数据保留, 下轮自动续跑)",
+        print(f"[fof_nav] BATCH_FAIL 本轮待采={len(pending)} 整批失败: 有待采且零成功零写入 "
+              f"(常见原因=网络/WAF 或写库异常, 已写数据保留, 下轮自动续跑)",
               flush=True)
     LAST_BATCH_FAILED = batch_fail  # global 声明在函数头(配合顶部复位)
     return total_written

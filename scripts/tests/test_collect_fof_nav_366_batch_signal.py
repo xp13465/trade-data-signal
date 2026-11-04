@@ -11,6 +11,7 @@
 证明用例有判别力(贴红先验证据由实施方跑一次「破坏后」留存)。
 """
 import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
@@ -81,10 +82,6 @@ def test_single_failure_still_ok_exit0(tmp_db, monkeypatch):
     n = mod.collect(days=7, limit=None, dry_run=False)
     assert n >= 2  # 两只各写 1 行
     assert mod.LAST_BATCH_FAILED is False  # 单只失败不算整批失败
-    rc = mod.main.__wrapped__ if hasattr(mod.main, "__wrapped__") else None
-    # 直接验 main 的退出码逻辑(不跑 argparse, 复用 collect 已置位的标志)
-    # main() 读 LAST_BATCH_FAILED 判 exit code
-    assert mod.LAST_BATCH_FAILED is False
 
 
 # ── 场景 2: 整批全失败零写入 → LAST_BATCH_FAILED=True, exit 2 ────────
@@ -209,4 +206,56 @@ def test_batch_fail_discriminator_red(tmp_db, monkeypatch):
     assert mod.LAST_BATCH_FAILED is True, (
         "判别力失败: 整批全失败零写入但 LAST_BATCH_FAILED 未置位 → "
         "ok==0 守卫可能被破坏, 用例无效"
+    )
+
+
+# ── main() 退出码端到端(锁住信号链最后一段) ──────────────────────────
+def test_main_returns_2_when_batch_fail(monkeypatch):
+    """main() 真调: collect 置位 LAST_BATCH_FAILED=True → main() 返回 2。
+
+    挡住 argparse(sys.argv 仅程序名)和 collect(打桩只置标志, 不跑真采集)。
+    锁住「标志 → exit code」这段, 防后人改 main() 漏读标志静默 exit 0。
+    """
+    monkeypatch.setattr(sys, "argv", ["collect_fof_nav"])
+
+    def fake_collect(**kw):
+        mod.LAST_BATCH_FAILED = True
+        return 0
+    monkeypatch.setattr(mod, "collect", fake_collect)
+
+    rc = mod.main()
+    assert rc == 2, f"整批失败标志置位但 main() 返回 {rc}(应 exit 2 供 systemd 标 failed)"
+
+
+def test_main_returns_0_when_no_batch_fail(monkeypatch):
+    """main() 真调: collect 置位 LAST_BATCH_FAILED=False → main() 返回 0。"""
+    monkeypatch.setattr(sys, "argv", ["collect_fof_nav"])
+
+    def fake_collect(**kw):
+        mod.LAST_BATCH_FAILED = False
+        return 3
+    monkeypatch.setattr(mod, "collect", fake_collect)
+
+    rc = mod.main()
+    assert rc == 0, f"无整批失败但 main() 返回 {rc}(应 exit 0)"
+
+
+# ── main() 退出码判别力(红先验): 破坏 exit 分支 → 用例必红 ───────────
+def test_main_exit_discriminator_red(monkeypatch):
+    """红先验锚点: 置位 True 时 main() MUST exit 2。
+
+    若有人把 main() 的 `if LAST_BATCH_FAILED: return 2` 破坏(删掉/改成 return 0),
+    本断言 rc == 2 会红, 暴露破坏。
+    """
+    monkeypatch.setattr(sys, "argv", ["collect_fof_nav"])
+
+    def fake_collect(**kw):
+        mod.LAST_BATCH_FAILED = True
+        return 0
+    monkeypatch.setattr(mod, "collect", fake_collect)
+
+    rc = mod.main()
+    assert rc == 2, (
+        f"判别力失败: LAST_BATCH_FAILED=True 但 main() 返回 {rc} 非 2 → "
+        "exit 2 分支可能被破坏, 用例无效"
     )
