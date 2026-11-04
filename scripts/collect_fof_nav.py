@@ -59,6 +59,13 @@ USER_AGENT = (
 REQ_TIMEOUT = 15  # 单只请求上限(秒)
 RATE_LIMIT = 0.3  # 每只间隔(秒, 防 WAF; 实测 50 只 0.3s 间隔零 429/零封, 见 docs/ops/333-fix-plan.md)
 BATCH_SIZE = 500  # 每轮最多采 N 只(配合跳过已填分批续跑, 几轮覆盖 1796)
+
+# 整批失败信号(#366/F01): collect() 每轮置位, main() 据此 exit 2。
+# 判定 = 本轮确有待采(pending 非空) + 非空(dry_run 不报) + ok==0 且零写入
+# ⇒ exit 2 让 systemd 把 trade-fof-nav-collect.service 标 failed,
+#   现有消费者 scripts/check_failed_units.py(扫 systemctl --failed)即可发现。
+# 单只 FAIL 是常态(封闭期/份额类上游空),不算整批失败,不触发本信号。
+LAST_BATCH_FAILED = False
 SELECT_SQL = (
     "SELECT fund_code, fund_name, fund_type FROM fund_basic "
     "WHERE fund_type LIKE 'FOF%' OR fund_type LIKE 'QDII%' "
@@ -128,12 +135,18 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
             batch: int = BATCH_SIZE) -> int:
     """主流程。返回写入行数。
 
+    整批失败信号(#366/F01): 若本轮确有待采(pending 非空)、非 dry_run、且 ok==0 且零写入,
+    置位 mod.LAST_BATCH_FAILED, main() 据此 exit 2 → systemd 标 failed →
+    check_failed_units.py 扫到。单只失败是常态不算整批失败。
+
     跳过已填 + 分批:
       - 跳过已填: 查库中目标日期范围内已有非空 unit_nav 的 fund_code, 从待采列表排除,
         只对未填的发 API(解决"每轮重头跑→后段永不触达")。
       - 分批: 每轮最多采 batch 只(默认 BATCH_SIZE), 剩余下轮续(配合跳过已填, 几轮覆盖 1796)。
       - limit: 调试小样, 优先于 batch(只取前 N 只, 不分批续跑)。
     """
+    global LAST_BATCH_FAILED
+    LAST_BATCH_FAILED = False  # 每轮重置, 防同进程跨轮残留(合法空数据/锁占/无待采均保持 False)
     init_db()  # 幂等(确保表存在)
     if not _acquire_lock(nonblock=True, lock_name="public_fund"):
         print("[fof_nav] WARN public_fund.lock 被占, 跳过(防与 daily/quarterly 并发写同库)",
@@ -180,6 +193,7 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
         conn.close()
         return 0
 
+    had_pending = True  # 走到此处 = pending 非空(上方 not pending 已 early-return)
     total_written = 0
     ok = 0
     fail = 0
@@ -215,6 +229,14 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
     print(f"[fof_nav] 完成 ok={ok} fail={fail} written={total_written} "
           f"{time.time()-t0:.0f}s 剩余待采={remaining}(下轮续)",
           flush=True)
+    # 整批失败信号(#366/F01): 确有待采 + 非 dry_run + 全失败零写入 → 置位供 main() exit 2。
+    # 单只失败是常态(封闭期/份额类),ok>0 或 written>0 即判部分成功,不触发。
+    batch_fail = had_pending and (not dry_run) and ok == 0 and total_written == 0
+    if batch_fail:
+        print(f"[fof_nav] BATCH_FAIL 本轮待采={len(pending)} 全部失败零写入 "
+              f"(疑似整批网络异常/WAF, 已写数据保留, 下轮自动续跑)",
+              flush=True)
+    LAST_BATCH_FAILED = batch_fail  # global 声明在函数头(配合顶部复位)
     return total_written
 
 
@@ -228,6 +250,11 @@ def main() -> int:
     args = ap.parse_args()
     n = collect(days=args.days, limit=args.limit, dry_run=args.dry_run, batch=args.batch)
     print(f"[fof_nav] return written={n}", flush=True)
+    # 整批失败(#366/F01): exit 2 → systemd 标 trade-fof-nav-collect.service failed
+    # → check_failed_units.py 扫 systemctl --failed 即发现。合法空数据/单只失败/部分成功均 exit 0。
+    if LAST_BATCH_FAILED:
+        print("[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)", flush=True)
+        return 2
     return 0
 
 
