@@ -25,7 +25,7 @@ def _fork_worker(subject, body, key, category):
     notify._absorb_to_digest(subject, body, key=key, category=category, bump_hits=True)
 
 
-def test_concurrent_same_signature_one_row_hits2(tmp_path):
+def test_concurrent_same_signature_one_row_hits2(tmp_path, monkeypatch):
     """两个真进程同日同签名并发 → 只有 1 行, hits=2。"""
     import multiprocessing as mp
     ctx = mp.get_context("fork")  # fork = 真进程, 继承已 patch 的 notify
@@ -34,7 +34,7 @@ def test_concurrent_same_signature_one_row_hits2(tmp_path):
     notify.ALERT_DIGEST_FILE = alerts / "alert_digest.jsonl"
     notify.ALERTS_DIR = alerts
     notify.REPO = tmp_path
-    os.environ["REPO"] = str(tmp_path)
+    monkeypatch.setenv("REPO", str(tmp_path))
 
     global _BARRIER
     _BARRIER = ctx.Barrier(2)
@@ -58,14 +58,14 @@ def test_concurrent_same_signature_one_row_hits2(tmp_path):
     print(f"[F03] 并发同签名 PASS: {len(lines)} 行, hits={rec['hits']}")
 
 
-def test_sequential_same_signature_bump_hits(tmp_path):
+def test_sequential_same_signature_bump_hits(tmp_path, monkeypatch):
     """单进程顺序两次同 key(bump_hits=True) → 1 行 hits=2(回归保护)。"""
     alerts = tmp_path / "data" / "alerts"
     alerts.mkdir(parents=True, exist_ok=True)
     notify.ALERT_DIGEST_FILE = alerts / "alert_digest.jsonl"
     notify.ALERTS_DIR = alerts
     notify.REPO = tmp_path
-    os.environ["REPO"] = str(tmp_path)
+    monkeypatch.setenv("REPO", str(tmp_path))
 
     ok1 = notify._absorb_to_digest("顺序主题", "正文", key="seq_key",
                                    category="r2", bump_hits=True)
@@ -80,7 +80,7 @@ def test_sequential_same_signature_bump_hits(tmp_path):
     print(f"[F03] 顺序回归 PASS: {len(lines)} 行, hits={rec['hits']}")
 
 
-def test_concurrent_different_keys_two_rows(tmp_path):
+def test_concurrent_different_keys_two_rows(tmp_path, monkeypatch):
     """两个进程不同 key 并发 → 各 1 行(2 行)。"""
     import multiprocessing as mp
     ctx = mp.get_context("fork")
@@ -89,7 +89,7 @@ def test_concurrent_different_keys_two_rows(tmp_path):
     notify.ALERT_DIGEST_FILE = alerts / "alert_digest.jsonl"
     notify.ALERTS_DIR = alerts
     notify.REPO = tmp_path
-    os.environ["REPO"] = str(tmp_path)
+    monkeypatch.setenv("REPO", str(tmp_path))
 
     global _BARRIER
     _BARRIER = ctx.Barrier(2)

@@ -2497,6 +2497,9 @@ def _absorb_split_to_digest(subject: str, body: str, *, key: str | None, categor
 def _bump_digest_hits(key: str, day: str, rid: str = "") -> bool:
     """幂等命中时给当日同 key 的摘要条目 hits+1 并记「最近一次并入时刻」。
 
+    注: F03(2026-11-04)后本函数已被 _absorb_to_digest 内联取代(原子临界区内直接
+    bump hits), 当前无调用方; 保留待评估是否仍有独立调用价值, 暂不删。
+
     目的(#264 件E「被合并 N 条」可核 / #253-d2「同日第二次同形事件留痕」):
     同签名重复并入时不静默 no-op, 计数 + **最近时刻**(hits_ts)留在条目上, 摘要正文
     渲染成 `xN(最近 HH:MM)`(仍 1 行, 不新增条目 = 不破坏摘要收敛)。
