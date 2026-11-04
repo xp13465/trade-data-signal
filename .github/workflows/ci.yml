@@ -468,6 +468,10 @@ jobs:
           TRADES_JSON: "${{ github.workspace }}/static-site/data/signal_kelly_trades.json"
         run: python3 scripts/check_loss_rules_vs_mining.py
 
+      # 注意(2026-11-04 #371 用户拍板标注): 当前不传 --base/--ref,
+      # check_fade_predicate_parity.mjs:312 无参即 process.exit(0) ⇒ 本步在 CI 形态恒绿,
+      # 不构成门禁(真失败不会被这步拦住)。另叠加 continue-on-error 进一步吸收 FAIL。
+      # 见 docs/codex-handoffs/20261104-recent-issues-v1/ 与 #371。真门禁后置,不改执行逻辑。
       - name: ⑦ fade 谓词规格迁移一致性(单边)
         if: steps.download.outputs.ok == '1'
         continue-on-error: true   # #261(B1): 同上, 步骤级下沉, 不吞下载失败
