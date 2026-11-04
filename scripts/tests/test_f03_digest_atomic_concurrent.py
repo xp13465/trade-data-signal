@@ -34,6 +34,7 @@ def test_concurrent_same_signature_one_row_hits2(tmp_path, monkeypatch):
     alerts = tmp_path / "data" / "alerts"
     alerts.mkdir(parents=True, exist_ok=True)
     notify.ALERT_DIGEST_FILE = alerts / "alert_digest.jsonl"
+    notify.ALERT_DIGEST_LOCK_FILE = alerts / "alert_digest.flushlock"
     notify.ALERTS_DIR = alerts
     notify.REPO = tmp_path
     monkeypatch.setenv("REPO", str(tmp_path))
@@ -65,6 +66,7 @@ def test_sequential_same_signature_bump_hits(tmp_path, monkeypatch):
     alerts = tmp_path / "data" / "alerts"
     alerts.mkdir(parents=True, exist_ok=True)
     notify.ALERT_DIGEST_FILE = alerts / "alert_digest.jsonl"
+    notify.ALERT_DIGEST_LOCK_FILE = alerts / "alert_digest.flushlock"
     notify.ALERTS_DIR = alerts
     notify.REPO = tmp_path
     monkeypatch.setenv("REPO", str(tmp_path))
@@ -89,6 +91,7 @@ def test_concurrent_different_keys_two_rows(tmp_path, monkeypatch):
     alerts = tmp_path / "data" / "alerts"
     alerts.mkdir(parents=True, exist_ok=True)
     notify.ALERT_DIGEST_FILE = alerts / "alert_digest.jsonl"
+    notify.ALERT_DIGEST_LOCK_FILE = alerts / "alert_digest.flushlock"
     notify.ALERTS_DIR = alerts
     notify.REPO = tmp_path
     monkeypatch.setenv("REPO", str(tmp_path))
