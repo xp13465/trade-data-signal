@@ -1,0 +1,16 @@
+{
+  "static-site/app.js": {
+    "outside_authorized_functions_unchanged": true,
+    "sha256": "d7d0d842a1a21606896ab2f48ff506883ec38001e1882793a779fe5e35f2b663"
+  },
+  "static-site/lab.js": {
+    "outside_authorized_functions_unchanged": true,
+    "sha256": "b83e694b38b4461c4faa71e343d04d7bb741eab8eeb763db83e8a751c989a903"
+  },
+  "scripts/tests/test_frontend_aux_body_timeouts.cjs": {
+    "sha256": "4216397520fda6f676b8142a9b12a3db182ebb5907eb6f12b21d2e21af45e54a"
+  },
+  "scripts/tests/test_frontend_aux_body_timeouts.py": {
+    "sha256": "d190f968abe61a3ad5194bca81a9076c69eda915b2e1756724d9c48ce756f2b7"
+  }
+}

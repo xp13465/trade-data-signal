@@ -1,0 +1,24 @@
+{
+  "command": [
+    "/Users/linhuichen/code/trade/.venv/bin/python3",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/",
+    "-p",
+    "no:cacheprovider",
+    "--basetemp=/tmp/frontend-night-20261105-pytest"
+  ],
+  "cwd": "/Users/linhuichen/code/trade/.claude/worktrees/codex-frontend-timeouts-369-370",
+  "base": "26d885480c8c8dd06cc9f3d49ae15ea8d3b34431",
+  "environment": "isolated .env / dummy R2 / no network-marked tests",
+  "source_sha256": {
+    "static-site/app.js": "d7d0d842a1a21606896ab2f48ff506883ec38001e1882793a779fe5e35f2b663",
+    "static-site/lab.js": "b83e694b38b4461c4faa71e343d04d7bb741eab8eeb763db83e8a751c989a903",
+    "static-site/index.html": "10f04c6961401d321ee4acfb2e4e53a32364169410627eac39b9d8df31f2d8f5",
+    "scripts/tests/test_frontend_request_timeouts.cjs": "6258c959598773a880ed3dc64d81114c732cddc7565f34e891a6d35d55274008",
+    "scripts/tests/test_frontend_request_timeouts.py": "aa1be9de8c7471d4ea27899c1d135c1cb30faccf987b23fddebfff20aa903b66",
+    "scripts/tests/test_frontend_aux_body_timeouts.cjs": "4216397520fda6f676b8142a9b12a3db182ebb5907eb6f12b21d2e21af45e54a",
+    "scripts/tests/test_frontend_aux_body_timeouts.py": "d190f968abe61a3ad5194bca81a9076c69eda915b2e1756724d9c48ce756f2b7"
+  }
+}

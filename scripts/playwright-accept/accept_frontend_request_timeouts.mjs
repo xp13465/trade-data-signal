@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 实施自验 #369/#370；不替代 Claude 独立审查。仅访问脚本自己的本地 HTTP 服务。
+// 实施自验 #369/#370 及三个辅助加载器；不替代 Claude 独立审查。仅访问自己的本地 HTTP 服务。
 // NODE_PATH=<已有 node_modules> node scripts/playwright-accept/accept_frontend_request_timeouts.mjs
 // 或 PLAYWRIGHT_MODULE_PATH=<playwright 包路径>；不下载浏览器。
 // FRONTEND_SOURCE_REF=<git ref> 可只读验证旧代码，FRONTEND_EVIDENCE_DIR 可隔离证据。
@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 const require = createRequire(import.meta.url);
 const { chromium, webkit } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const evidence = process.env.FRONTEND_EVIDENCE_DIR || '/tmp/codex-reports/implementation-369-370/browser-final';
+const evidence = process.env.FRONTEND_EVIDENCE_DIR || '/tmp/codex-reports/night-20261105/browser';
 const scale = Number(process.env.FRONTEND_TIMEOUT_SCALE || 0.02);
 assert.ok(scale > 0 && scale <= 1, 'FRONTEND_TIMEOUT_SCALE 必须在 (0,1]');
 fs.mkdirSync(evidence, { recursive: true });
@@ -54,8 +54,18 @@ assert.equal(common.split(mappingStart).length, 2, '唯一 SSD 映射区起点')
 assert.equal(common.split(mappingEnd).length, 2, '唯一 SSD 映射区终点');
 const mapping = common.slice(common.indexOf(mappingStart), common.indexOf(mappingEnd) + mappingEnd.length);
 assert.ok(mapping.length > 0 && mapping.length < 10000, 'SSD 映射区范围');
-const production = [mapping, globals, declaration(app, '_isMainSite'), fetchSource,
-  declaration(lab, 'fetchJSONProgress'), declaration(app, '_bootJSON')].join('\n');
+const extracted = {
+  fetchJSON: fetchSource,
+  fetchJSONProgress: declaration(lab, 'fetchJSONProgress'),
+  _bootJSON: declaration(app, '_bootJSON'),
+  _isMainSite: declaration(app, '_isMainSite'),
+  _labKellyFetchTrades: declaration(lab, '_labKellyFetchTrades'),
+  _labKellyTradesUrl: declaration(lab, '_labKellyTradesUrl'),
+  _labKellyTradesUrlCf: declaration(lab, '_labKellyTradesUrlCf'),
+  _fundScoreApiFetch: declaration(app, '_fundScoreApiFetch'),
+  _fundScreenerApiFetch: declaration(app, '_fundScreenerApiFetch'),
+};
+const production = [mapping, globals, ...Object.values(extracted)].join('\n');
 new vm.Script(production);
 
 const cases = [
@@ -67,6 +77,20 @@ const cases = [
   { id: 'f06-timeout-body', family: 'F06', mode: 'body', expected: 'ssd' },
   { id: 'f06-normal-shared', family: 'F06', mode: 'normal', expected: 'primary' },
 ];
+for (const [name, func] of [['fund-score', '_fundScoreApiFetch'], ['fund-screener', '_fundScreenerApiFetch']]) {
+  for (const mode of ['body', 'headers', 'normal']) {
+    cases.push({ id: `${name}-${mode}`, family: 'FUND', aux: true, func, mode, plan: [mode], budget: 15000, expected: mode === 'normal' ? 'primary' : 'aborted' });
+  }
+}
+for (const [leg, name] of ['r2', 'cf', 'ssd'].entries()) {
+  for (const mode of ['body', 'headers', 'normal']) {
+    const plan = [...Array(leg).fill('http'), mode];
+    if (mode !== 'normal' && leg < 2) plan.push('normal');
+    cases.push({ id: `kelly-${name}-${mode}`, family: 'KELLY', aux: true, mode, plan, budget: 60000,
+      expected: mode === 'normal' ? name : leg < 2 ? ['r2', 'cf', 'ssd'][leg + 1] : 'aborted' });
+  }
+}
+cases.push({ id: 'kelly-all-body', family: 'KELLY', aux: true, mode: 'body', plan: ['body', 'body', 'body'], budget: 60000, expected: 'aborted' });
 const states = new Map(), sockets = new Set(), pendingResponses = new Set();
 const results = [], blocked = [], browserRuns = [];
 let origin, activeBrowser, activeContext, activePage;
@@ -75,8 +99,10 @@ const report = {
   sourceRef: process.env.FRONTEND_SOURCE_REF || 'worktree', scale,
   sourceSha256: Object.fromEntries([['lab.js', lab], ['app.js', app], ['index.html', html], ['common.js', common]]
     .map(([name, code]) => [name, createHash('sha256').update(code).digest('hex')])),
-  timingNote: '应用 setTimeout 按比例缩放；fetch/响应正文/AbortController 均为浏览器原生。未验证实际 15 秒 SLA。',
-  originalBudgetsMs: { F05: 60000, F06LocalPrimary: 15000, F06BackupPrimary: 8000, F06Ssd: 6000 },
+  functionSha256: Object.fromEntries(Object.entries(extracted).map(([name, code]) => [name, createHash('sha256').update(code).digest('hex')])),
+  timingNote: '应用 setTimeout 按比例缩放；fetch/响应正文/AbortController 均为浏览器原生。手机 viewport 为模拟视口；未验真机及实际 15/60 秒 SLA。',
+  authNote: '全新无痕上下文，固定假 token browser-test-fake-token；auth/cache-bust 环境函数为桩，不读用户 token。',
+  originalBudgetsMs: { F05: 60000, F06LocalPrimary: 15000, F06BackupPrimary: 8000, F06Ssd: 6000, fundScore: 15000, fundScreener: 15000, kellyEachLeg: 60000 },
   results, browserRuns, blocked,
 };
 
@@ -87,22 +113,29 @@ function harness(config, token) {
     const nativeFetch = window.fetch.bind(window), nativeSetTimeout = window.setTimeout.bind(window);
     const nativeClearTimeout = window.clearTimeout.bind(window);
     const trace = window.trace = { calls: [], timers: [], progress: [], errors: [] };
+    // 只提供加载器依赖的环境；业务加载器及凯利 URL helper 均加载生产原文。
+    window._authApiBase = () => 'https://ss.fx8.store';
+    window._getAuthToken = () => 'browser-test-fake-token';
+    window._labCustomCacheBust = () => 'browser-fixture';
     const fetchSignals = window.fetchSignals = [];
-    const activeTimers = new Map();
+    const activeTimers = new Map(), recordedTimers = new Map();
     window.setTimeout = (fn, ms, ...args) => {
-      const item = { originalMs: ms, scaledMs: Math.max(1, Math.round(ms * ${scale})), fired: false, cleared: false };
+      const item = { originalMs: ms, scaledMs: Math.max(1, Math.round(ms * ${scale})), fired: false, cleared: false, createdAt: performance.now() };
       trace.timers.push(item);
-      const id = nativeSetTimeout(() => { item.fired = true; activeTimers.delete(id); fn(...args); }, item.scaledMs);
-      activeTimers.set(id, item); return id;
+      const id = nativeSetTimeout(() => { item.fired = true; item.firedAt = performance.now(); activeTimers.delete(id); fn(...args); }, item.scaledMs);
+      activeTimers.set(id, item); recordedTimers.set(id, item); return id;
     };
-    window.clearTimeout = id => { const item = activeTimers.get(id); if (item) item.cleared = true; activeTimers.delete(id); nativeClearTimeout(id); };
+    window.clearTimeout = id => { const item = recordedTimers.get(id); if (item) item.cleared = true; activeTimers.delete(id); nativeClearTimeout(id); };
     window.fetch = async (input, options = {}) => {
       const requested = new URL(input, location.href);
       if (![location.origin, 'https://ss.fx8.store', 'https://ssd.fx8.store'].includes(requested.origin)) throw new Error('禁止外网: ' + requested);
       const ssd = requested.hostname === 'ssd.fx8.store';
       const local = new URL(ssd ? '/fixture/ssd.json' : requested.pathname, location.origin);
+      local.search = requested.search;
       local.searchParams.set('case', token);
-      const item = { original: String(input), local: local.href, ssd, aborted: false, started: performance.now() };
+      const authorization = new Headers(options.headers).get('authorization');
+      if (authorization && authorization !== 'Bearer browser-test-fake-token') throw new Error('只允许固定假 token');
+      const item = { original: String(input), local: local.href, ssd, aborted: false, started: performance.now(), authorization, credentials: options.credentials, cache: options.cache };
       trace.calls.push(item);
       fetchSignals.push(options.signal);
       options.signal?.addEventListener('abort', () => { item.aborted = true; item.abortAt = performance.now(); }, { once: true });
@@ -116,7 +149,7 @@ function harness(config, token) {
     window.addEventListener('error', event => trace.errors.push(event.message));
     window.addEventListener('unhandledrejection', event => trace.errors.push(String(event.reason)));
     document.querySelector('#scenario').textContent = config.id + ' / ' + location.hostname;
-    document.querySelector('#budget').textContent = '原预算 F05=60000ms；boot 本地=15000ms，备站=8000ms，SSD=6000ms；时钟比例=${scale}，未测实际15秒SLA';
+    document.querySelector('#budget').textContent = '原预算 F05/凯利每腿=60000ms；基金/boot 本地=15000ms，boot 备站=8000ms，SSD=6000ms；时钟比例=${scale}，未验真机或实际秒数SLA';
   `;
   const runner = `
     const controller = new AbortController();
@@ -131,14 +164,16 @@ function harness(config, token) {
       const started = performance.now();
       try {
         const pre = window.__bootPrefetch;
-        const promise = config.family === 'F05'
+        const promise = config.family === 'FUND' ? window[config.func]('page=1&size=1&source=browser-fixture')
+          : config.family === 'KELLY' ? _labKellyFetchTrades('browser-kelly.json')
+          : config.family === 'F05'
           ? fetchJSONProgress(config.ssdCancel ? 'https://ss.fx8.store/r2/lab/lab-test.json' : './data/lab-test.json', (...args) => trace.progress.push(args), controller.signal, 60000)
           : _bootJSON();
         const data = await promise;
         // 正常预取的生产消费者与预取观察者使用同一对象，且消费后清空。
         trace.shared = config.family === 'F06' ? data === await pre : null;
         window.outcome = { status: data.via, data, elapsedMs: performance.now() - started };
-      } catch (error) { window.outcome = { status: error.name === 'AbortError' ? 'cancelled' : 'error', error: String(error), elapsedMs: performance.now() - started }; }
+      } catch (error) { window.outcome = { status: error.name === 'AbortError' ? (config.expected === 'aborted' ? 'aborted' : 'cancelled') : 'error', error: String(error), errorName: error.name, elapsedMs: performance.now() - started }; }
       trace.activeTimers = activeTimers.size;
       document.querySelector('#phase').textContent = window.outcome.status === 'cancelled' ? '用户已取消，请求已中止' : '请求已结束';
       document.querySelector('#status').textContent = window.outcome.status;
@@ -164,7 +199,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/') {
     res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(harness(state.config, token)); return;
   }
-  if (!['/data/boot.json', '/data/lab-test.json', '/r2/lab/lab-test.json', '/fixture/ssd.json'].includes(url.pathname)) {
+  if (!['/data/boot.json', '/data/lab-test.json', '/r2/lab/lab-test.json', '/fixture/ssd.json', '/data/browser-kelly.json', '/api/fund_score', '/api/fund_screener'].includes(url.pathname)) {
     res.writeHead(404); res.end('unexpected path'); return;
   }
   const ssd = url.pathname === '/fixture/ssd.json';
@@ -177,6 +212,17 @@ const server = http.createServer((req, res) => {
   res.on('finish', () => { item.finished = true; });
   res.on('close', () => { item.closed = true; pendingResponses.delete(res); });
   res.setHeader('Content-Type', 'application/json');
+  if (state.config.aux) {
+    const index = state.requests.length - 1, fixture = state.config.plan[index];
+    Object.assign(item, { fixture, stall: fixture === 'body' || fixture === 'headers', phase: fixture, authorization: req.headers.authorization || null, status: fixture === 'http' ? 503 : 200 });
+    if (!fixture) { res.writeHead(500); res.end('unexpected request'); return; }
+    if (fixture === 'headers') return;
+    res.writeHead(item.status); res.flushHeaders();
+    if (fixture === 'body') { res.write('{"stalled":'); return; }
+    if (fixture === 'http') { res.end('{"fixture":"503"}'); return; }
+    res.end(JSON.stringify({ via: state.config.family === 'KELLY' ? ['r2', 'cf', 'ssd'][index] : 'primary', fields: ['code'], quadrants: { A: [['fixture']] }, data: [{ code: 'fixture' }], total: 1 }));
+    return;
+  }
   if (ssdCancel && !ssd) {
     // 真实 fetchJSONProgress JSON 解析失败 → 真实 fetchJSON 同主源 503 → 真实 SSD 腿。
     item.status = nth === 1 ? 200 : 503;
@@ -192,6 +238,58 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({ via: ssd ? 'ssd' : nth > 1 ? 'fallback' : 'primary', rows: [1, 2], overview: { date: 'local-fixture' } }));
 });
 server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+
+function checkAux(config, snapshot, requests) {
+  const { calls, timers } = snapshot.trace;
+  assert.equal(calls.length, config.plan.length, '实际请求数等于计划腿数，没有隐藏重试');
+  assert.equal(timers.length, calls.length, '各腿独立定时器');
+  assert.equal(timers.every(timer => timer.originalMs === config.budget), true, '原始每腿预算保持 15000/60000ms');
+  assert.equal(timers.every(timer => timer.cleared), true, '每条已结算腿均执行清理');
+  if (config.expected === 'aborted') assert.equal(snapshot.outcome.errorName, 'AbortError');
+  else {
+    assert.deepEqual(snapshot.outcome.data.data, [{ code: 'fixture' }]);
+    if (config.family === 'KELLY') assert.deepEqual(snapshot.outcome.data.quadrants, { A: [['fixture']] });
+  }
+  for (const [index, fixture] of config.plan.entries()) {
+    const call = calls[index], timer = timers[index], serverRequest = requests[index];
+    assert.equal(snapshot.nativeSignals[index].native, true, '每腿使用原生 AbortSignal');
+    assert.equal(serverRequest.fixture, fixture);
+    if (fixture === 'headers' || fixture === 'body') {
+      assert.equal(timer.fired, true, '停滞正文/响应头受原应用预算约束');
+      assert.equal(call.aborted, true);
+      assert.equal(snapshot.nativeSignals[index].aborted, true);
+      assert.ok(call.abortAt >= timer.createdAt + timer.scaledMs - 2, '未提前中止正常预算');
+      assert.equal(serverRequest.finished, false, '停滞响应从未完成');
+      assert.equal(serverRequest.closed, true, '浏览器关闭页面前已中止停滞响应');
+      if (fixture === 'body') {
+        assert.equal(call.contentLength, null, '真实无 Content-Length 停滞正文');
+        assert.equal(call.status, 200);
+        assert.ok(call.headersAt < call.abortAt, '收到响应头后保持超时直到正文中止');
+      } else assert.equal(call.headersAt, undefined, '响应头场景未发送 headers');
+    } else {
+      assert.equal(timer.fired, false);
+      assert.equal(call.aborted, false, '成功/HTTP 失败腿清掉定时器，没有遗留 abort');
+      assert.equal(call.status, fixture === 'http' ? 503 : 200);
+    }
+    if (config.family === 'FUND') {
+      assert.equal(call.authorization, 'Bearer browser-test-fake-token');
+      assert.equal(serverRequest.authorization, 'Bearer browser-test-fake-token', '本地服务只收到假 token');
+      assert.equal(call.credentials, 'omit'); assert.equal(call.cache, 'no-cache');
+      assert.ok(call.original.startsWith('https://ss.fx8.store/api/' + (config.func === '_fundScoreApiFetch' ? 'fund_score' : 'fund_screener') + '?page=1&size=1&source=browser-fixture'));
+    } else {
+      assert.equal(call.original, [
+        'https://ss.fx8.store/data/browser-kelly.json?v=browser-fixture',
+        './data/browser-kelly.json?v=browser-fixture',
+        'https://ssd.fx8.store/data/browser-kelly.json?v=browser-fixture',
+      ][index], '凯利原生产 URL helper 与 SSD 映射决定顺序');
+      assert.equal(call.ssd, index === 2);
+      if (index) {
+        const previous = calls[index - 1];
+        assert.ok(call.started >= (previous.abortAt ?? previous.headersAt), '前腿失败后才进入下一腿');
+      }
+    }
+  }
+}
 
 async function runCase(browser, browserName, profile, config) {
   const token = `${browserName}-${profile.name}-${config.id}`;
@@ -219,7 +317,7 @@ async function runCase(browser, browserName, profile, config) {
       } else await page.waitForFunction(() => trace.calls[0]?.headersAt !== undefined);
       await page.locator('#cancel').click(); // 真实 DOM 按钮触发真实 AbortController
     }
-    await page.waitForFunction(() => !!window.outcome, { }, { timeout: Math.max(4000, 65000 * scale * 2) });
+    await page.waitForFunction(() => !!window.outcome, { }, { timeout: Math.max(4000, config.aux ? config.budget * config.plan.length * scale + 1500 : 65000 * scale * 2) });
     if (config.expected === 'cancelled') {
       // 取消后跨过原超时点，确认没有延迟重试。
       await new Promise(resolve => setTimeout(resolve, Math.ceil(60000 * scale) + 60));
@@ -239,7 +337,10 @@ async function runCase(browser, browserName, profile, config) {
     }
     assert.equal(calls[0].ssd, false);
     if (config.mode !== 'headers') assert.equal(calls[0].contentLength, null, '真实无 Content-Length 响应');
-    if (config.family === 'F05') {
+    if (config.aux) {
+      for (let retry = 0; state.requests.some(item => item.stall && !item.closed) && retry < 20; retry++) await new Promise(resolve => setTimeout(resolve, 25));
+      checkAux(config, snapshot, state.requests);
+    } else if (config.family === 'F05') {
       assert.equal(timers[0].originalMs, 60000);
       assert.equal(calls.length, config.ssdCancel ? 3 : config.expected === 'fallback' ? 2 : 1);
       assert.equal(calls[0].aborted, config.mode === 'body');
@@ -270,7 +371,7 @@ async function runCase(browser, browserName, profile, config) {
       else assert.equal(timers[0].cleared, true);
     }
     assert.equal(state.requests.length, calls.length, '请求计数有真实服务端证据');
-    if (config.mode !== 'normal' && !config.ssdCancel) {
+    if (!config.aux && config.mode !== 'normal' && !config.ssdCancel) {
       await page.waitForFunction(() => trace.calls[0].aborted);
       assert.equal(state.requests[0].finished, false, '停滞响应没有伪造完成');
     }
@@ -328,10 +429,13 @@ try {
 } catch (error) { report.fatal = error.stack; }
 finally {
   await cleanup();
+  // 若运行中另一个 worker 改过来源，证据判无效，不能把混合版本算作成功。
+  report.sourcesUnchangedAtEnd = process.env.FRONTEND_SOURCE_REF ? true : Object.entries(report.sourceSha256)
+    .every(([name, hash]) => createHash('sha256').update(fs.readFileSync(path.join(root, 'static-site', name))).digest('hex') === hash);
   report.passed = results.filter(item => item.passed).length;
   report.failed = results.filter(item => !item.passed).length;
   fs.writeFileSync(path.join(evidence, 'summary.json'), JSON.stringify(report, null, 2));
   progress(`完成：${report.passed} 通过 / ${report.failed} 失败；证据 ${evidence}；服务已关闭`);
 }
 console.log(JSON.stringify({ passed: report.passed, failed: report.failed, fatal: report.fatal, browserRuns, cleanup: report.cleanup, evidence }));
-if (report.fatal || report.failed || report.passed < cases.length * 2 || report.cleanup.serverListening || report.cleanup.pendingResponses || report.cleanup.sockets) process.exitCode = 1;
+if (report.fatal || report.failed || !report.sourcesUnchangedAtEnd || report.passed < cases.length * 2 || report.cleanup.serverListening || report.cleanup.pendingResponses || report.cleanup.sockets) process.exitCode = 1;

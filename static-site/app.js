@@ -27809,12 +27809,10 @@ function _fundScoreApiFetch(params) {
   return fetch(base + "/api/fund_score?" + params, {
     headers, credentials, signal: controller.signal, cache: "no-cache",
   }).then((r) => {
-    clearTimeout(timer);
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
-  }).catch((e) => {
+  }).finally(() => {
     clearTimeout(timer);
-    throw e;
   });
 }
 
@@ -28730,10 +28728,9 @@ function _fundScreenerApiFetch(params) {
   return fetch(base + "/api/fund_screener?" + params, {
     headers, credentials, signal: controller.signal, cache: "no-cache"
   }).then((r) => {
-    clearTimeout(timer);
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
-  }).catch((e) => { clearTimeout(timer); throw e; });
+  }).finally(() => { clearTimeout(timer); });
 }
 
 // 覆盖率文案（「覆盖 8201/27758 只」; 无数据返回空串）

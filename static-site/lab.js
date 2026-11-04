@@ -8685,21 +8685,22 @@ function _labKellyFetchTrades(name) {
   var controller = new AbortController();
   var to = setTimeout(function() { controller.abort(); }, 60000);
   return fetch(r2, { signal: controller.signal })
-    .then(function(r) { clearTimeout(to); if (!r.ok) throw new Error("R2 " + r.status); return r.json(); })
+    .then(function(r) { if (!r.ok) throw new Error("R2 " + r.status); return r.json(); })
+    // 正文读完/失败才清理；每腿的 60s 预算同时覆盖 headers 和 JSON 正文。
+    .finally(function() { clearTimeout(to); })
     .catch(function() {
-      clearTimeout(to);
       var c2 = new AbortController();
       var t2 = setTimeout(function() { c2.abort(); }, 60000);
       return fetch(cf, { signal: c2.signal })
-        .then(function(r) { clearTimeout(t2); if (!r.ok) throw new Error("CF " + r.status); return r.json(); })
+        .then(function(r) { if (!r.ok) throw new Error("CF " + r.status); return r.json(); })
+        .finally(function() { clearTimeout(t2); })
         .catch(function(e2) {
-          clearTimeout(t2);
           if (!ssd) throw e2;
           var c3 = new AbortController();
           var t3 = setTimeout(function() { c3.abort(); }, 60000);
           return fetch(ssd, { signal: c3.signal })
-            .then(function(r) { clearTimeout(t3); if (!r.ok) throw new Error("SSD " + r.status); return r.json(); })
-            .catch(function(e3) { clearTimeout(t3); throw e3; });
+            .then(function(r) { if (!r.ok) throw new Error("SSD " + r.status); return r.json(); })
+            .finally(function() { clearTimeout(t3); });
         });
     });
 }

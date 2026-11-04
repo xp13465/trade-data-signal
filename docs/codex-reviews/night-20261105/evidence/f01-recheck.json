@@ -1,0 +1,1004 @@
+{
+  "request_id": "night-20261105-f01-recheck",
+  "task": "F01-R1 固定新head只读复验",
+  "task_type": "direct-read-only-recheck",
+  "generated_at": "2026-11-04T16:26:04.788664+00:00",
+  "repo": "/Users/linhuichen/code/trade",
+  "head": "1f98f67baf38864222890f8379c288a782d7eea2",
+  "base": "10459a5dddc8d104bbedf34e2203ad5bfba66cd8",
+  "fixed_sha": {
+    "head": "1f98f67baf38864222890f8379c288a782d7eea2",
+    "base": "10459a5dddc8d104bbedf34e2203ad5bfba66cd8"
+  },
+  "snapshot_root": "/tmp/codex-night-20261105-f01-LqFQ3V",
+  "progress_path": "/tmp/codex-reports/night-20261105/f01-progress.md",
+  "findings": [
+    {
+      "id": "F01-RECHECK-P2-01",
+      "severity": "P2",
+      "title": "单只基金中途写入失败未回滚，残留行被下一只基金提交（新旧版本均存在）",
+      "path": "scripts/collect_fof_nav.py:220",
+      "line": 220,
+      "end_line": 227,
+      "related_locations": [
+        "scripts/collect_fof_nav.py:221",
+        "scripts/collect_fof_nav.py:224",
+        "scripts/collect_fof_nav.py:169"
+      ],
+      "origin": "pre-existing",
+      "scope": "in-scope",
+      "introduced_by_r1": false,
+      "blocking": false,
+      "impact": "已记 FAIL 的基金可能保留半截净值；日志 written=1 而真实 DB 有 2 行。残留非空净值还会进入下轮 filled 集，令该基金后续缺日继续被整只跳过（后半句为 SELECT 条件静态推导，未执行第二轮生产采集）。",
+      "why": "executemany 的前一行已进入 SQLite 事务；第二行抛错后 except 仅计数/打印，未 rollback。下一只成功的 conn.commit() 一并提交上只基金残留，违背文件开头及 L221 的每只原子事务约定。",
+      "fix": "由 Claude 评估使用标准库 SQLite 事务上下文 with conn 包住每只 executemany，让异常自动 rollback；或在写入异常路径显式 rollback。复核计数、已成功提交数据及后续基金容错。此审查未修改代码。",
+      "trace": {
+        "diff_range": "10459a5dddc8d104bbedf34e2203ad5bfba66cd8..1f98f67baf38864222890f8379c288a782d7eea2; head scripts/collect_fof_nav.py:220-227；base executemany/commit={'executemany': 216, 'commit': 217}。事务语句原已存在，R1 只增加异常计数。",
+        "linkage": "不满足",
+        "user_request": "关注……部分成功/写入/跳过",
+        "origin": "pre-existing",
+        "requirement_basis": "scripts/collect_fof_nav.py:21 及 :221 声明每只一个原子事务；与 R1 合法空误报修复分别评价。"
+      },
+      "verifier": {
+        "command": "env -i PATH=/usr/bin:/bin HOME=/tmp/codex-night-20261105-f01-LqFQ3V/home TMPDIR=/tmp/codex-night-20261105-f01-LqFQ3V/tmp REPO=/tmp/codex-night-20261105-f01-LqFQ3V/head GIT_REPO=/tmp/codex-night-20261105-f01-LqFQ3V/dummy-env PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-night-20261105-f01-LqFQ3V/reproduce_atomicity.py",
+        "fixture": "仅本地 HTTP200/ErrCode0：基金000001返回两日净值、基金000002返回一日；临时 SQLite BEFORE INSERT 触发器对20261103 RAISE(ABORT)模拟 executemany 第二行失败。触发器只在 /tmp 测试库创建，未声称生产存在该触发器。",
+        "expected": "000001整体回滚到0行；000002仍成功落1行；总DB=1行，ok=1/error=1/written=1，main exit0（部分成功）。负向验证器应 exit0。",
+        "observed": "base/head 均000001残留1行+000002成功1行，总DB=2，日志written=1，main进程exit0。独立负向验证器exit1，确认原子性缺陷。",
+        "exit_code": 1,
+        "raw_last_line": "ATOMICITY_RESULT={\"expected_failed_fund_rows\": 0, \"observed_failed_fund_rows\": 1, \"reproduced_in_both\": true}",
+        "raw_log": "/tmp/codex-night-20261105-f01-LqFQ3V/evidence/atomicity.log",
+        "head_evidence": {
+          "case_id": "head-mid-fund-write-failure",
+          "status": "observed",
+          "os_exit": 0,
+          "last_batch_failed": false,
+          "counters": {
+            "ok": 1,
+            "fail": 1,
+            "empty": 0,
+            "error": 1,
+            "written": 1
+          },
+          "persisted_rows": 2,
+          "requested_codes": [
+            "000001",
+            "000002"
+          ],
+          "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-mid-fund-write-failure/raw.log",
+          "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000001\", \"fund_name\": \"fixture-1\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": 1.24, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000002\", \"fund_name\": \"fixture-2\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}]}",
+          "collector_raw_last_line": "[fof_nav] return written=1",
+          "collector_completion_line": "[fof_nav] 完成 ok=1 fail=1 empty=0 error=1 written=1 0s 剩余待采=0(下轮续)"
+        },
+        "base_evidence": {
+          "case_id": "base-mid-fund-write-failure",
+          "status": "observed",
+          "os_exit": 0,
+          "last_batch_failed": false,
+          "counters": {
+            "ok": 1,
+            "fail": 1,
+            "empty": null,
+            "error": null,
+            "written": 1
+          },
+          "persisted_rows": 2,
+          "requested_codes": [
+            "000001",
+            "000002"
+          ],
+          "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/base-mid-fund-write-failure/raw.log",
+          "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000001\", \"fund_name\": \"fixture-1\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": 1.24, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000002\", \"fund_name\": \"fixture-2\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}]}",
+          "collector_raw_last_line": "[fof_nav] return written=1",
+          "collector_completion_line": "[fof_nav] 完成 ok=1 fail=1 written=1 0s 剩余待采=0(下轮续)"
+        }
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 0,
+          "rationale": "§6.5 stdlib 层：用 SQLite 连接事务上下文替代手动 commit，并补齐回滚语义；无可安全删除业务逻辑，估计净行数不变，不为省行扩大改动。"
+        }
+      ]
+    }
+  ],
+  "issues": [
+    {
+      "id": "F01-RECHECK-P2-01",
+      "severity": "P2",
+      "title": "单只基金中途写入失败未回滚，残留行被下一只基金提交（新旧版本均存在）",
+      "path": "scripts/collect_fof_nav.py:220",
+      "line": 220,
+      "end_line": 227,
+      "related_locations": [
+        "scripts/collect_fof_nav.py:221",
+        "scripts/collect_fof_nav.py:224",
+        "scripts/collect_fof_nav.py:169"
+      ],
+      "origin": "pre-existing",
+      "scope": "in-scope",
+      "introduced_by_r1": false,
+      "blocking": false,
+      "impact": "已记 FAIL 的基金可能保留半截净值；日志 written=1 而真实 DB 有 2 行。残留非空净值还会进入下轮 filled 集，令该基金后续缺日继续被整只跳过（后半句为 SELECT 条件静态推导，未执行第二轮生产采集）。",
+      "why": "executemany 的前一行已进入 SQLite 事务；第二行抛错后 except 仅计数/打印，未 rollback。下一只成功的 conn.commit() 一并提交上只基金残留，违背文件开头及 L221 的每只原子事务约定。",
+      "fix": "由 Claude 评估使用标准库 SQLite 事务上下文 with conn 包住每只 executemany，让异常自动 rollback；或在写入异常路径显式 rollback。复核计数、已成功提交数据及后续基金容错。此审查未修改代码。",
+      "trace": {
+        "diff_range": "10459a5dddc8d104bbedf34e2203ad5bfba66cd8..1f98f67baf38864222890f8379c288a782d7eea2; head scripts/collect_fof_nav.py:220-227；base executemany/commit={'executemany': 216, 'commit': 217}。事务语句原已存在，R1 只增加异常计数。",
+        "linkage": "不满足",
+        "user_request": "关注……部分成功/写入/跳过",
+        "origin": "pre-existing",
+        "requirement_basis": "scripts/collect_fof_nav.py:21 及 :221 声明每只一个原子事务；与 R1 合法空误报修复分别评价。"
+      },
+      "verifier": {
+        "command": "env -i PATH=/usr/bin:/bin HOME=/tmp/codex-night-20261105-f01-LqFQ3V/home TMPDIR=/tmp/codex-night-20261105-f01-LqFQ3V/tmp REPO=/tmp/codex-night-20261105-f01-LqFQ3V/head GIT_REPO=/tmp/codex-night-20261105-f01-LqFQ3V/dummy-env PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-night-20261105-f01-LqFQ3V/reproduce_atomicity.py",
+        "fixture": "仅本地 HTTP200/ErrCode0：基金000001返回两日净值、基金000002返回一日；临时 SQLite BEFORE INSERT 触发器对20261103 RAISE(ABORT)模拟 executemany 第二行失败。触发器只在 /tmp 测试库创建，未声称生产存在该触发器。",
+        "expected": "000001整体回滚到0行；000002仍成功落1行；总DB=1行，ok=1/error=1/written=1，main exit0（部分成功）。负向验证器应 exit0。",
+        "observed": "base/head 均000001残留1行+000002成功1行，总DB=2，日志written=1，main进程exit0。独立负向验证器exit1，确认原子性缺陷。",
+        "exit_code": 1,
+        "raw_last_line": "ATOMICITY_RESULT={\"expected_failed_fund_rows\": 0, \"observed_failed_fund_rows\": 1, \"reproduced_in_both\": true}",
+        "raw_log": "/tmp/codex-night-20261105-f01-LqFQ3V/evidence/atomicity.log",
+        "head_evidence": {
+          "case_id": "head-mid-fund-write-failure",
+          "status": "observed",
+          "os_exit": 0,
+          "last_batch_failed": false,
+          "counters": {
+            "ok": 1,
+            "fail": 1,
+            "empty": 0,
+            "error": 1,
+            "written": 1
+          },
+          "persisted_rows": 2,
+          "requested_codes": [
+            "000001",
+            "000002"
+          ],
+          "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-mid-fund-write-failure/raw.log",
+          "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000001\", \"fund_name\": \"fixture-1\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": 1.24, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000002\", \"fund_name\": \"fixture-2\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}]}",
+          "collector_raw_last_line": "[fof_nav] return written=1",
+          "collector_completion_line": "[fof_nav] 完成 ok=1 fail=1 empty=0 error=1 written=1 0s 剩余待采=0(下轮续)"
+        },
+        "base_evidence": {
+          "case_id": "base-mid-fund-write-failure",
+          "status": "observed",
+          "os_exit": 0,
+          "last_batch_failed": false,
+          "counters": {
+            "ok": 1,
+            "fail": 1,
+            "empty": null,
+            "error": null,
+            "written": 1
+          },
+          "persisted_rows": 2,
+          "requested_codes": [
+            "000001",
+            "000002"
+          ],
+          "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/base-mid-fund-write-failure/raw.log",
+          "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000001\", \"fund_name\": \"fixture-1\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": 1.24, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000002\", \"fund_name\": \"fixture-2\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}]}",
+          "collector_raw_last_line": "[fof_nav] return written=1",
+          "collector_completion_line": "[fof_nav] 完成 ok=1 fail=1 written=1 0s 剩余待采=0(下轮续)"
+        }
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 0,
+          "rationale": "§6.5 stdlib 层：用 SQLite 连接事务上下文替代手动 commit，并补齐回滚语义；无可安全删除业务逻辑，估计净行数不变，不为省行扩大改动。"
+        }
+      ]
+    }
+  ],
+  "open_questions": [
+    {
+      "id": "OQ-SCHEMA-EMPTY",
+      "path": "scripts/collect_fof_nav.py:107",
+      "question": "成功响应缺 Data/LSJZList，或非空列表所有行缺 FSRQ，应视合法空还是上游 schema 异常？当前 API 合约在本次输入/仓库证据中未明确，故不定性为 bug。",
+      "observed": "真实本地 HTTP200下，{\"ErrCode\":0} 和 LSJZList=[{\"DWJZ\":\"1.2\"}] 均经既有 parser 返回[]；head计 empty=1/error=0、exit0。当前空计数表示 parser 返回空，不证明源列表确为[]。",
+      "origin": "pre-existing parser; R1 guard changes how an empty result is signaled",
+      "evidence": [
+        {
+          "case_id": "head-missing-success-schema",
+          "status": "observed",
+          "os_exit": 0,
+          "last_batch_failed": false,
+          "counters": {
+            "ok": 0,
+            "fail": 1,
+            "empty": 1,
+            "error": 0,
+            "written": 0
+          },
+          "persisted_rows": 0,
+          "requested_codes": [
+            "000001"
+          ],
+          "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-missing-success-schema/raw.log",
+          "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": []}",
+          "collector_raw_last_line": "[fof_nav] return written=0",
+          "collector_completion_line": "[fof_nav] 完成 ok=0 fail=1 empty=1 error=0 written=0 0s 剩余待采=0(下轮续)"
+        },
+        {
+          "case_id": "head-missing-row-date",
+          "status": "observed",
+          "os_exit": 0,
+          "last_batch_failed": false,
+          "counters": {
+            "ok": 0,
+            "fail": 1,
+            "empty": 1,
+            "error": 0,
+            "written": 0
+          },
+          "persisted_rows": 0,
+          "requested_codes": [
+            "000001"
+          ],
+          "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-missing-row-date/raw.log",
+          "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": []}",
+          "collector_raw_last_line": "[fof_nav] return written=0",
+          "collector_completion_line": "[fof_nav] 完成 ok=0 fail=1 empty=1 error=0 written=0 0s 剩余待采=0(下轮续)"
+        }
+      ],
+      "recommendation": "由主控确认上游 schema 合约后再决定是否严格校验；不要据此把已证实合法空场景重新改成失败。"
+    }
+  ],
+  "checks": [
+    {
+      "id": "C01-fixed-version-and-requirement",
+      "status": "passed",
+      "fixed_head": "1f98f67baf38864222890f8379c288a782d7eea2",
+      "fixed_base": "10459a5dddc8d104bbedf34e2203ad5bfba66cd8",
+      "evidence": "/tmp/codex-night-20261105-f01-LqFQ3V/evidence/git-verification.json",
+      "observed": "完整SHA由git验证；base是head祖先，仅1个commit，2个变更文件；已读commit需求和#366产品记录；导出脚本/测试与Git blob逐字节一致；public_fund及fetch_lsjz AST跨范围未变。"
+    },
+    {
+      "id": "C02-batch-formula-and-exhaustive-outcome-matrix",
+      "status": "passed",
+      "head_cases": 78,
+      "source": "scripts/collect_fof_nav.py:242",
+      "expected_formula": "had_pending and (not dry_run) and ok == 0 and total_written == 0 and error_count > 0",
+      "coverage": "1/2/3只基金，每只empty/timeout/success的所有组合，分别dry_run=false/true；检查进程退出码、全局标志、ok/fail/empty/error/written、BATCH_FAIL存在性、真实DB行数。fail=empty+error始终保留。",
+      "command": "env -i PATH=/usr/bin:/bin HOME=/tmp/codex-night-20261105-f01-LqFQ3V/home TMPDIR=/tmp/codex-night-20261105-f01-LqFQ3V/tmp REPO=/tmp/codex-night-20261105-f01-LqFQ3V/head GIT_REPO=/tmp/codex-night-20261105-f01-LqFQ3V/dummy-env PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-night-20261105-f01-LqFQ3V/run_matrix.py",
+      "observed": "78/78符合用户/commit口径，含混合空+异常无成功exit2和任意成功exit0。"
+    },
+    {
+      "id": "C03-real-parser-and-transport",
+      "status": "passed",
+      "head_cases": 12,
+      "coverage": "URLError（urlopen边界注入）、ErrCode非0、无效JSON、实际HTTP403/500、实际LSJZList=[null]引发解析异常，各自生产/dry-run；合法空/成功使用真实loopback HTTP200且ErrCode0。未替换fetch_lsjz或collect。"
+    },
+    {
+      "id": "C04-persistence-side-effects-and-selection",
+      "status": "passed",
+      "observed": "filled基金不发请求，NULL被补且已有非空/名称保留；dry-run包括已填但DB逐值不变；batch/limit选取正确；写库全部报错exit2；部分写库失败保留前后成功数据exit0；50/51进度日志有empty/error。",
+      "boundary": "上述正向断言通过不覆盖每只中途写入错误的原子性；独立负向复现发现F01-RECHECK-P2-01。"
+    },
+    {
+      "id": "C05-written-counter-semantics",
+      "status": "passed-existing-semantics",
+      "observed": "dry-run读到1行会written=1但DB=0；UPSERT命中旧非空值也written=1而原值不变。written是处理行数，非净新增行数。非dry-run正常成功路径在commit后才加计数。"
+    },
+    {
+      "id": "C06-before-after-discriminator",
+      "status": "passed",
+      "observed": "同样真实HTTP200/ErrCode0/LSJZList=[]，旧固定base退出2，新固定head退出0；未复用旧PASS、作者所谓红先验证明。"
+    },
+    {
+      "id": "C07-author-regression-auxiliary",
+      "status": "passed",
+      "command": "净化env（显式只读挂载本机pytest依赖目录）运行 /tmp/codex-night-20261105-f01-LqFQ3V/run_author_tests.py",
+      "observed": "23 passed, 1 deselected；仅333/366两个相关测试文件，真实外网标记测试未运行。",
+      "raw_log": "/tmp/codex-night-20261105-f01-LqFQ3V/evidence/author-tests.log",
+      "raw_last_line": "23 passed, 1 deselected in 0.23s",
+      "harness_setup_note": "首次净化HOME后pytest用户包不可见；显式加入其只读site-packages后，审计钩子拦截pytest的/dev/null写。仅在/tmp harness允许/dev/null后重跑成功；未改仓库。环境失败不计入产品检查。"
+    },
+    {
+      "id": "C08-existing-atomicity-negative-verifier",
+      "status": "failed-pre-existing-P2",
+      "command": "env -i PATH=/usr/bin:/bin HOME=/tmp/codex-night-20261105-f01-LqFQ3V/home TMPDIR=/tmp/codex-night-20261105-f01-LqFQ3V/tmp REPO=/tmp/codex-night-20261105-f01-LqFQ3V/head GIT_REPO=/tmp/codex-night-20261105-f01-LqFQ3V/dummy-env PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-night-20261105-f01-LqFQ3V/reproduce_atomicity.py",
+      "observed": "base/head均复现；负向验证器exit1。计数器按逻辑工作，但失败事务残留造成written与DB实际行数不同。",
+      "raw_last_line": "ATOMICITY_RESULT={\"expected_failed_fund_rows\": 0, \"observed_failed_fund_rows\": 1, \"reproduced_in_both\": true}"
+    },
+    {
+      "id": "C09-monitoring-consumer-chain",
+      "status": "static-only",
+      "observed": "main():266-268将flag映射exit2；run_fof_nav_collect.sh:21-24用PIPESTATUS[0]保留退出码；gen_schedule_stats.py:309列入UNIT_ONLY；check_failed_units.py读取failed units。未运行shell包装器、systemd、监控/通知或云端命令。"
+    },
+    {
+      "id": "CASE-head-matrix-2-empty,empty-dry0",
+      "case_id": "head-matrix-2-empty,empty-dry0",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": 2,
+        "error": 0,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [
+        "000001",
+        "000002"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-matrix-2-empty,empty-dry0/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] return written=0",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 empty=2 error=0 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-matrix-2-timeout,timeout-dry0",
+      "case_id": "head-matrix-2-timeout,timeout-dry0",
+      "status": "passed",
+      "os_exit": 2,
+      "last_batch_failed": true,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": 0,
+        "error": 2,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-matrix-2-timeout,timeout-dry0/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": true, \"rc\": 2, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 empty=0 error=2 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-transport-urlerror-dry0",
+      "case_id": "head-transport-urlerror-dry0",
+      "status": "passed",
+      "os_exit": 2,
+      "last_batch_failed": true,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": 0,
+        "error": 2,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-transport-urlerror-dry0/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": true, \"rc\": 2, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 empty=0 error=2 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-transport-errcode-dry0",
+      "case_id": "head-transport-errcode-dry0",
+      "status": "passed",
+      "os_exit": 2,
+      "last_batch_failed": true,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": 0,
+        "error": 2,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [
+        "000001",
+        "000002"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-transport-errcode-dry0/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": true, \"rc\": 2, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 empty=0 error=2 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-transport-json-dry0",
+      "case_id": "head-transport-json-dry0",
+      "status": "passed",
+      "os_exit": 2,
+      "last_batch_failed": true,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": 0,
+        "error": 2,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [
+        "000001",
+        "000002"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-transport-json-dry0/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": true, \"rc\": 2, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 empty=0 error=2 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-transport-http403-dry0",
+      "case_id": "head-transport-http403-dry0",
+      "status": "passed",
+      "os_exit": 2,
+      "last_batch_failed": true,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": 0,
+        "error": 2,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [
+        "000001",
+        "000002"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-transport-http403-dry0/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": true, \"rc\": 2, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 empty=0 error=2 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-transport-http500-dry0",
+      "case_id": "head-transport-http500-dry0",
+      "status": "passed",
+      "os_exit": 2,
+      "last_batch_failed": true,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": 0,
+        "error": 2,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [
+        "000001",
+        "000002"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-transport-http500-dry0/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": true, \"rc\": 2, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 empty=0 error=2 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-transport-shape-dry0",
+      "case_id": "head-transport-shape-dry0",
+      "status": "passed",
+      "os_exit": 2,
+      "last_batch_failed": true,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": 0,
+        "error": 2,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [
+        "000001",
+        "000002"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-transport-shape-dry0/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": true, \"rc\": 2, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 empty=0 error=2 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-matrix-2-empty,timeout-dry0",
+      "case_id": "head-matrix-2-empty,timeout-dry0",
+      "status": "passed",
+      "os_exit": 2,
+      "last_batch_failed": true,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": 1,
+        "error": 1,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [
+        "000001"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-matrix-2-empty,timeout-dry0/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": true, \"rc\": 2, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 empty=1 error=1 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-matrix-3-empty,timeout,success-dry0",
+      "case_id": "head-matrix-3-empty,timeout,success-dry0",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": {
+        "ok": 1,
+        "fail": 2,
+        "empty": 1,
+        "error": 1,
+        "written": 1
+      },
+      "persisted_rows": 1,
+      "requested_codes": [
+        "000001",
+        "000003"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-matrix-3-empty,timeout,success-dry0/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000003\", \"fund_name\": \"fixture-3\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}]}",
+      "collector_raw_last_line": "[fof_nav] return written=1",
+      "collector_completion_line": "[fof_nav] 完成 ok=1 fail=2 empty=1 error=1 written=1 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-matrix-2-timeout,timeout-dry1",
+      "case_id": "head-matrix-2-timeout,timeout-dry1",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": 0,
+        "error": 2,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-matrix-2-timeout,timeout-dry1/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] return written=0",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 empty=0 error=2 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-matrix-1-success-dry1",
+      "case_id": "head-matrix-1-success-dry1",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": {
+        "ok": 1,
+        "fail": 0,
+        "empty": 0,
+        "error": 0,
+        "written": 1
+      },
+      "persisted_rows": 0,
+      "requested_codes": [
+        "000001"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-matrix-1-success-dry1/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] return written=1",
+      "collector_completion_line": "[fof_nav] 完成 ok=1 fail=0 empty=0 error=0 written=1 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-empty-pool",
+      "case_id": "head-empty-pool",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": null,
+      "persisted_rows": 0,
+      "requested_codes": [],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-empty-pool/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] return written=0",
+      "collector_completion_line": null
+    },
+    {
+      "id": "CASE-head-all-filled",
+      "case_id": "head-all-filled",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": null,
+      "persisted_rows": 2,
+      "requested_codes": [],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-all-filled/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 9.5, \"date\": \"20261104\", \"fund_code\": \"000001\", \"fund_name\": \"old1\", \"nav_change_pct\": null, \"prev_unit_nav\": null, \"unit_nav\": 9.0}, {\"acc_nav\": 8.5, \"date\": \"20261104\", \"fund_code\": \"000002\", \"fund_name\": \"old2\", \"nav_change_pct\": null, \"prev_unit_nav\": null, \"unit_nav\": 8.0}]}",
+      "collector_raw_last_line": "[fof_nav] return written=0",
+      "collector_completion_line": null
+    },
+    {
+      "id": "CASE-head-lock-busy",
+      "case_id": "head-lock-busy",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": null,
+      "persisted_rows": 0,
+      "requested_codes": [],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-lock-busy/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] return written=0",
+      "collector_completion_line": null
+    },
+    {
+      "id": "CASE-head-stale-reset-legit-empty",
+      "case_id": "head-stale-reset-legit-empty",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": {
+        "ok": 0,
+        "fail": 1,
+        "empty": 1,
+        "error": 0,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [
+        "000001"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-stale-reset-legit-empty/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] return written=0",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=1 empty=1 error=0 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-batch-zero",
+      "case_id": "head-batch-zero",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": null,
+      "persisted_rows": 0,
+      "requested_codes": [],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-batch-zero/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] return written=0",
+      "collector_completion_line": null
+    },
+    {
+      "id": "CASE-head-batch-window",
+      "case_id": "head-batch-window",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": {
+        "ok": 1,
+        "fail": 1,
+        "empty": 1,
+        "error": 0,
+        "written": 1
+      },
+      "persisted_rows": 1,
+      "requested_codes": [
+        "000001",
+        "000002"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-batch-window/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000002\", \"fund_name\": \"fixture-2\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}]}",
+      "collector_raw_last_line": "[fof_nav] return written=1",
+      "collector_completion_line": "[fof_nav] 完成 ok=1 fail=1 empty=1 error=0 written=1 0s 剩余待采=1(下轮续)"
+    },
+    {
+      "id": "CASE-head-limit-priority",
+      "case_id": "head-limit-priority",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": {
+        "ok": 2,
+        "fail": 0,
+        "empty": 0,
+        "error": 0,
+        "written": 2
+      },
+      "persisted_rows": 2,
+      "requested_codes": [
+        "000001",
+        "000002"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-limit-priority/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000001\", \"fund_name\": \"fixture-1\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000002\", \"fund_name\": \"fixture-2\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}]}",
+      "collector_raw_last_line": "[fof_nav] return written=2",
+      "collector_completion_line": "[fof_nav] 完成 ok=2 fail=0 empty=0 error=0 written=2 0s 剩余待采=1(下轮续)"
+    },
+    {
+      "id": "CASE-head-skip-and-fill-null",
+      "case_id": "head-skip-and-fill-null",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": {
+        "ok": 2,
+        "fail": 0,
+        "empty": 0,
+        "error": 0,
+        "written": 2
+      },
+      "persisted_rows": 3,
+      "requested_codes": [
+        "000002",
+        "000003"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-skip-and-fill-null/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 9.5, \"date\": \"20261104\", \"fund_code\": \"000001\", \"fund_name\": \"preserved\", \"nav_change_pct\": null, \"prev_unit_nav\": null, \"unit_nav\": 9.0}, {\"acc_nav\": 7.0, \"date\": \"20261104\", \"fund_code\": \"000002\", \"fund_name\": \"name-before\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000003\", \"fund_name\": \"fixture-3\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}]}",
+      "collector_raw_last_line": "[fof_nav] return written=2",
+      "collector_completion_line": "[fof_nav] 完成 ok=2 fail=0 empty=0 error=0 written=2 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-dry-includes-filled",
+      "case_id": "head-dry-includes-filled",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": {
+        "ok": 1,
+        "fail": 0,
+        "empty": 0,
+        "error": 0,
+        "written": 1
+      },
+      "persisted_rows": 1,
+      "requested_codes": [
+        "000001"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-dry-includes-filled/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 9.5, \"date\": \"20261104\", \"fund_code\": \"000001\", \"fund_name\": \"preserved\", \"nav_change_pct\": null, \"prev_unit_nav\": null, \"unit_nav\": 9.0}]}",
+      "collector_raw_last_line": "[fof_nav] return written=1",
+      "collector_completion_line": "[fof_nav] 完成 ok=1 fail=0 empty=0 error=0 written=1 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-upsert-noop-count",
+      "case_id": "head-upsert-noop-count",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": {
+        "ok": 1,
+        "fail": 0,
+        "empty": 0,
+        "error": 0,
+        "written": 1
+      },
+      "persisted_rows": 1,
+      "requested_codes": [
+        "000001"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-upsert-noop-count/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 9.5, \"date\": \"20261001\", \"fund_code\": \"000001\", \"fund_name\": \"historical\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 9.0}]}",
+      "collector_raw_last_line": "[fof_nav] return written=1",
+      "collector_completion_line": "[fof_nav] 完成 ok=1 fail=0 empty=0 error=0 written=1 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-all-writes-fail",
+      "case_id": "head-all-writes-fail",
+      "status": "passed",
+      "os_exit": 2,
+      "last_batch_failed": true,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": 0,
+        "error": 2,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [
+        "000001",
+        "000002"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-all-writes-fail/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": true, \"rc\": 2, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 empty=0 error=2 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-partial-write-failure",
+      "case_id": "head-partial-write-failure",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": {
+        "ok": 2,
+        "fail": 1,
+        "empty": 0,
+        "error": 1,
+        "written": 2
+      },
+      "persisted_rows": 2,
+      "requested_codes": [
+        "000001",
+        "000002",
+        "000003"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-partial-write-failure/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000001\", \"fund_name\": \"fixture-1\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000003\", \"fund_name\": \"fixture-3\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}]}",
+      "collector_raw_last_line": "[fof_nav] return written=2",
+      "collector_completion_line": "[fof_nav] 完成 ok=2 fail=1 empty=0 error=1 written=2 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-empty-plus-write-failure",
+      "case_id": "head-empty-plus-write-failure",
+      "status": "passed",
+      "os_exit": 2,
+      "last_batch_failed": true,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": 1,
+        "error": 1,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [
+        "000001",
+        "000002"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-empty-plus-write-failure/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": true, \"rc\": 2, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 empty=1 error=1 written=0 0s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-head-progress-50",
+      "case_id": "head-progress-50",
+      "status": "passed",
+      "os_exit": 0,
+      "last_batch_failed": false,
+      "counters": {
+        "ok": 50,
+        "fail": 1,
+        "empty": 1,
+        "error": 0,
+        "written": 50
+      },
+      "persisted_rows": 50,
+      "requested_codes": [
+        "000001",
+        "000002",
+        "000003",
+        "000004",
+        "000005",
+        "000006",
+        "000007",
+        "000008",
+        "000009",
+        "000010",
+        "000011",
+        "000012",
+        "000013",
+        "000014",
+        "000015",
+        "000016",
+        "000017",
+        "000018",
+        "000019",
+        "000020",
+        "000021",
+        "000022",
+        "000023",
+        "000024",
+        "000025",
+        "000026",
+        "000027",
+        "000028",
+        "000029",
+        "000030",
+        "000031",
+        "000032",
+        "000033",
+        "000034",
+        "000035",
+        "000036",
+        "000037",
+        "000038",
+        "000039",
+        "000040",
+        "000041",
+        "000042",
+        "000043",
+        "000044",
+        "000045",
+        "000046",
+        "000047",
+        "000048",
+        "000049",
+        "000050",
+        "000051"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/head-progress-50/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": false, \"rc\": 0, \"rows\": [{\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000001\", \"fund_name\": \"fixture-1\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000002\", \"fund_name\": \"fixture-2\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000003\", \"fund_name\": \"fixture-3\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000004\", \"fund_name\": \"fixture-4\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000005\", \"fund_name\": \"fixture-5\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000006\", \"fund_name\": \"fixture-6\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000007\", \"fund_name\": \"fixture-7\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000008\", \"fund_name\": \"fixture-8\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000009\", \"fund_name\": \"fixture-9\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000010\", \"fund_name\": \"fixture-10\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000011\", \"fund_name\": \"fixture-11\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000012\", \"fund_name\": \"fixture-12\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000013\", \"fund_name\": \"fixture-13\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000014\", \"fund_name\": \"fixture-14\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000015\", \"fund_name\": \"fixture-15\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000016\", \"fund_name\": \"fixture-16\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000017\", \"fund_name\": \"fixture-17\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000018\", \"fund_name\": \"fixture-18\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000019\", \"fund_name\": \"fixture-19\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000020\", \"fund_name\": \"fixture-20\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000021\", \"fund_name\": \"fixture-21\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000022\", \"fund_name\": \"fixture-22\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000023\", \"fund_name\": \"fixture-23\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000024\", \"fund_name\": \"fixture-24\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000025\", \"fund_name\": \"fixture-25\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000026\", \"fund_name\": \"fixture-26\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000027\", \"fund_name\": \"fixture-27\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000028\", \"fund_name\": \"fixture-28\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000029\", \"fund_name\": \"fixture-29\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000030\", \"fund_name\": \"fixture-30\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000031\", \"fund_name\": \"fixture-31\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000032\", \"fund_name\": \"fixture-32\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000033\", \"fund_name\": \"fixture-33\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000034\", \"fund_name\": \"fixture-34\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000035\", \"fund_name\": \"fixture-35\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000036\", \"fund_name\": \"fixture-36\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000037\", \"fund_name\": \"fixture-37\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000038\", \"fund_name\": \"fixture-38\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000039\", \"fund_name\": \"fixture-39\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000040\", \"fund_name\": \"fixture-40\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000041\", \"fund_name\": \"fixture-41\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000042\", \"fund_name\": \"fixture-42\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000043\", \"fund_name\": \"fixture-43\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000044\", \"fund_name\": \"fixture-44\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000045\", \"fund_name\": \"fixture-45\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000046\", \"fund_name\": \"fixture-46\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000047\", \"fund_name\": \"fixture-47\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000048\", \"fund_name\": \"fixture-48\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000049\", \"fund_name\": \"fixture-49\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}, {\"acc_nav\": 1.55, \"date\": \"20261104\", \"fund_code\": \"000050\", \"fund_name\": \"fixture-50\", \"nav_change_pct\": 0.8, \"prev_unit_nav\": null, \"unit_nav\": 1.25}]}",
+      "collector_raw_last_line": "[fof_nav] return written=50",
+      "collector_completion_line": "[fof_nav] 完成 ok=50 fail=1 empty=1 error=0 written=50 1s 剩余待采=0(下轮续)"
+    },
+    {
+      "id": "CASE-base-old-legit-empty-regression",
+      "case_id": "base-old-legit-empty-regression",
+      "status": "passed",
+      "os_exit": 2,
+      "last_batch_failed": true,
+      "counters": {
+        "ok": 0,
+        "fail": 2,
+        "empty": null,
+        "error": null,
+        "written": 0
+      },
+      "persisted_rows": 0,
+      "requested_codes": [
+        "000001",
+        "000002"
+      ],
+      "raw_log": "/private/tmp/codex-night-20261105-f01-LqFQ3V/cases/run-rqh2ptxw/base-old-legit-empty-regression/raw.log",
+      "raw_last_line": "WORKER_RESULT={\"blocked_network_attempts\": [], \"flag\": true, \"rc\": 2, \"rows\": []}",
+      "collector_raw_last_line": "[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)",
+      "collector_completion_line": "[fof_nav] 完成 ok=0 fail=2 written=0 0s 剩余待采=0(下轮续)"
+    }
+  ],
+  "verdict": "PASS",
+  "reviewer_verdict": "Ready",
+  "internal_reviewer_verdict": null,
+  "verdict_scope": "仅F01-R1新增empty/error_count/batch_fail信号修复的外部复验。无P0/P1；既有P2另列，不表示整采集器无缺陷，也不代替内部review/上线验收。",
+  "summary": "固定head新增修复Ready：104个head验收场景+1个base判别场景通过；作者辅助回归23 passed/1 deselected。另独立复现1个base/head均存在的P2事务原子性问题；负向验证器exit1。",
+  "recommendation": "R1信号修复未见阻断项；既有P2事务边界问题交Claude复核并决定另行修复。任何合并/上线/内部PASS均不在本报告授权或结论范围。",
+  "impact_surface": [
+    "scripts/collect_fof_nav.py::fetch_lsjz",
+    "scripts/collect_fof_nav.py::collect",
+    "scripts/collect_fof_nav.py::main",
+    "SQLite写入/已填跳过",
+    "shell退出码传递（静态）",
+    "UNIT_ONLY/failed-units消费（静态）"
+  ],
+  "smoke_results": {
+    "head_acceptance": "104/104",
+    "base_discriminator": "1/1",
+    "author_regression": "23 passed, 1 deselected",
+    "existing_atomicity": "negative verifier exit1, reproduced base+head",
+    "production": "未执行"
+  },
+  "evidence_raw_last_lines": {
+    "matrix": "MATRIX_RESULT={\"asserted_cases\": 105, \"blocked_network_attempts\": [], \"failed\": 0, \"observations\": 4, \"passed\": 105}",
+    "author_tests": "23 passed, 1 deselected in 0.23s",
+    "atomicity": "ATOMICITY_RESULT={\"expected_failed_fund_rows\": 0, \"observed_failed_fund_rows\": 1, \"reproduced_in_both\": true}",
+    "note": "逐场景raw_last_line及collector_raw_last_line另见checks；原始完整结果与DB均保留在独立/tmp目录。"
+  },
+  "evidence_files": {
+    "/tmp/codex-night-20261105-f01-LqFQ3V/evidence/matrix.log": "14c4c9898e4d70e821d0ec127783a66ee066240368634f2512363cce5022f243",
+    "/tmp/codex-night-20261105-f01-LqFQ3V/evidence/matrix-results.json": "316cae824a08324e5fe1ff8a14539abddc8d0b2ece9259e42272c0892cd2256e",
+    "/tmp/codex-night-20261105-f01-LqFQ3V/evidence/author-tests.log": "4c150cce954dcc29699121a7da392eb56822101acd7297aed5bea7270c65919f",
+    "/tmp/codex-night-20261105-f01-LqFQ3V/evidence/atomicity.log": "f568d0d517f908aea4bc6a8ec06eb9ba515aa2112bbeb62f55828cb9f3f48308",
+    "/tmp/codex-night-20261105-f01-LqFQ3V/evidence/git-verification.json": "0a721cd072310a8ec90bbd5107e2d22194755bd7f1a88dcff43478eec23897a1",
+    "/tmp/codex-night-20261105-f01-LqFQ3V/evidence/change.diff": "fa197edee14307473201a9da1c1a53caf6f5cbd6b6f0fdd9580301e4b3930ef1",
+    "/tmp/codex-night-20261105-f01-LqFQ3V/run_matrix.py": "901f3b8bab3b97bccbc8fcacc13276a3ee05513e04cce913e9b877ebf33b26bf",
+    "/tmp/codex-night-20261105-f01-LqFQ3V/reproduce_atomicity.py": "dd567725de6ed964d03305b9ffc15bf48fecafbdd93eb63978dad25ab530adcb",
+    "/tmp/codex-night-20261105-f01-LqFQ3V/worker.py": "693fafbbe7057db0e225270867fe499bc01a02dd7c58620fd4750c3e89d269b8",
+    "/tmp/codex-night-20261105-f01-LqFQ3V/safety_bootstrap.py": "676109136fc483f1a1ecb7f86432138f4b7186706658eced291f1caeb7756a3b"
+  },
+  "remaininglimitations": [
+    {
+      "area": "线上/云端",
+      "detail": "未接触真实东财、云端、生产库、生产凭据，未验证真实TLS/WAF/延迟、线上已部署head、systemd及通知实际消费。所有HTTP仅127.0.0.1，TimeoutError/URLError注入urlopen边界。"
+    },
+    {
+      "area": "依赖隔离",
+      "detail": "app.collector.base及akshare只作import隔离以禁顶层DNS/transport副作用；public_fund真实schema/get_conn/init_db/_acquire_lock/_safe_float，fetch_lsjz/collect/main/UPSERT与SQLite均真实执行。日期固定2026-11-05，RATE_LIMIT=0、超时缩短。锁忙路径为显式拒绝锁桩。"
+    },
+    {
+      "area": "已知边界",
+      "detail": "一个已证实既有P2原子性问题（见findings）仍在；成功响应schema缺失是否等同合法空缺乏合约依据（见open_questions）。written/dry-run/filled整基金跳过沿用旧语义，不能等同完整日期覆盖。"
+    },
+    {
+      "area": "并发/重试/全量",
+      "detail": "未做生产并发写入、磁盘耗尽、进程被杀、超大池完整采集或全仓测试；SQLite触发器仅模拟语句中途失败。下一轮整基金跳过风险是静态调用链推导。"
+    },
+    {
+      "area": "协作状态",
+      "detail": "这是用户直接委托的外部复验，request refs为空；未评估或声明Claude内部审查PASS，不执行complete/ready、不发主动通知、不启动Claude。指定reviewer worktree不存在且无可用subagent工具；按用户/tmp隔离指示直接执行，无建分支/worktree/refs。"
+    }
+  ],
+  "side_effects": {
+    "repository_source_writes": false,
+    "git_ref_or_index_writes": false,
+    "commit_or_push": false,
+    "production_or_cloud_access": false,
+    "explicit_notifications_sent": false,
+    "claude_launched": false,
+    "codex_review_complete_invoked": false,
+    "ready_signal_written": false,
+    "external_network_attempts_observed": []
+  },
+  "report_channel": "用户指定/tmp原子JSON，无ref/ready通道"
+}

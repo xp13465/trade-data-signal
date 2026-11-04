@@ -1,0 +1,380 @@
+{
+  "kind": "implementation-self-check",
+  "independentReview": false,
+  "sourceRef": "worktree",
+  "scale": 0.02,
+  "sourceSha256": {
+    "lab.js": "b83e694b38b4461c4faa71e343d04d7bb741eab8eeb763db83e8a751c989a903",
+    "app.js": "d7d0d842a1a21606896ab2f48ff506883ec38001e1882793a779fe5e35f2b663",
+    "index.html": "10f04c6961401d321ee4acfb2e4e53a32364169410627eac39b9d8df31f2d8f5",
+    "common.js": "204cbc4b4b92811f18b6bfb69a9e50f5a82689548cb7dfa218745454acb3e9fa"
+  },
+  "functionSha256": {
+    "fetchJSON": "3bd254aed3b2346db76b3c0bcb2a3362c13152c1333a9e5a6d61b3ad8f7eaa0f",
+    "fetchJSONProgress": "e3a356eab98cde50951e13fb35c1768d90283baa198757d51b01fd5212abcda8",
+    "_bootJSON": "2335e9249a42cfe207184700cc46ae21d9b2fe03572d91a3a1200acb6ffb0351",
+    "_isMainSite": "8594d7b414696d3f776fe891e3e70c70f57aee30bdd61cf71ed82aef8d0d8b9e",
+    "_labKellyFetchTrades": "22649994b342844a66aa54e25e5b66b3153abb5385317843388a1eb5b1be71c6",
+    "_labKellyTradesUrl": "9a024941899eb4d12a079aaed37d6ba00e784fc33bcd655c4ccba72528f79b10",
+    "_labKellyTradesUrlCf": "f5f18f741b1761020410345be26487f10222d6ae40866523f8a57297d4d3a182",
+    "_fundScoreApiFetch": "e5f1ac9b23a56e2786414faf355c516f2fd361264950eb6f7ec9b3f7fce13bbd",
+    "_fundScreenerApiFetch": "3e9d3f15be99e59c1e92df02d0c81823cf8665b61c4a9cafd273acb5250d88ec"
+  },
+  "timingNote": "应用 setTimeout 按比例缩放；fetch/响应正文/AbortController 均为浏览器原生。手机 viewport 为模拟视口；未验真机及实际 15/60 秒 SLA。",
+  "authNote": "全新无痕上下文，固定假 token browser-test-fake-token；auth/cache-bust 环境函数为桩，不读用户 token。",
+  "originalBudgetsMs": {
+    "F05": 60000,
+    "F06LocalPrimary": 15000,
+    "F06BackupPrimary": 8000,
+    "F06Ssd": 6000,
+    "fundScore": 15000,
+    "fundScreener": 15000,
+    "kellyEachLeg": 60000
+  },
+  "browserRuns": [
+    {
+      "browser": "chromium",
+      "status": "已运行",
+      "version": "147.0.7727.15"
+    },
+    {
+      "browser": "webkit",
+      "status": "未验",
+      "reason": "未安装，按要求不安装"
+    }
+  ],
+  "blocked": [],
+  "origin": "http://127.0.0.1:56080",
+  "cleanup": {
+    "serverListening": false,
+    "pendingResponses": 0,
+    "sockets": 0
+  },
+  "sourcesUnchangedAtEnd": true,
+  "passed": 46,
+  "failed": 0,
+  "results": [
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "f05-timeout-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "f05-user-cancel",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "f05-ssd-body-user-cancel",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "f05-normal-json",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "f06-timeout-headers",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "f06-timeout-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "f06-normal-shared",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "fund-score-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "fund-score-headers",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "fund-score-normal",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "fund-screener-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "fund-screener-headers",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "fund-screener-normal",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "kelly-r2-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "kelly-r2-headers",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "kelly-r2-normal",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "kelly-cf-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "kelly-cf-headers",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "kelly-cf-normal",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "kelly-ssd-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "kelly-ssd-headers",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "kelly-ssd-normal",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "desktop",
+      "case": "kelly-all-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "f05-timeout-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "f05-user-cancel",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "f05-ssd-body-user-cancel",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "f05-normal-json",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "f06-timeout-headers",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "f06-timeout-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "f06-normal-shared",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "fund-score-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "fund-score-headers",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "fund-score-normal",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "fund-screener-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "fund-screener-headers",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "fund-screener-normal",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "kelly-r2-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "kelly-r2-headers",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "kelly-r2-normal",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "kelly-cf-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "kelly-cf-headers",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "kelly-cf-normal",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "kelly-ssd-body",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "kelly-ssd-headers",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "kelly-ssd-normal",
+      "pageErrors": [],
+      "passed": true
+    },
+    {
+      "browser": "chromium",
+      "viewport": "mobile",
+      "case": "kelly-all-body",
+      "pageErrors": [],
+      "passed": true
+    }
+  ]
+}

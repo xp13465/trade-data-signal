@@ -1,0 +1,39 @@
+{
+  "static-site/app.js": {
+    "exit": 0,
+    "output": ""
+  },
+  "static-site/lab.js": {
+    "exit": 0,
+    "output": ""
+  },
+  "diff_check": {
+    "exit": 0,
+    "output": ""
+  },
+  "existing_27_unchanged": {
+    "worktree_sha256": "6258c959598773a880ed3dc64d81114c732cddc7565f34e891a6d35d55274008",
+    "head_sha256": "6258c959598773a880ed3dc64d81114c732cddc7565f34e891a6d35d55274008"
+  },
+  "final_tests_against_old_source": {
+    "exit": 1,
+    "summary": [
+      "ℹ tests 49",
+      "ℹ suites 0",
+      "ℹ pass 41",
+      "ℹ fail 8",
+      "ℹ cancelled 0",
+      "ℹ skipped 0",
+      "ℹ todo 0",
+      "ℹ duration_ms 485.208833"
+    ]
+  },
+  "frontend-combined.log": {
+    "exit": 0,
+    "tail": "eaches SSD within its deadline (2.05925ms)\n✔ F06: sss.sugas.site both legs stall at body then expose fallback failure (2.9ms)\n✔ F06: sss.sugas.site normal boot consumes one shared request (1.18325ms)\nℹ tests 76\nℹ suites 0\nℹ pass 76\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 581.91475\n"
+  },
+  "frontend-pytest.log": {
+    "exit": 0,
+    "tail": "..                                                                       [100%]\n2 passed in 1.33s\n"
+  }
+}

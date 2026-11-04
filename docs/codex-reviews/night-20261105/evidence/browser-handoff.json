@@ -1,0 +1,117 @@
+{
+  "kind": "implementation-self-check",
+  "independentReview": false,
+  "current": {
+    "passed": 46,
+    "failed": 0,
+    "retainedPreviousCases": 14,
+    "newFundCases": 12,
+    "newKellyCases": 20,
+    "evidence": "/tmp/codex-reports/night-20261105/browser/summary.json"
+  },
+  "oldControl": {
+    "sourceRef": "37a4fa707",
+    "passed": 34,
+    "failed": 12,
+    "failures": [
+      {
+        "browser": "chromium",
+        "viewport": "desktop",
+        "case": "fund-score-body",
+        "reason": "page.waitForFunction: Timeout 4000ms exceeded."
+      },
+      {
+        "browser": "chromium",
+        "viewport": "desktop",
+        "case": "fund-screener-body",
+        "reason": "page.waitForFunction: Timeout 4000ms exceeded."
+      },
+      {
+        "browser": "chromium",
+        "viewport": "desktop",
+        "case": "kelly-r2-body",
+        "reason": "page.waitForFunction: Timeout 4000ms exceeded."
+      },
+      {
+        "browser": "chromium",
+        "viewport": "desktop",
+        "case": "kelly-cf-body",
+        "reason": "page.waitForFunction: Timeout 5100ms exceeded."
+      },
+      {
+        "browser": "chromium",
+        "viewport": "desktop",
+        "case": "kelly-ssd-body",
+        "reason": "page.waitForFunction: Timeout 5100ms exceeded."
+      },
+      {
+        "browser": "chromium",
+        "viewport": "desktop",
+        "case": "kelly-all-body",
+        "reason": "page.waitForFunction: Timeout 5100ms exceeded."
+      },
+      {
+        "browser": "chromium",
+        "viewport": "mobile",
+        "case": "fund-score-body",
+        "reason": "page.waitForFunction: Timeout 4000ms exceeded."
+      },
+      {
+        "browser": "chromium",
+        "viewport": "mobile",
+        "case": "fund-screener-body",
+        "reason": "page.waitForFunction: Timeout 4000ms exceeded."
+      },
+      {
+        "browser": "chromium",
+        "viewport": "mobile",
+        "case": "kelly-r2-body",
+        "reason": "page.waitForFunction: Timeout 4000ms exceeded."
+      },
+      {
+        "browser": "chromium",
+        "viewport": "mobile",
+        "case": "kelly-cf-body",
+        "reason": "page.waitForFunction: Timeout 5100ms exceeded."
+      },
+      {
+        "browser": "chromium",
+        "viewport": "mobile",
+        "case": "kelly-ssd-body",
+        "reason": "page.waitForFunction: Timeout 5100ms exceeded."
+      },
+      {
+        "browser": "chromium",
+        "viewport": "mobile",
+        "case": "kelly-all-body",
+        "reason": "page.waitForFunction: Timeout 5100ms exceeded."
+      }
+    ],
+    "explanation": "三个辅助加载器收到headers后提前clearTimeout，停滞正文不再被abort，或凯利无法进入下一腿；仅body用例失败，headers及成功控制均通过。"
+  },
+  "sourceSha256": {
+    "lab.js": "b83e694b38b4461c4faa71e343d04d7bb741eab8eeb763db83e8a751c989a903",
+    "app.js": "d7d0d842a1a21606896ab2f48ff506883ec38001e1882793a779fe5e35f2b663",
+    "index.html": "10f04c6961401d321ee4acfb2e4e53a32364169410627eac39b9d8df31f2d8f5",
+    "common.js": "204cbc4b4b92811f18b6bfb69a9e50f5a82689548cb7dfa218745454acb3e9fa"
+  },
+  "auxFunctionSha256": {
+    "_labKellyFetchTrades": "22649994b342844a66aa54e25e5b66b3153abb5385317843388a1eb5b1be71c6",
+    "_fundScoreApiFetch": "e5f1ac9b23a56e2786414faf355c516f2fd361264950eb6f7ec9b3f7fce13bbd",
+    "_fundScreenerApiFetch": "3e9d3f15be99e59c1e92df02d0c81823cf8665b61c4a9cafd273acb5250d88ec"
+  },
+  "sourceStable": true,
+  "networkBlockedOrExternal": 0,
+  "auth": "固定假token、环境桩、全新无痕context；未读用户token",
+  "cleanup": {
+    "serverListening": false,
+    "pendingResponses": 0,
+    "sockets": 0
+  },
+  "limitations": [
+    "0.02倍应用定时器缩放，非真实15/60秒SLA",
+    "手机viewport是模拟，非真机",
+    "WebKit未安装，未验",
+    "只实施自验，独立审查由Claude负责"
+  ]
+}
