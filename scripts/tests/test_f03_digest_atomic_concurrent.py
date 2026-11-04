@@ -10,6 +10,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).absolute().parent))
 sys.path.insert(0, str(Path(__file__).absolute().parent.parent))
 import notify  # noqa: E402
@@ -112,11 +114,5 @@ def test_concurrent_different_keys_two_rows(tmp_path, monkeypatch):
 
 
 if __name__ == "__main__":
-    import tempfile
-    with tempfile.TemporaryDirectory() as td:
-        test_sequential_same_signature_bump_hits(Path(td))
-    with tempfile.TemporaryDirectory() as td:
-        test_concurrent_same_signature_one_row_hits2(Path(td))
-    with tempfile.TemporaryDirectory() as td:
-        test_concurrent_different_keys_two_rows(Path(td))
-    print("[F03] 全部 PASS")
+    import sys as _sys
+    _sys.exit(pytest.main([__file__, "-q"]))
