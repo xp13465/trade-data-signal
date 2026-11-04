@@ -1,6 +1,7 @@
 {
   "handoff_id": "handoff-20261104-recent-issues-v1",
-  "ack_revision": 1,
+  "ack_revision": 2,
+  "ack_revision_notes": "rev2 证据订正见 CORRECTIONS.md(F05 必然性断言收窄为实测口径;#331 证据由'文件不存在'换为代码行号锚点)",
   "acknowledged_at": "2026-11-04 16:25 Asia/Shanghai",
   "acknowledged_by": "Claude 主会话(主控)",
   "baseline_reported": "58fabc61efdf35b1331a2ac09c737a9e6fee28be",
@@ -59,7 +60,7 @@
     {
       "id": "F05",
       "decision": "认可",
-      "evidence": "lab.js:1794 无 Content-Length 分支 return resp.json() 无 await ⇒ finally(:1835 clearTimeout)在正文读完前执行,超时定时器失效,不会 abort,不会走 fetchJSON 兜底(:1819-1822)。独立复算:仅把 return 改 return await 即从 PENDING_AFTER_80MS 变为 rejected:AbortError。生产必走此路径:浏览器默认 br,CF 对 lab_sim_sh_full.json / lab_sim_sh_fusion_full.json 回 brotli 且剥掉 Content-Length ⇒ total=0。调用点 lab.js:1683、:1862。线上 lab.min.js 同病(实测 t.json(); 无 await)",
+      "evidence": "lab.js:1794 无 Content-Length 分支 return resp.json() 无 await ⇒ finally(:1835 clearTimeout)在正文读完前执行,超时定时器失效,不会 abort,不会走 fetchJSON 兜底(:1819-1822)。独立复算:仅把 return 改 return await 即从 PENDING_AFTER_80MS 变为 rejected:AbortError。Codex 提供一次真实响应头实测:URL https://ss.fx8.store/r2/lab/lab_sim_sh_full.json,2026-11-04 06:50:39 GMT,HTTP/2 200,content-encoding: gzip,该次实测无 Content-Length;不能据此推断 CF 必然使用 br 并剥掉该头,线上正文实际卡死尚未观测。理论触发路径=浏览器默认 br + CF 剥 Content-Length 时 total=0。调用点 lab.js:1683、:1862。线上 lab.min.js 同病(实测 t.json(); 无 await)",
       "existing_task": null,
       "new_task": 369,
       "owner": "implementer",
@@ -99,7 +100,7 @@
     {
       "id": "S03",
       "decision": "认可(纳入本次文档销账,与回执归档同分支)",
-      "evidence": "#329 fund_pct.py:110/131 LRU 已实现(8d1dc0f7a);#330 backfill_fund_nav_pct_252.py:71/232 已实现;#331 backfill_fund_nav_null_days_252.py 已不存在(第二份公式已收敛);#332 docs/ops/fund-nav-pct-rootfix-20261028.md:139-145 已补(ee46abef6);索引 498-501 仍写'待办',销账 commit 1fdc0a6b7 早于四个修复。#333 索引 502 仍写'待今晚首跑',实际已跑两晚:11-02 21:10 rc=0/168s/ok=492/fail=8/written=2185/剩余1219;11-03 21:10 rc=0/160s/ok=461/fail=39/written=1952/剩余727。库内:date=20261102 非空从 10-28 18:48 历史快照的 0 条 → 11-04 当前的 22352 条;因云上无跨 11-02/11-03 两晚的相邻快照,单晚贡献取不到,不推断",
+      "evidence": "#329 fund_pct.py:110/131 LRU 已实现(8d1dc0f7a);#330 backfill_fund_nav_pct_252.py:71/232 已实现;#331 scripts/backfill_fund_nav_null_days_251.py:197 已调用 calc_pct(...)(import 在 :47),第二份 pct 公式已收敛到统一实现;#332 docs/ops/fund-nav-pct-rootfix-20261028.md:139-145 已补(ee46abef6);索引 498-501 仍写'待办',销账 commit 1fdc0a6b7 早于四个修复。#333 索引 502 仍写'待今晚首跑',实际已跑两晚:11-02 21:10 rc=0/168s/ok=492/fail=8/written=2185/剩余1219;11-03 21:10 rc=0/160s/ok=461/fail=39/written=1952/剩余727。库内:date=20261102 非空从 10-28 18:48 历史快照的 0 条 → 11-04 当前的 22352 条;因云上无跨 11-02/11-03 两晚的相邻快照,单晚贡献取不到,不推断",
       "existing_task": 333,
       "new_task": null,
       "owner": "implementer(docs 分支)",
