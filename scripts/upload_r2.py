@@ -5199,22 +5199,28 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
                          (_global_upload_lock_path(), fcntl.LOCK_SH)]
             print(f"🔒 R2 上传锁域: {domain}(域锁 {lock_path}, 并持全局屏障 SH)",
                   file=sys.stderr, flush=True)
+    # fds 与 lock_plan 一一对应: open 循环成功走完后两者等长, 下标访问安全(不再两列表平行漂移)。
     fds = []
-    for _p, _mode in lock_plan:
+    for _i, (_p, _mode) in enumerate(lock_plan):
         try:
             fds.append(os.open(str(_p), os.O_CREAT | os.O_RDWR, 0o644))
         except OSError as e:
-            if _p == lock_path:
-                print(f"⚠ 无法打开 R2 上传锁 {_p}({e}), 不持锁继续(并发风险自知)", file=sys.stderr)
-                for _fd in fds:
-                    try:
-                        os.close(_fd)
-                    except OSError:
-                        pass
+            # 失败路径统一先释放已打开的 fd(防泄漏), 再按位置分流:
+            for _fd in fds:
+                try:
+                    os.close(_fd)
+                except OSError:
+                    pass
+            if _i == 0:
+                # 第一把(域锁/全局 EX)打不开: 保留既有 fail-open 行为(不持锁继续, 调用方自知)
+                print(f"⚠ 无法打开 R2 上传锁 {_p}({e}), 不持锁继续(并发风险自知)",
+                      file=sys.stderr)
                 return None
-            # 全局屏障打不开: 退化为仅持域锁(与既有 fail-open 同精神, 但必须留痕)
-            print(f"⚠ 无法打开 R2 全局屏障锁 {_p}({e}), 本次仅持域锁 {lock_path} 继续",
-                  file=sys.stderr)
+            # 屏障锁打不开: fail-closed, 保留原始 OSError 让调用方明确感知
+            # (不退化为仅持域锁——既防 fds/lock_plan 下标漂移致 IndexError, 也防破互斥保证)
+            print(f"✗ 无法打开 R2 全局屏障锁 {_p}({e}), 拒绝本次上传(fail-closed, 已释放域锁)",
+                  file=sys.stderr, flush=True)
+            raise
     fd = fds[0]
     if len(fds) > 1:
         _BARRIER_FDS[fd] = fds[1]
