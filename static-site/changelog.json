@@ -286,5 +286,8 @@
   ],
   "20261031-a654": [
     "feat(fe): #327 \u524d\u7aef\u9519\u8bef\u4e0a\u62a5+BUILD_ID\u6536\u655b+\u6bcf\u65e5\u6c47\u603b(v1.1.8)"
+  ],
+  "20261105-a655": [
+    "fix(frontend): \u8865\u9f50Kelly\u4e0e\u516c\u52dfAPI\u6b63\u6587\u8d85\u65f6\u5e76\u5f52\u6863\u591c\u95f4\u590d\u9a8c"
   ]
 }
