@@ -317,7 +317,7 @@ def _qvix_latest_trading_date():
 
 # ================ 单值指标 ================
 
-def collect_series(metric, _source="akshare"):
+def _collect_series(metric, _source="akshare", _fallback_batches=None):
     """采集单值序列指标。返回 (rows, msg, src)。
 
     src=本次采集的数据来源:
@@ -363,8 +363,7 @@ def collect_series(metric, _source="akshare"):
             # QVIX daily k.csv 主源(optbbs)空/错误:真异源链 sse -> RV(网底)
             if metric["func"] in RV_ETFS:
                 _src, _rows, _msg = _qvix_fallback(metric)
-                if _rows:
-                    return _rows, _msg, _src
+                return _rows, _msg, _src
             if isinstance(df, Exception):
                 return [], f"{metric['func']} error: {df}", _source
             return [], f"{metric['func']} empty", _source
@@ -399,8 +398,11 @@ def collect_series(metric, _source="akshare"):
         if target and not any(d == target for d, _ in rows):
             _src, _rows, _msg = _qvix_fallback(metric, just_date=target)
             if _rows:
-                rows = rows + _rows
-                return rows, _msg, _src
+                if _fallback_batches is not None:
+                    _fallback_batches.append((_rows, _msg, _src))
+                return rows, "ok", _source
+            if _fallback_batches is not None and _msg:
+                _fallback_batches.append(([], _msg, _src))
     # 突跳检测:配 spike_guard 的指标(如 a_fund_margin)，值跳变超阈值(倍)则剔除该行
     # (防源端数值层面放大，如 2026-08-04 两融余额源端放大 1000 倍，scale 挡不住)
     rows, spike_rejected = _spike_guard_filter_series(metric, rows)
@@ -412,36 +414,80 @@ def collect_series(metric, _source="akshare"):
     return rows, "ok", _source
 
 
-def _qvix_fallback(metric, just_date=None):
-    """QVIX 真异源兜底链:返回 (src, rows, msg)。优先级 sse官方IV自算 > RV(网底)。
 
-    - 主源(optbbs)整体空/错误:取一档可用源全序列回填。
-    - 主源只在当日缺:just_date=当日,优先 sse 算当日;sse 失败用 RV 当日。
+def collect_series(metric, _source="akshare"):
+    """Legacy single-source API; QVIX requires explicit source batches."""
+    if metric.get("func") in RV_ETFS:
+        raise ValueError("QVIX requires collect_series_batches; mixed-source legacy writes are unsafe")
+    return _collect_series(metric, _source)
+
+
+def collect_series_batches(metric, _source="akshare"):
+    """Return [(rows, message, source), ...]; keep primary history separate from fallback day."""
+    fallback = []
+    rows, msg, source = _collect_series(metric, _source, _fallback_batches=fallback)
+    return [(rows, msg, source)] + fallback
+
+
+def _qvix_checked_rows(rows, scale, just_date=None):
+    """Validate auxiliary rows only; RV zero is valid for finite constant ETF prices."""
+    import math
+    valid, rejected = [], 0
+    for row in rows or []:
+        try:
+            d, value = row
+            if just_date and d != just_date:
+                continue
+            if not isinstance(d, str) or len(d) != 8:
+                raise ValueError("date format")
+            dt.datetime.strptime(d, "%Y%m%d")
+            value = float(value) * scale
+            if not math.isfinite(value):
+                raise ValueError("invalid volatility")
+        except (TypeError, ValueError, OverflowError):
+            rejected += 1
+            continue
+        valid.append((d, value))
+    return valid, rejected
+
+
+def _qvix_fallback(metric, just_date=None):
+    """Return checked auxiliary rows; errors never invalidate successful primary history.
+
+    Preserve finite producer values (including RV zero); reject nonfinite payloads only.
+    No just_date means full fallback history for insert-only gap filling.
     """
     func = metric["func"]
     und = RV_ETFS.get(func)
     sc = metric.get("scale", 1.0)
-    # 档1: 上交所官方 IV 方差互换自算 QVIX(真异源,T+1权威)
-    # 仅在补当日时调用(sse IV 为 T+1 发布,取最近交易日链);全序列回填开销大,网底 RV 更轻。
+    notes = []
     if just_date:
         try:
             res, msg = multisource.sse_qvix_series(just_date, und)
-            if res:
-                return SOURCE_SSE, [(res[0][0], res[0][1] * sc)], (
-                    f"{func} 主源缺{just_date}, sse官方IV自算QVIX: {res[0][1]:.2f} (sse)")
-        except Exception:  # noqa: BLE001
-            pass
-    # 网底: 本地 20 日滚动年化已实现波动率(口径差异,已公示)
-    rv = _qvix_rv_series(func)
-    if rv:
-        if just_date:
-            rv_rows = [(d, v * sc) for d, v in rv if d == just_date]
-            if rv_rows:
-                return SOURCE_RV_LOCAL, rv_rows, (
-                    f"{func} 主源缺{just_date}, RV网底: {rv_rows[0][1]:.2f} ({SOURCE_RV_LOCAL},口径差异)")
-        return SOURCE_RV_LOCAL, [(d, v * sc) for d, v in rv], (
-            f"{func} 主源宕机/空, 真异源全链都空, 切本地RV({SOURCE_RV_LOCAL},口径已公示)")
-    return "akshare", [], f"{func} 异源全链(sse/RV)皆败"
+            target_rows, rejected = _qvix_checked_rows(res, sc, just_date)
+            if rejected:
+                notes.append(f"sse rejected={rejected}")
+            if target_rows:
+                return SOURCE_SSE, target_rows, (
+                    f"{func} 主源缺{just_date}, sse官方IV自算QVIX: {target_rows[0][1]:.2f} (sse); {'; '.join(notes)}")
+            notes.append("sse target unavailable")
+        except Exception as exc:  # auxiliary failure must not discard primary
+            notes.append(f"sse error={type(exc).__name__}")
+    try:
+        rv = _qvix_rv_series(func)
+        rv_rows, rejected = _qvix_checked_rows(rv, sc, just_date)
+        if rejected:
+            notes.append(f"rv rejected={rejected}")
+        if rv_rows:
+            description = (f"主源缺{just_date}, RV网底: {rv_rows[0][1]:.2f}"
+                           if just_date else "主源宕机/空, 切本地RV全历史补缺")
+            detail = f"; {'; '.join(notes)}" if notes else ""
+            return SOURCE_RV_LOCAL, rv_rows, f"{func} {description} ({SOURCE_RV_LOCAL},口径差异){detail}"
+        notes.append("rv target unavailable" if just_date else "rv unavailable")
+    except Exception as exc:  # includes ETF request, iterator, tuple and scale failures
+        notes.append(f"rv error={type(exc).__name__}")
+    prefix = "qvix_aux_unavailable" if just_date else "qvix_fallback_unavailable"
+    return "akshare", [], f"{prefix}: {func} target={just_date or 'history'}; {'; '.join(notes)}"
 
 
 def _fallback_then_main_series(metric, fallback_keys):

@@ -183,7 +183,7 @@ _UPLOAD_CONST_NAMES = {
 _UPLOAD_FUNC_NAMES = {
     "_standalone_stale_state_path", "_load_standalone_stale_state",
     "_save_standalone_stale_state", "_compute_stale_consecutive_rounds",
-    "_reset_stale_state_if_clean",
+    "_reset_stale_state_if_clean", "_verify_r2_notification_handled",
 }
 _UPLOAD_CACHE: dict = {}
 
@@ -213,12 +213,13 @@ def _upload_src():
 
 
 class _FakeNotifyModule:
-    """假 notify 模块(记录 send / update_dedup; check_dedup 可配)。"""
+    """假 notify 模块；send 按真实契约返回完整 bool 渠道结果。"""
 
-    def __init__(self, suppressed=False):
+    def __init__(self, suppressed=False, delivered=True):
         self.sends = []
         self.dedup_updated = []
         self._suppressed = suppressed
+        self._delivered = delivered
 
     def check_dedup(self, key, window):
         return self._suppressed
@@ -228,9 +229,10 @@ class _FakeNotifyModule:
 
     def send(self, subject, body, **kw):
         self.sends.append((subject, body, kw))
+        return {"email": self._delivered, "telegram": False, "feishu": False}
 
 
-def _upload_ns(monkeypatch, tmp_path, suppressed=False):
+def _upload_ns(monkeypatch, tmp_path, suppressed=False, delivered=True):
     consts, funcs, block = _upload_src()
     ns = {
         "os": os, "json": json, "sys": sys, "datetime": datetime,
@@ -245,7 +247,7 @@ def _upload_ns(monkeypatch, tmp_path, suppressed=False):
     for src in funcs.values():
         exec(compile(src, "<upload-r2-func>", "exec"), ns)  # noqa: S102
     ns["_stale_block"] = compile(block, "<upload-r2-stale-block>", "exec")
-    ns["_fake_notify"] = _FakeNotifyModule(suppressed=suppressed)
+    ns["_fake_notify"] = _FakeNotifyModule(suppressed=suppressed, delivered=delivered)
     # `import notify` → 假模块(只在本用例生效, monkeypatch 收工还原)
     monkeypatch.setitem(sys.modules, "notify", ns["_fake_notify"])
     return ns
@@ -276,6 +278,14 @@ def test_2_count_threshold_alerts(monkeypatch, tmp_path):
     n = _stale_round(ns, ["a.json", "b.json", "c.json"], 100)
     _chk(n == 1, f"≥3 文件应告警, 实发 {n}")
     _chk(ns["_fake_notify"].dedup_updated == ["verify_r2_standalone_stale"], "应更新 dedup")
+
+
+def test_2_failed_delivery_does_not_occupy_dedup(monkeypatch, tmp_path):
+    """达到原数量阈值仍尝试通知；三渠道全 False 且未入摘要不得占窗。"""
+    ns = _upload_ns(monkeypatch, tmp_path, delivered=False)
+    n = _stale_round(ns, ["a.json", "b.json", "c.json"], 100)
+    _chk(n == 1, f"≥3 文件仍应尝试告警, 实发 {n}")
+    _chk(ns["_fake_notify"].dedup_updated == [], "发送全失败不得 update_dedup")
 
 
 def test_2_bytes_threshold_alerts(monkeypatch, tmp_path):

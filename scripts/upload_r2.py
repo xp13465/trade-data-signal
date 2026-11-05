@@ -114,8 +114,8 @@ def _is_production_writer() -> bool:
 
 # 只写私有桶(signal-backup2)的上传命令: 本机开发树仍允许(不污染公共 R2)。
 _PRIVATE_ONLY_CMDS = {"upload-db", "upload-large-json", "upload-claude-backup", "upload-decommissioned"}
-# 只读/对账命令: 不写任何 R2 桶。
-_READ_ONLY_CMDS = {"list", "download-db", "verify-r2", "verify-channels", "purge-low-freq"}
+# 不写 R2 对象的命令；verify-r2 会自动补传，必须经过公共桶写门禁。
+_READ_ONLY_CMDS = {"list", "download-db", "verify-channels", "purge-low-freq"}
 
 
 def _is_public_bucket_write(cmd: str) -> bool:
@@ -4584,6 +4584,14 @@ def _uniform_sample(files, n):
     return [files[i] for i in sorted(idx)]
 
 
+def _verify_r2_notification_handled(result) -> bool:
+    """仅完整渠道结果中的成功送达或成功入摘要允许占窗。"""
+    channels = ("email", "telegram", "feishu")
+    return (isinstance(result, dict)
+            and all(isinstance(result.get(ch), bool) for ch in channels)
+            and any(result.get(ch) is True for ch in (*channels, "digested")))
+
+
 def cmd_verify_r2():
     """verify-r2 周期全量对账(层3 防漏传机检, 设计文档 §3.4)。
 
@@ -4764,7 +4772,7 @@ def cmd_verify_r2():
             # 6h 窗每次都刚好过期 ⇒ 每次照发 ⇒ 被尺子记成 repeat(实测 3~4 条/天)。
             # 24h 窗: 首报/超 24h 照发(必达不变), 窗口内不再重复。回退=改回 21600。
             if not notify.check_dedup(_dedup_key, 86400):
-                notify.send(
+                _notify_result = notify.send(
                     "[告警] R2 可能被异源覆盖(verify-r2 大量不一致)",
                     f"verify-r2 对账发现 {total_mismatch_found} 个 key 与本地不一致(阈值 50), "
                     f"自动补传 {repaired_total} 个。\n"
@@ -4780,7 +4788,8 @@ def cmd_verify_r2():
                     # 批次3-C(2026-10-28): 台账键 = 本条 dedup key(可读可反查; 签名恒稳定)。
                     ledger_key=_dedup_key,
                 )
-                notify.update_dedup(_dedup_key)
+                if _verify_r2_notification_handled(_notify_result):
+                    notify.update_dedup(_dedup_key)
         except Exception as _e:
             print(f"⚠ notify 告警发送失败(不阻塞): {_e}")
 
@@ -4815,7 +4824,7 @@ def cmd_verify_r2():
                 # #321 D-2(2026-10-28): 同上一处, 21600(6h) → 86400(24h)。依据=实测重复间隔
                 # 6h05m~10h09m 恰好跨过 6h 窗; 24h 窗保住首报必达、压掉窗口内重复。
                 if not notify.check_dedup(_dedup_key, 86400):
-                    notify.send(
+                    _notify_result = notify.send(
                         "[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)",
                         f"verify-r2 发现以下「脱离 deploy 主链的独立上传产物」R2 副本与本地不一致/缺失"
                         f"(已自动补传 {repaired_total} 个): {_fmt_name_list(stale_standalone_names)}。\n"
@@ -4836,7 +4845,8 @@ def cmd_verify_r2():
                         # 批次3-C(2026-10-28): 同上, 台账键 = dedup key。
                         ledger_key=_dedup_key,
                     )
-                    notify.update_dedup(_dedup_key)
+                    if _verify_r2_notification_handled(_notify_result):
+                        notify.update_dedup(_dedup_key)
             except Exception as _e:
                 print(f"⚠ notify 告警发送失败(不阻塞): {_e}")
     else:
@@ -4852,7 +4862,7 @@ def cmd_verify_r2():
             import notify  # noqa: E402
             _dk = "verify_r2_standalone_ledger_gap"
             if not notify.check_dedup(_dk, 86400):
-                notify.send(
+                _notify_result = notify.send(
                     "[告警] 独立链产物对账台账缺失/损坏(平日对账退化为空集)",
                     f"verify-r2 平日读独立链产物台账 {_standalone_keys_path()} 失败(state={ledger_state}), "
                     f"本次对账退回旧行为(仅抽样 + 周日全量), 「独立上传链产物」的平日覆盖暂时失效。\n"
@@ -4865,7 +4875,8 @@ def cmd_verify_r2():
                     # 批次3-C(2026-10-28): 同一 verify-r2 族统一传台账键(三类告警点一致)。
                     ledger_key=_dk,
                 )
-                notify.update_dedup(_dk)
+                if _verify_r2_notification_handled(_notify_result):
+                    notify.update_dedup(_dk)
         except Exception as _e:
             print(f"⚠ notify 告警发送失败(不阻塞): {_e}")
 

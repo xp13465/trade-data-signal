@@ -63,8 +63,39 @@ LOCK="${DEPLOY_LOCK:-/tmp/trade_deploy.lock}"
 # 有意拒绝(交易日盘中闸)不是故障: 置 DEPLOY_RECORD_OFF=1 后再 exit, 不计入连续失败。
 DEPLOY_STAGE="init"
 DEPLOY_RECORD_OFF=0
+# 首轮摘要保持独立，避免重跑覆盖已知失败对象；只清理当前调用创建的文件。
+# 正常 exec 不触发 EXIT，所以段1重入之前也调用此幂等清理。
+_deploy_integrity_summary_cleanup() {
+  local _summary _previous="" _phase="first"
+  for _summary in "${_INTEGRITY_FIRST_SUMMARY:-}" "${_INTEGRITY_SUMMARY:-}"; do
+    [ -n "$_summary" ] || continue
+    [ "$_summary" != "$_previous" ] || continue
+    _previous="$_summary"
+    if [ -f "$_summary" ]; then
+      if [ -n "${PY:-}" ] && [ -n "${LOG:-}" ] && \
+          "$PY" - "$_summary" "$_phase" <<'PY_INTEGRITY_ARCHIVE' >>"$LOG" 2>&1
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    summary = json.load(f)
+print("[integrity-summary] " + json.dumps(
+    {"phase": sys.argv[2], "path": sys.argv[1], "summary": summary},
+    ensure_ascii=False, separators=(",", ":")))
+PY_INTEGRITY_ARCHIVE
+      then
+        rm -f -- "$_summary" "${_summary}.tmp" \
+          || printf '⚠ 摘要已归档但清理失败: %s\n' "$_summary" >&2
+      else
+        printf '⚠ 摘要归档失败，保留原文件: %s\n' "$_summary" >&2
+      fi
+    fi
+    _phase="final"
+  done
+  return 0
+}
+
 _deploy_record_result() {
   _rc=$?
+  _deploy_integrity_summary_cleanup
   if [ "${DEPLOY_RECORD_OFF:-0}" = "1" ]; then
     return 0
   fi
@@ -412,7 +443,8 @@ cp -R "$GIT_REPO/docs/kelly/position/scripts/accum_nav" "$REPO/static-site/data/
 # 2026-08-06 加：拦 "成交额卡显示昨日值"(boot 嵌旧 overview) / "9.52万亿爆炸" / "ETF 全空" 等事故。
 DEPLOY_STAGE="check_data_integrity"
 echo "-> 运行 check_data_integrity.py 数据产物校验 ..." | tee -a "$LOG"
-_INTEGRITY_SUMMARY="$REPO/data/check_data_integrity_summary.json"
+_INTEGRITY_SUMMARY=$(mktemp "$REPO/data/check_data_integrity_summary.XXXXXX") || exit 1
+_INTEGRITY_FIRST_SUMMARY="$_INTEGRITY_SUMMARY"
 "$PY" "$REPO/scripts/check_data_integrity.py" --deploy-mode --data-dir "$REPO/static-site/data" \
   --summary-file "$_INTEGRITY_SUMMARY" 2>&1 | tee -a "$LOG"
 CHECK_RC=${PIPESTATUS[0]}
@@ -431,13 +463,14 @@ CHECK_RC=${PIPESTATUS[0]}
 # rc=3(其余告警级项失败)也过探针, 探针非「DB 领先产物」方向即快速返回 10, 不重出、无害。
 if [ "$CHECK_RC" -ne 0 ]; then
   echo "-> fund_nav 自愈前置检查(scripts/fund_nav_selfheal.sh)..." | tee -a "$LOG"
-  REPO="$REPO" GIT_REPO="$GIT_REPO" bash "$REPO/scripts/fund_nav_selfheal.sh" 2>&1 | tee -a "$LOG"
+  FUNDNAV_SELFHEAL_SUMMARY="$_INTEGRITY_SUMMARY" REPO="$REPO" GIT_REPO="$GIT_REPO" bash "$REPO/scripts/fund_nav_selfheal.sh" 2>&1 | tee -a "$LOG"
   HEAL_RC=${PIPESTATUS[0]}
   case "$HEAL_RC" in
     0)
       echo "→ fund_nav 自愈已重出产物, 重跑数据产物校验 ..." | tee -a "$LOG"
+      _INTEGRITY_SUMMARY="${_INTEGRITY_FIRST_SUMMARY}.final"
       "$PY" "$REPO/scripts/check_data_integrity.py" --deploy-mode --data-dir "$REPO/static-site/data" \
-        --summary-file "$_INTEGRITY_SUMMARY" 2>&1 | tee -a "$LOG"
+        --fundnav-failed-summary "$_INTEGRITY_FIRST_SUMMARY" --summary-file "$_INTEGRITY_SUMMARY" 2>&1 | tee -a "$LOG"
       CHECK_RC=${PIPESTATUS[0]}
       ;;
     10) echo "→ fund_nav 自愈未命中(非「DB 领先产物」方向), 走原终止逻辑" | tee -a "$LOG" ;;
@@ -809,6 +842,7 @@ echo "✓ 版本串倒退/净回退校验通过（防再犯机制 A/B）" | tee 
 # async/sync 的 git 段已持同一把 trade_deploy.lock, deploy 段2 与它们同队列串行(秒~分钟级),
 # 彻底消除「export+R2 长跑段占锁」#149 根因。LOG 经重入整脚本重跑沿用同一文件(顶部重新定义)。
 export DEPLOY_MAP_STALE="${MAP_STALE:-0}"
+_deploy_integrity_summary_cleanup
 exec "$PY" "$GIT_REPO/scripts/with_lock.py" --block-timeout "${GIT_LOCK_TIMEOUT:-3600}" "$LOCK" bash "$0" --git-phase "$@"
 fi
 

@@ -371,8 +371,8 @@ WARNING_FLUSH_LOCK_FILE = ALERTS_DIR / "warning_buffer.flushlock"
 # [告警·摘要](severe=False, tier=digest, merged_count=N)。计数单一事实源 = W1 台账
 # (adr.ledger_day_direct_counts); 未映射类别 exempt(不限预算, 直发)。
 # 回滚开关(零代码改动): ALERT_BUDGET_DISABLE=1 = master(gate 全停, 完全回滚);
-#   ALERT_DIGEST_DISABLE=1 = flush 全停(⚠️ gate 吸收仍发生 → 条目积压但不外发,
-#   完整回滚须置 master。两开关关系见 docs/ops/245-batch2-impl-20261010.md)。
+#   ALERT_DIGEST_DISABLE=1 = flush 全停，send 自动聚合入口 fail-open 直发；
+#   显式 --defer-digest/存储 writer 的契约不变。
 #   ⚠️ 例外(★2, 2026-10-28 审查 F2): failed-units 停摆通道的 `_defer_digest` 见到
 #   ALERT_DIGEST_DISABLE=1 会**主动 fail-open 直发**,不把该通道告警吸进永不外发的 buffer
 #   (同集合跨日 = 真故障信号, 宁多勿吞)。即: 摘要关停期间该通道直发照常。
@@ -1500,7 +1500,7 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
             print(f"[notify][digest] 恢复类 fail-open 改落 report 群(邮件保留): "
                   f"{str(subject)[:80]}", file=sys.stderr)
     if (severe and not dry_run and not budget_exempt and not _stall
-            and os.environ.get("ALERT_BUDGET_DISABLE") != "1"):
+            and _digest_chain_available()[0]):
         _cat = adr.category_of(ledger_key, subject)
         if _cat:
             _n = _budget_today_count(_cat)
@@ -1541,7 +1541,7 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     if (not dry_run and not budget_exempt and not _agg_exempt and not _stall
             and _grp == "alert"
             and os.environ.get("ALERT_DOMAIN_DISABLE") != "1"
-            and os.environ.get("ALERT_BUDGET_DISABLE") != "1"):
+            and _digest_chain_available()[0]):
         _dom = adr.domain_of(ledger_key, subject)
         if _dom:
             _dom_action, _dom_entry = adr.domain_inhibit_judge(
@@ -1708,8 +1708,7 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     if (_is_recovery and not dry_run and any((email_ok, tg_ok, fs_ok))):
         try:
             if (not ALERT_AGGREGATE_SUBJECT_RE.match(str(subject))
-                    and os.environ.get("ALERT_DIGEST_DISABLE") != "1"
-                    and os.environ.get("ALERT_BUDGET_DISABLE") != "1"
+                    and _digest_chain_available()[0]
                     and _grp == "alert"):
                 _absorb_to_digest(
                     subject, body,
@@ -3374,9 +3373,8 @@ def flush_digest(dry_run: bool = False) -> dict:
       致该日 23:25 被 `!= today` 永久挡住(10-13~10-16 摘要连续滑到次日 00:00 的根因)。
     - 成功(真实发出)→ 按 _stable_rid 精确清理已发条目 + 写 state(**只在发送成功后做**);
       失败 → 条目全保留, 下轮/次日重试(「绝不丢条目」与 warning flush 同契约)。
-    - ALERT_DIGEST_DISABLE=1 → 直接 return(flush 全停; ⚠️ gate 吸收仍发生 → 完整回滚须置
-      ALERT_BUDGET_DISABLE=1, 见常量区注释)。例外: 停摆通道(check_failed_units._defer_digest)
-      见该开关即 fail-open 直发, 不依赖 buffer 出线(★2, 2026-10-28 审查 F2)。
+    - ALERT_DIGEST_DISABLE=1 → 直接 return(flush 全停)；send 自动聚合入口在该
+      上下文 fail-open 直发，显式入队 writer 不受本函数改写。
     """
     if os.environ.get("ALERT_DIGEST_DISABLE") == "1":
         return {"sent": False, "n": 0, "n_remaining": 0}

@@ -850,10 +850,15 @@ def backfill_series_metrics(date):
             continue
         mid = m["id"]
         try:
-            rows, msg, src = fetchers.collect_series(m)
+            batches = fetchers.collect_series_batches(m)
+            rows = [row for part, _, _ in batches for row in part]
+            msg = "; ".join(text for _, text, _ in batches if text and text != "ok") or "ok"
             if rows:
-                runner.upsert_metrics_many(mid, rows, source=src)
-                log_collect(date, mid, "ok", f"{len(rows)} rows (series backfill)")
+                for part, _, src in batches:
+                    if part:
+                        runner.upsert_metrics_many(mid, part, source=src)
+                detail = f"; {msg}" if m.get("func") in fetchers.RV_ETFS and msg != "ok" else ""
+                log_collect(date, mid, "ok", f"{len(rows)} rows (series backfill){detail}")
                 ok += 1
                 if any(d == date for d, _ in rows):
                     has_today_new = True
@@ -979,14 +984,20 @@ def backfill_history_gaps(date, verbose=True, strict_global=False):
             if last_d >= target_d:
                 continue
             try:
-                rows, msg, src = _fetchers_mod.collect_series(m)
+                batches = _fetchers_mod.collect_series_batches(m)
+                rows = [row for part, _, _ in batches for row in part]
+                msg = "; ".join(text for _, text, _ in batches if text and text != "ok") or "ok"
             except Exception as e:  # noqa: BLE001
                 if verbose:
                     print(f"  [gap] {mid} 补采异常: {e}")
                 continue
+            if any(tag in msg for tag in ("qvix_aux_unavailable:", "qvix_fallback_unavailable:", "rejected=", "error=")):
+                log_collect(date, mid, "warn", msg)
             newer = [rw for rw in rows if rw[0] > latest] if rows else []
             if newer:
-                upsert_metrics_many(mid, rows, source=src)
+                for part, _, src in batches:
+                    if part:
+                        upsert_metrics_many(mid, part, source=src)
                 new_latest = max(rw[0] for rw in newer)
                 fixed += 1
                 if verbose:

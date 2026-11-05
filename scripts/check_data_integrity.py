@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import math
 import os
 import re
 import sqlite3
@@ -1287,7 +1288,7 @@ def _find_public_fund_db() -> Path | None:
     return None
 
 
-def _sample_fund_nav_mismatches(nav_dir: Path, db: Path, sample_n: int) -> list[tuple[str, list, list]]:
+def _sample_fund_nav_mismatches(nav_dir: Path, db: Path, sample_n: int, *, targets=None, failed_items=None) -> list[tuple[str, list, list]]:
     """nav_bucket 抽样 vs DB 逐位比对（**同源单实现**，check_fund_nav 第4层 + --fundnav-stale-probe 共用）。
 
     每桶随机取 1 只，DB 取该 code 最新 3 个 unit_nav 非空点（日期降序），产物取尾部 3 点（降序），
@@ -1299,20 +1300,39 @@ def _sample_fund_nav_mismatches(nav_dir: Path, db: Path, sample_n: int) -> list[
     import random
 
     files = sorted(nav_dir.glob("*.json"))
-    if not files:
+    if not files and targets is None:
         return []
-    sample = random.sample(files, min(sample_n, len(files)))
+    sample = ([(nav_dir / t["bucket"], t["code"]) for t in targets] if targets is not None else [])
+    sample += [(f, None) for f in random.sample(files, min(sample_n, len(files)))]
     mismatches: list[tuple[str, list, list]] = []
-    conn = sqlite3.connect(str(db), timeout=5.0)
+    conn = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True, timeout=5.0)
     try:
-        for f in sample:
+        for f, fixed_code in sample:
             d, err = _load_json(f)
             if err or not isinstance(d, dict) or not d:
+                if fixed_code is not None:
+                    raise ValueError(f"定点桶不可读: {f.name}: {err}")
                 continue
-            code = random.choice(sorted(d.keys()))
+            code = fixed_code if fixed_code is not None else random.choice(sorted(d.keys()))
+            if code not in d:
+                raise ValueError(f"定点基金缺失: {f.name}/{code}")
             payload = d[code]
             if not isinstance(payload, dict):
-                continue
+                raise ValueError(f"payload 非对象: {f.name}/{code}")
+            nav = payload.get("nav")
+            if not isinstance(nav, list) or any(not isinstance(r, list) or len(r) != 3 for r in nav):
+                raise ValueError(f"nav 形状错误: {f.name}/{code}")
+            if fixed_code is not None:
+                if payload.get("code") != code or type(payload.get("count")) is not int or payload["count"] != len(nav):
+                    raise ValueError(f"定点 payload 元数据异常: {f.name}/{code}")
+                if payload.get("date") != (nav[-1][0] if nav else ""):
+                    raise ValueError(f"定点 payload 日期异常: {f.name}/{code}")
+                for date, unit, acc in nav:
+                    if (not isinstance(date, str) or re.fullmatch(r"[0-9]{8}", date) is None
+                            or type(unit) not in (int, float) or not math.isfinite(unit)
+                            or (acc is not None and (type(acc) not in (int, float) or not math.isfinite(acc)))):
+                        raise ValueError(f"定点 nav 字段异常: {f.name}/{code}")
+                    datetime.strptime(date, "%Y%m%d")
             rows = conn.execute(
                 "SELECT date, unit_nav, acc_nav FROM fund_daily_nav "
                 "WHERE fund_code=? AND unit_nav IS NOT NULL ORDER BY date DESC LIMIT 3",
@@ -1322,6 +1342,9 @@ def _sample_fund_nav_mismatches(nav_dir: Path, db: Path, sample_n: int) -> list[
             exp = [(r[0], r[1], r[2]) for r in list(reversed(payload.get("nav", [])))[:3]]
             if got != exp:
                 mismatches.append((code, got, exp))
+                if failed_items is not None:
+                    failed_items.append({"bucket": f.name, "code": code,
+                                         "direction": _fundnav_direction(got, exp)})
     finally:
         conn.close()
     return mismatches
@@ -1389,7 +1412,77 @@ def _fund_nav_db_day_coverage(db: Path) -> tuple[str | None, str | None]:
     return (None, None)
 
 
-def probe_fund_nav_db_ahead(data_dir: Path) -> tuple[int, str]:
+def _fundnav_direction(got, exp):
+    """Only strictly dated DB-ahead pairs authorize rebuilding; same-date edits are unknown."""
+    try:
+        if any(re.fullmatch(r"[0-9]{8}", str(rows[0][0])) is None for rows in (got, exp) if rows):
+            return "unknown"
+        gd = datetime.strptime(str(got[0][0]), "%Y%m%d") if got else None
+        ed = datetime.strptime(str(exp[0][0]), "%Y%m%d") if exp else None
+    except (ValueError, TypeError, IndexError):
+        return "unknown"
+    if gd is not None and (ed is None or gd > ed):
+        return "db_ahead"
+    if ed is not None and (gd is None or gd < ed):
+        return "db_behind"
+    return "unknown"
+
+
+def _fundnav_context(data_dir, db):
+    # Capture the DB actually chosen by check_fund_nav; do not infer it from data_dir.
+    return {"data_dir": str(data_dir.resolve()),
+            "db": str(db.resolve()) if db is not None else None}
+
+
+def _load_fundnav_failed_summary(path, data_dir):
+    with open(path, encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, dict) or not isinstance(payload.get("fundnav_failed_items"), list):
+        raise ValueError("summary 缺结构化 fundnav_failed_items")
+    context = payload.get("fundnav_context")
+    if (not isinstance(context, dict)
+            or not isinstance(context.get("data_dir"), str)
+            or not isinstance(context.get("db"), str) or not context["db"]):
+        raise ValueError("summary 缺明确的 data_dir/DB 路径上下文，不推断身份")
+    if context["data_dir"] != str(data_dir.resolve()):
+        raise ValueError("summary data_dir 与本次 --data-dir 不匹配")
+    db = _find_public_fund_db()
+    if db is None or context["db"] != str(db.resolve()):
+        raise ValueError("summary DB 与本次实际选用的 DB 不匹配")
+    items = payload["fundnav_failed_items"]
+    if len(items) > 256:
+        raise ValueError("失败对象超过桶数上限")
+    seen = set()
+    for t in items:
+        if (not isinstance(t, dict) or not isinstance(t.get("bucket"), str)
+                or re.fullmatch(r"[0-9a-f]{2}\.json", t["bucket"]) is None
+                or not isinstance(t.get("code"), str) or not t["code"]
+                or len(t["code"]) > 256
+                or t.get("direction") not in {"db_ahead", "db_behind", "unknown"}):
+            raise ValueError("失败对象格式非法")
+        key = (t["bucket"], t["code"])
+        if key in seen:
+            raise ValueError("失败对象重复")
+        seen.add(key)
+    return items
+
+
+def _check_fundnav_known(data_dir, targets):
+    if not targets:
+        return _ok("fund_nav_known", "无首轮失败对象")
+    db = _find_public_fund_db()
+    if db is None:
+        return _fail("fund_nav_known", "定点复验找不到 DB")
+    try:
+        pairs = _sample_fund_nav_mismatches(data_dir / "nav_bucket", db, 0, targets=targets)
+    except (OSError, ValueError, TypeError, IndexError, sqlite3.Error) as e:
+        return _fail("fund_nav_known", f"定点复验异常: {e}")
+    if pairs:
+        return _fail("fund_nav_known", f"首轮失败对象仍不一致: {[p[0] for p in pairs]}")
+    return _ok("fund_nav_known", f"首轮 {len(targets)} 个失败对象逐位一致")
+
+
+def probe_fund_nav_db_ahead(data_dir: Path, targets=None) -> tuple[int, str]:
     """探测 nav_bucket 是否「DB 领先产物」（deploy 自愈 C1 用，2026-10-13）。返回 (exit_code, 原因)。
 
     背景（根因见 docs/ops/stale-navbucket-rootcause-20261013.md）：nav_bucket 产物一天只在
@@ -1415,14 +1508,16 @@ def probe_fund_nav_db_ahead(data_dir: Path) -> tuple[int, str]:
     except ValueError:
         sample_n = 30
     try:
-        pairs = _sample_fund_nav_mismatches(nav_dir, db, sample_n)
-    except sqlite3.Error as e:
+        if targets is not None and any(t["direction"] != "db_ahead" for t in targets):
+            return 0, "首轮含反向/未知方向，不重出"
+        pairs = _sample_fund_nav_mismatches(nav_dir, db, sample_n, targets=targets)
+    except (OSError, ValueError, TypeError, IndexError, sqlite3.Error) as e:
         return 0, f"抽样查询失败(db={db}): {e}"
-    ahead = [
-        (code, str(got[0][0]), str(exp[0][0]) if exp else "")
-        for code, got, exp in pairs
-        if got and (not exp or str(got[0][0]) > str(exp[0][0]))
-    ]
+    if any(_fundnav_direction(got, exp) != "db_ahead" for _, got, exp in pairs):
+        return 0, "含反向/未知方向，不重出"
+    ahead = [(code, str(got[0][0]), str(exp[0][0]) if exp else "")
+             for code, got, exp in pairs]
+
     if ahead:
         c, gd, ed = ahead[0]
         return 3, (f"命中 DB 领先产物: {len(ahead)}/{len(pairs)} 抽样不一致且方向为 DB 领先"
@@ -1637,9 +1732,10 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
         if _dbday_fail:
             return _fail(name, _dbday_fail)
 
+        failed_items = []
         try:
-            pairs = _sample_fund_nav_mismatches(nav_dir, db, sample_n)
-        except sqlite3.Error as e:
+            pairs = _sample_fund_nav_mismatches(nav_dir, db, sample_n, failed_items=failed_items)
+        except (OSError, ValueError, TypeError, IndexError, sqlite3.Error) as e:
             return _fail(name, f"读 public_fund.db 失败(db={db}): {e}")
 
         def _dir_note(g0, e0) -> str:
@@ -1669,16 +1765,19 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
                 f"DB尾3={got} vs 产物尾3={exp}"
                 for code, got, exp in pairs
             ]
-            return _fail(name, "DB↔产物不一致: " + "; ".join(mismatch[:3]))
+            result = _fail(name, "DB↔产物不一致: " + "; ".join(mismatch[:3]))
+            result.fundnav_failed_items = failed_items
+            result.fundnav_context = _fundnav_context(data_dir, db)
+            return result
 
     msg = f"{len(files)} 桶/{total_codes} 只基金全史净值，抽样 {checked} 只结构+DB逐位一致"
     if empty_cnt:
         msg += f"（含合法空数据基金 {empty_cnt} 只）"
     if db_codes and len({_safe_code(c) for c in all_codes} & set(fname_to_codes)) / len(db_codes) >= 0.95:
         msg += "，覆盖率 ≥95%"
-    if _dbday_warn:
-        return _warn(name, _dbday_warn)
-    return _ok(name, msg)
+    result = _warn(name, _dbday_warn) if _dbday_warn else _ok(name, msg)
+    result.fundnav_context = _fundnav_context(data_dir, db)
+    return result
 
 
 def check_a_fund_north_quarterly() -> CheckResult:
@@ -2614,7 +2713,27 @@ def main():
     parser.add_argument("--fundnav-stale-probe", action="store_true",
                         help="只探测 nav_bucket 是否「DB 领先产物」(deploy 自愈 C1 用): "
                              "exit 3=命中(可自愈重出) / exit 0=未命中或无法判定")
+    parser.add_argument("--fundnav-failed-summary", metavar="PATH", help="显式复验首轮失败对象")
+    parser.add_argument("--fundnav-verify-failed", action="store_true", help="只复验首轮失败对象")
     args = parser.parse_args()
+    if args.fundnav_verify_failed and (not args.data_dir or not args.fundnav_failed_summary):
+        parser.error("--fundnav-verify-failed requires --data-dir and --fundnav-failed-summary")
+    if args.fundnav_failed_summary and not args.data_dir:
+        parser.error("--fundnav-failed-summary requires --data-dir")
+    targets = None
+    if args.fundnav_failed_summary:
+        try:
+            targets = _load_fundnav_failed_summary(args.fundnav_failed_summary, Path(args.data_dir))
+        except (OSError, ValueError, TypeError) as e:
+            print(f"首轮 summary 不可用: {e}", file=sys.stderr)
+            return 1
+    if args.fundnav_verify_failed:
+        if targets is None:
+            return 1
+        result = _check_fundnav_known(Path(args.data_dir).resolve(), targets)
+        print_result(result)
+        return determine_exit_code([result], False)
+
 
     # --strict: warn 当 fail (exit 2) 手动排查用
     # --deploy-mode: 只 fail 阻断 (exit 1), warn 不阻断 (exit 0) -- 避免预存在 warn 阻塞所有 deploy
@@ -2626,7 +2745,7 @@ def main():
     # nav_bucket「DB 领先产物」探针(deploy 自愈 C1, 2026-10-13): 三态退出碼见 help
     if args.fundnav_stale_probe:
         _probe_data_dir, _ = detect_dirs(args.data_dir)
-        rc, reason = probe_fund_nav_db_ahead(_probe_data_dir)
+        rc, reason = probe_fund_nav_db_ahead(_probe_data_dir, targets=targets)
         print(f"[fundnav-stale-probe] rc={rc} {reason}")
         return rc
 
@@ -2649,6 +2768,8 @@ def main():
         return 1
 
     results = run_all_checks(data_dir, repo_data_dir)
+    if targets is not None:
+        results.append(_check_fundnav_known(data_dir, targets))
 
     # 打印结果
     for r in results:
@@ -2687,6 +2808,9 @@ def _write_summary(path: str, results: list[CheckResult], rc: int,
     """把分级明细写 JSON(原子写), 供 deploy.sh 拼「连续失败/告警级不阻断」告警正文。"""
     fails = [r for r in results if r.status == CheckResult.FAIL]
     payload = {
+        "fundnav_context": next((r.fundnav_context for r in results
+                                 if getattr(r, "fundnav_context", None) is not None), None),
+        "fundnav_failed_items": [t for r in results for t in getattr(r, "fundnav_failed_items", [])],
         "rc": rc,
         "deploy_mode": deploy_mode,
         "ok": len([r for r in results if r.status == CheckResult.OK]),

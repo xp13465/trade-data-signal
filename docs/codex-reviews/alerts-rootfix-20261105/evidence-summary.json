@@ -1,0 +1,199 @@
+{
+  "base": "6f95913bfa6013b5619c4347770243707ab4ea38",
+  "branch": "codex/alerts-rootfix-20261105",
+  "state": "R4-final-source-full-suite-passed-for-Claude-independent-review",
+  "frontend_version_before": "20261105-a657",
+  "frontend_version_after": "20261105-a657",
+  "original_message_window": {
+    "timezone": "Asia/Shanghai",
+    "from": "2026-10-29 20:03:58",
+    "to": "2026-11-05 20:03:58",
+    "groups": 4,
+    "messages": 803
+  },
+  "qvix": {
+    "existing_history_values_overwritten": [
+      1650,
+      2838
+    ],
+    "exact_return_to_old_values": [
+      1649,
+      2837
+    ],
+    "legitimate_revision_date": "20261102",
+    "real_signal_changed_keys_exactly_replayed": 433,
+    "real_downstream_changed_keys_not_fully_replayed": 568,
+    "all_real_changed_keys": 1001
+  },
+  "production_mutated": false,
+  "evidence_hashes": {
+    "qvix-code.json": "a60657d289c8ab7483dcdf13a00a872ada58b05f10876958e695e1d202580f76",
+    "qvix-parent-value-check.json": "9af1534dc48094702e5fb74377e60f87baf2057eed3e2097b5c242ad8e26a72a",
+    "qvix-integration-solution-r2.json": "e17adbf3256a1e1f0b81da58fb51d88225bb028141ccddbf0323c16ca6e5a0d3",
+    "qvix-integration-review-r2.json": "1a37f2805504f26a7ff387c86763a3bb4dec2a03301e21eb72a3d0c0448e768d",
+    "selfheal-solution-r2.json": "2c942da33453e7f1be8de15ca9da8fd8821ffbe4b7d56d4e519755c21e1dbf7c",
+    "selfheal-review-r2.json": "855597e02bba2ae8641220431181b1100267d11e29997a4ef16e918b323832c4",
+    "r2-endtoend-solution.json": "1925131a76a35cc390075776b6a1994d8d9fde9397ac53282869ea0c344975ab",
+    "implementation-qvix.json": "e23290ceab611bfe43d60fedbecaf7f8c529802786430d220b24aafde6cb7da3",
+    "implementation-selfheal.json": "dc866ee1cca8fc1ca2266a361457f9d93a4a8e111bbfb94d9db82d9f723fd372",
+    "implementation-r2.json": "5c8776be83b1b872c80927b13fec6250b6f1d27fc89c1a3ce2eec01a7e625aca",
+    "implementation-selfheal-review.json": "65ff47339523a3087f5dcc9f04aef1431c5a50aceafeb1302163375fff404b37",
+    "implementation-r2-review.json": "87b5c44d3c104bbbceeac9f8dc53daf57699c2f2be87b3c568f76f4e941a91ca",
+    "implementation-selfheal-r3.json": "e4a9ea845971e1731be6b82013315ba641232015c603331b2f4557d78335d1ec",
+    "implementation-r2-fixture-r3.json": "89048b2bbdf89a72ee41c35fb9726298f368af7b2f2c3714ad19ea8ded222e61",
+    "implementation-selfheal-review-r3.json": "a1ed48b1319afd337bcb2a4ba614bd1521d3c27d0569c6523ee2a8e306494fe6",
+    "implementation-selfheal-r4.json": "aae64b91872da051d04cbaaa2d4138530b9041d610414fff015b5e0b130b4441",
+    "implementation-selfheal-review-r4.json": "88d100ff25b1c936add12d252e21e4e40af2f5ad453e5589fbc754afe608c1ba"
+  },
+  "implementation_files_sha256": {
+    "app/collector/fetchers.py": "d1401b6fd3339f46329749d372440486bfa8957ab493f88c43866ed5de482a8b",
+    "app/collector/runner.py": "4d73ae6cf50140a3276ed2d4b4e5e164f05ff250bc62a06588ffed78580abc2c",
+    "app/collector/index_backfill.py": "5d3d2089268bd3d01e0a0b2945eccfbf0e0436bd5f972ff53e786273344dead3",
+    "scripts/tests/test_codex_qvix_fallback.py": "02dc6aff416178e4173879e11ef6956788bea647cb256f2203463834f01d0fc5",
+    "docs/ops/alerts-rootfix-qvix-20261105.md": "22e982c1f80ea0c3b1319d9bf704339d8b5bbba77c12aef1b833212d1bb82e17",
+    "scripts/check_data_integrity.py": "24b76d4cc3114bd8f4f7e602747f7f9e0b4b48bc3b7361ea16c6c2ef3d0b2d1d",
+    "scripts/fund_nav_selfheal.sh": "6be530f4b14f427113506b543c125fd34b99d7fb10b50da27862ea56ce958b0e",
+    "scripts/deploy.sh": "25c0e95291b5d5ba0b82e4c26efb438a4a451ad0b3a6728262086dae1b8bd95f",
+    "scripts/tests/test_codex_fundnav_failed_targets.py": "ed166fce30764d4e2a888d8a1abe8fd13dc088fdb39d34cf1602a0dc84b0aa06",
+    "docs/ops/alerts-rootfix-selfheal-20261105.md": "483627528ba9d55f424e0f6235722c0e1111ccf164c2a28ff799e6f9272d51a2",
+    "scripts/upload_r2.py": "37a0eb860ed1ab31bbc2928771ae2ac7ff895a520de953653d8b3f9a18cab1e3",
+    "scripts/notify.py": "9f7fd36e34ff2c0e40af139001a0d7a21ad15c5e97db44d1a34328952ad43b1a",
+    "scripts/tests/test_codex_r2_alert_delivery.py": "cba53c2c2439a8efc716be6984477a1ce8eb142a61dd503ba2aa22fceaa793fd",
+    "docs/ops/alerts-rootfix-r2-20261105.md": "154a6b52e016dade68d54b5ed0b853ad2a67635a0dbae9d65ae20464bbecdf86",
+    "scripts/tests/test_alert_denoise_3x_20261011.py": "33f098cefc9aee48dda09a86210365152ff8e4fb6d7ffbcd3592e0dc97ff1fcd"
+  },
+  "independent_codex_reviews": [
+    {
+      "file": "qvix-integration-review-r2.json",
+      "verdict": "PASS",
+      "summary": "限定范围复验Ready：R1两个缺口已解除；实际双源故障保留primary、非有限/None拒绝并诊断、合法RV0与有限负值边界保留。三writer分源/原子保护及433真实g键不变。",
+      "claude_review": false
+    },
+    {
+      "file": "implementation-selfheal-review.json",
+      "verdict": "PASS",
+      "summary": "实际cleanup独立复核Ready，无阻断。只测固定快照cleanup/trap：8定向用例及9独立场景通过，原rc、unset早退、首轮/最终摘要、正常exec与EXIT均符合约定。测试已结束，不再运行测试。",
+      "claude_review": false
+    },
+    {
+      "file": "implementation-r2-review.json",
+      "verdict": "PASS",
+      "summary": "限定三文件实际独立复核Ready；公共写门禁、三caller送达/入盘后占窗、digest-disable自动fail-open符合约定。独立仅跑新模块219 passed，测试结束，不再运行测试。",
+      "claude_review": false
+    },
+    {
+      "file": "implementation-selfheal-review-r3.json",
+      "verdict": "PASS",
+      "summary": "固定r3 shell SHA的最小Bash兼容diff通过独立短审：原生/bin/bash 3.2.57下5个定向shell场景通过；旧空数组展开RED、新零参数/带空格路径展开GREEN。无summary既有日志恢复；checker/deploy字节未变，未重审cleanup。测试全部结束，不再测试。",
+      "claude_review": false,
+      "supersedes": "previous selfheal source review for R3 shell delta; checker/deploy unchanged"
+    },
+    {
+      "file": "implementation-selfheal-review-r4.json",
+      "verdict": "PASS",
+      "summary": "R3→R4单行变量边界及新noop断言短审通过。固定manifest与用户最终SHA一致；原生Bash3.2 UTF-8十行微探针复现旧写法rc1/unbound，新写法准确输出rc=1日志并退出12。未重跑测试模块、cleanup或全量；测试结束，原R3报告未变。",
+      "claude_review": false,
+      "scope": "R3→R4 final UTF-8 variable boundary and noop assertion"
+    }
+  ],
+  "targeted_tests": {
+    "qvix_new_module": 216,
+    "selfheal_new_module_r3": 26,
+    "r2_new_module": 219,
+    "total_distinct_new_module_tests": 461,
+    "r3_old_notify_and_new_notify_same_run": "244 passed in 8.71s",
+    "r3_old_selfheal_module": "16 passed in 10.70s",
+    "r3_new_selfheal_module": "26 passed in 19.52s",
+    "not_a_full_suite_result": true
+  },
+  "out_of_scope": [
+    "live DB repair or signal export",
+    "main merge and production deploy",
+    "notify stat/chmod helper P2",
+    "backup failure body and unexplained 107-row delta",
+    "old verify-r2 historical 114 wording",
+    "Feishu digest truncation",
+    "actual cron health detection"
+  ],
+  "validation_rounds": [
+    {
+      "round": 1,
+      "returncode": 1,
+      "summary": "5 failed, 2834 passed, 3 skipped, 1 warning in 334.85s",
+      "frozen_inputs_unchanged": true,
+      "metadata_sha256": "5a2ef63aac42aa39a66880e7fe311bea65de8d377d3441fb701be029c2660763",
+      "log_sha256": "1cb6f197e5df21bf3bac74d3af0fe3d9f05cd4207ebda235458213c4bab11e7f",
+      "failure_classification": {
+        "new_source_regression_bash32_empty_array": 4,
+        "legacy_fixture_missing_real_helper_and_send_contract": 1
+      }
+    },
+    {
+      "round": 2,
+      "returncode": 0,
+      "summary": "2844 passed, 3 skipped in 397.81s",
+      "junit_counts": {
+        "tests": 2847,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 3
+      },
+      "frozen_inputs_unchanged": true,
+      "metadata_sha256": "ae6e2a348f34901b254a044284ec269ca3d7e7f88a961fd2f401094d9c6c498a",
+      "log_sha256": "fe0c1e2784dd37e6e067a631bf8e7858414b892cff4e1e0edde0be632b771734"
+    },
+    {
+      "round": 3,
+      "returncode": 0,
+      "summary": "2844 passed, 3 skipped in 383.77s",
+      "junit_counts": {
+        "tests": 2847,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 3
+      },
+      "frozen_inputs_unchanged": true,
+      "metadata_sha256": "851b34cba3eff4ebd3997d3a6ab2468a3051775166c6b3cd952f7d5ed9179ea4",
+      "log_sha256": "79d4d56650e9d2a7c2add9e5c13953fb8805cebe7adc751b4c57d3717ddb8b2f"
+    }
+  ],
+  "final_full_suite_source_hashes": {
+    "app/collector/fetchers.py": "d1401b6fd3339f46329749d372440486bfa8957ab493f88c43866ed5de482a8b",
+    "app/collector/runner.py": "4d73ae6cf50140a3276ed2d4b4e5e164f05ff250bc62a06588ffed78580abc2c",
+    "app/collector/index_backfill.py": "5d3d2089268bd3d01e0a0b2945eccfbf0e0436bd5f972ff53e786273344dead3",
+    "scripts/tests/test_codex_qvix_fallback.py": "02dc6aff416178e4173879e11ef6956788bea647cb256f2203463834f01d0fc5",
+    "docs/ops/alerts-rootfix-qvix-20261105.md": "22e982c1f80ea0c3b1319d9bf704339d8b5bbba77c12aef1b833212d1bb82e17",
+    "scripts/upload_r2.py": "37a0eb860ed1ab31bbc2928771ae2ac7ff895a520de953653d8b3f9a18cab1e3",
+    "scripts/notify.py": "9f7fd36e34ff2c0e40af139001a0d7a21ad15c5e97db44d1a34328952ad43b1a",
+    "scripts/tests/test_codex_r2_alert_delivery.py": "cba53c2c2439a8efc716be6984477a1ce8eb142a61dd503ba2aa22fceaa793fd",
+    "docs/ops/alerts-rootfix-r2-20261105.md": "154a6b52e016dade68d54b5ed0b853ad2a67635a0dbae9d65ae20464bbecdf86",
+    "scripts/check_data_integrity.py": "24b76d4cc3114bd8f4f7e602747f7f9e0b4b48bc3b7361ea16c6c2ef3d0b2d1d",
+    "scripts/fund_nav_selfheal.sh": "6be530f4b14f427113506b543c125fd34b99d7fb10b50da27862ea56ce958b0e",
+    "scripts/deploy.sh": "25c0e95291b5d5ba0b82e4c26efb438a4a451ad0b3a6728262086dae1b8bd95f",
+    "scripts/tests/test_codex_fundnav_failed_targets.py": "ed166fce30764d4e2a888d8a1abe8fd13dc088fdb39d34cf1602a0dc84b0aa06",
+    "docs/ops/alerts-rootfix-selfheal-20261105.md": "483627528ba9d55f424e0f6235722c0e1111ccf164c2a28ff799e6f9272d51a2",
+    "scripts/tests/test_alert_denoise_3x_20261011.py": "33f098cefc9aee48dda09a86210365152ff8e4fb6d7ffbcd3592e0dc97ff1fcd"
+  },
+  "precommit_rejection_between_round2_and_round3": {
+    "returncode": 1,
+    "reason": "Bash3 nonASCII-adjacent POST_RC variable; corrected braces, original noop test strengthened with UTF-8/log assertion",
+    "hook_bypassed": false,
+    "commit_created": false,
+    "R4_targeted": "9 passed, 17 deselected in 36.30s",
+    "full_lint": "PASS"
+  },
+  "skipped_tests": [
+    {
+      "test": "scripts.tests.test_212_upload_onfail_loud_pytest::test_e_pre_change_source_static",
+      "reason": "HEAD 版已含 _channel_on_fail(本批改动早已提交): 改前版不可得, 跳过静态对照"
+    },
+    {
+      "test": "scripts.tests.test_collect_fof_nav_333::test_real_sample_3_fof",
+      "reason": "network 用例: CI 默认跳过(-m network 或 COLLECT_NETWORK_TESTS=1 手动跑)"
+    },
+    {
+      "test": "scripts.tests.test_monitor_resource_inprogress_20261005::test_disk_pct_matches_df_p_output",
+      "reason": "macOS APFS 的 df 为容器级口径, 与 statvfs 卷级不同"
+    }
+  ]
+}

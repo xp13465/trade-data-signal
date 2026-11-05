@@ -105,7 +105,9 @@ def upsert_metric(date, metric_id, value, source="akshare"):
         "VALUES (?,?,?,?,?) "
         "ON CONFLICT(date, metric_id) DO UPDATE SET "
         "value=excluded.value, source=excluded.source, updated_at=excluded.updated_at "
-        "WHERE daily_metric.source != 'manual'",
+        "WHERE daily_metric.source != 'manual' "
+        "AND (excluded.metric_id NOT IN ('a_qvix_300','a_qvix_1000') "
+        "OR excluded.source NOT IN ('rv_local','sse'))",
         (date, metric_id, value, source, _now()),
     )
     conn.commit()
@@ -121,7 +123,9 @@ def upsert_metrics_many(metric_id, rows, source="akshare"):
         "VALUES (?,?,?,?,?) "
         "ON CONFLICT(date, metric_id) DO UPDATE SET "
         "value=excluded.value, source=excluded.source, updated_at=excluded.updated_at "
-        "WHERE daily_metric.source != 'manual'",
+        "WHERE daily_metric.source != 'manual' "
+        "AND (excluded.metric_id NOT IN ('a_qvix_300','a_qvix_1000') "
+        "OR excluded.source NOT IN ('rv_local','sse'))",
         [(d, metric_id, v, source, _now()) for d, v in rows],
     )
     conn.commit()
@@ -220,9 +224,13 @@ def _collect_one_metric(m, date):
             log_collect(date, mid, "error", msg)
             return "fail", msg
         elif func in fetchers.SERIES_FUNCS:
-            rows, msg, src = fetchers.collect_series(m)
+            batches = fetchers.collect_series_batches(m)
+            rows = [row for part, _, _ in batches for row in part]
+            msg = "; ".join(text for _, text, _ in batches if text and text != "ok") or "ok"
             if rows:
-                upsert_metrics_many(mid, rows, source=src)
+                for part, _, src in batches:
+                    if part:
+                        upsert_metrics_many(mid, part, source=src)
                 # msg 非 "ok" 时带 spike_guard 告警/异源兜底等，记入 collect_log 便于排查
                 log_msg = f"{len(rows)} rows" if not msg or msg == "ok" else f"{len(rows)} rows; {msg}"
                 log_collect(date, mid, "ok", log_msg)

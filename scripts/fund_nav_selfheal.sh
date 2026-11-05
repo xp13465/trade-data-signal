@@ -99,8 +99,14 @@ if [ "$NOW_HHMM" -ge "$SKIP_BEGIN" ] && [ "$NOW_HHMM" -le "$SKIP_END" ]; then
   exit 11
 fi
 
+KNOWN_ARGS=()
+if [ -n "${FUNDNAV_SELFHEAL_SUMMARY:-}" ]; then
+  KNOWN_ARGS=(--fundnav-failed-summary "$FUNDNAV_SELFHEAL_SUMMARY")
+fi
+
 # ② 探针：只认「DB 领先产物」方向（反方向绝不重出，见头部注释）
-"$PY" "$CHECK" --fundnav-stale-probe --data-dir "$DATA_DIR"
+# Bash 3.2 + set -u 下空数组不能直接展开；保留非空数组每个参数的引用边界。
+"$PY" "$CHECK" --fundnav-stale-probe --data-dir "$DATA_DIR" ${KNOWN_ARGS[@]+"${KNOWN_ARGS[@]}"}
 PROBE_RC=$?
 case "$PROBE_RC" in
   0)  echo "→ 未命中「DB 领先产物」，无需自愈"; exit 10 ;;
@@ -164,14 +170,24 @@ if [ "$REGEN_RC" -ne 0 ]; then
 fi
 echo "✓ 重出完成（rc=0）"
 
-# ④ 复核探针（重出后是否已不再「DB 领先」）。仅作日志/可观测，**不改变退出码**：
-#    真值由调用方重跑完整校验定夺（探针抽样与校验抽样各自随机，任一方单独判生杀会误判）。
-"$PY" "$CHECK" --fundnav-stale-probe --data-dir "$DATA_DIR"
-POST_RC=$?
-if [ "$POST_RC" -eq 0 ]; then
-  echo "  → 复核: 探针已转 0（不再 DB 领先）"
-else
-  echo "  ⚠ 复核: 探针仍 rc=${POST_RC}（可能并发实例持锁/产物未变），交调用方重跑校验定夺"
+# ④ 定点复验首轮对象；残留/异常不向调用方报告自愈成功。
+if [ -n "${FUNDNAV_SELFHEAL_SUMMARY:-}" ]; then
+  "$PY" "$CHECK" --fundnav-verify-failed --data-dir "$DATA_DIR" ${KNOWN_ARGS[@]+"${KNOWN_ARGS[@]}"}
+  POST_RC=$?
+  if [ "$POST_RC" -ne 0 ]; then
+    echo "✗ 首轮失败对象复验仍失败 rc=${POST_RC}，不触发同步/上传"
+    exit 12
+  fi
+fi
+
+if [ -z "${FUNDNAV_SELFHEAL_SUMMARY:-}" ]; then
+  "$PY" "$CHECK" --fundnav-stale-probe --data-dir "$DATA_DIR"
+  POST_RC=$?
+  if [ "$POST_RC" -eq 0 ]; then
+    echo "  → 复核: 探针已转 0（不再 DB 领先）"
+  else
+    echo "  ⚠ 复核: 探针仍 rc=${POST_RC}（可能并发实例持锁/产物未变），交调用方重跑校验定夺"
+  fi
 fi
 
 # ⑤ 镜像树同步（§22 三步：与 update_all 同款，单仓 no-op）。只同步 nav_bucket 子目录。
