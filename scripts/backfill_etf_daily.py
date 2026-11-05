@@ -277,6 +277,14 @@ def main():
                 fail += 1
                 fail_codes.append((code, status))
         except Exception as e:
+            # P2-C 同类(2026-11-05): 显式回滚, 保证失败那只零落库、不影响下一只。
+            # 旧代码只计数不回滚: backfill_one 内 executemany 成功但 commit 前抛错(或
+            # executemany 中途某行约束错)时, 失败那只的部分写入留在未提交事务里, 会被
+            # 下一只 backfill_one 的 commit 一起提交, 产生半截数据。
+            try:
+                conn.rollback()
+            except Exception:  # noqa: BLE001  连接已关闭等二次异常不要抛
+                pass
             n = 0
             status = f"err:{type(e).__name__}"
             fail += 1
