@@ -627,13 +627,17 @@ fi
 # ⚠️ bump 阶段产物全量 add(与 bump_asset_version.py 实际写入对齐):
 #    8 个 min 产物(common/purpose-notes/kelly-review-notes/kelly-reports-content/app/lab
 #    的 .min.js + style.min.css + lab.min.css)
-#    + 4 个 html(index/about/guide/privacy——bump 脚本对 static-site/*.html 全量 glob,
-#    当前含 ?v= 引用会被写入的就是这 4 个; 其余 8 个 html(databrief/trade_sim*)无资源引用
-#    不会被写入, 不列) + sw.js
+#    + 全量 html(index/about/guide/privacy/databrief/trade_sim——bump 脚本对 static-site/*.html
+#    全量 glob, 每个都写 <meta name="build-id">; 即便无 ?v= 资源引用也会写 meta, 故必须全列,
+#    漏列 = build-id meta 残留工作区进不了 git, 线上各入口 build-id 不一致, inline-init.js
+#    每个 tab 触发一次多余 reload; 2026-11-05 #327 同源风险实测: index=a655 而
+#    databrief/trade_sim/__build.json 仍 a654) + sw.js
+#    + static-site/__build.json(#327 BUILD_ID 收敛): write_build_json() 每次覆盖写, 与 meta 同源
 #    + static-site/changelog.json(#83 C8, 2026-09-09): 第 6.5 步 changelog 补登产物, 同属
 #    bump 阶段待 commit 文件, 并入本数组随第 9 步一起 add+commit)。
 #    漏 add = 版本串更新残留工作区进不了 git, 线上引用旧版本串(CSS 一变即 §24 孤儿快照断链;
-#    2026-08-22 凌晨两次 merge 后 about/guide/privacy 均复现, main 7cb8208a0 手工补提交)。
+#    2026-08-22 凌晨两次 merge 后 about/guide/privacy 均复现, main 7cb8208a0 手工补提交;
+#    2026-11-05 databrief/trade_sim/__build.json 再复现, 本次补全 + 加守卫兜底)。
 # ⚠️ 判断条件只盯 bump 产物 diff, 不用整个工作区 diff(2026-08-19 实测卡死根因):
 #    工作区若存在与本次 merge 无关的未提交改动(如 claude-work-mode/README.md 由
 #    token-cache-stats 定时任务追加命中率走势产生), 全工作区 diff 会误入本分支,
@@ -644,9 +648,26 @@ BUMP_PRODUCTS=(static-site/app.min.js static-site/lab.min.js static-site/common.
                static-site/style.min.css static-site/lab.min.css \
                static-site/index.html static-site/about.html \
                static-site/guide.html static-site/privacy.html \
+               static-site/databrief.html static-site/trade_sim.html \
+               static-site/__build.json \
                static-site/sw.js static-site/changelog.json)
 if ! $GIT diff --quiet -- "${BUMP_PRODUCTS[@]}"; then
   $GIT add "${BUMP_PRODUCTS[@]}"
+  # ⚠️ 防再犯守卫(2026-11-05 #327 同源风险根治): bump 产物 add 后, commit 前断言
+  #    static-site 下已跟踪文件无残留「未暂存」改动。漏登记某 bump 产物进 BUMP_PRODUCTS 时
+  #    (bump 脚本 glob 全量 *.html 都会写 build-id meta, 漏列即残留), 本守卫非零退出打印清单,
+  #    提示「bump 产物新增未登记进 BUMP_PRODUCTS」, 阻断残缺提交上线(§22 一致性)。
+  #    仅在前端改动/bump 阶段生效(本 if 块内 = 检测到 bump 产物有 diff 才进); 不用全工作区
+  #    diff(防误入无关改动, 见上方 l.639-643 事故说明); 不纳入未跟踪文件(防 .DS_Store 误伤)。
+  #    用 `git diff --name-only`(工作区 vs index = 仅未暂存), 不用 `git status --porcelain`
+  #    (后者含已暂存条目, add 后必非空, 会误判守卫恒失败)。
+  bump_residual="$($GIT diff --name-only -- static-site)"
+  if [[ -n "$bump_residual" ]]; then
+    echo "✗ [bump 守卫] static-site 仍有已跟踪文件未暂存, 疑似 bump 产物新增未登记进 BUMP_PRODUCTS:" >&2
+    echo "$bump_residual" >&2
+    echo "  请把 bump_asset_version.py 实际写入的产物补进 BUMP_PRODUCTS 后重跑(§22 一致性)。" >&2
+    exit 6
+  fi
   $GIT commit -m "build(统一bump): main-merge.sh 统一 build_min+bump 版本串(机制C, feat=$FEAT)
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
