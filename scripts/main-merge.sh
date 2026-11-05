@@ -150,6 +150,30 @@ echo "  repo   : $REPO"
 echo "  feat   : $FEAT"
 echo "  dry-run: $DRY_RUN"
 
+# === 自更新检测(2026-11-05 根治「脚本运行中被自身 merge 修改」缺陷) ===
+# 事故根因: feat 改了 scripts/main-merge.sh 本身时, 第 5 步 merge 把磁盘文件换成新版,
+#   但运行中的 shell 进程仍持有启动时加载的旧版逻辑 ⇒ 后续 bump/add/commit/push 按旧
+#   逻辑跑(实例 2026-11-05 feat/fix-bump-products: 新版 BUMP_PRODUCTS 补 3 产物 + 守卫,
+#   merge 后旧版仍按 14 项数组跑, 新增产物 __build.json/databrief/trade_sim 残留工作区
+#   未提交, origin/main 仍是旧版; 新版守卫也没运行)。这是通用陷阱, 任何改本脚本的
+#   merge 都会复现。
+# 修法: 启动时记脚本自身 sha256; 第 5 步 merge 完成后重算比对, 若变化 ⇒ exec 重启
+#   加载磁盘新版继续(MAIN_MERGE_RESUME=1 标记跳过 merge 防重复); resume 后再变 ⇒
+#   报错退出防无限 exec; 未变化 ⇒ 行为零改变; dry-run 不 merge 不触发。
+SELF_SCRIPT="$REPO/scripts/main-merge.sh"
+self_sha() {
+  # sha256 取文件指纹(mac shasum / Linux sha256sum 双兼容; 都无降级 cksum 不为空)
+  local f="$1"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$f" | cut -d' ' -f1
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$f" | cut -d' ' -f1
+  else
+    cksum "$f" | awk '{print $1}'
+  fi
+}
+SELF_SHA_START="$(self_sha "$SELF_SCRIPT" 2>/dev/null || echo '')"
+
 # 1. 校验当前分支 + feat 分支存在
 CUR_BRANCH="$($GIT branch --show-current)"
 if [[ "$CUR_BRANCH" != "main" ]]; then
@@ -213,11 +237,20 @@ fi
 PRE_MERGE_BASE="$($GIT rev-parse origin/main)"
 
 # 5. merge feat(冲突即停, 绝不静默 §23.11)
+#    resume 模式(MAIN_MERGE_RESUME=1): 脚本被本次 merge 改动后 exec 重启进入此模式,
+#    跳过实际 merge(已在本次运行前半段完成), 仅断言 feat 已合入 HEAD, 防重复 merge。
 echo "--- merge $FEAT into main ---"
 echo "  checkout main"
 $GIT checkout main
 MERGE_MSG="merge(feat/$FEAT): 统一入口合并 $FEAT 入 main"
-if [[ "$DRY_RUN" == "1" ]]; then
+if [[ "${MAIN_MERGE_RESUME:-0}" == "1" ]]; then
+  echo "  [resume] 跳过实际 merge(已在本次运行前半段完成), 断言 feat 已合入 HEAD"
+  if ! $GIT merge-base --is-ancestor "$FEAT" HEAD 2>/dev/null; then
+    echo "✗ [resume] feat $FEAT 不在 HEAD 祖先链中 ⇒ merge 似乎未完成, 拒绝继续(§23.11 不静默)" >&2
+    exit 8
+  fi
+  echo "✓ [resume] feat $FEAT 已是 HEAD 祖先(merge 已生效)"
+elif [[ "$DRY_RUN" == "1" ]]; then
   echo "  [dry-run] 跳过实际 merge"
 else
   if ! $GIT merge "$FEAT" --no-edit -m "$MERGE_MSG"; then
@@ -226,6 +259,27 @@ else
     exit 4
   fi
   echo "✓ merge 成功(无冲突)"
+fi
+
+# === 自更新检测(2026-11-05): merge 后比对脚本 sha256, 变化 ⇒ exec 重启用磁盘新版继续 ===
+#    仅在实际 merge 后检测(dry-run/resume 不 merge 不触发); resume 模式下仍变化 ⇒
+#    异常退出防无限 exec(§23.11)。
+if [[ "$DRY_RUN" != "1" ]]; then
+  SELF_SHA_AFTER="$(self_sha "$SELF_SCRIPT" 2>/dev/null || echo '')"
+  if [[ -n "$SELF_SHA_START" && -n "$SELF_SHA_AFTER" && "$SELF_SHA_AFTER" != "$SELF_SHA_START" ]]; then
+    echo ""
+    echo "  ╔══════════════════════════════════════════════════════════════════╗"
+    echo "  ║ ⚠️ main-merge.sh 被本次 merge 更新, 切换到磁盘新版脚本继续      ║"
+    echo "  ║   (运行中进程持有旧逻辑; exec 重启加载新版, 防旧逻辑残留)      ║"
+    echo "  ╚══════════════════════════════════════════════════════════════════╝"
+    echo ""
+    if [[ "${MAIN_MERGE_RESUME:-0}" == "1" ]]; then
+      echo "✗ [防循环] resume 模式下脚本仍被改动(不应再有 merge)⇒ 异常退出(§23.11 不静默)" >&2
+      exit 8
+    fi
+    # 带原参数 exec 重启; MAIN_MERGE_RESUME=1 标记后续跳过 merge 步骤(防重复 merge)
+    exec env MAIN_MERGE_RESUME=1 bash "$SELF_SCRIPT" "$@"
+  fi
 fi
 
 # 6. 若 feat 改了前端源码, 统一 build_min + bump(机制 C 版本串唯一权威入口)
