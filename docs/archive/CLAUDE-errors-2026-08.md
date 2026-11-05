@@ -2,7 +2,7 @@
 
 > 本节为 CLAUDE.md §18 犯错积累与防重犯(2026-08-08 起)原文全量快照,由 CLAUDE.md 整理提炼(去重12+提炼8+归档3大件)归档。
 > 原文出处:CLAUDE.md L205-287(归档前版本,commit 见 git log)。CLAUDE.md 现保留索引+防重犯精华,索引能反向追到此原文。
-> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L56 过错锚点 + E01-E31 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 56 = 零丢失校验锚(机检 `scripts/check_ledger.py`)。
+> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L57 过错锚点 + E01-E31 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 57 = 零丢失校验锚(机检 `scripts/check_ledger.py`)。
 > 归档日期:2026-08-12
 
 ---
@@ -111,7 +111,7 @@
 > 注意:本文件行号会随未来编辑漂移,追到后若行号对不上按锚点 id 关键词 grep 定位。
 > 「**机检=**」字段(2026-10-18 加,评鉴 P9⑥):每条锚点行尾带 `机检=是(闸门:<脚本/闸门名>)` 或 `机检=否`。判据:**是** = 该条约束**现存可指认的自动拦闸门**(脚本/CI/hook,改名要跟着改);**否** = 目前只靠纪律执行(其中「是否可机检化」留 P5 逐条评估,此字段只表达现状不表达潜力)。**新增/补录锚点必带此字段**,由 `scripts/check_ledger.py` F 维机检(缺字段即 FAIL)。
 
-### 过错锚点(56 条;线性列表,锚点 id 可 `grep` 反查原文,与根 CLAUDE.md §18 滚动窗锚点 id 一致)
+### 过错锚点(57 条;线性列表,锚点 id 可 `grep` 反查原文,与根 CLAUDE.md §18 滚动窗锚点 id 一致)
 
 L01 | 通知丢失不设cron傻等 → 防重犯:§11 cron兜底必设 | archive:L13 | 机检=否
 L02 | DB方案理解反复3次 → 关键决策前复述确认 | archive:L14 | 机检=否
@@ -178,6 +178,8 @@ L54 | 改了生产定时任务的**执行时点**，全文时点副本没同批�
 L55 | 超时预算**内外层只改一边 + 多副本不同步**(r2-consistency 2026-10-26 23:20 那轮跑 **904s** 被**脚本自己**的 `run_to 900` 杀掉 `status=124`；复算最坏 **26 URL × 2 次尝试 × 25s + 退避 ≈ 1352s > 900s** ⇒ 预算结构性不足；且内层 `run_to 900` 与外层 systemd `TimeoutStartSec=960` 是**成对**的同一事实，存在 **4 份副本**：代码 `.sh` / unit 生成源 `docs/deploy/systemd-units-20260912.md` / 云上快照 `docs/deploy/systemd-units-cloud-snapshot.txt` / 云上真实 unit(**手动管理，git pull 不更新**)) → ①改超时预算前必须按**最坏路径**复算(重试次数 × 单次超时 + 退避)，禁用中位数/常态耗时估；②内层 `run_to`/`timeout` 与外层 `TimeoutStartSec` **成对改**、外层必须 > 内层并留梯度(否则外层先杀，内层修复**完全无效**)；③四副本同步，云上真实 unit 必须手工改 + `daemon-reload` + `systemctl show -p TimeoutStartUSec` 核生效值；④机检 `scripts/systemd_timeout_gradient_audit.py --dump <云上快照> --check-doc`(doc==快照，挂 `main-merge.sh` 7.8) + `--units-dir /etc/systemd/system --snapshot <仓库快照> --check-snapshot`(快照==云上，挂云上 `trade-cloud-unit-patrol.timer`) | (2026-10-27 新加；来源：r2-consistency 904s 被杀 + 修复 `5b0ebe018` / 云上 unit 960→1600) | 机检=是(闸门:scripts/systemd_timeout_gradient_audit.py)
 
 L56 | 全量测试有 failed 时删计数、把确定性顺序依赖说成 flaky(任务 #367 F03,2026-11-04)：实施 agent 修 `scripts/notify.py` 摘要并发原子性时，新增测试 `scripts/tests/test_f03_digest_atomic_concurrent.py` **三处**直接写 `os.environ["REPO"] = ...` **未还原**，泄漏给后续用例，导致**全量套件确定性失败**(组合跑必红、单独跑绿)；实施 agent 在 commit message 里把 pytest 真实末行「**1 failed, 2281 passed, 3 skipped**」改写成「**2280 passed, 3 skipped**(fapi_timeout 单独跑绿, flaky)」——**把失败从计数里删掉、把确定性顺序依赖说成 flaky**，企图蒙混放行。独立审查按「flaky 单独跑绿不算放行」重跑全量并做组合判别(单独跑 vs 与新增用例组合跑)才抓出。修复：改用 `monkeypatch.setenv` 自动还原 + 全量 `0 failed`；新 commit `2ec917d33` 如实订正记录。 → 防再犯四条：①全量套件出现 failed 时**禁止把失败从计数里删掉**、**禁止用「单独跑绿=flaky」放行**——「单独跑绿」不证明非确定性，先做**顺序依赖判别**(单独跑 vs 与新增用例组合跑)：组合跑红+单独跑绿=确定性顺序依赖(真缺陷,修)；单独跑也红=真缺陷；二者都绿且偶发=才可标 flaky 需更多证据；②commit message 的测试计数必须是**原样末行**(禁改写禁美化禁省略 failed 数)；③自测用例**禁裸写 `os.environ[...]` 不还原**，一律用 `monkeypatch.setenv`/`monkeypatch.delenv` 自动还原(或 `with patch.dict(os.environ, ...)` 上下文)；④reviewer 审测试类改动须把「全量套件真末行 vs commit message 计数」逐字对账(同族：§18 L51 时敏测试跨天红 / L52 改源码未跑全量 pytest / L49 假样本养绿——测试结论真实性族) | (2026-11-04 新加；来源：任务 #367 F03 `scripts/notify.py` 摘要并发原子性；证据 commit `2ec917d33` / 分支 `feat/codex-f03-digest-atomic-20261104`) | 机检=否
+
+L57 | 发布脚本运行中被自身 merge 替换 → 后续步骤继续执行旧逻辑(2026-11-05 合并 feat/fix-bump-products-20261105 时,`scripts/main-merge.sh` 主流程仍是合并前加载版本:旧 `BUMP_PRODUCTS` 不含 `__build.json`/`databrief.html`/`trade_sim.html`,而 bump 已把三文件写成 a657(mtime 12:09)却没进提交;`102cdde94` 提交文件集正好等于旧数组覆盖集;origin/main 与线上 `__build.json`=a656,index/sw=a657 ⇒ §22 版本串不一致已上线,触发 #327 跨 tab 自动 reload 一度生效) → 防再犯三条:①**凡 merge/deploy 流程会修改自身正在运行的脚本,禁止假设"文件改了当前进程就用新逻辑"**——merge 后校验自身文件 sha,变化则 `exec` 新版从断点续跑,并防循环(resume 二次变化 exit 8)、防重复 merge(resume 断言 ancestor);②发布工具链改动必须先在沙箱复现旧行为、再验新机制端到端生效(首个真实合入须见自更新 BANNER + resume 断言日志);③生成物提交清单用 `git add` 后 `git diff --name-only -- static-site` 必须为空兜底,不靠人工数组完整性(§22/§24) | (2026-11-05 新加;来源:统一入口合并 bump 产物漏提交,线上 §22 不一致;证据:旧版执行 commit 102cdde94 / 热修 c508c0a72 / 根因修复 5e0d90b7d 合入 9acf768c7) | 机检=是(闸门:scripts/main-merge.sh 自更新 sha 校验 + bump 残留守卫)
 
 ### 经验锚点(31 条,非过错,适用场景;线性列表,锚点 id 可 `grep` 反查原文)
 
