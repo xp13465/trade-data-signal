@@ -289,5 +289,8 @@
   ],
   "20261105-a655": [
     "fix(frontend): \u8865\u9f50Kelly\u4e0e\u516c\u52dfAPI\u6b63\u6587\u8d85\u65f6\u5e76\u5f52\u6863\u591c\u95f4\u590d\u9a8c"
+  ],
+  "20261105-a657": [
+    "fix(main-merge): BUMP_PRODUCTS \u8865 __build.json/databrief/trade_sim + bump \u4ea7\u7269\u6b8b\u7559\u5b88\u536b"
   ]
 }
