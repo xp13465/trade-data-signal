@@ -151,7 +151,18 @@ def _chmod_like_target(tmp_path, target_path) -> None:
     权限逐位保持; target 不存在则不动(新文件走各路径默认权限: 普通 open 0644 /
     mkstemp 0600, 不擅自改)。
 
-    必须在 tmp 已写入、replace 之前调用。best-effort: chmod 失败不抛(不阻塞写)。
+    必须在 tmp 已写入、replace 之前调用。strict 语义(P2-01, 2026-11-05):
+    target 不存在(FileNotFoundError)是合法的「新文件创建」情形 → 直接 return;
+    其余 OSError(stat 读权限失败 / chmod 写权限失败)一律上抛, 由调用方现有
+    best-effort except 接管 → 跳过 tmp.replace → 旧 bytes + 旧 mode 原样保持,
+    发送主链路不阻塞。旧版 stat/chmod 双双 `except OSError: pass/return` 吞错
+    后仍执行 replace, 导致原文件 mode 静默漂移(如 0600→0644)——P2-01 真实缺陷。
+
+    调用方须 best-effort 包裹(OSError 可能上抛): _write_result_file /
+    _write_state_obj / _save_warning_dedup_state / flush_digest 的 state 写段
+    均已有 try/except Exception 接管; _replace_latest 无外层 handler(OSError
+    会向上冒泡, 由 _update_latest 的调用方 _mirror_latest_entry 等 best-effort
+    except 兜住)。
 
     与 _atomic_write_digest 的 fchmod(fd) 同精神; 此处统一用 os.chmod(path) 是
     因为 5 条调用路径中 4 条用 Path.write_text 创建 tmp(无 fd 可用), 改写为 open()
@@ -162,12 +173,8 @@ def _chmod_like_target(tmp_path, target_path) -> None:
         mode = os.stat(target_path).st_mode & 0o7777
     except FileNotFoundError:
         return  # 目标不存在 → 新文件走默认权限, 不改
-    except OSError:
-        return
-    try:
-        os.chmod(tmp_path, mode)
-    except OSError:
-        pass
+    # 其余 OSError(如 EACCES 读 stat 失败)上抛: 调用方 best-effort 接管 → 跳过 replace
+    os.chmod(tmp_path, mode)  # 失败上抛(不吞 OSError), 同 best-effort 接管契约
 
 
 def _write_result_file(path: str | None = None) -> None:
@@ -1949,10 +1956,16 @@ def _read_parse_latest() -> tuple[str, list[str]]:
 
 
 def _replace_latest(text: str) -> None:
-    """latest.md 原子替换(latest.md.tmp + os.replace);须持 .latest.lock 调用。"""
+    """latest.md 原子替换(latest.md.tmp + os.replace);须持 .latest.lock 调用。
+
+    注意(P2-01, 2026-11-05): 本函数无外层 best-effort except; _chmod_like_target
+    现为 strict(OSError 上抛)。OSError 会向上冒泡到 _update_latest → 调用方
+    (_mirror_latest_entry / _mirror_severe 等)的 try/except Exception 接管,
+    跳过 replace → 旧 latest.md bytes+mode 保持, 发送主链路不阻塞。
+    """
     tmp = ALERTS_DIR / "latest.md.tmp"
     tmp.write_text(text, encoding="utf-8")
-    _chmod_like_target(tmp, ALERTS_FILE)  # P2-A 同类: 保持原文件权限
+    _chmod_like_target(tmp, ALERTS_FILE)  # P2-A 同类: 保持原文件权限(strict, P2-01)
     tmp.replace(ALERTS_FILE)
 
 
