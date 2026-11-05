@@ -160,6 +160,11 @@ echo "  dry-run: $DRY_RUN"
 # 修法: 启动时记脚本自身 sha256; 第 5 步 merge 完成后重算比对, 若变化 ⇒ exec 重启
 #   加载磁盘新版继续(MAIN_MERGE_RESUME=1 标记跳过 merge 防重复); resume 后再变 ⇒
 #   报错退出防无限 exec; 未变化 ⇒ 行为零改变; dry-run 不 merge 不触发。
+# ⚠️ 生效范围限制(2026-11-05 审查 NOTES ①): 本机制只能让 **merge 之后** 的步骤用
+#   新版逻辑(bump/add/commit/push/CI 自查等); **pre-merge 阶段新增的门禁对本次 merge
+#   不生效**(merge 先于 exec, 首半段仍跑启动时加载的旧版)——只对未来 merge 生效。若需要
+#   pre-merge 闸门(如新增校验脚本), 请用独立预检脚本在跑 main-merge.sh 之前手动预跑,
+#   不要依赖本 exec-resume 机制覆盖 pre-merge 阶段。
 SELF_SCRIPT="$REPO/scripts/main-merge.sh"
 self_sha() {
   # sha256 取文件指纹(mac shasum / Linux sha256sum 双兼容; 都无降级 cksum 不为空)
@@ -173,6 +178,16 @@ self_sha() {
   fi
 }
 SELF_SHA_START="$(self_sha "$SELF_SCRIPT" 2>/dev/null || echo '')"
+# 三级 fallback(shasum/sha256sum/cksum)全失败时 SELF_SHA_START 为空 ⇒ 自更新静默
+# 关闭(审查 NOTES ③)。打醒目 warn 提示「自更新检测不可用」, 不阻断, 按当前逻辑继续。
+if [[ -z "$SELF_SHA_START" ]]; then
+  echo "" >&2
+  echo "  ████████████████████████████████████████████████████████████████████" >&2
+  echo "  [!!] 自更新检测不可用: shasum/sha256sum/cksum 均不可用或读取失败" >&2
+  echo "       (SELF_SHA_START 为空 ⇒ 本次按当前已加载逻辑继续, 不 exec 重启, 不阻断)" >&2
+  echo "  ████████████████████████████████████████████████████████████████████" >&2
+  echo "" >&2
+fi
 
 # 1. 校验当前分支 + feat 分支存在
 CUR_BRANCH="$($GIT branch --show-current)"
@@ -279,6 +294,18 @@ if [[ "$DRY_RUN" != "1" ]]; then
     fi
     # 带原参数 exec 重启; MAIN_MERGE_RESUME=1 标记后续跳过 merge 步骤(防重复 merge)
     exec env MAIN_MERGE_RESUME=1 bash "$SELF_SCRIPT" "$@"
+  else
+    # 审查 NOTES ③: SELF_SHA_AFTER 为空(sha 计算失败)⇒ 自更新静默关闭。启动段已对
+    # SELF_SHA_START 空打过 warn, 此处只对「启动能算/merge 后算不出来」这一新情况 warn
+    # 一次, 不 exec、不阻断, 按当前已加载逻辑继续。
+    if [[ -z "$SELF_SHA_AFTER" && -n "$SELF_SHA_START" ]]; then
+      echo "" >&2
+      echo "  ████████████████████████████████████████████████████████████████████" >&2
+      echo "  [!!] 自更新检测不可用: merge 后 sha 计算失败(shasum/sha256sum/cksum 不可用)" >&2
+      echo "       (SELF_SHA_AFTER 为空 ⇒ 不 exec 重启, 按当前已加载逻辑继续, 不阻断)" >&2
+      echo "  ████████████████████████████████████████████████████████████████████" >&2
+      echo "" >&2
+    fi
   fi
 fi
 
