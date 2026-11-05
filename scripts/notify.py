@@ -2345,6 +2345,15 @@ def _atomic_write_digest(entries: list[dict], bad_lines: list[str]) -> None:
     _path = ALERT_DIGEST_FILE
     _path.parent.mkdir(parents=True, exist_ok=True)
     _tmp = _path.with_name(f"{_path.name}.tmp.{os.getpid()}.{time.time_ns()}")
+    # P2-A(2026-11-05): os.replace 用 tmp 的 inode/权限替换原文件, umask 022 下 tmp 建出
+    # 0644, 会把原文件显式设的 0600 等权限换掉。替换前若目标已存在, 取原 mode 对已打开
+    # tmp fd 做 fchmod(在 fsync 前生效), replace 后权限逐位保持; 目标不存在时保持新文件
+    # 默认行为(0644, 与改前一致, 不擅自改 0600)。所有权同用户不需处理。
+    _keep_mode = None
+    try:
+        _keep_mode = os.stat(_path).st_mode & 0o7777
+    except FileNotFoundError:
+        _keep_mode = None  # 目标不存在 → 新文件走默认 umask, 不改
     try:
         with open(_tmp, "wb") as f:
             for e in entries:
@@ -2352,6 +2361,8 @@ def _atomic_write_digest(entries: list[dict], bad_lines: list[str]) -> None:
             for ln in bad_lines:
                 f.write(ln.encode("utf-8", errors="replace") + b"\n")
             f.flush()
+            if _keep_mode is not None:
+                os.fchmod(f.fileno(), _keep_mode)
             os.fsync(f.fileno())
         os.replace(_tmp, _path)
     except Exception:
