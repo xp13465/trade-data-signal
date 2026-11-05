@@ -1,0 +1,13 @@
+{
+  "targeted_test_result": "53 passed in 26.28s",
+  "sha256": {
+    "scripts/codex_handoff.py": "5e78754782f708c1a38fa367e0ae5103b5b642106f3016b8c43e308ca31d5928",
+    "scripts/tests/test_codex_handoff.py": "4629355b904c29807a8394710b36fe2ffde8dd116af3c7bf08a6934982366496",
+    ".claude/settings.json": "e484e439c77af4ca7148860b67b6c639b969b7b5de7e2d5c89c561095ac2ced8",
+    "docs/ops/codex-handoff-inbox.md": "f5d41dce1b074a1903f8a20918cf7f9da9b122f99ba282aa9dc1781b247e8d32",
+    "docs/codex-collab-protocol.md": "2ff776301cbf519f897b42a763290c641893ed794a1f75c1481ab0b7ec5b62b8"
+  },
+  "independent_R2": "pending main session",
+  "green_full": "main session10557 running",
+  "demo": "retired, no fabricated ack"
+}

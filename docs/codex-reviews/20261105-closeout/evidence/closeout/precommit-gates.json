@@ -1,0 +1,28 @@
+{
+  "base": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "checks": [
+    {
+      "command": "python3 scripts/check_task_state.py --repo . --skip-zombie-crons",
+      "returncode": 0,
+      "result": "2 ok / 0 warn / 0 fail; zombie-cron check explicitly omitted in isolated worktree"
+    },
+    {
+      "command": "python3 scripts/check_version_consistency.py --site-dir static-site --checks 1,2",
+      "returncode": 0,
+      "result": "format/a657/SW/referenced files PASS; check3 build/min not run because no frontend changes"
+    },
+    {
+      "command": "python3 scripts/check_version_progress.py --site-dir static-site --repo .",
+      "returncode": 0,
+      "result": "version progress and no-net-revert PASS"
+    },
+    {
+      "command": "git diff --check",
+      "returncode": 0
+    },
+    {
+      "check": "only #366-#370 status cells changed and prior hooks preserved",
+      "result": "PASS"
+    }
+  ]
+}

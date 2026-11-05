@@ -1,0 +1,78 @@
+[
+  {
+    "fault": "partial_ENOSPC",
+    "existing_key": false,
+    "return": false,
+    "bytes_preserved": true,
+    "mode": "0o640",
+    "tmp_files": [],
+    "actual_partial_bytes": [
+      37
+    ]
+  },
+  {
+    "fault": "partial_ENOSPC",
+    "existing_key": true,
+    "return": true,
+    "bytes_preserved": true,
+    "mode": "0o640",
+    "tmp_files": [],
+    "actual_partial_bytes": [
+      37
+    ]
+  },
+  {
+    "fault": "fsync_EIO",
+    "existing_key": false,
+    "return": false,
+    "bytes_preserved": true,
+    "mode": "0o640",
+    "tmp_files": [],
+    "actual_partial_bytes": []
+  },
+  {
+    "fault": "fsync_EIO",
+    "existing_key": true,
+    "return": true,
+    "bytes_preserved": true,
+    "mode": "0o640",
+    "tmp_files": [],
+    "actual_partial_bytes": []
+  },
+  {
+    "fault": "fchmod_EPERM",
+    "existing_key": false,
+    "return": false,
+    "bytes_preserved": true,
+    "mode": "0o640",
+    "tmp_files": [],
+    "actual_partial_bytes": []
+  },
+  {
+    "fault": "fchmod_EPERM",
+    "existing_key": true,
+    "return": true,
+    "bytes_preserved": true,
+    "mode": "0o640",
+    "tmp_files": [],
+    "actual_partial_bytes": []
+  },
+  {
+    "fault": "rename_EACCES",
+    "existing_key": false,
+    "return": false,
+    "bytes_preserved": true,
+    "mode": "0o640",
+    "tmp_files": [],
+    "actual_partial_bytes": []
+  },
+  {
+    "fault": "rename_EACCES",
+    "existing_key": true,
+    "return": true,
+    "bytes_preserved": true,
+    "mode": "0o640",
+    "tmp_files": [],
+    "actual_partial_bytes": []
+  }
+]

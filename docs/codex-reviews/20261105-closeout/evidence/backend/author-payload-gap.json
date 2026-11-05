@@ -1,0 +1,10 @@
+{
+  "pytest_rc": 0,
+  "in_memory_payload_mutation": [
+    {
+      "had_new_key": true,
+      "removed_new_key": true
+    }
+  ],
+  "source_files_modified": false
+}

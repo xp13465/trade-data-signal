@@ -1,0 +1,55 @@
+[
+  {
+    "name": "real_cli_1023_queue_256_tail_and_512_user_reminder",
+    "passed": true,
+    "evidence": {
+      "PreToolUse": {
+        "real_cli_events": 256,
+        "tail_emission_events": [
+          256
+        ],
+        "max_cli_seconds": 0.2361828749999404,
+        "mean_cli_seconds": 0.08772975961028351,
+        "tail_status": {
+          "ack": null,
+          "branch": "codex/fixture",
+          "delivery": "context-emitted",
+          "head": "314871c19e79276cf3128191643721dc5ea29bec",
+          "head_verification": "local-branch-and-commit-at-publish",
+          "head_verified_at": "2026-11-05T10:27:09.672631+00:00",
+          "id": "q1022",
+          "integrity": "verified",
+          "project": "/private/tmp/codex-reports/closeout-20261105/handoff-selfcheck-r2-fixture/repo/.git",
+          "report": "/private/tmp/codex-reports/closeout-20261105/handoff-selfcheck-r2-fixture/cli-queue-big.json",
+          "sha256": "001224bdbc0a675a104bc57050e10365bce70ab7ca449685f8142460b0dd5ba5",
+          "status": "context-emitted"
+        },
+        "all_exit_zero_stderr_empty": true
+      },
+      "UserPromptSubmit": {
+        "real_cli_events": 512,
+        "tail_emission_events": [
+          256,
+          512
+        ],
+        "max_cli_seconds": 0.2789169589523226,
+        "mean_cli_seconds": 0.08680484934029664,
+        "tail_status": {
+          "ack": null,
+          "branch": "codex/fixture",
+          "delivery": "context-emitted",
+          "head": "314871c19e79276cf3128191643721dc5ea29bec",
+          "head_verification": "local-branch-and-commit-at-publish",
+          "head_verified_at": "2026-11-05T10:27:09.854282+00:00",
+          "id": "q1022",
+          "integrity": "verified",
+          "project": "/private/tmp/codex-reports/closeout-20261105/handoff-selfcheck-r2-fixture/repo/.git",
+          "report": "/private/tmp/codex-reports/closeout-20261105/handoff-selfcheck-r2-fixture/cli-queue-big.json",
+          "sha256": "001224bdbc0a675a104bc57050e10365bce70ab7ca449685f8142460b0dd5ba5",
+          "status": "context-emitted"
+        },
+        "all_exit_zero_stderr_empty": true
+      }
+    }
+  }
+]

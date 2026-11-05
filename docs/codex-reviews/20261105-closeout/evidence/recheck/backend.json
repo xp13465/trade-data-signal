@@ -1,0 +1,1473 @@
+{
+  "request_id": "recheck-20261105-afternoon-backend",
+  "task_type": "direct-read-only-independent-acceptance",
+  "issues": [
+    {
+      "id": "BACKEND-NEW-P2-01",
+      "status": "open",
+      "severity": "P2",
+      "blocking": false,
+      "title": "同类权限 helper 吞掉 stat/chmod 失败，仍替换为不符合原 mode 的新文件",
+      "path": "scripts/notify.py:165",
+      "line": 165,
+      "end_line": 170,
+      "related_locations": [
+        "scripts/notify.py:183",
+        "scripts/notify.py:1955",
+        "scripts/notify.py:2305",
+        "scripts/notify.py:2746",
+        "scripts/notify.py:3585"
+      ],
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "正常路径保留权限成立；若权限复制失败而 rename 可成功，4个普通 tmp 路径仍可能 0600→0644，mkstemp 路径可能 0640→0600。调用方仍可能返回成功且无权限复制失败诊断。不声称生产发生过该故障或含敏感数据。原摘要 _atomic_write_digest 已严格处理 fchmod 失败，不受此新问题影响。",
+      "why": "897b56624 新 helper 对非 FileNotFoundError 的 stat OSError 直接 return，并吞掉 chmod OSError。调用方无法区分目标不存在与权限复制失败，照常 replace。该分支使“5路径权限逐位保持”成为 best-effort 条件承诺。",
+      "fix": "由 Claude 复核后，让目标存在时的 stat/chmod 失败沿用各调用方既有失败分支，跳过该次 replace 保住旧文件；只将 FileNotFoundError 视为默认新文件。无需阻断通知主链或整体重写路径。补充失败分支的 mode/bytes 断言。",
+      "trace": {
+        "diff_range": "5771ef41a5b8eb2e37af2d5a04bfb81e96fbfdbe..897b566242c19e0ecce09f01314c42ca9a2a2acb; fixed 6c1493aea9febd6318eafa8a5cf51d0d774aa155 scripts/notify.py:161-170; calls :183/:1955/:2305/:2746/:3585",
+        "linkage": "不满足",
+        "user_request": "notify原子更新已有0600/0640/default新文件mode保留，所有5条同类写路径一跳",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "/usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_modes.py ; independently: /usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox-chmod.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_kernel_chmod.py",
+        "expected": "目标存在且 chmod/stat 不能复制其权限时，不发布权限不同的新 inode；旧目标的 mode/bytes 保持，状态写返回失败。",
+        "observed": {
+          "five_path_EIO_matrix": [
+            {
+              "path": "result",
+              "before": "0o600",
+              "after": "0o644",
+              "new_bytes_published": true,
+              "return": null
+            },
+            {
+              "path": "latest",
+              "before": "0o600",
+              "after": "0o644",
+              "new_bytes_published": true,
+              "return": null
+            },
+            {
+              "path": "state",
+              "before": "0o600",
+              "after": "0o644",
+              "new_bytes_published": true,
+              "return": true
+            },
+            {
+              "path": "warning_dedup",
+              "before": "0o640",
+              "after": "0o600",
+              "new_bytes_published": true,
+              "return": true
+            },
+            {
+              "path": "digest_state",
+              "before": "0o600",
+              "after": "0o644",
+              "new_bytes_published": true,
+              "return": {
+                "sent": true,
+                "n": 1,
+                "n_remaining": 0
+              }
+            }
+          ],
+          "real_kernel_control": {
+            "kernel_chmod_denied": true,
+            "return": true,
+            "before_mode": "0o600",
+            "after_mode": "0o644",
+            "published": true,
+            "fault_model": "controlled macOS sandbox denies chmod only; rename remains real and allowed"
+          }
+        },
+        "evidence": [
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/mode-results.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/kernel-chmod-result.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/kernel-chmod.log"
+        ],
+        "qualification": "kernel 场景为本轮主动配置 macOS sandbox 只拒 chmod 的受控故障正控；不是把普通环境启动失败或线上实际行为认定为产品事故。EIO 场景仅注入 syscall 错误，实际创建 tmp/replace 仍真实执行。"
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 4,
+          "rationale": "stdlib/已有异常分支复用：删掉两个吞异常分支，让调用方既有异常处理接住；约省4行，不删除原子写或锁。"
+        }
+      ]
+    },
+    {
+      "id": "BACKEND-NEW-P2-02",
+      "status": "open",
+      "severity": "P2",
+      "blocking": false,
+      "title": "修正后的并发测试仍以 buffer 为空代替 payload 交付证据，能漏掉丢内容回归",
+      "path": "scripts/tests/test_f03r1_digest_atomic_write.py:337",
+      "line": 337,
+      "end_line": 339,
+      "related_locations": [
+        "scripts/tests/test_f03r1_digest_atomic_write.py:365",
+        "scripts/tests/test_f03r1_digest_atomic_write.py:367",
+        "scripts/tests/test_f03r1_digest_atomic_write.py:370",
+        "scripts/tests/test_f03r1_digest_atomic_write.py:394"
+      ],
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "旧假红已解决，当前生产实现在本轮独立 payload/buffer 检查中通过；但新增 h2 与 h 的终态B不能证明新条目确实进入 payload，未来生成摘要时漏行仍可能测试绿。h3 也未核验旧条目的发送内容。属于有影响的测试缺口，不是已证实生产丢通知。",
+      "why": "6b91de7e8 放宽合法终态并加 h2/h3，但只核查最终 buffer 的行/key，没有核查实际渠道发送的 subject/body/key/hits。fork 子进程的本地 calls list 也不构成跨进程交付证据。",
+      "fix": "保留两种合法顺序；用跨进程共享 payload 记录或落本轮临时文件，按 key/subject/body/hits 核对“已交付 + 仍在buffer”的守恒，且断言发送成功。把漏掉h_new payload行的判别作为负控。",
+      "trace": {
+        "diff_range": "15b7ec53c0ae2f19d494a3abb845c73f199677f1..6b91de7e8d64186e004c639218bf0973b5506cd0; fixed 6c1493aea9febd6318eafa8a5cf51d0d774aa155 scripts/tests/test_f03r1_digest_atomic_write.py:331-397",
+        "linkage": "不满足",
+        "user_request": "吸收/flush合法先后顺序都固定且payload/缓冲总账不丢",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "/usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_author_payload_gap.py",
+        "expected": "测试在 send 边界故意丢弃 h_new 摘要明细行、同时仍清空 buffer 的内存负控下应失败。",
+        "observed": {
+          "pytest_rc": 0,
+          "in_memory_payload_mutation": [
+            {
+              "had_new_key": true,
+              "removed_new_key": true
+            }
+          ],
+          "source_files_modified": false
+        },
+        "evidence": [
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/author-payload-gap.log",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/author-payload-gap.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/order-results.json"
+        ],
+        "qualification": "仅外围运行时替换 send，未修改任何归档源码；原始 main 的独立守恒测试通过。"
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 0,
+          "rationale": "将“buffer空即两条已交付”的推断换为直接守恒断言；无可安全净删行数，不建议为省行删除合法顺序覆盖。"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "BACKEND-NEW-P2-01",
+      "status": "open",
+      "severity": "P2",
+      "blocking": false,
+      "title": "同类权限 helper 吞掉 stat/chmod 失败，仍替换为不符合原 mode 的新文件",
+      "path": "scripts/notify.py:165",
+      "line": 165,
+      "end_line": 170,
+      "related_locations": [
+        "scripts/notify.py:183",
+        "scripts/notify.py:1955",
+        "scripts/notify.py:2305",
+        "scripts/notify.py:2746",
+        "scripts/notify.py:3585"
+      ],
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "正常路径保留权限成立；若权限复制失败而 rename 可成功，4个普通 tmp 路径仍可能 0600→0644，mkstemp 路径可能 0640→0600。调用方仍可能返回成功且无权限复制失败诊断。不声称生产发生过该故障或含敏感数据。原摘要 _atomic_write_digest 已严格处理 fchmod 失败，不受此新问题影响。",
+      "why": "897b56624 新 helper 对非 FileNotFoundError 的 stat OSError 直接 return，并吞掉 chmod OSError。调用方无法区分目标不存在与权限复制失败，照常 replace。该分支使“5路径权限逐位保持”成为 best-effort 条件承诺。",
+      "fix": "由 Claude 复核后，让目标存在时的 stat/chmod 失败沿用各调用方既有失败分支，跳过该次 replace 保住旧文件；只将 FileNotFoundError 视为默认新文件。无需阻断通知主链或整体重写路径。补充失败分支的 mode/bytes 断言。",
+      "trace": {
+        "diff_range": "5771ef41a5b8eb2e37af2d5a04bfb81e96fbfdbe..897b566242c19e0ecce09f01314c42ca9a2a2acb; fixed 6c1493aea9febd6318eafa8a5cf51d0d774aa155 scripts/notify.py:161-170; calls :183/:1955/:2305/:2746/:3585",
+        "linkage": "不满足",
+        "user_request": "notify原子更新已有0600/0640/default新文件mode保留，所有5条同类写路径一跳",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "/usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_modes.py ; independently: /usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox-chmod.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_kernel_chmod.py",
+        "expected": "目标存在且 chmod/stat 不能复制其权限时，不发布权限不同的新 inode；旧目标的 mode/bytes 保持，状态写返回失败。",
+        "observed": {
+          "five_path_EIO_matrix": [
+            {
+              "path": "result",
+              "before": "0o600",
+              "after": "0o644",
+              "new_bytes_published": true,
+              "return": null
+            },
+            {
+              "path": "latest",
+              "before": "0o600",
+              "after": "0o644",
+              "new_bytes_published": true,
+              "return": null
+            },
+            {
+              "path": "state",
+              "before": "0o600",
+              "after": "0o644",
+              "new_bytes_published": true,
+              "return": true
+            },
+            {
+              "path": "warning_dedup",
+              "before": "0o640",
+              "after": "0o600",
+              "new_bytes_published": true,
+              "return": true
+            },
+            {
+              "path": "digest_state",
+              "before": "0o600",
+              "after": "0o644",
+              "new_bytes_published": true,
+              "return": {
+                "sent": true,
+                "n": 1,
+                "n_remaining": 0
+              }
+            }
+          ],
+          "real_kernel_control": {
+            "kernel_chmod_denied": true,
+            "return": true,
+            "before_mode": "0o600",
+            "after_mode": "0o644",
+            "published": true,
+            "fault_model": "controlled macOS sandbox denies chmod only; rename remains real and allowed"
+          }
+        },
+        "evidence": [
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/mode-results.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/kernel-chmod-result.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/kernel-chmod.log"
+        ],
+        "qualification": "kernel 场景为本轮主动配置 macOS sandbox 只拒 chmod 的受控故障正控；不是把普通环境启动失败或线上实际行为认定为产品事故。EIO 场景仅注入 syscall 错误，实际创建 tmp/replace 仍真实执行。"
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 4,
+          "rationale": "stdlib/已有异常分支复用：删掉两个吞异常分支，让调用方既有异常处理接住；约省4行，不删除原子写或锁。"
+        }
+      ]
+    },
+    {
+      "id": "BACKEND-NEW-P2-02",
+      "status": "open",
+      "severity": "P2",
+      "blocking": false,
+      "title": "修正后的并发测试仍以 buffer 为空代替 payload 交付证据，能漏掉丢内容回归",
+      "path": "scripts/tests/test_f03r1_digest_atomic_write.py:337",
+      "line": 337,
+      "end_line": 339,
+      "related_locations": [
+        "scripts/tests/test_f03r1_digest_atomic_write.py:365",
+        "scripts/tests/test_f03r1_digest_atomic_write.py:367",
+        "scripts/tests/test_f03r1_digest_atomic_write.py:370",
+        "scripts/tests/test_f03r1_digest_atomic_write.py:394"
+      ],
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "旧假红已解决，当前生产实现在本轮独立 payload/buffer 检查中通过；但新增 h2 与 h 的终态B不能证明新条目确实进入 payload，未来生成摘要时漏行仍可能测试绿。h3 也未核验旧条目的发送内容。属于有影响的测试缺口，不是已证实生产丢通知。",
+      "why": "6b91de7e8 放宽合法终态并加 h2/h3，但只核查最终 buffer 的行/key，没有核查实际渠道发送的 subject/body/key/hits。fork 子进程的本地 calls list 也不构成跨进程交付证据。",
+      "fix": "保留两种合法顺序；用跨进程共享 payload 记录或落本轮临时文件，按 key/subject/body/hits 核对“已交付 + 仍在buffer”的守恒，且断言发送成功。把漏掉h_new payload行的判别作为负控。",
+      "trace": {
+        "diff_range": "15b7ec53c0ae2f19d494a3abb845c73f199677f1..6b91de7e8d64186e004c639218bf0973b5506cd0; fixed 6c1493aea9febd6318eafa8a5cf51d0d774aa155 scripts/tests/test_f03r1_digest_atomic_write.py:331-397",
+        "linkage": "不满足",
+        "user_request": "吸收/flush合法先后顺序都固定且payload/缓冲总账不丢",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "/usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_author_payload_gap.py",
+        "expected": "测试在 send 边界故意丢弃 h_new 摘要明细行、同时仍清空 buffer 的内存负控下应失败。",
+        "observed": {
+          "pytest_rc": 0,
+          "in_memory_payload_mutation": [
+            {
+              "had_new_key": true,
+              "removed_new_key": true
+            }
+          ],
+          "source_files_modified": false
+        },
+        "evidence": [
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/author-payload-gap.log",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/author-payload-gap.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/order-results.json"
+        ],
+        "qualification": "仅外围运行时替换 send，未修改任何归档源码；原始 main 的独立守恒测试通过。"
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 0,
+          "rationale": "将“buffer空即两条已交付”的推断换为直接守恒断言；无可安全净删行数，不建议为省行删除合法顺序覆盖。"
+        }
+      ]
+    }
+  ],
+  "resolved_findings": [
+    {
+      "id": "F01-RECHECK-P2-01",
+      "status": "resolved",
+      "severity": "P2",
+      "original_report": "/tmp/codex-reports/night-20261105/f01-recheck.json",
+      "title": "FOF 中途写库失败残留被下一只基金提交",
+      "path": "scripts/collect_fof_nav.py:230",
+      "origin": "pre-existing",
+      "scope": "in-scope",
+      "trace": {
+        "diff_range": "6b91de7e8d64186e004c639218bf0973b5506cd0..af6fddf10c1e5a43af71bdd15888e6d319f277a0; fixed 6c1493aea9febd6318eafa8a5cf51d0d774aa155 scripts/collect_fof_nav.py:220-235",
+        "linkage": "满足",
+        "user_request": "独立实际SQLite中途写失败后rollback零残留、既有数据/后续基金容错",
+        "origin": "pre-existing"
+      },
+      "verifier": {
+        "command": "/usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_sqlite.py ; /usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_supplement.py",
+        "expected": "真实 executemany 先更新一条 NULL、再插一条、第三条由 SQLite 抛错后全部回滚；前后成功项/既有历史不动，下轮失败基金仍可请求。",
+        "observed": "ABORT/FAIL 两个真实触发器在 base 均无 ROLLBACK、残留导致下轮跳过；head 均有真实 ROLLBACK，失败基金所有既有行逐字段恢复、零新增残留；前/后基金各成功1行 written=2。移除触发器后 head 下一轮仅请求000002并补3行，base 无请求。全批写失败 main exit2且0行；随后合法空 main exit0且信号复位。",
+        "evidence": [
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/sqlite-results.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/sqlite.log",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/supplement-results.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/runs/sqlite/fof-head-ABORT/trace.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/runs/supplement/fof-main.log"
+        ]
+      },
+      "root_cause_assessment": "正常连接可执行 rollback 的 per-fund 中途失败根因已消除，包含原问题导致的下一轮误跳过链路。未使用 fake executemany/commit/rollback。"
+    },
+    {
+      "id": "F03-R1-P2-mode",
+      "status": "resolved",
+      "severity": "P2",
+      "original_report": "/tmp/codex-reports/night-20261105/f03-recheck.json",
+      "title": "摘要原子写覆盖既有显式 mode",
+      "path": "scripts/notify.py:2393",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "trace": {
+        "diff_range": "31c868fa37f6f219ce6ef5d50d92bb30f2d83d69..15b7ec53c0ae2f19d494a3abb845c73f199677f1; fixed 6c1493aea9febd6318eafa8a5cf51d0d774aa155 scripts/notify.py:2381-2395",
+        "linkage": "满足",
+        "user_request": "notify原子更新已有0600/0640/default新文件mode保留",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "/usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_modes.py ; /usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_atomic_failures.py ; /usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_supplement.py",
+        "expected": "既有0600/0640保持；新文件按当前umask新建；原子写失败不改旧字节/mode；absorb、bump、flush都走相同原子helper。",
+        "observed": "digest8种mode/umask组合全通过，原修复前0600/0640均漂移0644；其余总体48项模式全通过。真实临时文件先写37字节再ENOSPC、fsync/fchmod/rename错误共8场景：旧字节/0640保持、无tmp残留，新key False/已有key True。_bump_digest_hits保持0640且hits+1，flush和absorb跨进程守恒也保持0640。",
+        "evidence": [
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/mode-results.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/atomic-failure-results.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/supplement-results.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/order-results.json"
+        ]
+      },
+      "root_cause_assessment": "原摘要路径为严格 fchmod→fsync→replace，fchmod失败阻止replace，旧finding可关闭；同类新helper的best-effort失败分支另列新P2，不能混称旧摘要修复失效。"
+    },
+    {
+      "id": "F03-R1-P2-test-order",
+      "status": "resolved",
+      "severity": "P2",
+      "original_report": "/tmp/codex-reports/night-20261105/f03-recheck.json",
+      "title": "合法 absorb-first 顺序被固定剩1行断言误判",
+      "path": "scripts/tests/test_f03r1_digest_atomic_write.py:337",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "trace": {
+        "diff_range": "15b7ec53c0ae2f19d494a3abb845c73f199677f1..6b91de7e8d64186e004c639218bf0973b5506cd0; fixed 6c1493aea9febd6318eafa8a5cf51d0d774aa155 scripts/tests/test_f03r1_digest_atomic_write.py:331-397",
+        "linkage": "满足",
+        "user_request": "吸收/flush合法先后顺序都固定且payload/缓冲总账不丢",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "/usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_orders.py ; /usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_supplement.py",
+        "expected": "absorb-first 新旧条目都进入摘要、buffer可为0；flush-first旧条目已发送、新条目留buffer；两序均逐key/hits/body守恒。",
+        "observed": "两序各固定3轮：旧key hits2均进email payload；新key hits3在absorb-first已交付/buffer0，在flush-first payload无新key而buffer1条hits3且body完整；总账新hits恒3。真实锁竞争下flush-first阻塞吸收，另补absorb-first持锁阻塞flush且payload旧2/新3、剩0。两吸收进程跨inode替换总hits6。相关43项作者测试通过，旧“只能剩1行”断言已移除。",
+        "evidence": [
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/order-results.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/supplement-results.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/targeted-tests.log"
+        ]
+      },
+      "root_cause_assessment": "原假红原因已消除。新测试对payload缺断言另列新P2，不把该覆盖缺口误写成当前实现有生产丢数据。"
+    }
+  ],
+  "open_questions": [
+    {
+      "id": "OQ-not-production-acceptance",
+      "question": "线上是否确已部署且生产真实通知可达？",
+      "status": "not-executed-by-user-scope",
+      "observed": "本轮仅验固定Git快照；未跑云端、真实通知、生产数据或线上curl。不得把内部回执/ready或commit在main上等同外审或线上通过。"
+    },
+    {
+      "id": "OQ-permissions-error-contract",
+      "question": "5条同类路径是否接受权限复制失败仍发布不同mode的best-effort行为？",
+      "status": "requires-Claude-product-confirmation",
+      "observed": "helper明确写best-effort；本轮按用户mode保留要求记录条件性P2，而非声称生产默认泄漏。若主控确认该取舍，需在声称“根治/全部保留”时写明例外。"
+    }
+  ],
+  "checks": [
+    {
+      "id": "fixed-git-ancestry",
+      "status": "passed",
+      "observed": "入口 main完整SHA与固定SHA相同；五个修复全是固定SHA祖先，无ref待处理，未更新ref。",
+      "evidence": "/tmp/codex-backend-afternoon-d0pn23jv/metadata.json"
+    },
+    {
+      "id": "archive-integrity",
+      "status": "passed",
+      "observed": "来自固定SHA的git archive，全2403文件逐字节对比归档保持一致，四个核心文件另与Git对象比对；运行时fault/mutant仅内存，未改归档源码。",
+      "evidence": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/git-final-evidence.json"
+    },
+    {
+      "id": "sandbox-positive-controls",
+      "status": "passed",
+      "observed": "deny全部网络；拒读真实trade/trade-data与凭证目录；拒绝本轮隔离外写；读真实AGENTS、写/tmp外部文件、回环socket正控均PermissionError。仅隔离库/fixture。",
+      "evidence": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/sandbox-check.json"
+    },
+    {
+      "id": "targeted-author-tests",
+      "status": "passed",
+      "files": [
+        "scripts/tests/test_f03r1_atomic_write_perms.py",
+        "scripts/tests/test_notify_p2a_mode_preserve.py",
+        "scripts/tests/test_fof_nav_p2c_rollback.py",
+        "scripts/tests/test_backfill_etf_daily_p2c_rollback.py",
+        "scripts/tests/test_f03r1_digest_atomic_write.py",
+        "scripts/tests/test_f03_digest_atomic_concurrent.py",
+        "scripts/tests/test_collect_fof_nav_366_batch_signal.py"
+      ],
+      "command": "/usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py --pytest <seven files listed>",
+      "observed": "43 passed in 1.34s；不是全仓pytest。",
+      "evidence": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/targeted-tests.log"
+    },
+    {
+      "id": "independent-sqlite",
+      "status": "passed",
+      "observed": "8个base/head真实SQLite判别场景，head4通过、base4复现旧缺陷；额外验证main全失败exit2与后续合法空信号复位。",
+      "evidence": [
+        "/tmp/codex-backend-afternoon-d0pn23jv/evidence/sqlite-results.json",
+        "/tmp/codex-backend-afternoon-d0pn23jv/evidence/supplement-results.json"
+      ]
+    },
+    {
+      "id": "independent-modes",
+      "status": "passed-with-new-risk",
+      "observed": "48个head组合全通过，12个base对照；5个chmod失败矩阵+1个内核受控拒chmod复现新P2。",
+      "evidence": [
+        "/tmp/codex-backend-afternoon-d0pn23jv/evidence/mode-results.json",
+        "/tmp/codex-backend-afternoon-d0pn23jv/evidence/kernel-chmod-result.json"
+      ]
+    },
+    {
+      "id": "independent-order-and-total-ledger",
+      "status": "passed",
+      "observed": "两序各3轮，补真实absorb-first锁竞争，另双吸收inode竞争；跨进程真实本地渠道stub捕获payload。没有真实发通知。",
+      "evidence": [
+        "/tmp/codex-backend-afternoon-d0pn23jv/evidence/order-results.json",
+        "/tmp/codex-backend-afternoon-d0pn23jv/evidence/supplement-results.json"
+      ]
+    },
+    {
+      "id": "independent-partial-write-failure",
+      "status": "passed",
+      "observed": "8个受控失败；包含真实写37字节后ENOSPC，原始内容与mode均保持；新/已有条目语义正确。",
+      "evidence": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/atomic-failure-results.json"
+    },
+    {
+      "id": "author-test-negative-control",
+      "status": "confirmed-coverage-gap",
+      "observed": "内存删掉h_new摘要行后h2仍1 passed；作为新P2测试缺口，非生产丢消息证据。",
+      "evidence": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/author-payload-gap.json"
+    }
+  ],
+  "verdict": "PASS",
+  "review_verdict": "Ready",
+  "acceptance_scope": "三条旧P2关闭；本范围无P0/P1。两个新增非阻断P2仍待Claude复核，不能概括为所有边界根治。",
+  "summary": "固定main 6c1493aea9febd6318eafa8a5cf51d0d774aa155：三条原P2均resolved。FOF/ETF真实SQLite回滚、正常mode矩阵、两序payload与缓冲总账通过。Claude举一反三中的ETF回滚成立、五条mode写路径正常分支成立；另外确认2个新P2：chmod失败仍replace，以及测试缺少payload守恒断言。43个定向作者测试通过；判定来自独立故障注入/历史对照，不采信内部回执替代外审。",
+  "repo": "/Users/linhuichen/code/trade",
+  "fixed_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "head": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "base": {
+    "primary_fix_series": "31c868fa37f6f219ce6ef5d50d92bb30f2d83d69",
+    "same_class_series": "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e",
+    "original_f01_report_base": "10459a5dddc8d104bbedf34e2203ad5bfba66cd8",
+    "original_f01_report_head": "1f98f67baf38864222890f8379c288a782d7eea2",
+    "original_f03_report_base": "37c426f16bebab092994b30891e0c71ffbd75934",
+    "original_f03_report_head": "197a0bedaf259bea48bf3c43a17390a038af5e82"
+  },
+  "fix_commits": {
+    "15b7ec53c": {
+      "sha": "15b7ec53c0ae2f19d494a3abb845c73f199677f1",
+      "parent": "31c868fa37f6f219ce6ef5d50d92bb30f2d83d69",
+      "in_fixed_main": true
+    },
+    "6b91de7e8": {
+      "sha": "6b91de7e8d64186e004c639218bf0973b5506cd0",
+      "parent": "15b7ec53c0ae2f19d494a3abb845c73f199677f1",
+      "in_fixed_main": true
+    },
+    "af6fddf10": {
+      "sha": "af6fddf10c1e5a43af71bdd15888e6d319f277a0",
+      "parent": "6b91de7e8d64186e004c639218bf0973b5506cd0",
+      "in_fixed_main": true
+    },
+    "5771ef41a": {
+      "sha": "5771ef41a5b8eb2e37af2d5a04bfb81e96fbfdbe",
+      "parent": "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e",
+      "in_fixed_main": true
+    },
+    "897b56624": {
+      "sha": "897b566242c19e0ecce09f01314c42ca9a2a2acb",
+      "parent": "5771ef41a5b8eb2e37af2d5a04bfb81e96fbfdbe",
+      "in_fixed_main": true
+    }
+  },
+  "same_class_assessment": [
+    {
+      "commit": {
+        "sha": "5771ef41a5b8eb2e37af2d5a04bfb81e96fbfdbe",
+        "parent": "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e",
+        "in_fixed_main": true
+      },
+      "status": "verified",
+      "path": "scripts/backfill_etf_daily.py:285",
+      "assessment": "真实 main→backfill_one→upsert_etf_daily→cursor.executemany，ABORT/FAIL 第三行失败，head回滚恢复原NULL/历史值，前项close77/fund_share990保持、后项正常；修复前残留复现。此修复对main调用链成立，不外推单独调用backfill_one能自行rollback。",
+      "trace": {
+        "diff_range": "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e..5771ef41a5b8eb2e37af2d5a04bfb81e96fbfdbe; fixed scripts/backfill_etf_daily.py:157-211,279-291",
+        "linkage": "满足",
+        "user_request": "验证昨晚我们提出3条P2是否在最新main根治，以及Claude举一反三部分是否成立",
+        "origin": "pre-existing"
+      },
+      "verifier": {
+        "command": "/usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_sqlite.py",
+        "expected": "失败ETF零新增残留，已有值/前后成功项不丢。",
+        "observed": "head ABORT/FAIL均逐字段恢复且各有1次ROLLBACK；base均无ROLLBACK并有残留。",
+        "evidence": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/sqlite-results.json"
+      }
+    },
+    {
+      "commit": {
+        "sha": "897b566242c19e0ecce09f01314c42ca9a2a2acb",
+        "parent": "5771ef41a5b8eb2e37af2d5a04bfb81e96fbfdbe",
+        "in_fixed_main": true
+      },
+      "status": "verified-normal-path-with-open-P2",
+      "assessment": "5条写路径全部已接helper，mode正常路径全覆盖；新建默认行为保持（普通tmp随umask、mkstemp0600）。失败分支权限复制仍非严格保证，见BACKEND-NEW-P2-01。",
+      "one_hop_paths": {
+        "_write_result_file": {
+          "path": "scripts/notify.py",
+          "line": 173,
+          "end_line": 186,
+          "callees": [
+            {
+              "symbol": "Path",
+              "line": 179
+            },
+            {
+              "symbol": "p.parent.mkdir",
+              "line": 180
+            },
+            {
+              "symbol": "p.with_name",
+              "line": 181
+            },
+            {
+              "symbol": "tmp.write_text",
+              "line": 182
+            },
+            {
+              "symbol": "_chmod_like_target",
+              "line": 183
+            },
+            {
+              "symbol": "tmp.replace",
+              "line": 184
+            },
+            {
+              "symbol": "json.dumps",
+              "line": 182
+            },
+            {
+              "symbol": "print",
+              "line": 186
+            }
+          ],
+          "callers": [
+            {
+              "symbol": "main",
+              "line": 4127
+            },
+            {
+              "symbol": "main",
+              "line": 4125
+            }
+          ]
+        },
+        "_replace_latest": {
+          "path": "scripts/notify.py",
+          "line": 1951,
+          "end_line": 1956,
+          "callees": [
+            {
+              "symbol": "tmp.write_text",
+              "line": 1954
+            },
+            {
+              "symbol": "_chmod_like_target",
+              "line": 1955
+            },
+            {
+              "symbol": "tmp.replace",
+              "line": 1956
+            }
+          ],
+          "callers": [
+            {
+              "symbol": "_rmw",
+              "line": 1974
+            }
+          ]
+        },
+        "_write_state_obj": {
+          "path": "scripts/notify.py",
+          "line": 2299,
+          "end_line": 2310,
+          "callees": [
+            {
+              "symbol": "path.parent.mkdir",
+              "line": 2302
+            },
+            {
+              "symbol": "path.with_name",
+              "line": 2303
+            },
+            {
+              "symbol": "_tmp.write_text",
+              "line": 2304
+            },
+            {
+              "symbol": "_chmod_like_target",
+              "line": 2305
+            },
+            {
+              "symbol": "os.replace",
+              "line": 2306
+            },
+            {
+              "symbol": "json.dumps",
+              "line": 2304
+            },
+            {
+              "symbol": "print",
+              "line": 2309
+            }
+          ],
+          "callers": [
+            {
+              "symbol": "_commit_domain_state",
+              "line": 2322
+            },
+            {
+              "symbol": "_commit_rollover_seen",
+              "line": 2336
+            }
+          ]
+        },
+        "_save_warning_dedup_state": {
+          "path": "scripts/notify.py",
+          "line": 2728,
+          "end_line": 2762,
+          "callees": [
+            {
+              "symbol": "WARNING_DEDUP_STATE_FILE.parent.mkdir",
+              "line": 2738
+            },
+            {
+              "symbol": "_tf.mkstemp",
+              "line": 2739
+            },
+            {
+              "symbol": "_chmod_like_target",
+              "line": 2746
+            },
+            {
+              "symbol": "_os.replace",
+              "line": 2747
+            },
+            {
+              "symbol": "_os.path.exists",
+              "line": 2757
+            },
+            {
+              "symbol": "print",
+              "line": 2761
+            },
+            {
+              "symbol": "str",
+              "line": 2739
+            },
+            {
+              "symbol": "_os.fdopen",
+              "line": 2742
+            },
+            {
+              "symbol": "json.dump",
+              "line": 2743
+            },
+            {
+              "symbol": "f.flush",
+              "line": 2744
+            },
+            {
+              "symbol": "_os.fsync",
+              "line": 2745
+            },
+            {
+              "symbol": "_os.open",
+              "line": 2749
+            },
+            {
+              "symbol": "_os.unlink",
+              "line": 2758
+            },
+            {
+              "symbol": "f.fileno",
+              "line": 2745
+            },
+            {
+              "symbol": "str",
+              "line": 2749
+            },
+            {
+              "symbol": "_os.fsync",
+              "line": 2751
+            },
+            {
+              "symbol": "_os.close",
+              "line": 2753
+            }
+          ],
+          "callers": [
+            {
+              "symbol": "clear_warning_dedup_for_recovery",
+              "line": 2913
+            },
+            {
+              "symbol": "defer_warning",
+              "line": 3044
+            },
+            {
+              "symbol": "_flush_warning_batch_locked",
+              "line": 3300
+            },
+            {
+              "symbol": "defer_warning",
+              "line": 3019
+            }
+          ]
+        },
+        "_flush_digest_locked": {
+          "path": "scripts/notify.py",
+          "line": 3402,
+          "end_line": 3590,
+          "callees": [
+            {
+              "symbol": "_parse_buffer_lines",
+              "line": 3417
+            },
+            {
+              "symbol": "enumerate",
+              "line": 3418
+            },
+            {
+              "symbol": "datetime.now",
+              "line": 3423
+            },
+            {
+              "symbol": "now.strftime",
+              "line": 3424
+            },
+            {
+              "symbol": "len",
+              "line": 3452
+            },
+            {
+              "symbol": "'/'.join",
+              "line": 3460
+            },
+            {
+              "symbol": "adr.domain_aggregate_summary",
+              "line": 3507
+            },
+            {
+              "symbol": "_dom_agg.items",
+              "line": 3508
+            },
+            {
+              "symbol": "send",
+              "line": 3538
+            },
+            {
+              "symbol": "any",
+              "line": 3541
+            },
+            {
+              "symbol": "print",
+              "line": 3589
+            },
+            {
+              "symbol": "ALERT_DIGEST_FILE.read_bytes",
+              "line": 3411
+            },
+            {
+              "symbol": "print",
+              "line": 3419
+            },
+            {
+              "symbol": "(due if str(e.get('day')) == _today else stale).append",
+              "line": 3427
+            },
+            {
+              "symbol": "now.strftime",
+              "line": 3428
+            },
+            {
+              "symbol": "ALERT_DIGEST_STATE_FILE.exists",
+              "line": 3431
+            },
+            {
+              "symbol": "str",
+              "line": 3456
+            },
+            {
+              "symbol": "str",
+              "line": 3458
+            },
+            {
+              "symbol": "str(s).replace('&', '&amp;').replace('<', '&lt;').replace",
+              "line": 3471
+            },
+            {
+              "symbol": "str",
+              "line": 3480
+            },
+            {
+              "symbol": "str",
+              "line": 3482
+            },
+            {
+              "symbol": "int",
+              "line": 3483
+            },
+            {
+              "symbol": "DIGEST_REASON_LABELS.get",
+              "line": 3494
+            },
+            {
+              "symbol": "adr.DOMAIN_LABELS.get",
+              "line": 3509
+            },
+            {
+              "symbol": "rows.append",
+              "line": 3510
+            },
+            {
+              "symbol": "rows.append",
+              "line": 3523
+            },
+            {
+              "symbol": "rows.append",
+              "line": 3529
+            },
+            {
+              "symbol": "'<br>'.join",
+              "line": 3533
+            },
+            {
+              "symbol": "print",
+              "line": 3543
+            },
+            {
+              "symbol": "print",
+              "line": 3546
+            },
+            {
+              "symbol": "_stable_rid",
+              "line": 3548
+            },
+            {
+              "symbol": "ALERT_DIGEST_FILE.read_bytes",
+              "line": 3554
+            },
+            {
+              "symbol": "_parse_buffer_lines",
+              "line": 3555
+            },
+            {
+              "symbol": "set",
+              "line": 3557
+            },
+            {
+              "symbol": "_atomic_write_digest",
+              "line": 3564
+            },
+            {
+              "symbol": "len",
+              "line": 3574
+            },
+            {
+              "symbol": "str",
+              "line": 3578
+            },
+            {
+              "symbol": "max",
+              "line": 3579
+            },
+            {
+              "symbol": "ALERT_DIGEST_STATE_FILE.parent.mkdir",
+              "line": 3581
+            },
+            {
+              "symbol": "ALERT_DIGEST_STATE_FILE.with_name",
+              "line": 3582
+            },
+            {
+              "symbol": "_tmp.write_text",
+              "line": 3583
+            },
+            {
+              "symbol": "_chmod_like_target",
+              "line": 3585
+            },
+            {
+              "symbol": "os.replace",
+              "line": 3586
+            },
+            {
+              "symbol": "print",
+              "line": 3415
+            },
+            {
+              "symbol": "json.loads",
+              "line": 3432
+            },
+            {
+              "symbol": "str",
+              "line": 3433
+            },
+            {
+              "symbol": "len",
+              "line": 3444
+            },
+            {
+              "symbol": "_cats.get",
+              "line": 3457
+            },
+            {
+              "symbol": "_rcnt.get",
+              "line": 3459
+            },
+            {
+              "symbol": "datetime.strptime(str(e.get('ts', '')), '%Y-%m-%d %H:%M:%S').strftime",
+              "line": 3475
+            },
+            {
+              "symbol": "str",
+              "line": 3494
+            },
+            {
+              "symbol": "str",
+              "line": 3495
+            },
+            {
+              "symbol": "'、'.join",
+              "line": 3500
+            },
+            {
+              "symbol": "str",
+              "line": 3517
+            },
+            {
+              "symbol": "_row",
+              "line": 3523
+            },
+            {
+              "symbol": "str",
+              "line": 3524
+            },
+            {
+              "symbol": "_split_body_lines",
+              "line": 3525
+            },
+            {
+              "symbol": "rows.append",
+              "line": 3532
+            },
+            {
+              "symbol": "results.get",
+              "line": 3541
+            },
+            {
+              "symbol": "len",
+              "line": 3544
+            },
+            {
+              "symbol": "len",
+              "line": 3547
+            },
+            {
+              "symbol": "_stable_rid",
+              "line": 3559
+            },
+            {
+              "symbol": "out_entries.append",
+              "line": 3563
+            },
+            {
+              "symbol": "print",
+              "line": 3567
+            },
+            {
+              "symbol": "len",
+              "line": 3570
+            },
+            {
+              "symbol": "json.dumps",
+              "line": 3583
+            },
+            {
+              "symbol": "print",
+              "line": 3588
+            },
+            {
+              "symbol": "ALERT_DIGEST_STATE_FILE.read_text",
+              "line": 3432
+            },
+            {
+              "symbol": "bool",
+              "line": 3443
+            },
+            {
+              "symbol": "bool",
+              "line": 3443
+            },
+            {
+              "symbol": "str",
+              "line": 3449
+            },
+            {
+              "symbol": "str",
+              "line": 3451
+            },
+            {
+              "symbol": "e.get",
+              "line": 3456
+            },
+            {
+              "symbol": "e.get",
+              "line": 3458
+            },
+            {
+              "symbol": "_cats.items",
+              "line": 3460
+            },
+            {
+              "symbol": "len",
+              "line": 3461
+            },
+            {
+              "symbol": "len",
+              "line": 3462
+            },
+            {
+              "symbol": "now.strftime",
+              "line": 3465
+            },
+            {
+              "symbol": "now.strftime",
+              "line": 3468
+            },
+            {
+              "symbol": "str(s).replace('&', '&amp;').replace",
+              "line": 3471
+            },
+            {
+              "symbol": "e.get",
+              "line": 3480
+            },
+            {
+              "symbol": "e.get",
+              "line": 3482
+            },
+            {
+              "symbol": "e.get",
+              "line": 3483
+            },
+            {
+              "symbol": "datetime.strptime(str(e.get('hits_ts') or ''), '%Y-%m-%d %H:%M:%S').strftime",
+              "line": 3488
+            },
+            {
+              "symbol": "_hm_of",
+              "line": 3496
+            },
+            {
+              "symbol": "e.get",
+              "line": 3496
+            },
+            {
+              "symbol": "e.get",
+              "line": 3496
+            },
+            {
+              "symbol": "e.get",
+              "line": 3497
+            },
+            {
+              "symbol": "e.get",
+              "line": 3517
+            },
+            {
+              "symbol": "e.get",
+              "line": 3524
+            },
+            {
+              "symbol": "e.get",
+              "line": 3525
+            },
+            {
+              "symbol": "rows.append",
+              "line": 3526
+            },
+            {
+              "symbol": "_row",
+              "line": 3532
+            },
+            {
+              "symbol": "esc",
+              "line": 3533
+            },
+            {
+              "symbol": "_seen.add",
+              "line": 3561
+            },
+            {
+              "symbol": "e.get",
+              "line": 3578
+            },
+            {
+              "symbol": "(_st or {}).get",
+              "line": 3433
+            },
+            {
+              "symbol": "e.get",
+              "line": 3449
+            },
+            {
+              "symbol": "e.get",
+              "line": 3451
+            },
+            {
+              "symbol": "datetime.strptime",
+              "line": 3475
+            },
+            {
+              "symbol": "e.get",
+              "line": 3494
+            },
+            {
+              "symbol": "e.get",
+              "line": 3495
+            },
+            {
+              "symbol": "len",
+              "line": 3510
+            },
+            {
+              "symbol": "str",
+              "line": 3519
+            },
+            {
+              "symbol": "len",
+              "line": 3529
+            },
+            {
+              "symbol": "_parse_buffer_lines",
+              "line": 3570
+            },
+            {
+              "symbol": "str",
+              "line": 3427
+            },
+            {
+              "symbol": "str(s).replace",
+              "line": 3471
+            },
+            {
+              "symbol": "str",
+              "line": 3475
+            },
+            {
+              "symbol": "datetime.strptime",
+              "line": 3488
+            },
+            {
+              "symbol": "_rcnt.items",
+              "line": 3501
+            },
+            {
+              "symbol": "'、'.join",
+              "line": 3511
+            },
+            {
+              "symbol": "e.get",
+              "line": 3519
+            },
+            {
+              "symbol": "ALERT_DIGEST_FILE.read_bytes",
+              "line": 3570
+            },
+            {
+              "symbol": "e.get",
+              "line": 3427
+            },
+            {
+              "symbol": "e.get",
+              "line": 3475
+            },
+            {
+              "symbol": "str",
+              "line": 3489
+            },
+            {
+              "symbol": "DIGEST_REASON_LABELS.get",
+              "line": 3501
+            },
+            {
+              "symbol": "str",
+              "line": 3471
+            },
+            {
+              "symbol": "e.get",
+              "line": 3489
+            }
+          ],
+          "callers": [
+            {
+              "symbol": "flush_digest",
+              "line": 3389
+            },
+            {
+              "symbol": "flush_digest",
+              "line": 3399
+            }
+          ]
+        }
+      },
+      "trace": {
+        "diff_range": "5771ef41a5b8eb2e37af2d5a04bfb81e96fbfdbe..897b566242c19e0ecce09f01314c42ca9a2a2acb; fixed scripts/notify.py calls183/1955/2305/2746/3585",
+        "linkage": "满足",
+        "user_request": "所有5条同类写路径一跳",
+        "origin": "pre-existing"
+      },
+      "verifier": {
+        "command": "/usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_modes.py",
+        "expected": "每条路径对既有0600/0640/0644保留，新建默认不漂移。",
+        "observed": "5路径×8组合40项正常路径通过；加原摘要共48项。12项历史模式对照中11项漂移（mkstemp原0600本来就不漂移）。",
+        "evidence": [
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/mode-results.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/one-hop-trace.json"
+        ]
+      }
+    }
+  ],
+  "snapshot_root": "/tmp/codex-backend-afternoon-d0pn23jv/head",
+  "snapshot_archive": "/tmp/codex-backend-afternoon-d0pn23jv/main.tar",
+  "archive_sha256": "7700d80b1a516ae7895127318a0334d821b8f48c1d45adbffec36ac003e8cb80",
+  "progress_path": "/tmp/codex-reports/recheck-20261105-afternoon/backend-progress.md",
+  "independent_verifiers_root": "/tmp/codex-backend-afternoon-d0pn23jv",
+  "environment_and_safety": {
+    "source_execution": "只从自己的固定git archive快照执行；未复用/tmp/rev-p2或已有worktree源码。",
+    "isolation": "macOS sandbox-exec拒绝网络、生产目录read及隔离外write；Python audit额外阻止DNS/socket/subprocess与隔离外SQLite；env清空后只放dummy配置。",
+    "network_attempts": "app.collector.base导入时先尝试socket.getaddrinfo，fallback subprocess dig，均在DNS查询/子进程启动前被audit拒绝；日志附stack。notify独立verifier的guard_hits均为空。不是外发成功，也不是产品缺陷。",
+    "file_adapter": "backfill硬编码/tmp/agent-progress-etf-backfill.md由外围builtins.open适配到本轮runs/etf-progress.md，禁止污染共享进度文件；源码未改。",
+    "environment_adaptations": [
+      "专用codex-reviewer worktree不存在，Git只读从主仓提取对象；未创建worktree/branch。",
+      "Python tarfile旧patch不支持filter参数；先验证归档无绝对/上跳/符号链接再展开。",
+      "没有可用subagent执行工具；未新建用户chat代替子代理，由本会话在受控快照完成只读验收。"
+    ],
+    "not_executed": [
+      "全仓pytest",
+      "云端/生产路径验证",
+      "真实通知/邮件/飞书/Telegram",
+      "通知桥/ready/codex_review_complete.py",
+      "启动Claude",
+      "commit/push/ref修改",
+      "已有worktree源码修改"
+    ],
+    "actual_source_modifications": [],
+    "ready_signals_written": [],
+    "notifications_sent": false
+  },
+  "impact_surface": [
+    "FOF per-fund collect→fetch_lsjz→SQLite及后续filled集合",
+    "ETF main→backfill_one→upsert_etf_daily及已有COALESCE保护",
+    "notify摘要absorb/bump/flush→稳定侧车锁→原子写",
+    "notify另5条tmp+replace及其一跳caller/callee",
+    "并发验收测试终态与实际payload守恒"
+  ],
+  "smoke_results": {
+    "old_fof_P2": "RESOLVED",
+    "old_digest_mode_P2": "RESOLVED",
+    "old_test_order_P2": "RESOLVED",
+    "same_class_etf": "PASS",
+    "same_class_five_mode_paths": "PASS_NORMAL_BRANCH_WITH_P2_FAILURE_BRANCH",
+    "two_order_payload_ledger": "PASS",
+    "targeted_tests": "43 passed"
+  },
+  "recommendation": "三条旧finding可关闭。交Claude复核新增2个P2，尤其同类mode helper不能宣称错误分支也严格保权。本报告为固定Git版本只读验收，不是线上上线批准，不发送ready/通知。",
+  "evidence_manifest": [
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/verify_atomic_failures.py",
+      "bytes": 2305,
+      "sha256": "c811557647d7fec2e4a0f08692b58aa935d229b85ab234097c822ddbfd5a8afe"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/verify_author_payload_gap.py",
+      "bytes": 862,
+      "sha256": "650f12f735a2fe3f574fdaab7e2d56685becb3b4da7209820ea6e9bcb40d18ef"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/verify_kernel_chmod.py",
+      "bytes": 763,
+      "sha256": "95626b2db0025ba6002d545b1f403da0c6f00eca98d46d58227197d8cef723e0"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/verify_modes.py",
+      "bytes": 4198,
+      "sha256": "d5a2fcb90abb31cb81b3deb572ac6a715db2fdb2dc7845c137ce5acf34238fff"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/verify_orders.py",
+      "bytes": 4990,
+      "sha256": "897889359cf0f747a370160c702223a04225020b1de7ba12d9374ac5c3abbc41"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/verify_sqlite.py",
+      "bytes": 6572,
+      "sha256": "60b1eef87b44d21bd304b3df20dc990748d4ead133413c792bf02f38972ec5bc"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/verify_supplement.py",
+      "bytes": 4168,
+      "sha256": "2f8efcdaf61be8c1e8bc9d239b7129af0aeff6233bc7ec2f11b0ea1132723f3a"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/atomic-failure-results.json",
+      "bytes": 1526,
+      "sha256": "cd923b9ba790e1f007c8b03d36a7493a20fc67368ba0f7bbec762521cae6439c"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/atomic-failures.log",
+      "bytes": 2170,
+      "sha256": "27ede828e90e73f922f380c275cafc5aba626a0b3f66a23d3de02d8be2284d35"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/author-payload-gap.json",
+      "bytes": 162,
+      "sha256": "0617fd9f0ccf22af6874d56741f3dbcd8549164d3bc0d6e80d571d4e9427947b"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/author-payload-gap.log",
+      "bytes": 272,
+      "sha256": "4fcf45d2c19a4cc4d2db0042a894ad2b94967d54e48fd85e076d0e37915836b5"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/git-final-evidence.json",
+      "bytes": 8222,
+      "sha256": "d3c9b4c0aff695c65de6ef297257c1c7f1bcd0dbfc7ce9bbc2745e1ee0831cde"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/kernel-chmod-result.json",
+      "bytes": 219,
+      "sha256": "ef7035edfb3d8f4169a387977627dc2b55f558832c149cac34c9f3078209bb23"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/kernel-chmod.log",
+      "bytes": 232,
+      "sha256": "0541fdd28ec97bab593a52eb4f8c2652025b02ca9ba7c08bdf763ec4974e76c3"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/mode-results.json",
+      "bytes": 15644,
+      "sha256": "73f419e91f859f51abc27b2260994862bcde9675714ab546aa4617600dfe3e19"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/modes.log",
+      "bytes": 1390,
+      "sha256": "f2e71a3b692fd4a74e9aa5df82064c041027459dfa3873f4f4a125c6a3f2f75e"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/one-hop-trace.json",
+      "bytes": 20433,
+      "sha256": "7d73793b04832400c897e75fa1200fa67ad3456adf06656b586320d08e13ec1e"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/order-results.json",
+      "bytes": 3251,
+      "sha256": "2fafbe2df453a116893a1061364dd9200067b63192431db942a1437e00eb8b64"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/orders.log",
+      "bytes": 4299,
+      "sha256": "983e7b430444dfc2d8b4ae4d630cbc5650a84bb58bcc40560a537fc427ec5cb4"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/sandbox-check.json",
+      "bytes": 84,
+      "sha256": "65025ed48dd33c47261665a1ad16dac4239171b3ee93cb48334a1ae0a6da264e"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/sqlite-results.json",
+      "bytes": 11426,
+      "sha256": "7199ac8cd0d6273e257b4fef65173a77526324bd9e014afeb3d28d8b646116cf"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/sqlite.log",
+      "bytes": 4335,
+      "sha256": "2a0136eb11669e4788fb1f844c4668e8ed745ff1bb21f43b130e606ca5affc51"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/supplement-results.json",
+      "bytes": 326,
+      "sha256": "9af4943a43964404e2bffa00ebd41399f88f4ff48a0f1ba3aa523d1b60a10b86"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/supplement.log",
+      "bytes": 3117,
+      "sha256": "3976d7a67f280095ad022c30947d205d912c78cb35e0cf37c5304b2bbd3db785"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/targeted-tests.log",
+      "bytes": 165,
+      "sha256": "8c97a182c011046bc9bd091c57681095c76bcfb95b6e056f7dd8552bf35ed9e3"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py",
+      "bytes": 1727,
+      "sha256": "026eda977b89e741735a8c688491480786ec7f4e3d06a7fd6de98453d11126c6"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb",
+      "bytes": 471,
+      "sha256": "e9c70e9e852b07970421ddbf48c1a78e7d8dd39235786a53523262124189a5fe"
+    },
+    {
+      "path": "/tmp/codex-backend-afternoon-d0pn23jv/sandbox-chmod.sb",
+      "bytes": 639,
+      "sha256": "d3fea7fe76600b23ed84597d608d035378a15aa690eaad64a9e84d8824f36939"
+    }
+  ],
+  "started_at": "2026-11-05T16:46:46.255165+08:00",
+  "completed_at": "2026-11-05T16:56:16.911594+08:00"
+}

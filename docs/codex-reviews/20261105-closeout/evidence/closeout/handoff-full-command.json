@@ -1,0 +1,20 @@
+{
+  "command": [
+    "/Users/linhuichen/code/trade/.venv/bin/python3",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/",
+    "-p",
+    "no:cacheprovider",
+    "--basetemp=/tmp/codex-collab-closeout-full",
+    "--junitxml=/tmp/codex-reports/closeout-20261105/handoff-full.xml"
+  ],
+  "cwd": "/Users/linhuichen/code/trade/.claude/worktrees/codex-collab-closeout-20261105",
+  "source_sha256": {
+    "scripts/codex_handoff.py": "5e78754782f708c1a38fa367e0ae5103b5b642106f3016b8c43e308ca31d5928",
+    "scripts/tests/test_codex_handoff.py": "4629355b904c29807a8394710b36fe2ffde8dd116af3c7bf08a6934982366496",
+    ".claude/settings.json": "e484e439c77af4ca7148860b67b6c639b969b7b5de7e2d5c89c561095ac2ced8"
+  },
+  "environment": "allowlist; dummy R2; network-marked tests disabled; no production config injected"
+}

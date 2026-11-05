@@ -1,0 +1,185 @@
+{
+  "format_version": 1,
+  "archived_at": "2026-11-05T17:55:52+08:00",
+  "fixed_main": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "files": [
+    {
+      "source": "/tmp/codex-reports/recheck-20261105-afternoon/report.json",
+      "archive": "evidence/recheck/report.json",
+      "bytes": 12724,
+      "sha256": "feb22ed30ba2703db8a669108aaa24d3fb08df000cf3ba06221d914f85e9e82d",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/recheck-20261105-afternoon/frontend.json",
+      "archive": "evidence/recheck/frontend.json",
+      "bytes": 36608,
+      "sha256": "960af8509e4f7be6b5feee2e21b980ec623d7bbbfe438e1ecc5f7d06d4b43a54",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/recheck-20261105-afternoon/backend.json",
+      "archive": "evidence/recheck/backend.json",
+      "bytes": 61445,
+      "sha256": "62f2f108cdabc1046054485619a737fdc6899a89f150bb61823ca788f6206454",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/recheck-20261105-afternoon/release.json",
+      "archive": "evidence/recheck/release.json",
+      "bytes": 45026,
+      "sha256": "3e56410893fa4388c63d72a445d8c442255fbf9112e04ddc455de611dfb2c91c",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/recheck-20261105-afternoon/task-reconciliation.json",
+      "archive": "evidence/recheck/task-reconciliation.json",
+      "bytes": 4846,
+      "sha256": "6cf0355af26997daf9ceaf07c3661c7672084abefc3b9dd5d3bd4bf52435d5a8",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/recheck-20261105-afternoon/cleanup-inventory.json",
+      "archive": "evidence/recheck/cleanup-inventory.json",
+      "bytes": 3141,
+      "sha256": "66ab711c934fb9f0c42091e543da0fcc92f0c41fce5e9d58e7763558b3a98c1a",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/night-20261105/claude-receipt.json",
+      "archive": "evidence/claude/claude-receipt.json",
+      "bytes": 11202,
+      "sha256": "4a51668525f0f999900993057a1fcf3f948a9a2972af397da916c6e2c6c39593",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/recheck-20261105-afternoon/baseline.json",
+      "archive": "evidence/context/baseline.json",
+      "bytes": 1631,
+      "sha256": "fe8918ea5ed5cd20a3f2dcb7517c3227bb9905dc724f746208e185d99cb61995",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/recheck-20261105-afternoon/git-provenance.json",
+      "archive": "evidence/context/git-provenance.json",
+      "bytes": 4296,
+      "sha256": "799bc0073f8eed64e5c6d4dad32140ca3df2341010fa179912588ad25267bd36",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/recheck-20261105-afternoon/source-hashes.json",
+      "archive": "evidence/context/source-hashes.json",
+      "bytes": 1639,
+      "sha256": "58d84bacdaf7e5d513851de3eb113bb5d159430edb55e93655de0d1adf8c99c0",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/recheck-20261105-afternoon/browser-independent-audit.json",
+      "archive": "evidence/context/browser-independent-audit.json",
+      "bytes": 2058,
+      "sha256": "be0936d5670e47c9ad5e82ea81ddf9cdd9f396cb15a7dd53dbf8144f28b8917e",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/recheck-20261105-afternoon/browser-run.json",
+      "archive": "evidence/context/browser-run.json",
+      "bytes": 617,
+      "sha256": "252eb2c2a9c8769f531ad1b7f9dd82d82547f0aece3d12a183785b4ea7409d4c",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/recheck-20261105-afternoon/online/html-delta-filter.json",
+      "archive": "evidence/frontend/html-delta-filter.json",
+      "bytes": 2730,
+      "sha256": "c8184680b6a36835dfc82a93707ed3c55bd6a724b51ca9a8119e17decf451191",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/sqlite-results.json",
+      "archive": "evidence/backend/sqlite-results.json",
+      "bytes": 11426,
+      "sha256": "7199ac8cd0d6273e257b4fef65173a77526324bd9e014afeb3d28d8b646116cf",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/mode-results.json",
+      "archive": "evidence/backend/mode-results.json",
+      "bytes": 15644,
+      "sha256": "73f419e91f859f51abc27b2260994862bcde9675714ab546aa4617600dfe3e19",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/order-results.json",
+      "archive": "evidence/backend/order-results.json",
+      "bytes": 3251,
+      "sha256": "2fafbe2df453a116893a1061364dd9200067b63192431db942a1437e00eb8b64",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/atomic-failure-results.json",
+      "archive": "evidence/backend/atomic-failure-results.json",
+      "bytes": 1526,
+      "sha256": "cd923b9ba790e1f007c8b03d36a7493a20fc67368ba0f7bbec762521cae6439c",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/author-payload-gap.json",
+      "archive": "evidence/backend/author-payload-gap.json",
+      "bytes": 162,
+      "sha256": "0617fd9f0ccf22af6874d56741f3dbcd8549164d3bc0d6e80d571d4e9427947b",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/kernel-chmod-result.json",
+      "archive": "evidence/backend/kernel-chmod-result.json",
+      "bytes": 219,
+      "sha256": "ef7035edfb3d8f4169a387977627dc2b55f558832c149cac34c9f3078209bb23",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/supplement-results.json",
+      "archive": "evidence/backend/supplement-results.json",
+      "bytes": 326,
+      "sha256": "9af4943a43964404e2bffa00ebd41399f88f4ff48a0f1ba3aa523d1b60a10b86",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/targeted-tests.log",
+      "archive": "evidence/backend/targeted-tests.log",
+      "bytes": 165,
+      "sha256": "8c97a182c011046bc9bd091c57681095c76bcfb95b6e056f7dd8552bf35ed9e3",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/author-payload-gap.log",
+      "archive": "evidence/backend/author-payload-gap.log",
+      "bytes": 272,
+      "sha256": "4fcf45d2c19a4cc4d2db0042a894ad2b94967d54e48fd85e076d0e37915836b5",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-backend-afternoon-d0pn23jv/evidence/kernel-chmod.log",
+      "archive": "evidence/backend/kernel-chmod.log",
+      "bytes": 232,
+      "sha256": "0541fdd28ec97bab593a52eb4f8c2652025b02ca9ba7c08bdf763ec4974e76c3",
+      "copy_mode": "original_bytes"
+    },
+    {
+      "source": "/tmp/codex-reports/closeout-20261105/ownership.json",
+      "archive": "evidence/context/ownership.json",
+      "bytes": 1265,
+      "sha256": "46fde54d15743c54bc167a27a9a43f1057cbfe836c0de669740efba1d0ba6ffd",
+      "copy_mode": "original_bytes"
+    }
+  ],
+  "original_afternoon_SHA256SUMS_matched": [
+    "report.json",
+    "frontend.json",
+    "backend.json",
+    "release.json",
+    "task-reconciliation.json",
+    "cleanup-inventory.json"
+  ],
+  "receipt_matches_afternoon_snapshot": true,
+  "note": "Raw bytes preserved. Original /tmp paths inside reports remain historical provenance; use this source-to-archive map. SHA256SUMS covers archive files and excludes itself."
+}

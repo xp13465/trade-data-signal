@@ -1,0 +1,8 @@
+{
+  "branch": "codex/notify-regressions-20261105",
+  "head": "0d1bc0fdcdb849a371c4804adf7fae97aba16d19",
+  "remote_verified": "0d1bc0fdcdb849a371c4804adf7fae97aba16d19",
+  "base": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "draft": true,
+  "merge_requires_business_fix": true
+}

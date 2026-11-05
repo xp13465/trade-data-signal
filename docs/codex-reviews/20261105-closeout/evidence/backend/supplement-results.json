@@ -1,0 +1,14 @@
+{
+  "fof_all_failed_rc": 2,
+  "fof_all_failed_rows": 0,
+  "fof_legal_empty_after_failure_rc": 0,
+  "batch_signal_reset": true,
+  "absorb_first_true_concurrent_flush_waited": true,
+  "absorb_first_payload_hits": {
+    "OLD_KEY": 2,
+    "NEW_KEY": 3
+  },
+  "absorb_first_remaining": 0,
+  "bump_mode": "0o640",
+  "bump_hits": 3
+}

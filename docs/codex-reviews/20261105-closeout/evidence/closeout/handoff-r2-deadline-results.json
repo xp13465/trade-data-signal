@@ -1,0 +1,16 @@
+[
+  {
+    "name": "actual_four_second_timer_retains_scan_progress",
+    "passed": true,
+    "evidence": {
+      "actual_internal_timer_seconds": 4.095490458072163,
+      "interrupted_exit_code": 0,
+      "interrupted_stdout": "",
+      "interrupted_stderr": "",
+      "persisted_cursor": "a-slow",
+      "next_normal_cli_first_id": "b-next",
+      "next_normal_cli_seconds": 0.04780825006309897,
+      "ack_remained_null": true
+    }
+  }
+]

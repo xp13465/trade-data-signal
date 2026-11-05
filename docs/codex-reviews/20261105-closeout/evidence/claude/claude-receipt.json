@@ -1,0 +1,134 @@
+{
+  "handoff_id": "night-20261105",
+  "receipt_from": "claude-main-session",
+  "receipt_at": "2026-11-05T08:41:12+08:00",
+  "received_via": "用户转达 + 主会话直接读取 /tmp/codex-reports/night-20261105/handoff.json(被动 .done/开发群消息未进入本会话上下文)",
+  "verify": {
+    "handoff_read": true,
+    "branch": "codex/369-370-frontend-timeouts",
+    "branch_head_read": "92013be60d596cddb6b10e383a84d948713a1b72",
+    "head_matches_handoff": true,
+    "doc_sha256_read": "dfd1a6cbc40a9264d3a82f1a1338fbad0356c5a0f55f968c54af776d8daad970",
+    "doc_sha256_matches": true,
+    "base_main_declared": "aca87b537de84e12f2f374e8d7898a8f1f76c988"
+  },
+  "status": "acknowledged_and_claimed",
+  "claims": {
+    "frontend_branch_review": "已派独立 reviewer 审查 92013be60(含逐行 diff/测试判别力/§24 发版口径/边界独立复核),不与其并行改同一文件",
+    "p2_fix": "已派 implementer 基于 main 31c868fa3 新开 feat/backend-p2-fixes-20261105 修 P2-A/B/C",
+    "pending": "reviewer 结论与新 head 产出后,再走内审 + 统一入口合并/构建/bump/部署"
+  },
+  "disclosure": {
+    "timing": "收到通知前,F01-R1(1f98f67ba)与 F03-R1(197a0beda)已于 2026-11-05 01:15/01:20(本地)经内部审查 PASS 后合入 main(00dabd713 / 31c868fa3),CI Quality Gate 均 success",
+    "implication": "你方『按已知回归约定先复核 P2 再合』的条件未能前置满足;但 P2-A 未在合并前被识别,不构成『已知回归仍合并』",
+    "corrective": "P2-A 作为真回归立即修复(新 head + 复审);不追溯改写已合并历史"
+  },
+  "p2_ack": {
+    "F01_partial_transaction": "认可,P2-C 既有缺陷非 R1 引入,本轮一并修(回滚边界)",
+    "F03_mode_0600_to_0644": "认可,P2-A 真回归(主控已实测 0600→0644),本轮修(替换前 fchmod 保留原 mode)",
+    "F03_test_false_red": "认可,P2-B 测试假红非生产缺陷,本轮只改断言"
+  },
+  "notice": "本回执仅表示已读并接单,不代表 Codex 报告已通过我方审查;审查结论另行交付。",
+  "update_20261105_1345": {
+    "selfupdate_rootfix_merged": {
+      "branch": "feat/fix-main-merge-selfupdate-20261105",
+      "head": "5e0d90b7d",
+      "review": "独立审查 PASS-WITH-NOTES:diff 仅 main-merge.sh 55+/1-;沙箱 NEW 修复/OLD 复现事故(判别力);防循环 exit 8;dry-run/普通 merge 零变化;L52 2329 passed/3 skipped;bash 3.2/5 兼容;边界 18 项差集全处置",
+      "merged": "统一入口合并为 9acf768c7;CI #1035 success;云上已同步",
+      "notes": [
+        "① pre-merge 阶段新增门禁对本次 merge 不生效(机制固有限制,下一轮才生效)",
+        "② 建议把沙箱端到端固化为回归脚本",
+        "③ sha 三级 fallback 全失时自更新静默关闭,建议加 warn"
+      ],
+      "followup": "feat/selfupdate-notes-20261105 实施中(③ warn + ① 注释);其合并本身将作为该机制在真实仓库的第一次端到端生效验证"
+    }
+  },
+  "update_20261105_1555": {
+    "selfupdate_notes_merged_e2e": {
+      "branch": "feat/selfupdate-notes-20261105",
+      "head": "a206dc06f",
+      "review": "独立审查 PASS-WITH-NOTES:diff 仅 main-merge.sh 27+/0-;bash -n PASS;远程 HEAD 逐位一致;沙箱 4 场景(正常/变化/启动空/merge后空)+ sha 空路径全过;全量 pytest 2329 passed,3 skipped;§24 无前端无 bump;3 NOTE 不阻断(sha 全失败 worst-case 文案/N2 DRY_RUN-resume 组合未显式测/注释措辞略松)",
+      "merged": "统一入口合并为 a206dc06f;CI #1036 success;云上已同步",
+      "e2e_proof": "该 merge 是自更新机制首次真实端到端生效:日志出现『main-merge.sh 被本次 merge 更新, 切换到磁盘新版脚本继续』BANNER,新进程打印 [resume] 跳过实际 merge + 断言 feat 已是 HEAD 祖先,后续 pytest/校验/push 均由新版执行;无重复 merge、无漏提交",
+      "push_retry": "首次 push 遇 GitHub SSH 连接超时(20.205.243.166:22 Operation timed out),统一入口报 push 失败;重跑同一入口后 push 成功并 CI success(未 force)"
+    },
+    "ledger_L57": {
+      "branch": "feat/ledger-l57-20261105",
+      "head": "2da566961",
+      "content": "新增教训 L57(发布脚本运行中被自身 merge 替换 → 余下步骤执行旧逻辑,旧 BUMP_PRODUCTS 漏提交三产物致 §22 版本串不一致);CLAUDE.md §18 声称 57、滚动窗插 L57/删 L41(归档锚点保留);归档表头/章节/锚点行同步 57;machine-check-registry 新增闸门行『scripts/main-merge.sh 自更新 sha 校验 + bump 残留守卫』",
+      "machine_check": "实施方自跑 check_ledger PASS + --selftest PASS;check_gate_registry PASS + --selftest PASS;test_gate_registry_pytest 3 passed",
+      "merged": "统一入口合并为 6c1493ae;CI #1037 success;云上已同步",
+      "review": "独立 reviewer 事后审查 PASS:3 文件无越界;CLAUDE.md 计数两处 57 + L57 在滚动窗 + L41 仅删滚动窗(归档锚点保留);归档表头/标题/零丢失锚三处 57;registry 7 列、闸门名与台账逐字双向匹配;事实链与 102cdde94/c508c0a72/5e0d90b7d/9acf768c7 吻合;历史段零改动;check_ledger PASS+selftest PASS、check_gate_registry PASS+selftest PASS、pytest 3 passed;沙箱删 L57 三维真 FAIL。NOTE:102cdde94 文件集与 mtime 取证细节未逐项复现,核心事实由 commit 信息+热修强证,不阻断"
+    },
+    "main_state": "origin/main=6c1493ae,本地/云上一致,工作区干净;线上 build-id 维持 20261105-a657(本轮为脚本/文档改动,无前端 bump)"
+  },
+  "update_20261105_1255": {
+    "a657_hotfix_merged": {
+      "branch": "feat/fix-a657-artifacts-20261105",
+      "head": "c508c0a72",
+      "review": "独立审查 PASS(3 文件 4 行、代码零改动、8 载体推演全 a657、合并不触发 bump 论断核实)",
+      "merged": "统一入口直推 main c508c0a72;CI #1034 success;Deploy to GitHub Pages success;Deploy to Cloudflare Workers success;云上已同步",
+      "source_verify": "origin/main 八处载体全 a657: index/about/guide/privacy/databrief/trade_sim meta + __build.json + sw CACHE_VERSION",
+      "live_verify": "线上 ss.fx8.store 五处实测 a657(经 307→/databrief、/trade_sim 路由): __build.json a657 / index meta a657 / sw v6-a657 / databrief meta a657 / trade_sim meta a657;§22 闭环"
+    },
+    "selfupdate_rootfix": {
+      "branch": "feat/fix-main-merge-selfupdate-20261105",
+      "head": "5e0d90b7d",
+      "status": "实施完成,独立审查中(重点:re-exec 正确性/防循环/resume 幂等/沙箱隔离)",
+      "pending": "审查 PASS 后走统一入口 merge;合并后再用一次真实前端改动验证新版逻辑在同一次运行内生效"
+    }
+  },
+  "update_20261105_1230": {
+    "backend_p2_followup_merged": {
+      "branch": "feat/preexisting-same-class-20261105",
+      "head": "897b56624",
+      "commits": ["5771ef41a backfill per-item rollback", "897b56624 notify 5 条 tmp+replace 保留原权限"],
+      "review": "独立审查 PASS:判别力 revert→6 红 / restore→8 绿;全量 2329 passed, 3 skipped;边界差集逐条显式不测理由;L48/L50/L51 合规",
+      "merged": "统一入口直推 main 897b56624;CI Quality Gate #1032 success;云上已同步"
+    },
+    "release_tooling_second_finding": {
+      "title": "main-merge.sh 运行中被自身 merge 替换 → 余下步骤执行旧逻辑(bash 读取的是合并前版本)",
+      "evidence": [
+        "102cdde94 bump 提价文件集 = 旧 BUMP_PRODUCTS 能覆盖的变化集(about/guide/privacy/index/sw/changelog)",
+        "新版数组新增的 __build.json/databrief/trade_sim 已被 bump 写成 a657(mtime 12:09),但未进提交,origin/main 仍 a656",
+        "线上实测:__build.json=a656 而 index/sw=a657(§22 不一致仍在,方向与第一轮相反)"
+      ],
+      "corrective": {
+        "hotfix": "feat/fix-a657-artifacts-20261105 @ c508c0a72 原样补提交三文件(a657),审查中",
+        "rootfix": "feat/fix-main-merge-selfupdate-20261105 实施中:merge 后自检脚本 hash,变化则 exec 新版继续剩余步骤,防循环/防重复 merge/dry-run 不变"
+      },
+      "note": "该缺陷与 Codex 夜间交接无关,属我方发布工具链新发现;修好后本 receipt 补 merge/deploy 证据"
+    }
+  },
+  "update_20261105_1110": {
+    "new_finding_release_tooling": {
+      "title": "main-merge.sh BUMP_PRODUCTS 漏 3 个 bump 实际写入产物,导致 §22 版本串不一致(线上已发生)",
+      "evidence": [
+        "scripts/bump_asset_version.py 对 static-site/*.html 全量写 <meta name=build-id>,write_build_json 写 static-site/__build.json,verify_build_id_coverage 断言全部 html meta==ver",
+        "scripts/main-merge.sh L631-651 BUMP_PRODUCTS 未列 __build.json/databrief.html/trade_sim.html,注释误称这些页面无资源引用不会被写入",
+        "前端 merge de5590fd2 后:origin/main:static-site/__build.json=20261031-a654,index.html/sw.js=20261105-a655;线上 https://ss.fx8.store/__build.json 亦为 a654"
+      ],
+      "impact": "inline-init.js 比对 meta(a655) 与 fetch /__build.json(a654) 不一致 → 每个 tab 空闲 5s 后自动 reload 一次(有单 tab 一次性签名守卫,不会无限循环);§22 一致性违规,且违反 #327 修复声明的「两处同源同值」",
+      "fix_branch": "feat/fix-bump-products-20261105(pending head)",
+      "fix_scope": "①补 3 个产物进 BUMP_PRODUCTS + 改正注释 ②新增 add 后断言 git status --porcelain --untracked-files=no -- static-site 为空(防未来新增生成物再漏)③本分支带完整 bump 产物",
+      "status": "implementer 实施中,完成后走内审 + 统一入口 merge + 线上 __build.json 复验"
+    }
+  },
+  "update_20261105_1010": {
+    "frontend_review": "PASS-WITH-NOTES(独立 reviewer):逐行 diff 无越界;node 76/76、pytest 包装 2/2 自跑;base 对照转红 47/29 证明判别力;全量 2286 passed/3 skipped 与声称一致;未独立复跑浏览器(仓库无 playwright,如实标注);NOTE:①浏览器证据为 Codex 自验 ②fetchJSON 取消链改动略超字面 3 函数口径但属 #369 同根。",
+    "frontend_merge": {
+      "merge_sha": "37f6641dd",
+      "bump_sha": "de5590fd2",
+      "version": "20261031-a654 -> 20261105-a655",
+      "ci": "CI Quality Gate success;Deploy to Cloudflare Workers success;Deploy to GitHub Pages success",
+      "live_verify": "三站 build-id 均 20261105-a655;sw.js CACHE_VERSION v6-20261105-a655;线上 app.min.js/lab.min.js md5 与本地构建逐位一致(9c1aa7c1…/9c4793af…)"
+    },
+    "backend_p2": {
+      "head": "af6fddf10(branch feat/backend-p2-fixes-20261105, base 31c868fa3)",
+      "commits": ["15b7ec53c P2-A 权限保留", "6b91de7e8 P2-B 测试假红", "af6fddf10 P2-C 回滚"],
+      "full_pytest": "2319 passed, 3 skipped in 255.43s",
+      "status": "独立审查 PASS,已合入 main d813cc2ad;合并前全量 2321 passed/3 skipped;CI Quality Gate success;云上已同步",
+      "review_findings": "两条 pre-existing 同类面上报(不阻断):①backfill_etf_daily.py per-item 无 rollback;②notify.py 另 5 条 tmp+replace 写路径不保留原权限。待用户拍板后另批处理。"
+    }
+  }
+}

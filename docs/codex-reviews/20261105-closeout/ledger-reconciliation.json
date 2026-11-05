@@ -1,0 +1,41 @@
+{
+  "fixed_main": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "source_report": "evidence/recheck/task-reconciliation.json",
+  "updates": [
+    {
+      "task": 366,
+      "before": "| 366 | **(中)FOF 整批请求异常仍成功退出,监控无法识别** | Codex 交接 handoff-20261104-recent-issues-v1 F01 | 现象:`collect_fof_nav.py:231` main() 恒 return 0;`gen_schedule_stats.py:356` LOG_TASKS 不含 UNIT_ONLY,fof_nav_collect 在 UNIT_ONLY(:309)⇒ 全批失败时 systemd exit=0,监控判成功。方案:单只容错保留,整批网络异常产出可监控消费的信号,不把 written=0 当失败 | #333;§5.9 先验证 | **待办(2026-11-04 登记)** |",
+      "after": "| 366 | **(中)FOF 整批请求异常仍成功退出,监控无法识别** | Codex 交接 handoff-20261104-recent-issues-v1 F01 | 现象:`collect_fof_nav.py:231` main() 恒 return 0;`gen_schedule_stats.py:356` LOG_TASKS 不含 UNIT_ONLY,fof_nav_collect 在 UNIT_ONLY(:309)⇒ 全批失败时 systemd exit=0,监控判成功。方案:单只容错保留,整批网络异常产出可监控消费的信号,不把 written=0 当失败 | #333;§5.9 先验证 | **已完成（已审、已合 main、已上线；2026-11-05 对账）**：F01/R1 `1f98f67ba` → merge `00dabd713`；旧 P2-C 单只写库回滚 `af6fddf10` → merge `d813cc2ad`，同类 ETF 回滚 `5771ef41a` 亦已上线。固定 main `6c1493aea` 独立真实 SQLite 回滚及「全批失败 exit 2 / 合法空 exit 0、信号复位」通过；见[本次对账与原始证据](codex-reviews/20261105-closeout/README.md)。仅核销本行问题，#333 批2/批3及原剩余工作保留。 |"
+    },
+    {
+      "task": 367,
+      "before": "| 367 | **(中)摘要同签名并发可产生两条记录** | Codex 交接 handoff-20261104-recent-issues-v1 F03 | 现象:`notify.py:2338-2342` 读用 LOCK_SH 读完即 LOCK_UN;:2349-2356 无锁遍历判幂等;:2372 命中失败才调 _append_jsonl(其内 :2158 用 LOCK_EX)⇒ 读-释放-判-写四步不原子,调用方为多进程。方案:同一排他锁覆盖读判计写 | §5.9 先验证 | **待办(2026-11-04 登记)** |",
+      "after": "| 367 | **(中)摘要同签名并发可产生两条记录** | Codex 交接 handoff-20261104-recent-issues-v1 F03 | 现象:`notify.py:2338-2342` 读用 LOCK_SH 读完即 LOCK_UN;:2349-2356 无锁遍历判幂等;:2372 命中失败才调 _append_jsonl(其内 :2158 用 LOCK_EX)⇒ 读-释放-判-写四步不原子,调用方为多进程。方案:同一排他锁覆盖读判计写 | §5.9 先验证 | **原问题及夜间原三项后端 P2 修复批次已完成（已审、已合 main、已上线；2026-11-05 对账）**：F03/R1 `197a0beda` → merge `31c868fa3`；旧 P2-A 权限保留 `15b7ec53c`、P2-B 合法顺序假红 `6b91de7e8`、P2-C FOF 回滚 `af6fddf10`（见 #366）→ merge `d813cc2ad`；同类正常权限路径 `897b56624` 亦已上线。固定 main `6c1493aea` 两序 payload/缓冲守恒、正常 mode 矩阵通过。**新两项 P2 仅为待 Claude 复核的候选**：同类 helper 异常 stat/chmod 仍 replace、作者测试缺 payload 守恒断言；不代表原修复未完成，也不证明线上丢通知，不代 Claude 决定新需求或新建任务号。见[主报告分级与证据](codex-reviews/20261105-closeout/README.md)。 |"
+    },
+    {
+      "task": 368,
+      "before": "| 368 | **(中)R2 全局屏障锁打开失败后 IndexError + fd 泄漏** | Codex 交接 handoff-20261104-recent-issues-v1 F04 | 现象:`upload_r2.py:5198-5199` lock_plan 两项(域锁 EX + 全局屏障 SH);:5203-5217 全局屏障 PermissionError 被 except OSError 接住后 continue,fds 只剩 1 项;:5249-5251 取 fds[1] 越界 → IndexError;fds[0] 的域锁 fd 无 try/finally 兜底而泄漏。方案:保存路径/fd 对应、失败释放并抛原始 OSError | §5.9 先验证 | **待办(2026-11-04 登记)** |",
+      "after": "| 368 | **(中)R2 全局屏障锁打开失败后 IndexError + fd 泄漏** | Codex 交接 handoff-20261104-recent-issues-v1 F04 | 现象:`upload_r2.py:5198-5199` lock_plan 两项(域锁 EX + 全局屏障 SH);:5203-5217 全局屏障 PermissionError 被 except OSError 接住后 continue,fds 只剩 1 项;:5249-5251 取 fds[1] 越界 → IndexError;fds[0] 的域锁 fd 无 try/finally 兜底而泄漏。方案:保存路径/fd 对应、失败释放并抛原始 OSError | §5.9 先验证 | **已完成（已审、已合 main、已上线；2026-11-05 对账）**：`bf1ed42d4` → 实际 merge `aac5d19bd`；既有独立外审为定向测试 16/16、独立场景 15/15、exact-SHA CI success。固定 main `6c1493aea` 的 `upload_r2.py` blob 与该外审版本相同；见[对账及证据范围](codex-reviews/20261105-closeout/README.md)。本轮未新增真实 R2/生产故障注入。 |"
+    },
+    {
+      "task": 369,
+      "before": "| 369 | **(中)实验室无 Content-Length 时正文读取失去超时** | Codex 交接 handoff-20261104-recent-issues-v1 F05 | 现象:`lab.js:1794` 无 Content-Length 分支 `return resp.json()` 无 await ⇒ finally(:1835 clearTimeout)在正文读完前执行,超时定时器失效。该次实测无 Content-Length(2026-11-04 06:50:39 GMT,HTTP/2 200,gzip),据此不能断定 CF 一定会剥掉该头;线上正文卡死未观测。理论触发路径=浏览器默认 br + CF 剥 Content-Length 时 total=0。方案:正文读取在 try 生命周期内被等待完成 | §24;§5.9 先验证 | **进行中（Codex 已实施且本地自测通过，待 Claude 独立审查、合并和部署）**：分支 `codex/369-370-frontend-timeouts`，见[实施报告](ops/369-370-frontend-timeouts-implementation.md)；[夜间同类补齐与固定head复验](codex-reviews/night-20261105/README.md) |",
+      "after": "| 369 | **(中)实验室无 Content-Length 时正文读取失去超时** | Codex 交接 handoff-20261104-recent-issues-v1 F05 | 现象:`lab.js:1794` 无 Content-Length 分支 `return resp.json()` 无 await ⇒ finally(:1835 clearTimeout)在正文读完前执行,超时定时器失效。该次实测无 Content-Length(2026-11-04 06:50:39 GMT,HTTP/2 200,gzip),据此不能断定 CF 一定会剥掉该头;线上正文卡死未观测。理论触发路径=浏览器默认 br + CF 剥 Content-Length 时 total=0。方案:正文读取在 try 生命周期内被等待完成 | §24;§5.9 先验证 | **已完成（Claude 已独立审查、合并并部署；2026-11-05 对账）**：`92013be60` → merge `37f6641dd`，首次发布 `a655`，后经 `c508c0a72` 补齐版本载体，当前验收版本 `20261105-a657`。固定 main `6c1493aea` 独立复验：线上 app/lab min 与固定 blob 逐字节一致，本机真实 Chromium 生命周期 46/46 通过；见[本次归档](codex-reviews/20261105-closeout/README.md)、[实施报告](ops/369-370-frontend-timeouts-implementation.md)、[夜间复验](codex-reviews/night-20261105/README.md)。 |"
+    },
+    {
+      "task": 370,
+      "before": "| 370 | **(中)主站 boot 预取无应用级超时** | Codex 交接 handoff-20261104-recent-issues-v1 F06 | 现象:`index.html:50` firstMs=(isMain\\|\\|isLocal)?0:8000 ⇒ 主站 boot 预取无应用级超时;:41 grab(u,0) 用 fetch 无 AbortController;:52 .catch(()=>null) 只在 reject 时触发,ssd 兜底不触发。方案:主站 boot 预取设有限应用级预算 | §24;§5.9 先验证 | **进行中（Codex 已实施且本地自测通过，待 Claude 独立审查、合并和部署）**：分支 `codex/369-370-frontend-timeouts`，见[实施报告](ops/369-370-frontend-timeouts-implementation.md)；[夜间同类补齐与固定head复验](codex-reviews/night-20261105/README.md) |",
+      "after": "| 370 | **(中)主站 boot 预取无应用级超时** | Codex 交接 handoff-20261104-recent-issues-v1 F06 | 现象:`index.html:50` firstMs=(isMain\\|\\|isLocal)?0:8000 ⇒ 主站 boot 预取无应用级超时;:41 grab(u,0) 用 fetch 无 AbortController;:52 .catch(()=>null) 只在 reject 时触发,ssd 兜底不触发。方案:主站 boot 预取设有限应用级预算 | §24;§5.9 先验证 | **已完成（Claude 已独立审查、合并并部署；2026-11-05 对账）**：与 #369 同批 `92013be60` → merge `37f6641dd`，经版本载体补齐后验收为 `20261105-a657`。线上入口有效 build 一致、app/lab min 与固定 main `6c1493aea` blob 一致；46/46 本机 Chromium 场景含 boot 响应头/正文超时、共享预取与兜底，非真机或真实时长 SLA 验收。见[本次归档](codex-reviews/20261105-closeout/README.md)、[实施报告](ops/369-370-frontend-timeouts-implementation.md)、[夜间复验](codex-reviews/night-20261105/README.md)。 |"
+    }
+  ],
+  "only_status_columns_changed": true,
+  "outside_target_rows_byte_equal": true,
+  "outside_target_rows_sha256": "6806082984a7af8e8c744667bc5a4742c5406a0b1ea6b78818391b17d2ab6cfb",
+  "protected_rows_sha256": {
+    "333": "debf497b14642c68e81546eae522539697afd0ea8f3a00bbf4061f81d40b2620",
+    "371": "af755e0ed08e2b65baf5e77eda84b431070e6328bfded4ce79d4520a6aacb280",
+    "372": "af1aee2f60f8f32b811b907b0b167042d2098c962f7867026ca52104127f5327"
+  },
+  "new_task_ids_created": false,
+  "new_backend_candidates": "BACKEND-NEW-P2-01 / BACKEND-NEW-P2-02 remain candidates for Claude review; no business decision made."
+}

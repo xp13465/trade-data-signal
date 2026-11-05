@@ -1,0 +1,31 @@
+{
+  "returncode": 0,
+  "duration_seconds": 314.7,
+  "source_unchanged": true,
+  "source_sha256": {
+    "scripts/codex_handoff.py": "5e78754782f708c1a38fa367e0ae5103b5b642106f3016b8c43e308ca31d5928",
+    "scripts/tests/test_codex_handoff.py": "4629355b904c29807a8394710b36fe2ffde8dd116af3c7bf08a6934982366496",
+    ".claude/settings.json": "e484e439c77af4ca7148860b67b6c639b969b7b5de7e2d5c89c561095ac2ced8"
+  },
+  "counts": {
+    "tests": 2385,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3
+  },
+  "failed_cases": [],
+  "tail": [
+    "............................................s........................... [ 90%]",
+    "........................................................................ [ 93%]",
+    "........................................................................ [ 96%]",
+    "........................................................................ [ 99%]",
+    ".........                                                                [100%]",
+    "=============================== warnings summary ===============================",
+    "scripts/bump_asset_version.py:84",
+    "  /Users/linhuichen/code/trade/.claude/worktrees/codex-collab-closeout-20261105/scripts/bump_asset_version.py:84: DeprecationWarning: invalid escape sequence '\\?'",
+    "    \"\"\"把 html 里所有 `?v=...` 替换为 `?v=<ver>`，并同步 <meta name=\"build-id\">。",
+    "",
+    "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+    "2382 passed, 3 skipped, 1 warning in 314.18s (0:05:14)"
+  ]
+}

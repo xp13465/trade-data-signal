@@ -1,0 +1,39 @@
+{
+  "checked_at": "2026-11-05T08:46:13.072362+00:00",
+  "fixed_M": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "main_at_start": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-frontend-timeouts-369-370",
+  "branch": "codex/369-370-frontend-timeouts",
+  "head": "92013be60d596cddb6b10e383a84d948713a1b72",
+  "worktree_status_before": "",
+  "main_worktree_status_before": "",
+  "request_refs": [],
+  "commits": [
+    {
+      "input": "92013be60",
+      "sha": "92013be60d596cddb6b10e383a84d948713a1b72",
+      "ancestor_of_fixed_M": true,
+      "subject": "fix(frontend): 补齐Kelly与公募API正文超时并归档夜间复验"
+    },
+    {
+      "input": "37f6641dd",
+      "sha": "37f6641dd22350a3651c96e07d4726c8273363fb",
+      "ancestor_of_fixed_M": true,
+      "subject": "merge(feat/codex/369-370-frontend-timeouts): 统一入口合并 codex/369-370-frontend-timeouts 入 main"
+    },
+    {
+      "input": "de5590fd2",
+      "sha": "de5590fd2bc592c679ab66444f7b52edefe717bc",
+      "ancestor_of_fixed_M": true,
+      "subject": "build(统一bump): main-merge.sh 统一 build_min+bump 版本串(机制C, feat=codex/369-370-frontend-timeouts)"
+    },
+    {
+      "input": "c508c0a72",
+      "sha": "c508c0a728802324860d79c2874f07cfde691026",
+      "ancestor_of_fixed_M": true,
+      "subject": "fix(build-id): 补齐 a657 三产物 __build.json/databrief/trade_sim(bump 漏提交,§22)"
+    }
+  ],
+  "harness_sha256": "ec19f893f22c5e590a7c61d1c14893ceb6420e5162b477a5156bdf066a306676",
+  "authority": "direct user acceptance request; no signal/ref mutation"
+}

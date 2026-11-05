@@ -1,0 +1,79 @@
+{
+  "base": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "local_branch_count": 37,
+  "merged_count_excluding_main": 35,
+  "merged_without_worktree": [
+    "feat/codex-evidence-fix-20261104",
+    "feat/codex-f01-fof-batch-signal-20261104",
+    "feat/codex-f03-digest-atomic-20261104",
+    "feat/codex-f04-r2-barrier-lock-20261104",
+    "feat/codex-handoff-ack-20261104",
+    "feat/codex-s01s02-annotation-20261104",
+    "feat/ledger-l56-20261104",
+    "worktree-agent-a16f4a9524c45bb75",
+    "worktree-agent-a1a34ccc1bd94e1c3",
+    "worktree-agent-a33753a60314dae35",
+    "worktree-agent-a4387b6c00013d425",
+    "worktree-agent-a497cea4f459ac420",
+    "worktree-agent-a50d6e1b8bab9beac",
+    "worktree-agent-a5b5908105e357067",
+    "worktree-agent-a6c7a58dac27aff23",
+    "worktree-agent-a6f893a931a38a74a",
+    "worktree-agent-a7bf9d554f800a85a",
+    "worktree-agent-a85949bb84ebe6fb7",
+    "worktree-agent-a86a71e6c82fec435",
+    "worktree-agent-a92740fbdd863923a",
+    "worktree-agent-a9e30b8fe959164bb",
+    "worktree-agent-ab3be0d77f2e065a3",
+    "worktree-agent-ab74b841cccab25f6",
+    "worktree-agent-abfdee5da64e2037c",
+    "worktree-agent-acbf114aa56b9db87",
+    "worktree-agent-ad043a71a1d661ed0",
+    "worktree-agent-afdb97bbaa529d08b"
+  ],
+  "merged_with_worktree": [
+    {
+      "branch": "codex/369-370-frontend-timeouts",
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/codex-frontend-timeouts-369-370"
+    },
+    {
+      "branch": "feat/backend-p2-fixes-20261105",
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a1a34ccc1bd94e1c3"
+    },
+    {
+      "branch": "feat/fix-a657-artifacts-20261105",
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-acbf114aa56b9db87"
+    },
+    {
+      "branch": "feat/fix-bump-products-20261105",
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-afdb97bbaa529d08b"
+    },
+    {
+      "branch": "feat/fix-main-merge-selfupdate-20261105",
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a4387b6c00013d425"
+    },
+    {
+      "branch": "feat/ledger-l57-20261105",
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a7bf9d554f800a85a"
+    },
+    {
+      "branch": "feat/preexisting-same-class-20261105",
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-ab74b841cccab25f6"
+    },
+    {
+      "branch": "feat/selfupdate-notes-20261105",
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-ad043a71a1d661ed0"
+    }
+  ],
+  "unmerged": [
+    "feat/fix-258-s06-budget"
+  ],
+  "stash_count": 4,
+  "stash_refs": [
+    "stash@{0} 6decb4b809b7482e2b2ba9ab48d84666b8082566 On main: backup: a657 uncommitted bump leftovers before a657-artifacts merge 20261105",
+    "stash@{1} 80089f1a10209e2f3910450ff4a3c3d3b50f5cbc On main: backup: a655 uncommitted bump products before bumpfix merge 20261105",
+    "stash@{2} b07bd57bd7207b0915004f83fb8a5f7626e06c96 On feat/backend-p2-fixes-20261105: p2c-verify2",
+    "stash@{3} 703b84f54f1857a1691e992eae72845603b1b301 On feat/backend-p2-fixes-20261105: p2c-verify"
+  ],
+  "mutations": "none; no deletion/archive performed"
+}

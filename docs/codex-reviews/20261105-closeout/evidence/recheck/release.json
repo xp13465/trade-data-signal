@@ -1,0 +1,881 @@
+{
+  "head": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "checks": [
+    {
+      "id": "conclusion",
+      "status": "Ready",
+      "severity_gate": "未发现范围内 P0/P1；三项 P2 边界供 Claude 复核/决定，不代表所有恢复组合无缺陷。",
+      "summary": "三产物补齐、自更新重载、防循环和 SHA 失败告警已独立验证；当前 17 项提交清单覆盖真实写集。",
+      "executed_at": "2026-11-05T16:56:19.819881+08:00"
+    },
+    {
+      "id": "authorization",
+      "status": "PASS",
+      "detail": "完整读取 AGENTS.md、reviewer SKILL（含 CX-*）和协议。req refs 为空，本轮依据用户直接任务继续；用户明确禁 ready/通知/refs 写入，优先于默认回传协议。reviewer worktree 不存在；仅在给定仓库读取 Git 对象，无建 worktree/ref 操作。工具未提供 subagent 执行能力，本 reviewer 自行验证。"
+    },
+    {
+      "id": "git_provenance",
+      "status": "PASS",
+      "evidence": "/tmp/codex-reports/recheck-20261105-afternoon/git-provenance.json",
+      "detail": "所列修复及 L57 均为固定 head 祖先。32785ab20 经 fd81b824f 合入，随后 102cdde94 的 a657 bump 确实遗漏三产物（仍 a656），c508c0a72 将三者补齐 a657。5e0d90b7d 经 9acf768c7 合入；a206dc06f 在 main 第一父链；2da566961 与 a206dc06f 同基于 9acf768c7，在 6c1493aea 汇合。9acf 的 main-merge 字节等于 5e；固定 head 的脚本字节等于 a206。Git 元数据只能证明提交来源和包含关系，不证明作者声称的线上实况。"
+    },
+    {
+      "id": "current_build_id",
+      "status": "PASS",
+      "detail": "只读固定 Git blob：6 个顶层 HTML 和 __build.json 全为 20261105-a657，sw.js 为 v6-20261105-a657。不是线上验收。"
+    },
+    {
+      "id": "write_set",
+      "status": "PASS",
+      "actual_write_set": [
+        "static-site/__build.json",
+        "static-site/about.html",
+        "static-site/app.min.js",
+        "static-site/changelog.json",
+        "static-site/common.min.js",
+        "static-site/databrief.html",
+        "static-site/guide.html",
+        "static-site/index.html",
+        "static-site/kelly-reports-content.min.js",
+        "static-site/kelly-review-notes.min.js",
+        "static-site/lab.min.css",
+        "static-site/lab.min.js",
+        "static-site/privacy.html",
+        "static-site/purpose-notes.min.js",
+        "static-site/style.min.css",
+        "static-site/sw.js",
+        "static-site/trade_sim.html"
+      ],
+      "products": [
+        "static-site/app.min.js",
+        "static-site/lab.min.js",
+        "static-site/common.min.js",
+        "static-site/purpose-notes.min.js",
+        "static-site/kelly-review-notes.min.js",
+        "static-site/kelly-reports-content.min.js",
+        "static-site/style.min.css",
+        "static-site/lab.min.css",
+        "static-site/index.html",
+        "static-site/about.html",
+        "static-site/guide.html",
+        "static-site/privacy.html",
+        "static-site/databrief.html",
+        "static-site/trade_sim.html",
+        "static-site/__build.json",
+        "static-site/sw.js",
+        "static-site/changelog.json"
+      ],
+      "missing": [],
+      "extra": [],
+      "detail": "独立 AST 提取 build_min.PAIRS 的 8 目标；bump.main glob 覆盖当前 6 个顶层 HTML，另写 sw.js/__build.json；main-merge 6.5 写 changelog。合计 17 项，与 BUMP_PRODUCTS 相等。ASSETS 里的 qr/i18n/inline-init/vendor 是被改引用的资源名，不是写入目标；nested admin/feedback.html 不匹配顶层 glob。normal fixture 实跑 build_min（仅压缩算法桩）+未改 bump，确认实际写入/提交完整。"
+    },
+    {
+      "id": "independent_fixture",
+      "status": "PASS",
+      "detail": "新建合成 bare+working 仓库；不 clone 生产仓库，不复用作者沙箱/测试。不运行真实仓库 main-merge，不取真实业务数据，不访问 GitHub/云端。main-merge/build_min/bump 的固定 head 源字节独立保存并校验；自更新案例仅在 fixture 的 feature 分支增加合成 HTML、注册项或合成拒绝门禁。",
+      "case_count": 22,
+      "supplemental_cases": 1,
+      "results": "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/results.json",
+      "supplemental": "/tmp/codex-reports/recheck-20261105-afternoon/supplemental-results.json"
+    },
+    {
+      "id": "isolation",
+      "status": "PASS",
+      "detail": "macOS sandbox-exec deny network*；deny /Users/linhuichen 读取；deny 所有写入，仅允许审查 /tmp 根及 /dev/null、/dev/tty。探针对网络连接、真实 AGENTS 读取、根外 /tmp 写入均得 EPERM。clean env 的 HOME/TMPDIR/PYTHONPATH 均是 fixture，Git 全局/系统配置关闭，GIT_ALLOW_PROTOCOL=file；Git 桩拒绝 foreign -C 和非本 case origin。curl/gh/node/scp/rsync/wget 是 deny 桩；ssh/CI/npx 为显式无网络桩。三个额外命令拒绝探针均 exit97。",
+      "evidence": [
+        "/tmp/codex-reports/recheck-20261105-afternoon/release-fixture.sb",
+        "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/isolation.json",
+        "/tmp/codex-reports/recheck-20261105-afternoon/supplemental-results.json"
+      ]
+    },
+    {
+      "id": "scenario_results",
+      "status": "OBSERVED_AS_ASSERTED",
+      "cases": {
+        "normal": {
+          "rc": 0,
+          "batch": 41,
+          "feature_in_head": true,
+          "head": "927a453e39a6564b3c144694ecd7fc12f4a89f94",
+          "origin": "927a453e39a6564b3c144694ecd7fc12f4a89f94",
+          "status": "",
+          "bump_total": 1,
+          "merge_total": 1,
+          "push_total": 1,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/normal/run.log"
+        },
+        "self_update": {
+          "rc": 0,
+          "batch": 41,
+          "feature_in_head": true,
+          "head": "6b59a5d7c555a91f2cfffbf390eb058775cbfb1b",
+          "origin": "6b59a5d7c555a91f2cfffbf390eb058775cbfb1b",
+          "status": "",
+          "bump_total": 1,
+          "merge_total": 1,
+          "push_total": 1,
+          "reexec_banners": 1,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/self_update/run.log"
+        },
+        "self_update_merge_commit": {
+          "rc": 0,
+          "batch": 41,
+          "feature_in_head": true,
+          "head": "b08657782f4f576d9a9bb8ed43d624d016931dc2",
+          "origin": "b08657782f4f576d9a9bb8ed43d624d016931dc2",
+          "status": "",
+          "bump_total": 1,
+          "merge_total": 1,
+          "push_total": 1,
+          "reexec_banners": 1,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/self_update_merge_commit/run.log"
+        },
+        "dry_last": {
+          "rc": 0,
+          "batch": 40,
+          "feature_in_head": false,
+          "head": "9f151e6ac768d04ad9f187f0221bc8d4a7809348",
+          "origin": "9f151e6ac768d04ad9f187f0221bc8d4a7809348",
+          "status": "",
+          "bump_total": 0,
+          "merge_total": 0,
+          "push_total": 0,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/dry_last/run.log"
+        },
+        "dry_first": {
+          "rc": 0,
+          "batch": 40,
+          "feature_in_head": false,
+          "head": "33715d8ce3652f1217a5db1ebd90053804c624bf",
+          "origin": "33715d8ce3652f1217a5db1ebd90053804c624bf",
+          "status": "",
+          "bump_total": 0,
+          "merge_total": 0,
+          "push_total": 0,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/dry_first/run.log"
+        },
+        "dry_resume_unmerged": {
+          "rc": 8,
+          "batch": 40,
+          "feature_in_head": false,
+          "head": "7e83baedc22313d430a021c6a1e0d315f83e0cef",
+          "origin": "7e83baedc22313d430a021c6a1e0d315f83e0cef",
+          "status": "",
+          "bump_total": 0,
+          "merge_total": 0,
+          "push_total": 0,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/dry_resume_unmerged/run.log"
+        },
+        "dry_resume_merged": {
+          "rc": 0,
+          "batch": 40,
+          "feature_in_head": true,
+          "head": "394c60f921a840ee1802a33a01e279508340cf13",
+          "origin": "ed574e19d8c02f9b71be481a5d164e989b59e0d8",
+          "status": "",
+          "bump_total": 0,
+          "merge_total": 0,
+          "push_total": 0,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/dry_resume_merged/run.log"
+        },
+        "sha_fail_all": {
+          "rc": 0,
+          "batch": 41,
+          "feature_in_head": true,
+          "head": "d6b5151c85b2c7a34b3edb90f872253eb078e069",
+          "origin": "d6b5151c85b2c7a34b3edb90f872253eb078e069",
+          "status": "",
+          "bump_total": 1,
+          "merge_total": 1,
+          "push_total": 1,
+          "reexec_banners": 0,
+          "warn_start": true,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/sha_fail_all/run.log"
+        },
+        "sha_fail_start": {
+          "rc": 0,
+          "batch": 41,
+          "feature_in_head": true,
+          "head": "6608290d1654bd299394b58d898611a71571a99a",
+          "origin": "6608290d1654bd299394b58d898611a71571a99a",
+          "status": "",
+          "bump_total": 1,
+          "merge_total": 1,
+          "push_total": 1,
+          "reexec_banners": 0,
+          "warn_start": true,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/sha_fail_start/run.log"
+        },
+        "sha_fail_after": {
+          "rc": 0,
+          "batch": 41,
+          "feature_in_head": true,
+          "head": "72d11c01f62c063a71796aaf47d448e710224a12",
+          "origin": "72d11c01f62c063a71796aaf47d448e710224a12",
+          "status": "",
+          "bump_total": 1,
+          "merge_total": 1,
+          "push_total": 1,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": true,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/sha_fail_after/run.log"
+        },
+        "fallback_sha256sum": {
+          "rc": 0,
+          "batch": 41,
+          "feature_in_head": true,
+          "head": "41973a8f09d8cb6d458ac1d9d07efea393e2e5b5",
+          "origin": "41973a8f09d8cb6d458ac1d9d07efea393e2e5b5",
+          "status": "",
+          "bump_total": 1,
+          "merge_total": 1,
+          "push_total": 1,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/fallback_sha256sum/run.log"
+        },
+        "fallback_cksum": {
+          "rc": 0,
+          "batch": 41,
+          "feature_in_head": true,
+          "head": "61330df57cc3a2c040c3becd0cc07874504a5e41",
+          "origin": "61330df57cc3a2c040c3becd0cc07874504a5e41",
+          "status": "",
+          "bump_total": 1,
+          "merge_total": 1,
+          "push_total": 1,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/fallback_cksum/run.log"
+        },
+        "second_update": {
+          "rc": 8,
+          "batch": 40,
+          "feature_in_head": true,
+          "head": "8591d4a922ea559c5a0e0a219b502ccaf8d1268a",
+          "origin": "73a100d235a3efe537fe103a54c113f615b3beb3",
+          "status": " M scripts/main-merge.sh",
+          "bump_total": 0,
+          "merge_total": 1,
+          "push_total": 0,
+          "reexec_banners": 2,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/second_update/run.log"
+        },
+        "new_pre_gate": {
+          "rc": 41,
+          "batch": 40,
+          "feature_in_head": true,
+          "head": "980c5b5a8685fd99003a64ac85d55be902a6f123",
+          "origin": "1173a2d5d300c15ad039fdd488f390cb379bf50d",
+          "status": "",
+          "bump_total": 0,
+          "merge_total": 1,
+          "push_total": 0,
+          "reexec_banners": 1,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/new_pre_gate/run.log"
+        },
+        "push_retry": {
+          "rc": 0,
+          "batch": 41,
+          "feature_in_head": true,
+          "head": "cd88d06df6f3fb3eaa0c24829fccc621868d779f",
+          "origin": "cd88d06df6f3fb3eaa0c24829fccc621868d779f",
+          "status": "",
+          "bump_total": 1,
+          "merge_total": 1,
+          "push_total": 2,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_retry/run.log"
+        },
+        "push_race": {
+          "rc": 0,
+          "batch": 41,
+          "feature_in_head": false,
+          "head": "f3314bf37e8f37789ad1e0450d1c4d670af819f7",
+          "origin": "f3314bf37e8f37789ad1e0450d1c4d670af819f7",
+          "status": "",
+          "bump_total": 1,
+          "merge_total": 1,
+          "push_total": 2,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_race/run.log"
+        },
+        "push_fail_restart": {
+          "failed": {
+            "rc": 1,
+            "batch": 41,
+            "feature_in_head": true,
+            "head": "bfa1b82e158beac32edc98157a37ef2cdc51908d",
+            "origin": "f64daea30ceaac9123ac374559e0fd28d7c3488a",
+            "status": "",
+            "bump_total": 1,
+            "merge_total": 1,
+            "push_total": 2,
+            "reexec_banners": 0,
+            "warn_start": false,
+            "warn_after": false,
+            "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_fail_restart/failed.log"
+          },
+          "restart": {
+            "rc": 0,
+            "batch": 42,
+            "feature_in_head": true,
+            "head": "776fe1685658e355c51da2d2028aadc339c58dc6",
+            "origin": "776fe1685658e355c51da2d2028aadc339c58dc6",
+            "status": "",
+            "bump_total": 2,
+            "merge_total": 2,
+            "push_total": 3,
+            "reexec_banners": 0,
+            "warn_start": false,
+            "warn_after": false,
+            "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_fail_restart/restart.log"
+          }
+        },
+        "push_race_fail_resume": {
+          "failed": {
+            "rc": 1,
+            "batch": 41,
+            "feature_in_head": false,
+            "head": "38719142e17855d860f2fcb534d7548fd731f453",
+            "origin": "01130d14ee20910c80ffd145ce02ec5a52dff63e",
+            "status": "",
+            "bump_total": 1,
+            "merge_total": 1,
+            "push_total": 2,
+            "reexec_banners": 0,
+            "warn_start": false,
+            "warn_after": false,
+            "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_race_fail_resume/failed.log"
+          },
+          "resume": {
+            "rc": 8,
+            "batch": 41,
+            "feature_in_head": false,
+            "head": "38719142e17855d860f2fcb534d7548fd731f453",
+            "origin": "01130d14ee20910c80ffd145ce02ec5a52dff63e",
+            "status": "",
+            "bump_total": 1,
+            "merge_total": 1,
+            "push_total": 2,
+            "reexec_banners": 0,
+            "warn_start": false,
+            "warn_after": false,
+            "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_race_fail_resume/resume.log"
+          },
+          "restart": {
+            "rc": 0,
+            "batch": 42,
+            "feature_in_head": true,
+            "head": "0f8af88b2c2ed57fade32a025c165c64709cc0a3",
+            "origin": "0f8af88b2c2ed57fade32a025c165c64709cc0a3",
+            "status": "",
+            "bump_total": 2,
+            "merge_total": 2,
+            "push_total": 3,
+            "reexec_banners": 0,
+            "warn_start": false,
+            "warn_after": false,
+            "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_race_fail_resume/restart.log"
+          }
+        },
+        "unregistered_html": {
+          "rc": 6,
+          "batch": 41,
+          "feature_in_head": true,
+          "head": "6e6891208121603397764d54072347a5d6a9425e",
+          "origin": "13767d33fd2d1af4023db3b268e7ba3789ebedda",
+          "status": "M  static-site/__build.json\nM  static-site/about.html\nM  static-site/app.min.js\nM  static-site/changelog.json\nM  static-site/common.min.js\nM  static-site/databrief.html\n M static-site/future.html\nM  static-site/guide.html\nM  static-site/index.html\nM  static-site/kelly-reports-content.min.js\nM  static-site/kelly-review-notes.min.js\nM  static-site/lab.min.css\nM  static-site/lab.min.js\nM  static-site/privacy.html\nM  static-site/purpose-notes.min.js\nM  static-site/style.min.css\nM  static-site/sw.js\nM  static-site/trade_sim.html",
+          "bump_total": 1,
+          "merge_total": 1,
+          "push_total": 0,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/unregistered_html/run.log"
+        },
+        "guard_restart_still_blocks": {
+          "rc": 6,
+          "batch": 42,
+          "feature_in_head": true,
+          "head": "6e6891208121603397764d54072347a5d6a9425e",
+          "origin": "13767d33fd2d1af4023db3b268e7ba3789ebedda",
+          "status": "M  static-site/__build.json\nM  static-site/about.html\nM  static-site/app.min.js\nM  static-site/changelog.json\nM  static-site/common.min.js\nM  static-site/databrief.html\nMM static-site/future.html\nM  static-site/guide.html\nM  static-site/index.html\nM  static-site/kelly-reports-content.min.js\nM  static-site/kelly-review-notes.min.js\nM  static-site/lab.min.css\nM  static-site/lab.min.js\nM  static-site/privacy.html\nM  static-site/purpose-notes.min.js\nM  static-site/style.min.css\nM  static-site/sw.js\nM  static-site/trade_sim.html",
+          "bump_total": 2,
+          "merge_total": 1,
+          "push_total": 0,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/unregistered_html/resume_staged.log"
+        },
+        "staged_only": {
+          "rc": 0,
+          "batch": 40,
+          "feature_in_head": true,
+          "head": "dd36727d23f39596d022fb1cc63edfb5638caec5",
+          "origin": "dd36727d23f39596d022fb1cc63edfb5638caec5",
+          "status": "M  static-site/__build.json",
+          "bump_total": 0,
+          "merge_total": 1,
+          "push_total": 1,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/staged_only/run.log"
+        },
+        "unknown_only": {
+          "rc": 0,
+          "batch": 40,
+          "feature_in_head": true,
+          "head": "c7df7a85d0fc635e55f9a9cd2d05ad1bd7d4ec1e",
+          "origin": "c7df7a85d0fc635e55f9a9cd2d05ad1bd7d4ec1e",
+          "status": " M static-site/future.html",
+          "bump_total": 0,
+          "merge_total": 1,
+          "push_total": 1,
+          "reexec_banners": 0,
+          "warn_start": false,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/unknown_only/run.log"
+        }
+      },
+      "supplemental": {
+        "all_hash_commands_absent": {
+          "rc": 0,
+          "batch": 41,
+          "feature_in_head": true,
+          "head": "9136d94801acba8814a2f04277eefaa3a2018843",
+          "origin": "9136d94801acba8814a2f04277eefaa3a2018843",
+          "status": "",
+          "bump_total": 1,
+          "merge_total": 1,
+          "push_total": 1,
+          "reexec_banners": 0,
+          "warn_start": true,
+          "warn_after": false,
+          "log": "/private/tmp/codex-reports/recheck-20261105-afternoon/fixture-extra/all_hash_commands_absent/run.log"
+        },
+        "command_deny_probes": {
+          "curl_denied": 97,
+          "foreign_repo_denied": 97,
+          "external_remote_denied": 97
+        }
+      }
+    },
+    {
+      "id": "verification_limits",
+      "status": "NOT_EXECUTED",
+      "detail": [
+        "未跑全仓 pytest；fixture pytest/import 均为显式桩。",
+        "未验证真实 terser/rcssmin 的压缩正确性或其它现有门禁内容；只验证其调用位置和发布状态机。",
+        "未连接远端、未核实线上产物/云上 pull/CI 结论；SSH/CI 为桩。",
+        "pre-merge 新门禁不能提前阻止本次 local merge，这一限制与注释的防护边界一致；exec 后从头重跑也会执行新版前半段，可能在同一调用中拦住后续 push，并非必等下一次调用才执行。",
+        "SHA 降级按 command -v 可用性选择工具；已安装工具运行失败不会继续尝试下一种。全失败/全缺失均仅告警放行，是当前约定，不在本轮擅自改成 fail-closed。"
+      ]
+    },
+    {
+      "id": "repo_final_state",
+      "status": "PASS",
+      "detail": "结束前只读复核 main 仍为固定全 SHA，branch=main，git status --porcelain 为空，req refs 仍为空。未改仓库源码/refs；没有 repo commit/push、ready、通知或 Claude 启动调用。/tmp fixture 内的 commit/push 均仅到新建本地 bare origin。"
+    }
+  ],
+  "trace": {
+    "requirement": "只读验收发布工具链；重点 reviewer 尾项 dry-run/resume、SHA 失败、防循环、pre-merge 门禁、push 恢复及 BUMP_PRODUCTS/残留守卫。",
+    "commits": {
+      "32785ab20": {
+        "sha": "32785ab20959cf5e53edc3944fd828b36fdbe5bc",
+        "parents": [
+          "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e"
+        ],
+        "subject": "fix(main-merge): BUMP_PRODUCTS 补 __build.json/databrief/trade_sim + bump 产物残留守卫",
+        "contained_in_head": true
+      },
+      "fd81b824f": {
+        "sha": "fd81b824f1c4d7effb044ded29a60eeb642fc05f",
+        "parents": [
+          "897b566242c19e0ecce09f01314c42ca9a2a2acb",
+          "32785ab20959cf5e53edc3944fd828b36fdbe5bc"
+        ],
+        "subject": "merge(feat/feat/fix-bump-products-20261105): 统一入口合并 feat/fix-bump-products-20261105 入 main",
+        "contained_in_head": true
+      },
+      "102cdde94": {
+        "sha": "102cdde946238014ccf15f1ef58e245591f17b13",
+        "parents": [
+          "fd81b824f1c4d7effb044ded29a60eeb642fc05f"
+        ],
+        "subject": "build(统一bump): main-merge.sh 统一 build_min+bump 版本串(机制C, feat=feat/fix-bump-products-20261105)",
+        "contained_in_head": true,
+        "changed_files": [
+          "static-site/about.html",
+          "static-site/changelog.json",
+          "static-site/guide.html",
+          "static-site/index.html",
+          "static-site/privacy.html",
+          "static-site/sw.js"
+        ]
+      },
+      "c508c0a72": {
+        "sha": "c508c0a728802324860d79c2874f07cfde691026",
+        "parents": [
+          "102cdde946238014ccf15f1ef58e245591f17b13"
+        ],
+        "subject": "fix(build-id): 补齐 a657 三产物 __build.json/databrief/trade_sim(bump 漏提交,§22)",
+        "contained_in_head": true,
+        "changed_files": [
+          "static-site/__build.json",
+          "static-site/databrief.html",
+          "static-site/trade_sim.html"
+        ]
+      },
+      "5e0d90b7d": {
+        "sha": "5e0d90b7d0d1ee4f9647f6b2bab4b74d2cab6d35",
+        "parents": [
+          "102cdde946238014ccf15f1ef58e245591f17b13"
+        ],
+        "subject": "fix(main-merge): 脚本运行中被自身 merge 修改致旧逻辑残留(根治)",
+        "contained_in_head": true
+      },
+      "9acf768c7": {
+        "sha": "9acf768c7faac9e6dbac17d6e27e8f5edf371248",
+        "parents": [
+          "c508c0a728802324860d79c2874f07cfde691026",
+          "5e0d90b7d0d1ee4f9647f6b2bab4b74d2cab6d35"
+        ],
+        "subject": "merge(feat/feat/fix-main-merge-selfupdate-20261105): 统一入口合并 feat/fix-main-merge-selfupdate-20261105 入 main",
+        "contained_in_head": true
+      },
+      "a206dc06f": {
+        "sha": "a206dc06f2579dc2135256a27805929b0c09d3b6",
+        "parents": [
+          "9acf768c7faac9e6dbac17d6e27e8f5edf371248"
+        ],
+        "subject": "fix(main-merge): self_sha 全失败时醒目 warn + 注明 exec-resume 不覆盖 pre-merge 阶段(审查 NOTES ①③)",
+        "contained_in_head": true
+      },
+      "2da566961": {
+        "sha": "2da56696147b47e9ec27d44a27d02a6ac5edd78c",
+        "parents": [
+          "9acf768c7faac9e6dbac17d6e27e8f5edf371248"
+        ],
+        "subject": "docs(ledger): 新增教训 L57(发布脚本运行中被自身 merge 替换执行旧逻辑)",
+        "contained_in_head": true
+      },
+      "6c1493aea": {
+        "sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+        "parents": [
+          "a206dc06f2579dc2135256a27805929b0c09d3b6",
+          "2da56696147b47e9ec27d44a27d02a6ac5edd78c"
+        ],
+        "subject": "merge(feat/feat/ledger-l57-20261105): 统一入口合并 feat/ledger-l57-20261105 入 main",
+        "contained_in_head": true
+      }
+    },
+    "source": {
+      "scripts/main-merge.sh": {
+        "git_blob": "7e81118ae0dcde1f0ffd503811f8a76cfe895d75",
+        "sha256": "30e819c8def27280df9d23f07c05d988d47c5f300e4e058a1913bffa976d6397",
+        "bytes": 54279
+      },
+      "scripts/build_min.py": {
+        "git_blob": "7b39306533c19e8ee0cc9bc9d3c3f265736ddb1f",
+        "sha256": "207677aff53a20b12a2269b697387fc1d2b2de844a6d3836294343d0130efecc",
+        "bytes": 12609
+      },
+      "scripts/bump_asset_version.py": {
+        "git_blob": "9937388bfa8104b70b29fb1a36504d05967ed59a",
+        "sha256": "8ca003c75134ee795c92feb5177194b170c1652a5ea6d1641755dfbf4d769a61",
+        "bytes": 12178
+      },
+      "scripts/lib/ci_selfcheck.sh": {
+        "git_blob": "4ec4896e3090a4879dadae1b458ce39448301b20",
+        "sha256": "2807db7d9399d9f3b5bffbea99d579cbc4b31d11f9d5d442d3033fe93a732cc7",
+        "bytes": 9276
+      }
+    },
+    "coverage": "固定 head 的发布入口及一跳 build/bump/CI 调用边界；不扩展到线上产品验收。",
+    "initial_repository_state": "branch main；工作区干净；无 request refs；固定 SHA 与末次复核相同。"
+  },
+  "verifier": {
+    "replay_command": "python3 /tmp/codex-reports/recheck-20261105-afternoon/run_release_verifier.py --out /tmp/codex-reports/recheck-20261105-afternoon/fixture-replay-NEW",
+    "regression_script": "/tmp/codex-reports/recheck-20261105-afternoon/independent_release_verify.py",
+    "launcher": "/tmp/codex-reports/recheck-20261105-afternoon/run_release_verifier.py",
+    "profile": "/tmp/codex-reports/recheck-20261105-afternoon/release-fixture.sb",
+    "results": "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/results.json",
+    "case_count": 22,
+    "supplemental_results": "/tmp/codex-reports/recheck-20261105-afternoon/supplemental-results.json",
+    "execution_result": "fixture-run-03 exit0，22组场景断言全部满足；另有1个全hash工具缺失场景和3个命令拒绝探针通过。其间退出8/6/41/1是明确断言的边界结果，不应误读成这些产品行为均已改善。",
+    "harness_history": [
+      "run-01 self_update因夹具未提供 import pytest 桩停止；补齐后成功。",
+      "run-02 额外guard恢复实验最初预期手工stage可通过；实际再次bump使future.html重新未暂存并exit6。已按真实结果修正verifier预期，未改被审源码。",
+      "最终run-03完整执行成功；launcher仅做help/AST验证，其执行命令及隔离环境与run-03相同，未额外重复整套。"
+    ],
+    "artifact_hashes": {
+      "independent_release_verify.py": "16e78a7d2dd236572a53936c281977ad55fd146b99f7ad6c3dde9d4dff9e2801",
+      "run_release_verifier.py": "7f9e63762c0ae240cf83252805455d9ea9d0f132450eceabb98d5d7e81a353c6",
+      "release-fixture.sb": "78cae0f16ff3074c35adcb3a82bf251a15f17dbf45478e9d7e1cb89aecfa83d5"
+    },
+    "approval_note": "可复用/tmp脚本仅供Claude人工审核后迁入适当回归体系；没有改项目 tests 或 main-merge。"
+  },
+  "resolved": [
+    {
+      "id": "R1",
+      "title": "BUMP_PRODUCTS 当前写集完整，三文件遗漏已在固定 head 消除",
+      "trace": {
+        "diff_range": "32785ab20959cf5e53edc3944fd828b36fdbe5bc; scripts/main-merge.sh:726; scripts/build_min.py:39; scripts/bump_asset_version.py:208; c508c0a728802324860d79c2874f07cfde691026",
+        "linkage": "满足",
+        "user_request": "只读验收发布工具链；重点 reviewer 尾项 dry-run/resume、SHA 失败、防循环、pre-merge 门禁、push 恢复及 BUMP_PRODUCTS/残留守卫。",
+        "origin": "in-diff",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "python3 /tmp/codex-reports/recheck-20261105-afternoon/run_release_verifier.py --out /tmp/codex-reports/recheck-20261105-afternoon/fixture-replay-NEW # normal/self_update/unregistered_html",
+        "expected": "当前所有产物进入提交，新增已跟踪但未注册 HTML 被拦。",
+        "observed": "normal 的 17 项均提交，worktree 干净、bare main=local HEAD；自更新新增 future.html 已注册时提交；未注册时 exit6、push=0，打印 future.html。",
+        "artifacts": [
+          "/tmp/codex-reports/recheck-20261105-afternoon/source/manifest.json",
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/normal/run.json",
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/unregistered_html/run.log"
+        ]
+      }
+    },
+    {
+      "id": "R2",
+      "title": "自更新重载仅一次 merge 和一次 bump，fast-forward/merge commit 均成功",
+      "trace": {
+        "diff_range": "5e0d90b7d0d1ee4f9647f6b2bab4b74d2cab6d35; scripts/main-merge.sh:261; scripts/main-merge.sh:282",
+        "linkage": "满足",
+        "user_request": "只读验收发布工具链；重点 reviewer 尾项 dry-run/resume、SHA 失败、防循环、pre-merge 门禁、push 恢复及 BUMP_PRODUCTS/残留守卫。",
+        "origin": "in-diff",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "python3 /tmp/codex-reports/recheck-20261105-afternoon/run_release_verifier.py --out /tmp/codex-reports/recheck-20261105-afternoon/fixture-replay-NEW # self_update/self_update_merge_commit",
+        "expected": "磁盘新版注册表和后续逻辑在本次运行生效；不重复 merge/bump。",
+        "observed": "两种 Git 图均 rc0：exec banner=1、merge 调用=1、bump=1；新版 marker 出现，future.html 随产物提交，HEAD=bare origin 且干净。",
+        "artifacts": [
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/self_update/run.log",
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/self_update_merge_commit/run.log"
+        ]
+      }
+    },
+    {
+      "id": "R3",
+      "title": "resume 二次脚本变化非零退出，不形成 exec 循环",
+      "trace": {
+        "diff_range": "5e0d90b7d; scripts/main-merge.sh:291",
+        "linkage": "满足",
+        "user_request": "只读验收发布工具链；重点 reviewer 尾项 dry-run/resume、SHA 失败、防循环、pre-merge 门禁、push 恢复及 BUMP_PRODUCTS/残留守卫。",
+        "origin": "in-diff",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "python3 /tmp/codex-reports/recheck-20261105-afternoon/run_release_verifier.py --out /tmp/codex-reports/recheck-20261105-afternoon/fixture-replay-NEW # second_update",
+        "expected": "第二次变化 exit8；不 bump/push，不无限重启。",
+        "observed": "首次 merge 后 exec1 次；resume 的 checkout 桩注入第二次文件变化，第二个检测 banner 后 exit8，merge总数1、bump0、push0。",
+        "artifacts": [
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/second_update/run.log",
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/second_update/events.jsonl"
+        ]
+      }
+    },
+    {
+      "id": "R4",
+      "title": "SHA 启动失败、merge 后失败、所有工具缺失均醒目告警",
+      "trace": {
+        "diff_range": "a206dc06f2579dc2135256a27805929b0c09d3b6; scripts/main-merge.sh:179; scripts/main-merge.sh:301",
+        "linkage": "满足",
+        "user_request": "只读验收发布工具链；重点 reviewer 尾项 dry-run/resume、SHA 失败、防循环、pre-merge 门禁、push 恢复及 BUMP_PRODUCTS/残留守卫。",
+        "origin": "in-diff",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "python3 /tmp/codex-reports/recheck-20261105-afternoon/run_release_verifier.py --out /tmp/codex-reports/recheck-20261105-afternoon/fixture-replay-NEW # sha_fail_all/sha_fail_start/sha_fail_after/fallback_sha256sum/fallback_cksum; supplemental all_hash_commands_absent",
+        "expected": "按约定 warn、无 exec、继续；可用性 fallback 有效。",
+        "observed": "start/all failure 有 SELF_SHA_START 空告警；after failure 有 SELF_SHA_AFTER 空告警；全部工具缺失也 rc0+start告警；sha256sum/cksum 作为唯一可用实现正常，未误警。",
+        "artifacts": [
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/results.json",
+          "/tmp/codex-reports/recheck-20261105-afternoon/supplemental-results.json"
+        ]
+      }
+    },
+    {
+      "id": "R5",
+      "title": "pre-merge 的固有限制与 L57 防护位置可追溯",
+      "trace": {
+        "diff_range": "a206dc06f; scripts/main-merge.sh:163; 2da56696147b47e9ec27d44a27d02a6ac5edd78c; CLAUDE.md:164; docs/archive/CLAUDE-errors-2026-08.md:182; docs/ops/machine-check-registry.md:39",
+        "linkage": "满足",
+        "user_request": "只读验收发布工具链；重点 reviewer 尾项 dry-run/resume、SHA 失败、防循环、pre-merge 门禁、push 恢复及 BUMP_PRODUCTS/残留守卫。",
+        "origin": "in-diff",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "python3 /tmp/codex-reports/recheck-20261105-afternoon/run_release_verifier.py --out /tmp/codex-reports/recheck-20261105-afternoon/fixture-replay-NEW # new_pre_gate; read fixed-head L57 blobs",
+        "expected": "新版前置门禁不能追溯撤销已经发生的 local merge；不能把该机制声称为本次 merge 前预检。",
+        "observed": "feature 插入拒绝门禁：首次 local merge 已生效；exec 后新门禁实际运行并 exit41，feature 已在 HEAD、push0。L57 三处登记已入 head；注释关于无法提前保护 merge 正确，但“只对未来 merge 生效”应按防护时序理解，不应解释成 resume 完全不运行新版前半段。",
+        "artifacts": [
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/new_pre_gate/run.log",
+          "/tmp/codex-reports/recheck-20261105-afternoon/git-provenance.json"
+        ]
+      }
+    },
+    {
+      "id": "R6",
+      "title": "同一进程的 push 重试不重复 bump；正常及无冲突 rebase 场景未漏产物",
+      "trace": {
+        "diff_range": "scripts/main-merge.sh:759; scripts/main-merge.sh:333; scripts/main-merge.sh:735",
+        "linkage": "满足",
+        "user_request": "只读验收发布工具链；重点 reviewer 尾项 dry-run/resume、SHA 失败、防循环、pre-merge 门禁、push 恢复及 BUMP_PRODUCTS/残留守卫。",
+        "origin": "pre-existing",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "python3 /tmp/codex-reports/recheck-20261105-afternoon/run_release_verifier.py --out /tmp/codex-reports/recheck-20261105-afternoon/fixture-replay-NEW # push_retry/push_race",
+        "expected": "push1失败后 fetch/rebase/push2；build/bump/commit 不重跑、版本产物完整。",
+        "observed": "无远端变化和合成无冲突远端竞进均 rc0、push2次、bump1次、a41、worktree干净，bare HEAD 与 local HEAD 相同。race 会重写 feature SHA，见残留项 P2-2。",
+        "artifacts": [
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_retry/run.log",
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_race/run.log"
+        ]
+      }
+    }
+  ],
+  "residual": [
+    {
+      "id": "P2-1",
+      "severity": "P2",
+      "title": "dry-run + resume 时，未合入 feature 会被祖先断言拒绝",
+      "path": "scripts/main-merge.sh:261",
+      "impact": "仅组合模式的演练可用性；不会实际 merge/bump/push。dry-run 在此并不覆盖 resume 的已合入先决条件。",
+      "why": "resume 分支在 DRY_RUN 分支之前；脚本把该环境变量当内部续跑标记，而非通用演练模式。",
+      "decision_required": "由 Claude/用户决定是否支持该组合；若继续作为内部协议，可明确组合要求。没有在本轮变更行为。",
+      "fix": "若要求组合可用于未合入 feature 演练，复核现有分支优先级即可，无需新增状态机制。",
+      "trace": {
+        "diff_range": "5e0d90b7d; scripts/main-merge.sh:261",
+        "linkage": "不满足",
+        "user_request": "重点 reviewer 尾项 dry-run/resume组合",
+        "origin": "in-diff",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "python3 /tmp/codex-reports/recheck-20261105-afternoon/run_release_verifier.py --out /tmp/codex-reports/recheck-20261105-afternoon/fixture-replay-NEW # dry_resume_unmerged/dry_resume_merged",
+        "expected": "若期望 dry-run 支持未合入分支，应 exit0 且无 merge/bump/push。",
+        "observed": "unmerged+resume+dry-run 返回8；已合入组合返回0；两者 head 未变、merge/bump/push均0。普通 dry-run 两种参数顺序均 rc0。",
+        "artifacts": [
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/dry_resume_unmerged/run.log",
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/dry_resume_merged/run.json"
+        ]
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 0,
+          "rationale": "优先考虑重排既有条件/明确内部模式契约，不增包装层。"
+        }
+      ]
+    },
+    {
+      "id": "P2-2",
+      "severity": "P2",
+      "title": "push 全失败后重跑不幂等；rebase 后显式 resume 可能拒绝",
+      "path": "scripts/main-merge.sh:326",
+      "impact": "恢复会消耗额外版本批次并新增 build commit；竞进 rebase 后原 feature SHA 已非祖先，MAIN_MERGE_RESUME=1 不具备通用恢复能力。已验证的普通重跑最终提交完整，未复现三产物漏提交。",
+      "why": "CHANGED_SRC 基于 origin/main...FEAT，不依据本地已完成的 bump；origin 未接受时重跑仍判源码变化。push 恢复 rebase 会重写 feature commit，而 resume 只认原 FEAT 祖先关系。",
+      "decision_required": "由 Claude 决定“失败重跑视为新发版”是否可接受，或是否需要专门的 push-only 恢复契约；不要把自动 exec 的内部 resume 当通用失败恢复。",
+      "fix": "先确定恢复语义，优先复用已生成提交和已有 Git 状态；本轮不设计/实现新的发布状态机。",
+      "trace": {
+        "diff_range": "scripts/main-merge.sh:261; scripts/main-merge.sh:326; scripts/main-merge.sh:759; 5e0d90b7d（resume 与既有 rebase 路径交互）",
+        "linkage": "满足",
+        "user_request": "push失败后恢复是否重复bump/漏提交",
+        "origin": "pre-existing",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "python3 /tmp/codex-reports/recheck-20261105-afternoon/run_release_verifier.py --out /tmp/codex-reports/recheck-20261105-afternoon/fixture-replay-NEW # push_fail_restart/push_race_fail_resume",
+        "expected": "若承诺幂等恢复，重试应保留已生成 a41，不再 bump；resume 应能识别 rebase 后的已合入变更。",
+        "observed": "无远端变化：两 push 失败 rc1、a41、干净；普通重跑 rc0、a42、bump总2。竞进：rebase后第2 push失败；原feature不在祖先链，显式resume rc8；普通重跑成功 a42、bump总2、产物完整。",
+        "artifacts": [
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_fail_restart/failed.log",
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_fail_restart/restart.log",
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_race_fail_resume/resume.log",
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/push_race_fail_resume/restart.json"
+        ]
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 0,
+          "rationale": "若要幂等，复用本地已有 commit/既有 Git 判定，避免再增一套重试包装。"
+        }
+      ]
+    },
+    {
+      "id": "P2-3",
+      "severity": "P2",
+      "title": "残留守卫不是全局完整性闸：纯 staged 或仅未知文件修改可被跳过",
+      "path": "scripts/main-merge.sh:735",
+      "impact": "在 CHANGED_SRC 已空的恢复/重跑中，脚本可报告成功，但已暂存的已登记产物仍未提交；若只有未知 tracked static-site 文件脏，也不会进入守卫。这是条件守卫的保护边界，不否定当前17项写集或常规bump路径。",
+      "why": "外层仅检查工作区对 index 的 BUMP_PRODUCTS diff；上方 diff --cached 非空仅执行冒号。守卫又位于外层条件内部。未跟踪文件被排除是显式选择。",
+      "decision_required": "由 Claude 决定是否要求成功退出时所有既有产物 staged 状态也被处理，或要求入口干净；扩大对未知/无关修改的守卫可能改变已有不干扰工作区的约定。",
+      "fix": "若需要覆盖 staged-only 恢复，先复核现有 cached 判定及提交条件；不要未经确认改成整个工作区强制 add/commit。",
+      "trace": {
+        "diff_range": "32785ab20 的守卫新增于 scripts/main-merge.sh:745；外层 staged-only 提交条件 scripts/main-merge.sh:703/735 为既有边界",
+        "linkage": "满足",
+        "user_request": "新增BUMP_PRODUCTS/残留守卫是否覆盖当前bump真实写集",
+        "origin": "pre-existing",
+        "scope": "in-scope"
+      },
+      "verifier": {
+        "command": "python3 /tmp/codex-reports/recheck-20261105-afternoon/run_release_verifier.py --out /tmp/codex-reports/recheck-20261105-afternoon/fixture-replay-NEW # staged_only/unknown_only/unregistered_html/guard_restart_still_blocks",
+        "expected": "若将守卫承诺为全局完整性检查，应识别仍待提交产物；若仅承诺常规bump路径，应明确前提。",
+        "observed": "feature已在origin后，仅stage __build.json：rc0但M  static-site/__build.json残留；仅未知tracked future.html未暂存：rc0且残留。对比常规bump新增未注册HTML：exit6，手工stage后resume仍再bump成a42并再次exit6，未越过守卫。",
+        "artifacts": [
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/staged_only/run.log",
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/staged_only/run.json",
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/unknown_only/run.json",
+          "/tmp/codex-reports/recheck-20261105-afternoon/fixture-run-03/unregistered_html/resume_staged.log"
+        ]
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 0,
+          "rationale": "优先复用 cached/unstaged 两种原生 git diff；避免全仓 add、额外清单或新增框架。"
+        }
+      ]
+    }
+  ]
+}

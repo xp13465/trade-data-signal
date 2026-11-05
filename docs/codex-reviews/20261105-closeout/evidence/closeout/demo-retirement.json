@@ -1,0 +1,8 @@
+{
+  "id": "handoff-closeout-tool-demo-20261105-v1",
+  "action": "retired own demonstration packet into private artifact archive",
+  "archive": "/tmp/codex-reports/closeout-20261105/demo-packet-archive/handoff-closeout-tool-demo-20261105-v1.json",
+  "sha256": "cabf1dd906591b651acbe8bd2a0f9641943683499db119afd721a8d07780238a",
+  "no_ack_fabricated": true,
+  "reason": "demo was base-head publish proof, not an actionable live handoff; keep real inbox for final master packet"
+}

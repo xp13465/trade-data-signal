@@ -1,0 +1,130 @@
+[
+  {
+    "name": "near_capacity_budgets_256_tail_and_512_ups_reminder",
+    "passed": true,
+    "evidence": {
+      "PreToolUse": {
+        "events": 256,
+        "tail_emission_events": [
+          256
+        ],
+        "max_hash_attempts": 4,
+        "max_packet_reads": 4,
+        "max_report_bytes": 33554432,
+        "max_event_seconds": 0.14270750002469867,
+        "max_scan_writes": 4,
+        "no_implicit_ack": true,
+        "reserved_total_entries_with_temp": 1026
+      },
+      "UserPromptSubmit": {
+        "events": 512,
+        "tail_emission_events": [
+          256,
+          512
+        ],
+        "max_hash_attempts": 4,
+        "max_packet_reads": 4,
+        "max_report_bytes": 33554432,
+        "max_event_seconds": 0.05024083296302706,
+        "max_scan_writes": 4,
+        "no_implicit_ack": true,
+        "reserved_total_entries_with_temp": 1026
+      }
+    }
+  },
+  {
+    "name": "thirty_two_packet_metadata_budget",
+    "passed": true,
+    "evidence": {
+      "first": {
+        "hash_attempts": 0,
+        "report_reads": 0,
+        "report_bytes": 0,
+        "packet_reads": 32,
+        "packet_bytes": 18176,
+        "scan_writes": 32,
+        "scan_before_hash": true,
+        "elapsed_seconds": 0.024034957983531058,
+        "stdout": "",
+        "error": null,
+        "cursor": {
+          "e15e62b2636d893c72252a464a54b7d89f46d8e70b90df76774df47b578edf1d": "q0031"
+        }
+      },
+      "large_packets": {
+        "hash_attempts": 0,
+        "report_reads": 0,
+        "report_bytes": 0,
+        "packet_reads": 32,
+        "packet_bytes": 3858624,
+        "scan_writes": 32,
+        "scan_before_hash": true,
+        "elapsed_seconds": 0.025800917064771056,
+        "stdout": "",
+        "error": null,
+        "cursor": {
+          "e15e62b2636d893c72252a464a54b7d89f46d8e70b90df76774df47b578edf1d": "q0063"
+        }
+      }
+    }
+  },
+  {
+    "name": "all_failed_report_kinds_consume_hash_slots",
+    "passed": true,
+    "evidence": {
+      "first_event": {
+        "hash_attempts": 4,
+        "report_reads": 1,
+        "report_bytes": 5,
+        "packet_reads": 4,
+        "packet_bytes": 2290,
+        "scan_writes": 4,
+        "scan_before_hash": true,
+        "elapsed_seconds": 0.013518125051632524,
+        "stdout": "",
+        "error": null,
+        "cursor": {
+          "e15e62b2636d893c72252a464a54b7d89f46d8e70b90df76774df47b578edf1d": "q0003"
+        }
+      },
+      "next_event_tail": true,
+      "second_event_attempts": 4
+    }
+  },
+  {
+    "name": "scan_write_failures_no_hash_no_output_no_ack",
+    "passed": true,
+    "evidence": {
+      "write_failures": [
+        {
+          "fault": "fsync",
+          "returncode": 0,
+          "hash_calls": 0,
+          "stdout": "",
+          "packet_and_cursor_unchanged": true
+        },
+        {
+          "fault": "replace",
+          "returncode": 0,
+          "hash_calls": 0,
+          "stdout": "",
+          "packet_and_cursor_unchanged": true
+        }
+      ],
+      "symlink_cursor_silent": true,
+      "symlink_target_unchanged": true
+    }
+  },
+  {
+    "name": "interrupted_hash_persists_cursor_and_continues",
+    "passed": true,
+    "evidence": {
+      "interrupted_event_cursors": [
+        "a-first",
+        "b-second"
+      ],
+      "normal_next_event_first_output": "c-good",
+      "bound_interpretation": "256 applies to normally completed budget loops; interrupted events advance at least past attempted packet, not asserted within256"
+    }
+  }
+]

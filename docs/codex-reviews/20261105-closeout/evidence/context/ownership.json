@@ -1,0 +1,28 @@
+{
+  "user_authorization": "做（承接四项：回归补测、台账对账、清理核验、通知回执闭环）",
+  "base": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "worktrees": {
+    "closeout": {
+      "branch": "codex/collab-closeout-20261105",
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/codex-collab-closeout-20261105"
+    },
+    "regressions": {
+      "branch": "codex/notify-regressions-20261105",
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/codex-notify-regressions-20261105"
+    }
+  },
+  "protected": [
+    "main",
+    "feat/fix-258-s06-budget",
+    "codex/*",
+    "任何脏worktree/进程占用路径",
+    "所有远端分支"
+  ],
+  "ownership": {
+    "codex_handoff": "closeout分支自研脚本/hooks/tests/文档，待Claude审合",
+    "backend_regressions": "独立tests-only分支，当前故障用例预期红，等Claude业务修复配套",
+    "docs": "closeout分支只更新366-370事实状态和报告，不触371/372政策",
+    "cleanup": "完整备份/恢复验证后才清理本地已合分支和完成worktree；stash只核验备份保留"
+  },
+  "no_live_hook_install": "仅feature分支准备接入，Claude主worktree/global配置不改；不启动新Claude消费者/不宣称已接通"
+}

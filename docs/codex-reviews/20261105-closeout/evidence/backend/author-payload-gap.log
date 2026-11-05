@@ -1,0 +1,4 @@
+.                                                                        [100%]
+1 passed in 0.03s
+AUTHOR_PAYLOAD_GAP={"pytest_rc": 0, "in_memory_payload_mutation": [{"had_new_key": true, "removed_new_key": true}], "source_files_modified": false}
+INDEPENDENT_GUARD_HITS=[]

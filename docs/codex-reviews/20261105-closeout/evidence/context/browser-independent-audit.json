@@ -1,0 +1,66 @@
+{
+  "source_ref_is_fixed_M": true,
+  "source_hashes": {
+    "lab.js": {
+      "browser_sha256": "b83e694b38b4461c4faa71e343d04d7bb741eab8eeb763db83e8a751c989a903",
+      "fixed_M_sha256": "b83e694b38b4461c4faa71e343d04d7bb741eab8eeb763db83e8a751c989a903",
+      "equal": true
+    },
+    "app.js": {
+      "browser_sha256": "d7d0d842a1a21606896ab2f48ff506883ec38001e1882793a779fe5e35f2b663",
+      "fixed_M_sha256": "d7d0d842a1a21606896ab2f48ff506883ec38001e1882793a779fe5e35f2b663",
+      "equal": true
+    },
+    "index.html": {
+      "browser_sha256": "8bcef4169e5be929cc1b36b71ba8f1f7fef181ce83120ca46ae20134c881f0e5",
+      "fixed_M_sha256": "8bcef4169e5be929cc1b36b71ba8f1f7fef181ce83120ca46ae20134c881f0e5",
+      "equal": true
+    },
+    "common.js": {
+      "browser_sha256": "204cbc4b4b92811f18b6bfb69a9e50f5a82689548cb7dfa218745454acb3e9fa",
+      "fixed_M_sha256": "204cbc4b4b92811f18b6bfb69a9e50f5a82689548cb7dfa218745454acb3e9fa",
+      "equal": true
+    }
+  },
+  "result_count": 46,
+  "unique_keys": 46,
+  "profile_counts": {
+    "desktop": 23,
+    "mobile": 23
+  },
+  "browser_runs": [
+    {
+      "browser": "chromium",
+      "status": "已运行",
+      "version": "147.0.7727.15"
+    },
+    {
+      "browser": "webkit",
+      "status": "未验",
+      "reason": "未安装，按要求不安装"
+    }
+  ],
+  "passed": 46,
+  "failed": 0,
+  "fatal": null,
+  "errors": [],
+  "page_error_count": 0,
+  "unhandled_error_count": 0,
+  "active_timer_sum": 0,
+  "external_requests_blocked": [],
+  "all_fetch_destinations_local": true,
+  "total_native_fetches": 86,
+  "only_null_or_fixture_authorization": true,
+  "screenshot_count": 46,
+  "screenshot_errors": [],
+  "cleanup": {
+    "serverListening": false,
+    "pendingResponses": 0,
+    "sockets": 0
+  },
+  "raw_harness_labels": {
+    "kind": "implementation-self-check",
+    "independentReview": false
+  },
+  "timing_note": "应用 setTimeout 按比例缩放；fetch/响应正文/AbortController 均为浏览器原生。手机 viewport 为模拟视口；未验真机及实际 15/60 秒 SLA。"
+}

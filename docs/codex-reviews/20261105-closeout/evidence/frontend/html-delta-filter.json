@@ -1,0 +1,62 @@
+[
+  {
+    "name": "root",
+    "prefix_bytes_equal": 40895,
+    "suffix_bytes_equal": 15,
+    "inserted_bytes": 1114,
+    "removed_bytes": 0,
+    "inserted_sha256": "9e215c56bff1f7a81fb991d65b245d7e4e60e4488d7893afbdeb7d561d371cfe",
+    "inserted_script_sources": [],
+    "insert_only": true,
+    "same_after_removing_insertion": true,
+    "beacon_marker": false,
+    "rum_marker": false,
+    "insertion_head": "script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var",
+    "challenge_platform_script_path_present": true,
+    "challenge_params_present": true,
+    "injected_script_paths": [
+      "/cdn-cgi/challenge-platform/scripts/jsd/main.js"
+    ],
+    "interpretation": "Cloudflare edge JS detection injection inferred from challenge-platform jsd path, CF params and server header; exact original source recovered by removing sole insertion"
+  },
+  {
+    "name": "databrief",
+    "prefix_bytes_equal": 19181,
+    "suffix_bytes_equal": 15,
+    "inserted_bytes": 1114,
+    "removed_bytes": 0,
+    "inserted_sha256": "fdad0a3981b0b474b01370a66cbd77f36f3dce04daec0a942119321d88aa0c38",
+    "inserted_script_sources": [],
+    "insert_only": true,
+    "same_after_removing_insertion": true,
+    "beacon_marker": false,
+    "rum_marker": false,
+    "insertion_head": "script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var",
+    "challenge_platform_script_path_present": true,
+    "challenge_params_present": true,
+    "injected_script_paths": [
+      "/cdn-cgi/challenge-platform/scripts/jsd/main.js"
+    ],
+    "interpretation": "Cloudflare edge JS detection injection inferred from challenge-platform jsd path, CF params and server header; exact original source recovered by removing sole insertion"
+  },
+  {
+    "name": "trade_sim",
+    "prefix_bytes_equal": 2547741,
+    "suffix_bytes_equal": 14,
+    "inserted_bytes": 1114,
+    "removed_bytes": 0,
+    "inserted_sha256": "cb7b745ebcabbd85557047d3ac24f64a84f8a8bfc7cc45754f084eb87a7b7332",
+    "inserted_script_sources": [],
+    "insert_only": true,
+    "same_after_removing_insertion": true,
+    "beacon_marker": false,
+    "rum_marker": false,
+    "insertion_head": "script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var",
+    "challenge_platform_script_path_present": true,
+    "challenge_params_present": true,
+    "injected_script_paths": [
+      "/cdn-cgi/challenge-platform/scripts/jsd/main.js"
+    ],
+    "interpretation": "Cloudflare edge JS detection injection inferred from challenge-platform jsd path, CF params and server header; exact original source recovered by removing sole insertion"
+  }
+]

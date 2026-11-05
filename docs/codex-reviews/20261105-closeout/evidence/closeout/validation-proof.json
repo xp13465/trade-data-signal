@@ -1,0 +1,12 @@
+{
+  "green_full_log_sha256": "5b19ba48f9d1e2a29dc7850fd55c3fcf789b61eeafc661ec0bc854df654566cd",
+  "green_full_junit_sha256": "1284c11df6a8a4ee125e0d4bd77e64e9f3e554f104ff64ceeff98eca66ccfffa",
+  "red_full_log_sha256": "82dcbc2e53e67134aa9a43550500afc9898a79c59d39ba6eecc0e9c49def96b2",
+  "red_full_junit_sha256": "f562dd2dfb98aba28d126dda0f40acf3b1e134f0fb244fa0b967f06f258bc917",
+  "three_frozen_source_sha256": {
+    "scripts/codex_handoff.py": "5e78754782f708c1a38fa367e0ae5103b5b642106f3016b8c43e308ca31d5928",
+    "scripts/tests/test_codex_handoff.py": "4629355b904c29807a8394710b36fe2ffde8dd116af3c7bf08a6934982366496",
+    ".claude/settings.json": "e484e439c77af4ca7148860b67b6c639b969b7b5de7e2d5c89c561095ac2ced8"
+  },
+  "notes": "Logs/JUnit under /tmp original evidence; durable test modules + compact results archived; no raw production data."
+}

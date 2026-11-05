@@ -8,6 +8,15 @@
             "command": "python3 /Users/linhuichen/code/trade/scripts/feishu_chat_hook.py user"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/scripts/codex_handoff.py\" hook",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "Stop": [
@@ -16,6 +25,18 @@
           {
             "type": "command",
             "command": "python3 /Users/linhuichen/code/trade/scripts/feishu_chat_hook.py assistant"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/scripts/codex_handoff.py\" hook",
+            "timeout": 5
           }
         ]
       }

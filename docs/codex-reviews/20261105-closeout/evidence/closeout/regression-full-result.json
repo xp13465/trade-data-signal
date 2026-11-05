@@ -1,0 +1,113 @@
+{
+  "returncode": 1,
+  "duration_seconds": 269.51,
+  "source_unchanged": true,
+  "failed_cases": [
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[stat-0600-result]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[stat-0600-latest]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[stat-0600-state]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[stat-0600-warning_dedup]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[stat-0600-digest_state]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[stat-0640-result]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[stat-0640-latest]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[stat-0640-state]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[stat-0640-warning_dedup]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[stat-0640-digest_state]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[chmod-0600-result]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[chmod-0600-latest]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[chmod-0600-state]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[chmod-0600-warning_dedup]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[chmod-0600-digest_state]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[chmod-0640-result]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[chmod-0640-latest]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[chmod-0640-state]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[chmod-0640-warning_dedup]"
+    },
+    {
+      "classname": "scripts.tests.test_codex_notify_closeout_regressions",
+      "name": "test_metadata_error_keeps_existing_bytes_and_mode[chmod-0640-digest_state]"
+    }
+  ],
+  "only_known_module_failed": true,
+  "tail": [
+    "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+    "=========================== short test summary info ============================",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[stat-0600-result]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[stat-0600-latest]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[stat-0600-state]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[stat-0600-warning_dedup]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[stat-0600-digest_state]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[stat-0640-result]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[stat-0640-latest]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[stat-0640-state]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[stat-0640-warning_dedup]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[stat-0640-digest_state]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[chmod-0600-result]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[chmod-0600-latest]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[chmod-0600-state]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[chmod-0600-warning_dedup]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[chmod-0600-digest_state]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[chmod-0640-result]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[chmod-0640-latest]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[chmod-0640-state]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[chmod-0640-warning_dedup]",
+    "FAILED scripts/tests/test_codex_notify_closeout_regressions.py::test_metadata_error_keeps_existing_bytes_and_mode[chmod-0640-digest_state]",
+    "20 failed, 2358 passed, 3 skipped, 1 warning in 268.93s (0:04:28)"
+  ]
+}

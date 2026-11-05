@@ -1,0 +1,42 @@
+[
+  {
+    "path": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck.json",
+    "sha256": "708aa51a71bed7a50c78391dce7c8002f27083e2210f4b169100aece2b0297ea"
+  },
+  {
+    "path": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/probe.py",
+    "sha256": "58c271c84305e5375af846d8f11f59c0d09aaa452cf4a279052ba91ad8b948cb"
+  },
+  {
+    "path": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/boundary_probe.py",
+    "sha256": "9646185cd13533ad82863a1ab564cd27cf66e737d57c787545f6bceab9ef250b"
+  },
+  {
+    "path": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/perf_probe.py",
+    "sha256": "42271880887340bdbf9bba33b8f75d0ccfcb9ccded12790d269248ee9c43c226"
+  },
+  {
+    "path": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/reproduce-valid-tail.py",
+    "sha256": "8eec1857df40e0e7227051339c3b00b534cf217267f13ab5b0dc7963e5bfbd3b"
+  },
+  {
+    "path": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/probe-results.json",
+    "sha256": "3249310ff8c30edbf504029021ad8498a678770a5a1c3d5f2c9a9c1d76a6c510"
+  },
+  {
+    "path": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/boundary-results.json",
+    "sha256": "77e673c27b81bcbf4f82434667bcc73140ab0c6d3a73bb69b96d9824fc650b70"
+  },
+  {
+    "path": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/perf-results.json",
+    "sha256": "6c5aca936c7eb9b75c48a3096e50ce10aa6f0c31572709965788baea120b3cd2"
+  },
+  {
+    "path": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/perf-valid-tail-results.json",
+    "sha256": "cf91bd288549a56091fd0875cd110356361bf01d0d91f00d9e01926640d0987e"
+  },
+  {
+    "path": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/frozen/manifest.json",
+    "sha256": "8c91a5b9fddc3333514692b7d602384a4c6d9780eaafb3cdb7631588dd5935b4"
+  }
+]

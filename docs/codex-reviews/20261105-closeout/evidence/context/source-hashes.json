@@ -1,0 +1,42 @@
+{
+  "app.js": {
+    "sha256": "d7d0d842a1a21606896ab2f48ff506883ec38001e1882793a779fe5e35f2b663",
+    "git_blob": "c2d3bb9795a28f6e397e204d3257dbce53d97dc1"
+  },
+  "lab.js": {
+    "sha256": "b83e694b38b4461c4faa71e343d04d7bb741eab8eeb763db83e8a751c989a903",
+    "git_blob": "f59e91db8a5f9510d27cb1ceb5c73175d718f980"
+  },
+  "common.js": {
+    "sha256": "204cbc4b4b92811f18b6bfb69a9e50f5a82689548cb7dfa218745454acb3e9fa",
+    "git_blob": "00431c2bd1b86c6bb2ccbd69a4f331e547a0a7f6"
+  },
+  "index.html": {
+    "sha256": "8bcef4169e5be929cc1b36b71ba8f1f7fef181ce83120ca46ae20134c881f0e5",
+    "git_blob": "194abf37a2e77dbe889ccce62c1323417892feeb"
+  },
+  "app.min.js": {
+    "sha256": "ce6a06bd2611eef2e17c22e9d217faead8c994b2f04e509ef0d13616ec8fbe2d",
+    "git_blob": "54e36f41093b2584f0ceeb4a0b47d7285b9b18db"
+  },
+  "lab.min.js": {
+    "sha256": "50cb041cf9bb184697d49d8afdf0bb845efef49d0790419930932232a823f739",
+    "git_blob": "239f9504e0f1d2aeb55e7bdfddec8b7f672c56d0"
+  },
+  "sw.js": {
+    "sha256": "5aa21dbdc45fbcfd6206ea55fcedf98dd188423ba5078dc74b3b11ad9b159d94",
+    "git_blob": "11660c7af83dc984991ab94bbec8b3a883e96b45"
+  },
+  "__build.json": {
+    "sha256": "e6f791f28d6afe3480d85fa8131bdc1364a78416a7a5665571a976b8aa538871",
+    "git_blob": "9ba067101062df998a9cad5bc47dccd89d071740"
+  },
+  "databrief.html": {
+    "sha256": "696566ea8930861c3f31ec69e89cc6ec23f7683683d88e25e29506cefc7a7fb7",
+    "git_blob": "f56af5a42ce07462d9ee1c055653ecc31df9464e"
+  },
+  "trade_sim.html": {
+    "sha256": "7faa9e70c1cc544815166ef45ab5447558ed88f0739a963e95969361c20858a4",
+    "git_blob": "91cfedcc47e19ae220df88ccd0a6eb88ba2be73e"
+  }
+}

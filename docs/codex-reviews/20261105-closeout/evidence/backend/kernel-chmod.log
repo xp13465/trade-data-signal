@@ -1,0 +1,2 @@
+{"kernel_chmod_denied": true, "return": true, "before_mode": "0o600", "after_mode": "0o644", "published": true, "fault_model": "controlled macOS sandbox denies chmod only; rename remains real and allowed"}
+INDEPENDENT_GUARD_HITS=[]

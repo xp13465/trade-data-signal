@@ -1,0 +1,504 @@
+[
+  {
+    "id": "fof-base-ABORT",
+    "failed_fund_exactly_restored": false,
+    "failed_fund_before": [
+      {
+        "date": "20000101",
+        "fund_code": "000002",
+        "fund_name": "historic",
+        "unit_nav": 33.0,
+        "acc_nav": 44.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      },
+      {
+        "date": "20261105",
+        "fund_code": "000002",
+        "fund_name": "keep-null",
+        "unit_nav": null,
+        "acc_nav": 99.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      }
+    ],
+    "failed_fund_after": [
+      {
+        "date": "20000101",
+        "fund_code": "000002",
+        "fund_name": "historic",
+        "unit_nav": 33.0,
+        "acc_nav": 44.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      },
+      {
+        "date": "20261104",
+        "fund_code": "000002",
+        "fund_name": "fund2",
+        "unit_nav": 1.25,
+        "acc_nav": 1.55,
+        "prev_unit_nav": 1.25,
+        "nav_change_pct": 0.8
+      },
+      {
+        "date": "20261105",
+        "fund_code": "000002",
+        "fund_name": "keep-null",
+        "unit_nav": 1.25,
+        "acc_nav": 99.0,
+        "prev_unit_nav": 1.25,
+        "nav_change_pct": 0.8
+      }
+    ],
+    "successful_prior_and_next": [
+      "000001",
+      "000003"
+    ],
+    "written": 2,
+    "partial_batch_failed": false,
+    "retry_requested": [],
+    "retry_written": 0,
+    "rollback_sql_count": 0
+  },
+  {
+    "id": "fof-base-FAIL",
+    "failed_fund_exactly_restored": false,
+    "failed_fund_before": [
+      {
+        "date": "20000101",
+        "fund_code": "000002",
+        "fund_name": "historic",
+        "unit_nav": 33.0,
+        "acc_nav": 44.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      },
+      {
+        "date": "20261105",
+        "fund_code": "000002",
+        "fund_name": "keep-null",
+        "unit_nav": null,
+        "acc_nav": 99.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      }
+    ],
+    "failed_fund_after": [
+      {
+        "date": "20000101",
+        "fund_code": "000002",
+        "fund_name": "historic",
+        "unit_nav": 33.0,
+        "acc_nav": 44.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      },
+      {
+        "date": "20261104",
+        "fund_code": "000002",
+        "fund_name": "fund2",
+        "unit_nav": 1.25,
+        "acc_nav": 1.55,
+        "prev_unit_nav": 1.25,
+        "nav_change_pct": 0.8
+      },
+      {
+        "date": "20261105",
+        "fund_code": "000002",
+        "fund_name": "keep-null",
+        "unit_nav": 1.25,
+        "acc_nav": 99.0,
+        "prev_unit_nav": 1.25,
+        "nav_change_pct": 0.8
+      }
+    ],
+    "successful_prior_and_next": [
+      "000001",
+      "000003"
+    ],
+    "written": 2,
+    "partial_batch_failed": false,
+    "retry_requested": [],
+    "retry_written": 0,
+    "rollback_sql_count": 0
+  },
+  {
+    "id": "fof-head-ABORT",
+    "failed_fund_exactly_restored": true,
+    "failed_fund_before": [
+      {
+        "date": "20000101",
+        "fund_code": "000002",
+        "fund_name": "historic",
+        "unit_nav": 33.0,
+        "acc_nav": 44.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      },
+      {
+        "date": "20261105",
+        "fund_code": "000002",
+        "fund_name": "keep-null",
+        "unit_nav": null,
+        "acc_nav": 99.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      }
+    ],
+    "failed_fund_after": [
+      {
+        "date": "20000101",
+        "fund_code": "000002",
+        "fund_name": "historic",
+        "unit_nav": 33.0,
+        "acc_nav": 44.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      },
+      {
+        "date": "20261105",
+        "fund_code": "000002",
+        "fund_name": "keep-null",
+        "unit_nav": null,
+        "acc_nav": 99.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      }
+    ],
+    "successful_prior_and_next": [
+      "000001",
+      "000003"
+    ],
+    "written": 2,
+    "partial_batch_failed": false,
+    "retry_requested": [
+      "000002"
+    ],
+    "retry_written": 3,
+    "rollback_sql_count": 1
+  },
+  {
+    "id": "fof-head-FAIL",
+    "failed_fund_exactly_restored": true,
+    "failed_fund_before": [
+      {
+        "date": "20000101",
+        "fund_code": "000002",
+        "fund_name": "historic",
+        "unit_nav": 33.0,
+        "acc_nav": 44.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      },
+      {
+        "date": "20261105",
+        "fund_code": "000002",
+        "fund_name": "keep-null",
+        "unit_nav": null,
+        "acc_nav": 99.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      }
+    ],
+    "failed_fund_after": [
+      {
+        "date": "20000101",
+        "fund_code": "000002",
+        "fund_name": "historic",
+        "unit_nav": 33.0,
+        "acc_nav": 44.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      },
+      {
+        "date": "20261105",
+        "fund_code": "000002",
+        "fund_name": "keep-null",
+        "unit_nav": null,
+        "acc_nav": 99.0,
+        "prev_unit_nav": null,
+        "nav_change_pct": null
+      }
+    ],
+    "successful_prior_and_next": [
+      "000001",
+      "000003"
+    ],
+    "written": 2,
+    "partial_batch_failed": false,
+    "retry_requested": [
+      "000002"
+    ],
+    "retry_written": 3,
+    "rollback_sql_count": 1
+  },
+  {
+    "id": "etf-base-ABORT",
+    "failed_etf_exactly_restored": false,
+    "failed_before": [
+      {
+        "date": "20000101",
+        "etf_code": "510301",
+        "etf_name": "historic",
+        "close": 33.0,
+        "amount": 44.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 222.0,
+        "share_change": null
+      },
+      {
+        "date": "20261105",
+        "etf_code": "510301",
+        "etf_name": "keep-null",
+        "close": null,
+        "amount": 99.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 111.0,
+        "share_change": null
+      }
+    ],
+    "failed_after": [
+      {
+        "date": "20000101",
+        "etf_code": "510301",
+        "etf_name": "historic",
+        "close": 33.0,
+        "amount": 44.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 222.0,
+        "share_change": null
+      },
+      {
+        "date": "20261104",
+        "etf_code": "510301",
+        "etf_name": "510301",
+        "close": 1.25,
+        "amount": 555.0,
+        "open": 1.1,
+        "high": 1.5,
+        "low": 1.0,
+        "fund_share": null,
+        "share_change": null
+      },
+      {
+        "date": "20261105",
+        "etf_code": "510301",
+        "etf_name": "keep-null",
+        "close": 1.25,
+        "amount": 99.0,
+        "open": 1.1,
+        "high": 1.5,
+        "low": 1.0,
+        "fund_share": 111.0,
+        "share_change": null
+      }
+    ],
+    "prior_close": 77.0,
+    "prior_fund_share": 990.0,
+    "next_rows": 1,
+    "rc": 0,
+    "rollback_sql_count": 0
+  },
+  {
+    "id": "etf-base-FAIL",
+    "failed_etf_exactly_restored": false,
+    "failed_before": [
+      {
+        "date": "20000101",
+        "etf_code": "510301",
+        "etf_name": "historic",
+        "close": 33.0,
+        "amount": 44.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 222.0,
+        "share_change": null
+      },
+      {
+        "date": "20261105",
+        "etf_code": "510301",
+        "etf_name": "keep-null",
+        "close": null,
+        "amount": 99.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 111.0,
+        "share_change": null
+      }
+    ],
+    "failed_after": [
+      {
+        "date": "20000101",
+        "etf_code": "510301",
+        "etf_name": "historic",
+        "close": 33.0,
+        "amount": 44.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 222.0,
+        "share_change": null
+      },
+      {
+        "date": "20261104",
+        "etf_code": "510301",
+        "etf_name": "510301",
+        "close": 1.25,
+        "amount": 555.0,
+        "open": 1.1,
+        "high": 1.5,
+        "low": 1.0,
+        "fund_share": null,
+        "share_change": null
+      },
+      {
+        "date": "20261105",
+        "etf_code": "510301",
+        "etf_name": "keep-null",
+        "close": 1.25,
+        "amount": 99.0,
+        "open": 1.1,
+        "high": 1.5,
+        "low": 1.0,
+        "fund_share": 111.0,
+        "share_change": null
+      }
+    ],
+    "prior_close": 77.0,
+    "prior_fund_share": 990.0,
+    "next_rows": 1,
+    "rc": 0,
+    "rollback_sql_count": 0
+  },
+  {
+    "id": "etf-head-ABORT",
+    "failed_etf_exactly_restored": true,
+    "failed_before": [
+      {
+        "date": "20000101",
+        "etf_code": "510301",
+        "etf_name": "historic",
+        "close": 33.0,
+        "amount": 44.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 222.0,
+        "share_change": null
+      },
+      {
+        "date": "20261105",
+        "etf_code": "510301",
+        "etf_name": "keep-null",
+        "close": null,
+        "amount": 99.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 111.0,
+        "share_change": null
+      }
+    ],
+    "failed_after": [
+      {
+        "date": "20000101",
+        "etf_code": "510301",
+        "etf_name": "historic",
+        "close": 33.0,
+        "amount": 44.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 222.0,
+        "share_change": null
+      },
+      {
+        "date": "20261105",
+        "etf_code": "510301",
+        "etf_name": "keep-null",
+        "close": null,
+        "amount": 99.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 111.0,
+        "share_change": null
+      }
+    ],
+    "prior_close": 77.0,
+    "prior_fund_share": 990.0,
+    "next_rows": 1,
+    "rc": 0,
+    "rollback_sql_count": 1
+  },
+  {
+    "id": "etf-head-FAIL",
+    "failed_etf_exactly_restored": true,
+    "failed_before": [
+      {
+        "date": "20000101",
+        "etf_code": "510301",
+        "etf_name": "historic",
+        "close": 33.0,
+        "amount": 44.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 222.0,
+        "share_change": null
+      },
+      {
+        "date": "20261105",
+        "etf_code": "510301",
+        "etf_name": "keep-null",
+        "close": null,
+        "amount": 99.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 111.0,
+        "share_change": null
+      }
+    ],
+    "failed_after": [
+      {
+        "date": "20000101",
+        "etf_code": "510301",
+        "etf_name": "historic",
+        "close": 33.0,
+        "amount": 44.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 222.0,
+        "share_change": null
+      },
+      {
+        "date": "20261105",
+        "etf_code": "510301",
+        "etf_name": "keep-null",
+        "close": null,
+        "amount": 99.0,
+        "open": null,
+        "high": null,
+        "low": null,
+        "fund_share": 111.0,
+        "share_change": null
+      }
+    ],
+    "prior_close": 77.0,
+    "prior_fund_share": 990.0,
+    "next_rows": 1,
+    "rc": 0,
+    "rollback_sql_count": 1
+  }
+]

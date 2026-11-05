@@ -1,0 +1,241 @@
+{
+  "request_id": "recheck-20261105-afternoon",
+  "fixed_main": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "generated_at": "2026-11-05T16:59:24+08:00",
+  "summary": "Claude已认领并完成主要修复；前端发布/三旧P2/发布主机制独立验收通过；保留2条后端P2、3项发布边界说明、台账与通知闭环待办",
+  "verdict": "PASS_WITH_RESIDUAL_P2",
+  "issues": [
+    {
+      "id": "BACKEND-NEW-P2-01",
+      "status": "open",
+      "severity": "P2",
+      "blocking": false,
+      "title": "同类权限 helper 吞掉 stat/chmod 失败，仍替换为不符合原 mode 的新文件",
+      "path": "scripts/notify.py:165",
+      "line": 165,
+      "end_line": 170,
+      "related_locations": [
+        "scripts/notify.py:183",
+        "scripts/notify.py:1955",
+        "scripts/notify.py:2305",
+        "scripts/notify.py:2746",
+        "scripts/notify.py:3585"
+      ],
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "正常路径保留权限成立；若权限复制失败而 rename 可成功，4个普通 tmp 路径仍可能 0600→0644，mkstemp 路径可能 0640→0600。调用方仍可能返回成功且无权限复制失败诊断。不声称生产发生过该故障或含敏感数据。原摘要 _atomic_write_digest 已严格处理 fchmod 失败，不受此新问题影响。",
+      "why": "897b56624 新 helper 对非 FileNotFoundError 的 stat OSError 直接 return，并吞掉 chmod OSError。调用方无法区分目标不存在与权限复制失败，照常 replace。该分支使“5路径权限逐位保持”成为 best-effort 条件承诺。",
+      "fix": "由 Claude 复核后，让目标存在时的 stat/chmod 失败沿用各调用方既有失败分支，跳过该次 replace 保住旧文件；只将 FileNotFoundError 视为默认新文件。无需阻断通知主链或整体重写路径。补充失败分支的 mode/bytes 断言。",
+      "trace": {
+        "diff_range": "5771ef41a5b8eb2e37af2d5a04bfb81e96fbfdbe..897b566242c19e0ecce09f01314c42ca9a2a2acb; fixed 6c1493aea9febd6318eafa8a5cf51d0d774aa155 scripts/notify.py:161-170; calls :183/:1955/:2305/:2746/:3585",
+        "linkage": "不满足",
+        "user_request": "notify原子更新已有0600/0640/default新文件mode保留，所有5条同类写路径一跳",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "/usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_modes.py ; independently: /usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox-chmod.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_kernel_chmod.py",
+        "expected": "目标存在且 chmod/stat 不能复制其权限时，不发布权限不同的新 inode；旧目标的 mode/bytes 保持，状态写返回失败。",
+        "observed": {
+          "five_path_EIO_matrix": [
+            {
+              "path": "result",
+              "before": "0o600",
+              "after": "0o644",
+              "new_bytes_published": true,
+              "return": null
+            },
+            {
+              "path": "latest",
+              "before": "0o600",
+              "after": "0o644",
+              "new_bytes_published": true,
+              "return": null
+            },
+            {
+              "path": "state",
+              "before": "0o600",
+              "after": "0o644",
+              "new_bytes_published": true,
+              "return": true
+            },
+            {
+              "path": "warning_dedup",
+              "before": "0o640",
+              "after": "0o600",
+              "new_bytes_published": true,
+              "return": true
+            },
+            {
+              "path": "digest_state",
+              "before": "0o600",
+              "after": "0o644",
+              "new_bytes_published": true,
+              "return": {
+                "sent": true,
+                "n": 1,
+                "n_remaining": 0
+              }
+            }
+          ],
+          "real_kernel_control": {
+            "kernel_chmod_denied": true,
+            "return": true,
+            "before_mode": "0o600",
+            "after_mode": "0o644",
+            "published": true,
+            "fault_model": "controlled macOS sandbox denies chmod only; rename remains real and allowed"
+          }
+        },
+        "evidence": [
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/mode-results.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/kernel-chmod-result.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/kernel-chmod.log"
+        ],
+        "qualification": "kernel 场景为本轮主动配置 macOS sandbox 只拒 chmod 的受控故障正控；不是把普通环境启动失败或线上实际行为认定为产品事故。EIO 场景仅注入 syscall 错误，实际创建 tmp/replace 仍真实执行。"
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 4,
+          "rationale": "stdlib/已有异常分支复用：删掉两个吞异常分支，让调用方既有异常处理接住；约省4行，不删除原子写或锁。"
+        }
+      ]
+    },
+    {
+      "id": "BACKEND-NEW-P2-02",
+      "status": "open",
+      "severity": "P2",
+      "blocking": false,
+      "title": "修正后的并发测试仍以 buffer 为空代替 payload 交付证据，能漏掉丢内容回归",
+      "path": "scripts/tests/test_f03r1_digest_atomic_write.py:337",
+      "line": 337,
+      "end_line": 339,
+      "related_locations": [
+        "scripts/tests/test_f03r1_digest_atomic_write.py:365",
+        "scripts/tests/test_f03r1_digest_atomic_write.py:367",
+        "scripts/tests/test_f03r1_digest_atomic_write.py:370",
+        "scripts/tests/test_f03r1_digest_atomic_write.py:394"
+      ],
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "旧假红已解决，当前生产实现在本轮独立 payload/buffer 检查中通过；但新增 h2 与 h 的终态B不能证明新条目确实进入 payload，未来生成摘要时漏行仍可能测试绿。h3 也未核验旧条目的发送内容。属于有影响的测试缺口，不是已证实生产丢通知。",
+      "why": "6b91de7e8 放宽合法终态并加 h2/h3，但只核查最终 buffer 的行/key，没有核查实际渠道发送的 subject/body/key/hits。fork 子进程的本地 calls list 也不构成跨进程交付证据。",
+      "fix": "保留两种合法顺序；用跨进程共享 payload 记录或落本轮临时文件，按 key/subject/body/hits 核对“已交付 + 仍在buffer”的守恒，且断言发送成功。把漏掉h_new payload行的判别作为负控。",
+      "trace": {
+        "diff_range": "15b7ec53c0ae2f19d494a3abb845c73f199677f1..6b91de7e8d64186e004c639218bf0973b5506cd0; fixed 6c1493aea9febd6318eafa8a5cf51d0d774aa155 scripts/tests/test_f03r1_digest_atomic_write.py:331-397",
+        "linkage": "不满足",
+        "user_request": "吸收/flush合法先后顺序都固定且payload/缓冲总账不丢",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "/usr/bin/sandbox-exec -f /tmp/codex-backend-afternoon-d0pn23jv/sandbox.sb /usr/bin/env -i PATH=/usr/bin:/bin TMPDIR=/tmp/codex-backend-afternoon-d0pn23jv/runs PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-backend-afternoon-d0pn23jv/safe_runner.py /tmp/codex-backend-afternoon-d0pn23jv/verify_author_payload_gap.py",
+        "expected": "测试在 send 边界故意丢弃 h_new 摘要明细行、同时仍清空 buffer 的内存负控下应失败。",
+        "observed": {
+          "pytest_rc": 0,
+          "in_memory_payload_mutation": [
+            {
+              "had_new_key": true,
+              "removed_new_key": true
+            }
+          ],
+          "source_files_modified": false
+        },
+        "evidence": [
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/author-payload-gap.log",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/author-payload-gap.json",
+          "/tmp/codex-backend-afternoon-d0pn23jv/evidence/order-results.json"
+        ],
+        "qualification": "仅外围运行时替换 send，未修改任何归档源码；原始 main 的独立守恒测试通过。"
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 0,
+          "rationale": "将“buffer空即两条已交付”的推断换为直接守恒断言；无可安全净删行数，不建议为省行删除合法顺序覆盖。"
+        }
+      ]
+    }
+  ],
+  "release_residual_triage": [
+    {
+      "source_id": "P2-1",
+      "classification": "documented_internal_precondition_not_confirmed_bug",
+      "reason": "源码255-265明确resume仅在已经merge后进入；未合feature即使dry-run也拒绝符合该契约，不将这个组合不支持单列P2业务缺陷"
+    },
+    {
+      "source_id": "P2-2",
+      "classification": "recovery_optimization_candidate",
+      "reason": "已证实整流程失败重跑多bump一次，但没有缺产物；没有找到通用push-only幂等恢复承诺，作为恢复语义/优化候选交Claude决定"
+    },
+    {
+      "source_id": "P2-3",
+      "classification": "documented_guard_coverage_limit",
+      "reason": "源码737-744明确守卫仅常规bump且检查未暂存变化；staged-only/未知单文件不覆盖是现有边界，不把它表述成三产物遗漏仍未修复"
+    }
+  ],
+  "claude_received_at": "2026-11-05T08:41:12+08:00",
+  "receipt_source": "/tmp/codex-reports/recheck-20261105-afternoon/claude-receipt-snapshot.json",
+  "completed_commit_ancestry": {
+    "92013be60": true,
+    "af6fddf10": true,
+    "5771ef41a": true,
+    "897b56624": true,
+    "32785ab20": true,
+    "c508c0a72": true,
+    "5e0d90b7d": true,
+    "a206dc06f": true,
+    "2da566961": true
+  },
+  "independent_checks": {
+    "frontend": {
+      "result": "PASS",
+      "online_version": "20261105-a657",
+      "app_lab_equal_fixed_main": true,
+      "browser_lifecycle_cases": "46/46",
+      "scope": "primary site small endpoints/min bytes + local real Chromium fixture; not Safari/real phone/whole site visual"
+    },
+    "backend": {
+      "old_p2_resolved": 3,
+      "scoped_author_tests": "43 passed",
+      "independent": "real SQLite rollback/mode matrix/both order payload conservation/failure injection",
+      "new_p2": 2
+    },
+    "release": {
+      "main_mechanisms": "verified",
+      "independent_sandbox_groups": 22,
+      "note": "local isolated fixture, build/bump control flow; minifier/quality gates/SSH/CI explicit stubs, no real release"
+    }
+  },
+  "governance": {
+    "task_reconciliation": "/tmp/codex-reports/recheck-20261105-afternoon/task-reconciliation.json",
+    "stale_task_ids": [
+      366,
+      367,
+      368,
+      369,
+      370
+    ],
+    "notification_gap": "group/.done did not enter active Claude context; receipt resulted from user relay",
+    "ledger_L57": "Claude disclosed merge before independent review; post-review passed"
+  },
+  "cleanup_inventory": {
+    "local_branches": 37,
+    "merged_excluding_main": 35,
+    "merged_without_worktree": 27,
+    "stash_count": 4,
+    "unmerged": [
+      "feat/fix-258-s06-budget"
+    ],
+    "deleted": false
+  },
+  "artifacts": {
+    "frontend.json": "/tmp/codex-reports/recheck-20261105-afternoon/frontend.json",
+    "backend.json": "/tmp/codex-reports/recheck-20261105-afternoon/backend.json",
+    "release.json": "/tmp/codex-reports/recheck-20261105-afternoon/release.json",
+    "run_release_verifier.py": "/tmp/codex-reports/recheck-20261105-afternoon/run_release_verifier.py",
+    "cleanup-inventory.json": "/tmp/codex-reports/recheck-20261105-afternoon/cleanup-inventory.json",
+    "task-reconciliation.json": "/tmp/codex-reports/recheck-20261105-afternoon/task-reconciliation.json"
+  },
+  "mutations": "only /tmp reports/fixtures; no project source/ref/worktree changes, no Claude messaging/ready/consumer",
+  "trace_note": "子报告user_request中的具体focus为Codex派单范围；人类本轮原话为“看一下claude 干完了哪些事。你可以帮做哪些事”。本整合已对发布候选做假阳性过滤，不将所有子报告P2直接照单升级。"
+}

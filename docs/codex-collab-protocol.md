@@ -23,6 +23,28 @@ Claude implementer 完成 → 内部 reviewer PASS
 → 双方都 PASS → 主控走 scripts/main-merge.sh 合并
 ```
 
+**交接上下文补充（2026-11-05）**：Codex 报告完成后还须显式调用
+`scripts/codex_handoff.py publish` 发布结构化元数据，固定报告路径、SHA-256、实际工作分支的
+完整已提交 head 和项目归属。不能从最后一条回复猜报告、不能把 root main HEAD 当作工作分支。
+群消息/`.done` 和旧 `.ready` 不会自动转成新交接或已接单；现有 watcher/consumer/notify 桥不变。
+新 hook 只处理显式 publish 的 packet，见[交接收件与显式回执](ops/codex-handoff-inbox.md)。
+
+Claude 审核 merge 并加载新增 hook 后，**下一次正常** `UserPromptSubmit`/`PreToolUse`
+事件才提供短元数据上下文，不保证 idle 会话即时唤醒。仅输出稳定的
+`hookSpecificOutput: {hookEventName, additionalContext}`（兼容本机 2.1.274 的 shell command 形式），
+外部元数据不等于用户指令；不执行报告中的任务、不改变工具权限。
+`queued`/`context-emitted` 与人工显式 `received → claimed → completed` 分开，不能自动跳级。
+正式已读、认领、完成每次均须匹配固定 head/SHA 并重新验证报告；`status` 同样重新验 SHA，
+报告被改/不可读时显示 `invalidated`，历史 ack 不表示仍有效。主会话在工作分支 push 后生成
+不可变 master report 再 publish，发布后不改报告文件，回执独立保存。
+hook 每事件最多检查 32 个 packet、尝试 4 次报告 hash（失败同样占预算），报告读取上限
+32 MiB + 4 字节；同锁原子保存项目扫描位置并循环前进，避免坏前缀饿死有效队尾。
+扫描位置不代表完整性或 ACK，预算外条目留待后续事件，未 ACK 的用户事件仍可重复提示。
+容量保留 `.lock`/`.scan` 两个稳定内部文件与一个唯一临时项，旧 1023-packet inbox 可直接
+升级继续扫描；固定队列且状态写入成功、每事件完成预算循环时，最多256次检查到队尾；
+若每次仅检查一份即遇deadline，则最多1023次，游标写入前中断不计进度。
+演示 packet 已退役至私有证据 archive，真实 inbox 最终只留正式 master packet。
+
 ## Ref 命名
 
 ```text

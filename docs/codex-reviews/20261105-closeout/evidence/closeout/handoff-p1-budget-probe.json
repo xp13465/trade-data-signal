@@ -1,0 +1,60 @@
+{
+  "scope": "test-only inbox/session; no live hook or ack",
+  "fixture": "/tmp/codex-reports/closeout-20261105/p1-budget-probe-meqlo_x2",
+  "packet_count": 1023,
+  "stable_entries": 1025,
+  "hash_attempt_limit": 4,
+  "byte_limit": 33554436,
+  "results": [
+    {
+      "mode": "max-size-mismatches",
+      "event": "PreToolUse",
+      "elapsed_seconds": 0.03288700000848621,
+      "stdout_bytes": 0,
+      "report_bytes": 33554432,
+      "packet_reads": 4,
+      "hash_attempts": 4,
+      "cursor_writes": 4
+    },
+    {
+      "mode": "max-size-mismatches",
+      "event": "UserPromptSubmit",
+      "elapsed_seconds": 0.031927541946060956,
+      "stdout_bytes": 0,
+      "report_bytes": 33554432,
+      "packet_reads": 4,
+      "hash_attempts": 4,
+      "cursor_writes": 4
+    },
+    {
+      "mode": "metadata-only-32-cursor-writes",
+      "event": "PreToolUse",
+      "elapsed_seconds": 0.018810999928973615,
+      "stdout_bytes": 0,
+      "report_bytes": 0,
+      "packet_reads": 32,
+      "hash_attempts": 0,
+      "cursor_writes": 32
+    },
+    {
+      "mode": "metadata-only-32-cursor-writes",
+      "event": "PreToolUse",
+      "elapsed_seconds": 0.017579291947185993,
+      "stdout_bytes": 0,
+      "report_bytes": 0,
+      "packet_reads": 32,
+      "hash_attempts": 0,
+      "cursor_writes": 32
+    },
+    {
+      "mode": "metadata-only-32-cursor-writes",
+      "event": "PreToolUse",
+      "elapsed_seconds": 0.018277041031979024,
+      "stdout_bytes": 0,
+      "report_bytes": 0,
+      "packet_reads": 32,
+      "hash_attempts": 0,
+      "cursor_writes": 32
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "raw_cleanup_sha256": "713058513c010a826bfd57299a1db30a16e5194a4599a73e36564c98cdb5fb01",
+  "independent_parent_checks": {
+    "all_33_removed_refs_absent": true,
+    "all_33_frozen_tips_ancestor_of_frozen_main": true,
+    "all_9_worktree_paths_absent": true,
+    "main_still_fixed_base": true
+  },
+  "scope": "post-cleanup verification before Codex commits/pushes; no extra bundle scan"
+}

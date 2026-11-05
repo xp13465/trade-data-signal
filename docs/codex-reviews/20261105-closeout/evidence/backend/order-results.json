@@ -1,0 +1,142 @@
+[
+  {
+    "order": "absorb-first",
+    "repeat": 0,
+    "old_delivered_hits": 2,
+    "new_delivered_hits": 3,
+    "new_buffered_hits": 0,
+    "new_total": 3,
+    "real_absorber_blocked_by_flush_lock": null,
+    "payload_channels": [
+      "email",
+      "telegram",
+      "feishu"
+    ],
+    "remaining": []
+  },
+  {
+    "order": "absorb-first",
+    "repeat": 1,
+    "old_delivered_hits": 2,
+    "new_delivered_hits": 3,
+    "new_buffered_hits": 0,
+    "new_total": 3,
+    "real_absorber_blocked_by_flush_lock": null,
+    "payload_channels": [
+      "email",
+      "telegram",
+      "feishu"
+    ],
+    "remaining": []
+  },
+  {
+    "order": "absorb-first",
+    "repeat": 2,
+    "old_delivered_hits": 2,
+    "new_delivered_hits": 3,
+    "new_buffered_hits": 0,
+    "new_total": 3,
+    "real_absorber_blocked_by_flush_lock": null,
+    "payload_channels": [
+      "email",
+      "telegram",
+      "feishu"
+    ],
+    "remaining": []
+  },
+  {
+    "order": "flush-first",
+    "repeat": 0,
+    "old_delivered_hits": 2,
+    "new_delivered_hits": 0,
+    "new_buffered_hits": 3,
+    "new_total": 3,
+    "real_absorber_blocked_by_flush_lock": true,
+    "payload_channels": [
+      "email",
+      "telegram",
+      "feishu"
+    ],
+    "remaining": [
+      {
+        "ts": "2026-11-05 16:51:05",
+        "rid": "d1793868666055135000",
+        "day": "2026-11-05",
+        "key": "KEY_NEW_TOKEN",
+        "category": "r2",
+        "subject": "SUBJECT_NEW_TOKEN",
+        "body": "BODY_NEW_TOKEN",
+        "from_prefix": null,
+        "source": "independent",
+        "reason": "warning_batch_digest_only",
+        "hits": 3,
+        "hits_ts": "2026-11-05 16:51:06"
+      }
+    ]
+  },
+  {
+    "order": "flush-first",
+    "repeat": 1,
+    "old_delivered_hits": 2,
+    "new_delivered_hits": 0,
+    "new_buffered_hits": 3,
+    "new_total": 3,
+    "real_absorber_blocked_by_flush_lock": true,
+    "payload_channels": [
+      "email",
+      "telegram",
+      "feishu"
+    ],
+    "remaining": [
+      {
+        "ts": "2026-11-05 16:51:06",
+        "rid": "d1793868666275828000",
+        "day": "2026-11-05",
+        "key": "KEY_NEW_TOKEN",
+        "category": "r2",
+        "subject": "SUBJECT_NEW_TOKEN",
+        "body": "BODY_NEW_TOKEN",
+        "from_prefix": null,
+        "source": "independent",
+        "reason": "warning_batch_digest_only",
+        "hits": 3,
+        "hits_ts": "2026-11-05 16:51:06"
+      }
+    ]
+  },
+  {
+    "order": "flush-first",
+    "repeat": 2,
+    "old_delivered_hits": 2,
+    "new_delivered_hits": 0,
+    "new_buffered_hits": 3,
+    "new_total": 3,
+    "real_absorber_blocked_by_flush_lock": true,
+    "payload_channels": [
+      "email",
+      "telegram",
+      "feishu"
+    ],
+    "remaining": [
+      {
+        "ts": "2026-11-05 16:51:06",
+        "rid": "d1793868666502760000",
+        "day": "2026-11-05",
+        "key": "KEY_NEW_TOKEN",
+        "category": "r2",
+        "subject": "SUBJECT_NEW_TOKEN",
+        "body": "BODY_NEW_TOKEN",
+        "from_prefix": null,
+        "source": "independent",
+        "reason": "warning_batch_digest_only",
+        "hits": 3,
+        "hits_ts": "2026-11-05 16:51:06"
+      }
+    ]
+  },
+  {
+    "order": "two-absorbers-sidecar-inode",
+    "remaining_hits": 6,
+    "second_blocked": true
+  }
+]

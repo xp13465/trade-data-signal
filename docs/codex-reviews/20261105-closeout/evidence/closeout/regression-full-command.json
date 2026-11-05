@@ -1,0 +1,21 @@
+{
+  "command": [
+    "/Users/linhuichen/code/trade/.venv/bin/python3",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/",
+    "-p",
+    "no:cacheprovider",
+    "--basetemp=/tmp/codex-notify-closeout-full",
+    "--junitxml=/tmp/codex-reports/closeout-20261105/regression-full.xml"
+  ],
+  "cwd": "/Users/linhuichen/code/trade/.claude/worktrees/codex-notify-regressions-20261105",
+  "base": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "branch": "codex/notify-regressions-20261105",
+  "source_sha256": {
+    "scripts/tests/test_codex_notify_closeout_regressions.py": "d873657a0fbb87b999f6635d8b778b62d38721013b362cdf0d4f40fb50be1c71",
+    "scripts/notify.py": "a32a88e007d88b0a05d785d113eecdb274a41dc376ac14100a4888d4d37076ca"
+  },
+  "expectation": "20 known red desired-mode preservation cases; no xfail/skip masking; other tests must not regress"
+}

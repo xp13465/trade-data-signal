@@ -1,0 +1,356 @@
+{
+  "request_id": "closeout-20261105-handoff-selfcheck",
+  "verdict": "FAIL",
+  "reviewer_verdict": "Blocked",
+  "summary": "冻结源码独立自检：1项P1（失效队首无总hash预算，数GiB读取并使有效队尾持续未提示）。其余11组独立探针与配置保留检查通过；不代替Claude最终审合。",
+  "issues": [
+    {
+      "severity": "P1",
+      "title": "失效报告队首导致每个 hook 读取数 GiB 并阻断有效队尾提示",
+      "path": "scripts/codex_handoff.py:302",
+      "absolute_path": "/Users/linhuichen/code/trade/.claude/worktrees/codex-collab-closeout-20261105/scripts/codex_handoff.py:302",
+      "related_lines": [
+        302,
+        310,
+        311,
+        312,
+        314,
+        315,
+        361
+      ],
+      "impact": "近容量 inbox 中，正常 PreToolUse/UserPromptSubmit 可每次耗时约4秒；无效队首使后方有效交接无法到达。进程虽 exit 0，却不满足明确读取预算与有效交接可达性。未观察到超出配置5秒超时，不能声称实际触发Claude超时。",
+      "why": "len(selected)==4 只限制成功选中的报告；digest_report失败后continue不消耗总尝试次数/读取字节额度。每次事件从names(fd)排序队首重新开始。4秒SIGALRM只能中止工作，无法限制之前已读取的字节。",
+      "fix": "报告读取前设置明确的总 hash 次数/bytes 预算，失败报告也占预算；并保证后续正常事件能越过失效队首，有限次事件内到达有效队尾。保持status/ack的真实hash校验及原有安全边界。增加近容量失效队首+有效队尾回归，断言总读取量与进度，而非只断言exit 0。由作者决定最小实现，本自检不改repo。",
+      "trace": {
+        "diff_range": "frozen SHA256 a89b154e30f7e251f398d0f6519efc594470ce194979f1c12d28bbb0bee2bb56, scripts/codex_handoff.py:302-315",
+        "linkage": "不满足",
+        "user_request": "输出与读取量有明确界限，检查1024队列不会一事件hash数GiB导致5s超时。",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/reproduce-valid-tail.py ; hash-read instrumentation setup/run: PYTHONDONTWRITEBYTECODE=1 python3 /tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/perf_probe.py",
+        "expected": "单事件报告hash次数和总字节有明确小上界，失效队首不会导致有效队尾持续无法提示；正常事件保持有界延迟且stdout只含元数据。",
+        "observed": "1023 packets + .lock=1024 entries。instrumented hook在4.0079s内读取747份8MiB报告，共6266290176 bytes（约5.84GiB），deadline_hit=true，stdout为空。原样CLI 4.0440s/exit0/stdout空/stderr空。放入1022失效+1有效队尾后，两次原样CLI为4.04565s、4.04507s，均exit0/stdout空/stderr空，q1022.context_emitted_at仍null。acked/foreign/dedup控制组0次报告读取、约0.04–0.06s。"
+      },
+      "evidence_files": [
+        "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/perf-results.json",
+        "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/perf-valid-tail-results.json",
+        "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/perf_probe.py",
+        "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/reproduce-valid-tail.py"
+      ],
+      "over_engineering_findings": {
+        "action": "simplify",
+        "saves_lines": 0,
+        "rationale": "不能通过删除完整性校验解决；在已有循环内明确预算与前进规则，避免引入独立消费者或后台任务。"
+      }
+    }
+  ],
+  "open_questions": [
+    "真实Claude Code 2.1.274加载feature配置及正常事件交付未执行，不能声称模型实际已读或认领。官方在线contract核对属于静态兼容性检查。",
+    "未跑作者定向48测试或全套pytest；48passed只记作者声明，主会话负责统一回归。",
+    "所有报告bytes/hash/回执验证仅限冻结版本与自建fixture，未推断已push/merge/上线。"
+  ],
+  "impact_surface": [
+    "scripts/codex_handoff.py",
+    "scripts/tests/test_codex_handoff.py",
+    ".claude/settings.json",
+    "docs/ops/codex-handoff-inbox.md",
+    "docs/codex-collab-protocol.md增量"
+  ],
+  "smoke_results": {
+    "real_cli_lifecycle_worktree_to_main": "PASS",
+    "child_first_parent_path_only_top_level_type": "PASS",
+    "same_id_identity_and_receipt_preserved": "PASS",
+    "status_after_tamper_retains_historical_ack": "PASS",
+    "stat_fsync_replace_failure_preserve_packet": "PASS",
+    "project_isolation_bad_input_env_unwritable": "PASS",
+    "symlink_header_path_id_owner": "PASS",
+    "multiprocess_hook_publish_ack_races": "PASS",
+    "four_item_output_and_session_capacity": "PASS",
+    "empty_missing_busy_hook": "PASS",
+    "hardlinks_inbox_symlink_stale_receipts": "PASS",
+    "existing_hooks_preserved_and_shell_config": "PASS",
+    "large_invalid_queue_hash_budget": "FAIL",
+    "valid_tail_delivery_after_invalid_prefix": "FAIL"
+  },
+  "recommendation": "交作者修复P1并对新冻结SHA定向复验，再交Claude最终审合；本报告不授权自动merge/部署。",
+  "scope": {
+    "role": "独立实施自检，非Claude最终review/merge",
+    "read_only_source_root": "/Users/linhuichen/code/trade/.claude/worktrees/codex-collab-closeout-20261105",
+    "allowed_writes": "仅/tmp自建fixture/inbox/session与报告",
+    "real_repo_or_refs_mutated": false,
+    "real_commit_push": false,
+    "live_hook_injection": false,
+    "claude_started": false,
+    "external_notification": false,
+    "real_claude_receipt": false,
+    "completion_signal": "未调用codex_review_complete：本轮明确禁止通知/live操作，且无外部request ref。"
+  },
+  "core_boundaries_recorded_before_source": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/boundaries.json",
+  "frozen_manifest": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/frozen/manifest.json",
+  "source_sha_post_test": [
+    {
+      "path": "scripts/codex_handoff.py",
+      "frozen": "a89b154e30f7e251f398d0f6519efc594470ce194979f1c12d28bbb0bee2bb56",
+      "after_test": "a89b154e30f7e251f398d0f6519efc594470ce194979f1c12d28bbb0bee2bb56",
+      "unchanged": true
+    },
+    {
+      "path": "scripts/tests/test_codex_handoff.py",
+      "frozen": "c82dd0da5a52a98336344fe3c846c9dfa2095855303f48fbc96441926dc5cd2f",
+      "after_test": "c82dd0da5a52a98336344fe3c846c9dfa2095855303f48fbc96441926dc5cd2f",
+      "unchanged": true
+    },
+    {
+      "path": ".claude/settings.json",
+      "frozen": "e484e439c77af4ca7148860b67b6c639b969b7b5de7e2d5c89c561095ac2ced8",
+      "after_test": "e484e439c77af4ca7148860b67b6c639b969b7b5de7e2d5c89c561095ac2ced8",
+      "unchanged": true
+    },
+    {
+      "path": "docs/ops/codex-handoff-inbox.md",
+      "frozen": "befb925dfb3a3a9f2875869b04051be2654e5c24b5e1d16860e186ef1f129d26",
+      "after_test": "befb925dfb3a3a9f2875869b04051be2654e5c24b5e1d16860e186ef1f129d26",
+      "unchanged": true
+    },
+    {
+      "path": "docs/codex-collab-protocol.md",
+      "frozen": "6de2d9ae58282c4882ab79bb6b6d5c81448d0a12c5f171706775331759019530",
+      "after_test": "6de2d9ae58282c4882ab79bb6b6d5c81448d0a12c5f171706775331759019530",
+      "unchanged": true
+    }
+  ],
+  "checks": {
+    "independent_probe_groups": [
+      {
+        "name": "real_cli_lifecycle_worktree_to_main",
+        "passed": true,
+        "evidence": {
+          "common_git_project": "/private/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/repo/.git",
+          "main_head": "b91c2d263119eddfeeaa7b5a6de0c41a5b88f3c9",
+          "published_head": "f65e2c02c8ec345b585fbe1654ea42d2ec4d2168",
+          "final_status": "completed",
+          "explicit_receipts": 3
+        }
+      },
+      {
+        "name": "child_first_parent_path_only_top_level_type",
+        "passed": true,
+        "evidence": [
+          "PreToolUse:agent-id",
+          "PreToolUse:path-only",
+          "UserPromptSubmit:agent-id",
+          "UserPromptSubmit:path-only",
+          "top-level-agent-type-allowed"
+        ]
+      },
+      {
+        "name": "same_id_identity_and_receipt_preserved",
+        "passed": true,
+        "evidence": {
+          "rejected_changes": 5,
+          "receipt_unchanged": true
+        }
+      },
+      {
+        "name": "status_after_tamper_retains_historical_ack",
+        "passed": true,
+        "evidence": [
+          {
+            "mutation": "modify",
+            "status": "invalidated",
+            "integrity": "report-changed"
+          },
+          {
+            "mutation": "remove",
+            "status": "invalidated",
+            "integrity": "report-unavailable"
+          },
+          {
+            "mutation": "symlink",
+            "status": "invalidated",
+            "integrity": "report-unavailable"
+          },
+          {
+            "mutation": "fifo",
+            "status": "invalidated",
+            "integrity": "report-unavailable"
+          }
+        ]
+      },
+      {
+        "name": "stat_fsync_replace_failure_preserve_packet",
+        "passed": true,
+        "evidence": {
+          "faults": [
+            "fsync",
+            "replace",
+            "fstat"
+          ],
+          "prior_received_packet_byte_identical": true
+        }
+      },
+      {
+        "name": "project_isolation_bad_input_env_unwritable",
+        "passed": true,
+        "evidence": {
+          "foreign_project_ignored": true,
+          "bad_inputs": 6,
+          "missing_env_silent": true,
+          "non_writable_silent": true
+        }
+      },
+      {
+        "name": "symlink_header_path_id_owner",
+        "passed": true,
+        "evidence": {
+          "invalid_inputs_rejected": [
+            "{'report': PosixPath('/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/linked-report.json')}",
+            "{'report': PosixPath('/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/linked-repo/report.json')}",
+            "{'id': 'a\\nattack'}",
+            "{'id': '../escape'}",
+            "{'branch': 'bad\\nheader'}",
+            "{'report': '/etc/passwd'}",
+            "{'head': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'}"
+          ],
+          "ownership_mismatch_injected_rejected": true
+        }
+      },
+      {
+        "name": "multiprocess_hook_publish_ack_races",
+        "passed": true,
+        "evidence": {
+          "parallel_pretool_processes": 8,
+          "emissions": 1,
+          "racing_processes_per_ack_level": 9,
+          "final_status": "completed",
+          "stable_lock_inode": true
+        }
+      },
+      {
+        "name": "four_item_output_and_session_capacity",
+        "passed": true,
+        "evidence": {
+          "first_event_items": 4,
+          "second_event_items": 1,
+          "third_event_stdout_empty": true,
+          "session_limit": 256,
+          "user_prompt_can_still_remind": true
+        }
+      },
+      {
+        "name": "empty_missing_busy_hook",
+        "passed": true,
+        "evidence": {
+          "missing_not_created": true,
+          "empty_stdout_empty": true,
+          "busy_lock_seconds": 0.5533720420207828,
+          "busy_preserves_packet": true
+        }
+      },
+      {
+        "name": "hardlinks_inbox_symlink_stale_receipts",
+        "passed": true,
+        "evidence": {
+          "packet_hardlink_rejected": true,
+          "inbox_symlink_rejected": true,
+          "stale_receipt_cannot_advance_or_republish": true
+        }
+      }
+    ],
+    "settings": {
+      "existing_hooks_unchanged": true,
+      "added_only_events": [
+        "UserPromptSubmit",
+        "PreToolUse"
+      ],
+      "shell_form": true,
+      "live_invocations": 0
+    },
+    "performance": {
+      "entries": 1024,
+      "packet_count": 1023,
+      "max_report_bytes": 8388608,
+      "instrumented": {
+        "report_reads": 747,
+        "report_bytes": 6266290176,
+        "packet_reads": 747,
+        "packet_bytes": 425790,
+        "elapsed_seconds": 4.007918125018477,
+        "deadline_hit": true,
+        "stdout_bytes": 0
+      },
+      "cli": {
+        "elapsed_seconds": 4.0439714579842985,
+        "exit_code": 0,
+        "stdout_bytes": 0,
+        "stderr_bytes": 0
+      },
+      "acked": {
+        "report_reads": 0,
+        "report_bytes": 0,
+        "packet_reads": 1023,
+        "packet_bytes": 856251,
+        "elapsed_seconds": 0.04179758403915912
+      },
+      "foreign": {
+        "report_reads": 0,
+        "report_bytes": 0,
+        "packet_reads": 1023,
+        "packet_bytes": 575949,
+        "elapsed_seconds": 0.06175220804288983
+      },
+      "dedup": {
+        "report_reads": 0,
+        "report_bytes": 0,
+        "packet_reads": 1023,
+        "packet_bytes": 650628,
+        "elapsed_seconds": 0.040869542048312724
+      }
+    },
+    "valid_tail": {
+      "command": [
+        "python3",
+        "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/frozen/scripts/codex_handoff.py",
+        "hook",
+        "--inbox",
+        "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/inbox-perf"
+      ],
+      "env_CLAUDE_PROJECT_DIR": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture/repo",
+      "stdin": "{\"hook_event_name\": \"PreToolUse\", \"session_id\": \"perf-probe-valid-tail\"}",
+      "queue_entries": 1024,
+      "invalid_prefix_packets": 1022,
+      "valid_tail_id": "q1022",
+      "valid_tail_integrity_verified_independently": true,
+      "runs": [
+        {
+          "elapsed_seconds": 4.045650749932975,
+          "returncode": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "elapsed_seconds": 4.045065833022818,
+          "returncode": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "tail_after_runs": {
+        "context_emitted_at": null,
+        "pretool_sessions": []
+      }
+    },
+    "official_contract": {
+      "url": "https://code.claude.com/docs/en/hooks",
+      "checked": [
+        "UserPromptSubmit/PreToolUse hookSpecificOutput.additionalContext",
+        "agent_id为子会话信号",
+        "agent_type也可来自顶层--agent"
+      ],
+      "limitations": "未运行真实Claude；仅验证产出的精确JSON形状和配置shell命令，不含permissionDecision/updatedInput/continue。"
+    }
+  },
+  "evidence_root": "/tmp/codex-reports/closeout-20261105/handoff-selfcheck-fixture",
+  "completed_at": "2026-11-05T10:11:45.834310+00:00"
+}

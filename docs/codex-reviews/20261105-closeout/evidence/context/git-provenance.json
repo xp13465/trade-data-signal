@@ -1,0 +1,115 @@
+{
+  "head": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "commits": {
+    "32785ab20": {
+      "sha": "32785ab20959cf5e53edc3944fd828b36fdbe5bc",
+      "parents": [
+        "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e"
+      ],
+      "subject": "fix(main-merge): BUMP_PRODUCTS 补 __build.json/databrief/trade_sim + bump 产物残留守卫",
+      "contained_in_head": true
+    },
+    "fd81b824f": {
+      "sha": "fd81b824f1c4d7effb044ded29a60eeb642fc05f",
+      "parents": [
+        "897b566242c19e0ecce09f01314c42ca9a2a2acb",
+        "32785ab20959cf5e53edc3944fd828b36fdbe5bc"
+      ],
+      "subject": "merge(feat/feat/fix-bump-products-20261105): 统一入口合并 feat/fix-bump-products-20261105 入 main",
+      "contained_in_head": true
+    },
+    "102cdde94": {
+      "sha": "102cdde946238014ccf15f1ef58e245591f17b13",
+      "parents": [
+        "fd81b824f1c4d7effb044ded29a60eeb642fc05f"
+      ],
+      "subject": "build(统一bump): main-merge.sh 统一 build_min+bump 版本串(机制C, feat=feat/fix-bump-products-20261105)",
+      "contained_in_head": true,
+      "changed_files": [
+        "static-site/about.html",
+        "static-site/changelog.json",
+        "static-site/guide.html",
+        "static-site/index.html",
+        "static-site/privacy.html",
+        "static-site/sw.js"
+      ]
+    },
+    "c508c0a72": {
+      "sha": "c508c0a728802324860d79c2874f07cfde691026",
+      "parents": [
+        "102cdde946238014ccf15f1ef58e245591f17b13"
+      ],
+      "subject": "fix(build-id): 补齐 a657 三产物 __build.json/databrief/trade_sim(bump 漏提交,§22)",
+      "contained_in_head": true,
+      "changed_files": [
+        "static-site/__build.json",
+        "static-site/databrief.html",
+        "static-site/trade_sim.html"
+      ]
+    },
+    "5e0d90b7d": {
+      "sha": "5e0d90b7d0d1ee4f9647f6b2bab4b74d2cab6d35",
+      "parents": [
+        "102cdde946238014ccf15f1ef58e245591f17b13"
+      ],
+      "subject": "fix(main-merge): 脚本运行中被自身 merge 修改致旧逻辑残留(根治)",
+      "contained_in_head": true
+    },
+    "9acf768c7": {
+      "sha": "9acf768c7faac9e6dbac17d6e27e8f5edf371248",
+      "parents": [
+        "c508c0a728802324860d79c2874f07cfde691026",
+        "5e0d90b7d0d1ee4f9647f6b2bab4b74d2cab6d35"
+      ],
+      "subject": "merge(feat/feat/fix-main-merge-selfupdate-20261105): 统一入口合并 feat/fix-main-merge-selfupdate-20261105 入 main",
+      "contained_in_head": true
+    },
+    "a206dc06f": {
+      "sha": "a206dc06f2579dc2135256a27805929b0c09d3b6",
+      "parents": [
+        "9acf768c7faac9e6dbac17d6e27e8f5edf371248"
+      ],
+      "subject": "fix(main-merge): self_sha 全失败时醒目 warn + 注明 exec-resume 不覆盖 pre-merge 阶段(审查 NOTES ①③)",
+      "contained_in_head": true
+    },
+    "2da566961": {
+      "sha": "2da56696147b47e9ec27d44a27d02a6ac5edd78c",
+      "parents": [
+        "9acf768c7faac9e6dbac17d6e27e8f5edf371248"
+      ],
+      "subject": "docs(ledger): 新增教训 L57(发布脚本运行中被自身 merge 替换执行旧逻辑)",
+      "contained_in_head": true
+    },
+    "6c1493aea": {
+      "sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "parents": [
+        "a206dc06f2579dc2135256a27805929b0c09d3b6",
+        "2da56696147b47e9ec27d44a27d02a6ac5edd78c"
+      ],
+      "subject": "merge(feat/feat/ledger-l57-20261105): 统一入口合并 feat/ledger-l57-20261105 入 main",
+      "contained_in_head": true
+    }
+  },
+  "source": {
+    "scripts/main-merge.sh": {
+      "git_blob": "7e81118ae0dcde1f0ffd503811f8a76cfe895d75",
+      "sha256": "30e819c8def27280df9d23f07c05d988d47c5f300e4e058a1913bffa976d6397",
+      "bytes": 54279
+    },
+    "scripts/build_min.py": {
+      "git_blob": "7b39306533c19e8ee0cc9bc9d3c3f265736ddb1f",
+      "sha256": "207677aff53a20b12a2269b697387fc1d2b2de844a6d3836294343d0130efecc",
+      "bytes": 12609
+    },
+    "scripts/bump_asset_version.py": {
+      "git_blob": "9937388bfa8104b70b29fb1a36504d05967ed59a",
+      "sha256": "8ca003c75134ee795c92feb5177194b170c1652a5ea6d1641755dfbf4d769a61",
+      "bytes": 12178
+    },
+    "scripts/lib/ci_selfcheck.sh": {
+      "git_blob": "4ec4896e3090a4879dadae1b458ce39448301b20",
+      "sha256": "2807db7d9399d9f3b5bffbea99d579cbc4b31d11f9d5d442d3033fe93a732cc7",
+      "bytes": 9276
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "started_at": "2026-11-05T08:47:17.339576+00:00",
+  "finished_at": "2026-11-05T08:48:01.701964+00:00",
+  "exit_code": 0,
+  "command": [
+    "node",
+    "scripts/playwright-accept/accept_frontend_request_timeouts.mjs"
+  ],
+  "cwd": "/Users/linhuichen/code/trade/.claude/worktrees/codex-frontend-timeouts-369-370",
+  "environment": {
+    "NODE_PATH": "/Users/linhuichen/code/trade/scripts/playwright-accept/node_modules",
+    "FRONTEND_SOURCE_REF": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+    "FRONTEND_EVIDENCE_DIR": "/tmp/codex-reports/recheck-20261105-afternoon/browser",
+    "GIT_OPTIONAL_LOCKS": "0"
+  }
+}

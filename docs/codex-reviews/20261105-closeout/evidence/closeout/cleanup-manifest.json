@@ -1,0 +1,1123 @@
+{
+  "task": "authorized-local-git-cleanup-20261105",
+  "started": "2026-11-05T09:55:52.989959+00:00",
+  "finished": "2026-11-05T10:06:36.961111+00:00",
+  "backup_path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6",
+  "backup_mode": "0o700",
+  "main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "counts": {
+    "heads_before": 39,
+    "heads_after": 6,
+    "branches_deleted": 33,
+    "branches_skipped": 1,
+    "worktrees_before": 13,
+    "worktrees_after": 4,
+    "worktrees_removed": 9,
+    "stashes_retained": 4
+  },
+  "bundle": {
+    "path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/repository.bundle",
+    "sha256": "1637809ea636e718eff850bf79838eade4bb4c117f4ad363fd302868bd9745ed",
+    "bytes": 1371615270,
+    "head_count": 228,
+    "standalone_header_no_prerequisites": true
+  },
+  "restore": {
+    "refs_exact_match": true,
+    "reference_count": 215,
+    "no_alternates": true,
+    "empty_bare_bundle_verify": true,
+    "fsck_full_strict_returncode": 0,
+    "reachable_objects": 113944,
+    "types": {
+      "commit": 7135,
+      "tree": 19425,
+      "blob": 87384
+    },
+    "payload_bytes_read": 25276902697,
+    "all_candidate_stash_payloads_read": true,
+    "path": "/private/tmp/trade-cleanup-restore-20261105T175548-390bd6-5ccv7mn6/restore.git"
+  },
+  "backup_manifest": {
+    "path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/manifest.json",
+    "sha256": "2b975b288d4e8a77e1eed39532c19c8fc6f30cae1f9303698cdef42ec9affe60"
+  },
+  "invariants": {
+    "non_deleted_preexisting_refs_unchanged": true,
+    "remote_refs_unchanged": true,
+    "main_sha_unchanged": true,
+    "codex_branches_unchanged": true,
+    "stash_order_and_raw_reflog_unchanged": true,
+    "stash_raw_reflog_sha256": "67a54de8813578ad5d0d207eab079119dde7d06475402ed97dbb290071a5a1e2",
+    "temporary_backup_refs_removed": true,
+    "unexpected_ref_changes": {},
+    "new_refs_observed": {},
+    "no_force_no_remote_deletion": true
+  },
+  "status": "completed",
+  "branch_results": [
+    {
+      "branch": "feat/codex-evidence-fix-20261104",
+      "ref": "refs/heads/feat/codex-evidence-fix-20261104",
+      "frozen_sha": "e05474a5ce897a96f299a57714a8618c5ec2478a",
+      "actual_sha": "e05474a5ce897a96f299a57714a8618c5ec2478a",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/codex-f01-fof-batch-signal-20261104",
+      "ref": "refs/heads/feat/codex-f01-fof-batch-signal-20261104",
+      "frozen_sha": "1f98f67baf38864222890f8379c288a782d7eea2",
+      "actual_sha": "1f98f67baf38864222890f8379c288a782d7eea2",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/codex-f03-digest-atomic-20261104",
+      "ref": "refs/heads/feat/codex-f03-digest-atomic-20261104",
+      "frozen_sha": "197a0bedaf259bea48bf3c43a17390a038af5e82",
+      "actual_sha": "197a0bedaf259bea48bf3c43a17390a038af5e82",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/codex-f04-r2-barrier-lock-20261104",
+      "ref": "refs/heads/feat/codex-f04-r2-barrier-lock-20261104",
+      "frozen_sha": "bf1ed42d445fe2b8acdcc752254cdc610764ad28",
+      "actual_sha": "bf1ed42d445fe2b8acdcc752254cdc610764ad28",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/codex-handoff-ack-20261104",
+      "ref": "refs/heads/feat/codex-handoff-ack-20261104",
+      "frozen_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "actual_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/codex-s01s02-annotation-20261104",
+      "ref": "refs/heads/feat/codex-s01s02-annotation-20261104",
+      "frozen_sha": "65845a7141b145130b77eba53e77b764db5defcd",
+      "actual_sha": "65845a7141b145130b77eba53e77b764db5defcd",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/ledger-l56-20261104",
+      "ref": "refs/heads/feat/ledger-l56-20261104",
+      "frozen_sha": "45a2ae25c5c890c7cdf3ee4870bcf47df87fc279",
+      "actual_sha": "45a2ae25c5c890c7cdf3ee4870bcf47df87fc279",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a16f4a9524c45bb75",
+      "ref": "refs/heads/worktree-agent-a16f4a9524c45bb75",
+      "frozen_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "actual_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a1a34ccc1bd94e1c3",
+      "ref": "refs/heads/worktree-agent-a1a34ccc1bd94e1c3",
+      "frozen_sha": "31c868fa37f6f219ce6ef5d50d92bb30f2d83d69",
+      "actual_sha": "31c868fa37f6f219ce6ef5d50d92bb30f2d83d69",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a33753a60314dae35",
+      "ref": "refs/heads/worktree-agent-a33753a60314dae35",
+      "frozen_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "actual_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [
+        {
+          "pid": "29614",
+          "command": "tail",
+          "fd": "cwd",
+          "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a33753a60314dae35"
+        },
+        {
+          "pid": "29615",
+          "command": "Python",
+          "fd": "cwd",
+          "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a33753a60314dae35"
+        },
+        {
+          "pid": "29618",
+          "command": "Python",
+          "fd": "cwd",
+          "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a33753a60314dae35"
+        }
+      ],
+      "action": "skipped",
+      "reasons": [
+        "process cwd/open at corresponding old agent path (including deleted cwd)",
+        "associated old agent path is used by processes, even if unregistered/deleted"
+      ]
+    },
+    {
+      "branch": "worktree-agent-a4387b6c00013d425",
+      "ref": "refs/heads/worktree-agent-a4387b6c00013d425",
+      "frozen_sha": "102cdde946238014ccf15f1ef58e245591f17b13",
+      "actual_sha": "102cdde946238014ccf15f1ef58e245591f17b13",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a497cea4f459ac420",
+      "ref": "refs/heads/worktree-agent-a497cea4f459ac420",
+      "frozen_sha": "317a1c23da2eaac1aa9b5954b42a7bc546401683",
+      "actual_sha": "317a1c23da2eaac1aa9b5954b42a7bc546401683",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a50d6e1b8bab9beac",
+      "ref": "refs/heads/worktree-agent-a50d6e1b8bab9beac",
+      "frozen_sha": "f402e9456b4031fc657a96b39363327e5ba658d9",
+      "actual_sha": "f402e9456b4031fc657a96b39363327e5ba658d9",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a5b5908105e357067",
+      "ref": "refs/heads/worktree-agent-a5b5908105e357067",
+      "frozen_sha": "58fabc61efdf35b1331a2ac09c737a9e6fee28be",
+      "actual_sha": "58fabc61efdf35b1331a2ac09c737a9e6fee28be",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a6c7a58dac27aff23",
+      "ref": "refs/heads/worktree-agent-a6c7a58dac27aff23",
+      "frozen_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "actual_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a6f893a931a38a74a",
+      "ref": "refs/heads/worktree-agent-a6f893a931a38a74a",
+      "frozen_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "actual_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a7bf9d554f800a85a",
+      "ref": "refs/heads/worktree-agent-a7bf9d554f800a85a",
+      "frozen_sha": "9acf768c7faac9e6dbac17d6e27e8f5edf371248",
+      "actual_sha": "9acf768c7faac9e6dbac17d6e27e8f5edf371248",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a85949bb84ebe6fb7",
+      "ref": "refs/heads/worktree-agent-a85949bb84ebe6fb7",
+      "frozen_sha": "51d73f0f69bfe1859f6d90bcc01e756f3ea109e1",
+      "actual_sha": "51d73f0f69bfe1859f6d90bcc01e756f3ea109e1",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a86a71e6c82fec435",
+      "ref": "refs/heads/worktree-agent-a86a71e6c82fec435",
+      "frozen_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "actual_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a92740fbdd863923a",
+      "ref": "refs/heads/worktree-agent-a92740fbdd863923a",
+      "frozen_sha": "51d73f0f69bfe1859f6d90bcc01e756f3ea109e1",
+      "actual_sha": "51d73f0f69bfe1859f6d90bcc01e756f3ea109e1",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-a9e30b8fe959164bb",
+      "ref": "refs/heads/worktree-agent-a9e30b8fe959164bb",
+      "frozen_sha": "51d73f0f69bfe1859f6d90bcc01e756f3ea109e1",
+      "actual_sha": "51d73f0f69bfe1859f6d90bcc01e756f3ea109e1",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-ab3be0d77f2e065a3",
+      "ref": "refs/heads/worktree-agent-ab3be0d77f2e065a3",
+      "frozen_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "actual_sha": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-ab74b841cccab25f6",
+      "ref": "refs/heads/worktree-agent-ab74b841cccab25f6",
+      "frozen_sha": "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e",
+      "actual_sha": "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-abfdee5da64e2037c",
+      "ref": "refs/heads/worktree-agent-abfdee5da64e2037c",
+      "frozen_sha": "317a1c23da2eaac1aa9b5954b42a7bc546401683",
+      "actual_sha": "317a1c23da2eaac1aa9b5954b42a7bc546401683",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-acbf114aa56b9db87",
+      "ref": "refs/heads/worktree-agent-acbf114aa56b9db87",
+      "frozen_sha": "102cdde946238014ccf15f1ef58e245591f17b13",
+      "actual_sha": "102cdde946238014ccf15f1ef58e245591f17b13",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-ad043a71a1d661ed0",
+      "ref": "refs/heads/worktree-agent-ad043a71a1d661ed0",
+      "frozen_sha": "9acf768c7faac9e6dbac17d6e27e8f5edf371248",
+      "actual_sha": "9acf768c7faac9e6dbac17d6e27e8f5edf371248",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "worktree-agent-afdb97bbaa529d08b",
+      "ref": "refs/heads/worktree-agent-afdb97bbaa529d08b",
+      "frozen_sha": "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e",
+      "actual_sha": "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/backend-p2-fixes-20261105",
+      "ref": "refs/heads/feat/backend-p2-fixes-20261105",
+      "frozen_sha": "af6fddf10c1e5a43af71bdd15888e6d319f277a0",
+      "actual_sha": "af6fddf10c1e5a43af71bdd15888e6d319f277a0",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/fix-a657-artifacts-20261105",
+      "ref": "refs/heads/feat/fix-a657-artifacts-20261105",
+      "frozen_sha": "c508c0a728802324860d79c2874f07cfde691026",
+      "actual_sha": "c508c0a728802324860d79c2874f07cfde691026",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/fix-bump-products-20261105",
+      "ref": "refs/heads/feat/fix-bump-products-20261105",
+      "frozen_sha": "32785ab20959cf5e53edc3944fd828b36fdbe5bc",
+      "actual_sha": "32785ab20959cf5e53edc3944fd828b36fdbe5bc",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/fix-main-merge-selfupdate-20261105",
+      "ref": "refs/heads/feat/fix-main-merge-selfupdate-20261105",
+      "frozen_sha": "5e0d90b7d0d1ee4f9647f6b2bab4b74d2cab6d35",
+      "actual_sha": "5e0d90b7d0d1ee4f9647f6b2bab4b74d2cab6d35",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/ledger-l57-20261105",
+      "ref": "refs/heads/feat/ledger-l57-20261105",
+      "frozen_sha": "2da56696147b47e9ec27d44a27d02a6ac5edd78c",
+      "actual_sha": "2da56696147b47e9ec27d44a27d02a6ac5edd78c",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/preexisting-same-class-20261105",
+      "ref": "refs/heads/feat/preexisting-same-class-20261105",
+      "frozen_sha": "897b566242c19e0ecce09f01314c42ca9a2a2acb",
+      "actual_sha": "897b566242c19e0ecce09f01314c42ca9a2a2acb",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    },
+    {
+      "branch": "feat/selfupdate-notes-20261105",
+      "ref": "refs/heads/feat/selfupdate-notes-20261105",
+      "frozen_sha": "a206dc06f2579dc2135256a27805929b0c09d3b6",
+      "actual_sha": "a206dc06f2579dc2135256a27805929b0c09d3b6",
+      "latest_origin_main_sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "is_ancestor": true,
+      "worktree_count": 0,
+      "process_holders": [],
+      "action": "deleted",
+      "delete_returncode": 0,
+      "reasons": []
+    }
+  ],
+  "worktree_results": [
+    {
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a1a34ccc1bd94e1c3",
+      "guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a1a34ccc1bd94e1c3",
+        "HEAD": "af6fddf10c1e5a43af71bdd15888e6d319f277a0",
+        "branch": "refs/heads/feat/backend-p2-fixes-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T09:59:16.769876+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [
+            "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e"
+          ]
+        }
+      },
+      "backup": {
+        "path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-a1a34ccc1bd94e1c3.tar",
+        "sha256": "e5defee065e6cb7b6ff79755650205d9d11372efc4edfc55ec8e4f9791d9946f",
+        "bytes": 159622144,
+        "verification": {
+          "all_source_entries_present": true,
+          "all_regular_file_payloads_sha256_equal": true,
+          "entry_count": 2965,
+          "appledouble_metadata_entries": 0
+        },
+        "source_manifest_path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-a1a34ccc1bd94e1c3.source-manifest.json"
+      },
+      "pre_remove_guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a1a34ccc1bd94e1c3",
+        "HEAD": "af6fddf10c1e5a43af71bdd15888e6d319f277a0",
+        "branch": "refs/heads/feat/backend-p2-fixes-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T09:59:25.487681+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [
+            "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e"
+          ]
+        }
+      },
+      "action": "removed",
+      "reasons": [],
+      "remove_returncode": 0
+    },
+    {
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-afdb97bbaa529d08b",
+      "guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-afdb97bbaa529d08b",
+        "HEAD": "32785ab20959cf5e53edc3944fd828b36fdbe5bc",
+        "branch": "refs/heads/feat/fix-bump-products-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T09:59:27.174546+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [
+            "fd81b824f1c4d7effb044ded29a60eeb642fc05f"
+          ]
+        }
+      },
+      "backup": {
+        "path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-afdb97bbaa529d08b.tar",
+        "sha256": "c5c8828fc5d5a95d8283f4d742b0d144fdc2c7b09fd28ccf85317dfea05e677d",
+        "bytes": 159944192,
+        "verification": {
+          "all_source_entries_present": true,
+          "all_regular_file_payloads_sha256_equal": true,
+          "entry_count": 2991,
+          "appledouble_metadata_entries": 0
+        },
+        "source_manifest_path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-afdb97bbaa529d08b.source-manifest.json"
+      },
+      "pre_remove_guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-afdb97bbaa529d08b",
+        "HEAD": "32785ab20959cf5e53edc3944fd828b36fdbe5bc",
+        "branch": "refs/heads/feat/fix-bump-products-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T09:59:34.672969+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [
+            "fd81b824f1c4d7effb044ded29a60eeb642fc05f"
+          ]
+        }
+      },
+      "action": "removed",
+      "reasons": [],
+      "remove_returncode": 0
+    },
+    {
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a4387b6c00013d425",
+      "guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a4387b6c00013d425",
+        "HEAD": "5e0d90b7d0d1ee4f9647f6b2bab4b74d2cab6d35",
+        "branch": "refs/heads/feat/fix-main-merge-selfupdate-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T09:59:35.898296+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [
+            "9acf768c7faac9e6dbac17d6e27e8f5edf371248"
+          ]
+        }
+      },
+      "backup": {
+        "path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-a4387b6c00013d425.tar",
+        "sha256": "abd65585a674777927825ca2eca40bb57a65a44d415811b3e99a3edf2a18d530",
+        "bytes": 160012800,
+        "verification": {
+          "all_source_entries_present": true,
+          "all_regular_file_payloads_sha256_equal": true,
+          "entry_count": 2995,
+          "appledouble_metadata_entries": 0
+        },
+        "source_manifest_path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-a4387b6c00013d425.source-manifest.json"
+      },
+      "pre_remove_guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a4387b6c00013d425",
+        "HEAD": "5e0d90b7d0d1ee4f9647f6b2bab4b74d2cab6d35",
+        "branch": "refs/heads/feat/fix-main-merge-selfupdate-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T09:59:43.303318+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [
+            "9acf768c7faac9e6dbac17d6e27e8f5edf371248"
+          ]
+        }
+      },
+      "action": "removed",
+      "reasons": [],
+      "remove_returncode": 0
+    },
+    {
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a7bf9d554f800a85a",
+      "guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a7bf9d554f800a85a",
+        "HEAD": "2da56696147b47e9ec27d44a27d02a6ac5edd78c",
+        "branch": "refs/heads/feat/ledger-l57-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T09:59:44.370050+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [
+            "6c1493aea9febd6318eafa8a5cf51d0d774aa155"
+          ]
+        }
+      },
+      "backup": {
+        "path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-a7bf9d554f800a85a.tar",
+        "sha256": "7b271db84f11f3bf981875fb1892a62eef9086e1780260a15c61145f27c3829a",
+        "bytes": 145593856,
+        "verification": {
+          "all_source_entries_present": true,
+          "all_regular_file_payloads_sha256_equal": true,
+          "entry_count": 2617,
+          "appledouble_metadata_entries": 0
+        },
+        "source_manifest_path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-a7bf9d554f800a85a.source-manifest.json"
+      },
+      "pre_remove_guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a7bf9d554f800a85a",
+        "HEAD": "2da56696147b47e9ec27d44a27d02a6ac5edd78c",
+        "branch": "refs/heads/feat/ledger-l57-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T09:59:52.256377+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [
+            "6c1493aea9febd6318eafa8a5cf51d0d774aa155"
+          ]
+        }
+      },
+      "action": "removed",
+      "reasons": [],
+      "remove_returncode": 0
+    },
+    {
+      "path": "/private/tmp/rev-p2",
+      "guard": {
+        "worktree": "/private/tmp/rev-p2",
+        "HEAD": "af6fddf10c1e5a43af71bdd15888e6d319f277a0",
+        "detached": true,
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T09:59:54.535551+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [
+            "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e"
+          ]
+        }
+      },
+      "backup": {
+        "path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/rev-p2.tar",
+        "sha256": "6f2e8b5c2a3900a404ae4836f5d967b71b8f3d1e559a79c9d92571279dad946e",
+        "bytes": 157514752,
+        "verification": {
+          "all_source_entries_present": true,
+          "all_regular_file_payloads_sha256_equal": true,
+          "entry_count": 2864,
+          "appledouble_metadata_entries": 0
+        },
+        "source_manifest_path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/rev-p2.source-manifest.json"
+      },
+      "pre_remove_guard": {
+        "worktree": "/private/tmp/rev-p2",
+        "HEAD": "af6fddf10c1e5a43af71bdd15888e6d319f277a0",
+        "detached": true,
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T10:00:02.830042+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [
+            "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e"
+          ]
+        }
+      },
+      "action": "removed",
+      "reasons": [],
+      "remove_returncode": 0
+    },
+    {
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-acbf114aa56b9db87",
+      "guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-acbf114aa56b9db87",
+        "HEAD": "c508c0a728802324860d79c2874f07cfde691026",
+        "branch": "refs/heads/feat/fix-a657-artifacts-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T10:01:35.776551+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [],
+          "on_main_first_parent_chain": true,
+          "completion_receipt": {
+            "source": "/tmp/codex-reports/night-20261105/claude-receipt.json",
+            "source_sha256": "4a51668525f0f999900993057a1fcf3f948a9a2972af397da916c6e2c6c39593",
+            "json_pointer": "update_20261105_1255.a657_hotfix_merged",
+            "head": "c508c0a72",
+            "branch": "feat/fix-a657-artifacts-20261105",
+            "review": "独立审查 PASS(3 文件 4 行、代码零改动、8 载体推演全 a657、合并不触发 bump 论断核实)",
+            "merged": "统一入口直推 main c508c0a72;CI #1034 success;Deploy to GitHub Pages success;Deploy to Cloudflare Workers success;云上已同步"
+          }
+        }
+      },
+      "backup": {
+        "path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-acbf114aa56b9db87.tar",
+        "sha256": "6b751d579a5b517088c32952bd25420dc137ab69308dd43652e4712378269d54",
+        "bytes": 145550336,
+        "verification": {
+          "all_source_entries_present": true,
+          "all_regular_file_payloads_sha256_equal": true,
+          "entry_count": 2606,
+          "appledouble_metadata_entries": 0
+        },
+        "source_manifest_path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-acbf114aa56b9db87.source-manifest.json"
+      },
+      "pre_remove_guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-acbf114aa56b9db87",
+        "HEAD": "c508c0a728802324860d79c2874f07cfde691026",
+        "branch": "refs/heads/feat/fix-a657-artifacts-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T10:01:41.080137+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [],
+          "on_main_first_parent_chain": true,
+          "completion_receipt": {
+            "source": "/tmp/codex-reports/night-20261105/claude-receipt.json",
+            "source_sha256": "4a51668525f0f999900993057a1fcf3f948a9a2972af397da916c6e2c6c39593",
+            "json_pointer": "update_20261105_1255.a657_hotfix_merged",
+            "head": "c508c0a72",
+            "branch": "feat/fix-a657-artifacts-20261105",
+            "review": "独立审查 PASS(3 文件 4 行、代码零改动、8 载体推演全 a657、合并不触发 bump 论断核实)",
+            "merged": "统一入口直推 main c508c0a72;CI #1034 success;Deploy to GitHub Pages success;Deploy to Cloudflare Workers success;云上已同步"
+          }
+        }
+      },
+      "action": "removed",
+      "reasons": [],
+      "remove_returncode": 0
+    },
+    {
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-ab74b841cccab25f6",
+      "guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-ab74b841cccab25f6",
+        "HEAD": "897b566242c19e0ecce09f01314c42ca9a2a2acb",
+        "branch": "refs/heads/feat/preexisting-same-class-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T10:01:41.890208+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [],
+          "on_main_first_parent_chain": true,
+          "completion_receipt": {
+            "source": "/tmp/codex-reports/night-20261105/claude-receipt.json",
+            "source_sha256": "4a51668525f0f999900993057a1fcf3f948a9a2972af397da916c6e2c6c39593",
+            "json_pointer": "update_20261105_1230.backend_p2_followup_merged",
+            "head": "897b56624",
+            "branch": "feat/preexisting-same-class-20261105",
+            "review": "独立审查 PASS:判别力 revert→6 红 / restore→8 绿;全量 2329 passed, 3 skipped;边界差集逐条显式不测理由;L48/L50/L51 合规",
+            "merged": "统一入口直推 main 897b56624;CI Quality Gate #1032 success;云上已同步"
+          }
+        }
+      },
+      "backup": {
+        "path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-ab74b841cccab25f6.tar",
+        "sha256": "34ddf3b679d7972261654df5cb318a2d127e79949eb1f07dd01f9dfa33593ae8",
+        "bytes": 160008192,
+        "verification": {
+          "all_source_entries_present": true,
+          "all_regular_file_payloads_sha256_equal": true,
+          "entry_count": 2996,
+          "appledouble_metadata_entries": 0
+        },
+        "source_manifest_path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-ab74b841cccab25f6.source-manifest.json"
+      },
+      "pre_remove_guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-ab74b841cccab25f6",
+        "HEAD": "897b566242c19e0ecce09f01314c42ca9a2a2acb",
+        "branch": "refs/heads/feat/preexisting-same-class-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T10:01:47.195706+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [],
+          "on_main_first_parent_chain": true,
+          "completion_receipt": {
+            "source": "/tmp/codex-reports/night-20261105/claude-receipt.json",
+            "source_sha256": "4a51668525f0f999900993057a1fcf3f948a9a2972af397da916c6e2c6c39593",
+            "json_pointer": "update_20261105_1230.backend_p2_followup_merged",
+            "head": "897b56624",
+            "branch": "feat/preexisting-same-class-20261105",
+            "review": "独立审查 PASS:判别力 revert→6 红 / restore→8 绿;全量 2329 passed, 3 skipped;边界差集逐条显式不测理由;L48/L50/L51 合规",
+            "merged": "统一入口直推 main 897b56624;CI Quality Gate #1032 success;云上已同步"
+          }
+        }
+      },
+      "action": "removed",
+      "reasons": [],
+      "remove_returncode": 0
+    },
+    {
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/agent-ad043a71a1d661ed0",
+      "guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-ad043a71a1d661ed0",
+        "HEAD": "a206dc06f2579dc2135256a27805929b0c09d3b6",
+        "branch": "refs/heads/feat/selfupdate-notes-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T10:01:48.071144+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [],
+          "on_main_first_parent_chain": true,
+          "completion_receipt": {
+            "source": "/tmp/codex-reports/night-20261105/claude-receipt.json",
+            "source_sha256": "4a51668525f0f999900993057a1fcf3f948a9a2972af397da916c6e2c6c39593",
+            "json_pointer": "update_20261105_1555.selfupdate_notes_merged_e2e",
+            "head": "a206dc06f",
+            "branch": "feat/selfupdate-notes-20261105",
+            "review": "独立审查 PASS-WITH-NOTES:diff 仅 main-merge.sh 27+/0-;bash -n PASS;远程 HEAD 逐位一致;沙箱 4 场景(正常/变化/启动空/merge后空)+ sha 空路径全过;全量 pytest 2329 passed,3 skipped;§24 无前端无 bump;3 NOTE 不阻断(sha 全失败 worst-case 文案/N2 DRY_RUN-resume 组合未显式测/注释措辞略松)",
+            "merged": "统一入口合并为 a206dc06f;CI #1036 success;云上已同步"
+          }
+        }
+      },
+      "backup": {
+        "path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-ad043a71a1d661ed0.tar",
+        "sha256": "8035f04ba9a3267ef5e199fe0ad73ca47c9df6301f11dcf2f810e80dcc8154b1",
+        "bytes": 160104448,
+        "verification": {
+          "all_source_entries_present": true,
+          "all_regular_file_payloads_sha256_equal": true,
+          "entry_count": 3000,
+          "appledouble_metadata_entries": 0
+        },
+        "source_manifest_path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/agent-ad043a71a1d661ed0.source-manifest.json"
+      },
+      "pre_remove_guard": {
+        "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-ad043a71a1d661ed0",
+        "HEAD": "a206dc06f2579dc2135256a27805929b0c09d3b6",
+        "branch": "refs/heads/feat/selfupdate-notes-20261105",
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T10:01:53.857903+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [],
+          "on_main_first_parent_chain": true,
+          "completion_receipt": {
+            "source": "/tmp/codex-reports/night-20261105/claude-receipt.json",
+            "source_sha256": "4a51668525f0f999900993057a1fcf3f948a9a2972af397da916c6e2c6c39593",
+            "json_pointer": "update_20261105_1555.selfupdate_notes_merged_e2e",
+            "head": "a206dc06f",
+            "branch": "feat/selfupdate-notes-20261105",
+            "review": "独立审查 PASS-WITH-NOTES:diff 仅 main-merge.sh 27+/0-;bash -n PASS;远程 HEAD 逐位一致;沙箱 4 场景(正常/变化/启动空/merge后空)+ sha 空路径全过;全量 pytest 2329 passed,3 skipped;§24 无前端无 bump;3 NOTE 不阻断(sha 全失败 worst-case 文案/N2 DRY_RUN-resume 组合未显式测/注释措辞略松)",
+            "merged": "统一入口合并为 a206dc06f;CI #1036 success;云上已同步"
+          }
+        }
+      },
+      "action": "removed",
+      "reasons": [],
+      "remove_returncode": 0
+    },
+    {
+      "path": "/private/tmp/rev-preissue",
+      "guard": {
+        "worktree": "/private/tmp/rev-preissue",
+        "HEAD": "897b566242c19e0ecce09f01314c42ca9a2a2acb",
+        "detached": true,
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T10:01:54.710700+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [],
+          "on_main_first_parent_chain": true,
+          "completion_receipt": {
+            "source": "/tmp/codex-reports/night-20261105/claude-receipt.json",
+            "source_sha256": "4a51668525f0f999900993057a1fcf3f948a9a2972af397da916c6e2c6c39593",
+            "json_pointer": "update_20261105_1230.backend_p2_followup_merged",
+            "head": "897b56624",
+            "branch": "feat/preexisting-same-class-20261105",
+            "review": "独立审查 PASS:判别力 revert→6 红 / restore→8 绿;全量 2329 passed, 3 skipped;边界差集逐条显式不测理由;L48/L50/L51 合规",
+            "merged": "统一入口直推 main 897b56624;CI Quality Gate #1032 success;云上已同步"
+          }
+        }
+      },
+      "backup": {
+        "path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/rev-preissue.tar",
+        "sha256": "98d73d8616367705ab9f2e34987f70b4a868d99ba24012833d0c70cd5b503896",
+        "bytes": 157927424,
+        "verification": {
+          "all_source_entries_present": true,
+          "all_regular_file_payloads_sha256_equal": true,
+          "entry_count": 2897,
+          "appledouble_metadata_entries": 0
+        },
+        "source_manifest_path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/worktrees/rev-preissue.source-manifest.json"
+      },
+      "pre_remove_guard": {
+        "worktree": "/private/tmp/rev-preissue",
+        "HEAD": "897b566242c19e0ecce09f01314c42ca9a2a2acb",
+        "detached": true,
+        "status_rc": 0,
+        "status": [],
+        "status_stderr": "",
+        "guard_process_probe": {
+          "time": "2026-11-05T10:01:59.978879+00:00",
+          "complete": true,
+          "holders": []
+        },
+        "completion_evidence": {
+          "user_explicit_old_candidate": true,
+          "head_in_latest_main": true,
+          "direct_integration_merge_commits": [],
+          "on_main_first_parent_chain": true,
+          "completion_receipt": {
+            "source": "/tmp/codex-reports/night-20261105/claude-receipt.json",
+            "source_sha256": "4a51668525f0f999900993057a1fcf3f948a9a2972af397da916c6e2c6c39593",
+            "json_pointer": "update_20261105_1230.backend_p2_followup_merged",
+            "head": "897b56624",
+            "branch": "feat/preexisting-same-class-20261105",
+            "review": "独立审查 PASS:判别力 revert→6 红 / restore→8 绿;全量 2329 passed, 3 skipped;边界差集逐条显式不测理由;L48/L50/L51 合规",
+            "merged": "统一入口直推 main 897b56624;CI Quality Gate #1032 success;云上已同步"
+          }
+        }
+      },
+      "action": "removed",
+      "reasons": [],
+      "remove_returncode": 0
+    }
+  ],
+  "protected": {
+    "refs/heads/codex/369-370-frontend-timeouts": "main/codex/unmerged/or outside original candidates",
+    "refs/heads/codex/collab-closeout-20261105": "dirty/unreadable or process cwd/open worktree",
+    "refs/heads/codex/notify-regressions-20261105": "dirty/unreadable or process cwd/open worktree",
+    "refs/heads/feat/fix-258-s06-budget": "main/codex/unmerged/or outside original candidates",
+    "refs/heads/main": "dirty/unreadable or process cwd/open worktree",
+    "refs/heads/worktree-agent-a33753a60314dae35": "process cwd/open at corresponding old agent path (including deleted cwd)"
+  },
+  "raw_report_sha256": "713058513c010a826bfd57299a1db30a16e5194a4599a73e36564c98cdb5fb01",
+  "raw_report_path": "/tmp/codex-reports/closeout-20261105/cleanup.json",
+  "note": "Metadata only; bundle/tars/private ignored contents excluded. Full raw report also retained in private backup.",
+  "private_raw_report": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6/cleanup-final-report.json"
+}

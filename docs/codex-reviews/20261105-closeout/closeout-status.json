@@ -1,0 +1,147 @@
+{
+  "phase": "Codex_implementation_complete_pending_Claude_review_merge_and_live_loading",
+  "user_authorization": "做（回归补测、台账对账、清理核验、通知回执闭环）",
+  "base": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "branch": "codex/collab-closeout-20261105",
+  "status_owner": "Codex主会话已核实实际结果；两分支最终head/远端核验与正式交接身份在push后不可变master report中记录，避免提交内容自引用head",
+  "work_items": {
+    "regressions": {
+      "branch": "codex/notify-regressions-20261105",
+      "responsibility": "tests-only 补测；业务修复由 Claude 复核后决定",
+      "status": "tests_only_draft_committed_pushed_remote_sha_verified",
+      "head": "0d1bc0fdcdb849a371c4804adf7fae97aba16d19",
+      "targeted": {
+        "failed": 20,
+        "passed": 29,
+        "skipped": 0
+      },
+      "full": {
+        "failed": 20,
+        "passed": 2358,
+        "skipped": 3,
+        "warnings": 1,
+        "returncode": 1,
+        "only_known_module_failed": true
+      },
+      "fixture_only_simulated_fix": {
+        "passed": 49,
+        "business_source_changed": false
+      },
+      "merge_requires_Claude_reviewed_business_fix": true
+    },
+    "ledger_and_archive": {
+      "branch": "codex/collab-closeout-20261105",
+      "responsibility": "仅 #366–#370 状态事实与本目录证据",
+      "status": "completed_pending_Claude_review_merge"
+    },
+    "cleanup": {
+      "responsibility": "主会话核验、备份、恢复验证后按授权清理本地对象；保留保护项和 stash",
+      "status": "completed_with_verified_permanent_backup",
+      "manifest_link": "evidence/closeout/cleanup-manifest.json",
+      "backup_path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6",
+      "counts": {
+        "heads_before": 39,
+        "heads_after": 6,
+        "branches_deleted": 33,
+        "branches_skipped": 1,
+        "worktrees_before": 13,
+        "worktrees_after": 4,
+        "worktrees_removed": 9,
+        "stashes_retained": 4
+      },
+      "stash_action": "retained_original_order",
+      "remote_action": "unchanged",
+      "restore_verified": true
+    },
+    "notification_receipt": {
+      "branch": "codex/collab-closeout-20261105",
+      "responsibility": "另一 worker 准备自研交接脚本/hooks/tests/ops/协议；Claude 主控接收复核",
+      "status": "implementation_selfchecks_passed_pending_Claude_review_merge_loading",
+      "live_hook_install_verified": false,
+      "targeted": {
+        "passed": 53,
+        "failed": 0
+      },
+      "full": {
+        "passed": 2382,
+        "skipped": 3,
+        "warnings": 1,
+        "returncode": 0,
+        "source_unchanged": true
+      },
+      "independent_selfcheck": {
+        "verdict": "PASS",
+        "groups": 18,
+        "original_P1_resolved": true,
+        "report": "evidence/closeout/handoff-selfcheck-r2.json"
+      },
+      "real_Claude_received": false,
+      "formal_packet_status": "published_after_commits; inspect external master/delivery receipt for current status"
+    }
+  },
+  "new_backend_p2": "two_findings_reproduced_independently_pending_Claude_review_not_accepted_new_requirements",
+  "business_fix_status": "not_performed_by_Codex; tests-only draft handed to Claude",
+  "final_actual_results": {
+    "regression_branch": {
+      "branch": "codex/notify-regressions-20261105",
+      "head": "0d1bc0fdcdb849a371c4804adf7fae97aba16d19",
+      "remote_verified": "0d1bc0fdcdb849a371c4804adf7fae97aba16d19",
+      "base": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "draft": true,
+      "merge_requires_business_fix": true
+    },
+    "closeout_branch": "codex/collab-closeout-20261105",
+    "green_full": {
+      "returncode": 0,
+      "duration_seconds": 314.7,
+      "source_unchanged": true,
+      "source_sha256": {
+        "scripts/codex_handoff.py": "5e78754782f708c1a38fa367e0ae5103b5b642106f3016b8c43e308ca31d5928",
+        "scripts/tests/test_codex_handoff.py": "4629355b904c29807a8394710b36fe2ffde8dd116af3c7bf08a6934982366496",
+        ".claude/settings.json": "e484e439c77af4ca7148860b67b6c639b969b7b5de7e2d5c89c561095ac2ced8"
+      },
+      "counts": {
+        "tests": 2385,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 3
+      },
+      "failed_cases": [],
+      "tail": [
+        "............................................s........................... [ 90%]",
+        "........................................................................ [ 93%]",
+        "........................................................................ [ 96%]",
+        "........................................................................ [ 99%]",
+        ".........                                                                [100%]",
+        "=============================== warnings summary ===============================",
+        "scripts/bump_asset_version.py:84",
+        "  /Users/linhuichen/code/trade/.claude/worktrees/codex-collab-closeout-20261105/scripts/bump_asset_version.py:84: DeprecationWarning: invalid escape sequence '\\?'",
+        "    \"\"\"把 html 里所有 `?v=...` 替换为 `?v=<ver>`，并同步 <meta name=\"build-id\">。",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "2382 passed, 3 skipped, 1 warning in 314.18s (0:05:14)"
+      ]
+    },
+    "cleanup_counts": {
+      "heads_before": 39,
+      "heads_after": 6,
+      "branches_deleted": 33,
+      "branches_skipped": 1,
+      "worktrees_before": 13,
+      "worktrees_after": 4,
+      "worktrees_removed": 9,
+      "stashes_retained": 4
+    },
+    "cleanup_backup_path": "/Users/linhuichen/code/trade-backups/20261105-codex-closeout-20261105T175548-390bd6",
+    "cleanup_verified": true,
+    "notification_independent_groups": 18,
+    "notification_peer_review": "pending_Claude",
+    "notification_live": false,
+    "business_sources_changed": false,
+    "main_commit_push_deploy_performed": false,
+    "asset_version_before": "20261105-a657",
+    "asset_version_after": "20261105-a657"
+  },
+  "cleanup_manifest_link": "evidence/closeout/cleanup-manifest.json",
+  "finalization_note": "本文件已补实际结果及清理链接。主会话将仅commit/push两个codex分支；测试DRAFT需配套Claude业务修复，green分支需Claude最终review/merge后加载。首轮FAIL与R2 PASS均保留。checksum覆盖本目录除自身全部文件。"
+}

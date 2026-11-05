@@ -1,0 +1,469 @@
+{
+  "generated_by": "read-only git show / merge-base --is-ancestor / diff-tree / rev-parse; no fetch or ref mutation",
+  "fixed_main": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "commits": [
+    {
+      "input": "c3b17870a",
+      "sha": "c3b17870abc1b8342b485cc51f62e12c200ba3d2",
+      "parents": [
+        "8b2f291ab8d1782574cf0774f1686ef82b61527a"
+      ],
+      "subject": "fix(#366/F01): FOF 整批请求异常时采集器发失败信号供监控消费",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/collect_fof_nav.py",
+        "scripts/tests/test_collect_fof_nav_366_batch_signal.py"
+      ]
+    },
+    {
+      "input": "10459a5dd",
+      "sha": "10459a5dddc8d104bbedf34e2203ad5bfba66cd8",
+      "parents": [
+        "c3b17870abc1b8342b485cc51f62e12c200ba3d2"
+      ],
+      "subject": "fix(fof): #366/F01 整批失败信号 + main() exit 2 端到端测试",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/collect_fof_nav.py",
+        "scripts/tests/test_collect_fof_nav_366_batch_signal.py"
+      ]
+    },
+    {
+      "input": "1f98f67ba",
+      "sha": "1f98f67baf38864222890f8379c288a782d7eea2",
+      "parents": [
+        "10459a5dddc8d104bbedf34e2203ad5bfba66cd8"
+      ],
+      "subject": "fix(fof): #366/F01-R1 合法空响应误判整批失败(exit 2 假告警)",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/collect_fof_nav.py",
+        "scripts/tests/test_collect_fof_nav_366_batch_signal.py"
+      ]
+    },
+    {
+      "input": "00dabd713",
+      "sha": "00dabd713521864d6cd20ce3622ab084ca9d476b",
+      "parents": [
+        "aca87b537de84e12f2f374e8d7898a8f1f76c988",
+        "1f98f67baf38864222890f8379c288a782d7eea2"
+      ],
+      "subject": "merge(feat/feat/codex-f01-fof-batch-signal-20261104): 统一入口合并 feat/codex-f01-fof-batch-signal-20261104 入 main",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/collect_fof_nav.py",
+        "scripts/tests/test_collect_fof_nav_366_batch_signal.py"
+      ]
+    },
+    {
+      "input": "b72b40efe",
+      "sha": "b72b40efe5830df7f1304610d234789888df9885",
+      "parents": [
+        "8b2f291ab8d1782574cf0774f1686ef82b61527a"
+      ],
+      "subject": "fix(notify): F03 摘要同签名并发吸收原子化(读-判-计数-写回同一 LOCK_EX 临界区)",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/notify.py",
+        "scripts/tests/test_264_alert_domain_budget_20261015.py",
+        "scripts/tests/test_f03_digest_atomic_concurrent.py"
+      ]
+    },
+    {
+      "input": "197a0beda",
+      "sha": "197a0bedaf259bea48bf3c43a17390a038af5e82",
+      "parents": [
+        "37c426f16bebab092994b30891e0c71ffbd75934"
+      ],
+      "subject": "fix(notify): #367 F03-R1 摘要写路径原子替换 + 失败语义根治",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/notify.py",
+        "scripts/tests/test_f03_digest_atomic_concurrent.py",
+        "scripts/tests/test_f03r1_digest_atomic_write.py"
+      ]
+    },
+    {
+      "input": "31c868fa3",
+      "sha": "31c868fa37f6f219ce6ef5d50d92bb30f2d83d69",
+      "parents": [
+        "00dabd713521864d6cd20ce3622ab084ca9d476b",
+        "197a0bedaf259bea48bf3c43a17390a038af5e82"
+      ],
+      "subject": "merge(feat/feat/codex-f03-digest-atomic-20261104): 统一入口合并 feat/codex-f03-digest-atomic-20261104 入 main",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/notify.py",
+        "scripts/tests/test_264_alert_domain_budget_20261015.py",
+        "scripts/tests/test_f03_digest_atomic_concurrent.py",
+        "scripts/tests/test_f03r1_digest_atomic_write.py"
+      ]
+    },
+    {
+      "input": "bf1ed42d4",
+      "sha": "bf1ed42d445fe2b8acdcc752254cdc610764ad28",
+      "parents": [
+        "8b2f291ab8d1782574cf0774f1686ef82b61527a"
+      ],
+      "subject": "fix(r2): #368 F04 全局屏障锁 open 失败抛 IndexError + fd 泄漏",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/tests/test_r2_lock_f04_barrier_open_fail_20261104.py",
+        "scripts/upload_r2.py"
+      ]
+    },
+    {
+      "input": "aac5d19bd",
+      "sha": "aac5d19bdc60ebeb136efc12efd1e8022138724e",
+      "parents": [
+        "e05474a5ce897a96f299a57714a8618c5ec2478a",
+        "bf1ed42d445fe2b8acdcc752254cdc610764ad28"
+      ],
+      "subject": "merge(feat/feat/codex-f04-r2-barrier-lock-20261104): 统一入口合并 feat/codex-f04-r2-barrier-lock-20261104 入 main",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/tests/test_r2_lock_f04_barrier_open_fail_20261104.py",
+        "scripts/upload_r2.py"
+      ]
+    },
+    {
+      "input": "04fd4a8c2",
+      "sha": "04fd4a8c2163e05b29c0e72811b7790dd0b4135e",
+      "parents": [
+        "e05474a5ce897a96f299a57714a8618c5ec2478a"
+      ],
+      "subject": "fix(frontend): 修复 #369/#370 正文超时与回退取消链",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "docs/ops/369-370-frontend-timeouts-implementation.md",
+        "docs/pending-features-index.md",
+        "scripts/playwright-accept/accept_frontend_request_timeouts.mjs",
+        "scripts/tests/test_frontend_request_timeouts.cjs",
+        "scripts/tests/test_frontend_request_timeouts.py",
+        "static-site/app.js",
+        "static-site/index.html",
+        "static-site/lab.js"
+      ]
+    },
+    {
+      "input": "92013be60",
+      "sha": "92013be60d596cddb6b10e383a84d948713a1b72",
+      "parents": [
+        "26d885480c8c8dd06cc9f3d49ae15ea8d3b34431"
+      ],
+      "subject": "fix(frontend): 补齐Kelly与公募API正文超时并归档夜间复验",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "docs/codex-reviews/night-20261105/README.md",
+        "docs/codex-reviews/night-20261105/SHA256SUMS",
+        "docs/codex-reviews/night-20261105/evidence/browser-handoff.json",
+        "docs/codex-reviews/night-20261105/evidence/browser-summary.json",
+        "docs/codex-reviews/night-20261105/evidence/f01-recheck.json",
+        "docs/codex-reviews/night-20261105/evidence/f03-recheck.json",
+        "docs/codex-reviews/night-20261105/evidence/f04-main-recheck.json",
+        "docs/codex-reviews/night-20261105/evidence/frontend-combined.log",
+        "docs/codex-reviews/night-20261105/evidence/frontend-red-control.json",
+        "docs/codex-reviews/night-20261105/evidence/frontend-scope-verification.json",
+        "docs/codex-reviews/night-20261105/evidence/frontend-summary.md",
+        "docs/codex-reviews/night-20261105/evidence/frontend-verification.json",
+        "docs/codex-reviews/night-20261105/evidence/min-build-harness-errors.txt",
+        "docs/codex-reviews/night-20261105/evidence/min-build-result.json",
+        "docs/codex-reviews/night-20261105/evidence/pytest-command.json",
+        "docs/codex-reviews/night-20261105/evidence/pytest-full.log",
+        "docs/codex-reviews/night-20261105/evidence/pytest-result.json",
+        "docs/ops/369-370-frontend-timeouts-implementation.md",
+        "docs/pending-features-index.md",
+        "scripts/playwright-accept/accept_frontend_request_timeouts.mjs",
+        "scripts/tests/test_frontend_aux_body_timeouts.cjs",
+        "scripts/tests/test_frontend_aux_body_timeouts.py",
+        "static-site/app.js",
+        "static-site/lab.js"
+      ]
+    },
+    {
+      "input": "37f6641dd",
+      "sha": "37f6641dd22350a3651c96e07d4726c8273363fb",
+      "parents": [
+        "31c868fa37f6f219ce6ef5d50d92bb30f2d83d69",
+        "92013be60d596cddb6b10e383a84d948713a1b72"
+      ],
+      "subject": "merge(feat/codex/369-370-frontend-timeouts): 统一入口合并 codex/369-370-frontend-timeouts 入 main",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "docs/codex-reviews/night-20261105/README.md",
+        "docs/codex-reviews/night-20261105/SHA256SUMS",
+        "docs/codex-reviews/night-20261105/evidence/browser-handoff.json",
+        "docs/codex-reviews/night-20261105/evidence/browser-summary.json",
+        "docs/codex-reviews/night-20261105/evidence/f01-recheck.json",
+        "docs/codex-reviews/night-20261105/evidence/f03-recheck.json",
+        "docs/codex-reviews/night-20261105/evidence/f04-main-recheck.json",
+        "docs/codex-reviews/night-20261105/evidence/frontend-combined.log",
+        "docs/codex-reviews/night-20261105/evidence/frontend-red-control.json",
+        "docs/codex-reviews/night-20261105/evidence/frontend-scope-verification.json",
+        "docs/codex-reviews/night-20261105/evidence/frontend-summary.md",
+        "docs/codex-reviews/night-20261105/evidence/frontend-verification.json",
+        "docs/codex-reviews/night-20261105/evidence/min-build-harness-errors.txt",
+        "docs/codex-reviews/night-20261105/evidence/min-build-result.json",
+        "docs/codex-reviews/night-20261105/evidence/pytest-command.json",
+        "docs/codex-reviews/night-20261105/evidence/pytest-full.log",
+        "docs/codex-reviews/night-20261105/evidence/pytest-result.json",
+        "docs/ops/369-370-frontend-timeouts-implementation.md",
+        "docs/pending-features-index.md",
+        "scripts/playwright-accept/accept_frontend_request_timeouts.mjs",
+        "scripts/tests/test_frontend_aux_body_timeouts.cjs",
+        "scripts/tests/test_frontend_aux_body_timeouts.py",
+        "scripts/tests/test_frontend_request_timeouts.cjs",
+        "scripts/tests/test_frontend_request_timeouts.py",
+        "static-site/app.js",
+        "static-site/index.html",
+        "static-site/lab.js"
+      ]
+    },
+    {
+      "input": "de5590fd2",
+      "sha": "de5590fd2bc592c679ab66444f7b52edefe717bc",
+      "parents": [
+        "37f6641dd22350a3651c96e07d4726c8273363fb"
+      ],
+      "subject": "build(统一bump): main-merge.sh 统一 build_min+bump 版本串(机制C, feat=codex/369-370-frontend-timeouts)",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "static-site/about.html",
+        "static-site/app.min.js",
+        "static-site/changelog.json",
+        "static-site/guide.html",
+        "static-site/index.html",
+        "static-site/lab.min.js",
+        "static-site/privacy.html",
+        "static-site/sw.js"
+      ]
+    },
+    {
+      "input": "15b7ec53c",
+      "sha": "15b7ec53c0ae2f19d494a3abb845c73f199677f1",
+      "parents": [
+        "31c868fa37f6f219ce6ef5d50d92bb30f2d83d69"
+      ],
+      "subject": "fix(notify): P2-A 原子替换保留原文件显式权限",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/notify.py",
+        "scripts/tests/test_f03r1_atomic_write_perms.py"
+      ]
+    },
+    {
+      "input": "6b91de7e8",
+      "sha": "6b91de7e8d64186e004c639218bf0973b5506cd0",
+      "parents": [
+        "15b7ec53c0ae2f19d494a3abb845c73f199677f1"
+      ],
+      "subject": "fix(test): P2-B 并发测试接受合法终态集合(假红修复)",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/tests/test_f03r1_digest_atomic_write.py"
+      ]
+    },
+    {
+      "input": "af6fddf10",
+      "sha": "af6fddf10c1e5a43af71bdd15888e6d319f277a0",
+      "parents": [
+        "6b91de7e8d64186e004c639218bf0973b5506cd0"
+      ],
+      "subject": "fix(fof_nav): P2-C 单只基金写库失败回滚, 零部分写入残留",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/collect_fof_nav.py",
+        "scripts/tests/test_fof_nav_p2c_rollback.py"
+      ]
+    },
+    {
+      "input": "d813cc2ad",
+      "sha": "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e",
+      "parents": [
+        "de5590fd2bc592c679ab66444f7b52edefe717bc",
+        "af6fddf10c1e5a43af71bdd15888e6d319f277a0"
+      ],
+      "subject": "merge(feat/feat/backend-p2-fixes-20261105): 统一入口合并 feat/backend-p2-fixes-20261105 入 main",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/collect_fof_nav.py",
+        "scripts/notify.py",
+        "scripts/tests/test_f03r1_atomic_write_perms.py",
+        "scripts/tests/test_f03r1_digest_atomic_write.py",
+        "scripts/tests/test_fof_nav_p2c_rollback.py"
+      ]
+    },
+    {
+      "input": "5771ef41a",
+      "sha": "5771ef41a5b8eb2e37af2d5a04bfb81e96fbfdbe",
+      "parents": [
+        "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e"
+      ],
+      "subject": "fix(backfill_etf_daily): P2-C 同类, per-item 写库失败回滚零残留",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/backfill_etf_daily.py",
+        "scripts/tests/test_backfill_etf_daily_p2c_rollback.py"
+      ]
+    },
+    {
+      "input": "897b56624",
+      "sha": "897b566242c19e0ecce09f01314c42ca9a2a2acb",
+      "parents": [
+        "5771ef41a5b8eb2e37af2d5a04bfb81e96fbfdbe"
+      ],
+      "subject": "fix(notify): P2-A 同类, 5 条 tmp+replace 写路径保留原文件权限",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/notify.py",
+        "scripts/tests/test_notify_p2a_mode_preserve.py"
+      ]
+    },
+    {
+      "input": "32785ab20",
+      "sha": "32785ab20959cf5e53edc3944fd828b36fdbe5bc",
+      "parents": [
+        "d813cc2ad4e771bb0b32c6fdcdd3657a994d5d4e"
+      ],
+      "subject": "fix(main-merge): BUMP_PRODUCTS 补 __build.json/databrief/trade_sim + bump 产物残留守卫",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/main-merge.sh",
+        "static-site/__build.json",
+        "static-site/about.html",
+        "static-site/databrief.html",
+        "static-site/guide.html",
+        "static-site/index.html",
+        "static-site/privacy.html",
+        "static-site/sw.js",
+        "static-site/trade_sim.html"
+      ]
+    },
+    {
+      "input": "fd81b824f",
+      "sha": "fd81b824f1c4d7effb044ded29a60eeb642fc05f",
+      "parents": [
+        "897b566242c19e0ecce09f01314c42ca9a2a2acb",
+        "32785ab20959cf5e53edc3944fd828b36fdbe5bc"
+      ],
+      "subject": "merge(feat/feat/fix-bump-products-20261105): 统一入口合并 feat/fix-bump-products-20261105 入 main",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/main-merge.sh",
+        "static-site/__build.json",
+        "static-site/about.html",
+        "static-site/databrief.html",
+        "static-site/guide.html",
+        "static-site/index.html",
+        "static-site/privacy.html",
+        "static-site/sw.js",
+        "static-site/trade_sim.html"
+      ]
+    },
+    {
+      "input": "102cdde94",
+      "sha": "102cdde946238014ccf15f1ef58e245591f17b13",
+      "parents": [
+        "fd81b824f1c4d7effb044ded29a60eeb642fc05f"
+      ],
+      "subject": "build(统一bump): main-merge.sh 统一 build_min+bump 版本串(机制C, feat=feat/fix-bump-products-20261105)",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "static-site/about.html",
+        "static-site/changelog.json",
+        "static-site/guide.html",
+        "static-site/index.html",
+        "static-site/privacy.html",
+        "static-site/sw.js"
+      ]
+    },
+    {
+      "input": "c508c0a72",
+      "sha": "c508c0a728802324860d79c2874f07cfde691026",
+      "parents": [
+        "102cdde946238014ccf15f1ef58e245591f17b13"
+      ],
+      "subject": "fix(build-id): 补齐 a657 三产物 __build.json/databrief/trade_sim(bump 漏提交,§22)",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "static-site/__build.json",
+        "static-site/databrief.html",
+        "static-site/trade_sim.html"
+      ]
+    },
+    {
+      "input": "5e0d90b7d",
+      "sha": "5e0d90b7d0d1ee4f9647f6b2bab4b74d2cab6d35",
+      "parents": [
+        "102cdde946238014ccf15f1ef58e245591f17b13"
+      ],
+      "subject": "fix(main-merge): 脚本运行中被自身 merge 修改致旧逻辑残留(根治)",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/main-merge.sh"
+      ]
+    },
+    {
+      "input": "9acf768c7",
+      "sha": "9acf768c7faac9e6dbac17d6e27e8f5edf371248",
+      "parents": [
+        "c508c0a728802324860d79c2874f07cfde691026",
+        "5e0d90b7d0d1ee4f9647f6b2bab4b74d2cab6d35"
+      ],
+      "subject": "merge(feat/feat/fix-main-merge-selfupdate-20261105): 统一入口合并 feat/fix-main-merge-selfupdate-20261105 入 main",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/main-merge.sh"
+      ]
+    },
+    {
+      "input": "a206dc06f",
+      "sha": "a206dc06f2579dc2135256a27805929b0c09d3b6",
+      "parents": [
+        "9acf768c7faac9e6dbac17d6e27e8f5edf371248"
+      ],
+      "subject": "fix(main-merge): self_sha 全失败时醒目 warn + 注明 exec-resume 不覆盖 pre-merge 阶段(审查 NOTES ①③)",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "scripts/main-merge.sh"
+      ]
+    },
+    {
+      "input": "2da566961",
+      "sha": "2da56696147b47e9ec27d44a27d02a6ac5edd78c",
+      "parents": [
+        "9acf768c7faac9e6dbac17d6e27e8f5edf371248"
+      ],
+      "subject": "docs(ledger): 新增教训 L57(发布脚本运行中被自身 merge 替换执行旧逻辑)",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "CLAUDE.md",
+        "docs/archive/CLAUDE-errors-2026-08.md",
+        "docs/ops/machine-check-registry.md"
+      ]
+    },
+    {
+      "input": "6c1493aea",
+      "sha": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+      "parents": [
+        "a206dc06f2579dc2135256a27805929b0c09d3b6",
+        "2da56696147b47e9ec27d44a27d02a6ac5edd78c"
+      ],
+      "subject": "merge(feat/feat/ledger-l57-20261105): 统一入口合并 feat/ledger-l57-20261105 入 main",
+      "ancestor_of_fixed_main": true,
+      "changed_files_vs_first_parent": [
+        "CLAUDE.md",
+        "docs/archive/CLAUDE-errors-2026-08.md",
+        "docs/ops/machine-check-registry.md"
+      ]
+    }
+  ],
+  "f04_upload_r2_blobs": {
+    "bf1ed42d4": "1e3e92107379ad6604ca625f885ca7690cb1d697",
+    "aac5d19bd": "1e3e92107379ad6604ca625f885ca7690cb1d697",
+    "6c1493aea9febd6318eafa8a5cf51d0d774aa155": "1e3e92107379ad6604ca625f885ca7690cb1d697"
+  },
+  "f04_blob_equal": true,
+  "historical_f04_review": "../night-20261105/evidence/f04-main-recheck.json",
+  "proof_limit": "Git ancestry/blob identity only; deployment facts are separately attributed to user confirmation and Claude receipt, not inferred from commit membership."
+}

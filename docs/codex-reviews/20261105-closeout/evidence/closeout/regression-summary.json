@@ -1,0 +1,104 @@
+{
+  "status": "DRAFT_TESTS_FIRST_BASELINE_RED",
+  "workspace": "/Users/linhuichen/code/trade/.claude/worktrees/codex-notify-regressions-20261105",
+  "branch": "codex/notify-regressions-20261105",
+  "base": "6c1493aea9febd6318eafa8a5cf51d0d774aa155",
+  "added_files": [
+    {
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/codex-notify-regressions-20261105/scripts/tests/test_codex_notify_closeout_regressions.py",
+      "lines": 430,
+      "sha256": "d873657a0fbb87b999f6635d8b778b62d38721013b362cdf0d4f40fb50be1c71"
+    },
+    {
+      "path": "/Users/linhuichen/code/trade/.claude/worktrees/codex-notify-regressions-20261105/docs/ops/codex-notify-regressions-20261105.md",
+      "lines": 168,
+      "sha256": "d1710d406d0636d003d241109376a8dd0226a7454b81f6f22899ea183fc17327"
+    }
+  ],
+  "baseline": {
+    "exit_code": 1,
+    "collected": 49,
+    "failed": 20,
+    "passed": 29,
+    "errors": 0,
+    "skipped": 0,
+    "xfail": 0,
+    "seconds": 1.68,
+    "expected_failure_scope": "5 real writers × stat/chmod metadata-copy error × pre-existing0600/0640; all fail at desired old bytes/mode preservation assertion",
+    "per_case_results": "/tmp/codex-reports/closeout-20261105/regression-baseline-results.json"
+  },
+  "memory_only_control": {
+    "simulation_only": true,
+    "source_modified": false,
+    "fixture_replacement": "_chmod_like_target: catch FileNotFoundError only, otherwise stat/chmod errors propagate to existing writer handlers",
+    "exit_code": 0,
+    "collected": 49,
+    "passed": 49,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 1.61,
+    "per_case_results": "/tmp/codex-reports/closeout-20261105/regression-memory-green-results.json"
+  },
+  "concurrency": {
+    "healthy_order_cases": [
+      "absorb-first",
+      "flush-first"
+    ],
+    "payload_evidence": "Three channel-boundary records from real sending fork PID, cross-process JSONL; per-key hits/subject/body verified against independent input fixtures plus remaining buffer",
+    "negative_control": "Only in sending child, delete new row/body at channel boundary but return success; real flush empties buffer; same conservation assertion raises and is explicitly expected by negative-control test",
+    "process_cleanup": "release in finally; join, terminate/kill on timeout, then join and close; no Manager"
+  },
+  "safety": {
+    "import_side_effect_control": "PASS: env/sys.path/socket/shared notify unchanged",
+    "runtime": "Fresh notify module per fixture, monkeypatch temporary env, all module-level runtime Paths must be under pytest tmp_path; fork guard log checked by parent; positive urlopen guard control before business functions",
+    "outer_isolation": "macOS sandbox deny network and production file contents; allow writes only under this /tmp run; empty env plus dummy REPO/GIT_REPO",
+    "tracked_worktree_changes": false,
+    "business_blob_unchanged": true,
+    "allowed_untracked_files_only": true,
+    "git_write_operations": false,
+    "commit_push": false,
+    "ready_notifications": false,
+    "started_Claude": false,
+    "full_pytest_executed": false
+  },
+  "environment_only_attempts": [
+    "First collection denied ancestor directory metadata; second denied config-directory metadata. Both logged separately; final sandbox permits metadata while still denying file contents. Final actual test runs have zero environment errors."
+  ],
+  "ready_for_standalone_merge": false,
+  "handoff": "主会话统一处理两个新增文件；Claude复核并提供配套业务修复后再转绿与完整测试。当前分支仍保留20项真实红灯，不独立合main，不把模拟49绿当业务已修复。",
+  "run_root": "/tmp/codex-notify-regression-run-e1qc5xxq",
+  "runner": "/tmp/codex-notify-regression-run-e1qc5xxq/run_regressions.py",
+  "sandbox": "/tmp/codex-notify-regression-run-e1qc5xxq/sandbox.sb",
+  "logs": {
+    "regression-baseline.log": {
+      "path": "/tmp/codex-reports/closeout-20261105/regression-baseline.log",
+      "sha256": "65e056f3b63c67b0bbdf94d32d80bb561ca60cbfe32ad7b99f253fec8af0063f"
+    },
+    "regression-baseline.xml": {
+      "path": "/tmp/codex-reports/closeout-20261105/regression-baseline.xml",
+      "sha256": "19ec9e58daff1237b303c44bb977ca818c0cea95b47ee8657262c0344bf9cb2d"
+    },
+    "regression-baseline-results.json": {
+      "path": "/tmp/codex-reports/closeout-20261105/regression-baseline-results.json",
+      "sha256": "cdc8b01dc79f03d300ccf75d790fc4d5b81dcfb3c382832f4a7ab58359183819"
+    },
+    "regression-memory-green.log": {
+      "path": "/tmp/codex-reports/closeout-20261105/regression-memory-green.log",
+      "sha256": "72a44778e6a673a76d1bdc6efe2c5ff4726b4ebcbc82a12e5496e1d4e6fdd8ea"
+    },
+    "regression-memory-green.xml": {
+      "path": "/tmp/codex-reports/closeout-20261105/regression-memory-green.xml",
+      "sha256": "e8bdf74da1d05e9a3038470bce60d8fbf2790fd61e5615f17727cc0f45dd9200"
+    },
+    "regression-memory-green-results.json": {
+      "path": "/tmp/codex-reports/closeout-20261105/regression-memory-green-results.json",
+      "sha256": "e43aa8594d27e1bdba27e5a7bf4f77d8b1e4f3c33b3910fce8034091e91fe771"
+    },
+    "regression-integrity.json": {
+      "path": "/tmp/codex-reports/closeout-20261105/regression-integrity.json",
+      "sha256": "570bd2be12a6f17b4d79090b372fa3020dfeff9161991377da60ffe0467fb827"
+    }
+  },
+  "completed_at": "2026-11-05T18:01:38.951156+08:00"
+}
