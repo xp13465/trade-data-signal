@@ -145,6 +145,31 @@ def _finish(rc: int, status: str, detail: str = "", tier: str | None = None,
     return rc
 
 
+def _chmod_like_target(tmp_path, target_path) -> None:
+    """tmp+replace 写路径权限保持(P2-A 同类, 2026-11-05): target 存在则取其
+    st_mode & 0o7777, 对已存在的 tmp_path 做 os.chmod, 使 os.replace 后最终文件
+    权限逐位保持; target 不存在则不动(新文件走各路径默认权限: 普通 open 0644 /
+    mkstemp 0600, 不擅自改)。
+
+    必须在 tmp 已写入、replace 之前调用。best-effort: chmod 失败不抛(不阻塞写)。
+
+    与 _atomic_write_digest 的 fchmod(fd) 同精神; 此处统一用 os.chmod(path) 是
+    因为 5 条调用路径中 4 条用 Path.write_text 创建 tmp(无 fd 可用), 改写为 open()
+    会漂移各路径业务语义(任务约束: 不允许整体改写), 故走路径形态。mkstemp 路径
+    在 fdopen with 块外调用(tmp 文件已落盘存在)。
+    """
+    try:
+        mode = os.stat(target_path).st_mode & 0o7777
+    except FileNotFoundError:
+        return  # 目标不存在 → 新文件走默认权限, 不改
+    except OSError:
+        return
+    try:
+        os.chmod(tmp_path, mode)
+    except OSError:
+        pass
+
+
 def _write_result_file(path: str | None = None) -> None:
     """把 _OUTCOME 原子写入 --result-file(写失败只 stderr, 不阻塞发送主链路)。"""
     target = path or _RESULT_FILE
@@ -155,6 +180,7 @@ def _write_result_file(path: str | None = None) -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_name(p.name + ".tmp")
         tmp.write_text(json.dumps(_OUTCOME, ensure_ascii=False), encoding="utf-8")
+        _chmod_like_target(tmp, p)  # P2-A 同类: 保持原文件权限
         tmp.replace(p)
     except Exception as e:  # noqa: BLE001
         print(f"[notify][result] 结果文件写入失败(不影响发送): {e}", file=sys.stderr)
@@ -1926,6 +1952,7 @@ def _replace_latest(text: str) -> None:
     """latest.md 原子替换(latest.md.tmp + os.replace);须持 .latest.lock 调用。"""
     tmp = ALERTS_DIR / "latest.md.tmp"
     tmp.write_text(text, encoding="utf-8")
+    _chmod_like_target(tmp, ALERTS_FILE)  # P2-A 同类: 保持原文件权限
     tmp.replace(ALERTS_FILE)
 
 
@@ -2275,6 +2302,7 @@ def _write_state_obj(path: Path, obj: dict) -> bool:
         path.parent.mkdir(parents=True, exist_ok=True)
         _tmp = path.with_name(path.name + ".tmp")
         _tmp.write_text(json.dumps(obj, ensure_ascii=False), encoding="utf-8")
+        _chmod_like_target(_tmp, path)  # P2-A 同类: 保持原文件权限
         os.replace(_tmp, path)
         return True
     except Exception as e:  # noqa: BLE001
@@ -2715,6 +2743,7 @@ def _save_warning_dedup_state(state: dict) -> bool:
                 json.dump(state, f, ensure_ascii=False, indent=2)
                 f.flush()
                 _os.fsync(f.fileno())  # P4④：tmp 内容落盘后才 rename，snapshot_ok≈durable
+            _chmod_like_target(tmp_path, WARNING_DEDUP_STATE_FILE)  # P2-A 同类: mkstemp 0600 反向收紧 → 保持原权限
             _os.replace(tmp_path, WARNING_DEDUP_STATE_FILE)
             try:  # 目录 fsync best-effort（Windows 无此语义，本项目 macOS/Linux）
                 dfd = _os.open(str(WARNING_DEDUP_STATE_FILE.parent), _os.O_RDONLY)
@@ -3553,6 +3582,7 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
         _tmp = ALERT_DIGEST_STATE_FILE.with_name(ALERT_DIGEST_STATE_FILE.name + ".tmp")
         _tmp.write_text(json.dumps({"last_sent_day": _max_sent_day}, ensure_ascii=False),
                         encoding="utf-8")
+        _chmod_like_target(_tmp, ALERT_DIGEST_STATE_FILE)  # P2-A 同类: 保持原文件权限
         os.replace(_tmp, ALERT_DIGEST_STATE_FILE)
     except Exception as e:  # noqa: BLE001
         print(f"[notify][digest] state 写入失败（下轮可能重发）：{e}", file=sys.stderr)
