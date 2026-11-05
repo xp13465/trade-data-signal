@@ -9807,7 +9807,13 @@ async function fetchJSON(url, timeoutMs, extSignal) {
   // #326 返修: 外部取消信号透传(lab.js fetchJSONProgress 超时重试时传入) —— 用户主动取消立刻中止,
   // 不再等内部超时; 外部取消的 AbortError 在下面 catch 里原样抛出(不当作超时吞成 null)。
   let _extAborted = !!(extSignal && extSignal.aborted);
-  const _onExtAbort = () => { _extAborted = true; controller.abort(); };
+  // #369: 首腿超时只结束首腿；用户取消则同时结束所有正在读正文的回退/竞速腿。
+  const _extraControllers = new Set();
+  const _onExtAbort = () => {
+    _extAborted = true;
+    controller.abort();
+    _extraControllers.forEach(c => c.abort());
+  };
   if (extSignal && !extSignal.aborted) extSignal.addEventListener("abort", _onExtAbort);
   if (_extAborted) { const e0 = new Error("Aborted"); e0.name = "AbortError"; throw e0; }
   const slowTimer = setTimeout(() => controller.abort(), _firstTimeoutMs);
@@ -9841,6 +9847,7 @@ async function fetchJSON(url, timeoutMs, extSignal) {
         //   竞速只在闩窗口内(主站刚失败过 ≤90s)多打 1 个请求, 主站一成功立刻清零、后续回主站。
         const c0 = new AbortController();
         const c1 = new AbortController();
+        _extraControllers.add(c0).add(c1);
         const _raceCap = Math.max(300, Math.min(_SSD_RESERVE_MS, _budgetLeft()));
         const t0 = setTimeout(() => { c0.abort(); c1.abort(); }, _raceCap);
         const _tryRace = (u, cc, isMainLeg) => fetch(u, { signal: cc.signal, cache: _cacheMode })
@@ -9856,9 +9863,12 @@ async function fetchJSON(url, timeoutMs, extSignal) {
             _tryRace(_fetchUrl, c1, true),
           ]);
         } catch (e0) {
+          if (_extAborted) throw e0;
           console.warn("[fetchJSON] 闩期间主站/ssd 均失败, 走常规失败阶梯: " + url, e0?.message || e0);
         } finally {
           clearTimeout(t0);
+          _extraControllers.delete(c0);
+          _extraControllers.delete(c1);
           c0.abort();
           c1.abort();
         }
@@ -9885,10 +9895,12 @@ async function fetchJSON(url, timeoutMs, extSignal) {
       // 每腿独立 AbortController + 独立超时, 总预算 _totalBudgetMs 封顶(不再 15s×3 串成一分钟)。
       // 每腿只打一次(同一文件不重复打 ssd); 任一腿成功即返回。
       const _tryLeg = async (u, capMs) => {
+        if (_extAborted) { const aborted = new Error("Aborted"); aborted.name = "AbortError"; throw aborted; }
         const left = _budgetLeft();
         if (!u) throw new Error("空兜底腿");
         if (left <= 300) throw new Error("兜底总预算(" + _totalBudgetMs + "ms)已耗尽");
         const lc = new AbortController();
+        _extraControllers.add(lc);
         const lt = setTimeout(() => lc.abort(), Math.max(300, Math.min(capMs, left)));
         try {
           const r = await fetch(u, { signal: lc.signal, cache: _cacheMode });
@@ -9896,6 +9908,7 @@ async function fetchJSON(url, timeoutMs, extSignal) {
           return await r.json();
         } finally {
           clearTimeout(lt);
+          _extraControllers.delete(lc);
         }
       };
       // 本次请求对应的 data 文件名(不带 query): 备站重写后从 _R2_FALLBACK_BASE 反推, 主站/本地从 ./data/ 推
@@ -9931,6 +9944,7 @@ async function fetchJSON(url, timeoutMs, extSignal) {
             else if (window._tdsSsdPreferredUntil) window._tdsSsdPreferredUntil = 0; // 主站腿成功 → 解除 ssd 优先
             return d;
           } catch (e2) {
+            if (_extAborted) throw e2;
             lastErr = e2;
           }
         }
@@ -9956,10 +9970,13 @@ async function fetchJSON(url, timeoutMs, extSignal) {
       return data;
     })
     .catch((e) => {
+      // Promise.any 的取消可能是 AggregateError；对调用方仍保持取消而非网络失败语义。
+      if (_extAborted) {
+        if (e && e.name === "AbortError") throw e;
+        const aborted = new Error("Aborted"); aborted.name = "AbortError"; throw aborted;
+      }
       // 超时（abort）：renderFailCard 存在则向上抛由调用方兜底渲染，否则 console.error 并返回 null
       if (e && e.name === "AbortError") {
-        // #326 返修: 外部 signal 取消 → 原样抛给调用方(不记超时、不按「超时吞 null」处理)
-        if (_extAborted) throw e;
         console.error("fetchJSON timeout (" + _timeoutMs + "ms): " + url);
         if (typeof renderFailCard !== "function") return null;
       } else {
@@ -27792,12 +27809,10 @@ function _fundScoreApiFetch(params) {
   return fetch(base + "/api/fund_score?" + params, {
     headers, credentials, signal: controller.signal, cache: "no-cache",
   }).then((r) => {
-    clearTimeout(timer);
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
-  }).catch((e) => {
+  }).finally(() => {
     clearTimeout(timer);
-    throw e;
   });
 }
 
@@ -28713,10 +28728,9 @@ function _fundScreenerApiFetch(params) {
   return fetch(base + "/api/fund_screener?" + params, {
     headers, credentials, signal: controller.signal, cache: "no-cache"
   }).then((r) => {
-    clearTimeout(timer);
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
-  }).catch((e) => { clearTimeout(timer); throw e; });
+  }).finally(() => { clearTimeout(timer); });
 }
 
 // 覆盖率文案（「覆盖 8201/27758 只」; 无数据返回空串）

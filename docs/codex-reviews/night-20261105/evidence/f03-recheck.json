@@ -1,0 +1,1073 @@
+{
+  "request_id": "f03-recheck",
+  "task": "night-20261105 F03-R1 fixed-head read-only recheck",
+  "fixed_sha": "197a0bedaf259bea48bf3c43a17390a038af5e82",
+  "base_sha": "37c426f16bebab092994b30891e0c71ffbd75934",
+  "issues": [
+    {
+      "id": "F03-R1-P2-mode",
+      "severity": "P2",
+      "title": "原子替换会丢失预先收紧的摘要文件 mode（条件性兼容回归，非已证实泄漏）",
+      "path": "scripts/notify.py:2349",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "若运维曾将 alert_digest.jsonl 收紧为 0600，在写进程 umask=022 时，任何成功吸收/hits 重写/flush 清理都会将它改成 0644；原先仅 owner 可读的 subject/body/source/key 等条目变为组和其他用户可读。此处描述可读位变化，未证明生产摘要曾为 0600，也未证明其中含秘密、存在实际跨用户读取或线上泄漏。默认新建文件旧版和新版均为 0644，因此不是默认权限整体从 0600 降为 0644。",
+      "why": "新 _atomic_write_digest 用 open(tmp,\"wb\") 创建受当前 umask 控制的新 inode，再 replace 到原路径，未继承旧文件 mode；旧版 rb+ 原地写保留原 inode 与 mode。目录使用 mkdir(exist_ok=True)，不会把现有 0755 目录收紧。",
+      "fix": "如需要保留部署方既有权限，在统一原子写 helper 内显式保留已存在目标的 mode，并单独定义不存在目标时的默认 mode；不要直接把所有摘要、队列或 dedup 文件一律改成 0600。交 Claude 后续复核；本轮不修改后端。",
+      "false_positive_filter": {
+        "control": "旧 head：新建 0644、既有 0600 仍为 0600；新 head：新建 0644、既有 0600 变为 0644。",
+        "existing_convention": "notify.py 对 digest 和 warning queue 没有显式 0600 约定；_append_jsonl、update_dedup 新建默认继承 umask。另一个独立文件 warning_dedup_state.json 用 mkstemp，默认 0600，不可混同摘要。util_atomic.py:12-14,35-39 另有公开产物默认 0644、PII 显式 0600 的区分，但 digest 未使用该 helper。",
+        "actual_parent_metadata": "本机 /Users、用户 home、code、trade/data/alerts 与 trade-data/data/alerts 祖先 mode 均 0755；home ACL 仅 everyone deny delete，不限制本次观察的遍历位。只读目录元数据，未读生产通知文件。",
+        "severity_rationale": "有确凿的新旧 mode 差异，但仅在预先收紧权限的条件下触发；不存在已证实的敏感数据或生产事故，不定 P1。"
+      },
+      "trace": {
+        "diff_range": "37c426f16bebab092994b30891e0c71ffbd75934..197a0bedaf259bea48bf3c43a17390a038af5e82 scripts/notify.py:2347-2356",
+        "linkage": "不满足",
+        "user_request": "权限边界；记录真实调用queue/dedup文件路径/默认父目录权限、600→644具体影响与既有约定，区分确实mode回归与仅假设敏感数据风险，不凭umask就提P1。",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "/usr/bin/env -i PATH=/Library/Frameworks/Python.framework/Versions/3.11/bin:/usr/bin:/bin HOME=/tmp/codex-night-20261105-f03-uvl0winp/dummy-home TMPDIR=/tmp/codex-night-20261105-f03-uvl0winp/tmp REPO=/tmp/codex-night-20261105-f03-uvl0winp/dummy-repo FEISHU_APP_ID=dummy FEISHU_APP_SECRET=dummy PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-night-20261105-f03-uvl0winp/verify_supplement.py  # base_head_mode_control_and_default_queue_dedup；在全新测试目录重跑，不能复用 runs 中的旧状态",
+        "expected": "既有 0600 目标在原子更新后继续保持其显式 mode；默认新建行为另行验证，不假定必须为 0600。",
+        "observed": {
+          "comparison": [
+            {
+              "revision": "base",
+              "preexisting": false,
+              "before": null,
+              "after": "0o644",
+              "return": true
+            },
+            {
+              "revision": "base",
+              "preexisting": true,
+              "before": "0o600",
+              "after": "0o600",
+              "return": true
+            },
+            {
+              "revision": "head",
+              "preexisting": false,
+              "before": null,
+              "after": "0o644",
+              "return": true
+            },
+            {
+              "revision": "head",
+              "preexisting": true,
+              "before": "0o600",
+              "after": "0o644",
+              "return": true
+            }
+          ],
+          "default_queue_dedup_modes": {
+            "WARNING_BUFFER_FILE": {
+              "path": "/tmp/codex-night-20261105-f03-uvl0winp/runs/default-queues-and-dedup/data/alerts/warning_buffer.jsonl",
+              "mode": "0o644"
+            },
+            "DEDUP_FILE": {
+              "path": "/tmp/codex-night-20261105-f03-uvl0winp/runs/default-queues-and-dedup/data/notify_dedup.json",
+              "mode": "0o644"
+            },
+            "ALERT_DIGEST_FILE": {
+              "path": "/tmp/codex-night-20261105-f03-uvl0winp/runs/default-queues-and-dedup/data/alerts/alert_digest.jsonl",
+              "mode": "0o644"
+            },
+            "ALERT_DIGEST_LOCK_FILE": {
+              "path": "/tmp/codex-night-20261105-f03-uvl0winp/runs/default-queues-and-dedup/data/alerts/alert_digest.flushlock",
+              "mode": "0o644"
+            }
+          },
+          "classification": "conditional preexisting-mode regression; no default 0600 contract found; no production file modes or contents read"
+        },
+        "raw_output": "/tmp/codex-night-20261105-f03-uvl0winp/supplement-raw.log"
+      },
+      "over_engineering_findings": [],
+      "over_engineering_assessment": "已先评估删除/简化；不能靠删除原子写或侧车锁解决此问题，无可安全删除行数（0）。"
+    },
+    {
+      "id": "F03-R1-P2-test-order",
+      "severity": "P2",
+      "title": "新增吸收/flush 并发测试把合法的吸收先行顺序误判为丢数据",
+      "path": "scripts/tests/test_f03r1_digest_atomic_write.py:326",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "同一合法实现可因调度先后出现随机 CI 红灯；该测试不能用单次通过来证明两种顺序都无损。此问题属于验收测试错误，独立验证未发现该交错存在生产数据丢失。",
+      "why": "test_h 用 Barrier 同时放行，但固定要求最终只剩 h_new。若 absorb 先拿锁，将 h_new 写入当日 due 集合，随后 flush 会发出 h_existing+h_new 并将两者清理，正确剩余为 0 行。只有 flush 先完成读取/发送/清理后 absorb 才应剩 1 行。",
+      "fix": "把两种执行顺序分别固定，跨进程记录被摘要交付的 key/hits，断言每条要么在交付 payload 中、要么仍在 buffer；移除无条件 len(lines)==1 的断言。",
+      "trace": {
+        "diff_range": "37c426f16bebab092994b30891e0c71ffbd75934..197a0bedaf259bea48bf3c43a17390a038af5e82 scripts/tests/test_f03r1_digest_atomic_write.py:295-328",
+        "linkage": "不满足",
+        "user_request": "独立看notify.py新原子写/稳定锁策略；并发相同/不同签名、flush与dedup交互/替换后锁inode；复验真实机制，不只跑作者mock测试。",
+        "origin": "in-diff"
+      },
+      "verifier": {
+        "command": "/usr/bin/env -i PATH=/Library/Frameworks/Python.framework/Versions/3.11/bin:/usr/bin:/bin HOME=/tmp/codex-night-20261105-f03-uvl0winp/dummy-home TMPDIR=/tmp/codex-night-20261105-f03-uvl0winp/tmp REPO=/tmp/codex-night-20261105-f03-uvl0winp/dummy-repo FEISHU_APP_ID=dummy FEISHU_APP_SECRET=dummy PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=/Users/linhuichen/Library/Python/3.11/lib/python/site-packages /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-night-20261105-f03-uvl0winp/run_author.py --force-absorb-first --basetemp=/tmp/codex-night-20261105-f03-uvl0winp/author-forced-pytest /tmp/codex-night-20261105-f03-uvl0winp/head/scripts/tests/test_f03r1_digest_atomic_write.py::test_h_absorb_vs_flush_concurrent_no_loss",
+        "expected": "强制 absorb 成功后再让真实 flush 开始时，h_new 被发入摘要且 buffer 清空，应属于无损成功。",
+        "observed": "未修改归档源码，仅外围 Event 等待固定合法顺序。作者测试失败：AssertionError: 应剩 1 行(h_new), 得 0 行: []；1 failed in 0.10s。独立 flush_absorb_order_True_False 检查实际 payload 含 new 且 buffer=0；另一顺序检查 new 保留且 waiter 真正阻塞。",
+        "raw_output": "/tmp/codex-night-20261105-f03-uvl0winp/author-forced-raw.log"
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 3,
+          "rationale": "简化固定 remaining=1 + 取第一条的错误假设，改成以交付/保留守恒为验收。固定两顺序和共享交付记录可能增加总行数；不声称净减行。"
+        }
+      ]
+    }
+  ],
+  "open_questions_and_residual_risks": [
+    {
+      "topic": "权限实际暴露未证明",
+      "status": "非阻断",
+      "detail": "mode 回归可复现；生产目标既有 mode、真实 umask、内容敏感性和其他用户实际访问均未验证。没有默认 0600 digest 约定；不能把 warning fingerprint state 的0600推给所有文件。"
+    },
+    {
+      "topic": "flush 清理失败的水位",
+      "origin": "pre-existing",
+      "status": "已观察、非本次回归",
+      "locations": [
+        "scripts/notify.py:3527",
+        "scripts/notify.py:3537-3544"
+      ],
+      "detail": "send 已成功但 queue rename/写回失败时 bytes 全保留，仍将 last_sent_day 推到今日；当天再次 flush 返回 sent=False，待次日门控再有重发可能。stderr“下轮可能重发”不能理解为当天必重试；旧版也在清理失败后写 state。"
+    },
+    {
+      "topic": "长 flush 与超时直发",
+      "status": "符合本次明确失败口径",
+      "detail": "flush 持 sidecar 包括秒级/更久的通道发送；absorb 等待10s会 fail-open，已有 key 也可能直发，这是锁超时而非 hits-only 写失败。真实持锁测试10.038s后通道桩3次，queue bytes未变；不声称所有已有条目故障永远零直发。"
+    },
+    {
+      "topic": "restore 与 cleanup",
+      "status": "结构性消除 restore 边界",
+      "detail": "新代码从不原地写 target，无恢复旧 bytes 步骤；探针禁止 target 写句柄、同时令临时文件 cleanup 失败，仍保留完整原文件。cleanup 失败会留61字节 tmp，此残留不被读作 queue；未制造真磁盘耗尽。"
+    },
+    {
+      "topic": "持久性/进程崩溃",
+      "status": "未执行",
+      "detail": "未断电/kill-at-rename/真实块设备ENOSPC；ENOSPC为完成真实61字节临时文件写入后注入，另用真实内核 RLIMIT_FSIZE/EFBIG部分写失败交叉验证。fsync故障为EIO注入。helper未fsync父目录，不能将replace原子可见性外推为掉电后目录项持久性保证。"
+    },
+    {
+      "topic": "锁部署边界",
+      "status": "未执行",
+      "detail": "仅固定head内所有已找到写方同锁；未验证混合新旧运行进程、外部工具、NFS锁语义或主动删除sidecar；旧版本进程的数据inode锁与新sidecar不互斥。"
+    },
+    {
+      "topic": "其它通知状态并发",
+      "status": "范围局限",
+      "detail": "direct dedup、warning fingerprint state、domain/rollover文件分别有自己的实现；本轮只验证与本次摘要路由的交互，未声明它们跨文件整体事务化或并发更新已无其他历史问题。"
+    }
+  ],
+  "checks": {
+    "fixed_head_verification": {
+      "git_rev_parse": "197a0bedaf259bea48bf3c43a17390a038af5e82",
+      "base_rev_parse": "37c426f16bebab092994b30891e0c71ffbd75934",
+      "notify_git_blob": "3c7e33175d10b10392090c4ed72177e8e90c35d4",
+      "archived_notify_git_hash_object": "3c7e33175d10b10392090c4ed72177e8e90c35d4",
+      "notify_sha256": "2b8d1103cc7a56b292eb7432f660a33793fa028a99852b73cf2099ee8d0d1182",
+      "archive": "/tmp/codex-night-20261105-f03-uvl0winp/head",
+      "source": "git archive of explicit SHA; not current main/current worktree"
+    },
+    "independent": {
+      "head": "197a0bedaf259bea48bf3c43a17390a038af5e82",
+      "python": "3.11.0 (v3.11.0:deaf509e8f, Oct 24 2022, 14:43:23) [Clang 13.0.0 (clang-1300.0.29.30)]",
+      "cases": [
+        {
+          "name": "independent_failure_matrix_actual_partial_bytes",
+          "status": "PASS",
+          "seconds": 0.023,
+          "observed": [
+            {
+              "fault": "open",
+              "existing": false,
+              "return": false,
+              "bytes_preserved": 684,
+              "restore_attempts": [],
+              "leftovers": []
+            },
+            {
+              "fault": "open",
+              "existing": true,
+              "return": true,
+              "bytes_preserved": 684,
+              "restore_attempts": [],
+              "leftovers": []
+            },
+            {
+              "fault": "partial_ENOSPC",
+              "existing": false,
+              "return": false,
+              "bytes_preserved": 684,
+              "restore_attempts": [],
+              "leftovers": []
+            },
+            {
+              "fault": "partial_ENOSPC",
+              "existing": true,
+              "return": true,
+              "bytes_preserved": 684,
+              "restore_attempts": [],
+              "leftovers": []
+            },
+            {
+              "fault": "fsync_EIO",
+              "existing": false,
+              "return": false,
+              "bytes_preserved": 684,
+              "restore_attempts": [],
+              "leftovers": []
+            },
+            {
+              "fault": "fsync_EIO",
+              "existing": true,
+              "return": true,
+              "bytes_preserved": 684,
+              "restore_attempts": [],
+              "leftovers": []
+            },
+            {
+              "fault": "replace_kernel_EACCES",
+              "existing": false,
+              "return": false,
+              "bytes_preserved": 684,
+              "restore_attempts": [],
+              "leftovers": []
+            },
+            {
+              "fault": "replace_kernel_EACCES",
+              "existing": true,
+              "return": true,
+              "bytes_preserved": 684,
+              "restore_attempts": [],
+              "leftovers": []
+            },
+            {
+              "fault": "partial_and_cleanup_fail",
+              "existing": false,
+              "return": false,
+              "bytes_preserved": 684,
+              "restore_attempts": [],
+              "leftovers": [
+                "alert_digest.jsonl.tmp.51558.1793809263407497000"
+              ]
+            },
+            {
+              "fault": "partial_and_cleanup_fail",
+              "existing": true,
+              "return": true,
+              "bytes_preserved": 684,
+              "restore_attempts": [],
+              "leftovers": [
+                "alert_digest.jsonl.tmp.51558.1793809263409479000"
+              ]
+            }
+          ],
+          "stdout": "",
+          "stderr": "[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 13] injected tmp open EACCES\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 13] injected tmp open EACCES\n[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 28] injected ENOSPC after actual 61-byte write\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 28] injected ENOSPC after actual 61-byte write\n[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 5] injected fsync EIO\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 5] injected fsync EIO\n[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 13] Permission denied: '/tmp/codex-night-20261105-f03-uvl0winp/runs/failure-replace_kernel_EACCES-False/data/alerts/alert_digest.jsonl.tmp.51558.1793809263402072000' -> '/tmp/codex-night-20261105-f03-uvl0winp/runs/failure-replace_kernel_EACCES-False/data/alerts/alert_digest.jsonl'\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 13] Permission denied: '/tmp/codex-night-20261105-f03-uvl0winp/runs/failure-replace_kernel_EACCES-True/data/alerts/alert_digest.jsonl.tmp.51558.1793809263404303000' -> '/tmp/codex-night-20261105-f03-uvl0winp/runs/failure-replace_kernel_EACCES-True/data/alerts/alert_digest.jsonl'\n[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 28] injected ENOSPC after actual 61-byte write\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 28] injected ENOSPC after actual 61-byte write\n"
+        },
+        {
+          "name": "full_send_existing_zero_channels_new_failopen",
+          "status": "PASS",
+          "seconds": 0.005,
+          "observed": [
+            {
+              "existing": false,
+              "result": {
+                "email": true,
+                "telegram": true,
+                "feishu": true
+              },
+              "channel_calls": [
+                "email",
+                "telegram",
+                "feishu"
+              ]
+            },
+            {
+              "existing": true,
+              "result": {
+                "email": false,
+                "telegram": false,
+                "feishu": false,
+                "digested": true
+              },
+              "channel_calls": []
+            }
+          ],
+          "stdout": "",
+          "stderr": "[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 28] injected ENOSPC after actual 61-byte write\n[notify][digest] digest-only 并入失败(buffer append) → fail-open 直发: [告警] independent\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/send-failure-False/data/alerts/latest.md level=notice\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/send-failure-False/data/alerts/alert_ledger.jsonl\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 28] injected ENOSPC after actual 61-byte write\n[notify][digest] 已并入当日摘要 buffer(23:25 出线, 不即时直发): [告警] independent\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/send-failure-True/data/alerts/latest.md level=notice\n"
+        },
+        {
+          "name": "kernel_EACCES_open_read_permissions",
+          "status": "PASS",
+          "seconds": 0.002,
+          "observed": {
+            "directory_no_write": {
+              "new": false,
+              "existing": true
+            },
+            "read_denied": false
+          },
+          "stdout": "",
+          "stderr": "[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 13] Permission denied: '/tmp/codex-night-20261105-f03-uvl0winp/runs/kernel-directory-readonly/data/alerts/alert_digest.jsonl.tmp.51558.1793809263416876000'\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 13] Permission denied: '/tmp/codex-night-20261105-f03-uvl0winp/runs/kernel-directory-readonly/data/alerts/alert_digest.jsonl.tmp.51558.1793809263417234000'\n[notify][digest] buffer 读取失败(转直发): [Errno 13] Permission denied: '/tmp/codex-night-20261105-f03-uvl0winp/runs/kernel-unreadable-data/data/alerts/alert_digest.jsonl'\n"
+        },
+        {
+          "name": "kernel_RLIMIT_FSIZE_partial_write_EFBIG",
+          "status": "PASS",
+          "seconds": 0.014,
+          "observed": {
+            "return": false,
+            "preserved": true
+          },
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "name": "real_10_process_same_signature",
+          "status": "PASS",
+          "seconds": 0.285,
+          "observed": {
+            "processes": 10,
+            "rows": 1,
+            "total_hits": 10,
+            "lock_inode": 277743396
+          },
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "name": "real_10_process_different_signatures",
+          "status": "PASS",
+          "seconds": 0.223,
+          "observed": {
+            "processes": 10,
+            "rows": 10,
+            "total_hits": 10,
+            "lock_inode": 277743410
+          },
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "name": "real_sidecar_lock_survives_inode_replacement",
+          "status": "PASS",
+          "seconds": 0.369,
+          "observed": {
+            "waiter_blocked_across_data_replace": true,
+            "sidecar_inode_preserved": true,
+            "data_inode_changed": true,
+            "rows": 4
+          },
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "name": "flush_absorb_order_True_True",
+          "status": "PASS",
+          "seconds": 0.004,
+          "observed": {
+            "order": "absorb_then_flush",
+            "same": true,
+            "remaining": 0,
+            "delivered_in_digest": true,
+            "channel_calls": 3
+          },
+          "stdout": "",
+          "stderr": "[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-order-True-True/data/alerts/latest.md level=digest\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-order-True-True/data/alerts/alert_ledger.jsonl\n[notify][digest] 摘要发出 1 条（剩余 0 条）：已发\n"
+        },
+        {
+          "name": "flush_absorb_order_True_False",
+          "status": "PASS",
+          "seconds": 0.002,
+          "observed": {
+            "order": "absorb_then_flush",
+            "same": false,
+            "remaining": 0,
+            "delivered_in_digest": true,
+            "channel_calls": 3
+          },
+          "stdout": "",
+          "stderr": "[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-order-True-False/data/alerts/latest.md level=digest\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-order-True-False/data/alerts/alert_ledger.jsonl\n[notify][digest] 摘要发出 2 条（剩余 0 条）：已发\n"
+        },
+        {
+          "name": "flush_absorb_order_False_True",
+          "status": "PASS",
+          "seconds": 0.368,
+          "observed": {
+            "order": "flush_holds_lock_then_absorb",
+            "same": true,
+            "remaining_keys": [
+              "existing"
+            ],
+            "waited": true,
+            "watermark": {
+              "last_sent_day": "2026-11-05"
+            }
+          },
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "name": "flush_absorb_order_False_False",
+          "status": "PASS",
+          "seconds": 0.368,
+          "observed": {
+            "order": "flush_holds_lock_then_absorb",
+            "same": false,
+            "remaining_keys": [
+              "new"
+            ],
+            "waited": true,
+            "watermark": {
+              "last_sent_day": "2026-11-05"
+            }
+          },
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "name": "flush_failures_and_watermark",
+          "status": "PASS",
+          "seconds": 0.003,
+          "observed": {
+            "cleanup_failure": {
+              "sent": true,
+              "n": 3,
+              "n_remaining": 3
+            },
+            "same_day_retry": {
+              "sent": false,
+              "n": 0,
+              "n_remaining": 3
+            },
+            "preserved": 3,
+            "watermark": {
+              "last_sent_day": "2026-11-05"
+            },
+            "all_channels_failure": {
+              "sent": false,
+              "n": 3,
+              "n_remaining": 3
+            }
+          },
+          "stdout": "",
+          "stderr": "[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-cleanup-rename-fail/data/alerts/latest.md level=digest\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-cleanup-rename-fail/data/alerts/alert_ledger.jsonl\n[notify][digest] buffer 清理失败（下轮可能重发）：[Errno 5] injected digest rename EIO\n[notify][digest] 摘要发出 3 条（剩余 3 条）：已发\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-all-channels-fail/data/alerts/latest.md level=digest\n[notify][digest] flush 未发出, 条目保留 3 条\n"
+        },
+        {
+          "name": "observe_atomic_replace_file_permission_boundary",
+          "status": "PASS",
+          "seconds": 0.001,
+          "observed": {
+            "return": true,
+            "before_mode": "0o600",
+            "after_mode": "0o644",
+            "permission_preserved": false,
+            "euid": 501,
+            "original_owner": 501,
+            "consequence": "new file inherits umask; prior file mode is not preserved"
+          },
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "name": "real_default_10s_lock_timeout_failopen",
+          "status": "PASS",
+          "seconds": 10.044,
+          "observed": {
+            "elapsed": 10.038,
+            "result": {
+              "email": true,
+              "telegram": true,
+              "feishu": true
+            },
+            "channels": [
+              "email",
+              "telegram",
+              "feishu"
+            ],
+            "original_bytes_preserved": true
+          },
+          "stdout": "",
+          "stderr": "[notify][digest] alert_digest_absorb 排他锁等待超时(10.0s)→ fail-open 直发\n[notify][digest] 侧车锁等待超时→ fail-open 直发(key=existing)\n[notify][digest] digest-only 并入失败(buffer append) → fail-open 直发: [告警] independent\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/real-lock-timeout/data/alerts/latest.md level=notice\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/real-lock-timeout/data/alerts/alert_ledger.jsonl\n"
+        },
+        {
+          "name": "full_CLI_dedup_digest_and_failopen_interaction",
+          "status": "PASS",
+          "seconds": 0.015,
+          "observed": {
+            "existing_hits_write_failed": {
+              "status": "digested",
+              "detail": "已并入摘要 buffer(digested)",
+              "tier": "notice",
+              "channels": {},
+              "dedup_key": "existing"
+            },
+            "digested_writes_dedup": false,
+            "retry_hits": 2,
+            "prior_direct_dedup": "suppressed without changing hits",
+            "new_failed_append": {
+              "status": "sent",
+              "detail": "普通路径发送完成",
+              "tier": "notice",
+              "channels": {
+                "email": true,
+                "telegram": true,
+                "feishu": true
+              },
+              "dedup_key": "new"
+            },
+            "failed_delivery_no_dedup": true
+          },
+          "stdout": "",
+          "stderr": "[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 13] injected tmp failure\n[notify][digest] 已并入当日摘要 buffer(23:25 出线, 不即时直发): [告警] independent\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/cli-dedup/data/alerts/latest.md level=notice\n[notify][digest] 已并入当日摘要 buffer(23:25 出线, 不即时直发): [告警] independent\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/cli-dedup/data/alerts/latest.md level=notice\n[notify][dedup] 更新 key=existing last_alerted=now\n[notify][dedup] suppress key=existing last_alerted=2026-11-05 00:21:15 age=0s < window=3600s, 不重发\n[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 13] injected tmp failure\n[notify][digest] digest-only 并入失败(buffer append) → fail-open 直发: [告警] independent\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/cli-new-failopen/data/alerts/latest.md level=notice\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/cli-new-failopen/data/alerts/alert_ledger.jsonl\n[notify] 汇总：已发出 email/telegram/feishu\n[notify][dedup] 更新 key=new last_alerted=now\n[notify][dedup] suppress key=new last_alerted=2026-11-05 00:21:15 age=0s < window=3600s, 不重发\n[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 13] injected tmp failure\n[notify][digest] digest-only 并入失败(buffer append) → fail-open 直发: [告警] independent\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/cli-new-fail-all-channels/data/alerts/latest.md level=notice\n[notify] 汇总：全部渠道未发出（email/feishu）\n"
+        }
+      ],
+      "guard_hits": [],
+      "safety": {
+        "env_whitelist": [
+          "FEISHU_APP_ID",
+          "FEISHU_APP_SECRET",
+          "HOME",
+          "LC_CTYPE",
+          "PATH",
+          "PYTHONDONTWRITEBYTECODE",
+          "REPO",
+          "TMPDIR",
+          "__CF_USER_TEXT_ENCODING"
+        ],
+        "config_reads_stubbed": true,
+        "all_channel_functions_stubbed": true,
+        "network_and_subprocess_blocked": true,
+        "production_open_blocked": true
+      }
+    },
+    "supplement": {
+      "head": "197a0bedaf259bea48bf3c43a17390a038af5e82",
+      "cases": [
+        {
+          "name": "base_head_mode_control_and_default_queue_dedup",
+          "observed": {
+            "comparison": [
+              {
+                "revision": "base",
+                "preexisting": false,
+                "before": null,
+                "after": "0o644",
+                "return": true
+              },
+              {
+                "revision": "base",
+                "preexisting": true,
+                "before": "0o600",
+                "after": "0o600",
+                "return": true
+              },
+              {
+                "revision": "head",
+                "preexisting": false,
+                "before": null,
+                "after": "0o644",
+                "return": true
+              },
+              {
+                "revision": "head",
+                "preexisting": true,
+                "before": "0o600",
+                "after": "0o644",
+                "return": true
+              }
+            ],
+            "default_queue_dedup_modes": {
+              "WARNING_BUFFER_FILE": {
+                "path": "/tmp/codex-night-20261105-f03-uvl0winp/runs/default-queues-and-dedup/data/alerts/warning_buffer.jsonl",
+                "mode": "0o644"
+              },
+              "DEDUP_FILE": {
+                "path": "/tmp/codex-night-20261105-f03-uvl0winp/runs/default-queues-and-dedup/data/notify_dedup.json",
+                "mode": "0o644"
+              },
+              "ALERT_DIGEST_FILE": {
+                "path": "/tmp/codex-night-20261105-f03-uvl0winp/runs/default-queues-and-dedup/data/alerts/alert_digest.jsonl",
+                "mode": "0o644"
+              },
+              "ALERT_DIGEST_LOCK_FILE": {
+                "path": "/tmp/codex-night-20261105-f03-uvl0winp/runs/default-queues-and-dedup/data/alerts/alert_digest.flushlock",
+                "mode": "0o644"
+              }
+            },
+            "classification": "conditional preexisting-mode regression; no default 0600 contract found; no production file modes or contents read"
+          },
+          "stdout": "",
+          "stderr": "[notify][dedup] 更新 key=dummy last_alerted=now\n"
+        },
+        {
+          "name": "orphan_bump_actual_partial_write_failure_and_retry",
+          "observed": {
+            "failure": false,
+            "bytes_preserved": true,
+            "retry": true,
+            "retry_hits": 2
+          },
+          "stdout": "",
+          "stderr": "[notify][digest] hits 累加失败(不影响并入): [Errno 28] injected ENOSPC after actual 61-byte write\n"
+        },
+        {
+          "name": "flush_cleanup_actual_partial_ENOSPC_fsync_rename_matrix",
+          "observed": [
+            {
+              "fault": "partial_ENOSPC",
+              "result": {
+                "sent": true,
+                "n": 3,
+                "n_remaining": 3
+              },
+              "preserved_bytes": 1225,
+              "channel_calls": [
+                "email",
+                "telegram",
+                "feishu"
+              ]
+            },
+            {
+              "fault": "open_EACCES",
+              "result": {
+                "sent": true,
+                "n": 3,
+                "n_remaining": 3
+              },
+              "preserved_bytes": 1225,
+              "channel_calls": [
+                "email",
+                "telegram",
+                "feishu"
+              ]
+            },
+            {
+              "fault": "fsync_EIO",
+              "result": {
+                "sent": true,
+                "n": 3,
+                "n_remaining": 3
+              },
+              "preserved_bytes": 1225,
+              "channel_calls": [
+                "email",
+                "telegram",
+                "feishu"
+              ]
+            },
+            {
+              "fault": "rename_kernel_EACCES",
+              "result": {
+                "sent": true,
+                "n": 3,
+                "n_remaining": 3
+              },
+              "preserved_bytes": 1225,
+              "channel_calls": [
+                "email",
+                "telegram",
+                "feishu"
+              ]
+            }
+          ],
+          "stdout": "",
+          "stderr": "[notify][digest] buffer 坏行跳过（第1条，前80字符）：'bad-line-retained-bad-line-retained-bad-line-retained-bad-line-retained-bad-line'\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-partial_ENOSPC/data/alerts/latest.md level=digest\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-partial_ENOSPC/data/alerts/alert_ledger.jsonl\n[notify][digest] buffer 清理失败（下轮可能重发）：[Errno 28] injected ENOSPC after actual 61-byte write\n[notify][digest] 摘要发出 3 条（剩余 3 条）：已发\n[notify][digest] buffer 坏行跳过（第1条，前80字符）：'bad-line-retained-bad-line-retained-bad-line-retained-bad-line-retained-bad-line'\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-open_EACCES/data/alerts/latest.md level=digest\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-open_EACCES/data/alerts/alert_ledger.jsonl\n[notify][digest] buffer 清理失败（下轮可能重发）：[Errno 13] injected temporary open EACCES\n[notify][digest] 摘要发出 3 条（剩余 3 条）：已发\n[notify][digest] buffer 坏行跳过（第1条，前80字符）：'bad-line-retained-bad-line-retained-bad-line-retained-bad-line-retained-bad-line'\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-fsync_EIO/data/alerts/latest.md level=digest\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-fsync_EIO/data/alerts/alert_ledger.jsonl\n[notify][digest] buffer 清理失败（下轮可能重发）：[Errno 5] injected fsync EIO\n[notify][digest] 摘要发出 3 条（剩余 3 条）：已发\n[notify][digest] buffer 坏行跳过（第1条，前80字符）：'bad-line-retained-bad-line-retained-bad-line-retained-bad-line-retained-bad-line'\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-rename_kernel_EACCES/data/alerts/latest.md level=digest\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-rename_kernel_EACCES/data/alerts/alert_ledger.jsonl\n[notify][digest] buffer 清理失败（下轮可能重发）：[Errno 13] Permission denied: '/tmp/codex-night-20261105-f03-uvl0winp/runs/flush-rename_kernel_EACCES/data/alerts/alert_digest.jsonl.tmp.53376.1793809474358276000' -> '/tmp/codex-night-20261105-f03-uvl0winp/runs/flush-rename_kernel_EACCES/data/alerts/alert_digest.jsonl'\n[notify][digest] 摘要发出 3 条（剩余 3 条）：已发\n"
+        }
+      ],
+      "guard_hits": []
+    },
+    "base_red_control": {
+      "base": "37c426f16bebab092994b30891e0c71ffbd75934",
+      "return": false,
+      "bytes_preserved": false,
+      "before_sha256": "bc018c6a564fe28b243566600f9d643c0184b549126614b6de70ade7d903b03d",
+      "after_sha256": "5def5dff020228b8ea21043b8f4e00823a5561207b472189a547f39af357103f",
+      "written_bytes_before_ENOSPC": 61,
+      "stderr": "[notify][digest] 并入异常(转直发)：[Errno 28] injected after actual original-file 61-byte write\n",
+      "guard_hits": []
+    },
+    "author_tests": {
+      "ordinary": "14 passed in 0.28s",
+      "forced_legal_order": "1 failed in 0.10s; expected demonstration of test assertion defect, not runtime-data-loss verdict",
+      "raw_logs": [
+        "/tmp/codex-night-20261105-f03-uvl0winp/author-raw.log",
+        "/tmp/codex-night-20261105-f03-uvl0winp/author-forced-raw.log"
+      ],
+      "scope": "原封不动两份作者测试；外围stub、--noconftest、禁自动加载插件；既有14测试单次通过不能覆盖全部并发交错。未运行作者声称的全量2293测试。"
+    },
+    "readers_writers": {
+      "target": "$REPO/data/alerts/alert_digest.jsonl",
+      "stable_lock": "$REPO/data/alerts/alert_digest.flushlock",
+      "runtime_writers": [
+        {
+          "entry": "_absorb_to_digest",
+          "locations": [
+            "scripts/notify.py:2412",
+            "scripts/notify.py:2421",
+            "scripts/notify.py:2455"
+          ],
+          "mechanism": "先打开 sidecar，再 _flock_ex_wait；锁内读取最新目标、判 day/key、计算 hits/追加，统一原子替换；不预开数据句柄等待锁。"
+        },
+        {
+          "entry": "_bump_digest_hits",
+          "locations": [
+            "scripts/notify.py:2575",
+            "scripts/notify.py:2583",
+            "scripts/notify.py:2598"
+          ],
+          "mechanism": "同一 sidecar；AST 显示生产 notify.py 内零调用，仅保留孤儿定义。"
+        },
+        {
+          "entry": "flush_digest → _flush_digest_locked",
+          "locations": [
+            "scripts/notify.py:3353",
+            "scripts/notify.py:3358",
+            "scripts/notify.py:3371",
+            "scripts/notify.py:3514",
+            "scripts/notify.py:3524"
+          ],
+          "mechanism": "全生命周期 sidecar LOCK_EX，含 send 和清理；不再锁数据 inode；发送成功才尝试原子清理。"
+        }
+      ],
+      "readers": [
+        {
+          "entry": "上列写方内的 read_bytes",
+          "lock": "与写同一 sidecar，打开目标发生在拿锁后。"
+        },
+        {
+          "entry": "flush_digest(dry_run=True)",
+          "location": "scripts/notify.py:3349",
+          "lock": "有意无锁只读；replace 保证一次打开看到完整旧/新 inode，不清理不写 state；未独立跑 dry-run regression suite。"
+        }
+      ],
+      "call_graph": {
+        "send": "digest_only/routine(:1448)、severe budget(:1483)、domain(:1525)、notice/rollover/recent repeat(:1592)、成功恢复留痕(:1688) → _absorb_to_digest；恢复(:1427) → split(:2541)。",
+        "warning_queue": "flush_warning_batch(:3209) → _absorb_split_to_digest → 同 helper；warning flush 锁和 warning dedup 锁是不同状态的锁，不应与摘要数据锁混同。",
+        "CLI": "main --defer-digest(:3724) 与 --flush-digest(:3705)；普通 main 先查 direct dedup，再 send；digested 不更新 direct dedup，真实发出才 update_dedup。",
+        "external_callers": [
+          "scripts/schedule_monitor.sh:4212（预算行级 --defer-digest）",
+          "scripts/schedule_monitor.sh:4552（恢复补列 --defer-digest）",
+          "scripts/schedule_monitor.sh:4580（--flush-digest）",
+          "scripts/check_failed_units.py:541-559（_defer_digest 子进程）",
+          "scripts/monitor_72h.sh 经 send/CLI 的恢复和告警路由"
+        ]
+      },
+      "other_references": "非测试/非文档运行代码未检出第四个直接摘要写方；docs/codex-handoffs/.../research-20261104-reliability-repro.py 是历史复现脚本，未执行。脚本测试中写同名 fixture 文件均属测试数据。",
+      "scan_evidence": [
+        "/tmp/codex-night-20261105-f03-uvl0winp/consumer-trace.log",
+        "/tmp/codex-night-20261105-f03-uvl0winp/symbol-trace.json"
+      ],
+      "coverage_limit": "覆盖固定 archive 内显式路径/常量与调用链；不保证仓外第三方、运行中的旧版本进程或任意动态反射写方也遵循 sidecar。没有扫描或启动实际生产进程。"
+    },
+    "queue_dedup_path_and_permission_inventory": {
+      "resolution": [
+        "scripts/notify.py:98 env REPO 优先，缺失回退 Path(__file__).absolute().parent.parent，保留 scripts symlink 的字面路径，不用 resolve。",
+        "scripts/schedule_monitor.sh:49-61 与 scripts/monitor_72h.sh:22-27 resolve_repo 后 export REPO；repo_paths.sh:58-78 env 优先、姐妹 trade-data 推导。",
+        "scripts/check_failed_units.py:142-153 的 repo 候选 env 优先；_defer_digest 启动 notify 子进程继承环境。",
+        "仓内 launchd/com.trade.check-data-gap.plist:70-74 等指向 /Users/linhuichen/code/trade-data；docs/deploy/systemd-units-cloud-snapshot.txt:10-12 云快照指向 /home/ubuntu/code/trade-data。这是代码/配置证据，不冒充当前 live service 环境。"
+      ],
+      "default_direct_invocation_root": "/Users/linhuichen/code/trade",
+      "configured_local_runtime_root": "/Users/linhuichen/code/trade-data",
+      "files": [
+        {
+          "purpose": "摘要 queue",
+          "relative": "data/alerts/alert_digest.jsonl",
+          "default_local_runtime": "/Users/linhuichen/code/trade-data/data/alerts/alert_digest.jsonl",
+          "code": "scripts/notify.py:353",
+          "writers": "上述三个原子写调用方",
+          "new_default": "0666 & ~umask；umask022 ->0644"
+        },
+        {
+          "purpose": "摘要稳定锁",
+          "relative": "data/alerts/alert_digest.flushlock",
+          "default_local_runtime": "/Users/linhuichen/code/trade-data/data/alerts/alert_digest.flushlock",
+          "code": "scripts/notify.py:354",
+          "writers": "absorb/bump/flush open a+；仓内无 unlink/replace 该锁路径的运行写方"
+        },
+        {
+          "purpose": "摘要发送水位",
+          "relative": "data/alerts/alert_digest_state.json",
+          "default_local_runtime": "/Users/linhuichen/code/trade-data/data/alerts/alert_digest_state.json",
+          "code": "scripts/notify.py:355,3541-3544",
+          "writers": "flush 在成功发出后固定 .tmp+replace；不与摘要 queue 混同"
+        },
+        {
+          "purpose": "warning queue",
+          "relative": "data/alerts/warning_buffer.jsonl",
+          "default_local_runtime": "/Users/linhuichen/code/trade-data/data/alerts/warning_buffer.jsonl",
+          "code": "scripts/notify.py:332",
+          "writers": "defer_warning/_append_jsonl、flush_warning_batch；数据 inode lock；此次未改",
+          "new_default": "新建 a 模式继承 umask，沙箱默认0644"
+        },
+        {
+          "purpose": "直接发送 dedup",
+          "relative": "data/notify_dedup.json",
+          "default_local_runtime": "/Users/linhuichen/code/trade-data/data/notify_dedup.json",
+          "code": "scripts/notify.py:107,2019,2053",
+          "writers": "update_dedup a+、flock 数据 inode 原地改写；此次未改",
+          "new_default": "沙箱新建0644；已有 inode mode 保留"
+        },
+        {
+          "purpose": "warning fingerprint dedup",
+          "relative": "data/alerts/warning_dedup_state.json",
+          "default_local_runtime": "/Users/linhuichen/code/trade-data/data/alerts/warning_dedup_state.json",
+          "code": "scripts/notify.py:426,2689-2726",
+          "writers": "_save_warning_dedup_state mkstemp+fsync+replace，warning_dedup.lock 专用锁",
+          "new_default": "mkstemp 默认0600；静态机制确认，未读取生产文件"
+        },
+        {
+          "purpose": "rollover 已并入记忆",
+          "relative": "data/alerts/alert_digest_seen.json",
+          "default_local_runtime": "/Users/linhuichen/code/trade-data/data/alerts/alert_digest_seen.json",
+          "code": "scripts/notify.py:2297-2311；scripts/alert_denoise_rules.py:1292",
+          "writers": "_commit_rollover_seen → _write_state_obj；此次状态并发实现未改"
+        },
+        {
+          "purpose": "故障域聚合状态",
+          "relative": "data/alerts/alert_domains.json",
+          "default_local_runtime": "/Users/linhuichen/code/trade-data/data/alerts/alert_domains.json",
+          "code": "scripts/notify.py:2285-2294；scripts/alert_denoise_rules.py:1134",
+          "writers": "_commit_domain_state → _write_state_obj；此次未改"
+        }
+      ],
+      "directory_metadata": {
+        "scope": "directory metadata only; notification files/config/credentials not read",
+        "paths": [
+          {
+            "path": "/Users",
+            "realpath": "/Users",
+            "mode": "0o755",
+            "uid": 0,
+            "gid": 80,
+            "is_symlink": false
+          },
+          {
+            "path": "/Users/linhuichen",
+            "realpath": "/Users/linhuichen",
+            "mode": "0o755",
+            "uid": 501,
+            "gid": 20,
+            "is_symlink": false
+          },
+          {
+            "path": "/Users/linhuichen/code",
+            "realpath": "/Users/linhuichen/code",
+            "mode": "0o755",
+            "uid": 501,
+            "gid": 20,
+            "is_symlink": false
+          },
+          {
+            "path": "/Users/linhuichen/code/trade",
+            "realpath": "/Users/linhuichen/code/trade",
+            "mode": "0o755",
+            "uid": 501,
+            "gid": 20,
+            "is_symlink": false
+          },
+          {
+            "path": "/Users/linhuichen/code/trade/data",
+            "realpath": "/Users/linhuichen/code/trade/data",
+            "mode": "0o755",
+            "uid": 501,
+            "gid": 20,
+            "is_symlink": false
+          },
+          {
+            "path": "/Users/linhuichen/code/trade/data/alerts",
+            "realpath": "/Users/linhuichen/code/trade/data/alerts",
+            "mode": "0o755",
+            "uid": 501,
+            "gid": 20,
+            "is_symlink": false
+          },
+          {
+            "path": "/Users/linhuichen/code/trade-data",
+            "realpath": "/Users/linhuichen/code/trade-data",
+            "mode": "0o755",
+            "uid": 501,
+            "gid": 20,
+            "is_symlink": false
+          },
+          {
+            "path": "/Users/linhuichen/code/trade-data/data",
+            "realpath": "/Users/linhuichen/code/trade-data/data",
+            "mode": "0o755",
+            "uid": 501,
+            "gid": 20,
+            "is_symlink": false
+          },
+          {
+            "path": "/Users/linhuichen/code/trade-data/data/alerts",
+            "realpath": "/Users/linhuichen/code/trade-data/data/alerts",
+            "mode": "0o755",
+            "uid": 501,
+            "gid": 20,
+            "is_symlink": false
+          },
+          {
+            "path": "/Users/linhuichen/code/trade-data-signal",
+            "error": "FileNotFoundError(2, 'No such file or directory')"
+          },
+          {
+            "path": "/Users/linhuichen/code/trade-data-signal/data",
+            "error": "FileNotFoundError(2, 'No such file or directory')"
+          },
+          {
+            "path": "/Users/linhuichen/code/trade-data-signal/data/alerts",
+            "error": "FileNotFoundError(2, 'No such file or directory')"
+          }
+        ]
+      },
+      "directory_acl_raw": "drwxr-xr-x    6 root        admin   192 Apr  1  2024 /Users\ndrwxr-xr-x+ 134 linhuichen  staff  4288 Nov  5 00:25 /Users/linhuichen\n 0: group:everyone deny delete\ndrwxr-xr-x   15 linhuichen  staff   480 Oct 16 12:42 /Users/linhuichen/code\ndrwxr-xr-x   47 linhuichen  staff  1504 Nov  5 00:19 /Users/linhuichen/code/trade\ndrwxr-xr-x   14 linhuichen  staff   448 Sep 15 11:05 /Users/linhuichen/code/trade-data\ndrwxr-xr-x   70 linhuichen  staff  2240 Oct 31 21:30 /Users/linhuichen/code/trade-data/data\ndrwxr-xr-x    9 linhuichen  staff   288 Oct  6 18:10 /Users/linhuichen/code/trade-data/data/alerts\ndrwxr-xr-x   80 linhuichen  staff  2560 Oct 29 11:00 /Users/linhuichen/code/trade/data\ndrwxr-xr-x   13 linhuichen  staff   416 Nov  5 00:09 /Users/linhuichen/code/trade/data/alerts\n",
+      "not_observed": "未 stat/read 生产 queue/dedup 文件；未查生产进程环境/真实 umask/云主机权限；未证明任何生产文件当前是 0600 或已经暴露。"
+    }
+  },
+  "verdict": "PASS",
+  "reviewer_verdict": "Ready",
+  "blocking_issues": [],
+  "nonblocking_severities": {
+    "P2": 2
+  },
+  "summary": "固定197a0beda的F03-R1核心原子写/稳定侧车锁机制复验通过，未发现本范围P0/P1。已有条目hits写失败保持True且send零通道；新条目失败False并fail-open；真实半写/内核权限/rename/inode锁/并发及CLI-dedup交互证据完整。两项P2：条件性既有mode保留回归，以及作者并发测试合法顺序假红；不据此推断生产泄漏。",
+  "impact_surface": [
+    "digest absorb/bump/flush helper",
+    "send与CLI fail-open/dedup",
+    "warning flush进入digest",
+    "queue/锁/水位/rollover/domain路径",
+    "权限模式与作者并发验收测试"
+  ],
+  "smoke_results": {
+    "independent_groups": "15/15完成（另含10故障子场景）",
+    "supplement_groups": "3/3完成（含4个flush故障子场景）",
+    "real_same_signature": "10进程 -> 1行 hits=10",
+    "real_different_signatures": "10进程 -> 10行",
+    "locked_inode": "数据inode改变，sidecar inode不变，竞争进程真实阻塞直到释放",
+    "base_partial_control": "旧版真实写61字节后ENOSPC导致目标bytes改变/False；新版同类临时文件故障目标bytes不变，已有True/新False",
+    "send_full_chain": "已有失败0通道；新失败3个stub通道；失败发送不登记direct dedup",
+    "author_ordinary": "14 passed",
+    "author_forced_order": "预期复现错误断言：0行被误判为失败"
+  },
+  "recommendation": "本轮只读复验核心修复Ready；将两项非阻断P2及局限交Claude自行复核，避开当前F03内部返修，不改源码、不安排开发、不冒称内部审查回执已收到。",
+  "safety_and_protocol": {
+    "read_only_review": true,
+    "repo_source_or_ref_mutations": false,
+    "commit_or_push": false,
+    "ready_or_codex_review_complete_called": false,
+    "notification_tools_or_scripts_called": false,
+    "claude_started": false,
+    "external_review_ref": "startup enumeration returned none；本轮为用户直接指定任务，不以无ref中止",
+    "report_channel": "user-specified direct report only",
+    "outbound_channels": "全部stub；网络/SMTP/HTTP/socket/子进程防护；测试并发仅fork继承防护；dummy env，生产路径open审计阻断",
+    "production_state_or_credentials_read": false,
+    "production_directory_metadata_only": "用户追加要求后，仅stat/ls -lde相关目录元数据；未读实际queue/dedup/config/.env内容",
+    "reviewer_skill_worktree_note": "指定codex-reviewer worktree不存在；按用户明确指令只读主仓git对象，固定head archive至/tmp。不创建worktree或分支；本次工具没有subagent执行接口。",
+    "guards": "所有已执行结果 guard_hits=[]；fork继承安全桩，子进程没有向父进程共享guard计数，因此零外发主要由不可用出口与无生产路径访问保证，父guard计数本身不冒充跨进程完整审计。",
+    "environment_setup_note": "clean HOME隐藏用户site-packages导致第一次author runner在pytest import前退出；之后仅显式引入已安装pytest库路径，插件自动加载关闭；未加载用户通知配置。"
+  },
+  "reproduction_commands": {
+    "independent": "/usr/bin/env -i PATH=/Library/Frameworks/Python.framework/Versions/3.11/bin:/usr/bin:/bin HOME=/tmp/codex-night-20261105-f03-uvl0winp/dummy-home TMPDIR=/tmp/codex-night-20261105-f03-uvl0winp/tmp REPO=/tmp/codex-night-20261105-f03-uvl0winp/dummy-repo FEISHU_APP_ID=dummy FEISHU_APP_SECRET=dummy PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-night-20261105-f03-uvl0winp/verify_f03.py",
+    "supplement": "/usr/bin/env -i PATH=/Library/Frameworks/Python.framework/Versions/3.11/bin:/usr/bin:/bin HOME=/tmp/codex-night-20261105-f03-uvl0winp/dummy-home TMPDIR=/tmp/codex-night-20261105-f03-uvl0winp/tmp REPO=/tmp/codex-night-20261105-f03-uvl0winp/dummy-repo FEISHU_APP_ID=dummy FEISHU_APP_SECRET=dummy PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-night-20261105-f03-uvl0winp/verify_supplement.py",
+    "base_control": "/usr/bin/env -i PATH=/Library/Frameworks/Python.framework/Versions/3.11/bin:/usr/bin:/bin HOME=/tmp/codex-night-20261105-f03-uvl0winp/dummy-home TMPDIR=/tmp/codex-night-20261105-f03-uvl0winp/tmp REPO=/tmp/codex-night-20261105-f03-uvl0winp/dummy-repo FEISHU_APP_ID=dummy FEISHU_APP_SECRET=dummy PYTHONDONTWRITEBYTECODE=1 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-night-20261105-f03-uvl0winp/verify_base_control.py",
+    "author": "/usr/bin/env -i PATH=/Library/Frameworks/Python.framework/Versions/3.11/bin:/usr/bin:/bin HOME=/tmp/codex-night-20261105-f03-uvl0winp/dummy-home TMPDIR=/tmp/codex-night-20261105-f03-uvl0winp/tmp REPO=/tmp/codex-night-20261105-f03-uvl0winp/dummy-repo FEISHU_APP_ID=dummy FEISHU_APP_SECRET=dummy PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=/Users/linhuichen/Library/Python/3.11/lib/python/site-packages /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-night-20261105-f03-uvl0winp/run_author.py --basetemp=/tmp/codex-night-20261105-f03-uvl0winp/author-pytest /tmp/codex-night-20261105-f03-uvl0winp/head/scripts/tests/test_f03r1_digest_atomic_write.py /tmp/codex-night-20261105-f03-uvl0winp/head/scripts/tests/test_f03_digest_atomic_concurrent.py",
+    "forced_author": "/usr/bin/env -i PATH=/Library/Frameworks/Python.framework/Versions/3.11/bin:/usr/bin:/bin HOME=/tmp/codex-night-20261105-f03-uvl0winp/dummy-home TMPDIR=/tmp/codex-night-20261105-f03-uvl0winp/tmp REPO=/tmp/codex-night-20261105-f03-uvl0winp/dummy-repo FEISHU_APP_ID=dummy FEISHU_APP_SECRET=dummy PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=/Users/linhuichen/Library/Python/3.11/lib/python/site-packages /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /tmp/codex-night-20261105-f03-uvl0winp/run_author.py --force-absorb-first --basetemp=/tmp/codex-night-20261105-f03-uvl0winp/author-forced-pytest /tmp/codex-night-20261105-f03-uvl0winp/head/scripts/tests/test_f03r1_digest_atomic_write.py::test_h_absorb_vs_flush_concurrent_no_loss"
+  },
+  "reproduction_note": "runs目录保留证据，原命令假定新建测试根；复跑时复制verifier并使用新/tmp前缀或仅清理自己的对应测试子目录，避免旧水位影响。不要在生产REPO上运行探针。",
+  "raw_outputs": {
+    "independent-raw.log": "{\"name\": \"independent_failure_matrix_actual_partial_bytes\", \"status\": \"PASS\", \"seconds\": 0.023, \"observed\": [{\"fault\": \"open\", \"existing\": false, \"return\": false, \"bytes_preserved\": 684, \"restore_attempts\": [], \"leftovers\": []}, {\"fault\": \"open\", \"existing\": true, \"return\": true, \"bytes_preserved\": 684, \"restore_attempts\": [], \"leftovers\": []}, {\"fault\": \"partial_ENOSPC\", \"existing\": false, \"return\": false, \"bytes_preserved\": 684, \"restore_attempts\": [], \"leftovers\": []}, {\"fault\": \"partial_ENOSPC\", \"existing\": true, \"return\": true, \"bytes_preserved\": 684, \"restore_attempts\": [], \"leftovers\": []}, {\"fault\": \"fsync_EIO\", \"existing\": false, \"return\": false, \"bytes_preserved\": 684, \"restore_attempts\": [], \"leftovers\": []}, {\"fault\": \"fsync_EIO\", \"existing\": true, \"return\": true, \"bytes_preserved\": 684, \"restore_attempts\": [], \"leftovers\": []}, {\"fault\": \"replace_kernel_EACCES\", \"existing\": false, \"return\": false, \"bytes_preserved\": 684, \"restore_attempts\": [], \"leftovers\": []}, {\"fault\": \"replace_kernel_EACCES\", \"existing\": true, \"return\": true, \"bytes_preserved\": 684, \"restore_attempts\": [], \"leftovers\": []}, {\"fault\": \"partial_and_cleanup_fail\", \"existing\": false, \"return\": false, \"bytes_preserved\": 684, \"restore_attempts\": [], \"leftovers\": [\"alert_digest.jsonl.tmp.51558.1793809263407497000\"]}, {\"fault\": \"partial_and_cleanup_fail\", \"existing\": true, \"return\": true, \"bytes_preserved\": 684, \"restore_attempts\": [], \"leftovers\": [\"alert_digest.jsonl.tmp.51558.1793809263409479000\"]}], \"stdout\": \"\", \"stderr\": \"[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 13] injected tmp open EACCES\\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 13] injected tmp open EACCES\\n[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 28] injected ENOSPC after actual 61-byte write\\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 28] injected ENOSPC after actual 61-byte write\\n[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 5] injected fsync EIO\\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 5] injected fsync EIO\\n[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 13] Permission denied: '/tmp/codex-night-20261105-f03-uvl0winp/runs/failure-replace_kernel_EACCES-False/data/alerts/alert_digest.jsonl.tmp.51558.1793809263402072000' -> '/tmp/codex-night-20261105-f03-uvl0winp/runs/failure-replace_kernel_EACCES-False/data/alerts/alert_digest.jsonl'\\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 13] Permission denied: '/tmp/codex-night-20261105-f03-uvl0winp/runs/failure-replace_kernel_EACCES-True/data/alerts/alert_digest.jsonl.tmp.51558.1793809263404303000' -> '/tmp/codex-night-20261105-f03-uvl0winp/runs/failure-replace_kernel_EACCES-True/data/alerts/alert_digest.jsonl'\\n[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 28] injected ENOSPC after actual 61-byte write\\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 28] injected ENOSPC after actual 61-byte write\\n\"}\n{\"name\": \"full_send_existing_zero_channels_new_failopen\", \"status\": \"PASS\", \"seconds\": 0.005, \"observed\": [{\"existing\": false, \"result\": {\"email\": true, \"telegram\": true, \"feishu\": true}, \"channel_calls\": [\"email\", \"telegram\", \"feishu\"]}, {\"existing\": true, \"result\": {\"email\": false, \"telegram\": false, \"feishu\": false, \"digested\": true}, \"channel_calls\": []}], \"stdout\": \"\", \"stderr\": \"[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 28] injected ENOSPC after actual 61-byte write\\n[notify][digest] digest-only 并入失败(buffer append) → fail-open 直发: [告警] independent\\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/send-failure-False/data/alerts/latest.md level=notice\\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/send-failure-False/data/alerts/alert_ledger.jsonl\\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 28] injected ENOSPC after actual 61-byte write\\n[notify][digest] 已并入当日摘要 buffer(23:25 出线, 不即时直发): [告警] independent\\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/send-failure-True/data/alerts/latest.md level=notice\\n\"}\n{\"name\": \"kernel_EACCES_open_read_permissions\", \"status\": \"PASS\", \"seconds\": 0.002, \"observed\": {\"directory_no_write\": {\"new\": false, \"existing\": true}, \"read_denied\": false}, \"stdout\": \"\", \"stderr\": \"[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 13] Permission denied: '/tmp/codex-night-20261105-f03-uvl0winp/runs/kernel-directory-readonly/data/alerts/alert_digest.jsonl.tmp.51558.1793809263416876000'\\n[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 13] Permission denied: '/tmp/codex-night-20261105-f03-uvl0winp/runs/kernel-directory-readonly/data/alerts/alert_digest.jsonl.tmp.51558.1793809263417234000'\\n[notify][digest] buffer 读取失败(转直发): [Errno 13] Permission denied: '/tmp/codex-night-20261105-f03-uvl0winp/runs/kernel-unreadable-data/data/alerts/alert_digest.jsonl'\\n\"}\n{\"name\": \"kernel_RLIMIT_FSIZE_partial_write_EFBIG\", \"status\": \"PASS\", \"seconds\": 0.014, \"observed\": {\"return\": false, \"preserved\": true}, \"stdout\": \"\", \"stderr\": \"\"}\n{\"name\": \"real_10_process_same_signature\", \"status\": \"PASS\", \"seconds\": 0.285, \"observed\": {\"processes\": 10, \"rows\": 1, \"total_hits\": 10, \"lock_inode\": 277743396}, \"stdout\": \"\", \"stderr\": \"\"}\n{\"name\": \"real_10_process_different_signatures\", \"status\": \"PASS\", \"seconds\": 0.223, \"observed\": {\"processes\": 10, \"rows\": 10, \"total_hits\": 10, \"lock_inode\": 277743410}, \"stdout\": \"\", \"stderr\": \"\"}\n{\"name\": \"real_sidecar_lock_survives_inode_replacement\", \"status\": \"PASS\", \"seconds\": 0.369, \"observed\": {\"waiter_blocked_across_data_replace\": true, \"sidecar_inode_preserved\": true, \"data_inode_changed\": true, \"rows\": 4}, \"stdout\": \"\", \"stderr\": \"\"}\n{\"name\": \"flush_absorb_order_True_True\", \"status\": \"PASS\", \"seconds\": 0.004, \"observed\": {\"order\": \"absorb_then_flush\", \"same\": true, \"remaining\": 0, \"delivered_in_digest\": true, \"channel_calls\": 3}, \"stdout\": \"\", \"stderr\": \"[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-order-True-True/data/alerts/latest.md level=digest\\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-order-True-True/data/alerts/alert_ledger.jsonl\\n[notify][digest] 摘要发出 1 条（剩余 0 条）：已发\\n\"}\n{\"name\": \"flush_absorb_order_True_False\", \"status\": \"PASS\", \"seconds\": 0.002, \"observed\": {\"order\": \"absorb_then_flush\", \"same\": false, \"remaining\": 0, \"delivered_in_digest\": true, \"channel_calls\": 3}, \"stdout\": \"\", \"stderr\": \"[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-order-True-False/data/alerts/latest.md level=digest\\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-order-True-False/data/alerts/alert_ledger.jsonl\\n[notify][digest] 摘要发出 2 条（剩余 0 条）：已发\\n\"}\n{\"name\": \"flush_absorb_order_False_True\", \"status\": \"PASS\", \"seconds\": 0.368, \"observed\": {\"order\": \"flush_holds_lock_then_absorb\", \"same\": true, \"remaining_keys\": [\"existing\"], \"waited\": true, \"watermark\": {\"last_sent_day\": \"2026-11-05\"}}, \"stdout\": \"\", \"stderr\": \"\"}\n{\"name\": \"flush_absorb_order_False_False\", \"status\": \"PASS\", \"seconds\": 0.368, \"observed\": {\"order\": \"flush_holds_lock_then_absorb\", \"same\": false, \"remaining_keys\": [\"new\"], \"waited\": true, \"watermark\": {\"last_sent_day\": \"2026-11-05\"}}, \"stdout\": \"\", \"stderr\": \"\"}\n{\"name\": \"flush_failures_and_watermark\", \"status\": \"PASS\", \"seconds\": 0.003, \"observed\": {\"cleanup_failure\": {\"sent\": true, \"n\": 3, \"n_remaining\": 3}, \"same_day_retry\": {\"sent\": false, \"n\": 0, \"n_remaining\": 3}, \"preserved\": 3, \"watermark\": {\"last_sent_day\": \"2026-11-05\"}, \"all_channels_failure\": {\"sent\": false, \"n\": 3, \"n_remaining\": 3}}, \"stdout\": \"\", \"stderr\": \"[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-cleanup-rename-fail/data/alerts/latest.md level=digest\\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-cleanup-rename-fail/data/alerts/alert_ledger.jsonl\\n[notify][digest] buffer 清理失败（下轮可能重发）：[Errno 5] injected digest rename EIO\\n[notify][digest] 摘要发出 3 条（剩余 3 条）：已发\\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-all-channels-fail/data/alerts/latest.md level=digest\\n[notify][digest] flush 未发出, 条目保留 3 条\\n\"}\n{\"name\": \"observe_atomic_replace_file_permission_boundary\", \"status\": \"PASS\", \"seconds\": 0.001, \"observed\": {\"return\": true, \"before_mode\": \"0o600\", \"after_mode\": \"0o644\", \"permission_preserved\": false, \"euid\": 501, \"original_owner\": 501, \"consequence\": \"new file inherits umask; prior file mode is not preserved\"}, \"stdout\": \"\", \"stderr\": \"\"}\n{\"name\": \"real_default_10s_lock_timeout_failopen\", \"status\": \"PASS\", \"seconds\": 10.044, \"observed\": {\"elapsed\": 10.038, \"result\": {\"email\": true, \"telegram\": true, \"feishu\": true}, \"channels\": [\"email\", \"telegram\", \"feishu\"], \"original_bytes_preserved\": true}, \"stdout\": \"\", \"stderr\": \"[notify][digest] alert_digest_absorb 排他锁等待超时(10.0s)→ fail-open 直发\\n[notify][digest] 侧车锁等待超时→ fail-open 直发(key=existing)\\n[notify][digest] digest-only 并入失败(buffer append) → fail-open 直发: [告警] independent\\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/real-lock-timeout/data/alerts/latest.md level=notice\\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/real-lock-timeout/data/alerts/alert_ledger.jsonl\\n\"}\n{\"name\": \"full_CLI_dedup_digest_and_failopen_interaction\", \"status\": \"PASS\", \"seconds\": 0.015, \"observed\": {\"existing_hits_write_failed\": {\"status\": \"digested\", \"detail\": \"已并入摘要 buffer(digested)\", \"tier\": \"notice\", \"channels\": {}, \"dedup_key\": \"existing\"}, \"digested_writes_dedup\": false, \"retry_hits\": 2, \"prior_direct_dedup\": \"suppressed without changing hits\", \"new_failed_append\": {\"status\": \"sent\", \"detail\": \"普通路径发送完成\", \"tier\": \"notice\", \"channels\": {\"email\": true, \"telegram\": true, \"feishu\": true}, \"dedup_key\": \"new\"}, \"failed_delivery_no_dedup\": true}, \"stdout\": \"\", \"stderr\": \"[notify][digest] 计数写回失败(原文件未改,已并入,hits 未累加): [Errno 13] injected tmp failure\\n[notify][digest] 已并入当日摘要 buffer(23:25 出线, 不即时直发): [告警] independent\\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/cli-dedup/data/alerts/latest.md level=notice\\n[notify][digest] 已并入当日摘要 buffer(23:25 出线, 不即时直发): [告警] independent\\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/cli-dedup/data/alerts/latest.md level=notice\\n[notify][dedup] 更新 key=existing last_alerted=now\\n[notify][dedup] suppress key=existing last_alerted=2026-11-05 00:21:15 age=0s < window=3600s, 不重发\\n[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 13] injected tmp failure\\n[notify][digest] digest-only 并入失败(buffer append) → fail-open 直发: [告警] independent\\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/cli-new-failopen/data/alerts/latest.md level=notice\\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/cli-new-failopen/data/alerts/alert_ledger.jsonl\\n[notify] 汇总：已发出 email/telegram/feishu\\n[notify][dedup] 更新 key=new last_alerted=now\\n[notify][dedup] suppress key=new last_alerted=2026-11-05 00:21:15 age=0s < window=3600s, 不重发\\n[notify][digest] 新条目写入失败(原文件未改,转直发): [Errno 13] injected tmp failure\\n[notify][digest] digest-only 并入失败(buffer append) → fail-open 直发: [告警] independent\\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/cli-new-fail-all-channels/data/alerts/latest.md level=notice\\n[notify] 汇总：全部渠道未发出（email/feishu）\\n\"}\n",
+    "supplement-raw.log": "{\"name\": \"base_head_mode_control_and_default_queue_dedup\", \"observed\": {\"comparison\": [{\"revision\": \"base\", \"preexisting\": false, \"before\": null, \"after\": \"0o644\", \"return\": true}, {\"revision\": \"base\", \"preexisting\": true, \"before\": \"0o600\", \"after\": \"0o600\", \"return\": true}, {\"revision\": \"head\", \"preexisting\": false, \"before\": null, \"after\": \"0o644\", \"return\": true}, {\"revision\": \"head\", \"preexisting\": true, \"before\": \"0o600\", \"after\": \"0o644\", \"return\": true}], \"default_queue_dedup_modes\": {\"WARNING_BUFFER_FILE\": {\"path\": \"/tmp/codex-night-20261105-f03-uvl0winp/runs/default-queues-and-dedup/data/alerts/warning_buffer.jsonl\", \"mode\": \"0o644\"}, \"DEDUP_FILE\": {\"path\": \"/tmp/codex-night-20261105-f03-uvl0winp/runs/default-queues-and-dedup/data/notify_dedup.json\", \"mode\": \"0o644\"}, \"ALERT_DIGEST_FILE\": {\"path\": \"/tmp/codex-night-20261105-f03-uvl0winp/runs/default-queues-and-dedup/data/alerts/alert_digest.jsonl\", \"mode\": \"0o644\"}, \"ALERT_DIGEST_LOCK_FILE\": {\"path\": \"/tmp/codex-night-20261105-f03-uvl0winp/runs/default-queues-and-dedup/data/alerts/alert_digest.flushlock\", \"mode\": \"0o644\"}}, \"classification\": \"conditional preexisting-mode regression; no default 0600 contract found; no production file modes or contents read\"}, \"stdout\": \"\", \"stderr\": \"[notify][dedup] 更新 key=dummy last_alerted=now\\n\"}\n{\"name\": \"orphan_bump_actual_partial_write_failure_and_retry\", \"observed\": {\"failure\": false, \"bytes_preserved\": true, \"retry\": true, \"retry_hits\": 2}, \"stdout\": \"\", \"stderr\": \"[notify][digest] hits 累加失败(不影响并入): [Errno 28] injected ENOSPC after actual 61-byte write\\n\"}\n{\"name\": \"flush_cleanup_actual_partial_ENOSPC_fsync_rename_matrix\", \"observed\": [{\"fault\": \"partial_ENOSPC\", \"result\": {\"sent\": true, \"n\": 3, \"n_remaining\": 3}, \"preserved_bytes\": 1225, \"channel_calls\": [\"email\", \"telegram\", \"feishu\"]}, {\"fault\": \"open_EACCES\", \"result\": {\"sent\": true, \"n\": 3, \"n_remaining\": 3}, \"preserved_bytes\": 1225, \"channel_calls\": [\"email\", \"telegram\", \"feishu\"]}, {\"fault\": \"fsync_EIO\", \"result\": {\"sent\": true, \"n\": 3, \"n_remaining\": 3}, \"preserved_bytes\": 1225, \"channel_calls\": [\"email\", \"telegram\", \"feishu\"]}, {\"fault\": \"rename_kernel_EACCES\", \"result\": {\"sent\": true, \"n\": 3, \"n_remaining\": 3}, \"preserved_bytes\": 1225, \"channel_calls\": [\"email\", \"telegram\", \"feishu\"]}], \"stdout\": \"\", \"stderr\": \"[notify][digest] buffer 坏行跳过（第1条，前80字符）：'bad-line-retained-bad-line-retained-bad-line-retained-bad-line-retained-bad-line'\\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-partial_ENOSPC/data/alerts/latest.md level=digest\\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-partial_ENOSPC/data/alerts/alert_ledger.jsonl\\n[notify][digest] buffer 清理失败（下轮可能重发）：[Errno 28] injected ENOSPC after actual 61-byte write\\n[notify][digest] 摘要发出 3 条（剩余 3 条）：已发\\n[notify][digest] buffer 坏行跳过（第1条，前80字符）：'bad-line-retained-bad-line-retained-bad-line-retained-bad-line-retained-bad-line'\\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-open_EACCES/data/alerts/latest.md level=digest\\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-open_EACCES/data/alerts/alert_ledger.jsonl\\n[notify][digest] buffer 清理失败（下轮可能重发）：[Errno 13] injected temporary open EACCES\\n[notify][digest] 摘要发出 3 条（剩余 3 条）：已发\\n[notify][digest] buffer 坏行跳过（第1条，前80字符）：'bad-line-retained-bad-line-retained-bad-line-retained-bad-line-retained-bad-line'\\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-fsync_EIO/data/alerts/latest.md level=digest\\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-fsync_EIO/data/alerts/alert_ledger.jsonl\\n[notify][digest] buffer 清理失败（下轮可能重发）：[Errno 5] injected fsync EIO\\n[notify][digest] 摘要发出 3 条（剩余 3 条）：已发\\n[notify][digest] buffer 坏行跳过（第1条，前80字符）：'bad-line-retained-bad-line-retained-bad-line-retained-bad-line-retained-bad-line'\\n[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-rename_kernel_EACCES/data/alerts/latest.md level=digest\\n[notify][ledger] 台账登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/flush-rename_kernel_EACCES/data/alerts/alert_ledger.jsonl\\n[notify][digest] buffer 清理失败（下轮可能重发）：[Errno 13] Permission denied: '/tmp/codex-night-20261105-f03-uvl0winp/runs/flush-rename_kernel_EACCES/data/alerts/alert_digest.jsonl.tmp.53376.1793809474358276000' -> '/tmp/codex-night-20261105-f03-uvl0winp/runs/flush-rename_kernel_EACCES/data/alerts/alert_digest.jsonl'\\n[notify][digest] 摘要发出 3 条（剩余 3 条）：已发\\n\"}\n",
+    "base-control-raw.log": "{\n  \"base\": \"37c426f16bebab092994b30891e0c71ffbd75934\",\n  \"return\": false,\n  \"bytes_preserved\": false,\n  \"before_sha256\": \"bc018c6a564fe28b243566600f9d643c0184b549126614b6de70ade7d903b03d\",\n  \"after_sha256\": \"5def5dff020228b8ea21043b8f4e00823a5561207b472189a547f39af357103f\",\n  \"written_bytes_before_ENOSPC\": 61,\n  \"stderr\": \"[notify][digest] 并入异常(转直发)：[Errno 28] injected after actual original-file 61-byte write\\n\",\n  \"guard_hits\": []\n}\n",
+    "author-raw.log": "..[notify][digest] 新条目写入失败(原文件未改,转直发): injected: partial write mid-stream\n....[F03-R1.f] bytes 比对 PASS: 1689 字节逐字节相等\n[notify][digest] 新条目写入失败(原文件未改,转直发): injected: tmp open fail (写前失败)\n..[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/author-suite/data/alerts/latest.md level=digest\n[notify][ledger] 台账登记 /private/tmp/codex-night-20261105-f03-uvl0winp/author-pytest/test_h_absorb_vs_flush_concurr0/data/alerts/alert_ledger.jsonl\n[notify][digest] 摘要发出 1 条（剩余 0 条）：已发\n[F03-R1.h] absorb vs flush 并发 PASS: 剩 1 行 key=h_new\n...[F03] 并发同签名 PASS: 1 行, hits=2\n.[F03] 顺序回归 PASS: 1 行, hits=2\n.[F03] 并发不同key PASS: 2 行\n.\n14 passed in 0.28s\nSAFETY_GUARD_HITS=[]\n",
+    "author-forced-raw.log": "[notify][latest-mirror] 已镜像登记 /tmp/codex-night-20261105-f03-uvl0winp/runs/author-suite/data/alerts/latest.md level=digest\n[notify][ledger] 台账登记 /private/tmp/codex-night-20261105-f03-uvl0winp/author-forced-pytest/test_h_absorb_vs_flush_concurr0/data/alerts/alert_ledger.jsonl\n[notify][digest] 摘要发出 2 条（剩余 0 条）：已发\nF\n=================================== FAILURES ===================================\n__________________ test_h_absorb_vs_flush_concurrent_no_loss ___________________\n\nsandbox = {'digest': PosixPath('/private/tmp/codex-night-20261105-f03-uvl0winp/author-forced-pytest/test_h_absorb_vs_flush_concu...rr0/data/alerts/alert_digest.flushlock'), 'calls': [], 'trap': <_zero_outbound.ZeroOutboundTrap object at 0x107d7cd10>}\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107d7cb50>\n\n    def test_h_absorb_vs_flush_concurrent_no_loss(sandbox, monkeypatch):\n        \"\"\"h: 预置 1 条(due) → 进程A跑flush(发出+清理), 进程B吸收新条目 → 最终 1 行(key=h_new)。\n    \n        flush 全程持侧车锁; absorb 要么先拿到锁写入(然后 flush 读到 2 条发出后清掉旧的留新的),\n        要么等 flush 释放后再写入。任一交错下: 旧条目被 flush 处置、新条目被吸收保留, 双方不丢。\n        \"\"\"\n        import multiprocessing as mp\n        ctx = mp.get_context(\"fork\")\n        digest = sandbox[\"digest\"]\n        _today = datetime.now().strftime(\"%Y-%m-%d\")\n        # 预置 1 条 due 条目(当天)\n        _seed_entry(digest, key=\"h_existing\", day=_today)\n        # 让 flush 始终满足触发条件: ALERT_DIGEST_HM=\"00:00\" ⇒ 任意时刻 >= 00:00; 清 state\n        monkeypatch.setattr(notify, \"ALERT_DIGEST_HM\", \"00:00\")\n        if notify.ALERT_DIGEST_STATE_FILE.exists():\n            notify.ALERT_DIGEST_STATE_FILE.unlink()\n        # 渠道已在 sandbox fixture 打桩(fork 继承)\n    \n        global _FLUSH_BARRIER\n        _FLUSH_BARRIER = ctx.Barrier(2)\n        pa = ctx.Process(target=_absorb_worker)\n        pb = ctx.Process(target=_flush_worker)\n        pa.start()\n        pb.start()\n        pa.join(timeout=20)\n        pb.join(timeout=20)\n        assert pa.exitcode == 0, f\"absorb worker exit={pa.exitcode}\"\n        assert pb.exitcode == 0, f\"flush worker exit={pb.exitcode}\"\n    \n        lines = [l for l in digest.read_text(encoding=\"utf-8\").splitlines() if l.strip()]\n        # 最终应只剩新吸收的那 1 条(旧的被 flush 发出后清理)\n>       assert len(lines) == 1, f\"应剩 1 行(h_new), 得 {len(lines)} 行:\\n{lines}\"\nE       AssertionError: 应剩 1 行(h_new), 得 0 行:\nE         []\nE       assert 0 == 1\nE        +  where 0 = len([])\n\n/tmp/codex-night-20261105-f03-uvl0winp/head/scripts/tests/test_f03r1_digest_atomic_write.py:326: AssertionError\n=========================== short test summary info ============================\nFAILED ../../../tmp/codex-night-20261105-f03-uvl0winp/head/scripts/tests/test_f03r1_digest_atomic_write.py::test_h_absorb_vs_flush_concurrent_no_loss\n1 failed in 0.10s\nSAFETY_GUARD_HITS=[]\n",
+    "directory-acl-metadata.log": "drwxr-xr-x    6 root        admin   192 Apr  1  2024 /Users\ndrwxr-xr-x+ 134 linhuichen  staff  4288 Nov  5 00:25 /Users/linhuichen\n 0: group:everyone deny delete\ndrwxr-xr-x   15 linhuichen  staff   480 Oct 16 12:42 /Users/linhuichen/code\ndrwxr-xr-x   47 linhuichen  staff  1504 Nov  5 00:19 /Users/linhuichen/code/trade\ndrwxr-xr-x   14 linhuichen  staff   448 Sep 15 11:05 /Users/linhuichen/code/trade-data\ndrwxr-xr-x   70 linhuichen  staff  2240 Oct 31 21:30 /Users/linhuichen/code/trade-data/data\ndrwxr-xr-x    9 linhuichen  staff   288 Oct  6 18:10 /Users/linhuichen/code/trade-data/data/alerts\ndrwxr-xr-x   80 linhuichen  staff  2560 Oct 29 11:00 /Users/linhuichen/code/trade/data\ndrwxr-xr-x   13 linhuichen  staff   416 Nov  5 00:09 /Users/linhuichen/code/trade/data/alerts\n"
+  },
+  "evidence_manifest": [
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/head.tar",
+      "bytes": 145131520,
+      "sha256": "6cc1abd84b7ab332480fa85b64caee9ee7ae85b6019ad095ae578a0593c0179e"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/review.diff",
+      "bytes": 36377,
+      "sha256": "ec75e2ef8bedcae3fac723fbc9237b404c46193f294d03e12a3a2724a2d1ae2a"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/verify_f03.py",
+      "bytes": 17284,
+      "sha256": "d407dc088b097c80ea6cc58998f34cbd6671cc3b61a1d57b3c6edabca6462e32"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/safe_support.py",
+      "bytes": 7796,
+      "sha256": "4f93a39cee32002075b043f38eb5b80fea4859adcedd6f391679bde40f253bfa"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/verify_supplement.py",
+      "bytes": 4627,
+      "sha256": "3980bbfc3596ad47383caaf219d25d51992dac009c725009e571b06904c94285"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/verify_base_control.py",
+      "bytes": 1600,
+      "sha256": "54aba13aa7a9ab7afb84a7bdd009e0b88601a5012364fde33d492d6090c68c8e"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/run_author.py",
+      "bytes": 740,
+      "sha256": "7867c9c1e29389468bda6c352772cdc9417a15ca940a48f77810782489eb84d7"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/notify_base.py",
+      "bytes": 245194,
+      "sha256": "8d41aaa96be3a7b4f3ed0ed5da254fcc0ce82fe99f3f50bcc192759dbea8d335"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/consumer-trace.log",
+      "bytes": 31916,
+      "sha256": "05d132a9b439ca715f936c208a2574a3da2f9ab2509e4c05de0fce5e2e7fed36"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/symbol-trace.json",
+      "bytes": 853,
+      "sha256": "38c9ef780fcb8e7c711f91fa9edf1999a465e64b18ed45e95507fa7f66fd7a5b"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/permission-conventions.log",
+      "bytes": 851,
+      "sha256": "cebf2fb9de4cc85cb5685aeeb4567493681b60f762e961924f42b645c0b84d9a"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/independent-raw.log",
+      "bytes": 12356,
+      "sha256": "0662f6ae590135831eaabc36231b5ca6813875a8e2a5a11f396c7bca974a0802"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/supplement-raw.log",
+      "bytes": 4913,
+      "sha256": "584cc0a6aea5de5d4d310f03f20c9f54ea48c3045cb99b8ee630196cd537dcb4"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/base-control-raw.log",
+      "bytes": 455,
+      "sha256": "5bab40673548fe78434b230cd06a51c49cf2f3065e01ae947bd929c242287f9d"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/author-raw.log",
+      "bytes": 844,
+      "sha256": "b1f632d9c40247fbb2ad69caf2657ac6a4c6dd8987421f90e66c9cc738f565b4"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/author-forced-raw.log",
+      "bytes": 3074,
+      "sha256": "d8ffa3c9ef7ac1e5cb08ce9c17dcca11af38be90fdaad83ebc0252e58feb54c4"
+    },
+    {
+      "path": "/tmp/codex-night-20261105-f03-uvl0winp/directory-acl-metadata.log",
+      "bytes": 779,
+      "sha256": "40f2d2d148bceaa63c70aec2322bb7a654a3320928c322a7b0e0ed642cd422df"
+    }
+  ],
+  "completed_at": "2026-11-04T16:28:08.848719+00:00"
+}

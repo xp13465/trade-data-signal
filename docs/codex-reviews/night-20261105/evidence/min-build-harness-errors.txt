@@ -1,0 +1,1 @@
+Two validation harness setup errors, not production failures: first supplied str instead of bytes; second expected bare bytes instead of the documented (bytes, error) tuple. No repository build product was written. Final corrected invocation logged in min-build-result.json.

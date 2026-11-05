@@ -1,0 +1,837 @@
+{
+  "request_id": "f04-main-recheck",
+  "issues": [],
+  "open_questions": [],
+  "checks": [
+    {
+      "id": "commit_identity_and_requirement",
+      "status": "PASS",
+      "observed": {
+        "actual_merge": "aac5d19bdc60ebeb136efc12efd1e8022138724e",
+        "parents": [
+          "e05474a5ce897a96f299a57714a8618c5ec2478a",
+          "bf1ed42d445fe2b8acdcc752254cdc610764ad28"
+        ],
+        "branch": "bf1ed42d445fe2b8acdcc752254cdc610764ad28",
+        "branch_parent": "8b2f291ab8d1782574cf0774f1686ef82b61527a",
+        "main_at_first_check": "aac5d19bdc60ebeb136efc12efd1e8022138724e",
+        "main_observed_after_archive": "aca87b537de84e12f2f374e8d7898a8f1f76c988",
+        "second_parent_is_F04": true,
+        "branch_ancestor_of_merge": true
+      },
+      "requirement": "fix(r2): #368 F04 全局屏障锁 open 失败抛 IndexError + fd 泄漏。第一把 open 失败保持 fail-open；第二把 open 失败先释放已开 fd，再抛原始 OSError；锁域/超时/心跳语义不变。",
+      "requirement_sources": [
+        "user direct request",
+        "F04 commit message",
+        "docs/codex-handoffs/20261104-recent-issues-v1/README.md:25",
+        "docs/codex-handoffs/20261104-recent-issues-v1/README.md:55"
+      ],
+      "commands": [
+        "git rev-parse --verify aac5d19bd^{commit}",
+        "git rev-parse --verify bf1ed42d4^{commit}",
+        "git show --no-patch --format=%H,%P,%B aac5d19bd bf1ed42d4",
+        "git merge-base --is-ancestor bf1ed42d4 aac5d19bd",
+        "git diff aac5d19bd^1 aac5d19bd -- scripts/upload_r2.py scripts/tests/test_r2_lock_f04_barrier_open_fail_20261104.py"
+      ]
+    },
+    {
+      "id": "merge_preserves_branch_fix",
+      "status": "PASS",
+      "observed": {
+        "branch_upload_r2_blob": "1e3e92107379ad6604ca625f885ca7690cb1d697",
+        "merge_upload_r2_blob": "1e3e92107379ad6604ca625f885ca7690cb1d697",
+        "script_byte_identity": true,
+        "branch_test_blob": "8f14f4e1ecc7003ff7aa4a9e96e417c1810e8531",
+        "merge_test_blob": "8f14f4e1ecc7003ff7aa4a9e96e417c1810e8531",
+        "new_test_byte_identity": true,
+        "merge_vs_first_parent_files": [
+          "scripts/upload_r2.py",
+          "scripts/tests/test_r2_lock_f04_barrier_open_fail_20261104.py"
+        ],
+        "diff_stat": " .../test_r2_lock_f04_barrier_open_fail_20261104.py | 165 +++++++++++++++++++++\n scripts/upload_r2.py                               |  28 ++--\n 2 files changed, 182 insertions(+), 11 deletions(-)\n"
+      },
+      "evidence": "/tmp/codex-reports/night-20261105/f04-merge.diff"
+    },
+    {
+      "id": "fixed_merge_archive_and_isolation",
+      "status": "PASS",
+      "snapshot": "/tmp/f04-main-recheck-vw9888de/snapshot",
+      "archive": "/tmp/f04-main-recheck-vw9888de/merge.tar",
+      "archive_sha256": "2a4c289eb4e464c3e90268de0f638b760968b25ba88302e9faaa95dde7ae9109",
+      "command": "git archive --format=tar aac5d19bdc60ebeb136efc12efd1e8022138724e",
+      "isolation": {
+        "pytest": {
+          "network_attempts": [],
+          "subprocess_attempts": [],
+          "live_repo_open_attempts": [],
+          "live_env_exists_suppressed": 14
+        },
+        "independent": {
+          "network_attempts": [],
+          "subprocess_attempts": [],
+          "live_repo_open_attempts": [],
+          "live_env_exists_suppressed": 1
+        }
+      },
+      "details": [
+        "Unique /tmp archive snapshot; no worktree/branch/ref creation.",
+        "All inherited environment variables cleared in test processes; explicit dummy R2 endpoint/access keys/bucket.",
+        "Dummy snapshot .env; Path.exists masks hardcoded live main .env; audit hook blocks live-repo opens.",
+        "Audit hook blocks socket connect/DNS/sendto and external subprocess execution; no blocked attempts occurred.",
+        "Holder diagnostic stubbed to empty string to avoid lsof execution; no upload/notify entry point invoked.",
+        "Post-test code bytes rechecked against archive."
+      ],
+      "post_test_integrity": {
+        "scripts/upload_r2.py": {
+          "unchanged_from_fixed_archive": true,
+          "sha256": "0ce2dbfe372ac4c52c85fa1de20a47909a1df5e3e5d9d4706d09afa309a76314"
+        },
+        "scripts/r2_lock_paths.py": {
+          "unchanged_from_fixed_archive": true,
+          "sha256": "8d2efd1c98910dd1b2b0e840b0e2d07ad6252adbe6c888656b7db82939596803"
+        },
+        "scripts/tests/test_r2_lock_f04_barrier_open_fail_20261104.py": {
+          "unchanged_from_fixed_archive": true,
+          "sha256": "196bf277693198fdde927543146e40fe65fa9f871b573e754c2f05f0f0f58226"
+        },
+        "scripts/tests/test_r2_lock_domains_20261028.py": {
+          "unchanged_from_fixed_archive": true,
+          "sha256": "f05ce51de92cdb65474ebd1139ca4f166eca36ddec235517fddba7a98d473b6c"
+        }
+      }
+    },
+    {
+      "id": "scoped_project_tests",
+      "status": "PASS",
+      "command": "python3 /tmp/codex-reports/night-20261105/f04_run_isolated.py pytest",
+      "counts": {
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "duration_seconds": 0.75,
+      "coverage": "Five new F04 tests plus eleven explicit directly related domain-lock nodes; no full pytest run.",
+      "test_selection": "/tmp/codex-reports/night-20261105/f04-scoped-test-selection.json",
+      "log": "/tmp/codex-reports/night-20261105/f04-pytest.log",
+      "junit": "/tmp/codex-reports/night-20261105/f04-scoped-tests.xml"
+    },
+    {
+      "id": "independent_fd_error_and_order_reproduction",
+      "status": "PASS",
+      "command": "python3 /tmp/codex-reports/night-20261105/f04_run_isolated.py independent",
+      "case_count": 15,
+      "cases": [
+        {
+          "case": "barrier_open_EACCES",
+          "status": "PASS",
+          "same_exception_object": true,
+          "opened": [
+            3
+          ],
+          "closed": [
+            3
+          ],
+          "all_fds_EBADF": true,
+          "event_order": [
+            [
+              "open",
+              "/tmp/f04-main-recheck-vw9888de/runtime-independent/global_data.lock"
+            ],
+            [
+              "open",
+              "/tmp/f04-main-recheck-vw9888de/runtime-independent/global.lock"
+            ],
+            [
+              "close",
+              3
+            ]
+          ]
+        },
+        {
+          "case": "barrier_open_EMFILE",
+          "status": "PASS",
+          "same_exception_object": true,
+          "opened": [
+            3
+          ],
+          "closed": [
+            3
+          ],
+          "all_fds_EBADF": true,
+          "event_order": [
+            [
+              "open",
+              "/tmp/f04-main-recheck-vw9888de/runtime-independent/global_data.lock"
+            ],
+            [
+              "open",
+              "/tmp/f04-main-recheck-vw9888de/runtime-independent/global.lock"
+            ],
+            [
+              "close",
+              3
+            ]
+          ]
+        },
+        {
+          "case": "barrier_open_ENOSPC",
+          "status": "PASS",
+          "same_exception_object": true,
+          "opened": [
+            3
+          ],
+          "closed": [
+            3
+          ],
+          "all_fds_EBADF": true,
+          "event_order": [
+            [
+              "open",
+              "/tmp/f04-main-recheck-vw9888de/runtime-independent/global_data.lock"
+            ],
+            [
+              "open",
+              "/tmp/f04-main-recheck-vw9888de/runtime-independent/global.lock"
+            ],
+            [
+              "close",
+              3
+            ]
+          ]
+        },
+        {
+          "case": "barrier_open_EIO",
+          "status": "PASS",
+          "same_exception_object": true,
+          "opened": [
+            3
+          ],
+          "closed": [
+            3
+          ],
+          "all_fds_EBADF": true,
+          "event_order": [
+            [
+              "open",
+              "/tmp/f04-main-recheck-vw9888de/runtime-independent/global_data.lock"
+            ],
+            [
+              "open",
+              "/tmp/f04-main-recheck-vw9888de/runtime-independent/global.lock"
+            ],
+            [
+              "close",
+              3
+            ]
+          ]
+        },
+        {
+          "case": "first_open_fail_data",
+          "status": "PASS",
+          "returned_none": true,
+          "only_first_path_attempted": [
+            "/tmp/f04-main-recheck-vw9888de/runtime-independent/global_data.lock"
+          ]
+        },
+        {
+          "case": "first_open_fail_None",
+          "status": "PASS",
+          "returned_none": true,
+          "only_first_path_attempted": [
+            "/tmp/f04-main-recheck-vw9888de/runtime-independent/global.lock"
+          ]
+        },
+        {
+          "case": "normal_order",
+          "status": "PASS",
+          "events": [
+            [
+              "open",
+              "domain"
+            ],
+            [
+              "open",
+              "barrier"
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "flock",
+              "barrier",
+              5
+            ],
+            [
+              "close",
+              "barrier"
+            ],
+            [
+              "close",
+              "domain"
+            ]
+          ],
+          "virtual_wait_seconds": 0.0,
+          "all_fds_EBADF": true
+        },
+        {
+          "case": "domain_busy_retry_success",
+          "status": "PASS",
+          "events": [
+            [
+              "open",
+              "domain"
+            ],
+            [
+              "open",
+              "barrier"
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "flock",
+              "barrier",
+              5
+            ],
+            [
+              "close",
+              "barrier"
+            ],
+            [
+              "close",
+              "domain"
+            ]
+          ],
+          "virtual_wait_seconds": 2.0,
+          "all_fds_EBADF": true
+        },
+        {
+          "case": "barrier_busy_retry_success",
+          "status": "PASS",
+          "events": [
+            [
+              "open",
+              "domain"
+            ],
+            [
+              "open",
+              "barrier"
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "flock",
+              "barrier",
+              5
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "flock",
+              "barrier",
+              5
+            ],
+            [
+              "close",
+              "barrier"
+            ],
+            [
+              "close",
+              "domain"
+            ]
+          ],
+          "virtual_wait_seconds": 2.0,
+          "all_fds_EBADF": true
+        },
+        {
+          "case": "domain_skip_retry_success",
+          "status": "PASS",
+          "events": [
+            [
+              "open",
+              "domain"
+            ],
+            [
+              "open",
+              "barrier"
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "flock",
+              "barrier",
+              5
+            ],
+            [
+              "close",
+              "barrier"
+            ],
+            [
+              "close",
+              "domain"
+            ]
+          ],
+          "virtual_wait_seconds": 2.0,
+          "all_fds_EBADF": true
+        },
+        {
+          "case": "domain_busy_timeout",
+          "status": "PASS",
+          "events": [
+            [
+              "open",
+              "domain"
+            ],
+            [
+              "open",
+              "barrier"
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "close",
+              "domain"
+            ],
+            [
+              "close",
+              "barrier"
+            ]
+          ],
+          "virtual_wait_seconds": 0.0,
+          "all_fds_EBADF": true
+        },
+        {
+          "case": "barrier_busy_timeout",
+          "status": "PASS",
+          "events": [
+            [
+              "open",
+              "domain"
+            ],
+            [
+              "open",
+              "barrier"
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "flock",
+              "barrier",
+              5
+            ],
+            [
+              "close",
+              "domain"
+            ],
+            [
+              "close",
+              "barrier"
+            ]
+          ],
+          "virtual_wait_seconds": 0.0,
+          "all_fds_EBADF": true
+        },
+        {
+          "case": "domain_busy_skip_immediate",
+          "status": "PASS",
+          "events": [
+            [
+              "open",
+              "domain"
+            ],
+            [
+              "open",
+              "barrier"
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "close",
+              "domain"
+            ],
+            [
+              "close",
+              "barrier"
+            ]
+          ],
+          "virtual_wait_seconds": 0.0,
+          "all_fds_EBADF": true
+        },
+        {
+          "case": "barrier_busy_skip_retry_exhausted",
+          "status": "PASS",
+          "events": [
+            [
+              "open",
+              "domain"
+            ],
+            [
+              "open",
+              "barrier"
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "flock",
+              "barrier",
+              5
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "flock",
+              "barrier",
+              5
+            ],
+            [
+              "flock",
+              "domain",
+              6
+            ],
+            [
+              "flock",
+              "barrier",
+              5
+            ],
+            [
+              "close",
+              "domain"
+            ],
+            [
+              "close",
+              "barrier"
+            ]
+          ],
+          "virtual_wait_seconds": 4.0,
+          "all_fds_EBADF": true
+        },
+        {
+          "case": "real_flock_same_domain_exclusion_cross_domain_parallel_reacquire",
+          "status": "PASS"
+        }
+      ],
+      "observations": [
+        "EACCES (PermissionError), EMFILE, ENOSPC and EIO injected at second os.open: the actual first descriptor closes and fstat returns EBADF.",
+        "The very same original OSError object propagates, preserving errno, filename, strerror, cause and originating traceback; no IndexError.",
+        "First domain/global open failure attempts only the first path and returns None, retaining existing fail-open semantics.",
+        "Successful two-lock order: open domain, open barrier, flock domain EX|NB, flock barrier SH|NB; release barrier then domain.",
+        "Domain flock busy retry: domain, domain, barrier; barrier busy retry: domain, barrier, domain, barrier.",
+        "Timeout and skip paths close both actual descriptors and remove the barrier map; bounded skip retry uses a virtual clock (no wall-clock sleeps).",
+        "Real flock, without flock mocking: same-domain exclusion, cross-domain parallel locking, cleanup and reacquisition all pass."
+      ],
+      "results": "/tmp/codex-reports/night-20261105/f04-independent-results.json",
+      "log": "/tmp/codex-reports/night-20261105/f04-independent.log"
+    },
+    {
+      "id": "one_hop_call_chain",
+      "status": "PASS",
+      "locations": [
+        "scripts/upload_r2.py:5204",
+        "scripts/upload_r2.py:5208",
+        "scripts/upload_r2.py:5214",
+        "scripts/upload_r2.py:5223",
+        "scripts/upload_r2.py:5236",
+        "scripts/upload_r2.py:5259",
+        "scripts/upload_r2.py:5307",
+        "scripts/upload_r2.py:5355"
+      ],
+      "observed": "_acquire_lock_for_command directly propagates acquisition errors; __main__ acquisition precedes work-budget begin and command dispatch. Second-open failure exits acquisition before any upload dispatch. Normal flock/retry/release code outside the open-loop fix is unchanged."
+    },
+    {
+      "id": "exact_merge_github_quality_gate",
+      "status": "PASS",
+      "evidence": {
+        "workflow_name": "CI Quality Gate",
+        "workflow_path": ".github/workflows/ci.yml",
+        "run_number": 1026,
+        "run_id": 41864831762,
+        "url": "https://github.com/xp13465/trade-data-signal/actions/runs/41864831762",
+        "head_sha": "aac5d19bdc60ebeb136efc12efd1e8022138724e",
+        "status": "completed",
+        "conclusion": "success",
+        "raw_ui_status": "Success",
+        "source": "official GitHub HTML fallback (API unavailable)",
+        "api_verified": false,
+        "api_http_status": 403,
+        "api_failure": "Unauthenticated API rate limit exceeded; stopped API retries per user instruction. No credentials searched or supplied; TLS verification was never disabled.",
+        "verified_at": "2026-11-04T16:25:12.853796+00:00",
+        "exact_sha_link_in_run_html": "/xp13465/trade-data-signal/commit/aac5d19bdc60ebeb136efc12efd1e8022138724e",
+        "status_mapping": "HTML Status Success is normalized to status=completed/conclusion=success; no API status fields were received.",
+        "run_html_sha256": "e6ef0d191e40d175f1b180649431c2560757d6384679fa11e67e90c94f113054",
+        "run_html_path": "/tmp/codex-reports/night-20261105/f04-ci-run.html",
+        "static_job": {
+          "id": 126696276343,
+          "url": "https://github.com/xp13465/trade-data-signal/actions/runs/41864831762/job/126696276343",
+          "status": "completed",
+          "conclusion": "success",
+          "raw_ui_result": "succeeded",
+          "steps": [
+            {
+              "data-name": "Set up job",
+              "data-number": "1",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:11:27Z",
+              "data-completed-at": "2026-11-04T16:11:28Z"
+            },
+            {
+              "data-name": "Run actions/checkout@v4",
+              "data-number": "2",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:11:28Z",
+              "data-completed-at": "2026-11-04T16:12:10Z"
+            },
+            {
+              "data-name": "Run actions/setup-python@v5",
+              "data-number": "3",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:12:10Z",
+              "data-completed-at": "2026-11-04T16:12:10Z"
+            },
+            {
+              "data-name": "Run actions/setup-node@v4",
+              "data-number": "4",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:12:10Z",
+              "data-completed-at": "2026-11-04T16:12:15Z"
+            },
+            {
+              "data-name": "① AI降亏默认档键集跨端一致性机检",
+              "data-number": "5",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:12:15Z",
+              "data-completed-at": "2026-11-04T16:12:15Z"
+            },
+            {
+              "data-name": "② 版本串倒退哨兵 + merge 净回退校验",
+              "data-number": "6",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:12:15Z",
+              "data-completed-at": "2026-11-04T16:12:16Z"
+            },
+            {
+              "data-name": "③a 部署版本一致性·校验1/2(§24⑤ 纯静态必跑, FAIL 阻断)",
+              "data-number": "7",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:12:16Z",
+              "data-completed-at": "2026-11-04T16:12:16Z"
+            },
+            {
+              "data-name": "③b 部署版本一致性·校验3(min==git HEAD 源重建, 尽力而为)",
+              "data-number": "8",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:12:16Z",
+              "data-completed-at": "2026-11-04T16:12:22Z"
+            },
+            {
+              "data-name": "④ 前端源码 node --check 语法门禁(只 check 源, 跳过 .min.js)",
+              "data-number": "9",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:12:22Z",
+              "data-completed-at": "2026-11-04T16:12:22Z"
+            },
+            {
+              "data-name": "⑤ 任务状态一致性对账(§23.12-1, CI 跳过僵尸 cron 维度)",
+              "data-number": "10",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:12:22Z",
+              "data-completed-at": "2026-11-04T16:12:22Z"
+            },
+            {
+              "data-name": "⑩ 错误台账对账(评鉴 P1, FAIL 阻断)",
+              "data-number": "11",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:12:22Z",
+              "data-completed-at": "2026-11-04T16:12:22Z"
+            },
+            {
+              "data-name": "⑪ 治理体量月报对账(P3, 账不平才 FAIL)",
+              "data-number": "12",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:12:22Z",
+              "data-completed-at": "2026-11-04T16:12:22Z"
+            },
+            {
+              "data-name": "⑧ 算法核心 pytest(P0-1, FAIL 阻断)",
+              "data-number": "13",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:12:22Z",
+              "data-completed-at": "2026-11-04T16:15:33Z"
+            },
+            {
+              "data-name": "⑫ L51 运行日平移复验(测试文件变更时; 首期只报不拦)",
+              "data-number": "14",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:15:33Z",
+              "data-completed-at": "2026-11-04T16:15:39Z"
+            },
+            {
+              "data-name": "⑨ 采集缺口/停更告警器 two-way 自测(--self-test,",
+              "data-number": "15",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:15:39Z",
+              "data-completed-at": "2026-11-04T16:15:39Z"
+            },
+            {
+              "data-name": "Post Run actions/setup-node@v4",
+              "data-number": "28",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:15:39Z",
+              "data-completed-at": "2026-11-04T16:15:39Z"
+            },
+            {
+              "data-name": "Post Run actions/setup-python@v5",
+              "data-number": "29",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:15:39Z",
+              "data-completed-at": "2026-11-04T16:15:39Z"
+            },
+            {
+              "data-name": "Post Run actions/checkout@v4",
+              "data-number": "30",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:15:39Z",
+              "data-completed-at": "2026-11-04T16:15:40Z"
+            },
+            {
+              "data-name": "Complete job",
+              "data-number": "31",
+              "data-conclusion": "success",
+              "data-started-at": "2026-11-04T16:15:40Z",
+              "data-completed-at": "2026-11-04T16:15:40Z"
+            }
+          ],
+          "html_path": "/tmp/codex-reports/night-20261105/f04-ci-static-job.html"
+        },
+        "data_job": {
+          "id": 126696275946,
+          "url": "https://github.com/xp13465/trade-data-signal/actions/runs/41864831762/job/126696275946",
+          "conclusion": "success",
+          "raw_ui_result": "succeeded Nov 4, 2026 in 38s",
+          "source": "official GitHub job page read via web tool"
+        },
+        "limits": [
+          "Public pages do not expose full job logs without sign-in.",
+          "Existing continue-on-error steps remain part of CI semantics; run success is not proof that every optional check passed."
+        ]
+      }
+    }
+  ],
+  "verdict": "PASS",
+  "reviewer_verdict": "Ready",
+  "summary": "实际 main merge aac5d19bdc60ebeb136efc12efd1e8022138724e 包含 F04 分支修复，upload_r2.py 与分支逐字一致。16 项定向测试和 15 项独立复现通过；未发现本范围缺陷。GitHub CI Quality Gate run 41864831762 对 exact merge SHA 已 completed/success，由官方网页确认（主源 API 403 限流不可用）。",
+  "impact_surface": [
+    "scripts/upload_r2.py::_acquire_r2_upload_lock open/cleanup failure path",
+    "scripts/upload_r2.py::_release_r2_upload_lock and _BARRIER_FDS",
+    "scripts/upload_r2.py::_acquire_lock_for_command and __main__ pre-dispatch acquisition",
+    "scripts/tests/test_r2_lock_f04_barrier_open_fail_20261104.py",
+    "scripts/tests/test_r2_lock_domains_20261028.py selected nodes",
+    ".github/workflows/ci.yml and exact merge run 41864831762"
+  ],
+  "smoke_results": {
+    "fixed_actual_merge": "PASS",
+    "branch_to_merge_blob_parity": "PASS",
+    "barrier_open_fail_closes_real_domain_fd": "PASS",
+    "original_OSError_identity_and_attributes": "PASS",
+    "first_open_failure_legacy_fail_open": "PASS",
+    "domain_barrier_contention_retry_timeout_skip": "PASS",
+    "normal_lock_and_release_order": "PASS",
+    "real_flock_domain_exclusion_and_parallelism": "PASS",
+    "scoped_tests": "16/16 PASS",
+    "independent_cases": "15/15 PASS",
+    "github_exact_merge_quality_gate": "completed/success via official GitHub HTML; API unavailable",
+    "network_R2_notify_cloud_actions": "NOT EXECUTED",
+    "full_local_pytest": "NOT EXECUTED"
+  },
+  "recommendation": "F04 实际 main 合并点只读核验 Ready。无需因本次 F04 核验要求代码修复；后续处置由 Claude 主控复核。本报告不作部署或云上生效声明。",
+  "scope": {
+    "repo": "/Users/linhuichen/code/trade",
+    "base": "e05474a5ce897a96f299a57714a8618c5ec2478a",
+    "head": "aac5d19bdc60ebeb136efc12efd1e8022138724e",
+    "branch_head": "bf1ed42d445fe2b8acdcc752254cdc610764ad28",
+    "focus": "F04 actual-main merge integrity, targeted lock failure/retry/order verification, exact-SHA CI",
+    "main_movement": "Expected concurrent main movement recorded; all executable checks pinned to the requested merge archive."
+  },
+  "residual_risks_and_limits": [
+    "Local verification ran on macOS/Python 3.11.0; Linux /proc/self/fd checks are unavailable, so independent closure proof uses actual descriptors plus EBADF, opened/closed accounting and real flock.",
+    "Local full pytest intentionally not executed; the main session owns it. CI web metadata reports static pytest step success; full remote logs were not retrieved.",
+    "Actual R2/notification/production/cloud behavior and deployment were not exercised; this is a code/merge/CI review only.",
+    "CI API could not be verified because of rate limiting. The run conclusion is independently verified from official GitHub HTML with a full exact-SHA commit link; existing CI continue-on-error semantics remain in effect."
+  ],
+  "workflow_notes": {
+    "read_documents": [
+      "AGENTS.md",
+      ".agents/codex-reviewer/SKILL.md (entire file including CX summaries)",
+      "docs/codex-collab-protocol.md"
+    ],
+    "request_refs_at_entry": [],
+    "direct_user_task": true,
+    "missing_reviewer_worktree": true,
+    "handling": "No worktree/branch/ref creation; only read-only source Git metadata queries. All executable verification isolated in /tmp.",
+    "subagents": "No subagent execution tool exposed; direct bounded verification used.",
+    "user_scope_overrides": [
+      "No other request processing",
+      "No completion script/ready signal",
+      "No repository modifications/commit/push",
+      "No notification/Claude start",
+      "No actual R2/cloud requests; only authorized GitHub GETs",
+      "API retries stopped after user steering; no credential lookup or TLS downgrade"
+    ]
+  },
+  "agent_mutations": {
+    "repository_files": false,
+    "git_refs": false,
+    "commits": false,
+    "pushes": false,
+    "notifications_sent": false,
+    "claude_started": false,
+    "ready_signals_written": false,
+    "writes": "Only /tmp evidence/report/runtime artifacts"
+  },
+  "artifacts": {
+    "report": "/tmp/codex-reports/night-20261105/f04-main-recheck.json",
+    "progress": "/tmp/codex-reports/night-20261105/f04-progress.md",
+    "git_evidence": "/tmp/codex-reports/night-20261105/f04-git-evidence.json",
+    "ci_evidence": "/tmp/codex-reports/night-20261105/f04-ci-evidence.json",
+    "reproduction_driver": "/tmp/codex-reports/night-20261105/f04_run_isolated.py"
+  },
+  "completed_at": "2026-11-04T16:26:12.052788+00:00"
+}

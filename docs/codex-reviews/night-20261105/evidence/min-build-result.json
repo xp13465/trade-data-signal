@@ -1,0 +1,16 @@
+[
+  {
+    "source": "app.js",
+    "source_sha256": "d7d0d842a1a21606896ab2f48ff506883ec38001e1882793a779fe5e35f2b663",
+    "minified_bytes": 1093462,
+    "syntax_rc": 0,
+    "stderr": ""
+  },
+  {
+    "source": "lab.js",
+    "source_sha256": "b83e694b38b4461c4faa71e343d04d7bb741eab8eeb763db83e8a751c989a903",
+    "minified_bytes": 568274,
+    "syntax_rc": 0,
+    "stderr": ""
+  }
+]
