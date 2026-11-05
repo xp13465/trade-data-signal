@@ -222,6 +222,14 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
             total_written += len(rows)
             ok += 1
         except Exception as e:
+            # P2-C(2026-11-05): 显式回滚, 保证失败那只零落库、不影响下一只。
+            # 旧代码只计数不回滚: 失败那只的部分写入留在未提交事务里, 会被下一只
+            # 的 commit 一起提交; 且「跳过已填」按「范围内存在任一非空 unit_nav」判定,
+            # 会把部分写入的基金当成已填, 缺失日期不再补。
+            try:
+                conn.rollback()
+            except Exception:  # noqa: BLE001
+                pass
             error_count += 1  # 真实异常计入整批判据
             fail += 1
             print(f"[fof_nav] FAIL {fund_code} {fund_type}: {e}", flush=True)
