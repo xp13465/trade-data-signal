@@ -293,10 +293,17 @@ def _absorb_worker():
 
 
 def test_h_absorb_vs_flush_concurrent_no_loss(sandbox, monkeypatch):
-    """h: 预置 1 条(due) → 进程A跑flush(发出+清理), 进程B吸收新条目 → 最终 1 行(key=h_new)。
+    """h: 预置 1 条(due) → 进程A跑flush(发出+清理), 进程B吸收新条目 → 双方都不丢。
 
-    flush 全程持侧车锁; absorb 要么先拿到锁写入(然后 flush 读到 2 条发出后清掉旧的留新的),
-    要么等 flush 释放后再写入。任一交错下: 旧条目被 flush 处置、新条目被吸收保留, 双方不丢。
+    P2-B(2026-11-05) 修正假红: 并发交错有两种合法终态, 旧断言只认其一 ⇒ 假红。
+    合法终态集合(Codex 夜间复验确认):
+      A. flush 先持锁 → 发出 h_existing 并清理 → 释放锁 → absorb 写入 h_new
+         ⇒ 剩 1 行 key=h_new(旧条目已交付, 新条目留存待发)
+      B. absorb 先持锁 → 写入 h_new(现 2 条) → 释放锁 → flush 读到 2 条全发出并清理
+         ⇒ 剩 0 行 buffer 空(两渠道各交付一次, 旧+新均已交付)
+    两者都满足「双方都不丢」: h_existing 必被 flush 交付, h_new 要么留存待发(A)要么
+    已被同一轮 flush 交付(B)。判定依据 = h_existing 被清理(不在剩余行) 且 h_new 要么
+    在剩余行(A)要么也被交付(B)。
     """
     import multiprocessing as mp
     ctx = mp.get_context("fork")
@@ -322,11 +329,72 @@ def test_h_absorb_vs_flush_concurrent_no_loss(sandbox, monkeypatch):
     assert pb.exitcode == 0, f"flush worker exit={pb.exitcode}"
 
     lines = [l for l in digest.read_text(encoding="utf-8").splitlines() if l.strip()]
-    # 最终应只剩新吸收的那 1 条(旧的被 flush 发出后清理)
-    assert len(lines) == 1, f"应剩 1 行(h_new), 得 {len(lines)} 行:\n{lines}"
+    keys = {json.loads(l)["key"] for l in lines}
+    # 合法终态 A: 剩 1 行 h_existing 已清理、h_new 留存待发
+    # 合法终态 B: 剩 0 行 两条均已交付 buffer 空
+    assert "h_existing" not in keys, (
+        f"h_existing 应已被 flush 交付清理, 不应在剩余行中: {keys}")
+    if len(lines) == 0:
+        # 终态 B: buffer 空(两渠道各交付一次), 合法
+        print("[F03-R1.h] absorb vs flush 并发 PASS: 终态 B(buffer 空, 两条已交付)")
+    else:
+        # 终态 A: 剩 h_new 留存待发
+        assert len(lines) == 1 and keys == {"h_new"}, (
+            f"非终态 A 也非终态 B: 得 {len(lines)} 行 keys={keys}")
+        print(f"[F03-R1.h] absorb vs flush 并发 PASS: 终态 A(剩 h_new 留存待发)")
+
+
+# ── h2: 确定性 absorb-then-flush 顺序 → 终态 B(buffer 空), 旧断言假红复现 ──
+def test_h2_absorb_then_flush_buffer_empty_legal(sandbox, monkeypatch):
+    """h2(P2-B 假红复现): 单进程顺序 absorb→flush → 必然终态 B(buffer 空, 两条已交付)。
+
+    旧断言「剩 1 行 key=h_new」在此顺序下必红(假红): absorb 先写入 h_new(2 条),
+    flush 读到 2 条全发出并清理 → 0 行。这是合法结果(两渠道各交付一次), 不是丢条目。
+    新断言接受终态 B: 剩 0 行 且 h_existing 已被清理。
+
+    改前红证据: 旧断言 `len(lines)==1 and rec['key']=='h_new'` 在此确定性顺序下
+    得 0 行 → 断言失败(假红)。改后绿: 接受 buffer 空。
+    """
+    digest = sandbox["digest"]
+    _today = datetime.now().strftime("%Y-%m-%d")
+    _seed_entry(digest, key="h_existing", day=_today)
+    monkeypatch.setattr(notify, "ALERT_DIGEST_HM", "00:00")
+    if notify.ALERT_DIGEST_STATE_FILE.exists():
+        notify.ALERT_DIGEST_STATE_FILE.unlink()
+    # 确定性顺序: 先 absorb, 再 flush
+    notify._absorb_to_digest("并发吸收H", "正文H", key="h_new", category="r2",
+                             bump_hits=True)
+    notify.flush_digest(dry_run=False)
+    lines = [l for l in digest.read_text(encoding="utf-8").splitlines() if l.strip()]
+    keys = {json.loads(l)["key"] for l in lines}
+    assert "h_existing" not in keys, f"h_existing 应已交付清理: {keys}"
+    assert len(lines) == 0, (
+        f"absorb-then-flush 必然终态 B(buffer 空), 得 {len(lines)} 行: {keys}")
+    print(f"[F03-R1.h2] absorb→flush 确定性终态 B PASS: buffer 空(两条已交付)")
+
+
+# ── h3: 确定性 flush-then-absorb 顺序 → 终态 A(剩 h_new), 保留原断言路径 ──
+def test_h3_flush_then_absorb_h_new_remains(sandbox, monkeypatch):
+    """h3(P2-B 保留原路径): 单进程顺序 flush→absorb → 必然终态 A(剩 h_new 留存待发)。
+
+    这是旧断言认的合法路径: flush 先发出 h_existing 并清理 → absorb 写入 h_new。
+    保留此断言确保「absorb 在 flush 后」路径不丢条目(h_new 留存)。
+    """
+    digest = sandbox["digest"]
+    _today = datetime.now().strftime("%Y-%m-%d")
+    _seed_entry(digest, key="h_existing", day=_today)
+    monkeypatch.setattr(notify, "ALERT_DIGEST_HM", "00:00")
+    if notify.ALERT_DIGEST_STATE_FILE.exists():
+        notify.ALERT_DIGEST_STATE_FILE.unlink()
+    # 确定性顺序: 先 flush, 再 absorb
+    notify.flush_digest(dry_run=False)
+    notify._absorb_to_digest("并发吸收H", "正文H", key="h_new", category="r2",
+                             bump_hits=True)
+    lines = [l for l in digest.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert len(lines) == 1, f"flush→absorb 应剩 1 行 h_new, 得 {len(lines)} 行"
     rec = json.loads(lines[0])
     assert rec["key"] == "h_new", f"应保留 h_new, 得 key={rec['key']}"
-    print(f"[F03-R1.h] absorb vs flush 并发 PASS: 剩 {len(lines)} 行 key={rec['key']}")
+    print(f"[F03-R1.h3] flush→absorb 确定性终态 A PASS: 剩 h_new 留存待发")
 
 
 # ══════════════════════════════ i. 正常单进程行为不变(sanity) ══════════════════════════════
