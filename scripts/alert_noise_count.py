@@ -110,6 +110,10 @@ JSON 结构（--json，字段稳定）
     python scripts/alert_noise_count.py --ledger /path/to/alert_ledger.jsonl
 默认台账 = $REPO/data/alerts/alert_ledger.jsonl（REPO 缺省 = 本仓库根），
 与 scripts/alert_meter.py / notify.py:_ledger_path() 同一约定，不写死任何机器路径。
+
+--all-groups 显式切换为只读运维通知补充视图，可用 --extra-ledger 增加台账。
+该视图不判健康/PASS，不改变上面的旧单群合同；字段/覆盖边界见
+docs/ops/alert-all-groups-20261106.md。
 """
 from __future__ import annotations
 
@@ -219,7 +223,7 @@ def predicate_class(rec: dict) -> str | None:
     return None
 
 
-def load_records(path: Path) -> tuple[list[dict], int, int]:
+def load_records(path: Path, *, all_groups: bool = False) -> tuple[list[dict], int, int]:
     """读 JSONL 台账。
 
     返回 (记录列表, JSON 坏行数, group=alert 缺 subject 的坏行数)；文件不存在返回 ([], 0, 0)。
@@ -231,7 +235,7 @@ def load_records(path: Path) -> tuple[list[dict], int, int]:
     bad_subject = 0
     try:
         with open(path, encoding="utf-8") as f:
-            for raw in f:
+            for line_number, raw in enumerate(f, 1):
                 raw = raw.strip()
                 if not raw:
                     continue
@@ -243,10 +247,12 @@ def load_records(path: Path) -> tuple[list[dict], int, int]:
                 if not isinstance(rec, dict):
                     bad += 1
                     continue
-                if (str(rec.get("group") or "") == ALERT_GROUP
+                if (not all_groups and str(rec.get("group") or "") == ALERT_GROUP
                         and not str(rec.get("subject") or "").strip()):
                     bad_subject += 1
                     continue
+                if all_groups:
+                    rec = dict(rec, _ledger=str(path), _line=line_number)
                 records.append(rec)
     except FileNotFoundError:
         return [], 0, 0
@@ -464,6 +470,210 @@ def render(payload: dict) -> str:
     return "\n".join(lines)
 
 
+# 补充视图只认通知类型，不套用旧尺子的 repeat/真故障/PASS 推断。
+ALL_GROUPS = ("alert", "report", "follow", "agent_done", "unknown")
+OPS_SOURCES = {"schedule_monitor.sh", "monitor_72h.sh", "check_failed_units.py"}
+BUSINESS_SOURCES = {"brief_push.py", "daily_summary_email.py"}
+OPS_PREFIX = re.compile(r"^\[[^\]]*(告警|恢复|监控)[^\]]*\]")
+RECOVERY_SUBJECT = re.compile(r"^\[[^\]]*恢复[^\]]*\]")
+BUSINESS_PREFIXES = (
+    "[完成]", "[codex]", "🤖 agent ", "[每日速递]", "[情绪速递", "[补充速递",
+    "[买卖点", "[盘中", "[汪汪", "[收盘", "[订阅", "[明日买入",
+    "盘中异动", "盘中实时", "买卖点信号", "买卖点提醒", "汪汪队", "明日买入计划",
+)
+
+
+def operations_kind(rec: dict) -> tuple[str, str]:
+    """现行标签/主题/来源的保守识别；不认识的记录显式归 unknown。"""
+    subject = rec.get("subject")
+    if not isinstance(subject, str) or not subject.strip():
+        return "unknown", "missing_or_invalid_subject"
+    subject = subject.strip()
+    tag = str(rec.get("noise_class") or "").strip()
+    if tag and tag not in NOISE_CLASS_TO_CATEGORY:
+        return "unknown", "unknown_noise_class"
+    tier = str(rec.get("tier") or "")
+    source = Path(str(rec.get("source") or "")).name
+    business = (source == "codex_notify_bridge.py"
+                or subject.startswith(BUSINESS_PREFIXES))
+    if business:
+        if tag or tier in {"critical", "warning", "digest"}:
+            return "unknown", "conflicting_business_operations_metadata"
+        return "business", "business_subject_or_completion_source"
+    if tag:
+        return NOISE_CLASS_TO_CATEGORY[tag], "noise_class"
+    if subject.startswith("[告警·摘要]") or tier == "digest":
+        return "digest", "digest_subject_or_tier"
+    if subject.startswith(WARNING_BATCH_PREFIX):
+        return "warning_batch", "warning_batch_subject"
+    if any(m in subject for m in ESCALATION_MARKERS):
+        return "escalation", "escalation_subject"
+    if RECOVERY_SUBJECT.match(subject):
+        return "recovery", "recovery_subject"
+    if (OPS_PREFIX.match(subject) or subject.startswith("[状态说明]")
+            or any(m in subject for m in ROUTINE_MARKERS)):
+        return "operations", "operations_subject"
+    if tier in {"critical", "warning"} or source in OPS_SOURCES:
+        return "operations", "operations_tier_or_source"
+    if tier in {"subscribe", "agent_done"} or source in BUSINESS_SOURCES:
+        return "business", "business_tier_or_source"
+    return "unknown", "unrecognized_subject_tier_source"
+
+
+def _delivery_counts() -> dict:
+    return {k: 0 for k in (
+        "rows", "feishu_sent", "feishu_not_successful", "feishu_unknown",
+        "declared_merged_slots", "merged_count_missing_rows", "merged_count_invalid_rows",
+    )}
+
+
+def _group_counts() -> dict:
+    return {"ledger_rows": 0, "no_data": True, "business_rows": 0, "unknown_rows": 0,
+            "operations": _delivery_counts(),
+            "by_kind": {k: _delivery_counts() for k in ("operations",) + CANONICAL_CLASSES}}
+
+
+def all_groups_view(paths: list[Path], days: list[str]) -> dict:
+    """只读已有台账；同 inode 只读一次，不按 key/内容跨文件消重。"""
+    coverage, records, seen = [], [], {}
+    bad_total = 0
+    for raw_path in paths:
+        path = raw_path.absolute()
+        info = {"path": str(path), "status": "missing", "records_scanned": 0,
+                "bad_lines": 0, "observed_date_range": None, "rows_in_window": 0}
+        coverage.append(info)
+        try:
+            stat = path.stat()
+            identity = (stat.st_dev, stat.st_ino)
+            if identity in seen:
+                info.update(status="duplicate_physical_file", duplicate_of=seen[identity])
+                continue
+            seen[identity] = str(path)
+            rows, bad, _ = load_records(path, all_groups=True)
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeError) as exc:
+            info.update(status="unreadable", error=str(exc))
+            continue
+        dates = sorted(ts.date().isoformat() for r in rows
+                       if (ts := parse_ts(r.get("ts"))) is not None)
+        info.update(status="read" if rows or bad else "empty", records_scanned=len(rows),
+                    bad_lines=bad, observed_date_range=[dates[0], dates[-1]] if dates else None,
+                    rows_in_window=sum(d in days for d in dates))
+        bad_total += bad
+        records.extend(rows)
+
+    totals = {g: _group_counts() for g in ALL_GROUPS}
+    daily = {d: {g: _group_counts() for g in ALL_GROUPS} for d in days}
+    uncertainties = []
+    undated = outside = 0
+    for rec in records:
+        ts = parse_ts(rec.get("ts"))
+        day = ts.date().isoformat() if ts else None
+        if day is not None and day not in daily:
+            outside += 1
+            continue
+        reasons = []
+        if day is None:
+            undated += 1
+            reasons.append("unparseable_ts_not_assigned_to_window")
+        raw_group = rec.get("group")
+        group = raw_group if isinstance(raw_group, str) and raw_group in ALL_GROUPS[:-1] else "unknown"
+        if group == "unknown":
+            reasons.append("unknown_or_missing_group")
+        kind, evidence = operations_kind(rec)
+        if kind == "unknown":
+            reasons.append(evidence)
+        tier = rec.get("tier")
+        if (not isinstance(tier, str)
+                or tier not in {"critical", "warning", "info", "notice", "digest", "subscribe", "agent_done"}):
+            reasons.append("unknown_or_missing_tier")
+        channels = rec.get("channels")
+        feishu = channels.get("feishu") if isinstance(channels, dict) else None
+        delivery = ("feishu_sent" if feishu is True else
+                    "feishu_not_successful" if feishu is False else "feishu_unknown")
+        if delivery == "feishu_unknown":
+            reasons.append("unknown_or_missing_feishu_delivery")
+        merged = rec.get("merged_count")
+        merged_valid = type(merged) is int and merged >= 0
+        if "merged_count" in rec and not merged_valid:
+            reasons.append("invalid_merged_count")
+        if reasons:
+            uncertainties.append({"ledger": rec["_ledger"], "line": rec["_line"],
+                                  "date": day, "group": raw_group,
+                                  "subject": rec.get("subject"), "tier": rec.get("tier"),
+                                  "noise_class": rec.get("noise_class"),
+                                  "source": rec.get("source"), "kind": kind, "reasons": reasons})
+        if day is None:
+            continue
+        for groups in (totals, daily[day]):
+            bucket = groups[group]
+            bucket["ledger_rows"] += 1
+            bucket["no_data"] = False
+            if kind in {"unknown", "business"}:
+                bucket[f"{kind}_rows"] += 1
+                continue
+            for counts in (bucket["operations"], bucket["by_kind"].setdefault(kind, _delivery_counts())):
+                counts["rows"] += 1
+                counts[delivery] += 1
+                if merged_valid:
+                    counts["declared_merged_slots"] += merged
+                elif "merged_count" not in rec:
+                    counts["merged_count_missing_rows"] += 1
+                else:
+                    counts["merged_count_invalid_rows"] += 1
+
+    rows_in_window = sum(g["ledger_rows"] for g in totals.values())
+    incomplete = (bool(uncertainties) or bool(bad_total)
+                  or any(c["status"] in {"missing", "unreadable", "empty"} for c in coverage))
+    status = "no_data" if not rows_in_window else "partial" if incomplete else "observed"
+    return {
+        "view": "all_groups_operations", "date_range": [days[0], days[-1]],
+        "data_status": status, "no_data": not rows_in_window,
+        "coverage": {"scope": "explicit_ledgers_only", "all_trees_verified": False,
+                     "ledgers": coverage, "records_scanned": len(records),
+                     "skipped_bad_lines": bad_total, "undated_rows": undated,
+                     "outside_window_rows": outside},
+        "groups": totals, "days": [{"date": d, "groups": daily[d]} for d in days],
+        "uncertainties": uncertainties, "current_unresolved_incidents": None,
+        "caveats": [
+            "历史通知记录/声明 merged 槽位均不是独立事故数；不推断当前未恢复故障。",
+            "feishu=false 仅表示未成功，不区分未选择/未配置/发送失败；缺字段为未知。",
+            "全渠道失败通常不入本台账；未入账、摘要 buffer、消息正文不在读取范围。",
+            "merged_count 缺失不代表实际并入零条；各类 rows 是台账记录数，feishu_sent 才是成功投递数。",
+            "仅覆盖列出的文件/日期；不同物理文件即使 key/内容相同仍分别计数。",
+            "补充视图不作健康/PASS 判定；旧 alert 0~3 噪音判定不变。",
+        ],
+        "rc": 0 if status == "observed" else 2,
+    }
+
+
+def render_all_groups(payload: dict) -> str:
+    lines = [f"全群运维通知补充视图 {payload['date_range'][0]} ~ {payload['date_range'][1]}",
+             f"数据状态：{payload['data_status']}（无健康/PASS 判定）"]
+    for info in payload["coverage"]["ledgers"]:
+        lines.append(f"台账 {info['path']}：{info['status']}；读取 {info['records_scanned']} 行；"
+                     f"文件日期 {info['observed_date_range']}；窗口 {info['rows_in_window']} 行；坏行 {info['bad_lines']}")
+    for day in payload["days"] + [{"date": "合计", "groups": payload["groups"]}]:
+        lines.append(day["date"])
+        for group, bucket in day["groups"].items():
+            ops = bucket["operations"]
+            lines.append(f"  {group}（{'无台账数据' if bucket['no_data'] else '有台账数据'}）："
+                         f"运维记录 {ops['rows']} / 飞书成功 {ops['feishu_sent']} / "
+                         f"未成功 {ops['feishu_not_successful']} / 投递未知 {ops['feishu_unknown']}；"
+                         f"声明 merged 槽位 {ops['declared_merged_slots']} "
+                         f"(未声明 {ops['merged_count_missing_rows']} / 非法 {ops['merged_count_invalid_rows']})；"
+                         f"业务 {bucket['business_rows']} / 未知分类 {bucket['unknown_rows']}")
+            for kind, counts in bucket["by_kind"].items():
+                lines.append(f"    {kind}：记录 {counts['rows']} / 飞书成功 {counts['feishu_sent']} / "
+                             f"未成功 {counts['feishu_not_successful']} / 未知 {counts['feishu_unknown']}")
+    lines.append(f"无法归日 {payload['coverage']['undated_rows']} 行；不确定记录 {len(payload['uncertainties'])} 行")
+    for item in payload["uncertainties"]:
+        lines.append(f"  {item['ledger']}:{item['line']} {item['subject']!r} → {', '.join(item['reasons'])}")
+    lines.extend(payload["caveats"])
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="噪音计数尺子：某天/某窗口飞书告警群(alert)的机制噪音 vs 真故障条数")
@@ -474,6 +684,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ledger", default=None,
                     help="台账路径（默认 $REPO/data/alerts/alert_ledger.jsonl）")
     ap.add_argument("--json", action="store_true", dest="as_json", help="机读 JSON 输出")
+    ap.add_argument("--all-groups", action="store_true", help="只读全群运维通知补充视图（不判 PASS）")
+    ap.add_argument("--extra-ledger", action="append", default=[],
+                    help="补充台账路径，可重复；仅与 --all-groups 一起使用，不自动扫描其他树")
     args = ap.parse_args(argv)
 
     day = args.date or date.today().isoformat()
@@ -488,6 +701,13 @@ def main(argv: list[str] | None = None) -> int:
     days = [(end - timedelta(days=i)).isoformat() for i in range(args.days - 1, -1, -1)]
 
     path = Path(args.ledger) if args.ledger else default_ledger_path()
+    if args.extra_ledger and not args.all_groups:
+        ap.error("--extra-ledger 需与 --all-groups 一起使用")
+    if args.all_groups:
+        payload = all_groups_view([path] + [Path(p) for p in args.extra_ledger], days)
+        print(json.dumps(payload, ensure_ascii=False, indent=2) if args.as_json
+              else render_all_groups(payload))
+        return payload["rc"]
     exists = path.exists()
     if not exists:
         print(f"[alert_noise_count] 台账不存在，无数据（不判 PASS）：{path}", file=sys.stderr)

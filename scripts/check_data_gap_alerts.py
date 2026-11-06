@@ -1147,7 +1147,104 @@ def _recent_signal_days(repo: Path, n: int) -> tuple[list[str], str]:
     return ds[start: ti + 1], t
 
 
-def _missing_reason(repo: Path, d: str, iid: str, be: dict, win: list[str]) -> tuple[str, bool]:
+KELLY_DIAG_PRICE_LIMIT = 32  # 仅前32条加价证据; 完整异常集不截断
+
+
+def _signal_gap_evidence(d: str, iid: str, sig: str, code: str, freeze: dict) -> dict:
+    """仅解释已加载的精确冻结键; 不重实现 producer 的类型漂移兜底/ETF选择。"""
+    key = f"{d}|{iid}|{sig}"
+    entry = freeze.get(key)
+    frozen_code = entry.get("code") if isinstance(entry, dict) else None
+    valid_code = (isinstance(frozen_code, str) and len(frozen_code) == 6
+                  and frozen_code.isascii() and frozen_code.isdigit())
+    return {
+        "signal_key": key,
+        "exact_freeze_key_present": key in freeze,
+        "observed_exact_freeze_key": key if key in freeze else "unknown",
+        "resolved_freeze_key": key if valid_code else "unknown",
+        "freeze_resolution": ("checker_exact_input_only" if valid_code else
+                              "unknown_invalid_exact_entry" if entry is not None else
+                              "unknown_fallback_not_evaluated"),
+        "producer_resolution": "unknown: producer input identity/context not supplied",
+        "frozen_etf": frozen_code if valid_code else "unknown",
+        "current_candidate_etf": code,
+        "eligibility_evidence": {"checker_current_universe_included": True,
+                                 "historical_producer_eligibility": "unknown"},
+        "rating_evidence": "unknown: signal_stats not loaded by checker",
+        "current_candidate_next_price": {"status": "unknown"},
+        "frozen_price_observations": {"status": "unknown_or_budget_exhausted"},
+        "missing_context": ["producer freeze path/input identity (checker prefers static-site/data)",
+                            "producer date-index fallback resolution if exact key absent",
+                            "producer latest_signal_date / price basis / signal_stats 10d score",
+                            "producer ETF NAV-date sequence / placeholder defense / mode and fee inputs"],
+        "historical_should_trade": "unknown",
+    }
+
+
+def _capture_gap_prices(conn: sqlite3.Connection, evidence: dict, d: str, nxt: str) -> None:
+    """同一只读连接最多两次索引点查, 不扫描历史; 不推导实际成交/回测结果。"""
+    code = evidence["frozen_etf"]
+    if code == "unknown":
+        return
+    observations = {}
+    try:
+        for label, day in (("signal_day", d), ("window_next_day", nxt)):
+            sql = ("SELECT accum_nav, open, close FROM etf_daily "
+                   f"WHERE etf_code=? AND date=? AND {NAV_REAL_WHERE} LIMIT 2")
+            plan = conn.execute("EXPLAIN QUERY PLAN " + sql, (code, day)).fetchall()
+            if not any("SEARCH " in str(r[3]).upper() and "etf_code=?" in str(r[3])
+                       and "date=?" in str(r[3]) for r in plan):
+                evidence["frozen_price_observations"] = {"status": "unknown_no_point_index"}
+                return
+            rows = conn.execute(sql, (code, day)).fetchall()
+            observations[label] = {
+                "date": day, "status": "row" if len(rows) == 1 else
+                ("absent_or_placeholder" if not rows else "unknown_duplicate_rows"),
+                "values": dict(zip(("accum_nav", "open", "close"), rows[0])) if len(rows) == 1 else None,
+            }
+        evidence["frozen_price_observations"] = {
+            "status": "observed", "etf_code": code, "rows": observations,
+            "scope": "window calendar points only; producer next NAV-date not resolved",
+        }
+    except Exception as exc:  # 诊断旁路失败不改变原blocked判定
+        evidence["frozen_price_observations"] = {"status": "unknown_query_error",
+                                                "error_type": type(exc).__name__}
+
+
+def _archive_signal_gap_diagnostics(repo: Path, records: list[dict], win: list[str]) -> str:
+    """完整本轮已检测异常集; 同目录原子写+link发布, 0600且永不覆盖。失败不影响告警。"""
+    import uuid
+
+    try:
+        run_id = uuid.uuid4().hex
+        audit_dir = repo / "data" / "audit" / "signal_gap_diagnostics"
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        path = audit_dir / f"{run_id}.json"
+        payload = {
+            "schema_version": 1, "run_id": run_id,
+            "recorded_at": datetime.now().astimezone().isoformat(),
+            "scope": "checker_detected_missing_only; not a producer execution audit",
+            "window": win, "detected_count": len(records), "records_complete": True,
+            "price_enrichment_limit": KELLY_DIAG_PRICE_LIMIT,
+            "price_enriched_count": sum(r["frozen_price_observations"]["status"] == "observed"
+                                        for r in records),
+            "fingerprints": {"producer": "unknown", "freeze_input": "unknown",
+                             "map_input": "unknown", "signal_input": "unknown",
+                             "prices_input": "unknown", "trades_input": "unknown"},
+            "records": records,
+        }
+        with tempfile.TemporaryDirectory(prefix=".pending-", dir=audit_dir) as staging:
+            staged = Path(staging) / "diagnostic.json"
+            atomic_write_json(staged, payload, mode=0o600)
+            os.link(staged, path)
+        return str(path)
+    except Exception as exc:
+        print(f"[check_data_gap] signal gap诊断归档失败: {type(exc).__name__}", file=sys.stderr)
+        return "unknown (archive failed)"
+
+
+def _missing_reason(repo: Path, d: str, iid: str, be: dict, win: list[str], *,
+                    evidence: dict | None = None, enrich_prices: bool = False) -> tuple[str, bool]:
     """预计丢弃原因(人话)+ 是否可解释(缺次日价=KELLY_BUY_NEXTDAY 定价前置缺失, 非异常断档)。
     优先查信号对应 ETF 在『下一交易日』的 accum_nav/open 是否齐全; 齐全仍缺 trade → 需人工核查。"""
     code, name = str(be.get("code") or ""), str(be.get("name") or "")
@@ -1161,6 +1258,15 @@ def _missing_reason(repo: Path, d: str, iid: str, be: dict, win: list[str]) -> t
             row = _q1(conn, "SELECT accum_nav, open FROM etf_daily WHERE etf_code=? AND date=? "
                             f"AND {NAV_REAL_WHERE}",
                       (code, nxt))
+            if evidence is not None:
+                evidence["current_candidate_next_price"] = {
+                    "date": nxt, "etf_code": code,
+                    "status": "row" if row else "absent_or_placeholder",
+                    "values": dict(zip(("accum_nav", "open"), row)) if row else None,
+                    "scope": "original checker current-candidate observation only",
+                }
+                if enrich_prices:
+                    _capture_gap_prices(conn, evidence, d, nxt)
         finally:
             conn.close()
         if row:
@@ -1229,8 +1335,14 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
 
     cands = _kelly_missing_candidates(repo, db, win, t_prev, sig_set, excluded, best_etf)
     missing: list[tuple[str, str, str, str, str, str, bool]] = []
-    for d, iid, sig, code, name in cands:
-        r = _missing_reason(repo, d, iid, best_etf.get(iid, {}), win)
+    freeze = _load_freeze_map(repo) if cands else {}
+    diagnostics = []
+    for n, (d, iid, sig, code, name) in enumerate(cands):
+        evidence = _signal_gap_evidence(d, iid, sig, code, freeze)
+        r = _missing_reason(repo, d, iid, best_etf.get(iid, {}), win,
+                            evidence=evidence, enrich_prices=n < KELLY_DIAG_PRICE_LIMIT)
+        evidence["original_detector_reason"], evidence["original_detector_blocked"] = r
+        diagnostics.append(evidence)
         missing.append((d, iid, sig, code, name, r[0], r[1]))
     if not missing:
         return []
@@ -1257,7 +1369,6 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
     # 现要求: missing 非空 + 全部 blocked=False + 每条「(冻结表有对应键) 或 (signal_date 当天 trades 有入账)」。
     # 冻结表键格式 {date}|{index_id}|{signal}(_freeze_hit); 同日期参照(_same_date_has_other_trades):
     # d 当天 trades 有 ≥1 条任意信号入账=回测链当天确实在跑, 单点缺口良性特征; d 当天 0 条入账 → 仍 SEVERE。
-    freeze = _load_freeze_map(repo)
     frozen_form = bool(missing) and all(
         (not m[6]) and (
             _freeze_hit(freeze, m[0], m[1], m[2], m[3])
@@ -1269,7 +1380,8 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
     for d, iid, sig, code, name, reason, blocked in missing:
         lag = _trading_days_gap(repo, d, T)  # 该信号相对 T 落后交易日数
         tag = "缺次日价" if blocked else "次日价已齐仍缺"
-        items.append(f"  • {d} {iid}({sig}) → {code} {name}, 相对 T={T} 落后 {lag} 交易日[{tag}] — {reason}")
+        items.append(f"  • {d} {iid}({sig}) → 当前候选 {code} {name}, 相对 T={T} 落后 {lag} 交易日"
+                     f"[仅当前候选检查: {tag}] — {reason}")
     detail = (f"signal_daily 最近 {len(win)} 个交易日 buy 系信号中, {len(missing)} 条入样信号"
               f"在 signal_kelly_trades.json 无对应交易记录(trades 最新 {latest or '无'}, 断档深度 {depth} 交易日):"
               f"<br>{'<br>'.join(items)}"
@@ -1287,6 +1399,21 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
     title = (f"交易记录断档: {len(missing)} 个入样买入信号无对应交易(断档深度 {depth} 交易日)"
              if not (frozen_form and level == "warn") else
              f"交易记录缺 {len(missing)} 条冻结/评级缺失或同日期有别的入账(接受缺口降噪, 断档深度 {depth})")
+    # 告警路由/subject/key/等级已确定; 诊断只追加正文, 不参与判定。
+    archive = _archive_signal_gap_diagnostics(repo, diagnostics, win)
+    from html import escape
+    preview = []
+    for record in diagnostics[:10]:
+        try:
+            preview.append(escape(json.dumps(record, ensure_ascii=False)))
+        except (TypeError, ValueError):
+            preview.append("unknown (diagnostic preview serialization failed)")
+    detail += ("<br>同轮诊断: 上述原检测价证据仅针对当前候选ETF, 不能证明历史应成交。"
+               "精确冻结键未命中时不另选ETF, 真实解析器可能使用类型漂移兜底; 解析结果unknown。"
+               "评级/历史资格/producer上下文未加载=unknown; 不据此回填或接受缺口。"
+               f"<br>完整已检测异常 {len(diagnostics)} 条(价格补证最多{KELLY_DIAG_PRICE_LIMIT}条, "
+               f"正文诊断预览最多10条); 归档: {escape(archive)}"
+               f"<br>{'<br>'.join(preview)}")
     return [Finding(KELLY_COVERAGE_KEY, level, title, detail)]
 
 

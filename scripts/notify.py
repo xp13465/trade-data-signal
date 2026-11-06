@@ -3397,50 +3397,59 @@ def flush_digest(dry_run: bool = False) -> dict:
         return _flush_digest_locked(dry_run=dry_run)
 
 
-def _flush_digest_locked(dry_run: bool = False) -> dict:
-    """flush_digest 的持锁主体（调用方必须已持有 ALERT_DIGEST_LOCK_FILE 锁）。
+def _digest_delivery_route() -> tuple[bool, str, str]:
+    """Completion policy + opaque destination fingerprint (never persist secrets)."""
+    from alert_digest_delivery import signature
+    cfg = load_feishu_config()
+    if not isinstance(cfg, dict):
+        if FEISHU_CONFIG.exists():
+            return True, signature(["malformed"]), ""
+        app_id, app_secret = _load_feishu_credentials()
+        required = bool(app_id and app_secret)
+        return required, signature(["missing", required]), ""
+    required = bool(cfg.get("enabled", True))
+    mode = str(cfg.get("mode", "app") or "app").lower()
+    ids = cfg.get("chat_ids", {})
+    urls = cfg.get("webhook_urls", {})
+    if not isinstance(ids, dict) or not isinstance(urls, dict):
+        raise ValueError("digest Feishu chat_ids/webhook_urls must be objects")
+    chat_id = str(ids.get("report", "") or "").strip()
+    target = str(urls.get("report", "") or "").strip() if mode == "webhook" else chat_id
+    return required, signature([required, mode, chat_id, target, cfg.get("app_id", "")]), chat_id
 
-    F03-R1(2026-11-04): 读/写都不再对数据文件 inode 上 flock——调用方已持侧车锁,
-    且所有写方(_absorb_to_digest / _bump_digest_hits / 本函数)统一用侧车锁互斥,
-    数据文件 inode 的 flock 是多余的「第二把锁」(本次根治对象)。写回改用
-    _atomic_write_digest(tmp+fsync+os.replace), 原文件在 replace 成功前一字节不动。
+
+def _write_digest_delivery_state(state: dict) -> None:
+    """Sidecar-lock protected atomic checkpoint; chmod/fsync errors must propagate.
+
+    Uses the same write/fsync/fchmod/replace convention as _atomic_write_digest.
+    Independent of _chmod_like_target so Claude's strict-error hunk stays disjoint.
     """
+    path = ALERT_DIGEST_STATE_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}.{time.time_ns()}")
     try:
-        raw = ALERT_DIGEST_FILE.read_bytes()
-    except FileNotFoundError:
-        return {"sent": False, "n": 0, "n_remaining": 0}
-    except OSError as e:
-        print(f"[notify][digest] buffer 读取失败：{e}", file=sys.stderr)
-        return {"sent": False, "n": 0, "n_remaining": 0}
-    entries, bad_lines = _parse_buffer_lines(raw)
-    for i, bl in enumerate(bad_lines, 1):
-        print(f"[notify][digest] buffer 坏行跳过（第{i}条，前80字符）：{bl[:80]!r}",
-              file=sys.stderr)
-    if not entries:
-        return {"sent": False, "n": 0, "n_remaining": 0}
-    now = datetime.now()
-    _today = now.strftime("%Y-%m-%d")
-    due, stale = [], []
-    for e in entries:
-        (due if str(e.get("day")) == _today else stale).append(e)
-    _hm_ok = now.strftime("%H:%M") >= ALERT_DIGEST_HM
-    _last_day = ""
-    try:
-        if ALERT_DIGEST_STATE_FILE.exists():
-            _st = json.loads(ALERT_DIGEST_STATE_FILE.read_text(encoding="utf-8"))
-            _last_day = str((_st or {}).get("last_sent_day") or "")
-    except Exception:  # noqa: BLE001
-        _last_day = ""
-    # #264b(2026-10-17)门控比较用 `<`(水位线)而非 `!=`: 已发水位未达今日才发。
-    # 旧 `!=` 下, 00:00 的 stale 兜底 flush 把 last_sent_day 写成"新一日"后, 该日 23:25 被永久挡住。
-    # ★5a 批次2(2026-10-28): 旧条件 `bool(stale) or (...)` 让前日遗留(stale)在**任何**时刻
-    # 都能立刻发出 ⇒ 23:30 之后 23:45/00:00 轮新吸收的条目会各自再发一条 00:00 摘要
-    # (7 天摘要 1.57 条/天)。改成「只在 ≥23:25 窗口发」: 00:00 不再单发, 前日遗留并入下一个
-    # 23:30(subject 自带「(含前日遗留 N 条)」⇒ 可见性不丢)。条目保留契约不变——不满足条件
-    # 只是 return, buffer 一条不删; 发送失败路径的「不清理」逻辑在下方 sent 判定之后, 未动。
-    if not (_hm_ok and (bool(stale) or bool(due)) and _last_day < _today):
-        return {"sent": False, "n": 0, "n_remaining": len(entries)}
-    send_entries = stale + due
+        try:
+            mode = path.stat().st_mode & 0o7777
+        except FileNotFoundError:
+            mode = None
+        # Frozen entries/body contain full alert text: new checkpoints are private.
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            if mode is not None:
+                os.fchmod(fh.fileno(), mode)
+            fh.write(json.dumps(state, ensure_ascii=False).encode("utf-8"))
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _render_digest_delivery(send_entries, stale, now):
+    """Freeze the existing digest display once, shared by email and post text."""
     # #264 件E(2026-10-15)分段: 真被并入的(merged) vs 恢复类**已直发**的留痕(traces)。
     # 计数「被合并 N 条」只算 merged —— 留痕条不是被合并, 只是可见性(闭环信号), 单列一段。
     merged = [e for e in send_entries
@@ -3528,64 +3537,126 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
                     f"此处仅留痕(闭环信号可见):")
         for e in traces:
             rows.append(_row(e, "[恢复留痕·已直发] "))
-    body = intro + "<br>" + "<br>".join(esc(r) for r in rows)
-    # 批次3-D(2026-10-28, #321 出口分层): 摘要从 alert 群移到 report 群。
-    # 依据: 尺子 8 天台账里 digest 占 alert 群噪音的固定一笔/天, 且摘要是「汇总播报」
-    # 不是「当前故障」, 与业务报告同订阅方的可读性诉求一致。邮件用 [告警·摘要] 白名单保留
-    # (见 send() 的 _EMAIL_KEEP_PREFIXES), 台账 group 随之记 report(尺子不再计入 alert)。
-    results = send(subject, body, severe=False, dry_run=dry_run,
-                   from_prefix="[告警·摘要]", feishu_group="report",
-                   ledger_tier="digest", ledger_key="alert_digest", merged_count=n)
-    sent = any(results.get(ch) for ch in ("email", "telegram", "feishu"))
-    if dry_run:
-        print(f"[notify][digest][dry-run] 模拟发送摘要 {n} 条, 不清理", file=sys.stderr)
-        return {"sent": False, "n": n, "n_remaining": len(entries)}
-    if not sent:
-        print(f"[notify][digest] flush 未发出, 条目保留 {n} 条", file=sys.stderr)
-        return {"sent": False, "n": n, "n_remaining": len(entries)}
-    _drop = {_stable_rid(e) for e in send_entries}
-    _did = False
+    body = esc(intro) + "<br>" + "<br>".join(esc(r) for r in rows)
+    # Keep explicit newlines inside each node: joining nodes reconstructs display
+    # text exactly, even when one giant row is split over multiple requests.
+    lines = [intro + "\n"] + [str(r) + ("\n" if i < len(rows) - 1 else "")
+                              for i, r in enumerate(rows)]
+    return subject, body, lines, n
+
+
+def _flush_digest_locked(dry_run: bool = False) -> dict:
+    """Resume a frozen delivery under the existing sidecar lock, then exact-clean.
+
+    A durable complete receipt precedes cleanup. Incomplete deliveries never move
+    the watermark; retries bypass the daily gate, including across midnight.
+    """
+    from alert_digest_delivery import remove_snapshot, signature, split_posts, validate_pending
     try:
-        # F03-R1(2026-11-04): 调用方已持侧车锁, 这里只需读→算→原子替换(不再对数据
-        # 文件 inode 上 flock)。_atomic_write_digest 保证原文件在 replace 成功前
-        # 一字节不动, 清理失败时下轮重试(原条目全保留)。
-        cur_raw = ALERT_DIGEST_FILE.read_bytes()
-        cur_entries, cur_bad = _parse_buffer_lines(cur_raw)
-        out_entries = []
-        _seen = set()
-        for ce in cur_entries:
-            rid = _stable_rid(ce)
-            if rid in _drop and rid not in _seen:
-                _seen.add(rid)  # 同内容重复行只删一条（宁留勿多删）
-                continue
-            out_entries.append(ce)
-        _atomic_write_digest(out_entries, cur_bad)
-        _did = True
-    except Exception as e:  # noqa: BLE001
-        print(f"[notify][digest] buffer 清理失败（下轮可能重发）：{e}", file=sys.stderr)
-    if _did:
-        try:
-            _n_rem = len(_parse_buffer_lines(ALERT_DIGEST_FILE.read_bytes())[0])
-        except OSError:
-            _n_rem = 0
-    else:
-        _n_rem = len(entries)
-    # 只在发送成功后写 state(幂等: 当日只发一封)
-    # #264b(2026-10-17 选项②): 写「已发条目所属**最大** day」(水位线), 不是发送时刻日期。
-    # 这样 00:00 的 stale 兜底 flush(只发前日遗留)只把水位推到前日, 不会挡住当日晚些的 23:25。
-    _sent_days = [str(e.get("day") or "") for e in send_entries]
-    _max_sent_day = max(_sent_days) if _sent_days else _today
+        raw = ALERT_DIGEST_FILE.read_bytes()
+    except FileNotFoundError:
+        raw = b""
+    except OSError as exc:
+        print(f"[notify][digest] buffer 读取失败：{exc}", file=sys.stderr)
+        return {"sent": False, "n": 0, "n_remaining": 0}
+    entries, bad_lines = _parse_buffer_lines(raw)
+    for i, line in enumerate(bad_lines, 1):
+        print(f"[notify][digest] buffer 坏行跳过（第{i}条，前80字符）：{line[:80]!r}", file=sys.stderr)
+    state = {}
     try:
-        ALERT_DIGEST_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _tmp = ALERT_DIGEST_STATE_FILE.with_name(ALERT_DIGEST_STATE_FILE.name + ".tmp")
-        _tmp.write_text(json.dumps({"last_sent_day": _max_sent_day}, ensure_ascii=False),
-                        encoding="utf-8")
-        _chmod_like_target(_tmp, ALERT_DIGEST_STATE_FILE)  # P2-A 同类: 保持原文件权限
-        os.replace(_tmp, ALERT_DIGEST_STATE_FILE)
-    except Exception as e:  # noqa: BLE001
-        print(f"[notify][digest] state 写入失败（下轮可能重发）：{e}", file=sys.stderr)
-    print(f"[notify][digest] 摘要发出 {n} 条（剩余 {_n_rem} 条）：已发", file=sys.stderr)
-    return {"sent": True, "n": n, "n_remaining": _n_rem}
+        state = json.loads(ALERT_DIGEST_STATE_FILE.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            raise ValueError("digest state must be an object")
+    except FileNotFoundError:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        print(f"[notify][digest] state 读取失败（保留条目）：{exc}", file=sys.stderr)
+        return {"sent": False, "n": 0, "n_remaining": len(entries)}
+    pending = state.get("pending_delivery")
+    n = 0
+    try:
+        if pending is None:
+            now = datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            if (not entries or now.strftime("%H:%M") < ALERT_DIGEST_HM
+                    or str(state.get("last_sent_day") or "") >= today):
+                return {"sent": False, "n": 0, "n_remaining": len(entries)}
+            stale = [e for e in entries if str(e.get("day")) != today]
+            due = [e for e in entries if str(e.get("day")) == today]
+            snapshot = stale + due
+            subject, body, lines, n = _render_digest_delivery(snapshot, stale, now)
+            required, route_hash, chat_id = _digest_delivery_route()
+            pending = {"version": 1, "entries": snapshot, "subject": subject,
+                       "body": body, "lines": lines, "n": n,
+                       "signature": signature([snapshot, subject, body, lines, n]),
+                       "parts": split_posts(subject, lines, chat_id),
+                       "route_hash": route_hash, "feishu_required": required,
+                       "confirmed_parts": [], "other_attempted": False,
+                       "other_success": {"email": False, "telegram": False},
+                       "first_attempted": False, "complete": False}
+            pending["parts_signature"] = signature([pending["signature"], pending["parts"]])
+            state["pending_delivery"] = pending
+        validate_pending(pending)
+        n = pending["n"]
+        if dry_run:
+            print(f"[notify][digest][dry-run] 摘要 {n} 条，不发送/落盘", file=sys.stderr)
+            return {"sent": False, "n": n, "n_remaining": len(entries)}
+        # Even a completed delivery retained after cleanup failure must be
+        # accepted at the current destination before its snapshot can be deleted.
+        required, route_hash, chat_id = _digest_delivery_route()
+        if pending["route_hash"] != route_hash:
+            pending.update(route_hash=route_hash, confirmed_parts=[], complete=False,
+                           parts=split_posts(pending["subject"], pending["lines"], chat_id))
+            pending["parts_signature"] = signature([pending["signature"], pending["parts"]])
+        pending["feishu_required"] = required
+        if not pending["complete"]:
+            # Checkpoint before any external send, including every retry round.
+            _write_digest_delivery_state(state)
+            for index, part in enumerate(pending["parts"]):
+                if index in pending["confirmed_parts"]:
+                    continue
+                first = not any(pending["other_success"].values())
+                logical_first = not pending["first_attempted"]
+                _write_digest_delivery_state(state)
+                results = send(pending["subject"], pending["body"], severe=False,
+                               from_prefix="[告警·摘要]", feishu_group="report",
+                               feishu_only=not first, feishu_post=part,
+                               ledger_tier="digest", ledger_key="alert_digest",
+                               merged_count=n if logical_first else 0)
+                pending["other_attempted"] = True
+                if any(results.get(ch) for ch in ("email", "telegram", "feishu")):
+                    pending["first_attempted"] = True
+                if results.get("feishu"):
+                    pending["confirmed_parts"].append(index)
+                for channel in ("email", "telegram"):
+                    pending["other_success"][channel] |= bool(results.get(channel))
+                _write_digest_delivery_state(state)
+                # One attempt per segment per flush, underlying transport keeps its
+                # bounded retries. Stop at the first failure for ordered delivery.
+                if required and not results.get("feishu"):
+                    break
+                if not required and any(pending["other_success"].values()):
+                    break
+            all_parts = len(pending["confirmed_parts"]) == len(pending["parts"])
+            complete = all_parts if required else (all_parts or any(pending["other_success"].values()))
+            if not complete:
+                return {"sent": False, "n": n, "n_remaining": len(entries)}
+            pending["complete"] = True
+            _write_digest_delivery_state(state)
+        # Complete receipts are durable. A failed cleanup keeps this pending record
+        # so the next flush only cleans, even if buffer was already replaced.
+        current, current_bad = _parse_buffer_lines(ALERT_DIGEST_FILE.read_bytes())
+        kept = remove_snapshot(current, pending["entries"])
+        _atomic_write_digest(kept, current_bad)
+        final_state = {k: v for k, v in state.items() if k != "pending_delivery"}
+        # Keep the scheduled once/day cadence; retained late rows or changed hits
+        # wait for the next daily window. Only pending retries bypass that gate.
+        final_state["last_sent_day"] = max(str(e.get("day") or "") for e in pending["entries"])
+        _write_digest_delivery_state(final_state)
+        return {"sent": True, "n": n, "n_remaining": len(kept)}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[notify][digest] delivery 未完成（保留回执/条目）：{exc}", file=sys.stderr)
+        return {"sent": False, "n": n, "n_remaining": len(entries)}
 
 
 def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,

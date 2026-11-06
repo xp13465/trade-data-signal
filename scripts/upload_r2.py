@@ -1449,7 +1449,7 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
 
     落地校验(P1~P6,证「备份真落地」而非「PUT 返回 200」):
       P1 源 HEAD(with_len) → (st, etag_s, size_s);R2 无此 key ⇒ 视为无覆盖必要(跳过, 现状语义)
-      P2 减量(保留 #176): 备份桶已有今天备份 且 R2 内容 == 本地将传指纹 ⇒ 跳过
+      P2 减量: 当日备份与源的完整 MD5 ETag/长度均一致, 或 #176 覆盖无损失 ⇒ 跳过
       P3 GET 源体(老账号): 状态 200 且 len(body) == size_s,否则 failed(记「GET 短读/失败」)
       P4 源 md5: 单 PUT 源比 md5(body) == etag_s;multipart 源(etag 含 `-`)只比长度
       P5 PUT 目标(新账号): <100MB 单 PUT;>=100MB 走 _upload_multipart(bucket=BACKUP_BUCKET)
@@ -1458,9 +1458,9 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
     失败方向 fail-closed(宁多备不漏备): 单 PUT 的 200-but-not-landed 平台异常由 P6 兜住。
 
     2026-10-05 并行化+减量(#176)保留: 8 线程并发(ThreadPoolExecutor + keep_alive 线程本地连接),
-    减量判据同前。§25 语义(某 key PUT 之前其备份必须已完成)不变: 本函数**整体先于**
+    减量增加完整 MD5 ETag/长度均一致的当日备份复用。§25 语义(某 key PUT 之前其备份必须已完成)不变: 本函数**整体先于**
     _upload_glob 的 PUT 批量执行, 并行只发生在本函数内部, 备份与 PUT 之间仍是「整批备份完 → 整批 PUT」。
-    r2_keys: {r2_key: local_md5} 或 list(r2_key)(md5_map=None 时按 list 处理, 不减量)。
+    r2_keys: {r2_key: local_md5} 或 list(r2_key)(list 不参与 #176 判据, 仍可复用同内容备份)。
 
     返回 (copied, skipped, failed, samples):
       samples = 失败样本列表 [{key, stage, detail}](最多 50 条, 供调用点结构化日志/后续告警)。
@@ -1503,9 +1503,34 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
             return   # R2 无此 key(首次上传), 无覆盖风险, 不备份(与现状语义一致)
         # ---- 备份桶是否已有今天备份(减量输入) ----
         try:
-            bk_st, _bk_etag = s3_head(backup_key, bucket=BACKUP_BUCKET, keep_alive=True)
+            bk_st, _bk_etag, bk_size = s3_head(backup_key, bucket=BACKUP_BUCKET,
+                                               keep_alive=True, with_len=True)
         except Exception as _e:
             _fail(key, "HEAD备份桶", f"异常 {_e}")
+            return
+        # Reuse current-day backup bytes only: strict full MD5s and valid integer lengths.
+        # Standard quoted HTTP ETags are accepted; multipart/weak/malformed tags fall back.
+        def _reuse_size(value):
+            if type(value) is int:
+                return value if value >= 0 else None
+            if isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
+                try:
+                    return int(value)
+                except ValueError:
+                    pass
+            return None
+
+        def _reuse_md5(value):
+            pattern = r'(?:[0-9a-f]{32}|"[0-9a-f]{32}")'
+            if isinstance(value, str) and re.fullmatch(pattern, value):
+                return value.strip('"')
+            return None
+
+        source_size, backup_size = _reuse_size(size_s), _reuse_size(bk_size)
+        source_md5, backup_md5 = _reuse_md5(etag_s), _reuse_md5(_bk_etag)
+        if (bk_st == 200 and source_size is not None and source_size == backup_size
+                and source_md5 is not None and source_md5 == backup_md5):
+            skipped += 1
             return
         # ---- P2: 减量(#176): 备份桶已有今天备份 且 R2 内容 == 本地将传指纹 → 覆盖无损失, 跳过 ----
         if bk_st == 200 and local_md5 is not None and etag_s is not None and etag_s.strip('"') == local_md5:
@@ -1587,7 +1612,7 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
     if copied:
         print(f"[{label}] ✓ 备份 {copied} 个将被覆盖 key -> {BACKUP_BUCKET}/pre-upload/{today}/ (export-guard L5)", flush=True)
     if skipped:
-        print(f"[{label}] ➖ 减量跳过 {skipped} 个已备份且 R2 指纹一致 key(覆盖无损失)", flush=True)
+        print(f"[{label}] ➖ 减量跳过 {skipped} 个 key(同内容备份可复用或覆盖无损失)", flush=True)
     if failed:
         for s in samples[:5]:
             print(f"[{label}] ⚠ 备份失败样本 {s['key']} [{s['stage']}] {s['detail']}", flush=True, file=sys.stderr)

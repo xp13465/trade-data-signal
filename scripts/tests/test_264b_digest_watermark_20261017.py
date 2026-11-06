@@ -286,11 +286,30 @@ def test_08_send_fail_keeps_no_state(_iso, monkeypatch):
     _seed(alerts, [_entry(DAY0, "r2_x")])
     monkeypatch.setattr(notify, "send",
                         lambda *a, **k: {"email": False, "telegram": False, "feishu": False})
+    monkeypatch.setattr(notify, "load_feishu_config", lambda: {
+        "enabled": True, "chat_ids": {"report": "oc_offline"}})
+    monkeypatch.setattr(notify, "_load_feishu_credentials", lambda: ("", ""))
     r = notify.flush_digest()
     _chk(r["sent"] is False and r["n_remaining"] == 1, f"发送失败条目应保留, 得 {r}")
     _chk(len(_digest_lines(alerts)) == 1, "失败后条目不得清理")
-    _chk(not (alerts / "alert_digest_state.json").exists(),
-         "失败后不得写 state(否则当日永不重试)")
+    checkpoint = _state(alerts)
+    _chk(not checkpoint.get("last_sent_day"), "失败不得推进完成水位")
+    _chk(checkpoint["pending_delivery"]["complete"] is False, "失败 pending 必须未完成")
+    snapshot = _entry(DAY0)
+    late = _entry(DAY0, "late_after_snapshot")
+    _seed(alerts, [snapshot, late])
+    calls = []
+
+    def success(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"email": True, "telegram": False, "feishu": True}
+
+    monkeypatch.setattr(notify, "send", success)
+    retried = notify.flush_digest()
+    _chk(retried["sent"] is True and retried["n_remaining"] == 1, "同窗口应重试成功")
+    _chk(len(calls) == 1, "必须真正重试发送冻结批次一次")
+    remaining = [json.loads(line) for line in _digest_lines(alerts)]
+    _chk(remaining == [late], "只清理成功快照，晚到条目保留")
 
 
 # ══════════ ⑨ 断言下限(防 0 断言假绿) ══════════
