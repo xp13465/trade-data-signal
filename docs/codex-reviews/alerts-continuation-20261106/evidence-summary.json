@@ -1,0 +1,158 @@
+{
+  "status": "本轮完整门禁仍未全绿，不能直接合并或部署",
+  "code_head": "d4c6450540b37173dfc532d051346822db5ed024",
+  "continuation_base": "e6f1c421c7718e24ab4f44ab9cac925c7dcaa1a3",
+  "aggregate": {
+    "junit_counts": {
+      "tests": 3161,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 3
+    },
+    "passed": 3139,
+    "subtests_passed": 18,
+    "raw_pytest_summary": "1 failed, 3139 passed, 3 skipped, 18 subtests passed in 429.65s (0:07:09)",
+    "seconds": 445.184,
+    "all_green": false,
+    "failed_cases": [
+      {
+        "classname": "scripts.tests.test_fapi_oom_fix_20261009",
+        "name": "test_stream_peak_under_target_and_far_below_legacy"
+      }
+    ]
+  },
+  "runtime_and_tests_frozen": true,
+  "main_commit_push": false,
+  "production_deploy": false,
+  "real_notification_send": false,
+  "prior_fapi_memory_failure_retained": true,
+  "current_aggregate_fapi_failure_peak_mb": 323,
+  "prior_report": {
+    "head": "e6f1c421c7718e24ab4f44ab9cac925c7dcaa1a3",
+    "sha256": "0014a0f3e23c876be977485f7830bcc6b98d3af06574835167d7d3ad4c459da7"
+  },
+  "implemented_source": [
+    "full digest framing and checkpointed retry",
+    "explicit all-group notification view",
+    "historical frozen-ETF diagnostic context",
+    "same-day verified backup content reuse"
+  ],
+  "still_open": [
+    "Claude review/merge/deploy and normal production-cycle acceptance",
+    "PERF365 complete wait/backup/upload/verify timing and main bottleneck",
+    "FAPI memory-boundary root cause; no source/default/threshold/skip changes",
+    "Prior one-off handoff multiprocessing failure: root unproven; diagnostics strengthened only",
+    "original 118 missing set and historical producer/input context",
+    "107-row key-level backup discrepancy and remaining historical reversal causality",
+    "existing multipart backup length-only proof and post-HEAD race"
+  ],
+  "evidence": {
+    "source-commit.json": {
+      "sha256": "03ebc8c2dd571fc046cb5de5e23c7afa43fbafbfb8da62c2f1bcdf3665bbe710"
+    },
+    "boundary-proof.json": {
+      "sha256": "380d27f9ad09b4424b0a89d1db95b00d0111f39fe8935d6842b91aa6d86a78e9"
+    },
+    "freshness-initial.json": {
+      "sha256": "828c51dc967414014a14b503d990f85a4d5e73e0c71783bc1ed19fd3dcee3cb2"
+    },
+    "allgroup-implementation.json": {
+      "sha256": "3c021adbcd676dff7b8509747a8e1d1a76a2483567a46de9ec6cacd7cb59beb9"
+    },
+    "signaldiag-implementation.json": {
+      "sha256": "adf25070f405204693071b29b92a994e541fae612b78dd8592b89ac7dd6eb14a"
+    },
+    "perf365-design.json": {
+      "sha256": "3c775cda34f638a434f018ba4c4833a6f4d6447953a81596846ef57b2b131770"
+    },
+    "perf365-implementation.json": {
+      "sha256": "83ab1355f026eb4293c5dddc7dec0febbad3055b426d69362297d2941a8954ed"
+    },
+    "digest-implementation.json": {
+      "sha256": "ed34a2b153fee476c56d3a4454914202cdcec12b01be0f74561e96306aad1c01"
+    },
+    "digest-freeze-manifest.json": {
+      "sha256": "074bb6a89482eeda0ad55b6267560a6e6bd61c5a7e31070657bd2bc461ac400d"
+    },
+    "digest-compatibility.json": {
+      "sha256": "938a4679140d614326dff7e04c3d6ffa1190af062c388d10efae8c91a44333f7"
+    },
+    "analysis-review-v1.json": {
+      "sha256": "5ae355a587bd2784374ca45c30d100b1a750655a31686c46310fb047c0b093b2"
+    },
+    "delivery-review-v1.json": {
+      "sha256": "599ee868e710db63a5c994996e992a5ae355a02066ebfadf7badfad555cb498d"
+    },
+    "aggregate-fixture-independent-review.json": {
+      "sha256": "401569b1d7bb136475405c3dc02b33f9427daa20348634a4ff7fbdc7d26a736e"
+    },
+    "handoff-race-investigation.json": {
+      "sha256": "d4d09c1f074aae7d60609264875d62cbabb199be51284fc520e6f04bc469ea3b"
+    },
+    "handoff-race-diagnostics-implementation.json": {
+      "sha256": "0a9847d5daee1b441db21636a48f78ca0881ace27be4a0adc6eef93be8e055e2"
+    },
+    "handoff-race-diagnostics-review.json": {
+      "sha256": "ef116efa0ca01acf9f11411003289ace8bdd5b7f3d3b415329c95153bf655ff0"
+    },
+    "full-validation-round3/result.json": {
+      "sha256": "0d887252916a71138f448b2cc15436315c710fd0bbc525c7fa3638205684c219"
+    },
+    "full-validation-round3/full-suite.xml": {
+      "sha256": "be59f78fc9a35aa94e0ba340c7b33122a4b984a214121f96b5f8ad5097b46c03"
+    },
+    "full-validation-round3/full-suite.log": {
+      "sha256": "e8e7640b88ee622b335ed99deb19015c85e2bfe99ee5bf4c5a05adb0e719ee1d"
+    },
+    "full-validation-round3/lint.log": {
+      "sha256": "e2872d573349bc83f5921a0818e6a5522e1f7ff68c323c93b861f77b69fa509e"
+    }
+  },
+  "aggregate_history": [
+    {
+      "round": "full-validation-round1",
+      "head": "fdc6f9b72b9d65e316ef644dea23a4bccde4beef",
+      "raw_summary": "4 failed, 3136 passed, 3 skipped, 18 subtests passed in 477.88s (0:07:57)",
+      "failed_cases": [
+        {
+          "classname": "scripts.tests.test_364_work_budget_20261030",
+          "name": "test_f1_truncated_body_short_read_not_silently_accepted"
+        },
+        {
+          "classname": "scripts.tests.test_alert_denoise_batch2_20261028",
+          "name": "test_e5_4b_send_fail_keeps_buffer"
+        },
+        {
+          "classname": "scripts.tests.test_codex_r2_alert_delivery",
+          "name": "test_caller_disable_does_not_prove_consumer_disabled"
+        },
+        {
+          "classname": "scripts.tests.test_fapi_oom_fix_20261009",
+          "name": "test_stream_peak_under_target_and_far_below_legacy"
+        }
+      ]
+    },
+    {
+      "round": "full-validation-round2",
+      "head": "034b79d58a6124f4f3032c03764697a4d32e2cb7",
+      "raw_summary": "1 failed, 3139 passed, 3 skipped, 18 subtests passed in 516.89s (0:08:36)",
+      "failed_cases": [
+        {
+          "classname": "scripts.tests.test_codex_handoff",
+          "name": "test_real_multiprocess_publish_ack_races_do_not_reset_receipts"
+        }
+      ]
+    },
+    {
+      "round": "full-validation-round3",
+      "head": "d4c6450540b37173dfc532d051346822db5ed024",
+      "raw_summary": "1 failed, 3139 passed, 3 skipped, 18 subtests passed in 429.65s (0:07:09)",
+      "failed_cases": [
+        {
+          "classname": "scripts.tests.test_fapi_oom_fix_20261009",
+          "name": "test_stream_peak_under_target_and_far_below_legacy"
+        }
+      ]
+    }
+  ]
+}

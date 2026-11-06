@@ -37,4 +37,14 @@
 
 ## 验证记录
 
-本轮验证尚在进行，最终结论以不可变交接报告为准。前次完整门禁未全绿的事实保留：`3013 passed / 1 failed / 3 skipped`，唯一失败为未改动的 FAPI 真实样本内存测试。不能沿用局部测试通过冒充本次全量通过。
+本轮最后在真实 Git 隔离 checkout 对代码提交 `d4c6450540b37173dfc532d051346822db5ed024` 运行统一 lint 和完整 `pytest -q scripts/tests/`：**3139 passed / 1 failed / 3 skipped / 0 errors; 18 subtests passed**，耗时 445.184 秒。本轮完整门禁仍未全绿，不能直接合并或部署。运行期间全部输入 SHA 保持；未改 FAPI 源码、原断言、320 MB 门限或跳过项。实现与测试夹具的独立复核均为限定范围 PASS；不将离线验证写成生产恢复。最终精确 head、原始末行、全部失败轮次及证据 SHA 见不可变交接 JSON。 唯一失败为未改动的 FAPI 真实样本内存测试：323 MB，原断言要求 `<320 MB`。前次完整门禁未全绿的事实保留：`3013 passed / 1 failed / 3 skipped`，唯一失败为未改动的 FAPI 真实样本内存测试。不能沿用局部测试通过冒充本次全量通过。
+
+
+本次完整回归历史（不覆盖失败轮次）：
+
+- `full-validation-round1` / `fdc6f9b72`：`4 failed, 3136 passed, 3 skipped, 18 subtests passed in 477.88s (0:07:57)`
+- `full-validation-round2` / `034b79d58`：`1 failed, 3139 passed, 3 skipped, 18 subtests passed in 516.89s (0:08:36)`
+- `full-validation-round3` / `d4c645054`：`1 failed, 3139 passed, 3 skipped, 18 subtests passed in 429.65s (0:07:09)`
+
+
+本索引为统一整合时刻的结论。模块细则中“未 commit/push”“全量留父侧”等描述，是实施单元交付时的状态，不覆盖本节后续聚合结果。部署、真实通知及生产数据操作仍未执行。本分支包含 e6 的整套依赖，不能只摘取续作提交代替完整部署。
