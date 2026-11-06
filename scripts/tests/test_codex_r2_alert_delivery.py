@@ -216,6 +216,13 @@ def notification(sb, route="domain", state="healthy", delivered=False, writefail
     home = sb.tmp / "notice"
     home.mkdir(exist_ok=True)
     tree, path = source("notify.py")
+    # Execute the actual pure runtime dependency under the existing traps. Binding
+    # its real module also makes function-local imports independent of sys.path.
+    helper_tree, helper_path = source("alert_digest_delivery.py")
+    helper = types.ModuleType("alert_digest_delivery")
+    helper.__file__ = helper_path
+    exec(compile(helper_tree, helper_path, "exec"), helper.__dict__)
+    sb.mp.setitem(sys.modules, "alert_digest_delivery", helper)
     os_proxy = types.SimpleNamespace(**{k: getattr(os, k) for k in dir(os) if not k.startswith("__")})
     os_proxy.environ = ({"ALERT_DIGEST_DISABLE": "1"} if state == "digest_disabled" else
                         {"ALERT_BUDGET_DISABLE": "1"} if state == "budget_disabled" else {})
@@ -238,6 +245,9 @@ def notification(sb, route="domain", state="healthy", delivered=False, writefail
           "REPO": home, "argparse": argparse, "SEVERE_PREFIX": "",
           "ALERT_DIGEST_FILE": home / "digest.jsonl", "ALERT_DIGEST_LOCK_FILE": home / "digest.lock",
           "ALERT_DIGEST_STATE_FILE": home / "digest_state.json", "ALERT_DIGEST_HM": "23:25",
+          "FEISHU_CONFIG": home / "offline-feishu.json",
+          "load_feishu_config": lambda: {"enabled": True, "chat_ids": {"report": "oc_offline"}},
+          "_load_feishu_credentials": lambda: ("", ""),
           "DIGEST_ENTRY_BODY_LIMIT": 3000, "DIGEST_REASON_LABELS": {}, "_DIGEST_DETAIL_REASONS": set(),
           "_RECOVERY_PREFIX_RE": re.compile(r"^\[恢复\]"),
           "ALERT_AGGREGATE_SUBJECT_RE": re.compile(r"^\[告警·摘要\]"),
@@ -272,7 +282,8 @@ def notification(sb, route="domain", state="healthy", delivered=False, writefail
     load(tree, path, {"send", "_ledger_key_of", "_digest_chain_available", "_absorb_to_digest",
                       "_atomic_write_digest", "_parse_buffer_lines", "_flock_ex_wait",
                       "_split_body_lines", "_absorb_split_to_digest", "flush_digest",
-                      "_flush_digest_locked", "_stable_rid", "_chmod_like_target", "_main_impl"}, ns)
+                      "_flush_digest_locked", "_render_digest_delivery", "_digest_delivery_route",
+                      "_write_digest_delivery_state", "_stable_rid", "_chmod_like_target", "_main_impl"}, ns)
     if state == "unmounted":
         # 仅验证 provider 返回不可用后的路由，不假装现有 helper 会检测实际挂载。
         ns["_digest_chain_available"] = lambda: (False, "fixture: consumer unmounted")

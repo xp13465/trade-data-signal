@@ -653,15 +653,41 @@ def test_e5_4_digest_no_0000_and_stale_merged_at_2330(_iso, monkeypatch):
 
 
 def test_e5_4b_send_fail_keeps_buffer(_iso, monkeypatch):
-    """★5a 契约: 发送失败**不清理** buffer(条目绝不丢)。"""
+    """失败 journal 不占完成水位；同窗口重试仅清理完整快照。"""
     alerts = _iso["alerts"]
     _seed_digest_buffer(alerts, "2026-10-27", n=2)
-    monkeypatch.setattr(notify, "send", lambda *a, **k: {})
+    snapshot = _digest_rows(alerts / "alert_digest.jsonl")
+    monkeypatch.setattr(notify, "load_feishu_config", lambda: {
+        "enabled": True, "chat_ids": {"report": "oc_offline"}})
+    monkeypatch.setattr(notify, "_load_feishu_credentials", lambda: ("", ""))
+    monkeypatch.setattr(notify, "send", lambda *a, **k: {
+        "email": False, "telegram": False, "feishu": False})
     _freeze(monkeypatch, datetime(2026, 10, 28, 23, 30, 0))
     r = notify.flush_digest()
     _chk(r["sent"] is False, f"全渠道失败 ⇒ sent=False, 实得 {r}")
     _chk(len(_digest_rows(alerts / "alert_digest.jsonl")) == 2, "发送失败必须保留全部条目")
-    _chk(not (alerts / "alert_digest_state.json").exists(), "发送失败不得写水位线(下轮重试)")
+    _chk(_digest_rows(alerts / "alert_digest.jsonl") == snapshot, "失败后完整条目内容必须不变")
+    checkpoint = json.loads((alerts / "alert_digest_state.json").read_text(encoding="utf-8"))
+    _chk(not checkpoint.get("last_sent_day"), "发送失败不得写完成水位线(下轮重试)")
+    pending = checkpoint["pending_delivery"]
+    _chk(pending["complete"] is False, "失败 pending 必须未完成")
+    _chk(pending["entries"] == snapshot, "journal 必须冻结实际失败快照")
+    changed = dict(snapshot[0], hits=2)
+    late = dict(snapshot[1], rid="late-after-snapshot", key="late", subject="late")
+    _write_jsonl(alerts / "alert_digest.jsonl", [changed, snapshot[1], late])
+    calls = []
+
+    def success(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"email": True, "telegram": False, "feishu": True}
+
+    monkeypatch.setattr(notify, "send", success)
+    retried = notify.flush_digest()
+    _chk(retried["sent"] is True and retried["n_remaining"] == 2, "同窗口必须重试并保留更改/新增条目")
+    _chk(len(calls) == 1, "必须真正重试发送冻结批次一次")
+    _chk(calls[0][0] == (pending["subject"], pending["body"]), "重试必须发送同一冻结主题和全文")
+    _chk(_digest_rows(alerts / "alert_digest.jsonl") == [changed, late],
+         "只清理完整匹配的已发快照，保留同 rid 的 hits 变化及晚到条目")
 
 
 # ══════════════════ 断言计数下限(定义顺序最后;防假绿) ══════════════════

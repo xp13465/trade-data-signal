@@ -726,8 +726,12 @@ def test_f1_truncated_body_short_read_not_silently_accepted(http_forms, local_ht
 
     # 真跑该链路: 短包 + HEAD 声明整包 ⇒ 必须 failed(不许当成功备份)
     key = "data/f1_trunc.json"
-    monkeypatch.setattr(ur, "s3_head",
-                        lambda k, **_kw: (200, "0" * 32, _F1_BIG) if k == key else (404, None))
+
+    def _fake_head(k, with_len=False, **_kw):
+        result = (200, "0" * 32, _F1_BIG) if k == key else (404, None, None)
+        return result if with_len else result[:2]
+
+    monkeypatch.setattr(ur, "s3_head", _fake_head)
     monkeypatch.setattr(ur, "s3_request", lambda method, k, **_kw: (200, short))
     copied, skipped, failed, samples = ur._backup_overwritten_keys({key: "0" * 32}, "data-large")
     assert (copied, skipped, failed) == (0, 0, 1), f"短读必须记失败, 实得 {(copied, skipped, failed)}"
