@@ -303,7 +303,101 @@ def _board_etf_map_lof_codes() -> list[tuple[str, str, str]]:
             seen.add(code)
     return out
 
-# ── v2: cninfo PDF 解析汇金/证金具名持有人 ──────────────────────────────────────
+
+# ── 冻结依赖覆盖检查(C) + NAV 缺整行可观测(D) ──────────────────────────────────
+# signal_kelly_etf_freeze.json 键 = date|index_id|signal, 值含 code(冻结 ETF)。
+# 冻结的 code 在冻结日及之后必须有 etf_daily 行(OHLC), 否则 accum_nav/etf_since_return
+# 恒 NULL 且 update_accum_nav 永远补不到(只 UPDATE 已有行, 缺整行不会被 INSERT)。
+FREEZE_PATH = _DATA_DIR / "signal_kelly_etf_freeze.json"
+FREEZE_COVERAGE_RECENT_DAYS = 10
+
+
+def _load_recent_freeze_code_dates(recent_days: int = FREEZE_COVERAGE_RECENT_DAYS) -> dict[str, list[str]]:
+    """读 signal_kelly_etf_freeze.json 近 recent_days 天的 {code: [dates]}。
+
+    键 = date|index_id|signal, 值含 ``code``。返回 {code: [freeze_date, ...]}(去重排序)。
+    文件不存在/读失败返回 {}。只读不写(冻结表归回测脚本所有)。
+    """
+    if not FREEZE_PATH.exists():
+        return {}
+    try:
+        data = json.loads(FREEZE_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    cutoff = (dt.datetime.now() - dt.timedelta(days=recent_days)).strftime("%Y%m%d")
+    out: dict[str, list[str]] = {}
+    for k, v in data.items():
+        if not isinstance(v, dict):
+            continue
+        parts = k.split("|")
+        if len(parts) < 1:
+            continue
+        fdate = parts[0]
+        if len(fdate) != 8 or not fdate.isdigit():
+            continue
+        if fdate < cutoff:
+            continue
+        code = str(v.get("code", "")).strip().zfill(6)
+        if not code:
+            continue
+        out.setdefault(code, []).append(fdate)
+    for c in out:
+        out[c] = sorted(set(out[c]))
+    return out
+
+
+def check_freeze_etf_daily_coverage(
+    conn: sqlite3.Connection,
+    recent_days: int = FREEZE_COVERAGE_RECENT_DAYS,
+) -> dict:
+    """冻结依赖覆盖检查(C): 核对近期冻结 code 在冻结日及之后 etf_daily 是否有行。
+
+    对每个 (code, freeze_date), 查 etf_daily 该 code 在 >= freeze_date 是否有行:
+    - ``missing_row``: 缺整行(需 OHLC 建行) → WARNING
+    - ``has_row_null_nav``: 有行但 accum_nav IS NULL → 提示 NAV 待补
+    - ``has_row_with_nav``: 有行且有 accum_nav → 正常
+
+    只读不写, 不发通知, 不改 freeze, 不自动 accepted。
+    返回 ``{"missing_row": [(code, date)], "has_row_null_nav": [...], "has_row_with_nav": [...]}``。
+    """
+    freeze_map = _load_recent_freeze_code_dates(recent_days)
+    if not freeze_map:
+        return {"missing_row": [], "has_row_null_nav": [], "has_row_with_nav": [], "codes": 0}
+    missing_row: list[tuple[str, str]] = []
+    has_row_null_nav: list[tuple[str, str]] = []
+    has_row_with_nav: list[tuple[str, str]] = []
+    for code, dates in freeze_map.items():
+        for fd in dates:
+            row = conn.execute(
+                "SELECT accum_nav FROM etf_daily WHERE etf_code=? AND date>=? "
+                "ORDER BY date ASC LIMIT 1",
+                (code, fd),
+            ).fetchone()
+            if row is None:
+                missing_row.append((code, fd))
+            elif row[0] is None:
+                has_row_null_nav.append((code, fd))
+            else:
+                has_row_with_nav.append((code, fd))
+    if missing_row:
+        detail = ", ".join(f"{c}/{d}" for c, d in sorted(missing_row)[:10])
+        print(f"  [freeze-coverage] ⚠ 缺整行 {len(missing_row)} 条(需 OHLC 建行): {detail}"
+              f"{'...' if len(missing_row) > 10 else ''}", flush=True)
+    if has_row_null_nav:
+        print(f"  [freeze-coverage] 有行 NULL accum_nav {len(has_row_null_nav)} 条(NAV 待补)",
+              flush=True)
+    if has_row_with_nav:
+        print(f"  [freeze-coverage] 已覆盖 {len(has_row_with_nav)} 条(正常)", flush=True)
+    return {
+        "missing_row": missing_row,
+        "has_row_null_nav": has_row_null_nav,
+        "has_row_with_nav": has_row_with_nav,
+        "codes": len(freeze_map),
+    }
+
+
 # cninfo 公告查询 API（巨潮资讯网）
 CNINFO_ANNOUNCE_URL = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
 CNINFO_PDF_BASE = "http://static.cninfo.com.cn/"
@@ -1187,6 +1281,15 @@ def pipeline_daily() -> dict:
         universe = universe + lof_new
         print(f"  [etf_nt] 追加场内 LOF {len(lof_new)} 只纳入 OHLC 采集", flush=True)
     _ohlc_start = (dt.datetime.now() - dt.timedelta(days=15)).strftime("%Y%m%d")
+
+    # 冻结依赖覆盖检查(C, 2026-11-07): 组装 universe 后, 核对近期冻结 code 在冻结日
+    # 及之后 etf_daily 是否有行。缺整行 → WARNING(需 OHLC 建行), 不发通知/不改 freeze/
+    # 不自动 accepted。盲区根因: 163109 等被 fund_type 漂移排除出 LOF 追加 → 无 OHLC 行 →
+    # update_accum_nav 只 UPDATE 已有行, 缺整行永远补不到。
+    try:
+        check_freeze_etf_daily_coverage(conn)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [freeze-coverage] 检查异常(不阻断采集): {type(e).__name__}: {e}", flush=True)
 
     # 并发 fetch(每进程独立 V8 isolate,8 进程=CPU 核数)
     # C3(2026-07-29): ProcessPool 崩溃重启 pool 1 次,仍失败才 fallback 串行(替代 faba0f08 直接 fallback)
@@ -2242,6 +2345,27 @@ def _run_with_timeout(code: str, timeout_sec: int = 60) -> dict[str, float]:
         return {}
 
 
+def _check_accum_nav_missing_whole_rows(
+    conn: sqlite3.Connection,
+    lookback_days: int = 30,
+) -> list[tuple[str, str]]:
+    """NAV 盲区可观测(D): 识别冻结 code 在冻结日完全无 etf_daily 行(缺整行)。
+
+    update_accum_nav 只 UPDATE 已有行的 accum_nav, 缺整行(code/date 在 etf_daily 无行)
+    永远不会被补到 —— 必须先由 OHLC 采集建行(pipeline_daily 的 mootdx OHLC)。
+    本函数只读不写: 不 INSERT 新行, 不发通知, 只输出明确日志提示「需 OHLC 建行」。
+
+    返回 [(code, freeze_date), ...] 缺整行列表。
+    """
+    cov = check_freeze_etf_daily_coverage(conn, recent_days=lookback_days)
+    missing = cov.get("missing_row", [])
+    if missing:
+        detail = ", ".join(f"{c}/{d}" for c, d in sorted(missing)[:10])
+        print(f"  [accum_nav] ⚠ 缺整行 {len(missing)} 条(已有行 NULL 可补, 缺整行需 OHLC 建行): "
+              f"{detail}{'...' if len(missing) > 10 else ''}", flush=True)
+    return missing
+
+
 def update_accum_nav(conn, lookback_days: int = 30) -> dict:
     """增量补齐 etf_daily.accum_nav(已复权累计净值),返回统计 dict。
     目标行 = 近 lookback_days 天内 accum_nav IS NULL 的 etf_daily 行(缺口/新交易日)
@@ -2299,8 +2423,15 @@ def update_accum_nav(conn, lookback_days: int = 30) -> dict:
                     break
     if not need:
         print(f"  [accum_nav] 近 {lookback_days} 天无缺失行,跳过", flush=True)
-        return {"filled": 0, "codes": 0, "skip": 0, "secs": 0.0}
-    print(f"  [accum_nav] 缺失 {len(rows)} 行 / {len(need)} 只,逐只拉累计净值补齐...", flush=True)
+        # 仍检查冻结依赖缺整行盲区(D): 即使无 NULL 行, 冻结 code 可能完全无 etf_daily 行。
+        _missing_whole = _check_accum_nav_missing_whole_rows(conn, lookback_days)
+        return {"filled": 0, "codes": 0, "skip": 0, "secs": 0.0,
+                "missing_whole_rows": _missing_whole}
+    # NAV 盲区可观测(D, 2026-11-07): 分类「缺整行 vs 已有行 NULL」。
+    # need = 已有行但 accum_nav IS NULL/1.5(可 UPDATE 补);
+    # 冻结 code 在冻结日完全无 etf_daily 行 = 缺整行(只记录提示需 OHLC, 不 INSERT 新行)。
+    missing_whole_rows = _check_accum_nav_missing_whole_rows(conn, lookback_days)
+    print(f"  [accum_nav] 缺失 {len(rows)} 行 / {len(need)} 只(已有行 NULL, 可 UPDATE 补),逐只拉累计净值补齐...", flush=True)
     # 加载跳过列表(从累积历史 7 天都没采到的 code)
     skip_codes = _load_skip_list()
     filled = 0
@@ -2340,7 +2471,8 @@ def update_accum_nav(conn, lookback_days: int = 30) -> dict:
     print(f"[etf_nt] accum-nav 完成 {time.time()-t0:.0f}s: "
           f"缺失 {len(rows)} 行 补 {filled} 行 ok={ok} skip={skip} 失败 {failure_count} 次",
           flush=True)
-    return {"filled": filled, "codes": ok, "skip": skip, "secs": time.time() - t0}
+    return {"filled": filled, "codes": ok, "skip": skip, "secs": time.time() - t0,
+            "missing_whole_rows": missing_whole_rows}
 
 
 def pipeline_accum_nav(lookback_days: int = 30) -> dict:

@@ -13,6 +13,7 @@
 可重复跑：python scripts/build_board_etf_map.py，覆盖 data/board_etf_map.json。
 """
 import bisect
+import datetime as dt
 import json
 import re
 import sqlite3
@@ -654,6 +655,53 @@ def _load_etf_daily_codes() -> set[str] | None:
         return None
 
 
+# 鸡生蛋修复(B): 临时停采判定窗口(近 N 个自然日无新行=临时停采候选,有历史行则保留)。
+LOF_TEMP_GAP_RECENT_DAYS = 10
+# 存活判定阈值: etf_daily 历史累积行数 >= 此值 = 有场内行情(存活), 零行 = 退市。
+# 回填后零行=真退市(2026-09-14 复审: 回填后仅 19 只真死); 任意有行=存活(临时停采不误伤)。
+LOF_LIVE_MIN_HISTORY_ROWS = 1
+
+
+def _load_etf_daily_liveness(recent_days: int = LOF_TEMP_GAP_RECENT_DAYS) -> dict | None:
+    """读 etf_daily, 按 code 分类存活状态(鸡生蛋修复 B)。
+
+    区分三类:
+    - ``delisted``: 历史累积行数 < LOF_LIVE_MIN_HISTORY_ROWS(零行=退市/从未有场内行情) → 应剔除
+    - ``temp_gap``: 有历史行但近 recent_days 天无新行(临时停采) → 保留(163109 有 3887 行历史)
+    - ``active``: 近 recent_days 天有新行 → 保留
+
+    返回 ``{"live": set, "classify": {code: "delisted"|"temp_gap"|"active"}}``,
+    ``live`` = temp_gap ∪ active(存活集合,等价旧 `_load_etf_daily_codes` 返回值);
+    返回 None = DB 读不到(调用方跳过过滤,宁不过滤不误杀)。
+
+    判据说明: 临时停采(如 163109 被 fund_type 漂移排除出 LOF 追加采集)有大量历史行
+    但近期零行, 不得被当退市剔除; 真退市(场内份额终止上市)经全量回填后仍零行。
+    阈值 LOF_LIVE_MIN_HISTORY_ROWS=1(回填后零行=真退市, 任意有行=存活)。
+    """
+    db = _get_etf_db_path()
+    if not db.exists():
+        return None
+    cutoff = (dt.datetime.now() - dt.timedelta(days=recent_days)).strftime("%Y%m%d")
+    try:
+        conn = sqlite3.connect(str(db))
+        cur = conn.cursor()
+        cur.execute("SELECT etf_code, COUNT(*) AS n, MAX(date) AS last_date FROM etf_daily GROUP BY etf_code")
+        classify: dict[str, str] = {}
+        live: set[str] = set()
+        for code, n, last_date in cur.fetchall():
+            if n < LOF_LIVE_MIN_HISTORY_ROWS:
+                classify[code] = "delisted"
+                continue
+            if last_date and last_date >= cutoff:
+                classify[code] = "active"
+            else:
+                classify[code] = "temp_gap"
+            live.add(code)
+        return {"live": live, "classify": classify}
+    except Exception:
+        return None
+
+
 def _load_empty_array_ids() -> set[str]:
     """读 universe_rules.yaml excluded_categories 里 mode=empty_array 的 match 列表(单一事实源)。
 
@@ -1278,7 +1326,11 @@ def _enrich_with_tracking_score(
     return score_ok, score_none, lof_fetched
 
 
-def _build_index_etf_map_auto(reverse_map: dict[str, list[dict]], df_by_code: dict) -> dict[str, list[dict]]:
+def _build_index_etf_map_auto(
+    reverse_map: dict[str, list[dict]],
+    df_by_code: dict,
+    lof_codes: set[str] | None = None,
+) -> dict[str, list[dict]]:
     """自动采集生成指数->ETF候选映射: {index_id: [{code, name, amount, approx}, ...]}。
 
     - 从 reverse_map 按 track_index_code 拿 ETF 列表
@@ -1288,7 +1340,13 @@ def _build_index_etf_map_auto(reverse_map: dict[str, list[dict]], df_by_code: di
     - cross_border: 港股指数 -> True（绕过 EXCLUDE 防御）
     - amount/name 优先用 akshare 实时值（df_by_code），查不到用 etf_index_map.json 的 amount
     - 代码复用绕过防御：非跨境ETF检查 akshare name 不含 EXCLUDE（2026-07-20 事故：159509复用为纳指科技）
+    - fund_type: 按 lof_track_index.json 逐码归属判定（lof_codes 集合），在集合中=lof 否则 etf。
+      2026-11-07 修复(163109 类型漂移): 原对所有 reverse_map 条目硬写 fund_type=etf, 导致
+      lof_track_index.json 正确标 lof 的 163109 等在 board_etf_map 被标成 etf, 被
+      etf_national_team._board_etf_map_lof_codes 的 fund_type=="lof" 门排除出 LOF 追加采集。
+      禁用前缀判断(159 前缀含深市 ETF 会误伤); 只用 lof_track_index.json 权威归属。
     """
+    _lof_set = lof_codes or set()
     result: dict[str, list[dict]] = {}
     for iid, rule in INDEX_TRACK_MAP.items():
         tic = rule["code"]
@@ -1319,7 +1377,8 @@ def _build_index_etf_map_auto(reverse_map: dict[str, list[dict]], df_by_code: di
                 amount = round(c["amount"] / 1e8, 2)
                 etf_name = etf_name_src
             etfs.append({"code": code, "name": etf_name, "amount": amount, "approx": approx,
-                         "fund_type": "etf", "track_index_name": c.get("track_index_name", ""),
+                         "fund_type": "lof" if code in _lof_set else "etf",
+                         "track_index_name": c.get("track_index_name", ""),
                          "match_method": "track_index"})
         result[iid] = etfs
     return result
@@ -1458,27 +1517,45 @@ def main():
         print(f"\ntrack_index 匹配：加载 {len(track_idx_map)} 只 ETF 的 track_index 缓存")
     # 加载 LOF track_index 缓存（fundf10 抓取，含 160225 等 LOF，纳入候选池）
     lof_track_map = _load_lof_track_index()
+    # 163109 类型漂移修复(A): 在 live 过滤前捕获 lof_track_index.json 全量 code 集合,
+    # 传给 _build_index_etf_map_auto 按逐码归属判 fund_type(不用前缀, 不受 live 过滤影响)。
+    lof_codes_raw = set(lof_track_map.keys())
     if lof_track_map:
         # 退市 LOF 全局过滤（用户 2026-09-14 拍板）：已全量回填后场内 etf_daily 仍零行
         # （场内份额终止上市、fund_etf_hist_sina 全史回填后仍无场内行情，场外 fund_daily_nav
         # 仍日更净值能算 grade）的 LOF 不进候选池，防误导用户以为能场内买入。
-        # 场内零行=历史累积零行，临时采集漏数不误伤（正常 LOF 历史有行）。
-        live_codes = _load_etf_daily_codes()
-        if live_codes is not None:
+        # 鸡生蛋修复(B): 区分「退市/从未有历史行(零行)」和「临时停采(有大量历史行、近期零行)」;
+        # 后者不得被剔除(163109 有 3887 行历史但近期可能零行)。判据=历史累积行数>=1 即存活,
+        # 临时停采只记日志不剔除。阈值 LOF_LIVE_MIN_HISTORY_ROWS=1(回填后零行=真退市)。
+        live_info = _load_etf_daily_liveness(recent_days=LOF_TEMP_GAP_RECENT_DAYS)
+        if live_info is not None:
             n_lof = len(lof_track_map)
-            lof_track_map = {k: v for k, v in lof_track_map.items() if k in live_codes}
-            if n_lof != len(lof_track_map):
-                print(f"  + LOF 过滤场内零行（退市/无场内行情）{n_lof - len(lof_track_map)} 只")
+            delisted = []
+            temp_gap = []
+            for k in list(lof_track_map.keys()):
+                cls = live_info["classify"].get(k, "delisted")
+                if cls == "delisted":
+                    delisted.append(k)
+                    del lof_track_map[k]
+                elif cls == "temp_gap":
+                    temp_gap.append(k)
+            if delisted:
+                print(f"  + LOF 过滤退市/零历史行 {len(delisted)} 只: {', '.join(sorted(delisted)[:10])}"
+                      f"{'...' if len(delisted) > 10 else ''}")
+            if temp_gap:
+                print(f"  + LOF 临时停采(有历史行近{LOF_TEMP_GAP_RECENT_DAYS}天无新行)保留 "
+                      f"{len(temp_gap)} 只: {', '.join(sorted(temp_gap)[:10])}"
+                      f"{'...' if len(temp_gap) > 10 else ''}")
         print(f"  + LOF track_index 缓存 {len(lof_track_map)} 只（fund_type=lof，纳入候选池）")
         track_idx_map.update(lof_track_map)  # 合并，LOF 已标 fund_type=lof
 
     # ── 宽基/红利/港股指数 base：track_index_code 精准匹配（移到 Layer 1 之前作宽基base）──
-    # 宽基全量改造：_build_index_etf_map_auto 原在所有Layer后覆盖out[iid]，现移到Layer 1前
+    # 宽基全量改造：_build_index_etf_map_auto 原在所有Layer后覆盖out[iid]，现移到 Layer 1前
     # 作宽基base，Layers 1-4 在此基础上叠加(merge)，不再覆盖。
     # 覆盖 14 个指数(sh/sz/hs300/sz50/csi500/csi1000/cyb/kc50/csi_div/div_lowvol/sz_div/hsi/hstech/hscei)。
     reverse_map = _load_etf_index_map_reverse()
     if reverse_map:
-        index_etf_map = _build_index_etf_map_auto(reverse_map, df_by_code)
+        index_etf_map = _build_index_etf_map_auto(reverse_map, df_by_code, lof_codes=lof_codes_raw)
     else:
         # etf_index_map.json 缺失 -> akshare 名称匹配兜底（防静默失败，不退化为全空）
         index_etf_map = _akshare_name_fallback(df_by_code)
