@@ -320,7 +320,7 @@ def test_new_publish_atomic_failure_leaves_no_packet(case, monkeypatch):
     assert sorted(x.name for x in case.inbox.iterdir()) == [".lock"]
 
 
-def parallel(commands):
+def parallel(commands, *, capture=None):
     processes = [subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
                  for cmd in commands]
@@ -328,19 +328,38 @@ def parallel(commands):
     for process in processes:
         stdout, stderr = process.communicate(timeout=10)
         output.append((process.returncode, stdout, stderr))
+    if capture is not None:
+        Path(capture).write_text(json.dumps([
+            dict(index=index, returncode=code, stdout=out, stderr=err)
+            for index, (code, out, err) in enumerate(output)
+        ], indent=2) + "\n", encoding="utf-8")
     return output
 
 
 def test_real_multiprocess_publish_ack_races_do_not_reset_receipts(case):
     c = case
-    results = parallel([command(c, "publish")] * 8)
+
+    def failing_children(results, queued=False):
+        failures = []
+        for index, (code, out, err) in enumerate(results):
+            try:
+                status = json.loads(out)["status"]
+            except (ValueError, KeyError, TypeError):
+                status = "invalid-or-missing-json-status"
+            if code != 0 or err or (queued and status != "queued"):
+                failures.append(dict(index=index, code=code, status=status, stderr=err))
+        return json.dumps(failures, separators=(",", ":"))
+
+    results = parallel([command(c, "publish")] * 8,
+                       capture=c.inbox.parent / "handoff-race-publish.json")
     assert all(code == 0 and json.loads(out)["status"] == "queued" and not err
-               for code, out, err in results), results
+               for code, out, err in results), failing_children(results, queued=True)
     lock_inode = (c.inbox / ".lock").stat().st_ino
     for state in ("received", "claimed", "completed"):
         # Actual independent Python processes race read-modify-replace, including late publish retries.
-        results = parallel([command(c, "publish"), command(c, "ack", "--state", state)] * 4)
-        assert all(code == 0 and not err for code, _, err in results), results
+        results = parallel([command(c, "publish"), command(c, "ack", "--state", state)] * 4,
+                           capture=c.inbox.parent / ("handoff-race-" + state + ".json"))
+        assert all(code == 0 and not err for code, _, err in results), failing_children(results)
         assert json.loads(cli(c, "status"))[0]["status"] == state
     assert (c.inbox / ".lock").stat().st_ino == lock_inode
     assert len(json.loads(packet_path(c).read_text())["receipts"]) == 3
