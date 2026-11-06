@@ -393,6 +393,7 @@ esac
 # 输出：报告到 stdout，首行 VERIFY_OK=0/1 供 bash 解析
 VERIFY_REPORT=$(VERIFY_TODAY="$TODAY" "$PY" - "$SENT_BACKUP" "$ETF_BACKUP" "$STOCK_BACKUP" "$PF_BACKUP" "$DBDIR" "$SKIP_NOTES" 2>>"$LOG" <<'PYEOF'
 import datetime
+import html
 import os
 import re
 import sqlite3
@@ -435,8 +436,10 @@ def connect_ro(path):
 def table_count(con, tbl):
     try:
         return con.execute(f'SELECT COUNT(*) FROM "{tbl}"').fetchone()[0]
-    except sqlite3.OperationalError:
-        return None  # 表不存在
+    except sqlite3.OperationalError as e:
+        if "no such table:" in str(e):
+            return None  # 表不存在；其它 SQLite 读取错误交给逐表诊断
+        raise
 
 
 def backup_date(path):
@@ -452,13 +455,16 @@ if not CHECKS:
 # --- integrity_check ---
 lines.append("=== integrity_check（完整性）===")
 for name, bdb, _ldb, _tables, _ratio in CHECKS:
+    bcon = None
     try:
         bcon = connect_ro(bdb)
         ic = bcon.execute("PRAGMA integrity_check").fetchone()[0]
-        bcon.close()
     except Exception as e:
         ic = f"ERROR: {e}"
         overall_ok = 0
+    finally:
+        if bcon is not None:
+            bcon.close()
     flag = "OK" if ic == "ok" else "✗FAIL"
     lines.append(f"  {name}: {ic}  [{flag}]")
     if ic != "ok":
@@ -491,39 +497,55 @@ lines.append("")
 lines.append("=== 行数对比（备份 vs 本地，只读）===")
 for name, bdb, ldb, tables, ratio in CHECKS:
     lines.append(f"--- {name} ---")
+    bcon = lcon = None
     try:
-        bcon = connect_ro(bdb)
-        lcon = connect_ro(ldb)
-    except Exception as e:
-        lines.append(f"  ✗ 连接失败: {e}")
-        overall_ok = 0
-        continue
-    for tbl in tables:
-        bcnt = table_count(bcon, tbl)
-        lcnt = table_count(lcon, tbl)
-        if bcnt is None:
-            lines.append(f"  {tbl:28s} 备份表缺失  本地={lcnt}  [✗FAIL]")
+        try:
+            bcon = connect_ro(bdb)
+            lcon = connect_ro(ldb)
+        except Exception as e:
+            lines.append(f"  ✗ 连接失败: {e}")
             overall_ok = 0
             continue
-        if lcnt is None:
-            lines.append(f"  {tbl:28s} 备份={bcnt}  本地表缺失  [✗FAIL]")
-            overall_ok = 0
-            continue
-        # 判断：备份=0且本地>0 -> 备份空/损坏；备份>本地 -> 本地丢数据；
-        #       public_fund 备份 < 本地×0.95 -> 备份过旧/被截断
-        if bcnt == 0 and lcnt > 0:
-            lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [✗FAIL 备份空]")
-            overall_ok = 0
-        elif bcnt > lcnt:
-            lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [✗FAIL 本地丢数据]")
-            overall_ok = 0
-        elif ratio is not None and lcnt > 0 and bcnt < lcnt * ratio:
-            lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [✗FAIL 备份过旧/被截断 <本地×{ratio:.2f}]")
-            overall_ok = 0
-        else:
-            lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [OK]")
-    bcon.close()
-    lcon.close()
+        for tbl in tables:
+            counts = []
+            count_error = False
+            for con in (bcon, lcon):
+                try:
+                    counts.append(table_count(con, tbl))
+                except sqlite3.DatabaseError as e:
+                    counts.append(f"ERROR({type(e).__name__}: {e})")
+                    count_error = True
+            bcnt, lcnt = counts
+            if count_error:
+                lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [✗FAIL SQLite读取失败；备份库={bdb}；本地库={ldb}]")
+                overall_ok = 0
+                continue
+            if bcnt is None:
+                lines.append(f"  {tbl:28s} 备份表缺失  本地={lcnt}  [✗FAIL]")
+                overall_ok = 0
+                continue
+            if lcnt is None:
+                lines.append(f"  {tbl:28s} 备份={bcnt}  本地表缺失  [✗FAIL]")
+                overall_ok = 0
+                continue
+            # 判断：备份=0且本地>0 -> 备份空/损坏；备份>本地 -> 本地丢数据；
+            #       public_fund 备份 < 本地×0.95 -> 备份过旧/被截断
+            if bcnt == 0 and lcnt > 0:
+                lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [✗FAIL 备份空]")
+                overall_ok = 0
+            elif bcnt > lcnt:
+                lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [✗FAIL 本地丢数据]")
+                overall_ok = 0
+            elif ratio is not None and lcnt > 0 and bcnt < lcnt * ratio:
+                lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [✗FAIL 备份过旧/被截断 <本地×{ratio:.2f}]")
+                overall_ok = 0
+            else:
+                lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [OK]")
+    finally:
+        if lcon is not None:
+            lcon.close()
+        if bcon is not None:
+            bcon.close()
 
 # --- 跳过项点名（三态结论；SKIP 不算失败，但不许写成"全 ok"）---
 skip_notes = [n.strip() for n in notes.split(";") if n.strip()]
@@ -546,10 +568,24 @@ if overall_ok:
 else:
     lines.append(f"=== 结论：✗ 失败（见上方 FAIL 项；已覆盖: {covered}{skip_txt}）===")
 
+# 从同一份校验结果提取真实失败，保留库/表上下文；不改变任何判定或退出码。
+failure_details = []
+context = ""
+for line in lines:
+    if line.startswith("==="):
+        context = ""
+    elif line.startswith("--- "):
+        context = line.strip("- ")
+    elif "✗" in line or "=FAIL" in line:
+        failure_details.append(f"{context}: {line.strip()}" if context else line.strip())
+if not overall_ok and not failure_details:
+    failure_details.append("未取得可校验的备份或校验未完成，结果待验；请查看本轮报告。")
+
 # 首行输出标记供 bash 解析
 print(f"VERIFY_OK={overall_ok}")
 # #342：机器行，供 bash 拼告警正文；无跳过/失败项时为空串（bash 侧据此不留空尾巴）
 print(f"VERIFY_SKIP_NOTES={notes_joined}")
+print("VERIFY_FAILURE_DETAILS_HTML=" + html.escape("; ".join(failure_details)))
 print("\n".join(lines))
 PYEOF
 )
@@ -560,6 +596,7 @@ echo "$VERIFY_REPORT" | tee -a "$LOG"
 VERIFY_OK=$(printf '%s\n' "$VERIFY_REPORT" | head -1 | sed 's/^VERIFY_OK=//')
 # 与结论行「跳过: …」同一串（同一次 join 产出）；为空 = 无跳过/失败项
 VERIFY_SKIP_NOTES=$(printf '%s\n' "$VERIFY_REPORT" | sed -n 's/^VERIFY_SKIP_NOTES=//p' | head -1)
+VERIFY_FAILURE_DETAILS_HTML=$(printf '%s\n' "$VERIFY_REPORT" | sed -n 's/^VERIFY_FAILURE_DETAILS_HTML=//p' | head -1)
 
 # public_fund 演练产物（gz 0.75GiB + db 2.76GiB）校验完立即清，不等 EXIT trap
 rm -rf "$PF_DIR"
@@ -571,6 +608,7 @@ if [ "$VERIFY_OK" != "1" ] || [ "$PF_RC" -ne 0 ]; then
   DRY_FLAG=""
   [ "${VERIFY_NOTIFY_DRY_RUN:-0}" = "1" ] && DRY_FLAG="--dry-run"
   BODY="R2 备份恢复演练失败（integrity/行数/新鲜度异常或 public_fund 恢复失败）。<br>时间：$NOW_STR"
+  [ -n "${VERIFY_FAILURE_DETAILS_HTML:-}" ] && BODY="${BODY}<br>失败明细：${VERIFY_FAILURE_DETAILS_HTML}"
   # #342：点名真因（结论行同一串），免收件人只看到通用文案还得翻日志。
   # 为空=本次没有跳过/失败项 ⇒ 不追加，禁止留「失败/跳过项：」空尾巴。
   [ -n "${VERIFY_SKIP_NOTES:-}" ] && BODY="$BODY<br>失败/跳过项：$VERIFY_SKIP_NOTES"

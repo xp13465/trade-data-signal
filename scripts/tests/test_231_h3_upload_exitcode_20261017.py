@@ -154,3 +154,46 @@ def test_07_no_shell_ifbang_chain_for_bare_upload_or_delete():
 # ══════════════════════ ⑤ 断言下限 ══════════════════════
 def test_08z_assertion_floor():
     _chk(_N[0] >= 10, f"断言数应 >=10, 实得 {_N[0]}")
+
+def test_shared_raw_accepts_canonical_path_with_key_lock(_stub_s3, monkeypatch, tmp_path, capsys):
+    import hashlib
+    static = tmp_path / "static-site"
+    (static / "data").mkdir(parents=True)
+    src = static / "data" / "boot.json"
+    payload = b'{"canonical":true}'
+    src.write_bytes(payload)
+    acquired, released = [], []
+    monkeypatch.setattr(upload_r2, "STATIC_DIR", static)
+    monkeypatch.setattr(upload_r2, "_acquire_lock_for_command", lambda *a, **kw: acquired.append(a) or 123)
+    monkeypatch.setattr(upload_r2, "_release_r2_upload_lock", released.append)
+    monkeypatch.setattr(upload_r2, "s3_head", lambda *a, **kw: (200, hashlib.md5(payload).hexdigest()))
+    upload_r2.cmd_upload(str(src), "data/boot.json")
+    assert acquired == [("upload", [str(src), "data/boot.json"])]
+    assert released == [123]
+    assert _stub_s3["calls"][0][2] == payload
+    assert "✓" in capsys.readouterr().out
+
+
+def test_shared_raw_rejects_noncanonical_tmp_path_before_lock_or_put(_stub_s3, monkeypatch, tmp_path):
+    static = tmp_path / "static-site"
+    (static / "data").mkdir(parents=True)
+    src = tmp_path / "boot.json"
+    src.write_text("{}")
+    monkeypatch.setattr(upload_r2, "STATIC_DIR", static)
+    monkeypatch.setattr(upload_r2, "_acquire_lock_for_command", lambda *a, **kw: pytest.fail("wrong-root path reached publication lock"))
+    with pytest.raises(SystemExit):
+        upload_r2.cmd_upload(str(src), "data/boot.json")
+    assert _stub_s3["calls"] == []
+
+
+def test_shared_raw_none_key_lock_denies_put(_stub_s3, monkeypatch, tmp_path, capsys):
+    static = tmp_path / "static-site"
+    (static / "data").mkdir(parents=True)
+    src = static / "data" / "boot.json"
+    src.write_text("{}")
+    monkeypatch.setattr(upload_r2, "STATIC_DIR", static)
+    monkeypatch.setattr(upload_r2, "_acquire_lock_for_command", lambda *a, **kw: None)
+    with pytest.raises(SystemExit):
+        upload_r2.cmd_upload(str(src), "data/boot.json")
+    assert _stub_s3["calls"] == []
+    assert "✓" not in capsys.readouterr().out

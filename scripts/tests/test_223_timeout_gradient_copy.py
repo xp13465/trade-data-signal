@@ -9,7 +9,7 @@ CI 挂载: 位于 `scripts/tests/` ⇒ 被 CI 门禁 ⑧(`python3 -m pytest -q s
   [A] ③ fapi_bj_width_export.py 的 R2 上传超时守卫(_r2_upload_timeout)行为 + 回归守卫
   [B] ③ 调用点确实使用守卫值(静态文本)
   [C] ① / ② / nextday_gap_check 的超时契约值(② 已随 #223② 300→480; ①/gap_check 未改值)
-  [D] A) 文案:AST 抽 notify.send 正文并真渲染, 校验口径/举例/双因结构
+  [D] A) 文案:AST 抽 notify.send 正文并真渲染，校验本轮事实与待核边界
   [E] A) 判别逻辑与阈值(D:>50) / dedup key / subject 未动
 
 ⚠️ 为什么所有抽取都在**测试函数体内**(不在模块级)
@@ -81,12 +81,12 @@ def _render_alert_bodies():
                 continue
             if isinstance(subj, str) and ("异源覆盖" in subj or "独立上传链产物" in subj):
                 found["mass" if "异源覆盖" in subj else "stale"] = (subj, n.args[1])
-    env = {"total_mismatch_found": 114, "repaired_total": 114,
-           "stale_standalone_names": ["data/schedule_stats.json", "data/a-stock-3m.json"],
+    env = {"total_mismatch_found": 131, "repaired_total": 130, "full": False,
+           "stale_standalone_names": ["data/boot.json", "data/hk-1y.json", "data/hk-3m.json", "data/hk-6m.json"],
            "_fmt_name_list": lambda xs: ", ".join(xs),
            # 2026-10-11 降噪②: 脱节告警正文新增规模/判据字段(本渲染 env 补上)
-           "_stale_count": 2, "stale_standalone_bytes": 4096, "_stale_consecutive": 1,
-           "_reason": "单轮规模超常",
+           "_stale_count": 4, "stale_standalone_bytes": 4096, "_stale_consecutive": 16,
+           "_reason": "连续多轮脱节",
            "_STALE_ALERT_COUNT_THRESHOLD": 3, "_STALE_ALERT_BYTES_THRESHOLD": 1048576,
            "_STALE_ALERT_CONSECUTIVE_THRESHOLD": 3}
     out = {}
@@ -175,21 +175,27 @@ def test_223_timeout_gradient_and_copy():
     for k in ("mass", "stale"):
         subj, body = bodies[k]
         print(f"\n--- [{k}] subject: {subj}\n--- [{k}] body:\n{body}\n")
+        # 2026-11-06 用户新要求：当前事实替代固定10月案例，未证来源不作双因定性。
+        # 保留原4+4条文案判别；A/B/C/E的超时、阈值、key/subject断言不变。
         if k == "mass":
-            ck("114" in body, "mass: N 动态带出(=114)")
-            ck("不可逐字考" in body and ">50 已证" in body and "≈114" in body,
-               "mass: 口径「N 不可考 / >50 已证 / ≈114」齐")
-            ck("周日全量对账" in body, "mass: 保留周日可忽略判别")
-            ck("误跑" in body, "mass: 保留「本机误跑」真故障判别")
+            ck("本轮待核查 131 个 key" in body and "成功 130 个" in body,
+               "mass: 当前检查/补传计数分别动态带出")
+            ck("114" not in body and "10-04" not in body and "不可逐字考" not in body,
+               "mass: 当前正文不混历史114/10月案例")
+            ck("平日增量/抽样对账" in body and "周日全量对账" not in body,
+               "mass: 模式来自本轮full=False，不默认解释为周日可忽略")
+            ck("未按原因拆分" in body and "覆盖来源待验" in body and "尚不能确认异源覆盖" in body,
+               "mass: 保留异常判别，来源及缺失原因不冒充已确认")
         else:
-            ck("a-stock-{3m,6m,1y,3y,5y,all}.json" in body and "news_digest" in body
-               and "schedule_stats.json" in body and "overview.json" in body,
-               "stale: 举例=台账实有池(fapi a-stock/overview/news_digest/schedule_stats)")
-            ck("s06" not in body and "nextday_plan" not in body and "daily_brief" not in body,
-               "stale: 误导举例 s06/nextday_plan/daily_brief 已清除")
-            ck("跑前 gen" in body and "设计内" in body, "stale: 归因改为设计内「生成/上传解耦」")
-            ck("连续失败" in body and "被截断" in body and "告警与链路同亡" in body,
-               "stale: 真故障分支(b)判别保留")
+            ck(all(obj in body for obj in ("data/boot.json", "data/hk-1y.json", "data/hk-3m.json", "data/hk-6m.json")),
+               "stale: 正文为本轮实际四个对象")
+            ck("台账实有池" not in body and "a-stock-" not in body and "news_digest 家族" not in body,
+               "stale: 不再用固定示例池代替当前对象")
+            ck("连续第 16 轮" in body and "原因待核" in body,
+               "stale: 明示真实连续轮数与待核状态，不弱化持续异常")
+            ck("不能证明属于设计内无需处置" in body and "连续 16 轮仍需排查" in body
+               and "补传不替代源头修复" in body,
+               "stale: 不作未经证据的双因定性，保留源头排查要求")
 
     print("\n[E] A) 判别逻辑/阈值未动(静态)")
     u = _src(F_UPLOAD)

@@ -23,6 +23,7 @@
 跑法: python3 -m pytest -q scripts/tests/test_212_upload_onfail_loud_pytest.py
 """
 import inspect
+import hashlib
 import json
 import shutil
 import subprocess
@@ -160,6 +161,13 @@ def _install_engine_stubs(fail):
         put_calls.append({"prefix": r2_prefix, "rels": rels})
         if fail:
             return (max(len(rels) - 1, 0), len(rels), rels[-1:], [])
+        confirm = kw.get("on_payload_confirmed")
+        if confirm is not None:
+            for rel in rels:
+                path = Path(local_dir) / rel
+                payload = path.read_bytes()
+                confirm(path, rel, len(payload), hashlib.md5(payload).hexdigest(),
+                        hashlib.sha256(payload).hexdigest())
         return (len(rels), len(rels), [], [])
 
     prev = (ur._upload_glob, ur._backup_overwritten_keys, ur.purge_cache, ur._DRY_RUN)
@@ -332,6 +340,29 @@ def test_c_success_no_alert(stub_env, spec):
     assert rc is None, f"[C] {spec['label']} 成功不 exit(实得 rc={rc})"
     assert not _sends(calls), f"[C] {spec['label']} 成功零告警(不制造噪音)"
     assert not stub_env.trap, f"[E] 真实 notify.send 全程零触达"
+
+
+def test_c_missing_payload_confirmation_keeps_previous_state(stub_env, monkeypatch):
+    """A successful-count fake without required confirmation must not advance state."""
+    spec = next(row for row in _A_CHANNELS if row["label"] == "all-data")
+    root = _mk_tree(spec)
+    stub_env.trees.append(root)
+    state_path = root / "data" / spec["state"]
+    before = state_path.read_bytes()
+    offered = []
+
+    def success_without_confirmation(local_dir, patterns, r2_prefix, **kw):
+        offered.append(callable(kw.get("on_payload_confirmed")))
+        files = list(kw["only_files"])
+        return len(files), len(files), [], []
+
+    monkeypatch.setattr(ur, "_upload_glob", success_without_confirmation)
+    with pytest.raises(SystemExit, match="missing sent-payload confirmation"):
+        ur.cmd_upload_all_data()
+    assert offered == [True]
+    assert state_path.read_bytes() == before
+    assert not _sends(stub_env.calls)
+    assert not stub_env.trap
 
 
 # ============================ [D] 改前对照: 13 通道不接 on_fail 时静默 ============================

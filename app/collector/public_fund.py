@@ -1130,7 +1130,8 @@ def fetch_index_daily(start_date: str | None = None, end_date: str | None = None
 
 # ── Fetcher E4: 回填头部基金历史净值时序 (反推算法用) ────────────────────────────
 def fetch_nav_history(codes: list[str] | None = None, days: int = 400,
-                      fund_type_filter: str = "偏股") -> int:
+                      fund_type_filter: str = "偏股",
+                      outcomes: dict | None = None) -> int:
     """fund_open_fund_info_em 逐只拉历史净值 -> fund_daily_nav (回填历史日期)。
 
     反推算法需要滚动 120 日历史净值时序, 但 fund_daily_nav 只有当日(pipeline_daily 每天跑
@@ -1163,13 +1164,20 @@ def fetch_nav_history(codes: list[str] | None = None, days: int = 400,
 
     start_date = (dt.date.today() - dt.timedelta(days=days + 30)).strftime("%Y%m%d")
     total_rows = 0
-    ok = fail = 0
+    ok = fail = empty = 0
     for i, code in enumerate(codes, 1):
+        outcome = {"status": "error", "attempted_at": time.time()}
+        if outcomes is not None:
+            outcomes[code] = outcome
         try:
             df = safe_call(ak.fund_open_fund_info_em, retries=1,
                            symbol=code, indicator="单位净值走势")
-            if isinstance(df, Exception) or df is None or len(df) == 0:
+            if isinstance(df, Exception) or df is None:
                 fail += 1
+                continue
+            if len(df) == 0:
+                outcome["status"] = "empty"
+                empty += 1
                 continue
             rows: list[tuple] = []
             for _, r in df.iterrows():
@@ -1202,17 +1210,22 @@ def fetch_nav_history(codes: list[str] | None = None, days: int = 400,
                 conn.close()
                 total_rows += len(rows)
                 ok += 1
+                outcome["status"] = f"ok{len(rows)}"
+            else:
+                outcome["status"] = "empty"
+                empty += 1
         except Exception as e:  # noqa: BLE001
             fail += 1
             if fail <= 3:
                 print(f"  [E4] {code} 异常: {type(e).__name__} {e}", flush=True)
-        time.sleep(0.3)  # throttle 防 em 限流
+        finally:
+            time.sleep(0.3)  # every outcome, including empty/error continue paths
         if i % 50 == 0 or i == len(codes):
             elapsed = time.time() - t0
             eta = (elapsed / i) * (len(codes) - i) if i > 0 else 0
             print(f"  [E4] {i}/{len(codes)} ok={ok} fail={fail} "
                   f"rows={total_rows} elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
-    print(f"[E4] 完成: ok={ok} fail={fail} 总行数={total_rows} "
+    print(f"[E4] 完成: ok={ok} empty={empty} fail={fail} 总行数={total_rows} "
           f"耗时={time.time()-t0:.0f}s", flush=True)
     return total_rows
 
@@ -1618,6 +1631,185 @@ PF_STAGE0_PROGRESS_PATH = Path("/tmp/pf-stage0-collect-progress.json")
 PF_STAGE0_THROTTLE = 0.4  # 逐只接口延时(秒), 反爬低加保险
 
 
+# NAV-only retry state. Other fetchers retain their existing empty0 semantics.
+_STAGE0_NAV_RUN_ID = f"{os.getpid()}:{time.time_ns()}"
+_STAGE0_NAV_RETRY_SECONDS = 86400
+_STAGE0_NAV_RETRY_CAP = 100
+
+
+_STAGE0_NAV_VALIDITY_SQL = 'SELECT b.fund_code,\n       EXISTS(SELECT 1 FROM fund_daily_nav AS n\n              WHERE n.fund_code = b.fund_code) AS has_any\nFROM fund_basic AS b\nWHERE b.fund_code > ?\nORDER BY b.fund_code\nLIMIT ?'
+
+
+def _stage0_nav_valid_codes(conn, *, page_size=500, sql_seconds=3.0, total_seconds=30.0, stats=None):
+    """Return complete (catalog, valid) sets or raise; no partial result is valid."""
+    if stats is None:
+        stats = {}
+    stats.update(complete=False, pages=0, catalog_count=0, valid_count=0)
+    started = time.monotonic()
+    total_deadline = started + total_seconds
+    catalog, valid = (set(), set())
+
+    def read(sql, params=()):
+        remaining = total_deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError('NAV complete validation exceeded total budget')
+        cutoff = time.monotonic() + min(sql_seconds, remaining)
+        conn.execute('PRAGMA busy_timeout=' + str(max(1, int(min(sql_seconds, remaining) * 1000))))
+        conn.set_progress_handler(lambda: int(time.monotonic() >= cutoff), 1000)
+        try:
+            rows = conn.execute(sql, params).fetchall()
+            if time.monotonic() >= cutoff:
+                raise TimeoutError('NAV validation SQL exceeded its deadline')
+            return rows
+        finally:
+            conn.set_progress_handler(None, 0)
+    if conn.in_transaction:
+        raise RuntimeError('benchmark requires its own read transaction')
+    conn.execute('BEGIN')
+    try:
+        indices = read('PRAGMA index_list(fund_daily_nav)')
+        if not any((row[1] == 'idx_daily_nav_code' for row in indices)):
+            raise RuntimeError('idx_daily_nav_code missing: stop without a history scan')
+        columns = read('PRAGMA index_info(idx_daily_nav_code)')
+        if not columns or columns[0][2] != 'fund_code':
+            raise RuntimeError('idx_daily_nav_code does not lead on fund_code')
+        plan = read('EXPLAIN QUERY PLAN ' + _STAGE0_NAV_VALIDITY_SQL, ('', page_size))
+        stats['plan'] = [list(row) for row in plan]
+        details = [str(row[3]) for row in plan]
+        if not any(('SEARCH n USING COVERING INDEX' in text for text in details)):
+            raise RuntimeError('NAV lookup is not a covering index seek; stop')
+        if not any(('b USING COVERING INDEX' in text for text in details)):
+            raise RuntimeError('catalog lookup is not covering; stop')
+        after = ''
+        while True:
+            rows = read(_STAGE0_NAV_VALIDITY_SQL, (after, page_size))
+            for code, has_any in rows:
+                catalog.add(code)
+                if has_any:
+                    valid.add(code)
+            stats.update(pages=stats['pages'] + 1, catalog_count=len(catalog), valid_count=len(valid))
+            if len(rows) < page_size:
+                break
+            if rows[-1][0] <= after:
+                raise RuntimeError('catalog keyset did not advance')
+            after = rows[-1][0]
+        stats['complete'] = True
+        return (catalog, valid)
+    finally:
+        conn.set_progress_handler(None, 0)
+        conn.rollback()
+        stats['elapsed_seconds'] = round(time.monotonic() - started, 6)
+
+
+def _stage0_nav_validate(prog: dict) -> dict:
+    conn = get_conn()
+    try:
+        _catalog, valid = _stage0_nav_valid_codes(conn)
+    finally:
+        conn.close()
+    done = set(prog.get("done") or [])
+    retry = prog.setdefault("retry", {})
+    # No per-code time exists in legacy state. Zero means eligible, NOT last tried.
+    for code in done - valid:
+        retry.setdefault(code, {"next_retry_at": 0, "reason": "legacy_unverified"})
+    recovered = set(retry) & valid
+    prog["done"] = sorted((done & valid) | recovered)
+    for code in recovered:
+        retry.pop(code, None)
+    prog["fail"] = [c for c in prog.get("fail", []) if c not in valid]
+    return prog
+
+
+def _save_stage0_nav_progress(prog: dict) -> None:
+    # NAV must persist reservations before GET; a state write failure stops this run.
+    data = json.loads(PF_STAGE0_PROGRESS_PATH.read_text(encoding="utf-8")) if PF_STAGE0_PROGRESS_PATH.exists() else {}
+    data["nav"] = prog
+    atomic_write_json(PF_STAGE0_PROGRESS_PATH, data, mode=0o600)
+
+
+def _run_stage0_nav(days: int) -> dict:
+    conn = get_conn()
+    try:
+        all_codes = [r[0] for r in conn.execute(
+            "SELECT fund_code FROM fund_basic ORDER BY fund_code").fetchall()]
+    finally:
+        conn.close()
+    prog = _load_stage0_progress("nav")
+    done = set(prog.get("done", []))
+    retry = prog.setdefault("retry", {})
+    universe = set(all_codes)
+    retry = {c: v for c, v in retry.items() if c in universe}
+    prog["retry"] = retry
+    now = time.time()
+    due = sorted((c for c, v in retry.items()
+                  if c not in done and v.get("last_run") != _STAGE0_NAV_RUN_ID
+                  and v.get("reserved_run") != _STAGE0_NAV_RUN_ID
+                  and v.get("next_retry_at", 0) <= now),
+                 key=lambda c: (retry[c].get("next_retry_at", 0), c))
+    # The cap belongs to this process/run, including repeated helper invocations.
+    budget = prog.get("retry_run", {})
+    if budget.get("id") != _STAGE0_NAV_RUN_ID:
+        budget = {"id": _STAGE0_NAV_RUN_ID, "count": 0}
+    prog["retry_run"] = budget
+    remaining = max(0, _STAGE0_NAV_RETRY_CAP - budget.get("count", 0))
+    # Only legacy/retry traffic is capped. First-time initialization is unchanged.
+    # First-time reservations also survive post-request state write failure.
+    fresh_reserved = prog.setdefault("fresh_reserved", {})
+    fresh = [c for c in all_codes if c not in done and c not in retry
+             and fresh_reserved.get(c) != _STAGE0_NAV_RUN_ID]
+    for code in fresh:
+        fresh_reserved[code] = _STAGE0_NAV_RUN_ID
+    selected_retry = set(due[:remaining])
+    pending = fresh + due[:remaining]
+    for code in selected_retry:
+        retry[code]["reserved_run"] = _STAGE0_NAV_RUN_ID
+    budget["count"] += len(selected_retry)
+    prog["total"] = len(all_codes)
+    _save_stage0_nav_progress(prog)  # persist migration/deferred work, no fake timestamps
+    stats = {"total": len(all_codes), "valid_done": len(done),
+             "retry_due": len(due), "retry_selected": len(selected_retry),
+             "fresh": len(fresh), "requested": 0, "ok": 0, "empty": 0, "error": 0}
+    for i in range(0, len(pending), 500):
+        batch = pending[i:i + 500]
+        outcomes = {}
+        fetch_nav_history(codes=batch, days=days, fund_type_filter="", outcomes=outcomes)
+        failures = set(prog.get("fail", []))
+        attempts = prog.setdefault("attempt", {})
+        for code in batch:
+            result = outcomes.get(code)
+            if result is None:
+                # No attempt evidence: leave eligible; never fabricate attempt time.
+                continue
+            fresh_reserved.pop(code, None)
+            status = result["status"]
+            at = result["attempted_at"]
+            stats["requested"] += 1
+            if status.startswith("ok"):
+                done.add(code)
+                attempts[code] = status
+                retry.pop(code, None)
+                failures.discard(code)
+                stats["ok"] += 1
+            else:
+                done.discard(code)
+                # normal empty is not failure; both empty/error become retryable later.
+                attempts[code] = "empty0" if status == "empty" else "empty"
+                retry[code] = {"outcome": status, "attempted_at": at,
+                               "next_retry_at": at + _STAGE0_NAV_RETRY_SECONDS,
+                               "last_run": _STAGE0_NAV_RUN_ID}
+                if status == "empty":
+                    failures.discard(code)
+                    stats["empty"] += 1
+                else:
+                    failures.add(code)
+                    stats["error"] += 1
+        prog["done"] = sorted(done)
+        prog["fail"] = sorted(failures)
+        _save_stage0_nav_progress(prog)
+    print(f"[stage0-nav] {stats}", flush=True)
+    return stats
+
+
 def _load_stage0_progress(fetcher_name: str) -> dict:
     """读断点续采进度: {fetcher_name: {done:[], fail:[], total:N}}(经 DB 一致性闸门裁剪)。"""
     if not PF_STAGE0_PROGRESS_PATH.exists():
@@ -1707,6 +1899,8 @@ def _prune_stage0_done_vs_db(fetcher_name: str, prog: dict) -> dict:
     修法: 无摘要 done 统一补 empty0 占位(F-02 核心修复, 防小时级重采),
     占位摘要语义=「该 code 曾有页面响应, 但数据未落库/已被清」, 不是「确认无数据」。
     """
+    if fetcher_name == "nav":
+        return _stage0_nav_validate(prog)
     sql = _STAGE0_DB_VALIDITY.get(fetcher_name)
     done = prog.get("done") or []
     if not sql or not done:
@@ -5576,34 +5770,7 @@ def main():
         for i, a in enumerate(sys.argv[2:], 2):
             if a == "--days" and i + 1 < len(sys.argv):
                 days = int(sys.argv[i + 1])
-        conn = get_conn()
-        try:
-            rows_q = conn.execute("SELECT fund_code FROM fund_basic ORDER BY fund_code").fetchall()
-        finally:
-            conn.close()
-        all_codes = [r[0] for r in rows_q]
-        prog = _load_stage0_progress("nav")
-        done_set = set(prog.get("done", []))
-        pending = [c for c in all_codes if c not in done_set]
-        total = len(all_codes)
-        print(f"[stage0-nav] 全市场{total}只 days={days}, 已完成{len(done_set)}, "
-              f"待采{len(pending)}", flush=True)
-        BATCH = 500
-        t0 = time.time()
-        for bi, i in enumerate(range(0, len(pending), BATCH)):
-            batch = pending[i:i + BATCH]
-            n = fetch_nav_history(codes=batch, days=days, fund_type_filter="")
-            done_set.update(batch)
-            prog["done"] = sorted(done_set)
-            prog["total"] = total
-            _save_stage0_progress("nav", prog)
-            elapsed = time.time() - t0
-            done_count = len(done_set)
-            eta = (elapsed / done_count) * (total - done_count) if done_count > 0 else 0
-            print(f"[stage0-nav] batch {bi+1}/{(len(pending)-1)//BATCH+1} "
-                  f"done={done_count}/{total} ({done_count*100/total:.1f}%) "
-                  f"elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
-        print(f"[stage0-nav] 完成, 已采{len(done_set)}/{total}", flush=True)
+        _run_stage0_nav(days)
     elif cmd == "stage0-sample":
         # 小样本验证3只(161725/000001/110011全流程)
         codes = ["161725", "000001", "110011"]

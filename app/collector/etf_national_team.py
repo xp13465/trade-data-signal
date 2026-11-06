@@ -687,7 +687,7 @@ def fetch_etf_ohlc(code: str, start_yyyymmdd: str = DEFAULT_START, client=None) 
             if start_off > MOOTDX_PAGE_LIMIT:  # 安全上限 ~24年(510050 2005上市≈5180根)
                 break
     if not out:
-        print(f"  [ohlc] WARNING {code} 主源sina+fallback mootdx 均返空，close/amount 将为 NULL",
+        print(f"  [ohlc] WARNING {code} 请求区间(start={start_yyyymmdd})未取得OHLC(sina+mootdx)；本轮不写OHLC，已有行情保留；新份额行可能缺行情",
               flush=True)
     return out
 

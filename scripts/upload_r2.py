@@ -62,6 +62,8 @@ except ModuleNotFoundError:
     _sys.path.insert(0, _os.path.dirname(_os.path.realpath(__file__)))
     import r2_lock_paths as _rlp  # noqa: E402
 
+from r2_export_proof import build_export_manifest, load_run_proof, proof_matches, load_pending_contexts
+
 # stdout 行缓冲:遇换行就 flush,防止 `| tee -a` 管道时 block-buffered
 # 致 industry(268文件~10分钟)等长任务日志静默被误判卡死。
 # Python 3.7+ 支持。覆盖 intraday/deploy/手动所有调用场景。
@@ -961,17 +963,33 @@ def cmd_clean_data_backup():
 
 
 def cmd_upload(local, key):
-    payload = Path(local).read_bytes()
-    status, data = s3_request("PUT", key, payload)
-    if status == 200:
-        print(f"✓ {local} ({len(payload)}B) -> {PUBLIC}/{key}")
-    else:
-        print(f"✗ status={status}\n{data.decode('utf-8', errors='replace')[:1500]}")
-        # #231 H3(2026-10-17): 失败改 rc=1, 与同类单文件命令对齐(cmd_upload_decommissioned
-        # L2923 / cmd_upload_claude_backup L2956 均 sys.exit)。调用方
-        # app/collector/intraday_snapshot.py:2180 判 `returncode == 0 and "✓" in stdout`,
-        # 改后行为不变(失败早已走 else 分支);但消除"rc=0 却失败"的静默隐患(未来调用方踩坑)。
-        sys.exit(1)
+    shared = key.startswith("data/") and key[5:] in build_export_manifest()
+    lock = None
+    if shared:
+        if Path(local).resolve() != (STATIC_DIR / key).resolve():
+            sys.exit("shared export upload requires canonical local path")
+        lock = _acquire_lock_for_command("upload", [local, key])
+        if lock is None:
+            sys.exit("shared raw upload requires key mutex")
+    try:
+        payload = Path(local).read_bytes()
+        status, data = s3_request("PUT", key, payload)
+        if status == 200 and shared:
+            hstatus, etag = s3_head(key, keep_alive=True)
+            if hstatus != 200 or etag is None or etag.strip('"') != hashlib.md5(payload).hexdigest():
+                sys.exit("shared raw upload HEAD did not confirm sent bytes")
+        if status == 200:
+            print(f"✓ {local} ({len(payload)}B) -> {PUBLIC}/{key}")
+        else:
+            print(f"✗ status={status}\n{data.decode('utf-8', errors='replace')[:1500]}")
+            # #231 H3(2026-10-17): 失败改 rc=1, 与同类单文件命令对齐(cmd_upload_decommissioned
+            # L2923 / cmd_upload_claude_backup L2956 均 sys.exit)。调用方
+            # app/collector/intraday_snapshot.py:2180 判 `returncode == 0 and "✓" in stdout`,
+            # 改后行为不变(失败早已走 else 分支);但消除"rc=0 却失败"的静默隐患(未来调用方踩坑)。
+            sys.exit(1)
+    finally:
+        if lock is not None:
+            _release_r2_upload_lock(lock)
 
 
 def cmd_upload_lab():
@@ -1148,7 +1166,8 @@ def _upload_file_to_key(key, path, content_type, bucket=None):
 
 
 def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_fn=None,
-                 only_files=None, on_success=None, verify_etag=False):
+                 only_files=None, on_success=None, verify_etag=False, payload_validator=None,
+                 on_payload_confirmed=None, verify_before_put=False):
     """通用 glob 上传：local_dir 下按 patterns 匹配文件，上传到 R2 r2_prefix/。
 
     R2 key = r2_prefix/{相对 local_dir 的路径}。返回 (ok, total, failed_rels, uploaded_keys)。
@@ -1211,20 +1230,44 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
         _work_budget_check("upload-file")
         rel = f.relative_to(local_dir)
         key = f"{r2_prefix}/{rel}"
+        key_lock = None
+        shared_key = key.startswith("data/") and key[5:] in build_export_manifest()
         try:
+            if shared_key:
+                key_budget = _remaining_work()
+                key_lock = _acquire_r2_upload_lock(
+                    timeout=None if key_budget is None else max(0, key_budget),
+                    lock_path_override=_rlp.key_lock_path(f"{BUCKET}/{key}"))
+                if key_lock is None:
+                    return (i, False, rel, 0, "shared key mutex unavailable", None)
             # 方案2:read_bytes 移进 try 块。broken symlink 的 read_bytes() 抛
             # FileNotFoundError,原代码在 try 外面不捕获致 _upload_glob 整批崩溃
             # (违背 docstring "单文件失败不中断整批"承诺)。移进 try 后单文件失败
             # 仅记日志跳过,不影响其他文件上传。
             payload = f.read_bytes()
+            if payload_validator is not None and not payload_validator(f, payload):
+                return (i, False, rel, 0, "export proof changed before PUT", None)
             size = len(payload)
             md5_local = hashlib.md5(payload).hexdigest()
+            if verify_before_put and shared_key and size <= _MULTIPART_THRESHOLD:
+                hs, he = s3_head(key, keep_alive=True)
+                if hs == 200 and he is not None and he.strip('"') == md5_local:
+                    if on_payload_confirmed is not None:
+                        on_payload_confirmed(f, str(rel), size, md5_local, hashlib.sha256(payload).hexdigest())
+                    return (i, True, rel, size, None, None)  # verified same bytes; no PUT or purge
+
             if size > _MULTIPART_THRESHOLD:
                 # 大文件 multipart(2026-09-21 R2 根治): 单 PUT 卡 600s 超时重试 5 次放大器,
                 # 改 create/并行 part/complete, 单片 64MiB 单请求时长可控。multipart 对象
                 # ETag=分片组合(non-md5), complete 200 即内容就位, 不做 ETag=md5 对账。
                 status, data = _upload_multipart(key, payload, _infer_content_type(key))
                 if status == 200:
+                    if shared_key:
+                        hs, he, hl = s3_head(key, keep_alive=True, with_len=True)
+                        if hs != 200 or hl is None or int(hl) != size:
+                            return (i, False, rel, size, "shared multipart HEAD length mismatch", None)
+                    if on_payload_confirmed is not None:
+                        on_payload_confirmed(f, str(rel), size, md5_local, hashlib.sha256(payload).hexdigest())
                     return (i, True, rel, size, None, key)
                 return (i, False, rel, size,
                         f"multipart status={status} {data[:200] if isinstance(data, (bytes, bytearray)) else data}", None)
@@ -1238,11 +1281,15 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
                 # keep_alive(2026-09-22 主上传通道补接, 2026-09-21 R2 根治只接了 verify-r2 通道):
                 # PUT + 对账 HEAD 复用线程本地连接, 省每文件 2 次跨境握手(TCP 1.16s/首字节 2.10s),
                 # 21957 文件(如 fund-nav)6225s -> ~1500-2000s, 治 deploy 攥锁 2h47m 连锁超时。
-                if verify_etag:
+                if verify_etag or shared_key:
                     _st, etag = s3_head(key, keep_alive=True)
+                    if shared_key and (_st != 200 or etag is None):
+                        return (i, False, rel, size, "shared HEAD unavailable", None)
                     if etag is not None and etag.strip('"') != md5_local:
                         return (i, False, rel, size,
                                 f"ETag对账不一致 etag={etag} local_md5={md5_local}", None)
+                if on_payload_confirmed is not None:
+                    on_payload_confirmed(f, str(rel), size, md5_local, hashlib.sha256(payload).hexdigest())
                 return (i, True, rel, size, None, key)
             return (i, False, rel, size, f"status={status} {data[:200]}", None)
         except (OSError, FileNotFoundError) as e:
@@ -1250,6 +1297,10 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
             return (i, False, rel, 0, f"读文件失败({type(e).__name__}: {e})", None)
         except Exception as e:
             return (i, False, rel, 0, f"异常({type(e).__name__}: {e})", None)
+
+        finally:
+            if key_lock is not None:
+                _release_r2_upload_lock(key_lock)
 
     ok = 0
     failed_rels = []
@@ -1262,7 +1313,8 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
             done += 1
             if success:
                 ok += 1
-                uploaded_keys.append(key)
+                if key is not None:
+                    uploaded_keys.append(key)
                 if on_success is not None:
                     on_success(local_dir / str(rel), str(rel))
                 print(f"[{done}/{total}] ✓ {rel} ({size}B)")
@@ -1635,7 +1687,8 @@ def _read_checkpoint(ckpt_path):
 def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
                         fingerprint=None, exclude_fn=None, checkpoint_every=0,
                         resume_on_stale_marker=False,
-                        dry_run=None, label=None, on_fail=None):
+                        dry_run=None, label=None, on_fail=None, payload_validator=None,
+                        force_verify_fn=None, confirmed_out=None):
     """通用增量上传引擎(2026-09-15 R2 上传增量化, 12 通道复用; 参数化 etf-hist 先例全套机制)。
 
     一次实现, 12 通道共用; 机制逐条继承 cmd_upload_etf_hist(scripts/upload_r2.py 先例):
@@ -1732,7 +1785,7 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         md5 = fingerprint(p)
         sigs[rel] = {"size": sz, "md5": md5}
         old = _norm_state_val(old_files.get(rel))
-        if old[1] is None or old[1] != md5:
+        if old[1] is None or old[1] != md5 or (force_verify_fn is not None and force_verify_fn(p)):
             changed.append(p)
 
     now = _now()                                      # 可注入冻结的运行时刻(§18 L51)
@@ -2000,11 +2053,29 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
             _save_ckpt(done_map)
             since_ckpt = 0
 
+    confirmed_signatures = {}
+    confirmed_lock = threading.Lock()
+
+    def _confirm_sent_payload(f, rel, size, md5, sha256):
+        # Called inside the worker's key critical section, after successful PUT/HEAD.
+        with confirmed_lock:
+            confirmed_signatures[rel] = {"size": size, "md5": md5}
+            if confirmed_out is not None:
+                confirmed_out[rel] = {"size": size, "sha256": sha256}
+
     _upload_started_at = time.time()   # B-0(2026-10-23): 上传段耗时起点(纯日志)
+    upload_options = {"only_files": changed,
+                      "on_success": _on_success if checkpoint_every > 0 else None,
+                      "verify_etag": True}
+    if payload_validator is not None:
+        upload_options.update(
+            verify_before_put=force_verify_fn is not None,
+            on_payload_confirmed=_confirm_sent_payload,
+            payload_validator=lambda f, payload: payload_validator(f, payload)
+            and sigs[str(f.relative_to(local_dir))] ==
+            {"size": len(payload), "md5": hashlib.md5(payload).hexdigest()})
     ok, total, failed_rels, uploaded_keys = _upload_glob(
-        local_dir, glob_patterns, r2_prefix, only_files=changed,
-        on_success=_on_success if checkpoint_every > 0 else None,
-        verify_etag=True)
+        local_dir, glob_patterns, r2_prefix, **upload_options)
     _phase_timing(label, "upload", _upload_started_at, f"ok={ok} total={total}")   # B-0
     elapsed = time.time() - t0
     if total == 0:
@@ -2028,6 +2099,10 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
                 print(f"[{label}] ⚠ on_fail 失败告警回调异常(不阻塞): {_e}", file=sys.stderr)
         sys.exit(1)
 
+    if payload_validator is not None:
+        if set(confirmed_signatures) != set(changed_rels):
+            sys.exit("missing sent-payload confirmation; state not advanced")
+        sigs.update(confirmed_signatures)
     _save_state(sigs, mode, changed_rels)
     try:
         marker_path.unlink(missing_ok=True)   # 全量成功 → 上传标记使命结束
@@ -2708,7 +2783,7 @@ def purge_cache(r2_keys, cache_prefix="/"):
             print(f"⚠ notify 告警发送失败（不阻塞）：{e}")
 
 
-def cmd_upload_all_data():
+def cmd_upload_all_data(publication_lock_held=False):
     """上传 static-site/data/ 下所有小 .json 文件到 R2 data/ 前缀(阶段1a 双写准备)。
 
     为 R2 迁移阶段2(Worker /data/->R2 rewrite)准备全量 R2 数据。
@@ -2742,20 +2817,63 @@ def cmd_upload_all_data():
     """
     data_dir = STATIC_DIR / "data"
     _active_standalone = _active_standalone_keys()
+    _proof = load_run_proof(os.environ.get("R2_EXPORT_PROOF_PATH"),
+                            os.environ.get("R2_EXPORT_RUN_ID"), STATIC_DIR) if publication_lock_held else {}
+
+    batch_id, pending_contexts = load_pending_contexts(
+        os.environ.get("R2_EXPORT_PENDING_BATCH"), STATIC_DIR) if publication_lock_held else (None, [])
+    proof_sets = [_proof] + [outputs for _, outputs in pending_contexts]
+    confirmed = {}
+
+    def _authorized_shared(f, payload=None):
+        try:
+            body = f.read_bytes() if payload is None else payload
+            return any(proof_matches(f, body, evidence, STATIC_DIR) for evidence in proof_sets)
+        except OSError:
+            return False
+
+    def _validate_shared_payload(f, payload):
+        key = f"data/{f.relative_to(data_dir).as_posix()}"
+        return key not in _active_standalone or _authorized_shared(f, payload)
 
     def _exclude_small(f):
         return (_is_all_data_excluded(f)
-                or f"data/{f.relative_to(data_dir).as_posix()}" in _active_standalone)
+                or (f"data/{f.relative_to(data_dir).as_posix()}" in _active_standalone
+                    and not _authorized_shared(f)))
 
     _, _, _, uploaded_keys = _incremental_upload(
         data_dir, ["*.json"], "data", ".r2_all_data_state.json",
         exclude_fn=_exclude_small, label="all-data",
+        payload_validator=_validate_shared_payload, confirmed_out=confirmed,
+        force_verify_fn=lambda f: (f"data/{f.relative_to(data_dir).as_posix()}" in _active_standalone
+                                   and _authorized_shared(f)),
         on_fail=_channel_on_fail(
             "all-data", "upload-all-data", "data",
             "(board_etf_map/daily_brief*/signal_stats/news_digest 等为首页 AI 建议/每日前瞻/"
             "信号统计/新闻看板数据源)"))
     # 阶段2：上传成功后清 CF 边缘缓存（purge_cache 失败不中断; 只 purge 本次实际上传 key）
     purge_cache(uploaded_keys)
+    result_path = os.environ.get("R2_EXPORT_CONTEXT_RESULT_PATH")
+    if result_path and batch_id:
+        outcomes = []
+        for row, requested in pending_contexts:
+            states = []
+            for name, expected in requested.items():
+                f = data_dir / name
+                if f"data/{name}" not in _active_standalone or _is_all_data_excluded(f):
+                    continue  # existing other data channels complete before queue ack
+                actual = confirmed.get(name)
+                if actual == expected:
+                    states.append("done")
+                elif actual is not None and any(other.get(name) == actual for other in proof_sets):
+                    states.append("superseded")  # current canonical bytes proved by another real request
+                else:
+                    states.append("pending")
+            if "pending" not in states:
+                outcomes.append({"id": row["id"], "proof_sha256": row["proof_sha256"],
+                                 "state": "superseded" if "superseded" in states else "done"})
+        from util_atomic import atomic_write_json
+        atomic_write_json(result_path, {"batch_id": batch_id, "outcomes": outcomes}, mode=0o600)
 
 
 def cmd_upload_intraday():
@@ -4761,7 +4879,7 @@ def cmd_verify_r2():
     # 平日发现 >50 个不一致 key = 强信号「R2 被异源覆盖/本机误跑」(事故报告 Q7 建议 7)。
     # 周日全量对账是设计内兜底, 若 >50 也提示(措辞标注可忽略场景), 不阻断(只提示)。
     if total_mismatch_found > 50:
-        print(f"[verify-r2] ⚠ 发现 {total_mismatch_found} 个不一致 key(阈值 50), R2 可能被异源覆盖/本机误跑!",
+        print(f"[verify-r2] ⚠ 本轮待核查 {total_mismatch_found} 个 key(阈值 50)，具体原因和覆盖来源待验。",
               file=sys.stderr)
         try:
             sys.path.insert(0, str(ROOT / "scripts"))
@@ -4774,16 +4892,13 @@ def cmd_verify_r2():
             if not notify.check_dedup(_dedup_key, 86400):
                 _notify_result = notify.send(
                     "[告警] R2 可能被异源覆盖(verify-r2 大量不一致)",
-                    f"verify-r2 对账发现 {total_mismatch_found} 个 key 与本地不一致(阈值 50), "
-                    f"自动补传 {repaired_total} 个。\n"
-                    f"量级口径: N 不可逐字考(旧实现只打计数不落正文, 事后仅存 dedup key+时间); "
-                    f">50 已证(阈值触发); 同轮实测量级 ≈114(10-04 周日全量对账轮, "
-                    f"dedup verify_r2_mass_mismatch 末次 10-04 04:07:20, 该轮补传 114 且无失败记录) "
-                    f"—— 本条 N 只作量级参考。\n"
-                    f"可能原因: ①周日全量对账的设计内兜底(见末句, 可忽略); "
-                    f"②本机误跑 export/upload_r2 覆盖了 R2, 或状态文件丢失后全量覆盖 "
-                    f"—— 请查本机是否误跑 export.py/upload_r2.py。\n"
-                    f"(若为周日全量对账设计内补传可忽略此提示)",
+                    f"本轮模式={'周日全量对账' if full else '平日增量/抽样对账'}。\n"
+                    f"本轮待核查 {total_mismatch_found} 个 key(阈值 50)，"
+                    f"按现有补传流程成功 {repaired_total} 个。\n"
+                    f"待核查项合计可能包含对象缺失、ETag/长度不同或 HEAD 未取得有效结果；"
+                    f"当前未按原因拆分，不能把总数当作已确认缺失数。\n"
+                    f"覆盖来源待验，尚不能确认异源覆盖或某个写入者；"
+                    f"请结合本轮逐 key 对账、产物版本和写入记录排查。",
                     from_prefix="[告警]",
                     # 批次3-C(2026-10-28): 台账键 = 本条 dedup key(可读可反查; 签名恒稳定)。
                     ledger_key=_dedup_key,
@@ -4826,21 +4941,19 @@ def cmd_verify_r2():
                 if not notify.check_dedup(_dedup_key, 86400):
                     _notify_result = notify.send(
                         "[告警] 独立上传链产物与 R2 脱节(verify-r2 兜底补传)",
-                        f"verify-r2 发现以下「脱离 deploy 主链的独立上传产物」R2 副本与本地不一致/缺失"
-                        f"(已自动补传 {repaired_total} 个): {_fmt_name_list(stale_standalone_names)}。\n"
+                        f"verify-r2 本轮以下独立登记对象待核查（可能为缺失、内容差异或 HEAD 未取得有效结果）："
+                        f"{_fmt_name_list(stale_standalone_names)}；本轮全通道补传成功 {repaired_total} 个。\n"
                         f"本轮规模: {_stale_count} 个文件/{stale_standalone_bytes} 字节, "
                         f"连续第 {_stale_consecutive} 轮脱节; 触发判据={_reason}"
                         f"(阈值: 文件数≥{_STALE_ALERT_COUNT_THRESHOLD} 或 字节≥{_STALE_ALERT_BYTES_THRESHOLD} "
                         f"或 连续≥{_STALE_ALERT_CONSECUTIVE_THRESHOLD}轮)。"
                         f"【注】正常小规模偶发补传已降级为仅日志, 本条出现即说明规模/轮次偏离常态。\n"
-                        f"台账实有池(本条对账对象): a-stock-{{3m,6m,1y,3y,5y,all}}.json(fapi 链) + overview.json "
-                        f"+ news_digest 家族 + schedule_stats.json。\n"
-                        f"双因结构(请按此对照判别): "
-                        f"(a)【设计内, 无需处置】这类产物存在多个「为读/为记/为刷」的生成点"
-                        f"(任务链结尾 gen / schedule_monitor 每 15min 跑前 gen / export 重写 / trap EXIT gen), "
-                        f"而上传点滞后 ⇒ 对账窗口内本地版本被判为比 R2 新, 自动补传即把这一代差兜平; "
-                        f"(b)【真故障】该链连续失败或被截断(生成成功但 R2 没跟上), 本应由该链自己的告警触达 —— "
-                        f"若未收到该链告警, 说明告警与链路同亡, 需查链内 notify 在异常/trap 路径下是否也能触达。",
+                        f"本条对象仅来自本轮实际对账清单，不能用固定示例池代替。\n"
+                        f"上述补传成功数为本轮全通道合计，不表示这些对象的生成/上传源头已恢复。\n"
+                        f"对象来源、生成版本与持续脱节原因待核；"
+                        f"当前结果不能证明属于设计内无需处置，也不能确定是哪条生成/上传链失败。"
+                        f"请按本轮对象清单核对任务日志、产物版本及写入记录；"
+                        f"连续 {_stale_consecutive} 轮仍需排查，补传不替代源头修复。",
                         from_prefix="[告警]",
                         # 批次3-C(2026-10-28): 同上, 台账键 = dedup key。
                         ledger_key=_dedup_key,
@@ -4952,6 +5065,7 @@ def cmd_verify_channels(desc_list):
     # 也不允许用它把 verify-r2 未完成的对账缺口静默。(原实现把 verify-r2 当未知通道 continue,
     # 会走到 checked_any/bad 判定, 若同批 upload 通道全通过 → exit 0 → deploy.sh 抑制告警 → 静默缺口。)
     if "verify-r2" in desc_list:
+        print("LIGHT_CHECK_PENDING: verify-r2 本轮对账未完成；缺失/内容差异及覆盖来源均待验，未确认缺口。")
         sys.exit(1)
     # 2026-10-05 #177 解静音: 看门狗「force_full + 超时 kill」的通道本轮从未真正完成上传
     # (PUT 未执行, marker 残留 → 下轮强制全量 → 死循环), 轻量对账 20/通道≈1.2% 兜不住
@@ -4963,9 +5077,9 @@ def cmd_verify_channels(desc_list):
     checked_any = False
     for desc in desc_list:
         if desc in killed:
-            print(f"通道 {desc} 本轮被看门狗超时 kill(force_full 未完成, PUT 未执行), "
-                  f"不适用轻量对账静音, 保留告警", file=sys.stderr)
-            bad.append(f"{desc}: 超时 kill 上传未完成(死循环风险, 需人工确认 R2 是否陈旧)")
+            print(f"通道 {desc} 本轮被看门狗超时 kill，上传进程未正常完成, "
+                  f"不适用轻量对账静音, 对象状态待验，保留告警", file=sys.stderr)
+            bad.append(f"{desc}: 超时 kill，数据状态待验，需人工核对 R2 对象")
             continue
         if desc == "upload-feed":
             ok, why = _light_check_single_file("data/feed.xml", STATIC_DIR / "data" / "feed.xml", "feed.xml")
@@ -4985,6 +5099,7 @@ def cmd_verify_channels(desc_list):
             bad.append(why)
     if not checked_any:
         # 全部通道都跳过(如仅 verify-r2), 保守保留告警, 不降级。
+        print("LIGHT_CHECK_PENDING: 本轮未完成任何有效轻量对账；对象状态待验，未确认缺口。")
         sys.exit(1)
     if bad:
         print(f"LIGHT_CHECK_FAILED: {'; '.join(bad)}")
@@ -5325,6 +5440,15 @@ def _acquire_lock_for_command(cmd, filenames, skip_if_locked=False):
     抽成函数只为让「__main__ 到底拿了哪把锁」可被单测直接断言(原内联在 __main__ 里不可测,
     若改用子进程验证会被本机 export-guard L2 拦在取锁之前, 见 docs/ops/r2-lock-plan-20261023.md §2.4 用例2)。
     """
+    if (cmd == "upload" and len(filenames) >= 2 and filenames[1].startswith("data/")
+            and filenames[1][5:] in build_export_manifest()):
+        try:
+            key_timeout = min(10, max(0, int(os.environ.get("R2_UPLOAD_LOCK_TIMEOUT") or "10")))
+        except ValueError:
+            key_timeout = 10
+        return _acquire_r2_upload_lock(
+            timeout=key_timeout,
+            lock_path_override=_rlp.key_lock_path(f"{BUCKET}/{filenames[1]}"))
     if cmd == "upload-data-files":
         target = _route_upload_lock(cmd, filenames)
         if target == _global_upload_lock_path():
@@ -5415,7 +5539,8 @@ if __name__ == "__main__":
         # signal_kelly_snapshots/ 每日快照+演进 index(lab 凯利区「演进」入口)
         cmd_upload_kelly_snapshots()
     elif cmd == "upload-all-data":
-        cmd_upload_all_data()
+        cmd_upload_all_data(publication_lock_held=
+                            _lock is not None and _lock_domain() in (None, "data"))
     elif cmd == "upload-intraday":
         cmd_upload_intraday()
     elif cmd == "upload-data-files":

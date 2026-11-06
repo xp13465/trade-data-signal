@@ -37,6 +37,8 @@ from pathlib import Path
 ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
+from r2_export_proof import (EXPORT_RANGES, EXPORT_MANIFEST_WARN, build_export_manifest,
+                             output_record, write_run_proof, EXPORT_TAB_NAMES)
 from util_atomic import atomic_write_text, atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 export.py 353 产物统一入口)
 from app.collector.fetchers import load_config  # noqa: E402
 from app.compute import signal_stats as sigstats  # noqa: E402
@@ -48,7 +50,7 @@ DATA_DIR = STATIC_DIR / "data"
 INDEX_DIR = DATA_DIR / "index"
 
 # 1m 周期已废弃删除：前端 range 选项仅 3m/6m/1y/3y/5y/all（无 1m 按钮），1m JSON 无人 fetch（冗余）
-EXPORT_RANGES = ["3m", "6m", "1y", "3y", "5y", "all"]
+
 
 
 # ============ 进程级缓存层（P1-2 性能优化）============
@@ -713,22 +715,12 @@ def export_public_fund_position_estimate():
 #
 # 缺失处置分级: 默认缺失=FAIL(每日必有, export 能跑完必然生成); 仅
 # EXPORT_MANIFEST_WARN 内条目缺失=WARN(设计内可缺)。
-TAB_EXPORTER_FUNCS = {
-    "a-stock": export_a_stock,
-    "hk": export_hk,
-    "global": export_global,
-    "sentiment": export_sentiment,
-    "industry": export_industry,
-}
+TAB_EXPORTER_FUNCS = {name: globals()["export_" + name.replace("-", "_")]
+                      for name in EXPORT_TAB_NAMES}
 
 # 设计内可缺(WARN): signal_kelly_backtest.py 以 subprocess 调用, 失败不阻塞 export,
 # 前端 fallback null(main() 7.9.2 段注释即依据); trades 件由该脚本附带产出(R2 类)。
-EXPORT_MANIFEST_WARN = {
-    "signal_kelly_backtest.json": "subprocess 失败不阻塞 export, 前端 fallback null(设计内可缺)",
-    "signal_kelly_trades.json": "signal_kelly_backtest.py 附带产出(R2 类), 同上设计内可缺",
-    "signal_kelly_backtest_sdc.json": "#91 当日收盘对比档(7.9.2b), subprocess 失败不阻塞 export(设计内可缺)",
-    "signal_kelly_trades_sdc.json": "#91 当日收盘对比档附带产物(R2 类), 同上设计内可缺",
-}
+
 
 # 目录/动态名产物(glob 相对 static-site/data/): 文件名含运行期变量(cfg enabled
 # indices / 31 行业), 按目录族校验「至少有文件」而非逐名。
@@ -741,49 +733,7 @@ EXPORT_MANIFEST_DIR_GLOBS = (
 )
 
 
-def build_export_manifest() -> dict[str, str]:
-    """导出产物全量清单: {json 文件名: 生成条件一句话}(单一事实源, 见上段注释)。"""
-    m: dict[str, str] = {}
-    for name in TAB_EXPORTER_FUNCS:
-        for rng in EXPORT_RANGES:
-            if name == "industry" and rng in ("all", "5y", "3y"):
-                continue  # industry all/5y/3y 为拆分目录(concepts/meta/indices), 见下
-            m[f"{name}-{rng}.json"] = f"tab {name} × range {rng}(main 循环)"
-    m["global-extras-all.json"] = "global-all 循环附带轻量版(extras 四件套)"
-    for rng in ("all", "5y", "3y"):
-        m[f"industry-{rng}-concepts.json"] = f"industry-{rng} 拆分(概念+当日实时行)"
-        m[f"industry-{rng}-meta.json"] = f"industry-{rng} 拆分(热力图 meta)"
-    m["overview.json"] = "main 必更白名单首件"
-    m["boot.json"] = "main 末尾 export_boot 合并首屏 11 JSON"
-    m["intraday_snapshot.json"] = "盘中实时快照, 盘后 export 也从 DB 最新行重写"
-    m["futures.json"] = "futures_position 采集表日更"
-    m["futures_acc_trend.json"] = "期货同向准确度每日趋势"
-    m["futures_acc_conclusion.json"] = "期货准确度规律结论(4 规律+触发状态)"
-    m["ad_line.json"] = "腾落线+涨跌家数比派生"
-    m["volume_ratio.json"] = "量比分布"
-    m["position.json"] = "持仓快照"
-    m["summary.json"] = "每日总结"
-    m["summary_history.json"] = "总结历史(读旧件合并重写)"
-    m["signal_freq.json"] = "信号频次统计"
-    m["signal_stats.json"] = "per-index 回测统计(_get_stats 现算)"
-    m.update(EXPORT_MANIFEST_WARN)  # WARN 级也入清单(存在性检查降级为 WARN)
-    m["rotation.json"] = "行业轮动"
-    m["new_high_low.json"] = "新高新低"
-    m["ma_alignment.json"] = "均线多排"
-    m["market_tier_history.json"] = "沪深300 四档大盘状态全历史"
-    for rng in EXPORT_RANGES:
-        m[f"etf_national_team-{rng}.json"] = f"国家队 6 range 拆分(range {rng})"
-    m["etf_national_team_quarterly.json"] = "国家队季度汇总"
-    m["etf_national_team_holders.json"] = "国家队具名持有人(v2)"
-    for k in (
-        "public_fund_summary", "public_fund_holdings", "public_fund_industry",
-        "public_fund_top20", "public_fund_asset_alloc", "public_fund_industry_fund_map",
-        "public_fund_manuf_subind_fund_map", "public_fund_position_backtest",
-        "public_fund_scale_change_ts", "public_fund_industry_rotation_ts",
-        "public_fund_position_estimate", "public_fund_sw_industry_alloc",
-    ):
-        m[f"{k}.json"] = "公募基金 queries 薄包装(public_fund.db 直连无容错, export 跑完必生成)"
-    return m
+
 
 
 EXPORT_MANIFEST: dict[str, str] = build_export_manifest()
@@ -825,6 +775,9 @@ def _json_default(o):
     raise TypeError(f"not serializable: {type(o)}")
 
 
+_EXPORT_RUN_OUTPUTS = None
+
+
 def write_json(path: Path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     # 紧凑输出（separators 无空白）--industry-all.json 全历史约 26MB，
@@ -832,6 +785,8 @@ def write_json(path: Path, data):
     text = json.dumps(data, ensure_ascii=False, default=_json_default,
                       separators=(",", ":"))
     atomic_write_text(path, text)
+    if _EXPORT_RUN_OUTPUTS is not None:
+        _EXPORT_RUN_OUTPUTS[path.relative_to(DATA_DIR).as_posix()] = output_record(text.encode("utf-8"))
     return len(text)
 
 
@@ -924,6 +879,7 @@ _CODE_FINGERPRINT_CONFIG = (
     "config/site.yaml",
     "config/indicators.yaml",
     "scripts/util_atomic.py",
+    "scripts/r2_export_proof.py",  # extracted inventory/proof writer is a real export dependency
 )
 
 
@@ -1187,6 +1143,8 @@ def write_industry_all_split(conn, cfg) -> tuple[dict, int, int]:
 
 
 def main():
+    global _EXPORT_RUN_OUTPUTS
+    _EXPORT_RUN_OUTPUTS = {}
     # ab#39 增量导出：--incremental 开启（deploy.sh 传；手动跑不带 = 全量，行为不变）
     incremental = "--incremental" in sys.argv
     cfg = load_config()
@@ -1498,6 +1456,8 @@ def main():
     # review R1(2026-08-23): 写盘进 counts 与 EXPORT_MANIFEST 登记对齐, 否则
     # manifest_alignment_check 全量成功也常驻误报 missing=['boot.json'](狼来了效应)。
     counts["boot.json"] = export_boot()
+    write_run_proof(os.environ.get("R2_EXPORT_PROOF_PATH"),
+                    os.environ.get("R2_EXPORT_RUN_ID"), STATIC_DIR, _EXPORT_RUN_OUTPUTS)
 
     # 生成文件后自动走 R2 优化（用户规则：不等超 300MB 才发起）
     # EXPORT_SKIP_R2=1 时跳过（deploy.sh/intraday_snapshot.sh 自己跑 R2，避免重复）

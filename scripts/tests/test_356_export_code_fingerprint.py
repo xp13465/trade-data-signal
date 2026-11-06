@@ -47,7 +47,8 @@ def _make_tree(tmp_path: Path) -> Path:
     shutil.copytree(ROOT / "app", root / "app",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     (root / "scripts").mkdir()
-    shutil.copy2(ROOT / "scripts" / "util_atomic.py", root / "scripts" / "util_atomic.py")
+    for module in ("util_atomic.py", "r2_export_proof.py"):
+        shutil.copy2(ROOT / "scripts" / module, root / "scripts" / module)
     shutil.copytree(ROOT / "config", root / "config",
                     ignore=shutil.ignore_patterns("__pycache__"))
     (root / "static-site").mkdir()
@@ -219,3 +220,22 @@ def test_unreadable_file_never_matches(tmp_path):
         os.chmod(target, 0o644)
     assert fp2 != fp1, "读失败时指纹与正常值相同 = 会误命中陈旧产物"
     assert fp2.startswith("v2:unreadable-"), f"读失败未走失效兜底: {fp2}"
+
+def test_extracted_inventory_helper_is_actual_export_dependency():
+    import r2_export_proof
+    m = _load_export(EXPORT_PY)
+    assert m.EXPORT_MANIFEST == r2_export_proof.build_export_manifest()
+    assert set(m.TAB_EXPORTER_FUNCS) == set(r2_export_proof.EXPORT_TAB_NAMES)
+    assert "signals_today.json" in m.EXPORT_MANIFEST
+
+
+def test_extracted_inventory_helper_content_invalidates(tmp_path):
+    root = _make_tree(tmp_path)
+    m = _load_export(root / "static-site" / "export.py")
+    target = root / "scripts" / "r2_export_proof.py"
+    before = m._code_fingerprint()
+    original = target.read_text(encoding="utf-8")
+    target.write_text(original + "\n# generated inventory dependency changed\n", encoding="utf-8")
+    assert m._code_fingerprint() != before
+    target.write_text(original, encoding="utf-8")
+    assert m._code_fingerprint() == before

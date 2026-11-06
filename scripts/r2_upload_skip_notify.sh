@@ -39,20 +39,24 @@ NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
 #    读当前本地文件(含本趟被跳过时点之后落地的新 export), 保证同日内数据上 R2,
 #    不拖到下一趟 deploy。单文件语义: 任意次跳过 = 补跑一次读最新本地态, 幂等安全。
 PENDING_FILE="${R2_UPLOAD_ASYNC_PENDING:-/tmp/trade_r2_upload_async.pending}"
-touch "$PENDING_FILE"
+if "$PY" "$REPO/scripts/r2_pending_context.py" enqueue; then
+  "$PY" "$REPO/scripts/r2_pending_context.py" retire-source >/dev/null 2>&1 || true
+else
+  echo "✗ pending proof unavailable; request metadata retained for explicit retry" >&2
+fi
 
 # 1+2. deploy 日志显式一行 + skip 留痕流水(每次跳过都记, 不走去重)
 SKIP_TRACE="$REPO/data/logs/r2_upload_async_skip.log"
 mkdir -p "$(dirname "$SKIP_TRACE")"
 if [ -n "$DEPLOY_LOG" ]; then
-  echo "⚠ r2_upload_async 锁跳过(锁 $LOCKPATH 被占, 已有实例在跑负责完成, 本次不执行上传; 已写并发跳过标记 $PENDING_FILE, 在跑实例收尾会增量补跑, 同日内数据上 R2)。$NOW_STR" >> "$DEPLOY_LOG"
+  echo "⚠ r2_upload_async 锁跳过(锁 $LOCKPATH 被占, 已有实例在跑负责完成, 本次不执行上传; 已写并发跳过标记 $PENDING_FILE, 已保存逐请求上下文，正常worker有界接力；未消费记录保留)。$NOW_STR" >> "$DEPLOY_LOG"
 fi
-echo "⚠ r2_upload_async 锁跳过(锁 $LOCKPATH 被占, 已有实例在跑负责完成; 并发跳过标记已写 $PENDING_FILE, 在跑实例收尾增量补跑)。$NOW_STR" >> "$SKIP_TRACE"
+echo "⚠ r2_upload_async 锁跳过(锁 $LOCKPATH 被占, 已有实例在跑负责完成; 并发跳过标记已写 $PENDING_FILE, 按记录逐项确认接手，未消费上下文保留)。$NOW_STR" >> "$SKIP_TRACE"
 
 # 3. latest.md + 普通级 notify(--alert-issue 写 data/alerts/latest.md; 非 --severe;
 #    dedup 21600=6h 防并发重复触发时轰炸; on_skip_notify.sh 同款骨架, 去 severe)。
 "$PY" "$REPO/scripts/notify.py" "R2上传异步锁跳过 $(date '+%m-%d %H:%M')" \
-  "R2 上传异步任务(r2_upload_async.sh)锁跳过: 检测到另一实例正在运行(锁 $LOCKPATH 被占), 本次跳过未执行上传。<br>时间: $NOW_STR<br>跳过=正常降级+同日内补跑: 已在跑那趟收尾检测到并发跳过标记, 会增量补跑数据通道一次(读当前本地文件, 覆盖本趟新 export), 上传幂等+增量指纹+verify-r2 对账, 不拖到下一趟 deploy。如非预期(无其他实例在跑), 检查 $LOCKPATH 是否残留或进程是否卡死。" \
+  "R2 上传异步任务(r2_upload_async.sh)锁跳过: 检测到另一实例正在运行(锁 $LOCKPATH 被占), 本次跳过未执行上传。<br>时间: $NOW_STR<br>跳过=有界接力、未消费上下文保留: 已保存本请求不可变proof上下文，正常worker最多一次补跑；晚到未消费请求保留给下一次正常worker, 是否完成以逐请求记录为准，未消费上下文留给下一次正常worker。如非预期(无其他实例在跑), 检查 $LOCKPATH 是否残留或进程是否卡死。" \
   --from-prefix "[提示]" \
   --feishu-group report \
   --alert-issue "r2_upload_async 锁跳过: 已有实例在运行或锁残留($LOCKPATH)" \

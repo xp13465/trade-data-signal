@@ -385,6 +385,11 @@ fi
 # 且 overview/signal_*/summary/futures 等必更白名单强制全量（防 8/14 "带日期跳过=静默旧数据"）。
 # 手动跑 export.py 不带 --incremental = 全量，行为不变。
 DEPLOY_STAGE="export"
+# A unique private capability for this export invocation only; never inherit another run's token.
+R2_EXPORT_PROOF_DIR="$(mktemp -d "${TMPDIR:-/tmp}/trade-export-proof.XXXXXXXX")" || exit 1
+R2_EXPORT_PROOF_PATH="$R2_EXPORT_PROOF_DIR/proof.json"
+R2_EXPORT_RUN_ID="$("$PY" -c 'import uuid; print(uuid.uuid4().hex)')" || exit 1
+export R2_EXPORT_PROOF_PATH R2_EXPORT_RUN_ID
 echo "→ 运行 export.py --incremental 生成静态 JSON ..." | tee -a "$LOG"
 # 预算(2026-10-29 #352): EXPORT_TIMEOUT 默认 0 = 不限时 = 改动前行为逐位不变
 #   (17:50 全量链等其它调用方完全不受影响; 只有调用方显式给 >0 才包预算)。
@@ -789,6 +794,7 @@ else
     sudo -n systemd-run --collect --unit="r2-upload-$(date +%H%M%S)" \
       --uid="$(id -u)" --gid="$(id -g)" \
       --setenv=REPO="$REPO" --setenv=GIT_REPO="$GIT_REPO" --setenv=DEPLOY_LOG="$LOG" \
+      --setenv=R2_EXPORT_PROOF_PATH="$R2_EXPORT_PROOF_PATH" --setenv=R2_EXPORT_RUN_ID="$R2_EXPORT_RUN_ID" \
       bash "$GIT_REPO/scripts/r2_upload_async.sh" 2>&1 | tee -a "$LOG"
     # 无 pipefail 下管道退出码=tee(恒 0), 必须取 PIPESTATUS[0] 判 systemd-run 真实成败(同 staticdata 改1 C-4)。
     _R2RC="${PIPESTATUS[0]:-0}"

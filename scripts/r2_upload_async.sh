@@ -46,12 +46,23 @@ PY="$REPO/.venv/bin/python"
 # 同 fund_nav_upload_async); 钩子 r2_upload_skip_notify.sh 在跳过时留痕三处(deploy 日志
 # DEPLOY_LOG env + data/logs/r2_upload_async_skip.log + latest.md, 正常降级不轰炸不发 --severe)。
 if [ -z "${R2_UPLOAD_ASYNC_LOCKED:-}" ]; then
+  "$PY" "$REPO/scripts/r2_pending_context.py" enqueue || {
+    echo "✗ async proof registration failed; request metadata retained, no implicit authorization" >&2
+    exit 1
+  }
   exec "$PY" "$REPO/scripts/with_lock.py" \
     --block-timeout "${ASYNC_LOCK_WAIT_SEC:-600}" \
     --on-timeout "$REPO/scripts/r2_upload_skip_notify.sh" \
     /tmp/trade_r2_upload_async.lock \
     env R2_UPLOAD_ASYNC_LOCKED=1 bash "$0" "$@"
 fi
+
+# Retire this invocation's private proof on normal/error exit; skipped outer exec keeps
+# its private temp dir for diagnosis (no public pointer, safe fail-closed; tmp cleanup policy applies).
+_cleanup_export_proof() {
+  "$PY" "$REPO/scripts/r2_pending_context.py" retire-source >/dev/null 2>&1 || true
+}
+trap _cleanup_export_proof EXIT
 
 LOG="$REPO/data/logs/r2_upload_async_$(date +%Y%m%d_%H%M%S).log"
 mkdir -p "$(dirname "$LOG")"
@@ -292,20 +303,37 @@ echo "-> 上传 lab/trade_sim/index/industry/public_fund/etf_score/data-large/al
 # 阶段3：数据唯一走 R2，上传失败需 notify 告警让 schedule_monitor 发现(收尾统一告警见下方)
 R2_FAIL=""
 
-# 并发跳过标记(2026-10-04 ③): r2_upload_skip_notify.sh 在被跳过时写此文件, 本脚本(在跑实例)
-# 收尾检测到 → 增量补跑数据通道一次, 覆盖被跳过那趟的新 export。单文件即可: 多次跳过只算一次,
-# 补跑读取当前本地文件(含所有被跳过 export 的最新态), 幂等增量只传变化文件。
+# Queue-owned immutable proofs survive waiting callers. Existing legacy marker remains a wakeup.
 PENDING_FILE="${R2_UPLOAD_ASYNC_PENDING:-/tmp/trade_r2_upload_async.pending}"
+_pending_prepare() {
+  _PENDING_TMP="$(mktemp -d "${TMPDIR:-/tmp}/r2-pending-batch.XXXXXXXX")" || return 1
+  export R2_EXPORT_PENDING_BATCH="$_PENDING_TMP/batch.json"
+  export R2_EXPORT_CONTEXT_RESULT_PATH="$_PENDING_TMP/result.json"
+  "$PY" "$REPO/scripts/r2_pending_context.py" snapshot --batch "$R2_EXPORT_PENDING_BATCH" >> "$LOG" 2>&1
+}
+_pending_finish() {
+  if [ "$R2_PHASE_FAIL" -eq 0 ]; then
+    "$PY" "$REPO/scripts/r2_pending_context.py" finish --batch "$R2_EXPORT_PENDING_BATCH" \
+      --result "$R2_EXPORT_CONTEXT_RESULT_PATH" --phase-ok >> "$LOG" 2>&1 || touch "$PENDING_FILE"
+  else
+    "$PY" "$REPO/scripts/r2_pending_context.py" finish --batch "$R2_EXPORT_PENDING_BATCH" \
+      --result "$R2_EXPORT_CONTEXT_RESULT_PATH" >> "$LOG" 2>&1 || touch "$PENDING_FILE"
+  fi
+  rm -f -- "$R2_EXPORT_PENDING_BATCH" "$R2_EXPORT_CONTEXT_RESULT_PATH"
+  rmdir -- "$_PENDING_TMP" 2>/dev/null || true
+  unset R2_EXPORT_PENDING_BATCH R2_EXPORT_CONTEXT_RESULT_PATH
+}
 
 # 数据上传通道(不含 verify-r2/purge-low-freq: 对账/清理非「新数据上线」, 补跑无需重复)。
 # 初次与并发跳过补跑共用; run_r2_upload 看门狗估算口径与 deploy.sh 原 R2 段完全一致(见上)。
 upload_data_channels() {
-  run_r2_upload "upload-lab" 900 --lock-domain lab --lock-wait 600 upload-lab || { echo "⚠ upload-lab 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-lab"; }
-  run_r2_upload "upload-trade-sim" 900 --lock-domain trade_sim --lock-wait 600 upload-trade-sim || { echo "⚠ upload-trade-sim 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim"; }
+  R2_PHASE_FAIL=0
+  run_r2_upload "upload-lab" 900 --lock-domain lab --lock-wait 600 upload-lab || { echo "⚠ upload-lab 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-lab"; }
+  run_r2_upload "upload-trade-sim" 900 --lock-domain trade_sim --lock-wait 600 upload-trade-sim || { echo "⚠ upload-trade-sim 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-trade-sim"; }
   # 2026-09-15 R2 上传增量化(设计文档 §3.5): trade-sim-json 全量 370MB@4.2Mbps=739s+连接开销,
   # 900s 周日/首跑全量偏紧(09-14 17:50 update_all exit 143 事故根因之一), 放宽 1800s 留 2 倍余量(仿 fund-nav)。
-  run_r2_upload "upload-trade-sim-json" 1800 --lock-domain trade_sim_data --lock-wait 1200 upload-trade-sim-json || { echo "⚠ upload-trade-sim-json 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim-json"; }
-  run_r2_upload "upload-index" 900 --lock-domain index --lock-wait 600 upload-index || { echo "⚠ upload-index 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-index"; }
+  run_r2_upload "upload-trade-sim-json" 1800 --lock-domain trade_sim_data --lock-wait 1200 upload-trade-sim-json || { echo "⚠ upload-trade-sim-json 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-trade-sim-json"; }
+  run_r2_upload "upload-index" 900 --lock-domain index --lock-wait 600 upload-index || { echo "⚠ upload-index 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-index"; }
   # #253-c1(2026-10-17): 上面这三通道(trade-sim / trade-sim-json / index)的周日 full 若落在白天
   #   禁窗(8:00-23:00)会延后到夜间/次日凌晨轮(白天轮走平日增量, 秒级);00:00-07:59 与 ≥23:00
   #   放行 full —— 依据「同通道凌晨 100% 成功 vs 傍晚 0/2 被看门狗低速 kill」
@@ -314,23 +342,30 @@ upload_data_channels() {
   # ETF 全史日K etf/{code}-all.json -> R2 etf/ 前缀(#10 ETF弹窗长历史, 2026-08-22; 1532只~87MB, 8线程并发)
   # 2026-08-23: 改增量上传(upload_r2.py 状态清单只传变化文件)+ 本通道超时放宽 900s(根治间歇超时告警);
   # 首跑/每周日强制全量一次防状态漂移, 增量正常秒级~分钟级完成。
-  run_r2_upload "upload-etf-hist" 900 --lock-domain etf --lock-wait 600 upload-etf-hist || { echo "⚠ upload-etf-hist 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-hist"; }
+  run_r2_upload "upload-etf-hist" 900 --lock-domain etf --lock-wait 600 upload-etf-hist || { echo "⚠ upload-etf-hist 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-etf-hist"; }
   # 基金全史净值 nav_bucket/{xx}.json(256 桶) -> R2 nav_bucket/ 前缀(#11 基金弹窗净值走势, 2026-08-25;
   # 2026-09-23 桶化 §9B: PUT 次数固定 256 上传耗时有界)。
-  run_r2_upload "upload-accum-nav" 900 --lock-domain accum_nav --lock-wait 600 upload-accum-nav || { echo "⚠ upload-accum-nav 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-accum-nav"; }
-  run_r2_upload "upload-industry" 900 --lock-domain industry --lock-wait 600 upload-industry || { echo "⚠ upload-industry 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-industry"; }
-  run_r2_upload "upload-public-fund" 900 --lock-domain public_fund --lock-wait 600 upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-public-fund"; }
-  run_r2_upload "upload-etf-score" 900 --lock-domain etf_score --lock-wait 600 upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }
+  run_r2_upload "upload-accum-nav" 900 --lock-domain accum_nav --lock-wait 600 upload-accum-nav || { echo "⚠ upload-accum-nav 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-accum-nav"; }
+  run_r2_upload "upload-industry" 900 --lock-domain industry --lock-wait 600 upload-industry || { echo "⚠ upload-industry 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-industry"; }
+  run_r2_upload "upload-public-fund" 900 --lock-domain public_fund --lock-wait 600 upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-public-fund"; }
+  run_r2_upload "upload-etf-score" 900 --lock-domain etf_score --lock-wait 600 upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-etf-score"; }
   # 2026-09-23 ③ + 2026-09-24 P2-sdc 补齐: upload-data-large / upload-kelly-parts / upload-kelly-parts-sdc
   # 改走「按字节量估算超时」(run_r2_upload 不传第二参): 9-23 21:00 backfill_evening 近全量 190MB
   # (跨境 ~150KB/s 需 950-1270s)被固定 900s 看门狗 kill → 27 个 R2 缺口。增量字节小→估算超时小。
-  run_r2_upload "upload-data-large" --lock-domain data --lock-wait 600 upload-data-large || { echo "⚠ upload-data-large 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-data-large"; }
-  run_r2_upload "upload-kelly-parts" --lock-domain kelly_parts --lock-wait 600 upload-kelly-parts || { echo "⚠ upload-kelly-parts 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts"; }
-  run_r2_upload "upload-kelly-parts-sdc" --lock-domain kelly_sdc --lock-wait 600 upload-kelly-parts-sdc || { echo "⚠ upload-kelly-parts-sdc 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts-sdc"; }
-  run_r2_upload "upload-all-data" 900 --lock-domain data --lock-wait 600 upload-all-data || { echo "⚠ upload-all-data 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-all-data"; }
-  run_r2_upload "upload-kelly-snapshots" 900 --lock-domain kelly_snapshots --lock-wait 600 upload-kelly-snapshots || { echo "⚠ upload-kelly-snapshots 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-snapshots"; }
+  run_r2_upload "upload-data-large" --lock-domain data --lock-wait 600 upload-data-large || { echo "⚠ upload-data-large 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-data-large"; }
+  run_r2_upload "upload-kelly-parts" --lock-domain kelly_parts --lock-wait 600 upload-kelly-parts || { echo "⚠ upload-kelly-parts 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-kelly-parts"; }
+  run_r2_upload "upload-kelly-parts-sdc" --lock-domain kelly_sdc --lock-wait 600 upload-kelly-parts-sdc || { echo "⚠ upload-kelly-parts-sdc 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-kelly-parts-sdc"; }
+  run_r2_upload "upload-kelly-snapshots" 900 --lock-domain kelly_snapshots --lock-wait 600 upload-kelly-snapshots || { echo "⚠ upload-kelly-snapshots 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-kelly-snapshots"; }
   # feed.xml 走 R2（2026-08-10）：gen_rss 生成的 RSS 上传到 R2 data/feed.xml，不再 git push
-  run_r2_upload "upload-feed" 900 --lock-domain data --lock-wait 600 upload-data-files feed.xml || { echo "⚠ upload feed.xml 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-feed"; }
+  run_r2_upload "upload-feed" 900 --lock-domain data --lock-wait 600 upload-data-files feed.xml || { echo "⚠ upload feed.xml 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-feed"; }
+  # Snapshot immediately before the final shared channel: later exports during long channels join this pass.
+  if _pending_prepare; then
+  run_r2_upload "upload-all-data" 900 --lock-domain data --lock-wait 600 upload-all-data || { echo "⚠ upload-all-data 失败/超时,继续" | tee -a "$LOG"; R2_PHASE_FAIL=1; R2_FAIL="$R2_FAIL upload-all-data"; }
+    _pending_finish
+  else
+    echo "✗ pending snapshot failed; registrations preserved for next normal worker" | tee -a "$LOG"
+    R2_PHASE_FAIL=1
+  fi
 }
 
 # 收尾统一告警(与 deploy.sh 段2 R2_FAIL 段同款, 2026-09-11 噪音根治 + 2026-09-21 verify-channels 降噪):
@@ -345,9 +380,9 @@ finalize_verify() {
     if [ "$_vc_rc" -eq 0 ]; then
       echo "✓ R2 失败通道轻量对账通过(数据完整, 疑似看门狗超时噪音, 不告警):$R2_FAIL" | tee -a "$LOG"
     else
-      echo "✗ R2 失败通道轻量对账发现缺口(verify-channels rc=$_vc_rc, 照常告警):$R2_FAIL" | tee -a "$LOG"
+      echo "✗ R2 失败通道轻量对账未通过(verify-channels rc=$_vc_rc, 待核查并照常告警):$R2_FAIL" | tee -a "$LOG"
       _vc_tail="$(tail -8 /tmp/r2_verify_channels_async.log 2>/dev/null | sed 's/</\&lt;/g; s/>/\&gt;/g' | tr '\n' ' ')"
-      "$PY" "$REPO/scripts/notify.py" "[告警] R2上传失败" "r2_upload_async.sh R2 上传部分通道失败(轻量对账确认有缺口):$R2_FAIL<br>上传已在异步任务跑完, 请人工确认失败通道文件是否已补传/需手动补刷: bash scripts/upload_r2.py upload-all-data<br>verify-channels 详情: $([ -n "$_vc_tail" ] && echo "$_vc_tail" || echo 无输出)${R2_KILL_CTX}<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
+      "$PY" "$REPO/scripts/notify.py" "[告警] R2上传失败" "r2_upload_async.sh R2 上传部分通道失败(轻量对账未通过，待核查):$R2_FAIL<br>上传已在异步任务跑完, 请人工确认失败通道文件是否已补传/需手动补刷: bash scripts/upload_r2.py upload-all-data<br>verify-channels 详情: $([ -n "$_vc_tail" ] && echo "$_vc_tail" || echo 无输出)${R2_KILL_CTX}<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
       unset _vc_rc _vc_tail
     fi
   fi
@@ -373,8 +408,7 @@ finalize_verify
 # 已传通道之后落地的新文件 → 增量补跑数据通道一次(幂等只传变化文件, 不含 verify/purge)。
 # 单标记语义: 任意次跳过 = 补跑一次读当前本地文件, 覆盖全部被跳过 export 的最新态。
 if [ -f "$PENDING_FILE" ]; then
-  echo "→ 检测到并发跳过标记 $PENDING_FILE, 增量补跑数据通道一次(覆盖被跳过那趟的新 export)" | tee -a "$LOG"
-  rm -f "$PENDING_FILE"
+  echo "→ pending requests remain: one bounded data-channel catch-up; late arrivals stay for next normal worker" | tee -a "$LOG"
   upload_data_channels
   finalize_verify
 fi

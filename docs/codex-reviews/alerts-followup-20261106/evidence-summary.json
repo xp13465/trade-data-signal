@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "status": "IMPLEMENTED_REVIEW_REQUIRED_LOCAL_MEMORY_GATE_NOT_ALL_GREEN",
+  "base": "0907797bf101df8600fa49f14045a6d1c477de5d",
+  "branch": "codex/alerts-followup-20261106",
+  "raw_evidence_private_root": "/tmp/codex-reports/alerts-followup-20261106",
+  "evidence": {
+    "feishu.json": {
+      "sha256": "c866117e889b9e2d7cf6d92383e3cd8a338b88336788007bae98509b87a81635",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/feishu.json"
+    },
+    "ohlc-runtime.json": {
+      "sha256": "379abecd32dfaff202b83cddea2b6fc8cdb5ad226e5f472150592c7658abbfb1",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/ohlc-runtime.json"
+    },
+    "ohlc-code.json": {
+      "sha256": "0ce603ecbc88c8d9011e0ecdcaf9918d30a3bba8198d6d414d6b51e8d888c77b",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/ohlc-code.json"
+    },
+    "ohlc-official-status.json": {
+      "sha256": "e822d88caa0826983a7126e6ac8179c9f2d076c49d67a9c4f609df864a5fdba0",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/ohlc-official-status.json"
+    },
+    "qvix-baseline-comparison.json": {
+      "sha256": "223d74d7eca1069efccbf2316f5758d196e8f4f2789111d65d5f46594f192761",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/qvix-baseline-comparison.json"
+    },
+    "qvix-source-label-comparison.json": {
+      "sha256": "8a32590864f4ee2dfdf49d84097453be4711e052581a2e886dfb30adde36baad",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/qvix-source-label-comparison.json"
+    },
+    "r2-repeat.json": {
+      "sha256": "e5593c96be03363f94c3301fa12850d9b5429890127e357199cb156ba44ba16c",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/r2-repeat.json"
+    },
+    "frozen-history.json": {
+      "sha256": "b1be256b74df16ce6b17e4b5a6695a5057dcae59f6d685f3cb31b1220bc4ff37",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/frozen-history.json"
+    },
+    "nav-coverage.json": {
+      "sha256": "03187fa39addf0c9b4a11e97b3313b3cd79b87337a806ec53237c1ed83d6d3ae",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/nav-coverage.json"
+    },
+    "nav-migration-plan.json": {
+      "sha256": "bcd24b0e40ce12bec51623f152ce9a10b8df6b079757e3cb1fde9e7e55516596",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/nav-migration-plan.json"
+    },
+    "ohlc-review.json": {
+      "sha256": "92e067b956bf5d0d2dd17ed0d98441946c1ee1c915c3e4668139c425d157aebd",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/ohlc-review.json"
+    },
+    "context-review.json": {
+      "sha256": "b88e43fc08bd02c531c6fbae97bb58b62f89b02eaa3ee114c349a91afea71f1d",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/context-review.json"
+    },
+    "stability-review.json": {
+      "sha256": "278fa9fe884f005a08361522815ff825c297c687d773ad8233a6f02a49bff4de",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/stability-review.json"
+    },
+    "frozen-diagnostics-review.json": {
+      "sha256": "312b65df9ff704ff2cc87aee81d1724d3c31d25cdfdae7b45369af436b264a21",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/frozen-diagnostics-review.json"
+    },
+    "nav-query-r3-production.json": {
+      "sha256": "43b90c23cfe177b33f6d5ee560f358c7f0958715169efc6e50a890bf6acf0a32",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/nav-query-r3-production.json"
+    },
+    "nav-original-sql-runtime-r2.json": {
+      "sha256": "fc1d2cad0c323cdc888090c62c52805a959bf47b04f886e13082d6588eb739ec",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/nav-original-sql-runtime-r2.json"
+    },
+    "context-corrupt-implementation.json": {
+      "sha256": "47a0bf42d708a7a5e151a2ce09788e793dd64673bd2ee27d1c4eb9177d7d0cda",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/context-corrupt-implementation.json"
+    },
+    "context-corrupt-review.json": {
+      "sha256": "a6f690f9ebd711694d1684d389200ad4f739cc5930c0336a8a75bd532ad7e92a",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/context-corrupt-review.json"
+    },
+    "nav-implementation-r3.json": {
+      "sha256": "af6557c0b4e7102e8f27ace8d1e67e821bd7a6528c3801a1a4ca8de5723491df",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/nav-implementation-r3.json"
+    },
+    "nav-candidate-r3-review.json": {
+      "sha256": "de7190603849909782390aa2139e61a059943ea5fa48961398c41ed7a58efe27",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/nav-candidate-r3-review.json"
+    },
+    "r2-contract-v6.json": {
+      "sha256": "dc362610603e83589e2755a66a5018f76be97631dc14ba46aa359a86172261b9",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/r2-contract-v6.json"
+    },
+    "r2-implementation-review-v6.json": {
+      "sha256": "9d1c7a0160bbaf257703f11f533ea149c5b2271f28abb9f7507e3a6abbd62aa5",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/r2-implementation-review-v6.json"
+    },
+    "aggregate-fixture-followup-applied.json": {
+      "sha256": "5daf0a86b9a28f621af25c54a80057327f08d3f232d26692089b53d1ff8cac03",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/aggregate-fixture-followup-applied.json"
+    },
+    "final-validation-round2/result.json": {
+      "sha256": "a4e6db2de4b3cccc55bc5385e2e5ff190fd14576f1213ef1102f0ab340a984ec",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/final-validation-round2/result.json"
+    },
+    "final-validation-round4/result.json": {
+      "sha256": "0508e4f1ed6136704693d92d76653a147d854a9328dcd5c45f4c09de639dd94d",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/final-validation-round4/result.json"
+    },
+    "final-validation-round3/result.json": {
+      "sha256": "0e71e31c927083dda3a04a82895e0217c566cad601b4c6e5de0c80690daa8720",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/final-validation-round3/result.json"
+    },
+    "fapi-source-control.json": {
+      "sha256": "ad52252d2bcee20d2692f7ecc6658c0ffe232459fde8070b7e1c7554798ae918",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/fapi-source-control.json"
+    },
+    "fapi-isolated-control.json": {
+      "sha256": "7ccc30851c1ef1a4be0527d3af9ad016ac8769383472dc4dc19d7c62aa8ad55b",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/fapi-isolated-control.json"
+    },
+    "aggregate-fixture-targeted.json": {
+      "sha256": "dcaf2f4e9b63d35b3a5fa9a5b68a5404007631231f61b960c3b62fecf572ad72",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/aggregate-fixture-targeted.json"
+    },
+    "r2-test-fixture-registry-review.json": {
+      "sha256": "ff8f9e5affd37fe3efaa4c1a33aa2056be68a910018795ad53b9ba2ada47337c",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/r2-test-fixture-registry-review.json"
+    },
+    "freshness-before-commit.json": {
+      "sha256": "598e7158eb72031d0d388db0abbd3dee6fa6ec5a6c0cd27c6df92d02a4374479",
+      "path": "/tmp/codex-reports/alerts-followup-20261106/freshness-before-commit.json"
+    }
+  },
+  "facts": {
+    "feishu_sample": {
+      "start_shanghai": "2026-11-06T00:47:30+08:00",
+      "end_shanghai": "2026-11-06T07:46:38+08:00",
+      "groups": 4,
+      "pagination_complete": true,
+      "messages": 6,
+      "operations_alerts": 2,
+      "recovery_messages": 0
+    },
+    "qvix": {
+      "rows": 8753,
+      "baseline_sha256": "920d569685617026a4573d50cbdc1c841d1006c40b8238f80c4d530b061e5f0a",
+      "value_differences": 0,
+      "new_rows": 0,
+      "deleted_rows": 0,
+      "point_comparison_only": true
+    },
+    "ohlc": {
+      "zero_row_codes": [
+        "581030",
+        "581000",
+        "581070",
+        "581050",
+        "581090",
+        "158076",
+        "158900",
+        "158902",
+        "158906",
+        "158901",
+        "158907"
+      ],
+      "empty_response_does_not_clear_price_history": true,
+      "158076_listing_date": "2026-11-06",
+      "other_listing_dates": "UNKNOWN"
+    },
+    "frozen_events": {
+      "original_full_set_persisted": false,
+      "current_reconstruction": 118,
+      "exact_original_samples": 5,
+      "same_set_as_original": "UNPROVEN",
+      "auto_historic_backfill": false
+    },
+    "nav": {
+      "official_NAV_seen_project_zero_rows": [
+        "158076",
+        "581070",
+        "158901"
+      ],
+      "these_codes_progress_done_empty0": true,
+      "all_done_entries": 28434,
+      "all_empty0_entries": 28372,
+      "actual_invalid_done_count": 1603,
+      "all_empty0_is_not_all_invalid": true,
+      "production_upstream_response": "UNVERIFIED_LOCAL_TLS_FAILURE_IS_NOT_CLOUD_PROOF",
+      "actual_valid_done_count": 26831,
+      "current_catalog_count": 28456,
+      "query_pages": 57,
+      "query_seconds": 6.937869,
+      "actual_invalid_by_fund_type": "UNKNOWN",
+      "current_queue_positions": {
+        "158076": 1255,
+        "158901": 1262,
+        "581070": 1546
+      },
+      "first_run_contains_these_three": false,
+      "retry_cap_per_python_process": 100,
+      "first_touch_calls_if_static_queue": 17
+    }
+  },
+  "first_completed_aggregate": {
+    "passed": 3003,
+    "failed": 10,
+    "skipped": 3,
+    "seconds": 511.93,
+    "inputs_unchanged": true,
+    "failures": "test212 confirmation callback1; test345 shadow dependency7; new checker lifecycle registration2; all integration omissions, no guard removal"
+  },
+  "final_aggregate": {
+    "passed": 3013,
+    "skipped": 3,
+    "failed": 1,
+    "errors": 0,
+    "seconds": 454.44,
+    "inputs_unchanged": true,
+    "gate_passed": false,
+    "only_failure": "unchanged FAPI real-dump stream peak322MB versus original320MB limit"
+  }
+}

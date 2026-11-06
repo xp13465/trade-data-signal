@@ -343,6 +343,65 @@ def _load_frozen_missing_accepted():
         return set()
 
 
+def _archive_frozen_missing_diagnostics(new_events, accepted_hit):
+    """归档本次过滤快照; 不读业务库/冻结内容, 不覆盖已有诊断, 失败不拦通知。"""
+    import hashlib
+    import tempfile
+    import uuid
+
+    try:
+        run_id = uuid.uuid4().hex
+        missing = [f"{d}|{i}|{s}" for d, i, s in new_events]
+        accepted = [f"{d}|{i}|{s}" for d, i, s in accepted_hit]
+        # 只哈希当前小源码文件; 不是已加载字节码或当时业务输入的证明。
+        code_hash = "unknown"
+        try:
+            with open(__file__, "rb") as source:
+                code = source.read(1024 * 1024 + 1)
+            if len(code) <= 1024 * 1024:
+                code_hash = hashlib.sha256(code).hexdigest()
+        except OSError:
+            pass
+        payload = {
+            "schema_version": 1,
+            "run_id": run_id,
+            "pid": os.getpid(),
+            "recorded_at": datetime.now().astimezone().isoformat(),
+            "mode": {
+                "entrypoint": "full_guard",
+                "buy_price_basis": ("next_day_open" if KELLY_BUY_NEXTDAY
+                                    else "signal_day_close"),
+            },
+            "freeze_path": os.path.realpath(_etf_freeze_path()),
+            "metadata_count": len(missing),
+            "filtered_missing": missing,
+            "accepted_hit_count": len(accepted),
+            "accepted_hits": accepted,
+            "hashes": {
+                "source_file_sha256_at_archive": code_hash,
+                "filtered_missing_sha256": hashlib.sha256(
+                    json.dumps(missing, ensure_ascii=False, separators=(",", ":"))
+                    .encode("utf-8")).hexdigest(),
+                "freeze_input_sha256": "unknown",
+                "map_input_sha256": "unknown",
+                "signal_input_sha256": "unknown",
+            },
+            "latest_signal_date": "unknown",
+            "input_provenance": "guard_memory_snapshot; business input hashes unavailable",
+        }
+        audit_dir = os.path.join(ROOT, "data", "audit", "frozen_missing")
+        os.makedirs(audit_dir, exist_ok=True)
+        path = os.path.join(audit_dir, f"{run_id}.json")
+        # helper先完成fsync/原子写; 同分区link原子发布, EEXIST绝不替换旧文件。
+        with tempfile.TemporaryDirectory(prefix=".pending-", dir=audit_dir) as staging:
+            staged = os.path.join(staging, "diagnostic.json")
+            atomic_write_json(staged, payload, mode=0o600)
+            os.link(staged, path)
+        print(f"   冻结缺失诊断已归档: {path}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 — 旁路取证失败不得吞真实告警
+        print(f"   ⚠ 冻结缺失诊断归档失败: {type(exc).__name__}", file=sys.stderr)
+
+
 def _alert_frozen_missing(events):
     """冻结表缺失历史信号事件告警(分级 + 已确认接受过滤)。events: {(date, index_id, signal), ...}。
 
@@ -371,6 +430,7 @@ def _alert_frozen_missing(events):
         return
     sorted_events = new_events
     n = len(sorted_events)
+    _archive_frozen_missing_diagnostics(sorted_events, accepted_hit)
     sample = "; ".join(f"{d}|{i}|{s}" for d, i, s in sorted_events[:5])
     subject = f"[kelly] 冻结表缺失历史信号事件 {n} 个"
     body = (f"回测拒绝补冻历史信号事件 {n} 个(冻结分时点防御闸触发)。"

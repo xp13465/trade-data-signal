@@ -89,3 +89,10 @@ def lock_endpoints(include_domains: bool = True) -> list[tuple[str, str]]:
         out.extend((f"{DOMAIN_LABEL_PREFIX}{d}", str(domain_lock_path(d)))
                    for d in sorted(LOCK_DOMAINS))
     return out
+
+def key_lock_path(bucket_key: str) -> Path:
+    # Stable per-object mutex beside the existing global lock; no I/O.
+    import hashlib
+    base = global_lock_path()
+    digest = hashlib.sha256(bucket_key.encode("utf-8")).hexdigest()
+    return base.with_name(f"{base.stem}_key_{digest}{base.suffix}")
