@@ -105,7 +105,7 @@ python3 -B scripts/systemd_timeout_gradient_audit.py \
   --snapshot docs/deploy/systemd-units-cloud-snapshot.txt --check-snapshot
 ```
 
-Claude将真实追加快照、观察时间、已安装但停用状态及检查rc作为交接证据审核，再按现有规范main-merge流程合并本分支。源实现已在交付中；待完成的是生产安装/观察事实，而不是交给Claude另写脚本。
+Claude将真实追加快照、观察时间、已安装但停用状态及检查rc作为交接证据审核。main-merge前还必须完成第4节的OPS_DB迁移、secrets就绪及根配置持久化；根 `wrangler.jsonc` 的部署配置与真实追加快照一并提交审核，再按现有规范main-merge。不能先合并触发自动部署，再补库或密钥。源实现已在交付中；待完成的是生产资源/安装/观察事实，而不是交给Claude另写脚本。
 
 5. **合并后才拉源码并启用**：上述门槛满足且main-merge成功后，Claude再在真实CODE目录确认main分支并 `git pull --ff-only origin main`。完成第3—6节的密钥/D1/API配置和首样验收后，才允许启用timer。合并前/拉取前不启动collector、不启用timer；不以提前采样制造“已云部署”证据。只安装单元不代表采集、独立cron或业务健康已验证。
 
@@ -154,7 +154,7 @@ PY
 
 已有 session secret 与 `ADMIN_USERS` 原样保留。`ADMIN_USERS` 使用既有 `provider:providerUid` 完整 allowlist；普通登录用户禁止访问。若需新增管理员，Claude 先核对原 allowlist，在私有输入流程中提供完整合并值（不能覆盖丢旧成员），加入私有 secrets 文件；不要提交身份列表或把 session secret 放入候选 config。前端 bootstrap token 只驻留内存，不持久化到 localStorage/URL。
 
-密钥使用 `wrangler deploy --secrets-file` 随同代码一次发布，保留未列出的已有 secrets。`wrangler secret put` 本身会立即产生部署，不应误作无副作用准备步骤；需要独立版本准备时使用官方 versions secret 流程并记录待发布版本。初期不配置 `OPS_ALERT_WEBHOOK`，且 `OPS_ALERT_ENABLED=false`、`OPS_ALERT_SCOPE=watchdog`。
+本次main-merge会触发自动部署，必须按第4节先把OPS密钥配置到实际目标Worker，再放行合并；仅生成本地secrets文件或上传未发布版本不算就绪。`wrangler secret put/bulk` 会影响已部署Worker，不是无副作用准备步骤，由Claude在部署窗口执行并记录版本；不要在目标不存在时接受创建空Worker的兜底。若采用versions secret流程，必须明确发布并验证密钥已对目标部署生效。手动发布也可使用 `wrangler deploy --secrets-file` 随代码上传，未列出的已有secrets保留，但不能用“稍后手动上传”代替自动部署前的就绪门槛。初期不配置 `OPS_ALERT_WEBHOOK`，且 `OPS_ALERT_ENABLED=false`、`OPS_ALERT_SCOPE=watchdog`。
 
 ## 4. 新建 D1、配置合成与迁移顺序（Claude 生产步骤）
 
@@ -205,22 +205,58 @@ os.replace(tmp, p)
 PY
 ```
 
-4. 人工复核候选 diff：`OPS_DB` ID与所有现有 D1 不同、迁移目录正确、Worker名与主入口不变、旧绑定不丢、只新增同域路径、没有 secret 字面值、没有将本地 fake namespace带到生产。不要直接覆盖 stock config。
-5. 迁移 **OPS_DB 这一 binding**，先列表再执行。必须显式 `--remote --config`；不要对 FUND_SCORE_DB 执行本包 SQL。
+4. 人工复核候选 diff：`OPS_DB` ID与所有现有 D1 不同、迁移目录正确、Worker名与主入口不变、旧绑定不丢、只新增同域路径、没有 secret 字面值、没有将本地 fake namespace带到生产。`/tmp`候选用于预检和资源准备，不能成为唯一生产配置来源，不能整份复制覆盖根配置。
+5. **main-merge前**迁移 **OPS_DB 这一 binding**，先列表再执行。必须显式 `--remote --config`；不要对 FUND_SCORE_DB 执行本包 SQL。记录真实UUID及迁移成功回执，失败时不得合并触发自动部署。
 
 ```bash
 node node_modules/wrangler/bin/wrangler.js d1 migrations list OPS_DB --remote --config "$OPS_CANDIDATE"
 node node_modules/wrangler/bin/wrangler.js d1 migrations apply OPS_DB --remote --config "$OPS_CANDIDATE"
 ```
 
-6. 部署同域 Worker/API/静态 shell、独立 cron 和 secrets，仍关闭真实通知：
+6. **main-merge前配置secrets**：确认目标是既有生产Worker，并核对当前版本/旧业务路由基线，再由Claude执行下列有副作用的密钥更新。私有JSON只含本次需要的字符串值，不含null（null会删除密钥）；既有session/ADMIN_USERS等未列出的secret保留。`OPS_INGEST_TOKEN`必须就绪，`OPS_ADMIN_TOKEN`仅在使用bootstrap时设置。密钥值不进配置/提交/日志；仅记录目标、密钥名称及更新后的版本。更新后复核旧业务路由，失败时停止合并。
 
 ```bash
 python3 ops/monitoring/configure.py --source "$PWD/wrangler.jsonc" --check-current "$OPS_SOURCE_SHA256"
-node node_modules/wrangler/bin/wrangler.js deploy --config "$OPS_CANDIDATE" --secrets-file "$OPS_PRIVATE/worker-secrets.json"
+node node_modules/wrangler/bin/wrangler.js secret bulk "$OPS_PRIVATE/worker-secrets.json" --config "$OPS_CANDIDATE"
 ```
 
-7. 首次尚无采样时，GET `/api/ops/state` 在watchdog首次检查起15分钟宽限内应保持unknown（不是setup green）；逾宽限仍无首样后，后续独立cron须暴露 `watchdog.status=stale` 和 `bootstrap_overdue=true`，不能永久以空库unknown掩盖监测未建立。未登录/普通用户拒绝；允许的session admin或bootstrap才能读；ingest token不能读；所有API错误与成功都 `no-store`、无CORS。缺binding/迁移明确503。先验收这些，再启用collector。
+7. **把真实部署增量持久化到根 `wrangler.jsonc`**：Claude在部署整合分支手工合入下列逻辑片段。真实UUID只能来自第2步实际新建D1，示例占位符不能提交/部署。将OPS_DB对象追加到现有 `d1_databases`，将cron按集合并入原 `triggers.crons`，将两个非密钥vars并入现有 `vars`；保留所有旧字段、对象、表达式及注释。根配置的迁移目录必须使用仓库相对路径。候选为解决跨目录解析含有绝对本机路径，**禁止把整个 `/tmp`候选复制回根配置**，也不提交本地fake binding或secret文件。
+
+```jsonc
+{
+  "d1_databases": [
+    // 保留原有数据库对象；在该数组末尾追加此对象。
+    {
+      "binding": "OPS_DB",
+      "database_name": "trade-ops-monitor",
+      "database_id": "<替换为本次真实新建OPS_DB的UUID>",
+      "migrations_dir": "ops/monitoring/migrations"
+    }
+  ],
+  "triggers": {
+    // 保留其他triggers字段及所有原有cron；此处只展示新增表达式，已有则不重复。
+    "crons": ["*/5 * * * *"]
+  },
+  "vars": {
+    // 保留所有原有非密钥vars；密钥不放在这里。
+    "OPS_ALERT_ENABLED": "false",
+    "OPS_ALERT_SCOPE": "watchdog"
+  }
+}
+```
+
+此片段是增量示意，不是替换整份配置的模板。修改后人工逐字段对比根配置与已核验候选：OPS_DB真实ID、名称、迁移目录解析结果、合并后的cron和vars一致，旧binding/routes/assets/session设置不丢。对**根配置**再做静态预检和真实Wrangler构建干跑，不仅验/tmp候选；预检中的运行态unknown仍按第6节处理，不能改判绿。下面命令由Claude执行，不部署、不迁移数据库：
+
+```bash
+python3 ops/monitoring/verify_deployment.py --worker-config "$PWD/wrangler.jsonc"
+node node_modules/wrangler/bin/wrangler.js deploy --dry-run --config "$PWD/wrangler.jsonc" --outdir "$OPS_PRIVATE/root-config-build"
+```
+
+8. **提交根部署配置与真实unit快照，再main-merge**：只有第5步迁移、第6步已生效secrets、第1.1节disabled安装/真实快照及所有门禁均有回执，Claude才提交根配置和真实新unit快照并按规范main-merge。根配置变更会触发 `.github/workflows/deploy-cf.yml`（实际执行 `npx wrangler deploy`）；Cloudflare Git integration也必须使用同一仓库根目录的版本化 `wrangler.jsonc`，不读/tmp候选或另一个旧配置。合并前由Claude核对两条部署通道的目标Worker、工作目录和构建来源，避免任一通道先上未就绪库。
+
+main自动部署成功后，记录实际commit、Worker版本、OPS_DB绑定/迁移与独立cron实值；若需手动重发，也显式使用 `--config "$PWD/wrangler.jsonc"`，而不是旧候选。即使曾用候选过渡发布，也必须完成根配置入main及从该source部署的验收；仅候选部署成功不算交付完成。
+
+9. 首次尚无采样时，GET `/api/ops/state` 在watchdog首次检查起15分钟宽限内应保持unknown（不是setup green）；逾宽限仍无首样后，后续独立cron须暴露 `watchdog.status=stale` 和 `bootstrap_overdue=true`，不能永久以空库unknown掩盖监测未建立。未登录/普通用户拒绝；允许的session admin或bootstrap才能读；ingest token不能读；所有API错误与成功都 `no-store`、无CORS。缺binding/迁移明确503。先验收这些，再启用collector。
 
 D1历史full快照保留24h、摘要历史30d、事件/修订90d，由独立scheduled执行清理；**当前最后head记录及其full快照是例外，不受24h payload清理或30d历史删除门限限制，直到新head取代它**。这样长期失联后仍有最后一次采样可供排查，但旧head必须继续显示陈旧/未知观察，保留内容不等于fresh或业务健康。配置声明不是清理已执行证明。Cron变更传播可能需数分钟，官方上限说明为15分钟；必须以实际Worker scheduled记录和界面时间核验，不能仅看config。
 
@@ -309,12 +345,12 @@ python3 ops/monitoring/verify_deployment.py --origin https://ss.fx8.store --admi
 - 授权/普通用户/未登录/ingest与admin隔离；private no-store/no-CORS；公开HTML不含私有快照。
 - 两次5min采样与独立Worker cron均实际发生；D1新库可读写、历史/事件幂等去重、人工修订乐观冲突保护。
 - 停collector的失联演练应先在本地smoke中完成；生产演练如需做，由Claude单独安排并保持真实通知关闭。unknown、stale、critical不能以“已发信”关闭。
-- 真实通知仍为可选：只有用户/Claude显式启用 `OPS_ALERT_ENABLED=true` 并私下配置批准host的HTTPS `OPS_ALERT_WEBHOOK` 后才允许；默认 `OPS_ALERT_SCOPE=watchdog`，只通知collector失联/恢复。业务事件必须保留且以 `owned_by_existing_chain` suppressed 可见，不新增业务通知。显式 `all` 必须由Claude先审核与旧链的故障域/实例/恢复去重。启用前审查已有outbox积压/重试记录，防旧事件集中投递；本轮测试不发送真实消息。
+- 真实通知仍为可选：只有用户/Claude显式启用 `OPS_ALERT_ENABLED=true` 并私下配置批准host的HTTPS `OPS_ALERT_WEBHOOK` 后才允许；默认 `OPS_ALERT_SCOPE=watchdog`，只通知collector失联/恢复。后续启用或调整scope时，先配置所需secret，再把实际开关同步到根 `wrangler.jsonc` 的版本化vars，审核合并后从该source部署并验证。不能只在CF控制台临时改vars，否则下次main部署可能覆盖；不用`--keep-vars`代替配置对账。业务事件必须保留且以 `owned_by_existing_chain` suppressed 可见，不新增业务通知。显式 `all` 必须由Claude先审核与旧链的故障域/实例/恢复去重。启用前审查已有outbox积压/重试记录，防旧事件集中投递；本轮测试不发送真实消息。
 
 ## 7. 不丢数据库的回滚
 
 1. **暂停写入**：`sudo systemctl disable --now trade-ops-monitor.timer`，随后 `sudo systemctl stop trade-ops-monitor.service`。不要删输出文件来制造“已恢复”，不要移除业务任务。
-2. **关闭真实通知与独立cron**：在私有回滚候选配置中令 `OPS_ALERT_ENABLED=false`、`OPS_ALERT_SCOPE=watchdog`，只移除本次新增 `*/5 * * * *` watchdog cron，保留所有原有cron/绑定。若部署前本来就有相同表达式，不能机械移除共享cron，交Claude按原配置恢复。由Claude显式deploy回滚候选；Cron删除同样有传播延时，不能仅停collector后假定不会触发失联告警。
+2. **关闭真实通知与独立cron**：在私有回滚候选配置中令 `OPS_ALERT_ENABLED=false`、`OPS_ALERT_SCOPE=watchdog`，只移除本次新增 `*/5 * * * *` watchdog cron，保留所有原有cron/绑定。若部署前本来就有相同表达式，不能机械移除共享cron，交Claude按原配置恢复。由Claude显式deploy回滚候选，并将同样的非密钥vars/cron回滚同步到版本化根配置、审核合并，防下次自动deploy重新启用；保留OPS_DB绑定和资源。Cron删除同样有传播延时，不能仅停collector后假定不会触发失联告警。
 3. 必要时回滚 Worker 到已记录的先前版本，保留回滚前候选、版本与私有证据；既有业务API/session/assets要按原基线验收。Worker代码回滚不等于数据库迁移逆转，也不保证cron配置一同撤回，单独核对。
 4. **保留 OPS_DB 资源、迁移表、事件和人工修订**。不执行 d1 delete、不删迁移、不TRUNCATE、不将其改绑业务库。停止scheduled后保留期清理也暂停，历史暂时超过原保留窗属于暂停状态，交Claude评估容量，不自动删除。
 5. 原生数据库备份与隔离恢复演练按下一节执行；保持umask077，不放静态资源/R2/public仓。不能以面板数据导出替代数据库备份，也不能以导出成功代替恢复成功。
@@ -376,6 +412,7 @@ node node_modules/wrangler/bin/wrangler.js d1 execute OPS_RESTORE_DRILL_DB --rem
 - [D1 migrations及migrations_dir](https://developers.cloudflare.com/d1/reference/migrations/)
 - [Cron Triggers配置、UTC与传播](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
 - [Worker secrets、部署副作用及secrets-file](https://developers.cloudflare.com/workers/configuration/secrets/)
+- [版本化非密钥环境变量](https://developers.cloudflare.com/workers/configuration/environment-variables/)
 - [Wrangler命令](https://developers.cloudflare.com/workers/wrangler/commands/)
 
 本包只实现安装材料和读验证，不替Claude执行生产操作，也不把面板/API可用直接等同业务健康。

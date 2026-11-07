@@ -10,6 +10,52 @@
   const OBSERVATION = { unknown: '未知', pending: '待观察', not_started: '尚未开始', observing: '观察进行中', observed: '已有观察证据', passed: '观察通过', complete: '观察完成' };
   const KINDS = { host: '主机', repository: '仓库', service: '服务', task: '任务', data: '数据', monitor: '监控', alert_rule: '告警规则', surface: '展示入口', external: '外部服务', edge: '关系', incident: '问题' };
   const STATUS = { ok: 'OK', warning: '警告', critical: '严重', unknown: '未知', fresh: '采集新鲜', stale: '采集过期', failed: '失败', baseline: '版本基线' };
+  // Exact product messages only (ops_monitor.py and ops state/watchdog). Raw evidence stays unchanged.
+  const SUMMARIES = new Map(Object.entries({
+    'Registered unit not observed as loaded': '未观察到已登记单元成功加载，状态未知。',
+    'Systemd reports failed; business impact not evaluated': '系统报告执行失败；业务影响尚未核实。',
+    'Registered timer is not active': '已登记的定时器当前未启用。',
+    'Timer scheduling state only; job outcome is separate': '仅反映定时器调度状态；任务执行结果需另查。',
+    'Unit is executing; this is not completed business validation': '服务正在执行；尚不代表业务验收完成。',
+    'Oneshot last systemd run succeeded; data correctness not checked': '一次性任务最近执行成功；尚未检查数据是否正确。',
+    'Oneshot previous run was not successful': '一次性任务上次执行未成功。',
+    'Inactive oneshot has no trusted completion record': '一次性任务当前未运行，且没有可信的完成记录。',
+    'Unit state has no implemented success criterion': '当前单元状态尚无可用的成功判定规则，结果未知。',
+    'Collection unavailable; source not assumed healthy': '采集未完成；不能据此认定数据源正常。',
+    'Registered and installed unit sets compared': '已核对登记单元与实际安装单元；差额见证据。',
+    'Installed unit enumeration unavailable': '无法获取已安装单元清单，覆盖情况未知。',
+    'Systemd property collection unavailable': '无法采集系统服务属性，运行状态未知。',
+    'Historical coverage catalogue unavailable; fixed asset groups still reported': '历史覆盖目录不可用；仍列出固定资产组。',
+    'Fixed asset metadata observed; content correctness and business freshness unknown': '已看到固定资产的文件信息；内容是否正确、业务数据是否及时仍未知。',
+    'Asset content unverified; fixed source absent or outside lightweight scope': '资产内容未验证；固定来源缺失或超出本次轻量检查范围。',
+    'Asset observation budget unavailable': '受采集时限限制，未完成资产检查。',
+    'Derived schedule input age only; not market or asset freshness': '仅检查调度统计输入的新旧；不代表行情或资产数据及时。',
+    'Derived schedule input unavailable': '调度统计输入不可用。',
+    'No current trusted derived execution verdict': '暂无可信的当前执行结论。',
+    'Derived exit evidence conflicts; not auto-resolved': '执行退出证据存在冲突；未自动消解。',
+    'Existing schedule producer reports a missed execution': '现有调度统计报告漏执行，需核对原始证据。',
+    'Existing schedule producer reports an anomaly; details withheld': '现有调度统计报告异常；本面板未展示日志详情。',
+    'Existing schedule producer reports an unfinished round': '现有调度统计报告一轮执行尚未完成。',
+    'Trusted derived execution verdict; no business data validation': '已取得可信来源的执行结论；尚未验证业务数据。',
+    'Default local backup metadata only; remote copy and restore validity unknown': '仅检查默认本地备份的文件信息；远端副本和可恢复性仍未知。',
+    'Default local backup observation unavailable': '默认本地备份检查未完成。',
+    'Backup ledger exists; remote objects and restoration not verified': '备份台账存在；远端对象和恢复能力尚未验证。',
+    'Filesystem free capacity only; workload health is separate': '仅反映磁盘剩余容量；业务运行情况需另查。',
+    'Point memory availability; no trend inference': '仅反映当前可用内存；未判断变化趋势。',
+    'Point system load only': '仅反映当前系统负载。',
+    'Actual registry contract loaded without importing its generator': '已读取实际任务注册表；未运行生成器。',
+    'External content and deployed event membership are not inferred from local metadata': '仅凭本地文件信息，无法确认线上内容及已发布事件是否齐全。',
+    'Coverage exceeded bounded snapshot capacity': '检查数量超出单次快照容量；存在未覆盖项。',
+    'HTTPS HEAD transport observation only; content correctness unknown': '仅检查 HTTPS 连通性；内容是否正确仍未知。',
+    'Publication transport observation unavailable': '发布连通性检查未完成。',
+    'Optional transport probe skipped to preserve upload budget or collect-only mode': '为保留上传时间或处于仅采集模式，未执行可选连通性检查。',
+    'Not present in latest snapshot coverage; not a recovery': '最新快照未覆盖此检查；不代表已经恢复。',
+    'Missing from latest snapshot; coverage unknown; not a recovery': '最新快照缺少此检查，覆盖情况未知；不代表已经恢复。',
+    'Observation expired; not a recovery': '观察证据已过期；不代表已经恢复。',
+    'Collector snapshot overdue; data freshness unknown': '采集快照已超时；数据是否及时仍未知。',
+    'Collector freshness changed; not incident closure': '采集新旧状态发生变化；不代表故障已经关闭。'
+  }));
+  const unitNameIndexes = new WeakMap();
   const state = {
     token: '', authorized: false, locked: false, epoch: 0, loadSeq: 0, job: null, controllers: new Set(),
     timer: null, paused: false, interval: 30000, view: 'overview', query: '', status: 'all',
@@ -80,7 +126,26 @@
     }
     return undefined;
   }
-  function nameOf(record) { return record.name || record.id || '未命名记录'; }
+  function summaryOf(value) { return SUMMARIES.get(value) || value; }
+  function checkName(check) {
+    const record = state.recordMap.get(check.id);
+    if (record?.kind === 'data' && known(record.name)) return record.name;
+    let names = unitNameIndexes.get(state.records);
+    if (!names) {
+      names = new Map();
+      for (const task of state.records) {
+        const unit = sourceValue(task, 'unit'), name = sourceValue(task, 'name');
+        if (task.kind !== 'task' || typeof unit !== 'string' || typeof name !== 'string' || !/[\u3400-\u9fff]/.test(name)) continue;
+        names.set(unit, names.has(unit) && names.get(unit) !== name ? null : name);
+      }
+      unitNameIndexes.set(state.records, names);
+    }
+    const unit = typeof check.id === 'string' && /^(cloud-service|cloud-timer):/.test(check.id) ? check.id.slice(check.id.indexOf(':') + 1) : sourceValue(check, 'unit');
+    const timer = typeof unit === 'string' && unit.endsWith('.timer');
+    const taskName = names.get(unit) || (timer ? names.get(unit.replace(/\.timer$/, '.service')) : null);
+    return taskName ? taskName + (timer ? ' · 定时器' : '') : check.name || record?.name || check.id || '未命名检查';
+  }
+  function nameOf(record) { return record.kind === 'service' ? checkName(record) : record.name || record.id || '未命名记录'; }
   function matches(value) {
     return !state.query || text(value).toLocaleLowerCase().includes(state.query);
   }
@@ -244,7 +309,7 @@
   }
   function liveStatus(check) { return !check._missing && freshness() === 'fresh' && ['ok', 'warning', 'critical', 'unknown'].includes(check.status) ? check.status : 'unknown'; }
   function visibleChecks(categories) {
-    return currentChecks().filter(c => (!categories || categories.includes(c.category)) && matches(c) && (state.status === 'all' || liveStatus(c) === state.status));
+    return currentChecks().filter(c => (!categories || categories.includes(c.category)) && (matches(c) || matches(checkName(c)) || matches(summaryOf(c.summary))) && (state.status === 'all' || liveStatus(c) === state.status));
   }
   function updateHeader() {
     const fresh = freshness(); const box = $('freshness'); box.replaceChildren();
@@ -258,15 +323,15 @@
   function renderLive(target, categories) {
     const checks = visibleChecks(categories);
     const rows = checks.map(c => {
-      const title = append(node('div'), button(c.name || c.id || '未命名检查', () => showCheck(c), 'link-button'), node('span', 'record-id mono', c.id));
+      const title = append(node('div'), button(checkName(c), () => showCheck(c), 'link-button'), node('span', 'record-id mono', c.id));
       const statusCell = append(node('div'), badge(liveStatus(c)));
       if (freshness() !== 'fresh') statusCell.append(node('div', 'muted', '最近记录：' + (STATUS[c.status] || text(c.status))));
-      return [title, statusCell, node('span', 'truncated', c.summary || '未提供检查摘要'), time(c.observed_at), button('详情', () => showCheck(c))];
+      return [title, statusCell, node('span', 'truncated', summaryOf(c.summary) || '未提供检查摘要'), time(c.observed_at), button('详情', () => showCheck(c))];
     });
     $(target).replaceChildren(table(['检查 / 稳定 ID', '当前状态', '摘要', '证据时间', ''], rows, currentChecks().length ? '当前筛选无匹配检查' : '尚无该范围的采集检查'));
     const missing = currentChecks().filter(c => c._missing && matches(c) && ['all', 'unknown'].includes(state.status));
     if (missing.length) {
-      $(target).append(node('div', 'section-heading', '未在最新快照覆盖（全部分类）'), table(['先前检查', '当前状态', '最近记录', '原观察时间'], missing.map(c => [button(c.name || c.id, () => showCheck(c), 'link-button'), badge('unknown', '未覆盖 · 未知'), STATUS[c.previous_status] || text(c.previous_status), time(c.observed_at)])));
+      $(target).append(node('div', 'section-heading', '未在最新快照覆盖（全部分类）'), table(['先前检查', '当前状态', '最近记录', '原观察时间'], missing.map(c => [button(checkName(c), () => showCheck(c), 'link-button'), badge('unknown', '未覆盖 · 未知'), STATUS[c.previous_status] || text(c.previous_status), time(c.observed_at)])));
     }
   }
   function renderBaseline(target, kinds) {
@@ -302,7 +367,7 @@
     append(attention, node('h2', '', '当前需要关注'), node('p', 'small muted', '先看检查证据，再判断业务影响。'));
     const flagged = visibleChecks().filter(c => liveStatus(c) !== 'ok').slice(0, 8);
     if (!flagged.length) attention.append(empty(checks.length && f === 'fresh' ? '当前覆盖内没有非 OK 检查' : '当前证据不足', '只限已覆盖检查；仍需独立看业务交付与未知项。'));
-    else { const activity = node('div', 'activity'); flagged.forEach(c => { const n = node('div', 'activity-item'); append(n, badge(liveStatus(c)), node('span', '', ' '), button(c.name || c.id, () => showCheck(c), 'link-button'), node('div', 'small muted', brief(c.summary, 160))); activity.append(n); }); attention.append(activity); }
+    else { const activity = node('div', 'activity'); flagged.forEach(c => { const n = node('div', 'activity-item'); append(n, badge(liveStatus(c)), node('span', '', ' '), button(checkName(c), () => showCheck(c), 'link-button'), node('div', 'small muted', brief(summaryOf(c.summary), 160))); activity.append(n); }); attention.append(activity); }
     const context = node('section', 'panel'); append(context, node('h2', '', '交付与处置入口'), overviewLink('服务与定时器', 'services', currentChecks().filter(c => ['service', 'timer'].includes(c.category)).length + ' 项当前检查'), overviewLink('数据 / 发布 / 备份', 'data', '逐链对账'), overviewLink('知识库', 'architecture', state.records.length + ' 个版本记录'), overviewLink('问题与跟进', 'incidents', state.incidents.length + ' 项'), overviewLink('采集与告警投递', 'history', '历史 / 事件'));
     append(context, node('div', 'subtle-divider'), node('p', 'small muted', '声明、运行态、业务健康、根因状态各自保留；不会从静态基线自动生成绿色健康结论。'));
     append(grid, attention, context); host.append(grid, coveragePanel);
@@ -339,7 +404,7 @@
     if (!object(counts)) return 'unknown';
     return ['ok', 'warning', 'critical', 'unknown'].filter(k => typeof counts[k] === 'number').map(k => (STATUS[k] || k) + ' ' + counts[k]).join(' / ') || text(counts);
   }
-  function eventName(e) { return e.name || e.check_name || e.check_id || e.id || '未命名事件'; }
+  function eventName(e) { return checkName({ id: e.check_id || e.id, name: e.name || e.check_name }) || '未命名事件'; }
   function eventTime(e) { return e.created_at || e.observed_at; }
   function delivery(e) {
     const value = e.delivery_status ?? (object(e.delivery) ? e.delivery.status : undefined);
@@ -475,16 +540,17 @@
     const host = openDetail(title, '原始结构化证据'); host.append(notice('保留原始字段与缺失项，不从结果标签推断业务健康。'), node('pre', '', text(value)));
   }
   function showCheck(check) {
-    const host = openDetail(check.name || check.id, '实时采集 / ' + text(check.category));
-    append(host, pairs([['稳定 ID', check.id], ['当前状态', badge(liveStatus(check))], ['最近记录值', STATUS[check.previous_status || check.reported_status || check.status] || check.previous_status || check.status], ['观察标记', check.observation_status], ['检查时间', fullTime(check.observed_at)], ['最新快照时间', fullTime(state.data.state?.latest?.collected_at)], ['摘要', check.summary]]));
+    const host = openDetail(checkName(check), '实时采集 / ' + text(check.category));
+    append(host, pairs([['稳定 ID', check.id], ['当前状态', badge(liveStatus(check))], ['最近记录值', STATUS[check.previous_status || check.reported_status || check.status] || check.previous_status || check.status], ['观察标记', check.observation_status], ['检查时间', fullTime(check.observed_at)], ['最新快照时间', fullTime(state.data.state?.latest?.collected_at)], ['摘要', summaryOf(check.summary)]]));
     if (check._missing) host.append(notice('该检查未在最新覆盖范围。保留旧状态仅供追溯，当前为 unknown，不作恢复。', 'warning'));
     if (freshness() !== 'fresh') host.append(notice('采集过期或不可判定：此记录仅是最近证据，当前状态未知。', 'warning'));
     append(host, node('h3', '', '安全证据字段'), node('pre', '', text(check.evidence)));
+    const raw = node('details', 'evidence-item'); append(raw, node('summary', '', '检查原始字段'), node('pre', '', text(check))); host.append(raw);
     const match = state.recordMap.get(check.id); if (match) host.append(button('查看同 ID 版本记录', () => showRecord(match)));
   }
   function showEvent(event) {
     const host = openDetail(eventName(event), '事件与投递');
-    append(host, pairs([['事件 ID', event.event_id || event.id], ['检查 ID', event.check_id], ['事件时间', fullTime(eventTime(event))], ['投递状态', deliveryBadge(event)], ['尝试次数', event.attempts], ['下次尝试', fullTime(event.next_attempt_at)], ['投递时间', fullTime(event.delivered_at)], ['最近错误', event.last_error]]), notice('重复投递可能发生；投递成功不等于业务故障已恢复。'), node('h3', '', '事件原始字段'), node('pre', '', text(event)));
+    append(host, pairs([['事件 ID', event.event_id || event.id], ['检查 ID', event.check_id], ['摘要', summaryOf(event.summary)], ['事件时间', fullTime(eventTime(event))], ['投递状态', deliveryBadge(event)], ['尝试次数', event.attempts], ['下次尝试', fullTime(event.next_attempt_at)], ['投递时间', fullTime(event.delivered_at)], ['最近错误', event.last_error]]), notice('重复投递可能发生；投递成功不等于业务故障已恢复。'), node('h3', '', '事件原始字段'), node('pre', '', text(event)));
   }
   function showRecord(record) {
     const incident = state.incidents.find(r => r.id === record.id);

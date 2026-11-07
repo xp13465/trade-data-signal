@@ -55,7 +55,6 @@ jobs:
       # Match the main quality gate numerical dependencies for full scripts regression.
       - run: python3 -m pip install pytest pyyaml numpy==2.4.6 pandas==3.0.5 pyarrow==25.0.1
       - run: python3 -m pytest -q ops/monitoring/tests scripts/tests/test_ops_monitor.py scripts/tests/test_ops_monitor_registry.py
-      - run: python3 -m pytest -q scripts/tests/
       - run: node --test ops/monitoring/tests/worker*.test.mjs
       - run: python3 ops/monitoring/build_baseline.py --check
       - run: npm run ops:types -- --check
@@ -63,3 +62,9 @@ jobs:
       - run: python3 scripts/check_unit_registry_drift.py --quiet
       - run: python3 docs/ops/architecture/tools/build_catalog.py --check
       - run: python3 docs/ops/architecture/tools/check_knowledge_base.py
+      - name: Complete scripts regression
+        run: |
+          ops_test_status=0
+          python3 -m pytest -q scripts/tests/ --junitxml="$RUNNER_TEMP/ops-scripts-tests.xml" || ops_test_status=$?
+          python3 ops/monitoring/report_ci_tests.py "$RUNNER_TEMP/ops-scripts-tests.xml"
+          exit "$ops_test_status"

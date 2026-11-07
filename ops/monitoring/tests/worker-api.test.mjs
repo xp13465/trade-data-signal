@@ -169,7 +169,7 @@ test('OPS-R3 delayed older scheduledTime cannot recover an unchanged stale colle
   assert.equal(current.latest.snapshot_id, first.snapshot_id);
   assert.equal(f.db.sql.prepare('SELECT changed_ms FROM ops_watchdog').get().changed_ms, changed);
   assert.equal(current.events.filter(e => e.source === 'watchdog' && e.kind === 'recovery').length, 0);
-  assert.equal(sent.length, 1); assert.ok(sent.every(t => !t.startsWith('Operations recovery:')));
+  assert.equal(sent.length, 1); assert.ok(sent.every(t => !t.startsWith('【恢复】')));
   f.advance(1000); await f.push(f.snapshot()); await f.scheduled();
   assert.equal((await f.call('/state')).body.watchdog.status, 'fresh'); assert.equal(sent.length, 2);
 }));
@@ -233,6 +233,27 @@ test('no first snapshot across three cron ticks: durable grace then one overdue 
   const events = (await f.call('/events')).body.events.filter(e => e.source === 'watchdog');
   assert.equal(events.filter(e => e.kind === 'alert').length, 1);
   assert.equal(events.filter(e => e.kind === 'recovery').length, 1);
+}));
+
+test('fake watchdog transport positively exposes Chinese alert/recovery and honest delivery caveats', () => fixture(async f => {
+  Object.assign(f.env, { OPS_ALERT_ENABLED: 'true', OPS_ALERT_WEBHOOK: 'https://open.feishu.cn/open-apis/bot/v2/hook/fixture-hook-1234567890' });
+  const bodies = [];
+  globalThis.fetch = async (_url, options) => { bodies.push(JSON.parse(options.body)); return Response.json({ code: 0 }); };
+  await f.push(f.snapshot()); f.advance(901000); await f.scheduled();
+  assert.equal(bodies.length, 1); assert.equal(bodies[0].msg_type, 'text');
+  assert.match(bodies[0].content.text, /^【告警】采集链超过15分钟未收到采样/);
+  assert.match(bodies[0].content.text, /当前业务状态仍待核实/);
+  f.advance(1000); await f.push(f.snapshot()); await f.scheduled();
+  assert.equal(bodies.length, 2);
+  assert.match(bodies[1].content.text, /^【恢复】采集链已恢复采样/);
+  assert.match(bodies[1].content.text, /只代表重新收到采样，不等于业务故障已根治/);
+  const events = (await f.call('/events')).body.events.filter(e => e.source === 'watchdog');
+  for (const body of bodies) {
+    assert.match(body.content.text, /事件编号：[a-f0-9]{32}/);
+    assert.match(body.content.text, /回执超时，重试可能重复送达/);
+    assert.ok(events.some(e => body.content.text.includes(e.event_id) && e.delivery_status === 'sent'));
+    assert.doesNotMatch(body.content.text, /Operations |delivery may repeat/);
+  }
 }));
 
 test('retention keeps last complete head evidence beyond30d, prunes other payloads/summaries', () => fixture(async f => {
