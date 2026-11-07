@@ -2,14 +2,14 @@
 
 代码基线 `d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620`；盘点时间 2026-11-07T14:21:36.215918+08:00（Asia/Shanghai）。仅确认仓库声明，不代表已安装、启用、实际运行或业务健康。云端B、本机F的运行观察另列，不被本文覆盖。
 
-共 **72 条任务/服务变体**：cloud systemd 44（配套timer同条记录）、launchd 11、CI job 6、条件瞬态4、手动入口2、仅旧文档本机声明5。所有health=unknown。
+共 **72 条任务/服务变体**：cloud systemd 44（配套timer同条记录）、launchd 11（历史存档，已迁云上 systemd timer，本机 mac 纯开发不跑生产定时任务）、CI job 6、条件瞬态4、手动入口2、仅旧文档本机声明5。所有health=unknown。
 
 ## 来源、匹配及边界
 
 - `gen_systemd_units.py`明确读取 `docs/deploy/systemd-units-20260912.md`，所以它是当前生成配置源；标题日期不是生效时刻。本次不执行生成器。
 - `docs/deploy/systemd-units-cloud-snapshot.txt`是仓库固化快照，44 service＋44 timer；不是本轮云端观察。配置源与快照两套字段均保留，差异见inventory.coverage.source_conflicts。
 - `gen_schedule_stats.py`按字面AST展开17日志任务＋2特殊marker＋22 unit-only＋3自监控=44；只读字面值，不执行导入或函数。
-- 全部11份受跟踪plist覆盖launchd/、scripts/、scripts/.disabled/、docs/auto-trade/、docs/fapi/launchd/。不读取实际LaunchAgents。4份workflow的6个job单列，不将每个step膨胀为计划任务。
+- 全部11份受跟踪plist覆盖launchd/、scripts/、scripts/.disabled/、docs/auto-trade/、docs/fapi/launchd/（均为历史存档，生产定时任务已迁云上 systemd timer，本机不配置实际 LaunchAgents）。不读取实际LaunchAgents。4份workflow的6个job单列，不将每个step膨胀为计划任务。
 - scripts/deploy.sh/update_all.sh/fund_nav_selfheal.sh的4种瞬态启动，以及deploy/main-merge手动入口另列；没有把仓库任意脚本都当调度任务。
 - 仅旧文档出现的本机服务明确documented_only；停用目录不证明机器已停用，旧“未加载”描述不证明现在仍未加载。未发现受跟踪crontab文件，不代表主机无cron。
 - 入口相对路径、声明日志与安全flag可展示；不复制完整ExecStart/连接参数、Environment值、账号、webhook。路径$DATA/$CODE/$LOCAL_DATA/$LOCAL_CODE为逻辑脱敏别名。
@@ -20,7 +20,7 @@
 flowchart LR
   CFG["生成源 ini + 固化 unit 快照"] --> CLOUD["44 cloud task 声明"]
   REG["44 行监控注册表"] --> CLOUD
-  PLIST["11 launchd 模板"] --> MAC["本机任务/服务变体"]
+  PLIST["11 launchd 模板（历史存档，已迁云）"] --> MAC["本机任务/服务变体"]
   CI["4 workflow / 6 job"] --> RUNNER["GitHub runner 声明"]
   CODE["发布与自愈入口"] --> TRANS["4 条件瞬态任务"]
   CLOUD -. "实际加载/执行待B观察" .-> UNKNOWN["runtime / business health unknown"]
@@ -80,20 +80,20 @@ flowchart LR
 
 ## Mac、CI、瞬态和手动/历史声明目录
 
-Mac与cloud同名项是独立调度声明，不证明两地同时执行。未读取私人home或LaunchAgents，具体本机运行态由F提供。
+Mac与cloud同名项是独立调度声明，不证明两地同时执行。未读取私人home或LaunchAgents（本机 launchd 已废弃/历史存档，生产定时任务已迁云上 systemd timer），具体本机运行态由F提供。
 
 | id | 类别 / 调度器 | 入口 | 声明频次 / 状态 | 证据 |
 | --- | --- | --- | --- | --- |
-| `task:nextday-plan:mac` | task / launchd | `scripts/nextday_plan.sh` | [{"Weekday": 1, "Hour": 22, "Minute": 30}, {"Weekday": 2, "Hour": 22, "Minute": 30}, {"Weekday": 3, "Hour": 22, "Minute": 30}, {"Weekday": 4, "Hour": 22, "Minute": 30}, {"Weekday": 5, "Hour": 22, "Minute": 30}]；present_in_repository_runtime_unknown | docs/auto-trade/com.trade.nextday-plan.plist:5 |
-| `task:fapi-daily:mac` | task / launchd | `scripts/fapi_daily_syn.sh` | {"Hour": 18, "Minute": 10}；present_in_repository_runtime_unknown | docs/fapi/launchd/fapi-daily.plist:12 |
+| `task:nextday-plan:mac` | task / launchd（历史存档，已迁云） | `scripts/nextday_plan.sh` | [{"Weekday": 1, "Hour": 22, "Minute": 30}, {"Weekday": 2, "Hour": 22, "Minute": 30}, {"Weekday": 3, "Hour": 22, "Minute": 30}, {"Weekday": 4, "Hour": 22, "Minute": 30}, {"Weekday": 5, "Hour": 22, "Minute": 30}]；present_in_repository_runtime_unknown | docs/auto-trade/com.trade.nextday-plan.plist:5 |
+| `task:fapi-daily:mac` | task / launchd（历史存档，已迁云） | `scripts/fapi_daily_syn.sh` | {"Hour": 18, "Minute": 10}；present_in_repository_runtime_unknown | docs/fapi/launchd/fapi-daily.plist:12 |
 | `service:agent-inbox-watcher:mac` | service / launchd | `scripts/agent_inbox_watcher.py` | RunAtLoad/KeepAlive；present_in_repository_runtime_unknown | launchd/com.trade.agent-inbox-watcher.plist:19 |
-| `task:check-data-gap:mac` | task / launchd | `scripts/check_data_gap_alerts.sh` | [{"Weekday": 1, "Hour": 22, "Minute": 35}, {"Weekday": 2, "Hour": 22, "Minute": 35}, {"Weekday": 3, "Hour": 22, "Minute": 35}, {"Weekday": 4, "Hour": 22, "Minute": 35}, {"Weekday": 5, "Hour": 22, "Minute": 35}]；present_in_repository_runtime_unknown | launchd/com.trade.check-data-gap.plist:5 |
-| `task:s06-snapshot:mac` | task / launchd | `scripts/s06_snapshot.sh` | [{"Weekday": 1, "Hour": 20, "Minute": 35}, {"Weekday": 2, "Hour": 20, "Minute": 35}, {"Weekday": 3, "Hour": 20, "Minute": 35}, {"Weekday": 4, "Hour": 20, "Minute": 35}, {"Weekday": 5, "Hour": 20, "Minute": 35}]；present_in_repository_runtime_unknown | launchd/com.trade.s06-snapshot.plist:5 |
-| `task:sentiment:mac` | task / launchd | `module:app.scheduler` | {"Hour": 15, "Minute": 33}；legacy_template; generator_doc_section6_says_historically_unloaded; current_unknown | launchd/com.trade.sentiment.plist:5 |
-| `task:turnover-backfill:mac` | task / launchd | `scripts/turnover_backfill.sh` | [{"Weekday": 1, "Hour": 21, "Minute": 10}, {"Weekday": 2, "Hour": 21, "Minute": 10}, {"Weekday": 3, "Hour": 21, "Minute": 10}, {"Weekday": 4, "Hour": 21, "Minute": 10}, {"Weekday": 5, "Hour": 21, "Minute": 10}]；present_in_repository_runtime_unknown | launchd/com.trade.turnover-backfill.plist:5 |
+| `task:check-data-gap:mac` | task / launchd（历史存档，已迁云） | `scripts/check_data_gap_alerts.sh` | [{"Weekday": 1, "Hour": 22, "Minute": 35}, {"Weekday": 2, "Hour": 22, "Minute": 35}, {"Weekday": 3, "Hour": 22, "Minute": 35}, {"Weekday": 4, "Hour": 22, "Minute": 35}, {"Weekday": 5, "Hour": 22, "Minute": 35}]；present_in_repository_runtime_unknown | launchd/com.trade.check-data-gap.plist:5 |
+| `task:s06-snapshot:mac` | task / launchd（历史存档，已迁云） | `scripts/s06_snapshot.sh` | [{"Weekday": 1, "Hour": 20, "Minute": 35}, {"Weekday": 2, "Hour": 20, "Minute": 35}, {"Weekday": 3, "Hour": 20, "Minute": 35}, {"Weekday": 4, "Hour": 20, "Minute": 35}, {"Weekday": 5, "Hour": 20, "Minute": 35}]；present_in_repository_runtime_unknown | launchd/com.trade.s06-snapshot.plist:5 |
+| `task:sentiment:mac` | task / launchd（历史存档，已迁云） | `module:app.scheduler` | {"Hour": 15, "Minute": 33}；legacy_template; generator_doc_section6_says_historically_unloaded; current_unknown | launchd/com.trade.sentiment.plist:5 |
+| `task:turnover-backfill:mac` | task / launchd（历史存档，已迁云） | `scripts/turnover_backfill.sh` | [{"Weekday": 1, "Hour": 21, "Minute": 10}, {"Weekday": 2, "Hour": 21, "Minute": 10}, {"Weekday": 3, "Hour": 21, "Minute": 10}, {"Weekday": 4, "Hour": 21, "Minute": 10}, {"Weekday": 5, "Hour": 21, "Minute": 10}]；present_in_repository_runtime_unknown | launchd/com.trade.turnover-backfill.plist:5 |
 | `service:thinking-proxy-kimi:mac` | service / launchd | `scripts/sensenova-rotate-proxy-kimi.sh` | RunAtLoad/KeepAlive；disabled_template_directory; runtime_unknown | scripts/.disabled/com.trade.thinking-proxy-kimi.plist:17 |
-| `task:ab-direction-anchor:mac` | task / launchd | `scripts/run_ab_direction_anchor.sh` | {"Hour": 21, "Minute": 15}；present_in_repository_runtime_unknown | scripts/com.trade.ab-direction-anchor.plist:5 |
-| `task:sensenova-healthcheck:mac` | task / launchd | `scripts/sensenova-proxy-healthcheck.py` | every 300 seconds；present_in_repository_runtime_unknown | scripts/com.trade.sensenova-healthcheck.plist:12 |
+| `task:ab-direction-anchor:mac` | task / launchd（历史存档，已迁云） | `scripts/run_ab_direction_anchor.sh` | {"Hour": 21, "Minute": 15}；present_in_repository_runtime_unknown | scripts/com.trade.ab-direction-anchor.plist:5 |
+| `task:sensenova-healthcheck:mac` | task / launchd（历史存档，已迁云） | `scripts/sensenova-proxy-healthcheck.py` | every 300 seconds；present_in_repository_runtime_unknown | scripts/com.trade.sensenova-healthcheck.plist:12 |
 | `service:thinking-proxy:mac` | service / launchd | `scripts/sensenova-rotate-proxy.sh` | RunAtLoad/KeepAlive；present_in_repository_runtime_unknown | scripts/com.trade.thinking-proxy.plist:16 |
 | `task:ci:ci:quality-gate-static` | task / GitHub Actions | `workflow:.github/workflows/ci.yml#quality-gate-static` | event-driven; no wall-clock cron；ci_only | .github/workflows/ci.yml:98 |
 | `task:ci:ci:quality-gate-data` | task / GitHub Actions | `workflow:.github/workflows/ci.yml#quality-gate-data` | event-driven; no wall-clock cron；ci_only | .github/workflows/ci.yml:228 |
