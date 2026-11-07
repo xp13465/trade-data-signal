@@ -141,7 +141,7 @@ def test_D_mixed_real_and_placeholder(monkeypatch, tmp_path):
     assert sorted_dates[CODE] == ["20261104", "20261106"]
 
 
-# ── _upsert_daily 写入契约直接测试(证明 ON CONFLICT 保护) ──────────────────────
+# ── _upsert_daily 写入契约直接测试(证明 ON CONFLICT 保护 + 前置规范化) ──────────
 
 
 def _make_db_with_schema(tmp_path: Path) -> Path:
@@ -149,11 +149,21 @@ def _make_db_with_schema(tmp_path: Path) -> Path:
     return db
 
 
+def _clear_name_caches():
+    """清模块级名称缓存(防测试间污染: 缓存按 code 跨 test 共享会串结果)。"""
+    from app.collector import etf_national_team as ent
+    ent._UPSERT_DB_NAME_CACHE.clear()
+    ent._UPSERT_PLACEHOLDER_WARNED.clear()
+    # 重置 board_map 懒加载索引, 强制下次重新解析(测试可能 monkeypatch 解析函数)
+    ent._BOARD_MAP_NAME_INDEX = None
+
+
 class TestUpsertDailyNameContract:
-    """直接调用 _upsert_daily, 验证 etf_name ON CONFLICT 保护规则。"""
+    """直接调用 _upsert_daily, 验证 etf_name 前置规范化 + ON CONFLICT 保护规则。"""
 
     def _conn(self, tmp_path: Path):
         from app.collector.etf_national_team import _upsert_daily
+        _clear_name_caches()
         db = _make_db_with_schema(tmp_path)
         conn = sqlite3.connect(db)
         conn.row_factory = sqlite3.Row
@@ -212,4 +222,88 @@ class TestUpsertDailyNameContract:
                            (CODE,)).fetchone()
         assert row["etf_name"] == NAME, f"真实名应覆盖占位, 实际={row['etf_name']!r}"
         conn.close()
+
+    # ── F1 闭合: 新行 INSERT 不产生 NULL(前置规范化) ──────────────────────────
+
+    def test_F1_new_row_none_with_authoritative_name_writes_real(
+        self, monkeypatch, tmp_path
+    ):
+        """F1 用例1: 全新行 INSERT, etf_name=None, monkeypatch 权威名解析 → 写真实名(非 NULL), loader 能看到。"""
+        conn, upsert = self._conn(tmp_path)
+        from app.collector import etf_national_team as ent
+        monkeypatch.setattr(ent, "_resolve_etf_name_authoritative", lambda c: NAME)
+        # 全新行(DB 无该 code 任何行), etf_name=None(fetch_etf_ohlc 不返 name 的场景)
+        upsert(conn, [{"date": "20261104", "etf_code": CODE, "etf_name": None,
+                        "open": 1.10, "close": 1.12, "accum_nav": 1.20}],
+               ["etf_name", "open", "close", "accum_nav"])
+        row = conn.execute("SELECT etf_name FROM etf_daily WHERE date='20261104' AND etf_code=?",
+                           (CODE,)).fetchone()
+        shown = row["etf_name"] if row is not None else "NO ROW"
+        assert row is not None and row["etf_name"] is not None, \
+            f"新行不得产生 NULL, 实际 etf_name={shown!r}"
+        assert row["etf_name"] == NAME, f"应写权威真实名, 实际={row['etf_name']!r}"
+        conn.close()
+        # loader 能看到(真实名行不被 etf_name<>etf_code 过滤); 复用同一 tmp_path 的 DB 文件
+        db_path = tmp_path / "etf_national_team.db"
+        from scripts import signal_kelly_backtest as skb
+        monkeypatch.setattr(skb, "_get_etf_db_path", lambda: str(db_path))
+        nav_map, open_map, close_map, sorted_dates = skb._batch_load_etf_prices([CODE])
+        assert "20261104" in nav_map[CODE], \
+            f"真实名新行应进 loader 映射, 实际 nav={sorted(nav_map[CODE])}"
+        assert sorted_dates[CODE] == ["20261104"]
+
+    def test_F1_new_row_none_no_authoritative_writes_code_placeholder(
+        self, monkeypatch, tmp_path
+    ):
+        """F1 用例2: 全新行 INSERT, etf_name=None, 无权威名 → 写 code 占位(非 NULL), loader 仍排除。"""
+        conn, upsert = self._conn(tmp_path)
+        from app.collector import etf_national_team as ent
+        monkeypatch.setattr(ent, "_resolve_etf_name_authoritative", lambda c: None)
+        upsert(conn, [{"date": "20261105", "etf_code": CODE, "etf_name": None,
+                        "open": 1.10, "close": 1.12, "accum_nav": 1.20}],
+               ["etf_name", "open", "close", "accum_nav"])
+        row = conn.execute("SELECT etf_name FROM etf_daily WHERE date='20261105' AND etf_code=?",
+                           (CODE,)).fetchone()
+        assert row is not None, "新行应存在"
+        assert row["etf_name"] is not None, \
+            f"无权威名也不得产生 NULL, 应写 code 占位哨兵, 实际={row['etf_name']!r}"
+        assert row["etf_name"] == CODE, \
+            f"无权威名应回退 code 占位哨兵(非 NULL), 实际={row['etf_name']!r}"
+        conn.close()
+        # loader 仍排除占位行(etf_name=etf_code)
+        db_path = tmp_path / "etf_national_team.db"
+        from scripts import signal_kelly_backtest as skb
+        monkeypatch.setattr(skb, "_get_etf_db_path", lambda: str(db_path))
+        nav_map, _, _, sorted_dates = skb._batch_load_etf_prices([CODE])
+        assert nav_map[CODE] == {}, \
+            f"code 占位行应被 loader 排除, 实际 nav={sorted(nav_map[CODE])}"
+        assert sorted_dates[CODE] == []
+
+    def test_F1_explicit_code_placeholder_not_replaced_by_real_name(
+        self, monkeypatch, tmp_path
+    ):
+        """F1 用例3: 明确 etf_name=code 占位行 → 保持 code, 不被真实名替换, loader 仍排除。
+
+        调用方主动写占位哨兵(盘中假数据)时, 即使权威名可得也保持占位(防假数据洗成真数据)。
+        """
+        conn, upsert = self._conn(tmp_path)
+        from app.collector import etf_national_team as ent
+        monkeypatch.setattr(ent, "_resolve_etf_name_authoritative", lambda c: NAME)
+        upsert(conn, [{"date": "20261106", "etf_code": CODE, "etf_name": CODE,
+                        "open": 1.10, "close": 1.12, "accum_nav": 1.20}],
+               ["etf_name", "open", "close", "accum_nav"])
+        row = conn.execute("SELECT etf_name FROM etf_daily WHERE date='20261106' AND etf_code=?",
+                           (CODE,)).fetchone()
+        assert row is not None, "占位行应存在"
+        assert row["etf_name"] == CODE, \
+            f"调用方主动占位应保持 code, 不被真实名替换, 实际={row['etf_name']!r}"
+        conn.close()
+        # loader 仍排除占位行
+        db_path = tmp_path / "etf_national_team.db"
+        from scripts import signal_kelly_backtest as skb
+        monkeypatch.setattr(skb, "_get_etf_db_path", lambda: str(db_path))
+        nav_map, _, _, sorted_dates = skb._batch_load_etf_prices([CODE])
+        assert nav_map[CODE] == {}, \
+            f"占位行应被 loader 排除, 实际 nav={sorted(nav_map[CODE])}"
+        assert sorted_dates[CODE] == []
 

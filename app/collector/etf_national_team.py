@@ -177,6 +177,12 @@ DB_PATH = _DATA_DIR / "etf_national_team.db"
 LOCK_PATH = _DATA_DIR / "etf_national_team.lock"
 STATIC_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "static-site" / "data"
 WEB_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "web" / "data"
+# board_etf_map.json 权威名索引(懒加载缓存, 供 _resolve_etf_name_authoritative 复用, 防 1.5M 行每行读 JSON)
+_BOARD_MAP_NAME_INDEX: dict[str, str] | None = None
+# _upsert_daily 名称解析按 code 缓存(DB 已有真实名 > 权威名); 名称在单次 pipeline 运行内稳定, 模块级缓存安全
+_UPSERT_DB_NAME_CACHE: dict[str, str | None] = {}
+# 无权威名时 code 占位哨兵 warning 去重(每 code 仅告警一次)
+_UPSERT_PLACEHOLDER_WARNED: set[str] = set()
 # accum-nav 失败跳过列表：最近 7 天都没采到数据的 code (accum_nav_skip.json)
 ACCUM_NAV_SKIP_PATH = _DATA_DIR / "accum_nav_skip.json"
 
@@ -275,27 +281,32 @@ def _resolve_etf_name_authoritative(code: str) -> str | None:
     解析顺序: board_etf_map.json 该 code 的 name(非空非占位) → None。
     返回 None 表示无权威名称: 调用方不得把 None/空串/code 占位写入 etf_daily.etf_name,
     应交给 _upsert_daily 的 ON CONFLICT 保护(保留 DB 已有真实名)或从 fields 移除 etf_name。
+
+    board_etf_map.json 按进程懒加载缓存(1.5M 行回填不每行读一次 JSON)。
     """
-    path = _DATA_DIR / "board_etf_map.json"
-    if not path.exists():
-        return None
-    try:
-        bm = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
+    global _BOARD_MAP_NAME_INDEX
+    if _BOARD_MAP_NAME_INDEX is None:
+        _BOARD_MAP_NAME_INDEX = {}
+        path = _DATA_DIR / "board_etf_map.json"
+        if path.exists():
+            try:
+                bm = json.loads(path.read_text(encoding="utf-8"))
+                for k, v in bm.items():
+                    if k == "_meta" or not isinstance(v, list):
+                        continue
+                    for e in v:
+                        if not isinstance(e, dict):
+                            continue
+                        c = str(e.get("code", "")).strip().zfill(6)
+                        if not c:
+                            continue
+                        name = str(e.get("name", "")).strip()
+                        if name and name != c and c not in _BOARD_MAP_NAME_INDEX:
+                            _BOARD_MAP_NAME_INDEX[c] = name
+            except Exception:
+                _BOARD_MAP_NAME_INDEX = {}
     code = str(code).strip().zfill(6)
-    for k, v in bm.items():
-        if k == "_meta" or not isinstance(v, list):
-            continue
-        for e in v:
-            if not isinstance(e, dict):
-                continue
-            if str(e.get("code", "")).strip().zfill(6) == code:
-                name = str(e.get("name", "")).strip()
-                if name and name != code:
-                    return name
-                return None
-    return None
+    return _BOARD_MAP_NAME_INDEX.get(code)
 
 
 def _board_etf_map_lof_codes() -> list[tuple[str, str | None, str]]:
@@ -315,7 +326,7 @@ def _board_etf_map_lof_codes() -> list[tuple[str, str | None, str]]:
     except Exception as e:
         print(f"  [universe] board_etf_map.json 读取失败: {e}，跳过 LOF 纳入", flush=True)
         return []
-    out: list[tuple[str, str, str | None, str]] = []
+    out: list[tuple[str, str | None, str]] = []
     seen: set[str] = set()
     for k, v in bm.items():
         if k == "_meta" or not isinstance(v, list):
@@ -1116,28 +1127,73 @@ def fetch_and_parse_holders_v2(code: str, org_id: str, start_year: int = 2015) -
 
 
 # ── 数据入库 ────────────────────────────────────────────────────────────────────
+def _resolve_name_for_upsert(conn, code: str) -> str | None:
+    """按 code 解析真实名称(DB 已有非占位名 > board_etf_map 权威名), 带 code 级缓存。
+
+    返回 None 表示无任何权威名(调用方回退 code 占位哨兵)。每 code 仅一次 DB SELECT +
+    一次 board_map 查表(已懒加载缓存), 1.5M 行回填不被拖死。
+    """
+    if code in _UPSERT_DB_NAME_CACHE:
+        return _UPSERT_DB_NAME_CACHE[code]
+    row = conn.execute(
+        "SELECT etf_name FROM etf_daily WHERE etf_code=? "
+        "AND etf_name IS NOT NULL AND etf_name <> '' "
+        "AND etf_name <> etf_code LIMIT 1",
+        (code,),
+    ).fetchone()
+    if row and row[0]:
+        _UPSERT_DB_NAME_CACHE[code] = row[0]
+        return row[0]
+    auth = _resolve_etf_name_authoritative(code)
+    _UPSERT_DB_NAME_CACHE[code] = auth  # 可能 None
+    return auth
+
+
 def _upsert_daily(conn, rows: list[dict], fields: list[str]) -> int:
     """UPSERT etf_daily（按 date+etf_code 主键合并字段）。
     rows: list of dict（含 date, etf_code + 部分字段）。
     fields: 要更新的字段名列表（除 date/etf_code 外）。
 
-    etf_name 写入契约（2026-11-07 根因修复, 防 NULL 覆盖真实名致加载器排除有效行情）:
-    ON CONFLICT 时 etf_name 不裸赋值, 按唯一解析顺序保护:
-      ① 调用方传入的真实名称(excluded.etf_name 非 NULL/非空串/非与 etf_code 同值占位) → 用它
-      ② DB 已有真实名称(etf_daily.etf_name 非 NULL/非空串/非与 etf_code 同值) → 保留
-      ③ 都没有 → 保留 DB 原值(不把已有真实名清成 NULL; 新行 INSERT 仍按 excluded 值写)
+    etf_name 写入契约（2026-11-07 根因修复 + 闭合, 防 NULL 覆盖真实名 / 新行产生 NULL）:
+    当 fields 含 etf_name 时, 每行前置规范化(单点, 所有 caller 自动受益):
+      ① etf_name 是 None/空串/缺失 → 解析: DB 该 code 已有非占位真实名 > board_etf_map 权威名
+         > 都无则用 code 作**显式占位哨兵**(非 NULL, 去重 warning 一次)。新行不再产生 NULL。
+      ② etf_name 明确等于 etf_code(调用方主动写的占位哨兵, 如盘中假数据) → **保持原样**,
+         绝不用真实名替换(否则把假数据洗成真数据, 破坏 etf_name<>etf_code 防占位保护)。
+      ③ etf_name 是真实名(非空非 code) → 保持。
+    ON CONFLICT 时 etf_name 不裸赋值, CASE 保护: 调用方真实名 > DB 已有真实名 >
+    (DB 非空则 DB 原值, 否则 excluded.etf_code 占位) — 两值都无效也不产生 NULL。
     对比旧实现 ``etf_name=excluded.etf_name``: 临时脚本 fetch_etf_ohlc 不返 etf_name →
     excluded.etf_name=NULL → 覆盖已有真实名为 NULL → _batch_load_etf_prices 的
     ``etf_name <> etf_code`` 过滤(NULL 不满足该条件)排除有效行情行。
-    backfill_etf_daily.py:upsert_etf_daily 已有同类 COALESCE(NULLIF)保护, 本处对齐。
+    backfill_etf_daily.py:upsert_etf_daily 已有同类 COALESCE(NULLIF)保护, 本处对齐并闭合新行。
     """
+    has_name = "etf_name" in fields
     n = 0
     for r in rows:
         if not r.get("date") or not r.get("etf_code"):
             continue
+        if has_name:
+            code = r.get("etf_code")
+            raw = r.get("etf_name")
+            if raw is None or raw == "":
+                # None/空串/缺失 → 解析 DB 真实名 > 权威名 > code 占位哨兵(非 NULL)
+                resolved = _resolve_name_for_upsert(conn, code)
+                if resolved:
+                    r["etf_name"] = resolved
+                else:
+                    r["etf_name"] = code  # 显式占位哨兵(非 NULL, 防 loader 排除有效行情)
+                    if code not in _UPSERT_PLACEHOLDER_WARNED:
+                        _UPSERT_PLACEHOLDER_WARNED.add(code)
+                        print(f"  [upsert] {code} 无权威名称, 用 code 占位哨兵(不产生 NULL, loader 将排除占位行)",
+                              flush=True)
+            elif raw == code:
+                # 调用方主动占位哨兵(盘中假数据等) → 保持原样, 不用真实名替换(保防占位保护)
+                pass
+            # else: 真实名 → 保持
         cols = ["date", "etf_code"] + fields
         placeholders = ",".join(["?"] * len(cols))
-        # etf_name 用保护表达式(防 NULL/空串/code 占位覆盖已有真实名); 其余字段裸赋值
+        # etf_name ON CONFLICT 保护(真实名 > DB 真实名 > 不产生 NULL); 其余字段裸赋值
         def _set_expr(f: str) -> str:
             if f == "etf_name":
                 return (
@@ -1150,7 +1206,7 @@ def _upsert_daily(conn, rows: list[dict], fields: list[str]) -> int:
                     f"AND etf_daily.etf_name <> '' "
                     f"AND etf_daily.etf_name <> etf_daily.etf_code "
                     f"THEN etf_daily.etf_name "
-                    f"ELSE etf_daily.etf_name END"
+                    f"ELSE COALESCE(NULLIF(etf_daily.etf_name, ''), excluded.etf_code) END"
                 )
             return f"{f}=excluded.{f}"
         updates = ",".join(_set_expr(f) for f in fields)

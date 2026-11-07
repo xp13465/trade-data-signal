@@ -376,9 +376,10 @@ def _compute_volatility(code: str, conn, lookback_days: int = 30, skip_refetch: 
         try:
             new_rows = fetch_etf_ohlc(code, start_yyyymmdd=start_yyyymmdd)
             if new_rows:
-                # etf_name 解析顺序(2026-11-07 收紧, 防 code 占位被加载器 etf_name<>etf_code 过滤):
-                #   ① DB 该 code 已有非空非占位名 ② board_etf_map.json 权威名 ③ 都无则不写 etf_name
-                #   (从 fields 移除, 交给 _upsert_daily ON CONFLICT 保护保留 DB 名; 全新行无名为罕见边界)
+                # etf_name 交给 _upsert_daily 前置规范化契约(2026-11-07 闭合):
+                #   优先用 DB 已有非占位名 > board_etf_map 权威名; 都无时 _upsert_daily
+                #   用 code 占位哨兵(非 NULL, loader 排除占位行)。这里只设能解析到的真实名,
+                #   None/空留给 _upsert_daily 前置规范化处理(不再从 fields 移除 etf_name, 防新行 NULL)。
                 name_row = conn.execute(
                     "SELECT etf_name FROM etf_daily WHERE etf_code=? "
                     "AND etf_name IS NOT NULL AND etf_name <> '' "
@@ -386,13 +387,10 @@ def _compute_volatility(code: str, conn, lookback_days: int = 30, skip_refetch: 
                     (code,),
                 ).fetchone()
                 etf_name = name_row[0] if name_row else _resolve_etf_name_authoritative(code)
-                if etf_name:  # 有真实名才写; None 时不写 etf_name(防 NULL/占位)
-                    for r in new_rows:
-                        r["etf_name"] = etf_name
-                    up_fields = ["etf_name", "open", "high", "low", "close", "amount"]
-                else:
-                    up_fields = ["open", "high", "low", "close", "amount"]
-                _upsert_daily(conn, new_rows, up_fields)
+                for r in new_rows:
+                    r["etf_name"] = etf_name  # 真实名 or None(_upsert_daily 前置规范化兜底)
+                _upsert_daily(conn, new_rows,
+                              ["etf_name", "open", "high", "low", "close", "amount"])
                 conn.commit()
                 # 重查补采后的数据
                 rows = conn.execute(
