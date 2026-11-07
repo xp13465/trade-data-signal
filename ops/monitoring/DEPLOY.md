@@ -16,7 +16,7 @@
 
 ## 1.1 合并前置：先实装但不启动，再追加真实云快照
 
-**本次交接时**，canonical文档/UNIT_REGISTRY已登记45项，但历史 `docs/deploy/systemd-units-cloud-snapshot.txt` 仍是44个service/44个timer。正确比较命令为：
+**原实施交接时（历史记录，非当前快照状态）**，canonical文档/UNIT_REGISTRY已登记45项，但当时 `docs/deploy/systemd-units-cloud-snapshot.txt` 仍是44个service/44个timer。以下是首次追加流程；本次 systemd 249 兼容补修基底 `2514b9a30952b100e835f28f0eda335fbe369cf0` 已包含实际45对快照，改走第5.1节，不重复执行88段断言或追加service/timer。首次追加时的比较命令为：
 
 ```bash
 python3 -B scripts/systemd_timeout_gradient_audit.py \
@@ -264,7 +264,20 @@ D1历史full快照保留24h、摘要历史30d、事件/修订90d，由独立sche
 
 必须先完成第1.1节的停用安装、真实快照追加和一致性验收，并在main-merge成功后让真实CODE拉取新main，才进入本节。两项unit已在合并前安装，本节不重复覆盖已观察的单元；若现场内容发生变化，重新实读并按原门禁核对，不沿用旧观察冒充一致。
 
-需要支持 `LoadCredential` 的 systemd（目标 Ubuntu 22.04 的版本需现场核对）。默认 `User=ubuntu`，CODE/DATA 上只需只读权限；systemd对业务目录只读，唯一持久运行输出为 `/run/trade-ops-monitor`。不授予 sudo、不允许对业务DB目录加 ReadWritePaths。
+需要支持 `LoadCredential` 的 systemd；安装包的 `ExecStart` 使用 systemd 249 官方支持的 `${CREDENTIALS_DIRECTORY}/ops_ingest_token` 路径形式（见 [systemd 249 凭据说明](https://www.freedesktop.org/software/systemd/man/249/systemd.exec.html#Credentials)），不使用该版本不支持的 `%d`。目标机实际版本仍需现场核对。默认 `User=ubuntu`，CODE/DATA 上只需只读权限；systemd对业务目录只读，唯一持久运行输出为 `/run/trade-ops-monitor`。不授予 sudo、不允许对业务DB目录加 ReadWritePaths。
+
+### 5.1 systemd 249 兼容补修：复验既有45对快照
+
+本修复只更正安装包和canonical的凭据路径。基底 `2514b9a30952b100e835f28f0eda335fbe369cf0` 已包含Claude实读追加的45对快照；其中监控service仍是旧 `%d/ops_ingest_token`。父侧已观察该service的 `LoadState=bad-setting`，systemd 249 parser报 `Invalid slot`，且没有启动记录；这些是修复前事实，不得用新安装包内容覆盖快照来伪装已观测。
+
+Claude在授权部署窗口按下列顺序复验，期间不启动collector、不启用timer：
+
+1. 留存修复前版本、已安装unit字节/哈希、`systemd-analyze verify` 原始输出/rc、`LoadState=bad-setting` 和 `ExecMainStartTimestamp/ExecMainExitTimestamp` 无启动记录的实读回执；先核实现场仍与该基线一致。
+2. 对修复包执行真实249隔离parser正负控；应用修复后的service并 `daemon-reload`，保持timer disabled/inactive、service不启动。重新实读已安装unit及service的 `LoadState/ActiveState/SubState/Result/ExecMainStatus/ExecMainStartTimestamp/ExecMainExitTimestamp`；必须确认 `LoadState=loaded`、`ActiveState=inactive`，无启动记录，并留存timer仍停用的证据。parser通过或loaded本身均不证明collector运行成功。
+3. 将实际unit字节/哈希、systemd版本、parser输出/rc和上述状态连同 `observed_at` 留为观察回执。只有这些事实齐备后，才以实读内容更新仓库快照中**既有监控service段**的实际观测；保留其余44对和既有timer段，不重复执行第1.1节的88段断言，不再次追加service/timer，不重建整份快照。本次作者不修改实际snapshot。
+4. 在实读更新前，新canonical/install与实际snapshot暂有监控service的 `ExecStart` 字段差异，现有 `--dump ... --check-doc` 门禁应如实报差异并返回非零，阻断放行。不得 `--align-doc` 退回旧路径、跳过/弱化门禁或先伪造snapshot。实读回执与单段更新完成后，再跑第1.1节现有四方一致检查并逐条记录rc；全部差异解决后才进入后续流程。
+
+### 5.2 collector配置与首次启动
 
 在目标云端用安全文件传输把**同一 ingest token**交给 Claude；传输方式沿用已有私有通道，本文不粘贴 SSH/连接参数。`worker-secrets.json` 和 admin token不应复制给 collector。
 
@@ -275,7 +288,7 @@ sudo install -d -m 0700 -o root -g root /etc/trade-ops-monitor
 sudo install -m 0600 -o root -g root "$INGEST_TOKEN_SOURCE" /etc/trade-ops-monitor/ingest.token
 ```
 
-配置目录示例权限需允许 `ubuntu` 读取非敏感 JSON（目录0700 root会阻断，因此在写入完成后使用下列组读目录策略）；token仍root0600，systemd管理器通过 LoadCredential 复制到只读私有credential目录。collector接受owner-only0400/0600且owner是当前uid或root的普通非symlink文件。`%d/ops_ingest_token` 只作路径参数，不暴露值。
+配置目录示例权限需允许 `ubuntu` 读取非敏感 JSON（目录0700 root会阻断，因此在写入完成后使用下列组读目录策略）；token仍root0600，systemd管理器通过 LoadCredential 复制到只读私有credential目录。collector接受owner-only0400/0600且owner是当前uid或root的普通非symlink文件。`${CREDENTIALS_DIRECTORY}/ops_ingest_token` 由 systemd 在 `ExecStart` 中展开，只作路径参数，不暴露值。
 
 ```bash
 sudo chgrp ubuntu /etc/trade-ops-monitor
@@ -301,7 +314,7 @@ Claude 编辑私有 `collector.json`，实际 schema示例：
 }
 ```
 
-`--token-file %d/ops_ingest_token` 覆盖 JSON secret_file，故ubuntu不直接读取root的源token。JSON和 EnvironmentFile 不含秘密值。`collector.env` 可仅保存下列非敏感覆盖；缺文件或缺JSON必须启动失败，禁止自动回退生产默认配置。
+`--token-file ${CREDENTIALS_DIRECTORY}/ops_ingest_token` 覆盖 JSON secret_file，故ubuntu不直接读取root的源token。JSON和 EnvironmentFile 不含秘密值。`collector.env` 可仅保存下列非敏感覆盖；缺文件或缺JSON必须启动失败，禁止自动回退生产默认配置。
 
 ```ini
 OPS_CODE_ROOT=/home/ubuntu/code/trade-data-signal

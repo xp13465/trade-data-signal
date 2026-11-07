@@ -71,3 +71,52 @@ jobs:
           python3 -m pytest -q scripts/tests/ --junitxml="$RUNNER_TEMP/ops-scripts-tests.xml" || ops_test_status=$?
           python3 ops/monitoring/report_ci_tests.py "$RUNNER_TEMP/ops-scripts-tests.xml"
           exit "$ops_test_status"
+
+  unit-compat:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify service and timer on target systemd 249 with regression control
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import shutil
+          import subprocess
+          import tempfile
+
+          version = subprocess.check_output(['systemd-analyze', '--version'], text=True)
+          print(version, end='', flush=True)
+          major = re.match(r'systemd\s+(\d+)\b', version)
+          if major is None or major.group(1) != '249':
+              raise SystemExit('unit-compat requires actual systemd major 249')
+
+          install = Path('ops/monitoring/install').resolve()
+          service = install / 'trade-ops-monitor.service'
+          timer = install / 'trade-ops-monitor.timer'
+          # verify parses units and their dependencies; it does not start services.
+          subprocess.run(['systemd-analyze', 'verify', str(service), str(timer)], check=True)
+
+          # Change only a temporary copy; preserve unit names so the timer resolves its service.
+          with tempfile.TemporaryDirectory(prefix='ops-unit-compat-', dir=os.environ['RUNNER_TEMP']) as directory:
+              temporary = Path(directory)
+              content = service.read_text()
+              compatible = '--token-file ${CREDENTIALS_DIRECTORY}/ops_ingest_token'
+              if content.count(compatible) != 1:
+                  raise SystemExit('expected exactly one compatible credential path')
+              (temporary / service.name).write_text(content.replace(compatible, '--token-file %d/ops_ingest_token', 1))
+              shutil.copyfile(timer, temporary / timer.name)
+              negative = subprocess.run(
+                  ['systemd-analyze', 'verify', str(temporary / service.name), str(temporary / timer.name)],
+                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+              )
+              print(negative.stdout, end='', flush=True)
+              if negative.returncode == 0:
+                  raise SystemExit('old %d credential path unexpectedly passed systemd 249')
+              if '%d/ops_ingest_token' not in negative.stdout or 'Invalid slot' not in negative.stdout:
+                  raise SystemExit('negative control failed for an unrelated reason')
+          print(f'SYSTEMD_249_UNIT_COMPAT_OK positive_rc=0 negative_rc={negative.returncode}')
+          PY

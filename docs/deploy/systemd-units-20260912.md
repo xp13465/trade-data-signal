@@ -1826,7 +1826,7 @@ Environment=OPS_CONFIG=/etc/trade-ops-monitor/collector.json
 Environment=PYTHONDONTWRITEBYTECODE=1
 EnvironmentFile=/etc/trade-ops-monitor/collector.env
 LoadCredential=ops_ingest_token:/etc/trade-ops-monitor/ingest.token
-ExecStart=/usr/bin/python3 -B ${OPS_CODE_ROOT}/scripts/ops_monitor.py --config ${OPS_CONFIG} --once --token-file %d/ops_ingest_token
+ExecStart=/usr/bin/python3 -B ${OPS_CODE_ROOT}/scripts/ops_monitor.py --config ${OPS_CONFIG} --once --token-file ${CREDENTIALS_DIRECTORY}/ops_ingest_token
 TimeoutStartSec=240
 TimeoutStopSec=15
 KillMode=control-group

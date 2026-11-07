@@ -208,7 +208,11 @@ def test_unit_constraints_separate_code_data_and_credentials():
     content = (ROOT / 'ops/monitoring/install/trade-ops-monitor.service').read_text()
     assert 'OPS_CODE_ROOT=/home/ubuntu/code/trade-data-signal' in content
     assert '/scripts/ops_monitor.py' in content and '--once' in content
-    assert 'LoadCredential=ops_ingest_token:' in content and '--token-file %d/ops_ingest_token' in content
+    assert 'LoadCredential=ops_ingest_token:/etc/trade-ops-monitor/ingest.token' in content
+    exec_start = next(line for line in content.splitlines() if line.startswith('ExecStart='))
+    # systemd 249 expands its credential directory; argv carries only the copied file path.
+    assert exec_start.endswith(' --token-file ${CREDENTIALS_DIRECTORY}/ops_ingest_token')
+    assert '%d' not in exec_start and '/etc/trade-ops-monitor/ingest.token' not in exec_start
     assert 'EnvironmentFile=-' not in content and 'Restart=no' in content
     assert 'ReadWritePaths=/run/trade-ops-monitor' in content
     assert 'ProtectSystem=strict' in content and 'ProtectHome=read-only' in content
