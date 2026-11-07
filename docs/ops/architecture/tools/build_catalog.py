@@ -73,7 +73,8 @@ html=template.replace('__CATALOG_JSON__',embedded)
 outputs={inv/'catalog.json':json.dumps(catalog,ensure_ascii=False,indent=2)+'\n',inv/'reconciliation.json':json.dumps(rr,ensure_ascii=False,indent=2)+'\n',base/'dashboard-preview.html':html}
 parser=argparse.ArgumentParser(description='Offline docs-only catalogue builder; never calls business modules/network/DB.')
 g=parser.add_mutually_exclusive_group();g.add_argument('--write',action='store_true',help='Atomically regenerate only catalogue/reconciliation/offline HTML');g.add_argument('--check',action='store_true',help='Check reproducibility without writes (default)');args=parser.parse_args()
-assert inventory_paths()==source_inputs and all(hashlib.sha256(p.read_bytes()).hexdigest()==digest for p,digest in input_digests.items()),'Source inventory changed during generation; retry from a stable snapshot.'
+if inventory_paths()!=source_inputs or any(hashlib.sha256(p.read_bytes()).hexdigest()!=digest for p,digest in input_digests.items()):
+ raise RuntimeError('Source inventory changed during generation; retry from a stable snapshot.')
 drift=[str(p.relative_to(base)) for p,text in outputs.items() if not p.exists() or p.read_text()!=text]
 if args.write:
  for p,text in outputs.items():
