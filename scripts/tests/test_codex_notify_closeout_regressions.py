@@ -26,7 +26,11 @@ import urllib.request
 import pytest
 
 
-WRITERS = ("result", "latest", "state", "warning_dedup", "digest_state")
+# digest_state 已移除:main 已把 digest 写路径(path 5)从 `_chmod_like_target`
+# 重构到独立函数 `_write_digest_delivery_state`(硬编码 0600、不走 _chmod_like_target),
+# 故该组对 P2-01 的 _chmod_like_target strict fix 已 N/A;新函数的 0600/strict 语义
+# 由 main 自有测试覆盖,不再纳入本 closeout 回归参数化。
+WRITERS = ("result", "latest", "state", "warning_dedup")
 OLD_BYTES = b'{"last_sent_day":"","marker":"old-bytes"}\n'
 OLD = {"key": "closeout_old_key", "subject": "OLD_SUBJECT_TOKEN",
        "body": "OLD_BODY_TOKEN", "hits": 2}
