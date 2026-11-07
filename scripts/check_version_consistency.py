@@ -174,19 +174,20 @@ def check2(index_refs, site_dir: Path) -> tuple[bool, str]:
 def _git_repo_of(site_dir: Path):
     """解析 site_dir 所在 git 仓库根。优先环境变量 GIT_REPO，否则 git -C site_dir rev-parse。"""
     env = os.environ.get("GIT_REPO")
-    if env and os.path.isdir(os.path.join(env, ".git")):
-        return env
-    try:
-        r = subprocess.run(
-            ["git", "-C", str(site_dir), "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if r.returncode == 0:
-            top = r.stdout.strip()
-            if top and os.path.isdir(os.path.join(top, ".git")):
-                return top
-    except Exception:
-        pass
+    for candidate in (env, site_dir):
+        if not candidate:
+            continue
+        try:
+            r = subprocess.run(
+                ["git", "-C", str(candidate), "rev-parse", "--show-toplevel"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if r.returncode == 0:
+                top = r.stdout.strip()
+                if top and os.path.exists(os.path.join(top, ".git")):
+                    return top
+        except Exception:
+            pass
     return None
 
 
@@ -233,7 +234,7 @@ def _rebuild_from_head(site_dir: Path, repo, head):
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
     import build_min
-    return build_min.build_pairs_in_memory(base=site_dir, repo=repo, head=head)
+    return build_min.build_pairs_in_memory(base=site_dir.parent, repo=repo, head=head)
 
 
 def _check3_once(site_dir: Path, repo, head):

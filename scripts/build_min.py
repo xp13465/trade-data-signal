@@ -55,22 +55,24 @@ def _resolve_git_repo():
     """返回 git 仓库根路径，或 None。
 
     优先级：环境变量 GIT_REPO（deploy.sh 从 trade-data 跑时传 trade 仓库）→ 检测 BASE 自身是否 git 仓库
-    （build_min.py 在 trade 本地跑时，BASE=trade，直接可用）。返回前校验仓库确实存在 .git。
+    （build_min.py 在 trade 本地跑时，BASE=trade，直接可用）。候选均经 git rev-parse 验证；
+    linked worktree 的 .git 是文件，不能只认普通仓库的 .git 目录。
     """
     env = os.environ.get("GIT_REPO")
-    if env and os.path.isdir(os.path.join(env, ".git")):
-        return env
-    try:
-        r = subprocess.run(
-            ["git", "-C", BASE, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if r.returncode == 0:
-            top = r.stdout.strip()
-            if top and os.path.isdir(os.path.join(top, ".git")):
-                return top
-    except Exception:
-        pass
+    for candidate in (env, BASE):
+        if not candidate:
+            continue
+        try:
+            r = subprocess.run(
+                ["git", "-C", candidate, "rev-parse", "--show-toplevel"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if r.returncode == 0:
+                top = r.stdout.strip()
+                if top and os.path.exists(os.path.join(top, ".git")):
+                    return top
+        except Exception:
+            pass
     return None
 
 
