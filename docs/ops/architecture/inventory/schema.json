@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Trade architecture inventory envelope v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "baseline_code_ref",
+    "observed_at",
+    "scope",
+    "coverage",
+    "records"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "baseline_code_ref": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "observed_at": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "string"
+    },
+    "coverage": {
+      "type": [
+        "object",
+        "string",
+        "array"
+      ]
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "evidence_status",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]*:[A-Za-z0-9_.:-]+$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "host",
+              "repository",
+              "service",
+              "task",
+              "data",
+              "monitor",
+              "alert_rule",
+              "surface",
+              "external",
+              "edge",
+              "incident"
+            ]
+          },
+          "evidence_status": {
+            "enum": [
+              "runtime_observed",
+              "code_confirmed",
+              "documented_only",
+              "inferred",
+              "unknown",
+              "planned"
+            ]
+          },
+          "health": {
+            "enum": [
+              "healthy",
+              "degraded",
+              "failed",
+              "unknown",
+              "not_applicable"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "kind",
+                "location",
+                "note"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

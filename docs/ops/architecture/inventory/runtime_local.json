@@ -1,0 +1,2053 @@
+{
+  "schema_version": 1,
+  "baseline_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+  "observed_at": "2026-11-07T14:19:33.419566+08:00",
+  "scope": "Task F: current-user local com.trade launchd snapshot, repository template declarations and repository collaboration contracts; no cloud/live-message validation",
+  "coverage": {
+    "runtime_observation": {
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "method": "launchctl list filtered com.trade.*",
+      "loaded_labels": 3,
+      "with_pid": 2,
+      "without_pid": 1,
+      "scope": "current user launchd domain only"
+    },
+    "declarations": {
+      "local_formal_plists": 3,
+      "local_adjacent_backup_candidates": 1,
+      "repo_candidates_including_backup_disabled": 11,
+      "scheduler_records": 13,
+      "unresolved_whitelist_parses": 2
+    },
+    "not_observed": [
+      "system LaunchDaemons/other user bootstrap domains",
+      "launchd disable overrides",
+      "running process command/env/code revision",
+      "business freshness or success",
+      "cloud runtime",
+      "live Claude hook loading",
+      "actual queues/reports/receipts/messages",
+      "user Codex configuration"
+    ],
+    "protected": [
+      "No business entry/dry-run/import execution",
+      "No launchctl load/unload/kickstart",
+      "No env/credentials/auth/private chats/transcripts read",
+      "No source/config/refs changes, commits, push, deployment, consumer start or messages"
+    ],
+    "source_conflicts": [
+      {
+        "topic": "watcher auto-consumer",
+        "code": "scripts/agent_inbox_watcher.py builds and spawns claude-inbox-consumer.sh; consumer execs Claude",
+        "document": "docs/codex-collab-protocol.md says watcher does not call Claude in background",
+        "resolution": "unknown deployed version/approval boundary; parent reconcile, no authority override here"
+      },
+      {
+        "topic": "watcher poll interval",
+        "code": "POLL_SECONDS=5",
+        "document": "protocol describes2-second polling",
+        "resolution": "inventory records source5s; running value unknown"
+      }
+    ]
+  },
+  "records": [
+    {
+      "id": "host:local-mac",
+      "name": "本机 macOS 当前用户 launchd 域",
+      "kind": "host",
+      "evidence_status": "runtime_observed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "runtime_observed",
+          "location": "launchctl list (com.trade.* filter)",
+          "note": "仅当前用户域快照；未覆盖 system/其他用户域。"
+        }
+      ],
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "timezone": {
+        "display": "Asia/Shanghai",
+        "observed_offset": "+08:00",
+        "host_zone_identifier": "unknown"
+      },
+      "business_health": "unknown"
+    },
+    {
+      "id": "repo:code",
+      "name": "Trade 固定源码基线",
+      "kind": "repository",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "code_confirmed",
+          "location": "docs/ops/architecture/_inventory-contract.md",
+          "note": "本任务 worktree 代码ref已核实；不代表已加载本机进程或云端部署版本。"
+        }
+      ],
+      "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+      "deployed_ref": "unknown"
+    },
+    {
+      "id": "task:local-ab-direction-anchor",
+      "name": "com.trade.ab-direction-anchor",
+      "kind": "task",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "repo_template",
+          "location": "scripts/com.trade.ab-direction-anchor.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        }
+      ],
+      "label": "com.trade.ab-direction-anchor",
+      "declared_label_candidate": "com.trade.ab-direction-anchor",
+      "placement": "local macOS declaration",
+      "runtime_state": "not_observed_in_current_user_label_set",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": false,
+        "pid": null,
+        "last_exit": "unknown",
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "/bin/bash",
+        "script_or_module": [
+          "~/code/trade/scripts/run_ab_direction_anchor.sh"
+        ],
+        "inline_shell_command_present": false
+      },
+      "working_directory": "unknown",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": false,
+        "KeepAlive": "unknown",
+        "StartInterval": "unknown",
+        "StartCalendarInterval": {
+          "Hour": 21,
+          "Minute": 15
+        }
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": {
+        "Hour": 21,
+        "Minute": 15
+      },
+      "input": "unknown",
+      "output": "unknown",
+      "lock": "unknown",
+      "timeout": {
+        "ExitTimeOut": "unknown",
+        "application_timeout": "unknown"
+      },
+      "retry": {
+        "KeepAlive": "unknown",
+        "ThrottleInterval": "unknown",
+        "application_retry": "unknown"
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": "unknown (no business logs/message contents or heartbeat read)",
+      "runbook": "docs/deploy/systemd-units-20260912.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": false
+      },
+      "source_declarations": [
+        {
+          "source_layer": "repo_template",
+          "location": "scripts/com.trade.ab-direction-anchor.plist",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.ab-direction-anchor",
+            "StartCalendarInterval": {
+              "Hour": 21,
+              "Minute": 15
+            },
+            "RunAtLoad": false
+          },
+          "entry": {
+            "launcher": "/bin/bash",
+            "script_or_module": [
+              "~/code/trade/scripts/run_ab_direction_anchor.sh"
+            ],
+            "inline_shell_command_present": false
+          }
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ],
+      "dependency_candidates": [
+        {
+          "label": "trade-ab-direction-anchor.timer / trade-ab-direction-anchor.service",
+          "relationship": "possible migration mapping; NOT confirmed current cloud runtime",
+          "evidence": {
+            "kind": "documented_only",
+            "location": "docs/deploy/systemd-units-cloud-snapshot.txt",
+            "note": "旧快照Description标源com.trade标签；仅交parent与当前cloud清单对账。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "service:local-agent-inbox-watcher",
+      "name": "com.trade.agent-inbox-watcher",
+      "kind": "service",
+      "evidence_status": "runtime_observed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "local_launchagents_file",
+          "location": "~/Library/LaunchAgents/com.trade.agent-inbox-watcher.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        },
+        {
+          "kind": "repo_template",
+          "location": "launchd/com.trade.agent-inbox-watcher.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        },
+        {
+          "kind": "runtime_observation",
+          "location": "launchctl list filtered com.trade.agent-inbox-watcher",
+          "note": "observed_at=2026-11-07T14:14:52.634032+08:00; PID/last_exit仅进程状态。"
+        },
+        {
+          "kind": "code_confirmed",
+          "location": "scripts/agent_inbox_watcher.py:main/pump_queue/poll_running",
+          "note": "固定base源码轮询5s；两种kind各至多一个worker；不是运行中进程版本证明。"
+        }
+      ],
+      "label": "com.trade.agent-inbox-watcher",
+      "declared_label_candidate": "com.trade.agent-inbox-watcher",
+      "placement": "local macOS declaration",
+      "runtime_state": "loaded_label",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": true,
+        "pid": 3368,
+        "last_exit": 0,
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "/usr/bin/python3",
+        "script_or_module": [
+          "~/code/trade/scripts/agent_inbox_watcher.py"
+        ],
+        "inline_shell_command_present": false
+      },
+      "working_directory": "unknown",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": true,
+        "KeepAlive": true,
+        "StartInterval": "unknown",
+        "StartCalendarInterval": "unknown"
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": "RunAtLoad + KeepAlive resident declaration",
+      "input": [
+        "refs/codex/req/*",
+        "/tmp/codex-reports/signals/codex-inbox/*.ready",
+        "/tmp/codex-reports/signals/claude-inbox/*.ready"
+      ],
+      "output": [
+        "reports and signals (worker-dependent)",
+        "heartbeat/log/retry states",
+        "source can remove request refs"
+      ],
+      "lock": "/tmp/agent_inbox.lock (PID/O_EXCL; live PID blocks duplicate)",
+      "timeout": {
+        "worker_hard_timeout_seconds": 3600
+      },
+      "retry": {
+        "max_retries": 10,
+        "backoff_seconds": 60,
+        "poll_seconds": 5,
+        "launchd_KeepAlive_declared": true
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": {
+        "declared_heartbeat": "/tmp/agent_inbox_watcher.heartbeat",
+        "freshness": "unknown",
+        "source": "scripts/agent_inbox_watcher.py:main"
+      },
+      "runbook": "docs/codex-collab-protocol.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": false
+      },
+      "source_declarations": [
+        {
+          "source_layer": "local_launchagents_file",
+          "location": "~/Library/LaunchAgents/com.trade.agent-inbox-watcher.plist",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.agent-inbox-watcher",
+            "KeepAlive": true,
+            "RunAtLoad": true
+          },
+          "entry": {
+            "launcher": "/usr/bin/python3",
+            "script_or_module": [
+              "~/code/trade/scripts/agent_inbox_watcher.py"
+            ],
+            "inline_shell_command_present": false
+          }
+        },
+        {
+          "source_layer": "repo_template",
+          "location": "launchd/com.trade.agent-inbox-watcher.plist",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.agent-inbox-watcher",
+            "KeepAlive": true,
+            "RunAtLoad": true
+          },
+          "entry": {
+            "launcher": "/usr/bin/python3",
+            "script_or_module": [
+              "~/code/trade/scripts/agent_inbox_watcher.py"
+            ],
+            "inline_shell_command_present": false
+          }
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ],
+      "historical_disposition": {
+        "status": "documented_only",
+        "note": "迁移文档列为本机专属不迁；当前业务/代理功能未验证。",
+        "source": "docs/deploy/systemd-units-20260912.md §5"
+      },
+      "source_runtime_match": "unknown"
+    },
+    {
+      "id": "task:local-check-data-gap",
+      "name": "com.trade.check-data-gap",
+      "kind": "task",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "repo_template",
+          "location": "launchd/com.trade.check-data-gap.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        }
+      ],
+      "label": "com.trade.check-data-gap",
+      "declared_label_candidate": "com.trade.check-data-gap",
+      "placement": "local macOS declaration",
+      "runtime_state": "not_observed_in_current_user_label_set",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": false,
+        "pid": null,
+        "last_exit": "unknown",
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "/bin/bash",
+        "script_or_module": [
+          "~/code/trade-data/scripts/check_data_gap_alerts.sh"
+        ],
+        "inline_shell_command_present": false
+      },
+      "working_directory": "~/code/trade-data",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": false,
+        "KeepAlive": "unknown",
+        "StartInterval": "unknown",
+        "StartCalendarInterval": [
+          {
+            "Weekday": 1,
+            "Hour": 22,
+            "Minute": 35
+          },
+          {
+            "Weekday": 2,
+            "Hour": 22,
+            "Minute": 35
+          },
+          {
+            "Weekday": 3,
+            "Hour": 22,
+            "Minute": 35
+          },
+          {
+            "Weekday": 4,
+            "Hour": 22,
+            "Minute": 35
+          },
+          {
+            "Weekday": 5,
+            "Hour": 22,
+            "Minute": 35
+          }
+        ]
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": [
+        {
+          "Weekday": 1,
+          "Hour": 22,
+          "Minute": 35
+        },
+        {
+          "Weekday": 2,
+          "Hour": 22,
+          "Minute": 35
+        },
+        {
+          "Weekday": 3,
+          "Hour": 22,
+          "Minute": 35
+        },
+        {
+          "Weekday": 4,
+          "Hour": 22,
+          "Minute": 35
+        },
+        {
+          "Weekday": 5,
+          "Hour": 22,
+          "Minute": 35
+        }
+      ],
+      "input": "unknown",
+      "output": "unknown",
+      "lock": "unknown",
+      "timeout": {
+        "ExitTimeOut": 600,
+        "application_timeout": "unknown"
+      },
+      "retry": {
+        "KeepAlive": "unknown",
+        "ThrottleInterval": "unknown",
+        "application_retry": "unknown"
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": "unknown (no business logs/message contents or heartbeat read)",
+      "runbook": "docs/deploy/systemd-units-20260912.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": false
+      },
+      "source_declarations": [
+        {
+          "source_layer": "repo_template",
+          "location": "launchd/com.trade.check-data-gap.plist",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.check-data-gap",
+            "StartCalendarInterval": [
+              {
+                "Weekday": 1,
+                "Hour": 22,
+                "Minute": 35
+              },
+              {
+                "Weekday": 2,
+                "Hour": 22,
+                "Minute": 35
+              },
+              {
+                "Weekday": 3,
+                "Hour": 22,
+                "Minute": 35
+              },
+              {
+                "Weekday": 4,
+                "Hour": 22,
+                "Minute": 35
+              },
+              {
+                "Weekday": 5,
+                "Hour": 22,
+                "Minute": 35
+              }
+            ],
+            "WorkingDirectory": "~/code/trade-data",
+            "RunAtLoad": false,
+            "ExitTimeOut": 600
+          },
+          "entry": {
+            "launcher": "/bin/bash",
+            "script_or_module": [
+              "~/code/trade-data/scripts/check_data_gap_alerts.sh"
+            ],
+            "inline_shell_command_present": false
+          }
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ],
+      "dependency_candidates": [
+        {
+          "label": "trade-check-data-gap.timer / trade-check-data-gap.service",
+          "relationship": "possible migration mapping; NOT confirmed current cloud runtime",
+          "evidence": {
+            "kind": "documented_only",
+            "location": "docs/deploy/systemd-units-cloud-snapshot.txt",
+            "note": "旧快照Description标源com.trade标签；仅交parent与当前cloud清单对账。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "task:local-env",
+      "name": "com.trade.env",
+      "kind": "task",
+      "evidence_status": "runtime_observed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "local_launchagents_file",
+          "location": "~/Library/LaunchAgents/com.trade.env.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        },
+        {
+          "kind": "runtime_observation",
+          "location": "launchctl list filtered com.trade.env",
+          "note": "observed_at=2026-11-07T14:14:52.634032+08:00; PID/last_exit仅进程状态。"
+        }
+      ],
+      "label": "com.trade.env",
+      "declared_label_candidate": "com.trade.env",
+      "placement": "local macOS declaration",
+      "runtime_state": "loaded_label",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": true,
+        "pid": null,
+        "last_exit": 0,
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "/bin/launchctl",
+        "script_or_module": [
+          "unknown"
+        ],
+        "inline_shell_command_present": false
+      },
+      "working_directory": "unknown",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": true,
+        "KeepAlive": "unknown",
+        "StartInterval": "unknown",
+        "StartCalendarInterval": "unknown"
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": "RunAtLoad only",
+      "input": "unknown",
+      "output": "unknown",
+      "lock": "unknown",
+      "timeout": {
+        "ExitTimeOut": "unknown",
+        "application_timeout": "unknown"
+      },
+      "retry": {
+        "KeepAlive": "unknown",
+        "ThrottleInterval": "unknown",
+        "application_retry": "unknown"
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": "unknown (no business logs/message contents or heartbeat read)",
+      "runbook": "docs/deploy/systemd-units-20260912.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": false
+      },
+      "source_declarations": [
+        {
+          "source_layer": "local_launchagents_file",
+          "location": "~/Library/LaunchAgents/com.trade.env.plist",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.env",
+            "RunAtLoad": true
+          },
+          "entry": {
+            "launcher": "/bin/launchctl",
+            "script_or_module": [
+              "unknown"
+            ],
+            "inline_shell_command_present": false
+          }
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ]
+    },
+    {
+      "id": "service:local-feishu-listener",
+      "name": "com.trade.feishu-listener",
+      "kind": "service",
+      "evidence_status": "runtime_observed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "local_launchagents_file",
+          "location": "~/Library/LaunchAgents/com.trade.feishu-listener.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        },
+        {
+          "kind": "runtime_observation",
+          "location": "launchctl list filtered com.trade.feishu-listener",
+          "note": "observed_at=2026-11-07T14:14:52.634032+08:00; PID/last_exit仅进程状态。"
+        },
+        {
+          "kind": "code_confirmed",
+          "location": "scripts/feishu_ws_listener.py:process_event/append_todo_to_tasks/_start_liveness_watchdog",
+          "note": "未读取真实消息、TASKS正文、配置或凭证；仅确认源码功能边界。"
+        }
+      ],
+      "label": "com.trade.feishu-listener",
+      "declared_label_candidate": "com.trade.feishu-listener",
+      "placement": "local macOS declaration",
+      "runtime_state": "loaded_label",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": true,
+        "pid": 10216,
+        "last_exit": 2,
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "~/code/trade/.venv/bin/python",
+        "script_or_module": [
+          "~/code/trade/scripts/feishu_ws_listener.py"
+        ],
+        "inline_shell_command_present": false
+      },
+      "working_directory": "unknown",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": true,
+        "KeepAlive": true,
+        "StartInterval": "unknown",
+        "StartCalendarInterval": "unknown"
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": "RunAtLoad + KeepAlive resident declaration",
+      "input": "authorized Feishu events (content not inspected)",
+      "output": "repo source declares inbox/pending persistence, TASKS todo append and receipt/forwarding",
+      "lock": "repo source: TASKS file flock; runtime use unknown",
+      "timeout": {
+        "ExitTimeOut": "unknown",
+        "application_timeout": "unknown"
+      },
+      "retry": {
+        "KeepAlive": true,
+        "ThrottleInterval": 10,
+        "application_retry": "unknown"
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": "repo source declares last-event/liveness watchdog; runtime freshness unknown",
+      "runbook": "docs/feishu-bot-integration-plan.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": false
+      },
+      "source_declarations": [
+        {
+          "source_layer": "local_launchagents_file",
+          "location": "~/Library/LaunchAgents/com.trade.feishu-listener.plist",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.feishu-listener",
+            "RunAtLoad": true,
+            "KeepAlive": true,
+            "ThrottleInterval": 10
+          },
+          "entry": {
+            "launcher": "~/code/trade/.venv/bin/python",
+            "script_or_module": [
+              "~/code/trade/scripts/feishu_ws_listener.py"
+            ],
+            "inline_shell_command_present": false
+          }
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ]
+    },
+    {
+      "id": "task:local-nextday-plan",
+      "name": "com.trade.nextday-plan",
+      "kind": "task",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "repo_template",
+          "location": "docs/auto-trade/com.trade.nextday-plan.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        }
+      ],
+      "label": "com.trade.nextday-plan",
+      "declared_label_candidate": "com.trade.nextday-plan",
+      "placement": "local macOS declaration",
+      "runtime_state": "not_observed_in_current_user_label_set",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": false,
+        "pid": null,
+        "last_exit": "unknown",
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "/bin/bash",
+        "script_or_module": [
+          "~/code/trade-data/scripts/nextday_plan.sh"
+        ],
+        "inline_shell_command_present": false
+      },
+      "working_directory": "~/code/trade-data",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": false,
+        "KeepAlive": "unknown",
+        "StartInterval": "unknown",
+        "StartCalendarInterval": [
+          {
+            "Weekday": 1,
+            "Hour": 22,
+            "Minute": 30
+          },
+          {
+            "Weekday": 2,
+            "Hour": 22,
+            "Minute": 30
+          },
+          {
+            "Weekday": 3,
+            "Hour": 22,
+            "Minute": 30
+          },
+          {
+            "Weekday": 4,
+            "Hour": 22,
+            "Minute": 30
+          },
+          {
+            "Weekday": 5,
+            "Hour": 22,
+            "Minute": 30
+          }
+        ]
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": [
+        {
+          "Weekday": 1,
+          "Hour": 22,
+          "Minute": 30
+        },
+        {
+          "Weekday": 2,
+          "Hour": 22,
+          "Minute": 30
+        },
+        {
+          "Weekday": 3,
+          "Hour": 22,
+          "Minute": 30
+        },
+        {
+          "Weekday": 4,
+          "Hour": 22,
+          "Minute": 30
+        },
+        {
+          "Weekday": 5,
+          "Hour": 22,
+          "Minute": 30
+        }
+      ],
+      "input": "unknown",
+      "output": "unknown",
+      "lock": "unknown",
+      "timeout": {
+        "ExitTimeOut": 600,
+        "application_timeout": "unknown"
+      },
+      "retry": {
+        "KeepAlive": "unknown",
+        "ThrottleInterval": "unknown",
+        "application_retry": "unknown"
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": "unknown (no business logs/message contents or heartbeat read)",
+      "runbook": "docs/deploy/systemd-units-20260912.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": false
+      },
+      "source_declarations": [
+        {
+          "source_layer": "repo_template",
+          "location": "docs/auto-trade/com.trade.nextday-plan.plist",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.nextday-plan",
+            "StartCalendarInterval": [
+              {
+                "Weekday": 1,
+                "Hour": 22,
+                "Minute": 30
+              },
+              {
+                "Weekday": 2,
+                "Hour": 22,
+                "Minute": 30
+              },
+              {
+                "Weekday": 3,
+                "Hour": 22,
+                "Minute": 30
+              },
+              {
+                "Weekday": 4,
+                "Hour": 22,
+                "Minute": 30
+              },
+              {
+                "Weekday": 5,
+                "Hour": 22,
+                "Minute": 30
+              }
+            ],
+            "WorkingDirectory": "~/code/trade-data",
+            "RunAtLoad": false,
+            "ExitTimeOut": 600
+          },
+          "entry": {
+            "launcher": "/bin/bash",
+            "script_or_module": [
+              "~/code/trade-data/scripts/nextday_plan.sh"
+            ],
+            "inline_shell_command_present": false
+          }
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ],
+      "dependency_candidates": [
+        {
+          "label": "trade-nextday-plan.timer / trade-nextday-plan.service",
+          "relationship": "possible migration mapping; NOT confirmed current cloud runtime",
+          "evidence": {
+            "kind": "documented_only",
+            "location": "docs/deploy/systemd-units-cloud-snapshot.txt",
+            "note": "旧快照Description标源com.trade标签；仅交parent与当前cloud清单对账。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "task:local-s06-snapshot",
+      "name": "com.trade.s06-snapshot",
+      "kind": "task",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "repo_template",
+          "location": "launchd/com.trade.s06-snapshot.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        }
+      ],
+      "label": "com.trade.s06-snapshot",
+      "declared_label_candidate": "com.trade.s06-snapshot",
+      "placement": "local macOS declaration",
+      "runtime_state": "not_observed_in_current_user_label_set",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": false,
+        "pid": null,
+        "last_exit": "unknown",
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "/bin/bash",
+        "script_or_module": [
+          "~/code/trade-data/scripts/s06_snapshot.sh"
+        ],
+        "inline_shell_command_present": false
+      },
+      "working_directory": "~/code/trade-data",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": false,
+        "KeepAlive": "unknown",
+        "StartInterval": "unknown",
+        "StartCalendarInterval": [
+          {
+            "Weekday": 1,
+            "Hour": 20,
+            "Minute": 35
+          },
+          {
+            "Weekday": 2,
+            "Hour": 20,
+            "Minute": 35
+          },
+          {
+            "Weekday": 3,
+            "Hour": 20,
+            "Minute": 35
+          },
+          {
+            "Weekday": 4,
+            "Hour": 20,
+            "Minute": 35
+          },
+          {
+            "Weekday": 5,
+            "Hour": 20,
+            "Minute": 35
+          }
+        ]
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": [
+        {
+          "Weekday": 1,
+          "Hour": 20,
+          "Minute": 35
+        },
+        {
+          "Weekday": 2,
+          "Hour": 20,
+          "Minute": 35
+        },
+        {
+          "Weekday": 3,
+          "Hour": 20,
+          "Minute": 35
+        },
+        {
+          "Weekday": 4,
+          "Hour": 20,
+          "Minute": 35
+        },
+        {
+          "Weekday": 5,
+          "Hour": 20,
+          "Minute": 35
+        }
+      ],
+      "input": "unknown",
+      "output": "unknown",
+      "lock": "unknown",
+      "timeout": {
+        "ExitTimeOut": 600,
+        "application_timeout": "unknown"
+      },
+      "retry": {
+        "KeepAlive": "unknown",
+        "ThrottleInterval": "unknown",
+        "application_retry": "unknown"
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": "unknown (no business logs/message contents or heartbeat read)",
+      "runbook": "docs/deploy/systemd-units-20260912.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": false
+      },
+      "source_declarations": [
+        {
+          "source_layer": "repo_template",
+          "location": "launchd/com.trade.s06-snapshot.plist",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.s06-snapshot",
+            "StartCalendarInterval": [
+              {
+                "Weekday": 1,
+                "Hour": 20,
+                "Minute": 35
+              },
+              {
+                "Weekday": 2,
+                "Hour": 20,
+                "Minute": 35
+              },
+              {
+                "Weekday": 3,
+                "Hour": 20,
+                "Minute": 35
+              },
+              {
+                "Weekday": 4,
+                "Hour": 20,
+                "Minute": 35
+              },
+              {
+                "Weekday": 5,
+                "Hour": 20,
+                "Minute": 35
+              }
+            ],
+            "WorkingDirectory": "~/code/trade-data",
+            "RunAtLoad": false,
+            "ExitTimeOut": 600
+          },
+          "entry": {
+            "launcher": "/bin/bash",
+            "script_or_module": [
+              "~/code/trade-data/scripts/s06_snapshot.sh"
+            ],
+            "inline_shell_command_present": false
+          }
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ],
+      "dependency_candidates": [
+        {
+          "label": "trade-s06-snapshot.timer / trade-s06-snapshot.service",
+          "relationship": "possible migration mapping; NOT confirmed current cloud runtime",
+          "evidence": {
+            "kind": "documented_only",
+            "location": "docs/deploy/systemd-units-cloud-snapshot.txt",
+            "note": "旧快照Description标源com.trade标签；仅交parent与当前cloud清单对账。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "task:local-sentiment",
+      "name": "com.trade.sentiment",
+      "kind": "task",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "repo_template",
+          "location": "launchd/com.trade.sentiment.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        }
+      ],
+      "label": "com.trade.sentiment",
+      "declared_label_candidate": "com.trade.sentiment",
+      "placement": "local macOS declaration",
+      "runtime_state": "not_observed_in_current_user_label_set",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": false,
+        "pid": null,
+        "last_exit": "unknown",
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "~/code/trade/.venv/bin/python",
+        "script_or_module": [
+          "module:app.scheduler"
+        ],
+        "inline_shell_command_present": false
+      },
+      "working_directory": "~/code/trade",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": false,
+        "KeepAlive": "unknown",
+        "StartInterval": "unknown",
+        "StartCalendarInterval": {
+          "Hour": 15,
+          "Minute": 33
+        }
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": {
+        "Hour": 15,
+        "Minute": 33
+      },
+      "input": "unknown",
+      "output": "unknown",
+      "lock": "unknown",
+      "timeout": {
+        "ExitTimeOut": "unknown",
+        "application_timeout": "unknown"
+      },
+      "retry": {
+        "KeepAlive": "unknown",
+        "ThrottleInterval": "unknown",
+        "application_retry": "unknown"
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": "unknown (no business logs/message contents or heartbeat read)",
+      "runbook": "docs/deploy/systemd-units-20260912.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": false
+      },
+      "source_declarations": [
+        {
+          "source_layer": "repo_template",
+          "location": "launchd/com.trade.sentiment.plist",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.sentiment",
+            "StartCalendarInterval": {
+              "Hour": 15,
+              "Minute": 33
+            },
+            "WorkingDirectory": "~/code/trade",
+            "RunAtLoad": false
+          },
+          "entry": {
+            "launcher": "~/code/trade/.venv/bin/python",
+            "script_or_module": [
+              "module:app.scheduler"
+            ],
+            "inline_shell_command_present": false
+          }
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ],
+      "historical_disposition": {
+        "status": "documented_only",
+        "note": "旧scheduler遗留/不迁记录；不是本次停用操作或故障判定。",
+        "source": "docs/deploy/systemd-units-20260912.md §6"
+      }
+    },
+    {
+      "id": "service:local-thinking-proxy",
+      "name": "com.trade.thinking-proxy",
+      "kind": "service",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "repo_template",
+          "location": "scripts/com.trade.thinking-proxy.plist.bak-official-20260816-20260816-172623",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        },
+        {
+          "kind": "repo_template",
+          "location": "scripts/com.trade.thinking-proxy.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        }
+      ],
+      "label": "com.trade.thinking-proxy",
+      "declared_label_candidate": "com.trade.thinking-proxy",
+      "placement": "local macOS declaration",
+      "runtime_state": "not_observed_in_current_user_label_set",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": false,
+        "pid": null,
+        "last_exit": "unknown",
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "/bin/bash",
+        "script_or_module": [
+          "~/code/trade/scripts/sensenova-rotate-proxy.sh"
+        ],
+        "inline_shell_command_present": false
+      },
+      "working_directory": "unknown",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": true,
+        "KeepAlive": true,
+        "StartInterval": "unknown",
+        "StartCalendarInterval": "unknown"
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": "RunAtLoad + KeepAlive resident declaration",
+      "input": "unknown",
+      "output": "unknown",
+      "lock": "unknown",
+      "timeout": {
+        "ExitTimeOut": "unknown",
+        "application_timeout": "unknown"
+      },
+      "retry": {
+        "KeepAlive": true,
+        "ThrottleInterval": "unknown",
+        "application_retry": "unknown"
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": "unknown (no business logs/message contents or heartbeat read)",
+      "runbook": "docs/deploy/systemd-units-20260912.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": false
+      },
+      "source_declarations": [
+        {
+          "source_layer": "repo_template",
+          "location": "scripts/com.trade.thinking-proxy.plist.bak-official-20260816-20260816-172623",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.thinking-proxy",
+            "KeepAlive": true,
+            "RunAtLoad": true
+          },
+          "entry": {
+            "launcher": "/usr/bin/python3",
+            "script_or_module": [
+              "~/code/trade/scripts/thinking_proxy.py"
+            ],
+            "inline_shell_command_present": false
+          }
+        },
+        {
+          "source_layer": "repo_template",
+          "location": "scripts/com.trade.thinking-proxy.plist",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.thinking-proxy",
+            "KeepAlive": true,
+            "RunAtLoad": true
+          },
+          "entry": {
+            "launcher": "/bin/bash",
+            "script_or_module": [
+              "~/code/trade/scripts/sensenova-rotate-proxy.sh"
+            ],
+            "inline_shell_command_present": false
+          }
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ],
+      "historical_disposition": {
+        "status": "documented_only",
+        "note": "迁移文档列为本机专属不迁；当前业务/代理功能未验证。",
+        "source": "docs/deploy/systemd-units-20260912.md §5"
+      }
+    },
+    {
+      "id": "service:local-thinking-proxy-kimi",
+      "name": "com.trade.thinking-proxy-kimi",
+      "kind": "service",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "repo_template",
+          "location": "scripts/.disabled/com.trade.thinking-proxy-kimi.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        }
+      ],
+      "label": "com.trade.thinking-proxy-kimi",
+      "declared_label_candidate": "com.trade.thinking-proxy-kimi",
+      "placement": "local macOS declaration",
+      "runtime_state": "not_observed_in_current_user_label_set",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": false,
+        "pid": null,
+        "last_exit": "unknown",
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "/bin/bash",
+        "script_or_module": [
+          "~/code/trade/scripts/sensenova-rotate-proxy-kimi.sh"
+        ],
+        "inline_shell_command_present": false
+      },
+      "working_directory": "unknown",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": true,
+        "KeepAlive": true,
+        "StartInterval": "unknown",
+        "StartCalendarInterval": "unknown"
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": "RunAtLoad + KeepAlive resident declaration",
+      "input": "unknown",
+      "output": "unknown",
+      "lock": "unknown",
+      "timeout": {
+        "ExitTimeOut": "unknown",
+        "application_timeout": "unknown"
+      },
+      "retry": {
+        "KeepAlive": true,
+        "ThrottleInterval": "unknown",
+        "application_retry": "unknown"
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": "unknown (no business logs/message contents or heartbeat read)",
+      "runbook": "docs/deploy/systemd-units-20260912.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": true
+      },
+      "source_declarations": [
+        {
+          "source_layer": "repo_template",
+          "location": "scripts/.disabled/com.trade.thinking-proxy-kimi.plist",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.thinking-proxy-kimi",
+            "KeepAlive": true,
+            "RunAtLoad": true
+          },
+          "entry": {
+            "launcher": "/bin/bash",
+            "script_or_module": [
+              "~/code/trade/scripts/sensenova-rotate-proxy-kimi.sh"
+            ],
+            "inline_shell_command_present": false
+          }
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ]
+    },
+    {
+      "id": "task:local-turnover-backfill",
+      "name": "com.trade.turnover-backfill",
+      "kind": "task",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "repo_template",
+          "location": "launchd/com.trade.turnover-backfill.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        }
+      ],
+      "label": "com.trade.turnover-backfill",
+      "declared_label_candidate": "com.trade.turnover-backfill",
+      "placement": "local macOS declaration",
+      "runtime_state": "not_observed_in_current_user_label_set",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": false,
+        "pid": null,
+        "last_exit": "unknown",
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "/bin/bash",
+        "script_or_module": [
+          "~/code/trade-data/scripts/turnover_backfill.sh"
+        ],
+        "inline_shell_command_present": false
+      },
+      "working_directory": "~/code/trade-data",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": false,
+        "KeepAlive": "unknown",
+        "StartInterval": "unknown",
+        "StartCalendarInterval": [
+          {
+            "Weekday": 1,
+            "Hour": 21,
+            "Minute": 10
+          },
+          {
+            "Weekday": 2,
+            "Hour": 21,
+            "Minute": 10
+          },
+          {
+            "Weekday": 3,
+            "Hour": 21,
+            "Minute": 10
+          },
+          {
+            "Weekday": 4,
+            "Hour": 21,
+            "Minute": 10
+          },
+          {
+            "Weekday": 5,
+            "Hour": 21,
+            "Minute": 10
+          }
+        ]
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": [
+        {
+          "Weekday": 1,
+          "Hour": 21,
+          "Minute": 10
+        },
+        {
+          "Weekday": 2,
+          "Hour": 21,
+          "Minute": 10
+        },
+        {
+          "Weekday": 3,
+          "Hour": 21,
+          "Minute": 10
+        },
+        {
+          "Weekday": 4,
+          "Hour": 21,
+          "Minute": 10
+        },
+        {
+          "Weekday": 5,
+          "Hour": 21,
+          "Minute": 10
+        }
+      ],
+      "input": "unknown",
+      "output": "unknown",
+      "lock": "unknown",
+      "timeout": {
+        "ExitTimeOut": 300,
+        "application_timeout": "unknown"
+      },
+      "retry": {
+        "KeepAlive": "unknown",
+        "ThrottleInterval": "unknown",
+        "application_retry": "unknown"
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": "unknown (no business logs/message contents or heartbeat read)",
+      "runbook": "docs/deploy/systemd-units-20260912.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": false
+      },
+      "source_declarations": [
+        {
+          "source_layer": "repo_template",
+          "location": "launchd/com.trade.turnover-backfill.plist",
+          "read_status": "parsed_allowlist_only",
+          "allowed_fields": {
+            "Label": "com.trade.turnover-backfill",
+            "StartCalendarInterval": [
+              {
+                "Weekday": 1,
+                "Hour": 21,
+                "Minute": 10
+              },
+              {
+                "Weekday": 2,
+                "Hour": 21,
+                "Minute": 10
+              },
+              {
+                "Weekday": 3,
+                "Hour": 21,
+                "Minute": 10
+              },
+              {
+                "Weekday": 4,
+                "Hour": 21,
+                "Minute": 10
+              },
+              {
+                "Weekday": 5,
+                "Hour": 21,
+                "Minute": 10
+              }
+            ],
+            "WorkingDirectory": "~/code/trade-data",
+            "RunAtLoad": false,
+            "ExitTimeOut": 300
+          },
+          "entry": {
+            "launcher": "/bin/bash",
+            "script_or_module": [
+              "~/code/trade-data/scripts/turnover_backfill.sh"
+            ],
+            "inline_shell_command_present": false
+          }
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ],
+      "dependency_candidates": [
+        {
+          "label": "trade-turnover-backfill.timer / trade-turnover-backfill.service",
+          "relationship": "possible migration mapping; NOT confirmed current cloud runtime",
+          "evidence": {
+            "kind": "documented_only",
+            "location": "docs/deploy/systemd-units-cloud-snapshot.txt",
+            "note": "旧快照Description标源com.trade标签；仅交parent与当前cloud清单对账。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "task:local-fetch-news-backup",
+      "name": "com.trade.fetch-news.plist.json-bak-20260819",
+      "kind": "task",
+      "evidence_status": "unknown",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "local_launchagents_file",
+          "location": "~/Library/LaunchAgents/com.trade.fetch-news.plist.json-bak-20260819",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        }
+      ],
+      "label": "unknown",
+      "declared_label_candidate": "com.trade.fetch-news",
+      "placement": "local macOS declaration",
+      "runtime_state": "backup_file_only",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": false,
+        "pid": null,
+        "last_exit": "unknown",
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "unknown",
+        "script_or_module": [
+          "unknown"
+        ]
+      },
+      "working_directory": "unknown",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": "unknown",
+        "KeepAlive": "unknown",
+        "StartInterval": "unknown",
+        "StartCalendarInterval": "unknown"
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": "unknown",
+      "input": "unknown",
+      "output": "unknown",
+      "lock": "unknown",
+      "timeout": {
+        "ExitTimeOut": "unknown",
+        "application_timeout": "unknown"
+      },
+      "retry": {
+        "KeepAlive": "unknown",
+        "ThrottleInterval": "unknown",
+        "application_retry": "unknown"
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": "unknown (no business logs/message contents or heartbeat read)",
+      "runbook": "docs/deploy/systemd-units-20260912.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": false
+      },
+      "source_declarations": [
+        {
+          "source_layer": "local_launchagents_file",
+          "location": "~/Library/LaunchAgents/com.trade.fetch-news.plist.json-bak-20260819",
+          "read_status": "unknown",
+          "allowed_fields": {},
+          "entry": "unknown"
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ],
+      "label_candidate_status": "inferred from filename only; actual label unknown"
+    },
+    {
+      "id": "task:local-sensenova-healthcheck",
+      "name": "com.trade.sensenova-healthcheck.plist",
+      "kind": "task",
+      "evidence_status": "unknown",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "repo_template",
+          "location": "scripts/com.trade.sensenova-healthcheck.plist",
+          "note": "仅允许字段；环境字典/原始完整参数/敏感值未采集。"
+        }
+      ],
+      "label": "unknown",
+      "declared_label_candidate": "com.trade.sensenova-healthcheck",
+      "placement": "local macOS declaration",
+      "runtime_state": "not_observed_in_current_user_label_set",
+      "observed_at": "2026-11-07T14:14:52.634032+08:00",
+      "runtime": {
+        "label_present": false,
+        "pid": null,
+        "last_exit": "unknown",
+        "health": "unknown",
+        "loaded_config_matches_file": "unknown",
+        "deployed_code_ref": "unknown"
+      },
+      "entry": {
+        "launcher": "unknown",
+        "script_or_module": [
+          "unknown"
+        ]
+      },
+      "working_directory": "unknown",
+      "scheduler": "launchd",
+      "timezone": "host-local calendar; observed host offset +08:00; zone identifier unknown",
+      "schedule": {
+        "RunAtLoad": "unknown",
+        "KeepAlive": "unknown",
+        "StartInterval": "unknown",
+        "StartCalendarInterval": "unknown"
+      },
+      "calendar_gate": "unknown (business-script internal gates not executed or exhaustively traced)",
+      "expected_frequency": "unknown",
+      "input": "unknown",
+      "output": "unknown",
+      "lock": "unknown",
+      "timeout": {
+        "ExitTimeOut": "unknown",
+        "application_timeout": "unknown"
+      },
+      "retry": {
+        "KeepAlive": "unknown",
+        "ThrottleInterval": "unknown",
+        "application_retry": "unknown"
+      },
+      "failure_criterion": "unknown; nonzero historical last_exit is a process-status clue only",
+      "recovery_criterion": "unknown; PID/exit0 alone insufficient",
+      "monitoring": "unknown (no business logs/message contents or heartbeat read)",
+      "runbook": "docs/deploy/systemd-units-20260912.md",
+      "disabled": {
+        "plist_Disabled": "unknown",
+        "launchd_override": "unknown",
+        "directory_marker": false
+      },
+      "source_declarations": [
+        {
+          "source_layer": "repo_template",
+          "location": "scripts/com.trade.sensenova-healthcheck.plist",
+          "read_status": "unknown",
+          "allowed_fields": {},
+          "entry": "unknown"
+        }
+      ],
+      "depends_on": [
+        "host:local-mac",
+        "repo:code"
+      ],
+      "historical_disposition": {
+        "status": "documented_only",
+        "note": "迁移文档列为本机专属不迁；当前业务/代理功能未验证。",
+        "source": "docs/deploy/systemd-units-20260912.md §5"
+      },
+      "label_candidate_status": "inferred from filename only; actual label unknown"
+    },
+    {
+      "id": "external:user-operator",
+      "name": "用户/操作者",
+      "kind": "external",
+      "evidence_status": "documented_only",
+      "health": "not_applicable",
+      "evidence": [
+        {
+          "kind": "documented_only",
+          "location": ".agents/codex-reviewer/SKILL.md",
+          "note": "授权与验收；本轮只读盘点+指定文档写入，不因图中存在自动化而扩大权限。"
+        }
+      ]
+    },
+    {
+      "id": "external:claude-main",
+      "name": "Claude 主控",
+      "kind": "external",
+      "evidence_status": "documented_only",
+      "health": "not_applicable",
+      "evidence": [
+        {
+          "kind": "documented_only",
+          "location": ".agents/codex-reviewer/SKILL.md",
+          "note": "需求分派、复核findings、修复与merge/deploy决策归主控；本轮未代行。"
+        }
+      ]
+    },
+    {
+      "id": "external:codex-reviewer",
+      "name": "Codex 外部只读 reviewer",
+      "kind": "external",
+      "evidence_status": "documented_only",
+      "health": "not_applicable",
+      "evidence": [
+        {
+          "kind": "documented_only",
+          "location": ".agents/codex-reviewer/SKILL.md",
+          "note": "读取request与范围、独立复核、产出报告；本次仅额外授权指定架构文档，不成为主控或implementer。"
+        }
+      ]
+    },
+    {
+      "id": "data:codex-review-requests",
+      "name": "Review request refs",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "code_confirmed",
+          "location": "docs/codex-collab-protocol.md; docs/ops/codex-handoff-inbox.md; scripts/codex_notify_bridge.py",
+          "note": "request JSON范围base/head/focus；本轮不查询payload、不改refs"
+        }
+      ],
+      "contents_observed": false
+    },
+    {
+      "id": "data:codex-review-reports",
+      "name": "只读review报告",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "code_confirmed",
+          "location": "docs/codex-collab-protocol.md; docs/ops/codex-handoff-inbox.md; scripts/codex_notify_bridge.py",
+          "note": "原子报告；结论需主控复核，不等于业务修复完成"
+        }
+      ],
+      "contents_observed": false
+    },
+    {
+      "id": "data:codex-ready-signals",
+      "name": "旧式ready信号队列",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "code_confirmed",
+          "location": "docs/codex-collab-protocol.md; docs/ops/codex-handoff-inbox.md; scripts/codex_notify_bridge.py",
+          "note": "ready/processing/done/failed/blocked是处理状态，不等于显式ACK或部署"
+        }
+      ],
+      "contents_observed": false
+    },
+    {
+      "id": "data:codex-handoff-metadata",
+      "name": "固定head/hash交接metadata",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "code_confirmed",
+          "location": "docs/codex-collab-protocol.md; docs/ops/codex-handoff-inbox.md; scripts/codex_notify_bridge.py",
+          "note": "packet/稳定锁/扫描游标；本轮不读取真实packet或报告正文"
+        }
+      ],
+      "contents_observed": false
+    },
+    {
+      "id": "data:codex-claude-actions",
+      "name": "Claude consumer动作回执",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "code_confirmed",
+          "location": "docs/codex-collab-protocol.md; docs/ops/codex-handoff-inbox.md; scripts/codex_notify_bridge.py",
+          "note": "consumer声明completed/blocked，语义不同于handoff ACK，均不证明merge/deploy"
+        }
+      ],
+      "contents_observed": false
+    },
+    {
+      "id": "data:codex-turn-done",
+      "name": "turn完成提示",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "code_confirmed",
+          "location": "docs/codex-collab-protocol.md; docs/ops/codex-handoff-inbox.md; scripts/codex_notify_bridge.py",
+          "note": "旧notify桥生成；新handoff不自动导入此提示，不读取实际内容"
+        }
+      ],
+      "contents_observed": false
+    },
+    {
+      "id": "service:codex-review-request",
+      "name": "Review request发布器",
+      "kind": "service",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "code_confirmed",
+          "location": "scripts/codex-review-request.sh",
+          "note": "主控入口，校验request后写ref与codex-inbox信号；本轮未执行。"
+        }
+      ],
+      "depends_on": [
+        "repo:code",
+        "data:codex-review-requests",
+        "data:codex-ready-signals"
+      ],
+      "runtime_state": "unknown",
+      "entry": "scripts/codex-review-request.sh",
+      "execution_location": "local declaration; actual invocation unknown",
+      "scheduler": "event/manual/source-defined; unknown live mounting",
+      "timezone": "not_applicable",
+      "calendar_gate": "not_applicable",
+      "expected_frequency": "event driven; live count unknown",
+      "input": "see evidence contract",
+      "output": "see evidence contract",
+      "lock": "unknown unless stated by tool contract",
+      "timeout": "unknown unless below",
+      "retry": "unknown; no invocation in this inventory",
+      "failure_criterion": "unknown runtime; source validation errors fail or preserve prior state",
+      "recovery_criterion": "unknown; completion requires scope-specific verification",
+      "monitoring": "unknown runtime",
+      "runbook": "docs/codex-collab-protocol.md"
+    },
+    {
+      "id": "service:codex-review-complete",
+      "name": "Review完成回传器",
+      "kind": "service",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "code_confirmed",
+          "location": "scripts/codex_review_complete.py",
+          "note": "核对report request_id/verdict后原子写claude-inbox.ready；不等于ACK、修复或部署。"
+        }
+      ],
+      "depends_on": [
+        "repo:code",
+        "data:codex-review-reports",
+        "data:codex-ready-signals"
+      ],
+      "runtime_state": "unknown",
+      "entry": "scripts/codex_review_complete.py",
+      "execution_location": "local declaration; actual invocation unknown",
+      "scheduler": "event/manual/source-defined; unknown live mounting",
+      "timezone": "not_applicable",
+      "calendar_gate": "not_applicable",
+      "expected_frequency": "event driven; live count unknown",
+      "input": "see evidence contract",
+      "output": "see evidence contract",
+      "lock": "unknown unless stated by tool contract",
+      "timeout": "unknown unless below",
+      "retry": "unknown; no invocation in this inventory",
+      "failure_criterion": "unknown runtime; source validation errors fail or preserve prior state",
+      "recovery_criterion": "unknown; completion requires scope-specific verification",
+      "monitoring": "unknown runtime",
+      "runbook": "docs/codex-collab-protocol.md"
+    },
+    {
+      "id": "service:claude-inbox-consumer",
+      "name": "旧队列Claude consumer",
+      "kind": "service",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "code_confirmed",
+          "location": "scripts/claude-inbox-consumer.sh",
+          "note": "源码会启动Claude独立worktree复核/处置，产动作回执，禁止其commit/push；当前是否启动及实际运行版本未知。"
+        }
+      ],
+      "depends_on": [
+        "repo:code",
+        "data:codex-review-reports",
+        "data:codex-claude-actions"
+      ],
+      "runtime_state": "unknown",
+      "entry": "scripts/claude-inbox-consumer.sh",
+      "execution_location": "local declaration; actual invocation unknown",
+      "scheduler": "event/manual/source-defined; unknown live mounting",
+      "timezone": "not_applicable",
+      "calendar_gate": "not_applicable",
+      "expected_frequency": "event driven; live count unknown",
+      "input": "see evidence contract",
+      "output": "see evidence contract",
+      "lock": "unknown unless stated by tool contract",
+      "timeout": "unknown unless below",
+      "retry": "unknown; no invocation in this inventory",
+      "failure_criterion": "unknown runtime; source validation errors fail or preserve prior state",
+      "recovery_criterion": "unknown; completion requires scope-specific verification",
+      "monitoring": "unknown runtime",
+      "runbook": "docs/codex-collab-protocol.md"
+    },
+    {
+      "id": "service:codex-handoff",
+      "name": "显式metadata与ACK工具",
+      "kind": "service",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "code_confirmed",
+          "location": "scripts/codex_handoff.py",
+          "note": "publish核对本地分支commit与报告字节；正常hook只输出metadata；ACK须received→claimed→completed，重新验head/hash。"
+        },
+        {
+          "kind": "code_confirmed",
+          "location": ".claude/settings.json hooks",
+          "note": "两个事件声明5秒hook；未读取或触发真实Claude会话，live加载unknown。"
+        }
+      ],
+      "depends_on": [
+        "repo:code",
+        "data:codex-review-reports",
+        "data:codex-handoff-metadata"
+      ],
+      "runtime_state": "unknown",
+      "entry": "scripts/codex_handoff.py",
+      "execution_location": "local declaration; actual invocation unknown",
+      "scheduler": "event/manual/source-defined; unknown live mounting",
+      "timezone": "not_applicable",
+      "calendar_gate": "not_applicable",
+      "expected_frequency": "event driven; live count unknown",
+      "input": "see evidence contract",
+      "output": "see evidence contract",
+      "lock": "stable flock on metadata inbox .lock",
+      "timeout": {
+        "hook_internal_seconds": 4,
+        "hook_config_seconds": 5,
+        "hook_lock_wait_seconds": 0.5,
+        "CLI_lock_wait_seconds": 3,
+        "git_call_seconds": 1
+      },
+      "retry": "no autonomous retry task; idempotent explicit same-identity operations",
+      "failure_criterion": "unknown runtime; source validation errors fail or preserve prior state",
+      "recovery_criterion": "unknown; completion requires scope-specific verification",
+      "monitoring": "unknown runtime",
+      "runbook": "docs/ops/codex-handoff-inbox.md",
+      "hook_declarations": [
+        "UserPromptSubmit",
+        "PreToolUse"
+      ],
+      "live_hook_loaded": "unknown",
+      "limits": {
+        "packets_per_hook": 32,
+        "report_hash_attempts": 4,
+        "max_report_bytes": 8388608,
+        "report_read_budget_bytes": 33554436
+      }
+    },
+    {
+      "id": "service:codex-notify-bridge",
+      "name": "旧turn完成提示桥",
+      "kind": "service",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "code_confirmed",
+          "location": "scripts/codex_notify_bridge.py",
+          "note": "源码写.done并调用通知；是否被本机Codex实际挂载unknown，未读取用户Codex配置。"
+        }
+      ],
+      "depends_on": [
+        "repo:code",
+        "data:codex-turn-done"
+      ],
+      "runtime_state": "unknown",
+      "entry": "scripts/codex_notify_bridge.py",
+      "execution_location": "local declaration; actual invocation unknown",
+      "scheduler": "event/manual/source-defined; unknown live mounting",
+      "timezone": "not_applicable",
+      "calendar_gate": "not_applicable",
+      "expected_frequency": "event driven; live count unknown",
+      "input": "see evidence contract",
+      "output": "see evidence contract",
+      "lock": "unknown unless stated by tool contract",
+      "timeout": "unknown unless below",
+      "retry": "unknown; no invocation in this inventory",
+      "failure_criterion": "unknown runtime; source validation errors fail or preserve prior state",
+      "recovery_criterion": "unknown; completion requires scope-specific verification",
+      "monitoring": "unknown runtime",
+      "runbook": "docs/codex-collab-protocol.md"
+    }
+  ]
+}

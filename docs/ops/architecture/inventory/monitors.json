@@ -1,0 +1,1085 @@
+{
+  "schema_version": 1,
+  "baseline_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+  "observed_at": "2026-11-07T14:19:10+08:00",
+  "scope": "任务D：监控/告警、展示消费与安全运行手册；仅固定base静态源码/文档，未取运行态",
+  "coverage": {
+    "records_total": 33,
+    "code_confirmed": 31,
+    "planned": 2,
+    "runtime_observed": 0,
+    "health_unknown": 31,
+    "log_tasks_declared": 17,
+    "extra_marker_tasks_declared": 2,
+    "unit_only_declared": 22,
+    "self_monitor_units_declared": 3,
+    "unit_registry_declared_total": 44,
+    "unit_registry_display_declared": 41,
+    "data_gap_check_families_called": 12,
+    "overfit_rules_declared": 5,
+    "overfit_rule_types_triggered_in_code": 4,
+    "overfit_reserved_rule_types": 1,
+    "unknown_dimensions": [
+      "所有记录的部署/实际频次/当前健康",
+      "远端任务与产物实际覆盖",
+      "通知配置与送达现场",
+      "备份对象及恢复实测",
+      "外部独立元监控覆盖"
+    ],
+    "not_collected": [
+      "服务/定时器现场",
+      "运行日志或业务数据库",
+      "实际配置和凭据",
+      "私人会话",
+      "远程HTTP/API",
+      "业务入口（包括dry-run）"
+    ],
+    "limits": "规则家族清单而非全仓每条字符串穷举；阈值仅选关键例，权威为固定base函数/注册表"
+  },
+  "records": [
+    {
+      "id": "monitor:schedule-main",
+      "name": "计划任务综合巡检",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "任务状态",
+      "entrypoint": "scripts/schedule_monitor.sh",
+      "inputs": [
+        "任务日志",
+        "schedule_stats.json",
+        "alert_state.json"
+      ],
+      "cadence_declared": "源码注释按15分钟轮；实际挂载unknown",
+      "threshold_source": "TASKS 17项；TOLERANCE=30min；DUR_THRESHOLDS分任务",
+      "dedup_escalation_silence": "alert_state按key、同实例合并、恢复冷却；规则见alert_denoise_rules",
+      "channel_categories": "告警类别路由/报告摘要类别",
+      "failure_retry_recovery_evidence": "异常状态与实际通知结果分别记录；尾部刷新心跳",
+      "blind_spots": "自身调度与业务数据是否正确未由该进程单独证明",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/schedule_monitor.sh:102",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:unit-registry",
+      "name": "systemd声明覆盖注册表",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "任务状态",
+      "entrypoint": "scripts/gen_schedule_stats.py",
+      "inputs": [
+        "TASKS",
+        "EXTRA_MARKER_SCANS",
+        "UNIT_ONLY",
+        "SELF_MONITOR_UNITS"
+      ],
+      "cadence_declared": "随stats/monitor生成消费；实际unknown",
+      "threshold_source": "17+2+22+3=44声明；41展示，3自监控不入表",
+      "dedup_escalation_silence": "include与exit-source模式控制；不是实时44在线断言",
+      "channel_categories": "本身不发送",
+      "failure_retry_recovery_evidence": "registry drift由check_unit_registry_drift比对；部署/现场待取证",
+      "blind_spots": "17个日志任务不是总覆盖分母；实际unit集合unknown",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/gen_schedule_stats.py:301",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:unit-truth",
+      "name": "unit退出真值及持久化证据",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "任务状态",
+      "entrypoint": "scripts/unit_truth.py",
+      "inputs": [
+        "systemd白名单属性",
+        "data/unit_exit_ledger.json",
+        "日志同实例证据"
+      ],
+      "cadence_declared": "调用方按轮",
+      "threshold_source": "derive_exit_code；ledger 24h新鲜窗、未来容差5min；缺start/invocation不默认为0",
+      "dedup_escalation_silence": "not-found/never-ran/no-record/unknown必须保留",
+      "channel_categories": "本身不发送",
+      "failure_retry_recovery_evidence": "系统码/日志冲突与来源分层输出",
+      "blind_spots": "active只代表调度/进程状态，不能证明产物健康",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/unit_truth.py:87",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:schedule-stats",
+      "name": "执行统计生成器",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "任务状态",
+      "entrypoint": "scripts/gen_schedule_stats.py",
+      "inputs": [
+        "固定append日志及gz回退",
+        "unit_truth",
+        "注册表"
+      ],
+      "cadence_declared": "deploy后及monitor跑前刷新（代码声明）",
+      "threshold_source": "MAX_GAP_SEC=3h配对；近10次有效平均；exit_source保留未知",
+      "dedup_escalation_silence": "日志或systemd来源模式；刷新失败可能继续消费旧stats",
+      "channel_categories": "本身不发送",
+      "failure_retry_recovery_evidence": "last_exit/exit_source/conflict/running/unit诊断字段",
+      "blind_spots": "前端并未展示所有来源/新鲜度/覆盖诊断",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [
+        "monitor:unit-registry",
+        "monitor:unit-truth"
+      ],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/gen_schedule_stats.py:36",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "alert_rule:task-missed-runtime",
+      "name": "漏跑/执行过慢/进行中超时",
+      "kind": "alert_rule",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "任务状态",
+      "entrypoint": "scripts/schedule_monitor.sh",
+      "inputs": [
+        "TASKS时点/交易日门控",
+        "last_run/duration"
+      ],
+      "cadence_declared": "monitor轮询",
+      "threshold_source": "TOLERANCE、DUR_THRESHOLDS与缓冲；部分任务有意未入耗时表",
+      "dedup_escalation_silence": "同(task,last_run)合并；进行中不得因null误恢复",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "必须核对同实例新退出及产物推进",
+      "blind_spots": "源码调度表不是部署timer实文；长时间pending截断边界见源码",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/schedule_monitor.sh:185",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "alert_rule:task-exit-log",
+      "name": "非零退出/日志异常语义",
+      "kind": "alert_rule",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "任务状态",
+      "entrypoint": "scripts/schedule_monitor.sh",
+      "inputs": [
+        "schedule_stats last_exit/exit_source",
+        "日志严重度标记"
+      ],
+      "cadence_declared": "monitor轮询",
+      "threshold_source": "非null非0退出；日志分warning/真故障/设计降级",
+      "dedup_escalation_silence": "同实例包装器已报去重，恢复态迁移不得冒充业务恢复",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "正确恢复需新一次可比执行证据",
+      "blind_spots": "exit0、缺退出码与stderr空均不是业务验收",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/schedule_monitor.sh:689",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "alert_rule:r2-contention",
+      "name": "R2锁跳过/连续未发布",
+      "kind": "alert_rule",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "发布一致性",
+      "entrypoint": "scripts/schedule_monitor.sh",
+      "inputs": [
+        "r2_skip_count/r2_round_id",
+        "上传日志"
+      ],
+      "cadence_declared": "monitor轮询",
+      "threshold_source": "连续轮次与规则大类；阈值以当前调用分支为准",
+      "dedup_escalation_silence": "独立小锁与全局锁区分；同根因汇总",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "核对轮次、锁等待与真正上传/purge证据",
+      "blind_spots": "skip让路不是上传成功，锁文件mtime不是持锁者证明",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/schedule_monitor.sh:2160",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:site-freshness",
+      "name": "站点与R2产物时效",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "发布一致性",
+      "entrypoint": "scripts/schedule_monitor.sh",
+      "inputs": [
+        "overview collected_at",
+        "intraday collected_at",
+        "交易时段/日历"
+      ],
+      "cadence_declared": "monitor轮询",
+      "threshold_source": "主站20min；R2 overview盘中20min/非交易24h、intraday15min；具体交易/午休门控见源码",
+      "dedup_escalation_silence": "连续滞后缓冲；R2键自管检测和恢复",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "恢复需相同源时点重新推进，不能只看网络200",
+      "blind_spots": "只覆盖所选核心产物；HTTP200和新mtime不证明内容完整",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/schedule_monitor.sh:106",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:r2-consistency",
+      "name": "三展示源HTTP一致性巡检",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "发布一致性",
+      "entrypoint": "scripts/check_r2_consistency.sh",
+      "inputs": [
+        "R2直链/代理/主站核心产物",
+        "local方向提示"
+      ],
+      "cadence_declared": "声明每日23:20；实际挂载unknown",
+      "threshold_source": "三源互比；本地差异提示不计失败；内外超时见wrapper",
+      "dedup_escalation_silence": "6h去重、连续失败升级规则；update-all运行时preflight skip",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "preflight-skip rc0=未校验；验收稳定态三源一致",
+      "blind_spots": "同源一致可能共同陈旧；部署中采样跳过形成未覆盖窗",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_r2_consistency.sh:23",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:failed-units",
+      "name": "failed unit与巡检者巡检",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "任务状态",
+      "entrypoint": "scripts/check_failed_units.py",
+      "inputs": [
+        "systemd失败集合",
+        "watchman集合",
+        "allowlist规则"
+      ],
+      "cadence_declared": "被schedule_monitor调用；现场频率unknown",
+      "threshold_source": "项目unit不准被普通allowlist隐藏；停摆集合/连续天数阈值见规则",
+      "dedup_escalation_silence": "集合变化首报、同集合降噪、连续3天升级定义；budget/digest开关应fail-open",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "notify结果确认后占窗；巡检自身失败单列",
+      "blind_spots": "当前failed集合unknown；发送成功不等于unit恢复",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_failed_units.py:155",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:monitor-heartbeat",
+      "name": "监控自身心跳看门狗",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "监控自覆盖",
+      "entrypoint": "scripts/check_monitor_heartbeat.py",
+      "inputs": [
+        "/tmp/schedule-monitor-heartbeat.txt mtime"
+      ],
+      "cadence_declared": "独立调度声明；实际挂载unknown",
+      "threshold_source": "1800s陈旧；通知3600s去重",
+      "dedup_escalation_silence": "持续故障每窗口重报",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "sent/suppressed视为通知已处理；未确认返回2",
+      "blind_spots": "rc0也可能仅已告警；心跳写在尾部flush之前，非端到端投递证明",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_monitor_heartbeat.py:42",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:notification-presence",
+      "name": "通知基础链路存活信号",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "通知投递",
+      "entrypoint": "scripts/schedule_monitor.sh",
+      "inputs": [
+        "配置存在性信号",
+        "hook/ws心跳文件/错误日志"
+      ],
+      "cadence_declared": "monitor轮询；本轮不读实际配置或私人会话",
+      "threshold_source": "各心跳/活跃判据分支见源码；无统一SLA",
+      "dedup_escalation_silence": "feishu类键独立检测恢复与去重",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "只能证明选定链路活动，不证明消息送达/已读",
+      "blind_spots": "本轮不读取凭据或私人聊天；对应运行态全部unknown",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/schedule_monitor.sh:3872",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:staticdata-heartbeat",
+      "name": "staticdata异步备份心跳",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "备份可恢复性",
+      "entrypoint": "scripts/schedule_monitor.sh",
+      "inputs": [
+        "data/staticdata_backup_heartbeat.json"
+      ],
+      "cadence_declared": "monitor轮询",
+      "threshold_source": "36h；ok/skip_oversize时间；文件缺失分支跳过",
+      "dedup_escalation_silence": "fail由生产者通道承担；规则R4分级",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "核对备份产物与演练，不以心跳替代恢复证明",
+      "blind_spots": "缺文件不直接触发该心跳告警；skip_oversize并非全量可恢复证明",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/schedule_monitor.sh:2738",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:preupload-backup",
+      "name": "覆盖前备份存活对账",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "备份可恢复性",
+      "entrypoint": "scripts/check_preupload_backup.py",
+      "inputs": [
+        "备份桶对象落地计数",
+        "日志copied/skipped/failed结构化行"
+      ],
+      "cadence_declared": "monitor尾部调用",
+      "threshold_source": "failed非0、日志声明已备却零落地；无run不判定",
+      "dedup_escalation_silence": "warning队列；6h去重",
+      "channel_categories": "warning聚合/摘要类别",
+      "failure_retry_recovery_evidence": "exit2无法判定、NO_RUN非已验证健康",
+      "blind_spots": "对象存在仍不证明可恢复；本轮未LIST/下载",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_preupload_backup.py:73",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:backup-restore",
+      "name": "数据库备份与恢复演练",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "备份可恢复性",
+      "entrypoint": "scripts/verify_backup.sh",
+      "inputs": [
+        "备份对象日期",
+        "临时恢复DB校验/数量/空间"
+      ],
+      "cadence_declared": "调度现场unknown；库有日/周频差异",
+      "threshold_source": "脚本新鲜度/完整性/体量容差/空间门；public_fund分块恢复",
+      "dedup_escalation_silence": "演练失败严重告警；LIST失败与无对象严格分开",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "验收需演练完成记录、完整性、库级覆盖和清理记录",
+      "blind_spots": "本轮未运行；部分库SKIP与下载成功均非恢复成功",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/verify_backup.sh:96",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:data-gap",
+      "name": "数据缺口检测器总入口",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "数据完整性",
+      "entrypoint": "scripts/check_data_gap_alerts.py",
+      "inputs": [
+        "数据库/交易日序列",
+        "导出JSON",
+        "data_gap_alert_state.json"
+      ],
+      "cadence_declared": "声明交易日22:35；现场unknown",
+      "threshold_source": "run静态分派12个check家族；deploy-mode只覆盖占位残留",
+      "dedup_escalation_silence": "按key当日去重、ACK24h；info仍保留active，不能误恢复",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "通知确认后落签；恢复基于全部active key消失",
+      "blind_spots": "run返回0不等于零findings；非运行态故障统计",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_data_gap_alerts.py:1812",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "alert_rule:market-gap",
+      "name": "行情/宽度/北向缺行与停更",
+      "kind": "alert_rule",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "数据完整性",
+      "entrypoint": "scripts/check_data_gap_alerts.py",
+      "inputs": [
+        "北向和宽度日序列",
+        "fund指标日期"
+      ],
+      "cadence_declared": "data-gap调用",
+      "threshold_source": "北向洞15自然日/陈旧14日；宽度5/30日、族级数量阈值；fund2/5交易日",
+      "dedup_escalation_silence": "沿用data-gap状态/ACK，不按告警消音即恢复",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "交易日/发布日期/源覆盖先对账",
+      "blind_spots": "缺失日期应区分休市与数据缺行；阈值单位不统一",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_data_gap_alerts.py:141",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "alert_rule:nav-quality",
+      "name": "净值缺口/占位/名称质量",
+      "kind": "alert_rule",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "数据完整性",
+      "entrypoint": "scripts/check_data_gap_alerts.py",
+      "inputs": [
+        "etf_daily名称与NAV/accum_nav",
+        "基金净值列"
+      ],
+      "cadence_declared": "data-gap；占位残留也接部署门",
+      "threshold_source": "accum_nav窗外>6日、增量10/50行；名称占位判据见契约",
+      "dedup_escalation_silence": "基线增长与新增缺口分开；info不等于问题消失",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "验收真实行与占位行分开，检查所有写入路径",
+      "blind_spots": "代码名称契约存在不代表现有历史数据已修复",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_data_gap_alerts.py:58",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "alert_rule:fund-freshness",
+      "name": "公募净值/资金新鲜度",
+      "kind": "alert_rule",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "数据完整性",
+      "entrypoint": "scripts/check_data_gap_alerts.py",
+      "inputs": [
+        "公募已发布净值日",
+        "NAV/accum_nav空值族"
+      ],
+      "cadence_declared": "data-gap调用",
+      "threshold_source": "20点发布窗；>=2交易日severe；全空行最低样本1000",
+      "dedup_escalation_silence": "按状态/日期去重与恢复",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "以已发布日与非空样本验证",
+      "blind_spots": "采集有行数不代表关键列有效",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_data_gap_alerts.py:739",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "alert_rule:signal-kelly-gap",
+      "name": "信号→冻结→价格→交易覆盖",
+      "kind": "alert_rule",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "数据完整性",
+      "entrypoint": "scripts/check_data_gap_alerts.py",
+      "inputs": [
+        "signal_daily",
+        "ETF冻结JSON",
+        "ETF日期价格与名称",
+        "kelly交易/部署日志"
+      ],
+      "cadence_declared": "data-gap调用",
+      "threshold_source": "回溯5个信号交易日；warn1/severe2交易日；交易产物mtime48h及2日成功deploy锚",
+      "dedup_escalation_silence": "完整异常集保留；价证据最多32条；去重沿用data-gap",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "逐日逐信号核对冻结/价格/输出；禁止以信号少直接断言交易漏算",
+      "blind_spots": "无信号不等于无行情；mtime不是覆盖日期",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [
+        "monitor:data-gap"
+      ],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_data_gap_alerts.py:1314",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:s06-freshness",
+      "name": "S06快照相对新鲜度",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "数据完整性",
+      "entrypoint": "scripts/check_s06_freshness.py",
+      "inputs": [
+        "kelly_mode_s06_state coverage_end",
+        "指数ohlc交易日序列"
+      ],
+      "cadence_declared": "monitor尾部调用",
+      "threshold_source": "相对最近入库交易日>1日；generated_at仅诊断",
+      "dedup_escalation_silence": "同(coverage_end,N)只入队一次；恢复清状态不发恢复邮件",
+      "channel_categories": "warning聚合/摘要类别",
+      "failure_retry_recovery_evidence": "exit2无法判定需保留未知",
+      "blind_spots": "指数锚本身旧时可能共同陈旧；不替代上游时效检查",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_s06_freshness.py:17",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:export-integrity",
+      "name": "部署产物结构与业务交叉校验",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "数据完整性",
+      "entrypoint": "scripts/check_data_integrity.py",
+      "inputs": [
+        "导出JSON",
+        "字段/日期/数量/冻结映射等家族"
+      ],
+      "cadence_declared": "部署链位置按调用方确认；现场unknown",
+      "threshold_source": "各check函数阈值；warning/fail与闸门语义需逐调用点区分",
+      "dedup_escalation_silence": "闸门失败需开发修复，不能通过静默关闭完成",
+      "channel_categories": "部署/告警类别（依调用方）",
+      "failure_retry_recovery_evidence": "先满足数据校验再比对发布版本",
+      "blind_spots": "定义多个check不代表各部署模式都实际执行",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_data_integrity.py:573",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:overfit",
+      "name": "业务过拟合风险生成与预警",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "业务过拟合风险",
+      "entrypoint": "scripts/overfit_monitor.py",
+      "inputs": [
+        "回测与实际滚动统计",
+        "象限/样本外/参数扰动",
+        "overfit_monitor.json/ext"
+      ],
+      "cadence_declared": "声明交易日21:40；现场unknown",
+      "threshold_source": "5个规则声明；evaluate_alerts实际4类，risk>=60、递增、d2>=60、d3>=90；risk_level60仍yellow",
+      "dedup_escalation_silence": "通知与常规业务通道语义由调用send决定；不能当基础设施恢复",
+      "channel_categories": "业务报告类别（动态路由需核实调用）",
+      "failure_retry_recovery_evidence": "核对样本覆盖/缺失维度/版本和前后端口径",
+      "blind_spots": "缺维度在compute_risk按0参与；低分不足以证明低风险",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/overfit_monitor.py:1379",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "alert_rule:overfit-quadrant",
+      "name": "象限退化预留规则",
+      "kind": "alert_rule",
+      "evidence_status": "planned",
+      "health": "not_applicable",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "业务过拟合风险",
+      "entrypoint": "scripts/overfit_monitor.py",
+      "inputs": [
+        "实盘象限细分"
+      ],
+      "cadence_declared": "planned",
+      "threshold_source": "规则表有描述，evaluate_alerts明确暂不触发",
+      "dedup_escalation_silence": "不计入当前自动告警覆盖",
+      "channel_categories": "无已确认自动发送",
+      "failure_retry_recovery_evidence": "需真实样本、触发、通知、恢复测试后再纳入",
+      "blind_spots": "不得把规则表5项当5项运行告警",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/overfit_monitor.py:1405",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:fe-errors",
+      "name": "前端错误统计消费",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "展示端错误",
+      "entrypoint": "scripts/check_fe_err_stats.py",
+      "inputs": [
+        "前端错误统计接口/状态"
+      ],
+      "cadence_declared": "schedule_monitor尾部调用声明；现场unknown",
+      "threshold_source": "阈值/去重见该脚本；本轮未读外部统计或认证",
+      "dedup_escalation_silence": "复用通知结果/状态",
+      "channel_categories": "告警类别",
+      "failure_retry_recovery_evidence": "错误样本与时间窗需只读后续取证",
+      "blind_spots": "当前请求成功率/错误量unknown",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_fe_err_stats.py:56",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:notify-delivery",
+      "name": "通知分层与长摘要投递",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "通知投递",
+      "entrypoint": "scripts/notify.py",
+      "inputs": [
+        "warning/digest buffer",
+        "pending_delivery/段回执",
+        "alert_ledger.jsonl"
+      ],
+      "cadence_declared": "warning窗口30min；digest>=23:25每日窗；pending跨午夜重试",
+      "threshold_source": "16KiB/80行分段、配置要求飞书时需所有段成功；非摘要text仍有截断上限",
+      "dedup_escalation_silence": "按成功回执重试；目标变化失效；失败不推进完成水位；无exactly-once承诺",
+      "channel_categories": "运维告警/开发完成/业务报告/跟单类别；邮件只保告警白名单和严重故障",
+      "failure_retry_recovery_evidence": "已接受段≠已读；completed再精确清理；清理失败保留待收尾",
+      "blind_spots": "ledger多传输记录≠多逻辑摘要；send成功不等业务健康",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/notify.py:3548",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:alert-noise",
+      "name": "告警台账与多群计数",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "通知投递",
+      "entrypoint": "scripts/alert_noise_count.py",
+      "inputs": [
+        "alert_ledger.jsonl",
+        "suppression_ledger.jsonl",
+        "alert_daily.json"
+      ],
+      "cadence_declared": "派生/周报或手工调用；实际unknown",
+      "threshold_source": "按渠道/群/tier/noise_class/merged_count口径；不复刻字符串",
+      "dedup_escalation_silence": "抑制/入摘要与真实送达分开计数",
+      "channel_categories": "本身不作为健康证明",
+      "failure_retry_recovery_evidence": "对账需单一时间窗和逻辑/传输两个分母",
+      "blind_spots": "零告警可能是链断；无ledger可能未配置/失败/漏观测",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/alert_noise_count.py:677",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:recovery-state",
+      "name": "恢复闭环与状态说明",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "恢复判据",
+      "entrypoint": "scripts/schedule_monitor.sh",
+      "inputs": [
+        "active/recovered状态",
+        "本轮seen key",
+        "实际通知结果"
+      ],
+      "cadence_declared": "monitor每轮",
+      "threshold_source": "恢复冷却与结论签名；inline R2键单独自管",
+      "dedup_escalation_silence": "恢复/升级/汇总可被并入摘要；状态迁移需与真正恢复区分",
+      "channel_categories": "恢复类别/摘要类别",
+      "failure_retry_recovery_evidence": "必须先确认原故障不再成立且业务输入输出恢复",
+      "blind_spots": "seen消失可能由跳过/失读导致，不能直接宣布已治愈",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/schedule_monitor.sh:431",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "surface:execution-panel",
+      "name": "数据更新规则/近期执行统计面板",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "展示生态",
+      "entrypoint": "static-site/app.js",
+      "inputs": [
+        "./data/schedule_stats.json",
+        "overview/intraday缓存"
+      ],
+      "cadence_declared": "打开弹窗加载；产物随生成器刷新",
+      "threshold_source": "显示name/schedule/est_text/last_run/last_exit/r2_skip_count",
+      "dedup_escalation_silence": "fetch失败展示暂无统计，不是健康状态",
+      "channel_categories": "无自动通知",
+      "failure_retry_recovery_evidence": "需要保留生成时间/来源/覆盖/失败说明才能对账",
+      "blind_spots": "当前表不展示全部unit诊断和新鲜度SLA",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [
+        "monitor:schedule-stats"
+      ],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:34102",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "surface:business-risk-panel",
+      "name": "首页过拟合卡与凯利风险相关面板",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "展示生态",
+      "entrypoint": "static-site/app.js",
+      "inputs": [
+        "overfit_monitor.json/ext recent",
+        "共享recent获取器"
+      ],
+      "cadence_declared": "浏览器请求；产物每日生成声明",
+      "threshold_source": "展示统计风险和样本；不等价运维健康",
+      "dedup_escalation_silence": "样本不足/加载失败需保留未知",
+      "channel_categories": "无运行态健康证明",
+      "failure_retry_recovery_evidence": "前端选择条件与后端生效版本需对齐",
+      "blind_spots": "业务风险绿不等于数据/发布/通知链健康",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [
+        "monitor:overfit"
+      ],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:1644",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "data:schedule-stats",
+      "name": "执行统计产物",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "展示生态",
+      "entrypoint": "scripts/gen_schedule_stats.py",
+      "inputs": [
+        "日志与unit真值"
+      ],
+      "cadence_declared": "生成器更新；现场文件未读",
+      "threshold_source": "源字段/单条last_run不等于整个文件fresh",
+      "dedup_escalation_silence": "原子产物写入；本轮仅查定义",
+      "channel_categories": "无",
+      "failure_retry_recovery_evidence": "需生成时间、来源和覆盖对账",
+      "blind_spots": "当前实际内容/更新时间unknown",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [
+        "monitor:schedule-stats"
+      ],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/gen_schedule_stats.py:36",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "data:notify-ledger",
+      "name": "通知传输台账",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "通知投递",
+      "entrypoint": "scripts/notify.py",
+      "inputs": [
+        "send真实成功渠道结果"
+      ],
+      "cadence_declared": "事件写入；现场未读",
+      "threshold_source": "仅成功传输计账；tier/group/source/merged_count",
+      "dedup_escalation_silence": "失败/抑制另查状态与suppression记录",
+      "channel_categories": "按渠道类别记录",
+      "failure_retry_recovery_evidence": "确认台账与buffer/journal一致，不用进程rc替代",
+      "blind_spots": "非完整远端送达或已读回执",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [
+        "monitor:notify-delivery"
+      ],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/notify.py:203",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    },
+    {
+      "id": "monitor:planned-health-model",
+      "name": "面板状态优先级/新鲜度建议",
+      "kind": "monitor",
+      "evidence_status": "planned",
+      "health": "not_applicable",
+      "source_layer": "repo_declaration",
+      "observed_at": "2026-11-07T14:19:10+08:00",
+      "category": "面板设计建议",
+      "entrypoint": "docs/ops/architecture/_inventory-contract.md",
+      "inputs": [
+        "本次inventory",
+        "parent整合的任务/数据图"
+      ],
+      "cadence_declared": "planned",
+      "threshold_source": "失败优先、证据过期/缺失禁止变绿；区分observed/evaluated/generated时间",
+      "dedup_escalation_silence": "disabled/skipped/ack只改变评估或通知状态，不覆盖故障",
+      "channel_categories": "无",
+      "failure_retry_recovery_evidence": "修复、验收与关闭独立状态",
+      "blind_spots": "本项仅建议，未实现",
+      "deployment_state": "unknown",
+      "runtime_observed_at": "unknown",
+      "depends_on": [],
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "docs/ops/architecture/_inventory-contract.md:12",
+          "note": "静态符号确认；未运行入口，非当前故障/在线证明"
+        }
+      ]
+    }
+  ]
+}

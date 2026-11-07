@@ -1,0 +1,1025 @@
+{
+  "schema_version": 1,
+  "baseline_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+  "observed_at": "2026-11-07T14:27:46.858703+08:00",
+  "scope": "Known recent incidents/bugs/risks/evidence/historical gaps; statuses are multi-axis evidence baseline, not authoritative issue mutation or current fault counter.",
+  "coverage": {
+    "date_window": [
+      "2026-10-25",
+      "2026-11-07"
+    ],
+    "selection": "18 known issues/finding IDs, recent report evidence plus inherited handoff items; not an exhaustive14-day incident census.",
+    "source_scope": "Known fixed reports and current baseline index rows366–370/365 and7-key doc only; no unknown-history directory search.",
+    "not_invented_issue_numbers": "Record IDs wrap original SG/DIR/DC/RT/# IDs or exact source test/handoff names. Original_issue_id preserves unknown when no formal task number was found. No new work-order state was written.",
+    "recent_runtime_evidence_time": "2026-11-07T14:04:27+08:00 inherited report; this task did not observe runtime.",
+    "limitations": [
+      "Existing reported fixes/merged/deployed are inherited scoped evidence, not current-turn independent production verification.",
+      "ACK completed/local PASS never implies all causes resolved; historical irreversible is not historical restored.",
+      "119 mention is not matched to a verified list;114/118/7 and reversed1001/remaining568 keep distinct windows.",
+      "No root-cause-resolution percentage; blank/unsupported state is unknown.",
+      "Observation is pending unless an actual dated observation is expressly cited."
+    ],
+    "source_sha256": {
+      "/tmp/codex-reports/signal-gap-mail-20261106/signal-gap-mail-report-v1.json": "862611c85c84913af9c44973909f8625b9e7988e03de90f4b49c1e549fed8be4",
+      "/tmp/codex-reports/signal-gap-recheck-20261107-round2/revalidation-v2.json": "af578c230ae3baf3cb1f8f83df034a6afcca13b49f402b7a28d7899f748f0aba",
+      "/tmp/codex-reports/signal-gap-progress-20261107-round3/cloud.json": "9784900507cb69622da29fbe4ee9781d9a4e3f39f13ea98a2d8507e2436fe35e",
+      "/tmp/codex-reports/signal-gap-progress-20261107-round3/git.json": "283a63c8b2fb8600d580c221a94b3fcd447d308a487b0cac58b553169691e784",
+      "/tmp/codex-reports/codex-alerts-rootcause-20261105-v1.json": "223a6b307696ff12ddf1b7caa27dbefd01e48ea2f93d6a1d70e13fbf438facc8",
+      "/tmp/codex-reports/alerts-continuation-20261106/consolidated-handoff-v1.json": "38fab671f75c391eb0d7696ee4b60e509911ce583b844c337412bf060b7834fd",
+      "/tmp/codex-reports/alerts-continuation-20261106/final-implementation-v1.json": "a9df71b5b7c889c65ec9fbcb5fc7302f2b8f7862add86af865f82b129796e083",
+      "/tmp/codex-reports/alerts-continuation-20261106/handoff-race-investigation.json": "d4d09c1f074aae7d60609264875d62cbabb199be51284fc520e6f04bc469ea3b",
+      "/tmp/codex-reports/alerts-continuation-20261106/handoff-race-diagnostics-implementation.json": "0a9847d5daee1b441db21636a48f78ca0881ace27be4a0adc6eef93be8e055e2",
+      "docs/pending-features-index.md": "58f423bb3e55cb7cc94dc96a82a28445cd1ef67ff8df64138f1d961678961d17",
+      "docs/ops/signal-gap-7keys-disposition-20261107.md": "b73663dbfe362e9016c2501dd3601c6d8fb2a05fc2a89adab7652134d8c6e427"
+    }
+  },
+  "records": [
+    {
+      "id": "incident:SG-20261106-02",
+      "name": "163109基金类型/LOF补采契约",
+      "kind": "incident",
+      "category": "bug",
+      "original_issue_id": "SG-20261106-02",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "已修复并有后续限定验收记录",
+      "remediation_state": "类型/补采入口修复；不重开旧缺行情结论",
+      "root_cause_state": "已定位局部类型排除；是否独自造成全部历史停更未证实",
+      "deployment_state": "已有main/云端同步记录；本轮未再验部署",
+      "verification_state": "后续163109真实供价/成员恢复限定PASS",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "保持权威类型/写入契约与正常周期供价证据；其它历史缺口另案"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-07T12:40:06+08:00",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/signal-gap-mail-20261106/signal-gap-mail-report-v1.json#findings/SG-20261106-02",
+          "note": "原类型排除证据，禁止作为当前仍坏结论"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/signal-gap-recheck-20261107-round2/revalidation-v2.json#resolved_findings",
+          "note": "后续修复与实际加载/产物验收范围"
+        }
+      ],
+      "affected_objects": [
+        "163109",
+        "LOF补采入口",
+        "20261104|sz|buy"
+      ],
+      "depends_on": [],
+      "notes": [],
+      "workflow_group": "scoped_verified",
+      "workflow_group_label": "已限定验收",
+      "workflow_group_scope": "仅原问题及已记录的限定验收；不代替残余根因/自然周期/全站验收"
+    },
+    {
+      "id": "incident:SG-20261106-02-R1",
+      "name": "163109补数名称NULL被真实加载器过滤",
+      "kind": "incident",
+      "category": "bug",
+      "original_issue_id": "SG-20261106-02-R1",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "已修复；限定验收完成",
+      "remediation_state": "缺名规范化与冲突更新保护已修；防占位SQL保留",
+      "root_cause_state": "已定位：补数名称契约与SQL三值逻辑不匹配",
+      "deployment_state": "固定d4238f5范围有部署/真实读取证据",
+      "verification_state": "限定PASS：loader3900行至20261106；原事件DATA成员恢复；不等于全部历史/前端CDN验收",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "本条限定范围可结案；自然后续供价周期未在本轮启动；不扩大到七键历史恢复"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-07T14:04:27+08:00",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/signal-gap-recheck-20261107-round2/revalidation-v2.json#resolved_findings/SG-20261106-02-R1",
+          "note": "固定报告限定修复及实际loader/产物证据"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/signal-gap-progress-20261107-round3/cloud.json#163109_prices",
+          "note": "14:04有界快照仍有效"
+        }
+      ],
+      "affected_objects": [
+        "163109 etf_daily",
+        "_upsert_daily",
+        "_batch_load_etf_prices",
+        "20261104|sz|buy"
+      ],
+      "depends_on": [],
+      "notes": [],
+      "workflow_group": "scoped_verified",
+      "workflow_group_label": "已限定验收",
+      "workflow_group_scope": "仅原问题及已记录的限定验收；不代替残余根因/自然周期/全站验收"
+    },
+    {
+      "id": "incident:SG-20261106-01",
+      "name": "7条历史冻结缺口的正式处置",
+      "kind": "incident",
+      "category": "historical_gap",
+      "original_issue_id": "SG-20261106-01",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "已形成处置文档；不等于恢复",
+      "remediation_state": "2条同日候选待证；5条不可回放；7条仍未补造",
+      "root_cause_state": "UNKNOWN：晚插/覆盖/初次漏冻等原始时序未逐键独立重建",
+      "deployment_state": "没有声称部署能恢复这7条历史",
+      "verification_state": "14:04默认exact/fallback仍缺7键；处置不等于故障仍在扩大",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "逐键提供可信冻结时刻原输入，或保留经批准的不可回放处置；不得用今日映射倒填"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-07T14:04:27+08:00",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/signal-gap-mail-20261106/signal-gap-mail-report-v1.json#findings/SG-20261106-01",
+          "note": "原触闸证据与根因unknown"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/signal-gap-recheck-20261107-round2/revalidation-v2.json#historical_seven",
+          "note": "两候选/五不可回放边界"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/signal-gap-progress-20261107-round3/cloud.json#freeze_progress",
+          "note": "14:04有限实际resolver观察"
+        },
+        {
+          "kind": "repository_document",
+          "location": "docs/ops/signal-gap-7keys-disposition-20261107.md:11",
+          "note": "正式历史处置，不修改冻结或accepted"
+        }
+      ],
+      "affected_objects": [
+        "20261102|csi_000102|buy",
+        "20261102|gz_399365|buy",
+        "20261104|csi_000102|buy",
+        "20261104|csi_000330|buy",
+        "20261104|csi_000673|buy",
+        "20261104|gz_399395|buy",
+        "20261105|dax|buy_special"
+      ],
+      "depends_on": [],
+      "notes": [],
+      "historical_disposition": {
+        "candidate_count": 2,
+        "not_replayable_count": 5,
+        "restored_claim": false,
+        "scope": "这7键，不是原114/118/用户提及119全集"
+      },
+      "workflow_group": "mixed_historical_disposition",
+      "workflow_group_label": "混合历史处置",
+      "workflow_group_scope": "仅当前七键：2候选待证、5不可回放，均未恢复",
+      "workflow_subgroups": [
+        {
+          "workflow_group": "investigating",
+          "workflow_group_label": "调查",
+          "scope": "2条同日候选；无冻结时刻铁证，未恢复",
+          "affected_objects": [
+            "20261102|csi_000102|buy",
+            "20261102|gz_399365|buy"
+          ]
+        },
+        {
+          "workflow_group": "not_replayable",
+          "workflow_group_label": "不可回放",
+          "scope": "5条已文档化不可回放，未恢复；不扩大到另2候选",
+          "affected_objects": [
+            "20261104|csi_000102|buy",
+            "20261104|csi_000330|buy",
+            "20261104|csi_000673|buy",
+            "20261104|gz_399395|buy",
+            "20261105|dax|buy_special"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "incident:SG-20261106-01:prevention",
+      "name": "晚到数据/映射快照/冻结时序防复发",
+      "kind": "incident",
+      "category": "risk",
+      "original_issue_id": "SG-20261106-01（后续措施，无新工单编号）",
+      "evidence_status": "planned",
+      "health": "unknown",
+      "workflow_status": "待实施（原文称待拍板，是否仍需额外授权未核实）",
+      "remediation_state": "前两类防复发措施尚无实施证据；第三类谨慎历史补冻仅原文提案，不纳默认推荐",
+      "root_cause_state": "晚到数据解释为文档假说；未独立逐键证明所有历史根因",
+      "deployment_state": "未见该措施新部署证据；不是把已有NULL修复说成未部署",
+      "verification_state": "需新方案/新head/自然周期验证，不借既有PASS结案",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "在已授权工作范围与正常实施流程内明确晚到补算/冻结时序和日期映射快照合同，保留防前视与现有guard",
+        "针对前两类措施提供独立审查、新head部署与指定自然晚到周期证据；本轮仅整理，不启动实施",
+        "第三类谨慎历史补冻仅保存原文来源；不默认执行、不放宽guard、不以此要求用户再次批准"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-07T14:04:22+08:00",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "repository_document",
+          "location": "docs/ops/signal-gap-7keys-disposition-20261107.md:35",
+          "note": "防复发措施明确未实施"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/signal-gap-recheck-20261107-round2/revalidation-v2.json#historical_seven/preventive_measures",
+          "note": "三类措施与防前视边界"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/signal-gap-progress-20261107-round3/git.json#summary",
+          "note": "14:04已知分支/main未推进，不推断其它工作"
+        }
+      ],
+      "affected_objects": [
+        "backfill→recompute→freeze时序",
+        "带日期map快照",
+        "审慎补冻兜底"
+      ],
+      "depends_on": [],
+      "notes": [
+        "原文待拍板不是对当前授权状态的裁决；不得由本台账推导用户未授权或需再次批准。本轮用户要求整理，不构成放宽guard。"
+      ],
+      "workflow_group": "repair_pending",
+      "workflow_group_label": "修复（待实施/处理中）",
+      "workflow_group_scope": "前两类措施待实施；授权状态未额外裁决，第三类历史补冻仅记原文",
+      "measure_scopes": [
+        {
+          "source_measure": "晚间backfill后补算并冻结",
+          "current_state": "原文未实施；本轮未执行",
+          "default_recommendation": true
+        },
+        {
+          "source_measure": "带日期映射快照",
+          "current_state": "原文未实施；本轮未执行",
+          "default_recommendation": true
+        },
+        {
+          "source_measure": "谨慎历史补冻兜底",
+          "current_state": "仅记录原文未实施提案；可能改变防前视语义",
+          "default_recommendation": false
+        }
+      ]
+    },
+    {
+      "id": "incident:365",
+      "name": "覆盖前重复备份与运行耗时",
+      "kind": "incident",
+      "category": "risk",
+      "original_issue_id": "原工单#365；运行观察RT-3",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "索引仍待办；局部优化已有实现",
+      "remediation_state": "同日重复备份复用已实现；不是总耗时根治",
+      "root_cause_state": "局部重复I/O已定位；网络/出口/总预算主因未闭合",
+      "deployment_state": "后续实施包有实现记录；当前运行生效须承接精确部署证据",
+      "verification_state": "旧有预算耗尽、阶段耗时仅历史证据；本轮未再测",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "固定版本正常周期分阶段用时、备份身份/回退、总预算证据；确认索引与实现范围对账"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-06（旧固定实现/聚合报告）",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "repository_document",
+          "location": "docs/pending-features-index.md:537",
+          "note": "原#365状态，不在本表改工单"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/alerts-continuation-20261106/final-implementation-v1.json#remaining",
+          "note": "同日去重范围及仍需生产分阶段耗时"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/codex-alerts-rootcause-20261105-v1.json#operational_findings/turnover",
+          "note": "旧RT-3不是当前停更证明"
+        }
+      ],
+      "affected_objects": [
+        "turnover备份阶段",
+        "preupload backup复用",
+        "上传/持锁预算"
+      ],
+      "depends_on": [],
+      "notes": [],
+      "workflow_group": "investigating",
+      "workflow_group_label": "调查",
+      "workflow_group_scope": "当前证据/历史因果待调查，不把旧失败当现存故障"
+    },
+    {
+      "id": "incident:DIR-03",
+      "name": "备份signal_daily少107条：正文与数据集合分开验收",
+      "kind": "incident",
+      "category": "evidence_gap",
+      "original_issue_id": "DIR-03",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "数据差额待逐键解释",
+      "remediation_state": "后续正文改进不代表107条差额已解释/恢复",
+      "root_cause_state": "UNKNOWN：跨时点合法重算、丢失或其它原因未定",
+      "deployment_state": "正文实现/部署与历史数据解释是不同轴；本条部署unknown",
+      "verification_state": "72139/72032旧窗口差107，不能用其它窗口net117抵消",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "同一对比时点manifest与主键差集；逐键重算/删除依据；需恢复时由Claude批准执行后验收"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-06（后续交接保留未结项）",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/codex-alerts-rootcause-20261105-v1.json#issues/DIR-03",
+          "note": "原备份完整性/行数/正文边界"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/codex-alerts-rootcause-20261105-v1.json#open_questions",
+          "note": "107与净117不同窗口"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/alerts-continuation-20261106/consolidated-handoff-v1.json#current_open_items",
+          "note": "差107仍需主键级解释"
+        }
+      ],
+      "affected_objects": [
+        "verify_backup signal_daily对比",
+        "固定备份/活库主键集合"
+      ],
+      "depends_on": [],
+      "notes": [],
+      "workflow_group": "investigating",
+      "workflow_group_label": "调查",
+      "workflow_group_scope": "当前证据/历史因果待调查，不把旧失败当现存故障"
+    },
+    {
+      "id": "incident:codex-alerts-rootcause-20261105-v1:reversal-provenance",
+      "name": "历史信号反向键与producer/input来源",
+      "kind": "incident",
+      "category": "historical_gap",
+      "original_issue_id": "codex-alerts-rootcause-20261105-v1 原问题（未新编工单号）",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "历史因果待证",
+      "remediation_state": "后续诊断归档已实现，不重建缺失历史输入",
+      "root_cause_state": "UNKNOWN：同键反转已记录，producer/run_id/input指纹未全闭合",
+      "deployment_state": "新归档机制的实现/部署不等于历史根治",
+      "verification_state": "旧两轮1001反转集合、后续剩余568是不同追溯口径；本轮未重新穷举",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "在同一时间窗按键绑定producer、run_id、输入指纹；缺证据保留unknown/历史处置"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-06（固定交接范围）",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/codex-alerts-rootcause-20261105-v1.json#open_questions",
+          "note": "1001键反转不证明异源写入"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/alerts-continuation-20261106/consolidated-handoff-v1.json#current_open_items",
+          "note": "剩余568仍缺输入/生产者证明"
+        }
+      ],
+      "affected_objects": [
+        "signal_daily历史反向键",
+        "生成者/同代输入快照"
+      ],
+      "depends_on": [],
+      "notes": [
+        "1001、568及当日净变化不是同一个事故计数。"
+      ],
+      "workflow_group": "investigating",
+      "workflow_group_label": "调查",
+      "workflow_group_scope": "当前证据/历史因果待调查，不把旧失败当现存故障"
+    },
+    {
+      "id": "incident:DC1",
+      "name": "历史冻结缺失114/118/119口径待对齐",
+      "kind": "incident",
+      "category": "evidence_gap",
+      "original_issue_id": "DC1；用户本轮提及119（未新建号）",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "数量与清单范围待核",
+      "remediation_state": "历史拒冻护栏保留；不以当前map修历史",
+      "root_cause_state": "UNKNOWN：是否覆盖/晚插/首漏未逐键证实",
+      "deployment_state": "配置/部署状态不能证明历史全集已恢复",
+      "verification_state": "固定交接写118；旧消息114；用户本轮119未取得同窗口清单",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "先对齐119/118/114的来源、日期、筛选条件和逐键集合；不得与当前7键或其它净差互代"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "unknown",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/codex-alerts-rootcause-20261105-v1.json#data_semantic_boundaries/DC1",
+          "note": "历史拒冻与accepted边界"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/alerts-continuation-20261106/consolidated-handoff-v1.json#current_open_items",
+          "note": "原118全集权威输入未证实"
+        }
+      ],
+      "affected_objects": [
+        "历史冻结缺失全集",
+        "accepted口径",
+        "具体事件日期/指数/方向"
+      ],
+      "depends_on": [],
+      "notes": [],
+      "quantity_scopes": [
+        {
+          "value": 119,
+          "status": "unknown",
+          "basis": "用户本轮提及；已读固定报告未找到对应119清单，不确认为当前总数"
+        },
+        {
+          "value": 118,
+          "status": "documented_only",
+          "basis": "Nov6 consolidated原全集追溯范围"
+        },
+        {
+          "value": 114,
+          "status": "documented_only",
+          "basis": "旧消息/根因讨论窗口"
+        },
+        {
+          "value": 7,
+          "status": "separate_scope",
+          "basis": "Nov7精确历史候选窗口，不直接等同全集"
+        }
+      ],
+      "workflow_group": "investigating",
+      "workflow_group_label": "调查",
+      "workflow_group_scope": "当前证据/历史因果待调查，不把旧失败当现存故障"
+    },
+    {
+      "id": "incident:test_stream_peak_under_target_and_far_below_legacy",
+      "name": "FAPI峰值门限旧波动",
+      "kind": "incident",
+      "category": "evidence_gap",
+      "original_issue_id": "原测试test_stream_peak_under_target_and_far_below_legacy；正式工单号unknown",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "根因未知；待目标平台证据",
+      "remediation_state": "源/门限未改；不因某轮通过声称修好",
+      "root_cause_state": "UNKNOWN",
+      "deployment_state": "没有本次性能修复部署",
+      "verification_state": "旧321/323MB失败与同源码另轮通过并存；不是当前bug实证",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "固定当前head/平台和基线；有预算复现并解释峰值；不放宽门限/skip"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-06（旧聚合）",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/alerts-continuation-20261106/final-implementation-v1.json#prior_memory_gate",
+          "note": "门限320、旧失败/通过均保留"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/alerts-continuation-20261106/final-implementation-v1.json#validation",
+          "note": "聚合是固定旧head，不当前性能结论"
+        }
+      ],
+      "affected_objects": [
+        "FAPI流式内存路径",
+        "目标平台/依赖/测量口径"
+      ],
+      "depends_on": [],
+      "notes": [],
+      "workflow_group": "investigating",
+      "workflow_group_label": "调查",
+      "workflow_group_scope": "当前证据/历史因果待调查，不把旧失败当现存故障"
+    },
+    {
+      "id": "incident:test_real_multiprocess_publish_ack_races_do_not_reset_receipts",
+      "name": "Codex handoff八发布者旧失败",
+      "kind": "incident",
+      "category": "evidence_gap",
+      "original_issue_id": "原测试test_real_multiprocess_publish_ack_races_do_not_reset_receipts",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "原因未复现；待失败完整证据",
+      "remediation_state": "仅诊断补丁已完成；生产CLI/锁/timeout未改",
+      "root_cause_state": "UNKNOWN：原失败元组被截断，局部成功不能反证",
+      "deployment_state": "诊断测试可部署于源码；不是运行时根因修复",
+      "verification_state": "原fullround2失败保留；冷暖孤立成功；慢git反例非原因证实",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "下一次自然失败的8完整code/status/stderr与本地git耗时；无证据不改超时/等待"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-06（诊断模块53通过；原失败未解）",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/alerts-continuation-20261106/handoff-race-investigation.json#summary",
+          "note": "只读调查保留UNKNOWN"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/alerts-continuation-20261106/handoff-race-diagnostics-implementation.json#before_after",
+          "note": "完整波次捕获与原断言不变"
+        }
+      ],
+      "affected_objects": [
+        "本地handoff publish/ack幂等",
+        "并发测试诊断"
+      ],
+      "depends_on": [],
+      "notes": [],
+      "workflow_group": "awaiting_verification",
+      "workflow_group_label": "待验",
+      "workflow_group_scope": "等限定自然窗口或实际失败证据；本轮未开始观察"
+    },
+    {
+      "id": "incident:RT-4",
+      "name": "R2/任务/冻结/过拟合通知的当前故障分流",
+      "kind": "incident",
+      "category": "evidence_gap",
+      "original_issue_id": "RT-4（另含当前通知观察，无新工单）",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "待自然周期/交付证据；非当前故障清单",
+      "remediation_state": "全群视图与摘要可见性等有后续实现；不代表业务源头皆根治",
+      "root_cause_state": "UNKNOWN：邻近通知不能归为同一TLS/锁/覆写原因",
+      "deployment_state": "相关机制实现与实际当前业务交付需分别验收",
+      "verification_state": "旧记录/父初筛只是通知集合；severe计数不是独立当前事故数",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "有限新自然周期串联任务→数据→产物→发布→关键页面；区分历史恢复/摘要/失败与未知渠道"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "unknown",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/codex-alerts-rootcause-20261105-v1.json#operational_findings/R2_unfinished_vs_confirmed_gap",
+          "note": "对账未完成与确认缺口不同"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/alerts-continuation-20261106/consolidated-handoff-v1.json#current_open_items",
+          "note": "通知视图不等全树故障状态"
+        },
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/alerts-continuation-20261106/final-implementation-v1.json#new_delivery",
+          "note": "本轮后续实现范围"
+        },
+        {
+          "kind": "runtime_inventory_reference",
+          "location": "inventory/runtime_cloud.json#cloud-service:trade-turnover-backfill.service",
+          "note": "相关运行态而非已核业务故障；保留RT-4各原状态轴与根因UNKNOWN。"
+        }
+      ],
+      "affected_objects": [
+        "R2发布通知",
+        "task/unit状态",
+        "冻结/过拟合告警",
+        "恢复/摘要通知",
+        "cloud-service:trade-turnover-backfill.service"
+      ],
+      "depends_on": [],
+      "notes": [
+        "26记录/12severe为父方初筛背景，不是本轮核验出的故障数量。"
+      ],
+      "workflow_group": "awaiting_verification",
+      "workflow_group_label": "待验",
+      "workflow_group_scope": "等限定自然窗口或实际失败证据；本轮未开始观察",
+      "related_runtime_observations": [
+        {
+          "id": "cloud-service:trade-turnover-backfill.service",
+          "evidence_status": "runtime_observed",
+          "observed_at": "2026-11-07T14:17:39.136612+08:00",
+          "latest_inventory_observed_at": "2026-11-07T14:28:13.549907+08:00",
+          "runtime_state": {
+            "ActiveState": "failed",
+            "Result": "exit-code",
+            "ExecMainStatus": "124"
+          },
+          "runtime_inventory_sha256": "a6e00cff16c59e16ceb9baba9b944dd6c311963d1ea37606b870459021a385be",
+          "business_impact": "unknown；该运行观察未核业务数据/产物/发布影响",
+          "root_cause": "unknown；不把exit124直接归因超时根因或同一R2故障",
+          "association_scope": "仅作为既有RT-4相关任务运行观察；无新增工单，不提升为当前业务故障结论",
+          "evidence": [
+            {
+              "kind": "runtime_inventory_reference",
+              "location": "inventory/runtime_cloud.json#cloud-service:trade-turnover-backfill.service",
+              "note": "继承B运行观察。核心状态时间14:17:39；当前inventory含probe4补充，14:28:13文档状态保留同Result。此处仅读本地文件，没有执行新运行探测。"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "incident:366",
+      "name": "FOF全批异常与合法空结果退出码",
+      "kind": "incident",
+      "category": "bug",
+      "original_issue_id": "原工单#366",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "索引登记完成（已审/合并/上线）",
+      "remediation_state": "原问题修复已登记完成",
+      "root_cause_state": "原全批异常成功退出及回滚边界已定位",
+      "deployment_state": "索引记录已上线；不在本轮重新部署/验生产",
+      "verification_state": "沿用2026-11-05固定head/线上字节/定向验收范围，不扩大",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "原限定范围已结；出现当前新反例才另行复核；只核销原F01/P2-C；不等于#333全部批次完成"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-05（原验收登记）",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "repository_document",
+          "location": "docs/pending-features-index.md:538",
+          "note": "当前仓内原工单状态；本表不改写索引"
+        }
+      ],
+      "affected_objects": [
+        "FOF采集任务",
+        "监控退出码"
+      ],
+      "depends_on": [],
+      "notes": [
+        "只核销原F01/P2-C；不等于#333全部批次完成"
+      ],
+      "source_workflow_status_exact": "**已完成（已审、已合 main、已上线；2026-11-05 对账）**：F01/R1 `1f98f67ba` → merge `00dabd713`；旧 P2-C 单只写库回滚 `af6fddf10` → merge `d813cc2ad`，同类 ETF 回滚 `5771ef41a` 亦已上线。固定 main `6c1493aea` 独立真实 SQLite 回滚及「全批失败 exit 2 / 合法空 exit 0、信号复位」通过；见[本次对账与原始证据](codex-reviews/20261105-closeout/README.md)。仅核销本行问题，#333 批2/批3及原剩余工作保留。",
+      "workflow_group": "scoped_verified",
+      "workflow_group_label": "已限定验收",
+      "workflow_group_scope": "仅原问题及已记录的限定验收；不代替残余根因/自然周期/全站验收"
+    },
+    {
+      "id": "incident:367",
+      "name": "摘要同签名并发与原权限/守恒修复",
+      "kind": "incident",
+      "category": "bug",
+      "original_issue_id": "原工单#367",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "索引登记完成（已审/合并/上线）",
+      "remediation_state": "原问题修复已登记完成",
+      "root_cause_state": "原读判写锁竞争等已定位",
+      "deployment_state": "索引记录已上线；不在本轮重新部署/验生产",
+      "verification_state": "沿用2026-11-05固定head/线上字节/定向验收范围，不扩大",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "原限定范围已结；出现当前新反例才另行复核；原问题已完成；新helper异常/测试候选另列，不声称线上丢通知"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-05（原验收登记）",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "repository_document",
+          "location": "docs/pending-features-index.md:539",
+          "note": "当前仓内原工单状态；本表不改写索引"
+        }
+      ],
+      "affected_objects": [
+        "notify摘要侧车锁",
+        "权限/缓冲守恒"
+      ],
+      "depends_on": [],
+      "notes": [
+        "原问题已完成；新helper异常/测试候选另列，不声称线上丢通知"
+      ],
+      "source_workflow_status_exact": "**原问题及夜间原三项后端 P2 修复批次已完成（已审、已合 main、已上线；2026-11-05 对账）**：F03/R1 `197a0beda` → merge `31c868fa3`；旧 P2-A 权限保留 `15b7ec53c`、P2-B 合法顺序假红 `6b91de7e8`、P2-C FOF 回滚 `af6fddf10`（见 #366）→ merge `d813cc2ad`；同类正常权限路径 `897b56624` 亦已上线。固定 main `6c1493aea` 两序 payload/缓冲守恒、正常 mode 矩阵通过。**新两项 P2 仅为待 Claude 复核的候选**：同类 helper 异常 stat/chmod 仍 replace、作者测试缺 payload 守恒断言；不代表原修复未完成，也不证明线上丢通知，不代 Claude 决定新需求或新建任务号。见[主报告分级与证据](codex-reviews/20261105-closeout/README.md)。",
+      "workflow_group": "scoped_verified",
+      "workflow_group_label": "已限定验收",
+      "workflow_group_scope": "仅原问题及已记录的限定验收；不代替残余根因/自然周期/全站验收"
+    },
+    {
+      "id": "incident:368",
+      "name": "R2全局屏障锁失败fd泄漏/IndexError",
+      "kind": "incident",
+      "category": "bug",
+      "original_issue_id": "原工单#368",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "索引登记完成（已审/合并/上线）",
+      "remediation_state": "原问题修复已登记完成",
+      "root_cause_state": "原fd索引及异常清理路径已定位",
+      "deployment_state": "索引记录已上线；不在本轮重新部署/验生产",
+      "verification_state": "沿用2026-11-05固定head/线上字节/定向验收范围，不扩大",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "原限定范围已结；出现当前新反例才另行复核；固定blob已有定向/独立审证据，本轮无真实R2故障注入"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-05（原验收登记）",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "repository_document",
+          "location": "docs/pending-features-index.md:540",
+          "note": "当前仓内原工单状态；本表不改写索引"
+        }
+      ],
+      "affected_objects": [
+        "upload_r2全局/域锁"
+      ],
+      "depends_on": [],
+      "notes": [
+        "固定blob已有定向/独立审证据，本轮无真实R2故障注入"
+      ],
+      "source_workflow_status_exact": "**已完成（已审、已合 main、已上线；2026-11-05 对账）**：`bf1ed42d4` → 实际 merge `aac5d19bd`；既有独立外审为定向测试 16/16、独立场景 15/15、exact-SHA CI success。固定 main `6c1493aea` 的 `upload_r2.py` blob 与该外审版本相同；见[对账及证据范围](codex-reviews/20261105-closeout/README.md)。本轮未新增真实 R2/生产故障注入。",
+      "workflow_group": "scoped_verified",
+      "workflow_group_label": "已限定验收",
+      "workflow_group_scope": "仅原问题及已记录的限定验收；不代替残余根因/自然周期/全站验收"
+    },
+    {
+      "id": "incident:369",
+      "name": "实验室无Content-Length正文超时",
+      "kind": "incident",
+      "category": "bug",
+      "original_issue_id": "原工单#369",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "索引登记完成（已审/合并/上线）",
+      "remediation_state": "原问题修复已登记完成",
+      "root_cause_state": "原未await正文致计时提前清理已定位",
+      "deployment_state": "索引记录已上线；不在本轮重新部署/验生产",
+      "verification_state": "沿用2026-11-05固定head/线上字节/定向验收范围，不扩大",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "原限定范围已结；出现当前新反例才另行复核；固定线上字节及本机Chromium验收范围，不是真机全站SLA"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-05（原验收登记）",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "repository_document",
+          "location": "docs/pending-features-index.md:541",
+          "note": "当前仓内原工单状态；本表不改写索引"
+        }
+      ],
+      "affected_objects": [
+        "lab前端响应体生命周期"
+      ],
+      "depends_on": [],
+      "notes": [
+        "固定线上字节及本机Chromium验收范围，不是真机全站SLA"
+      ],
+      "source_workflow_status_exact": "**已完成（Claude 已独立审查、合并并部署；2026-11-05 对账）**：`92013be60` → merge `37f6641dd`，首次发布 `a655`，后经 `c508c0a72` 补齐版本载体，当前验收版本 `20261105-a657`。固定 main `6c1493aea` 独立复验：线上 app/lab min 与固定 blob 逐字节一致，本机真实 Chromium 生命周期 46/46 通过；见[本次归档](codex-reviews/20261105-closeout/README.md)、[实施报告](ops/369-370-frontend-timeouts-implementation.md)、[夜间复验](codex-reviews/night-20261105/README.md)。",
+      "workflow_group": "scoped_verified",
+      "workflow_group_label": "已限定验收",
+      "workflow_group_scope": "仅原问题及已记录的限定验收；不代替残余根因/自然周期/全站验收"
+    },
+    {
+      "id": "incident:370",
+      "name": "主站boot预取应用级超时",
+      "kind": "incident",
+      "category": "bug",
+      "original_issue_id": "原工单#370",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "索引登记完成（已审/合并/上线）",
+      "remediation_state": "原问题修复已登记完成",
+      "root_cause_state": "原firstMs=0无应用预算已定位",
+      "deployment_state": "索引记录已上线；不在本轮重新部署/验生产",
+      "verification_state": "沿用2026-11-05固定head/线上字节/定向验收范围，不扩大",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "原限定范围已结；出现当前新反例才另行复核；与#369同批；本机46场景不是所有真实网络情况"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "2026-11-05（原验收登记）",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "repository_document",
+          "location": "docs/pending-features-index.md:542",
+          "note": "当前仓内原工单状态；本表不改写索引"
+        }
+      ],
+      "affected_objects": [
+        "主站boot预取/兜底"
+      ],
+      "depends_on": [],
+      "notes": [
+        "与#369同批；本机46场景不是所有真实网络情况"
+      ],
+      "source_workflow_status_exact": "**已完成（Claude 已独立审查、合并并部署；2026-11-05 对账）**：与 #369 同批 `92013be60` → merge `37f6641dd`，经版本载体补齐后验收为 `20261105-a657`。线上入口有效 build 一致、app/lab min 与固定 main `6c1493aea` blob 一致；46/46 本机 Chromium 场景含 boot 响应头/正文超时、共享预取与兜底，非真机或真实时长 SLA 验收。见[本次归档](codex-reviews/20261105-closeout/README.md)、[实施报告](ops/369-370-frontend-timeouts-implementation.md)、[夜间复验](codex-reviews/night-20261105/README.md)。",
+      "workflow_group": "scoped_verified",
+      "workflow_group_label": "已限定验收",
+      "workflow_group_scope": "仅原问题及已记录的限定验收；不代替残余根因/自然周期/全站验收"
+    },
+    {
+      "id": "incident:BACKEND-NEW-P2-01",
+      "name": "权限helper异常stat/chmod后仍replace候选",
+      "kind": "incident",
+      "category": "risk",
+      "original_issue_id": "BACKEND-NEW-P2-01",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "待Claude复核候选；不重开#367原问题",
+      "remediation_state": "当前实际修复状态unknown，不能据旧finding说仍未修",
+      "root_cause_state": "候选故障路径有旧注入证据；当前head确认unknown",
+      "deployment_state": "unknown；已知后续分支不等实际合并部署",
+      "verification_state": "旧DRAFT红样本与候选待固定当前head复核",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "当前固定main重新核对异常契约；若证实再由Claude实现并配对故障注入"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "unknown",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/alerts-continuation-20261106/consolidated-handoff-v1.json#historical_followups_in_completed_closeout/findings_still_require_evidence_not_ack_alone",
+          "note": "候选及后续分支边界"
+        },
+        {
+          "kind": "repository_document",
+          "location": "docs/pending-features-index.md:539",
+          "note": "索引明确新候选不代表原修复失败"
+        }
+      ],
+      "affected_objects": [
+        "_chmod_like_target异常路径",
+        "替换时权限保存"
+      ],
+      "depends_on": [],
+      "notes": [],
+      "workflow_group": "pending_review",
+      "workflow_group_label": "待复核",
+      "workflow_group_scope": "候选或覆盖问题待固定当前head复核；未确认当前生产故障"
+    },
+    {
+      "id": "incident:BACKEND-NEW-P2-02",
+      "name": "作者并发测试缺实际payload守恒断言候选",
+      "kind": "incident",
+      "category": "evidence_gap",
+      "original_issue_id": "BACKEND-NEW-P2-02",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "workflow_status": "待复核测试覆盖；无线上丢失实证",
+      "remediation_state": "当前测试改进状态unknown",
+      "root_cause_state": "测试证据缺口，不等同生产根因",
+      "deployment_state": "unknown；测试分支不能直接当生产修复",
+      "verification_state": "原固定main两序守恒通过；新作者测试缺口需当前head核对",
+      "observation_window": {
+        "status": "待观察（本轮未运行任何自然周期）",
+        "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
+        "evidence_required": "实际任务结果、源数据/产物身份、通知/发布结果及本条close_conditions；静态文档或ACK不能替代"
+      },
+      "close_conditions": [
+        "固定当前head验证delivered/buffer合计与负控；不得由覆盖缺口断言生产丢通知"
+      ],
+      "owner": "Claude（处置/实现）；Codex（只读复核）",
+      "last_verified_at": "unknown",
+      "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+      "evidence": [
+        {
+          "kind": "existing_report",
+          "location": "/tmp/codex-reports/alerts-continuation-20261106/consolidated-handoff-v1.json#historical_followups_in_completed_closeout/findings_still_require_evidence_not_ack_alone",
+          "note": "新测试候选范围"
+        },
+        {
+          "kind": "repository_document",
+          "location": "docs/pending-features-index.md:539",
+          "note": "已完成旧修复与新增候选明确分开"
+        }
+      ],
+      "affected_objects": [
+        "并发交付payload守恒",
+        "新作者自验覆盖"
+      ],
+      "depends_on": [],
+      "notes": [],
+      "workflow_group": "pending_review",
+      "workflow_group_label": "待复核",
+      "workflow_group_scope": "候选或覆盖问题待固定当前head复核；未确认当前生产故障"
+    }
+  ],
+  "workflow_group_contract": {
+    "version": 1,
+    "scope": "Panel filter only: one primary group per record describing the current next-work/evidence disposition. Not a new work-order status, bug-confirmation, runtime health, root-resolution or authorization decision. workflow_status and five other axes remain authoritative within their stated evidence scope.",
+    "enum": {
+      "pending_review": "待复核",
+      "investigating": "调查",
+      "repair_pending": "修复（待实施/处理中）",
+      "awaiting_verification": "待验",
+      "observing": "观察",
+      "scoped_verified": "已限定验收",
+      "not_replayable": "不可回放",
+      "mixed_historical_disposition": "混合历史处置"
+    },
+    "rules": [
+      "Primary group is exclusive. Scope of historical subgroups must not be promoted to the entire record.",
+      "observing requires an actually started dated observation window and stated evidence; pending observation belongs to awaiting_verification/investigating, not observing.",
+      "scoped_verified only covers the original verified problem/range and does not claim root resolution for residual work.",
+      "not_replayable means documented historical inability to replay, never historical recovery.",
+      "mixed_historical_disposition preserves different statuses within one known incident; workflow_subgroups records exact subranges.",
+      "repair_pending does not imply missing user authorization; original pending-approval wording is only historical source text.",
+      "Empty enum groups are allowed; never manufacture an active observation or full-record irreversibility to fill a filter."
+    ]
+  }
+}

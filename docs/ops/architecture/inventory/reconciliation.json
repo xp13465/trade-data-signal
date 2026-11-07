@@ -1,0 +1,1214 @@
+{
+  "reconciliation_version": 1,
+  "baseline_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+  "generated_at": "2026-11-07T14:33:07.514026+08:00",
+  "scope": "cloud systemd source declarations vs sampled runtime names, calendar literals and sanitized script basenames only; local/cron/CI coverage separately documented",
+  "comparisons": [
+    {
+      "source_id": "task:ab-direction-anchor",
+      "service_id": "cloud-service:trade-ab-direction-anchor.service",
+      "timer_id": "cloud-timer:trade-ab-direction-anchor.timer",
+      "unit": "trade-ab-direction-anchor.service",
+      "timer": "trade-ab-direction-anchor.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 21:15:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 21:15:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "run_ab_direction_anchor.sh"
+      ],
+      "observed_script_basenames": [
+        "run_ab_direction_anchor.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:alert-weekly-review",
+      "service_id": "cloud-service:trade-alert-weekly-review.service",
+      "timer_id": "cloud-timer:trade-alert-weekly-review.timer",
+      "unit": "trade-alert-weekly-review.service",
+      "timer": "trade-alert-weekly-review.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Mon *-*-* 08:20:00"
+      ],
+      "observed_OnCalendar": [
+        "Mon *-*-* 08:20:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "alert_weekly_review.py"
+      ],
+      "observed_script_basenames": [
+        "alert_weekly_review.py"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:backfill-evening",
+      "service_id": "cloud-service:trade-backfill-evening.service",
+      "timer_id": "cloud-timer:trade-backfill-evening.timer",
+      "unit": "trade-backfill-evening.service",
+      "timer": "trade-backfill-evening.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 16:35:00",
+        "*-*-* 21:00:00",
+        "*-*-* 02:00:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 02:00:00",
+        "*-*-* 21:00:00",
+        "*-*-* 16:35:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "backfill_metrics.sh"
+      ],
+      "observed_script_basenames": [
+        "backfill_metrics.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:backup-db",
+      "service_id": "cloud-service:trade-backup-db.service",
+      "timer_id": "cloud-timer:trade-backup-db.timer",
+      "unit": "trade-backup-db.service",
+      "timer": "trade-backup-db.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 21:00:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 21:00:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "backup_db.sh"
+      ],
+      "observed_script_basenames": [
+        "backup_db.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:brief-push",
+      "service_id": "cloud-service:trade-brief-push.service",
+      "timer_id": "cloud-timer:trade-brief-push.timer",
+      "unit": "trade-brief-push.service",
+      "timer": "trade-brief-push.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 20:45:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 20:45:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "brief_push_wrapper.sh"
+      ],
+      "observed_script_basenames": [
+        "brief_push_wrapper.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:check-data-gap",
+      "service_id": "cloud-service:trade-check-data-gap.service",
+      "timer_id": "cloud-timer:trade-check-data-gap.timer",
+      "unit": "trade-check-data-gap.service",
+      "timer": "trade-check-data-gap.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Mon..Fri *-*-* 22:35:00"
+      ],
+      "observed_OnCalendar": [
+        "Mon..Fri *-*-* 22:35:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "check_data_gap_alerts.sh"
+      ],
+      "observed_script_basenames": [
+        "check_data_gap_alerts.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:check-monitor-heartbeat",
+      "service_id": "cloud-service:trade-check-monitor-heartbeat.service",
+      "timer_id": "cloud-timer:trade-check-monitor-heartbeat.timer",
+      "unit": "trade-check-monitor-heartbeat.service",
+      "timer": "trade-check-monitor-heartbeat.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* *:11,26,41,56:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* *:11,26,41,56:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "check_monitor_heartbeat.py"
+      ],
+      "observed_script_basenames": [
+        "check_monitor_heartbeat.py"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:cloud-unit-patrol",
+      "service_id": "cloud-service:trade-cloud-unit-patrol.service",
+      "timer_id": "cloud-timer:trade-cloud-unit-patrol.timer",
+      "unit": "trade-cloud-unit-patrol.service",
+      "timer": "trade-cloud-unit-patrol.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 08:27:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 08:27:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "cloud_unit_patrol.sh"
+      ],
+      "observed_script_basenames": [
+        "cloud_unit_patrol.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:daily-brief",
+      "service_id": "cloud-service:trade-daily-brief.service",
+      "timer_id": "cloud-timer:trade-daily-brief.timer",
+      "unit": "trade-daily-brief.service",
+      "timer": "trade-daily-brief.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 20:40:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 20:40:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "run_daily_brief.sh"
+      ],
+      "observed_script_basenames": [
+        "run_daily_brief.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:daily-summary-supplement",
+      "service_id": "cloud-service:trade-daily-summary-supplement.service",
+      "timer_id": "cloud-timer:trade-daily-summary-supplement.timer",
+      "unit": "trade-daily-summary-supplement.service",
+      "timer": "trade-daily-summary-supplement.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 20:25:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 20:25:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "daily_summary_email.py"
+      ],
+      "observed_script_basenames": [
+        "daily_summary_email.py"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:etf-national-team",
+      "service_id": "cloud-service:trade-etf-national-team.service",
+      "timer_id": "cloud-timer:trade-etf-national-team.timer",
+      "unit": "trade-etf-national-team.service",
+      "timer": "trade-etf-national-team.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 20:07:00",
+        "*-*-* 21:30:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 21:30:00",
+        "*-*-* 20:07:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "etf_national_team_backfill.sh"
+      ],
+      "observed_script_basenames": [
+        "etf_national_team_backfill.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:etf-track-index",
+      "service_id": "cloud-service:trade-etf-track-index.service",
+      "timer_id": "cloud-timer:trade-etf-track-index.timer",
+      "unit": "trade-etf-track-index.service",
+      "timer": "trade-etf-track-index.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Sun *-*-* 03:30:00"
+      ],
+      "observed_OnCalendar": [
+        "Sun *-*-* 03:30:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "fetch_etf_track_index.py"
+      ],
+      "observed_script_basenames": [
+        "fetch_etf_track_index.py"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:fapi-daily",
+      "service_id": "cloud-service:trade-fapi-daily.service",
+      "timer_id": "cloud-timer:trade-fapi-daily.timer",
+      "unit": "trade-fapi-daily.service",
+      "timer": "trade-fapi-daily.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 18:10:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 18:10:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "fapi_daily_syn.sh"
+      ],
+      "observed_script_basenames": [
+        "fapi_daily_syn.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:fetch-news",
+      "service_id": "cloud-service:trade-fetch-news.service",
+      "timer_id": "cloud-timer:trade-fetch-news.timer",
+      "unit": "trade-fetch-news.service",
+      "timer": "trade-fetch-news.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* *:01,45:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* *:01,45:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "fetch_news.py"
+      ],
+      "observed_script_basenames": [
+        "fetch_news.py"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:fof-nav-collect",
+      "service_id": "cloud-service:trade-fof-nav-collect.service",
+      "timer_id": "cloud-timer:trade-fof-nav-collect.timer",
+      "unit": "trade-fof-nav-collect.service",
+      "timer": "trade-fof-nav-collect.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 21:10:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 21:10:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "run_fof_nav_collect.sh"
+      ],
+      "observed_script_basenames": [
+        "run_fof_nav_collect.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:freeze-orphan-cleanup",
+      "service_id": "cloud-service:trade-freeze-orphan-cleanup.service",
+      "timer_id": "cloud-timer:trade-freeze-orphan-cleanup.timer",
+      "unit": "trade-freeze-orphan-cleanup.service",
+      "timer": "trade-freeze-orphan-cleanup.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 21:50:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 21:50:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "signal_kelly_freeze_cleanup.py"
+      ],
+      "observed_script_basenames": [
+        "signal_kelly_freeze_cleanup.py"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:futures-backfill",
+      "service_id": "cloud-service:trade-futures-backfill.service",
+      "timer_id": "cloud-timer:trade-futures-backfill.timer",
+      "unit": "trade-futures-backfill.service",
+      "timer": "trade-futures-backfill.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 19:45:00",
+        "*-*-* 21:20:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 21:20:00",
+        "*-*-* 19:45:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "futures_backfill.sh"
+      ],
+      "observed_script_basenames": [
+        "futures_backfill.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:gold-night",
+      "service_id": "cloud-service:trade-gold-night.service",
+      "timer_id": "cloud-timer:trade-gold-night.timer",
+      "unit": "trade-gold-night.service",
+      "timer": "trade-gold-night.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 02:40:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 02:40:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "gold_night.sh"
+      ],
+      "observed_script_basenames": [
+        "gold_night.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:intraday-snapshot",
+      "service_id": "cloud-service:trade-intraday-snapshot.service",
+      "timer_id": "cloud-timer:trade-intraday-snapshot.timer",
+      "unit": "trade-intraday-snapshot.service",
+      "timer": "trade-intraday-snapshot.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 09:25:00",
+        "*-*-* 09:35:00",
+        "*-*-* 09:45:00",
+        "*-*-* 09:55:00",
+        "*-*-* 10:05:00",
+        "*-*-* 10:15:00",
+        "*-*-* 10:25:00",
+        "*-*-* 10:35:00",
+        "*-*-* 10:45:00",
+        "*-*-* 10:55:00",
+        "*-*-* 11:05:00",
+        "*-*-* 11:15:00",
+        "*-*-* 11:25:00",
+        "*-*-* 11:32:00",
+        "*-*-* 13:01:00",
+        "*-*-* 13:05:00",
+        "*-*-* 13:15:00",
+        "*-*-* 13:25:00",
+        "*-*-* 13:35:00",
+        "*-*-* 13:45:00",
+        "*-*-* 13:55:00",
+        "*-*-* 14:05:00",
+        "*-*-* 14:15:00",
+        "*-*-* 14:25:00",
+        "*-*-* 14:35:00",
+        "*-*-* 14:45:00",
+        "*-*-* 14:55:00",
+        "*-*-* 15:02:00",
+        "*-*-* 15:35:00",
+        "*-*-* 20:35:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 20:35:00",
+        "*-*-* 15:35:00",
+        "*-*-* 15:02:00",
+        "*-*-* 14:55:00",
+        "*-*-* 14:45:00",
+        "*-*-* 14:35:00",
+        "*-*-* 14:25:00",
+        "*-*-* 14:15:00",
+        "*-*-* 14:05:00",
+        "*-*-* 13:55:00",
+        "*-*-* 13:45:00",
+        "*-*-* 13:35:00",
+        "*-*-* 13:25:00",
+        "*-*-* 13:15:00",
+        "*-*-* 13:05:00",
+        "*-*-* 13:01:00",
+        "*-*-* 11:32:00",
+        "*-*-* 11:25:00",
+        "*-*-* 11:15:00",
+        "*-*-* 11:05:00",
+        "*-*-* 10:55:00",
+        "*-*-* 10:45:00",
+        "*-*-* 10:35:00",
+        "*-*-* 10:25:00",
+        "*-*-* 10:15:00",
+        "*-*-* 10:05:00",
+        "*-*-* 09:55:00",
+        "*-*-* 09:45:00",
+        "*-*-* 09:35:00",
+        "*-*-* 09:25:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "intraday_snapshot.sh"
+      ],
+      "observed_script_basenames": [
+        "intraday_snapshot.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:kelly-intraday-rerun",
+      "service_id": "cloud-service:trade-kelly-intraday-rerun.service",
+      "timer_id": "cloud-timer:trade-kelly-intraday-rerun.timer",
+      "unit": "trade-kelly-intraday-rerun.service",
+      "timer": "trade-kelly-intraday-rerun.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 09:40:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 09:40:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "kelly_intraday_rerun.sh"
+      ],
+      "observed_script_basenames": [
+        "kelly_intraday_rerun.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:lab-auto",
+      "service_id": "cloud-service:trade-lab-auto.service",
+      "timer_id": "cloud-timer:trade-lab-auto.timer",
+      "unit": "trade-lab-auto.service",
+      "timer": "trade-lab-auto.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 19:00:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 19:00:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "update_lab.sh"
+      ],
+      "observed_script_basenames": [
+        "update_lab.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:lhb-backfill",
+      "service_id": "cloud-service:trade-lhb-backfill.service",
+      "timer_id": "cloud-timer:trade-lhb-backfill.timer",
+      "unit": "trade-lhb-backfill.service",
+      "timer": "trade-lhb-backfill.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 18:50:00",
+        "*-*-* 19:30:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 19:30:00",
+        "*-*-* 18:50:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "lhb_backfill.sh"
+      ],
+      "observed_script_basenames": [
+        "lhb_backfill.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:lof-track-index",
+      "service_id": "cloud-service:trade-lof-track-index.service",
+      "timer_id": "cloud-timer:trade-lof-track-index.timer",
+      "unit": "trade-lof-track-index.service",
+      "timer": "trade-lof-track-index.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Sun *-*-* 04:00:00"
+      ],
+      "observed_OnCalendar": [
+        "Sun *-*-* 04:00:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "fetch_lof_track_index.py"
+      ],
+      "observed_script_basenames": [
+        "fetch_lof_track_index.py"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:nextday-gap-check",
+      "service_id": "cloud-service:trade-nextday-gap-check.service",
+      "timer_id": "cloud-timer:trade-nextday-gap-check.timer",
+      "unit": "trade-nextday-gap-check.service",
+      "timer": "trade-nextday-gap-check.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Mon..Fri *-*-* 09:26:00"
+      ],
+      "observed_OnCalendar": [
+        "Mon..Fri *-*-* 09:26:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "nextday_gap_check.sh"
+      ],
+      "observed_script_basenames": [
+        "nextday_gap_check.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:nextday-plan",
+      "service_id": "cloud-service:trade-nextday-plan.service",
+      "timer_id": "cloud-timer:trade-nextday-plan.timer",
+      "unit": "trade-nextday-plan.service",
+      "timer": "trade-nextday-plan.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Mon..Fri *-*-* 22:30:00"
+      ],
+      "observed_OnCalendar": [
+        "Mon..Fri *-*-* 22:30:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "nextday_plan.sh"
+      ],
+      "observed_script_basenames": [
+        "nextday_plan.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:overfit-monitor",
+      "service_id": "cloud-service:trade-overfit-monitor.service",
+      "timer_id": "cloud-timer:trade-overfit-monitor.timer",
+      "unit": "trade-overfit-monitor.service",
+      "timer": "trade-overfit-monitor.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Mon..Fri *-*-* 21:40:00"
+      ],
+      "observed_OnCalendar": [
+        "Mon..Fri *-*-* 21:40:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "overfit_monitor.sh"
+      ],
+      "observed_script_basenames": [
+        "overfit_monitor.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:pf-score-daily",
+      "service_id": "cloud-service:trade-pf-score-daily.service",
+      "timer_id": "cloud-timer:trade-pf-score-daily.timer",
+      "unit": "trade-pf-score-daily.service",
+      "timer": "trade-pf-score-daily.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 16:00:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 16:00:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "pf_score_daily.sh"
+      ],
+      "observed_script_basenames": [
+        "pf_score_daily.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:pf-score-weekly",
+      "service_id": "cloud-service:trade-pf-score-weekly.service",
+      "timer_id": "cloud-timer:trade-pf-score-weekly.timer",
+      "unit": "trade-pf-score-weekly.service",
+      "timer": "trade-pf-score-weekly.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Sun *-*-* 03:17:00"
+      ],
+      "observed_OnCalendar": [
+        "Sun *-*-* 03:17:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "pf_score_weekly.sh"
+      ],
+      "observed_script_basenames": [
+        "pf_score_weekly.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:pf-stage0-manager",
+      "service_id": "cloud-service:trade-pf-stage0-manager.service",
+      "timer_id": "cloud-timer:trade-pf-stage0-manager.timer",
+      "unit": "trade-pf-stage0-manager.service",
+      "timer": "trade-pf-stage0-manager.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-01 02:47:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-01 02:47:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "stage0_manager.sh"
+      ],
+      "observed_script_basenames": [
+        "stage0_manager.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:pf-stage0-nav",
+      "service_id": "cloud-service:trade-pf-stage0-nav.service",
+      "timer_id": "cloud-timer:trade-pf-stage0-nav.timer",
+      "unit": "trade-pf-stage0-nav.service",
+      "timer": "trade-pf-stage0-nav.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Fri *-*-* 01:43:00"
+      ],
+      "observed_OnCalendar": [
+        "Fri *-*-* 01:43:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "stage0_nav.sh"
+      ],
+      "observed_script_basenames": [
+        "stage0_nav.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:pf-stage0-overview",
+      "service_id": "cloud-service:trade-pf-stage0-overview.service",
+      "timer_id": "cloud-timer:trade-pf-stage0-overview.timer",
+      "unit": "trade-pf-stage0-overview.service",
+      "timer": "trade-pf-stage0-overview.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Sun *-*-* 02:17:00"
+      ],
+      "observed_OnCalendar": [
+        "Sun *-*-* 02:17:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "stage0_overview.sh"
+      ],
+      "observed_script_basenames": [
+        "stage0_overview.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:pf-stage0-risk",
+      "service_id": "cloud-service:trade-pf-stage0-risk.service",
+      "timer_id": "cloud-timer:trade-pf-stage0-risk.timer",
+      "unit": "trade-pf-stage0-risk.service",
+      "timer": "trade-pf-stage0-risk.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-15 02:33:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-15 02:33:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "stage0_risk.sh"
+      ],
+      "observed_script_basenames": [
+        "stage0_risk.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:public-fund-daily",
+      "service_id": "cloud-service:trade-public-fund-daily.service",
+      "timer_id": "cloud-timer:trade-public-fund-daily.timer",
+      "unit": "trade-public-fund-daily.service",
+      "timer": "trade-public-fund-daily.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 16:20:00",
+        "*-*-* 17:00:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 17:00:00",
+        "*-*-* 16:20:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "public_fund_daily.sh"
+      ],
+      "observed_script_basenames": [
+        "public_fund_daily.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:public-fund-estimation",
+      "service_id": "cloud-service:trade-public-fund-estimation.service",
+      "timer_id": "cloud-timer:trade-public-fund-estimation.timer",
+      "unit": "trade-public-fund-estimation.service",
+      "timer": "trade-public-fund-estimation.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 10:00:00",
+        "*-*-* 11:00:00",
+        "*-*-* 13:30:00",
+        "*-*-* 14:30:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 14:30:00",
+        "*-*-* 13:30:00",
+        "*-*-* 11:00:00",
+        "*-*-* 10:00:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "public_fund_estimation.sh"
+      ],
+      "observed_script_basenames": [
+        "public_fund_estimation.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:public-fund-full",
+      "service_id": "cloud-service:trade-public-fund-full.service",
+      "timer_id": "cloud-timer:trade-public-fund-full.timer",
+      "unit": "trade-public-fund-full.service",
+      "timer": "trade-public-fund-full.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 22:00:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 22:00:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "public_fund_full.sh"
+      ],
+      "observed_script_basenames": [
+        "public_fund_full.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:public-fund-quarterly",
+      "service_id": "cloud-service:trade-public-fund-quarterly.service",
+      "timer_id": "cloud-timer:trade-public-fund-quarterly.timer",
+      "unit": "trade-public-fund-quarterly.service",
+      "timer": "trade-public-fund-quarterly.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 03:00:00",
+        "*-*-* 04:00:00",
+        "*-*-* 07:00:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 07:00:00",
+        "*-*-* 04:00:00",
+        "*-*-* 03:00:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "public_fund_quarterly.sh"
+      ],
+      "observed_script_basenames": [
+        "public_fund_quarterly.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:r2-consistency",
+      "service_id": "cloud-service:trade-r2-consistency.service",
+      "timer_id": "cloud-timer:trade-r2-consistency.timer",
+      "unit": "trade-r2-consistency.service",
+      "timer": "trade-r2-consistency.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 23:20:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 23:20:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "check_r2_consistency.sh"
+      ],
+      "observed_script_basenames": [
+        "check_r2_consistency.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:rzhb-backfill",
+      "service_id": "cloud-service:trade-rzhb-backfill.service",
+      "timer_id": "cloud-timer:trade-rzhb-backfill.timer",
+      "unit": "trade-rzhb-backfill.service",
+      "timer": "trade-rzhb-backfill.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 08:00:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 08:00:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "rzhb_backfill.sh"
+      ],
+      "observed_script_basenames": [
+        "rzhb_backfill.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:s06-snapshot",
+      "service_id": "cloud-service:trade-s06-snapshot.service",
+      "timer_id": "cloud-timer:trade-s06-snapshot.timer",
+      "unit": "trade-s06-snapshot.service",
+      "timer": "trade-s06-snapshot.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Mon..Fri *-*-* 20:35:00"
+      ],
+      "observed_OnCalendar": [
+        "Mon..Fri *-*-* 20:35:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "s06_snapshot.sh"
+      ],
+      "observed_script_basenames": [
+        "s06_snapshot.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:schedule-monitor",
+      "service_id": "cloud-service:trade-schedule-monitor.service",
+      "timer_id": "cloud-timer:trade-schedule-monitor.timer",
+      "unit": "trade-schedule-monitor.service",
+      "timer": "trade-schedule-monitor.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* *:00,15,30,45:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* *:00,15,30,45:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "schedule_monitor.sh"
+      ],
+      "observed_script_basenames": [
+        "schedule_monitor.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:self-heal",
+      "service_id": "cloud-service:trade-self-heal.service",
+      "timer_id": "cloud-timer:trade-self-heal.timer",
+      "unit": "trade-self-heal.service",
+      "timer": "trade-self-heal.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* *:07,22,37,52:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* *:07,22,37,52:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "self_heal.sh"
+      ],
+      "observed_script_basenames": [
+        "self_heal.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:turnover-backfill",
+      "service_id": "cloud-service:trade-turnover-backfill.service",
+      "timer_id": "cloud-timer:trade-turnover-backfill.timer",
+      "unit": "trade-turnover-backfill.service",
+      "timer": "trade-turnover-backfill.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Mon..Fri *-*-* 21:10:00"
+      ],
+      "observed_OnCalendar": [
+        "Mon..Fri *-*-* 21:10:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "turnover_backfill.sh"
+      ],
+      "observed_script_basenames": [
+        "turnover_backfill.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:update-all",
+      "service_id": "cloud-service:trade-update-all.service",
+      "timer_id": "cloud-timer:trade-update-all.timer",
+      "unit": "trade-update-all.service",
+      "timer": "trade-update-all.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "Mon..Sat 17:50:00",
+        "Sun 22:30:00"
+      ],
+      "observed_OnCalendar": [
+        "Sun *-*-* 22:30:00",
+        "Mon..Sat *-*-* 17:50:00"
+      ],
+      "calendar_comparison": "same_after_explicit_wildcard_normalization",
+      "declared_script_basenames": [
+        "update_all.sh"
+      ],
+      "observed_script_basenames": [
+        "update_all.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    },
+    {
+      "source_id": "task:us-stock-morning",
+      "service_id": "cloud-service:trade-us-stock-morning.service",
+      "timer_id": "cloud-timer:trade-us-stock-morning.timer",
+      "unit": "trade-us-stock-morning.service",
+      "timer": "trade-us-stock-morning.timer",
+      "presence": "matched_by_exact_unit_names",
+      "declared_OnCalendar": [
+        "*-*-* 05:00:00"
+      ],
+      "observed_OnCalendar": [
+        "*-*-* 05:00:00"
+      ],
+      "calendar_comparison": "same_literal",
+      "declared_script_basenames": [
+        "us_stock_morning.sh"
+      ],
+      "observed_script_basenames": [
+        "us_stock_morning.sh"
+      ],
+      "entrypoint_comparison": "same_script_basename",
+      "scope": "名称与字面表达式/脚本名对照；参数、全部timeout/锁/日历门控和业务结果未全量对齐。",
+      "observed_at": "2026-11-07T14:28:13.549907+08:00"
+    }
+  ],
+  "runtime_unmatched": [
+    {
+      "id": "cloud-cron:runtime-user-7-any-any-any-any",
+      "name": "current-user crontab · 7 * * * *",
+      "ownership": "unknown; current-user Node jobs are outside CODE/DATA aliases, not assumed Trade-owned",
+      "note": "未匹配不等于异常或应删除。"
+    },
+    {
+      "id": "cloud-cron:runtime-user-37-any-any-any-any",
+      "name": "current-user crontab · 37 * * * *",
+      "ownership": "unknown; current-user Node jobs are outside CODE/DATA aliases, not assumed Trade-owned",
+      "note": "未匹配不等于异常或应删除。"
+    },
+    {
+      "id": "cloud-cron:crontab-17-any-any-any-any",
+      "name": "/etc/crontab · 17 * * * *",
+      "ownership": "unknown; current-user Node jobs are outside CODE/DATA aliases, not assumed Trade-owned",
+      "note": "未匹配不等于异常或应删除。"
+    },
+    {
+      "id": "cloud-cron:crontab-25-6-any-any-any",
+      "name": "/etc/crontab · 25 6 * * *",
+      "ownership": "unknown; current-user Node jobs are outside CODE/DATA aliases, not assumed Trade-owned",
+      "note": "未匹配不等于异常或应删除。"
+    },
+    {
+      "id": "cloud-cron:crontab-47-6-any-any-7",
+      "name": "/etc/crontab · 47 6 * * 7",
+      "ownership": "unknown; current-user Node jobs are outside CODE/DATA aliases, not assumed Trade-owned",
+      "note": "未匹配不等于异常或应删除。"
+    },
+    {
+      "id": "cloud-cron:crontab-52-6-1-any-any",
+      "name": "/etc/crontab · 52 6 1 * *",
+      "ownership": "unknown; current-user Node jobs are outside CODE/DATA aliases, not assumed Trade-owned",
+      "note": "未匹配不等于异常或应删除。"
+    },
+    {
+      "id": "cloud-cron:cron.d-e2scrub_all-30-3-any-any-0",
+      "name": "/etc/cron.d/e2scrub_all · 30 3 * * 0",
+      "ownership": "unknown; current-user Node jobs are outside CODE/DATA aliases, not assumed Trade-owned",
+      "note": "未匹配不等于异常或应删除。"
+    },
+    {
+      "id": "cloud-cron:cron.d-e2scrub_all-10-3-any-any-any",
+      "name": "/etc/cron.d/e2scrub_all · 10 3 * * *",
+      "ownership": "unknown; current-user Node jobs are outside CODE/DATA aliases, not assumed Trade-owned",
+      "note": "未匹配不等于异常或应删除。"
+    }
+  ],
+  "summary": {
+    "declared_systemd_tasks": 44,
+    "matched_names": 44,
+    "calendar_comparison": {
+      "same_literal": 43,
+      "same_after_explicit_wildcard_normalization": 1
+    },
+    "entrypoint_comparison": {
+      "same_script_basename": 44
+    },
+    "runtime_unmatched_count": 8
+  },
+  "limitations": [
+    "同名不证明全部参数、锁、timeout、交易日或结果一致",
+    "schedule字面差异必须人工检查语义与时区后才认定漂移",
+    "非trade归属cron只保留外围记录，不计项目运行健康",
+    "本轮取证快照不代替持续监控"
+  ]
+}

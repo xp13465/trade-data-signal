@@ -1,0 +1,1602 @@
+{
+  "schema_version": 1,
+  "baseline_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+  "observed_at": "2026-11-07T14:20:32.660050+08:00",
+  "scope": "Task C: key data assets, logical authority, producer/consumer and write/recovery contracts",
+  "coverage": {
+    "asset_groups": 34,
+    "dependency_edges": 50,
+    "source_files": [
+      "app/collector/etf_national_team.py",
+      "app/collector/index_backfill.py",
+      "app/collector/public_fund.py",
+      "app/collector/stock_daily.py",
+      "app/compute/runner.py",
+      "app/compute/signal_stats.py",
+      "app/compute/signals.py",
+      "app/db.py",
+      "docs/scripts/restore_r2_db_backup.py",
+      "scripts/alert_digest_delivery.py",
+      "scripts/backfill_metrics.sh",
+      "scripts/backup_db.sh",
+      "scripts/build_board_etf_map.py",
+      "scripts/check_data_gap_alerts.py",
+      "scripts/check_preupload_backup.py",
+      "scripts/deploy.sh",
+      "scripts/gen_schedule_stats.py",
+      "scripts/notify.py",
+      "scripts/pipeline.sh",
+      "scripts/push_schedule_stats.sh",
+      "scripts/r2_export_proof.py",
+      "scripts/signal_kelly_backtest.py",
+      "scripts/signal_kelly_freeze_cleanup.py",
+      "scripts/staticdata_backup_async.sh",
+      "scripts/update_all.sh",
+      "scripts/upload_r2.py",
+      "scripts/verify_backup.sh",
+      "static-site/export.py"
+    ],
+    "method": "fixed baseline source reads / one-hop caller-callee / no business imports or data loading",
+    "runtime_scope": "none: current mounts, DB row freshness, active writer identity, installed env/timers and CF control plane unknown",
+    "shared_public_ids": [
+      "repo:code",
+      "repo:runtime-data",
+      "repo:static-data",
+      "external:upstream-market-data",
+      "external:r2"
+    ],
+    "task_and_surface_inventories": "delegated to A/E, not re-enumerated here",
+    "not_exhaustive": [
+      "all collector tables/upstream endpoints",
+      "all DB write sites",
+      "every staticJSON and site consumer",
+      "all local/remote backup retention",
+      "complete runtime lock ownership and R2/CDN objects"
+    ]
+  },
+  "records": [
+    {
+      "id": "data:sentiment-db",
+      "name": "情绪与信号主库",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/db.py:249 (def resolve_db_path)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/db.py:308 (def get_conn)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/backup_db.sh:80 (backup_one \"$DBDIR/sentiment.db\")",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/data/sentiment.db"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "app.collector.runner",
+        "app.compute.runner",
+        "app.history_audit"
+      ],
+      "consumer": [
+        "app.db.get_conn",
+        "static-site/export.py",
+        "信号/统计检查器"
+      ],
+      "write_contract": "SQLite WAL、busy_timeout；按表写入，不是所有表同种更新；显式DB覆盖例外",
+      "time_semantics": "date多为YYYYMMDD交易日，intraday另有采集时刻",
+      "validation_contract": "resolve_db_path拒绝默认阶梯中的空/缺库；get_conn含建表迁移，盘点不可调用",
+      "backup_restore_contract": "backup_db.sh热备及upload-db/verify_backup覆盖有源码；实际备份新鲜度、R2对象/生命周期/恢复结果unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": [],
+      "resolver_priority": [
+        "TRADE_SENTIMENT_DB file",
+        "REPO/data",
+        "MAIN_REPO/data",
+        "sibling trade-data/data",
+        "logical source tree/data"
+      ]
+    },
+    {
+      "id": "data:etf-db",
+      "name": "ETF与场内LOF分库",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/collector/etf_national_team.py:176 (DB_PATH = _DATA_DIR)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/collector/etf_national_team.py:1152 (def _upsert_daily)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:994 (def _batch_load_etf_prices)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/data/etf_national_team.db"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "etf_national_team.pipeline_daily/backfill/intraday",
+        "update_accum_nav"
+      ],
+      "consumer": [
+        "Kelly price loader",
+        "ETF exports",
+        "coverage checks"
+      ],
+      "write_contract": "独立SQLite WAL；_upsert_daily按(date,etf_code)UPSERT；NAV只UPDATE已有行，缺整行先需OHLC",
+      "time_semantics": "行情date与信号date/次日有效价并非同一时刻",
+      "validation_contract": "价格loader还要求accum_nav非NULL且etf_name<>etf_code；名称占位不得洗真",
+      "backup_restore_contract": "backup_db.sh热备及upload-db/verify_backup覆盖有源码；实际备份新鲜度、R2对象/生命周期/恢复结果unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": [],
+      "path_notes": "collector用absolute逻辑树；Kelly优先sibling trade-data主库，回退ROOT/data；两者必须核inode/path"
+    },
+    {
+      "id": "data:stock-db",
+      "name": "股票日线分库",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/collector/stock_daily.py:47 (STOCK_DB_PATH =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/collector/stock_daily.py:98 (def get_conn)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/update_all.sh:96 (wait \"$PID_CORE\")",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/data/stock_daily.db"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "app.collector.stock_daily"
+      ],
+      "consumer": [
+        "宽度计算/股票派生"
+      ],
+      "write_contract": "独立SQLite WAL，stock_daily_raw；采集进度另文件",
+      "time_semantics": "股票行情日；update_all明确不等待stock_daily后台完成",
+      "validation_contract": "新鲜度/行覆盖需单独验证，不由core退出码推断",
+      "backup_restore_contract": "backup_db.sh热备及upload-db/verify_backup覆盖有源码；实际备份新鲜度、R2对象/生命周期/恢复结果unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:public-fund-db",
+      "name": "公募净值分库",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/collector/public_fund.py:78 (DB_PATH =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/collector/public_fund.py:79 (LOCK_PATH =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:3674 (def _sqlite_snapshot_to_gz)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/data/public_fund.db"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "app.collector.public_fund"
+      ],
+      "consumer": [
+        "基金JSON导出/净值桶"
+      ],
+      "write_contract": "独立SQLite WAL与public_fund.lock合同",
+      "time_semantics": "NAV可能T+1，日历需对应资产类型核对",
+      "validation_contract": "分库采集/净值行验证不等于前端已发布",
+      "backup_restore_contract": "upload-db含public_fund流式快照压缩、独立restore脚本；普通backup_db本地3库列表不含它",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:index-daily",
+      "name": "指数历史表",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/db.py:33 (CREATE TABLE IF NOT EXISTS index_daily)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/collector/index_backfill.py:295 (from .runner import upsert_index_rows)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "sentiment.db::index_daily"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "collector.runner.upsert_index_rows",
+        "collector.index_backfill"
+      ],
+      "consumer": [
+        "compute.signals",
+        "查询/统计"
+      ],
+      "write_contract": "按键写入并接历史改写审计；不把所有表误称追加",
+      "time_semantics": "date/index_id历史行情",
+      "validation_contract": "history_overwrite_audit是观察，不保证阻止重写",
+      "backup_restore_contract": "随sentiment.db一致热备",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:score-daily",
+      "name": "评分与冻结指标表",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/db.py:51 (CREATE TABLE IF NOT EXISTS score_daily)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/compute/runner.py:7 (sentiment.store)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "sentiment.db::score_daily"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "compute.sentiment/cross等store"
+      ],
+      "consumer": [
+        "compute.signals",
+        "Kelly评分"
+      ],
+      "write_contract": "SQLite(date,score_id)键；is_freeze是分数状态，不等同ETF映射冻结文件",
+      "time_semantics": "评分date，_updated_at与观测时间分开",
+      "validation_contract": "字段齐全不等于缺失历史事件可回放",
+      "backup_restore_contract": "随主库备份",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:signal-daily",
+      "name": "当前重算历史买卖信号表",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/compute/signals.py:1442 (def store(signals))",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/compute/signals.py:1455 (DELETE FROM signal_daily)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "sentiment.db::signal_daily"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "app.compute.signals.store"
+      ],
+      "consumer": [
+        "signal_stats",
+        "Kelly buy_rows",
+        "告警覆盖检查"
+      ],
+      "write_contract": "DELETE全表后INSERT OR REPLACE，commit；重算前后历史快照审计失败不阻断",
+      "time_semantics": "主键date|index_id|signal；全史重算可能改变历史集合，不能当append-only日志",
+      "validation_contract": "独立与冻结/输入水位对账；不凭总条数一致",
+      "backup_restore_contract": "随sentiment.db；需要同时间输入/冻结证据才能重放",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:history-overwrite-audit",
+      "name": "历史改写审计表",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/db.py:194 (CREATE TABLE IF NOT EXISTS history_overwrite_audit)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/compute/signals.py:1448 (audit_signal_daily_store)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "sentiment.db::history_overwrite_audit"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "app.history_audit",
+        "signals.store/collector audited writes"
+      ],
+      "consumer": [
+        "审计/告警"
+      ],
+      "write_contract": "记录disappeared/appeared/changed；观察不阻断主写",
+      "time_semantics": "detected_at/run_date与被改date独立",
+      "validation_contract": "有审计不代表已处置/恢复；保留期当前未独立核",
+      "backup_restore_contract": "随sentiment.db热备",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:board-etf-map",
+      "name": "当前指数到ETF候选映射",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/build_board_etf_map.py:35 (OUT = ROOT)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/build_board_etf_map.py:1820 (atomic_write_text(OUT)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:315 (_BOARD_MAP_BAK=)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/data/board_etf_map.json"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "scripts/build_board_etf_map.py::main"
+      ],
+      "consumer": [
+        "Kelly _load_board_etf_map",
+        "queries",
+        "LOF universe"
+      ],
+      "write_contract": "atomic_write_text；deploy前.deploybak，失败恢复旧版；成功复制静态版和CODE/data并校验",
+      "time_semantics": "当前候选/滞回状态，不是某信号日的历史冻结值",
+      "validation_contract": "类型按lof_track_index逐码归属，非159前缀推断；deploy哈希只证副本一致",
+      "backup_restore_contract": "deploybak是临时pre-build保护，不等价每日不可变快照",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:map-inputs",
+      "name": "映射生成输入与元数据",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/build_board_etf_map.py:332 (ETF_INDEX_MAP_PATH =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/build_board_etf_map.py:292 (LOF_TRACK_INDEX_PATH =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/data/etf_index_map.json",
+        "$REPO/data/etf_track_index.json",
+        "$REPO/data/lof_track_index.json"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "gen_etf_index_map/相关元数据更新"
+      ],
+      "consumer": [
+        "build_board_etf_map"
+      ],
+      "write_contract": "各生成器合同不同，本次未穷举所有上游写者",
+      "time_semantics": "输入数据日期/当前跟踪关系，更新时间不是历史选择证明",
+      "validation_contract": "缺输入可能走名称fallback；单项fallback不等同语义相同",
+      "backup_restore_contract": "本次未确认这组root-data JSON进入staticdata/R2备份，unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:etf-freeze",
+      "name": "历史事件ETF冻结表",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:231 (def _etf_freeze_path)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:765 (def _resolve_etf)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:303 (def _save_etf_freeze)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_freeze_cleanup.py:165 (bak = f)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$ROOT/data/signal_kelly_etf_freeze.json",
+        "SIGNAL_KELLY_ETF_FREEZE_PATH explicit override"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "signal_kelly_backtest::_resolve_etf/_save_etf_freeze"
+      ],
+      "consumer": [
+        "Kelly主/SDC",
+        "freeze coverage",
+        "孤儿诊断"
+      ],
+      "write_contract": "全文件atomic_write_json；精确键优先，同date/index变体按rank兜底；跨进程语义串行锁未从本次锚点证明",
+      "time_semantics": "date|index_id|signal及frozen_at；历史date<latest真缺键拒用今日map补冻",
+      "validation_contract": "缺表/坏JSON读成{}，后续guard与diagnostics；不能当健康空表",
+      "backup_restore_contract": "cleanup源码有同目录.bak时间戳；不是常态日期快照保证；root/data freeze未证被staticdata JSON rsync覆盖",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:freeze-registries",
+      "name": "冻结缺失认可/定向孤儿登记",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:329 (FROZEN_MISSING_ACCEPTED_PATH)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:501 (FREEZE_BACKFILL_REGISTRY_PATH)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "config/signal_kelly_frozen_missing_accepted.json",
+        "config/signal_kelly_freeze_orphan_backfill.json"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "人工审核的配置变更"
+      ],
+      "consumer": [
+        "Kelly缺失告警/定向union"
+      ],
+      "write_contract": "配置登记，不是冻结数据恢复；全局union默认不由有登记自动翻转",
+      "time_semantics": "登记的历史事件键与真实冻结依据需单独审",
+      "validation_contract": "不扩大accepted来掩盖未知历史；没有新运行证明",
+      "backup_restore_contract": "随code版本；恢复需审核配置与数据配套",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:frozen-missing-audit",
+      "name": "冻结缺失逐批诊断文件",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:346 (def _archive_frozen_missing_diagnostics)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:392 (data\", \"audit\", \"frozen_missing)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$ROOT/data/audit/frozen_missing/<run_id>.json"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "Kelly _archive_frozen_missing_diagnostics"
+      ],
+      "consumer": [
+        "人工诊断/后续复核"
+      ],
+      "write_contract": "暂存私有目录、atomic JSON mode0600；完整事件记录合同",
+      "time_semantics": "run_id/输入代码与配置身份，记录观察时点，不回填过去",
+      "validation_contract": "完整事件集证据与当前重算区分；旧仅前几样本不可补造",
+      "backup_restore_contract": "普通DB备份不含此文件，保留/备份完整性unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:signal-stats-work",
+      "name": "计算层统计工作文件",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/compute/signal_stats.py:49 (STATS_PATH =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/compute/signal_stats.py:214 (def store(stats)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$ROOT/data/signal_stats.json"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "app.compute.signal_stats.store"
+      ],
+      "consumer": [
+        "部分load调用/旧fallback"
+      ],
+      "write_contract": "固定.tmp + replace；避免文件半写的意图，不声称并发丢更新已消除",
+      "time_semantics": "_updated_at取last_trading_day，不是实际墙钟",
+      "validation_contract": "不能与export统计同名混淆；两产物可能不同",
+      "backup_restore_contract": "root/data非普通staticdata JSON目录，覆盖unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:signal-stats",
+      "name": "export统计产物",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/export.py:1245 (counts[\"signal_stats.json\"])",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:197 (def _load_signal_stats)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/static-site/data/signal_stats.json"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "static-site/export.py 7.9.1 _get_stats/write_json"
+      ],
+      "consumer": [
+        "Kelly _load_signal_stats",
+        "前端统计"
+      ],
+      "write_contract": "现算stats并独立atomic写，非复制root/data旧文件",
+      "time_semantics": "export批次与内存查询水位；无全库一致快照证明",
+      "validation_contract": "Kelly优先此路径再回退root/data；路径存在不证最新事件包含",
+      "backup_restore_contract": "staticdata JSON rsync候选；export manifest/R2发布证明合同",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:kelly-trades",
+      "name": "主档逐笔交易产物",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:85 (KELLY_BUY_NEXTDAY =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "static-site/export.py:1258 (_sk_trades_path =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/check_data_gap_alerts.py:953 (def _trades_path)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/static-site/data/signal_kelly_trades.json"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "signal_kelly_backtest主档，由export7.9.2触发"
+      ],
+      "consumer": [
+        "checker _scan_trades",
+        "R2发布/消费者"
+      ],
+      "write_contract": "atomic JSON/分片独立写；输出完整性不代表所有eligible事件包含",
+      "time_semantics": "默认KELLY_BUY_NEXTDAY=1；signal_date/real_buy_date/price_date分开",
+      "validation_contract": "依赖freeze/评级/有效价；NULL名称及code占位排除；运行rc0不够",
+      "backup_restore_contract": "大JSON staticdata git排除/R2 large-json需按清单核；前置备份是另一恢复层",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:kelly-trades-sdc",
+      "name": "SDC当日收盘对比逐笔产物",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/export.py:1291 (_sdc_env[\"KELLY_BUY_NEXTDAY\"])",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "static-site/export.py:1295 (\"--trades-output\")",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/static-site/data/signal_kelly_trades_sdc.json"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "export7.9.2b→Kelly KELLY_BUY_NEXTDAY=0"
+      ],
+      "consumer": [
+        "对比档消费者/R2上传"
+      ],
+      "write_contract": "显式两个输出参数；主档成功后才触发，独立文件非跨档事务",
+      "time_semantics": "当日收盘买入口径，不可与NDO一口径对比",
+      "validation_contract": "失败被export捕获；没有同一DB快照锁证明，不能靠背靠背视为严格同快照",
+      "backup_restore_contract": "大JSON/R2备份覆盖需清单和对象实证",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:kelly-summary",
+      "name": "Kelly聚合与切片",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:2068 (def _build_outputs)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:2730 (atomic_write_text(os.path.join(parts_dir)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/static-site/data/signal_kelly_backtest*.json",
+        "$REPO/static-site/data/signal_kelly_parts/ and sdc counterparts"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "signal_kelly_backtest output writers"
+      ],
+      "consumer": [
+        "前端/完整性检查/R2"
+      ],
+      "write_contract": "聚合/明细/分片分别atomic写，不保证整体事务",
+      "time_semantics": "窗口/模式/象限与主/SDC口径保持配套",
+      "validation_contract": "聚合格数不等于逐笔完整；比较相同窗口与输入版本",
+      "backup_restore_contract": "静态JSON备份+发布链，运行覆盖unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:kelly-snapshots",
+      "name": "每日Kelly快照与演进索引",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/export.py:1270 (\"signal_kelly_snapshot.py\")",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/backfill_metrics.sh:64 (signal_kelly_snapshot.py\" --check)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/static-site/data/signal_kelly_snapshots/"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "signal_kelly_snapshot.py，由export主回测成功后触发"
+      ],
+      "consumer": [
+        "backfill --check停滞检查/前端"
+      ],
+      "write_contract": "单日快照/index写者合同；全目录恢复一致性需核",
+      "time_semantics": "交易日快照；max_signal_date与generated time不同",
+      "validation_contract": "snapshot --check有自己的告警，不必反映backfill总rc",
+      "backup_restore_contract": "staticdata/R2相关通道；对象是否齐备unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:schedule-stats",
+      "name": "计划执行统计派生产物",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/gen_schedule_stats.py:36 (OUT = REPO)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/push_schedule_stats.sh:17 (upload-data-files)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/static-site/data/schedule_stats.json"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "gen_schedule_stats.py"
+      ],
+      "consumer": [
+        "执行统计面板/巡检/R2"
+      ],
+      "write_contract": "atomic_write_json输出；push_schedule_stats独立推送",
+      "time_semantics": "由日志开始/结束/marker生成，非业务结果真值",
+      "validation_contract": "pending/锁跳过与成功分开；active或exit0不等于健康",
+      "backup_restore_contract": "静态JSON备份；回滚应重算而非把旧运行状态当当前",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:runtime-logs",
+      "name": "任务运行日志与marker",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/pipeline.sh:23 (LOGDIR=)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/gen_schedule_stats.py:59 (return gzip.open)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/data/logs/"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "pipeline/update_all/backfill/deploy/backup各入口"
+      ],
+      "consumer": [
+        "gen_schedule_stats/告警/人工取证"
+      ],
+      "write_contract": "追加日志、不同入口单独文件，读者有尾窗/.gz支持",
+      "time_semantics": "文件mtime、日志时刻、计划槽与交易日分开",
+      "validation_contract": "只证被记录阶段，脚本部分失败可继续；不由最后exit0外推所有数据",
+      "backup_restore_contract": "压缩/保留全量策略本次未穷举，非DB备份覆盖",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:notify-ledger",
+      "name": "通知结果台账",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/notify.py:253 (def _record_ledger)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/notify.py:304 (fcntl.flock(f, fcntl.LOCK_EX))",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/data/alerts/alert_ledger.jsonl"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "notify._record_ledger"
+      ],
+      "consumer": [
+        "告警统计/人工审计"
+      ],
+      "write_contract": "JSONL append + flock，记录实际投递结果；非当前故障状态库",
+      "time_semantics": "发送/抑制/摘要与故障发生/恢复不是同一时刻",
+      "validation_contract": "通知成功不等于故障恢复；未覆盖日期/群不能记零",
+      "backup_restore_contract": "日志类私有数据；常规DB/staticdata备份不覆盖，unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:alert-state",
+      "name": "告警当前说明与各检查器状态",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/notify.py:103 (ALERTS_FILE =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/check_data_gap_alerts.py:94 (data_gap_alert_state.json)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/data/alerts/latest.md",
+        "$REPO/data/alert_state.json",
+        "$REPO/data/alerts/data_gap_alert_state.json"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "notify.write_alert",
+        "schedule/checker/ack脚本各自持有状态"
+      ],
+      "consumer": [
+        "运维/后续检查"
+      ],
+      "write_contract": "latest覆盖；去重/ack/当前事实文件各有owner，不合并为同一语义",
+      "time_semantics": "当前事件描述/去重窗口/确认时刻不同",
+      "validation_contract": "已ack或未再次通知不是已修；状态写入须匹配真实发送结果",
+      "backup_restore_contract": "不是行情DB备份对象；权限/保留恢复unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:alert-buffers",
+      "name": "通知摘要/批次与去重待发状态",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/notify.py:379 (ALERT_DIGEST_FILE =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/notify.py:366 (WARNING_FLUSH_LOCK_FILE)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/alert_digest_delivery.py:82 (def remove_snapshot)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/data/alerts/alert_digest*.json*",
+        "$REPO/data/alerts/warning_buffer.jsonl",
+        "$REPO/data/notify_dedup.json"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "notify defer/flush机制"
+      ],
+      "consumer": [
+        "notify flush_digest/flush_warning"
+      ],
+      "write_contract": "独立flush/dedup锁+buffer flock；pending分段确认再清理",
+      "time_semantics": "日切/23点阈值是代码时钟语义，实际调度频次由任务盘点确认",
+      "validation_contract": "部分送达/失败保留待发；聚合变化不能掩盖原故障",
+      "backup_restore_contract": "文件状态不在DB热备，恢复要避免重复投递；unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:local-db-backups",
+      "name": "本地SQLite热备副本",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/backup_db.sh:60 (src.backup(dst))",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/backup_db.sh:82 (backup_one \"$DBDIR/stock_daily.db\")",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/data/backups/<name>_<stamp>.db"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "backup_db.sh::backup_one"
+      ],
+      "consumer": [
+        "人工恢复/异地备份比较"
+      ],
+      "write_contract": "sqlite3.Connection.backup一致快照；本地保留期按mtime删除",
+      "time_semantics": "备份时点，不等于源数据业务日期",
+      "validation_contract": "本地RC不包含R2/恢复演练失败；缺源库函数跳过语义保留",
+      "backup_restore_contract": "同盘副本不能防盘毁；需异地层",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:r2-db-backups",
+      "name": "异地DB分层对象",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:3779 (def cmd_upload_db)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:3674 (def _sqlite_snapshot_to_gz)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/verify_backup.sh:15 (mode=ro)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "private backup bucket: backup/ weekly/ monthly/"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "upload_r2.cmd_upload_db及大库快照流式函数"
+      ],
+      "consumer": [
+        "verify_backup.sh",
+        "restore_r2_db_backup.py"
+      ],
+      "write_contract": "DB快照→gzip→单PUT/multipart，周/月另拷贝/上传；按桶路由",
+      "time_semantics": "日期对象和周/月保留窗口；实际生命周期需CF控制面核实",
+      "validation_contract": "上传校验与恢复完整性/同对象行数/新鲜度是不同层",
+      "backup_restore_contract": "代码声明分层保留，不等于当前对象/规则存在",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:preupload-backups",
+      "name": "覆盖前旧静态对象备份",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:1439 (def _backup_overwritten_keys)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/check_preupload_backup.py:135 (def judge)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "private bucket: pre-upload/<YYYYMMDD>/<original-key>"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "upload_r2._backup_overwritten_keys"
+      ],
+      "consumer": [
+        "人工按日期key恢复/存活检查"
+      ],
+      "write_contract": "跨账号GET旧源→校验→PUT备份→HEAD；单PUTMD5+长度可同日复用，multipart不当整包MD5",
+      "time_semantics": "同日同key会覆盖先前旧版，非完整版本历史",
+      "validation_contract": "四元组copied/skipped/failed；整段失败当前不阻断主上传；multipart P6长度证明上限",
+      "backup_restore_contract": "仅保留被本通道覆盖旧key；日期/对象存在不证完整恢复",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:staticdata-backups",
+      "name": "静态JSON备份仓与大JSON分流",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/staticdata_backup_async.sh:52 (STATICDATA_REPO=)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/staticdata_backup_async.sh:176 (\"$REPO/static-site/data/\" \"$STATICDATA_REPO/data/\")",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$STATICDATA_REPO/data/",
+        "$STATICDATA_REPO/db/ (conditional)"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "staticdata_backup_async.sh"
+      ],
+      "consumer": [
+        "灾备/人工恢复/large-json上传"
+      ],
+      "write_contract": "rsync runtime static-site/data；git段锁内；大JSON排除分流，DB本地复制开关默认关闭",
+      "time_semantics": "备份仓提交/文件时刻是副本时刻，非数据权威源",
+      "validation_contract": "rsync/archive存在不证内容齐全；root/data freeze不属于该rsync源",
+      "backup_restore_contract": "代码仓/staticdata仓/生产数据树职责分离",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:static-data",
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:upload-state",
+      "name": "上传状态、断点与未完成marker",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:1712 (def _incremental_upload)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/data/.r2_<channel>_state.json",
+        "$REPO/data/.r2_<channel>_ckpt.json",
+        "$REPO/data/.r2_<channel>_uploading.marker"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "upload_r2._incremental_upload"
+      ],
+      "consumer": [
+        "下次上传续传/校验"
+      ],
+      "write_contract": "state全成功才原子写；marker先写后成功清理；checkpoint记录已确认主上传指纹",
+      "time_semantics": "每通道批次进度，非备份旧内容proof",
+      "validation_contract": "残留可能full或按channel可用ckpt续传；不能代表公共发布批次完整",
+      "backup_restore_contract": "恢复旧state有漏传风险，需与远端原对象确认",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:export-proof",
+      "name": "导出批次字节证明",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/r2_export_proof.py:60 (def write_run_proof)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/r2_export_proof.py:94 (def proof_matches)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:389 (R2_EXPORT_PROOF_DIR=)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "private per-run temp proof.json + run capability",
+        "pending publication context paths: runtime-specific unknown"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "export write_run_proof/deploy unique invocation"
+      ],
+      "consumer": [
+        "upload_r2 load_run_proof/proof_matches/load_pending_contexts"
+      ],
+      "write_contract": "精确size/SHA256关联run/static_dir；私有写入/原子发布；非仅文件mtime",
+      "time_semantics": "绑定本批导出原始字节，后到pending可留下一轮",
+      "validation_contract": "proof缺/坏/不匹配不能授权旧文件当新产物；不是旧备份proof",
+      "backup_restore_contract": "临时能力/待发队列恢复策略需结合运行目录核实",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:published-data",
+      "name": "公共R2发布对象",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:133 (def guard_repo_default)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:2811 (def cmd_upload_all_data)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "public data bucket: data/ and channel prefixes"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "upload_r2 channels/deploy async handoff"
+      ],
+      "consumer": [
+        "服务/页面消费者（交E核站点）"
+      ],
+      "write_contract": "每keyPUT/校验与发布上下文；公共写门禁；purge与上传分开",
+      "time_semantics": "本地生成/排队/上传/缓存失效分时点",
+      "validation_contract": "worker排队/锁跳过或某key成功不证明整批最新；CF对象与缓存未核",
+      "backup_restore_contract": "旧对象由preupload保护但非全量版本仓",
+      "runtime_verified": false,
+      "depends_on": [
+        "external:r2"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:restore-drill",
+      "name": "恢复演练临时副本与结果",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "docs/scripts/restore_r2_db_backup.py:171 (def verify_against_src)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/verify_backup.sh:432 (def connect_ro)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "temporary restore directory/*.db/*.gz/result.json",
+        "$REPO/data/logs/verify_backup*"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "restore_r2_db_backup.py/verify_backup.sh"
+      ],
+      "consumer": [
+        "运维验收/失败通知"
+      ],
+      "write_contract": "下载到隔离目录→解压→integrity/行数/新鲜度比较；不是原地替换生产",
+      "time_semantics": "演练observed_at/备份日期/源库比较时点必须匹配",
+      "validation_contract": "同对象/只读源比较；演练PASS不能自动算生产恢复/重新发布成功",
+      "backup_restore_contract": "生产恢复和发布仍需授权执行与验收，当前unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:code-mirror",
+      "name": "CODE树数据/静态镜像",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:368 (\"$REPO/data/board_etf_map.json\" \"$GIT_REPO/data/board_etf_map.json\")",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:714 (rsync -a)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$GIT_REPO/data/board_etf_map.json",
+        "$GIT_REPO/static-site/data/"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "deploy cp/rsync"
+      ],
+      "consumer": [
+        "从CODE树启动的读取方/代码发布fallback"
+      ],
+      "write_contract": "明确复制对象；不同inode/mtime相同不等于同文件，非全部data自动同步",
+      "time_semantics": "副本同步时间与数据采集时间不同",
+      "validation_contract": "board map有双树哈希；其余逐项确认，CODE DB不默认权威",
+      "backup_restore_contract": "不是替代runtime备份的权威数据层",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:code"
+      ],
+      "dependency_candidates": []
+    },
+    {
+      "id": "data:export-manifest",
+      "name": "增量导出依赖水位清单",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/export.py:805 (INCREMENTAL_MANIFEST =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "static-site/export.py:966 (def _incremental_skip)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "paths": [
+        "$REPO/static-site/data/export_manifest.json"
+      ],
+      "path_authority": "logical REPO/runtime-data contract; actual environment/path identity needs runtime verification",
+      "producer": [
+        "static-site/export.py incremental engine"
+      ],
+      "consumer": [
+        "同export下轮依赖判定"
+      ],
+      "write_contract": "源日期/代码配置指纹与产物白名单；具体manifest写路径由export负责",
+      "time_semantics": "表MAX(date)不是内容全史校验，代码/配置指纹另纳入",
+      "validation_contract": "必更项与kelly无条件路径和可复用项需分开；不证外部发布",
+      "backup_restore_contract": "静态JSON备份可能包含，运行状态健康unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:runtime-data"
+      ],
+      "dependency_candidates": []
+    }
+  ]
+}

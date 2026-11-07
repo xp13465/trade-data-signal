@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "baseline_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+  "observed_at": "2026-11-07T14:33:07.514026+08:00",
+  "scope": "共享节点定义；运行目录存在性与业务完整性分开，外部源仅源码分类。",
+  "coverage": {
+    "runtime": "仅DATA目录角色来自cloud host记录；外部上游和staticdata仓未独立控制面验收"
+  },
+  "records": [
+    {
+      "id": "repo:runtime-data",
+      "name": "DATA 权威运行数据目录",
+      "kind": "repository",
+      "evidence_status": "runtime_observed",
+      "health": "unknown",
+      "observed_at": "2026-11-07T14:16:11.903980+08:00",
+      "paths": [
+        {
+          "path": "$DATA",
+          "realpath": "$DATA",
+          "symlink": false,
+          "bytes": 4096,
+          "mtime_ns": 1794020639528649166,
+          "is_dir": true
+        },
+        {
+          "path": "$CODE",
+          "realpath": "$CODE",
+          "symlink": false,
+          "bytes": 4096,
+          "mtime_ns": 1793864617524237419,
+          "is_dir": true
+        },
+        {
+          "path": "$DATA/app",
+          "realpath": "$CODE/app",
+          "symlink": true,
+          "bytes": 4096,
+          "mtime_ns": 1793514442134875797,
+          "is_dir": true
+        },
+        {
+          "path": "$DATA/config",
+          "realpath": "$CODE/config",
+          "symlink": true,
+          "bytes": 4096,
+          "mtime_ns": 1793973033224540096,
+          "is_dir": true
+        },
+        {
+          "path": "$DATA/scripts",
+          "realpath": "$CODE/scripts",
+          "symlink": true,
+          "bytes": 16384,
+          "mtime_ns": 1794019473735576327,
+          "is_dir": true
+        },
+        {
+          "path": "$DATA/web",
+          "status": "FileNotFoundError"
+        },
+        {
+          "path": "$DATA/docs",
+          "realpath": "$CODE/docs",
+          "symlink": true,
+          "bytes": 4096,
+          "mtime_ns": 1793880285521095426,
+          "is_dir": true
+        },
+        {
+          "path": "$DATA/.venv",
+          "realpath": "$CODE/.venv",
+          "symlink": true,
+          "bytes": 4096,
+          "mtime_ns": 1789206829670426936,
+          "is_dir": true
+        },
+        {
+          "path": "$DATA/static-site",
+          "realpath": "$DATA/static-site",
+          "symlink": false,
+          "bytes": 4096,
+          "mtime_ns": 1792865735080607420,
+          "is_dir": true
+        },
+        {
+          "path": "$DATA/static-site/data",
+          "realpath": "$DATA/static-site/data",
+          "symlink": false,
+          "bytes": 20480,
+          "mtime_ns": 1794032102785678461,
+          "is_dir": true
+        },
+        {
+          "path": "$DATA/data",
+          "realpath": "$DATA/data",
+          "symlink": false,
+          "bytes": 4096,
+          "mtime_ns": 1794032104093679527,
+          "is_dir": true
+        },
+        {
+          "path": "$DATA/data/logs",
+          "realpath": "$DATA/data/logs",
+          "symlink": false,
+          "bytes": 303104,
+          "mtime_ns": 1794032100225676376,
+          "is_dir": true
+        },
+        {
+          "path": "$CODE/data",
+          "realpath": "$CODE/data",
+          "symlink": false,
+          "bytes": 12288,
+          "mtime_ns": 1794031262656995441,
+          "is_dir": true
+        },
+        {
+          "path": "$CODE/static-site/data",
+          "realpath": "$CODE/static-site/data",
+          "symlink": false,
+          "bytes": 20480,
+          "mtime_ns": 1794023454314779678,
+          "is_dir": true
+        }
+      ],
+      "semantic_scope": "表示权威运行目录角色，不保证其Git仓身份或业务数据完整性。",
+      "depends_on": [
+        "host:cloud"
+      ],
+      "evidence": [
+        {
+          "kind": "runtime_inventory",
+          "location": "02-cloud-runtime.md",
+          "note": "目录角色/符号链接观察；细节与边界见runtime_cloud host记录。"
+        }
+      ]
+    },
+    {
+      "id": "repo:static-data",
+      "name": "staticdata 发布中间仓/目录",
+      "kind": "repository",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_verified": false,
+      "depends_on": [
+        "repo:code"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "location": "scripts/deploy.sh",
+          "note": "发布脚本中的静态数据仓/目录合同；本轮不证明远端仓或发布控制面状态。"
+        }
+      ]
+    },
+    {
+      "id": "external:upstream-market-data",
+      "name": "外部行情/基金/资讯等数据源集合",
+      "kind": "external",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_verified": false,
+      "evidence": [
+        {
+          "kind": "code",
+          "location": "app/collector/",
+          "note": "采集模块引用的上游分类；各提供方可用性、权限、覆盖和时延未逐一验收。"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "manifest_version": 1,
+  "renderer": "mermaid10.9.1",
+  "source_of_truth": "Mermaid blocks in the referenced Markdown, not the SVG exports",
+  "diagrams": [
+    {
+      "source_file": "00-system-overview.md",
+      "block_index": 1,
+      "source_sha256": "ed182eee95f114d549f3a6bec232aef600a817b858b6953512520b689e1f24fd",
+      "svg": "diagrams/00-system-overview-01.svg",
+      "svg_sha256": "eadca0aa6e84e0692f66a5a4882aa4a22544ff0501fd739c093828c943ae3d2e"
+    },
+    {
+      "source_file": "00-system-overview.md",
+      "block_index": 2,
+      "source_sha256": "6cc1857c480036b8ec5c25be4a0910454c3c14d37e545bb91d2f5ec373f0e597",
+      "svg": "diagrams/00-system-overview-02.svg",
+      "svg_sha256": "0da4f749163cffa3d48591700b6841d47a6036e9581a226a28bbb35b8f4ef7a8"
+    },
+    {
+      "source_file": "00-system-overview.md",
+      "block_index": 3,
+      "source_sha256": "5cbc550a7541b9d6d019212602831163a07ce8875a8f8e2748ccb83cc1f4bf8a",
+      "svg": "diagrams/00-system-overview-03.svg",
+      "svg_sha256": "beb6631c39f59bed46e70f18599889a6f0b93fb084e9b636c887153f49ebbc46"
+    },
+    {
+      "source_file": "01-services-and-schedules.md",
+      "block_index": 1,
+      "source_sha256": "46106b74e56c8562ae6df7f2ec793a43ab37c34af087c233a6bcbf8c1748c982",
+      "svg": "diagrams/01-services-and-schedules-01.svg",
+      "svg_sha256": "57a82b25213024f413b1c3f3f8394d9c145d6319f0dd53fb4b7b6df0aa2366be"
+    },
+    {
+      "source_file": "03-data-lineage-and-contracts.md",
+      "block_index": 1,
+      "source_sha256": "2dec7db06715759f971da9f19762deb6b283dd2d720a3045fcafc04df7944751",
+      "svg": "diagrams/03-data-lineage-and-contracts-01.svg",
+      "svg_sha256": "bad62374c984d5f0bfeeec36748975cfbc1f841f4138eaabd6387ab0b12b3cb2"
+    },
+    {
+      "source_file": "03-data-lineage-and-contracts.md",
+      "block_index": 2,
+      "source_sha256": "fa5063ee2e2a784ea3fc0029793104b146d013367ce2104cd12acfc29c183dd7",
+      "svg": "diagrams/03-data-lineage-and-contracts-02.svg",
+      "svg_sha256": "6b064ba5da5333ce0e5040c3cfe7bcecef32e07c2f365536f800bc43d56cc67f"
+    },
+    {
+      "source_file": "03-data-lineage-and-contracts.md",
+      "block_index": 3,
+      "source_sha256": "5a73f32d3f42e2137cc1f59dafc5a34817bfbc45aa050f23878fca31bf852bf8",
+      "svg": "diagrams/03-data-lineage-and-contracts-03.svg",
+      "svg_sha256": "baadbabdb233ac93aa9d74cf77acebae1e04ea57e2611e4aab6e64eaafb3e6e4"
+    },
+    {
+      "source_file": "04-monitoring-and-alerts.md",
+      "block_index": 1,
+      "source_sha256": "3388c2bc1b90a284557cc8991bf8d86a2ab9cb87cf3b0c3dd2c580ef9e136776",
+      "svg": "diagrams/04-monitoring-and-alerts-01.svg",
+      "svg_sha256": "4a318fec75fd965174191bf60af8aac2e975d15761bc96fd788fa5a6daa8a382"
+    },
+    {
+      "source_file": "06-deployment-and-surfaces.md",
+      "block_index": 1,
+      "source_sha256": "d195db5b9e8ffc0385d7f8b146ac9199dfa6c0b003e7d82f00b27b788a5e068a",
+      "svg": "diagrams/06-deployment-and-surfaces-01.svg",
+      "svg_sha256": "26f6d84010d8806b451f8c704dbe97400bc8b58bf6bac6ee9565946f7a8ea298"
+    },
+    {
+      "source_file": "07-local-runtime-and-collaboration.md",
+      "block_index": 1,
+      "source_sha256": "2e8061e6acc83d8d17244569f7158675fbb8cbf02ec2d0b42da701338ab8fdce",
+      "svg": "diagrams/07-local-runtime-and-collaboration-01.svg",
+      "svg_sha256": "3da754d64505eb55da1c5e54acdef8bec5d2c88dd198fe0360cf38f11c626cc7"
+    }
+  ]
+}

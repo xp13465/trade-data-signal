@@ -1,0 +1,1364 @@
+{
+  "schema_version": 1,
+  "baseline_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+  "observed_at": "2026-11-07T14:20:32.660050+08:00",
+  "scope": "Task C: source-anchored one-hop data dependencies; inferred/manual links explicitly labelled",
+  "coverage": {
+    "asset_groups": 34,
+    "dependency_edges": 50,
+    "source_files": [
+      "app/collector/etf_national_team.py",
+      "app/collector/index_backfill.py",
+      "app/collector/public_fund.py",
+      "app/collector/stock_daily.py",
+      "app/compute/runner.py",
+      "app/compute/signal_stats.py",
+      "app/compute/signals.py",
+      "app/db.py",
+      "docs/scripts/restore_r2_db_backup.py",
+      "scripts/alert_digest_delivery.py",
+      "scripts/backfill_metrics.sh",
+      "scripts/backup_db.sh",
+      "scripts/build_board_etf_map.py",
+      "scripts/check_data_gap_alerts.py",
+      "scripts/check_preupload_backup.py",
+      "scripts/deploy.sh",
+      "scripts/gen_schedule_stats.py",
+      "scripts/notify.py",
+      "scripts/pipeline.sh",
+      "scripts/push_schedule_stats.sh",
+      "scripts/r2_export_proof.py",
+      "scripts/signal_kelly_backtest.py",
+      "scripts/signal_kelly_freeze_cleanup.py",
+      "scripts/staticdata_backup_async.sh",
+      "scripts/update_all.sh",
+      "scripts/upload_r2.py",
+      "scripts/verify_backup.sh",
+      "static-site/export.py"
+    ],
+    "method": "fixed baseline source reads / one-hop caller-callee / no business imports or data loading",
+    "runtime_scope": "none: current mounts, DB row freshness, active writer identity, installed env/timers and CF control plane unknown",
+    "shared_public_ids": [
+      "repo:code",
+      "repo:runtime-data",
+      "repo:static-data",
+      "external:upstream-market-data",
+      "external:r2"
+    ],
+    "task_and_surface_inventories": "delegated to A/E, not re-enumerated here",
+    "not_exhaustive": [
+      "all collector tables/upstream endpoints",
+      "all DB write sites",
+      "every staticJSON and site consumer",
+      "all local/remote backup retention",
+      "complete runtime lock ownership and R2/CDN objects"
+    ]
+  },
+  "records": [
+    {
+      "id": "edge:upstream-sentiment",
+      "name": "collector pipeline采集主指标/指数后写主库",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/pipeline.sh:54 (runner.run(steps=)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "external:upstream-market-data",
+      "target_id": "data:sentiment-db",
+      "relation": "ingests",
+      "semantics": "collector pipeline采集主指标/指数后写主库",
+      "depends_on": [
+        "external:upstream-market-data",
+        "data:sentiment-db"
+      ]
+    },
+    {
+      "id": "edge:upstream-etf",
+      "name": "ETF/LOF OHLC和NAV源分别采集；只看NAV不足以补整行",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/collector/etf_national_team.py:1368 (def pipeline_daily)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/collector/etf_national_team.py:2485 (def update_accum_nav)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "external:upstream-market-data",
+      "target_id": "data:etf-db",
+      "relation": "ingests",
+      "semantics": "ETF/LOF OHLC和NAV源分别采集；只看NAV不足以补整行",
+      "depends_on": [
+        "external:upstream-market-data",
+        "data:etf-db"
+      ]
+    },
+    {
+      "id": "edge:upstream-stock",
+      "name": "股票独立分库采集，不由core等待保证结束",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/collector/stock_daily.py:47 (STOCK_DB_PATH =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/update_all.sh:92 (PID_STOCK=)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "external:upstream-market-data",
+      "target_id": "data:stock-db",
+      "relation": "ingests",
+      "semantics": "股票独立分库采集，不由core等待保证结束",
+      "depends_on": [
+        "external:upstream-market-data",
+        "data:stock-db"
+      ]
+    },
+    {
+      "id": "edge:sentiment-index",
+      "name": "主库内指数行情表",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/db.py:33 (CREATE TABLE IF NOT EXISTS index_daily)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:sentiment-db",
+      "target_id": "data:index-daily",
+      "relation": "contains",
+      "semantics": "主库内指数行情表",
+      "depends_on": [
+        "data:sentiment-db",
+        "data:index-daily"
+      ]
+    },
+    {
+      "id": "edge:sentiment-scores",
+      "name": "主库内评分表",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/db.py:51 (CREATE TABLE IF NOT EXISTS score_daily)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:sentiment-db",
+      "target_id": "data:score-daily",
+      "relation": "contains",
+      "semantics": "主库内评分表",
+      "depends_on": [
+        "data:sentiment-db",
+        "data:score-daily"
+      ]
+    },
+    {
+      "id": "edge:index-signals",
+      "name": "指数/指标输入经compute形成信号后全表存储",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/compute/runner.py:23 (sigs = signals.compute())",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/compute/signals.py:1442 (def store(signals))",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:index-daily",
+      "target_id": "data:signal-daily",
+      "relation": "derives",
+      "semantics": "指数/指标输入经compute形成信号后全表存储",
+      "depends_on": [
+        "data:index-daily",
+        "data:signal-daily"
+      ]
+    },
+    {
+      "id": "edge:scores-signals",
+      "name": "评分先计算写入，signals随后计算",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/compute/runner.py:17 (c_score, c_comps = cross.compute())",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/compute/runner.py:23 (sigs = signals.compute())",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:score-daily",
+      "target_id": "data:signal-daily",
+      "relation": "derives",
+      "semantics": "评分先计算写入，signals随后计算",
+      "depends_on": [
+        "data:score-daily",
+        "data:signal-daily"
+      ]
+    },
+    {
+      "id": "edge:signals-audit",
+      "name": "全表重算前后历史差异记录；不阻断重算",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/compute/signals.py:1448 (audit_signal_daily_store)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:signal-daily",
+      "target_id": "data:history-overwrite-audit",
+      "relation": "audits",
+      "semantics": "全表重算前后历史差异记录；不阻断重算",
+      "depends_on": [
+        "data:signal-daily",
+        "data:history-overwrite-audit"
+      ]
+    },
+    {
+      "id": "edge:index-audit",
+      "name": "指数写入口接入历史审计；不是历史原值恢复",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/collector/index_backfill.py:295 (from .runner import upsert_index_rows)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/db.py:194 (CREATE TABLE IF NOT EXISTS history_overwrite_audit)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:index-daily",
+      "target_id": "data:history-overwrite-audit",
+      "relation": "audits",
+      "semantics": "指数写入口接入历史审计；不是历史原值恢复",
+      "depends_on": [
+        "data:index-daily",
+        "data:history-overwrite-audit"
+      ]
+    },
+    {
+      "id": "edge:signals-workstats",
+      "name": "compute_runner生成root/data统计工作文件",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/compute/runner.py:39 (stats = signal_stats.compute())",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/compute/signal_stats.py:214 (def store(stats)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:signal-daily",
+      "target_id": "data:signal-stats-work",
+      "relation": "derives",
+      "semantics": "compute_runner生成root/data统计工作文件",
+      "depends_on": [
+        "data:signal-daily",
+        "data:signal-stats-work"
+      ]
+    },
+    {
+      "id": "edge:signals-exportstats",
+      "name": "export调用现算_get_stats，不简单复制root工作文件",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/export.py:1245 (counts[\"signal_stats.json\"])",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:signal-daily",
+      "target_id": "data:signal-stats",
+      "relation": "derives",
+      "semantics": "export调用现算_get_stats，不简单复制root工作文件",
+      "depends_on": [
+        "data:signal-daily",
+        "data:signal-stats"
+      ]
+    },
+    {
+      "id": "edge:etf-map-input",
+      "name": "映射构建使用ETF历史存活/打分；不是覆盖ETF库",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/build_board_etf_map.py:665 (def _load_etf_daily_liveness)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:etf-db",
+      "target_id": "data:board-etf-map",
+      "relation": "reads",
+      "semantics": "映射构建使用ETF历史存活/打分；不是覆盖ETF库",
+      "depends_on": [
+        "data:etf-db",
+        "data:board-etf-map"
+      ]
+    },
+    {
+      "id": "edge:maps-build",
+      "name": "按显式LOF归属/跟踪关系构建当前候选",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/build_board_etf_map.py:1329 (def _build_index_etf_map_auto)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:map-inputs",
+      "target_id": "data:board-etf-map",
+      "relation": "derives",
+      "semantics": "按显式LOF归属/跟踪关系构建当前候选",
+      "depends_on": [
+        "data:map-inputs",
+        "data:board-etf-map"
+      ]
+    },
+    {
+      "id": "edge:map-lof-coverage",
+      "name": "LOF候选类型影响每日OHLC追加采集名单",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "app/collector/etf_national_team.py:312 (def _board_etf_map_lof_codes)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:board-etf-map",
+      "target_id": "data:etf-db",
+      "relation": "selects_universe",
+      "semantics": "LOF候选类型影响每日OHLC追加采集名单",
+      "depends_on": [
+        "data:board-etf-map",
+        "data:etf-db"
+      ]
+    },
+    {
+      "id": "edge:map-freeze",
+      "name": "仅符合当前新信号条件补冻；历史缺键拒用今日map",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:765 (def _resolve_etf)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:board-etf-map",
+      "target_id": "data:etf-freeze",
+      "relation": "freezes_new_events",
+      "semantics": "仅符合当前新信号条件补冻；历史缺键拒用今日map",
+      "depends_on": [
+        "data:board-etf-map",
+        "data:etf-freeze"
+      ]
+    },
+    {
+      "id": "edge:signals-freeze",
+      "name": "当前信号历史集合驱动冻结查找/新键；不是所有补采后自动冻结",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:765 (def _resolve_etf)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "app/compute/signals.py:1455 (DELETE FROM signal_daily)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:signal-daily",
+      "target_id": "data:etf-freeze",
+      "relation": "selects_events",
+      "semantics": "当前信号历史集合驱动冻结查找/新键；不是所有补采后自动冻结",
+      "depends_on": [
+        "data:signal-daily",
+        "data:etf-freeze"
+      ]
+    },
+    {
+      "id": "edge:stats-main",
+      "name": "主档优先静态stats，缺失才回退root工作文件",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:197 (def _load_signal_stats)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:signal-stats",
+      "target_id": "data:kelly-trades",
+      "relation": "reads",
+      "semantics": "主档优先静态stats，缺失才回退root工作文件",
+      "depends_on": [
+        "data:signal-stats",
+        "data:kelly-trades"
+      ]
+    },
+    {
+      "id": "edge:workstats-fallback",
+      "name": "仅主静态stats不存在时使用fallback，不是并行权威源",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:197 (def _load_signal_stats)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:signal-stats-work",
+      "target_id": "data:kelly-trades",
+      "relation": "fallback",
+      "semantics": "仅主静态stats不存在时使用fallback，不是并行权威源",
+      "depends_on": [
+        "data:signal-stats-work",
+        "data:kelly-trades"
+      ]
+    },
+    {
+      "id": "edge:freeze-main",
+      "name": "逐事件精确/日期指数变体历史冻结决定标的",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:275 (def _freeze_fallback)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:765 (def _resolve_etf)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:etf-freeze",
+      "target_id": "data:kelly-trades",
+      "relation": "reads",
+      "semantics": "逐事件精确/日期指数变体历史冻结决定标的",
+      "depends_on": [
+        "data:etf-freeze",
+        "data:kelly-trades"
+      ]
+    },
+    {
+      "id": "edge:etf-main",
+      "name": "原始open/close+accum_nav，过滤NULL名称/code占位，次日有效价约束",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:994 (def _batch_load_etf_prices)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:etf-db",
+      "target_id": "data:kelly-trades",
+      "relation": "prices",
+      "semantics": "原始open/close+accum_nav，过滤NULL名称/code占位，次日有效价约束",
+      "depends_on": [
+        "data:etf-db",
+        "data:kelly-trades"
+      ]
+    },
+    {
+      "id": "edge:freeze-sdc",
+      "name": "SDC也用冻结输入，时点口径另设",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/export.py:1291 (_sdc_env[\"KELLY_BUY_NEXTDAY\"])",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:etf-freeze",
+      "target_id": "data:kelly-trades-sdc",
+      "relation": "reads",
+      "semantics": "SDC也用冻结输入，时点口径另设",
+      "depends_on": [
+        "data:etf-freeze",
+        "data:kelly-trades-sdc"
+      ]
+    },
+    {
+      "id": "edge:etf-sdc",
+      "name": "SDC当日收盘档，同库但未证跨档同一事务快照",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/export.py:1291 (_sdc_env[\"KELLY_BUY_NEXTDAY\"])",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:etf-db",
+      "target_id": "data:kelly-trades-sdc",
+      "relation": "prices",
+      "semantics": "SDC当日收盘档，同库但未证跨档同一事务快照",
+      "depends_on": [
+        "data:etf-db",
+        "data:kelly-trades-sdc"
+      ]
+    },
+    {
+      "id": "edge:main-summary",
+      "name": "_build_outputs同计算批次形成聚合与逐笔，文件仍独立写",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:2068 (def _build_outputs)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:kelly-trades",
+      "target_id": "data:kelly-summary",
+      "relation": "co_generates",
+      "semantics": "_build_outputs同计算批次形成聚合与逐笔，文件仍独立写",
+      "depends_on": [
+        "data:kelly-trades",
+        "data:kelly-summary"
+      ]
+    },
+    {
+      "id": "edge:summary-snapshot",
+      "name": "export主回测成功后触发快照；snapshot失败不阻断export",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/export.py:1270 (\"signal_kelly_snapshot.py\")",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:kelly-summary",
+      "target_id": "data:kelly-snapshots",
+      "relation": "snapshots",
+      "semantics": "export主回测成功后触发快照；snapshot失败不阻断export",
+      "depends_on": [
+        "data:kelly-summary",
+        "data:kelly-snapshots"
+      ]
+    },
+    {
+      "id": "edge:freeze-diagnostics",
+      "name": "缺冻结被guard拒绝后归档完整诊断，不补造值",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:346 (def _archive_frozen_missing_diagnostics)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:etf-freeze",
+      "target_id": "data:frozen-missing-audit",
+      "relation": "diagnoses_missing",
+      "semantics": "缺冻结被guard拒绝后归档完整诊断，不补造值",
+      "depends_on": [
+        "data:etf-freeze",
+        "data:frozen-missing-audit"
+      ]
+    },
+    {
+      "id": "edge:registry-main",
+      "name": "accepted/定向backfill登记影响诊断或明确union范围，不是价格来源",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:501 (FREEZE_BACKFILL_REGISTRY_PATH)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:freeze-registries",
+      "target_id": "data:kelly-trades",
+      "relation": "controls_scope",
+      "semantics": "accepted/定向backfill登记影响诊断或明确union范围，不是价格来源",
+      "depends_on": [
+        "data:freeze-registries",
+        "data:kelly-trades"
+      ]
+    },
+    {
+      "id": "edge:logs-schedule",
+      "name": "从日志/marker派生执行统计，非业务健康库",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/gen_schedule_stats.py:36 (OUT = REPO)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:runtime-logs",
+      "target_id": "data:schedule-stats",
+      "relation": "parses",
+      "semantics": "从日志/marker派生执行统计，非业务健康库",
+      "depends_on": [
+        "data:runtime-logs",
+        "data:schedule-stats"
+      ]
+    },
+    {
+      "id": "edge:schedule-public",
+      "name": "独立push_schedule_stats通道上传并purge；实际状态unknown",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/push_schedule_stats.sh:17 (upload-data-files)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:schedule-stats",
+      "target_id": "data:published-data",
+      "relation": "publishes",
+      "semantics": "独立push_schedule_stats通道上传并purge；实际状态unknown",
+      "depends_on": [
+        "data:schedule-stats",
+        "data:published-data"
+      ]
+    },
+    {
+      "id": "edge:diagnostics-alert",
+      "name": "guard诊断关联告警当前说明，通知机制不改变业务guard",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/signal_kelly_backtest.py:405 (def _alert_frozen_missing)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/notify.py:103 (ALERTS_FILE =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:frozen-missing-audit",
+      "target_id": "data:alert-state",
+      "relation": "reports",
+      "semantics": "guard诊断关联告警当前说明，通知机制不改变业务guard",
+      "depends_on": [
+        "data:frozen-missing-audit",
+        "data:alert-state"
+      ]
+    },
+    {
+      "id": "edge:alerts-buffer",
+      "name": "告警路由可去重/摘要/批次；实际选择取决调用与规则",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/notify.py:379 (ALERT_DIGEST_FILE =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:alert-state",
+      "target_id": "data:alert-buffers",
+      "relation": "queues",
+      "semantics": "告警路由可去重/摘要/批次；实际选择取决调用与规则",
+      "depends_on": [
+        "data:alert-state",
+        "data:alert-buffers"
+      ]
+    },
+    {
+      "id": "edge:buffer-ledger",
+      "name": "实际发送路径记台账，缓冲成功不等于已送达/故障恢复",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/notify.py:253 (def _record_ledger)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/alert_digest_delivery.py:82 (def remove_snapshot)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:alert-buffers",
+      "target_id": "data:notify-ledger",
+      "relation": "records_delivery",
+      "semantics": "实际发送路径记台账，缓冲成功不等于已送达/故障恢复",
+      "depends_on": [
+        "data:alert-buffers",
+        "data:notify-ledger"
+      ]
+    },
+    {
+      "id": "edge:local-backup-sentiment",
+      "name": "backup_db逐库SQLite backup API一致快照",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/backup_db.sh:60 (src.backup(dst))",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:sentiment-db",
+      "target_id": "data:local-db-backups",
+      "relation": "snapshots",
+      "semantics": "backup_db逐库SQLite backup API一致快照",
+      "depends_on": [
+        "data:sentiment-db",
+        "data:local-db-backups"
+      ]
+    },
+    {
+      "id": "edge:local-backup-etf",
+      "name": "backup_db逐库SQLite backup API一致快照",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/backup_db.sh:60 (src.backup(dst))",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:etf-db",
+      "target_id": "data:local-db-backups",
+      "relation": "snapshots",
+      "semantics": "backup_db逐库SQLite backup API一致快照",
+      "depends_on": [
+        "data:etf-db",
+        "data:local-db-backups"
+      ]
+    },
+    {
+      "id": "edge:local-backup-stock",
+      "name": "backup_db逐库SQLite backup API一致快照",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/backup_db.sh:60 (src.backup(dst))",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:stock-db",
+      "target_id": "data:local-db-backups",
+      "relation": "snapshots",
+      "semantics": "backup_db逐库SQLite backup API一致快照",
+      "depends_on": [
+        "data:stock-db",
+        "data:local-db-backups"
+      ]
+    },
+    {
+      "id": "edge:r2-backup-sentiment",
+      "name": "upload-db对应库快照/压缩后写私有分层对象，实际对象unknown",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:3779 (def cmd_upload_db)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:sentiment-db",
+      "target_id": "data:r2-db-backups",
+      "relation": "backs_up",
+      "semantics": "upload-db对应库快照/压缩后写私有分层对象，实际对象unknown",
+      "depends_on": [
+        "data:sentiment-db",
+        "data:r2-db-backups"
+      ]
+    },
+    {
+      "id": "edge:r2-backup-etf",
+      "name": "upload-db对应库快照/压缩后写私有分层对象，实际对象unknown",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:3779 (def cmd_upload_db)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:etf-db",
+      "target_id": "data:r2-db-backups",
+      "relation": "backs_up",
+      "semantics": "upload-db对应库快照/压缩后写私有分层对象，实际对象unknown",
+      "depends_on": [
+        "data:etf-db",
+        "data:r2-db-backups"
+      ]
+    },
+    {
+      "id": "edge:r2-backup-stock",
+      "name": "upload-db对应库快照/压缩后写私有分层对象，实际对象unknown",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:3779 (def cmd_upload_db)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:stock-db",
+      "target_id": "data:r2-db-backups",
+      "relation": "backs_up",
+      "semantics": "upload-db对应库快照/压缩后写私有分层对象，实际对象unknown",
+      "depends_on": [
+        "data:stock-db",
+        "data:r2-db-backups"
+      ]
+    },
+    {
+      "id": "edge:r2-backup-publicfund",
+      "name": "upload-db对应库快照/压缩后写私有分层对象，实际对象unknown",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:3779 (def cmd_upload_db)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:public-fund-db",
+      "target_id": "data:r2-db-backups",
+      "relation": "backs_up",
+      "semantics": "upload-db对应库快照/压缩后写私有分层对象，实际对象unknown",
+      "depends_on": [
+        "data:public-fund-db",
+        "data:r2-db-backups"
+      ]
+    },
+    {
+      "id": "edge:r2-restore",
+      "name": "只到临时副本做恢复完整性/同对象比较，不直接覆生产",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "docs/scripts/restore_r2_db_backup.py:171 (def verify_against_src)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/verify_backup.sh:432 (def connect_ro)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:r2-db-backups",
+      "target_id": "data:restore-drill",
+      "relation": "restores_to_temp",
+      "semantics": "只到临时副本做恢复完整性/同对象比较，不直接覆生产",
+      "depends_on": [
+        "data:r2-db-backups",
+        "data:restore-drill"
+      ]
+    },
+    {
+      "id": "edge:restore-release-candidate",
+      "name": "演练→生产恢复→重建发布是人工审批链，未证自动执行",
+      "kind": "edge",
+      "evidence_status": "inferred",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "docs/scripts/restore_r2_db_backup.py:211 (def main)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:restore-drill",
+      "target_id": "data:published-data",
+      "relation": "manual_recovery_candidate",
+      "semantics": "演练→生产恢复→重建发布是人工审批链，未证自动执行",
+      "depends_on": [
+        "data:restore-drill",
+        "data:published-data"
+      ],
+      "dependency_candidates": [
+        {
+          "label": "生产恢复/重建/发布执行入口与owner待确认",
+          "evidence": [
+            {
+              "kind": "source",
+              "location": "scripts/verify_backup.sh:432 (def connect_ro)",
+              "note": "源码读取确认合同，未执行入口或验证运行状态",
+              "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+              "observed_at": "2026-11-07T14:20:32.660050+08:00"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "edge:main-preupload",
+      "name": "源是将被覆盖的远端旧对象，不是刚导出的本地新文件",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:1439 (def _backup_overwritten_keys)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:published-data",
+      "target_id": "data:preupload-backups",
+      "relation": "backs_up_before_overwrite",
+      "semantics": "源是将被覆盖的远端旧对象，不是刚导出的本地新文件",
+      "depends_on": [
+        "data:published-data",
+        "data:preupload-backups"
+      ]
+    },
+    {
+      "id": "edge:main-public",
+      "name": "通道上传/发布证明路径，不由生成rc0保证远端已最新",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:2811 (def cmd_upload_all_data)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:kelly-trades",
+      "target_id": "data:published-data",
+      "relation": "publishes",
+      "semantics": "通道上传/发布证明路径，不由生成rc0保证远端已最新",
+      "depends_on": [
+        "data:kelly-trades",
+        "data:published-data"
+      ]
+    },
+    {
+      "id": "edge:sdc-public",
+      "name": "SDC有对应上传分片/数据通道，实际配置/对象需运行核实",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:104 (upload-kelly-parts-sdc)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:kelly-trades-sdc",
+      "target_id": "data:published-data",
+      "relation": "publishes",
+      "semantics": "SDC有对应上传分片/数据通道，实际配置/对象需运行核实",
+      "depends_on": [
+        "data:kelly-trades-sdc",
+        "data:published-data"
+      ]
+    },
+    {
+      "id": "edge:proof-public",
+      "name": "精确批次字节证明与待发上下文支持发布，不是全部文件无条件接受",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/r2_export_proof.py:94 (def proof_matches)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:2811 (def cmd_upload_all_data)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:export-proof",
+      "target_id": "data:published-data",
+      "relation": "authorizes_bytes",
+      "semantics": "精确批次字节证明与待发上下文支持发布，不是全部文件无条件接受",
+      "depends_on": [
+        "data:export-proof",
+        "data:published-data"
+      ]
+    },
+    {
+      "id": "edge:stats-proof",
+      "name": "write_json记录导出size/SHA，per-run proof归档",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/export.py:781 (def write_json)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/r2_export_proof.py:60 (def write_run_proof)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:signal-stats",
+      "target_id": "data:export-proof",
+      "relation": "records_hash",
+      "semantics": "write_json记录导出size/SHA，per-run proof归档",
+      "depends_on": [
+        "data:signal-stats",
+        "data:export-proof"
+      ]
+    },
+    {
+      "id": "edge:state-public",
+      "name": "本地上传状态/ckpt与远端校验相关，不替代备份或整批完成证明",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:1712 (def _incremental_upload)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:upload-state",
+      "target_id": "data:published-data",
+      "relation": "resumes",
+      "semantics": "本地上传状态/ckpt与远端校验相关，不替代备份或整批完成证明",
+      "depends_on": [
+        "data:upload-state",
+        "data:published-data"
+      ]
+    },
+    {
+      "id": "edge:export-staticdata",
+      "name": "rsync runtime static-site/data到staticdata/data",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/staticdata_backup_async.sh:176 (\"$REPO/static-site/data/\" \"$STATICDATA_REPO/data/\")",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:signal-stats",
+      "target_id": "data:staticdata-backups",
+      "relation": "copies",
+      "semantics": "rsync runtime static-site/data到staticdata/data",
+      "depends_on": [
+        "data:signal-stats",
+        "data:staticdata-backups"
+      ]
+    },
+    {
+      "id": "edge:main-staticdata",
+      "name": "磁盘JSON复制后大JSON按排除清单分流；不能声称在git全部留存",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/staticdata_backup_async.sh:176 (\"$REPO/static-site/data/\" \"$STATICDATA_REPO/data/\")",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:kelly-trades",
+      "target_id": "data:staticdata-backups",
+      "relation": "copies_with_exclusions",
+      "semantics": "磁盘JSON复制后大JSON按排除清单分流；不能声称在git全部留存",
+      "depends_on": [
+        "data:kelly-trades",
+        "data:staticdata-backups"
+      ]
+    },
+    {
+      "id": "edge:map-mirror",
+      "name": "deploy成功后显式双树map复制/哈希；不代表全data树同步",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:368 (\"$REPO/data/board_etf_map.json\" \"$GIT_REPO/data/board_etf_map.json\")",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:board-etf-map",
+      "target_id": "data:code-mirror",
+      "relation": "copies",
+      "semantics": "deploy成功后显式双树map复制/哈希；不代表全data树同步",
+      "depends_on": [
+        "data:board-etf-map",
+        "data:code-mirror"
+      ]
+    },
+    {
+      "id": "edge:stats-manifest",
+      "name": "增量导出水位/强制重生成清单，不是发布回执",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/export.py:805 (INCREMENTAL_MANIFEST =)",
+          "note": "源码读取确认合同，未执行入口或验证运行状态",
+          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+        }
+      ],
+      "source_id": "data:signal-stats",
+      "target_id": "data:export-manifest",
+      "relation": "tracks_dependency",
+      "semantics": "增量导出水位/强制重生成清单，不是发布回执",
+      "depends_on": [
+        "data:signal-stats",
+        "data:export-manifest"
+      ]
+    }
+  ]
+}

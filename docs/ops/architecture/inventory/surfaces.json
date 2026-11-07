@@ -1,0 +1,1024 @@
+{
+  "schema_version": 1,
+  "baseline_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+  "observed_at": "2026-11-07T14:20:48.804591+08:00",
+  "scope": "Task E bounded static-source deployment and user-facing surface inventory",
+  "coverage": {
+    "records": 35,
+    "runtime_observed_records": 0,
+    "layers": [
+      "repository code",
+      "deployment declarations",
+      "existing docs"
+    ],
+    "not_executed": [
+      "business entrypoints including dry-run",
+      "CF API/login/network",
+      "build/deploy/verification tools"
+    ],
+    "not_read": [
+      ".env",
+      "credentials",
+      "private chats",
+      "large data payloads"
+    ],
+    "unknown": [
+      "current deployed refs/DNS/control plane",
+      "all runtime/business health",
+      "MaoziYun actual publication",
+      "full scheduler ecosystem (other task scope)"
+    ]
+  },
+  "records": [
+    {
+      "id": "surface:site-primary",
+      "name": "ss.fx8.store 主站",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "wrangler.jsonc:11",
+          "note": "Worker main + assets first routing"
+        },
+        {
+          "kind": "source",
+          "location": "static-site/app.js:33541",
+          "note": "primary host selection"
+        },
+        {
+          "kind": "source",
+          "location": ".github/workflows/deploy-cf.yml:7",
+          "note": "main matched-path deploy"
+        }
+      ],
+      "route": "https://ss.fx8.store/",
+      "depends_on": [
+        "service:worker-router"
+      ],
+      "configuration_layer": "repo config; custom-domain binding, deployed ref and DNS unknown"
+    },
+    {
+      "id": "surface:site-pages",
+      "name": "sss.sugas.site 备站",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": ".github/workflows/deploy-pages.yml:1",
+          "note": "main publishes static-site"
+        },
+        {
+          "kind": "document",
+          "location": "docs/site-deployment.md:600",
+          "note": "custom-domain/Pages declaration"
+        },
+        {
+          "kind": "source",
+          "location": "static-site/app.js:9725",
+          "note": "backup data rewriting"
+        }
+      ],
+      "route": "https://sss.sugas.site/",
+      "publication": "GitHub Pages static artifact; no Worker deployed by this workflow",
+      "configuration_layer": "workflow code confirmed; current custom-domain binding unknown",
+      "depends_on": [
+        "edge:data-fallback"
+      ]
+    },
+    {
+      "id": "surface:site-maozi",
+      "name": "s.sugas.site 备站",
+      "kind": "surface",
+      "evidence_status": "documented_only",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "document",
+          "location": "docs/site-deployment.md:601",
+          "note": "manual/FTP statement"
+        },
+        {
+          "kind": "document",
+          "location": "docs/site-deployment.md:615",
+          "note": "git-main mirror statement"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:1108",
+          "note": "automatic git pull success message"
+        }
+      ],
+      "route": "https://s.sugas.site/",
+      "publication": "unknown: repo prose conflicts on manual/FTP vs automatic git pull",
+      "configuration_layer": "MaoziYun named in docs; live control plane unknown"
+    },
+    {
+      "id": "external:r2",
+      "name": "站点对象存储",
+      "kind": "external",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "wrangler.jsonc:26",
+          "note": "R2_BUCKET binding"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:73",
+          "note": "upload source REPO/static-site"
+        }
+      ],
+      "role": "frontend shared public data; private backup bucket channels are separate and excluded"
+    },
+    {
+      "id": "service:worker-router",
+      "name": "Worker 路由与静态壳",
+      "kind": "service",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "worker/headers.js:319",
+          "note": "router"
+        },
+        {
+          "kind": "source",
+          "location": "wrangler.jsonc:11",
+          "note": "entry + ASSETS + R2/KV/D1"
+        }
+      ],
+      "entry": "worker/headers.js",
+      "routes": [
+        "/data/*.json",
+        "/data/feed.xml",
+        "/feed.xml",
+        "/r2/*",
+        "/api/data/*",
+        "/api/fund_score",
+        "/api/fund_screener",
+        "/api/auth/*",
+        "/api/feedback*",
+        "/api/subscribe*",
+        "/api/err",
+        "/api/err/stats",
+        "/api/purge-cache"
+      ],
+      "depends_on": [
+        "external:r2"
+      ],
+      "fallback": "/data R2 absent/error -> ASSETS; /r2 absent/error ->404/502; other requests ->ASSETS"
+    },
+    {
+      "id": "edge:data-fallback",
+      "name": "数据地址映射与备源",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:9709",
+          "note": "dataUrl/fetchJSON"
+        },
+        {
+          "kind": "source",
+          "location": "static-site/common.js:19",
+          "note": "SSD mapping explicit allowlists"
+        }
+      ],
+      "depends_on": [
+        "service:worker-router",
+        "external:r2"
+      ],
+      "small": "./data/<name>; backup rewrites to primary /data/",
+      "large": "-all/-5y/-3y -> primary /r2/data/",
+      "category": "index/etf/lab/industry/nav_bucket prefixes at R2 root; local trade_sim JSON maps trade_sim_data/",
+      "fallback": "ssd.fx8.store/<real R2 key>; same objects, not independent producer"
+    },
+    {
+      "id": "edge:cache",
+      "name": "浏览器/SW/Worker缓存",
+      "kind": "edge",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "worker/headers.js:142",
+          "note": "r2 caching"
+        },
+        {
+          "kind": "source",
+          "location": "worker/headers.js:194",
+          "note": "dataCacheTtl order"
+        },
+        {
+          "kind": "source",
+          "location": "static-site/sw.js:167",
+          "note": "overview network-only"
+        },
+        {
+          "kind": "source",
+          "location": "static-site/app.js:9696",
+          "note": "5min historical result cache/exceptions"
+        }
+      ],
+      "data_ttl_seconds": {
+        "critical_overview_signals_kelly": 0,
+        "boot_notifications_schedule_alert_summary": 60,
+        "overfit_monitor_main_ext": 600,
+        "default": 3600
+      },
+      "r2_ttl_seconds": "3600 except fund_nav/nav_bucket no-store",
+      "caveats": "Worker keys ignore query; actual first-match order wins (signal_stats0 before later600). SW may fall back to cached other JSON after network failure; no runtime cache observation."
+    },
+    {
+      "id": "task:deploy-publish",
+      "name": "导出/镜像/git发布",
+      "kind": "task",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:23",
+          "note": "repo resolver"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:393",
+          "note": "incremental export"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:449",
+          "note": "integrity"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:708",
+          "note": "rsync"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:777",
+          "note": "async trigger"
+        }
+      ],
+      "entry": "scripts/deploy.sh",
+      "execution_location": "caller REPO/GIT_REPO; installed host unknown",
+      "scheduler": "caller-driven; current installed schedule unknown",
+      "inputs": [
+        "REPO/data source DB and artifacts",
+        "GIT_REPO code"
+      ],
+      "outputs": [
+        "REPO/static-site/data",
+        "GIT_REPO static mirror",
+        "main push",
+        "R2 async trigger"
+      ],
+      "locks": "phase1 outside git write lock; --git-phase serializes git stage",
+      "timeout": "bounded export and git helpers; effective overrides unknown",
+      "retry": "bounded push/rebase recovery branches",
+      "failure_criterion": "export/blocking integrity/version errors stop; integrity alert-only rc3 continues; min build warns",
+      "recovery_criterion": "exit0 does not prove async data or remote sites updated",
+      "monitoring": "deploy logs/fail tracker/downstream consistency",
+      "runbook": "docs/site-deployment.md; docs/r2-deployment.md",
+      "depends_on": [
+        "task:r2-async",
+        "task:min-assets",
+        "task:publish-verifiers"
+      ],
+      "timezone": "unknown",
+      "calendar_gate": "unknown",
+      "expected_frequency": "unknown"
+    },
+    {
+      "id": "task:r2-async",
+      "name": "异步R2编排",
+      "kind": "task",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:777",
+          "note": "Linux transient service/non-systemd nohup/sync switch"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/r2_upload_async.sh:39",
+          "note": "bounded lock"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/r2_upload_async.sh:330",
+          "note": "channels"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/r2_upload_async.sh:396",
+          "note": "verify/purge"
+        }
+      ],
+      "entry": "scripts/r2_upload_async.sh",
+      "execution_location": "code supports Linux systemd-run; non-systemd nohup; actual host unknown",
+      "scheduler": "deploy.sh trigger; actual invocations unknown",
+      "calendar_gate": "uploader Sunday full mode; effective invocation unknown",
+      "inputs": [
+        "REPO/static-site channel artifacts"
+      ],
+      "outputs": [
+        "R2 objects",
+        "logs/purge/state"
+      ],
+      "locks": "outer with_lock bounded wait default600s; per-domain channel locks",
+      "timeout": "progress/stall/low-speed checks and7200s hard ceiling; overrides unknown",
+      "retry": "incremental/checkpoint; concurrency skip can request one extra data phase",
+      "failure_criterion": "channel errors accumulated; verify-channels checks; incomplete verify/killed channels conservative",
+      "recovery_criterion": "object/channel generation and content agree, not trigger rc0",
+      "monitoring": "async/skip logs, downstream consistency; notify delivery unknown",
+      "runbook": "docs/r2-deployment.md",
+      "depends_on": [
+        "task:r2-uploader"
+      ],
+      "timezone": "unknown",
+      "expected_frequency": "unknown"
+    },
+    {
+      "id": "task:r2-uploader",
+      "name": "上传/补传/清缓存工具",
+      "kind": "task",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:73",
+          "note": "STATIC_DIR"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/upload_r2.py:5077",
+          "note": "verify-channels"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/r2_export_proof.py:13",
+          "note": "export ownership manifest"
+        }
+      ],
+      "entry": "scripts/upload_r2.py",
+      "inputs": [
+        "REPO/static-site channel files",
+        "export proof/channel registry"
+      ],
+      "outputs": [
+        "R2 objects",
+        "local state",
+        "cache purge"
+      ],
+      "locks": "command/domain/global-small lock dependent",
+      "timeout": "network/lock/command dependent; effective values unknown",
+      "retry": "fingerprints/checkpoint; verify-r2 can repair/reupload",
+      "failure_criterion": "command-specific; verify-r2 is not a readonly probe",
+      "recovery_criterion": "verified content/generation, not notice delivery",
+      "monitoring": "channel checks and R2 consistency",
+      "runbook": "docs/r2-deployment.md",
+      "depends_on": [
+        "external:r2"
+      ],
+      "execution_location": "unknown",
+      "scheduler": "unknown",
+      "timezone": "unknown",
+      "calendar_gate": "unknown",
+      "expected_frequency": "unknown"
+    },
+    {
+      "id": "task:min-assets",
+      "name": "min资源构建",
+      "kind": "task",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/build_min.py:42",
+          "note": "eight source->min pairs"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/deploy.sh:695",
+          "note": "nonblocking failure"
+        }
+      ],
+      "entry": "scripts/build_min.py",
+      "inputs": "git HEAD sources preferred, workspace fallback",
+      "outputs": "common/app/lab/purpose/review/report JS min + style/lab CSS min",
+      "timeout": "terser subprocess300s; full effective run unknown",
+      "failure_criterion": "build errors only warn in deploy",
+      "recovery_criterion": "source/min/version identity verified; not assumed",
+      "monitoring": "version consistency/progress tools",
+      "runbook": "docs/site-deployment.md",
+      "execution_location": "unknown",
+      "scheduler": "unknown",
+      "timezone": "unknown",
+      "calendar_gate": "unknown",
+      "expected_frequency": "unknown",
+      "locks": "unknown",
+      "retry": "unknown"
+    },
+    {
+      "id": "task:publish-verifiers",
+      "name": "发布校验与对账工具",
+      "kind": "task",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "scripts/check_version_consistency.py:68",
+          "note": "source/min/version pairs"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/check_version_progress.py:221",
+          "note": "rollback checks"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/check_r2_channel_coverage.py:1",
+          "note": "channel coverage"
+        },
+        {
+          "kind": "source",
+          "location": "scripts/check_r2_consistency.py:1",
+          "note": "three data endpoints vs local advisory"
+        },
+        {
+          "kind": "source",
+          "location": "static-site/tests/platform-healthcheck.mjs:30",
+          "note": "data/browser smoke"
+        }
+      ],
+      "entry": [
+        "scripts/check_version_consistency.py",
+        "scripts/check_version_progress.py",
+        "scripts/check_r2_channel_coverage.py",
+        "scripts/check_r2_consistency.sh",
+        "static-site/tests/platform-healthcheck.mjs"
+      ],
+      "inputs": "source/min/build/SW; channel mapping; selected endpoints for network tools",
+      "outputs": "check logs/results; some wrappers can notify",
+      "failure_criterion": "per-tool mismatch/read error",
+      "recovery_criterion": "unknown; no tools executed",
+      "runbook": "docs/site-deployment.md; docs/r2-deployment.md",
+      "safety": "all inspected only; network tools/wrappers and verify-r2 must not be run in this baseline",
+      "execution_location": "unknown",
+      "scheduler": "unknown",
+      "timezone": "unknown",
+      "calendar_gate": "unknown",
+      "expected_frequency": "unknown",
+      "locks": "unknown",
+      "timeout": "unknown",
+      "retry": "unknown",
+      "monitoring": "unknown"
+    },
+    {
+      "id": "data:boot",
+      "name": "首屏聚合",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:10055",
+          "note": "read contract only; payload not read"
+        }
+      ],
+      "artifact": "data/boot.json",
+      "production_source": "REPO/static-site/data; separate from GIT_REPO mirror",
+      "publication": "R2 channels + Worker /data + frontend fallback",
+      "depends_on": [
+        "edge:data-fallback"
+      ]
+    },
+    {
+      "id": "data:overview",
+      "name": "概览/采集健康",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:11853",
+          "note": "read contract only; payload not read"
+        }
+      ],
+      "artifact": "data/overview.json",
+      "production_source": "REPO/static-site/data; separate from GIT_REPO mirror",
+      "publication": "R2 channels + Worker /data + frontend fallback",
+      "depends_on": [
+        "edge:data-fallback"
+      ]
+    },
+    {
+      "id": "data:intraday-snapshot",
+      "name": "盘中快照",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:11946",
+          "note": "read contract only; payload not read"
+        }
+      ],
+      "artifact": "data/intraday_snapshot.json",
+      "production_source": "REPO/static-site/data; separate from GIT_REPO mirror",
+      "publication": "R2 channels + Worker /data + frontend fallback",
+      "depends_on": [
+        "edge:data-fallback"
+      ]
+    },
+    {
+      "id": "data:signals-today",
+      "name": "当日信号",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:10083",
+          "note": "read contract only; payload not read"
+        }
+      ],
+      "artifact": "data/signals_today.json",
+      "production_source": "REPO/static-site/data; separate from GIT_REPO mirror",
+      "publication": "R2 channels + Worker /data + frontend fallback",
+      "depends_on": [
+        "edge:data-fallback"
+      ]
+    },
+    {
+      "id": "data:schedule-stats",
+      "name": "任务统计",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:34119",
+          "note": "read contract only; payload not read"
+        }
+      ],
+      "artifact": "data/schedule_stats.json",
+      "production_source": "REPO/static-site/data; separate from GIT_REPO mirror",
+      "publication": "R2 channels + Worker /data + frontend fallback",
+      "depends_on": [
+        "edge:data-fallback"
+      ]
+    },
+    {
+      "id": "data:public-notifications",
+      "name": "浏览器通知事件",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:15314",
+          "note": "read contract only; payload not read"
+        }
+      ],
+      "artifact": "data/notifications.json",
+      "production_source": "REPO/static-site/data; separate from GIT_REPO mirror",
+      "publication": "R2 channels + Worker /data + frontend fallback",
+      "depends_on": [
+        "edge:data-fallback"
+      ]
+    },
+    {
+      "id": "data:nextday-plan",
+      "name": "公开计划镜像",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/lab.js:14231",
+          "note": "read contract only; payload not read"
+        }
+      ],
+      "artifact": "data/nextday_plan.json",
+      "production_source": "REPO/static-site/data; separate from GIT_REPO mirror",
+      "publication": "R2 channels + Worker /data + frontend fallback",
+      "depends_on": [
+        "edge:data-fallback"
+      ]
+    },
+    {
+      "id": "data:auto-trade-steps",
+      "name": "公开步骤镜像",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/lab.js:14232",
+          "note": "read contract only; payload not read"
+        }
+      ],
+      "artifact": "data/auto_trade_steps.json",
+      "production_source": "REPO/static-site/data; separate from GIT_REPO mirror",
+      "publication": "R2 channels + Worker /data + frontend fallback",
+      "depends_on": [
+        "edge:data-fallback"
+      ]
+    },
+    {
+      "id": "data:overfit-monitor",
+      "name": "模型监控主/扩展",
+      "kind": "data",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:2344",
+          "note": "read contract only; payload not read"
+        }
+      ],
+      "artifact": "data/overfit_monitor.json + overfit_monitor_ext.json",
+      "production_source": "REPO/static-site/data; separate from GIT_REPO mirror",
+      "publication": "R2 channels + Worker /data + frontend fallback",
+      "depends_on": [
+        "edge:data-fallback"
+      ]
+    },
+    {
+      "id": "surface:overview",
+      "name": "市场全景",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:16147",
+          "note": "boot聚合/独立overview、signals_today fallback需要代际对齐"
+        }
+      ],
+      "route": "/#overview",
+      "module": "app.js/common.js -> min",
+      "depends_on": [
+        "data:boot",
+        "data:overview",
+        "data:signals-today",
+        "data:intraday-snapshot"
+      ],
+      "publication": "static HTML/min workflows; data independently R2/Worker as referenced"
+    },
+    {
+      "id": "surface:market-sentiment",
+      "name": "指数/盘面",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:20995",
+          "note": "各range/index/industry/futures/ETF holdings; 数据源时区/T+1与完成时间分开"
+        }
+      ],
+      "route": "/#market/{a-stock,industry,hk,global}; /#sentiment/{market-temp,futures,national-team,public-fund}",
+      "module": "app.js/common.js",
+      "depends_on": [
+        "edge:data-fallback"
+      ],
+      "publication": "static HTML/min workflows; data independently R2/Worker as referenced"
+    },
+    {
+      "id": "surface:fund",
+      "name": "基金评分/筛选",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/index.html:166",
+          "note": "静态/R2评分 + Worker D1查询；D1新鲜度另验"
+        }
+      ],
+      "route": "/#fund/{etf,offshore}",
+      "module": "app.js",
+      "depends_on": [
+        "service:fund-query"
+      ],
+      "publication": "static HTML/min workflows; data independently R2/Worker as referenced"
+    },
+    {
+      "id": "surface:lab",
+      "name": "实验室/凯利",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/lab.js:14184",
+          "note": "lab/*, signal_kelly_backtest/trades/parts/snapshots/loss; ND-open/SD-close名称和前端筛选重算分开"
+        }
+      ],
+      "route": "/#lab; /#lab?sub=sigkelly; /#lab/<strategy>",
+      "module": "app.js lazy loads lab.min.js; common shared",
+      "depends_on": [
+        "edge:data-fallback",
+        "data:overfit-monitor"
+      ],
+      "publication": "static HTML/min workflows; data independently R2/Worker as referenced"
+    },
+    {
+      "id": "surface:trade-plan",
+      "name": "实操提醒/计划表",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/lab.js:9595",
+          "note": "非独立执行页面；显示状态不独立证明真实委托成交；signal_date/buy_date/sell_date分开"
+        }
+      ],
+      "route": "/#lab?sub=sigkelly 内实操步骤与全部计划弹窗",
+      "module": "lab.js _at*",
+      "depends_on": [
+        "data:nextday-plan",
+        "data:auto-trade-steps"
+      ],
+      "publication": "static HTML/min workflows; data independently R2/Worker as referenced"
+    },
+    {
+      "id": "surface:notifications",
+      "name": "通知设置/事件",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:15301",
+          "note": "本地偏好/权限/去重影响显示；浏览器事件不是运维投递台账/未恢复故障"
+        }
+      ],
+      "route": "/ 内通知按钮弹窗；无独立路由确认",
+      "module": "app.js + sw.js",
+      "depends_on": [
+        "data:public-notifications",
+        "service:auth-subscribe"
+      ],
+      "publication": "static HTML/min workflows; data independently R2/Worker as referenced"
+    },
+    {
+      "id": "surface:ops-existing",
+      "name": "采集健康/时效/任务统计",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:34159",
+          "note": "可复用既有字段；暂无统计或exit0不能推出系统健康"
+        }
+      ],
+      "route": "/ 采集健康点 + 数据更新规则弹窗；非独立状态页",
+      "module": "app.js",
+      "depends_on": [
+        "data:overview",
+        "data:intraday-snapshot",
+        "data:schedule-stats"
+      ],
+      "publication": "static HTML/min workflows; data independently R2/Worker as referenced"
+    },
+    {
+      "id": "surface:trade-sim",
+      "name": "模拟弹窗/旧版HTML",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/app.js:9008",
+          "note": "trade_sim_indices,trade_sim_data/trade parts；HTML与JSON分通道；加载失败有旧版链接"
+        }
+      ],
+      "route": "/trade_sim.html; /r2/trade_sim/trade_sim_<index>.html",
+      "module": "app.js modal + generated HTML",
+      "depends_on": [
+        "edge:data-fallback"
+      ],
+      "publication": "static HTML/min workflows; data independently R2/Worker as referenced"
+    },
+    {
+      "id": "surface:databrief",
+      "name": "数据/API说明",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/databrief.html:1",
+          "note": "静态说明页，不是监控面板"
+        }
+      ],
+      "route": "/databrief.html",
+      "module": "inline HTML/script + inline-init",
+      "depends_on": [],
+      "publication": "static HTML/min workflows; data independently R2/Worker as referenced"
+    },
+    {
+      "id": "surface:feedback-admin",
+      "name": "反馈管理",
+      "kind": "surface",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/admin/feedback.html:150",
+          "note": "相对/api/feedback/admin；纯静态备站无此Worker；用户反馈内容不采集"
+        }
+      ],
+      "route": "/admin/feedback.html",
+      "module": "inline script + Worker auth",
+      "depends_on": [
+        "service:auth-subscribe"
+      ],
+      "publication": "static HTML/min workflows; data independently R2/Worker as referenced"
+    },
+    {
+      "id": "service:auth-subscribe",
+      "name": "认证/订阅/反馈",
+      "kind": "service",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "worker/headers.js:348",
+          "note": "auth/subscription dispatch"
+        },
+        {
+          "kind": "source",
+          "location": "static-site/app.js:33544",
+          "note": "primary relative API; backup primary API base"
+        }
+      ],
+      "entry": [
+        "worker/auth.js",
+        "worker/subscribe.js",
+        "worker/subscription_service.js"
+      ],
+      "storage": "SUBSCRIBE_KV binding; identifiers omitted",
+      "access": "endpoint-specific cookie/Bearer/shared-secret logic; live secrets not read"
+    },
+    {
+      "id": "service:fund-query",
+      "name": "基金D1查询",
+      "kind": "service",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "worker/headers.js:335",
+          "note": "fund_score/fund_screener routes"
+        },
+        {
+          "kind": "source",
+          "location": "wrangler.jsonc:35",
+          "note": "FUND_SCORE_DB binding"
+        }
+      ],
+      "entry": [
+        "worker/fund_score.js",
+        "worker/fund_screener.js"
+      ],
+      "access": "session/privilege per handler; runtime unknown",
+      "storage": "D1; current synchronization unknown"
+    },
+    {
+      "id": "service:data-query",
+      "name": "统一数据查询API",
+      "kind": "service",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "worker/dataQuery.js:6",
+          "note": "latest/range/summary contracts"
+        },
+        {
+          "kind": "source",
+          "location": "worker/headers.js:331",
+          "note": "dispatch"
+        }
+      ],
+      "route": "/api/data/*",
+      "access": "API key/rate/metering logic; credentials not collected",
+      "depends_on": [
+        "external:r2"
+      ]
+    },
+    {
+      "id": "monitor:frontend-errors",
+      "name": "已有前端错误采样/统计",
+      "kind": "monitor",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "runtime_status": "unknown",
+      "evidence": [
+        {
+          "kind": "source",
+          "location": "static-site/inline-init.js:86",
+          "note": "1% sampling / max5 dedup per tab"
+        },
+        {
+          "kind": "source",
+          "location": "worker/err_report.js:174",
+          "note": "stats access condition"
+        },
+        {
+          "kind": "source",
+          "location": "worker/headers.js:343",
+          "note": "route dispatch"
+        }
+      ],
+      "routes": [
+        "POST /api/err",
+        "GET /api/err/stats"
+      ],
+      "storage": "KV counters + R2 samples",
+      "access": "GET shared administrator header OR getSessionUser result; shown branch has no admin-role check",
+      "safety": "do not infer administrator-only from comment; private panel requires explicit independent authorization boundary",
+      "limits": "sampling is incomplete; dedicated error dashboard HTML not confirmed"
+    }
+  ]
+}
