@@ -42,6 +42,7 @@ def sandbox(tmp_path, monkeypatch):
     lock = alerts / "alert_digest.flushlock"
     monkeypatch.setattr(notify, "ALERT_DIGEST_FILE", digest)
     monkeypatch.setattr(notify, "ALERT_DIGEST_LOCK_FILE", lock)
+    monkeypatch.setattr(notify, "ALERT_DIGEST_STATE_FILE", alerts / "alert_digest_state.json")
     monkeypatch.setattr(notify, "ALERTS_DIR", alerts)
     monkeypatch.setattr(notify, "REPO", tmp_path)
     monkeypatch.setenv("REPO", str(tmp_path))
