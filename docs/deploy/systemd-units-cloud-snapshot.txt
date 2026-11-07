@@ -1213,3 +1213,64 @@ Persistent=true
 
 [Install]
 WantedBy=timers.target
+@@@FILE:trade-ops-monitor.service
+[Unit]
+Description=Trade private operations snapshot collector (independent control plane)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/
+Environment=OPS_CODE_ROOT=/home/ubuntu/code/trade-data-signal
+Environment=OPS_CONFIG=/etc/trade-ops-monitor/collector.json
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/trade-ops-monitor/collector.env
+LoadCredential=ops_ingest_token:/etc/trade-ops-monitor/ingest.token
+ExecStart=/usr/bin/python3 -B ${OPS_CODE_ROOT}/scripts/ops_monitor.py --config ${OPS_CONFIG} --once --token-file %d/ops_ingest_token
+TimeoutStartSec=240
+TimeoutStopSec=15
+KillMode=control-group
+Restart=no
+UMask=0077
+RuntimeDirectory=trade-ops-monitor
+RuntimeDirectoryMode=0700
+ReadWritePaths=/run/trade-ops-monitor
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+Nice=10
+CPUQuota=25%
+MemoryHigh=192M
+MemoryMax=256M
+TasksMax=32
+LimitNOFILE=1024
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trade-ops-monitor
+@@@FILE:trade-ops-monitor.timer
+[Unit]
+Description=Collect private Trade operations snapshot every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/5:00
+Persistent=true
+AccuracySec=15s
+RandomizedDelaySec=15s
+Unit=trade-ops-monitor.service
+
+[Install]
+WantedBy=timers.target
