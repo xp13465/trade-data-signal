@@ -269,10 +269,43 @@ def is_national_team(code: str) -> bool:
     return code in ETF_BY_CODE
 
 
-def _board_etf_map_lof_codes() -> list[tuple[str, str, str]]:
+def _resolve_etf_name_authoritative(code: str) -> str | None:
+    """从 board_etf_map.json 解析 code 的权威 ETF 名称(写库用, 防占位)。
+
+    解析顺序: board_etf_map.json 该 code 的 name(非空非占位) → None。
+    返回 None 表示无权威名称: 调用方不得把 None/空串/code 占位写入 etf_daily.etf_name,
+    应交给 _upsert_daily 的 ON CONFLICT 保护(保留 DB 已有真实名)或从 fields 移除 etf_name。
+    """
+    path = _DATA_DIR / "board_etf_map.json"
+    if not path.exists():
+        return None
+    try:
+        bm = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    code = str(code).strip().zfill(6)
+    for k, v in bm.items():
+        if k == "_meta" or not isinstance(v, list):
+            continue
+        for e in v:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("code", "")).strip().zfill(6) == code:
+                name = str(e.get("name", "")).strip()
+                if name and name != code:
+                    return name
+                return None
+    return None
+
+
+def _board_etf_map_lof_codes() -> list[tuple[str, str | None, str]]:
     """读 board_etf_map.json，返回 fund_type=lof 且场内前缀(16/15/501/502)的 [(code, name, mkt)]。
     供 pipeline_daily 把场内 LOF 纳入 OHLC 采集——否则 LOF 无 etf_daily 行，accum_nav/etf_since_return
     恒 NULL。不改 universe_etf_codes 本身(export_etf_score_list 全市场宇宙不扩 LOF)。
+
+    name 收紧(2026-11-07): board_etf_map 无 name 时返回 None(不回退 code 占位)。
+    写库场景占位 code 会被 _batch_load_etf_prices 的 ``etf_name <> etf_code`` 过滤排除
+    有效行情, 故无权威名时让 _upsert_daily 的 ON CONFLICT 保护保留 DB 已有真实名。
     """
     path = _DATA_DIR / "board_etf_map.json"
     if not path.exists():
@@ -282,7 +315,7 @@ def _board_etf_map_lof_codes() -> list[tuple[str, str, str]]:
     except Exception as e:
         print(f"  [universe] board_etf_map.json 读取失败: {e}，跳过 LOF 纳入", flush=True)
         return []
-    out: list[tuple[str, str, str]] = []
+    out: list[tuple[str, str, str | None, str]] = []
     seen: set[str] = set()
     for k, v in bm.items():
         if k == "_meta" or not isinstance(v, list):
@@ -298,7 +331,8 @@ def _board_etf_map_lof_codes() -> list[tuple[str, str, str]]:
             mkt = _etf_market(code)
             if not mkt:
                 continue
-            name = str(e.get("name", "")).strip() or code
+            name = str(e.get("name", "")).strip()
+            name = name if name and name != code else None  # 写库不占位 code
             out.append((code, name, mkt))
             seen.add(code)
     return out
@@ -1086,6 +1120,16 @@ def _upsert_daily(conn, rows: list[dict], fields: list[str]) -> int:
     """UPSERT etf_daily（按 date+etf_code 主键合并字段）。
     rows: list of dict（含 date, etf_code + 部分字段）。
     fields: 要更新的字段名列表（除 date/etf_code 外）。
+
+    etf_name 写入契约（2026-11-07 根因修复, 防 NULL 覆盖真实名致加载器排除有效行情）:
+    ON CONFLICT 时 etf_name 不裸赋值, 按唯一解析顺序保护:
+      ① 调用方传入的真实名称(excluded.etf_name 非 NULL/非空串/非与 etf_code 同值占位) → 用它
+      ② DB 已有真实名称(etf_daily.etf_name 非 NULL/非空串/非与 etf_code 同值) → 保留
+      ③ 都没有 → 保留 DB 原值(不把已有真实名清成 NULL; 新行 INSERT 仍按 excluded 值写)
+    对比旧实现 ``etf_name=excluded.etf_name``: 临时脚本 fetch_etf_ohlc 不返 etf_name →
+    excluded.etf_name=NULL → 覆盖已有真实名为 NULL → _batch_load_etf_prices 的
+    ``etf_name <> etf_code`` 过滤(NULL 不满足该条件)排除有效行情行。
+    backfill_etf_daily.py:upsert_etf_daily 已有同类 COALESCE(NULLIF)保护, 本处对齐。
     """
     n = 0
     for r in rows:
@@ -1093,7 +1137,23 @@ def _upsert_daily(conn, rows: list[dict], fields: list[str]) -> int:
             continue
         cols = ["date", "etf_code"] + fields
         placeholders = ",".join(["?"] * len(cols))
-        updates = ",".join(f"{f}=excluded.{f}" for f in fields)
+        # etf_name 用保护表达式(防 NULL/空串/code 占位覆盖已有真实名); 其余字段裸赋值
+        def _set_expr(f: str) -> str:
+            if f == "etf_name":
+                return (
+                    f"etf_name = CASE "
+                    f"WHEN excluded.etf_name IS NOT NULL "
+                    f"AND excluded.etf_name <> '' "
+                    f"AND excluded.etf_name <> excluded.etf_code "
+                    f"THEN excluded.etf_name "
+                    f"WHEN etf_daily.etf_name IS NOT NULL "
+                    f"AND etf_daily.etf_name <> '' "
+                    f"AND etf_daily.etf_name <> etf_daily.etf_code "
+                    f"THEN etf_daily.etf_name "
+                    f"ELSE etf_daily.etf_name END"
+                )
+            return f"{f}=excluded.{f}"
+        updates = ",".join(_set_expr(f) for f in fields)
         vals = [r.get(c) for c in cols]
         conn.execute(
             f"INSERT INTO etf_daily ({','.join(cols)}) VALUES ({placeholders}) "

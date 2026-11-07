@@ -88,6 +88,7 @@ from app.alert_score import compute_alert_for_target, ETF_ADJUST_ENABLED  # noqa
 from app.collector.etf_national_team import (  # noqa: E402
     DB_PATH, ETF_LIST, fetch_etf_ohlc, get_conn, init_db, is_national_team,
     universe_etf_codes, _upsert_daily, _get_worker_tdx,
+    _resolve_etf_name_authoritative,
 )
 
 DATA_DIR = ROOT / "static-site" / "data"
@@ -375,17 +376,23 @@ def _compute_volatility(code: str, conn, lookback_days: int = 30, skip_refetch: 
         try:
             new_rows = fetch_etf_ohlc(code, start_yyyymmdd=start_yyyymmdd)
             if new_rows:
-                # 查已有 etf_name 防覆盖空串(_upsert_daily 需要 etf_name 字段)
+                # etf_name 解析顺序(2026-11-07 收紧, 防 code 占位被加载器 etf_name<>etf_code 过滤):
+                #   ① DB 该 code 已有非空非占位名 ② board_etf_map.json 权威名 ③ 都无则不写 etf_name
+                #   (从 fields 移除, 交给 _upsert_daily ON CONFLICT 保护保留 DB 名; 全新行无名为罕见边界)
                 name_row = conn.execute(
                     "SELECT etf_name FROM etf_daily WHERE etf_code=? "
-                    "AND etf_name IS NOT NULL AND etf_name != '' LIMIT 1",
+                    "AND etf_name IS NOT NULL AND etf_name <> '' "
+                    "AND etf_name <> etf_code LIMIT 1",
                     (code,),
                 ).fetchone()
-                etf_name = name_row[0] if name_row else code
-                for r in new_rows:
-                    r["etf_name"] = etf_name
-                _upsert_daily(conn, new_rows,
-                              ["etf_name", "open", "high", "low", "close", "amount"])
+                etf_name = name_row[0] if name_row else _resolve_etf_name_authoritative(code)
+                if etf_name:  # 有真实名才写; None 时不写 etf_name(防 NULL/占位)
+                    for r in new_rows:
+                        r["etf_name"] = etf_name
+                    up_fields = ["etf_name", "open", "high", "low", "close", "amount"]
+                else:
+                    up_fields = ["open", "high", "low", "close", "amount"]
+                _upsert_daily(conn, new_rows, up_fields)
                 conn.commit()
                 # 重查补采后的数据
                 rows = conn.execute(
