@@ -44,6 +44,9 @@ jobs:
       CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false'
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full regression checks pinned historical governance and hook revisions.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
