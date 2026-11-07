@@ -27,9 +27,9 @@
     {
       "source_file": "01-services-and-schedules.md",
       "block_index": 1,
-      "source_sha256": "46106b74e56c8562ae6df7f2ec793a43ab37c34af087c233a6bcbf8c1748c982",
+      "source_sha256": "7ae01f2cd98d68add9a2ab5f487cce9dbf7feb1608a3146590922529db409bd0",
       "svg": "diagrams/01-services-and-schedules-01.svg",
-      "svg_sha256": "57a82b25213024f413b1c3f3f8394d9c145d6319f0dd53fb4b7b6df0aa2366be"
+      "svg_sha256": "8ead39424d90a19b2c5cb56e8732ddce6b50f4dc0fcda25b4772834aa8d2cc51"
     },
     {
       "source_file": "03-data-lineage-and-contracts.md",

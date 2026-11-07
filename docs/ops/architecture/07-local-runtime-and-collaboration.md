@@ -1,6 +1,8 @@
 # 本机运行与人机协作现状基线（任务 F）
 
-> 代码基线：`d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620`。当前用户 launchd 观察时间：**2026-11-07T14:14:52.634032+08:00**（Asia/Shanghai）；磁盘 plist 解析时间见 JSON。本文只盘点，不调整角色、不启动任务、不替代既有运维权威文档。业务健康均为 `unknown`。
+> 代码基线：`d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620`。当前用户 launchd 观察时间（launchd 已废弃/历史存档，生产定时任务已迁云上 systemd timer，本机 mac 纯开发不跑生产定时任务，查 launchctl 是错的）：**2026-11-07T14:14:52.634032+08:00**（Asia/Shanghai）；磁盘 plist 解析时间见 JSON。本文只盘点，不调整角色、不启动任务、不替代既有运维权威文档。业务健康均为 `unknown`。
+>
+> ⚠️ 口径声明：本章盘点的是本机 launchd 历史存档/迁云残留（launchd 已废弃，生产定时任务已迁云上 systemd timer，现行清单见 `docs/deploy/systemd-units-20260912.md`）。下文出现的 launchd/launchctl/plist 字样均为历史陈述与迁云对账，不表示现行生产用 launchd。
 
 机器清单：[runtime_local.json](inventory/runtime_local.json)，遵循 [inventory合同](_inventory-contract.md) 和 [schema](inventory/schema.json)。代码ref、磁盘声明、已加载label、业务健康是四个不同层次。
 
@@ -10,11 +12,11 @@
 |---|---:|---:|---|---|
 | `com.trade.agent-inbox-watcher` | 3368 | 0 | RunAtLoad/KeepAlive；Python→`scripts/agent_inbox_watcher.py` | 当前域已加载且有PID；队列消费、心跳新鲜度、运行代码版本未知 |
 | `com.trade.feishu-listener` | 10216 | 2 | RunAtLoad/KeepAlive；ThrottleInterval=10；Python→`scripts/feishu_ws_listener.py` | 当前有PID；last_exit=2仅历史进程状态线索，当前连接/收件/处理健康未知 |
-| `com.trade.env` | — | 0 | RunAtLoad；入口`launchctl`，动作与参数不采集 | 已加载，无PID；不能据此认定环境已正确初始化，也不是常驻业务服务证明 |
+| `com.trade.env` | — | 0 | RunAtLoad；入口`launchctl`（历史存档，查 launchctl 是错的，生产定时任务已迁云上 systemd timer），动作与参数不采集 | 已加载，无PID；不能据此认定环境已正确初始化，也不是常驻业务服务证明 |
 
-当前用户域只有 **3 个**匹配label；其中2个有PID。`launchctl list`成功不代表全机所有域均已覆盖。磁盘上的3份正式 plist 也不证明当前进程按这些文件的最新字段启动。
+当前用户域只有 **3 个**匹配label；其中2个有PID。`launchctl list`成功不代表全机所有域均已覆盖（launchd 已废弃/历史存档，生产定时任务已迁云上 systemd timer）。磁盘上的3份正式 plist（历史存档）也不证明当前进程按这些文件的最新字段启动。
 
-本机另见 `com.trade.fetch-news.plist.json-bak-20260819`：只是相邻备份文件名，不是正式已挂载plist证据。允许字段解析失败，内容/标签/日历均 `unknown`，不向“损坏服务”升级。
+本机另见 `com.trade.fetch-news.plist.json-bak-20260819`（历史存档，已迁云上 systemd timer）：只是相邻备份文件名，不是正式已挂载plist证据。允许字段解析失败，内容/标签/日历均 `unknown`，不向“损坏服务”升级。
 
 ## 仓内声明与迁云残留对账
 
@@ -23,12 +25,12 @@
 | 源声明 | 安全入口 | 声明日历/状态 | 对账边界 |
 |---|---|---|---|
 | `launchd/com.trade.agent-inbox-watcher.plist` | `agent_inbox_watcher.py` | RunAtLoad/KeepAlive | 与本机label/磁盘入口同名；运行版本未知 |
-| `scripts/com.trade.ab-direction-anchor.plist` | `run_ab_direction_anchor.sh` | 21:15 | possible→`trade-ab-direction-anchor`，交parent核云端 |
-| `launchd/com.trade.check-data-gap.plist` | `check_data_gap_alerts.sh` | Weekday=1..5，22:35；ExitTimeOut=600 | possible→`trade-check-data-gap` |
-| `launchd/com.trade.turnover-backfill.plist` | `turnover_backfill.sh` | Weekday=1..5，21:10；ExitTimeOut=300 | possible→`trade-turnover-backfill` |
-| `launchd/com.trade.s06-snapshot.plist` | `s06_snapshot.sh` | Weekday=1..5，20:35；ExitTimeOut=600 | possible→`trade-s06-snapshot` |
-| `docs/auto-trade/com.trade.nextday-plan.plist` | `nextday_plan.sh` | Weekday=1..5，22:30；ExitTimeOut=600 | possible→`trade-nextday-plan` |
-| `launchd/com.trade.sentiment.plist` | module `app.scheduler` | 15:33 | 旧运维文档记旧scheduler遗留/不迁；不是当前故障 |
+| `scripts/com.trade.ab-direction-anchor.plist` | `run_ab_direction_anchor.sh` | 21:15 | 历史 plist，已迁云；possible→`trade-ab-direction-anchor`，交parent核云端 |
+| `launchd/com.trade.check-data-gap.plist` | `check_data_gap_alerts.sh` | Weekday=1..5，22:35；ExitTimeOut=600 | 历史 plist，已迁云；possible→`trade-check-data-gap` |
+| `launchd/com.trade.turnover-backfill.plist` | `turnover_backfill.sh` | Weekday=1..5，21:10；ExitTimeOut=300 | 历史 plist，已迁云；possible→`trade-turnover-backfill` |
+| `launchd/com.trade.s06-snapshot.plist` | `s06_snapshot.sh` | Weekday=1..5，20:35；ExitTimeOut=600 | 历史 plist，已迁云；possible→`trade-s06-snapshot` |
+| `docs/auto-trade/com.trade.nextday-plan.plist` | `nextday_plan.sh` | Weekday=1..5，22:30；ExitTimeOut=600 | 历史 plist，已迁云；possible→`trade-nextday-plan` |
+| `launchd/com.trade.sentiment.plist` | module `app.scheduler` | 15:33 | 旧运维文档记旧scheduler遗留/不迁（历史存档，已迁云）；不是当前故障 |
 | `scripts/com.trade.thinking-proxy.plist` | `sensenova-rotate-proxy.sh` | RunAtLoad/KeepAlive | 本机专属旧声明；功能/当前部署未知 |
 | 同名`.plist.bak-*` | `thinking_proxy.py` | 备份声明 | 不作为第二个当前任务计数 |
 | `scripts/.disabled/com.trade.thinking-proxy-kimi.plist` | `sensenova-rotate-proxy-kimi.sh` | 存储在disabled目录 | 目录标记不等于launchd Disabled覆盖值；实际覆盖unknown |
