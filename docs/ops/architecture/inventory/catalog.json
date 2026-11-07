@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "baseline_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
-  "observed_at": "2026-11-07T14:33:07.514026+08:00",
+  "observed_at": "2026-11-07T21:04:05+08:00",
   "scope": "跨清单目录索引/离线预览数据；不是实时监控。record的evidence_status只描述最强一层来源，具体字段以observations各自证据为准。health统一unknown不自动聚合为健康。",
   "coverage": {
     "source_files": [
@@ -25,9 +25,9 @@
       },
       {
         "file": "incidents.json",
-        "records": 18,
+        "records": 20,
         "baseline_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
-        "sha256": "b995bc2b362690c842a87c7dec5d69ffadfce0d3753a0a94f7c98b901699c95c"
+        "sha256": "456f9507723d8e3da6ec789ced90fc95e997c96d25f24674301f13de278547f6"
       },
       {
         "file": "monitors.json",
@@ -60,8 +60,8 @@
         "sha256": "8e882e2f2ef03a010c014e1fb28cd42bf51ad35b127d03e848a6332cceaba5c6"
       }
     ],
-    "source_record_total": 371,
-    "unique_ids": 368,
+    "source_record_total": 373,
+    "unique_ids": 370,
     "evidence_truncation": "catalog每观察最多展示6条证据/12候选标签，完整数据在源清单。"
   },
   "records": [
@@ -14550,7 +14550,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:365",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -14636,7 +14636,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:366",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -14714,7 +14714,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:367",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -14792,7 +14792,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:368",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -14869,7 +14869,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:369",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -14946,7 +14946,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:370",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -15023,7 +15023,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:BACKEND-NEW-P2-01",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -15103,7 +15103,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:BACKEND-NEW-P2-02",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -15183,7 +15183,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:DC1",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -15286,7 +15286,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:DIR-03",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -15355,6 +15355,174 @@
       "last_verified_at": "2026-11-06（后续交接保留未结项）"
     },
     {
+      "id": "incident:MR-01-20261107",
+      "name": "缺维风险综合分可能误导为低风险",
+      "kind": "incident",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "inventory",
+          "location": "inventory/incidents.json#incident:MR-01-20261107",
+          "note": "完整记录与全部证据在该源清单；catalog保留按来源分隔的观察，详情证据最多展示6条。"
+        }
+      ],
+      "observations": [
+        {
+          "source_file": "incidents.json",
+          "record_id": "incident:MR-01-20261107",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
+          "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "evidence_status": "code_confirmed",
+          "depends_on": [],
+          "workflow_status": "隔离分支实现完成；待Claude独审、合并与部署",
+          "workflow_group": "awaiting_verification",
+          "remediation_state": "分支已改：缺维综合分null/gray，单列状态/权重覆盖/已知贡献；完整有效输入算法不变；独立单维预警保留",
+          "root_cause_state": "已证：compute_risk缺项按零计入完整综合分；不是本次捕获live current缺维发生率",
+          "deployment_state": "本轮未部署，当前生产生效状态未验",
+          "verification_state": "源码Python/Chrome专项及独立数值对照已通过；最终固定提交组合回归/CI由交接报告记录",
+          "observation_window": {
+            "status": "待观察（尚未开启自然周期）",
+            "planned_window": "实际部署后按批准口径开始；不虚构观察起点",
+            "evidence_required": "固定生产版本、实际输入/产物身份、图形/预警正文及关闭条件"
+          },
+          "close_conditions": [
+            "Claude独审、发布并在真实缺维/完整零值/单维异常情形核验状态及正文；自然观察不能以本地用例数量代替"
+          ],
+          "owner": "Codex（用户本次特批实现）；Claude（独审、合并、部署）",
+          "last_verified_at": "2026-11-07T21:04:05+08:00",
+          "affected_objects": [
+            "overfit.current",
+            "风险预警正文"
+          ],
+          "evidence": [
+            {
+              "kind": "repository_document",
+              "location": "docs/ops/benefits-implementation-20261107.md",
+              "note": "本次实现授权、验收及生产接力边界"
+            },
+            {
+              "kind": "existing_report",
+              "location": "/tmp/codex-reports/ops-benefit-complete-20261107/model-risk.json",
+              "note": "作者冻结原始报告42238dc99dbd0176605586392f64fff0357d1dc79df0e2d86c5fdd632b123881；后续父侧文案/集成修改与最终源码哈希以固定提交交接报告为准"
+            }
+          ],
+          "evidence_total_count": 2,
+          "category": "bug",
+          "original_issue_id": "MR-01（原外审finding，未新建正式工单）",
+          "workflow_group_label": "待验",
+          "workflow_group_scope": "仅本次源实现/本地验证；不表示main、生产或根治观察完成",
+          "evidence_reviewed_at": "2026-11-07T21:04:05+08:00",
+          "implementation_base_ref": "f5b86da78383ebcba02dd22f140ed63663f17635",
+          "implementation_source_sha256": {
+            "scripts/overfit_monitor.py": "8dd03f287930c14260e7a64be19355e3f205cfd4c330120cb5ca39083f9667a5",
+            "static-site/app.js": "a22db119eec82f2582a85c30e767bfee3bfc89f8b076a7f29fabde70b0563a79"
+          }
+        }
+      ],
+      "depends_on": [],
+      "workflow_status": "隔离分支实现完成；待Claude独审、合并与部署",
+      "workflow_group": "awaiting_verification",
+      "remediation_state": "分支已改：缺维综合分null/gray，单列状态/权重覆盖/已知贡献；完整有效输入算法不变；独立单维预警保留",
+      "root_cause_state": "已证：compute_risk缺项按零计入完整综合分；不是本次捕获live current缺维发生率",
+      "deployment_state": "本轮未部署，当前生产生效状态未验",
+      "verification_state": "源码Python/Chrome专项及独立数值对照已通过；最终固定提交组合回归/CI由交接报告记录",
+      "observation_window": {
+        "status": "待观察（尚未开启自然周期）",
+        "planned_window": "实际部署后按批准口径开始；不虚构观察起点",
+        "evidence_required": "固定生产版本、实际输入/产物身份、图形/预警正文及关闭条件"
+      },
+      "close_conditions": [
+        "Claude独审、发布并在真实缺维/完整零值/单维异常情形核验状态及正文；自然观察不能以本地用例数量代替"
+      ],
+      "owner": "Codex（用户本次特批实现）；Claude（独审、合并、部署）",
+      "last_verified_at": "2026-11-07T21:04:05+08:00"
+    },
+    {
+      "id": "incident:MR-02-20261107",
+      "name": "缺实盘兼容40被绘制为风险观测",
+      "kind": "incident",
+      "evidence_status": "code_confirmed",
+      "health": "unknown",
+      "evidence": [
+        {
+          "kind": "inventory",
+          "location": "inventory/incidents.json#incident:MR-02-20261107",
+          "note": "完整记录与全部证据在该源清单；catalog保留按来源分隔的观察，详情证据最多展示6条。"
+        }
+      ],
+      "observations": [
+        {
+          "source_file": "incidents.json",
+          "record_id": "incident:MR-02-20261107",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
+          "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
+          "evidence_status": "code_confirmed",
+          "depends_on": [],
+          "workflow_status": "隔离分支实现完成；待Claude独审、合并与部署",
+          "workflow_group": "awaiting_verification",
+          "remediation_state": "分支保留用户冻结的数值40，增加评估状态；源图形按同日同人口证据断开缺项，合法40继续显示",
+          "root_cause_state": "已证：原每日序列缺实盘填40，原图按非空数值绘制；冻结快照的重复窗口点数不是独立事故数",
+          "deployment_state": "本轮未部署，当前生产生效状态未验",
+          "verification_state": "源码Python/Chrome专项及独立数值对照已通过；最终固定提交组合回归/CI由交接报告记录",
+          "observation_window": {
+            "status": "待观察（尚未开启自然周期）",
+            "planned_window": "实际部署后按批准口径开始；不虚构观察起点",
+            "evidence_required": "固定生产版本、实际输入/产物身份、图形/预警正文及关闭条件"
+          },
+          "close_conditions": [
+            "Claude独审并先或同时发布前端，再生成新风险JSON；验合法40、缺实盘缺口、旧JSON、筛选与移动/桌面提示，不改历史数值"
+          ],
+          "owner": "Codex（用户本次特批实现）；Claude（独审、合并、部署）",
+          "last_verified_at": "2026-11-07T21:04:05+08:00",
+          "affected_objects": [
+            "overfit.daily",
+            "raw/filtered/K档/S06风险曲线"
+          ],
+          "evidence": [
+            {
+              "kind": "repository_document",
+              "location": "docs/ops/benefits-implementation-20261107.md",
+              "note": "本次实现授权、验收及生产接力边界"
+            },
+            {
+              "kind": "existing_report",
+              "location": "/tmp/codex-reports/ops-benefit-complete-20261107/model-risk.json",
+              "note": "作者冻结原始报告42238dc99dbd0176605586392f64fff0357d1dc79df0e2d86c5fdd632b123881；后续父侧文案/集成修改与最终源码哈希以固定提交交接报告为准"
+            }
+          ],
+          "evidence_total_count": 2,
+          "category": "bug",
+          "original_issue_id": "MR-02（原外审finding，未新建正式工单）",
+          "workflow_group_label": "待验",
+          "workflow_group_scope": "仅本次源实现/本地验证；不表示main、生产或根治观察完成",
+          "evidence_reviewed_at": "2026-11-07T21:04:05+08:00",
+          "implementation_base_ref": "f5b86da78383ebcba02dd22f140ed63663f17635",
+          "implementation_source_sha256": {
+            "scripts/overfit_monitor.py": "8dd03f287930c14260e7a64be19355e3f205cfd4c330120cb5ca39083f9667a5",
+            "static-site/app.js": "a22db119eec82f2582a85c30e767bfee3bfc89f8b076a7f29fabde70b0563a79"
+          }
+        }
+      ],
+      "depends_on": [],
+      "workflow_status": "隔离分支实现完成；待Claude独审、合并与部署",
+      "workflow_group": "awaiting_verification",
+      "remediation_state": "分支保留用户冻结的数值40，增加评估状态；源图形按同日同人口证据断开缺项，合法40继续显示",
+      "root_cause_state": "已证：原每日序列缺实盘填40，原图按非空数值绘制；冻结快照的重复窗口点数不是独立事故数",
+      "deployment_state": "本轮未部署，当前生产生效状态未验",
+      "verification_state": "源码Python/Chrome专项及独立数值对照已通过；最终固定提交组合回归/CI由交接报告记录",
+      "observation_window": {
+        "status": "待观察（尚未开启自然周期）",
+        "planned_window": "实际部署后按批准口径开始；不虚构观察起点",
+        "evidence_required": "固定生产版本、实际输入/产物身份、图形/预警正文及关闭条件"
+      },
+      "close_conditions": [
+        "Claude独审并先或同时发布前端，再生成新风险JSON；验合法40、缺实盘缺口、旧JSON、筛选与移动/桌面提示，不改历史数值"
+      ],
+      "owner": "Codex（用户本次特批实现）；Claude（独审、合并、部署）",
+      "last_verified_at": "2026-11-07T21:04:05+08:00"
+    },
+    {
       "id": "incident:RT-4",
       "name": "R2/任务/冻结/过拟合通知的当前故障分流",
       "kind": "incident",
@@ -15371,7 +15539,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:RT-4",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -15490,16 +15658,16 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:SG-20261106-01",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
           "workflow_status": "已形成处置文档；不等于恢复",
           "workflow_group": "mixed_historical_disposition",
           "remediation_state": "2条同日候选待证；5条不可回放；7条仍未补造",
-          "root_cause_state": "UNKNOWN：晚插/覆盖/初次漏冻等原始时序未逐键独立重建",
+          "root_cause_state": "部分已证：6键次日历史index changed后出现精确信号；DAX无关联审计。首次arrival、具体backfill因果及原冻结消费身份仍unknown。",
           "deployment_state": "没有声称部署能恢复这7条历史",
-          "verification_state": "14:04默认exact/fallback仍缺7键；处置不等于故障仍在扩大",
+          "verification_state": "20:49固定七键只读补证：7键仍缺精确/变体freeze；2候选、5不可回放、0恢复。不将邻近审计时刻当因果或首次到达。",
           "observation_window": {
             "status": "待观察（本轮未运行任何自然周期）",
             "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
@@ -15509,7 +15677,7 @@
             "逐键提供可信冻结时刻原输入，或保留经批准的不可回放处置；不得用今日映射倒填"
           ],
           "owner": "Claude（处置/实现）；Codex（只读复核）",
-          "last_verified_at": "2026-11-07T14:04:27+08:00",
+          "last_verified_at": "2026-11-07T20:49:52.303158+08:00",
           "affected_objects": [
             "20261102|csi_000102|buy",
             "20261102|gz_399365|buy",
@@ -15539,12 +15707,17 @@
               "kind": "repository_document",
               "location": "docs/ops/signal-gap-7keys-disposition-20261107.md:11",
               "note": "正式历史处置，不修改冻结或accepted"
+            },
+            {
+              "kind": "existing_report",
+              "location": "/tmp/codex-reports/ops-benefit-complete-20261107/seven-key-evidence.json",
+              "note": "SHA256 64978bf91d5ff9d5513523cde9207470b7fdcc79473fb4d66aa64faa720e6846；一次SSH/21条有索引只读查询，未补造历史"
             }
           ],
-          "evidence_total_count": 4,
+          "evidence_total_count": 5,
           "category": "historical_gap",
           "original_issue_id": "SG-20261106-01",
-          "evidence_reviewed_at": "2026-11-07T14:24:43.623227+08:00",
+          "evidence_reviewed_at": "2026-11-07T21:04:05+08:00",
           "notes": [],
           "historical_disposition": {
             "candidate_count": 2,
@@ -15583,9 +15756,9 @@
       "workflow_status": "已形成处置文档；不等于恢复",
       "workflow_group": "mixed_historical_disposition",
       "remediation_state": "2条同日候选待证；5条不可回放；7条仍未补造",
-      "root_cause_state": "UNKNOWN：晚插/覆盖/初次漏冻等原始时序未逐键独立重建",
+      "root_cause_state": "部分已证：6键次日历史index changed后出现精确信号；DAX无关联审计。首次arrival、具体backfill因果及原冻结消费身份仍unknown。",
       "deployment_state": "没有声称部署能恢复这7条历史",
-      "verification_state": "14:04默认exact/fallback仍缺7键；处置不等于故障仍在扩大",
+      "verification_state": "20:49固定七键只读补证：7键仍缺精确/变体freeze；2候选、5不可回放、0恢复。不将邻近审计时刻当因果或首次到达。",
       "observation_window": {
         "status": "待观察（本轮未运行任何自然周期）",
         "planned_window": "unknown；由负责人确定具体自然任务时槽/固定版本后开始",
@@ -15595,7 +15768,7 @@
         "逐键提供可信冻结时刻原输入，或保留经批准的不可回放处置；不得用今日映射倒填"
       ],
       "owner": "Claude（处置/实现）；Codex（只读复核）",
-      "last_verified_at": "2026-11-07T14:04:27+08:00"
+      "last_verified_at": "2026-11-07T20:49:52.303158+08:00"
     },
     {
       "id": "incident:SG-20261106-01:prevention",
@@ -15614,7 +15787,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:SG-20261106-01:prevention",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "planned",
           "depends_on": [],
@@ -15723,7 +15896,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:SG-20261106-02",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -15804,7 +15977,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:SG-20261106-02-R1",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -15886,7 +16059,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:codex-alerts-rootcause-20261105-v1:reversal-provenance",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -15968,7 +16141,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:test_real_multiprocess_publish_ack_races_do_not_reset_receipts",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],
@@ -16048,7 +16221,7 @@
         {
           "source_file": "incidents.json",
           "record_id": "incident:test_stream_peak_under_target_and_far_below_legacy",
-          "source_inventory_time": "2026-11-07T14:27:46.858703+08:00",
+          "source_inventory_time": "2026-11-07T21:04:05+08:00",
           "source_inventory_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
           "evidence_status": "documented_only",
           "depends_on": [],

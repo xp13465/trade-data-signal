@@ -23,8 +23,9 @@ if name in ('with_lock.py','r2_pending_context.py'):
 if name=='test-producer':
  import sqlite3
  from r2_export_proof import write_run_proof,output_record
+ from delivery_evidence import capture_loaded
  from util_atomic import atomic_write_text
- ns={'Path':Path,'json':json,'os':os,'sqlite3':sqlite3,'DATA_DIR':S/'static-site/data','STATIC_DIR':S/'static-site','_EXPORT_RUN_OUTPUTS':{},'output_record':output_record,'atomic_write_text':atomic_write_text,'load_site_config':lambda:{}}
+ ns={'Path':Path,'json':json,'os':os,'sqlite3':sqlite3,'DATA_DIR':S/'static-site/data','STATIC_DIR':S/'static-site','_EXPORT_RUN_OUTPUTS':{},'output_record':output_record,'atomic_write_text':atomic_write_text,'capture_loaded':capture_loaded,'load_site_config':lambda:{}}
  src=(S/'static-site/export.py').read_text();names={'write_json','export_boot','_json_default'}
  exec(compile(ast.Module(body=[n for n in ast.parse(src).body if isinstance(n,ast.FunctionDef) and n.name in names],type_ignores=[]),'actual producer writes','exec'),ns)
  run,extra,*rest=args
@@ -91,7 +92,7 @@ class PendingHandoffTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='r2-pending-portable-')
         self.p = Path(self.temp.name).resolve(); self.s = self.p/'source'
-        for rel in ['scripts/upload_r2.py','scripts/r2_upload_async.sh','scripts/r2_upload_skip_notify.sh','scripts/r2_pending_context.py','scripts/r2_export_proof.py','scripts/r2_lock_paths.py','scripts/util_atomic.py','scripts/with_lock.py','scripts/lib/repo_paths.sh','scripts/lib/upload_watchdog.sh','static-site/export.py']:
+        for rel in ['scripts/upload_r2.py','scripts/r2_upload_async.sh','scripts/r2_upload_skip_notify.sh','scripts/r2_pending_context.py','scripts/r2_export_proof.py','scripts/delivery_evidence.py','scripts/r2_lock_paths.py','scripts/util_atomic.py','scripts/with_lock.py','scripts/lib/repo_paths.sh','scripts/lib/upload_watchdog.sh','static-site/export.py']:
             dst=self.s/rel;dst.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(ROOT/rel,dst)
             if dst.suffix == '.sh': dst.chmod(0o755)
         # Relocate only the lockfile literal, so tests exercise the actual outer exec/timeout safely.

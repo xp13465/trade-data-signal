@@ -8,5 +8,6 @@
   "total_timeout_seconds": 20,
   "command_timeout_seconds": 3,
   "schedule_max_age_seconds": 1800,
-  "publication_head_url": null
+  "publication_head_url": null,
+  "benefits_enabled": false
 }

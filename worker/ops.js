@@ -3,6 +3,7 @@
 // Official API: developers.cloudflare.com/d1/worker-api/d1-database/
 import { getSessionUser } from './auth.js';
 import BASELINE from './ops_baseline.js';
+import { benefitStatements, benefitRunStatement, benefitsConfigured, benefitsRetain, benefitsRoute, benefitsExportTables } from './ops_benefits.js';
 
 const BODY_LIMIT = 256 * 1024;
 const AGE_MS = 900000;
@@ -134,7 +135,8 @@ function validateSnapshot(input, now) {
       else if (value !== null && typeof value !== 'boolean' && !(typeof value === 'number' && Number.isFinite(value))) fail(400, 'evidence_must_be_scalar');
     }
     const reason = observed > now + FUTURE_MS || observed > collected + FUTURE_MS ? 'future_observation' : observed < now - AGE_MS ? 'stale_observation' : 'observed';
-    const status = reason === 'observed' ? c.status : 'unknown'; counts[status]++;
+    const nonReal = c.id.startsWith('benefit:') && (c.evidence.record_kind !== 'delivery_v1' || c.evidence.measurement_kind !== 'real');
+    const status = reason === 'observed' && !nonReal ? c.status : 'unknown'; counts[status]++;
     return { ...c, status, reported_status: c.status, observation_status: reason, _observed_ms: Math.min(observed, collected) };
   });
   return { snapshot: { ...input, checks }, counts, collected };
@@ -152,15 +154,28 @@ async function ingest(request, env, db, now) {
     const statements = [stmt(db, `INSERT INTO ops_runs VALUES(?,?,?,?,?,?,?,?)
       ON CONFLICT(snapshot_id) DO UPDATE SET content_hash=CASE WHEN ops_runs.content_hash=excluded.content_hash THEN ops_runs.content_hash ELSE NULL END`,
     snapshot.snapshot_id, hash, snapshot.collector_id, collected, now, snapshot.duration_ms, JSON.stringify(counts), JSON.stringify(snapshot))];
+    let benefitWork = [];
+    try {
+      benefitWork = await benefitStatements(db, env, snapshot, now);
+      if (benefitWork.length) statements.splice(0, 1, ...benefitWork, benefitRunStatement(db, snapshot, hash, collected, now));
+    } catch { benefitWork = []; /* Optional measurement must not break ingest. */ }
     statements.push(...outboxPolicyStatements(db, env, now));
-    await db.batch(statements);
+    try { await db.batch(statements); }
+    catch (error) {
+      if (!benefitWork.length) throw error;
+      // D1 batches roll back on failure. Retry the original atomic ops transaction.
+      const fallback = { ...snapshot, checks: snapshot.checks.map(c => c.id.startsWith('benefit:') ? { ...c, status: 'unknown', observation_status: 'measurement_storage_unavailable' } : c) };
+      const fallbackCounts = { ok: 0, warning: 0, critical: 0, unknown: 0 };
+      for (const check of fallback.checks) fallbackCounts[check.status]++;
+      await db.batch([stmt(db, `INSERT INTO ops_runs VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(snapshot_id) DO UPDATE SET content_hash=CASE WHEN ops_runs.content_hash=excluded.content_hash THEN ops_runs.content_hash ELSE NULL END`, snapshot.snapshot_id, hash, snapshot.collector_id, collected, now, snapshot.duration_ms, JSON.stringify(fallbackCounts), JSON.stringify(fallback)), ...outboxPolicyStatements(db, env, now)]);
+    }
   } catch {
     const prior = await stmt(db, 'SELECT content_hash FROM ops_runs WHERE snapshot_id=?', snapshot.snapshot_id).first();
     if (prior && prior.content_hash !== hash) fail(409, 'snapshot_id_conflict');
     fail(503, 'ops_storage_unavailable');
   }
-  const head = await stmt(db, 'SELECT snapshot_id FROM ops_head WHERE id=1').first();
-  return response({ accepted: true, snapshot_id: snapshot.snapshot_id, current: head?.snapshot_id === snapshot.snapshot_id, counts });
+  const head = await stmt(db, 'SELECT (SELECT snapshot_id FROM ops_head WHERE id=1) snapshot_id,(SELECT counts_json FROM ops_runs WHERE snapshot_id=?) counts_json', snapshot.snapshot_id).first();
+  return response({ accepted: true, snapshot_id: snapshot.snapshot_id, current: head?.snapshot_id === snapshot.snapshot_id, counts: head?.counts_json ? JSON.parse(head.counts_json) : counts });
 }
 function boundedLimit(url, defaultValue = 50) {
   const raw = url.searchParams.get('limit');
@@ -257,7 +272,7 @@ async function updateIncident(request, db, auth, id, now) {
   if (!result) fail(409, 'incident_revision_conflict');
   return response({ incident_id: id, revision: result.revision, override: next });
 }
-function exportBackup(db, now) {
+async function exportBackup(db, now, env) {
   // Keyset pagination streams all retained rows, bounded by captured rowid
   // watermarks. Existing row updates across pages are not a transaction snapshot.
   const tables = [
@@ -267,6 +282,7 @@ function exportBackup(db, now) {
     ['revisions', 'ops_incident_revisions', "incident_id || ':' || printf('%012d',revision)"],
     ['head', 'ops_head', 'CAST(id AS TEXT)'], ['watchdog', 'ops_watchdog', 'CAST(id AS TEXT)'],
   ];
+  if (await benefitsConfigured(db, env)) tables.push(...benefitsExportTables());
   const iterator = (async function* () {
     const watermarks = await db.batch(tables.map(([, table]) => stmt(db, `SELECT COALESCE(MAX(rowid),0) watermark FROM ${table}`)));
     yield JSON.stringify({ schema_version: 1, exported_at: iso(now), baseline: BASELINE,
@@ -297,6 +313,7 @@ export default async function opsHandler(request, env, ctx) {
     const url = new URL(request.url); const now = Date.now(); const db = binding(env);
     if (url.pathname === '/api/ops/ingest' && request.method === 'POST') return await ingest(request, env, db, now);
     const auth = await admin(request, env);
+    if (url.pathname === '/api/ops/benefits' || url.pathname.startsWith('/api/ops/benefits/')) return await benefitsRoute(request, db, env, auth, now, { fail, response, body, safeText, exactKeys, integer, boundedLimit });
     if (request.method === 'GET') {
       switch (url.pathname) {
         case '/api/ops/state': return response(await state(db, now));
@@ -304,7 +321,7 @@ export default async function opsHandler(request, env, ctx) {
         case '/api/ops/events': return response({ events: await events(db, boundedLimit(url)) });
         case '/api/ops/knowledge': return response(BASELINE);
         case '/api/ops/incidents': return response(await incidents(db));
-        case '/api/ops/export': return exportBackup(db, now);
+        case '/api/ops/export': return exportBackup(db, now, env);
         default: fail(404, 'ops_route_not_found');
       }
     }
@@ -333,7 +350,8 @@ function outboxConfiguration(env) {
   return { scope, url };
 }
 function outboxPolicyStatements(db, env, now) {
-  const config = outboxConfiguration(env); const statements = [];
+  const config = outboxConfiguration(env); const statements = [stmt(db, `UPDATE ops_outbox SET status='suppressed',last_error='measurement_not_paging_owner'
+    WHERE status IN ('pending','disabled','sending','suppressed') AND EXISTS(SELECT 1 FROM ops_events e WHERE e.event_id=ops_outbox.event_id AND e.check_id LIKE 'benefit:%')`)];
   // Existing business notify/monitor chains own paging by default. A service and
   // timer reporting the same turnover fault remain two observations, zero new
   // direct pages. Explicit scope=all is a Claude-reviewed deployment opt-in.
@@ -369,6 +387,7 @@ async function deliverOutbox(db, env) {
     const row = await stmt(db, `UPDATE ops_outbox SET status='sending',lease_token=?,lease_until_ms=?,attempts=attempts+1,last_attempt_ms=?
       WHERE event_id=(SELECT event_id FROM ops_outbox WHERE attempts<? AND next_attempt_ms<=? AND
       (status='pending' OR (status='sending' AND lease_until_ms<=?)) AND
+      NOT EXISTS(SELECT 1 FROM ops_events e WHERE e.event_id=ops_outbox.event_id AND e.check_id LIKE 'benefit:%') AND
       (?='all' OR EXISTS(SELECT 1 FROM ops_events e WHERE e.event_id=ops_outbox.event_id AND e.source='watchdog'))
       ORDER BY next_attempt_ms,event_id LIMIT 1)
       AND attempts<? AND (status='pending' OR (status='sending' AND lease_until_ms<=?)) RETURNING *`, token, now + 60000, now, MAX_ATTEMPTS, now, now, config.scope, MAX_ATTEMPTS, now).first();
@@ -428,5 +447,6 @@ export async function opsScheduled(controller, env, ctx) {
     stmt(db, 'DELETE FROM ops_check_state WHERE updated_ms<?', now - 90 * DAY),
     stmt(db, "UPDATE ops_outbox SET status='failed',last_error='lease_expired_after_retry_limit',lease_token=NULL WHERE status='sending' AND lease_until_ms<=? AND attempts>=?", now, MAX_ATTEMPTS),
   ]);
+  try { await benefitsRetain(db, env, now); } catch { /* Original cron remains independent. */ }
   await deliverOutbox(db, env);
 }

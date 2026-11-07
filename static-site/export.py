@@ -39,6 +39,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 from r2_export_proof import (EXPORT_RANGES, EXPORT_MANIFEST_WARN, build_export_manifest,
                              output_record, write_run_proof, EXPORT_TAB_NAMES)
+from delivery_evidence import (evidence_stage, capture_loaded, capture_identity)
 from util_atomic import atomic_write_text, atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 export.py 353 产物统一入口)
 from app.collector.fetchers import load_config  # noqa: E402
 from app.compute import signal_stats as sigstats  # noqa: E402
@@ -785,6 +786,7 @@ def write_json(path: Path, data):
     text = json.dumps(data, ensure_ascii=False, default=_json_default,
                       separators=(",", ":"))
     atomic_write_text(path, text)
+    capture_loaded(path.name, text.encode("utf-8"), output=True, raw=True, resolved_path=str(path.absolute()))
     if _EXPORT_RUN_OUTPUTS is not None:
         _EXPORT_RUN_OUTPUTS[path.relative_to(DATA_DIR).as_posix()] = output_record(text.encode("utf-8"))
     return len(text)
@@ -1142,12 +1144,15 @@ def write_industry_all_split(conn, cfg) -> tuple[dict, int, int]:
     return write_industry_split(conn, cfg, "all")
 
 
+@evidence_stage(data_root=lambda: ROOT, stage="publish",
+                chain_id="backtest_publish_consume", object_id="publication_proof_and_pending")
 def main():
     global _EXPORT_RUN_OUTPUTS
     _EXPORT_RUN_OUTPUTS = {}
+    capture_identity(attempt_id=os.environ.get("R2_EXPORT_RUN_ID"))
     # ab#39 增量导出：--incremental 开启（deploy.sh 传；手动跑不带 = 全量，行为不变）
     incremental = "--incremental" in sys.argv
-    cfg = load_config()
+    cfg = capture_loaded("indicators_config", load_config(), config=True)
     conn = get_conn()
     counts = {}
     manifest = None

@@ -89,7 +89,7 @@ function sliceDecl(src, name) {
 
 const APP_SYMBOLS = [
   "_OV_WINDOWS", "_OV_SURFACE_DAYS", "_OV_BT_BUY4", "_OV_SELL2",
-  "_ovRiskLevel", "_ovBucketNew", "_ovBucketAdd", "_ovRecentRowFiltered",
+  "_ovRiskLevel", "_ovValidNumber", "_ovDailyAssessment", "_ovBucketNew", "_ovBucketAdd", "_ovRecentRowFiltered",
   "_ovRolling", "_ovRoundHalfEven", "_ovDeriveDaily", "_ovTrim", "_ovTrimObj", "_ovAggregateRecent",
 ];
 const COMMON_SYMBOLS = ["_KELLY_FADE_MODE_PRESETS", "_tdsFadeModeById"];

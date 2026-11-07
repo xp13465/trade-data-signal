@@ -176,7 +176,7 @@
   function cancelRefresh() { if (state.job) state.job.controller.abort(); state.job = null; state.loadSeq += 1; clearTimer(); }
   function clearPrivate(message, style = '') {
     state.epoch += 1; state.loadSeq += 1; abortAll(); clearTimer(); state.job = null;
-    state.authorized = false; state.locked = true; state.token = ''; state.data = {}; state.errors = {};
+    state.authorized = false; state.locked = true; state.token = ''; state.data = {}; state.errors = {}; state.benefitCursor = '';
     state.records = []; state.recordMap.clear(); state.incidents = []; state.revisions = [];
     state.graphFocus = null; state.selectedRecord = null; state.edit = null; state.saving = false;
     state.hasStateError = false; state.lastUpdated = null; state.serverOffset = 0;
@@ -260,7 +260,7 @@
     clearTimer();
     const job = { controller: new AbortController(), seq: ++state.loadSeq, epoch: state.epoch };
     state.job = job; setBusy();
-    const paths = { state: '/api/ops/state', history: '/api/ops/history?limit=60', events: '/api/ops/events?limit=100', incidents: '/api/ops/incidents' };
+    const paths = { benefits: '/api/ops/benefits' + (state.benefitCursor ? '?study_after=' + encodeURIComponent(state.benefitCursor) : ''), state: '/api/ops/state', history: '/api/ops/history?limit=60', events: '/api/ops/events?limit=100', incidents: '/api/ops/incidents' };
     if (!state.data.knowledge || forceKnowledge) paths.knowledge = '/api/ops/knowledge';
     const keys = Object.keys(paths);
     try {
@@ -415,7 +415,43 @@
     return 'unknown';
   }
   function deliveryBadge(e) { const key = delivery(e); return badge(key === 'sent' ? 'ok' : key === 'pending' ? 'warning' : key === 'failed' ? 'critical' : 'unknown', { sent: '已投递', pending: '待投递 / 重试', failed: '投递失败', suppressed: '按策略不投递', disabled: '投递未启用', unknown: '投递未知' }[key]); }
+  function renderBenefits() {
+    const host = $('benefits-content'); host.replaceChildren();
+    const b = state.data.benefits;
+    if (state.errors.benefits || !b?.configured) { host.append(empty('收益观察未配置', state.errors.benefits || '启用功能并迁移私有数据库后显示；原采集继续运行。')); return; }
+    host.append(node('p', 'notice', '只做描述性比较，真实收益与归因尚未建立。登记、历史导入是人工声明；独立生产证据缺失时保持未就绪。'));
+    if (!list(b.studies).length) host.append(node('p', 'muted', '未登记观察窗口，当前不可比较。'));
+    for (const s of list(b.studies)) {
+      const c = s.comparison || {}, panel = node('section', 'panel');
+      panel.append(node('h3', '', s.study_id + ' · ' + ({ real: '真实测量', synthetic: '合成测量', unknown: '类型未知' }[s.measurement_kind] || '类型未知') + ' · ' + (c.status === 'ready' ? '描述性比较就绪' : '未就绪')));
+      panel.append(node('p', 'small muted', '登记：' + s.registration_strength + '；证据：' + s.evidence_strength + '；窗口排除上线当日，取最近 10 前 / 10 后实际会话。'));
+      const rows = ['before', 'after'].map(k => { const t = c[k]?.raw_totals || c[k]?.raw_totals_partial, r = c[k]?.rates; return [k === 'before' ? '上线前' : '上线后', [list(s[k]?.days)[0]?.date, list(s[k]?.days).at(-1)?.date].filter(Boolean).join(' 至 '), t?.denominator ?? 'unknown', t ? t.success + ' / ' + t.failure + ' / ' + t.unknown : 'unknown', r ? (r.known_outcome_coverage * 100).toFixed(1) + '%' : 'unknown', r ? (r.success_lower * 100).toFixed(1) + '%–' + (r.success_upper * 100).toFixed(1) + '%' : 'unknown']; });
+      panel.append(table(['窗口', '会话', '分母', '成功 / 失败 / 未知', '已知覆盖', '成功逻辑区间'], rows, '待采样'));
+      const delta = c.descriptive_change?.success_rate_change_percentage_points_bounds;
+      panel.append(node('p', '', delta ? '成功率变化区间：' + delta.map(x => x.toFixed(2)).join(' 至 ') + ' 个百分点；不能自动归因。' : '缺项：' + list(c.not_ready_reasons).join('；')));
+      panel.append(button('版本、混杂因素与完整比较', () => showGeneric('收益证据', s))); host.append(panel);
+    }
+    if (state.benefitCursor) host.append(button('返回首批观察窗口', () => { state.benefitCursor = ''; refresh(); }));
+    if (b.next_study_after) host.append(button('更多观察窗口', () => { state.benefitCursor = b.next_study_after; refresh(); }));
+    const chainNames = { market_signal_freeze_plan: '信号、冻结与计划', backtest_publish_consume: '回测、发布与消费', backup_isolated_restore: '备份与隔离恢复' };
+    const strengths = { verified: '已验证', partial: '部分证据', unknown: '未知' };
+    host.append(table(['链 / 会话', '成功 / 失败 / 未知', '证据强度', '预期', '截止时间', ''], list(b.records).map(r => [append(node('div'), node('strong', '', chainNames[r.chain_id] || '交付链'), node('div', 'small muted', r.session_date), node('div', 'small muted', { real: '真实测量', synthetic: '合成 · 不计真实收益', unknown: '类型未知 · 不可比较' }[r.measurement_kind] || '类型未知 · 不可比较')), r.evidence_conflict ? '结果冲突（已知失败 ' + (r.conflict_evidence?.failure ?? '未知') + '）' : [r.success, r.failure, r.unknown].map(x => x ?? '未知').join(' / '), r.evidence_conflict ? '证据冲突 · 不可比较' : strengths[r.strength] || '未知', r.expected ?? '未知', time(r.deadline_at), button('证据详情', () => showGeneric('交付证据与逻辑槽', r))]), '暂无可保存的交付证据'));
+    const details = node('details', 'panel'); details.append(node('summary', '', '登记窗口 / 导入历史声明'));
+    details.append(node('p', 'small muted', '粘贴 benefits-api 约定的 JSON。不可读取 URL 或文件；登记身份不可修改，导入不会自动升级为生产证明。私有导出包含保留证据。'));
+    const form = node('form', 'benefits-form'), kind = document.createElement('select'); kind.setAttribute('aria-label', '收益登记类型'); kind.append(new Option('登记窗口', 'studies'), new Option('导入历史声明', 'import'));
+    const input = document.createElement('textarea'); input.rows = 6; input.maxLength = 250000; input.setAttribute('aria-label', '收益登记 JSON'); input.autocomplete = 'off'; input.spellcheck = false;
+    const submit = node('button', 'button', '保存私有声明'); submit.type = 'submit';
+    form.append(kind, input, submit); form.addEventListener('submit', async event => {
+      event.preventDefault(); if (state.saving || !state.authorized) return;
+      let value; try { value = JSON.parse(input.value); } catch { toast('JSON 无法解析'); return; }
+      state.saving = true; clearTimer(); submit.disabled = true;
+      try { await request('/api/ops/benefits/' + kind.value, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ops-Intent': 'update' }, body: JSON.stringify(value) }); input.value = ''; toast('声明已保存，证据强度与就绪状态另行核验。'); }
+      catch (e) { if (state.authorized) toast(errorMessage(e)); }
+      finally { state.saving = false; submit.disabled = false; if (state.authorized) refresh(); }
+    }); details.append(form); host.append(details);
+  }
   function renderHistory() {
+    renderBenefits();
     const runs = list(state.data.history?.runs).filter(matches);
     const rows = runs.map(r => [append(node('div'), button(r.snapshot_id || '采集记录', () => showGeneric('采集记录', r), 'link-button')), time(r.collected_at), time(r.received_at), countText(r.counts), Number.isFinite(r.duration_ms) ? r.duration_ms + ' ms' : 'unknown']);
     $('history-content').replaceChildren(table(['快照 ID', '采集时间', '接收时间', '结果分布', '耗时'], rows, '尚无采集历史'));

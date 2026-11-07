@@ -9,9 +9,22 @@ on:
       - 'static-site/admin/ops*'
       - 'static-site/sw.js'
       - 'scripts/ops_monitor.py'
+      - 'scripts/delivery_evidence.py'
+      - 'scripts/overfit_monitor.py'
+      - 'scripts/signal_kelly_backtest.py'
+      - 'scripts/nextday_plan_generator.py'
+      - 'scripts/r2_export_proof.py'
+      - 'scripts/backup_db.sh'
+      - 'scripts/verify_backup.sh'
+      - 'app/compute/signals.py'
+      - 'static-site/export.py'
+      - 'static-site/app.js'
+      - 'static-site/app.min.js'
       - 'scripts/gen_schedule_stats.py'
       - 'docs/deploy/systemd-units-20260912.md'
       - 'scripts/tests/test_ops_monitor*'
+      - 'scripts/tests/test_delivery_evidence*'
+      - 'scripts/tests/test_overfit_assessment*'
       - 'docs/ops/architecture/**'
       - 'package*.json'
       - '.github/workflows/ops-monitoring-checks.yml'
@@ -23,9 +36,22 @@ on:
       - 'static-site/admin/ops*'
       - 'static-site/sw.js'
       - 'scripts/ops_monitor.py'
+      - 'scripts/delivery_evidence.py'
+      - 'scripts/overfit_monitor.py'
+      - 'scripts/signal_kelly_backtest.py'
+      - 'scripts/nextday_plan_generator.py'
+      - 'scripts/r2_export_proof.py'
+      - 'scripts/backup_db.sh'
+      - 'scripts/verify_backup.sh'
+      - 'app/compute/signals.py'
+      - 'static-site/export.py'
+      - 'static-site/app.js'
+      - 'static-site/app.min.js'
       - 'scripts/gen_schedule_stats.py'
       - 'docs/deploy/systemd-units-20260912.md'
       - 'scripts/tests/test_ops_monitor*'
+      - 'scripts/tests/test_delivery_evidence*'
+      - 'scripts/tests/test_overfit_assessment*'
       - 'docs/ops/architecture/**'
       - 'package*.json'
       - '.github/workflows/ops-monitoring-checks.yml'
@@ -62,13 +88,15 @@ jobs:
       - run: python3 ops/monitoring/build_baseline.py --check
       - run: npm run ops:types -- --check
       - run: python3 ops/monitoring/tests/smoke_local.py
+      - run: python3 ops/monitoring/tests/smoke_benefits_pipeline.py
       - run: python3 scripts/check_unit_registry_drift.py --quiet
       - run: python3 docs/ops/architecture/tools/build_catalog.py --check
       - run: python3 docs/ops/architecture/tools/check_knowledge_base.py
       - name: Complete scripts regression
         run: |
           ops_test_status=0
-          python3 -m pytest -q scripts/tests/ --junitxml="$RUNNER_TEMP/ops-scripts-tests.xml" || ops_test_status=$?
+          # Avoid expanded subprocess locals (including inherited env) in failed traces.
+          python3 -m pytest -q scripts/tests/ --tb=short --junitxml="$RUNNER_TEMP/ops-scripts-tests.xml" || ops_test_status=$?
           python3 ops/monitoring/report_ci_tests.py "$RUNNER_TEMP/ops-scripts-tests.xml"
           exit "$ops_test_status"
 

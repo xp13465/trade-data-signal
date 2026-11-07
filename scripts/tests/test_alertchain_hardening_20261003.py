@@ -143,7 +143,8 @@ def test_brief_push_failure_produces_alert(tmp_path):
 
     实跑（无 --dry-run）路径仍写 latest.md——写路径由
     test_184_notify_dryrun_gate_20261007.py 以打桩方式覆盖零外发验证。"""
-    env = dict(os.environ, REPO=str(tmp_path))
+    # This fixture asserts an untagged subject; caller machine labels are separate tests.
+    env = dict(os.environ, REPO=str(tmp_path), TRADE_HOST_TAG="")
     wrapper = _setup_wrapper_tmp(tmp_path)
     r = subprocess.run(["bash", str(wrapper), "--dry-run"], env=env,
                        capture_output=True, text=True, timeout=120)

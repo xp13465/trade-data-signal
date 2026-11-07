@@ -1,7 +1,7 @@
 {
   "reconciliation_version": 1,
   "baseline_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
-  "generated_at": "2026-11-07T14:33:07.514026+08:00",
+  "generated_at": "2026-11-07T21:04:05+08:00",
   "scope": "cloud systemd source declarations vs sampled runtime names, calendar literals and sanitized script basenames only; local/cron/CI coverage separately documented",
   "comparisons": [
     {

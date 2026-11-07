@@ -1,6 +1,10 @@
 """Pure export inventory and per-run local output proof. No network/DB/S3 credentials."""
 import hashlib, json, os
 from pathlib import Path
+try:
+    from .delivery_evidence import evidence_stage, capture_identity, capture_loaded, validate_run_proof
+except ImportError:
+    from delivery_evidence import evidence_stage, capture_identity, capture_loaded, validate_run_proof
 EXPORT_RANGES = ["3m", "6m", "1y", "3y", "5y", "all"]
 EXPORT_MANIFEST_WARN = {
     "signal_kelly_backtest.json": "subprocess 失败不阻塞 export, 前端 fallback null(设计内可缺)",
@@ -54,12 +58,19 @@ def build_export_manifest() -> dict[str, str]:
         m[f"{k}.json"] = "公募基金 queries 薄包装(public_fund.db 直连无容错, export 跑完必生成)"
     return m
 
+def _proof_data_root():
+    return Path(os.environ.get("REPO", str(Path(__file__).absolute().parent.parent)))
+
+
 def output_record(payload):
     return {"size": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
 
+@evidence_stage(data_root=lambda: _proof_data_root(), stage="publish",
+                chain_id="backtest_publish_consume", object_id="publication_proof_and_pending")
 def write_run_proof(path, run_id, static_dir, outputs):
     if not path or not run_id:
         return
+    capture_identity(attempt_id=run_id)
     root = Path(static_dir).resolve()
     body = {"version": 1, "run_id": run_id, "static_dir": str(root),
             "outputs": {k: v for k, v in outputs.items() if k in build_export_manifest()}}
@@ -71,6 +82,20 @@ def write_run_proof(path, run_id, static_dir, outputs):
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(body, stream, ensure_ascii=False)
         os.replace(tmp, target)
+        # Proof records only successful current-run byte writes; no R2/browser claim.
+        try:
+            if __package__:
+                from .delivery_evidence import capture_loaded
+            else:
+                from delivery_evidence import capture_loaded
+            capture_loaded("export_run_proof", body, output=True)
+            validate_run_proof(body)
+        except Exception as exc:
+            import sys
+            try:
+                print(f"[delivery-evidence] metadata_failure: {type(exc).__name__}", file=sys.stderr)
+            except Exception:
+                pass
     finally:
         tmp.unlink(missing_ok=True)
 

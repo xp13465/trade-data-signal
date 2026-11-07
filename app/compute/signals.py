@@ -73,7 +73,9 @@ Per-index buy 主买点 RSI 阈值收紧（2026-07-08，配置化）：`config/i
 详见 `22-buy收紧RSI回测-21个不建议.md`。其他 57 品类 buy 不动（基线 RSI 上穿 30），
 后续逐品类验证后各自加方案。reason 格式改为 `RSI上穿25(...)`（标注实际阈值）。
 """
+from pathlib import Path
 import pandas as pd
+from scripts.delivery_evidence import (evidence_stage, capture_loaded, capture_event, capture_signal_visibility, capture_sql_rows, capture_connection)
 
 from .normalize import load_index_amount, load_index_close, load_index_high, load_metric_value, load_score_value
 from ..collector.fetchers import load_config
@@ -156,6 +158,7 @@ def compute_band_signal(index_id: str, params: dict) -> list[dict]:
         "ORDER BY date DESC",
         (index_id,),
     ).fetchall()
+    capture_sql_rows(conn, "index_daily_band", rows, query_scope={"index_id": index_id, "columns": ["date", "close"]})
     conn.close()
     if len(rows) < 60:
         return []
@@ -284,6 +287,7 @@ def _load_index_low(index_id: str) -> pd.Series:
         "SELECT date, low FROM index_daily WHERE index_id=? AND low IS NOT NULL ORDER BY date",
         (index_id,),
     ).fetchall()
+    capture_sql_rows(conn, "index_daily_low", rows, query_scope={"index_id": index_id, "columns": ["date", "low"]})
     conn.close()
     if not rows:
         return pd.Series(dtype=float)
@@ -310,6 +314,7 @@ def _load_index_ohlc_amount(index_id: str) -> tuple:
         "WHERE index_id=? ORDER BY date",
         (index_id,),
     ).fetchall()
+    capture_sql_rows(conn, "index_daily_ohlc", rows, query_scope={"index_id": index_id, "columns": ["date", "close", "high", "low", "amount"]})
     conn.close()
     if not rows:
         empty = pd.Series(dtype=float)
@@ -465,6 +470,7 @@ def _load_cross_score() -> pd.Series:
     rows = conn.execute(
         "SELECT date, value FROM score_daily WHERE score_id='cross_market' ORDER BY date"
     ).fetchall()
+    capture_sql_rows(conn, "cross_score_rows", rows, query_scope={"score_id": "cross_market", "columns": ["date", "value"]})
     conn.close()
     if not rows:
         return pd.Series(dtype=float)
@@ -939,9 +945,11 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
     return out
 
 
+@evidence_stage(data_root=lambda: Path(__file__).absolute().parents[2], stage="signal",
+                chain_id="market_signal_freeze_plan", object_id="signal_daily", return_output=True)
 def compute():
-    cfg = load_config()
-    cross = _load_cross_score()
+    cfg = capture_loaded("indicators_config", load_config(), config=True)
+    cross = capture_loaded("cross_score", _load_cross_score())
     buy_aux_filters = _load_buy_aux_filters(cfg)  # per-index buy_aux 增强（如 sw_801110 RSI上穿40）
     buy_filters = _load_buy_filters(cfg)  # per-index buy 主买点 RSI 阈值收紧（如 kc50 RSI上穿25）
     sell_no_trend_filters = _load_sell_no_trend_filters(cfg)  # per-index 卖点去趋势过滤（如 usdcnh 干预市）
@@ -1420,7 +1428,7 @@ def compute():
 
     # B 扩展：全球指标 + 情绪分数 signals（value 当 close，按 09 回测推荐规则 + B1+S1）
     for mid in GLOBAL_METRIC_IDS:
-        value = load_metric_value(mid)
+        value = capture_loaded("daily_metric:" + mid, load_metric_value(mid))
         if value.empty:
             continue
         skip_buy = mid in _SKIP_BUY_IDS  # usdcnh 买点失效（干预市）
@@ -1430,7 +1438,7 @@ def compute():
                                               buy_aux_filter=buy_aux_filters.get(f"g.{mid}"),
                                               sell_no_trend_filter=sell_ntf))
     for scid in SCORE_IDS:
-        value = load_score_value(scid)
+        value = capture_loaded("score_daily:" + scid, load_score_value(scid))
         if value.empty:
             continue
         signals.extend(_compute_value_signals(value, f"s.{scid}", skip_buy=(scid == "a_sentiment"),
@@ -1439,8 +1447,12 @@ def compute():
     return signals
 
 
+@evidence_stage(data_root=lambda: Path(__file__).absolute().parents[2], stage="signal",
+                chain_id="market_signal_freeze_plan", object_id="signal_daily")
 def store(signals) -> int:
+    capture_loaded("signal_daily", signals)
     conn = get_conn()
+    capture_connection(conn)
     # T1 历史行改写审计(2026-10-14)：全表 DELETE+重算前先快照历史行(date < 运行日)，
     # 重算后再快照做 diff —— 历史行消失/出现即落审计表 + 告警(不阻断重算)。
     # 根因：上游 index_daily 被整段重写后，本全表重算吐不出原历史 buy 行 → 历史成交静默消失
@@ -1448,8 +1460,10 @@ def store(signals) -> int:
     from ..history_audit import snapshot_signal_daily_history, audit_signal_daily_store, today_ymd
     run_date = today_ymd()
     hist_before = set()
+    audit_available = False
     try:
         hist_before = snapshot_signal_daily_history(conn, run_date)
+        audit_available = True
     except Exception as e:  # noqa: BLE001
         print(f"[history-audit] signal_daily 历史行快照(前)失败(不阻断): {type(e).__name__} {e}")
     conn.execute("DELETE FROM signal_daily")  # 信号逻辑变更，清空重算
@@ -1461,6 +1475,10 @@ def store(signals) -> int:
         signals,
     )
     conn.commit()
+    capture_loaded("signal_daily_write_payload", signals, output=True, quality="weak",
+                   snapshot_scope="committed_write_payload_not_table_snapshot")
+    capture_event("signal_committed", arrival_at="unknown", audit_before_available=audit_available)
+    capture_signal_visibility(signals, hist_before, audit_available)
     if hist_before:
         try:
             hist_after = snapshot_signal_daily_history(conn, run_date)

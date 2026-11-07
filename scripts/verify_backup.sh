@@ -621,5 +621,15 @@ if [ "$VERIFY_OK" != "1" ] || [ "$PF_RC" -ne 0 ]; then
       $DRY_FLAG 2>&1 | tee -a "$LOG" || true
 fi
 
+# C4 only consumes an explicitly selected manifest (+ trusted digest), never
+# treats successful DB download/integrity as proof of paired JSON restoration.
+# The target is this run's fresh isolated /tmp child; trap removes it afterwards.
+# No manifest => unknown/not_verified receipt. Preserve original RC/alert behavior.
+if [ "${OPS_DELIVERY_EVIDENCE_ENABLED:-0}" = "1" ]; then
+  "$PY" "$GIT_REPO/ops/monitoring/benefit_restore.py" \
+    --data-root "$REPO" --target "$TMPDIR/benefit-restore" >> "$LOG" 2>&1 \
+    || echo "⚠ C4 restore/evidence failure (原校验退出码不变；成套恢复未获证明)" | tee -a "$LOG"
+fi
+
 echo "=== verify_backup.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$RC ===" | tee -a "$LOG"
 exit "$RC"

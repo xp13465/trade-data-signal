@@ -273,3 +273,50 @@ risk_score = 0.40×D1 + 0.25×D2 + 0.20×D3 + 0.15×D4
 - 回测口径近60滚动胜率 42.9%(方案 §6 预测 40-46% ✓); 实盘口径近60滚动 59.4%(50-65% 合理 ✓)
 - 综合风险分当前 31(yellow); daily 730日等级分布 green/yellow/red 均有
 - 预警触发逻辑 5 条逐条单测通过; notify.py dry-run 链路通(email/feishu dry-run, telegram 占位跳过)
+
+## 8. MR-01/MR-02 评估状态合同（2026-11-07，实现交 Claude 审合部署）
+
+本节补充当前实现合同；上文为历史设计/落地记录。首页卡片只显示两条曲线，**没有左上综合分大数字**。`current` 是后端预警使用的固定60日四维合成指标，历史 `daily*` 是所选滚动窗口的双侧胜率差映射，两者不能混称。
+
+### 8.1 current 与通知
+
+- 四维均为有效有限数值时，原公式 `0.40×D1 + 0.25×D2 + 0.20×D3 + 0.15×D4`、逐维贡献舍入、总分舍入及阈值全部保持。**0 是有效数值**；`None`、布尔、非数、NaN、Infinity 为无效证据。不恢复已移除的 `min_n` 限制。
+- `assessment_status`: 四维齐全=`complete`；部分有效=`partial`；全缺=`unavailable`。`missing_dims` 为按 d1..d4 排序的缺维列表。`coverage` 为有效维度的**权重覆盖比例（0..1）**，不是信号样本覆盖率。
+- 有缺维时 `risk_score=null`、`level=gray`；`partial_score` 为已知维度原权重贡献之和（不重新归一化），全缺时为null。`weighted` 的缺维值为null，有效零仍为0。不能把 partial_score 当完整综合分或用 `risk_score || 0` 补零。
+- `as_of` 是本次输入快照的 `latest_signal` 日期（YYYYMMDD），不是生成墙钟时间，也不承诺每个维度都有当日独立实盘观测；`generated_at` 仍单列。
+- `oos_fail`（D2≥60）和 `param_spike`（D3≥90）保留原类型/级别/阈值，即使综合分不可评估也照常产生。通知 subject/body 与 alert JSON 同报状态、缺维、权重覆盖和数据截至；已知贡献明确标为“非综合分”。测试只生成body，不调用通知发送。
+- 综合告警 `overfit_high` 仍为≥60；**60分仍是黄色等级**。`risk_climbing` 继续按已有近5个有效日点序列判断，不把兼容缺项40当观测；current缺维时不宣称综合风险持续攀升。该历史日序列不是逐日四维综合分。
+
+### 8.2 daily、滚动上线与风险日期消费者
+
+适用于 raw、filtered、by_k、filtered_by_k，以及 `daily` / `daily_by_win` / `daily_by_dim` 和 recent/S06 前端组集产物：
+
+| 双侧输入 | 兼容存储值 | assessment_status | 缺项字段 | 绘图/统计消费 |
+|---|---|---|---|---|
+| 回测、实盘均有效（含0，n=1也有效） | 原分数、level、win_rate逐字段不变 | complete | missing_actual=false, missing_backtest=false | 原观测 |
+| 有回测，实盘缺失/非法 | risk_score=40, level=yellow | unavailable | missing_actual=true | gap；图题/tooltip“缺实盘数据，风险分不可评估” |
+| 日期有实盘，回测缺失/非法 | risk_score=null, level=null, win_rate=null | unavailable | missing_backtest=true | gap；“无回测对照” |
+| 回测序列完全不存在（含卖类） | 原空序列 | 无点 | 不凭空加点 | 保留“无回测对照，风险分不适用” |
+
+每点 `missing_reason` 为缺项代码数组（`missing_backtest` / `missing_actual`），`as_of=date`。双缺点若有实盘日期占位则两项都报缺；日期集合仍按既有规则（有效回测日期∪实盘日期）生成，不补造交易日。
+
+新前端读到**旧JSON无状态字段**时，只从**当前选中的bank、维度、实际使用的统计窗**取同日期的 `accuracy.rolling.{backtest,actual}` 双侧证据。例如daily回退60日，就用60日佐证；类型/评级子集不能用total代证，filtered/K档不能用raw代证。胜率是有限数值才能证明有效，**不能根据risk_score==40猜缺失**。确实有效的40照常画。缺少对应rolling容器时状态为unavailable、缺侧布尔为null、`missing_reason=[missing_rolling_evidence]`，表示缺少判定证据，不能断言具体哪侧缺失。
+
+风险日期、均值、趋势、计数等其它消费者应检查 `assessment_status=complete`、两侧缺失标记均false且risk_score为有限数值，才计为有效观测。旧数据需按上述rolling规则证明；兼容40不是有效性凭证。空序列、全不可评估、末端缺项各有可见提示；有有效段时缺项处断开，内部缺项和尾段都说明原因，SVG与ECharts兜底一致。旧前端读取新JSON仍可能继续画40，滚动上线应先发布新前端；本变更不生成app.min或改版本串，由集成人统一构建。
+
+### 8.3 冻结边界与验证
+
+既有**曲线颜色**保持绿≤30、黄>30至60、红>60；**current等级**保持绿<30、黄30至60、红>60；综合预警仍≥60。这是三个已有边界，不借文案同步改变行为。曲线参考线标签同步为“黄区>30 / 红区>60”。全部双侧有效点及完整四维公式保持，缺项40的存储数值保持；不改CSS/布局、不新增大数字卡。
+
+专项复验命令（只使用合成/临时fixture，实际headless Chrome禁网；可选重放旧报告中公开市场快照，不读取账户或用户信息）：
+
+```bash
+python3 -m unittest scripts/tests/test_overfit_assessment_20261107.py
+python3 scripts/tests/risk-assessment-browser-20261107.py
+# 原21个卡片场景+6个默认S06/current场景重跑当前源码，并新增修后正负控：
+python3 scripts/tests/risk-assessment-browser-20261107.py --width 390 --legacy-dir /tmp/codex-reports/ops-benefit-validation-20261107
+python3 scripts/tests/risk-assessment-browser-20261107.py --width 1440 --legacy-dir /tmp/codex-reports/ops-benefit-validation-20261107
+node --check static-site/app.js
+```
+
+浏览器通过本机已有websocket-client调用本地Chrome DevTools，覆盖设备视口为390或1440（不把Chrome CLI最小500宽当390），页面CSP与Network.setBlockedURLs禁网。执行当前源app.js的实际card、组集、SVG及hover代码；ECharts仅检查真实fallback生成的option，未加载线上ECharts包。测试通过不是生产部署/通知送达证明，也不是业务ROI。最终构建、Claude独立复核及生产安装/上线由父任务完成。

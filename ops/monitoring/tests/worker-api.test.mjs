@@ -268,8 +268,9 @@ test('retention keeps last complete head evidence beyond30d, prunes other payloa
 }));
 
 function updateValue(revision = 0) { return { expected_revision: revision, workflow_status: '观察中', root_cause_state: 'unknown', remediation_state: 'fixture', deployment_state: 'not_deployed', verification_state: 'pending', observation_status: 'pending', note: 'Local fixture only', evidence_url: '' }; }
-test('manual overrides optimistic CAS/audit, immutable18 baseline issues, no auto closure or CSRF', () => fixture(async f => {
-  const before = (await f.call('/incidents')).body; assert.equal(before.incidents.length, 18);
+test('manual overrides optimistic CAS/audit, complete immutable baseline issues, no auto closure or CSRF', () => fixture(async f => {
+  const before = (await f.call('/incidents')).body;
+  assert.deepEqual(before.incidents.map(i => i.id).sort(), BASELINE.records.filter(r => r.kind === 'incident').map(r => r.id).sort());
   const item = before.incidents[0]; const path = '/incidents/' + encodeURIComponent(item.id); const headers = { 'X-Ops-Intent': 'update', Origin: 'https://example.invalid' };
   assert.equal((await f.call(path, { role: 'ingest', value: updateValue(), headers })).status, 403);
   assert.equal((await f.call(path, { role: 'session', value: updateValue(), headers: { ...headers, Origin: 'https://evil.invalid' } })).status, 403);

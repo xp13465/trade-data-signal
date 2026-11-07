@@ -80,6 +80,7 @@ class Settings:
     command_timeout_seconds: int = 3
     schedule_max_age_seconds: int = 1800
     publication_head_url: str | None = None
+    benefits_enabled: bool = False
 
     @classmethod
     def load(cls, path):
@@ -87,6 +88,8 @@ class Settings:
         if not isinstance(obj, dict) or set(obj) - set(cls.__dataclass_fields__):
             raise ContractError('config keys')
         cfg = cls(**obj)
+        if type(cfg.benefits_enabled) is not bool:
+            raise ContractError('benefits flag')
         if not isinstance(cfg.collector_id, str) or not re.fullmatch(r'[a-z0-9_-]{1,48}', cfg.collector_id):
             raise ContractError('collector id')
         for key in ('code_root', 'data_root', 'output_dir', 'secret_file'):
@@ -817,6 +820,75 @@ def atomic_private_json(directory, filename, obj):
             pass
 
 
+def _benefits_worker(pipe, data_root, output_dir, now):
+    # Dedicated child bounds even stalled filesystem reads/SQLite writes. It never
+    # receives credentials, imports producers, or performs network operations.
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from ops.monitoring import benefits
+        result = benefits.sample(data_root, now=datetime.fromisoformat(now), seconds=0.8)
+        benefits.persist(output_dir, result)
+        checks = [benefits.wire(record) for record in result['records']]
+        if not checks:
+            checks = [check('monitor:benefits', 'monitor', 'unknown',
+                            'Delivery policy or inventory unavailable; observations stored locally',
+                            {'configured': False})]
+        encoded = json.dumps(checks, allow_nan=False).encode()
+        if len(encoded) > 24 * 1024:
+            raise LimitError('benefit result size')
+        pipe.send_bytes(encoded)
+    except Exception:
+        pipe.send_bytes(b'[]')
+    finally:
+        pipe.close()
+
+
+def benefits_bounded(cfg, budget):
+    seconds = budget.remaining(2)
+    stop = budget.clock() + seconds
+    if seconds < 0.2:
+        raise LimitError('benefits skipped for upload reserve')
+    context = multiprocessing.get_context('spawn')
+    receive, send = context.Pipe(duplex=False)
+    proc = context.Process(target=_benefits_worker,
+                           args=(send, cfg.data_root, cfg.output_dir, utc_now()))
+    try:
+        proc.start()
+        send.close()
+        if receive.poll(max(0, stop - budget.clock() - 0.15)):
+            return json.loads(receive.recv_bytes(24 * 1024))
+        return []
+    finally:
+        if proc.pid is not None:
+            proc.join(timeout=0.01)
+            if proc.is_alive():
+                proc.kill()
+                proc.join(timeout=0.1)
+        receive.close()
+        send.close()
+
+
+def append_benefits(snapshot, cfg, budget):
+    try:
+        checks = benefits_bounded(cfg, budget)
+    except Exception:
+        checks = []
+    if not checks:
+        checks = [check('monitor:benefits', 'monitor', 'unknown',
+                        'Delivery evidence unavailable within collection budget')]
+    for value in checks:
+        # Keep original checks and optional publication check capacity. New
+        # evidence can never displace operational coverage or prevent upload.
+        if len(snapshot['checks']) >= MAX_CHECKS - 1:
+            break
+        candidate = dict(snapshot, checks=snapshot['checks'] + [value])
+        try:
+            validate_snapshot(candidate)
+        except (ContractError, LimitError, ValueError, TypeError):
+            continue
+        snapshot['checks'].append(value)
+
+
 def run_once(cfg, collect_only=False, test_local_http=False):
     total_budget = Budget(cfg.total_timeout_seconds)
     collection_budget = Budget(cfg.total_timeout_seconds)
@@ -824,6 +896,8 @@ def run_once(cfg, collect_only=False, test_local_http=False):
     collection_budget.deadline = total_budget.deadline if collect_only else total_budget.deadline - 8
     collector = Collector(cfg, budget=collection_budget)
     snapshot = collector.collect()
+    if cfg.benefits_enabled:
+        append_benefits(snapshot, cfg, collection_budget)
     if cfg.publication_head_url and not collect_only and total_budget.deadline - total_budget.clock() > 8.5:
         try:
             head_budget = Budget(2)

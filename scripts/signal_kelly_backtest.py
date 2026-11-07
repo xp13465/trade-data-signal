@@ -53,6 +53,7 @@ from simulate_trade import (  # noqa: E402
 )
 from app.db import get_conn  # noqa: E402
 from app.collector.nav_placeholder_defense import is_placeholder_row, trading_gap_between  # noqa: E402
+from delivery_evidence import (evidence_stage, capture_loaded, capture_event, capture_write, validate_backtest_outputs, capture_sql_rows)
 from util_atomic import atomic_write_text, atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-21 同类错误面根治)
 # #254 就绪闸判定器(单一事实源): 逐码分类后的豁免匹配/verdict 计算与 decider CLI 同一函数(零漂移)
 from kelly_intraday_gate_decider import (  # noqa: E402
@@ -202,7 +203,7 @@ def _load_signal_stats():
     ]:
         if os.path.exists(p):
             with open(p, encoding="utf-8") as f:
-                return json.load(f)
+                return capture_loaded(os.path.basename(p), json.load(f), resolved_path=os.path.abspath(p))
     raise FileNotFoundError("signal_stats.json 未找到 (static-site/data/ 和 data/ 都没有)")
 
 
@@ -212,7 +213,7 @@ def _load_board_etf_map():
     if not os.path.exists(p):
         raise FileNotFoundError(f"board_etf_map.json 未找到: {p}")
     with open(p, encoding="utf-8") as f:
-        return json.load(f)
+        return capture_loaded(os.path.basename(p), json.load(f), resolved_path=os.path.abspath(p))
 
 
 # ── 换标漂移修复: 每信号事件 ETF 选择冻结落盘(#58) ────────────────────────────
@@ -293,6 +294,7 @@ def _load_etf_freeze():
     try:
         with open(p, encoding="utf-8") as f:
             data = json.load(f)
+        capture_loaded("signal_kelly_etf_freeze", data, resolved_path=os.path.abspath(p))
         if isinstance(data, dict):
             return data
     except (json.JSONDecodeError, OSError):
@@ -300,7 +302,10 @@ def _load_etf_freeze():
     return {}
 
 
+@evidence_stage(data_root=lambda: ROOT, stage="freeze",
+                chain_id="market_signal_freeze_plan", object_id="signal_kelly_etf_freeze")
 def _save_etf_freeze(freeze):
+    capture_loaded("signal_kelly_etf_freeze", freeze)
     """写冻结查找表(pre-existing 2026-09-18, 2026-09-21 补齐原子写缺件):
 
     原实现: 固定 tmp 名(p + '.tmp', 并发写会碰撞) + 无 flush/fsync(replace 可能指到
@@ -309,7 +314,7 @@ def _save_etf_freeze(freeze):
     """
     p = _etf_freeze_path()
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    atomic_write_json(p, freeze, separators=(",", ":"))
+    capture_write(atomic_write_json, p, freeze, separators=(",", ":"))
 
 
 # 2026-09-24 告警降噪 P1: 冻结缺键分级阈值(>=10 大事件 SEVERE / <10 小缺口降 WARN)。
@@ -783,6 +788,8 @@ def _resolve_etf(date, iid, sig, best_etf, freeze, latest_signal_date=None):
     key = _signal_key(date, iid, sig)
     frozen = freeze.get(key)
     if frozen is not None:
+        if date == latest_signal_date:
+            capture_event("freeze_resolution", key=key, state="exact", latest_signal_date=latest_signal_date)
         return frozen, True
     # 信号类型漂移兜底(2026-09-22 根治): 精确键(date|index|signal)缺失时, 若该 (date, index)
     # 在冻结表有其他 signal 变体(如现值 buy_aux 但冻结时是 buy), 按 _SIG_RANK 取最高者返回——
@@ -790,6 +797,8 @@ def _resolve_etf(date, iid, sig, best_etf, freeze, latest_signal_date=None):
     # 真缺失((date,index) 从没冻结过)不受影响, 仍走下方防御闸拒绝补冻 + 告警。
     fb = _freeze_fallback(freeze, date, iid)
     if fb is not None:
+        if date == latest_signal_date:
+            capture_event("freeze_resolution", key=key, state="fallback", latest_signal_date=latest_signal_date)
         return fb, True
     be = best_etf.get(iid)
     if not be:
@@ -799,6 +808,7 @@ def _resolve_etf(date, iid, sig, best_etf, freeze, latest_signal_date=None):
     # 直接返回 (None, False) 不计异常; 只有「有 ETF 可补冻但该信号日已过」才拒绝补冻记异常。
     # YYYYMMDD 字符串字典序比较即数值序, 勿转 datetime。
     if latest_signal_date is not None and date < latest_signal_date:
+        capture_event("freeze_resolution", key=key, state="historical_missing", latest_signal_date=latest_signal_date)
         _FROZEN_MISSING_EVENTS.add((date, iid, sig))
         return None, False
     # 冻结当前 best(补充 frozen_at 时间戳便于审计)
@@ -806,6 +816,7 @@ def _resolve_etf(date, iid, sig, best_etf, freeze, latest_signal_date=None):
     from datetime import datetime as _dt
     entry["frozen_at"] = _dt.now().strftime("%Y-%m-%d %H:%M")
     freeze[key] = entry
+    capture_event("freeze_resolution", key=key, state="created_in_memory", latest_signal_date=latest_signal_date)
     return entry, False
 
 
@@ -1023,6 +1034,7 @@ def _batch_load_etf_prices(etf_codes):
                 f"ORDER BY etf_code, date",
                 batch,
             ).fetchall()
+            capture_sql_rows(conn, "etf_daily", rows, query_scope={"codes": sorted(batch), "columns": ["etf_code", "date", "accum_nav", "open", "close"]})
             for code, date, nav, op, cl in rows:
                 nav_map[code][date] = nav
                 if op is not None:
@@ -2131,6 +2143,8 @@ def _build_outputs(quadrants):
                 for t in quadrants[quad_key][mode_key]
             ]
 
+    validate_backtest_outputs(output, trades_output, quadrants)
+
     # 6. 汇总打印
     print("\n=== 回测结果汇总 ===")
     for quad_key in QUADRANT_META:
@@ -2226,6 +2240,8 @@ def _build_unique_tables(quadrants):
     }
 
 
+@evidence_stage(data_root=lambda: ROOT, stage="backtest",
+                chain_id="backtest_publish_consume", object_id="backtest_ndo", return_output=True)
 def compute():
     """执行完整回测, 返回结果 dict。"""
     from datetime import timedelta
@@ -2243,6 +2259,7 @@ def compute():
     print("-> 加载 board_etf_map.json ...", flush=True)
     etf_map = _load_board_etf_map()
     best_etf = _build_best_etf(etf_map)
+    capture_loaded("board_etf_map", etf_map)
     print(f"   {len(best_etf)} 个指数有 track_score 第一名 ETF")
 
     # 换标漂移修复: 加载已固化的每信号事件 ETF 选择。board_etf_map 的 best 变更只影响新信号事件,
@@ -2287,6 +2304,11 @@ def compute():
     print("-> 加载 cyb 四档大盘状态(#69)...", flush=True)
     cyb_tiers = _load_market_tiers(conn, index_id='cyb')
     print(f"   {len(cyb_tiers)} 个交易日有 cyb 四档状态")
+    capture_sql_rows(conn, "signal_daily", buy_rows, query_scope={"signals": list(BUY_SIGNALS), "columns": ["date", "index_id", "signal"]})
+    capture_sql_rows(conn, "signal_daily_sell", sell_rows, query_scope={"signals": ["sell", "sell_stop_loss"], "columns": ["date", "index_id", "signal"]})
+    capture_loaded("market_state", (market_state, market_dates, market_tiers, cyb_tiers))
+    capture_loaded("backtest_config", {"buy_nextday": KELLY_BUY_NEXTDAY, "asof": KELLY_ASOF,
+                   "fees": _KELLY_FEE_CONFIG, "sell_modes": SELL_MODES}, config=True)
     conn.close()
     print(f"   {len(buy_rows)} 条买信号")
     # T2 冻结表孤儿买事件(观测, 默认只打印; 告警由 env 开启)
@@ -2349,8 +2371,10 @@ def compute():
     # 换标漂移修复: 持久化冻结查找表(含本轮新固化), 供下次回测保持历史成交固化。
     try:
         _save_etf_freeze(etf_freeze)
+        capture_event("freeze_persisted", count=len(etf_freeze))
         print(f"   ✓ 已固化 {len(etf_freeze)} 个信号事件 -> {_etf_freeze_path()}")
     except OSError as e:
+        capture_event("freeze_persist_failed", error_type=type(e).__name__)
         print(f"   ⚠ 冻结表写盘失败(不影响本次回测结果): {e}", file=sys.stderr)
 
     # 冻结分时点漂移根治(2026-09-18): 本轮回测拒绝补冻的历史信号事件(dev sync 拉新 DB 后冻结表
@@ -2727,7 +2751,7 @@ def _export_trades_parts(trades_data, trades_path):
         payload = json.dumps(shard, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         # codex-002 high: 分片原子写——同目录唯一 .tmp + flush + fsync + os.replace,
         # 防进程中断/并发写把半截 JSON 留在最终文件被前端 fetch 到(解析炸/旧数据混版)
-        atomic_write_text(os.path.join(parts_dir, name), payload)
+        capture_write(atomic_write_text, os.path.join(parts_dir, name), payload)
         return len(payload), n
 
     # 全量行按 (qk, mk) 分组引用(不拷贝行内容, 切片只筛引用)
@@ -2831,7 +2855,7 @@ def _export_unique_parts(parts_dir, recent_rows, recent_cut, by_year, grouped):
             return 0
         uniq = _build_unique_tables(quadrants)
         payload = json.dumps(uniq, ensure_ascii=False, separators=(",", ":"))
-        atomic_write_text(os.path.join(parts_dir, name), payload)
+        capture_write(atomic_write_text, os.path.join(parts_dir, name), payload)
         return len(payload)
 
     total_size = 0
@@ -2855,6 +2879,8 @@ def _export_unique_parts(parts_dir, recent_rows, recent_cut, by_year, grouped):
           f"{total_size / 1024:.1f} KB 累计)")
 
 
+@evidence_stage(data_root=lambda: ROOT, stage="backtest",
+                chain_id="backtest_publish_consume", object_id="backtest_parts_and_consumer")
 def main():
     parser = argparse.ArgumentParser(description="信号凯利回测")
     parser.add_argument("--output", default=None, help="输出 JSON 路径(默认 static-site/data/signal_kelly_backtest.json)")
@@ -2888,8 +2914,8 @@ def main():
             sys.exit(5)
         os.makedirs(out_dir, exist_ok=True)
         # 盘中档同原子写(2026-09-21 同类错误面: 原 open(w)+json.dump 被杀留半截)
-        atomic_write_text(intraday_trades_path, json.dumps(trades_data, ensure_ascii=False, separators=(",", ":")))
-        atomic_write_text(intraday_stats_path, json.dumps(stats_data, ensure_ascii=False, separators=(",", ":")))
+        capture_write(atomic_write_text, intraday_trades_path, json.dumps(trades_data, ensure_ascii=False, separators=(",", ":")))
+        capture_write(atomic_write_text, intraday_stats_path, json.dumps(stats_data, ensure_ascii=False, separators=(",", ":")))
         t_size = os.path.getsize(intraday_trades_path)
         total_trades = sum(len(v) for q in trades_data.get("quadrants", {}).values() for v in q.values())
         print(f"\n✓ 盘中交易记录: {intraday_trades_path} ({t_size} bytes, {total_trades} 行)")
@@ -2929,13 +2955,13 @@ def main():
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     # 原子写(2026-09-21 生产事故根治): 原 open(w)+json.dump 进程被杀留半截 JSON(32MB
     # 半截 signal_kelly_trades.json), atomic_write_text = 同目录 tmp + fsync + os.replace 全有或全无。
-    atomic_write_text(output_path, json.dumps(data, ensure_ascii=False, separators=(",", ":")))
+    capture_write(atomic_write_text, output_path, json.dumps(data, ensure_ascii=False, separators=(",", ":")))
 
     size = os.path.getsize(output_path)
     print(f"\n✓ 输出: {output_path} ({size} bytes = {size / 1024:.1f} KB)")
 
     # 交易记录文件(列式存储, all 周期全量), 同原子写
-    atomic_write_text(trades_path, json.dumps(trades_data, ensure_ascii=False, separators=(",", ":")))
+    capture_write(atomic_write_text, trades_path, json.dumps(trades_data, ensure_ascii=False, separators=(",", ":")))
     t_size = os.path.getsize(trades_path)
     total_trades = sum(len(v) for q in trades_data.get("quadrants", {}).values() for v in q.values())
     print(f"✓ 交易记录: {trades_path} ({t_size} bytes = {t_size / 1024:.1f} KB, {total_trades} 笔)")
@@ -2963,7 +2989,7 @@ def main():
         try:
             unique_path = os.path.splitext(trades_path)[0] + "_unique.json"
             unique_data = _build_unique_tables(trades_data["quadrants"])
-            atomic_write_text(unique_path, json.dumps(unique_data, ensure_ascii=False, separators=(",", ":")))
+            capture_write(atomic_write_text, unique_path, json.dumps(unique_data, ensure_ascii=False, separators=(",", ":")))
             u_size = os.path.getsize(unique_path)
             print(f"✓ 基笔唯一化三表: {unique_path} ({u_size} bytes = {u_size / 1024:.1f} KB, "
                   f"base={unique_data['n_base']} × 10mode)")

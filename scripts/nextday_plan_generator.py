@@ -83,6 +83,7 @@ from app import queries as appq  # noqa: E402  (首页 AI建议同款: etf_for/_
 from app.collector.fetchers import load_config  # noqa: E402  (indicators.yaml indicator.market 归类)
 from signal_kelly_backtest import PSEUDO_GAP_EXCLUDE  # noqa: E402  (伪跳空阈值同源, 不各写一个数)
 from notify_sent import notify_state  # noqa: E402  (#241 Pattern B/W2: 三态判据, 同 notify_sent 唯一实现)
+from delivery_evidence import (evidence_stage, capture_loaded, capture_event, capture_identity, capture_write, capture_sql_rows)
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 try:  # C 方案(2026-10-23): 等锁超时诊断, 只读 lsof + 子进程输出尾段。
     # A 方案后上传可能走全局锁或小锁 ⇒ 诊断逐把探测(lock_paths_from_env), 不只看全局锁。
@@ -154,7 +155,7 @@ def _load_json(name: str, base: Path):
     if not p.exists():
         raise FileNotFoundError(f"输入产物缺失: {p}")
     with p.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        return capture_loaded(name, json.load(f), resolved_path=str(p.absolute()))
 
 
 def _etf_daily_dates(db_path: Path) -> list[str]:
@@ -175,6 +176,7 @@ def _etf_latest_date(db_path: Path, etf_code: str) -> str | None:
         cur = con.cursor()
         cur.execute("SELECT MAX(date) FROM etf_daily WHERE etf_code=?", (etf_code,))
         row = cur.fetchone()
+        capture_loaded("etf_daily", row, snapshot_scope="single_query_rows", resolved_path=str(db_path.absolute()))
         return row[0] if row and row[0] else None
     finally:
         con.close()
@@ -201,7 +203,9 @@ def _trade_calendar_dates(db_path: Path) -> list[str]:
         p = base / "trade_dates.txt"
         if p.exists():
             try:
-                cands = sorted({line.strip() for line in p.read_text().splitlines() if line.strip()})
+                text = p.read_text()
+                capture_loaded("trade_calendar", text, resolved_path=str(p.absolute()), snapshot_scope="decoded_text")
+                cands = sorted({line.strip() for line in text.splitlines() if line.strip()})
                 if cands:
                     return cands
             except Exception:
@@ -219,6 +223,7 @@ def _prev_close(db_path: Path, etf_code: str, on_or_before: str):
             (etf_code, on_or_before),
         )
         row = cur.fetchone()
+        capture_loaded("etf_daily", row, snapshot_scope="single_query_rows", resolved_path=str(db_path.absolute()))
         if row is None:
             return None, None
         return row[0], (float(row[1]) if row[1] is not None else None)
@@ -243,6 +248,7 @@ def _next_open(db_path: Path, etf_code: str, after_date: str):
             (etf_code, after_date),
         )
         row = cur.fetchone()
+        capture_loaded("etf_daily", row, snapshot_scope="single_query_rows", resolved_path=str(db_path.absolute()))
         if row is None:
             return None
         return float(row[0])
@@ -515,6 +521,8 @@ def _signal_candidates(conn, cfg, T, freeze, sig_stats):
         "WHERE date=? AND index_id NOT LIKE 's.%%' ORDER BY index_id",
         (T,),
     ).fetchall()
+    capture_sql_rows(conn, "signal_daily", rows, query_scope={"session_date": T, "exclude": "s.*", "columns": ["date", "index_id", "signal", "reason"]})
+    capture_event("plan_signal_read", session_date=T, row_count=len(rows))
     sigs = [dict(r) for r in rows]
     if not sigs:
         return sigs
@@ -1037,6 +1045,8 @@ def _uphold_plan_r2_upload(r2_files, T):
         return 1
 
 
+@evidence_stage(data_root=lambda: REPO, stage="plan",
+                chain_id="market_signal_freeze_plan", object_id="nextday_plan", exit_status=True)
 def main():
     ap = argparse.ArgumentParser(description="次日买入计划生成器(PRD 阶段一 §3/§6, 干跑)")
     ap.add_argument("--date", default=None, help="信号日 T(YYYYMMDD, 缺省=今天)")
@@ -1050,6 +1060,8 @@ def main():
     args = ap.parse_args()
 
     T = args.date or _today()
+    capture_identity(session_date=T)
+    capture_event("plan_started", dry_run=args.dry_run)
     data_dir = REPO / "static-site" / "data"
     db_path = REPO / "data" / "etf_national_team.db"
     if not db_path.exists():
@@ -1061,7 +1073,7 @@ def main():
 
     # 输入产物
     s06_doc = _load_json("kelly_mode_s06_state.json", data_dir)
-    freeze = appq._etf_freeze()
+    freeze = capture_loaded("signal_kelly_etf_freeze", appq._etf_freeze())
 
     # etf_daily 基础就绪检查(全空无法取 prev_close 与交易日)
     etf_dates = _etf_daily_dates(db_path)
@@ -1082,8 +1094,8 @@ def main():
     conn = sqlite3.connect(f"file:{sent_db}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
-        cfg = load_config()
-        sig_stats = appq.sigstats.load()
+        cfg = capture_loaded("indicators_config", load_config(), config=True)
+        sig_stats = capture_loaded("signal_stats", appq.sigstats.load())
     except Exception as e:
         conn.close()
         log(f"✗ 信号统计/配置加载失败: {e}")
@@ -1095,7 +1107,7 @@ def main():
         if _sp.exists():
             try:
                 with _sp.open("r", encoding="utf-8") as _f:
-                    _sd = json.load(_f)
+                    _sd = capture_loaded("day_snapshot_and_steps", json.load(_f), resolved_path=str(_sp.absolute()))
                 if isinstance(_sd, dict) and isinstance(_sd.get("days"), dict):
                     snapshot = _sd
                     log(f"快照已加载 {len(snapshot['days'])} 日(源 {_sp})")
@@ -1196,7 +1208,7 @@ def main():
         if sp.exists():
             try:
                 with sp.open("r", encoding="utf-8") as f:
-                    existing = json.load(f)
+                    existing = capture_loaded("day_snapshot_and_steps", json.load(f))
                 if isinstance(existing, dict) and isinstance(existing.get("steps"), list):
                     steps_doc["steps"] = existing["steps"]
                     break
@@ -1255,19 +1267,19 @@ def main():
     written = []
     for d in write_targets:
         d.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(d / "nextday_plan.json", plan_doc, indent=1)
+        capture_write(atomic_write_json, d / "nextday_plan.json", plan_doc, indent=1)
         written.append(str(d / "nextday_plan.json"))
 
     if steps_changed:
         for sp in steps_paths:
-            atomic_write_json(sp, steps_doc, indent=1)
+            capture_write(atomic_write_json, sp, steps_doc, indent=1)
             written.append(str(sp))
         log(f"auto_trade_steps 落盘完成(steps_changed): {len(steps_doc['steps'])} 行")
 
     # 信号冻结快照落盘(覆盖首页近30交易日; 已固化日期在 _build_plan_for_day 内 guard 不覆盖)
     for sp in write_targets:
         sp.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(sp / SNAPSHOT_FILE, snapshot, indent=1)
+        capture_write(atomic_write_json, sp / SNAPSHOT_FILE, snapshot, indent=1)
         written.append(str(sp / SNAPSHOT_FILE))
     log(f"信号冻结快照落盘: {len(snapshot.get('days', {}))} 日 -> {SNAPSHOT_FILE}")
 

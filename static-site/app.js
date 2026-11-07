@@ -1653,7 +1653,7 @@ function _sigTodayHint() {
 //   默认 10 日(与首页判定窗默认档一致), 波段减仓固定 5 日; 与首页「近期技术参考点」since_correct 同口径);
 //   band_hold/未结算不计。
 //   过拟合风险分 = 0.40*D1(回测-实盘偏离) + 0.25*D2(滚动样本外) + 0.20*D3(参数稳定) + 0.15*D4(象限退化);
-//   绿<30(正常)/黄30-60(关注)/红>60(高风险)。曲线 daily 按选中统计口径滚动派生(无前视); 顶部综合分固定 60 窗口单一权威值。
+//   绿<30(正常)/黄30-60(关注)/红>60(高风险)。曲线 daily 按选中统计口径滚动派生(无前视); 后端 current 综合分固定 60 窗口单一权威值（卡片不显示）。
 // 2026-08-16 三合一改造③: 两图从 echarts instance 改为 lite 容器引用(_lwSetup 在 _renderOverfitAcc/_renderOverfitRisk 内按 state 每次重建,
 // 随 charts.lightweight 开关切换, 零常驻 echarts.init)。
 let _overfitAccEl = null;    // #overfit-acc-chart 容器(lite SVG 或 echarts fallback)
@@ -1679,7 +1679,7 @@ function _overfitHelpModalHTML() {
     '<div class="rule-card">' +
       '<div class="rule-card-head"><span class="rule-badge">📈 图怎么看</span></div>' +
       '<p><b>上=准确率曲线</b>：信号方向命中的比率(%)，<span style="color:#e6492e">实盘实际(红实线)</span> vs <span style="color:#409eff">回测预期(蓝虚线)</span>。准确率大于预期 → 策略在实战中未退化；低于预期 → 可能历史拟合过好、未来失灵。</p>' +
-      '<p><b>下=综合过拟合风险分(0-100)</b>：绿(&lt;30 正常)、黄(30-60 关注)、红(&gt;60 高风险)，虚线参考线 30/60。分越高代表「回测好但实盘差」的偏离越严重，越需要留意参数是否过拟合。</p>' +
+      '<p><b>下=综合过拟合风险分(0-100)</b>：绿(≤30 正常)、黄(&gt;30 至60 关注)、红(&gt;60 高风险)，虚线参考线 30/60。缺实盘/缺回测日断开，悬停提示和图题说明原因，不用估计分数填补缺项。分越高代表「回测好但实盘差」的偏离越严重，越需要留意参数是否过拟合。</p>' +
       '<p><b>口径</b>：实盘=信号后 <b>N 交易日到期冻结窗</b>方向命中（满窗以信号日后第 N 个交易日收盘价定案，此后不再变；未满窗的按至今走势暂计并标「未定案」。默认 10 日，与首页「判定窗」默认档一致；波段减仓固定 5 日），回测=按卖出模式到期收益方向。<b>买类实盘线只统计回测宇宙内信号</b>（信号类型∈买入白名单 buy/buy_aux/buy_special/buy_backup + 该指数已入样 _bt_in_universe），情绪类/全球商品利率/港股行业等回测不测的信号剔除，确保买类实盘线与回测线比的是<b>同一批买入信号</b>。<b>卖类(sell/止损卖)特殊口径(2026-08-17 方案B)</b>：回测交易本体全为买信号、卖信号不独立成回测交易，故卖类<b>不过滤宇宙、统计全部卖信号的实盘实际命中率</b>（N 日窗内跌=对），只有实盘实际线、无回测对照、风险分不适用。样本去重：回测按(模式+信号日+标的+信号)去重，n 为真实唯一成交数。<b>不设样本数下限</b>：各统计口径有多少样本画多少；早期窗口不满或过滤后样本少的档位照常画线，n 越小曲线越仅供参考（tooltip 看 n 判断可信度），不再因样本不足而空态。</p>' +
     '</div>' +
     '<div class="rule-card">' +
@@ -1687,9 +1687,9 @@ function _overfitHelpModalHTML() {
       '<p><b>AI降亏过滤(开关)</b>：开启(默认)=只统计「未被 AI 宏删线过滤」的信号(未命中 8 键降亏且已入样)；关闭=统计全信号。仅买信号判降亏，卖/止损卖不判。与「K档」两开关独立。</p>' +
       '<p><b>K档(关/K=1/2/3/4)</b>：与首页「AI仓位建议 K」按钮组同交互（关在前、K1主推★高亮）。每日只保留当日最优 K 个买入信号来监控，同口径（排序=跟踪分↓→评级→信号类型）。<b>点「关」</b>=无K档，退化为普通列表（降亏开关控制 filtered/raw 两bank）。<b>两开关独立</b>：降亏开=先滤降亏再选 top-K(filtered_by_k)，降亏关=全信号直接选 top-K(by_k)，K 独立可用不依赖降亏开关。K 越大纳入的标的越多、样本越足。</p>' +
       '<p><b>显示范围(30/60/90/180日)</b>：控制横轴展示最近 N 个交易日，<b>只影响显示截取、不改变统计</b>——即无论选 30 还是 180，都只是图上看多少范围，曲线按当前「统计口径」算。</p>' +
-      '<p><b>统计口径(10/15/30/60/100日，默认15)</b>：准确率 + 过拟合风险分<u>两图都按选中的 N 日滚动重算</u>（即重算滚动窗口，而非只截取展示）。两图曲线随选中口径滚动展示。<b>左上大数字「综合风险分」与曲线不同</b>：它是固定 4 维加权合成（0.4×回测-实盘偏离 + 0.25×样本外衰减 + 0.2×参数稳定 + 0.15×象限退化）的独立指标，固定 60 窗口口径=后端单一权威值，<b>不随所选统计口径变</b>。</p>' +
+      '<p><b>统计口径(10/15/30/60/100日，默认15)</b>：准确率 + 过拟合风险分<u>两图都按选中的 N 日滚动重算</u>（即重算滚动窗口，而非只截取展示）。两图曲线随选中口径滚动展示。<b>四维综合评估与曲线不同</b>：四维评估用于独立预警，是固定 4 维加权合成（0.4×回测-实盘偏离 + 0.25×样本外衰减 + 0.2×参数稳定 + 0.15×象限退化）的独立指标，固定 60 窗口口径=后端单一权威值，<b>不随所选统计口径变</b>。四维缺项时综合评估为不可评估，另报权重覆盖、缺维及已知维度贡献；单维预警独立保留。四维等级沿用绿&lt;30/黄30至60/红&gt;60；曲线沿用绿≤30/黄&gt;30至60/红&gt;60。综合预警沿用≥60（60分仍为黄区）。</p>' +
       '<p><b>📖 白话版本(选哪档)</b>：<br>· <b>10日</b>≈最近2周，超短期快速体检。最灵敏但样本最少、曲线容易抖，适合"刚改完东西想立刻看反应"，参考价值有限。<br>· <b>15日(默认)</b>≈最近3周，日常短检，默认够看"最近信号准不准"；比如昨天新开了某个降亏过滤，想看它最近三周表现就选15日。<br>· <b>30日</b>≈最近1个多月，短中期平衡；想确认"最近一两个月策略有没有掉链子"看它。<br>· <b>60日</b>≈最近1个季度，中期稳定性；想判断"策略整体还行不行、有没有过拟合"看它。<br>· <b>100日</b>≈接近半年，长期视角；样本最足曲线最稳但反应最慢，适合看长期平均表现。<br><span style="color:#f0a020"><b>一句话总原则</b></span>：窗口越短→越灵敏但越抖(看短期准不准)；窗口越长→越稳但反应越慢(看长期稳不稳)。想抓短期异常选小的，想验整体稳定性选大的。</p>' +
-      '<p><b>🎯 1:1 直白举例(拿"实盘 vs 回测同批"说事)</b>：打开监控卡时，曲线最右端的点=数据最末交易日（下例为 2026-08-24 撰写时快照，实际以曲线 tooltip 为准）。<b>实盘线已限定回测宇宙</b>：系统拿数据末端往前 15 个有信号的交易日（2026-07-31 到 08-20，跳开周末/无信号日）内<b>回测宇宙内的买入信号</b>来比——实盘 n=75 个信号命中 16 次≈21.3%（每条按 10 交易日到期冻结窗定案），回测同窗 n=219 命中 52 次≈23.7%，两者接近（差 -2.4pp）→ 同批信号实盘未明显退化。对照：同批若按旧「至今」口径算只有 18.7%——A股长期向上时「至今口径」系统性压低买类、抬高卖类（选啥都对/错都失去区分度），这正是 2026-08-24 全站改 N 日到期冻结窗的原因。另：近期行情偏弱，两线都在 20% 上下远低于长期均值（全史买类≈55%），属行情阶段现象而非策略失灵，看「差值」比看「绝对值」更有意义。<br><b>别混两个数</b>：曲线点=单一窗口"实盘 vs 回测"胜率差映射的分数，随统计口径(10/15/30/60/100)变；左上大数字综合风险分=固定 4 维加权（0.4×回测-实盘偏离+0.25×样本外+0.2×参数稳定+0.15×象限退化）的独立指标，固定 60 窗口口径，不随所选统计口径变。<br><b>怎么读</b>：选 15 日=看某日期往前 15 个有信号的交易日（约 3 周）内同批买入信号的命中率；10/30/60/100 同理。注意统计口径（滚动取多少个交易日）与判定窗（每条信号等几个交易日定案，默认10日）是两个独立概念。n 越小（如过滤后只剩几条）曲线越仅供参考，tooltip 看 n 判断可信度。</p>' +
+      '<p><b>🎯 1:1 直白举例(拿"实盘 vs 回测同批"说事)</b>：打开监控卡时，曲线最右端的点=数据最末交易日（下例为 2026-08-24 撰写时快照，实际以曲线 tooltip 为准）。<b>实盘线已限定回测宇宙</b>：系统拿数据末端往前 15 个有信号的交易日（2026-07-31 到 08-20，跳开周末/无信号日）内<b>回测宇宙内的买入信号</b>来比——实盘 n=75 个信号命中 16 次≈21.3%（每条按 10 交易日到期冻结窗定案），回测同窗 n=219 命中 52 次≈23.7%，两者接近（差 -2.4pp）→ 同批信号实盘未明显退化。对照：同批若按旧「至今」口径算只有 18.7%——A股长期向上时「至今口径」系统性压低买类、抬高卖类（选啥都对/错都失去区分度），这正是 2026-08-24 全站改 N 日到期冻结窗的原因。另：近期行情偏弱，两线都在 20% 上下远低于长期均值（全史买类≈55%），属行情阶段现象而非策略失灵，看「差值」比看「绝对值」更有意义。<br><b>别混两个数</b>：曲线点=单一窗口"实盘 vs 回测"胜率差映射的分数，随统计口径(10/15/30/60/100)变；独立预警的四维综合评估=固定 4 维加权（0.4×回测-实盘偏离+0.25×样本外+0.2×参数稳定+0.15×象限退化）的独立指标，固定 60 窗口口径，不随所选统计口径变；四维不齐时综合评估不可用。<br><b>怎么读</b>：选 15 日=看某日期往前 15 个有信号的交易日（约 3 周）内同批买入信号的命中率；10/30/60/100 同理。注意统计口径（滚动取多少个交易日）与判定窗（每条信号等几个交易日定案，默认10日）是两个独立概念。n 越小（如过滤后只剩几条）曲线越仅供参考，tooltip 看 n 判断可信度。</p>' +
       '<p><b>评级/类型</b>：切换只看高/中/低评级 或 主买/辅买/追买/备买/卖/止损卖 子集。买类（主买/辅买/追买/备买）=限定回测宇宙，实盘线+回测线双线对照。<b>卖/止损卖（2026-08-17 方案B）</b>：卖信号是 G/H/I 信号驱动卖出模式的卖出触发器，其准确率（发出后方向对不对）直接影响收益，故单独监控——切卖/止损卖档位时显示<b>实盘实际命中率单线（不过滤宇宙，卖后跌=对）</b>，标注「仅实盘实际、无回测对照」；因回测不把卖信号独立成交易，<b>无回测对照线、综合风险分不适用</b>。</p>' +
     '</div>' +
     '<div class="rule-card">' +
@@ -1780,8 +1780,8 @@ function _overfitAccSeries(data, w) {
   const dates = [], actual = [], backtest = [];
   for (const d of Object.keys(dateSet).sort()) {
     const a = actMap[d], b = btMap[d];
-    const aOk = a != null && a.win_rate != null;
-    const bOk = !btEmpty && b != null && b.win_rate != null;
+    const aOk = a != null && _ovValidNumber(a.win_rate);
+    const bOk = !btEmpty && b != null && _ovValidNumber(b.win_rate);
     if (!aOk && !bOk) continue;   // 纯空窗日(回测/实盘都无样本)不占位
     dates.push(d);
     actual.push(aOk ? +(a.win_rate.toFixed(1)) : null);
@@ -1885,15 +1885,46 @@ function _overfitRiskSeries(data) {
   const s = _overfitState;
   const ov = data && data.overfit;
   if (!ov) return [];
-  const pick = (obj) => (obj && Array.isArray(obj[String(s.roll)])) ? obj[String(s.roll)] : (obj && Array.isArray(obj["60"])) ? obj["60"] : [];
+  // daily 与佐证 rolling 必须取同一 bank/维度/统计窗, 不用其它维度兜底证明有效。
+  let roll = String(s.roll);
+  const pick = (obj) => {
+    if (obj && Array.isArray(obj[roll])) return obj[roll];
+    roll = "60";
+    return obj && Array.isArray(obj[roll]) ? obj[roll] : [];
+  };
   let daily;
   if (s.sigType) daily = pick(ov.daily_by_dim && ov.daily_by_dim.sig_type && ov.daily_by_dim.sig_type[s.sigType]);
   else if (s.grade) daily = pick(ov.daily_by_dim && ov.daily_by_dim.grade && ov.daily_by_dim.grade[s.grade]);
-  else daily = (ov.daily_by_win && ov.daily_by_win[String(s.roll)]) || (ov.daily_by_win && ov.daily_by_win["60"]) || (ov.daily || []);
-  // 显示范围截取(统计口径不变, 只展示最近 win 交易日)
+  else {
+    daily = pick(ov.daily_by_win);
+    if (!daily.length && !(ov.daily_by_win && Array.isArray(ov.daily_by_win[roll]))) daily = ov.daily || [];
+  }
+  const rolling = data.accuracy && data.accuracy.rolling;
+  const group = s.sigType ? rolling && rolling.by_signal && rolling.by_signal[s.sigType]
+    : s.grade ? rolling && rolling.by_grade && rolling.by_grade[s.grade] : rolling;
+  const rates = (kind) => {
+    const obj = group && group[kind];
+    return obj && Array.isArray(obj[roll]) ? new Map(obj[roll].map((p) => [p.date, p.win_rate])) : null;
+  };
+  const bt = rates("backtest"), act = rates("actual");
   const n = (s.win && s.win > 0) ? s.win : 60;
-  if (daily.length > n) daily = daily.slice(-n);
-  return daily;
+  return daily.slice(-n).map((p) => {
+    if (typeof p.missing_actual === "boolean" && typeof p.missing_backtest === "boolean" && p.assessment_status) return p;
+    // 滚动上线旧 JSON: 同日期双侧胜率佐证, 绝不从 40 推断缺项。
+    if (bt && act) return { ...p, ..._ovDailyAssessment(p.date, bt.get(p.date), act.get(p.date)) };
+    return { ...p, assessment_status: "unavailable", missing_actual: null, missing_backtest: null,
+      missing_reason: ["missing_rolling_evidence"], as_of: p.date };
+  });
+}
+
+function _ovRiskPointValid(p) {
+  return p.assessment_status === "complete" && p.missing_actual === false && p.missing_backtest === false && _ovValidNumber(p.risk_score);
+}
+function _ovRiskMissingText(p) {
+  const reasons = [];
+  if (p.missing_backtest) reasons.push("无回测对照");
+  if (p.missing_actual) reasons.push("缺实盘数据");
+  return reasons.length ? reasons.join("、") + ", 风险分不可评估" : "缺少有效评估证据, 风险分不可评估";
 }
 
 // 渲染综合过拟合风险分曲线(绿黄红分段按值变色 + 参考线 30/60 + 窗口/评级/类型维度切换)
@@ -1904,7 +1935,7 @@ function _renderOverfitRisk(data) {
   const dimName = _overfitState.sigType ? (_overfitDimLabels.sig[_overfitState.sigType] || _overfitState.sigType)
     : (_overfitState.grade ? (_overfitDimLabels.grade[_overfitState.grade] || _overfitState.grade) : "");
   // 2026-09-30 #144: 末端「无回测对照」原因说明。后端 _derive_daily_series 已改「回测 ∪ 实盘」日期并集,
-  // 「实盘有、回测缺」的交易日产出 risk_score=null(不填中性=不造假); 本说明只在图上提示该段为何无曲线。
+  // 缺实盘的兼容40、缺回测的null及缺佐证均不画成观测; 图题/tooltip说明缺项。
   const _ovRiskTitleEl = _overfitRiskEl.parentElement && _overfitRiskEl.parentElement.querySelector(".overfit-risk-title");
   const _ovClearTailNote = () => { if (_ovRiskTitleEl) { const s = _ovRiskTitleEl.querySelector(".ov-risk-tail-note"); if (s) s.remove(); } };
   if (!daily.length) {
@@ -1919,29 +1950,36 @@ function _renderOverfitRisk(data) {
     _ovClearTailNote();
     return;
   }
-  const hasScorePoints = daily.filter((p) => p.risk_score != null);
+  const hasScorePoints = daily.filter(_ovRiskPointValid);
   if (!hasScorePoints.length) {
     if (typeof _lwRenderers !== "undefined") _lwRenderers.delete(_overfitRiskEl);
     if (typeof _lwCfgMap !== "undefined") _lwCfgMap.delete(_overfitRiskEl);
-    // 2026-09-30 #144: 序列非空但全为 null(回测侧该维度全缺) -> 与卖类同口径提示, 不留空白卡
-    const msg = (dimName || "") + " 无回测对照, 风险分不适用";
+    // 全不可评估 -> 保留原无回测保护, 并区分缺实盘或缺评估证据, 不留空白卡
+    const onlyBacktestMissing = daily.every((p) => p.missing_backtest && !p.missing_actual);
+    const msg = (dimName || "") + " " + (onlyBacktestMissing ? "无回测对照, 风险分不适用" : _ovRiskMissingText({
+      missing_actual: daily.some((p) => p.missing_actual), missing_backtest: daily.some((p) => p.missing_backtest) }));
     _overfitRiskEl.innerHTML = '<div class="overfit-lite-empty" style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:11px;text-align:center">' +
       msg + "</div>";
     _ovClearTailNote();
     return;
   }
   const dates = daily.map((p) => p.date);
-  const vals = daily.map((p) => (p.risk_score != null ? p.risk_score : null));
-  // #144 末端 null 检测: 最后一个有效点之后仍有日期(实盘有、回测缺的尾部段) -> 图上给原因说明
+  const vals = daily.map((p) => (_ovRiskPointValid(p) ? p.risk_score : null));
+  // 最后一个有效点之后仍有日期 -> 图上给末段缺项原因, 也说明内部缺口
   let _lastValIdx = -1;
   for (let _i = 0; _i < vals.length; _i++) if (vals[_i] != null) _lastValIdx = _i;
   const _tailNull = _lastValIdx >= 0 && _lastValIdx < vals.length - 1;
-  // 绿黄红分段按值变色(与 markLine 30/60 参考线语义对齐): 绿<30 正常 / 黄30-60 关注 / 红>60 高风险
+  // 绿黄红分段按值变色(与 markLine 30/60 参考线语义对齐): 绿≤30 正常 / 黄>30至60 关注 / 红>60 高风险
   const rgColorFn = (i, v) => {
     if (v == null || isNaN(v)) return "#86909c";
     if (v <= 30) return "#52c41a";        // 绿 正常
     if (v <= 60) return "#e6a23c";        // 黄 关注
     return "#e6492e";                       // 红 高风险
+  };
+  const riskTip = (i) => {
+    const p = daily[i], v = vals[i];
+    if (v == null) return dates[i] + "<br/>" + _ovRiskMissingText(p);
+    return dates[i] + "<br/><span style=\"display:inline-block;width:8px;height:2px;background:" + rgColorFn(i, v) + ";margin-right:4px;vertical-align:middle\"></span>过拟合风险分: " + Math.round(v);
   };
   _lwSetup(_overfitRiskEl, {
     h: 160, pl: 40, pr: 16, pt: 30, pb: 44,
@@ -1966,25 +2004,20 @@ function _renderOverfitRisk(data) {
     ys: [{ splitLine: true, splitNumber: 5, min: 0, max: 100 }],  // P2-3: 固定 0-100(对齐 echarts fallback yAxis min/max)
     legend: [{ name: "过拟合风险分", color: "#409eff" }],
     series: [{
-      type: "line", data: vals, color: "#409eff", width: 2, smooth: true, connectNulls: true,
+      type: "line", data: vals, color: "#409eff", width: 2, smooth: true, connectNulls: daily.every(_ovRiskPointValid),
       itemColor: rgColorFn,     // 绿黄红 visualMap 分段 → _lwColorFn(与恐贪/A股情绪分同款口径)
       // 参考线 30/60 阈值虚线(markLine)
       markLine: [
-        { y: 30, color: "#c0c4cc", label: "黄区 ≥30" },
-        { y: 60, color: "#c0c4cc", label: "红区 ≥60" },
+        { y: 30, color: "#c0c4cc", label: "黄区 >30" },
+        { y: 60, color: "#c0c4cc", label: "红区 >60" },
       ],
     }],
-    tipFn: (i) => {
-      const v = vals[i];
-      if (v == null || isNaN(v)) return dates[i];
-      const c = rgColorFn(i, v);
-      return dates[i] + "<br/><span style=\"display:inline-block;width:8px;height:2px;background:" + c + ";margin-right:4px;vertical-align:middle\"></span>过拟合风险分: " + Math.round(v);
-    },
+    tipFn: riskTip,
   }, (container) => {
     // echarts 兜底(fallback, charts.lightweight=false 或 echarts 未加载)
     const inst = echarts.init(container);
     inst.setOption(withTheme({
-      tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : Math.round(v)) },
+      tooltip: { trigger: "axis", formatter: (params) => riskTip(params[0].dataIndex) },
       legend: { top: 0, data: ["过拟合风险分"] },
       grid: { left: 42, right: 16, top: 30, bottom: 24 },
       xAxis: { type: "category", data: dates, axisLabel: { showMaxLabel: true } },   // 2026-09-30 #147: 末点必出标签(fallback 与 lite 同口径)
@@ -1994,24 +2027,25 @@ function _renderOverfitRisk(data) {
         { lte: 30, color: "#52c41a" }, { gt: 30, lte: 60, color: "#e6a23c" }, { gt: 60, color: "#e6492e" },
       ] },
       series: [{
-        name: "过拟合风险分", type: "line", smooth: true, symbol: "none", connectNulls: true,
+        name: "过拟合风险分", type: "line", smooth: true, symbol: "none", connectNulls: daily.every(_ovRiskPointValid),
         // 2026-08-16 SVG 3色为基准: 去掉固定色 #409eff, 让 visualMap pieces 3色(绿黄红)按值分段生效
         lineStyle: { width: 2 }, itemStyle: {}, data: vals,
         markLine: { silent: true, symbol: "none", lineStyle: { color: "#c0c4cc", type: "dashed", width: 1 }, label: { show: true, position: "insideEndTop", fontSize: 10, color: "#999", formatter: "{c}" }, data: [
-          { yAxis: 30, label: { formatter: "黄区 ≥30" } }, { yAxis: 60, label: { formatter: "红区 ≥60" } },
+          { yAxis: 30, label: { formatter: "黄区 >30" } }, { yAxis: 60, label: { formatter: "红区 >60" } },
         ] },
       }],
     }), { notMerge: true });
     charts.push(inst);
   });
-  // #144 末端 null 原因说明: 有曲线但末段存在「实盘有、回测缺」日期(risk_score null)时,
-  // 在卡标题行追加灰字说明, 复用「无回测对照, 风险分不适用」措辞(与卖类空态同风格)。
+  // 复用已有灰字说明节点, 给内部/尾部缺项原因; 不增加数字卡或布局。
   _ovClearTailNote();
-  if (_tailNull && _ovRiskTitleEl) {
+  if (daily.some((p) => !_ovRiskPointValid(p)) && _ovRiskTitleEl) {
     const sp = document.createElement("span");
     sp.className = "ov-risk-tail-note";
     sp.style.cssText = "color:var(--text-3);font-size:10px;font-weight:normal;margin-left:6px";
-    sp.textContent = "末端" + String(vals.length - 1 - _lastValIdx) + "日无回测对照, 风险分不适用";
+    const missing = daily.filter((p) => !_ovRiskPointValid(p));
+    const reasons = _ovRiskMissingText({ missing_actual: missing.some((p) => p.missing_actual), missing_backtest: missing.some((p) => p.missing_backtest) });
+    sp.textContent = (_tailNull ? "末端" + String(vals.length - 1 - _lastValIdx) + "日缺项; " : "") + "缺项" + missing.length + "日: " + reasons;
     _ovRiskTitleEl.appendChild(sp);
   }
 }
@@ -2027,7 +2061,7 @@ const _OV_SURFACE_DAYS = 200;   // 与后端 SURFACE_DAYS 一致(裁剪口径)
 const _OV_BT_BUY4 = { buy: 1, buy_aux: 1, buy_special: 1, buy_backup: 1 };
 const _OV_SELL2 = { sell: 1, sell_stop_loss: 1 };
 function _ovRiskLevel(sc) {
-  if (sc == null) return "gray";
+  if (!_ovValidNumber(sc)) return "gray";
   if (sc < 30) return "green";
   if (sc <= 60) return "yellow";
   return "red";
@@ -2079,28 +2113,35 @@ function _ovRoundHalfEven(x) {
   if (d === -0.5) return (f % 2 === 0) ? f : f - 1;
   return Math.round(x);
 }
+function _ovValidNumber(v) { return typeof v === "number" && Number.isFinite(v); }
+function _ovDailyAssessment(date, backtestWR, actualWR) {
+  const b = _ovValidNumber(backtestWR), a = _ovValidNumber(actualWR);
+  return { assessment_status: b && a ? "complete" : "unavailable",
+    missing_actual: !a, missing_backtest: !b,
+    missing_reason: (b ? [] : ["missing_backtest"]).concat(a ? [] : ["missing_actual"]), as_of: date };
+}
 function _ovDeriveDaily(btSeq, actSeq) {
   // 2026-09-30 #144 复刻同步(§5.4⑦ 同构对账铁律): 驱动日期从「回测」改为「回测 ∪ 实盘 日期并集」,
   // 与后端 _derive_daily_series 逐位一致。原复刻只遍历回测侧(btSeq), 与后端旧实现同病 ——
   // 「有实盘、但该日无回测样本」的交易日整条不产出(风险线末点停在实盘末日之前的旧症)。
   const btMap = {}, actMap = {};
-  (btSeq || []).forEach((p) => { btMap[p.date] = p.win_rate; });
+  (btSeq || []).forEach((p) => { if (_ovValidNumber(p.win_rate)) btMap[p.date] = p.win_rate; });
   (actSeq || []).forEach((p) => { actMap[p.date] = p.win_rate; });
   const seq = [];
   // 回测侧完全没有数据(sell/sell_stop_loss) -> 空序列, 前端走「无回测对照, 风险分不适用」(同后端)
-  if (!Object.keys(btMap).length) return seq;
+  if (!(btSeq || []).length) return seq;
   const dates = Object.keys(btMap).concat(Object.keys(actMap)).filter((v, i, a) => a.indexOf(v) === i).sort();
   for (let i = 0; i < dates.length; i++) {
     const d = dates[i];
     const wr = btMap[d];
     if (wr == null) {
       // 实盘有、回测缺: 缺失侧留空(不填 40/中性值 = 造假信号, 同后端 #144 口径)
-      seq.push({ date: d, risk_score: null, level: null, win_rate: null });
+      seq.push({ date: d, risk_score: null, level: null, win_rate: null, ..._ovDailyAssessment(d, wr, actMap[d]) });
       continue;
     }
     const a = actMap[d];
     let sc;
-    if (a == null) { sc = 40.0; }
+    if (!_ovValidNumber(a)) { sc = 40.0; }
     else {
       const dev = a - wr;
       if (dev > 10) sc = Math.max(10, 25 - (dev - 10) * 0.5);
@@ -2109,7 +2150,7 @@ function _ovDeriveDaily(btSeq, actSeq) {
       else sc = Math.min(95, 70 - (dev + 10) * 1.5);
     }
     sc = Math.max(0, Math.min(100, sc));
-    seq.push({ date: d, risk_score: _ovRoundHalfEven(sc), level: _ovRiskLevel(sc), win_rate: _ovRoundHalfEven(wr * 10) / 10 });
+    seq.push({ date: d, risk_score: _ovRoundHalfEven(sc), level: _ovRiskLevel(sc), win_rate: _ovRoundHalfEven(wr * 10) / 10, ..._ovDailyAssessment(d, wr, a) });
   }
   return seq;
 }
@@ -2413,8 +2454,8 @@ async function _appendOverfitCard(colA2, r, snap) {
       '<span class="overfit-k-state" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
       '</div>' +
     '</div>' +
-    '<div class="overfit-tip" data-tip="双曲线监控 · 综合过拟合风险分(0-100)。显示范围(30/60/90/180日)=横轴截取最近 N 个交易日展示, 只影响显示不重算；统计口径(10/15/30/60/100日, 默认15)=两图(准确率+风险分)按选中口径滚动重算；评级/类型=看子集；K档(关/K1主推★)=每日最优先选K个买入信号(top-K), 与首页AI仓位建议同口径, 与AI降亏两开关独立(降亏开=过滤后选, 关=全信号选)；AI降亏=只统计未被AI宏删线过滤的信号；实盘线限定回测宇宙(与回测同批买入信号, 卖/情绪类不计入)；不设样本数下限, 样本少照常画线(看n判断可信度)。绿&lt;30正常 黄30-60关注 红&gt;60高风险。完整说明见标题❓">' +
-      '双曲线监控 · 综合过拟合风险分0-100 · <span class="overfit-legend">绿&lt;30正常 黄30-60关注 红&gt;60高风险</span>' +
+    '<div class="overfit-tip" data-tip="双曲线监控 · 综合过拟合风险分(0-100)。显示范围(30/60/90/180日)=横轴截取最近 N 个交易日展示, 只影响显示不重算；统计口径(10/15/30/60/100日, 默认15)=两图(准确率+风险分)按选中口径滚动重算；评级/类型=看子集；K档(关/K1主推★)=每日最优先选K个买入信号(top-K), 与首页AI仓位建议同口径, 与AI降亏两开关独立(降亏开=过滤后选, 关=全信号选)；AI降亏=只统计未被AI宏删线过滤的信号；实盘线限定回测宇宙(与回测同批买入信号, 卖/情绪类不计入)；不设样本数下限, 样本少照常画线(看n判断可信度)。绿≤30正常 黄&gt;30至60关注 红&gt;60高风险。完整说明见标题❓">' +
+      '双曲线监控 · 综合过拟合风险分0-100 · <span class="overfit-legend">绿≤30正常 黄&gt;30至60关注 红&gt;60高风险</span>' +
       '<span class="overfit-tip-help" data-overfit-help="1" style="cursor:pointer;text-decoration:underline;margin-left:6px">❓完整指南</span></div>' +
     // 一行: 显示范围 + 统计口径(两个"范围类"合一行, 2026-08-16 布局重排)
     '<div class="overfit-win-row"><span class="overfit-row-group">' +

@@ -22,12 +22,13 @@
 | 对账和未覆盖项 | [10-reconciliation-and-gaps.md](10-reconciliation-and-gaps.md) | 声明、部署、运行哪些一致，哪些待核 |
 | 近期问题、故障与跟进 | [11-incidents-and-followups.md](11-incidents-and-followups.md) | 哪些在修、待验、观察中、已关闭或历史不可回放 |
 | 在线运维工作台实现 | [12-online-operations.md](12-online-operations.md) | 私有API、持续采集、历史、问题修订及部署边界 |
+| 业务质量与收益验证增补 | [实施与接力说明](../benefits-implementation-20261107.md) | 两项风险评估修正、交付证据、比较及成套恢复的验收边界 |
 | 离线盘点预览 | [dashboard-preview.html](dashboard-preview.html) | 搜索、筛选和下钻同一结构化清单；非实时 |
 | 机器可读目录 | [inventory/](inventory/) | 后续面板、校验与差异对账复用的数据源 |
 
 ## 数量口径
 
-本次目录包含72条仓库声明、44组云端service/timer及外围cron、本机运行/模板观察、数据与依赖边、监控/界面和18条近期问题。catalog条目总数包含不同对象层级与关联边，不能作为独立服务数或故障数；同一任务的声明、timer和service通过对账链接。完整表达式/时区与观察时间见01、02和10。
+原盘点包含72条仓库声明、44组云端service/timer及外围cron、本机运行/模板观察、数据与依赖边、监控/界面和18条近期问题。本轮追加MR-01/MR-02后为20条已知问题；原运行观察保留各自时点，不因追加实现记录而升级为当前部署事实。catalog条目总数包含不同对象层级与关联边，不能作为独立服务数或故障数；同一任务的声明、timer和service通过对账链接。完整表达式/时区与观察时间见01、02和10。
 
 ## 如何使用
 

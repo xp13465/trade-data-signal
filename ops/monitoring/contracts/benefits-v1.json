@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-benefits-wire-v1",
+  "title": "Delivery summary in existing ops snapshot check.evidence",
+  "type": "object",
+  "required": [
+    "record_kind",
+    "contract_id",
+    "chain_id",
+    "session_date",
+    "batch_id",
+    "measurement_kind",
+    "deadline_at",
+    "expected",
+    "success",
+    "failure",
+    "unknown",
+    "code_sha",
+    "config_sha",
+    "calendar_sha",
+    "proof_sha",
+    "evaluated_at",
+    "inventory_complete",
+    "reason",
+    "strength",
+    "source_at"
+  ],
+  "additionalProperties": false,
+  "maxProperties": 20,
+  "properties": {
+    "record_kind": {
+      "const": "delivery_v1"
+    },
+    "contract_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9:._-]{1,160}$"
+    },
+    "chain_id": {
+      "enum": [
+        "market_signal_freeze_plan",
+        "backtest_publish_consume",
+        "backup_isolated_restore"
+      ]
+    },
+    "session_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "batch_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9:._-]{1,160}$"
+    },
+    "deadline_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "maxLength": 64
+    },
+    "expected": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "success": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "failure": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "unknown": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "code_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "config_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "calendar_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "proof_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time",
+      "maxLength": 64
+    },
+    "inventory_complete": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9:._-]{1,160}$"
+    },
+    "strength": {
+      "enum": [
+        "verified",
+        "partial",
+        "unknown"
+      ]
+    },
+    "source_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "maxLength": 64
+    },
+    "measurement_kind": {
+      "enum": [
+        "real",
+        "synthetic",
+        "unknown"
+      ]
+    }
+  },
+  "examples": [
+    {
+      "record_kind": "delivery_v1",
+      "contract_id": "synthetic-contract-v1",
+      "chain_id": "market_signal_freeze_plan",
+      "session_date": "2026-11-06",
+      "batch_id": "market_signal_freeze_plan:2026-11-06",
+      "deadline_at": "2026-11-06T15:00:00Z",
+      "expected": 1,
+      "success": 0,
+      "failure": 0,
+      "unknown": 1,
+      "code_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "config_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "calendar_sha": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "proof_sha": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "evaluated_at": "2026-11-07T00:00:00Z",
+      "inventory_complete": true,
+      "reason": "evidence_incomplete",
+      "strength": "unknown",
+      "source_at": null,
+      "measurement_kind": "synthetic"
+    }
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "inventory_complete": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "expected": {
+            "type": "null"
+          },
+          "success": {
+            "type": "null"
+          },
+          "failure": {
+            "type": "null"
+          },
+          "unknown": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "strength": {
+            "const": "verified"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "inventory_complete": {
+            "const": true
+          },
+          "source_at": {
+            "type": "string"
+          },
+          "expected": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "success": {
+            "type": "integer"
+          },
+          "failure": {
+            "type": "integer"
+          },
+          "unknown": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "strength": {
+            "enum": [
+              "partial",
+              "unknown"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "source_at": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
+}

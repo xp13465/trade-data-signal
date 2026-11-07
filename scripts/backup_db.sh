@@ -81,6 +81,16 @@ backup_one "$DBDIR/sentiment.db"        sentiment       || RC=1
 backup_one "$DBDIR/etf_national_team.db" etf_national_team || RC=1
 backup_one "$DBDIR/stock_daily.db"       stock_daily      || RC=1   # 2026-10-28 补入(唯一无 R2 备份的库)
 
+# C4 opt-in sidecar export only. This is a separate matched local set, NOT the
+# upload-db objects below. No new R2 channel; missing archive proof stays unknown.
+# Metadata/capture failure must not change the established local backup RC or
+# notification contract. Policy is explicit; never discover credential/config files.
+if [ "${OPS_DELIVERY_EVIDENCE_ENABLED:-0}" = "1" ]; then
+  "$PY" "$GIT_REPO/ops/monitoring/benefit_capture.py" \
+    --data-root "$REPO" --export-root "$BACKUP_DIR/capture-sets" >> "$LOG" 2>&1 \
+    || echo "⚠ C4 capture/evidence failure (原备份退出码不变；成套覆盖未获证明)" | tee -a "$LOG"
+fi
+
 # 保留策略：删 RETAIN_DAYS 天前的 *_*.db 备份（按 mtime）
 echo "-> 清理 ${RETAIN_DAYS} 天前的备份 ..." | tee -a "$LOG"
 find "$BACKUP_DIR" -maxdepth 1 -name '*_*.db' -mtime "+${RETAIN_DAYS}" -print -delete 2>>"$LOG" \

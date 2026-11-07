@@ -25,18 +25,27 @@
 - **5 键**：无 11-04/11-05 的可信 map 快照；用今日映射补造会违反防前视语义（§5.1⑥ / memory `kelly-etf-freeze-lookahead`）。判定**不可回放**，不补造、不整表覆盖、不用今日映射替换。
 - 现有防御闸 `_resolve_etf`（`scripts/signal_kelly_backtest.py`）：未冻结 + 无 fallback + `date < latest_signal_date` → 拒绝补冻并记 `_FROZEN_MISSING_EVENTS`。该行为正确，本次未放宽。
 
-## 根因（缺口为何产生）
+## 已知机制与待证根因
 
 - `signal_daily` 由 `app/compute/signals.py` 全表 DELETE+INSERT 重算。
 - `update_all.sh` 时序：`pipeline.sh` 算信号 → wait → `deploy.sh`（内含 `signal_kelly_backtest` 冻结）→ `check_signals.sh`。
-- 部分指数在 17:50 update_all 时数据未就绪 → 信号未检测 → 不在 `signal_daily` → 当晚 backtest 无键可冻。
-- backfill（`trade-backfill-evening` 21:00/02:00）补数据后，次日重算才出现信号，但 `date < latest_signal_date`，防御闸拒绝补冻 → 永久缺口。
+- **待证假说**：部分指数在 17:50 update_all 时数据未就绪，当晚无相应信号可冻；晚间 backfill 或次日历史值纠正后，重算生成历史信号，再被拒绝补冻。这条时序与现象相容，但尚无逐键原始到达、重算输入身份及原冻结消费证据，不能把特定 21:00/02:00 backfill 写成已证实原因。
 
-## 防复发措施（均未实施，待拍板）
+### 20:49 独立只读补证
+
+本节为 2026-11-07 20:49（Asia/Shanghai）新观察；上文表格及“今日 best”为先前观察，不以新观察倒改原快照。
+
+- 对固定七键执行一次 SSH、21 条有索引的只读查询，无业务重算或历史写入。前六键各有一条次日 `index_daily changed`，随后有精确的 `signal_daily appeared`，间隔 88–168 秒。该事实证明对应重算前后集合发生变化，不证明首次上游到达，更不能仅凭邻近时间锁定因果。
+- DAX 键未见关联历史审计。现有审计会排除当日变化，纯新增批也可能不落历史审计；“未见”不代表从未变化，不能套用 A 股晚间时序。
+- 当前七键仍存在于 signal，精确 freeze 及同日指数变体均缺失。保留的 13 个不同 guard 诊断没有原 signal/map/freeze 输入哈希及 `latest_signal_date`，重复目录副本不是额外独立运行。
+- 当前映射与历史候选不同，也不能倒推原冻结批实际使用的映射。本次仍为 **2 个候选、5 个不可回放、0 个恢复**。未放宽防御闸、未改 accepted、未回填历史。
+- 补证报告 `seven-key-evidence.json`，SHA-256：`64978bf91d5ff9d5513523cde9207470b7fdcc79473fb4d66aa64faa720e6846`。报告与只读程序、原始摘要保存在本轮私有审查证据中；不将数据库或诊断正文提交到公开仓库。
+
+## 防复发候选（原提案，未在本轮执行）
 
 1. **backfill 后补算信号 + 补跑冻结回测**：`trade-backfill-evening` 21:00 补完指数数据后，重跑 `app.compute.runner.run()` + `signal_kelly_backtest`（当晚 latest 仍=当日，防御闸放行）。风险：增加 21:00 后一轮回测耗时（约 3-5 分钟），需与 `freeze-orphan-cleanup` 21:50 排时序。
 2. **每日 board_etf_map 快照**：deploy 时把 `board_etf_map.json` 复制为带日期快照（如 `data/board_etf_map_YYYYMMDD.json`），为日后缺口恢复保留可信源。风险低（纯只读快照）；只治恢复性，不防缺口。
-3. **谨慎放宽防御闸**：仅对「signal_daily 现存 + best ETF 跨近期快照稳定」的历史缺键，允许带审计标记补冻（非默认开启，env 控制 + 快照交叉验证）。风险：可能破坏防前视语义；工作量大；仅作兜底。
+3. **历史回填不属于本轮授权**：近期映射稳定不能证明原批消费同份映射，不能据此放宽防御闸。若未来另案考虑恢复，必须先取得可信历史输入和消费绑定证据，单独复核，不能把该候选措施当成本轮根治方案。
 
 ## 红线
 

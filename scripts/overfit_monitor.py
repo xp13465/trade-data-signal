@@ -1348,7 +1348,7 @@ def calc_d4_quadrant(trades_by_date, window=60):
 
 # ── 综合风险分 + 等级 ───────────────────────────────────────────────────────
 def risk_level(score):
-    if score is None:
+    if not valid_assessment_number(score):
         return "gray"
     if score < 30:
         return "green"
@@ -1357,27 +1357,60 @@ def risk_level(score):
     return "red"
 
 
-def compute_risk(d1, d2, d3, d4):
-    """综合 0-100 分数。维度为 None(数据不足)按 0 处理但记录权重缺失。"""
-    parts = [W_D1 * (d1 if d1 is not None else 0),
-             W_D2 * (d2 if d2 is not None else 0),
-             W_D3 * (d3 if d3 is not None else 0),
-             W_D4 * (d4 if d4 is not None else 0)]
-    total_w = 0.0
-    dims = []
-    for v, w in zip(parts, (W_D1, W_D2, W_D3, W_D4)):
-        total_w += w
-        dims.append(round(w * (v / w if v else 0)))
-    score = round(sum(parts))
-    return score, {
-        "d1": d1, "d2": d2, "d3": d3, "d4": d4,
-        "weighted": {k: round(parts[i], 1) for i, k in enumerate(["d1", "d2", "d3", "d4"])},
+def valid_assessment_number(value):
+    """0 有效; bool/非数/NaN/Infinity 不构成评估证据, 不设样本数门槛。"""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def compute_risk(d1, d2, d3, d4, as_of=None):
+    """完整四维才评综合分; partial_score 是已知维度贡献之和, 不补零冒充完整分。"""
+    values = [v if valid_assessment_number(v) else None for v in (d1, d2, d3, d4)]
+    weights = (W_D1, W_D2, W_D3, W_D4)
+    keys = ["d1", "d2", "d3", "d4"]
+    missing = [k for k, v in zip(keys, values) if v is None]
+    parts = [w * v if v is not None else None for v, w in zip(values, weights)]
+    partial = round(sum(p for p in parts if p is not None))
+    return (None if missing else partial), {
+        **dict(zip(keys, values)),
+        "weighted": {k: round(p, 1) if p is not None else None for k, p in zip(keys, parts)},
+        "assessment_status": "complete" if not missing else "unavailable" if len(missing) == 4 else "partial",
+        "missing_dims": missing,
+        "coverage": round(sum(w for v, w in zip(values, weights) if v is not None), 2),
+        "partial_score": partial if len(missing) < 4 else None,
+        "as_of": as_of,
     }
+
+
+def daily_assessment(date, backtest_wr, actual_wr):
+    """日点只有双侧有效才可评估; 40 仅为兼容存储值, 不代表有效观测。"""
+    backtest_ok, actual_ok = valid_assessment_number(backtest_wr), valid_assessment_number(actual_wr)
+    missing = ([] if backtest_ok else ["missing_backtest"]) + ([] if actual_ok else ["missing_actual"])
+    return {"assessment_status": "unavailable" if missing else "complete",
+            "missing_actual": not actual_ok, "missing_backtest": not backtest_ok,
+            "missing_reason": missing, "as_of": date}
+
+
+def assessed_prev_scores(prev):
+    """旧 JSON 没有状态时只凭对应 60 日 raw rolling 证明有效, 不以 40 猜缺项。"""
+    rolling = prev.get("accuracy", {}).get("rolling", {})
+    def rates(kind):
+        rolls = rolling.get(kind, {})
+        return {p["date"]: p.get("win_rate") for p in (rolls.get("60") or rolls.get(60, []))}
+    bt, act = rates("backtest"), rates("actual")
+    scores = []
+    for p in prev.get("overfit", {}).get("daily", []):
+        status = p.get("assessment_status")
+        if status is None:
+            status = daily_assessment(p["date"], bt.get(p["date"]), act.get(p["date"]))["assessment_status"]
+        flags_ok = (p.get("missing_actual") is False and p.get("missing_backtest") is False) if p.get("assessment_status") else True
+        if status == "complete" and flags_ok and valid_assessment_number(p.get("risk_score")):
+            scores.append(p["risk_score"])
+    return scores
 
 
 # ── 预警 ─────────────────────────────────────────────────────────────────────
 ALERT_RULES = {
-    "overfit_high": {"level": "SEVERE", "desc": "综合过拟合风险分 >=60(红区)"},
+    "overfit_high": {"level": "SEVERE", "desc": "综合过拟合风险分 >=60(预警线; 60分仍为黄区)"},
     "risk_climbing": {"level": "WARN", "desc": "风险分连续 5 日攀升"},
     "quadrant_degrade": {"level": "WARN", "desc": "重点象限连续 10 日实盘胜率 < 回测预期-15pp"},
     "oos_fail": {"level": "WARN", "desc": "样本外衰减率 >20%"},
@@ -1387,20 +1420,22 @@ ALERT_RULES = {
 
 def evaluate_alerts(risk_score, prev_scores, d1, d2, d3, d4, date):
     """返回 [ {type, level, subject, body} ] 触发的预警。"""
+    risk_score, assessment = compute_risk(d1, d2, d3, d4, as_of=date)
+    d1, d2, d3, d4 = (assessment[k] for k in ("d1", "d2", "d3", "d4"))
     alerts = []
     if risk_score is not None and risk_score >= 60:
-        alerts.append(_mk_alert("overfit_high", risk_score, date, d1=d1, d2=d2, d3=d3, d4=d4))
+        alerts.append(_mk_alert("overfit_high", risk_score, date, assessment=assessment, d1=d1, d2=d2, d3=d3, d4=d4))
 
     # 连续 5 日攀升: 取最近 6 个有分日期, 看近 5 次是否严格递增
-    if len(prev_scores) >= 5:
+    if risk_score is not None and len(prev_scores) >= 5:
         recent = prev_scores[-5:]
         if all(recent[i] < recent[i + 1] for i in range(len(recent) - 1)):
-            alerts.append(_mk_alert("risk_climbing", risk_score, date, prev=recent))
+            alerts.append(_mk_alert("risk_climbing", risk_score, date, assessment=assessment, prev=recent))
 
     if d2 is not None and d2 >= 60:
-        alerts.append(_mk_alert("oos_fail", risk_score, date, d2=d2))
+        alerts.append(_mk_alert("oos_fail", risk_score, date, assessment=assessment, d2=d2))
     if d3 is not None and d3 >= 90:
-        alerts.append(_mk_alert("param_spike", risk_score, date, d3=d3))
+        alerts.append(_mk_alert("param_spike", risk_score, date, assessment=assessment, d3=d3))
 
     # 象限退化第一版: 数据不充分(实盘象限细分未建), 暂不触发, 预留
     return alerts
@@ -1408,11 +1443,17 @@ def evaluate_alerts(risk_score, prev_scores, d1, d2, d3, d4, date):
 
 def _mk_alert(typ, risk_score, date, **kw):
     rule = ALERT_RULES[typ]
-    subject = f"[过拟合监控] {risk_score if risk_score is not None else ''}分 · {rule['desc']}"
+    assessment = kw["assessment"]
+    score_label = f"{risk_score}分" if risk_score is not None else "综合风险不可评估"
+    subject = f"[过拟合监控] {score_label} · {rule['desc']}"
+    score_text = f"<b>{risk_score}</b> / 100" if risk_score is not None else "<b>不可评估</b>"
+    missing_text = ", ".join(assessment["missing_dims"]) or "无"
     body = (
         f"<b>过拟合监控预警</b> · 数据日期 {date}<br>"
         f"触发规则: <b>{rule['desc']}</b>(级别 {rule['level']})<br>"
-        f"当前综合风险分: <b>{risk_score}</b> / 100<br>"
+        f"当前综合风险分: {score_text}<br>"
+        f"评估状态: {assessment['assessment_status']} · 权重覆盖 {assessment['coverage']:.0%} · 缺维: {missing_text}<br>"
+        f"数据截至: {assessment['as_of']} · 已知维度贡献(非综合分): {assessment['partial_score']}<br>"
         f"建议: 关注回测参数是否处于历史拟合的尖峰区, 实盘与回测预期若有明显背离, 降低参数依赖/降仓观察。<br>"
     )
     if kw.get("d1") is not None:
@@ -1422,7 +1463,8 @@ def _mk_alert(typ, risk_score, date, **kw):
     if kw.get("d3") is not None:
         body += f"D3 参数稳定: {kw['d3']}<br>"
     return {"type": typ, "level": rule["level"], "subject": subject, "body": body,
-            "date": date, "risk_score": risk_score}
+            "date": date, "risk_score": risk_score,
+            **{k: assessment[k] for k in ("assessment_status", "missing_dims", "coverage", "as_of", "partial_score")}}
 
 
 # ── 邮件发送 ─────────────────────────────────────────────────────────────────
@@ -1473,7 +1515,9 @@ def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date, win=60, m
       0 ~ +10pp    -> 正常(25-45)
       -10pp ~ 0    -> 关注(50-65)
       dev < -10pp  -> 高风险(实盘显著低于回测预期, 70-95)
-    返回 [{date, risk_score, level, win_rate(回测%)}], 供前端 daily 曲线。
+    返回 [{date, risk_score, level, win_rate(回测%), assessment_status,
+          missing_actual, missing_backtest, missing_reason, as_of}], 供前端 daily 曲线。
+    缺实盘保留40的存储数值, assessment_status=unavailable; 消费者须按状态排除观测。
 
     2026-09-30 #144 根因修复(用户拍板口径, §23.7 已放行):
       驱动日期从「仅回测日期」改为「回测 ∪ 实盘 日期并集」。原实现只遍历回测侧日期
@@ -1497,17 +1541,18 @@ def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date, win=60, m
     btw_map = {}
     for p in btw:
         wr_pct = p.get("win_rate")   # 回测百分比(42.92)
-        if wr_pct is None:
+        if not valid_assessment_number(wr_pct):
             continue
         btw_map[p["date"]] = wr_pct
     for d in sorted(set(btw_map) | set(actw)):
         b_wr = btw_map.get(d)
         if b_wr is None:
             # 实盘有、回测缺(本次新增类): 缺失侧留空, 不做中性断言
-            seq.append({"date": d, "risk_score": None, "level": None, "win_rate": None})
+            seq.append({"date": d, "risk_score": None, "level": None, "win_rate": None,
+                        **daily_assessment(d, b_wr, actw.get(d))})
             continue
         a_wr = actw.get(d)
-        if a_wr is None:
+        if not valid_assessment_number(a_wr):
             # 实盘缺失(该日无 index 收盘等) -> 中性 40(老口径, 冻结)
             sc = 40.0
         else:
@@ -1523,7 +1568,8 @@ def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date, win=60, m
         sc = max(0, min(100, sc))
         seq.append({"date": d, "risk_score": round(sc),
                     "level": risk_level(sc),
-                    "win_rate": round(b_wr, 1)})
+                    "win_rate": round(b_wr, 1),
+                    **daily_assessment(d, b_wr, a_wr)})
     return seq
 
 
@@ -1592,15 +1638,15 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal, 
             entry["actual"] = {}
         by_signal_out[sig] = entry
 
-    # 4 维过拟合。顶部综合分(current)固定 60 窗口口径=单一权威稳定值(前端只读不自算 §23.6,
+    # 4 维过拟合。后端 current(卡片不显示)固定 60 窗口口径=单一权威值(前端不自算 §23.6,
     # D2/D3/D4 不随窗口, 仅 D1 窗口相关; 前端切换统计口径时仅曲线(daily_by_win/daily_by_dim)随口径重算,
-    # 顶部综合分保持 60。公示见 purpose-notes/前端 tip)
+    # current 综合分保持 60。缺维不可评估, partial_score 单列; 公示见前端帮助及设计 §8)
     d1 = calc_d1_deviation(act_roll.get(60, []), bt_roll.get(60, []), 60)
     d2 = calc_d2_oos(trades_by_date)
     d3 = calc_d3_param(trades_by_date)
     quadrant_health = calc_quadrant_health(trades_by_date, 60)
     d4 = calc_d4_quadrant(trades_by_date, 60)
-    risk, risk_detail = compute_risk(d1, d2, d3, d4)
+    risk, risk_detail = compute_risk(d1, d2, d3, d4, as_of=latest_signal)
 
     out = {
         "accuracy": {
@@ -1625,9 +1671,8 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal, 
         "overfit": {
             "current": {
                 "date": latest_signal,
-                "d1": d1, "d2": d2, "d3": d3, "d4": d4,
                 "risk_score": risk, "level": risk_level(risk),
-                "weighted": risk_detail["weighted"],
+                **risk_detail,
             },
             "daily": _derive_daily_series(bt_roll, act_roll, risk, latest_signal, win=60)[-SURFACE_DAYS:],
             "daily_by_win": {
@@ -1847,8 +1892,7 @@ def build_output(rebuild=False, dry_run=False):
     risk = bank_raw["overfit"]["current"]["risk_score"]
 
     prev = load_prev_state()
-    prev_scores = [s.get("risk_score") for s in prev.get("overfit", {}).get("daily", [])
-                   if s.get("risk_score") is not None]
+    prev_scores = assessed_prev_scores(prev)
     today = date_cls.today().strftime("%Y%m%d")
     alerts = evaluate_alerts(risk, prev_scores, d1, d2, d3, d4, latest_signal)
 
