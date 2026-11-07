@@ -460,6 +460,8 @@ docs/kelly/             # 凯利回测专题文档子目录（2026-08-14 按主�
 
 ## 📡 监控与告警
 
+- **运行架构知识库与私有运维工作台**：[统一入口](docs/ops/architecture/README.md)收录服务、计划任务、数据血缘、发布与告警链路、运行手册及近期问题；[在线工作台实现](docs/ops/architecture/12-online-operations.md)提供只读持续采集、管理员面板、状态历史、问题修订审计和独立失联检查。面板入口 `/admin/ops.html`，私有状态使用专用 OPS_DB；默认只通知采集失联/恢复，业务告警继续走原链。[部署与回滚](ops/monitoring/DEPLOY.md)由 Claude 审核合并后执行，不能把代码已完成当作已生产启用。
+
 - **schedule_monitor**：定时任务状态监控（云上 systemd timer 触发，异常自动发邮件，告警去重，15min 周期不轰炸）
 - **告警三级分级 + 同源降噪**：critical 立即推送 / warning 30min 聚合批发 / info 只记 dashboard（`scripts/notify.py` send_tiered）；warning 聚合链路带同源指纹降噪——归一化指纹 4h 固定窗内同源告警不再逐条入队，合并为「[第N次]」频次标注一封发出，恢复类消息（[恢复]/[72h恢复]）自动清零重新计，窗口内恶化翻倍或升级 critical 自动穿透绝不吞真告警（2026-08-26）
 - **check_data_integrity**：数据产物完整性校验（deploy 前置，关键 JSON 空值率超标即阻断上线）

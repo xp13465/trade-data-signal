@@ -72,6 +72,13 @@
       "source_sha256": "2e8061e6acc83d8d17244569f7158675fbb8cbf02ec2d0b42da701338ab8fdce",
       "svg": "diagrams/07-local-runtime-and-collaboration-01.svg",
       "svg_sha256": "3da754d64505eb55da1c5e54acdef8bec5d2c88dd198fe0360cf38f11c626cc7"
+    },
+    {
+      "source_file": "12-online-operations.md",
+      "block_index": 1,
+      "source_sha256": "6de155d0c6b51c56b02fe6ce8abacc7795a37c077580a9e42e41251061bc3b35",
+      "svg": "diagrams/12-online-operations-01.svg",
+      "svg_sha256": "3bd92f4db57b045c7ede3ca10bc2464b4e967e9c8d6b167fb3377ea59ee50988"
     }
   ]
 }

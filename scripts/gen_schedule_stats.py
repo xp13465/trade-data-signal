@@ -268,8 +268,8 @@ LABEL_MAP = {
     "cloud_unit_patrol": "com.trade.cloud-unit-patrol",
 }
 
-# ── #309 W2(2026-10-25): 44 unit 全覆盖登记(方案 §3.2 全表, 用户拍板点 2 = A)──
-# 口径: 41 业务+基础进执行统计表; 3 个自监控 unit(monitor/self-heal/heartbeat)排除出表
+# ── #309 W2 全覆盖登记; 2026-11-07 加独立 ops-monitor 后共 45 unit ──
+# 口径: 42 业务+基础进执行统计表; 3 个自监控 unit(monitor/self-heal/heartbeat)排除出表
 #    但仍做 unit 级体检(monitor 自己算 3/3), 详见 schedule_monitor.sh 结论行。
 # 回滚第②层: 任一行改 `include: False` 即从表里消失(全部 False ⇒ 退回旧 19 行);
 #    `MONITOR_EXIT_SOURCE=log` 一键退回旧口径(单位行不输出 + 不读 systemd)。
@@ -297,7 +297,7 @@ TASK_UNITS = {
     "fetch_news": "trade-fetch-news.service",
 }
 
-# 22 个此前完全不在监控范围的 unit(只有 systemd 口径可行; 不硬编码时点)。
+# 23 个仅由 systemd 口径统计的 unit(不硬编码时点; 含独立 ops-monitor)。
 UNIT_ONLY = [
     {"unit": "trade-ab-direction-anchor.service", "task": "ab_direction_anchor", "name": "AB方向锚"},
     {"unit": "trade-alert-weekly-review.service", "task": "alert_weekly_review", "name": "告警周报"},
@@ -311,6 +311,7 @@ UNIT_ONLY = [
     {"unit": "trade-gold-night.service", "task": "gold_night", "name": "黄金夜盘"},
     {"unit": "trade-kelly-intraday-rerun.service", "task": "kelly_intraday_rerun", "name": "凯利盘中重算"},
     {"unit": "trade-lof-track-index.service", "task": "lof_track_index", "name": "LOF跟踪指数"},
+    {"unit": "trade-ops-monitor.service", "task": "ops_monitor", "name": "运行架构监测"},
     {"unit": "trade-pf-score-daily.service", "task": "pf_score_daily", "name": "场外基金评分"},
     {"unit": "trade-pf-score-weekly.service", "task": "pf_score_weekly", "name": "场外基金周评分"},
     {"unit": "trade-pf-stage0-manager.service", "task": "pf_stage0_manager", "name": "基金经理底座"},
@@ -332,7 +333,7 @@ SELF_MONITOR_UNITS = [
 
 
 def _mk_registry():
-    """把 TASKS / EXTRA / UNIT_ONLY / SELF_MONITOR 展开成 44 行登记表。"""
+    """把 TASKS / EXTRA / UNIT_ONLY / SELF_MONITOR 展开成 45 行登记表。"""
     rows = []
     for t in TASKS:
         rows.append({
@@ -1620,7 +1621,7 @@ def _build_unit_only_row(row, now, unit_state, mode):
 
 
 def build(log_dir=None, out=None, now=None, unit_reader=None, ledger_path=None):
-    """生成 schedule_stats.json(日本批: 41 行全覆盖)。
+    """生成 schedule_stats.json(systemd 口径当前 42 行,含独立 ops-monitor)。
 
     参数(测试注入点, 生产不传):
       log_dir / out: 沙箱日志目录 / 输出文件(默认仓库内路径)

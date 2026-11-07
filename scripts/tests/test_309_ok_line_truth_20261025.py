@@ -47,7 +47,7 @@ def _row(task, unit=None, **kw):
     return r
 
 
-def _green_stats(n=41):
+def _green_stats(n=42):
     return [_row(f"task_{i}") for i in range(n)]
 
 
@@ -58,7 +58,7 @@ OK_ALL = "OK 所有任务按计划执行，无漏跑，无退出失败"
 
 def test_all_green_exact_ok_with_coverage(concl):
     text = concl(_green_stats(), NOW, cfu_failed=0, alerts=0)
-    assert text == f"{OK_ALL}; 覆盖 44/44(41 业务+基础, 3 自监控)"
+    assert text == f"{OK_ALL}; 覆盖 45/45(42 业务+基础, 3 自监控)"
 
 
 # ---------------------------------------------------------------- CFU failed
@@ -70,7 +70,7 @@ def test_cfu_failed_blocks_ok_all(concl):
     assert "OK 所有任务" not in text
     assert "2 个云上 unit 处于 failed 状态: pf-score-daily、s06-snapshot" in text
     assert "1 个云上 unit failed" not in text  # 旧误导文案不得再出现
-    assert "覆盖 44/44" in text
+    assert "覆盖 45/45" in text
 
 
 def test_cfu_failed_without_names_says_problem_categories(concl):
@@ -103,7 +103,7 @@ def test_any_alert_blocks_ok_all(concl, n):
     text = concl(_green_stats(), NOW, cfu_failed=0, alerts=n)
     assert "OK 所有任务" not in text
     assert f"有 {n} 条告警" in text
-    assert "覆盖 44/44" in text
+    assert "覆盖 45/45" in text
 
 
 # ---------------------------------------------------------------- 退出失败 / 漏跑 / 未知
@@ -156,18 +156,18 @@ def test_running_source_does_not_block_ok(concl):
 
 def test_log_mode_clean_is_x6_exact(concl):
     text = concl(_green_stats(19), NOW, mode="log", systemd_available=False)
-    assert text == "OK(仅日志口径, 覆盖 17/41; 本机无 systemd)"
-    assert "44/44" not in text
+    assert text == "OK(仅日志口径, 覆盖 17/42; 本机无 systemd)"
+    assert "45/45" not in text
 
 
 def test_log_mode_alerts_do_not_claim_ok(concl):
     text = concl(_green_stats(19), NOW, alerts=2, mode="log", systemd_available=False)
     assert not text.startswith("OK")
-    assert "有 2 条告警" in text and "17/41" in text
+    assert "有 2 条告警" in text and "17/42" in text
 
 
 def test_log_mode_failure_names_task(concl):
     stats = _green_stats(19)
     stats[0] = _row("backfill_evening", unit_exit=None, last_exit=1, exit_source="log")
     text = concl(stats, NOW, mode="log", systemd_available=False)
-    assert text == "1 个任务退出失败: backfill_evening(exit=1); 覆盖 17/41(仅日志口径)"
+    assert text == "1 个任务退出失败: backfill_evening(exit=1); 覆盖 17/42(仅日志口径)"

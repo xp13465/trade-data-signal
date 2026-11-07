@@ -14,3 +14,4 @@
 | [04-monitoring-and-alerts.md](../04-monitoring-and-alerts.md) | 1 | [打开图像](04-monitoring-and-alerts-01.svg) |
 | [06-deployment-and-surfaces.md](../06-deployment-and-surfaces.md) | 1 | [打开图像](06-deployment-and-surfaces-01.svg) |
 | [07-local-runtime-and-collaboration.md](../07-local-runtime-and-collaboration.md) | 1 | [打开图像](07-local-runtime-and-collaboration-01.svg) |
+| [12-online-operations.md](../12-online-operations.md) | 1 | [打开图像](12-online-operations-01.svg) |

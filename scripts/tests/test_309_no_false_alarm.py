@@ -2,8 +2,8 @@
 """#309 误报/漏报双向测试: 全绿轮次不得告警, 注入失败必须 SEVERE(E6, 2026-10-25)。
 
 覆盖:
-  - 过去 7 天全绿轮次(44 unit 全部 Result=success / exit=0) → 新通道①②都不得产事件,
-    结论必须是 OK 且带 覆盖 44/44(防空转恒红 / 防「一改就全红」)
+  - 7 天全绿模拟轮次(45 unit 全部 Result=success / exit=0) → 新通道①②都不得产事件,
+    结论必须是 OK 且带 覆盖 45/45(防空转恒红 / 防「一改就全红」)
   - 注入一条 unit exit=1(stats 仍 0/未知) → 必然出现 `SEVERE: ... systemd 退出失败`,
     key = `{task}|unit_exit!=0|{code}`(证明不是永远 OK)
   - 去重: stats.last_exit 已是同一 code → 只出 dedup 事件, 不再 SEVERE(防重复告警)
@@ -41,7 +41,7 @@ def _props(day: datetime.date, **kw):
 
 
 def _states(day, overrides=None):
-    """44 unit 的 derive_unit_state 结果(全绿, 可覆盖)。"""
+    """45 unit 的 derive_unit_state 结果(全绿, 可覆盖)。"""
     import gen_schedule_stats as gss
 
     overrides = overrides or {}
@@ -52,7 +52,7 @@ def _states(day, overrides=None):
 
 
 def _stats_all_zero(day):
-    """41 行统计: 全 0, 与全绿 unit 状态一致。"""
+    """42 行统计: 全 0, 与全绿 unit 状态一致。"""
     import gen_schedule_stats as gss
 
     rows = []
@@ -92,7 +92,7 @@ def test_seven_green_days_produce_no_events_and_ok(offset, NOW_BY_DAY):
     assert events == [], f"{day} 全绿却产生事件: {events}"
     text = conclusion()(stats, NOW_BY_DAY[day], cfu_failed=0, alerts=0)
     assert text.startswith("OK 所有任务按计划执行")
-    assert "覆盖 44/44(41 业务+基础, 3 自监控)" in text
+    assert "覆盖 45/45(42 业务+基础, 3 自监控)" in text
 
 
 def test_injected_unit_failure_emits_severe(NOW_BY_DAY):

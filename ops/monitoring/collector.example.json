@@ -1,0 +1,12 @@
+{
+  "collector_id": "cloud-main",
+  "code_root": "/home/ubuntu/code/trade-data-signal",
+  "data_root": "/home/ubuntu/code/trade-data",
+  "output_dir": "/run/trade-ops-monitor",
+  "ingest_url": "https://ss.fx8.store/api/ops/ingest",
+  "secret_file": "/etc/trade-ops-monitor/ingest.token",
+  "total_timeout_seconds": 20,
+  "command_timeout_seconds": 3,
+  "schedule_max_age_seconds": 1800,
+  "publication_head_url": null
+}

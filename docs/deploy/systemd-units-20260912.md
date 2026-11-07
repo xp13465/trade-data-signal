@@ -1781,6 +1781,85 @@ ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_fof_nav_collect.sh
 TimeoutStartSec=900
 ```
 
+### 2.42 ops-monitor(每 5 分钟,独立运行架构监测控制面)
+
+> 2026-11-07 新增源码登记,不表示已在云上安装或启用。运行态证据与业务健康分开判断,
+> 采集/推送契约见 `ops/monitoring/contract.md`。此节 ini 是 canonical 唯一源;
+> `gen_systemd_units.py` 从本文件生成,`ops/monitoring/install/` 两份安装副本由
+> `scripts/tests/test_ops_monitor_registry.py` 逐字节校验,修改任一侧必须同步另一侧。
+> 当前源码共 45 对 service/timer(90 文件);登记表保留原 44 条并新增 `ops_monitor`,
+> include=True,共 42 条业务+基础统计行,原 3 条自监控不变。旧章节的迁移数量为历史记录。
+> 服务只运行独立采集器,不调用业务入口;240s 外层预算小于 5 分钟周期。
+> 专用配置与凭证由 Claude 部署阶段提供,此处仅记录路径、不包含值。journal 输出;
+> 私有临时目录与仅可写运行目录不赋予业务数据写权限。
+
+`trade-ops-monitor.timer`:
+```ini
+[Unit]
+Description=Collect private Trade operations snapshot every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/5:00
+Persistent=true
+AccuracySec=15s
+RandomizedDelaySec=15s
+Unit=trade-ops-monitor.service
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-ops-monitor.service`:
+```ini
+[Unit]
+Description=Trade private operations snapshot collector (independent control plane)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/
+Environment=OPS_CODE_ROOT=/home/ubuntu/code/trade-data-signal
+Environment=OPS_CONFIG=/etc/trade-ops-monitor/collector.json
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/trade-ops-monitor/collector.env
+LoadCredential=ops_ingest_token:/etc/trade-ops-monitor/ingest.token
+ExecStart=/usr/bin/python3 -B ${OPS_CODE_ROOT}/scripts/ops_monitor.py --config ${OPS_CONFIG} --once --token-file %d/ops_ingest_token
+TimeoutStartSec=240
+TimeoutStopSec=15
+KillMode=control-group
+Restart=no
+UMask=0077
+RuntimeDirectory=trade-ops-monitor
+RuntimeDirectoryMode=0700
+ReadWritePaths=/run/trade-ops-monitor
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+Nice=10
+CPUQuota=25%
+MemoryHigh=192M
+MemoryMax=256M
+TasksMax=32
+LimitNOFILE=1024
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trade-ops-monitor
+```
+
 ## 7. 落地注意事项(stage4 用)
 
 1. **只生成配置,不 enable/start**:本文件是配置落档;`systemctl daemon-reload && systemctl enable --now trade-<name>.timer` 由阶段4 执行。

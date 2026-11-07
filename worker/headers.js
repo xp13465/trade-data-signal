@@ -22,6 +22,8 @@ import fundScreenerHandler from './fund_screener.js';
 // #327 前端错误上报 handler（2026-10-31, 纯新增）: /api/err POST 上报 + /api/err/stats GET 查询
 // 需先于通用 /api/* 分发判（避免被 subscribe.js 404 吞）。原端点行为逐位不动, §23.7 冻结契约。
 import errReportHandler from './err_report.js';
+// Operations handlers are lazily initialized so the private knowledge baseline
+// does not allocate/freeze its object tree on ordinary business-page requests.
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
@@ -316,8 +318,16 @@ async function purgeCacheHandler(request, env, url) {
 }
 
 export default {
+  async scheduled(controller, env, ctx) {
+    const { opsScheduled } = await import('./ops.js');
+    await opsScheduled(controller, env, ctx);
+  },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith('/api/ops/')) {
+      const { default: opsHandler } = await import('./ops.js');
+      return opsHandler(request, env, ctx);
+    }
     // /r2/* 路由：R2 对象代理 + Cache API 边缘缓存（P0-4）
     if (url.pathname.startsWith('/r2/')) {
       return r2ProxyHandler(request, env, ctx, url);
@@ -372,7 +382,8 @@ export default {
     const response = await env.ASSETS.fetch(request);
     // 复制原响应 headers（保留 ETag / Content-Type / CF-Cache-Status 等），覆盖 Cache-Control，附加安全头
     const headers = new Headers(response.headers);
-    headers.set('Cache-Control', cacheControlFor(url.pathname));
+    headers.set('Cache-Control', /^\/admin\/ops(?:\.(?:html|js|css))?$/.test(url.pathname)
+      ? 'no-store, max-age=0' : cacheControlFor(url.pathname));
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
     return new Response(response.body, {
       status: response.status,

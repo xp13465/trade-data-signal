@@ -1,0 +1,49 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "trade-ops-local",
+  "main": "../../worker/headers.js",
+  "compatibility_date": "2026-07-07",
+  "assets": {
+    "directory": "../../static-site",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "kv_namespaces": [
+    {
+      "binding": "SUBSCRIBE_KV",
+      "id": "local-subscriptions",
+      "remote": false
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2_BUCKET",
+      "bucket_name": "local-public-data",
+      "remote": false
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "OPS_DB",
+      "database_name": "trade-ops-local",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "migrations",
+      "remote": false
+    },
+    {
+      "binding": "FUND_SCORE_DB",
+      "database_name": "fund-score-local",
+      "database_id": "00000000-0000-0000-0000-000000000002",
+      "remote": false
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
+  "vars": {
+    "OPS_ALERT_ENABLED": "false",
+    "OPS_ALERT_SCOPE": "watchdog"
+  }
+}

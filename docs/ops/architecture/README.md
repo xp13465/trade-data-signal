@@ -21,6 +21,7 @@
 | 维护和验收 | [09-maintenance-and-acceptance.md](09-maintenance-and-acceptance.md) | 哪些变更必须同步知识库、谁负责 |
 | 对账和未覆盖项 | [10-reconciliation-and-gaps.md](10-reconciliation-and-gaps.md) | 声明、部署、运行哪些一致，哪些待核 |
 | 近期问题、故障与跟进 | [11-incidents-and-followups.md](11-incidents-and-followups.md) | 哪些在修、待验、观察中、已关闭或历史不可回放 |
+| 在线运维工作台实现 | [12-online-operations.md](12-online-operations.md) | 私有API、持续采集、历史、问题修订及部署边界 |
 | 离线盘点预览 | [dashboard-preview.html](dashboard-preview.html) | 搜索、筛选和下钻同一结构化清单；非实时 |
 | 机器可读目录 | [inventory/](inventory/) | 后续面板、校验与差异对账复用的数据源 |
 
@@ -36,7 +37,7 @@
 
 ## 本次交付与后续实施边界
 
-本次完成资料盘点、结构化清单、架构图、对账、运维手册、面板规格和离线快照预览。实时采集API、认证、持续指标存储、面板上线与业务/调度改造属于后续由Claude主控复核实施的范围；本次没有部署或修改生产配置。
+资料盘点、结构化清单、10张架构图、对账、运维手册和离线预览构成取证基线。用户后续特批Codex实现完整在线采集、私有API、历史存储及面板，见12专题；Claude负责审核、合并和生产部署。实现与上线状态分开记录，本分支不直接部署或修改生产配置。
 
 所有`unknown`、`inferred`、`documented_only`和`planned`都必须可见；运行单元active、任务exit0或没有告警不能单独亮业务绿灯。详见[_inventory-contract.md](_inventory-contract.md)及[结构schema](inventory/schema.json)。
 

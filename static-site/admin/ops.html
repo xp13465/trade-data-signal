@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light dark">
+  <title>运维工作台 · 私有</title>
+  <link rel="stylesheet" href="/admin/ops.css">
+  <script src="/admin/ops.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到内容</a>
+  <section id="auth-gate" class="auth-gate" aria-labelledby="auth-title">
+    <div class="auth-card">
+      <div class="brand-mark" aria-hidden="true">◎</div>
+      <p class="eyebrow">OPERATIONS / PRIVATE</p>
+      <h1 id="auth-title">运维工作台</h1>
+      <p class="muted">运行观察、数据交付与问题处置，在一个地方对账。</p>
+      <div id="auth-message" class="notice" role="status">正在验证管理员会话…</div>
+      <button id="session-connect" class="button primary" type="button">使用管理员会话连接</button>
+      <p class="auth-help">仅允许管理员访问。普通账号登录不代表拥有运维权限。</p>
+      <details class="bootstrap">
+        <summary>使用临时管理员令牌</summary>
+        <form id="token-form" autocomplete="off">
+          <label for="admin-token">管理员令牌</label>
+          <input id="admin-token" name="ops-memory-token" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="2048" placeholder="仅保留在本页内存">
+          <button class="button" type="submit">临时连接</button>
+          <p class="small muted">刷新或退出后清除。请勿填入采集令牌。</p>
+        </form>
+      </details>
+      <a class="small" href="/">返回主站登录</a>
+    </div>
+  </section>
+
+  <div id="private-shell" class="shell" hidden inert>
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">◎</span><div><strong>运维工作台</strong><span>PRIVATE OPERATIONS</span></div></div>
+      <nav class="navigation" aria-label="工作台导航">
+        <button data-tab="overview" class="nav-item" aria-current="page"><span aria-hidden="true">◫</span>概览</button>
+        <button data-tab="services" class="nav-item"><span aria-hidden="true">▤</span>服务与定时器</button>
+        <button data-tab="data" class="nav-item"><span aria-hidden="true">▥</span>数据与发布</button>
+        <button data-tab="architecture" class="nav-item"><span aria-hidden="true">⌘</span>架构与知识库</button>
+        <button data-tab="incidents" class="nav-item"><span aria-hidden="true">☷</span>问题与跟进</button>
+        <button data-tab="history" class="nav-item"><span aria-hidden="true">◷</span>采集与事件</button>
+      </nav>
+      <div class="sidebar-note"><span class="private-dot"></span> 私有管理员视图<p>运行态 ≠ 业务健康<br>交接完成 ≠ 根因关闭</p></div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <div class="breadcrumb">工作台 <span>/</span> <strong id="page-title">概览</strong></div>
+        <div class="toolbar">
+          <span id="auth-mode" class="small muted"></span>
+          <button id="refresh-button" class="button compact" type="button">刷新</button>
+          <button id="pause-button" class="button compact" type="button" aria-pressed="false">暂停</button>
+          <button id="export-button" class="button compact" type="button" title="分页导出运维记录，不是数据库事务一致性备份；完整备份恢复依赖 D1 原生导出和恢复演练。">私有导出</button>
+          <button id="logout-button" class="button compact" type="button">退出</button>
+        </div>
+      </header>
+      <main id="main-content" tabindex="-1">
+        <div class="page-heading"><div><p class="eyebrow">EVIDENCE BEFORE CONCLUSIONS</p><h1 id="view-heading">运行概览</h1><p id="view-description" class="muted">把当前观察与历史证据分开看。</p></div><div id="freshness" class="freshness" role="status"></div></div>
+        <div id="global-notice" class="notice" role="status" hidden></div>
+        <div class="filterbar">
+          <label class="search"><span aria-hidden="true">⌕</span><input id="search-input" type="search" placeholder="搜索名称、ID、状态或证据" aria-label="搜索当前视图"></label>
+          <label class="select-label">状态<select id="status-filter"><option value="all">全部状态</option><option value="ok">OK</option><option value="warning">警告</option><option value="critical">严重</option><option value="unknown">未知 / 过期</option></select></label>
+          <label class="select-label">自动刷新<select id="poll-interval"><option value="30">30 秒</option><option value="60">1 分钟</option><option value="300">5 分钟</option></select></label>
+          <span id="refresh-note" class="small muted" aria-live="polite"></span>
+        </div>
+        <section id="view-overview" class="view" aria-label="概览"><div id="overview-content" class="private-content"></div></section>
+        <section id="view-services" class="view" aria-label="服务与定时器" hidden>
+          <div class="section-heading"><h2>当前采集检查</h2><span class="small muted">独立展示，不把基线状态当当前结果</span></div>
+          <div id="services-live" class="private-content"></div>
+          <details class="panel baseline-panel" open><summary>版本基线 · 服务与计划任务</summary><div id="services-baseline" class="private-content"></div></details>
+        </section>
+        <section id="view-data" class="view" aria-label="数据与发布" hidden>
+          <div class="section-heading"><h2>数据 · 发布 · 备份 · 资源</h2><select id="data-category" aria-label="数据检查分类"><option value="all">全部分类</option><option value="data">数据</option><option value="publication">发布</option><option value="backup">备份</option><option value="resource">资源</option><option value="monitor">监控自身</option></select></div>
+          <div id="data-live" class="private-content"></div>
+          <details class="panel baseline-panel"><summary>版本基线 · 数据与交付合同</summary><div id="data-baseline" class="private-content"></div></details>
+        </section>
+        <section id="view-architecture" class="view" aria-label="架构与知识库" hidden>
+          <div id="knowledge-meta" class="private-content"></div>
+          <div class="architecture-layout"><section class="panel graph-panel"><div class="section-heading"><h2>可导航关系图</h2><button id="graph-reset" class="button compact" type="button">回到总览</button></div><p class="small muted">实线：已声明依赖；虚线：推断或计划。点击节点查看来源与上下游。</p><div id="graph" class="private-content graph" aria-label="架构关系图"></div><div id="graph-caption" class="small muted"></div></section><section class="panel knowledge-panel"><div class="section-heading"><h2>知识库目录</h2><select id="knowledge-kind" aria-label="知识库类型"><option value="all">全部类型</option></select></div><div id="knowledge-list" class="private-content record-list"></div></section></div>
+        </section>
+        <section id="view-incidents" class="view" aria-label="问题与跟进" hidden>
+          <div class="section-heading"><h2>多轴问题台账</h2><label class="select-label">工作流<select id="incident-group"><option value="all">全部分组</option></select></label></div>
+          <p class="small muted">人工修订独立保存，保留原基线。已限定验收、不可回放与根因根治是不同结论。</p>
+          <div id="incidents-content" class="private-content"></div>
+        </section>
+        <section id="view-history" class="view" aria-label="采集与事件" hidden>
+          <div class="section-heading"><h2>采集历史</h2><span class="small muted">采集成功不等于所有业务检查正常</span></div><div id="history-content" class="private-content"></div>
+          <div class="section-heading"><h2>告警事件与投递</h2><select id="delivery-filter" aria-label="投递状态"><option value="all">全部投递</option><option value="sent">已投递</option><option value="pending">待投递 / 重试</option><option value="failed">投递失败</option><option value="suppressed">按策略不投递</option><option value="disabled">投递未启用</option><option value="unknown">投递未知</option></select></div>
+          <p class="small muted">事件按状态变化记录；重复投递可能发生，不能视为严格只投递一次。未知与过期不代表恢复。</p><div id="events-content" class="private-content"></div>
+        </section>
+        <footer class="page-footer">只读观察与人工跟进 · unknown 保留未知 · 时间统一显示为北京时间</footer>
+      </main>
+    </div>
+  </div>
+  <dialog id="detail-dialog" aria-labelledby="detail-title"><div class="dialog-header"><div><p id="detail-kicker" class="eyebrow"></p><h2 id="detail-title"></h2></div><button id="detail-close" class="button compact" type="button" aria-label="关闭详情">关闭</button></div><div id="detail-body" class="private-content dialog-body"></div></dialog>
+  <dialog id="edit-dialog" aria-labelledby="edit-title"><div class="dialog-header"><h2 id="edit-title">人工更新</h2><button id="edit-close" class="button compact" type="button">取消</button></div><div id="edit-body" class="private-content dialog-body"></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <noscript><p class="notice">工作台需要 JavaScript。此空壳不包含任何私有基线。</p></noscript>
+</body>
+</html>

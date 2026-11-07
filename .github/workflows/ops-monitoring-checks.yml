@@ -1,0 +1,65 @@
+name: Operations monitoring checks
+on:
+  push:
+    branches: [main, 'codex/ops-*']
+    paths:
+      - 'ops/monitoring/**'
+      - 'worker/ops*'
+      - 'worker/headers.js'
+      - 'static-site/admin/ops*'
+      - 'static-site/sw.js'
+      - 'scripts/ops_monitor.py'
+      - 'scripts/gen_schedule_stats.py'
+      - 'docs/deploy/systemd-units-20260912.md'
+      - 'scripts/tests/test_ops_monitor*'
+      - 'docs/ops/architecture/**'
+      - 'package*.json'
+      - '.github/workflows/ops-monitoring-checks.yml'
+  pull_request:
+    paths:
+      - 'ops/monitoring/**'
+      - 'worker/ops*'
+      - 'worker/headers.js'
+      - 'static-site/admin/ops*'
+      - 'static-site/sw.js'
+      - 'scripts/ops_monitor.py'
+      - 'scripts/gen_schedule_stats.py'
+      - 'docs/deploy/systemd-units-20260912.md'
+      - 'scripts/tests/test_ops_monitor*'
+      - 'docs/ops/architecture/**'
+      - 'package*.json'
+      - '.github/workflows/ops-monitoring-checks.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ops-monitoring-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  local-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+      CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: npm ci --no-audit --no-fund
+      # Match the main quality gate numerical dependencies for full scripts regression.
+      - run: python3 -m pip install pytest pyyaml numpy==2.4.6 pandas==3.0.5 pyarrow==25.0.1
+      - run: python3 -m pytest -q ops/monitoring/tests scripts/tests/test_ops_monitor.py scripts/tests/test_ops_monitor_registry.py
+      - run: python3 -m pytest -q scripts/tests/
+      - run: node --test ops/monitoring/tests/worker*.test.mjs
+      - run: python3 ops/monitoring/build_baseline.py --check
+      - run: npm run ops:types -- --check
+      - run: python3 ops/monitoring/tests/smoke_local.py
+      - run: python3 scripts/check_unit_registry_drift.py --quiet
+      - run: python3 docs/ops/architecture/tools/build_catalog.py --check
+      - run: python3 docs/ops/architecture/tools/check_knowledge_base.py

@@ -1,0 +1,12 @@
+[Unit]
+Description=Collect private Trade operations snapshot every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/5:00
+Persistent=true
+AccuracySec=15s
+RandomizedDelaySec=15s
+Unit=trade-ops-monitor.service
+
+[Install]
+WantedBy=timers.target

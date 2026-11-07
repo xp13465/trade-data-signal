@@ -164,6 +164,12 @@ self.addEventListener('fetch', (event) => {
   //    直接走浏览器默认网络栈,不缓存
   if (url.origin !== self.location.origin) return;
 
+  // Operations credentials/data and administrator code must never use offline caches.
+  if (url.pathname.startsWith('/api/ops/') || /^\/admin\/ops(?:\.(?:html|js|css))?$/.test(url.pathname)) {
+    event.respondWith(fetch(req, { cache: 'no-store' }));
+    return;
+  }
+
   // 3) overview.json: networkOnly (盘中实时数据强制网络优先,不让SW缓存兜底)
   //    根因③修复: 旧版SW缓存兜底致用户看到昨日overview(a_amount=昨日全天值)而非今日实时值。
   //    改 networkOnly: 网络成功返最新overview,失败返 offline 占位(不回退缓存,避免盘中网络

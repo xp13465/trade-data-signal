@@ -4,6 +4,12 @@
   "description": "A股/港股/全球盘后复盘看板 - 静态版",
   "homepage": "./static-site",
   "scripts": {
-    "build": "echo 'static site, no build needed'"
+    "build": "echo 'static site, no build needed'",
+    "ops:dev": "wrangler dev --local --config ops/monitoring/wrangler.local.jsonc --ip 127.0.0.1",
+    "ops:types": "wrangler types --config ops/monitoring/wrangler.local.jsonc --include-runtime false ops/monitoring/env.d.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261107.1",
+    "wrangler": "4.158.0"
   }
 }
