@@ -9,7 +9,7 @@
 
 ### 1. 至少六个事件的原行情 writer 来源与「首轮补入后不刷新」机制已有强证据
 
-定位：`app/collector/intraday_snapshot.py:_backfill_signal_universe_tencent`。`have` 取**当天存在任意行**的指数，`missing = universe - have`；后续轮次不会重新请求这些指数。判据自 `fdc3b497f7`（9/11）存在，本次未改该文件。
+定位：`app/collector/intraday_snapshot.py:_backfill_signal_universe_tencent`。`have` 取**当天存在任意行**的指数，`missing = universe - have`；后续轮次不会重新请求这些指数。该缺陷判据自 `fdc3b497f7`（9/11）存在；Phase1只读定位，Phase3已按追加授权修改目标writer。
 
 真实备份点查：
 
@@ -66,9 +66,9 @@ DataGap 5 精确时序：
 
 ### 4. 136 的精确分组与不可恢复部分
 
-`97 + 17 + 18 + 4 = 136`，互斥、不重复：
+按index/诊断集合分组数量仍为 `97 + 17 + 18 + 4 = 136`，互斥、不重复；97个csi键并非全属早年，按年代与证据边界拆分为 `96 + 1 + 17 + 18 + 4 = 136`：
 
-- 97：csi_000813，2012—2016。9/18 产品根因文档已经明确该指数当时 track_score=None、不进 best_etf、未冻，支持「映射/评分资格后来变化」解释；没有这 97 键逐键首次输入证据，不能全量定因或 accepted。
+- csi_000813共97键：**96个为2012—2016，另1个为 `20261019|csi_000813|buy_aux`**。9/18产品文档记录当时该指数track_score=None、不进best_etf、未冻；这只能为适用时段的早年键提供「资格后来变化」线索，仍非96键逐键因果证明。20261019键在现有审计摘录无appeared记录、缺足够因果来源，须单列待定，不能套用早年解释；均不据此accepted。
 - 17：上述 THS 映射恢复。
 - 18：上述历史 appeared / OHLC 改写链。
 - 4：`20261009|csi_000330|buy_aux`、`20261009|csi_970070|buy_aux`、`20261009|sz_div|buy`、`20261105|dax|buy_special`，未取得足够因果证据。
@@ -156,11 +156,27 @@ DataGap 5 精确时序：
 
 本阶段只定向与故障注入，不重跑单支全量；父整合后统一验证。未执行生产迁移、采集、回测、部署或上传。**historical repaired仍0，136/5不变。**
 
+## FREEZE-P2-01：真实sqlite3.Row诊断取值续修
+
+独立审查封存于 `freeze-independent-review.json`，固定head `2b7df760f5e17fc414b2b22805ccf5a1fcc5f542`。本次完整读取该报告及 `freeze-independent-evidence/compute_repro.py` / `compute-results.json`，不执行会覆盖原证据的复现脚本。原报告/结果/SHA保持不变，另交 `freeze-p2-result.json`。
+
+根因确认：真实 `app.db.get_conn` 使用sqlite3.Row；无新增登记孤儿时，真实union函数原样返回Row列表。旧诊断将Row直接交JSON，导致TypeError，外层统一try把context整体清空，连独立latest和保存状态也丢失。此前作者编排测试用了tuple连接且替换保存/告警，因此漏测此真实路径。
+
+最小修复仅在取证边界把effective buy_rows显式取为 `[(r[0], r[1], r[2]) for r in value]` 再算canonical JSON hash。保持值、列序和行序，不用str/repr，不改业务rows本身。latest、scopes先独立创建，四类hash逐段捕获失败；失败段明确unknown并留类型日志，其余hash/count/latest及真实保存成功/失败结果仍可归档。原guard、入账算法、候选集合和告警等级/出口不变。
+
+真实编排回归使用临时库的**实际get_conn/SCHEMA/迁移/Row工厂**，执行完整compute、resolver、无新增孤儿真实union、classifier、真实load/save、alert/archive与原子写；仅配置/行情输入及最终空聚合用有限替身，通知/网络/子进程封锁。覆盖Row与tuple × 保存成功/PermissionError，以及map段/全部hash异常。断言原Row对象/行序未改，历史旧键仍拒补，当日键按原逻辑固化，原告警替身各一次，真实归档保留latest和保存结果。
+
+- 红测原始末行：`6 failed, 2 passed in 0.24s`，`freeze-p2-red.log`（tuple对照通过，Row及hash故障暴露独立latest丢失）。首次夹具常量缺失另记setup日志，不作为产品红测。
+- 绿测命令：`python3 -B -m pytest --noconftest -p no:cacheprovider -q --tb=short scripts/tests/test_freeze_row_context_20261109.py scripts/tests/test_alert_freeze_rootcause_20261109.py scripts/tests/test_codex_frozen_diagnostics_20261106.py scripts/tests/test_codex_signal_gap_diagnostics_20261106.py`。
+- 原始末行：**`40 passed, 21 subtests passed in 1.45s`**，`freeze-p2-green.log`，exit0。
+- 归档逐键复核csi_000813确为96早年+20261019一键，后者无appeared记录；证据 `freeze-p2-count-correction.json`。没有新增历史恢复调查或以早年说明覆盖2026键。
+- 不重复全量，不改writer/DB/nextday/其它独占源码。无生产、真实通知、main或pending-index操作。**historical repaired仍0/136，DataGap5仍OPEN。**
+
 ## Verdict / Open questions
 
 **历史恢复仍 BLOCKED；诊断/日志边界与Phase3未来同源刷新机制已完成离线定向验证，待Claude审合；生产迁移及整合全量未执行。**
 
 - 已按追加独占授权修复writer首填后不刷新机制，并校验真实报价时点/源优先级；不覆盖collect。Claude审合后，正常生产配置/幂等迁移及自然运行效果另验。
-- 申万旧合成值的精确历史 writer、THS 映射首次可用、97 老键/4 余键的首次输入、冻结持久化/覆盖历史仍缺证据。
+- 申万旧合成值的精确历史 writer、THS 映射首次可用、96早年csi键及20261019待定csi键/4余键的首次输入、冻结持久化/覆盖历史仍缺证据。
 - 每笔恢复均须可信的当时 ETF 选择或冻结记录；当信号实际直到次日收盘后才出现，还须明确它无法按过去次日开盘成交，不能伪造跟单历史。
 - 当前 136/5 不全 accepted、不降级消音、不改阈值、不重冻。**业务缺口仍 136 / 5，交易补好仍 0。**

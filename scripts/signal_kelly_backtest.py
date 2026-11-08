@@ -357,26 +357,29 @@ def _frozen_input_identity(value):
 
 def _frozen_missing_context(buy_rows, best_etf, freeze, signal_stats, latest_signal_date):
     """解析/就地补冻之前抓输入；取证失败只失去诊断，不影响防前视闸。"""
-    try:
-        return {
-            "hashes": {
-                "freeze_input_sha256": _frozen_input_identity(freeze),
-                "map_input_sha256": _frozen_input_identity(best_etf),
-                "signal_input_sha256": _frozen_input_identity(buy_rows),
-                "rating_input_sha256": _frozen_input_identity(signal_stats),
-            },
-            "latest_signal_date": latest_signal_date or "unknown",
-            "input_provenance": "loaded_objects_before_resolution; canonical_json_sha256",
-            "input_scopes": {"freeze": "loaded freeze before in-memory additions",
-                             "map": "resolved best_etf (not raw board_etf_map file)",
-                             "signal": "effective buy_rows after registered orphan union",
-                             "rating": "loaded signal_stats"},
-            "input_counts": {"freeze": len(freeze), "map": len(best_etf),
-                             "signal": len(buy_rows), "rating": len(signal_stats)},
-        }
-    except Exception as exc:
-        print(f"   ⚠ 冻结输入取证失败: {type(exc).__name__}", file=sys.stderr)
-        return None
+    context = {
+        "hashes": {},
+        "latest_signal_date": latest_signal_date or "unknown",
+        "input_provenance": "loaded_objects_before_resolution; canonical_json_sha256",
+        "input_scopes": {"freeze": "loaded freeze before in-memory additions",
+                         "map": "resolved best_etf (not raw board_etf_map file)",
+                         "signal": "effective buy_rows after registered orphan union; date/index_id/signal values",
+                         "rating": "loaded signal_stats"},
+        "input_counts": {},
+    }
+    for name, value in (("freeze", freeze), ("map", best_etf), ("signal", buy_rows), ("rating", signal_stats)):
+        key = f"{name}_input_sha256"
+        context["hashes"][key] = "unknown"
+        context["input_counts"][name] = "unknown"
+        try:
+            context["input_counts"][name] = len(value)
+            if name == "signal":
+                # sqlite3.Row不直接交给JSON；只在取证副本按业务三列取值，不改原rows/顺序。
+                value = [(r[0], r[1], r[2]) for r in value]
+            context["hashes"][key] = _frozen_input_identity(value)
+        except Exception as exc:
+            print(f"   ⚠ 冻结输入取证失败({name}): {type(exc).__name__}", file=sys.stderr)
+    return context
 
 
 def _archive_frozen_missing_diagnostics(new_events, accepted_hit, context=None):

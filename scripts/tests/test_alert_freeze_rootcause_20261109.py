@@ -68,19 +68,20 @@ class FrozenInputContextTests(unittest.TestCase):
         self.assertIn("resolved best_etf", d["input_scopes"]["map"])
         self.assertEqual((self.root / "freeze.json").read_text(), '{"replaced_on_disk":true}')
 
-    def test_context_failure_is_unknown_without_releasing_guard(self):
+    def test_context_hash_failure_preserves_latest_and_guard(self):
         m = self.mod
         with contextlib.redirect_stderr(io.StringIO()):
-            ctx = m._frozen_missing_context([], {"bad": object()}, {}, {}, None)
-        self.assertIsNone(ctx)
+            ctx = m._frozen_missing_context([], {"bad": object()}, {}, {}, "20261106")
+        self.assertEqual(ctx["hashes"]["map_input_sha256"], "unknown")
+        self.assertEqual(ctx["latest_signal_date"], "20261106")
         freeze = {}
         self.assertEqual(m._resolve_etf("20261105", "idx", "buy", {"idx": {"code": "510300"}},
                                         freeze, "20261106"), (None, False))
         self.assertFalse(freeze)
         m._archive_frozen_missing_diagnostics(sorted(m._FROZEN_MISSING_EVENTS), [], ctx)
         d = json.loads(next((self.root / "data/audit/frozen_missing").glob("*.json")).read_text())
-        self.assertEqual(d["hashes"]["freeze_input_sha256"], "unknown")
-        self.assertEqual(d["latest_signal_date"], "unknown")
+        self.assertEqual(d["hashes"]["freeze_input_sha256"], hashlib.sha256(b"{}").hexdigest())
+        self.assertEqual(d["latest_signal_date"], "20261106")
 
     def run_compute(self, fail_save=False):
         """Real compute orchestration + resolver, with in-memory SQLite and finite loaders."""
