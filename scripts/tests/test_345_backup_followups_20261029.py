@@ -287,7 +287,7 @@ def test_C1_non_positive_or_invalid_min_kb_falls_back(tmp_path, value):
     assert "回落默认 4718592" in r.stderr, f"{value!r} 未回落: {r.stderr}"
     assert "SKIP(空间不足" in r.stdout, f"{value!r} 空间门没生效:\n{r.stdout}"
     assert not drill.restore_called, "门限非法却仍启动了大库还原 = 安全网关掉"
-    assert r.returncode == 0                     # 空间不足是 SKIP（已 severe 告警）
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout  # legacy fixture has no source proof
 
 
 def test_C2_leading_zero_digit_value_is_accepted_as_is(tmp_path):

@@ -124,7 +124,12 @@ def test_upload_db_includes_public_fund_and_keeps_old_two(repo_dir, monkeypatch,
     for name in ("sentiment", "etf_national_team", "stock_daily"):
         call = next(c for c in generic_puts if c["key"] == f"backup/{name}_{today}.db.gz")
         raw = gzip.decompress(call["payload"])
-        assert raw == (repo_dir / "data" / f"{name}.db").read_bytes()
+        # SQLite backup may change page/header representation; compare actual
+        # restored schema/rows. The new WAL fixture covers committed WAL content.
+        restored = repo_dir / f"{name}-restored.db"
+        restored.write_bytes(raw)
+        with sqlite3.connect(restored) as restored_con, sqlite3.connect(repo_dir / "data" / f"{name}.db") as src_con:
+            assert list(restored_con.iterdump()) == list(src_con.iterdump())
         assert call["bucket"] == ur.BACKUP_BUCKET
 
 

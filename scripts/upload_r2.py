@@ -1048,7 +1048,7 @@ def _parse_upload_id(resp_body):
     return None
 
 
-def _multipart_upload(key, total, read_part, content_type, bucket=None):
+def _multipart_upload(key, total, read_part, content_type, bucket=None, extra_headers=None):
     """大文件 multipart 上传: create -> 并行 upload-part -> complete(R2 官方流程)。
 
     2026-09-21 R2 上传失败根治: >100MB 单文件单 PUT 卡 600s 超时重试 5 次(放大器) →
@@ -1060,7 +1060,8 @@ def _multipart_upload(key, total, read_part, content_type, bucket=None):
     (后者见 _upload_multipart_file, 2026-10-25 public_fund.db 2.9G 备份新增, 防整文件进内存)。
     """
     # 1) create (POST /key?uploads=)
-    st, data = s3_request("POST", key, payload=b"", query="uploads=", content_type=content_type, bucket=bucket)
+    st, data = s3_request("POST", key, payload=b"", query="uploads=", content_type=content_type, bucket=bucket,
+                          **({"extra_headers": extra_headers} if extra_headers else {}))
     if st != 200:
         return st, data
     upload_id = _parse_upload_id(data)
@@ -1145,7 +1146,7 @@ def _read_file_part(path, offset, size):
         return f.read(size)
 
 
-def _upload_multipart_file(key, path, content_type, bucket=None):
+def _upload_multipart_file(key, path, content_type, bucket=None, extra_headers=None):
     """大文件 multipart 上传(本地文件流式入口, 不把整文件读进内存)。
 
     为什么需要独立入口(2026-10-25 public_fund.db 2.9G R2 备份):
@@ -1154,15 +1155,18 @@ def _upload_multipart_file(key, path, content_type, bucket=None):
       ≈ 峰值 256MiB), 分片/complete/失败 abort 语义与 _multipart_upload 完全一致。
     """
     return _multipart_upload(key, os.path.getsize(path),
-                             lambda off, n: _read_file_part(path, off, n), content_type, bucket=bucket)
+                             lambda off, n: _read_file_part(path, off, n), content_type, bucket=bucket,
+                             **({"extra_headers": extra_headers} if extra_headers else {}))
 
 
-def _upload_file_to_key(key, path, content_type, bucket=None):
+def _upload_file_to_key(key, path, content_type, bucket=None, extra_headers=None):
     """把一个本地文件上传到 R2 指定 key: >=100MB 走流式 multipart, 否则整文件单 PUT。"""
     if os.path.getsize(path) >= _MULTIPART_THRESHOLD:
-        return _upload_multipart_file(key, path, content_type, bucket=bucket)
+        return _upload_multipart_file(key, path, content_type, bucket=bucket,
+                                      **({"extra_headers": extra_headers} if extra_headers else {}))
     with open(path, "rb") as f:
-        return s3_request("PUT", key, f.read(), content_type=content_type, bucket=bucket)
+        return s3_request("PUT", key, f.read(), content_type=content_type, bucket=bucket,
+                          **({"extra_headers": extra_headers} if extra_headers else {}))
 
 
 def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_fn=None,
@@ -3709,7 +3713,7 @@ def _save_db_backup_state(repo, state):
     os.replace(tmp, p)
 
 
-def _sqlite_snapshot_to_gz(src_path, dst_gz_path):
+def _sqlite_snapshot_to_gz(src_path, dst_gz_path, source=None):
     """用 SQLite 在线 backup API 取一致快照, 再分块 gzip 到 dst(全程不把整库读进内存)。
 
     WAL 说明: 库处于 WAL 模式时直接 cp 主文件会漏掉 -wal 里未 checkpoint 的事务, 且
@@ -3722,21 +3726,34 @@ def _sqlite_snapshot_to_gz(src_path, dst_gz_path):
     tmpdir = tempfile.mkdtemp(prefix="r2-db-snapshot-")
     snap = os.path.join(tmpdir, "snapshot.db")
     try:
-        src = sqlite3.connect(str(src_path))
+        src = sqlite3.connect(Path(src_path).absolute().as_uri() + "?mode=ro", uri=True)
         dst = sqlite3.connect(snap)
         try:
+            if Path(src_path).name != "public_fund.db":
+                # New small-DB snapshot disk cost: raw + worst-case gzip + 64MiB
+                # reserve. PRAGMA includes committed WAL pages, unlike src.stat().
+                raw_size = src.execute("PRAGMA page_count").fetchone()[0] * src.execute("PRAGMA page_size").fetchone()[0]
+                need = raw_size * 2 + (64 << 20) + (raw_size // 100)  # gzip overhead allowance
+                if shutil.disk_usage(tmpdir).free < need:
+                    raise OSError("small DB snapshot: insufficient temporary space for raw+gzip+reserve")
             src.backup(dst)          # 在线热备: 不阻塞采集方读写, 拿到一致快照
         finally:
             dst.close()
             src.close()
+        if source is not None:
+            from backup_source_proof import fingerprint, snapshot_counts
+            source["raw"] = fingerprint(snap)
+            source["tables"] = snapshot_counts(snap, source["name"])
         with open(snap, "rb") as fin, gzip.open(dst_gz_path, "wb", compresslevel=6) as fout:
             shutil.copyfileobj(fin, fout, 4 * 1024 * 1024)   # 4MiB 分块, 内存恒定
+        if source is not None:
+            source["gzip"] = fingerprint(dst_gz_path)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
     return os.path.getsize(dst_gz_path)
 
 
-def _backup_public_fund_db(dbdir, repo, today):
+def _backup_public_fund_db(dbdir, repo, today, receipt=None):
     """public_fund.db -> R2: 未变更跳过 -> 快照+gzip -> 分片上传 -> 周/月副本。
 
     返回 True=成功/已是最新, False=失败, None=源文件不存在(不计入总数, 不误报失败)。
@@ -3752,7 +3769,10 @@ def _backup_public_fund_db(dbdir, repo, today):
     st_before = src.stat()
     state = _load_db_backup_state(repo)
     prev = state.get("public_fund.db") or {}
-    if prev.get("size") == st_before.st_size and prev.get("mtime_ns") == st_before.st_mtime_ns:
+    # Only the existing backup_db caller decides whether this scheduled drill
+    # needs a fresh upload. Standalone verify never creates or refreshes backups.
+    require_source = receipt is not None and os.environ.get("R2_DB_BACKUP_REQUIRE_PUBLIC_FUND") == "1"
+    if not require_source and prev.get("size") == st_before.st_size and prev.get("mtime_ns") == st_before.st_mtime_ns:
         # 跳过前核 R2 对象真实存在 + Content-Length==台账 gz_size(#312, 2026-11-01)：
         # 仅信本地台账会致「台账在但 R2 对象被删→连续跳过」漏传。head 异常/404/不匹配→不跳过(重传,
         # 安全侧: 宁可重传不漏传)。仅 public_fund 路径加该校验, 小库 cmd_upload_db 无 skip 不受影响。
@@ -3787,14 +3807,20 @@ def _backup_public_fund_db(dbdir, repo, today):
     tmpdir = tempfile.mkdtemp(prefix="r2-pfdb-gz-")
     gz = os.path.join(tmpdir, "public_fund.db.gz")
     try:
-        gz_size = _sqlite_snapshot_to_gz(src, gz)
         key = f"backup/public_fund_{today}.db.gz"
-        status, data = _upload_file_to_key(key, gz, "application/gzip", bucket=BACKUP_BUCKET)
+        source = None if receipt is None else {
+            "run_id": receipt["run_id"], "name": "public_fund", "bucket": BACKUP_BUCKET, "key": key}
+        gz_size = _sqlite_snapshot_to_gz(src, gz, **({"source": source} if source is not None else {}))
+        from backup_source_proof import metadata
+        status, data = _upload_file_to_key(key, gz, "application/gzip", bucket=BACKUP_BUCKET,
+                                          **({"extra_headers": metadata(source)} if source is not None else {}))
         if status != 200:
             print(f"✗ public_fund.db status={status} {data.decode('utf-8', errors='replace')[:300]}")
             return False
         print(f"✓ public_fund.db ({st_before.st_size // 1024 // 1024}MB -> "
               f"{gz_size // 1024 // 1024}MB gzip) -> {BACKUP_BUCKET}/{key} (私有桶)")
+        if receipt is not None:
+            receipt["objects"]["public_fund"] = source
         _maybe_upload_weekly_file("public_fund", gz, today)
         _maybe_upload_monthly_file("public_fund", gz, today)
         st_after = src.stat()
@@ -3835,10 +3861,18 @@ def cmd_upload_db():
     _prune_r2_backup 分层清 signal-backup2(backup/14 + weekly/28 + monthly/365,
     public_fund 按 per_name_days 覆盖)。
     DB 路径取 $REPO/data（与 backup_db.sh 一致，launchd 下 REPO=trade-data）。"""
-    import datetime as _dt, gzip
+    import datetime as _dt, tempfile
+    from backup_source_proof import atomic_json, metadata
     repo = Path(os.environ.get("REPO", str(ROOT)))
     dbdir = repo / "data"
     today = _dt.datetime.now().strftime("%Y%m%d")
+    proof_path = os.environ.get("R2_DB_BACKUP_PROOF")
+    run_id = os.environ.get("R2_DB_BACKUP_RUN_ID")
+    if bool(proof_path) != bool(run_id):
+        raise ValueError("source proof requires both R2_DB_BACKUP_PROOF and R2_DB_BACKUP_RUN_ID")
+    receipt = {"schema": 1, "run_id": run_id, "complete": False, "objects": {}} if proof_path else None
+    if receipt is not None:
+        atomic_json(proof_path, receipt)  # invalidate any prior result before uploading
     targets = [
         ("sentiment.db", "sentiment"),
         ("etf_national_team.db", "etf_national_team"),
@@ -3852,13 +3886,22 @@ def cmd_upload_db():
         if not src.exists():
             print(f"⚠ {src} 不存在，跳过")
             continue
-        raw = src.read_bytes()
-        payload = gzip.compress(raw, compresslevel=6)  # gzip 压缩后上传(原 .db 本地不动)
         key = f"backup/{name}_{today}.db.gz"
-        status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET)
+        source = None if receipt is None else {
+            "run_id": run_id, "name": name, "bucket": BACKUP_BUCKET, "key": key}
+        # Read an owned SQLite snapshot, including committed WAL, never the live file.
+        with tempfile.TemporaryDirectory(prefix="r2-small-db-") as tmp:
+            gz = Path(tmp) / (name + ".db.gz")
+            _sqlite_snapshot_to_gz(src, gz, **({"source": source} if source is not None else {}))
+            payload = gz.read_bytes()
+        status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET,
+                                  **({"extra_headers": metadata(source)} if source is not None else {}))
         if status == 200:
             ok += 1
-            print(f"✓ {fname} ({len(raw) // 1024}KB -> {len(payload) // 1024}KB gzip) "
+            if receipt is not None:
+                receipt["objects"][name] = source
+                atomic_json(proof_path, receipt)
+            print(f"✓ {fname} (snapshot -> {len(payload) // 1024}KB gzip) "
                   f"-> {BACKUP_BUCKET}/{key} (私有桶)")
             # 日备份成功后,判断是否本周/本月首次,是则上传周/月副本(复用 payload)
             _maybe_upload_weekly(name, payload, today)
@@ -3866,11 +3909,15 @@ def cmd_upload_db():
         else:
             print(f"✗ {fname} status={status} {data.decode('utf-8', errors='replace')[:300]}")
     # public_fund.db 大库(2.9G): 走独立快照/流式链路; 不存在时 None=不计入分母, 不误报失败。
-    pf_ok = _backup_public_fund_db(dbdir, repo, today)
+    pf_ok = _backup_public_fund_db(dbdir, repo, today, **({"receipt": receipt} if receipt is not None else {}))
     total = len(targets) + (0 if pf_ok is None else 1)
     if pf_ok:
         ok += 1
     _prune_r2_backup(keep_days=14, per_name_days=_PUBLIC_FUND_RETENTION_DAYS)
+    if receipt is not None:
+        receipt["complete"] = ok == total
+        atomic_json(proof_path, receipt)
+        print(f"DB source proof run={run_id} complete={receipt['complete']} path={proof_path}")
     print(f"DB 上传 {ok}/{total} -> {BACKUP_BUCKET}/backup/ ({today})")
     if ok != total:
         sys.exit(1)

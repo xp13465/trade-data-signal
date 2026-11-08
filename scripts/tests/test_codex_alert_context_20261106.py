@@ -149,12 +149,13 @@ def test_every_actual_fail_reaches_backup_body(sandbox, case):
             assert line.strip() in body
 
 
-def test_skip_only_never_sends_failure(sandbox):
+def test_skip_with_unbound_source_remains_unknown(sandbox):
     live, paths = backup_fixture(sandbox)
     paths.pop("public_fund")
     report = validate(sandbox, live, paths, "public_fund=SKIP(周频未到:非周日)")
-    assert report.startswith("VERIFY_OK=1\n")
-    assert render_actual_body(sandbox, report) == (0, "")
+    assert report.startswith("VERIFY_OK=0\n")
+    rc, body = render_actual_body(sandbox, report)
+    assert rc == 1 and "unknown/not_verified" in body
 
 
 def test_multiple_failure_reasons_visible_together(sandbox):
@@ -216,7 +217,7 @@ def test_real_corrupt_file_keeps_diagnostics_and_checks_other_databases(sandbox,
         assert f"sentiment: {diagnostic.strip()}" in details
         assert diagnostic.strip() in body
     assert "etf_national_team: etf_daily" in body and "备份=2  本地=1" in body
-    assert "本地丢数据" in body
+    assert "跨时点行数减少，待审计核对" in body
     for table in TABLES["stock_daily"] + TABLES["public_fund"]:
         assert any(table in line and "[OK]" in line for line in report.splitlines())
 
