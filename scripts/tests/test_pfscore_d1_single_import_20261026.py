@@ -255,13 +255,18 @@ def test_screener_dry_run_long_row_isolated_and_passes(tmp_path):
                       lambda c: _build_screener_rows(c, long_chars=21660, n_normal=5))  # 64980 字节
     r, gen_dir = _run_script(SYNC_SCREENER, repo, tmp_path)
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "oversize_single_row_stmts=1" in r.stdout, r.stdout
+    # 增量分写索引/非索引两遍 VALUES；每遍长行仍须独立成句，不能放松字节上限。
+    assert "oversize_single_row_stmts=2" in r.stdout, r.stdout
     text = _sql_files(gen_dir)[0].read_text(encoding="utf-8")
     big = [s for s in text.split(";\n") if "长" * 100 in s]
-    assert len(big) == 1, "长行所在语句数=%d" % len(big)
-    assert "),(" not in big[0], "长行和其他行混在同一批(会被 D1 单语句上限打爆)"
+    assert len(big) == 2, "长行所在语句数=%d" % len(big)
+    assert all(s.count("\n(") == 1 for s in big), "长行与其他行混批"
     body_bytes = [len(s.encode("utf-8")) for s in text.split(";\n") if s.strip()]
     assert max(body_bytes) < 90000, max(body_bytes)
+    with sqlite3.connect(":memory:") as con:
+        con.executescript(text)
+        assert con.execute("SELECT COUNT(*) FROM fund_screener").fetchone()[0] == 5
+        assert con.execute("SELECT length(strategy) FROM fund_screener WHERE fund_code='L00001'").fetchone()[0] == 21660
 
 
 def test_screener_over_hard_cap_fails_before_writing_package(tmp_path):

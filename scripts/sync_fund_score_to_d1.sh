@@ -14,8 +14,9 @@
 #   ② 增量同步(H1 保守口径): 每行按**全部数据列含日期列**算 row_hash(sha256 前 16 位),
 #      读 D1 现存 {fund_code: row_hash} 后 diff, 只 upsert changed/new 行 + 批量 DELETE
 #      removed(removed 清理仅 weekly: FUND_SCORE_CLEANUP_REMOVED=1 时做, daily 不清
-#      防误删待恢复基金)—— D1 表全程不被清空, 写量 ≈ 变化行数(旧全表 DELETE+重插
-#      每次写 ~28k 行且同步期间线上查到空/半成品表)。
+#      防误删待恢复基金)—— D1 表全程不被清空, 业务行只写变化部分(另有索引维护/元数据写入;
+#      首次 row_hash 初始化仍需写全部业务行)。旧全表 DELETE+重插
+#      每次涉及 ~28k 行且同步期间线上查到空/半成品表。
 #      INCREMENTAL=0 回退旧全量替换语义(DELETE 全表 + INSERT 全量, 应急/调试用)。
 # 输入: /Users/linhuichen/code/trade-data/data/public_fund.db (fund_score + fund_basic)
 # 输出: CF D1 trade-fund-score.fund_score 表（远程，wrangler d1 execute --remote）
@@ -302,6 +303,7 @@ head = f"INSERT INTO fund_score ({col_list}) VALUES"
 # schema（幂等）+ sync_meta（同步元数据: score_date/rows/synced_at, 供 /api/fund_score 返回数据日期）
 #   score_date 列(2026-11-08 latest_by_key 常驻全市场): 每只基金各自最近评分日, 不再是单分区;
 #   row_hash 列(增量同步): 已有表由 d1_migrate_row_hash 幂等 ALTER 补, 新表由 CREATE 直接建。
+#   稳定索引只在缺失时创建；定义变化须显式迁移，不能在日同步中 DROP/CREATE 重建。
 schema_stmts = ["""CREATE TABLE IF NOT EXISTS fund_score (
   fund_code TEXT PRIMARY KEY,
   fund_name TEXT, fund_type TEXT,
@@ -322,10 +324,8 @@ schema_stmts = ["""CREATE TABLE IF NOT EXISTS fund_score (
   final_suggestion REAL, benchmark TEXT, score_method TEXT,
   data_completeness REAL, update_date TEXT, row_hash TEXT
 );""",
-"DROP INDEX IF EXISTS idx_fs_composite;",
-"CREATE INDEX idx_fs_composite ON fund_score(composite_score);",
-"DROP INDEX IF EXISTS idx_fs_type;",
-"CREATE INDEX idx_fs_type ON fund_score(fund_type);",
+"CREATE INDEX IF NOT EXISTS idx_fs_composite ON fund_score(composite_score);",
+"CREATE INDEX IF NOT EXISTS idx_fs_type ON fund_score(fund_type);",
 """CREATE TABLE IF NOT EXISTS sync_meta (
   key TEXT PRIMARY KEY,
   value TEXT
@@ -364,7 +364,15 @@ print(f"[sync-d1-python] diff: total={len(rows)} changed={len(changed)} "
       flush=True)
 
 set_cols = [name for name, _ in cols if name != "fund_code"] + ["row_hash"]
-conflict_clause = build_conflict_clause("fund_score", set_cols, "fund_code")
+# 依据数据库当前键值分写；日期/hash 初始化不 SET 未变索引列。NULL 用 IS/IS NOT 比较。
+index_cols = ("composite_score", "fund_type")  # 与上方两个二级索引一致
+conflict_clause = build_conflict_clause("fund_score", set_cols, "fund_code") + " WHERE " + " OR ".join(
+    f"fund_score.{c} IS NOT excluded.{c}" for c in index_cols)
+nonindex_clause = build_conflict_clause(
+    "fund_score", [c for c in set_cols if c not in index_cols], "fund_code"
+) + " WHERE " + " AND ".join(
+    [f"fund_score.{c} IS excluded.{c}" for c in index_cols]
+    + ["fund_score.row_hash IS NOT excluded.row_hash"])
 # 全量行值(INCREMENTAL=0 回退与 legacy 模式共用; 含 row_hash 列)
 all_cols = [name for name, _ in cols] + ["row_hash"]
 row_values = ["(" + ", ".join(sql_lit(r[name]) for name in all_cols) + ")" for r in rows]
@@ -380,6 +388,8 @@ if split_mode == "single":
             write_cols = [name for name, _ in cols] + ["row_hash"]
             write_vals = ["(" + ", ".join(sql_lit(r[name]) for name in write_cols) + ")" for r in write_rows]
             bundle.add_inserts(head, write_vals, conflict_clause=conflict_clause)
+            # 两条均为完整 INSERT；冲突更新互斥，数据与 hash 始终同一语句落盘，重试可跳过。
+            bundle.add_inserts(head, write_vals, conflict_clause=nonindex_clause)
         else:
             print("[sync-d1-python] 增量空写: changed+new=0, 跳过 INSERT(只写 meta+removed)", flush=True)
         for i in range(0, len(removed_codes), 500):
