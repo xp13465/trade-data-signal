@@ -166,6 +166,11 @@ echo "$LOG_PREFIX 开始: $(date '+%F %T') db=$DB mode=$SPLIT_MODE batch=$BATCH 
 #    row_hash 列迁移**不分增量/回退都跑**(生产): INSERT 语句总是写 row_hash 列,
 #    INCREMENTAL=0 回退模式若不迁移列, 已有表没有 row_hash 列 → 导入必失败(no such column)。
 HASHES_FILE="$GEN_DIR/d1_hashes.json"
+# 两个 lib 都在步骤 0 之前 source(2026-11-08 审查 F3): d1_execute.sh 提供 _d1_run_with_timeout
+#   (单次超时), 步骤 0 的哈希读/列迁移靠它包裹 npx wrangler —— 旧序在步骤 2(导入前)才 source,
+#   生产哈希读恒走裸 npx 无超时: 网络挂起 → 卡到调用方墙被杀 → _fail 未执行 → 失败状态
+#   不落盘 → #275 告警链对本场景失明。d1_execute.sh 顶层只定义函数/常量, 提前 source 无副作用。
+source "$SCRIPT_SELF_DIR/lib/d1_execute.sh" || _fail "d1_execute.sh missing"
 source "$SCRIPT_SELF_DIR/lib/d1_hash_read.sh" || _fail "d1_hash_read.sh missing"
 if [ "$DRY_RUN" = "1" ]; then
   if [ -n "$D1_EXISTING_HASHES_FILE" ] && [ -f "$D1_EXISTING_HASHES_FILE" ]; then
@@ -175,14 +180,29 @@ if [ "$DRY_RUN" = "1" ]; then
     printf '{}\n' > "$HASHES_FILE"
     echo "$LOG_PREFIX DRY_RUN: 无 D1_EXISTING_HASHES_FILE, D1 视为空表(全部新增)" >&2
   fi
+  # 迁移预览(2026-11-08 审查 F1): DRY_RUN 不连 D1, 把生产步骤 0 将执行的幂等列迁移语句
+  #   落盘到生成目录, 供单测/人工核对(生产表 fund_score 是 2026-08-22 老 schema 建成,
+  #   无 score_date 列 —— 不补列则首跑 "no such column" 确定性失败)。
+  cat > "$GEN_DIR/migrate_preview.txt" <<'MIGRATE_EOF'
+-- 生产步骤 0 将执行的幂等列迁移(已存在/表未建会容错跳过):
+ALTER TABLE fund_score ADD COLUMN row_hash TEXT;
+ALTER TABLE fund_score ADD COLUMN score_date TEXT;
+MIGRATE_EOF
+  echo "$LOG_PREFIX DRY_RUN: 列迁移预览已落盘 $GEN_DIR/migrate_preview.txt(生产由步骤 0 幂等执行)"
 elif [ "$INCREMENTAL" = "1" ]; then
   d1_migrate_row_hash "$D1_DB" "fund_score" || _fail "row_hash 列迁移失败(fund_score)" unknown
+  # score_date 列迁移(2026-11-08 审查 F1): 生产表是老 schema(无 score_date), INSERT 列清单
+  #   已含该列, 不补列首跑必败; 幂等 ALTER(已存在容错跳过), 与 row_hash 同机制。
+  d1_migrate_column "$D1_DB" "fund_score" "score_date" "TEXT" \
+    || _fail "score_date 列迁移失败(fund_score)" unknown
   if ! d1_read_hashes "$D1_DB" "fund_score" "$HASHES_FILE"; then
     _fail "读 D1 现存哈希失败(fund_score, wrangler SELECT)" unknown
   fi
 else
-  # INCREMENTAL=0 回退: 不读哈希(全量 DELETE+INSERT 不需要 diff), 但仍迁移 row_hash 列
+  # INCREMENTAL=0 回退: 不读哈希(全量 DELETE+INSERT 不需要 diff), 但仍迁移 row_hash+score_date 列
   d1_migrate_row_hash "$D1_DB" "fund_score" || _fail "row_hash 列迁移失败(fund_score)" unknown
+  d1_migrate_column "$D1_DB" "fund_score" "score_date" "TEXT" \
+    || _fail "score_date 列迁移失败(fund_score)" unknown
   printf '{}\n' > "$HASHES_FILE"
   echo "$LOG_PREFIX INCREMENTAL=0: 跳过 D1 哈希读(回退旧全量替换语义)" >&2
 fi
@@ -458,7 +478,7 @@ D1_BUDGET_START=$(date +%s)
 D1_SYNC_DEADLINE=$(( D1_BUDGET_START + BUDGET_SEC ))
 export D1_SYNC_DEADLINE D1_RETRY_DELAYS="$RETRY_DELAYS" LOG_PREFIX
 export D1_BUDGET_START D1_BUDGET_TOTAL_SEC="$BUDGET_SEC" D1_EXEC_TIMEOUT_SEC="$EXEC_TIMEOUT_SEC"
-source "$SCRIPT_SELF_DIR/lib/d1_execute.sh" || _fail "d1_execute.sh missing"
+# d1_execute.sh 已在步骤 0 之前 source(见上; F3 修哈希读无超时)
 for f in "${SQL_FILES[@]}"; do
   echo "$LOG_PREFIX execute $(basename "$f") ($(wc -c < "$f" | tr -d ' ') bytes)"
   _OUT="$GEN_DIR/execute.out"

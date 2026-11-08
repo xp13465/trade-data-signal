@@ -178,6 +178,11 @@ echo "$LOG_PREFIX 开始: $(date '+%F %T') db=$DB batch=$BATCH dry_run=${DRY_RUN
 #    row_hash 列迁移**不分增量/回退都跑**(生产): INSERT 语句总是写 row_hash 列,
 #    INCREMENTAL=0 回退模式若不迁移列, 已有表没有 row_hash 列 → 导入必失败(no such column)。
 HASHES_FILE="$GEN_DIR/d1_hashes.json"
+# d1_execute.sh 在步骤 0 之前 source(2026-11-08 审查 F3, 与 sync_fund_score_to_d1.sh 同修):
+#   哈希读/列迁移依赖其 _d1_run_with_timeout 包裹 npx wrangler —— 旧序在步骤 2 才 source,
+#   生产哈希读恒走裸 npx 无超时(网络挂起 → 墙杀 → _fail 不执行 → 失败状态不落盘, #275 失明)。
+#   d1_execute.sh 顶层只定义函数/常量, 提前 source 无副作用。
+source "$SCRIPT_SELF_DIR/lib/d1_execute.sh" || _fail "d1_execute.sh missing"
 source "$SCRIPT_SELF_DIR/lib/d1_hash_read.sh" || _fail "d1_hash_read.sh missing"
 if [ "$DRY_RUN" = "1" ]; then
   if [ -n "$D1_EXISTING_HASHES_FILE" ] && [ -f "$D1_EXISTING_HASHES_FILE" ]; then
@@ -185,7 +190,8 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "$LOG_PREFIX DRY_RUN: 用 D1_EXISTING_HASHES_FILE 作 D1 现存哈希源"
   else
     # DRY_RUN 不调 wrangler(本机/CI 多无凭据, 裸 npx 可能挂起) → 视 D1 为空表, 全部按新增。
-    # 增量 diff 逻辑由单测 + D1_EXISTING_HASHES_FILE mock 验证(见 scripts/tests/)。
+    # 增量 diff 逻辑由单测 + D1_EXISTING_HASHES_FILE mock 验证
+    #   (scripts/tests/test_d1_incremental_sync_20261108.py, 2026-11-08 审查 F2 起在位)。
     printf '{}\n' > "$HASHES_FILE"
     echo "$LOG_PREFIX DRY_RUN: 无 D1_EXISTING_HASHES_FILE, D1 视为空表(全部新增)" >&2
   fi
@@ -662,7 +668,7 @@ D1_BUDGET_START=$(date +%s)
 D1_SYNC_DEADLINE=$(( D1_BUDGET_START + BUDGET_SEC ))
 export D1_SYNC_DEADLINE D1_RETRY_DELAYS="$RETRY_DELAYS" LOG_PREFIX
 export D1_BUDGET_START D1_BUDGET_TOTAL_SEC="$BUDGET_SEC" D1_EXEC_TIMEOUT_SEC="$EXEC_TIMEOUT_SEC"
-source "$SCRIPT_SELF_DIR/lib/d1_execute.sh" || _fail "d1_execute.sh missing"
+# d1_execute.sh 已在步骤 0 之前 source(见上; F3 修哈希读无超时)
 for f in "${SQL_FILES[@]}"; do
   echo "$LOG_PREFIX execute $(basename "$f") ($(wc -c < "$f" | tr -d ' ') bytes)"
   _OUT="$GEN_DIR/execute.out"

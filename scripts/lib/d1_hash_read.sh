@@ -10,6 +10,7 @@
 # 用法:
 #   source scripts/lib/d1_hash_read.sh
 #   d1_migrate_row_hash <d1_db> <table>            # 幂等加 row_hash TEXT 列(容忍已存在/表不存在)
+#   d1_migrate_column <d1_db> <table> <col> <ddl>   # 幂等加任意列(如 fund_score.score_date, F1)
 #   d1_read_hashes <d1_db> <table> <out_json> [batch]   # 批量 SELECT, 写 {fund_code: row_hash}
 # 返回: 0 成功; 非 0 失败(调用方按 DRY_RUN/生产 决定 _fail 或兜底)。
 #
@@ -22,22 +23,31 @@ _D1_HASH_BATCH="${D1_HASH_BATCH:-5000}"
 
 d1_migrate_row_hash() {
   local db="$1" table="$2"
-  # 幂等: ALTER TABLE ADD COLUMN row_hash TEXT。已存在 → "duplicate column name"(容忍);
+  d1_migrate_column "$db" "$table" row_hash "TEXT"
+}
+
+# d1_migrate_column <db> <table> <col> <ddl类型> - 幂等 ALTER TABLE ADD COLUMN(2026-11-08 审查 F1)。
+#   背景: 生产 D1 fund_score 表是 2026-08-22 老 schema 建成(无 score_date 列), 而新版 INSERT
+#   列清单已含 score_date —— CREATE TABLE IF NOT EXISTS 对已有表不生效, 不补列则首跑
+#   "no such column: score_date" 确定性失败。任何「新版代码比生产表多一列」都走本函数补列。
+d1_migrate_column() {
+  local db="$1" table="$2" col="$3" col_ddl="$4"
+  # 幂等: ALTER TABLE ADD COLUMN。已存在 → "duplicate column name"(容忍);
   #   表不存在 → "no such table"(容忍, 后续 CREATE TABLE IF NOT EXISTS 会建);
   #   其他错误 → 真失败, 返回非 0。
   local out rc
   out=$(_d1_hash_run "$db" \
-    "ALTER TABLE ${table} ADD COLUMN row_hash TEXT;" 2>&1)
+    "ALTER TABLE ${table} ADD COLUMN ${col} ${col_ddl};" 2>&1)
   rc=$?
   if [ $rc -ne 0 ]; then
     if echo "$out" | grep -qiE "duplicate column name|no such table"; then
-      echo "[d1-hash] ${table}: row_hash 列已存在或表未建, 跳过迁移(rc=$rc)" >&2
+      echo "[d1-hash] ${table}: ${col} 列已存在或表未建, 跳过迁移(rc=$rc)" >&2
       return 0
     fi
-    echo "[d1-hash] ERROR ${table} ALTER 失败: $(echo "$out" | tail -3 | tr '\n' ' ')" >&2
+    echo "[d1-hash] ERROR ${table} ALTER ${col} 失败: $(echo "$out" | tail -3 | tr '\n' ' ')" >&2
     return $rc
   fi
-  echo "[d1-hash] ${table}: row_hash 列迁移完成(或已存在)" >&2
+  echo "[d1-hash] ${table}: ${col} 列迁移完成(或已存在)" >&2
   return 0
 }
 

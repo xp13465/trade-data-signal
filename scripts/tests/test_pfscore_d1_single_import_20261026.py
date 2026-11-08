@@ -151,10 +151,12 @@ def _sql_files(gen_dir):
 
 
 def _package_free(gen_dir):
-    """生成目录里除哈希输入缓存外是否干净(2026-11-08 增量同步起 DRY_RUN 第 0 步会写
-    ``d1_hashes.json``——D1 现存哈希的输入缓存, 不是 SQL 包、meta.json 或任何会被
+    """生成目录里除第 0 步的输入/预览外是否干净(2026-11-08 增量同步起 DRY_RUN 第 0 步会写
+    ``d1_hashes.json``——D1 现存哈希输入缓存; 复审 F1 起还会写 ``migrate_preview.txt``
+    ——生产步骤 0 将执行的幂等列迁移预览。两者都不是 SQL 包、meta.json 或任何会被
     上游上传/导入的产物; 本文件守护的口径不变: 失败后**一个包字节都不落盘**)。"""
-    return sorted(p.name for p in gen_dir.iterdir() if p.name != "d1_hashes.json")
+    keep = {"d1_hashes.json", "migrate_preview.txt"}
+    return sorted(p.name for p in gen_dir.iterdir() if p.name not in keep)
 
 
 # ============================ ① 单文件 + 字节封顶(打包器单元) ============================
