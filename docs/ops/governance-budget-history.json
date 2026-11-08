@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-10-18",
+  "updated": "2026-11-09",
   "entries": [
     {
       "month": "2026-07",
@@ -84,6 +84,27 @@
         "l": 53,
         "e": 30,
         "net": 6
+      }
+    },
+    {
+      "month": "2026-11",
+      "rev": "8118feef3bbfdfdcde70e169e950749d3e5a408a",
+      "claude_md": 71203,
+      "governance": 48140,
+      "archive": 78311,
+      "skills": {
+        "implementer": 40359,
+        "reviewer": 40282,
+        "tester": 23808,
+        "researcher": 17637,
+        "mech-runner": 5025
+      },
+      "skills_sum": 127111,
+      "mem_md": 27321,
+      "clauses": {
+        "l": 57,
+        "e": 31,
+        "net": 5
       }
     }
   ]

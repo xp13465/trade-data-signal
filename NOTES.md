@@ -8548,3 +8548,8 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 ## 2026-10 月报(体量 + 成本;数据源 docs/ops/governance-budget-history.json)
 - 体量(截至 10-18,rev fabe7c38):CLAUDE.md 66,377B / MEMORY.md 26,026B / 台账归档 70,628B / skills 合计 113,869B;本季条款净增 +6(≤3) 超预算 ⇒ 触发动作见 docs/ops/clause-retirement-checklist.md。
 - 花费:deepseek 官方 ¥__ / 火山方舟 ¥__ / 各代理 ¥__;规范维护时长 __h(§5.2④;待 §19 月度归并填写)。
+
+## 2026-11 月报(体量 + 成本;数据源 docs/ops/governance-budget-history.json)
+- 体量(截至 11-09,rev 8118feef):CLAUDE.md 71,203B / MEMORY.md 27,321B / 台账归档 78,311B / skills 合计 127,111B;**本季条款净增 +11(≤3)超预算 + skills 环比 +11.6%(>+10%)双超 ⇒ 按 §5.3.1-④ 当季「退役/重写/保留」清单提前执行**(超因:10-18 评鉴 P2/P6/P8/P10 五条新条款落地(§5.3.1/§23.13 锚点独立性/§5.10 探索通道/§5.2④)+ L51/L52/L55/L56/L57 补归档锚点 + 节点评鉴 B4-B8 落 role skill;属评鉴集中落地期增量,非日常棘轮,但出口动作照走:退役清单提前执行)。
+- 本月主线:①「省 D1 配额」工程(fund_score/fund_screener 增量同步省约 51% 写配额 + worker 显式列清单防新列漏进 payload,全链 11-08 合 main `495e0ff3f`/`8118feef3f`,11-09 21:35 首跑核验)②Codex 接力三单收口(ops-live-issues 5 项修复/ops-admin 管理员授权/cloud-alert-closeout 前置)③git 大清理(28 worktree/49 本地/104 远端分支删,已合并验证)。
+- 花费:deepseek 官方 ¥__ / 火山方舟 ¥__ / 各代理 ¥__;规范维护时长 __h(§5.2④;待月底账单数字归并填写,数据源=各控制台账单,主控无查询通道时向用户要)。
