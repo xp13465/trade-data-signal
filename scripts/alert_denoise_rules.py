@@ -1843,10 +1843,11 @@ def stall_context(key, repo=None, now=None) -> dict:
     return _ctx
 
 
-def format_stall_body(body, ctx) -> str:
-    """停摆告警正文头: 三字段 + 分隔线 + 原始正文(原正文一字不减)。"""
+def format_stall_body(body, ctx, key=None) -> str:
+    """按 canonical key 选择正文头; 旧两参调用默认停摆级, 原始正文一字不减。"""
     _c = ctx or {}
-    _head = (f"<b>【停摆级告警】</b><br>"
+    _prefix = stall_prefix_for(key)
+    _head = (f"<b>{_prefix[:-1]}级告警】</b><br>"
              f"· 首次发生: {_c.get('first_seen', '未知')}<br>"
              f"· 连续失败: {_c.get('consecutive', '未知')}<br>"
              f"· 影响产物: {_c.get('impact', '未知')}")

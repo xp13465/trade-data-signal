@@ -199,7 +199,7 @@ _WRITE_INVOKE = re.compile(
     r"""upload-trade-sim-json|upload-trade-sim|upload-index|upload-etf-hist|upload-fund-nav|"""
     r"""upload-accum-nav|upload-industry|upload-public-fund|upload-offshore-fund|"""
     r"""upload-fund-score|upload-etf-score|upload-kelly-parts-sdc|upload-kelly-parts|"""
-    r"""upload-kelly-snapshots|upload-intraday|upload-db|upload-large-json|"""
+    r"""upload-kelly-snapshots|upload-turnover|upload-intraday|upload-db|upload-large-json|"""
     r"""upload-claude-backup|upload-decommissioned|verify-r2|purge-low-freq)\b""")
 
 

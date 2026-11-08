@@ -9,7 +9,7 @@
 - Worker 复用现有域名、session 和 HTTPS 路由，新增 `/api/ops/*` 与 `/admin/ops.html`；不开放云端入站端口，不增反向代理服务。
 - **独立新 D1 `OPS_DB`** 保存私有快照/事件/人工修订，不能绑定到 `FUND_SCORE_DB`、订阅KV或公开R2。ingest bearer 只有写入权限，不是 viewer/admin。
 - 新通知默认 `OPS_ALERT_SCOPE=watchdog`：仅页 collector失联/恢复；所有业务checks继续保留事件，但通知标为 `owned_by_existing_chain` suppressed，由已有运维链承担，避免同故障service critical/schedule warning多响。`all` 是显式扩展，只有Claude审过旧链去重才可开启，不能靠配置遗漏扩大范围。
-- Worker `scheduled` 每15分钟独立判断失联并执行保留期/有界 outbox 重试。有快照时，最新采样超过1800秒为 stale（2 倍采集周期，留 15 分钟余量吸收 cron 抖动）。首次尚无快照时，从 watchdog 首次检查记下的 `first_seen_at` 开始给予30分钟宽限，期间保持 unknown；超过宽限仍无首样，后续cron将 `watchdog.status` 置为 stale、`bootstrap_overdue=true`，防止永远unknown而不暴露监测未建立。无head时 `collector_status` 本身仍为unknown，不能当健康。检测在下一cron轮生效，不能承诺恰好第15分钟；宽限从首次独立检查而非部署命令时间起算。这些状态只说明监测建立/新鲜度，不代表业务故障或恢复。告警可能在远端接受后回执未持久化时重复传输，不承诺 exactly once。
+- Worker `scheduled` 每15分钟独立判断失联并执行保留期/有界 outbox 重试。有快照时，最新采样超过1800秒为 stale（2 倍采集周期，留 15 分钟余量吸收 cron 抖动）。首次尚无快照时，从 watchdog 首次检查记下的 `first_seen_at` 开始给予30分钟宽限，期间保持 unknown；超过宽限仍无首样，后续cron将 `watchdog.status` 置为 stale、`bootstrap_overdue=true`，防止永远unknown而不暴露监测未建立。无head时 `collector_status` 本身仍为unknown，不能当健康。检测在下一cron轮生效，不能承诺恰好第30分钟（15分钟检查周期下，严格超过宽限的首个整点轮次可能是第45分钟）；宽限从首次独立检查而非部署命令时间起算。这些状态只说明监测建立/新鲜度，不代表业务故障或恢复。告警可能在远端接受后回执未持久化时重复传输，不承诺 exactly once。
 - 本控制面已交 C 作为新增第45项登记；canonical 源是 `docs/deploy/systemd-units-20260912.md`，`install/` 单元与其必须逐字一致。不要再维护独立的第44项计数常量。生成器/注册测试由 C 负责。
 
 契约见 [contract.md](contract.md)。当前路径可通过非敏感配置和 systemd drop-in 调整；不得用业务 `.env` 作为 collector EnvironmentFile。

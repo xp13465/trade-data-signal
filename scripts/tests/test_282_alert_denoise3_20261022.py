@@ -561,12 +561,24 @@ def test_a_omission_guard_all_producer_keys_classified():
     _chk(len(found) >= 40, f"扫描到的生产键过少({len(found)}), 防遗漏网可能失效")
 
 
+def test_stall_body_uses_subject_canonical_key(iso):
+    """原始 key 未登记时, 正文仍须跟随标题兜底识别出的 canonical key。"""
+    res = notify.send("[告警] D1 同步连续失败", "原始正文",
+                      severe=True, from_prefix="[告警]", ledger_key="legacy_unregistered")
+    _chk(res.get("email") and res.get("feishu"))
+    _chk(len(iso["calls"]) == 3)
+    for call in iso["calls"]:
+        _chk(call["subject"].startswith("【停摆】"))
+        _chk(call["body"].startswith("<b>【停摆级告警】</b><br>"))
+
+
 def test_a_stall_bypasses_budget_and_domain_and_2h_dedup(iso):
     """构造 10-20 场景同款: 预算已满 + 同域 2h 窗内, 停摆级仍首报直发; 2h 内同键只发一次。"""
     alerts, calls = iso["alerts"], iso["calls"]
     keys = ["deploy_consecutive_fail", "staticdata_backup_stale",
             "r2_upload_trigger_fail", "d1_sync_fail",
-            "failed_units_patrol", "cloud_unit_patrol_drift"]
+            "failed_units_patrol", "cloud_unit_patrol_drift", "unit_registry_drift",
+            "r2_lock_gradient_drift", "unit_registry_load_fail", "unit_registry_unexpected"]
     _write_json(iso["tmp"] / "data" / "alert_state.json", {
         "deploy_consecutive_fail": {"first_seen": "2026-10-20 12:00:00",
                                     "consecutive_count": 39},
@@ -603,10 +615,18 @@ def test_a_stall_bypasses_budget_and_domain_and_2h_dedup(iso):
         if key in adr.CONFIG_DRIFT_KEYS:
             _chk(subj.startswith(adr.CONFIG_DRIFT_PREFIX) and not subj.startswith(adr.STALL_PREFIX),
                  f"{key} 配置漂移键标题必须用【配置漂移】不得用【停摆】: {subj}")
+            _chk(body.startswith("<b>【配置漂移级告警】</b><br>"),
+                 f"{key} 正文头必须是配置漂移: {body[:200]}")
+            _chk("【停摆级告警】" not in body)
         else:
             _chk(subj.startswith(adr.STALL_PREFIX), f"{key} 标题缺停摆前缀: {subj}")
+            _chk(body.startswith("<b>【停摆级告警】</b><br>"),
+                 f"{key} 真实停摆正文头不得改变: {body[:200]}")
         _chk("首次发生" in body and "连续失败" in body and "影响产物" in body,
              f"{key} 正文缺三字段: {body[:200]}")
+        _chk(body.endswith("<br><br>原始正文"), "原文必须保留")
+        _chk(all(c["subject"] == subj and c["body"] == body
+                 for c in calls[before:before + 3]), "邮件/飞书/Telegram 标题和正文须一致")
         # 第二次(2h 内同键)只 suppress, 不再外发
         before2 = len(calls)
         res2 = notify.send(f"[告警] 计划任务异常: {key}", "原始正文",
@@ -1097,6 +1117,7 @@ def test_e_extra_stall_consecutive_count_real_loop(iso):
     ctx = adr.stall_context("stall|extra_stale|fetch_news", iso["tmp"])
     _chk(ctx["consecutive"] == 3, f"正文应显示连续 3 轮: {ctx}")
     body = adr.format_stall_body("原始正文", ctx)
+    _chk(body.startswith("<b>【停摆级告警】</b><br>"), "旧两参 API 默认停摆级兼容")
     _chk("连续失败: 3" in body, f"正文连续失败不得为「未知」: {body[:200]}")
 
     # 任务恢复 ⇒ 状态键被主恢复循环删除; 再停摆 = 重建从 1 起

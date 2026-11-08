@@ -102,7 +102,7 @@ _DRY_RUN_CONSUMERS = {
     "upload-fund-nav", "upload-accum-nav", "upload-industry", "upload-public-fund",
     "upload-offshore-fund", "upload-fund-score", "upload-etf-score", "upload-kelly-parts",
     "upload-kelly-parts-sdc", "upload-kelly-snapshots", "upload-data-large", "upload-all-data",
-    "upload-large-json",
+    "upload-large-json", "upload-turnover",
 }
 
 
@@ -2901,6 +2901,44 @@ def cmd_upload_all_data(publication_lock_held=False):
         atomic_write_json(result_path, {"batch_id": batch_id, "outcomes": outcomes}, mode=0o600)
 
 
+# turnover 独立重导的闭合集合；不受全站大小阈值、glob 或未来新产物影响。
+# boot 内嵌 overview，signals_today 是 export_boot 拆出的首屏一跳依赖。
+_TURNOVER_UPLOAD_FILES = {
+    "small": ("overview.json", "boot.json", "signals_today.json",
+              "a-stock-3m.json", "a-stock-6m.json", "a-stock-1y.json"),
+    "large": ("a-stock-3y.json", "a-stock-5y.json", "a-stock-all.json"),
+}
+
+
+def cmd_upload_turnover(scope):
+    """只发布 turnover 产物，复用增量/备份/ETag/断点引擎。
+
+    两个范围各自持有专属 state/marker/checkpoint，绝不借用或清理全站状态。
+    首跑仍遵守 ALLOW_FULL_UPLOAD 门禁，由部署方确认源树后显式放行。
+    """
+    if scope not in _TURNOVER_UPLOAD_FILES:
+        sys.exit("用法: upload-turnover <small|large>")
+    _guard_upload_intraday()
+    data_dir = STATIC_DIR / "data"
+    # 每一段都校验整个闭合集合，防上游导出缺件却把半套当交付成功。
+    required = sum(_TURNOVER_UPLOAD_FILES.values(), ())
+    missing = [name for name in required if not (data_dir / name).is_file()]
+    if missing:
+        sys.exit("[turnover] 缺少必要产物: " + ", ".join(missing))
+    files = _TURNOVER_UPLOAD_FILES[scope]
+    _incremental_upload(
+        data_dir, files, "data", f".r2_turnover_{scope}_state.json",
+        label=f"turnover-{scope}", checkpoint_every=1, resume_on_stale_marker=True)
+    if _DRY_RUN:
+        return
+    keys = [f"data/{name}" for name in files]
+    _record_standalone_keys(keys)
+    # 成功重入也清整段缓存：上轮可能 PUT/写状态后、purge 前被中断。
+    # /data rewrite 与 /r2/data 两条读取路由都覆盖(大 range 常走后者)。
+    purge_cache(keys, cache_prefix="/")
+    purge_cache(keys, cache_prefix="/r2/")
+
+
 def cmd_upload_intraday():
     """上传 intraday 盘中更新的数据文件到 R2 data/ 前缀(阶段1b 双写)。
 
@@ -5566,6 +5604,8 @@ if __name__ == "__main__":
     elif cmd == "upload-all-data":
         cmd_upload_all_data(publication_lock_held=
                             _lock is not None and _lock_domain() in (None, "data"))
+    elif cmd == "upload-turnover":
+        cmd_upload_turnover(sys.argv[2] if len(sys.argv) == 3 else "")
     elif cmd == "upload-intraday":
         cmd_upload_intraday()
     elif cmd == "upload-data-files":
@@ -5627,5 +5667,5 @@ if __name__ == "__main__":
             "upload-fund-nav|upload-accum-nav|upload-data-large|upload-kelly-parts|upload-kelly-parts-sdc|upload-db|upload-large-json|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
             "upload-claude-backup [path]|upload-decommissioned <local> <key_name>|"
-            "upload-all-data|upload-intraday|purge-low-freq|verify-r2|verify-channels <desc...>]"
+            "upload-turnover <small|large>|upload-all-data|upload-intraday|purge-low-freq|verify-r2|verify-channels <desc...>]"
         )

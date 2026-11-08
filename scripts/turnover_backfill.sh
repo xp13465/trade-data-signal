@@ -11,7 +11,7 @@
 #   ⑤pipeline.sh turnover(RUN_BAOSTOCK=1 由 pipeline.sh 内部设, 90.8min, 超时 7200s)
 #   ⑥增量重导 overview.json + a-stock-{3m,6m,1y,3y,5y,all}.json(只重写换手率相关展示文件,
 #     消费链 overview() 读 daily_metric 最新非空值, 缺当日=显示 T-1 不报错)
-#   ⑦upload-intraday(overview/a-stock-3m/6m/1y)+ upload-data-large(3y/5y/all)上传 R2 + purge CF
+#   ⑦upload-turnover small/large: 7 个明确产物 + boot/signals_today 一跳依赖上传 R2 + purge CF
 #   ⑧失败 notify --severe(--dedup-key 1h 防轰炸); 成功静默(git 渠道随次日 17:50 deploy 追上)
 # 日志: data/logs/turnover_backfill_launchd.log(固定名 append, 标准开始/结束行供
 #   gen_schedule_stats standard 模式与 schedule_monitor 漏跑检查直读, 同 s06_snapshot 先例)
@@ -35,6 +35,9 @@
 # #364 三轮(2026-10-30): ①预算自检 FATAL 补告警 + 标准「结束」行(旧版直接 exit 2 ⇒ 无声死);
 #   ②补绝对值区间断言(R2_WORK_BUDGET ∈ [2400,3600] / R2_WORK_BUDGET_INTRADAY ∈ [600,1800]),
 #   防「三者一起缩水」时关系式全绿。
+# 2026-11-08 范围收敛：以上 #258/#364 是历史预算取证；现行两段调用为
+#   upload-turnover small(6件，含 boot/signals_today) / large(3件)。保留原预算变量、
+#   run_to 字面量与 r2/r2large 日志字段供监控/梯度审计识别，绝不复用全站上传状态。
 # 用法: bash scripts/turnover_backfill.sh [force]
 set -uo pipefail
 
@@ -187,6 +190,7 @@ if [ "$RC_PIPE" -eq 0 ]; then
   echo "-> 增量重导 overview.json + a-stock-{3m,6m,1y,3y,5y,all}.json ..." >> "$LOG"
   run_to 900 "$PY" - <<'PYEOF' >> "$LOG" 2>&1
 import importlib.util
+import json
 import os
 from pathlib import Path
 
@@ -210,6 +214,18 @@ for _rng in export_mod.EXPORT_RANGES:
     )
     print(f"  a-stock-{_rng}.json 重导完成")
 conn.close()
+# 首页首屏优先消费 boot.overview；复用既有拆分入口，禁止只更新旁路 overview。
+export_mod.export_boot()
+ov = json.loads((DATA_DIR / "overview.json").read_text())
+boot = json.loads((DATA_DIR / "boot.json").read_text())
+st = json.loads((DATA_DIR / "signals_today.json").read_text())
+expected = dict(ov)
+expected.pop("signals_today", None)
+if (boot.get("overview") != expected or st != {
+    "date": ov.get("date"), "signals_today": ov.get("signals_today"),
+    "signals_meta": ov.get("signals_meta"),
+}):
+    raise RuntimeError("turnover 首屏依赖重导不一致，拒绝交付")
 PYEOF
   RC_EXPORT=$?
   if [ "$RC_EXPORT" -ne 0 ]; then
@@ -269,9 +285,9 @@ _r2_check_step() {
   fi
 }
 
-# 4) 上传 R2 + purge CF edge(§22 N 缓存同步; upload-intraday 覆盖 overview/a-stock-3m/6m/1y,
-#    upload-data-large 兜底大 range 3y/5y/all; 失败仅告警不阻断——git 渠道随次日 deploy 追上)
-if [ "$RC_EXPORT" -eq 0 ]; then
+# 4) 上传 R2 + purge CF edge：仅 turnover 明确产物及首屏依赖；交付失败保持非零。
+#    采集或重导失败均禁止发布旧文件；预算变量/字面量保留以兼容监控及梯度审计。
+if [ "$RC_PIPE" -eq 0 ] && [ "$RC_EXPORT" -eq 0 ]; then
   # 倒挂自检(逐步骤各自校验): 任一条倒挂/越界 ⇒ FATAL(此时数据已落盘, 由退出码告警接管)。
   _r2_check_ranges
   _r2_check_step "upload-intraday" "R2_WORK_BUDGET_INTRADAY" "$R2_WORK_BUDGET_INTRADAY" "$OUTER_INTRADAY"
@@ -281,7 +297,7 @@ if [ "$RC_EXPORT" -eq 0 ]; then
   if ! grep -q 'os\.environ\.get("R2_UPLOAD_WORK_TIMEOUT"' "$REPO/scripts/upload_r2.py" 2>/dev/null; then
     echo "$(date '+%F %T') WARN: upload_r2.py 未读取 R2_UPLOAD_WORK_TIMEOUT(内层工作预算失效, 行为回到改前, 不阻断上传) —— 见 #364" >> "$LOG"
   fi
-  echo "-> 上传 R2(upload-intraday + upload-data-large) ..." >> "$LOG"
+  echo "-> 上传 R2(upload-turnover small + large) ..." >> "$LOG"
   # #364: 等锁段/工作段两预算各自独立计时; 外层兜底只兜「进程内计时器生效之前」的窗口。
   #   upload-intraday 内层工作预算 900s(用户 2026-10-30 拍板; 一版曾按纯工作取证取 600):
   #     · 段耗时大头是**等锁**(心跳行「⏳ 等待 R2 上传锁 Ns」每 30s 一行, 10-23 有 22 行≈660s),
@@ -295,13 +311,13 @@ if [ "$RC_EXPORT" -eq 0 ]; then
   #       且外层 2760 与改前旧值相等 ⇒ 对外层可容忍总时长零变更。
   #   历史警惕: 10-17 前旧口径下 intraday 曾跑到 ~450–900s(10-13 撞 900s 上限), 故不取更小值。
   run_to 2760 env R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET" R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET_INTRADAY" R2_UPLOAD_LOCK_DOMAIN=data \
-    "$PY" scripts/upload_r2.py upload-intraday >> "$LOG" 2>&1
+    "$PY" scripts/upload_r2.py upload-turnover small >> "$LOG" 2>&1
   RC_R2=$?
-  [ "$RC_R2" -ne 0 ] && echo "⚠ upload-intraday R2 同步失败 rc=${RC_R2}(git 渠道随次日 deploy 追上)" >> "$LOG"
+  [ "$RC_R2" -ne 0 ] && echo "⚠ upload-turnover small R2 同步失败 rc=${RC_R2}(git 渠道随次日 deploy 追上)" >> "$LOG"
   run_to 4980 env R2_UPLOAD_LOCK_TIMEOUT="$R2_LOCK_WAIT_BUDGET" R2_UPLOAD_WORK_TIMEOUT="$R2_WORK_BUDGET" R2_UPLOAD_LOCK_DOMAIN=data \
-    "$PY" scripts/upload_r2.py upload-data-large >> "$LOG" 2>&1
+    "$PY" scripts/upload_r2.py upload-turnover large >> "$LOG" 2>&1
   RC_R2L=$?
-  [ "$RC_R2L" -ne 0 ] && echo "⚠ upload-data-large R2 同步失败 rc=${RC_R2L}(git 渠道随次日 deploy 追上)" >> "$LOG"
+  [ "$RC_R2L" -ne 0 ] && echo "⚠ upload-turnover large R2 同步失败 rc=${RC_R2L}(git 渠道随次日 deploy 追上)" >> "$LOG"
 fi
 
 FINAL_RC=$RC_PIPE
@@ -312,7 +328,7 @@ FINAL_RC=$RC_PIPE
 if [ "$FINAL_RC" -ne 0 ]; then
   "$PY" scripts/notify.py \
     "[告警] turnover 独立任务链路异常 pipe=$RC_PIPE export=$RC_EXPORT r2=$RC_R2 r2large=$RC_R2L $(date '+%m-%d %H:%M')" \
-    "turnover 独立延后任务(21:10)四段(pipeline 采集 / 增量重导 overview+a-stock / upload-intraday / upload-data-large)任一失败, 当日 a_turnover_* 数据可能缺失或未上线。<br>日志: $LOG (尾部 50 行)<br>影响: 首页折叠区/A股走势图换手率读 T-1(缺当日不报错, 前端 T1_COLLECT_DEADLINE 18:00 会标红色异常至数据上线)。" \
+    "turnover 独立延后任务(21:10)四段(pipeline 采集 / 增量重导 overview+a-stock+首屏依赖 / upload-turnover small / upload-turnover large)任一失败, 当日 a_turnover_* 数据可能缺失或未上线。<br>日志: $LOG (尾部 50 行)<br>影响: 首页折叠区/A股走势图换手率读 T-1(缺当日不报错, 前端 T1_COLLECT_DEADLINE 18:00 会标红色异常至数据上线)。" \
     --severe --from-prefix "[告警]" \
     --alert-issue "turnover 独立任务链路异常" --alert-log "$LOG" \
     --dedup-key turnover_backfill_fail --dedup-window 3600 2>&1 | tee -a "$LOG" || true

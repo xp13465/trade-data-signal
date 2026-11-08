@@ -1425,7 +1425,7 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
                     "suppressed": True, "stall": True}
         _sctx = adr.stall_context(_stall_key, REPO)
         subject = adr.stall_prefix_for(_stall_key) + subject
-        body = adr.format_stall_body(body, _sctx)
+        body = adr.format_stall_body(body, _sctx, _stall_key)
         print(f"[notify][stall] 独立直发(绕过预算/域聚合, 前缀={adr.stall_prefix_for(_stall_key)!r}) "
               f"key={_stall_key} 首现={_sctx.get('first_seen')} 连续={_sctx.get('consecutive')}",
               file=sys.stderr)
