@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS index_daily (
   index_id TEXT NOT NULL,
   open REAL, high REAL, low REAL, close REAL,
   pct_change REAL, amount REAL, net_inflow REAL,
+  source TEXT,
+  intraday_quote_at TEXT, -- 腾讯报价北京时间(Asia/Shanghai)，YYYYMMDDHHMMSS，秒精度；旧行未知为NULL
   PRIMARY KEY (date, index_id)
 );
 CREATE INDEX IF NOT EXISTS idx_index_daily_id ON index_daily(index_id);
@@ -357,6 +359,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
             if "duplicate column name" in str(e):
                 pass  # 并发首跑竞态，另一进程已加列，忽略
             else:
+                raise
+
+    # 同一行情行的报价时点元数据，不是业务价格；与OHLC同事务写，跨进程拒绝旧报价。
+    if "intraday_quote_at" not in cols:
+        try:
+            conn.execute("ALTER TABLE index_daily ADD COLUMN intraday_quote_at TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
                 raise
 
     # intraday_snapshot.concepts 列（2026-07-15 加，盘中概念实时数据入库）
