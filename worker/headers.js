@@ -134,6 +134,11 @@ function cacheControlFor(pathname) {
   return 'private, no-cache, must-revalidate';
 }
 
+// 同一首屏合同的三份文件统一回源，两个 URL 入口不能各自命中旧副本。
+function isBootstrapDataKey(key) {
+  return /^data\/(?:overview|boot|signals_today)\.json$/.test(key);
+}
+
 // /r2/* 代理路由（P0-4 2026-08-08）：R2 binding 直读 + Cache API 边缘缓存 1h。
 // 原直链 ssd.fx8.store（R2 public bucket）cf-cache-status DYNAMIC 每次回源 ~1s；
 // 改走 Worker 代理后二次请求边缘 HIT ~50ms。R2 key = pathname 去掉 /r2/ 前缀。
@@ -154,7 +159,8 @@ async function r2ProxyHandler(request, env, ctx, url) {
   //   2026-09-23 桶化：nav_bucket/（256 桶全史净值）与 fund_nav/（旧 per-code 前缀）同数据
   //   同语义，一并 no-store；否则每日上传后 CF 边缘按 max-age=3600 缓存旧桶最长 1h +
   //   upload 跳过 purge → 前端读到旧净值（§22 数据一致性）。
-  const noEdgeCache = key.startsWith('fund_nav/') || key.startsWith('nav_bucket/');
+  // Cache API delete 只清执行节点，不能靠上传端的单节点 purge 保证首屏副本新鲜度。
+  const noEdgeCache = isBootstrapDataKey(key) || key.startsWith('fund_nav/') || key.startsWith('nav_bucket/');
   // 1. 边缘缓存命中（key 用 pathname 剥离 query，?_=Date.now() 不影响命中；noEdgeCache 跳过）
   const cacheKey = new Request(url.origin + url.pathname);
   if (!noEdgeCache) {
@@ -194,6 +200,7 @@ async function r2ProxyHandler(request, env, ctx, url) {
 // Cache API 边缘缓存 + 分层 TTL + /api/purge-cache 主动清除（上传新数据后调）。
 // 和 /r2/ 代理区分：/data/ 是前端原生 URL rewrite（0 改动），/r2/ 保留给大 range 直链。
 function dataCacheTtl(pathname) {
+  if (isBootstrapDataKey(decodeURIComponent(pathname.slice(1)))) return 0;
   // NO_CACHE(ttl=0)：盘中高频关键文件，不查不写 edge cache，每次回源 R2。
   //   根治 R2 迁移后 PURGE_SECRET 手动部署丢失致 edge cache 旧版(max-age=14400)4h 残留事故(2026-08-09)：
   //   overview/intraday_snapshot/board_etf_map 是数据一致性核心文件，stale 不可接受。
@@ -207,7 +214,7 @@ function dataCacheTtl(pathname) {
   //   2026-10-17 补 signals_today：C3 拆产物（boot 内嵌副本去掉 signals_today，独立成 /data/signals_today.json）。
   //   它与 overview.json 是同一份 signals_today 的两个消费入口 ⇒ 必须同新鲜度，否则首页信号卡（读 signals_today.json）
   //   与其它展示位（读 overview.json）会出现 §22 不一致；故与 overview 同列 ttl=0。
-  if (/^\/data\/(?:overview|intraday_snapshot|board_etf_map|daily_brief|daily_brief_history|signal_kelly_backtest|signal_kelly_trades|news_digest|signal_stats|signal_kelly_trades_intraday|signal_kelly_backtest_intraday|signals_today)\.json$/.test(pathname)) return 0;
+  if (/^\/data\/(?:intraday_snapshot|board_etf_map|daily_brief|daily_brief_history|signal_kelly_backtest|signal_kelly_trades|news_digest|signal_stats|signal_kelly_trades_intraday|signal_kelly_backtest_intraday)\.json$/.test(pathname)) return 0;
   // MED_FREQ 600s：AI 监控卡走势图数据(overfit_monitor 主文件 + _ext K档扩展, B拆分 2026-08-24)。
   //   【沿革/前提修正, 防后人困惑】2026-08-16 曾把 overfit_monitor 归入上面 NO_CACHE(ttl=0)：当时该文件
   //   <1MB 且 purge 链路缺失，「重跑立即看」只能靠 no-store 保证(memory edge-cache-ttl-stretch-no-cache)。
@@ -222,9 +229,9 @@ function dataCacheTtl(pathname) {
   //   2026-08-22 补 signal_kelly_trades_parts/ 分片(recent+tYYYY, 首页模拟回测弹窗): 每日随全量重跑,
   //   同属「重跑后立即看」的回测类文件, stale 不可接受(同 signal_kelly_trades.json 口径)。
   if (pathname.startsWith('/data/signal_kelly_trades_parts/')) return 0;
-  // HIGH_FREQ 60s：盘中高频更新（boot/notifications/summary 等；overview/intraday_snapshot 已拆到 NO_CACHE）
+  // HIGH_FREQ 60s：盘中高频更新（notifications/summary 等；首屏合同已拆到 NO_CACHE）
   // feed.xml（RSS）：收盘后更新，盘中 RSS 阅读器可能轮询，60s 平衡时效与回源成本。
-  if (/^\/data\/(?:boot|notifications|summary|summary_history|schedule_stats|alert)\.json$/.test(pathname) || pathname === '/data/feed.xml') return 60;
+  if (/^\/data\/(?:notifications|summary|summary_history|schedule_stats|alert)\.json$/.test(pathname) || pathname === '/data/feed.xml') return 60;
   // HIGH_FREQ 60s：盘中 15min 更新的 K 线小周期（-1m/-3m/-6m/-1y）
   if (/-(?:1m|3m|6m|1y)\.json$/.test(pathname)) return 60;
   // HIGH_FREQ 60s：其他盘中实时数据
