@@ -301,7 +301,7 @@
     if (state.hasStateError || !s?.latest) return 'unknown';
     const stamp = Date.parse(s.latest.collected_at);
     if (!Number.isFinite(stamp) || !['fresh', 'stale'].includes(s.collector_status)) return 'unknown';
-    if (s.collector_status === 'stale' || Date.now() + state.serverOffset - stamp > 900000) return 'stale';
+    if (s.collector_status === 'stale' || Date.now() + state.serverOffset - stamp > 1800000) return 'stale';
     return 'fresh';
   }
   function currentChecks() {

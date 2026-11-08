@@ -9,7 +9,7 @@
 - Worker 复用现有域名、session 和 HTTPS 路由，新增 `/api/ops/*` 与 `/admin/ops.html`；不开放云端入站端口，不增反向代理服务。
 - **独立新 D1 `OPS_DB`** 保存私有快照/事件/人工修订，不能绑定到 `FUND_SCORE_DB`、订阅KV或公开R2。ingest bearer 只有写入权限，不是 viewer/admin。
 - 新通知默认 `OPS_ALERT_SCOPE=watchdog`：仅页 collector失联/恢复；所有业务checks继续保留事件，但通知标为 `owned_by_existing_chain` suppressed，由已有运维链承担，避免同故障service critical/schedule warning多响。`all` 是显式扩展，只有Claude审过旧链去重才可开启，不能靠配置遗漏扩大范围。
-- Worker `scheduled` 每15分钟独立判断失联并执行保留期/有界 outbox 重试。有快照时，最新采样超过900秒为 stale。首次尚无快照时，从 watchdog 首次检查记下的 `first_seen_at` 开始给予15分钟宽限，期间保持 unknown；超过宽限仍无首样，后续cron将 `watchdog.status` 置为 stale、`bootstrap_overdue=true`，防止永远unknown而不暴露监测未建立。无head时 `collector_status` 本身仍为unknown，不能当健康。检测在下一cron轮生效，不能承诺恰好第15分钟；宽限从首次独立检查而非部署命令时间起算。这些状态只说明监测建立/新鲜度，不代表业务故障或恢复。告警可能在远端接受后回执未持久化时重复传输，不承诺 exactly once。
+- Worker `scheduled` 每15分钟独立判断失联并执行保留期/有界 outbox 重试。有快照时，最新采样超过1800秒为 stale（2 倍采集周期，留 15 分钟余量吸收 cron 抖动）。首次尚无快照时，从 watchdog 首次检查记下的 `first_seen_at` 开始给予30分钟宽限，期间保持 unknown；超过宽限仍无首样，后续cron将 `watchdog.status` 置为 stale、`bootstrap_overdue=true`，防止永远unknown而不暴露监测未建立。无head时 `collector_status` 本身仍为unknown，不能当健康。检测在下一cron轮生效，不能承诺恰好第15分钟；宽限从首次独立检查而非部署命令时间起算。这些状态只说明监测建立/新鲜度，不代表业务故障或恢复。告警可能在远端接受后回执未持久化时重复传输，不承诺 exactly once。
 - 本控制面已交 C 作为新增第45项登记；canonical 源是 `docs/deploy/systemd-units-20260912.md`，`install/` 单元与其必须逐字一致。不要再维护独立的第44项计数常量。生成器/注册测试由 C 负责。
 
 契约见 [contract.md](contract.md)。当前路径可通过非敏感配置和 systemd drop-in 调整；不得用业务 `.env` 作为 collector EnvironmentFile。
@@ -256,7 +256,7 @@ node node_modules/wrangler/bin/wrangler.js deploy --dry-run --config "$PWD/wrang
 
 main自动部署成功后，记录实际commit、Worker版本、OPS_DB绑定/迁移与独立cron实值；若需手动重发，也显式使用 `--config "$PWD/wrangler.jsonc"`，而不是旧候选。即使曾用候选过渡发布，也必须完成根配置入main及从该source部署的验收；仅候选部署成功不算交付完成。
 
-9. 首次尚无采样时，GET `/api/ops/state` 在watchdog首次检查起15分钟宽限内应保持unknown（不是setup green）；逾宽限仍无首样后，后续独立cron须暴露 `watchdog.status=stale` 和 `bootstrap_overdue=true`，不能永久以空库unknown掩盖监测未建立。未登录/普通用户拒绝；允许的session admin或bootstrap才能读；ingest token不能读；所有API错误与成功都 `no-store`、无CORS。缺binding/迁移明确503。先验收这些，再启用collector。
+9. 首次尚无采样时，GET `/api/ops/state` 在watchdog首次检查起30分钟宽限内应保持unknown（不是setup green）；逾宽限仍无首样后，后续独立cron须暴露 `watchdog.status=stale` 和 `bootstrap_overdue=true`，不能永久以空库unknown掩盖监测未建立。未登录/普通用户拒绝；允许的session admin或bootstrap才能读；ingest token不能读；所有API错误与成功都 `no-store`、无CORS。缺binding/迁移明确503。先验收这些，再启用collector。
 
 D1历史full快照保留24h、摘要历史30d、事件/修订90d，由独立scheduled执行清理；**当前最后head记录及其full快照是例外，不受24h payload清理或30d历史删除门限限制，直到新head取代它**。这样长期失联后仍有最后一次采样可供排查，但旧head必须继续显示陈旧/未知观察，保留内容不等于fresh或业务健康。配置声明不是清理已执行证明。Cron变更传播可能需数分钟，官方上限说明为15分钟；必须以实际Worker scheduled记录和界面时间核验，不能仅看config。
 

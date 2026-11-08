@@ -6,7 +6,9 @@ import BASELINE from './ops_baseline.js';
 import { benefitStatements, benefitRunStatement, benefitsConfigured, benefitsRetain, benefitsRoute, benefitsExportTables } from './ops_benefits.js';
 
 const BODY_LIMIT = 256 * 1024;
-const AGE_MS = 900000;
+// 2 倍采集周期(15min cron→30min stale 阈值):留 15min 余量吸收 cron 抖动+冷启动,
+// 避免采样年龄逼近周期即误判 stale。2026-11-08 随采集频率 5→15min 上调。
+const AGE_MS = 1800000;
 const FUTURE_MS = 120000;
 const DAY = 86400000;
 const MAX_ATTEMPTS = 5;
@@ -401,7 +403,7 @@ async function deliverOutbox(db, env) {
           text: `${event.kind === 'recovery' ? '【恢复】' : '【告警】'}${event.source === 'watchdog'
             ? event.kind === 'recovery'
               ? '采集链已恢复采样。\n本次恢复只代表重新收到采样，不等于业务故障已根治。'
-              : '采集链超过15分钟未收到采样。\n请检查采集与上报链路；当前业务状态仍待核实。'
+              : '采集链超过30分钟未收到采样。\n请检查采集与上报链路；当前业务状态仍待核实。'
             : `运行检查：${event.check_id}，状态：${event.status}\n${event.summary.slice(0, 240)}`
           }\n事件编号：${event.event_id}\n如回执超时，重试可能重复送达；可按事件编号核对。`,
         } }) });

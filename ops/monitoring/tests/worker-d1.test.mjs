@@ -43,9 +43,9 @@ test('actual local Miniflare D1: migration, atomic concurrency, watchdog, CAS an
       checks: [{ id: 'service:test', name: 'Local fixture', category: 'service', status, observed_at: at, summary: 'Synthetic observation', evidence: { value: status } }],
     }; };
     // Three real D1 cron transactions before any successful upload.
-    await scheduleAt(now - 16 * 60000);
+    await scheduleAt(now - 31 * 60000);
     assert.equal((await call('/state')).body.watchdog.status, 'unknown');
-    await scheduleAt(now - 11 * 60000);
+    await scheduleAt(now - 16 * 60000);
     assert.equal((await call('/state')).body.bootstrap_overdue, false);
     await scheduleAt(now);
     assert.equal((await call('/state')).body.bootstrap_overdue, true);
@@ -76,10 +76,10 @@ test('actual local Miniflare D1: migration, atomic concurrency, watchdog, CAS an
     const edits = await Promise.all([call(path, update, 'admin', { 'X-Ops-Intent': 'update' }), call(path, update, 'admin', { 'X-Ops-Intent': 'update' })]);
     assert.deepEqual(edits.map(r => r.status).sort(), [200, 409]);
     assert.equal((await call('/incidents')).body.revisions.length, 1);
-    await scheduleAt(now + 1000000);
+    await scheduleAt(now + 1900000);
     assert.equal((await call('/events')).body.events.filter(e => e.source === 'watchdog' && e.status === 'stale').length, 2);
     const recoveryCount = (await call('/events')).body.events.filter(e => e.source === 'watchdog' && e.kind === 'recovery').length;
-    await scheduleAt(now + 1000000, now + 600000);
+    await scheduleAt(now + 1900000, now + 600000);
     assert.equal((await call('/state')).body.watchdog.status, 'stale');
     assert.equal((await call('/events')).body.events.filter(e => e.source === 'watchdog' && e.kind === 'recovery').length, recoveryCount);
     await scheduleAt(now + 32 * 86400000);

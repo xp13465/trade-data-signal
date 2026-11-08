@@ -158,7 +158,7 @@ def snapshot_checks(body, now=None):
     if age < -120:
         return [check('snapshot', 'critical', 'Snapshot has an invalid future evidence time')]
     reported = body.get('collector_status')
-    if age > 900:
+    if age > 1800:
         return [check('snapshot', 'critical' if reported == 'fresh' else 'warning', 'Collector snapshot is stale; never infer recovery from HTTP success')]
     if reported != 'fresh':
         return [check('snapshot', 'unknown', 'Collector freshness is not confirmed by the server')]
@@ -168,7 +168,7 @@ def snapshot_checks(body, now=None):
     if any(not isinstance(c, dict) or c.get('status') not in VALID_STATUSES for c in checks):
         return [check('snapshot', 'critical', 'Collector check statuses are invalid')]
     try:
-        if any((server_time - parse_time(c.get('observed_at'))).total_seconds() > 900 or
+        if any((server_time - parse_time(c.get('observed_at'))).total_seconds() > 1800 or
                (server_time - parse_time(c.get('observed_at'))).total_seconds() < -120 for c in checks):
             return [check('snapshot', 'unknown', 'Some check evidence is stale/future; fresh envelope alone is insufficient')]
     except ValueError:

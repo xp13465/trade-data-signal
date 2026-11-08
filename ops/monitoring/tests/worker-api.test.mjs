@@ -80,7 +80,7 @@ test('auth fails closed: member/ingest denied, strict provider UID and separate 
 
 test('bounded/strict JSON: chunked oversize, stale/future, unsafe scalar evidence, baseline injection', () => fixture(async f => {
   assert.equal((await f.call('/ingest', { role: 'ingest', value: ' '.repeat(270000) })).status, 413);
-  for (const offset of [-900001, 120001]) {
+  for (const offset of [-1800001, 120001]) {
     const s = f.snapshot(); s.collected_at = new Date(f.now() + offset).toISOString(); assert.equal((await f.push(s)).status, 400);
   }
   for (const evidence of [{ path: 'fixture' }, { result: '/tmp/private.json' }, { result: { nested: 'bad' } }, { result: 'a@example.invalid' }]) {
@@ -161,7 +161,7 @@ test('OPS-R3 delayed older scheduledTime cannot recover an unchanged stale colle
   Object.assign(f.env, { OPS_ALERT_SCOPE: 'watchdog', OPS_ALERT_ENABLED: 'true', OPS_ALERT_WEBHOOK: 'https://open.feishu.cn/open-apis/bot/v2/hook/fixture-hook-1234567890' });
   const sent = []; globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body).content.text); return Response.json({ code: 0 }); };
   const first = f.snapshot(); const initial = f.now(); await f.push(first);
-  f.advance(901000); await f.scheduled();
+  f.advance(1801000); await f.scheduled();
   const changed = f.db.sql.prepare('SELECT changed_ms FROM ops_watchdog').get().changed_ms;
   await opsScheduled({ scheduledTime: initial + 600000 }, f.env, {});
   const current = (await f.call('/state')).body;
@@ -191,7 +191,7 @@ test('new envelope with stale/future checks stays unknown; omission preserves pr
   let state = (await f.call('/state')).body;
   assert.equal(state.collector_status, 'fresh'); assert.equal(state.missing_checks.length, 1);
   assert.equal(state.missing_checks[0].problem_open, true); assert.equal(state.missing_checks[0].status, 'unknown');
-  for (const offset of [-1000000, 1000000]) {
+  for (const offset of [-1900000, 1000000]) {
     f.advance(1000); const s = f.snapshot(); s.checks[0].observed_at = new Date(f.now() + offset).toISOString(); await f.push(s);
     state = (await f.call('/state')).body; assert.equal(state.latest.checks[0].status, 'unknown');
     assert.equal(f.db.sql.prepare('SELECT problem_open FROM ops_check_state').get().problem_open, 1);
@@ -201,7 +201,7 @@ test('new envelope with stale/future checks stays unknown; omission preserves pr
 
 test('cron uses wall clock independently; no snapshot unknown, stale once, fresh recovery', () => fixture(async f => {
   await f.scheduled(); assert.equal((await f.call('/state')).body.collector_status, 'unknown');
-  await f.push(f.snapshot()); f.advance(901000);
+  await f.push(f.snapshot()); f.advance(1801000);
   await f.scheduled(); await f.scheduled();
   let events = (await f.call('/events')).body.events;
   assert.equal(events.filter(e => e.source === 'watchdog' && e.kind === 'alert').length, 1);
@@ -217,10 +217,10 @@ test('no first snapshot across three cron ticks: durable grace then one overdue 
   let state = (await f.call('/state')).body;
   assert.equal(state.watchdog.status, 'unknown'); assert.equal(state.bootstrap_overdue, false);
   assert.equal(state.watchdog.first_seen_at, new Date(started).toISOString());
-  f.advance(5 * 60000); await f.scheduled();
+  f.advance(15 * 60000); await f.scheduled();
   state = (await f.call('/state')).body;
   assert.equal(state.watchdog.status, 'unknown'); assert.equal(sends, 0);
-  f.advance(11 * 60000); await f.scheduled();
+  f.advance(16 * 60000); await f.scheduled();
   state = (await f.call('/state')).body;
   assert.equal(state.collector_status, 'unknown'); assert.equal(state.latest, null);
   assert.equal(state.bootstrap_overdue, true); assert.equal(state.watchdog.status, 'stale'); assert.equal(sends, 1);
@@ -239,9 +239,9 @@ test('fake watchdog transport positively exposes Chinese alert/recovery and hone
   Object.assign(f.env, { OPS_ALERT_ENABLED: 'true', OPS_ALERT_WEBHOOK: 'https://open.feishu.cn/open-apis/bot/v2/hook/fixture-hook-1234567890' });
   const bodies = [];
   globalThis.fetch = async (_url, options) => { bodies.push(JSON.parse(options.body)); return Response.json({ code: 0 }); };
-  await f.push(f.snapshot()); f.advance(901000); await f.scheduled();
+  await f.push(f.snapshot()); f.advance(1801000); await f.scheduled();
   assert.equal(bodies.length, 1); assert.equal(bodies[0].msg_type, 'text');
-  assert.match(bodies[0].content.text, /^【告警】采集链超过15分钟未收到采样/);
+  assert.match(bodies[0].content.text, /^【告警】采集链超过30分钟未收到采样/);
   assert.match(bodies[0].content.text, /当前业务状态仍待核实/);
   f.advance(1000); await f.push(f.snapshot()); await f.scheduled();
   assert.equal(bodies.length, 2);
@@ -311,7 +311,7 @@ test('default watchdog scope records two same-root service/timer faults without 
   }
   await f.scheduled(); assert.equal(sends, 0);
   // Independent collector loss still pages exactly once through the new chain.
-  f.advance(901000); await f.scheduled(); await f.scheduled(); assert.equal(sends, 1);
+  f.advance(1801000); await f.scheduled(); await f.scheduled(); assert.equal(sends, 1);
   const sent = f.db.sql.prepare("SELECT e.source FROM ops_outbox o JOIN ops_events e ON e.event_id=o.event_id WHERE o.status='sent'").all();
   assert.deepEqual(sent.map(r => r.source), ['watchdog']);
 }));
@@ -334,7 +334,7 @@ test('invalid alert scope fails closed and ingest cannot forge the reserved watc
   for (const scope of ['', 'ALL', 'business', true]) {
     f.env.OPS_ALERT_SCOPE = scope;
     f.advance(1000); await f.push(f.snapshot('critical'));
-    f.advance(901000); await f.scheduled(); assert.equal(sends, 0);
+    f.advance(1801000); await f.scheduled(); assert.equal(sends, 0);
   }
   const disabled = f.db.sql.prepare("SELECT * FROM ops_outbox WHERE status='disabled'").all();
   assert.ok(disabled.length); assert.ok(disabled.every(x => x.last_error === 'invalid_alert_scope'));

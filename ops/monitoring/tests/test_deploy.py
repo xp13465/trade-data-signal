@@ -107,11 +107,11 @@ def test_no_evidence_never_green(body):
 
 
 def test_fresh_envelope_cannot_hide_stale_check_or_server_clock():
-    assert v.snapshot_checks(state(observed_age=901), NOW)[0]['status'] == 'unknown'
+    assert v.snapshot_checks(state(observed_age=1801), NOW)[0]['status'] == 'unknown'
     assert v.snapshot_checks(state(), NOW + timedelta(minutes=3))[0]['status'] == 'unknown'
     assert v.snapshot_checks(state(age=-121), NOW)[0]['status'] == 'critical'
-    assert v.snapshot_checks(state(age=901), NOW)[0]['status'] == 'critical'
-    body = state(age=901)
+    assert v.snapshot_checks(state(age=1801), NOW)[0]['status'] == 'critical'
+    body = state(age=1801)
     body['collector_status'] = 'stale'
     assert v.snapshot_checks(body, NOW)[0]['status'] == 'warning'
 
