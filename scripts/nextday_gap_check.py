@@ -211,6 +211,11 @@ def main():
     args = ap.parse_args()
 
     today = args.date or _today()
+    # 监控恢复证据必须有正向生产模式；正常/空计划等早退也不能漏记干跑。
+    run_mode = ("dry-run" if args.dry_run else "test-open" if args.test_open else
+                "local-only" if args.no_r2 or args.no_notify else
+                "recheck" if args.recheck_pending else "live")
+    log(f"执行模式={run_mode} 执行日={today}")
     data_dir = REPO / "static-site" / "data"
     git_data_dir = GIT_REPO / "static-site" / "data"
 
