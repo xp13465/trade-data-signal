@@ -295,5 +295,8 @@
   ],
   "20261108-a659": [
     "deploy(ops): persist OPS_DB binding + watchdog cron + alert-disabled vars to root wrangler.jsonc"
+  ],
+  "20261108-a660": [
+    "fix(worker): fund_score/fund_screener \u663e\u5f0f\u5217\u6e05\u5355\u9632\u589e\u91cf\u540c\u6b65\u65b0\u5217\u6f0f\u8fdb API payload"
   ]
 }
