@@ -19,8 +19,10 @@
 # 配对：开始后紧接的结束算一次运行；耗时>3h 视为错位丢弃。只匹配外层任务脚本名，
 # 内嵌的 deploy.sh/check_signals.sh 不计（避免嵌套干扰）。
 from __future__ import annotations
+import ast
 import gzip
 import json
+import math
 import os
 import re
 import subprocess
@@ -726,6 +728,80 @@ def _retry_self_healed(window_lines: list, idx: int) -> bool:
     return any(GAP_RETRY_SUCCESS_RE.search(line) for line in window_lines[idx + 1:])
 
 
+
+# 主源异常不等于就绪失败；只认生产者的确切降级行，不能泛化忽略 ConnectionError。
+NEXTDAY_PRIMARY_FALLBACK_RE = re.compile(
+    r'\s*\[就绪闸\] 主源 fund_etf_spot_em 失败\([A-Za-z_][\w.]*: .+\), 全量走双源兜底')
+NEXTDAY_PLAN_RE = re.compile(
+    r'\[nextday_gap_check\] 执行日 (\d{8}) 计划内 ETF=(\d+): (\[.*\])')
+NEXTDAY_PRICED_RE = re.compile(
+    r'\[nextday_gap_check\] +(?:✓ (\d+) 正常|✗ (\d+) 伪跳空剔除) '
+    r'open=(\S+) sig_close=(\S+) gap=\S+%')
+
+
+def _nextday_fallback_healed_lines(window_lines: list, last_exit: int | None) -> set:
+    """返回本轮全部目标真价就绪后可降级的主源行索引；缺任一证据仍走原告警。
+
+    gap-check 的部分缺价路径也可能 exit0，因此须逐代码核齐有限正价，且结果晚于
+    最后一次主源降级。只用当前 standard 窗口，不借历史轮次、重试标记或任意 ✓。
+    """
+    if last_exit != 0 or not window_lines:
+        return set()
+    start = START_RE.fullmatch(window_lines[0])
+    if not start or start.group(1) != "nextday_gap_check.sh" or not re.fullmatch(
+            r'=== nextday_gap_check\.sh 结束 ' + _TS + r' 退出码=0 ===', window_lines[-1]):
+        return set()
+    # 嵌套轮次/注入价/缺价都不足以证明本轮全部计划目标真实就绪。
+    if any(START_RE.search(line) or END_RE.search(line)
+           for line in window_lines[1:-1]) or any(
+            token in line for line in window_lines
+            for token in ("--test-open", "DRY-RUN", "开盘价未取得", "就绪闸 FAIL")):
+        return set()
+    degraded = {i for i, line in enumerate(window_lines)
+                if NEXTDAY_PRIMARY_FALLBACK_RE.fullmatch(line)}
+    plans = [(i, m) for i, line in enumerate(window_lines)
+             if (m := NEXTDAY_PLAN_RE.fullmatch(line))]
+    if not degraded or len(plans) != 1:
+        return set()
+    plan_idx, plan = plans[0]
+    day, count, raw_codes = plan.groups()
+    try:
+        codes = ast.literal_eval(raw_codes)
+    except (ValueError, SyntaxError):
+        return set()
+    if not isinstance(codes, list) or not codes or any(
+            not isinstance(code, str) or not re.fullmatch(r'\d{6}', code) for code in codes):
+        return set()
+    targets = set(codes)
+    if len(codes) != len(targets) or str(len(codes)) != count or plan_idx >= min(degraded):
+        return set()
+    ready = set()
+    excluded = False
+    completed = False
+    for line in window_lines[max(degraded) + 1:-1]:
+        priced = NEXTDAY_PRICED_RE.fullmatch(line)
+        if priced:
+            code = priced[1] or priced[2]
+            try:
+                prices = (float(priced[3]), float(priced[4]))
+            except ValueError:
+                return set()
+            if completed or code not in targets or code in ready or not all(
+                    math.isfinite(price) and price > 0 for price in prices):
+                return set()
+            ready.add(code)
+            excluded = excluded or bool(priced[2])
+        elif line == f"[nextday_gap_check] 执行日 {day} 全部 {count} 笔无伪跳空, 无标记":
+            if excluded or ready != targets:
+                return set()
+            completed = True
+        elif excluded and line.startswith("[nextday_gap_check] 落盘完成: "):
+            if ready != targets:
+                return set()
+            completed = True
+    return degraded if completed and ready == targets else set()
+
+
 def scan_log_anomaly(log_path: Path, script: str, mode: str,
                      last_exit: int | None = None) -> dict | None:
     """扫描 log 文件最近一次运行窗口内的异常关键词(第4盲区修复)。
@@ -805,6 +881,8 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
     # P2-2(2026-09-24): SKIPPED_LOCKED 独立计数——skip=设计让路(锁忙下轮重试)不上 SEVERE,
     # 但命中次数需可观察(intraday 每轮都可能撞 deploy 锁, 连 skip 多轮=收盘版可能上不了 R2)。
     skip_count = sum(1 for _l in window_lines if "SKIPPED_LOCKED" in _l)
+    nextday_healed = (_nextday_fallback_healed_lines(window_lines, last_exit)
+                      if mode == "standard" else set())
     has_push_success = any(PUSH_SUCCESS_RE.search(l) for l in window_lines)
     finalizer_ranges = _finalizer_noise_ranges(lines, last_start_idx, end_idx)
     # #240 ①(2026-10-09): 无 Finalize 锚行的 multiprocessing 基础设施 Traceback
@@ -814,6 +892,10 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
         # 优先扫非 push 失败类异常(Traceback/异常类名/FATAL):命中即报,不抑制
         m = ANOMALY_RE.search(lines[i])
         if m:
+            if i - last_start_idx in nextday_healed:
+                print(f"[nextday-fallback-self-heal] {log_path.name} 主源降级，"
+                      f"同轮全部计划目标真实价就绪且 exit0 收尾；保留原始降级日志，不报失败")
+                continue
             # Fix A(2026-09-23): multiprocessing finalizer 清理噪音块内命中不报
             # (进程正常退出的清理,偶然语气=异常实际非任务失败)
             if _in_finalizer_noise(finalizer_ranges, i):
