@@ -40,8 +40,9 @@ def legacy_upgrade(body):
 
 
 def assert_honest(body, days):
-    assert f"近 7 个自然日有 {days} 日异常记录" in body
+    assert f"近 7 个自然日计入 {days} 日异常" in body
     assert "巡检通道" in body
+    assert "可能包含历史迁移推算，不是逐日实测凭证" in body
     assert "当前对象首次发生: 未知" in body
     assert "当前对象连续失败时长: 未知" in body
     assert "连续失败: 7 天" not in body
@@ -62,7 +63,7 @@ def test_cross_unit_inheritance_is_labelled_channel_history(tmp_path):
     assert grade == ("critical", 7, "2026-11-02")
     body = render(tmp_path, "failed_units_patrol", "本轮 failed: trade-new-b.service")
     assert_honest(body, 7)
-    assert "窗口内最早记录: 2026-11-02" in body
+    assert "状态窗口最早日期: 2026-11-02" in body
     assert body.endswith("本轮 failed: trade-new-b.service")
 
 
@@ -103,7 +104,7 @@ def test_missing_legacy_or_invalid_dates_are_unknown(tmp_path, state):
     (path.parent / "alert_state.json").write_text(json.dumps({
         "failed_units_patrol": {"first_seen": "2020-01-01", "consecutive_count": 99}}))
     body = render(tmp_path, "failed_units_patrol", "原始正文")
-    assert "异常记录天数: 未知" in body
+    assert "异常日期计数: 未知" in body
     assert "当前对象首次发生: 未知" in body
     assert "当前对象连续失败时长: 未知" in body
     assert "2020-01-01" not in body and "99" not in body
@@ -115,8 +116,8 @@ def test_view_window_filters_old_dates_without_mutating_counter(tmp_path):
     ctx = adr.stall_context("failed_units_patrol", tmp_path,
                             now=NOW.replace(day=9))
     body = adr.format_stall_body("原始正文", ctx, "failed_units_patrol")
-    assert "近 7 个自然日有 2 日异常记录" in body
-    assert "窗口内最早记录: 2026-11-04" in body
+    assert "近 7 个自然日计入 2 日异常" in body
+    assert "状态窗口最早日期: 2026-11-04" in body
     assert path.read_bytes() == before
 
 
@@ -154,22 +155,22 @@ def test_invalid_json_and_deduplicated_dates_are_read_only(tmp_path):
     path = tmp_path / "data" / "failed_units_patrol_state.json"
     path.parent.mkdir()
     path.write_text('{"seen_dates":')
-    assert "异常记录天数: 未知" in render(tmp_path, "failed_units_patrol", "详情")
+    assert "异常日期计数: 未知" in render(tmp_path, "failed_units_patrol", "详情")
     path.write_text(json.dumps({"seen_dates": ["2026-11-08", "2026-11-08", "2026-11-09"]}))
     before = path.read_bytes()
     assert_honest(render(tmp_path, "failed_units_patrol", "详情"), 1)
     assert path.read_bytes() == before
 
 
-@pytest.mark.parametrize("key", CHANNELS)
-def test_actual_critical_send_final_bodies_and_routes(tmp_path, monkeypatch, key):
-    """Real in-process send_tiered/send, temporary state and trapped transports only."""
+@pytest.fixture
+def isolated_transport(tmp_path, monkeypatch):
+    """Keep actual notification policy/formatters; trap only the final transports."""
     import notify
-    from _zero_outbound import ZeroOutboundTrap
 
     alerts = tmp_path / "data" / "alerts"
     alerts.mkdir(parents=True)
     monkeypatch.setenv("REPO", str(tmp_path))
+    monkeypatch.setenv("GIT_REPO", str(tmp_path))
     monkeypatch.setattr(notify, "REPO", tmp_path)
     monkeypatch.setattr(notify, "ALERTS_DIR", alerts)
     for name in ("ALERTS_FILE", "WARNING_BUFFER_FILE", "INFO_LOG_FILE",
@@ -187,6 +188,7 @@ def test_actual_critical_send_final_bodies_and_routes(tmp_path, monkeypatch, key
             return NOW
 
     monkeypatch.setattr(adr, "datetime", Clock)
+    monkeypatch.setattr(notify, "datetime", Clock)
     calls = []
 
     def capture(channel):
@@ -198,6 +200,15 @@ def test_actual_critical_send_final_bodies_and_routes(tmp_path, monkeypatch, key
     for attr, channel in [("_send_email", "email"), ("send_telegram", "telegram"),
                           ("send_feishu", "feishu")]:
         monkeypatch.setattr(notify, attr, capture(channel))
+    return notify, calls
+
+
+@pytest.mark.parametrize("key", CHANNELS)
+def test_actual_critical_send_final_bodies_and_routes(tmp_path, isolated_transport, key):
+    """Real in-process send_tiered/send, temporary state and trapped transports only."""
+    from _zero_outbound import ZeroOutboundTrap
+
+    notify, calls = isolated_transport
     state, _ = observe(tmp_path, range(2, 9), key)
     before = state.read_bytes()
     with ZeroOutboundTrap() as trap:
@@ -217,3 +228,120 @@ def test_actual_critical_send_final_bodies_and_routes(tmp_path, monkeypatch, key
             assert notify._resolve_feishu_chat_key(
                 subject, kwargs["from_prefix"], kwargs["severe"]) == "alert"
     assert state.read_bytes() == before
+
+
+@pytest.mark.parametrize("key", CHANNELS)
+@pytest.mark.parametrize("history", ["legacy", "already_migrated", "measured", "new"])
+@pytest.mark.parametrize("delivered", [True, False])
+def test_caller_main_migration_final_transport_provenance(
+        tmp_path, monkeypatch, isolated_transport, key, history, delivered):
+    """Exercise migration BEFORE rendering, including the real failed-unit caller."""
+    import contextlib
+    import io
+    import subprocess
+    import sys
+    import check_failed_units as cfu
+    from _zero_outbound import ZeroOutboundTrap
+
+    notify, calls = isolated_transport
+    if not delivered:
+        def fail_after_capture(original):
+            def failed(*args, **kwargs):
+                original(*args, **kwargs)
+                return False
+            return failed
+        for attr in ("_send_email", "send_telegram", "send_feishu"):
+            monkeypatch.setattr(notify, attr, fail_after_capture(getattr(notify, attr)))
+    monkeypatch.setattr(cfu, "datetime", notify.datetime)
+    path = tmp_path / "data" / f"{key}_state.json"
+    state = {"last_fail_date": "2026-11-07", "consecutive_days": 6,
+             "first_fail_date": "2026-11-02"}
+    if history == "already_migrated":
+        state["seen_dates"] = [f"2026-11-{day:02}" for day in range(2, 8)]
+    elif history == "measured":
+        state = {"last_fail_date": "2026-11-04", "consecutive_days": 2,
+                 "seen_dates": ["2026-11-02", "2026-11-04"]}
+    elif history == "new":
+        state = {}
+    path.write_text(json.dumps(state))
+    if history == "legacy":
+        assert adr.stall_context(key, tmp_path, now=NOW)["state_days"] is None
+
+    receipts = []
+
+    def bridge(argv, **kwargs):
+        # Replace spawn only: keep genuine caller argv, main, grade, result file,
+        # formatter, dedup and routing. Never start a wrapper or shell process.
+        assert Path(argv[1]).name == "notify.py"
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = notify.main(argv[2:])
+        result_path = Path(argv[argv.index("--result-file") + 1])
+        receipts.append(json.loads(result_path.read_text()))
+        return subprocess.CompletedProcess(argv, rc, out.getvalue(), err.getvalue())
+
+    with ZeroOutboundTrap() as trap:
+        if key == "failed_units_patrol":
+            failed = tmp_path / "failed.txt"
+            failed.write_text("trade-new.service loaded failed failed Fixture\n")
+            script = tmp_path / "watchman.sh"
+            script.write_text("# fixture only; never executed\n")
+            show = {}
+            for timer, _ in adr.WATCHMAN_UNITS:
+                service = timer.removesuffix(".timer") + ".service"
+                show[timer] = {"ActiveState": "active", "LoadState": "loaded",
+                               "UnitFileState": "enabled", "Triggers": service}
+                show[service] = {"ExecStart": f"{{ path=/bin/bash ; argv[]=/bin/bash {script} ; }}"}
+            show_path = tmp_path / "show.json"
+            show_path.write_text(json.dumps(show))
+            allow = tmp_path / "allowlist.txt"
+            allow.write_text("# empty fixture allowlist\n")
+            argv = ["check_failed_units.py", "--repo", str(tmp_path), "--notify",
+                    "--failed-units-file", str(failed), "--unit-show-json", str(show_path),
+                    "--allowlist-file", str(allow)]
+            with monkeypatch.context() as m:
+                m.setattr(sys, "argv", argv)
+                m.setattr(cfu.subprocess, "run", bridge)
+                assert cfu._main_impl() == (1 if delivered else 4)
+        else:
+            # The drift wrapper's notify parameters, without executing the wrapper.
+            result_path = tmp_path / "result.json"
+            assert notify.main([
+                "[告警] 云上 systemd unit 与仓库快照漂移", "本轮差异 trade-new.service",
+                "--severe", "--from-prefix", "[告警]", "--dedup-key", key,
+                "--dedup-window", "21600", "--result-file", str(result_path)]) == 0
+            receipts.append(json.loads(result_path.read_text()))
+        assert trap.hits == []
+
+    after = json.loads(path.read_text())
+    days = 7 if history in ("legacy", "already_migrated") else 3 if history == "measured" else 1
+    assert after["consecutive_days"] == days
+    assert after["seen_dates"] == ([f"2026-11-{day:02}" for day in range(2, 9)]
+                                   if days == 7 else ["2026-11-02", "2026-11-04", "2026-11-08"]
+                                   if days == 3 else ["2026-11-08"])
+    assert receipts[0]["status"] == ("sent" if delivered else "failed")
+    assert receipts[0]["tier"] == "critical"
+    assert len(calls) == 3
+    for channel, subject, body, kwargs in calls:
+        assert "trade-new.service" in body
+        assert_honest(body, days)
+        assert "可能包含历史迁移推算" in body
+        assert "不是逐日实测" in body
+        assert "当前对象连续失败时长: 未知" in body
+        assert "当前对象首次发生: 未知" in body
+        assert f"近 7 个自然日计入 {days} 日异常" in body
+        assert "异常记录" not in body and "最早记录" not in body
+        if history != "new":
+            assert "近 7 日至少 3 日" in body
+        if channel == "feishu":
+            assert (kwargs["chat_key"] or notify._resolve_feishu_chat_key(
+                subject, kwargs["from_prefix"], kwargs["severe"])) == "alert"
+    if not delivered:
+        dedup = tmp_path / "data" / "alerts" / "notify_dedup.json"
+        saved = json.loads(dedup.read_text()) if dedup.exists() else {}
+        assert key not in saved and key + "_escalated" not in saved
+        if key == "failed_units_patrol":
+            assert not (tmp_path / "data" / adr.FAILED_UNITS_SIG_STATE_FILENAME).exists()
+    (tmp_path / "transport-proof.json").write_text(json.dumps({
+        "key": key, "history": history, "delivered": delivered, "state_before": state,
+        "state_after": after, "receipts": receipts, "calls": calls}, ensure_ascii=False, indent=2))
