@@ -5,11 +5,11 @@
 ## 1. 拓扑与边界
 
 - CODE：`/home/ubuntu/code/trade-data-signal`；DATA：`/home/ubuntu/code/trade-data`。代码和业务数据独立，collector 不导入业务入口，不改业务 DB/日志/配置。
-- 云端 `trade-ops-monitor.timer` 每5分钟启动 `trade-ops-monitor.service`（oneshot），入口为 `scripts/ops_monitor.py --config /etc/trade-ops-monitor/collector.json --once`。不是 `ops/monitoring/collector.py`，没有 `--push`。
+- 云端 `trade-ops-monitor.timer` 每15分钟启动 `trade-ops-monitor.service`（oneshot），入口为 `scripts/ops_monitor.py --config /etc/trade-ops-monitor/collector.json --once`。不是 `ops/monitoring/collector.py`，没有 `--push`。
 - Worker 复用现有域名、session 和 HTTPS 路由，新增 `/api/ops/*` 与 `/admin/ops.html`；不开放云端入站端口，不增反向代理服务。
 - **独立新 D1 `OPS_DB`** 保存私有快照/事件/人工修订，不能绑定到 `FUND_SCORE_DB`、订阅KV或公开R2。ingest bearer 只有写入权限，不是 viewer/admin。
 - 新通知默认 `OPS_ALERT_SCOPE=watchdog`：仅页 collector失联/恢复；所有业务checks继续保留事件，但通知标为 `owned_by_existing_chain` suppressed，由已有运维链承担，避免同故障service critical/schedule warning多响。`all` 是显式扩展，只有Claude审过旧链去重才可开启，不能靠配置遗漏扩大范围。
-- Worker `scheduled` 每5分钟独立判断失联并执行保留期/有界 outbox 重试。有快照时，最新采样超过900秒为 stale。首次尚无快照时，从 watchdog 首次检查记下的 `first_seen_at` 开始给予15分钟宽限，期间保持 unknown；超过宽限仍无首样，后续cron将 `watchdog.status` 置为 stale、`bootstrap_overdue=true`，防止永远unknown而不暴露监测未建立。无head时 `collector_status` 本身仍为unknown，不能当健康。检测在下一cron轮生效，不能承诺恰好第15分钟；宽限从首次独立检查而非部署命令时间起算。这些状态只说明监测建立/新鲜度，不代表业务故障或恢复。告警可能在远端接受后回执未持久化时重复传输，不承诺 exactly once。
+- Worker `scheduled` 每15分钟独立判断失联并执行保留期/有界 outbox 重试。有快照时，最新采样超过900秒为 stale。首次尚无快照时，从 watchdog 首次检查记下的 `first_seen_at` 开始给予15分钟宽限，期间保持 unknown；超过宽限仍无首样，后续cron将 `watchdog.status` 置为 stale、`bootstrap_overdue=true`，防止永远unknown而不暴露监测未建立。无head时 `collector_status` 本身仍为unknown，不能当健康。检测在下一cron轮生效，不能承诺恰好第15分钟；宽限从首次独立检查而非部署命令时间起算。这些状态只说明监测建立/新鲜度，不代表业务故障或恢复。告警可能在远端接受后回执未持久化时重复传输，不承诺 exactly once。
 - 本控制面已交 C 作为新增第45项登记；canonical 源是 `docs/deploy/systemd-units-20260912.md`，`install/` 单元与其必须逐字一致。不要再维护独立的第44项计数常量。生成器/注册测试由 C 负责。
 
 契约见 [contract.md](contract.md)。当前路径可通过非敏感配置和 systemd drop-in 调整；不得用业务 `.env` 作为 collector EnvironmentFile。
@@ -235,7 +235,7 @@ node node_modules/wrangler/bin/wrangler.js secret bulk "$OPS_PRIVATE/worker-secr
   ],
   "triggers": {
     // 保留其他triggers字段及所有原有cron；此处只展示新增表达式，已有则不重复。
-    "crons": ["*/5 * * * *"]
+    "crons": ["*/15 * * * *"]
   },
   "vars": {
     // 保留所有原有非密钥vars；密钥不放在这里。
@@ -363,7 +363,7 @@ python3 ops/monitoring/verify_deployment.py --origin https://ss.fx8.store --admi
 ## 7. 不丢数据库的回滚
 
 1. **暂停写入**：`sudo systemctl disable --now trade-ops-monitor.timer`，随后 `sudo systemctl stop trade-ops-monitor.service`。不要删输出文件来制造“已恢复”，不要移除业务任务。
-2. **关闭真实通知与独立cron**：在私有回滚候选配置中令 `OPS_ALERT_ENABLED=false`、`OPS_ALERT_SCOPE=watchdog`，只移除本次新增 `*/5 * * * *` watchdog cron，保留所有原有cron/绑定。若部署前本来就有相同表达式，不能机械移除共享cron，交Claude按原配置恢复。由Claude显式deploy回滚候选，并将同样的非密钥vars/cron回滚同步到版本化根配置、审核合并，防下次自动deploy重新启用；保留OPS_DB绑定和资源。Cron删除同样有传播延时，不能仅停collector后假定不会触发失联告警。
+2. **关闭真实通知与独立cron**：在私有回滚候选配置中令 `OPS_ALERT_ENABLED=false`、`OPS_ALERT_SCOPE=watchdog`，只移除本次新增 `*/15 * * * *` watchdog cron，保留所有原有cron/绑定。若部署前本来就有相同表达式，不能机械移除共享cron，交Claude按原配置恢复。由Claude显式deploy回滚候选，并将同样的非密钥vars/cron回滚同步到版本化根配置、审核合并，防下次自动deploy重新启用；保留OPS_DB绑定和资源。Cron删除同样有传播延时，不能仅停collector后假定不会触发失联告警。
 3. 必要时回滚 Worker 到已记录的先前版本，保留回滚前候选、版本与私有证据；既有业务API/session/assets要按原基线验收。Worker代码回滚不等于数据库迁移逆转，也不保证cron配置一同撤回，单独核对。
 4. **保留 OPS_DB 资源、迁移表、事件和人工修订**。不执行 d1 delete、不删迁移、不TRUNCATE、不将其改绑业务库。停止scheduled后保留期清理也暂停，历史暂时超过原保留窗属于暂停状态，交Claude评估容量，不自动删除。
 5. 原生数据库备份与隔离恢复演练按下一节执行；保持umask077，不放静态资源/R2/public仓。不能以面板数据导出替代数据库备份，也不能以导出成功代替恢复成功。

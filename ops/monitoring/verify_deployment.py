@@ -229,8 +229,8 @@ def worker_config_checks(config, local=False, config_path=None, source_root=None
         rows.append(check('config.d1', 'ok' if valid else 'critical', 'Dedicated D1 and migration path declared' if valid else 'OPS_DB identity/migration isolation is invalid'))
     triggers = config.get('triggers') or {}
     crons = triggers.get('crons') if isinstance(triggers, dict) else None
-    rows.append(check('config.cron', 'ok' if isinstance(crons, list) and '*/5 * * * *' in crons else 'critical',
-                      'Independent five-minute cron declared; runtime execution is not proved' if isinstance(crons, list) and '*/5 * * * *' in crons else 'Five-minute watchdog cron declaration missing'))
+    rows.append(check('config.cron', 'ok' if isinstance(crons, list) and '*/15 * * * *' in crons else 'critical',
+                      'Independent fifteen-minute cron declared; runtime execution is not proved' if isinstance(crons, list) and '*/15 * * * *' in crons else 'Fifteen-minute watchdog cron declaration missing'))
     variables = config.get('vars') or {}
     forbidden = {'OPS_INGEST_TOKEN', 'OPS_ADMIN_TOKEN', 'OPS_ALERT_WEBHOOK', 'SESSION_SECRET', 'ADMIN_USERS'}
     safe = isinstance(variables, dict) and not (forbidden & set(variables))
@@ -318,7 +318,7 @@ def package_checks(root):
             valid = all(section.get(k) == v for k, v in expected.items()) and bool(section.get('LoadCredential')) and '--once' in section.get('ExecStart', '') and '/scripts/ops_monitor.py' in section.get('ExecStart', '')
         else:
             section = config['Timer'] if config.has_section('Timer') else {}
-            valid = section.get('OnCalendar') == '*-*-* *:00/5:00' and section.get('Unit') == 'trade-ops-monitor.service'
+            valid = section.get('OnCalendar') == '*-*-* *:00/15:00' and section.get('Unit') == 'trade-ops-monitor.service'
         rows.append(check('package.' + name, 'ok' if valid else 'critical', 'Unit policy verified' if valid else 'Unit policy does not match deployment contract'))
     rows.append(check('runtime.collector', 'unknown', 'Package validation does not prove installed timer, successful collection or business health'))
     rows.append(check('runtime.watchdog', 'unknown', 'Independent Worker cron invocation must be verified separately by Claude'))

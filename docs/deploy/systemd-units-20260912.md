@@ -1789,17 +1789,17 @@ TimeoutStartSec=900
 > `scripts/tests/test_ops_monitor_registry.py` 逐字节校验,修改任一侧必须同步另一侧。
 > 当前源码共 45 对 service/timer(90 文件);登记表保留原 44 条并新增 `ops_monitor`,
 > include=True,共 42 条业务+基础统计行,原 3 条自监控不变。旧章节的迁移数量为历史记录。
-> 服务只运行独立采集器,不调用业务入口;240s 外层预算小于 5 分钟周期。
+> 服务只运行独立采集器,不调用业务入口;240s 外层预算小于 15 分钟周期。
 > 专用配置与凭证由 Claude 部署阶段提供,此处仅记录路径、不包含值。journal 输出;
 > 私有临时目录与仅可写运行目录不赋予业务数据写权限。
 
 `trade-ops-monitor.timer`:
 ```ini
 [Unit]
-Description=Collect private Trade operations snapshot every five minutes
+Description=Collect private Trade operations snapshot every fifteen minutes
 
 [Timer]
-OnCalendar=*-*-* *:00/5:00
+OnCalendar=*-*-* *:00/15:00
 Persistent=true
 AccuracySec=15s
 RandomizedDelaySec=15s

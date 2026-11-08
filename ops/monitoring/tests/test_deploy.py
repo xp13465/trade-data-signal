@@ -314,7 +314,7 @@ def test_relocated_candidate_paths_must_still_reference_real_sources(tmp_path):
     config = {'main': 'worker/headers.js', 'assets': {'directory': 'static-site'},
               'd1_databases': [{'binding': 'OPS_DB', 'database_id': '00000000-0000-0000-0000-000000000001',
                                'database_name': 'dedicated', 'migrations_dir': str(root / 'ops/monitoring/migrations')}],
-              'triggers': {'crons': ['*/5 * * * *']}}
+              'triggers': {'crons': ['*/15 * * * *']}}
     rows = v.worker_config_checks(config, config_path=candidate, source_root=root)
     assert next(c for c in rows if c['id'] == 'config.paths')['status'] == 'critical'
     config['main'] = str(root / 'worker/headers.js')

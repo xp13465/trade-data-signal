@@ -47,10 +47,10 @@
 			"migrations_dir": "ops/monitoring/migrations"
 		}
 	],
-	// OPS 监控独立 cron（#45）：每 5 分钟 watchdog 判定失联/保留期/outbox 重试。
-	// 与既有业务 cron 无重叠（原配置无 triggers.crons），此处为新增。
+	// OPS 监控独立 cron（#45）：每 15 分钟 watchdog 判定失联/保留期/outbox 重试。
+	// 2026-11-08 降频 5→15 分钟省 D1 配额（用户拍板）。与既有业务 cron 无重叠（原配置无 triggers.crons），此处为新增。
 	"triggers": {
-		"crons": ["*/5 * * * *"]
+		"crons": ["*/15 * * * *"]
 	},
 	// OPS 监控非密钥 vars（密钥走 wrangler secret，不入版本化配置）。
 	// 初期告警关闭：OPS_ALERT_ENABLED=false + OPS_ALERT_SCOPE=watchdog（仅 collector 失联/恢复），不配 OPS_ALERT_WEBHOOK。

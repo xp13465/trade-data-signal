@@ -19,7 +19,7 @@ import tempfile
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
-OPS_CRON = "*/5 * * * *"
+OPS_CRON = "*/15 * * * *"
 MIGRATIONS_DIR = "ops/monitoring/migrations"
 
 
@@ -326,7 +326,7 @@ def make_candidate(config: dict, database_id: str, database_name="trade-ops-moni
     _validate_bindings(candidate)
     rebased = _rebase_filesystem_paths(candidate, Path(source_dir).resolve())
     changes = ["Ensure dedicated d1_databases binding OPS_DB; preserve existing bindings and values",
-               "Merge/deduplicate triggers.crons with */5 * * * *; preserve other triggers",
+               "Merge/deduplicate triggers.crons with */15 * * * *; preserve other triggers",
                "Preserve vars, routes and non-filesystem binding/settings values",
                "Rebase audited filesystem paths against original config directory: " + (", ".join(rebased) or "already absolute"),
                "Unsupported relocated filesystem/custom-build settings fail closed (including tsconfig/base_dir/build/site/alias/unsafe)",

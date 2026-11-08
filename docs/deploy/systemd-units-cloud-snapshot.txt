@@ -1263,10 +1263,10 @@ StandardError=journal
 SyslogIdentifier=trade-ops-monitor
 @@@FILE:trade-ops-monitor.timer
 [Unit]
-Description=Collect private Trade operations snapshot every five minutes
+Description=Collect private Trade operations snapshot every fifteen minutes
 
 [Timer]
-OnCalendar=*-*-* *:00/5:00
+OnCalendar=*-*-* *:00/15:00
 Persistent=true
 AccuracySec=15s
 RandomizedDelaySec=15s
