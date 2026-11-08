@@ -150,6 +150,13 @@ def _sql_files(gen_dir):
     return sorted(gen_dir.glob("*.sql"))
 
 
+def _package_free(gen_dir):
+    """生成目录里除哈希输入缓存外是否干净(2026-11-08 增量同步起 DRY_RUN 第 0 步会写
+    ``d1_hashes.json``——D1 现存哈希的输入缓存, 不是 SQL 包、meta.json 或任何会被
+    上游上传/导入的产物; 本文件守护的口径不变: 失败后**一个包字节都不落盘**)。"""
+    return sorted(p.name for p in gen_dir.iterdir() if p.name != "d1_hashes.json")
+
+
 # ============================ ① 单文件 + 字节封顶(打包器单元) ============================
 def test_packer_respects_byte_soft_cap_and_keeps_all_rows():
     b = bundle_mod.Bundle(max_stmt_bytes=60000, assert_max_bytes=90000)
@@ -271,8 +278,9 @@ def test_screener_over_hard_cap_fails_before_writing_package(tmp_path):
     assert "硬上限" in combined and "SQLITE_TOOBIG" in combined, combined
     assert gen_dir is not None
     assert _sql_files(gen_dir) == [], "超限后仍写了包(会误导上游上传半个包)"
-    assert sorted(p.name for p in gen_dir.iterdir()) == [], \
-        "超限后生成目录应空(含 meta.json), 实际: %s" % sorted(p.name for p in gen_dir.iterdir())
+    assert _package_free(gen_dir) == [], \
+        "超限后生成目录应空(含 meta.json; d1_hashes.json 为哈希输入缓存除外), 实际: %s" \
+        % _package_free(gen_dir)
 
 
 def test_score_over_hard_cap_fails_before_writing_package(tmp_path):
@@ -288,7 +296,7 @@ def test_score_over_hard_cap_fails_before_writing_package(tmp_path):
     r, gen_dir = _run_script(SYNC_SCORE, repo, tmp_path)
     assert r.returncode == 1, r.stdout + r.stderr
     assert "硬上限" in (r.stdout + r.stderr), r.stdout + r.stderr
-    assert sorted(p.name for p in gen_dir.iterdir()) == [], sorted(p.name for p in gen_dir.iterdir())
+    assert _package_free(gen_dir) == [], _package_free(gen_dir)
 
 
 def test_screener_legacy_mode_keeps_old_multi_file_layout(tmp_path):
@@ -417,7 +425,8 @@ def test_screener_empty_input_legacy_fails_without_delete(tmp_path):
     assert "fund_basic 无数据" in (r.stdout + r.stderr), r.stdout + r.stderr
     assert gen_dir is not None
     _assert_no_delete_anywhere(gen_dir)
-    assert sorted(p.name for p in gen_dir.iterdir()) == [], "空输入不该写任何文件"
+    assert _package_free(gen_dir) == [], \
+        "空输入不该写任何文件(d1_hashes.json 哈希输入缓存除外): %s" % _package_free(gen_dir)
 
 
 # ============================ ③ 真脚本 DRY_RUN: score 单文件 ============================
