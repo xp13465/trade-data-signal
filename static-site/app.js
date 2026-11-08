@@ -27776,7 +27776,7 @@ async function renderFund() {
 }
 
 // ============ 场外基金评分排行（Phase B/C 全量化 #79 方案C, 2026-08-22） ============
-// 主数据源: /api/fund_score（CF Worker + D1 trade-fund-score, 全市场 ≈27600 只分页,
+// 主数据源: /api/fund_score（CF Worker + D1 trade-fund-score, 全市场约 28400 只分页,
 //   服务端分页/筛选/排序/搜索; scripts/sync_fund_score_to_d1.sh 每日同步）
 // fallback 数据源（API 失败/未就绪时保底不白屏, 既有链路不动摇）:
 //   R2 直链 https://ss.fx8.store/r2/fund_score/fund_score_top.json（Top100）
@@ -27787,7 +27787,7 @@ async function renderFund() {
 // 复用 ETF 评分成熟模式: _etfScoreState / _renderEtfScoreBody / _etfScoreTier / _etfScoreColor
 const FUND_SCORE_TOP_URL_R2 = "https://ss.fx8.store/r2/fund_score/fund_score_top.json";
 const FUND_SCORE_TOP_URL_CF = "./data/fund_score_top.json";
-const FUND_SCORE_PAGE_SIZE = 50;  // API 模式服务端分页 50/页（27600只≈553页）; fallback Top100 同尺寸
+const FUND_SCORE_PAGE_SIZE = 50;  // API 模式服务端分页 50/页（28400只≈568页）; fallback Top100 同尺寸
 // API 排序键白名单（须与 worker/fund_score.js SORTABLE 一致）
 const FUND_SCORE_API_SORT_KEYS = ["composite_score", "half_kelly_position", "final_suggestion", "sharpe", "manager_score", "star_rating", "score_drawdown", "score_stability"];
 
@@ -28503,7 +28503,7 @@ function closeFundScoreDetailModal() {
 }
 
 // 场外基金评分排行（Phase B/C 全量化 #79 方案C: D1 服务端分页 + Top100 fallback）
-// 主数据源: /api/fund_score（worker/fund_score.js, 全市场 ≈27600 只分页/筛选/排序/搜索）
+// 主数据源: /api/fund_score（worker/fund_score.js, 全市场约 28400 只分页/筛选/排序/搜索）
 // fallback（API 失败/未就绪/未登录 401 保底, 不白屏）:
 //   R2 直链 https://ss.fx8.store/r2/fund_score/fund_score_top.json (Top100, 83KB)
 //   失败再 fallback: ./data/fund_score_top.json (CF Static Assets)

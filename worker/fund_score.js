@@ -1,6 +1,6 @@
 // 场外基金评分全量查询 API（#79 方案C step4, 2026-08-22）。
 // 数据源: D1 trade-fund-score.fund_score（scripts/sync_fund_score_to_d1.sh 全量同步,
-//   最新 score_date 全市场 ≈27418 只, 含 fund_basic 扩展字段）。
+//   常驻全市场约 28400 只, 含 fund_basic 扩展字段）。
 // 路由: GET /api/fund_score（worker/headers.js 分发到此）。
 //
 // 参数:
@@ -23,6 +23,22 @@ const SORTABLE = new Set([
   'composite_score', 'half_kelly_position', 'final_suggestion',
   'sharpe', 'manager_score', 'star_rating', 'score_drawdown', 'score_stability',
 ]);
+
+// 显式列清单 = 旧同步脚本(scripts/sync_fund_score_to_d1.sh)的 COLS, 43 列, 保持老 API 形状。
+// 2026-11-08 起增量同步给 D1 fund_score 表新增 row_hash/score_date 两列, SELECT * 会把
+// 新列漏进 API payload; 固定显式列清单后表加列不再影响本 API(防增量同步新列外泄)。
+const FUND_SCORE_COLS = [
+  'fund_code', 'fund_name', 'fund_type', 'fund_company', 'fund_manager',
+  'setup_date', 'scale', 'management_fee', 'custody_fee', 'purchase_fee',
+  'strategy', 'benchmark_text', 'composite_score', 'star_rating',
+  'score_return', 'score_risk_adjusted', 'score_drawdown', 'score_stability',
+  'score_scale', 'score_fee', 'sharpe', 'sortino', 'calmar', 'information_ratio',
+  'alpha', 'manager_score', 'm1_tenure', 'm2_scale', 'm3_perf_stability',
+  'm4_drawdown', 'm5_coherence', 'm6_focus', 'kelly_fraction',
+  'half_kelly_position', 'kelly_win_rate', 'kelly_win_loss_ratio', 'kelly_tier',
+  'market_adjustment', 'final_suggestion', 'benchmark', 'score_method',
+  'data_completeness', 'update_date',
+].join(', ');
 
 // LIKE 转义: \ % _
 function escapeLike(s) {
@@ -101,7 +117,7 @@ export default async function fundScoreHandler(request, env) {
     const offset = (page - 1) * size;
     const { results } = await env.FUND_SCORE_DB
       .prepare(
-        `SELECT * FROM fund_score ${whereSql} `
+        `SELECT ${FUND_SCORE_COLS} FROM fund_score ${whereSql} `
         + `ORDER BY ${sort} ${dir}, fund_code ASC LIMIT ? OFFSET ?`)
       .bind(...binds, size, offset)
       .all();

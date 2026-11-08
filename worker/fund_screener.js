@@ -23,6 +23,34 @@
 //   （与 /api/fund_score 同源同口径）; max_drawdown_3y 为百分数（40.88 = 回撤 40.88%）。
 import { jsonResponse, corsHeaders, getSessionUser } from './auth.js';
 
+// 显式列清单 = 旧同步脚本(scripts/sync_fund_screener_to_d1.sh)的 COLS, 80 列, 保持老 API 形状。
+// 2026-11-08 起增量同步给 D1 fund_screener 表新增 row_hash 列, SELECT * 会把新列漏进
+// API payload; 固定显式列清单后表加列不再影响本 API(防增量同步新列外泄)。
+// score_date 属老 COLS 正常返回; 只排除增量同步新增的 row_hash。
+export const FUND_SCREENER_COLS = [
+  'fund_code', 'fund_name', 'fund_type', 'fund_company', 'fund_manager',
+  'setup_date', 'setup_years', 'scale', 'management_fee', 'custody_fee',
+  'purchase_fee', 'service_fee', 'strategy', 'benchmark_text',
+  'return_1m', 'return_3m', 'return_6m', 'return_1y', 'return_2y', 'return_3y',
+  'return_ytd', 'return_since_inception', 'perf_date',
+  'volatility_1y', 'volatility_3y', 'max_drawdown_3y', 'risk_date',
+  'score_date', 'composite_score', 'star_rating',
+  'score_return', 'score_risk_adjusted', 'score_drawdown', 'score_stability',
+  'score_scale', 'score_fee', 'sharpe', 'sortino', 'calmar', 'information_ratio',
+  'alpha', 'manager_score', 'm1_tenure', 'm2_scale', 'm3_perf_stability',
+  'm4_drawdown', 'm5_coherence', 'm6_focus', 'kelly_fraction',
+  'half_kelly_position', 'kelly_win_rate', 'kelly_win_loss_ratio', 'kelly_tier',
+  'market_adjustment', 'final_suggestion', 'score_method', 'data_completeness',
+  'update_date',
+  'manager_name', 'manager_appoint_date', 'tenure_years', 'work_years',
+  'manager_scale', 'manager_best_return', 'manager_date',
+  'rating_shanghai', 'rating_cms', 'rating_jajx', 'rating_morningstar',
+  'rating_five_star_count', 'rating_date',
+  'purchase_status', 'redeem_status', 'purchase_min', 'daily_limit',
+  'purchase_date',
+  'industry_top1', 'industry_top1_weight', 'industry_n', 'industry_report_date',
+].join(', ');
+
 // ── 排序白名单（全部数值/文本列; 表内列名硬编码, 不来自请求） ──
 export const SORTABLE = new Set([
   'composite_score', 'star_rating', 'score_return', 'score_risk_adjusted', 'score_drawdown',
@@ -235,7 +263,7 @@ export default async function fundScreenerHandler(request, env) {
 
     const [rowsRes, meta, ...missingRes] = await Promise.all([
       env.FUND_SCORE_DB
-        .prepare(`SELECT * FROM fund_screener ${whereSql} `
+        .prepare(`SELECT ${FUND_SCREENER_COLS} FROM fund_screener ${whereSql} `
           + `ORDER BY ${sort} ${dir}, fund_code ASC LIMIT ? OFFSET ?`)
         .bind(...binds, size, offset)
         .all(),
