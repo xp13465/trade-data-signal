@@ -69,6 +69,8 @@ NON_PYTHON_ALLOWLIST: Dict[Tuple[str, str, int], str] = {
     ("scripts/codex-review-request.sh", "EOF", 1): "写临时 signal JSON 载荷, 非 Python",
     ("scripts/staticdata_backup_async.sh", "EOF", 1): "喂 while read 的文件清单, 非 Python",
     ("scripts/staticdata_sync.sh", "EOF", 1): "喂 while read 的文件清单, 非 Python",
+    ("scripts/sync_fund_score_to_d1.sh", "MIGRATE_EOF", 1):
+        "DRY_RUN 落盘列迁移预览(migrate_preview.txt, 纯 SQL 文本), 非 Python",
     # 以下三处是测试自己造的最小 bash 包装脚本(内联生成后 exec), 非 Python
     ("scripts/tests/test_resolve_repo.sh", "EOS", 1): "造 t4_wrapper.sh(bash 三行包装), 测 resolve_repo fail-loud",
     ("scripts/tests/test_resolve_repo.sh", "EOS", 2): "造 t6.sh(bash 变量集合探针), 测无副作用",
