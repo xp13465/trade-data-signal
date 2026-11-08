@@ -512,3 +512,57 @@ def test_bad_database_without_receipt_still_uploads_healthy_targets(case, monkey
     objects = [p.name for p in (case[1] / "s3/backup").glob("*.db.gz")]
     assert len(objects) == 3 and not any("sentiment_" in p for p in objects)
     assert not Path(os.environ["VERIFY_BACKUP_SOURCE_PROOF"]).exists()
+
+
+
+@pytest.mark.parametrize("bad", ["sentiment", "public_fund"])
+def test_real_http_response_truncation_is_isolated_in_both_upload_channels(case, monkeypatch, bad):
+    import http.client
+    import importlib.util
+    import io
+    spec = importlib.util.spec_from_file_location("r2_actual_s3_wire", ROOT / "scripts/upload_r2.py")
+    wire = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wire)
+    monkeypatch.setattr(wire, "_route_bucket", lambda bucket: ("fixture.invalid", "fake-ak", "fake-sk"))
+    monkeypatch.setattr(wire, "_work_sleep", lambda seconds: None)
+    attempts = []
+    exhausted = []
+    class LocalSocket:
+        def makefile(self, *a, **kw):
+            return io.BytesIO(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\n")
+    class Connection:
+        def __init__(self, *a, **kw): pass
+        def request(self, method, uri, body=None, headers=None):
+            attempts.append((method, uri))
+        def getresponse(self):
+            response = http.client.HTTPResponse(LocalSocket())
+            response.begin()
+            return response
+        def close(self): pass
+    monkeypatch.setattr(wire.http.client, "HTTPSConnection", Connection)
+    local_transport = ur.s3_request
+    def truncated_target(method, key, *a, **kw):
+        if method == "PUT" and key.startswith(f"backup/{bad}_"):
+            try:
+                return wire.s3_request(method, key, *a, **kw)
+            except http.client.IncompleteRead as exc:
+                exhausted.append(type(exc))
+                raise
+        return local_transport(method, key, *a, **kw)
+    monkeypatch.setattr(ur, "s3_request", truncated_target)
+    with pytest.raises(SystemExit) as error:
+        upload(case)
+    assert error.value.code == 1
+    assert len(attempts) == 5 and exhausted == [http.client.IncompleteRead]
+    assert all(method == "PUT" and f"/backup/{bad}_" in uri for method, uri in attempts)
+    receipt = json.loads(Path(os.environ["R2_DB_BACKUP_PROOF"]).read_text())
+    healthy = set(proof.TABLES) - {bad}
+    assert receipt["complete"] is False and set(receipt["objects"]) == healthy
+    assert len(list((case[1] / "s3/backup").glob("*.db.gz"))) == 3
+    for name in healthy:
+        restored = restore_entry(case, name)
+        assert proof.verified_entry(restored, os.environ["R2_DB_BACKUP_PROOF"], receipt["run_id"], name,
+                                    ur.BACKUP_BUCKET) == receipt["objects"][name]
+    r = verify(case)
+    assert r.returncode == 1 and "receipt.complete=false" in r.stdout, r.stdout+r.stderr
+    assert r.stdout.count("source identity + SHA256 + counts [OK]") == 3
