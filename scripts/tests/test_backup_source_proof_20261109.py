@@ -66,6 +66,13 @@ def case(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     for name in proof.TABLES:
         mkdb(repo / "data" / (name + ".db"), name)
+    # This fixture replaces conftest's GIT_REPO shim. Fresh real-module imports
+    # need their own file, even when no developer .env fallback exists (CI).
+    (repo / ".env").write_text(
+        "R2_BUCKET=ci-shim-test\n"
+        "R2_S3_ENDPOINT=https://invalid.example\n"
+        "R2_S3_ACCESS_KEY_ID=ci-shim\n"
+        "R2_S3_SECRET_ACCESS_KEY=ci-shim\n")
     (repo / "scripts/lib").mkdir(parents=True)
     (repo / "docs/scripts").mkdir(parents=True)
     (repo / ".venv/bin").mkdir(parents=True)
