@@ -235,7 +235,10 @@ class BenefitsTests(unittest.TestCase):
         cfg.output_dir = str(self.root / 'out')
         with patch.object(m.Collector, 'collect', lambda collector: collector.snapshot()), patch.object(m, 'benefits_bounded', fake_benefits), patch.object(m, 'network_bounded', fake_network):
             report, code = m.run_once(cfg)
-        self.assertEqual(seen, [12])
+        self.assertEqual(len(seen), 1)
+        # 20s 总预算仍须为上传保留 8s；浮点相减按 100ns 精度比较。
+        # 曾观测到 12.000000000000455s，误差约 4.6e-13s，远小于 1e-7s。
+        self.assertAlmostEqual(seen[0], 12, places=7)
         self.assertEqual(code, 0)
         self.assertTrue(report['delivery']['ok'])
 
