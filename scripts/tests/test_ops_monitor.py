@@ -46,7 +46,7 @@ class FakeRunner:
                                          'LastTriggerUSec=Fri 2026-11-06 21:00:00 CST']))
             else:
                 blocks.append('\n'.join(['Id=' + name, 'LoadState=loaded', 'ActiveState=inactive',
-                                         'SubState=dead', 'Type=oneshot', 'Result=success', 'ExecMainStatus=0',
+                                         'SubState=dead', 'Type=oneshot', 'Result=success', 'ExecMainCode=1', 'ExecMainStatus=0',
                                          'ExecMainStartTimestamp=Fri 2026-11-06 21:00:00 CST',
                                          'ExecMainExitTimestamp=Fri 2026-11-06 21:02:00 CST']))
         return '\n\n'.join(blocks)
@@ -262,7 +262,7 @@ class CollectorTests(unittest.TestCase):
                                          (5, '15 50', 'warning'), (5, ' 3  5 7 ', 'ok')):
             with self.subTest(status=status, policy=policy):
                 runner = ServiceStateRunner(self.rows, {
-                    'ExecMainStatus': str(status), 'SuccessExitStatus': policy,
+                    'ExecMainCode': '1', 'ExecMainStatus': str(status), 'SuccessExitStatus': policy,
                 })
                 snapshot = self.collect(runner)
                 m.validate_snapshot(snapshot)
@@ -284,7 +284,7 @@ class CollectorTests(unittest.TestCase):
                                          (124, '', 'warning'), (124, '5', 'warning'),
                                          (124, '124', 'ok')):
             with self.subTest(status=status, policy=policy):
-                c = self.unfinished_check({'ExecMainStatus': str(status),
+                c = self.unfinished_check({'ExecMainCode': '1', 'ExecMainStatus': str(status),
                                            'SuccessExitStatus': policy})
                 self.assertEqual(c['status'], expected)
                 self.assertTrue(c['evidence']['same_round'])
@@ -295,6 +295,26 @@ class CollectorTests(unittest.TestCase):
                 if expected == 'ok':
                     self.assertEqual(c['evidence']['completion_source'], 'systemd_live')
                     self.assertTrue(c['evidence']['trusted_exit_origin'])
+
+    def test_signal_status_five_is_not_an_accepted_exit_five(self):
+        for exec_code in ('2', '3'):
+            with self.subTest(exec_code=exec_code):
+                fields = {'ExecMainCode': exec_code, 'ExecMainStatus': '5',
+                          'SuccessExitStatus': '5', 'Result': 'success'}
+                snapshot = self.collect(ServiceStateRunner(self.rows, fields))
+                m.validate_snapshot(snapshot)
+                service = next(c for c in snapshot['checks']
+                               if c['id'] == 'cloud-service:' + self.rows[0]['unit'])
+                self.assertEqual(service['status'], 'warning')
+                self.assertEqual(service['evidence']['exit_code'], 5)
+                self.assertNotIn('accepted_success_exit', service['evidence'])
+                scheduled = self.unfinished_check(fields)
+                self.assertEqual(scheduled['status'], 'warning')
+                self.assertTrue(scheduled['evidence']['same_round'])
+                self.assertEqual(scheduled['evidence']['exit_code'], 5)
+                self.assertEqual(scheduled['evidence']['execution_state'], 'failed')
+                self.assertNotEqual(scheduled['evidence']['execution_state'], 'completed')
+                self.assertNotIn('accepted_success_exit', scheduled['evidence'])
 
     def test_live_success_reconciles_only_the_same_round_after_schedule_snapshot(self):
         c = self.unfinished_check(last_exit=124)

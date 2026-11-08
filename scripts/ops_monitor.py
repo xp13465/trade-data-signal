@@ -312,7 +312,8 @@ def calendar_fingerprint(props):
 
 def exit_matches_success_policy(props):
     code = first(props, 'ExecMainStatus')
-    return code == '0' or (code.isdigit() and code in first(props, 'SuccessExitStatus').split())
+    return code == '0' or (first(props, 'ExecMainCode') == '1' and code.isdigit()
+                           and code in first(props, 'SuccessExitStatus').split())
 
 
 def unit_check(name, props):
