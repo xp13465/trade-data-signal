@@ -1,0 +1,6 @@
+=== nextday_gap_check.sh 开始 2026-11-02 09:26:00 ===
+[nextday_gap_check] 执行日 20261102 计划内 ETF=1: ['513260']
+   [就绪闸] 主源 fund_etf_spot_em 失败(ConnectionError: independent upstream disconnected), 全量走双源兜底
+[nextday_gap_check]   ✓ 513260 正常 open=0.904 sig_close=0.9 gap=0.44%
+[nextday_gap_check] 执行日 20261102 全部 1 笔无伪跳空, 无标记
+=== nextday_gap_check.sh 结束 2026-11-02 09:26:06 退出码=0 ===
