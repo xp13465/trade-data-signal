@@ -1,6 +1,8 @@
-# nextday 日志恢复判定：根因修复与两项 P2 续修
+# nextday 日志恢复判定：根因修复与轮次边界续修
 
 本分支初次修复主源降级已恢复仍报异常的问题，提交 `dbbae2b28e4492b5a3fac218d9f84ab6028d9d14`。独立复审发现 **两个 P2 边界缺陷**：异常正文伪造价格和结束行、正常无剔除干跑缺模式标记。本次获用户追加授权，在同一 `codex/alert-nextday-20261109` 分支续修，保留原提交，增加后续提交。base 仍为 `8118feef3bbfdfdcde70e169e950749d3e5a408a`，由 Claude 负责复审、合并、部署。
+
+R1 独立复验确认前两 P2 通过，新增 1 个状态机 P2：内层 END 清空布尔 pending，后续 START 挤掉未闭合外层 FATAL。本次在 `a7fdef6ed0bac811787eceb65c8e746915fd0ee0` 后继续追加提交，不覆写历史。
 
 ## 修前三验与实测根因
 
@@ -56,6 +58,28 @@
 
 原始未转义假 END fixture（含补 live 前缀）仍独立测试，保持告警；组合源测试同时验证 11 种分隔符只生成一条异常记录、真实缺价不能恢复、真正 live 全目标完成可以恢复。没有合并或复制 owner 文件，后续两分支实际合并由父统一回归。
 
+## R1 轮次状态遗漏与 R2 修复
+
+真实 `scan_log_anomaly` 和 `_build_log_task_row` 在原样 R1 输入中都漏掉外层 FATAL：A.start → FATAL → B.start → B.end → C.start → C 真正 live 完整结果 → C.end，A 没结束。原布尔状态被 B.end 清空，C 把 A 挤出窗口。修前原始末行：
+
+```text
+3 failed, 26 deselected in 0.09s
+```
+
+源头没有可靠的每行进程身份，单靠日志不能认证嵌套 END 归属，更不能凭后来 live 标记推断先前进程已退出。无需修改 wrapper：现有 `unit_truth.derive_unit_state` 已提供 systemd start/exit/InvocationID。
+
+最小改动仅在 `gen_schedule_stats.py`：
+
+- 无 native 时用配对深度保留未闭合外层，并扫描原始尾部，内层 END 后的真错也不会被截掉。一旦出现同名嵌套即保留歧义状态，后续多条 END 不能靠数量清空歧义。
+- 普通前轮完整结束、未发生嵌套，仍可自然选中新轮；曾嵌套或崩溃未结束时，只有真实 native 新轮次能隔离旧异常。
+- `_build_log_task_row` **仅 nextday、systemd 模式**向 scanner 传可选 `nextday_native`，复用当前已取得的 `trusted_state`，拒未来 exit，无额外 systemctl 调用。其它任务保持原调用及原解析规则。
+- 只有正确 service、loaded、当前 systemd source、非空 InvocationID、正常退出(code0 / exec_code1 / exec_status0 / inactive)、有效 start<exit 的 native 才可提供边界；ledger / stale / unknown 不行。区间内必须唯一且为日志最新的 wrapper start，并有区间内真实 END；同秒多候选、同一 native 内多个 START、缺 END 都保持保守。
+- native 只决定从哪里扫描，不替代 live 模式、全部目标真实价和收尾验证；新轮内部真 FATAL、错价、缺价、干跑、注入和无收尾仍告警。
+
+45 个新增专项覆盖同日/次日/多日重启、连续多次崩溃后 native 恢复、真实 row/build 接线、同秒与元数据缺失/过期/未来/非正常终态、重复 END、内层 END 后真错，以及其它任务不变。无 native 的 R1 原反例必须保留 FATAL；不会为了证明重启而手改坏日志。R1 原始输入无损固化为测试 JSON，解码字节相同。
+
+当前仅复用真实模式与已有 systemd 字段，没有新增 wrapper 身份或通用日志框架；本次未改 `nextday_gap_check.py`、`unit_truth.py` 或 freeze 独占源。固定 owner 组合改为读取 `r1-snapshots/primary-combined-fixed.py`，已与 `git show fa20231...` 字节核对，不读后续 worktree 漂移内容。
+
 ## 定向验证结果
 
 本分支最终回归命令：
@@ -64,6 +88,7 @@
 python -B -m pytest -q \
   scripts/tests/test_nextday_fallback_log_anomaly_20261109.py \
   scripts/tests/test_nextday_fallback_mode_boundaries_20261109.py \
+  scripts/tests/test_nextday_native_round_boundary_20261109.py \
   scripts/tests/test_240_alert_denoise_batch2_20261009.py \
   scripts/tests/test_232_marker_buffer_20261007.py \
   scripts/tests/test_log_gz_compat_20261010.py \
@@ -75,21 +100,21 @@ python -B -m pytest -q \
 原始完整末行：
 
 ```text
-225 passed in 4.95s
+270 passed in 5.26s
 ```
 
-owner 组合两专项：设置 `NEXTDAY_FALLBACK_PRODUCER_SOURCE` 指向其真实源文件，再执行上述前两个测试文件；原始完整末行：
+owner 固定快照组合三专项：设置 `NEXTDAY_FALLBACK_PRODUCER_SOURCE` 指向固定 owner 快照，再执行上述前三个测试文件；原始完整末行：
 
 ```text
-106 passed in 0.92s
+151 passed in 1.57s
 ```
 
-另外保留独立复审原 verifier 和证据不动，另存 `nextday-followup-verifier.py`：只适配新的显式生产参数/模式断言、历史 unknown 口径、组合源路径及隔离输出目录，实际重放结果：
+原独立 R1 的 90 例使用 `nextday-r2-followup-verifier.py` 重放，只切换被测 parser 为本次代码，生产者仍为原固定快照，90 个断言不变，输出另存以保留历史：
 
 ```text
-INDEPENDENT_RESULT checks=39 passed=39 failed=0 cases=
+R2_FOLLOWUP_RESULT checks=90 passed=90 failed=0 cases=
 ```
 
-这不是新一轮独立复审结论。完整证据均在 `/tmp/codex-reports/alert-rootfix-20261109/`：`nextday-p2-regression-final.log`、`nextday-p2-combined-final.log`、`nextday-followup-verifier.log`、`nextday-combination-source.json`。
+这不是新一轮独立复审结论。完整证据均在 `/tmp/codex-reports/alert-rootfix-20261109/`：`nextday-r2-regression-final.log`、`nextday-r2-combined-final.log`、`nextday-r2-followup-verifier.log`、`nextday-root-cause.json`。
 
 只跑定向测试，未单独跑全仓。测试禁止真实网络/子进程外发，所有替身文件在临时目录；未运行生产任务、DB、通知、监控或部署。代码变动限定解析器及 main 模式日志，另有相关测试、原样复审 fixture 和本文；未改阈值、页面、业务计划或补价。未 push、未写 main、未部署，由父/Claude 复审合并后验证线上恢复。

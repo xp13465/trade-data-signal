@@ -53,7 +53,7 @@ def extract(path, names, ns):
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"), ns)
 
 
-def produce(tmp_path, monkeypatch, *, args=(), opens=None, targets=None, message="upstream disconnected", plan_kind="normal"):
+def produce(tmp_path, monkeypatch, *, args=(), opens=None, targets=None, message="upstream disconnected", plan_kind="normal", day="20261102"):
     targets = targets or {"513260": 0.9}
     opens = {"513260": 0.904} if opens is None else opens
     def fail_primary():
@@ -71,22 +71,23 @@ def produce(tmp_path, monkeypatch, *, args=(), opens=None, targets=None, message
           "atomic_write_json": lambda *a, **kw: None,
           "_severe_alert": lambda *a, **kw: None, "_mark_unverified": lambda *a, **kw: None,
           "_fetch_intraday_open_via_http": lambda codes, expect_date: (dict(opens), [])}
-    plan = {"plan": [{"buy_date": "20261102", "etf_code": c, "prev_close": pc} for c, pc in targets.items()]}
+    plan = {"plan": [{"buy_date": day, "etf_code": c, "prev_close": pc} for c, pc in targets.items()]}
     if plan_kind == "absent":
         plan = None
     elif plan_kind == "empty":
         plan = {"plan": []}
     elif plan_kind == "other_day":
-        plan["plan"][0]["buy_date"] = "20261103"
+        plan["plan"][0]["buy_date"] = "19000101"
     docs = {"nextday_plan.json": plan, "auto_trade_steps.json": None}
     ns["_read_first"] = lambda paths, name: (docs[name], None)
     extract(SOURCE, ["_fetch_intraday_open_prices"], ns)
     extract(Path(__file__).parents[1] / "nextday_gap_check.py", ["main", "log", "_fetch_opens"], ns)
-    monkeypatch.setattr(sys, "argv", ["nextday_gap_check.py", "--date", "20261102", *args])
+    monkeypatch.setattr(sys, "argv", ["nextday_gap_check.py", "--date", day, *args])
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
         rc = ns["main"]()
-    return START + "\n" + buf.getvalue() + END.replace("退出码=0", f"退出码={rc}") + "\n", rc
+    log_day = datetime.strptime(day, "%Y%m%d").strftime("%Y-%m-%d")
+    return START.replace("2026-11-02", log_day) + "\n" + buf.getvalue() + END.replace("2026-11-02", log_day).replace("退出码=0", f"退出码={rc}") + "\n", rc
 
 
 @pytest.mark.parametrize("text", [FORGED, with_live(FORGED), with_live(FORGED).rsplit(END, 1)[0]], ids=["raw", "explicit-live", "missing-real-end"])

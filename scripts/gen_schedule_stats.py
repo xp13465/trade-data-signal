@@ -811,8 +811,45 @@ def _nextday_fallback_healed_lines(lines: list, start_idx: int, last_exit: int |
     return degraded if completed and ready == targets else set()
 
 
+def _nextday_run_start(lines: list, native: dict | None) -> int | None:
+    """日志只能证明配对深度；仅当前systemd唯一轮次可隔离未收尾的历史崩溃。"""
+    start_idx, depth, starts, ambiguous = None, 0, [], False
+    for i, line in enumerate(lines):
+        begin = START_RE.fullmatch(line)
+        if begin and begin[1] == "nextday_gap_check.sh":
+            starts.append((i, begin[2]))
+            # 同名嵌套后END归属无法认证；只有下面的native证明能隔离新轮次。
+            ambiguous = ambiguous or depth > 0
+            if depth == 0 and not ambiguous:
+                start_idx = i
+            depth += 1
+        elif NEXTDAY_END_RECORD_RE.fullmatch(line) and depth:
+            depth -= 1
+    if not native or not starts:
+        return start_idx
+    ns, ne = native.get("start"), native.get("exit")
+    if (native.get("source") != "systemd" or native.get("unit") != "trade-nextday-gap-check.service"
+            or native.get("load_state") != "loaded" or not native.get("invocation_id")
+            or native.get("code") != 0 or native.get("result") != "success"
+            or native.get("exec_code") != 1 or native.get("exec_status") != 0
+            or native.get("active_state") != "inactive"
+            or not isinstance(ns, datetime) or not isinstance(ne, datetime) or ns >= ne):
+        return start_idx
+    try:
+        candidates = [(i, datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")) for i, ts in starts]
+        candidates = [(i, ts) for i, ts in candidates if ns <= ts <= ne]
+        end = NEXTDAY_END_RECORD_RE.fullmatch(lines[-1])
+        # 多候选(包括同秒)/后续新start/缺真实end：不能把某个内层冒充新native轮次。
+        if (len(candidates) == 1 and candidates[0][0] == starts[-1][0] and end
+                and candidates[0][1] <= datetime.strptime(end[2], "%Y-%m-%d %H:%M:%S") <= ne):
+            return candidates[0][0]
+    except ValueError:
+        pass
+    return start_idx
+
+
 def scan_log_anomaly(log_path: Path, script: str, mode: str,
-                     last_exit: int | None = None) -> dict | None:
+                     last_exit: int | None = None, *, nextday_native: dict | None = None) -> dict | None:
     """扫描 log 文件最近一次运行窗口内的异常关键词(第4盲区修复)。
 
     根因场景: intraday_snapshot.py 的 _export_affected_json 抛 AttributeError 被
@@ -828,6 +865,8 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
         log_path: log 文件路径
         script: standard 模式的脚本名 regex(如 "intraday_snapshot.sh")
         mode: "standard" 或 "etf_nt"
+        nextday_native: 可选的本次systemd终态，仅nextday接受。唯一原生start/end可排除
+          旧崩溃；无native/多候选则按原始配对深度保留外层，不从日志猜重启。
         last_exit: 本轮最终退出码(None=进行中/读不到)。2026-08-24 push 冲突降噪用:
           push 失败类命中时仅 last_exit 非 0 才报——deploy.sh 内置 fetch+rebase+重试
           自愈后 exit=0,但成功标记文案随脚本演化漂移(PUSH_SUCCESS_RE 四个串不含
@@ -851,19 +890,10 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
 
     # nextday 边界必须是独立记录，异常正文中的同名字样不是wrapper。
     nextday = mode == "standard" and re.fullmatch(script, "nextday_gap_check.sh") is not None
-    # 找最后一个 start 行(standard 用 START_RE+fullmatch script, etf_nt 用 ETF_START_RE)
+    # nextday使用配对深度/可验证native轮次；其它任务保持最后start规则。
     last_start_idx = None
     if nextday:
-        # 未闭合轮次里的嵌套start不能把前面的真实异常挤出扫描窗。
-        pending = False
-        for i, line in enumerate(lines):
-            begin = START_RE.fullmatch(line)
-            if begin and begin[1] == "nextday_gap_check.sh":
-                if not pending:
-                    last_start_idx = i
-                pending = True
-            elif NEXTDAY_END_RECORD_RE.fullmatch(line):
-                pending = False
+        last_start_idx = _nextday_run_start(lines, nextday_native)
     elif mode == "etf_nt":
         for i in range(len(lines) - 1, -1, -1):
             if ETF_START_RE.search(lines[i]):
@@ -878,17 +908,16 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
     if last_start_idx is None:
         return None, 0  # log 里无 start 行,无法切窗口
 
-    # 找 start 后第一个 end 行(限定本次运行窗口,避免扫到下一轮 start 之间)
-    # 若无 end(进行中或被杀),扫到文件末尾
+    # nextday须保留原始尾部的全部歧义/真错误；其它任务仍扫至首end或EOF。
     end_idx = len(lines)
     if mode == "etf_nt":
         for i in range(last_start_idx + 1, len(lines)):
             if ETF_DONE_RE.search(lines[i]):
                 end_idx = i + 1
                 break
-    else:
+    elif not nextday:
         for i in range(last_start_idx + 1, len(lines)):
-            m = NEXTDAY_END_RECORD_RE.fullmatch(lines[i]) if nextday else END_RE.search(lines[i])
+            m = END_RE.search(lines[i])
             if m and re.fullmatch(script, m.group(1)):
                 end_idx = i + 1
                 break
@@ -1560,8 +1589,12 @@ def _build_log_task_row(row, spec, log_dir, now, unit_state, mode):
     # (2026-08-24: 传 last_exit=final_exit,push 失败类仅最终 exit!=0 才报)
     _log_missing = _resolve_log(log_path) is None
     if not _log_missing:
+        # 仅nextday复用本次systemd终态；不把ledger/日志猜测当轮次身份，也不读额外unit。
+        native = trusted_state if task == "nextday_gap_check" and mode == "systemd" else None
+        native_args = ({"nextday_native": native} if native and native.get("exit")
+                       and native["exit"] <= now else {})
         anomaly, r2_skip_count = scan_log_anomaly(
-            log_path, spec["script"], spec["mode"], last_exit=final_exit)
+            log_path, spec["script"], spec["mode"], last_exit=final_exit, **native_args)
     else:
         anomaly, r2_skip_count = None, 0
     # P1 稳定性(2026-07-29): pending_start + last_exit!=0 = 上次crash现在重试中,
