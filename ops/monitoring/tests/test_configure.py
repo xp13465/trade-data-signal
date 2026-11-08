@@ -140,7 +140,15 @@ def test_external_candidate_actual_wrangler_dry_run_and_local_sql_discovery(priv
     source = root / "wrangler.jsonc"
     raw = source.read_bytes()
     candidate_path = private_dir / "candidate.jsonc"
-    assert config.main(["--source", str(source), "--database-id", DB_ID,
+    # The root wrangler.jsonc now persists a real OPS_DB binding (deployed by
+    # ops/monitoring/configure.py main). configure.py refuses to silently
+    # replace a differing OPS_DB database_id (safety guard), so read the real
+    # value from the source instead of using the synthetic DB_ID placeholder.
+    source_config = config.loads_jsonc(source.read_text("utf-8-sig"))
+    ops_db = next((x for x in source_config.get("d1_databases", [])
+                   if x.get("binding") == "OPS_DB"), None)
+    assert ops_db is not None, "root wrangler.jsonc must persist OPS_DB binding"
+    assert config.main(["--source", str(source), "--database-id", ops_db["database_id"],
                         "--output", str(candidate_path)]) == 0
     metadata = json.loads(capsys.readouterr().out)
     candidate = config.loads_jsonc(candidate_path.read_text())
