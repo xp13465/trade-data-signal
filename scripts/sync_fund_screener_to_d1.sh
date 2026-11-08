@@ -33,7 +33,8 @@
 # 复现: bash scripts/sync_fund_screener_to_d1.sh          （需 wrangler 已登录; 云上/CF 操作, 授权后跑）
 #       DRY_RUN=1 bash scripts/sync_fund_screener_to_d1.sh （只生成 SQL 不推 D1, 本机可跑）
 # 调用方: scripts/pf_score_daily.sh 末尾（16:00 后, 避开 17:50; 失败不阻塞评分主流程）
-# 幂等: CREATE TABLE IF NOT EXISTS + 全量替换（首个数据文件先 DELETE 再分批 INSERT）,
+# 幂等: CREATE TABLE IF NOT EXISTS + 增量 upsert(2026-11-08 起默认; 每行全列 row_hash
+#       diff, 只写 changed/new + 批删 removed; INCREMENTAL=0 回退旧「DELETE 全表+重插」),
 #       同一 DB 同一运行日下重复跑结果逐行一致（派生年限列随运行日变, 属预期）。
 # 注意: BATCH 可用 SCREENER_D1_BATCH 覆盖（默认 80 行/语句, **仅 legacy 多文件模式**用）。
 #
@@ -92,6 +93,11 @@ RETRY_DELAYS="${D1_RETRY_DELAYS:-30 90}"
 EXEC_TIMEOUT_SEC="${D1_EXEC_TIMEOUT_SEC:-300}"
 VERIFY_TIMEOUT_SEC="${D1_VERIFY_TIMEOUT_SEC:-60}"
 BUNDLE_FILE="full_import.sql"
+# 增量同步(2026-11-08): D1 现存哈希来源。生产=wrangler --remote 批量 SELECT;
+#   DRY_RUN 可用此文件覆盖(本机 wrangler 未登录时, 指向 mock JSON 验 diff 逻辑)。
+D1_EXISTING_HASHES_FILE="${D1_EXISTING_HASHES_FILE:-}"
+# 增量同步开关: =0 回退旧「全表 DELETE+INSERT」(应急/调试); 默认开(1)
+INCREMENTAL="${INCREMENTAL:-1}"
 
 case "$SPLIT_MODE" in
   single|legacy) ;;
@@ -166,12 +172,46 @@ if [ "$DRY_RUN" != "1" ]; then
 fi
 
 cd "$REPO"
-echo "$LOG_PREFIX 开始: $(date '+%F %T') db=$DB batch=$BATCH dry_run=${DRY_RUN:-0}"
+echo "$LOG_PREFIX 开始: $(date '+%F %T') db=$DB batch=$BATCH dry_run=${DRY_RUN:-0} incremental=$INCREMENTAL"
+
+# 0) 增量同步(2026-11-08): 幂等迁移 row_hash 列 + 读 D1 现存哈希(供 Python diff)
+#    row_hash 列迁移**不分增量/回退都跑**(生产): INSERT 语句总是写 row_hash 列,
+#    INCREMENTAL=0 回退模式若不迁移列, 已有表没有 row_hash 列 → 导入必失败(no such column)。
+HASHES_FILE="$GEN_DIR/d1_hashes.json"
+# d1_execute.sh 在步骤 0 之前 source(2026-11-08 审查 F3, 与 sync_fund_score_to_d1.sh 同修):
+#   哈希读/列迁移依赖其 _d1_run_with_timeout 包裹 npx wrangler —— 旧序在步骤 2 才 source,
+#   生产哈希读恒走裸 npx 无超时(网络挂起 → 墙杀 → _fail 不执行 → 失败状态不落盘, #275 失明)。
+#   d1_execute.sh 顶层只定义函数/常量, 提前 source 无副作用。
+source "$SCRIPT_SELF_DIR/lib/d1_execute.sh" || _fail "d1_execute.sh missing"
+source "$SCRIPT_SELF_DIR/lib/d1_hash_read.sh" || _fail "d1_hash_read.sh missing"
+if [ "$DRY_RUN" = "1" ]; then
+  if [ -n "$D1_EXISTING_HASHES_FILE" ] && [ -f "$D1_EXISTING_HASHES_FILE" ]; then
+    cp "$D1_EXISTING_HASHES_FILE" "$HASHES_FILE"
+    echo "$LOG_PREFIX DRY_RUN: 用 D1_EXISTING_HASHES_FILE 作 D1 现存哈希源"
+  else
+    # DRY_RUN 不调 wrangler(本机/CI 多无凭据, 裸 npx 可能挂起) → 视 D1 为空表, 全部按新增。
+    # 增量 diff 逻辑由单测 + D1_EXISTING_HASHES_FILE mock 验证
+    #   (scripts/tests/test_d1_incremental_sync_20261108.py, 2026-11-08 审查 F2 起在位)。
+    printf '{}\n' > "$HASHES_FILE"
+    echo "$LOG_PREFIX DRY_RUN: 无 D1_EXISTING_HASHES_FILE, D1 视为空表(全部新增)" >&2
+  fi
+elif [ "$INCREMENTAL" = "1" ]; then
+  d1_migrate_row_hash "$D1_DB" "fund_screener" || _fail "row_hash 列迁移失败(fund_screener)" unknown
+  if ! d1_read_hashes "$D1_DB" "fund_screener" "$HASHES_FILE"; then
+    _fail "读 D1 现存哈希失败(fund_screener, wrangler SELECT)" unknown
+  fi
+else
+  # INCREMENTAL=0 回退: 不读哈希(全量 DELETE+INSERT 不需要 diff), 但仍迁移 row_hash 列
+  d1_migrate_row_hash "$D1_DB" "fund_screener" || _fail "row_hash 列迁移失败(fund_screener)" unknown
+  printf '{}\n' > "$HASHES_FILE"
+  echo "$LOG_PREFIX INCREMENTAL=0: 跳过 D1 哈希读(回退旧全量替换语义)" >&2
+fi
 
 # 1) 生成导入包（默认整表一个文件; legacy 模式退回 schema + 分批数据多文件）
 #    参数: db 路径 / 生成目录 / legacy 行批 / 脚本目录 / 模式 / 软上限字节 / 硬断言字节 / 包文件名
 "$PY" - "$DB" "$GEN_DIR" "$BATCH" "$SCRIPT_SELF_DIR" "$SPLIT_MODE" \
-      "$MAX_STMT_BYTES" "$ASSERT_MAX_STMT_BYTES" "$BUNDLE_FILE" <<'PYEOF'
+      "$MAX_STMT_BYTES" "$ASSERT_MAX_STMT_BYTES" "$BUNDLE_FILE" \
+      "$HASHES_FILE" "$INCREMENTAL" <<'PYEOF'
 import datetime as dt
 import json
 import math
@@ -183,8 +223,12 @@ db_path, gen_dir, batch = sys.argv[1], Path(sys.argv[2]), int(sys.argv[3])
 script_dir, split_mode = Path(sys.argv[4]), sys.argv[5]
 MAX_STMT_BYTES, ASSERT_MAX_BYTES = int(sys.argv[6]), int(sys.argv[7])
 BUNDLE_NAME = sys.argv[8]
+HASHES_FILE = sys.argv[9]
+INCREMENTAL = sys.argv[10] == "1"
 sys.path.insert(0, str(script_dir / "lib"))
 from d1_sql_bundle import Bundle, BundleTooLargeError  # noqa: E402
+from d1_incremental_sync import (compute_row_hash, diff_hashes,  # noqa: E402
+                                 build_conflict_clause, load_d1_hashes)
 conn = sqlite3.connect(db_path)
 conn.row_factory = sqlite3.Row
 RUN_DATE = dt.date.today()
@@ -408,7 +452,12 @@ if not rows:
     print("[sync-screener-python] ERROR: fund_basic 无数据, 无法生成", flush=True)
     sys.exit(1)
 
-COLS = list(rows[0].keys())
+# row_hash(H1 保守: 全部数据列含日期列)。先取数据列(不含 row_hash 自身), 再算哈希写入行。
+HASH_COLS = list(rows[0].keys())
+for r in rows:
+    r["row_hash"] = compute_row_hash(r, HASH_COLS)
+
+COLS = list(rows[0].keys())  # 含 row_hash
 
 # ---------- schema（幂等建表 + 少量索引 + 元数据表） ----------
 INT_COLS = {"star_rating", "rating_five_star_count", "industry_n"}
@@ -417,7 +466,7 @@ TEXT_COLS = {
     "benchmark_text", "perf_date", "risk_date", "score_date", "kelly_tier", "score_method",
     "update_date", "manager_name", "manager_appoint_date", "manager_date", "rating_date",
     "purchase_status", "redeem_status", "purchase_date", "industry_top1",
-    "industry_report_date",
+    "industry_report_date", "row_hash",
 }
 
 
@@ -482,6 +531,22 @@ col_list = ", ".join(COLS)
 head = f"INSERT INTO fund_screener ({col_list}) VALUES"
 row_values = ["(" + ", ".join(sql_lit(r[c]) for c in COLS) + ")" for r in rows]
 
+# ---------- 增量 diff(2026-11-08): 只 upsert changed/new + 批 DELETE removed ----------
+# INCREMENTAL=0 回退旧全量替换语义(DELETE 全表 + 全量 INSERT, 见 single 分支)。
+# legacy 模式始终全量 DELETE+INSERT(安全回退, 不走增量)。
+d1_hashes = load_d1_hashes(HASHES_FILE) if INCREMENTAL else {}
+if INCREMENTAL:
+    changed, new_rows, removed_codes, unchanged = diff_hashes(rows, d1_hashes)
+else:
+    changed, new_rows, removed_codes, unchanged = [], rows, [], 0  # 全量=全部当 new
+print(f"[sync-screener-python] diff: total={len(rows)} changed={len(changed)} "
+      f"new={len(new_rows)} removed={len(removed_codes)} unchanged={unchanged} "
+      f"d1_existing={len(d1_hashes)} incremental={INCREMENTAL}", flush=True)
+
+# SET 子句列(不含冲突键 fund_code, 含 row_hash)
+set_cols = [c for c in COLS if c != "fund_code"]
+conflict_clause = build_conflict_clause("fund_screener", set_cols, "fund_code")
+
 # 元数据（最后写, 供 worker 返回数据日期/行数/覆盖率）
 meta_items = (
     ("fund_total", meta_payload["fund_total"]),
@@ -498,11 +563,26 @@ meta_stmts = [
 ]
 
 if split_mode == "single":
-    # 一表一文件: schema → DELETE(第一条数据语句) → 字节封顶的 INSERT → meta
+    # 一表一文件: schema → [增量 upsert changed/new + 批 DELETE removed | 回退: DELETE 全表+全量 INSERT] → meta
     bundle = Bundle(max_stmt_bytes=MAX_STMT_BYTES, assert_max_bytes=ASSERT_MAX_BYTES)
     for s in schema_stmts:
         bundle.add(s)
-    bundle.add_inserts(head, row_values, delete_stmt="DELETE FROM fund_screener;")
+    if INCREMENTAL:
+        write_rows = changed + new_rows
+        if write_rows:
+            write_vals = ["(" + ", ".join(sql_lit(r[c]) for c in COLS) + ")" for r in write_rows]
+            bundle.add_inserts(head, write_vals, conflict_clause=conflict_clause)
+        else:
+            print("[sync-screener-python] 增量空写: changed+new=0, 跳过 INSERT(只写 meta+removed)",
+                  flush=True)
+        # removed 批 DELETE(fund_code IN (...), 每批 500 防语句过长)
+        for i in range(0, len(removed_codes), 500):
+            chunk = removed_codes[i:i + 500]
+            in_list = ", ".join("'%s'" % c.replace("'", "''") for c in chunk)
+            bundle.add(f"DELETE FROM fund_screener WHERE fund_code IN ({in_list});")
+    else:
+        # INCREMENTAL=0 回退旧全量替换: DELETE 全表(第一条数据语句) + 全量 INSERT, 不 upsert
+        bundle.add_inserts(head, row_values, delete_stmt="DELETE FROM fund_screener;")
     for s in meta_stmts:
         bundle.add(s)
     # 硬断言先于写盘: 超限 = 直接失败, 绝不留半个包
@@ -522,7 +602,9 @@ if split_mode == "single":
           f"statements={st['statements']} max_stmt_bytes={st['max_stmt_bytes']} "
           f"soft_cap={MAX_STMT_BYTES} hard_cap={ASSERT_MAX_BYTES} "
           f"oversize_single_row_stmts={st['oversize_single_row_stmts']} "
-          f"coverage_cols={len(coverage)}", flush=True)
+          f"coverage_cols={len(coverage)} "
+          f"upsert_rows={len(changed) + len(new_rows)} removed={len(removed_codes)} "
+          f"incremental={int(INCREMENTAL)}", flush=True)
 else:
     # legacy: 旧的多文件逐批模式（回退开关）, 产出与改动前逐字节一致
     (gen_dir / "000_schema.sql").write_text(schema, encoding="utf-8")
@@ -586,7 +668,7 @@ D1_BUDGET_START=$(date +%s)
 D1_SYNC_DEADLINE=$(( D1_BUDGET_START + BUDGET_SEC ))
 export D1_SYNC_DEADLINE D1_RETRY_DELAYS="$RETRY_DELAYS" LOG_PREFIX
 export D1_BUDGET_START D1_BUDGET_TOTAL_SEC="$BUDGET_SEC" D1_EXEC_TIMEOUT_SEC="$EXEC_TIMEOUT_SEC"
-source "$SCRIPT_SELF_DIR/lib/d1_execute.sh" || _fail "d1_execute.sh missing"
+# d1_execute.sh 已在步骤 0 之前 source(见上; F3 修哈希读无超时)
 for f in "${SQL_FILES[@]}"; do
   echo "$LOG_PREFIX execute $(basename "$f") ($(wc -c < "$f" | tr -d ' ') bytes)"
   _OUT="$GEN_DIR/execute.out"

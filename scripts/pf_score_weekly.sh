@@ -45,9 +45,11 @@ RC2=$?
 [ "$REPO" = "$GIT_REPO" ] || rsync -a --checksum "$REPO/static-site/data/fund_score"* "$GIT_REPO/static-site/data/" 2>/dev/null || true
 env R2_UPLOAD_LOCK_DOMAIN=fund_score R2_UPLOAD_LOCK_TIMEOUT=1800 "$PY" "$REPO/scripts/upload_r2.py" upload-fund-score
 RC3=$?
-# D1 全量同步（#79 方案C step3: /api/fund_score 数据源）。失败不阻塞评分主流程, 但状态已落盘,
-#   连续 ≥2 次失败由 check_failed_units.py 巡检告警(#275, 不再静默)
-bash "$GIT_REPO/scripts/sync_fund_score_to_d1.sh" || \
+# D1 同步（#79 方案C step3: /api/fund_score 数据源; 2026-11-08 起增量 upsert）。
+#   周日全量评分跑完 ⇒ 本轮做 removed 清理(FUND_SCORE_CLEANUP_REMOVED=1): D1 里本地
+#   已不存在的基金在周日全量后被删; daily 不清(防工作日误删待恢复基金)。
+#   失败不阻塞评分主流程, 但状态已落盘, 连续 ≥2 次失败由 check_failed_units.py 巡检告警(#275)
+FUND_SCORE_CLEANUP_REMOVED=1 bash "$GIT_REPO/scripts/sync_fund_score_to_d1.sh" || \
   echo "⚠ sync_fund_score_to_d1 失败（不阻塞主流程, D1 数据滞后一轮; 连续失败会告警）"
 echo "=== $(date '+%F %T') pf-score-weekly end compute=$RC1 export=$RC2 upload=$RC3 ==="
 exit $RC1
