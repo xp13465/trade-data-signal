@@ -18,7 +18,20 @@ const STATUSES = new Set(['ok', 'warning', 'critical', 'unknown']);
 const UPDATE_FIELDS = ['expected_revision', 'workflow_status', 'root_cause_state', 'remediation_state', 'deployment_state', 'verification_state', 'observation_status', 'note', 'evidence_url'];
 
 class OpsError extends Error {
-  constructor(status, code) { super(code); this.status = status; this.code = code; }
+  constructor(status, code, kind) { super(code); this.status = status; this.code = code; this.kind = kind; }
+}
+function storageErrorKind(error) {
+  // Inspect bounded text only to select literal categories. Never log the text,
+  // cause, SQL, stack, request headers or bindings, even on unknown failures.
+  const messages = [error?.message, error?.cause?.message].filter(v => typeof v === 'string').map(v => v.slice(0, 2048));
+  const message = messages.join(' ');
+  if (/maximum account storage limit|Exceeded maximum DB size|free tier daily row (?:read|write) limit/i.test(message)) return 'storage_quota';
+  if (/D1_TYPE_ERROR|D1_COLUMN_NOTFOUND|no such (?:table|column)|No SQL statements detected/i.test(message)) return 'storage_configuration';
+  if (/SQLITE_CONSTRAINT|(?:NOT NULL|UNIQUE|FOREIGN KEY|CHECK) constraint failed/i.test(message)) return 'storage_constraint';
+  if (/D1 DB is overloaded/i.test(message)) return 'storage_overloaded';
+  if (/exceeded (?:its (?:CPU time|memory)|the maximum response size) limit|Too many resources consumed/i.test(message)) return 'storage_resource_limit';
+  if (/Network connection lost\.|Replica disconnected from primary\.|Cannot resolve D1 DB due to transient issue on remote node\.|D1 DB reset because its code was updated\.|Internal error (?:while starting up|in) D1 DB storage caused object to be reset\./.test(message)) return 'storage_transient';
+  return 'unknown';
 }
 function fail(status, code) { throw new OpsError(status, code); }
 function response(body, status = 200) {
@@ -144,11 +157,12 @@ function validateSnapshot(input, now) {
   return { snapshot: { ...input, checks }, counts, collected };
 }
 function stmt(db, sql, ...args) { return args.length ? db.prepare(sql).bind(...args) : db.prepare(sql); }
-async function ingest(request, env, db, now) {
+async function ingest(request, env, db, now, diagnostic) {
   if (!env.OPS_INGEST_TOKEN) fail(503, 'ingest_not_configured');
   if (env.OPS_ADMIN_TOKEN && await sameSecret(env.OPS_ADMIN_TOKEN, env.OPS_INGEST_TOKEN)) fail(503, 'ops_token_configuration_invalid');
   if (!await sameSecret(bearer(request), env.OPS_INGEST_TOKEN)) fail(403, 'ingest_required');
   const input = await body(request); const { snapshot, counts, collected } = validateSnapshot(input, now);
+  diagnostic.snapshot_id = snapshot.snapshot_id;
   const hash = Array.from(await digest(canonical(input)), b => b.toString(16).padStart(2, '0')).join('');
   // A conflicting replay fails a NOT NULL constraint inside the atomic batch.
   // Same-content duplicates perform no INSERT trigger/current-state work.
@@ -171,10 +185,12 @@ async function ingest(request, env, db, now) {
       for (const check of fallback.checks) fallbackCounts[check.status]++;
       await db.batch([stmt(db, `INSERT INTO ops_runs VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(snapshot_id) DO UPDATE SET content_hash=CASE WHEN ops_runs.content_hash=excluded.content_hash THEN ops_runs.content_hash ELSE NULL END`, snapshot.snapshot_id, hash, snapshot.collector_id, collected, now, snapshot.duration_ms, JSON.stringify(fallbackCounts), JSON.stringify(fallback)), ...outboxPolicyStatements(db, env, now)]);
     }
-  } catch {
-    const prior = await stmt(db, 'SELECT content_hash FROM ops_runs WHERE snapshot_id=?', snapshot.snapshot_id).first();
+  } catch (error) {
+    let prior;
+    try { prior = await stmt(db, 'SELECT content_hash FROM ops_runs WHERE snapshot_id=?', snapshot.snapshot_id).first(); }
+    catch { /* Keep the original batch failure category if diagnosis also fails. */ }
     if (prior && prior.content_hash !== hash) fail(409, 'snapshot_id_conflict');
-    fail(503, 'ops_storage_unavailable');
+    throw new OpsError(503, 'ops_storage_unavailable', storageErrorKind(error));
   }
   const head = await stmt(db, 'SELECT (SELECT snapshot_id FROM ops_head WHERE id=1) snapshot_id,(SELECT counts_json FROM ops_runs WHERE snapshot_id=?) counts_json', snapshot.snapshot_id).first();
   return response({ accepted: true, snapshot_id: snapshot.snapshot_id, current: head?.snapshot_id === snapshot.snapshot_id, counts: head?.counts_json ? JSON.parse(head.counts_json) : counts });
@@ -311,9 +327,10 @@ async function exportBackup(db, now, env) {
 }
 
 export default async function opsHandler(request, env, ctx) {
+  const diagnostic = { request_id: crypto.randomUUID() };
   try {
     const url = new URL(request.url); const now = Date.now(); const db = binding(env);
-    if (url.pathname === '/api/ops/ingest' && request.method === 'POST') return await ingest(request, env, db, now);
+    if (url.pathname === '/api/ops/ingest' && request.method === 'POST') return await ingest(request, env, db, now, diagnostic);
     const auth = await admin(request, env);
     if (url.pathname === '/api/ops/benefits' || url.pathname.startsWith('/api/ops/benefits/')) return await benefitsRoute(request, db, env, auth, now, { fail, response, body, safeText, exactKeys, integer, boundedLimit });
     if (request.method === 'GET') {
@@ -333,9 +350,15 @@ export default async function opsHandler(request, env, ctx) {
     }
     fail(405, 'method_not_allowed');
   } catch (error) {
-    if (error instanceof OpsError) return response({ error: error.code }, error.status);
-    // Never reflect SQL, bindings, tokens, stack traces or raw request bodies.
-    return response({ error: 'ops_storage_or_service_unavailable' }, 503);
+    const known = error instanceof OpsError;
+    const status = known ? error.status : 503;
+    const code = known ? error.code : 'ops_storage_or_service_unavailable';
+    if (status < 500) return response({ error: code }, status);
+    const configCodes = ['ops_storage_unavailable', 'ingest_not_configured', 'ops_token_configuration_invalid', 'admin_not_configured'];
+    const error_kind = known ? error.kind || (configCodes.includes(code) ? 'configuration' : 'unknown') : storageErrorKind(error);
+    const safe = { error: code, error_kind, ...diagnostic };
+    console.error({ event: 'ops_request_failed', ...safe });
+    return response(safe, status);
   }
 }
 

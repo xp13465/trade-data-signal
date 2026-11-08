@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import errno
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
@@ -45,6 +46,13 @@ SAFE_PROPS = ('Id', 'LoadState', 'ActiveState', 'SubState', 'Type', 'Result',
               'ExecMainExitTimestamp', 'UnitFileState', 'TimersCalendar',
               'TimersMonotonic', 'NextElapseUSecRealtime', 'NextElapseUSecMonotonic',
               'LastTriggerUSec', 'Persistent', 'SuccessExitStatus')
+DELIVERY_ERRORS = frozenset({'ops_storage_unavailable', 'ops_storage_or_service_unavailable',
+                            'ingest_not_configured', 'ops_token_configuration_invalid',
+                            'ingest_required', 'snapshot_id_conflict'})
+SERVER_ERROR_KINDS = frozenset({'unknown', 'storage_transient', 'storage_quota',
+                               'storage_configuration', 'storage_constraint',
+                               'storage_overloaded', 'storage_resource_limit', 'configuration'})
+NONRETRY_KINDS = SERVER_ERROR_KINDS - {'unknown', 'storage_transient'}
 
 
 class LimitError(Exception):
@@ -806,20 +814,70 @@ def request_http(url, payload=None, secret_file=None, head=False, test_local=Fal
         if len(body) > 4096:
             raise LimitError('response size')
         ok = 200 <= response.status < 300
+        result = {'ok': ok, 'http_status': int(response.status)}
         if ok and not head:
-            ack = json.loads(body)
-            sent_id = json.loads(payload)['snapshot_id']
-            ok = isinstance(ack, dict) and ack.get('accepted') is True and ack.get('snapshot_id') == sent_id
-        return {'ok': ok, 'http_status': int(response.status)}
+            try:
+                ack = json.loads(body, object_pairs_hook=strict_pairs)
+                sent_id = json.loads(payload)['snapshot_id']
+                result['ok'] = isinstance(ack, dict) and ack.get('accepted') is True and ack.get('snapshot_id') == sent_id
+            except (ValueError, UnicodeError, ContractError):
+                result['ok'] = False
+            if not result['ok']:
+                result['error_kind'] = 'ProtocolError'
+        elif not head:
+            # Error bodies are untrusted. Only literal whitelist values survive;
+            # edge HTML/unknown errors retain the HTTP status without reflection.
+            try:
+                error = json.loads(body, object_pairs_hook=strict_pairs)
+            except (ValueError, UnicodeError, ContractError):
+                error = None
+            if isinstance(error, dict):
+                for key, allowed in (('error', DELIVERY_ERRORS), ('error_kind', SERVER_ERROR_KINDS)):
+                    if isinstance(error.get(key), str) and error[key] in allowed:
+                        result[key] = error[key]
+        return result
     finally:
         connection.close()
 
 
-def _network_worker(pipe, url, payload, secret_file, head, test_local):
-    try:
-        result = request_http(url, payload, secret_file, head, test_local, timeout=5)
-    except Exception as exc:
-        result = {'ok': False, 'error_kind': type(exc).__name__[:64]}
+def network_error_kind(exc):
+    # Never export arbitrary exception names/messages or retry TLS/config errors.
+    if isinstance(exc, TimeoutError):
+        return 'TimeoutError'
+    if isinstance(exc, (ConnectionError, http.client.RemoteDisconnected)):
+        return 'ConnectionError'
+    if isinstance(exc, OSError) and exc.errno in (errno.EAGAIN, errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ECONNRESET, errno.ECONNREFUSED):
+        return 'ConnectionError'
+    if isinstance(exc, (http.client.HTTPException, ValueError, UnicodeError)):
+        return 'ProtocolError'
+    if isinstance(exc, LimitError):
+        return 'LimitError'
+    if isinstance(exc, ContractError):
+        return 'ContractError'
+    return 'NetworkError'
+
+
+def _network_worker(pipe, url, payload, secret_file, head, test_local, deadline):
+    # Retry only the same immutable serialized snapshot; never collect again.
+    result = {'ok': False, 'error_kind': 'NetworkDeadline'}
+    for attempt in range(1, 2 if head else 4):
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        try:
+            result = request_http(url, payload, secret_file, head, test_local, timeout=min(5, left))
+        except Exception as exc:
+            result = {'ok': False, 'error_kind': network_error_kind(exc)}
+        result['attempts'] = attempt
+        kind = result.get('error_kind')
+        retry = (kind in ('TimeoutError', 'ConnectionError') or result.get('http_status') in (502, 503, 504))
+        if (head or result['ok'] or not retry or kind in NONRETRY_KINDS or
+                result.get('error') in ('ingest_not_configured', 'ops_token_configuration_invalid') or attempt == 3):
+            break
+        delay = .15 * 2 ** (attempt - 1)
+        if deadline - time.monotonic() <= delay:
+            break
+        time.sleep(delay)
     try:
         pipe.send(result)
     finally:
@@ -830,21 +888,24 @@ def network_bounded(budget, url, payload=None, secret_file=None, head=False, tes
     # A separate process bounds DNS, TLS and stalled reads as well as socket I/O.
     endpoint(url, head=head, test_local=test_local)
     seconds = budget.remaining(8)
+    # Include process startup, all attempts and backoff in one wall-clock bound.
+    # Leave cleanup time inside the original budget instead of adding time to it.
+    deadline = time.monotonic() + max(0, seconds - .15)
     context = multiprocessing.get_context('spawn')
     receive, send = context.Pipe(duplex=False)
-    proc = context.Process(target=_network_worker, args=(send, url, payload, secret_file, head, test_local))
+    proc = context.Process(target=_network_worker, args=(send, url, payload, secret_file, head, test_local, deadline))
     try:
         proc.start()
         send.close()
-        if receive.poll(seconds):
+        if receive.poll(max(0, deadline - time.monotonic())):
             return receive.recv()
         return {'ok': False, 'error_kind': 'NetworkDeadline'}
     finally:
         if proc.pid is not None:
-            proc.join(timeout=0.1)
+            proc.join(timeout=0.01)
             if proc.is_alive():
                 proc.kill()
-                proc.join(timeout=1)
+                proc.join(timeout=0.1)
         receive.close()
         send.close()
 
@@ -972,7 +1033,7 @@ def run_once(cfg, collect_only=False, test_local_http=False):
         try:
             delivery = network_bounded(total_budget, cfg.ingest_url, payload, cfg.secret_file, test_local=test_local_http)
         except Exception as exc:
-            delivery = {'ok': False, 'error_kind': type(exc).__name__[:64]}
+            delivery = {'ok': False, 'error_kind': network_error_kind(exc)}
     report = {'snapshot_id': snapshot['snapshot_id'], 'collector_id': cfg.collector_id,
               'completed_at': utc_now(), 'coverage': snapshot['coverage'], 'delivery': delivery,
               'duration_ms': int((total_budget.clock() - total_budget.started) * 1000)}
@@ -984,7 +1045,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', required=True, help='Collector JSON configuration; never a token value')
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument('--once', action='store_true', help='Collect and POST once; no retries or deployment')
+    mode.add_argument('--once', action='store_true', help='Collect one snapshot; bounded transient delivery retries, no deployment')
     mode.add_argument('--collect-only', action='store_true', help='Collect to private files; all outbound requests disabled')
     parser.add_argument('--token-file', help='Override protected token file, including systemd LoadCredential file')
     parser.add_argument('--test-local-http', action='store_true', help='Explicit test-only HTTP allowance for127.0.0.1 high port')
