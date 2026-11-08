@@ -292,5 +292,8 @@
   ],
   "20261105-a657": [
     "fix(main-merge): BUMP_PRODUCTS \u8865 __build.json/databrief/trade_sim + bump \u4ea7\u7269\u6b8b\u7559\u5b88\u536b"
+  ],
+  "20261108-a659": [
+    "deploy(ops): persist OPS_DB binding + watchdog cron + alert-disabled vars to root wrangler.jsonc"
   ]
 }
