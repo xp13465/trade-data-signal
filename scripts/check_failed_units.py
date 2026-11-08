@@ -803,7 +803,7 @@ def _main_impl() -> int:
     _sig = adr.failed_units_signature(problems)
     _send, _reason = adr.failed_units_daily_judge(_prev_state, _sig, _identity, today_str, now)
     subject = f"[告警] 云上 unit 巡检发现异常({len(problems)} 项) {now_str[5:16]}"
-    body_lines = []
+    body_lines = ["说明：以下为本轮状态观测，不能据此推断当前对象连续停摆时长。"]
     if failed:
         body_lines.append("<b>failed unit(运行过但失败)</b>: " + ", ".join(failed))
     if watchman:

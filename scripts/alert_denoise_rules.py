@@ -1513,7 +1513,7 @@ STALL_KEYS = frozenset({
     "r2_upload_trigger_fail",         # 统一上传触发器失败 ⇒ 全量上传停摆
     # ④ D1 同步连续失败
     "d1_sync_fail",
-    # ⑤ unit 连续失败(同一 unit/集合 >=N 轮)
+    # ⑤ 本轮 unit/巡检者异常；升级计数是通道近7日异常日期数，不是单unit连续时长
     "failed_units_patrol",
     # R2 锁等待/工作预算 vs 外层 TimeoutStartSec 梯度倒置(2026-10-31 常态化, L55):
     # 倒置意味着任务会被外层先杀、自身看门狗/告警来不及收尾, 持续不放会把整条上传链
@@ -1749,7 +1749,7 @@ STALL_IMPACT = {
     "staticdata_backup_stale": "staticdata 备份心跳超 36h: 灾备副本已停止更新",
     "r2_upload_trigger_fail": "统一 R2 上传停摆: 新数据未进入线上存储",
     "d1_sync_fail": "Cloudflare D1 数据未更新: 对外查询读旧数据",
-    "failed_units_patrol": "云上 systemd unit 持续 failed(服务/定时链可能已死)",
+    "failed_units_patrol": "本轮 systemd unit/巡检者状态异常，受影响对象见正文；是否持续停止产出待核查",
     "cloud_unit_patrol_drift": "云上 unit 清单漂移: 预期服务缺失/多出, 巡检基线失真",
     "unit_registry_drift": "UNIT_REGISTRY 与真实 unit 集合漂移: 新增/改名 timer 漏进监控, 巡检范围失真",
     "unit_registry_load_fail": "UNIT_REGISTRY 漂移机检自身装载失败: 漂移检测失明, 巡检盲区",
@@ -1836,24 +1836,58 @@ def stall_context(key, repo=None, now=None) -> dict:
         _name = ("failed_units_patrol_state.json" if _canon == "failed_units_patrol"
                  else "cloud_unit_patrol_drift_state.json")
         _d = _read_json(_repo / "data" / _name)
-        if _d.get("first_fail_date"):
-            _ctx["first_seen"] = str(_d["first_fail_date"])
-        if _d.get("consecutive_days") is not None:
-            _ctx["consecutive"] = f"{int(_d['consecutive_days'])} 天"
+        # #196计数按通道跨对象累计；健康轮也不清滚动历史。仅展示有实际日期的
+        # 观察窗口，绝不用旧consecutive_days反推当前对象起点或补造seen_dates。
+        _ctx.update(first_seen="未知", consecutive="未知",
+                    window_days=ESCALATE_ROLLING_WINDOW_DAYS,
+                    observed_days=None, window_first_seen="未知",
+                    window_end=_now.strftime("%Y-%m-%d"))
+        _seen = _d.get("seen_dates")
+        if (isinstance(_seen, list)
+                and all(isinstance(d, str) and _looks_like_iso_date(d)
+                        and _dt_of(d) is not None for d in _seen)):
+            _floor = (_now - timedelta(days=ESCALATE_ROLLING_WINDOW_DAYS - 1)).strftime("%Y-%m-%d")
+            _dates = sorted({d for d in _seen if _floor <= d <= _ctx["window_end"]})
+            _ctx["observed_days"] = len(_dates)
+            _ctx["window_first_seen"] = _dates[0] if _dates else "未知"
     return _ctx
 
 
+# notify.py旧升级前言把通道统计写成“该异常未清除/人工超时”。只兼容这一
+# 精确生成模板，在最终正文边界更正；不改notify的升级/去重/路由，也不改原始明细。
+_PATROL_UPGRADE_PREAMBLE = re.compile(
+    r"^<b>持续异常升级</b>: 该异常自 \d{4}-\d{2}-\d{2} 起, 近 "
+    r"\d+ 天里已出现 \d+ 天未清除"
+    r"\(首日已严重告警, 今升 critical —— 说明人工处置超时, 需立即介入\)。<br>")
+
+
 def format_stall_body(body, ctx, key=None) -> str:
-    """按 canonical key 选择正文头; 旧两参调用默认停摆级, 原始正文一字不减。"""
+    """按key展示对象连续状态或巡检通道日期统计；原始明细保留。"""
     _c = ctx or {}
-    _prefix = stall_prefix_for(key)
-    _head = (f"<b>{_prefix[:-1]}级告警】</b><br>"
-             f"· 首次发生: {_c.get('first_seen', '未知')}<br>"
-             f"· 连续失败: {_c.get('consecutive', '未知')}<br>"
-             f"· 影响产物: {_c.get('impact', '未知')}")
+    _channel_key = key or _c.get("key")
+    _channel = _channel_key in (FAILED_UNITS_DEDUP_KEY, PATROL_DRIFT_DEDUP_KEY)
+    _prefix = stall_prefix_for(_channel_key if _channel else key)
+    _body = str(body or "")
+    if _channel:
+        _n = _c.get("observed_days")
+        _history = (f"近 {_c.get('window_days', ESCALATE_ROLLING_WINDOW_DAYS)} 个自然日有 {_n} 日异常记录"
+                    if _n is not None else "异常记录天数: 未知（缺少可核验日期）")
+        _head = (f"<b>{_prefix[:-1]}级告警】</b><br>"
+                 f"· 巡检通道统计: {_history}（不同日期可为不同对象）<br>"
+                 f"· 统计日期: {_c.get('window_end', '未知')}；窗口内最早记录: {_c.get('window_first_seen', '未知')}<br>"
+                 "· 当前对象首次发生: 未知<br>· 当前对象连续失败时长: 未知<br>"
+                 f"· 影响产物: {_c.get('impact', '未知')}")
+        _body = _PATROL_UPGRADE_PREAMBLE.sub(
+            "<b>异常观测升级</b>: 巡检通道异常日期统计达到既有升级条件；不代表当前对象持续停摆。<br>",
+            _body, count=1)
+    else:
+        _head = (f"<b>{_prefix[:-1]}级告警】</b><br>"
+                 f"· 首次发生: {_c.get('first_seen', '未知')}<br>"
+                 f"· 连续失败: {_c.get('consecutive', '未知')}<br>"
+                 f"· 影响产物: {_c.get('impact', '未知')}")
     if _c.get("suppress_count"):
         _head += f"<br>· 本轮已抑制轮次: {_c['suppress_count']}"
-    return _head + "<br><br>" + str(body or "")
+    return _head + "<br><br>" + _body
 
 
 # ══ 持续 active 故障升级阶梯(B, 2026-10-22) ═════════════════════════════════════
