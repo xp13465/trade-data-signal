@@ -401,11 +401,25 @@ def test_a_registry_covers_five_classes_and_is_disjoint():
                                     "staticdata_backup_stale"},
         "R2 上传失败/超时": {"r2_upload_trigger_fail"},
         "D1 同步连续失败": {"d1_sync_fail"},
-        "unit 连续失败": {"failed_units_patrol", "cloud_unit_patrol_drift"},
+        "unit 连续失败": {"failed_units_patrol"},
     }
     for label, keys in five.items():
         _chk(keys & adr.STALL_KEYS == keys, f"{label} 未在 STALL_KEYS 登记: {keys - adr.STALL_KEYS}")
     _chk(not (adr.STALL_KEYS & adr.NON_STALL_KEYS), "两张登记表不得重叠")
+    _chk(not (adr.STALL_KEYS & adr.CONFIG_DRIFT_KEYS), "停摆表与配置漂移表不得重叠")
+    _chk(not (adr.NON_STALL_KEYS & adr.CONFIG_DRIFT_KEYS), "非停摆表与配置漂移表不得重叠")
+    # 2026-11-08: cloud_unit_patrol_drift / unit_registry_drift 改走「配置漂移」标题通道
+    # (标题写「配置漂移」不写「停摆」, 避免被理解成整站停机), 但仍共享独立直发 bypass 机制
+    _chk(adr.CONFIG_DRIFT_KEYS == {"cloud_unit_patrol_drift", "unit_registry_drift"},
+         f"配置漂移表应含且仅含两键: {adr.CONFIG_DRIFT_KEYS}")
+    _chk(adr.is_stall_key("cloud_unit_patrol_drift"), "配置漂移键必须仍走独立直发通道(critical 直发不变)")
+    _chk(adr.is_stall_key("unit_registry_drift"), "配置漂移键必须仍走独立直发通道(critical 直发不变)")
+    _chk(adr.stall_prefix_for("cloud_unit_patrol_drift") == adr.CONFIG_DRIFT_PREFIX,
+         "配置漂移键标题必须用【配置漂移】前缀(不叫停摆)")
+    _chk(adr.stall_prefix_for("unit_registry_drift") == adr.CONFIG_DRIFT_PREFIX,
+         "配置漂移键标题必须用【配置漂移】前缀(不叫停摆)")
+    _chk(adr.stall_prefix_for("deploy_consecutive_fail") == adr.STALL_PREFIX,
+         "停摆级键标题仍用【停摆】前缀(不回退)")
     _chk(adr.is_stall_key("deploy_consecutive_fail"), "deploy 连续失败必须仍为停摆级(不回退)")
     _chk(adr.is_stall_key("stall|consecutive_fail"), "monitor 合成键应识别为停摆")
     _chk(not adr.is_stall_key("r2_consistency_fail"), "三站一致性语义未收口, 不得误升停摆")
@@ -538,8 +552,9 @@ def test_a_omission_guard_all_producer_keys_classified():
     # 的 `--dedup-key self_heal_repeat_fail_<task>`): 已登记动态前缀的一律按动态键处理。
     unclassified = {k for k in found
                     if k not in adr.STALL_KEYS and k not in adr.NON_STALL_KEYS
+                    and k not in adr.CONFIG_DRIFT_KEYS
                     and not any(k.startswith(x) for x in dynamic_prefixes)}
-    _chk(not unclassified, f"未登记的新 dedup key(必须判停摆/非停摆): {sorted(unclassified)}")
+    _chk(not unclassified, f"未登记的新 dedup key(必须判停摆/非停摆/配置漂移): {sorted(unclassified)}")
     for pre in dynamic:
         _chk(any(pre.startswith(x) for x in dynamic_prefixes),
              f"动态键前缀 {pre!r} 未在防遗漏白名单登记")
@@ -581,7 +596,15 @@ def test_a_stall_bypasses_budget_and_domain_and_2h_dedup(iso):
         _chk(len(calls) == before + 3, f"{key} 应发出 3 次渠道调用")
         subj = calls[before]["subject"]
         body = calls[before]["body"]
-        _chk(subj.startswith(adr.STALL_PREFIX), f"{key} 标题缺停摆前缀: {subj}")
+        # 2026-11-08: cloud_unit_patrol_drift 改走【配置漂移】标题, 其余仍【停摆】;
+        # 两者共享 bypass + 三字段正文 + 2h 去重, 仅前缀不同
+        _chk(subj.startswith(adr.stall_prefix_for(key)),
+             f"{key} 标题缺独立直发前缀({adr.stall_prefix_for(key)}): {subj}")
+        if key in adr.CONFIG_DRIFT_KEYS:
+            _chk(subj.startswith(adr.CONFIG_DRIFT_PREFIX) and not subj.startswith(adr.STALL_PREFIX),
+                 f"{key} 配置漂移键标题必须用【配置漂移】不得用【停摆】: {subj}")
+        else:
+            _chk(subj.startswith(adr.STALL_PREFIX), f"{key} 标题缺停摆前缀: {subj}")
         _chk("首次发生" in body and "连续失败" in body and "影响产物" in body,
              f"{key} 正文缺三字段: {body[:200]}")
         # 第二次(2h 内同键)只 suppress, 不再外发

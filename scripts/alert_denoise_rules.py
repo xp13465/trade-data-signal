@@ -1515,20 +1515,42 @@ STALL_KEYS = frozenset({
     "d1_sync_fail",
     # ⑤ unit 连续失败(同一 unit/集合 >=N 轮)
     "failed_units_patrol",
-    "cloud_unit_patrol_drift",
     # R2 锁等待/工作预算 vs 外层 TimeoutStartSec 梯度倒置(2026-10-31 常态化, L55):
-    # 与 cloud_unit_patrol_drift 同族的基础设施配置漂移 —— 倒置意味着任务会被外层先杀、
-    # 自身看门狗/告警来不及收尾, 持续不放会把整条上传链变成"随机超时", 判停摆级。
+    # 倒置意味着任务会被外层先杀、自身看门狗/告警来不及收尾, 持续不放会把整条上传链
+    # 变成"随机超时" ⇒ 属**运维链路停摆**(会拖垮整条上传链), 保留停摆级标题。
+    # (与其同源的 cloud_unit_patrol_drift / unit_registry_drift 已移出本表, 改走
+    #  下方 CONFIG_DRIFT_KEYS「配置漂移」标题通道——二者是登记表/快照与真实侧的集合
+    #  不一致, 不拖垮链路, 仅标题换写「配置漂移」避免被理解成整站停机; 直发机制不变。)
     "r2_lock_gradient_drift",
-    # UNIT_REGISTRY vs 真实 unit 集合漂移(2026-10-31 #309/#310 收尾 A, cloud_unit_patrol ③段):
-    # 登记表多=已销账未删 / 真实侧多=新增 timer 漏进监控(#310 同类根因)—— 监控盲区可藏停摆,
-    # 与 cloud_unit_patrol_drift 同族, 判停摆级。rc=3 装载失败(导入/解析异常)独立 key:
+    # UNIT_REGISTRY 漂移机检自身装载失败(rc=3, 导入/解析异常)独立 key:
     # checker 自身崩溃 ⇒ 漂移检测失明, 同属监控基础设施停摆。
-    "unit_registry_drift",
     "unit_registry_load_fail",
     # ③段 else 分支: checker 非预期退出(rc=1 Python 崩溃 / rc=127 脚本缺失 / 其他未知非零,
     # 2026-11-01 reviewer 低分项补丁)—— 监控自身崩溃 ⇒ 漂移检测失明, 同属监控基础设施停摆。
     "unit_registry_unexpected",
+})
+
+
+# ══ 配置漂移级告警独立通道(2026-11-08) ════════════════════════════════════════════
+# 依据: 11-08 08:27 云上「【停摆】UNIT_REGISTRY 与真实 systemd unit 漂移」告警, 根因是
+#   新增 trade-ops-monitor.service/timer 未同步进快照/UNIT_REGISTRY(配置漂移), 但标题叫
+#   「停摆」过宽(实际是配置漂移, 不是整站停机)。用户要求: 标题明确写「配置漂移」,
+#   保留 critical 直发(及时通知不变), 不关巡检、不泛化豁免新增 trade-*。
+# 口径: 配置漂移级 = 「监控/基础设施的登记表/快照与真实侧集合不一致」(不拖垮链路);
+#   与停摆级**共享独立直发机制**(永不进域摘要、不受日预算限制, 保留同键 2h 去重),
+#   仅标题前缀不同(写「配置漂移」不写「停摆」), critical 直发及时性不变。
+#   checker 自身崩溃(unit_registry_load_fail / unit_registry_unexpected)仍留停摆级
+#   —— 那是漂移检测失明(监控基础设施停摆), 不是集合不一致, 不并入本表。
+#   is_stall_key()/stall_canonical_key() 把本表键也判为直发通道(共享 bypass 机制),
+#   stall_prefix_for() 按 key 选「配置漂移」/「停摆」前缀。
+CONFIG_DRIFT_DEDUP_WINDOW = 7200              # 与停摆级同窗(2h, 报告 §7.3 时限)
+CONFIG_DRIFT_PREFIX = "【配置漂移】"           # 外发标题醒目前缀(邮件/飞书/telegram 同一 subject)
+CONFIG_DRIFT_KEYS = frozenset({
+    # cloud_unit_patrol.sh ①段: 云上 unit 清单与仓库快照漂移(预期服务缺失/多出, 巡检基线失真)
+    "cloud_unit_patrol_drift",
+    # cloud_unit_patrol.sh ③段 rc=2: UNIT_REGISTRY 与真实 unit 集合漂移
+    # (登记表多=已销账未删 / 真实侧多=新增 timer 漏进监控)—— 监控盲区可藏停摆, critical 直发不变
+    "unit_registry_drift",
 })
 
 # 非停摆级键登记表(防遗漏机制: 测试扫描 scripts/ 全部 --dedup-key 字面量, 必须二者其一)。
@@ -1600,13 +1622,29 @@ _STATICDATA_STALL_RE = re.compile(r"staticdata.*停摆")
 
 
 def is_stall_key(key) -> bool:
-    """dedup key 是否停摆级(精确登记表 + monitor 批次行合成键 `stall|...`)。
+    """dedup key 是否走独立直发通道(停摆级 + 配置漂移级共享 bypass 机制)。
+
+    停摆级与配置漂移级共享「绕过预算/域聚合 + 2h 去重直发」机制, 仅标题前缀不同
+    (stall_prefix_for() 按 key 选「停摆」/「配置漂移」)。
 
     不做前缀泛猜(防把普通 deploy_* 误升);唯一例外是 stall_line_key() 自己合成的
     `stall|...` 键 —— 它只可能由停摆行产生, 前缀即身份。
     """
     _k = str(key or "")
-    return _k in STALL_KEYS or _k.startswith("stall|")
+    return _k in STALL_KEYS or _k in CONFIG_DRIFT_KEYS or _k.startswith("stall|")
+
+
+def stall_prefix_for(key) -> str:
+    """独立直发通道的标题前缀: 配置漂移级写「配置漂移」, 其余停摆级写「停摆」。
+
+    两者共享 bypass 机制(is_stall_key/stall_canonical_key 判定), 仅标题前缀不同
+    (2026-11-08: cloud_unit_patrol_drift / unit_registry_drift 由停摆标题改配置漂移标题,
+     critical 直发及时性不变;详见 CONFIG_DRIFT_KEYS 注释)。
+    """
+    _k = str(key or "")
+    if _k in CONFIG_DRIFT_KEYS:
+        return CONFIG_DRIFT_PREFIX
+    return STALL_PREFIX
 
 
 def stall_dedup_window(caller_window=None) -> int:
@@ -1651,7 +1689,7 @@ def stall_line_key(line):
         return "staticdata_backup_stale"
     for _marker, _canon in STALL_LINE_MARKERS:
         if _marker in _t:
-            if _canon in STALL_KEYS:
+            if _canon in STALL_KEYS or _canon in CONFIG_DRIFT_KEYS:
                 return _canon
             _h = hashlib.sha1(re.sub(r"\d+", "#", _t).encode("utf-8")).hexdigest()[:12]
             return f"{_canon}|{_h}"
@@ -1682,7 +1720,7 @@ def stall_state_key(line) -> str | None:
 def stall_canonical_key(key, subject=None) -> str | None:
     """统一判定: dedup key 命中登记表, 或主题命中停摆族(无 key 的旧调用路径)。"""
     _k = str(key or "")
-    if _k in STALL_KEYS or _k.startswith("stall|"):
+    if _k in STALL_KEYS or _k in CONFIG_DRIFT_KEYS or _k.startswith("stall|"):
         return _k
     # ⚠️ #282 审查 MF2(2026-10-22): 升级提醒(`active_escalate|...`)必须走自己的键族与去重窗,
     #   绝不能被下面的 subject 兜底改写成「被升级故障」的停摆键 —— 否则

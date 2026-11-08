@@ -1424,10 +1424,10 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
             return {"email": False, "telegram": False, "feishu": False,
                     "suppressed": True, "stall": True}
         _sctx = adr.stall_context(_stall_key, REPO)
-        subject = adr.STALL_PREFIX + subject
+        subject = adr.stall_prefix_for(_stall_key) + subject
         body = adr.format_stall_body(body, _sctx)
-        print(f"[notify][stall] 停摆级直发(绕过预算/域聚合) key={_stall_key} "
-              f"首现={_sctx.get('first_seen')} 连续={_sctx.get('consecutive')}",
+        print(f"[notify][stall] 独立直发(绕过预算/域聚合, 前缀={adr.stall_prefix_for(_stall_key)!r}) "
+              f"key={_stall_key} 首现={_sctx.get('first_seen')} 连续={_sctx.get('consecutive')}",
               file=sys.stderr)
     # ── 批次3-B(2026-10-28): 恢复留痕「改为并入摘要」而非即时直发 ─────────────
     # 口径: 恢复类 = 闭环信号, 但现网每天 ~11 条各自一封邮件+飞书, 信息价值低于打扰成本
