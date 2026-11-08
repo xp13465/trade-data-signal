@@ -10,7 +10,7 @@
 2. **可定位的应用缺口**：`scripts/ops_monitor.py` 的 `request_http` socket5s，`network_bounded` 上传总预算8s，`run_once` 默认20s、只调用一次网络投递；`worker/ops.js` 的 ingest catch 和总 catch 把异常压成通用503，诊断丢失。旧行为真实故障注入红测：503→200在首次503退出；服务端提交后丢回执退出；真实5s socket timeout 在5.075s退出。
 3. **修复机制可达**：修改前已有真实 SQLite 和 Miniflare D1 验证同 ID/同哈希幂等、冲突409、事务/INSERT触发器约束（`monitor-mechanism-before.log`、`monitor-d1-before.log`）。修改后继续以同一 handler、全部迁移、真实 SQLite/本地D1验证，未放宽幂等。
 
-**已证实并修复的是单次失败没有恢复机会，以及存储异常安全诊断断点。历史间歇性网络/D1的底层原因仍 unknown；没有证据声称平台故障已根治。** 实时 tail 尚未提供对应失败事件，不把连接成功当根因证据。
+**已证实并修复的是单次失败没有恢复机会，以及存储异常安全诊断断点。四次历史间歇性上传失败的底层原因仍未全部定位，没有证据声称平台故障已根治。** 后续真实 tail 于 04:00 定位另一条自然 cron 为 D1 每日写额度耗尽，同轮 ingest 200；该原文已用于独立分类/单次 POST/exit2 与 cron 仍失败的验收，不能外推成四次历史失败的统一原因。
 
 ## 候选实现
 
@@ -66,6 +66,6 @@ node --test ops/monitoring/tests/worker*.test.mjs
 
 没有部署，故没有生产修复验收；main不包含本候选改动。未来部署应先由Claude审核Worker类别与采集器重试的配套性，再观察真实失败率、上传时长和安全分类元数据；不把自然成功或单次分类当底层根治。
 
-`ops/monitoring/contract.md:14`仍有历史“single-attempt delivery ... unchanged”说明，文件不在本次授权写scope；父最终合并时须同步这一处说明。本文件记录本候选实际行为。pending-features-index已定点检查，无ops_monitor/ops/monitoring同模块待实施项；父已明确独占范围。复用现有stdlib、多进程预算、handler/D1事务，不加新依赖或通用重试框架。
+整合分支已同步 `ops/monitoring/contract.md` 与 `ops/monitoring/DEPLOY.md` 的投递次数、预算和模式说明；历史报告保持原状。pending-features-index已定点检查，无ops_monitor/ops/monitoring同模块待实施项；父已明确独占范围。复用现有stdlib、多进程预算、handler/D1事务，不加新依赖或通用重试框架。
 
 参考当前官方文档：[D1调试与幂等重试](https://developers.cloudflare.com/d1/observability/debug-d1/)、[D1数据库方法与原子batch](https://developers.cloudflare.com/d1/worker-api/d1-database/)、[Workers最佳实践](https://developers.cloudflare.com/workers/best-practices/workers-best-practices/)。D1写操作没有自动重试，客户端重试安全性来自本项目ID+内容哈希事务；本地测试不能证明生产间歇故障的来源。

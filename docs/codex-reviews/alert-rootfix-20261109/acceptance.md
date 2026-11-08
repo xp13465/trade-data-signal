@@ -42,4 +42,20 @@ D1 独立小样中，非索引变化的单行业务写成本为 score **3→1**�
 6. 备份按现有日/周节奏产生本轮来源 receipt，核对象签名 metadata、恢复 hash/integrity/关键计数、健康库失败隔离和 parent 的 local/upload/verify RC。verifier 只读 GET/HEAD，不能自动补传。旧 standalone 缺证明应为 unknown/失败，不能沿用旧 PASS 预期。
 7. 04:21 只读 `df/stat`：云盘可用约 16.54GB，四个 DB 主文件合计约 3.77GB（其中 public_fund 约 3.07GB）。这只是当前容量快照，不是空间预留；GB 级耗时、WAL 增长与并行占盘未做恢复基准。执行前复核实际余量，沿用新预检，不能自动清历史备份腾空间。
 
-若上线后异常，按本轮固定提交逐项回退代码；不能撤销业务历史或清掉原故障证据。具体独立审查、整体验证末行和正式 handoff 由最终报告索引提供。
+若上线后异常，按本轮固定提交逐项回退代码；不能撤销业务历史或清掉原故障证据。
+
+## 实际验证记录与版本边界
+
+六组业务源码已分别通过独立复验，返修发现的 P2 均在原分支处理，原报告保留。源码集成点为 `80e61e714508dfeac6db5ce67eeaf6f4bf4027fd`；后续归档提交只改文档。最终交接 packet 另固定推送分支的完整 head。逐文件源码 hash、独立报告 hash、父整合检查及保留的旧报告见 [verification-summary.json](verification-summary.json)，完整转交文本见 [handoff.md](handoff.md)。
+
+| 检查 | 实际结果 | 范围 |
+|---|---|---|
+| 完整脚本＋运维组合，集成点 `46fbc8f79` | `1 failed, 3937 passed, 3 skipped, 1 deselected, 116 subtests passed in 578.29s` | 唯一失败是测试用 env 是否存在推断源码版本；相同安全源码的默认/env 输出逐字节相等，已用固定安全/legacy 源正反控证明是测试假设错误 |
+| 最终备份增量整合复验 | `195 passed in 51.16s` | 两处 HTTPException 异常族补齐后，真实截断响应、健康库继续、来源证明及原保护 |
+| 最终 nextday＋原始日志生产者组合 | `170 passed, 11 subtests passed in 2.18s` | 默认实际整合源码；测试假设修正、固定 legacy 负控、干跑/缺价/轮次歧义与真实边界 |
+| Worker | 80 passed / 0 failed / 0 skipped | 真实 SQLite/本地 Miniflare D1；与最终整合的 Worker 及已测消费者逐字节一致 |
+| 本地端到端 smoke | 35 checks passed | 实际本地 Wrangler、D1、采集器 CLI、权限和定时任务；生产写/真实通知均为 0 |
+| 最终原始完整 lint、Worker types、catalog、知识库 | 全部 exit0 | 无 hook 绕过、无依赖/部署配置变更；知识库未解析引用 0、秘密命中 0 |
+| lsof 本机文件句柄环境分区 | 沙箱内失败；相同测试沙箱外 `1 passed in 0.14s` | macOS 外网隔离沙箱限制进程观察，故完整组合明确 deselect 此一个用例；不是业务测试忽略 |
+
+没有重跑最终全量，也不把这些相互重叠的数字相加成一个通过数。**这是原完整运行＋后续受影响范围复验，不是“一次最终全量全绿”。** 最后两次增量未改策略、notify、巡检、proof/schema/调度；仅补两处实际网络异常族及纠正测试源码选择。新的 schema/writer/诊断/其它同步源码与各自独立审查版本一致，独立测试修正检查单独记录。

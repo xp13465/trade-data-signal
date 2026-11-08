@@ -1,0 +1,333 @@
+{
+  "schema": 1,
+  "integration_source_head": "80e61e714508dfeac6db5ce67eeaf6f4bf4027fd",
+  "branch": "codex/reviewer",
+  "business_base": "8118feef3bbfdfdcde70e169e950749d3e5a408a",
+  "groups": [
+    {
+      "group": "monitor",
+      "reviewed_head": "32dc4e9ace2c4a22cdd51f77d5c5b580ff2a179d",
+      "strict_acceptance": "PASS",
+      "unresolved_P1_P2": 0,
+      "report": "monitor-independent-review.json",
+      "report_sha256": "bfdba1149c959da337504610220ae3571d7caa89ef9b3ad98db9311bd1e87162",
+      "production_sources": {
+        "scripts/ops_monitor.py": "027c340911754b50db45b0e0f4a3974a91b9057936e07339c93a9f90b631418d",
+        "worker/ops.js": "6285abf9de8a32f9ab117a58c41eaa95b8b02424f35ccebb4bc46e4c1cb73ce0"
+      }
+    },
+    {
+      "group": "d1",
+      "reviewed_head": "2162e539fed9fc82cbce74cc40cdb665b3b6dc59",
+      "strict_acceptance": "PASS",
+      "unresolved_P1_P2": 0,
+      "report": "d1-independent-review.json",
+      "report_sha256": "fd235bf13fe59599ac2ae23d33bb390daaf7b6eaedc6c6e01ceae1baeec79cbb",
+      "production_sources": {
+        "scripts/sync_fund_score_to_d1.sh": "03ee7204a0eb1fcb6c7721c6ff7913514877cabbe612fde1bb3b952522583885",
+        "scripts/sync_fund_screener_to_d1.sh": "4aa16b0acd4666c3cf50b917d122923fa962f70e2c428c967b40fcc27aeed3f1"
+      }
+    },
+    {
+      "group": "nextday",
+      "reviewed_head": "75f8dad573d75c694cf7965ef6f6e515a36d9ae0",
+      "strict_acceptance": "PASS",
+      "unresolved_P1_P2": 0,
+      "report": "nextday-independent-r2.json",
+      "report_sha256": "6233e0cc1e86226f8cf0ca841395db6b5f9e397078d09df5c76fd6afdad71300",
+      "production_sources": {
+        "scripts/gen_schedule_stats.py": "81718710f1daf45fd7e66b0da900a77dc510df0c00c02214df41c9047e1f2bd3",
+        "scripts/nextday_gap_check.py": "ecd299c98a9358cb3b8811d7f3b86726980ca4d94abe8bcd4e428e36391f20bd"
+      }
+    },
+    {
+      "group": "freeze",
+      "reviewed_head": "da84ef8c7ef987e4c06c9f5ce488ad7ac3fb781e",
+      "strict_acceptance": "PASS",
+      "unresolved_P1_P2": 0,
+      "report": "freeze-independent-r1.json",
+      "report_sha256": "8f58bd206eaded72ab53f5db3790b8c1e42f88c465cdab80e4709252dd74d326",
+      "production_sources": {
+        "app/collector/intraday_snapshot.py": "d18ae19e29d20f0ba3d57b3c1ea58a6d250bff393c3bb4a6a71a6cb9d9fb25ce",
+        "app/db.py": "4ebb87c41223cb4b93936ad7a9dc43b82dc12d5885f4dbe5a705cefd50daff22",
+        "scripts/signal_kelly_backtest.py": "03fa6de1f756ddb75920a83e9de4f69c5d85c19b65b510f2ce4f0afa1c468b54",
+        "scripts/check_data_gap_alerts.py": "29be5db40ab9b4fdee2bdbc8a5ac8dc45073ca4a4fbff72e3f347481f8be4338",
+        "scripts/diagnose_alert_freeze_writer_20261109.py": "689a0c4f64e858b39e4600242dab0771a2756ed98c3b14676771da190e3b40e2"
+      }
+    },
+    {
+      "group": "stall",
+      "reviewed_head": "a4d38c95de0f93ece584fbafb5c6461698c8f954",
+      "strict_acceptance": "PASS",
+      "unresolved_P1_P2": 0,
+      "report": "stall-independent-r1.json",
+      "report_sha256": "b4b4d44b275e3017151f57f5dfb3707db54b9af0993ccd24c21abce9dea28bbf",
+      "production_sources": {
+        "scripts/alert_denoise_rules.py": "5f1e2b06727b1c50334daf069e39f59ed885111010380ea71521a653d8b69405",
+        "scripts/check_failed_units.py": "b996e10733fb0549a3c2e460df97f147a69cca0c2090a41250af763e18cfb431"
+      }
+    },
+    {
+      "group": "backup",
+      "reviewed_head": "10e34d5756783bb2b8ca951688c2a8a1a905aa8c",
+      "strict_acceptance": "PASS",
+      "unresolved_P1_P2": 0,
+      "report": "backup-independent-r2.json",
+      "report_sha256": "7719cf6da0b6ff1fb49b9998a9c34ff9a7b3c1c43015c5740c24280623f1c756",
+      "production_sources": {
+        "scripts/upload_r2.py": "d735d622329fa8154f0e1de1c44f86391c8cb4a45077d5328b60f23addb2673b",
+        "scripts/backup_source_proof.py": "60a0d65c00349071f29e01f9ade6cc263a4b3f33cfd4f134c9667c0fb96a0afc",
+        "scripts/backup_db.sh": "1602fc4925fe9b7a1de57bff6180cb5be0515637ce6b9331cd7b7c2767a65e10",
+        "scripts/verify_backup.sh": "bc0f76253762be5a8778d2e92eb0de12b318a93565eeb8cd805526a68699c3ad"
+      }
+    }
+  ],
+  "group_count": 6,
+  "production_deployed": false,
+  "main_modified_by_codex": false,
+  "original_audit": {
+    "report": "final-audit.json",
+    "sha256": "05a57ac489f0906281b6fc4578249986414dca8f277cb0940d1f01a27aa2e1a0",
+    "coverage": {
+      "gmail_platform_full_plaintext_messages": 9,
+      "distinct_d1_quota_windows": 7,
+      "cloud_operational_send_records": 102,
+      "cloud_body_coverage": {
+        "full_original_html_available": 1,
+        "normalized_untruncated_retained_text": 47,
+        "normalized_truncated_retained_excerpt": 17,
+        "no_email_body_retained_or_recovered": 37,
+        "related_status_log_context_count": 35,
+        "full_raw_mime_available": 0,
+        "note": "非截断镜像文本不是原始MIME/HTML；64条镜像只读到了实际保留内容，不能宣称完整阅读102封正文。"
+      },
+      "qq_receipt_confirmation": false,
+      "provider_delivery_confirmation": false,
+      "warning": "102为应用记录SMTP接受的相关发信，不是已取得QQ实收或全部完整正文。37条无历史正文，17条仅片段；原始MIME均未取得。范围内已枚举全部可检索记录，不声称完整读到所有邮件内容。",
+      "digest_messages": 7,
+      "digest_merged_entry_metadata": 125
+    }
+  },
+  "parent_checks": [
+    {
+      "check": "integrated-python",
+      "tested_head": "46fbc8f79c69074d2a166f9ef43753967f168e14",
+      "exit_code": 1,
+      "actual_last_line": "1 failed, 3937 passed, 3 skipped, 1 deselected, 116 subtests passed in 578.29s (0:09:38)",
+      "evidence": "integrated-python.json",
+      "evidence_sha256": "5cb8baaa39f2bbabc9e03c62e83a0216ab4b4b3916d9b2d86bb32cdc32fac3f1",
+      "log_sha256": "a7f6fff8dbcc3e6a13eac7ed39889a1cfa0d07c4002798951dccabbc0d7ef4d5"
+    },
+    {
+      "check": "integrated-worker",
+      "tested_head": "c32d2499642593d834f9878b7c32ca96fb4ab46d",
+      "exit_code": 0,
+      "actual_last_line": "ℹ duration_ms 17980.497792",
+      "evidence": "integrated-worker.json",
+      "evidence_sha256": "ebf00bd8179028d18e78d4301750042389f024a09e0619c44c77cd19ba1baed8",
+      "log_sha256": "42f4b2552d305fedae068328ce32296116983b71d505173664061d27b8083bf2"
+    },
+    {
+      "check": "integrated-local-smoke",
+      "tested_head": "c32d2499642593d834f9878b7c32ca96fb4ab46d",
+      "exit_code": 0,
+      "actual_last_line": "35 checks passed; production_writes=0; real_notifications=0",
+      "evidence": "integrated-local-smoke.json",
+      "evidence_sha256": "d2cc78574aef6ebd4dbf42b1c65882849bedaa7a99f24d9cfd0d3c99d17648e3",
+      "log_sha256": "d4f362bffaaace01bb272aa80795f0268759c1dd3451a93f4be76dae970705cd"
+    },
+    {
+      "check": "integrated-lint",
+      "tested_head": "46fbc8f79c69074d2a166f9ef43753967f168e14",
+      "exit_code": 0,
+      "actual_last_line": "=== lint 全通过 ===",
+      "evidence": "integrated-lint.json",
+      "evidence_sha256": "94bbf0fc2cae80139016b30d8032c8c69f9c75a25b8a725596260f9cbf6f9058",
+      "log_sha256": "2c46607d33bc6b68a753c6b69c393f0e2a14a02275718c0ce356a4e03c2066c4"
+    },
+    {
+      "check": "integrated-types",
+      "tested_head": "46fbc8f79c69074d2a166f9ef43753967f168e14",
+      "exit_code": 0,
+      "actual_last_line": "",
+      "evidence": "integrated-types.json",
+      "evidence_sha256": "e88ab415d81da969750ecb5f2bbe4d522f3823166cb58bfaf4439c3fd9feb08e",
+      "log_sha256": "aefccffedaf4a6a0b22732020e06cc20d94ac40f4ba2faeea3efb67a56352771"
+    },
+    {
+      "check": "integrated-catalog",
+      "tested_head": "46fbc8f79c69074d2a166f9ef43753967f168e14",
+      "exit_code": 0,
+      "actual_last_line": "{\"mode\": \"check\", \"source_inventories\": 9, \"source_records\": 373, \"catalog_ids\": 370, \"counts_by_kind\": {\"alert_rule\": 8, \"task\": 133, \"service\": 62, \"data\": 48, \"edge\": 52, \"external\": 5, \"host\": 2, \"incident\": 20, \"monitor\": 22, \"repository\": 3, \"surface\": 15}, \"reconciliation\": {\"declared_systemd_tasks\": 44, \"matched_names\": 44, \"calendar_comparison\": {\"same_literal\": 43, \"same_after_explicit_wildcard_normalization\": 1}, \"entrypoint_comparison\": {\"same_script_basename\": 44}, \"runtime_unmatched_count\": 8}, \"derived_files_different_before_run\": []}",
+      "evidence": "integrated-catalog.json",
+      "evidence_sha256": "2ecfd987583f1886909b891989e86ef1379b695f2a365dd5490a40d4b7fbf8e1",
+      "log_sha256": "2edbea1361778a28b9b9dee14c1d64882ffc2d0246ca1c79dd58e656519ca906"
+    },
+    {
+      "check": "integrated-knowledge",
+      "tested_head": "46fbc8f79c69074d2a166f9ef43753967f168e14",
+      "exit_code": 0,
+      "actual_last_line": "}",
+      "evidence": "integrated-knowledge.json",
+      "evidence_sha256": "e00b17c588d81920b72d0309149afe93a1670d48c40e31781c41edd9fed2048c",
+      "log_sha256": "e9e1f77b6e8bf0decb376a99f4095ae3a09cbd7b8de84a7c6b705e43233cfe8b"
+    },
+    {
+      "check": "integrated-backup-final",
+      "tested_head": "8674fb5abae2c843fef362e2739c127adb8f134c",
+      "exit_code": 0,
+      "actual_last_line": "195 passed in 51.16s",
+      "evidence": "integrated-backup-final.json",
+      "evidence_sha256": "8276c72e677a17798b169cbe6872e78ebcc0bf408c191769bb08363743417d33",
+      "log_sha256": "b3a8c82c90820a69744aac421ddee9f3eee3a4b64df6e6138dd2a5260e3f6eba"
+    },
+    {
+      "check": "integrated-nextday-final",
+      "tested_head": "80e61e714508dfeac6db5ce67eeaf6f4bf4027fd",
+      "exit_code": 0,
+      "actual_last_line": "170 passed, 11 subtests passed in 2.18s",
+      "evidence": "integrated-nextday-final.json",
+      "evidence_sha256": "cb3b5ce49d47480f23ad26b90ba3347c8b6887fac6c2a1a733fc92c196cafcfd",
+      "log_sha256": "8dfc4b7d8989c76d071c20fbeca2cb6979a85f4d7226d998e8a303eaee4c1540"
+    },
+    {
+      "check": "integrated-final-lint",
+      "tested_head": "80e61e714508dfeac6db5ce67eeaf6f4bf4027fd",
+      "exit_code": 0,
+      "actual_last_line": "=== lint 全通过 ===",
+      "evidence": "integrated-final-lint.json",
+      "evidence_sha256": "85f9cd84de1880f6d4ed65e0d87ffe492383349f385ddb83f69aa5de52bdfbd3",
+      "log_sha256": "2c46607d33bc6b68a753c6b69c393f0e2a14a02275718c0ce356a4e03c2066c4"
+    }
+  ],
+  "test_only_followup": {
+    "head": "2d28eabdc6bc131f6993923d589d621a657a98b2",
+    "report": "nextday-integration-followup.json",
+    "sha256": "31b4231200f71df386b882ca77e042eeb63bce5455c0427d3f5fab5ed9d8314d",
+    "changed_files": [
+      "docs/codex-reviews/alert-rootfix-20261109/nextday.md",
+      "scripts/tests/fixtures/nextday_fallback/pinned_primary_sources_8118_da84.json",
+      "scripts/tests/test_nextday_fallback_mode_boundaries_20261109.py"
+    ],
+    "independent_review": "nextday-independent-integration.json",
+    "independent_review_sha256": "cf824277581ebdf9542678396011f497d1e566d4d470158ebfc735681d1cea47"
+  },
+  "test_interpretation": "Original full invocation: 3937 pass/1 harness failure/3 skips/1 environment deselection/116 subtests. The test-only harness correction and two HTTPException source additions were verified separately. Not a single all-green final full invocation; do not sum overlapping test counts.",
+  "environment_partition": {
+    "scope": "macOS sandbox environment check, one existing read-only local lock probe test",
+    "test": "scripts/tests/test_r2_lock_c_b0_20261023.py::test_probe_lock_holder_sees_open_fd",
+    "sandbox_command_profile": "(version 1) (allow default) (deny network-outbound) (allow network-outbound (remote ip \"localhost:*\"))",
+    "inside_sandbox": {
+      "exit_code": 1,
+      "last_line": "1 failed in 0.31s",
+      "observed": "lsof holder description empty; assertion expected pid of held local fd"
+    },
+    "identical_test_outside_sandbox": {
+      "exit_code": 0,
+      "last_line": "1 passed in 0.14s",
+      "real_outbound": "none; local fd/lsof only"
+    },
+    "evidence_origin": "exact command results from parent exec cells aefbfc and 191b44, not a synthesized raw log",
+    "suite_plan": "deselect this one environment-incompatible test in external-network-denied combined suite; report separate execution, never call it one all-green invocation"
+  },
+  "superseded_reports": [
+    {
+      "report": "backup-independent-r1.json",
+      "sha256": "9f4a7acaf361b48061d1e4b1c9be897fbee2f826f914bd9224eeb93374524b02",
+      "verdict": "FAIL",
+      "issue_count": 1,
+      "accepted_for_release": false
+    },
+    {
+      "report": "backup-independent-review.json",
+      "sha256": "942b5a3a0451134ea8f7af77ab4286b98edb17d194fd1422bbde4f1da7c22504",
+      "verdict": "PASS",
+      "issue_count": 1,
+      "accepted_for_release": false
+    },
+    {
+      "report": "freeze-independent-review.json",
+      "sha256": "0d95a20e3a5fe1714f1c785eb81837e162f35752a6aeec4ce893af0386b49ba4",
+      "verdict": "PASS",
+      "issue_count": 1,
+      "accepted_for_release": false
+    },
+    {
+      "report": "nextday-independent-r1.json",
+      "sha256": "29f3ce6ad2656bfe2582e4ad95880c6f089e384e38c5fca2ba8c6d3d42128219",
+      "verdict": "FAIL",
+      "issue_count": 1,
+      "accepted_for_release": false
+    },
+    {
+      "report": "nextday-independent-review-v2.json",
+      "sha256": "ebd10d762ab846bd8ba1a1375c1094e108b219ffed6482d84b81138ce632ac53",
+      "verdict": "FAIL",
+      "issue_count": 2,
+      "accepted_for_release": false
+    },
+    {
+      "report": "nextday-independent-review.json",
+      "sha256": "d3160a0276665df7bb0fe661611efba2b27ee15c339d629827e3a2c68fde7ea8",
+      "verdict": "FAIL",
+      "issue_count": 2,
+      "accepted_for_release": false
+    },
+    {
+      "report": "stall-independent-review.json",
+      "sha256": "2a3ea838824f16bb059813ea31bba3743e190adecf0bc354d63218d927409b45",
+      "verdict": "PASS",
+      "issue_count": 1,
+      "accepted_for_release": false
+    }
+  ],
+  "source_continuity": "Reviewed source hashes match final integration; earlier Worker/smoke consumer files unchanged; primary producer AST unchanged; strategy/notify/patrol source unchanged.",
+  "production_observations": {
+    "cron": "04:00CST D1 daily write quota exception; same-round ingest200. Does not locate all four historical Timeout/503 failures.",
+    "r2": "02:20 batch ended02:35:29 rc0;03:41 three public core hashes match runtime; natural recovery, not deployed candidate.",
+    "capacity": {
+      "observed_at": "2026-11-08T20:21:37.360864+00:00",
+      "mode": "SSH read-only df/stat; no backup/upload/restore executed",
+      "filesystem_free_bytes": 16538816512,
+      "db_file_main_bytes": {
+        "sentiment": 235139072,
+        "etf_national_team": 260472832,
+        "stock_daily": 203055104,
+        "public_fund": 3068608512
+      },
+      "scope": "Main file sizes only; WAL/temp/parallel workload not benchmarked. Space presently exceeds twice combined main file bytes, but this is not a GB restoration performance result or a reservation."
+    }
+  },
+  "open_acceptance": {
+    "historical_freeze_repaired": 0,
+    "historical_freeze_missing": 136,
+    "retained_trade_keys_missing": 5,
+    "d1_account_full_UTC_day": "OPEN",
+    "turnover_next_natural_chain": "2026-11-09 21:10CST",
+    "issue373_missing_backups": "OPEN; do not replace Nov1/2 with current files",
+    "provider_NAV_NULL_and_index_stability": "UNKNOWN",
+    "overfit_and_metric_jump": "OPEN",
+    "missing_email_bodies": "37 absent;17 truncated; no QQ delivery confirmation"
+  },
+  "repository_push_boundary": {
+    "repo_workflow_production_push_branches": [
+      "main"
+    ],
+    "ops_checks_push": [
+      "main",
+      "codex/ops-*"
+    ],
+    "feature_branch": "codex/reviewer",
+    "feature_push_has_repo_production_deploy_trigger": false,
+    "native_cloudflare_builds_api": {
+      "http_status": 403,
+      "verified": false
+    },
+    "limits": "No deployment configuration changed; normal feature branch push only. Native Builds settings could not be read with existing token; cannot claim all native triggers audited. Linux CI not triggered solely by codex/reviewer push.",
+    "evidence_files": [
+      ".github/workflows/deploy-cf.yml",
+      ".github/workflows/deploy-pages.yml",
+      ".github/workflows/ops-monitoring-checks.yml"
+    ]
+  }
+}
