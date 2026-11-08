@@ -150,6 +150,15 @@ def _write_exec(path: Path, text: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+# Provenance contract changed on 2026-11-09: these legacy download-only fixtures
+# intentionally have no bound source proof. They must remain rc1/unknown even
+# when their old gate/count/freshness checks pass. Source-bound PASS and healthy
+# weekly SKIP are tested end-to-end in test_backup_source_proof_20261109.py.
+def _assert_only_unknown_failures(stdout):
+    failures = [line for line in stdout.splitlines() if "[✗FAIL" in line]
+    assert failures and all("unknown/not_verified" in line for line in failures), failures
+
+
 class Drill:
     """一套完整的测试沙箱：假 REPO + 替身 python + 假 date/sleep。"""
 
@@ -250,7 +259,7 @@ class Drill:
 def test_source_shape_declares_stock_daily_and_public_fund_drill():
     src = SCRIPT.read_text()
     # A1 stock_daily 走 download-db，且下载前有存在性预判（#338）
-    assert "download-db stock_daily" in src
+    assert "download_one stock_daily" in src
     assert "r2_latest_backup_date stock_daily" in src
     # 无 key 不许永久静默：过首备日仍无 key ⇒ FAIL（日期闸，TODAY 由 date 注入，不写死今天）
     assert '"$TODAY" -ge 20261030' in src
@@ -277,16 +286,17 @@ def test_source_shape_declares_stock_daily_and_public_fund_drill():
 
 
 # ---------------------------------------------------------------- 2. stock_daily SKIP
-def test_stock_daily_absent_skips_without_severe(tmp_path):
+def test_stock_daily_absent_skips_but_unbound_source_is_unknown(tmp_path):
     drill = Drill(tmp_path)
     drill.set_list_keys("stock_daily", [])          # R2 上零对象（2026-10-28 现实状态）
     # 冻结到首备日之前（L51：不许靠"跑的那天恰好还没到阈值"才绿，否则 10-30 起定红）
     r = drill.run(dow=3, extra_env={"STUB_TODAY": BEFORE_FIRST_BACKUP})  # 非周日：public_fund 也 SKIP
-    assert r.returncode == 0, f"SKIP 不该失败: rc={r.returncode}\n{r.stdout}\n{r.stderr}"
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout, f"无来源必须 unknown，SKIP 独立保留: rc={r.returncode}\n{r.stdout}\n{r.stderr}"
+    _assert_only_unknown_failures(r.stdout)
     assert "SKIP(尚无 stock_daily 备份)" in r.stdout
     assert "跳过" in r.stdout and "stock_daily=" in r.stdout
     assert "✗ 下载失败" not in r.stdout
-    assert drill.notified == "", f"设计内 SKIP 不许告警，实际发了:\n{drill.notified}"
+    assert "unknown/not_verified" in drill.notified, f"应告警缺来源而非 SKIP:\n{drill.notified}"
 
 
 # ---------------------------------------------------------------- 3. 空间不足 SKIP + severe
@@ -316,7 +326,8 @@ def test_stock_daily_date_gate_is_not_today_hardcoded(tmp_path):
     drill = Drill(tmp_path)                       # 默认各库都有 key
     tomorrow = (drill.base_date + datetime.timedelta(days=1)).strftime("%Y%m%d")
     r = drill.run(dow=3, extra_env={"STUB_TODAY": tomorrow})
-    assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout, f"{r.stdout}\n{r.stderr}"
+    _assert_only_unknown_failures(r.stdout)
     assert "FAIL(无 stock_daily 备份" not in r.stdout
     assert "stock_daily: 最新备份" in r.stdout     # 新鲜度行仍参与且为 OK
 
@@ -324,7 +335,8 @@ def test_stock_daily_date_gate_is_not_today_hardcoded(tmp_path):
 def test_pf_space_insufficient_skips_and_notifies_severe(tmp_path):
     drill = Drill(tmp_path)
     r = drill.run(dow=7, mode="1", min_kb=str(10 ** 12))   # 门限 1e12KiB：必然"空间不足"
-    assert r.returncode == 0, f"空间不足是 SKIP 不是 FAIL: rc={r.returncode}\n{r.stdout}\n{r.stderr}"
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout, f"空间不足为 SKIP，但缺来源应 unknown: rc={r.returncode}\n{r.stdout}\n{r.stderr}"
+    _assert_only_unknown_failures(r.stdout)
     assert "SKIP(空间不足" in r.stdout
     assert not drill.restore_called, "空间不足时不该启动大库还原"
     assert "--severe" in drill.notified, f"空间不足必须发 severe（安全网被关）:\n{drill.notified}"
@@ -334,7 +346,8 @@ def test_invalid_min_kb_falls_back_to_default(tmp_path):
     """非数字门限会让 [ -lt ] 报错后判 false ⇒ 门开(fail-open)。必须显式回落默认值。"""
     drill = Drill(tmp_path)
     r = drill.run(dow=7, mode="1", min_kb="abc")
-    assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout, f"{r.stdout}\n{r.stderr}"
+    _assert_only_unknown_failures(r.stdout)
     assert "VERIFY_PUBLIC_FUND_MIN_KB='abc' 非法(需整数 KiB)，回落默认 4718592" in r.stderr
     assert drill.restore_called, "回落默认值后应按空间正常放行（不是直接关掉演练）"
 
@@ -343,15 +356,17 @@ def test_invalid_min_kb_falls_back_to_default(tmp_path):
 def test_sunday_gate_enters_drill(tmp_path):
     drill = Drill(tmp_path)
     r = drill.run(dow=7, mode="auto")
-    assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout, f"{r.stdout}\n{r.stderr}"
+    _assert_only_unknown_failures(r.stdout)
     assert drill.restore_called, "周日(auto)必须进入 public_fund 演练"
     assert "已覆盖: sentiment,etf_national_team,stock_daily,public_fund" in r.stdout
 
 
-def test_non_sunday_gate_skips_drill(tmp_path):
+def test_non_sunday_gate_skips_drill_but_unbound_is_unknown(tmp_path):
     drill = Drill(tmp_path)
     r = drill.run(dow=5, mode="auto")
-    assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout, f"{r.stdout}\n{r.stderr}"
+    _assert_only_unknown_failures(r.stdout)
     assert not drill.restore_called, "非周日(auto)不许拉起 2.76GiB 大库还原"
     assert "SKIP(周频未到:非周日)" in r.stdout
     assert "public_fund=SKIP(周频未到:非周日)" in r.stdout
@@ -360,7 +375,8 @@ def test_non_sunday_gate_skips_drill(tmp_path):
 def test_public_fund_gate_can_be_disabled(tmp_path):
     drill = Drill(tmp_path)
     r = drill.run(dow=7, mode="0")
-    assert r.returncode == 0
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout
+    _assert_only_unknown_failures(r.stdout)
     assert not drill.restore_called
     assert "SKIP(已关闭 VERIFY_PUBLIC_FUND=0)" in r.stdout
 
@@ -380,7 +396,7 @@ def test_rowcount_backup_gt_local_fails(tmp_path):
     drill.set_rows("stock_daily", backup=120)        # 备份 > 本地 = 本地丢数据
     r = drill.run(dow=3)
     assert r.returncode == 1, f"{r.stdout}\n{r.stderr}"
-    assert "✗FAIL 本地丢数据" in r.stdout
+    assert "✗FAIL 跨时点行数减少，待审计核对" in r.stdout
     assert "--severe" in drill.notified
 
 
@@ -393,21 +409,23 @@ def test_public_fund_below_ratio_fails(tmp_path):
     assert "--severe" in drill.notified
 
 
-def test_public_fund_within_ratio_passes(tmp_path):
+def test_public_fund_within_ratio_without_proof_is_unknown(tmp_path):
     drill = Drill(tmp_path)
     drill.set_rows("public_fund", backup=96)         # 96 ≥ 100×0.95 ⇒ 日增容忍范围内通过
     r = drill.run(dow=7, mode="1")
-    assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
-    assert "✗FAIL" not in r.stdout
-    assert drill.notified == ""
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout, f"{r.stdout}\n{r.stderr}"
+    _assert_only_unknown_failures(r.stdout)
+    assert "unknown/not_verified" in r.stdout
+    assert "unknown/not_verified" in drill.notified
 
 
-def test_public_fund_ratio_boundary_exactly_095_passes(tmp_path):
+def test_public_fund_ratio_boundary_without_proof_is_unknown(tmp_path):
     drill = Drill(tmp_path)
     drill.set_rows("public_fund", backup=95)         # 恰好 95% ⇒ 不 <本地×0.95 ⇒ 通过
     r = drill.run(dow=7, mode="1")
-    assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
-    assert "✗FAIL" not in r.stdout
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout, f"{r.stdout}\n{r.stderr}"
+    _assert_only_unknown_failures(r.stdout)
+    assert "unknown/not_verified" in r.stdout
 
 
 def test_restore_failure_is_fail_with_severe(tmp_path):
@@ -420,11 +438,12 @@ def test_restore_failure_is_fail_with_severe(tmp_path):
 
 
 # ------------------------------------------------- 5d. 台账 ↔ HEAD 长度对账（断言④）
-def test_ledger_head_length_matches_passes(tmp_path):
+def test_ledger_head_length_matches_without_proof_is_unknown(tmp_path):
     drill = Drill(tmp_path)
     drill.set_ledger(date=drill.today, gz_size=123456)
     r = drill.run(dow=7, mode="1", extra_env={"STUB_HEAD_LEN": "123456"})
-    assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout, f"{r.stdout}\n{r.stderr}"
+    _assert_only_unknown_failures(r.stdout)
     assert "台账 HEAD 对账: OK(" in r.stdout
     assert "长度 123456 == 台账 gz_size" in r.stdout
 
@@ -444,7 +463,8 @@ def test_ledger_date_mismatch_skips_and_names_it(tmp_path):
     old = (drill.base_date - datetime.timedelta(days=1)).strftime("%Y%m%d")
     drill.set_ledger(date=old, gz_size=123456)
     r = drill.run(dow=7, mode="1", extra_env={"STUB_HEAD_LEN": "123456"})
-    assert r.returncode == 0, f"前提不成立是 SKIP 不是 FAIL: rc={r.returncode}\n{r.stdout}\n{r.stderr}"
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout, f"台账日期不一致为 SKIP，但缺来源应 unknown: rc={r.returncode}\n{r.stdout}\n{r.stderr}"
+    _assert_only_unknown_failures(r.stdout)
     assert f"SKIP(台账日期 {old} != 最新 key 日期 {drill.today})" in r.stdout
     assert f"public_fund_ledger=SKIP(台账日期 {old}" in r.stdout   # 结论行点名，不留假绿
 
@@ -459,7 +479,7 @@ def test_ledger_head_http_error_fails(tmp_path):
 
 
 # ---------------------------------------------------------------- 6. 三态结论行
-def test_conclusion_names_skips_and_keeps_verify_ok(tmp_path):
+def test_conclusion_names_skips_and_unbound_source_unknown(tmp_path):
     drill = Drill(tmp_path)
     drill.set_list_keys("stock_daily", [])
     # 本用例要的是「stock_daily 无 key ⇒ SKIP」这一态，而该态只在首备日之前成立；
@@ -468,7 +488,7 @@ def test_conclusion_names_skips_and_keeps_verify_ok(tmp_path):
     r = drill.run(dow=3, extra_env={"STUB_TODAY": BEFORE_FIRST_BACKUP})
     lines = r.stdout.splitlines()
     ok_lines = [ln for ln in lines if ln.startswith("VERIFY_OK=")]
-    assert ok_lines == ["VERIFY_OK=1"], f"SKIP 不该把 VERIFY_OK 置 0: {ok_lines}\n{r.stdout}"
+    assert ok_lines == ["VERIFY_OK=0"] and "unknown/not_verified" in r.stdout, f"缺来源应置 VERIFY_OK=0，SKIP 项独立: {ok_lines}\n{r.stdout}"
     concl = [ln for ln in r.stdout.splitlines() if "=== 结论" in ln]
     assert len(concl) == 1, r.stdout
     assert "跳过: " in concl[0], f"结论行必须点名跳过项(防 L49 假绿): {concl[0]}"
@@ -489,7 +509,7 @@ def test_stale_backup_date_fails(tmp_path):
     assert "--severe" in drill.notified
 
 
-def test_freshness_day_shift_still_green(tmp_path):
+def test_freshness_day_shift_valid_but_unbound_unknown(tmp_path):
     """隔天仍绿（L51）：把"运行日"推到明天、备份仍停在今天（落后 1 天）⇒ 必须 PASS。
 
     证明新鲜度门与整条链路不依赖"今天"这个字面量：明天跑同一份昨天的备份不会假红。
@@ -497,9 +517,10 @@ def test_freshness_day_shift_still_green(tmp_path):
     drill = Drill(tmp_path)
     tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y%m%d")
     r = drill.run(dow=3, extra_env={"STUB_TODAY": tomorrow})
-    assert r.returncode == 0, f"隔天跑昨天的备份不该红: rc={r.returncode}\n{r.stdout}\n{r.stderr}"
-    assert "✗FAIL" not in r.stdout, r.stdout
-    assert drill.notified == ""
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout, f"新鲜度应通过，缺来源仍 unknown: rc={r.returncode}\n{r.stdout}\n{r.stderr}"
+    _assert_only_unknown_failures(r.stdout)
+    assert "unknown/not_verified" in r.stdout, r.stdout
+    assert "unknown/not_verified" in drill.notified
     # 反向对照：再老一天（落后 2 天）必须 FAIL，证边界不是恒绿
     drill2 = Drill(tmp_path / "d2")
     r2 = drill2.run(dow=3, extra_env={
@@ -534,10 +555,8 @@ def test_mutation_without_presence_check_turns_case2_red(tmp_path):
     drill = Drill(tmp_path / "run")
     drill.set_list_keys("stock_daily", [])
     r = drill.run(dow=3, script=mut)
-    # 原始用例断言（rc==0 且不告警）在变异版本上必然不成立
-    assert not (r.returncode == 0 and drill.notified == ""), (
-        "变异版本居然仍满足用例 2 ⇒ 该用例没有判别力")
-    assert r.returncode != 0 or drill.notified.strip()
+    assert "SKIP(尚无 stock_daily 备份)" not in r.stdout
+    assert "stock_daily 下载失败" in r.stdout
 
 
 def test_mutation_space_gate_disabled_turns_case3_red(tmp_path):
@@ -566,8 +585,8 @@ def test_mutation_stock_gate_removed_turns_deadline_case_red(tmp_path):
     drill = Drill(tmp_path / "run")
     drill.set_list_keys("stock_daily", [])
     r = drill.run(dow=3, script=mut, extra_env={"STUB_TODAY": FIRST_BACKUP_DEADLINE})
-    assert not (r.returncode == 1 and "--severe" in drill.notified), (
-        "变异后过首备日仍判失败 ⇒ 该用例没有判别力")
+    assert "FAIL(无 stock_daily 备份,已过首备日)" not in r.stdout
+    assert "SKIP(尚无 stock_daily 备份)" in r.stdout
 
 
 def test_mutation_stock_gate_inverted_turns_before_case_red(tmp_path):
@@ -581,17 +600,18 @@ def test_mutation_stock_gate_inverted_turns_before_case_red(tmp_path):
     drill = Drill(tmp_path / "run")
     drill.set_list_keys("stock_daily", [])
     r = drill.run(dow=3, script=mut, extra_env={"STUB_TODAY": BEFORE_FIRST_BACKUP})
-    assert r.returncode != 0 or drill.notified.strip(), (
-        "变异后首备日前也应绿 ⇒ 该用例没有判别力")
+    assert "FAIL(无 stock_daily 备份,已过首备日)" in r.stdout
+    assert "SKIP(尚无 stock_daily 备份)" not in r.stdout
 
 
 def test_no_real_network_or_notify_by_construction(tmp_path):
     """沙箱自证：全程只碰临时目录里的替身，真 notify / R2 / restore 一次都没跑。"""
     drill = Drill(tmp_path)
     r = drill.run(dow=7, mode="1")
-    assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
+    assert r.returncode == 1 and "unknown/not_verified" in r.stdout, f"{r.stdout}\n{r.stderr}"
+    _assert_only_unknown_failures(r.stdout)
     assert "STUB: 未识别的调用" not in r.stderr
     assert "resolve_repo: REPO=%s" % drill.repo in r.stderr
     # 替身 python 若未被拦截，会因找不到真实 upload_r2.py 逻辑而报 STUB 未识别
     assert drill.restore_called
-    assert drill.notified == ""
+    assert "unknown/not_verified" in drill.notified

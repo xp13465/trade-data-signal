@@ -104,10 +104,22 @@ echo "当前备份数：${N}（${BACKUP_DIR}）" | tee -a "$LOG"
 # 失败不影响本地备份退出码（RC 保持本地备份结果），但独立发 notify --severe 告警
 # (#313, 2026-11-01：对照 verify_backup 内部告警, upload-db 失败不再静默只 echo)。
 # BACKUP_NOTIFY_DRY_RUN=1 时 --dry-run(验证用,不真发邮件, L48 打桩纪律)。
+# Per-run selector is unrelated to the earlier local hot backups.
+BACKUP_RUN_ID=$("$PY" -c 'import uuid; print(uuid.uuid4().hex)')
+BACKUP_SOURCE_PROOF="$LOGDIR/r2-db-source-${BACKUP_RUN_ID}.json"
+# Keep the existing weekly/explicit drill schedule in the caller. No new job.
+REQUIRE_PUBLIC_FUND_SOURCE=0
+if [ "${VERIFY_BACKUP_SKIP:-0}" != "1" ]; then
+  case "${VERIFY_PUBLIC_FUND:-auto}" in
+    0) ;;
+    1) REQUIRE_PUBLIC_FUND_SOURCE=1 ;;
+    *) [ "$(date +%u)" = "7" ] && REQUIRE_PUBLIC_FUND_SOURCE=1 ;;
+  esac
+fi
 R2_RC=0
 if [ -f "$REPO/scripts/upload_r2.py" ]; then
   echo "-> 推 R2 异地备份 ..." | tee -a "$LOG"
-  env R2_UPLOAD_LOCK_DOMAIN=backup_db R2_UPLOAD_LOCK_TIMEOUT=9000 "$PY" "$REPO/scripts/upload_r2.py" upload-db >> "$LOG" 2>&1 || R2_RC=$?
+  env R2_DB_BACKUP_REQUIRE_PUBLIC_FUND="$REQUIRE_PUBLIC_FUND_SOURCE" R2_DB_BACKUP_RUN_ID="$BACKUP_RUN_ID" R2_DB_BACKUP_PROOF="$BACKUP_SOURCE_PROOF" R2_UPLOAD_LOCK_DOMAIN=backup_db R2_UPLOAD_LOCK_TIMEOUT=9000 "$PY" "$REPO/scripts/upload_r2.py" upload-db >> "$LOG" 2>&1 || R2_RC=$?
   if [ "$R2_RC" -ne 0 ]; then
     echo "⚠ R2 上传失败(不影响本地备份) rc=$R2_RC" | tee -a "$LOG"
     if [ -f "$REPO/scripts/notify.py" ]; then
@@ -134,8 +146,10 @@ fi
 # verify 确保 R2 备份真能恢复，消除"备份不可用"隐患。
 if [ "${VERIFY_BACKUP_SKIP:-0}" != "1" ] && [ -f "$REPO/scripts/verify_backup.sh" ]; then
   echo "-> R2 备份恢复演练(verify_backup.sh) ..." | tee -a "$LOG"
-  bash "$REPO/scripts/verify_backup.sh" >> "$LOG" 2>&1 \
-    || echo "⚠ verify_backup 失败(不影响本地备份,verify已发告警) rc=$?" | tee -a "$LOG"
+  VERIFY_RC=0
+  env VERIFY_BACKUP_RUN_ID="$BACKUP_RUN_ID" VERIFY_BACKUP_SOURCE_PROOF="$BACKUP_SOURCE_PROOF" \
+    bash "$REPO/scripts/verify_backup.sh" >> "$LOG" 2>&1 || VERIFY_RC=$?
+  echo "备份结果 local_rc=$RC upload_rc=$R2_RC verify_rc=$VERIFY_RC run=$BACKUP_RUN_ID" | tee -a "$LOG"
 else
   echo "跳过 verify_backup(VERIFY_BACKUP_SKIP=1 或脚本不存在)" | tee -a "$LOG"
 fi
