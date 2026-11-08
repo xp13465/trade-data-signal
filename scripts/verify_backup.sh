@@ -25,7 +25,8 @@
 #
 # 全程只读，不动真实 data/*.db；临时目录(含 public_fund 演练输出)用完 trap 清理。
 #
-# 用法：bash scripts/verify_backup.sh
+# 用法：VERIFY_BACKUP_RUN_ID=<run> VERIFY_BACKUP_SOURCE_PROOF=<receipt.json> bash scripts/verify_backup.sh
+# 无显式来源证明 = unknown/not_verified + rc1，不能仅凭最新对象/实时行数判 PASS。
 # 环境变量：
 #   VERIFY_NOTIFY_DRY_RUN=1        notify.py --dry-run（验证用，不真发邮件）
 #   VERIFY_PUBLIC_FUND=auto|1|0    public_fund 周频演练门控（默认 auto=仅周日；1=强制；0=关）
@@ -164,22 +165,39 @@ PYEOF
 # 下载函数:成功返回 0,失败返回 1;设全局 SENT_BACKUP/ETF_BACKUP/STOCK_BACKUP。
 # upload_r2.py 内已 5 次指数退避重试(覆盖~15s),这里再加一层 60s 延迟兜底
 # 长抖动(如 R2 SSLEOFError 持续 30s+ 才恢复,upload_r2.py 内 5 次重试不够覆盖)。
+# Explicit run/source selector: bound restores use the exact key, not latest.
+download_one() {
+  local name="$1" out_dir="$2"
+  if [ -n "${VERIFY_BACKUP_SOURCE_PROOF:-}${VERIFY_BACKUP_RUN_ID:-}" ]; then
+    "$PY" "$GIT_REPO/scripts/backup_source_proof.py" --name "$name" --out-dir "$out_dir"
+  else
+    "$PY" "$REPO/scripts/upload_r2.py" download-db "$name" "$out_dir"
+  fi
+}
+
 download_backups() {
   SENT_BACKUP=""
   ETF_BACKUP=""
   STOCK_BACKUP=""
   STOCK_STATUS=""
+  DOWNLOAD_FAILURES=""
   local rc=0 st
-  if ! SENT_BACKUP=$("$PY" "$REPO/scripts/upload_r2.py" download-db sentiment "$TMPDIR" 2>>"$LOG"); then
+  if ! SENT_BACKUP=$(download_one sentiment "$TMPDIR" 2>>"$LOG"); then
     echo "✗ sentiment 下载失败" | tee -a "$LOG"
+    DOWNLOAD_FAILURES="sentiment=FAIL(下载/来源证明失败)"
     rc=1
   fi
-  if ! ETF_BACKUP=$("$PY" "$REPO/scripts/upload_r2.py" download-db etf_national_team "$TMPDIR" 2>>"$LOG"); then
+  if ! ETF_BACKUP=$(download_one etf_national_team "$TMPDIR" 2>>"$LOG"); then
     echo "✗ etf_national_team 下载失败" | tee -a "$LOG"
+    DOWNLOAD_FAILURES="${DOWNLOAD_FAILURES:+$DOWNLOAD_FAILURES;}etf_national_team=FAIL(下载/来源证明失败)"
     rc=1
   fi
   # stock_daily（#338）：先判存在性 ⇒ SKIP 是设计内过渡态（不告警不 FAIL）
-  st=$(r2_latest_backup_date stock_daily)
+  if [ -n "${VERIFY_BACKUP_SOURCE_PROOF:-}${VERIFY_BACKUP_RUN_ID:-}" ]; then
+    st="BOUND"  # helper validates source/key; no LIST-based fallback to another run
+  else
+    st=$(r2_latest_backup_date stock_daily)
+  fi
   case "$st" in
     ERR)
       echo "✗ stock_daily R2 LIST 失败(无法判定是否有备份)" | tee -a "$LOG"
@@ -207,9 +225,10 @@ download_backups() {
       fi
       ;;
     *)
-      if ! STOCK_BACKUP=$("$PY" "$REPO/scripts/upload_r2.py" download-db stock_daily "$TMPDIR" 2>>"$LOG"); then
+      if ! STOCK_BACKUP=$(download_one stock_daily "$TMPDIR" 2>>"$LOG"); then
         echo "✗ stock_daily 下载失败（R2 上有 key(date=$st) 但 GET 失败）" | tee -a "$LOG"
         STOCK_BACKUP=""
+        STOCK_STATUS="FAIL(下载/来源证明失败)"
         rc=1
       fi
       ;;
@@ -230,7 +249,7 @@ if [ "$DL_RC" -ne 0 ]; then
   DL_RC=$?
 fi
 
-# 第2次仍失败:无法演练,告警退出(不跑 integrity/行数)
+# 第2次仍失败:本轮告警；绑定模式继续其它库，旧无来源模式仍立即退出
 if [ "$DL_RC" -ne 0 ]; then
   RC=1
   echo "=== 下载失败(60s 重试后仍失败),无法完成演练 ===" | tee -a "$LOG"
@@ -238,11 +257,18 @@ if [ "$DL_RC" -ne 0 ]; then
   DRY_FLAG=""
   [ "${VERIFY_NOTIFY_DRY_RUN:-0}" = "1" ] && DRY_FLAG="--dry-run"
   BODY="R2 备份下载失败(60s 重试后仍失败),无法完成恢复演练。<br>时间：$NOW_STR<br>日志：$LOG<br>请排查 R2 凭证/网络/signal-backup 桶。"
+  if [ -n "${VERIFY_BACKUP_SOURCE_PROOF:-}${VERIFY_BACKUP_RUN_ID:-}" ]; then
+    BODY="R2 本轮备份下载或同源身份校验失败(重试后仍失败)，无法证明恢复成功。<br>时间：$NOW_STR<br>日志：$LOG<br>请核对来源凭据、run、对象覆盖/哈希及网络；具体失败见日志。"
+  fi
   [ -f "$REPO/scripts/notify.py" ] && \
     "$PY" "$REPO/scripts/notify.py" "[告警] verify_backup R2下载失败 $(date '+%m-%d %H:%M')" "$BODY" --severe \
       --from-prefix "[告警]" \
       --alert-issue "verify_backup.sh R2下载失败(无法演练恢复)" --alert-log "$LOG" $DRY_FLAG 2>&1 | tee -a "$LOG" || true
-  exit 1
+  if [ -n "${VERIFY_BACKUP_SOURCE_PROOF:-}${VERIFY_BACKUP_RUN_ID:-}" ]; then
+    echo "-> 本轮仍失败；继续验证其它库各自的来源证明" | tee -a "$LOG"
+  else
+    exit 1
+  fi
 fi
 
 # ---- 1b. public_fund 周频大库演练（#324；默认仅周日，避免每周 7 次拉 2.76GiB）----
@@ -291,9 +317,15 @@ run_public_fund_drill() {
   mkdir -p "$PF_DIR" || { PF_STATUS="FAIL(建临时目录失败 $PF_DIR)"; echo "✗ public_fund: 建临时目录失败" | tee -a "$LOG"; return 1; }
   # 必须显式传 REPO/GIT_REPO：repo_paths.sh 只 assign 不 export(repo_paths.sh:34)，
   # restore 脚本 setdefault("REPO", <git仓>) 会指到 git 仓，而 .env 在 <REPO>/.env / <GIT_REPO>/.env。
-  out=$(REPO="$REPO" GIT_REPO="$GIT_REPO" "$PY" "$GIT_REPO/docs/scripts/restore_r2_db_backup.py" \
-        --name public_fund --out-dir "$PF_DIR" --threads 6 2>>"$LOG")
-  rc=$?
+  if [ -n "${VERIFY_BACKUP_SOURCE_PROOF:-}${VERIFY_BACKUP_RUN_ID:-}" ]; then
+    out=$(download_one public_fund "$PF_DIR" 2>>"$LOG")
+    rc=$?
+    [ "$rc" -eq 0 ] && out=$(printf 'RESTORE PASS\n%s\n' "$out")
+  else
+    out=$(REPO="$REPO" GIT_REPO="$GIT_REPO" "$PY" "$GIT_REPO/docs/scripts/restore_r2_db_backup.py" \
+          --name public_fund --out-dir "$PF_DIR" --threads 6 2>>"$LOG")
+    rc=$?
+  fi
   if [ -f "$PF_DIR/result.json" ]; then
     cp "$PF_DIR/result.json" "$LOGDIR/verify_backup_pf_result_${STAMP}.json" 2>/dev/null \
       && echo "  public_fund result.json 落档: $LOGDIR/verify_backup_pf_result_${STAMP}.json" | tee -a "$LOG"
@@ -309,6 +341,11 @@ run_public_fund_drill() {
     echo "✗ public_fund: restore 未产出 .db" | tee -a "$LOG"
     PF_BACKUP=""
     return 1
+  fi
+  if [ -n "${VERIFY_BACKUP_SOURCE_PROOF:-}${VERIFY_BACKUP_RUN_ID:-}" ]; then
+    # The helper verified signed metadata + gzip/raw hashes + integrity/counts.
+    PF_STATUS="OK"
+    return 0
   fi
   # ---- 台账 ↔ R2 HEAD 长度对账（#324 断言④）----
   # 依据 upload_r2.py:3304-3310：public_fund 上传成功且源库未被写入时写台账
@@ -381,7 +418,7 @@ echo "  stock_daily:       ${STOCK_BACKUP:-${STOCK_STATUS:-未执行}}" | tee -a
 echo "  public_fund:       ${PF_BACKUP:-${PF_STATUS:-未执行}}" | tee -a "$LOG"
 
 # 跳过/失败的库（结论行必须点名，防 L49 假绿：只写"全 ok"而实际漏验）
-SKIP_NOTES=""
+SKIP_NOTES="${DOWNLOAD_FAILURES:-}"
 [ -n "${STOCK_STATUS:-}" ] && SKIP_NOTES="${SKIP_NOTES:+$SKIP_NOTES;}stock_daily=${STOCK_STATUS}"
 [ -n "${PF_STATUS:-}" ] && [ "$PF_STATUS" != "OK" ] && SKIP_NOTES="${SKIP_NOTES:+$SKIP_NOTES;}public_fund=${PF_STATUS}"
 case "${LEDGER_STATUS:-}" in
@@ -391,9 +428,10 @@ esac
 # ---- 2-5. integrity_check + 新鲜度 + 行数对比（python 一次完成，只读 mode=ro）----
 # 参数(6 个)：备份sent 备份etf 备份stock 备份pf 本地库目录 data/ 跳过项说明(name=STATUS;...)
 # 输出：报告到 stdout，首行 VERIFY_OK=0/1 供 bash 解析
-VERIFY_REPORT=$(VERIFY_TODAY="$TODAY" "$PY" - "$SENT_BACKUP" "$ETF_BACKUP" "$STOCK_BACKUP" "$PF_BACKUP" "$DBDIR" "$SKIP_NOTES" 2>>"$LOG" <<'PYEOF'
+VERIFY_REPORT=$(VERIFY_SOURCE_MODULE="$GIT_REPO/scripts" VERIFY_TODAY="$TODAY" "$PY" - "$SENT_BACKUP" "$ETF_BACKUP" "$STOCK_BACKUP" "$PF_BACKUP" "$DBDIR" "$SKIP_NOTES" 2>>"$LOG" <<'PYEOF'
 import datetime
 import html
+import json
 import os
 import re
 import sqlite3
@@ -452,6 +490,40 @@ overall_ok = 1 if CHECKS else 0
 if not CHECKS:
     lines.append("=== 未取得任何库的备份做校验（全部 SKIP/失败）===")
 
+# An individually verified object never promotes a partial run to overall PASS.
+if os.environ.get("VERIFY_BACKUP_SOURCE_PROOF"):
+    try:
+        receipt = json.load(open(os.environ["VERIFY_BACKUP_SOURCE_PROOF"]))
+        if receipt.get("complete") is not True:
+            raise ValueError("本轮上传未全部完成 (receipt.complete=false)")
+    except Exception as exc:
+        overall_ok = 0
+        lines.append(f"  upload-run: {exc} [✗FAIL unknown/not_verified]")
+
+# A local receipt or a successful integrity_check alone cannot establish origin.
+source_bound = {}
+live_drift = []
+lines.append("=== 同源上传快照证明 ===")
+for name, bdb, _ldb, _tables, _ratio in CHECKS:
+    try:
+        proof = os.environ.get("VERIFY_BACKUP_SOURCE_PROOF")
+        run = os.environ.get("VERIFY_BACKUP_RUN_ID")
+        if not proof or not run:
+            raise ValueError("unknown/not_verified: 缺少本轮来源证明")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("verify_source_proof", os.path.join(os.environ["VERIFY_SOURCE_MODULE"], "backup_source_proof.py"))
+        source_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(source_module)
+        # Bucket authority was checked by the downloader against configured R2.
+        marker = json.load(open(bdb + ".source-verified.json"))
+        source_module.verified_entry(bdb, proof, run, name, marker["bucket"])
+        source_bound[name] = True
+        lines.append(f"  {name}: run={run} source identity + SHA256 + counts [OK]")
+    except Exception as exc:
+        source_bound[name] = False
+        overall_ok = 0
+        lines.append(f"  {name}: {exc} [✗FAIL unknown/not_verified]")
+
 # --- integrity_check ---
 lines.append("=== integrity_check（完整性）===")
 for name, bdb, _ldb, _tables, _ratio in CHECKS:
@@ -475,7 +547,7 @@ lines.append("")
 lines.append("=== 新鲜度（最新备份日期 >= 今天-1）===")
 fresh_seen = False
 for name, bdb, _ldb, _tables, _ratio in CHECKS:
-    if name not in FRESH_CHECKS:
+    if name not in FRESH_CHECKS and not source_bound.get(name):
         continue
     fresh_seen = True
     d = backup_date(bdb)
@@ -485,7 +557,7 @@ for name, bdb, _ldb, _tables, _ratio in CHECKS:
         continue
     lag = (datetime.datetime.strptime(TODAY, "%Y%m%d").date()
            - datetime.datetime.strptime(d, "%Y%m%d").date()).days
-    ok = lag <= 1
+    ok = 0 <= lag <= 1
     lines.append(f"  {name}: 最新备份 {d}（落后 {lag} 天）  [{'OK' if ok else '✗FAIL 备份过旧'}]")
     if not ok:
         overall_ok = 0
@@ -528,13 +600,24 @@ for name, bdb, ldb, tables, ratio in CHECKS:
                 lines.append(f"  {tbl:28s} 备份={bcnt}  本地表缺失  [✗FAIL]")
                 overall_ok = 0
                 continue
-            # 判断：备份=0且本地>0 -> 备份空/损坏；备份>本地 -> 本地丢数据；
-            #       public_fund 备份 < 本地×0.95 -> 备份过旧/被截断
-            if bcnt == 0 and lcnt > 0:
+            # Same-source recovery is independent of later signal recomputation.
+            # Missing/empty live tables remain failures; other tables retain checks.
+            if bcnt == 0:
                 lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [✗FAIL 备份空]")
                 overall_ok = 0
+            elif lcnt == 0:
+                lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [✗FAIL 本地关键表空]")
+                overall_ok = 0
+            elif name == "sentiment" and tbl == "signal_daily" and source_bound.get(name):
+                if bcnt != lcnt:
+                    drift = {"database": name, "table": tbl, "source_count": bcnt,
+                             "live_count": lcnt, "delta": lcnt - bcnt, "audit": "history_overwrite_audit"}
+                    live_drift.append(drift)
+                    lines.append(f"  {tbl:28s} 同源恢复={bcnt} 本地={lcnt} live_drift={lcnt-bcnt:+d} [待业务历史审计，非恢复失败]")
+                else:
+                    lines.append(f"  {tbl:28s} 同源恢复={bcnt} 本地={lcnt} [OK]")
             elif bcnt > lcnt:
-                lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [✗FAIL 本地丢数据]")
+                lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [✗FAIL 跨时点行数减少，待审计核对]")
                 overall_ok = 0
             elif ratio is not None and lcnt > 0 and bcnt < lcnt * ratio:
                 lines.append(f"  {tbl:28s} 备份={bcnt}  本地={lcnt}  [✗FAIL 备份过旧/被截断 <本地×{ratio:.2f}]")
@@ -564,7 +647,7 @@ covered = ",".join(c[0] for c in CHECKS) if CHECKS else "无"
 notes_joined = "; ".join(skip_notes)
 skip_txt = f"；跳过: {notes_joined}" if skip_notes else ""
 if overall_ok:
-    lines.append(f"=== 结论：✓ 通过（integrity 逐库 ok + 关键表行数正常；已覆盖: {covered}{skip_txt}）===")
+    lines.append(f"=== 结论：✓ 通过（同源恢复已验证 + integrity 逐库 ok + 关键表行数正常；已覆盖: {covered}{skip_txt}）===")
 else:
     lines.append(f"=== 结论：✗ 失败（见上方 FAIL 项；已覆盖: {covered}{skip_txt}）===")
 
@@ -585,6 +668,7 @@ if not overall_ok and not failure_details:
 print(f"VERIFY_OK={overall_ok}")
 # #342：机器行，供 bash 拼告警正文；无跳过/失败项时为空串（bash 侧据此不留空尾巴）
 print(f"VERIFY_SKIP_NOTES={notes_joined}")
+print("VERIFY_LIVE_DRIFT_JSON=" + json.dumps(live_drift, ensure_ascii=False))
 print("VERIFY_FAILURE_DETAILS_HTML=" + html.escape("; ".join(failure_details)))
 print("\n".join(lines))
 PYEOF
@@ -612,9 +696,10 @@ if [ "$VERIFY_OK" != "1" ] || [ "$PF_RC" -ne 0 ]; then
   # #342：点名真因（结论行同一串），免收件人只看到通用文案还得翻日志。
   # 为空=本次没有跳过/失败项 ⇒ 不追加，禁止留「失败/跳过项：」空尾巴。
   [ -n "${VERIFY_SKIP_NOTES:-}" ] && BODY="$BODY<br>失败/跳过项：$VERIFY_SKIP_NOTES"
-  BODY="$BODY<br>日志：$LOG<br>临时目录：${TMPDIR}（已清理）<br>请排查：备份是否损坏/本地是否丢数据/R2 上传是否正常。"
+  BODY="$BODY<br>日志：$LOG<br>临时目录：${TMPDIR}（已清理）<br>请排查：来源证明/对象身份/备份完整性/R2 上传；live_drift 另查 history_overwrite_audit，不据跨时点计数断言丢数据。"
+  # A download failure already used its original severe alert above; no duplicate.
   echo "-> 发送演练失败告警邮件 ..." | tee -a "$LOG"
-  [ -f "$REPO/scripts/notify.py" ] && \
+  [ "${DL_RC:-0}" -eq 0 ] && [ -f "$REPO/scripts/notify.py" ] && \
     "$PY" "$REPO/scripts/notify.py" "[告警] verify_backup 校验失败 $(date '+%m-%d %H:%M')" "$BODY" --severe \
       --from-prefix "[告警]" \
       --alert-issue "verify_backup.sh 恢复演练失败(integrity/行数异常)" --alert-log "$LOG" \

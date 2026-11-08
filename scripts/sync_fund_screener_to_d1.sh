@@ -486,11 +486,11 @@ schema_stmts = ["CREATE TABLE IF NOT EXISTS fund_screener (\n  " + ",\n  ".join(
 for idx, col in (("idx_fscr_composite", "composite_score"),
                  ("idx_fscr_type", "fund_type"),
                  ("idx_fscr_scale", "scale")):
-    schema_stmts.append(f"DROP INDEX IF EXISTS {idx};")
-    schema_stmts.append(f"CREATE INDEX {idx} ON fund_screener({col});")
+    # 稳定定义只补建缺失索引；定义变化须显式迁移，不随每轮数据同步重建。
+    schema_stmts.append(f"CREATE INDEX IF NOT EXISTS {idx} ON fund_screener({col});")
 schema_stmts.append("CREATE TABLE IF NOT EXISTS screener_meta (\n"
                     "  key TEXT PRIMARY KEY,\n  value TEXT\n);")
-schema = "\n".join(schema_stmts) + "\n"  # legacy 模式落盘用（与旧版逐字节一致）
+schema = "\n".join(schema_stmts) + "\n"  # legacy 共用同一份幂等 schema
 
 # ---------- 覆盖率统计（各字段非空行数; 前端逐条件标注 + 「另有 N 只因缺失被排除」底座） ----------
 coverage = {c: sum(1 for r in rows if r[c] is not None) for c in COLS if c != "fund_code"}
@@ -545,7 +545,15 @@ print(f"[sync-screener-python] diff: total={len(rows)} changed={len(changed)} "
 
 # SET 子句列(不含冲突键 fund_code, 含 row_hash)
 set_cols = [c for c in COLS if c != "fund_code"]
-conflict_clause = build_conflict_clause("fund_screener", set_cols, "fund_code")
+# 依据数据库当前键值分写；日期/年数/hash 初始化不 SET 未变索引列，NULL 安全。
+index_cols = ("composite_score", "fund_type", "scale")  # 与上方三个二级索引一致
+conflict_clause = build_conflict_clause("fund_screener", set_cols, "fund_code") + " WHERE " + " OR ".join(
+    f"fund_screener.{c} IS NOT excluded.{c}" for c in index_cols)
+nonindex_clause = build_conflict_clause(
+    "fund_screener", [c for c in set_cols if c not in index_cols], "fund_code"
+) + " WHERE " + " AND ".join(
+    [f"fund_screener.{c} IS excluded.{c}" for c in index_cols]
+    + ["fund_screener.row_hash IS NOT excluded.row_hash"])
 
 # 元数据（最后写, 供 worker 返回数据日期/行数/覆盖率）
 meta_items = (
@@ -572,6 +580,8 @@ if split_mode == "single":
         if write_rows:
             write_vals = ["(" + ", ".join(sql_lit(r[c]) for c in COLS) + ")" for r in write_rows]
             bundle.add_inserts(head, write_vals, conflict_clause=conflict_clause)
+            # 两条均为完整 INSERT；互补条件保证部分成功/重试不会只写新 hash 而留下旧字段。
+            bundle.add_inserts(head, write_vals, conflict_clause=nonindex_clause)
         else:
             print("[sync-screener-python] 增量空写: changed+new=0, 跳过 INSERT(只写 meta+removed)",
                   flush=True)
@@ -606,7 +616,7 @@ if split_mode == "single":
           f"upsert_rows={len(changed) + len(new_rows)} removed={len(removed_codes)} "
           f"incremental={int(INCREMENTAL)}", flush=True)
 else:
-    # legacy: 旧的多文件逐批模式（回退开关）, 产出与改动前逐字节一致
+    # legacy: 旧的多文件逐批模式（回退开关）, 保留全量替换语义
     (gen_dir / "000_schema.sql").write_text(schema, encoding="utf-8")
     files = []
     for i in range(0, len(rows), batch):

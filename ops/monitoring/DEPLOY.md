@@ -14,6 +14,17 @@
 
 契约见 [contract.md](contract.md)。当前路径可通过非敏感配置和 systemd drop-in 调整；不得用业务 `.env` 作为 collector EnvironmentFile。
 
+### Collector CLI 与配置示例
+
+| 模式 | 操作口径与退出码 |
+|---|---|
+| `--once` | 采集、验证一份快照；投递始终复用相同字节、相同 snapshot ID，在原有最多8秒上传总预算内最多3次尝试（含进程启动、退避；剩余预算不足时更少），不是每次另给8秒，也不重新采样。只有 `accepted=true` 且ID匹配才成功退出0；投递失败仍退出2，配置/采集错误仍非零。 |
+| `--collect-only` | 仅生成私有本地观察文件，零网络，包括不探测可选 publication HEAD；本地采集成功退出0，不代表投递成功。 |
+
+使用 [collector.example.json](collector.example.json) 或第5节的同形配置时，`total_timeout_seconds: 20` 是整轮默认预算，`command_timeout_seconds: 3` 是采集命令预算；上传共享最多8秒、最多3次尝试和单次 socket 最多5秒是内部上限，不新增配置键、不调大这些预算。两种模式互斥，均需 `--config <file>`；`--token-file <protected-file>` 仅覆盖令牌文件路径，不接收令牌值。
+
+重试仅覆盖超时、部分连接错误及HTTP502/503/504；HTTP400/401/403/409、错误回执/协议错误和已知配额、配置、约束或资源错误不重试。排查时保留非零退出及安全错误类别，未知历史503继续标unknown；这只是有界恢复机会与诊断，不代表网络/D1根因已确认或根治。完整边界见[采集器协议](contract.md#collector-cli-and-delivery)。
+
 ## 1.1 合并前置：先实装但不启动，再追加真实云快照
 
 **原实施交接时（历史记录，非当前快照状态）**，canonical文档/UNIT_REGISTRY已登记45项，但当时 `docs/deploy/systemd-units-cloud-snapshot.txt` 仍是44个service/44个timer。以下是首次追加流程；本次 systemd 249 兼容补修基底 `2514b9a30952b100e835f28f0eda335fbe369cf0` 已包含实际45对快照，改走第5.1节，不重复执行88段断言或追加service/timer。首次追加时的比较命令为：

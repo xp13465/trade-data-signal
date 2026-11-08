@@ -1,0 +1,5 @@
+{
+  "source": "r1-independent-evidence/r1-nested-close-then-new-start.log",
+  "sha256": "b8763dc91284c1ea65613535441d70341d084c7ce67f983ead1e2d0a98bfc746",
+  "log": "=== nextday_gap_check.sh 开始 2026-11-02 09:25:00 ===\nFATAL outer persistence failed\n=== nextday_gap_check.sh 开始 2026-11-02 09:25:10 ===\n=== nextday_gap_check.sh 结束 2026-11-02 09:25:20 退出码=0 ===\n=== nextday_gap_check.sh 开始 2026-11-02 09:26:00 ===\n[nextday_gap_check] 执行模式=live 执行日=20261102\n[nextday_gap_check] 执行日 20261102 计划内 ETF=1: ['513260']\n   [就绪闸] 主源 fund_etf_spot_em 失败(ConnectionError: 'independent upstream disconnected'), 全量走双源兜底\n[nextday_gap_check]   ✓ 513260 正常 open=0.904 sig_close=0.9 gap=0.44%\n[nextday_gap_check] 执行日 20261102 全部 1 笔无伪跳空, 无标记\n=== nextday_gap_check.sh 结束 2026-11-02 09:26:06 退出码=0 ===\n"
+}

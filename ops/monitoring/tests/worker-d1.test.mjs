@@ -85,5 +85,15 @@ test('actual local Miniflare D1: migration, atomic concurrency, watchdog, CAS an
     await scheduleAt(now + 32 * 86400000);
     assert.equal((await call('/state')).body.latest.snapshot_id, newer.snapshot_id);
     const backup = await call('/export'); assert.equal(backup.status, 200); assert.equal(backup.body.runs.length, 1);
+    // Real D1 exception/cause formatting must never leak SQL or injected text.
+    await db.prepare("CREATE TRIGGER ops_fixture_failure BEFORE INSERT ON ops_runs BEGIN SELECT RAISE(ABORT, 'Bearer injected-private /home/private'); END").run();
+    const originalLog = console.error; const safeLogs = []; console.error = value => safeLogs.push(value);
+    try {
+      const rejected = await call('/ingest', snapshot('critical', 0));
+      // RAISE(ABORT) is a real SQLITE_CONSTRAINT in D1, even with private text.
+      assert.equal(rejected.status, 503); assert.equal(rejected.body.error_kind, 'storage_constraint');
+      assert.ok(!JSON.stringify([rejected, safeLogs]).includes('injected-private'));
+      assert.equal(safeLogs[0].request_id, rejected.body.request_id);
+    } finally { console.error = originalLog; }
   } finally { await mf.dispose(); }
 });

@@ -19,8 +19,10 @@
 # 配对：开始后紧接的结束算一次运行；耗时>3h 视为错位丢弃。只匹配外层任务脚本名，
 # 内嵌的 deploy.sh/check_signals.sh 不计（避免嵌套干扰）。
 from __future__ import annotations
+import ast
 import gzip
 import json
+import math
 import os
 import re
 import subprocess
@@ -726,8 +728,128 @@ def _retry_self_healed(window_lines: list, idx: int) -> bool:
     return any(GAP_RETRY_SUCCESS_RE.search(line) for line in window_lines[idx + 1:])
 
 
+
+# 主源异常不等于就绪失败；只认生产者的确切降级行，不能泛化忽略 ConnectionError。
+NEXTDAY_END_RECORD_RE = re.compile(
+    r'=== (nextday_gap_check\.sh) 结束 ' + _TS + r'(?: 退出码=(\d+))? ===')
+NEXTDAY_PRIMARY_FALLBACK_RE = re.compile(
+    r'\s*\[就绪闸\] 主源 fund_etf_spot_em 失败\([A-Za-z_][\w.]*: .+\), 全量走双源兜底')
+NEXTDAY_PLAN_RE = re.compile(
+    r'\[nextday_gap_check\] 执行日 (\d{8}) 计划内 ETF=(\d+): (\[.*\])')
+NEXTDAY_PRICED_RE = re.compile(
+    r'\[nextday_gap_check\] +(?:✓ (\d+) 正常|✗ (\d+) 伪跳空剔除) '
+    r'open=(\S+) sig_close=(\S+) gap=\S+%')
+
+
+def _nextday_fallback_healed_lines(lines: list, start_idx: int, last_exit: int | None) -> set:
+    """返回本轮全部目标真价就绪后可降级的主源行索引；缺任一证据仍走原告警。
+
+    gap-check 的部分缺价路径也可能 exit0，因此须逐代码核齐有限正价，且结果晚于
+    最后一次主源降级。须有明确live模式，不从历史/干跑未标模式推断生产恢复。
+    核验原始start到EOF：首个伪END后的真实缺价/真END也必须可见。
+    """
+    window_lines = lines[start_idx:]
+    if last_exit != 0 or not window_lines:
+        return set()
+    start = START_RE.fullmatch(window_lines[0])
+    if not start or start.group(1) != "nextday_gap_check.sh" or not re.fullmatch(
+            r'=== nextday_gap_check\.sh 结束 ' + _TS + r' 退出码=0 ===', window_lines[-1]):
+        return set()
+    # 嵌套轮次/注入价/缺价都不足以证明本轮全部计划目标真实就绪。
+    if any(START_RE.fullmatch(line) or END_RE.match(line)
+           for line in window_lines[1:-1]) or any(
+            token in line for line in window_lines
+            for token in ("--test-open", "DRY-RUN", "开盘价未取得", "就绪闸 FAIL")):
+        return set()
+    degraded = {i for i, line in enumerate(window_lines)
+                if NEXTDAY_PRIMARY_FALLBACK_RE.fullmatch(line)}
+    plans = [(i, m) for i, line in enumerate(window_lines)
+             if (m := NEXTDAY_PLAN_RE.fullmatch(line))]
+    if not degraded or len(plans) != 1:
+        return set()
+    plan_idx, plan = plans[0]
+    day, count, raw_codes = plan.groups()
+    modes = [(i, line) for i, line in enumerate(window_lines)
+             if line.startswith("[nextday_gap_check] 执行模式=")]
+    if len(modes) != 1 or modes[0][0] >= plan_idx or modes[0][1] != (
+            f"[nextday_gap_check] 执行模式=live 执行日={day}"):
+        return set()
+    try:
+        codes = ast.literal_eval(raw_codes)
+    except (ValueError, SyntaxError):
+        return set()
+    if not isinstance(codes, list) or not codes or any(
+            not isinstance(code, str) or not re.fullmatch(r'\d{6}', code) for code in codes):
+        return set()
+    targets = set(codes)
+    if len(codes) != len(targets) or str(len(codes)) != count or plan_idx >= min(degraded):
+        return set()
+    ready = set()
+    excluded = False
+    completed = False
+    for line in window_lines[max(degraded) + 1:-1]:
+        priced = NEXTDAY_PRICED_RE.fullmatch(line)
+        if priced:
+            code = priced[1] or priced[2]
+            try:
+                prices = (float(priced[3]), float(priced[4]))
+            except ValueError:
+                return set()
+            if completed or code not in targets or code in ready or not all(
+                    math.isfinite(price) and price > 0 for price in prices):
+                return set()
+            ready.add(code)
+            excluded = excluded or bool(priced[2])
+        elif line == f"[nextday_gap_check] 执行日 {day} 全部 {count} 笔无伪跳空, 无标记":
+            if excluded or ready != targets:
+                return set()
+            completed = True
+        elif excluded and line.startswith("[nextday_gap_check] 落盘完成: "):
+            if ready != targets:
+                return set()
+            completed = True
+    return degraded if completed and ready == targets else set()
+
+
+def _nextday_run_start(lines: list, native: dict | None) -> int | None:
+    """日志只能证明配对深度；仅当前systemd唯一轮次可隔离未收尾的历史崩溃。"""
+    start_idx, depth, starts, ambiguous = None, 0, [], False
+    for i, line in enumerate(lines):
+        begin = START_RE.fullmatch(line)
+        if begin and begin[1] == "nextday_gap_check.sh":
+            starts.append((i, begin[2]))
+            # 同名嵌套后END归属无法认证；只有下面的native证明能隔离新轮次。
+            ambiguous = ambiguous or depth > 0
+            if depth == 0 and not ambiguous:
+                start_idx = i
+            depth += 1
+        elif NEXTDAY_END_RECORD_RE.fullmatch(line) and depth:
+            depth -= 1
+    if not native or not starts:
+        return start_idx
+    ns, ne = native.get("start"), native.get("exit")
+    if (native.get("source") != "systemd" or native.get("unit") != "trade-nextday-gap-check.service"
+            or native.get("load_state") != "loaded" or not native.get("invocation_id")
+            or native.get("code") != 0 or native.get("result") != "success"
+            or native.get("exec_code") != 1 or native.get("exec_status") != 0
+            or native.get("active_state") != "inactive"
+            or not isinstance(ns, datetime) or not isinstance(ne, datetime) or ns >= ne):
+        return start_idx
+    try:
+        candidates = [(i, datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")) for i, ts in starts]
+        candidates = [(i, ts) for i, ts in candidates if ns <= ts <= ne]
+        end = NEXTDAY_END_RECORD_RE.fullmatch(lines[-1])
+        # 多候选(包括同秒)/后续新start/缺真实end：不能把某个内层冒充新native轮次。
+        if (len(candidates) == 1 and candidates[0][0] == starts[-1][0] and end
+                and candidates[0][1] <= datetime.strptime(end[2], "%Y-%m-%d %H:%M:%S") <= ne):
+            return candidates[0][0]
+    except ValueError:
+        pass
+    return start_idx
+
+
 def scan_log_anomaly(log_path: Path, script: str, mode: str,
-                     last_exit: int | None = None) -> dict | None:
+                     last_exit: int | None = None, *, nextday_native: dict | None = None) -> dict | None:
     """扫描 log 文件最近一次运行窗口内的异常关键词(第4盲区修复)。
 
     根因场景: intraday_snapshot.py 的 _export_affected_json 抛 AttributeError 被
@@ -743,6 +865,8 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
         log_path: log 文件路径
         script: standard 模式的脚本名 regex(如 "intraday_snapshot.sh")
         mode: "standard" 或 "etf_nt"
+        nextday_native: 可选的本次systemd终态，仅nextday接受。唯一原生start/end可排除
+          旧崩溃；无native/多候选则按原始配对深度保留外层，不从日志猜重启。
         last_exit: 本轮最终退出码(None=进行中/读不到)。2026-08-24 push 冲突降噪用:
           push 失败类命中时仅 last_exit 非 0 才报——deploy.sh 内置 fetch+rebase+重试
           自愈后 exit=0,但成功标记文案随脚本演化漂移(PUSH_SUCCESS_RE 四个串不含
@@ -764,9 +888,13 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
     except Exception:
         return None, 0
 
-    # 找最后一个 start 行(standard 用 START_RE+fullmatch script, etf_nt 用 ETF_START_RE)
+    # nextday 边界必须是独立记录，异常正文中的同名字样不是wrapper。
+    nextday = mode == "standard" and re.fullmatch(script, "nextday_gap_check.sh") is not None
+    # nextday使用配对深度/可验证native轮次；其它任务保持最后start规则。
     last_start_idx = None
-    if mode == "etf_nt":
+    if nextday:
+        last_start_idx = _nextday_run_start(lines, nextday_native)
+    elif mode == "etf_nt":
         for i in range(len(lines) - 1, -1, -1):
             if ETF_START_RE.search(lines[i]):
                 last_start_idx = i
@@ -780,15 +908,14 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
     if last_start_idx is None:
         return None, 0  # log 里无 start 行,无法切窗口
 
-    # 找 start 后第一个 end 行(限定本次运行窗口,避免扫到下一轮 start 之间)
-    # 若无 end(进行中或被杀),扫到文件末尾
+    # nextday须保留原始尾部的全部歧义/真错误；其它任务仍扫至首end或EOF。
     end_idx = len(lines)
     if mode == "etf_nt":
         for i in range(last_start_idx + 1, len(lines)):
             if ETF_DONE_RE.search(lines[i]):
                 end_idx = i + 1
                 break
-    else:
+    elif not nextday:
         for i in range(last_start_idx + 1, len(lines)):
             m = END_RE.search(lines[i])
             if m and re.fullmatch(script, m.group(1)):
@@ -805,6 +932,8 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
     # P2-2(2026-09-24): SKIPPED_LOCKED 独立计数——skip=设计让路(锁忙下轮重试)不上 SEVERE,
     # 但命中次数需可观察(intraday 每轮都可能撞 deploy 锁, 连 skip 多轮=收盘版可能上不了 R2)。
     skip_count = sum(1 for _l in window_lines if "SKIPPED_LOCKED" in _l)
+    nextday_healed = (_nextday_fallback_healed_lines(lines, last_start_idx, last_exit)
+                      if mode == "standard" else set())
     has_push_success = any(PUSH_SUCCESS_RE.search(l) for l in window_lines)
     finalizer_ranges = _finalizer_noise_ranges(lines, last_start_idx, end_idx)
     # #240 ①(2026-10-09): 无 Finalize 锚行的 multiprocessing 基础设施 Traceback
@@ -814,6 +943,13 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
         # 优先扫非 push 失败类异常(Traceback/异常类名/FATAL):命中即报,不抑制
         m = ANOMALY_RE.search(lines[i])
         if m:
+            if i - last_start_idx in nextday_healed:
+                print(f"[nextday-fallback-self-heal] {log_path.name} 主源降级，"
+                      f"同轮全部计划目标真实价就绪且 exit0 收尾；保留原始降级日志，不报失败")
+                continue
+            # 主源异常正文含⚠/attempt也不是上传重试；未获正向生产证明不能借旧规则放行。
+            if nextday and lines[i].lstrip().startswith("[就绪闸] 主源 fund_etf_spot_em 失败("):
+                return {"keyword": m.group(0), "line": lines[i].strip()[:200]}, skip_count
             # Fix A(2026-09-23): multiprocessing finalizer 清理噪音块内命中不报
             # (进程正常退出的清理,偶然语气=异常实际非任务失败)
             if _in_finalizer_noise(finalizer_ranges, i):
@@ -1093,12 +1229,14 @@ def parse_standard_detail(path: Path, script: str):
        不消耗该 end(留给下一轮配对)。(旧 bug:被杀 start 偷下一轮 end 致配对错位)
     """
     starts, ends = [], []
+    nextday = re.fullmatch(script, "nextday_gap_check.sh") is not None
     for line in _iter_lines(path):
-        m = START_RE.search(line)
+        record = line.rstrip("\r\n") if nextday else line
+        m = START_RE.fullmatch(record) if nextday else START_RE.search(line)
         if m and re.fullmatch(script, m.group(1)):
             starts.append(datetime.strptime(m.group(2), "%Y-%m-%d %H:%M:%S"))
             continue
-        m = END_RE.search(line)
+        m = NEXTDAY_END_RECORD_RE.fullmatch(record) if nextday else END_RE.search(line)
         if m and re.fullmatch(script, m.group(1)):
             ts = datetime.strptime(m.group(2), "%Y-%m-%d %H:%M:%S")
             exit_field = int(m.group(3)) if m.group(3) is not None else None
@@ -1451,8 +1589,12 @@ def _build_log_task_row(row, spec, log_dir, now, unit_state, mode):
     # (2026-08-24: 传 last_exit=final_exit,push 失败类仅最终 exit!=0 才报)
     _log_missing = _resolve_log(log_path) is None
     if not _log_missing:
+        # 仅nextday复用本次systemd终态；不把ledger/日志猜测当轮次身份，也不读额外unit。
+        native = trusted_state if task == "nextday_gap_check" and mode == "systemd" else None
+        native_args = ({"nextday_native": native} if native and native.get("exit")
+                       and native["exit"] <= now else {})
         anomaly, r2_skip_count = scan_log_anomaly(
-            log_path, spec["script"], spec["mode"], last_exit=final_exit)
+            log_path, spec["script"], spec["mode"], last_exit=final_exit, **native_args)
     else:
         anomaly, r2_skip_count = None, 0
     # P1 稳定性(2026-07-29): pending_start + last_exit!=0 = 上次crash现在重试中,

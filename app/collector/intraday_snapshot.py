@@ -1458,82 +1458,145 @@ _SIGNAL_UNIVERSE_TENCENT_MAP = {
 }
 
 
+def _signal_universe_quote(quote: dict, today: str, now: datetime) -> dict | None:
+    """验证parser保留的真实北京时间/秒精度及OHLC，不用请求日期推造报价时点。"""
+    import math
+
+    stamp = quote.get("datetime")
+    if not isinstance(stamp, str) or len(stamp) != 14 or not stamp.isascii() or not stamp.isdigit():
+        return None
+    try:
+        at = datetime.strptime(stamp, "%Y%m%d%H%M%S")
+        if at.strftime("%Y%m%d") != today or at.date() != now.date() or at > now:
+            return None
+        # 沿用本模块A股/港股交易时段；盘前竞价不作为此信号宇宙的日线输入。
+        hk = str(quote.get("code", "")).startswith("hk")
+        hm = at.hour * 100 + at.minute
+        if not (930 <= hm <= (1200 if hk else 1130) or 1300 <= hm <= (1600 if hk else 1500)):
+            return None
+        o, h, l, c = (float(quote[k]) for k in ("open", "high", "low", "price"))
+        if not all(math.isfinite(v) and v > 0 for v in (o, h, l, c)):
+            return None
+        if not l <= min(o, c) <= max(o, c) <= h:
+            return None
+        pct, amount = quote.get("pct_change"), quote.get("amount")
+        if pct is not None and not math.isfinite(float(pct)):
+            return None
+        if amount is not None and (not math.isfinite(float(amount)) or float(amount) < 0):
+            return None
+    except (ValueError, TypeError, KeyError, OverflowError):
+        return None
+    return dict(quote, open=o, high=h, low=l, price=c)
+
+
 def _backfill_signal_universe_tencent(today: str = None) -> int:
-    """盘中给「历史信号宇宙 ∩ 腾讯 qt 有实时码」的缺口指数补 index_daily 当日行。
+    """给「历史信号宇宙 ∩ 腾讯 qt 有实时码」补缺/刷新同源当天临时行。
 
     返回写入条数。调用方（collect_and_save）负责 try/except 兜底，
     本函数内部也逐批容错（某批请求失败跳过继续，不阻断主链路）。
-    交易日闸门：非交易日直接返回 0（不写当日行，防 qt 返旧价污染）。
+    不覆盖collect等其它源；报价日期/时段/数值有效且时点严格递增才刷新。
+    intraday_quote_at沿用腾讯北京时间(Asia/Shanghai) YYYYMMDDHHMMSS，不新建状态层。
     """
+    import math
+    from zoneinfo import ZoneInfo
     from ..calendar import is_trading_day
 
-    today = today or datetime.now().strftime("%Y%m%d")
-    if not is_trading_day(today):
-        print(f"  [intraday] 非交易日({today})，跳过历史信号宇宙腾讯补采", flush=True)
+    now = datetime.now(ZoneInfo("Asia/Shanghai")).replace(tzinfo=None)
+    today = today or now.strftime("%Y%m%d")
+    if today != now.strftime("%Y%m%d") or not is_trading_day(today):
+        print(f"  [intraday] 非当日交易日({today})，跳过历史信号宇宙腾讯补采", flush=True)
         return 0
 
     conn = get_conn()
-    # 今日已有行的 index_id（避免重复补）
-    have = {r[0] for r in conn.execute(
-        "SELECT DISTINCT index_id FROM index_daily WHERE date=?", (today,))}
-    # 历史信号宇宙全量
-    universe = {r[0] for r in conn.execute(
-        "SELECT DISTINCT index_id FROM signal_daily")}
-    # 缺口 = 历史信号宇宙 - 今日已有行，只取映射表内有腾讯码的
-    missing = sorted(set(universe) - have)
-    pairs = [(iid, _SIGNAL_UNIVERSE_TENCENT_MAP[iid])
-             for iid in missing if iid in _SIGNAL_UNIVERSE_TENCENT_MAP]
-    if not pairs:
-        print(f"  [intraday] 历史信号宇宙腾讯补采: 今日已覆盖，无可补缺口", flush=True)
-        conn.close()
-        return 0
-    print(f"  [intraday] 历史信号宇宙腾讯补采: 缺口 {len(missing)}，可补 {len(pairs)}", flush=True)
-
-    # 腾讯 qt 批量请求（分批发，防 URL 过长；批失败不阻断）
     n = 0
     ok_ids = []
-    for i in range(0, len(pairs), 30):
-        batch = pairs[i:i + 30]
-        try:
-            throttle()
-            url = "http://qt.gtimg.cn/q=" + ",".join(tx for _, tx in batch)
-            r = _safe_get(url, headers={"User-Agent": UA}, timeout=10)
-            tdata = _parse_tencent(r.content.decode("gbk"))
-            by_key = {d["code"]: d for d in tdata if d.get("price")}
-        except Exception as e:  # noqa: BLE001
-            print(f"  [intraday] 历史信号宇宙腾讯补采第 {i // 30 + 1} 批失败（跳过）: "
-                  f"{type(e).__name__} {e}", flush=True)
-            continue
-        for iid, tx in batch:
-            # _parse_tencent 提取 key 时 strip "v_" + split("_")[-1]：
-            #   A 股 v_sh000001 -> "sh000001"；港股 v_r_hkHSI -> "hkHSI"（r_ 被吃掉）
-            key = tx[2:] if tx.startswith("r_hk") else tx
-            d = by_key.get(key)
-            if d is None:
-                print(f"  [intraday] 补采 {iid}（{tx}）腾讯无码/无价，跳过", flush=True)
+    try:
+        sources = {r[0]: r[1] for r in conn.execute(
+            "SELECT index_id, source FROM index_daily WHERE date=?", (today,))}
+        universe = {r[0] for r in conn.execute("SELECT DISTINCT index_id FROM signal_daily")}
+        pairs = [(iid, _SIGNAL_UNIVERSE_TENCENT_MAP[iid]) for iid in sorted(universe)
+                 if iid in _SIGNAL_UNIVERSE_TENCENT_MAP
+                 and (iid not in sources or sources[iid] == "intraday_snapshot")]
+        # 沿用每30码/请求10秒预算；网络期间不持有写锁。
+        for i in range(0, len(pairs), 30):
+            batch = pairs[i:i + 30]
+            try:
+                throttle()
+                url = "http://qt.gtimg.cn/q=" + ",".join(tx for _, tx in batch)
+                response = _safe_get(url, headers={"User-Agent": UA}, timeout=10)
+                now = datetime.now(ZoneInfo("Asia/Shanghai")).replace(tzinfo=None)
+                by_key, conflicts = {}, set()
+                for raw in _parse_tencent(response.content.decode("gbk")):
+                    d = _signal_universe_quote(raw, today, now)
+                    if d is None:
+                        print("  [intraday] 腾讯报价日期/时段/数值无效，跳过", flush=True)
+                        continue
+                    key = d["code"]
+                    prev = by_key.get(key)
+                    if prev is None or d["datetime"] > prev["datetime"]:
+                        by_key[key] = d
+                        conflicts.discard(key)
+                    elif d["datetime"] == prev["datetime"] and any(
+                            d[k] != prev[k] for k in ("open", "high", "low", "price")):
+                        conflicts.add(key)
+            except Exception as e:  # noqa: BLE001
+                print(f"  [intraday] 历史信号宇宙腾讯补采第 {i // 30 + 1} 批失败（跳过）: "
+                      f"{type(e).__name__} {str(e)!a}", flush=True)
                 continue
-            price = d.get("price")
-            if price is None:
-                continue
-            dtstr = d.get("datetime", "")
-            snap_date = dtstr[:8] if len(dtstr) >= 8 else ""
-            if snap_date and snap_date != today:
-                print(f"  [intraday] 补采 {iid} 快照日期 {snap_date} != 今日 {today}，跳过", flush=True)
-                continue
-            conn.execute(
-                "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, source) "
-                "VALUES (?,?,?,?,?,?,?,?, 'intraday_snapshot') "
-                "ON CONFLICT(date, index_id) DO UPDATE SET "
-                "open=excluded.open, high=excluded.high, low=excluded.low, "
-                f"close=excluded.close, {PCT_CHANGE_PRESERVE_SQL}, amount=excluded.amount, "
-                "source=excluded.source",
-                (today, iid, d.get("open"), d.get("high"), d.get("low"),
-                 price, d.get("pct_change"), d.get("amount")),
-            )
-            n += 1
-            ok_ids.append(iid)
-    conn.commit()
-    conn.close()
+            with conn:
+                conn.execute("BEGIN IMMEDIATE")
+                for iid, tx in batch:
+                    key = tx[2:] if tx.startswith("r_hk") else tx
+                    d = by_key.get(key)
+                    if key in conflicts:
+                        print(f"  [intraday] {iid} 同一报价时点OHLC冲突，拒写", flush=True)
+                        continue
+                    if d is None:
+                        continue
+                    old = conn.execute(
+                        "SELECT open,high,low,close,source,intraday_quote_at FROM index_daily "
+                        "WHERE date=? AND index_id=?", (today, iid)).fetchone()
+                    if old is not None:
+                        if old["source"] != "intraday_snapshot":
+                            continue  # 网络请求期间collect也可能已写入，事务内再次保护。
+                        stamp = old["intraday_quote_at"]
+                        if stamp is not None:
+                            try:
+                                known_at = datetime.strptime(stamp, "%Y%m%d%H%M%S")
+                                valid_stamp = (len(stamp) == 14 and stamp.isascii() and stamp.isdigit()
+                                               and known_at.strftime("%Y%m%d") == today and known_at <= now)
+                            except (ValueError, TypeError):
+                                valid_stamp = False
+                            if not valid_stamp:
+                                print(f"  [intraday] {iid} 旧报价时点元数据无效，拒写", flush=True)
+                                continue
+                        ohlc = tuple(old[k] for k in ("open", "high", "low", "close"))
+                        values = tuple(d[k] for k in ("open", "high", "low", "price"))
+                        if stamp is not None and d["datetime"] <= stamp:
+                            reason = "同一报价时点OHLC冲突" if d["datetime"] == stamp and values != ohlc else "报价未更新/倒序"
+                            print(f"  [intraday] {iid} {reason}，拒写", flush=True)
+                            continue
+                        if all(isinstance(v, (int, float)) and math.isfinite(v) and v > 0 for v in ohlc):
+                            if values[0] != ohlc[0] or values[1] < ohlc[1] or values[2] > ohlc[2]:
+                                print(f"  [intraday] {iid} 同日open/累计高低价回退，拒写", flush=True)
+                                continue
+                        if stamp is None:
+                            print(f"  [intraday] {iid} 旧报价时点unknown，按已验证报价首次锚定", flush=True)
+                    cursor = conn.execute(
+                        "INSERT INTO index_daily (date,index_id,open,high,low,close,pct_change,amount,source,intraday_quote_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,'intraday_snapshot',?) "
+                        "ON CONFLICT(date,index_id) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low, "
+                        f"close=excluded.close,{PCT_CHANGE_PRESERVE_SQL},amount=excluded.amount, "
+                        "intraday_quote_at=excluded.intraday_quote_at "
+                        "WHERE index_daily.source='intraday_snapshot' AND "
+                        "(index_daily.intraday_quote_at IS NULL OR index_daily.intraday_quote_at<excluded.intraday_quote_at)",
+                        (today, iid, d["open"], d["high"], d["low"], d["price"],
+                         d.get("pct_change"), d.get("amount"), d["datetime"]))
+                    n += cursor.rowcount
+                    if cursor.rowcount:
+                        ok_ids.append(iid)
+    finally:
+        conn.close()
     print(f"  [intraday] 历史信号宇宙腾讯补采完成: {n} 条 ({', '.join(ok_ids)})", flush=True)
     return n
 

@@ -177,6 +177,59 @@ test('snapshot idempotency/conflict and ordering preserve atomic events and late
   assert.equal((await f.call('/history')).body.runs.length, 3);
 }));
 
+test('storage diagnostics whitelist causes and correlate without reflecting private text', () => fixture(async f => {
+  const original = f.db.batch;
+  const originalLog = console.error; const logs = [];
+  console.error = value => logs.push(value);
+  try {
+    for (const [message, kind] of [
+      ['D1_ERROR: Network connection lost.', 'storage_transient'],
+      ["D1_ERROR: Your account has exceeded D1's free tier daily row write limit.", 'storage_quota'],
+      ['D1_ERROR: no such table: private_table', 'storage_configuration'],
+      ['NOT NULL constraint failed: ops_runs.content_hash', 'storage_constraint'],
+      ['D1 DB is overloaded. Too many requests queued.', 'storage_overloaded'],
+      ['D1 DB exceeded its CPU time limit and was reset.', 'storage_resource_limit'],
+      ["D1 DB's isolate exceeded its memory limit and was reset.", 'storage_resource_limit'],
+      ['D1 query result exceeded the maximum response size limit of 50 MB', 'storage_resource_limit'],
+      ['Worker exceeded its CPU time limit', 'unknown'],
+      ['Worker exceeded its memory limit', 'unknown'],
+      ['Worker exceeded resource limits', 'unknown'],
+      ['Memory limit would be exceeded before EOF', 'unknown'],
+      ['Bearer injected-private /home/private SQL SELECT secret=bad', 'unknown'],
+    ]) {
+      f.db.batch = async () => { throw new Error(message, { cause: new Error('Bearer injected-private') }); };
+      const s = f.snapshot(); const result = await f.push(s);
+      assert.equal(result.status, 503); assert.equal(result.body.error_kind, kind);
+      assert.equal(result.body.snapshot_id, s.snapshot_id);
+      assert.match(result.body.request_id, /^[a-f0-9-]{36}$/);
+      assert.equal(logs.at(-1).request_id, result.body.request_id);
+      assert.equal(logs.at(-1).error_kind, kind);
+      assert.deepEqual(Object.keys(logs.at(-1)).sort(), ['error', 'error_kind', 'event', 'request_id', 'snapshot_id']);
+      assert.ok(!JSON.stringify([result, logs]).includes('injected-private'));
+      assert.ok(!JSON.stringify([result, logs]).includes('private_table'));
+    }
+  } finally { console.error = originalLog; f.db.batch = original; }
+}));
+
+test('failed diagnostic read retains original batch cause; real schema failure is safe', () => fixture(async f => {
+  const batch = f.db.batch; const prepare = f.db.prepare;
+  const log = console.error; const logs = []; console.error = value => logs.push(value);
+  try {
+    f.db.batch = async () => { throw new Error('D1_ERROR', { cause: new Error('Network connection lost.') }); };
+    f.db.prepare = query => {
+      if (query.includes('SELECT content_hash')) throw new Error('Bearer injected-private');
+      return prepare.call(f.db, query);
+    };
+    assert.equal((await f.push(f.snapshot())).body.error_kind, 'storage_transient');
+    f.db.batch = batch; f.db.prepare = prepare;
+    f.db.sql.exec('DROP TABLE ops_runs');
+    const result = await f.push(f.snapshot());
+    assert.equal(result.status, 503); assert.equal(result.body.error_kind, 'storage_configuration');
+    assert.ok(!JSON.stringify([result, logs]).includes('injected-private'));
+    assert.ok(!JSON.stringify([result, logs]).includes('no such table'));
+  } finally { console.error = log; f.db.batch = batch; f.db.prepare = prepare; }
+}));
+
 test('OPS-R1 newer envelope cannot wash persistent critical status/evidence with an older ok observation', () => fixture(async f => {
   const first = f.snapshot('critical');
   first.checks[0].evidence = { marker: 'newer_critical_evidence' };
