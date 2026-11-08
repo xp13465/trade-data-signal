@@ -62,12 +62,16 @@ class Bundle:
         self.sizes.append(utf8_len(stmt))
 
     def add_inserts(self, head: str, rows: list[str],
-                    delete_stmt: str | None = None) -> None:
+                    delete_stmt: str | None = None,
+                    conflict_clause: str | None = None) -> None:
         """把若干「一行值元组 SQL」按字节软上限贪心装箱成多条 INSERT。
 
-        head        : `INSERT INTO t (a, b) VALUES`(不含换行/分号)
-        rows        : 每个元素形如 `('x', 1, NULL)`
-        delete_stmt : 可选, 作为**第一条数据语句**插在最前(如 `DELETE FROM t;`)
+        head           : `INSERT INTO t (a, b) VALUES`(不含换行/分号)
+        rows           : 每个元素形如 `('x', 1, NULL)`
+        delete_stmt    : 可选, 作为**第一条数据语句**插在最前(如 `DELETE FROM t;`)
+        conflict_clause: 可选 UPSERT 尾缀, 拼在最后一个值元组之后、分号之前
+                         (如 `ON CONFLICT(fund_code) DO UPDATE SET a=excluded.a`)。
+                         增量同步用: 只 upsert changed/new 行, 不再全表 DELETE+重插。
 
         空行集**先报错、且不把 DELETE 入队**(2026-10-26 审查 L2): 否则调用方一旦
         吞掉异常继续写盘, 就会产出一个「只有 DELETE、没有 INSERT」的包 —— 导入即
@@ -80,7 +84,11 @@ class Bundle:
         batch: list[str] = []
 
         def flush() -> None:
-            stmt = head + "\n" + ",\n".join(batch) + ";"
+            parts = [head, "\n", ",\n".join(batch)]
+            if conflict_clause:
+                parts += ["\n", conflict_clause]
+            parts.append(";")
+            stmt = "".join(parts)
             size = utf8_len(stmt)
             if len(batch) == 1 and size > self.max_stmt_bytes:
                 # 单行本身超软上限: 已独立成句(不与任何其他行混), 记数供日志告警
@@ -93,7 +101,7 @@ class Bundle:
             if not batch:
                 batch.append(row)
                 continue
-            if self._insert_bytes(head, batch + [row]) > self.max_stmt_bytes:
+            if self._insert_bytes(head, batch + [row], conflict_clause) > self.max_stmt_bytes:
                 flush()
                 batch = [row]
             else:
@@ -101,12 +109,16 @@ class Bundle:
         flush()
 
     @staticmethod
-    def _insert_bytes(head: str, rows: list[str]) -> int:
-        """精确预算: head + '\\n' + ',\\n'.join(rows) + ';' 的 UTF-8 字节数。"""
-        return (utf8_len(head) + 1
+    def _insert_bytes(head: str, rows: list[str],
+                      conflict_clause: str | None = None) -> int:
+        """精确预算: head + '\\n' + ',\\n'.join(rows) [+ '\\n' + conflict] + ';' 的 UTF-8 字节数。"""
+        base = (utf8_len(head) + 1
                 + sum(utf8_len(r) for r in rows)
                 + 2 * (len(rows) - 1)
                 + 1)
+        if conflict_clause:
+            base += 1 + utf8_len(conflict_clause)  # "\n" + conflict_clause
+        return base
 
     # ---------- 统计 / 断言 / 写盘 ----------
     def max_stmt_bytes_actual(self) -> int:

@@ -62,6 +62,15 @@ RETRY_DELAYS="${D1_RETRY_DELAYS:-30 90}"
 EXEC_TIMEOUT_SEC="${D1_EXEC_TIMEOUT_SEC:-300}"
 VERIFY_TIMEOUT_SEC="${D1_VERIFY_TIMEOUT_SEC:-60}"
 BUNDLE_FILE="full_import.sql"
+D1_DB="trade-fund-score"
+# 增量同步(2026-11-08): D1 现存哈希来源。生产=wrangler --remote 批量 SELECT;
+#   DRY_RUN 可用此文件覆盖(本机 wrangler 未登录时, 指向 mock JSON 验 diff 逻辑)。
+D1_EXISTING_HASHES_FILE="${D1_EXISTING_HASHES_FILE:-}"
+# 增量同步开关: =0 回退旧「全表 DELETE+INSERT」(应急/调试); 默认开(1)
+INCREMENTAL="${INCREMENTAL:-1}"
+# removed 清理开关: fund_score 仅周日全量(weekly)时做 removed 清理(防工作日误删待恢复基金)。
+#   weekly 调用方(pf_score_weekly.sh)传 FUND_SCORE_CLEANUP_REMOVED=1; daily 默认 0(不清)。
+FUND_SCORE_CLEANUP_REMOVED="${FUND_SCORE_CLEANUP_REMOVED:-0}"
 
 case "$SPLIT_MODE" in
   single|legacy) ;;
@@ -139,12 +148,36 @@ fi
 
 cd "$REPO"
 
-echo "$LOG_PREFIX 开始: $(date '+%F %T') db=$DB mode=$SPLIT_MODE batch=$BATCH dry_run=${DRY_RUN:-0}"
+echo "$LOG_PREFIX 开始: $(date '+%F %T') db=$DB mode=$SPLIT_MODE batch=$BATCH dry_run=${DRY_RUN:-0} incremental=$INCREMENTAL cleanup_removed=$FUND_SCORE_CLEANUP_REMOVED"
+
+# 0) 增量同步(2026-11-08): 幂等迁移 row_hash 列 + 读 D1 现存哈希(供 Python diff)
+HASHES_FILE="$GEN_DIR/d1_hashes.json"
+source "$SCRIPT_SELF_DIR/lib/d1_hash_read.sh" || _fail "d1_hash_read.sh missing"
+if [ "$INCREMENTAL" = "1" ]; then
+  if [ "$DRY_RUN" = "1" ]; then
+    if [ -n "$D1_EXISTING_HASHES_FILE" ] && [ -f "$D1_EXISTING_HASHES_FILE" ]; then
+      cp "$D1_EXISTING_HASHES_FILE" "$HASHES_FILE"
+      echo "$LOG_PREFIX DRY_RUN: 用 D1_EXISTING_HASHES_FILE 作 D1 现存哈希源"
+    else
+      printf '{}\n' > "$HASHES_FILE"
+      echo "$LOG_PREFIX DRY_RUN: 无 D1_EXISTING_HASHES_FILE, D1 视为空表(全部新增)" >&2
+    fi
+  else
+    d1_migrate_row_hash "$D1_DB" "fund_score" || _fail "row_hash 列迁移失败(fund_score)" unknown
+    if ! d1_read_hashes "$D1_DB" "fund_score" "$HASHES_FILE"; then
+      _fail "读 D1 现存哈希失败(fund_score, wrangler SELECT)" unknown
+    fi
+  fi
+else
+  printf '{}\n' > "$HASHES_FILE"
+  echo "$LOG_PREFIX INCREMENTAL=0: 跳过 D1 哈希读(回退旧全量替换语义)" >&2
+fi
 
 # 1) 生成导入包（默认整表一个文件; legacy 模式退回 schema + 分批数据多文件）
 #    参数: db 路径 / 生成目录 / legacy 行批 / 脚本目录 / 模式 / 软上限字节 / 硬断言字节 / 包文件名
 "$PY" - "$DB" "$GEN_DIR" "$BATCH" "$SCRIPT_SELF_DIR" "$SPLIT_MODE" \
-      "$MAX_STMT_BYTES" "$ASSERT_MAX_STMT_BYTES" "$BUNDLE_FILE" <<'PYEOF'
+      "$MAX_STMT_BYTES" "$ASSERT_MAX_STMT_BYTES" "$BUNDLE_FILE" \
+      "$HASHES_FILE" "$INCREMENTAL" "$FUND_SCORE_CLEANUP_REMOVED" <<'PYEOF'
 import json, sqlite3, sys
 from pathlib import Path
 
@@ -152,18 +185,19 @@ db_path, gen_dir, batch = sys.argv[1], Path(sys.argv[2]), int(sys.argv[3])
 script_dir, split_mode = Path(sys.argv[4]), sys.argv[5]
 MAX_STMT_BYTES, ASSERT_MAX_BYTES = int(sys.argv[6]), int(sys.argv[7])
 BUNDLE_NAME = sys.argv[8]
+HASHES_FILE = sys.argv[9]
+INCREMENTAL = sys.argv[10] == "1"
+CLEANUP_REMOVED = sys.argv[11] == "1"
 sys.path.insert(0, str(script_dir / "lib"))
 from d1_sql_bundle import Bundle, BundleTooLargeError  # noqa: E402
+from d1_incremental_sync import (compute_row_hash, diff_hashes,  # noqa: E402
+                                 build_conflict_clause, load_d1_hashes)
 conn = sqlite3.connect(db_path)
 conn.row_factory = sqlite3.Row
-row = conn.execute(
-    "SELECT MAX(score_date) AS d FROM fund_score WHERE composite_score IS NOT NULL"
-).fetchone()
-latest = row["d"]
-if not latest:
-    print("[sync-d1-python] ERROR: fund_score 无有效评分", flush=True)
-    sys.exit(1)
 
+# latest_by_key 口径(2026-11-08, 常驻全市场): 每只基金各自最近一次有 composite_score 的分区,
+#   而非 MAX(score_date) 单分区(旧口径工作日只同步头部 2000 只, 周内缩水缺陷)。
+#   与 sync_fund_screener_to_d1.sh score 取数同口径(每 key 首见即留, ORDER BY score_date DESC)。
 cols = [
     # (sql列名, SELECT 表达式)
     ("fund_code", "s.fund_code"),
@@ -173,6 +207,7 @@ cols = [
     ("management_fee", "b.management_fee"), ("custody_fee", "b.custody_fee"),
     ("purchase_fee", "b.purchase_fee"), ("strategy", "b.strategy"),
     ("benchmark_text", "b.benchmark AS benchmark_text"),  # b.benchmark 文本改名, 不覆盖 s.benchmark
+    ("score_date", "s.score_date"),
     ("composite_score", "s.composite_score"), ("star_rating", "s.star_rating"),
     ("score_return", "s.score_return"), ("score_risk_adjusted", "s.score_risk_adjusted"),
     ("score_drawdown", "s.score_drawdown"), ("score_stability", "s.score_stability"),
@@ -191,23 +226,34 @@ cols = [
     ("update_date", "s.update_date"),
 ]
 sel = ", ".join(expr for _, expr in cols)
-rows = conn.execute(
+# 全市场每只基金最新有 composite_score 的分区: ORDER BY score_date DESC 遍历, 首见即留
+all_rows = conn.execute(
     f"SELECT {sel} FROM fund_score s LEFT JOIN fund_basic b ON s.fund_code=b.fund_code "
-    "WHERE s.score_date=? AND s.composite_score IS NOT NULL "
-    "ORDER BY s.composite_score DESC", (latest,)
+    "WHERE s.composite_score IS NOT NULL "
+    "ORDER BY s.score_date DESC, s.fund_code ASC"
 ).fetchall()
+seen = set()
+rows = []
+for r in all_rows:
+    code = r["fund_code"]
+    if code in seen:
+        continue
+    seen.add(code)
+    rows.append(dict(r))
+if not rows:
+    print("[sync-d1-python] ERROR: fund_score 无有效评分", flush=True)
+    sys.exit(1)
+latest = max(r["score_date"] for r in rows)  # 供 meta 记录(信息性, 不再作为唯一分区)
 n_int = lambda v: int(v) if v is not None else None
-rows = [dict(r) for r in rows]  # sqlite3.Row 不可赋值, 先转 dict
-# 空输入为什么不会产出「只有 DELETE、没有 INSERT」的清空包(2026-10-26 审查 L2 结论):
-#   ① 上面已按同一谓词 `composite_score IS NOT NULL` 取 MAX(score_date), 取不到就 sys.exit(1);
-#   ② 本条查询用**同一个谓词** ⇒ latest 有值时 rows 必非空(这里不存在空行集);
-#   ③ 纵深防御: Bundle.add_inserts 收到空行集先抛错、且**不把 DELETE 入队**
-#      (scripts/lib/d1_sql_bundle.py) ⇒ 即使 ① 将来被删, 也产不出 DELETE-only 包。
-#   因此不在这里再加一个不可达的 `if not rows` 守卫(不可达分支测不到, 只会掩盖真实防线)。
+# rows 已是 dict(上面 append 时已 dict(r)); star_rating sqlite 动态类型可能回读 float, 统一转 int
 for r in rows:
-    # star_rating 从 sqlite 动态类型可能回读 float, 统一转 int 保持与本地一致
     if r["star_rating"] is not None:
         r["star_rating"] = n_int(r["star_rating"])
+
+# row_hash(H1 保守: 全部数据列含 score_date/update_date 等日期列)
+HASH_COLS = [name for name, _ in cols]
+for r in rows:
+    r["row_hash"] = compute_row_hash(r, HASH_COLS)
 
 def sql_lit(v):
     if v is None:
@@ -216,15 +262,19 @@ def sql_lit(v):
         return repr(v)
     return "'" + str(v).replace("'", "''") + "'"
 
-col_list = ", ".join(name for name, _ in cols)
+col_list = ", ".join(name for name, _ in cols) + ", row_hash"
+head = f"INSERT INTO fund_score ({col_list}) VALUES"
 
 # schema（幂等）+ sync_meta（同步元数据: score_date/rows/synced_at, 供 /api/fund_score 返回数据日期）
+#   score_date 列(2026-11-08 latest_by_key 常驻全市场): 每只基金各自最近评分日, 不再是单分区;
+#   row_hash 列(增量同步): 已有表由 d1_migrate_row_hash 幂等 ALTER 补, 新表由 CREATE 直接建。
 schema_stmts = ["""CREATE TABLE IF NOT EXISTS fund_score (
   fund_code TEXT PRIMARY KEY,
   fund_name TEXT, fund_type TEXT,
   fund_company TEXT, fund_manager TEXT, setup_date TEXT, scale REAL,
   management_fee REAL, custody_fee REAL, purchase_fee REAL,
   strategy TEXT, benchmark_text TEXT,
+  score_date TEXT,
   composite_score REAL, star_rating INTEGER,
   score_return REAL, score_risk_adjusted REAL, score_drawdown REAL,
   score_stability REAL, score_scale REAL, score_fee REAL,
@@ -236,7 +286,7 @@ schema_stmts = ["""CREATE TABLE IF NOT EXISTS fund_score (
   kelly_fraction REAL, half_kelly_position REAL, kelly_win_rate REAL,
   kelly_win_loss_ratio REAL, kelly_tier TEXT, market_adjustment REAL,
   final_suggestion REAL, benchmark TEXT, score_method TEXT,
-  data_completeness REAL, update_date TEXT
+  data_completeness REAL, update_date TEXT, row_hash TEXT
 );""",
 "DROP INDEX IF EXISTS idx_fs_composite;",
 "CREATE INDEX idx_fs_composite ON fund_score(composite_score);",
@@ -246,10 +296,7 @@ schema_stmts = ["""CREATE TABLE IF NOT EXISTS fund_score (
   key TEXT PRIMARY KEY,
   value TEXT
 );"""]
-schema = "\n".join(schema_stmts) + "\n"  # legacy 模式落盘用（与旧版逐字节一致）
-
-# meta（记录同步的 score_date 与行数, 供验证）; 落盘时机见文件末尾
-#   (2026-10-26 审查 M3: 挪到全部生成动作之后, 硬断言失败时不留残留)
+schema = "\n".join(schema_stmts) + "\n"  # legacy 模式落盘用
 
 # 同步元数据（最后写入, 供 worker 返回数据日期/行数）
 import datetime as _dt
@@ -262,15 +309,41 @@ meta_stmt = (
     "ON CONFLICT(key) DO UPDATE SET value=excluded.value;"
 )
 
-head = f"INSERT INTO fund_score ({col_list}) VALUES"
-row_values = ["(" + ", ".join(sql_lit(r[name]) for name, _ in cols) + ")" for r in rows]
+# ---------- 增量 diff(2026-11-08): 只 upsert changed/new + 批 DELETE removed ----------
+# INCREMENTAL=0 回退旧全量替换语义(changed=全量, 行为等价)。
+# removed 清理: fund_score 仅 weekly(FUND_SCORE_CLEANUP_REMOVED=1)时做; daily 不删(防误删待恢复基金)。
+d1_hashes = load_d1_hashes(HASHES_FILE) if INCREMENTAL else {}
+if INCREMENTAL:
+    changed, new_rows, removed_codes, unchanged = diff_hashes(rows, d1_hashes)
+else:
+    changed, new_rows, removed_codes, unchanged = [], rows, [], 0
+if not CLEANUP_REMOVED:
+    # daily: 不清理 removed(D1 里多余的基金先留着, 等周日全量再清; 防工作日误删)
+    removed_codes = []
+print(f"[sync-d1-python] diff: total={len(rows)} changed={len(changed)} "
+      f"new={len(new_rows)} removed={len(removed_codes)} unchanged={unchanged} "
+      f"d1_existing={len(d1_hashes)} incremental={INCREMENTAL} cleanup_removed={CLEANUP_REMOVED}",
+      flush=True)
+
+set_cols = [name for name, _ in cols if name != "fund_code"] + ["row_hash"]
+conflict_clause = build_conflict_clause("fund_score", set_cols, "fund_code")
 
 if split_mode == "single":
-    # 一表一文件: schema → DELETE(第一条数据语句) → 字节封顶的 INSERT → meta
+    # 一表一文件: schema → [增量 upsert changed/new] → [批 DELETE removed(仅 weekly)] → meta
     bundle = Bundle(max_stmt_bytes=MAX_STMT_BYTES, assert_max_bytes=ASSERT_MAX_BYTES)
     for s in schema_stmts:
         bundle.add(s)
-    bundle.add_inserts(head, row_values, delete_stmt="DELETE FROM fund_score;")
+    write_rows = changed + new_rows
+    if write_rows:
+        write_cols = [name for name, _ in cols] + ["row_hash"]
+        write_vals = ["(" + ", ".join(sql_lit(r[name]) for name in write_cols) + ")" for r in write_rows]
+        bundle.add_inserts(head, write_vals, conflict_clause=conflict_clause)
+    else:
+        print("[sync-d1-python] 增量空写: changed+new=0, 跳过 INSERT(只写 meta+removed)", flush=True)
+    for i in range(0, len(removed_codes), 500):
+        chunk = removed_codes[i:i + 500]
+        in_list = ", ".join("'%s'" % c.replace("'", "''") for c in chunk)
+        bundle.add(f"DELETE FROM fund_score WHERE fund_code IN ({in_list});")
     bundle.add(meta_stmt)
     # 硬断言先于写盘: 超限 = 直接失败, 绝不留半个包
     try:
@@ -288,10 +361,13 @@ if split_mode == "single":
           f"path={bundle_path} total_bytes={st['total_bytes']} "
           f"statements={st['statements']} max_stmt_bytes={st['max_stmt_bytes']} "
           f"soft_cap={MAX_STMT_BYTES} hard_cap={ASSERT_MAX_BYTES} "
-          f"oversize_single_row_stmts={st['oversize_single_row_stmts']}", flush=True)
+          f"oversize_single_row_stmts={st['oversize_single_row_stmts']} "
+          f"upsert_rows={len(write_rows)} removed={len(removed_codes)}", flush=True)
 else:
-    # legacy: 旧的多文件逐批模式（回退开关）, 产出与改动前逐字节一致
+    # legacy: 旧的多文件逐批模式（回退开关）, 全量 DELETE+INSERT(不走增量, 安全回退)
     (gen_dir / "000_schema.sql").write_text(schema, encoding="utf-8")
+    legacy_cols = [name for name, _ in cols] + ["row_hash"]
+    row_values = ["(" + ", ".join(sql_lit(r[name]) for name in legacy_cols) + ")" for r in rows]
     first = True
     files = []
     for i in range(0, len(rows), batch):
