@@ -188,6 +188,13 @@ test('storage diagnostics whitelist causes and correlate without reflecting priv
       ['D1_ERROR: no such table: private_table', 'storage_configuration'],
       ['NOT NULL constraint failed: ops_runs.content_hash', 'storage_constraint'],
       ['D1 DB is overloaded. Too many requests queued.', 'storage_overloaded'],
+      ['D1 DB exceeded its CPU time limit and was reset.', 'storage_resource_limit'],
+      ["D1 DB's isolate exceeded its memory limit and was reset.", 'storage_resource_limit'],
+      ['D1 query result exceeded the maximum response size limit of 50 MB', 'storage_resource_limit'],
+      ['Worker exceeded its CPU time limit', 'unknown'],
+      ['Worker exceeded its memory limit', 'unknown'],
+      ['Worker exceeded resource limits', 'unknown'],
+      ['Memory limit would be exceeded before EOF', 'unknown'],
       ['Bearer injected-private /home/private SQL SELECT secret=bad', 'unknown'],
     ]) {
       f.db.batch = async () => { throw new Error(message, { cause: new Error('Bearer injected-private') }); };

@@ -29,7 +29,9 @@ function storageErrorKind(error) {
   if (/D1_TYPE_ERROR|D1_COLUMN_NOTFOUND|no such (?:table|column)|No SQL statements detected/i.test(message)) return 'storage_configuration';
   if (/SQLITE_CONSTRAINT|(?:NOT NULL|UNIQUE|FOREIGN KEY|CHECK) constraint failed/i.test(message)) return 'storage_constraint';
   if (/D1 DB is overloaded/i.test(message)) return 'storage_overloaded';
-  if (/exceeded (?:its (?:CPU time|memory)|the maximum response size) limit|Too many resources consumed/i.test(message)) return 'storage_resource_limit';
+  // Worker CPU/memory termination and D1 limits are different failure domains.
+  // Require the documented D1 identity; generic resource text stays unknown.
+  if (/D1 DB(?:'s isolate)? exceeded its (?:CPU time|memory) limit|D1 query result exceeded the maximum response size limit/i.test(message)) return 'storage_resource_limit';
   if (/Network connection lost\.|Replica disconnected from primary\.|Cannot resolve D1 DB due to transient issue on remote node\.|D1 DB reset because its code was updated\.|Internal error (?:while starting up|in) D1 DB storage caused object to be reset\./.test(message)) return 'storage_transient';
   return 'unknown';
 }

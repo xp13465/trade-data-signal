@@ -52,6 +52,16 @@ node --test ops/monitoring/tests/worker*.test.mjs
 | 回退路径 | 失败exit2；成功需匹配ack；collect-only零网络；HEAD仍一次；一次采样重用而不二次采集 |
 | 并发与重入 | Miniflare同ID同内容并发200/200、事件不重复；冲突内容409；回执丢失安全重放；预算耗尽杀子进程且active_children为空 |
 
+## 03:45 后分类边界补验（仅应用层，未部署）
+
+父已区分新tail记录：03:45:15.778是ingest POST200/outcome=ok，03:45:18.796是无path/method的exception、异常名Error，疑自然cron。后一事件不能归为此前四次ingest失败的底层cause。本分支不重复平台调查；cron类型及原message的安全分类由父负责。
+
+对 `6bfce521e` 做独立故障注入，证实原资源正则会把“Worker exceeded its CPU time limit”误标成D1存储资源限制。这是可复现的分类边界缺口，不是03:45事件的原因证据。已将资源分支收紧为官方明确D1身份的CPU/内存/查询结果上限消息；通用Worker资源、CPU、内存或EOF内存文本均保持unknown。客户端重试策略不变，不修改tail或平台配置。
+
+补充三验：`/tmp/codex-reports/alert-rootfix-20261109/monitor-root-cause-followup.json`；红测 `monitor-resource-classification-red.log` 为1 failed；绿测 `monitor-resource-classification-green.log` 为真实SQLite/Miniflare相关29项全过（tests29/pass29/fail0）。新增7个白名单边界子场景，确认明确D1资源消息可分类、通用Worker消息不冒充D1；恶意原文仍不进API或日志。没有重跑无关全量测试。
+
+参考：[Workers错误与异常](https://developers.cloudflare.com/workers/observability/errors/)、[Workers运行限制与outcome](https://developers.cloudflare.com/workers/platform/limits/)。平台终止可能绕过应用catch，本补丁不能替代父的tail取证，也不把unknown转成已定位。
+
 ## 交接与限制
 
 没有部署，故没有生产修复验收；main不包含本候选改动。未来部署应先由Claude审核Worker类别与采集器重试的配套性，再观察真实失败率、上传时长和安全分类元数据；不把自然成功或单次分类当底层根治。
