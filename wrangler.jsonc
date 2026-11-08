@@ -37,6 +37,25 @@
 			"binding": "FUND_SCORE_DB",
 			"database_name": "trade-fund-score",
 			"database_id": "68c19715-3570-4f1d-8430-ec43dd856b5e"
+		},
+		// OPS 监控控制面 D1（#45 2026-11）：私有快照/事件/人工修订，独立于 FUND_SCORE_DB。
+		// 迁移由 ops/monitoring/migrations 维护；database_id 为本次真实新建（非占位符）。
+		{
+			"binding": "OPS_DB",
+			"database_name": "trade-ops-monitor",
+			"database_id": "c5a82b03-26cb-4e2f-9e6c-75d24629f06d",
+			"migrations_dir": "ops/monitoring/migrations"
 		}
-	]
+	],
+	// OPS 监控独立 cron（#45）：每 5 分钟 watchdog 判定失联/保留期/outbox 重试。
+	// 与既有业务 cron 无重叠（原配置无 triggers.crons），此处为新增。
+	"triggers": {
+		"crons": ["*/5 * * * *"]
+	},
+	// OPS 监控非密钥 vars（密钥走 wrangler secret，不入版本化配置）。
+	// 初期告警关闭：OPS_ALERT_ENABLED=false + OPS_ALERT_SCOPE=watchdog（仅 collector 失联/恢复），不配 OPS_ALERT_WEBHOOK。
+	"vars": {
+		"OPS_ALERT_ENABLED": "false",
+		"OPS_ALERT_SCOPE": "watchdog"
+	}
 }
