@@ -52,6 +52,24 @@ class FakeRunner:
         return '\n\n'.join(blocks)
 
 
+class ServiceStateRunner(FakeRunner):
+    def __init__(self, rows, fields):
+        super().__init__(rows)
+        self.fields = fields
+
+    def run(self, args):
+        raw = super().run(args)
+        if args[1] != 'show':
+            return raw
+        blocks = raw.split('\n\n')
+        for i, block in enumerate(blocks):
+            if block.startswith('Id=' + self.names[0] + '\n'):
+                props = dict(line.split('=', 1) for line in block.splitlines())
+                props.update(self.fields)
+                blocks[i] = '\n'.join(key + '=' + str(value) for key, value in props.items())
+        return '\n\n'.join(blocks)
+
+
 class CollectorTests(unittest.TestCase):
     def setUp(self):
         self.stack = contextlib.ExitStack()
@@ -203,6 +221,107 @@ class CollectorTests(unittest.TestCase):
         os.utime(source, (1, 1))
         obj = self.collect()
         self.assertTrue(all(c['status'] == 'unknown' for c in obj['checks'] if c['id'].startswith('schedule:')))
+
+    def unfinished_check(self, fields=None, **item_fields):
+        path = self.data / 'static-site/data/schedule_stats.json'
+        rows = json.loads(path.read_text())
+        rows[0].update(round_state='started_unfinished', round_start_ts='2026-11-06 21:00:00')
+        rows[0].update(item_fields)
+        path.write_text(json.dumps(rows))
+        snapshot = self.collect(ServiceStateRunner(self.rows, fields or {}))
+        m.validate_snapshot(snapshot)
+        return next(c for c in snapshot['checks'] if c['id'] == 'schedule:' + self.rows[0]['task'])
+
+    def test_running_round_waits_for_completion_without_failure_or_success(self):
+        for active in ('active', 'activating', 'reloading'):
+            with self.subTest(active=active):
+                c = self.unfinished_check({'ActiveState': active, 'SubState': 'start',
+                                           'Result': 'exit-code', 'ExecMainStatus': '124'}, last_exit=124)
+                self.assertEqual(c['status'], 'unknown')
+                self.assertEqual(c['evidence']['execution_state'], 'running')
+                self.assertNotIn('exit_code', c['evidence'])
+                self.assertIn('completion not yet observed', c['summary'])
+
+    def test_reset_failed_manager_success_does_not_rewrite_process_exit(self):
+        props = {key: [str(value)] for key, value in {
+            'LoadState': 'loaded', 'ActiveState': 'inactive', 'SubState': 'dead',
+            'Type': 'oneshot', 'Result': 'success', 'ExecMainStatus': 124,
+            'ExecMainStartTimestamp': 'Fri 2026-11-06 21:10:00 CST',
+            'ExecMainExitTimestamp': 'Fri 2026-11-06 22:59:36 CST',
+        }.items()}
+        c = m.unit_check('trade-turnover-backfill.service', props)
+        self.assertEqual(c['status'], 'warning')
+        self.assertEqual(c['evidence']['unit_result'], 'success')
+        self.assertEqual(c['evidence']['exit_code'], 124)
+        self.assertEqual(c['evidence']['last_exit_utc'], '2026-11-06T14:59:36Z')
+
+    def test_live_success_reconciles_only_the_same_round_after_schedule_snapshot(self):
+        c = self.unfinished_check(last_exit=124)
+        self.assertEqual(c['status'], 'ok')
+        self.assertTrue(c['evidence']['same_round'])
+        self.assertEqual(c['evidence']['execution_state'], 'completed')
+        self.assertEqual(c['evidence']['exit_code'], 0)
+        self.assertEqual(c['evidence']['completion_source'], 'systemd_live')
+
+    def test_unfinished_round_cannot_borrow_other_or_unproved_unit_success(self):
+        cases = [
+            ({'ExecMainStartTimestamp': 'Fri 2026-11-06 20:00:00 CST'}, 'unknown'),
+            ({'ExecMainStartTimestamp': 'n/a'}, 'unknown'), ({'ExecMainExitTimestamp': 'n/a'}, 'unknown'),
+            ({'ExecMainExitTimestamp': 'Fri 2026-11-06 20:59:59 CST'}, 'unknown'),
+            ({'ExecMainExitTimestamp': 'Thu 2099-01-01 21:02:00 UTC'}, 'unknown'),
+            ({'ExecMainStatus': '124'}, 'warning'), ({'Result': 'exit-code'}, 'warning'),
+            ({'ActiveState': 'failed'}, 'warning'), ({'LoadState': 'not-found'}, 'unknown'),
+            ({'Type': 'simple'}, 'unknown'),
+        ]
+        for fields, expected in cases:
+            with self.subTest(fields=fields):
+                c = self.unfinished_check(fields)
+                self.assertEqual(c['status'], expected)
+                if 'exit_code' in c['evidence']:
+                    self.assertEqual(c['status'], 'warning')
+
+    def test_real_schedule_fault_flags_take_priority_over_running(self):
+        for flag in ('exit_conflict', 'unit_missed', 'log_anomaly'):
+            with self.subTest(flag=flag):
+                # Remove flags from the previous subcase to test each independently.
+                path = self.data / 'static-site/data/schedule_stats.json'
+                rows = json.loads(path.read_text())
+                rows[0].update(exit_conflict=False, unit_missed=False, log_anomaly=False)
+                path.write_text(json.dumps(rows))
+                c = self.unfinished_check({'ActiveState': 'activating'}, **{flag: True})
+                self.assertEqual(c['status'], 'warning')
+                self.assertNotIn('execution_state', c['evidence'])
+
+    def test_same_round_future_end_never_claims_completion(self):
+        collector = m.Collector(self.cfg, runner=self.runner,
+                                now=datetime(2026, 11, 6, 14, 0, tzinfo=timezone.utc))
+        props = {
+            'LoadState': 'loaded', 'ActiveState': 'inactive', 'Type': 'oneshot',
+            'Result': 'success', 'ExecMainStatus': '0',
+            'ExecMainStartTimestamp': 'Fri 2026-11-06 21:00:00 CST',
+        }
+        for end in ('14:00:01', '14:02:00', '14:02:01'):
+            with self.subTest(end=end):
+                props['ExecMainExitTimestamp'] = f'Fri 2026-11-06 {end} UTC'
+                collector.unit_observations[self.rows[0]['unit']] = {
+                    key: [value] for key, value in props.items()}
+                evidence = {}
+                status, _ = collector.unfinished_schedule(
+                    self.rows[0], {'round_start_ts': '2026-11-06 21:00:00'}, evidence)
+                self.assertEqual(status, 'unknown')
+                self.assertEqual(evidence['execution_state'], 'pending')
+                self.assertNotIn('exit_code', evidence)
+
+    def test_unfinished_round_without_live_unit_proof_is_not_a_failure_or_recovery(self):
+        c = self.unfinished_check({'ExecMainStartTimestamp': '', 'ExecMainExitTimestamp': ''})
+        self.assertEqual(c['status'], 'unknown')
+        self.assertEqual(c['evidence']['execution_state'], 'pending')
+        path = self.data / 'static-site/data/schedule_stats.json'
+        os.utime(path, (1, 1))
+        snapshot = self.collect(ServiceStateRunner(self.rows, {'ActiveState': 'activating'}))
+        c = next(c for c in snapshot['checks'] if c['id'] == 'schedule:' + self.rows[0]['task'])
+        self.assertEqual(c['status'], 'unknown')
+        self.assertNotIn('execution_state', c['evidence'])
 
     def test_read_limits_symlinks_duplicate_and_nonfinite_json(self):
         p = self.temp / 'input.json'

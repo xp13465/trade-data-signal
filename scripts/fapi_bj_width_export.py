@@ -8,6 +8,7 @@
 产物(最小范围: 只重导北交所宽度相关, 不重算无关产物, 不与 17:50 既有产物互扰):
   - data/overview.json                     北交所宽度卡当前值(today.metrics.a_bj_*) + a_bj_*_6m sparkline
   - data/a-stock-{3m,6m,1y,3y,5y,all}.json 历史走势(metrics.a_bj_width_*, 前端 KPI 详情弹窗 range)
+  - data/boot.json + signals_today.json     overview 的首屏派生副本，必须同批刷新和发布
 
 通道(复用既有, 不新造):
   - export: 复用 static-site/export.py 的 export_overview/export_a_stock/write_json(与 deploy.sh 同源查询逻辑)
@@ -29,6 +30,7 @@ CLI:
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import subprocess
 import sys
@@ -77,6 +79,23 @@ def _export_products(conn, cfg) -> bool:
             print(f"  ✓ {fname}", flush=True)
         except Exception as e:  # noqa: BLE001
             print(f"  ✗ {fname} 导出失败: {e}", flush=True)
+            ok = False
+    if ok:
+        try:
+            exp.export_boot()
+            overview = json.loads((exp.DATA_DIR / "overview.json").read_text())
+            boot = json.loads((exp.DATA_DIR / "boot.json").read_text())
+            signals = json.loads((exp.DATA_DIR / "signals_today.json").read_text())
+            expected = dict(overview)
+            expected.pop("signals_today", None)
+            if boot.get("overview") != expected or signals != {
+                "date": overview.get("date"), "signals_today": overview.get("signals_today"),
+                "signals_meta": overview.get("signals_meta"),
+            }:
+                raise ValueError("overview/boot/signals_today 合同不一致")
+            print("  ✓ boot.json + signals_today.json 首屏合同一致", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ✗ 首屏派生刷新/合同校验失败: {e}", flush=True)
             ok = False
     return ok
 
@@ -145,7 +164,7 @@ def _now() -> str:
 
 def main() -> int:
     no_upload = "--no-upload" in sys.argv
-    files = ["overview.json"] + [f"a-stock-{rng}.json" for rng in exp.EXPORT_RANGES]
+    files = ["overview.json", "boot.json", "signals_today.json"] + [f"a-stock-{rng}.json" for rng in exp.EXPORT_RANGES]
     print(f"=== [fapi-bj-width-export] {_now()} start (REPO={REPO}) ===", flush=True)
 
     cfg = exp.load_config()

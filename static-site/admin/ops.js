@@ -9,6 +9,8 @@
   const VERIFICATION = { unknown: '未知', unverified: '未验证', pending: '待验证', failed: '验证失败', scoped_pass: '限定通过', verified: '已验证', passed: '通过' };
   const OBSERVATION = { unknown: '未知', pending: '待观察', not_started: '尚未开始', observing: '观察进行中', observed: '已有观察证据', passed: '观察通过', complete: '观察完成' };
   const KINDS = { host: '主机', repository: '仓库', service: '服务', task: '任务', data: '数据', monitor: '监控', alert_rule: '告警规则', surface: '展示入口', external: '外部服务', edge: '关系', incident: '问题' };
+  const FRESHNESS_MINUTES = 30;
+  const FRESHNESS_MS = FRESHNESS_MINUTES * 60 * 1000;
   const STATUS = { ok: 'OK', warning: '警告', critical: '严重', unknown: '未知', fresh: '采集新鲜', stale: '采集过期', failed: '失败', baseline: '版本基线' };
   // Exact product messages only (ops_monitor.py and ops state/watchdog). Raw evidence stays unchanged.
   const SUMMARIES = new Map(Object.entries({
@@ -36,6 +38,10 @@
     'Existing schedule producer reports a missed execution': '现有调度统计报告漏执行，需核对原始证据。',
     'Existing schedule producer reports an anomaly; details withheld': '现有调度统计报告异常；本面板未展示日志详情。',
     'Existing schedule producer reports an unfinished round': '现有调度统计报告一轮执行尚未完成。',
+    'Scheduled unit is running; completion not yet observed': '调度任务正在运行；尚未观察到执行完成。',
+    'Scheduled round completed after derived snapshot; data correctness not checked': '调度轮次已在统计快照之后完成；尚未检查数据是否正确。',
+    'Scheduled round failed according to current systemd evidence': '当前系统执行证据确认本轮失败。',
+    'Unfinished scheduled round has no verified completion': '本轮尚缺有效的执行完成证据；保留待确认状态。',
     'Trusted derived execution verdict; no business data validation': '已取得可信来源的执行结论；尚未验证业务数据。',
     'Default local backup metadata only; remote copy and restore validity unknown': '仅检查默认本地备份的文件信息；远端副本和可恢复性仍未知。',
     'Default local backup observation unavailable': '默认本地备份检查未完成。',
@@ -301,13 +307,19 @@
     if (state.hasStateError || !s?.latest) return 'unknown';
     const stamp = Date.parse(s.latest.collected_at);
     if (!Number.isFinite(stamp) || !['fresh', 'stale'].includes(s.collector_status)) return 'unknown';
-    if (s.collector_status === 'stale' || Date.now() + state.serverOffset - stamp > 1800000) return 'stale';
+    if (s.collector_status === 'stale' || Date.now() + state.serverOffset - stamp > FRESHNESS_MS) return 'stale';
     return 'fresh';
   }
   function currentChecks() {
     return [...list(state.data.state?.latest?.checks).filter(object), ...list(state.data.state?.missing_checks).filter(object).map(c => ({ ...c, _missing: true }))];
   }
   function liveStatus(check) { return !check._missing && freshness() === 'fresh' && ['ok', 'warning', 'critical', 'unknown'].includes(check.status) ? check.status : 'unknown'; }
+  function checkDisplay(check) {
+    const running = freshness() === 'fresh' && !check._missing && check.observation_status === 'observed' && check.status === 'unknown' && check.evidence?.execution_state === 'running';
+    const display = append(node('div'), badge(liveStatus(check), running ? '运行中（待完成）' : check._missing ? '未覆盖 · 未知' : undefined));
+    if (check.problem_open === true) display.append(node('div', 'small muted', '此前问题未证实恢复'));
+    return display;
+  }
   function visibleChecks(categories) {
     return currentChecks().filter(c => (!categories || categories.includes(c.category)) && (matches(c) || matches(checkName(c)) || matches(summaryOf(c.summary))) && (state.status === 'all' || liveStatus(c) === state.status));
   }
@@ -318,20 +330,20 @@
     const errors = Object.entries(state.errors);
     $('global-notice').hidden = !errors.length && fresh === 'fresh';
     $('global-notice').className = 'notice warning';
-    $('global-notice').textContent = errors.length ? errors.map(([key, value]) => key + '：' + value).join('；') + '。已保留的数据仅供历史参考，未完成的检查不按健康处理。' : fresh === 'stale' ? '采集已超过 15 分钟。下方保留最近证据，当前结果按未知显示；没有自动宣告恢复。' : fresh === 'unknown' ? '当前采集状态未知。缺少数据或配置不能按正常处理。' : '';
+    $('global-notice').textContent = errors.length ? errors.map(([key, value]) => key + '：' + value).join('；') + '。已保留的数据仅供历史参考，未完成的检查不按健康处理。' : fresh === 'stale' ? '采集已过期（新鲜度阈值 ' + FRESHNESS_MINUTES + ' 分钟）。下方保留最近证据，当前结果按未知显示；没有自动宣告恢复。' : fresh === 'unknown' ? '当前采集状态未知。缺少数据或配置不能按正常处理。' : '';
   }
   function renderLive(target, categories) {
     const checks = visibleChecks(categories);
     const rows = checks.map(c => {
       const title = append(node('div'), button(checkName(c), () => showCheck(c), 'link-button'), node('span', 'record-id mono', c.id));
-      const statusCell = append(node('div'), badge(liveStatus(c)));
+      const statusCell = checkDisplay(c);
       if (freshness() !== 'fresh') statusCell.append(node('div', 'muted', '最近记录：' + (STATUS[c.status] || text(c.status))));
       return [title, statusCell, node('span', 'truncated', summaryOf(c.summary) || '未提供检查摘要'), time(c.observed_at), button('详情', () => showCheck(c))];
     });
     $(target).replaceChildren(table(['检查 / 稳定 ID', '当前状态', '摘要', '证据时间', ''], rows, currentChecks().length ? '当前筛选无匹配检查' : '尚无该范围的采集检查'));
     const missing = currentChecks().filter(c => c._missing && matches(c) && ['all', 'unknown'].includes(state.status));
     if (missing.length) {
-      $(target).append(node('div', 'section-heading', '未在最新快照覆盖（全部分类）'), table(['先前检查', '当前状态', '最近记录', '原观察时间'], missing.map(c => [button(checkName(c), () => showCheck(c), 'link-button'), badge('unknown', '未覆盖 · 未知'), STATUS[c.previous_status] || text(c.previous_status), time(c.observed_at)])));
+      $(target).append(node('div', 'section-heading', '未在最新快照覆盖（全部分类）'), table(['先前检查', '当前状态', '最近记录', '原观察时间'], missing.map(c => [button(checkName(c), () => showCheck(c), 'link-button'), checkDisplay(c), STATUS[c.previous_status] || text(c.previous_status), time(c.observed_at)])));
     }
   }
   function renderBaseline(target, kinds) {
@@ -367,7 +379,7 @@
     append(attention, node('h2', '', '当前需要关注'), node('p', 'small muted', '先看检查证据，再判断业务影响。'));
     const flagged = visibleChecks().filter(c => liveStatus(c) !== 'ok').slice(0, 8);
     if (!flagged.length) attention.append(empty(checks.length && f === 'fresh' ? '当前覆盖内没有非 OK 检查' : '当前证据不足', '只限已覆盖检查；仍需独立看业务交付与未知项。'));
-    else { const activity = node('div', 'activity'); flagged.forEach(c => { const n = node('div', 'activity-item'); append(n, badge(liveStatus(c)), node('span', '', ' '), button(checkName(c), () => showCheck(c), 'link-button'), node('div', 'small muted', brief(summaryOf(c.summary), 160))); activity.append(n); }); attention.append(activity); }
+    else { const activity = node('div', 'activity'); flagged.forEach(c => { const n = node('div', 'activity-item'); append(n, checkDisplay(c), node('span', '', ' '), button(checkName(c), () => showCheck(c), 'link-button'), node('div', 'small muted', brief(summaryOf(c.summary), 160))); activity.append(n); }); attention.append(activity); }
     const context = node('section', 'panel'); append(context, node('h2', '', '交付与处置入口'), overviewLink('服务与定时器', 'services', currentChecks().filter(c => ['service', 'timer'].includes(c.category)).length + ' 项当前检查'), overviewLink('数据 / 发布 / 备份', 'data', '逐链对账'), overviewLink('知识库', 'architecture', state.records.length + ' 个版本记录'), overviewLink('问题与跟进', 'incidents', state.incidents.length + ' 项'), overviewLink('采集与告警投递', 'history', '历史 / 事件'));
     append(context, node('div', 'subtle-divider'), node('p', 'small muted', '声明、运行态、业务健康、根因状态各自保留；不会从静态基线自动生成绿色健康结论。'));
     append(grid, attention, context); host.append(grid, coveragePanel);
@@ -577,7 +589,7 @@
   }
   function showCheck(check) {
     const host = openDetail(checkName(check), '实时采集 / ' + text(check.category));
-    append(host, pairs([['稳定 ID', check.id], ['当前状态', badge(liveStatus(check))], ['最近记录值', STATUS[check.previous_status || check.reported_status || check.status] || check.previous_status || check.status], ['观察标记', check.observation_status], ['检查时间', fullTime(check.observed_at)], ['最新快照时间', fullTime(state.data.state?.latest?.collected_at)], ['摘要', summaryOf(check.summary)]]));
+    append(host, pairs([['稳定 ID', check.id], ['当前状态', checkDisplay(check)], ['最近记录值', STATUS[check.previous_status || check.reported_status || check.status] || check.previous_status || check.status], ['观察标记', check.observation_status], ['检查时间', fullTime(check.observed_at)], ['最新快照时间', fullTime(state.data.state?.latest?.collected_at)], ['摘要', summaryOf(check.summary)]]));
     if (check._missing) host.append(notice('该检查未在最新覆盖范围。保留旧状态仅供追溯，当前为 unknown，不作恢复。', 'warning'));
     if (freshness() !== 'fresh') host.append(notice('采集过期或不可判定：此记录仅是最近证据，当前状态未知。', 'warning'));
     append(host, node('h3', '', '安全证据字段'), node('pre', '', text(check.evidence)));

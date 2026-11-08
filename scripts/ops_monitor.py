@@ -323,6 +323,8 @@ def unit_check(name, props):
     if not timer:
         evidence['last_start_utc'] = systemd_time_utc(first(props, 'ExecMainStartTimestamp'))
         evidence['last_exit_utc'] = systemd_time_utc(first(props, 'ExecMainExitTimestamp'))
+        evidence['exit_code'] = int(code) if code.isdigit() else None
+        evidence['unit_result'] = result
     if active == 'failed':
         evidence['exit_code'] = int(code) if code.isdigit() else None
         return check(cid, category, 'critical', 'Systemd reports failed; business impact not evaluated', evidence)
@@ -344,7 +346,7 @@ def unit_check(name, props):
     if typ == 'oneshot' and active == 'inactive':
         if has_run and result == 'success' and code == '0':
             return check(cid, category, 'ok', 'Oneshot last systemd run succeeded; data correctness not checked', evidence)
-        if has_run and result and result != 'success':
+        if has_run and ((code.isdigit() and int(code) != 0) or (result and result != 'success')):
             return check(cid, category, 'warning', 'Oneshot previous run was not successful', evidence)
         return check(cid, category, 'unknown', 'Inactive oneshot has no trusted completion record', evidence)
     return check(cid, category, 'unknown', 'Unit state has no implemented success criterion', evidence)
@@ -391,6 +393,7 @@ class Collector:
         self.runner = runner or CommandRunner(self.budget, cfg.command_timeout_seconds)
         self.now = now or datetime.now(timezone.utc)
         self.checks = []
+        self.unit_observations = {}
         self.limitations = ['Operational checks are not business health guarantees',
                             'Asset metadata is not content integrity or business freshness',
                             'Remote publication and backup recoverability are not inferred',
@@ -441,6 +444,7 @@ class Collector:
             self.counts['source_errors'] += 1
             self.add(check('monitor:unit-read', 'monitor', 'unknown', 'Systemd property collection unavailable',
                            {'error_kind': type(exc).__name__[:64]}))
+        self.unit_observations = observed
         for name in names + timers:
             props = observed.get(name)
             self.add(unit_check(name, props))
@@ -528,13 +532,50 @@ class Collector:
                 elif item.get('log_anomaly') is True:
                     status, summary = 'warning', 'Existing schedule producer reports an anomaly; details withheld'
                 elif item.get('round_state') == 'started_unfinished':
-                    status, summary = 'warning', 'Existing schedule producer reports an unfinished round'
+                    status, summary = self.unfinished_schedule(row, item, evidence)
                 elif trusted_exit and type(code) is int:
                     evidence['exit_code'] = code
                     status = 'ok' if code == 0 else 'warning'
                     summary = 'Trusted derived execution verdict; no business data validation'
             self.add(check(cid, 'monitor', status, summary, evidence))
             self.counts['schedule_rows'] += 1
+
+    def unfinished_schedule(self, row, item, evidence):
+        # Reuse the bounded live unit observation; a start recorded by the
+        # schedule producer is not itself a failure or a completed success.
+        props = self.unit_observations.get(row['unit']) or {}
+        if first(props, 'LoadState') == 'loaded':
+            if first(props, 'ActiveState') in ('active', 'activating', 'reloading'):
+                evidence['execution_state'] = 'running'
+                return 'unknown', 'Scheduled unit is running; completion not yet observed'
+            start = systemd_time_utc(first(props, 'ExecMainStartTimestamp'))
+            end = systemd_time_utc(first(props, 'ExecMainExitTimestamp'))
+            raw_round = item.get('round_start_ts')
+            if isinstance(raw_round, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', raw_round):
+                raw_round += ' CST'
+            round_start = systemd_time_utc(raw_round) if isinstance(raw_round, str) else None
+            same_round = bool(start and round_start and start == round_start)
+            evidence['same_round'] = same_round
+            if (same_round and end and first(props, 'Type') == 'oneshot'
+                    and first(props, 'ActiveState') == 'inactive'
+                    and first(props, 'Result') == 'success' and first(props, 'ExecMainStatus') == '0'
+                    and datetime.fromisoformat(end.replace('Z', '+00:00'))
+                    >= datetime.fromisoformat(start.replace('Z', '+00:00'))
+                    and datetime.fromisoformat(end.replace('Z', '+00:00')) <= self.now):
+                evidence.update(execution_state='completed', exit_code=0,
+                                trusted_exit_origin=True, completion_source='systemd_live')
+                return 'ok', 'Scheduled round completed after derived snapshot; data correctness not checked'
+            code = first(props, 'ExecMainStatus')
+            if same_round and (first(props, 'ActiveState') == 'failed'
+                               or first(props, 'Result') not in ('', 'success')
+                               or (code.isdigit() and int(code) != 0)):
+                evidence.update(execution_state='failed', trusted_exit_origin=True,
+                                completion_source='systemd_live')
+                if code.isdigit():
+                    evidence['exit_code'] = int(code)
+                return 'warning', 'Scheduled round failed according to current systemd evidence'
+        evidence['execution_state'] = 'pending'
+        return 'unknown', 'Unfinished scheduled round has no verified completion'
 
     def backups(self):
         try:
