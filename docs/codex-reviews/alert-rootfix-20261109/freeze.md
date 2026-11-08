@@ -101,6 +101,20 @@ DataGap 5 精确时序：
 
 新增诊断工具仅在临时 SQLite 样本中执行 writer 定义，不执行生产入口/网络/真实采集；exit 1 有意证明范围外缺陷仍在，不能当作修复通过。
 
+## 独立日志边界修复（用户追加授权）
+
+独立 nextday 复审 `nextday-independent-review.json` / `producer-injected-fakeprice.log` 证明：`_fetch_intraday_open_prices` 主源 except 中原样插值异常字符串，异常正文可以伪造价格、汇总和 wrapper END；下游规则可能提前截窗并豁免真实缺价。证明的是输入边界可利用，不声称生产已经发生攻击/事故。
+
+三验：①真实 producer 构造异常可复现假记录；②根因定位到主源 except 的 print 插值；③只转义该正文即可切断记录注入，保留异常类别和全部兜底调用/返回。实施为 `{str(e)!a}`：标准库 ASCII 表示对字符串中的 LF、CR、CRLF、VT、FF、FS、GS、RS、NEL(U+0085)、LS(U+2028)、PS(U+2029) 全部转义，另覆盖引号、反斜杠和控制字符；不只替换 `\n`，也不依赖异常类的可重载 repr。
+
+新增 `scripts/tests/test_intraday_source_log_boundary_20261109.py` 编译执行**完整真实函数**，仅主源抛错/HTTP返回边界替身，封锁真实网络和子进程。故障注入提供假 510300 正常价、假 END，但 HTTP 真实替身仅返回 513260；断言日志单记录，510300 仍缺价，类别、fallback参数/顺序与 meta 不变。另测混合分隔符、自定义异常 repr 与普通单行异常。
+
+- 修前：`freeze-log-boundary-red.log`，原始末行 **`12 failed, 3 passed in 0.29s`**，exit 1。
+- 修后：`python3 -m pytest -q --tb=short scripts/tests/test_intraday_source_log_boundary_20261109.py scripts/tests/test_alert_freeze_rootcause_20261109.py scripts/tests/test_codex_frozen_diagnostics_20261106.py scripts/tests/test_codex_signal_gap_diagnostics_20261106.py`。
+- 原始末行 **`36 passed, 32 subtests passed in 1.29s`**，exit 0；`freeze-log-boundary-green.log`。
+- 除该异常 print 外，真实函数 AST 不变；不改取价流程、不加新来源、不改豁免资格。nextday作者独占 parser + nextday_gap_check.py；本分支不碰这些文件。
+- 不追加全量；父整合后统一组合验证。**此项不计入136/5修复，交易补好仍0。**
+
 ## Checks
 
 - 定向：`python3 -m pytest -q --tb=short scripts/tests/test_alert_freeze_rootcause_20261109.py scripts/tests/test_codex_frozen_diagnostics_20261106.py scripts/tests/test_codex_signal_gap_diagnostics_20261106.py`。

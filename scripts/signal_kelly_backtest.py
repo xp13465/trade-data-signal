@@ -1215,7 +1215,8 @@ def _fetch_intraday_open_prices(codes, expect_date=None):
             # 主源拉取失败 → 对全部 target 走腾讯(主)+新浪(备)双源兜底(逐标的独立,
             # 见 _fetch_intraday_open_via_http)。#254: 兜底现不再 raise, 返回分类结果;
             # 失败原因打 stderr 便于排查(不再包成 RuntimeError 终止链)。
-            print(f"   [就绪闸] 主源 fund_etf_spot_em 失败({type(e).__name__}: {e}), 全量走双源兜底",
+            # 转义 str 的全部记录分隔符，防异常正文伪造价格/汇总/wrapper END 日志。
+            print(f"   [就绪闸] 主源 fund_etf_spot_em 失败({type(e).__name__}: {str(e)!a}), 全量走双源兜底",
                   file=sys.stderr, flush=True)
             sub_out, sub_zv = _fetch_intraday_open_via_http(target, expect_date=expect_date)
             return sub_out, sub_zv, {"main_source_ok": False, "fallback_used": True}
