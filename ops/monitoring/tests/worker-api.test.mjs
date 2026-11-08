@@ -5,6 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
 import handler, { opsScheduled } from '../../../worker/ops.js';
 import BASELINE from '../../../worker/ops_baseline.js';
+import authHandler, { getAdminUsers } from '../../../worker/auth.js';
 
 // Real SQLite/JSON1/triggers/transactions, adapted to the documented D1 API.
 // Separate Miniflare test verifies the real D1 binding; no remote credentials.
@@ -76,6 +77,74 @@ test('auth fails closed: member/ingest denied, strict provider UID and separate 
   assert.equal((await f.call('/state', { bindings: { ...f.env, OPS_INGEST_TOKEN: keys.OPS_ADMIN_TOKEN } })).status, 503);
   assert.equal((await f.call('/ingest', { value: f.snapshot() })).status, 403);
   for (const path of ['/state', '/knowledge', '/incidents', '/export', '/events', '/history']) assert.equal((await f.call(path, { role: 'ingest' })).status, 403);
+}));
+
+// Both handlers consume the same signed cookie; auth.me also resolves its KV user.
+async function assertAdminParity(f, provider, uid, allowed, name = 'Synthetic user') {
+  const cookie = 'session=' + session(uid, provider);
+  const users = new Map([[`user:${provider}:${uid}`, JSON.stringify({
+    id: `fixture-${uid}`, provider, provider_uid: uid, name, avatar: '',
+  })]]);
+  const bindings = { ...f.env, SUBSCRIBE_KV: { async get(key) { return users.get(key) ?? null; } } };
+  const me = await authHandler(new Request('https://example.invalid/api/auth/me', {
+    headers: { Cookie: cookie },
+  }), bindings);
+  assert.equal(me.status, 200);
+  const body = await me.json();
+  assert.equal(body.logged_in, true);
+  assert.equal(body.user.is_admin, allowed, `${provider}:${uid} auth.me`);
+  const ops = await f.call('/state', { role: null, headers: { Cookie: cookie }, bindings });
+  if (allowed) assert.equal(ops.status, 200, `${provider}:${uid} ops`);
+  else assert.ok([401, 403, 503].includes(ops.status), `${provider}:${uid} denied: ${ops.status}`);
+}
+
+test('legacy and supplemental administrators share exact auth.me/ops authorization', () => fixture(async f => {
+  f.env.ADMIN_USERS = ' fixture:admin, github:700001 ';
+  f.env.ADMIN_USERS_ADDITIONS = ' github:700002, , github:700003 ';
+  assert.deepEqual(getAdminUsers(f.env), ['fixture:admin', 'github:700001', 'github:700002', 'github:700003']);
+  await f.push(f.snapshot());
+  for (const uid of ['700001', '700002', '700003']) await assertAdminParity(f, 'github', uid, true);
+  await assertAdminParity(f, 'fixture', 'admin', true);
+  for (const [provider, uid, name] of [
+    ['github', '700004', '700002'], // Display name cannot substitute for provider UID.
+    ['gitee', '700002', 'Synthetic user'],
+    ['github', '0700002', 'Synthetic user'],
+    ['github', '7000020', 'Synthetic user'],
+    ['github', 'fixture-admin-login', 'Synthetic user'],
+  ]) await assertAdminParity(f, provider, uid, false, name);
+}));
+
+test('ADDITIONS-only works without changing legacy secret and never authorizes ingest', () => fixture(async f => {
+  delete f.env.ADMIN_USERS;
+  f.env.ADMIN_USERS_ADDITIONS = ' github:700002 ';
+  await assertAdminParity(f, 'github', '700002', true);
+  const before = f.db.sql.prepare('SELECT COUNT(*) n FROM ops_runs').get().n;
+  assert.equal((await f.call('/ingest', {
+    role: null, headers: { Cookie: 'session=' + session('700002', 'github') }, value: f.snapshot(),
+  })).status, 403);
+  assert.equal(f.db.sql.prepare('SELECT COUNT(*) n FROM ops_runs').get().n, before);
+  assert.equal((await f.push(f.snapshot())).status, 200);
+  assert.equal((await f.call('/state', { role: 'ingest' })).status, 403);
+}));
+
+test('malformed allowlist values fail closed independently in both bindings', () => fixture(async f => {
+  const malformed = [undefined, null, 700002, true, ['github:700002'],
+    { identity: 'github:700002' }, '', '700002', 'github:', ':700002',
+    'github:700002:extra', 'github:700002/extra', 'github:700002\nextra'];
+  for (const field of ['ADMIN_USERS', 'ADMIN_USERS_ADDITIONS']) {
+    for (const value of malformed) {
+      delete f.env.ADMIN_USERS; delete f.env.ADMIN_USERS_ADDITIONS;
+      f.env[field] = value;
+      assert.deepEqual(getAdminUsers(f.env), []);
+      await assertAdminParity(f, 'github', '700002', false);
+    }
+  }
+  // A bad supplement cannot discard valid existing administrators (or vice versa).
+  f.env.ADMIN_USERS = 'github:700001'; f.env.ADMIN_USERS_ADDITIONS = ['github:700002'];
+  await assertAdminParity(f, 'github', '700001', true);
+  await assertAdminParity(f, 'github', '700002', false);
+  f.env.ADMIN_USERS = {}; f.env.ADMIN_USERS_ADDITIONS = 'github:700002';
+  await assertAdminParity(f, 'github', '700002', true);
 }));
 
 test('bounded/strict JSON: chunked oversize, stale/future, unsafe scalar evidence, baseline injection', () => fixture(async f => {

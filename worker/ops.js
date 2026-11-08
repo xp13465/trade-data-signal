@@ -1,7 +1,7 @@
 // Dedicated private operations API. See ops/monitoring/contract.md.
 // D1 batch + triggers (0001_ops.sql) atomically persist runs/transitions/outbox.
 // Official API: developers.cloudflare.com/d1/worker-api/d1-database/
-import { getSessionUser } from './auth.js';
+import { getAdminUsers, getSessionUser } from './auth.js';
 import BASELINE from './ops_baseline.js';
 import { benefitStatements, benefitRunStatement, benefitsConfigured, benefitsRetain, benefitsRoute, benefitsExportTables } from './ops_benefits.js';
 
@@ -79,7 +79,7 @@ async function admin(request, env) {
     if (!await sameSecret(token, env.OPS_ADMIN_TOKEN)) fail(403, 'admin_required');
     return { actor: 'bootstrap-admin', session: false };
   }
-  const allow = typeof env.ADMIN_USERS === 'string' ? env.ADMIN_USERS.split(',').map(s => s.trim()).filter(s => /^[a-z0-9_-]+:[A-Za-z0-9_.-]+$/.test(s)) : [];
+  const allow = getAdminUsers(env);
   if (!allow.length) fail(env.OPS_ADMIN_TOKEN ? 401 : 503, env.OPS_ADMIN_TOKEN ? 'admin_required' : 'admin_not_configured');
   let user; try { user = await getSessionUser(request, env); } catch { fail(503, 'session_service_unavailable'); }
   if (!user) fail(401, 'admin_required');

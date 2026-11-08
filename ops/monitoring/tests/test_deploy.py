@@ -354,3 +354,15 @@ def test_real_notification_opt_in_is_visible_and_local_mode_rejects_it():
     rows = v.worker_config_checks(config, local=True)
     assert next(c for c in rows if c['id'] == 'config.alert-enabled')['status'] == 'warning'
     assert next(c for c in rows if c['id'] == 'config.local')['status'] == 'critical'
+
+
+@pytest.mark.parametrize('binding', ['ADMIN_USERS', 'ADMIN_USERS_ADDITIONS'])
+@pytest.mark.parametrize('value', ['github:700002', ''])
+def test_admin_allowlists_forbidden_in_plaintext_vars(binding, value):
+    config = v.parse_jsonc((ROOT / 'ops/monitoring/wrangler.local.jsonc').read_text())
+    assert next(c for c in v.worker_config_checks(config) if c['id'] == 'config.secrets')['status'] == 'ok'
+    config['vars'][binding] = value
+    for local in (False, True):
+        rows = v.worker_config_checks(config, local=local)
+        assert next(c for c in rows if c['id'] == 'config.secrets')['status'] == 'critical'
+        assert '700002' not in json.dumps(rows)

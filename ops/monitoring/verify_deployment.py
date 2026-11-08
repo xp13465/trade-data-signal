@@ -232,7 +232,7 @@ def worker_config_checks(config, local=False, config_path=None, source_root=None
     rows.append(check('config.cron', 'ok' if isinstance(crons, list) and '*/15 * * * *' in crons else 'critical',
                       'Independent fifteen-minute cron declared; runtime execution is not proved' if isinstance(crons, list) and '*/15 * * * *' in crons else 'Fifteen-minute watchdog cron declaration missing'))
     variables = config.get('vars') or {}
-    forbidden = {'OPS_INGEST_TOKEN', 'OPS_ADMIN_TOKEN', 'OPS_ALERT_WEBHOOK', 'SESSION_SECRET', 'ADMIN_USERS'}
+    forbidden = {'OPS_INGEST_TOKEN', 'OPS_ADMIN_TOKEN', 'OPS_ALERT_WEBHOOK', 'SESSION_SECRET', 'ADMIN_USERS', 'ADMIN_USERS_ADDITIONS'}
     safe = isinstance(variables, dict) and not (forbidden & set(variables))
     rows.append(check('config.secrets', 'ok' if safe else 'critical', 'Private bindings are not inline config variables' if safe else 'Private values must be provisioned as secrets, not inline configuration'))
     scope = variables.get('OPS_ALERT_SCOPE', 'watchdog') if isinstance(variables, dict) else None

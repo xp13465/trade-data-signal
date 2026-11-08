@@ -317,6 +317,15 @@ async function getUserByProviderUid(env, provider, providerUid) {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
+// Shared by /api/auth/me and the operations API. Keep the existing opaque
+// ADMIN_USERS secret intact when adding identities through a managed supplement.
+export function getAdminUsers(env) {
+  return [env.ADMIN_USERS, env.ADMIN_USERS_ADDITIONS]
+    .flatMap(value => typeof value === 'string' ? value.split(',') : [])
+    .map(value => value.trim())
+    .filter(value => /^[a-z0-9_-]+:[A-Za-z0-9_.-]+$/.test(value));
+}
+
 // ============ 路由 ============
 
 async function loginGitee(request, env) {
@@ -657,8 +666,8 @@ async function me(request, env) {
   }
   const user = await getUserByProviderUid(env, provider, providerUid);
   if (!user) return jsonResponse({ logged_in: false, user: null, privileges: [] }, 200, { request });
-  // is_admin：env.ADMIN_USERS 逗号分隔 provider:uid 列表判断（secret 不写死代码，未来加管理员改 secret）
-  const adminList = env.ADMIN_USERS ? env.ADMIN_USERS.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [];
+  // Use the same exact provider:UID allowlist as the private operations API.
+  const adminList = getAdminUsers(env);
   const isAdmin = adminList.indexOf(user.provider + ':' + user.provider_uid) !== -1;
   return jsonResponse({
     logged_in: true,

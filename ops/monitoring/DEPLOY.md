@@ -152,7 +152,7 @@ PY
 
 `OPS_ADMIN_TOKEN` 是可选 bootstrap：若只允许 session admin，不创建/上传该字段，验证器改由 UI/session 人工验收。不要以 `OPS_INGEST_TOKEN` 代替它。此示例生成独立 token，不读取既有业务凭据。
 
-已有 session secret 与 `ADMIN_USERS` 原样保留。`ADMIN_USERS` 使用既有 `provider:providerUid` 完整 allowlist；普通登录用户禁止访问。若需新增管理员，Claude 先核对原 allowlist，在私有输入流程中提供完整合并值（不能覆盖丢旧成员），加入私有 secrets 文件；不要提交身份列表或把 session secret 放入候选 config。前端 bootstrap token 只驻留内存，不持久化到 localStorage/URL。
+已有 session secret 与 `ADMIN_USERS` 原样保留。管理员使用 `provider:providerUid`（GitHub/Gitee 的稳定数字 ID，非用户名），普通登录用户禁止访问。登录状态与运维 API 共用 `getAdminUsers()`，取 `ADMIN_USERS` 与 `ADMIN_USERS_ADDITIONS` 两份加密配置的并集，逐项精确匹配。若无法取得旧 `ADMIN_USERS` 的完整权威副本，不得猜测或重写；新增身份写入 `ADMIN_USERS_ADDITIONS`，并保留该追加名单已有成员。追加名单由私有管理文件保存完整值，更新前备份核对，只写这个 secret；取得并核对旧完整名单后才可另行安排归并。两份名单均不得提交或放入明文 vars。前端 bootstrap token 只驻留内存，不持久化到 localStorage/URL。
 
 本次main-merge会触发自动部署，必须按第4节先把OPS密钥配置到实际目标Worker，再放行合并；仅生成本地secrets文件或上传未发布版本不算就绪。`wrangler secret put/bulk` 会影响已部署Worker，不是无副作用准备步骤，由Claude在部署窗口执行并记录版本；不要在目标不存在时接受创建空Worker的兜底。若采用versions secret流程，必须明确发布并验证密钥已对目标部署生效。手动发布也可使用 `wrangler deploy --secrets-file` 随代码上传，未列出的已有secrets保留，但不能用“稍后手动上传”代替自动部署前的就绪门槛。初期不配置 `OPS_ALERT_WEBHOOK`，且 `OPS_ALERT_ENABLED=false`、`OPS_ALERT_SCOPE=watchdog`。
 
