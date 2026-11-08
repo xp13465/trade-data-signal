@@ -28,11 +28,11 @@
 
 证据：`writer-source-backup-points.json`、`writer-intraday-log-trace.json`、`writer-reproducer-final.log`。
 
-- trace：base 中上述函数 / `have` 与 `missing` / 对应六键备份；关联用户「修之前分析真正原因」，`origin=pre-existing`。
+- trace：base 中上述函数 / `have` 与 `missing` / 对应六键备份；关联真实用户原话「为了确认可以修好。修之前分析一下真正原因和找出可以修好的依据。再开始修。我去睡了。醒来看你修好了多少个」，`origin=pre-existing`。
 - verifier：`python3 scripts/diagnose_alert_freeze_writer_20261109.py`。
 - expected：若同日实时行可刷新，应存 `[100,111,99,110]`。
 - observed：`first_writes=1, second_writes=0, fixture_fetch_calls=1, observed_ohlc=[100,100,100,100], refreshed=false`，**exit 1（有意暴露未修缺陷）**。
-- 处置：该 app 文件不在本次可写范围，**不修改**。Claude 可单独审查只刷新当天本源实时行、保留更强 collect 行、验证报价日期/时点的源头方案；不能用放宽历史冻结闸补偿。
+- Phase1处置：当时 app 文件不在可写范围，未修改。随后用户追加Phase3独占授权，现已在同分支实施源头刷新修复（见下节）；仍不能用放宽历史冻结闸补偿。
 - 证据边界：source 是模块级标记，不含逐行写入时间/原始 quote；备份、日志、映射、函数反例共同支持这六键；不把它外推为全部 18 键，尤其不据此认定申万四键的精确旧 writer。
 
 ### 2. 18 个事件有「历史行情改写 → 历史信号 appeared」持久证据，含 DataGap 5
@@ -123,13 +123,44 @@ DataGap 5 精确时序：
 - 测试覆盖：加载对象身份在内存新增/磁盘替换后不漂移；诊断序列化失败仍拒补；真实 compute 编排的保存成功/失败状态；三个历史截止点映射恢复后不补冻；checker 真实告警仍可见且不冒称接受。既有告警出口/去重/恢复/失败隔离测试通过。
 - 防前视：无分位数/特征库改动；三个隔离历史截止点只用该时点已有映射可冻，后来恢复映射仍拒补旧日期。未做全历史策略重算，不宣称全系统防前视验收。
 - 七轴：输入域（可JSON/不可JSON）测；状态（冻结空/新增/历史缺失）测；时序（解析前/磁盘后变/映射恢复）测；依赖（保存失败）测；极值（旧日期/无最新日）测；回退（无context→unknown）测；并发（归档不可覆盖由既有用例测），未测实际生产竞争，不推断生产部署结果。
-- 阶梯：复用现有 archive、原子写与告警路径，hash 用标准库；新工具直接执行原 writer 函数，无第二套策略。pending 索引只读检查；不写共享索引/CLAUDE/app/source其他文件，不碰 ops/d1/gen_schedule_stats，不 push/不部署。
+- 阶梯：复用现有 archive、原子写与告警路径，hash 用标准库；新工具直接执行原 writer 函数，无第二套策略。pending 索引只读检查；不写共享索引/CLAUDE/未授权source文件（Phase3追加的app两文件除外），不碰 ops/d1/gen_schedule_stats，不 push/不部署。
+
+## Phase3：已实施未来同模式的writer源头修复
+
+本阶段追加授权范围为 `app/collector/intraday_snapshot.py` 的 `_backfill_signal_universe_tencent` / 必要报价校验helper，以及 `app/db.py` 的必要SCHEMA/幂等迁移。原历史结论与计数不变；修复前报告另存 `freeze-root-cause-before-writer-fix.json` / `freeze-result-before-writer-fix.json`。trace已更正为真实用户原话：「为了确认可以修好。修之前分析一下真正原因和找出可以修好的依据。再开始修。我去睡了。醒来看你修好了多少个」，父派单的技术要求另列，未再混入用户原话。
+
+**先红后绿**：旧完整真实writer、真实腾讯parser、真实SQLite样本复现三项失败：后轮返回0不刷新、允许传过去日期写报价、请求期间新collect行被弱源覆盖。原始末行 `3 failed, 35 deselected in 0.50s`，`freeze-writer-phase3-red.log`，exit1。旧反例/历史证据保留，不抹除。
+
+### 最小机制及契约
+
+- 候选不再只取无行者：只补缺行，或刷新当日 `source=intraday_snapshot` 本源行。collect/calc/NULL/其它来源均保守保留；事务内再次读取来源，防网络请求期间强源到达。
+- 腾讯parser本来保留 `datetime`，未修改它。校验真实14位报价时间、真实日历日期必须为运行当日、不能晚于北京时间now，且在本模块既有A股9:30—11:30/13:00—15:00或港股9:30—12:00/13:00—16:00时段（分钟边界与现有函数一致）。盘前竞价不写此分支；9核心显示等原分支不动。非当日target/非交易日不发请求。收盘后当日收盘时点报价仍可校验，不另造任意分钟TTL。
+- 所有OHLC有限且严格正，low≤open/close≤high；pct/amount若有值必须有限，amount非负。新时点不能改变已知同源日open、缩小累计high/low区间；合法close下跌不等于时间倒序。真实flat完全合法，不用四价相等判假。
+- 现有index_daily只有date/source，没有报价时点；intraday_snapshot.collected_at是整轮采集时间，且该宇宙报价未包含在其indices缓存内，不能代表每条已落库行的报价。新增同一行元数据 `intraday_quote_at TEXT`，格式 **YYYYMMDDHHMMSS / Asia/Shanghai（北京时间，无UTC换算）/秒精度**。使用显式CST时区读时钟，旧行NULL=unknown。
+- 新列接入SCHEMA及现有 `_migrate`，重复/并发duplicate-column按既有模式幂等处理；writer中不临时ALTER，不新增表/状态文件/日志状态台账。SCHEMA补明已有source列，使新旧初始化顺序一致。metadata与OHLC在同一次UPSERT/事务写入。
+- 已有可信时点必须严格递增；同秒相异OHLC保守拒写并打印「同一报价时点OHLC冲突」，同秒同值幂等跳过。响应内重复code也按最新有效时点选择，最新同秒冲突不任意选一条。元数据格式无效同样可见拒写。
+- 旧行无元数据不伪造旧时点。首次使用有效同日新报价锚定时明确输出「旧报价时点unknown」，保留累计OHLC非回退约束；这不构成旧报价首次写入时点的恢复证据。之后水位在同一DB行，重载函数/新进程不能失去倒序保护。
+- 保留每30码一个请求、10秒timeout；不按指数新起请求。网络调用在写锁之外，每批写入有界事务，不让下一批网络等待持锁。
+
+### schema一跳、实际单日信号重放及范围
+
+`freeze-writer-phase3-scope-and-consumers.json` 固定扫描：app/scripts/static-site生产代码中无直接 `SELECT * FROM index_daily` 或无列清单位置INSERT；新测试的SELECT*以Row字典读取。API `index_history`仍显式7字段、signals loader显式5字段、history_audit显式6数值字段、export依赖日期查询。新列是来源时点元数据，不是新业务数值或算法阈值，不新增前端公示。
+
+`freeze-writer-phase3-single-day-replay.json`：隔离真实index_daily schema、真实parser/writer，单指数80日合成前史；执行完整未改 `signals.compute` 函数体。上午OHLC100四价时当日无buy；15:00有效报价刷新成 `[100,111,99,110]` 后，同日出现 `RSI上穿30(0->75)`。此前信号逐位相同，没有次日collect或次日行情行。**这是单日机制反事实样本，不是136个生产历史事件的收益/交易回填。**
+
+范围机检：collector中44个其它既有函数AST不变（含parser、9核心、申万、THS、recompute）；只改目标writer、新增一个校验helper。新/旧真实get_conn初始化及幂等迁移、未知旧元数据、各分隔/时段/坏价、同秒冲突、跨函数重载倒序、强源请求竞态、61标的3批请求、真实flat与价格合法下跌均有定向验证。原诊断CLI同步夹具后，反例变为 `second_writes=1, refreshed=true`、exit0。
+
+最终定向命令：`python3 -m pytest -q --tb=short scripts/tests/test_signal_universe_refresh_20261109.py scripts/tests/test_intraday_source_log_boundary_20261109.py scripts/tests/test_alert_freeze_rootcause_20261109.py scripts/tests/test_codex_frozen_diagnostics_20261106.py scripts/tests/test_codex_signal_gap_diagnostics_20261106.py`。原始末行 **`111 passed, 32 subtests passed in 3.63s`**，exit0，`freeze-writer-phase3-targeted-final.log`。另验证SQLite触发器注入写失败后OHLC/时点均未推进；移除故障后可重试成功。
+
+生产重算触发仍沿用现有collect_and_save的n_backfill/width门，本次只证明源更新与单日完整信号函数一致，不声称其它源全失败时仅n_sig也会独立触发全链。
+
+本阶段只定向与故障注入，不重跑单支全量；父整合后统一验证。未执行生产迁移、采集、回测、部署或上传。**historical repaired仍0，136/5不变。**
 
 ## Verdict / Open questions
 
-**历史恢复 BLOCKED；本次交付为诊断来源修复与可复核根因证据，待 Claude 审合，整合全量未完成。**
+**历史恢复仍 BLOCKED；诊断/日志边界与Phase3未来同源刷新机制已完成离线定向验证，待Claude审合；生产迁移及整合全量未执行。**
 
-- 优先根治已证实的 writer 首填后不刷新机制，但由拥有该 app 文件的任务实施；要验证新报价真实时点和源优先级，不能无条件覆盖 collect 行。
+- 已按追加独占授权修复writer首填后不刷新机制，并校验真实报价时点/源优先级；不覆盖collect。Claude审合后，正常生产配置/幂等迁移及自然运行效果另验。
 - 申万旧合成值的精确历史 writer、THS 映射首次可用、97 老键/4 余键的首次输入、冻结持久化/覆盖历史仍缺证据。
 - 每笔恢复均须可信的当时 ETF 选择或冻结记录；当信号实际直到次日收盘后才出现，还须明确它无法按过去次日开盘成交，不能伪造跟单历史。
 - 当前 136/5 不全 accepted、不降级消音、不改阈值、不重冻。**业务缺口仍 136 / 5，交易补好仍 0。**

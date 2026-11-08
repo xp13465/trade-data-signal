@@ -18,8 +18,15 @@ from unittest.mock import patch
 
 def reproduce():
     source = Path(__file__).resolve().parents[1] / "app/collector/intraday_snapshot.py"
-    writer = next(n for n in ast.parse(source.read_text()).body
+    tree = ast.parse(source.read_text())
+    writer = next(n for n in tree.body
                   if isinstance(n, ast.FunctionDef) and n.name == "_backfill_signal_universe_tencent")
+    helpers = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("_signal_universe_")]
+    class Clock(datetime):
+        current = datetime(2026, 11, 4, 9, 35)
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current.replace(tzinfo=tz) if tz else cls.current
     calendar = types.ModuleType("app.calendar")
     calendar.is_trading_day = lambda day: True
     with tempfile.TemporaryDirectory(prefix="alert-freeze-writer-sample-") as td, \
@@ -28,23 +35,29 @@ def reproduce():
         with sqlite3.connect(db) as conn:
             conn.execute("CREATE TABLE signal_daily(index_id TEXT)")
             conn.execute("INSERT INTO signal_daily VALUES('csi_000102')")
+            # Same row metadata as app/db.py; no new production DB or persistent state.
             conn.execute("CREATE TABLE index_daily(date TEXT,index_id TEXT,open REAL,high REAL,"
-                         "low REAL,close REAL,pct_change REAL,amount REAL,source TEXT,PRIMARY KEY(date,index_id))")
+                         "low REAL,close REAL,pct_change REAL,amount REAL,source TEXT,intraday_quote_at TEXT,PRIMARY KEY(date,index_id))")
         quote = dict(code="sz399102", price=100, open=100, high=100, low=100,
                      datetime="20261104093000", pct_change=0, amount=None)
         calls = []
         def fixture_get(*args, **kwargs):
             calls.append("fixture_only")
             return types.SimpleNamespace(content=b"fixture")
-        scope = dict(__package__="app.collector", datetime=datetime,
-                     get_conn=lambda: sqlite3.connect(db),
+        def connect():
+            conn = sqlite3.connect(db)
+            conn.row_factory = sqlite3.Row
+            return conn
+        scope = dict(__package__="app.collector", datetime=Clock,
+                     get_conn=connect,
                      _SIGNAL_UNIVERSE_TENCENT_MAP={"csi_000102": "sz399102"},
                      throttle=lambda: None, UA="isolated", _safe_get=fixture_get,
                      _parse_tencent=lambda text: [dict(quote)],
                      PCT_CHANGE_PRESERVE_SQL="pct_change=excluded.pct_change")
-        exec(compile(ast.Module(body=[writer], type_ignores=[]), str(source), "exec"), scope)
+        exec(compile(ast.Module(body=helpers + [writer], type_ignores=[]), str(source), "exec"), scope)
         with contextlib.redirect_stdout(io.StringIO()):
             first = scope[writer.name]("20261104")
+            Clock.current = datetime(2026, 11, 4, 15, 35)
             quote.update(price=110, high=111, low=99, datetime="20261104150000")
             second = scope[writer.name]("20261104")
         with sqlite3.connect(db) as conn:
