@@ -4,6 +4,37 @@
 
 R1 独立复验确认前两 P2 通过，新增 1 个状态机 P2：内层 END 清空布尔 pending，后续 START 挤掉未闭合外层 FATAL。本次在 `a7fdef6ed0bac811787eceb65c8e746915fd0ee0` 后继续追加提交，不覆写历史。
 
+## 组合全量唯一失败：测试选择器耦合
+
+父组合固定 `46fbc8f79c69074d2a166f9ef43753967f168e14` 全量结果为 `1 failed, 3937 passed, 3 skipped, 1 deselected, 116 subtests passed in 578.29s`。本次未重跑全量，原 `integrated-python.log/xml/json` 全部封存并核 SHA 不变。
+
+失败是测试错误，非业务 parser 回归或全量污染：`test_escaped_source_honors_only_standalone_wrapper_markers` 原先把 `NEXTDAY_FALLBACK_PRODUCER_SOURCE` 是否存在当作源是否已转义的代理。组合默认 producer 已有 `!a`，同一真实安全源产出合法单记录时，无 env 路径却被错误要求告警。
+
+根因在修前已独立验证并先写 `nextday-integration-followup.json`：
+
+- 只用 `git show da84ef8c7ef987e4c06c9f5ce488ad7ac3fb781e:scripts/signal_kelly_backtest.py`，其 `_fetch_intraday_open_prices` AST 与固定 `fa20231...` 一致；未读漂移 freeze 子树。
+- 在 `/tmp` 独立镜像中默认源即这份安全源，禁 conftest / 自动插件：旧测试 `1 failed, 1 passed, 37 deselected in 0.08s`；env 指向同一物理文件则 `2 passed, 37 deselected in 1.74s`。两种选择的真实 main 输出日志字节完全一致，说明差异仅来自错误测试分支。
+- 固定 `8118feef3bbfdfdcde70e169e950749d3e5a408a` 真实 producer 的多行消息仍告警，作为独立反控。
+
+修复只在本分支 tests：按完整输出记录和真实返回目标判断，核对唯一 start/end、显式 live、513260 实际 open/sig_close、正确汇总、正常配对与耗时；未知输出格式不能算通过。固定函数 fixture 保存 da84 和 8118 的原始函数体及 AST SHA；safe 默认/env 两种选择逐字节一致，legacy 的 11 类分隔符仍要求告警。safe 只有 513260 真价、510300 缺价，或真实干跑时，即使单记录和 exit0 也仍告警。原 raw FORGED/缺价/干跑/错价/真异常用例未放宽。
+
+最终默认安全源组合三专项（producer/真实 main 来自固定组合内容；parser、main、unit_truth、util_atomic 与组合提交字节相同）原始末行：
+
+```text
+166 passed in 1.65s
+```
+
+显式 env 同源选择：`4 passed, 50 deselected in 0.14s`。
+
+原 90 例与新 126 例关键边界只切换被测 parser/producer 至固定组合版本，断言保持，输出隔离存放：
+
+```text
+INTEGRATION_REPLAY90_RESULT checks=90 passed=90 failed=0 cases=
+INTEGRATION_REPLAY126_RESULT checks=126 passed=126 failed=0 cases=
+```
+
+未改业务 parser/producer/其它分支，也没有覆盖旧复审结论。证据目录为 `/tmp/codex-reports/alert-rootfix-20261109/integration-followup-evidence/`，正式跟进报告 `nextday-integration-followup.json`。本次只追加测试修复提交，父负责后续独立复验。
+
 ## 修前三验与实测根因
 
 原三验保留在 `/tmp/codex-reports/alert-rootfix-20261109/nextday-root-cause-initial.json`；续修前已更新原子报告 `nextday-root-cause.json`，先复现、再改源。
