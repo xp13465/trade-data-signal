@@ -1836,11 +1836,11 @@ def stall_context(key, repo=None, now=None) -> dict:
         _name = ("failed_units_patrol_state.json" if _canon == "failed_units_patrol"
                  else "cloud_unit_patrol_drift_state.json")
         _d = _read_json(_repo / "data" / _name)
-        # #196计数按通道跨对象累计；健康轮也不清滚动历史。仅展示有实际日期的
-        # 观察窗口，绝不用旧consecutive_days反推当前对象起点或补造seen_dates。
+        # #196计数按通道跨对象累计；健康轮也不清滚动历史。有效seen_dates也可能
+        # 已由分级函数从旧累计数反推，来源无法回溯；这里只读展示状态日期，不称实测。
         _ctx.update(first_seen="未知", consecutive="未知",
                     window_days=ESCALATE_ROLLING_WINDOW_DAYS,
-                    observed_days=None, window_first_seen="未知",
+                    state_days=None, window_first_date="未知",
                     window_end=_now.strftime("%Y-%m-%d"))
         _seen = _d.get("seen_dates")
         if (isinstance(_seen, list)
@@ -1848,8 +1848,8 @@ def stall_context(key, repo=None, now=None) -> dict:
                         and _dt_of(d) is not None for d in _seen)):
             _floor = (_now - timedelta(days=ESCALATE_ROLLING_WINDOW_DAYS - 1)).strftime("%Y-%m-%d")
             _dates = sorted({d for d in _seen if _floor <= d <= _ctx["window_end"]})
-            _ctx["observed_days"] = len(_dates)
-            _ctx["window_first_seen"] = _dates[0] if _dates else "未知"
+            _ctx["state_days"] = len(_dates)
+            _ctx["window_first_date"] = _dates[0] if _dates else "未知"
     return _ctx
 
 
@@ -1869,16 +1869,20 @@ def format_stall_body(body, ctx, key=None) -> str:
     _prefix = stall_prefix_for(_channel_key if _channel else key)
     _body = str(body or "")
     if _channel:
-        _n = _c.get("observed_days")
-        _history = (f"近 {_c.get('window_days', ESCALATE_ROLLING_WINDOW_DAYS)} 个自然日有 {_n} 日异常记录"
-                    if _n is not None else "异常记录天数: 未知（缺少可核验日期）")
+        _n = _c.get("state_days")
+        _history = (f"近 {_c.get('window_days', ESCALATE_ROLLING_WINDOW_DAYS)} 个自然日计入 {_n} 日异常"
+                    if _n is not None else "异常日期计数: 未知（缺少有效状态日期）")
         _head = (f"<b>{_prefix[:-1]}级告警】</b><br>"
-                 f"· 巡检通道统计: {_history}（不同日期可为不同对象）<br>"
-                 f"· 统计日期: {_c.get('window_end', '未知')}；窗口内最早记录: {_c.get('window_first_seen', '未知')}<br>"
+                 f"· 巡检通道升级状态统计: {_history}（不同日期可为不同对象）<br>"
+                 "· 日期来源: 可能包含历史迁移推算，不是逐日实测凭证，也不是当前对象停摆天数。<br>"
+                 f"· 统计日期: {_c.get('window_end', '未知')}；状态窗口最早日期: {_c.get('window_first_date', '未知')}<br>"
                  "· 当前对象首次发生: 未知<br>· 当前对象连续失败时长: 未知<br>"
                  f"· 影响产物: {_c.get('impact', '未知')}")
+        _threshold = (FAILED_UNITS_ESCALATE_DAYS if _channel_key == FAILED_UNITS_DEDUP_KEY
+                      else PATROL_DRIFT_ESCALATE_DAYS)
         _body = _PATROL_UPGRADE_PREAMBLE.sub(
-            "<b>异常观测升级</b>: 巡检通道异常日期统计达到既有升级条件；不代表当前对象持续停摆。<br>",
+            f"<b>通道状态升级</b>: 日期计数达到既有升级条件（近 {ESCALATE_ROLLING_WINDOW_DAYS} 日至少 "
+            f"{_threshold} 日）；来源限制见上方，不代表当前对象持续停摆。<br>",
             _body, count=1)
     else:
         _head = (f"<b>{_prefix[:-1]}级告警】</b><br>"
