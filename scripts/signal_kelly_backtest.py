@@ -348,7 +348,38 @@ def _load_frozen_missing_accepted():
         return set()
 
 
-def _archive_frozen_missing_diagnostics(new_events, accepted_hit):
+def _frozen_input_identity(value):
+    """已加载对象的规范 JSON 身份；不在归档时回读可能已更新的磁盘文件。"""
+    import hashlib
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
+                                    separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _frozen_missing_context(buy_rows, best_etf, freeze, signal_stats, latest_signal_date):
+    """解析/就地补冻之前抓输入；取证失败只失去诊断，不影响防前视闸。"""
+    try:
+        return {
+            "hashes": {
+                "freeze_input_sha256": _frozen_input_identity(freeze),
+                "map_input_sha256": _frozen_input_identity(best_etf),
+                "signal_input_sha256": _frozen_input_identity(buy_rows),
+                "rating_input_sha256": _frozen_input_identity(signal_stats),
+            },
+            "latest_signal_date": latest_signal_date or "unknown",
+            "input_provenance": "loaded_objects_before_resolution; canonical_json_sha256",
+            "input_scopes": {"freeze": "loaded freeze before in-memory additions",
+                             "map": "resolved best_etf (not raw board_etf_map file)",
+                             "signal": "effective buy_rows after registered orphan union",
+                             "rating": "loaded signal_stats"},
+            "input_counts": {"freeze": len(freeze), "map": len(best_etf),
+                             "signal": len(buy_rows), "rating": len(signal_stats)},
+        }
+    except Exception as exc:
+        print(f"   ⚠ 冻结输入取证失败: {type(exc).__name__}", file=sys.stderr)
+        return None
+
+
+def _archive_frozen_missing_diagnostics(new_events, accepted_hit, context=None):
     """归档本次过滤快照; 不读业务库/冻结内容, 不覆盖已有诊断, 失败不拦通知。"""
     import hashlib
     import tempfile
@@ -394,6 +425,12 @@ def _archive_frozen_missing_diagnostics(new_events, accepted_hit):
             "latest_signal_date": "unknown",
             "input_provenance": "guard_memory_snapshot; business input hashes unavailable",
         }
+        if context is not None:
+            payload["hashes"].update(context["hashes"])
+            for name in ("latest_signal_date", "input_provenance", "input_scopes", "input_counts",
+                         "freeze_persistence"):
+                if name in context:
+                    payload[name] = context[name]
         audit_dir = os.path.join(ROOT, "data", "audit", "frozen_missing")
         os.makedirs(audit_dir, exist_ok=True)
         path = os.path.join(audit_dir, f"{run_id}.json")
@@ -407,7 +444,7 @@ def _archive_frozen_missing_diagnostics(new_events, accepted_hit):
         print(f"   ⚠ 冻结缺失诊断归档失败: {type(exc).__name__}", file=sys.stderr)
 
 
-def _alert_frozen_missing(events):
+def _alert_frozen_missing(events, context=None):
     """冻结表缺失历史信号事件告警(分级 + 已确认接受过滤)。events: {(date, index_id, signal), ...}。
 
     背景(2026-09-18 根治): 冻结分时点防御闸拒绝补冻历史信号(date < latest)后, 这些信号
@@ -435,7 +472,7 @@ def _alert_frozen_missing(events):
         return
     sorted_events = new_events
     n = len(sorted_events)
-    _archive_frozen_missing_diagnostics(sorted_events, accepted_hit)
+    _archive_frozen_missing_diagnostics(sorted_events, accepted_hit, context)
     sample = "; ".join(f"{d}|{i}|{s}" for d, i, s in sorted_events[:5])
     subject = f"[kelly] 冻结表缺失历史信号事件 {n} 个"
     body = (f"回测拒绝补冻历史信号事件 {n} 个(冻结分时点防御闸触发)。"
@@ -2334,6 +2371,8 @@ def compute():
     latest_signal_date = _etf_latest_date or None
     if latest_signal_date:
         print(f"   冻结分时点防御闸: latest_signal_date={latest_signal_date}(etf_daily MAX)")
+    frozen_diagnostic_context = _frozen_missing_context(
+        buy_rows, best_etf, etf_freeze, signal_stats, latest_signal_date)
     needed_etfs = set()
     for _date, iid, _sig in buy_rows:
         be, _frozen = _resolve_etf(_date, iid, _sig, best_etf, etf_freeze, latest_signal_date)
@@ -2371,16 +2410,20 @@ def compute():
     # 换标漂移修复: 持久化冻结查找表(含本轮新固化), 供下次回测保持历史成交固化。
     try:
         _save_etf_freeze(etf_freeze)
+        if frozen_diagnostic_context is not None:
+            frozen_diagnostic_context["freeze_persistence"] = {"status": "saved", "count": len(etf_freeze)}
         capture_event("freeze_persisted", count=len(etf_freeze))
         print(f"   ✓ 已固化 {len(etf_freeze)} 个信号事件 -> {_etf_freeze_path()}")
     except OSError as e:
+        if frozen_diagnostic_context is not None:
+            frozen_diagnostic_context["freeze_persistence"] = {"status": "failed", "error_type": type(e).__name__}
         capture_event("freeze_persist_failed", error_type=type(e).__name__)
         print(f"   ⚠ 冻结表写盘失败(不影响本次回测结果): {e}", file=sys.stderr)
 
     # 冻结分时点漂移根治(2026-09-18): 本轮回测拒绝补冻的历史信号事件(dev sync 拉新 DB 后冻结表
     # 停在旧日期, 首次碰到 9-14~9-17 历史信号)→ --severe 告警, 提醒核查生产冻结流程。
     if _FROZEN_MISSING_EVENTS:
-        _alert_frozen_missing(_FROZEN_MISSING_EVENTS)
+        _alert_frozen_missing(_FROZEN_MISSING_EVENTS, frozen_diagnostic_context)
 
     # 5. 按周期聚合统计 + trades 列式结构(_build_outputs 与盘中增量档共用, 单一实现防漂移 §5.4⑦)
     output, trades_output = _build_outputs(quadrants)

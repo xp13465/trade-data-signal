@@ -1382,7 +1382,7 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
         tag = "缺次日价" if blocked else "次日价已齐仍缺"
         items.append(f"  • {d} {iid}({sig}) → 当前候选 {code} {name}, 相对 T={T} 落后 {lag} 交易日"
                      f"[仅当前候选检查: {tag}] — {reason}")
-    detail = (f"signal_daily 最近 {len(win)} 个交易日 buy 系信号中, {len(missing)} 条入样信号"
+    detail = (f"signal_daily 最近 {len(win)} 个交易日 buy 系信号中, {len(missing)} 条当前映射候选信号"
               f"在 signal_kelly_trades.json 无对应交易记录(trades 最新 {latest or '无'}, 断档深度 {depth} 交易日):"
               f"<br>{'<br>'.join(items)}"
               f"<br>最近完整交易日 T={T}; 断档深度 = T 与 trades 最新 signal_date 的交易日间隔"
@@ -1391,14 +1391,15 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
               f"冻结表 signal_kelly_etf_freeze.json 实查每条「日期|指数|信号」键, 或 signal_date 当天 "
               f"trades 有 ≥1 条任意信号入账(回测链当天确实在跑, 单点缺口良性特征); 两者皆无(当天 0 条入账)不降, "
               f"2026-09-29 #125 方案① + P0-2 加固)。"
-              f"<br>影响: 首页模拟回测弹窗/lab 凯利回测交易记录停更, 用户看到虚假的历史交易缺失。"
+              f"<br>影响待核实: 当前候选无对应交易不等于历史应成交；需区分真实停更与防前视拒补/无评级/不可定价。"
               f"<br>日志: {repo}/data/logs/update_all_launchd.log + deploy_*.log(signal_kelly_backtest 阶段)。"
-              f"<br>建议: 若缺次日价, 手动补 etf_daily 再重跑 export(static-site/export.py 7.9.2 步); "
-              f"若已具备次日价仍缺, 人工核查 signal_kelly_backtest skipped 明细(冻结缺失多为防前视冻结闸 "
-              f"signal_kelly_backtest.py:436-440 拒绝补冻, 属已知接受缺口, 见 sigkelly-gap-20260923-rootcause.md)。")
-    title = (f"交易记录断档: {len(missing)} 个入样买入信号无对应交易(断档深度 {depth} 交易日)"
+              f"<br>建议: 先核对 producer 同轮冻结输入、类型漂移兜底、signal_stats 10d 评级及真实定价条件。"
+              f"历史无冻结时保留独立 frozen_missing 告警，不能用当前候选ETF补冻或凭候选价齐认定应成交。"
+              f"只有精确命中 signal_kelly_frozen_missing_accepted.json 才是已登记接受；本检测未核验该登记。"
+              f"补价/重跑须先取得可信的历史ETF选择和数据源证据。")
+    title = (f"交易记录断档: {len(missing)} 个当前映射候选无对应交易(断档深度 {depth} 交易日)"
              if not (frozen_form and level == "warn") else
-             f"交易记录缺 {len(missing)} 条冻结/评级缺失或同日期有别的入账(接受缺口降噪, 断档深度 {depth})")
+              f"交易记录缺 {len(missing)} 条候选(冻结命中或同日期有别的入账，资格待核，断档深度 {depth})")
     # 告警路由/subject/key/等级已确定; 诊断只追加正文, 不参与判定。
     archive = _archive_signal_gap_diagnostics(repo, diagnostics, win)
     from html import escape
