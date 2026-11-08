@@ -486,11 +486,11 @@ schema_stmts = ["CREATE TABLE IF NOT EXISTS fund_screener (\n  " + ",\n  ".join(
 for idx, col in (("idx_fscr_composite", "composite_score"),
                  ("idx_fscr_type", "fund_type"),
                  ("idx_fscr_scale", "scale")):
-    schema_stmts.append(f"DROP INDEX IF EXISTS {idx};")
-    schema_stmts.append(f"CREATE INDEX {idx} ON fund_screener({col});")
+    # 稳定定义只补建缺失索引；定义变化须显式迁移，不随每轮数据同步重建。
+    schema_stmts.append(f"CREATE INDEX IF NOT EXISTS {idx} ON fund_screener({col});")
 schema_stmts.append("CREATE TABLE IF NOT EXISTS screener_meta (\n"
                     "  key TEXT PRIMARY KEY,\n  value TEXT\n);")
-schema = "\n".join(schema_stmts) + "\n"  # legacy 模式落盘用（与旧版逐字节一致）
+schema = "\n".join(schema_stmts) + "\n"  # legacy 共用同一份幂等 schema
 
 # ---------- 覆盖率统计（各字段非空行数; 前端逐条件标注 + 「另有 N 只因缺失被排除」底座） ----------
 coverage = {c: sum(1 for r in rows if r[c] is not None) for c in COLS if c != "fund_code"}
@@ -606,7 +606,7 @@ if split_mode == "single":
           f"upsert_rows={len(changed) + len(new_rows)} removed={len(removed_codes)} "
           f"incremental={int(INCREMENTAL)}", flush=True)
 else:
-    # legacy: 旧的多文件逐批模式（回退开关）, 产出与改动前逐字节一致
+    # legacy: 旧的多文件逐批模式（回退开关）, 保留全量替换语义
     (gen_dir / "000_schema.sql").write_text(schema, encoding="utf-8")
     files = []
     for i in range(0, len(rows), batch):
