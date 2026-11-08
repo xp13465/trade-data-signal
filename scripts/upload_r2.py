@@ -3861,7 +3861,7 @@ def cmd_upload_db():
     _prune_r2_backup 分层清 signal-backup2(backup/14 + weekly/28 + monthly/365,
     public_fund 按 per_name_days 覆盖)。
     DB 路径取 $REPO/data（与 backup_db.sh 一致，launchd 下 REPO=trade-data）。"""
-    import datetime as _dt, tempfile
+    import datetime as _dt, sqlite3, tempfile
     from backup_source_proof import atomic_json, metadata
     repo = Path(os.environ.get("REPO", str(ROOT)))
     dbdir = repo / "data"
@@ -3890,12 +3890,17 @@ def cmd_upload_db():
         source = None if receipt is None else {
             "run_id": run_id, "name": name, "bucket": BACKUP_BUCKET, "key": key}
         # Read an owned SQLite snapshot, including committed WAL, never the live file.
-        with tempfile.TemporaryDirectory(prefix="r2-small-db-") as tmp:
-            gz = Path(tmp) / (name + ".db.gz")
-            _sqlite_snapshot_to_gz(src, gz, **({"source": source} if source is not None else {}))
-            payload = gz.read_bytes()
-        status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET,
-                                  **({"extra_headers": metadata(source)} if source is not None else {}))
+        try:
+            with tempfile.TemporaryDirectory(prefix="r2-small-db-") as tmp:
+                gz = Path(tmp) / (name + ".db.gz")
+                _sqlite_snapshot_to_gz(src, gz, **({"source": source} if source is not None else {}))
+                payload = gz.read_bytes()
+            status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET,
+                                      **({"extra_headers": metadata(source)} if source is not None else {}))
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            # This DB has no successful entry; keep uploading the other targets.
+            print(f"✗ {fname} 快照/压缩/上传失败 ({type(exc).__name__}): {exc}")
+            continue
         if status == 200:
             ok += 1
             if receipt is not None:
@@ -3909,7 +3914,11 @@ def cmd_upload_db():
         else:
             print(f"✗ {fname} status={status} {data.decode('utf-8', errors='replace')[:300]}")
     # public_fund.db 大库(2.9G): 走独立快照/流式链路; 不存在时 None=不计入分母, 不误报失败。
-    pf_ok = _backup_public_fund_db(dbdir, repo, today, **({"receipt": receipt} if receipt is not None else {}))
+    try:
+        pf_ok = _backup_public_fund_db(dbdir, repo, today, **({"receipt": receipt} if receipt is not None else {}))
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        print(f"✗ public_fund.db 快照/压缩/上传失败 ({type(exc).__name__}): {exc}")
+        pf_ok = False
     total = len(targets) + (0 if pf_ok is None else 1)
     if pf_ok:
         ok += 1

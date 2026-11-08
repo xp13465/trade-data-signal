@@ -148,3 +148,63 @@ receipt <16KiB 且 mode0600），定向重验原始末行 `86 passed in 37.80s`�
 极端值（空/缺/同长篡改/磁盘不足已测）；回退（无来源拒绝绿、PF SKIP 已测）；
 并发与重入（实际同 key 换轮、中途覆盖已测，真实生产并发与 GB 级压测未执行）。
 不宣称已上线或历史误报已被追认修正；Claude 仍须独立审查、合并与择窗部署。
+
+
+## BACKUP-P2-01 作者续修（父决定返修，5123632 外审已封存）
+
+本追加以 `5123632bb743d039837d1af133eb78fadedb839a` 为修复基线，保留其独立报告
+`/tmp/codex-reports/alert-rootfix-20261109/backup-independent-review.json` 和全部原日志。
+实施前记录报告、manifest 证据、原作者日志 SHA256，见 `/tmp/alert-backup-p2-frozen-hashes.json`。
+本节只修单库失败扩散及关联 proof 消费，不扩展容量策略、周期、锁或状态框架。
+
+先运行封存 `corrupt_first_db` 反例及 base 对照，使用新 basetemp 和日志目录：
+`/tmp/alert-backup-p2-20261109/red-corrupt-first.log`，原始结尾
+`1 failed, 1 passed, 19 deselected in 0.10s`。坏 sentiment 的 DatabaseError 令上传对象为空，
+receipt.complete=false；该红例证实 P2，不依赖作者自验结论。
+
+修复点：
+
+- 小库快照/压缩/PUT 的 OSError、ValueError、sqlite3.Error 在本库边界记录失败后继续，
+  不发成功 entry、不增加 ok。PF 异常归为该目标 False；仍用原有 ok/total 最终 exit(1)。
+  小库 receipt 原子写位于此异常边界之外，存储证明失败不能被伪装成本库成功；
+  SystemExit/KeyboardInterrupt 不被局部捕获。
+- `receipt.complete` 保持整轮状态：false 时上传总 RC 非零。helper 可选择此 run 的健康 entry，
+  但该 entry 仍须通过原来的 run/name/bucket/key、远端 metadata、双层 SHA/size、integrity、
+  非空关键表检查。没有 entry 的坏库不能借旧对象恢复；不完整或篡改的 entry 也不能通过。
+- shell 绑定模式在单库下载/证明失败后继续其它库与原周期的 PF 演练；记录库名 FAIL 到
+  既有 notes，checker 单列验证健康库，再独立用 complete=false 判本轮失败。即使所有
+  entry 都健康、只是最终 complete 写入没成功，也不能整体 PASS。无 receipt 旧模式仍早退。
+  原下载失败 severe 出口保留，已告警时不再重复发送末尾 severe，失败明细仍落完整报告。
+- `backup_db.sh` 本轮零改动；local/upload/verify RC 合同、分域锁、日周门控均不变。
+  不新增上传动作到 verify，不清理历史，不改此前容量预检。父保存的
+  backup-capacity-readonly.json 是 df/stat 证据，不是 GB 级演练结论。
+
+证明与测试：
+
+- 新增四库分别坏库（含首个 sentiment）的真实 SQLite/文件 S3 测试：另三个健康对象均
+  上传、各自恢复 entry 通过；坏库无 entry，本轮上传和 verify 都 rc1、complete=false。
+  验证通知替身仅调用一次；gzip/来源完整性/PUT 异常也不得阻断后继目标。
+- 新增 incomplete+全部健康 entries 的总失败反例、下一轮坏库不借上一轮同 key 对象、
+  裸 upload-db 无 receipt 时仍保留健康库上传；修改两条旧“直接抛 SQLite/OSError”预期为
+  CLI 汇总 SystemExit(1)，原坏库/空间不足/无不当上传断言保留。这是指定的逐库继续合同变化。
+- 独立原测试有两处测试夹具不能直接接收此 CLI 合同：corrupt_first 只捕获 Exception，
+  不含 SystemExit；WAL 空间测试原先要求全局 OSError+所有目标零调用，而新合同要求只阻止
+  不足空间的库、允许其它健康库。封存文件零修改；新建
+  `/tmp/alert-backup-p2-20261109/test_p2_independent_replay.py` 显式捕获并断言 SystemExit(1)，
+  重用原 corrupt_first 的对象断言及独立 fixture，并对健康 PF/逐对象恢复加验；
+  WAL 反例仍验原 page_count 空间判断，只将“零全局 PUT”收窄为“零 sentiment PUT”，同时
+  要求 ETF/stock/PF 成功 entry。其余 19 项独立测试原样执行。
+  原始末行 `21 passed, 2 deselected in 9.09s`，见 `independent-after.log`；这是
+  19 个封存原测试+2 个显式适配重放，不冒充“封存 21 项原样全绿”，仍交同 reviewer 复验。
+- 首轮扩大定向有 `16 failed, 176 passed in 52.21s`：作者改了一条日志 echo，使旧邮件测试
+  的源码抽取锚点失效；恢复原 echo 即修复，未修改这 16 个旧断言。该失败日志
+  `targeted.log` 保留，最终重跑结果见完成记录。
+
+所有本轮新日志只写 `/tmp/alert-backup-p2-20261109/`。新 raw 测试末行、标准 precommit、
+最终 head/clean 和固定证据哈希复核写入原子结果包
+`/tmp/codex-reports/alert-rootfix-20261109/backup-p2-result.json`；不覆盖 512 报告。
+本轮不运行生产 SSH/备份/恢复/真实 R2/真实通知，也不单独全量测试；父在独立复验后跑一次全量。
+
+本轮最终定向原始末行：`193 passed in 53.66s`，rc0，见
+`/tmp/alert-backup-p2-20261109/targeted-final.log`。仅语法/编译/diff 检查也通过；
+`backup_db.sh` 与 5123632 逐字节相同，封存报告及原始证据/日志哈希复核无变化。

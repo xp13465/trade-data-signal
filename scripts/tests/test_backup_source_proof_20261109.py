@@ -162,9 +162,11 @@ def test_matching_source_cannot_hide_bad_backup(case, damage):
     src = case[0] / "data/sentiment.db"
     if damage == "corrupt":
         src.write_bytes(b"not SQLite")
-        with pytest.raises(sqlite3.DatabaseError):
+        with pytest.raises(SystemExit) as error:
             upload(case)
-        assert not json.loads(Path(os.environ["R2_DB_BACKUP_PROOF"]).read_text())["complete"]
+        assert error.value.code == 1
+        receipt = json.loads(Path(os.environ["R2_DB_BACKUP_PROOF"]).read_text())
+        assert not receipt["complete"] and "sentiment" not in receipt["objects"]
         return
     with sqlite3.connect(src) as c:
         c.execute("DELETE FROM signal_daily" if damage == "empty" else "DROP TABLE signal_daily")
@@ -371,8 +373,9 @@ def test_small_snapshot_space_gate_includes_wal_and_prevents_upload(case, monkey
     monkeypatch.setattr(shutil, "disk_usage", lambda p: original(p)._replace(free=1))
     calls = []
     monkeypatch.setattr(ur, "s3_request", lambda *a, **kw: calls.append(a))
-    with pytest.raises(OSError, match="insufficient temporary space"):
+    with pytest.raises(SystemExit) as error:
         upload(case)
+    assert error.value.code == 1
     assert calls == []
     assert not json.loads(Path(os.environ["R2_DB_BACKUP_PROOF"]).read_text())["complete"]
 
@@ -403,3 +406,109 @@ def test_only_existing_parent_schedule_requests_fresh_pf(case, monkeypatch, dow,
     monkeypatch.setenv("VERIFY_BACKUP_SKIP", skip)
     r = subprocess.run(["bash", str(repo / "scripts/backup_db.sh")], text=True, capture_output=True, timeout=20)
     assert r.returncode == 0 and "R2 上传失败" not in r.stdout, r.stdout + r.stderr
+
+
+
+def restore_entry(case, name):
+    """Exercise the actual existing Range implementation for one receipt entry."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("p2_range_restore", ROOT / "docs/scripts/restore_r2_db_backup.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.ur = ur
+    return proof.restore_bound(ur, os.environ["R2_DB_BACKUP_PROOF"], os.environ["R2_DB_BACKUP_RUN_ID"],
+                               name, case[1] / ("restored-" + name), module.download)
+
+
+@pytest.mark.parametrize("bad", list(proof.TABLES))
+def test_bad_database_does_not_cancel_healthy_upload_or_verification(case, bad):
+    (case[0] / "scripts/notify.py").write_text(
+        "import os\nwith open(os.environ['FIXTURE_NOTIFY'], 'a') as f: f.write('called\\n')\n")
+    (case[0] / "data" / (bad + ".db")).write_bytes(b"corrupt SQLite fixture")
+    with pytest.raises(SystemExit) as error:
+        upload(case)
+    assert error.value.code == 1
+    receipt = json.loads(Path(os.environ["R2_DB_BACKUP_PROOF"]).read_text())
+    healthy = set(proof.TABLES) - {bad}
+    assert receipt["complete"] is False and set(receipt["objects"]) == healthy
+    assert len(list((case[1] / "s3/backup").glob("*.db.gz"))) == 3
+    for name in healthy:
+        restored = restore_entry(case, name)
+        entry = proof.verified_entry(restored, os.environ["R2_DB_BACKUP_PROOF"], receipt["run_id"], name, ur.BACKUP_BUCKET)
+        assert entry == receipt["objects"][name]
+    with pytest.raises(KeyError):
+        restore_entry(case, bad)
+    r = verify(case)
+    assert r.returncode == 1 and "VERIFY_OK=0" in r.stdout, r.stdout + r.stderr
+    assert "receipt.complete=false" in r.stdout
+    for name in healthy:
+        assert f"{name}: run={receipt['run_id']} source identity + SHA256 + counts [OK]" in r.stdout
+    assert (case[1] / "notify").read_text() == "called\n"
+
+
+def test_incomplete_run_with_all_successful_entries_still_fails_overall(case):
+    receipt = upload(case)
+    receipt["complete"] = False  # e.g. final completion write never committed
+    proof.atomic_json(os.environ["R2_DB_BACKUP_PROOF"], receipt)
+    r = verify(case)
+    assert r.returncode == 1 and "VERIFY_OK=0" in r.stdout, r.stdout + r.stderr
+    assert "receipt.complete=false" in r.stdout
+    assert r.stdout.count("source identity + SHA256 + counts [OK]") == 4
+
+
+def test_failed_new_run_never_reuses_the_bad_databases_old_object(case, monkeypatch):
+    old = upload(case)
+    obj = case[1] / "s3" / old["objects"]["sentiment"]["key"]
+    old_bytes = obj.read_bytes()
+    monkeypatch.setenv("R2_DB_BACKUP_RUN_ID", "fixture-run-b")
+    monkeypatch.setenv("VERIFY_BACKUP_RUN_ID", "fixture-run-b")
+    (case[0] / "data/sentiment.db").write_bytes(b"corrupt fixture")
+    with pytest.raises(SystemExit) as error:
+        upload(case)
+    assert error.value.code == 1 and obj.read_bytes() == old_bytes
+    receipt = json.loads(Path(os.environ["R2_DB_BACKUP_PROOF"]).read_text())
+    assert receipt["complete"] is False and "sentiment" not in receipt["objects"]
+    assert all(e["run_id"] == "fixture-run-b" for e in receipt["objects"].values())
+    r = verify(case)
+    assert r.returncode == 1 and "sentiment=FAIL" in r.stdout
+    assert "sentiment: run=" not in r.stdout
+    assert r.stdout.count("source identity + SHA256 + counts [OK]") == 3
+
+
+@pytest.mark.parametrize("stage", ["gzip", "source-integrity", "put"])
+def test_per_db_capture_and_upload_errors_do_not_abort_the_next_db(case, monkeypatch, stage):
+    original = ur._sqlite_snapshot_to_gz
+    real_s3 = ur.s3_request
+    def failed_snapshot(src, dst, **kw):
+        if Path(src).name == "sentiment.db":
+            if stage == "gzip":
+                raise OSError("fixture gzip write failure")
+            if stage == "source-integrity":
+                raise ValueError("fixture source integrity failure")
+        return original(src, dst, **kw)
+    def failed_put(method, key, *a, **kw):
+        if method == "PUT" and "sentiment_" in key:
+            raise OSError("fixture upload failure")
+        return real_s3(method, key, *a, **kw)
+    monkeypatch.setattr(ur, "_sqlite_snapshot_to_gz", failed_snapshot)
+    if stage == "put":
+        monkeypatch.setattr(ur, "s3_request", failed_put)
+    with pytest.raises(SystemExit) as error:
+        upload(case)
+    assert error.value.code == 1
+    receipt = json.loads(Path(os.environ["R2_DB_BACKUP_PROOF"]).read_text())
+    assert receipt["complete"] is False
+    assert set(receipt["objects"]) == set(proof.TABLES) - {"sentiment"}
+
+
+
+def test_bad_database_without_receipt_still_uploads_healthy_targets(case, monkeypatch):
+    monkeypatch.delenv("R2_DB_BACKUP_PROOF")
+    monkeypatch.delenv("R2_DB_BACKUP_RUN_ID")
+    (case[0] / "data/sentiment.db").write_bytes(b"corrupt SQLite fixture")
+    with pytest.raises(SystemExit) as error:
+        upload(case)
+    assert error.value.code == 1
+    objects = [p.name for p in (case[1] / "s3/backup").glob("*.db.gz")]
+    assert len(objects) == 3 and not any("sentiment_" in p for p in objects)
+    assert not Path(os.environ["VERIFY_BACKUP_SOURCE_PROOF"]).exists()

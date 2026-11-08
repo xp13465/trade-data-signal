@@ -74,8 +74,10 @@ def select_entry(path, run_id, name, bucket):
     if not run_id or not path:
         raise ValueError("unknown/not_verified: missing explicit run/source proof")
     receipt = json.loads(Path(path).read_text())
-    if receipt.get("schema") != 1 or receipt.get("run_id") != run_id or receipt.get("complete") is not True:
-        raise ValueError("unknown/not_verified: wrong run or incomplete upload receipt")
+    # Run completion is an aggregate result, not this object's provenance.
+    # Only successful uploads get entries; each still needs remote/byte checks.
+    if receipt.get("schema") != 1 or receipt.get("run_id") != run_id or type(receipt.get("complete")) is not bool:
+        raise ValueError("unknown/not_verified: wrong run or malformed upload receipt")
     entry = receipt["objects"][name]
     if entry["run_id"] != run_id or entry["bucket"] != bucket or entry["name"] != name:
         raise ValueError("unknown/not_verified: source identity mismatch")

@@ -180,13 +180,16 @@ download_backups() {
   ETF_BACKUP=""
   STOCK_BACKUP=""
   STOCK_STATUS=""
+  DOWNLOAD_FAILURES=""
   local rc=0 st
   if ! SENT_BACKUP=$(download_one sentiment "$TMPDIR" 2>>"$LOG"); then
     echo "✗ sentiment 下载失败" | tee -a "$LOG"
+    DOWNLOAD_FAILURES="sentiment=FAIL(下载/来源证明失败)"
     rc=1
   fi
   if ! ETF_BACKUP=$(download_one etf_national_team "$TMPDIR" 2>>"$LOG"); then
     echo "✗ etf_national_team 下载失败" | tee -a "$LOG"
+    DOWNLOAD_FAILURES="${DOWNLOAD_FAILURES:+$DOWNLOAD_FAILURES;}etf_national_team=FAIL(下载/来源证明失败)"
     rc=1
   fi
   # stock_daily（#338）：先判存在性 ⇒ SKIP 是设计内过渡态（不告警不 FAIL）
@@ -225,6 +228,7 @@ download_backups() {
       if ! STOCK_BACKUP=$(download_one stock_daily "$TMPDIR" 2>>"$LOG"); then
         echo "✗ stock_daily 下载失败（R2 上有 key(date=$st) 但 GET 失败）" | tee -a "$LOG"
         STOCK_BACKUP=""
+        STOCK_STATUS="FAIL(下载/来源证明失败)"
         rc=1
       fi
       ;;
@@ -245,7 +249,7 @@ if [ "$DL_RC" -ne 0 ]; then
   DL_RC=$?
 fi
 
-# 第2次仍失败:无法演练,告警退出(不跑 integrity/行数)
+# 第2次仍失败:本轮告警；绑定模式继续其它库，旧无来源模式仍立即退出
 if [ "$DL_RC" -ne 0 ]; then
   RC=1
   echo "=== 下载失败(60s 重试后仍失败),无法完成演练 ===" | tee -a "$LOG"
@@ -260,7 +264,11 @@ if [ "$DL_RC" -ne 0 ]; then
     "$PY" "$REPO/scripts/notify.py" "[告警] verify_backup R2下载失败 $(date '+%m-%d %H:%M')" "$BODY" --severe \
       --from-prefix "[告警]" \
       --alert-issue "verify_backup.sh R2下载失败(无法演练恢复)" --alert-log "$LOG" $DRY_FLAG 2>&1 | tee -a "$LOG" || true
-  exit 1
+  if [ -n "${VERIFY_BACKUP_SOURCE_PROOF:-}${VERIFY_BACKUP_RUN_ID:-}" ]; then
+    echo "-> 本轮仍失败；继续验证其它库各自的来源证明" | tee -a "$LOG"
+  else
+    exit 1
+  fi
 fi
 
 # ---- 1b. public_fund 周频大库演练（#324；默认仅周日，避免每周 7 次拉 2.76GiB）----
@@ -410,7 +418,7 @@ echo "  stock_daily:       ${STOCK_BACKUP:-${STOCK_STATUS:-未执行}}" | tee -a
 echo "  public_fund:       ${PF_BACKUP:-${PF_STATUS:-未执行}}" | tee -a "$LOG"
 
 # 跳过/失败的库（结论行必须点名，防 L49 假绿：只写"全 ok"而实际漏验）
-SKIP_NOTES=""
+SKIP_NOTES="${DOWNLOAD_FAILURES:-}"
 [ -n "${STOCK_STATUS:-}" ] && SKIP_NOTES="${SKIP_NOTES:+$SKIP_NOTES;}stock_daily=${STOCK_STATUS}"
 [ -n "${PF_STATUS:-}" ] && [ "$PF_STATUS" != "OK" ] && SKIP_NOTES="${SKIP_NOTES:+$SKIP_NOTES;}public_fund=${PF_STATUS}"
 case "${LEDGER_STATUS:-}" in
@@ -481,6 +489,16 @@ lines = []
 overall_ok = 1 if CHECKS else 0
 if not CHECKS:
     lines.append("=== 未取得任何库的备份做校验（全部 SKIP/失败）===")
+
+# An individually verified object never promotes a partial run to overall PASS.
+if os.environ.get("VERIFY_BACKUP_SOURCE_PROOF"):
+    try:
+        receipt = json.load(open(os.environ["VERIFY_BACKUP_SOURCE_PROOF"]))
+        if receipt.get("complete") is not True:
+            raise ValueError("本轮上传未全部完成 (receipt.complete=false)")
+    except Exception as exc:
+        overall_ok = 0
+        lines.append(f"  upload-run: {exc} [✗FAIL unknown/not_verified]")
 
 # A local receipt or a successful integrity_check alone cannot establish origin.
 source_bound = {}
@@ -679,8 +697,9 @@ if [ "$VERIFY_OK" != "1" ] || [ "$PF_RC" -ne 0 ]; then
   # 为空=本次没有跳过/失败项 ⇒ 不追加，禁止留「失败/跳过项：」空尾巴。
   [ -n "${VERIFY_SKIP_NOTES:-}" ] && BODY="$BODY<br>失败/跳过项：$VERIFY_SKIP_NOTES"
   BODY="$BODY<br>日志：$LOG<br>临时目录：${TMPDIR}（已清理）<br>请排查：来源证明/对象身份/备份完整性/R2 上传；live_drift 另查 history_overwrite_audit，不据跨时点计数断言丢数据。"
+  # A download failure already used its original severe alert above; no duplicate.
   echo "-> 发送演练失败告警邮件 ..." | tee -a "$LOG"
-  [ -f "$REPO/scripts/notify.py" ] && \
+  [ "${DL_RC:-0}" -eq 0 ] && [ -f "$REPO/scripts/notify.py" ] && \
     "$PY" "$REPO/scripts/notify.py" "[告警] verify_backup 校验失败 $(date '+%m-%d %H:%M')" "$BODY" --severe \
       --from-prefix "[告警]" \
       --alert-issue "verify_backup.sh 恢复演练失败(integrity/行数异常)" --alert-log "$LOG" \
