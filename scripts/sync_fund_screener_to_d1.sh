@@ -545,7 +545,15 @@ print(f"[sync-screener-python] diff: total={len(rows)} changed={len(changed)} "
 
 # SET 子句列(不含冲突键 fund_code, 含 row_hash)
 set_cols = [c for c in COLS if c != "fund_code"]
-conflict_clause = build_conflict_clause("fund_screener", set_cols, "fund_code")
+# 依据数据库当前键值分写；日期/年数/hash 初始化不 SET 未变索引列，NULL 安全。
+index_cols = ("composite_score", "fund_type", "scale")  # 与上方三个二级索引一致
+conflict_clause = build_conflict_clause("fund_screener", set_cols, "fund_code") + " WHERE " + " OR ".join(
+    f"fund_screener.{c} IS NOT excluded.{c}" for c in index_cols)
+nonindex_clause = build_conflict_clause(
+    "fund_screener", [c for c in set_cols if c not in index_cols], "fund_code"
+) + " WHERE " + " AND ".join(
+    [f"fund_screener.{c} IS excluded.{c}" for c in index_cols]
+    + ["fund_screener.row_hash IS NOT excluded.row_hash"])
 
 # 元数据（最后写, 供 worker 返回数据日期/行数/覆盖率）
 meta_items = (
@@ -572,6 +580,8 @@ if split_mode == "single":
         if write_rows:
             write_vals = ["(" + ", ".join(sql_lit(r[c]) for c in COLS) + ")" for r in write_rows]
             bundle.add_inserts(head, write_vals, conflict_clause=conflict_clause)
+            # 两条均为完整 INSERT；互补条件保证部分成功/重试不会只写新 hash 而留下旧字段。
+            bundle.add_inserts(head, write_vals, conflict_clause=nonindex_clause)
         else:
             print("[sync-screener-python] 增量空写: changed+new=0, 跳过 INSERT(只写 meta+removed)",
                   flush=True)
