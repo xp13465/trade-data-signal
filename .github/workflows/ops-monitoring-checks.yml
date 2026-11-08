@@ -98,7 +98,7 @@ jobs:
       - run: python3 scripts/check_unit_registry_drift.py --quiet
       - run: python3 docs/ops/architecture/tools/build_catalog.py --check
       - run: python3 docs/ops/architecture/tools/check_knowledge_base.py
-      - name: Complete scripts regression
+      - name: 完整脚本与运维组合回归
         run: |
           ops_test_status=0
           # Avoid expanded subprocess locals (including inherited env) in failed traces.
