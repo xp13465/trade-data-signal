@@ -1262,6 +1262,8 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=trade-ops-monitor
 @@@FILE:trade-ops-monitor.timer
+# observed_at_utc=2026-11-08T04:57:32.993693Z
+# /etc/systemd/system/trade-ops-monitor.timer
 [Unit]
 Description=Collect private Trade operations snapshot every fifteen minutes
 

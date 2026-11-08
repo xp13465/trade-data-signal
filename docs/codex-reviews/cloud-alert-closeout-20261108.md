@@ -22,6 +22,7 @@
 - 新增缺失的`/etc/trade-ops-monitor/collector.json`和`collector.env`，目录root:ubuntu0750，JSON0640，EnvironmentFile0600。云端旧令牌副本与已配置来源不匹配，先在同目录的root私有backup目录逐字验证备份，再同步采集端正确副本；未轮换Worker密钥。恢复时先保持timer停用，按私有回执恢复原副本/目录元数据，保留所有新旧文件，不清理业务数据。
 - 12:29:13一次启动检查先于配置落地而失败（resources，进程未执行），已当场告知用户。配置补齐后，12:30:38–12:30:42真实运行成功；journal记录与认证API返回相同snapshot_id：`7c204fca-af1c-4774-9c4f-82f59b4d158d`，177项检查，采集器/看门狗fresh，bootstrap_overdue=false。
 - 首样134正常、2警告、1严重、40未知。严重项是周五turnover失败状态；警告为该任务派生执行结论和仍停用的monitor timer；未知主要是轻量元数据不能证明业务内容，未伪造为绿。
+- 15分钟timer已在保持disabled/inactive的前提下备份、安装并通过现场parser；以实际`systemctl cat`更新唯一timer快照段及UTC观察时间，其余条目不动。尚未据此宣称已定时采样；等待候选CI及发布同版后启用。
 - oneshot未被活动timer引用时可能被systemd回收，`systemctl show`再次加载会显示默认success及n/a时间；本轮以journal实际运行记录和API持久样本相互匹配，未用默认值证明成功。
 
 ## 测试和发布验收

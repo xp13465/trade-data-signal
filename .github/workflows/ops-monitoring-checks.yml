@@ -102,7 +102,7 @@ jobs:
         run: |
           ops_test_status=0
           # Avoid expanded subprocess locals (including inherited env) in failed traces.
-          python3 -m pytest -q scripts/tests/ --tb=short --junitxml="$RUNNER_TEMP/ops-scripts-tests.xml" || ops_test_status=$?
+          python3 -m pytest -q scripts/tests/ ops/monitoring/tests/ --tb=short --junitxml="$RUNNER_TEMP/ops-scripts-tests.xml" || ops_test_status=$?
           python3 ops/monitoring/report_ci_tests.py "$RUNNER_TEMP/ops-scripts-tests.xml"
           exit "$ops_test_status"
 
