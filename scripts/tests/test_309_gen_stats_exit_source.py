@@ -42,7 +42,7 @@ def _props(result="success", status=0, start="2026-10-20 18:30:02",
 
 SERVICE_KEYS = ("LoadState", "Result", "ExecMainCode", "ExecMainStatus",
                 "ExecMainStartTimestamp", "ExecMainExitTimestamp", "InvocationID",
-                "ActiveState")
+                "ActiveState", "SuccessExitStatus")
 TIMER_KEYS = ("LoadState", "ActiveState", "Result", "InvocationID",
               "NextElapseUSecRealtime", "LastTriggerUSec")
 
@@ -303,3 +303,25 @@ def test_rollback_log_mode_missing_log_is_none(tmp_path, monkeypatch):
     assert len(rows) == 19
     assert all(r["last_exit"] is None for r in rows)
     assert all(r["exit_source"] == "log" for r in rows)
+
+
+@pytest.mark.parametrize("status,policy,log_status,unit_exit,last_exit,conflict", [
+    (124, "", 124, 124, 124, False),
+    (124, "", 1, 124, 124, True),
+    (5, "5", 0, 0, 0, False),
+    (124, "124", 0, 0, 0, False),
+])
+def test_success_policy_survives_real_shape_reader_and_schedule_build(
+        tmp_path, monkeypatch, status, policy, log_status, unit_exit, last_exit, conflict):
+    monkeypatch.setenv("MONITOR_EXIT_SOURCE", "systemd")
+    _write_log(tmp_path, "lhb_backfill_launchd.log",
+               "=== lhb_backfill.sh 开始 2026-10-20 18:30:00 ===\n"
+               f"=== lhb_backfill.sh 结束 2026-10-20 18:31:00 退出码={log_status} ===\n")
+    props = _props(status=status)
+    props["SuccessExitStatus"] = policy
+    rows, stored = _build(tmp_path, _Runner({"trade-lhb-backfill.service": props}))
+    row = _row(rows, "lhb_backfill")
+    assert row["unit_exit"] == unit_exit
+    assert row["last_exit"] == last_exit
+    assert row["exit_conflict"] is conflict
+    assert _row(stored, "lhb_backfill") == row

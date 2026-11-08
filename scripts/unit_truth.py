@@ -58,6 +58,7 @@ SERVICE_PROPS = (
     "ExecMainExitTimestamp",
     "InvocationID",
     "ActiveState",
+    "SuccessExitStatus",
 )
 TIMER_PROPS = (
     "NextElapseUSecRealtime",
@@ -67,7 +68,7 @@ TIMER_PROPS = (
 UNIT_PROPS = SERVICE_PROPS + TIMER_PROPS
 
 # 退出码合成口径(方案 §7.2 W1):
-#   Result=success → 0
+#   Result=success → 0；已结束 CLD_EXITED 的非零原码仍保留，除非被 SuccessExitStatus 显式接受
 #   Result=exit-code → ExecMainStatus
 #   Result=timeout → 124(与 coreutils timeout 同码, 便于人和脚本识别)
 #   Result=signal/core-dump → 128 + ExecMainStatus(对齐 launchd 143=SIGTERM15)
@@ -201,7 +202,7 @@ def timer_unit_name(unit: str) -> str | None:
 
 
 def _merge_unit_props(service_props: dict | None, timer_props: dict | None) -> dict:
-    """按白名单合并: service 8 属性 + timer 2 属性, 绝不让 timer 的 Result 串味。"""
+    """按各自白名单合并 service 与 timer 属性，绝不让 timer 的 Result 串味。"""
     out = {k: (service_props or {})[k] for k in SERVICE_PROPS
            if k in (service_props or {})}
     for k in TIMER_PROPS:
@@ -314,6 +315,14 @@ def derive_exit_code(props: dict) -> tuple[int | None, str]:
         return (None, "never-ran")
 
     if result == "success":
+        # reset-failed 会清管理态 Result，却保留原 ExecMainStatus。
+        # 只在可信的已结束进程上覆盖管理态；显式成功策略(如 Kelly 的5)仍按成功处理。
+        end = parse_systemd_timestamp(props.get("ExecMainExitTimestamp"))
+        accepted = str(props.get("SuccessExitStatus") or "").split()
+        if (props.get("ActiveState") == "inactive" and start is not None
+                and end is not None and end >= start and ec == 1
+                and es is not None and es > 0 and str(es) not in accepted):
+            return (es, "systemd")
         return (0, "systemd")
     if result == "exit-code":
         return (es if es is not None else 1, "systemd")

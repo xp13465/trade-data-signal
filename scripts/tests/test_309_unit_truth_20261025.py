@@ -15,7 +15,11 @@
 反向对照(判别力自证, 由主控/审查复跑): 把 timeout 期望从 124 改成 0 → 本文件必红;
 把 not-found 期望改成 (0, "systemd") → 本文件必红。
 """
+import ast
 import datetime
+import gzip
+import re
+from types import SimpleNamespace
 import json
 from pathlib import Path
 
@@ -314,7 +318,7 @@ def test_update_ledger_ignores_unknown_and_keeps_old_units():
 # ---------------------------------------------------------------- 读取注入 / 开关
 
 def test_read_unit_states_reads_service_and_same_name_timer():
-    """P1-1: service 读 8 属性 + 同名 timer 读 NextElapse/LastTrigger, 一次合并。"""
+    """P1-1: service 读 9 属性 + 同名 timer 读 NextElapse/LastTrigger, 一次合并。"""
     calls = []
     payload = {
         "a.service": {
@@ -414,14 +418,14 @@ def test_parse_multi_real_systemctl_shape():
 # 任务结果; ExecMain* 只在 service 上, timer 块里没有。
 REAL_SERVICE_KEYS = {"LoadState", "Result", "ExecMainCode", "ExecMainStatus",
                      "ExecMainStartTimestamp", "ExecMainExitTimestamp",
-                     "InvocationID", "ActiveState"}
+                     "InvocationID", "ActiveState", "SuccessExitStatus"}
 REAL_TIMER_KEYS = {"LoadState", "ActiveState", "Result", "InvocationID",
                    "NextElapseUSecRealtime", "LastTriggerUSec"}
 # service 没有、只有 timer 才有的属性(漏跑检测必须从同名 timer 读)
 TIMER_ONLY_KEYS = {"NextElapseUSecRealtime", "LastTriggerUSec"}
 # timer 没有、只有 service 才有的属性(退出码只能从 service 推导)
 EXEC_ONLY_KEYS = {"ExecMainCode", "ExecMainStatus",
-                  "ExecMainStartTimestamp", "ExecMainExitTimestamp"}
+                  "ExecMainStartTimestamp", "ExecMainExitTimestamp", "SuccessExitStatus"}
 FIXTURES_309 = sorted((Path(__file__).absolute().parent / "fixtures" / "309")
                       .glob("x*_units.json"))
 
@@ -515,3 +519,144 @@ def test_exit_source_mode(monkeypatch, raw, expect):
     else:
         monkeypatch.setenv("MONITOR_EXIT_SOURCE", raw)
     assert ut.exit_source_mode() == expect
+
+# ---------------------------------------------------------------- reset-failed keeps process truth (2026-11-08)
+
+def _after_ack_props(**overrides):
+    # Real shape: Result reset to success; process exit and original times remain.
+    props = _props(
+        Result="success", ExecMainCode="1", ExecMainStatus="124",
+        ExecMainStartTimestamp="Fri 2026-11-06 21:10:00 CST",
+        ExecMainExitTimestamp="Fri 2026-11-06 22:59:36 CST",
+        InvocationID="", ActiveState="inactive", SuccessExitStatus="",
+    )
+    props.update(overrides)
+    return props
+
+
+@pytest.mark.parametrize("status,policy,expected", [
+    (124, "", 124), (0, "", 0),
+    (5, "5", 0),  # Kelly's explicit SuccessExitStatus=5 is successful.
+    (5, "", 5), (124, "5", 124),
+    (124, "124", 0),  # Negative control: explicit acceptance still wins.
+    (5, "  3\t5  7  ", 0),
+    (124, "1124 1240", 124),  # Exact token, never substring acceptance.
+])
+def test_after_ack_exit_respects_explicit_success_policy(status, policy, expected):
+    props = _after_ack_props(ExecMainStatus=str(status), SuccessExitStatus=policy)
+    assert ut.derive_exit_code(props) == (expected, "systemd")
+    state = ut.derive_unit_state("trade-turnover-backfill.service", props)
+    assert state["code"] == expected
+    assert state["exec_status"] == status  # Always preserve raw process status.
+    assert state["result"] == "success"
+
+
+@pytest.mark.parametrize("active", ["active", "activating", "reloading", "deactivating"])
+def test_success_with_running_residual_124_does_not_invent_failure(active):
+    # Even with old nonzero/timestamps present, only inactive is in scope.
+    assert ut.derive_exit_code(_after_ack_props(ActiveState=active)) == (0, "systemd")
+
+
+@pytest.mark.parametrize("overrides,expected", [
+    ({"LoadState": "not-found"}, (None, "missing")),
+    ({"Result": ""}, (None, "no-record")),
+    ({"ExecMainStartTimestamp": "", "InvocationID": ""}, (None, "never-ran")),
+    ({"ExecMainStartTimestamp": "n/a", "InvocationID": ""}, (None, "never-ran")),
+    ({"ExecMainStartTimestamp": "", "InvocationID": "retained-id"}, (0, "systemd")),
+    ({"ExecMainExitTimestamp": ""}, (0, "systemd")),
+    ({"ExecMainExitTimestamp": "n/a"}, (0, "systemd")),
+    ({"ExecMainExitTimestamp": "2026-11-06 21:09:59"}, (0, "systemd")),
+    ({"ExecMainCode": ""}, (0, "systemd")),
+    ({"ExecMainCode": "0"}, (0, "systemd")),
+    ({"ExecMainStatus": ""}, (0, "systemd")),
+])
+def test_after_ack_nonterminal_or_missing_record_keeps_existing_guard(overrides, expected):
+    assert ut.derive_exit_code(_after_ack_props(**overrides)) == expected
+
+
+def test_after_ack_equal_start_and_end_is_valid_terminal_record():
+    props = _after_ack_props(ExecMainExitTimestamp="Fri 2026-11-06 21:10:00 CST")
+    assert ut.derive_exit_code(props) == (124, "systemd")
+
+
+@pytest.mark.parametrize("result,exec_code,status,expected", [
+    ("signal", "2", "15", 143), ("core-dump", "3", "11", 139),
+    # Result=success signals keep the old interpretation; no signal-reset expansion.
+    ("success", "2", "15", 0), ("success", "3", "11", 0),
+])
+def test_existing_signal_mapping_is_unchanged(result, exec_code, status, expected):
+    props = _after_ack_props(Result=result, ExecMainCode=exec_code, ExecMainStatus=status)
+    assert ut.derive_exit_code(props) == (expected, "systemd")
+
+
+def test_success_exit_status_is_service_only_and_read_in_same_show(monkeypatch):
+    service = _after_ack_props(ExecMainStatus="5", SuccessExitStatus="5")
+    timer = {"LoadState": "loaded", "ActiveState": "active", "Result": "success",
+             "SuccessExitStatus": "124", "NextElapseUSecRealtime": "2026-11-09 21:10:00"}
+    raw = "\n\n".join(
+        "Id=" + name + "\n" + "\n".join(key + "=" + value for key, value in props.items())
+        for name, props in [("trade-x.service", service), ("trade-x.timer", timer)]
+    )
+    calls = []
+    def show(cmd, **kwargs):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout=raw)
+    monkeypatch.setattr(ut.subprocess, "run", show)
+    merged = ut.read_unit_states(["trade-x.service"])["trade-x.service"]
+    assert len(calls) == 1
+    assert calls[0].count("SuccessExitStatus") == 1
+    assert set(ut.SERVICE_PROPS) == REAL_SERVICE_KEYS and len(ut.SERVICE_PROPS) == 9
+    assert merged["SuccessExitStatus"] == "5"  # Timer policy must never replace it.
+    assert ut.derive_exit_code(merged) == (0, "systemd")
+    without_service_policy = dict(service)
+    without_service_policy.pop("SuccessExitStatus")
+    assert "SuccessExitStatus" not in ut._merge_unit_props(without_service_policy, timer)
+
+
+@pytest.fixture
+def isolated_schedule_truth():
+    """Actual parser/evidence/merger without importing gen_schedule_stats top level."""
+    path = Path(__file__).absolute().parents[1] / "gen_schedule_stats.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    functions = {"_resolve_log", "_open_log_text", "_iter_lines", "parse_standard_detail",
+                 "_log_exit_evidence", "_merge_exit_truth"}
+    constants = {"MAX_GAP_SEC", "_TS", "START_RE", "END_RE",
+                 "_DEPLOY_FIELD_RE", "_COLLECT_FIELD_RE"}
+    selected = [node for node in tree.body
+                if (isinstance(node, ast.FunctionDef) and node.name in functions)
+                or (isinstance(node, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id in constants for t in node.targets))]
+    assert {n.name for n in selected if isinstance(n, ast.FunctionDef)} == functions
+    namespace = {"Path": Path, "datetime": datetime.datetime, "re": re, "gzip": gzip}
+    exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"), namespace)
+    return namespace
+
+
+@pytest.mark.parametrize("raw_status,policy,log_status,last_exit,conflict", [
+    (124, "", 124, 124, False),  # Real after-ack124 must agree with original log124.
+    (124, "", 1, 124, True),    # Genuine log/process disagreement stays visible.
+    (0, "", 0, 0, False),
+    (5, "5", 0, 0, False),     # Accepted policy + successful log is not a new failure.
+    (124, "124", 124, 124, True),  # Accepted unit0 cannot suppress literal log124.
+])
+def test_after_ack_real_schedule_log_merge(tmp_path, isolated_schedule_truth,
+                                           raw_status, policy, log_status, last_exit, conflict):
+    ns = isolated_schedule_truth
+    path = tmp_path / "turnover_backfill_launchd.log"
+    path.write_text(
+        "=== turnover_backfill.sh 开始 2026-11-06 21:10:00 ===\n"
+        f"=== turnover_backfill.sh 结束 2026-11-06 22:59:35 退出码={log_status} ===\n",
+        encoding="utf-8",
+    )
+    pairs, pending, meta = ns["parse_standard_detail"](path, r"turnover_backfill\.sh")
+    assert pending is None and len(pairs) == len(meta) == 1
+    assert pairs[0][2] == log_status and meta[0]["exit_field"] == log_status
+    log_ev = ns["_log_exit_evidence"](meta[0])
+    state = ut.derive_unit_state("trade-turnover-backfill.service", _after_ack_props(
+        ExecMainStatus=str(raw_status), SuccessExitStatus=policy))
+    merged = ns["_merge_exit_truth"](log_ev, state, "systemd")
+    assert merged["last_exit"] == last_exit
+    assert merged["exit_conflict"] is conflict
+    assert state["exec_status"] == raw_status
+    if not policy and raw_status == 124:
+        assert merged["exit_source"] == "systemd"

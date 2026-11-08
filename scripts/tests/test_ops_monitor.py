@@ -255,6 +255,47 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(c['evidence']['exit_code'], 124)
         self.assertEqual(c['evidence']['last_exit_utc'], '2026-11-06T14:59:36Z')
 
+    def test_service_exit_success_policy_preserves_raw_code_and_uses_same_show(self):
+        for status, policy, expected in ((0, '', 'ok'), (5, '5', 'ok'),
+                                         (5, '', 'warning'), (124, '', 'warning'),
+                                         (124, '5', 'warning'), (124, '124', 'ok'),
+                                         (5, '15 50', 'warning'), (5, ' 3  5 7 ', 'ok')):
+            with self.subTest(status=status, policy=policy):
+                runner = ServiceStateRunner(self.rows, {
+                    'ExecMainStatus': str(status), 'SuccessExitStatus': policy,
+                })
+                snapshot = self.collect(runner)
+                m.validate_snapshot(snapshot)
+                c = next(c for c in snapshot['checks']
+                         if c['id'] == 'cloud-service:' + self.rows[0]['unit'])
+                self.assertEqual(c['status'], expected)
+                self.assertEqual(c['evidence']['exit_code'], status)
+                self.assertEqual(c['evidence']['unit_result'], 'success')
+                self.assertEqual(c['evidence'].get('accepted_success_exit', False),
+                                 status != 0 and expected == 'ok')
+                shows = [args for args in runner.calls if args[1] == 'show']
+                self.assertEqual(len(shows), 1)
+                props = next(a.removeprefix('--property=') for a in shows[0]
+                             if a.startswith('--property=')).split(',')
+                self.assertEqual(props.count('SuccessExitStatus'), 1)
+
+    def test_same_round_accepted_exit_retains_policy_evidence_without_washing_124(self):
+        for status, policy, expected in ((5, '5', 'ok'), (5, '', 'warning'),
+                                         (124, '', 'warning'), (124, '5', 'warning'),
+                                         (124, '124', 'ok')):
+            with self.subTest(status=status, policy=policy):
+                c = self.unfinished_check({'ExecMainStatus': str(status),
+                                           'SuccessExitStatus': policy})
+                self.assertEqual(c['status'], expected)
+                self.assertTrue(c['evidence']['same_round'])
+                self.assertEqual(c['evidence']['exit_code'], status)
+                self.assertEqual(c['evidence']['execution_state'],
+                                 'completed' if expected == 'ok' else 'failed')
+                self.assertEqual(c['evidence'].get('accepted_success_exit', False), expected == 'ok')
+                if expected == 'ok':
+                    self.assertEqual(c['evidence']['completion_source'], 'systemd_live')
+                    self.assertTrue(c['evidence']['trusted_exit_origin'])
+
     def test_live_success_reconciles_only_the_same_round_after_schedule_snapshot(self):
         c = self.unfinished_check(last_exit=124)
         self.assertEqual(c['status'], 'ok')
@@ -378,6 +419,40 @@ class CollectorTests(unittest.TestCase):
         obj = json.loads((Path(self.cfg.output_dir) / 'snapshot.json').read_text());m.validate_snapshot(obj)
         self.assertNotIn(str(self.secret), out.getvalue())
         self.assertNotIn('fixture-token', (Path(self.cfg.output_dir) / 'report.json').read_text())
+
+    def test_main_stdout_projects_only_safe_delivery_metadata(self):
+        cfgfile = self.temp / 'stdout-collector.json'
+        cfgfile.write_text(json.dumps(self.cfg.__dict__))
+        sensitive = 'Bearer fixture-private-token https://private.invalid/body /home/private'
+        cases = [
+            ({'ok': False, 'http_status': 503, 'error_kind': 'HTTPError'},
+             {'http_status': 503, 'error_kind': 'HTTPError'}, '--once', 2),
+            ({'ok': False, 'error_kind': 'TimeoutError'},
+             {'error_kind': 'TimeoutError'}, '--once', 2),
+            ({'ok': True, 'http_status': 200}, {'http_status': 200}, '--once', 0),
+            ({'ok': False, 'state': 'collect_only'}, {}, '--collect-only', 0),
+        ]
+        for delivery, expected, mode, expected_rc in cases:
+            with self.subTest(delivery=expected, mode=mode):
+                private_delivery = {**delivery, 'body': sensitive, 'url': sensitive,
+                                    'secret': sensitive, 'headers': {'Authorization': sensitive}}
+                original = json.dumps(private_delivery, sort_keys=True)
+                report = {'snapshot_id': 'synthetic-safe-projection',
+                          'coverage': {'counts': {'checks': 7}}, 'delivery': private_delivery}
+                out = io.StringIO()
+                with patch.object(m, 'run_once', return_value=(report, expected_rc)) as run_once:
+                    with contextlib.redirect_stdout(out):
+                        rc = m.main(['--config', str(cfgfile), mode])
+                self.assertEqual(rc, expected_rc)
+                self.assertEqual(json.loads(out.getvalue()), {
+                    'snapshot_id': 'synthetic-safe-projection', 'checks': 7,
+                    'delivery_ok': delivery['ok'], 'collect_only': mode == '--collect-only',
+                    'delivery': expected,
+                })
+                self.assertNotIn(sensitive, out.getvalue())
+                self.assertEqual(json.dumps(private_delivery, sort_keys=True), original)
+                run_once.assert_called_once()
+                self.assertEqual(run_once.call_args.kwargs['collect_only'], mode == '--collect-only')
 
     def test_upload_reserve_survives_collection_deadline_and_skips_head(self):
         now = [100.0]

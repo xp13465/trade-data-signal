@@ -44,7 +44,7 @@ SAFE_PROPS = ('Id', 'LoadState', 'ActiveState', 'SubState', 'Type', 'Result',
               'ExecMainCode', 'ExecMainStatus', 'ExecMainStartTimestamp',
               'ExecMainExitTimestamp', 'UnitFileState', 'TimersCalendar',
               'TimersMonotonic', 'NextElapseUSecRealtime', 'NextElapseUSecMonotonic',
-              'LastTriggerUSec', 'Persistent')
+              'LastTriggerUSec', 'Persistent', 'SuccessExitStatus')
 
 
 class LimitError(Exception):
@@ -310,6 +310,11 @@ def calendar_fingerprint(props):
     return hashlib.sha256(json.dumps(normalized, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+def exit_matches_success_policy(props):
+    code = first(props, 'ExecMainStatus')
+    return code == '0' or (code.isdigit() and code in first(props, 'SuccessExitStatus').split())
+
+
 def unit_check(name, props):
     timer = name.endswith('.timer')
     cid = ('cloud-timer:' if timer else 'cloud-service:') + name
@@ -344,7 +349,9 @@ def unit_check(name, props):
     has_run = evidence['last_start_utc'] is not None
     evidence['run_record_present'] = has_run
     if typ == 'oneshot' and active == 'inactive':
-        if has_run and result == 'success' and code == '0':
+        if has_run and result == 'success' and exit_matches_success_policy(props):
+            if code != '0':
+                evidence['accepted_success_exit'] = True
             return check(cid, category, 'ok', 'Oneshot last systemd run succeeded; data correctness not checked', evidence)
         if has_run and ((code.isdigit() and int(code) != 0) or (result and result != 'success')):
             return check(cid, category, 'warning', 'Oneshot previous run was not successful', evidence)
@@ -558,12 +565,14 @@ class Collector:
             evidence['same_round'] = same_round
             if (same_round and end and first(props, 'Type') == 'oneshot'
                     and first(props, 'ActiveState') == 'inactive'
-                    and first(props, 'Result') == 'success' and first(props, 'ExecMainStatus') == '0'
+                    and first(props, 'Result') == 'success' and exit_matches_success_policy(props)
                     and datetime.fromisoformat(end.replace('Z', '+00:00'))
                     >= datetime.fromisoformat(start.replace('Z', '+00:00'))
                     and datetime.fromisoformat(end.replace('Z', '+00:00')) <= self.now):
-                evidence.update(execution_state='completed', exit_code=0,
+                evidence.update(execution_state='completed', exit_code=int(first(props, 'ExecMainStatus')),
                                 trusted_exit_origin=True, completion_source='systemd_live')
+                if evidence['exit_code'] != 0:
+                    evidence['accepted_success_exit'] = True
                 return 'ok', 'Scheduled round completed after derived snapshot; data correctness not checked'
             code = first(props, 'ExecMainStatus')
             if same_round and (first(props, 'ActiveState') == 'failed'
@@ -990,7 +999,9 @@ def main(argv=None):
             endpoint(cfg.publication_head_url, head=True, test_local=args.test_local_http)
         report, code = run_once(cfg, collect_only=args.collect_only, test_local_http=args.test_local_http)
         print(json.dumps({'snapshot_id': report['snapshot_id'], 'checks': report['coverage']['counts']['checks'],
-                          'delivery_ok': report['delivery'].get('ok', False), 'collect_only': args.collect_only}))
+                          'delivery_ok': report['delivery'].get('ok', False), 'collect_only': args.collect_only,
+                          'delivery': {key: report['delivery'][key] for key in ('http_status', 'error_kind')
+                                       if key in report['delivery']}}))
         return code
     except Exception as exc:
         # Error messages can contain URLs/paths/response text: expose exception class only.
