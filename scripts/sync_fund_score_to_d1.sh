@@ -1,13 +1,22 @@
 #!/bin/bash
-# sync_fund_score_to_d1.sh - 场外基金评分全量同步到 CF D1（#79 方案C step3, 2026-08-22）
+# sync_fund_score_to_d1.sh - 场外基金评分同步到 CF D1（#79 方案C step3, 2026-08-22）
 #
-# 目的: 把本地 public_fund.db fund_score 表【最新 score_date 全量】(≈27418 只)
+# 目的: 把本地 public_fund.db fund_score 表【全市场每只基金最新评分】(≈28000 只)
 #       同步到 Cloudflare D1 数据库 trade-fund-score, 供 worker/fund_score.js
 #       提供 /api/fund_score 分页/筛选/排序/搜索接口（前端场外基金 tab 全量化）。
-# 方法口径: 全量替换（DELETE 后重插），幂等可重跑；只同步最新 score_date 一个分区；
-#       JOIN fund_basic 带出扩展字段(fund_company/fund_manager/setup_date/scale/
-#       management_fee/custody_fee/purchase_fee/strategy/benchmark_text)，与
-#       export_fund_score.py (#79 step1) 字段口径一致。
+# 方法口径(2026-11-08 起两项变更, 均用户拍板):
+#   ① 常驻全市场(latest_by_key): 每只基金各自最近一次有 composite_score 的分区
+#      (不再取 MAX(score_date) 单分区 —— 旧口径工作日只同步头部 2000 只, 周内缩水;
+#       与 sync_fund_screener_to_d1.sh 取数同口径); JOIN fund_basic 带出扩展字段
+#       (fund_company/fund_manager/setup_date/scale/management_fee/custody_fee/
+#       purchase_fee/strategy/benchmark_text), 与 export_fund_score.py (#79 step1)
+#       字段口径一致。
+#   ② 增量同步(H1 保守口径): 每行按**全部数据列含日期列**算 row_hash(sha256 前 16 位),
+#      读 D1 现存 {fund_code: row_hash} 后 diff, 只 upsert changed/new 行 + 批量 DELETE
+#      removed(removed 清理仅 weekly: FUND_SCORE_CLEANUP_REMOVED=1 时做, daily 不清
+#      防误删待恢复基金)—— D1 表全程不被清空, 写量 ≈ 变化行数(旧全表 DELETE+重插
+#      每次写 ~28k 行且同步期间线上查到空/半成品表)。
+#      INCREMENTAL=0 回退旧全量替换语义(DELETE 全表 + INSERT 全量, 应急/调试用)。
 # 输入: /Users/linhuichen/code/trade-data/data/public_fund.db (fund_score + fund_basic)
 # 输出: CF D1 trade-fund-score.fund_score 表（远程，wrangler d1 execute --remote）
 # 复现: bash /Users/linhuichen/code/trade-data/scripts/sync_fund_score_to_d1.sh
@@ -22,6 +31,9 @@
 #   一次导入**; 切批从「只按 80 行」改为**按实际 UTF-8 字节**(默认单条 ≤60,000, 官方单语句
 #   上限 100,000 字节), 生成完硬断言 max_stmt_bytes < 90,000, 超了生成阶段直接失败。
 # 可调环境变量: D1_SPLIT_MODE=legacy 回退旧多文件模式 / D1_MAX_STMT_BYTES /
+#   增量相关(2026-11-08): INCREMENTAL=0|1(默认 1) / FUND_SCORE_CLEANUP_REMOVED(weekly 传 1)
+#   / D1_EXISTING_HASHES_FILE(DRY_RUN 下 mock D1 现存哈希) / D1_HASH_BATCH(读哈希批 5000)
+#   / D1_HASH_READ_TIMEOUT(读哈希单次 90s) /
 #   D1_MAX_STMT_BYTES_ASSERT / D1_RETRY_DELAYS="30 90" / D1_RETRY_BUDGET=<秒> /
 #   D1_EXEC_TIMEOUT_SEC=300 / D1_VERIFY_TIMEOUT_SEC=60
 #   (详表见 docs/ops/pfscore-d1-single-import-20261026.md)
@@ -151,24 +163,26 @@ cd "$REPO"
 echo "$LOG_PREFIX 开始: $(date '+%F %T') db=$DB mode=$SPLIT_MODE batch=$BATCH dry_run=${DRY_RUN:-0} incremental=$INCREMENTAL cleanup_removed=$FUND_SCORE_CLEANUP_REMOVED"
 
 # 0) 增量同步(2026-11-08): 幂等迁移 row_hash 列 + 读 D1 现存哈希(供 Python diff)
+#    row_hash 列迁移**不分增量/回退都跑**(生产): INSERT 语句总是写 row_hash 列,
+#    INCREMENTAL=0 回退模式若不迁移列, 已有表没有 row_hash 列 → 导入必失败(no such column)。
 HASHES_FILE="$GEN_DIR/d1_hashes.json"
 source "$SCRIPT_SELF_DIR/lib/d1_hash_read.sh" || _fail "d1_hash_read.sh missing"
-if [ "$INCREMENTAL" = "1" ]; then
-  if [ "$DRY_RUN" = "1" ]; then
-    if [ -n "$D1_EXISTING_HASHES_FILE" ] && [ -f "$D1_EXISTING_HASHES_FILE" ]; then
-      cp "$D1_EXISTING_HASHES_FILE" "$HASHES_FILE"
-      echo "$LOG_PREFIX DRY_RUN: 用 D1_EXISTING_HASHES_FILE 作 D1 现存哈希源"
-    else
-      printf '{}\n' > "$HASHES_FILE"
-      echo "$LOG_PREFIX DRY_RUN: 无 D1_EXISTING_HASHES_FILE, D1 视为空表(全部新增)" >&2
-    fi
+if [ "$DRY_RUN" = "1" ]; then
+  if [ -n "$D1_EXISTING_HASHES_FILE" ] && [ -f "$D1_EXISTING_HASHES_FILE" ]; then
+    cp "$D1_EXISTING_HASHES_FILE" "$HASHES_FILE"
+    echo "$LOG_PREFIX DRY_RUN: 用 D1_EXISTING_HASHES_FILE 作 D1 现存哈希源"
   else
-    d1_migrate_row_hash "$D1_DB" "fund_score" || _fail "row_hash 列迁移失败(fund_score)" unknown
-    if ! d1_read_hashes "$D1_DB" "fund_score" "$HASHES_FILE"; then
-      _fail "读 D1 现存哈希失败(fund_score, wrangler SELECT)" unknown
-    fi
+    printf '{}\n' > "$HASHES_FILE"
+    echo "$LOG_PREFIX DRY_RUN: 无 D1_EXISTING_HASHES_FILE, D1 视为空表(全部新增)" >&2
+  fi
+elif [ "$INCREMENTAL" = "1" ]; then
+  d1_migrate_row_hash "$D1_DB" "fund_score" || _fail "row_hash 列迁移失败(fund_score)" unknown
+  if ! d1_read_hashes "$D1_DB" "fund_score" "$HASHES_FILE"; then
+    _fail "读 D1 现存哈希失败(fund_score, wrangler SELECT)" unknown
   fi
 else
+  # INCREMENTAL=0 回退: 不读哈希(全量 DELETE+INSERT 不需要 diff), 但仍迁移 row_hash 列
+  d1_migrate_row_hash "$D1_DB" "fund_score" || _fail "row_hash 列迁移失败(fund_score)" unknown
   printf '{}\n' > "$HASHES_FILE"
   echo "$LOG_PREFIX INCREMENTAL=0: 跳过 D1 哈希读(回退旧全量替换语义)" >&2
 fi
@@ -310,40 +324,51 @@ meta_stmt = (
 )
 
 # ---------- 增量 diff(2026-11-08): 只 upsert changed/new + 批 DELETE removed ----------
-# INCREMENTAL=0 回退旧全量替换语义(changed=全量, 行为等价)。
 # removed 清理: fund_score 仅 weekly(FUND_SCORE_CLEANUP_REMOVED=1)时做; daily 不删(防误删待恢复基金)。
+#   daily 不删的多余行会留在 D1(retained_removed), 导入后 count 校验按 rows+retained 对账。
 d1_hashes = load_d1_hashes(HASHES_FILE) if INCREMENTAL else {}
+retained_removed = 0
 if INCREMENTAL:
     changed, new_rows, removed_codes, unchanged = diff_hashes(rows, d1_hashes)
+    if not CLEANUP_REMOVED:
+        # daily: 不清理 removed(D1 里多余的基金先留着, 等周日全量再清; 防工作日误删)
+        retained_removed = len(removed_codes)
+        removed_codes = []
 else:
+    # INCREMENTAL=0 回退: 全部当 new, 走旧「DELETE 全表 + INSERT 全量」路径(见 single 分支)
     changed, new_rows, removed_codes, unchanged = [], rows, [], 0
-if not CLEANUP_REMOVED:
-    # daily: 不清理 removed(D1 里多余的基金先留着, 等周日全量再清; 防工作日误删)
-    removed_codes = []
 print(f"[sync-d1-python] diff: total={len(rows)} changed={len(changed)} "
-      f"new={len(new_rows)} removed={len(removed_codes)} unchanged={unchanged} "
+      f"new={len(new_rows)} removed={len(removed_codes)} retained={retained_removed} "
+      f"unchanged={unchanged} "
       f"d1_existing={len(d1_hashes)} incremental={INCREMENTAL} cleanup_removed={CLEANUP_REMOVED}",
       flush=True)
 
 set_cols = [name for name, _ in cols if name != "fund_code"] + ["row_hash"]
 conflict_clause = build_conflict_clause("fund_score", set_cols, "fund_code")
+# 全量行值(INCREMENTAL=0 回退与 legacy 模式共用; 含 row_hash 列)
+all_cols = [name for name, _ in cols] + ["row_hash"]
+row_values = ["(" + ", ".join(sql_lit(r[name]) for name in all_cols) + ")" for r in rows]
 
 if split_mode == "single":
     # 一表一文件: schema → [增量 upsert changed/new] → [批 DELETE removed(仅 weekly)] → meta
     bundle = Bundle(max_stmt_bytes=MAX_STMT_BYTES, assert_max_bytes=ASSERT_MAX_BYTES)
     for s in schema_stmts:
         bundle.add(s)
-    write_rows = changed + new_rows
-    if write_rows:
-        write_cols = [name for name, _ in cols] + ["row_hash"]
-        write_vals = ["(" + ", ".join(sql_lit(r[name]) for name in write_cols) + ")" for r in write_rows]
-        bundle.add_inserts(head, write_vals, conflict_clause=conflict_clause)
+    if INCREMENTAL:
+        write_rows = changed + new_rows
+        if write_rows:
+            write_cols = [name for name, _ in cols] + ["row_hash"]
+            write_vals = ["(" + ", ".join(sql_lit(r[name]) for name in write_cols) + ")" for r in write_rows]
+            bundle.add_inserts(head, write_vals, conflict_clause=conflict_clause)
+        else:
+            print("[sync-d1-python] 增量空写: changed+new=0, 跳过 INSERT(只写 meta+removed)", flush=True)
+        for i in range(0, len(removed_codes), 500):
+            chunk = removed_codes[i:i + 500]
+            in_list = ", ".join("'%s'" % c.replace("'", "''") for c in chunk)
+            bundle.add(f"DELETE FROM fund_score WHERE fund_code IN ({in_list});")
     else:
-        print("[sync-d1-python] 增量空写: changed+new=0, 跳过 INSERT(只写 meta+removed)", flush=True)
-    for i in range(0, len(removed_codes), 500):
-        chunk = removed_codes[i:i + 500]
-        in_list = ", ".join("'%s'" % c.replace("'", "''") for c in chunk)
-        bundle.add(f"DELETE FROM fund_score WHERE fund_code IN ({in_list});")
+        # INCREMENTAL=0 回退旧全量替换: DELETE 全表(第一条数据语句) + 全量 INSERT, 不 upsert
+        bundle.add_inserts(head, row_values, delete_stmt="DELETE FROM fund_score;")
     bundle.add(meta_stmt)
     # 硬断言先于写盘: 超限 = 直接失败, 绝不留半个包
     try:
@@ -362,12 +387,11 @@ if split_mode == "single":
           f"statements={st['statements']} max_stmt_bytes={st['max_stmt_bytes']} "
           f"soft_cap={MAX_STMT_BYTES} hard_cap={ASSERT_MAX_BYTES} "
           f"oversize_single_row_stmts={st['oversize_single_row_stmts']} "
-          f"upsert_rows={len(write_rows)} removed={len(removed_codes)}", flush=True)
+          f"upsert_rows={len(changed) + len(new_rows)} removed={len(removed_codes)} "
+          f"retained={retained_removed}", flush=True)
 else:
     # legacy: 旧的多文件逐批模式（回退开关）, 全量 DELETE+INSERT(不走增量, 安全回退)
     (gen_dir / "000_schema.sql").write_text(schema, encoding="utf-8")
-    legacy_cols = [name for name, _ in cols] + ["row_hash"]
-    row_values = ["(" + ", ".join(sql_lit(r[name]) for name in legacy_cols) + ")" for r in rows]
     first = True
     files = []
     for i in range(0, len(rows), batch):
@@ -388,8 +412,11 @@ else:
 # meta.json 放在**全部生成动作之后**写(2026-10-26 审查 M3): 硬断言/写盘失败时
 #   生成目录里连 meta.json 都没有 —— 与「超限时一个字节都不写盘」的口径一致
 #   (旧版在断言之前写, 超限会残留 meta.json)。它只供调用方读期望行数, 不参与 SQL 内容。
+#   retained_removed: 本次留在 D1 未清理的多余行数(daily 不清 removed 时 >0),
+#   导入后 count 校验期望 = rows + retained_removed(见 bash 侧 EXPECT_D1)。
 (gen_dir / "meta.json").write_text(
-    json.dumps({"score_date": latest, "rows": len(rows)}), encoding="utf-8")
+    json.dumps({"score_date": latest, "rows": len(rows), "retained_removed": retained_removed}),
+    encoding="utf-8")
 PYEOF
 RC=$?
 if [ $RC -ne 0 ]; then
@@ -400,6 +427,9 @@ if [ $RC -ne 0 ]; then
 fi
 
 EXPECT_ROWS=$("$PY" -c "import json;print(json.load(open('$GEN_DIR/meta.json'))['rows'])")
+# 导入后 D1 期望行数 = 本地行数 + 未清理 removed(daily 不清时 D1 会多出这些历史残留)
+RETAINED=$("$PY" -c "import json;print(json.load(open('$GEN_DIR/meta.json')).get('retained_removed', 0))")
+EXPECT_D1=$((EXPECT_ROWS + RETAINED))
 
 # 待执行的 SQL 文件清单: 默认只有一个整包文件; legacy 模式沿用旧的多文件
 if [ "$SPLIT_MODE" = "single" ]; then
@@ -417,7 +447,7 @@ if [ "$DRY_RUN" = "1" ]; then
   for f in "${SQL_FILES[@]}"; do
     echo "$LOG_PREFIX     sqlite3 \$db < \"$f\""
   done
-  echo "$LOG_PREFIX     sqlite3 \$db 'SELECT COUNT(*) FROM fund_score'   # 期望 ${EXPECT_ROWS}"
+  echo "$LOG_PREFIX     sqlite3 \$db 'SELECT COUNT(*) FROM fund_score'   # 期望 ${EXPECT_ROWS}(本地新全集; D1 导入后=${EXPECT_D1}, 多出的 ${RETAINED} 为 daily 未清理残留)"
   exit 0
 fi
 
@@ -438,14 +468,15 @@ for f in "${SQL_FILES[@]}"; do
   fi
 done
 
-# 3) 验证: D1 侧 count 与本地一致
+# 3) 验证: D1 侧 count 与本地一致(期望 = 本地行数 + daily 未清理的 removed 残留;
+#    weekly 清理 removed 时 RETAINED=0 退化为严格相等)
 D1_COUNT=$(_d1_run_with_timeout "$VERIFY_TIMEOUT_SEC" \
   npx wrangler d1 execute trade-fund-score --remote -y --json \
   --command "SELECT COUNT(*) AS n FROM fund_score" 2>/dev/null \
   | "$PY" -c "import json,sys;d=json.load(sys.stdin);print(d[0]['results'][0]['n'])")
-echo "$LOG_PREFIX 本地 rows=$EXPECT_ROWS D1 count=$D1_COUNT"
-if [ "$D1_COUNT" != "$EXPECT_ROWS" ]; then
-  _fail "D1 count 与本地不一致: 本地 $EXPECT_ROWS vs D1 ${D1_COUNT:-读取失败}"
+echo "$LOG_PREFIX 本地 rows=$EXPECT_ROWS retained_removed=$RETAINED 期望 D1=$EXPECT_D1 实际 D1 count=$D1_COUNT"
+if [ "$D1_COUNT" != "$EXPECT_D1" ]; then
+  _fail "D1 count 与期望不一致: 期望 $EXPECT_D1(本地 $EXPECT_ROWS + 残留 $RETAINED) vs D1 ${D1_COUNT:-读取失败}"
 fi
 _success
 echo "$LOG_PREFIX 完成: $(date '+%F %T') 同步成功且校验一致"
