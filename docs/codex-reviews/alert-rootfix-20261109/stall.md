@@ -71,5 +71,17 @@ python -m pytest -q -p no:cacheprovider \
 AST 对比确认 ADR 只有 `stall_context / format_stall_body` 两个函数发生变化，
 滚动分级函数未改；notify / cloud patrol / 两份备份脚本与基线逐字节一致。
 
+首次代码提交 `f880e1fe9` 错误使用了临时 `hooksPath`，把原 lint 脚本放到缩小的镜像中运行；
+这不满足标准完整门禁。父明确“只定向”只约束测试后，已在本 worktree 直接执行
+标准 hook 原命令 `bash scripts/lint_scripts.sh`，没有镜像或缩范围，退出码 0。
+完整原始日志为 `/tmp/codex-reports/alert-rootfix-20261109/stall-original-full-lint.log`
+（264 行），最后一行原文：
+
+```text
+=== lint 全通过 ===
+```
+
+本记录的补充提交使用默认仓库 hook，不再指定 `hooksPath`。
+
 仅交付本分支 commit，供 Claude 审核合并部署；未 push、未改 main / pending-index / 生产。
 本修改不提供精确事故起点或连续停摆计时器，也不改变历史告警事实。
