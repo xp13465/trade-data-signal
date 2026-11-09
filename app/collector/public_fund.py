@@ -1078,11 +1078,6 @@ def fetch_index_daily(start_date: str | None = None, end_date: str | None = None
     """
     print(f"[E3] fetch_index_daily({index_id}) ...", flush=True)
     t = time.time()
-    try:
-        import baostock as bs
-    except ImportError:
-        print("[E3] baostock 未安装, 跳过", flush=True)
-        return 0
     if not start_date:
         start_date = (dt.date.today() - dt.timedelta(days=400)).strftime("%Y%m%d")
     if not end_date:
@@ -1093,19 +1088,104 @@ def fetch_index_daily(start_date: str | None = None, end_date: str | None = None
     bs_code = {"hs300": "sh.000300", "csi500": "sh.000905", "gem": "sz.399006"}.get(
         index_id, "sh.000300")
 
-    lg = bs.login()
-    if lg.error_code != "0":
-        print(f"[E3] baostock login fail: {lg.error_msg}", flush=True)
-        return 0
+    # SDK 的 socket/login 是进程全局状态；线程锁保护不到其他 BaoStock 入口。
+    # 仿现有 baostock_worker 隔离连接，但子进程只查数据，绝不初始化/写数据库。
+    # 不叠加 timeout：沿用 base 的 socket 双守卫和既有有界重连预算。
+    import os
+    import subprocess
+
+    query_script = '''
+import json
+import os
+import sys
+import threading
+
+# 先于SDK导入启动：父进程独占管道写端，退出(包括SIGALRM)即EOF。
+# 只退出本查询进程，不更改全局信号handler，也不按PID杀其它任务。
+parent_fd = int(sys.argv[4])
+def exit_with_parent():
     try:
-        rs = bs.query_history_k_data_plus(
-            bs_code, "date,close,pctChg",
-            start_date=sd, end_date=ed, frequency="d")
-        rows_data: list[list] = []
-        while (rs.error_code == "0") and rs.next():
-            rows_data.append(rs.get_row_data())
+        os.read(parent_fd, 1)
     finally:
-        bs.logout()
+        os._exit(1)
+threading.Thread(target=exit_with_parent, daemon=True).start()
+
+from app.collector import baostock_daily as daily
+
+code, sd, ed = sys.argv[1:4]
+payload = {"rows": [], "error": ""}
+try:
+    # 最多两次完整查询；每次恢复复用现有最多3次/间隔2秒的登录助手。
+    for attempt in range(2):
+        rows = []
+        try:
+            daily._ensure_login()
+            rs = daily.bs.query_history_k_data_plus(
+                code, "date,close,pctChg", start_date=sd, end_date=ed,
+                frequency="d")
+            if rs.error_code != "0":
+                raise RuntimeError(f"{rs.error_code}: {rs.error_msg}")
+            while rs.next():
+                if rs.error_code != "0":
+                    raise RuntimeError(f"{rs.error_code}: {rs.error_msg}")
+                row = rs.get_row_data()
+                if rs.error_code != "0":
+                    raise RuntimeError(f"{rs.error_code}: {rs.error_msg}")
+                if len(row) != 3:
+                    raise ValueError("日线响应字段不完整")
+                rows.append(row)
+            if rs.error_code != "0":
+                raise RuntimeError(f"{rs.error_code}: {rs.error_msg}")
+            # SDK next() 在整页后接收 None 会静默返回 False、不改 error_code。
+            # 满页未推进到下一页不等于正常EOF，不能把已读半批当完整成功。
+            page = getattr(rs, "data", [])
+            if page and (rs.cur_row_num < len(page)
+                         or len(page) >= int(rs.per_page_count)):
+                raise ConnectionError("10002007: 日线分页读取中断")
+            payload["rows"] = rows
+            payload["error"] = ""
+            break
+        except Exception as exc:
+            payload["error"] = f"{type(exc).__name__}: {exc}"
+            retryable = isinstance(exc, (OSError, EOFError)) or any(
+                err in str(exc) for err in daily._NETWORK_ERROR_CODES)
+            if not retryable or attempt == 1:
+                break
+            print(f"[E3] {code} 同源查询中断，丢弃{len(rows)}行后重连: {exc}", flush=True)
+            try:
+                daily._reconnect_with_retry()
+            except Exception as reconnect_exc:
+                payload["error"] = f"重连失败: {reconnect_exc}"
+                break
+finally:
+    daily._logout()
+# logout 在结果之前完成；即使失败登录留下socket，子进程退出也会释放，父会话不受影响。
+print("FUND_INDEX_RESULT=" + json.dumps(payload), flush=True)
+'''
+    try:
+        parent_read, parent_write = os.pipe()  # 默认不可继承；只显式传子进程读端。
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", query_script, bs_code, sd, ed, str(parent_read)],
+                cwd=str(_ROOT), capture_output=True, text=True, check=True,
+                pass_fds=(parent_read,))
+        finally:
+            os.close(parent_read)
+            os.close(parent_write)
+        output = result.stdout.splitlines()
+        for line in output[:-1]:
+            print(line, flush=True)
+        if not output or not output[-1].startswith("FUND_INDEX_RESULT="):
+            raise ValueError("隔离查询未返回完整结果")
+        payload = json.loads(output[-1].removeprefix("FUND_INDEX_RESULT="))
+        rows_data = payload["rows"]
+        if not rows_data and payload["error"]:
+            print(f"[E3] baostock 查询失败 {bs_code}: {payload['error']}", flush=True)
+            return 0
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:
+        detail = getattr(exc, "stderr", "") or str(exc)
+        print(f"[E3] baostock 隔离查询失败 {bs_code}: {detail[-500:]}", flush=True)
+        return 0
     if not rows_data:
         print(f"[E3] baostock 无数据 {bs_code} {sd}~{ed}", flush=True)
         return 0
