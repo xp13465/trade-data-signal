@@ -30,6 +30,10 @@ on:
       - 'scripts/tests/test_build_worktree_source*'
       - 'docs/ops/architecture/**'
       - 'package*.json'
+      - 'scripts/check_release_ci_gate.py'
+      - 'scripts/tests/test_release_ci_gate.py'
+      - '.github/workflows/deploy-cf.yml'
+      - '.github/workflows/deploy-pages.yml'
       - '.github/workflows/ops-monitoring-checks.yml'
   pull_request:
     paths:
@@ -60,6 +64,10 @@ on:
       - 'scripts/tests/test_build_worktree_source*'
       - 'docs/ops/architecture/**'
       - 'package*.json'
+      - 'scripts/check_release_ci_gate.py'
+      - 'scripts/tests/test_release_ci_gate.py'
+      - '.github/workflows/deploy-cf.yml'
+      - '.github/workflows/deploy-pages.yml'
       - '.github/workflows/ops-monitoring-checks.yml'
   workflow_dispatch:
 permissions:
