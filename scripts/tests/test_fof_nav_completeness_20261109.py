@@ -66,9 +66,13 @@ def test_more_than_500_empty_and_errors_reach_tail_after_process_restart(sandbox
     program = """
 import json, sqlite3, sys, socket
 from pathlib import Path
-from scripts import collect_fof_nav as m
 def denied(*a, **kw): raise AssertionError('禁止真实网络')
 socket.socket.connect = denied
+# 裸子进程不加载父conftest；先复用CI唯一导入垫片，不加供应商依赖。
+socket.getaddrinfo = lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.1', 443))]
+from scripts.tests._ci_stubs import install_missing_third_party_stubs
+install_missing_third_party_stubs()
+from scripts import collect_fof_nav as m
 m.DB_PATH = Path(sys.argv[1])
 m.get_conn = lambda: sqlite3.connect(sys.argv[1])
 m.init_db = lambda: None
@@ -81,8 +85,10 @@ print(json.dumps(called))
 """
     result = subprocess.run([sys.executable, "-c", program, str(sandbox)],
                             cwd=Path(__file__).absolute().parents[2],
-                            env={**os.environ, "REPO": str(sandbox.parent)},
-                            capture_output=True, text=True, timeout=15, check=True)
+                            env={"PATH": os.environ.get("PATH", ""),
+                                 "REPO": str(sandbox.parent), "PYTHONNOUSERSITE": "1"},
+                            capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
     tail = json.loads(result.stdout.splitlines()[-1])
     assert tail == [f"{i:06d}" for i in range(501, 1001)]
     called.clear()
