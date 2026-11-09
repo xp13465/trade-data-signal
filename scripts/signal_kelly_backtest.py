@@ -302,19 +302,74 @@ def _load_etf_freeze():
     return {}
 
 
+class _FreezePersistenceError(RuntimeError):
+    """权威冻结值不可读取或选择冲突；不得沿用内存选择发布结果。"""
+
+
+_FREEZE_WRITE_ACTIVE = {}  # (pid, thread, canonical path): reject recursive saves, not a mutex
+
+
 @evidence_stage(data_root=lambda: ROOT, stage="freeze",
                 chain_id="market_signal_freeze_plan", object_id="signal_kelly_etf_freeze")
 def _save_etf_freeze(freeze):
-    capture_loaded("signal_kelly_etf_freeze", freeze)
-    """写冻结查找表(pre-existing 2026-09-18, 2026-09-21 补齐原子写缺件):
+    """短事务重读、单调合并并原子写；就地返回权威元数据供后续分类使用。
 
-    原实现: 固定 tmp 名(p + '.tmp', 并发写会碰撞) + 无 flush/fsync(replace 可能指到
-    空/截断 inode)。改走公共 util_atomic(同目录 pid+随机 tmp + flush + fsync + os.replace
-    + fchmod 0644), 输出字节与原一致(ensure_ascii=False + separators(',',':'))。
+    sidecar 锁不随数据文件 replace/unlink，所有生产保存共用同一 inode。
+    普通写盘 OSError 仍交原 caller 可见报告；坏最新文件/异码冲突则禁止发布。
     """
-    p = _etf_freeze_path()
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    capture_write(atomic_write_json, p, freeze, separators=(",", ":"))
+    import fcntl
+    import threading
+
+    p = os.path.realpath(_etf_freeze_path())
+    owner = (os.getpid(), threading.get_ident(), p)
+    if owner in _FREEZE_WRITE_ACTIVE:
+        raise _FreezePersistenceError(f"冻结表递归保存被拒绝: {p}")
+    try:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        lock = open(p + ".lock", "a")
+    except OSError as e:
+        raise _FreezePersistenceError(f"冻结锁打开失败: {p}: {type(e).__name__}") from e
+    with lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        except OSError as e:
+            raise _FreezePersistenceError(f"冻结锁获取失败: {p}: {type(e).__name__}") from e
+        _FREEZE_WRITE_ACTIVE[owner] = True
+        try:
+            try:
+                with open(p, encoding="utf-8") as f:
+                    latest = json.load(f)
+            except FileNotFoundError:
+                latest = {}
+            except (OSError, ValueError) as e:
+                raise _FreezePersistenceError(f"冻结表最新值读取失败: {p}: {type(e).__name__}") from e
+            # 不能用宽松 _load 的 {} 回退覆盖损坏文件，也不能猜损坏 entry 的选择。
+            for data in (latest, freeze):
+                if not isinstance(data, dict) or any(
+                    not isinstance(k, str) or not isinstance(v, dict)
+                    or not isinstance(v.get("code"), str) or not v["code"]
+                    for k, v in data.items()
+                ):
+                    raise _FreezePersistenceError(f"冻结表结构无效，拒绝覆盖: {p}")
+            merged = dict(freeze)
+            reused = 0
+            for key, old in latest.items():
+                current = freeze.get(key)
+                if current is not None and current["code"] != old["code"]:
+                    raise _FreezePersistenceError(
+                        f"冻结选择冲突: {key!a}: 已固化={old['code']!a}, 本轮={current['code']!a}")
+                reused += current is not None and current != old
+                merged[key] = old  # 同 ETF 也保留完整旧 metadata/frozen_at
+            # 即使随后普通写失败，也不能用另一份同码新元数据构造象限/输出。
+            freeze.clear()
+            freeze.update(merged)
+            if reused:
+                print(f"   冻结表复用已固化元数据: {reused} 个同码事件", file=sys.stderr)
+            capture_loaded("signal_kelly_etf_freeze", latest, resolved_path=p)
+            capture_write(atomic_write_json, p, merged, separators=(",", ":"))
+        finally:
+            _FREEZE_WRITE_ACTIVE.pop(owner, None)
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 # 2026-09-24 告警降噪 P1: 冻结缺键分级阈值(>=10 大事件 SEVERE / <10 小缺口降 WARN)。
@@ -2377,6 +2432,23 @@ def compute():
         print(f"   冻结分时点防御闸: latest_signal_date={latest_signal_date}(etf_daily MAX)")
     frozen_diagnostic_context = _frozen_missing_context(
         buy_rows, best_etf, etf_freeze, signal_stats, latest_signal_date)
+    for _date, iid, _sig in buy_rows:
+        _resolve_etf(_date, iid, _sig, best_etf, etf_freeze, latest_signal_date)
+    # 先确认持久化选择再加载价格/分类；锁只覆盖保存事务，不覆盖后续计算。
+    # 换标漂移修复: 持久化冻结查找表(含本轮新固化), 供下次回测保持历史成交固化。
+    try:
+        _save_etf_freeze(etf_freeze)
+        if frozen_diagnostic_context is not None:
+            frozen_diagnostic_context["freeze_persistence"] = {"status": "saved", "count": len(etf_freeze)}
+        capture_event("freeze_persisted", count=len(etf_freeze))
+        print(f"   ✓ 已固化 {len(etf_freeze)} 个信号事件 -> {_etf_freeze_path()}")
+    except OSError as e:
+        if frozen_diagnostic_context is not None:
+            frozen_diagnostic_context["freeze_persistence"] = {"status": "failed", "error_type": type(e).__name__}
+        capture_event("freeze_persist_failed", error_type=type(e).__name__)
+        print(f"   ⚠ 冻结表写盘失败(不影响本次回测结果): {e}", file=sys.stderr)
+
+    # 合并可能带入同日已固化变体；重新走同一个resolver确定权威价格集合。
     needed_etfs = set()
     for _date, iid, _sig in buy_rows:
         be, _frozen = _resolve_etf(_date, iid, _sig, best_etf, etf_freeze, latest_signal_date)
@@ -2410,19 +2482,6 @@ def compute():
     print(f"   换标漂移修复: 使用已固化ETF的信号事件={frozen_used}, 本次新固化={len(etf_freeze) - frozen_prev_count}")
     print(f"   宇宙感知剪枝(v1.1.7): 排除类别信号事件跳过(调用级)={_PRUNED_UNIVERSE_N} "
           f"(冻结穿透路径一并剪除, freeze 文件本体不动)")
-
-    # 换标漂移修复: 持久化冻结查找表(含本轮新固化), 供下次回测保持历史成交固化。
-    try:
-        _save_etf_freeze(etf_freeze)
-        if frozen_diagnostic_context is not None:
-            frozen_diagnostic_context["freeze_persistence"] = {"status": "saved", "count": len(etf_freeze)}
-        capture_event("freeze_persisted", count=len(etf_freeze))
-        print(f"   ✓ 已固化 {len(etf_freeze)} 个信号事件 -> {_etf_freeze_path()}")
-    except OSError as e:
-        if frozen_diagnostic_context is not None:
-            frozen_diagnostic_context["freeze_persistence"] = {"status": "failed", "error_type": type(e).__name__}
-        capture_event("freeze_persist_failed", error_type=type(e).__name__)
-        print(f"   ⚠ 冻结表写盘失败(不影响本次回测结果): {e}", file=sys.stderr)
 
     # 冻结分时点漂移根治(2026-09-18): 本轮回测拒绝补冻的历史信号事件(dev sync 拉新 DB 后冻结表
     # 停在旧日期, 首次碰到 9-14~9-17 历史信号)→ --severe 告警, 提醒核查生产冻结流程。
@@ -2997,7 +3056,12 @@ def main():
         )
         sys.exit(0)
 
-    data, trades_data = compute()
+    try:
+        data, trades_data = compute()
+    except _FreezePersistenceError as e:
+        # 顶层 stderr 保持明文可读(运维/测试按中文关键词定位);消息内部键名已 !a 安全化
+        print(f"✗ 冻结持久化 FAIL: {e}", file=sys.stderr)
+        sys.exit(6)
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     # 原子写(2026-09-21 生产事故根治): 原 open(w)+json.dump 进程被杀留半截 JSON(32MB
