@@ -8553,3 +8553,33 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 - 体量(截至 11-09,rev 8118feef):CLAUDE.md 71,203B / MEMORY.md 27,321B / 台账归档 78,311B / skills 合计 127,111B;**本季条款净增 +11(≤3)超预算 + skills 环比 +11.6%(>+10%)双超 ⇒ 按 §5.3.1-④ 当季「退役/重写/保留」清单提前执行**(超因:10-18 评鉴 P2/P6/P8/P10 五条新条款落地(§5.3.1/§23.13 锚点独立性/§5.10 探索通道/§5.2④)+ L51/L52/L55/L56/L57 补归档锚点 + 节点评鉴 B4-B8 落 role skill;属评鉴集中落地期增量,非日常棘轮,但出口动作照走:退役清单提前执行)。
 - 本月主线:①「省 D1 配额」工程(fund_score/fund_screener 增量同步省约 51% 写配额 + worker 显式列清单防新列漏进 payload,全链 11-08 合 main `495e0ff3f`/`8118feef3f`,11-09 21:35 首跑核验)②Codex 接力三单收口(ops-live-issues 5 项修复/ops-admin 管理员授权/cloud-alert-closeout 前置)③git 大清理(28 worktree/49 本地/104 远端分支删,已合并验证)。
 - 花费:deepseek 官方 ¥__ / 火山方舟 ¥__ / 各代理 ¥__;规范维护时长 __h(§5.2④;待月底账单数字归并填写,数据源=各控制台账单,主控无查询通道时向用户要)。
+
+## 2026-11-09/10 收口
+
+### 一、main 合错 head 事故(已纠正 + 根因修复)
+
+- **事故**:11-09 约 23:08 跑 `scripts/main-merge.sh codex/freeze-persistence-rootfix-20261109`,main 被快进到 `8840c79d7`(07:51 建的旧本地 ref),而 origin 同名分支已是 `6e3b2ea06`(含 P1 冻结并发修复 + F2 基线同步)⇒ **main 缺一段**。
+- **发现方式**:核「6e3 是否在 main」为否 → `git reflog show` 证实本地 ref 停在 07:51。
+- **纠正**:新建 `feat/freeze-persist-p1-20261109` @`6e3b2ea06` 重跑 main-merge,origin/main 回 `6e3b2ea06` 并同步云上(`8840` 是 `6e3` 祖先,属「少一段」非回滚)。
+- **根因**:agent 在 worktree push 只更新 `refs/remotes/origin/*`,共享仓本地 `refs/heads/*` 不自动前进;而 main-merge.sh 只校验本地 ref 存在(原 :198)不校验与 origin 一致(原 :271 直接 merge 本地 ref)。
+- **修复**:`e3be96073` fetch 后新增四态对账(相同/仅本地/本地是 origin 祖先→`git branch -f` 快进/分叉 exit 10 拒绝),ref 被 worktree 占用时降级用 `origin/$FEAT` 作合并目标,`MERGE_REF` 贯穿 5 个下游点。
+- **验证**:临时仓六用例 + 独立 reviewer 补测「本地领先」「斜杠分支」两例、判别力探针(旧逻辑复现事故/新逻辑合到 origin head)、全量 pytest `3736 passed, 3 skipped, 116 subtests passed in 456.92s`。
+- **遗留**:2 条低分 NOTE(changelog 标题在降级路径仍取本地 feat `:425 CHANGELOG_FEAT`;「已快进」打印早于 branch -f 措辞)记为后续微改(pending-index 登记见 #376)。
+- **教训落台账 L58**(CLAUDE.md §18 滚动窗 + 归档锚点块,机检 check_ledger PASS)。
+
+### 二、周一观察点①换手率整链 PASS
+
+21:10:00→22:13:31、`Result=success`/`ExecMainStatus=0`/`SuccessExitStatus` 空;采集 ok=5193 fail=8;上传 6/6+3/3 与 purge 全成功;9 个签名文件非零;`daily_metric` 20261109 五条与 overview/boot 末点逐值一致、11-06 历史值保留;R2↔本地 diff=0;文件 mtime 22:28~22:30 来源=deploy.sh 22:21 那轮 `export --incremental`,非换手率重跑。
+
+### 三、周一观察点②D1 增量同步:功能 PASS + 待拍板项
+
+- **功能 PASS**:16:00→16:08:43 exit 0;fund_score 45 列含 row_hash/score_date、fund_screener 81 列含 row_hash、空值 0、count 校验一致;线上 worker 43/80 列清单已生效。
+- **待拍板**:UTC 11-09 rows written 合计 **364,511**(fund-score 341,593 + ops-monitor 22,918)= 免费档 100k 的 **3.6 倍**,但全程无配额报错,计费口径未确证(未查账单接口);行数实测 28456/28476,与任务书 ≈28372、commit 文案 28400 不符,**建议以实测为准修文案**。登记见 #374。
+
+### 四、Worker 手工补部署留痕(非 CI 自动部署)
+
+GH Actions `deploy-cf` 与 CF Workers Builds 两条自动链同 head 均失败(clean checkout `wrangler` dry-run PASS,说明构建本身健康),由 implementer 在 worktree 内手工 `npx wrangler deploy` 成功,version `0ca79d67-236b-4383-b96a-a97ac8efedba`,部署时间 2026-11-09T16:45:07Z,ss.fx8.store 200。**注明:本次上线非 CI 自动部署**,根因待查(登记见 #375,先查社区/CF 文档按 §5.1)。
+
+### 五、历史缺冻/交易缺口保持 OPEN
+
+历史 **136 条缺冻 / 5 条交易缺口保持 OPEN**,未倒补、未用当前映射造历史。

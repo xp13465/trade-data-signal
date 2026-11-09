@@ -154,13 +154,14 @@
 - **④ 与 §5.2 关系**:§5.2 模型参数层省 token,本条价格档位层省钱;都属"遇成本问题先查参数/配置层"
 
 ## 18. 防重犯索引表(2026-08-08 起,每次犯错追加;原文全量已归档)
-用户定:慢慢积累经验迭代完美。每次犯错记录于此 + 防重犯条款,不重犯同类。**明细原文全量已归档 `docs/archive/CLAUDE-errors-2026-08.md`(57 过错+31 经验+5 token 段+每日归纳,可 git show 溯源)。本节只保留滚动窗口:最近 15 过错 + 10 经验;全量 57L+31E 锚点见归档文件末尾「防重犯锚点索引」块(线性列表,分「过错锚点」「经验锚点」两节,`grep 锚点id` 可反向追原文;计数与锚点集一致性 + 每条锚点的「机检=」字段 + 四份归属清单「零丢失校验」等式,均由 `scripts/check_ledger.py` 机检)。**
+用户定:慢慢积累经验迭代完美。每次犯错记录于此 + 防重犯条款,不重犯同类。**明细原文全量已归档 `docs/archive/CLAUDE-errors-2026-08.md`(58 过错+31 经验+5 token 段+每日归纳,可 git show 溯源)。本节只保留滚动窗口:最近 15 过错 + 10 经验;全量 58L+31E 锚点见归档文件末尾「防重犯锚点索引」块(线性列表,分「过错锚点」「经验锚点」两节,`grep 锚点id` 可反向追原文;计数与锚点集一致性 + 每条锚点的「机检=」字段 + 四份归属清单「零丢失校验」等式,均由 `scripts/check_ledger.py` 机检)。**
 
 **教训单一事实源(2026-10-18 定,评鉴 P9)**:台账(本节 + 归档锚点块)是教训的**发布源**——新教训**先入台账、先取锚点号**,再被别人引用;**角色 skill / memory 只放「锚点 id + 一句话」引用,不复制全文**(防同一教训分叉成多处同体副本、改一处漏一处);漏网教训补录标「**补录(事故日期 YYYY-MM-DD)**」,落在归档锚点块(**不占按日期倒序的滚动窗口**,故按事故日期归位);每条锚点行尾带「**机检=是(闸门:<名>)/否**」字段(判据见归档块头)。**验收口径**:教训类改动自验须含「台账锚点行(含机检字段)+ 引用处只写锚点 id」两项,缺=验收不过。
 
 ### 最近 15 条过错(按日期倒序)
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
 |---|---|---|---|---|
+| L58 | 11-09 | main-merge 用过期本地 ref 合错 head(worktree push 只更新 `refs/remotes/origin/*`,共享仓本地 `refs/heads/*` 不自动前进;11-09 约 23:08 跑 `main-merge.sh codex/freeze-persistence-rootfix-20261109`,main 被快进到旧本地 ref `8840c79d7`(07:51 建),而 origin 同名分支已是 `6e3b2ea06` ⇒ main 少一段;纠正=新建 `feat/freeze-persist-p1-20261109` @6e3b2ea06 重跑,origin/main 回 `6e3b2ea06` 并同步云上;根因=main-merge.sh 原只校验「本地 ref 存在」不校验「与 origin 一致」) | 合任何 feat 前必须对账「本地 ref vs `origin/$FEAT`」——相同才继续、本地是祖先必须快进、分叉必须停下上报;合并工具的「本地 ref 存在」检查不等于「本地 ref 是最新」(修复=`e3be96073` 第 3.5 步四态对账,ref 被 worktree 占用时降级用 `origin/$FEAT` 作合并目标) | archive:锚点块本条(L58,2026-11-09) |
 | L57 | 11-05 | 发布脚本运行中被自身 merge 替换 → 后续步骤仍执行旧逻辑(feat/fix-bump-products-20261105 合并时主流程仍是合并前版本,旧 `BUMP_PRODUCTS` 不含 `__build.json`/`databrief.html`/`trade_sim.html`;bump 已把三文件写成 a657 却没进提交,origin/main 与线上 `__build.json` 停在 a656 而 index/sw=a657 ⇒ §22 版本串不一致已上线;102cdde94 的提交文件集正好等于旧数组覆盖集,三文件 mtime 12:09 仍脏为铁证) | ①凡 merge/deploy 流程会修改**自身正在运行的脚本**,不得假设"文件改了当前进程就用新逻辑"——merge 后必须校验自身 sha,变化则 `exec` 新版从断点续跑,并防循环/防重复 merge(`scripts/main-merge.sh` 自更新机制)②发布工具链改动必须先在沙箱复现旧行为、再验新机制端到端生效(首个真实合入打印 BANNER + resume 断言)③生成物提交清单用"add 后 `git diff --name-only -- static-site` 必须为空"兜底,不靠人工数组完整性(§22/§24) | archive:锚点块本条(L57,2026-11-05) |
 | L56 | 11-04 | 全量测试有 failed 时删计数、把确定性顺序依赖说成 flaky(任务 #367 F03:实施 agent 修 `scripts/notify.py` 摘要并发原子性,新测试 `test_f03_digest_atomic_concurrent.py` 三处直接写 `os.environ["REPO"]` 未还原,泄漏给后续用例,组合跑必红/单独跑绿;commit message 把真末行「1 failed, 2281 passed, 3 skipped」写成「2280 passed, 3 skipped(fapi_timeout 单独跑绿, flaky)」——**把失败从计数里删掉、把确定性顺序依赖说成 flaky**,企图蒙混放行;独立审查按「flaky 单独跑绿不算放行」重跑全量+组合判别才抓出) | 全量套件出现 failed 时,**禁止把失败从计数里删掉**、**禁止用「单独跑绿=flaky」放行**;必须先做**顺序依赖判别**(单独跑 vs 与新增用例组合跑),确定性失败按真缺陷修;commit message 的测试计数必须是**原样末行**(禁改写禁美化);自测用例禁裸写 `os.environ[...]` 不还原,用 `monkeypatch.setenv`/`monkeypatch.delenv` 自动还原(→memory `tests-freeze-today-must-inject` 同族:测试纪律诚实性) | archive:锚点块本条(L56,2026-11-04) |
 | L55 | 10-27 | 超时预算内外层只改一边 + 多副本不同步(904s 被脚本自己的 `run_to 900` 杀掉;内层与外层 `TimeoutStartSec` 成对,共 4 份副本:代码 `.sh` / 生成源 doc / 云上快照 / 云上真实 unit) | 改预算前按**最坏路径**复算(重试次数 × 单次超时 + 退避);内外层成对改、外层 > 内层留梯度;四副本同步 + `systemctl show -p TimeoutStartUSec` 核生效值;机检 `scripts/systemd_timeout_gradient_audit.py` 双向挂点(全文见归档 L55) | archive:锚点块本条(L55,2026-10-27) |
@@ -176,7 +177,6 @@
 | L44 | 08-24 | has_track口径P0事故(需求记录错→挖掘继承bug→实施照单→reviewer闭环内失守,全链无人对照UI文案,机检全绿卡不归零) | 语义类改动全链路各角色必须有第三方锚点(UI文案/产品文档):主控派单附三源原文、researcher设计前核查分析对象、implementer开工逐字对照、reviewer查对照记录、tester机检备独立锚点(§23.13) | archive:锚点块本条(L44) |
 | L43 | 08-18 | 主控抢跑亲手验证+数据生成违反"只派发"(L29变种:没Edit代码,但亲手干跑export_summary/手动生成summary.json+上传R2/手动curl验收) | 子agent卡住+用户催=派tester/implementer接手验证/数据任务,主控只做派单锚点grep(§8.1)+§0验线上最终结果;数据操作(生成产物/上传R2/重跑)默认归agent,主控不抢跑亲手干(→memory main-controller-ran-verification-hands-on) | archive:锚点块本条(L43) |
 | L42 | 08-17 | UI视觉问题三次声称修好实际零变化(第4次才成功;根因:①问题定义错 ②自验脚本bug算假角 ③自验口径≠用户感知) | ①定位UI视觉/观感问题先穷举式从零验证,复用旧自验脚本前先核对脚本判定逻辑 ②自验口径必须产出用户描述同一视角的证据 ③三次修不好=假设整个错了,停方向换人从零定义,主控不转达"修好"直到用户确认(→memory lite-svg-four-attempts-rootcause) | archive:锚点块本条(L42) |
-| L40 | 08-16 | 打 tag 只做点名处没举一反三(用户让打 v1.1.1,打了就报完成,但 v1.1.0 从没打过 git tag——首次 `git tag -l` 已见只有 v1.0.0,却把"v1.1.0 漏打"当顺手小事默默补打没暴露给用户) | ①「打tag/发版本」第一件事 `git tag -l` 全量核对版本链(v1.0.0→v1.1.0→v1.1.1 三连齐不齐),缺哪个先报用户确认再补 ②发版本验收口径=git tag 必须在(版本串 a2xx/memory/README 是辅助标记不替代 git tag),且必须 push 远端 ③发现历史疏漏=上报用户(§23.7⑤),不自己拍板位置 ④「打 vN tag」隐含前提=版本链完整,做 A 举一反三覆盖版本链全貌(§23.3) | archive:L110 |
 ### 最近 10 条经验(按 E 编号倒序=最新;全量 31 条见归档锚点索引块)
 | 锚点 | 经验 | 适用 | 归档 |
 |---|---|---|---|
