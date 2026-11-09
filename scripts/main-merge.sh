@@ -12,6 +12,10 @@
 #   1. 校验入参 feat 分支名存在 + 当前在 main
 #   2. §14 安全窗口检查: 盘后时点(15:35/16:00/17:50/20:35/22:00)拒绝 merge+push, 提示
 #   3. git fetch origin + checkout main + 确认 main 已是最新
+#   3.5 feat 本地 ref 与 origin/$FEAT 对账(2026-11-10 补, 11-09 合错 head 事故): 相同 → 通过;
+#       本地是 origin 祖先(agent push 后本地 ref 没前进)→ 自动 branch -f 快进 + 醒目打印旧->新;
+#       分叉(互不为祖先)→ 拒绝执行 exit 10, 打印两边 SHA + 各自最近 3 条 commit(§23.11 不静默)。
+#       本地 ref 被 worktree 占用无法快进时, 直接以 origin/$FEAT 作为合并目标(不静默)。
 #   4. 校验 feat 分支 base 新鲜: 最近一次 rebase 基点距 origin/main 无净回退(调 check_version_progress)
 #   5. merge feat(冲突即停报, 绝不静默 §23.11)
 #   6. 若 feat 改了前端源码(9 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content/index.html): 统一跑 build_min + bump_asset_version(版本串唯一权威入口, 机制 C; index.html 改动触发统一 bump, build_min 无源变更自然产出不变);
@@ -237,11 +241,59 @@ else
 fi
 echo "✓ main 位于 origin/main(${REMOTE_MAIN:0:8}) 之上"
 
+# 3.5 feat 本地 ref 与 origin/$FEAT 对账(2026-11-10 修复 11-09 合错 head 事故)
+#     根因: agent 在 worktree 里 push 后, 共享仓只更新 origin 远程跟踪 ref, 本地 refs/heads/$FEAT
+#     不会自动前进; 旧逻辑只查本地 ref 存在(:198)就直接 merge 本地 ref, 于是把 main 快进到旧 head。
+#     四态处置(§23.11 绝不静默):
+#       ① origin/$FEAT 不存在(纯本地分支) → 按本地 ref continue(维持旧行为)
+#       ② 本地 == origin                     → 打印 ✓ continue
+#       ③ 本地是 origin 的祖先(远端更新)   → 自动 git branch -f 快进本地 ref + 醒目打印旧->新;
+#          本地 ref 被某 worktree 占用导致无法快进时, 不静默: 直接以 origin/$FEAT 作为合并目标
+#       ④ 两者分叉(互不为祖先)             → 拒绝执行 exit 10, 打印两边完整 SHA + 各自最近 3 条 commit
+#     本地领先 origin(有未 push commit)→ 按本地 ref continue(维持旧行为 + 提示)
+#     MERGE_REF = 后续 merge/diff 实际使用的 ref(默认本地 $FEAT, 情形③无法快进时为 origin/$FEAT)。
+MERGE_REF="$FEAT"
+if ! $GIT rev-parse --verify --quiet "refs/remotes/origin/$FEAT" >/dev/null; then
+  echo "  ℹ️ origin/$FEAT 不存在(仅本地分支), 按本地 feat ref 继续($($GIT rev-parse --short=8 "$FEAT"))"
+else
+  FEAT_SHA="$($GIT rev-parse "$FEAT")"
+  ORIGIN_FEAT_SHA="$($GIT rev-parse "origin/$FEAT")"
+  if [[ "$FEAT_SHA" == "$ORIGIN_FEAT_SHA" ]]; then
+    echo "✓ 本地 feat == origin/feat (${FEAT_SHA:0:8})"
+  elif $GIT merge-base --is-ancestor "$FEAT_SHA" "$ORIGIN_FEAT_SHA" 2>/dev/null; then
+    echo ""
+    echo "  ⚠️⚠️ 本地 ref 过期: 本地 $FEAT ${FEAT_SHA:0:8} 是 origin/$FEAT ${ORIGIN_FEAT_SHA:0:8} 的祖先"
+    echo "       已快进到 origin 版本 ${FEAT_SHA:0:8} -> ${ORIGIN_FEAT_SHA:0:8}"
+    if [[ "$DRY_RUN" == "1" ]]; then
+      echo "       [dry-run] 跳过 git branch -f, 合并目标按 origin/$FEAT 演练"
+      MERGE_REF="origin/$FEAT"
+    elif $GIT branch -f "$FEAT" "origin/$FEAT" 2>/dev/null; then
+      echo "       ✓ 本地 feat ref 已同步(合并目标 = $FEAT)"
+    else
+      echo "       ⚠️ 本地 ref 无法 git branch -f(常见: 被某 worktree checkout 占用); 直接以 origin/$FEAT 作为合并目标(不静默)"
+      MERGE_REF="origin/$FEAT"
+    fi
+    echo ""
+  elif $GIT merge-base --is-ancestor "$ORIGIN_FEAT_SHA" "$FEAT_SHA" 2>/dev/null; then
+    echo "  ℹ️ 本地 feat 领先 origin/$FEAT(有未 push 的本地 commit), 按本地 ref 继续(${FEAT_SHA:0:8})"
+  else
+    echo "✗ 本地 feat 与 origin/$FEAT 分叉(互不为祖先), 拒绝 merge(§23.11 绝不静默)" >&2
+    echo "  本地   $FEAT        = $FEAT_SHA" >&2
+    echo "  远端   origin/$FEAT = $ORIGIN_FEAT_SHA" >&2
+    echo "  --- 本地最近 3 条 commit ---" >&2
+    $GIT log --oneline -3 "$FEAT_SHA" | sed 's/^/    /' >&2
+    echo "  --- 远端最近 3 条 commit ---" >&2
+    $GIT log --oneline -3 "$ORIGIN_FEAT_SHA" | sed 's/^/    /' >&2
+    echo "  请人工确认该合哪个版本(推送/丢弃/重推)后再跑本脚本(§23.11)" >&2
+    exit 10
+  fi
+fi
+
 # 4. 校验 feat 分支 base 新鲜(缺口① 事前防线): feat 的 base 是否落后 origin/main 过多
 #    用 merge-base 看 feat 相对 origin/main 的落后 commit 数; 落后过多则提示先 rebase
-FEAT_MERGE_BASE="$($GIT merge-base origin/main "$FEAT")"
+FEAT_MERGE_BASE="$($GIT merge-base origin/main "$MERGE_REF")"
 BEHIND_COUNT="$($GIT rev-list --count "$FEAT_MERGE_BASE"..origin/main)"
-echo "  feat($FEAT) merge-base=$($GIT rev-parse "$FEAT" | cut -c1-8), 相对 origin/main 落后 $BEHIND_COUNT commit"
+echo "  feat($FEAT) merge-base=$($GIT rev-parse "$MERGE_REF" | cut -c1-8), 相对 origin/main 落后 $BEHIND_COUNT commit"
 if [[ "$BEHIND_COUNT" -gt 0 ]]; then
   echo "⚠️ feat 分支 $FEAT 相对 origin/main 落后 $BEHIND_COUNT commit, base 可能不新鲜"
   echo "  建议: git fetch origin && git -C $REPO rebase origin/main (在 feat 分支上) 后再 merge"
@@ -260,7 +312,7 @@ $GIT checkout main
 MERGE_MSG="merge(feat/$FEAT): 统一入口合并 $FEAT 入 main"
 if [[ "${MAIN_MERGE_RESUME:-0}" == "1" ]]; then
   echo "  [resume] 跳过实际 merge(已在本次运行前半段完成), 断言 feat 已合入 HEAD"
-  if ! $GIT merge-base --is-ancestor "$FEAT" HEAD 2>/dev/null; then
+  if ! $GIT merge-base --is-ancestor "$MERGE_REF" HEAD 2>/dev/null; then
     echo "✗ [resume] feat $FEAT 不在 HEAD 祖先链中 ⇒ merge 似乎未完成, 拒绝继续(§23.11 不静默)" >&2
     exit 8
   fi
@@ -268,7 +320,7 @@ if [[ "${MAIN_MERGE_RESUME:-0}" == "1" ]]; then
 elif [[ "$DRY_RUN" == "1" ]]; then
   echo "  [dry-run] 跳过实际 merge"
 else
-  if ! $GIT merge "$FEAT" --no-edit -m "$MERGE_MSG"; then
+  if ! $GIT merge "$MERGE_REF" --no-edit -m "$MERGE_MSG"; then
     echo "✗ merge 冲突(或失败), 已停下。绝不静默 resolve(§23.11)" >&2
     echo "  请主控人工处理冲突后, 再重跑本脚本或手动 commit" >&2
     exit 4
@@ -323,7 +375,7 @@ SRC_FILES=("app.js" "lab.js" "common.js" "style.css" "lab.css" \
            "index.html")
 CHANGED_SRC=""
 for src in "${SRC_FILES[@]}"; do
-  if $GIT diff --quiet "origin/main...$FEAT" -- "static-site/$src" 2>/dev/null; then
+  if $GIT diff --quiet "origin/main...$MERGE_REF" -- "static-site/$src" 2>/dev/null; then
     :
   else
     CHANGED_SRC="$CHANGED_SRC $src"
@@ -534,7 +586,7 @@ fi
 #     找解释器: $MAIN_MERGE_PYTEST_PY > $REPO/.venv/bin/python3 > python3(依次试 import pytest);
 #     一个都找不到 ⇒ **阻断**(找不到 = 这道门没跑 = 未验证; 拒绝静默放行, §18 L49 空转闸门教训)。
 echo "--- L52 pre-merge 全量 pytest(scripts/ 有改动时, §18 L52) ---"
-CHANGED_SCRIPTS="$($GIT diff --name-only "origin/main...$FEAT" -- scripts/ 2>/dev/null || true)"
+CHANGED_SCRIPTS="$($GIT diff --name-only "origin/main...$MERGE_REF" -- scripts/ 2>/dev/null || true)"
 if [[ -z "$CHANGED_SCRIPTS" ]]; then
   echo "  scripts/ 无变更 → 跳过全量 pytest(L52 只针对源码面; 文档/前端改动不触发)"
 elif [[ "$DRY_RUN" == "1" ]]; then
