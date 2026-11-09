@@ -4,7 +4,7 @@
   1. 单只失败: 继续容错, 整轮仍成功, 已写数据保留, exit 0
   2. 整批网络异常(确有待采 + 全部失败 + 零写入): LAST_BATCH_FAILED=True, main() exit 2
      → systemd 标 failed → check_failed_units 扫到(退出码是消费信号)
-  3. 合法空数据(全部已填, 无待采): 不误报, LAST_BATCH_FAILED=False, exit 0
+  3. 合法无目标池: 不误报, LAST_BATCH_FAILED=False, exit 0
   4. 部分成功(有失败也有写入): 不判整批失败, LAST_BATCH_FAILED=False, exit 0
 
 反例自检: test_batch_fail_discriminator_red — 去掉整批判定(ok==0 守卫)则用例必红,
@@ -42,6 +42,7 @@ def _conn(db: Path):
 @pytest.fixture
 def tmp_db(monkeypatch, tmp_path):
     db = tmp_path / "public_fund.db"
+    monkeypatch.setattr(mod, "DB_PATH", db)  # dry_run只读连接也必须指向临时库。
     monkeypatch.setattr(mod, "get_conn", lambda: _conn(db))
     monkeypatch.setattr(mod, "init_db", lambda: None)
     monkeypatch.setattr(mod, "_acquire_lock",
@@ -108,14 +109,14 @@ class urllib_error(Exception):
     """模拟 urllib 网络异常。"""
 
 
-# ── 场景 3: 合法空数据(全部已填, 无待采)→ 不误报, exit 0 ────────────
+# ── 场景 3: 合法无FOF/QDII目标→ 不误报, exit 0 ──────────────────
 def test_legitimate_empty_no_false_alarm(tmp_db, monkeypatch):
-    """验收 3: 全部已填无待采 → LAST_BATCH_FAILED=False(early-return 前已复位)。"""
+    """验收 3: 真正无目标时跳过；窗口仅一日非空不代表整窗完整。"""
     _seed_basic(tmp_db, [
-        ("005827", "FOF-A", "FOF-均衡型"),
-        ("005828", "FOF-B", "FOF-进取型"),
+        ("005827", "FOF-A", "股票型"),
+        ("005828", "FOF-B", "债券型"),
     ])
-    # 预置全部已填非空 unit_nav → pending 为空
+    # 池中无FOF/QDII才是无目标；即使其他基金有非空NAV，也不能用它推断完整性。
     c = _conn(tmp_db)
     c.execute("INSERT INTO fund_daily_nav(date,fund_code,fund_name,unit_nav) "
               "VALUES('20261101','005827','FOF-A',1.5)")

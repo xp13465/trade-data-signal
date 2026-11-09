@@ -243,3 +243,101 @@ def test_dry_run_all_errors_does_not_set_f01_or_create_progress(sandbox, monkeyp
     assert mod.collect(dry_run=True) == 0
     assert mod.LAST_BATCH_FAILED is False
     assert not sandbox.with_suffix(".fof-nav-progress.json").exists()
+
+
+
+def test_targeted_cli_14_days_repairs_real_016989_without_global_progress(sandbox, monkeypatch):
+    import sys
+    _seed_basic(sandbox, [("016989", "FOF", "FOF-均衡型"), ("000001", "其他FOF", "FOF-稳健型")])
+    c = _conn(sandbox)
+    c.execute("INSERT INTO fund_daily_nav(date,fund_code,unit_nav) VALUES('20261102','016989',1.1404)")
+    c.execute("INSERT INTO fund_daily_nav(date,fund_code) VALUES('20261103','016989')")
+    c.commit()
+    c.close()
+    cursor = sandbox.with_suffix(".fof-nav-progress.json")
+    cursor.write_text('{"version":1,"last_code":"000001"}')
+    before = cursor.read_bytes()
+    requests = []
+    def reply(req, **kw):
+        requests.append(req.full_url)
+        return _FakeResp(json.dumps(REAL_016989).encode())
+    monkeypatch.setattr(mod.urllib.request, "urlopen", reply)
+    monkeypatch.setattr(sys, "argv", ["collect_fof_nav", "--fund-code", "016989", "--days", "14"])
+    assert mod.main() == 0
+    assert len(requests) == 1
+    assert "fundCode=016989" in requests[0]
+    assert "startDate=2026-10-26&endDate=2026-11-09" in requests[0]
+    assert cursor.read_bytes() == before
+    c = _conn(sandbox)
+    assert [tuple(r) for r in c.execute("SELECT date,unit_nav FROM fund_daily_nav WHERE fund_code='016989' ORDER BY date")] == [
+        ("20261102", 1.1404), ("20261103", 1.1298), ("20261104", 1.1631), ("20261105", 1.1713), ("20261106", 1.154)]
+    assert c.execute("SELECT COUNT(*) FROM fund_daily_nav WHERE fund_code='000001'").fetchone()[0] == 0
+    c.close()
+    # 入口重放仍只补空，绝不把单次成功说成全窗完整。
+    assert mod.main() == 0
+    assert cursor.read_bytes() == before
+
+
+@pytest.mark.parametrize("code", ["000001", "999999"])
+def test_target_outside_fof_qdii_never_opens_writer(sandbox, monkeypatch, code):
+    _seed_basic(sandbox, [("000001", "股票型", "股票型")])
+    c = _conn(sandbox)
+    c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    c.close()
+    before = sandbox.read_bytes()
+    def denied(*a, **kw):
+        raise AssertionError("非目标不得写库或请求API")
+    monkeypatch.setattr(mod, "get_conn", denied)
+    monkeypatch.setattr(mod, "init_db", denied)
+    monkeypatch.setattr(mod, "fetch_lsjz", denied)
+    assert mod.collect(fund_code=code) == 0
+    assert sandbox.read_bytes() == before
+    assert not sandbox.with_suffix(".fof-nav-progress.json").exists()
+
+
+@pytest.mark.parametrize("code", ["", "16989", "016989x", "０１６９８９", "' OR 1", "../db1"])
+def test_invalid_target_rejected_before_any_io(sandbox, monkeypatch, code):
+    def denied(*a, **kw):
+        raise AssertionError("非法输入不得取锁/读写库/请求API")
+    monkeypatch.setattr(mod, "_acquire_lock", denied)
+    monkeypatch.setattr(mod, "get_conn", denied)
+    monkeypatch.setattr(mod, "init_db", denied)
+    monkeypatch.setattr(mod, "fetch_lsjz", denied)
+    with pytest.raises(ValueError):
+        mod.collect(fund_code=code)
+
+
+def test_targeted_dry_run_stays_readonly_without_global_progress(sandbox, monkeypatch):
+    _seed_basic(sandbox, [("016989", "FOF", "FOF-均衡型")])
+    def denied(*a, **kw):
+        raise AssertionError("dry_run不能写库或读写全局进度")
+    monkeypatch.setattr(mod, "get_conn", denied)
+    monkeypatch.setattr(mod, "init_db", denied)
+    monkeypatch.setattr(mod, "atomic_write_json", denied)
+    monkeypatch.setattr(mod.urllib.request, "urlopen", lambda *a, **kw: _FakeResp(json.dumps(REAL_016989).encode()))
+    assert mod.collect(fund_code="016989", days=14, dry_run=True) == 5
+    c = _conn(sandbox)
+    assert c.execute("SELECT COUNT(*) FROM fund_daily_nav").fetchone()[0] == 0
+    c.close()
+    assert not sandbox.with_suffix(".fof-nav-progress.json").exists()
+
+
+def test_targeted_qdii_uses_same_existing_universe(sandbox, monkeypatch):
+    _seed_basic(sandbox, [("160125", "QDII", "QDII-普通股票")])
+    called = []
+    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, *a: called.append(code) or [])
+    assert mod.collect(fund_code="160125") == 0
+    assert called == ["160125"]
+    assert not sandbox.with_suffix(".fof-nav-progress.json").exists()
+
+
+
+def test_invalid_target_cli_exits2_before_io(sandbox, monkeypatch):
+    import sys
+    def denied(*a, **kw):
+        raise AssertionError("非法CLI不得触达锁/库/网络")
+    monkeypatch.setattr(mod, "_acquire_lock", denied)
+    monkeypatch.setattr(sys, "argv", ["collect_fof_nav", "--fund-code", "../bad"])
+    with pytest.raises(SystemExit) as exc:
+        mod.main()
+    assert exc.value.code == 2

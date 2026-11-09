@@ -37,7 +37,7 @@
 1. `test_legitimate_empty_no_false_alarm` 在一日非空后断言绝不请求 API，本身编码了本次已证实的错误。需改为真正“目标池为空”的退出守卫；部分窗口重查已在333测试覆盖。
 2. `test_dry_run_all_fail_no_signal` 的 fixture 只替换 `get_conn`，新 dry-run 故意不用写连接；需把同一个临时库赋给 `mod.DB_PATH`。当前在不存在的开发树路径只读打开失败，没有建库或生产写。新增测试已独立验证真实只读连接、全异常正常/探测契约。
 
-按明确写范围保留该既有366文件原样；父需授权/同步这两处测试后再做完整整合验收，不能拿单独范围的通过数称合并可用。
+初次提交按当时写范围保留该366文件原样，原始失败证据保留。父随后核工作树归属并明确放行：本次只增加 DB_PATH 临时库隔离，把无待采样本改为真正非FOF/QDII池；保留skip用例、called/n/LAST_BATCH_FAILED断言，以及其他合法空响应、真异常和exit核心断言。未改rollback测试或共享conftest。
 
 ## 同类面与七轴
 
@@ -57,4 +57,37 @@
 
 未采集真实数据、未执行生产脚本/云写/通知/导出/上传/重算，无GB下载。本次网络入口在测试中打桩，新增沙箱测试还禁止TCP连接；独立子进程也只操作同一临时库。生产016989尚未由本轮修复。
 
-标准 pre-commit 不绕过；实际结果见最终 JSON 与提交日志。暂不 push，未合并部署。全量 `scripts/tests/` 与 Linux 整合由父在独立审查后执行，未在本轮冒充完成。父还需核新的进度文件写权限与后续自然轮次，按 DB→桶→公开值验证真实生效；两个旧F01测试同步前不可放行。
+标准 pre-commit 不绕过；实际结果见最终 JSON 与提交日志。暂不 push，未合并部署。全量 `scripts/tests/` 与 Linux 整合由父在独立审查后执行，未在本轮冒充完成。父还需核新的进度文件写权限与后续自然轮次，按 DB→桶→公开值验证真实生效；两个旧F01测试已在父授权后同步，本地受影响回归通过仍不替代父独立review和Linux整合。
+
+
+## 父授权续改与受控恢复入口
+
+追加提交保留 `5253511a2711f1dc4a62f41125c14031dcf4310d` 为祖先；本次组合回归原末行：`59 passed, 1 deselected in 1.81s`。测试包含真实016989响应、1001候选的前批空/错误与独立Python进程重启、跨日轮转、定向入口和F01原退出契约。真实网络用例仍未执行。
+
+已核现有CLI：`collect_fof_nav.main` 原有 `--days`/`--limit`/`--batch`/`--dry-run`，支持回看14自然日，原先没有定向参数；`run_fof_nav_collect.sh` 只运行 `-m scripts.collect_fof_nav`，不转发参数，不能向该包装脚本随意追加参数。另一个 `app.collector.public_fund backfill-nav` 会先刷新三指数再采头部基金，不是这次单只只补空恢复入口。
+
+新增兼容参数 `--fund-code`：严格6位ASCII数字，仅查询既有 `SELECT_SQL` 的FOF/QDII宇宙。先用 mode=ro/query_only 核目标，再取写连接；非目标直接跳过，无初始化/写连接/API请求；非法输入在锁和库前拒绝。只有目标存在才使用原COALESCE写入。定向操作不读写全局游标，不影响默认轮转；无参数时行为保持525版本。`--days 14`沿用原“today减14日到today，两端包含”的语义；固定Nov9测试实际请求Oct26至Nov9且仅016989一次API。
+
+以下是**部署此追加版本后由Claude执行的入口**，本轮未在云上执行。依据是现有包装脚本的Python路径与本次真实argparse/只读连接/真响应沙箱回放，不是伪造一个未实现的命令。工作目录必须为DATA树，因为 public_fund.DB_PATH 根据导入模块的绝对路径选库，不能仅在CODE树设置REPO就假定读到实时库。
+
+在 `/home/ubuntu/code/trade-data` 工作目录，先预览：
+
+```bash
+REPO=/home/ubuntu/code/trade-data GIT_REPO=/home/ubuntu/code/trade-data-signal timeout 45s /home/ubuntu/code/trade-data/.venv/bin/python -m scripts.collect_fof_nav --fund-code 016989 --days 14 --dry-run
+```
+
+核输出日期窗口仍包含2026-11-03至2026-11-06、目标只有016989，再于现有安全时段/同库任务空闲时执行同一入口去掉dry-run：
+
+```bash
+REPO=/home/ubuntu/code/trade-data GIT_REPO=/home/ubuntu/code/trade-data-signal timeout 45s /home/ubuntu/code/trade-data/.venv/bin/python -m scripts.collect_fof_nav --fund-code 016989 --days 14
+```
+
+dry-run的written是本次API有效行计数，不表示已落库；正常写入重放也可能返回同样计数，不能用它证明新增数量。该命令只补当次窗口内API真值，不承诺仅修改四个日期；已有非空值永不覆盖，也不伪造API尚未返回的日值。如果日历窗口已移出已知缺口，停止使用此固定命令，先重新核日期与API分页边界，不凭空补日期参数。
+
+只读复核真实DB的已知小窗口：
+
+```bash
+timeout 15s sqlite3 'file:/home/ubuntu/code/trade-data/data/public_fund.db?mode=ro' "PRAGMA query_only=ON; SELECT date,unit_nav,acc_nav FROM fund_daily_nav WHERE fund_code='016989' AND date BETWEEN '20261102' AND '20261106' ORDER BY date LIMIT 5;"
+```
+
+在本轮已取得的真实响应下，Nov2应仍为原值1.1404，Nov3–6应分别为1.1298、1.1631、1.1713、1.1540；若上游随后真值有修订，记录新响应与差异，不能用本报告旧数覆盖已有非空。还须等既有导出/上传自然链更新 `nav_bucket/5c.json` 后复核公开内容；本定向入口不导出/上传、不通知、不刷新指数。锁忙的跳过或exit0不能替代DB逐值验收。

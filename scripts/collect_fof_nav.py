@@ -19,11 +19,12 @@
     幂等(重跑只补 NULL)，游标只代表尝试位置，不证明整窗已补齐。
   - 原子写: 每只一个 transaction。
 
-入口: python -m scripts.collect_fof_nav [--days N] [--limit N] [--batch N] [--dry-run]
+入口: python -m scripts.collect_fof_nav [--days N] [--limit N] [--batch N] [--dry-run] [--fund-code CODE]
   --days   拉 lsjz 的近 N 自然日(默认 7, 覆盖 T-1/T-2 + 周末)
   --limit  只跑前 N 只(调试/小样, 优先于 --batch，不推进轮转，最多500)
   --batch  每轮最多采 N 只(默认/上限500，持久游标轮转)
   --dry-run 只拉不写
+  --fund-code 单只定向复查，仅既有FOF/QDII；不读写全局轮转进度，可配--days 14。
 
 时点(云上 timer): 21:10 交易日(21:00 backfill-evening 写 sentiment.db 不撞同库,
   21:20 futures 写期货不撞; public_fund.db 写入只 16:20/17:00 daily + 03:00 quarterly)。
@@ -135,7 +136,7 @@ def fetch_lsjz(fund_code: str, start_date: str, end_date: str) -> list[dict]:
 
 
 def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
-            batch: int = BATCH_SIZE) -> int:
+            batch: int = BATCH_SIZE, fund_code: str | None = None) -> int:
     """主流程。返回写入行数。
 
     整批失败信号(#366/F01): 若本轮确有待采(pending 非空)、非 dry_run、且 ok==0 且零写入,
@@ -151,25 +152,38 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
     LAST_BATCH_FAILED = False  # 每轮重置, 防同进程跨轮残留(合法空数据/锁占/无待采均保持 False)
     if days < 0 or batch < 1 or (limit is not None and limit < 1):
         raise ValueError("days须非负，batch/limit须为正整数")
+    if fund_code is not None and (not isinstance(fund_code, str) or len(fund_code) != 6
+                                  or not fund_code.isascii() or not fund_code.isdigit()):
+        raise ValueError("fund_code须为6位ASCII数字")
     if not _acquire_lock(nonblock=True, lock_name="public_fund"):
         print("[fof_nav] WARN public_fund.lock 被占, 跳过(防与 daily/quarterly 并发写同库)",
               flush=True)
         return 0
-    if dry_run:
+    target_rows = None
+    if dry_run or fund_code is not None:
         conn = sqlite3.connect(DB_PATH.absolute().as_uri() + "?mode=ro", uri=True, timeout=10)
         conn.execute("PRAGMA query_only=ON")
-    else:
+        if fund_code is not None:
+            target_rows = list(conn.execute(
+                "SELECT * FROM (" + SELECT_SQL + ") WHERE fund_code=?", (fund_code,)))
+            if not target_rows:
+                print(f"[fof_nav] 非既有FOF/QDII目标 {fund_code}，跳过(未写库)", flush=True)
+                conn.close()
+                return 0
+            if not dry_run:
+                conn.close()
+    if not dry_run:
         init_db()  # 在现有同库锁内初始化；dry_run不迁移/建库/设置WAL。
         conn = get_conn()
     end = date.today()
     start = end - timedelta(days=days)
     start_str = start.strftime("%Y-%m-%d")
     end_str = end.strftime("%Y-%m-%d")
-    all_funds = list(conn.execute(SELECT_SQL))
+    all_funds = target_rows if target_rows is not None else list(conn.execute(SELECT_SQL))
     total_pool = len(all_funds)
     progress = None
     last_code = ""
-    if not dry_run and limit is None and all_funds:
+    if not dry_run and limit is None and fund_code is None and all_funds:
         db_file = conn.execute("PRAGMA database_list").fetchone()[2]
         if not db_file:
             conn.close()
@@ -277,8 +291,13 @@ def main() -> int:
     ap.add_argument("--batch", type=int, default=BATCH_SIZE,
                     help=f"每轮最多采 N 只(默认/上限 {BATCH_SIZE}, 持久轮转续跑)")
     ap.add_argument("--dry-run", action="store_true", help="只拉不写")
+    ap.add_argument("--fund-code", help="只复查指定6位基金代码(须为既有FOF/QDII，不动全局轮转进度)")
     args = ap.parse_args()
-    n = collect(days=args.days, limit=args.limit, dry_run=args.dry_run, batch=args.batch)
+    try:
+        n = collect(days=args.days, limit=args.limit, dry_run=args.dry_run, batch=args.batch,
+                    fund_code=args.fund_code)
+    except ValueError as exc:
+        ap.error(str(exc))
     print(f"[fof_nav] return written={n}", flush=True)
     # 整批失败(#366/F01 + F01-R1): exit 2 → systemd 标 trade-fof-nav-collect.service failed
     # → check_failed_units.py 扫 systemctl --failed 即发现。
