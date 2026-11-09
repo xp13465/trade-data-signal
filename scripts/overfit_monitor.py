@@ -2014,7 +2014,7 @@ def _run_delivery_process(cmd, env, timeout):
     import signal
     import tempfile
     # 子进程独立会话；仅回收自己这组进程，不碰其它上传任务的锁/进程。
-    with tempfile.TemporaryFile(mode="w+") as log:
+    with tempfile.TemporaryFile(mode="w+b") as log:
         proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=log, start_new_session=True)
         try:
             rc = proc.wait(timeout=timeout)
@@ -2035,7 +2035,8 @@ def _run_delivery_process(cmd, env, timeout):
         log.seek(0, os.SEEK_END)
         size = log.tell()
         log.seek(max(0, size - 12000))
-        print(log.read(), end="", flush=True)
+        # 字节尾部可能切断UTF-8字符；诊断容错解码，不覆盖子进程退出码。
+        print(log.read(12000).decode("utf-8", errors="replace"), end="", flush=True)
         return rc
 
 

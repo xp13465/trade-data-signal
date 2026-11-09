@@ -219,3 +219,19 @@ def test_cli_rejects_ambiguous_publish_modes(monkeypatch, args):
     with pytest.raises(SystemExit) as exc:
         ns['main']()
     assert exc.value.code == 2
+
+
+@pytest.mark.parametrize('rc', [0, 7])
+@pytest.mark.parametrize('fd', [1, 2], ids=['stdout', 'stderr'])
+@pytest.mark.parametrize('payload, expected', [
+    (('中' * 5000 + '\n').encode('utf-8'), '\ufffd\ufffd' + '中' * 3999 + '\n'),
+    ('发布完成\n'.encode('utf-8'), '发布完成\n'),
+    (b'\xff' + '发布完成'.encode('utf-8') + b'\xfe\n', '\ufffd发布完成\ufffd\n'),
+], ids=['chinese-tail-splits-codepoint', 'short-chinese', 'invalid-utf8'])
+def test_child_log_tail_decoding_preserves_exit_code(capsys, payload, expected, fd, rc):
+    # 真子进程写字节到临时日志；长中文尾部刻意切在UTF-8续字节上。
+    program = f'import os; os.write({fd}, {payload!r}); raise SystemExit({rc})'
+    actual = load_functions()['_run_delivery_process'](
+        [sys.executable, '-c', program], dict(os.environ), 3)
+    assert actual == rc
+    assert capsys.readouterr().out == expected
