@@ -62,3 +62,7 @@ Ops 仅在 push/PR 原列表各登记四项：守卫、专用测试、两个部�
 - [Workflow runs REST](https://docs.github.com/en/rest/actions/workflow-runs)：按 workflow 文件名、head_sha 查询，分页并读当前 run/attempt，需 Actions read。
 - [Compare two commits](https://docs.github.com/en/rest/commits/commits#compare-two-commits)：`BASE...HEAD` API，文件列表只在第一页、整个比较最多 300 个文件；需 Contents read。
 - [Get a reference](https://docs.github.com/en/rest/git/refs#get-a-reference)：`heads/main` 读取当前 ref，需 Contents read。
+
+## 接续登记修正
+
+真实Linux run `42654876589` 的4156项中两条registry自检因本守卫未登记而失败；原机检判据正确，不以“环境问题”归类。原分支追加只在[现有机检登记表](../../ops/machine-check-registry.md)在运表补七栏生命周期，不改checker、豁免或测试。修后registry3项与本守卫71项合计74 passed，局部通过仍须最终整合Linux验收；原失败与首次排版修正失败日志均保留。

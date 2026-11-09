@@ -66,3 +66,5 @@ Claude 已将冻结并发修复和相同 baseline 纳入 main `6e3b2ea06299d664c
 另一个实际历史问题是 main `8840` 的 Quality/Ops 均失败、CF/Pages 却成功；四个原始 run 状态由父任务直接读取 GitHub 公共 API 留证。该版本部署依赖图未接 CI，故新增 [同提交 CI 门禁](release-ci-gate.md)，限定同 SHA、可信 main、当前 attempt 成功，并在实际发布前复核。此处有意修改两个部署 workflow 及必要的 Ops 路径登记，与前述只同步 baseline 的阶段不同；不直接改生产配置。外部 CF Git integration 和检查到发布之间的竞态边界保留，不能宣称跨平台原子发布。
 
 00:00 自然监控 snapshot `0c59e8cf-da8d-4059-9f92-da2d120b0f04` 原生 rc0，日志 delivery_ok=true/HTTP200，随后只读 OPS_DB 主库查询命中同一 ID。此轮投递已实证，不外推全部故障关闭。追加三项代码及各自然链验收继续按 [跨日验收交接](final-acceptance-20261110.md) 执行。
+
+第二轮整合 `21c2780d547b1d7e4961a3945a413fc5233379ce` 的 Linux run `42654876589` 为 4156 tests / 2 failures / 0 errors / 7 skipped：NAV 重启用例已通过，新发布守卫遗漏现有机检登记表而被两个 registry 自检正确拦住。未改 checker、测试或豁免规则；原发布门禁分支追加 `3b7559258bea20389afc85eca6b1f9d774ff0ca3`，仅在 `docs/ops/machine-check-registry.md` 在运表新增一行七栏生命周期登记。修前主检/变异自检为 2 failed / 1 passed，修后与原71项发布门禁合跑 74 passed；首次排版放在表外仍红的中间记录也保留。最终整合另跑真实 Linux，不将这次局部通过当最终 CI。

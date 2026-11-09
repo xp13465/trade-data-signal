@@ -5,7 +5,7 @@
 ## 合并与发布
 
 1. 候选来自 `codex/ops-alert-rootfix-ci-20261109`，保留旧六组、Claude 冻结并发修复、同源 baseline 和三项接续业务修复的提交图。不整文件替换 `public_fund.py`；其中 `_acquire_lock` 来自 NAV，指数函数来自指数修复，整合逐节点核验。
-2. 核候选完整 SHA 的真实 Linux CI。`Operations monitoring checks` 两个 job 都需成功，检查完整 scripts/tests + ops/monitoring/tests JUnit 汇总；定向测试不能相加冒充一次全量通过。旧 `314e94e67aba19f9e7cf5aaa299553118b3a2f5b` 运行 `42648725977` 的一条跨进程测试失败保留，不属于发布依据。
+2. 核候选完整 SHA 的真实 Linux CI。`Operations monitoring checks` 两个 job 都需成功，检查完整 scripts/tests + ops/monitoring/tests JUnit 汇总；定向测试不能相加冒充一次全量通过。旧 `314e94e67aba19f9e7cf5aaa299553118b3a2f5b` 运行 `42648725977` 的一条跨进程测试失败，以及 `21c2780d547b1d7e4961a3945a413fc5233379ce` 运行 `42654876589` 的两条机检登记失败均保留，不属于发布依据。新增守卫必须在现有 machine-check-registry 在运表登记，不能改豁免或削弱原自检。
 3. 主分支同一 SHA 的质量检查与适用的运维检查通过后再发布；新增部署守卫的具体规则另见 release-ci-gate 文档。门禁本身不替代业务检查；变更后的 main SHA 应重新核验，不能只看分支点。该守卫只控制仓库内 GitHub Actions 发布，Cloudflare 原生 Git integration 若仍开启，须由 Claude 核实其同等门禁或停用重复自动发布；本轮不擅自改生产平台配置。
 4. 云端 CODE 与 DATA 路径都有脚本镜像，不能仅用 CODE 的 `git HEAD` 证明实际执行版本。按既有部署入口同步，核服务 `ExecStart`、模块 `__file__`、实际脚本 hash 和 Worker active version。不要服务器手改补丁。当前只读核对的八个脚本/模块在 CODE 与 DATA 镜像均逐字节一致；这次未发现镜像漂移，但之后部署仍需核新 hash。
 
