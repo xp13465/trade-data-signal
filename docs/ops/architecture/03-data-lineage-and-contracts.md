@@ -97,7 +97,7 @@ pre-upload源是将被覆盖的远端旧对象，非本地新文件。单PUT完�
 | `data:history-overwrite-audit` | sentiment.db::history_overwrite_audit | app.history_audit；记录disappeared/appeared/changed；观察不阻断主写 |
 | `data:board-etf-map` | $REPO/data/board_etf_map.json | scripts/build_board_etf_map.py::main；atomic_write_text；deploy前.deploybak，失败恢复旧版；成功复制静态版和CODE/data并校验 |
 | `data:map-inputs` | $REPO/data/etf_index_map.json；$REPO/data/etf_track_index.json；$REPO/data/lof_track_index.json | gen_etf_index_map/相关元数据更新；各生成器合同不同，本次未穷举所有上游写者 |
-| `data:etf-freeze` | $ROOT/data/signal_kelly_etf_freeze.json；SIGNAL_KELLY_ETF_FREEZE_PATH explicit override | signal_kelly_backtest::_resolve_etf/_save_etf_freeze；全文件atomic_write_json；精确键优先，同date/index变体按rank兜底；跨进程语义串行锁未从本次锚点证明 |
+| `data:etf-freeze` | $ROOT/data/signal_kelly_etf_freeze.json；SIGNAL_KELLY_ETF_FREEZE_PATH explicit override | signal_kelly_backtest::_resolve_etf/_save_etf_freeze；全文件atomic_write_json；精确键优先，同date/index变体按rank兜底；sidecar flock 串行锁(2026-11-09 FREEZE-PERSIST-P1-01, _save_etf_freeze:314) |
 | `data:freeze-registries` | config/signal_kelly_frozen_missing_accepted.json；config/signal_kelly_freeze_orphan_backfill.json | 人工审核的配置变更；配置登记，不是冻结数据恢复；全局union默认不由有登记自动翻转 |
 | `data:frozen-missing-audit` | $ROOT/data/audit/frozen_missing/<run_id>.json | Kelly _archive_frozen_missing_diagnostics；暂存私有目录、atomic JSON mode0600；完整事件记录合同 |
 | `data:signal-stats-work` | $ROOT/data/signal_stats.json | app.compute.signal_stats.store；固定.tmp + replace；避免文件半写的意图，不声称并发丢更新已消除 |

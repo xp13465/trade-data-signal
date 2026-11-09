@@ -44,6 +44,8 @@ def producer_namespace():
             except (ValueError, TypeError): continue
             for target in n.targets:
                 if isinstance(target, ast.Name): ns[target.id] = value
+        elif isinstance(n, ast.ClassDef) and n.name == "_FreezePersistenceError":
+            nodes.append(n)
         elif isinstance(n, ast.FunctionDef) and n.name in names:
             n.decorator_list = []  # remove instrumentation only; execute complete business bodies
             nodes.append(n)
@@ -88,7 +90,7 @@ def run_case(monkeypatch):
             seen["unchanged_union_object"] = result is rows
             return result
         def capture_write(fn, path, *a, **kw):
-            if fail_save and Path(path) == freeze_path: raise PermissionError("injected save failure")
+            if fail_save and Path(path).resolve() == freeze_path.resolve(): raise PermissionError("injected save failure")
             return fn(path, *a, **kw)
         ns.update(ROOT=str(temp), get_conn=connect, atomic_write_json=atom.atomic_write_json,
             ETF_FREEZE_PATH_ENV="SIGNAL_KELLY_ETF_FREEZE_PATH",
