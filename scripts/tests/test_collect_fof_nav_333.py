@@ -36,6 +36,7 @@ def _make_resp_bytes(rows):
 @pytest.fixture
 def tmp_db(monkeypatch, tmp_path):
     db = tmp_path / "public_fund.db"
+    monkeypatch.setattr(mod, "DB_PATH", db)
     # 指向临时库
     monkeypatch.setattr(mod, "get_conn", lambda: _conn(db))
     monkeypatch.setattr(mod, "init_db", lambda: None)  # schema 由 _conn 建
@@ -233,15 +234,15 @@ def test_single_failure_does_not_break(tmp_db, monkeypatch):
 
 
 # ── 跳过已填(ISSUE-2) ───────────────────────────────────────────────
-def test_skip_already_filled(tmp_db, monkeypatch):
-    """跳过已填: 预置部分 fund 已有非空 unit_nav, 跑后只采未填的, 已填的不发 API。"""
+def test_partial_window_is_rechecked(tmp_db, monkeypatch):
+    """窗口中一日非空不代表完整，仍请求API并保留原有非空值。"""
     _seed_basic(tmp_db, [
         ("005827", "FOF-A", "FOF-均衡型"),
         ("005828", "FOF-B", "FOF-进取型"),
         ("005829", "FOF-C", "FOF-稳健型"),
     ])
     c = _conn(tmp_db)
-    # 005827 已有非空 unit_nav → 应被跳过
+    # 005827 仅一日有值，不能据此跳过整窗。
     c.execute("INSERT INTO fund_daily_nav(date,fund_code,fund_name,unit_nav) "
               "VALUES('20261101','005827','FOF-A',1.5)")
     c.commit()
@@ -261,10 +262,11 @@ def test_skip_already_filled(tmp_db, monkeypatch):
     monkeypatch.setattr(mod, "date", type("_D", (), {"today": staticmethod(lambda: _d(2026, 11, 2))}))
 
     n = mod.collect(days=7, limit=None, dry_run=False, batch=10)
-    # 005827 已填被跳过, 不发 API
-    assert "005827" not in called
-    assert set(called) == {"005828", "005829"}
-    assert n >= 2
+    assert set(called) == {"005827", "005828", "005829"}
+    assert n == 3
+    c = _conn(tmp_db)
+    assert c.execute("SELECT unit_nav FROM fund_daily_nav WHERE fund_code='005827'").fetchone()[0] == 1.5
+    c.close()
 
 
 # ── 分批(ISSUE-2) ────────────────────────────────────────────────────
