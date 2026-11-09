@@ -5,26 +5,62 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 concurrency:
   group: pages
   cancel-in-progress: true
 jobs:
+  ci-gate:
+    if: github.repository == 'xp13465/trade-data-signal' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install PyYAML==6.0.3
+      - name: 等待同 SHA 的 CI 质量门禁
+        run: python3 scripts/check_release_ci_gate.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./static-site
   deploy:
-    needs: build
+    needs: [build, ci-gate]
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install PyYAML==6.0.3
+      - name: 临发布复核 CI 与最新 main
+        run: python3 scripts/check_release_ci_gate.py --timeout 0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - id: deployment
         uses: actions/deploy-pages@v4

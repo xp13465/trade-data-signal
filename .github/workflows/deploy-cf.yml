@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 # 同一时刻只跑一个 deploy,排队不取消(避免半截状态)
 concurrency:
@@ -24,10 +25,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ci-gate:
+    if: github.repository == 'xp13465/trade-data-signal' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install PyYAML==6.0.3
+      - name: 等待同 SHA 的 CI 质量门禁
+        run: python3 scripts/check_release_ci_gate.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
   deploy:
+    needs: ci-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -36,6 +61,14 @@ jobs:
       - name: Install pinned tooling
         run: npm ci --no-audit --no-fund
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install PyYAML==6.0.3
+      - name: 临发布复核 CI 与最新 main
+        run: python3 scripts/check_release_ci_gate.py --timeout 0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy
         env:
