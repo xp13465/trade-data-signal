@@ -822,7 +822,7 @@ def _union_freeze_buy_rows(buy_rows, freeze):
 # 影响面佐证: docs/kelly/analysis/bj50-residue-pruning-impact-20260824.md
 # (NEW14 默认组合 +0.26% 且堵「过滤真空日垫底替补」洞; 2011-2024 十四年零变化)。
 
-_PRUNED_UNIVERSE_N = 0     # 剪枝计数(调用级: needed_etfs 与分类循环各扫一遍, 全量跑下≈事件数×2)
+_PRUNED_UNIVERSE_N = 0     # 剪枝计数(调用级: needed_etfs 扫描 / save 前固化循环 / 分类循环三处各扫一遍, 全量跑下≈事件数×3)
 _EXCLUDED_MATCHERS_CACHE = None
 # 冻结表缺失事件清单(2026-09-18 根治「冻结分时点漂移」): 回测首次碰到历史信号(date < latest)
 # 但冻结表无值(dev sync 拉新 DB 后本机冻结表停在旧日期)时, 拒绝就地补冻并记入本清单,
