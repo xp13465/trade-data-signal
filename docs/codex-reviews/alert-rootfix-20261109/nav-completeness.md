@@ -111,3 +111,14 @@ Kepler独立review在固定 `24d05c2d2b39ab4cde3e7a65423edad0725e777d` 指出：
 修前新测试原末行：`4 failed, 1 passed in 1.04s`。修后锁专项加完整NAV/F01受影响组合原末行：`64 passed, 1 deselected in 2.62s`。真实响应预览、1001候选公平续跑/独立进程重启、NULL/缺行、非空守卫和原F01退出合同都包含在该组合，真实网络用例未执行。命令均受40秒上限，子进程竞争/释放受5秒上限。
 
 旧 `nav-implementation.json` 与已被review引用的红日志均保持原字节；本次另写 `nav-implementation-v2.json`、`nav-v2-lock-before.txt`、`nav-v2-lock-after.txt` 和新提交日志。通过开始时记录的SHA-256复核旧NAV报告/日志未变，不覆盖Kepler发现。完整全量/Linux、真实云上锁文件/恢复命令未执行；本轮仍未push或部署。
+
+
+## v3：真实Linux CI唯一失败的子进程隔离修正
+
+整合头 `314e94e67aba19f9e7cf5aaa299553118b3a2f5b`、run42648725977官方API记录：4085 tests / failures1 / errors0 / skipped7，唯一失败是重启公平性用例。未将其归为可忽略的环境问题，也未重跑父负责的完整组合。
+
+在全新Python3.11虚拟环境安装与workflow相同的五项直接依赖及三个相同版本pin（pytest、pyyaml、numpy2.4.6、pandas3.0.5、pyarrow25.0.1）；确认requests/akshare/dotenv/baostock/certifi均不存在、工作树无.env。父pytest凭conftest可导入，裸子进程未安装父内存中的导入桩；修前原用例 `1 failed in 0.39s`，单独捕获同一child程序stderr明确为 `collect_fof_nav → public_fund → base:8 import requests → ModuleNotFoundError`。这是本地最小依赖环境复现，未冒充新的Linux整合CI通过。
+
+仅改本用例子进程启动：先调用已有 `scripts.tests._ci_stubs.install_missing_third_party_stubs` 再导入真实采集器；不新增依赖，不改生产源码或共享conftest。仅导入期垫片，采集运行仍由临时SQLite与显式fetch替身承担。子进程的TCP禁止在导入前生效，DNS解析固定为本地地址，避免base导入时探测外网；不再继承父GIT_REPO/.env/PYTHONPATH等环境。非零退出仍必须失败，并直接显示stderr。原500只前批（250空+250错误）、重启后501..1000及第三轮先到1001的断言逐项AST与0c6相同，没有skip或弱化。
+
+修后同一最小用例：`1 passed in 0.48s`。最小依赖受影响组合：`64 passed, 1 deselected in 1.53s`；开发环境同组合：`64 passed, 1 deselected in 2.84s`。各测试运行前后校验输入测试文件SHA不变，无边跑边编辑混读；未重复全量4085测试。新证据仅写nav-v3-*日志及nav-implementation-v3.json；0c6、既有报告/review/红日志保留。待父将追加提交整合后统一跑真实Linux。
