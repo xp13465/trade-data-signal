@@ -28,6 +28,10 @@
 #       `pytest -q scripts/tests/`(测试里有源码形状守卫, 源形状一变即红), FAIL 阻断本次 merge ——
 #       把 L52 型红从「merge 后 CI 红在 main(#891)」前移到「merge 前 feat 上红」。约 150s。
 #       逃生门 MAIN_MERGE_SKIP_PYTEST=1(跳时醒目日志, 不静默); 找不到带 pytest 的解释器 = 阻断。
+#   7.10 快检闸门(2026-11-10 挂, 根治 6820d0853 缝隙): 任何 merge(含纯文档改动)都跑三条秒级快检
+#       (check_ledger / check_gate_registry / check_task_state --skip-zombie-crons, 与 CI ⑤/⑩ 同口径),
+#       FAIL 阻断 exit 11; dry-run 只警告; 逃生门 MAIN_MERGE_SKIP_FASTCHECK=1(醒目日志不静默)。
+#       缝隙 = 纯文档改动也能弄红 CI ⑧ pytest 但 7.9 只认 scripts/ 改动 ⇒ merge 时零测试。
 #   7.7 console 洁净度哨兵(#133 复发防线, 2026-10-03 挂): 打线上真实 URL 验 0 CSP 违规 +
 #       0 pageerror; 违规 exit1 阻断发版; 线上不可达 exit2 打醒目告警后放行; SKIP_CONSOLE_CLEAN=1 逃生门
 #   8. 调 check_version_progress.py(A/B: 版本串倒退哨兵 + merge 净回退校验) → FAIL 阻断
@@ -623,6 +627,67 @@ else
       exit 1
     fi
     echo "  ✓ 全量 pytest 绿"
+  fi
+fi
+
+# 7.10 快检闸门(任何 merge 都跑; 2026-11-10 挂主入口, 根治「纯文档弄红 CI」缝隙)
+#     背景: 2026-11-10 事故 6820d0853 —— 纯文档改动把 CLAUDE.md 台账 L58 写成
+#     「机检=是(闸门:scripts/main-merge.sh 3.5 四态对账)」但 docs/ops/machine-check-registry.md
+#     没登记该行, 该次 merge 未动 scripts/ 源码 ⇒ 7.9 L52 全量 pytest 不触发, CI ⑧ pytest
+#     红 in main(run 42688033176: 2 failed, 3734 passed, 3 skipped, 116 subtests passed),
+#     41c567e6a 补登记才绿。缝隙 = 纯文档改动也能弄红 pytest 门禁, 但 merge 时零测试。
+#     本步补缝: **无论改了什么(含纯文档)都跑**三条秒级快检(与 CI step ⑤/⑩ 同参数口径):
+#       ① scripts/check_ledger.py                          台账锚点/计数一致性
+#       ② scripts/check_gate_registry.py                   闸门登记 ↔ 台账双向对账
+#       ③ scripts/check_task_state.py --skip-zombie-crons  任务状态对账
+#     任一 FAIL ⇒ 醒目打印失败脚本名 + 其输出末行, exit 11(专用退出码, 不复用 2-10)。
+#     dry-run: 照跑但只警告不阻断([dry-run] 快检 FAIL 不阻断); 逃生门
+#     MAIN_MERGE_SKIP_FASTCHECK=1(照 7.9 MAIN_MERGE_SKIP_PYTEST 模式, 跳时醒目日志不静默)。
+#     位置与 7.9 同段(本地 merge 之后、commit+push main 之前): 本地 main 半完成态可由
+#     重跑本脚本恢复, 远端 main 不入红(red-first 同 7.9; 跑在 merge 前只查 main 旧树,
+#     查不到 feat 带入的不一致, 故必须跑在 merge 之后)。
+#     成本: 三条均秒级静态对账(实测合计 <0.2s), 额外耗时 <3s 有充分余量。
+echo "--- 7.10 快检闸门(任何 merge 都跑: 台账/闸门登记/任务状态, 秒级) ---"
+if [[ "${MAIN_MERGE_SKIP_FASTCHECK:-0}" == "1" ]]; then
+  echo ""
+  echo "  ████████████████████████████████████████████████████████████████"
+  echo "  [!!] MAIN_MERGE_SKIP_FASTCHECK=1(逃生门): 本次 merge 已跳过 7.10 快检闸门"
+  echo "       —— 未跑台账/闸门登记/任务状态对账 = 可能把 6820d0853 型红(纯文档弄红"
+  echo "          CI ⑧ pytest)直接带进 main; 请记得事后补跑:"
+  echo "          $PY scripts/check_ledger.py && $PY scripts/check_gate_registry.py && $PY scripts/check_task_state.py --skip-zombie-crons"
+  echo "  ████████████████████████████████████████████████████████████████"
+  echo ""
+else
+  FASTCHECK_FAILED=0
+  FASTCHECK_SPECS=(
+    "check_ledger.py|"
+    "check_gate_registry.py|"
+    "check_task_state.py|--skip-zombie-crons"
+  )
+  for fc_spec in "${FASTCHECK_SPECS[@]}"; do
+    fc_script="${fc_spec%%|*}"
+    fc_args="${fc_spec#*|}"
+    # shellcheck disable=SC2086  # fc_args 为固定字面量参数, 无用户输入
+    fc_out="$("$PY" "$REPO/scripts/$fc_script" $fc_args 2>&1)"
+    fc_rc=$?
+    if [[ "$fc_rc" -ne 0 ]]; then
+      FASTCHECK_FAILED=1
+      echo "" >&2
+      echo "  ████████████████████████████████████████████████████████████████" >&2
+      echo "  [!!] 7.10 快检 FAIL: scripts/$fc_script(exit $fc_rc)" >&2
+      echo "       末行: $(printf '%s\n' "$fc_out" | tail -n 1)" >&2
+      echo "  ████████████████████████████████████████████████████████████████" >&2
+    else
+      echo "  ✓ scripts/$fc_script 快检通过"
+    fi
+  done
+  if [[ "$FASTCHECK_FAILED" == "1" ]]; then
+    echo "✗ 7.10 快检 FAIL, 阻断 merge(2026-11-10 6820d0853: 纯文档也能弄红 CI ⑧, 本闸门把红前移到 push main 前; 先修好再 merge, 确需跳过: MAIN_MERGE_SKIP_FASTCHECK=1)" >&2
+    if [[ "$DRY_RUN" == "1" ]]; then
+      echo "  [dry-run] 快检 FAIL 不阻断" >&2
+    else
+      exit 11
+    fi
   fi
 fi
 

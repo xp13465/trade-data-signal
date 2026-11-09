@@ -8583,3 +8583,7 @@ GH Actions `deploy-cf` 与 CF Workers Builds 两条自动链同 head 均失败(c
 ### 五、历史缺冻/交易缺口保持 OPEN
 
 历史 **136 条缺冻 / 5 条交易缺口保持 OPEN**,未倒补、未用当前映射造历史。
+
+### 补记(11-10 07:25)
+
+- **6820d0853 纯文档改动弄红 CI ⑧ pytest 的缝隙与根治**:11-09 晚合入的 `6820d0853`(纯文档落档)把 CLAUDE.md 台账 L58 写成「机检=是(闸门:scripts/main-merge.sh 3.5 四态对账)」,但 `docs/ops/machine-check-registry.md` 没登记该闸门行 ⇒ CI ⑧ pytest 红(`2 failed, 3734 passed, 3 skipped, 116 subtests passed`,run 42688033176;2 失败 = `scripts/tests/test_gate_registry_pytest.py` 两条,根因 = check_gate_registry ③ 双向对账)。`41c567e6a` 补登记后 CI 已绿。**暴露的缝隙** = main-merge.sh 7.9 L52 全量 pytest 闸门只在「feat 改了 scripts/ 源码」时触发,而**纯文档改动也能弄红 pytest 门禁**(台账/registry/任务状态三机检都由文档驱动),merge 时却零测试 ⇒ 红直达 main 靠事后补登。**根治**:feat `feat/fix/merge-fastcheck-gate-20261110` 在 main-merge.sh 新增 **7.10 快检闸门**——任何 merge(含纯文档)都在 push main 前跑 `check_ledger.py` / `check_gate_registry.py` / `check_task_state.py --skip-zombie-crons` 三条秒级快检(与 CI ⑤/⑩ 同参数口径),FAIL exit 11 阻断;dry-run 只警告;逃生门 `MAIN_MERGE_SKIP_FASTCHECK=1`。registry 已同批登记一行(自检 = 证据用例 ②③④)。
