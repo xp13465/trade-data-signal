@@ -9,7 +9,7 @@
         "file": "data_assets.json",
         "records": 34,
         "baseline_code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
-        "sha256": "7ccfdba4ea2f103c01ba28ea19fb5565e3a06c0616879b8999d925a262db6e0f"
+        "sha256": "463b88a898f63605af5e77bcfdacb2a51628da9695a67e46db9622d6907de3fa"
       },
       {
         "file": "data_edges.json",
@@ -10270,24 +10270,24 @@
           "evidence": [
             {
               "kind": "source",
-              "location": "scripts/signal_kelly_backtest.py:231 (def _etf_freeze_path)",
+              "location": "scripts/signal_kelly_backtest.py:232 (def _etf_freeze_path)",
               "note": "源码读取确认合同，未执行入口或验证运行状态",
-              "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
-              "observed_at": "2026-11-07T14:20:32.660050+08:00"
+              "code_ref": "84b39bf3a42283ecffa2f2da8bb09731a4faf3ae",
+              "observed_at": "2026-11-09T17:33:05+08:00"
             },
             {
               "kind": "source",
-              "location": "scripts/signal_kelly_backtest.py:765 (def _resolve_etf)",
+              "location": "scripts/signal_kelly_backtest.py:865 (def _resolve_etf)",
               "note": "源码读取确认合同，未执行入口或验证运行状态",
-              "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
-              "observed_at": "2026-11-07T14:20:32.660050+08:00"
+              "code_ref": "84b39bf3a42283ecffa2f2da8bb09731a4faf3ae",
+              "observed_at": "2026-11-09T17:33:05+08:00"
             },
             {
               "kind": "source",
-              "location": "scripts/signal_kelly_backtest.py:303 (def _save_etf_freeze)",
+              "location": "scripts/signal_kelly_backtest.py:314 (def _save_etf_freeze)",
               "note": "源码读取确认合同，未执行入口或验证运行状态",
-              "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
-              "observed_at": "2026-11-07T14:20:32.660050+08:00"
+              "code_ref": "84b39bf3a42283ecffa2f2da8bb09731a4faf3ae",
+              "observed_at": "2026-11-09T17:33:05+08:00"
             },
             {
               "kind": "source",

@@ -544,24 +544,24 @@
       "evidence": [
         {
           "kind": "source",
-          "location": "scripts/signal_kelly_backtest.py:231 (def _etf_freeze_path)",
+          "location": "scripts/signal_kelly_backtest.py:232 (def _etf_freeze_path)",
           "note": "源码读取确认合同，未执行入口或验证运行状态",
-          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
-          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+          "code_ref": "84b39bf3a42283ecffa2f2da8bb09731a4faf3ae",
+          "observed_at": "2026-11-09T17:33:05+08:00"
         },
         {
           "kind": "source",
-          "location": "scripts/signal_kelly_backtest.py:765 (def _resolve_etf)",
+          "location": "scripts/signal_kelly_backtest.py:865 (def _resolve_etf)",
           "note": "源码读取确认合同，未执行入口或验证运行状态",
-          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
-          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+          "code_ref": "84b39bf3a42283ecffa2f2da8bb09731a4faf3ae",
+          "observed_at": "2026-11-09T17:33:05+08:00"
         },
         {
           "kind": "source",
-          "location": "scripts/signal_kelly_backtest.py:303 (def _save_etf_freeze)",
+          "location": "scripts/signal_kelly_backtest.py:314 (def _save_etf_freeze)",
           "note": "源码读取确认合同，未执行入口或验证运行状态",
-          "code_ref": "d4238f5b24aa1aa5632dd5fed1098ce9fbdb3620",
-          "observed_at": "2026-11-07T14:20:32.660050+08:00"
+          "code_ref": "84b39bf3a42283ecffa2f2da8bb09731a4faf3ae",
+          "observed_at": "2026-11-09T17:33:05+08:00"
         },
         {
           "kind": "source",
@@ -584,7 +584,7 @@
         "freeze coverage",
         "孤儿诊断"
       ],
-      "write_contract": "全文件atomic_write_json；精确键优先，同date/index变体按rank兜底；跨进程语义串行锁未从本次锚点证明",
+      "write_contract": "全文件atomic_write_json；精确键优先，同date/index变体按rank兜底；sidecar flock 跨进程串行锁+锁内重读合并（2026-11-09 FREEZE-PERSIST-P1-01）",
       "time_semantics": "date|index_id|signal及frozen_at；历史date<latest真缺键拒用今日map补冻",
       "validation_contract": "缺表/坏JSON读成{}，后续guard与diagnostics；不能当健康空表",
       "backup_restore_contract": "cleanup源码有同目录.bak时间戳；不是常态日期快照保证；root/data freeze未证被staticdata JSON rsync覆盖",
