@@ -33,7 +33,7 @@ python3 ops/monitoring/build_baseline.py --check
 
 ## Linux 与生产验收边界
 
-最终固定 head 的真实 Linux 运行由 `codex/ops-*` 分支推送触发现有工作流，不修改 workflow、依赖或生产部署配置。须记录 `local-only`、`unit-compat` 两个 job 的实际结论，以及完整组合回归的原始末行。本文件不提前声明该运行通过，最终结果与 head/SHA 在本轮不可变 master report 中固定后显式 publish。
+baseline 阶段的固定 head 真实 Linux 运行由 `codex/ops-*` 分支推送触发现有工作流，该阶段没有修改 workflow、依赖或生产部署配置。须记录 `local-only`、`unit-compat` 两个 job 的实际结论，以及完整组合回归的原始末行。本文件不提前声明后续整合运行通过，最终结果与 head/SHA 在本轮不可变 master report 中固定后显式 publish。
 
 原冻结并发 P1 在 `06c` 的独立复验为 34 项定向测试通过、四个真实双进程场景通过。历史 136 条缺冻、5 个交易缺口和 #373 两日缺备份没有因此恢复。NAV、指数稳定性和过拟合/指标跳变另做真实数据核查，不以任务 exit 0 或降低风险阈值销账。
 
@@ -56,3 +56,13 @@ python3 ops/monitoring/build_baseline.py --check
 为核 Nov3 A/F 指标突变，进一步在本机取回并解析两份完整交易候选，候选对比已执行；第三件精确 key 的 HEAD 当时返回 404。两份独立复算的指纹均不匹配目标 Nov2/3 快照，候选 n 为1549→1574，而目标为1549→1572，不能将候选增删或收益变化写成那天的权威原因。没有经生产云服务器转发大文件，没有修改收益、策略或历史快照；仍需可配对的生产运行身份/输入内容哈希。
 
 当前 74/red 按原四维权重计算成立，真实高风险预警保留。2026-11-09 22:15 监控失败的实际记录为 TimeoutError，其快照 ID 在随后只读 OPS_DB 主库查询时未见；不能据这一例声称全因 D1 配额或已经送达。上线恢复、D1 完整 UTC 日与这些历史问题继续分别留证。
+
+## 跨日收口与发布保护
+
+Claude 已将冻结并发修复和相同 baseline 纳入 main `6e3b2ea06299d664cc67e676a0b73614d32f6634`；本接续分支正常 merge 纳入该主分支提交，没有覆盖对方工作树。该 main 的 Quality/Ops 两套 CI 通过、Pages 发布成功，CF 发布 `42649615746` 失败；公共 API 仅能证明 deploy 步骤 exit1，未提供具体 stderr，原因待有权限的 Actions 日志核实。
+
+第一轮接续整合 `314e94e67aba19f9e7cf5aaa299553118b3a2f5b` 的真实 Linux run `42648725977` 为 4085 tests / 1 failure / 0 errors / 7 skipped。失败是新增 NAV 跨进程测试的裸子进程缺父 conftest 导入垫片，在相同依赖的最小 Python 环境复现为缺 `requests`。原分支追加 `b1f20bca27d96db15a07230f7bed0d9e0f7d6f9e`，仅修测试启动及文档；生产源码 SHA 和原公平续跑断言保持。旧红记录、最小环境红绿和独立增量复核另存，不用本地通过替代最终 Linux。
+
+另一个实际历史问题是 main `8840` 的 Quality/Ops 均失败、CF/Pages 却成功；四个原始 run 状态由父任务直接读取 GitHub 公共 API 留证。该版本部署依赖图未接 CI，故新增 [同提交 CI 门禁](release-ci-gate.md)，限定同 SHA、可信 main、当前 attempt 成功，并在实际发布前复核。此处有意修改两个部署 workflow 及必要的 Ops 路径登记，与前述只同步 baseline 的阶段不同；不直接改生产配置。外部 CF Git integration 和检查到发布之间的竞态边界保留，不能宣称跨平台原子发布。
+
+00:00 自然监控 snapshot `0c59e8cf-da8d-4059-9f92-da2d120b0f04` 原生 rc0，日志 delivery_ok=true/HTTP200，随后只读 OPS_DB 主库查询命中同一 ID。此轮投递已实证，不外推全部故障关闭。追加三项代码及各自然链验收继续按 [跨日验收交接](final-acceptance-20261110.md) 执行。

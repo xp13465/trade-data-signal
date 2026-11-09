@@ -1,10 +1,10 @@
 # 发布前等待同一提交的 CI（实施说明，2026-11-10）
 
-本次用户特批 Codex 在专属 `codex/ops-release-ci-gate-20261109` 分支实施、测试和 commit，**不 push、不部署**；Claude 最终独立审查、整合和 Linux CI 验收。固定 base 为 `314e94e67aba19f9e7cf5aaa299553118b3a2f5b`。用户最新授权覆盖索引 #372 的历史“不改”决定，本次不改索引、版本串或业务源码。
+本次用户授权 Codex 在独立分支实施，由 Claude 最终复核、合 main 和生产部署。本子任务作者在 `codex/ops-release-ci-gate-20261109` 实施、测试和 commit，作者不自行 push；父 Codex 负责独立复核后的整合、推送自己的分支和最终 Linux CI。固定 base 为 `314e94e67aba19f9e7cf5aaa299553118b3a2f5b`。本次增加发布门禁，不修改共享索引、版本串或业务源码；历史条目的状态由主控对账。
 
 ## 问题与可验证的预期
 
-历史事故锚点为 `8840c79d70de4bf58376bcdbd9bc13239ad17781`：用户提供 CI Quality `42643233649` failure、Ops `42643233652` failure，同时 CF `42643233697` success、Pages `42643233655` success。本机尝试四次只读 REST 获取均为 URLError，浏览工具也无法打开这些 API URL，故这组运行状态**属于用户提供的证据，未冒充本次在线独立复核**。
+历史事故锚点为 `8840c79d70de4bf58376bcdbd9bc13239ad17781`：父 Codex 直接读取 GitHub 公共 Actions API，取得 CI Quality `42643233649` failure、Ops `42643233652` failure，同时 CF `42643233697` success、Pages `42643233655` success，四条均为同一 main SHA 的 push 运行。原始证据为 `historical-main8840-workflow-evidence.json`。子任务作者自己的网络访问未成功，该失败保留；父读取结果及独立 reviewer 的复核不归为用户口述或 Claude 回执。
 
 最新同步：父任务报告 main 已到 `6e3b2ea06299d664cc67e676a0b73614d32f6634`，两套 CI success、Pages success、CF `42649615746` failure。**历史两红不是当前状态**；此次不诊断或处置 CF 生产故障。
 
@@ -47,7 +47,7 @@ Ops 仅在 push/PR 原列表各登记四项：守卫、专用测试、两个部�
 
 复用与精简：检查现有 `scripts/lib/ci_selfcheck.sh` 的目标是推送后告警，允许未知结论 warn，不能作为发布 fail-closed 守卫直接复用。使用标准库 HTTP/时间/JSON/正则，复用已有 PyYAML 依赖和原 Ops 路径列表；两个真实部署使用同一脚本，无额外配置源或服务抽象。
 
-验证原始输出位置：`/tmp/release-gate-focused.log`、`/tmp/release-gate-full-pytest.log`（首次 42 秒中断）、`/tmp/release-gate-full-pytest-final.log`、`/tmp/release-gate-full-pytest-final.status.json`（被最终代码轮次替代）、`/tmp/release-gate-exact-full.log`、`/tmp/release-gate-exact-full.status.json`、`/tmp/release-gate-commit.log`。最终计数与固定 head 以原子 JSON 实施报告为准。全量回归在最后补“缺运行 120 秒／manual 立即拒绝”前已启动，按父要求保留该次收尾、不追加全量；最终行为以 71 项定向测试覆盖，最终 Linux CI 由父统一执行。
+验证原始输出位置：`/tmp/release-gate-focused.log`、`/tmp/release-gate-full-pytest.log`（首次 42 秒中断）、`/tmp/release-gate-full-pytest-final.log`、`/tmp/release-gate-full-pytest-final.status.json`（被最终代码轮次替代）、`/tmp/release-gate-exact-full.log`、`/tmp/release-gate-exact-full.status.json`、`/tmp/release-gate-commit.log`。最终计数与固定 head 以原子 JSON 实施报告为准。作者全量回归在最后补“缺运行 120 秒／manual 立即拒绝”前已启动，360 秒超时后已清理，未完成、未记为通过；按父要求不追加本机全量。最终行为以 71 项定向测试覆盖，最终 Linux CI 由父统一执行，原超时和版本边界保留。
 
 ## 已知兼容风险与范围
 

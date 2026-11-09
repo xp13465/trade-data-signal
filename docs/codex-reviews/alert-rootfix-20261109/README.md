@@ -4,6 +4,8 @@
 
 接续确认并修复的残余问题见 [NAV 窗口完整性与定向恢复](nav-completeness.md)、[过拟合报告交付与补传](overfit-delivery-followup.md)、[基金指数同源重连](fund-index-reconnect.md)。各项经过固定 head 独立复核，原发现与返修证据保留；生产恢复仍由 Claude 在审合部署后验收。
 
+接续发布保护见 [同提交 CI 发布门禁](release-ci-gate.md)，整合及生产恢复步骤见 [11月10日验收交接](final-acceptance-20261110.md)。Actions 门禁不代表外部 Cloudflare Git integration 已受控；生产事件与历史缺口仍按证据分别验收。
+
 用户本轮授权：
 
 > 为了确认可以修好。修之前分析一下真正原因和找出可以修好的依据。再开始修。我去睡了。醒来看你修好了多少个
