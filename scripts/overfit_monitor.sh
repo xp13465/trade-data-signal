@@ -16,7 +16,7 @@
 #   标准格式(=== xxx.sh 开始/结束 ... 退出码=N ===), gen_schedule_stats standard 模式与
 #   schedule_monitor 漏跑检查零特殊逻辑直读。
 #
-# 用法: bash scripts/overfit_monitor.sh [force]
+# 用法: bash scripts/overfit_monitor.sh [force|publish-only]
 # 日志: data/logs/overfit_monitor_launchd.log
 set -u
 
@@ -42,7 +42,7 @@ fi
 
 # 交易日闸门(非交易日跳过打点; 传 force 强制跑供周末补数据)
 LOG="$LOGDIR/overfit_monitor_launchd.log"
-if [ "${1:-}" != "force" ]; then
+if [ "${1:-}" != "force" ] && [ "${1:-}" != "publish-only" ]; then
   IS_TRADING=$("$PY" -c "from app.calendar import is_trading_day; print(1 if is_trading_day() else 0)" 2>/dev/null || echo 1)
   if [ "$IS_TRADING" != "1" ]; then
     echo "$(date '+%F %T') 非交易日, 跳过过拟合监控打点" >> "$LOG"
@@ -53,7 +53,12 @@ fi
 echo "==== overfit_monitor 打点开始 $(date '+%F %T') ====" >> "$LOG"
 echo "=== overfit_monitor.sh 开始 $(date '+%F %T') ===" >> "$LOG"
 # 打点(不打 --dry-run: 正常发送时若触发预警会真发, 但有 dedup 防轰炸)
-"$PY" scripts/overfit_monitor.py >> "$LOG" 2>&1
+# publish-only 不重算、不重发预警，供主控受控恢复已计算的两份产物。
+if [ "${1:-}" = "publish-only" ]; then
+  "$PY" scripts/overfit_monitor.py --publish-only >> "$LOG" 2>&1
+else
+  "$PY" scripts/overfit_monitor.py >> "$LOG" 2>&1
+fi
 RC=$?
 # 打点产物即时 parity 自检(2026-08-24 用户拍板, 与 deploy.sh 1.2.2 同闸门):
 # B件套拆分(commit 70163b663)误删主文件 filtered 挂载当时无任何自动链可拦, 病灶次日才暴露。
