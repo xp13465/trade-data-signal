@@ -3,6 +3,8 @@ import ast
 import datetime as dt
 import importlib.util
 import json
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -34,6 +36,11 @@ from types import SimpleNamespace
 scenario = os.environ['INDEX_TEST_SCENARIO']
 sample = json.loads(os.environ['INDEX_TEST_SAMPLE'])
 logins = queries = 0
+if scenario == 'blocked_import':
+    import time
+    from pathlib import Path
+    Path(os.environ['INDEX_TEST_CHILD_PID']).write_text(str(os.getpid()))
+    time.sleep(30)  # 假SDK的长阻塞，不是新增生产超时。
 
 def login():
     global logins
@@ -135,7 +142,8 @@ def isolated(monkeypatch, tmp_path):
         calls.append(args)
         return real_run(args, **kwargs, timeout=40)
     monkeypatch.setattr(subprocess, 'run', run)
-    return SimpleNamespace(fetch=ns['fetch_index_daily'], sdk=sdk, batches=batches, calls=calls)
+    return SimpleNamespace(fetch=ns['fetch_index_daily'], sdk=sdk, batches=batches,
+                           calls=calls, real_run=real_run)
 
 
 def invoke(env, capsys, monkeypatch, scenario, iid='hs300'):
@@ -244,3 +252,117 @@ def test_real_module_import_uses_same_isolated_route(isolated, monkeypatch, caps
     assert len(isolated.batches) == 1
     assert isolated.sdk.logins == 0
     assert 'AUDIT query 1 sh.000300' in capsys.readouterr().out
+
+
+def _process_state(pid):
+    result = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)],
+                            capture_output=True, text=True, timeout=2)
+    state = result.stdout.strip()
+    return state, bool(state and not state.startswith('Z'))
+
+
+@pytest.mark.parametrize('mode', ['perl_alarm', 'early_sigalrm', 'normal_exit'])
+def test_parent_death_reclaims_only_own_query(isolated, monkeypatch, tmp_path, mode):
+    """真父进程+真查询子进程；perl alarm保留mac行为，不模拟Linux群杀。"""
+    import shutil
+    if mode == 'perl_alarm' and not shutil.which('perl'):
+        pytest.skip('此环境无perl；另两例仍验证等价SIGALRM/正常退出')
+    monkeypatch.setenv('INDEX_TEST_SCENARIO', 'blocked_import')
+    sdk_pid = tmp_path / 'sdk-pid'
+    started_pid = tmp_path / 'child-started-pid'
+    writer = tmp_path / 'unexpected-writer'
+    monkeypatch.setenv('INDEX_TEST_CHILD_PID', str(sdk_pid))
+    # 包一层极短启动桩，early模式在真正守卫代码开始之前杀父。
+    bootstrap = (
+        'import os,sys,time\nfrom pathlib import Path\n'
+        f'Path({str(started_pid)!r}).write_text(str(os.getpid()))\n'
+        + ('time.sleep(0.4)\n' if mode == 'early_sigalrm' else '')
+        + 'code=sys.argv.pop(1)\nexec(compile(code,"<query-under-test>","exec"))\n')
+    runner = f'''
+import ast,datetime as dt,json,os,signal,subprocess,sys,threading,time
+from pathlib import Path
+from types import SimpleNamespace
+source=Path({str(ROOT / 'app/collector/public_fund.py')!r}).read_text()
+fn=next(n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef) and n.name=='fetch_index_daily')
+ns={{'dt':dt,'time':time,'json':json,'sys':sys,'_ROOT':Path({str(tmp_path)!r}),
+    '_safe_float':float,'get_conn':lambda:SimpleNamespace(
+        executemany=lambda *a:Path({str(writer)!r}).write_text('writer reached'),commit=lambda:None,close=lambda:None)}}
+exec(compile(ast.Module(body=[fn],type_ignores=[]),'<fetch-under-test>','exec'),ns)
+real_run=subprocess.run
+def launch(args,**kwargs):
+    args=[args[0],'-c',{bootstrap!r},args[2],*args[3:]]
+    return real_run(args,**kwargs)
+subprocess.run=launch
+threading.Thread(target=lambda:ns['fetch_index_daily']('20261102','20261109'),daemon=True).start()
+ready=Path({str(started_pid if mode == 'early_sigalrm' else sdk_pid)!r})
+deadline=time.monotonic()+5
+while not ready.exists():
+    if time.monotonic()>deadline:raise RuntimeError('child not ready')
+    time.sleep(0.01)
+if {mode!r}=='early_sigalrm':os.kill(os.getpid(),signal.SIGALRM)
+if {mode!r}=='perl_alarm':time.sleep(30)
+'''
+    # 只取消本fixture的run包装，保留真子进程，不触达生产模块/SDK。
+    monkeypatch.setattr(subprocess, 'run', isolated.real_run)
+    env = dict(os.environ, INDEX_TEST_SCENARIO='blocked_import',
+               INDEX_TEST_SAMPLE=json.dumps(SAMPLES['hs300']), INDEX_TEST_CHILD_PID=str(sdk_pid))
+    command = [sys.executable, '-c', runner]
+    if mode == 'perl_alarm':
+        command = ['perl', '-e', 'alarm shift; exec @ARGV or exit 127', '2', *command]
+    log_path = tmp_path / 'lifecycle-parent.log'
+    child_pid = None
+    observer = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+    with log_path.open('w') as output:
+        parent = subprocess.Popen(command, cwd=tmp_path, env=env, stdout=output, stderr=output)
+        try:
+            rc = parent.wait(timeout=7)
+            assert rc == (0 if mode == 'normal_exit' else -signal.SIGALRM), log_path.read_text()
+            assert started_pid.exists(), log_path.read_text()
+            child_pid = int(started_pid.read_text())
+            exited_at = time.monotonic()
+            deadline = exited_at + 3
+            state, alive = _process_state(child_pid)
+            while alive and time.monotonic() < deadline:
+                time.sleep(0.02)
+                state, alive = _process_state(child_pid)
+            print(f'LIFECYCLE mode={mode} parent={rc} child_alive={alive} state={state!r} '
+                  f'observer_alive={observer.poll() is None} '
+                  f'reclaim_seconds={time.monotonic() - exited_at:.3f}', flush=True)
+            assert observer.poll() is None
+            assert not writer.exists()
+            assert not alive, f'{mode}: parent={rc}, child={child_pid} remains {state}'
+        finally:
+            if parent.poll() is None:
+                parent.kill()
+            parent.wait(timeout=2)
+            if child_pid is None and started_pid.exists():
+                child_pid = int(started_pid.read_text())
+            if child_pid and _process_state(child_pid)[1]:
+                # 修前反例清理：仅清理命令含本tmp路径启动桩的已知测试子进程。
+                cmd = subprocess.run(['ps', '-o', 'command=', '-p', str(child_pid)],
+                                     capture_output=True, text=True, timeout=2).stdout
+                assert str(tmp_path) in cmd
+                os.kill(child_pid, signal.SIGKILL)
+            observer.kill()
+            observer.wait(timeout=2)
+
+
+@pytest.mark.parametrize('fail', [False, True])
+def test_liveness_pipe_descriptors_close_on_success_or_launch_failure(isolated, monkeypatch, fail):
+    real_pipe = os.pipe
+    owned = []
+    def pipe():
+        pair = real_pipe()
+        owned.append(pair)
+        return pair
+    monkeypatch.setattr(os, 'pipe', pipe)
+    if fail:
+        def cannot_start(*a, **kw):
+            raise OSError('受控启动失败')
+        monkeypatch.setattr(subprocess, 'run', cannot_start)
+    assert isolated.fetch('20261102', '20261109') == (0 if fail else 6)
+    assert owned
+    # 第一个pipe由fetch创建；subprocess另建stdout/stderr管道不计入本函数资源。
+    for fd in owned[0]:
+        with pytest.raises(OSError):
+            os.fstat(fd)

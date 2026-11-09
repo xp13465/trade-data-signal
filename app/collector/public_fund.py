@@ -1089,14 +1089,28 @@ def fetch_index_daily(start_date: str | None = None, end_date: str | None = None
     # SDK 的 socket/login 是进程全局状态；线程锁保护不到其他 BaoStock 入口。
     # 仿现有 baostock_worker 隔离连接，但子进程只查数据，绝不初始化/写数据库。
     # 不叠加 timeout：沿用 base 的 socket 双守卫和既有有界重连预算。
+    import os
     import subprocess
 
     query_script = '''
 import json
+import os
 import sys
+import threading
+
+# 先于SDK导入启动：父进程独占管道写端，退出(包括SIGALRM)即EOF。
+# 只退出本查询进程，不更改全局信号handler，也不按PID杀其它任务。
+parent_fd = int(sys.argv[4])
+def exit_with_parent():
+    try:
+        os.read(parent_fd, 1)
+    finally:
+        os._exit(1)
+threading.Thread(target=exit_with_parent, daemon=True).start()
+
 from app.collector import baostock_daily as daily
 
-code, sd, ed = sys.argv[1:]
+code, sd, ed = sys.argv[1:4]
 payload = {"rows": [], "error": ""}
 try:
     # 最多两次完整查询；每次恢复复用现有最多3次/间隔2秒的登录助手。
@@ -1147,9 +1161,15 @@ finally:
 print("FUND_INDEX_RESULT=" + json.dumps(payload), flush=True)
 '''
     try:
-        result = subprocess.run(
-            [sys.executable, "-c", query_script, bs_code, sd, ed],
-            cwd=str(_ROOT), capture_output=True, text=True, check=True)
+        parent_read, parent_write = os.pipe()  # 默认不可继承；只显式传子进程读端。
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", query_script, bs_code, sd, ed, str(parent_read)],
+                cwd=str(_ROOT), capture_output=True, text=True, check=True,
+                pass_fds=(parent_read,))
+        finally:
+            os.close(parent_read)
+            os.close(parent_write)
         output = result.stdout.splitlines()
         for line in output[:-1]:
             print(line, flush=True)

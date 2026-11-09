@@ -48,3 +48,30 @@ SDK 的 default_socket/user_id 及助手的登录标记为进程全局，现有�
 仅实现关及局部回归完成；父独立review、最终Linux CI、合并和部署待办。无refs/消费者/completion/handoff/main/生产写入，无生产采集、DB写/重算、真实通知或push。生产后自然轮次应逐指数核日期及原始值，不能仅凭进程退出0关闭稳定性残余。
 
 最终局部回归原样末行：`56 passed in 2.77s`。
+
+
+## v2：父进程退出后终止本次查询（Gibbs P2）
+
+保留上一版提交 `5d8abbec37dcf0624ba467aefa742bd6244df8ea`、`index-implementation.json` 和修前红日志，不修改原证据。Gibbs 的范围是 **mac perl-alarm 只终止父进程后，新增查询子进程仍活着**；没有把这个事实外推为 Linux systemd 群杀失败。
+
+已查 app/scripts 的 parent-liveness/getppid/PDEATHSIG/pass_fds 等入口，没有可直接用于该查询的父存活守卫。`codex_review_claims` 的 owner_pid 只是调度元数据，不适合引入采集进程；此次不用消费者、长期任务或 PID 轮询。
+
+最小修复仍只在 `fetch_index_daily`：每次启动查询创建独立匿名管道，父**独占写端**，仅用 `pass_fds` 给查询子进程传读端。父正常退出或因 SIGALRM/SIGTERM 等异常死亡时，写端由内核关闭，子守卫读到 EOF 后 `os._exit(1)` 退出自身。父在调用结束的 finally 中关闭自己持有的两个端点；读端的额外父副本不会阻止 EOF。守卫先于 SDK 导入启动，父早死不会留下尚未进入SDK的长网络worker。
+
+没有设置全局 signal handler、使用 preexec_fn、按 PID/进程组发信号或操作其它锁；没有新增任何行情/SDK超时层。管道读是等待父生存期结束，没有定时网络取消。正常查询的SDK finally/logout、完整结果解析、父已有会话及线程隔离保持原样。旧成功写库段与5d8逐字相同。
+
+验证只运行临时小进程/假SDK/捕获writer，不触达生产、网络行情、生产SQLite或通知。真正的 perl alarm 使用仓库现有形式 `perl -e 'alarm shift; exec @ARGV or exit 127' 2 python ...`；父早死例在启动桩内延迟0.4秒，让父在真正守卫代码开始前收到等价SIGALRM；正常退出例是主线程正常结束、查询线程为daemon。另有独立旁观进程，验证清理没有误伤他人。
+
+| 真实小进程场景 | 修前 | 修后（Mac本轮实测） |
+| --- | --- | --- |
+| perl alarm | parent=-14，查询仍活过3秒 | parent=-14，查询终止；旁观进程仍活；观察耗时0.006秒 |
+| 父早死SIGALRM | parent=-14，查询仍活过3秒 | parent=-14，查询终止；旁观进程仍活；观察耗时0.385秒 |
+| 正常父退出 | parent=0，查询仍活过3秒 | parent=0，查询终止；旁观进程仍活；观察耗时0.007秒 |
+
+修前原样末行：`3 failed, 24 deselected in 13.25s`，日志在 `index-implementation-v2-evidence/lifecycle-before-red.log`。反例测试的finally仅按已知测试PID及专属/tmp启动桩校验清理反例遗留，不使用广泛进程匹配。
+
+修后最终原样末行：`61 passed in 6.41s`（本文件29例 + 原相关32例），日志 `index-implementation-v2-evidence/v2-related-tests.log`。新增成功/启动失败两条路径均检查父管道fd已关闭；原有正常查询、三指数原值、父已有SDK会话、两线程隔离和半批拒写均回归通过。生产改动不接触原生SDK/真实DB；相关旧测试仅使用其既有临时SQLite fixture。
+
+进程状态验证把无PID或僵尸视为已终止工作进程；不声称能控制其它系统上PID1何时执行wait。这里Mac实测状态均为空，没有活worker遗留。3秒是测试观察上限，守卫本身没有3秒或其它网络计时器。Linux CI与Gibbs增量复核仍由父完成，未声称上线或生产自然轮恢复稳定。
+
+机制依据：[Python subprocess 的 pass_fds/close_fds](https://docs.python.org/3.11/library/subprocess.html#popen-constructor)、[Python os.pipe 的不可继承描述符](https://docs.python.org/3.11/library/os.html#os.pipe)。标准pre-commit随追加提交真实执行；不push、不合main、不部署。
