@@ -1708,8 +1708,8 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal, 
 
 # ── R2 上传外层超时 + 梯度守卫(#223④, 对齐 #217② 先例)─────────────────────────
 # 三层梯度(逐层实测锚定, 见 docs/ops/223-overfit-monitor-timeout-20261006.md):
-#   L0 内层 = R2 单请求 HTTP 超时 R2_UPLOAD_HTTP_TIMEOUT(本机默认 30, 云上 .env = 600)
-#   L1 本层 = 对 upload_r2.py 的 subprocess 超时(_R2_UPLOAD_TIMEOUT, #223④ 由 180 抬到 900)
+#   L0 内层 = 发布子进程强制单请求30s + 锁后工作预算；其它调用方的云.env仍为600s
+#   L1 本层 = 对受控发布worker的 subprocess 超时(_R2_UPLOAD_TIMEOUT, #223④ 由 180 抬到 900)
 #   L2 外层 = systemd TimeoutStartSec(trade-overfit-monitor.service, 2026-10-31 起 **1920s**;
 #      旧值 360s 与本层 900+60 倒置, 每天打「本层 R2 上传超时 900s >= 外层 systemd 墙 360s」告警,
 #      见台账 L55 / #364 同类全仓审计)
@@ -2005,70 +2005,136 @@ def build_output(rebuild=False, dry_run=False):
     if alerts:
         print(f"   (预警记录已回写 {len(alerts)} 条)")
 
-    # R2 上传(§22 三步同步: overfit_monitor 主+ext 两文件走 R2 data/ 前缀, static-site/data 已 gitignore)
-    # deploy 链 upload-data-large 含 overfit_monitor* 强制例外(startswith 前缀, B拆分后含 _ext);
-    # 独立打点时也自传, 保证线上立即可见。upload-data-large 上传后对 overfit_monitor*.json 以
-    # cache_prefix="/" purge /data/ rewrite 路由 edge 缓存(C 件套补偿: 该两文件已挪 MED 600s,
-    # 「重跑立即看」靠 purge 保证, 见 headers.js dataCacheTtl 沿革注释)。
-    # deploy.sh 已 RUN_R2 时经 ENV OVERFIT_SKIP_R2=1 跳过, 防重复(repo=deploy 语义同 EXPORT_SKIP_R2)。
-    if not dry_run and os.environ.get("OVERFIT_SKIP_R2") != "1":
-        try:
-            import subprocess as _sp
-            # ⚠ 必须传 REPO=trade-data: upload_r2 的 ROOT 经 .resolve() 解析到 trade/(trade-data/scripts
-            # 是 trade/scripts symlink), 不传则读 trade/static-site/data(旧版), 与本脚本写盘
-            # trade-data/static-site/data(新版) 不一致(§22 三步同步, L33 STATIC_DIR=REPO/static-site)。
-            # 统一 helper force_env(防再犯机制 E): 强制覆盖 REPO/GIT_REPO, 不用 setdefault。
-            # --skip-if-locked(2026-09-24 硬化 P1-A): overfit_monitor 21:40 打点可能撞 deploy 全量
-            # 持锁窗口, 排队等待必然触发本 subprocess timeout 被 except 吞掉 → exit 0 静默失败
-            # (R2 没传但监控显通过)。带该 flag = 拿不到锁立即跳过本轮, 不改打点主流程; 当日 R2
-            # 同步缺口由 deploy 日链 upload-data-large 兜底(OVERFIT_SKIP_R2 语义同侧)。
-            _env = force_env(dict(os.environ), REPO)
-            # 2026-10-28 分域+梯度: data-large 属顶层 data 域; 锁等待 240s < 外层 systemd 1920s
-            # (_r2_upload_timeout()=900 + skip 重试窗口)。--skip-if-locked 路径实际只等 skip 窗口。
-            _env["R2_UPLOAD_LOCK_DOMAIN"] = "data"
-            _env["R2_UPLOAD_LOCK_TIMEOUT"] = "240"
-            # #217①: 上游 upload_r2 --skip-if-locked 撞锁时先等锁重试 R2_UPLOAD_SKIP_RETRY_SECS
-            # (默认 60s)再判跳过; 本 subprocess timeout 须把该重试窗口算进去, 否则重试期间被
-            # 外层 timeout 杀掉 → 走 TimeoutExpired(✗ 标记)而非 SKIPPED_LOCKED(设计让路)。
-            try:
-                _r2_skip_retry = int(_env.get("R2_UPLOAD_SKIP_RETRY_SECS") or "60")
-            except (TypeError, ValueError):
-                _r2_skip_retry = 60
-            if _r2_skip_retry < 0:
-                _r2_skip_retry = 0
-            # #223④(2026-10-06): 本层基预算 120 → 900——_r2_upload_timeout() 带运行时梯度守卫
-            # (外层 systemd=0/无界 ⇒ 放行; 有界且倒置 ⇒ 收回; 内层 HTTP 倒置 ⇒ 抬升), #217①
-            # 等锁重试窗口(R2_UPLOAD_SKIP_RETRY_SECS)照旧加在本层预算之上(默认合计 960s)。
-            _r2_timeout = _r2_upload_timeout() + _r2_skip_retry
-            r = _sp.run(
-                [sys.executable, os.path.join(SCRIPT_DIR, "upload_r2.py"),
-                 "--skip-if-locked", "upload-data-large"],
-                capture_output=True, text=True, timeout=_r2_timeout, env=_env)
-            if r.returncode == 0:
-                _blob = (r.stdout or "") + (r.stderr or "")
-                if "SKIPPED_LOCKED" in _blob:
-                    # 显式标记, 可被 grep(绝不静默): 本轮跳过非失败, 缺口由 deploy 日链兜底。
-                    print("   [r2] SKIPPED_LOCKED: R2 上传锁忙, 本轮跳过(overfit_monitor.json 由 deploy 日链兜底)", file=sys.stderr)
-                else:
-                    print("   overfit_monitor.json → R2 上传完成")
-            else:
-                print(f"   ✗ R2 上传失败(rc={r.returncode}): {r.stderr[-300:]}", file=sys.stderr)
-        except subprocess.TimeoutExpired:
-            # 绝不静默(2026-09-24 硬化 P1-B): 排队→timeout 被吞=监控显通过实未传。打显式标记。
-            print(f"   ✗ R2_UPLOAD_TIMEOUT: overfit_monitor.json R2 上传超 {_r2_timeout}s 未完成, "
-                  "当日同步缺口由 deploy 日链兜底, 请人工确认", file=sys.stderr)
-        except Exception as e:  # noqa: BLE001
-            print(f"   ✗ R2 上传异常(非静默): {e}", file=sys.stderr)
+
     return out
+
+
+def _run_delivery_process(cmd, env, timeout):
+    """整链墙钟；文件承接输出，避免管道/孙进程持管道导致回收等待无界。"""
+    import signal
+    import tempfile
+    # 子进程独立会话；仅回收自己这组进程，不碰其它上传任务的锁/进程。
+    with tempfile.TemporaryFile(mode="w+") as log:
+        proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=log, start_new_session=True)
+        try:
+            rc = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGTERM)
+            try:
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
+            # 即使直接子进程已退出，也清掉同组仍持锁/忽略TERM的孙进程。
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait(timeout=2)
+            rc = 124
+            print(f"✗ R2_UPLOAD_TIMEOUT: overfit 发布整链超过 {timeout}s，已回收本组", file=sys.stderr)
+        log.seek(0, os.SEEK_END)
+        size = log.tell()
+        log.seek(max(0, size - 12000))
+        print(log.read(), end="", flush=True)
+        return rc
+
+
+def _delivery_worker():
+    """持原data域/全局屏障锁读当前产物；不暂存旧快照，不计算/发模型预警。"""
+    import hashlib
+    from pathlib import Path
+    import urllib.request
+    import upload_r2 as uploader
+
+    names = ["overfit_monitor.json", "overfit_monitor_ext.json"]
+    uploader.guard_repo_default("upload-data-files")
+    lock = uploader._acquire_lock_for_command("upload-data-files", names, skip_if_locked=True)
+    if lock is uploader._SKIP_R2_LOCKED:
+        print("SKIPPED_LOCKED: 计算结果保留，发布未完成；可 --publish-only 补传", file=sys.stderr)
+        return 75
+    if lock is None:
+        return 75
+    stage = "artifact_validation"
+    try:
+        uploader._work_budget_begin("overfit-delivery")
+        paths = [Path(OUT_JSON), Path(OUT_EXT_JSON)]
+        payloads = [p.read_bytes() for p in paths]
+        generations = [json.loads(b).get("generated_at") for b in payloads]
+        if not generations[0] or generations[0] != generations[1]:
+            raise ValueError("主/ext 不同代，拒绝发布")
+        from check_overfit_split_parity import check
+        if check(None, OUT_JSON, OUT_EXT_JSON) != 0:
+            raise ValueError("主/ext 原有结构校验失败，拒绝发布")
+        # 原命令保留S3重试、独立产物登记与/data/缓存清理；仅缩小取件范围。
+        stage = "upload"
+        uploader.cmd_upload_data_files(names)
+        print("R2_UPLOAD_COMMAND_COMPLETED: 两件上传命令完成，开始核公开副本", flush=True)
+        stage = "public_verification"
+        for host in ("ss.fx8.store", "ssd.fx8.store"):
+            for name, payload in zip(names, payloads):
+                request = urllib.request.Request(f"https://{host}/data/{name}",
+                                                 headers={"Cache-Control": "no-cache"})
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    public = response.read(len(payload) + 1)
+                if hashlib.sha256(public).digest() != hashlib.sha256(payload).digest():
+                    raise ValueError(f"公开内容未对齐: {host}/{name}")
+        if payloads != [p.read_bytes() for p in paths]:
+            raise ValueError("发布期间本地产物变化，需补传当前代")
+        print(f"overfit 发布已核验: 主/ext {generations[0]}，两站逐字节一致", flush=True)
+        return 0
+    except (Exception, SystemExit) as exc:
+        # 76仅表示公开交付未确认，不能当作PUT失败；原上传器的非零保留在upload阶段。
+        marker = "R2_PUBLIC_UNCONFIRMED" if stage == "public_verification" else "R2_UPLOAD_INCOMPLETE"
+        print(f"✗ {marker}: stage={stage} {exc}；产物保留，可 --publish-only 补传", file=sys.stderr)
+        return 76 if stage == "public_verification" else 1
+    finally:
+        uploader._release_r2_upload_lock(lock)
+
+
+def publish_overfit():
+    """仅补传当前已计算artifact；失败由CLI非零交给原schedule消费者。"""
+    env = force_env(dict(os.environ), REPO)
+    env["R2_UPLOAD_LOCK_DOMAIN"] = "data"
+    env["R2_UPLOAD_LOCK_TIMEOUT"] = "240"
+    # 旧链600s单请求×5次+15s退避=3015s > 960s外墙，且未启用工作预算。
+    # #223④ 基预算不增；等锁仍让路；请求/工作/整链三层均有界。
+    try:
+        _r2_skip_retry = max(0, min(60, int(env.get("R2_UPLOAD_SKIP_RETRY_SECS") or "60")))
+    except ValueError:
+        _r2_skip_retry = 60
+    env["R2_UPLOAD_SKIP_RETRY_SECS"] = str(_r2_skip_retry)
+    _r2_timeout = _r2_upload_timeout() + _r2_skip_retry
+    env["R2_UPLOAD_HTTP_TIMEOUT"] = "30"
+    env["R2_UPLOAD_WORK_TIMEOUT"] = str(max(1, _r2_timeout - _r2_skip_retry - 120))
+    rc = _run_delivery_process([sys.executable, os.path.join(SCRIPT_DIR, "overfit_monitor.py"),
+                                "--delivery-worker"], env, _r2_timeout)
+    if rc:
+        print(f"✗ overfit 计算产物保留，发布未完成(rc={rc})；用 --publish-only 补传", file=sys.stderr)
+    return rc
 
 
 def main():
     parser = argparse.ArgumentParser(description="过拟合监控每日打点 + 系維指标")
     parser.add_argument("--rebuild", action="store_true", help="全量历史回算(一次性, 建曲线)")
     parser.add_argument("--dry-run", action="store_true", help="不打点, 试评估+试发预警")
+    parser.add_argument("--publish-only", action="store_true", help="仅受控补传当前主/ext，不重算/不发模型预警")
+    parser.add_argument("--delivery-worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
-    build_output(rebuild=args.rebuild, dry_run=args.dry_run)
+    if args.delivery_worker and (args.dry_run or args.rebuild or args.publish_only):
+        parser.error("--delivery-worker 不允许与计算/试跑参数混用")
+    if args.publish_only and (args.rebuild or args.dry_run or os.environ.get("OVERFIT_SKIP_R2") == "1"):
+        parser.error("--publish-only 不允许重算/试跑/跳过发布")
+    if args.delivery_worker:
+        guard_deploy_source_tree(REPO)
+        return _delivery_worker()
+    if not args.publish_only:
+        build_output(rebuild=args.rebuild, dry_run=args.dry_run)
+    if args.dry_run or os.environ.get("OVERFIT_SKIP_R2") == "1":
+        print("overfit 本次仅计算，发布交上游负责(未核验公开交付)")
+        return 0
+    guard_deploy_source_tree(REPO)
+    return publish_overfit()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
