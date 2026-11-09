@@ -91,3 +91,23 @@ timeout 15s sqlite3 'file:/home/ubuntu/code/trade-data/data/public_fund.db?mode=
 ```
 
 在本轮已取得的真实响应下，Nov2应仍为原值1.1404，Nov3–6应分别为1.1298、1.1631、1.1713、1.1540；若上游随后真值有修订，记录新响应与差异，不能用本报告旧数覆盖已有非空。还须等既有导出/上传自然链更新 `nav_bucket/5c.json` 后复核公开内容；本定向入口不导出/上传、不通知、不刷新指数。锁忙的跳过或exit0不能替代DB逐值验收。
+
+
+## Kepler固定24d发现P2：锁文件非截断修复候选
+
+Kepler独立review在固定 `24d05c2d2b39ab4cde3e7a65423edad0725e777d` 指出：NAV dry-run调用共享 `app/collector/public_fund.py:_acquire_lock`，该函数先 `open(lock_path, "w")`，后尝试flock；因此即使锁忙失败，真实锁文件已有内容也已截断。此前数据库/游标不变的测试把锁helper打桩，不能证明锁文件不变。本节保留此发现，不改写旧报告结论或将其提前关单；待Kepler固定24d完整报告及后续复核。
+
+按本轮授权，仅在共享helper把打开模式改为 `"a"`，竞争失败显式关闭新句柄。保持原 `data/<lock_name>.lock` 路径、public_fund/public_fund_stage0两个既有锁域、LOCK_EX、非阻塞LOCK_NB/阻塞参数、锁忙返回False、成功句柄留在_LOCK_FILE持有至进程退出的合同。没有新增锁实现、锁文件、参数或锁域，也没有让预览绕过生产互斥。此单点修复同时使既有正常采集入口保留协调文件内容。
+
+**dry-run的准确边界**：数据库内容和游标只读；仍取得既有排他协调锁。已有锁文件非截断打开，不改其内容或inode；不存在时允许在原路径创建一个空的协调文件。因此不是“整个文件系统完全只读”，仍需要既有锁路径可打开/创建的权限。该创建只是协调元数据，不是NAV写入、游标推进或完成证明。
+
+新测试 `scripts/tests/test_fof_nav_lock_nontruncate_20261109.py` 使用真实共享helper，临时库/目录和真实独立子进程flock，绝不在生产目录创建或改锁：
+
+- 已有sentinel的预览：内容/inode、数据库和游标逐字节不变；预览持锁时正常竞争者失败，释放后可取同一个锁。
+- 独立进程持锁时，dry-run和正常调用都非阻塞跳过，不截断sentinel，不初始化/读写业务库/请求API，F01状态正常复位；子进程全部有界回收。
+- 锁不存在的预览只创建空协调锁；业务库/游标内容不变；持锁期间同域竞争仍失败。
+- stage0既有锁域同样保留sentinel，未混入public_fund锁域。
+
+修前新测试原末行：`4 failed, 1 passed in 1.04s`。修后锁专项加完整NAV/F01受影响组合原末行：`64 passed, 1 deselected in 2.62s`。真实响应预览、1001候选公平续跑/独立进程重启、NULL/缺行、非空守卫和原F01退出合同都包含在该组合，真实网络用例未执行。命令均受40秒上限，子进程竞争/释放受5秒上限。
+
+旧 `nav-implementation.json` 与已被review引用的红日志均保持原字节；本次另写 `nav-implementation-v2.json`、`nav-v2-lock-before.txt`、`nav-v2-lock-after.txt` 和新提交日志。通过开始时记录的SHA-256复核旧NAV报告/日志未变，不覆盖Kepler发现。完整全量/Linux、真实云上锁文件/恢复命令未执行；本轮仍未push或部署。

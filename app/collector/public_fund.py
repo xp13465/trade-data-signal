@@ -548,16 +548,18 @@ def _acquire_lock(nonblock: bool = True, lock_name: str = "public_fund") -> bool
     """fcntl.flock 进程互斥（macOS 用 fcntl 非 flock 命令）。
 
     lock_name: 锁名(对应 data/<lock_name>.lock), 默认 public_fund.lock。
+    非截断打开：保留已有内容；不存在时仅创建空协调文件，不代表库写入。
     stage0-* 用 public_fund_stage0.lock 独立锁, 不阻塞 daily/quarterly/full
     (stage0 写 risk_indicator/fee_detail/manager/overview/nav_history,
      daily 写 daily_nav/index_daily/estimation_nav, 不同表无 DB 写冲突)。
     """
     lock_path = _DATA_DIR / f"{lock_name}.lock"
-    f = open(lock_path, "w")
+    f = open(lock_path, "a")  # 不能在flock竞争前截断他人持有的协调文件。
     flags = fcntl.LOCK_EX | (fcntl.LOCK_NB if nonblock else 0)
     try:
         fcntl.flock(f, flags)
     except BlockingIOError:
+        f.close()
         return False
     _LOCK_FILE[0] = f
     return True
