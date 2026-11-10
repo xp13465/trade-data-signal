@@ -5300,6 +5300,67 @@ _LOCK_DOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 # 域写者持有的全局 SH 屏障 fd(主 fd → 屏障 fd); 进程退出由内核自动释放。
 # 单测里显式关闭时用 _release_r2_upload_lock 一并释放(防同进程后续用例被自己的屏障挡住)。
 _BARRIER_FDS = {}
+_R2_LOCK_OBSERVATIONS = {}
+
+
+def _r2_lock_event(fd, event, reason=""):
+    """只记录本进程实际 flock 状态；不输出 argv/env，不推测其他 PID 的持锁。"""
+    state = _R2_LOCK_OBSERVATIONS.get(fd)
+    if state is None:
+        return
+    now = time.monotonic()
+    acquired = state.get("acquired_mono")
+    waiting = state.get("wait_started_mono")
+    work = state.get("work_started_mono")
+    row = {k: state[k] for k in ("path", "stage", "mode", "domain", "pid", "command")}
+    row.update(event=event, reason=reason,
+               utc=datetime.datetime.now(datetime.timezone.utc).isoformat(), monotonic=round(now, 6),
+               wait_seconds=round((acquired if acquired is not None else now) - waiting, 6)
+               if waiting is not None else 0.0,
+               held_seconds=round(now - acquired, 6) if acquired is not None else 0.0,
+               work_seconds=round(now - work, 6) if work is not None else 0.0)
+    if event == "release_unobserved":
+        row.update(held_seconds=None, work_seconds=None)  # 直接 close 的实际时点未知
+    try:
+        print("R2_LOCK: " + json.dumps(row, ensure_ascii=False), file=sys.stderr, flush=True)
+    except (OSError, ValueError):
+        pass  # 日志出口失败不改变互斥或释放
+
+
+def _r2_lock_close(fd, reason):
+    state = _R2_LOCK_OBSERVATIONS.get(fd)
+    if state and state.get("identity") is not None:
+        try:
+            stat = os.fstat(fd)
+            same = (stat.st_dev, stat.st_ino) == state["identity"]
+        except OSError:
+            same = False
+        if not same:
+            # 兼容既有直接 close(fd) 调用者：不关闭已复用的无关 fd，也不伪造释放时点。
+            _r2_lock_event(fd, "release_unobserved", "descriptor_closed_or_reused")
+            _R2_LOCK_OBSERVATIONS.pop(fd, None)
+            return
+    try:
+        os.close(fd)
+    except OSError:
+        _r2_lock_event(fd, "release_failed", reason)
+    else:
+        _r2_lock_event(fd, "released" if state and state.get("acquired_mono") is not None
+                       else "closed_unacquired", reason)
+    finally:
+        _R2_LOCK_OBSERVATIONS.pop(fd, None)
+
+
+def _r2_lock_release_at_exit():
+    # 正常返回、SystemExit、未捕获 Python 异常都会经过 atexit；SIGKILL 无法执行日志。
+    for fd in list(_R2_LOCK_OBSERVATIONS):
+        if fd in _R2_LOCK_OBSERVATIONS:
+            _r2_lock_close(fd, "process_exit")
+    _BARRIER_FDS.clear()
+
+
+import atexit as _r2_lock_atexit
+_r2_lock_atexit.register(_r2_lock_release_at_exit)
 
 
 def _lock_domain():
@@ -5338,14 +5399,8 @@ def _release_r2_upload_lock(fd):
     """释放一次域取锁(关闭主 fd 与全局 SH 屏障 fd); 非域锁 fd 直接关闭。"""
     barrier = _BARRIER_FDS.pop(fd, None)
     if barrier is not None:
-        try:
-            os.close(barrier)
-        except OSError:
-            pass
-    try:
-        os.close(fd)
-    except OSError:
-        pass
+        _r2_lock_close(barrier, "explicit")
+    _r2_lock_close(fd, "explicit")
 
 
 def _global_upload_lock_path() -> Path:
@@ -5484,13 +5539,32 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
     for _i, (_p, _mode) in enumerate(lock_plan):
         try:
             fds.append(os.open(str(_p), os.O_CREAT | os.O_RDWR, 0o644))
+            # 命令名白名单；不打印任意 argv（可能含路径、密钥或用户输入）。
+            command = sys.argv[1] if len(sys.argv) > 1 else ""
+            safe_commands = {"upload", "upload-lab", "upload-trade-sim", "upload-trade-sim-json",
+                             "upload-index", "upload-etf-hist", "upload-fund-nav", "upload-accum-nav",
+                             "upload-industry", "upload-public-fund", "upload-offshore-fund",
+                             "upload-fund-score", "upload-etf-score", "upload-data-large",
+                             "upload-all-data", "upload-data-files", "upload-intraday", "upload-turnover",
+                             "upload-kelly-parts", "upload-kelly-parts-sdc", "upload-kelly-snapshots",
+                             "upload-db", "upload-large-json", "upload-claude-backup",
+                             "upload-decommissioned", "verify-r2", "verify-channels", "purge-low-freq"}
+            _R2_LOCK_OBSERVATIONS[fds[-1]] = {
+                "path": str(_p), "stage": "override" if lock_path_override is not None
+                else ("domain" if domain is not None and _i == 0 else "global"),
+                "mode": "EX" if _mode == fcntl.LOCK_EX else "SH",
+                "domain": domain, "pid": os.getpid(),
+                "command": command if command in safe_commands else "other",
+            }
+            try:
+                stat = os.fstat(fds[-1])
+                _R2_LOCK_OBSERVATIONS[fds[-1]]["identity"] = (stat.st_dev, stat.st_ino)
+            except OSError:
+                pass  # 观测失败不改变原有取锁行为
         except OSError as e:
             # 失败路径统一先释放已打开的 fd(防泄漏), 再按位置分流:
             for _fd in fds:
-                try:
-                    os.close(_fd)
-                except OSError:
-                    pass
+                _r2_lock_close(_fd, "open_failed")
             if _i == 0:
                 # 第一把(域锁/全局 EX)打不开: 保留既有 fail-open 行为(不持锁继续, 调用方自知)
                 print(f"⚠ 无法打开 R2 上传锁 {_p}({e}), 不持锁继续(并发风险自知)",
@@ -5505,13 +5579,10 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
     if len(fds) > 1:
         _BARRIER_FDS[fd] = fds[1]
 
-    def _release_all():
+    def _release_all(reason):
         _BARRIER_FDS.pop(fd, None)
         for _fd in fds:
-            try:
-                os.close(_fd)
-            except OSError:
-                pass
+            _r2_lock_close(_fd, reason)
 
     deadline = time.time() + timeout
     # #217①: skip_if_locked 的有界等锁重试窗口(秒)。撞锁后先轮询重试(2s 间隔), 窗口内
@@ -5533,12 +5604,23 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
     while True:
         pending_path = None
         for _i, (_p, _mode) in enumerate(lock_plan):
+            state = _R2_LOCK_OBSERVATIONS[fds[_i]]
+            if "wait_started_mono" not in state:
+                state["wait_started_mono"] = time.monotonic()
+                _r2_lock_event(fds[_i], "wait")
             try:
                 fcntl.flock(fds[_i], _mode | fcntl.LOCK_NB)
+                if "acquired_mono" not in state:
+                    state["acquired_mono"] = time.monotonic()
+                    _r2_lock_event(fds[_i], "acquired")
             except OSError:
                 pending_path = _p
                 break
         if pending_path is None:
+            for _fd in fds:
+                # 全部屏障拿齐才是工作段；domain 提前持有时间不会冒充实际上传工作。
+                _R2_LOCK_OBSERVATIONS[_fd]["work_started_mono"] = time.monotonic()
+                _r2_lock_event(_fd, "work_started")
             return fd
         if pending_path:  # 恒真(走到这里必然有锁没拿到); 保持原分支缩进层级
             if skip_if_locked:
@@ -5547,7 +5629,7 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
                 if skip_retry_secs > 0 and time.time() < skip_deadline:
                     time.sleep(2)
                     continue
-                _release_all()
+                _release_all("skip_locked")
                 print(
                     "SKIPPED_LOCKED: R2 上传锁被占用, 跳过本轮上传"
                     f"(--skip-if-locked, 已等锁重试 {skip_retry_secs}s 仍未拿到, 下轮重试)",
@@ -5567,7 +5649,7 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
                 _holder = probe_lock_holder(pending_path)
                 if _holder:
                     print(f"   占锁进程候选(lsof 只读): {_holder}", file=sys.stderr, flush=True)
-                _release_all()
+                _release_all("wait_timeout")
                 sys.exit(1)
             # #239 止血(仅加可见性): 排队等锁期间每 _R2_LOCK_HEARTBEAT_SECS 秒打一行到 stderr,
             # **刷新 tmp_log mtime** ⇒ 外层看门狗停滞判据(默认 900s)不再把「合法等锁」误判成

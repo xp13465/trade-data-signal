@@ -283,3 +283,13 @@ async 给每轮指定 `R2_PURGE_RUN_ID` 和日志同名 `.purge.json` 回执路�
 不代表成功。取得锁之前就失败时，没有清单回执，不能拿其他轮清单补称该轮已完成。
 purge 失败或失败通道轻量对账未通过会保留交付失败状态，完成已有的一次有界补传后才返回非零；
 成功回执只证明当次请求被缓存端点完整处理，不证明所有 POP 或未来上传的新版本。
+
+R2 现有取锁入口另记 `R2_LOCK:` JSON：每把锁的 wait/acquired/work_started/released，
+包含 domain/global/override、EX/SH、UTC、单调时钟、实际等待/持有/工作段秒数、PID与
+白名单命令名，不记录完整 argv/env。domain 可先拿到、再等 global；两把都拿齐才记工作段。
+正常退出和未捕获 Python 异常通过 atexit 记录释放，显式释放/等锁超时也留事件。
+已有调用者若直接 close(fd)，释放时点无法重建，记 release_unobserved、时长为 null；
+并用 inode/device 防止退出时关闭已复用的无关 fd。SIGKILL/默认信号终止无法执行 Python
+日志钩子，只能按内核自动释放与最后事件界定边界，不伪造 released。未改 signal 处理。
+async 每分钟及每个通道退出/被杀后把锁事件增量镜像到主日志，删除临时日志前补齐；
+保留业务末行，锁事件不替换原有业务汇总。任务框架 with_lock.py 保持不变。
