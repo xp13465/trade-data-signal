@@ -15,6 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).absolute().parent))
 sys.path.insert(0, str(Path(__file__).absolute().parent.parent))
 import notify  # noqa: E402
+from _notify_sandbox import notify_sandbox, run_workers  # noqa: E402
 
 
 # ---- 模块级 worker(fork 子进程继承父进程已 patch 的 notify) ----
@@ -27,17 +28,11 @@ def _fork_worker(subject, body, key, category):
     notify._absorb_to_digest(subject, body, key=key, category=category, bump_hits=True)
 
 
-def test_concurrent_same_signature_one_row_hits2(tmp_path, monkeypatch):
+def test_concurrent_same_signature_one_row_hits2(notify_sandbox):
     """两个真进程同日同签名并发 → 只有 1 行, hits=2。"""
     import multiprocessing as mp
     ctx = mp.get_context("fork")  # fork = 真进程, 继承已 patch 的 notify
-    alerts = tmp_path / "data" / "alerts"
-    alerts.mkdir(parents=True, exist_ok=True)
-    notify.ALERT_DIGEST_FILE = alerts / "alert_digest.jsonl"
-    notify.ALERT_DIGEST_LOCK_FILE = alerts / "alert_digest.flushlock"
-    notify.ALERTS_DIR = alerts
-    notify.REPO = tmp_path
-    monkeypatch.setenv("REPO", str(tmp_path))
+    alerts = notify_sandbox["digest"].parent
 
     global _BARRIER
     _BARRIER = ctx.Barrier(2)
@@ -45,12 +40,7 @@ def test_concurrent_same_signature_one_row_hits2(tmp_path, monkeypatch):
                      args=("并发主题", "并发正文", "conc_key", "r2"))
     p2 = ctx.Process(target=_fork_worker,
                      args=("并发主题", "并发正文", "conc_key", "r2"))
-    p1.start()
-    p2.start()
-    p1.join(timeout=15)
-    p2.join(timeout=15)
-    assert p1.exitcode == 0, f"p1 exit={p1.exitcode}"
-    assert p2.exitcode == 0, f"p2 exit={p2.exitcode}"
+    run_workers(p1, p2, timeout=15)
 
     digest_path = alerts / "alert_digest.jsonl"
     lines = [l for l in digest_path.read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -61,15 +51,9 @@ def test_concurrent_same_signature_one_row_hits2(tmp_path, monkeypatch):
     print(f"[F03] 并发同签名 PASS: {len(lines)} 行, hits={rec['hits']}")
 
 
-def test_sequential_same_signature_bump_hits(tmp_path, monkeypatch):
+def test_sequential_same_signature_bump_hits(notify_sandbox):
     """单进程顺序两次同 key(bump_hits=True) → 1 行 hits=2(回归保护)。"""
-    alerts = tmp_path / "data" / "alerts"
-    alerts.mkdir(parents=True, exist_ok=True)
-    notify.ALERT_DIGEST_FILE = alerts / "alert_digest.jsonl"
-    notify.ALERT_DIGEST_LOCK_FILE = alerts / "alert_digest.flushlock"
-    notify.ALERTS_DIR = alerts
-    notify.REPO = tmp_path
-    monkeypatch.setenv("REPO", str(tmp_path))
+    alerts = notify_sandbox["digest"].parent
 
     ok1 = notify._absorb_to_digest("顺序主题", "正文", key="seq_key",
                                    category="r2", bump_hits=True)
@@ -84,17 +68,11 @@ def test_sequential_same_signature_bump_hits(tmp_path, monkeypatch):
     print(f"[F03] 顺序回归 PASS: {len(lines)} 行, hits={rec['hits']}")
 
 
-def test_concurrent_different_keys_two_rows(tmp_path, monkeypatch):
+def test_concurrent_different_keys_two_rows(notify_sandbox):
     """两个进程不同 key 并发 → 各 1 行(2 行)。"""
     import multiprocessing as mp
     ctx = mp.get_context("fork")
-    alerts = tmp_path / "data" / "alerts"
-    alerts.mkdir(parents=True, exist_ok=True)
-    notify.ALERT_DIGEST_FILE = alerts / "alert_digest.jsonl"
-    notify.ALERT_DIGEST_LOCK_FILE = alerts / "alert_digest.flushlock"
-    notify.ALERTS_DIR = alerts
-    notify.REPO = tmp_path
-    monkeypatch.setenv("REPO", str(tmp_path))
+    alerts = notify_sandbox["digest"].parent
 
     global _BARRIER
     _BARRIER = ctx.Barrier(2)
@@ -102,11 +80,7 @@ def test_concurrent_different_keys_two_rows(tmp_path, monkeypatch):
                      args=("不同key", "正文A", "diff_a", "r2"))
     p2 = ctx.Process(target=_fork_worker,
                      args=("不同key", "正文B", "diff_b", "r2"))
-    p1.start()
-    p2.start()
-    p1.join(timeout=15)
-    p2.join(timeout=15)
-    assert p1.exitcode == 0 and p2.exitcode == 0, "子进程异常退出"
+    run_workers(p1, p2, timeout=15)
 
     digest_path = alerts / "alert_digest.jsonl"
     lines = [l for l in digest_path.read_text(encoding="utf-8").splitlines() if l.strip()]

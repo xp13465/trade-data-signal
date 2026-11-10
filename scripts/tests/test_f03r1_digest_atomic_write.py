@@ -14,6 +14,7 @@
 
 零外发铁律(§18 L48): 全程用 ZeroOutboundTrap 武装 + monkeypatch 渠道函数,
   收尾断言 trap.hits == []。本文件不产生任何真实邮件/Telegram/飞书外发。
+  下文的「交付/已发出」仅指模拟渠道返回成功；沙箱账本不是真实送达证据。
 
 时敏铁律(L51): 不写死日期字面量; day 从 datetime.now() 派生(与被测代码同源),
   不存在「当天绿次日红」的时敏漂移。
@@ -30,39 +31,82 @@ import pytest
 sys.path.insert(0, str(Path(__file__).absolute().parent))
 sys.path.insert(0, str(Path(__file__).absolute().parent.parent))
 import notify  # noqa: E402
-from _zero_outbound import ZeroOutboundTrap  # noqa: E402
+from _notify_sandbox import (  # noqa: E402
+    NOTIFY_PATHS, isolated_notify, notify_sandbox, run_workers,
+)
 
 
 # ── 共用 fixture: 沙箱路径 + 渠道打桩 + 零外发陷阱 ──────────────────────────────
 @pytest.fixture
-def sandbox(tmp_path, monkeypatch):
-    alerts = tmp_path / "data" / "alerts"
-    alerts.mkdir(parents=True, exist_ok=True)
-    digest = alerts / "alert_digest.jsonl"
-    lock = alerts / "alert_digest.flushlock"
-    monkeypatch.setattr(notify, "ALERT_DIGEST_FILE", digest)
-    monkeypatch.setattr(notify, "ALERT_DIGEST_LOCK_FILE", lock)
-    monkeypatch.setattr(notify, "ALERT_DIGEST_STATE_FILE", alerts / "alert_digest_state.json")
-    monkeypatch.setattr(notify, "ALERTS_DIR", alerts)
-    monkeypatch.setattr(notify, "REPO", tmp_path)
-    monkeypatch.setenv("REPO", str(tmp_path))
+def sandbox(notify_sandbox):
+    return notify_sandbox
 
-    calls: list[str] = []
 
-    def _fake(kind):
-        def _f(*_a, **_k):
-            calls.append(kind)
-            return True
-        return _f
+def test_sandbox_keeps_simulated_live_bytes_and_restores_globals(tmp_path):
+    """模拟导入时已固定的 live 路径，真实跑摘要和账本；外层文件逐字节不变。"""
+    live = tmp_path / "simulated-live"
+    original = {name: getattr(notify, name) for name in NOTIFY_PATHS}
+    with pytest.MonkeyPatch.context() as live_patch:
+        for name, relative in NOTIFY_PATHS.items():
+            path = live / relative
+            live_patch.setattr(notify, name, path)
+            if name not in ("REPO", "ALERTS_DIR"):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"simulated live sentinel\x00\xff\n")
+        live_patch.setenv("REPO", str(live))
+        for name in (notify.LEDGER_FILENAME, notify.ALERT_DOMAIN_STATE_FILE_NAME,
+                     notify.ALERT_DIGEST_SEEN_FILE_NAME, ".latest.lock"):
+            (notify.ALERTS_DIR / name).write_bytes(b"live state/ledger/lock\x00\xff\n")
+        snapshot = {p.relative_to(live): p.read_bytes() for p in live.rglob("*") if p.is_file()}
+        live_globals = {name: getattr(notify, name) for name in NOTIFY_PATHS}
+        patch = pytest.MonkeyPatch()
+        with isolated_notify(notify, tmp_path / "sandbox", patch) as sb:
+            # 正控先证零外发陷阱生效，再跑真实文件行为。
+            import urllib.request
+            with pytest.raises(AssertionError, match="零外发"):
+                urllib.request.urlopen("https://invalid.example")
+            assert sb["trap"].hits == ["urllib.request.urlopen"]
+            sb["trap"].hits.clear()
+            patch.setattr(notify, "ALERT_DIGEST_HM", "00:00")
+            assert notify._absorb_to_digest("隔离回归", "正文", key="isolation", category="r2",
+                                            mark_seen=True)
+            result = notify.flush_digest(dry_run=False)
+            assert result["sent"] is True  # 仅模拟渠道结果，不是外发送达证据。
+            assert sb["calls"]
+            assert "隔离回归" in notify.ALERTS_FILE.read_text(encoding="utf-8")
+            assert notify.ALERT_DIGEST_LOCK_FILE.exists()
+            assert notify.ALERT_DIGEST_STATE_FILE.exists()
+            assert notify._ledger_path().exists()
+            assert notify._state_path(notify.ALERT_DIGEST_SEEN_FILE_NAME).exists()
+            assert not sb["digest"].read_bytes()
+            notify.update_dedup("isolation")
+            notify.defer_warning("[告警] 隔离 warning", "正文")
+            notify.flush_warning_batch(dry_run=False)
+            assert notify.log_info("隔离 info", "正文")
+            assert notify._commit_domain_state("isolation", {"count": 1})
+            for name in ("DEDUP_FILE", "WARNING_BUFFER_FILE", "INFO_LOG_FILE",
+                         "WARNING_DEDUP_STATE_FILE", "WARNING_DEDUP_LOCK_FILE",
+                         "WARNING_FLUSH_LOCK_FILE"):
+                assert Path(getattr(notify, name)).is_file(), name
+            assert notify._state_path(notify.ALERT_DOMAIN_STATE_FILE_NAME).exists()
+        assert all(getattr(notify, name) is value for name, value in live_globals.items())
+        assert {p.relative_to(live): p.read_bytes() for p in live.rglob("*") if p.is_file()} == snapshot
+    assert all(getattr(notify, name) is value for name, value in original.items())
 
-    # 渠道打桩(先打桩, 先证沙箱生效): send() 调 _send_email/send_telegram/send_feishu
-    monkeypatch.setattr(notify, "_send_email", _fake("email"))
-    monkeypatch.setattr(notify, "send_telegram", _fake("telegram"))
-    monkeypatch.setattr(notify, "send_feishu", _fake("feishu"))
 
-    with ZeroOutboundTrap() as trap:
-        yield {"digest": digest, "lock": lock, "calls": calls, "trap": trap}
-    assert trap.hits == [], f"零外发被破坏(§18 L48): {trap.hits}"
+def test_sandbox_restores_globals_even_when_test_raises(tmp_path):
+    """测试后加的路径/故障注入也须撤销，异常收尾不能把沙箱全局量留给下个用例。"""
+    before = dict(vars(notify))
+    old_repo = os.environ.get("REPO")
+    with pytest.raises(RuntimeError, match="injected test failure"):
+        patch = pytest.MonkeyPatch()
+        with isolated_notify(notify, tmp_path / "sandbox", patch):
+            patch.setattr(notify, "ALERT_DIGEST_FILE", tmp_path / "other.jsonl")
+            patch.setattr(notify, "open", lambda *_a, **_k: None, raising=False)
+            raise RuntimeError("injected test failure")
+    assert vars(notify).keys() == before.keys()
+    assert all(vars(notify)[name] is value for name, value in before.items())
+    assert os.environ.get("REPO") == old_repo
 
 
 # ── 注入机制: 通过 monkeypatch notify.open 把 tmp 文件 open 换成炸弹 ────────────
@@ -322,12 +366,7 @@ def test_h_absorb_vs_flush_concurrent_no_loss(sandbox, monkeypatch):
     _FLUSH_BARRIER = ctx.Barrier(2)
     pa = ctx.Process(target=_absorb_worker)
     pb = ctx.Process(target=_flush_worker)
-    pa.start()
-    pb.start()
-    pa.join(timeout=20)
-    pb.join(timeout=20)
-    assert pa.exitcode == 0, f"absorb worker exit={pa.exitcode}"
-    assert pb.exitcode == 0, f"flush worker exit={pb.exitcode}"
+    run_workers(pa, pb)
 
     lines = [l for l in digest.read_text(encoding="utf-8").splitlines() if l.strip()]
     keys = {json.loads(l)["key"] for l in lines}
