@@ -2142,7 +2142,12 @@ if STATS_FILE.exists():
             #   保留 else(本轮无 skip)清链分支 = 唯一合法清零点 = 真恢复入口(不得一并去掉)。
             #   阈值 R2_SKIP_CONTINUOUS_THRESHOLD / R2_SKIP_OBS_WINDOW 保持原值(未实现任何 dial)。
             _r2_skip_cnt = s.get("r2_skip_count")
-            if isinstance(_r2_skip_cnt, int) and _r2_skip_cnt > 0:
+            # 原始skip次数保留；仅overfit同轮发布核验成功且最终exit0可结束未上传链。
+            if (isinstance(_r2_skip_cnt, int) and _r2_skip_cnt > 0
+                    and not (s.get("task") == "overfit_monitor"
+                             and s.get("r2_skip_recovered") is True
+                             and type(s.get("last_exit")) is int
+                             and s["last_exit"] == 0)):
                 # P1-3(2026-09-24 r2skip-alert-fix): 计数语义修正——r2_skip_count 是「任务最近
                 # 一次运行窗口内 SKIPPED_LOCKED 行数」。last_run 不在本轮观察窗口内(= 本轮没有
                 # 新运行)= 滞留值, 不参与「连续 N 轮」计数(#181 后: 保链不清零, 见上②)。
@@ -2281,7 +2286,7 @@ if STATS_FILE.exists():
                           f"{int(R2_SKIP_OBS_WINDOW.total_seconds()//60)}min, 本轮无新运行且无"
                           f"历史链), 不计数")
             else:
-                # 本轮无 skip: 连续计数清零。计数 key 本轮未 seen +
+                # 本轮无 skip 或已核验恢复: 连续计数清零。计数 key 本轮未 seen +
                 # skip_rounds=0 -> 主恢复循环把既有告警 key 判为消失发恢复邮件。
                 # (真恢复入口; #181 未改此分支。)
                 _r2_cnt_key = f"{s['task']}|r2_skip_rounds"
@@ -2289,7 +2294,7 @@ if STATS_FILE.exists():
                 if _r2_prev and int(_r2_prev.get("skip_rounds") or 0) > 0:
                     _r2_prev["skip_rounds"] = 0
                     _r2_prev["last_round"] = None
-                    print(f"[r2-skip] {s['task']} R2 锁连续skip清零(本轮无skip)")
+                    print(f"[r2-skip] {s['task']} R2 锁连续skip清零(无未恢复skip)")
         # P2(2026-09-24 r2 终审): EXTRA 任务停摆漏跑告警。
         # fetch_news/gen_daily_brief 不在 MISSED_TASKS 漏跑检查(TASKS 表无对应条目,
         #   gen_schedule_stats.EXTRA_MARKER_SCANS 单独扫), 若部署外生成器整个停摆

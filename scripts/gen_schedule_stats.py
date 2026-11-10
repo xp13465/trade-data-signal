@@ -849,7 +849,8 @@ def _nextday_run_start(lines: list, native: dict | None) -> int | None:
 
 
 def scan_log_anomaly(log_path: Path, script: str, mode: str,
-                     last_exit: int | None = None, *, nextday_native: dict | None = None) -> dict | None:
+                     last_exit: int | None = None, *, nextday_native: dict | None = None,
+                     execution_evidence: dict | None = None) -> dict | None:
     """扫描 log 文件最近一次运行窗口内的异常关键词(第4盲区修复)。
 
     根因场景: intraday_snapshot.py 的 _export_affected_json 抛 AttributeError 被
@@ -932,14 +933,17 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
     # P2-2(2026-09-24): SKIPPED_LOCKED 独立计数——skip=设计让路(锁忙下轮重试)不上 SEVERE,
     # 但命中次数需可观察(intraday 每轮都可能撞 deploy 锁, 连 skip 多轮=收盘版可能上不了 R2)。
     skip_count = sum(1 for _l in window_lines if "SKIPPED_LOCKED" in _l)
-    # overfit会在同轮内重试发布；成功后不能再累计“连续未上传”告警。
-    # 必须同轮最后一次skip之后完成两站逐字节核验且最终exit0，日志原文保留。
+    # 保留真实skip次数；另附同轮恢复证据，供消费者停止累计“连续未上传”。
+    # 必须同轮最后一次skip之后完成两站逐字节核验且最终exit0。
+    if execution_evidence is not None:
+        execution_evidence["r2_skip_recovered"] = False
     if (skip_count and mode == "standard" and re.fullmatch(script, "overfit_monitor.sh")
             and type(last_exit) is int and last_exit == 0):
         last_skip = max(i for i, line in enumerate(window_lines) if "SKIPPED_LOCKED" in line)
         if any(re.fullmatch(r"overfit 发布已核验: 主/ext \d{4}-\d{2}-\d{2} \d{2}:\d{2}，两站逐字节一致", line)
                for line in window_lines[last_skip + 1:]):
-            skip_count = 0
+            if execution_evidence is not None:
+                execution_evidence["r2_skip_recovered"] = True
     nextday_healed = (_nextday_fallback_healed_lines(lines, last_start_idx, last_exit)
                       if mode == "standard" else set())
     has_push_success = any(PUSH_SUCCESS_RE.search(l) for l in window_lines)
@@ -1596,13 +1600,15 @@ def _build_log_task_row(row, spec, log_dir, now, unit_state, mode):
     # 即使 exit=0(异常被 try/except 吞)也能抓到告警
     # (2026-08-24: 传 last_exit=final_exit,push 失败类仅最终 exit!=0 才报)
     _log_missing = _resolve_log(log_path) is None
+    execution_evidence = {}
     if not _log_missing:
         # 仅nextday复用本次systemd终态；不把ledger/日志猜测当轮次身份，也不读额外unit。
         native = trusted_state if task == "nextday_gap_check" and mode == "systemd" else None
         native_args = ({"nextday_native": native} if native and native.get("exit")
                        and native["exit"] <= now else {})
         anomaly, r2_skip_count = scan_log_anomaly(
-            log_path, spec["script"], spec["mode"], last_exit=final_exit, **native_args)
+            log_path, spec["script"], spec["mode"], last_exit=final_exit,
+            execution_evidence=execution_evidence, **native_args)
     else:
         anomaly, r2_skip_count = None, 0
     # P1 稳定性(2026-07-29): pending_start + last_exit!=0 = 上次crash现在重试中,
@@ -1634,6 +1640,7 @@ def _build_log_task_row(row, spec, log_dir, now, unit_state, mode):
         "log_anomaly_line": anomaly["line"] if anomaly else None,
         "log_anomaly_severity": anomaly.get("severity") if anomaly else None,
         "r2_skip_count": r2_skip_count,
+        "r2_skip_recovered": execution_evidence.get("r2_skip_recovered") is True,
         # #309 W2 新增字段(追加不破坏旧消费方)
         **ufields,
         "exit_source": truth["exit_source"],
