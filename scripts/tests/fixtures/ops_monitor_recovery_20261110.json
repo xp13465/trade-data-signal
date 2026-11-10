@@ -1,0 +1,185 @@
+{
+  "source_sha256": "a73fe609c4a41c7287f4419b6c4dba5e4c02e18a1d7eb7b58e1bb0b3d10ea84a",
+  "source": "runtime-monitor-journal.jsonl",
+  "projection": "Fixed identity/time/result fields and safe collector stdout; boot/invocation/snapshot/PID identifiers consistently anonymized, manager MESSAGE and cursor omitted",
+  "records": [
+    {
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "JOB_TYPE": "start",
+      "_SYSTEMD_UNIT": "init.scope",
+      "MESSAGE_ID": "7d4958e842da4a758f6c1cdc7b36dcc5",
+      "__REALTIME_TIMESTAMP": "1794320110804797",
+      "INVOCATION_ID": "00000000000000000000000000000002",
+      "UNIT": "trade-ops-monitor.service",
+      "SYSLOG_IDENTIFIER": "systemd",
+      "_PID": "1"
+    },
+    {
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "SYSLOG_IDENTIFIER": "trade-ops-monitor",
+      "_PID": "100",
+      "__REALTIME_TIMESTAMP": "1794320115725890",
+      "_SYSTEMD_INVOCATION_ID": "00000000000000000000000000000002",
+      "_SYSTEMD_UNIT": "trade-ops-monitor.service",
+      "MESSAGE": "{\"snapshot_id\":\"00000000-0000-0000-0000-000000000003\",\"checks\":177,\"delivery_ok\":true,\"collect_only\":false,\"delivery\":{\"http_status\":200}}"
+    },
+    {
+      "MESSAGE_ID": "7ad2d189f7e94e70a38c781354912448",
+      "_PID": "1",
+      "UNIT": "trade-ops-monitor.service",
+      "INVOCATION_ID": "00000000000000000000000000000002",
+      "_SYSTEMD_UNIT": "init.scope",
+      "SYSLOG_IDENTIFIER": "systemd",
+      "__REALTIME_TIMESTAMP": "1794320115795348",
+      "_BOOT_ID": "00000000000000000000000000000001"
+    },
+    {
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "__REALTIME_TIMESTAMP": "1794320115795669",
+      "SYSLOG_IDENTIFIER": "systemd",
+      "MESSAGE_ID": "39f53479d3a045ac8e11786248231fbf",
+      "_PID": "1",
+      "JOB_RESULT": "done",
+      "INVOCATION_ID": "00000000000000000000000000000002",
+      "JOB_TYPE": "start",
+      "_SYSTEMD_UNIT": "init.scope",
+      "UNIT": "trade-ops-monitor.service"
+    },
+    {
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "_SYSTEMD_UNIT": "init.scope",
+      "MESSAGE_ID": "7d4958e842da4a758f6c1cdc7b36dcc5",
+      "INVOCATION_ID": "00000000000000000000000000000004",
+      "__REALTIME_TIMESTAMP": "1794321000556042",
+      "SYSLOG_IDENTIFIER": "systemd",
+      "_PID": "1",
+      "UNIT": "trade-ops-monitor.service",
+      "JOB_TYPE": "start"
+    },
+    {
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "__REALTIME_TIMESTAMP": "1794321009724123",
+      "_PID": "101",
+      "_SYSTEMD_INVOCATION_ID": "00000000000000000000000000000004",
+      "_SYSTEMD_UNIT": "trade-ops-monitor.service",
+      "SYSLOG_IDENTIFIER": "trade-ops-monitor",
+      "MESSAGE": "{\"snapshot_id\":\"00000000-0000-0000-0000-000000000005\",\"checks\":177,\"delivery_ok\":false,\"collect_only\":false,\"delivery\":{\"error_kind\":\"NetworkDeadline\"}}"
+    },
+    {
+      "MESSAGE_ID": "98e322203f7a4ed290d09fe03c09fe15",
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "INVOCATION_ID": "00000000000000000000000000000004",
+      "SYSLOG_IDENTIFIER": "systemd",
+      "__REALTIME_TIMESTAMP": "1794321009738195",
+      "_SYSTEMD_UNIT": "init.scope",
+      "UNIT": "trade-ops-monitor.service",
+      "_PID": "1"
+    },
+    {
+      "__REALTIME_TIMESTAMP": "1794321009744221",
+      "UNIT": "trade-ops-monitor.service",
+      "SYSLOG_IDENTIFIER": "systemd",
+      "MESSAGE_ID": "d9b373ed55a64feb8242e02dbe79a49c",
+      "INVOCATION_ID": "00000000000000000000000000000004",
+      "_PID": "1",
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "_SYSTEMD_UNIT": "init.scope"
+    },
+    {
+      "SYSLOG_IDENTIFIER": "systemd",
+      "_SYSTEMD_UNIT": "init.scope",
+      "INVOCATION_ID": "00000000000000000000000000000004",
+      "MESSAGE_ID": "be02cf6855d2428ba40df7e9d022f03d",
+      "UNIT": "trade-ops-monitor.service",
+      "__REALTIME_TIMESTAMP": "1794321009745125",
+      "JOB_TYPE": "start",
+      "JOB_RESULT": "failed",
+      "_PID": "1",
+      "_BOOT_ID": "00000000000000000000000000000001"
+    },
+    {
+      "_PID": "1",
+      "INVOCATION_ID": "00000000000000000000000000000006",
+      "SYSLOG_IDENTIFIER": "systemd",
+      "__REALTIME_TIMESTAMP": "1794321903308934",
+      "JOB_TYPE": "start",
+      "_SYSTEMD_UNIT": "init.scope",
+      "MESSAGE_ID": "7d4958e842da4a758f6c1cdc7b36dcc5",
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "UNIT": "trade-ops-monitor.service"
+    },
+    {
+      "_PID": "102",
+      "_SYSTEMD_INVOCATION_ID": "00000000000000000000000000000006",
+      "__REALTIME_TIMESTAMP": "1794321909571445",
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "_SYSTEMD_UNIT": "trade-ops-monitor.service",
+      "SYSLOG_IDENTIFIER": "trade-ops-monitor",
+      "MESSAGE": "{\"snapshot_id\":\"00000000-0000-0000-0000-000000000007\",\"checks\":177,\"delivery_ok\":true,\"collect_only\":false,\"delivery\":{\"http_status\":200}}"
+    },
+    {
+      "__REALTIME_TIMESTAMP": "1794321909594121",
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "MESSAGE_ID": "7ad2d189f7e94e70a38c781354912448",
+      "_SYSTEMD_UNIT": "init.scope",
+      "SYSLOG_IDENTIFIER": "systemd",
+      "_PID": "1",
+      "INVOCATION_ID": "00000000000000000000000000000006",
+      "UNIT": "trade-ops-monitor.service"
+    },
+    {
+      "MESSAGE_ID": "39f53479d3a045ac8e11786248231fbf",
+      "_PID": "1",
+      "__REALTIME_TIMESTAMP": "1794321909595100",
+      "_SYSTEMD_UNIT": "init.scope",
+      "UNIT": "trade-ops-monitor.service",
+      "JOB_TYPE": "start",
+      "SYSLOG_IDENTIFIER": "systemd",
+      "INVOCATION_ID": "00000000000000000000000000000006",
+      "JOB_RESULT": "done",
+      "_BOOT_ID": "00000000000000000000000000000001"
+    },
+    {
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "INVOCATION_ID": "00000000000000000000000000000008",
+      "MESSAGE_ID": "7d4958e842da4a758f6c1cdc7b36dcc5",
+      "__REALTIME_TIMESTAMP": "1794322807055101",
+      "SYSLOG_IDENTIFIER": "systemd",
+      "JOB_TYPE": "start",
+      "_PID": "1",
+      "UNIT": "trade-ops-monitor.service",
+      "_SYSTEMD_UNIT": "init.scope"
+    },
+    {
+      "_SYSTEMD_UNIT": "trade-ops-monitor.service",
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "_PID": "103",
+      "SYSLOG_IDENTIFIER": "trade-ops-monitor",
+      "_SYSTEMD_INVOCATION_ID": "00000000000000000000000000000008",
+      "__REALTIME_TIMESTAMP": "1794322811551578",
+      "MESSAGE": "{\"snapshot_id\":\"00000000-0000-0000-0000-000000000009\",\"checks\":177,\"delivery_ok\":true,\"collect_only\":false,\"delivery\":{\"http_status\":200}}"
+    },
+    {
+      "_SYSTEMD_UNIT": "init.scope",
+      "INVOCATION_ID": "00000000000000000000000000000008",
+      "__REALTIME_TIMESTAMP": "1794322811593550",
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "_PID": "1",
+      "UNIT": "trade-ops-monitor.service",
+      "MESSAGE_ID": "7ad2d189f7e94e70a38c781354912448",
+      "SYSLOG_IDENTIFIER": "systemd"
+    },
+    {
+      "_PID": "1",
+      "MESSAGE_ID": "39f53479d3a045ac8e11786248231fbf",
+      "JOB_TYPE": "start",
+      "SYSLOG_IDENTIFIER": "systemd",
+      "INVOCATION_ID": "00000000000000000000000000000008",
+      "UNIT": "trade-ops-monitor.service",
+      "JOB_RESULT": "done",
+      "__REALTIME_TIMESTAMP": "1794322811593899",
+      "_BOOT_ID": "00000000000000000000000000000001",
+      "_SYSTEMD_UNIT": "init.scope"
+    }
+  ]
+}
