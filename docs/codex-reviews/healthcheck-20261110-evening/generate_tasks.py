@@ -30,7 +30,7 @@ def render(payload):
                 raise ValueError('字段缺少中文标签：' + key)
             text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
             lines += ['- **' + LABELS[key] + '**：' + text, '']
-    return '\n'.join(lines) + '\n'
+    return '\n'.join(lines).rstrip() + '\n'
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
