@@ -19,12 +19,15 @@ SOURCE = Path(__file__).resolve().parents[1] / 'overfit_monitor.py'
 
 def load_functions():
     wanted = {'_run_delivery_process', '_delivery_worker', 'publish_overfit', 'main',
-              '_read_overfit_public', '_verify_overfit_public_pair'}
+              '_read_overfit_public', '_verify_overfit_public_pair', '_overfit_publication_day',
+              '_overfit_seconds_to_midnight'}
     tree = ast.parse(SOURCE.read_text())
     nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
     ns = dict(os=os, sys=sys, subprocess=subprocess, json=json, hashlib=hashlib,
               signal=signal, tempfile=tempfile, Path=Path, time=time)
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SOURCE), 'exec'), ns)
+    ns['_overfit_publication_day'] = lambda: '2026-11-09'
+    ns['_overfit_seconds_to_midnight'] = lambda: 8400
     return ns
 
 
@@ -169,10 +172,11 @@ def test_publish_budgets_and_existing_skip_window(monkeypatch):
     seen = []
     ns.update(REPO='/isolated', SCRIPT_DIR='/isolated/scripts',
               force_env=lambda env, repo: dict(env, REPO=repo), _r2_upload_timeout=lambda: 900,
-              _run_delivery_process=lambda cmd, env, timeout: seen.append((cmd, env, timeout)) or 75)
+              _run_delivery_process=lambda cmd, env, timeout: seen.append((cmd, env, timeout)) or 1)
+    monkeypatch.setattr(time, 'monotonic', lambda: 0)
     monkeypatch.setenv('R2_UPLOAD_HTTP_TIMEOUT', '600')
     monkeypatch.setenv('R2_UPLOAD_SKIP_RETRY_SECS', '99999')
-    assert ns['publish_overfit']() == 75
+    assert ns['publish_overfit']() == 1
     cmd, env, timeout = seen[0]
     assert cmd[-1] == '--delivery-worker'
     assert env['R2_UPLOAD_LOCK_DOMAIN'] == 'data'

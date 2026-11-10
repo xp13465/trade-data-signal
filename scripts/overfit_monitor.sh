@@ -53,7 +53,8 @@ fi
 echo "==== overfit_monitor 打点开始 $(date '+%F %T') ====" >> "$LOG"
 echo "=== overfit_monitor.sh 开始 $(date '+%F %T') ===" >> "$LOG"
 # 打点(不打 --dry-run: 正常发送时若触发预警会真发, 但有 dedup 防轰炸)
-# publish-only 不重算、不重发预警，供主控受控恢复已计算的两份产物。
+# publish-only 不重算、不重发预警，供主控受控恢复当日已计算的两份产物。
+# Python发布层在原总预算内自动重试短暂占锁(最多8次)，持续失败仍非零；不跨日补旧件。
 if [ "${1:-}" = "publish-only" ]; then
   "$PY" scripts/overfit_monitor.py --publish-only >> "$LOG" 2>&1
 else
