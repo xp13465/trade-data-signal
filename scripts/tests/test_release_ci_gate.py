@@ -352,3 +352,54 @@ def test_existing_queued_run_can_wait_longer_than_discovery_budget():
             api.runs[gate.QUALITY][0].update(status='completed', conclusion='success')
     assert check(api, timeout=2100, now=lambda: clock[0], sleep=advance).startswith('quality=success')
     assert clock[0] == 135
+
+
+# Exact incident interval from the parent, fixed full SHAs (read-only git, no API).
+ALERT_BEFORE = "7e47f5a3e27e7cfc9661e3d0bd673e01906aa034"
+ALERT_AFTER = "57dd0461cf9aeb73fb00f35822aefc5f93f9cc49"
+ALERT_INPUTS = ['scripts/check_preupload_backup.py', 'scripts/upload_r2.py', 'scripts/r2_upload_async.sh', 'scripts/r2_lock_paths.py', 'scripts/r2_lock_probe.py', 'scripts/r2_pending_context.py', 'scripts/util_atomic.py', 'scripts/lib/upload_watchdog.sh', 'scripts/lib/repo_paths.sh', 'scripts/tests/test_preupload_accounting_*.py', 'scripts/tests/test_r2_purge_delivery_*.py', 'scripts/tests/test_237_check_preupload_backup_pytest.py', 'scripts/tests/test_f03*.py', 'scripts/tests/test_codex_r2_alert_delivery.py', 'scripts/tests/test_codex_r2_pending_handoff_*.py', 'scripts/tests/test_r2_lock*.py', 'scripts/tests/_notify_sandbox.py', 'scripts/tests/_zero_outbound.py', 'scripts/tests/conftest.py', 'scripts/tests/_ci_stubs.py']
+
+def _alert_sample(pattern):
+    return pattern.replace("*", "20261110")
+
+def _assert_alert_coverage(text):
+    data = yaml.load(text, Loader=yaml.BaseLoader)["on"]
+    assert data["push"]["paths"] == data["pull_request"]["paths"]
+    compiled = gate.ops_input_patterns(text)
+    assert len(compiled) == len(data["push"]["paths"])
+    for pattern in ALERT_INPUTS:
+        assert pattern in data["push"]["paths"], pattern
+        assert any(p.fullmatch(_alert_sample(pattern)) for p in compiled), pattern
+
+def test_alert_inputs_push_pr_and_gate_one_to_one():
+    _assert_alert_coverage(WORKFLOW)
+    for filename in ["scripts/unrelated_collector.py", "app/unrelated.py", "docs/report.md"]:
+        assert not expected(API(files=[{"filename": filename, "status": "modified"}]))
+
+@pytest.mark.parametrize("removed", ALERT_INPUTS)
+def test_removing_alert_subscription_is_detected(removed):
+    data = yaml.load(WORKFLOW, Loader=yaml.BaseLoader)
+    for event in ["push", "pull_request"]:
+        data["on"][event]["paths"].remove(removed)
+    with pytest.raises(AssertionError):
+        _assert_alert_coverage(yaml.safe_dump(data, sort_keys=False))
+
+def test_real_alert_push_previously_filtered_and_now_requires_ops():
+    files = subprocess.run(["git", "diff", "--name-only", ALERT_BEFORE + ".." + ALERT_AFTER],
+                           cwd=ROOT, capture_output=True, text=True, check=True, timeout=8).stdout.splitlines()
+    old = subprocess.run(["git", "show", ALERT_AFTER + ":.github/workflows/ops-monitoring-checks.yml"],
+                         cwd=ROOT, capture_output=True, text=True, check=True, timeout=8).stdout
+    assert files and "scripts/upload_r2.py" in files and "scripts/check_preupload_backup.py" in files
+    records = [{"filename": p, "status": "modified"} for p in files]
+    assert expected(API(files=records), workflow=old) is False
+    assert expected(API(files=records)) is True
+    for p in files:
+        if p.startswith("scripts/"):
+            assert expected(API(files=[{"filename": p, "status": "modified"}])) is True, p
+    with pytest.raises(gate.GateError, match="超时"):
+        check(API(files=records), ops=True)
+
+def test_push_pr_subscription_drift_requires_ops():
+    data = yaml.load(WORKFLOW, Loader=yaml.BaseLoader)
+    data["on"]["pull_request"]["paths"].remove("scripts/upload_r2.py")
+    assert expected(API(), workflow=yaml.safe_dump(data, sort_keys=False)) is True

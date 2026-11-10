@@ -85,14 +85,21 @@ def path_regex(pattern):
     return re.compile(''.join(result) + r'\Z')
 
 
+def ops_input_patterns(workflow_text):
+    """Workflow paths 是唯一输入分类；push/PR 必须逐项一致，避免第二份路径表漂移。"""
+    config = yaml.load(workflow_text, Loader=yaml.BaseLoader)['on']
+    push = config['push']
+    require(set(push) == {'branches', 'paths'} and 'main' in push['branches'],
+            'Ops push 规则无法判定')
+    require(isinstance(push['paths'], list) and push['paths'], 'Ops paths 缺失')
+    require(config['pull_request']['paths'] == push['paths'], 'Ops push/PR 输入分类不一致')
+    return [path_regex(pattern) for pattern in push['paths']]
+
+
 def ops_expected(api, event, event_name, sha, workflow_text):
     # YAML BaseLoader keeps the Actions key "on" as a string (YAML 1.1 bool otherwise).
     try:
-        push = yaml.load(workflow_text, Loader=yaml.BaseLoader)['on']['push']
-        require(set(push) == {'branches', 'paths'} and 'main' in push['branches'],
-                'Ops push 规则无法判定')
-        require(isinstance(push['paths'], list) and push['paths'], 'Ops paths 缺失')
-        patterns = [path_regex(pattern) for pattern in push['paths']]
+        patterns = ops_input_patterns(workflow_text)
     except (yaml.YAMLError, KeyError, TypeError, GateError):
         return True, 'Ops 规则未知，必须补跑 Ops'
     before = event.get('before', '')
