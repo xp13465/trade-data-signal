@@ -5648,7 +5648,10 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
                 # 探测本身失败(无 lsof/超时/权限)只返回空串, 绝不影响 fail-closed 语义。
                 _holder = probe_lock_holder(pending_path)
                 if _holder:
-                    print(f"   占锁进程候选(lsof 只读): {_holder}", file=sys.stderr, flush=True)
+                    # 旧探针文本可能含完整 argv；入口只保留数字 PID，不能把凭据带入日志。
+                    _pids = re.findall(r"\bpid=(\d+)\b", _holder)
+                    _safe_holder = "; ".join(f"pid={p}" for p in _pids) or "PID未知"
+                    print(f"   占锁进程候选(lsof 只读): {_safe_holder}", file=sys.stderr, flush=True)
                 _release_all("wait_timeout")
                 sys.exit(1)
             # #239 止血(仅加可见性): 排队等锁期间每 _R2_LOCK_HEARTBEAT_SECS 秒打一行到 stderr,

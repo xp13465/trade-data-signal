@@ -226,7 +226,7 @@ os.environ['R2_UPLOAD_LOCK']=str(root/'upload.lock');os.environ['R2_UPLOAD_LOCK_
 os.environ.pop('R2_UPLOAD_LOCK_DOMAIN',None)
 if role in ('writer','exception-waiter','domain-probe'):os.environ['R2_UPLOAD_LOCK_DOMAIN']='data'
 _LOCK_DOMAIN_ENV=_rlp.DOMAIN_ENV;_LOCK_DOMAIN_RE=re.compile(r'^[a-z0-9][a-z0-9_-]{0,31}$');_BARRIER_FDS={};_R2_LOCK_OBSERVATIONS={};_R2_LOCK_HEARTBEAT_SECS=30
-probe_lock_holder=lambda p:''
+probe_lock_holder=lambda p:'pid=424242 python --token ARGV_MUST_NOT_APPEAR'
 names={'_lock_domain','_domain_upload_lock_path','_global_upload_lock_path','_release_r2_upload_lock','_acquire_r2_upload_lock','_acquire_lock_for_command','_r2_lock_event','_r2_lock_close','_r2_lock_release_at_exit'}
 exec(compile(ast.Module(body=[n for n in ast.parse(source.read_text()).body if isinstance(n,ast.FunctionDef) and n.name in names],type_ignores=[]),'actual lock functions','exec'))
 atexit.register(_r2_lock_release_at_exit)
@@ -323,6 +323,7 @@ def test_three_processes_domain_held_while_global_waits_and_exception_releases(t
                       if line.startswith("R2_LOCK: ")] for k, text in logs.items()}
         assert any(x["event"] == "wait" and x["stage"] == "domain" for x in events["observer"])
         assert not any(x["event"] == "acquired" for x in events["observer"])
+        assert "pid=424242" in logs["observer"] and "ARGV_MUST_NOT_APPEAR" not in logs["observer"]
         rows = events["waiter"]
         assert [(x["stage"], x["event"]) for x in rows[:4]] == [
             ("domain", "wait"), ("domain", "acquired"), ("global", "wait"), ("global", "acquired")]
