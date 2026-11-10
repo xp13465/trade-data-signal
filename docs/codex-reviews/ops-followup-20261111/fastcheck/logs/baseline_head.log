@@ -1,0 +1,5 @@
+--- 7.10 快检闸门(任何 merge 都跑: 台账/闸门登记/任务状态, 秒级) ---
+  ✓ scripts/check_ledger.py 快检通过
+  ✓ scripts/check_gate_registry.py 快检通过
+  ✓ scripts/check_task_state.py 快检通过
+HARNESS_END

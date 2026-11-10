@@ -1,0 +1,429 @@
+{
+  "request_id": "ops-followup-20261111-HC09-d1-insights",
+  "verdict": "PASS",
+  "capability_verdict": "PARTIALLY_RECOVERED",
+  "hc09_exact_table_stage_cost_complete": false,
+  "summary": "Historical table-level prefetch and verification reads recovered. Two database import aggregates can be associated with score/screener stages by time, but import SQL/table/index/metadata cost breakdown is absent from query insights in this window. This is not a permission/schema failure and not a savings measurement.",
+  "issues": [],
+  "impact_surface": [
+    "HC09 table/stage analytics recovery only"
+  ],
+  "smoke_results": {
+    "graphql": "4 HTTP 200 responses; no GraphQL errors",
+    "reconciliation": "17 detail queries equal ungrouped query totals; minute and second database totals agree",
+    "production_execution": "No SQL or application execution; no production changes"
+  },
+  "recommendation": "Use this as partial historical evidence. Keep HC09 exact per-table write and causal savings claims unresolved; preserve structured metadata from future already-scheduled sync calls as described below, without an additional sync or experiment.",
+  "observed_at_utc": "2026-11-10T23:26:48.389171+00:00",
+  "database_label": "trade-fund-score",
+  "window": {
+    "start_cst": "2026-11-10T16:02:00+08:00",
+    "end_cst_exclusive": "2026-11-10T16:09:00+08:00",
+    "start_utc": "2026-11-10T08:02:00Z",
+    "end_utc_exclusive": "2026-11-10T08:09:00Z",
+    "note": "CST interpreted as Asia/Shanghai; no wider-window retrieval"
+  },
+  "availability": {
+    "schema": "available",
+    "permission": "available",
+    "dataset_enabled": true,
+    "graphql_errors": 0,
+    "transport_errors": 0,
+    "empty_dataset": false,
+    "write_detail": "not returned in this bounded window despite nonzero database writes",
+    "write_detail_reason": "Unresolved coverage difference; do not equate this with zero writes, permission denial, future ingestion, or proven loss of persisted telemetry."
+  },
+  "settings": {
+    "d1AnalyticsAdaptiveGroups": {
+      "availableFields": [
+        "avg_queryBatchResponseBytes",
+        "avg_queryBatchTimeMs",
+        "avg_sampleInterval",
+        "count",
+        "dimensions_databaseId",
+        "dimensions_databaseRole",
+        "dimensions_date",
+        "dimensions_datetime",
+        "dimensions_datetimeFifteenMinutes",
+        "dimensions_datetimeFiveMinutes",
+        "dimensions_datetimeHour",
+        "dimensions_datetimeMinute",
+        "dimensions_datetimeSixHours",
+        "dimensions_servedByInstance",
+        "dimensions_servedByRegion",
+        "quantiles_queryBatchResponseBytesP25",
+        "quantiles_queryBatchResponseBytesP50",
+        "quantiles_queryBatchResponseBytesP75",
+        "quantiles_queryBatchResponseBytesP90",
+        "quantiles_queryBatchResponseBytesP95",
+        "quantiles_queryBatchResponseBytesP99",
+        "quantiles_queryBatchResponseBytesP999",
+        "quantiles_queryBatchTimeMsP25",
+        "quantiles_queryBatchTimeMsP50",
+        "quantiles_queryBatchTimeMsP75",
+        "quantiles_queryBatchTimeMsP90",
+        "quantiles_queryBatchTimeMsP95",
+        "quantiles_queryBatchTimeMsP99",
+        "quantiles_queryBatchTimeMsP999",
+        "sum_queryBatchResponseBytes",
+        "sum_readQueries",
+        "sum_rowsRead",
+        "sum_rowsWritten",
+        "sum_writeQueries"
+      ],
+      "enabled": true,
+      "maxDuration": 2764800,
+      "maxNumberOfFields": 30,
+      "maxPageSize": 10000,
+      "notOlderThan": 7776000
+    },
+    "d1QueriesAdaptiveGroups": {
+      "availableFields": [
+        "avg_queryDurationMs",
+        "avg_rowsRead",
+        "avg_rowsReturned",
+        "avg_rowsWritten",
+        "avg_sampleInterval",
+        "count",
+        "dimensions_databaseId",
+        "dimensions_databaseRole",
+        "dimensions_date",
+        "dimensions_datetime",
+        "dimensions_datetimeFifteenMinutes",
+        "dimensions_datetimeFiveMinutes",
+        "dimensions_datetimeHour",
+        "dimensions_datetimeMinute",
+        "dimensions_datetimeSixHours",
+        "dimensions_error",
+        "dimensions_query",
+        "dimensions_servedByInstance",
+        "dimensions_servedByRegion",
+        "quantiles_queryDurationMsP25",
+        "quantiles_queryDurationMsP50",
+        "quantiles_queryDurationMsP75",
+        "quantiles_queryDurationMsP90",
+        "quantiles_queryDurationMsP95",
+        "quantiles_queryDurationMsP99",
+        "quantiles_queryDurationMsP999",
+        "sum_queryDurationMs",
+        "sum_rowsRead",
+        "sum_rowsReturned",
+        "sum_rowsWritten"
+      ],
+      "enabled": true,
+      "maxDuration": 2764800,
+      "maxNumberOfFields": 30,
+      "maxPageSize": 10000,
+      "notOlderThan": 7776000
+    }
+  },
+  "limits": {
+    "requests_used": 4,
+    "requests_allowed": 6,
+    "timeout_seconds_per_request": 35,
+    "detail_limit": 1000,
+    "detail_rows": 17,
+    "database_second_groups": 19,
+    "truncation_observed": false,
+    "query_total_check": true,
+    "time_fields": "datetime and datetimeMinute both accepted; observed datetime resolution is seconds",
+    "stage_dimension": false,
+    "table_dimension": false,
+    "retention_note": "Official D1 guide says 31 days; live settings report notOlderThan=7776000 seconds (90 days), maxDuration=2764800 seconds (32 days). Only this recent 7-minute interval was tested; no claim that older data really exist."
+  },
+  "database_window_totals": {
+    "rowsRead": 174174,
+    "rowsWritten": 36152,
+    "readQueries": 14,
+    "writeQueries": 2
+  },
+  "query_insights_totals": {
+    "count": 17,
+    "queryDurationMs": 831.6881999999999,
+    "rowsRead": 113864,
+    "rowsReturned": 56934,
+    "rowsWritten": 0,
+    "avg_sample_interval": 1
+  },
+  "direct_query_stage_rows": [
+    {
+      "table": "fund_score",
+      "stage": "schema_migration",
+      "operation": "ALTER",
+      "attribution": "table direct from analytics; stage inferred from query shape and inspected sync source",
+      "start_utc": "2026-11-10T08:02:37Z",
+      "end_utc": "2026-11-10T08:02:43Z",
+      "count": 2,
+      "rowsRead": 0,
+      "rowsWritten": 0,
+      "rowsReturned": 0,
+      "queryDurationMs": 1.141,
+      "error_queries": 2
+    },
+    {
+      "table": "fund_score",
+      "stage": "hash_prefetch",
+      "operation": "SELECT",
+      "attribution": "table direct from analytics; stage inferred from query shape and inspected sync source",
+      "start_utc": "2026-11-10T08:02:49Z",
+      "end_utc": "2026-11-10T08:03:13Z",
+      "count": 6,
+      "rowsRead": 28456,
+      "rowsWritten": 0,
+      "rowsReturned": 28456,
+      "queryDurationMs": 678.724,
+      "error_queries": 0
+    },
+    {
+      "table": "fund_score",
+      "stage": "verification_count",
+      "operation": "SELECT",
+      "attribution": "table direct from analytics; stage inferred from query shape and inspected sync source",
+      "start_utc": "2026-11-10T08:04:14Z",
+      "end_utc": "2026-11-10T08:04:14Z",
+      "count": 1,
+      "rowsRead": 28456,
+      "rowsWritten": 0,
+      "rowsReturned": 1,
+      "queryDurationMs": 0.9005,
+      "error_queries": 0
+    },
+    {
+      "table": "fund_screener",
+      "stage": "schema_migration",
+      "operation": "ALTER",
+      "attribution": "table direct from analytics; stage inferred from query shape and inspected sync source",
+      "start_utc": "2026-11-10T08:04:26Z",
+      "end_utc": "2026-11-10T08:04:26Z",
+      "count": 1,
+      "rowsRead": 0,
+      "rowsWritten": 0,
+      "rowsReturned": 0,
+      "queryDurationMs": 0.3243,
+      "error_queries": 1
+    },
+    {
+      "table": "fund_screener",
+      "stage": "hash_prefetch",
+      "operation": "SELECT",
+      "attribution": "table direct from analytics; stage inferred from query shape and inspected sync source",
+      "start_utc": "2026-11-10T08:04:29Z",
+      "end_utc": "2026-11-10T08:05:02Z",
+      "count": 6,
+      "rowsRead": 28476,
+      "rowsWritten": 0,
+      "rowsReturned": 28476,
+      "queryDurationMs": 150.0717,
+      "error_queries": 0
+    },
+    {
+      "table": "fund_screener",
+      "stage": "verification_count",
+      "operation": "SELECT",
+      "attribution": "table direct from analytics; stage inferred from query shape and inspected sync source",
+      "start_utc": "2026-11-10T08:08:58Z",
+      "end_utc": "2026-11-10T08:08:58Z",
+      "count": 1,
+      "rowsRead": 28476,
+      "rowsWritten": 0,
+      "rowsReturned": 1,
+      "queryDurationMs": 0.5267,
+      "error_queries": 0
+    }
+  ],
+  "time_correlated_import_aggregates": [
+    {
+      "stage": "import_bundle",
+      "associated_table": "fund_score",
+      "possible_metadata_table": "sync_meta",
+      "timestamp_utc": "2026-11-10T08:04:08Z",
+      "readQueries": 0,
+      "rowsRead": 4009,
+      "rowsWritten": 4390,
+      "writeQueries": 1,
+      "attribution": "time-correlated inference, not a table dimension; includes the whole import bundle, potentially indexes, schema and metadata",
+      "query_detail_available": false
+    },
+    {
+      "stage": "import_bundle",
+      "associated_table": "fund_screener",
+      "possible_metadata_table": "screener_meta",
+      "timestamp_utc": "2026-11-10T08:08:53Z",
+      "readQueries": 0,
+      "rowsRead": 56301,
+      "rowsWritten": 31762,
+      "writeQueries": 1,
+      "attribution": "time-correlated inference, not a table dimension; includes the whole import bundle, potentially indexes, schema and metadata",
+      "query_detail_available": false
+    }
+  ],
+  "unattributed_to_query_detail": {
+    "rowsRead": 60310,
+    "rowsWritten": 36152,
+    "note": "Exactly equals two database write-request aggregates; import contents cannot be apportioned between main table, indexes, metadata or statements."
+  },
+  "parent_daily_reconciliation": {
+    "source": "/tmp/codex-reports/ops-followup-20261111/d1-analytics-summary.json",
+    "observed_at": "2026-11-11T07:17:25.463254+08:00",
+    "UTC_Nov9": {
+      "date": "2026-11-09",
+      "readQueries": 24,
+      "rowsRead": 514080,
+      "rowsWritten": 341593,
+      "writeQueries": 2
+    },
+    "UTC_Nov10_partial": {
+      "date": "2026-11-10",
+      "readQueries": 16,
+      "rowsRead": 174182,
+      "rowsWritten": 36152,
+      "writeQueries": 2
+    },
+    "Nov10_daily_minus_window": {
+      "rowsRead": 8,
+      "rowsWritten": 0,
+      "readQueries": 2,
+      "writeQueries": 0
+    },
+    "scope": "Existing parent artifact independently read; daily API not re-queried. UTC Nov10 was incomplete at capture."
+  },
+  "measurement_caveats": [
+    "Adaptive analytics metrics are observations/estimates, not billing invoices. Every returned avg.sampleInterval is 1; no sampling multiplier was applied. Confidence intervals were not queried.",
+    "Query dimensions expose no sync run ID, caller or stage. Stage association uses query shape, code and supplied completion times; concurrent same-table activity is not independently ruled out.",
+    "Three ALTER query errors have zero recorded rows; detailed error strings remain private. No failure incident conclusion is drawn.",
+    "No causal savings or currency calculation. changed/total 2003/28456 and 28148/28476 are content churn ratios, not rows billed or costs saved.",
+    "The current source was read, not executed; runtime/deployed code identity was outside this sidecar. No search of all historic logs or proof that metadata never existed elsewhere."
+  ],
+  "persistence_assessment": {
+    "cloudflare": "Relevant historical telemetry already exists and was recovered here; it is not wholly unavailable or waiting for a new collector.",
+    "inspected_local_code": "Current hash and count parsers discard returned cost metadata; import helper keeps overwriteable output but no durable per-stage structured cost record. This conclusion is scoped to inspected call paths.",
+    "remaining_gap": "Exact import per-table/per-statement costs and run/caller identity are not recoverable from this result; missing detail must remain unknown."
+  },
+  "subsequent_instrumentation_recommendation": {
+    "scope": "Recommendation only; parent daily collector remains separate and unchanged. No implementation or extra production requests in this task.",
+    "capture_on_next_existing_natural_run": [
+      "For each existing migration/prefetch/import/verify call, persist run_id, script, code_ref, normalized table/stage/operation, start/end UTC, attempt, success/error class and any returned rows_read, rows_written, duration. Missing fields must be null with reason, not zero.",
+      "Preserve every returned statement or import-result metadata item before hash/count parsing or overwrite, keyed to call/bundle/attempt. Keep SQL text, literals and credentials out of shareable records.",
+      "For file imports exposing only bundle totals, record scope=import_bundle and all affected table labels; do not assign the entire write metric exclusively to the main table. Per-statement allocation requires execution-result metadata if supported; otherwise keep it unavailable.",
+      "Retain attempts separately; do not count retries as unique successful work. Reconcile observed same-window database totals with recorded successful calls while preserving uncertain timeout effects.",
+      "Store changed/new/removed/unchanged as content counters separate from physical row-cost counters. A savings claim needs a matched counterfactual with equivalent input/work and accounting for reads, indexes and metadata; this sidecar supplies none."
+    ]
+  },
+  "code_evidence": [
+    {
+      "path": "/Users/linhuichen/code/trade/scripts/lib/d1_hash_read.sh",
+      "line": 54,
+      "observation": "Hash prefetch paginates; its parser keeps results and drops response cost metadata.",
+      "sha256_at_inspection": "51cabb973850b92efe7479a8cea8144e634e63e76d5247c886c261d463b573f4"
+    },
+    {
+      "path": "/Users/linhuichen/code/trade/scripts/lib/d1_hash_read.sh",
+      "line": 120,
+      "observation": "Parser reads only results; no retained per-call rows_read/rows_written ledger.",
+      "sha256_at_inspection": "51cabb973850b92efe7479a8cea8144e634e63e76d5247c886c261d463b573f4"
+    },
+    {
+      "path": "/Users/linhuichen/code/trade/scripts/lib/d1_execute.sh",
+      "line": 108,
+      "observation": "File import redirects output to a caller path, overwritten per attempt; no structured per-stage cost persistence here.",
+      "sha256_at_inspection": "5dd312d3e591e823b6ae48b0887e674d53ca8cbec8c576f48cf74963caef7e8b"
+    },
+    {
+      "path": "/Users/linhuichen/code/trade/scripts/sync_fund_score_to_d1.sh",
+      "line": 494,
+      "observation": "Uses execute.out for file import; subsequent verification extracts only returned count at line 506.",
+      "sha256_at_inspection": "03ee7204a0eb1fcb6c7721c6ff7913514877cabbe612fde1bb3b952522583885"
+    },
+    {
+      "path": "/Users/linhuichen/code/trade/scripts/sync_fund_screener_to_d1.sh",
+      "line": 684,
+      "observation": "Same import output handling; subsequent verification extracts only returned count at line 695.",
+      "sha256_at_inspection": "4aa16b0acd4666c3cf50b917d122923fa962f70e2c428c967b40fcc27aeed3f1"
+    },
+    {
+      "path": "/Users/linhuichen/code/trade/scripts/d1_sync_state.py",
+      "line": 27,
+      "observation": "Failure state is removed on success; it is not a per-run cost history.",
+      "sha256_at_inspection": "043014c7d2b0340f0db37435d00df30d191e3dfdbdb5a0e309d3db6e61236c24"
+    }
+  ],
+  "primary_sources": [
+    {
+      "url": "https://developers.cloudflare.com/d1/observability/metrics-analytics/",
+      "supports": "D1 dataset names, query insights, Account Analytics Read, documented 31-day metric retention"
+    },
+    {
+      "url": "https://developers.cloudflare.com/analytics/graphql-api/features/discovery/introspection/",
+      "supports": "Exact schema discovery; read-only query operations"
+    },
+    {
+      "url": "https://developers.cloudflare.com/analytics/graphql-api/features/discovery/settings/",
+      "supports": "Account-specific enabled fields and time/page limits"
+    },
+    {
+      "url": "https://developers.cloudflare.com/analytics/graphql-api/sampling/",
+      "supports": "Adaptive estimates and sample weighting"
+    }
+  ],
+  "requests": [
+    {
+      "number": 1,
+      "label": "schema-discovery",
+      "started_at": "2026-11-10T23:24:09.030562+00:00",
+      "max_time_seconds": 35,
+      "status": "received",
+      "curl_exit": 0,
+      "http": "200",
+      "graphql_error_count": 0
+    },
+    {
+      "number": 2,
+      "label": "schema-and-settings",
+      "started_at": "2026-11-10T23:24:34.612385+00:00",
+      "max_time_seconds": 35,
+      "status": "received",
+      "curl_exit": 0,
+      "http": "200",
+      "graphql_error_count": 0
+    },
+    {
+      "number": 3,
+      "label": "natural-sync-window",
+      "started_at": "2026-11-10T23:24:49.520985+00:00",
+      "max_time_seconds": 35,
+      "status": "received",
+      "curl_exit": 0,
+      "http": "200",
+      "graphql_error_count": 0
+    },
+    {
+      "number": 4,
+      "label": "natural-sync-stage-timestamps",
+      "started_at": "2026-11-10T23:25:17.741479+00:00",
+      "max_time_seconds": 35,
+      "status": "received",
+      "curl_exit": 0,
+      "http": "200",
+      "graphql_error_count": 0
+    }
+  ],
+  "privacy": {
+    "shareable_artifacts": [
+      "report.json",
+      "report.md"
+    ],
+    "raw_files": "*.private.json are owner-only inside a mode-0700 directory; not printed or included in shareable reports",
+    "normalized_only": true
+  },
+  "scope_compliance": {
+    "sql_executed": false,
+    "full_app_imported": false,
+    "production_mutation": false,
+    "wrangler_executed": false,
+    "subagents": false,
+    "notifications_publish_ack": false,
+    "writes_outside_authorized_directory": false,
+    "tls_verification": true,
+    "auth_transport": "curl config stdin; curl default config disabled; no verbose/header output"
+  }
+}

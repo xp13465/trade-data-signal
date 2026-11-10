@@ -1,0 +1,10 @@
+--- 7.10 快检闸门(任何 merge 都跑: 台账/闸门登记/任务状态, 秒级) ---
+
+  ████████████████████████████████████████████████████████████████
+  [!!] MAIN_MERGE_SKIP_FASTCHECK=1(逃生门): 本次 merge 已跳过 7.10 快检闸门
+       —— 未跑台账/闸门登记/任务状态对账 = 可能把 6820d0853 型红(纯文档弄红
+          CI ⑧ pytest)直接带进 main; 请记得事后补跑:
+          /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 scripts/check_ledger.py && /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 scripts/check_gate_registry.py && /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 scripts/check_task_state.py --skip-zombie-crons
+  ████████████████████████████████████████████████████████████████
+
+HARNESS_END

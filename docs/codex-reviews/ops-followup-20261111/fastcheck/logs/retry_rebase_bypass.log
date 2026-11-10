@@ -1,0 +1,23 @@
+--- 7.10 快检闸门(任何 merge 都跑: 台账/闸门登记/任务状态, 秒级) ---
+  ✓ scripts/check_ledger.py 快检通过
+  ✓ scripts/check_gate_registry.py 快检通过
+  ✓ scripts/check_task_state.py 快检通过
+SIMULATED_PUSH_ATTEMPT=1
+✗ push main 失败(可能 non-fast-forward)。优先 git fetch + rebase origin/main + 重试(§8 不 force)
+OFFLINE_FETCH_ALREADY_FIXED_UPSTREAM
+Rebasing (1/1)
+
+
+Successfully rebased and updated refs/heads/audit-local.
+SIMULATED_PUSH_ATTEMPT=2
+RETRY_FINISHED_WITHOUT_GATE_RERUN
+=== 任务状态一致性对账 ===
+  repo:            /private/tmp/codex-reports/ops-followup-20261111/fastcheck/cases/retry_rebase
+
+  ✗ pending_index: pending-index 编号完整性 FAIL(1 处): 335 行编号 至 #499
+      · 编号 #499 重复出现 2 次: 行 [3, 604]
+  ✓ tasks_refs: TASKS 编号对账 OK(📍 当前会话状态/📋 待办 段提及编号均可在pending-index/done-list/archive 中找到且无残留关闭指针)
+
+=== 汇总: 1 ok / 0 warn / 1 fail ===
+⚠ 存在任务状态漂移, FAIL 阻断上线(挂 deploy 链), 逐项修后重跑。
+POSTCHECK_RC=1

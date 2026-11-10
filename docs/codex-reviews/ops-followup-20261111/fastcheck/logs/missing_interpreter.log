@@ -1,0 +1,17 @@
+--- 7.10 快检闸门(任何 merge 都跑: 台账/闸门登记/任务状态, 秒级) ---
+
+  ████████████████████████████████████████████████████████████████
+  [!!] 7.10 快检 FAIL: scripts/check_ledger.py(exit 127)
+       末行: /private/tmp/codex-reports/ops-followup-20261111/fastcheck/cases/missing_interpreter.sh: line 53: /private/tmp/codex-reports/ops-followup-20261111/fastcheck/missing-python: No such file or directory
+  ████████████████████████████████████████████████████████████████
+
+  ████████████████████████████████████████████████████████████████
+  [!!] 7.10 快检 FAIL: scripts/check_gate_registry.py(exit 127)
+       末行: /private/tmp/codex-reports/ops-followup-20261111/fastcheck/cases/missing_interpreter.sh: line 53: /private/tmp/codex-reports/ops-followup-20261111/fastcheck/missing-python: No such file or directory
+  ████████████████████████████████████████████████████████████████
+
+  ████████████████████████████████████████████████████████████████
+  [!!] 7.10 快检 FAIL: scripts/check_task_state.py(exit 127)
+       末行: /private/tmp/codex-reports/ops-followup-20261111/fastcheck/cases/missing_interpreter.sh: line 53: /private/tmp/codex-reports/ops-followup-20261111/fastcheck/missing-python: No such file or directory
+  ████████████████████████████████████████████████████████████████
+✗ 7.10 快检 FAIL, 阻断 merge(2026-11-10 6820d0853: 纯文档也能弄红 CI ⑧, 本闸门把红前移到 push main 前; 先修好再 merge, 确需跳过: MAIN_MERGE_SKIP_FASTCHECK=1)

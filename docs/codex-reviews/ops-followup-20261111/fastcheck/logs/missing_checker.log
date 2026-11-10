@@ -1,0 +1,9 @@
+--- 7.10 快检闸门(任何 merge 都跑: 台账/闸门登记/任务状态, 秒级) ---
+  ✓ scripts/check_ledger.py 快检通过
+  ✓ scripts/check_gate_registry.py 快检通过
+
+  ████████████████████████████████████████████████████████████████
+  [!!] 7.10 快检 FAIL: scripts/check_task_state.py(exit 2)
+       末行: /Library/Frameworks/Python.framework/Versions/3.11/Resources/Python.app/Contents/MacOS/Python: can't open file '/private/tmp/codex-reports/ops-followup-20261111/fastcheck/cases/missing_checker/scripts/check_task_state.py': [Errno 2] No such file or directory
+  ████████████████████████████████████████████████████████████████
+✗ 7.10 快检 FAIL, 阻断 merge(2026-11-10 6820d0853: 纯文档也能弄红 CI ⑧, 本闸门把红前移到 push main 前; 先修好再 merge, 确需跳过: MAIN_MERGE_SKIP_FASTCHECK=1)

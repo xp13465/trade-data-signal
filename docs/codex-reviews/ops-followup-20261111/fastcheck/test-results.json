@@ -1,0 +1,375 @@
+{
+  "shell": "GNU bash, version 3.2.57(1)-release (arm64-apple-darwin23)",
+  "python": "3.11.0 (v3.11.0:deaf509e8f, Oct 24 2022, 14:43:23) [Clang 13.0.0 (clang-1300.0.29.30)]",
+  "total": 24,
+  "assertions_passed": 24,
+  "assertions_failed": 0,
+  "cases": [
+    {
+      "name": "baseline_head",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "✓ scripts/check_ledger.py",
+          "✓ scripts/check_gate_registry.py",
+          "✓ scripts/check_task_state.py",
+          "HARNESS_END"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/baseline_head.log"
+    },
+    {
+      "name": "baseline_main",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "✓ scripts/check_ledger.py",
+          "✓ scripts/check_gate_registry.py",
+          "✓ scripts/check_task_state.py",
+          "HARNESS_END"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/baseline_main.log"
+    },
+    {
+      "name": "baseline_delivery",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "✓ scripts/check_ledger.py",
+          "✓ scripts/check_gate_registry.py",
+          "✓ scripts/check_task_state.py",
+          "HARNESS_END"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/baseline_delivery.log"
+    },
+    {
+      "name": "reconciled_main",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "HARNESS_END"
+        ],
+        "absent": [
+          "快检 FAIL"
+        ]
+      },
+      "assertion_passed": true,
+      "log": "logs/reconciled_main.log"
+    },
+    {
+      "name": "reconciled_delivery",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "HARNESS_END"
+        ],
+        "absent": [
+          "快检 FAIL"
+        ]
+      },
+      "assertion_passed": true,
+      "log": "logs/reconciled_delivery.log"
+    },
+    {
+      "name": "registry_missing",
+      "kind": "bounded_block",
+      "rc": 11,
+      "expected": {
+        "rc": 11,
+        "contains": [
+          "check_gate_registry.py(exit 1)",
+          "✓ scripts/check_task_state.py"
+        ],
+        "absent": [
+          "HARNESS_END"
+        ]
+      },
+      "assertion_passed": true,
+      "log": "logs/registry_missing.log"
+    },
+    {
+      "name": "ledger_bad",
+      "kind": "bounded_block",
+      "rc": 11,
+      "expected": {
+        "rc": 11,
+        "contains": [
+          "check_ledger.py(exit 1)",
+          "✓ scripts/check_task_state.py"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/ledger_bad.log"
+    },
+    {
+      "name": "task_duplicate",
+      "kind": "bounded_block",
+      "rc": 11,
+      "expected": {
+        "rc": 11,
+        "contains": [
+          "check_task_state.py(exit 1)"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/task_duplicate.log"
+    },
+    {
+      "name": "two_fail",
+      "kind": "bounded_block",
+      "rc": 11,
+      "expected": {
+        "rc": 11,
+        "contains": [
+          "check_gate_registry.py(exit 1)",
+          "check_task_state.py(exit 1)"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/two_fail.log"
+    },
+    {
+      "name": "dry_two_fail",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "check_gate_registry.py(exit 1)",
+          "check_task_state.py(exit 1)",
+          "[dry-run] 快检 FAIL 不阻断",
+          "HARNESS_END"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/dry_two_fail.log"
+    },
+    {
+      "name": "skip_two_fail",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "MAIN_MERGE_SKIP_FASTCHECK=1",
+          "HARNESS_END"
+        ],
+        "absent": [
+          "快检通过",
+          "快检 FAIL:"
+        ]
+      },
+      "assertion_passed": true,
+      "log": "logs/skip_two_fail.log"
+    },
+    {
+      "name": "skip_other_value",
+      "kind": "bounded_block",
+      "rc": 11,
+      "expected": {
+        "rc": 11,
+        "contains": [
+          "check_gate_registry.py(exit 1)",
+          "check_task_state.py(exit 1)"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/skip_other_value.log"
+    },
+    {
+      "name": "missing_checker",
+      "kind": "bounded_block",
+      "rc": 11,
+      "expected": {
+        "rc": 11,
+        "contains": [
+          "check_task_state.py(exit 2)"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/missing_checker.log"
+    },
+    {
+      "name": "missing_interpreter",
+      "kind": "bounded_block",
+      "rc": 11,
+      "expected": {
+        "rc": 11,
+        "contains": [
+          "check_ledger.py(exit 127)",
+          "check_gate_registry.py(exit 127)",
+          "check_task_state.py(exit 127)"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/missing_interpreter.log"
+    },
+    {
+      "name": "warning_only",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "✓ scripts/check_task_state.py",
+          "HARNESS_END"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/warning_only.log"
+    },
+    {
+      "name": "own_row_missing",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "HARNESS_END"
+        ],
+        "absent": [
+          "快检 FAIL"
+        ]
+      },
+      "assertion_passed": true,
+      "log": "logs/own_row_missing.log"
+    },
+    {
+      "name": "foreign_cwd",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "HARNESS_END"
+        ],
+        "absent": [
+          "快检 FAIL"
+        ]
+      },
+      "assertion_passed": true,
+      "log": "logs/foreign_cwd.log"
+    },
+    {
+      "name": "arbitrary_rc",
+      "kind": "bounded_block",
+      "rc": 11,
+      "expected": {
+        "rc": 11,
+        "contains": [
+          "check_gate_registry.py(exit 37)",
+          "末行: distinct failure detail",
+          "✓ scripts/check_task_state.py"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/arbitrary_rc.log"
+    },
+    {
+      "name": "pure_docs_pytest_skipped",
+      "kind": "bounded_block",
+      "rc": 11,
+      "expected": {
+        "rc": 11,
+        "contains": [
+          "scripts/ 无变更 → 跳过全量 pytest",
+          "check_gate_registry.py(exit 1)"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/pure_docs_pytest_skipped.log"
+    },
+    {
+      "name": "dry_old_tree",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "HARNESS_END"
+        ],
+        "absent": [
+          "快检 FAIL"
+        ]
+      },
+      "assertion_passed": true,
+      "log": "logs/dry_old_tree.log"
+    },
+    {
+      "name": "retry_local_individual",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "HARNESS_END"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/retry_local_individual.log"
+    },
+    {
+      "name": "retry_upstream_individual",
+      "kind": "bounded_block",
+      "rc": 0,
+      "expected": {
+        "rc": 0,
+        "contains": [
+          "HARNESS_END"
+        ],
+        "absent": []
+      },
+      "assertion_passed": true,
+      "log": "logs/retry_upstream_individual.log"
+    },
+    {
+      "name": "retry_rebase_bypass",
+      "kind": "bounded_retry_with_real_isolated_git",
+      "rc": 0,
+      "expected": "Gate passes once; clean real local rebase; second simulated push reached with task checker now failing duplicate #499",
+      "assertion_passed": true,
+      "log": "logs/retry_rebase_bypass.log",
+      "synthetic_base": "54897932e3967d60527896b2b481e8d950c9cc4c",
+      "synthetic_local": "7c8d7b43278c94e594cac7cae022cf5a88a9de2c",
+      "synthetic_upstream": "412a7964c1e2c6df70b054906d4222785a196643",
+      "synthetic_rebased": "4c1913045b35ff6d3918a28a41f5f04b973eccbc"
+    },
+    {
+      "name": "bash_syntax",
+      "kind": "syntax",
+      "rc": 0,
+      "expected": "rc 0, parse only",
+      "assertion_passed": true,
+      "log": "logs/bash_syntax.log"
+    }
+  ]
+}

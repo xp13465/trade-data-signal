@@ -1,0 +1,9 @@
+--- 7.10 快检闸门(任何 merge 都跑: 台账/闸门登记/任务状态, 秒级) ---
+
+  ████████████████████████████████████████████████████████████████
+  [!!] 7.10 快检 FAIL: scripts/check_ledger.py(exit 1)
+       末行: [ledger] RESULT=FAIL(通过 14 项,失败 1 项)
+  ████████████████████████████████████████████████████████████████
+  ✓ scripts/check_gate_registry.py 快检通过
+  ✓ scripts/check_task_state.py 快检通过
+✗ 7.10 快检 FAIL, 阻断 merge(2026-11-10 6820d0853: 纯文档也能弄红 CI ⑧, 本闸门把红前移到 push main 前; 先修好再 merge, 确需跳过: MAIN_MERGE_SKIP_FASTCHECK=1)

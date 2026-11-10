@@ -1,0 +1,507 @@
+{
+  "as_of": "2026-11-11T07:20:34.319772+08:00",
+  "production_ref_observed": "f35437a699d199076b5654dcde58780be89ee6b4",
+  "reviewed_delivery_head": "0ad6556b58fabff4bce06ed291904f88b573c0f6",
+  "production_mutated": false,
+  "old_package_modified": false,
+  "monitor": {
+    "snapshot_at": "2026-11-10T23:15:01.800182Z",
+    "counts": {
+      "ok": 129,
+      "critical": 2,
+      "unknown": 44,
+      "warning": 2
+    },
+    "attention": [
+      {
+        "id": "cloud-service:trade-overfit-monitor.service",
+        "status": "critical",
+        "summary": "Systemd reports failed; business impact not evaluated"
+      },
+      {
+        "id": "cloud-service:trade-public-fund-daily.service",
+        "status": "critical",
+        "summary": "Systemd reports failed; business impact not evaluated"
+      },
+      {
+        "id": "schedule:overfit_monitor",
+        "status": "warning",
+        "summary": "Trusted derived execution verdict; no business data validation"
+      },
+      {
+        "id": "schedule:public_fund_daily",
+        "status": "warning",
+        "summary": "Trusted derived execution verdict; no business data validation"
+      }
+    ],
+    "changed_checks": [
+      {
+        "id": "cloud-timer:trade-public-fund-quarterly.timer",
+        "before": "ok",
+        "after": "unknown",
+        "summary": "Timer scheduling state only; job outcome is separate",
+        "evidence": {
+          "loaded": true,
+          "active": true,
+          "failed": false,
+          "expression_count": 3,
+          "calendar_sha256": "44c5611a83192cfbbc528b55343a9a96e3e97b471284fd30ed5addd0a3336efb",
+          "next_elapse_utc": null,
+          "last_trigger_utc": "2026-11-10T23:00:00Z",
+          "next_observed": false
+        },
+        "observation_status": "observed"
+      },
+      {
+        "id": "schedule:ops_monitor",
+        "before": "ok",
+        "after": "unknown",
+        "summary": "No current trusted derived execution verdict",
+        "evidence": {
+          "row_present": true,
+          "source_current": true,
+          "trusted_exit_origin": false,
+          "exit_conflict": false
+        },
+        "observation_status": "observed"
+      },
+      {
+        "id": "schedule:public_fund_quarterly",
+        "before": "ok",
+        "after": "unknown",
+        "summary": "No current trusted derived execution verdict",
+        "evidence": {
+          "row_present": true,
+          "source_current": true,
+          "trusted_exit_origin": false,
+          "exit_conflict": false
+        },
+        "observation_status": "observed"
+      }
+    ],
+    "subsequent_unit_observation_at": "2026-11-11T07:18:12.396737+08:00",
+    "observations": {
+      "trade-public-fund-quarterly.service": {
+        "Id": "trade-public-fund-quarterly.service",
+        "ActiveState": "activating",
+        "SubState": "start",
+        "Result": "success",
+        "ExecMainCode": "0",
+        "ExecMainStatus": "0",
+        "ExecMainStartTimestamp": "Wed 2026-11-11 07:00:00 CST",
+        "ExecMainExitTimestamp": "n/a",
+        "NextElapseUSecRealtime": null,
+        "LastTriggerUSec": null
+      },
+      "trade-public-fund-quarterly.timer": {
+        "Id": "trade-public-fund-quarterly.timer",
+        "ActiveState": "active",
+        "SubState": "running",
+        "Result": "success",
+        "ExecMainCode": null,
+        "ExecMainStatus": null,
+        "ExecMainStartTimestamp": null,
+        "ExecMainExitTimestamp": null,
+        "NextElapseUSecRealtime": "",
+        "LastTriggerUSec": "Wed 2026-11-11 07:00:00 CST"
+      },
+      "trade-ops-monitor.service": {
+        "Id": "trade-ops-monitor.service",
+        "ActiveState": "inactive",
+        "SubState": "dead",
+        "Result": "success",
+        "ExecMainCode": "1",
+        "ExecMainStatus": "0",
+        "ExecMainStartTimestamp": "Wed 2026-11-11 07:15:00 CST",
+        "ExecMainExitTimestamp": "Wed 2026-11-11 07:15:04 CST",
+        "NextElapseUSecRealtime": null,
+        "LastTriggerUSec": null
+      },
+      "trade-ops-monitor.timer": {
+        "Id": "trade-ops-monitor.timer",
+        "ActiveState": "active",
+        "SubState": "waiting",
+        "Result": "success",
+        "ExecMainCode": null,
+        "ExecMainStatus": null,
+        "ExecMainStartTimestamp": null,
+        "ExecMainExitTimestamp": null,
+        "NextElapseUSecRealtime": "Wed 2026-11-11 07:30:07 CST",
+        "LastTriggerUSec": "Wed 2026-11-11 07:15:00 CST"
+      },
+      "trade-public-fund-daily.service": {
+        "Id": "trade-public-fund-daily.service",
+        "ActiveState": "failed",
+        "SubState": "failed",
+        "Result": "exit-code",
+        "ExecMainCode": "1",
+        "ExecMainStatus": "124",
+        "ExecMainStartTimestamp": "Tue 2026-11-10 17:00:00 CST",
+        "ExecMainExitTimestamp": "Tue 2026-11-10 17:05:06 CST",
+        "NextElapseUSecRealtime": null,
+        "LastTriggerUSec": null
+      },
+      "trade-overfit-monitor.service": {
+        "Id": "trade-overfit-monitor.service",
+        "ActiveState": "failed",
+        "SubState": "failed",
+        "Result": "exit-code",
+        "ExecMainCode": "1",
+        "ExecMainStatus": "75",
+        "ExecMainStartTimestamp": "Tue 2026-11-10 21:40:00 CST",
+        "ExecMainExitTimestamp": "Tue 2026-11-10 21:41:53 CST",
+        "NextElapseUSecRealtime": null,
+        "LastTriggerUSec": null
+      }
+    }
+  },
+  "nav": {
+    "observed_at": "2026-11-11T07:17:25.936613+08:00",
+    "upstream": [
+      {
+        "code": "016989",
+        "http": 200,
+        "error": null,
+        "latest": {
+          "FSRQ": "2026-11-09",
+          "DWJZ": "1.1527",
+          "LJJZ": "1.1527",
+          "JZZZL": "-0.11"
+        }
+      },
+      {
+        "code": "159501",
+        "http": 200,
+        "error": null,
+        "latest": {
+          "FSRQ": "2026-11-09",
+          "DWJZ": "1.7541",
+          "LJJZ": "1.7541",
+          "JZZZL": "3.42"
+        }
+      },
+      {
+        "code": "159513",
+        "http": 200,
+        "error": null,
+        "latest": {
+          "FSRQ": "2026-11-09",
+          "DWJZ": "1.5546",
+          "LJJZ": "1.5546",
+          "JZZZL": "3.42"
+        }
+      },
+      {
+        "code": "513080",
+        "http": 200,
+        "error": null,
+        "latest": {
+          "FSRQ": "2026-11-09",
+          "DWJZ": "1.6513",
+          "LJJZ": "1.6513",
+          "JZZZL": "0.48"
+        }
+      },
+      {
+        "code": "513650",
+        "http": 200,
+        "error": null,
+        "latest": {
+          "FSRQ": "2026-11-09",
+          "DWJZ": "1.8272",
+          "LJJZ": "1.8272",
+          "JZZZL": "2.38"
+        }
+      }
+    ],
+    "fund016989": [
+      {
+        "date": "20261109",
+        "fund_code": "016989",
+        "fund_name": "广发富信优选六个月持有混合(FOF)A",
+        "unit_nav": 1.1527,
+        "acc_nav": 1.1527,
+        "prev_unit_nav": 1.154,
+        "nav_change_pct": -0.11
+      },
+      {
+        "date": "20261110",
+        "fund_code": "016989",
+        "fund_name": "广发富信优选六个月持有混合(FOF)A",
+        "unit_nav": null,
+        "acc_nav": null,
+        "prev_unit_nav": 1.1527,
+        "nav_change_pct": null
+      }
+    ],
+    "nov10_source_not_observed": true
+  },
+  "d1": {
+    "platform_partial_snapshot": {
+      "observed_at": "2026-11-11T07:17:25.463254+08:00",
+      "curl_exit": 0,
+      "http": "200",
+      "window_UTC": [
+        "2026-11-08",
+        "2026-11-10"
+      ],
+      "end_day_complete_after_cst": "2026-11-11T08:00:00+08:00",
+      "errors": null,
+      "days": [
+        {
+          "date": "2026-11-08",
+          "readQueries": 8,
+          "rowsRead": 399994,
+          "rowsWritten": 455314,
+          "writeQueries": 2
+        },
+        {
+          "date": "2026-11-09",
+          "readQueries": 24,
+          "rowsRead": 514080,
+          "rowsWritten": 341593,
+          "writeQueries": 2
+        },
+        {
+          "date": "2026-11-10",
+          "readQueries": 16,
+          "rowsRead": 174182,
+          "rowsWritten": 36152,
+          "writeQueries": 2
+        }
+      ]
+    },
+    "new_readonly_tool_closed_day": {
+      "day_utc": "2026-11-09",
+      "observed_at": "2026-11-10T23:20:08.007078+00:00",
+      "window_end_utc": "2026-11-10T00:00:00+00:00",
+      "window_closed": true,
+      "platform_finality_verified": false,
+      "source": "Cloudflare GraphQL d1AnalyticsAdaptiveGroups",
+      "database_name": "trade-fund-score",
+      "production_mutated": false,
+      "cost_savings_claimed": false,
+      "counters": {
+        "rowsRead": 514080,
+        "rowsWritten": 341593,
+        "readQueries": 24,
+        "writeQueries": 2
+      },
+      "state": "observed_closed_window_not_finalized",
+      "reason": "Closed UTC interval; platform ingestion finality and causal savings remain unverified"
+    },
+    "new_readonly_tool_open_day": {
+      "day_utc": "2026-11-10",
+      "observed_at": "2026-11-10T23:20:08.005058+00:00",
+      "window_end_utc": "2026-11-11T00:00:00+00:00",
+      "window_closed": false,
+      "platform_finality_verified": false,
+      "source": "Cloudflare GraphQL d1AnalyticsAdaptiveGroups",
+      "database_name": "trade-fund-score",
+      "production_mutated": false,
+      "cost_savings_claimed": false,
+      "state": "awaiting_window_close",
+      "reason": "Requested UTC day is still open; no query was made"
+    },
+    "tests": {
+      "test_methods": 10,
+      "failed": 0,
+      "raw_last_lines": "Ran 10 tests in 0.002s; OK"
+    },
+    "per_stage_pipeline_metrics_implemented": false,
+    "query_insights": {
+      "capability_verdict": "PARTIALLY_RECOVERED",
+      "hc09_exact_table_stage_cost_complete": false,
+      "observed_at_utc": "2026-11-10T23:26:48.389171+00:00",
+      "window": {
+        "start_cst": "2026-11-10T16:02:00+08:00",
+        "end_cst_exclusive": "2026-11-10T16:09:00+08:00",
+        "start_utc": "2026-11-10T08:02:00Z",
+        "end_utc_exclusive": "2026-11-10T08:09:00Z",
+        "note": "CST interpreted as Asia/Shanghai; no wider-window retrieval"
+      },
+      "database_window_totals": {
+        "rowsRead": 174174,
+        "rowsWritten": 36152,
+        "readQueries": 14,
+        "writeQueries": 2
+      },
+      "query_insights_totals": {
+        "count": 17,
+        "queryDurationMs": 831.6881999999999,
+        "rowsRead": 113864,
+        "rowsReturned": 56934,
+        "rowsWritten": 0,
+        "avg_sample_interval": 1
+      },
+      "direct_query_stage_rows": [
+        {
+          "table": "fund_score",
+          "stage": "schema_migration",
+          "operation": "ALTER",
+          "attribution": "table direct from analytics; stage inferred from query shape and inspected sync source",
+          "start_utc": "2026-11-10T08:02:37Z",
+          "end_utc": "2026-11-10T08:02:43Z",
+          "count": 2,
+          "rowsRead": 0,
+          "rowsWritten": 0,
+          "rowsReturned": 0,
+          "queryDurationMs": 1.141,
+          "error_queries": 2
+        },
+        {
+          "table": "fund_score",
+          "stage": "hash_prefetch",
+          "operation": "SELECT",
+          "attribution": "table direct from analytics; stage inferred from query shape and inspected sync source",
+          "start_utc": "2026-11-10T08:02:49Z",
+          "end_utc": "2026-11-10T08:03:13Z",
+          "count": 6,
+          "rowsRead": 28456,
+          "rowsWritten": 0,
+          "rowsReturned": 28456,
+          "queryDurationMs": 678.724,
+          "error_queries": 0
+        },
+        {
+          "table": "fund_score",
+          "stage": "verification_count",
+          "operation": "SELECT",
+          "attribution": "table direct from analytics; stage inferred from query shape and inspected sync source",
+          "start_utc": "2026-11-10T08:04:14Z",
+          "end_utc": "2026-11-10T08:04:14Z",
+          "count": 1,
+          "rowsRead": 28456,
+          "rowsWritten": 0,
+          "rowsReturned": 1,
+          "queryDurationMs": 0.9005,
+          "error_queries": 0
+        },
+        {
+          "table": "fund_screener",
+          "stage": "schema_migration",
+          "operation": "ALTER",
+          "attribution": "table direct from analytics; stage inferred from query shape and inspected sync source",
+          "start_utc": "2026-11-10T08:04:26Z",
+          "end_utc": "2026-11-10T08:04:26Z",
+          "count": 1,
+          "rowsRead": 0,
+          "rowsWritten": 0,
+          "rowsReturned": 0,
+          "queryDurationMs": 0.3243,
+          "error_queries": 1
+        },
+        {
+          "table": "fund_screener",
+          "stage": "hash_prefetch",
+          "operation": "SELECT",
+          "attribution": "table direct from analytics; stage inferred from query shape and inspected sync source",
+          "start_utc": "2026-11-10T08:04:29Z",
+          "end_utc": "2026-11-10T08:05:02Z",
+          "count": 6,
+          "rowsRead": 28476,
+          "rowsWritten": 0,
+          "rowsReturned": 28476,
+          "queryDurationMs": 150.0717,
+          "error_queries": 0
+        },
+        {
+          "table": "fund_screener",
+          "stage": "verification_count",
+          "operation": "SELECT",
+          "attribution": "table direct from analytics; stage inferred from query shape and inspected sync source",
+          "start_utc": "2026-11-10T08:08:58Z",
+          "end_utc": "2026-11-10T08:08:58Z",
+          "count": 1,
+          "rowsRead": 28476,
+          "rowsWritten": 0,
+          "rowsReturned": 1,
+          "queryDurationMs": 0.5267,
+          "error_queries": 0
+        }
+      ],
+      "time_correlated_import_aggregates": [
+        {
+          "stage": "import_bundle",
+          "associated_table": "fund_score",
+          "possible_metadata_table": "sync_meta",
+          "timestamp_utc": "2026-11-10T08:04:08Z",
+          "readQueries": 0,
+          "rowsRead": 4009,
+          "rowsWritten": 4390,
+          "writeQueries": 1,
+          "attribution": "time-correlated inference, not a table dimension; includes the whole import bundle, potentially indexes, schema and metadata",
+          "query_detail_available": false
+        },
+        {
+          "stage": "import_bundle",
+          "associated_table": "fund_screener",
+          "possible_metadata_table": "screener_meta",
+          "timestamp_utc": "2026-11-10T08:08:53Z",
+          "readQueries": 0,
+          "rowsRead": 56301,
+          "rowsWritten": 31762,
+          "writeQueries": 1,
+          "attribution": "time-correlated inference, not a table dimension; includes the whole import bundle, potentially indexes, schema and metadata",
+          "query_detail_available": false
+        }
+      ],
+      "unattributed_to_query_detail": {
+        "rowsRead": 60310,
+        "rowsWritten": 36152,
+        "note": "Exactly equals two database write-request aggregates; import contents cannot be apportioned between main table, indexes, metadata or statements."
+      },
+      "measurement_caveats": [
+        "Adaptive analytics metrics are observations/estimates, not billing invoices. Every returned avg.sampleInterval is 1; no sampling multiplier was applied. Confidence intervals were not queried.",
+        "Query dimensions expose no sync run ID, caller or stage. Stage association uses query shape, code and supplied completion times; concurrent same-table activity is not independently ruled out.",
+        "Three ALTER query errors have zero recorded rows; detailed error strings remain private. No failure incident conclusion is drawn.",
+        "No causal savings or currency calculation. changed/total 2003/28456 and 28148/28476 are content churn ratios, not rows billed or costs saved.",
+        "The current source was read, not executed; runtime/deployed code identity was outside this sidecar. No search of all historic logs or proof that metadata never existed elsewhere."
+      ]
+    }
+  },
+  "limits": [
+    "Status changes compare snapshots taken at different moments, not three independently verified incidents.",
+    "Quarterly task was running; its result and asynchronous publication are still to be verified.",
+    "No production source, unit, data, deployment, ACK or scheduled task changed."
+  ],
+  "additional_findings": [
+    {
+      "id": "FX-ID-01",
+      "severity": "P1",
+      "status": "confirmed_preexisting_contract_violation_not_fixed",
+      "report": "fx-identity/report.md",
+      "parent_parser_regressions_reproduced": 3,
+      "enabled_flag_alone_insufficient": true
+    },
+    {
+      "id": "FC-01",
+      "severity": "P1",
+      "status": "preexisting_retry_path_bypasses_checks_after_rebase",
+      "fixed_review_head": "61a56ce7fc037e0a9f8ce8aad018ee1c173edd95",
+      "report": "fastcheck/report.md"
+    },
+    {
+      "id": "FC-02",
+      "severity": "P2",
+      "status": "two_document_conflicts_on_both_bases",
+      "paths": [
+        "NOTES.md",
+        "docs/pending-features-index.md"
+      ]
+    }
+  ],
+  "fastcheck_audit": {
+    "assertions_expected": 24,
+    "assertions_matched": 24,
+    "includes_defect_reproductions": true,
+    "full_production_path_pass": false,
+    "shared_git_mutated": false
+  },
+  "supplemental_validation": {
+    "ledger": "PASS (15 checks, 0 failed)",
+    "gate_registry": "PASS",
+    "task_state": "PASS (2 OK, 0 warning, 0 fail; zombie crons skipped)",
+    "new_head_independent_review_pass": false
+  }
+}
