@@ -165,6 +165,10 @@ jobs:
                   facts["html_title"] = titles.get(normalized, "OTHER_TITLE_REDACTED")
               elif re.search(r"<title\b", text, re.I):
                   facts["html_title"] = "INCOMPLETE_TITLE"
+              # HTML/fragments have no reliable boundary from log notes. Do not
+              # treat any HTTP-looking text in that block as a request/status.
+              if re.search(r"<|&lt;|\bdoctype\b|\(length\s*=", text, re.I):
+                  return facts
               # Only an explicit request->status or HTTP status line counts, never a title's number.
               trace = re.search(r"(?m)^\s*(GET|POST|PUT|PATCH|DELETE|HEAD)\s+(\S{1,4096})\s+->\s+([1-5]\d{2})(?:\s|$)", text)
               if trace:
