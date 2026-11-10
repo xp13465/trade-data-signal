@@ -49,10 +49,17 @@ def login():
     print('AUDIT pid', os.getpid(), flush=True)
     if scenario == 'login_exception' and logins == 1:
         raise ConnectionResetError('connection reset')
+    if scenario == 'slow_login':
+        import time
+        try: time.sleep(10)
+        except Exception: pass  # 模拟SDK吞Exception；预算守卫必须仍能打断。
     code = '10002007' if scenario == 'login_always' or (scenario == 'login_once' and logins == 1) else '0'
     return SimpleNamespace(error_code=code, error_msg='网络接收错误。' if code != '0' else 'success')
 
 def logout():
+    if scenario == 'slow_logout':
+        import time
+        time.sleep(10)
     print('AUDIT logout', flush=True)
     if scenario == 'logout_exception':
         raise OSError('closed')
@@ -70,6 +77,9 @@ class Result:
         if first and scenario == 'silent_page':
             self.per_page_count = len(sample)
     def next(self):
+        if scenario in ('slow_next', 'trickle'):
+            import time
+            time.sleep(10 if scenario == 'slow_next' else 0.035)
         if (self.first or scenario == 'next_always') and self.cur_row_num == 1:
             if scenario in ('next_code', 'next_always'):
                 self.error_code = '10002007'
@@ -96,6 +106,9 @@ def query_history_k_data_plus(code, fields, **kwargs):
     print('AUDIT query', queries, code, fields, json.dumps(kwargs, sort_keys=True), flush=True)
     if queries == 1 and scenario == 'query_exception':
         raise OSError('broken pipe')
+    if scenario == 'slow_query':
+        import time
+        time.sleep(10)
     return Result(queries == 1)
 '''
 
@@ -128,10 +141,11 @@ def isolated(monkeypatch, tmp_path):
     fn = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == 'fetch_index_daily')
     batches = []
     conn = SimpleNamespace(executemany=lambda sql, rows: batches.append((sql, rows)),
+                           execute=lambda *a: None, set_progress_handler=lambda *a: None,
                            commit=lambda: None, close=lambda: None)
     ns = {'dt': dt, 'time': time, 'json': json, 'sys': sys, '_ROOT': tmp_path,
           '_safe_float': lambda x: float(x) if x not in ('', None) else None,
-          'get_conn': lambda: conn}
+          'get_conn': lambda **kw: conn}
     exec(compile(ast.Module(body=[fn], type_ignores=[]), str(ROOT / 'app/collector/public_fund.py'), 'exec'), ns)
     # 外层只容许启动python -c只读子查询，子进程40秒硬停仅属测试看门狗。
     real_run = subprocess.run
@@ -140,7 +154,10 @@ def isolated(monkeypatch, tmp_path):
         assert args[:2] == [sys.executable, '-c']
         assert Path(kwargs['cwd']) == tmp_path
         calls.append(args)
-        return real_run(args, **kwargs, timeout=40)
+        kwargs['timeout'] = min(kwargs.get('timeout', 40), 40)
+        kwargs['env'] = {k: v for k, v in os.environ.items() if k.startswith('INDEX_TEST_')}
+        kwargs['env'].update(PATH=os.defpath, HOME=str(tmp_path), PYTHONNOUSERSITE='1')
+        return real_run(args, **kwargs)
     monkeypatch.setattr(subprocess, 'run', run)
     return SimpleNamespace(fetch=ns['fetch_index_daily'], sdk=sdk, batches=batches,
                            calls=calls, real_run=real_run)
@@ -152,7 +169,10 @@ def invoke(env, capsys, monkeypatch, scenario, iid='hs300'):
     # 基线直接用假SDK，修后子进程用同一固定脚本；两边输入相同。
     env.sdk.scenario = scenario
     env.sdk.sample = SAMPLES[iid]
-    result = env.fetch('20261102', '20261109', iid)
+    try:
+        result = env.fetch('20261102', '20261109', iid)
+    except RuntimeError as exc:
+        result = exc
     return result, capsys.readouterr().out
 
 
@@ -172,15 +192,15 @@ def test_replays_whole_query_after_transient_failure(isolated, capsys, monkeypat
 @pytest.mark.parametrize('scenario', ['login_always', 'query_always', 'next_always', 'blacklist', 'empty'])
 def test_failure_or_legal_empty_never_reaches_writer(isolated, capsys, monkeypatch, scenario):
     result, output = invoke(isolated, capsys, monkeypatch, scenario)
-    assert result == 0
+    assert result == 0 if scenario == 'empty' else isinstance(result, RuntimeError)
     assert isolated.batches == []
     assert output.count('AUDIT login') <= 4
     assert output.count('AUDIT query') <= 2
     if scenario == 'blacklist':
         assert output.count('AUDIT login') == 1
-        assert '10001011' in output
+        assert '10001011' in str(result)
     if scenario != 'empty':
-        assert 'fail' in output or '失败' in output
+        assert 'fail' in str(result) or '失败' in str(result)
 
 
 @pytest.mark.parametrize('iid,code', [('hs300', 'sh.000300'), ('csi500', 'sh.000905'), ('gem', 'sz.399006')])
@@ -225,9 +245,9 @@ def test_child_failure_cannot_commit_partial_output(isolated, monkeypatch, capsy
         return SimpleNamespace(stdout='AUDIT partial\n' if kind == 'missing_result'
                                else 'FUND_INDEX_RESULT={bad json}\n')
     monkeypatch.setattr(subprocess, 'run', fail)
-    assert isolated.fetch('20261102', '20261109') == 0
+    with pytest.raises(RuntimeError, match='隔离查询失败'):
+        isolated.fetch('20261102', '20261109')
     assert isolated.batches == []
-    assert '隔离查询失败' in capsys.readouterr().out
 
 
 def test_real_module_import_uses_same_isolated_route(isolated, monkeypatch, capsys):
@@ -285,7 +305,7 @@ from types import SimpleNamespace
 source=Path({str(ROOT / 'app/collector/public_fund.py')!r}).read_text()
 fn=next(n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef) and n.name=='fetch_index_daily')
 ns={{'dt':dt,'time':time,'json':json,'sys':sys,'_ROOT':Path({str(tmp_path)!r}),
-    '_safe_float':float,'get_conn':lambda:SimpleNamespace(
+    '_safe_float':float,'get_conn':lambda **kw:SimpleNamespace(
         executemany=lambda *a:Path({str(writer)!r}).write_text('writer reached'),commit=lambda:None,close=lambda:None)}}
 exec(compile(ast.Module(body=[fn],type_ignores=[]),'<fetch-under-test>','exec'),ns)
 real_run=subprocess.run
@@ -360,9 +380,206 @@ def test_liveness_pipe_descriptors_close_on_success_or_launch_failure(isolated, 
         def cannot_start(*a, **kw):
             raise OSError('受控启动失败')
         monkeypatch.setattr(subprocess, 'run', cannot_start)
-    assert isolated.fetch('20261102', '20261109') == (0 if fail else 6)
+    if fail:
+        with pytest.raises(RuntimeError, match='隔离查询失败'):
+            isolated.fetch('20261102', '20261109')
+    else:
+        assert isolated.fetch('20261102', '20261109') == 6
     assert owned
     # 第一个pipe由fetch创建；subprocess另建stdout/stderr管道不计入本函数资源。
     for fd in owned[0]:
         with pytest.raises(OSError):
             os.fstat(fd)
+
+
+@pytest.mark.parametrize('scenario', ['slow_login', 'slow_query', 'slow_next', 'trickle'])
+def test_deadline_bounds_sdk_and_discards_partial_rows(isolated, monkeypatch, scenario):
+    monkeypatch.setenv('INDEX_TEST_SCENARIO', scenario)
+    start = time.monotonic()
+    with pytest.raises(TimeoutError):
+        isolated.fetch('20261102', '20261109', deadline=start + 0.20, io_timeout=0.06)
+    assert time.monotonic() - start < 1.0
+    assert isolated.batches == []
+
+
+def test_logout_is_bounded_but_keeps_complete_response(isolated, monkeypatch):
+    monkeypatch.setenv('INDEX_TEST_SCENARIO', 'slow_logout')
+    start = time.monotonic()
+    assert isolated.fetch('20261102', '20261109', deadline=start + 1, io_timeout=0.06) == 6
+    assert time.monotonic() - start < 0.8
+    assert len(isolated.batches) == 1
+
+
+def test_parent_timeout_kills_and_reaps_blocked_sdk_import(isolated, monkeypatch, tmp_path):
+    monkeypatch.setenv('INDEX_TEST_SCENARIO', 'blocked_import')
+    pidfile = tmp_path / 'query-pid'
+    monkeypatch.setenv('INDEX_TEST_CHILD_PID', str(pidfile))
+    with pytest.raises(TimeoutError):
+        isolated.fetch('20261102', '20261109', deadline=time.monotonic() + 0.3)
+    assert pidfile.exists()
+    monkeypatch.setattr(subprocess, 'run', isolated.real_run)
+    state, alive = _process_state(int(pidfile.read_text()))
+    assert not alive and not state  # wait已回收，连僵尸也没有。
+    assert isolated.batches == []
+
+
+def test_expired_deadline_never_launches_or_writes(isolated):
+    with pytest.raises(TimeoutError):
+        isolated.fetch('20261102', '20261109', deadline=time.monotonic() - 1)
+    assert isolated.calls == []
+    assert isolated.batches == []
+
+
+def _entrypoints(isolated):
+    tree = ast.parse((ROOT / 'app/collector/public_fund.py').read_text())
+    nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef)
+             and n.name in ('pipeline_daily', 'main')]
+    ns = dict(isolated.fetch.__globals__)
+    ns.update(init_db=lambda: None, _acquire_lock=lambda **kw: True,
+              fetch_daily_nav=lambda: 0, fetch_estimation=lambda: 0)
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), '<entrypoints>', 'exec'), ns)
+    return ns
+
+
+def test_pipeline_carries_one_deadline_after_prior_stages(isolated):
+    ns = _entrypoints(isolated)
+    now = [100.0]
+    seen = []
+    ns['time'] = SimpleNamespace(time=lambda: now[0], monotonic=lambda: now[0])
+    def nav():
+        now[0] += 200
+        return 7
+    def estimation():
+        now[0] += 40
+        return 0
+    def index(**kwargs):
+        seen.append((kwargs['index_id'], kwargs['deadline'], kwargs['deadline'] - now[0]))
+        now[0] += 10
+        return 6
+    ns.update(fetch_daily_nav=nav, fetch_estimation=estimation, fetch_index_daily=index,
+              get_conn=lambda: SimpleNamespace(execute=lambda *a: SimpleNamespace(fetchall=lambda: []),
+                                                close=lambda: None))
+    stats = ns['pipeline_daily']()
+    assert stats['fund_daily_nav'] == 7
+    assert seen == [('hs300', 390, 50), ('csi500', 390, 40), ('gem', 390, 30)]
+
+
+@pytest.mark.parametrize('scenario,exit_code', [('empty', None), ('query_always', 2), ('slow_login', 124)])
+def test_daily_cli_distinguishes_empty_error_timeout(isolated, monkeypatch, scenario, exit_code):
+    ns = _entrypoints(isolated)
+    monkeypatch.setattr(sys, 'argv', ['public_fund', 'daily'])
+    monkeypatch.setenv('INDEX_TEST_SCENARIO', scenario)
+    real_fetch = isolated.fetch
+    ns['fetch_index_daily'] = lambda **kw: real_fetch(
+        '20261102', '20261109', kw['index_id'],
+        deadline=min(kw['deadline'], time.monotonic() + 0.2), io_timeout=0.06)
+    ns['get_conn'] = lambda: SimpleNamespace(execute=lambda *a: SimpleNamespace(fetchall=lambda: []),
+                                           close=lambda: None)
+    if exit_code is None:
+        assert ns['main']() is None
+    else:
+        with pytest.raises(SystemExit) as exc:
+            ns['main']()
+        assert exc.value.code == exit_code
+    assert isolated.batches == []
+
+
+def test_later_index_failure_keeps_prior_complete_commit_but_fails_batch(isolated, monkeypatch, tmp_path):
+    import sqlite3
+    db = tmp_path / 'indices.db'
+    with sqlite3.connect(db) as conn:
+        conn.execute('CREATE TABLE fund_index_daily(date TEXT, index_id TEXT, close REAL, pct_change REAL, '
+                     'PRIMARY KEY(date,index_id))')
+    monkeypatch.setitem(isolated.fetch.__globals__, 'get_conn', lambda **kw: sqlite3.connect(db))
+    ns = _entrypoints(isolated)
+    def fetch(**kw):
+        monkeypatch.setenv('INDEX_TEST_SCENARIO', 'ok' if kw['index_id'] == 'hs300' else 'query_always')
+        return isolated.fetch('20261102', '20261109', **kw)
+    ns['fetch_index_daily'] = fetch
+    with pytest.raises(RuntimeError, match='查询失败'):
+        ns['pipeline_daily']()
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT DISTINCT index_id FROM fund_index_daily').fetchall() == [('hs300',)]
+        assert conn.execute('SELECT COUNT(*) FROM fund_index_daily').fetchone()[0] == 6
+
+
+@pytest.mark.parametrize('failure', ['sql', 'deadline'])
+def test_write_failure_rolls_back_batch_preserves_previous_commit(isolated, monkeypatch, tmp_path, failure):
+    import sqlite3
+    db = tmp_path / 'indices.db'
+    with sqlite3.connect(db) as conn:
+        conn.execute('CREATE TABLE fund_index_daily(date TEXT, index_id TEXT, close REAL, pct_change REAL, '
+                     'PRIMARY KEY(date,index_id))')
+        conn.execute("INSERT INTO fund_index_daily VALUES ('20261102','hs300',123,1)")
+        if failure == 'sql':
+            conn.execute("CREATE TRIGGER stop_second BEFORE INSERT ON fund_index_daily "
+                         "WHEN NEW.date='20261103' BEGIN SELECT RAISE(ABORT,'injected'); END")
+    clock = [0]
+    class Connection:
+        def __init__(self, **kwargs):
+            self.conn = sqlite3.connect(db)
+        def __getattr__(self, name):
+            return getattr(self.conn, name)
+        def executemany(self, sql, rows):
+            result = self.conn.executemany(sql, rows)
+            if failure == 'deadline':
+                clock[0] = 1
+            return result
+    monkeypatch.setitem(isolated.fetch.__globals__, 'get_conn', Connection)
+    # 使用真实monotonic绝对截止，写完时单独让父时钟越界，不污染全局time。
+    deadline = time.monotonic() + 5
+    monkeypatch.setitem(isolated.fetch.__globals__, 'time', SimpleNamespace(
+        time=time.time, monotonic=lambda: deadline + 1 if clock[0] else time.monotonic()))
+    with pytest.raises(sqlite3.IntegrityError if failure == 'sql' else TimeoutError):
+        isolated.fetch('20261102', '20261109', deadline=deadline)
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT * FROM fund_index_daily').fetchall() == [('20261102', 'hs300', 123, 1)]
+
+
+@pytest.mark.parametrize('cmd', ['estimate', 'backfill-nav'])
+def test_other_index_batches_share_deadline_and_stop_followup(isolated, monkeypatch, cmd):
+    ns = _entrypoints(isolated)
+    monkeypatch.setattr(sys, 'argv', ['public_fund', cmd])
+    calls = []
+    def index(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 2:
+            raise RuntimeError('index unavailable')
+        return 6
+    def forbidden(*args, **kwargs):
+        pytest.fail('指数失败不得继续回填/导出')
+    ns.update(fetch_index_daily=index, fetch_nav_history=forbidden, export_json_files=forbidden)
+    with pytest.raises(RuntimeError):
+        ns['main']()
+    assert [c['index_id'] for c in calls] == ['hs300', 'csi500']
+    assert len({c['deadline'] for c in calls}) == 1
+
+
+def test_connection_setup_lock_obeys_remaining_budget_and_closes(tmp_path):
+    import sqlite3
+    db = tmp_path / 'locked.db'
+    with sqlite3.connect(db) as conn:
+        conn.execute('CREATE TABLE fixture(x)')
+    holder = sqlite3.connect(db)
+    holder.execute('BEGIN EXCLUSIVE')
+    tree = ast.parse((ROOT / 'app/collector/public_fund.py').read_text())
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'get_conn')
+    opened = []
+    def connect(*args, **kwargs):
+        conn = sqlite3.connect(*args, **kwargs)
+        opened.append(conn)
+        return conn
+    ns = {'sqlite3': SimpleNamespace(connect=connect, Row=sqlite3.Row, Connection=sqlite3.Connection),
+          'DB_PATH': db}
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), '<get_conn>', 'exec'), ns)
+    try:
+        started = time.monotonic()
+        with pytest.raises(sqlite3.OperationalError, match='locked'):
+            ns['get_conn'](timeout=0.05)
+        assert time.monotonic() - started < 0.5
+        assert len(opened) == 1
+        with pytest.raises(sqlite3.ProgrammingError, match='closed'):
+            opened[0].execute('SELECT 1')
+    finally:
+        holder.rollback()
+        holder.close()

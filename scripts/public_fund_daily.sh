@@ -78,7 +78,8 @@ fi
 
 # 1) 日更采集（fund_open_fund_daily_em ~23738 行 + 估算仓位变化, ~8s）
 #    pipeline_daily 不调 export_json_files（只更新 fund_daily_nav 表），需手动 export 推 JSON。
-#    预算 300s（实测 161.6s / 24.4s, 余量约 2x）; 被杀=非零退出, 走下面「跳过 export+deploy」既有分支。
+#    外层保护300s；pipeline内部290s绝对截止含此前净值/估算耗时，
+#    三指数登录/分页/重连共享剩余预算。异常exit2、超时124、合法空0；失败不export/deploy。
 echo "-> 采集公募基金日更净值（预算 300s）..." | tee -a "$LOG"
 run_to 300 "$PY" -m app.collector.public_fund daily 2>&1 | tee -a "$LOG"
 COLLECT_RC=${PIPESTATUS[0]}

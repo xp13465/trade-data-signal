@@ -493,13 +493,17 @@ CREATE INDEX IF NOT EXISTS idx_fund_score_composite ON fund_score(composite_scor
 _LOCK_FILE: list = [None]
 
 
-def get_conn() -> sqlite3.Connection:
+def get_conn(*, timeout: float = 30.0) -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=10.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA busy_timeout=30000;")
-    return conn
+    conn = sqlite3.connect(DB_PATH, timeout=min(10.0, timeout))
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute(f"PRAGMA busy_timeout={max(1, int(timeout * 1000))};")
+        return conn
+    except Exception:
+        conn.close()
+        raise
 
 
 def init_db() -> None:
@@ -1064,7 +1068,8 @@ def fetch_estimation() -> int:
 
 # ── Fetcher E3: 基准指数日频 (baostock 沪深300) ──────────────────────────────────
 def fetch_index_daily(start_date: str | None = None, end_date: str | None = None,
-                      index_id: str = "hs300") -> int:
+                      index_id: str = "hs300", *, deadline: float | None = None,
+                      io_timeout: float = 30.0) -> int:
     """baostock sh.000300 沪深300日频 -> fund_index_daily (反推算法基准指数)。
 
     ak.stock_zh_index_daily_em 被东财封 RemoteDisconnected, 改用 baostock。
@@ -1074,7 +1079,9 @@ def fetch_index_daily(start_date: str | None = None, end_date: str | None = None
       start_date: YYYYMMDD, 默认 1 年前
       end_date: YYYYMMDD, 默认今日
       index_id: 'hs300' (沪深300, 和 lg 源 close 一致, 88 魔咒图基准)
-    Returns: 写入行数
+    Returns: 完整响应的写入行数；合法空响应为0，查询失败/超时抛异常。
+    deadline: 整轮共享的monotonic绝对截止；独立调用默认290秒。
+    io_timeout: 单次SDK调用上限，默认沿用现有30秒socket预算。
     """
     print(f"[E3] fetch_index_daily({index_id}) ...", flush=True)
     t = time.time()
@@ -1090,15 +1097,30 @@ def fetch_index_daily(start_date: str | None = None, end_date: str | None = None
 
     # SDK 的 socket/login 是进程全局状态；线程锁保护不到其他 BaoStock 入口。
     # 仿现有 baostock_worker 隔离连接，但子进程只查数据，绝不初始化/写数据库。
-    # 不叠加 timeout：沿用 base 的 socket 双守卫和既有有界重连预算。
+    # socket超时只约束一次recv，不能约束连续分页/登录重试总时长。
+    # SDK没有timeout参数；仅在这个隔离进程中限制每次调用和整轮剩余时间。
     import os
     import subprocess
+    import math
 
+    deadline = time.monotonic() + 290.0 if deadline is None else deadline
+    if not math.isfinite(deadline) or not math.isfinite(io_timeout) or io_timeout <= 0:
+        raise ValueError("指数采集预算必须为有限正数")
+
+    def remaining():
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError(f"[E3] {index_id} 整轮采集预算耗尽")
+        return left
+
+    remaining()  # 截止后不启动子进程、不打开数据库。
     query_script = '''
 import json
 import os
 import sys
 import threading
+import time
+import signal
 
 # 先于SDK导入启动：父进程独占管道写端，退出(包括SIGALRM)即EOF。
 # 只退出本查询进程，不更改全局信号handler，也不按PID杀其它任务。
@@ -1113,22 +1135,59 @@ threading.Thread(target=exit_with_parent, daemon=True).start()
 from app.collector import baostock_daily as daily
 
 code, sd, ed = sys.argv[1:4]
-payload = {"rows": [], "error": ""}
+deadline, io_timeout = map(float, sys.argv[5:7])
+payload = {"rows": [], "error": "", "timeout": False}
+
+# BaoStock内部except Exception会吞socket超时；专用BaseException穿过SDK，
+# 只在本调用边界转成TimeoutError。信号仅影响独立查询进程的主线程。
+class CallExpired(BaseException):
+    pass
+
+def expired(*_):
+    raise CallExpired()
+signal.signal(signal.SIGALRM, expired)
+
+def remaining():
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise TimeoutError("整轮指数采集预算耗尽")
+    return left
+
+def bounded(fn, *args, **kwargs):
+    signal.setitimer(signal.ITIMER_REAL, min(io_timeout, remaining()))
+    try:
+        result = fn(*args, **kwargs)
+        remaining()
+        return result
+    except CallExpired:
+        raise TimeoutError("指数SDK调用超时") from None
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+
+# 复用原登录/重连/清理助手；只在隔离子进程包SDK调用和退避，
+# 不改共享baostock_daily源码，也不触碰父进程的SDK会话/信号。
+from types import SimpleNamespace
+login, logout, retry_sleep = daily.bs.login, daily.bs.logout, daily.time.sleep
+daily.bs.login = lambda: bounded(login)
+daily.bs.logout = lambda: bounded(logout)
+daily.time = SimpleNamespace(sleep=lambda pause: bounded(retry_sleep, pause))
+
 try:
     # 最多两次完整查询；每次恢复复用现有最多3次/间隔2秒的登录助手。
     for attempt in range(2):
         rows = []
         try:
+            remaining()
             daily._ensure_login()
-            rs = daily.bs.query_history_k_data_plus(
+            rs = bounded(daily.bs.query_history_k_data_plus,
                 code, "date,close,pctChg", start_date=sd, end_date=ed,
                 frequency="d")
             if rs.error_code != "0":
                 raise RuntimeError(f"{rs.error_code}: {rs.error_msg}")
-            while rs.next():
+            while bounded(rs.next):
                 if rs.error_code != "0":
                     raise RuntimeError(f"{rs.error_code}: {rs.error_msg}")
-                row = rs.get_row_data()
+                row = bounded(rs.get_row_data)
                 if rs.error_code != "0":
                     raise RuntimeError(f"{rs.error_code}: {rs.error_msg}")
                 if len(row) != 3:
@@ -1144,9 +1203,11 @@ try:
                 raise ConnectionError("10002007: 日线分页读取中断")
             payload["rows"] = rows
             payload["error"] = ""
+            payload["timeout"] = False
             break
         except Exception as exc:
             payload["error"] = f"{type(exc).__name__}: {exc}"
+            payload["timeout"] = isinstance(exc, TimeoutError)
             retryable = isinstance(exc, (OSError, EOFError)) or any(
                 err in str(exc) for err in daily._NETWORK_ERROR_CODES)
             if not retryable or attempt == 1:
@@ -1156,9 +1217,13 @@ try:
                 daily._reconnect_with_retry()
             except Exception as reconnect_exc:
                 payload["error"] = f"重连失败: {reconnect_exc}"
+                payload["timeout"] = isinstance(reconnect_exc, TimeoutError)
                 break
 finally:
-    daily._logout()
+    try:
+        daily._logout()
+    except Exception:
+        pass  # 子进程退出关闭socket；不因清理失败丢弃已完整接收的结果。
 # logout 在结果之前完成；即使失败登录留下socket，子进程退出也会释放，父会话不受影响。
 print("FUND_INDEX_RESULT=" + json.dumps(payload), flush=True)
 '''
@@ -1166,9 +1231,10 @@ print("FUND_INDEX_RESULT=" + json.dumps(payload), flush=True)
         parent_read, parent_write = os.pipe()  # 默认不可继承；只显式传子进程读端。
         try:
             result = subprocess.run(
-                [sys.executable, "-c", query_script, bs_code, sd, ed, str(parent_read)],
+                [sys.executable, "-c", query_script, bs_code, sd, ed, str(parent_read),
+                 str(deadline), str(io_timeout)],
                 cwd=str(_ROOT), capture_output=True, text=True, check=True,
-                pass_fds=(parent_read,))
+                pass_fds=(parent_read,), timeout=remaining())
         finally:
             os.close(parent_read)
             os.close(parent_write)
@@ -1179,13 +1245,18 @@ print("FUND_INDEX_RESULT=" + json.dumps(payload), flush=True)
             raise ValueError("隔离查询未返回完整结果")
         payload = json.loads(output[-1].removeprefix("FUND_INDEX_RESULT="))
         rows_data = payload["rows"]
-        if not rows_data and payload["error"]:
-            print(f"[E3] baostock 查询失败 {bs_code}: {payload['error']}", flush=True)
-            return 0
+        if payload["error"]:
+            error = TimeoutError if payload.get("timeout") else RuntimeError
+            raise error(f"[E3] baostock 查询失败 {bs_code}: {payload['error']}")
+    except subprocess.TimeoutExpired as exc:
+        # subprocess.run已kill+wait自己的查询进程，未返回的半批永不进入写库。
+        raise TimeoutError(f"[E3] {index_id} 隔离查询耗尽整轮预算") from exc
+    except TimeoutError:
+        raise
     except (OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:
         detail = getattr(exc, "stderr", "") or str(exc)
-        print(f"[E3] baostock 隔离查询失败 {bs_code}: {detail[-500:]}", flush=True)
-        return 0
+        raise RuntimeError(f"[E3] baostock 隔离查询失败 {bs_code}: {detail[-500:]}") from exc
+    remaining()
     if not rows_data:
         print(f"[E3] baostock 无数据 {bs_code} {sd}~{ed}", flush=True)
         return 0
@@ -1197,14 +1268,20 @@ print("FUND_INDEX_RESULT=" + json.dumps(payload), flush=True)
         if not d:
             continue
         rows.append((d, index_id, close, pct))
-    conn = get_conn()
-    conn.executemany(
-        "INSERT OR REPLACE INTO fund_index_daily(date, index_id, close, pct_change) "
-        "VALUES (?,?,?,?)",
-        rows,
-    )
-    conn.commit()
-    conn.close()
+    conn = get_conn(timeout=min(5.0, remaining()))
+    try:
+        # 建连/PRAGMA和写锁都继承剩余预算；超时回滚本批。
+        conn.execute(f"PRAGMA busy_timeout={max(1, int(min(5.0, remaining()) * 1000))}")
+        conn.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
+        conn.executemany(
+            "INSERT OR REPLACE INTO fund_index_daily(date, index_id, close, pct_change) "
+            "VALUES (?,?,?,?)",
+            rows,
+        )
+        remaining()
+        conn.commit()
+    finally:
+        conn.close()  # 异常关闭会回滚未提交的完整事务。
     print(f"[E3] fund_index_daily 写入 {len(rows)} 行 {index_id} "
           f"{rows[0][0]}~{rows[-1][0]}, {time.time()-t:.1f}s", flush=True)
     return len(rows)
@@ -4392,7 +4469,7 @@ def pipeline_full(top_n: int = FULL_TOP_N) -> dict:
     return stats
 
 
-def pipeline_daily() -> dict:
+def pipeline_daily(*, budget_seconds: float = 290.0) -> dict:
     """日更 pipeline: fetch_daily_nav + fetch_estimation + fetch_index_daily + 估算仓位变化（~15s）。
 
     fetch_estimation 盘后/非交易日返回 0(无数据正常), 盘中才有实时估算。
@@ -4405,6 +4482,8 @@ def pipeline_daily() -> dict:
     pipeline_daily 只保证输入数据(fund_daily_nav + fund_index_daily)每日更新。
     """
     t0 = time.time()
+    # shell仍为300秒，内部留10秒给退出/进程回收，不增加外层35分钟预算。
+    deadline = time.monotonic() + budget_seconds
     print("=== pipeline_daily() ===", flush=True)
     stats: dict = {}
     stats["fund_daily_nav"] = fetch_daily_nav()
@@ -4412,7 +4491,7 @@ def pipeline_daily() -> dict:
     stats["fund_estimation_nav"] = fetch_estimation()
     # 三指数日频刷新(反推算法基准, baostock ~5s, 每日必采避免 fund_index_daily 滞后)
     for _idx in ("hs300", "csi500", "gem"):
-        stats[f"index_{_idx}"] = fetch_index_daily(index_id=_idx)
+        stats[f"index_{_idx}"] = fetch_index_daily(index_id=_idx, deadline=deadline)
     # 估算仓位变化（用 fund_position_history 最新两期 cninfo 季报环比）
     conn = get_conn()
     rows = conn.execute(
@@ -5677,7 +5756,11 @@ def main():
         export_json_files()
         print(f"[full] stats: {stats}", flush=True)
     elif cmd == "daily":
-        stats = pipeline_daily()
+        try:
+            stats = pipeline_daily()
+        except (TimeoutError, RuntimeError) as exc:
+            print(f"[daily] 采集失败: {exc}", file=sys.stderr, flush=True)
+            sys.exit(124 if isinstance(exc, TimeoutError) else 2)
         print(f"[daily] stats: {stats}", flush=True)
     elif cmd == "metrics":
         # 支持自定义 report_date
@@ -5809,15 +5892,17 @@ def main():
             if a == "--days" and i + 1 < len(sys.argv):
                 days = int(sys.argv[i + 1])
         # 先确保三指数日频有数据 (多因子回归基准: hs300+csi500+gem)
+        index_deadline = time.monotonic() + 290.0
         for _idx in ("hs300", "csi500", "gem"):
-            fetch_index_daily(index_id=_idx)
+            fetch_index_daily(index_id=_idx, deadline=index_deadline)
         n = fetch_nav_history(days=days)
         print(f"[backfill-nav] 完成, 总行数={n}", flush=True)
     elif cmd == "estimate":
         # 算预估仓位 + 导出 JSON (需先 backfill-nav)
         # 先刷新三指数到最新 (多因子: hs300+csi500+gem)
+        index_deadline = time.monotonic() + 290.0
         for _idx in ("hs300", "csi500", "gem"):
-            fetch_index_daily(index_id=_idx)
+            fetch_index_daily(index_id=_idx, deadline=index_deadline)
         export_json_files()
         print(f"[estimate] 预估仓位 JSON 已导出", flush=True)
     elif cmd == "fetch-estimation":
