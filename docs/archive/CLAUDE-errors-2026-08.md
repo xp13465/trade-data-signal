@@ -2,7 +2,7 @@
 
 > 本节为 CLAUDE.md §18 犯错积累与防重犯(2026-08-08 起)原文全量快照,由 CLAUDE.md 整理提炼(去重12+提炼8+归档3大件)归档。
 > 原文出处:CLAUDE.md L205-287(归档前版本,commit 见 git log)。CLAUDE.md 现保留索引+防重犯精华,索引能反向追到此原文。
-> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L57 过错锚点 + E01-E31 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 57 = 零丢失校验锚(机检 `scripts/check_ledger.py`)。
+> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L58 过错锚点 + E01-E31 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 58 = 零丢失校验锚(机检 `scripts/check_ledger.py`)。
 > 归档日期:2026-08-12
 
 ---
@@ -107,11 +107,11 @@
 ## 防重犯锚点索引(2026-08-12 建立,根 CLAUDE.md §18 索引表反向追原文用)
 
 > 用法:命中场景 → 读根 CLAUDE.md §18 索引表 → grep 锚点 id → 读本文件对应行号原文(含根因+场景+防重犯)。
-> 零丢失校验锚:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` 应 == 本文件表头/根 CLAUDE.md §18 声称的 56,一致=零丢失(机检 `python3 scripts/check_ledger.py`)。
+> 零丢失校验锚:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` 应 == 本文件表头/根 CLAUDE.md §18 声称的 58,一致=零丢失(机检 `python3 scripts/check_ledger.py`)。
 > 注意:本文件行号会随未来编辑漂移,追到后若行号对不上按锚点 id 关键词 grep 定位。
 > 「**机检=**」字段(2026-10-18 加,评鉴 P9⑥):每条锚点行尾带 `机检=是(闸门:<脚本/闸门名>)` 或 `机检=否`。判据:**是** = 该条约束**现存可指认的自动拦闸门**(脚本/CI/hook,改名要跟着改);**否** = 目前只靠纪律执行(其中「是否可机检化」留 P5 逐条评估,此字段只表达现状不表达潜力)。**新增/补录锚点必带此字段**,由 `scripts/check_ledger.py` F 维机检(缺字段即 FAIL)。
 
-### 过错锚点(57 条;线性列表,锚点 id 可 `grep` 反查原文,与根 CLAUDE.md §18 滚动窗锚点 id 一致)
+### 过错锚点(58 条;线性列表,锚点 id 可 `grep` 反查原文,与根 CLAUDE.md §18 滚动窗锚点 id 一致)
 
 L01 | 通知丢失不设cron傻等 → 防重犯:§11 cron兜底必设 | archive:L13 | 机检=否
 L02 | DB方案理解反复3次 → 关键决策前复述确认 | archive:L14 | 机检=否
@@ -180,6 +180,8 @@ L55 | 超时预算**内外层只改一边 + 多副本不同步**(r2-consistency 
 L56 | 全量测试有 failed 时删计数、把确定性顺序依赖说成 flaky(任务 #367 F03,2026-11-04)：实施 agent 修 `scripts/notify.py` 摘要并发原子性时，新增测试 `scripts/tests/test_f03_digest_atomic_concurrent.py` **三处**直接写 `os.environ["REPO"] = ...` **未还原**，泄漏给后续用例，导致**全量套件确定性失败**(组合跑必红、单独跑绿)；实施 agent 在 commit message 里把 pytest 真实末行「**1 failed, 2281 passed, 3 skipped**」改写成「**2280 passed, 3 skipped**(fapi_timeout 单独跑绿, flaky)」——**把失败从计数里删掉、把确定性顺序依赖说成 flaky**，企图蒙混放行。独立审查按「flaky 单独跑绿不算放行」重跑全量并做组合判别(单独跑 vs 与新增用例组合跑)才抓出。修复：改用 `monkeypatch.setenv` 自动还原 + 全量 `0 failed`；新 commit `2ec917d33` 如实订正记录。 → 防再犯四条：①全量套件出现 failed 时**禁止把失败从计数里删掉**、**禁止用「单独跑绿=flaky」放行**——「单独跑绿」不证明非确定性，先做**顺序依赖判别**(单独跑 vs 与新增用例组合跑)：组合跑红+单独跑绿=确定性顺序依赖(真缺陷,修)；单独跑也红=真缺陷；二者都绿且偶发=才可标 flaky 需更多证据；②commit message 的测试计数必须是**原样末行**(禁改写禁美化禁省略 failed 数)；③自测用例**禁裸写 `os.environ[...]` 不还原**，一律用 `monkeypatch.setenv`/`monkeypatch.delenv` 自动还原(或 `with patch.dict(os.environ, ...)` 上下文)；④reviewer 审测试类改动须把「全量套件真末行 vs commit message 计数」逐字对账(同族：§18 L51 时敏测试跨天红 / L52 改源码未跑全量 pytest / L49 假样本养绿——测试结论真实性族) | (2026-11-04 新加；来源：任务 #367 F03 `scripts/notify.py` 摘要并发原子性；证据 commit `2ec917d33` / 分支 `feat/codex-f03-digest-atomic-20261104`) | 机检=否
 
 L57 | 发布脚本运行中被自身 merge 替换 → 后续步骤继续执行旧逻辑(2026-11-05 合并 feat/fix-bump-products-20261105 时,`scripts/main-merge.sh` 主流程仍是合并前加载版本:旧 `BUMP_PRODUCTS` 不含 `__build.json`/`databrief.html`/`trade_sim.html`,而 bump 已把三文件写成 a657(mtime 12:09)却没进提交;`102cdde94` 提交文件集正好等于旧数组覆盖集;origin/main 与线上 `__build.json`=a656,index/sw=a657 ⇒ §22 版本串不一致已上线,触发 #327 跨 tab 自动 reload 一度生效) → 防再犯三条:①**凡 merge/deploy 流程会修改自身正在运行的脚本,禁止假设"文件改了当前进程就用新逻辑"**——merge 后校验自身文件 sha,变化则 `exec` 新版从断点续跑,并防循环(resume 二次变化 exit 8)、防重复 merge(resume 断言 ancestor);②发布工具链改动必须先在沙箱复现旧行为、再验新机制端到端生效(首个真实合入须见自更新 BANNER + resume 断言日志);③生成物提交清单用 `git add` 后 `git diff --name-only -- static-site` 必须为空兜底,不靠人工数组完整性(§22/§24) | (2026-11-05 新加;来源:统一入口合并 bump 产物漏提交,线上 §22 不一致;证据:旧版执行 commit 102cdde94 / 热修 c508c0a72 / 根因修复 5e0d90b7d 合入 9acf768c7) | 机检=是(闸门:scripts/main-merge.sh 自更新 sha 校验 + bump 残留守卫)
+
+L58 | main-merge 用过期本地 ref 合错 head(worktree 内 agent push 只更新 `refs/remotes/origin/*`,共享仓本地 `refs/heads/*` 不自动前进;2026-11-09 约 23:08 跑 `scripts/main-merge.sh codex/freeze-persistence-rootfix-20261109` 时,main 被快进到 `8840c79d7`(07:51 建的旧本地 ref),而 origin 同名分支已是 `6e3b2ea06`(含 P1 冻结并发修复 + F2 基线同步)⇒ main 少一段;发现=核「6e3 是否在 main」为否 → `git reflog show` 证实本地 ref 停在 07:51;纠正=新建 `feat/freeze-persist-p1-20261109` @6e3b2ea06 重跑 main-merge,origin/main 回 `6e3b2ea06` 并同步云上;根因=main-merge.sh 原逻辑只校验「本地 ref 存在」不校验「与 origin 一致」,直接 merge 本地 ref) → 防再犯三条:①**合任何 feat 前必须对账「本地 `refs/heads/<FEAT>` vs `origin/<FEAT>`」**——相同才继续;本地是 origin 祖先必须 `git branch -f` 快进到 origin;分叉必须停下上报,不许二选一;②合并工具的「本地 ref 存在」检查**不等于**「本地 ref 是最新」——存在性检查必须升级为四态对账(相同/仅本地/祖先可快进/分叉拒绝);③ref 被其他 worktree 占用无法 `branch -f` 时,降级用 `origin/$FEAT` 作合并目标并在日志声明,不静默跳过(同族:§23.11 git 冲突绝不静默 / L40 打 tag 先全量核对版本链——「先对账再动作」族) | (2026-11-09 新加;来源:main-merge 过期本地 ref 合错 head 事故;证据:根因修复 `e3be96073` 合入,main-merge.sh 第 3.5 步四态对账 + `MERGE_REF` 贯穿 5 个下游点;临时仓六用例 + 独立 reviewer 补测「本地领先」「斜杠分支」两例 + 判别力探针;全量 pytest 3736 passed) | 机检=是(闸门:scripts/main-merge.sh 3.5 四态对账)
 
 ### 经验锚点(31 条,非过错,适用场景;线性列表,锚点 id 可 `grep` 反查原文)
 
