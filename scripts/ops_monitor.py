@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Read-only bounded cloud collector. --collect-only never accesses the network.
 
-Only fixed systemctl properties and fixed source paths are read. File existence is
+Only fixed systemctl properties, this collector's bounded journal projection and
+fixed source paths are read. File existence is
 not content correctness; publication/backup metadata never proves remote integrity.
 Codex implements this collector; Claude reviews, merges and deploys. Python stdlib only.
 """
@@ -38,6 +39,10 @@ MAX_JSON = 1024 * 1024
 MAX_COMMAND = 128 * 1024
 MAX_UNITS = 72
 MAX_CHECKS = 250
+SELF_UNIT = 'trade-ops-monitor.service'
+SELF_JOURNAL = ('/usr/bin/journalctl', '--no-pager', '--quiet', '--boot=0',
+                '--unit=' + SELF_UNIT, '--lines=64', '--output=json',
+                '--output-fields=__REALTIME_TIMESTAMP,_BOOT_ID,_PID,UNIT,MESSAGE_ID,JOB_TYPE,JOB_RESULT,INVOCATION_ID,_SYSTEMD_UNIT,_SYSTEMD_INVOCATION_ID,SYSLOG_IDENTIFIER,MESSAGE')
 ALLOWED_HOSTS = frozenset({'ss.fx8.store', 's.fx8.store', 'sss.sugas.site', 's.sugas.site'})
 HEAD_PATHS = frozenset({'/', '/__build', '/__build.json', '/data/schedule_stats.json'})
 UNIT_RE = re.compile(r'^trade-[A-Za-z0-9_-]{1,90}\.service$')
@@ -215,12 +220,15 @@ def load_registry(code_root):
 
 
 class CommandRunner:
-    """Fixed commands, bounded combined pipes, hard wall deadline, no shell/env inheritance."""
+    """Fixed read-only commands, bounded pipes, hard wall deadline, no shell/env inheritance."""
     def __init__(self, budget, timeout=3):
         self.budget, self.timeout = budget, timeout
 
     def run(self, args):
-        if not args or args[0] != '/usr/bin/systemctl' or args[1] not in ('show', 'list-unit-files'):
+        journal = (tuple(args[:-1]) == SELF_JOURNAL and
+                   re.fullmatch(r'--since=@[0-9]{1,12}', args[-1] or '') is not None) if args else False
+        systemctl = len(args) > 1 and args[0] == '/usr/bin/systemctl' and args[1] in ('show', 'list-unit-files')
+        if not (systemctl or journal):
             raise ContractError('command not allowed')
         stop = time.monotonic() + self.budget.remaining(self.timeout)
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -296,6 +304,73 @@ def systemd_time_utc(value):
         return datetime.strptime(match[1], '%Y-%m-%d %H:%M:%S').replace(tzinfo=zone).astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
     except ValueError:
         return None
+
+
+def schedule_time_utc(value):
+    # The existing producer emits naive cloud-local timestamps to seconds.
+    if isinstance(value, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', value):
+        value += ' CST'
+    return systemd_time_utc(value) if isinstance(value, str) else None
+
+
+def timestamp(value):
+    return datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp() if value else None
+
+
+def previous_monitor_completion(raw, derived_end, current_start, now, max_age):
+    """Bounded journal projection. Never infer completion from app output alone."""
+    if len(raw.encode()) > MAX_COMMAND or len(raw.splitlines()) > 64:
+        raise LimitError('completion records cap')
+    records = [json.loads(line, object_pairs_hook=strict_pairs) for line in raw.splitlines() if line]
+    terminals, deliveries = [], []
+    for r in records:
+        if not isinstance(r, dict):
+            raise ContractError('completion record')
+        manager = (r.get('_PID') == '1' and r.get('UNIT') == SELF_UNIT
+                   and r.get('JOB_TYPE') == 'start' and ('JOB_RESULT' in r or r.get('MESSAGE_ID') in
+                       ('39f53479d3a045ac8e11786248231fbf', 'be02cf6855d2428ba40df7e9d022f03d')))
+        app = r.get('_SYSTEMD_UNIT') == SELF_UNIT and r.get('SYSLOG_IDENTIFIER') == 'trade-ops-monitor'
+        if not manager and not app:
+            continue
+        usec, boot = r.get('__REALTIME_TIMESTAMP'), r.get('_BOOT_ID')
+        if not isinstance(usec, str) or not usec.isdigit() or not isinstance(boot, str) or not re.fullmatch('[a-f0-9]{32}', boot):
+            raise ContractError('completion timestamp or boot')
+        ts = int(usec) / 1000000
+        inv = r.get('INVOCATION_ID' if manager else '_SYSTEMD_INVOCATION_ID')
+        if not isinstance(inv, str) or not re.fullmatch('[a-f0-9]{32}', inv):
+            # A manager terminal without identity must block borrowing older success.
+            if manager:
+                raise ContractError('completion invocation')
+            continue
+        if manager:
+            terminals.append((ts, boot, inv, r))
+        elif app:
+            try:
+                msg = json.loads(r.get('MESSAGE', ''), object_pairs_hook=strict_pairs)
+                if (isinstance(msg, dict) and msg.get('delivery_ok') is True
+                        and msg.get('collect_only') is False and isinstance(msg.get('delivery'), dict)
+                        and msg['delivery'].get('http_status') == 200):
+                    uuid.UUID(msg['snapshot_id'])
+                    deliveries.append((ts, boot, inv))
+            except (ValueError, TypeError, KeyError, ContractError):
+                pass
+    if not terminals:
+        return None
+    ts, boot, inv, terminal = max(terminals, key=lambda r: r[0])
+    if any(t == ts and (b, i, r) != (boot, inv, terminal) for t, b, i, r in terminals):
+        return None  # Ambiguous terminal order must not manufacture recovery.
+    if not derived_end < ts < current_start <= now or now - ts > max_age:
+        return None
+    done = (terminal.get('MESSAGE_ID') == '39f53479d3a045ac8e11786248231fbf'
+            and terminal.get('JOB_RESULT') == 'done')
+    failed = (terminal.get('MESSAGE_ID') == 'be02cf6855d2428ba40df7e9d022f03d'
+              and terminal.get('JOB_RESULT') == 'failed')
+    if done and not any(b == boot and i == inv and derived_end < t <= ts for t, b, i in deliveries):
+        return None
+    if not done and not failed:
+        return None
+    end = datetime.fromtimestamp(ts, timezone.utc).isoformat().replace('+00:00', 'Z')
+    return done, end
 
 
 def calendar_fingerprint(props):
@@ -540,6 +615,9 @@ class Collector:
             code = item.get('last_exit')
             evidence = {'row_present': bool(item), 'source_current': trusted,
                         'trusted_exit_origin': trusted_exit, 'exit_conflict': item.get('exit_conflict') is True}
+            evidence.update(derived_start_utc=schedule_time_utc(item.get('unit_start')),
+                            derived_exit_utc=schedule_time_utc(item.get('unit_exit_ts')),
+                            derived_exit_code=code if type(code) is int else None)
             if trusted and item:
                 if item.get('exit_conflict') is True:
                     status, summary = 'warning', 'Derived exit evidence conflicts; not auto-resolved'
@@ -553,8 +631,70 @@ class Collector:
                     evidence['exit_code'] = code
                     status = 'ok' if code == 0 else 'warning'
                     summary = 'Trusted derived execution verdict; no business data validation'
+                    reconciled = self.completed_schedule(row, item, evidence)
+                    if reconciled is not None:
+                        status, summary = reconciled
             self.add(check(cid, 'monitor', status, summary, evidence))
             self.counts['schedule_rows'] += 1
+
+    def completed_schedule(self, row, item, evidence):
+        """Reconcile a completed derived round, never clear flags or rewrite history."""
+        old_start = timestamp(evidence['derived_start_utc'])
+        old_end = timestamp(evidence['derived_exit_utc'])
+        if (item.get('unit') != row['unit'] or item.get('unit_exit_source') not in ('systemd', 'ledger')
+                or old_start is None or old_end is None or not old_start <= old_end <= self.now.timestamp()):
+            return None
+        props = self.unit_observations.get(row['unit']) or {}
+        if first(props, 'LoadState') != 'loaded' or first(props, 'Type') != 'oneshot':
+            return None
+        start = timestamp(systemd_time_utc(first(props, 'ExecMainStartTimestamp')))
+        end_utc = systemd_time_utc(first(props, 'ExecMainExitTimestamp'))
+        end = timestamp(end_utc)
+        active = first(props, 'ActiveState')
+        if active in ('active', 'activating', 'reloading'):
+            evidence['execution_state'] = 'running'
+            # The collector always observes its own current invocation running.
+            # Require an earlier delivery ACK AND its matching manager completion.
+            if row['unit'] == SELF_UNIT and start is not None:
+                try:
+                    since = int(self.now.timestamp() - self.cfg.schedule_max_age_seconds)
+                    raw = self.runner.run([*SELF_JOURNAL, '--since=@' + str(since)])
+                    completed = previous_monitor_completion(raw, old_end, start, self.now.timestamp(),
+                                                            self.cfg.schedule_max_age_seconds)
+                except Exception as exc:
+                    evidence['completion_error_kind'] = type(exc).__name__[:64]
+                    completed = None
+                if completed:
+                    success, end_utc = completed
+                    evidence.update(completion_source='systemd_journal', completed_at_utc=end_utc,
+                                    latest_completed_success=success, exit_code=0 if success else None,
+                                    recovery_verified=success and item.get('last_exit') != 0)
+                    return ('ok' if success else 'warning',
+                            'Previous monitor delivery and completed invocation verified; current invocation still running')
+                if item.get('last_exit') == 0:
+                    return 'unknown', 'Monitor is running; no fresh completed delivery proof'
+            # Running alone never clears an existing failure.
+            return None
+        if (active not in ('inactive', 'failed') or start is None or end is None
+                or not old_end < start <= end <= self.now.timestamp()
+                or self.now.timestamp() - end > self.cfg.schedule_max_age_seconds):
+            return None
+        code = first(props, 'ExecMainStatus')
+        success = (active == 'inactive' and first(props, 'SubState') == 'dead'
+                   and first(props, 'ExecMainCode') == '1' and first(props, 'Result') == 'success'
+                   and exit_matches_success_policy(props))
+        failure = (active == 'failed' or first(props, 'Result') not in ('', 'success')
+                   or (code.isdigit() and int(code) != 0 and not success))
+        if not success and not failure:
+            return None
+        evidence.update(completion_source='systemd_live', completed_at_utc=end_utc,
+                        exit_code=int(code) if code.isdigit() else None,
+                        execution_state='completed' if success else 'failed',
+                        recovery_verified=success and item.get('last_exit') != 0)
+        if success and code != '0':
+            evidence['accepted_success_exit'] = True
+        return ('ok' if success else 'warning',
+                'Newer completed systemd round reconciles derived history; no business data validation')
 
     def unfinished_schedule(self, row, item, evidence):
         # Reuse the bounded live unit observation; a start recorded by the
@@ -858,26 +998,15 @@ def network_error_kind(exc):
 
 
 def _network_worker(pipe, url, payload, secret_file, head, test_local, deadline):
-    # Retry only the same immutable serialized snapshot; never collect again.
-    result = {'ok': False, 'error_kind': 'NetworkDeadline'}
-    for attempt in range(1, 2 if head else 4):
+    # One attempt only: the parent enforces wall time across DNS/TLS/trickle reads.
+    try:
         left = deadline - time.monotonic()
         if left <= 0:
-            break
-        try:
+            result = {'ok': False, 'error_kind': 'TimeoutError'}
+        else:
             result = request_http(url, payload, secret_file, head, test_local, timeout=min(5, left))
-        except Exception as exc:
-            result = {'ok': False, 'error_kind': network_error_kind(exc)}
-        result['attempts'] = attempt
-        kind = result.get('error_kind')
-        retry = (kind in ('TimeoutError', 'ConnectionError') or result.get('http_status') in (502, 503, 504))
-        if (head or result['ok'] or not retry or kind in NONRETRY_KINDS or
-                result.get('error') in ('ingest_not_configured', 'ops_token_configuration_invalid') or attempt == 3):
-            break
-        delay = .15 * 2 ** (attempt - 1)
-        if deadline - time.monotonic() <= delay:
-            break
-        time.sleep(delay)
+    except Exception as exc:
+        result = {'ok': False, 'error_kind': network_error_kind(exc)}
     try:
         pipe.send(result)
     finally:
@@ -885,29 +1014,52 @@ def _network_worker(pipe, url, payload, secret_file, head, test_local, deadline)
 
 
 def network_bounded(budget, url, payload=None, secret_file=None, head=False, test_local=False):
-    # A separate process bounds DNS, TLS and stalled reads as well as socket I/O.
+    # Preserve the original total deadline; use its remaining budget, not a
+    # second fixed 8s ceiling. Every retry reuses identical payload bytes/ID.
     endpoint(url, head=head, test_local=test_local)
-    seconds = budget.remaining(8)
-    # Include process startup, all attempts and backoff in one wall-clock bound.
-    # Leave cleanup time inside the original budget instead of adding time to it.
-    deadline = time.monotonic() + max(0, seconds - .15)
+    started = time.monotonic()
+    deadline = started + max(0, budget.remaining() - .15)
     context = multiprocessing.get_context('spawn')
-    receive, send = context.Pipe(duplex=False)
-    proc = context.Process(target=_network_worker, args=(send, url, payload, secret_file, head, test_local, deadline))
-    try:
-        proc.start()
-        send.close()
-        if receive.poll(max(0, deadline - time.monotonic())):
-            return receive.recv()
-        return {'ok': False, 'error_kind': 'NetworkDeadline'}
-    finally:
-        if proc.pid is not None:
-            proc.join(timeout=0.01)
-            if proc.is_alive():
-                proc.kill()
-                proc.join(timeout=0.1)
-        receive.close()
-        send.close()
+    result = {'ok': False, 'error_kind': 'NetworkDeadline', 'attempts': 0}
+    for attempt in range(1, 2 if head else 4):
+        if deadline - time.monotonic() <= .15:
+            result['deadline_exhausted'] = True
+            break
+        attempt_deadline = min(deadline, time.monotonic() + 5)
+        receive, send = context.Pipe(duplex=False)
+        proc = context.Process(target=_network_worker,
+                               args=(send, url, payload, secret_file, head, test_local, attempt_deadline))
+        try:
+            proc.start()
+            send.close()
+            if receive.poll(max(0, attempt_deadline - time.monotonic())):
+                try:
+                    result = receive.recv()
+                except EOFError:
+                    result = {'ok': False, 'error_kind': 'NetworkError'}
+            else:
+                result = {'ok': False, 'error_kind': 'TimeoutError', 'attempt_deadline_exceeded': True}
+        finally:
+            if proc.pid is not None:
+                proc.join(timeout=.01)
+                if proc.is_alive():
+                    proc.kill()
+                    proc.join(timeout=.1)
+            receive.close()
+            send.close()
+        result['attempts'] = attempt
+        kind = result.get('error_kind')
+        retry = (kind in ('TimeoutError', 'ConnectionError') or result.get('http_status') in (502, 503, 504))
+        if (head or result['ok'] or not retry or kind in NONRETRY_KINDS or
+                result.get('error') in ('ingest_not_configured', 'ops_token_configuration_invalid') or attempt == 3):
+            break
+        delay = .15 * 2 ** (attempt - 1)
+        if deadline - time.monotonic() <= delay + .15:
+            result['deadline_exhausted'] = True
+            break
+        time.sleep(delay)
+    result['elapsed_ms'] = int((time.monotonic() - started) * 1000)
+    return result
 
 
 def atomic_private_json(directory, filename, obj):
@@ -1062,7 +1214,8 @@ def main(argv=None):
         report, code = run_once(cfg, collect_only=args.collect_only, test_local_http=args.test_local_http)
         print(json.dumps({'snapshot_id': report['snapshot_id'], 'checks': report['coverage']['counts']['checks'],
                           'delivery_ok': report['delivery'].get('ok', False), 'collect_only': args.collect_only,
-                          'delivery': {key: report['delivery'][key] for key in ('http_status', 'error_kind')
+                          'delivery': {key: report['delivery'][key] for key in ('http_status', 'error_kind', 'attempts', 'elapsed_ms',
+                                                                          'deadline_exhausted', 'attempt_deadline_exceeded')
                                        if key in report['delivery']}}))
         return code
     except Exception as exc:
