@@ -1,0 +1,166 @@
+# Temporary audit branch only: retain after diagnosis; never merge into product main.
+# Contract: https://docs.github.com/en/rest/actions/workflow-jobs#download-job-logs-for-a-workflow-run
+name: worker375 fixed-job log diagnostic
+"on":
+  push:
+    branches: [codex/worker375-log-diagnostic-20261110]
+    paths: [.github/workflows/worker375-log-diagnostic-20261110.yml]
+permissions: {}
+jobs:
+  read-fixed-job:
+    if: github.repository == 'xp13465/trade-data-signal' && github.ref == 'refs/heads/codex/worker375-log-diagnostic-20261110'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: read
+      contents: none
+    steps:
+      - name: Read only fixed historical job and emit redacted first error
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import http.client
+          import json
+          import os
+          import re
+          import signal
+          from urllib.parse import urlsplit, urlunsplit
+
+          REPO = "xp13465/trade-data-signal"
+          BRANCH = "refs/heads/codex/worker375-log-diagnostic-20261110"
+          JOB = 129272109135
+          RUN = 42649615746
+          HEAD = "6e3b2ea06299d664cc67e676a0b73614d32f6634"
+          API = f"https://api.github.com/repos/{REPO}/actions/jobs/{JOB}"
+          MAX_LOG = 8 * 1024 * 1024
+
+
+          class DiagnosticError(Exception):
+              def __init__(self, stage, status, code):
+                  self.stage, self.status, self.code = stage, status, code
+
+
+          def get(url, *, token=None, expected=200, limit=65536, stage="metadata"):
+              # http.client has no automatic redirects or shared cookie jar.
+              u = urlsplit(url)
+              if (u.scheme != "https" or not u.hostname or u.username or u.password
+                      or u.port not in (None, 443) or u.fragment or len(url) > 8192
+                      or any(ord(c) <= 32 or ord(c) == 127 for c in url)):
+                  raise DiagnosticError(stage, 0, "INVALID_HTTPS_URL")
+              if token and url not in (API, API + "/logs"):
+                  raise DiagnosticError(stage, 0, "AUTH_TARGET_REJECTED")
+              headers = {"User-Agent": "worker375-readonly-diagnostic", "Accept-Encoding": "identity"}
+              if token:
+                  headers.update(Authorization=f"Bearer {token}", Accept="application/vnd.github+json",
+                                 **{"X-GitHub-Api-Version": "2026-03-10"})
+              conn = http.client.HTTPSConnection(u.hostname, port=443, timeout=12)
+              try:
+                  conn.request("GET", urlunsplit(("", "", u.path or "/", u.query, "")), headers=headers)
+                  response = conn.getresponse()
+                  if response.status != expected:
+                      raise DiagnosticError(stage, response.status, "HTTP_STATUS")
+                  if expected == 302:
+                      location = response.getheader("Location")
+                      if not location:
+                          raise DiagnosticError(stage, 302, "MISSING_LOCATION")
+                      return location  # Never print the signed URL or read this body.
+                  if response.getheader("Content-Encoding", "identity").lower() != "identity":
+                      raise DiagnosticError(stage, response.status, "UNSUPPORTED_ENCODING")
+                  length = response.getheader("Content-Length")
+                  if length is not None and (not length.isdecimal() or int(length) > limit):
+                      raise DiagnosticError(stage, response.status, "SIZE_LIMIT_OR_INVALID_LENGTH")
+                  body = bytearray()
+                  while True:
+                      chunk = response.read(min(65536, limit + 1 - len(body)))
+                      if not chunk:
+                          break
+                      body.extend(chunk)
+                      if len(body) > limit:
+                          raise DiagnosticError(stage, response.status, "SIZE_LIMIT")
+                  return bytes(body)
+              finally:
+                  conn.close()
+
+
+          def redact(text, env):
+              for key, value in sorted(env.items(), key=lambda item: len(item[1]), reverse=True):
+                  if value and re.search(r"TOKEN|SECRET|PASS(?:WORD)?|CREDENTIAL|API.?KEY|ACCESS.?KEY|AUTH|COOKIE", key, re.I):
+                      text = text.replace(value, "[REDACTED]")
+
+              def clean_url(match):
+                  u = urlsplit(match[0])
+                  host = u.netloc.rsplit("@", 1)[-1]
+                  return urlunsplit((u.scheme, host, u.path, "[REDACTED]" if u.query else "", ""))
+
+              text = re.sub(r'https?://[^\s<>"\']+', clean_url, text)
+              text = re.sub(r"([?&][^=\s&]{1,40}=)[^&\s]*", r"\1[REDACTED]", text)
+              text = re.sub(r"(?is)-----BEGIN [^-]*(?:PRIVATE KEY|CREDENTIAL)[^-]*-----.*?(?:-----END [^-]+-----|\Z)", "[REDACTED]", text)
+              text = re.sub(r"(?im)\b(?:Authorization|Proxy-Authorization|Cookie|Set-Cookie)\s*[:=][^\r\n]*", "[REDACTED_HEADER]", text)
+              text = re.sub(r"""(?i)(["']?[\w.-]*(?:token|secret|password|credential|private[_-]?key|api[_-]?key|access[_-]?key)[\w.-]*["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)""", r"\1[REDACTED]", text)
+              text = re.sub(r"\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|AKIA[A-Z0-9]{16})\b", "[REDACTED]", text)
+              text = re.sub(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", "[REDACTED]", text)
+              text = re.sub(r"(?<![A-Za-z0-9_])[A-Za-z0-9_+/=-]{32,}(?![A-Za-z0-9_])", "[REDACTED]", text)
+              return text
+
+
+          def clean_line(line):
+              line = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", line)
+              line = re.sub(r"^\d{4}-\d{2}-\d{2}T\S+\s+", "", line)
+              return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u2028\u2029\u202a-\u202e\u2066-\u2069]", "", line)
+
+
+          def first_error(raw, env):
+              lines = [clean_line(line) for line in raw.decode("utf-8", errors="replace").splitlines()]
+              marker = re.compile(r"^(?:##\[error\]|(?:✘\s*)?\[ERROR\](?:\s|$)|ERROR(?:[:\s])|Error:\s)")
+              for index, line in enumerate(lines):
+                  if not marker.match(line.lstrip()):
+                      continue
+                  context = [line]
+                  for following in lines[index + 1:index + 4]:
+                      if following.strip():
+                          context.append(following)
+                          break  # Only one following nonempty context line.
+                  return redact("\n".join(context), env)[:1400]
+              return None
+
+
+          def notice(message):
+              escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print("::notice title=worker375 fixed-job read-only diagnostic::" + escaped)
+
+
+          def main():
+              try:
+                  if os.environ.get("GITHUB_REPOSITORY") != REPO or os.environ.get("GITHUB_REF") != BRANCH:
+                      raise DiagnosticError("guard", 0, "TARGET_REJECTED")
+                  token = os.environ.get("GITHUB_TOKEN")
+                  if not token:
+                      raise DiagnosticError("guard", 0, "MISSING_RUNTIME_TOKEN")
+                  job = json.loads(get(API, token=token))
+                  if job.get("id") != JOB or job.get("run_id") != RUN or job.get("head_sha") != HEAD:
+                      raise DiagnosticError("metadata", 200, "TARGET_MISMATCH")
+                  location = get(API + "/logs", token=token, expected=302, stage="logs_redirect")
+                  # New connection: no Authorization, cookies, API headers or redirect chaining.
+                  raw = get(location, expected=200, limit=MAX_LOG, stage="signed_download")
+                  summary = first_error(raw, dict(os.environ))
+                  notice(f"job={JOB} run={RUN} " + (summary if summary else "status=200 code=NO_ERROR_MARKER"))
+              except DiagnosticError as exc:
+                  notice(f"stage={exc.stage} status={exc.status} code={exc.code}")
+              except (OSError, http.client.HTTPException):
+                  notice("stage=request status=0 code=TRANSPORT_ERROR")
+              except Exception:
+                  # Exception strings may contain signed URLs or payloads.
+                  notice("stage=diagnostic status=0 code=INVALID_RESPONSE_OR_INTERNAL_ERROR")
+
+
+          def deadline(signum, frame):
+              raise DiagnosticError("request", 0, "TOTAL_DEADLINE")
+
+
+          if __name__ == "__main__":
+              signal.signal(signal.SIGALRM, deadline)
+              signal.alarm(100)
+              main()
+          PY
