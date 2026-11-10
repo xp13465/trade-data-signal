@@ -8583,3 +8583,18 @@ GH Actions `deploy-cf` 与 CF Workers Builds 两条自动链同 head 均失败(c
 ### 五、历史缺冻/交易缺口保持 OPEN
 
 历史 **136 条缺冻 / 5 条交易缺口保持 OPEN**,未倒补、未用当前映射造历史。
+
+
+## 2026-11-10 告警接管：第一版文档事实
+
+本段追加本轮事实，不回写上文 11-09/10 收口或任何旧审计。用户原话：“cc那边token用尽。我授权你现在接替claude 把工作做完。”完整授权行原样落档于 [authorization.txt](docs/codex-reviews/alert-takeover-20261110/authorization.txt)。它仅授权本轮实现、独立审查、整合、部署接管，默认只读外审角色不永久改变；本次文档 implementer 仅在独立 `codex/alert-takeover-docs-20261110` 分支归档并 commit，不 push/main merge。
+
+事实来源为 `/tmp/codex-reports/alert-recheck-20261110/final-audit.json`（SHA-256 `c3e77494cb30a8aff69d6ed3759a1ec0e5cceae4bb7eeeefcdb604f737f1fa05`）与 audit-summary，以及授权/controller-state。审计界限为北京时间 11-04 00:00:00—11-10 08:49:35，09:17 版本快照另列。已保留归一化计数、21 类状态、3 个确认且预先存在的 P2、精确源锚点和纯 `/tmp` 反例，31 份证据 hash 均已实核；原始邮件/飞书正文、私密群 ID、凭证不入库，旧证据不改。
+
+父接管快照为 `codex/ops-alert-rootfix-ci-20261109` @ `36b8a7e58d93dd9930ff020623d7cd849131df83`（4d+main41c，registry 两行并存的机械冲突已去标记）。三项 P2 实施/独立审查仍在跑，本版没有合并部署验收；既有 `4156 passed / 0 failed / 0 errors / 7 skipped` 属 4d 候选，未移贴给父整合或后来 head。
+
+计数澄清：云 224 消息中 87 运维与飞书实收 87/87 匹配（窗口两群共216条）；31状态通知、6摘要不是独立故障，摘要92条合并元数据/1361抑制记录分开。平台8封MIME覆盖7个UTC窗、2封reset后才到；QQ完整原件未独立读取，4条飞书截断。351本机开发完成通知、110云副本、CODE30+worktree15假镜像不算新真实业务送达。读取3215唯一路径中的3208个，另7个worktree归档（7593字节）读取前消失，不证明生产删除。
+
+已发生改善仅按范围记：23:18部署后监控38/38轮投递/HTTP200，样本仍有unknown；08:27原生90unit逐字段/45service登记PASS；换手率6/6+3/3上传及purge成功。其余仍按原编号/独立证据：R2等锁600/570秒的失败不能由总链rc0关闭；D1 blocked邮件与reset前OPS落库反证并存；136历史键未新增但未恢复，九交易缺口（7无freeze、2缺accum_nav）不与旧五键相减；Nov5/6/9的56/58/56是不同(date,index)行而非同key重复，旧source身份不足。#373原备份及Nov3权威归因保持OPEN，不用今天备份/映射回造；overfit74/red保持真实风险告警。
+
+编号核验覆盖36个本地分支、6种索引blob及现存worktree：主基线最大377，发现其它活跃分支已占#378（main-merge快检闸门），已上报并避开；新确认P2按两族登记#379（PREUPLOAD-DATE-01、PREUPLOAD-SENTINEL-02）/#380（TEST-MIRROR-03），同模块既有#237/#367与#373/#374/#375不重复立项。状态权威见pending-index；归档/生成脚本/复现说明与后续验收清单见 [本轮README](docs/codex-reviews/alert-takeover-20261110/README.md)。父提供真实测试、独立审查、main/云/Worker身份及受控恢复结果后另追加收口；本版不等待未来自然轮。
