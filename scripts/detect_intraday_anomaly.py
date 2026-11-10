@@ -175,7 +175,10 @@ def detect_volume_surge(snapshot: dict, conn) -> list[dict]:
 # ---------------------------------------------------------------------------
 def _is_valid_breakout_price(value) -> bool:
     """突破价格必须是有限正数；bool 不属于行情数值。"""
-    return type(value) in (int, float) and math.isfinite(value) and value > 0
+    try:
+        return type(value) in (int, float) and math.isfinite(value) and value > 0
+    except OverflowError:  # JSON 整数可超出 isfinite 内部 float 转换的范围。
+        return False
 
 
 def detect_breakout(snapshot: dict, conn) -> list[dict]:
