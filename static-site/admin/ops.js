@@ -357,7 +357,9 @@
   function metric(label, value, foot, cls = '') { return append(node('div', 'metric ' + cls), node('div', 'metric-label', label), node('div', 'metric-value', value), node('div', 'metric-foot', foot)); }
   function overviewLink(label, tab, value) { return button(label + '  ·  ' + value + ' →', () => setTab(tab), 'overview-link'); }
   function renderOverview() {
-    const host = $('overview-content'); host.replaceChildren();
+    const host = $('overview-content');
+    const attentionOpen = host.querySelector('.attention-more')?.open || false;
+    host.replaceChildren();
     const checks = currentChecks(); const f = freshness(); const counts = { ok: 0, warning: 0, critical: 0, unknown: 0 };
     checks.forEach(c => counts[liveStatus(c)]++);
     const metrics = node('div', 'metrics');
@@ -377,9 +379,26 @@
     const rawCoverage = node('details', 'evidence-item'); append(rawCoverage, node('summary', '', '原始覆盖字段'), node('pre', '', text({ snapshot: coverage, tracking: state.data.state?.coverage }))); coveragePanel.append(rawCoverage);
     const grid = node('div', 'overview-grid'); const attention = node('section', 'panel');
     append(attention, node('h2', '', '当前需要关注'), node('p', 'small muted', '先看检查证据，再判断业务影响。'));
-    const flagged = visibleChecks().filter(c => liveStatus(c) !== 'ok').slice(0, 8);
-    if (!flagged.length) attention.append(empty(checks.length && f === 'fresh' ? '当前覆盖内没有非 OK 检查' : '当前证据不足', '只限已覆盖检查；仍需独立看业务交付与未知项。'));
-    else { const activity = node('div', 'activity'); flagged.forEach(c => { const n = node('div', 'activity-item'); append(n, checkDisplay(c), node('span', '', ' '), button(checkName(c), () => showCheck(c), 'link-button'), node('div', 'small muted', brief(summaryOf(c.summary), 160))); activity.append(n); }); attention.append(activity); }
+    // Keep every urgent check visible; unknown remains in the preview and expandable list.
+    const priority = { critical: 0, warning: 1, unknown: 2 };
+    const flagged = visibleChecks().filter(c => liveStatus(c) !== 'ok')
+      .sort((a, b) => priority[liveStatus(a)] - priority[liveStatus(b)]);
+    const urgentCount = flagged.filter(c => ['critical', 'warning'].includes(liveStatus(c))).length;
+    const previewCount = Math.max(8, urgentCount + 1);
+    if (!flagged.length) attention.append(empty(checks.length && f === 'fresh' ? '当前筛选内没有非 OK 检查' : '当前证据不足', '只限已覆盖检查；仍需独立看业务交付与未知项。'));
+    else {
+      const activity = node('div', 'activity');
+      const more = node('details', 'attention-more'); more.open = attentionOpen;
+      more.append(node('summary', '', '查看全部关注项（共 ' + flagged.length + ' 项，另有 ' + Math.max(0, flagged.length - previewCount) + ' 项未知）'));
+      const remaining = node('div', 'activity');
+      flagged.forEach((c, index) => {
+        const n = node('div', 'activity-item');
+        append(n, checkDisplay(c), node('span', '', ' '), button(checkName(c), () => showCheck(c), 'link-button'), node('div', 'small muted', brief(summaryOf(c.summary), 160)));
+        (index < previewCount ? activity : remaining).append(n);
+      });
+      attention.append(activity);
+      if (flagged.length > previewCount) { more.append(remaining); attention.append(more); }
+    }
     const context = node('section', 'panel'); append(context, node('h2', '', '交付与处置入口'), overviewLink('服务与定时器', 'services', currentChecks().filter(c => ['service', 'timer'].includes(c.category)).length + ' 项当前检查'), overviewLink('数据 / 发布 / 备份', 'data', '逐链对账'), overviewLink('知识库', 'architecture', state.records.length + ' 个版本记录'), overviewLink('问题与跟进', 'incidents', state.incidents.length + ' 项'), overviewLink('采集与告警投递', 'history', '历史 / 事件'));
     append(context, node('div', 'subtle-divider'), node('p', 'small muted', '声明、运行态、业务健康、根因状态各自保留；不会从静态基线自动生成绿色健康结论。'));
     append(grid, attention, context); host.append(grid, coveragePanel);
