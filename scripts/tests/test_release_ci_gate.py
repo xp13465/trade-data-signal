@@ -403,3 +403,35 @@ def test_push_pr_subscription_drift_requires_ops():
     data = yaml.load(WORKFLOW, Loader=yaml.BaseLoader)
     data["on"]["pull_request"]["paths"].remove("scripts/upload_r2.py")
     assert expected(API(), workflow=yaml.safe_dump(data, sort_keys=False)) is True
+
+
+OVERFIT_VERIFIER_INPUTS = [
+    "scripts/overfit_monitor.py",
+    "scripts/tests/test_overfit_delivery_*.py",
+    "scripts/tests/test_overfit_public_verifier_*.py",
+    "scripts/tests/test_223_overfit_monitor_timeout.py",
+]
+
+
+def _assert_overfit_verifier_coverage(text):
+    data = yaml.load(text, Loader=yaml.BaseLoader)["on"]
+    assert data["push"]["paths"] == data["pull_request"]["paths"]
+    patterns = gate.ops_input_patterns(text)
+    for path in OVERFIT_VERIFIER_INPUTS:
+        assert path in data["push"]["paths"]
+        assert any(p.fullmatch(path.replace("*", "20261110")) for p in patterns)
+
+
+def test_overfit_verifier_tests_require_exact_head_ops():
+    _assert_overfit_verifier_coverage(WORKFLOW)
+    for path in OVERFIT_VERIFIER_INPUTS:
+        assert expected(API(files=[{"filename": path.replace("*", "20261110"), "status": "modified"}]))
+
+
+@pytest.mark.parametrize("removed", OVERFIT_VERIFIER_INPUTS)
+def test_removed_overfit_verifier_subscription_is_detected(removed):
+    data = yaml.load(WORKFLOW, Loader=yaml.BaseLoader)
+    for event in ("push", "pull_request"):
+        data["on"][event]["paths"].remove(removed)
+    with pytest.raises(AssertionError):
+        _assert_overfit_verifier_coverage(yaml.safe_dump(data, sort_keys=False))

@@ -2040,11 +2040,71 @@ def _run_delivery_process(cmd, env, timeout):
         return rc
 
 
+def _read_overfit_public(url, expected_size, timeout=30):
+    """#374: urllib 403仅表示该客户端被拒；同URL做一次有界curl GET，不降TLS。"""
+    import time
+    import urllib.error
+    import urllib.request
+
+    deadline = time.monotonic() + min(30, timeout)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("公开自验预算已用尽")
+    request = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
+    try:
+        with urllib.request.urlopen(request, timeout=remaining) as response:
+            return response.read(expected_size + 1)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 403:
+            raise
+        exc.close()
+
+    # 不重试其它HTTP/传输失败；不改URL/UA，不读取个人curlrc，不跟随重定向。
+    print(f"overfit public verifier: urllib HTTP403; curl fallback {url}", file=sys.stderr)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("urllib HTTP403; curl未开始，请求预算已用尽")
+    try:
+        import certifi
+        result = subprocess.run([
+            "curl", "--disable", "--silent", "--show-error", "--fail", "--compressed",
+            "--proto", "=https", "--cacert", certifi.where(),
+            "--connect-timeout", str(min(10, remaining)), "--max-time", str(remaining),
+            "--max-filesize", str(expected_size), "--header", "Cache-Control: no-cache",
+            "--write-out", "\n%{http_code}", "--url", url,
+        ], capture_output=True, timeout=remaining, check=False)
+    except (OSError, subprocess.TimeoutExpired, ImportError) as exc:
+        # 不打印argv/env/响应体/潜在带代理凭据的stderr；类型+exit/http保留真实失败身份。
+        raise RuntimeError(f"urllib HTTP403; curl {type(exc).__name__}: {url}") from None
+    public, separator, status = result.stdout.rpartition(b"\n")
+    http = status.decode("ascii", errors="replace") if len(status) == 3 and status.isdigit() else "unknown"
+    if result.returncode or not separator or http != "200":
+        raise RuntimeError(f"urllib HTTP403; curl rc={result.returncode} HTTP={http}: {url}")
+    print(f"overfit public verifier: urllib HTTP403; curl rc=0 HTTP=200: {url}", file=sys.stderr)
+    return public
+
+
+def _verify_overfit_public_pair(payloads, remaining_work=None):
+    """仅GET四个既有公开URL；上线后可直接复用此函数作只读验收，无锁/上传/通知。"""
+    import hashlib
+
+    names = ("overfit_monitor.json", "overfit_monitor_ext.json")
+    if len(payloads) != len(names):
+        raise ValueError("公开自验必须提供精确主/ext pair")
+    for host in ("ss.fx8.store", "ssd.fx8.store"):
+        for name, payload in zip(names, payloads):
+            budget = remaining_work() if remaining_work is not None else None
+            timeout = min(30, budget) if budget is not None else 30
+            public = _read_overfit_public(f"https://{host}/data/{name}", len(payload), timeout)
+            if len(public) != len(payload):
+                raise ValueError(f"公开内容长度未对齐: {host}/{name} {len(public)}!={len(payload)}")
+            if hashlib.sha256(public).digest() != hashlib.sha256(payload).digest():
+                raise ValueError(f"公开内容未对齐: {host}/{name}")
+
+
 def _delivery_worker():
     """持原data域/全局屏障锁读当前产物；不暂存旧快照，不计算/发模型预警。"""
-    import hashlib
     from pathlib import Path
-    import urllib.request
     import upload_r2 as uploader
 
     names = ["overfit_monitor.json", "overfit_monitor_ext.json"]
@@ -2071,14 +2131,7 @@ def _delivery_worker():
         uploader.cmd_upload_data_files(names)
         print("R2_UPLOAD_COMMAND_COMPLETED: 两件上传命令完成，开始核公开副本", flush=True)
         stage = "public_verification"
-        for host in ("ss.fx8.store", "ssd.fx8.store"):
-            for name, payload in zip(names, payloads):
-                request = urllib.request.Request(f"https://{host}/data/{name}",
-                                                 headers={"Cache-Control": "no-cache"})
-                with urllib.request.urlopen(request, timeout=30) as response:
-                    public = response.read(len(payload) + 1)
-                if hashlib.sha256(public).digest() != hashlib.sha256(payload).digest():
-                    raise ValueError(f"公开内容未对齐: {host}/{name}")
+        _verify_overfit_public_pair(payloads, remaining_work=uploader._remaining_work)
         if payloads != [p.read_bytes() for p in paths]:
             raise ValueError("发布期间本地产物变化，需补传当前代")
         print(f"overfit 发布已核验: 主/ext {generations[0]}，两站逐字节一致", flush=True)

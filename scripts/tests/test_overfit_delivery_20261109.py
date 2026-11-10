@@ -18,11 +18,12 @@ SOURCE = Path(__file__).resolve().parents[1] / 'overfit_monitor.py'
 
 
 def load_functions():
-    wanted = {'_run_delivery_process', '_delivery_worker', 'publish_overfit', 'main'}
+    wanted = {'_run_delivery_process', '_delivery_worker', 'publish_overfit', 'main',
+              '_read_overfit_public', '_verify_overfit_public_pair'}
     tree = ast.parse(SOURCE.read_text())
     nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
     ns = dict(os=os, sys=sys, subprocess=subprocess, json=json, hashlib=hashlib,
-              signal=signal, tempfile=tempfile, Path=Path)
+              signal=signal, tempfile=tempfile, Path=Path, time=time)
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SOURCE), 'exec'), ns)
     return ns
 
@@ -71,7 +72,8 @@ def worker_fixture(tmp_path, monkeypatch, *, locked=False, fail=False, mismatch=
     fake = types.SimpleNamespace(_SKIP_R2_LOCKED=sentinel, guard_repo_default=lambda cmd: None,
         _acquire_lock_for_command=lambda *a, **k: events.append(('lock', a, k)) or (sentinel if locked else 12),
         _release_r2_upload_lock=lambda fd: events.append(('release', fd)),
-        _work_budget_begin=lambda label: events.append(('budget', label)), cmd_upload_data_files=upload)
+        _work_budget_begin=lambda label: events.append(('budget', label)),
+        _remaining_work=lambda: None, cmd_upload_data_files=upload)
     monkeypatch.setitem(sys.modules, 'upload_r2', fake)
     import urllib.request
     import io
