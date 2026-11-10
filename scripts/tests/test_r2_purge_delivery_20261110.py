@@ -214,6 +214,46 @@ _mirror_r2_lock_events "$EVENTS"
     assert log.read_text().splitlines() == ['R2_LOCK: {"event":"wait"}', 'R2_LOCK: {"event":"released"}']
 
 
+@pytest.mark.parametrize("periodic_first", [False, True])
+@pytest.mark.parametrize("buried", [False, True])
+def test_kill_tail_and_mirror_have_one_structured_exit(tmp_path, periodic_first, buried):
+    source = (ROOT / "scripts/r2_upload_async.sh").read_text()
+    helpers = []
+    for name in ("_dump_kill_tail", "_mirror_r2_lock_events"):
+        start = source.index(name + "() {")
+        end = source.index("\n}\n", start) + 3
+        helpers.append(source[start:end])
+    event = 'R2_LOCK: {"event":"wait","stage":"global"}'
+    events, log = tmp_path / "events", tmp_path / "persistent"
+    # 两条文本完全相同但来源行不同的真实事件，不能按文本去重。
+    events.write_text(event + "\n" + event + "\n" + ("business\n" * (80 if buried else 1)))
+    script = "\n".join(helpers) + '''
+_R2_LOCK_EVENTS_SEEN=0
+R2_KILL_CTX=''
+if [ "$PERIODIC_FIRST" = 1 ]; then _mirror_r2_lock_events "$EVENTS"; fi
+_dump_kill_tail "$EVENTS" fixture
+_mirror_r2_lock_events "$EVENTS"
+_mirror_r2_lock_events "$EVENTS"
+'''
+    env = {**os.environ, "EVENTS": str(events), "LOG": str(log), "PERIODIC_FIRST": str(int(periodic_first))}
+    r = subprocess.run(["bash"], input=script, env=env, text=True, capture_output=True, timeout=5)
+    assert r.returncode == 0, r.stderr
+    assert [s for s in log.read_text().splitlines() if s.startswith("R2_LOCK: ")] == [event, event]
+    assert "business" in log.read_text()
+    # 再追加一条相同文本的新事件；游标按来源行前进，后一次kill/mirror也只能增加这一条。
+    events.write_text(events.read_text() + event + "\n")
+    script = "\n".join(helpers) + '''
+_R2_LOCK_EVENTS_SEEN=2
+R2_KILL_CTX=''
+_dump_kill_tail "$EVENTS" fixture
+_mirror_r2_lock_events "$EVENTS"
+_mirror_r2_lock_events "$EVENTS"
+'''
+    r = subprocess.run(["bash"], input=script, env=env, text=True, capture_output=True, timeout=5)
+    assert r.returncode == 0, r.stderr
+    assert [s for s in log.read_text().splitlines() if s.startswith("R2_LOCK: ")] == [event] * 3
+
+
 LOCK_CHILD = r'''
 import ast,atexit,datetime,fcntl,json,os,re,sys,time
 from pathlib import Path
