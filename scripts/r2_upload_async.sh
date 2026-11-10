@@ -121,15 +121,17 @@ _fmt_mtime() {
 # 立即 rm tmp_log → 事后不可定因)。同时累积到 R2_KILL_CTX(HTML 片段)供收尾告警正文引用。
 _dump_kill_tail() {
   local _f="$1" _desc="$2" _tail30 _esc
-  _tail30="$(tail -30 "$_f" 2>/dev/null)"
+  # 结构化锁事件只经增量 mirror 持久化；诊断 tail 不重复落同一来源事件。
+  # 不按文本去重：不同来源行即使 JSON 相同，也由 mirror 各保留一次。
+  _tail30="$(tail -30 "$_f" 2>/dev/null | sed '/^R2_LOCK: /d')"
   echo "  --- [$_desc] kill 前 tmp_log 尾部 30 行(定因材料) ---" | tee -a "$LOG"
   if [ -n "$_tail30" ]; then
     printf '%s\n' "$_tail30" | tee -a "$LOG"
     # 转义 HTML 尖括号 + 逐行接 <br>(告警正文为 HTML)供告警正文
     _esc="$(printf '%s' "$_tail30" | sed 's/</\&lt;/g; s/>/\&gt;/g' | awk '{printf "%s<br>", $0}')"
   else
-    echo "  (tmp_log 无任何输出——进程启动即无日志/缓冲未刷)" | tee -a "$LOG"
-    _esc="（无输出）"
+    echo "  (尾部无业务输出；R2_LOCK 事件由独立镜像保留)" | tee -a "$LOG"
+    _esc="（尾部无业务输出）"
   fi
   R2_KILL_CTX="${R2_KILL_CTX}<br><b>[$_desc] kill 前尾部 30 行:</b><br>${_esc}"
 }
