@@ -21,6 +21,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).absolute().parent))
 sys.path.insert(0, str(Path(__file__).absolute().parent.parent))
 import notify  # noqa: E402
+from _notify_sandbox import notify_sandbox  # noqa: E402
 
 
 def _mode(path: Path) -> int:
@@ -28,15 +29,8 @@ def _mode(path: Path) -> int:
 
 
 @pytest.fixture
-def sandbox(tmp_path, monkeypatch):
-    alerts = tmp_path / "data" / "alerts"
-    alerts.mkdir(parents=True, exist_ok=True)
-    digest = alerts / "alert_digest.jsonl"
-    monkeypatch.setattr(notify, "ALERT_DIGEST_FILE", digest)
-    monkeypatch.setattr(notify, "ALERTS_DIR", alerts)
-    monkeypatch.setattr(notify, "REPO", tmp_path)
-    monkeypatch.setenv("REPO", str(tmp_path))
-    return digest
+def sandbox(notify_sandbox):
+    return notify_sandbox["digest"]
 
 
 def _entry(key="p_k"):
