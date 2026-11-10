@@ -13,7 +13,8 @@
   · failed 只累计非负失败数，负值单独计 exceptions，任意一次异常均不能被成功/失败相抵。
   · 当日失败、历史未解决错误、日期未知错误任一存在 ⇒ FAIL；后续成功不自动解除历史错误。
     历史事件保留日期、轮次、通道和失败样本，与当日计数分开。PhaseA 是否阻断上传不在本脚本修改。
-  · 无日期的完成记录或日志读取失败 ⇒ UNKNOWN(exit 2)，不能报护栏正常。
+  · 可靠当前轮次边界之前、同日志族的旧无日期纯成功另列审计；未知日期错误不随边界清除。
+  · 其余无日期完成记录或日志读取失败 ⇒ UNKNOWN(exit 2)，不能报护栏正常。
   · 无完成记录 ⇒ NO_RUN；当日 claimed(copied+skipped)>0 而 landed==0 ⇒ FAIL(护栏空转)。
     候选数不参与空转判据：新 key 源侧 404 可合法无备份。
   · 全量流式读取留存 *.log 及数字轮换(.log.1/.log.2.gz)，不裁尾丢弃旧错；
@@ -176,7 +177,8 @@ def scan_today_logs(logs_dir: Path, day: str) -> dict:
     日志被外部保留策略永久移除后本函数无法重建其证据；不声称它是永久事故账本。
     """
     stat = parse_log_lines([])
-    stat.update(current_failures=[], historical_failures=[], undated_failures=[], undated_runs=0, log_errors=[])
+    stat.update(current_failures=[], historical_failures=[], undated_failures=[],
+                prior_undated_successes=[], undated_runs=0, log_errors=[])
     families = {}
     for path in sorted(logs_dir.iterdir()):
         match = _RE_LOG_FILE.match(path.name)
@@ -184,6 +186,8 @@ def scan_today_logs(logs_dir: Path, day: str) -> dict:
             families.setdefault(match[1], []).append((int(match[2] or 0), path))
     seen = set()
     for family, parts in families.items():
+        pending_undated_successes = []
+
         def rows():
             # log.2(.gz) -> log.1 -> log，允许开始标记和完成行落在相邻轮换文件。
             for _, path in sorted(parts, reverse=True):
@@ -194,6 +198,12 @@ def scan_today_logs(logs_dir: Path, day: str) -> dict:
                 except (OSError, EOFError) as exc:
                     stat["log_errors"].append(f"{path}: {type(exc).__name__}")
         for event in _dated_log_events(rows(), family):
+            if event["day"] == day and pending_undated_successes:
+                # 同一日志族中可靠当前轮次之前的无日期纯成功，只留作审计。
+                # 在镜像去重之前推进覆盖边界；任何未知日期错误均不进入此队列。
+                stat["prior_undated_successes"].extend(pending_undated_successes)
+                stat["undated_runs"] -= len(pending_undated_successes)
+                pending_undated_successes.clear()
             identity = (event["run_id"], event["label"])
             if identity in seen:
                 continue  # 同一精确 run_id 或相同旧轮次的 tee 镜像，只计一次。
@@ -205,6 +215,8 @@ def scan_today_logs(logs_dir: Path, day: str) -> dict:
                 stat["candidates"] = max(stat["candidates"], event_stat["candidates"])
             elif event["day"] is None:
                 stat["undated_runs"] += 1
+                if not event_stat["failed"] and not event_stat["exceptions"]:
+                    pending_undated_successes.append(event)
             if event_stat["failed"] or event_stat["exceptions"]:
                 if event["day"] == day:
                     stat["current_failures"].append(event)
@@ -264,9 +276,11 @@ def judge(landed: int, stat: dict) -> tuple:
         return 1, "FAIL", (f"护栏空转: 日志自称已备份 {claimed} 个(copied={stat['copied']} "
                            f"skipped={stat['skipped']})但备份桶 pre-upload 零对象 —— "
                            f"日志与 R2 实测矛盾(§5.2-7 不许只看日志自证)")
+    prior_successes = stat.get("prior_undated_successes", [])
     return 0, "OK", (f"护栏正常: copied={stat['copied']} skipped={stat['skipped']} failed=0 exceptions=0 "
                      f"claimed={claimed} candidates={stat['candidates']} landed={landed} "
-                     f"runs={stat['runs']}")
+                     f"runs={stat['runs']} prior_undated_successes="
+                     f"{json.dumps(prior_successes, ensure_ascii=False)}")
 
 
 def do_notify(subject: str, detail: str) -> bool:
