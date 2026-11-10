@@ -13,7 +13,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "scripts/detect_intraday_anomaly.py"
-INVALID = [None, False, True, 0, -1, float("nan"), float("inf"), -float("inf"), "123"]
+# json.loads produces builtin ints even when the token exceeds float range.
+HUGE_JSON_INTS = [json.loads(sign + "1" + "0" * 400) for sign in ("", "-")]
+INVALID = [None, False, True, 0, -1, float("nan"), float("inf"), -float("inf"), "123",
+           pytest.param(HUGE_JSON_INTS[0], id="json-positive-huge-int"),
+           pytest.param(HUGE_JSON_INTS[1], id="json-negative-huge-int")]
 
 
 def load_functions(path, names, namespace):
@@ -212,3 +216,15 @@ def test_recorded_nine_descriptions(ns):
     _, text = capture_render(ns, [{"desc": d, "tier": "normal"} for d in descriptions])
     assert all(d in text for d in descriptions)
     assert text.count("跌破20日低") == 9
+
+
+@pytest.mark.parametrize("value", HUGE_JSON_INTS, ids=["positive", "negative"])
+def test_huge_json_integers_are_rejected(ns, value):
+    assert type(value) is int and abs(value) == 10 ** 400
+    assert ns["_is_valid_breakout_price"](value) is False
+
+
+@pytest.mark.parametrize("value", [1, 4100, 10 ** 100, 1.0, 4100.5,
+                                  sys.float_info.max, math.ulp(0.0)])
+def test_finite_positive_builtin_prices_remain_valid(ns, value):
+    assert ns["_is_valid_breakout_price"](value) is True
