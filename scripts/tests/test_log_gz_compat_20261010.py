@@ -77,6 +77,8 @@ NEW_KEYS_309 = {
     # 2026-10-25 P1-2: 三信号原样带出供审计(如 退出码=0 采集=0 deploy=1);
     # 纯新增字段, 旧消费方忽略, 旧字段值逐位不变。
     "exit_signals",
+    # 2026-11-10: 同轮恢复证据独立于原始skip计数，旧字段保持逐值比较。
+    "r2_skip_recovered",
 }
 # ④ gz-only(INTRA 仅剩 .log.gz)场景: 改造前该任务 last_run=None(=缺陷: .log 缺失 →
 #    「无日志」→ 落计划窗口即漏跑误报), 且未压缩沙箱的 null 计数未变; 改造后 null 计数减 1
@@ -311,6 +313,10 @@ def main() -> int:
           f"diffs={_value_diffs[:3]} missing={sorted(_missing_tasks)}")
     check("③ 未压缩端到端: 仅新增白名单字段, 无旧字段被删",
           not _schema_diffs, f"diffs={_schema_diffs[:3]}")
+
+    _recovery_rows = [row for row in j_mod if "r2_skip_recovered" in row]
+    check("③ 新恢复字段为布尔值且无核验证据默认False",
+          bool(_recovery_rows) and all(row["r2_skip_recovered"] is False for row in _recovery_rows))
 
     # ④ 单任务日志真 gz 化(修复同族假绿: 原实现未 gz 化, out_gz 恒 == j_mod = 空转)
     #    + ZeroOutboundTrap 包裹跑
