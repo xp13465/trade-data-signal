@@ -79,6 +79,8 @@ jobs:
                       body.extend(chunk)
                       if len(body) > limit:
                           raise DiagnosticError(stage, response.status, "SIZE_LIMIT")
+                  if length is not None and len(body) != int(length):
+                      raise DiagnosticError(stage, response.status, "INCOMPLETE_BODY")
                   return bytes(body)
               finally:
                   conn.close()
@@ -98,7 +100,9 @@ jobs:
               text = re.sub(r"([?&][^=\s&]{1,40}=)[^&\s]*", r"\1[REDACTED]", text)
               text = re.sub(r"(?is)-----BEGIN [^-]*(?:PRIVATE KEY|CREDENTIAL)[^-]*-----.*?(?:-----END [^-]+-----|\Z)", "[REDACTED]", text)
               text = re.sub(r"(?im)\b(?:Authorization|Proxy-Authorization|Cookie|Set-Cookie)\s*[:=][^\r\n]*", "[REDACTED_HEADER]", text)
-              text = re.sub(r"""(?i)(["']?[\w.-]*(?:token|secret|password|credential|private[_-]?key|api[_-]?key|access[_-]?key)[\w.-]*["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)""", r"\1[REDACTED]", text)
+              # Never parse quoted secret values: escaped quotes must not expose a tail.
+              # Mask the entire remainder of this line; only preceding/separate error codes survive.
+              text = re.sub(r"""(?im)(["']?[\w.-]*(?:token|secret|password|credential|private[_-]?key|api[_-]?key|access[_-]?key)[\w.-]*["']?\s*[:=])[^\r\n]*""", r"\1[REDACTED]", text)
               text = re.sub(r"\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|AKIA[A-Z0-9]{16})\b", "[REDACTED]", text)
               text = re.sub(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", "[REDACTED]", text)
               text = re.sub(r"(?<![A-Za-z0-9_])[A-Za-z0-9_+/=-]{32,}(?![A-Za-z0-9_])", "[REDACTED]", text)
