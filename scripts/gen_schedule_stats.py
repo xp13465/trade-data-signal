@@ -932,6 +932,14 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
     # P2-2(2026-09-24): SKIPPED_LOCKED 独立计数——skip=设计让路(锁忙下轮重试)不上 SEVERE,
     # 但命中次数需可观察(intraday 每轮都可能撞 deploy 锁, 连 skip 多轮=收盘版可能上不了 R2)。
     skip_count = sum(1 for _l in window_lines if "SKIPPED_LOCKED" in _l)
+    # overfit会在同轮内重试发布；成功后不能再累计“连续未上传”告警。
+    # 必须同轮最后一次skip之后完成两站逐字节核验且最终exit0，日志原文保留。
+    if (skip_count and mode == "standard" and re.fullmatch(script, "overfit_monitor.sh")
+            and type(last_exit) is int and last_exit == 0):
+        last_skip = max(i for i, line in enumerate(window_lines) if "SKIPPED_LOCKED" in line)
+        if any(re.fullmatch(r"overfit 发布已核验: 主/ext \d{4}-\d{2}-\d{2} \d{2}:\d{2}，两站逐字节一致", line)
+               for line in window_lines[last_skip + 1:]):
+            skip_count = 0
     nextday_healed = (_nextday_fallback_healed_lines(lines, last_start_idx, last_exit)
                       if mode == "standard" else set())
     has_push_success = any(PUSH_SUCCESS_RE.search(l) for l in window_lines)
