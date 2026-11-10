@@ -1,0 +1,14 @@
+Claude复核入口：docs/codex-reviews/healthcheck-20261110-evening/README.md
+本轮报告：同目录report.md；完整22项范围、最小改动、验收、依赖、建议优先级、回退、拟owner及并行边界：tasks.md（由tasks.json离线生成）。固定事实snapshot.json，输入指纹evidence-manifest.json。
+分支codex/healthcheck-20261110-evening，基线f35437a699d199076b5654dcde58780be89ee6b4；文档已完成，发布与回执见独立交接包。
+本轮完成体检与清单，清单中新业务修复尚未实施，后续按明确分工认领+独立复核。HC-01至HC-22在本报告采样时均为建议未实施未认领；任务状态权威保留pending-index，tasks.json仅本报告固定输入，HC号不替代全局编号。发布/head状态另记回执，不在报告内写自指hash。
+旧最新final入口（父会话提供的固定元数据）：
+packet id=alert-takeover-final-20261110-v1
+report=/Users/linhuichen/code/trade/.git/codex-reports/alert-takeover-20261110/final-master-v1.json
+head=f35437a699d199076b5654dcde58780be89ee6b4
+sha256=dc345755696f0fc09bc4878cbfb7ebcb5096332d81ee5f49f9cf37a7c6dffab1
+branch=codex/alert-takeover-docs-20261110
+父提供的2026-11-10 19:34 CST实际状态：verified/queued，ACK null。本次文档更新未重新查询状态或核验私有报告SHA。
+report为本机可读私有报告的绝对路径，不是GitHub链接；不以旧active替代此final。15旧packet未ACK不表示无人工作；queued不代表已认领。
+#378既有分支feat/fix/merge-fastcheck-gate-20261110已实现未合（旧复审入口/tmp/review-fastcheck2-report.md），复核当前兼容性，不重复开发。codex-freeze-persistence-rootfix-20261109树内scripts/signal_kelly_backtest.py及scripts/tests/test_freeze_row_context_20261109.py两dirty保留，先核归属。
+21:00/21:10/21:40/22:30及11/11 08:00验收未执行，未建定时器。完整证据私有本机留存；公开目录无原始证据。

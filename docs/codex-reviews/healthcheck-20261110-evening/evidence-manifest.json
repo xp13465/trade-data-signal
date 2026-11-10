@@ -1,0 +1,52 @@
+[
+  {
+    "filename": "approved-task-baseline.json",
+    "sha256": "8f79ee9d6e3517de0eafd251e2d2e56d41bb12cb54ad7d7ba4103715e66cf918",
+    "sampling_scope": "2026-11-10晚间既有报告；alerts.json仅使用original_21_category_reconciliation；增补截至19:58"
+  },
+  {
+    "filename": "synthesis-decisions.json",
+    "sha256": "692f5279fc3e7642932e4ca5b531749598a04f5d10f4c8a9b9d89f15c7f50b74",
+    "sampling_scope": "2026-11-10晚间既有报告；alerts.json仅使用original_21_category_reconciliation；增补截至19:58"
+  },
+  {
+    "filename": "alerts.md",
+    "sha256": "0d30e746c3c94d55675fa0f2bdbe43a801eb2db5d0f9500c5814fc78dc50dfa3",
+    "sampling_scope": "2026-11-10晚间既有报告；alerts.json仅使用original_21_category_reconciliation；增补截至19:58"
+  },
+  {
+    "filename": "runtime.md",
+    "sha256": "61a68ed78f2bc2dbba5d07e3952ee5708f174be43c7fc7b756a968291ec71c3b",
+    "sampling_scope": "2026-11-10晚间既有报告；alerts.json仅使用original_21_category_reconciliation；增补截至19:58"
+  },
+  {
+    "filename": "data.md",
+    "sha256": "938e249bd67f9325ec2544b1b07dd3518813762855b69089b32309751acc4fdf",
+    "sampling_scope": "2026-11-10晚间既有报告；alerts.json仅使用original_21_category_reconciliation；增补截至19:58"
+  },
+  {
+    "filename": "monitoring.md",
+    "sha256": "fefd200749170d516ba88fafa79b01c7f5f8b582208abb6236284d4a41da2569",
+    "sampling_scope": "2026-11-10晚间既有报告；alerts.json仅使用original_21_category_reconciliation；增补截至19:58"
+  },
+  {
+    "filename": "delivery.md",
+    "sha256": "d303c5915e1a390e68a363764871cc51e0e3c31c398f477c14173ba80bc479ee",
+    "sampling_scope": "2026-11-10晚间既有报告；alerts.json仅使用original_21_category_reconciliation；增补截至19:58"
+  },
+  {
+    "filename": "ui.md",
+    "sha256": "44b28fd7fd192e139c2e4410eee6e0b8f373de826b2cab641ff0560471a84076",
+    "sampling_scope": "2026-11-10晚间既有报告；alerts.json仅使用original_21_category_reconciliation；增补截至19:58"
+  },
+  {
+    "filename": "data-autorepair-addendum.md",
+    "sha256": "6caeedbf8e10ba2443e684b68f48becd9859a5ddc2f9a06b521f9b4b33ca147a",
+    "sampling_scope": "2026-11-10晚间既有报告；alerts.json仅使用original_21_category_reconciliation；增补截至19:58"
+  },
+  {
+    "filename": "alerts.json",
+    "sha256": "4b9b6c7152b8ca006d7ab56ac120f91ed25e556fa610cc85c7b8661edb53b956",
+    "sampling_scope": "2026-11-10晚间既有报告；alerts.json仅使用original_21_category_reconciliation；增补截至19:58"
+  }
+]

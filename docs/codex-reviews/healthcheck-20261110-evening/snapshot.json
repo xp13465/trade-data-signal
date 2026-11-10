@@ -1,0 +1,180 @@
+{
+  "baseline_sha": "f35437a699d199076b5654dcde58780be89ee6b4",
+  "as_of": "2026-11-10T19:58:23.666607+08:00",
+  "message_window_CST": "2026-11-10 08:49:35–19:40",
+  "facts": [
+    "23台账与23群消息仅时间、群、规范化标题对应；不保证正文一致。4邮件仅SMTP接受，QQ实收未知。",
+    "19:45:06快照：129正常、2警告、1严重、45未知，共177；34data=21stat+13无固定源，不是34事故；45未知=39固定能力边界+6动态状态。",
+    "原12格和Nov9三指数保留；17:00至17:05:06 rc124为新事件，16:20主档成功，非全日停产，代码回归未证。",
+    "Ops19:15客户端超时但D1已落库，19:45警告消退，根治未证。",
+    "两ETF同Eastmoney两接口已公布；19:58名称谓词及完整候选通过，排2/5，未补库。016989第630，不在无游标首500，后续轮转有条件。",
+    "长锁593.324/1552.204秒均释放，非死锁；本地hash外移不能承诺消除25分钟网络耗时。",
+    "A03/A04已有独立纯函数重放；仅动态desc用html.escape(desc, quote=False)，正常4例不变；未上线。",
+    "UI两项P2有真实浏览器及390×844验证；实机iOS/Android未测。",
+    "15旧packet未ACK不等于无人工作；两dirty保留；#378已有实现未合，不能重复开发。",
+    "21:00备份、21:10换手、21:40overfit、22:30nextday未验；D1全UTC日至11/11 08:00 CST；未创建定时器。",
+    "完整207件证据20,747,656字节据父交接已SHA核验并私有本机留存；本次文档任务未重新验证该归档。"
+  ],
+  "synthesis": {
+    "as_of": "2026-11-10T19:58:23.666607+08:00",
+    "main_point": "上轮修复有实际效果；这轮发现多个独立缺口，不能归为单一网络层或笼统架构错误。优先修输入有效性/通知完整性/结果可见性，再按证据优化采集与发布。",
+    "scope": "本轮授权体检与优化/任务/待办清单；只提交报告产物，新业务修复尚未执行",
+    "verified_restored": [
+      "原12格净值与Nov9三指数仍在且目标公开桶更新",
+      "三站核心资产与版本一致，近3天历史失败已被同工作流后续成功覆盖",
+      "45组服务/定时器及90单元与注册日历无漂移",
+      "16点D1两同步真实成功，不等于全UTC日配额优化通过"
+    ],
+    "approved_new_findings": [
+      "0/无效价参与突破判断并污染日内去重，已隔离重放",
+      "动态desc裸<导致9项正文只显示1，按quote=False构造边界转义已离线验证",
+      "admin关注列表按输入顺序截8，2warning被unknown挤出，真实DOM和独立重算相符",
+      "移动端异常入口与可隐藏时间文字同容器，顶部不可见，页面下方仍有异常卡",
+      "17:00公募指数登录重连耗尽300秒，下午16:20主档成功，不是全日停产",
+      "Ops19:15客户端未确认但服务端有快照，19:45警告自然恢复",
+      "上传持锁593.324/1552.204秒均已正常释放，不能称死锁"
+    ],
+    "roadmap": [
+      {
+        "wave": "第一批",
+        "work": "零价有效性与HTML构造边界；Ops默认优先严重/警告；手机异常徽标常驻。净值缺口按已公布真实源和精确键补录/验收，先核所有候选条件。",
+        "parallel": "告警脚本一组，admin与手机样式可各组；同文件只能一名owner。独立复核后依标准流程合并部署。"
+      },
+      {
+        "wave": "第二批",
+        "work": "公募共享deadline/增量采集/明确分阶段退出；Ops逐run投递回执；D1真实平台rows计数；数据/备份/发布证据接入。",
+        "prerequisite": "方案隔离验证通过，不以总timeout变大或未知变少当修好。"
+      },
+      {
+        "wave": "第三批",
+        "work": "上传阶段测时后比较安全缩锁；关键键覆盖前备份屏障；分支/本地磁盘和旧测试镜像可逆清理。",
+        "prerequisite": "同工作集量测、失败恢复用例、owner/未跟踪文件/备份验证。"
+      }
+    ],
+    "natural_acceptance": "本轮不等待未来自然轮，不创建cron；今晚21:00/21:10/21:40/22:30及明早08:00UTC整日按实际配置列待验条件",
+    "not_actions": [
+      "不改业务源/数据库/运行配置",
+      "不合main/部署",
+      "不发真实邮件飞书",
+      "不删旧报告/历史冻结/分支/worktree",
+      "不伪造Claude回执",
+      "不把pending-index换成第二个状态权威"
+    ],
+    "arch_recommendation": "复用现有systemd+notify+D1+admin，补run_id/故障时间/业务日期/产物hash/验证范围/结果与回执，按证据关联事件；不为本轮建议新建复杂监控栈。",
+    "evidence_caveats": [
+      "邮件仅SMTP接受，QQ收件箱未读；23/23只是消息对应不保证全文一致",
+      "Eastmoney两接口为同提供方，非双独立官方",
+      "未知45中39为固定能力边界+6动态状态，不是45起故障",
+      "真实风险74/red保留，禁止降低阈值消警",
+      "CF504内部原因及历史T0/原备份缺证保留，不造历史"
+    ]
+  },
+  "original_21_mapping": [
+    {
+      "category": "preupload-date",
+      "baseline_status": "FIXED_DEPLOYED",
+      "current": "摘要引用旧错误，非今日新备份失败；未重跑计数测试。"
+    },
+    {
+      "category": "preupload-sentinel",
+      "baseline_status": "FIXED_DEPLOYED",
+      "current": "摘要failed=0/exceptions=0；计数回归未重跑。"
+    },
+    {
+      "category": "preupload-protection",
+      "baseline_status": "OPEN_EXISTING_POLICY_RISK",
+      "current": "成功自然上传已见；备份失败继续覆盖风险仍在（HC-13）。"
+    },
+    {
+      "category": "history-overwrite",
+      "baseline_status": "OPEN_AUTHORITATIVE_PROVENANCE",
+      "current": "hits=61不等于61邮件或独立键；历史权威before待证。"
+    },
+    {
+      "category": "r2-purge",
+      "baseline_status": "CODE_FIXED_NATIVE_CONTENTION_OBSERVE",
+      "current": "长锁均释放非死锁；verify最终完成未证（HC-12）。"
+    },
+    {
+      "category": "r2-intraday",
+      "baseline_status": "HISTORICAL_TRUE_FAILURE_FUTURE_NATIVE_ACCEPTANCE",
+      "current": "公开手机可见性缺口已证；历史上传故障不冒称已根治。"
+    },
+    {
+      "category": "nav016989",
+      "baseline_status": "RESTORED_VERIFIED",
+      "current": "原12格及公开目标保留；Nov9三格待补（HC-05）。"
+    },
+    {
+      "category": "fund-index-Nov9",
+      "baseline_status": "RESTORED_VERIFIED",
+      "current": "Nov9三指数保留；17:00新超时非全日停产（HC-06）。"
+    },
+    {
+      "category": "overfit-delivery",
+      "baseline_status": "DEPLOYED_OBJECTS_MATCH_COMPAT_ACCEPTED_NATIVE_PUBLISH_OBSERVE",
+      "current": "旧主/ext兼容证据保留；今晚21:40待验。"
+    },
+    {
+      "category": "monitor-delivery",
+      "baseline_status": "BOUNDED_RUNTIME_PASS_NOT_ALL_CHECKS_HEALTHY",
+      "current": "19:15已落D1，19:45警告消退；诊断链待补。"
+    },
+    {
+      "category": "D1-quota",
+      "baseline_status": "OPEN_NATURAL_AND_PROVIDER_EVIDENCE",
+      "current": "16点两表真实成功；平台生产读写量/全UTC日未验。"
+    },
+    {
+      "category": "freeze136-and-trade9",
+      "baseline_status": "HISTORICAL_AND_UPSTREAM_OPEN",
+      "current": "136集合无新增；9交易缺口仍7历史冻结+2待NAV。"
+    },
+    {
+      "category": "backup-verification",
+      "baseline_status": "DEPLOYED_NEW_NATIVE_RECEIPT_NOT_ACCEPTED_YET",
+      "current": "旧3库PASS不替新proof；21:00自然轮待验。"
+    },
+    {
+      "category": "nextday",
+      "baseline_status": "DEPLOYED_TARGET_PRODUCTION_CASE_NOT_REVERIFIED_THIS_ROUND",
+      "current": "公开日期属上一自然轮；今晚22:30待验。"
+    },
+    {
+      "category": "stall-wording",
+      "baseline_status": "DEPLOYED_BOUNDED_OBSERVATION",
+      "current": "历史7日升级不等于连续停摆7日；本次17:05失败。"
+    },
+    {
+      "category": "unit-registry-drift",
+      "baseline_status": "BOUNDED_PASS",
+      "current": "45service/45timer共90单元与注册日历无漂移。"
+    },
+    {
+      "category": "turnover",
+      "baseline_status": "LATEST_NATIVE_CHAIN_PASS_PRIOR_AUDIT_SCOPE",
+      "current": "21:10自然轮未验，不挪用旧成功。"
+    },
+    {
+      "category": "Actions-release-gate",
+      "baseline_status": "DEPLOYED_APPLICABLE_CI_PASS_PROVIDER_OBSERVE",
+      "current": "近3天10失败均后续同流成功；CF内部原因未证。"
+    },
+    {
+      "category": "risk74red",
+      "baseline_status": "LEGITIMATE_BUSINESS_ALERT_KEEP",
+      "current": "当前74/red保留，禁止降低阈值消警。"
+    },
+    {
+      "category": "historical-373-Nov3",
+      "baseline_status": "OPEN_ORIGINAL_EVIDENCE_REQUIRED",
+      "current": "Nov1/2原备份与历史归因仍待原件。"
+    },
+    {
+      "category": "test-mirror-isolation",
+      "baseline_status": "FIXED_AND_QUARANTINED",
+      "current": "6个存续目标SHA不变；3条09:18残留早于13:04清理。"
+    }
+  ],
+  "status": "文档已完成，发布与回执见独立交接包；业务未实施；未认领"
+}
