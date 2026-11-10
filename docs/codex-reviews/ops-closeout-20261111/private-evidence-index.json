@@ -1,0 +1,95 @@
+{
+  "scope": "raw files retained in private audit archive, not committed",
+  "files": [
+    {
+      "name": "runtime.json",
+      "bytes": 94235,
+      "sha256": "7a7a69727547247dfd8489f72222907ac584d4c787e59c30c46fb3e912d3ebbb"
+    },
+    {
+      "name": "backup-restore-result.json",
+      "bytes": 5125,
+      "sha256": "be107fd9d17112f6fa32e1c5e6009a0e6d3340ad6a3ec2e1f13bac8ae5a363fe"
+    },
+    {
+      "name": "chain_evidence.json",
+      "bytes": 2622959,
+      "sha256": "86b4b890f62edd6278a8c0a154e4ccf8c9da7b3c9b9c0a6c72bc4aa444353258"
+    },
+    {
+      "name": "public-chain-results.json",
+      "bytes": 6864,
+      "sha256": "892e241e1e0e337d02497090d90474491290a78e05dda6e4c627c77ce49eb4dd"
+    },
+    {
+      "name": "fund-repair-preflight.json",
+      "bytes": 815,
+      "sha256": "f6ab3da6e1860f0d937d048e1ddb5c99294f40270cba1f33ff3bcd5eb88027fd"
+    },
+    {
+      "name": "fund_recovery.json",
+      "bytes": 5907,
+      "sha256": "9b2c06e8c2734c205cb1412857a0c9907870b68bc1e551517bee3beb83aeac40"
+    },
+    {
+      "name": "fund_publish.json",
+      "bytes": 3755,
+      "sha256": "df378e51acdd5e9c2df4a5bb000d5bec5730c11dec254553e516be9674587438"
+    },
+    {
+      "name": "fund-public-verification.json",
+      "bytes": 489,
+      "sha256": "80586c972a9ade3fbe582c203c1a9359e4b419083fd45493b044e02c61dc96ce"
+    },
+    {
+      "name": "public-nav-verification.json",
+      "bytes": 1376,
+      "sha256": "91882ac4413c14c760b152ca07f1068551a02c9872a690b1998132312aeb6a93"
+    },
+    {
+      "name": "upstream.json",
+      "bytes": 126635,
+      "sha256": "4260fcdd22e97f99cbdeaec7c4086e0029ebf97df646d5200b463df508016fc1"
+    },
+    {
+      "name": "history_inventory.json",
+      "bytes": 5935,
+      "sha256": "280e775bd9ddd3dd477c6d1b09237ee6a4ebdabcefc4c2418131d93f5007e072"
+    },
+    {
+      "name": "final_observation.json",
+      "bytes": 24410,
+      "sha256": "ed5876e99647c5242d3106189b3ecdaef92b9b6b285821d1e89e397b370c5e7d"
+    },
+    {
+      "name": "d1-analytics-summary.json",
+      "bytes": 677,
+      "sha256": "aea1eb2d87cd34ffbd09d89eaad2ff77bedbf7e44b6bfc637589f8a9698c2689"
+    },
+    {
+      "name": "ops-state-summary.private.json",
+      "bytes": 18511,
+      "sha256": "2c6af03b11d80a3d4c4019a401aa24833d8d2d4ac4c13cb46d5de744b316f2f4"
+    },
+    {
+      "name": "cnh-replay-result.json",
+      "bytes": 7408,
+      "sha256": "215fa72405c2c9a3ae54ea0cf1655a61386666667cff5f5f07d0c7d5ae5c29f5"
+    },
+    {
+      "name": "local-inventory.private.json",
+      "bytes": 28475,
+      "sha256": "bc3821171965886af9aa12f13a24f98b40f3bb02128ac97e18bf961e84fa5a6a"
+    },
+    {
+      "name": "own-temp-cleanup.json",
+      "bytes": 968,
+      "sha256": "8ab1614fde5ec25e9f215313e75e19a4d7ddbf20d48e246ad47579880fd10b57"
+    },
+    {
+      "name": "coordination-history.private.json",
+      "bytes": 13793,
+      "sha256": "0b646bfda654641a808e3652b2ee24b6ad54601485c202aaf7fa65f8d948bb22"
+    }
+  ]
+}

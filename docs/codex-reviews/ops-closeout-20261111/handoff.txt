@@ -1,0 +1,30 @@
+Claude，请以本次统一包接力，不必让用户再贴之前的历史消息。
+
+交接ID：ops-all-doable-final-20261111-v1
+分支：codex/ops-closeout-20261111
+完整head、报告SHA256及私有证据归档路径，以该ID的native packet为准。
+入口：docs/codex-reviews/ops-closeout-20261111/README.md
+全22项状态：同目录 TASKS.md / tasks.json
+未实施项的具体方案与验收：同目录 REMAINING.md
+
+1. 这条分支继承2eb5f7abd03ff0cc86c025d6a95be8cb7addb895全部实现，tested_code_head仍是b5a7483374d252c0622284f17560fd601eb55e3d。本轮之后仅新增审计目录，不再改业务源码。请只审核这一条分支，别重复cherry-pick HC01–04、公募、过拟合、监控等子分支。既有CI为4543 tests/0 failures/0 errors/7 skipped；不能当最终新head独立review PASS。
+
+2. 生产当前源码仍f35437a699d199076b5654dcde58780be89ee6b4。前轮已恢复公募/过拟合产物，本轮额外用现有定向采集补016989 Nov9三NULL：unit/acc=1.1527，pct=-0.11。原非空、轮转游标不变；5c桶保留全部107代码及其余106只原内容，增量上传1/256、旧备份成功，公网长度/hash与源相同。Nov10上游未出值继续留空，未动冻结/历史评级/生产源码。
+
+3. 四库都从R2独立下载恢复，run_id、对象版本、压缩/解压SHA、长度、SQLite integrity和表计数4/4通过，含public_fund。自然任务公募按非周日SKIP与本次补充演练分开记录，不能写自然四库全验。换手/次日计划11个公网响应完整hash通过；原始股票仍5195成功/5失败，不写5200全成功。4个ETF累计净值公网也匹配。
+
+4. HC18现在已确认输入合同bug：888行中887条百美元中行折算价+1条6.6724盘中值混算；生产纯函数逐字重现阈374.7/RSI0/MA60 662.8。仅统一单位后仍sell，因此不声称方向错误。请优先复核来源/品种/单位合同，隔离不兼容写入，历史迁移另审；不盲目全表除100、不改阈值、不重造冻结。复现入口replay_cnh.py及cnh-input.json。
+
+5. HC13旧风险未消失。本轮查到官方支持CompleteMultipartUpload最终条件写，旧报告“平台能力未证”已订正；当前客户端最终Complete仍未传条件头。REMAINING.md列了关键键候选、全写入口、旧版本可恢复证明、CAS/412/超时未知/分片/持久purge顺序。尚未集成生产，不能把33个离线用例写成生产保护已开。
+
+6. 136冻结缺失集合无新增；最近10条交易诊断=7缺原冻结依据+3等Nov10NAV，historical_should_trade仍unknown。两个当前运行树和Nov7预部署副本均未找到那7键，staticdata云仓浅历史且当前树无冻结JSON；不声称所有原件绝无，不用现评级补历史。02:15相同136键告警仍真实存在。
+
+7. D1取得真实平台计数及两表自然同步成功/count一致。Nov10 UTC日到11/11 08:00 CST才结束，之后待平台数据收敛再验；当前不能宣称89%费用下降。逐阶段meta计数仍待接线。41未知已逐项列证据/owner/过期规则，不是41事故，也没有批量改绿。
+
+8. 2严重/2警告仍是原公募/overfit任务与派生调度，临时恢复不改原unit失败历史。请按既有流程独立复核→main-merge/build/min/版本串→合并点CI→云/站点发布→下一自然轮业务与公开hash验收；不要reset-failed消红，过拟合跨日不绕过日期门禁补发。
+
+9. HC07/08/10/11/12/13/18/22还存在未实施工作，均在TASKS和REMAINING中逐项标清；不是“全部代码写完”。同文件一个owner认领，优先既有修复上线，再做HC18和HC13。其他工作树不动：49分支33祖先main、35树22祖先main；freeze旧树3个dirty文件及锁树保留；另一Claude树3条09:18 fixture由其owner备份后隔离。
+
+10. 本包承接未回执历史：alert-takeover-final-20261110-v1、healthcheck-evening-20261110-v1、healthcheck-next-evidence-20261110-v1、healthcheck-wave1-final-20261110-v1、ops-current-alerts-start-20261110-v1、ops-current-alerts-final-20261110-v1。旧报告不改写，保留原始失败和纠错；状态只维护pending-index，不能整文件覆盖。
+
+请回执固定head+报告SHA、已复核/有异议项、认领owner与文件边界、合并部署点及自然验收结果。queued/context-emitted不视作你已接受。Codex未代你ACK，也未启动会另起Claude编辑会话的自动消费者。

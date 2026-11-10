@@ -1,0 +1,416 @@
+{
+  "observed_at": "2026-11-10T22:30:13.530512Z",
+  "count": 41,
+  "rows": [
+    {
+      "id": "cloud-timer:trade-ops-monitor.timer",
+      "category": "timer",
+      "observed_status": "unknown",
+      "reason": "active；本次未观察到下一触发点，不据此判失败",
+      "required_evidence": "下次调度时间或该次invocation的完成状态",
+      "owner": "调度采集",
+      "expiry_rule": "下一个注册调度窗口；与任务结果分开",
+      "production_status_changed": false
+    },
+    {
+      "id": "cloud-timer:trade-schedule-monitor.timer",
+      "category": "timer",
+      "observed_status": "unknown",
+      "reason": "active；本次未观察到下一触发点，不据此判失败",
+      "required_evidence": "下次调度时间或该次invocation的完成状态",
+      "owner": "调度采集",
+      "expiry_rule": "下一个注册调度窗口；与任务结果分开",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:alert-buffers",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:alert-state",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:board-etf-map",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:code-mirror",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:etf-db",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:etf-freeze",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:export-manifest",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:export-proof",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:freeze-registries",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:frozen-missing-audit",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:history-overwrite-audit",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:index-daily",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:kelly-snapshots",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:kelly-summary",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:kelly-trades",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:kelly-trades-sdc",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:local-db-backups",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:map-inputs",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:notify-ledger",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:preupload-backups",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:public-fund-db",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:published-data",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:r2-db-backups",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:restore-drill",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:runtime-logs",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:schedule-stats",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:score-daily",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:sentiment-db",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:signal-daily",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:signal-stats",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:signal-stats-work",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:staticdata-backups",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "未配置可验证固定源/轻量采集范围外",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:stock-db",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "data:upload-state",
+      "category": "data",
+      "observed_status": "unknown",
+      "reason": "仅文件元信息",
+      "required_evidence": "业务owner产出run_id、business_date、规则版本、输入/输出hash、覆盖率及完成时间",
+      "owner": "对应业务链",
+      "expiry_rule": "由该业务日历定义next_due+grace，不能统一用文件mtime",
+      "production_status_changed": false
+    },
+    {
+      "id": "backup:local-sentiment",
+      "category": "backup",
+      "observed_status": "unknown",
+      "reason": "采集器未消费恢复凭证",
+      "required_evidence": "绑定源run、对象版本、内容hash、SQLite完整性及表计数的恢复回执",
+      "owner": "备份链",
+      "expiry_rule": "下一应有备份/恢复演练周期；保留上次证据时间",
+      "production_status_changed": false
+    },
+    {
+      "id": "backup:local-etf_national_team",
+      "category": "backup",
+      "observed_status": "unknown",
+      "reason": "采集器未消费恢复凭证",
+      "required_evidence": "绑定源run、对象版本、内容hash、SQLite完整性及表计数的恢复回执",
+      "owner": "备份链",
+      "expiry_rule": "下一应有备份/恢复演练周期；保留上次证据时间",
+      "production_status_changed": false
+    },
+    {
+      "id": "backup:local-stock_daily",
+      "category": "backup",
+      "observed_status": "unknown",
+      "reason": "采集器未消费恢复凭证",
+      "required_evidence": "绑定源run、对象版本、内容hash、SQLite完整性及表计数的恢复回执",
+      "owner": "备份链",
+      "expiry_rule": "下一应有备份/恢复演练周期；保留上次证据时间",
+      "production_status_changed": false
+    },
+    {
+      "id": "backup:remote-ledger",
+      "category": "backup",
+      "observed_status": "unknown",
+      "reason": "采集器未消费恢复凭证",
+      "required_evidence": "绑定源run、对象版本、内容hash、SQLite完整性及表计数的恢复回执",
+      "owner": "备份链",
+      "expiry_rule": "下一应有备份/恢复演练周期；保留上次证据时间",
+      "production_status_changed": false
+    },
+    {
+      "id": "publication:served-content",
+      "category": "publication",
+      "observed_status": "unknown",
+      "reason": "未验证公网完整交付",
+      "required_evidence": "目标URL完整响应、源hash、业务日期、发布run与核验时间",
+      "owner": "发布链",
+      "expiry_rule": "下次发布或产品约定有效期",
+      "production_status_changed": false
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "findings": [
+    {
+      "id": "HC18-CNH-UNIT-CONTRACT",
+      "severity": "P1",
+      "origin": "pre-existing",
+      "scope": "in-scope",
+      "title": "usdcnh历史百美元中行折算价与盘中单美元报价混算",
+      "location": {
+        "path": "app/collector/intraday_snapshot.py",
+        "line": 1668
+      },
+      "impact": "信号reason阈值/RSI/MA被尺度断点污染；未证明方向或资金损失",
+      "trace": {
+        "diff_range": "f35437a699d199076b5654dcde58780be89ee6b4 config/indicators.yaml:96 app/collector/intraday_snapshot.py:1668 app/compute/signals.py:840",
+        "linkage": "不满足",
+        "user_request": "根治，尤其是覆盖导致的问题；把所有能做的做完一起交付"
+      },
+      "verifier": {
+        "command": ".venv/bin/python docs/codex-reviews/ops-closeout-20261111/replay_cnh.py --repo .",
+        "expected": "同一信号窗口仅含同品种同单位；未完成合同迁移不得静默换算或覆盖历史",
+        "observed": {
+          "last_value": 6.6724,
+          "high20": 672.08,
+          "threshold20": 374.66986469722514,
+          "ma60": 662.8458733333333,
+          "rsi14": 0.10131639151869365,
+          "november_signals": [
+            [
+              "20261110",
+              "g.usdcnh",
+              "sell",
+              "20日高回落2σ(高672.1->阈374.7,当前值6.672), RSI=0, MA60=662.8[去趋势过滤], 无前买点[趋势中], [指标]"
+            ]
+          ]
+        },
+        "counterfactual": {
+          "last_value": 6.6724,
+          "high20": 6.7208000000000006,
+          "threshold20": 6.700435779570837,
+          "ma60": 6.738553333333333,
+          "rsi14": 10.658180724044684,
+          "november_signals": [
+            [
+              "20261110",
+              "g.usdcnh",
+              "sell",
+              "20日高回落2σ(高6.721->阈6.7,当前值6.672), RSI=11, MA60=6.739[去趋势过滤], 无前买点[趋势中], [指标]"
+            ]
+          ]
+        }
+      },
+      "fix_status": "contract_spec_ready_not_implemented",
+      "historical_direction_error_proven": false
+    }
+  ],
+  "prior_HC13": "existing report retained; current official CompleteMultipartUpload capability correction in README/REMAINING"
+}

@@ -1,0 +1,4445 @@
+{
+  "metric": "usdcnh",
+  "rows": [
+    {
+      "date": "20230306",
+      "value": 689.51,
+      "source": "akshare"
+    },
+    {
+      "date": "20230307",
+      "value": 691.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20230308",
+      "value": 695.25,
+      "source": "akshare"
+    },
+    {
+      "date": "20230309",
+      "value": 696.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20230310",
+      "value": 696.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20230313",
+      "value": 693.75,
+      "source": "akshare"
+    },
+    {
+      "date": "20230314",
+      "value": 689.49,
+      "source": "akshare"
+    },
+    {
+      "date": "20230315",
+      "value": 686.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20230316",
+      "value": 691.49,
+      "source": "akshare"
+    },
+    {
+      "date": "20230317",
+      "value": 690.52,
+      "source": "akshare"
+    },
+    {
+      "date": "20230320",
+      "value": 686.94,
+      "source": "akshare"
+    },
+    {
+      "date": "20230321",
+      "value": 687.63,
+      "source": "akshare"
+    },
+    {
+      "date": "20230322",
+      "value": 687.15,
+      "source": "akshare"
+    },
+    {
+      "date": "20230323",
+      "value": 687.09,
+      "source": "akshare"
+    },
+    {
+      "date": "20230324",
+      "value": 683.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20230327",
+      "value": 687.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20230328",
+      "value": 687.49,
+      "source": "akshare"
+    },
+    {
+      "date": "20230329",
+      "value": 687.71,
+      "source": "akshare"
+    },
+    {
+      "date": "20230330",
+      "value": 688.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20230331",
+      "value": 687.17,
+      "source": "akshare"
+    },
+    {
+      "date": "20230403",
+      "value": 688.05,
+      "source": "akshare"
+    },
+    {
+      "date": "20230404",
+      "value": 686.99,
+      "source": "akshare"
+    },
+    {
+      "date": "20230406",
+      "value": 687.47,
+      "source": "akshare"
+    },
+    {
+      "date": "20230407",
+      "value": 688.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20230410",
+      "value": 687.64,
+      "source": "akshare"
+    },
+    {
+      "date": "20230411",
+      "value": 688.82,
+      "source": "akshare"
+    },
+    {
+      "date": "20230412",
+      "value": 688.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20230413",
+      "value": 686.58,
+      "source": "akshare"
+    },
+    {
+      "date": "20230414",
+      "value": 686.06,
+      "source": "akshare"
+    },
+    {
+      "date": "20230417",
+      "value": 686.79,
+      "source": "akshare"
+    },
+    {
+      "date": "20230418",
+      "value": 688.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20230419",
+      "value": 687.31,
+      "source": "akshare"
+    },
+    {
+      "date": "20230420",
+      "value": 689.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20230421",
+      "value": 687.52,
+      "source": "akshare"
+    },
+    {
+      "date": "20230424",
+      "value": 688.35,
+      "source": "akshare"
+    },
+    {
+      "date": "20230425",
+      "value": 688.47,
+      "source": "akshare"
+    },
+    {
+      "date": "20230426",
+      "value": 692.37,
+      "source": "akshare"
+    },
+    {
+      "date": "20230427",
+      "value": 692.07,
+      "source": "akshare"
+    },
+    {
+      "date": "20230428",
+      "value": 692.4,
+      "source": "akshare"
+    },
+    {
+      "date": "20230504",
+      "value": 690.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20230505",
+      "value": 691.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20230508",
+      "value": 691.58,
+      "source": "akshare"
+    },
+    {
+      "date": "20230509",
+      "value": 692.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20230510",
+      "value": 692.99,
+      "source": "akshare"
+    },
+    {
+      "date": "20230511",
+      "value": 691.01,
+      "source": "akshare"
+    },
+    {
+      "date": "20230512",
+      "value": 694.81,
+      "source": "akshare"
+    },
+    {
+      "date": "20230515",
+      "value": 696.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20230516",
+      "value": 695.06,
+      "source": "akshare"
+    },
+    {
+      "date": "20230517",
+      "value": 697.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20230518",
+      "value": 699.67,
+      "source": "akshare"
+    },
+    {
+      "date": "20230519",
+      "value": 703.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20230522",
+      "value": 701.57,
+      "source": "akshare"
+    },
+    {
+      "date": "20230523",
+      "value": 703.26,
+      "source": "akshare"
+    },
+    {
+      "date": "20230524",
+      "value": 705.6,
+      "source": "akshare"
+    },
+    {
+      "date": "20230525",
+      "value": 705.29,
+      "source": "akshare"
+    },
+    {
+      "date": "20230526",
+      "value": 707.6,
+      "source": "akshare"
+    },
+    {
+      "date": "20230529",
+      "value": 705.75,
+      "source": "akshare"
+    },
+    {
+      "date": "20230530",
+      "value": 708.18,
+      "source": "akshare"
+    },
+    {
+      "date": "20230531",
+      "value": 708.21,
+      "source": "akshare"
+    },
+    {
+      "date": "20230601",
+      "value": 709.65,
+      "source": "akshare"
+    },
+    {
+      "date": "20230602",
+      "value": 709.39,
+      "source": "akshare"
+    },
+    {
+      "date": "20230605",
+      "value": 709.04,
+      "source": "akshare"
+    },
+    {
+      "date": "20230606",
+      "value": 710.75,
+      "source": "akshare"
+    },
+    {
+      "date": "20230607",
+      "value": 711.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20230608",
+      "value": 712.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20230609",
+      "value": 711.15,
+      "source": "akshare"
+    },
+    {
+      "date": "20230612",
+      "value": 712.12,
+      "source": "akshare"
+    },
+    {
+      "date": "20230613",
+      "value": 714.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20230614",
+      "value": 715.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20230615",
+      "value": 714.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20230616",
+      "value": 712.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20230619",
+      "value": 712.01,
+      "source": "akshare"
+    },
+    {
+      "date": "20230620",
+      "value": 715.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20230621",
+      "value": 717.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20230626",
+      "value": 720.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20230627",
+      "value": 720.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20230628",
+      "value": 721.01,
+      "source": "akshare"
+    },
+    {
+      "date": "20230629",
+      "value": 722.08,
+      "source": "akshare"
+    },
+    {
+      "date": "20230630",
+      "value": 722.58,
+      "source": "akshare"
+    },
+    {
+      "date": "20230703",
+      "value": 721.57,
+      "source": "akshare"
+    },
+    {
+      "date": "20230704",
+      "value": 720.46,
+      "source": "akshare"
+    },
+    {
+      "date": "20230705",
+      "value": 719.68,
+      "source": "akshare"
+    },
+    {
+      "date": "20230706",
+      "value": 720.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20230707",
+      "value": 720.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20230710",
+      "value": 719.26,
+      "source": "akshare"
+    },
+    {
+      "date": "20230711",
+      "value": 718.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20230712",
+      "value": 717.65,
+      "source": "akshare"
+    },
+    {
+      "date": "20230713",
+      "value": 715.27,
+      "source": "akshare"
+    },
+    {
+      "date": "20230714",
+      "value": 713.18,
+      "source": "akshare"
+    },
+    {
+      "date": "20230717",
+      "value": 713.26,
+      "source": "akshare"
+    },
+    {
+      "date": "20230718",
+      "value": 714.53,
+      "source": "akshare"
+    },
+    {
+      "date": "20230719",
+      "value": 714.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20230720",
+      "value": 714.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20230721",
+      "value": 714.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20230724",
+      "value": 714.51,
+      "source": "akshare"
+    },
+    {
+      "date": "20230725",
+      "value": 714.06,
+      "source": "akshare"
+    },
+    {
+      "date": "20230726",
+      "value": 712.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20230727",
+      "value": 712.65,
+      "source": "akshare"
+    },
+    {
+      "date": "20230728",
+      "value": 713.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20230731",
+      "value": 713.05,
+      "source": "akshare"
+    },
+    {
+      "date": "20230801",
+      "value": 712.83,
+      "source": "akshare"
+    },
+    {
+      "date": "20230802",
+      "value": 713.68,
+      "source": "akshare"
+    },
+    {
+      "date": "20230803",
+      "value": 714.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20230804",
+      "value": 714.18,
+      "source": "akshare"
+    },
+    {
+      "date": "20230807",
+      "value": 713.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20230808",
+      "value": 715.65,
+      "source": "akshare"
+    },
+    {
+      "date": "20230809",
+      "value": 715.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20230810",
+      "value": 715.76,
+      "source": "akshare"
+    },
+    {
+      "date": "20230811",
+      "value": 715.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20230814",
+      "value": 716.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20230815",
+      "value": 717.68,
+      "source": "akshare"
+    },
+    {
+      "date": "20230816",
+      "value": 719.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20230817",
+      "value": 720.76,
+      "source": "akshare"
+    },
+    {
+      "date": "20230818",
+      "value": 720.06,
+      "source": "akshare"
+    },
+    {
+      "date": "20230821",
+      "value": 719.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20230822",
+      "value": 719.92,
+      "source": "akshare"
+    },
+    {
+      "date": "20230823",
+      "value": 719.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20230824",
+      "value": 718.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20230825",
+      "value": 718.83,
+      "source": "akshare"
+    },
+    {
+      "date": "20230828",
+      "value": 718.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20230829",
+      "value": 718.51,
+      "source": "akshare"
+    },
+    {
+      "date": "20230830",
+      "value": 718.16,
+      "source": "akshare"
+    },
+    {
+      "date": "20230831",
+      "value": 718.11,
+      "source": "akshare"
+    },
+    {
+      "date": "20230901",
+      "value": 717.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20230904",
+      "value": 717.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20230905",
+      "value": 717.83,
+      "source": "akshare"
+    },
+    {
+      "date": "20230906",
+      "value": 719.69,
+      "source": "akshare"
+    },
+    {
+      "date": "20230907",
+      "value": 719.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20230908",
+      "value": 721.5,
+      "source": "akshare"
+    },
+    {
+      "date": "20230911",
+      "value": 721.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20230912",
+      "value": 719.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20230913",
+      "value": 718.94,
+      "source": "akshare"
+    },
+    {
+      "date": "20230914",
+      "value": 718.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20230915",
+      "value": 717.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20230918",
+      "value": 717.36,
+      "source": "akshare"
+    },
+    {
+      "date": "20230919",
+      "value": 717.33,
+      "source": "akshare"
+    },
+    {
+      "date": "20230920",
+      "value": 717.32,
+      "source": "akshare"
+    },
+    {
+      "date": "20230921",
+      "value": 717.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20230922",
+      "value": 717.29,
+      "source": "akshare"
+    },
+    {
+      "date": "20230925",
+      "value": 717.27,
+      "source": "akshare"
+    },
+    {
+      "date": "20230926",
+      "value": 717.27,
+      "source": "akshare"
+    },
+    {
+      "date": "20230927",
+      "value": 717.17,
+      "source": "akshare"
+    },
+    {
+      "date": "20230928",
+      "value": 717.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20231009",
+      "value": 717.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20231010",
+      "value": 717.81,
+      "source": "akshare"
+    },
+    {
+      "date": "20231011",
+      "value": 717.79,
+      "source": "akshare"
+    },
+    {
+      "date": "20231012",
+      "value": 717.76,
+      "source": "akshare"
+    },
+    {
+      "date": "20231013",
+      "value": 717.75,
+      "source": "akshare"
+    },
+    {
+      "date": "20231016",
+      "value": 717.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20231017",
+      "value": 717.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20231018",
+      "value": 717.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20231019",
+      "value": 717.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20231020",
+      "value": 717.93,
+      "source": "akshare"
+    },
+    {
+      "date": "20231023",
+      "value": 717.92,
+      "source": "akshare"
+    },
+    {
+      "date": "20231024",
+      "value": 717.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20231025",
+      "value": 717.85,
+      "source": "akshare"
+    },
+    {
+      "date": "20231026",
+      "value": 717.84,
+      "source": "akshare"
+    },
+    {
+      "date": "20231027",
+      "value": 717.82,
+      "source": "akshare"
+    },
+    {
+      "date": "20231030",
+      "value": 717.81,
+      "source": "akshare"
+    },
+    {
+      "date": "20231031",
+      "value": 717.79,
+      "source": "akshare"
+    },
+    {
+      "date": "20231101",
+      "value": 717.78,
+      "source": "akshare"
+    },
+    {
+      "date": "20231102",
+      "value": 717.97,
+      "source": "akshare"
+    },
+    {
+      "date": "20231103",
+      "value": 717.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20231106",
+      "value": 717.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20231107",
+      "value": 717.76,
+      "source": "akshare"
+    },
+    {
+      "date": "20231108",
+      "value": 717.73,
+      "source": "akshare"
+    },
+    {
+      "date": "20231109",
+      "value": 717.72,
+      "source": "akshare"
+    },
+    {
+      "date": "20231110",
+      "value": 717.71,
+      "source": "akshare"
+    },
+    {
+      "date": "20240705",
+      "value": 712.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20240708",
+      "value": 712.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20240709",
+      "value": 713.1,
+      "source": "akshare"
+    },
+    {
+      "date": "20240710",
+      "value": 713.42,
+      "source": "akshare"
+    },
+    {
+      "date": "20240711",
+      "value": 713.39,
+      "source": "akshare"
+    },
+    {
+      "date": "20240712",
+      "value": 713.15,
+      "source": "akshare"
+    },
+    {
+      "date": "20240715",
+      "value": 713.13,
+      "source": "akshare"
+    },
+    {
+      "date": "20240716",
+      "value": 713.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20240717",
+      "value": 713.18,
+      "source": "akshare"
+    },
+    {
+      "date": "20240718",
+      "value": 712.85,
+      "source": "akshare"
+    },
+    {
+      "date": "20240719",
+      "value": 713.15,
+      "source": "akshare"
+    },
+    {
+      "date": "20240722",
+      "value": 713.35,
+      "source": "akshare"
+    },
+    {
+      "date": "20240723",
+      "value": 713.34,
+      "source": "akshare"
+    },
+    {
+      "date": "20240724",
+      "value": 713.58,
+      "source": "akshare"
+    },
+    {
+      "date": "20240725",
+      "value": 713.21,
+      "source": "akshare"
+    },
+    {
+      "date": "20240726",
+      "value": 712.7,
+      "source": "akshare"
+    },
+    {
+      "date": "20240729",
+      "value": 713.16,
+      "source": "akshare"
+    },
+    {
+      "date": "20240730",
+      "value": 713.64,
+      "source": "akshare"
+    },
+    {
+      "date": "20240731",
+      "value": 713.46,
+      "source": "akshare"
+    },
+    {
+      "date": "20240801",
+      "value": 713.23,
+      "source": "akshare"
+    },
+    {
+      "date": "20240802",
+      "value": 713.76,
+      "source": "akshare"
+    },
+    {
+      "date": "20240805",
+      "value": 713.45,
+      "source": "akshare"
+    },
+    {
+      "date": "20240806",
+      "value": 713.18,
+      "source": "akshare"
+    },
+    {
+      "date": "20240807",
+      "value": 713.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20240808",
+      "value": 714.6,
+      "source": "akshare"
+    },
+    {
+      "date": "20240809",
+      "value": 714.49,
+      "source": "akshare"
+    },
+    {
+      "date": "20240812",
+      "value": 714.58,
+      "source": "akshare"
+    },
+    {
+      "date": "20240813",
+      "value": 714.79,
+      "source": "akshare"
+    },
+    {
+      "date": "20240814",
+      "value": 714.15,
+      "source": "akshare"
+    },
+    {
+      "date": "20240815",
+      "value": 713.99,
+      "source": "akshare"
+    },
+    {
+      "date": "20240816",
+      "value": 714.64,
+      "source": "akshare"
+    },
+    {
+      "date": "20240819",
+      "value": 714.15,
+      "source": "akshare"
+    },
+    {
+      "date": "20240820",
+      "value": 713.25,
+      "source": "akshare"
+    },
+    {
+      "date": "20240821",
+      "value": 713.07,
+      "source": "akshare"
+    },
+    {
+      "date": "20240822",
+      "value": 712.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20240823",
+      "value": 713.58,
+      "source": "akshare"
+    },
+    {
+      "date": "20240826",
+      "value": 711.39,
+      "source": "akshare"
+    },
+    {
+      "date": "20240827",
+      "value": 712.49,
+      "source": "akshare"
+    },
+    {
+      "date": "20240828",
+      "value": 712.16,
+      "source": "akshare"
+    },
+    {
+      "date": "20240829",
+      "value": 712.99,
+      "source": "akshare"
+    },
+    {
+      "date": "20240830",
+      "value": 711.24,
+      "source": "akshare"
+    },
+    {
+      "date": "20240902",
+      "value": 710.27,
+      "source": "akshare"
+    },
+    {
+      "date": "20240903",
+      "value": 711.12,
+      "source": "akshare"
+    },
+    {
+      "date": "20240904",
+      "value": 711.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20240905",
+      "value": 709.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20240906",
+      "value": 709.25,
+      "source": "akshare"
+    },
+    {
+      "date": "20240909",
+      "value": 709.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20240910",
+      "value": 711.36,
+      "source": "akshare"
+    },
+    {
+      "date": "20240911",
+      "value": 711.82,
+      "source": "akshare"
+    },
+    {
+      "date": "20240912",
+      "value": 712.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20240913",
+      "value": 710.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20240916",
+      "value": 710.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20240917",
+      "value": 710.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20240918",
+      "value": 708.7,
+      "source": "akshare"
+    },
+    {
+      "date": "20240919",
+      "value": 709.83,
+      "source": "akshare"
+    },
+    {
+      "date": "20240920",
+      "value": 706.44,
+      "source": "akshare"
+    },
+    {
+      "date": "20240923",
+      "value": 705.31,
+      "source": "akshare"
+    },
+    {
+      "date": "20240924",
+      "value": 705.1,
+      "source": "akshare"
+    },
+    {
+      "date": "20240925",
+      "value": 702.02,
+      "source": "akshare"
+    },
+    {
+      "date": "20240926",
+      "value": 703.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20240927",
+      "value": 701.01,
+      "source": "akshare"
+    },
+    {
+      "date": "20240930",
+      "value": 700.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20241001",
+      "value": 700.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20241002",
+      "value": 700.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20241003",
+      "value": 700.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20241004",
+      "value": 700.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20241007",
+      "value": 700.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20241008",
+      "value": 707.09,
+      "source": "akshare"
+    },
+    {
+      "date": "20241009",
+      "value": 705.68,
+      "source": "akshare"
+    },
+    {
+      "date": "20241010",
+      "value": 707.42,
+      "source": "akshare"
+    },
+    {
+      "date": "20241011",
+      "value": 707.31,
+      "source": "akshare"
+    },
+    {
+      "date": "20241014",
+      "value": 707.23,
+      "source": "akshare"
+    },
+    {
+      "date": "20241015",
+      "value": 708.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20241016",
+      "value": 711.91,
+      "source": "akshare"
+    },
+    {
+      "date": "20241017",
+      "value": 712.2,
+      "source": "akshare"
+    },
+    {
+      "date": "20241018",
+      "value": 712.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20241019",
+      "value": 712.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20241021",
+      "value": 709.82,
+      "source": "akshare"
+    },
+    {
+      "date": "20241022",
+      "value": 712.23,
+      "source": "akshare"
+    },
+    {
+      "date": "20241023",
+      "value": 712.45,
+      "source": "akshare"
+    },
+    {
+      "date": "20241024",
+      "value": 712.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20241025",
+      "value": 710.9,
+      "source": "akshare"
+    },
+    {
+      "date": "20241026",
+      "value": 710.9,
+      "source": "akshare"
+    },
+    {
+      "date": "20241028",
+      "value": 713.07,
+      "source": "akshare"
+    },
+    {
+      "date": "20241029",
+      "value": 712.83,
+      "source": "akshare"
+    },
+    {
+      "date": "20241030",
+      "value": 713.9,
+      "source": "akshare"
+    },
+    {
+      "date": "20241031",
+      "value": 712.5,
+      "source": "akshare"
+    },
+    {
+      "date": "20241101",
+      "value": 711.35,
+      "source": "akshare"
+    },
+    {
+      "date": "20241102",
+      "value": 711.35,
+      "source": "akshare"
+    },
+    {
+      "date": "20241104",
+      "value": 712.03,
+      "source": "akshare"
+    },
+    {
+      "date": "20241105",
+      "value": 710.16,
+      "source": "akshare"
+    },
+    {
+      "date": "20241106",
+      "value": 709.93,
+      "source": "akshare"
+    },
+    {
+      "date": "20241107",
+      "value": 716.59,
+      "source": "akshare"
+    },
+    {
+      "date": "20241108",
+      "value": 714.33,
+      "source": "akshare"
+    },
+    {
+      "date": "20241109",
+      "value": 714.33,
+      "source": "akshare"
+    },
+    {
+      "date": "20241111",
+      "value": 717.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20241112",
+      "value": 719.27,
+      "source": "akshare"
+    },
+    {
+      "date": "20241113",
+      "value": 719.91,
+      "source": "akshare"
+    },
+    {
+      "date": "20241114",
+      "value": 719.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20241115",
+      "value": 719.92,
+      "source": "akshare"
+    },
+    {
+      "date": "20241116",
+      "value": 719.92,
+      "source": "akshare"
+    },
+    {
+      "date": "20241118",
+      "value": 719.07,
+      "source": "akshare"
+    },
+    {
+      "date": "20241119",
+      "value": 719.11,
+      "source": "akshare"
+    },
+    {
+      "date": "20241120",
+      "value": 719.35,
+      "source": "akshare"
+    },
+    {
+      "date": "20241121",
+      "value": 719.34,
+      "source": "akshare"
+    },
+    {
+      "date": "20241122",
+      "value": 719.42,
+      "source": "akshare"
+    },
+    {
+      "date": "20241123",
+      "value": 719.42,
+      "source": "akshare"
+    },
+    {
+      "date": "20241125",
+      "value": 719.18,
+      "source": "akshare"
+    },
+    {
+      "date": "20241126",
+      "value": 719.1,
+      "source": "akshare"
+    },
+    {
+      "date": "20241127",
+      "value": 719.82,
+      "source": "akshare"
+    },
+    {
+      "date": "20241128",
+      "value": 718.94,
+      "source": "akshare"
+    },
+    {
+      "date": "20241129",
+      "value": 718.77,
+      "source": "akshare"
+    },
+    {
+      "date": "20241130",
+      "value": 718.77,
+      "source": "akshare"
+    },
+    {
+      "date": "20241202",
+      "value": 718.65,
+      "source": "akshare"
+    },
+    {
+      "date": "20241203",
+      "value": 719.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20241204",
+      "value": 719.34,
+      "source": "akshare"
+    },
+    {
+      "date": "20241205",
+      "value": 718.79,
+      "source": "akshare"
+    },
+    {
+      "date": "20241206",
+      "value": 718.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20241207",
+      "value": 718.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20241209",
+      "value": 718.7,
+      "source": "akshare"
+    },
+    {
+      "date": "20241210",
+      "value": 718.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20241211",
+      "value": 718.43,
+      "source": "akshare"
+    },
+    {
+      "date": "20241212",
+      "value": 718.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20241213",
+      "value": 718.76,
+      "source": "akshare"
+    },
+    {
+      "date": "20241214",
+      "value": 718.76,
+      "source": "akshare"
+    },
+    {
+      "date": "20241216",
+      "value": 718.82,
+      "source": "akshare"
+    },
+    {
+      "date": "20241217",
+      "value": 718.91,
+      "source": "akshare"
+    },
+    {
+      "date": "20241218",
+      "value": 718.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20241219",
+      "value": 719.11,
+      "source": "akshare"
+    },
+    {
+      "date": "20241220",
+      "value": 719.01,
+      "source": "akshare"
+    },
+    {
+      "date": "20241221",
+      "value": 719.01,
+      "source": "akshare"
+    },
+    {
+      "date": "20241223",
+      "value": 718.7,
+      "source": "akshare"
+    },
+    {
+      "date": "20241224",
+      "value": 718.76,
+      "source": "akshare"
+    },
+    {
+      "date": "20241225",
+      "value": 718.68,
+      "source": "akshare"
+    },
+    {
+      "date": "20241226",
+      "value": 718.97,
+      "source": "akshare"
+    },
+    {
+      "date": "20241227",
+      "value": 718.93,
+      "source": "akshare"
+    },
+    {
+      "date": "20241228",
+      "value": 718.93,
+      "source": "akshare"
+    },
+    {
+      "date": "20241230",
+      "value": 718.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20241231",
+      "value": 718.84,
+      "source": "akshare"
+    },
+    {
+      "date": "20250101",
+      "value": 718.84,
+      "source": "akshare"
+    },
+    {
+      "date": "20250102",
+      "value": 718.79,
+      "source": "akshare"
+    },
+    {
+      "date": "20250103",
+      "value": 718.78,
+      "source": "akshare"
+    },
+    {
+      "date": "20250104",
+      "value": 718.78,
+      "source": "akshare"
+    },
+    {
+      "date": "20250106",
+      "value": 718.76,
+      "source": "akshare"
+    },
+    {
+      "date": "20250107",
+      "value": 718.79,
+      "source": "akshare"
+    },
+    {
+      "date": "20250108",
+      "value": 718.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20250109",
+      "value": 718.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20250110",
+      "value": 718.91,
+      "source": "akshare"
+    },
+    {
+      "date": "20250111",
+      "value": 718.91,
+      "source": "akshare"
+    },
+    {
+      "date": "20250113",
+      "value": 718.85,
+      "source": "akshare"
+    },
+    {
+      "date": "20250114",
+      "value": 718.78,
+      "source": "akshare"
+    },
+    {
+      "date": "20250115",
+      "value": 718.83,
+      "source": "akshare"
+    },
+    {
+      "date": "20250116",
+      "value": 718.81,
+      "source": "akshare"
+    },
+    {
+      "date": "20250117",
+      "value": 718.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20250118",
+      "value": 718.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20250120",
+      "value": 718.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20250121",
+      "value": 717.03,
+      "source": "akshare"
+    },
+    {
+      "date": "20250122",
+      "value": 716.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20250123",
+      "value": 717.08,
+      "source": "akshare"
+    },
+    {
+      "date": "20250124",
+      "value": 717.05,
+      "source": "akshare"
+    },
+    {
+      "date": "20250125",
+      "value": 717.05,
+      "source": "akshare"
+    },
+    {
+      "date": "20250127",
+      "value": 716.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20250128",
+      "value": 716.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20250129",
+      "value": 716.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20250130",
+      "value": 716.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20250131",
+      "value": 716.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20250201",
+      "value": 716.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20250203",
+      "value": 716.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20250204",
+      "value": 716.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20250205",
+      "value": 716.93,
+      "source": "akshare"
+    },
+    {
+      "date": "20250206",
+      "value": 716.91,
+      "source": "akshare"
+    },
+    {
+      "date": "20250207",
+      "value": 716.99,
+      "source": "akshare"
+    },
+    {
+      "date": "20250208",
+      "value": 716.99,
+      "source": "akshare"
+    },
+    {
+      "date": "20250210",
+      "value": 717.07,
+      "source": "akshare"
+    },
+    {
+      "date": "20250211",
+      "value": 717.16,
+      "source": "akshare"
+    },
+    {
+      "date": "20250212",
+      "value": 717.1,
+      "source": "akshare"
+    },
+    {
+      "date": "20250213",
+      "value": 717.19,
+      "source": "akshare"
+    },
+    {
+      "date": "20250214",
+      "value": 717.06,
+      "source": "akshare"
+    },
+    {
+      "date": "20250215",
+      "value": 717.06,
+      "source": "akshare"
+    },
+    {
+      "date": "20250217",
+      "value": 717.02,
+      "source": "akshare"
+    },
+    {
+      "date": "20250218",
+      "value": 716.97,
+      "source": "akshare"
+    },
+    {
+      "date": "20250219",
+      "value": 717.05,
+      "source": "akshare"
+    },
+    {
+      "date": "20250220",
+      "value": 717.12,
+      "source": "akshare"
+    },
+    {
+      "date": "20250221",
+      "value": 716.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20250222",
+      "value": 716.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20250224",
+      "value": 717.17,
+      "source": "akshare"
+    },
+    {
+      "date": "20250225",
+      "value": 717.26,
+      "source": "akshare"
+    },
+    {
+      "date": "20250226",
+      "value": 717.32,
+      "source": "akshare"
+    },
+    {
+      "date": "20250227",
+      "value": 717.4,
+      "source": "akshare"
+    },
+    {
+      "date": "20250228",
+      "value": 717.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20250301",
+      "value": 717.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20250303",
+      "value": 717.45,
+      "source": "akshare"
+    },
+    {
+      "date": "20250304",
+      "value": 717.39,
+      "source": "akshare"
+    },
+    {
+      "date": "20250305",
+      "value": 717.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20250306",
+      "value": 716.92,
+      "source": "akshare"
+    },
+    {
+      "date": "20250307",
+      "value": 717.05,
+      "source": "akshare"
+    },
+    {
+      "date": "20250308",
+      "value": 717.05,
+      "source": "akshare"
+    },
+    {
+      "date": "20250310",
+      "value": 717.33,
+      "source": "akshare"
+    },
+    {
+      "date": "20250311",
+      "value": 717.41,
+      "source": "akshare"
+    },
+    {
+      "date": "20250312",
+      "value": 716.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20250313",
+      "value": 717.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20250314",
+      "value": 717.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20250315",
+      "value": 717.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20250317",
+      "value": 716.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20250318",
+      "value": 717.33,
+      "source": "akshare"
+    },
+    {
+      "date": "20250319",
+      "value": 716.97,
+      "source": "akshare"
+    },
+    {
+      "date": "20250320",
+      "value": 717.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20250321",
+      "value": 717.6,
+      "source": "akshare"
+    },
+    {
+      "date": "20250322",
+      "value": 717.6,
+      "source": "akshare"
+    },
+    {
+      "date": "20250324",
+      "value": 717.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20250325",
+      "value": 717.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20250326",
+      "value": 717.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20250327",
+      "value": 717.63,
+      "source": "akshare"
+    },
+    {
+      "date": "20250328",
+      "value": 717.52,
+      "source": "akshare"
+    },
+    {
+      "date": "20250329",
+      "value": 717.52,
+      "source": "akshare"
+    },
+    {
+      "date": "20250331",
+      "value": 717.82,
+      "source": "akshare"
+    },
+    {
+      "date": "20250401",
+      "value": 717.75,
+      "source": "akshare"
+    },
+    {
+      "date": "20250402",
+      "value": 717.93,
+      "source": "akshare"
+    },
+    {
+      "date": "20250403",
+      "value": 718.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20250404",
+      "value": 718.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20250405",
+      "value": 718.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20250407",
+      "value": 719.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20250408",
+      "value": 720.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20250409",
+      "value": 720.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20250410",
+      "value": 720.92,
+      "source": "akshare"
+    },
+    {
+      "date": "20250411",
+      "value": 720.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20250412",
+      "value": 720.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20250414",
+      "value": 721.1,
+      "source": "akshare"
+    },
+    {
+      "date": "20250415",
+      "value": 720.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20250416",
+      "value": 721.33,
+      "source": "akshare"
+    },
+    {
+      "date": "20250417",
+      "value": 720.85,
+      "source": "akshare"
+    },
+    {
+      "date": "20250418",
+      "value": 720.69,
+      "source": "akshare"
+    },
+    {
+      "date": "20250421",
+      "value": 720.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20250422",
+      "value": 720.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20250423",
+      "value": 721.16,
+      "source": "akshare"
+    },
+    {
+      "date": "20250424",
+      "value": 720.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20250425",
+      "value": 720.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20250426",
+      "value": 720.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20250428",
+      "value": 720.43,
+      "source": "akshare"
+    },
+    {
+      "date": "20250429",
+      "value": 720.43,
+      "source": "akshare"
+    },
+    {
+      "date": "20250430",
+      "value": 720.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20250501",
+      "value": 720.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20250502",
+      "value": 720.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20250503",
+      "value": 720.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20250505",
+      "value": 720.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20250506",
+      "value": 720.08,
+      "source": "akshare"
+    },
+    {
+      "date": "20250507",
+      "value": 720.05,
+      "source": "akshare"
+    },
+    {
+      "date": "20250508",
+      "value": 720.73,
+      "source": "akshare"
+    },
+    {
+      "date": "20250509",
+      "value": 720.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20250510",
+      "value": 720.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20250512",
+      "value": 720.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20250513",
+      "value": 719.91,
+      "source": "akshare"
+    },
+    {
+      "date": "20250514",
+      "value": 719.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20250515",
+      "value": 719.63,
+      "source": "akshare"
+    },
+    {
+      "date": "20250516",
+      "value": 719.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20250517",
+      "value": 719.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20250519",
+      "value": 719.16,
+      "source": "akshare"
+    },
+    {
+      "date": "20250520",
+      "value": 719.31,
+      "source": "akshare"
+    },
+    {
+      "date": "20250521",
+      "value": 719.37,
+      "source": "akshare"
+    },
+    {
+      "date": "20250522",
+      "value": 719.03,
+      "source": "akshare"
+    },
+    {
+      "date": "20250523",
+      "value": 719.19,
+      "source": "akshare"
+    },
+    {
+      "date": "20250524",
+      "value": 719.19,
+      "source": "akshare"
+    },
+    {
+      "date": "20250526",
+      "value": 718.33,
+      "source": "akshare"
+    },
+    {
+      "date": "20250527",
+      "value": 718.76,
+      "source": "akshare"
+    },
+    {
+      "date": "20250528",
+      "value": 718.94,
+      "source": "akshare"
+    },
+    {
+      "date": "20250529",
+      "value": 719.07,
+      "source": "akshare"
+    },
+    {
+      "date": "20250530",
+      "value": 718.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20250531",
+      "value": 718.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20250602",
+      "value": 718.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20250603",
+      "value": 718.69,
+      "source": "akshare"
+    },
+    {
+      "date": "20250604",
+      "value": 718.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20250605",
+      "value": 718.65,
+      "source": "akshare"
+    },
+    {
+      "date": "20250606",
+      "value": 718.45,
+      "source": "akshare"
+    },
+    {
+      "date": "20250607",
+      "value": 718.45,
+      "source": "akshare"
+    },
+    {
+      "date": "20250609",
+      "value": 718.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20250610",
+      "value": 718.4,
+      "source": "akshare"
+    },
+    {
+      "date": "20250611",
+      "value": 718.15,
+      "source": "akshare"
+    },
+    {
+      "date": "20250612",
+      "value": 718.03,
+      "source": "akshare"
+    },
+    {
+      "date": "20250613",
+      "value": 717.72,
+      "source": "akshare"
+    },
+    {
+      "date": "20250614",
+      "value": 717.72,
+      "source": "akshare"
+    },
+    {
+      "date": "20250616",
+      "value": 717.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20250617",
+      "value": 717.46,
+      "source": "akshare"
+    },
+    {
+      "date": "20250618",
+      "value": 717.61,
+      "source": "akshare"
+    },
+    {
+      "date": "20250619",
+      "value": 717.29,
+      "source": "akshare"
+    },
+    {
+      "date": "20250620",
+      "value": 716.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20250621",
+      "value": 716.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20250623",
+      "value": 717.1,
+      "source": "akshare"
+    },
+    {
+      "date": "20250624",
+      "value": 716.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20250625",
+      "value": 716.68,
+      "source": "akshare"
+    },
+    {
+      "date": "20250626",
+      "value": 716.2,
+      "source": "akshare"
+    },
+    {
+      "date": "20250627",
+      "value": 716.27,
+      "source": "akshare"
+    },
+    {
+      "date": "20250628",
+      "value": 716.27,
+      "source": "akshare"
+    },
+    {
+      "date": "20250630",
+      "value": 715.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20250701",
+      "value": 715.34,
+      "source": "akshare"
+    },
+    {
+      "date": "20250702",
+      "value": 715.46,
+      "source": "akshare"
+    },
+    {
+      "date": "20250703",
+      "value": 715.23,
+      "source": "akshare"
+    },
+    {
+      "date": "20250704",
+      "value": 715.35,
+      "source": "akshare"
+    },
+    {
+      "date": "20250705",
+      "value": 715.35,
+      "source": "akshare"
+    },
+    {
+      "date": "20250707",
+      "value": 715.06,
+      "source": "akshare"
+    },
+    {
+      "date": "20250708",
+      "value": 715.34,
+      "source": "akshare"
+    },
+    {
+      "date": "20250709",
+      "value": 715.41,
+      "source": "akshare"
+    },
+    {
+      "date": "20250710",
+      "value": 715.1,
+      "source": "akshare"
+    },
+    {
+      "date": "20250711",
+      "value": 714.75,
+      "source": "akshare"
+    },
+    {
+      "date": "20250712",
+      "value": 714.75,
+      "source": "akshare"
+    },
+    {
+      "date": "20250714",
+      "value": 714.91,
+      "source": "akshare"
+    },
+    {
+      "date": "20250715",
+      "value": 714.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20250716",
+      "value": 715.26,
+      "source": "akshare"
+    },
+    {
+      "date": "20250717",
+      "value": 714.61,
+      "source": "akshare"
+    },
+    {
+      "date": "20250718",
+      "value": 714.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20250719",
+      "value": 714.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20250721",
+      "value": 715.22,
+      "source": "akshare"
+    },
+    {
+      "date": "20250722",
+      "value": 714.6,
+      "source": "akshare"
+    },
+    {
+      "date": "20250723",
+      "value": 714.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20250724",
+      "value": 713.85,
+      "source": "akshare"
+    },
+    {
+      "date": "20250725",
+      "value": 714.19,
+      "source": "akshare"
+    },
+    {
+      "date": "20250726",
+      "value": 714.19,
+      "source": "akshare"
+    },
+    {
+      "date": "20250728",
+      "value": 714.67,
+      "source": "akshare"
+    },
+    {
+      "date": "20250729",
+      "value": 715.11,
+      "source": "akshare"
+    },
+    {
+      "date": "20250730",
+      "value": 714.41,
+      "source": "akshare"
+    },
+    {
+      "date": "20250731",
+      "value": 714.94,
+      "source": "akshare"
+    },
+    {
+      "date": "20250801",
+      "value": 714.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20250802",
+      "value": 714.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20250804",
+      "value": 713.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20250805",
+      "value": 713.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20250806",
+      "value": 714.09,
+      "source": "akshare"
+    },
+    {
+      "date": "20250807",
+      "value": 713.45,
+      "source": "akshare"
+    },
+    {
+      "date": "20250808",
+      "value": 713.82,
+      "source": "akshare"
+    },
+    {
+      "date": "20250809",
+      "value": 713.82,
+      "source": "akshare"
+    },
+    {
+      "date": "20250811",
+      "value": 714.05,
+      "source": "akshare"
+    },
+    {
+      "date": "20250812",
+      "value": 714.18,
+      "source": "akshare"
+    },
+    {
+      "date": "20250813",
+      "value": 713.5,
+      "source": "akshare"
+    },
+    {
+      "date": "20250814",
+      "value": 713.37,
+      "source": "akshare"
+    },
+    {
+      "date": "20250815",
+      "value": 713.71,
+      "source": "akshare"
+    },
+    {
+      "date": "20250816",
+      "value": 713.71,
+      "source": "akshare"
+    },
+    {
+      "date": "20250818",
+      "value": 713.22,
+      "source": "akshare"
+    },
+    {
+      "date": "20250819",
+      "value": 713.59,
+      "source": "akshare"
+    },
+    {
+      "date": "20250820",
+      "value": 713.84,
+      "source": "akshare"
+    },
+    {
+      "date": "20250821",
+      "value": 712.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20250822",
+      "value": 713.21,
+      "source": "akshare"
+    },
+    {
+      "date": "20250823",
+      "value": 713.21,
+      "source": "akshare"
+    },
+    {
+      "date": "20250825",
+      "value": 711.61,
+      "source": "akshare"
+    },
+    {
+      "date": "20250826",
+      "value": 711.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20250827",
+      "value": 711.08,
+      "source": "akshare"
+    },
+    {
+      "date": "20250828",
+      "value": 710.63,
+      "source": "akshare"
+    },
+    {
+      "date": "20250829",
+      "value": 710.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20250830",
+      "value": 710.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20250901",
+      "value": 710.72,
+      "source": "akshare"
+    },
+    {
+      "date": "20250902",
+      "value": 710.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20250903",
+      "value": 711.08,
+      "source": "akshare"
+    },
+    {
+      "date": "20250904",
+      "value": 710.52,
+      "source": "akshare"
+    },
+    {
+      "date": "20250905",
+      "value": 710.64,
+      "source": "akshare"
+    },
+    {
+      "date": "20250906",
+      "value": 710.64,
+      "source": "akshare"
+    },
+    {
+      "date": "20250908",
+      "value": 710.29,
+      "source": "akshare"
+    },
+    {
+      "date": "20250909",
+      "value": 710.08,
+      "source": "akshare"
+    },
+    {
+      "date": "20250910",
+      "value": 710.62,
+      "source": "akshare"
+    },
+    {
+      "date": "20250911",
+      "value": 710.34,
+      "source": "akshare"
+    },
+    {
+      "date": "20250912",
+      "value": 710.19,
+      "source": "akshare"
+    },
+    {
+      "date": "20250913",
+      "value": 710.19,
+      "source": "akshare"
+    },
+    {
+      "date": "20250915",
+      "value": 710.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20250916",
+      "value": 710.27,
+      "source": "akshare"
+    },
+    {
+      "date": "20250917",
+      "value": 710.13,
+      "source": "akshare"
+    },
+    {
+      "date": "20250918",
+      "value": 710.85,
+      "source": "akshare"
+    },
+    {
+      "date": "20250919",
+      "value": 711.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20250920",
+      "value": 711.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20250922",
+      "value": 711.06,
+      "source": "akshare"
+    },
+    {
+      "date": "20250923",
+      "value": 710.57,
+      "source": "akshare"
+    },
+    {
+      "date": "20250924",
+      "value": 710.77,
+      "source": "akshare"
+    },
+    {
+      "date": "20250925",
+      "value": 711.18,
+      "source": "akshare"
+    },
+    {
+      "date": "20250926",
+      "value": 711.52,
+      "source": "akshare"
+    },
+    {
+      "date": "20250927",
+      "value": 711.52,
+      "source": "akshare"
+    },
+    {
+      "date": "20250929",
+      "value": 710.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20250930",
+      "value": 710.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20251001",
+      "value": 710.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20251002",
+      "value": 710.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20251003",
+      "value": 710.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20251004",
+      "value": 710.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20251006",
+      "value": 710.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20251007",
+      "value": 710.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20251008",
+      "value": 710.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20251009",
+      "value": 711.02,
+      "source": "akshare"
+    },
+    {
+      "date": "20251010",
+      "value": 710.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20251011",
+      "value": 710.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20251013",
+      "value": 710.07,
+      "source": "akshare"
+    },
+    {
+      "date": "20251014",
+      "value": 710.21,
+      "source": "akshare"
+    },
+    {
+      "date": "20251015",
+      "value": 709.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20251016",
+      "value": 709.68,
+      "source": "akshare"
+    },
+    {
+      "date": "20251017",
+      "value": 709.49,
+      "source": "akshare"
+    },
+    {
+      "date": "20251018",
+      "value": 709.49,
+      "source": "akshare"
+    },
+    {
+      "date": "20251020",
+      "value": 709.73,
+      "source": "akshare"
+    },
+    {
+      "date": "20251021",
+      "value": 709.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20251022",
+      "value": 709.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20251023",
+      "value": 709.18,
+      "source": "akshare"
+    },
+    {
+      "date": "20251024",
+      "value": 709.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20251025",
+      "value": 709.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20251027",
+      "value": 708.81,
+      "source": "akshare"
+    },
+    {
+      "date": "20251028",
+      "value": 708.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20251029",
+      "value": 708.43,
+      "source": "akshare"
+    },
+    {
+      "date": "20251030",
+      "value": 708.64,
+      "source": "akshare"
+    },
+    {
+      "date": "20251031",
+      "value": 708.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20251101",
+      "value": 708.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20251103",
+      "value": 708.67,
+      "source": "akshare"
+    },
+    {
+      "date": "20251104",
+      "value": 708.85,
+      "source": "akshare"
+    },
+    {
+      "date": "20251105",
+      "value": 709.01,
+      "source": "akshare"
+    },
+    {
+      "date": "20251106",
+      "value": 708.65,
+      "source": "akshare"
+    },
+    {
+      "date": "20251107",
+      "value": 708.36,
+      "source": "akshare"
+    },
+    {
+      "date": "20251108",
+      "value": 708.36,
+      "source": "akshare"
+    },
+    {
+      "date": "20251110",
+      "value": 708.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20251111",
+      "value": 708.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20251112",
+      "value": 708.33,
+      "source": "akshare"
+    },
+    {
+      "date": "20251113",
+      "value": 708.65,
+      "source": "akshare"
+    },
+    {
+      "date": "20251114",
+      "value": 708.25,
+      "source": "akshare"
+    },
+    {
+      "date": "20251115",
+      "value": 708.25,
+      "source": "akshare"
+    },
+    {
+      "date": "20251117",
+      "value": 708.16,
+      "source": "akshare"
+    },
+    {
+      "date": "20251118",
+      "value": 708.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20251119",
+      "value": 708.72,
+      "source": "akshare"
+    },
+    {
+      "date": "20251120",
+      "value": 709.05,
+      "source": "akshare"
+    },
+    {
+      "date": "20251121",
+      "value": 708.75,
+      "source": "akshare"
+    },
+    {
+      "date": "20251122",
+      "value": 708.75,
+      "source": "akshare"
+    },
+    {
+      "date": "20251124",
+      "value": 708.47,
+      "source": "akshare"
+    },
+    {
+      "date": "20251125",
+      "value": 708.26,
+      "source": "akshare"
+    },
+    {
+      "date": "20251126",
+      "value": 707.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20251127",
+      "value": 707.79,
+      "source": "akshare"
+    },
+    {
+      "date": "20251128",
+      "value": 707.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20251129",
+      "value": 707.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20251201",
+      "value": 707.59,
+      "source": "akshare"
+    },
+    {
+      "date": "20251202",
+      "value": 707.94,
+      "source": "akshare"
+    },
+    {
+      "date": "20251203",
+      "value": 707.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20251204",
+      "value": 707.33,
+      "source": "akshare"
+    },
+    {
+      "date": "20251205",
+      "value": 707.49,
+      "source": "akshare"
+    },
+    {
+      "date": "20251206",
+      "value": 707.49,
+      "source": "akshare"
+    },
+    {
+      "date": "20251208",
+      "value": 707.64,
+      "source": "akshare"
+    },
+    {
+      "date": "20251209",
+      "value": 707.73,
+      "source": "akshare"
+    },
+    {
+      "date": "20251210",
+      "value": 707.53,
+      "source": "akshare"
+    },
+    {
+      "date": "20251211",
+      "value": 706.86,
+      "source": "akshare"
+    },
+    {
+      "date": "20251212",
+      "value": 706.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20251213",
+      "value": 706.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20251215",
+      "value": 706.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20251216",
+      "value": 706.02,
+      "source": "akshare"
+    },
+    {
+      "date": "20251217",
+      "value": 705.73,
+      "source": "akshare"
+    },
+    {
+      "date": "20251218",
+      "value": 705.83,
+      "source": "akshare"
+    },
+    {
+      "date": "20251219",
+      "value": 705.5,
+      "source": "akshare"
+    },
+    {
+      "date": "20251220",
+      "value": 705.5,
+      "source": "akshare"
+    },
+    {
+      "date": "20251222",
+      "value": 705.72,
+      "source": "akshare"
+    },
+    {
+      "date": "20251223",
+      "value": 705.23,
+      "source": "akshare"
+    },
+    {
+      "date": "20251224",
+      "value": 704.71,
+      "source": "akshare"
+    },
+    {
+      "date": "20251225",
+      "value": 703.92,
+      "source": "akshare"
+    },
+    {
+      "date": "20251226",
+      "value": 703.58,
+      "source": "akshare"
+    },
+    {
+      "date": "20251227",
+      "value": 703.58,
+      "source": "akshare"
+    },
+    {
+      "date": "20251229",
+      "value": 703.31,
+      "source": "akshare"
+    },
+    {
+      "date": "20251230",
+      "value": 703.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20251231",
+      "value": 702.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20260101",
+      "value": 702.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20260102",
+      "value": 702.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20260103",
+      "value": 702.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20260105",
+      "value": 702.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20260106",
+      "value": 701.73,
+      "source": "akshare"
+    },
+    {
+      "date": "20260107",
+      "value": 701.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20260108",
+      "value": 701.97,
+      "source": "akshare"
+    },
+    {
+      "date": "20260109",
+      "value": 701.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260110",
+      "value": 701.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260112",
+      "value": 701.08,
+      "source": "akshare"
+    },
+    {
+      "date": "20260113",
+      "value": 701.03,
+      "source": "akshare"
+    },
+    {
+      "date": "20260114",
+      "value": 701.2,
+      "source": "akshare"
+    },
+    {
+      "date": "20260115",
+      "value": 700.64,
+      "source": "akshare"
+    },
+    {
+      "date": "20260116",
+      "value": 700.78,
+      "source": "akshare"
+    },
+    {
+      "date": "20260117",
+      "value": 700.78,
+      "source": "akshare"
+    },
+    {
+      "date": "20260119",
+      "value": 700.51,
+      "source": "akshare"
+    },
+    {
+      "date": "20260120",
+      "value": 700.06,
+      "source": "akshare"
+    },
+    {
+      "date": "20260121",
+      "value": 700.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20260122",
+      "value": 700.19,
+      "source": "akshare"
+    },
+    {
+      "date": "20260123",
+      "value": 699.29,
+      "source": "akshare"
+    },
+    {
+      "date": "20260124",
+      "value": 699.29,
+      "source": "akshare"
+    },
+    {
+      "date": "20260126",
+      "value": 698.43,
+      "source": "akshare"
+    },
+    {
+      "date": "20260127",
+      "value": 698.58,
+      "source": "akshare"
+    },
+    {
+      "date": "20260128",
+      "value": 697.55,
+      "source": "akshare"
+    },
+    {
+      "date": "20260129",
+      "value": 697.71,
+      "source": "akshare"
+    },
+    {
+      "date": "20260130",
+      "value": 696.78,
+      "source": "akshare"
+    },
+    {
+      "date": "20260131",
+      "value": 696.78,
+      "source": "akshare"
+    },
+    {
+      "date": "20260202",
+      "value": 696.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20260203",
+      "value": 696.08,
+      "source": "akshare"
+    },
+    {
+      "date": "20260204",
+      "value": 695.33,
+      "source": "akshare"
+    },
+    {
+      "date": "20260205",
+      "value": 695.7,
+      "source": "akshare"
+    },
+    {
+      "date": "20260206",
+      "value": 695.9,
+      "source": "akshare"
+    },
+    {
+      "date": "20260207",
+      "value": 695.9,
+      "source": "akshare"
+    },
+    {
+      "date": "20260209",
+      "value": 695.23,
+      "source": "akshare"
+    },
+    {
+      "date": "20260210",
+      "value": 694.58,
+      "source": "akshare"
+    },
+    {
+      "date": "20260211",
+      "value": 694.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20260212",
+      "value": 694.57,
+      "source": "akshare"
+    },
+    {
+      "date": "20260213",
+      "value": 693.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260214",
+      "value": 693.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260216",
+      "value": 693.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260217",
+      "value": 693.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260218",
+      "value": 693.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260219",
+      "value": 693.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260220",
+      "value": 693.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260221",
+      "value": 693.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260223",
+      "value": 693.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260224",
+      "value": 694.14,
+      "source": "akshare"
+    },
+    {
+      "date": "20260225",
+      "value": 693.21,
+      "source": "akshare"
+    },
+    {
+      "date": "20260226",
+      "value": 692.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260227",
+      "value": 692.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260228",
+      "value": 692.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260302",
+      "value": 692.36,
+      "source": "akshare"
+    },
+    {
+      "date": "20260303",
+      "value": 690.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20260304",
+      "value": 691.24,
+      "source": "akshare"
+    },
+    {
+      "date": "20260305",
+      "value": 690.07,
+      "source": "akshare"
+    },
+    {
+      "date": "20260306",
+      "value": 690.25,
+      "source": "akshare"
+    },
+    {
+      "date": "20260307",
+      "value": 690.25,
+      "source": "akshare"
+    },
+    {
+      "date": "20260309",
+      "value": 691.58,
+      "source": "akshare"
+    },
+    {
+      "date": "20260310",
+      "value": 689.82,
+      "source": "akshare"
+    },
+    {
+      "date": "20260311",
+      "value": 689.17,
+      "source": "akshare"
+    },
+    {
+      "date": "20260312",
+      "value": 689.59,
+      "source": "akshare"
+    },
+    {
+      "date": "20260313",
+      "value": 690.07,
+      "source": "akshare"
+    },
+    {
+      "date": "20260314",
+      "value": 690.07,
+      "source": "akshare"
+    },
+    {
+      "date": "20260316",
+      "value": 690.57,
+      "source": "akshare"
+    },
+    {
+      "date": "20260317",
+      "value": 689.61,
+      "source": "akshare"
+    },
+    {
+      "date": "20260318",
+      "value": 689.09,
+      "source": "akshare"
+    },
+    {
+      "date": "20260319",
+      "value": 689.75,
+      "source": "akshare"
+    },
+    {
+      "date": "20260320",
+      "value": 688.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260321",
+      "value": 688.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260323",
+      "value": 690.41,
+      "source": "akshare"
+    },
+    {
+      "date": "20260324",
+      "value": 689.43,
+      "source": "akshare"
+    },
+    {
+      "date": "20260325",
+      "value": 689.11,
+      "source": "akshare"
+    },
+    {
+      "date": "20260326",
+      "value": 690.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20260327",
+      "value": 691.41,
+      "source": "akshare"
+    },
+    {
+      "date": "20260328",
+      "value": 691.41,
+      "source": "akshare"
+    },
+    {
+      "date": "20260330",
+      "value": 692.23,
+      "source": "akshare"
+    },
+    {
+      "date": "20260331",
+      "value": 691.94,
+      "source": "akshare"
+    },
+    {
+      "date": "20260401",
+      "value": 690.25,
+      "source": "akshare"
+    },
+    {
+      "date": "20260402",
+      "value": 688.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20260403",
+      "value": 689.29,
+      "source": "akshare"
+    },
+    {
+      "date": "20260404",
+      "value": 689.29,
+      "source": "akshare"
+    },
+    {
+      "date": "20260406",
+      "value": 689.29,
+      "source": "akshare"
+    },
+    {
+      "date": "20260407",
+      "value": 688.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20260408",
+      "value": 686.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20260409",
+      "value": 686.49,
+      "source": "akshare"
+    },
+    {
+      "date": "20260410",
+      "value": 686.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20260411",
+      "value": 686.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20260413",
+      "value": 686.57,
+      "source": "akshare"
+    },
+    {
+      "date": "20260414",
+      "value": 685.93,
+      "source": "akshare"
+    },
+    {
+      "date": "20260415",
+      "value": 685.82,
+      "source": "akshare"
+    },
+    {
+      "date": "20260416",
+      "value": 686.16,
+      "source": "akshare"
+    },
+    {
+      "date": "20260417",
+      "value": 686.22,
+      "source": "akshare"
+    },
+    {
+      "date": "20260418",
+      "value": 686.22,
+      "source": "akshare"
+    },
+    {
+      "date": "20260420",
+      "value": 686.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20260421",
+      "value": 685.94,
+      "source": "akshare"
+    },
+    {
+      "date": "20260422",
+      "value": 686.35,
+      "source": "akshare"
+    },
+    {
+      "date": "20260423",
+      "value": 686.5,
+      "source": "akshare"
+    },
+    {
+      "date": "20260424",
+      "value": 686.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20260425",
+      "value": 686.74,
+      "source": "akshare"
+    },
+    {
+      "date": "20260427",
+      "value": 685.79,
+      "source": "akshare"
+    },
+    {
+      "date": "20260428",
+      "value": 685.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20260429",
+      "value": 686.08,
+      "source": "akshare"
+    },
+    {
+      "date": "20260430",
+      "value": 686.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260501",
+      "value": 686.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260502",
+      "value": 686.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260504",
+      "value": 686.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260505",
+      "value": 686.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260506",
+      "value": 685.62,
+      "source": "akshare"
+    },
+    {
+      "date": "20260507",
+      "value": 684.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20260508",
+      "value": 685.02,
+      "source": "akshare"
+    },
+    {
+      "date": "20260509",
+      "value": 685.02,
+      "source": "akshare"
+    },
+    {
+      "date": "20260511",
+      "value": 684.67,
+      "source": "akshare"
+    },
+    {
+      "date": "20260512",
+      "value": 684.26,
+      "source": "akshare"
+    },
+    {
+      "date": "20260513",
+      "value": 684.31,
+      "source": "akshare"
+    },
+    {
+      "date": "20260514",
+      "value": 684.01,
+      "source": "akshare"
+    },
+    {
+      "date": "20260515",
+      "value": 684.15,
+      "source": "akshare"
+    },
+    {
+      "date": "20260516",
+      "value": 684.15,
+      "source": "akshare"
+    },
+    {
+      "date": "20260518",
+      "value": 684.35,
+      "source": "akshare"
+    },
+    {
+      "date": "20260519",
+      "value": 683.75,
+      "source": "akshare"
+    },
+    {
+      "date": "20260520",
+      "value": 683.97,
+      "source": "akshare"
+    },
+    {
+      "date": "20260521",
+      "value": 683.49,
+      "source": "akshare"
+    },
+    {
+      "date": "20260522",
+      "value": 683.73,
+      "source": "akshare"
+    },
+    {
+      "date": "20260523",
+      "value": 683.73,
+      "source": "akshare"
+    },
+    {
+      "date": "20260525",
+      "value": 683.18,
+      "source": "akshare"
+    },
+    {
+      "date": "20260526",
+      "value": 682.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20260527",
+      "value": 682.91,
+      "source": "akshare"
+    },
+    {
+      "date": "20260528",
+      "value": 682.4,
+      "source": "akshare"
+    },
+    {
+      "date": "20260529",
+      "value": 681.76,
+      "source": "akshare"
+    },
+    {
+      "date": "20260530",
+      "value": 681.76,
+      "source": "akshare"
+    },
+    {
+      "date": "20260601",
+      "value": 681.67,
+      "source": "akshare"
+    },
+    {
+      "date": "20260602",
+      "value": 681.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20260603",
+      "value": 681.84,
+      "source": "akshare"
+    },
+    {
+      "date": "20260604",
+      "value": 682.03,
+      "source": "akshare"
+    },
+    {
+      "date": "20260605",
+      "value": 681.57,
+      "source": "akshare"
+    },
+    {
+      "date": "20260606",
+      "value": 681.57,
+      "source": "akshare"
+    },
+    {
+      "date": "20260608",
+      "value": 681.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260609",
+      "value": 681.47,
+      "source": "akshare"
+    },
+    {
+      "date": "20260610",
+      "value": 681.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20260611",
+      "value": 681.5,
+      "source": "akshare"
+    },
+    {
+      "date": "20260612",
+      "value": 681.09,
+      "source": "akshare"
+    },
+    {
+      "date": "20260613",
+      "value": 681.09,
+      "source": "akshare"
+    },
+    {
+      "date": "20260615",
+      "value": 680.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20260616",
+      "value": 681.08,
+      "source": "akshare"
+    },
+    {
+      "date": "20260617",
+      "value": 680.96,
+      "source": "akshare"
+    },
+    {
+      "date": "20260618",
+      "value": 681.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20260619",
+      "value": 681.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20260620",
+      "value": 681.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20260622",
+      "value": 681.5,
+      "source": "akshare"
+    },
+    {
+      "date": "20260623",
+      "value": 681.71,
+      "source": "akshare"
+    },
+    {
+      "date": "20260624",
+      "value": 681.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20260625",
+      "value": 682.09,
+      "source": "akshare"
+    },
+    {
+      "date": "20260626",
+      "value": 681.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20260627",
+      "value": 681.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20260629",
+      "value": 681.75,
+      "source": "akshare"
+    },
+    {
+      "date": "20260630",
+      "value": 681.09,
+      "source": "akshare"
+    },
+    {
+      "date": "20260701",
+      "value": 680.67,
+      "source": "akshare"
+    },
+    {
+      "date": "20260702",
+      "value": 680.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20260703",
+      "value": 680.47,
+      "source": "akshare"
+    },
+    {
+      "date": "20260704",
+      "value": 680.47,
+      "source": "akshare"
+    },
+    {
+      "date": "20260706",
+      "value": 680.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20260707",
+      "value": 680.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20260708",
+      "value": 680.77,
+      "source": "akshare"
+    },
+    {
+      "date": "20260709",
+      "value": 680.36,
+      "source": "akshare"
+    },
+    {
+      "date": "20260710",
+      "value": 679.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20260711",
+      "value": 679.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20260713",
+      "value": 679.72,
+      "source": "akshare"
+    },
+    {
+      "date": "20260714",
+      "value": 679.9,
+      "source": "akshare"
+    },
+    {
+      "date": "20260715",
+      "value": 679.1,
+      "source": "akshare"
+    },
+    {
+      "date": "20260716",
+      "value": 679.09,
+      "source": "akshare"
+    },
+    {
+      "date": "20260717",
+      "value": 679.34,
+      "source": "akshare"
+    },
+    {
+      "date": "20260718",
+      "value": 679.34,
+      "source": "akshare"
+    },
+    {
+      "date": "20260720",
+      "value": 679.48,
+      "source": "akshare"
+    },
+    {
+      "date": "20260721",
+      "value": 679.17,
+      "source": "akshare"
+    },
+    {
+      "date": "20260722",
+      "value": 679.33,
+      "source": "akshare"
+    },
+    {
+      "date": "20260723",
+      "value": 679.06,
+      "source": "akshare"
+    },
+    {
+      "date": "20260724",
+      "value": 679.39,
+      "source": "akshare"
+    },
+    {
+      "date": "20260725",
+      "value": 679.39,
+      "source": "akshare"
+    },
+    {
+      "date": "20260727",
+      "value": 679.11,
+      "source": "akshare"
+    },
+    {
+      "date": "20260728",
+      "value": 679.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260729",
+      "value": 678.99,
+      "source": "akshare"
+    },
+    {
+      "date": "20260730",
+      "value": 678.92,
+      "source": "akshare"
+    },
+    {
+      "date": "20260731",
+      "value": 678.94,
+      "source": "akshare"
+    },
+    {
+      "date": "20260801",
+      "value": 678.94,
+      "source": "akshare"
+    },
+    {
+      "date": "20260803",
+      "value": 678.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260804",
+      "value": 679.17,
+      "source": "akshare"
+    },
+    {
+      "date": "20260805",
+      "value": 678.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20260806",
+      "value": 678.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20260807",
+      "value": 679.04,
+      "source": "akshare"
+    },
+    {
+      "date": "20260808",
+      "value": 679.04,
+      "source": "akshare"
+    },
+    {
+      "date": "20260810",
+      "value": 678.84,
+      "source": "akshare"
+    },
+    {
+      "date": "20260811",
+      "value": 679.0,
+      "source": "akshare"
+    },
+    {
+      "date": "20260812",
+      "value": 678.82,
+      "source": "akshare"
+    },
+    {
+      "date": "20260813",
+      "value": 678.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20260814",
+      "value": 678.78,
+      "source": "akshare"
+    },
+    {
+      "date": "20260815",
+      "value": 678.78,
+      "source": "akshare"
+    },
+    {
+      "date": "20260817",
+      "value": 678.73,
+      "source": "akshare"
+    },
+    {
+      "date": "20260818",
+      "value": 679.05,
+      "source": "akshare"
+    },
+    {
+      "date": "20260819",
+      "value": 678.54,
+      "source": "akshare"
+    },
+    {
+      "date": "20260820",
+      "value": 678.08,
+      "source": "akshare"
+    },
+    {
+      "date": "20260821",
+      "value": 678.17,
+      "source": "akshare"
+    },
+    {
+      "date": "20260822",
+      "value": 678.17,
+      "source": "akshare"
+    },
+    {
+      "date": "20260824",
+      "value": 678.41,
+      "source": "akshare"
+    },
+    {
+      "date": "20260825",
+      "value": 678.52,
+      "source": "akshare"
+    },
+    {
+      "date": "20260826",
+      "value": 678.29,
+      "source": "akshare"
+    },
+    {
+      "date": "20260827",
+      "value": 678.4,
+      "source": "akshare"
+    },
+    {
+      "date": "20260828",
+      "value": 678.11,
+      "source": "akshare"
+    },
+    {
+      "date": "20260829",
+      "value": 678.11,
+      "source": "akshare"
+    },
+    {
+      "date": "20260831",
+      "value": 678.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260901",
+      "value": 678.09,
+      "source": "akshare"
+    },
+    {
+      "date": "20260902",
+      "value": 678.29,
+      "source": "akshare"
+    },
+    {
+      "date": "20260903",
+      "value": 678.07,
+      "source": "akshare"
+    },
+    {
+      "date": "20260904",
+      "value": 677.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20260905",
+      "value": 677.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20260907",
+      "value": 677.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20260908",
+      "value": 678.04,
+      "source": "akshare"
+    },
+    {
+      "date": "20260909",
+      "value": 677.69,
+      "source": "akshare"
+    },
+    {
+      "date": "20260910",
+      "value": 677.66,
+      "source": "akshare"
+    },
+    {
+      "date": "20260911",
+      "value": 677.43,
+      "source": "akshare"
+    },
+    {
+      "date": "20260912",
+      "value": 677.43,
+      "source": "akshare"
+    },
+    {
+      "date": "20260914",
+      "value": 676.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20260915",
+      "value": 676.7,
+      "source": "akshare"
+    },
+    {
+      "date": "20260916",
+      "value": 676.28,
+      "source": "akshare"
+    },
+    {
+      "date": "20260917",
+      "value": 675.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20260918",
+      "value": 675.21,
+      "source": "akshare"
+    },
+    {
+      "date": "20260919",
+      "value": 675.21,
+      "source": "akshare"
+    },
+    {
+      "date": "20260921",
+      "value": 674.87,
+      "source": "akshare"
+    },
+    {
+      "date": "20260922",
+      "value": 674.59,
+      "source": "akshare"
+    },
+    {
+      "date": "20260923",
+      "value": 674.68,
+      "source": "akshare"
+    },
+    {
+      "date": "20260924",
+      "value": 674.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20260925",
+      "value": 674.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20260926",
+      "value": 674.89,
+      "source": "akshare"
+    },
+    {
+      "date": "20260928",
+      "value": 673.99,
+      "source": "akshare"
+    },
+    {
+      "date": "20260929",
+      "value": 674.11,
+      "source": "akshare"
+    },
+    {
+      "date": "20260930",
+      "value": 673.51,
+      "source": "akshare"
+    },
+    {
+      "date": "20261001",
+      "value": 673.51,
+      "source": "akshare"
+    },
+    {
+      "date": "20261002",
+      "value": 673.51,
+      "source": "akshare"
+    },
+    {
+      "date": "20261003",
+      "value": 673.51,
+      "source": "akshare"
+    },
+    {
+      "date": "20261005",
+      "value": 673.51,
+      "source": "akshare"
+    },
+    {
+      "date": "20261006",
+      "value": 673.51,
+      "source": "akshare"
+    },
+    {
+      "date": "20261007",
+      "value": 673.51,
+      "source": "akshare"
+    },
+    {
+      "date": "20261008",
+      "value": 673.67,
+      "source": "akshare"
+    },
+    {
+      "date": "20261009",
+      "value": 673.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20261010",
+      "value": 673.3,
+      "source": "akshare"
+    },
+    {
+      "date": "20261012",
+      "value": 673.13,
+      "source": "akshare"
+    },
+    {
+      "date": "20261013",
+      "value": 672.98,
+      "source": "akshare"
+    },
+    {
+      "date": "20261014",
+      "value": 672.49,
+      "source": "akshare"
+    },
+    {
+      "date": "20261015",
+      "value": 672.53,
+      "source": "akshare"
+    },
+    {
+      "date": "20261016",
+      "value": 672.2,
+      "source": "akshare"
+    },
+    {
+      "date": "20261017",
+      "value": 672.2,
+      "source": "akshare"
+    },
+    {
+      "date": "20261019",
+      "value": 672.08,
+      "source": "akshare"
+    },
+    {
+      "date": "20261020",
+      "value": 672.0,
+      "source": "akshare"
+    },
+    {
+      "date": "20261021",
+      "value": 671.92,
+      "source": "akshare"
+    },
+    {
+      "date": "20261022",
+      "value": 671.95,
+      "source": "akshare"
+    },
+    {
+      "date": "20261023",
+      "value": 671.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20261024",
+      "value": 671.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20261026",
+      "value": 671.62,
+      "source": "akshare"
+    },
+    {
+      "date": "20261027",
+      "value": 671.71,
+      "source": "akshare"
+    },
+    {
+      "date": "20261028",
+      "value": 671.65,
+      "source": "akshare"
+    },
+    {
+      "date": "20261029",
+      "value": 671.47,
+      "source": "akshare"
+    },
+    {
+      "date": "20261030",
+      "value": 671.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20261031",
+      "value": 671.38,
+      "source": "akshare"
+    },
+    {
+      "date": "20261102",
+      "value": 671.46,
+      "source": "akshare"
+    },
+    {
+      "date": "20261103",
+      "value": 671.5,
+      "source": "akshare"
+    },
+    {
+      "date": "20261104",
+      "value": 671.8,
+      "source": "akshare"
+    },
+    {
+      "date": "20261105",
+      "value": 671.56,
+      "source": "akshare"
+    },
+    {
+      "date": "20261106",
+      "value": 671.68,
+      "source": "akshare"
+    },
+    {
+      "date": "20261107",
+      "value": 671.68,
+      "source": "akshare"
+    },
+    {
+      "date": "20261109",
+      "value": 671.88,
+      "source": "akshare"
+    },
+    {
+      "date": "20261110",
+      "value": 6.6724,
+      "source": "intraday"
+    }
+  ]
+}

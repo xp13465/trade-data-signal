@@ -1,0 +1,761 @@
+{
+  "observed_at": "2026-11-11T06:41:58.325908+08:00",
+  "branches": [
+    {
+      "branch": "codex/alert-backup-20261109",
+      "head": "10e34d5756783bb2b8ca951688c2a8a1a905aa8c",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/alert-d1-20261109",
+      "head": "2162e539fed9fc82cbce74cc40cdb665b3b6dc59",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/alert-freeze-20261109",
+      "head": "da84ef8c7ef987e4c06c9f5ce488ad7ac3fb781e",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/alert-nextday-20261109",
+      "head": "2d28eabdc6bc131f6993923d589d621a657a98b2",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/alert-stall-20261109",
+      "head": "a4d38c95de0f93ece584fbafb5c6461698c8f954",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/alert-takeover-docs-20261110",
+      "head": "f35437a699d199076b5654dcde58780be89ee6b4",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/backup-ci-fixture-20261109",
+      "head": "16a260201bfe0fc3f6cb6622033197b9cb0e943d",
+      "merged_main": false,
+      "merged_delivery": false
+    },
+    {
+      "branch": "codex/freeze-persistence-rootfix-20261109",
+      "head": "8840c79d70de4bf58376bcdbd9bc13239ad17781",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/healthcheck-20261110-evening",
+      "head": "87ecfdc1c37705ab6b782a7f401c5e4696dae1ff",
+      "merged_main": false,
+      "merged_delivery": false
+    },
+    {
+      "branch": "codex/healthcheck-alerts-20261110",
+      "head": "f2c5343bd1bb2e33a91834e2235406fd39512519",
+      "merged_main": false,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/healthcheck-ui-20261110",
+      "head": "77ca93ac60cc0f7834af42f32c73ae3cfef3494d",
+      "merged_main": false,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/notify-regressions-20261105",
+      "head": "0d1bc0fdcdb849a371c4804adf7fae97aba16d19",
+      "merged_main": false,
+      "merged_delivery": false
+    },
+    {
+      "branch": "codex/notify-test-isolation-20261110",
+      "head": "ace115157617eceb0d1abd20c41cdeab4fb9b503",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/ops-alert-recovery-20261110",
+      "head": "2eb5f7abd03ff0cc86c025d6a95be8cb7addb895",
+      "merged_main": false,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/ops-alert-rootfix-ci-20261109",
+      "head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/ops-closeout-20261111",
+      "head": "2eb5f7abd03ff0cc86c025d6a95be8cb7addb895",
+      "merged_main": false,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/ops-fof-nav-completeness-20261109",
+      "head": "b1f20bca27d96db15a07230f7bed0d9e0f7d6f9e",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/ops-fund-budget-20261110",
+      "head": "01aa15a9bdfa54d95cccedffe2b9525ba99e02d3",
+      "merged_main": false,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/ops-fund-index-reconnect-20261109",
+      "head": "e30d1c90a9482e754b802be202e9cd7d59b9875a",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/ops-healthcheck-wave1-20261110",
+      "head": "2c5561870bb9068faaa061b9ec5d32c516b47fa2",
+      "merged_main": false,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/ops-overfit-delivery-20261109",
+      "head": "5b3ab1f3259deb7896e018677946660576041c77",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/ops-overfit-retry-20261110",
+      "head": "c8ae5ed0c7ec902f6de3030547aabcb884ed4727",
+      "merged_main": false,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/ops-recovery-state-20261110",
+      "head": "bc7568d2c7ea473151ac86c302cd98b91374e485",
+      "merged_main": false,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/ops-release-ci-gate-20261109",
+      "head": "9051125332058a286fbf9228f002967446610bce",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/overfit-public-verifier-20261110",
+      "head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/preupload-accounting-20261110",
+      "head": "684ec75d4e25925b2bacf9b82f3fb1a1349f2e17",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/r2-purge-delivery-20261110",
+      "head": "e995a5bd95df573103b956cc566f714fe5db3ef3",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "codex/reviewer",
+      "head": "4f827e81fbb91c77c71c105125fc7ebbb2bdfdbb",
+      "merged_main": false,
+      "merged_delivery": false
+    },
+    {
+      "branch": "codex/worker375-log-diagnostic-20261110",
+      "head": "22a558a6ec884c16dd5eb800e3c3d58ea5df0bb8",
+      "merged_main": false,
+      "merged_delivery": false
+    },
+    {
+      "branch": "feat/docs-1109-1110-closeout-20261110",
+      "head": "6820d0853322d90d8613b83e0516ea35942415cf",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "feat/fix-258-s06-budget",
+      "head": "68ad3944d54e94a85ae2bb74b63d4197aac61f39",
+      "merged_main": false,
+      "merged_delivery": false
+    },
+    {
+      "branch": "feat/fix/gate-registry-l58-20261110",
+      "head": "41c567e6aabbfec13af0d310bcc08df59194fdbf",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "feat/fix/merge-fastcheck-gate-20261110",
+      "head": "61a56ce7fc037e0a9f8ce8aad018ee1c173edd95",
+      "merged_main": false,
+      "merged_delivery": false
+    },
+    {
+      "branch": "feat/freeze-persist-p1-20261109",
+      "head": "6e3b2ea06299d664cc67e676a0b73614d32f6634",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "feat/notify-p2-fixes-20261105",
+      "head": "22b057ffc061a9720e79b2c1d9ea994e536e4f69",
+      "merged_main": false,
+      "merged_delivery": false
+    },
+    {
+      "branch": "fix/main-merge-stale-ref-20261110",
+      "head": "e3be96073713a1c54aeecdcacc7d87d3e9a9b4f0",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "impl/freeze-persist-p1-20261109",
+      "head": "6e3b2ea06299d664cc67e676a0b73614d32f6634",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "main",
+      "head": "f35437a699d199076b5654dcde58780be89ee6b4",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "worktree-agent-a0c8e7d269aea862d",
+      "head": "adfd77e7ad3a25033bf7ca02df85e0f459446e71",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "worktree-agent-a22ff37de68bb006e",
+      "head": "adfd77e7ad3a25033bf7ca02df85e0f459446e71",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "worktree-agent-a451b851dbac3a9df",
+      "head": "e3be96073713a1c54aeecdcacc7d87d3e9a9b4f0",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "worktree-agent-a72cfa0414d482628",
+      "head": "8d0e1d81d49045ace57fe25e019312c0de3639a7",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "worktree-agent-a824984b577d68f4a",
+      "head": "6820d0853322d90d8613b83e0516ea35942415cf",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "worktree-agent-aabb89db5dac94234",
+      "head": "6e3b2ea06299d664cc67e676a0b73614d32f6634",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "worktree-agent-ab3eaf8018b10784d",
+      "head": "adfd77e7ad3a25033bf7ca02df85e0f459446e71",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "worktree-agent-ac31d6d601c14836c",
+      "head": "41c567e6aabbfec13af0d310bcc08df59194fdbf",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "worktree-agent-ae637b217439bb921",
+      "head": "41c567e6aabbfec13af0d310bcc08df59194fdbf",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "worktree-agent-inbox-alert-backup-independent-20261109",
+      "head": "adfd77e7ad3a25033bf7ca02df85e0f459446e71",
+      "merged_main": true,
+      "merged_delivery": true
+    },
+    {
+      "branch": "worktree-agent-inbox-healthcheck-followup-20261110-alerts-initial",
+      "head": "f35437a699d199076b5654dcde58780be89ee6b4",
+      "merged_main": true,
+      "merged_delivery": true
+    }
+  ],
+  "worktrees": [
+    {
+      "worktree": "trade",
+      "head": "f35437a699d199076b5654dcde58780be89ee6b4",
+      "branch": "refs/heads/main",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 13982948,
+      "dirty": [],
+      "ignored_files": 40021,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "retain_current_delivery"
+    },
+    {
+      "worktree": "agent-a22ff37de68bb006e",
+      "head": "6e3b2ea06299d664cc67e676a0b73614d32f6634",
+      "branch": "refs/heads/impl/freeze-persist-p1-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 396860,
+      "dirty": [],
+      "ignored_files": 2021,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "agent-a451b851dbac3a9df",
+      "head": "6820d0853322d90d8613b83e0516ea35942415cf",
+      "branch": "refs/heads/feat/docs-1109-1110-closeout-20261110",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 158404,
+      "dirty": [],
+      "ignored_files": 180,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "agent-a824984b577d68f4a",
+      "head": "41c567e6aabbfec13af0d310bcc08df59194fdbf",
+      "branch": "refs/heads/feat/fix/gate-registry-l58-20261110",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 152320,
+      "dirty": [],
+      "ignored_files": 8,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "agent-ae637b217439bb921",
+      "head": "61a56ce7fc037e0a9f8ce8aad018ee1c173edd95",
+      "branch": "refs/heads/feat/fix/merge-fastcheck-gate-20261110",
+      "merged_main": false,
+      "merged_delivery": false,
+      "allocated_kib": 170168,
+      "dirty": [],
+      "ignored_files": 436,
+      "locked": false,
+      "fixture_blocks": 3,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "agent-inbox-alert-backup-independent-20261109",
+      "head": "adfd77e7ad3a25033bf7ca02df85e0f459446e71",
+      "branch": "refs/heads/worktree-agent-inbox-alert-backup-independent-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 151820,
+      "dirty": [],
+      "ignored_files": 0,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "agent-inbox-healthcheck-followup-20261110-alerts-initial",
+      "head": "f35437a699d199076b5654dcde58780be89ee6b4",
+      "branch": "refs/heads/worktree-agent-inbox-healthcheck-followup-20261110-alerts-initial",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 152776,
+      "dirty": [],
+      "ignored_files": 0,
+      "locked": true,
+      "fixture_blocks": 0,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "codex-alert-backup-20261109",
+      "head": "10e34d5756783bb2b8ca951688c2a8a1a905aa8c",
+      "branch": "refs/heads/codex/alert-backup-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 158588,
+      "dirty": [],
+      "ignored_files": 192,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-alert-d1-20261109",
+      "head": "2162e539fed9fc82cbce74cc40cdb665b3b6dc59",
+      "branch": "refs/heads/codex/alert-d1-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 151988,
+      "dirty": [],
+      "ignored_files": 9,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-alert-freeze-20261109",
+      "head": "da84ef8c7ef987e4c06c9f5ce488ad7ac3fb781e",
+      "branch": "refs/heads/codex/alert-freeze-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 168212,
+      "dirty": [],
+      "ignored_files": 415,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-alert-nextday-20261109",
+      "head": "2d28eabdc6bc131f6993923d589d621a657a98b2",
+      "branch": "refs/heads/codex/alert-nextday-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 158324,
+      "dirty": [],
+      "ignored_files": 189,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-alert-release-ci-20261109",
+      "head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "branch": "refs/heads/codex/ops-alert-rootfix-ci-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 158700,
+      "dirty": [],
+      "ignored_files": 182,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-alert-stall-20261109",
+      "head": "a4d38c95de0f93ece584fbafb5c6461698c8f954",
+      "branch": "refs/heads/codex/alert-stall-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 158108,
+      "dirty": [],
+      "ignored_files": 177,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-alert-takeover-docs-20261110",
+      "head": "f35437a699d199076b5654dcde58780be89ee6b4",
+      "branch": "refs/heads/codex/alert-takeover-docs-20261110",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 158772,
+      "dirty": [],
+      "ignored_files": 173,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-backup-ci-fixture-20261109",
+      "head": "16a260201bfe0fc3f6cb6622033197b9cb0e943d",
+      "branch": "refs/heads/codex/backup-ci-fixture-20261109",
+      "merged_main": false,
+      "merged_delivery": false,
+      "allocated_kib": 158164,
+      "dirty": [],
+      "ignored_files": 172,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "codex-fof-nav-completeness-20261109",
+      "head": "b1f20bca27d96db15a07230f7bed0d9e0f7d6f9e",
+      "branch": "refs/heads/codex/ops-fof-nav-completeness-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 159080,
+      "dirty": [],
+      "ignored_files": 198,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-freeze-persistence-rootfix-20261109",
+      "head": "8840c79d70de4bf58376bcdbd9bc13239ad17781",
+      "branch": "refs/heads/codex/freeze-persistence-rootfix-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 152256,
+      "dirty": [
+        " M scripts/signal_kelly_backtest.py",
+        " M scripts/tests/test_freeze_row_context_20261109.py",
+        "?? scripts/tests/test_freeze_persistence_20261109.py"
+      ],
+      "ignored_files": 0,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "codex-fund-index-reconnect-20261109",
+      "head": "e30d1c90a9482e754b802be202e9cd7d59b9875a",
+      "branch": "refs/heads/codex/ops-fund-index-reconnect-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 159048,
+      "dirty": [],
+      "ignored_files": 199,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-healthcheck-20261110-evening",
+      "head": "87ecfdc1c37705ab6b782a7f401c5e4696dae1ff",
+      "branch": "refs/heads/codex/healthcheck-20261110-evening",
+      "merged_main": false,
+      "merged_delivery": false,
+      "allocated_kib": 158868,
+      "dirty": [],
+      "ignored_files": 173,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "codex-healthcheck-alerts-20261110",
+      "head": "f2c5343bd1bb2e33a91834e2235406fd39512519",
+      "branch": "refs/heads/codex/healthcheck-alerts-20261110",
+      "merged_main": false,
+      "merged_delivery": true,
+      "allocated_kib": 152788,
+      "dirty": [],
+      "ignored_files": 0,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "codex-healthcheck-ui-20261110",
+      "head": "77ca93ac60cc0f7834af42f32c73ae3cfef3494d",
+      "branch": "refs/heads/codex/healthcheck-ui-20261110",
+      "merged_main": false,
+      "merged_delivery": true,
+      "allocated_kib": 152804,
+      "dirty": [],
+      "ignored_files": 0,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "codex-notify-test-isolation-20261110",
+      "head": "ace115157617eceb0d1abd20c41cdeab4fb9b503",
+      "branch": "refs/heads/codex/notify-test-isolation-20261110",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 158236,
+      "dirty": [],
+      "ignored_files": 179,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-ops-alert-recovery-20261110",
+      "head": "2eb5f7abd03ff0cc86c025d6a95be8cb7addb895",
+      "branch": "refs/heads/codex/ops-alert-recovery-20261110",
+      "merged_main": false,
+      "merged_delivery": true,
+      "allocated_kib": 159084,
+      "dirty": [],
+      "ignored_files": 182,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "retain_current_delivery"
+    },
+    {
+      "worktree": "codex-ops-closeout-20261111",
+      "head": "2eb5f7abd03ff0cc86c025d6a95be8cb7addb895",
+      "branch": "refs/heads/codex/ops-closeout-20261111",
+      "merged_main": false,
+      "merged_delivery": true,
+      "allocated_kib": 152992,
+      "dirty": [],
+      "ignored_files": 0,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "retain_current_delivery"
+    },
+    {
+      "worktree": "codex-ops-fund-budget-20261110",
+      "head": "01aa15a9bdfa54d95cccedffe2b9525ba99e02d3",
+      "branch": "refs/heads/codex/ops-fund-budget-20261110",
+      "merged_main": false,
+      "merged_delivery": true,
+      "allocated_kib": 159336,
+      "dirty": [],
+      "ignored_files": 188,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "codex-ops-healthcheck-wave1-20261110",
+      "head": "2c5561870bb9068faaa061b9ec5d32c516b47fa2",
+      "branch": "refs/heads/codex/ops-healthcheck-wave1-20261110",
+      "merged_main": false,
+      "merged_delivery": true,
+      "allocated_kib": 158856,
+      "dirty": [],
+      "ignored_files": 173,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "codex-ops-overfit-retry-20261110",
+      "head": "c8ae5ed0c7ec902f6de3030547aabcb884ed4727",
+      "branch": "refs/heads/codex/ops-overfit-retry-20261110",
+      "merged_main": false,
+      "merged_delivery": true,
+      "allocated_kib": 159400,
+      "dirty": [],
+      "ignored_files": 195,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "codex-ops-recovery-state-20261110",
+      "head": "bc7568d2c7ea473151ac86c302cd98b91374e485",
+      "branch": "refs/heads/codex/ops-recovery-state-20261110",
+      "merged_main": false,
+      "merged_delivery": true,
+      "allocated_kib": 159080,
+      "dirty": [],
+      "ignored_files": 186,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "codex-overfit-delivery-20261109",
+      "head": "5b3ab1f3259deb7896e018677946660576041c77",
+      "branch": "refs/heads/codex/ops-overfit-delivery-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 169884,
+      "dirty": [],
+      "ignored_files": 440,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-preupload-accounting-20261110",
+      "head": "684ec75d4e25925b2bacf9b82f3fb1a1349f2e17",
+      "branch": "refs/heads/codex/preupload-accounting-20261110",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 152284,
+      "dirty": [],
+      "ignored_files": 0,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-r2-purge-delivery-20261110",
+      "head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "branch": "refs/heads/codex/overfit-public-verifier-20261110",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 160476,
+      "dirty": [],
+      "ignored_files": 209,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-release-ci-gate-20261109",
+      "head": "9051125332058a286fbf9228f002967446610bce",
+      "branch": "refs/heads/codex/ops-release-ci-gate-20261109",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 170136,
+      "dirty": [],
+      "ignored_files": 443,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    },
+    {
+      "worktree": "codex-reviewer",
+      "head": "4f827e81fbb91c77c71c105125fc7ebbb2bdfdbb",
+      "branch": "refs/heads/codex/reviewer",
+      "merged_main": false,
+      "merged_delivery": false,
+      "allocated_kib": 158752,
+      "dirty": [],
+      "ignored_files": 203,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "codex-worker375-log-diagnostic-20261110",
+      "head": "22a558a6ec884c16dd5eb800e3c3d58ea5df0bb8",
+      "branch": "refs/heads/codex/worker375-log-diagnostic-20261110",
+      "merged_main": false,
+      "merged_delivery": false,
+      "allocated_kib": 152280,
+      "dirty": [],
+      "ignored_files": 0,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "owner_review_required"
+    },
+    {
+      "worktree": "fix-main-merge-stale-ref-20261110",
+      "head": "e3be96073713a1c54aeecdcacc7d87d3e9a9b4f0",
+      "branch": "refs/heads/fix/main-merge-stale-ref-20261110",
+      "merged_main": true,
+      "merged_delivery": true,
+      "allocated_kib": 170148,
+      "dirty": [],
+      "ignored_files": 437,
+      "locked": false,
+      "fixture_blocks": 0,
+      "cleanup_state": "merged_clean_candidate_ignored_files_and_owner_not_cleared"
+    }
+  ],
+  "deleted": []
+}

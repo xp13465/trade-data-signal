@@ -1,0 +1,30 @@
+{
+  "at": "2026-11-11T06:47:59.380428+08:00",
+  "deleted": [
+    {
+      "file": "sentiment.db",
+      "bytes": 235585536,
+      "sha256": "f90a1e800d931017a5c2cb69ce79caca1ab7c478b0d9561457ef803db33cd17c"
+    },
+    {
+      "file": "etf_national_team.db",
+      "bytes": 260755456,
+      "sha256": "8665a3f10801ad2e670d17f8ef63fe5e4228c75b647c9a9c14b649dd9054b062"
+    },
+    {
+      "file": "stock_daily.db",
+      "bytes": 207360000,
+      "sha256": "20041d99c2714e5db12ae34457ccf99e65bb112b8804c63ec034187f6cf940fc"
+    },
+    {
+      "file": "public_fund.db",
+      "bytes": 3092283392,
+      "sha256": "41154d1ccc1162743e372a88dc7e8720d2490b2ec36cfbd33e9fa3be6237944d"
+    }
+  ],
+  "logical_bytes_released": 3795984384,
+  "free_before": 35534209024,
+  "free_after": 39330656256,
+  "scope": "only newly downloaded isolated restore copies; original R2 objects, production DB, archived receipts and selected source rows retained",
+  "shared_worktrees_deleted": 0
+}

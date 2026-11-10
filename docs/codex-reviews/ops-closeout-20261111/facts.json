@@ -1,0 +1,933 @@
+{
+  "as_of": "2026-11-11T06:44:24.562513+08:00",
+  "production_code_ref": "f35437a699d199076b5654dcde58780be89ee6b4",
+  "inherited_tested_code_head": "b5a7483374d252c0622284f17560fd601eb55e3d",
+  "source_deployed": false,
+  "independent_review_pass": false,
+  "backup_source": {
+    "schema": 1,
+    "complete": true,
+    "run_id": "e25ffff735944a57bb824ebd4982ddfe",
+    "objects": {
+      "etf_national_team": {
+        "key": "backup/etf_national_team_20261110.db.gz",
+        "raw": {
+          "sha256": "8665a3f10801ad2e670d17f8ef63fe5e4228c75b647c9a9c14b649dd9054b062",
+          "size": 260755456
+        },
+        "gzip": {
+          "sha256": "1a751482bd0dae617b09db67e110f82e2f59c528fb1a8d2ffa7bc6fcc968957f",
+          "size": 72868644
+        },
+        "tables": {
+          "etf_daily": 1522235,
+          "etf_holder_quarterly": 284,
+          "etf_signal": 2638,
+          "national_team_holders": 192
+        }
+      },
+      "public_fund": {
+        "key": "backup/public_fund_20261110.db.gz",
+        "raw": {
+          "sha256": "41154d1ccc1162743e372a88dc7e8720d2490b2ec36cfbd33e9fa3be6237944d",
+          "size": 3092283392
+        },
+        "gzip": {
+          "sha256": "9b154d00ff6cd3dbd4cceba54814be4697c7d4bbeb9459311a4dbd48e1752083",
+          "size": 843928592
+        },
+        "tables": {
+          "fund_basic": 28476,
+          "fund_daily_nav": 23038931,
+          "fund_performance": 1361607,
+          "fund_purchase_status": 1846031,
+          "fund_rating": 1219551
+        }
+      },
+      "sentiment": {
+        "key": "backup/sentiment_20261110.db.gz",
+        "raw": {
+          "sha256": "f90a1e800d931017a5c2cb69ce79caca1ab7c478b0d9561457ef803db33cd17c",
+          "size": 235585536
+        },
+        "gzip": {
+          "sha256": "05727967ed0ddd3735c1712a9b0ca4b255b9d557aee1f352bd494d3f8d05d667",
+          "size": 59162175
+        },
+        "tables": {
+          "collect_log": 19471,
+          "daily_metric": 237038,
+          "futures_accuracy": 46140,
+          "futures_position": 10335,
+          "index_daily": 498355,
+          "industry_width_daily": 81586,
+          "score_daily": 38827,
+          "signal_daily": 72091
+        }
+      },
+      "stock_daily": {
+        "key": "backup/stock_daily_20261110.db.gz",
+        "raw": {
+          "sha256": "20041d99c2714e5db12ae34457ccf99e65bb112b8804c63ec034187f6cf940fc",
+          "size": 207360000
+        },
+        "gzip": {
+          "sha256": "747431494c0cda980a4d10debcc87b8a2a74a0601055410b17d1bb0ab8539d13",
+          "size": 79658491
+        },
+        "tables": {
+          "baostock_daily_raw": 406323,
+          "fapi_daily_raw": 300091,
+          "mootdx_daily_raw": 612563
+        }
+      }
+    }
+  },
+  "backup_restore": {
+    "run_id": "e25ffff735944a57bb824ebd4982ddfe",
+    "remote_methods": [
+      "GET",
+      "HEAD"
+    ],
+    "results": [
+      {
+        "name": "sentiment",
+        "run_id": "e25ffff735944a57bb824ebd4982ddfe",
+        "key": "backup/sentiment_20261110.db.gz",
+        "started_at": "2026-11-11T06:31:00.263759+08:00",
+        "read_only_remote": true,
+        "before": {
+          "status": 200,
+          "etag": "\"4776984bd7d6f44ce2aab33eb6b026f4\"",
+          "bytes": 59162175,
+          "run_match": true,
+          "entry_hash_match": true
+        },
+        "gzip": {
+          "sha256": "05727967ed0ddd3735c1712a9b0ca4b255b9d557aee1f352bd494d3f8d05d667",
+          "size": 59162175
+        },
+        "raw": {
+          "sha256": "f90a1e800d931017a5c2cb69ce79caca1ab7c478b0d9561457ef803db33cd17c",
+          "size": 235585536
+        },
+        "integrity": [
+          "ok"
+        ],
+        "tables": {
+          "collect_log": 19471,
+          "daily_metric": 237038,
+          "futures_accuracy": 46140,
+          "futures_position": 10335,
+          "index_daily": 498355,
+          "industry_width_daily": 81586,
+          "score_daily": 38827,
+          "signal_daily": 72091
+        },
+        "after": {
+          "status": 200,
+          "etag": "\"4776984bd7d6f44ce2aab33eb6b026f4\"",
+          "bytes": 59162175,
+          "run_match": true,
+          "entry_hash_match": true
+        },
+        "verified": true,
+        "finished_at": "2026-11-11T06:31:11.576575+08:00",
+        "elapsed_sec": 11.31
+      },
+      {
+        "name": "etf_national_team",
+        "run_id": "e25ffff735944a57bb824ebd4982ddfe",
+        "key": "backup/etf_national_team_20261110.db.gz",
+        "started_at": "2026-11-11T06:31:11.577392+08:00",
+        "read_only_remote": true,
+        "before": {
+          "status": 200,
+          "etag": "\"7db653b772308c0f45c2a726a22253d6\"",
+          "bytes": 72868644,
+          "run_match": true,
+          "entry_hash_match": true
+        },
+        "gzip": {
+          "sha256": "1a751482bd0dae617b09db67e110f82e2f59c528fb1a8d2ffa7bc6fcc968957f",
+          "size": 72868644
+        },
+        "raw": {
+          "sha256": "8665a3f10801ad2e670d17f8ef63fe5e4228c75b647c9a9c14b649dd9054b062",
+          "size": 260755456
+        },
+        "integrity": [
+          "ok"
+        ],
+        "tables": {
+          "etf_daily": 1522235,
+          "etf_holder_quarterly": 284,
+          "etf_signal": 2638,
+          "national_team_holders": 192
+        },
+        "after": {
+          "status": 200,
+          "etag": "\"7db653b772308c0f45c2a726a22253d6\"",
+          "bytes": 72868644,
+          "run_match": true,
+          "entry_hash_match": true
+        },
+        "verified": true,
+        "finished_at": "2026-11-11T06:31:26.705276+08:00",
+        "elapsed_sec": 15.13
+      },
+      {
+        "name": "stock_daily",
+        "run_id": "e25ffff735944a57bb824ebd4982ddfe",
+        "key": "backup/stock_daily_20261110.db.gz",
+        "started_at": "2026-11-11T06:31:26.706436+08:00",
+        "read_only_remote": true,
+        "before": {
+          "status": 200,
+          "etag": "\"74745f0af8f9e2ee72461c20778a4cfa\"",
+          "bytes": 79658491,
+          "run_match": true,
+          "entry_hash_match": true
+        },
+        "gzip": {
+          "sha256": "747431494c0cda980a4d10debcc87b8a2a74a0601055410b17d1bb0ab8539d13",
+          "size": 79658491
+        },
+        "raw": {
+          "sha256": "20041d99c2714e5db12ae34457ccf99e65bb112b8804c63ec034187f6cf940fc",
+          "size": 207360000
+        },
+        "integrity": [
+          "ok"
+        ],
+        "tables": {
+          "baostock_daily_raw": 406323,
+          "fapi_daily_raw": 300091,
+          "mootdx_daily_raw": 612563
+        },
+        "after": {
+          "status": 200,
+          "etag": "\"74745f0af8f9e2ee72461c20778a4cfa\"",
+          "bytes": 79658491,
+          "run_match": true,
+          "entry_hash_match": true
+        },
+        "verified": true,
+        "finished_at": "2026-11-11T06:31:41.731217+08:00",
+        "elapsed_sec": 15.03
+      },
+      {
+        "name": "public_fund",
+        "run_id": "e25ffff735944a57bb824ebd4982ddfe",
+        "key": "backup/public_fund_20261110.db.gz",
+        "started_at": "2026-11-11T06:31:41.732615+08:00",
+        "read_only_remote": true,
+        "before": {
+          "status": 200,
+          "etag": "\"abbbb908f072eda29f7f5299c370f7c2-13\"",
+          "bytes": 843928592,
+          "run_match": true,
+          "entry_hash_match": true
+        },
+        "gzip": {
+          "sha256": "9b154d00ff6cd3dbd4cceba54814be4697c7d4bbeb9459311a4dbd48e1752083",
+          "size": 843928592
+        },
+        "raw": {
+          "sha256": "41154d1ccc1162743e372a88dc7e8720d2490b2ec36cfbd33e9fa3be6237944d",
+          "size": 3092283392
+        },
+        "integrity": [
+          "ok"
+        ],
+        "tables": {
+          "fund_basic": 28476,
+          "fund_daily_nav": 23038931,
+          "fund_performance": 1361607,
+          "fund_purchase_status": 1846031,
+          "fund_rating": 1219551
+        },
+        "after": {
+          "status": 200,
+          "etag": "\"abbbb908f072eda29f7f5299c370f7c2-13\"",
+          "bytes": 843928592,
+          "run_match": true,
+          "entry_hash_match": true
+        },
+        "verified": true,
+        "finished_at": "2026-11-11T06:34:31.958636+08:00",
+        "elapsed_sec": 170.23
+      }
+    ],
+    "complete": true,
+    "all_verified": true
+  },
+  "public_chains": {
+    "verified_at": "2026-11-11T06:34:00.253973+08:00",
+    "results": [
+      {
+        "name": "nextday_plan.json",
+        "url": "https://ss.fx8.store/data/nextday_plan.json",
+        "curl_exit": 0,
+        "bytes": 329,
+        "sha256": "acbb0a24b18d58c9c2cb1986d89dcb4abd40dd078f835b4a8da015e962774f35",
+        "source_match": true,
+        "document": {
+          "date": "20261110",
+          "today": "20261110",
+          "is_trading_day": true,
+          "next_trading_day": "20261111",
+          "plan": [
+            {
+              "etf_code": "159583",
+              "etf_name": "通信ETF富国",
+              "prev_close": 1.069,
+              "amount": 10000,
+              "signal": "buy",
+              "track_score": 59.8,
+              "signal_date": "20261110",
+              "buy_date": "20261111"
+            }
+          ]
+        }
+      },
+      {
+        "name": "auto_trade_steps.json",
+        "url": "https://ss.fx8.store/data/auto_trade_steps.json",
+        "curl_exit": 0,
+        "bytes": 125320,
+        "sha256": "9c0df81ba007288be490e29a45f37a60b385725c497e40e0125d1611768ce0cf",
+        "source_match": true
+      },
+      {
+        "name": "signal_kelly_day_snapshot.json",
+        "url": "https://ss.fx8.store/data/signal_kelly_day_snapshot.json",
+        "curl_exit": 0,
+        "bytes": 46227,
+        "sha256": "5cbbe21b03238a8a3fb90bd0a7ce8aade9b9097e1e048fd0d349369474e01ca7",
+        "source_match": true
+      },
+      {
+        "name": "a-stock-3m.json",
+        "url": "https://ss.fx8.store/data/a-stock-3m.json",
+        "curl_exit": 0,
+        "bytes": 311311,
+        "sha256": "1c12faa9ea7b07c32a4203706825963ab5fcfff4fbaacda6f9f1259d4956d33d",
+        "source_match": true,
+        "turnover_latest": {
+          "a_turnover_mean": {
+            "date": "20261110",
+            "value": 2.8413287972243637
+          },
+          "a_turnover_median": {
+            "date": "20261110",
+            "value": 1.6295
+          },
+          "a_turnover_p90": {
+            "date": "20261110",
+            "value": 6.3694000000000015
+          },
+          "a_turnover_p10": {
+            "date": "20261110",
+            "value": 0.49794
+          },
+          "a_turnover_gt5_pct": {
+            "date": "20261110",
+            "value": 0.1412875867386276
+          }
+        }
+      },
+      {
+        "name": "a-stock-6m.json",
+        "url": "https://ss.fx8.store/data/a-stock-6m.json",
+        "curl_exit": 0,
+        "bytes": 472695,
+        "sha256": "e6c29fc8d21fd86358fe85122aa5fe99cbf7946e8a9b048a638d67ff2f85322f",
+        "source_match": true,
+        "turnover_latest": {
+          "a_turnover_mean": {
+            "date": "20261110",
+            "value": 2.8413287972243637
+          },
+          "a_turnover_median": {
+            "date": "20261110",
+            "value": 1.6295
+          },
+          "a_turnover_p90": {
+            "date": "20261110",
+            "value": 6.3694000000000015
+          },
+          "a_turnover_p10": {
+            "date": "20261110",
+            "value": 0.49794
+          },
+          "a_turnover_gt5_pct": {
+            "date": "20261110",
+            "value": 0.1412875867386276
+          }
+        }
+      },
+      {
+        "name": "a-stock-1y.json",
+        "url": "https://ss.fx8.store/data/a-stock-1y.json",
+        "curl_exit": 0,
+        "bytes": 753781,
+        "sha256": "5f85d79f3214e590264a40833979c5bc3a57ae6f06022fb3e8538697353043ae",
+        "source_match": true,
+        "turnover_latest": {
+          "a_turnover_mean": {
+            "date": "20261110",
+            "value": 2.8413287972243637
+          },
+          "a_turnover_median": {
+            "date": "20261110",
+            "value": 1.6295
+          },
+          "a_turnover_p90": {
+            "date": "20261110",
+            "value": 6.3694000000000015
+          },
+          "a_turnover_p10": {
+            "date": "20261110",
+            "value": 0.49794
+          },
+          "a_turnover_gt5_pct": {
+            "date": "20261110",
+            "value": 0.1412875867386276
+          }
+        }
+      },
+      {
+        "name": "a-stock-3y.json",
+        "url": "https://ss.fx8.store/r2/data/a-stock-3y.json",
+        "curl_exit": 0,
+        "bytes": 1831972,
+        "sha256": "1c26dc5d3932f14b2dfc80f38994a4bc80544c957011450ae3258d4fe8b35cba",
+        "source_match": true,
+        "turnover_latest": {
+          "a_turnover_mean": {
+            "date": "20261110",
+            "value": 2.8413287972243637
+          },
+          "a_turnover_median": {
+            "date": "20261110",
+            "value": 1.6295
+          },
+          "a_turnover_p90": {
+            "date": "20261110",
+            "value": 6.3694000000000015
+          },
+          "a_turnover_p10": {
+            "date": "20261110",
+            "value": 0.49794
+          },
+          "a_turnover_gt5_pct": {
+            "date": "20261110",
+            "value": 0.1412875867386276
+          }
+        }
+      },
+      {
+        "name": "a-stock-5y.json",
+        "url": "https://ss.fx8.store/r2/data/a-stock-5y.json",
+        "curl_exit": 0,
+        "bytes": 2901074,
+        "sha256": "6910b4d6f67852d965cf7823b63661f498673c3ffc22aeedd11ecc6569b7b3f8",
+        "source_match": true,
+        "turnover_latest": {
+          "a_turnover_mean": {
+            "date": "20261110",
+            "value": 2.8413287972243637
+          },
+          "a_turnover_median": {
+            "date": "20261110",
+            "value": 1.6295
+          },
+          "a_turnover_p90": {
+            "date": "20261110",
+            "value": 6.3694000000000015
+          },
+          "a_turnover_p10": {
+            "date": "20261110",
+            "value": 0.49794
+          },
+          "a_turnover_gt5_pct": {
+            "date": "20261110",
+            "value": 0.1412875867386276
+          }
+        }
+      },
+      {
+        "name": "a-stock-all.json",
+        "url": "https://ss.fx8.store/r2/data/a-stock-all.json",
+        "curl_exit": 0,
+        "bytes": 7495845,
+        "sha256": "92d548a3482c452cf04cfebd7dda6890df529647f8e364374a7cd057120c0625",
+        "source_match": true,
+        "turnover_latest": {
+          "a_turnover_mean": {
+            "date": "20261110",
+            "value": 2.8413287972243637
+          },
+          "a_turnover_median": {
+            "date": "20261110",
+            "value": 1.6295
+          },
+          "a_turnover_p90": {
+            "date": "20261110",
+            "value": 6.3694000000000015
+          },
+          "a_turnover_p10": {
+            "date": "20261110",
+            "value": 0.49794
+          },
+          "a_turnover_gt5_pct": {
+            "date": "20261110",
+            "value": 0.1412875867386276
+          }
+        }
+      },
+      {
+        "name": "overview.json",
+        "url": "https://ss.fx8.store/data/overview.json",
+        "curl_exit": 0,
+        "bytes": 3510318,
+        "sha256": "d656052051f9d0b014b27e2939699839d2749ab779ce659b90e5f490ddcabe1b",
+        "source_match": true
+      },
+      {
+        "name": "nav_bucket/5c.json",
+        "url": "https://ss.fx8.store/r2/nav_bucket/5c.json",
+        "curl_exit": 0,
+        "bytes": 2185129,
+        "sha256": "106e6336aa41135ce1e8573f2655ea9e86b3329235c9c13d851b2308267f7447",
+        "source_match": true,
+        "016989_latest": "20261106"
+      }
+    ],
+    "all_match": true
+  },
+  "fund_recovery": {
+    "started_at": "2026-11-11T06:36:12.529580+08:00",
+    "finished_at": "2026-11-11T06:36:14.520126+08:00",
+    "fund": "016989",
+    "changes": [
+      {
+        "date": "20261109",
+        "field": "unit_nav",
+        "before": null,
+        "after": 1.1527
+      },
+      {
+        "date": "20261109",
+        "field": "acc_nav",
+        "before": null,
+        "after": 1.1527
+      },
+      {
+        "date": "20261109",
+        "field": "nav_change_pct",
+        "before": null,
+        "after": -0.11
+      }
+    ],
+    "cursor_unchanged": true,
+    "nonnull_unchanged": true,
+    "bucket_codes": 107,
+    "other_codes_unchanged": true,
+    "bucket_sha256": "1252ee69a09f7a351cf77707de1fe30ffdcc213cb56f6f926b535e29aa0b32b0",
+    "bucket_bytes": 2185156,
+    "collector_exit": 0
+  },
+  "fund_publication": {
+    "started_at": "2026-11-11T06:36:54.277914+08:00",
+    "finished_at": "2026-11-11T06:37:46.431871+08:00",
+    "exit": 0,
+    "domain": "fund_nav",
+    "global_lock": "SH",
+    "source_unchanged_during_upload": true
+  },
+  "fund_public": {
+    "observed_at": "2026-11-11T06:39:52.483682+08:00",
+    "url": "https://ss.fx8.store/r2/nav_bucket/5c.json",
+    "sha256": "1252ee69a09f7a351cf77707de1fe30ffdcc213cb56f6f926b535e29aa0b32b0",
+    "bytes": 2185156,
+    "codes": 107,
+    "checks": {
+      "sha256_match": true,
+      "bytes_match": true,
+      "same_codes": true,
+      "other_106_unchanged": true,
+      "target_date": true,
+      "target_nav": true
+    },
+    "all_pass": true,
+    "target_last_row": [
+      "20261109",
+      1.1527,
+      1.1527
+    ]
+  },
+  "etf_public": {
+    "observed_at": "2026-11-11T06:42:00.322540+08:00",
+    "results": [
+      {
+        "code": "159501",
+        "url": "https://ss.fx8.store/r2/accum_nav/159501.json",
+        "exit": 0,
+        "bytes": 14865,
+        "sha256": "5a9f56c5476769b933fb69b0934d422a2267d62e72ad5e45a5e33150aa25fc4b",
+        "source_match": true,
+        "nov9": 1.7541,
+        "nov10": null,
+        "latest": "20261109"
+      },
+      {
+        "code": "159513",
+        "url": "https://ss.fx8.store/r2/accum_nav/159513.json",
+        "exit": 0,
+        "bytes": 14332,
+        "sha256": "792d178bff8a9968c5f33776ad1bbe7442fc39fcabcc5357e14c303c402721dc",
+        "source_match": true,
+        "nov9": 1.5546,
+        "nov10": null,
+        "latest": "20261109"
+      },
+      {
+        "code": "513080",
+        "url": "https://ss.fx8.store/r2/accum_nav/513080.json",
+        "exit": 0,
+        "bytes": 27886,
+        "sha256": "af7073d3584f1f3179f14e3fbedb8817f3f01cd6304f924870e771e2aa67f585",
+        "source_match": true,
+        "nov9": 1.6513,
+        "nov10": null,
+        "latest": "20261109"
+      },
+      {
+        "code": "513650",
+        "url": "https://ss.fx8.store/r2/accum_nav/513650.json",
+        "exit": 0,
+        "bytes": 15727,
+        "sha256": "b40ab2cba9d3670478dc59caadff8669a2566e530726f32213ba6edf8334b1a8",
+        "source_match": true,
+        "nov9": 1.8272,
+        "nov10": null,
+        "latest": "20261109"
+      }
+    ],
+    "all_match": true
+  },
+  "cnh": {
+    "source_sha256": "219d901764a70004710971cb3be7b9807cc21dde3c3f18c2135de5d6084c9490",
+    "rows": 888,
+    "source_scale_groups": {
+      "akshare >100": 887,
+      "intraday <=100": 1
+    },
+    "stored_november_signals": [
+      {
+        "date": "20261110",
+        "index_id": "g.usdcnh",
+        "signal": "sell",
+        "reason": "20日高回落2σ(高672.1->阈374.7,当前值6.672), RSI=0, MA60=662.8[去趋势过滤], 无前买点[趋势中], [指标]"
+      }
+    ],
+    "actual": {
+      "last_value": 6.6724,
+      "high20": 672.08,
+      "threshold20": 374.66986469722514,
+      "ma60": 662.8458733333333,
+      "rsi14": 0.10131639151869365,
+      "november_signals": [
+        [
+          "20261110",
+          "g.usdcnh",
+          "sell",
+          "20日高回落2σ(高672.1->阈374.7,当前值6.672), RSI=0, MA60=662.8[去趋势过滤], 无前买点[趋势中], [指标]"
+        ]
+      ]
+    },
+    "unit_only_counterfactual": {
+      "last_value": 6.6724,
+      "high20": 6.7208000000000006,
+      "threshold20": 6.700435779570837,
+      "ma60": 6.738553333333333,
+      "rsi14": 10.658180724044684,
+      "november_signals": [
+        [
+          "20261110",
+          "g.usdcnh",
+          "sell",
+          "20日高回落2σ(高6.721->阈6.7,当前值6.672), RSI=11, MA60=6.739[去趋势过滤], 无前买点[趋势中], [指标]"
+        ]
+      ]
+    },
+    "limitations": [
+      "Unit-only counterfactual is diagnostic, not approved normalization; BOC USD/CNY and spot CNY/CNH are different instruments.",
+      "No production database, frozen rating, signals or source was modified.",
+      "Historical direction/financial outcome is not inferred from corrupted numeric reason."
+    ],
+    "actual_nov10_reproduces_stored_reason": true
+  },
+  "history": {
+    "audit_compare": {
+      "before": "94dfc48e91224697a4029883d4f474d5.json",
+      "after": "5b0b2f99a1ce440b9e8a81b4ec9209cf.json",
+      "before_count": 136,
+      "after_count": 136,
+      "added": [],
+      "removed": []
+    },
+    "seven_exact_and_fallback_absent": [
+      {
+        "asset": "trade-data/signal_kelly_etf_freeze.json",
+        "bytes": 5900382,
+        "sha256": "e96310720235a5dd0e3fc6ba007cd509f0b69db235f834a41b26e69252ed08b7",
+        "keys": 28639,
+        "exact_matches": {},
+        "date_index_candidates": {
+          "20261104|csi_000102|buy": [],
+          "20261104|csi_000330|buy": [],
+          "20261104|csi_000673|buy": [],
+          "20261104|gz_399395|buy": [],
+          "20261104|thsc_307940|buy": [],
+          "20261104|thsc_309049|buy": [],
+          "20261105|dax|buy_special": []
+        }
+      },
+      {
+        "asset": "trade-data-signal/signal_kelly_etf_freeze.json",
+        "bytes": 5900382,
+        "sha256": "e96310720235a5dd0e3fc6ba007cd509f0b69db235f834a41b26e69252ed08b7",
+        "keys": 28639,
+        "exact_matches": {},
+        "date_index_candidates": {
+          "20261104|csi_000102|buy": [],
+          "20261104|csi_000330|buy": [],
+          "20261104|csi_000673|buy": [],
+          "20261104|gz_399395|buy": [],
+          "20261104|thsc_307940|buy": [],
+          "20261104|thsc_309049|buy": [],
+          "20261105|dax|buy_special": []
+        }
+      },
+      {
+        "asset": "trade-data-signal/signal_kelly_etf_freeze_20261107_pre-deploy.json",
+        "bytes": 5898329,
+        "sha256": "0ee460f9bd9a889ae586989d6a814f5212fd5cfae7c63d693087cf76220ef7cd",
+        "keys": 28629,
+        "exact_matches": {},
+        "date_index_candidates": {
+          "20261104|csi_000102|buy": [],
+          "20261104|csi_000330|buy": [],
+          "20261104|csi_000673|buy": [],
+          "20261104|gz_399395|buy": [],
+          "20261104|thsc_307940|buy": [],
+          "20261104|thsc_309049|buy": [],
+          "20261105|dax|buy_special": []
+        }
+      }
+    ],
+    "cloud_staticdata_shallow": "true",
+    "no_frozen_json_in_current_staticdata_tree": true,
+    "recent_diagnostic_count": 10,
+    "missing_frozen_count": 7,
+    "awaiting_next_nav_count": 3,
+    "historical_should_trade": "unknown",
+    "no_exhaustive_historical_absence_claim": true
+  },
+  "d1": {
+    "observed_at": "2026-11-11T06:34:17.081831+08:00",
+    "curl_exit": 0,
+    "http": "200",
+    "window_UTC": [
+      "2026-11-08",
+      "2026-11-10"
+    ],
+    "end_day_complete_after_cst": "2026-11-11T08:00:00+08:00",
+    "errors": null,
+    "days": [
+      {
+        "date": "2026-11-08",
+        "readQueries": 8,
+        "rowsRead": 399994,
+        "rowsWritten": 455314,
+        "writeQueries": 2
+      },
+      {
+        "date": "2026-11-09",
+        "readQueries": 24,
+        "rowsRead": 514080,
+        "rowsWritten": 341593,
+        "writeQueries": 2
+      },
+      {
+        "date": "2026-11-10",
+        "readQueries": 16,
+        "rowsRead": 174182,
+        "rowsWritten": 36152,
+        "writeQueries": 2
+      }
+    ]
+  },
+  "d1_natural": {
+    "score": {
+      "rows": 28456,
+      "changed": 2003,
+      "unchanged": 26453,
+      "d1_count": 28456,
+      "finished_at": "2026-11-10T16:04:14+08:00"
+    },
+    "screener": {
+      "rows": 28476,
+      "changed": 28148,
+      "unchanged": 328,
+      "d1_count": 28476,
+      "finished_at": "2026-11-10T16:08:59+08:00"
+    },
+    "per_stage_rows_read_written_not_retained": true,
+    "old_code_tree_failure_receipts_are_october_not_current": true
+  },
+  "monitor": {
+    "collected_at": "2026-11-10T22:30:13.530512Z",
+    "code_ref": "f35437a699d199076b5654dcde58780be89ee6b4",
+    "counts": {
+      "ok": 132,
+      "critical": 2,
+      "unknown": 41,
+      "warning": 2
+    },
+    "unknown_categories": {
+      "timer": 2,
+      "data": 34,
+      "backup": 4,
+      "publication": 1
+    },
+    "attention": [
+      {
+        "id": "cloud-service:trade-overfit-monitor.service",
+        "status": "critical",
+        "summary": "Systemd reports failed; business impact not evaluated"
+      },
+      {
+        "id": "cloud-service:trade-public-fund-daily.service",
+        "status": "critical",
+        "summary": "Systemd reports failed; business impact not evaluated"
+      },
+      {
+        "id": "schedule:overfit_monitor",
+        "status": "warning",
+        "summary": "Trusted derived execution verdict; no business data validation"
+      },
+      {
+        "id": "schedule:public_fund_daily",
+        "status": "warning",
+        "summary": "Trusted derived execution verdict; no business data validation"
+      }
+    ]
+  },
+  "natural_chains": {
+    "turnover": {
+      "date": "20261110",
+      "raw_ok": 5195,
+      "raw_fail": 5,
+      "raw_total": 5200,
+      "aggregated_valid_rows": 5188,
+      "metric_count": 5,
+      "exit": 0,
+      "finished_at": "2026-11-10T22:14:33+08:00"
+    },
+    "nextday": {
+      "date": "20261110",
+      "next_date": "20261111",
+      "exit": 0,
+      "finished_at": "2026-11-10T22:30:11+08:00",
+      "application_notify_state": "sent",
+      "mailbox_receipt_independently_verified": false
+    },
+    "backup_natural_public_fund": "policy SKIP non-Sunday; separate local restore verified all four databases"
+  },
+  "local_inventory": {
+    "branch_count": 49,
+    "branches_merged_main": 33,
+    "worktree_count": 35,
+    "worktrees_merged_main": 22,
+    "free_bytes_before_own_cleanup": 35533594624,
+    "deleted_shared_worktrees": 0,
+    "dirty": [
+      {
+        "worktree": "codex-freeze-persistence-rootfix-20261109",
+        "files": [
+          " M scripts/signal_kelly_backtest.py",
+          " M scripts/tests/test_freeze_row_context_20261109.py",
+          "?? scripts/tests/test_freeze_persistence_20261109.py"
+        ]
+      }
+    ],
+    "own_temp_logical_bytes_released": 3795984384,
+    "free_bytes_after_own_cleanup": 39330656256
+  },
+  "recent_alerts": [
+    {
+      "ts": "2026-11-11 00:00:09",
+      "tier": "critical",
+      "key": "failed_units_patrol",
+      "subject": "【停摆】[告警] 云上 unit 巡检发现异常(1 项) 11-11 00:00",
+      "channels": {
+        "email": true,
+        "feishu": true
+      },
+      "source": "schedule_monitor.sh"
+    },
+    {
+      "ts": "2026-11-11 00:00:19",
+      "tier": "critical",
+      "key": "948ffcf76841",
+      "subject": "[告警] 1项计划任务异常 [overfit_monitor] 11-11 00:00",
+      "channels": {
+        "email": true,
+        "feishu": true
+      },
+      "source": "schedule_monitor.sh"
+    },
+    {
+      "ts": "2026-11-11 00:15:27",
+      "tier": "notice",
+      "key": "24b7c8edc676",
+      "subject": "[状态说明] 监控结论异常(本轮无告警邮件) 11-11 00:15",
+      "channels": {
+        "email": true,
+        "feishu": true
+      },
+      "source": "schedule_monitor.sh"
+    },
+    {
+      "ts": "2026-11-11 02:15:28",
+      "tier": "critical",
+      "key": "signal_kelly_frozen_missing",
+      "subject": "[kelly] 冻结表缺失历史信号事件 136 个",
+      "channels": {
+        "email": true,
+        "feishu": true
+      },
+      "source": "backfill_metrics.sh"
+    },
+    {
+      "ts": "2026-11-11 02:20:08",
+      "tier": "notice",
+      "key": "5e1e07cb9773",
+      "subject": "[买卖点信号] 20261110 辅买×1 WTI原油",
+      "channels": {
+        "email": false,
+        "feishu": true
+      },
+      "source": "backfill_metrics.sh"
+    }
+  ],
+  "limitations": [
+    "Transport/application sent is not recipient-read proof.",
+    "Snapshots and public hash checks are point-in-time evidence, not future health guarantees.",
+    "No reset-failed, fabricated freeze, historical bulk overwrite, main commit or production source deployment."
+  ]
+}

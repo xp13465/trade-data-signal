@@ -1,0 +1,226 @@
+{
+  "observed_at": "2026-11-11T06:48:38.907623+08:00",
+  "packets": [
+    {
+      "id": "alert-authorized-ci-green-20261109-v1",
+      "branch": "codex/ops-alert-rootfix-ci-20261109",
+      "head": "e353220e4b400941ae8134d35105b242de1a13bd",
+      "sha256": "283870232e748ddd887a76f152cabee589eadbaf75a493fd509f07cd416f17ad",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "alert-authorized-continuation-20261110-final-v1",
+      "branch": "codex/ops-alert-rootfix-ci-20261109",
+      "head": "4d5c32a7d80c710ef086a1940f7b9beae7f62446",
+      "sha256": "4404d6d9607688237c28c415739172b09e518dfd1885807d02a1846ef126d428",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "alert-authorized-progress-20261110-v1",
+      "branch": "codex/ops-alert-rootfix-ci-20261109",
+      "head": "3521310ebfe49a0bff261a516d73e16bdd2e35cb",
+      "sha256": "9f5cf7facc12fd25283692bd873c0951b897201f921a56217feee6ea20904f2a",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "alert-backup-independent-20261109-fixed5123632",
+      "branch": "codex/alert-backup-20261109",
+      "head": "5123632bb743d039837d1af133eb78fadedb839a",
+      "sha256": "942b5a3a0451134ea8f7af77ab4286b98edb17d194fd1422bbde4f1da7c22504",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "alert-rootfix-20261109-blocker-v2",
+      "branch": "codex/reviewer",
+      "head": "8840c79d70de4bf58376bcdbd9bc13239ad17781",
+      "sha256": "f3009f1afc68749df85730d8e11cd10547a601da346b7c19367654a02e0fc9fc",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "alert-rootfix-20261109-ci-followup-v1",
+      "branch": "impl/freeze-persist-p1-20261109",
+      "head": "06cde8d7371ae352bfde8a915b19b4cf3cb97750",
+      "sha256": "554755a668aea85586f53e2ed1c90024acc5d3ad185bf95d2c6c7dc55cea610e",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "alert-rootfix-20261109-final-v1",
+      "branch": "codex/reviewer",
+      "head": "8840c79d70de4bf58376bcdbd9bc13239ad17781",
+      "sha256": "59be3b0f617e7976eb185a18e06acac39131c103212ecdf2e0b317abb33c474f",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "alert-rootfix-20261109-finalhead-review-v1",
+      "branch": "impl/freeze-persist-p1-20261109",
+      "head": "06cde8d7371ae352bfde8a915b19b4cf3cb97750",
+      "sha256": "307bfdb7548de4f597916b12ddfdc939a587fc5a8c6a3a94295c6a8e57384482",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "alert-rootfix-20261109-scope-v1",
+      "branch": "codex/reviewer",
+      "head": "d42a026a7aedf012f782defbce2ff7284acc2bcf",
+      "sha256": "d00a985a67eb309e4e8f7fa1972fde3fbb8ebde41437bf9af6ecfe1d04d9a61c",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "alert-takeover-active-20261110-v1",
+      "branch": "codex/ops-alert-rootfix-ci-20261109",
+      "head": "e2e9095ef4bd8148f664c5ff1ec3e0e8a88aec2e",
+      "sha256": "f0a5ee549c65f3f07e846f893f0b1a234961fadd948a8b82b4dc6c3152e8ffe1",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "alert-takeover-final-20261110-v1",
+      "branch": "codex/alert-takeover-docs-20261110",
+      "head": "f35437a699d199076b5654dcde58780be89ee6b4",
+      "sha256": "dc345755696f0fc09bc4878cbfb7ebcb5096332d81ee5f49f9cf37a7c6dffab1",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "cloud-alert-closeout-20261108-final",
+      "branch": "codex/cloud-alert-closeout-20261108",
+      "head": "bf51cdd00c41e1f1a1e84b0f7ed52f1be18bbf06",
+      "sha256": "85b751820bafd53d38fef313850cd0aa1fa1d6e0104e82322b97b463f66157cb",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "handoff-alert-recheck-20261110-v1",
+      "branch": "codex/reviewer",
+      "head": "4f827e81fbb91c77c71c105125fc7ebbb2bdfdbb",
+      "sha256": "c3e77494cb30a8aff69d6ed3759a1ec0e5cceae4bb7eeeefcdb604f737f1fa05",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "healthcheck-evening-20261110-v1",
+      "branch": "codex/healthcheck-20261110-evening",
+      "head": "87ecfdc1c37705ab6b782a7f401c5e4696dae1ff",
+      "sha256": "4cca1982f9cd2e598ab7e5f3c64b17ff35b81ad5c5dbbb74ea85a3b1882444dd",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "healthcheck-followup-20261110-alerts-initial",
+      "branch": "codex/healthcheck-alerts-20261110",
+      "head": "fe9bd82e6b3629d68a40f5b1dd8bb7f9d7e5ef47",
+      "sha256": "08ce2cf93ef8e43b19ef827392494290ecfb209f8de0993ec77f1c9b0bb33c61",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "healthcheck-next-evidence-20261110-v1",
+      "branch": "codex/alert-takeover-docs-20261110",
+      "head": "f35437a699d199076b5654dcde58780be89ee6b4",
+      "sha256": "1ea370ddbd67bb3a692c031f5e90e16e80be9f0570aa2ea6e4bc46fe44c158de",
+      "ack": null,
+      "delivery": "queued",
+      "status": "queued",
+      "integrity": "verified"
+    },
+    {
+      "id": "healthcheck-wave1-claim-20261110-v1",
+      "branch": "codex/healthcheck-alerts-20261110",
+      "head": "f35437a699d199076b5654dcde58780be89ee6b4",
+      "sha256": "961bcc65205af02c3554270a1d8e10973d7f02a50b16a0cff03f7f1584f49300",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "healthcheck-wave1-final-20261110-v1",
+      "branch": "codex/ops-healthcheck-wave1-20261110",
+      "head": "2c5561870bb9068faaa061b9ec5d32c516b47fa2",
+      "sha256": "7e4001d66fe3996f30fc9aafb71b89e0d5ebb6987308ee24a8b6284cc4ce35d4",
+      "ack": null,
+      "delivery": "queued",
+      "status": "queued",
+      "integrity": "verified"
+    },
+    {
+      "id": "ops-admin-xp13465-20261108-final",
+      "branch": "codex/ops-admin-access-xp13465-20261108",
+      "head": "cbc652d4277f41af2e8778a9841e90347fa7be3d",
+      "sha256": "df62e0d14e054a206b1db9efa1191d4e6d61c72b0d23e49a1053d87327ac5844",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    },
+    {
+      "id": "ops-current-alerts-final-20261110-v1",
+      "branch": "codex/ops-alert-recovery-20261110",
+      "head": "2eb5f7abd03ff0cc86c025d6a95be8cb7addb895",
+      "sha256": "586a664048bb7bf8a7ff6d9706b29f8accc86b17a0330659cbd5dc417489f288",
+      "ack": null,
+      "delivery": "queued",
+      "status": "queued",
+      "integrity": "verified"
+    },
+    {
+      "id": "ops-current-alerts-start-20261110-v1",
+      "branch": "codex/ops-alert-recovery-20261110",
+      "head": "f35437a699d199076b5654dcde58780be89ee6b4",
+      "sha256": "2cb7396df1c525098da44875799c4d7c4cc5b9d65e23d8f4a6daab53bf3cd1a1",
+      "ack": null,
+      "delivery": "queued",
+      "status": "queued",
+      "integrity": "verified"
+    },
+    {
+      "id": "ops-live-issues-20261108-final",
+      "branch": "codex/ops-exit-truth-20261108",
+      "head": "30ec59f1c523e0772569adf721465a29d69a5992",
+      "sha256": "9c697e552a519c61f24907c2a00c782f110d18060c5fb16541780c77c2e6d883",
+      "ack": null,
+      "delivery": "context-emitted",
+      "status": "context-emitted",
+      "integrity": "verified"
+    }
+  ],
+  "note": "ack null does not imply idle, rejected or unreceived; current package inherits earlier final report history"
+}
