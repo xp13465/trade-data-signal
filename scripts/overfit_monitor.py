@@ -62,6 +62,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 from collections import defaultdict
 from datetime import datetime, date as date_cls, timedelta
 
@@ -2102,6 +2103,19 @@ def _verify_overfit_public_pair(payloads, remaining_work=None):
                 raise ValueError(f"公开内容未对齐: {host}/{name}")
 
 
+def _overfit_publication_day():
+    """发布日固定为北京时间；测试注入此边界，不替换全局datetime。"""
+    from datetime import datetime, timedelta, timezone
+    return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+
+
+def _overfit_seconds_to_midnight():
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone(timedelta(hours=8)))
+    midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return (midnight - now).total_seconds()
+
+
 def _delivery_worker():
     """持原data域/全局屏障锁读当前产物；不暂存旧快照，不计算/发模型预警。"""
     from pathlib import Path
@@ -2123,9 +2137,16 @@ def _delivery_worker():
         generations = [json.loads(b).get("generated_at") for b in payloads]
         if not generations[0] or generations[0] != generations[1]:
             raise ValueError("主/ext 不同代，拒绝发布")
+        from datetime import datetime
+        generation_day = datetime.strptime(generations[0], "%Y-%m-%d %H:%M").date().isoformat()
+        publication_day = os.environ.get("OVERFIT_PUBLISH_DATE") or _overfit_publication_day()
+        if generation_day != publication_day or publication_day != _overfit_publication_day():
+            raise ValueError("主/ext 非本次北京时间当日产物，拒绝跨日/过期发布")
         from check_overfit_split_parity import check
         if check(None, OUT_JSON, OUT_EXT_JSON) != 0:
             raise ValueError("主/ext 原有结构校验失败，拒绝发布")
+        if publication_day != _overfit_publication_day():
+            raise ValueError("校验期间跨日，拒绝发布旧产物")
         # 原命令保留S3重试、独立产物登记与/data/缓存清理；仅缩小取件范围。
         stage = "upload"
         uploader.cmd_upload_data_files(names)
@@ -2134,6 +2155,8 @@ def _delivery_worker():
         _verify_overfit_public_pair(payloads, remaining_work=uploader._remaining_work)
         if payloads != [p.read_bytes() for p in paths]:
             raise ValueError("发布期间本地产物变化，需补传当前代")
+        if publication_day != _overfit_publication_day():
+            raise ValueError("发布期间跨日，不确认旧产物为当日交付")
         print(f"overfit 发布已核验: 主/ext {generations[0]}，两站逐字节一致", flush=True)
         return 0
     except (Exception, SystemExit) as exc:
@@ -2146,7 +2169,7 @@ def _delivery_worker():
 
 
 def publish_overfit():
-    """仅补传当前已计算artifact；失败由CLI非零交给原schedule消费者。"""
+    """锁短暂占用后自动补传；所有尝试共享原总预算，不重算/重发预警。"""
     env = force_env(dict(os.environ), REPO)
     env["R2_UPLOAD_LOCK_DOMAIN"] = "data"
     env["R2_UPLOAD_LOCK_TIMEOUT"] = "240"
@@ -2159,9 +2182,35 @@ def publish_overfit():
     env["R2_UPLOAD_SKIP_RETRY_SECS"] = str(_r2_skip_retry)
     _r2_timeout = _r2_upload_timeout() + _r2_skip_retry
     env["R2_UPLOAD_HTTP_TIMEOUT"] = "30"
-    env["R2_UPLOAD_WORK_TIMEOUT"] = str(max(1, _r2_timeout - _r2_skip_retry - 120))
-    rc = _run_delivery_process([sys.executable, os.path.join(SCRIPT_DIR, "overfit_monitor.py"),
-                                "--delivery-worker"], env, _r2_timeout)
+    publication_day = _overfit_publication_day()
+    env["OVERFIT_PUBLISH_DATE"] = publication_day
+    # 留出子进程组TERM/KILL回收余量，已在上传的尝试也不能无限跨过北京时间午夜。
+    day_budget = max(0, _overfit_seconds_to_midnight() - 5)
+    if day_budget <= _r2_skip_retry + 120:
+        print("✗ overfit 当日剩余时间不足以等锁/核公开副本，拒绝跨日补传", file=sys.stderr)
+        return 1
+    deadline = time.monotonic() + min(_r2_timeout, day_budget)
+    rc = 75
+    for attempt in range(1, 9):
+        if publication_day != _overfit_publication_day():
+            print("✗ overfit 发布恢复跨日，停止补传旧产物", file=sys.stderr)
+            rc = 1
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        env["R2_UPLOAD_WORK_TIMEOUT"] = str(max(1, int(remaining - _r2_skip_retry - 120)))
+        print(f"overfit 发布尝试 {attempt}/8，剩余总预算 {remaining:.1f}s", flush=True)
+        rc = _run_delivery_process([sys.executable, os.path.join(SCRIPT_DIR, "overfit_monitor.py"),
+                                    "--delivery-worker"], env, remaining)
+        # 75只表示尚未取得锁/尚无PUT；其它错误保留身份，避免重复上传/轰炸通知。
+        if rc != 75 or attempt == 8:
+            break
+        # 不为最后一次尝试重置预算；留下等锁+公开验证余量，耗尽仍返回75。
+        if deadline - time.monotonic() <= 30 + _r2_skip_retry + 120:
+            break
+        print("overfit 发布锁仍占用，30s后仅重试发布", flush=True)
+        time.sleep(30)
     if rc:
         print(f"✗ overfit 计算产物保留，发布未完成(rc={rc})；用 --publish-only 补传", file=sys.stderr)
     return rc
