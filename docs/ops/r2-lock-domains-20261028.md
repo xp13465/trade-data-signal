@@ -266,3 +266,20 @@ CPU 仅 5.4s = 全程等 I/O)。当时结构: 内层 `run_to 1500` vs 外层 `Ti
 
 上线后核验(只读): `systemd_timeout_gradient_audit.py --check-doc`(doc==快照)与云上 patrol
 `--check-snapshot`(快照==云上)均 PASS; 下次 23:20 跑完看日志「开始/结束」间隔仍应在 150–300s。
+
+## 2026-11-10：purge 结果与发布顺序补充
+
+`purge-low-freq` 保留全局 EX，不新增 cache 域/独立锁，不改上传、verify、备份的锁和超时。
+`upload-data-large` 对非 overfit 文件只自动清 `/r2/data/`，低频 `/data/` 路径仍依赖末尾清理；
+若末尾 purge 并行早清，读者可在 PUT 前重新缓存旧对象。隔离反例和三进程发布顺序验证见
+`scripts/tests/test_r2_purge_delivery_20261110.py`。仅证明 purge 不写 R2 不足以拆锁。
+
+`purge_cache` 返回 bool，可由 `failed_keys` 接收未确认完成的完整缓存路径；其他上传调用者
+仍忽略返回值、保留既有非阻断行为。专用 CLI 用失败结果返回非零，HTTP 200 也必须有
+`purged == total == 批次大小` 的整数回执。合法空清单成功；批次部分完成或身份不明时整批保留。
+
+async 给每轮指定 `R2_PURGE_RUN_ID` 和日志同名 `.purge.json` 回执路径，先原子写 pending，
+再写 complete/failed。回执保留请求清单 SHA-256、完整请求键和精确失败键；缺失/pending
+不代表成功。取得锁之前就失败时，没有清单回执，不能拿其他轮清单补称该轮已完成。
+purge 失败或失败通道轻量对账未通过会保留交付失败状态，完成已有的一次有界补传后才返回非零；
+成功回执只证明当次请求被缓存端点完整处理，不证明所有 POP 或未来上传的新版本。

@@ -302,6 +302,9 @@ _run_r2_upload_impl() {
 echo "-> 上传 lab/trade_sim/index/industry/public_fund/etf_score/data-large/all-data/kelly-snapshots 到 R2 ..." | tee -a "$LOG"
 # 阶段3：数据唯一走 R2，上传失败需 notify 告警让 schedule_monitor 发现(收尾统一告警见下方)
 R2_FAIL=""
+# 交付失败只在全部有界补传之后返回；不让通知/轻量对账覆盖 purge 的精确结果。
+R2_DELIVERY_FAIL=0
+R2_PURGE_FAIL=0
 
 # Queue-owned immutable proofs survive waiting callers. Existing legacy marker remains a wakeup.
 PENDING_FILE="${R2_UPLOAD_ASYNC_PENDING:-/tmp/trade_r2_upload_async.pending}"
@@ -380,6 +383,7 @@ finalize_verify() {
     if [ "$_vc_rc" -eq 0 ]; then
       echo "✓ R2 失败通道轻量对账通过(数据完整, 疑似看门狗超时噪音, 不告警):$R2_FAIL" | tee -a "$LOG"
     else
+      R2_DELIVERY_FAIL=1
       echo "✗ R2 失败通道轻量对账未通过(verify-channels rc=$_vc_rc, 待核查并照常告警):$R2_FAIL" | tee -a "$LOG"
       _vc_tail="$(tail -8 /tmp/r2_verify_channels_async.log 2>/dev/null | sed 's/</\&lt;/g; s/>/\&gt;/g' | tr '\n' ' ')"
       "$PY" "$REPO/scripts/notify.py" "[告警] R2上传失败" "r2_upload_async.sh R2 上传部分通道失败(轻量对账未通过，待核查):$R2_FAIL<br>上传已在异步任务跑完, 请人工确认失败通道文件是否已补传/需手动补刷: bash scripts/upload_r2.py upload-all-data<br>verify-channels 详情: $([ -n "$_vc_tail" ] && echo "$_vc_tail" || echo 无输出)${R2_KILL_CTX}<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
@@ -396,7 +400,10 @@ upload_data_channels
 run_r2_upload "verify-r2" 7200 --lock-wait 6000 verify-r2 || { echo "⚠ verify-r2 失败/超时,继续" | tee -a "$LOG"; R2_FAIL="$R2_FAIL verify-r2"; }
 # 末尾统一 purge 低频文件(决策清单项5+项8, 2026-08-18): 低频文件(LOW_FREQ 3600s 档) CF 会把
 # max-age 拉长成 4h edge 残留, 上传时 purge 若失败/漏跑前端读最长 4h 旧版。purge 失败独立告警。
+R2_PURGE_RUN_ID="${LOG##*/}" R2_PURGE_RESULT_PATH="${LOG%.log}.purge.json" \
 run_r2_upload "purge-low-freq" 900 --lock-wait 600 purge-low-freq || {
+  R2_PURGE_FAIL=1
+  R2_DELIVERY_FAIL=1
   echo "⚠ purge-low-freq 失败/超时, 低频文件 edge cache 可能残留 4h 旧版" | tee -a "$LOG"
   "$PY" "$REPO/scripts/notify.py" "[告警] R2 末尾 purge 低频文件失败" \
     "r2_upload_async.sh 末尾统一 purge 低频文件失败(purge-low-freq 命令失败/超时)，CF edge cache 低频文件可能残留最长 4h 旧版。<br>建议手动重试: bash scripts/upload_r2.py purge-low-freq<br>日志: $LOG" \
@@ -414,5 +421,6 @@ if [ -f "$PENDING_FILE" ]; then
 fi
 
 # #239-J1: 收尾汇总加「等锁次数 / 最长等锁时长」两指标(既有收尾 banner 同位, 按现有格式追加)
-echo "=== r2_upload_async 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 等锁: 次数=$R2_LOCK_WAIT_N 最长=${R2_LOCK_WAIT_MAX}s ===" | tee -a "$LOG"
-exit 0
+echo "R2交付汇总: 上传失败记录=$R2_FAIL purge失败=$R2_PURGE_FAIL purge回执=${LOG%.log}.purge.json (缺失或pending不代表成功)" | tee -a "$LOG"
+echo "=== r2_upload_async 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$R2_DELIVERY_FAIL 等锁: 次数=$R2_LOCK_WAIT_N 最长=${R2_LOCK_WAIT_MAX}s ===" | tee -a "$LOG"
+exit "$R2_DELIVERY_FAIL"

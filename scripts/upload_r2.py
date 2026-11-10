@@ -2679,7 +2679,7 @@ def cmd_upload_data_large():
         purge_cache(_overfit_keys, cache_prefix="/")
 
 
-def purge_cache(r2_keys, cache_prefix="/"):
+def purge_cache(r2_keys, cache_prefix="/", *, failed_keys=None):
     """上传后调 POST /api/purge-cache 清 CF 边缘缓存，让前端读最新数据。
 
     r2_keys: R2 key 列表（如 ["data/overview.json"] 或 ["industry/industry-all.json"]）。
@@ -2689,15 +2689,24 @@ def purge_cache(r2_keys, cache_prefix="/"):
     Worker purgeCacheHandler 用 url.origin + keyPath 构造 cacheKey 并 caches.default.delete，
     故 keyPath 需与 Handler 写缓存时 cacheKey 的 pathname 一致（含 /r2/ 前缀）。
     读 PURGE_SECRET env var（trade-data/.env）。Worker 侧需 wrangler secret put PURGE_SECRET。
-    失败不中断上传流程（purge 是次要操作，上传是主要操作）。
+    返回 bool；failed_keys 可接收未确认完成的完整缓存路径。失败不抛异常中断既有上传调用者，
+    只有专用 purge CLI 消费返回值决定退出码。HTTP 200 也必须有完整批次回执。
 
     分批 purge（2026-08-09 定）：Worker purgeCacheHandler 串行 await caches.default.delete
     遍历所有 keys，一次性发 400+ keys 致 Worker 超时 500（CPU/wall time 限制）。
     分批发送，每批 PURGE_BATCH_SIZE 个 keys，批间 sleep PURGE_BATCH_SLEEP 秒，
     每批独立 POST 请求，避免单请求 key 数过多触发 Worker 超时。
     """
+    cache_keys = [cache_prefix + k for k in r2_keys]
+    if failed_keys is None:
+        failed_keys = []
+    if not cache_keys:
+        print("ℹ 无需 purge 的 cache keys（空列表）")
+        return True
     secret = os.environ.get("PURGE_SECRET", "")
     if not secret:
+        failed_keys.extend(cache_keys)
+        print("PURGE_FAILED_KEYS: " + json.dumps(cache_keys, ensure_ascii=False))
         print("⚠ PURGE_SECRET 未设，跳过 cache purge（Worker /api/purge-cache 会 403）")
         # 告警（不静默跳过）：通知管理员 PURGE_SECRET 丢失，edge cache 未清将致前端读旧数据。
         # 同一进程只告警一次（一次 deploy 跑多个 upload 命令，避免邮件轰炸）。
@@ -2715,12 +2724,7 @@ def purge_cache(r2_keys, cache_prefix="/"):
                 )
             except Exception as e:
                 print(f"⚠ notify 告警发送失败（不阻塞）：{e}")
-        return
-
-    cache_keys = [cache_prefix + k for k in r2_keys]  # 如 "/data/x" 或 "/r2/industry/x"
-    if not cache_keys:
-        print("ℹ 无需 purge 的 cache keys（空列表）")
-        return
+        return False
 
     # 分批 purge：每批 N 个 keys，避免单请求 key 数过多致 Worker 超时 500。
     # Worker purgeCacheHandler 串行 await caches.default.delete，400+ keys 超 Worker 时限。
@@ -2750,25 +2754,30 @@ def purge_cache(r2_keys, cache_prefix="/"):
         last_err = ""
         attempts = PURGE_RETRY + 1
         for attempt in range(attempts):
-            conn = http.client.HTTPSConnection("ss.fx8.store", timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
+            conn = None
             try:
+                conn = http.client.HTTPSConnection("ss.fx8.store", timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
                 conn.request("POST", "/api/purge-cache", body=body,
                              headers={"Content-Type": "application/json"})
                 resp = conn.getresponse()
                 data = resp.read().decode()
                 if resp.status == 200:
-                    # 解析 {purged: N, total: M} 累计进度
-                    try:
-                        j = json.loads(data)
-                        purged = j.get("purged", len(batch))
-                    except Exception:
-                        purged = len(batch)
-                    break
-                last_err = f"HTTP {resp.status} {data[:200]}"
+                    # Worker 计的是已处理的删除请求（缓存本来不存在也算完成）。
+                    # 不完整回执无法确定哪些键失败，保守重试整批，最后保留整批身份。
+                    j = json.loads(data)
+                    if (isinstance(j, dict) and type(j.get("purged")) is int
+                            and type(j.get("total")) is int
+                            and j["purged"] == j["total"] == len(batch)):
+                        purged = j["purged"]
+                        break
+                    last_err = "HTTP 200 但批次回执不完整"
+                else:
+                    last_err = f"HTTP {resp.status} {data[:200]}"
             except Exception as e:
                 last_err = f"{type(e).__name__}: {e}"
             finally:
-                conn.close()
+                if conn is not None:
+                    conn.close()
             if attempt < attempts - 1:
                 time.sleep(PURGE_RETRY_BACKOFF * (attempt + 1))
         if purged is not None:
@@ -2778,6 +2787,7 @@ def purge_cache(r2_keys, cache_prefix="/"):
                   f"(累计 {total_purged}/{total_keys}){retried}")
         else:
             failed_batches += 1
+            failed_keys.extend(batch)
             print(f"  ⚠ 批次 {idx}/{total_batches} failed after {attempts} 次尝试: "
                   f"{last_err}")
         # 批间 sleep（最后一批不 sleep）
@@ -2811,6 +2821,9 @@ def purge_cache(r2_keys, cache_prefix="/"):
                 notify.update_dedup(_dedup_key)
         except Exception as e:
             print(f"⚠ notify 告警发送失败（不阻塞）：{e}")
+    if failed_batches:
+        print("PURGE_FAILED_KEYS: " + json.dumps(failed_keys, ensure_ascii=False))
+    return failed_batches == 0
 
 
 def cmd_upload_all_data(publication_lock_held=False):
@@ -3417,11 +3430,32 @@ def cmd_purge_low_freq():
         pathname = f"/data/{f.name}"
         if _data_cache_ttl(pathname) == 3600 and f.exists():
             keys.append(f"data/{f.name}")
-    if not keys:
-        print("ℹ 无低频文件需 purge")
-        return
+    # 保留全局上传锁：data-large 的非 overfit 文件仅自动清 /r2/，/data/ 低频路径
+    # 依赖本次收尾。若并行早清，读者可能在 PUT 前重缓存旧对象，之后无对应清理。
+    import uuid
+    from util_atomic import atomic_write_json
+    cache_keys = ["/" + k for k in keys]
+    result = {
+        "schema_version": 1,
+        "run_id": os.environ.get("R2_PURGE_RUN_ID") or uuid.uuid4().hex,
+        "request_sha256": hashlib.sha256(
+            json.dumps(cache_keys, separators=(",", ":")).encode()).hexdigest(),
+        "requested_keys": cache_keys,
+        "failed_keys": cache_keys,
+        "status": "pending",
+    }
+    result_path = os.environ.get("R2_PURGE_RESULT_PATH")
+    print("PURGE_REQUEST: " + json.dumps(result, ensure_ascii=False), flush=True)
+    if result_path:
+        atomic_write_json(result_path, result, mode=0o600)
     print(f"→ 低频文件统一 purge: {len(keys)} 个(决策清单项5, 消除 4h 旧版残留)")
-    purge_cache(keys)
+    failed = []
+    success = purge_cache(keys, failed_keys=failed)
+    result.update(status="complete" if success else "failed", failed_keys=failed)
+    if result_path:
+        atomic_write_json(result_path, result, mode=0o600)
+    print("PURGE_RESULT: " + json.dumps(result, ensure_ascii=False), flush=True)
+    return success
 
 
 def _list_keys(prefix, bucket=None):
@@ -5674,7 +5708,7 @@ if __name__ == "__main__":
         cmd_upload_data_files(files)
     elif cmd == "purge-low-freq":
         # purge-low-freq  deploy 末尾统一 purge 低频文件(决策清单项5, 2026-08-18)
-        cmd_purge_low_freq()
+        sys.exit(0 if cmd_purge_low_freq() else 1)
     elif cmd == "verify-r2":
         # verify-r2  周期全量对账(层3 防漏传机检): 周日全量对账+平日增量对账, deploy.sh 每日调用
         cmd_verify_r2()
