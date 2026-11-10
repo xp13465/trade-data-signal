@@ -22,6 +22,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import http.client
+          import html
           import json
           import os
           import re
@@ -130,6 +131,70 @@ jobs:
               return None
 
 
+          def malformed_facts(raw):
+              """Only fixed labels/templates leave the known malformed-error block."""
+              lines = [clean_line(line) for line in raw.decode("utf-8", errors="replace").splitlines()]
+              marker = re.compile(r"^\s*(?:##\[error\]|(?:✘\s*)?\[ERROR\](?:\s|$)|ERROR[:\s]|Error:\s)")
+              start = next((i for i, line in enumerate(lines) if marker.match(line)), None)
+              if start is None or "Received a malformed response from the API" not in lines[start]:
+                  return None  # Other errors retain the previously reviewed redacted summary.
+              block = []
+              for line in lines[start + 1:start + 49]:
+                  if marker.match(line) or "If you think this is a bug" in line:
+                      break
+                  block.append(line)
+              text = "\n".join(block)[:8192]
+              facts = dict(error_type="MALFORMED_API_RESPONSE", html_title="NOT_RECORDED",
+                           http_status="NOT_RECORDED", api_host="NOT_RECORDED",
+                           api_path="NOT_RECORDED", api_method="NOT_RECORDED",
+                           wrangler_log_path_present=any(re.match(
+                               r'^\s*(?:🪵\s*)?Logs were written to\s+.{1,2048}wrangler[^\r\n]{0,200}\.log["\']?\s*$', line)
+                               for line in lines))
+              titles = {
+                  "502 bad gateway": "BAD_GATEWAY_TITLE", "bad gateway": "BAD_GATEWAY_TITLE",
+                  "504 gateway time-out": "GATEWAY_TIMEOUT_TITLE", "504 gateway timeout": "GATEWAY_TIMEOUT_TITLE",
+                  "503 service unavailable": "SERVICE_UNAVAILABLE_TITLE",
+                  "500 internal server error": "INTERNAL_SERVER_ERROR_TITLE",
+                  "403 forbidden": "FORBIDDEN_TITLE", "404 not found": "NOT_FOUND_TITLE",
+                  "attention required! | cloudflare": "CLOUDFLARE_ATTENTION_TITLE",
+                  "just a moment...": "JUST_A_MOMENT_TITLE",
+              }
+              title = re.search(r"<title\b[^>]{0,200}>([^<]{0,200})</title\s*>", text, re.I)
+              if title:
+                  normalized = " ".join(html.unescape(title[1]).casefold().split())
+                  facts["html_title"] = titles.get(normalized, "OTHER_TITLE_REDACTED")
+              elif re.search(r"<title\b", text, re.I):
+                  facts["html_title"] = "INCOMPLETE_TITLE"
+              # Only an explicit request->status or HTTP status line counts, never a title's number.
+              trace = re.search(r"(?m)^\s*(GET|POST|PUT|PATCH|DELETE|HEAD)\s+(\S{1,4096})\s+->\s+([1-5]\d{2})(?:\s|$)", text)
+              if trace:
+                  facts["api_method"], resource, status = trace.groups()
+                  facts["http_status"] = int(status)
+                  u = urlsplit(resource)
+                  if u.hostname:
+                      facts["api_host"] = "api.cloudflare.com" if u.hostname == "api.cloudflare.com" else "OTHER_HOST_REDACTED"
+                  prefix = "/client/v4" if u.path.startswith("/client/v4/") else ""
+                  path = u.path[len(prefix):]
+                  routes = [
+                      (r"/accounts/[^/]+/workers/assets/upload", "/accounts/[REDACTED]/workers/assets/upload"),
+                      (r"/accounts/[^/]+/workers/assets-upload-session", "/accounts/[REDACTED]/workers/assets-upload-session"),
+                      (r"/accounts/[^/]+/workers/scripts/[^/]+", "/accounts/[REDACTED]/workers/scripts/[REDACTED]"),
+                      (r"/accounts/[^/]+/workers/scripts/[^/]+/versions", "/accounts/[REDACTED]/workers/scripts/[REDACTED]/versions"),
+                      (r"/accounts/[^/]+/workers/scripts/[^/]+/assets-upload-session", "/accounts/[REDACTED]/workers/scripts/[REDACTED]/assets-upload-session"),
+                      (r"/accounts/[^/]+/workers/scripts/[^/]+/deployments", "/accounts/[REDACTED]/workers/scripts/[REDACTED]/deployments"),
+                      (r"/accounts/[^/]+/pages/projects/[^/]+/upload-token", "/accounts/[REDACTED]/pages/projects/[REDACTED]/upload-token"),
+                      (r"/accounts/[^/]+/pages/projects/[^/]+/deployments", "/accounts/[REDACTED]/pages/projects/[REDACTED]/deployments"),
+                      (r"/pages/assets/upload", "/pages/assets/upload"),
+                  ]
+                  route = next((template for pattern, template in routes if re.fullmatch(pattern, path)), None)
+                  facts["api_path"] = prefix + route if route else "OTHER_PATH_REDACTED"
+              else:
+                  status = re.search(r"(?m)^\s*HTTP/(?:1\.[01]|2|3)\s+([1-5]\d{2})(?:\s|$)", text)
+                  if status:
+                      facts["http_status"] = int(status[1])
+              return facts
+
+
           def notice(message):
               escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
               print("::notice title=worker375 fixed-job read-only diagnostic::" + escaped)
@@ -148,7 +213,8 @@ jobs:
                   location = get(API + "/logs", token=token, expected=302, stage="logs_redirect")
                   # New connection: no Authorization, cookies, API headers or redirect chaining.
                   raw = get(location, expected=200, limit=MAX_LOG, stage="signed_download")
-                  summary = first_error(raw, dict(os.environ))
+                  facts = malformed_facts(raw)
+                  summary = json.dumps(facts, sort_keys=True) if facts is not None else first_error(raw, dict(os.environ))
                   notice(f"job={JOB} run={RUN} " + (summary if summary else "status=200 code=NO_ERROR_MARKER"))
               except DiagnosticError as exc:
                   notice(f"stage={exc.stage} status={exc.status} code={exc.code}")
