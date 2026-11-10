@@ -1,0 +1,572 @@
+{
+  "schema_version": 1,
+  "base": "f35437a699d199076b5654dcde58780be89ee6b4",
+  "tested_code_head": "b5a7483374d252c0622284f17560fd601eb55e3d",
+  "branch": "codex/ops-alert-recovery-20261110",
+  "source_deployed": false,
+  "merged_to_main": false,
+  "ci": {
+    "url": "https://github.com/xp13465/trade-data-signal/actions/runs/42849179943",
+    "jobs": [
+      {
+        "name": "local-only",
+        "conclusion": "success"
+      },
+      {
+        "name": "unit-compat",
+        "conclusion": "success"
+      }
+    ],
+    "junit_counts": {
+      "tests": 4543,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 7,
+      "omitted_failure_ids": 0
+    },
+    "raw_pytest_last_line_available": false
+  },
+  "local_test_last_lines": {
+    "fund_r2": "50 passed in 24.15s",
+    "overfit_r4": "123 passed in 5.76s",
+    "schema_compatibility": "44 passed in 0.56s",
+    "browser_HC03_HC04": "PASS HC03/HC04 102 assertions; local-only browser fixtures",
+    "monitor_r2": "85 passed, 69 subtests passed in 45.62s"
+  },
+  "blob_parity": [
+    {
+      "group": "fund",
+      "path": "app/collector/public_fund.py",
+      "blob": "21344bd5599791044b8c51bb9b398b34365ff98c",
+      "child_head": "01aa15a9bdfa54d95cccedffe2b9525ba99e02d3",
+      "equal": true
+    },
+    {
+      "group": "fund",
+      "path": "scripts/public_fund_daily.sh",
+      "blob": "bef7634977e8fb953df3941cd0760c6e889bba7f",
+      "child_head": "01aa15a9bdfa54d95cccedffe2b9525ba99e02d3",
+      "equal": true
+    },
+    {
+      "group": "fund",
+      "path": "scripts/tests/test_fund_index_reconnect_20261109.py",
+      "blob": "e0e266ba6f83bdf370d26d9020a3332d3051a173",
+      "child_head": "01aa15a9bdfa54d95cccedffe2b9525ba99e02d3",
+      "equal": true
+    },
+    {
+      "group": "overfit",
+      "path": "scripts/overfit_monitor.py",
+      "blob": "e93e26d0c73f7131e41a8d5b7765e50059630cc8",
+      "child_head": "c8ae5ed0c7ec902f6de3030547aabcb884ed4727",
+      "equal": true
+    },
+    {
+      "group": "overfit",
+      "path": "scripts/overfit_monitor.sh",
+      "blob": "c9bcfc798213a2b2842b8d48eb1f1da7e3309d7f",
+      "child_head": "c8ae5ed0c7ec902f6de3030547aabcb884ed4727",
+      "equal": true
+    },
+    {
+      "group": "overfit",
+      "path": "scripts/gen_schedule_stats.py",
+      "blob": "3c0e1efa06c67c11ada5b21d4428afa84d108b51",
+      "child_head": "c8ae5ed0c7ec902f6de3030547aabcb884ed4727",
+      "equal": true
+    },
+    {
+      "group": "overfit",
+      "path": "scripts/tests/test_overfit_recovered_schedule.py",
+      "blob": "0639f63798e0ba543a7f1a6b6a1499e7d6c5a52a",
+      "child_head": "c8ae5ed0c7ec902f6de3030547aabcb884ed4727",
+      "equal": true
+    },
+    {
+      "group": "monitor",
+      "path": "scripts/ops_monitor.py",
+      "blob": "33225d73244d012cefa8c0e4e689acad556dc0bc",
+      "child_head": "bc7568d2c7ea473151ac86c302cd98b91374e485",
+      "equal": true
+    },
+    {
+      "group": "monitor",
+      "path": "scripts/tests/test_ops_monitor_delivery_budget.py",
+      "blob": "72ff7c36e9f8e14d8c7c009e286ec720747d2f2c",
+      "child_head": "bc7568d2c7ea473151ac86c302cd98b91374e485",
+      "equal": true
+    },
+    {
+      "group": "monitor",
+      "path": "scripts/tests/test_ops_monitor_recovery.py",
+      "blob": "ace717df228b6c9579df9a94966c41ab7f009e70",
+      "child_head": "bc7568d2c7ea473151ac86c302cd98b91374e485",
+      "equal": true
+    },
+    {
+      "group": "monitor",
+      "path": "scripts/tests/fixtures/ops_monitor_recovery_20261110.json",
+      "blob": "500773a41a5d7f36c0d411c4949584cde2ce57b4",
+      "child_head": "bc7568d2c7ea473151ac86c302cd98b91374e485",
+      "equal": true
+    },
+    {
+      "group": "overfit",
+      "path": "scripts/schedule_monitor.sh",
+      "blob": "5344ccc5da24d602111dafc397b56cd09b6310ce",
+      "child_head": "c8ae5ed0c7ec902f6de3030547aabcb884ed4727",
+      "equal": true
+    },
+    {
+      "group": "HC01-04",
+      "path": "scripts/detect_intraday_anomaly.py",
+      "blob": "b1f385eea6933b23b68598430db3d54a25a42089",
+      "equal": true
+    },
+    {
+      "group": "HC01-04",
+      "path": "scripts/tests/test_healthcheck_alerts_20261110.py",
+      "blob": "979df96239a1a1634ac8aeb7fbaa395218af359b",
+      "equal": true
+    },
+    {
+      "group": "HC01-04",
+      "path": "static-site/admin/ops.js",
+      "blob": "fcaecc79e050bf843ddd02ecc0cd8230aaddc0eb",
+      "equal": true
+    },
+    {
+      "group": "HC01-04 plus schedule recovery display",
+      "path": "static-site/app.js",
+      "previous_blob": "06d36f423e7a3ecb99b3e7d4c533c60147872b23",
+      "blob": "5dbb29be964ccc9be914b1e8a30a0b8f7d55f5d5",
+      "method": "exact bytes outside _renderScheduleStats; HC changes retained",
+      "equal": true
+    },
+    {
+      "group": "HC01-04",
+      "path": "static-site/style.css",
+      "blob": "98bd91ca0d48d08205e0729af0ef159b4734e4f4",
+      "equal": true
+    },
+    {
+      "group": "HC01-04",
+      "path": "ops/monitoring/tests/healthcheck-ui-20261110.mjs",
+      "blob": "24635b096114c53b289b58bf4abe55eeb4dca2f4",
+      "equal": true
+    },
+    {
+      "group": "overfit",
+      "path": "scripts/tests/test_log_gz_compat_20261010.py",
+      "blob": "817ca5dd9f4b6591618a96b3fea237e461838720",
+      "child_head": "c8ae5ed0c7ec902f6de3030547aabcb884ed4727",
+      "equal": true
+    }
+  ],
+  "review_status": {
+    "HC01_04": "prior two R2 PASS: 5 files unchanged; app outside schedule renderer identical; original 102 browser assertions rerun",
+    "fund": "R1 P2 repaired; parent reran independent probes; no independent R2 verdict",
+    "overfit": "37 independent probes rerun by parent; formal reviewer interrupted by quota",
+    "monitor": "parent-reviewed/tested; formal independent review unavailable after quota",
+    "final_acceptance": "Claude fixed-head review, merge/deploy and natural-run verification required"
+  },
+  "production_fund_collection": {
+    "started_at": "2026-11-10T23:33:09.757728+08:00",
+    "finished_at": "2026-11-10T23:33:51.594606+08:00",
+    "collector_exit": 0,
+    "before_indices": [],
+    "after_indices": [
+      [
+        "20261110",
+        "csi500",
+        6645.8867,
+        0.9066
+      ],
+      [
+        "20261110",
+        "gem",
+        2494.3974,
+        1.457563
+      ],
+      [
+        "20261110",
+        "hs300",
+        4059.1105,
+        0.074022
+      ]
+    ],
+    "before_nav_rows": 8,
+    "after_nav_rows": 24353,
+    "indices_verified": true,
+    "row_backup_counts": {
+      "fund_daily_nav": 24362,
+      "fund_index_daily": 993,
+      "fund_estimation_nav": 0
+    },
+    "full_backup_matches_recovery_slice": true,
+    "full_database_quick_check": "not_completed_io_deadline"
+  },
+  "production_fund_field_coverage": {
+    "rows": 24353,
+    "unit_nav_present": 22246,
+    "acc_nav_present": 22246,
+    "previous_nav_present": 22939,
+    "nav_change_pct_present": 22239
+  },
+  "production_overfit": [
+    {
+      "name": "overfit_monitor.json",
+      "curl_exit": 0,
+      "error": "",
+      "bytes": 6012541,
+      "sha256": "64f43c4f1b85a30ab2147bad7dc096d213a7a467185f3d00c5e8905b3b844bf9",
+      "generated_at": "2026-11-10 21:40",
+      "matches_source": true
+    },
+    {
+      "name": "overfit_monitor_ext.json",
+      "curl_exit": 0,
+      "error": "",
+      "bytes": 18776100,
+      "sha256": "f7f4cfb9e841c09a65e7877d50847a05cbcb910125ce677a1482ab1620cdc2ba",
+      "generated_at": "2026-11-10 21:40",
+      "matches_source": true
+    }
+  ],
+  "production_monitor_observation": {
+    "collected_at": "2026-11-10T15:48:41.625506Z",
+    "code_ref": "f35437a699d199076b5654dcde58780be89ee6b4",
+    "counts": {
+      "ok": 133,
+      "critical": 2,
+      "unknown": 40,
+      "warning": 2
+    },
+    "attention": [
+      {
+        "id": "cloud-service:trade-overfit-monitor.service",
+        "status": "critical",
+        "summary": "Systemd reports failed; business impact not evaluated"
+      },
+      {
+        "id": "cloud-service:trade-public-fund-daily.service",
+        "status": "critical",
+        "summary": "Systemd reports failed; business impact not evaluated"
+      },
+      {
+        "id": "schedule:overfit_monitor",
+        "status": "warning",
+        "summary": "Trusted derived execution verdict; no business data validation"
+      },
+      {
+        "id": "schedule:public_fund_daily",
+        "status": "warning",
+        "summary": "Trusted derived execution verdict; no business data validation"
+      }
+    ],
+    "registry": [
+      {
+        "registered_count": 90,
+        "installed_count": 90,
+        "missing_count": 0,
+        "extra_count": 0
+      }
+    ]
+  },
+  "own_transient_cleanup": {
+    "journal_archived": true,
+    "original_business_units_unchanged": true
+  },
+  "schedule_renderer_test": {
+    "test_count": 7,
+    "failed": 0,
+    "log_sha256": "6845c45d47d467bf1a13f3cafa8ca138e2ba981a57bc20b652b7d67ac9760507"
+  },
+  "skip_recovery_probe": {
+    "head": "401a16030d5319ff936eaacc3161aa2963266180",
+    "publisher_rc": 0,
+    "attempt_timeouts": [
+      960.0,
+      870.0
+    ],
+    "upload_calls": 1,
+    "public_verified_urls": 4,
+    "log_anomaly": null,
+    "raw_skip_count_after_success": 1,
+    "recovery_evidence": {
+      "r2_skip_recovered": true
+    },
+    "three_successful_rounds": [
+      {
+        "day": 10,
+        "exit": 0,
+        "skip_rounds": 0,
+        "alerts": 0
+      },
+      {
+        "day": 11,
+        "exit": 0,
+        "skip_rounds": 0,
+        "alerts": 0
+      },
+      {
+        "day": 12,
+        "exit": 0,
+        "skip_rounds": 0,
+        "alerts": 0
+      }
+    ],
+    "false_severe": [],
+    "side_effects": "only temp files and fake uploader; consumer appends to in-memory alerts, no notifications executed"
+  },
+  "evidence_hashes": {
+    "fund-budget/parent-r2-tests.txt": "70984e89fae22cff49e447ffcecc1bc1a1ffeb0a4ad8c71af25bd1414f1df11f",
+    "parent-overfit-r4-tests.txt": "eae77ef11feb58d9655542ae8d4ff1ec5975ce64f4076c11c69236c068e6d940",
+    "parent-log-gz-green.txt": "36ef858e6dc2c7537f672fc6000e93407ec482e98b7b97d3d0501d39c0e6aea9",
+    "healthcheck-ui-final.log": "66a3fb72ecde3d54da8cac29ab45ae326420b90ef2e9edd78384914b923318aa",
+    "parent-monitor-r2-tests.txt": "7d262aa56de3f15537dbd840009e9b804865d24616395e05ada5cd5b510c73a6",
+    "ci-final-annotations.json": "32e058ad03ea5006fa691fc68da38414d2648b11023ef172330c12257cf2d8c0",
+    "integration-ci-final-jobs.json": "000a2e6b187e97c8a477e10739e354f629ec34799bdb67d061bcf4d7c5259271",
+    "integration-final-implementation-parity.json": "e205319d61d6ff7ccd86d64f7d4ce3cb25e80d1a2da6732d5fd8f84f6bf32922",
+    "publicfund-recovery-r3-final.json": "d2b97c5a11d0222d9e5e1111e3a53863787c3d08f8e7eb08b7b993e9ba3d2818",
+    "probe-overfit-recovered-skip-r3-result.json": "bc5df7deb44bb89ef1f91ccef0d495dd4e0fec3d3a7b49ffe6370fd6efcc9104",
+    "review-fund-r1.json": "51c380d9b825eee5d37cc642315dad7254aa1a59ff22f8c57c412e3d3e45fda5",
+    "parent-independent-overfit-r1.py.log": "ceefed24c56be67fa54a131f2a171f62b5049e41fc7ea1d653a9aaf983ef9eca"
+  },
+  "production_fund_publication": {
+    "started_at": "2026-11-10T23:35:01.712044+08:00",
+    "finished_at": "2026-11-11T00:13:49.709403+08:00",
+    "source_changed": false,
+    "git_write": false,
+    "stages": [
+      {
+        "name": "export",
+        "exit": 0,
+        "elapsed_sec": 10.13
+      },
+      {
+        "name": "nav-refresh",
+        "exit": 0,
+        "elapsed_sec": 99.94
+      },
+      {
+        "name": "upload-public-fund",
+        "exit": 0,
+        "elapsed_sec": 87.22
+      },
+      {
+        "name": "upload-fund-nav",
+        "cancelled_to_correct_lock_scope": true
+      },
+      {
+        "name": "upload-fund-nav-domain",
+        "exit": 0,
+        "elapsed_sec": 1829.65
+      }
+    ],
+    "position_estimate_date": "20261110",
+    "uploads_completed": true,
+    "error": null
+  },
+  "production_fund_public_checks": {
+    "verified_at": "2026-11-10T16:16:12.018990+00:00",
+    "scope": "13 full public-fund payloads and 3/256 NAV bucket samples; no full public NAV audit",
+    "all_selected_match": true,
+    "results": [
+      {
+        "key": "public_fund/public_fund_industry.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_industry.json",
+        "curl_exit": 0,
+        "bytes": 14913,
+        "sha256": "06dfca8d64fa22071fb5eea6466c78dfc09a1bf2540f2c64c1dee3f6301f2e1e",
+        "matches_source": true
+      },
+      {
+        "key": "public_fund/public_fund_asset_alloc.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_asset_alloc.json",
+        "curl_exit": 0,
+        "bytes": 144,
+        "sha256": "d3fea381f7d41db8d8cc97df7e4f0ca3d481757b79c8f19aee87ee848d914ec2",
+        "matches_source": true
+      },
+      {
+        "key": "public_fund/public_fund_top20.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_top20.json",
+        "curl_exit": 0,
+        "bytes": 2872,
+        "sha256": "37427a7a5accbcbc932cdc18efe3c6fddd708c3fe1b53ecd81aa7603258d27f8",
+        "matches_source": true
+      },
+      {
+        "key": "public_fund/public_fund_position_estimate.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_position_estimate.json",
+        "curl_exit": 0,
+        "bytes": 14771,
+        "sha256": "2b9986b349d155bf35e2e7f579fe62439f2577065669dcbcfe38110bb7aa3225",
+        "matches_source": true,
+        "report_date": "20261110"
+      },
+      {
+        "key": "public_fund/public_fund_holdings.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_holdings.json",
+        "curl_exit": 0,
+        "bytes": 20249,
+        "sha256": "407383db2922ea1895c21a1e4819e6412d5582925fbb4948409155c348ed4b46",
+        "matches_source": true
+      },
+      {
+        "key": "public_fund/public_fund_industry_rotation_ts.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_industry_rotation_ts.json",
+        "curl_exit": 0,
+        "bytes": 12911,
+        "sha256": "d854c569a27d1f9f4b1ec966e12a3676e167e365d7e6e2d8d0c05fc3ee211ac5",
+        "matches_source": true
+      },
+      {
+        "key": "public_fund/public_fund_position_backtest.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_position_backtest.json",
+        "curl_exit": 0,
+        "bytes": 1445,
+        "sha256": "9a5855c326993508aa1902c1fc13fff2c10aa838747d80f9010a97b55e659183",
+        "matches_source": true
+      },
+      {
+        "key": "public_fund/public_fund_industry_fund_map.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_industry_fund_map.json",
+        "curl_exit": 0,
+        "bytes": 6720890,
+        "sha256": "5316e2b48f01c762fdc82378d6021e1a5f5501ea89bafd3aca6e088b0fd44c4e",
+        "matches_source": true,
+        "http_compression_requested": true
+      },
+      {
+        "key": "public_fund/public_fund_sw_industry_alloc.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_sw_industry_alloc.json",
+        "curl_exit": 0,
+        "bytes": 3864,
+        "sha256": "99915762ce24c66822996b41c42e4f187bb34bcc725d3310593bb8dc1d02a820",
+        "matches_source": true
+      },
+      {
+        "key": "public_fund/public_fund_holding_concentration_ts.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_holding_concentration_ts.json",
+        "curl_exit": 0,
+        "bytes": 9622,
+        "sha256": "c8ea93255de4028d399e984098558179fa33bb4474a6b6122dfdb5ab77efd2e7",
+        "matches_source": true
+      },
+      {
+        "key": "public_fund/public_fund_scale_change_ts.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_scale_change_ts.json",
+        "curl_exit": 0,
+        "bytes": 19864,
+        "sha256": "08075f1d15745d2cb14d4374c6c8349eb22a46ea25de8363e1912417a77c8bb9",
+        "matches_source": true
+      },
+      {
+        "key": "public_fund/public_fund_summary.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_summary.json",
+        "curl_exit": 0,
+        "bytes": 92926,
+        "sha256": "40ac5d2a251e932bad0d3ddd4fd30c546ed111fafe00d8926e8aa6722914faf9",
+        "matches_source": true
+      },
+      {
+        "key": "public_fund/public_fund_manuf_subind_fund_map.json",
+        "url": "https://ss.fx8.store/r2/public_fund/public_fund_manuf_subind_fund_map.json",
+        "curl_exit": 0,
+        "bytes": 374087,
+        "sha256": "1b5113f5c49c3e66cddc26c17111fef7843625e82efb56d86358e7709c50c315",
+        "matches_source": true
+      },
+      {
+        "key": "nav_bucket/00.json",
+        "url": "https://ss.fx8.store/r2/nav_bucket/00.json",
+        "curl_exit": 0,
+        "bytes": 2443254,
+        "sha256": "42f41241870819e5a504c574ac9ed2b52d2c0c9c52d5b6120d09c093ed569e57",
+        "matches_source": true,
+        "funds": 117,
+        "latest_date": "20261110",
+        "funds_with_20261110_nav": 96
+      },
+      {
+        "key": "nav_bucket/7f.json",
+        "url": "https://ss.fx8.store/r2/nav_bucket/7f.json",
+        "curl_exit": 0,
+        "bytes": 2411064,
+        "sha256": "8fe4692b9e285d34cf6250e73223253e7ddf51c024d3269bd9821cb169d78dac",
+        "matches_source": true,
+        "funds": 102,
+        "latest_date": "20261110",
+        "funds_with_20261110_nav": 91
+      },
+      {
+        "key": "nav_bucket/ff.json",
+        "url": "https://ss.fx8.store/r2/nav_bucket/ff.json",
+        "curl_exit": 0,
+        "bytes": 2425622,
+        "sha256": "9109ffa4e2920780a1ed5230bd9c3fb698a31be3c3c3555f05b69252882ac47a",
+        "matches_source": true,
+        "funds": 111,
+        "latest_date": "20261110",
+        "funds_with_20261110_nav": 97
+      }
+    ],
+    "initial_attempt": {
+      "report": "publicfund-public-verification-attempt1.json",
+      "matched": 15,
+      "total": 16,
+      "failed_key": "public_fund/public_fund_industry_fund_map.json",
+      "curl_exit": 28,
+      "reason": "complete response not received before transfer deadline"
+    },
+    "retry": {
+      "report": "publicfund-public-compressed-retry.json",
+      "http_compression_requested": true,
+      "scope": "only the timed-out file; other 15 successful full-body checks retained"
+    }
+  },
+  "production_monitor_final_observation": {
+    "observed_at": "2026-11-11T00:13:15.422972+08:00",
+    "collected_at": "2026-11-10T16:00:12.821395Z",
+    "code_ref": "f35437a699d199076b5654dcde58780be89ee6b4",
+    "counts": {
+      "ok": 132,
+      "critical": 2,
+      "unknown": 41,
+      "warning": 2
+    },
+    "attention": [
+      {
+        "id": "cloud-service:trade-overfit-monitor.service",
+        "status": "critical",
+        "summary": "Systemd reports failed; business impact not evaluated"
+      },
+      {
+        "id": "cloud-service:trade-public-fund-daily.service",
+        "status": "critical",
+        "summary": "Systemd reports failed; business impact not evaluated"
+      },
+      {
+        "id": "schedule:overfit_monitor",
+        "status": "warning",
+        "summary": "Trusted derived execution verdict; no business data validation"
+      },
+      {
+        "id": "schedule:public_fund_daily",
+        "status": "warning",
+        "summary": "Trusted derived execution verdict; no business data validation"
+      }
+    ],
+    "registry": [
+      {
+        "registered_count": 90,
+        "installed_count": 90,
+        "missing_count": 0,
+        "extra_count": 0
+      }
+    ]
+  }
+}

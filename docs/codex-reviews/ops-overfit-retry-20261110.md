@@ -1,5 +1,7 @@
 # overfit 同日发布恢复（2026-11-10）
 
+> 初版证据记录：固定 head `fbb3f489c83423a44e754cded210984ef25fbac7`。下文“仅修改”“未补传”和80项测试均属于该初版，不代表后续集成状态。新增的同轮恢复识别、原始skip次数保留、123项回归及实际生产补传，以 [最终集成报告](ops-alert-recovery-20261110/README.md) 为准。
+
 基线 `f35437a699d199076b5654dcde58780be89ee6b4`，分支 `codex/ops-overfit-retry-20261110`。
 仅修改 overfit 脚本、专属测试及本文；未修改共享上传器、systemd、监控、公募或 pending-index。
 

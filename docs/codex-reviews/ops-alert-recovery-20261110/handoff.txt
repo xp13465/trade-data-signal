@@ -1,0 +1,11 @@
+请Claude接力复核并完成发布：本轮“admin/ops两个严重及相关警告”已汇总在唯一分支 codex/ops-alert-recovery-20261110；报告入口 docs/codex-reviews/ops-alert-recovery-20261110/README.md，同目录 verification.json、REPRODUCE.md、generate_report.py。最终交接head与报告SHA以native包 ops-current-alerts-final-20261110-v1 为准，已测代码点 b5a7483374d252c0622284f17560fd601eb55e3d，基线 f35437a699d199076b5654dcde58780be89ee6b4。请按最终固定head复核，不重复cherry-pick子分支或整文件覆盖pending-index。
+
+此包已包含此前HC01–HC04全部实现，以及公募共享预算/退出分类、过拟合75有界补传/同日配套校验、真实skip计数与同轮恢复证据分离、监控systemd/journal完成证据对账和同snapshot有界投递。公募R1的P2（重连包装丢失超时类型）已修并重跑原独立反例；过拟合37项独立探针由父会话重跑通过；正式过拟合/监控独立审查因子代理配额中断，不得算PASS。HC原两份R2 PASS仅用于未变HC代码；app.js追加同轮恢复标签，HC区域逐字节保留，7项渲染负控与原手机/桌面102断言已复跑通过。最后完整CI与每次失败/返修过程以verification/README核对，不写“一次全量全绿”。请重点复核失败负控、超时分类、字段兼容、journal同boot/invocation、子进程退出以及运行中不得洗绿。
+
+云上仅使用已有生产源码恢复数据：过拟合主/ext已补传并核验两站四个完整响应，父会话再次完整下载主站两文件SHA一致；公募11月10日净值从8条补至24353条（22246行有单位/累计净值）、三指数补齐，仓位估算日期更新到20261110，净值256桶于11月11日00:13:49全部上传完成。00:16完成13个公募文件及3/256净值样本桶的完整长度/SHA核验，全部匹配；其中行业映射首次下载超时，单文件协商压缩重试通过，原失败保留。勿把样本核验称为256桶完整公网审计。3GB SQLite备份调用完成，但全库quick_check因IO未完成；另有本次影响范围逐行对账及可恢复行备份，不能写全库完整性PASS。第一次维护的全局EX锁调用已停止并切回现有fund_nav专属入口；临时unit已归档清理，原业务失败历史保留。
+
+线上源码和main尚未改，原daily/overfit两个unit的失败记录不会因为临时恢复自动清绿。请独立review→标准main-merge统一build/min/版本串→验main合并点CI→部署→避撞复跑原链或等自然轮。过拟合仅在当日有效产物窗口复验，跨日等下一自然轮，不放宽同日门禁。最终验收必须同时记录unit完成结果、业务日期/数据、公开文件内容和后续监控快照，禁止对原业务unit用reset-failed充当恢复；未知检查保持未知。
+
+历史一并承接：本包替代开工通知ops-current-alerts-start-20261110-v1，并包含healthcheck-wave1-final-20261110-v1全部代码；healthcheck-next-evidence-20261110-v1仍是HC05/06/07/13/15只读证据，healthcheck-evening-20261110-v1的HC05–22不算被本轮全部完成；alert-takeover-final-20261110-v1按自身固定head对账。订正：FOF已有游标，不沿用“只采前500无游标”；159501/159513的11月9日累计净值已恢复，016989历史空值仍单列。不要使用active包替代final，也不要把queued/context-emitted当ACK。
+
+请回执：收到的最终head+报告SHA、独立复核结论及仍不认可项、main合并SHA、部署版本、原链与面板验收证据；若未接单或仍缺token请明确说明。用户只需转发本段，不必逐条粘贴前面的消息。
