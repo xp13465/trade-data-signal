@@ -7451,7 +7451,8 @@ select.tds-fade-mode-sel:hover, select.tds-fade-mode-sel:focus { border-color: v
   .h5-collect-alert > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
   .h5-collect-alert-detail {
     position: fixed; top: calc(64px + env(safe-area-inset-top)); left: 12px; right: 12px;
-    z-index: 10000; max-height: 60vh; overflow: auto;
+    /* 普通页面浮层同 back-to-top(90)，低于 modal(100)/规则(110)/通知(128)/登录(130)。 */
+    z-index: 90; max-height: 60vh; overflow: auto;
     background: var(--bg-card); color: var(--text-1); border: 1px solid var(--border-strong);
     border-radius: 8px; padding: 10px 12px; box-shadow: 0 6px 20px var(--shadow-strong);
     font-size: 12px; white-space: normal; overflow-wrap: anywhere;
