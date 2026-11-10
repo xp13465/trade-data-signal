@@ -235,3 +235,22 @@ def test_reconciled_evidence_passes_actual_ingest_safety_contract(tmp_path):
                 'collector_id': 'offline-fixture', 'collected_at': NOW.isoformat(), 'code_ref': 'unknown',
                 'duration_ms': 1, 'checks': [c], 'coverage': {'counts': {'checks': 1}, 'limitations': []}}
     m.validate_snapshot(snapshot)
+
+
+@pytest.mark.parametrize('current_start,now,old_start,old_end,expected', [
+    ('2026-11-10T14:30:00Z', '2026-11-10T14:30:01Z', '2026-11-10 22:00:14', '2026-11-10 22:00:22', 'ok'),
+    ('2026-11-10T14:45:03Z', '2026-11-10T14:45:04Z', '2026-11-10 22:30:00', '2026-11-10 22:30:09', 'warning'),
+    ('2026-11-10T15:00:07Z', '2026-11-10T15:00:08Z', '2026-11-10 22:30:00', '2026-11-10 22:30:09', 'ok'),
+])
+def test_real_cloud_journal_success_failure_success_sequence(tmp_path, current_start, now, old_start, old_end, expected):
+    fixture = json.loads((Path(__file__).parent / 'fixtures/ops_monitor_recovery_20261110.json').read_text())
+    frozen = datetime.fromisoformat(now.replace('Z', '+00:00'))
+    # Replay only events already visible at that snapshot; no future success borrowed.
+    rows = [r for r in fixture['records'] if int(r['__REALTIME_TIMESTAMP']) / 1e6 <= frozen.timestamp()]
+    c, _ = collect(tmp_path, fields=running() | {'ExecMainStartTimestamp': current_start},
+                   item={'unit_start': old_start, 'unit_exit_ts': old_end},
+                   journal='\n'.join(map(json.dumps, rows)), now=frozen)
+    assert c['status'] == expected
+    assert c['evidence']['derived_exit_code'] == 2
+    assert c['evidence']['recovery_verified'] is (expected == 'ok')
+    assert c['evidence']['completion_source'] == 'systemd_journal'

@@ -1,5 +1,6 @@
 """Real loopback stalled-read reproduction, no production credentials or services."""
 import contextlib
+import importlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import multiprocessing
@@ -8,7 +9,14 @@ import threading
 import time
 import uuid
 
-import ops_monitor as m
+import pytest
+
+
+@pytest.fixture
+def m():
+    # Existing collector tests reload this module during collection. Resolve the
+    # current module at execution so spawn pickles the same registered function.
+    return importlib.import_module('ops_monitor')
 
 
 @contextlib.contextmanager
@@ -39,7 +47,7 @@ def slow_server(mode):
     finally: httpd.shutdown(); httpd.server_close(); t.join(1)
 
 
-def test_trickle_read_cannot_consume_all_retries(tmp_path):
+def test_trickle_read_cannot_consume_all_retries(tmp_path, m):
     secret = tmp_path / 'fixture.token'; secret.write_text('offline-fixture-token-12345'); secret.chmod(0o600)
     payload = json.dumps({'snapshot_id': str(uuid.uuid4())}).encode()
     with slow_server('trickle_first') as (port, attempts):
@@ -54,7 +62,7 @@ def test_trickle_read_cannot_consume_all_retries(tmp_path):
     assert not multiprocessing.active_children()
 
 
-def test_reuses_available_total_budget_not_fixed_eight_seconds(tmp_path):
+def test_reuses_available_total_budget_not_fixed_eight_seconds(tmp_path, m):
     secret = tmp_path / 'fixture.token'; secret.write_text('offline-fixture-token-12345'); secret.chmod(0o600)
     payload = json.dumps({'snapshot_id': str(uuid.uuid4())}).encode()
     with slow_server('slow_both') as (port, attempts):
