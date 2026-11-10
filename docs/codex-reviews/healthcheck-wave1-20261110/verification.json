@@ -1,0 +1,314 @@
+{
+  "schema_version": 1,
+  "status": "已实现、独审与CI通过、待Claude审合部署",
+  "base": "f35437a699d199076b5654dcde58780be89ee6b4",
+  "historical_integration_head": "218bd3eccbff4520a271a0e7de62d7fc5a6b118c",
+  "branch": "codex/ops-healthcheck-wave1-20261110",
+  "final_mergeable_head": null,
+  "final_head_location": "最终头仅由后续不可变交接包固定，本文不自指",
+  "implemented_scope": [
+    "HC01",
+    "HC02",
+    "HC03",
+    "HC04"
+  ],
+  "remaining": "HC05-22仍为独立待办，本轮未实施",
+  "sources": [
+    {
+      "name": "alerts-readiness.json",
+      "sha256": "d39fa9c38b95b7b9985fc188bcc5f22c2cc7fbb2a4ede338d426400558fa49d9"
+    },
+    {
+      "name": "ui-readiness.json",
+      "sha256": "a6217da63d8d504b9a5860b70cf3faae66a57a6ed7bc9a6b036d99a99ebabf1c"
+    },
+    {
+      "name": "integration-verification.json",
+      "sha256": "62c7cec68b0d2909316a74d7ed421e3da3955bcea98c7f78b7c6b594ec33d58f"
+    },
+    {
+      "name": "claim-master-v1.json",
+      "sha256": "961bcc65205af02c3554270a1d8e10973d7f02a50b16a0cff03f7f1584f49300"
+    },
+    {
+      "name": "controller-state.json",
+      "sha256": "6139001136525993b7b4bb2377a7a21c44a1197304a5cdc563587996507080a1"
+    }
+  ],
+  "reviews": {
+    "alerts": {
+      "initial_result": "FAIL",
+      "source": "用户提供的真实初审状态与报告路径；本次未执行独审",
+      "issue": "P2：新增math.isfinite对超大JSON整数抛OverflowError",
+      "historical_head": "fe9bd82e6b3629d68a40f5b1dd8bb7f9d7e5ef47",
+      "r2": {
+        "status": "PASS",
+        "head": "f2c5343bd1bb2e33a91834e2235406fd39512519",
+        "report_path": "/tmp/codex-reports/healthcheck-followup-20261110/alerts-review-r2.json",
+        "report_markdown_path": "/tmp/codex-reports/healthcheck-followup-20261110/alerts-review-r2.md",
+        "scope": "完整base..head范围",
+        "base": "f35437a699d199076b5654dcde58780be89ee6b4",
+        "unresolved_issues": 0,
+        "independent_checks": 90,
+        "huge_json_counterexample_groups": 6,
+        "real_description_replay": {
+          "descriptions": 9,
+          "before_visible": 1,
+          "after_visible": 9
+        },
+        "test_raw_last_line": "156 passed in 1.59s",
+        "old_helper_mutation_failures": 24,
+        "original_test_expectations_relaxed": false,
+        "source": "用户提供的最终独审结果；本文档任务未重跑独审"
+      },
+      "initial_report_path": "/tmp/codex-reports/healthcheck-followup-20261110/alerts-review.json",
+      "repair": {
+        "head": "f2c5343bd1bb2e33a91834e2235406fd39512519",
+        "author_tests_passed": 156,
+        "normal_valid_differential_cases": 600,
+        "source": "用户最新状态更新；作者验证，不替代独审R2",
+        "status": "R2_PASS",
+        "readiness_report_path": "/tmp/codex-reports/healthcheck-followup-20261110/alerts-readiness-r2.json",
+        "readiness_markdown_path": "/tmp/codex-reports/healthcheck-followup-20261110/alerts-readiness-r2.md"
+      }
+    },
+    "ui": {
+      "initial_result": "FAIL",
+      "source": "用户提供的真实初审状态与报告路径；本次未执行独审",
+      "issue": "手机展开详情z-index 10000遮挡通知modal 128，320/390实证",
+      "historical_head": "48973e83e3e5f102919470ccd1dbc4d0b52ad94a",
+      "r2": {
+        "status": "PASS",
+        "head": "77ca93ac60cc0f7834af42f32c73ae3cfef3494d",
+        "report_path": "/tmp/codex-reports/healthcheck-followup-20261110/ui-review-r2.json",
+        "report_markdown_path": "/tmp/codex-reports/healthcheck-followup-20261110/ui-review-r2.md",
+        "unresolved_issues": 0,
+        "modal_keyboard_close_checks": 12,
+        "viewports": [
+          390,
+          320
+        ],
+        "old_z10000_negative_controls": 4,
+        "unchanged_blobs_carry_HC03": "app/ops/index等blob未变，承接HC03",
+        "source": "用户最终独审实证；本任务不重跑独审"
+      },
+      "initial_report_path": "/tmp/codex-reports/healthcheck-followup-20261110/ui-review.json",
+      "repair": {
+        "head": "77ca93ac60cc0f7834af42f32c73ae3cfef3494d",
+        "new_browser_assertions": 102,
+        "existing_regressions": 20,
+        "author_result": "通过",
+        "source": "用户最新实证；作者验证，不替代独审R2"
+      }
+    }
+  },
+  "ci": {
+    "status": "PASS",
+    "head": "0f53c97ad2142f4303e3579b427bedecb7549feb",
+    "run_id": 42824543468,
+    "url": "https://github.com/xp13465/trade-data-signal/actions/runs/42824543468",
+    "jobs": "两个job success",
+    "full_regression_step": "success",
+    "tests": 4431,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 7,
+    "derived_passed": 4424,
+    "browser_assertions_included": false,
+    "raw_last_line": null,
+    "log_http_status": 403,
+    "evidence": "/tmp/codex-reports/healthcheck-followup-20261110/ci-verification-r2.json",
+    "evidence_markdown": "/tmp/codex-reports/healthcheck-followup-20261110/ci-verification-r2.md",
+    "sha256": "d25d4dc202228df9006e3d983f788dae2516f3fbb0facfd15af7c1d1dd9ed629"
+  },
+  "deployment": {
+    "deployed": false,
+    "version": "20261108-a660",
+    "min_built": false,
+    "owner": "Claude main-merge统一构建min与版本更新"
+  },
+  "historical_tests": {
+    "alerts_red": "53 failed, 70 passed in 1.07s",
+    "alerts_green": "123 passed in 0.86s",
+    "normal_valid_differential_cases": 600,
+    "ui_new_assertions": 86,
+    "ui_existing_regressions": 20,
+    "rerun_in_document_task": false
+  },
+  "historical_integration_blobs": [
+    {
+      "path": "ops/monitoring/tests/healthcheck-ui-20261110.mjs",
+      "child_head": "48973e83e3e5f102919470ccd1dbc4d0b52ad94a",
+      "blob_equal": true,
+      "sha256": "44852c3c580dfdbdeab819c9e63b1e59b7f4eb77e5e95f8738c1dd89dbf17fd3"
+    },
+    {
+      "path": "scripts/detect_intraday_anomaly.py",
+      "child_head": "fe9bd82e6b3629d68a40f5b1dd8bb7f9d7e5ef47",
+      "blob_equal": true,
+      "sha256": "570a2f20dc87531ec2e392f6b9ec2eb76d039a51826eee53965b680c6031e601"
+    },
+    {
+      "path": "scripts/tests/test_healthcheck_alerts_20261110.py",
+      "child_head": "fe9bd82e6b3629d68a40f5b1dd8bb7f9d7e5ef47",
+      "blob_equal": true,
+      "sha256": "d3b687ceffb882f5ff03732e3a0ab43bbb94b0712ca2852526f77ede59d091f2"
+    },
+    {
+      "path": "static-site/admin/ops.js",
+      "child_head": "48973e83e3e5f102919470ccd1dbc4d0b52ad94a",
+      "blob_equal": true,
+      "sha256": "ed5c7b44bc6886b4e4d4cd64240e0e0865e81141d4383e4bfb8ca9d621bfb250"
+    },
+    {
+      "path": "static-site/app.js",
+      "child_head": "48973e83e3e5f102919470ccd1dbc4d0b52ad94a",
+      "blob_equal": true,
+      "sha256": "7b40f4481995794635d503631bfb2c2d5d3684d7002e501512ca22dec376a233"
+    },
+    {
+      "path": "static-site/style.css",
+      "child_head": "48973e83e3e5f102919470ccd1dbc4d0b52ad94a",
+      "blob_equal": true,
+      "sha256": "d69cc303d10b6ae53adc4c9d486e5cd3f9e10fffb4ce895898b8b51392b669fe"
+    }
+  ],
+  "sections": [
+    {
+      "title": "复核记录",
+      "text": "告警与UI初审FAIL保留为历史：超大JSON整数OverflowError、手机详情遮挡通知modal均在原范围完成返修。两项R2独审PASS，0未解决项；对应报告路径和固定head见verification.json。实现集成头0f53c97ad2142f4303e3579b427bedecb7549feb的六文件与两最终childhead逐blob一致，最终Linux CI通过。最终文档交接head/hash由native packet固定，本文不自指。"
+    },
+    {
+      "title": "范围与旧审计入口",
+      "text": "仅HC01-04本次实施；HC05-22仍独立待办。旧22项审计已在codex/healthcheck-20261110-evening发布，固定head 87ecfdc1，不在当前main。可读入口：[旧审计README](/Users/linhuichen/code/trade/.claude/worktrees/codex-healthcheck-20261110-evening/docs/codex-reviews/healthcheck-20261110-evening/README.md)。"
+    },
+    {
+      "title": "问题、行为与依据",
+      "text": "HC01：无效价格可能误报。本次实现使用有限正数校验，高低方向独立过滤，原查询结果内各需至少10个有效历史样本；SQL窗口20、双NOT NULL、严格大于/小于及高方向优先不变。第一版新增超大整数OverflowError，已修复并经告警R2复核。\n\nHC02：描述中的HTML字符可能导致正文丢条。仅构造HTML时escape(desc, quote=False)，原payload、共享notify转换器及正常阈值/通知输出保持；不声称所有实体文本均保真。\n\nHC03：关注项截断可能隐藏严重/警告。按critical、warning、unknown稳定排序，优先展示全部严重/警告和unknown预览，details可展开其余；不将unknown或running升级为OK。\n\nHC04：手机隐藏时间容器连带隐藏异常入口。新增独立紧凑详情入口，复用健康来源与采集时间，恢复或缺health时移除，缺时间明确未知；不放大全局按钮。第一版展开详情遮挡通知modal，320/390已实证；现已修复并经UI R2复核。"
+    },
+    {
+      "title": "证据与原始测试计数",
+      "text": "本轮测试与独审结果见本节；文档生成器不执行这些测试，以下复现命令为复跑入口。这里记录已完成的原始测试、独审与负控，未把复跑入口计作额外执行结果。\n\n告警第一版历史：红测53 failed, 70 passed in 1.07s；绿测123 passed in 0.86s，600组正常输入对比一致。最终告警R2：156 passed in 1.59s，90独立checks、6组超大JSON反例、真实9条描述1→9重放；旧helper变异24失败，原测试预期未放宽，作者600正常输入一致。独审覆盖完整base..head，0未解决项。\n\nUI第一版历史86新增断言+20既有回归；最终作者R2为102新增浏览器断言+20既有回归。UI独审R2在390/320共12组模态层级、真实关闭及详情键盘返回验证通过，旧z10000负控4组重现；app/ops/index等blob未变承接HC03，两独审均0未解决项。报告为同证据目录alerts-review-r2.json/md、alerts-readiness-r2.json/md与ui-review-r2.json/md。\n\n新浏览器mjs通过本地命令运行，现有Linux CI不执行该文件；102项浏览器断言不计入Python全量数字。使用完整HTML/CSS，但bootstrap禁用，是受控页面结构/组件验证，不称完整业务页实测；未覆盖实体手机、WebKit或所有业务页。手机异常时header从42px到59.5px，增加17.5px提示行；通知按钮30×21px不变，桌面header62px不变（独审数值），不是整个手机布局零变化。\n\n旧218历史CI run42822266274 success：4398 tests/0fail/0error/7skip，两个job及全量step success；公开日志403，无原始末行。最终实现头0f53c97ad2142f4303e3579b427bedecb7549feb的Linux CI run42824543468通过：4431 tests/0fail/0error/7skip（换算4424 passed，以原计数为主），两个job及完整回归step均success，不含浏览器102断言。公开原始日志403，无原始末行；证据ci-verification-r2.json/md，运行链接：https://github.com/xp13465/trade-data-signal/actions/runs/42824543468。integration-verification-r2.json已读取核对，六文件与两最终childhead逐blob一致；不使用旧integration冒称新头一致。各类检查范围不同，不将计数相加为全项目测试数。"
+    },
+    {
+      "title": "影响面和未上线边界",
+      "text": "告警链涉及detect_breakout、去重落签、send_or_stage与pending重试、HTML转文本及通知导出消费；本轮不改共享通知、阈值、签结构和正常输出。旧零价pending/去重记录未清理，本次实现仅保障新检测，旧payload仍可能重试；Claude须按实际状态核验，不盲删。SQL不补查更早数据，未扩展百分比/净流入有效域策略。\n\nUI影响Ops关注列表、筛选/展开及首页采集入口；HC08时间口径和HC11状态说明后续可能改同一ops.js，须保留本轮排序、unknown可达和源数组顺序。\n\n版本仍20261108-a660，min未构建提交；由Claude main-merge统一构建和更新。未合主线、未部署、未证明线上改变；本地fixture无生产请求，不等于生产自然轮验收。"
+    },
+    {
+      "title": "Claude接力步骤",
+      "text": "已实现、独审与CI通过、待Claude审合部署；未上线。本轮两项返修及独审R2已完成，不要求Claude重复返修。最终实现头CI证据已齐。最终接力：复核最终head → 正常main-merge统一build/bump → 部署验收。\n\n最终交接head及报告hash见native packet；已测实现head为0f53c97ad2142f4303e3579b427bedecb7549feb。integration-verification-r2确认六实施文件与最终childhead一致，文档阶段仅改四件文档/生成脚本，代码blob保持一致；最终交接头由packet固定，不在本文写自指SHA。Claude核对packet及证据后正常main-merge，部署后验数据、前端与自然轮通知。旧零价pending/去重记录按实际状态核验，不盲删。"
+    },
+    {
+      "title": "复现命令与限制",
+      "text": "所有示例由Python子进程设置timeout；从指定工作树执行。本轮测试与独审结果见前节；文档生成器不执行这些测试，以下为复跑入口。复跑结果须另记运行head、范围和计数，不覆盖原始证据，不凭命令存在声称额外复跑。定向pytest使用AST/内存桩，不执行业务模块初始化。UI可省略私有fixture得到合成数据，但此时不能声称复现原177项快照及相同计数；不得把私有快照提交到文档。600组差分原始记录在alerts-normal-parity.json，其独立重跑脚本未列于此，须按原始记录复现。\n\n```python\nimport os, subprocess\nfrom pathlib import Path\nw = Path('/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-healthcheck-wave1-20261110')\nd = w / 'docs/codex-reviews/healthcheck-wave1-20261110'\nsubprocess.run(['python3', str(d/'generate_report.py'), '--check'], cwd=w, timeout=15, check=True)\nenv = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTEST_DISABLE_PLUGIN_AUTOLOAD='1')\nsubprocess.run(['python3', '-m', 'pytest', '-p', 'no:cacheprovider', 'scripts/tests/test_healthcheck_alerts_20261110.py', '-q'], cwd=w, env=env, timeout=90, check=True)\nenv.update(PLAYWRIGHT_MODULE='/Users/linhuichen/code/trade/scripts/playwright-accept/node_modules/playwright/index.js', HC_UI_EVIDENCE='/tmp/hc-wave1-reproduction')\nsubprocess.run(['node', 'ops/monitoring/tests/healthcheck-ui-20261110.mjs'], cwd=w, env=env, timeout=120, check=True)\nsubprocess.run(['python3', 'ops/monitoring/tests/smoke_schedule_running_ui.py'], cwd=w, env=env, timeout=90, check=True)\n```"
+    },
+    {
+      "title": "单段转交",
+      "text": "请Claude接力：本次HC01-04修复与交接入口为/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-healthcheck-wave1-20261110/docs/codex-reviews/healthcheck-wave1-20261110/README.md（同目录verification.json、generate_report.py、handoff.txt）；告警f2c5343及UI77ca93ac的R2独审均PASS、0未解决项，六实施文件与最终childhead逐blob一致，已测实现head=0f53c97ad2142f4303e3579b427bedecb7549feb，已实现、独审与CI通过，待Claude审合部署，未上线。最终交接head/hash由后续native packet提供，文档不自指；复核最终head→正常main-merge统一build/bump→部署验收，不重复已完成返修。旧22项审计packet=/tmp/codex-reports/handoffs/healthcheck-evening-20261110-v1.json（id healthcheck-evening-20261110-v1，固定head87ecfdc1c37705ab6b782a7f401c5e4696dae1ff），上一批alert-takeover final packet=/tmp/codex-reports/handoffs/alert-takeover-final-20261110-v1.json（id alert-takeover-final-20261110-v1，勿用active代替final）；按各包核验，不把queued当ACK。本次仅实施HC01-04，HC05-22仍独立待办。浏览器102断言+20既有回归为本地命令，Linux CI不执行新增mjs，Python全量数字不得混入浏览器断言；完整HTML/CSS但bootstrap禁用，不称完整业务页实测。手机异常提示行增加17.5px，通知按钮30×21和桌面header62px不变。旧零价pending/去重未清理，按实际状态核验勿盲删；版本仍20261108-a660，min由Claude统一构建。 本轮final预定id=healthcheck-wave1-final-20261110-v1，稳定master路径=/Users/linhuichen/code/trade/.git/codex-reports/healthcheck-wave1-20261110/final-master-v1.json；发布/ACK须查询，不宣称已发布。最终CI run42824543468：4431 tests/0fail/0error/7skip，不含浏览器102；两job与完整回归step success，日志403无原始末行。"
+    }
+  ],
+  "historical_ci": {
+    "head": "218bd3eccbff4520a271a0e7de62d7fc5a6b118c",
+    "run_id": 42822266274,
+    "status": "success",
+    "tests": 4398,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 7,
+    "jobs": "两个job success",
+    "full_test_step": "success",
+    "public_log_http_status": 403,
+    "raw_last_line": null,
+    "source": "用户提供实证；未取得公开日志原始末行",
+    "scope": "仅旧218历史CI，不代表返修后最终head"
+  },
+  "implementation_head": "0f53c97ad2142f4303e3579b427bedecb7549feb",
+  "implementation_head_source": "用户最新实证；已push同分支触发Linux CI，不代表CI完成",
+  "integration_r2": {
+    "status": "VERIFIED_FROM_REPORT",
+    "head": "0f53c97ad2142f4303e3579b427bedecb7549feb",
+    "evidence": "/tmp/codex-reports/healthcheck-followup-20261110/integration-verification-r2.json",
+    "evidence_sha256": "ef5d3e21113f4d2938c5ccebb0571fc628e0cd901e84c2c2a0cda008768a82d7",
+    "six_implementation_blobs_unchanged": true,
+    "files": [
+      {
+        "path": "ops/monitoring/tests/healthcheck-ui-20261110.mjs",
+        "child_head": "77ca93ac60cc0f7834af42f32c73ae3cfef3494d",
+        "blob_equal": true,
+        "sha256": "d2ca20db3861c54642a4bd4a8f434e7769857ed25c4b924bc858413f8702c32a"
+      },
+      {
+        "path": "scripts/detect_intraday_anomaly.py",
+        "child_head": "f2c5343bd1bb2e33a91834e2235406fd39512519",
+        "blob_equal": true,
+        "sha256": "227d1657933ca23def0ec5a2f464df4be1beae9ab7dff2075a6ec94f2f9c86e5"
+      },
+      {
+        "path": "scripts/tests/test_healthcheck_alerts_20261110.py",
+        "child_head": "f2c5343bd1bb2e33a91834e2235406fd39512519",
+        "blob_equal": true,
+        "sha256": "4ff8580aa1c7d736f7fa370f024f30c5883fb95945b0f25cab47467eddfe7e0e"
+      },
+      {
+        "path": "static-site/admin/ops.js",
+        "child_head": "77ca93ac60cc0f7834af42f32c73ae3cfef3494d",
+        "blob_equal": true,
+        "sha256": "ed5c7b44bc6886b4e4d4cd64240e0e0865e81141d4383e4bfb8ca9d621bfb250"
+      },
+      {
+        "path": "static-site/app.js",
+        "child_head": "77ca93ac60cc0f7834af42f32c73ae3cfef3494d",
+        "blob_equal": true,
+        "sha256": "7b40f4481995794635d503631bfb2c2d5d3684d7002e501512ca22dec376a233"
+      },
+      {
+        "path": "static-site/style.css",
+        "child_head": "77ca93ac60cc0f7834af42f32c73ae3cfef3494d",
+        "blob_equal": true,
+        "sha256": "d89b0ab69e4a201cb93238df652be693154e136295a089512647896d3116f1f4"
+      }
+    ],
+    "scope": "实现集成头与两最终childhead逐blob一致；后续交接head另由packet固定"
+  },
+  "handoff_contract": {
+    "final_head": "见后续不可变packet，不在文档自指",
+    "implementation_head": "0f53c97ad2142f4303e3579b427bedecb7549feb",
+    "documentation_write_set": [
+      "verification.json",
+      "generate_report.py",
+      "README.md",
+      "handoff.txt"
+    ],
+    "implementation_files_modified_by_document_task": false,
+    "blob_consistency": "integration-verification-r2已确认实现集成头六文件与两最终childhead一致；文档阶段不改实施文件，最终交接head见packet"
+  },
+  "ui_layout": {
+    "mobile_header_before_px": 42,
+    "mobile_header_abnormal_px": 59.5,
+    "added_hint_row_px": 17.5,
+    "notification_button_px": [
+      30,
+      21
+    ],
+    "desktop_header_px": 62,
+    "scope": "独审实测；按钮及桌面header不变，不声称整个手机布局零变化"
+  },
+  "browser_execution": {
+    "mode": "本地命令运行",
+    "linux_ci_runs_new_mjs": false,
+    "python_test_count_includes_browser_assertions": false,
+    "page_scope": "完整HTML/CSS，bootstrap禁用，不是完整业务页实测"
+  },
+  "method": {
+    "documentation": "文档整理阶段读取并汇总本轮测试、独审及集成证据；生成器仅离线生成README，不执行业务测试或独审。",
+    "test_provenance": "本轮原始测试、独审及负控结果见证据节；复跑命令是复现入口，不作为新增运行记录或重复计数。"
+  },
+  "opening": "HC01：过滤无效突破价格，高低方向独立校验，超大JSON整数边界已修复；HC02：HTML构造边界转义描述，保留正常通知与阈值输出；HC03：严重/警告优先全部可见，unknown预览及全部展开可达；HC04：手机异常紧凑提示与详情可达，通知模态层级已修复，恢复时移除提示。\n\n两项R2独审均PASS、0未解决项，六实施文件与最终childhead逐blob一致。当前状态：已实现、独审与CI通过、待Claude审合部署；未上线。",
+  "actual_source_head": "0f53c97ad2142f4303e3579b427bedecb7549feb",
+  "final_packet": {
+    "planned_id": "healthcheck-wave1-final-20261110-v1",
+    "stable_master_path": "/Users/linhuichen/code/trade/.git/codex-reports/healthcheck-wave1-20261110/final-master-v1.json",
+    "publication_ack": "须查询，不宣称已发布或已ACK",
+    "publisher": "主控在推送核验后统一publish；文档任务不publish"
+  }
+}
