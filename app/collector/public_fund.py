@@ -1168,7 +1168,18 @@ def bounded(fn, *args, **kwargs):
 # 不改共享baostock_daily源码，也不触碰父进程的SDK会话/信号。
 from types import SimpleNamespace
 login, logout, retry_sleep = daily.bs.login, daily.bs.logout, daily.time.sleep
-daily.bs.login = lambda: bounded(login)
+last_login_timed_out = False
+def bounded_login():
+    # 原重连助手把最后一次异常转成RuntimeError且不保留cause。
+    # 只保存最近一次login的类型，后续成功/非超时失败必须清除旧超时。
+    global last_login_timed_out
+    last_login_timed_out = False
+    try:
+        return bounded(login)
+    except TimeoutError:
+        last_login_timed_out = True
+        raise
+daily.bs.login = bounded_login
 daily.bs.logout = lambda: bounded(logout)
 daily.time = SimpleNamespace(sleep=lambda pause: bounded(retry_sleep, pause))
 
@@ -1217,7 +1228,7 @@ try:
                 daily._reconnect_with_retry()
             except Exception as reconnect_exc:
                 payload["error"] = f"重连失败: {reconnect_exc}"
-                payload["timeout"] = isinstance(reconnect_exc, TimeoutError)
+                payload["timeout"] = isinstance(reconnect_exc, TimeoutError) or last_login_timed_out
                 break
 finally:
     try:
@@ -4482,7 +4493,8 @@ def pipeline_daily(*, budget_seconds: float = 290.0) -> dict:
     pipeline_daily 只保证输入数据(fund_daily_nav + fund_index_daily)每日更新。
     """
     t0 = time.time()
-    # shell仍为300秒，内部留10秒给退出/进程回收，不增加外层35分钟预算。
+    # 从pipeline入口计时，后续指数查询共享剩余预算；前序I/O和尾部SQL
+    # 仍由shell的300秒硬保护兜底，不保证整个进程固定留下10秒余量。
     deadline = time.monotonic() + budget_seconds
     print("=== pipeline_daily() ===", flush=True)
     stats: dict = {}
