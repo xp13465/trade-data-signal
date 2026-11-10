@@ -1,0 +1,496 @@
+{
+  "schema_version": 1,
+  "finding": "OVERFIT-SELFVERIFY-CLIENT403-P2",
+  "issue": 382,
+  "parent_index": null,
+  "numbering_addendum": "numbering-correction-addendum.json",
+  "implementation_status_authority": "docs/pending-features-index.md #382",
+  "author_evidence_at_capture": {
+    "head": "e2e9095ef4bd8148f664c5ff1ec3e0e8a88aec2e",
+    "targeted_exact_last_line": "156 passed in 6.43s",
+    "targeted_rc": 0,
+    "old_red": {
+      "rc": 1,
+      "result": "1 failed; actual old worker returned76 under urllib403 even with working fake curl",
+      "log": "/tmp/codex-reports/alert-takeover-20261110/overfit-verifier-old-red.log"
+    },
+    "pushed": false
+  },
+  "followup_evidence": {
+    "independent_review": {
+      "head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "type": "formal r2 independent delta review",
+      "verdict": "PASS",
+      "unresolved": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0
+      },
+      "summary": "依赖声明返修增量独立 PASS：Ops/Quality 在 full scripts pytest 前明确安装 certifi；原15失败守卫及transport/blob完整保留，独立15+2定向绿、四删除/顺序负控红。原e2e代码PASS与真实Linux红保留；95be精确head完整CI尚待父确认。",
+      "local_validation": {
+        "original15": "15 passed in 2.88s",
+        "new_declaration_guards": "2 passed in 0.04s",
+        "declaration_deletion_and_order_controls": "4 RED as expected; driver exit0"
+      },
+      "complete_Linux_result_claimed": false,
+      "source": {
+        "name": "overfit-verifier-review-r2.json",
+        "sha256": "a84624b9db8bec680f364947aa525fab24d075ad8ba6b695be5a272c1dddea31",
+        "bytes": 10286
+      }
+    },
+    "exact_head_LinuxOps": {
+      "head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "run_id": 42765507696,
+      "status": "completed",
+      "conclusion": "success",
+      "JUnit": {
+        "tests": 4275,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 7,
+        "omitted_failure_ids": 0
+      },
+      "passed_derived": 4268,
+      "source": {
+        "name": "overfit-95be33-feature-ci-complete.json",
+        "sha256": "12bc304c34f36ceb795f734ea3979c59c61af1a93c6a820bed14726262ed11ea",
+        "bytes": 740
+      },
+      "scope": "精确95be完整Linux，不覆盖尚未给结果的mainCI/发布/云实际GET"
+    },
+    "standard_release": {
+      "pushed_main": true,
+      "actual_main_head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "cloud_CODE_head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "source_release": "SUCCESS_AS_PARENT_CONFIRMED",
+      "log": "main-merge-95be33.log",
+      "MAIN_MERGE_SKIP_PYTEST": "1",
+      "replacement": "同95be完整Linux42765507696成功替代本地重复pytest",
+      "other_gates_enabled": true,
+      "postpush_CI_selfcheck": {
+        "result": "SUCCESS",
+        "workflow": "CI Quality Gate",
+        "run_number": 1065,
+        "run_id": 42766606335,
+        "standard_main_merge_exit": 0
+      },
+      "main_workflow_results": {
+        "applicable": [
+          {
+            "role": "quality",
+            "id": 42766606335,
+            "name": "CI Quality Gate",
+            "head_sha": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+            "status": "completed",
+            "conclusion": "success",
+            "html_url": "https://github.com/xp13465/trade-data-signal/actions/runs/42766606335"
+          },
+          {
+            "role": "pages",
+            "id": 42766606019,
+            "name": "Deploy to GitHub Pages",
+            "head_sha": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+            "status": "completed",
+            "conclusion": "success",
+            "html_url": "https://github.com/xp13465/trade-data-signal/actions/runs/42766606019"
+          },
+          {
+            "role": "ops",
+            "id": 42766606020,
+            "name": "Operations monitoring checks",
+            "head_sha": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+            "status": "completed",
+            "conclusion": "success",
+            "html_url": "https://github.com/xp13465/trade-data-signal/actions/runs/42766606020"
+          }
+        ],
+        "applicable_count": 3,
+        "all_applicable_success": true,
+        "worker": {
+          "head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+          "compare_base": "ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216",
+          "result": "NOT_APPLICABLE_PATH_FILTER",
+          "workflow": ".github/workflows/deploy-cf.yml",
+          "trigger_lines": "7-16",
+          "events": {
+            "push_main_paths": [
+              "static-site/**",
+              "worker/**",
+              "wrangler.jsonc",
+              "app/**",
+              ".github/workflows/deploy-cf.yml"
+            ],
+            "workflow_dispatch": true,
+            "workflow_run": false
+          },
+          "changed_paths": [
+            ".github/workflows/ci.yml",
+            ".github/workflows/ops-monitoring-checks.yml",
+            "scripts/overfit_monitor.py",
+            "scripts/tests/test_overfit_delivery_20261109.py",
+            "scripts/tests/test_overfit_public_verifier_20261110.py",
+            "scripts/tests/test_overfit_public_verifier_ci_dependencies_20261110.py",
+            "scripts/tests/test_release_ci_gate.py"
+          ],
+          "matching_paths": [],
+          "workflow_blob_both": "dc270bb0d537a65ac4272169b1d3aafa93690fd4",
+          "worker_app_static_config_blobs_unchanged": true,
+          "last_known_deployment": {
+            "head": "ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216",
+            "Worker_run": 42756830500,
+            "conclusion": "success",
+            "active_version_proof": "父已有12:58 proof；本次未扩展重查"
+          },
+          "no_worker95_run_expected_from_this_push": true
+        }
+      },
+      "source": {
+        "name": "overfit-382-source-release95-parent-context.json",
+        "sha256": "bb19d8d41c93804da2c4fcbbeb5a03dedda7ce8e51d811d6ae257129e6fbd0f7"
+      },
+      "standard_main_merge_exit": 0,
+      "source_selfcheck_receipt": {
+        "name": "overfit-382-mainmerge95-selfcheck-complete-context.json",
+        "sha256": "746306742179da0d91298ea192f02e14d17737633f0d5620ad5859e1e5238d09"
+      }
+    },
+    "cloud_new_function_readonly": {
+      "verdict": "PASS",
+      "compat_p2_acceptance": "PASS",
+      "started_at_utc": "2026-11-10T06:11:11.206452+00:00",
+      "finished_at_cst": "2026-11-10T14:11:38.208415+08:00",
+      "elapsed_seconds": 27.001,
+      "actual_cloud_head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "cloud_head_before_after_equal": true,
+      "runtime_source_matches_fixed_head": true,
+      "reviewed_envelope_sha256": {
+        "overfit-verifier-postrelease-launcher.py": "dd7cd45e5912a776c1c0c39031dcb98fb77558da1067e4f494c9fe81c9b9d1a3",
+        "overfit-verifier-postrelease-readonly.py": "8a10ee743847101b047ef3a3c1ff35733437f5832e6836f6050ad1c4927d1909"
+      },
+      "raw_exit_code": 0,
+      "retry_count": 0,
+      "actual_function": "_verify_overfit_public_pair -> _read_overfit_public",
+      "invocation": "Reviewed launcher only, AST whitelist, no top-level business import; _delivery_worker/publish not called.",
+      "source_before": [
+        {
+          "name": "overfit_monitor.json",
+          "inode": 1052197,
+          "mtime_ns": 1794231670684107569,
+          "size": 6017090,
+          "sha256": "5b172b702edfc74bf03dbae0f5a0e415ced3ab13301283207f690f5739796101",
+          "generated_at": "2026-11-09 21:40"
+        },
+        {
+          "name": "overfit_monitor_ext.json",
+          "inode": 1050535,
+          "mtime_ns": 1794231659868099132,
+          "size": 18784214,
+          "sha256": "3da3818da76af2fa5b44c1ce45861b7e5991e8081c86b0a0fec5c38f4343fc16",
+          "generated_at": "2026-11-09 21:40"
+        }
+      ],
+      "source_after": [
+        {
+          "name": "overfit_monitor.json",
+          "inode": 1052197,
+          "mtime_ns": 1794231670684107569,
+          "size": 6017090,
+          "sha256": "5b172b702edfc74bf03dbae0f5a0e415ced3ab13301283207f690f5739796101",
+          "generated_at": "2026-11-09 21:40"
+        },
+        {
+          "name": "overfit_monitor_ext.json",
+          "inode": 1050535,
+          "mtime_ns": 1794231659868099132,
+          "size": 18784214,
+          "sha256": "3da3818da76af2fa5b44c1ce45861b7e5991e8081c86b0a0fec5c38f4343fc16",
+          "generated_at": "2026-11-09 21:40"
+        }
+      ],
+      "source_before_after_identical": true,
+      "source_identity_proof": "Envelope independently snapshots bytes/stat identities before and after, asserts equality, then emits the common identity. Both arrays here represent that asserted common identity; no additional cloud read.",
+      "pair_producer_boundary": "Reviewed envelope checks source stat stability around each read and bytes/inode/mtime/size before/after. No pair mutation observed. Process inventory is not part of this envelope and was not expanded; unrelated intraday services were not used as an idle gate.",
+      "public_verification": [
+        {
+          "url": "https://ss.fx8.store/data/overfit_monitor.json",
+          "urllib_http": 403,
+          "fallback": "curl",
+          "curl_rc": 0,
+          "http": 200,
+          "verified_length_bytes": 6017090,
+          "verified_public_sha256": "5b172b702edfc74bf03dbae0f5a0e415ced3ab13301283207f690f5739796101",
+          "source_sha256": "5b172b702edfc74bf03dbae0f5a0e415ced3ab13301283207f690f5739796101",
+          "length_and_sha_match": true,
+          "proof": "actual _verify_overfit_public_pair returned after strict len/hash assertions; not inferred from HTTP200 alone"
+        },
+        {
+          "url": "https://ss.fx8.store/data/overfit_monitor_ext.json",
+          "urllib_http": 403,
+          "fallback": "curl",
+          "curl_rc": 0,
+          "http": 200,
+          "verified_length_bytes": 18784214,
+          "verified_public_sha256": "3da3818da76af2fa5b44c1ce45861b7e5991e8081c86b0a0fec5c38f4343fc16",
+          "source_sha256": "3da3818da76af2fa5b44c1ce45861b7e5991e8081c86b0a0fec5c38f4343fc16",
+          "length_and_sha_match": true,
+          "proof": "actual _verify_overfit_public_pair returned after strict len/hash assertions; not inferred from HTTP200 alone"
+        },
+        {
+          "url": "https://ssd.fx8.store/data/overfit_monitor.json",
+          "urllib_http": 403,
+          "fallback": "curl",
+          "curl_rc": 0,
+          "http": 200,
+          "verified_length_bytes": 6017090,
+          "verified_public_sha256": "5b172b702edfc74bf03dbae0f5a0e415ced3ab13301283207f690f5739796101",
+          "source_sha256": "5b172b702edfc74bf03dbae0f5a0e415ced3ab13301283207f690f5739796101",
+          "length_and_sha_match": true,
+          "proof": "actual _verify_overfit_public_pair returned after strict len/hash assertions; not inferred from HTTP200 alone"
+        },
+        {
+          "url": "https://ssd.fx8.store/data/overfit_monitor_ext.json",
+          "urllib_http": 403,
+          "fallback": "curl",
+          "curl_rc": 0,
+          "http": 200,
+          "verified_length_bytes": 18784214,
+          "verified_public_sha256": "3da3818da76af2fa5b44c1ce45861b7e5991e8081c86b0a0fec5c38f4343fc16",
+          "source_sha256": "3da3818da76af2fa5b44c1ce45861b7e5991e8081c86b0a0fec5c38f4343fc16",
+          "length_and_sha_match": true,
+          "proof": "actual _verify_overfit_public_pair returned after strict len/hash assertions; not inferred from HTTP200 alone"
+        }
+      ],
+      "risk": {
+        "risk_score": 74,
+        "level": "red",
+        "unchanged": true,
+        "generated_at": "2026-11-09 21:40",
+        "proof": "Current main/ext SHA256 equal the fully read 13:22:45 baseline pair that contains risk74/red. This is byte-identity proof, not model recomputation or a separate network fetch.",
+        "baseline": "/tmp/codex-reports/alert-takeover-20261110/runtime-readonly-pair-client-evidence-v2.jsonl",
+        "baseline_source_at": "2026-11-10T13:22:45.893389+08:00"
+      },
+      "tls": "Actual fallback follows reviewed curl HTTPS + certifi CA verification command. No URL/UA/WAF switch or SSL bypass added.",
+      "production_actions": {
+        "public_verifier_pair_calls": 1,
+        "public_urls_verified": 4,
+        "PUT": 0,
+        "purge": 0,
+        "R2_locks_acquired": 0,
+        "full_publish": 0,
+        "export": 0,
+        "pull": 0,
+        "database_writes": 0,
+        "artifact_manifest_source_writes": 0,
+        "notifications": 0
+      },
+      "ci_boundary": "Parent postpush main CI selfcheck still running per GO; this receipt does not declare all release CI green and does not reuse previous-head green. Full publish-only 960s chain remains natural acceptance.",
+      "completion": "Launcher/SSH returned0; session19483 completed; no retry or additional cloud/network probe.",
+      "source": {
+        "name": "overfit-verifier-production-readonly-result.json",
+        "sha256": "2883bcac40472c29d119b55d0ecd3d8689ba2f7b54498bca1278253d8ca9065f",
+        "bytes": 6949
+      },
+      "scope": "兼容缺陷已验收关闭；不是完整publish/960s自然链验收"
+    },
+    "runtime_acceptance_envelope_review": {
+      "verdict": "PASS",
+      "scope": "#382 纯GET验收封套窄静态审查 PASS；结论绑定下列两个脚本SHA，实际 released main SHA 由父执行时固定，不代表已执行/云验通过。",
+      "business_head_at_review": "e2e9095ef4bd8148f664c5ff1ec3e0e8a88aec2e",
+      "script_sha256_as_reviewed": {
+        "overfit-verifier-postrelease-launcher.py": "dd7cd45e5912a776c1c0c39031dcb98fb77558da1067e4f494c9fe81c9b9d1a3",
+        "overfit-verifier-postrelease-readonly.py": "8a10ee743847101b047ef3a3c1ff35733437f5832e6836f6050ad1c4927d1909"
+      },
+      "script_content_rechecked_by_docs": false,
+      "actual_cloud_execution_result": null,
+      "source": {
+        "name": "overfit-verifier-runtime-envelope-review.json",
+        "sha256": "acbccc9e441d3421ded84d273dfb3a4778fa93d649889645598af6cc684967f6",
+        "bytes": 5176
+      },
+      "mapping_reuse_r2": {
+        "source": "overfit-public-verifier-implementation-r2.json",
+        "transport_identical_as_reported": true,
+        "prepared_envelope": {
+          "launcher": "/tmp/codex-reports/alert-takeover-20261110/overfit-verifier-postrelease-launcher.py",
+          "launcher_sha256": "dd7cd45e5912a776c1c0c39031dcb98fb77558da1067e4f494c9fe81c9b9d1a3",
+          "remote_script": "/tmp/codex-reports/alert-takeover-20261110/overfit-verifier-postrelease-readonly.py",
+          "remote_script_sha256": "8a10ee743847101b047ef3a3c1ff35733437f5832e6836f6050ad1c4927d1909",
+          "changed": false,
+          "executed": false,
+          "still_waiting": "Parent fixed actual released cloud head GO; e2e909 ancestry guard remains valid because transport source unchanged and new commit is its descendant."
+        },
+        "script_rechecked_by_docs": false,
+        "actual_execution_result": null
+      }
+    }
+  },
+  "boundary": "证据插入位，不另维护一套实施状态；待父给后续真实head/数字/log再补，不猜既有母项，不把pending写PASS",
+  "ci_context_source": {
+    "name": "overfit-382-ci-started-context.json",
+    "sha256": "3295813012c024f12b382ae2707b89dd6748d6abd9cd1dfed069db488ac42432"
+  },
+  "CI_history": [
+    {
+      "recorded_at": "2026-11-10T13:45:29.811995+08:00",
+      "provenance": "父本轮真实LinuxOps进度消息",
+      "run_id": 42763898317,
+      "head": "e2e9095ef4bd8148f664c5ff1ec3e0e8a88aec2e",
+      "branch": "codex/ops-alert-rootfix-ci-20261109",
+      "status": "in_progress",
+      "conclusion": null,
+      "counts": null,
+      "prior_no_run": {
+        "author_branch": "codex/overfit-public-verifier-20261110",
+        "reason": "Ops分支名仅main/codex/ops-*，作者branch未匹配，未生成run",
+        "business_test_failure": false
+      },
+      "parent_action": {
+        "mechanical_fast_forward_existing_CI_branch_to_same_SHA": true,
+        "source_head_changed": false,
+        "workflow_expanded": false,
+        "new_code_commit_created": false
+      },
+      "independent_review_same_head": "in_progress; no verdict yet",
+      "new_issue_created": false
+    },
+    {
+      "request_id": "overfit-382-linux-failure-42763898317",
+      "recorded_at": "2026-11-10T13:57:07.243040+08:00",
+      "provenance": "父本轮提供真实LinuxOps JUnit汇总；本归档未扩展取证或重新执行测试",
+      "head": "e2e9095ef4bd8148f664c5ff1ec3e0e8a88aec2e",
+      "run_id": 42763898317,
+      "result": "FAIL",
+      "JUnit": {
+        "tests": 4273,
+        "failures": 15,
+        "errors": 0,
+        "skipped": 7
+      },
+      "observed_focus": "新test_overfit_public_verifier的worker/负控",
+      "cause": "UNCONFIRMED；作者修具体根因，不能无证写环境差异",
+      "main_cloud_head": "ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216",
+      "failed_head_merged_or_deployed": false,
+      "old_independent_code_PASS": "保留固定e2e909旧范围，不替代真实CI",
+      "next_gate": "下一修复head独立复核+Linux重跑，之后标准发布/云实际纯GET；不扩其它修复",
+      "source": {
+        "name": "overfit-382-linux-failure-42763898317.json",
+        "sha256": "30fd07724d3d180f75fabf7837932130f68fe6c7b82a2fd0b00b10d3b6720566"
+      },
+      "prior_branch_filter_nontrigger_is_separate": true
+    }
+  ],
+  "next_fixed_head_gate": {
+    "head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+    "independent_delta_review": "PASS",
+    "feature_Linux": "PASS 42765507696,4268pass+7skip",
+    "source_main_cloud_release": "SUCCESS",
+    "actual_cloud_pureGET": "PASS rawexit0 27.001s",
+    "mainCI": "3 applicable workflows success; Worker NOT_APPLICABLE",
+    "docs_commit": "READY"
+  },
+  "review_history": [
+    {
+      "head": "e2e9095ef4bd8148f664c5ff1ec3e0e8a88aec2e",
+      "verdict": "PASS",
+      "unresolved": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0
+      },
+      "summary": "#382 固定增量独立审查 PASS：仅 urllib403 同 URL 单次正常 TLS curl fallback；四副本严格长度/SHA、源身份、锁/预算/进程组不变量保留。Linux CI 与发布后真实纯 GET 验收独立待父确认。",
+      "local_validation": {
+        "new_verifier_tests": "25 passed in 2.96s",
+        "new_ci_tests": "5 passed, 94 deselected in 0.19s",
+        "independent_counterexamples": "Ran 9 tests in 1.136s; OK"
+      },
+      "not_full_linux": true,
+      "exact_head_linux_and_production_readonly_acceptance": "separate evidence, still pending",
+      "source": {
+        "name": "overfit-verifier-review.json",
+        "sha256": "cbac7d625b6c7158768fafe75031809d1519ca1e7a299f08c863159ad4e6c4af",
+        "bytes": 10411
+      }
+    }
+  ],
+  "author_revision_at_parent_capture": {
+    "head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+    "scope": "只补Ops+Quality各一pip安装行及2个声明守卫",
+    "transport_blob_equal_to_e2e909": true,
+    "old_15_red_to_green": "15 passed",
+    "final_targeted": "158 passed",
+    "formal_r2_report": "PENDING_PARENT"
+  },
+  "CI_failure_root_cause_at_parent_capture": {
+    "isolated_missing_certifi": "15 failed, 10 passed",
+    "reason": "Ops和Quality两个CI消费pip清单漏新增certifi依赖声明",
+    "not_unrelated_environment": true
+  },
+  "author_revision_formal_r2": {
+    "head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+    "source": {
+      "name": "overfit-public-verifier-implementation-r2.json",
+      "sha256": "c52ebea7335a6a240d7b5b4fb1c55153b873d5bd87331df16548629eb530db7c",
+      "bytes": 8936
+    },
+    "root_cause": "The new verifier imports certifi before invoking curl, but both actual full-script CI consumers omitted certifi. On a clean minimal CI installation, HTTP403 fallback stops with ModuleNotFoundError before fake curl can execute. This incremental dependency omission explains the reproduced exact15 failure family, not a generic environment dismissal.",
+    "targeted": {
+      "result": "158 passed in6.44s",
+      "rc": 0,
+      "scope": "Existing156 plus two CI dependency guards",
+      "command": "PYTHONDONTWRITEBYTECODE=1 /Users/linhuichen/code/trade/.venv/bin/python -m pytest -q scripts/tests/test_overfit_public_verifier_20261110.py scripts/tests/test_overfit_delivery_20261109.py scripts/tests/test_223_overfit_monitor_timeout.py scripts/tests/test_release_ci_gate.py scripts/tests/test_overfit_public_verifier_ci_dependencies_20261110.py --tb=short --junitxml=/tmp/codex-reports/alert-takeover-20261110/overfit-ci-dependency-fix-final158.xml",
+      "timeout_seconds": 40,
+      "log": "/tmp/codex-reports/alert-takeover-20261110/overfit-ci-dependency-fix-final158.log",
+      "junit": "/tmp/codex-reports/alert-takeover-20261110/overfit-ci-dependency-fix-final158.xml"
+    },
+    "same15_green": {
+      "result": "15 passed in2.80s",
+      "rc": 0,
+      "method": "Select all15 IDs from old-red XML; real installed certifi satisfies corrected CI dependency contract; fake HTTP/curl only",
+      "log": "/tmp/codex-reports/alert-takeover-20261110/overfit-ci-dependency-fix-original15-green.log",
+      "junit": "/tmp/codex-reports/alert-takeover-20261110/overfit-ci-dependency-fix-original15-green.xml"
+    },
+    "transport_review_reuse": {
+      "path": "scripts/overfit_monitor.py",
+      "reviewed_e2e909_blob": "0c8232fe5fb5d9902a9a4ef0a7d2dfc96dc1bcae",
+      "new_head_blob": "0c8232fe5fb5d9902a9a4ef0a7d2dfc96dc1bcae",
+      "identical": true,
+      "prior_Hegel_review": "e2e909 PASS; parent reported zero unresolved P0/P1/P2",
+      "scope": "Transport semantics, URLs, TLS, hash/length checks, timeout/processgroup/lock/source checks unchanged. New three-file CI/test delta still requires Hegel incremental review."
+    },
+    "scope": "作者定向/r2声明修复；独立delta复审和完整Linux仍待结果"
+  },
+  "cancelled_additional_log_diagnostic": {
+    "source": "父本轮消息",
+    "cancelled": true,
+    "Harvey_confirmed_worktree_head_prefix": "22a558a6",
+    "worktree_clean": true,
+    "new_changes_commits_push_or_outbound": false,
+    "boundary": "仅指取消的后续任务，不回写已有r4诊断及旧分支push历史"
+  },
+  "runtime_dependency_addendum": {
+    "head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+    "verdict": "PASS",
+    "summary": "生产依赖入口存在标准传递依赖链：README标准requirements安装 -> akshare1.18.64 -> requests -> certifi。requirements未直接列requests/certifi；两CI轻量pip清单绕过该入口才发生本轮缺依赖。无需扩第三源码修。",
+    "conclusion_scope": "Under the documented normal pip dependency resolver, certifi is supplied transitively through the required akshare -> requests chain. This is a dependency declaration fact separate from CI results. No claim was made that an arbitrary hand-built/no-deps runtime is covered, or that a fresh cloud venv install was actually executed. Local metadata proves exact pinned akshare edge and installed Requests2.34.2 certifi>=2023.5.7 edge; future resolutions are not a freshly tested lockfile.",
+    "declared_standard_chain": "requirements akshare==1.18.64 -> requests -> certifi",
+    "metadata_basis": "本机已安装distribution metadata及固定requirements，不证明云实际版本同一",
+    "existing_cloud_import_success": "既有真实前证；本归档未新增云import",
+    "cloud_version_equality": "NOT_CLAIMED",
+    "additional_source_fix_required": false,
+    "source": {
+      "name": "overfit-verifier-runtime-dependency-addendum.json",
+      "sha256": "d6946061342e47eb9b0d3b9dd0ea23f6d7fd6ab77c65801cecba1b22e98f4e16",
+      "bytes": 4524
+    }
+  },
+  "docs_branch_final_diff_base": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+  "compatibility_acceptance": "PASS_CLOSED_AS_PARENT_AUTHORIZED",
+  "full_publish_960s": "OPEN_NATURAL_ACCEPTANCE_NOT_EXECUTED",
+  "parent_CODE_hold": {
+    "GET_specific_hold": "released by parent",
+    "main_merge95_selfcheck": "completed exit0; Quality run#1065 success",
+    "second_main_merge": "not started by docs; parent says do not start yet"
+  },
+  "final_docs_base": "95be33a52edd1d29ba0a0588b9e20e153e618785"
+}

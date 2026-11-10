@@ -8611,3 +8611,36 @@ R2确认的新结果契约：固定52b `upload_r2.py:2682–2813/3405–3424` �
 Rawls只读来源证明016989 Nov3–6及三指数Nov9已有可信源数据，但生产受控恢复未验，不关闭#333/#257。159501/159513两个ETF的现有可信净值源只到Nov6，Nov9累计净值待发布，不以旧值/OHLC/当前映射造数，不宣称全世界均未公布。#375父补查现有Gitcredential不可用、Chrome桥连通失败，仍未取得原始失败错误；只记取证受限，不推断原部署失败由凭证导致。
 
 详见[第二版进展](docs/codex-reviews/alert-takeover-20261110/progress-v2.md)、对应归一化JSON/生成器/12输入hash。先等父发最终固定head的独立审查、完整测试汇总、真实CI与main/云/Worker部署身份和逐键恢复证据，再追加终版；本追加不销账、不push/main merge、不执行部署或生产写入。
+
+
+## 2026-11-10 v3收口材料追加：代码发布/精确恢复已证，投递新P2仍OPEN
+
+本段只追加真实事实，不回写v1/v2。文档branch已从a9b仅快进至已发布ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216，原材料hash保留，无冲突。父标准main-merge且云CODE同SHA；最终ec Linux42755379533总4243=4236通过+7跳过、0失败/错误；main quality42756830475/ops42756830390/Worker42756830500/Pages42756830665同ec均success。readiness固定代码PASS仅是报告时点，后续CI/发布独立补证。父显式MAIN_MERGE_SKIP_PYTEST=1替代本地重复全量，依据同SHA完整Linux，其余门禁启用；标准selfcheck480s超时WARN，父实际补核四run成功另记，不美化成selfcheck PASS。
+
+local-mirror-quarantine正式完成45假条目隔离，50真实severe/29777字节及头部受保护字节保留；六before备份SHA/0600及同锁inode保留，六份/tmp恢复精确before与漂移拒绝控制通过，不在真实文件执行恢复，邮件/飞书/发送账本和原审计raw镜像不改。
+
+Rawls正式recovery-execution四mode13:15–13:17均业务/SSH exit0、verified/commit_confirmed，恢复NAV四日12NULL格与Nov9三指数各1行，总7行操作；Turing recovery-postcheck正式PASS，本地24/24receipt SHA对账无新增云/DB访问。原51非空字段、15旧指数行、freeze/进度hash与锁inode/内容保留。非目标基金正样本UNKNOWN_NOT_SAMPLED，0行控样不作非空数据证据；无非目标写路径靠固定SQL/参数、7行操作、目标表无trigger与精确差异证明。两ETF159501/159513源只到Nov6、零写OPEN；DB精确恢复不等于public自然展示/交付已全部通过。
+
+Boyle正式runtime报告证当前主/ext四URL由curl200/hash追平，74/red是真风险；正式selfverify默认urllib无UA/fallback，四原URL真实403，异常契约R2_PUBLIC_UNCONFIRMED/exit76。登记独立#382（38本地分支/7索引blob及worktree核号，旧最大381），父已授权独立分支同URL/有界/TLS/hash不降的最小兼容修+独立审查/CI/发布；未给publisher写GO，文档不改代码，暂不commit终版。#381的cache独立锁早已因并发排序反证否决，global屏障保留；观测代码不等于实锤旧长等待持有者。
+
+#375最终r4 fixed22a558a6/独立PASS/run42761618507 success，保留当时HTTP/API/标题字段NOT_RECORDED。用户随后补充更全上下文独立落档：Wrangler4.158.0向/accounts/{account}/workers/scripts/{script}/versions发POST收到504 Gateway Timeout、Ray a57e01ddacc4a6ca-SEA、exit1/HTML截断6503字符；可定旧症状为Cloudflare API网关504导致HTML非JSON/malformed，不证明内部超时原因、版本未创建、鉴权故障或永久根治。不追旧详情，不把机制brief当原因；当前main自动Worker绿，内部历史根因OPEN/观察，Harvey只读重试方案不阻本文档，临时诊断分支不进产品main。
+
+私有持久化分开记：旧481文件/540149771原始B/137831742压缩B的审计tar逐成员SHA与恢复器验证通过；新增takeover-evidence-persistence-v1为56文件/2176784B，含24receipt，逐SHA已核，目录0700/文件0600；不含当前verifier后续/终版，父完成后再补。13旧packet integrity verified但ACK全null、仅context-emitted，不能称Claude已收到或复核；不复制packet正文、不伪造ACK，最终master统一覆盖本轮相关历史。
+
+剩余136历史冻结/七历史键、#373原备份及Nov3权威来源、#374 D1自然轮和UTC全周期、74/red风险、锁长等待实际持有者/具体失败清单按原号OPEN。归一化本体/生成器/复现/hash见[v3](docs/codex-reviews/alert-takeover-20261110/progress-v3.md)。只消费父给定正式证据，不扩展取证；待#382最小修链真实证据后单commit，不push/mainmerge，不重跑源码全量。
+
+
+### v3草稿编号订正（不回写v1/v2）
+
+父确认此前把374当overfit是编号记错并撤销路由：374保持D1原历史及自然轮观察，382为overfit urllib403独立兼容缺陷，实施状态只在索引382。其它既有overfit号未确认，不猜。作者旧报告误号通过独立numbering-correction-addendum.json订正，原报告及e2e9095e代码commit不改、不amend；当前v3生成器不再消费已撤销路由输入。此次只核并修指定374/382两行及v3新材料，不扩全index扫描。
+
+
+### v3最终补齐（95be三适用main流程与Worker适用性）
+
+标准main-merge95be真正exit0、Quality selfcheck run#1065/42766606335 success，和ec307首次480秒WARN分开。95be main实际Quality42766606335/Ops42766606020/Pages42766606019三条全success。Worker本轮push paths不命中，worker/app/static/config/workflow blob未变，现行on仅main路径过滤或手动，不存在Quality完成触发事件；沿用ec307既有成功Worker版本/父12:58 active-version证明，不造95be Worker绿，不再等不适用流程。
+
+#382独立兼容缺陷正式关闭：95be r2复审0未解、完整Linux42765507696总4275=4268通过+7skip/0失败错误、标准源发布/云CODE同95be，真实新函数纯GET rawexit0/27.001s/单次，四原URL urllib403→正常TLS curl200，完整长度/SHA与pair身份保持、74red不变，无PUT/purge/DB/源写/完整publish、无child。最初e2e909/run42763898317的4273总/15失败/0错误/7skip保留，缺certifi两CI pip声明遗漏的具体复现、15红转绿、158定向与变异证据不抹掉。
+
+NAV12格/三指数3行恢复与Turing24receipt窄postcheck PASS不外推public自然链或非目标基金正样本（UNKNOWN_NOT_SAMPLED）。ETF/136/七历史键/#373/D1自然轮/74red/锁持有者与960publish继续按边界OPEN；#375网关504症状已知但内部原因未知，父观察处置不叠外层retry、不改权限secret，原生3总尝试耗尽真实FAIL保留。#374只D1、#382独立，误号仅addendum；所有v1/v2原件不改。
+
+文档分支按父授权仅ff到95be，原12材料先备份且SHA完整保留；本次仅允许文档范围单commit交父，不push/mainmerge，不重跑源码全量。ACTIVE checkpoint queued/ACKnull、13旧packet无ACK均不冒称签收；终版新id由父supersede。481件私有tar与56件固定持久证据分开，后续verifier/终版由父再补，不公开原始正文。

@@ -1,0 +1,132 @@
+{
+  "scope": "only382followup; no historical rescan",
+  "private_snapshot_directory": "/tmp/codex-reports/alert-takeover-20261110/docs-source-snapshot/overfit-382-followup",
+  "inputs": [
+    {
+      "name": "overfit-verifier-review.json",
+      "sha256": "cbac7d625b6c7158768fafe75031809d1519ca1e7a299f08c863159ad4e6c4af",
+      "bytes": 10411
+    },
+    {
+      "name": "active-takeover-checkpoint-v1.json",
+      "sha256": "f0a5ee549c65f3f07e846f893f0b1a234961fadd948a8b82b4dc6c3152e8ffe1",
+      "bytes": 4861
+    },
+    {
+      "name": "overfit-verifier-runtime-envelope-review.json",
+      "sha256": "acbccc9e441d3421ded84d273dfb3a4778fa93d649889645598af6cc684967f6",
+      "bytes": 5176
+    },
+    {
+      "name": "overfit-382-linux-failure-42763898317.json",
+      "sha256": "30fd07724d3d180f75fabf7837932130f68fe6c7b82a2fd0b00b10d3b6720566",
+      "bytes": 870,
+      "provenance": "parent-reported actual JUnit"
+    },
+    {
+      "name": "overfit-382-revision-95be33-parent-context.json",
+      "sha256": "f6f7b9f92f691ceeea29fbdc27187be96dbb94e04d68745d3ed1c315989b321a",
+      "bytes": 1324,
+      "provenance": "parent preliminary r2 facts"
+    },
+    {
+      "name": "overfit-public-verifier-implementation-r2.json",
+      "sha256": "c52ebea7335a6a240d7b5b4fb1c55153b873d5bd87331df16548629eb530db7c",
+      "bytes": 8936
+    },
+    {
+      "name": "overfit-verifier-review-r2.json",
+      "sha256": "a84624b9db8bec680f364947aa525fab24d075ad8ba6b695be5a272c1dddea31",
+      "bytes": 10286
+    },
+    {
+      "name": "overfit-verifier-runtime-dependency-addendum.json",
+      "sha256": "d6946061342e47eb9b0d3b9dd0ea23f6d7fd6ab77c65801cecba1b22e98f4e16",
+      "bytes": 4524
+    },
+    {
+      "name": "overfit-95be33-feature-ci-complete.json",
+      "sha256": "12bc304c34f36ceb795f734ea3979c59c61af1a93c6a820bed14726262ed11ea",
+      "bytes": 740
+    },
+    {
+      "name": "overfit-382-source-release95-parent-context.json",
+      "sha256": "bb19d8d41c93804da2c4fcbbeb5a03dedda7ce8e51d811d6ae257129e6fbd0f7",
+      "bytes": 1377,
+      "provenance": "parent release/GO receipt"
+    },
+    {
+      "name": "overfit-verifier-production-readonly-result.json",
+      "sha256": "2883bcac40472c29d119b55d0ecd3d8689ba2f7b54498bca1278253d8ca9065f",
+      "bytes": 6949
+    },
+    {
+      "name": "overfit-382-mainmerge95-selfcheck-complete-context.json",
+      "sha256": "746306742179da0d91298ea192f02e14d17737633f0d5620ad5859e1e5238d09",
+      "bytes": 1137,
+      "provenance": "parent selfcheck complete receipt"
+    },
+    {
+      "name": "main-95be33-runs-latest.private.json",
+      "sha256": "d1c80136c0653e74db69fa1c7628b5add521f7460f01dd51834457f9fe40dcb4",
+      "bytes": 60160
+    }
+  ],
+  "baseline_v3_input_manifest": "progress-v3-evidence.json",
+  "numbering": "382 standalone;374 D1 unchanged",
+  "CI_progress_source": {
+    "name": "overfit-382-ci-started-context.json",
+    "sha256": "3295813012c024f12b382ae2707b89dd6748d6abd9cd1dfed069db488ac42432"
+  },
+  "boundary": "正式review局部验证不等于完整Linux；后续只补此链CI/发布/云GET证据",
+  "current_CI_parent_receipt": {
+    "head": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+    "run_id": 42765507696,
+    "status": "completed",
+    "conclusion": "success",
+    "JUnit": {
+      "tests": 4275,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 7,
+      "omitted_failure_ids": 0
+    },
+    "passed_derived": 4268,
+    "source": {
+      "name": "overfit-95be33-feature-ci-complete.json",
+      "sha256": "12bc304c34f36ceb795f734ea3979c59c61af1a93c6a820bed14726262ed11ea",
+      "bytes": 740
+    },
+    "scope": "精确95be完整Linux，不覆盖尚未给结果的mainCI/发布/云实际GET"
+  },
+  "final_applicable_main_runs": [
+    {
+      "role": "quality",
+      "id": 42766606335,
+      "name": "CI Quality Gate",
+      "head_sha": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/xp13465/trade-data-signal/actions/runs/42766606335"
+    },
+    {
+      "role": "pages",
+      "id": 42766606019,
+      "name": "Deploy to GitHub Pages",
+      "head_sha": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/xp13465/trade-data-signal/actions/runs/42766606019"
+    },
+    {
+      "role": "ops",
+      "id": 42766606020,
+      "name": "Operations monitoring checks",
+      "head_sha": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/xp13465/trade-data-signal/actions/runs/42766606020"
+    }
+  ],
+  "Worker_applicability_proof": "worker95-trigger-applicability.json"
+}

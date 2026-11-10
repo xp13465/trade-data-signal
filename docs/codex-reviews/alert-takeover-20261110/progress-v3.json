@@ -1,0 +1,685 @@
+{
+  "version": 3,
+  "status": "EC307_BASELINE_AND_RECOVERY_FACTS_WITH_SEPARATE_382_FOLLOWUP",
+  "source_base": "ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216",
+  "scope": "单次授权的告警接管归档；v1/v2按各自时点保留，不改长期角色规则",
+  "code_delivery": {
+    "standard_main_merge_and_cloud_CODE": {
+      "standard_main_merge": true,
+      "cloud_CODE_same_head": true
+    },
+    "provenance": "父提供标准main-merge/云CODE同SHA事实；本归档未执行部署",
+    "code_readiness": {
+      "fixed_head": "ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216",
+      "generated_at": "2026-11-10T12:26:28.960749+08:00",
+      "code_review_verdict": "PASS",
+      "unresolved_severity_counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0
+      },
+      "resolved_this_round_P2": [
+        {
+          "id": "PREUPLOAD-UNKNOWN-SCOPE-P2",
+          "severity": "P2",
+          "status": "CLOSED",
+          "original_fail_report": "/tmp/codex-reports/alert-takeover-20261110/preupload-review.json",
+          "closing_pass_report": "/tmp/codex-reports/alert-takeover-20261110/preupload-review-r2.json",
+          "closing_author": "684ec75d4e25925b2bacf9b82f3fb1a1349f2e17",
+          "final_source_blobs_equal": true,
+          "boundary": "仅隔离可靠同族新轮次之前的旧无日期纯成功；日期未知真错/已知历史错仍保留，不伪装今日新失败。"
+        },
+        {
+          "id": "R2-LOCK-MIRROR-DUPLICATE-P2",
+          "severity": "P2",
+          "status": "CLOSED",
+          "original_fail_report": "/tmp/codex-reports/alert-takeover-20261110/r2-purge-review.json",
+          "closing_pass_report": "/tmp/codex-reports/alert-takeover-20261110/r2-purge-review-r2.json",
+          "closing_author": "e995a5bd95df573103b956cc566f714fe5db3ef3",
+          "final_source_blobs_equal": true,
+          "boundary": "诊断tail不再重复结构化锁事件；增量mirror按来源位置保留，真实同文本新事件及业务诊断保留。"
+        }
+      ],
+      "summary": "固定ec307作者提交谱系与关键blob映射通过，已有各PASS证据可归并；本次引入并报告的两条P2均由固定返修解除。当前代码审查无未解决P0/P1/P2，code_review_verdict=PASS；这不是最终LinuxCI或生产上线验收通过。"
+    },
+    "readiness_original_gate": {
+      "state": "WAITING_FOR_FULL_LINUX_CI",
+      "required_run_id": 42755379533,
+      "required_head_sha": "ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216",
+      "required_result": "完整Linux Ops在该固定SHA成功，保留原始结果及计数；通过之前不可main-merge。",
+      "run_result_verified_by_this_rollup": false,
+      "merge_allowed_now": false,
+      "instructions": "父核run 42755379533的head_sha必须为ec307且全部必要job成功；若出现CI/main新问题另派，不沿用旧SHA绿。"
+    },
+    "readiness_time_boundary": "readiness生成时仍待CI；后续同SHA Linux与main四run另行补证，不改写旧报告",
+    "final_linux": {
+      "run_id": 42755379533,
+      "tests": 4243,
+      "passed": 4236,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 7,
+      "conclusion": "success",
+      "head": "ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216",
+      "provenance": "父提供最终ec Linux原样计数；与7e47旧统计分开"
+    },
+    "main_runs": [
+      {
+        "role": "ops",
+        "id": 42756830390,
+        "name": "Operations monitoring checks",
+        "head_sha": "ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216",
+        "status": "completed",
+        "conclusion": "success",
+        "html_url": "https://github.com/xp13465/trade-data-signal/actions/runs/42756830390",
+        "run_attempt": 1
+      },
+      {
+        "role": "quality",
+        "id": 42756830475,
+        "name": "CI Quality Gate",
+        "head_sha": "ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216",
+        "status": "completed",
+        "conclusion": "success",
+        "html_url": "https://github.com/xp13465/trade-data-signal/actions/runs/42756830475",
+        "run_attempt": 1
+      },
+      {
+        "role": "worker",
+        "id": 42756830500,
+        "name": "Deploy to Cloudflare Workers",
+        "head_sha": "ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216",
+        "status": "completed",
+        "conclusion": "success",
+        "html_url": "https://github.com/xp13465/trade-data-signal/actions/runs/42756830500",
+        "run_attempt": 1
+      },
+      {
+        "role": "pages",
+        "id": 42756830665,
+        "name": "Deploy to GitHub Pages",
+        "head_sha": "ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216",
+        "status": "completed",
+        "conclusion": "success",
+        "html_url": "https://github.com/xp13465/trade-data-signal/actions/runs/42756830665",
+        "run_attempt": 1
+      }
+    ],
+    "merge_execution": {
+      "MAIN_MERGE_SKIP_PYTEST": "1",
+      "replacement": "同ec307完整Linux结果替代本地重复全量",
+      "other_gates_enabled": true,
+      "selfcheck_timeout_seconds": 480,
+      "selfcheck_result": "WARN_TIMEOUT",
+      "parent_followup": "实际补核四main run全部success；不称selfcheck PASS"
+    },
+    "selfcheck_boundary": "480s超时WARN，不能写selfcheck PASS；父后续实核四run成功是另一项检查",
+    "new_runtime_P2_after_readiness": "正式runtime后验新P2见#382；旧readiness生成时的P0/P1/P2清单不外推当前机制全绿"
+  },
+  "local_mirror_quarantine": {
+    "status": "COMPLETE",
+    "removed_synthetic_entries": 45,
+    "before_backups_verified": 6,
+    "severe_retained": {
+      "count": 50,
+      "bytes": 29777,
+      "sha256": "8da93dbbb4243898738fc5117dca4b57ab694cc5d54ab9c132e92461bf945667"
+    },
+    "restore_controls": [
+      {
+        "id": "file-0",
+        "backup_sha256_verified": true,
+        "backup_mode": "0600",
+        "live_after_sha256_verified": true,
+        "head_and_protected_bytes_equal": true,
+        "same_live_lock_inode": true,
+        "restore_exact_before_in_tmp": true,
+        "restore_current_drift_refused_in_tmp": true
+      },
+      {
+        "id": "file-1",
+        "backup_sha256_verified": true,
+        "backup_mode": "0600",
+        "live_after_sha256_verified": true,
+        "head_and_protected_bytes_equal": true,
+        "same_live_lock_inode": true,
+        "restore_exact_before_in_tmp": true,
+        "restore_current_drift_refused_in_tmp": true
+      },
+      {
+        "id": "file-3",
+        "backup_sha256_verified": true,
+        "backup_mode": "0600",
+        "live_after_sha256_verified": true,
+        "head_and_protected_bytes_equal": true,
+        "same_live_lock_inode": true,
+        "restore_exact_before_in_tmp": true,
+        "restore_current_drift_refused_in_tmp": true
+      },
+      {
+        "id": "file-4",
+        "backup_sha256_verified": true,
+        "backup_mode": "0600",
+        "live_after_sha256_verified": true,
+        "head_and_protected_bytes_equal": true,
+        "same_live_lock_inode": true,
+        "restore_exact_before_in_tmp": true,
+        "restore_current_drift_refused_in_tmp": true
+      },
+      {
+        "id": "file-5",
+        "backup_sha256_verified": true,
+        "backup_mode": "0600",
+        "live_after_sha256_verified": true,
+        "head_and_protected_bytes_equal": true,
+        "same_live_lock_inode": true,
+        "restore_exact_before_in_tmp": true,
+        "restore_current_drift_refused_in_tmp": true
+      },
+      {
+        "id": "file-6",
+        "backup_sha256_verified": true,
+        "backup_mode": "0600",
+        "live_after_sha256_verified": true,
+        "head_and_protected_bytes_equal": true,
+        "same_live_lock_inode": true,
+        "restore_exact_before_in_tmp": true,
+        "restore_current_drift_refused_in_tmp": true
+      }
+    ],
+    "original_audit_raw_mirrors_retained": true,
+    "live_restore_performed": false,
+    "boundary": "本机镜像假条目隔离；未改发送账本/邮件/飞书记录，原始正文不复制入库"
+  },
+  "authorized_recovery": {
+    "status": "COMPLETE_VERIFIED_FOR_AUTHORIZED_FOUR_MODES",
+    "verdict_scope": "已授权NAV四日12NULL格+三指数Nov9三行全部真实提交并验证；不表示ETF/7历史/136冻结缺口或公开自然链已闭环。",
+    "modes": [
+      {
+        "mode": "nav",
+        "status": "VERIFIED_RECOVERED",
+        "actual_start_cst": "2026-11-10T13:15:16.824837+08:00",
+        "actual_end_cst": "2026-11-10T13:15:17.076830+08:00",
+        "timeout_seconds": 45,
+        "exit_code": 0,
+        "ssh_exit_code": 0,
+        "verified": true,
+        "commit_confirmed": true,
+        "row_operations": 4,
+        "current_child_PID": null,
+        "current_session": null
+      },
+      {
+        "mode": "hs300",
+        "status": "VERIFIED_RECOVERED",
+        "actual_start_cst": "2026-11-10T13:16:11.766596+08:00",
+        "actual_end_cst": "2026-11-10T13:16:12.963686+08:00",
+        "timeout_seconds": 45,
+        "exit_code": 0,
+        "ssh_exit_code": 0,
+        "verified": true,
+        "commit_confirmed": true,
+        "row_operations": 1,
+        "current_child_PID": null,
+        "current_session": null
+      },
+      {
+        "mode": "csi500",
+        "status": "VERIFIED_RECOVERED",
+        "actual_start_cst": "2026-11-10T13:17:21.354080+08:00",
+        "actual_end_cst": "2026-11-10T13:17:22.684157+08:00",
+        "timeout_seconds": 45,
+        "exit_code": 0,
+        "ssh_exit_code": 0,
+        "verified": true,
+        "commit_confirmed": true,
+        "row_operations": 1,
+        "current_child_PID": null,
+        "current_session": null
+      },
+      {
+        "mode": "gem",
+        "status": "VERIFIED_RECOVERED",
+        "actual_start_cst": "2026-11-10T13:17:30.398523+08:00",
+        "actual_end_cst": "2026-11-10T13:17:33.409161+08:00",
+        "timeout_seconds": 45,
+        "exit_code": 0,
+        "ssh_exit_code": 0,
+        "verified": true,
+        "commit_confirmed": true,
+        "row_operations": 1,
+        "current_child_PID": null,
+        "current_session": null
+      }
+    ],
+    "final_verification": {
+      "final_snapshot_at_cst": "2026-11-10T13:18:01.000154+08:00",
+      "trusted_head": "ec307b55954ad674c2dbeb1b0d1b4ca02fa0a216",
+      "script_sha256": "7d9ea05347a76ab820a6b27020a4c936ec6b2f1c79df62f36e4f6f065dc85f66",
+      "NAV_exact_cell_diffs": [
+        {
+          "table": "fund_daily_nav",
+          "date": "20261103",
+          "fund_code": "016989",
+          "column": "unit_nav",
+          "before": null,
+          "after": 1.1298
+        },
+        {
+          "table": "fund_daily_nav",
+          "date": "20261103",
+          "fund_code": "016989",
+          "column": "acc_nav",
+          "before": null,
+          "after": 1.1298
+        },
+        {
+          "table": "fund_daily_nav",
+          "date": "20261103",
+          "fund_code": "016989",
+          "column": "nav_change_pct",
+          "before": null,
+          "after": -0.93
+        },
+        {
+          "table": "fund_daily_nav",
+          "date": "20261104",
+          "fund_code": "016989",
+          "column": "unit_nav",
+          "before": null,
+          "after": 1.1631
+        },
+        {
+          "table": "fund_daily_nav",
+          "date": "20261104",
+          "fund_code": "016989",
+          "column": "acc_nav",
+          "before": null,
+          "after": 1.1631
+        },
+        {
+          "table": "fund_daily_nav",
+          "date": "20261104",
+          "fund_code": "016989",
+          "column": "nav_change_pct",
+          "before": null,
+          "after": 2.95
+        },
+        {
+          "table": "fund_daily_nav",
+          "date": "20261105",
+          "fund_code": "016989",
+          "column": "unit_nav",
+          "before": null,
+          "after": 1.1713
+        },
+        {
+          "table": "fund_daily_nav",
+          "date": "20261105",
+          "fund_code": "016989",
+          "column": "acc_nav",
+          "before": null,
+          "after": 1.1713
+        },
+        {
+          "table": "fund_daily_nav",
+          "date": "20261105",
+          "fund_code": "016989",
+          "column": "nav_change_pct",
+          "before": null,
+          "after": 0.71
+        },
+        {
+          "table": "fund_daily_nav",
+          "date": "20261106",
+          "fund_code": "016989",
+          "column": "unit_nav",
+          "before": null,
+          "after": 1.154
+        },
+        {
+          "table": "fund_daily_nav",
+          "date": "20261106",
+          "fund_code": "016989",
+          "column": "acc_nav",
+          "before": null,
+          "after": 1.154
+        },
+        {
+          "table": "fund_daily_nav",
+          "date": "20261106",
+          "fund_code": "016989",
+          "column": "nav_change_pct",
+          "before": null,
+          "after": -1.48
+        }
+      ],
+      "NAV_window_keyset_unchanged": true,
+      "NAV_original_nonempty_fields_verified_unchanged": 51,
+      "NAV_prev_unit_and_fund_name_unchanged": true,
+      "index_old15_unchanged": true,
+      "index_exact_three_added_rows": [
+        {
+          "date": "20261109",
+          "index_id": "csi500",
+          "close": 6586.1764,
+          "pct_change": -0.169377
+        },
+        {
+          "date": "20261109",
+          "index_id": "gem",
+          "close": 2458.5623,
+          "pct_change": -0.270551
+        },
+        {
+          "date": "20261109",
+          "index_id": "hs300",
+          "close": 4056.1081,
+          "pct_change": 0.045167
+        }
+      ],
+      "freeze_and_progress_before_actual_first_write_equal_final": true,
+      "freeze_and_progress_since_initial_1258_preflight_equal_final": true,
+      "protected_hashes": {
+        "public_fund.fof-nav-progress.json": {
+          "exists": false
+        },
+        "signal_kelly_etf_freeze.json": {
+          "exists": true,
+          "sha256": "c8c8cb9dc1821ff8e0693631300956f1756b7c016db07dad0f04e5d1fad01cc5",
+          "size": 5899545
+        }
+      },
+      "etf_two_full_rows_unchanged": true,
+      "target_table_triggers": [],
+      "no_unplanned_key_writes_proof": "固定脚本源/参数限定4个既有NAV键与各1个指数键，实际row_operations=4+1+1+1；目标表无trigger，12格差异和3新键严格对账。其他基金全表/非空正控样本未取，标UNKNOWN_NOT_SAMPLED；0行控样仅证明其键仍未出现，不作非空值比较证据。",
+      "lock_file_content_and_inodes_unchanged": true,
+      "non_target_fund_evidence_boundary": {
+        "positive_row_sample_status": "UNKNOWN_NOT_SAMPLED",
+        "bounded_control_query": "两只ETF代码在PF fund_daily_nav指定日期的before/after查询均为0行；不能称作已有非空基金行样本验证。",
+        "no_unplanned_write_proof": "采用固定脚本SQL/参数仅4个NAV既有键及3个指数键、实际row_operations=4+1+1+1、目标表无trigger证明无非目标基金写路径；没有全库扫描或事后补造before。"
+      }
+    },
+    "row_operations": 7,
+    "ETF_writes": 0,
+    "postcheck": {
+      "verdict": "PASS",
+      "summary": "本地不可变证据窄核PASS：4mode实际SSH及业务rc均0、verified/commit_confirmed=true；NAV仅四日12NULL格补值，三指数各新增Nov9一行；受影响窗原51个非空字段、旧15行及freeze保留。非目标基金正样本为UNKNOWN_NOT_SAMPLED，不将空控样当作数据证据。本review无新增云/源请求、无DB/源码/Git写。",
+      "receipt_hashes": "24/24 PASS",
+      "non_target_fund_assessment": {
+        "positive_sample_status": "UNKNOWN_NOT_SAMPLED",
+        "positive_sample_rows": 0,
+        "empty_controls_not_counted_as_nonempty_evidence": true,
+        "structural_proof_only": {
+          "fixed_script_SHA_and_reviewed_SQL_verified": true,
+          "NAV_UPSERT_SQL_SHA": "9777a39f070d896c6e6b5f93512f03ed7b5fa8888a58c604cddf3eb279fd60f3",
+          "NAV_bound_keys": [
+            [
+              "20261103",
+              "016989"
+            ],
+            [
+              "20261104",
+              "016989"
+            ],
+            [
+              "20261105",
+              "016989"
+            ],
+            [
+              "20261106",
+              "016989"
+            ]
+          ],
+          "index_bound_keys": [
+            [
+              "20261109",
+              "hs300"
+            ],
+            [
+              "20261109",
+              "csi500"
+            ],
+            [
+              "20261109",
+              "gem"
+            ]
+          ],
+          "recorded_business_row_operations": 7,
+          "operation_breakdown": {
+            "nav": 4,
+            "hs300": 1,
+            "csi500": 1,
+            "gem": 1
+          },
+          "target_table_triggers_in_controls": []
+        },
+        "conclusion": "固定代码/SQL、精确参数、实际7行操作及目标表无trigger共同支持本次无非目标业务写；这是结构性边界证明，不是全库/非目标基金数据正样本对账。未做全表或库级快照散列。"
+      },
+      "no_new_network_DB_lock_or_write": true
+    },
+    "current_state": {
+      "mode": "DONE",
+      "current_child_PID": null,
+      "current_session": null,
+      "all_receipts_verified": true
+    },
+    "boundary": "DB精确恢复与本地窄postcheck通过，不等于public展示/自然export交付链通过；非目标基金正样本UNKNOWN_NOT_SAMPLED"
+  },
+  "worker375": {
+    "diagnostic_head": "22a558a6ec884c16dd5eb800e3c3d58ea5df0bb8",
+    "diagnostic_run": 42761618507,
+    "diagnostic_jobs": [
+      {
+        "id": 129648378886,
+        "conclusion": "success"
+      }
+    ],
+    "independent_review": "PASS as reported",
+    "recorded_log_facts": {
+      "api_host": "NOT_RECORDED",
+      "api_method": "NOT_RECORDED",
+      "api_path": "NOT_RECORDED",
+      "error_type": "MALFORMED_API_RESPONSE",
+      "html_title": "NOT_RECORDED",
+      "http_status": "NOT_RECORDED",
+      "wrangler_log_path_present": true
+    },
+    "later_user_context": {
+      "recorded_facts": {
+        "wrangler_version": "4.158.0",
+        "api_method": "POST",
+        "api_route_template": "/accounts/{account}/workers/scripts/{script}/versions",
+        "http_status": 504,
+        "http_status_text": "Gateway Timeout",
+        "response_format": "HTML truncated6503chars",
+        "ray_id": "a57e01ddacc4a6ca-SEA",
+        "process_exit_code": 1
+      },
+      "interpretation": "Worker版本创建API请求收到网关504，Wrangler将HTML非JSON响应报告为malformed；本段没有鉴权失败证据，不是前端业务JS报错。",
+      "not_proven": [
+        "Cloudflare内部真正超时环节",
+        "版本对象是否已创建而仅响应超时",
+        "所有历史发布失败均同因",
+        "未来不会复发"
+      ],
+      "prior_diagnostic_preserved": "r4诊断仅取截断上下文故HTTP等NOT_RECORDED；本用户新证据补充未知，不改旧报告。"
+    },
+    "product_main_changed_by_diagnostic": false,
+    "current_product_worker_run": 42756830500,
+    "historical_symptom": "Worker版本创建POST的Cloudflare API网关504已由用户新增完整上下文证实",
+    "historical_internal_root_cause": "OPEN_OBSERVE_NOT_PROVEN",
+    "controller_disposition": {
+      "status": "DISPOSITION_COMPLETE_OBSERVE_PROVIDER",
+      "decision": "本轮不追加外层部署重试，不改API权限/secret，不将504误写为鉴权失败。",
+      "reason": "实际Wrangler4.158.0版本POST已内置最多总3次transient尝试。当前main自动部署已成功；没有额外叠加重试有效的实测证据，避免重试放大及版本已建但deployment未成功的歧义。",
+      "root_cause_boundary": "已证CF版本API网关504与HTML响应；CF内部超时环节未知。代码不能保证外部网关不再故障，耗尽后必须保持真实FAIL/告警。",
+      "planned_code_changes": false,
+      "current_deployment_success_run": 42756830500,
+      "future_acceptance": "后续真实发布仍核对相同SHA可信CI、真实部署exit及active版本；版本创建不等于上线。"
+    },
+    "native_retry_scope": {
+      "native_version_post_max_total_attempts": 3,
+      "unit": "版本创建POST（旧上传PUT也有相应wrapper），不是整个job或全部发布阶段。",
+      "deployment_post": "成功拿到version ID后单独POST deployments，已核调用无同样retry wrapper；随后非版本化设置与triggers还有各自行为，不能由version POST的上限推导全job上限。",
+      "valid_terminal_failure": "最多3次仍5xx/读取失败或触发快速失败条件，最终exit1合法。单条最终504不证明没有重试。"
+    },
+    "policy": "DISPOSITION_COMPLETE_OBSERVE_PROVIDER：本轮不叠外层retry、不改权限secret；原生版本POST最多总3尝试，耗尽后真实504FAIL保留。r4未知字段不回写，不称永久根治，不再等待375实施/审查"
+  },
+  "private_archive": {
+    "archive": "/Users/linhuichen/.local/share/trade-audit/20261110/alert-recheck-evidence.tar.gz",
+    "archive_sha256": "d353dfb27eb70da0d5884db9988d38696804fa1a100ea88614291ead927b5d60",
+    "archive_bytes": 137831742,
+    "source_bytes": 540149771,
+    "file_count": 481,
+    "manifest": "/Users/linhuichen/.local/share/trade-audit/20261110/alert-recheck-evidence.manifest.json",
+    "manifest_sha256": "0bcb63b60288284da988e4f87891bd3d9a72a6b257ec4634487d403e20c3aa41",
+    "verification": {
+      "method": "压缩包每个普通成员完整读取并按manifest逐字节SHA-256/size对账",
+      "member_count": 481,
+      "verified_bytes": 540149771,
+      "mismatches": 0,
+      "duplicate_members": 0,
+      "symlink_or_special_members": 0,
+      "source_inventory_unchanged": true,
+      "manifest_generated_before_pack": true,
+      "archive_contains_only_source_regular_files": true,
+      "restore_script_verify_only": {
+        "result": "PASS",
+        "verified_files": 481,
+        "verified_bytes": 540149771,
+        "exit_code": 0,
+        "executed_at": "2026-11-10T12:37:58.965140+08:00",
+        "timeout_seconds": 25,
+        "destination_written": false
+      },
+      "permissions_independently_checked": true
+    },
+    "permissions": {
+      "directory": "0700",
+      "archive_manifest_report_restore_script": "0600"
+    },
+    "private_report_copy": "/Users/linhuichen/.local/share/trade-audit/20261110/private-evidence-archive.json",
+    "source_tmp_deleted": false,
+    "takeover_running_reports_archived": false,
+    "uploaded": false
+  },
+  "fixed_takeover_persistence": {
+    "status": "VERIFIED_BYTE_IDENTICAL",
+    "destination": "/Users/linhuichen/.local/share/trade-audit/20261110/takeover-evidence-v1",
+    "files": 56,
+    "bytes": 2176784,
+    "mode": "directory0700,file0600",
+    "immutable_inputs_only": true,
+    "source_tmp_deleted": false,
+    "final_inflight_followup_not_included": true,
+    "receipt_files_included_as_reported": 24,
+    "boundary": "与旧481件tar分开；当前verifier后续及最终master不在56件内，父完成后再补"
+  },
+  "prior_handoff_metadata_only": {
+    "packets": 13,
+    "integrity_verified": 13,
+    "ack_null": 13,
+    "status": "context-emitted",
+    "Claude_received_or_reviewed_claim": false,
+    "boundary": "完整性/上下文发出不等于收到或复核；最终master统一覆盖本轮相关历史，不伪造ACK，不复制13packet原文"
+  },
+  "runtime": {
+    "artifact_readonly_acceptance": "PASS",
+    "canonical_http": {
+      "result": "four HTTP 200; all four SHA256 match unchanged source pair",
+      "source_generated_at": "2026-11-09 21:40",
+      "observed_cst": "2026-11-10 13:22:45–13:23:00",
+      "risk_score": 74,
+      "risk_level": "red"
+    },
+    "formal_selfverify": {
+      "function": "_delivery_worker",
+      "one_hop": "publish_overfit -> delivery subprocess -> _delivery_worker -> urllib.request.Request/urlopen",
+      "request_lines": [
+        2076,
+        2077,
+        2078
+      ],
+      "client": "default urllib.request",
+      "explicit_headers": {
+        "Cache-Control": "no-cache"
+      },
+      "custom_user_agent": false,
+      "curl_fallback": false,
+      "urls": "https://{ss.fx8.store,ssd.fx8.store}/data/{overfit_monitor.json,overfit_monitor_ext.json}",
+      "error_contract": "public_verification exception -> R2_PUBLIC_UNCONFIRMED -> exit 76 (lines 2088–2090)",
+      "file": "scripts/overfit_monitor.py"
+    },
+    "client_comparison": {
+      "deployed_venv_equivalent_request": "four original selfverify URLs HTTP 403",
+      "existing_curl_same_paths": "HTTP 200",
+      "complete_delivery_worker_invoked": false,
+      "actual_worker_readonly_invocation": "NOT RUN; no further probes authorized",
+      "cause_of_client_difference": "UNKNOWN; do not attribute to site outage or WAF without evidence",
+      "first_probe_rc1": "probe harness redirected stdout before upload_r2 import; sys.stdout.reconfigure AttributeError; no HTTP ran; not a business failure"
+    },
+    "publisher_mechanism": {
+      "status": "OPEN",
+      "priority": "P2",
+      "id": "OVERFIT-SELFVERIFY-CLIENT403-P2",
+      "conclusion": "formal client has no fallback; if observed 403 persists after successful upload, actual worker will return 76; full publish was not executed",
+      "minimal_next_step": "parent to fix or diagnose the formal verifier client compatibility separately; preserve existing artifact acceptance and do not PUT merely to reproduce"
+    },
+    "production_actions": {
+      "PUT": 0,
+      "purge": 0,
+      "export": 0,
+      "pull": 0,
+      "database_writes": 0,
+      "deployment": 0
+    },
+    "new_registration": 382,
+    "new_P2": "OVERFIT-SELFVERIFY-CLIENT403-P2",
+    "status_at_ec307": "OPEN_RUNTIME_FINDING",
+    "task_numbering": {
+      "374": "D1 rows written/计费口径及增量自然轮观察；原历史和观察不改",
+      "382": "OVERFIT-SELFVERIFY-CLIENT403-P2，独立兼容缺陷唯一实施状态",
+      "parent_index": null,
+      "implementation_status_authority": "docs/pending-features-index.md #382",
+      "other_existing_overfit_id": "UNCONFIRMED_NOT_ASSIGNED",
+      "duplicate_task_created": false
+    },
+    "numbering_addendum": "numbering-correction-addendum.json",
+    "repair_scope": "独立兼容缺陷#382；同URL/有界预算/TLS/hash不降低，实施状态只见pending-index #382。374仅D1原历史与观察；撤销错误母子路由，不猜其它既有overfit号",
+    "author_evidence_at_capture": {
+      "head": "e2e9095ef4bd8148f664c5ff1ec3e0e8a88aec2e",
+      "pushed": false,
+      "targeted": {
+        "rc": 0,
+        "raw_last_line": "156 passed in 6.43s",
+        "log": "/tmp/codex-reports/alert-takeover-20261110/overfit-verifier-targeted-v4.log"
+      },
+      "old_red": {
+        "rc": 1,
+        "result": "1 failed; actual old worker returned76 under urllib403 even with working fake curl",
+        "log": "/tmp/codex-reports/alert-takeover-20261110/overfit-verifier-old-red.log"
+      },
+      "boundary": "仅作者固定提交和定向/旧版负控，不替代独立审查、精确head LinuxOps或发布/云只读验收"
+    },
+    "followup_chain_evidence": "overfit-382-closeout-slot.json",
+    "publisher_write_GO": false,
+    "boundary": "curl四地址200/hash只证明对象已上线；真实默认urllib四地址403，不能称正式投递最终PASS；不猜403厂商根因"
+  },
+  "retained_OPEN": [
+    "136历史冻结缺口",
+    "历史#373/Nov3权威来源",
+    "D1自然轮和完整UTC周期",
+    "真实74/red风险",
+    "锁长等待的实际持有者尚未证实",
+    "两ETF159501/159513 Nov9累积净值现有源仅到Nov6，零写，待发布",
+    "七个无可信T0的历史交易键不重造；精确DB恢复不代关public自然链",
+    "#375旧症状网关504已知，Cloudflare内部根因/版本是否已创建未知；当前自动Worker绿与历史归因分层"
+  ],
+  "boundaries": [
+    "仅归档给定证据，未新增云/SQL/网络取证或重新跑源码全量",
+    "v1/v2历史原件保留；没有把原审计FAIL倒改成全部根治",
+    "MAIN_MERGE_SKIP_PYTEST=1是父显式以同SHA完整Linux替代本地重复全量，其余门禁启用",
+    "R2独立cache锁已因并发先后反证否决，最终保留global屏障；长等待实际持有者仍未证实"
+  ]
+}

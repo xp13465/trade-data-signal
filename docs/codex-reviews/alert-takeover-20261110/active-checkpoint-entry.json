@@ -1,0 +1,17 @@
+{
+  "kind": "ACTIVE_RECOVERY_ENTRY_METADATA_ONLY",
+  "packet_id": "alert-takeover-active-20261110-v1",
+  "report_name": "active-takeover-checkpoint-v1.json",
+  "report_request_id": "alert-takeover-active-checkpoint-20261110-v1",
+  "report_sha256": "f0a5ee549c65f3f07e846f893f0b1a234961fadd948a8b82b4dc6c3152e8ffe1",
+  "report_status": "ACTIVE_NOT_FINAL",
+  "delivery_state_at_parent_report": {
+    "integrity": "verified",
+    "status": "queued",
+    "ack": null
+  },
+  "home_copy": "父确认同字节持久副本已存在；本归档不另核home",
+  "resume_scope": "Claude恢复先读ACTIVE checkpoint，避免重复merge4d或并发修改本docs工作区",
+  "supersede": "最终master将用新id supersede本ACTIVE checkpoint",
+  "receipt_boundary": "queued/context不是收到或复核；本条不生成ACK，也不复制13旧packet原文"
+}

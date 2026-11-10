@@ -82,3 +82,8 @@ python3 -c 'import subprocess; subprocess.run(["python3","scripts/check_task_sta
 ## 2026-11-10 后续进展入口（不回写第一版）
 
 [第二版进展与复现](progress-v2.md)追加两支实现的定向/未闭合全量、父52b与原36b内审边界、独立#381 R2结果契约和排序安全前置、Rawls源就绪/两ETF待发布及#375取证缺口。它仍非部署收口终版；先等父真实CI/部署证据再追加。
+
+
+## 第三版收口材料入口（v1/v2原文保留）
+
+[v3事实、正式恢复及投递新P2边界](progress-v3.md)追加ec307审合发布/真实CI、45假条目隔离、Rawls精确恢复与Turing postcheck PASS、正式runtime新#382和#375新增用户上下文、私有证据持久化及无ACK边界。#382兼容缺陷已由固定95be真实新函数纯GET正式PASS关闭，main三条适用流程实际success；Worker路径不匹配、blob未变，本轮不适用并沿用ec307既有成功版本。完整960publish自然链另观察，本版单一文档提交，不写全部告警根治。

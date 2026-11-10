@@ -8,6 +8,14 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
+> 🧭 **v3本轮收口(2026-11-10，源95be与#382兼容验收完成，历史/自然轮OPEN)——最新入口**
+> **恢复入口**：ACTIVE packet `alert-takeover-active-20261110-v1` / report `active-takeover-checkpoint-v1.json` SHA `f0a5ee549c65f3f07e846f893f0b1a234961fadd948a8b82b4dc6c3152e8ffe1`；integrity verified/queued/ACK null，父确认home同字节副本。恢复先读，避免重复merge4d/并发改docs；终版将新id supersede，不把queued称收到/复核。
+> **源发布/适用CI**：main/云CODE同95be33a52edd1d29ba0a0588b9e20e153e618785，标准main-merge exit0、Quality自查success；精确头Linux42765507696总4275=4268通过+7skip、0失败错误。main Quality42766606335/Ops42766606020/Pages42766606019三条实际success。Worker此次push paths不匹配、代码/配置blob未变，不适用且无需重部署，沿用ec307既有成功版本。MAIN_MERGE_SKIP_PYTEST=1只以同头完整Linux替代本地重复全量，其余门禁启用。
+> **首次历史不可美化**：ec307首次selfcheck480s WARN后父补核四run，95be第二次selfcheck是真success；e2e909真实Linux42763898317的4273总/15失败/0错误/7skip保留，具体缺certifi声明复现/返修见v3，不泛称无关环境。#374只D1，#382独立，旧作者误号仅addendum订正。
+> **恢复/兼容已验**：NAV四日12NULL+三指数3行，4mode exit0/verified，Turing窄postcheck PASS/24receipt hash；原51非空字段/15旧行/freeze/进度/锁控制保留，非目标基金正样本UNKNOWN_NOT_SAMPLED。#382兼容已完成：actual cloud95be新函数纯GET rawexit0/27.001s，四原URL urllib403→正常TLS curl200、严格len/hash等未变源对，无PUT/purge/DB/源写/完整publish、无child；960publish自然链仍观察。
+> **保留OPEN**：ETF现有源仅Nov6/Nov9零写待发布，136冻结/七历史键、#373原备份/Nov3来源、#374 D1自然轮、74red风险、#353/#354长等待持有者和失败清单不代关。#381独立cache锁否决/global保留。#375用户补全网关504；内部原因未知，父DISPOSITION_COMPLETE_OBSERVE_PROVIDER，本轮不叠外层retry/不改权限secret，原生版本POST最多总3尝试，耗尽真实FAIL保留。
+> **文档交接**：[v3收口与复现](docs/codex-reviews/alert-takeover-20261110/progress-v3.md)。45假条目隔离/50真实severe保留，旧481件私有tar与新增56件固定证据分开；13旧packet ACKnull不冒称Claude复核。文档branch仅ff95be并保留12dirty材料，v1/v2不回写；本次单commit交父，最终只验95be..docsHEAD为允许文档，本分支不push/mainmerge、不重跑源码全量。
+
 > 🧭 **接管进展追加(2026-11-10，终版待真实CI/部署证据)——最新入口**
 > **实现/审查界限**：父固定整合 `52b0ed5f58cccc899ba8bd52fb20ae52798994fa` 含原4d+main及 `ace115157617eceb0d1abd20c41cdeab4fb9b503` / `25dccda35abea3ec96a39355abc35231d3534cdf`。原36b内审PASS与74局部测试只覆盖原整合，不是最终新三P2通过；#379/#380实现/测试进展及未闭合边界以索引为准。
 > **新增指针**：#381 R2结果契约（purge缺secret/503返回None、CLI/async仍成功）已独立登记，Boyle同任务转实施；独立cache锁仅候选，父要求先证明invalidate-before-publish排序安全，未证不列必修。#257/#333源就绪不等于恢复；两ETF现有源只到Nov6，不造数；#375取证通道受限，无原错误不猜凭证。

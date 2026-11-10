@@ -1,0 +1,26 @@
+{
+  "request_id": "overfit-public-verifier-numbering-correction-20261110",
+  "generated_at": "2026-11-10T13:42:58.863295+08:00",
+  "status": "NUMBERING_CORRECTED_PARENT_ROUTE_REVOKED",
+  "authority": "父明确确认此前把374当overfit是编号记错并撤销路由；授权不能改变事实",
+  "original_report": {
+    "name": "overfit-public-verifier-implementation.json",
+    "sha256": "eb0fc4e28267a4686b8e5052968cc6c56945fb4066e2fa4c3dee91721d5b1a8d",
+    "head": "e2e9095ef4bd8148f664c5ff1ec3e0e8a88aec2e",
+    "task_label_at_capture": "#374 delivery parent / #382 compatibility child: same fix",
+    "preserved_without_edit": true
+  },
+  "correction": {
+    "374": "D1 rows written/计费口径及增量自然轮观察；原历史和观察不改",
+    "382": "OVERFIT-SELFVERIFY-CLIENT403-P2，独立兼容缺陷唯一实施状态",
+    "parent_index": null,
+    "implementation_status_authority": "docs/pending-features-index.md #382",
+    "other_existing_overfit_id": "UNCONFIRMED_NOT_ASSIGNED",
+    "duplicate_task_created": false
+  },
+  "revoked_input": "parent-routing-374-382.json 不再作为v3生成输入，旧私有文件仅保留为已撤销指令证据",
+  "code_commit_amended": false,
+  "original_author_report_amended": false,
+  "v1_v2_history_changed": false,
+  "scope": "只修本轮v3新材料、生成器和指定两行；不扩全index扫描"
+}
