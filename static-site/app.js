@@ -11849,6 +11849,7 @@ function _renderCollectTime() {
   const _icon = _UPDATE_RULES_ICON;
   if (!ct) {
     document.querySelectorAll(".pc-collect-time,.h5-collect-time").forEach((el) => { el.innerHTML = ""; });
+    _renderMobileCollectHealth(_renderCollectHealthDot(health), "采集时间未知");
     return;
   }
   const snap = state.intradaySnapshot;
@@ -11861,6 +11862,32 @@ function _renderCollectTime() {
   });
   document.querySelectorAll(".h5-collect-time").forEach((el) => {
     el.innerHTML = `${timeStr}${suffix}${_healthHTML}${_icon}`;
+  });
+  _renderMobileCollectHealth(_healthHTML, `数据采集时间：${timeStr}${suffix}`);
+}
+// 手机异常入口独立于被隐藏的时间容器；详情与桌面复用同一次健康渲染。
+function _renderMobileCollectHealth(healthHTML, timeLabel) {
+  const source = document.createElement("span");
+  source.innerHTML = healthHTML;
+  const healthDot = source.querySelector('.collect-health[role="button"]');
+  document.querySelectorAll(".h5-collect-time").forEach((el) => {
+    let entry = el.parentElement.querySelector(".h5-collect-alert");
+    if (!healthDot) { if (entry) entry.remove(); return; }
+    if (!entry) {
+      entry = document.createElement("details");
+      entry.className = "h5-collect-alert";
+      entry.append(document.createElement("summary"), document.createElement("div"));
+      entry.lastElementChild.className = "h5-collect-alert-detail";
+      el.after(entry);
+    }
+    entry.dataset.level = healthDot.dataset.level;
+    entry.firstElementChild.textContent = healthDot.getAttribute("aria-label") + " · 详情";
+    const detail = entry.lastElementChild;
+    detail.replaceChildren(...healthDot.querySelector(".collect-health-pop").cloneNode(true).childNodes);
+    const stamp = document.createElement("div");
+    stamp.className = "h5-collect-alert-time";
+    stamp.textContent = timeLabel;
+    detail.append(stamp);
   });
 }
 // A4 健康灯 HTML：ok 绿点（无 pop）；warn/error 黄/红点 + hover pop 显示失败源列表。

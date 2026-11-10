@@ -20,7 +20,9 @@ data/anomaly_email_pending.json，下一轮重试）。修「邮件通道一挂�
 """
 from __future__ import annotations
 
+import html
 import json
+import math
 import sqlite3
 import subprocess
 import sys
@@ -171,6 +173,14 @@ def detect_volume_surge(snapshot: dict, conn) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 3) 突破
 # ---------------------------------------------------------------------------
+def _is_valid_breakout_price(value) -> bool:
+    """突破价格必须是有限正数；bool 不属于行情数值。"""
+    try:
+        return type(value) in (int, float) and math.isfinite(value) and value > 0
+    except OverflowError:  # JSON 整数可超出 isfinite 内部 float 转换的范围。
+        return False
+
+
 def detect_breakout(snapshot: dict, conn) -> list[dict]:
     """突破: 突破近20日高低点。扫描指数（有 OHLC high/low）。
 
@@ -188,7 +198,7 @@ def detect_breakout(snapshot: dict, conn) -> list[dict]:
             continue
         intraday_high = idx.get("high")
         intraday_low = idx.get("low")
-        if intraday_high is None and intraday_low is None:
+        if not _is_valid_breakout_price(intraday_high) and not _is_valid_breakout_price(intraday_low):
             continue
         rows = conn.execute(
             "SELECT high, low FROM index_daily WHERE index_id=? "
@@ -196,23 +206,20 @@ def detect_breakout(snapshot: dict, conn) -> list[dict]:
             "ORDER BY date DESC LIMIT ?",
             (index_id, today, BREAKOUT_LOOKBACK)
         ).fetchall()
-        if len(rows) < BREAKOUT_MIN_HISTORY:
-            continue
-        highs = [r["high"] for r in rows if r["high"] is not None]
-        lows = [r["low"] for r in rows if r["low"] is not None]
-        if not highs or not lows:
-            continue
-        hh20 = max(highs)
-        ll20 = min(lows)
+        # 保留原查询窗口；按方向过滤无效值后再检查有效样本数，不向更早日期补足。
+        highs = [r["high"] for r in rows if _is_valid_breakout_price(r["high"])]
+        lows = [r["low"] for r in rows if _is_valid_breakout_price(r["low"])]
+        hh20 = max(highs) if len(highs) >= BREAKOUT_MIN_HISTORY else None
+        ll20 = min(lows) if len(lows) >= BREAKOUT_MIN_HISTORY else None
         name = idx.get("name", code)
-        if intraday_high is not None and intraday_high > hh20:
+        if _is_valid_breakout_price(intraday_high) and hh20 is not None and intraday_high > hh20:
             alerts.append({
                 "type": "breakout_up", "tier": "normal",
                 "kind": "指数", "name": name,
                 "high": round(intraday_high, 2), "hh20": round(hh20, 2),
                 "desc": f"突破20日高 指数{name} 当日高{intraday_high:.2f} > 20日高{hh20:.2f}",
             })
-        elif intraday_low is not None and intraday_low < ll20:
+        elif _is_valid_breakout_price(intraday_low) and ll20 is not None and intraday_low < ll20:
             alerts.append({
                 "type": "breakout_down", "tier": "normal",
                 "kind": "指数", "name": name,
@@ -316,7 +323,7 @@ def send_alert(alerts: list[dict]) -> bool:
              f"<p>共 {len(alerts)} 项异动（去重后首次触发）：</p>", "<ul>"]
     for a in alerts:
         badge = tier_badge.get(a.get("tier"), "")
-        lines.append(f"<li>{badge} {a['desc']}</li>")
+        lines.append(f"<li>{badge} {html.escape(a['desc'], quote=False)}</li>")
     lines.append("</ul>")
     lines.append("<p style='color:#888;font-size:12px;'>盘中30分钟节奏检测，"
                  "同日同标的同类型只报一次。收盘后系统将发送最终版信号邮件，请以最终版为准。</p>")

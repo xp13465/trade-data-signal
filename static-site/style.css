@@ -148,7 +148,7 @@ header h1 { font-size: 18px; margin: 0; }
 .h5-share-btn { display: none; }
 /* 采集时间（分享按钮旁）；PC 显示完整，H5 默认隐藏、@media 显示精简版 */
 .pc-collect-time { font-size: 12px; color: var(--text-3); margin-left: 10px; white-space: nowrap; }
-.h5-collect-time { display: none; }
+.h5-collect-time, .h5-collect-alert { display: none; }
 
 /* 分享图 modal */
 .share-modal-body { width: min(96vw, 1120px); max-width: 1120px; max-height: 92vh; }
@@ -7445,6 +7445,20 @@ select.tds-fade-mode-sel:hover, select.tds-fade-mode-sel:focus { border-color: v
   .h5-topbar .h5-theme-btn,
   .h5-topbar .h5-collect-time { display: none !important; }
   .h5-topbar .h5-notify-btn { display: inline-flex; }
+  /* 手机异常入口：原生 details 支持触摸/键盘，完整时间沿用采集时间口径。 */
+  .h5-collect-alert { display: block; font-size: 11px; line-height: 1.5; color: var(--text-2); }
+  .h5-collect-alert > summary { cursor: pointer; width: fit-content; max-width: 100%; }
+  .h5-collect-alert > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+  .h5-collect-alert-detail {
+    position: fixed; top: calc(64px + env(safe-area-inset-top)); left: 12px; right: 12px;
+    /* 普通页面浮层同 back-to-top(90)，低于 modal(100)/规则(110)/通知(128)/登录(130)。 */
+    z-index: 90; max-height: 60vh; overflow: auto;
+    background: var(--bg-card); color: var(--text-1); border: 1px solid var(--border-strong);
+    border-radius: 8px; padding: 10px 12px; box-shadow: 0 6px 20px var(--shadow-strong);
+    font-size: 12px; white-space: normal; overflow-wrap: anywhere;
+  }
+  .h5-collect-alert-time { margin-top: 8px; color: var(--text-2); }
+
 
   /* §5 版本更新 toast 改小 pill(单行紧凑, 不遮挡主数据) */
   #sw-update-toast { padding: 8px 12px; font-size: 12px; border-radius: 20px; max-width: 92vw; }
