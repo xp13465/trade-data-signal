@@ -174,6 +174,15 @@ run_r2_upload() {
   return "$_rc"
 }
 
+# 子进程锁事件不能只留在即将删除的 tmp_log；快照计数避免读取期间追加造成漏行。
+_mirror_r2_lock_events() {
+  local events
+  events="$(grep '^R2_LOCK: ' "$1" 2>/dev/null || true)"
+  [ -n "$events" ] || return 0
+  printf '%s\n' "$events" | awk -v seen="$_R2_LOCK_EVENTS_SEEN" 'NR > seen' >> "$LOG"
+  _R2_LOCK_EVENTS_SEEN=$(printf '%s\n' "$events" | wc -l | tr -d ' ')
+}
+
 _run_r2_upload_impl() {
   local desc="$1"; shift
   local ch_timeout=""
@@ -189,6 +198,7 @@ _run_r2_upload_impl() {
   if [ "${1:-}" = "--lock-wait" ]; then _lock_wait="${2:-}"; shift 2 2>/dev/null || shift; fi
   local tmp_log pid rc
   tmp_log=$(mktemp)
+  _R2_LOCK_EVENTS_SEEN=0
   env ${_lock_domain:+R2_UPLOAD_LOCK_DOMAIN="$_lock_domain"} \
       ${_lock_wait:+R2_UPLOAD_LOCK_TIMEOUT="$_lock_wait"} \
       "$PY" "$REPO/scripts/upload_r2.py" "$@" >"$tmp_log" 2>&1 &
@@ -242,6 +252,7 @@ _run_r2_upload_impl() {
       kill -TERM "$pid" 2>/dev/null; sleep 2
       kill -KILL "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
+      _mirror_r2_lock_events "$tmp_log"
       rm -f "$tmp_log"
       return 1
     fi
@@ -252,6 +263,7 @@ _run_r2_upload_impl() {
       kill -TERM "$pid" 2>/dev/null; sleep 2
       kill -KILL "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
+      _mirror_r2_lock_events "$tmp_log"
       rm -f "$tmp_log"
       return 1
     fi
@@ -259,6 +271,7 @@ _run_r2_upload_impl() {
       # #239-J1: 等锁心跳低频镜像进主日志(首次即时, 之后每 _LOCK_BEAT_MIRROR_SECS 秒一行)。
       # 放在批次判定之前 ⇒ 不依赖 [N/M] 行, 对全部通道一视同仁(含小通道/对账通道)。
       _mirror_lock_heartbeat "$tmp_log" "$desc" "$_slept"
+      _mirror_r2_lock_events "$tmp_log"
       # 取日志最后一个 [N/M] 进度行: N=已完成数(a2 收尾豁免用), M=批次总数(仅首批 >10 时固定, 与旧行为一致)。
       local _prog _pn _pm
       _prog=$(grep -Eo '\[[0-9]+/[0-9]+\]' "$tmp_log" 2>/dev/null | tail -1)
@@ -284,6 +297,7 @@ _run_r2_upload_impl() {
         kill -TERM "$pid" 2>/dev/null; sleep 2
         kill -KILL "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
+        _mirror_r2_lock_events "$tmp_log"
         rm -f "$tmp_log"
         return 1
       elif [ "$_low_bad" -ge "$_low_need" ] && [ "$_low_tail_logged" -eq 0 ] \
@@ -294,7 +308,8 @@ _run_r2_upload_impl() {
     fi
   done
   wait "$pid"; rc=$?
-  tail -1 "$tmp_log" | tee -a "$LOG"
+  _mirror_r2_lock_events "$tmp_log"
+  awk '!/^R2_LOCK: / {last=$0} END {if (last != "") print last}' "$tmp_log" | tee -a "$LOG"
   rm -f "$tmp_log"
   return "$rc"
 }

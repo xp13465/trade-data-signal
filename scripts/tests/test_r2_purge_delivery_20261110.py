@@ -195,8 +195,27 @@ finalize_verify() { echo finalize >> "$CALLS"; }
     assert f"退出码={1 if purge_rc else 0}" in log.read_text()
 
 
+def test_async_retains_lock_event_snapshots_without_duplicates(tmp_path):
+    source = (ROOT / "scripts/r2_upload_async.sh").read_text()
+    helper = source[source.index("_mirror_r2_lock_events() {"):source.index("_run_r2_upload_impl() {")]
+    events = tmp_path / "events.log"
+    log = tmp_path / "main.log"
+    events.write_text('business\nR2_LOCK: {"event":"wait"}\n')
+    script = helper + '''
+_R2_LOCK_EVENTS_SEEN=0
+_mirror_r2_lock_events "$EVENTS"
+_mirror_r2_lock_events "$EVENTS"
+printf '%s\n' 'R2_LOCK: {"event":"released"}' >> "$EVENTS"
+_mirror_r2_lock_events "$EVENTS"
+'''
+    r = subprocess.run(["bash"], input=script, env={**os.environ, "EVENTS": str(events), "LOG": str(log)},
+                       text=True, capture_output=True, timeout=5)
+    assert r.returncode == 0, r.stderr
+    assert log.read_text().splitlines() == ['R2_LOCK: {"event":"wait"}', 'R2_LOCK: {"event":"released"}']
+
+
 LOCK_CHILD = r'''
-import ast,fcntl,json,os,re,sys,time
+import ast,atexit,datetime,fcntl,json,os,re,sys,time
 from pathlib import Path
 root=Path(sys.argv[1]); source=Path(sys.argv[2]); role=sys.argv[3]
 def guard(event,args):
@@ -205,17 +224,32 @@ sys.addaudithook(guard)
 sys.path.insert(0,str(source.parent));import r2_lock_paths as _rlp
 os.environ['R2_UPLOAD_LOCK']=str(root/'upload.lock');os.environ['R2_UPLOAD_LOCK_TIMEOUT']='8'
 os.environ.pop('R2_UPLOAD_LOCK_DOMAIN',None)
-if role=='writer':os.environ['R2_UPLOAD_LOCK_DOMAIN']='data'
-_LOCK_DOMAIN_ENV=_rlp.DOMAIN_ENV;_LOCK_DOMAIN_RE=re.compile(r'^[a-z0-9][a-z0-9_-]{0,31}$');_BARRIER_FDS={};_R2_LOCK_HEARTBEAT_SECS=30
+if role in ('writer','exception-waiter','domain-probe'):os.environ['R2_UPLOAD_LOCK_DOMAIN']='data'
+_LOCK_DOMAIN_ENV=_rlp.DOMAIN_ENV;_LOCK_DOMAIN_RE=re.compile(r'^[a-z0-9][a-z0-9_-]{0,31}$');_BARRIER_FDS={};_R2_LOCK_OBSERVATIONS={};_R2_LOCK_HEARTBEAT_SECS=30
 probe_lock_holder=lambda p:''
-names={'_lock_domain','_domain_upload_lock_path','_global_upload_lock_path','_release_r2_upload_lock','_acquire_r2_upload_lock','_acquire_lock_for_command'}
+names={'_lock_domain','_domain_upload_lock_path','_global_upload_lock_path','_release_r2_upload_lock','_acquire_r2_upload_lock','_acquire_lock_for_command','_r2_lock_event','_r2_lock_close','_r2_lock_release_at_exit'}
 exec(compile(ast.Module(body=[n for n in ast.parse(source.read_text()).body if isinstance(n,ast.FunctionDef) and n.name in names],type_ignores=[]),'actual lock functions','exec'))
+atexit.register(_r2_lock_release_at_exit)
+sys.argv=['upload_r2.py','upload-data-large' if role=='writer' else 'purge-low-freq','ARGV_MUST_NOT_APPEAR']
+os.environ['PURGE_SECRET']='ENV_MUST_NOT_APPEAR'
+original_event=_r2_lock_event
+def _r2_lock_event(fd,event,reason=''):
+ original_event(fd,event,reason)
+ state=_R2_LOCK_OBSERVATIONS.get(fd,{})
+ if role=='exception-waiter' and state.get('stage')=='domain' and event=='acquired':(root/'domain-held').touch()
+ if role=='exception-waiter' and state.get('stage')=='global' and event=='wait':(root/'waiting-global').touch()
 def wait(name):
  deadline=time.monotonic()+10
  while not (root/name).exists():
   assert time.monotonic()<deadline,name;time.sleep(.01)
 if role=='writer':
  fd=_acquire_r2_upload_lock();(root/'writer-ready').touch();wait('release-writer');(root/'remote').write_text('new');_release_r2_upload_lock(fd)
+elif role=='global-holder':
+ fd=_acquire_r2_upload_lock();(root/'global-held').touch();wait('release-global');_release_r2_upload_lock(fd)
+elif role=='exception-waiter':
+ fd=_acquire_r2_upload_lock();raise RuntimeError('isolated work exception')
+elif role=='domain-probe':
+ _acquire_r2_upload_lock(timeout=0)
 elif role=='purger':
  (root/'purger-started').touch();fd=_acquire_lock_for_command('purge-low-freq',[]);(root/'cache').unlink(missing_ok=True);(root/'purged').touch();_release_r2_upload_lock(fd)
 else:
@@ -249,8 +283,63 @@ def test_three_processes_preserve_publish_then_invalidate(tmp_path):
         for p in procs:
             out, err = p.communicate(timeout=12)
             assert p.returncode == 0, out + err
+            assert 'ARGV_MUST_NOT_APPEAR' not in err and 'ENV_MUST_NOT_APPEAR' not in err
         assert (tmp_path / "remote").read_text() == "new"
         assert (tmp_path / "purged").exists() and not (tmp_path / "cache").exists()
+    finally:
+        for p in procs:
+            if p.poll() is None:
+                p.kill()
+            p.communicate(timeout=3)
+
+
+def test_three_processes_domain_held_while_global_waits_and_exception_releases(tmp_path):
+    procs = []
+    logs = {}
+
+    def start(role):
+        p = subprocess.Popen([sys.executable, "-c", LOCK_CHILD, str(tmp_path), str(SOURCE), role],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        procs.append(p)
+        return p
+
+    def wait(name):
+        deadline = time.monotonic() + 6
+        while not (tmp_path / name).exists():
+            assert time.monotonic() < deadline, name
+            time.sleep(.01)
+
+    try:
+        holder = start("global-holder"); wait("global-held")
+        waiter = start("exception-waiter"); wait("domain-held"); wait("waiting-global")
+        observer = start("domain-probe")
+        _, logs["observer"] = observer.communicate(timeout=6)
+        assert observer.returncode == 1
+        (tmp_path / "release-global").touch()
+        for name, p in [("holder", holder), ("waiter", waiter)]:
+            _, logs[name] = p.communicate(timeout=8)
+        assert holder.returncode == 0 and waiter.returncode == 1
+        events = {k: [json.loads(line.removeprefix("R2_LOCK: ")) for line in text.splitlines()
+                      if line.startswith("R2_LOCK: ")] for k, text in logs.items()}
+        assert any(x["event"] == "wait" and x["stage"] == "domain" for x in events["observer"])
+        assert not any(x["event"] == "acquired" for x in events["observer"])
+        rows = events["waiter"]
+        assert [(x["stage"], x["event"]) for x in rows[:4]] == [
+            ("domain", "wait"), ("domain", "acquired"), ("global", "wait"), ("global", "acquired")]
+        assert rows[3]["wait_seconds"] > 0
+        assert all(x["work_seconds"] == 0 for x in rows[:4])
+        released = [x for x in rows if x["event"] == "released"]
+        assert {x["stage"] for x in released} == {"domain", "global"}
+        assert all(x["reason"] == "process_exit" for x in released)
+        domain = next(x for x in released if x["stage"] == "domain")
+        assert domain["held_seconds"] >= domain["work_seconds"] >= 0
+        assert all(x["utc"].endswith("+00:00") and x["pid"] == waiter.pid for x in rows)
+        assert all(x["command"] == "purge-low-freq" for x in rows)
+        assert "ARGV_MUST_NOT_APPEAR" not in logs["waiter"] and "ENV_MUST_NOT_APPEAR" not in logs["waiter"]
+        # 异常进程真实释放之后，另一个进程可再次取得相同域/全局屏障。
+        p = start("writer"); wait("writer-ready"); (tmp_path / "release-writer").touch()
+        _, err = p.communicate(timeout=6)
+        assert p.returncode == 0, err
     finally:
         for p in procs:
             if p.poll() is None:
