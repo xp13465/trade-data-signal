@@ -1,0 +1,203 @@
+{
+  "version": 2,
+  "captured_at": "2026-11-10T11:46:58.304770+08:00",
+  "kind": "progress_only_not_final_release_acceptance",
+  "prior_docs_commit": "727e35b65ece5c1d202a866edbe804fcce83cea3",
+  "parent_integration_head": "52b0ed5f58cccc899ba8bd52fb20ae52798994fa",
+  "parent_contains": [
+    "4d5c32a7d80c710ef086a1940f7b9beae7f62446",
+    "41c567e6aabbfec13af0d310bcc08df59194fdbf",
+    "ace115157617eceb0d1abd20c41cdeab4fb9b503",
+    "25dccda35abea3ec96a39355abc35231d3534cdf"
+  ],
+  "test_isolation": {
+    "commit": "ace115157617eceb0d1abd20c41cdeab4fb9b503",
+    "registration": 380,
+    "targeted": {
+      "returncode": 0,
+      "exact_last_line": "22 passed in 0.39s"
+    },
+    "mutations": {
+      "missing_alerts_file": {
+        "exit": 1,
+        "last_line": "1 failed in 0.15s"
+      },
+      "missing_digest_lock": {
+        "exit": 1,
+        "last_line": "1 failed in 0.15s"
+      },
+      "missing_digest_state": {
+        "exit": 1,
+        "last_line": "1 failed in 0.12s"
+      },
+      "missing_repo_env": {
+        "exit": 1,
+        "last_line": "1 failed in 0.12s"
+      },
+      "missing_restore": {
+        "exit": 1,
+        "last_line": "1 failed in 0.12s"
+      }
+    },
+    "author_full_suite": {
+      "returncode": 124,
+      "timeout_seconds": 420,
+      "completed": false,
+      "log_sha256": "ecc293bf77731473f77a67438d0620b6c4f505e9d12b0324d361b40a8c19ec80",
+      "exact_last_output_line": ".................F.F.......",
+      "pytest_summary": null,
+      "failure_markers_observed": true
+    },
+    "gate": "未通过全量门禁；不能称全绿或最终三P2独立审查PASS"
+  },
+  "preupload": {
+    "commit": "25dccda35abea3ec96a39355abc35231d3534cdf",
+    "registration": 379,
+    "targeted": {
+      "exit_code": 0,
+      "elapsed_seconds": 5.07,
+      "last_lines": [
+        "........................................................................ [ 60%]",
+        "...............................................                          [100%]",
+        "119 passed in 4.70s"
+      ]
+    },
+    "user_handoff_status": "派单时作者full进行中",
+    "later_observed_author_full": {
+      "exit_code": 1,
+      "elapsed_seconds": 494.3,
+      "pytest_complete_summary": null,
+      "observed_tail": "FileNotFoundError: pytest会话临时仓库路径不存在",
+      "boundary": "本轮核证时执行报告已更新；不推断谁删除路径，不据此归因业务代码，也不称全量通过"
+    }
+  },
+  "prior_integration_review": {
+    "reviewed_head": "36b8a7e58d93dd9930ff020623d7cd849131df83",
+    "verdict": "PASS",
+    "scope": "仅固定36b8整合源码审查与有辨别力局部验证；没有实质finding；不代替最终SHA全量/真实CI与生产验收。",
+    "targeted_returncode": 0,
+    "targeted_exact_last_line": "74 passed in 2.31s",
+    "boundary": "仅原36b整合+74局部测试；不覆盖52b新三P2最终独立审查、全量、真实CI或生产验收"
+  },
+  "r2_result_contract": {
+    "registration": 381,
+    "id": "R2-PURGE-RESULT",
+    "severity": "P2",
+    "status": "OPEN_IMPLEMENTATION_IN_PROGRESS_NOT_DEPLOYED_ACCEPTANCE",
+    "source_head": "52b0ed5f58cccc899ba8bd52fb20ae52798994fa",
+    "anchors": [
+      "scripts/upload_r2.py:2682-2813 purge_cache",
+      "scripts/upload_r2.py:3405-3424 cmd_purge_low_freq",
+      "scripts/r2_upload_async.sh:399-418"
+    ],
+    "confirmed_cases": [
+      {
+        "case": "missing_secret",
+        "return_value": null,
+        "raised": false
+      },
+      {
+        "case": "all_batches_http503",
+        "return_value": null,
+        "raised": false
+      }
+    ],
+    "observed": "缺secret/全部HTTP503均返回None不抛；CLI忽略结果，async末尾固定exit0。函数故障注入与CLI/async静态路径分层留证。",
+    "implementation_owner": "Boyle同任务转实施",
+    "expected": "显式完整/空清单成功与缺凭证/失败批失败结果；CLI/async保留失败清单、继续后续有界补传且最终非零",
+    "cache_lock": "仅候选；父要求先证明invalidate-before-publish排序安全，未证前不列独立cache锁为必修，不提前拆锁",
+    "trace": {
+      "diff_range": "52b0ed5f58cccc899ba8bd52fb20ae52798994fa:scripts/upload_r2.py:2682-2813,3405-3424; scripts/r2_upload_async.sh:399-418",
+      "linkage": "不满足",
+      "origin": "pre-existing",
+      "user_request": "R2又确证purge缺secret/503仍None且CLI/async成功的结果契约缺陷"
+    },
+    "verifier": {
+      "command": "固定源码purge_cache AST，HTTP/notify/time全替代：missing_secret及all_batches_http503；证据purge-failure-result-proof.json，另静态追CLI与async收尾",
+      "expected": "两失败输入显式失败，不能None后CLI/async成功；失败清单仍可追踪",
+      "observed": "两例return_value=null/raised=false；52b源码CLI不检查返回值，async固定exit0；本归档未重跑外部请求或业务脚本"
+    }
+  },
+  "recovery": {
+    "items": [
+      {
+        "target": "016989 20261103–20261106 unit_nav",
+        "status": "SOURCE_READY_WAIT_DEPLOY_AND_GO",
+        "expected_unit_nav": {
+          "20261103": 1.1298,
+          "20261104": 1.1631,
+          "20261105": 1.1713,
+          "20261106": 1.154
+        }
+      },
+      {
+        "target": "hs300/csi500/gem 20261109",
+        "status": "SOURCE_READY_WAIT_DEPLOY_AND_GO",
+        "expected": {
+          "hs300": {
+            "date": "2026-11-09",
+            "close": 4056.1081,
+            "pct_change": 0.045167,
+            "error": ""
+          },
+          "csi500": {
+            "date": "2026-11-09",
+            "close": 6586.1764,
+            "pct_change": -0.169377,
+            "error": ""
+          },
+          "gem": {
+            "date": "2026-11-09",
+            "close": 2458.5623,
+            "pct_change": -0.270551,
+            "error": ""
+          }
+        }
+      },
+      {
+        "target": "159501/159513 20261109 accum_nav",
+        "status": "UPSTREAM_PENDING_PUBLICATION",
+        "trusted_value": null,
+        "source_boundary": "Eastmoney/天天基金为现有生产净值供应源；本轮未直接访问基金管理人公告，不宣称全世界都未公布。仅断言这两个可信现有源无Nov9值。",
+        "blocked_behavior": "任何一只未发布，草拟脚本在取得锁/写连接之前报错且两键零写入；不以Nov6、OHLC、当前映射或1.5造数。",
+        "official_lsjz_observation": [
+          {
+            "fund_code": "159501",
+            "latest_date": "2026-11-06",
+            "Nov9_present": false,
+            "sha256": "66e543b5811bbe1d7b2e82e842648b8cfffaa0f0c40ea90ca323f8a95e1ae4a0"
+          },
+          {
+            "fund_code": "159513",
+            "latest_date": "2026-11-06",
+            "Nov9_present": false,
+            "sha256": "62d8f402193a4d5cbfb9b4726434900759da2b56a1fe67f46e87205876c5ecde"
+          }
+        ],
+        "native_observation": [
+          {
+            "code": "159501",
+            "latest_date": "20261106",
+            "Nov9_present": false,
+            "sha256": "37842a4d5a9dfbc9617bb2b02ac4fd9293fbf82ffc5660227d82e9059e8a2b22"
+          },
+          {
+            "code": "159513",
+            "latest_date": "20261106",
+            "Nov9_present": false,
+            "sha256": "5070e1543ec24ce80e7f79e383abb05ffab42fea68e8aa609e826558216a2ed7"
+          }
+        ]
+      }
+    ],
+    "production_write_or_restore_in_this_archive": false,
+    "boundary": "Rawls证明源就绪与恢复方案；016989/三指数生产恢复未验收；两ETF现有可信源只到Nov6，不造数，不外推全世界未公布"
+  },
+  "worker_375": {
+    "status": "OPEN_ORIGINAL_ERROR_UNAVAILABLE",
+    "existing_git_credential_available": false,
+    "chrome_bridge": "父本次派单确认桥连通失败，非本归档执行",
+    "boundary": "Git凭据不可用与Chrome桥失败只是取证受限；仍无原始错误，不猜原部署失败因凭证"
+  },
+  "closure_gate": "先等父提供最终固定head独立审查/全量/真实CI/部署与逐键恢复证据，再追加终版；本次进展不得销账。"
+}

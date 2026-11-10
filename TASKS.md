@@ -8,6 +8,11 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
+> 🧭 **接管进展追加(2026-11-10，终版待真实CI/部署证据)——最新入口**
+> **实现/审查界限**：父固定整合 `52b0ed5f58cccc899ba8bd52fb20ae52798994fa` 含原4d+main及 `ace115157617eceb0d1abd20c41cdeab4fb9b503` / `25dccda35abea3ec96a39355abc35231d3534cdf`。原36b内审PASS与74局部测试只覆盖原整合，不是最终新三P2通过；#379/#380实现/测试进展及未闭合边界以索引为准。
+> **新增指针**：#381 R2结果契约（purge缺secret/503返回None、CLI/async仍成功）已独立登记，Boyle同任务转实施；独立cache锁仅候选，父要求先证明invalidate-before-publish排序安全，未证不列必修。#257/#333源就绪不等于恢复；两ETF现有源只到Nov6，不造数；#375取证通道受限，无原错误不猜凭证。
+> **交接**：[第二版进展与复现](docs/codex-reviews/alert-takeover-20261110/progress-v2.md)保留作者定向与全量未闭合的原样结果、12份输入hash。先等父真实CI/部署/逐键恢复证据再追加终版，本版未销账、未部署。下方第一版及旧历史原文保留。
+
 > 🧭 **本轮接管状态(2026-11-10，用户单次授权，文档第一版)——接力先看本段**
 > **授权界限**：用户原话“cc那边token用尽。我授权你现在接替claude 把工作做完。”已原样落档；仅本轮接管实现、独立审查、整合与部署，默认 Codex 只读外审角色不永久改变。本文档分支只归档并 commit，不 push/合 main，不动业务源码或长期角色规范。
 > **事实入口**：[本轮归档](docs/codex-reviews/alert-takeover-20261110/README.md)；原审计 SHA-256 `c3e77494cb30a8aff69d6ed3759a1ec0e5cceae4bb7eeeefcdb604f737f1fa05`，窗口为北京时间 11-04 00:00:00—11-10 08:49:35；09:17 版本快照另列，21 类状态与三条独立 P2/复现/hash 均保留。这里不重定任务状态，唯一权威仍是 pending-index。
