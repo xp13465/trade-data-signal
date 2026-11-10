@@ -636,7 +636,12 @@ fi
 #     没登记该行, 该次 merge 未动 scripts/ 源码 ⇒ 7.9 L52 全量 pytest 不触发, CI ⑧ pytest
 #     红 in main(run 42688033176: 2 failed, 3734 passed, 3 skipped, 116 subtests passed),
 #     41c567e6a 补登记才绿。缝隙 = 纯文档改动也能弄红 pytest 门禁, 但 merge 时零测试。
-#     本步补缝: **无论改了什么(含纯文档)都跑**三条秒级快检(与 CI step ⑤/⑩ 同参数口径):
+#     本步补缝: **无论改了什么(含纯文档)都跑**三条秒级快检(与 CI ⑤/⑩ 同被检对象、
+#     行为等价但**字面参数不同**: CI ⑤ 实传 `--repo "$GITHUB_WORKSPACE" --deploy-mode
+#     --skip-zombie-crons`(其中 --deploy-mode 为死选项, check_task_state.py:566 定义了
+#     但代码从不读取)、CI ⑩ 实传 `--repo "$GITHUB_WORKSPACE"`;本步零参数走脚本默认
+#     解析到同一仓库根 ⇒ 行为等价。check_gate_registry 在 CI 由 ⑧ pytest 的
+#     test_gate_registry_pytest.py 间接执行, 无独立 CI step):
 #       ① scripts/check_ledger.py                          台账锚点/计数一致性
 #       ② scripts/check_gate_registry.py                   闸门登记 ↔ 台账双向对账
 #       ③ scripts/check_task_state.py --skip-zombie-crons  任务状态对账
@@ -646,6 +651,9 @@ fi
 #     位置与 7.9 同段(本地 merge 之后、commit+push main 之前): 本地 main 半完成态可由
 #     重跑本脚本恢复, 远端 main 不入红(red-first 同 7.9; 跑在 merge 前只查 main 旧树,
 #     查不到 feat 带入的不一致, 故必须跑在 merge 之后)。
+#     边界(dry-run): dry-run 下 merge 被跳过(:326-327), 本步查的是 **merge 前的旧树**,
+#     查不到 feat 带入的不一致 —— dry-run 的快检结论只代表「当前树」不代表「合并后树」,
+#     真实拦截以非 dry-run 跑为准。
 #     成本: 三条均秒级静态对账(实测合计 <0.2s), 额外耗时 <3s 有充分余量。
 echo "--- 7.10 快检闸门(任何 merge 都跑: 台账/闸门登记/任务状态, 秒级) ---"
 if [[ "${MAIN_MERGE_SKIP_FASTCHECK:-0}" == "1" ]]; then
@@ -668,8 +676,16 @@ else
     fc_script="${fc_spec%%|*}"
     fc_args="${fc_spec#*|}"
     # shellcheck disable=SC2086  # fc_args 为固定字面量参数, 无用户输入
-    fc_out="$("$PY" "$REPO/scripts/$fc_script" $fc_args 2>&1)"
-    fc_rc=$?
+    # ⚠️ set -e 下禁裸赋值捕获 rc(2026-11-10 独立审查 FAIL 修复): 裸写
+    #    `fc_out="$(...)"; fc_rc=$?` 时 errexit 会在 check 返回非 0 的瞬间杀死整脚本,
+    #    fc_rc/FAIL 横幅/末行打印/exit 11/dry-run 不阻断全部不可达(FAIL 变静默死 rc=1)。
+    #    安全形态 = if/else 条件位(errexit 豁免区)+ else 支取 $? 拿原始 rc;
+    #    禁用 `if ! ...; then rc=$?`(实测 bash 3.2: ! 反转后 $?=0, 拿不到原始 rc)。
+    if fc_out="$("$PY" "$REPO/scripts/$fc_script" $fc_args 2>&1)"; then
+      fc_rc=0
+    else
+      fc_rc=$?
+    fi
     if [[ "$fc_rc" -ne 0 ]]; then
       FASTCHECK_FAILED=1
       echo "" >&2
