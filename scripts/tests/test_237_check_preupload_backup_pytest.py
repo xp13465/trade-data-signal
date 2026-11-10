@@ -33,12 +33,12 @@ def test_parse_log_lines_sums():
         "[nav] 备份 128/256 已备份 100 跳过 28",
     ]
     st = cpb.parse_log_lines(lines)
-    assert st == {"runs": 2, "copied": 252, "skipped": 4, "failed": 3, "candidates": 256}
+    assert st == {"runs": 2, "copied": 252, "skipped": 4, "failed": 3, "exceptions": 0, "candidates": 256}
 
 
 def test_parse_log_lines_empty_is_zero():
     assert cpb.parse_log_lines([]) == {"runs": 0, "copied": 0, "skipped": 0,
-                                       "failed": 0, "candidates": 0}
+                                       "failed": 0, "exceptions": 0, "candidates": 0}
 
 
 # ── ② judge 四分支 ──────────────────────────────────────────────────────────

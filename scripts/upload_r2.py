@@ -1471,6 +1471,7 @@ def _backup_overwritten_keys(r2_keys, label, md5_map=None):
       调用点第一阶段(#237 §4.4)**不阻断**上传, 只记结构化日志。
     """
     today = datetime.date.today().strftime("%Y%m%d")
+    print(f"[{label}] 备份开始 day={today} run_id={os.getpid()}-{time.time_ns()}", flush=True)
     if not r2_keys:
         _prune_pre_upload(today, label)
         return 0, 0, 0, []
