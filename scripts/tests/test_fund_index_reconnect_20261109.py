@@ -49,11 +49,11 @@ def login():
     print('AUDIT pid', os.getpid(), flush=True)
     if scenario == 'login_exception' and logins == 1:
         raise ConnectionResetError('connection reset')
-    if scenario == 'slow_login':
+    if scenario == 'slow_login' or (scenario in ('slow_login_once', 'slow_then_error') and logins == 1):
         import time
         try: time.sleep(10)
         except Exception: pass  # 模拟SDK吞Exception；预算守卫必须仍能打断。
-    code = '10002007' if scenario == 'login_always' or (scenario == 'login_once' and logins == 1) else '0'
+    code = '10002007' if scenario in ('login_always', 'slow_then_error') or (scenario == 'login_once' and logins == 1) else '0'
     return SimpleNamespace(error_code=code, error_msg='网络接收错误。' if code != '0' else 'success')
 
 def logout():
@@ -583,3 +583,42 @@ def test_connection_setup_lock_obeys_remaining_budget_and_closes(tmp_path):
     finally:
         holder.rollback()
         holder.close()
+
+
+@pytest.mark.parametrize('scenario,expected_exit', [('slow_login', 124), ('login_always', 2)])
+def test_reconnect_exhaustion_keeps_timeout_type_with_budget_left(
+        isolated, monkeypatch, capsys, scenario, expected_exit):
+    # 使用真实2秒退避；20秒总预算足够跑完初次登录+三次重连，
+    # 必须由错误类型而非整轮deadline决定124/2。
+    helper = isolated.fetch.__globals__['_ROOT'] / 'app/collector/baostock_daily.py'
+    helper.write_text(helper.read_text().replace('time = SimpleNamespace(sleep=lambda _: None)', 'import time'))
+    monkeypatch.setenv('INDEX_TEST_SCENARIO', scenario)
+    monkeypatch.setattr(sys, 'argv', ['public_fund', 'daily'])
+    ns = _entrypoints(isolated)
+    started = time.monotonic()
+    deadline = started + 20
+    ns['fetch_index_daily'] = lambda **kw: isolated.fetch(
+        '20261102', '20261109', kw['index_id'], deadline=deadline, io_timeout=2.05)
+    with pytest.raises(SystemExit) as exc:
+        ns['main']()
+    elapsed = time.monotonic() - started
+    output = capsys.readouterr()
+    print(f'RECONNECT_CLASSIFICATION scenario={scenario} exit={exc.value.code} '
+          f'elapsed={elapsed:.3f} remaining={deadline-time.monotonic():.3f}')
+    assert elapsed < 18  # 总预算未耗尽，不能靠父run超时把错误凑成124。
+    assert output.out.count('AUDIT login') == 4
+    assert output.out.count('[baostock reconnect] attempt') == 3
+    assert isolated.batches == []
+    assert exc.value.code == expected_exit
+
+
+@pytest.mark.parametrize('scenario', ['slow_login_once', 'slow_then_error'])
+def test_recovered_or_replaced_login_timeout_is_not_sticky(isolated, monkeypatch, scenario):
+    monkeypatch.setenv('INDEX_TEST_SCENARIO', scenario)
+    if scenario == 'slow_login_once':
+        assert isolated.fetch('20261102', '20261109', deadline=time.monotonic() + 5, io_timeout=.1) == 6
+        assert len(isolated.batches) == 1
+    else:
+        with pytest.raises(RuntimeError, match='重连失败'):
+            isolated.fetch('20261102', '20261109', deadline=time.monotonic() + 5, io_timeout=.1)
+        assert isolated.batches == []
