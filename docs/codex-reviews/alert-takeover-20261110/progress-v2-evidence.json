@@ -1,0 +1,69 @@
+{
+  "version": 2,
+  "captured_at": "2026-11-10T11:46:58.304770+08:00",
+  "private_source_directory": "/tmp/codex-reports/alert-takeover-20261110",
+  "private_snapshot_directory": "/tmp/codex-reports/alert-takeover-20261110/docs-source-snapshot/progress-v2",
+  "contents": "仅文件名/字节数/hash；不包含原始消息正文/SSH命令/私密标识/凭证",
+  "inputs": [
+    {
+      "name": "integration-review.json",
+      "sha256": "f72872146341086cffa0061da05e8dc1a846c32eb722e005f5e92c6026389aff",
+      "bytes": 59676
+    },
+    {
+      "name": "integration-focused-tests.json",
+      "sha256": "a110dc26e5d7764e3c788f24392892b6c6da1b7c0030790accecc2122feb53d3",
+      "bytes": 545
+    },
+    {
+      "name": "test-isolation-implementation.json",
+      "sha256": "63e9eb929e585d5b51163362d70f94e784146dca770eb3e17119414c383361f0",
+      "bytes": 8178
+    },
+    {
+      "name": "test-isolation-mutations.json",
+      "sha256": "69b93a94ddb8cda1676269853f770244f3ea3c96df1de1cfc57126eaf8643cb3",
+      "bytes": 800
+    },
+    {
+      "name": "preupload-test-execution.json",
+      "sha256": "813139a367490605edabe98408a6a96d9aa0e8605ce546ee71a2f15663ac5403",
+      "bytes": 1265
+    },
+    {
+      "name": "ops-closeout-plan.json",
+      "sha256": "b04471a079c1d1af7d23e9a9ae691c2f79b345b18b25696c234559fc035bedcb",
+      "bytes": 25420
+    },
+    {
+      "name": "purge-failure-result-proof.json",
+      "sha256": "375f02efccad6f36aea0dc6b2cb48980984113d33da30f7b49ae7b8c9ad0d4b4",
+      "bytes": 707
+    },
+    {
+      "name": "recovery-plan.json",
+      "sha256": "f8f52400f3cbc1991ac57c0f2189c3751a57a5344505210d4b2e6c6ffa5e5ab7",
+      "bytes": 25471
+    },
+    {
+      "name": "worker375-existing-credential-probe.json",
+      "sha256": "42c42c2ae5f33908deed77e5ee0e427abfb4c4b71c2711c838ee688807cf14af",
+      "bytes": 307
+    },
+    {
+      "name": "source-nav.json",
+      "sha256": "c41cf78f553919f788531889fd569ec5f1829b6d9af60eb6df5fa4961441fd20",
+      "bytes": 21183
+    },
+    {
+      "name": "source-index.json",
+      "sha256": "951296bf03172aaf3b4a498fbf9787db7b92bedf316e1f0a19244dddcc8ec572",
+      "bytes": 2851
+    },
+    {
+      "name": "source-etf.json",
+      "sha256": "762ea22e856e1a2099a17fe67287bddcd4e395cbe201fe816b6e64d19a15091d",
+      "bytes": 674283
+    }
+  ]
+}

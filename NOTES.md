@@ -8598,3 +8598,16 @@ GH Actions `deploy-cf` 与 CF Workers Builds 两条自动链同 head 均失败(c
 已发生改善仅按范围记：23:18部署后监控38/38轮投递/HTTP200，样本仍有unknown；08:27原生90unit逐字段/45service登记PASS；换手率6/6+3/3上传及purge成功。其余仍按原编号/独立证据：R2等锁600/570秒的失败不能由总链rc0关闭；D1 blocked邮件与reset前OPS落库反证并存；136历史键未新增但未恢复，九交易缺口（7无freeze、2缺accum_nav）不与旧五键相减；Nov5/6/9的56/58/56是不同(date,index)行而非同key重复，旧source身份不足。#373原备份及Nov3权威归因保持OPEN，不用今天备份/映射回造；overfit74/red保持真实风险告警。
 
 编号核验覆盖36个本地分支、6种索引blob及现存worktree：主基线最大377，发现其它活跃分支已占#378（main-merge快检闸门），已上报并避开；新确认P2按两族登记#379（PREUPLOAD-DATE-01、PREUPLOAD-SENTINEL-02）/#380（TEST-MIRROR-03），同模块既有#237/#367与#373/#374/#375不重复立项。状态权威见pending-index；归档/生成脚本/复现说明与后续验收清单见 [本轮README](docs/codex-reviews/alert-takeover-20261110/README.md)。父提供真实测试、独立审查、main/云/Worker身份及受控恢复结果后另追加收口；本版不等待未来自然轮。
+
+
+## 2026-11-10 告警接管：第二版进展追加（非收口终版）
+
+同分支追加，不回写第一版727e与原审计。测试隔离 `ace115157617eceb0d1abd20c41cdeab4fb9b503` 作者定向22 passed、五种变异各1 failed真红；作者全量420s超时rc124，已有失败标记且无完整pytest汇总，不能称全绿。preupload `25dccda35abea3ec96a39355abc35231d3534cdf` 作者定向119 passed；父派单时full进行中，本轮固定取证的执行报告已更新为rc1/494.3s，尾部FileNotFoundError：pytest会话临时仓库路径不存在，无完整pytest汇总；不推断谁删路径，不据此归因业务代码，不称全量通过。
+
+父固定整合 `52b0ed5f58cccc899ba8bd52fb20ae52798994fa` 包含原4d+main与两支实现，祖先关系已核。原 `36b8a7e58d93dd9930ff020623d7cd849131df83` 内审PASS（integration-review.json）及74局部测试只覆盖原整合，不是最终三P2独立审查/全量/CI/部署通过。源报告继续演进，本版已冻结12份私有输入并只归档归一化事实与hash。
+
+R2确认的新结果契约：固定52b `upload_r2.py:2682–2813/3405–3424` 的purge_cache在缺secret/全503的AST故障注入中均None/不抛，CLI忽略返回；`r2_upload_async.sh:399–418` purge失败不形成最终非零且末尾exit0。扫描37本地分支/7种索引blob/全部worktree未见新号占用，登记独立#381；#353/#354沿用原号，Boyle已同任务转实施，方案ops-closeout-plan.json。父要求先证invalidate-before-publish排序安全，独立cache锁仅候选，未证不列必修，不以拆锁替代结果契约修复；缺secret为反例输入，不指称线上缺secret。
+
+Rawls只读来源证明016989 Nov3–6及三指数Nov9已有可信源数据，但生产受控恢复未验，不关闭#333/#257。159501/159513两个ETF的现有可信净值源只到Nov6，Nov9累计净值待发布，不以旧值/OHLC/当前映射造数，不宣称全世界均未公布。#375父补查现有Gitcredential不可用、Chrome桥连通失败，仍未取得原始失败错误；只记取证受限，不推断原部署失败由凭证导致。
+
+详见[第二版进展](docs/codex-reviews/alert-takeover-20261110/progress-v2.md)、对应归一化JSON/生成器/12输入hash。先等父发最终固定head的独立审查、完整测试汇总、真实CI与main/云/Worker部署身份和逐键恢复证据，再追加终版；本追加不销账、不push/main merge、不执行部署或生产写入。
