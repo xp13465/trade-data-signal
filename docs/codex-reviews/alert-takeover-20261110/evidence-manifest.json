@@ -1,0 +1,190 @@
+{
+  "algorithm": "SHA-256",
+  "audit_source_directory": "/tmp/codex-reports/alert-recheck-20261110",
+  "takeover_source_directory": "/tmp/codex-reports/alert-takeover-20261110",
+  "inputs": [
+    {
+      "name": "final-audit.json",
+      "sha256": "c3e77494cb30a8aff69d6ed3759a1ec0e5cceae4bb7eeeefcdb604f737f1fa05",
+      "bytes": 67015,
+      "repository_content": "normalized_fields_or_hash_only"
+    },
+    {
+      "name": "audit-summary.txt",
+      "sha256": "df946a1a0f224800a31d2698d23923ae6427885982f32776593165b0b68a7c44",
+      "bytes": 4715,
+      "repository_content": "normalized_fields_or_hash_only"
+    },
+    {
+      "name": "authorization.txt",
+      "sha256": "3c2c224b1949cfaa52b74cb5d09afd81e55fc0164a4348c681de774186785a41",
+      "bytes": 320,
+      "repository_content": "exact_authorization_only"
+    },
+    {
+      "name": "controller-state.json",
+      "sha256": "0ab97bd0730f3e7d453887f20f3252afe538d767e036f0767d29c0b4d44b48ce",
+      "bytes": 1558,
+      "repository_content": "normalized_fields_or_hash_only"
+    }
+  ],
+  "evidence": [
+    {
+      "name": "scope.json",
+      "sha256": "c15189ccc51b8d0ffe69831f94d91d917fb68998aee6fa874dc1d39e19f7e385",
+      "bytes": 785
+    },
+    {
+      "name": "local-inventory.json",
+      "sha256": "2470e76cc06807844a16fd2e4b2f0f89b39186d65f212f9ed587421f2f9e728c",
+      "bytes": 101681
+    },
+    {
+      "name": "cloud-inventory.json",
+      "sha256": "3f7ff138aa8fd0aa69575fbb5759f351824eaae040cb0ac2e72a165499ea8abc",
+      "bytes": 43780
+    },
+    {
+      "name": "runtime-verification.json",
+      "sha256": "af567d3eb86ec96eefc9a81125103a5806a0ec6a30b9588fe252066468874398",
+      "bytes": 48103
+    },
+    {
+      "name": "issue-matrix.json",
+      "sha256": "2b1c21b04ac37cc586955a6d93548a8b3fd12f3c96f505d41f4249dc18f67eb3",
+      "bytes": 51992
+    },
+    {
+      "name": "test-isolation-finding.json",
+      "sha256": "7016b0414bcdbfdf3c51fa86eb7d950a774a4329979a12218fd558622571a395",
+      "bytes": 3305
+    },
+    {
+      "name": "parent-preupload-independent-verification.json",
+      "sha256": "25ded744e79702e5ba38f82256f013bca9409334d2d69233e431ac4f77606b5a",
+      "bytes": 1143
+    },
+    {
+      "name": "preupload-counterexample.json",
+      "sha256": "653cf83db347a3c1f771d7bca67c5655e1623e514bb46476136f3a3eb3b0fd05",
+      "bytes": 467
+    },
+    {
+      "name": "preupload-sentinel-counterexample.json",
+      "sha256": "7d57610731914db2dca2a4c4dd73df82b8c5be6a07bc77663e4aade84767fd9f",
+      "bytes": 483
+    },
+    {
+      "name": "preupload-cumulative-hits.json",
+      "sha256": "e0046e82a6db3e58c71aa7e8099159489e328add89320314b22a6dc14d305277",
+      "bytes": 5396
+    },
+    {
+      "name": "preupload-same-key-trace.json",
+      "sha256": "7be37f2d7ee4ec85a5e50e564457e6ed106c0c5dc6a2e79da1b2c27bfe068c4b",
+      "bytes": 977
+    },
+    {
+      "name": "history-overwrite-classification.json",
+      "sha256": "a33a2354c39e2ff29c44e5252d92209f1aa4eb81eb204275d2800cf31ba952dc",
+      "bytes": 11248
+    },
+    {
+      "name": "runtime-new-events.json",
+      "sha256": "88fd0c03413249e8b6fdf79db9d636099ed94039c863df097866c25954f8e5f9",
+      "bytes": 41294
+    },
+    {
+      "name": "trades-key-runtime-v2.json",
+      "sha256": "ec1437e71cea976615b1b471e9b993b20de84742501908e1201c7e4d817a1b35",
+      "bytes": 19495
+    },
+    {
+      "name": "derived-verification.json",
+      "sha256": "bb179b6e4ef6ff9c89ff744189c690d5019676cc6694c3e38e1aba08c25353b4",
+      "bytes": 378
+    },
+    {
+      "name": "monitor-post-deploy.json",
+      "sha256": "69bd257083efd0213db98e2c6f7a93630a3bc3c81b480d09704f8cd2d70fae7e",
+      "bytes": 18271
+    },
+    {
+      "name": "ops-samples-window-ro.private.json",
+      "sha256": "e50cc9e1c77f85bb8e62dd75492ff1be6e737fde56fa7779655091557e29c507",
+      "bytes": 1331
+    },
+    {
+      "name": "cloud-public-overfit-current.json",
+      "sha256": "97723507d3546eb1844512e2f04c714ee2a95ccc02892e64212bf78d7f564879",
+      "bytes": 2204
+    },
+    {
+      "name": "artifacts-current.json",
+      "sha256": "af75968a8cabe7723f87bb70bd23b5d3048c1a2a9d156609cb747600a3ad567b",
+      "bytes": 2364
+    },
+    {
+      "name": "closing-version-snapshot.json",
+      "sha256": "0670a62daf1e01befb8c78cebdfbb8857e835de792af2903cdccb1a4e72f5f61",
+      "bytes": 3581
+    },
+    {
+      "name": "gmail-inventory.json",
+      "sha256": "cf0c22ae5cfccd50543a058fec6affc1433f545f112a731969c01e635fa233b3",
+      "bytes": 3808
+    },
+    {
+      "name": "gmail-platform-evidence.json",
+      "sha256": "84a7a1108c0d47096b3ec39134bab536166b127c7165f45bfd1413f5009c5ee9",
+      "bytes": 3391
+    },
+    {
+      "name": "feishu-reconciled-coverage.json",
+      "sha256": "32e8a17b8e9dcf2955618960da75a94afc896fa51cfa38b6563496772a55e17d",
+      "bytes": 546
+    },
+    {
+      "name": "feishu-ops-matched.private.json",
+      "sha256": "36a937a1d00f04e9618e03ad803245053abf476b7ab6f4211a22bbc881122b2a",
+      "bytes": 199479
+    },
+    {
+      "name": "feishu-history-summary.json",
+      "sha256": "8824946448f18f0296f6e2c6fa2b04c5c23be1b4352fddca7f5c5ffc28234af9",
+      "bytes": 1434
+    },
+    {
+      "name": "feishu-report-history-summary.json",
+      "sha256": "281965dbac4b5ddcdeac51d59054756dde607b7d0b3d12bf3dd63b5c14cf7fc6",
+      "bytes": 1782
+    },
+    {
+      "name": "channel-mapping-comparison.json",
+      "sha256": "72675daf54a31ec62f9e4283d2f399b7846d2097dd1d67de53de267e70f53202",
+      "bytes": 649
+    },
+    {
+      "name": "mail-provider-access.private.json",
+      "sha256": "6d2a1191a64fba17a1068754e04a49171283255819cb6d0449235762b166cbe9",
+      "bytes": 743
+    },
+    {
+      "name": "local-events.jsonl",
+      "sha256": "aa0a5262f36304aa86953926ada36561a2dc9ce25e6a87ec64a0f2e8985f0810",
+      "bytes": 18310735
+    },
+    {
+      "name": "cloud-events.jsonl",
+      "sha256": "77f88465de3da1da723c6ece93d7fa53c1baccbd33f10f9ad048da693f368bfe",
+      "bytes": 4296056
+    },
+    {
+      "name": "cloud-operational-messages.jsonl",
+      "sha256": "80dd926a308b4fee22772dd8683b04e34a1214055a6ceab9fc1e0fd80399111b",
+      "bytes": 176468
+    }
+  ],
+  "evidence_count": 31,
+  "contents": "仅文件名、字节数和hash；私有原件/原始正文不入库"
+}

@@ -1,0 +1,413 @@
+{
+  "archive_version": 1,
+  "kind": "sanitized_audit_and_takeover_snapshot_not_release_acceptance",
+  "source_audit_sha256": "c3e77494cb30a8aff69d6ed3759a1ec0e5cceae4bb7eeeefcdb604f737f1fa05",
+  "audit": {
+    "request_id": "adhoc-alert-recheck-20261110-v1",
+    "generated_at": "2026-11-10T09:30:09.450489+08:00",
+    "verdict": "FAIL",
+    "verdict_scope": "尚有确认未修缺陷、未部署修复和未恢复历史数据，不能认定所有告警已经根治；不是对4d候选代码的发布FAIL，也不是新增P0/P1损坏结论。",
+    "code_release_verdict": null,
+    "summary": "确认3项新发现但预先存在的P2：备份检查按mtime误归属日期、failed=-1异常与正数失败抵消、测试遗漏ALERTS_FILE污染本机告警镜像。监控38/38投递已好转；NAV/指数/overfit交付及Actions门禁4d候选仍未上线；R2队列与D1配额待闭环；136历史冻结缺口未新增但未恢复。"
+  },
+  "window": {
+    "start_inclusive": "2026-11-04T00:00:00+08:00",
+    "cutoff_inclusive": "2026-11-10T08:49:35+08:00",
+    "timezone": "Asia/Shanghai"
+  },
+  "versions_at_audit": {
+    "local_main": "41c567e6aabbfec13af0d310bcc08df59194fdbf",
+    "remote_main": "41c567e6aabbfec13af0d310bcc08df59194fdbf",
+    "cloud_CODE_head": "41c567e6aabbfec13af0d310bcc08df59194fdbf",
+    "closing_observed_at_utc": "2026-11-10T01:17:08.049360+00:00",
+    "cloud_closing_observed_at_utc": "2026-11-10T01:17:05.407417+00:00",
+    "candidate_head": "4d5c32a7d80c710ef086a1940f7b9beae7f62446",
+    "candidate_branch": "codex/ops-alert-rootfix-ci-20261109",
+    "candidate_in_main": false,
+    "candidate_runtime_files_present": false,
+    "candidate_CI": {
+      "run_url": "https://github.com/xp13465/trade-data-signal/actions/runs/42657545435",
+      "head": "4d5c32a7d80c710ef086a1940f7b9beae7f62446",
+      "passed": 4156,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 7,
+      "boundary": "既有CI证据未改写；本轮未再跑全量测试，也不冒称已部署。"
+    },
+    "source_or_service_restart_done": false,
+    "actual_deploy_timeline": [
+      {
+        "at_cst": "2026-11-09T23:18:05+08:00",
+        "code": "8840c79d7",
+        "what": "原六组修复到云CODE，按实际reflog不是author时间"
+      },
+      {
+        "at_cst": "2026-11-09T23:56:06+08:00",
+        "code": "6e",
+        "what": "含2a623c464f52203726afbb73a124a6639609ef10冻结持久化修复及F1/F2/baseline"
+      },
+      {
+        "at_cst": "2026-11-10T05:28:45+08:00",
+        "code": "41c567e6aabbfec13af0d310bcc08df59194fdbf",
+        "what": "最新main快进到云；仍无4d四类源码"
+      }
+    ]
+  },
+  "takeover_snapshot": {
+    "authorization": "用户明确授权Codex本次接替Claude，完成告警修复、合并和部署；不永久改角色规范",
+    "phase": "main integration; 3 P2 implementation and ops closure research in parallel",
+    "integration_branch": "codex/ops-alert-rootfix-ci-20261109",
+    "source_candidate": "4d5c32a7d80c710ef086a1940f7b9beae7f62446",
+    "base_main": "41c567e6aabbfec13af0d310bcc08df59194fdbf",
+    "integration_head": "36b8a7e58d93dd9930ff020623d7cd849131df83",
+    "conflicts": [
+      "docs/ops/machine-check-registry.md"
+    ],
+    "conflicts_resolved": {
+      "path": "docs/ops/machine-check-registry.md",
+      "method": "release gate与main-merge L58两条完整保留，只移除冲突标记",
+      "source_conflicts": false
+    },
+    "safety": "market hours no full export/deploy; no fabricated historical T0; no risk threshold lowering; main-merge only"
+  },
+  "coverage": {
+    "cloud_sender": {
+      "all_message_records": 224,
+      "operational_message_records": 87,
+      "other_business_or_completion_follow_records": 137,
+      "operational_categories": {
+        "schedule_monitor_task_anomaly": 10,
+        "monitor_status_notice": 31,
+        "kelly_historical_freeze_missing": 8,
+        "r2_deploy_delivery": 12,
+        "unit_patrol_or_failed_units": 6,
+        "overfit_model_risk": 6,
+        "backup_verification": 2,
+        "trade_data_gap": 4,
+        "digest": 6,
+        "unit_registry_drift": 2
+      },
+      "operational_email_true": 87,
+      "operational_feishu_true": 87,
+      "digest_messages": 6,
+      "digest_merged_metadata_total": 92,
+      "retained_entry_counts": {
+        "retained_digest_entry": 2,
+        "retained_internal_gate_entry": 4,
+        "retained_suppression_entry": 1361,
+        "retained_mirror_no_direct_ledger_match": 16
+      },
+      "sender_failure_observations_with_exact_send_time": 0
+    },
+    "feishu_received": {
+      "all_visible_messages_in_two_groups": 216,
+      "operational_sender_records": 87,
+      "operational_matched_visible_messages": 87,
+      "unmatched_sender_records": 0,
+      "operations_explicitly_app_truncated": 4
+    },
+    "platform_mail": {
+      "actual_platform_quota_full_MIME_emails": 8,
+      "distinct_quota_UTC_windows": 7,
+      "delayed_until_after_reset": 2,
+      "last_received_cst": "2026-11-09T16:27:35+08:00",
+      "last_email_before_latest_optimization_deploy": true
+    },
+    "local": {
+      "enumerated_roots": 21,
+      "roots_with_sources": 9,
+      "files_enumerated_unique_inode": 3215,
+      "files_fullread": 3208,
+      "native_sender_ledger_messages": 351,
+      "native_operational_email_count": 0,
+      "local_saved_cloud_copies": 110,
+      "cloud_copies_counted_as_new_local_sends": false,
+      "test_CODE_synthetic_entries": 30,
+      "test_worktree_synthetic_entries": 15,
+      "unread_disappeared_worktree_frozen_missing_archives": 7,
+      "unread_bytes_at_initial_stat": 7593,
+      "production_business_incident_from_local_proven": false
+    },
+    "counting_rules": [
+      "87运维消息不是87个独立故障；包括31状态通知与6摘要。",
+      "6摘要的92条合并元数据、1361条抑制记录及恢复记录不当独立故障相加。",
+      "云224条中137业务/完成/跟进消息不作为运维故障；本机351开发完成消息不当业务告警。",
+      "本机110云账本副本不重复计数；假测试镜像不当真实邮件或飞书。",
+      "单条“119个历史信号事件”是1条通知，不是119条送达；无cloud前缀不足以证明来自本机。"
+    ]
+  },
+  "confirmed_p2": [
+    {
+      "id": "PREUPLOAD-DATE-01",
+      "severity": "P2",
+      "title": "按文件mtime聚合整段累积日志，把旧失败当作今日失败",
+      "path": "scripts/check_preupload_backup.py:103",
+      "origin": "pre-existing",
+      "scope": "in-scope",
+      "impact": "Nov7/8/9的failed=1不能证明每日新失败或持续失败；旧错误可能被每天重复计入，copied/runs也不是可靠的当天计数。真实旧备份失败仍应保留，不能以此静音整族。",
+      "why": "scan_today_logs仅检查日志文件mtime是否今日，随后把整个2MiB尾部送parse_log_lines，未按实际运行边界/事件日期筛选。",
+      "fix": "由主控按可信运行边界/结构化事件日期归属计数，旧失败另作未解决事件，不改真失败判据、不直接清零或抑制。",
+      "trace": {
+        "diff_range": "41c567e6aabbfec13af0d310bcc08df59194fdbf:scripts/check_preupload_backup.py:73-115,135-156",
+        "linkage": "不满足",
+        "user_request": "一次失败日内重复还是持续失败；真问题不被抑制/邮件降噪当根治",
+        "origin": "pre-existing"
+      },
+      "verifier": {
+        "command": "python3 -B /tmp/codex-reports/alert-recheck-20261110/reproduce_preupload.py",
+        "expected": "Nov1失败、Nov9成功且mtimeNov9的累积日志，Nov9新失败数应0；旧失败单独保留，不伪装为当天新失败。",
+        "observed": "真实固定源码纯函数输出runs=2,copied=12,failed=1,judge=FAIL。生产只读在etf_national_team_launchd.log尾部找到Nov3 GET503，其文件mtimeNov9仍被本逻辑接纳。"
+      }
+    },
+    {
+      "id": "PREUPLOAD-SENTINEL-02",
+      "severity": "P2",
+      "title": "异常哨兵failed=-1与真实失败正数相加，可相互抵消而报OK",
+      "path": "scripts/check_preupload_backup.py:83",
+      "origin": "pre-existing",
+      "scope": "in-scope",
+      "impact": "同一输入池内一次正数失败加一次异常可变为failed=0，landed>0时判护栏正常，漏掉实际失败。",
+      "why": "upload_r2.py异常路径记录failed=-1，而parser直接把有符号failed相加；judge只看汇总不等于0，没有独立异常标志。",
+      "fix": "主控将异常状态与非负失败计数分开处理，出现异常不得因正数抵消而通过，保留失败key及原轮次；不靠降级告警关闭。",
+      "trace": {
+        "diff_range": "41c567e6aabbfec13af0d310bcc08df59194fdbf:scripts/check_preupload_backup.py:78-90,145-157; scripts/upload_r2.py:2071-2076",
+        "linkage": "不满足",
+        "user_request": "pre-upload护栏异常FAIL是否未根治，真问题不能被抑制",
+        "origin": "pre-existing"
+      },
+      "verifier": {
+        "command": "python3 -B /tmp/codex-reports/alert-recheck-20261110/reproduce_preupload.py",
+        "expected": "failed=1与异常failed=-1同时存在必须FAIL/unknown，不能OK。",
+        "observed": "固定真实parser：runs=2,copied=318,failed=0；judge(landed=318)输出OK。生产日志确实同时保留Nov3 failed=1和Nov4异常failed=-1；本轮不声称某次自然轮已实际因抵消误清。"
+      }
+    },
+    {
+      "id": "TEST-MIRROR-03",
+      "severity": "P2",
+      "title": "测试沙箱遗漏导入时固定的ALERTS_FILE，假告警可写入真实本机镜像",
+      "path": "scripts/tests/test_f03r1_digest_atomic_write.py:46",
+      "origin": "pre-existing",
+      "scope": "in-scope",
+      "source_head": "41c567e6aabbfec13af0d310bcc08df59194fdbf",
+      "recommendation": "Patch ALERTS_FILE and all derived side-effect paths within tmp fixture or reuse established complete sandbox; assert real mirror bytes unchanged and mock send results never count as receipts. Preserve real alert evidence.",
+      "trace": {
+        "diff_range": "41c567e6aabbfec13af0d310bcc08df59194fdbf:scripts/tests/test_f03r1_digest_atomic_write.py:38-65; scripts/notify.py:103,1937-1979",
+        "linkage": "不满足",
+        "user_request": "本机告警是否真发、是否有未修问题影响告警判断",
+        "origin": "pre-existing"
+      },
+      "verifier": {
+        "command": "parent AST-only _replace_latest with both simulated-live and sandbox directories under /tmp",
+        "expected": "changing sandbox path cannot mutate simulated-live target",
+        "observed": {
+          "sandbox_latest_exists": false,
+          "preexisting_target_content_after": "synthetic-test-entry",
+          "expected": "fixture must not change a target outside sandbox; all proof paths themselves are under /tmp",
+          "observed": "unchanged import-time ALERTS_FILE target was replaced despite changing ALERTS_DIR"
+        }
+      },
+      "source_trace": [
+        "notify.py:103 derived path at import",
+        "test_f03r1_digest_atomic_write.py:38-65 sandbox patches ALERTS_DIR only",
+        "notify.py:1937-1955 reads/writes ALERTS_FILE; tmp and lock use ALERTS_DIR"
+      ],
+      "sha256": {
+        "scripts/notify.py": "c356ee9fb3f21ce053b895717797c9083b46e98264a1f2f0c73334d50037acf5",
+        "scripts/tests/test_f03r1_digest_atomic_write.py": "2bd0e7b9e9b191457a4de53193614692a356e186970ad89a693106c825f53aca"
+      },
+      "boundary": "Does not identify the exact historical test invocation responsible for each row; no production path written by this proof; send methods patched True are not channel receipts. Mirror capacity/concurrent lock mismatch can hide real evidence; actual loss not proven."
+    }
+  ],
+  "issue_registration": {
+    "379": [
+      "PREUPLOAD-DATE-01",
+      "PREUPLOAD-SENTINEL-02"
+    ],
+    "380": [
+      "TEST-MIRROR-03"
+    ],
+    "reserved_elsewhere": {
+      "378": "feat/fix/merge-fastcheck-gate-20261110"
+    },
+    "boundary": "编号核验覆盖本地36分支/6种索引blob及现存worktree；不是远端未fetch分支的穷举。"
+  },
+  "repair_matrix": [
+    {
+      "id": "preupload-date",
+      "status": "OPEN_CONFIRMED_CODE_P2",
+      "root_cause": "日志按文件mtime归属而未按事件日期",
+      "repair_commit_or_candidate": null,
+      "deployment": "当前main与candidate均未见该族修复",
+      "conclusion": "已独立复现；每日FAIL不等于每日新故障。",
+      "finding_id": "PREUPLOAD-DATE-01"
+    },
+    {
+      "id": "preupload-sentinel",
+      "status": "OPEN_CONFIRMED_CODE_P2",
+      "root_cause": "failed=-1异常与正数直接求和",
+      "repair_commit_or_candidate": null,
+      "deployment": "当前云脚本确认与固定41c一致",
+      "conclusion": "已独立复现false OK；未宣称所有自然轮都发生抵消。",
+      "finding_id": "PREUPLOAD-SENTINEL-02"
+    },
+    {
+      "id": "preupload-protection",
+      "status": "OPEN_ROLLBACK_GUARD_RISK",
+      "root_cause": "部分备份失败但PhaseA有意不阻断主PUT；与DB恢复演练不同",
+      "repair_commit_or_candidate": null,
+      "deployment": "upload_r2.py:2056-2076当前仍为观测阶段，六组DB proof未改变它",
+      "conclusion": "Nov3旧轨迹：etf/512200-all.json GET503后同轮[132/319]✓上传193075B。它在窗口前，不能算窗口内新损坏；当前仍有失败后继续覆盖的可达风险，未取得旧源字节/备份身份，不能宣布实际不可恢复丢失。"
+    },
+    {
+      "id": "history-overwrite",
+      "status": "OPEN_PROVENANCE_NOT_PROVEN_DAMAGE",
+      "root_cause": "历史行真实数值补正/更换；旧来源身份在审计表未保留",
+      "repair_commit_or_candidate": "quote-refresh group +2a persistence",
+      "deployment": "Nov5/6/9 16:37–17:56改写均早于Nov9 23:18部署",
+      "conclusion": "Nov5=56/Nov6=58/Nov9=56个不同(date,index)变更；每天15个此前OHLC全相同占位形态。Nov9 52个OHLC变化、4个金额/pct变化；当前6个点source=collect。与旧占位→最终补正相容，非价格真值权威证明；既不说全部正常，也不指控本机或异源异常覆写。"
+    },
+    {
+      "id": "r2-purge",
+      "status": "OPEN_RELIABILITY_INCIDENT",
+      "root_cause": "purge-low-freq排队等待后失败；具体底层最终rc未保留全明细",
+      "repair_commit_or_candidate": null,
+      "deployment": "Nov9 22:55早于六组23:18；六组/4d均不能同名当作purge专项已修",
+      "conclusion": "570s等锁留痕，原文仅“占锁进程候选”，不实锤持锁者。23:52:24总链rc0及后来其他purge批成功不证明失败低频清单全补；仅overfit对象已另验恢复。"
+    },
+    {
+      "id": "r2-intraday",
+      "status": "TRUE_FAILURE_BEFORE_DEPLOY_CURRENT_SCOPE_LIMITED",
+      "root_cause": "data域锁等待600s失败；不是已证HTTP断网",
+      "repair_commit_or_candidate": null,
+      "deployment": "Nov9 20:52在23:18前",
+      "conclusion": "保留实际独立上传失败；不能用采集rc0关闭，也不能推断同机误覆盖131key。"
+    },
+    {
+      "id": "nav016989",
+      "status": "PENDING_MERGE_DEPLOY_AND_RESTORE",
+      "root_cause": "旧collect_fof_nav任一近窗已填行就跳过整只基金",
+      "repair_commit_or_candidate": "b1f20bca27d96db15a07230f7bed0d9e0f7d6f9e inside4d",
+      "deployment": "closing云hash为旧99f018...，非candidate e990a3...",
+      "conclusion": "08:57 CST mode=ro：Nov2=1.1404，Nov3–6仍NULL。21:10旧轮rc0/written2096不代表本键恢复；不能叫未部署新修无效。"
+    },
+    {
+      "id": "fund-index-Nov9",
+      "status": "PENDING_MERGE_DEPLOY_AND_NATURAL_ACCEPTANCE",
+      "root_cause": "旧入口login10002007直接0，没有同源恢复",
+      "repair_commit_or_candidate": "e30d1c90a9482e754b802be202e9cd7d59b9875a inside4d",
+      "deployment": "closing仍53f2ad...旧public_fund，不是candidate4d3eae...",
+      "conclusion": "三指数窗口仅Nov6三条、Nov9无行；未将主库intraday_snapshot或close>0当最终收盘。"
+    },
+    {
+      "id": "overfit-delivery",
+      "status": "CURRENT_OBJECT_RECOVERED_MECHANISM_PENDING_DEPLOY",
+      "root_cause": "旧upload-data-large范围/预算，TimeoutExpired只打印后return out",
+      "repair_commit_or_candidate": "5b3ab1f3259deb7896e018677946660576041c77 inside4d",
+      "deployment": "closing仍旧py8dd03f.../she9aab...；新交付状态文件不存在",
+      "conclusion": "00:00告警对应Nov9 21:40真实960秒超时且任务exit0。09:06 cloud-vantage主/ext四份HTTP200+SHA完全等于云DATA，证明当前对象已追平，不证明旧链根治。"
+    },
+    {
+      "id": "monitor-delivery",
+      "status": "DEPLOYED_BOUNDED_RUNTIME_PASS",
+      "root_cause": "旧单次暂态投递无重试/安全类别不足",
+      "repair_commit_or_candidate": "32dc4e9ace2c4a22cdd51f77d5c5b580ff2a179d",
+      "deployment": "cloud23:18:05文件匹配；Worker版本时点另列，不伪造Git对应",
+      "conclusion": "窗口内23:30→08:45共38/38 delivery_ok/HTTP200，23:30和08:45精确ID SELECT确认落库。最后故障22:45 TimeoutError在部署前。不是全部177业务check都正常：样本仍有41/42 unknown。"
+    },
+    {
+      "id": "D1-quota",
+      "status": "OPEN_ACCEPTANCE_AND_PROVIDER_RUNTIME_CONTRADICTION",
+      "root_cause": "账户配额声明/应用成功是不同证据层；阈值计费原因未证实",
+      "repair_commit_or_candidate": "2162e539fed9fc82cbce74cc40cdb665b3b6dc59",
+      "deployment": "新索引优化23:18到云；Nov9 16:00同步与16:27邮件都在之前；下一16:00自然验收未执行",
+      "conclusion": "8封/7 UTC窗口，2封reset后才收到。provider称blocked不等于until08全账户每笔都拒绝；重置前OPS真实落库反证保留。TASKS.md:12“全程无配额报错”只能限该任务日志，不能扩成账户无quota事件；当前计费/软硬阈值unknown。"
+    },
+    {
+      "id": "freeze136-and-trade9",
+      "status": "HISTORICAL_OPEN_NOT_PROVEN_RECURRENCE",
+      "root_cause": "历史键无可信T0冻结；另2个ETF次日NAV缺失",
+      "repair_commit_or_candidate": "quote-refresh da84/2b7 group; persistence2a623c464f52203726afbb73a124a6639609ef10",
+      "deployment": "quote23:18/persistence23:56，当前源码均在位；未来首个真实交易轮仍需验收",
+      "conclusion": "136完整键集与旧审计完全相同(added0/removed0)，02:16只是未修历史重复。旧5键仍缺；新22:35九键全部缺，其中7在同一136/无freeze，2有真实freeze但Nov9 accum_nav=NULL。九数不与旧五数直接相减判回归。"
+    },
+    {
+      "id": "backup-verification",
+      "status": "DEPLOYED_PENDING_NEW_NATURAL_RECEIPT",
+      "root_cause": "旧live对比跨时点，非pre-upload回滚层",
+      "repair_commit_or_candidate": "10e34d5756783bb2b8ca951688c2a8a1a905aa8c",
+      "deployment": "23:18到云，最新Nov9 22:09/Nov8 22:37都早于此",
+      "conclusion": "最近两轮旧链通过；Nov9 public_fund非周日SKIP不是PASS其恢复。不能拿这些旧PASS验收新receipt/proof；#373旧Nov1/2原件仍OPEN。"
+    },
+    {
+      "id": "nextday",
+      "status": "DEPLOYED_NO_POST_DEPLOY_PRODUCTION_TARGET_ROUND",
+      "root_cause": "旧关键字混淆主源失败兜底成功；新live证据判据",
+      "repair_commit_or_candidate": "75f8dad573d75c694cf7965ef6f6e515a36d9ae0",
+      "deployment": "23:18到云；Nov9 09:26仅空计划跳过且在部署前",
+      "conclusion": "不以空计划exit0称新逻辑生产验收通过；09:26新轮在cutoff外且本轮未等待/执行。"
+    },
+    {
+      "id": "stall-wording",
+      "status": "DEPLOYED_NO_NEW_UNIT_FAILURE_IN_CHECKED_POST_WINDOW",
+      "root_cause": "滚动升级计数被说成对象连续停摆",
+      "repair_commit_or_candidate": "a4d38c95de0f93ece584fbafb5c6461698c8f954",
+      "deployment": "23:18到云",
+      "conclusion": "23:00的7天/1unit文案是旧码，具体对象monitor，巡检与23:00新一轮monitor成功有时间先后；不能把它判新修失效。"
+    },
+    {
+      "id": "unit-registry-drift",
+      "status": "CURRENT_BOUNDED_PASS",
+      "root_cause": "新增FOF/ops unit登记/快照曾不同步",
+      "repair_commit_or_candidate": "existing snapshot/registry follow-up, not same as failed unit",
+      "deployment": "current41c与真实08:27轮",
+      "conclusion": "Nov10 08:27原生90unit逐字段、45service登记PASS。仅当前登记/顶层配置边界，不外推全部drop-in或业务正确性。"
+    },
+    {
+      "id": "turnover",
+      "status": "LATEST_NATURAL_CHAIN_PASS_LOG_SCOPE",
+      "root_cause": "历史Nov6 exit124，最新链成功",
+      "repair_commit_or_candidate": "existing mechanisms; no claim candidate4d effect",
+      "deployment": "Nov9 21:10→22:13旧链",
+      "conclusion": "native exit0，日志6/6+3/3上传和purge成功；属于真实自然轮恢复，不归功于尚未部署4d。九文件业务逐值验证为父前次落档，本轮未重做。"
+    },
+    {
+      "id": "Actions-release-gate",
+      "status": "PENDING_MERGE_DEPLOY_EXTERNAL_SCOPE_OPEN",
+      "root_cause": "Actions部署未依赖同SHA可信CI；#375自动部署失败另待查",
+      "repair_commit_or_candidate": "a2f838eba800219cc4bec2306d3439e7587dd87a +d8a535 inside4d",
+      "deployment": "candidate非main祖先，closing workflow仍旧hash",
+      "conclusion": "CODE已部署不等于Worker/Git integration全受控。active Worker实际有部署时间/版本，但无Git SHA标记，未冒称所有自动发布路径已修。"
+    },
+    {
+      "id": "risk74red",
+      "status": "LEGITIMATE_BUSINESS_RISK_KEEP_ALERT",
+      "root_cause": "评估结果/模型风险，不是通知系统bug",
+      "repair_commit_or_candidate": null,
+      "deployment": "Nov9 21:40真实产物",
+      "conclusion": "90/20/90/100加权36+5+18+15=74/red；公共主ext一致。未改价/阈值或复算策略。"
+    },
+    {
+      "id": "historical-373-Nov3",
+      "status": "OPEN_PREVIOUS_EVIDENCE_NO_NEW_IDENTITY",
+      "root_cause": "原始备份缺失/快照输入身份不足",
+      "repair_commit_or_candidate": null,
+      "deployment": "无新的可信历史原件或T0",
+      "conclusion": "#373原Nov1/2备份及Nov3指标权威归因仍OPEN；不拿今天备份/当前映射修造历史。"
+    },
+    {
+      "id": "test-mirror-isolation",
+      "status": "OPEN_CONFIRMED_CODE_P2",
+      "conclusion": "30个CODE及15个worktree假告警镜像已排除；ALERTS_FILE遗漏由固定源码与纯tmp复现确认，尚未修改或清理真实文件。"
+    }
+  ],
+  "boundaries": [
+    "审计FAIL表示尚未全部根治；不是4d候选发布FAIL，也没有新证P0/P1损坏。",
+    "原审计只读；本轮实现审合部署接管有单次用户授权，默认只读外审角色不永久改变。",
+    "父整合36b快照不代表3P2已合并、独立审查通过或部署；归档不等待未来自然轮。",
+    "QQ未独立读取完整收件原件；Resend读取401/send-only不构成收件回执。",
+    "4条飞书发送端截断；7个worktree文件在stat与读取间消失，不证明生产删除。",
+    "无时间戳SMTP失败不归入本窗口；发送成功标志与实际收件分层。",
+    "136历史键added=0/removed=0不等于已恢复；九键与旧五键不可直接相减判新回归。",
+    "旧源身份不足，不用今天备份/映射重造T0，不调低业务风险阈值。"
+  ]
+}
