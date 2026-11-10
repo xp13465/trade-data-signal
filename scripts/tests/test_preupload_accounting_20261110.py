@@ -228,3 +228,35 @@ def test_current_failure_preserves_key_run_and_date(run_check):
         "[etf-hist] 备份完成 copied=318 skipped=0 failed=1",
     ])})
     assert rc == 1 and "etf/512200-all.json" in out and "123-456" in out and DAY in out
+
+
+@pytest.mark.parametrize("rotation", [None, ".1", ".2.gz"])
+def test_prior_undated_success_is_audited_after_reliable_current_boundary(run_check, tmp_path, rotation):
+    current = "[data-large] 备份开始 day=20261110 run_id=123-999\n" + DONE
+    files = {"scope.log": DONE + "\n" + current} if rotation is None else {
+        "scope.log" + rotation: DONE + "\n", "scope.log": current,
+    }
+    rc, out = run_check(files)
+    stat = cpb.scan_today_logs(tmp_path / "data/logs", DAY)
+    assert (rc, "PREUPLOAD_OK" in out) == (0, True)
+    assert stat["runs"] == 1 and stat["copied"] == 7 and stat["undated_runs"] == 0
+    assert len(stat["prior_undated_successes"]) == 1
+    prior = stat["prior_undated_successes"][0]
+    assert prior["day"] is None and prior["stat"]["failed"] == prior["stat"]["exceptions"] == 0
+    assert "prior_undated_successes=" in out
+
+
+@pytest.mark.parametrize("error", [FAIL, EXCEPTION])
+def test_prior_undated_error_is_not_cleared_by_reliable_current_boundary(run_check, tmp_path, error):
+    rc, out = run_check({"scope.log.1": error + "\n", "scope.log":
+        "[data-large] 备份开始 day=20261110 run_id=123-999\n" + DONE})
+    stat = cpb.scan_today_logs(tmp_path / "data/logs", DAY)
+    assert rc == 1 and "日期未知" in out
+    assert stat["failed"] == stat["exceptions"] == 0  # 不伪装为今天的新错误。
+    assert len(stat["undated_failures"]) == 1 and not stat.get("prior_undated_successes", [])
+
+
+def test_prior_unknown_success_only_cleared_in_same_log_family(run_check):
+    rc, out = run_check({"a.log": DONE, "b.log":
+        "[data-large] 备份开始 day=20261110 run_id=123-999\n" + DONE})
+    assert rc == 2 and "undated_runs=1" in out
