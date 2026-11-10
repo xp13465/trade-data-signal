@@ -185,7 +185,7 @@ jobs:
           # pin 版本: numpy/pyarrow 三环境一致(dev 两 venv == 云上生产 venv);
           #           pandas 取云上生产 venv 实跑值 3.0.5(本机两 dev venv 仍 3.0.3, 存在漂移, 待统一;
           #           requirements.txt 未 pin 三件 ⇒ 无仓内权威 pin 源)。
-          pip install pytest pyyaml numpy==2.4.6 pandas==3.0.5 pyarrow==25.0.1
+          pip install pytest pyyaml certifi numpy==2.4.6 pandas==3.0.5 pyarrow==25.0.1
           python3 -m pytest -q scripts/tests/
 
       - name: ⑫ L51 运行日平移复验(测试文件变更时; 首期只报不拦)

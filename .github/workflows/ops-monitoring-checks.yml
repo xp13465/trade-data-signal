@@ -144,7 +144,7 @@ jobs:
           python-version: '3.11'
       - run: npm ci --no-audit --no-fund
       # Match the main quality gate numerical dependencies for full scripts regression.
-      - run: python3 -m pip install pytest pyyaml numpy==2.4.6 pandas==3.0.5 pyarrow==25.0.1
+      - run: python3 -m pip install pytest pyyaml certifi numpy==2.4.6 pandas==3.0.5 pyarrow==25.0.1
       - run: python3 -m pytest -q ops/monitoring/tests scripts/tests/test_ops_monitor.py scripts/tests/test_ops_monitor_registry.py
       - run: node --test ops/monitoring/tests/worker*.test.mjs
       - run: python3 ops/monitoring/build_baseline.py --check
