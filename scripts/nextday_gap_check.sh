@@ -52,6 +52,18 @@ fi
 
 echo "=== nextday_gap_check.sh 开始 $(date '+%F %T') ===" >> "$LOG"
 
+# Shared execution fence after calendar gate. Real --date/backfill failures
+# still alert; only dry/test/local-only modes disable operational notifications.
+_OP_DISABLED=""
+if [ "${#CHECK_ARGS[@]}" -gt 0 ]; then
+  for _a in "${CHECK_ARGS[@]}"; do
+    case "$_a" in --dry-run|--no-r2|--no-notify|--test-open|--test-open=*|--help|-h) _OP_DISABLED=--disabled ;; esac
+  done
+fi
+export OPS_LEGACY_TASK=nextday_gap
+OPS_LEGACY_RUN=$("$PY" scripts/ops_legacy_events.py begin --repo "$REPO" --task nextday_gap ${_OP_DISABLED:+--disabled}) || OPS_LEGACY_RUN=""
+export OPS_LEGACY_RUN
+export OPS_LEGACY_LOG="$LOG"
 RC=0
 if [ "${#CHECK_ARGS[@]}" -gt 0 ]; then
   "$PY" scripts/nextday_gap_check.py "${CHECK_ARGS[@]}" >> "$LOG" 2>&1
@@ -61,12 +73,9 @@ fi
 RC=$?
 if [ "$RC" -ne 0 ]; then
   echo "✗ 伪跳空二次剔除失败 rc=${RC}" >> "$LOG"
-  "$PY" scripts/notify.py \
-    "[告警] 次日买入计划伪跳空校验失败 $(date '+%m-%d %H:%M')" \
-    "nextday_gap_check.py 退出码 ${RC}, 伪跳空二次剔除未完成。<br>日志: $LOG(尾部 50 行)<br>影响: 执行日买入行可能未做伪跳空剔除(干跑阶段不真实下单), 需人工核查。注意: 若退出码 2 为开盘价就绪闸 FAIL(主源+腾讯/新浪双源兜底多轮退避后均取不到), 脚本已标记「伪跳空校验未完成(待人工)」, 本条为包装层兜底(py 同 dedup key: py 已发时本条被抑制; py 未发时本条兜底)。" \
-    --severe --from-prefix "[告警]" \
-    --alert-issue "次日买入计划伪跳空校验失败" --alert-log "$LOG" \
-    --dedup-key nextday_gap_check_fail --dedup-window 3600 >> "$LOG" 2>&1
+  "$PY" scripts/ops_legacy_events.py fail --repo "$REPO" --task nextday_gap \
+    --run "$OPS_LEGACY_RUN" --detail "nextday_gap_check.sh: child rc=${RC}；日志 ${LOG}；本轮结果未证实" \
+    ${_OP_DISABLED:+--disabled} >> "$LOG" 2>&1 || true
 fi
 
 echo "=== nextday_gap_check.sh 结束 $(date '+%F %T') 退出码=$RC ===" >> "$LOG"

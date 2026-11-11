@@ -127,9 +127,12 @@ def _retry_plan(now, targets=RETRY_TARGETS, budget=RETRY_BUDGET_S):
     return plan
 
 
-def _severe_alert(subject, body):
+def _severe_alert(subject, body, kind="execution"):
     """严重失败告警(notify.py --severe, 带 dedup 防轰炸; 同生成器 _severe_alert 先例)。"""
     log_path = REPO / "data" / "logs" / "nextday_gap_check_launchd.log"
+    from ops_legacy_events import operation_failure
+    if operation_failure(subject, body, kind=kind):
+        return  # actual entrypoint emits once at completion, wrapper shares its token
     cmd = [PY, str(SCRIPT_DIR / "notify.py"), subject, body,
            "--severe", "--from-prefix", "[告警]",
            "--alert-issue", subject, "--alert-log", str(log_path),
@@ -196,6 +199,10 @@ def _fetch_opens(codes, test_open, expect_date=None):
     return out
 
 
+from ops_legacy_events import tracked_operation, operation_health
+
+
+@tracked_operation("nextday_gap", repo=lambda: REPO)
 def main():
     ap = argparse.ArgumentParser(description="次日买入计划伪跳空二次剔除(执行日 9:26)")
     ap.add_argument("--date", default=None, help="执行日 T+1(YYYYMMDD, 缺省=今天)")
@@ -257,6 +264,8 @@ def main():
                                                    no_r2=args.no_r2, no_notify=args.no_notify)
             if r2_rc or notify_rc:
                 log(f"⚠ recheck 清理的线上同步未完全成功(r2_rc={r2_rc} notify_rc={notify_rc})")
+                from ops_legacy_events import operation_failure
+                operation_failure("recheck 线上同步失败", f"r2_rc={r2_rc} notify_rc={notify_rc}")
 
     if plan_doc is None:
         log(f"nextday_plan.json 不存在, 无计划可校验, 跳过(退出 0)")
@@ -326,6 +335,7 @@ def main():
             f"nextday_gap_check.py: 执行日 {today} 拉取开盘价跨 9:30 锚点重试(09:28/09:31/09:35/09:40)后仍失败, 无法完成伪跳空剔除, "
             f"买入行标记「伪跳空校验未完成(待人工)」待人工复核。<br>失败原因: {last_err}"
             f"<br>日志: {REPO}/data/logs/nextday_gap_check_launchd.log",
+            kind="validation",
         )
         log(f"✗ 开盘价就绪闸 FAIL(重试后仍失败): {last_err}; 标记未完成(待人工)")
         if args.dry_run:
@@ -361,6 +371,14 @@ def main():
     if not excluded and not unverified:
         log(f"执行日 {today} 全部 {len(target)} 笔无伪跳空, 无标记")
         _sync_recheck()
+        # A previous failed validation may have persisted today's pending marker.
+        # Real prices alone do not clear it; never certify that stale output.
+        stale_markers = any(isinstance(s, dict) and str(s.get("date")) == today
+                            and s.get("action") == "buy" and str(s.get("etf_code")) in target
+                            and "伪跳空" in str(s.get("status_text", ""))
+                            for s in (steps_doc or {}).get("steps", []))
+        if not steps_changed and not stale_markers:
+            operation_health("targets_verified_no_write")
         return 0
 
     if args.dry_run:
@@ -370,6 +388,10 @@ def main():
         for code in unverified:
             print(f"  未完成 {code} status_text=伪跳空校验未完成(待人工)")
         return 0
+
+    if unverified:
+        from ops_legacy_events import operation_failure
+        operation_failure("伪跳空校验未完成", f"缺真实开盘价: {unverified}", kind="validation")
 
     # ---- 落盘标记 ----
     written = []
@@ -637,6 +659,9 @@ def _sync_r2_and_notify(excluded, steps_changed, today, no_r2=False, no_notify=F
                 log(f"⚠ notify 异常: {e}")
                 notify_rc = 1
 
+    if r2_rc or notify_rc:
+        from ops_legacy_events import operation_failure
+        operation_failure("伪跳空产物同步/通知失败", f"r2_rc={r2_rc} notify_rc={notify_rc}")
     return r2_rc, notify_rc
 
 
@@ -649,11 +674,5 @@ if __name__ == "__main__":
         import traceback
         tb = traceback.format_exc()
         log(f"✗ 未捕获异常({type(e).__name__}): {e}\n{tb}")
-        _severe_alert(
-            f"[告警] 次日买入计划伪跳空校验异常 {type(e).__name__}",
-            f"nextday_gap_check.py 主流程未捕获异常, 伪跳空二次剔除中断(线上文件保持上一批)。"
-            f"<br>异常: <pre>{tb[-2000:]}</pre>"
-            f"<br>日志: {REPO}/data/logs/nextday_gap_check_launchd.log",
-        )
         sys.exit(2)
     sys.exit(rc)

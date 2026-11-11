@@ -258,11 +258,13 @@ def test_h4_update_all_failure_branch_still_wired():
     """
     src = (SCRIPTS / "update_all.sh").read_text(encoding="utf-8")
     m = re.search(
-        r'if "\$PY" "\$REPO/scripts/daily_summary_email\.py" --mode main[^\n]*; then\n'
+        r'if OPS_LEGACY_TASK=daily_summary OPS_LEGACY_RUN="\$_DSE_OP_RUN" OPS_LEGACY_LOG="\$LOG" "\$PY" "\$REPO/scripts/daily_summary_email\.py" --mode main[^\n]*; then\n'
         r'(?P<ok>.*?)\nelse\n(?P<fail>.*?)\nfi',
         src, re.S)
     assert m, "update_all.sh 里 daily_summary_email --mode main 的 if/else 结构变了"
-    assert "情绪速递邮件失败" in m.group("fail")
+    assert 'ops_legacy_events.py" fail' in m.group("fail")
+    assert '--task daily_summary' in m.group("fail")
+    assert '--run "$_DSE_OP_RUN"' in m.group("fail")
     assert "情绪速递邮件失败" not in m.group("ok")
 
 

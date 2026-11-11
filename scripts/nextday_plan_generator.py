@@ -129,13 +129,12 @@ def _severe_alert(subject, body):
     F2(2026-09-10): 生成器内 R2 上传失败/写盘失败等「会让线上停滞」的失败不再静默只 log,
     调 notify.py --severe 告警 + 最终退出码非 0(进程非 0 交 nextday_plan.sh 包装层兜底)。
 
-    #247(2026-10-10): dedup key 与包装层 nextday_plan.sh 统一为 nextday_plan_fail
-    (同 B4-3 nextday_gap_check 先例)。此前 py=nextday_plan_gen_fail / sh=nextday_plan_fail
-    两键不同 ⇒ notify dedup **按 key 判** ⇒ 同一事件秒级两封 SEVERE(py 带明细, sh 带
-    「未生成」失真汇总)。统一后语义: 先发者占窗(带明细的 py 侧优先), 包装层同键窗内被抑制;
-    py 未发(崩溃/超时/被杀)时包装层照发兜底 —— **兜底性不依赖「不同 key」**, 故双保险与
-    去重可兼得(旧「不同 key 不互吞=双保险」论证已废止: 那是重复告警不是双保险)。
+    正常入口由 tracked_operation 聚合，py/sh 共享运行令牌和事件回执；包装层只补失败渠道。
+    无 operation 上下文的 helper-only 历史调用保留 nextday_plan_fail 兼容路径。
     """
+    from ops_legacy_events import operation_failure
+    if operation_failure(subject, body):
+        return  # actual entrypoint emits once at completion, wrapper shares its token
     log_path = REPO / "data" / "logs" / "nextday_plan_launchd.log"
     cmd = [PY, str(SCRIPT_DIR / "notify.py"), subject, body,
            "--severe", "--from-prefix", "[告警]",
@@ -1046,8 +1045,12 @@ def _uphold_plan_r2_upload(r2_files, T):
         return 1
 
 
+from ops_legacy_events import tracked_operation
+
+
 @evidence_stage(data_root=lambda: REPO, stage="plan",
                 chain_id="market_signal_freeze_plan", object_id="nextday_plan", exit_status=True)
+@tracked_operation("nextday_plan", repo=lambda: REPO)
 def main():
     ap = argparse.ArgumentParser(description="次日买入计划生成器(PRD 阶段一 §3/§6, 干跑)")
     ap.add_argument("--date", default=None, help="信号日 T(YYYYMMDD, 缺省=今天)")
@@ -1362,11 +1365,5 @@ if __name__ == "__main__":
         import traceback
         tb = traceback.format_exc()
         log(f"✗ 未捕获异常({type(e).__name__}): {e}\n{tb}")
-        _severe_alert(
-            f"[告警] 次日买入计划生成器异常 {type(e).__name__}",
-            f"nextday_plan_generator.py 主流程未捕获异常, 次日买入计划生成中断(线上文件保持上一批)。"
-            f"<br>异常: <pre>{tb[-2000:]}</pre>"
-            f"<br>日志: {REPO}/data/logs/nextday_plan_launchd.log",
-        )
         sys.exit(2)
     sys.exit(rc)

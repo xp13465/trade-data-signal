@@ -1609,6 +1609,10 @@ def send_report_to_feishu(subject: str, text_body: str) -> bool:
 
 
 # ---------------------------------------------------------------- main
+from ops_legacy_events import tracked_operation, operation_health
+
+
+@tracked_operation("daily_summary", repo=lambda: REPO)
 def _run_main(date: str, dry_run: bool) -> int:
     """main 模式:T日盘后情绪速递(恐贪/情绪/涨跌/成交额/板块/冰点),不含期货/汪汪队/公募。"""
     it = load_summary_item(date)
@@ -1642,6 +1646,7 @@ def _run_main(date: str, dry_run: bool) -> int:
     if not send_report_to_feishu(subject, text_body):
         log.error("情绪速递(main)未发出, 返回非 0 交给上层告警")
         return 1
+    operation_health("report_accepted")
     return 0
 
 
