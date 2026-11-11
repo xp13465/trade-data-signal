@@ -114,6 +114,7 @@ OPS_RECEIPT_FIELDS = (
     "notified_event_id", "notified_at", "notified_channels",
     "last_recovery_notified_event_id", "last_recovery_notified",
     "last_escalation_notified_event_id", "last_escalation_notified",
+    "last_recovery_notified_channels", "last_escalation_notified_channels",
     "last_notification_attempt", "notification_claim",
 )
 OPS_CHANNELS = ("email", "telegram", "feishu")
@@ -182,6 +183,21 @@ def _ops_audit(refs, decision, detail=""):
     return _append_jsonl(INFO_LOG_FILE, rec)
 
 
+def _ops_phase_channels(refs, state):
+    phase, event = refs[0]["phase"], refs[0]["event_id"]
+    prefix = "notified" if phase == "active" else "last_" + phase + "_notified"
+    channels = state.get(prefix + "_channels")
+    if phase != "active" and not isinstance(channels, dict):
+        # 0687 already kept the actual channels of its last attempt. Preserve
+        # that evidence when adding phase totals; never infer channels from a flag.
+        attempt = state.get("last_notification_attempt") or {}
+        if attempt.get("phase") == phase:
+            channels = attempt.get("channels")
+    if state.get(prefix + "_event_id") != event or not isinstance(channels, dict):
+        return dict.fromkeys(OPS_CHANNELS, False)
+    return {c: channels.get(c) is True for c in OPS_CHANNELS}
+
+
 def _ops_decision(refs, state=None, continuing=False):
     r = refs[0]
     try:
@@ -193,13 +209,14 @@ def _ops_decision(refs, state=None, continuing=False):
     if st["event_id"] != r["event_id"]:
         return "superseded", st, "key now belongs to another event; health unknown"
     phase = r["phase"]
-    field = {"active": "notified_event_id", "recovery": "last_recovery_notified_event_id",
-             "escalation": "last_escalation_notified_event_id"}[phase]
-    channels = st.get("notified_channels")
-    accepted = isinstance(channels, dict) and any(channels.get(c) is True for c in OPS_CHANNELS)
-    receipt_time = "notified_at" if phase == "active" else "last_" + phase + "_notified"
-    if st.get(field) == r["event_id"] and st.get(receipt_time) and accepted and not continuing:
+    accepted = _ops_phase_channels(refs, st)
+    targets = (set(OPS_CHANNELS) if phase != "recovery" else
+               {c for c in OPS_CHANNELS if (st.get("notified_channels") or {}).get(c) is True})
+    if targets and all(accepted[c] for c in targets) and not continuing:
         return "suppressed", st, "event phase already accepted"
+    if (phase != "active" and st.get("last_" + phase + "_notified_event_id") == r["event_id"]
+            and not any(accepted.values())):
+        return "unknown", st, "legacy phase channels unknown"
     if phase == "recovery":
         if st.get("status") != "recovered" or st.get("requires_action") is not False:
             return "unknown", st, "recovery not verified"
@@ -227,7 +244,8 @@ def _ops_result(status, refs, detail="", **extra):
 
 def _ops_gate(refs, dry_run=False, continuing=False):
     decision, st, reason = _ops_decision(refs, continuing=continuing)
-    if decision in ("superseded", "suppressed") or (decision == "unknown" and refs[0]["phase"] == "recovery"):
+    if decision in ("superseded", "suppressed") or (decision == "unknown" and (
+            refs[0]["phase"] == "recovery" or reason == "legacy phase channels unknown")):
         if not dry_run:
             _ops_audit(refs, decision, reason)
         return _ops_result(decision, refs, reason)
@@ -262,7 +280,7 @@ def _ops_claim(refs, continuing=False):
         return claim, None
 
 
-def _ops_receipt(refs, claim, results, attempted, status, final=True):
+def _ops_receipt(refs, claim, results, attempted, status, final=True, confirmed_channels=None):
     """Fresh merge only, preserving business facts and ACK. Return persistence proof."""
     r = refs[0]
     try:
@@ -272,21 +290,31 @@ def _ops_receipt(refs, claim, results, attempted, status, final=True):
             if not isinstance(st, dict) or st.get("event_id") != r["event_id"]:
                 _ops_audit(refs, "superseded", "late receipt; new event untouched")
                 return False
+            current = st.get("notification_claim") or {}
+            if (current.get("attempt_id") != claim["attempt_id"] or
+                    current.get("phase") != r["phase"] or current.get("expires_at", 0) <= time.time()):
+                _ops_audit(refs, "unknown", "stale claim receipt rejected; current attempt untouched")
+                return False
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            channels = {c: results.get(c) is True for c in OPS_CHANNELS}
-            st["last_notification_attempt"] = {"attempt_id": claim["attempt_id"], "phase": r["phase"],
-                "source_run": r["source_run"], "status": status, "channels": channels,
-                "attempted_channels": list(attempted)}
-            if any(channels.values()):
+            channels = {c: results.get(c, False) for c in OPS_CHANNELS}
+            if attempted:
+                st["last_notification_attempt"] = {"attempt_id": claim["attempt_id"], "phase": r["phase"],
+                    "source_run": r["source_run"], "status": status, "channels": channels,
+                    "attempted_channels": list(attempted)}
+            confirmed = confirmed_channels if confirmed_channels is not None else channels
+            if any(confirmed.get(c) is True for c in OPS_CHANNELS):
                 phase = r["phase"]
                 if phase in ("active", "escalation"):
                     old = st.get("notified_channels", {}) if st.get("notified_event_id") == r["event_id"] else {}
                     old = old if isinstance(old, dict) else {}
                     st.update(notified_event_id=r["event_id"], notified_at=now,
-                              notified_channels={c: channels[c] or old.get(c) is True for c in OPS_CHANNELS})
+                              notified_channels={c: confirmed.get(c) is True or old.get(c) is True for c in OPS_CHANNELS})
                 if phase in ("escalation", "recovery"):
+                    old = _ops_phase_channels(refs, st)
                     st["last_" + phase + "_notified_event_id"] = r["event_id"]
                     st["last_" + phase + "_notified"] = now
+                    st["last_" + phase + "_notified_channels"] = {
+                        c: confirmed.get(c) is True or old[c] for c in OPS_CHANNELS}
             current = st.get("notification_claim") or {}
             if current.get("attempt_id") == claim["attempt_id"]:
                 if final:
@@ -302,8 +330,46 @@ def _ops_receipt(refs, claim, results, attempted, status, final=True):
 
 def _ops_attempted(channel):
     attempt = getattr(_OPS_LOCAL, "attempt", None)
+    fence = getattr(_OPS_LOCAL, "fence", None)
+    if fence is not None and not fence():
+        raise _OpsClaimLost("claim no longer owned before " + channel)
     if attempt is not None and channel not in attempt:
         attempt.append(channel)
+
+
+class _OpsClaimLost(RuntimeError):
+    pass
+
+
+def _ops_uncertain(channel):
+    unknown = getattr(_OPS_LOCAL, "unknown", None)
+    if unknown is not None:
+        unknown.add(channel)
+
+
+def _ops_fence(refs, claim):
+    if claim.get("outbox_fallback"):
+        return True  # serialized by the existing digest lock, no invented state
+    try:
+        with _ops_state_lock():
+            state = _ops_read_state()
+            st = state.get(refs[0]["key"], {})
+            current = st.get("notification_claim") or {}
+            if (st.get("event_id") != refs[0]["event_id"] or
+                    current.get("attempt_id") != claim["attempt_id"] or
+                    current.get("phase") != refs[0]["phase"] or
+                    current.get("expires_at", 0) <= time.time()):
+                return False
+            current["expires_at"] = time.time() + OPS_CLAIM_SECONDS
+            try:
+                _ops_write_state(state)
+            except OSError:
+                # The verified on-disk lease is still valid; don't turn a
+                # receipt disk failure into duplicate delivery. Never send past it.
+                _ops_audit(refs, "unknown", "claim renewal not persisted; existing lease only")
+            return True
+    except (OSError, ValueError, TimeoutError):
+        return False
 
 
 def _ops_transmit(subject, body, refs, *, from_prefix=None, feishu_only=False,
@@ -332,7 +398,7 @@ def _ops_transmit(subject, body, refs, *, from_prefix=None, feishu_only=False,
         # Called only under the existing digest delivery lock. No fabricated
         # state/health/receipt: this fallback's durable proof stays in the outbox
         # and outbound ledger. State repair is still required for lifetime dedup.
-        claim = {"attempt_id": uuid.uuid4().hex}
+        claim = {"attempt_id": uuid.uuid4().hex, "outbox_fallback": True}
         blocked = None
         _ops_audit(refs, "unknown", "state unavailable; outbox-serialized fault delivery")
     if blocked:
@@ -344,45 +410,60 @@ def _ops_transmit(subject, body, refs, *, from_prefix=None, feishu_only=False,
         targets &= set(only_channels)
     if refs[0]["phase"] == "recovery":
         targets &= {c for c in OPS_CHANNELS if (st.get("notified_channels") or {}).get(c) is True}
+    cumulative = _ops_phase_channels(refs, st)
+    if pending is not None:
+        for c in ("email", "telegram"):
+            cumulative[c] |= pending["other_success"][c]
+        cumulative["feishu"] |= len(pending["confirmed_parts"]) == len(pending["parts"])
+    # Wire/ledger results are per attempt. Cumulative receipts only decide what
+    # still needs delivery; they must not count as a second email/TG acceptance.
     results = dict.fromkeys(OPS_CHANNELS, False)
-    if pending:
-        results.update(pending["other_success"])
-    attempted = []
-    previous = getattr(_OPS_LOCAL, "attempt", None)
-    _OPS_LOCAL.attempt = attempted
+    attempted, unknown = [], set()
+    previous = {k: getattr(_OPS_LOCAL, k, None) for k in ("attempt", "unknown", "fence")}
+    _OPS_LOCAL.attempt, _OPS_LOCAL.unknown = attempted, unknown
+    _OPS_LOCAL.fence = lambda: _ops_fence(refs, claim)
     _LEDGER_LOCAL.depth = _ledger_depth() + 1
-    status = "failed"
+    status, lost = "failed", False
+
+    def before_channel():
+        if _ops_gate(refs, continuing=True) or not _ops_fence(refs, claim):
+            raise _OpsClaimLost("event/claim changed before next side effect")
+
+    def save_progress():
+        _ops_receipt(refs, claim, results, attempted, "unknown" if unknown else "partial",
+                     final=False, confirmed_channels=cumulative)
+
     try:
         for channel in ("email", "telegram"):
-            if channel not in targets or results[channel]:
+            if channel not in targets or cumulative[channel]:
                 continue
-            if _ops_gate(refs, continuing=True):
-                break
+            before_channel()
             if channel == "email":
-                results[channel] = _send_email(subject, body, from_prefix=from_prefix)
+                ok = _send_email(subject, body, from_prefix=from_prefix)
             else:
-                # Legacy Telegram truncates. Explicit ops contents must be whole.
                 text = _html_to_text(body)
                 size = max(1, TG_TEXT_LIMIT - len(subject) - 100)
                 parts = [text[i:i + size] for i in range(0, len(text), size)] or [""]
                 accepted = []
-                for p in parts:
-                    if _ops_gate(refs, continuing=True):
-                        accepted.append(False)
+                for part in parts:
+                    before_channel()
+                    accepted.append(send_telegram(subject, html.escape(part)))
+                    if not accepted[-1]:
                         break
-                    _ops_receipt(refs, claim, results, attempted, "partial", final=False)
-                    accepted.append(send_telegram(subject, html.escape(p)))
-                results[channel] = all(accepted)
+                ok = len(accepted) == len(parts) and all(accepted)
+            results[channel] = None if channel in unknown else bool(ok)
+            cumulative[channel] |= results[channel] is True
             if pending is not None:
-                pending["other_success"][channel] = results[channel]
+                pending["other_success"][channel] = cumulative[channel]
                 pending["other_attempted"] = True
-                pending["first_attempted"] |= results[channel]
+                pending["first_attempted"] |= cumulative[channel]
                 checkpoint()
-            _ops_receipt(refs, claim, results, attempted, "partial", final=False)
-        if "feishu" in targets:
+            save_progress()
+        if "feishu" in targets and not cumulative["feishu"]:
+            before_channel()
             if pending is None:
                 cfg = load_feishu_config() or {}
-                chat_id = (cfg.get("chat_ids") or {}).get("report", "")
+                chat_id = (cfg.get("chat_ids") or {}).get("alert", "")
                 parts = split_posts(subject, [_html_to_text(body)], chat_id)
                 confirmed = []
             else:
@@ -390,30 +471,37 @@ def _ops_transmit(subject, body, refs, *, from_prefix=None, feishu_only=False,
             for i, part in enumerate(parts):
                 if i in confirmed:
                     continue
-                # Recheck between parts; superseded/healed payload cannot leak on retry.
-                gate = _ops_gate(refs, continuing=True)
-                if gate:
-                    break
-                if not send_feishu(subject, body, chat_key="report" if pending is not None else "alert", feishu_post=part, from_prefix=from_prefix):
+                before_channel()
+                if not send_feishu(subject, body, chat_key="report" if pending is not None else "alert",
+                                   feishu_post=part, from_prefix=from_prefix):
                     break
                 confirmed.append(i)
                 if pending is not None:
                     pending["first_attempted"] = True
                     checkpoint()
-                _ops_receipt(refs, claim, results, attempted, "partial", final=False)
-            results["feishu"] = len(confirmed) == len(parts)
-        status = "sent" if targets and all(results[c] for c in targets) else "partial" if any(results.values()) else "failed"
+                save_progress()
+            results["feishu"] = None if "feishu" in unknown else len(confirmed) == len(parts)
+            cumulative["feishu"] |= results["feishu"] is True
+        status = ("unknown" if unknown else "sent" if targets and all(cumulative[c] for c in targets)
+                  else "partial" if any(cumulative.values()) else "failed")
+        if not attempted and status == "sent":
+            status = "suppressed"
+    except _OpsClaimLost as exc:
+        lost, status = True, "unknown"
+        _ops_audit(refs, status, str(exc))
     except Exception as exc:
         status = "unknown"
         _ops_audit(refs, status, "delivery interrupted: " + type(exc).__name__)
     finally:
         _LEDGER_LOCAL.depth = max(0, _ledger_depth() - 1)
-        _OPS_LOCAL.attempt = previous
-    persisted = _ops_receipt(refs, claim, results, attempted, status)
+        for k, value in previous.items():
+            setattr(_OPS_LOCAL, k, value)
+    persisted = _ops_receipt(refs, claim, results, attempted, status, confirmed_channels=cumulative)
     if attempted:
-        _record_ledger(subject, results, tier="ops", key=refs[0]["key"], group="report",
+        _record_ledger(subject, results, tier="ops", key=refs[0]["key"], group="report" if pending is not None else "alert",
                        ops_event_refs=refs, attempt_id=claim["attempt_id"], attempted_channels=attempted)
     return _ops_result(status, refs, receipt_persisted=persisted, **results,
+                       cumulative_channels=cumulative, claim_lost=lost,
                        attempt_id=claim["attempt_id"], attempted_channels=attempted)
 
 
@@ -524,6 +612,26 @@ def _ops_flush_digest(dry_run=False):
             except (ValueError, TypeError):
                 _ops_audit(e.get("ops_event_refs"), "unknown", "invalid digest reference retained")
         if pending:
+            # 0687 froze HTML bodies with stripped-text lines before validation,
+            # so these journals could never leave the queue. Repair only that
+            # exact, signed, wholly unattempted shape; preserve the original body.
+            old_lines = pending.get("lines")
+            canonical_lines = [html.unescape(pending.get("body", "").replace("<br>", "\n"))]
+            if (old_lines != canonical_lines and old_lines == [_html_to_text(pending.get("body", ""))]
+                    and not pending.get("first_attempted") and not pending.get("other_attempted")
+                    and not pending.get("confirmed_parts") and not pending.get("complete")
+                    and not any((pending.get("other_success") or {}).values())
+                    and pending.get("signature") == signature([pending.get("entries"), pending.get("subject"),
+                        pending.get("body"), old_lines, pending.get("n")])
+                    and pending.get("parts_signature") == signature([pending.get("signature"), pending.get("parts")])):
+                _, _, chat_id = _digest_delivery_route()
+                pending["lines"] = canonical_lines
+                pending["signature"] = signature([pending["entries"], pending["subject"], pending["body"],
+                                                  canonical_lines, pending["n"]])
+                pending["parts"] = split_posts(pending["subject"], canonical_lines, chat_id)
+                pending["parts_signature"] = signature([pending["signature"], pending["parts"]])
+                validate_pending(pending)
+                _write_digest_delivery_state(state)
             validate_pending(pending)
             if len(pending["entries"]) != 1:
                 raise ValueError("mixed ops pending payload cannot be safely split")
@@ -546,7 +654,7 @@ def _ops_flush_digest(dry_run=False):
             # Per-event snapshot deliberately excludes all unrelated bodies.
             e = eligible[0]
             subject, body = e["subject"], e["body"]
-            lines = [_html_to_text(body)]
+            lines = [html.unescape(body.replace("<br>", "\n"))]
             required, route_hash, chat_id = _digest_delivery_route()
             pending = {"version": 1, "entries": [e], "subject": subject, "body": body,
                        "lines": lines, "n": 1, "signature": signature([[e], subject, body, lines, 1]),
@@ -574,8 +682,11 @@ def _ops_flush_digest(dry_run=False):
             if refs[0]["phase"] == "recovery":
                 needs_feishu = (st.get("notified_channels") or {}).get("feishu") is True
                 pending["feishu_required"] = needs_feishu
-            all_parts = len(pending["confirmed_parts"]) == len(pending["parts"])
-            complete = all_parts if needs_feishu else all_parts or any(pending["other_success"].values())
+            cumulative = result.get("cumulative_channels", {})
+            selected = set(OPS_CHANNELS)
+            if refs[0]["phase"] == "recovery":
+                selected = {c for c in OPS_CHANNELS if (st.get("notified_channels") or {}).get(c) is True}
+            complete = bool(selected) and all(cumulative.get(c) is True for c in selected)
             if not complete:
                 return {"sent": any(result.get(c) is True for c in OPS_CHANNELS), "n": 1,
                         "status": result["status"], "n_remaining": len(entries)}
@@ -804,7 +915,7 @@ def _record_ledger(subject: str, results: dict, *, tier: str | None = None,
         if attempt_id:
             rec.update(ops_event_refs=ops_event_refs, attempt_id=attempt_id,
                        attempted_channels=list(attempted_channels or []), ops_category="operations")
-            rec["channels"] = {c: results.get(c) is True for c in OPS_CHANNELS}
+            rec["channels"] = {c: results.get(c, False) for c in OPS_CHANNELS}
         if merged_count:
             rec["merged_count"] = int(merged_count)
         if noise_class:
@@ -1259,7 +1370,11 @@ def send_telegram(subject: str, body: str, dry_run: bool = False,
             return True
         print(f"[notify] Telegram API 返回非 ok：{resp_data}", file=sys.stderr)
         return False
-    except Exception as e:  # noqa: BLE001
+    except _OpsClaimLost:
+        raise
+    except Exception as e:
+        if not isinstance(e, urllib.error.HTTPError) or e.code >= 500:
+            _ops_uncertain("telegram")
         # 不抛异常，不阻塞调用方/不阻塞邮件
         print(f"[notify] Telegram 发送失败（不阻塞）：{e}", file=sys.stderr)
         return False
@@ -1432,7 +1547,12 @@ def _send_feishu_api(chat_id: str, subject: str, text: str,
         try:
             _ops_attempted("feishu")
             data = _feishu_http_post_json(url, payload, headers)
+        except _OpsClaimLost:
+            raise
         except urllib.error.HTTPError as e:
+            if e.code >= 500 and getattr(_OPS_LOCAL, "unknown", None) is not None:
+                _ops_uncertain("feishu")
+                return False
             if e.code >= 500 and attempt < _FEISHU_SEND_ATTEMPTS - 1:
                 last_err = f"HTTP {e.code}"
                 wait = float(2 ** attempt + attempt)
@@ -1442,7 +1562,10 @@ def _send_feishu_api(chat_id: str, subject: str, text: str,
                 continue
             print(f"[notify] Feishu 发送失败（HTTP {e.code}，不重试）：{subject}", file=sys.stderr)
             return False
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
+            if getattr(_OPS_LOCAL, "unknown", None) is not None:
+                _ops_uncertain("feishu")
+                return False
             last_err = str(e)
             if attempt < _FEISHU_SEND_ATTEMPTS - 1:
                 wait = float(2 ** attempt + attempt)
@@ -1490,7 +1613,11 @@ def _send_feishu_webhook(url: str, subject: str, text: str,
     try:
         _ops_attempted("feishu")
         data = _feishu_http_post_json(url, payload, headers)
-    except Exception as e:  # noqa: BLE001
+    except _OpsClaimLost:
+        raise
+    except Exception as e:
+        if not isinstance(e, urllib.error.HTTPError) or e.code >= 500:
+            _ops_uncertain("feishu")
         print(f"[notify] Feishu webhook 发送失败（不阻塞）：{e}", file=sys.stderr)
         return False
     if data.get("code") == 0 or data.get("StatusCode") == 0:
@@ -1762,6 +1889,7 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
     msg["To"] = to_addr
     msg["Date"] = formatdate(localtime=True)
 
+    data_started = False
     try:
         # 本地 python 默认 SSL 证书链缺失会 CERTIFICATE_VERIFY_FAILED，用 certifi 证书
         # (launchd 裸环境无 certifi 时 _ssl_cafile 回退系统 CA 路径, 不再 ImportError)
@@ -1769,10 +1897,16 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
         _ops_attempted("email")
         with smtplib.SMTP_SSL(smtp, port, timeout=30, context=ctx) as srv:
             srv.login(user, password)
+            _ops_attempted("email")
+            data_started = True
             srv.sendmail(from_addr, [to_addr], msg.as_string())
         print(f"[notify] 邮件已发送至 {to_addr}：{subject}", file=sys.stderr)
         return True
-    except Exception as e:  # noqa: BLE001
+    except _OpsClaimLost:
+        raise
+    except Exception as e:
+        if data_started and not isinstance(e, (smtplib.SMTPResponseException, smtplib.SMTPRecipientsRefused)):
+            _ops_uncertain("email")
         # 不抛异常，不阻塞调用方
         print(f"[notify] 邮件发送失败（不阻塞）：{e}", file=sys.stderr)
         return False

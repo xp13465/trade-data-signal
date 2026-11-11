@@ -103,7 +103,7 @@ def box(tmp_path, monkeypatch):
         def sendmail(self, sender, recipients, text):
             body = message_from_string(text).get_payload(decode=True).decode()
             if not transport("email", body):
-                raise OSError("offline rejected")
+                raise smtplib.SMTPRecipientsRefused({"offline@example.test": (550, "offline rejected")})
             return {}
 
     def urlopen(req, **kw):
@@ -191,8 +191,9 @@ def test_pair_recovery_only_accepted_channels_and_once(box):
     # Time window expiry never repeats the same event's first alert.
     clock[0] = datetime(2026, 12, 20, 10)
     before = len(wire)
-    assert cli(ref, "critical", args=["--dedup-window", "0"])["status"] == "suppressed"
-    assert len(wire) == before
+    assert cli(ref, "critical", args=["--dedup-window", "0"])["status"] == "partial"
+    assert [r["channel"] for r in wire[before:]] == ["telegram", "feishu"]
+    before = len(wire)
     update(ref, status="recovered", requires_action=False)
     accepted.update(telegram=True, feishu=True)
     rec = [{**ref[0], "phase": "recovery"}]
@@ -555,3 +556,208 @@ def test_readable_but_disabled_config_is_not_proven_repair(box, monkeypatch):
     n.send_feishu("business", "body")
     assert state()["feishu_config_missing"]["status"] == "active"
     assert len(wire) == 1
+
+
+@pytest.mark.parametrize("phase", ["active", "recovery", "escalation"])
+def test_partial_phase_retries_only_unconfirmed_channels(box, phase):
+    n, clock, _, wire, accepted, seed, state, update, cli, _ = box
+    ref = seed()
+    if phase != "active":
+        assert cli(ref, "critical")["status"] == "sent"
+    if phase == "recovery":
+        update(ref, status="recovered", requires_action=False)
+    ref = [{**ref[0], "phase": phase}]
+    accepted.update(telegram=False, feishu=False)
+    assert cli(ref)["status"] == "partial"
+    before = len(wire)
+    accepted.update(telegram=True, feishu=True)
+    result = cli(ref)
+    assert result["status"] == "sent"
+    assert result["channels"]["email"] is False  # this attempt, not the old receipt
+    assert all(result["cumulative_channels"].values())
+    assert [r["channel"] for r in wire[before:]] == ["telegram", "feishu"]
+    row = json.loads(n._ledger_path().read_text().splitlines()[-1])
+    assert row["channels"] == {"email": False, "telegram": True, "feishu": True}
+    assert row["attempted_channels"] == ["telegram", "feishu"]
+    assert cli(ref)["status"] == "suppressed"
+    assert len(wire) == before + 2
+
+
+@pytest.mark.parametrize("channel", ["email", "telegram", "feishu"])
+def test_response_lost_remains_unknown_in_result_state_and_ledger(box, monkeypatch, channel):
+    n, clock, _, wire, accepted, seed, state, update, cli, _ = box
+    ref = seed()
+    accepted.update(dict.fromkeys(accepted, False))
+    accepted[channel] = True
+    if channel == "email":
+        original = smtplib.SMTP_SSL.sendmail
+        def lost(*args, **kwargs):
+            original(*args, **kwargs)
+            raise TimeoutError("reply lost after server accepted")
+        monkeypatch.setattr(smtplib.SMTP_SSL, "sendmail", lost)
+    else:
+        obj, attr = (urllib.request, "urlopen") if channel == "telegram" else (n, "_feishu_http_post_json")
+        original = getattr(obj, attr)
+        def lost(*args, **kwargs):
+            original(*args, **kwargs)
+            raise TimeoutError("reply lost after server accepted")
+        monkeypatch.setattr(obj, attr, lost)
+    result = cli(ref, "critical")
+    assert result["status"] == "unknown" and result["channels"][channel] is None
+    assert sum(r["channel"] == channel and r["accepted"] for r in wire) == 1
+    attempt = state()[ref[0]["key"]]["last_notification_attempt"]
+    assert attempt["status"] == "unknown" and attempt["channels"][channel] is None
+    row = json.loads(n._ledger_path().read_text().splitlines()[-1])
+    assert row["channels"][channel] is None and channel in row["attempted_channels"]
+    assert "notified_at" not in state()[ref[0]["key"]]
+
+
+@pytest.mark.parametrize("old_shape", [False, True])
+def test_async_html_preserves_original_payload_and_repairs_unattempted_0687(box, old_shape):
+    n, clock, _, wire, _, seed, state, update, cli, _ = box
+    from alert_digest_delivery import signature, split_posts
+    ref = seed()
+    body = "<b>ACTIVE_MARKER</b><br>需人工处理 &amp; 完整尾部"
+    cli(ref, args=["--defer-digest"], body=body)
+    if old_shape:
+        entry = json.loads(n.ALERT_DIGEST_FILE.read_text().splitlines()[0])
+        subject, lines = entry["subject"], [n._html_to_text(body)]
+        required, route, chat = n._digest_delivery_route()
+        pending = dict(version=1, entries=[entry], subject=subject, body=body, lines=lines, n=1,
+                       signature=signature([[entry], subject, body, lines, 1]), parts=split_posts(subject, lines, chat),
+                       route_hash=route, feishu_required=required, confirmed_parts=[], other_attempted=False,
+                       other_success={"email": False, "telegram": False}, first_attempted=False, complete=False)
+        pending["parts_signature"] = signature([pending["signature"], pending["parts"]])
+        n._write_digest_delivery_state({"pending_delivery": pending})
+    clock[0] = datetime(2026, 11, 11, 23, 30)
+    assert n.flush_digest()["sent"]
+    assert [r["body"] for r in wire if r["channel"] == "email"] == [body]
+    assert all("ACTIVE_MARKER" in str(r["body"]) and "完整尾部" in str(r["body"]) for r in wire)
+    assert all(state()[ref[0]["key"]]["notified_channels"].values())
+
+
+def test_expired_live_owner_cannot_continue_or_overwrite_new_attempt(box, monkeypatch):
+    import types
+    n, clock, _, wire, accepted, seed, state, update, cli, root = box
+    ref = seed()
+    wall = root / "wall"
+    wall.write_text("1000000")
+    fake_time = types.SimpleNamespace(**{name: getattr(time, name) for name in dir(time)})
+    fake_time.time = lambda: float(wall.read_text())
+    monkeypatch.setattr(n, "time", fake_time)
+    ctx = multiprocessing.get_context("fork")
+    entered, release = ctx.Event(), ctx.Event()
+    def slow(body):
+        entered.set()
+        assert release.wait(10)
+        return True
+    def worker(actor):
+        accepted["email"] = slow if actor == "A" else True
+        n.main(["fault", "body", "--ops-event-refs", json.dumps(ref), "--result-file", str(root / (actor + ".json"))])
+    first = ctx.Process(target=worker, args=("A",))
+    second = ctx.Process(target=worker, args=("B",))
+    try:
+        first.start()
+        assert entered.wait(10)
+        wall.write_text("1000181")
+        second.start()
+        second.join(10)
+        assert second.exitcode == 0
+        newest = state()[ref[0]["key"]]["last_notification_attempt"]
+        release.set()
+        first.join(10)
+        assert first.exitcode == 0
+        assert state()[ref[0]["key"]]["last_notification_attempt"] == newest
+    finally:
+        release.set()
+        for process in (first, second):
+            if process.pid and process.is_alive(): process.kill()
+            if process.pid: process.join(5)
+    rows = [json.loads(s) for s in (root / "wire.jsonl").read_text().splitlines()]
+    assert {c: sum(r["channel"] == c for r in rows) for c in n.OPS_CHANNELS} == {"email": 2, "telegram": 1, "feishu": 1}
+    old = json.loads((root / "A.json").read_text())
+    assert old["claim_lost"] and old["status"] == "unknown"
+
+
+@pytest.mark.parametrize("phase", ["recovery", "escalation"])
+def test_0687_phase_receipts_not_resent_during_channel_contract_upgrade(box, phase):
+    n, clock, _, wire, _, seed, state, update, cli, root = box
+    ref = seed()
+    cli(ref, "critical")
+    if phase == "recovery": update(ref, status="recovered", requires_action=False)
+    ref = [{**ref[0], "phase": phase}]
+    cli(ref)
+    data = state()
+    data[ref[0]["key"]].pop("last_" + phase + "_notified_channels")
+    (root / "data/alert_state.json").write_text(json.dumps(data))
+    before = len(wire)
+    assert cli(ref)["status"] == "suppressed"  # old last-attempt channels remain evidence
+    assert len(wire) == before
+    # Without any channel evidence the legacy phase flag is unknown, not a new send.
+    data[ref[0]["key"]].pop("last_notification_attempt")
+    (root / "data/alert_state.json").write_text(json.dumps(data))
+    assert cli(ref)["status"] == "unknown"
+    assert len(wire) == before
+
+@pytest.mark.parametrize('body', ['<b>ACTION</b><br>需人工处理', 'A &amp; B<br>C'])
+def test_html_digest_contract_delivers_complete_content(box, body):
+    n, clock, _, wire, _, seed, state, update, cli, root = box
+    refs = seed()
+    cli(refs, 'warning', body=body)
+    clock[0] = datetime(2026, 11, 11, 23, 30)
+    n.flush_warning_batch()
+    result = n.flush_digest()
+    assert result['sent'] and len(wire) == 3
+    assert all(state()[refs[0]['key']]['notified_channels'].values())
+
+
+def test_partial_retry_records_only_new_channel_acceptances(box):
+    n, _, _, wire, accepted, seed, state, update, cli, _ = box
+    refs = seed()
+    accepted.update(telegram=False, feishu=False)
+    assert cli(refs, 'critical')['status'] == 'partial'
+    accepted.update(telegram=True, feishu=True)
+    before = len(wire)
+    result = cli(refs, 'critical')
+    assert result['status'] == 'sent'
+    assert [r['channel'] for r in wire[before:]] == ['telegram', 'feishu']
+    rows = [json.loads(line) for line in n._ledger_path().read_text().splitlines()]
+    assert rows[-1]['channels'] == {'email': False, 'telegram': True, 'feishu': True}
+    assert 'email' not in rows[-1]['attempted_channels']
+    assert all(state()[refs[0]['key']]['notified_channels'].values())
+
+
+def test_response_loss_is_unknown_in_receipt_and_ledger(box):
+    n, _, _, wire, accepted, seed, state, update, cli, _ = box
+    refs = seed()
+    def lost(body):
+        raise TimeoutError('remote acceptance possible; response lost')
+    accepted['email'] = lost
+    result = cli(refs, 'critical')
+    assert result['status'] == 'unknown' and result['channels']['email'] is None
+    assert state()[refs[0]['key']]['last_notification_attempt']['channels']['email'] is None
+    assert json.loads(n._ledger_path().read_text().splitlines()[-1])['channels']['email'] is None
+    accepted['email'] = True
+    before = len(wire)
+    assert cli(refs, 'critical')['status'] == 'sent'
+    assert [r['channel'] for r in wire[before:]] == ['email']
+
+
+def test_expired_live_owner_stops_remaining_channels_and_preserves_new_receipt(box):
+    n, _, _, wire, accepted, seed, state, update, cli, root = box
+    refs = seed()
+    replacement = {'attempt_id': 'new-owner', 'status': 'sent', 'channels': dict.fromkeys(n.OPS_CHANNELS, True)}
+    def takeover(body):
+        with n._ops_state_lock():
+            data = n._ops_read_state()
+            current = data[refs[0]['key']]
+            current.pop('notification_claim')
+            current['last_notification_attempt'] = replacement
+            current.update(notified_event_id='e1', notified_at='new', notified_channels=dict.fromkeys(n.OPS_CHANNELS, True))
+            n._ops_write_state(data)
+        return True
+    accepted['email'] = takeover
+    result = cli(refs, 'critical')
+    assert result['claim_lost'] and result['status'] == 'unknown'
+    assert [r['channel'] for r in wire] == ['email']
+    assert state()[refs[0]['key']]['last_notification_attempt'] == replacement
