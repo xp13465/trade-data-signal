@@ -9,7 +9,8 @@
   A  摘要 flush 落 report 群 + 邮件保留([告警·摘要] 白名单); 台账 group == 实际飞书 chat_key。
   A2 恢复类摘要链路不可用 fail-open 落 report 群且邮件保留(原推断落 alert 群)。
   B  持续故障升级 digest_only 并入摘要(category=escalation, 同日 bump_hits); critical 物理不可达。
-  D  例行提示(kelly 孤儿买)吸收为 category=routine; R2 锁跳过改 report 群; 两处 repeat 去重窗 86400。
+  D  例行提示(kelly 孤儿买)吸收为 category=routine; R2 正常锁跳过保留 report，交接失败 alert;
+     两处 repeat 去重窗 86400。
 
 零真实外发(§18 L48): 三渠道替身 + ZeroOutboundTrap 兜底, 收尾断言 trap.hits == []。
 时间敏感(L51): 显式固定 `--date`, 不依赖真实今天; 摘要窗口改 00:00 免冻墙钟。
@@ -34,6 +35,8 @@ sys.path.insert(0, str(SCRIPTS))
 import notify  # noqa: E402
 import alert_noise_count as anc  # noqa: E402
 from _zero_outbound import ZeroOutboundTrap  # noqa: E402
+from test_ops_quiet_r2_skip_20261111 import skip_runner  # noqa: E402,F401 - isolated complete-shell fixture
+from test_ops_quiet_producers_20261111 import notifications, transports  # noqa: E402
 
 
 # ─────────────────────────── 夹具: 全路径隔离 + 渠道替身 ───────────────────────────
@@ -302,11 +305,25 @@ def test_d3_upload_r2_dedup_windows_source_shape():
     assert "check_dedup(_dedup_key, 21600)" not in src
 
 
-def test_d4_skip_notify_routes_report_and_docstring_updated():
+@pytest.mark.parametrize("mode,legacy,group", [
+    ("normal", False, "report"),
+    ("retire_noop", False, "report"),
+    ("normal", True, "report"),
+    ("enqueue_failure", False, "alert"),
+    ("malformed", False, "alert"),
+    ("retire_failure", False, "alert"),
+])
+def test_d4_skip_notify_routes_report_and_docstring_updated(skip_runner, mode, legacy, group):
     src = (SCRIPTS / "r2_upload_skip_notify.sh").read_text(encoding="utf-8")
-    assert "--feishu-group report" in src
-    assert "--feishu-group alert" not in src
     assert "#321" in src, "口径变更理由必须与行为同批写进 docstring(§23.8)"
+    # Execute the actual callback, helper and notify CLI; only transport/faults are stubbed.
+    _, _, _, run = skip_runner
+    records, _ = run(mode, legacy=legacy)
+    call, = notifications(records)
+    assert call[call.index("--feishu-group") + 1] == group
+    assert ("--severe" in call) is (group == "alert")
+    assert "--tier" not in call, "不能把交接失败或全部 skip 静音为 info"
+    assert transports(records), "真实 notify 路由必须受理并调用 transport 替身"
 
 
 def test_d5_orphan_buy_caller_passes_digest_only():

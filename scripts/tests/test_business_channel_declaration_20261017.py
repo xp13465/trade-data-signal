@@ -18,6 +18,8 @@
     例行吸收摘要(=alert 作吸收前置 + fail-open 落点): signal_kelly_backtest.py 孤儿买事件。
   · #321(2026-10-28) 口径变更: r2_upload_skip_notify.sh 由故障出口降级为「例行降级」,
     显式渠道由 alert 改 report(仍必须显式声明, 不许靠主题推断)。
+    2026-11-11 补充: 正常交接保留 report；入队/结果校验/清理失败显式 severe + alert，
+    两支均通过 _NOTIFY_FLAGS 数组传给实际 notify 调用，不能再禁止整脚本出现 alert。
 
 证据用例:
   E2 误路由回归 —— 未显式声明的无括号主题(如「R2上传异步锁跳过」)兜底落 report(说明修法在
@@ -69,11 +71,11 @@ EGRESS_REGISTRY = [
      r'"--dedup-window", "86400",\s*"--feishu-group", "follow"'),
     ("次日伪跳空剔除·跟单渠道", "scripts/nextday_gap_check.py",
      r'"--dedup-window", "86400",\s*"--feishu-group", "follow"'),
-    # #321(2026-10-28)口径变更: 锁跳过=正常降级(同日在跑实例补跑) ⇒ 显式落 report 业务群,
-    # 不再占 alert 通道(三处留痕 deploy 日志/skip 流水/latest.md 全保留)。仍是**显式声明**,
-    # 守卫目的(不许靠主题文本推断)不变。
+    # 正常交接显式 report，不推断合法持锁者或同日交付；失败 alert 另行登记。
+    # 同时检查数组定义与实际 notify 透传，防只定义变量却漏传而假绿。
     ("R2上传异步锁跳过·例行降级", "scripts/r2_upload_skip_notify.sh",
-     r'--from-prefix "\[提示\]" \\\s*--feishu-group report'),
+     r'(?m)^_NOTIFY_FLAGS=\(--from-prefix "\[提示\]" --feishu-group report\)'
+     r'(?s:.*?)"\$PY" "\$REPO/scripts/notify\.py"(?s:.*?)"\$\{_NOTIFY_FLAGS\[@\]\}"'),
     ("冻结表缺失历史信号事件·故障", "scripts/signal_kelly_backtest.py",
      r'"--from-prefix", "\[kelly\]", "--feishu-group", "alert"'),
     # #321: 孤儿买=例行数据完整性提示(同根因首报由 critical 的 [历史行改写] 覆盖) ⇒ 加
@@ -85,6 +87,10 @@ EGRESS_REGISTRY = [
      r'group=feishu_group or _resolve_feishu_chat_key\(subject, from_prefix, False\)'),
     ("send 台账 group 优先级含显式渠道", "scripts/notify.py",
      r'ledger_group or feishu_group'),
+    ("R2上传异步锁跳过·交接失败", "scripts/r2_upload_skip_notify.sh",
+     r'(?m)^case "\$_HANDOFF_STATE" in\s+enqueue_failed\|invalid_result\|retire_failed\)\s*'
+     r'_NOTIFY_FLAGS=\(--severe --from-prefix "\[告警\]" --feishu-group alert\)'
+     r'(?s:.*?)"\$PY" "\$REPO/scripts/notify\.py"(?s:.*?)"\$\{_NOTIFY_FLAGS\[@\]\}"'),
 ]
 
 
@@ -205,6 +211,21 @@ def test_guard_has_discriminating_power():
     mutated2[rel2] = mutated2[rel2].replace('"--feishu-group", "alert"', "")
     miss2 = _missing_declarations(mutated2)
     assert any(label2 in m for m in miss2), "判据未检出缺声明(假绿): %s" % (miss2,)
+
+
+@pytest.mark.parametrize("original,replacement", [
+    ("--feishu-group alert)", "--feishu-group report)"),
+    ("--severe --from-prefix", "--from-prefix"),
+    ("enqueue_failed|invalid_result|retire_failed)", "enqueue_failed|invalid_result)"),
+    ('"${_NOTIFY_FLAGS[@]}"', '"${UNUSED_FLAGS[@]}"'),
+])
+def test_r2_failure_declaration_and_forwarding_guard_rejects_mutations(original, replacement):
+    texts = _load_texts()
+    assert not _missing_declarations(texts)
+    rel = "scripts/r2_upload_skip_notify.sh"
+    assert original in texts[rel]
+    mutated = {**texts, rel: texts[rel].replace(original, replacement)}
+    assert any("R2上传异步锁跳过·交接失败" in row for row in _missing_declarations(mutated))
 
 
 def test_no_business_egress_lands_in_alert_group():
