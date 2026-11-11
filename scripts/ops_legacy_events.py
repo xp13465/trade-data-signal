@@ -254,6 +254,7 @@ def operation_mode(task, argv, *, unknown_is_live=False):
              {"--dry-run", "--no-r2", "--no-notify", "--no-backfill", "--repair-backfill"}
              if task == "nextday_plan" else
              {"--dry-run", "--no-r2", "--no-notify", "--no-retry", "--recheck-pending"})
+    flags |= {"--help", "-h"}  # argparse built-ins, including unique long abbreviations
     valued = {"--mode"} if task == "daily_summary" else ({"--date"} if task == "nextday_plan" else {"--date", "--test-open", "--retry-targets"})
     seen, positional = set(), False
     items = iter(argv)
@@ -270,6 +271,10 @@ def operation_mode(task, argv, *, unknown_is_live=False):
             if task == "daily_summary" and value != "main":
                 return (False if value == "supplement" else unknown_is_live), False
         elif key in flags and not equal:
+            if key in {"--help", "-h"}:
+                # Help exits without executing: do not replace an in-flight token.
+                # An attached value does not reach here; it remains fail-visible.
+                return False, False
             pass
         elif task == "daily_summary" and not positional and len(item) == 8 and item.isdigit():
             positional = True

@@ -72,3 +72,12 @@ update_all 故障组合减少亦可能产生保守的新事件；不把部分好
   首轮日报 fixture 缺 `fx_contract` 被既有门禁拒绝，保留原失败日志，补合法数据而未修改门禁。
   使用固定3182源码和合法 fixture 的历史日期反例为 `6 failed in 0.33s`；
   修正后必要关联集与追加 SHA 见 `/tmp/codex-reports/ops-final-gaps-20261111/legacy-producers/followup-3182/`。
+
+## 10db5ec 独立复审 help 令牌竞争追加修复
+
+共享 mode 补识别 argparse 内建 `--help`/`-h` 及唯一缩写 `--he`/`--h`，合法 help
+在 begin 写状态前返回 disabled；不改 shell、不新增状态协议。
+`--help=value`（含缩写/短参数附值）保持无效参数失败可见。
+真实两套 shell 覆盖无状态时不创建、有执行 A 时字节不变，随后 A.fail 仍建立 active
+并获得三渠道回执。修前负控 `16 failed, 8 passed, 27 deselected in 16.49s`；
+原证据和最终关联测试位于 `legacy-producers/followup-10db/`，未改前两次提交或独立报告。

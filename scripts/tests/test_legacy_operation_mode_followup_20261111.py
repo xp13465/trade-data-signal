@@ -104,3 +104,48 @@ def test_invalid_real_shell_arguments_are_not_mislabeled_diagnostic(shell,name):
     proc,records=run(name,args=['--unsupported-mode'])
     assert proc.returncode==2 and len(transports(records))==3
     assert '--ops-event-refs' in notifications(records)[0]
+
+
+@pytest.mark.parametrize('name,task',[
+ ('nextday_plan.sh','nextday_plan'),('nextday_gap_check.sh','nextday_gap'),
+])
+@pytest.mark.parametrize('flag',['--help','-h','--he','--h'])
+@pytest.mark.parametrize('pending_execution',[False,True])
+def test_real_help_is_inert_and_preserves_pending_failure_token(shell,runner,name,task,flag,pending_execution):
+    from test_ops_quiet_producers_20261111 import bounded_shell
+    root,run=shell
+    runner_root,base=runner
+    assert root==runner_root
+    def cli(action,*args):
+        return bounded_shell([str(root/'driver'),str(root/'scripts/ops_legacy_events.py'),
+                              action,'--repo',str(root),'--task',task,*args],base.env,root)
+    state=root/'data/alert_state.json'
+    token=None
+    if pending_execution:
+        begin=cli('begin')
+        assert begin.returncode==0
+        token=begin.stdout.strip()
+        assert token and json.loads(state.read_text())['producer_'+task+'|operation']['producer_run']==token
+    before=state.read_bytes() if state.exists() else None
+    proc,records=run(name,args=[flag])
+    after_help=state.read_bytes() if state.exists() else None
+    assert proc.returncode==0 and not transports(records)
+    if token:
+        # Real pending execution completes AFTER real help, using the real CLI.
+        failure=cli('fail','--run',token,'--detail','genuine in-flight failure')
+        assert failure.returncode==0 and 'superseded' not in failure.stdout
+        st=json.loads(state.read_text())['producer_'+task+'|operation']
+        assert st['status']=='active' and st['requires_action'] is True
+        assert st['notified_event_id']==st['event_id'] and all(st['notified_channels'].values())
+        records=[json.loads(line) for line in (root/'calls.jsonl').read_text().splitlines()]
+        assert len(transports(records))==3
+    assert after_help==before  # no create, token replacement or byte-level state change
+
+
+@pytest.mark.parametrize('name',['nextday_plan.sh','nextday_gap_check.sh'])
+@pytest.mark.parametrize('flag',['--help=value','--he=value','--h=value','-h=value'])
+def test_invalid_help_value_remains_fail_visible(shell,name,flag):
+    _,run=shell
+    proc,records=run(name,args=[flag])
+    assert proc.returncode==2 and len(transports(records))==3
+    assert '--ops-event-refs' in notifications(records)[0]
