@@ -28,7 +28,7 @@ def _mock_lsjz_rows():
 
 def _make_resp_bytes(rows):
     return json.dumps(
-        {"ErrCode": 0, "ErrMsg": None, "Data": {"LSJZList": rows}}
+        {"ErrCode": 0, "ErrMsg": None, "Data": {"LSJZList": rows}, "TotalCount": len(rows), "PageIndex": 1, "PageSize": 20}
     ).encode("utf-8")
 
 
@@ -40,7 +40,7 @@ def tmp_db(monkeypatch, tmp_path):
     # 指向临时库
     monkeypatch.setattr(mod, "get_conn", lambda: _conn(db))
     monkeypatch.setattr(mod, "init_db", lambda: None)  # schema 由 _conn 建
-    monkeypatch.setattr(mod, "_acquire_lock", lambda nonblock=True, lock_name="public_fund": True)
+    monkeypatch.setattr(mod, "_acquire_lock", lambda nonblock=True, lock_name="public_fund", **kw: True)
     return db
 
 
@@ -59,6 +59,7 @@ def _conn(db: Path):
       PRIMARY KEY (date, fund_code)
     );
     """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_daily_nav_code ON fund_daily_nav(fund_code)")
     c.commit()
     return c
 
@@ -208,7 +209,7 @@ def test_single_failure_does_not_break(tmp_db, monkeypatch):
     ])
     call_count = {"n": 0}
 
-    def fake_fetch(code, start, end):
+    def fake_fetch(code, start, end, **kw):
         call_count["n"] += 1
         if code == "005828":  # 故意让中间一只失败
             raise RuntimeError("mock network error")
@@ -250,7 +251,7 @@ def test_partial_window_is_rechecked(tmp_db, monkeypatch):
 
     called = []
 
-    def fake_fetch(code, start, end):
+    def fake_fetch(code, start, end, **kw):
         called.append(code)
         return [{"date": "20261101", "fund_code": code, "unit_nav": 1.2, "acc_nav": 1.2,
                  "prev_unit_nav": 1.1, "nav_change_pct": 0.5}]
@@ -263,9 +264,11 @@ def test_partial_window_is_rechecked(tmp_db, monkeypatch):
 
     n = mod.collect(days=7, limit=None, dry_run=False, batch=10)
     assert set(called) == {"005827", "005828", "005829"}
-    assert n == 3
+    assert n == 2  # HC07授权新语义：冲突基金整只拒绝，另两只正常提交。
     c = _conn(tmp_db)
     assert c.execute("SELECT unit_nav FROM fund_daily_nav WHERE fund_code='005827'").fetchone()[0] == 1.5
+    assert tuple(c.execute("SELECT acc_nav,prev_unit_nav,nav_change_pct FROM fund_daily_nav WHERE fund_code='005827'").fetchone()) == (None,None,None)
+    assert c.execute("SELECT COUNT(*) FROM fund_collection_conflicts WHERE code='005827'").fetchone()[0] == 1
     c.close()
 
 
@@ -276,7 +279,7 @@ def test_batch_limits_per_run(tmp_db, monkeypatch):
     _seed_basic(tmp_db, funds)
     called = []
 
-    def fake_fetch(code, start, end):
+    def fake_fetch(code, start, end, **kw):
         called.append(code)
         return [{"date": "20261101", "fund_code": code, "unit_nav": 1.2, "acc_nav": 1.2,
                  "prev_unit_nav": 1.1, "nav_change_pct": 0.5}]

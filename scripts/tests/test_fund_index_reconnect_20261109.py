@@ -140,12 +140,22 @@ def isolated(monkeypatch, tmp_path):
     source = (ROOT / 'app/collector/public_fund.py').read_text()
     fn = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == 'fetch_index_daily')
     batches = []
-    conn = SimpleNamespace(executemany=lambda sql, rows: batches.append((sql, rows)),
-                           execute=lambda *a: None, set_progress_handler=lambda *a: None,
-                           commit=lambda: None, close=lambda: None)
+    import sqlite3
+    class Connection:
+        def __init__(self):
+            self.real = sqlite3.connect(':memory:')
+            self.real.executescript('CREATE TABLE fund_index_daily(date TEXT,index_id TEXT,close REAL,pct_change REAL,PRIMARY KEY(date,index_id));'
+                                    'CREATE TABLE fund_daily_nav(date TEXT,fund_code TEXT);')
+        def __getattr__(self, name):
+            return getattr(self.real, name)
+        def executemany(self, sql, rows):
+            rows = list(rows)
+            if 'INTO fund_index_daily' in sql:
+                batches.append((sql, rows))
+            return self.real.executemany(sql, rows)
     ns = {'dt': dt, 'time': time, 'json': json, 'sys': sys, '_ROOT': tmp_path,
           '_safe_float': lambda x: float(x) if x not in ('', None) else None,
-          'get_conn': lambda **kw: conn}
+          'get_conn': lambda **kw: Connection()}
     exec(compile(ast.Module(body=[fn], type_ignores=[]), str(ROOT / 'app/collector/public_fund.py'), 'exec'), ns)
     # 外层只容许启动python -c只读子查询，子进程40秒硬停仅属测试看门狗。
     real_run = subprocess.run
@@ -510,7 +520,7 @@ def test_write_failure_rolls_back_batch_preserves_previous_commit(isolated, monk
     with sqlite3.connect(db) as conn:
         conn.execute('CREATE TABLE fund_index_daily(date TEXT, index_id TEXT, close REAL, pct_change REAL, '
                      'PRIMARY KEY(date,index_id))')
-        conn.execute("INSERT INTO fund_index_daily VALUES ('20261102','hs300',123,1)")
+        conn.execute("INSERT INTO fund_index_daily VALUES ('20261102','hs300',4016.9179,0.78828)")
         if failure == 'sql':
             conn.execute("CREATE TRIGGER stop_second BEFORE INSERT ON fund_index_daily "
                          "WHEN NEW.date='20261103' BEGIN SELECT RAISE(ABORT,'injected'); END")
@@ -533,7 +543,7 @@ def test_write_failure_rolls_back_batch_preserves_previous_commit(isolated, monk
     with pytest.raises(sqlite3.IntegrityError if failure == 'sql' else TimeoutError):
         isolated.fetch('20261102', '20261109', deadline=deadline)
     with sqlite3.connect(db) as conn:
-        assert conn.execute('SELECT * FROM fund_index_daily').fetchall() == [('20261102', 'hs300', 123, 1)]
+        assert conn.execute('SELECT * FROM fund_index_daily').fetchall() == [('20261102', 'hs300', 4016.9179, 0.78828)]
 
 
 @pytest.mark.parametrize('cmd', ['estimate', 'backfill-nav'])

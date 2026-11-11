@@ -35,6 +35,7 @@ def _conn(db: Path):
       PRIMARY KEY (date, fund_code)
     );
     """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_daily_nav_code ON fund_daily_nav(fund_code)")
     c.commit()
     return c
 
@@ -46,7 +47,7 @@ def tmp_db(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "get_conn", lambda: _conn(db))
     monkeypatch.setattr(mod, "init_db", lambda: None)
     monkeypatch.setattr(mod, "_acquire_lock",
-                        lambda nonblock=True, lock_name="public_fund": True)
+                        lambda nonblock=True, lock_name="public_fund", **kw: True)
     # 每个用例前复位全局标志(防跨用例残留)
     mod.LAST_BATCH_FAILED = False
     return db
@@ -71,7 +72,7 @@ def test_single_failure_still_ok_exit0(tmp_db, monkeypatch):
         ("005829", "FOF-C", "FOF-稳健型"),
     ])
 
-    def fake_fetch(code, start, end):
+    def fake_fetch(code, start, end, **kw):
         if code == "005828":
             raise RuntimeError("mock network error")
         return [{"date": "20261101", "fund_code": code, "unit_nav": 1.1, "acc_nav": 1.1,
@@ -94,7 +95,7 @@ def test_batch_all_fail_sets_signal_exit2(tmp_db, monkeypatch):
         ("005829", "FOF-C", "FOF-稳健型"),
     ])
 
-    def fake_fetch(code, start, end):
+    def fake_fetch(code, start, end, **kw):
         raise urllib_error("mock整批网络异常")
 
     monkeypatch.setattr(mod, "fetch_lsjz", fake_fetch)
@@ -127,7 +128,7 @@ def test_legitimate_empty_no_false_alarm(tmp_db, monkeypatch):
 
     called = []
     monkeypatch.setattr(mod, "fetch_lsjz",
-                        lambda code, s, e: called.append(code) or [{"date": "20261101",
+                        lambda code, s, e, **kw: called.append(code) or [{"date": "20261101",
                           "fund_code": code, "unit_nav": 1.2, "acc_nav": 1.2,
                           "prev_unit_nav": 1.1, "nav_change_pct": 0.5}])
     monkeypatch.setattr(mod, "RATE_LIMIT", 0.0)
@@ -149,7 +150,7 @@ def test_dry_run_all_fail_no_signal(tmp_db, monkeypatch):
         ("005828", "FOF-B", "FOF-进取型"),
     ])
 
-    def fake_fetch(code, start, end):
+    def fake_fetch(code, start, end, **kw):
         raise RuntimeError("mock dry_run 全失败")
 
     monkeypatch.setattr(mod, "fetch_lsjz", fake_fetch)
@@ -168,7 +169,7 @@ def test_partial_success_no_batch_fail(tmp_db, monkeypatch):
         ("005829", "FOF-C", "FOF-稳健型"),
     ])
 
-    def fake_fetch(code, start, end):
+    def fake_fetch(code, start, end, **kw):
         if code == "005828":
             raise RuntimeError("mock single fail")
         return [{"date": "20261101", "fund_code": code, "unit_nav": 1.1, "acc_nav": 1.1,
@@ -196,7 +197,7 @@ def test_batch_fail_discriminator_red(tmp_db, monkeypatch):
         ("005828", "FOF-B", "FOF-进取型"),
     ])
 
-    def fake_fetch(code, start, end):
+    def fake_fetch(code, start, end, **kw):
         raise RuntimeError("mock 整批失败")
 
     monkeypatch.setattr(mod, "fetch_lsjz", fake_fetch)
@@ -225,7 +226,7 @@ def test_legit_empty_response_all_no_alarm(tmp_db, monkeypatch):
         ("005829", "FOF-C", "FOF-稳健型"),
     ])
     # 合法空: fetch_lsjz 正常返回 [](LSJZList=[])
-    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, s, e: [])
+    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, s, e, **kw: [])
     monkeypatch.setattr(mod, "RATE_LIMIT", 0.0)
     from datetime import date as _d
     monkeypatch.setattr(mod, "date",
@@ -246,7 +247,7 @@ def test_all_timeout_exit2(tmp_db, monkeypatch):
         ("005828", "FOF-B", "FOF-进取型"),
     ])
 
-    def fake_fetch(code, start, end):
+    def fake_fetch(code, start, end, **kw):
         raise TimeoutError("mock urlopen 超时")
 
     monkeypatch.setattr(mod, "fetch_lsjz", fake_fetch)
@@ -268,7 +269,7 @@ def test_mixed_empty_and_error_no_success_exit2(tmp_db, monkeypatch):
         ("005828", "FOF-B", "FOF-进取型"),
     ])
 
-    def fake_fetch(code, start, end):
+    def fake_fetch(code, start, end, **kw):
         if code == "005827":
             return []  # 合法空
         raise RuntimeError("mock 真实异常")
@@ -291,7 +292,7 @@ def test_mixed_empty_error_with_success_exit0(tmp_db, monkeypatch):
         ("005829", "FOF-C", "FOF-稳健型"),
     ])
 
-    def fake_fetch(code, start, end):
+    def fake_fetch(code, start, end, **kw):
         if code == "005827":
             return []  # 合法空
         if code == "005828":
@@ -319,7 +320,7 @@ def test_legit_empty_discriminator_red(tmp_db, monkeypatch):
         ("005827", "FOF-A", "FOF-均衡型"),
         ("005828", "FOF-B", "FOF-进取型"),
     ])
-    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, s, e: [])
+    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, s, e, **kw: [])
     monkeypatch.setattr(mod, "RATE_LIMIT", 0.0)
     from datetime import date as _d
     monkeypatch.setattr(mod, "date",

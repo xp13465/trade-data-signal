@@ -548,7 +548,7 @@ def _migrate_fund_basic(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _acquire_lock(nonblock: bool = True, lock_name: str = "public_fund") -> bool:
+def _acquire_lock(nonblock: bool = True, lock_name: str = "public_fund", *, read_only: bool = False) -> bool:
     """fcntl.flock 进程互斥（macOS 用 fcntl 非 flock 命令）。
 
     lock_name: 锁名(对应 data/<lock_name>.lock), 默认 public_fund.lock。
@@ -558,7 +558,12 @@ def _acquire_lock(nonblock: bool = True, lock_name: str = "public_fund") -> bool
      daily 写 daily_nav/index_daily/estimation_nav, 不同表无 DB 写冲突)。
     """
     lock_path = _DATA_DIR / f"{lock_name}.lock"
-    f = open(lock_path, "a")  # 不能在flock竞争前截断他人持有的协调文件。
+    try:
+        f = open(lock_path, "r" if read_only else "a")  # 不截断；dry-run也不创建。
+    except FileNotFoundError:
+        if read_only:
+            return True  # 仅静态副本路径，readonly_snapshot还会验证前后未变化。
+        raise
     flags = fcntl.LOCK_EX | (fcntl.LOCK_NB if nonblock else 0)
     try:
         fcntl.flock(f, flags)
@@ -1069,7 +1074,8 @@ def fetch_estimation() -> int:
 # ── Fetcher E3: 基准指数日频 (baostock 沪深300) ──────────────────────────────────
 def fetch_index_daily(start_date: str | None = None, end_date: str | None = None,
                       index_id: str = "hs300", *, deadline: float | None = None,
-                      io_timeout: float = 30.0) -> int:
+                      io_timeout: float = 30.0, dry_run: bool = False,
+                      _return_rows: bool = False) -> int | list[dict]:
     """baostock sh.000300 沪深300日频 -> fund_index_daily (反推算法基准指数)。
 
     ak.stock_zh_index_daily_em 被东财封 RemoteDisconnected, 改用 baostock。
@@ -1085,10 +1091,23 @@ def fetch_index_daily(start_date: str | None = None, end_date: str | None = None
     """
     print(f"[E3] fetch_index_daily({index_id}) ...", flush=True)
     t = time.time()
-    if not start_date:
-        start_date = (dt.date.today() - dt.timedelta(days=400)).strftime("%Y%m%d")
     if not end_date:
         end_date = dt.date.today().strftime("%Y%m%d")
+    if not start_date:
+        from app.collector import public_fund_gap as gap
+        # 仍共享HC06绝对截止；首次400日完整初始化，之后只取最后有效日+上下文+真实NULL。
+        import math
+        deadline = time.monotonic() + 290.0 if deadline is None else deadline
+        if not math.isfinite(deadline) or not math.isfinite(io_timeout) or io_timeout <= 0:
+            raise ValueError("指数采集预算必须为有限正数")
+        gap.remaining(deadline)
+        if dry_run:
+            # collect_index在finally中核快照未变化；此处不给写连接。
+            reader = None
+        else:
+            reader = get_conn
+        return gap.collect_index(fetch_index_daily, reader, index_id, end_date,
+                                 deadline, io_timeout, dry_run, DB_PATH if dry_run else None)
     sd = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
     ed = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
     # 多因子基准: hs300(大盘价值) + csi500(中盘) + gem(创业板成长), 控风格偏移
@@ -1270,27 +1289,55 @@ print("FUND_INDEX_RESULT=" + json.dumps(payload), flush=True)
     remaining()
     if not rows_data:
         print(f"[E3] baostock 无数据 {bs_code} {sd}~{ed}", flush=True)
-        return 0
+        return [] if _return_rows else 0
     rows = []
     for r in rows_data:
         d = r[0].replace("-", "")
         close = _safe_float(r[1])
         pct = _safe_float(r[2])
-        if not d:
-            continue
+        dt.datetime.strptime(d, '%Y%m%d')
+        if not start_date <= d <= end_date or (rows and d <= rows[-1][0]):
+            raise ValueError('指数日期重复/乱序/越界')
+        if any(v is not None and not math.isfinite(v) for v in (close, pct)):
+            raise ValueError('指数含非有限值')
         rows.append((d, index_id, close, pct))
+    if _return_rows:
+        return [dict(date=d, close=c, pct_change=p) for d, _, c, p in rows]
+    from app.collector import public_fund_gap as gap
+    if dry_run:
+        conn, validate_snapshot = gap.readonly_snapshot(DB_PATH, timeout=min(5.0, remaining()))
+        try:
+            gap.configure(conn, deadline)
+            gap.check_conflicts(conn, 'index', index_id,
+                               [dict(date=d, close=c, pct_change=p) for d, _, c, p in rows], 'baostock')
+            return len(rows)
+        finally:
+            conn.close()
+            validate_snapshot()
     conn = get_conn(timeout=min(5.0, remaining()))
     try:
+        gap.configure(conn, deadline)
+        gap.migrate(conn)
+        conn.commit()
+        conn.execute('BEGIN IMMEDIATE')
+        gap.check_conflicts(conn, 'index', index_id,
+                            [dict(date=d, close=c, pct_change=p) for d, _, c, p in rows], 'baostock')
         # 建连/PRAGMA和写锁都继承剩余预算；超时回滚本批。
         conn.execute(f"PRAGMA busy_timeout={max(1, int(min(5.0, remaining()) * 1000))}")
         conn.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
         conn.executemany(
-            "INSERT OR REPLACE INTO fund_index_daily(date, index_id, close, pct_change) "
-            "VALUES (?,?,?,?)",
+            "INSERT INTO fund_index_daily(date, index_id, close, pct_change) VALUES (?,?,?,?) "
+            "ON CONFLICT(date,index_id) DO UPDATE SET "
+            "close=COALESCE(fund_index_daily.close,excluded.close), "
+            "pct_change=COALESCE(fund_index_daily.pct_change,excluded.pct_change)",
             rows,
         )
         remaining()
         conn.commit()
+    except gap.NonNullConflict as exc:
+        conn.rollback()
+        gap.save_conflicts(conn, 'index', index_id, exc)
+        raise
     finally:
         conn.close()  # 异常关闭会回滚未提交的完整事务。
     print(f"[E3] fund_index_daily 写入 {len(rows)} 行 {index_id} "
