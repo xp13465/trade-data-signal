@@ -189,3 +189,38 @@ def test_collector_publication_generation_contract(evidence, token, valid):
     status,ev=assess()
     assert (status=='ok') is valid
     if not valid: assert ev['unknown_reason']=='generation_unverified'
+
+
+def test_binding_candidate_requires_new_natural_receipt_not_old_rewrite(tmp_path,monkeypatch):
+    import subprocess
+    import sys
+    import hashlib
+    e=importlib.import_module('ops_business_evidence');d=importlib.import_module('delivery_evidence')
+    at=e.now();clock=[at];monkeypatch.setattr(e,'now',lambda:clock[0])
+    identities=[e.identity_for_bytes(name,b'fixture') for name in e.OVERFIT]
+    args=dict(run_id='natural-first',started_at=e.stamp(at-timedelta(minutes=5)),finished_at=e.stamp(at-timedelta(minutes=1)),
+              status='success',inputs=identities,outputs=identities,confirmed=identities,expected=2,observed=2,
+              invocation_id='a'*32,publication_run_id='first-generation')
+    first=e.record_result(tmp_path,'overfit',**args);assert first['status']=='written'
+    index=d.receipt_root(tmp_path)/'index/overfit.json';before=index.read_bytes();r=e.bounded_json(index)
+    receipt=d.receipt_root(tmp_path)/'receipts'/r['session_date']/'ops_business'/(r['receipt_id']+'.json')
+    original=receipt.read_bytes();assert r['code_identity']['sha']=='unknown'
+    live={k:[v] for k,v in dict(InvocationID='a'*32,ActiveState='inactive',SubState='dead',Result='success',ExecMainStatus='0').items()}
+    commit='b'*40;assert e.assess(tmp_path,'overfit',at,commit,live)[0]=='unknown'
+    result=subprocess.run([sys.executable,str(Path(d.__file__)),'binding-candidate','--data-root',str(tmp_path),
+                           '--code-sha',commit,'--receipt',str(receipt),hashlib.sha256(original).hexdigest()],
+                          text=True,capture_output=True,timeout=5,check=True)
+    candidate=json.loads(result.stdout);assert candidate['reviewed'] is False
+    assert candidate['loaded_module_sha256']==[r['code_identity']['module_sha256']]
+    assert not (d.receipt_root(tmp_path)/'producer-identity.json').exists()
+    # Synthetic approval fixture only, never a production approval/install path.
+    candidate['reviewed']=True
+    manifest=d.receipt_root(tmp_path)/'producer-identity.json';manifest.write_text(json.dumps(candidate));manifest.chmod(0o600)
+    assert index.read_bytes()==before and receipt.read_bytes()==original
+    assert e.assess(tmp_path,'overfit',at,commit,live)[0]=='unknown'
+    clock[0]=at+timedelta(seconds=1);live['InvocationID']=['c'*32]
+    args.update(run_id='natural-next',invocation_id='c'*32,started_at=e.stamp(at-timedelta(seconds=30)),
+                finished_at=e.stamp(at),publication_run_id='next-generation')
+    assert e.record_result(tmp_path,'overfit',**args)['status']=='written'
+    assert e.assess(tmp_path,'overfit',clock[0],commit,live)[0]=='ok'
+    assert receipt.read_bytes()==original  # immutable old proof is not relabelled

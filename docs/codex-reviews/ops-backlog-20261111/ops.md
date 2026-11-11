@@ -113,3 +113,79 @@ backup子步骤证明精确源对象恢复，不证明其它JSON资产整套恢�
 | data:staticdata-backups | 未配置可验证固定源/轻量采集范围外 | staticdata-backups 的完整业务范围与上述本轮回执；局部恢复样本不替代全资产 |
 | data:stock-db | 仅文件元信息 | stock-db 的完整业务范围与上述本轮回执；局部恢复样本不替代全资产 |
 | data:upload-state | 仅文件元信息 | upload-state 的完整业务范围与上述本轮回执；局部恢复样本不替代全资产 |
+
+## 并行 publication 回调的索引锁
+
+真实R2 `cmd_upload_turnover` small/large并行回调原 `record_publication` 已自行复现：同run不同对象争用原全局LOCK_NB，上传成功但部分确认索引丢失。现按object_id的SHA256分锁；同对象保留原子比较/替换，最多等250ms，超时返回 `metadata_failure/TimeoutError`，ENOSPC返回 `metadata_failure/OSError`，均不改变上传业务返回码。业务索引也沿用此有界锁；旧成功仍不能覆盖较新unknown/失败。该期限约束锁争用，不承诺阻塞文件系统I/O的总时限。
+
+独立复现末行 `1 failed, 9 deselected in 0.17s`；在R2 fixed6505归档仅覆盖本组helper、实际writer/reader不替换、网络和上传外部边界全stub后，末行 `12 passed in 2.29s`，包括small 6/6、全量9/9、后续unknown、持锁超时和ENOSPC业务rc不变。另定向回归末行 `161 passed in 37.18s`。未修改upload_r2，也不将此结果当作R2 recover路径的验收。
+
+## Claude：代码身份绑定的最短操作
+
+以下命令只读取证，未在生产执行。部署顺序沿父任务DELIVERY.md。默认路径来自现有DEPLOY文档，Claude先核对unit/drop-in；commit填写已审核的最终整合版本，不能据本示例自动批准HEAD。
+
+```bash
+export OPS_CODE=/home/ubuntu/code/trade-data-signal
+export OPS_DATA=/home/ubuntu/code/trade-data
+export OPS_PY="$OPS_DATA/.venv/bin/python"
+export OPS_REVIEWED_SHA='<Claude审核的40位commit>'
+```
+
+首次自然producer缺绑定时，receipt含实际loaded digest，但code_identity.sha=unknown，collector继续unknown。校对自然invocation、业务日、run后，从以下六个固定索引的session_date/receipt_id定位所需不可变回执：`$OPS_DATA/data/ops_delivery/receipts/<session_date>/ops_business/<receipt_id>.json`。不以export proof/publication索引替代receipt，不手工运行生产任务取身份。
+
+| 固定索引（相对 `$OPS_DATA/data/ops_delivery/index/`） | 回执object_id / stage |
+|---|---|
+| turnover.json | turnover / publish |
+| overfit.json | overfit / publish |
+| backup-sentiment.json | backup-sentiment / restore |
+| backup-etf_national_team.json | backup-etf_national_team / restore |
+| backup-stock_daily.json | backup-stock_daily / restore |
+| backup-public_fund.json | backup-public_fund / restore |
+
+用现有binding-candidate读取这六份回执；每份最多64KiB，CLI复核哈希、schema、私有权限和分区路径。输出同一种trade-producer-identity-v1候选、reviewed=false，不安装manifest，也不认证传入commit与运行代码对应关系：
+
+```bash
+timeout 15s env PYTHONDONTWRITEBYTECODE=1 OPS_DELIVERY_EVIDENCE_ENABLED=1 "$OPS_PY" - <<'PY' > /tmp/ops-producer-identity-candidate.json
+import hashlib, os, subprocess, sys
+from pathlib import Path
+code, root = Path(os.environ['OPS_CODE']), Path(os.environ['OPS_DATA'])
+sys.path.insert(0, str(code / 'scripts'))
+from ops_business_evidence import bounded_json, OBJECTS
+from delivery_evidence import receipt_root
+base = receipt_root(root)
+args = [sys.executable, str(code / 'scripts/delivery_evidence.py'), 'binding-candidate',
+        '--data-root', str(root), '--code-sha', os.environ['OPS_REVIEWED_SHA']]
+for name in OBJECTS:
+    record = bounded_json(base / 'index' / (name + '.json'))
+    path = base / 'receipts' / record['session_date'] / 'ops_business' / (record['receipt_id'] + '.json')
+    assert path.resolve().is_relative_to((base / 'receipts').resolve())
+    bounded_json(path)
+    with path.open('rb') as stream:
+        raw = stream.read(65537)
+    assert len(raw) <= 65536
+    args += ['--receipt', str(path), hashlib.sha256(raw).hexdigest()]
+subprocess.run(args, timeout=10, check=True)
+PY
+```
+
+新helper身份来自 `ops_business_evidence.record_result → loaded_code_identity(record_result, root)`：摘要包含模块已加载函数、直接导入函数及delivery_evidence自身函数/类方法，不是文件SHA或HEAD；coverage不证明传递依赖，运行常量另记config。Python字节码版本和模块命名空间影响摘要，backup/overfit import与turnover CLI的__main__不能假定相同，以上实际回执覆盖各入口。
+
+上线前安全只读import探针如下，不调用producer；用临时空根防止借用旧批准manifest。沿用现有manifest格式、reviewed=false、source_receipts=[]，只作审核输入，不能替代自然回执或证明turnover CLI身份：
+
+```bash
+timeout 10s env PYTHONDONTWRITEBYTECODE=1 OPS_DELIVERY_EVIDENCE_ENABLED=0 "$OPS_PY" - <<'PY' > /tmp/ops-loaded-import-unreviewed.json
+import json, os, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, str(Path(os.environ['OPS_CODE']) / 'scripts'))
+import ops_business_evidence as ops
+with tempfile.TemporaryDirectory(prefix='ops-identity-probe-') as empty:
+    identity = ops.loaded_code_identity(ops.record_result, Path(empty))
+print(json.dumps({'schema': 'trade-producer-identity-v1', 'reviewed': False,
+                  'code_sha': os.environ['OPS_REVIEWED_SHA'],
+                  'loaded_module_sha256': [identity['module_sha256']], 'source_receipts': []}))
+PY
+```
+
+Claude审核代码、运行版本及候选source_receipts/digests后，按现有机制安装 `$OPS_DATA/data/ops_delivery/producer-identity.json`（trade-producer-identity-v1、reviewed=true、准确code_sha、审核后的loaded_module_sha256；文件0600/目录0700，运行用户原子替换）。保留同commit其它仍需的已审核producer摘要，不盲目用本组列表覆盖；本组没有代为批准或安装。
+
+**安装binding不回写旧receipt，也不让旧索引自动变绿。须等下一次自然producer重新加载已审核版本并生成新receipt，才可能取得已审核code_ref；其它run/hash/coverage/有效期仍须通过。** 真实CLI隔离测试已验证：安装模拟批准manifest后旧receipt逐字节不变且仍unknown，下一自然run才通过；helper或Python变化需重新审核。
