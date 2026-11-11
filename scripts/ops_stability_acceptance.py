@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 import alert_noise_count as noise
 from delivery_evidence import _validate
 from ops_business_evidence import OBJECTS, RULE
+import ops_schedule_contract as schedule_contract
 
 LIMIT = 32 * 1024 * 1024
 POLICY = {"initial_calendar_days": 14, "initial_trading_days": 7,
@@ -78,7 +79,7 @@ def validate_plan(plan):
     deployment = plan["deployment"]
     if not isinstance(deployment, dict):
         raise ValueError("deployment object required (unknown fields may be null in draft)")
-    if not isinstance(plan.get("slots"), list) or not 1 <= len(plan["slots"]) <= 4096:
+    if not isinstance(plan.get("slots"), list) or not 1 <= len(plan["slots"]) <= schedule_contract.MAX_SLOTS:
         raise ValueError("predeclared slots required; empty denominator is unknown")
     identifiers([s["slot_id"] for s in plan["slots"]])
     scheduled = set()
@@ -339,6 +340,13 @@ def inspect_run(run, slot, plan, root, as_of, sources):
 def assess(plan, observed, root, ledgers, legacy, as_of):
     start, end = validate_plan(plan)
     sources, input_problems = {}, []
+    schedule = schedule_contract.reconcile(plan, root)
+    sources.update(schedule["input_hashes"])
+    # Legacy subset plans retain their evidence-only verdict. An explicitly
+    # requested reconciliation cannot pass with missing/unknown contracts.
+    if "schedule_contract" in plan and (schedule["denominator_completeness"] != "complete"
+                                       or schedule["business_deadline_coverage"] != "complete"):
+        input_problems.append("schedule_or_business_deadline_contract_incomplete")
     if observed.get("dataset") != plan["dataset"]:
         input_problems.append("dataset_mismatch")
     if plan["dataset"] == "unknown":
@@ -515,15 +523,17 @@ def assess(plan, observed, root, ledgers, legacy, as_of):
             "known_routine_channel_successes": routine_sent, "input_problems": input_problems, "input_hashes": sources,
             "window_mature": None, "window_maturity_scope": "not_certified; see elapsed_window_mature",
             "elapsed_window_mature": mature, "execution_coverage_satisfied": None,
-            "denominator_completeness": "unknown", "declared_subset": True,
-            "denominator_scope": "explicit_frozen_slots_only; no independent schedule/calendar reconciliation",
+            "denominator_completeness": schedule["denominator_completeness"],
+            "declared_subset": schedule["denominator_completeness"] != "complete",
+            "denominator_scope": "repository-declared; actual systemd deployment NOT_VERIFIED",
+            "schedule_reconciliation": schedule,
             "proposed_policy": POLICY, "policy_is_production_evidence": False,
             "trend_review_pending": as_of < start + timedelta(days=POLICY["trend_calendar_days"]),
             "limitations": ["仅核验显式输入的内容一致性，未访问生产或证明证据真实性/独立收件。",
                             "日志完整性/人工来源/部署时间为外部提供的证据声明，需Claude复核原始采样。",
                             "合成/回放最多REPLAY_OK；生产输入最多INPUTS_CONSISTENT，不认证真实性或生产稳定。",
                             "预冻结、业务SLA批准及日志完整性仅检验外部声明的时间/引用，未独立认证。",
-                            "elapsed_window_mature仅表示声明的时间跨度/频次条件；slots可能是子集，window_mature/执行覆盖保持未知。",
+                            "elapsed_window_mature仅表示声明的时间跨度/频次条件；日程对账仅限repository-declared，window_mature/执行覆盖保持未知。",
                             "公募日更/FOF完整业务凭证尚无生产接口，保持UNKNOWN；backup不是NAV交付。",
                             "未纳入manifest的月季频任务不代表已自然验证；14/7/2/30为本轮建议。"]}
 
@@ -560,6 +570,8 @@ def main(argv=None):
                        manifest_path=args.manifest, observations_path=args.observations)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         payload = {"verdict": "UNKNOWN", "dataset": "unknown", "evidence_scope": "unknown", "production_stability": "NOT_CERTIFIED",
+                   "denominator_completeness": "unknown", "execution_coverage_satisfied": None,
+                   "denominator_scope": "repository-declared; actual systemd deployment NOT_VERIFIED",
                    "input_error": str(exc), "business_account": {"expected_slots": None}}
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 1 if payload["verdict"] == "FAIL" else 0 if payload["verdict"] in {"REPLAY_OK", "INPUTS_CONSISTENT"} else 2
