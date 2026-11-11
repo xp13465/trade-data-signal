@@ -617,6 +617,129 @@ def test_recovery_command_replays_only_original_conditional_bytes(client):
     assert m.SafeWriter(m.__dict__).load(KEY)['confirmed']
 
 
+def _seed_recovery_journals(m, fake, pair, pending_purge=False):
+    keys = m._OVERFIT_PAIR if pair else (KEY,)
+    directory = m.STATIC_DIR / 'data'
+    directory.mkdir(exist_ok=True)
+    for key in keys:
+        (m.STATIC_DIR / key).write_bytes(
+            b'{"generated_at":"same-minute","publication_run_id":"recovery-test"}')
+    fake.never_commit = not pending_purge
+    assert m._upload_glob(directory, [Path(k).name for k in keys], 'data')[0] == 0
+    safe = m.SafeWriter(m.__dict__)
+    rows = {key: safe.load(key) for key in keys}
+    assert all(row['state'] == ('confirmed' if pending_purge else 'unknown')
+               for row in rows.values())
+    fake.never_commit = False
+    fake.calls.clear()
+    return safe, rows
+
+
+@pytest.mark.parametrize('pair', [False, True], ids=['key', 'pair'])
+@pytest.mark.parametrize('pending_purge', [False, True], ids=['unknown', 'pending-purge'])
+def test_recovery_lock_open_failure_has_no_effects(client, monkeypatch, tmp_path, pair, pending_purge):
+    m, fake = client
+    monkeypatch.setattr(m, 'purge_cache', lambda *a, **k: False)
+    safe, rows = _seed_recovery_journals(m, fake, pair, pending_purge)
+    before = {p.relative_to(safe.root): p.read_bytes() for p in safe.root.rglob('*') if p.is_file()}
+    loads, purges, releases, lock_keys = [], [], [], []
+    real_load, real_release = m.SafeWriter.load, m._release_r2_upload_lock
+    def unavailable_path(bucket_key):
+        lock_keys.append(bucket_key)
+        return tmp_path / 'absent-parent' / 'key.lock'
+    def load(self, key):
+        loads.append(key)
+        return real_load(self, key)
+    def release(fd):
+        releases.append(fd)
+        return real_release(fd)
+    monkeypatch.setattr(m._rlp, 'key_lock_path', unavailable_path)
+    monkeypatch.setattr(m.SafeWriter, 'load', load)
+    monkeypatch.setattr(m, 'purge_cache', lambda *a, **k: purges.append(a) or True)
+    monkeypatch.setattr(m, '_release_r2_upload_lock', release)
+    # Real os.open fails; do not replace the acquisition helper with a fake None.
+    with pytest.raises(SystemExit) as exc:
+        m.cmd_recover_protected()
+    assert exc.value.code == 1
+    assert not loads and not fake.calls and not purges and not releases
+    assert lock_keys == [f'public/{"overfit-pair" if pair else KEY}'] * len(rows)
+    assert before == {p.relative_to(safe.root): p.read_bytes() for p in safe.root.rglob('*') if p.is_file()}
+
+
+def test_recovery_failed_key_continues_other_key(client, monkeypatch, tmp_path):
+    m, fake = client
+    safe, _ = _seed_recovery_journals(m, fake, False)
+    other = 'data/auto_trade_steps.json'
+    fake.never_commit = True
+    assert upload(m, b'other', other)[0] == 0
+    fake.never_commit = False
+    fake.calls.clear()
+    # Ensure the failed key is first, so the successful key proves continuation.
+    first = json.loads(sorted(p for p in safe.root.glob('*.json') if p.name != 'gc-manifest.json')[0].read_text())['key']
+    second = other if first == KEY else KEY
+    unchanged = safe.path(first).read_bytes()
+    lock_path = m._rlp.key_lock_path
+    monkeypatch.setattr(m._rlp, 'key_lock_path', lambda key:
+        tmp_path / 'absent-parent' / 'key.lock' if key == f'public/{first}' else lock_path(key))
+    purges = []
+    monkeypatch.setattr(m, 'purge_cache', lambda keys, **kw: purges.append(keys) or True)
+    with pytest.raises(SystemExit) as exc:
+        m.cmd_recover_protected()
+    assert exc.value.code == 1
+    assert safe.path(first).read_bytes() == unchanged
+    assert safe.load(first)['state'] == 'unknown'
+    assert safe.load(second)['confirmed']
+    assert {call[2] for call in fake.calls} == {second}
+    assert len(public_writes(fake)) == 1 and purges
+    assert all(first not in keys for keys in purges)
+
+
+@pytest.mark.parametrize('pair', [False, True], ids=['key', 'pair'])
+@pytest.mark.parametrize('commit', [False, True], ids=['still-unknown', 'confirmed'])
+def test_recovery_obeys_real_flock_and_releases_valid_locks(client, monkeypatch, pair, commit):
+    import fcntl
+    m, fake = client
+    safe, rows = _seed_recovery_journals(m, fake, pair)
+    before = {p.relative_to(safe.root): p.read_bytes() for p in safe.root.rglob('*') if p.is_file()}
+    lock_path = m._rlp.key_lock_path(f'public/{"overfit-pair" if pair else KEY}')
+    holder = m._acquire_r2_upload_lock(timeout=0, lock_path_override=lock_path)
+    assert holder is not None
+    purges, loads = [], []
+    real_load = m.SafeWriter.load
+    def load(self, key):
+        loads.append(key)
+        return real_load(self, key)
+    monkeypatch.setattr(m.SafeWriter, 'load', load)
+    acquire = m._acquire_r2_upload_lock
+    monkeypatch.setattr(m, '_acquire_r2_upload_lock', lambda **kw: acquire(**{**kw, 'timeout': 0}))
+    monkeypatch.setattr(m, 'probe_lock_holder', lambda *a: '')
+    monkeypatch.setattr(m, 'purge_cache', lambda *a, **k: purges.append(a) or True)
+    try:
+        with pytest.raises(SystemExit) as exc:
+            m.cmd_recover_protected()
+        assert exc.value.code == 1
+        assert not loads and not fake.calls and not purges
+        assert before == {p.relative_to(safe.root): p.read_bytes() for p in safe.root.rglob('*') if p.is_file()}
+    finally:
+        m._release_r2_upload_lock(holder)
+    # Once available, the lock must be released on both success and failed replay.
+    fake.never_commit = not commit
+    if commit:
+        m.cmd_recover_protected()
+    else:
+        with pytest.raises(SystemExit) as exc:
+            m.cmd_recover_protected()
+        assert exc.value.code == 1
+    for key, original in rows.items():
+        current = safe.load(key)
+        assert current['state'] == ('confirmed' if commit else 'unknown')
+        assert current['confirmed'] == commit and current['write_id'] == original['write_id']
+    assert len(public_writes(fake)) == len(rows) and bool(purges) == commit
+    with lock_path.open('a+b') as contender:
+        fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(contender, fcntl.LOCK_UN)
+
+
 def test_isolated_probe_real_client_fake_transport_end_to_end(client, tmp_path):
     import r2_isolated_probe as probe_module
     m, f = client

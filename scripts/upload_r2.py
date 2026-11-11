@@ -1225,6 +1225,8 @@ def cmd_recover_protected():
         lock = _acquire_r2_upload_lock(timeout=_remaining_work(),
             lock_path_override=_rlp.key_lock_path(f"{BUCKET}/overfit-pair" if key in _OVERFIT_PAIR else f"{BUCKET}/{key}"))
         try:
+            if lock is None:
+                raise UnsafeWrite("protected recovery requires key/pair mutex")
             row = safe.load(key)
             safe.recover(row, retry_put=True)
             print("R2_RECOVERY: " + json.dumps({k: row.get(k) for k in
@@ -1235,7 +1237,8 @@ def cmd_recover_protected():
             failures.append(key)
             print(f"R2_RECOVERY: {key}: {exc}", file=sys.stderr)
         finally:
-            _release_r2_upload_lock(lock)
+            if lock is not None:
+                _release_r2_upload_lock(lock)
     if failures:
         sys.exit(1)
 
