@@ -53,9 +53,11 @@ def _load_signal_dates() -> dict[str, dict[str, list[str]]]:
     """读 signal_daily，返回 {index_id: {signal: [date, ...]}}（date 升序）。"""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT date, index_id, signal FROM signal_daily ORDER BY index_id, signal, date"
+        "SELECT date, index_id, signal, reason FROM signal_daily ORDER BY index_id, signal, date"
     ).fetchall()
     conn.close()
+    from ..fx_contract import filter_signals
+    rows = filter_signals(rows)
     out: dict[str, dict[str, list[str]]] = {}
     for r in rows:
         iid = r["index_id"]
@@ -251,7 +253,7 @@ def compute_global_freq(stats=None) -> dict:
         for sig in ("buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "sell", "sell_stop_loss")
     }
     for iid, sigs in all_stats.items():
-        if iid.startswith("_"):
+        if iid.startswith("_") or iid in ("g.usdcnh", "s.cross_market", "s.fear_greed"):
             continue
         for sig in ("buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "sell", "sell_stop_loss"):
             f = sigs.get(sig, {}).get("frequency")

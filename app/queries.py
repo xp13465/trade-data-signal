@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
+from .fx_contract import availability as fx_availability, filter_signals as fx_filter_signals, guard_score as fx_guard_score
 from .calendar import last_trading_day
 from .collector.fetchers import load_config
 from .compute import signal_stats as sigstats
@@ -109,6 +110,8 @@ def range_for(rng: str):
 
 def metric_series(conn, metric_id, start, end, *, cache=None):
     """daily_metric 序列。cache 非空时优先读缓存（全量），按 start/end 字符串切片。"""
+    if metric_id == "usdcnh" or metric_id.startswith("usdcnh."):
+        return []
     if cache is not None:
         key = ("metric", metric_id)
         cached = cache.get(key)
@@ -162,13 +165,13 @@ def score_series(conn, score_id, start, end, *, cache=None):
             ).fetchall()
             cached = [dict(r) for r in rows]
             cache[key] = cached
-        return [r for r in cached if start <= r["date"] <= end]
+        return [fx_guard_score(r) if score_id in ("cross_market", "fear_greed", "high_alert", "low_alert") else r for r in cached if start <= r["date"] <= end]
     rows = conn.execute(
         "SELECT date, value, is_freeze, is_overheat, components FROM score_daily "
         "WHERE score_id=? AND date BETWEEN ? AND ? ORDER BY date",
         (score_id, start, end),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [fx_guard_score(r) if score_id in ("cross_market", "fear_greed", "high_alert", "low_alert") else dict(r) for r in rows]
 
 
 # 6 宽基情绪分（冰点共振口径）—— 前端 app.js `_BROAD_SENT_IDS` 的同源登记点。
@@ -279,14 +282,14 @@ def signals(conn, index_id=None, start=None, end=None, *, cache=None):
             rows = conn.execute(q, params).fetchall()
             cached = [dict(r) for r in rows]
             cache[key] = cached
-        return [r for r in cached if start <= r["date"] <= end]
+        return fx_filter_signals([r for r in cached if start <= r["date"] <= end])
     q = "SELECT date, index_id, signal, reason FROM signal_daily WHERE date BETWEEN ? AND ?"
     params = [start, end]
     if index_id:
         q += " AND index_id=?"
         params.append(index_id)
     rows = conn.execute(q + " ORDER BY date", params).fetchall()
-    return [dict(r) for r in rows]
+    return fx_filter_signals(rows)
 
 
 def industry_width(conn, industry_code, start, end, *, cache=None):
@@ -650,6 +653,8 @@ def stats_all() -> dict:
 
 def stats_for(stats_all_dict: dict, index_id: str) -> dict:
     """单品种 stats：{buy:{...}, buy_aux:{...}, sell:{...}}；无则空 dict。"""
+    if index_id in ("g.usdcnh", "s.cross_market", "s.fear_greed"):
+        return {}  # Historical stats lack a source-contract version.
     return stats_all_dict.get(index_id, {})
 
 
@@ -1221,7 +1226,7 @@ def overview(conn, cfg):
         "            WHERE s2.score_id=score_daily.score_id AND s2.date<=?)",
         (last_trading_day(),)
     ).fetchall():
-        _d = dict(_r)
+        _d = fx_guard_score(_r) if _r["score_id"] in ("cross_market", "fear_greed", "high_alert", "low_alert") else dict(_r)
         _comp_raw = _d.get("components")
         try:
             _d["components"] = json.loads(_comp_raw) if _comp_raw else None
@@ -1272,7 +1277,7 @@ def overview(conn, cfg):
     # 前端按日分组（一天一行），故取"最近30个日期"的全部记录而非 LIMIT 30 条记录
     sig_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=75)).strftime("%Y%m%d")
     sig_dates = [r[0] for r in conn.execute(
-        "SELECT DISTINCT date FROM signal_daily WHERE date >= ? ORDER BY date DESC LIMIT 30",
+        "SELECT DISTINCT date FROM signal_daily WHERE index_id NOT IN ('g.usdcnh','s.cross_market','s.fear_greed') AND date >= ? ORDER BY date DESC LIMIT 30",
         (sig_start,)
     ).fetchall()]
     sigs = []
@@ -1287,6 +1292,7 @@ def overview(conn, cfg):
             "ORDER BY date DESC, index_id" % ",".join("?" * len(sig_dates)),
             sig_dates
         ).fetchall()]
+    sigs = fx_filter_signals(sigs)
     # 2026-08-05 注入 ETF 候选到每条信号（前端信号 cell 展示 ETF tag + 真实ETF/概念标的筛选）。
     # etf_for 已 lru_cache 零开销；etfs=[] 表示概念标的（无跟踪ETF，前端显"无ETF"灰标）。
     # 深拷贝 etfs 列表：_etf_map() lru_cache 返回共享对象，不同信号日需独立 etf_since_return（L461+）。
@@ -1619,13 +1625,13 @@ def overview(conn, cfg):
 
     freeze_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=120)).strftime("%Y%m%d")
     freeze_dates = [r[0] for r in conn.execute(
-        "SELECT DISTINCT date FROM score_daily WHERE is_freeze=1 AND date >= ? ORDER BY date DESC LIMIT 9",
+        "SELECT DISTINCT date FROM score_daily WHERE is_freeze=1 AND score_id NOT IN ('cross_market','fear_greed','high_alert','low_alert') AND date >= ? ORDER BY date DESC LIMIT 9",
         (freeze_start,)
     ).fetchall()]
     freeze_days = []
     if freeze_dates:
         freeze_days = [dict(r) for r in conn.execute(
-            "SELECT date, score_id, value FROM score_daily WHERE is_freeze=1 "
+            "SELECT date, score_id, value FROM score_daily WHERE is_freeze=1 AND score_id NOT IN ('cross_market','fear_greed','high_alert','low_alert') "
             "AND date IN (%s) ORDER BY date DESC" % ",".join("?" * len(freeze_dates)),
             freeze_dates
         ).fetchall()]
@@ -1644,7 +1650,7 @@ def overview(conn, cfg):
     _cal_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=90)).strftime("%Y%m%d")
     _cal_freeze_rows = conn.execute(
         "SELECT date, score_id, value FROM score_daily "
-        "WHERE is_freeze=1 AND score_id!='low_alert' AND date>=? ORDER BY date",
+        "WHERE is_freeze=1 AND score_id NOT IN ('cross_market','fear_greed','high_alert','low_alert') AND date>=? ORDER BY date",
         (_cal_start,)
     ).fetchall()
     _cal_sig_rows = conn.execute(
@@ -1652,6 +1658,7 @@ def overview(conn, cfg):
         "WHERE index_id LIKE 's.%' AND date>=? ORDER BY date",
         (_cal_start,)
     ).fetchall()
+    _cal_sig_rows = fx_filter_signals(_cal_sig_rows)
     _cal_by_date = {}
     for _r in _cal_freeze_rows:
         _d = _cal_by_date.setdefault(_r["date"], {"date": _r["date"], "freeze": [], "signals": []})
@@ -1761,21 +1768,13 @@ def overview(conn, cfg):
 
     # 近 6 月分数序列（跨市场分 + A 股情绪分）
     six_m_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=210)).strftime("%Y%m%d")
-    cross_6m = [{"date": r["date"], "value": r["value"], "is_freeze": r["is_freeze"], "is_overheat": r["is_overheat"]}
-                for r in conn.execute(
-                    "SELECT date, value, is_freeze, is_overheat FROM score_daily "
-                    "WHERE score_id='cross_market' AND date>=? ORDER BY date",
-                    (six_m_start,))]
+    cross_6m = score_series(conn, "cross_market", six_m_start, score_date)
     asent_6m = [{"date": r["date"], "value": r["value"], "is_freeze": r["is_freeze"], "is_overheat": r["is_overheat"]}
                 for r in conn.execute(
                     "SELECT date, value, is_freeze, is_overheat FROM score_daily "
                     "WHERE score_id='a_sentiment' AND date>=? ORDER BY date",
                     (six_m_start,))]
-    fg_6m = [{"date": r["date"], "value": r["value"], "is_freeze": r["is_freeze"], "is_overheat": r["is_overheat"]}
-             for r in conn.execute(
-                    "SELECT date, value, is_freeze, is_overheat FROM score_daily "
-                    "WHERE score_id='fear_greed' AND date>=? ORDER BY date",
-                    (six_m_start,))]
+    fg_6m = score_series(conn, "fear_greed", six_m_start, score_date)
 
     # P1-④+ KPI 小卡 sparkline 扩展：所有有数据的卡统一加 *_6m 字段（布局和谐，
     # flex-wrap 换行后每行统一高度，动态展示）。a_sentiment/cross_market/fear_greed
@@ -1808,16 +1807,9 @@ def overview(conn, cfg):
         if len(_rows) >= 2:
             kpi_spark_6m[f"{_mid}_6m"] = [{"date": r["date"], "value": r["value"]} for r in _rows]
     for _sid in KPI_SPARK_SCORE_IDS:
-        _rows = conn.execute(
-            "SELECT date, value, is_freeze, is_overheat FROM score_daily "
-            "WHERE score_id=? AND date>=? ORDER BY date",
-            (_sid, six_m_start),
-        ).fetchall()
+        _rows = score_series(conn, _sid, six_m_start, score_date)
         if len(_rows) >= 2:
-            kpi_spark_6m[f"{_sid}_6m"] = [
-                {"date": r["date"], "value": r["value"], "is_freeze": r["is_freeze"], "is_overheat": r["is_overheat"]}
-                for r in _rows
-            ]
+            kpi_spark_6m[f"{_sid}_6m"] = _rows
 
     # 采集时间 + 数据健康度：collect_log 最新一次 run（run_date 取当天全部记录）
     _last = conn.execute(
@@ -2168,9 +2160,10 @@ def global_market(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
         extras[mid] = metric_series(conn, mid, start, end, cache=cache)
         extras_signals[mid] = signals(conn, f"g.{mid}", start, end, cache=cache)
         extras_stats[mid] = stats_for(sa, f"g.{mid}")
-        extras_strategy[mid] = strategy_desc(f"g.{mid}", cfg)
+        extras_strategy[mid] = fx_availability() if mid == "usdcnh" else strategy_desc(f"g.{mid}", cfg)
     return {"indices": indices, "extras": extras, "extras_signals": extras_signals,
-            "extras_stats": extras_stats, "extras_strategy": extras_strategy}
+            "extras_stats": extras_stats, "extras_strategy": extras_strategy,
+            "extras_availability": {"usdcnh": fx_availability()}}
 
 
 def sentiment(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
@@ -3072,7 +3065,10 @@ def signal_freq(stats_all_dict=None):
     """
     if stats_all_dict is None:
         stats_all_dict = stats_all()
-    return sigstats.compute_global_freq(stats_all_dict)
+    result = sigstats.compute_global_freq(stats_all_dict)
+    from .fx_contract import SCORE_VERSION
+    result["_fx_contract"] = SCORE_VERSION
+    return result
 
 
 def metrics_list(cfg):

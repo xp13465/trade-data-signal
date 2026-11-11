@@ -11,6 +11,9 @@ _MIN_PERIODS = 10  # 涨停板池等快照指标历史仅近 2 周，放宽 min_
 
 
 def load_metric_series(metric_id: str) -> pd.Series:
+    if metric_id == "usdcnh" or metric_id.startswith("usdcnh."):
+        # Legacy and staged FX histories are not active indicators.
+        return pd.Series(dtype=float)
     conn = get_conn()
     rows = conn.execute(
         "SELECT date, value FROM daily_metric WHERE metric_id=? ORDER BY date", (metric_id,)
@@ -26,6 +29,9 @@ def load_metric_value(metric_id: str) -> pd.Series:
 
     与 load_metric_series 区别：过滤 value IS NULL（signals 需严格数值序列，避免 NaN 污染 RSI）。
     """
+    if metric_id == "usdcnh" or metric_id.startswith("usdcnh."):
+        # Legacy and staged FX histories are not active indicators.
+        return pd.Series(dtype=float)
     conn = get_conn()
     rows = conn.execute(
         "SELECT date, value FROM daily_metric WHERE metric_id=? AND value IS NOT NULL ORDER BY date",
@@ -41,10 +47,14 @@ def load_score_value(score_id: str) -> pd.Series:
     """从 score_daily 取 value 序列（按 date 升序，过滤 NULL），供 signals 算情绪分买卖点用。"""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT date, value FROM score_daily WHERE score_id=? AND value IS NOT NULL ORDER BY date",
+        "SELECT date, value, components FROM score_daily WHERE score_id=? AND value IS NOT NULL ORDER BY date",
         (score_id,),
     ).fetchall()
     conn.close()
+    if score_id in ("cross_market", "fear_greed", "high_alert", "low_alert"):
+        from ..fx_contract import guard_score
+        rows = [guard_score(r) for r in rows]
+        rows = [r for r in rows if r["value"] is not None]
     if not rows:
         return pd.Series(dtype=float)
     return pd.Series({r["date"]: r["value"] for r in rows}).sort_index().astype(float)

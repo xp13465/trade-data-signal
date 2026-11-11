@@ -471,7 +471,8 @@ def query_signals(date: str) -> list[dict]:
         ).fetchall()
     finally:
         conn.close()
-    return [dict(r) for r in rows]
+    from app.fx_contract import filter_signals
+    return filter_signals(rows)
 
 
 def load_name_map() -> dict[str, str]:

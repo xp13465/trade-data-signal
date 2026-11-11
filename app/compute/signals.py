@@ -466,15 +466,8 @@ def _buy_type_cn(buy_type) -> str:
 
 
 def _load_cross_score() -> pd.Series:
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT date, value FROM score_daily WHERE score_id='cross_market' ORDER BY date"
-    ).fetchall()
-    capture_sql_rows(conn, "cross_score_rows", rows, query_scope={"score_id": "cross_market", "columns": ["date", "value"]})
-    conn.close()
-    if not rows:
-        return pd.Series(dtype=float)
-    return pd.Series({r["date"]: r["value"] for r in rows}).sort_index().astype(float)
+    # Also covers persisted scores when signals run without a preceding recompute.
+    return load_score_value("cross_market")
 
 
 def _load_buy_aux_filters(cfg) -> dict:
@@ -1427,7 +1420,10 @@ def compute():
                     signals.append((band["date"], iid, sig_type, band["reason"]))
 
     # B 扩展：全球指标 + 情绪分数 signals（value 当 close，按 09 回测推荐规则 + B1+S1）
+    enabled_metrics = {m["id"] for m in cfg.get("metrics", []) if m.get("enabled")}
     for mid in GLOBAL_METRIC_IDS:
+        if mid not in enabled_metrics or mid == "usdcnh":
+            continue
         value = capture_loaded("daily_metric:" + mid, load_metric_value(mid))
         if value.empty:
             continue
@@ -1450,6 +1446,7 @@ def compute():
 @evidence_stage(data_root=lambda: Path(__file__).absolute().parents[2], stage="signal",
                 chain_id="market_signal_freeze_plan", object_id="signal_daily")
 def store(signals) -> int:
+    signals = [row for row in signals if row[1] not in ("g.usdcnh", "s.cross_market", "s.fear_greed")]
     capture_loaded("signal_daily", signals)
     conn = get_conn()
     capture_connection(conn)
@@ -1466,7 +1463,7 @@ def store(signals) -> int:
         audit_available = True
     except Exception as e:  # noqa: BLE001
         print(f"[history-audit] signal_daily 历史行快照(前)失败(不阻断): {type(e).__name__} {e}")
-    conn.execute("DELETE FROM signal_daily")  # 信号逻辑变更，清空重算
+    conn.execute("DELETE FROM signal_daily WHERE index_id NOT IN ('g.usdcnh','s.cross_market','s.fear_greed')")  # 保留不可验证的FX及衍生历史原件，其余按既有逻辑重算
     # INSERT OR REPLACE: 全历史 band 信号(接回->buy_aux)可能与标准 buy_aux(布林下轨回归)
     # 同天同品种冲突(30个, cgb_idx 历史)。band 信号后 append, 覆盖标准 buy_aux
     # (cgb 波段仓管是国债主要信号, 有 ratio 仓位比例)。其他品种无 band 无影响。

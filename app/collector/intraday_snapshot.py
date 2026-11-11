@@ -137,7 +137,7 @@ _SNAPSHOT_TO_INDEX_ID = {
 #   - nf_SC0（INE原油主连，大写SC！小写sc0返回空）✓ 返回今日实时
 #   - hf_CL/hf_SI/hf_OIL（外盘期货）✓ 返回今日实时
 #   - hf_XAU（伦敦金现货）✓ 返回今日实时（辅助参考，不强推前端）
-#   - fx_susdcny（离岸人民币实时汇率）✓ 返回今日实时
+#   - fx_susdcnh（离岸人民币实时汇率）独立报价；不反哺旧历史
 #   - hf_TNX（10年美债收益率）✗ 新浪源全空 -> us10y 保持 bond_zh_us_rate T+1
 # 注意：AU0（无 nf_ 前缀）返回 2024 旧数据已废弃，nf_AU0 才是实时源。
 #       sc0（小写）返回空，nf_SC0（大写）才有效。新浪代码大小写敏感。
@@ -158,8 +158,8 @@ COMMODITY_TO_METRIC = {
     "hf_OIL": "brent",
     "hf_XAU": "hf_xau",  # 辅助参考指标（indicators.yaml 不注册，intraday 直接写）
 }
-# 离岸人民币实时汇率 -> usdcnh（覆盖 currency_boc_sina T+1 当日值）
-FX_CODE = "fx_susdcny"
+# 离岸人民币实时汇率 -> 独立报价序列，不覆盖旧 usdcnh
+FX_CODE = "fx_susdcnh"
 # sh511260 十年国债ETF -> cn10y_etf（cn10y 收益率本身保持 T+1，ETF实时价作盘中参考）
 CN10Y_ETF_INDEX_CODE = "sh511260"
 CN10Y_ETF_METRIC_ID = "cn10y_etf"
@@ -557,50 +557,9 @@ def _parse_sina_commodity(text: str) -> list[dict]:
 
 
 def _parse_sina_fx(text: str) -> dict | None:
-    """解析新浪外汇实时源 fx_susdcny（离岸人民币，GBK）。
-
-    字段（实测 2026-07-29）：
-      [0]=时间(HH:MM:SS) [1]=买入 [2]=卖出 [3]=最新价 [4]=?
-      [5]=? [6]=? [7]=? [8]=昨收价 [9]=名称(显示"在岸人民币"但代码是离岸,新浪命名混乱)
-      [10]=涨跌 [11]=涨跌幅 [12]=? [13]=说明 [17]=日期(YYYY-MM-DD)
-    """
-    for line in text.strip().split("\n"):
-        line = line.strip().rstrip(";")
-        if not line.startswith("var hq_str_fx_susdcny") or "=" not in line:
-            continue
-        try:
-            body = line.split('"', 2)[1]
-            fields = body.split(",")
-            if len(fields) < 4:
-                return None
-        except Exception:  # noqa: BLE001
-            return None
-
-        def f(i):
-            try:
-                return float(fields[i])
-            except (IndexError, ValueError):
-                return None
-
-        price = f(3)  # 最新价
-        if price is None:
-            return None
-        pre_close = f(8)  # 昨收价
-        date = fields[17].strip() if len(fields) > 17 else ""
-        name = fields[9].strip() if len(fields) > 9 else "离岸人民币"
-        change = f(10)
-        pct = f(11)
-        dtstr = date.replace("-", "") if date else ""
-        return {
-            "code": "fx_susdcny",
-            "name": name,
-            "price": price,
-            "pre_close": pre_close,
-            "change": change,
-            "pct_change": pct,
-            "datetime": dtstr,
-        }
-    return None
+    """新浪第一方页面: [8]最新价、[3]昨收，只接受离岸 CNH。"""
+    from ..fx_contract import parse_quote
+    return parse_quote(text)
 
 
 def fetch_commodity_realtime() -> list[dict]:
@@ -626,17 +585,17 @@ def fetch_commodity_realtime() -> list[dict]:
 
 
 def fetch_fx_realtime() -> dict | None:
-    """采集离岸人民币实时汇率（新浪 fx_susdcny）。失败返 None。"""
+    """采集离岸人民币实时汇率（新浪 fx_susdcnh）。失败返 None。"""
     try:
         throttle()
         r = _safe_get(
-            "http://hq.sinajs.cn/list=" + FX_CODE,
+            "https://hq.sinajs.cn/list=" + FX_CODE,
             headers=_SINA_HEADERS, timeout=10)
         fx = _parse_sina_fx(r.content.decode("gbk"))
         if fx:
-            print(f"  [intraday] 离岸人民币实时: {fx['price']} (source=fx_susdcny)", flush=True)
+            print(f"  [intraday] 离岸人民币实时: {fx['price']} (source=fx_susdcnh)", flush=True)
         else:
-            print(f"  [intraday] fx_susdcny 返回空", flush=True)
+            print(f"  [intraday] fx_susdcnh 返回空", flush=True)
         return fx
     except Exception as e:  # noqa: BLE001
         print(f"  [intraday] 离岸人民币实时采集失败: {type(e).__name__} {e}", flush=True)
@@ -1646,28 +1605,20 @@ def _backfill_commodity_metrics(commodities: list[dict]) -> int:
 
 
 def _backfill_fx_metric(fx: dict | None) -> int:
-    """把离岸人民币实时汇率写入 daily_metric（覆盖当日 usdcnh 值，source='intraday'）。
-
-    解决 usdcnh 前后端不一致：原 currency_boc_sina（中行日报价 T+1）-> 新浪 fx_susdcny 实时。
-    盘中覆盖当日 usdcnh 值；收盘 pipeline（currency_boc_sina 历史）次日覆盖。
-    非交易日跳过；fx 为 None 跳过。返回写入条数。
-    """
-    from ..calendar import is_trading_day
-    from .runner import upsert_metric
-
+    """实时 CNH 只进入专用报价序列；旧 usdcnh 历史保持原样。"""
+    from ..fx_contract import store_quote, validate_quote
     if not fx:
         return 0
-    today = datetime.now().strftime("%Y%m%d")
-    if not is_trading_day(today):
-        print(f"  [intraday] 非交易日({today})，跳过 usdcnh daily_metric 写入", flush=True)
+    try:
+        validate_quote(fx)
+    except (ValueError, TypeError, KeyError) as exc:
+        print(f"[intraday] CNH 拒绝写入: {exc}", flush=True)
         return 0
-
-    price = fx.get("price")
-    if price is None:
-        return 0
-    upsert_metric(today, "usdcnh", price, source="intraday")
-    print(f"  [intraday] usdcnh daily_metric 写入: {price} (source=fx_susdcny intraday)", flush=True)
-    return 1
+    conn = get_conn()
+    try:
+        return store_quote(conn, fx)
+    finally:
+        conn.close()
 
 
 def _backfill_cn10y_etf_metric(indices: list[dict]) -> int:
@@ -2086,6 +2037,11 @@ def _recompute_scores() -> None:
             _now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _hcomps = {k: (None if pd.isna(_row.get(k)) else round(float(_row[k]), 2)) for k in _hkeys}
             _lcomps = {k: (None if pd.isna(_row.get(k)) else round(float(_row[k]), 2)) for k in _lkeys}
+            from ..fx_contract import SCORE_VERSION
+            _hcomps["_fx_contract"] = SCORE_VERSION
+            _lcomps["_fx_contract"] = SCORE_VERSION
+            _hcomps["_fx_available"] = False
+            _lcomps["_fx_available"] = False
             _conn = get_conn()
             _ha = _row.get("high_alert")
             _la = _row.get("low_alert")
@@ -2093,18 +2049,19 @@ def _recompute_scores() -> None:
             # 完全一致), 标记必须同口径(原用未舍入原值 -> 存 75.0 却标 is_overheat=1 自相矛盾)。
             _ha_db = None if pd.isna(_ha) else round(float(_ha), 4)
             _la_db = None if pd.isna(_la) else round(float(_la), 4)
-            _conn.execute(
-                "INSERT OR REPLACE INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
-                "VALUES (?, 'high_alert', ?, 0, ?, ?, ?)",
-                (_date, _ha_db,
-                 1 if (_ha_db is not None and _ha_db > 75) else 0,
-                 json.dumps(_hcomps, ensure_ascii=False), _now))
-            _conn.execute(
-                "INSERT OR REPLACE INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
-                "VALUES (?, 'low_alert', ?, ?, 0, ?, ?)",
-                (_date, _la_db,
-                 1 if (_la_db is not None and _la_db > 75) else 0,
-                 json.dumps(_lcomps, ensure_ascii=False), _now))
+            if _ha_db is not None and _la_db is not None:
+                _conn.execute(
+                    "INSERT OR REPLACE INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
+                    "VALUES (?, 'high_alert', ?, 0, ?, ?, ?)",
+                    (_date, _ha_db,
+                     1 if (_ha_db is not None and _ha_db > 75) else 0,
+                     json.dumps(_hcomps, ensure_ascii=False), _now))
+                _conn.execute(
+                    "INSERT OR REPLACE INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
+                    "VALUES (?, 'low_alert', ?, ?, 0, ?, ?)",
+                    (_date, _la_db,
+                     1 if (_la_db is not None and _la_db > 75) else 0,
+                     json.dumps(_lcomps, ensure_ascii=False), _now))
             _conn.commit()
             _conn.close()
             print(f"  [intraday] high_alert/low_alert: date={_date} high={_ha} low={_la}", flush=True)
@@ -2676,7 +2633,7 @@ def collect_and_save() -> dict:
         try:
             n_fx = _backfill_fx_metric(snap.get("fx"))
         except Exception as e:  # noqa: BLE001
-            print(f"[intraday] usdcnh daily_metric 写入失败（不阻断）: {type(e).__name__} {e}", flush=True)
+            print(f"[intraday] CNH隔离报价写入失败（不阻断）: {type(e).__name__} {e}", flush=True)
         try:
             n_cn10y_etf = _backfill_cn10y_etf_metric(snap["indices"])
         except Exception as e:  # noqa: BLE001

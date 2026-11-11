@@ -267,10 +267,11 @@ def generate_summary(date: str | None = None) -> dict:
     sentiment_desc_str = _sentiment_desc(sentiment_score) if sentiment_score is not None else "情绪未知"
 
     fg_row = conn.execute(
-        "SELECT value FROM score_daily WHERE score_id='fear_greed' AND date=?",
+        "SELECT value, components FROM score_daily WHERE score_id='fear_greed' AND date=?",
         (date,),
     ).fetchone()
-    fg_value = fg_row["value"] if fg_row else None
+    from ..fx_contract import guard_score
+    fg_value = guard_score(fg_row)["value"] if fg_row else None
     fg_label = ""
     if fg_value is not None:
         if fg_value <= 25:
@@ -285,10 +286,11 @@ def generate_summary(date: str | None = None) -> dict:
             fg_label = "极度贪婪"
 
     # 冰点检查
-    freeze_row = conn.execute(
-        "SELECT score_id, value FROM score_daily WHERE date=? AND is_freeze=1",
-        (date,),
-    ).fetchone()
+    from ..fx_contract import filter_signals, guard_score, SCORE_VERSION
+    freeze_rows = conn.execute(
+        "SELECT score_id, value, components FROM score_daily WHERE date=? AND is_freeze=1", (date,)
+    ).fetchall()
+    freeze_row = next((r for r in freeze_rows if r["score_id"] not in ("cross_market", "fear_greed", "high_alert", "low_alert") or guard_score(r)["value"] is not None), None)
     is_freeze = freeze_row is not None
     freeze_info = f"❗{_score_id_cn(freeze_row['score_id'])}冰点({freeze_row['value']:.0f}分)" if freeze_row else ""
 
@@ -365,31 +367,13 @@ def generate_summary(date: str | None = None) -> dict:
     #   与首页 signals_today 的 s.* 过滤口径一致；s.*（情绪分 0-100 衍生指标，
     #   非可交易标的）单独统计到 buy_sentiment_count/sell_sentiment_count，
     #   避免情绪分模拟信号混入"卖点 N 个"误导用户（810 实查 sell 5 条全 s.*）。
-    buy_count = conn.execute(
-        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal='buy' "
-        "AND index_id NOT LIKE 's.%'",
-        (date,),
-    ).fetchone()["n"]
-    buy_aux_count = conn.execute(
-        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal='buy_aux' "
-        "AND index_id NOT LIKE 's.%'",
-        (date,),
-    ).fetchone()["n"]
-    sell_count = conn.execute(
-        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal='sell' "
-        "AND index_id NOT LIKE 's.%'",
-        (date,),
-    ).fetchone()["n"]
-    buy_sentiment_count = conn.execute(
-        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal IN ('buy','buy_aux') "
-        "AND index_id LIKE 's.%'",
-        (date,),
-    ).fetchone()["n"]
-    sell_sentiment_count = conn.execute(
-        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal='sell' "
-        "AND index_id LIKE 's.%'",
-        (date,),
-    ).fetchone()["n"]
+    rows = filter_signals(conn.execute(
+        "SELECT index_id, signal, reason FROM signal_daily WHERE date=?", (date,)).fetchall())
+    buy_count = sum(r["signal"] == "buy" and not r["index_id"].startswith("s.") for r in rows)
+    buy_aux_count = sum(r["signal"] == "buy_aux" and not r["index_id"].startswith("s.") for r in rows)
+    sell_count = sum(r["signal"] == "sell" and not r["index_id"].startswith("s.") for r in rows)
+    buy_sentiment_count = sum(r["signal"] in ("buy", "buy_aux") and r["index_id"].startswith("s.") for r in rows)
+    sell_sentiment_count = sum(r["signal"] == "sell" and r["index_id"].startswith("s.") for r in rows)
     total_buy = (buy_count or 0) + (buy_aux_count or 0)
     sell_n = sell_count or 0
     total_buy_sentiment = (buy_sentiment_count or 0) + (sell_sentiment_count or 0)
@@ -592,6 +576,7 @@ def generate_summary(date: str | None = None) -> dict:
         "down_count": down_count,
         "zt_count": zt_count,
         "dt_count": dt_count,
+        "fx_contract": SCORE_VERSION,
         "buy_count": total_buy,
         "sell_count": sell_n,
         "buy_sentiment_count": (buy_sentiment_count or 0),
@@ -610,7 +595,7 @@ def generate_summary(date: str | None = None) -> dict:
 # top_industries 为 top3 小数组（每个对象只含 name/pct_change/code/index_id），体积可控，已纳入；
 # 仍排除 nhnl（可由 nh_count/nl_count 推导）等冗余字段。
 BRIEF_FIELDS = (
-    "date", "generated_at", "summary", "summary_short",
+    "date", "generated_at", "summary", "summary_short", "fx_contract",
     "sentiment_label", "sentiment_score",
     "fear_greed_value", "fear_greed_label", "is_freeze", "freeze_info",
     "volume_amount", "volume_label",

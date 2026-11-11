@@ -89,11 +89,11 @@ metrics:
   #   wti_oil  <- hf_CL   (WTI原油)
   #   comex_silver <- hf_SI (COMEX白银)
   #   brent    <- hf_OIL  (布伦特原油)
-  #   usdcnh   <- fx_susdcny (离岸人民币实时汇率，替代 currency_boc_sina T+1)
+  #   usdcnh 不参与此覆盖：CNH实时价独立存储；旧BOC/CNY历史待重建。
   #   hf_xau   <- hf_XAU  (伦敦金现货辅助参考，美元计价与AU0口径不同不强推前端)
   # 收盘 pipeline（下方 func 指定的日线函数）次日覆盖为最终收盘历史值（UPSERT 幂等）。
   # us10y/hf_TNX 新浪源全空不可用，保持 T+1（bond_zh_us_rate）；cn_us_spread 跟随 T+1。
-  - {id: usdcnh,   name: 离岸人民币,   group: global, market: global, type: simple, func: currency_boc_sina, params: {symbol: 美元}, column: 中行折算价, unit: "-", direction: negative, sell_no_trend_filter: true, enabled: true}
+  - {id: usdcnh,   name: 离岸人民币,   group: global, market: global, type: simple, func: "", unit: CNH/USD, direction: negative, sell_no_trend_filter: true, enabled: false}
   - {id: gold,     name: 黄金(沪金),   group: global, market: global, type: simple, func: futures_main_sina,  params: {symbol: AU0}, column: 收盘价, unit: 元/克, direction: negative, enabled: true}
   - {id: oil,      name: 原油(INE主力连续), group: global, market: global, type: simple, func: futures_main_sina,  params: {symbol: sc0}, column: 收盘价, unit: 元/桶, direction: neutral, enabled: true}
   - {id: wti_oil,      name: WTI原油,   group: global, market: global, type: simple, func: futures_foreign_hist, params: {symbol: CL}, column: close, unit: 美元/桶,   direction: neutral, enabled: true}

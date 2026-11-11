@@ -36,6 +36,8 @@ def compute():
         if m.get("type") != "simple" or not m.get("enabled"):
             continue
         mid = m["id"]
+        if mid == "usdcnh":
+            continue  # HC18: missing FX is excluded, never scored as zero/neutral.
         s = normalized(mid)
         if not s.empty:
             series[mid] = s
@@ -86,17 +88,24 @@ def store(score: pd.Series, components_df: pd.DataFrame = None) -> int:
                 cv = components_df.at[date, c]
                 if pd.notna(cv):
                     comps[c] = round(float(cv), 2)
-        comp_json = json.dumps(comps, ensure_ascii=False) if comps else None
+        from ..fx_contract import SCORE_VERSION
+        comps["_fx_contract"] = SCORE_VERSION
+        comps["_fx_available"] = False  # partial calculation is not a complete market score
+        comp_json = json.dumps(comps, ensure_ascii=False)
         rows.append((date, "cross_market", v,
                      int(v < 20), int(v > 80), comp_json, now))
+    before = conn.total_changes
     conn.executemany(
         "INSERT INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
         "VALUES (?,?,?,?,?,?,?) "
         "ON CONFLICT(date, score_id) DO UPDATE SET value=excluded.value, "
         "is_freeze=excluded.is_freeze, is_overheat=excluded.is_overheat, "
-        "components=excluded.components, updated_at=excluded.updated_at",
+        "components=excluded.components, updated_at=excluded.updated_at "
+        "WHERE json_valid(score_daily.components) AND "
+        "json_extract(score_daily.components, '$._fx_contract') = 'fx-excluded-v1'",
         rows,
     )
+    changed = conn.total_changes - before
     conn.commit()
     conn.close()
-    return len(rows)
+    return changed

@@ -145,6 +145,10 @@ def _round4(v):
 
 
 def _store_score(conn, date: str, score_id: str, value, is_overheat: int, is_freeze: int, components: dict):
+    if value is None or pd.isna(value):
+        return  # unknown is not a replacement for historical scores/freeze flags
+    from app.fx_contract import SCORE_VERSION
+    components = {**components, "_fx_contract": SCORE_VERSION, "_fx_available": False}
     conn.execute(
         "INSERT OR REPLACE INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -230,7 +234,10 @@ def export_for_date(date: str | None = None) -> dict:
     h_dims = _build_dims(row, hkeys, HIGH_DIM_NAMES, HIGH_WEIGHTS)
     l_dims = _build_dims(row, lkeys, LOW_DIM_NAMES, LOW_WEIGHTS)
 
+    from app.fx_contract import SCORE_VERSION
     alert = {
+        "fx_contract": SCORE_VERSION,
+        "availability": "unavailable" if pd.isna(ha) or pd.isna(la) else "available",
         "date": actual_date,
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "high": {
@@ -259,14 +266,17 @@ def _recent_history(cur_date: str) -> list[dict]:
     """近 HISTORY_DAYS 日内 is_overheat/is_freeze=1 的预警日 (排除当日)。"""
     with sqlite3.connect(resolve_db_path()) as c:
         rows = c.execute(
-            "SELECT date, score_id, value, is_freeze, is_overheat FROM score_daily "
+            "SELECT date, score_id, value, is_freeze, is_overheat, components FROM score_daily "
             "WHERE (score_id='high_alert' AND is_overheat=1) "
             "   OR (score_id='low_alert' AND is_freeze=1) "
             "ORDER BY date DESC LIMIT ?",
             (HISTORY_LIMIT * 2,),
         ).fetchall()
     out = []
-    for d, sid, val, fr, oh in rows:
+    from app.fx_contract import guard_score
+    for d, sid, val, fr, oh, components in rows:
+        if guard_score({"value": val, "components": components})["value"] is None:
+            continue
         if d == cur_date:
             continue
         is_high = sid == "high_alert"
