@@ -18,3 +18,7 @@
 - [Alertmanager](https://prometheus.io/docs/alerting/latest/alertmanager/)提供分组、去重和抑制的设计参考；本轮复用项目现有机制，不引入该平台。
 
 这些资料支持方法，不能证明本项目已根治。14 个自然日、至少 7 个交易日、周频 2 个自然轮和 30 日复核是本轮建议验收窗口，非已取得的生产数据或通用可靠性保证。
+
+## 交付入口
+
+[本轮状态、审查边界与未闭环项](STATUS.md)；[既有业务合同](existing-contracts.md)。固定最终提交和所有原始测试/CI证据见状态页所列不可变 master report。

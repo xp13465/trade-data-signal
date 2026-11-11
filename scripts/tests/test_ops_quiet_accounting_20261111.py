@@ -311,6 +311,18 @@ class AccountingCLI(unittest.TestCase):
         self.obs["runs"][7]["receipt"] = "missing.json"
         self.assertEqual(self.cli()["verdict"], "UNKNOWN")
 
+    def test_declared_subset_never_certifies_schedule_coverage(self):
+        self.plan["slots"] = self.plan["slots"][:1]
+        self.obs["runs"] = self.obs["runs"][:1]
+        result = self.cli()
+        self.assertEqual(result["business_account"]["expected_slots"], 1)
+        self.assertEqual(result["verdict"], "REPLAY_OK")
+        self.assertTrue(result["elapsed_window_mature"])
+        self.assertIsNone(result["window_mature"])
+        self.assertIsNone(result["execution_coverage_satisfied"])
+        self.assertEqual(result["denominator_completeness"], "unknown")
+        self.assertTrue(result["declared_subset"])
+
     def test_same_week_duplicate_slot_and_cross_slot_reused_run(self):
         self.plan["slots"][1]["frequency"] = self.plan["slots"][2]["frequency"] = "weekly"
         self.assertEqual(self.cli()["verdict"], "PENDING")

@@ -116,7 +116,7 @@ def _offline_notify(source):
         def sendmail(self, sender, recipients, message):
             body = message_from_string(message).get_payload(decode=True).decode()
             if not wire("email", body):
-                raise OSError("offline rejection")
+                raise smtplib.SMTPRecipientsRefused({"offline@example.test": (550, "offline rejection")})
             return {}
 
     def telegram(req, **kw):
@@ -400,13 +400,32 @@ def test_partial_receipt_not_full_delivery_or_second_legacy_copy(box):
     _result(box, box["run"](refs=refs), sent=0)
     assert box["counts"]() == {"email": 1}
 
+def test_known_channel_receipt_does_not_become_all_undelivered(box):
+    box["require"]()
+    refs = box["seed"]()
+    box["mode"](telegram=False, feishu=False)
+    _result(box, box["run"](refs=refs), sent=1)
+    ref = next(iter(refs.values())).copy()
+    ref.pop("exit_code")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cfu_partial_unknown", SCRIPTS / "check_failed_units.py")
+    cfu = importlib.util.module_from_spec(spec); spec.loader.exec_module(cfu)
+    payload = {"status": "unknown", "channels": {"email": True, "telegram": None, "feishu": None},
+               "event_results": [{**ref, "status": "unknown"}], "receipt_persisted": True}
+    assert cfu._ops_notify_result(box["root"], ref, payload) == (True, True)
+    payload["channels"]["email"] = None
+    assert cfu._ops_notify_result(box["root"], ref, payload) == (True, False)
+    payload["receipt_persisted"] = False
+    assert cfu._ops_notify_result(box["root"], ref, payload) == (False, False)
+
 
 def test_accepted_but_receipt_persistence_unknown_is_rc4(box):
     box["require"]()
     refs = box["seed"]()
     box["mode"](receipt_corrupt=True)
     _result(box, box["run"](refs=refs), code=4, sent=1)
-    assert box["counts"]() == dict.fromkeys(CHANNELS, 1)
+    # Losing the shared claim/state after email fences subsequent side effects.
+    assert box["counts"]() == {"email": 1}
     assert (box["root"] / "data/alert_state.json").read_text() == "broken"
 
 

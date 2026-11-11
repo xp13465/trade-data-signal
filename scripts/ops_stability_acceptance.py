@@ -513,12 +513,17 @@ def assess(plan, observed, root, ledgers, legacy, as_of):
             "legacy_alert_account": legacy_report, "notification_account": notification,
             "notification_lifecycle": lifecycle, "duplicate_event_channel_acceptances": duplicate_acceptances,
             "known_routine_channel_successes": routine_sent, "input_problems": input_problems, "input_hashes": sources,
-            "window_mature": mature, "proposed_policy": POLICY, "policy_is_production_evidence": False,
+            "window_mature": None, "window_maturity_scope": "not_certified; see elapsed_window_mature",
+            "elapsed_window_mature": mature, "execution_coverage_satisfied": None,
+            "denominator_completeness": "unknown", "declared_subset": True,
+            "denominator_scope": "explicit_frozen_slots_only; no independent schedule/calendar reconciliation",
+            "proposed_policy": POLICY, "policy_is_production_evidence": False,
             "trend_review_pending": as_of < start + timedelta(days=POLICY["trend_calendar_days"]),
             "limitations": ["仅核验显式输入的内容一致性，未访问生产或证明证据真实性/独立收件。",
                             "日志完整性/人工来源/部署时间为外部提供的证据声明，需Claude复核原始采样。",
                             "合成/回放最多REPLAY_OK；生产输入最多INPUTS_CONSISTENT，不认证真实性或生产稳定。",
                             "预冻结、业务SLA批准及日志完整性仅检验外部声明的时间/引用，未独立认证。",
+                            "elapsed_window_mature仅表示声明的时间跨度/频次条件；slots可能是子集，window_mature/执行覆盖保持未知。",
                             "公募日更/FOF完整业务凭证尚无生产接口，保持UNKNOWN；backup不是NAV交付。",
                             "未纳入manifest的月季频任务不代表已自然验证；14/7/2/30为本轮建议。"]}
 

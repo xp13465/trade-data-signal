@@ -444,7 +444,7 @@ def _verified_ops_refs(raw, failed, show, repo):
 
 
 def _ops_notify_result(repo, ref, payload):
-    """Return (handled, actually_accepted); queued/unknown never means sent.
+    """Return (handled, actually_accepted); status alone never means sent.
 
     A concurrent claim is temporarily handled, retried next poll outside CFU's
     daily signature gate. Only notify's matching positive receipt permits quiet.
@@ -465,8 +465,11 @@ def _ops_notify_result(repo, ref, payload):
                and isinstance(entry.get("notified_channels"), dict)
                and any(entry["notified_channels"].get(c) is True
                        for c in ("email", "telegram", "feishu")))
-    if status in ("sent", "partial"):
-        return bool(accepted and receipt and payload.get("receipt_persisted") is True), accepted
+    # One channel can be confirmed while another loses its response. Preserve
+    # that uncertainty and retry it next poll, but do not claim *no* alert arrived
+    # and send a second infrastructure alarm to the already-confirmed channel.
+    if status in ("sent", "partial", "unknown"):
+        return bool(receipt and payload.get("receipt_persisted") is True), accepted
     if status == "suppressed":
         return bool(receipt), False
     if status == "deferred":

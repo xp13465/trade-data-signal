@@ -12,7 +12,7 @@
 
 调度侧持有健康/故障事实，显式写 `requires_action`。通知侧发送前核对当前事件；已自愈且无需行动的条目完整退出外发，正文不能残留在混合摘要中。当前 key 已换成新 event 时，旧 payload 留替代记录，不再发送旧正文；这不等于宣布业务健康。状态不可读或缺失与明确被替代分别处理，缺证据不能推断恢复。
 
-发送侧依据实际渠道结果记录 `notified_event_id`、`notified_at`、`notified_channels`、`last_recovery_notified_event_id`、`last_recovery_notified`、`last_escalation_notified_event_id`、`last_escalation_notified`、`last_notification_attempt`。仅至少一个渠道完整受理该事件才记实际已通知；部分分段、失败、未知不可伪装完整发送。恢复仅配对该事件原本确认受理的渠道。
+发送侧依据实际渠道结果记录 `notified_event_id`、`notified_at`、`notified_channels`、`last_recovery_notified_event_id`、`last_recovery_notified`、`last_escalation_notified_event_id`、`last_escalation_notified`、`last_recovery_notified_channels`、`last_escalation_notified_channels`、`last_notification_attempt`。仅至少一个渠道完整受理该事件才记实际已通知；部分分段、失败、未知不可伪装完整发送。恢复仅配对该事件原本确认受理的渠道。
 
 异步 warning/digest 的实际发送进程负责写回，不依赖原 schedule 进程仍存活。网络期间不持状态文件锁；落回执时重读、核对 key/event_id、同锁合并并原子替换。schedule 保存状态须保留该事件并发通知字段和 ACK 字段，通知侧不得覆盖业务健康/计数。迟到旧回执不得覆盖新事件。
 
@@ -20,6 +20,10 @@
 
 两条核心服务的 CFU 接口为 `--ops-unit-event-refs`，JSON 以准确 unit 名为键，值为四字段 ref 加 `exit_code` 整数。限定 `trade-public-fund-daily.service` 与 `trade-overfit-monitor.service`；此处 `source_run` 必须是本轮真实 32 位 systemd InvocationID，不能用 last_run 时间替代。schedule 先保存状态，CFU 再核对实时 unit 身份、退出码和同一事件，向 notify 传去掉 exit_code 的四字段引用。接入的核心项仅从旧聚合发送候选、正文和签名移出，原失败观察与其他 unit 保留；缺证据保留旧路径。配置漂移是独立故障，不与运行失败强行合并。
 
-现有外发账本追加 `ops_event_refs`、实际尝试的唯一 `attempt_id` 和 `attempted_channels`，既有 `channels` 布尔含义保持。多个渠道的同一次逻辑发送共用 attempt ID，重试另记；事件数不等于消息数。缺字段、失败覆盖不完整和无法独立核实收件均保留未知。新接口不能以 `status=sent` 单字段掩盖 `deferred=true`、零渠道受理或内部 info 记录。
+现有外发账本追加 `ops_event_refs`、实际尝试的唯一 `attempt_id` 和 `attempted_channels`，新 ops attempt 的 `channels` 为 true/false/null，分别是完整受理、未成功、结果未知；历史无引用接口保持原布尔兼容。只记本次尝试，不把累计回执重复算作本次受理。多个渠道的同一次逻辑发送共用 attempt ID，重试另记；事件数不等于消息数。缺字段、失败覆盖不完整和无法独立核实收件均保留未知。新接口不能以 `status=sent` 单字段掩盖 `deferred=true`、零渠道受理或内部 info 记录。
 
 旧无引用业务订阅、模型提示和日报保留原行为。旧无引用运维项也不能靠标题一刀切静音；按调用点逐项接线、验证。实际发出但回包或本地回执持久化失败的边界仍可能重复，报告必须保留，不以“严格一次送达”包装。
+
+领取续租和回执均核对当前 attempt token 与未过期租期；旧发送者失去所有权后停止尚未开始的渠道，迟到回执不得覆盖新尝试。已经在途的传输仍有二义性。SMTP DATA 后丢失回包、HTTP传输异常等记录 null/unknown，台账不能当成确定拒绝。
+
+CFU 已有至少一个同事件持久受理回执时，partial 或其他渠道 unknown 不再另发“全部未送达”故障；实际计数仅累加本轮明确受理，未确认渠道继续由后续原事件尝试。没有受理凭证/持久化失败仍 rc4，可见性保留。

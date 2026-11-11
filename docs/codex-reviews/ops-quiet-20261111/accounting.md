@@ -163,3 +163,9 @@ Telegram未记入旧账、refs及全失败attempt缺失均unknown，未拿标题
 范围限制：未运行生产collector、未部署、未发通知；未认证公网请求真发生或用户收件；
 未替代通知组的真实schedule→state→refs链测试或父集成full CI。原无refs通知两反例、
 全失败缺台账、公募/FOF凭证缺口与自然14/30天验收仍保持原证据状态。
+
+## 接管复验后的补充
+
+跨不同 invocation 的先后按可信 producer completed_at 比较；evaluated_at 仅用于同run多次观测。失败时间缺失不允许旧成功清除；未解决的不同run未知也不能被较晚成功洗掉。原生 tier=ops 是已知运维出口，channels=null 保留为未知尝试而非失败/成功。
+
+显式 slots 未与独立日程全集对账：输出 declared_subset=true、denominator_completeness=unknown、execution_coverage_satisfied=null。elapsed_window_mature 只反映声明时间跨度/频次，window_mature=null，REPLAY_OK/INPUTS_CONSISTENT 都只涵盖显式输入。公募NAV/FOF凭证缺口、上线和自然验收见 [状态](STATUS.md)。
