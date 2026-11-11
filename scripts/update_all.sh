@@ -421,7 +421,8 @@ if [ "$SEVERE" -eq 1 ]; then
   # 不再"每天耗时不同→key 不同→每天新发"。
   "$PY" "$REPO/scripts/notify.py" "[告警] update_all ${ISSUE} ${MM_DD_HM}" "$NOTIFY_BODY" --severe --from-prefix "[告警]" --alert-issue "$ISSUE" --alert-log "$LOG" --dedup-key "update_all_severe:${ISSUE}" --dedup-window 1800 || true
 else
-  "$PY" "$REPO/scripts/notify.py" "[完成] update_all ${ELAPSED_MIN}min ${MM_DD_HM}" "$NOTIFY_BODY" --from-prefix "[完成]" || true
+  # 例行成功仅记 dashboard；下方业务情绪速递仍按原流程交付。
+  "$PY" "$REPO/scripts/notify.py" "[完成] update_all ${ELAPSED_MIN}min ${MM_DD_HM}" "$NOTIFY_BODY" --from-prefix "[完成]" --tier info || true
 fi
 
 # D10 每日收盘情绪速递邮件 main 模式（T日盘后情绪:恐贪/情绪/涨跌/成交额/板块/冰点）。

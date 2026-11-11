@@ -186,7 +186,7 @@ elif [ "$_GAUTH_RC" -eq 1 ]; then
     "$PY" "$REPO/scripts/notify.py" "[通知] 非生产机 staticdata git 写已跳过" \
       "staticdata 同步(trigger=$TRIGGER) 在本机(非生产机, 路径非 /home/ubuntu/)被 staticdata 写权限守卫拦截, 跳过 git commit/push。<br>数据仍已 rsync 磁盘留档 + R2 上传(灾备第1/2层不丢)。<br>如需从本机显式推合法数据: 设 STATICDATA_ALLOW_PUSH=1 重跑(走只增不覆盖数据闸门)。<br>仓库: $STATICDATA_REPO" \
       --from-prefix "[通知]" --alert-issue "非生产机staticdata git写被守卫拦截" \
-      --dedup-key staticdata_sync_nonprod_skip --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>/dev/null || true
+      --tier info --dedup-key staticdata_sync_nonprod_skip --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>/dev/null || true
     SYNC_FAIL=1
   fi
 fi
