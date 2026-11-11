@@ -21,7 +21,7 @@ STATIC_DIR 指到 tmp_path(状态/标记/进度文件全落 tmp), 另有 http.cl
 """
 import hashlib
 import json
-import re
+import ast
 from pathlib import Path
 
 import pytest
@@ -396,13 +396,26 @@ def test_t5_partial_failure_keeps_marker_state_ckpt(tmp_path, monkeypatch, capsy
 # ---------------- 调用点静态守卫: 启用且 N 必须是「会中途落盘」的量级 ----------------
 def test_call_site_enabled_with_sane_n():
     src = Path(ur.__file__).read_text(encoding="utf-8")
-    body = src.split("def cmd_upload_data_large(", 1)[1].split("\ndef ", 1)[0]
-    m = re.search(r"checkpoint_every=(\d+)", body)
-    assert m, "data-large 调用点未启用 checkpoint_every"
-    n = int(m.group(1))
+    calls = {}
+    for fn in ast.parse(src).body:
+        if isinstance(fn, ast.FunctionDef):
+            calls[fn.name] = [{k.arg: k.value for k in node.keywords} for node in ast.walk(fn)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "_incremental_upload"]
+    assert len(calls["cmd_upload_data_large"]) == 1
+    assert len(calls["cmd_upload_turnover"]) == 1
+    keywords = calls["cmd_upload_data_large"][0]
+    checkpoint = keywords.get("checkpoint_every")
+    assert isinstance(checkpoint, ast.Constant) and type(checkpoint.value) is int, "data-large 未明确启用 checkpoint_every"
+    n = checkpoint.value
     assert 0 < n < N_FILES, (f"checkpoint_every={n} 不小于本通道文件数 {N_FILES} ⇒ "
                              f"永远不会中途落盘(照抄 fund-nav 的 200 就是这个坑)")
     assert n <= 5, f"checkpoint_every={n} 偏大: data-large 只有 ~24 个大文件, 断点粒度应在 5 以内"
-    assert "resume_on_stale_marker=True" in body, "data-large 未开「有进度就续传」开关"
-    # 除 data-large 外, 生产代码里不许出现第 3 个开此开关的通道(禁改其它 channel 行为)
-    assert src.count("resume_on_stale_marker=True,") == 1
+    resume = keywords.get("resume_on_stale_marker")
+    assert isinstance(resume, ast.Constant) and resume.value is True, "data-large 未开「有进度就续传」开关"
+    # 基线已含独立 turnover 通道；尾逗号或 **options 不应改变通道计数。
+    # 明确只许这两处启用，不能借兼容修复放行第三个通道。
+    enabled = {name for name, entries in calls.items() for kw in entries
+               if isinstance(kw.get("resume_on_stale_marker"), ast.Constant)
+               and kw["resume_on_stale_marker"].value is True}
+    assert enabled == {"cmd_upload_data_large", "cmd_upload_turnover"}
