@@ -1881,6 +1881,10 @@ main { padding: 16px 24px; }
 /* 2026-08-05 ETF 至今盈亏：popup 候选行内盈亏 + tag 后盈亏 + hoverpop 内联盈亏（红涨绿跌内联 color） */
 .etf-pop-pnl { margin-left: 8px; font-size: 10px; font-weight: 600; white-space: nowrap; }
 .etf-tag-pnl { font-size: 11px; font-weight: 600; margin-left: 4px; white-space: nowrap; }
+@media (max-width: 760px) {
+  /* 长信号名称可换行；不让盈亏说明撑宽手机页面及底部导航。 */
+  .etf-tag-pnl { white-space: normal; overflow-wrap: anywhere; }
+}
 
 /* 2026-08-05 信号 cell ETF 筛选行（cell tag 已删，筛选按钮保留）
    2026-08-06 删 color:var(--text-3) 让整行继承深色 text-1，和 byType 行一致；选中态 .sig-acc-filter-active 不受影响 */
@@ -4003,8 +4007,6 @@ main { padding: 16px 24px; }
     border-radius: var(--radius-sm); font-size: 13px; cursor: pointer; flex-shrink: 0; color: var(--text-2);
   }
   .h5-periods button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
-  /* 长信号名称可换行；不让盈亏说明撑宽手机页面及底部导航。 */
-  .etf-tag-pnl { white-space: normal; overflow-wrap: anywhere; }
 
   /* 内容边距缩 + 底部留空避开底导航(含 iOS safe area,home indicator 不遮内容) */
   main { padding: 12px; padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
