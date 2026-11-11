@@ -65,6 +65,8 @@ def _ind_names(arr, n=3):
 
 def _desc(it):
     """生成 description 纯文本摘要（涨跌/量能/买卖点/板块/冰点）。"""
+    if it.get("fx_contract") != "fx-excluded-v1":
+        return "历史摘要含未验证FX，相关信号统计与评分不可用；原记录保留，待重建。"
     parts = []
     up, down = it.get("up_count"), it.get("down_count")
     if up is not None and down is not None:
@@ -97,6 +99,8 @@ def _desc(it):
 def _title(it):
     """'YYYY-MM-DD 收盘 | 恐贪指数 XX.X | 情绪标签'。"""
     date_str = it.get("date", "")
+    if it.get("fx_contract") != "fx-excluded-v1":
+        return f"{_iso_date(date_str)} 收盘 | 历史摘要含未验证FX，指标不可用"
     fg = it.get("fear_greed_value")
     label = it.get("sentiment_label") or it.get("fear_greed_label") or "情绪未知"
     fg_str = f"{fg:.1f}" if isinstance(fg, (int, float)) else "NA"

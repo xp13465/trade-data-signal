@@ -42,13 +42,18 @@ def compute_fear_greed() -> int:
     # 读入 8 个情绪分数据
     placeholders = ",".join(["?"] * len(INPUT_SCORES))
     rows = conn.execute(
-        f"SELECT date, score_id, value FROM score_daily WHERE score_id IN ({placeholders}) ORDER BY date",
+        f"SELECT date, score_id, value, components FROM score_daily WHERE score_id IN ({placeholders}) ORDER BY date",
         INPUT_SCORES,
     ).fetchall()
+
+    from ..fx_contract import guard_score, SCORE_VERSION
+    rows = [guard_score(r) if r["score_id"] == "cross_market" else dict(r) for r in rows]
+    rows = [(r["date"], r["score_id"], r["value"]) for r in rows]
 
     # pivot 为 DataFrame：行=date，列=score_id
     df = pd.DataFrame(rows, columns=["date", "score_id", "value"])
     if df.empty:
+        conn.close()
         return 0
 
     pivoted = df.pivot(index="date", columns="score_id", values="value")
@@ -69,17 +74,21 @@ def compute_fear_greed() -> int:
         # market_summary 用库内 value 重算的 fear_greed_label 不一致(§22 多展示位一致)。
         v = round(float(val), 2)
         label = get_label(v)
-        meta = json.dumps({"label": label, "available_scores": int(avail_count.get(date, 0))}, ensure_ascii=False)
+        meta = json.dumps({"_fx_contract": SCORE_VERSION, "_fx_available": False, "label": label, "available_scores": int(avail_count.get(date, 0))}, ensure_ascii=False)
         write_rows.append((date, OUTPUT_SCORE_ID, v, 0, 0, meta, now))
 
+    before = conn.total_changes
     conn.executemany(
         "INSERT INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
         "VALUES (?,?,?,?,?,?,?) "
         "ON CONFLICT(date, score_id) DO UPDATE SET value=excluded.value, "
         "is_freeze=excluded.is_freeze, is_overheat=excluded.is_overheat, "
-        "components=excluded.components, updated_at=excluded.updated_at",
+        "components=excluded.components, updated_at=excluded.updated_at "
+        "WHERE json_valid(score_daily.components) AND "
+        "json_extract(score_daily.components, '$._fx_contract') = 'fx-excluded-v1'",
         write_rows,
     )
+    changed = conn.total_changes - before
     conn.commit()
     conn.close()
-    return len(write_rows)
+    return changed

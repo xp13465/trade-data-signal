@@ -1188,7 +1188,7 @@ def main():
             if name == "global" and rng == "all":
                 counts["global-extras-all.json"] = write_json(
                     DATA_DIR / "global-extras-all.json",
-                    {k: data[k] for k in ("extras", "extras_signals", "extras_stats", "extras_strategy")})
+                    {k: data[k] for k in ("extras", "extras_signals", "extras_stats", "extras_strategy", "extras_availability")})
                 print(f"  global-extras-all.json ({counts['global-extras-all.json']} bytes)")
 
     # industry-all/5y/3y 拆分：31 行业各一个文件 + concepts + meta。

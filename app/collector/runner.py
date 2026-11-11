@@ -99,6 +99,8 @@ def _turnover_date_coverage(date_ymd, universe):
 
 
 def upsert_metric(date, metric_id, value, source="akshare"):
+    if metric_id == "usdcnh" or metric_id.startswith("usdcnh."):
+        raise ValueError("FX must use the dedicated contract writer")
     conn = get_conn()
     conn.execute(
         "INSERT INTO daily_metric (date, metric_id, value, source, updated_at) "
@@ -117,6 +119,8 @@ def upsert_metric(date, metric_id, value, source="akshare"):
 def upsert_metrics_many(metric_id, rows, source="akshare"):
     """rows: [(date, value), ...]；source 默认 akshare，异源兜底时传对应 source 标记
     (treasury/hkex/em/sse/rv_local 等,见 fetchers),便于溯源与前端降级透明化。"""
+    if metric_id == "usdcnh" or metric_id.startswith("usdcnh."):
+        raise ValueError("FX must use the dedicated contract writer")
     conn = get_conn()
     conn.executemany(
         "INSERT INTO daily_metric (date, metric_id, value, source, updated_at) "
@@ -203,6 +207,8 @@ def _collect_one_metric(m, date):
     if m.get("type") == "derived":
         return None, None  # 综合分/衍生指标由 compute 模块产出
     mid = m["id"]
+    if mid == "usdcnh":
+        return None, "USD/CNH 历史合同待验证，通用采集停用"
     func = m.get("func", "")
     if not func or func == "TODO":
         return None, None  # 派生/专属采集器指标,主 pipeline 不采不记

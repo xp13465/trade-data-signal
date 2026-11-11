@@ -9533,6 +9533,7 @@ function _lwSignalLiteCfg(title, data, markData, opts, indexOverlay, isSentiment
       const dt = xLabel;
       const p = (data || []).find((x) => x.date === dt);
       let tip = fmtDate(dt);
+      if (p && p.availability === "unavailable") tip += " 指标不可用";
       // 需求B(2026-08-20): 情绪分 lite tooltip 与 echarts 态同口径对齐 —— "07-17  科创50 情绪分 15.82 / ─ 科创50指数:1715.40"
       if (_sentimentLabel && p && p.value != null) {
         tip += "  " + _sentimentLabel + " " + "<b>" + Number(p.value).toFixed(2) + "</b>";
@@ -9559,7 +9560,7 @@ function _lwSignalLiteCfg(title, data, markData, opts, indexOverlay, isSentiment
 }
 // 单序列 value 折线 + 买卖点 markPoint（B 扩展：指标/情绪分用，数据是 [{date,value}]）
 // 与 indexChart 区别：数据结构是 value 单序列（无 close/high），量级差异大（gold 100-1249 /
-// cn10y 1.5-4 / usdcnh 680-722），用通用折线 + markPoint。opts 透传 visualMap 等（cross_market 用）。
+// cn10y 1.5-4），用通用折线 + markPoint。opts 透传 visualMap 等（cross_market 用）。
 function valueChartWithSignals(title, data, signals, opts, stats, strategy, indexId, container = content, chartArr = charts, indexOverlay, isSentiment = false) {
   const sigs = signals || [];
   const hint = statsHint(stats, strategy, indexId);
@@ -9578,7 +9579,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
   const _idxAlign = idxOv ? (() => {
     const m = new Map();
     for (const p of idxOv.series) m.set(p.date, p.value);
-    return data.map((d) => (m.has(d.date) ? Number(m.get(d.date)) : null));
+    return data.map((d) => (m.get(d.date) != null ? Number(m.get(d.date)) : null));
   })() : null;
   // echarts 版 setOption 配置(两种模式共享: lite 开关 false 回退重建时复用)
   const _sigSetOption = (c) => c.setOption(withTheme({
@@ -9589,6 +9590,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
         const d = params[0], dt = d.axisValue;
         const p = data.find((x) => x.date === dt);
         let tip = fmtDate(dt);
+        if (p && p.availability === "unavailable") tip += " 指标不可用";
         // 需求B(2026-08-20): 情绪分 axis tooltip 对齐指数曲线带标题格式 —— "07-17  科创50 情绪分 15.82 / ─ 科创50指数:1715.40"
         if (_sentimentLabel && p && p.value != null) {
           tip += "  " + _sentimentLabel + " " + "<b>" + Number(p.value).toFixed(2) + "</b>";
@@ -9763,6 +9765,87 @@ const _R2_FALLBACK_BASE = "https://ss.fx8.store/data/";
 function dataUrl(filename) {
   return _R2_LARGE_RANGE_RE.test(filename) ? _R2_DATA_BASE + filename : "./data/" + filename;
 }
+// HC18: apply at the shared JSON boundary, including boot and stale cached exports.
+// Trade/freeze/position archives and the independent CNH ticker are not rewritten.
+function _guardFxPayload(url, data) {
+  if (!data || typeof data !== "object") return data;
+  const name = String(url).split("/").pop().split("?")[0];
+  const allowed = /^(boot|overview|signal_stats|signal_freq|global(?:-.*)?|sentiment(?:-.*)?|summary(?:_history)?|alert|notifications)\.json$/;
+  if (!allowed.test(name)) return data;
+  const version = "fx-excluded-v1";
+  if (name === "summary_history.json") {
+    const mask = item => _guardFxPayload("summary.json", item);
+    if (Array.isArray(data)) return data.map(mask);
+    if (Array.isArray(data.items)) data.items = data.items.map(mask);
+    return data;
+  }
+  const sigOK = r => !["g.usdcnh", "s.cross_market", "s.fear_greed"].includes(r.index_id);
+  const score = r => {
+    if (!r) return r;
+    let c = r.components;
+    try { if (typeof c === "string") c = JSON.parse(c); } catch (_) { c = null; }
+    return c && c._fx_contract === version && c._fx_available === true ? r : { ...r, value: null, is_freeze: null, is_overheat: null, components: null, availability: "unavailable" };
+  };
+  if (data.alert) data.alert = _guardFxPayload("alert.json", data.alert);
+  if (data.summary && typeof data.summary === "object") _guardFxPayload("summary.json", data.summary);
+  if (name === "alert.json" && data.fx_contract !== version) return {date: data.date, availability: "unavailable", reason: "旧FX参与的预警待重算"};
+  if (name === "summary.json" && data.fx_contract !== version) {
+    data.summary = data.summary_short = "历史摘要含未验证FX，相关信号统计与评分不可用；原记录保留，待重建。";
+    data.buy_count = data.sell_count = data.buy_sentiment_count = data.sell_sentiment_count = null;
+    data.is_freeze = null; data.freeze_info = "";
+    data.fear_greed_value = null; data.fear_greed_label = "不可用";
+  }
+  if (name === "notifications.json") {
+    data.signals = (data.signals || []).filter(sigOK);
+    for (const side of ["high", "low"]) if (data.alerts && data.alerts[side]) data.alerts[side] = {score: null, level: "数据不足", triggered: false};
+    data.fear_greed = null;
+    data.fx_availability = "unavailable";
+  }
+  if (data.overview) _guardFxPayload("overview.json", data.overview);
+  if (data.signal_stats) _guardFxPayload("signal_stats.json", data.signal_stats);
+  if (name === "signal_freq.json" && data._fx_contract !== version) return {availability: "unavailable"};
+  if (name === "signal_stats.json") { delete data["g.usdcnh"]; delete data["s.cross_market"]; delete data["s.fear_greed"]; }
+  if (Array.isArray(data.signals_today)) data.signals_today = data.signals_today.filter(sigOK).map(r => ({...r, reason: String(r.reason || "").replace(/,?情绪分=[+-]?[0-9.]+\[[^\]]*\]/g, "")}));
+  const scoreOK = r => !["cross_market", "fear_greed", "high_alert", "low_alert"].includes(r.score_id);
+  if (Array.isArray(data.recent_freeze)) data.recent_freeze = data.recent_freeze.filter(scoreOK);
+  if (Array.isArray(data.sentiment_calendar)) data.sentiment_calendar = data.sentiment_calendar.map(d => ({...d,
+    freeze: (d.freeze || []).filter(scoreOK), signals: (d.signals || []).filter(sigOK)
+  })).filter(d => d.freeze.length || d.signals.length);
+  for (const sid of ["cross_market", "fear_greed", "high_alert", "low_alert"]) {
+    if (data.today && data.today.scores && data.today.scores[sid]) data.today.scores[sid] = score(data.today.scores[sid]);
+    if (Array.isArray(data[sid])) data[sid] = data[sid].map(score);
+    if (Array.isArray(data[sid + "_6m"])) data[sid + "_6m"] = data[sid + "_6m"].map(score);
+    if (data.signals && Array.isArray(data.signals[sid])) data.signals[sid] = [];
+  }
+  if (data.stats) { delete data.stats.cross_market; delete data.stats.fear_greed; delete data.stats.usdcnh; }
+  if (data.extras) data.extras.usdcnh = [];
+  if (data.extras_signals) data.extras_signals.usdcnh = [];
+  if (data.extras_stats) data.extras_stats.usdcnh = {};
+  if (data.extras_strategy) data.extras_strategy.usdcnh = null;
+  if (name.startsWith("global")) data.extras_availability = { ...(data.extras_availability || {}), usdcnh: { status: "unavailable" } };
+  return data;
+}
+
+function _appendFxCoverageNotice(host) {
+  const note = document.createElement("p");
+  note.className = "empty-note";
+  note.textContent = "USD/CNH历史合同未验证：跨市场分、恐贪分、全市场高低位预警暂不可用。缺维不代表中性或安全；其余独立指标照常显示。";
+  host.appendChild(note);
+}
+
+function _fxUnavailableCard(container) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.id = "idx-card-usdcnh";
+  const title = document.createElement("h3");
+  title.textContent = "离岸人民币 USD/CNH · 指标不可用";
+  const note = document.createElement("p");
+  note.textContent = "每1美元兑离岸人民币。旧历史口径未验证，同口径日线待重建；暂不参与信号和评分。实时跑马灯为独立参考行情。";
+  card.append(title, note);
+  container.appendChild(card);
+  return card;
+}
+
 async function fetchJSON(url, timeoutMs, extSignal) {
   // 主动域名策略(2026-08-11 备站主动域名方案A): 备站(sss.sugas.site/s.sugas.site 等非主站非本地)首次加载
   // 即把 ./data/* 直接重写为主站 /data/ rewrite, 不等 404 探测再 fallback(现状每请求慢一拍)。
@@ -9779,7 +9862,7 @@ async function fetchJSON(url, timeoutMs, extSignal) {
   //    R2 直链由调用方先验后存自己的缓存, codex-001 medium）
   if (!_NO_CACHE_URLS.test(url) && !_NO_R2_CACHE_URLS.test(url)) {
     const rc = _resultCache.get(url);
-    if (rc && (Date.now() - rc.ts) < _CACHE_TTL) return rc.data;
+    if (rc && (Date.now() - rc.ts) < _CACHE_TTL) return _guardFxPayload(url, rc.data);
   }
   // 2. in-flight 去重（同 URL 并发只发一次）
   const inflight = _inflightFetch.get(url);
@@ -10006,6 +10089,7 @@ async function fetchJSON(url, timeoutMs, extSignal) {
     }
   })()
     .then((data) => {
+      data = _guardFxPayload(url, data);
       // 成功才缓存（时效敏感 URL / R2 直链数据文件跳过）；失败不缓存，下次重试
       if (!_NO_CACHE_URLS.test(url) && !_NO_R2_CACHE_URLS.test(url)) _resultCache.set(url, { data, ts: Date.now() });
       return data;
@@ -11017,10 +11101,14 @@ function initRuleButton() {
   const loadFreqStats = (freqDiv) => {
     freqDiv.innerHTML = '<div class="hint-loading">加载中…</div>';
     fetchJSON("./data/signal_freq.json").then((freq) => {
+      if (freq && freq.availability === "unavailable") {
+        freqDiv.textContent = "信号频率不可用：旧FX相关统计待重算。";
+        return;
+      }
       if (freq) {
         const labels = { buy: _t("buy_long"), buy_aux: _t("buy_aux"), buy_special: _t("buy_special"), buy_special_filtered: _t("buy_special_filtered_long"), buy_backup: _t("buy_backup"), sell: _t("sell_long"), sell_stop_loss: _t("sell_stop_loss") , band_hold: _t("band_hold") };
         const cls = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_special_filtered: "buy-special-filtered", buy_backup: "buy-backup", sell: "sell", sell_stop_loss: "sell-stop-loss" , band_hold: "band-hold" };
-        let html = '<div class="hint-header">📅 全品种信号频率汇总</div><div class="hint-blocks">';
+        let html = '<div class="hint-header">📅 已验证品种信号频率（FX相关暂不计）</div><div class="hint-blocks">';
         for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "band_hold", "sell", "sell_stop_loss"]) {
           const f = freq[sig];
           if (!f || !f.total_count) continue;
@@ -16138,6 +16226,12 @@ async function renderAlertBar(host) {
     a = (_bootData && _bootData.alert) ? _bootData.alert : await fetchJSON("./data/alert.json");
   } catch { return; }
   if (!a || !a.date) return;
+  if (a.availability === "unavailable") {
+    const note = document.createElement("p");
+    note.textContent = "风险预警不可用：FX历史合同未验证，评分缺维不可用。";
+    host.appendChild(note);
+    return;
+  }
   const showHigh = a.high && a.high.triggered;
   const showLow = a.low && a.low.triggered;
   if (!showHigh && !showLow) return; // 市场中性时不打扰
@@ -16252,6 +16346,7 @@ async function renderOverview() {
     content.innerHTML = "";
     _homeNewsReset(); // 2026-08-19:失败重建也重置首页新闻板块缓存+杀旧轮询,防旧轮询残留往死节点挂
     renderPurposeNote(content, PURPOSE_NOTES["overview"]);
+  _appendFxCoverageNotice(content);
     renderErrorState(content, "overview 数据加载失败" + (r && r.error ? "（" + r.error + "）" : ""), () => renderOverview());
     return;
   }
@@ -16269,6 +16364,7 @@ async function renderOverview() {
   content.innerHTML = "";
   _homeNewsReset(); // 2026-08-19:清空内容重建后,重置首页新闻板块节点缓存+杀掉旧轮询,防轮询往旧 banner 后重挂死节点/重复堆积(根治"板块消失/不更新"反复复发)
   renderPurposeNote(content, PURPOSE_NOTES["overview"]);
+  _appendFxCoverageNotice(content);
   // C6 综合风险预警条:high_alert>=72(高位红)/low_alert>=85(低位蓝)时顶部提示(异步,不阻塞渲染)
   renderAlertBar(content);
   // 数据时效栏已移入"数据更新规则"弹窗（ℹ️ 图标入口），首页不再展示健康横幅。
@@ -16758,9 +16854,9 @@ async function renderOverview() {
     kpiCards.push({
       id: id,
       title: scoreNames[id] || indexIdToName(id),
-      value: s.value != null ? s.value.toFixed(1) : "-",
+      value: s.availability === "unavailable" ? "不可用" : s.value != null ? s.value.toFixed(1) : "-",
       valueNum: s.value,
-      sub: "0-100",
+      sub: s.availability === "unavailable" ? "FX历史合同未验证，评分缺维不可用" : "0-100",
       date: s.date || r.date,
       tag: s.is_freeze ? "冰点" : s.is_overheat ? "过热" : "",
     });
@@ -18490,7 +18586,7 @@ var _ntSparkSeq = 0;
 // 边距=原 echarts grid{left:1,right:1,top:2,bottom:2}, 无轴无网格无标签无点符号(symbol:none), 平滑曲线宽1.5
 // + 面积 opacity0.12, 涨跌色同源(红涨绿跌), hover 垂直十字线(axisPointer 对等) + 浮层 tooltip(日期+收盘+涨跌%)。
 function ntIndexSparkline(closes, dates, color, w, h) {
-  if (!closes || closes.length < 2) return "";
+  if (!closes || closes.filter(v => v != null && Number.isFinite(Number(v))).length < 2) return "";
   var sid = "nt-spark-" + (++_ntSparkSeq);
   var ww = w || 300, hh = h || 72;
   var _lite = !!siteCfg("charts.lightweight", true);
@@ -18534,7 +18630,7 @@ function _flushNtSpark() {
     var exist = echarts.getInstanceByDom(el);
     if (exist) exist.dispose();
     var inst = echarts.init(el);
-    var closes = p.closes.map(function (v) { return Number(v); });
+    var closes = p.closes.map(function (v) { return v == null ? null : Number(v); });
     var dates = p.dates;
     inst.setOption(withTheme({
       grid: { left: 1, right: 1, top: 2, bottom: 2 },
@@ -18568,7 +18664,7 @@ function _flushNtSpark() {
 // (无轴无网格无标签) + yAxis value scale:true + line smooth:true symbol:none lineStyle宽1.5
 // + areaStyle opacity0.12 + tooltip trigger:axis(日期+收盘2位+涨跌%2位) + axisPointer 垂直十字线。
 // 几何与 _etfTrendGeom 同口径(IntervalScale scale:true nice extent, P0 已对真实 echarts 验证)，
-// 仅边距(1/1/2/2)+高度可变(W/H 按容器)。数据先 Number() 转换(同原 echarts 路径 L10514: null→0)。
+// 仅边距(1/1/2/2)+高度可变(W/H 按容器)。缺值保留空点，不把未知分数画成0。
 var _ntSparkMeta = new Map();   // sid -> {closes,dates,color,w,h}(live 重渲染用, 与 DOM 同步清理)
 function _ntSparkTipStyle() {
   // tooltip 浮层 = echarts withTheme tooltip 视觉对等(背景/边框/文字/圆角/阴影, 随皮肤 CSS var)
@@ -18579,7 +18675,7 @@ function _ntSparkTipStyle() {
 }
 function _ntSparkGeom(closes, dates, w, h) {
   const W = w || 300, H = h || 72, PL = 1, PR = 1, PT = 2, PB = 2;
-  const _vals = (closes || []).map((v) => Number(v));
+  const _vals = (closes || []).map((v) => v == null ? null : Number(v));
   const _dates = dates || [];
   const _n = _vals.length;
   const _iw = W - PL - PR, _ih = H - PT - PB;
@@ -18612,23 +18708,30 @@ function _ntSparkSVG(closes, dates, color, w, h) {
   const { H, PB, _n, _vals, _px, _py } = g;
   if (_n < 2) return "";
   const _axisY = H - PB;
-  // 平滑曲线(catmull-rom → cubic bezier, 对齐 echarts smooth:true, 同 _etfTrendSVG) + 面积(闭合到网格底)
-  let _d = "M " + _px(0).toFixed(1) + " " + _py(_vals[0]).toFixed(1);
-  for (let i = 0; i < _n - 1; i++) {
-    const _p0 = { x: _px(Math.max(0, i - 1)), y: _py(_vals[Math.max(0, i - 1)]) };
-    const _p1 = { x: _px(i), y: _py(_vals[i]) };
-    const _p2 = { x: _px(i + 1), y: _py(_vals[i + 1]) };
-    const _p3 = { x: _px(Math.min(_n - 1, i + 2)), y: _py(_vals[Math.min(_n - 1, i + 2)]) };
-    const _c1x = _p1.x + (_p2.x - _p0.x) / 6, _c1y = _p1.y + (_p2.y - _p0.y) / 6;
-    const _c2x = _p2.x - (_p3.x - _p1.x) / 6, _c2y = _p2.y - (_p3.y - _p1.y) / 6;
-    _d += " C " + _c1x.toFixed(1) + " " + _c1y.toFixed(1) + " " + _c2x.toFixed(1) + " " + _c2y.toFixed(1)
-      + " " + _px(i + 1).toFixed(1) + " " + _py(_vals[i + 1]).toFixed(1);
-  }
-  const _areaPath = _d + " L " + _px(_n - 1).toFixed(1) + " " + _axisY.toFixed(1)
-    + " L " + _px(0).toFixed(1) + " " + _axisY.toFixed(1) + " Z";
+  // 分连续有效段绘制；缺值不补零、不跨缺口连线。
   let s = "";
-  s += '<path d="' + _areaPath + '" fill="' + color + '" opacity="0.12"/>';
-  s += '<path d="' + _d + '" fill="none" stroke="' + color + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>';
+  for (let start = 0; start < _n;) {
+    if (_vals[start] == null || !Number.isFinite(_vals[start])) { start++; continue; }
+    let end = start + 1;
+    while (end < _n && _vals[end] != null && Number.isFinite(_vals[end])) end++;
+    if (end - start < 2) { start = end; continue; }
+    let _d = "M " + _px(start).toFixed(1) + " " + _py(_vals[start]).toFixed(1);
+    for (let i = start; i < end - 1; i++) {
+      const _p0 = { x: _px(Math.max(start, i - 1)), y: _py(_vals[Math.max(start, i - 1)]) };
+      const _p1 = { x: _px(i), y: _py(_vals[i]) };
+      const _p2 = { x: _px(i + 1), y: _py(_vals[i + 1]) };
+      const _p3 = { x: _px(Math.min(end - 1, i + 2)), y: _py(_vals[Math.min(end - 1, i + 2)]) };
+      const _c1x = _p1.x + (_p2.x - _p0.x) / 6, _c1y = _p1.y + (_p2.y - _p0.y) / 6;
+      const _c2x = _p2.x - (_p3.x - _p1.x) / 6, _c2y = _p2.y - (_p3.y - _p1.y) / 6;
+      _d += " C " + _c1x.toFixed(1) + " " + _c1y.toFixed(1) + " " + _c2x.toFixed(1) + " " + _c2y.toFixed(1)
+        + " " + _px(i + 1).toFixed(1) + " " + _py(_vals[i + 1]).toFixed(1);
+    }
+    const _areaPath = _d + " L " + _px(end - 1).toFixed(1) + " " + _axisY.toFixed(1)
+      + " L " + _px(start).toFixed(1) + " " + _axisY.toFixed(1) + " Z";
+    s += '<path d="' + _areaPath + '" fill="' + color + '" opacity="0.12"/>';
+    s += '<path d="' + _d + '" fill="none" stroke="' + color + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>';
+    start = end;
+  }
   // hover 垂直十字线(初始隐藏, 对齐 echarts axisPointer 随皮肤轴线色 var(--border-strong))
   s += '<line class="nt-spark-cursor" x1="0" y1="' + g.PT + '" x2="0" y2="' + _axisY + '" stroke="var(--border-strong)" stroke-width="1" opacity="0"/>';
   return s;
@@ -21439,6 +21542,10 @@ async function renderGlobal(container = content) {
     us10y: "美国10年国债收益率,全球资产定价锚。上升常压制成长股/黄金,关注其拐点。T+1(常停T-3)。",
   };
   for (const [id, name] of Object.entries(extras)) {
+    if (id === "usdcnh") {
+      globalAnchorBar._observeIndexCard(_fxUnavailableCard(cardGrid));
+      continue;
+    }
     const data = r.extras[id] || [];
     if (data.length) {
       const chart = valueChartWithSignals(name + (extrasTermTips[id] ? termTip(extrasTermTips[id]) : "") + latestSuffixPct(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id, cardGrid);
@@ -21450,13 +21557,13 @@ async function renderGlobal(container = content) {
         const lastDate = data.length ? data[data.length - 1].date : "";
         if (dataStaleDays(lastDate) > STALE_DAYS) addStaleMark(cardEl, lastDate);
         else {
-          // usdcnh=离岸人民币实时(T+0);
+          // usdcnh 已由上方不可用卡片处理；此分支仅适用其余指标。
           // 2026-07-29 T+1治理: A组6商品(gold/oil/wti_oil/comex_silver/brent)采集侧改新浪/腾讯实时源变T+0,走t0分支(无T1角标)
           // 国债保持T+1(采集侧67acb836确认): cn10y=中债估值源端T+1; us10y=美债bond_zh_us_rate T+1(hf_TNX新浪源全空);
           // cn_us_spread=cn10y-us10y derived 跟随T+1; 走t1分支+srcKey映射到cn10y(共用T1_COLLECT_DEADLINE放宽口径)
           // 注: 采集侧新增cn10y_etf=sh511260十年国债ETF价格(T+0)作辅助参考,前端暂不加卡(后续再议是否展示ETF价格)
           // 剩余T+1 extras: a_qvix_1000 -> a_qvix_300 (qvix期权波动率optbbs次日发)
-          const _T0_EXTRAS = new Set(["usdcnh", "gold", "oil", "wti_oil", "comex_silver", "brent"]);
+          const _T0_EXTRAS = new Set(["gold", "oil", "wti_oil", "comex_silver", "brent"]);
           const _t0Extra = _T0_EXTRAS.has(id);
           const _srcKey = _t0Extra ? "" : ({ us10y: "cn10y", cn_us_spread: "cn10y", a_qvix_1000: "a_qvix_300" }[id] || id);
           addCardTimeBadge(cardEl, lastDate, snap, _t0Extra ? "t0" : "t1", _srcKey);
@@ -21508,7 +21615,7 @@ function appendComponentsBlock(data, tipText, container = content) {
   if (!last || !last.components) return;
   let comp;
   try { comp = typeof last.components === "string" ? JSON.parse(last.components) : last.components; } catch (e) { return; }
-  const keys = Object.keys(comp);
+  const keys = Object.keys(comp).filter(k => !k.startsWith("_"));
   if (!keys.length) return;
   // 判断是否有固定权重(a_sentiment 的6分项),决定是否展示权重说明
   const hasFixedWeights = keys.some((k) => _COMP_WEIGHTS[k]);

@@ -107,7 +107,7 @@ def main() -> int:
             sz2 = ex.write_json(
                 DATA_DIR / "global-extras-all.json",
                 {k: data[k] for k in ("extras", "extras_signals",
-                                      "extras_stats", "extras_strategy")})
+                                      "extras_stats", "extras_strategy", "extras_availability")})
             print(f"[gold_night] global-extras-all.json ({sz2} bytes)", flush=True)
     conn.close()
     print(f"[gold_night] 完成: 写入 {n} 指标 + 导出 global {len(ex.EXPORT_RANGES)} range",

@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from .db import resolve_db_path
+from .fx_contract import guard_score, DEPENDENT_SCORES, ACTIVE_SIGNAL_SQL
 
 _REPO = Path(__file__).absolute().parent.parent
 # sentiment.db 路径统一走 app.db 的解析阶梯(#335):库不在就明确报错,
@@ -130,6 +131,11 @@ def _series(conn, sql, params=()):
 
 def load_score(score_id: str) -> pd.Series:
     """score_daily.value 序列 (date->value, 过滤 NULL)。"""
+    if score_id in DEPENDENT_SCORES:
+        with _conn_sent() as c:
+            rows = c.execute("SELECT date,value,components FROM score_daily WHERE score_id=? ORDER BY date", (score_id,)).fetchall()
+            rows = [guard_score(dict(zip(("date", "value", "components"), r))) for r in rows]
+            return pd.Series({r["date"]: r["value"] for r in rows if r["value"] is not None}, dtype=float)
     with _conn_sent() as c:
         return _series(c, "SELECT date,value FROM score_daily WHERE score_id=? AND value IS NOT NULL ORDER BY date", (score_id,))
 
@@ -173,7 +179,7 @@ def _signal_count_daily(sig_types: list[str], table: str = "signal_daily", nt: b
         with _conn_sent() as c:
             ph = ",".join("?" * len(sig_types))
             rows = c.execute(
-                f"SELECT date, COUNT(*) AS n FROM signal_daily WHERE signal IN ({ph}) GROUP BY date ORDER BY date",
+                f"SELECT date, COUNT(*) AS n FROM signal_daily WHERE signal IN ({ph}) AND {ACTIVE_SIGNAL_SQL} GROUP BY date ORDER BY date",
                 sig_types,
             ).fetchall()
     if not rows:
@@ -346,6 +352,10 @@ def compute_alert_scores(start: str | None = None, end: str | None = None) -> pd
     df = hd.join(ld, how="outer").sort_index()
     df["high_alert"] = _weighted_score(hd, HIGH_WEIGHTS)
     df["low_alert"] = _weighted_score(ld, LOW_WEIGHTS)
+    # FX-derived cross/fear are required here: available-dimension renormalization
+    # must not turn missing FX into a healthy/neutral global alert.
+    complete = load_score("cross_market").reindex(df.index).notna() & load_score("fear_greed").reindex(df.index).notna()
+    df.loc[~complete, ["high_alert", "low_alert"]] = np.nan
     if start:
         df = df[df.index >= start]
     if end:

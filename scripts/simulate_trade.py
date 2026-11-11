@@ -203,6 +203,8 @@ def load_name_map():
     # signal_daily 中 g.* 有数据的会生成，无数据的 _generate_json 自动 skip
     for m in cfg.get("metrics", []) or []:
         mid = m.get("id")
+        if mid == "usdcnh":
+            continue  # 未验证FX不生成新的模拟结果；已有归档不改写。
         mname = m.get("name")
         if mid and mname:
             name_map[f"g.{mid}"] = mname
@@ -339,6 +341,8 @@ def get_signals(index_id="sh"):
     无映射或映射读不到数据 -> 用 index_daily.close 纯指数模拟。
     返回 (rows, last)，rows=[(date, signal, reason, close), ...]，last=(last_date, last_close)。
     """
+    if index_id in ("g.usdcnh", "s.cross_market", "s.fear_greed"):
+        raise ValueError("FX合同未验证，模拟结果不可重建；已有历史归档保留")
     conn = get_conn()
     etf_map = _load_index_etf_map()
     etf_code, _etf_name, _etf_approx = _pick_first_etf(etf_map, index_id)

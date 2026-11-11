@@ -840,6 +840,8 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
 
     # ── static-site/data/ JSON ──
     summary = _read_json(static_dir / "summary.json") or {}
+    if summary and summary.get("fx_contract") != "fx-excluded-v1":
+        raise ValueError("摘要含未验证FX：须先重建summary，不能以旧分数或中性补位生成日报")
     d["summary"] = {
         "summary_short": summary.get("summary_short"),
         "summary": summary.get("summary"),
@@ -1205,10 +1207,12 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
         )
 
         # 情绪分(score_daily)
-        q.execute("SELECT score_id, value FROM score_daily WHERE date=? AND score_id IN "
+        q.execute("SELECT score_id, value, components FROM score_daily WHERE date=? AND score_id IN "
                   "('a_sentiment','fear_greed','sentiment_sz50','sentiment_hs300','sentiment_csi500',"
                   "'sentiment_csi1000','sentiment_cyb','sentiment_kc50')", (date,))
-        d["scores"] = {r[0]: round(r[1], 1) for r in q.fetchall() if r[1] is not None}
+        from app.fx_contract import guard_score
+        score_rows = [(r[0], guard_score({"value": r[1], "components": r[2]})["value"] if r[0] == "fear_greed" else r[1]) for r in q.fetchall()]
+        d["scores"] = {sid: round(value, 1) if value is not None else None for sid, value in score_rows}
 
         # 指数涨跌(index_daily)
         q.execute("SELECT index_id, pct_change, close FROM index_daily WHERE date=? AND index_id IN "

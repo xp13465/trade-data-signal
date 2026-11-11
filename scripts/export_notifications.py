@@ -153,7 +153,8 @@ def _query_signals(conn, date: str) -> list[dict]:
         "SELECT index_id, signal, reason FROM signal_daily WHERE date = ? ORDER BY signal, index_id",
         (date,),
     ).fetchall()
-    return [{"index_id": r[0], "signal": r[1], "reason": r[2]} for r in rows]
+    from app.fx_contract import filter_signals
+    return filter_signals([{"index_id": r[0], "signal": r[1], "reason": r[2]} for r in rows])
 
 
 def _load_etf_signals(date: str) -> list[dict]:
@@ -246,12 +247,14 @@ def _low_level(score) -> str:
 
 def _query_alert_scores(conn, date: str) -> dict:
     rows = conn.execute(
-        "SELECT score_id, value FROM score_daily "
+        "SELECT score_id, value, components FROM score_daily "
         "WHERE date = ? AND score_id IN ('high_alert', 'low_alert')",
         (date,),
     ).fetchall()
     out = {}
-    for sid, val in rows:
+    from app.fx_contract import guard_score
+    for sid, val, components in rows:
+        val = guard_score({"value": val, "components": components})["value"]
         if sid == "high_alert":
             out["high"] = {
                 "score": round(float(val), 2) if val is not None else None,
@@ -269,12 +272,16 @@ def _query_alert_scores(conn, date: str) -> dict:
 
 def _query_fear_greed(conn, date: str) -> dict | None:
     row = conn.execute(
-        "SELECT value FROM score_daily WHERE date = ? AND score_id = 'fear_greed'",
+        "SELECT value, components FROM score_daily WHERE date = ? AND score_id = 'fear_greed'",
         (date,),
     ).fetchone()
     if not row or row[0] is None:
         return None
-    val = float(row[0])
+    from app.fx_contract import guard_score
+    safe = guard_score({"value": row[0], "components": row[1]})["value"]
+    if safe is None:
+        return None
+    val = float(safe)
     extreme = None
     if val < FEAR_GREED_LOW:
         extreme = "fear"

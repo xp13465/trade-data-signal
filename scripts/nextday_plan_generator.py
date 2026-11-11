@@ -523,7 +523,8 @@ def _signal_candidates(conn, cfg, T, freeze, sig_stats):
     ).fetchall()
     capture_sql_rows(conn, "signal_daily", rows, query_scope={"session_date": T, "exclude": "s.*", "columns": ["date", "index_id", "signal", "reason"]})
     capture_event("plan_signal_read", session_date=T, row_count=len(rows))
-    sigs = [dict(r) for r in rows]
+    from app.fx_contract import filter_signals
+    sigs = filter_signals(rows)
     if not sigs:
         return sigs
     _mkt_map = appq._ai_macro_build_market_map(cfg)

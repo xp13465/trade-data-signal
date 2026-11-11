@@ -134,6 +134,9 @@ def load_summary_item(date: str) -> dict | None:
         return None
     for it in items:
         if isinstance(it, dict) and str(it.get("date", "")) == date:
+            if it.get("fx_contract") != "fx-excluded-v1":
+                log.warning("摘要含未验证FX，须先重算，暂停当前摘要通知:%s", date)
+                return None
             return it
     return None
 
