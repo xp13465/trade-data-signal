@@ -23,6 +23,7 @@ SOURCE = Path(units_parser.MD_REL_PATH)
 REGISTRY = Path("scripts/gen_schedule_stats.py")
 LIMIT = 32 * 1024 * 1024
 MAX_SLOTS = 250000
+MAX_DEADLINE_SECONDS = 366 * 86400
 TZ = timezone(timedelta(hours=8))
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
@@ -208,7 +209,7 @@ def deadlines(contract, root, hashes, start):
             or not isinstance(value["source"], str) or not value["source"].strip() or stamp(value["approved_at"]) > start):
         raise ValueError("explicit_approved_business_contract_required")
     rules = value["after_seconds_by_task"]
-    if not isinstance(rules, dict) or any(type(v) is not int or not 0 < v <= 366 * 86400 for v in rules.values()):
+    if not isinstance(rules, dict) or any(type(v) is not int or not 0 < v <= MAX_DEADLINE_SECONDS for v in rules.values()):
         raise ValueError("invalid_deadline_rules")
     return rules
 

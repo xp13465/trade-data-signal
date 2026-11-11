@@ -176,3 +176,52 @@ python3 -m pytest -q \
 剩余边界：未提供真实完整交易日历、逐任务业务日期/eligibility 合同、明确业务 SLA、
 条件任务运行事实、实际部署证据或业务发布凭证。月季频零槽仅表示该窗口无名义触发，
 不表示完成过自然验证。上述缺口交父任务/Claude 审核，不能用本次离线测试补成生产证明。
+
+## 独立复核 P2 修复：末日槽位的跨窗 SLA
+
+Tesla 独立复核发现真实 P2：名义槽位 `fetch_news / 2026-11-15T23:45:00+08:00`
+加显式合成 3600 秒业务合同，日程对账接受次日 `2026-11-16T00:45:00+08:00` deadline，
+但旧 `validate_plan` 要求 deadline <= window_end（`2026-11-16T00:00:00+08:00`），
+导致同一份固定计划在验收入口被拒绝。这是保守拒绝错误，不能靠漏掉末日槽位、
+裁剪 SLA 或反复扩展日程窗修复。
+
+原始 P2 报告逐字归档于本目录 `schedule-independent-p2-original.json`，其 verdict/历史结论原样保留。
+原 `/tmp/codex-reports/ops-evidence-closeout-20261111/schedule-independent/` 下的 report.json、
+independent_probe.py、probe-results.json、probe.log、fixtures/cross-midnight-plan.json 均未修改。
+五份 SHA-256 和修前复现保存于 `/tmp/codex-reports/ops-schedule-cross-window-20261111/`。
+
+本次修正只影响 plan 校验/覆盖输出及其测试文档；`inspect_run` 不变，
+不覆盖父任务在 `940dc2d4d` 集成的公募适配器。具体语义如下：
+
+| 边界 | 修后语义 |
+|---|---|
+| 槽位归属窗口 | 仅要求 `window_start <= scheduled_at < window_end`；窗外触发仍拒绝 |
+| 业务 deadline | 保留完整 `scheduled_at + 显式SLA`，可跨出日程窗；正预算上限与日程合同共用 366 天 |
+| `as_of` | 业务凭证可在日程窗后产生，但 evaluated_at 必须不晚于 as_of；不能用未来凭证 |
+| 未收到凭证，as_of < deadline | pending；窗口时间跨度已足够也不能通过 |
+| 未收到凭证，as_of >= deadline | unknown；缺证据不能凭空当作实证迟到 |
+| 有有效凭证，实际 completed_at <= deadline | 依原证据链核验；不强迫已完成任务等到 SLA 到期 |
+| 有有效凭证，实际 completed_at > 已批准deadline | fail；晚 1 秒亦失败，不能用晚轮询时间替代实际完成时间 |
+| 缺少明确业务 SLA | unknown；不会因扩大可观察时间而把 timeout 当成 SLA |
+
+新增 `observation_windows` 覆盖元数据：
+`slot_membership` 明列 `[start,end)`；`business_evidence` 明列 as_of、latest_slot_deadline、
+deadline_horizon_elapsed、post_window_deadline_slots；`notification_account` 明列原有统计窗与有效截止。
+`elapsed_window_mature` 仍只表示日历跨度/周频条件，既不表示所有 SLA 到期，也不认证业务覆盖。
+通知统计没有随跨窗 SLA 暗中扩大；不能把原窗口的静默统计说成覆盖了窗口后的业务完成阶段。
+
+上述 3600 秒只来自复核的合成合同，不是生产业务 SLA。
+repository-declared / NOT_VERIFIED / 条件任务 unknown 的边界保持不变。
+
+针对性回归：`python3 -m pytest -q scripts/tests/test_ops_schedule_window_20261111.py`。
+原始末行：`19 passed in 2.46s`。
+
+独立探针复验在新的 `ops-schedule-cross-window-20261111/recheck/` 目录中执行：
+保留原脚本副本，只将跨窗反例从“必须拒绝”改为“必须接受且保留完整 deadline”的断言，
+其余检查继续执行；原始复核目录及其 source 快照不动。
+原始末行：`INDEPENDENT_PROBES: 16 checks; cross-window P2 fixed with full deadline preserved; zero production calls`。
+
+最终相关回归：前述五个测试文件，加 `scripts/tests/test_ops_schedule_window_20261111.py`。
+原始末行：`200 passed, 22 subtests passed in 12.21s`。
+日志：`/tmp/codex-reports/ops-schedule-cross-window-20261111/pytest.log`。
+原 P2 报告归档 SHA-256：`50664e0c87acdf47e4214f74e0cb5994f900f3deb5f2c3ad280aecb8af881627`。

@@ -66,6 +66,7 @@ def identifiers(values):
 
 
 def validate_plan(plan):
+    """Validate trigger membership separately from each slot's completion SLA."""
     if plan.get("schema") != "ops-stability-plan-v1" or plan.get("dataset") not in {"synthetic", "replay", "production", "unknown"}:
         raise ValueError("explicit plan schema/dataset required")
     start, end = stamp(plan["window_start"]), stamp(plan["window_end"])
@@ -84,12 +85,17 @@ def validate_plan(plan):
     identifiers([s["slot_id"] for s in plan["slots"]])
     scheduled = set()
     for slot in plan["slots"]:
-        schedule_key = (slot["task_id"], stamp(slot["scheduled_at"]))
+        at, deadline = stamp(slot["scheduled_at"]), stamp(slot["deadline"])
+        schedule_key = (slot["task_id"], at)
         if schedule_key in scheduled:
             raise ValueError("duplicate_task_slot")
         scheduled.add(schedule_key)
-        if not start <= stamp(slot["scheduled_at"]) < stamp(slot["deadline"]) <= end:
-            raise ValueError("slot schedule/deadline outside fixed window")
+        # The fixed window selects triggers, not completion times. A final-day
+        # trigger keeps its full business SLA even when it ends after midnight.
+        if not start <= at < end:
+            raise ValueError("slot schedule outside fixed window")
+        if not 0 < (deadline - at).total_seconds() <= schedule_contract.MAX_DEADLINE_SECONDS:
+            raise ValueError("slot deadline must follow schedule within 366 days")
         datetime.strptime(slot["business_date"], "%Y-%m-%d")
         if not slot.get("task_id") or not slot.get("object_id") or slot.get("frequency") not in {"daily", "weekly", "monthly", "quarterly"}:
             raise ValueError("task/object/frequency required")
@@ -380,7 +386,7 @@ def assess(plan, observed, root, ledgers, legacy, as_of):
         input_problems.append("deployment_evidence_missing:" + str(exc))
     days = [(start.date() + timedelta(days=i)).isoformat() for i in range((end.date() - start.date()).days)]
     if not days:
-        raise ValueError("whole-day observation window required")
+        raise ValueError("whole-day slot window required")
     if plan.get("frozen_at") and as_of < stamp(plan["frozen_at"]):
         input_problems.append("as_of_precedes_plan")
     if not plan["trading_dates"]:
@@ -509,6 +515,7 @@ def assess(plan, observed, root, ledgers, legacy, as_of):
         except (OSError, ValueError) as exc:
             input_problems.append(str(exc))
     counts = Counter(r["status"] for r in results)
+    latest_deadline = max(stamp(s["deadline"]) for s in plan["slots"])
     weekly = {}
     for s in plan["slots"]:
         if s["frequency"] == "weekly":
@@ -531,6 +538,14 @@ def assess(plan, observed, root, ledgers, legacy, as_of):
             "known_routine_channel_successes": routine_sent, "input_problems": input_problems, "input_hashes": sources,
             "window_mature": None, "window_maturity_scope": "not_certified; see elapsed_window_mature",
             "elapsed_window_mature": mature, "execution_coverage_satisfied": None,
+            "observation_windows": {
+                "slot_membership": {"start": start.isoformat(), "end": end.isoformat(), "bounds": "[start,end)"},
+                "business_evidence": {"cutoff": as_of.isoformat(), "latest_slot_deadline": latest_deadline.isoformat(),
+                                      "deadline_horizon_elapsed": as_of >= latest_deadline,
+                                      "post_window_deadline_slots": sum(stamp(s["deadline"]) > end for s in plan["slots"]),
+                                      "scope": "assigned_slots_only; full deadlines retained across slot window end"},
+                "notification_account": {"start": start.isoformat(), "end": end.isoformat(),
+                                         "cutoff": min(as_of, end).isoformat(), "bounds": "[start,end)"}},
             "denominator_completeness": schedule["denominator_completeness"],
             "declared_subset": schedule["denominator_completeness"] != "complete",
             "denominator_scope": "repository-declared; actual systemd deployment NOT_VERIFIED",
@@ -542,6 +557,7 @@ def assess(plan, observed, root, ledgers, legacy, as_of):
                             "合成/回放最多REPLAY_OK；生产输入最多INPUTS_CONSISTENT，不认证真实性或生产稳定。",
                             "预冻结、业务SLA批准及日志完整性仅检验外部声明的时间/引用，未独立认证。",
                             "elapsed_window_mature仅表示声明的时间跨度/频次条件；日程对账仅限repository-declared，window_mature/执行覆盖保持未知。",
+                            "槽位按[start,end)归属；业务证据按as_of核验完整deadline；未到期缺证据pending，到期缺证据unknown，实证迟到fail。通知统计仍限原槽位窗口。",
                             "公募日更/FOF完整业务凭证尚无生产接口，保持UNKNOWN；backup不是NAV交付。",
                             "未纳入manifest的月季频任务不代表已自然验证；14/7/2/30为本轮建议。"]}
 
@@ -553,7 +569,7 @@ def main(argv=None):
     parser.add_argument("--observations", required=True)
     parser.add_argument("--legacy-ledger", required=True)
     parser.add_argument("--ledger", action="append", required=True, help="explicit source_id=path; repeatable")
-    parser.add_argument("--as-of", required=True, help="fixed timezone-aware observation cutoff")
+    parser.add_argument("--as-of", required=True, help="fixed timezone-aware evidence cutoff; may follow slot window end")
     args = parser.parse_args(argv)
     try:
         raw = read(args.manifest)

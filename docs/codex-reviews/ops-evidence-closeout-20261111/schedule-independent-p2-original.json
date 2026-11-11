@@ -1,0 +1,176 @@
+{
+  "request_id": "schedule-independent-fff4534a2",
+  "task_type": "direct_read_only_review",
+  "head": "fff4534a2320abc4938f3222300878c4871ee833",
+  "verdict": "PASS",
+  "verdict_scope": "LOCAL_PASS_WITH_P2; no verified P0/P1 in inspected scope; not full acceptance or production certification",
+  "summary": "16项独立定向检查完成；发现1项P2跨窗deadline接线不一致。漏槽/双槽、条件任务、hash漂移、缺deadline、零槽季度及生产范围防误认的局部检查通过。",
+  "issues": [
+    {
+      "severity": "P2",
+      "title": "完整日程的跨窗业务 deadline 被 acceptance 入口排除",
+      "path": "scripts/ops_stability_acceptance.py:91",
+      "related_paths": [
+        "scripts/ops_stability_acceptance.py:341",
+        "scripts/ops_schedule_contract.py:295"
+      ],
+      "origin": "pre-existing",
+      "scope": "in-scope",
+      "impact": "新日程接线对 [window_start, window_end) 内所有触发生成 slots；现有入口又要求每个 deadline <= window_end。合法的跨午夜相对 SLA 因而无法纳入 acceptance；将窗口顺延仍会遇到下一个末日槽位，删槽/裁剪 deadline 又与新对账不符。当前是保守拒绝，不是误报生产成功。",
+      "why": "schedule 合同支持每任务 1..366 天的相对秒数期限并按 scheduled_at+budget 生成；validate_plan 把槽位归属窗口与 deadline 观察窗口合为同一个 end，且在 reconcile 之前抛错。",
+      "fix": "明确区分槽位窗口与观察截止时间，保留真实 deadline，并以 as_of 判断等待/缺证据；若暂不支持跨界合同，应显式报告该限制并保留逐任务对账结果。不要通过删末日槽位、裁剪 SLA 或把 timeout 变成业务合同来绕过。",
+      "trace": {
+        "diff_range": "fff4534a2^..fff4534a2; scripts/ops_stability_acceptance.py:340-349 新接线，:91-92 既有校验；scripts/ops_schedule_contract.py:295-296 新生成",
+        "linkage": "不满足",
+        "user_request": "独立复核 scripts/ops_schedule_contract.py 和 ops_stability_acceptance plan/coverage接线，找实现真实可达错误",
+        "origin": "pre-existing"
+      },
+      "verifier": {
+        "command": "cd /tmp/codex-reports/ops-evidence-closeout-20261111/schedule-independent && PYTHONDONTWRITEBYTECODE=1 python3 independent_probe.py",
+        "expected": "当前仓库 fetch_news 2026-11-15T23:45:00+08:00 槽位 + 显式合成 3600s 合同，应保留 2026-11-16T00:45:00+08:00 的 deadline 并给出一致的计划/观察语义。",
+        "observed": "reconcile: fetch_news status=known, mismatched_slots=0, missing_slots=0, extra_slots=0; validate_plan: ValueError(\"slot schedule/deadline outside fixed window\"). 移除跨界条件的60s正控制可通过validate_plan。"
+      },
+      "over_engineering_findings": [
+        {
+          "action": "simplify",
+          "saves_lines": 0,
+          "rationale": "统一已有窗口/截止时间语义；不增加另一份日程表或调度器。尚未实施，不能承诺减少行数。"
+        }
+      ]
+    }
+  ],
+  "impact_surface": [
+    "ops_schedule_contract.reconcile",
+    "ops_stability_acceptance.validate_plan",
+    "ops_stability_acceptance.assess coverage outputs"
+  ],
+  "smoke_results": {
+    "targeted_probes": 16,
+    "reproducible_P2": 1,
+    "P0_P1_found": 0,
+    "registry_tasks": 45,
+    "real_unknown_conditionals": 3,
+    "known_slots_in_synthetic_real_inventory_probe": 5673,
+    "production_calls": 0,
+    "repository_edits": 0,
+    "broad_suite_reruns": 0
+  },
+  "checks": [
+    {
+      "check": "real_inventory_conditionals",
+      "tasks": 45,
+      "known_slots": 5673,
+      "unknown_tasks": [
+        "check_monitor_heartbeat",
+        "cloud_unit_patrol",
+        "r2_consistency"
+      ],
+      "denominator": "unknown"
+    },
+    {
+      "check": "within_window_positive_control",
+      "validate_plan": "accepted"
+    },
+    {
+      "check": "omitted_slot",
+      "missing": 1,
+      "denominator": "unknown"
+    },
+    {
+      "check": "double_slot",
+      "duplicates": 1,
+      "validate_error": "duplicate_task_slot"
+    },
+    {
+      "check": "calendar_plan_disagreement",
+      "issues": [
+        "plan_trading_dates_mismatch"
+      ],
+      "denominator": "unknown"
+    },
+    {
+      "check": "drift_source",
+      "denominator": "unknown",
+      "deadline_coverage": "unknown"
+    },
+    {
+      "check": "drift_registry",
+      "denominator": "unknown",
+      "deadline_coverage": "unknown"
+    },
+    {
+      "check": "drift_calendar",
+      "denominator": "unknown",
+      "deadline_coverage": "unknown"
+    },
+    {
+      "check": "drift_deadlines",
+      "denominator": "unknown",
+      "deadline_coverage": "unknown"
+    },
+    {
+      "check": "no_sla_no_timeout_fallback",
+      "none_deadlines": 5673,
+      "deadline_coverage": "unknown"
+    },
+    {
+      "check": "production_scope_rejected",
+      "issues": [
+        "explicit_repository_contract_required"
+      ],
+      "actual_deployment": "NOT_VERIFIED"
+    },
+    {
+      "check": "cross_midnight_wiring_counterexample",
+      "task": "fetch_news",
+      "scheduled_at": "2026-11-15T23:45:00+08:00",
+      "deadline": "2026-11-16T00:45:00+08:00",
+      "reconciler_mismatches": 0,
+      "acceptance_error": "slot schedule/deadline outside fixed window",
+      "real_task_status": "known"
+    },
+    {
+      "check": "zero_slot_quarter_not_executed",
+      "denominator": "complete",
+      "quarter_slots": 0,
+      "execution_coverage": null,
+      "actual_deployment": "NOT_VERIFIED"
+    },
+    {
+      "check": "pinned_fake_dates_only_claim_consistency",
+      "denominator": "complete",
+      "fake_weekend_days": 4,
+      "scope": "repository-declared",
+      "actual_deployment": "NOT_VERIFIED",
+      "execution_coverage": null
+    },
+    {
+      "check": "complete_denominator_without_receipts",
+      "denominator": "complete",
+      "verdict": "UNKNOWN",
+      "missing_receipt_slots": 14,
+      "production_stability": "NOT_CERTIFIED"
+    },
+    {
+      "check": "acceptance_missing_sla_blocked",
+      "verdict": "UNKNOWN",
+      "deadline_coverage": "unknown",
+      "gating_issue": "schedule_or_business_deadline_contract_incomplete"
+    }
+  ],
+  "recommendation": "Claude/parent 复核并处置P2；局部防误报检查可采纳，不宣称跨窗合同已被验收器支持。",
+  "limitations": [
+    "真实45项registry始终含3项条件任务，故真实库存整体分母保持unknown；对all-known/季度零槽路径另用明确合成的2任务库存，未伪称真实部署。",
+    "3600s与60s均为反例/正控制的合成显式合同，不是批准的生产业务SLA。",
+    "固定伪交易日可证明输入内部一致但不能证明市场事实；代码显式保留repository-declared/NOT_VERIFIED，未将此设计边界列为bug。",
+    "未访问生产systemd、网络、采集器或通知；未认证真实日历、合同审批、发布凭证、当前公共字节或实际执行覆盖。",
+    "未重复父任务62pass/65subtests或UI测试，未重跑已有181项广量回归。",
+    "本次为直接只读子任务，无refs/codex/req，不调用回传/通知脚本。"
+  ],
+  "artifacts": {
+    "probe": "independent_probe.py",
+    "raw_log": "probe.log",
+    "results": "probe-results.json",
+    "cross_midnight_manifest": "fixtures/cross-midnight-plan.json"
+  }
+}
