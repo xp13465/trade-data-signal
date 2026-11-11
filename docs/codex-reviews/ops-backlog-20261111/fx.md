@@ -5,7 +5,8 @@
 - 分支：`codex/ops-fx-contract-20261111`
 - 基线：`0ad543ef41758be9d7102b42471489b24d0cb989`
 - 独立工作树：`/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-fx-contract-20261111`
-- 最终完整提交/推送结果及文件清单：`/tmp/codex-reports/ops-backlog-20261111/fx/report.json`
+- 首次交付提交/推送结果及文件清单：`/tmp/codex-reports/ops-backlog-20261111/fx/report.json`（保留原件）
+- 7094 独立审查后续修报告：`/tmp/codex-reports/ops-backlog-20261111/fx/revision-review-7094/report.json`
 - 原始证据目录：`/tmp/codex-reports/ops-backlog-20261111/fx/`
 - 用户已明确授权实施及一跳扩展；不修改角色规范、主控文档、pending-index、原交接packet或ACK。
 
@@ -115,3 +116,54 @@ Python变更源码compile、`node --check static-site/app.js`、`git diff --chec
 - `scripts/tests/test_fx_contract_20261111.py`
 - `static-site/app.js`
 - `static-site/export.py`
+
+## 7094 独立审查后的续修
+
+本轮从原分支 `7094ef1502a88e01cdc8a070d87fce8be6c9f020` 续提交，D1修复已独立交付。原审查 `review-fx/report.json` 的 BLOCKED 结论及原反例均保留；报告 SHA256 仍为 `c7a10c8cb68ba9a96ac87c1bb004a317e56e4b4c8547686accd9e7832f60fadc`。新证据全部在 `fx/revision-review-7094/`。
+
+先原样复现 `5 failed, 15 passed in 2.44s`，确认四项因果后实施：
+
+| 候选 | 原因及修复 | 修后证据 |
+| --- | --- | --- |
+| R1 日报旧值除100 | `load_data`仍将混写legacy值直接÷100作为CNH。删除该读取/换算与误导prompt，不替换为0/中性；独立黄金/利差保留，risk/sentiment域明确FX unavailable | 667.24、6.6724两例均不进入`forex_commodity.usdcnh`；gold=720保留，原DB字节不变 |
+| R2 其它旧cache漏防护 | summary版本不能为alert/overview/stats背书。日报单独过滤FX/衍生信号、胜率候选、四评分冻结；high/low及恐贪字段明确None，命中描述为空；新版本alert也不能解禁 | 真实`load_data→split_domains`覆盖新旧cache版本；独立sh信号/统计与A股冻结保留，源cache文件不变 |
+| R3 flag-only绕过 | 行级`_fx_available=true`不是日线合同激活证明。本轮无已验证激活路径，Python及JS消费端四评分一律屏蔽；summary/alert同样不能用版本字段解禁 | 真实SQLite→queries/cache、normalize、signals loader、alert_score→export_alert覆盖0/50/99及true标记；有效独立A股0保留；浏览器四项均null、无阈值触发 |
+| R4 历史reason静默变动 | 实际在signals重算落库，非simulate改交易逻辑。base同输入重复不变；新loader隐藏旧cross后，3个相同事件的soft reason被剥离；既有审计仅比较事件键 | 同一历史事件仅移除FX软注释时保留原reason，重复store幂等；展示副本去注释。105日真实技术指标重算3事件键不变；三条实际simulate路径对原注释/移除/极端数值输出相同 |
+
+R3是外部/错误写入true标记可触发的防御漏洞；本轮正常写者始终false，**没有发现生产既有true行的证据**。
+
+历史保护仅限 `date < 运行日`、相同 `(date,index_id,signal)`、新reason严格等于旧reason移除FX软注释的差异。既有全量DELETE/INSERT与事件审计保留：非FX核心reason修正、事件删除/类型更正、当前日reason更新都有真实负控，不无条件冻结全项目历史。冻结评分原件与已生成交易文件不写；被停用的三类信号原件继续按首轮规则保留、当前消费排除。若后续验证发现关闭FX改变其他历史核心事件，需要单独影响审查/迁移；本轮同输入案例未发生。**没有把原key-only审计宣称为通用reason审计，也没有修复其它来源已有的历史改写问题。**
+
+另外按父明确授权，仅给 `test_frontend_aux_body_timeouts.cjs`、`test_frontend_request_timeouts.cjs` 的VM加入实际 `_guardFxPayload` 声明；不stub为恒true，不改timer/取消/去重断言，不改lab.js或父wrapper。修前实测ReferenceError，修后76项通过。
+
+当前产品影响仍是 `cross_market/fear_greed/high_alert/low_alert` **四类全部不可用**。前端与日报不再展示这些alert的旧命中维度/阈值结论；独立A股分、非FX指数/商品、独立CNH实时跑马灯继续工作。日线候选仍未激活；以上“恢复条件”全部适用，尤其需验证源收盘语义、完整交易窗口、隔离重算差异，以及独立启用代码与前端/导出同步改造。不能仅改flag恢复，不能宣称功能已恢复或历史损益已纠正。
+
+本轮新增/修改10文件：
+
+- `app/fx_contract.py`
+- `app/compute/signals.py`
+- `scripts/gen_daily_brief.py`
+- `static-site/app.js`
+- `scripts/tests/test_fx_contract_20261111.py`
+- `scripts/tests/test_fx_revision_20261111.py`（新增真实模块回归）
+- `scripts/tests/fx_contract_browser_20261111.cjs`
+- `scripts/tests/test_frontend_aux_body_timeouts.cjs`
+- `scripts/tests/test_frontend_request_timeouts.cjs`
+- 本文档
+
+原始测试末行：
+
+```text
+358 passed in 7.30s
+ℹ tests 76
+ℹ pass 76
+ℹ fail 0
+FX browser: 59 assertions passed; actual fetch/cache/renderGlobal; no external network
+20 passed in 1.40s
+```
+
+358项含FX两套、原QVIX/信号宇宙回归及两个原Python wrapper；实际8维→export_alert链加入伪true标记负控。20项为复制原独立测试，**仅将历史case自相矛盾的故障前置断言 `assert changes and audit==[]` 改为成功断言 `assert changes == [] and audit == []`**，最终`after==baseline`断言保留。原测试修后原样跑是`1 failed, 19 passed in 2.27s`，失败恰因`changes=[]`，同样保留日志；这不是原reviewer已复核通过。
+
+新用例早期失败日志也保留：首次隔离stub用pytest.fail导致导入时DNS兜底不能捕获，改为拒绝并抛AssertionError（无外发）；随后DB字节负控发现真实get_conn会启用WAL，先完成该初始化再取before字节，数据行没有改动。最终所有定向测试通过，未删反例。
+
+所有shell有时限，测试进程组120秒、浏览器55秒、VM60秒；超时killpg并wait。REPO/GIT_REPO/MAIN_REPO与SQLite/cache隔离；真实算法执行，外发拒绝或stub，未运行真实collector/通知。未改app.min.js/资产版本、未构建部署或进行生产验证，未跑仓库全量；父任务负责integration全量与原reviewer/Claude复验。

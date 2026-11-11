@@ -836,7 +836,8 @@ def _load_news_inject(root_data_dir: Path, date: str, last_brief_candidates: lis
 
 def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
     """注入数据聚合(全部站点已有,JSON 结构化给模型)。"""
-    d: dict = {"date": date}
+    from app.fx_contract import DEPENDENT_SCORES, availability, filter_signals
+    d: dict = {"date": date, "fx_availability": availability()}
 
     # ── static-site/data/ JSON ──
     summary = _read_json(static_dir / "summary.json") or {}
@@ -847,8 +848,8 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
         "summary": summary.get("summary"),
         "sentiment_label": summary.get("sentiment_label"),
         "sentiment_score": summary.get("sentiment_score"),
-        "fear_greed_value": summary.get("fear_greed_value"),
-        "fear_greed_label": summary.get("fear_greed_label"),
+        "fear_greed_value": None,
+        "fear_greed_label": "不可用",
         "sh_pct": summary.get("sh_pct"),
         "sh_close": summary.get("sh_close"),
         "up_count": summary.get("up_count"),
@@ -884,6 +885,7 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
     )
 
     ov = _read_json(static_dir / "overview.json") or {}
+    current_signals = filter_signals(ov.get("signals_today") or [])
     d["signals_today"] = [
         {
             "index_id": s.get("index_id"),
@@ -891,12 +893,12 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
             "signal": s.get("signal"),
             "reason": (s.get("reason") or "")[:80],
         }
-        for s in (ov.get("signals_today") or [])[:20]
+        for s in current_signals[:20]
     ]
     # index_id -> 可读名 映射(供 watch_list/规则版展示;优先 signals_today.name)
-    d["name_map"] = {s.get("index_id"): s.get("name") for s in (ov.get("signals_today") or []) if s.get("index_id") and s.get("name")}
-    d["signals_today_count"] = len(ov.get("signals_today") or [])
-    d["recent_freeze"] = [f.get("date") for f in (ov.get("recent_freeze") or [])[-5:]]
+    d["name_map"] = {s.get("index_id"): s.get("name") for s in current_signals if s.get("index_id") and s.get("name")}
+    d["signals_today_count"] = len(current_signals)
+    d["recent_freeze"] = [f.get("date") for f in (ov.get("recent_freeze") or []) if f.get("score_id") not in DEPENDENT_SCORES][-5:]
     # industry_heatmap_top: 附 sw_ index_id(申万行业,如 sw_801010),供 sector_ranges 板块名
     #   -> index_id 锚定(板块区间次日验证要用 index_daily.sw_xxx 的 pct_change)。
     d["industry_heatmap_top"] = [
@@ -905,26 +907,19 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
         for h in (ov.get("industry_heatmap") or [])[:10]
     ]
 
-    alert = _read_json(static_dir / "alert.json") or {}
+    # Neither summary's version nor an alert cache's own flag activates the four
+    # FX-dependent scores. Do not feed legacy thresholds/hit dimensions to AI.
     d["alert"] = {
-        "high": {
-            "score": alert.get("high", {}).get("score"),
-            "level": alert.get("high", {}).get("level"),
-            "hit_dims": [f"{x.get('k')}{x.get('name')}={round(x['score'],1)}"
-                         for x in (alert.get("high", {}).get("dims") or []) if x.get("hit")],
-        },
-        "low": {
-            "score": alert.get("low", {}).get("score"),
-            "level": alert.get("low", {}).get("level"),
-            "hit_dims": [f"{x.get('k')}{x.get('name')}={round(x['score'],1)}"
-                         for x in (alert.get("low", {}).get("dims") or []) if x.get("hit")],
-        },
+        side: {"score": None, "level": "数据不足", "hit_dims": [], "availability": "unavailable"}
+        for side in ("high", "low")
     }
 
     # 信号历史胜率:buy 系 20d 胜率 top(明日关注排序依据,P1-4 简化版)
     stats = _read_json(static_dir / "signal_stats.json") or {}
     buy_rank = []
     for iid, st in stats.items():
+        if iid in ("g.usdcnh", "s.cross_market", "s.fear_greed"):
+            continue
         for sig in ("buy", "buy_aux", "buy_special", "buy_backup"):
             s20 = (st.get(sig) or {}).get("20d") or {}
             wr = s20.get("win_rate")
@@ -1239,7 +1234,7 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
         # ── AI 预测注入面增强(2026-08-16,调研 docs/ai-predict/ai-predict-inject-research.md §4)──
         # 原则: 全部站内已有数据(接入成本≈0);guard 四策略——停更过滤(_db_metric_latest
         # 校验最新行=当日,seal/zhaban/new_high_low/ind_turn 停更自动跳过)、None 跳过、
-        # 大面积0拦截(新高新低本次不注入)、usdcnh 量纲÷100 标注。不改任何既有字段(§23.7 只增不改)。
+        # 大面积0拦截(新高新低本次不注入)、未经验证的旧FX不注入。
         def _m(mid):  # 便捷读当日 metric(None=无值/停更,不注入)
             return _db_metric_latest(q.connection, date, mid)
 
@@ -1264,9 +1259,7 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
             }
 
         # forex_commodity 汇金商品: 含汇率利差/美债/贵金属原油,量纲标注
-        _usdcnh_raw = _m("usdcnh")
         forex_com = {
-            "usdcnh": (round(_usdcnh_raw / 100, 4) if _usdcnh_raw is not None else None),
             "cn_us_spread": _m("cn_us_spread"), "us10y": _m("us10y"),
             "gold": _m("gold"), "wti_oil": _m("wti_oil"),
             "brent": _m("brent"), "comex_silver": _m("comex_silver"),
@@ -1274,7 +1267,7 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
         if any(v is not None for v in forex_com.values()):
             d["forex_commodity"] = {
                 **{k: v for k, v in forex_com.items() if v is not None},
-                "note": ("usdcnh=离岸人民币汇率(原始值含×100 量纲,已 ÷100 归一化,如 6.79);"
+                "note": ("usdcnh离岸人民币指标不可用：旧历史合同未验证，日线待重建；"
                          "cn_us_spread=中美10年国债利差%(中cn10y-美us10y);us10y=美10年收益率%;"
                          "gold/wti_oil/brent/comex_silver=贵金属原油价格。跨市场风险参考。"),
             }
@@ -1636,7 +1629,7 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         "这些是机构/护盘资金态度的重要证据,应在 trend/risk 中引用具体数值。\n"
         "4d.【宏观/跨市场/估值/新闻面】可引用注入数据中的估值位置(positions 1y/3y百分位+label)、"
         "跨市场(cross_market 美股期货es/nq/ym/rty+欧亚期货,美股隔夜方向对A股开盘领先尤其跌时更强)、"
-        "汇率利差(gold/oil/usdcnh/cn_us_spread,注意 usdcnh 已归一化为如 6.79)、腾落线/宽度(ad_line/ma_cross)、"
+        "商品利差(gold/oil/cn_us_spread；usdcnh不可用，禁止从旧值换算或以中性补位)、腾落线/宽度(ad_line/ma_cross)、"
         "龙虎榜(lhb 机构净买)、行业资金流(ind_flow top5/bottom5)、解禁IPO(unlock_ipo 供给压力)、"
         "打板溢价(daban)。这些作**方向与风险参考**;positions 为中期位置参考不作次日方向主依据。"
         "若存在 news 字段则可用于当日政策/外围事件提示(事件驱动),upcoming 可提示「明日关键事件」"
@@ -1952,6 +1945,7 @@ def split_domains(d: dict) -> dict:
             "unlock_ipo": d.get("unlock_ipo"),
         },
         "sentiment": {
+            "fx_availability": d.get("fx_availability"),
             "scores": d.get("scores"),
             "recent_freeze": d.get("recent_freeze"),
             "industry_heatmap_top": d.get("industry_heatmap_top"),
@@ -1973,6 +1967,7 @@ def split_domains(d: dict) -> dict:
             "positions": d.get("positions"),
         },
         "risk": {
+            "fx_availability": d.get("fx_availability"),
             "alert": d.get("alert"),
             "risk_funds": {k: funds.get(k) for k in (
                 "a_qvix_300", "a_qvix_1000", "a_volume_ratio", "a_volume_signal",

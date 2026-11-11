@@ -187,6 +187,11 @@ def availability():
                 instrument_id="USD/CNH", base_amount=1, quote_currency="CNH", active=False)
 
 
+def without_cross_annotation(reason):
+    """Current-view copy only: remove the legacy cross score's soft annotation."""
+    return re.sub(r",?\s*情绪分=[+-]?[0-9.]+\[[^]]*\]", "", reason)
+
+
 def filter_signals(rows):
     # Keep the raw DB/history intact. Cross-market values in old index reasons
     # were soft annotations, not trade triggers; do not show their stale numbers.
@@ -199,19 +204,17 @@ def filter_signals(rows):
             # No active complete FX contract exists yet, including old marked rows.
             continue
         if isinstance(r.get("reason"), str):
-            r["reason"] = re.sub(r",?情绪分=[+-]?[0-9.]+\[[^]]*\]", "", r["reason"])
+            r["reason"] = without_cross_annotation(r["reason"])
         out.append(r)
     return out
 
 
 def guard_score(row):
-    """Mask previously persisted cross-market scores without rewriting history."""
+    """No dependent score is active until a verified history activation exists.
+
+    Row-level version/available flags are not proof of that activation. This
+    release has no activation path; restoring scores requires a separate change.
+    """
     row = dict(row)
-    comp = row.get("components")
-    try:
-        comp = json.loads(comp) if isinstance(comp, str) else comp
-    except ValueError:
-        comp = None
-    if not isinstance(comp, dict) or comp.get("_fx_contract") != SCORE_VERSION or comp.get("_fx_available") is not True:
-        row.update(value=None, is_freeze=None, is_overheat=None, components=None, availability="unavailable", unavailable_reason="FX历史合同未验证；评分缺维不可用")
+    row.update(value=None, is_freeze=None, is_overheat=None, components=None, availability="unavailable", unavailable_reason="FX历史合同未验证；评分缺维不可用")
     return row

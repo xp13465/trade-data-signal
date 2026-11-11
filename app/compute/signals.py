@@ -1455,7 +1455,23 @@ def store(signals) -> int:
     # 根因：上游 index_daily 被整段重写后，本全表重算吐不出原历史 buy 行 → 历史成交静默消失
     # (docs/ops/trades-wipe-rootfix-20261014.md)。审计失败不阻断(signals 是主产物)。
     from ..history_audit import snapshot_signal_daily_history, audit_signal_daily_store, today_ymd
+    from ..fx_contract import without_cross_annotation
     run_date = today_ymd()
+    # Removing an unavailable soft annotation is a display policy, not a reason
+    # to rewrite the original historical event. Preserve only this exact delta;
+    # changed triggers, event sets and today's reasons retain the existing policy.
+    history_reasons = {tuple(r[:3]): r[3] for r in conn.execute(
+        "SELECT date,index_id,signal,reason FROM signal_daily WHERE date < ?", (run_date,)
+    ).fetchall()}
+    preserved = 0
+    stored_signals = []
+    for row in signals:
+        original = history_reasons.get(tuple(row[:3]))
+        if isinstance(original, str) and original != row[3] and without_cross_annotation(original) == row[3]:
+            row = (*row[:3], original)
+            preserved += 1
+        stored_signals.append(row)
+    signals = stored_signals
     hist_before = set()
     audit_available = False
     try:
@@ -1474,7 +1490,8 @@ def store(signals) -> int:
     conn.commit()
     capture_loaded("signal_daily_write_payload", signals, output=True, quality="weak",
                    snapshot_scope="committed_write_payload_not_table_snapshot")
-    capture_event("signal_committed", arrival_at="unknown", audit_before_available=audit_available)
+    capture_event("signal_committed", arrival_at="unknown", audit_before_available=audit_available,
+                  fx_preserved_history_reasons=preserved)
     capture_signal_visibility(signals, hist_before, audit_available)
     if hist_before:
         try:
