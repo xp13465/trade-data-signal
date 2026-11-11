@@ -16,6 +16,11 @@ if target.name in ("nextday_plan_generator.py", "nextday_gap_check.py"):
         sys.exit(2)  # before Python reports; real wrapper must cover it.
     import importlib.util
     sys.path.insert(0, str(Path(os.environ["TEST_SCRIPTS"]).parent))
+    # Bare children do not load conftest; use its missing-only import shims.
+    # No runtime HTTP API is provided, and DRIVER's audit traps remain active.
+    sys.path.insert(0, str(Path(os.environ["TEST_SCRIPTS"]) / "tests"))
+    from _ci_stubs import install_missing_third_party_stubs
+    install_missing_third_party_stubs()
     spec = importlib.util.spec_from_file_location("real_producer", Path(os.environ.get("TEST_PRODUCER_SCRIPTS", os.environ["TEST_SCRIPTS"]))/target.name)
     m = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = m
