@@ -7,6 +7,7 @@
 - 独立工作树：`/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-fx-contract-20261111`
 - 首次交付提交/推送结果及文件清单：`/tmp/codex-reports/ops-backlog-20261111/fx/report.json`（保留原件）
 - 7094 独立审查后续修报告：`/tmp/codex-reports/ops-backlog-20261111/fx/revision-review-7094/report.json`
+- 7289 整页旁路续修报告：`/tmp/codex-reports/ops-backlog-20261111/fx/revision-review-7289/report.json`
 - 原始证据目录：`/tmp/codex-reports/ops-backlog-20261111/fx/`
 - 用户已明确授权实施及一跳扩展；不修改角色规范、主控文档、pending-index、原交接packet或ACK。
 
@@ -167,3 +168,35 @@ FX browser: 59 assertions passed; actual fetch/cache/renderGlobal; no external n
 新用例早期失败日志也保留：首次隔离stub用pytest.fail导致导入时DNS兜底不能捕获，改为拒绝并抛AssertionError（无外发）；随后DB字节负控发现真实get_conn会启用WAL，先完成该初始化再取before字节，数据行没有改动。最终所有定向测试通过，未删反例。
 
 所有shell有时限，测试进程组120秒、浏览器55秒、VM60秒；超时killpg并wait。REPO/GIT_REPO/MAIN_REPO与SQLite/cache隔离；真实算法执行，外发拒绝或stub，未运行真实collector/通知。未改app.min.js/资产版本、未构建部署或进行生产验证，未跑仓库全量；父任务负责integration全量与原reviewer/Claude复验。
+
+## 7289 整页旁路续修（FX-V2-R1/R2）
+
+正式独立报告 `review-fx-v2/report.json` 已封存，SHA256 `9f8d6c65667cf6220651218306e0eea3fdf9a07366957aaf8e2eb7905e0c1b5a`，原四项resolved，本轮新增2 P1。报告、原脚本、观察数据均未修改。原分支从 `7289085f5f815d6f4293ac59b5b382e5ab2f1335` 续提交，不改父integration。
+
+先复制并原样执行两份反例：4个真实HTML启动场景确认legacy/marked预取成功时`_bootData`仍含四个99，实际`renderAlertBar`产生两条阈值预警；预取失败回退才正常屏蔽。safe-boot-old-split即使评分已安全，补拉仍注入`g.usdcnh/s.cross_market/s.fear_greed/sh`四项。另一个原整页脚本实测在预警不可用断言失败。新自动回归跑旧head也在`99 !== null`失败，证据存`revision-review-7289/before/`。
+
+修复集中在共享保护的实际消费入口：
+
+- `_bootJSON`对原生HTML预取成功结果、fetchJSON回退结果统一执行真实`_guardFxPayload`，再由原fetchBoot分发到`_bootData`、overview缓存、state.signalStats。index.html预取脚本、主备站解析、超时、消费一次及非阻塞signals补拉时序均未改。
+- `signals_today.json`纳入保护白名单；`_ensureSignalsToday`对已有数组、补拉、overview回退、在途/已完成Promise复用均通过同一个attach边界过滤再写入调用方overview。共享Promise保留过滤后的payload，各调用方获取同一结果并补齐自己的引用；metadata只在缺失时补入，不覆盖已有metadata。没有新框架或第二套FX判断。
+- `renderAlertBar`读取boot或独立alert后再次经过同一guard，阈值渲染前保持unknown；不填0/50，不显示旧命中预警。独立指数与真实A股0分保留。
+- 原timeout VM加载实际guard供`_bootJSON`使用，timer/取消/去重断言不变，没有恒true stub。
+
+新 `scripts/tests/fx_bootstrap_browser_20261111.cjs` 执行完整index.html和完整app.js，所有请求拦截；不替换业务函数/状态或修改HTML fixture。9场景为未标记旧预取、标记true预取、两腿预取失败回退、安全boot+旧拆分产物、内嵌旧数组、split404、split结构无效、合法空数组、split/overview双失败后重试恢复。检查 `_bootData`、缓存、state、真实预警DOM、跨overview在途/已完成复用、metadata保留、零额外补拉/合法空不回退，以及独立sh与A股0保留。
+
+原始结果：
+
+```text
+358 passed in 8.30s
+ℹ tests 76
+ℹ pass 76
+ℹ fail 0
+FX browser: 59 assertions passed; actual fetch/cache/renderGlobal; no external network
+FX bootstrap browser: 9 real-page scenarios, 436 assertions passed; prefetch/fallback/split/cache/retry; pageerrors=0; no external network
+Independent browser v2: full-page fetch/cache + 9 flag variants + renderAlertBar/renderGlobal passed; four scores null; independent zero preserved; pageerrors=0
+4 original real-page fixtures: post-fix success assertions passed; four scores null; only sh survives; no external requests; pageerrors=0.
+```
+
+原`independent-browser.cjs`复制后零改动通过。最后一条来自原`boot-bypass.cjs`副本，仅将“必须观察到故障”的断言改为成功断言及对应日志文字，保留原4份payload、HTML预取和路由；完整断言diff在`after/boot-success-oracle.diff`。不把自验视为Cicero已复核。
+
+本次仅4文件：`static-site/app.js`、`scripts/tests/test_frontend_request_timeouts.cjs`、新增`fx_bootstrap_browser_20261111.cjs`、本文档。未改任何Python业务/历史写入、lab.js、index.html、父wrapper或其它组文件。四类评分仍全部不可用，恢复条件不变。真实整页测试以app.js源文件响应app.min.js请求，Service Worker禁用、网络全部隔离；**没有构建min、部署或验证生产CDN/Service Worker缓存**。新整页测试有120秒总时限，原探针55秒，超时killpg+wait；父负责统一构建、整合全量和Cicero复验。

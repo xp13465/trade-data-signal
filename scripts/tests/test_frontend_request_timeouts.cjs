@@ -29,7 +29,8 @@ function declaration(source, name) {
 }
 
 const progressSource = declaration(lab, "fetchJSONProgress");
-const fetchSource = declaration(app, "_guardFxPayload") + "\n" + declaration(app, "fetchJSON");
+const guardSource = declaration(app, "_guardFxPayload");
+const fetchSource = guardSource + "\n" + declaration(app, "fetchJSON");
 const bootConsumer = declaration(app, "_bootJSON");
 const bootScripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
   .map(match => match[1]).filter(source => source.includes("__bootPrefetch") && source.includes("firstMs"));
@@ -270,7 +271,7 @@ function bootHarness(host, mode) {
     },
     async fetchJSON(...args) { fallback.push(args); throw new Error("visible fetchJSON failure"); },
   });
-  vm.runInContext(bootScripts[0] + "\n" + bootConsumer, context);
+  vm.runInContext(bootScripts[0] + "\n" + guardSource + "\n" + bootConsumer, context);
   return { context, timer, calls, fallback, payload };
 }
 
