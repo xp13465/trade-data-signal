@@ -118,8 +118,9 @@ def plan(conn, stream, code, end, floor, lookback=7, work_limit=None):
     latest = conn.execute(f'SELECT MAX(date) FROM {table} WHERE {key}=? AND {fields[0]} IS NOT NULL',
                           (code,)).fetchone()[0]
     # 从最后有效日回看，停采超7日时仍覆盖整段；加一条真实上下文供prevNAV。
-    recent = shift(min(latest or end, end), -lookback)
-    recent_end = min(end, shift(latest, history_days)) if work_limit and latest else end
+    recent_base = max(latest or '', (work_limit or {}).get('recent_through', '')) or end
+    recent = shift(min(recent_base, end), -lookback)
+    recent_end = min(end, shift(recent_base, history_days)) if work_limit else end
     predicate = ' OR '.join(f'{f} IS NULL' for f in fields)
     gaps = list(conn.execute(f'SELECT date,{",".join(fields)} FROM {table} WHERE {key}=? '
                             f'AND date>? AND date<=? AND ({predicate}) ORDER BY date LIMIT ?',
@@ -158,7 +159,8 @@ def plan(conn, stream, code, end, floor, lookback=7, work_limit=None):
             context = max(context, shift(start, -7))
         with_context.append((start if stream == 'index' and start == floor else context, stop))
     return {'ranges': merge_ranges(with_context), 'history_before': next_history,
-            'gap_after': next_gap, 'discovered': discovered, 'selected': selected}
+            'gap_after': next_gap, 'discovered': discovered, 'selected': selected,
+            'recent_through': recent_end if work_limit and work_limit['phase'] == 'recent' else None}
 
 
 class NonNullConflict(RuntimeError):

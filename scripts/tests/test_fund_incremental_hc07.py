@@ -190,6 +190,41 @@ def test_sparse_gaps_shrink_without_advancing_failed_coverage(sandbox, monkeypat
     c.close()
 
 
+def test_adaptive_recent_crosses_complete_empty_windows(sandbox, monkeypatch):
+    from app.collector import public_fund_gap as gap
+    _seed_basic(sandbox, [('000001','FOF','FOF')])
+    c = _conn(sandbox); gap.migrate(c)
+    c.execute("INSERT INTO fund_collection_state VALUES('nav','000001','19900101','')")
+    c.execute("INSERT INTO fund_daily_nav(date,fund_code,unit_nav,acc_nav,prev_unit_nav,nav_change_pct) VALUES('20260101','000001',1,1,1,0)")
+    c.commit(); c.close()
+    path = sandbox.with_suffix('.fof-nav-progress.json')
+    path.write_text(json.dumps({'version':1,'last_code':'000001','work_limits':{
+        '000001':{'history_days':7,'gap_fields':2,'phase':'recent'}}}))
+    calls = source(monkeypatch, [dict(FSRQ='2026-01-25',DWJZ='1.2',LJJZ='1.2',JZZZL='0')])
+    for _ in range(10):
+        mod.collect(batch=1)
+    c = _conn(sandbox)
+    assert c.execute("SELECT unit_nav FROM fund_daily_nav WHERE date='20260125'").fetchone()[0] == 1.2
+    assert c.execute('SELECT COUNT(*) FROM fund_daily_nav').fetchone()[0] == 2
+    assert c.execute('SELECT history_before FROM fund_collection_state').fetchone()[0] == '19900101'
+    c.close()
+    assert json.loads(path.read_text())['work_limits']['000001']['recent_through'] >= '20260125'
+    assert any(q['endDate'][0] == '2026-01-08' for q in calls)
+
+
+def test_failed_recent_does_not_advance_verified_window(sandbox, monkeypatch):
+    _seed_basic(sandbox, [('000001','FOF','FOF')])
+    path = sandbox.with_suffix('.fof-nav-progress.json')
+    path.write_text(json.dumps({'version':1,'last_code':'000001','work_limits':{
+        '000001':{'history_days':7,'gap_fields':2,'phase':'recent','recent_through':'20260108'}}}))
+    def fail(*a, **kw):
+        raise TimeoutError('upstream failed before the round deadline')
+    monkeypatch.setattr(mod,'fetch_lsjz',fail)
+    assert mod.collect(batch=1) == 0
+    assert mod.LAST_BATCH_FAILED
+    assert json.loads(path.read_text())['work_limits']['000001']['recent_through'] == '20260108'
+
+
 def test_http_trickle_is_absolute_bounded(sandbox, monkeypatch):
     import time
     class Slow(_FakeResp):

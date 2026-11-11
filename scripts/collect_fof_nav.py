@@ -237,6 +237,12 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                             or not 1 <= value['gap_fields'] <= gap.GAP_LIMIT
                             or value.get('phase') not in ('recent', 'history', 'gap')):
                         raise ValueError('工作预算记录格式异常')
+                    if 'recent_through' in value:
+                        through = value['recent_through']
+                        if (not isinstance(through, str) or len(through) != 8
+                                or not '19900101' <= through <= end.strftime('%Y%m%d')):
+                            raise ValueError('已查窗口日期异常')
+                        datetime.strptime(through, '%Y%m%d')
                     work_limits[code] = value
             except FileNotFoundError:
                 pass
@@ -273,6 +279,7 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
             candidate = None
             target_limit = work_limits.get(fund_code)
             budget_failed = False
+            target_committed = False
             try:
                 gap.configure(conn, deadline)
                 # 定向/limit为明确窗口；正常轮转独立推进完整历史和长期NULL队列。
@@ -315,6 +322,7 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                     gap.finish(conn, 'nav', fund_code, candidate)
                     gap.remaining(deadline)
                     conn.commit()  # NAV+历史覆盖+缺口队列在同一基金事务内提交
+                    target_committed = True
                 if rows:
                     total_written += len(rows)
                     ok += 1
@@ -339,13 +347,17 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                     if budget_failed:
                         previous = target_limit or {'history_days': gap.HISTORY_DAYS,
                                                     'gap_fields': gap.GAP_LIMIT, 'phase': 'gap'}
-                        work_limits[fund_code] = {
+                        work_limits[fund_code] = {**previous,
                             'history_days': max(1, previous['history_days'] // 2),
                             'gap_fields': max(1, previous['gap_fields'] // 2),
                             'phase': {'recent': 'history', 'history': 'gap', 'gap': 'recent'}[previous['phase']]}
                     elif target_limit:
                         work_limits[fund_code] = dict(target_limit, phase={
                             'recent': 'history', 'history': 'gap', 'gap': 'recent'}[target_limit['phase']])
+                        if target_committed and candidate and candidate.get('recent_through'):
+                            # 完整合法空也越过已查窗口；失败不推进。数据库先提交，
+                            # 元数据崩溃最多重查，不会跳过尚未提交的源窗口。
+                            work_limits[fund_code]['recent_through'] = candidate['recent_through']
                     value = {"version": 1, "last_code": fund_code}
                     if work_limits:
                         value['work_limits'] = work_limits
