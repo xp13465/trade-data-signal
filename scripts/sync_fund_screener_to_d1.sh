@@ -184,6 +184,10 @@ HASHES_FILE="$GEN_DIR/d1_hashes.json"
 #   d1_execute.sh 顶层只定义函数/常量, 提前 source 无副作用。
 source "$SCRIPT_SELF_DIR/lib/d1_execute.sh" || _fail "d1_execute.sh missing"
 source "$SCRIPT_SELF_DIR/lib/d1_hash_read.sh" || _fail "d1_hash_read.sh missing"
+if [ "$DRY_RUN" != "1" ]; then
+  d1_metrics_init
+  D1_METRICS_TABLES="fund_screener,screener_meta"
+fi
 if [ "$DRY_RUN" = "1" ]; then
   if [ -n "$D1_EXISTING_HASHES_FILE" ] && [ -f "$D1_EXISTING_HASHES_FILE" ]; then
     cp "$D1_EXISTING_HASHES_FILE" "$HASHES_FILE"
@@ -689,7 +693,8 @@ for f in "${SQL_FILES[@]}"; do
 done
 
 # 3) 验证: D1 侧 count 与本地一致
-D1_COUNT=$(_d1_run_with_timeout "$VERIFY_TIMEOUT_SEC" \
+D1_COUNT=$(d1_observed_command count_verify SELECT fund_screener \
+  _d1_run_with_timeout "$VERIFY_TIMEOUT_SEC" \
   npx wrangler d1 execute "$D1_DB" --remote -y --json \
   --command "SELECT COUNT(*) AS n FROM fund_screener" 2>/dev/null \
   | "$PY" -c "import json,sys;d=json.load(sys.stdin);print(d[0]['results'][0]['n'])")
