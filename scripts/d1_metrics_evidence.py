@@ -6,6 +6,7 @@ have committed work, and import meta is cumulative for a bundle, not per table.
 See docs/codex-reviews/ops-backlog-20261111/d1.md for the evidence contract.
 """
 import argparse
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -274,12 +275,48 @@ def record(args, streams):
     persist(Path(os.environ["D1_METRICS_DIR"]), event)
 
 
+@contextmanager
+def nonblocking(fd):
+    """Temporarily make inherited sinks nonblocking, restoring status flags."""
+    # O_NONBLOCK cannot bound regular-file I/O; leave their status flags alone.
+    if stat.S_ISREG(os.fstat(fd).st_mode):
+        yield
+        return
+    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+    changed = not flags & os.O_NONBLOCK
+    if changed:
+        fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+    try:
+        yield
+    finally:
+        if changed:
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+
+
+def merge_sink(targets, declared=False):
+    """Pipe aliases share capacity. Regular-file aliases need caller attestation.
+
+    Same inode alone does not prove the same open file description: two opens
+    may have independent offsets. The shell declares its explicit >out 2>&1.
+    """
+    if targets[0] == targets[1]:
+        return True
+    try:
+        a, b = (os.fstat(fd) for fd in targets)
+        same = (a.st_dev, a.st_ino, a.st_mode) == (b.st_dev, b.st_ino, b.st_mode)
+        return same and (declared or stat.S_ISFIFO(a.st_mode) or stat.S_ISSOCK(a.st_mode))
+    except OSError:
+        return False
+
+
 def warn():
     message = b"[d1-evidence] WARN: evidence incomplete; original command rc retained; no evidence-triggered SQL retry\n"
     try:
-        os.write(int(os.environ.get("D1_METRICS_WARN_FD", "2")), message)
-    except OSError:
-        pass
+        fd = int(os.environ.get("D1_METRICS_WARN_FD", "2"))
+        with nonblocking(fd):
+            os.write(fd, message)
+    except (OSError, ValueError):
+        pass  # A full/closed warning sink must not defeat cleanup or change rc.
 
 
 def save_safely(args, streams):
@@ -295,22 +332,27 @@ def save_safely(args, streams):
         signal.alarm(0)
 
 
-def run_streamed(command, timeout, targets=(1, 2)):
+def run_streamed(command, timeout, targets=(1, 2), merge_output=False):
     """Continuously forward/drain two pipes with <=64 KiB pending per stream.
 
     Only a bounded prefix is sampled; discard it after overflow. Never spool raw
     responses to disk, and never close a child pipe because metrics are too large.
-    Small writes after select avoid unbounded blocking on slow downstream pipes.
+    Shared sinks get one OS-merged child pipe, preserving atomic error messages.
+    Readiness is only a hint: nonblocking writes handle races and backpressure.
     """
     samples = [bytearray(), bytearray()]
     counts = [0, 0]
     overflow = [False, False]
     failed = [False, False]
     pending = [b"", b""]
-    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    merged = merge_sink(targets, merge_output)
+    if merged:
+        targets = targets[:1]
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT if merged else subprocess.PIPE,
                             start_new_session=True, bufsize=0)
-    readers = {proc.stdout.fileno(): 0, proc.stderr.fileno(): 1}
-    pipes = (proc.stdout, proc.stderr)
+    pipes = (proc.stdout,) if merged else (proc.stdout, proc.stderr)
+    readers = {pipe.fileno(): i for i, pipe in enumerate(pipes)}
     deadline = time.monotonic() + timeout if timeout > 0 else float("inf")
     stopped = None
     cleanup_deadline = float("inf")
@@ -318,7 +360,7 @@ def run_streamed(command, timeout, targets=(1, 2)):
     previous = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
     for s in previous:
         signal.signal(s, lambda sig, _frame: requested.__setitem__(0, sig))
-    # PIPE_BUF-sized writes after writability cannot wait for a large pipe space.
+    # Atomic-sized writes plus O_NONBLOCK; select alone cannot reserve capacity.
     write_sizes = []
     for fd in targets:
         try:
@@ -332,7 +374,13 @@ def run_streamed(command, timeout, targets=(1, 2)):
         except ProcessLookupError:
             pass
 
+    modes = ExitStack()
     try:
+        for i, fd in enumerate(targets):
+            try:
+                modes.enter_context(nonblocking(fd))
+            except OSError:
+                failed[i] = True  # still drain child and preserve its return code
         while readers or any(pending) or proc.poll() is None:
             now = time.monotonic()
             if stopped is None and (requested[0] or now >= deadline):
@@ -344,7 +392,7 @@ def run_streamed(command, timeout, targets=(1, 2)):
                 failed = [failed[i] or bool(pending[i]) or i in readers.values() for i in range(2)]
                 break
             readable = [fd for fd, i in readers.items() if not pending[i]]
-            writable = [targets[i] for i in range(2) if pending[i] and not failed[i]]
+            writable = [fd for i, fd in enumerate(targets) if pending[i] and not failed[i]]
             wait = min(0.05, max(0, (deadline if stopped is None else cleanup_deadline) - now))
             ready_r, ready_w, _ = select.select(readable, writable, [], wait)
             for fd in ready_r:
@@ -363,11 +411,13 @@ def run_streamed(command, timeout, targets=(1, 2)):
                         samples[i].extend(chunk)
                 if not failed[i]:
                     pending[i] = chunk
-            for i in range(2):
+            for i in range(len(targets)):
                 if pending[i] and targets[i] in ready_w:
                     try:
                         written = os.write(targets[i], pending[i][:write_sizes[i]])
                         pending[i] = pending[i][written:]
+                    except BlockingIOError:
+                        continue  # shared/racing writers consumed the ready space
                     except OSError:
                         failed[i] = True
                         pending[i] = b""  # continue draining; do not change child rc
@@ -380,6 +430,7 @@ def run_streamed(command, timeout, targets=(1, 2)):
             pipe.close()
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+        modes.close()
     if any(failed):
         warn()
     observation = {"sample_limit_per_stream": SAMPLE_BYTES, "sample_overflow": any(overflow),
@@ -387,6 +438,12 @@ def run_streamed(command, timeout, targets=(1, 2)):
                    "stdout_sample_bytes": len(samples[0]), "stderr_sample_bytes": len(samples[1]),
                    "stdout_overflow": overflow[0], "stderr_overflow": overflow[1],
                    "forwarding_failed": any(failed)}
+    observation["stream_mode"] = "merged" if merged else "separate"
+    if merged:
+        observation.update(merged_bytes=counts[0], merged_sample_bytes=len(samples[0]),
+                           merged_overflow=overflow[0], stdout_bytes=None, stderr_bytes=None,
+                           stdout_sample_bytes=None, stderr_sample_bytes=None,
+                           stdout_overflow=None, stderr_overflow=None)
     rc = stopped if stopped is not None else proc.returncode if proc.returncode >= 0 else 128 - proc.returncode
     return tuple(bytes(s) for s in samples), observation, rc
 
@@ -403,6 +460,7 @@ def main():
     parser.add_argument("--stdout")
     parser.add_argument("--stderr")
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--output-mode", choices=("separate", "merged"), default="separate")
     parser.add_argument("--timeout", type=float, default=300)
     parser.add_argument("--call-id", required=True)
     parser.add_argument("--attempt", type=int, required=True)
@@ -423,7 +481,8 @@ def main():
     args.start = utc_now()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     try:
-        streams, args.response_observation, args.exit_code = run_streamed(command, args.timeout)
+        streams, args.response_observation, args.exit_code = run_streamed(command, args.timeout,
+                                                                       merge_output=args.output_mode == "merged")
     except OSError:
         streams = b"", b"[d1] executor unavailable\n"
         args.exit_code = 127

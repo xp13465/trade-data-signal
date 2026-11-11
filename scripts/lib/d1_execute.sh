@@ -73,7 +73,11 @@ _d1_observe() {
   shift
   local seconds="$1"
   shift
-  "${PY:-python3}" "$_D1_METRICS_HELPER" --run --timeout "$seconds" \
+  local output_mode=separate
+  if [ "${D1_METRICS_MERGED_OUTPUT:-0}" = "1" ]; then
+    output_mode=merged
+  fi
+  "${PY:-python3}" "$_D1_METRICS_HELPER" --run --timeout "$seconds" --output-mode "$output_mode" \
     --call-id "$call_id" --attempt "$attempt" --stage "$stage" --operation "$operation" \
     --scope "$scope" --tables "$tables" -- "$@"
 }
@@ -160,7 +164,7 @@ d1_execute_sql_file() {
     fi
 
     n=$(( n + 1 ))
-    if _d1_observe import IMPORT bundle "${D1_METRICS_TABLES:-}" "$n" "$call_id" \
+    if D1_METRICS_MERGED_OUTPUT=1 _d1_observe import IMPORT bundle "${D1_METRICS_TABLES:-}" "$n" "$call_id" \
         _d1_run_with_timeout "$attempt_timeout" npx wrangler d1 execute "$db" --remote -y --json --file="$file" >"$out" 2>&1; then
       if [ "$n" -gt 1 ]; then
         echo "$prefix 重试第 $(( n - 1 )) 次成功(共 $n 次尝试)"

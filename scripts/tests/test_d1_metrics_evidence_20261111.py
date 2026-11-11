@@ -534,7 +534,8 @@ def test_forward_sink_failure_drains_and_keeps_child_rc(m, tmp_path):
         with patch.object(m.os, "write", full):
             streams, observed, rc = m.run_streamed([sys.executable, "-c", "import os; os.write(1,b'x'*2000000); os.write(2,b'y'*2000000)"], 5, targets=(fd, fd))
         assert rc == 0 and observed["forwarding_failed"]
-        assert observed["stdout_bytes"] == observed["stderr_bytes"] == 2000000
+        assert observed["merged_bytes"] == 4000000
+        assert observed["stdout_bytes"] is observed["stderr_bytes"] is None
         assert all(len(s) <= m.SAMPLE_BYTES for s in streams)
     finally:
         os.close(fd)
@@ -576,3 +577,139 @@ def test_unread_consumer_does_not_defeat_timeout(tmp_path):
         p.communicate(timeout=5)
     receipt = calls(tmp_path)[0]
     assert receipt["response_observation"]["forwarding_failed"]
+
+
+@pytest.mark.parametrize("fatal", ["syntax error", "SQLITE_TOOBIG", "statement too long", "no such table", "no such column", "constraint failed", "has no column named", "fetch failed"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_fragmented_merged_shell_preserves_sql_classification(tmp_path, fatal, reverse):
+    env = fake_env(tmp_path, '\"$PY\" \"$REPO/dual.py\"\n')
+    child = tmp_path / "dual.py"
+    child.write_text("import os\nn=min(4096,os.fpathconf(2,'PC_PIPE_BUF'))\na=(1,b'O'*65536+b'\\n')\nb=(2,b'X'*(n-4)+"+repr((fatal+": fixture\n").encode())+")\nfor fd,data in "+("[b,a]" if reverse else "[a,b]")+": os.write(fd,data)\nraise SystemExit(7)\n")
+    r = run_shell(tmp_path, env, 'd1_execute_sql_file db unused "$REPO/out"')
+    assert r.returncode == 7
+    attempts = 3 if fatal == "fetch failed" else 1
+    assert (tmp_path / "calls").read_text() == "x" * attempts
+    raw = (tmp_path / "out").read_bytes()
+    assert fatal.encode() in raw
+    assert ("SQL 类错误" in r.stderr) == (attempts == 1)
+    prefix = b'O'*65536+b'\n'
+    if reverse:
+        assert raw.endswith(prefix)
+    else:
+        assert raw.startswith(prefix)
+    receipt = calls(tmp_path)[0]["response_observation"]
+    assert receipt["stream_mode"] == "merged" and receipt["merged_bytes"] == len(raw)
+    assert receipt["stdout_bytes"] is None and receipt["stderr_bytes"] is None
+
+
+@pytest.mark.parametrize("released", [0, 1])
+def test_shared_pipe_capacity_timeout_cleanup_and_flag_restore(tmp_path, released):
+    import fcntl
+    import signal
+    import time
+    env = fake_env(tmp_path, "exit 91\n")
+    child = tmp_path / "alias.py"
+    pids = tmp_path / "pids"
+    child.write_text("import os,sys,time,subprocess\nfrom pathlib import Path\np=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\nPath("+repr(str(pids))+").write_text(str(os.getpid())+' '+str(p.pid))\nos.write(1,b'o'*4096)\nos.write(2,b'e'*4096)\ntime.sleep(60)\n")
+    rfd, wfd = os.pipe()
+    alias = os.dup(wfd)
+    proc = None
+    try:
+        os.set_blocking(wfd, False)
+        while True:
+            try: os.write(wfd, b'x'*4096)
+            except BlockingIOError: break
+        size = min(4096, os.fpathconf(wfd, "PC_PIPE_BUF"))
+        if released: os.read(rfd, size)
+        os.set_blocking(wfd, True)
+        original = fcntl.fcntl(wfd, fcntl.F_GETFL)
+        started = time.monotonic()
+        proc = subprocess.Popen(observer_command(child, "1"), env=env, stdout=wfd, stderr=alias)
+        assert proc.wait(timeout=6) == 124  # Do NOT drain consumer to let it exit.
+        assert time.monotonic()-started < 5
+        assert fcntl.fcntl(wfd, fcntl.F_GETFL) == original
+        assert fcntl.fcntl(alias, fcntl.F_GETFL) == original
+        seen = calls(tmp_path)[0]["response_observation"]
+        assert seen["stream_mode"] == "merged" and seen["forwarding_failed"]
+        for pid in pids.read_text().split():
+            ps = subprocess.run(["ps", "-o", "stat=", "-p", pid], capture_output=True, text=True, timeout=2)
+            assert not ps.stdout.strip() or ps.stdout.strip().startswith("Z")
+    finally:
+        if proc and proc.poll() is None:
+            proc.terminate()
+            try: proc.wait(timeout=4)
+            except subprocess.TimeoutExpired: proc.kill();proc.wait(timeout=2)
+        if pids.exists():
+            try: os.killpg(int(pids.read_text().split()[0]), signal.SIGKILL)
+            except ProcessLookupError: pass
+        for fd in (rfd,wfd,alias): os.close(fd)
+
+
+def test_separate_opens_of_same_file_are_not_assumed_aliases(m, tmp_path, monkeypatch):
+    import fcntl
+    path = tmp_path / "shared-name"
+    a = os.open(path, os.O_WRONLY | os.O_CREAT, 0o600)
+    b = os.open(path, os.O_WRONLY)
+    real_fcntl = fcntl.fcntl
+    def no_regular_mode_change(fd, cmd, *args):
+        assert not (fd in (a,b) and cmd == fcntl.F_SETFL)
+        return real_fcntl(fd, cmd, *args)
+    monkeypatch.setattr(fcntl, "fcntl", no_regular_mode_change)
+    try:
+        assert not m.merge_sink((a,b))
+        assert m.merge_sink((a,b), declared=True)
+        assert m.merge_sink((a,a))
+        flags = [fcntl.fcntl(fd,fcntl.F_GETFL) for fd in (a,b)]
+        streams, seen, rc = m.run_streamed([sys.executable,"-c","import os; os.write(1,b'one'); os.write(2,b'two')"], 3, targets=(a,b))
+        assert streams == (b'one',b'two') and rc == 0
+        assert seen["stream_mode"] == "separate"
+        # Some kernels include a write-observed bit in F_GETFL even for a direct
+        # write without this observer. Public status flags must stay unchanged;
+        # the spy above also forbids any F_SETFL of these regular-file sinks.
+        mask = os.O_NONBLOCK | os.O_APPEND | getattr(os, "O_ASYNC", 0) | os.O_SYNC
+        assert [fcntl.fcntl(fd,fcntl.F_GETFL) & mask for fd in (a,b)] == [f & mask for f in flags]
+    finally:
+        os.close(a); os.close(b)
+
+
+def test_ready_write_race_eagain_retries_without_loss(m, tmp_path, monkeypatch):
+    import fcntl
+    rfd, fd = os.pipe()
+    real_write = os.write
+    attempts = []
+    def race(target,data):
+        if target == fd:
+            attempts.append(len(data))
+            if len(attempts) == 1:
+                assert fcntl.fcntl(fd,fcntl.F_GETFL) & os.O_NONBLOCK
+                raise BlockingIOError()
+        return real_write(target,data)
+    try:
+        monkeypatch.setattr(m.os,"write",race)
+        streams, seen, rc = m.run_streamed([sys.executable,"-c","import os; os.write(1,b'one'); os.write(2,b'two')"],3,targets=(fd,fd))
+        assert rc == 0 and streams == (b'onetwo',b'')
+        assert not seen["forwarding_failed"]
+        assert os.read(rfd,64) == b'onetwo'
+        assert not fcntl.fcntl(fd,fcntl.F_GETFL) & os.O_NONBLOCK
+    finally:
+        os.close(fd); os.close(rfd)
+
+
+def test_warning_on_full_alias_pipe_is_nonblocking_and_restored(m, monkeypatch):
+    import fcntl
+    import time
+    rfd,wfd = os.pipe()
+    try:
+        os.set_blocking(wfd,False)
+        while True:
+            try: os.write(wfd,b'x'*4096)
+            except BlockingIOError: break
+        os.set_blocking(wfd,True)
+        original = fcntl.fcntl(wfd,fcntl.F_GETFL)
+        monkeypatch.setenv("D1_METRICS_WARN_FD",str(wfd))
+        start = time.monotonic()
+        m.warn()
+        assert time.monotonic()-start < 0.5
+        assert fcntl.fcntl(wfd,fcntl.F_GETFL) == original
+    finally:
+        os.close(rfd);os.close(wfd)
