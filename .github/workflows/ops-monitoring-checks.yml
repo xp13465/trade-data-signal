@@ -336,10 +336,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Install pinned isolated browser test runtime
-        run: |
-          npm install --prefix "$RUNNER_TEMP/ops-browser" --no-save --package-lock=false --no-audit --no-fund playwright@1.62.1
-          node "$RUNNER_TEMP/ops-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      # Keep the 10-minute job bound, but identify package, apt and binary stalls.
+      # Two prior runs exhausted the combined install step before tests could run.
+      - name: Install pinned isolated Playwright package
+        run: npm install --prefix "$RUNNER_TEMP/ops-browser" --no-save --package-lock=false --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1 playwright@1.62.1
+      - name: Install Chromium system dependencies
+        run: node "$RUNNER_TEMP/ops-browser/node_modules/playwright/cli.js" install-deps chromium
+      - name: Install pinned Chromium binary
+        run: node "$RUNNER_TEMP/ops-browser/node_modules/playwright/cli.js" install chromium
       - name: Real page prefetch and split-signal contract regression
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/ops-browser/node_modules/playwright
