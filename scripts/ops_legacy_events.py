@@ -130,6 +130,8 @@ def dispatch(repo, notify_py, subject, body, refs, *, warning=False, source):
 # not a second notification queue/receipt engine. Poll observers above remain
 # independent of operation completion semantics.
 TASKS = {"nextday_plan", "nextday_gap", "update_all", "daily_summary"}
+# Reserved stdout token: diagnostics are distinct from a failed/empty begin.
+DISABLED_RUN = "disabled:diagnostic"
 
 
 def operation_key(task):
@@ -241,11 +243,12 @@ def operation_health(witness):
         ctx["health"] = witness
 
 
-def operation_mode(task, argv):
+def operation_mode(task, argv, *, unknown_is_live=False):
     """Alert and recovery are different permissions; real backfills still fail loud.
 
     Recognize the producer's argparse flags, including --option=value. Unknown
-    argv (e.g. importing from pytest) is not an operational entrypoint.
+    argv (e.g. importing from pytest) is not an operational entrypoint. A real
+    shell begin opts into fail-visible unknown argv, never a diagnostic marker.
     """
     flags = ({"--dry-run"} if task == "daily_summary" else
              {"--dry-run", "--no-r2", "--no-notify", "--no-backfill", "--repair-backfill"}
@@ -262,15 +265,17 @@ def operation_mode(task, argv):
                 key = matches[0]
         if key in valued:
             value = value if equal else next(items, "")
-            if not value or task == "daily_summary" and value != "main":
-                return False, False
+            if not value:
+                return unknown_is_live, False
+            if task == "daily_summary" and value != "main":
+                return (False if value == "supplement" else unknown_is_live), False
         elif key in flags and not equal:
             pass
         elif task == "daily_summary" and not positional and len(item) == 8 and item.isdigit():
             positional = True
             key = "--date"
         else:
-            return False, False
+            return unknown_is_live, False
         seen.add(key)
     live = not bool(seen & {"--dry-run", "--test-open", "--no-r2", "--no-notify"})
     recover = live and not bool(seen & {"--date", "--no-backfill", "--repair-backfill", "--recheck-pending", "--no-retry"})
@@ -329,11 +334,21 @@ def main(argv=None):
     ap.add_argument("--detail", default="")
     ap.add_argument("--disabled", action="store_true")
     ap.add_argument("--kind", default="execution")
+    ap.add_argument("--producer-args", nargs=argparse.REMAINDER, default=None,
+                    help="begin only: unmodified producer argv, parsed by operation_mode")
     args = ap.parse_args(argv)
-    if args.disabled:
+    if args.disabled or args.run == DISABLED_RUN or (args.action == "begin"
+            and args.producer_args is not None and not operation_mode(args.task, args.producer_args, unknown_is_live=True)[0]):
+        print(DISABLED_RUN if args.action == "begin" else "disabled")
         return 0
     if args.action == "begin":
-        print(begin_operation(args.repo, args.task))
+        try:
+            print(begin_operation(args.repo, args.task))
+        except Exception as exc:
+            # No stdout token: wrapper still reports a real child failure with
+            # unknown metadata, never mistakes a broken state file for dry-run.
+            print(f"[ops-operation] begin unknown: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
     else:
         status = complete_operation(args.repo, args.task, args.run,
                                     failed=args.action == "fail", detail=args.detail, kind=args.kind)

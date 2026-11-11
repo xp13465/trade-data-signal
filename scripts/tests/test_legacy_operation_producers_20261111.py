@@ -72,6 +72,7 @@ def test_late_success_or_failure_cannot_overwrite_newer_result(runtime):
 
 def test_daily_actual_acceptance_recovers_new_fault_does_not_inherit_ack(runtime, monkeypatch):
     ops,b=runtime; m=load('daily_summary_email');root=b[-1]
+    monkeypatch.setattr(m,'datetime',b[0].datetime)
     monkeypatch.setattr(m,'REPO',root)
     monkeypatch.setattr(m,'load_summary_item',lambda day:{'date':day})
     monkeypatch.setattr(m,'load_subscriptions',lambda:[])

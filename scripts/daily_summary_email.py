@@ -1646,7 +1646,11 @@ def _run_main(date: str, dry_run: bool) -> int:
     if not send_report_to_feishu(subject, text_body):
         log.error("情绪速递(main)未发出, 返回非 0 交给上层告警")
         return 1
-    operation_health("report_accepted")
+    # Use the actual requested/report date, including main(argv=...) and direct
+    # _run_main calls. sys.argv may describe a different caller. Historical
+    # reports still send, but cannot repair the current report incident.
+    if date == datetime.now().strftime("%Y%m%d") and str(it.get("date", "")) == date:
+        operation_health("report_accepted")
     return 0
 
 

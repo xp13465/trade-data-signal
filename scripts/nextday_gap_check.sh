@@ -54,14 +54,14 @@ echo "=== nextday_gap_check.sh 开始 $(date '+%F %T') ===" >> "$LOG"
 
 # Shared execution fence after calendar gate. Real --date/backfill failures
 # still alert; only dry/test/local-only modes disable operational notifications.
-_OP_DISABLED=""
-if [ "${#CHECK_ARGS[@]}" -gt 0 ]; then
-  for _a in "${CHECK_ARGS[@]}"; do
-    case "$_a" in --dry-run|--no-r2|--no-notify|--test-open|--test-open=*|--help|-h) _OP_DISABLED=--disabled ;; esac
-  done
-fi
+# Pass argv intact to the same parser used by the Python producer. The reserved
+# disabled token is explicit; empty stdout on metadata failure remains fail-visible.
 export OPS_LEGACY_TASK=nextday_gap
-OPS_LEGACY_RUN=$("$PY" scripts/ops_legacy_events.py begin --repo "$REPO" --task nextday_gap ${_OP_DISABLED:+--disabled}) || OPS_LEGACY_RUN=""
+if [ "${#CHECK_ARGS[@]}" -gt 0 ]; then
+  OPS_LEGACY_RUN=$("$PY" scripts/ops_legacy_events.py begin --repo "$REPO" --task nextday_gap --producer-args "${CHECK_ARGS[@]}") || OPS_LEGACY_RUN=""
+else
+  OPS_LEGACY_RUN=$("$PY" scripts/ops_legacy_events.py begin --repo "$REPO" --task nextday_gap --producer-args) || OPS_LEGACY_RUN=""
+fi
 export OPS_LEGACY_RUN
 export OPS_LEGACY_LOG="$LOG"
 RC=0
@@ -74,8 +74,7 @@ RC=$?
 if [ "$RC" -ne 0 ]; then
   echo "✗ 伪跳空二次剔除失败 rc=${RC}" >> "$LOG"
   "$PY" scripts/ops_legacy_events.py fail --repo "$REPO" --task nextday_gap \
-    --run "$OPS_LEGACY_RUN" --detail "nextday_gap_check.sh: child rc=${RC}；日志 ${LOG}；本轮结果未证实" \
-    ${_OP_DISABLED:+--disabled} >> "$LOG" 2>&1 || true
+    --run "$OPS_LEGACY_RUN" --detail "nextday_gap_check.sh: child rc=${RC}；日志 ${LOG}；本轮结果未证实" >> "$LOG" 2>&1 || true
 fi
 
 echo "=== nextday_gap_check.sh 结束 $(date '+%F %T') 退出码=$RC ===" >> "$LOG"

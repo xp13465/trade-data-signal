@@ -58,3 +58,17 @@ update_all 故障组合减少亦可能产生保守的新事件；不把部分好
 离线覆盖包括：真实完整 shell+Python main、真实 notify CLI、分渠道失败补发、包装兜底、
 线程迟到完成、ACK/新事件、rc0无结果文件、坏状态/缺盘、无refs不删、日期补跑、
 无数据/干跑/本地模式不恢复。所有外部网络/通知/进程叶节点均受替身或审计护栏限制。
+
+## 3182ea 独立复审两 P2 追加修复（不改旧提交）
+
+- 包装层删除第二份 flags case；`begin --producer-args ...` 原样接收 argv，
+  复用 `operation_mode`（含 argparse 唯一缩写）。明确打印 `disabled:diagnostic` 才是
+  诊断关闭；损坏状态等 begin 失败输出空令牌、返回非零，真实失败仍走可见兜底。
+  未识别/无效的真实 shell 参数也按失败可见处理，不能伪装为已识别的安全诊断模式。
+- 日报 `_run_main` 发送后，只有实际请求日期等于当前日期且报告日期匹配时才记录
+  `report_accepted`。覆盖 `main(argv=[...])` 和直接位置/关键字调用；历史业务报告照发，
+  不恢复当前 active。dry/supplement 保持不恢复，当前真实报告仍可恢复。
+- 新真实入口回归在 `test_legacy_operation_mode_followup_20261111.py`。
+  首轮日报 fixture 缺 `fx_contract` 被既有门禁拒绝，保留原失败日志，补合法数据而未修改门禁。
+  使用固定3182源码和合法 fixture 的历史日期反例为 `6 failed in 0.33s`；
+  修正后必要关联集与追加 SHA 见 `/tmp/codex-reports/ops-final-gaps-20261111/legacy-producers/followup-3182/`。
