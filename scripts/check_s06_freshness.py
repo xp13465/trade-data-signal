@@ -19,13 +19,11 @@
     「落后最近交易日 >1 个交易日」逐字一致。
   - generated_at 只打印供排查不参与判定: coverage_end 是数据语义锚, 「刚生成但输入没
     更新」(generated_at 新 / coverage_end 旧)同样能抓到。
-【告警】--notify 时才真发: notify.defer_warning 入聚合队列(schedule_monitor 尾部统一
-  flush 批发), 同一 (coverage_end, N) 状态只 defer 一次(N 加深才再报), 去重状态记
-  data/s06_fresh_alert_state.json——且只在 notify **真发出/入队**后落盘(codex008 F3:
-  先写后发的旧结构在发送失败时会把告警永久吞掉; #241 起判据为真实路由结果 notify_sent,
-  **不看 rc** —— notify.py 恒 return 0 含「全部渠道未发出」/append_failed, 按 rc 落签会吞真告警);
-  恢复(N<=1)清状态不发恢复邮件
-  (快照链正常重生本身即恢复, 免恢复轰炸)。默认 dry 只打印(单测/手动排查安全)。
+【告警】--notify 才写事件/通知。持续故障复用 alert_state 中同一事件，warning 携带
+  ops refs；每轮重新交 notify 检查入队/逐渠道回执，不能用「曾入队」替代投递成功。
+  真实恢复更新 requires_action=false，既有 warning/digest 在发送前重验并作废旧事件。
+  不发恢复邮件；下一次故障新 event_id，不继承旧 ACK/回执。旧无 refs 队列保留 unknown，
+  不按标题删除。共享状态损坏时保留原字节、响亮报错并直发未知故障，不猜健康。
 【dry 单测】--snap/--index 显式传构造样本路径即可验证判定与退出码(判定纯相对日期,
   无 now 依赖, 不需要假时钟)。复现命令见文件尾单测段注释。
 【输入依赖】--repo(默认 trade-data): static-site/data/{kelly_mode_s06_state,index/csi1000-all}.json
@@ -37,7 +35,7 @@ import argparse
 import json
 import os
 os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))  # #245 批2 W1: 台账 source 溯源
-import subprocess
+import hashlib
 import sys
 from pathlib import Path
 
@@ -45,7 +43,7 @@ from pathlib import Path
 # 使子进程 notify.py 的 REPO 探测落在与调用方(schedule_monitor flusher)同一棵树
 SCRIPT_DIR = Path(__file__).absolute().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from notify_sent import notify_sent  # noqa: E402  #241 落签判据(与 #240 F1 共用唯一实现)
+from ops_legacy_events import observe, dispatch  # noqa: E402
 # 数据仓候选: env 注入(REPO/GIT_REPO/MAIN_REPO, 与 pick_repo.candidate_repos 同类语义)优先,
 # 云上单仓(REPO=GIT_REPO=MAIN_REPO=/home/ubuntu/code/trade-data-signal)env 排最前;
 # env 缺失回退 macOS 本机 trade-data(向后兼容, 行为不变)。云上若仍用本机硬编码会读不到
@@ -60,7 +58,6 @@ DEFAULT_REPO_CANDIDATES = [
 ]
 DEFAULT_REPO = next((p for p in DEFAULT_REPO_CANDIDATES if (p / "static-site" / "data").exists()),
                     DEFAULT_REPO_CANDIDATES[0])
-STATE_PATH_NAME = "s06_fresh_alert_state.json"   # data/s06_fresh_alert_state.json(不进 git)
 
 
 def load_daily_dates(snap_path: Path) -> tuple[list[str], dict]:
@@ -92,105 +89,50 @@ def main() -> int:
     snap_path = Path(args.snap) if args.snap else repo / "static-site" / "data" / "kelly_mode_s06_state.json"
     idx_path = Path(args.index) if args.index else repo / "static-site" / "data" / "index" / "csi1000-all.json"
 
-    try:
+    key = "producer_s06|" + hashlib.sha256(
+        json.dumps([str(snap_path.absolute()), str(idx_path.absolute())]).encode()).hexdigest()
+
+    def probe():
         dates, snap = load_daily_dates(snap_path)
-        idx_ohlc = json.loads(idx_path.read_text(encoding="utf-8"))["ohlc"]
-    except FileNotFoundError as e:
-        print(f"S06_FRESH_ERROR 文件缺失: {e.filename}")
-        return 2
-    except (json.JSONDecodeError, KeyError) as e:
-        print(f"S06_FRESH_ERROR 解析失败: {type(e).__name__}: {e}")
-        return 2
-    if not idx_ohlc or not dates:
-        print("S06_FRESH_ERROR index ohlc 或快照 daily 为空")
-        return 2
+        idx_dates = [str(x["date"]) for x in json.loads(idx_path.read_text(encoding="utf-8"))["ohlc"]]
+        if not idx_dates or not dates:
+            raise ValueError("index ohlc 或快照 daily 为空")
+        cov_end, idx_last = dates[-1], idx_dates[-1]
+        n = judge(idx_dates, cov_end, idx_last)
+        # A future/unordered snapshot cannot certify recovery.
+        if n < 0 or idx_dates != sorted(set(idx_dates)) or dates != sorted(set(dates)):
+            raise ValueError("日期序列乱序、重复或快照超前，不能证明恢复")
+        detail = (f"coverage_end={cov_end} 落后最近已入库交易日 {idx_last} 共 {n} 个交易日 "
+                  f"(阈值>1 触发); generated_at={snap.get('generated_at', '?')}。"
+                  "前端超覆盖期 fail-open 不拦截=S06 档静默退化，请查快照生成和输入链路。")
+        return {"action": n > 1, "message": detail, "coverage_end": cov_end, "n": n}
 
-    idx_dates = [str(x["date"]) for x in idx_ohlc]
-    idx_last_date = str(idx_ohlc[-1]["date"])
-    cov_end = dates[-1]
-    gen_at = snap.get("generated_at", "?")
-    n = judge(idx_dates, cov_end, idx_last_date)
-    if n <= 1:
-        print(f"S06_FRESH_OK coverage_end={cov_end} index末={idx_last_date} 落后={n}个交易日 generated_at={gen_at}")
-        _clear_state(repo)
-        return 0
-    msg = f"S06 快照过期 {n} 日"
-    detail = (f"coverage_end={cov_end} 落后最近已入库交易日 {idx_last_date} 共 {n} 个交易日 "
-              f"(阈值>1 触发); generated_at={gen_at}。前端超覆盖期 fail-open 不拦截=S06 档静默退化, "
-              f"请查 s06_snapshot_launchd.log(gen/check/R2 三段)与 update_all 是否漏跑。")
-    print(f"S06_FRESH_FAIL {msg}: {detail}")
-
-    if args.notify:
-        if _state_matches(repo, cov_end, n):
-            print("[s06-fresh] 同状态已成功告警过, 抑制重复(defer 跳过)", file=sys.stderr)
-        else:
-            sent_ok = False
+    refs = None
+    try:
+        facts, refs = observe(repo, key, probe) if args.notify else (probe(), None)
+    except Exception as exc:
+        print(f"S06_FRESH_ERROR 状态/输入无法判定: {type(exc).__name__}: {exc}", file=sys.stderr)
+        if args.notify:
             try:
-                # 子进程调 notify.py CLI(--tier warning → defer_warning 入聚合 buffer),
-                # 不用 import: Path(__file__).resolve() 会穿透 trade-data/scripts→trade/scripts
-                # symlink 致 notify.REPO 锁到 trade 树, 而 flusher(schedule_monitor)在
-                # trade-data 树 → 告警写错 buffer 永不被消费(静默丢失)。
-                # absolute() 保持 symlink 字面路径, 与调用方同树。
-                proc = subprocess.run(
-                    [sys.executable, str(SCRIPT_DIR / "notify.py"),
-                     msg, detail.replace("\n", "<br>"),
-                     "--tier", "warning", "--from-prefix", "[告警·聚合]"],
-                    capture_output=True, text=True, timeout=60, check=False,
-                )
-                # #241: 落签判据不能看 rc —— notify.py 恒 return 0(含「全部渠道未发出」/
-                # defer_status='append_failed'), 通知全失败也 rc=0; 若按 rc 落签, 该过期告警
-                # 被后续轮次抑制 = 静默丢失。改判**真实路由结果**(唯一实现 scripts/notify_sent.py,
-                # 与 check_failed_units #240 F1 同一判据)。fail-safe: 判不出 ⇒ 不落签 ⇒ 下轮重试。
-                out = (proc.stdout or "") + (proc.stderr or "")
-                sent_ok = notify_sent(out)
-                if not sent_ok:
-                    print(f"[s06-fresh] notify.py 未真发出(rc={proc.returncode}), 本次不落去重状态"
-                          f"(下轮重试): {out.strip()[-200:]}",
-                          file=sys.stderr)
-            except Exception as e:  # noqa: BLE001
-                print(f"[s06-fresh] defer_warning 异常(不落状态待下轮重试): {e}", file=sys.stderr)
-            if sent_ok and _record_state(repo, cov_end, n, msg):
-                print("[s06-fresh] 告警已入聚合队列并记录去重状态", file=sys.stderr)
+                dispatch(repo, SCRIPT_DIR / "notify.py", "[告警] S06 新鲜度无法判定",
+                         "检查输入或共享事件状态失败，不能证明恢复：" + str(exc), None,
+                         source="check_s06_freshness.py")
+            except Exception as send_exc:
+                print(f"[s06-fresh] 未确认告警: {send_exc}", file=sys.stderr)
+        return 2
+    if not facts["action"]:
+        print("S06_FRESH_OK " + facts["message"])
+        return 0
+    print("S06_FRESH_FAIL " + facts["message"])
+    if args.notify:
+        try:
+            status = dispatch(repo, SCRIPT_DIR / "notify.py", f"S06 快照过期 {facts['n']} 日",
+                              facts["message"], refs, warning=True, source="check_s06_freshness.py")
+            if status not in ("deferred", "digested", "sent", "suppressed", "superseded"):
+                print(f"[s06-fresh] 告警未完成({status})，下轮重试", file=sys.stderr)
+        except Exception as exc:
+            print(f"[s06-fresh] 告警未完成，下轮重试: {exc}", file=sys.stderr)
     return 1
-
-
-def _state_path(repo: Path) -> Path:
-    return repo / "data" / STATE_PATH_NAME
-
-
-def _state_matches(repo: Path, cov_end: str, n: int) -> bool:
-    """同一 (coverage_end, N) 已【成功】告警过才抑制; N 加深或状态文件缺失/损坏都视为未发。"""
-    try:
-        st = json.loads(_state_path(repo).read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return False
-    return st.get("coverage_end") == cov_end and st.get("n") == n
-
-
-def _record_state(repo: Path, cov_end: str, n: int, msg: str) -> bool:
-    """codex008 F3(P2) + #241: 去重状态只在 notify **真发出/入队**(notify_sent 判真实
-    路由结果, 不看 rc)后落盘; 发送失败/未入队/异常一律不写——旧结构先写后发且忽略
-    判据, 发送失败时状态已被记为「已告警」, 该过期告警永久丢失(每轮被抑制)。
-    失败不写=下一监控周期自动重试。"""
-    p = _state_path(repo)
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"coverage_end": cov_end, "n": n, "msg": msg},
-                                  ensure_ascii=False), encoding="utf-8")
-        tmp.replace(p)
-        return True
-    except OSError as e:
-        print(f"[s06-fresh] 去重状态写入失败(不影响本次已入队的告警): {e}", file=sys.stderr)
-        return False
-
-
-def _clear_state(repo: Path) -> None:
-    """恢复新鲜即清状态(下次过期可再报); 不发恢复邮件。"""
-    try:
-        _state_path(repo).unlink(missing_ok=True)
-    except OSError:
-        pass
 
 
 if __name__ == "__main__":

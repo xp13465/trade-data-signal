@@ -1,0 +1,4 @@
+[cooldown] producer_heartbeat 恢复邮件静默(上次恢复 <6h 前), 状态已置 recovered 但不发邮件 (首次发现: 2026-11-11 18:37:01)
+[recovery] producer_heartbeat 异常关键词 ? 已消失 (首次发现: 2026-11-11 18:37:01)
+DEPENDENCY_REPRODUCED: schedule falsely recovers unobserved external producer
+DEPENDENCY_REPRODUCED: stale schedule snapshot overwrites new producer event

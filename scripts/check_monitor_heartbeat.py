@@ -11,9 +11,9 @@ notify --severe 告警到用户（含 latest.md 流水区留痕）。
 沉默触发，不是由异常活跃触发（与 memory alert-denoise-keep-fault-discriminator
 一致：判定维度用「心跳是否在推进」这个有因果区分度的特征，不用表面特征降级）。
 
-防告警轰炸：notify --dedup-key schedule_monitor_heartbeat 窗口 3600s（1h）。
-  正常情况每天发 0 封；故障期每 1h 1 封（持续超时每窗口重发，直到心跳恢复 = 文件
-  mtime 变新），不逐 15min 轮轰炸。
+防告警轰炸：持续故障复用现有 alert_state 事件 + notify 各渠道回执。
+  首报保留，重复轮只补失败渠道；真实恢复后新故障使用新 event_id，不继承旧 ACK。
+  不再按 1h 窗口重复首报。共享状态不可用时响亮返回 2、保留原文件并直发未知故障。
 
 边界（诚实标注，超出 P0-1 范围）：本消费者自身由外部调度器驱动，调度器挂 = 本检查
 也不跑 = 告警链断（元-元监控层）；notify.py 自身崩溃也无法把告警送出（latest.md 也
@@ -24,26 +24,22 @@ notify --severe 告警到用户（含 latest.md 流水区留痕）。
       [--heartbeat-path /tmp/schedule-monitor-heartbeat.txt] \
       [--stale-seconds 1800] [--repo <REPO>] [--dry-run]
 
-退出码：0=健康（静默无输出告警）或「已判定异常且告警已发出/被 dedup 窗口抑制」；
+退出码：0=健康（静默无输出告警）或「已判定异常且事件通知已受理/被同事件回执抑制」；
   2=判定异常但 notify 未确认发出（failed/异常，需人工介入）。
 """
 from __future__ import annotations
 
 import argparse
-import subprocess
+import hashlib
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from notify_sent import notify_state  # noqa: E402  (#241 Pattern B/W2: 三态判据, 同 notify_sent 唯一实现)
+from ops_legacy_events import observe, dispatch
 
 # 默认心跳文件：与 schedule_monitor.sh 尾部 heartbeat 段（L2255 附近）一致
 DEFAULT_HEARTBEAT = Path("/tmp/schedule-monitor-heartbeat.txt")
 DEFAULT_STALE_SECONDS = 1800  # 30min：连续 2 轮（15min/轮）未更新判定停摆
-# 告警去重窗口（秒）：健康期 0 封；故障期每窗口 1 封，防 15min 轮逐轮轰炸
-DEDUP_KEY = "schedule_monitor_heartbeat"
-DEDUP_WINDOW = 3600
-
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="schedule-monitor 心跳消费方（元监控）")
@@ -60,59 +56,48 @@ def main(argv: list[str] | None = None) -> int:
     repo = Path(args.repo) if args.repo else Path(__file__).absolute().parent.parent
     notify_py = repo / "scripts" / "notify.py"
 
-    # ── 心跳新鲜度判定（mtime：文件最近更新时间，语义=「上次 monitor 完整跑完」）──
-    if not hb.exists():
-        reason = f"heartbeat 文件不存在: {hb}"
-    else:
+    if args.stale_seconds <= 0:
+        ap.error("stale-seconds must be positive")
+    key = "producer_heartbeat|" + hashlib.sha256(str(hb.absolute()).encode()).hexdigest()
+
+    def probe():
         try:
             age = datetime.now(timezone.utc).timestamp() - hb.stat().st_mtime
-        except Exception as e:  # noqa: BLE001
-            reason = f"heartbeat stat 失败: {e}"
+        except FileNotFoundError:
+            reason = f"heartbeat 文件不存在: {hb}"
+        except OSError as exc:
+            reason = f"heartbeat stat 失败: {exc}"
         else:
-            if age <= args.stale_seconds:
-                # 健康：静默退出，不产生任何告警（反向测：健康路径必须零输出告警）
-                print(f"[monitor-heartbeat] OK heartbeat age={int(age)}s <= "
-                      f"{args.stale_seconds}s", file=sys.stderr)
-                return 0
-            reason = f"heartbeat 陈旧 {int(age)}s > {args.stale_seconds}s: {hb}"
+            if 0 <= age <= args.stale_seconds:
+                return {"action": False, "message": f"heartbeat age={int(age)}s", "age_seconds": age}
+            reason = f"heartbeat 时间异常/陈旧 {int(age)}s (阈值 {args.stale_seconds}s): {hb}"
+        return {"action": True, "message": reason}
 
-    # ── 超时/缺失：发告警（沉默即故障；dedup 防轰炸）─────────────────────────────
-    print(f"[monitor-heartbeat] ✗ {reason}", file=sys.stderr)
-    subject = "[告警] schedule-monitor 心跳超时（监控停摆）"
-    body = (f"schedule-monitor 心跳超时，监控体系可能停摆。\n{reason}\n\n"
-            f"本告警由 check_monitor_heartbeat.py（元监控消费者）发出。\n"
-            f"请排查：云上 schedule-monitor 对应 timer/service 是否 active、\n"
-            f"日志（如 schedule_monitor 日志）是否仍在推进。")
-    cmd = [
-        sys.executable, str(notify_py),
-        subject, body,
-        "--severe",
-        "--from-prefix", "[告警]",
-        "--alert-issue", "schedule-monitor 心跳超时",
-        "--dedup-key", DEDUP_KEY, "--dedup-window", str(DEDUP_WINDOW),
-    ]
     if args.dry_run:
-        cmd.append("--dry-run")
-        print(f"[monitor-heartbeat][dry-run] 将执行: {' '.join(cmd)}", file=sys.stderr)
+        print(f"[monitor-heartbeat][dry-run] {probe()}", file=sys.stderr)
         return 0
+    state_unknown = False
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)
-    except Exception as e:  # noqa: BLE001
-        print(f"[monitor-heartbeat] notify 调用失败（告警未能发出）: {e}", file=sys.stderr)
+        facts, refs = observe(repo, key, probe)
+    except Exception as exc:
+        # Never overwrite corrupt state or treat it as recovery / receipt.
+        print(f"[monitor-heartbeat] 事件状态 unknown: {exc}", file=sys.stderr)
+        facts, refs, state_unknown = probe(), None, True
+    if not facts["action"]:
+        print(f"[monitor-heartbeat] OK {facts['message']}", file=sys.stderr)
+        return 2 if state_unknown else 0
+    print(f"[monitor-heartbeat] ✗ {facts['message']}", file=sys.stderr)
+    body = ("schedule-monitor 心跳超时，监控体系可能停摆。\n" + facts["message"] +
+            "\n请排查 schedule-monitor 对应 timer/service、日志是否仍在推进。" +
+            ("\n共享事件状态无法确认；本次为 fail-visible 首报，未证明去重/恢复。" if state_unknown else ""))
+    try:
+        status = dispatch(repo, notify_py, "[告警] schedule-monitor 心跳超时（监控停摆）",
+                          body, refs, source="check_monitor_heartbeat.py")
+    except Exception as exc:
+        print(f"[monitor-heartbeat] notify 未确认: {exc}", file=sys.stderr)
         return 2
-    # #241 Pattern B / W2(2026-10-10): rc 无判别力(notify.py main() 所有出口恒 return 0)。
-    # 改三态判据(notify_sent.notify_state): sent=真发出; suppressed=被 dedup 窗口抑制
-    # (=已发过, 成功且已知, 不重试不报错); failed/未知=保守回 rc 2(交调度层告警)。
-    out = (r.stdout or "") + "\n" + (r.stderr or "")
-    state = notify_state(out)
-    if state in ("sent", "suppressed"):
-        print(f"[monitor-heartbeat] notify 已处理({state}, rc={r.returncode}, "
-              f"dedup {DEDUP_KEY}/{DEDUP_WINDOW}s)", file=sys.stderr)
-        # 告警已由 notify 独立通道发出（email/feishu/latest.md）或被窗口抑制，本脚本正常完成
-        return 0
-    print(f"[monitor-heartbeat] notify 未发出（state={state}, rc={r.returncode}）: "
-          f"{out.strip()[:300]}", file=sys.stderr)
-    return 2
+    # Partial/unknown MUST retry missing channels, not masquerade as full success.
+    return 0 if not state_unknown and status in ("sent", "suppressed", "superseded") else 2
 
 
 if __name__ == "__main__":

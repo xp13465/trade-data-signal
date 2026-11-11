@@ -1,0 +1,57 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+________________________ test_s06_recovers_before_flush ________________________
+
+producers = ((<module 'quiet_notify' from '/Users/linhuichen/code/trade/.claude/worktrees/codex-legacy-alert-lifecycle-20261111/sc...olders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-468/test_s06_recovers_before_flush0/heartbeat'))
+
+    def test_s06_recovers_before_flush(producers):
+        b, snap, run, *_ = producers
+        snap(False)
+        assert run() == 1
+        assert not b[3]
+        snap(True)
+        assert run() == 0
+        flush(b)
+>       assert b[3] == []
+E       AssertionError: assert [{'channel': ...epted': True}] == []
+E         
+E         Left contains 3 more items, first extra item: {'channel': 'email', 'body': '以下 1 条告警未即时直发, 已并入本摘要(被合并 1 条; 构成: warning 聚合批(本次并入摘要, 未单独外发) 1 条); 条目全量可检索(逐条含来源脚本/去重键)...at=?。前端超覆盖期 fail-open 不拦截=S06 档静默退化, 请查 s06_snapshot_launchd.log(gen/check/R2 三段)与 update_all 是否漏跑。', 'accepted': True}
+E         Use -v to get more diff
+
+/Users/linhuichen/code/trade/.claude/worktrees/codex-legacy-alert-lifecycle-20261111/scripts/tests/test_legacy_ops_lifecycle_20261111.py:76: AssertionError
+----------------------------- Captured stdout call -----------------------------
+S06_FRESH_FAIL S06 快照过期 3 日: coverage_end=20261106 落后最近已入库交易日 20261111 共 3 个交易日 (阈值>1 触发); generated_at=?。前端超覆盖期 fail-open 不拦截=S06 档静默退化, 请查 s06_snapshot_launchd.log(gen/check/R2 三段)与 update_all 是否漏跑。
+S06_FRESH_OK coverage_end=20261111 index末=20261111 落后=0个交易日 generated_at=?
+----------------------------- Captured stderr call -----------------------------
+[s06-fresh] 告警已入聚合队列并记录去重状态
+[notify][digest] warning 聚合批已并入当日摘要 buffer(23:25 出线, 不即时直发): n=1 组数=1
+[notify][warning] 批发 1 条（剩余 0 条）：已并入摘要(23:25 出线)
+[notify] 邮件已发送至 offline@example.test：[告警·摘要] 当日合并 1 条 (warning_batch 1) 11-11 23:30
+[notify] Telegram 已发送至 offline：[告警·摘要] 当日合并 1 条 (warning_batch 1) 11-11 23:30
+[notify] Feishu 已发送至 offline-report：[告警·摘要] 当日合并 1 条 (warning_batch 1) 11-11 23:30
+[notify][latest-mirror] 已镜像登记 /private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-468/test_s06_recovers_before_flush0/data/alerts/latest.md level=digest
+[notify][ledger] 台账登记 /private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-468/test_s06_recovers_before_flush0/data/alerts/alert_ledger.jsonl
+________________ test_heartbeat_same_incident_three_hours_later ________________
+
+producers = ((<module 'quiet_notify' from '/Users/linhuichen/code/trade/.claude/worktrees/codex-legacy-alert-lifecycle-20261111/sc...olders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-468/test_heartbeat_same_incident_t0/heartbeat'))
+
+    def test_heartbeat_same_incident_three_hours_later(producers):
+        b, _, _, run, *_ = producers
+        assert run() == 0
+        assert len(b[3]) == 3
+        b[1][0] += timedelta(hours=3)
+        assert run() == 0
+>       assert len(b[3]) == 3
+E       assert 6 == 3
+E        +  where 6 = len([{'channel': 'email', 'body': 'schedule-monitor 心跳超时，监控体系可能停摆。\nheartbeat 文件不存在: /private/var/folders/xb/5v1hplgn02s6t...费者）发出。\\n请排查：云上 schedule-monitor 对应 timer/service 是否 active、\\n日志（如 schedule_monitor 日志）是否仍在推进。"}'}, 'accepted': True}])
+
+/Users/linhuichen/code/trade/.claude/worktrees/codex-legacy-alert-lifecycle-20261111/scripts/tests/test_legacy_ops_lifecycle_20261111.py:85: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[monitor-heartbeat] ✗ heartbeat 文件不存在: /private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-468/test_heartbeat_same_incident_t0/heartbeat
+[monitor-heartbeat] notify 已处理(sent, rc=0, dedup schedule_monitor_heartbeat/3600s)
+[monitor-heartbeat] ✗ heartbeat 文件不存在: /private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-468/test_heartbeat_same_incident_t0/heartbeat
+[monitor-heartbeat] notify 已处理(sent, rc=0, dedup schedule_monitor_heartbeat/3600s)
+=========================== short test summary info ============================
+FAILED scripts/tests/test_legacy_ops_lifecycle_20261111.py::test_s06_recovers_before_flush
+FAILED scripts/tests/test_legacy_ops_lifecycle_20261111.py::test_heartbeat_same_incident_three_hours_later
+2 failed in 0.18s
