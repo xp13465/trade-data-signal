@@ -673,3 +673,93 @@ for (const service of ['trade-public-fund-daily.service','trade-overfit-monitor.
     }));
   }
 }
+
+
+// Independent-review counterexamples: candidates must not become green through
+// warning-only failure, a closed/missing episode, or JSON's boolean/number coercion.
+for (const service of ['trade-public-fund-daily.service','trade-overfit-monitor.service']) {
+  for (const scenario of ['warning_after_critical','warning_first','fresh_no_proof','closed_no_proof','false_exit','false_exit_fresh']) {
+    test(`review counterexample ${service} ${scenario}`,()=>fixture(async f=>{
+      const id='cloud-service:'+service;
+      function s(status,inv){const v=severeSnapshot(f,status,inv,0,-100);v.checks[0].id=id;return v;}
+      const fresh=['fresh_no_proof','false_exit_fresh'].includes(scenario);
+      if(!fresh&&scenario!=='warning_first')await f.push(s('critical','a'));
+      f.advance(1000);
+      if(scenario.startsWith('warning')){
+        const warning=s('warning','b');delete warning.checks[0].evidence.execution_state;
+        warning.checks[0].evidence.unit_result='timeout';
+        assert.equal((await f.push(warning)).status,200);
+      }
+      if(scenario==='closed_no_proof'){
+        assert.equal((await f.push(s('ok','b'))).status,200);
+        assert.equal((await f.call()).body.latest.checks[0].problem_open,false);
+      }
+      const eventsBefore=(await f.call('/events')).body.events.filter(e=>e.kind==='recovery').length;
+      f.advance(1000);const candidate=s('ok','c'),e=candidate.checks[0].evidence;
+      if(scenario.startsWith('warning')){
+        e.last_start_utc=new Date(f.now()-1500).toISOString();
+        e.last_exit_utc=new Date(f.now()-1200).toISOString();
+      }
+      if(scenario==='fresh_no_proof'||scenario==='closed_no_proof')candidate.checks[0].evidence={exit_code:0,unit_result:'success',invocation_id:null,last_exit_utc:null};
+      if(scenario.startsWith('false_exit'))e.exit_code=false;
+      const ack=await f.push(candidate);assert.equal(ack.status,200);
+      const current=(await f.call()).body.latest.checks[0];
+      assert.equal(current.status,'unknown');assert.equal(ack.body.counts.ok,0);
+      assert.equal(current.problem_open,!fresh&&scenario!=='closed_no_proof');
+      assert.equal((await f.call('/events')).body.events.filter(e=>e.kind==='recovery').length,eventsBefore);
+    }));
+  }
+}
+
+
+for(const [label,value] of [['boolean',false],['null',null],['string','0'],['nonzero',124]]){
+  test(`first-seen severe integer exit contract rejects ${label}`,()=>fixture(async f=>{
+    const candidate=severeSnapshot(f,'ok','a');candidate.checks[0].evidence.exit_code=value;
+    assert.equal((await f.push(candidate)).body.counts.ok,0);
+    assert.equal((await f.call()).body.latest.checks[0].status,'unknown');
+  }));
+}
+for(const damage of ['missing_exit','now_timestamp','numeric_timestamp','unzoned_timestamp','missing_invocation']){
+  test(`first-seen severe complete proof rejects ${damage}`,()=>fixture(async f=>{
+    const candidate=severeSnapshot(f,'ok','a'),e=candidate.checks[0].evidence;
+    if(damage==='missing_exit')delete e.exit_code;
+    if(damage==='now_timestamp')e.last_start_utc=e.last_exit_utc='now';
+    if(damage==='numeric_timestamp')e.last_start_utc=e.last_exit_utc=2461351.5;
+    if(damage==='unzoned_timestamp')e.last_start_utc=e.last_exit_utc=candidate.collected_at.replace('Z','');
+    if(damage==='missing_invocation')delete e.invocation_id;
+    assert.equal((await f.push(candidate)).body.counts.ok,0);
+  }));
+}
+test('first-seen valid invocation integer zero and explicit UTC offset are accepted',()=>fixture(async f=>{
+  const candidate=severeSnapshot(f,'ok','a');
+  for(const k of ['last_start_utc','last_exit_utc'])candidate.checks[0].evidence[k]=candidate.checks[0].evidence[k].replace('Z','+00:00');
+  assert.equal((await f.push(candidate)).body.counts.ok,1);
+  assert.equal((await f.call()).body.latest.checks[0].problem_open,false);
+}));
+
+test('controlled warning failure interleave advances the failure anchor before stale recovery commits',()=>fixture(async f=>{
+  await f.push(severeSnapshot(f,'critical','a'));
+  const candidate=severeSnapshot(f,'ok','b',2000,500);
+  const warning=severeSnapshot(f,'warning','c',1000,900);delete warning.checks[0].evidence.execution_state;
+  const batch=f.db.batch.bind(f.db);let first=true,release,entered;
+  const paused=new Promise(resolve=>entered=resolve),resume=new Promise(resolve=>release=resolve);
+  f.db.batch=async statements=>{if(first){first=false;entered();await resume;}return batch(statements)};
+  const pending=f.push(candidate);await paused;
+  try{assert.equal((await f.push(warning)).status,200);}finally{release()}
+  assert.equal((await pending).body.counts.ok,0);
+  const current=(await f.call()).body.latest.checks[0];
+  assert.equal(current.problem_open,true);assert.equal(current.status,'unknown');
+  const anchor=f.db.sql.prepare('SELECT recovery_failure_invocation FROM ops_check_state WHERE check_id=?').get(candidate.checks[0].id);
+  assert.equal(anchor.recovery_failure_invocation,'c'.repeat(32));
+}));
+
+
+test('revised worker refuses superseded 0005 policy1 without accepting a snapshot',()=>fixture(async f=>{
+  f.db.sql.exec('UPDATE ops_recovery_policy SET version=1 WHERE id=1');
+  const s=f.snapshot();const refusal=await f.push(s);
+  assert.equal(refusal.status,503);assert.equal(refusal.body.error,'ops_recovery_migration_required');
+  assert.equal(refusal.body.error_kind,'storage_configuration');
+  assert.equal(f.db.sql.prepare('SELECT COUNT(*) n FROM ops_runs').get().n,0);
+  f.db.sql.exec('UPDATE ops_recovery_policy SET version=2 WHERE id=1');
+  assert.equal((await f.push(s)).status,200);
+}));

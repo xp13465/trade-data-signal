@@ -172,7 +172,7 @@ async function ingest(request, env, db, now, diagnostic) {
   let policy;
   try { policy = await stmt(db, 'SELECT version FROM ops_recovery_policy WHERE id=1').first(); }
   catch { throw new OpsError(503, 'ops_recovery_migration_required', 'storage_configuration'); }
-  if (policy?.version !== 1) throw new OpsError(503, 'ops_recovery_migration_required', 'storage_configuration');
+  if (policy?.version !== 2) throw new OpsError(503, 'ops_recovery_migration_required', 'storage_configuration');
   // A conflicting replay fails a NOT NULL constraint inside the atomic batch.
   // Same-content duplicates perform no INSERT trigger/current-state work.
   try {

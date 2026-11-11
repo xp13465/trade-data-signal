@@ -31,9 +31,9 @@ record_publication(data_root=REPO, run_id=run_id, object_name=name,
 
 父审两个反例均先在实际Worker API复现，原始日志 `worker-before-atomic.log`。第一例恢复包被浅复制引用污染，受DB问题状态影响而重放409；第二例批次外prior读取存在先读后写竞争，新失败可被旧恢复覆盖。
 
-现在先固定原始输入hash，再structuredClone规范化。原两服务的恢复条件在新增 `0005_ops_recovery_invocation.sql` 内执行：同一ops_runs插入事务读取当前故障锚点，必须新32位hex invocation、completed/success/exit0、开始晚于原失败、结束不晚于观察时间；无效恢复显示unknown并保留problem_open。时间先按毫秒四舍五入，避免julianday浮点误差让“相同开始时间”过关。其它检查正常更新，ACK/history计数取原子选出状态。没有修改已部署0001—0004，也没有把策略扩大到所有业务。
+现在先固定原始输入hash，再structuredClone规范化。原两服务的恢复条件在新增 `0005_ops_recovery_invocation.sql` 内执行：同一ops_runs插入事务读取当前故障锚点，所有OK都必须有32位hex invocation、completed/success、JSON整数exit_code=0及带时区完整起止；已有失败锚点时，还须新invocation且开始晚于最新warning/critical失败；结束不晚于观察时间；无效恢复显示unknown并保留problem_open。时间先按毫秒四舍五入，避免julianday浮点误差让“相同开始时间”过关。其它检查正常更新，ACK/history计数取原子选出状态。没有修改已部署0001—0004，也没有把策略扩大到所有业务。
 
-上线顺序：备份现有OPS_DB并确认已有0001—0004后，先应用0005（新增故障锚点、替换insert trigger、最后写policy版本），核对policy=1和原两严重问题仍开放；再发布Worker；再启用producer/collector并登记原代码身份manifest。新Worker遇旧schema明确返回503 `ops_recovery_migration_required` / `storage_configuration`，collector不会无界重试；读取API可继续使用。
+上线顺序：备份现有OPS_DB并确认已有0001—0004后，先应用0005（新增故障锚点、替换insert trigger、最后写policy版本2），核对policy=2和原两严重问题仍开放；再发布Worker；再启用producer/collector并登记原代码身份manifest。新Worker遇旧schema明确返回503 `ops_recovery_migration_required` / `storage_configuration`，collector不会无界重试；读取API可继续使用。
 
 回滚顺序：先回退Worker/collector代码，保留0005及故障锚点，不删除policy或回写旧trigger。旧Worker配新schema仍由数据库保护恢复；旧collector不含自然invocation证明时保持unknown，不自动关闭两严重。若迁移本身中断或校验失败，由父任务按备份恢复、核对migration登记后重试；不要在部分DDL状态上盲重跑。生产迁移、发布、自然下一轮验收本组均未执行。
 
@@ -57,9 +57,21 @@ backup子步骤证明精确源对象恢复，不证明其它JSON资产整套恢�
 
 浏览器使用实际static-site/admin/ops.html、ops.js、ops.css及真实本地collector产出，在390/1280渲染；没有伪造DOM。原调度浏览器回归1440/390另20断言，所有请求route封锁外发。截图与原始日志位于 `/tmp/codex-reports/ops-backlog-20261111/ops/`。
 
-Worker及兼容回归98项通过，包含丢失ACK后并发同snapshot、首次接收时间、过期、两个原严重服务的16个恢复负控、成功恢复包重复与关闭后重放、受控batch交错、前向迁移升级与旧schema明确拒绝。临时npm取得Miniflare 4.20260730.0，没有convertV4MiniflareOptions且最大支持2026-08-06；仅/tmp测试副本移除converter并改兼容日期后真实本地D1事务及原benefits兼容测试通过12项（包含真实D1受控batch交错与恢复包并发重放）。**该结果不是生产2026-11-07兼容日期验收**；生产配置未改。第一次缺包/不兼容失败日志保留。
+后续独立复核修正后的Worker及兼容回归122项通过，包含丢失ACK后并发同snapshot、首次接收时间、过期、两个原严重服务的16个恢复负控、成功恢复包重复与关闭后重放、受控batch交错、前向迁移升级与旧schema明确拒绝。首次临时Miniflare 4.20260730.0只能适配旧日期，该历史日志保留。后续从锁文件在独立/tmp目录npm ci得到Wrangler4.158.0 / Miniflare5.20261104.0-beta / workerd1.20261104.1，并另取Wrangler4.160.0 / Miniflare5.20261110.0-beta / workerd1.20261110.1；两套均使用原生convertV4MiniflareOptions且保持2026-11-07，无日期降级。实际Worker源码打包后在workerd内运行，各31项通过，包括旧Worker/新Worker、warning并发交错与本次三个反例。真实本地Wrangler CLI另4项验证0005原子失败回滚、重试、已登记跳过与故障锚点保留。项目依赖、生产配置、线上库均未改。
 
 已抓当前[Workers最佳实践](https://developers.cloudflare.com/workers/best-practices/workers-best-practices/)与[D1事务API](https://developers.cloudflare.com/d1/worker-api/d1-database/)，临时workers-types=5.20261110.1。没有项目依赖更新；认证保持独立ingest/admin、bounded body、no-store、无敏感异常输出。
+
+## 独立复核后的修正与兼容边界
+
+独立报告OPS-001/002/003均自行复现后修复；`review-counterexamples-before.log`为12例中10失败、2个warning-only对照已通过。warning和critical推进最新失败锚点，unknown/running不推进；原两个服务即使首次出现或问题已关闭，OK也必须有完整执行证据；SQLite `json_type(exit_code)='integer'` 排除false冒充0。缺证据变unknown，不凭空创建事故。新增受控warning并发、类型/日期负控和有效整数0/显式UTC偏移正控。
+
+本次0005尚未生产部署，按明确授权修订此新增迁移；不改0001—0004。新Worker要求 `ops_recovery_policy.version=2`，旧schema或被否决dd7的policy1明确503。若某库已登记旧候选0005，工具会按文件名跳过；不要把修改文件当该库已升级。临时测试库可重建，任何已部署库则应另加前向迁移，不回写已部署migration。
+
+回滚目标须固定到已审核旧版本。本次实际测试旧Worker为基线0ad543ef41758be9d7102b42471489b24d0cb989：保留修订0005时，原两服务仍受数据库完整执行证据和新失败锚点保护。dd7是被否决的中间候选，其gate只接受policy1，不适合作为policy2库的回滚目标。
+
+**旧Worker不是全部新语义等价回滚**：它缺少业务 `valid_until` 读取时保护，实际已复现一份原本有效的业务回执到期后，新Worker为unknown、旧Worker仍显示OK，直到下一份unknown采集包或30分钟观察过期；旧ACK也不返回received_at/ack_state。若需要这些新语义持续有效，应保留修订Worker并前向修复，不能宣布完整功能兼容回滚。没有部署、迁移线上或关闭生产问题。
+
+兼容报告另存 `/tmp/codex-reports/ops-backlog-20261111/ops/production-compatibility.json`；原dd7测试归档 `/tmp/ops-production-compat-20261111/dd7-compatibility/`，续修最终测试见report中的具体版本与迁移hash。生产目标日期采用父任务指定2026-11-07，未远程核对线上实际配置；本独立树根配置仍是2026-07-07，不擅自修改。
 
 ## 34项资产的下一份证据
 
