@@ -8,9 +8,9 @@
   永不作为 T 日 unit_nav 落行。无回填(COALESCE 只保留非空)。
 
 本采集器(止漏, 不改 fetch_daily_nav):
-  - 走天天基金 lsjz 历史 API(api.fund.eastmoney.com/f10/lsjz, 带 Referer)补近 7 自然日净值。
+  - lsjz 完整分页；日常从最后有效日回看7日，历史每轮向前366日，真实NULL有界复查。
   - 只选 fund_basic.fund_type LIKE 'FOF%' OR 'QDII%'。
-  - 只补「缺行 or NULL」, 不覆盖已有非空(COALESCE(库值, 新值) = 库值非空保留库值)。
+  - 只补缺行/NULL；非空修订保全before/after证据并整基金拒绝，不半写。
     注: 方向与 fetch_daily_nav **相反**——fetch_daily_nav 用 COALESCE(新值, 库值)=新值非空优先
     用新值(可覆盖库值); 本采集器用 COALESCE(库值, 新值)=库值非空永不被覆盖(更保守, 止漏不踩踏)。
   - 不用窗口内任一非空值推断整窗完整；轮转复查全部 FOF/QDII，允许迟发布日补入。
@@ -23,7 +23,7 @@
   --days   拉 lsjz 的近 N 自然日(默认 7, 覆盖 T-1/T-2 + 周末)
   --limit  只跑前 N 只(调试/小样, 优先于 --batch，不推进轮转，最多500)
   --batch  每轮最多采 N 只(默认/上限500，持久游标轮转)
-  --dry-run 只拉不写
+  --dry-run 只拉不写；须为已checkpoint的静态DB副本，拒绝未合并WAL
   --fund-code 单只定向复查，仅既有FOF/QDII；不读写全局轮转进度，可配--days 14。
 
 时点(云上 timer): 21:10 交易日(21:00 backfill-evening 写 sentiment.db 不撞同库,
@@ -33,13 +33,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sqlite3
 import ssl
 import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 try:
@@ -89,54 +90,66 @@ UPSERT_SQL = (
 )
 
 
-def fetch_lsjz(fund_code: str, start_date: str, end_date: str) -> list[dict]:
-    """拉 lsjz 历史 API, 返回 [{'date','unit_nav','acc_nav','pct','prev_unit'}, ...]。
-
-    start/end = YYYY-MM-DD。返回按日期降序(API 原序), prev_unit 取下一条(更早一日)的 DWJZ。
-    """
-    url = (
-        f"{LSJZ_URL}?fundCode={fund_code}&pageIndex=1&pageSize=20"
-        f"&startDate={start_date}&endDate={end_date}"
-    )
-    req = urllib.request.Request(
-        url, headers={"Referer": REFERER, "User-Agent": USER_AGENT}
-    )
-    with urllib.request.urlopen(req, timeout=REQ_TIMEOUT, context=_SSL_CTX) as resp:
-        raw = resp.read().decode("utf-8", errors="replace")
-    data = json.loads(raw)
-    if not data or data.get("ErrCode") not in (0, None):
-        raise RuntimeError(f"lsjz ErrCode={data.get('ErrCode')} Msg={data.get('ErrMsg')}")
-    rows = (data.get("Data") or {}).get("LSJZList") or []
-    out: list[dict] = []
+def fetch_lsjz(fund_code: str, start_date: str, end_date: str, *,
+               deadline: float | None = None) -> list[dict]:
+    """完整分页后才返回；校验页号/总数/日期降序，跨页计算prevNAV。"""
+    from app.collector.public_fund_gap import request_budget, remaining
+    deadline = time.monotonic() + 290 if deadline is None else deadline
+    rows = []
+    total = None
+    page = 1
+    while True:
+        remaining(deadline)
+        url = (f"{LSJZ_URL}?fundCode={fund_code}&pageIndex={page}&pageSize=20"
+               f"&startDate={start_date}&endDate={end_date}")
+        req = urllib.request.Request(url, headers={"Referer": REFERER, "User-Agent": USER_AGENT})
+        with request_budget(deadline, REQ_TIMEOUT) as budget:
+            with urllib.request.urlopen(req, timeout=budget, context=_SSL_CTX) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        if not isinstance(data, dict) or data.get('ErrCode') not in (0, None):
+            raise RuntimeError('lsjz错误响应')
+        block = data.get('Data')
+        if not isinstance(block, dict) or not isinstance(block.get('LSJZList'), list):
+            raise ValueError('lsjz缺数据列表')
+        part = block['LSJZList']
+        count = data.get('TotalCount')
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ValueError('lsjz总数非法')
+        if data.get('PageIndex') != page or data.get('PageSize') != 20:
+            raise ValueError('lsjz页号/页大小不符')
+        if total is not None and total != count:
+            raise ValueError('lsjz分页期间总数改变')
+        total = count
+        if len(part) != min(20, total-len(rows)):
+            raise ValueError('lsjz缺页/条数不符')
+        for r in part:
+            d = str(r.get('FSRQ', ''))
+            datetime.strptime(d, '%Y-%m-%d')
+            if not start_date <= d <= end_date or (rows and rows[-1]['FSRQ'] <= d):
+                raise ValueError('lsjz重复/乱序/越界日期')
+            rows.append(r)
+        if len(rows) == total:
+            break
+        page += 1
+    out = []
     for i, r in enumerate(rows):
-        fsrq = str(r.get("FSRQ", "")).strip()  # 2026-10-30
-        if not fsrq:
-            continue
-        d = fsrq.replace("-", "")  # 20261030
-        unit = _safe_float(r.get("DWJZ"))
+        unit = _safe_float(r.get('DWJZ'))
         if unit is None:
-            continue  # 未发布值不能制造NULL占位；无有效净值仍是合法空响应。
-        acc = _safe_float(r.get("LJJZ"))
-        pct = _safe_float(r.get("JZZZL"))
-        # prev_unit = 列表里下一条(更早一日)的单位净值(API 按日期降序)
-        prev_unit = None
-        if i + 1 < len(rows):
-            prev_unit = _safe_float(rows[i + 1].get("DWJZ"))
-        out.append(
-            {
-                "date": d,
-                "fund_code": fund_code,
-                "unit_nav": unit,
-                "acc_nav": acc,
-                "prev_unit_nav": prev_unit,
-                "nav_change_pct": pct,
-            }
-        )
+            continue  # 未公布值绝不制造占位。
+        parsed = {'date': r['FSRQ'].replace('-', ''), 'fund_code': fund_code,
+                  'unit_nav': unit, 'acc_nav': _safe_float(r.get('LJJZ')),
+                  'nav_change_pct': _safe_float(r.get('JZZZL')),
+                  'prev_unit_nav': _safe_float(rows[i+1].get('DWJZ')) if i+1 < len(rows) else None}
+        if any(v is not None and not math.isfinite(v) for k, v in parsed.items()
+               if k not in ('date', 'fund_code')):
+            raise ValueError('lsjz含非有限数值')
+        out.append(parsed)
     return out
 
 
 def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
-            batch: int = BATCH_SIZE, fund_code: str | None = None) -> int:
+            batch: int = BATCH_SIZE, fund_code: str | None = None,
+            budget_seconds: float = 290.0) -> int:
     """主流程。返回写入行数。
 
     整批失败信号(#366/F01): 若本轮确有待采(pending 非空)、非 dry_run、且 ok==0 且零写入,
@@ -148,6 +161,10 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
     单基金落库后才记尝试位置；中断最多重试一只，COALESCE保证可安全重放。
     dry_run只读已存在的库；limit调试小样不读写轮转位置。
     """
+    from app.collector import public_fund_gap as gap
+    if not math.isfinite(budget_seconds) or budget_seconds <= 0 or budget_seconds > 290:
+        raise ValueError('整轮预算须在(0,290]秒内')
+    deadline = time.monotonic() + budget_seconds
     global LAST_BATCH_FAILED
     LAST_BATCH_FAILED = False  # 每轮重置, 防同进程跨轮残留(合法空数据/锁占/无待采均保持 False)
     if days < 0 or batch < 1 or (limit is not None and limit < 1):
@@ -155,13 +172,17 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
     if fund_code is not None and (not isinstance(fund_code, str) or len(fund_code) != 6
                                   or not fund_code.isascii() or not fund_code.isdigit()):
         raise ValueError("fund_code须为6位ASCII数字")
-    if not _acquire_lock(nonblock=True, lock_name="public_fund"):
+    if not _acquire_lock(nonblock=True, lock_name="public_fund", **({"read_only": True} if dry_run else {})):
         print("[fof_nav] WARN public_fund.lock 被占, 跳过(防与 daily/quarterly 并发写同库)",
               flush=True)
         return 0
     target_rows = None
+    validate_snapshot = lambda: None
     if dry_run or fund_code is not None:
-        conn = sqlite3.connect(DB_PATH.absolute().as_uri() + "?mode=ro", uri=True, timeout=10)
+        if dry_run:
+            conn, validate_snapshot = gap.readonly_snapshot(DB_PATH, timeout=min(5, gap.remaining(deadline)))
+        else:
+            conn = sqlite3.connect(DB_PATH.absolute().as_uri() + "?mode=ro", uri=True, timeout=10)
         conn.execute("PRAGMA query_only=ON")
         if fund_code is not None:
             target_rows = list(conn.execute(
@@ -175,113 +196,157 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
     if not dry_run:
         init_db()  # 在现有同库锁内初始化；dry_run不迁移/建库/设置WAL。
         conn = get_conn()
-    end = date.today()
-    start = end - timedelta(days=days)
-    start_str = start.strftime("%Y-%m-%d")
-    end_str = end.strftime("%Y-%m-%d")
-    all_funds = target_rows if target_rows is not None else list(conn.execute(SELECT_SQL))
-    total_pool = len(all_funds)
-    progress = None
-    last_code = ""
-    if not dry_run and limit is None and fund_code is None and all_funds:
-        db_file = conn.execute("PRAGMA database_list").fetchone()[2]
-        if not db_file:
-            conn.close()
-            raise ValueError("轮转进度需要持久SQLite文件")
-        progress = Path(db_file).with_suffix(".fof-nav-progress.json")
-        try:
-            saved = json.loads(progress.read_text())
-            if not isinstance(saved, dict):
-                raise ValueError("进度不是对象")
-            last_code = saved["last_code"]
-            if saved.get("version") != 1 or not isinstance(last_code, str) or not last_code.isdigit():
-                raise ValueError("进度格式异常")
-        except FileNotFoundError:
-            pass
-        except (ValueError, KeyError, TypeError):
-            print("[fof_nav] WARN 轮转进度损坏，从头复查(不代表已补齐)", flush=True)
-            last_code = ""
-    pending = [r for r in all_funds if r[0] > last_code] + [r for r in all_funds if r[0] <= last_code]
-    pending = pending[:min(limit if limit is not None else batch, BATCH_SIZE)]
-    run_batch = len(pending)
-
-    print(f"[fof_nav] FOF/QDII 总数={total_pool} 轮转起点={last_code or '起始'} "
-          f"待采={len(pending)}/{total_pool} 本轮尝试(不代表整窗完整) "
-          f"(拉近{days}日 {start_str}~{end_str} batch={run_batch} dry_run={dry_run})",
-          flush=True)
-    if not pending:
-        print("[fof_nav] 无FOF/QDII目标，跳过", flush=True)
-        conn.close()
-        return 0
-
-    had_pending = True  # 走到此处 = pending 非空(上方 not pending 已 early-return)
-    total_written = 0
-    ok = 0
-    fail = 0  # 原义保留=空+异常之和(日志口径不变); 下方 empty/error_count 拆细供整批判据
-    empty = 0  # 合法空响应(LSJZList=[]: 封闭期/份额类区间内无净值, 常态)→ 不算失败
-    error_count = 0  # 真实异常(urlopen 抛错/JSON 解码失败/ErrCode!=0)→ 整批判据只看这个
-    t0 = time.time()
-    for idx, (fund_code, fund_name, fund_type) in enumerate(pending, 1):
-        try:
-            rows = fetch_lsjz(fund_code, start_str, end_str)
-            if not rows:
-                # 合法空(HTTP200 + ErrCode=0 + LSJZList=[]): 该基金区间内本无净值, 非异常
-                empty += 1
-                fail += 1  # fail 仍含空(日志口径不变, 无外部程序化消费者)
-            elif not dry_run:
-                params = [
-                    (
-                        r["date"], r["fund_code"], fund_name,
-                        r["unit_nav"], r["acc_nav"], r["prev_unit_nav"],
-                        r["nav_change_pct"],
-                    )
-                    for r in rows
-                ]
-                conn.executemany(UPSERT_SQL, params)
-                conn.commit()  # 每只一个原子事务
-            if rows:
-                total_written += len(rows)
-                ok += 1
-        except Exception as e:
-            # P2-C(2026-11-05): 显式回滚, 保证失败那只零落库、不影响下一只。
-            # 旧代码只计数不回滚: 失败那只的部分写入留在未提交事务里, 会被下一只
-            # 的 commit 一起提交。失败基金本轮不留部分NAV，下次轮转仍会复查。
-            try:
-                conn.rollback()
-            except Exception:  # noqa: BLE001
-                pass
-            error_count += 1  # 真实异常计入整批判据
-            fail += 1
-            print(f"[fof_nav] FAIL {fund_code} {fund_type}: {e}", flush=True)
-        if progress is not None:
-            try:
-                atomic_write_json(progress, {"version": 1, "last_code": fund_code})
-            except OSError:
+    try:
+        gap.configure(conn, deadline)
+        if not dry_run:
+            gap.migrate(conn)
+            conn.commit()
+        end = date.today()
+        start = end - timedelta(days=days)
+        start_str = start.strftime("%Y-%m-%d")
+        end_str = end.strftime("%Y-%m-%d")
+        all_funds = target_rows if target_rows is not None else list(conn.execute(SELECT_SQL))
+        total_pool = len(all_funds)
+        progress = None
+        last_code = ""
+        if not dry_run and limit is None and fund_code is None and all_funds:
+            db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+            if not db_file:
                 conn.close()
-                raise  # 进度写失败必须非零退出，不能假称后批可续跑。
-        if idx % 50 == 0:
-            print(f"[fof_nav] 进度 {idx}/{len(pending)} ok={ok} fail={fail} "
-                  f"empty={empty} error={error_count} written={total_written} "
-                  f"{time.time()-t0:.0f}s", flush=True)
-        time.sleep(RATE_LIMIT)
-    conn.close()
-    remaining = total_pool - len(pending)
-    print(f"[fof_nav] 完成 ok={ok} fail={fail} empty={empty} error={error_count} "
-          f"written={total_written} {time.time()-t0:.0f}s 本轮未尝试={remaining}(下轮轮转；不代表缺值数)",
-          flush=True)
-    # 整批失败信号(#366/F01 + F01-R1): 确有待采 + 非 dry_run + 零成功零写入 **且
-    # error_count>0**(含真实异常)才置位。全部合法空(empty>0, error=0)不算失败——
-    # 封闭期/份额类区间内无净值是常态, 旧判定漏 error_count>0 守卫致合法空误判 exit 2 假告警。
-    # ok>0 或 written>0 即判部分成功, 不触发。
-    batch_fail = (had_pending and (not dry_run) and ok == 0
-                  and total_written == 0 and error_count > 0)
-    if batch_fail:
-        print(f"[fof_nav] BATCH_FAIL 本轮待采={len(pending)} 整批失败: "
-              f"零成功零写入 且 error_count={error_count}>0(含真实异常, 非合法空) "
-              f"(常见原因=网络/WAF 或写库异常, 已写数据保留, 下轮自动续跑)",
+                raise ValueError("轮转进度需要持久SQLite文件")
+            progress = Path(db_file).with_suffix(".fof-nav-progress.json")
+            try:
+                saved = json.loads(progress.read_text())
+                if not isinstance(saved, dict):
+                    raise ValueError("进度不是对象")
+                last_code = saved["last_code"]
+                if saved.get("version") != 1 or not isinstance(last_code, str) or not last_code.isdigit():
+                    raise ValueError("进度格式异常")
+            except FileNotFoundError:
+                pass
+            except (ValueError, KeyError, TypeError):
+                print("[fof_nav] WARN 轮转进度损坏，从头复查(不代表已补齐)", flush=True)
+                last_code = ""
+        pending = [r for r in all_funds if r[0] > last_code] + [r for r in all_funds if r[0] <= last_code]
+        pending = pending[:min(limit if limit is not None else batch, BATCH_SIZE)]
+        run_batch = len(pending)
+
+        print(f"[fof_nav] FOF/QDII 总数={total_pool} 轮转起点={last_code or '起始'} "
+              f"待采={len(pending)}/{total_pool} 本轮尝试(不代表整窗完整) "
+              f"(拉近{days}日 {start_str}~{end_str} batch={run_batch} dry_run={dry_run})",
               flush=True)
-    LAST_BATCH_FAILED = batch_fail  # global 声明在函数头(配合顶部复位)
-    return total_written
+        if not pending:
+            print("[fof_nav] 无FOF/QDII目标，跳过", flush=True)
+            conn.close()
+            return 0
+
+        had_pending = True  # 走到此处 = pending 非空(上方 not pending 已 early-return)
+        total_written = 0
+        ok = 0
+        fail = 0  # 原义保留=空+异常之和(日志口径不变); 下方 empty/error_count 拆细供整批判据
+        empty = 0  # 合法空响应(LSJZList=[]: 封闭期/份额类区间内无净值, 常态)→ 不算失败
+        error_count = 0  # 真实异常(urlopen 抛错/JSON 解码失败/ErrCode!=0)→ 整批判据只看这个
+        t0 = time.time()
+        attempted = 0
+        for idx, (fund_code, fund_name, fund_type) in enumerate(pending, 1):
+            if time.monotonic() >= deadline:
+                conn.close()
+                raise TimeoutError('FOF整轮预算耗尽，保留已提交目标和原尝试游标')
+            attempted += 1
+            candidate = None
+            try:
+                gap.configure(conn, deadline)
+                # 定向/limit为明确窗口；正常轮转独立推进完整历史和长期NULL队列。
+                if limit is None and target_rows is None:
+                    candidate = gap.plan(conn, 'nav', fund_code, end.strftime('%Y%m%d'), '19900101', days)
+                    ranges = candidate['ranges']
+                else:
+                    ranges = [(start.strftime('%Y%m%d'), end.strftime('%Y%m%d'))]
+                merged = {}
+                for first, last in ranges:
+                    def iso(d):
+                        return f'{d[:4]}-{d[4:6]}-{d[6:]}'
+                    batch_rows = fetch_lsjz(fund_code, iso(first), iso(last), deadline=deadline)
+                    for row in batch_rows:
+                        old = merged.get(row['date'])
+                        if old and old != row:
+                            raise ValueError('重叠范围返回不一致')
+                        merged[row['date']] = row
+                rows = list(merged.values())
+                gap.remaining(deadline)
+                if not dry_run:
+                    conn.execute('BEGIN IMMEDIATE')
+                gap.check_conflicts(conn, 'nav', fund_code, rows, LSJZ_URL)
+                if not rows:
+                    # 合法空(HTTP200 + ErrCode=0 + LSJZList=[]): 该基金区间内本无净值, 非异常
+                    empty += 1
+                    fail += 1  # fail 仍含空(日志口径不变, 无外部程序化消费者)
+                elif not dry_run:
+                    params = [
+                        (
+                            r["date"], r["fund_code"], fund_name,
+                            r["unit_nav"], r["acc_nav"], r["prev_unit_nav"],
+                            r["nav_change_pct"],
+                        )
+                        for r in rows
+                    ]
+                    conn.executemany(UPSERT_SQL, params)
+                if not dry_run:
+                    gap.finish(conn, 'nav', fund_code, candidate)
+                    gap.remaining(deadline)
+                    conn.commit()  # NAV+历史覆盖+缺口队列在同一基金事务内提交
+                if rows:
+                    total_written += len(rows)
+                    ok += 1
+            except Exception as e:
+                # P2-C(2026-11-05): 显式回滚, 保证失败那只零落库、不影响下一只。
+                # 旧代码只计数不回滚: 失败那只的部分写入留在未提交事务里, 会被下一只
+                # 的 commit 一起提交。失败基金本轮不留部分NAV，下次轮转仍会复查。
+                try:
+                    conn.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+                if isinstance(e, gap.NonNullConflict) and not dry_run:
+                    gap.save_conflicts(conn, 'nav', fund_code, e)
+                if time.monotonic() >= deadline:
+                    conn.close()
+                    raise TimeoutError('FOF整轮预算耗尽，本基金已回滚') from e
+                error_count += 1  # 真实异常计入整批判据
+                fail += 1
+                print(f"[fof_nav] FAIL {fund_code} {fund_type}: {e}", flush=True)
+            if progress is not None:
+                try:
+                    atomic_write_json(progress, {"version": 1, "last_code": fund_code})
+                except OSError:
+                    conn.close()
+                    raise  # 进度写失败必须非零退出，不能假称后批可续跑。
+            if idx % 50 == 0:
+                print(f"[fof_nav] 进度 {idx}/{len(pending)} ok={ok} fail={fail} "
+                      f"empty={empty} error={error_count} written={total_written} "
+                      f"{time.time()-t0:.0f}s", flush=True)
+            if RATE_LIMIT:
+                time.sleep(min(RATE_LIMIT, max(0, deadline-time.monotonic())))
+        conn.close()
+        remaining = total_pool - attempted
+        print(f"[fof_nav] 完成 ok={ok} fail={fail} empty={empty} error={error_count} "
+              f"written={total_written} {time.time()-t0:.0f}s 本轮未尝试={remaining}(下轮轮转；不代表缺值数)",
+              flush=True)
+        # 整批失败信号(#366/F01 + F01-R1): 确有待采 + 非 dry_run + 零成功零写入 **且
+        # error_count>0**(含真实异常)才置位。全部合法空(empty>0, error=0)不算失败——
+        # 封闭期/份额类区间内无净值是常态, 旧判定漏 error_count>0 守卫致合法空误判 exit 2 假告警。
+        # ok>0 或 written>0 即判部分成功, 不触发。
+        batch_fail = (had_pending and (not dry_run) and ok == 0
+                      and total_written == 0 and error_count > 0)
+        if batch_fail:
+            print(f"[fof_nav] BATCH_FAIL 本轮待采={len(pending)} 整批失败: "
+                  f"零成功零写入 且 error_count={error_count}>0(含真实异常, 非合法空) "
+                  f"(常见原因=网络/WAF 或写库异常, 已写数据保留, 下轮自动续跑)",
+                  flush=True)
+        LAST_BATCH_FAILED = batch_fail  # global 声明在函数头(配合顶部复位)
+        return total_written
+    finally:
+        conn.close()
+        validate_snapshot()
 
 
 def main() -> int:
@@ -292,10 +357,11 @@ def main() -> int:
                     help=f"每轮最多采 N 只(默认/上限 {BATCH_SIZE}, 持久轮转续跑)")
     ap.add_argument("--dry-run", action="store_true", help="只拉不写")
     ap.add_argument("--fund-code", help="只复查指定6位基金代码(须为既有FOF/QDII，不动全局轮转进度)")
+    ap.add_argument('--budget-seconds', type=float, default=290, help='整轮绝对预算，最多290秒')
     args = ap.parse_args()
     try:
         n = collect(days=args.days, limit=args.limit, dry_run=args.dry_run, batch=args.batch,
-                    fund_code=args.fund_code)
+                    fund_code=args.fund_code, budget_seconds=args.budget_seconds)
     except ValueError as exc:
         ap.error(str(exc))
     print(f"[fof_nav] return written={n}", flush=True)

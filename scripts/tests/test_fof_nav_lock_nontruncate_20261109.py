@@ -57,7 +57,7 @@ def test_existing_lock_sentinel_preview_keeps_content_db_cursor_and_exclusion(lo
     lock.write_bytes(b"existing-public-fund-lock-sentinel\n")
     before = (lock.read_bytes(), lock.stat().st_ino, db.read_bytes(), cursor.read_bytes())
     peers = []
-    def preview(*a):
+    def preview(*a, **kw):
         peers.append(_peer_try(lock))
         return []
     monkeypatch.setattr(nav, "fetch_lsjz", preview)
@@ -106,15 +106,15 @@ with open(sys.argv[1], 'a') as f:
     assert _peer_try(lock) == 0
 
 
-def test_missing_lock_preview_creates_only_empty_coordination_metadata(locked_sandbox, monkeypatch):
+def test_missing_lock_preview_does_not_create_coordination_metadata(locked_sandbox, monkeypatch):
     db, lock, cursor = locked_sandbox
     assert not lock.exists()
     before = (db.read_bytes(), cursor.read_bytes())
-    monkeypatch.setattr(nav, "fetch_lsjz", lambda *a: [])
+    monkeypatch.setattr(nav, "fetch_lsjz", lambda *a, **kw: [])
     assert nav.collect(dry_run=True, fund_code="016989") == 0
-    assert lock.is_file() and lock.read_bytes() == b""
+    assert not lock.exists()  # HC07本次授权要求：dry-run连协调文件也不创建。
     assert (db.read_bytes(), cursor.read_bytes()) == before
-    assert _peer_try(lock) == 2
+    assert shared._LOCK_FILE[0] is None
 
 
 def test_other_existing_production_lock_domain_is_nontruncating(locked_sandbox):

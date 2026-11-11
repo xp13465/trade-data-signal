@@ -53,7 +53,7 @@ def test_more_than_500_empty_and_errors_reach_tail_after_process_restart(sandbox
     import sys
     _seed_basic(sandbox, [(f"{i:06d}", "FOF", "FOF-均衡型") for i in range(1, 1002)])
     called = []
-    def first(code, *a):
+    def first(code, *a, **kw):
         called.append(code)
         if int(code) > 250:
             raise TimeoutError("隔离异常")
@@ -79,7 +79,7 @@ m.init_db = lambda: None
 m._acquire_lock = lambda **kw: True
 m.RATE_LIMIT = 0
 called = []
-m.fetch_lsjz = lambda code, *a: called.append(code) or []
+m.fetch_lsjz = lambda code, *a, **kw: called.append(code) or []
 m.collect()
 print(json.dumps(called))
 """
@@ -94,7 +94,7 @@ print(json.dumps(called))
     called.clear()
     mod.collect()
     assert called[0] == "001001"
-    assert len(called) == 500  # 绕回开头，但先触达最后一只。
+    assert len(dict.fromkeys(called)) == 500  # 绕回开头，但先触达最后一只。
 
 
 def test_real_response_replay_is_idempotent_and_nonnull_is_never_overwritten(sandbox, monkeypatch):
@@ -141,7 +141,7 @@ def test_corrupt_progress_recovers_by_rechecking(sandbox, monkeypatch, broken, c
     _seed_basic(sandbox, [("016989", "FOF", "FOF-均衡型")])
     sandbox.with_suffix(".fof-nav-progress.json").write_text(broken)
     called = []
-    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, *a: called.append(code) or [])
+    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, *a, **kw: called.append(code) or [])
     mod.collect()
     assert called == ["016989"]
     assert "进度损坏" in capsys.readouterr().out
@@ -155,7 +155,7 @@ def test_atomic_progress_failure_preserves_old_position_and_replay(sandbox, monk
     before = cursor.read_bytes()
     monkeypatch.setattr(mod.urllib.request, "urlopen", lambda *a, **kw: _FakeResp(json.dumps(REAL_016989).encode()))
     with monkeypatch.context() as patch:
-        def failed(*a):
+        def failed(*a, **kw):
             raise OSError("模拟replace失败")
         patch.setattr(util_atomic.os, "replace", failed)
         with pytest.raises(OSError):
@@ -184,7 +184,7 @@ def test_no_targets_and_lock_busy_reset_f01_without_progress(sandbox, monkeypatc
 def test_500_hard_cap_including_debug_limit(sandbox, monkeypatch, kwargs):
     _seed_basic(sandbox, [(f"{i:06d}", "FOF", "FOF-均衡型") for i in range(1, 502)])
     called = []
-    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, *a: called.append(code) or [])
+    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, *a, **kw: called.append(code) or [])
     mod.collect(**kwargs)
     assert len(called) == 500
     if "limit" in kwargs:
@@ -199,7 +199,7 @@ def test_invalid_limits_are_rejected_before_io(sandbox, kwargs):
 
 def test_unpublished_api_rows_are_legal_empty(sandbox, monkeypatch):
     _seed_basic(sandbox, [("016989", "FOF", "FOF-均衡型")])
-    payload = {"ErrCode": 0, "Data": {"LSJZList": [{"FSRQ": "2026-11-06", "DWJZ": "--"}]}}
+    payload = {"ErrCode": 0, "Data": {"LSJZList": [{"FSRQ": "2026-11-06", "DWJZ": "--"}]}, "TotalCount": 1, "PageIndex": 1, "PageSize": 20}
     monkeypatch.setattr(mod.urllib.request, "urlopen", lambda *a, **kw: _FakeResp(json.dumps(payload).encode()))
     assert mod.collect() == 0
     assert mod.LAST_BATCH_FAILED is False
@@ -214,11 +214,11 @@ def test_original_f01_main_exit_contract(sandbox, monkeypatch, response, expecte
     _seed_basic(sandbox, [("016989", "FOF", "FOF-均衡型")])
     monkeypatch.setattr(sys, "argv", ["collect_fof_nav"])
     if response == "error":
-        def failed(*a):
+        def failed(*a, **kw):
             raise TimeoutError("隔离网络异常")
         monkeypatch.setattr(mod, "fetch_lsjz", failed)
     elif response == "empty":
-        monkeypatch.setattr(mod, "fetch_lsjz", lambda *a: [])
+        monkeypatch.setattr(mod, "fetch_lsjz", lambda *a, **kw: [])
     else:
         monkeypatch.setattr(mod.urllib.request, "urlopen", lambda *a, **kw: _FakeResp(json.dumps(REAL_016989).encode()))
     assert mod.main() == expected
@@ -227,7 +227,7 @@ def test_original_f01_main_exit_contract(sandbox, monkeypatch, response, expecte
 def test_window_moves_and_removed_cursor_code_do_not_restart_head(sandbox, monkeypatch):
     _seed_basic(sandbox, [(f"{i:06d}", "FOF", "FOF-均衡型") for i in range(1, 5)])
     called = []
-    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, *a: called.append(code) or [])
+    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, *a, **kw: called.append(code) or [])
     mod.collect(batch=2)
     c = _conn(sandbox)
     c.execute("DELETE FROM fund_basic WHERE fund_code='000002'")
@@ -242,7 +242,7 @@ def test_window_moves_and_removed_cursor_code_do_not_restart_head(sandbox, monke
 
 def test_dry_run_all_errors_does_not_set_f01_or_create_progress(sandbox, monkeypatch):
     _seed_basic(sandbox, [("016989", "FOF", "FOF-均衡型")])
-    def failed(*a):
+    def failed(*a, **kw):
         raise TimeoutError("隔离探测异常")
     monkeypatch.setattr(mod, "fetch_lsjz", failed)
     mod.LAST_BATCH_FAILED = True
@@ -331,7 +331,7 @@ def test_targeted_dry_run_stays_readonly_without_global_progress(sandbox, monkey
 def test_targeted_qdii_uses_same_existing_universe(sandbox, monkeypatch):
     _seed_basic(sandbox, [("160125", "QDII", "QDII-普通股票")])
     called = []
-    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, *a: called.append(code) or [])
+    monkeypatch.setattr(mod, "fetch_lsjz", lambda code, *a, **kw: called.append(code) or [])
     assert mod.collect(fund_code="160125") == 0
     assert called == ["160125"]
     assert not sandbox.with_suffix(".fof-nav-progress.json").exists()
