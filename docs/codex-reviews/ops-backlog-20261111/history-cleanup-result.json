@@ -1,0 +1,494 @@
+{
+  "task": "HC16/HC19/HC20 Evidence",
+  "base": "2346b6d621b254cdabc18225a3f98372a41980fd",
+  "branch": "codex/ops-history-cleanup-20261111",
+  "generated_at": "2026-11-11T00:21:50.087929+00:00",
+  "HC16": {
+    "status": "bounded_trace_completed_originals_still_missing",
+    "missing_keys": [
+      "20261104|csi_000102|buy",
+      "20261104|csi_000330|buy",
+      "20261104|csi_000673|buy",
+      "20261104|gz_399395|buy",
+      "20261104|thsc_307940|buy",
+      "20261104|thsc_309049|buy",
+      "20261105|dax|buy_special"
+    ],
+    "recovered_originals": 0,
+    "scans": [
+      {
+        "path": "/tmp/codex-reports/ops-backlog-20261111/history-cleanup/local-history.json",
+        "sha256": "4d0ece05801711126f9910e09a62d7475457764f01d990333788335f81d94c47",
+        "mtime_ns": 1794356009422731643,
+        "observed_at": "2026-11-11T00:13:28.495826+00:00",
+        "scanned_bytes": 180123348,
+        "visited_files": 2853,
+        "candidate_count": 296,
+        "files_read": 197,
+        "archives": [
+          {
+            "path": "/Users/linhuichen/.local/share/trade-audit/20261110/alert-recheck-evidence.tar.gz",
+            "sha256": "d353dfb27eb70da0d5884db9988d38696804fa1a100ea88614291ead927b5d60",
+            "mtime_ns": 1794285355969227442,
+            "bytes": 137831742,
+            "source_time": null,
+            "complete_listing": false,
+            "stop_reason": "member/logical byte cap"
+          },
+          {
+            "path": "/Users/linhuichen/.local/share/trade-audit/20261111/ops-followup/final-v1/fastcheck-evidence.tar.gz",
+            "sha256": "4ee6fb06765ac6aed810bf0334f6890f6bb3859d1a7f663ff410c5cedc2c56d6",
+            "mtime_ns": 1794353433518115697,
+            "bytes": 30776389,
+            "source_time": null,
+            "complete_listing": false,
+            "stop_reason": "member/logical byte cap"
+          },
+          {
+            "path": "/tmp/codex-reports/alert-mail-audit-20261109/private/runtime-core.tar",
+            "sha256": "7da49cd89ba4811b029fd32ef2d852064092182b371a7a124aa886bec1866a36",
+            "mtime_ns": 1794162417838228147,
+            "bytes": 8570880,
+            "source_time": null,
+            "complete_listing": true,
+            "stop_reason": null
+          }
+        ],
+        "exact_candidate_records": 0,
+        "git_history": []
+      },
+      {
+        "path": "/tmp/codex-reports/ops-backlog-20261111/history-cleanup/cloud-history.json",
+        "sha256": "713ef7e1823bee6b6884500ea1fef48384c31ecfc1852df93e9d0f651f8c69fc",
+        "mtime_ns": 1794355984370568245,
+        "observed_at": "2026-11-11T00:13:03.658086+00:00",
+        "scanned_bytes": 18766978,
+        "visited_files": 6458,
+        "candidate_count": 207,
+        "files_read": 200,
+        "archives": [],
+        "exact_candidate_records": 0,
+        "git_history": []
+      },
+      {
+        "path": "/tmp/codex-reports/ops-backlog-20261111/history-cleanup/local-date-index.json",
+        "sha256": "dd374efb44cb247609455b87d2a376bc71c7ef029c6602ec7ae89c5a61cbd281",
+        "mtime_ns": 1794356358334010121,
+        "observed_at": "2026-11-11T00:19:18.055716+00:00",
+        "scanned_bytes": 1086620,
+        "visited_files": 653,
+        "candidate_count": 13,
+        "files_read": 13,
+        "archives": [],
+        "exact_candidate_records": 0,
+        "git_history": [
+          {
+            "repo": "/Users/linhuichen/code/trade",
+            "exit": 0,
+            "output": "",
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr": ""
+          }
+        ]
+      },
+      {
+        "path": "/tmp/codex-reports/ops-backlog-20261111/history-cleanup/cloud-date-index.json",
+        "sha256": "cd5daa1cdc95c0e4f4623b556df496c03cfdfc3319279b7b33a41176f0e27b70",
+        "mtime_ns": 1794356359598264711,
+        "observed_at": "2026-11-11T00:19:18.923466+00:00",
+        "scanned_bytes": 1186583,
+        "visited_files": 6458,
+        "candidate_count": 12,
+        "files_read": 12,
+        "archives": [],
+        "exact_candidate_records": 0,
+        "git_history": [
+          {
+            "repo": "/home/ubuntu/code/trade-data",
+            "exit": 128,
+            "output": "",
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr": "fatal: not a git repository (or any of the parent directories): .git\n"
+          },
+          {
+            "repo": "/home/ubuntu/code/trade-data-signal-staticdata",
+            "exit": 0,
+            "output": "",
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr": ""
+          }
+        ]
+      }
+    ],
+    "limits": [
+      "First archive scan capped at 200 candidates: local 296 candidates (96 not read), cloud 207 (7 not read).",
+      "Archive member scan capped at 3000 members / 64MiB logical; two tar.gz listings incomplete. Complete manifests separately read for targeted member names.",
+      "Date pass depth4 / 30000 filenames / 80 candidates / 32MiB; local 13 files, cloud 12 files; no exact keys.",
+      "Current/predeploy freeze snapshots lack embedded source timestamp: filesystem mtime is recorded, never represented as T0 capture time.",
+      "Synthetic fixtures and missing-key diagnostics are not original records.",
+      "Cloud trade-data is not a Git repository (exit128 retained); staticdata shallow history and local code dated paths had no results.",
+      "No claim of exhaustive absence; no T0 reconstruction, current-rating fill or production writes."
+    ]
+  },
+  "HC19": {
+    "status": "applied",
+    "tree": "agent-ae637b217439bb921",
+    "head": "61a56ce7fc037e0a9f8ce8aad018ee1c173edd95",
+    "before_sha256": "c18fc064357244910150efb080304fb08f32117d48b00d7a4c0356403f6b3683",
+    "after_sha256": "333b7dc63ba9109e60d718b575f31ea4a1af8b1e007ec95e12331f8651c7ccd8",
+    "isolated_blocks": [
+      "5b2277884bea9b934f13b97f5e084ddf8b4bf42c025ac388b23a55ca0eabd666",
+      "cc600910ee84aabe0008db6a107b240909715ac38d03a9e1c3fc4f0f6fbf0fc9",
+      "cbbab5018a81540ece6640cc9beb3ad5bd5ed531707614e0e1a67ca0ab229de5"
+    ],
+    "retained_prefix_bytes": 312,
+    "mode": "0644",
+    "suppression_ledger_sha256": "4559e6a15da8a34327243940193a4fa1306d6ae7434066a7b0f38ce307d4ee44",
+    "suppression_ledger_preserved": true,
+    "alert_ledger_jsonl_present": false,
+    "coordination_lock_created": true,
+    "backup": {
+      "archive_sha256": "d04bc5f2988865cacf7ca5433ed1bc5163945af402bc2c886a4930bf301e19e2",
+      "entries": 4,
+      "restore_verified": true
+    },
+    "tracked_status_clean_after": true
+  },
+  "HC20": {
+    "status": "3_actually_removed",
+    "initial_worktrees": 44,
+    "final_worktrees": 41,
+    "removed": [
+      {
+        "tree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-fof-nav-completeness-20261109",
+        "head": "b1f20bca27d96db15a07230f7bed0d9e0f7d6f9e",
+        "branch": "codex/ops-fof-nav-completeness-20261109",
+        "completion_evidence": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-history-cleanup-20261111/docs/codex-reviews/alert-rootfix-20261109/continued-implementation-20261109.md",
+        "completion_evidence_sha256": "43e7655c82d7efb8a36d4aa50c22fcc816a2372314750a7032959a0163d86039",
+        "ignored_bytes": 6532184,
+        "entries": 3076,
+        "released_logical_bytes": 156988306,
+        "released_allocated_bytes": 162897920,
+        "backup": {
+          "archive_sha256": "132c89c64dfec1b110614e81e4d21ad11ad0bd079ff9a10401df3791c367b238",
+          "entries": 205,
+          "restore_verified": true
+        },
+        "branch_retained": true
+      },
+      {
+        "tree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-fund-index-reconnect-20261109",
+        "head": "e30d1c90a9482e754b802be202e9cd7d59b9875a",
+        "branch": "codex/ops-fund-index-reconnect-20261109",
+        "completion_evidence": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-history-cleanup-20261111/docs/codex-reviews/alert-rootfix-20261109/continued-implementation-20261109.md",
+        "completion_evidence_sha256": "43e7655c82d7efb8a36d4aa50c22fcc816a2372314750a7032959a0163d86039",
+        "ignored_bytes": 6505922,
+        "entries": 3076,
+        "released_logical_bytes": 156953534,
+        "released_allocated_bytes": 162865152,
+        "backup": {
+          "archive_sha256": "75264f87fe3c714dd4d751ac4a80d629720fa64844115b9fc0198c4ec7bd93c8",
+          "entries": 206,
+          "restore_verified": true
+        },
+        "branch_retained": true
+      },
+      {
+        "tree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-fund-budget-20261110",
+        "head": "01aa15a9bdfa54d95cccedffe2b9525ba99e02d3",
+        "branch": "codex/ops-fund-budget-20261110",
+        "completion_evidence": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-history-cleanup-20261111/docs/codex-reviews/ops-alert-recovery-20261110/verification.json",
+        "completion_evidence_sha256": "193043bb0fe97740a4850c19dd699cb57ecf0ca41bb6258270a8b74daaf5607b",
+        "ignored_bytes": 6322724,
+        "entries": 3099,
+        "released_logical_bytes": 157221752,
+        "released_allocated_bytes": 163160064,
+        "backup": {
+          "archive_sha256": "0eab2848757342822ce0660f2ba4fb2487773f40c5f31e072828c98add141498",
+          "entries": 195,
+          "restore_verified": true
+        },
+        "branch_retained": true
+      }
+    ],
+    "released_logical_bytes": 471163592,
+    "released_allocated_bytes_sum": 488923136,
+    "bytes_caveat": "Sum of per-path st_size / st_blocks before deletion, including directory metadata; not measured physical free-space delta on APFS. Private backup/restore copies retained.",
+    "private_backup_regular_file_bytes_after_full_restore_check": 59064701,
+    "per_tree_inventory": "history-cleanup-inventory.json"
+  },
+  "verification": {
+    "tests_raw_tail": "Ran 38 tests in 3.028s\n\nOK",
+    "test_log": "/tmp/codex-reports/ops-backlog-20261111/history-cleanup/tests-final.log",
+    "initial_failure_log": "/tmp/codex-reports/ops-backlog-20261111/history-cleanup/tests-initial.log",
+    "initial_failure": "33 tests: 4 errors caused by macOS temp /var versus Git canonical /private/var; test repo paths resolved; production guard was not relaxed; specific refusal assertions strengthened.",
+    "before_mutation_tests": "Ran 33 tests in 1.877s\n\nOK",
+    "restore_before_mutation": "All files/symlinks/directories, contents/hash and modes restored and verified before each mutation. Original manifest retains ns mtime.",
+    "extra_restore_after_mutation": "Four archives independently restored again; full manifest including mtime_ns exactly equal. See full-restore-verification.json.",
+    "dry_run": "All four real targets passed before apply; no force, no manual broad rm, branches retained."
+  },
+  "evidence_root": "/tmp/codex-reports/ops-backlog-20261111/history-cleanup",
+  "private_backup_root": "/Users/linhuichen/.local/share/trade-audit/20261111/ops-backlog-cleanup",
+  "evidence_manifest": [
+    {
+      "name": "agent-ae637b217439bb921.applied.json",
+      "bytes": 2174,
+      "sha256": "90835866eacaa9488753780f944d88c73c2ae2a686f1c1fec1ed810fe9322607",
+      "mtime_ns": 1794356301569143865
+    },
+    {
+      "name": "agent-ae637b217439bb921.applied.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794356301188757447
+    },
+    {
+      "name": "agent-ae637b217439bb921.dryrun.json",
+      "bytes": 1013,
+      "sha256": "5ffbd783042e4c6309371ed67eb928601b383a834c878fad7924f86e15356b76",
+      "mtime_ns": 1794356284182395279
+    },
+    {
+      "name": "agent-ae637b217439bb921.dryrun.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794356283922061325
+    },
+    {
+      "name": "archive-candidates.json",
+      "bytes": 10448,
+      "sha256": "7f6ff741ca83d8a9dd063a72d0acecc17c0a19fb2c70469d3670add9d823bce3",
+      "mtime_ns": 1794355779486962166
+    },
+    {
+      "name": "cloud-date-index.json",
+      "bytes": 9014,
+      "sha256": "cd5daa1cdc95c0e4f4623b556df496c03cfdfc3319279b7b33a41176f0e27b70",
+      "mtime_ns": 1794356359598264711
+    },
+    {
+      "name": "cloud-date-index.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794356358024855966
+    },
+    {
+      "name": "cloud-history.json",
+      "bytes": 116989,
+      "sha256": "713ef7e1823bee6b6884500ea1fef48384c31ecfc1852df93e9d0f651f8c69fc",
+      "mtime_ns": 1794355984370568245
+    },
+    {
+      "name": "cloud-history.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794355984370806572
+    },
+    {
+      "name": "codex-fof-nav-completeness-20261109.applied.json",
+      "bytes": 53175,
+      "sha256": "7140c799ab86c7c9ec5a805057dc27c3939c4f90be21c794c81323e5253c05c9",
+      "mtime_ns": 1794356310453737906
+    },
+    {
+      "name": "codex-fof-nav-completeness-20261109.applied.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794356309494952419
+    },
+    {
+      "name": "codex-fof-nav-completeness-20261109.dryrun.json",
+      "bytes": 52891,
+      "sha256": "03a53edee33045ee59df1b01ceb13902156aab5c75312dc353f74c4bb49aa4bb",
+      "mtime_ns": 1794356284563872484
+    },
+    {
+      "name": "codex-fof-nav-completeness-20261109.dryrun.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794356284230695419
+    },
+    {
+      "name": "codex-fof-nav-completeness-20261109.json",
+      "bytes": 12922,
+      "sha256": "5727d0ed36f53562788d5efabacb5b0c7b6cb3786a12a422ef15730cdb34f89f",
+      "mtime_ns": 1794355815749226882
+    },
+    {
+      "name": "codex-freeze-persistence-rootfix-20261109.json",
+      "bytes": 470,
+      "sha256": "1ae2594e58b0f88cf849352f24b5858c1ceb5a735f7b04c3f491d26bbf113f25",
+      "mtime_ns": 1794355815947275790
+    },
+    {
+      "name": "codex-fund-index-reconnect-20261109.applied.json",
+      "bytes": 53181,
+      "sha256": "79d1fb22e25a455c7382cedf834d6cbafe11f305ca7088a309ac92b0b2743431",
+      "mtime_ns": 1794356311471923693
+    },
+    {
+      "name": "codex-fund-index-reconnect-20261109.applied.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794356310502810306
+    },
+    {
+      "name": "codex-fund-index-reconnect-20261109.dryrun.json",
+      "bytes": 52897,
+      "sha256": "c0af8f9ce26de44d17015223721c3ea9daa6daa41a47daca6b4e850b411838db",
+      "mtime_ns": 1794356284923933671
+    },
+    {
+      "name": "codex-fund-index-reconnect-20261109.dryrun.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794356284600622859
+    },
+    {
+      "name": "codex-fund-index-reconnect-20261109.json",
+      "bytes": 12735,
+      "sha256": "7f5733dfc91989fe7024871a110036b3e63d6576020f3149e950651719e757b6",
+      "mtime_ns": 1794355815818552089
+    },
+    {
+      "name": "codex-ops-fund-budget-20261110.applied.json",
+      "bytes": 50343,
+      "sha256": "f2e28bdfdbc3bfc248d518309df2ed3114bf2e0dbb14bfc48cacb1b1c25389fa",
+      "mtime_ns": 1794356312394311041
+    },
+    {
+      "name": "codex-ops-fund-budget-20261110.applied.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794356311490495581
+    },
+    {
+      "name": "codex-ops-fund-budget-20261110.dryrun.json",
+      "bytes": 50059,
+      "sha256": "5e87aaa2595242f7dee229722f3174c707af4e8486ea4d5d986f4975f0047654",
+      "mtime_ns": 1794356285300881816
+    },
+    {
+      "name": "codex-ops-fund-budget-20261110.dryrun.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794356284965696961
+    },
+    {
+      "name": "codex-ops-fund-budget-20261110.json",
+      "bytes": 12062,
+      "sha256": "c449ec7c2d8f9348d6ac170796326b1fee046adb23ee630241258decf47cb08c",
+      "mtime_ns": 1794355815885853014
+    },
+    {
+      "name": "cwd.txt",
+      "bytes": 16963,
+      "sha256": "09f9f091109adc7c17668952b064e70d9d125660a0db46e82ba730d92e2e5206",
+      "mtime_ns": 1794355754734812374
+    },
+    {
+      "name": "full-restore-verification.json",
+      "bytes": 1605,
+      "sha256": "13c3ec1ad73978ac92c93149a7a2f5f8760d6d26d4584313c358df125d0551bc",
+      "mtime_ns": 1794356431815704775
+    },
+    {
+      "name": "hc19-open-files.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794355779127277685
+    },
+    {
+      "name": "local-date-index.json",
+      "bytes": 12517,
+      "sha256": "dd374efb44cb247609455b87d2a376bc71c7ef029c6602ec7ae89c5a61cbd281",
+      "mtime_ns": 1794356358334010121
+    },
+    {
+      "name": "local-date-index.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794356358024357237
+    },
+    {
+      "name": "local-history.json",
+      "bytes": 85048,
+      "sha256": "4d0ece05801711126f9910e09a62d7475457764f01d990333788335f81d94c47",
+      "mtime_ns": 1794356009422731643
+    },
+    {
+      "name": "local-history.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mtime_ns": 1794356009422802931
+    },
+    {
+      "name": "owner-references.txt",
+      "bytes": 3826,
+      "sha256": "217a24a1eafee5187a97d8c508eb36abd212aefa8dcd21b66e92cb44797eaba4",
+      "mtime_ns": 1794355815664088356
+    },
+    {
+      "name": "processes.txt",
+      "bytes": 44439,
+      "sha256": "4284630f71469d8863aa879ff575b46008942ec6bdd1626d6daf549cd1501600",
+      "mtime_ns": 1794355754762882841
+    },
+    {
+      "name": "progress.txt",
+      "bytes": 210,
+      "sha256": "0b52974fc3fdeadb867a6a955eb3bfe0365d7c06eec25768e3cb7c4429652023",
+      "mtime_ns": 1794356271674659062
+    },
+    {
+      "name": "tests-final.log",
+      "bytes": 4085,
+      "sha256": "5980bc51e39604573ad3af8e0180d3d00f060ee658b34e8cce404c78d9fb1fee",
+      "mtime_ns": 1794356415769846982
+    },
+    {
+      "name": "tests-initial.log",
+      "bytes": 9196,
+      "sha256": "4ea4f000459c8c935609e4a946fc22ebf55e482efde34fc7233c1924acc6ee1b",
+      "mtime_ns": 1794356216103514269
+    },
+    {
+      "name": "tests-second.log",
+      "bytes": 3519,
+      "sha256": "fc7600f9a4e8c47d3060c831744e8c7d2a0306844143b8d5942f9dade3f90699",
+      "mtime_ns": 1794356249380088360
+    },
+    {
+      "name": "worktree-inventory-result.json",
+      "bytes": 20632,
+      "sha256": "4e0ff5c89cb67db5fe4cea5f34ee92d356c47dc3b3aacf72a744e23bc813cd5a",
+      "mtime_ns": 1794356469414745954
+    },
+    {
+      "name": "worktrees-after.txt",
+      "bytes": 7605,
+      "sha256": "bbb9168a67353faac39ae2a342103704314a5ef016529a0a9eefffd948dcb10f",
+      "mtime_ns": 1794356469405776039
+    },
+    {
+      "name": "worktrees.txt",
+      "bytes": 8182,
+      "sha256": "c29095df589c48b90cccf75a65ae263a94176a2a7a0c5e860092afa28a5f099e",
+      "mtime_ns": 1794355754632445552
+    }
+  ],
+  "changed_files": [
+    "docs/codex-reviews/ops-backlog-20261111/history-cleanup-date-index.py",
+    "docs/codex-reviews/ops-backlog-20261111/history-cleanup-inventory.json",
+    "docs/codex-reviews/ops-backlog-20261111/history-cleanup-scan.py",
+    "docs/codex-reviews/ops-backlog-20261111/history-cleanup-test.py",
+    "docs/codex-reviews/ops-backlog-20261111/history-cleanup.py",
+    "docs/codex-reviews/ops-backlog-20261111/history-cleanup.md",
+    "docs/codex-reviews/ops-backlog-20261111/history-cleanup-result.json"
+  ],
+  "not_done": [
+    "No main merge/deploy/production DB/R2 writes; no notifications, cron, subagent, packet edit or ACK.",
+    "No original T0 values recovered; HC16 business evidence gap remains.",
+    "Other 41 worktrees retained; ownership not inferred solely from ancestry."
+  ]
+}
