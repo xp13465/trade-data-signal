@@ -533,7 +533,186 @@ def _group_counts() -> dict:
             "by_kind": {k: _delivery_counts() for k in ("operations",) + CANONICAL_CLASSES}}
 
 
-def all_groups_view(paths: list[Path], days: list[str]) -> dict:
+def outbound_account(records: list[dict], days: list[str]) -> dict:
+    """Additive strict account of the existing outbound ledger, never a PASS.
+
+    status=sent/info_logged/deferred is not transport evidence. Event references
+    and attempts are independent identities; legacy key/subject cannot replace
+    either. Missing fields remain unknown, including all-failed attempts which
+    the historical success-only ledger never recorded.
+    """
+    channels = {name: Counter() for name in ("email", "feishu", "telegram")}
+    metadata = {"deferred", "info_logged", "tier", "defer_status"}
+    channel_attempts, channel_successes = {}, {}
+    events, attempts, problems, refs_seen = set(), {}, [], []
+    accepted, root_causes, event_keys = {}, {}, {}
+    populations = Counter()
+    for rec in records:
+        ts = parse_ts(rec.get("ts"))
+        if not ts or ts.date().isoformat() not in days:
+            continue
+        kind, _ = operations_kind(rec)
+        if rec.get("noise_class") == "routine_notice":
+            kind = "routine"
+        # Exact, source-verified old update_all completion call (49fe9:424).
+        # Do not change the shared classifier or broad [完成] business prefix.
+        if re.fullmatch(r"\[完成\] update_all \d+min \d{2}-\d{2} \d{2}:\d{2}", str(rec.get("subject") or "")):
+            source = Path(str(rec.get("source") or "")).name
+            if source in {"notify.py", "update_all.sh"} and rec.get("tier") in {"notice", "info"}:
+                kind = "routine"
+            elif source != "codex_notify_bridge.py":
+                kind = "unknown"
+        if kind == "routine" and rec.get("tier") == "critical":
+            kind = "unknown"  # contradictory severity must not hide a real fault
+        # A contradictory business label cannot hide explicitly linked ops.
+        if rec.get("ops_event_refs") and kind == "business":
+            kind = "operations"  # native explicit ops refs outrank a broad title
+        elif kind == "unknown" and isinstance(rec.get("ops_event_refs"), list) and any(
+                isinstance(ref, dict) and all(isinstance(ref.get(k), str) and ref[k].strip() for k in ("key", "event_id"))
+                for ref in rec["ops_event_refs"]):
+            if not (rec.get("tier") == "critical" and rec.get("noise_class") == "routine_notice"):
+                kind = "operations"
+        population = "unknown" if kind == "unknown" else "business" if kind == "business" else "operations"
+        populations[population] += 1
+        if population == "business":
+            continue
+        reasons = []
+        aid = rec.get("attempt_id")
+        if not isinstance(aid, str) or not aid.strip():
+            aid = None
+            reasons.append("attempt_id_unknown")
+        else:
+            # Keep raw message rows visible; only explicit attempt identity is
+            # deduplicated, never subject, time, event_id or source_run.
+            canonical = json.dumps({k: v for k, v in rec.items() if not k.startswith("_")},
+                                   ensure_ascii=False, sort_keys=True)
+            if aid in attempts:
+                populations["repeated_attempt_rows"] += 1
+                if attempts[aid] != canonical:
+                    reasons.append("conflicting_attempt_id")
+            else:
+                attempts[aid] = canonical
+        refs = rec.get("ops_event_refs")
+        if not isinstance(refs, list) or not refs:
+            reasons.append("event_refs_unknown")
+        else:
+            for ref in refs:
+                if not isinstance(ref, dict):
+                    reasons.append("invalid_event_ref")
+                    continue
+                refs_seen.append(dict(ref, attempt_id=aid))
+                eid, key, phase = ref.get("event_id"), ref.get("key"), ref.get("phase")
+                if isinstance(eid, str) and eid.strip():
+                    events.add(eid)
+                else:
+                    reasons.append("event_id_unknown")
+                if not isinstance(ref.get("source_run"), str) or not ref["source_run"].strip():
+                    reasons.append("source_run_unknown")  # nullable in native contract
+                if not isinstance(phase, str) or phase not in {"active", "recovery", "escalation"}:
+                    reasons.append("unknown_event_phase")
+                if not isinstance(key, str) or not key.strip():
+                    reasons.append("event_key_unknown")
+                if not isinstance(eid, str) or not eid.strip() or not isinstance(key, str) or not key.strip():
+                    continue
+                event_keys.setdefault(key, set()).add(eid)
+                root_cause = ref.get("root_cause_id", rec.get("root_cause_id"))
+                if isinstance(root_cause, str) and root_cause.strip():
+                    root_causes.setdefault(root_cause, set()).add(eid)
+                if phase not in ("active", "recovery", "escalation") or not aid:
+                    continue
+                for channel, success in (rec.get("channels") or {}).items() if isinstance(rec.get("channels"), dict) else []:
+                    declared = rec.get("attempted_channels")
+                    if (success is not True or channel in metadata or
+                            (channel not in {"email", "feishu", "telegram"} and
+                             not (isinstance(declared, list) and channel in declared))):
+                        continue
+                    identity = (eid, phase, channel, aid)
+                    item = {"key": key, "event_id": eid, "phase": phase, "channel": channel, "attempt_id": aid,
+                            "ts": rec["ts"]}
+                    if identity not in accepted or ts < parse_ts(accepted[identity]["ts"]):
+                        accepted[identity] = item
+        attempted = rec.get("attempted_channels")
+        attempted_valid = (isinstance(attempted, list) and all(isinstance(x, str) and x and x not in metadata for x in attempted)
+                           and len(attempted) == len(set(attempted)))
+        if not attempted_valid:
+            reasons.append("attempted_channels_unknown")
+            attempted = []
+        raw = rec.get("channels")
+        raw = raw if isinstance(raw, dict) else {}
+        # Metadata keys (notably deferred/info_logged) are NOT channels.
+        for extra in set(raw) - {"email", "feishu", "telegram"} - metadata:
+            if extra not in attempted:
+                reasons.append("unidentified_channel:" + extra)
+        for name in set(channels) | set(attempted):
+            c = channels.setdefault(name, Counter())
+            c["rows"] += 1
+            value = raw.get(name)
+            if value is True:
+                c["declared_success_rows"] += 1
+                if kind == "routine":
+                    c["routine_declared_success_rows"] += 1
+                if aid:
+                    channel_successes.setdefault(name, set()).add(aid)
+                c["success_with_attempt_id" if aid else "success_attempt_unknown"] += 1
+                if attempted_valid and name not in attempted:
+                    reasons.append("success_without_attempt:" + name)
+            elif value is False:
+                c["declared_not_successful_rows"] += 1
+            else:
+                c["result_unknown_rows"] += 1
+            if attempted_valid:
+                c["attempted_rows" if name in attempted else "not_attempted_rows"] += 1
+                if name in attempted and aid:
+                    channel_attempts.setdefault(name, set()).add(aid)
+                if name in attempted and value is False:
+                    c["failed_attempt_rows"] += 1
+                if name in attempted and type(value) is not bool:
+                    reasons.append("attempt_result_unknown:" + name)
+            else:
+                c["attempt_unknown_rows"] += 1
+            evidence = rec.get("receipt_evidence")
+            if isinstance(evidence, dict) and name in evidence:
+                c["receipt_evidence_declared_rows"] += 1
+        if population == "unknown":
+            reasons.append("operations_classification_unknown")
+        if reasons:
+            problems.append({"ledger": rec.get("_ledger"), "line": rec.get("_line"),
+                             "attempt_id": aid, "reasons": sorted(set(reasons))})
+    fields = ("rows", "declared_success_rows", "declared_not_successful_rows", "result_unknown_rows",
+              "attempted_rows", "not_attempted_rows", "failed_attempt_rows", "attempt_unknown_rows",
+              "success_with_attempt_id", "success_attempt_unknown", "receipt_evidence_declared_rows",
+              "routine_declared_success_rows")
+    grouped = {}
+    for item in accepted.values():
+        grouped.setdefault((item["event_id"], item["phase"], item["channel"]), set()).add(item["attempt_id"])
+    duplicates = [{"event_id": event, "phase": phase, "channel": channel, "attempt_ids": sorted(ids),
+                   "excess_acceptances": len(ids) - 1}
+                  for (event, phase, channel), ids in sorted(grouped.items()) if len(ids) > 1 and phase in {"active", "recovery"}]
+    labelled_events = set().union(*root_causes.values()) if root_causes else set()
+    recurrence = [{"root_cause_id": cause, "event_ids": sorted(ids), "recurrences": len(ids) - 1}
+                  for cause, ids in sorted(root_causes.items()) if len(ids) > 1]
+    return {"scope": "operations_and_unclassified_all_groups", "dataset": "unknown", "evidence_scope": "unknown",
+            "verification_scope": "explicit_ledger_statistics_only", "populations": dict(populations),
+            "channels": {name: dict({k: c[k] for k in fields},
+                                   distinct_known_attempts=len(channel_attempts.get(name, set())),
+                                   distinct_known_successful_attempts=len(channel_successes.get(name, set())))
+                         for name, c in sorted(channels.items())},
+            "known_event_ids": sorted(events), "known_attempt_ids": sorted(attempts),
+            "event_references": refs_seen, "uncertainties": problems,
+            "successful_event_deliveries": sorted(accepted.values(), key=lambda item: (item["ts"], item["attempt_id"], item["channel"])),
+            "duplicate_event_acceptances": duplicates,
+            "root_cause_recurrence": {"known_recurrences": recurrence, "unlabelled_event_ids": sorted(events - labelled_events),
+                                      "coverage": "unknown" if not events or events - labelled_events else "labelled_inputs_only",
+                                      "caveat": "只计同声明根因下不同event数减一，不证明修复因果/关闭再发；缺标签不等于0复发，同key不是root cause。"},
+            "same_key_new_events": [{"key": key, "event_ids": sorted(ids)} for key, ids in sorted(event_keys.items()) if len(ids) > 1],
+            "independently_received": None, "all_attempts_covered": False, "pass": None,
+            "caveats": ["旧alert群口径独立保留；移至report不减少本账渠道条数。",
+                        "channels=true仅为发送侧声明成功，不是独立收件证明；status不作发送判据。",
+                        "不同事件引用及merged_count不增加消息/attempt数；缺ID不推测。",
+                        "旧成功台账可能遗漏全失败attempt；仅显式输入文件，不证明全部渠道覆盖。"]}
+
+
+def all_groups_view(paths: list[Path], days: list[str], *, cutoff: datetime | None = None) -> dict:
     """只读已有台账；同 inode 只读一次，不按 key/内容跨文件消重。"""
     coverage, records, seen = [], [], {}
     bad_total = 0
@@ -561,6 +740,9 @@ def all_groups_view(paths: list[Path], days: list[str]) -> dict:
                     bad_lines=bad, observed_date_range=[dates[0], dates[-1]] if dates else None,
                     rows_in_window=sum(d in days for d in dates))
         bad_total += bad
+        if cutoff is not None:
+            info["after_cutoff_rows"] = sum(bool(ts and ts > cutoff) for r in rows if (ts := parse_ts(r.get("ts"))))
+            rows = [r for r in rows if not (ts := parse_ts(r.get("ts"))) or ts <= cutoff]
         records.extend(rows)
 
     totals = {g: _group_counts() for g in ALL_GROUPS}
@@ -636,6 +818,7 @@ def all_groups_view(paths: list[Path], days: list[str]) -> dict:
                      "outside_window_rows": outside},
         "groups": totals, "days": [{"date": d, "groups": daily[d]} for d in days],
         "uncertainties": uncertainties, "current_unresolved_incidents": None,
+        "outbound_account": outbound_account(records, days),
         "caveats": [
             "历史通知记录/声明 merged 槽位均不是独立事故数；不推断当前未恢复故障。",
             "feishu=false 仅表示未成功，不区分未选择/未配置/发送失败；缺字段为未知。",
@@ -671,6 +854,13 @@ def render_all_groups(payload: dict) -> str:
     for item in payload["uncertainties"]:
         lines.append(f"  {item['ledger']}:{item['line']} {item['subject']!r} → {', '.join(item['reasons'])}")
     lines.extend(payload["caveats"])
+    account = payload["outbound_account"]
+    lines.append("严格补充账（不改变旧尺子/不判PASS）：事件ID "
+                 f"{len(account['known_event_ids'])} / attemptID {len(account['known_attempt_ids'])}")
+    for name, counts in account["channels"].items():
+        lines.append(f"  {name}：声明成功 {counts['declared_success_rows']} / "
+                     f"已尝试失败 {counts['failed_attempt_rows']} / attempt未知 {counts['attempt_unknown_rows']}")
+    lines.append(f"严格账不确定记录 {len(account['uncertainties'])}；独立收件=unknown")
     return "\n".join(lines)
 
 
