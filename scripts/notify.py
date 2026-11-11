@@ -58,6 +58,8 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate
@@ -106,6 +108,511 @@ ALERTS_FILE = ALERTS_DIR / "latest.md"
 # 不进 git(运行时数据,与 alert_state.json 同级 .gitignore 忽略)。
 DEDUP_FILE = REPO / "data" / "notify_dedup.json"
 
+# Optional operations contract. No title heuristics: legacy business messages
+# retain their routing. These fields are merged by schedule under the same lock.
+OPS_RECEIPT_FIELDS = (
+    "notified_event_id", "notified_at", "notified_channels",
+    "last_recovery_notified_event_id", "last_recovery_notified",
+    "last_escalation_notified_event_id", "last_escalation_notified",
+    "last_notification_attempt", "notification_claim",
+)
+OPS_CHANNELS = ("email", "telegram", "feishu")
+OPS_CLAIM_SECONDS = 180
+_OPS_LOCAL = threading.local()
+
+
+def _ops_refs(refs):
+    if isinstance(refs, str):
+        refs = json.loads(refs)
+    if not isinstance(refs, list) or len(refs) != 1:
+        raise ValueError("ops_event_refs requires one event and its complete payload")
+    r = refs[0]
+    if not isinstance(r, dict) or set(r) != {"key", "event_id", "phase", "source_run"}:
+        raise ValueError("ops_event_refs requires key,event_id,phase,source_run")
+    if any(not isinstance(r[k], str) or not r[k].strip() for k in ("key", "event_id", "phase")):
+        raise ValueError("empty event identity")
+    if r["phase"] not in ("active", "escalation", "recovery"):
+        raise ValueError("invalid event phase")
+    if r["source_run"] is not None and (not isinstance(r["source_run"], str) or not r["source_run"].strip()):
+        raise ValueError("source_run must be a real run or null")
+    return [dict(r)]
+
+
+def _ops_read_state():
+    state = json.loads((REPO / "data/alert_state.json").read_text())
+    if not isinstance(state, dict):
+        raise ValueError("alert_state must be an object")
+    return state
+
+
+@contextmanager
+def _ops_state_lock():
+    import fcntl
+    path = REPO / "data/.alert_state.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+") as fh:
+        if not _flock_ex_wait(fh, timeout_s=5, label="alert_state"):
+            raise TimeoutError("alert_state lock busy")
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def _ops_write_state(state):
+    path = REPO / "data/alert_state.json"
+    tmp = path.with_name(path.name + ".notify." + uuid.uuid4().hex)
+    try:
+        mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+        with os.fdopen(fd, "w") as fh:
+            json.dump(state, fh, ensure_ascii=False)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _ops_audit(refs, decision, detail=""):
+    # Existing internal info outlet, no body/config secrets and no new ledger.
+    rec = {"ts": datetime.now().isoformat(), "subject": "ops notification " + decision,
+           "ops_event_refs": refs, "decision": decision, "detail": detail}
+    print("[notify][ops] " + json.dumps(rec, ensure_ascii=False), file=sys.stderr)
+    return _append_jsonl(INFO_LOG_FILE, rec)
+
+
+def _ops_decision(refs, state=None, continuing=False):
+    r = refs[0]
+    try:
+        st = (state if state is not None else _ops_read_state()).get(r["key"])
+    except (OSError, ValueError):
+        st = None
+    if not isinstance(st, dict) or not st.get("event_id"):
+        return "unknown", {}, "state unavailable or event identity missing"
+    if st["event_id"] != r["event_id"]:
+        return "superseded", st, "key now belongs to another event; health unknown"
+    phase = r["phase"]
+    field = {"active": "notified_event_id", "recovery": "last_recovery_notified_event_id",
+             "escalation": "last_escalation_notified_event_id"}[phase]
+    channels = st.get("notified_channels")
+    accepted = isinstance(channels, dict) and any(channels.get(c) is True for c in OPS_CHANNELS)
+    receipt_time = "notified_at" if phase == "active" else "last_" + phase + "_notified"
+    if st.get(field) == r["event_id"] and st.get(receipt_time) and accepted and not continuing:
+        return "suppressed", st, "event phase already accepted"
+    if phase == "recovery":
+        if st.get("status") != "recovered" or st.get("requires_action") is not False:
+            return "unknown", st, "recovery not verified"
+        channels = st.get("notified_channels")
+        if (st.get("notified_event_id") == r["event_id"] and isinstance(channels, dict)
+                and any(channels.get(c) is True for c in OPS_CHANNELS)):
+            return "send", st, "paired recovery"
+        # A missing receipt with an active/orphaned attempt is not proof of no send.
+        attempt = st.get("last_notification_attempt") or {}
+        if st.get("notification_claim") or attempt.get("status") in ("unknown", "partial"):
+            return "unknown", st, "first delivery outcome unknown"
+        return "suppressed", st, "no accepted first notification"
+    if st.get("requires_action") is False and st.get("status") in ("pending", "recovered"):
+        return "suppressed", st, "verified no action required"
+    if st.get("requires_action") is True and st.get("status") == "active":
+        return "send", st, "action required"
+    return "unknown", st, "action evidence unknown; do not hide fault"
+
+
+def _ops_result(status, refs, detail="", **extra):
+    return {**dict.fromkeys(OPS_CHANNELS, False), "status": status,
+            "delivery_status": status, "ops_event_refs": refs,
+            "event_results": [{**refs[0], "status": status, "detail": detail}], **extra}
+
+
+def _ops_gate(refs, dry_run=False, continuing=False):
+    decision, st, reason = _ops_decision(refs, continuing=continuing)
+    if decision in ("superseded", "suppressed") or (decision == "unknown" and refs[0]["phase"] == "recovery"):
+        if not dry_run:
+            _ops_audit(refs, decision, reason)
+        return _ops_result(decision, refs, reason)
+    return None
+
+
+def _ops_claim(refs, continuing=False):
+    """Atomic claim; no lock crosses a transport call. Missing state fails visible.
+
+    Unknown active faults still send when identity/state exists. Missing/corrupt
+    state cannot safely claim: keep the queued payload and return unknown to its
+    producer, rather than invent health or overwrite the broken state.
+    """
+    r = refs[0]
+    with _ops_state_lock():
+        state = _ops_read_state()
+        decision, st, reason = _ops_decision(refs, state, continuing)
+        if decision in ("superseded", "suppressed") or (decision == "unknown" and (not st or r["phase"] == "recovery")):
+            return None, _ops_result(decision, refs, reason)
+        if decision == "unknown":
+            _ops_audit(refs, decision, reason)
+        old = st.get("notification_claim")
+        now = time.time()
+        if isinstance(old, dict) and old.get("event_id") == r["event_id"]:
+            if float(old.get("expires_at", 0)) > now:
+                return None, _ops_result("deferred", refs, "another sender owns event claim")
+            _ops_audit(refs, "unknown", "expired claim; prior external acceptance may be lost")
+        claim = {"event_id": r["event_id"], "phase": r["phase"], "attempt_id": uuid.uuid4().hex,
+                 "claimed_at": now, "expires_at": now + OPS_CLAIM_SECONDS}
+        st["notification_claim"] = claim
+        _ops_write_state(state)
+        return claim, None
+
+
+def _ops_receipt(refs, claim, results, attempted, status, final=True):
+    """Fresh merge only, preserving business facts and ACK. Return persistence proof."""
+    r = refs[0]
+    try:
+        with _ops_state_lock():
+            state = _ops_read_state()
+            st = state.get(r["key"])
+            if not isinstance(st, dict) or st.get("event_id") != r["event_id"]:
+                _ops_audit(refs, "superseded", "late receipt; new event untouched")
+                return False
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            channels = {c: results.get(c) is True for c in OPS_CHANNELS}
+            st["last_notification_attempt"] = {"attempt_id": claim["attempt_id"], "phase": r["phase"],
+                "source_run": r["source_run"], "status": status, "channels": channels,
+                "attempted_channels": list(attempted)}
+            if any(channels.values()):
+                phase = r["phase"]
+                if phase in ("active", "escalation"):
+                    old = st.get("notified_channels", {}) if st.get("notified_event_id") == r["event_id"] else {}
+                    old = old if isinstance(old, dict) else {}
+                    st.update(notified_event_id=r["event_id"], notified_at=now,
+                              notified_channels={c: channels[c] or old.get(c) is True for c in OPS_CHANNELS})
+                if phase in ("escalation", "recovery"):
+                    st["last_" + phase + "_notified_event_id"] = r["event_id"]
+                    st["last_" + phase + "_notified"] = now
+            current = st.get("notification_claim") or {}
+            if current.get("attempt_id") == claim["attempt_id"]:
+                if final:
+                    st.pop("notification_claim", None)
+                else:
+                    current["expires_at"] = time.time() + OPS_CLAIM_SECONDS
+            _ops_write_state(state)
+        return True
+    except (OSError, ValueError, TimeoutError) as exc:
+        _ops_audit(refs, "unknown", "receipt persistence failed: " + type(exc).__name__)
+        return False
+
+
+def _ops_attempted(channel):
+    attempt = getattr(_OPS_LOCAL, "attempt", None)
+    if attempt is not None and channel not in attempt:
+        attempt.append(channel)
+
+
+def _ops_transmit(subject, body, refs, *, from_prefix=None, feishu_only=False,
+                  pending=None, checkpoint=None, only_channels=None):
+    """One event, existing transports/outbox, full-content channel receipts only."""
+    from alert_digest_delivery import split_posts
+    continuing = pending is not None and pending.get("first_attempted", False)
+    gate = _ops_gate(refs, continuing=continuing)
+    if gate:
+        return gate
+    try:
+        claim, blocked = _ops_claim(refs, continuing=continuing)
+    except TimeoutError:
+        return _ops_result("deferred", refs, "state lock busy; retry without external attempt")
+    except (OSError, ValueError) as exc:
+        _ops_audit(refs, "unknown", "claim unavailable: " + type(exc).__name__)
+        claim, blocked = None, _ops_result("unknown", refs, "claim unavailable")
+    if blocked and blocked["status"] == "unknown" and refs[0]["phase"] != "recovery":
+        if pending is None:
+            # Do not lose real faults while shared state is broken. The existing
+            # durable outbox serializes their eventual unknown-state attempt.
+            queued = _absorb_to_digest(subject, body, key=None, category="ops",
+                                      from_prefix=from_prefix, ops_event_refs=refs)
+            return _ops_result("unknown", refs, "state unavailable; retained for digest retry",
+                               retained_in_outbox=queued)
+        # Called only under the existing digest delivery lock. No fabricated
+        # state/health/receipt: this fallback's durable proof stays in the outbox
+        # and outbound ledger. State repair is still required for lifetime dedup.
+        claim = {"attempt_id": uuid.uuid4().hex}
+        blocked = None
+        _ops_audit(refs, "unknown", "state unavailable; outbox-serialized fault delivery")
+    if blocked:
+        _ops_audit(refs, blocked["status"], blocked["event_results"][0]["detail"])
+        return blocked
+    _, st, _ = _ops_decision(refs, continuing=True)
+    targets = {c for c in OPS_CHANNELS if not feishu_only or c == "feishu"}
+    if only_channels is not None:
+        targets &= set(only_channels)
+    if refs[0]["phase"] == "recovery":
+        targets &= {c for c in OPS_CHANNELS if (st.get("notified_channels") or {}).get(c) is True}
+    results = dict.fromkeys(OPS_CHANNELS, False)
+    if pending:
+        results.update(pending["other_success"])
+    attempted = []
+    previous = getattr(_OPS_LOCAL, "attempt", None)
+    _OPS_LOCAL.attempt = attempted
+    _LEDGER_LOCAL.depth = _ledger_depth() + 1
+    status = "failed"
+    try:
+        for channel in ("email", "telegram"):
+            if channel not in targets or results[channel]:
+                continue
+            if _ops_gate(refs, continuing=True):
+                break
+            if channel == "email":
+                results[channel] = _send_email(subject, body, from_prefix=from_prefix)
+            else:
+                # Legacy Telegram truncates. Explicit ops contents must be whole.
+                text = _html_to_text(body)
+                size = max(1, TG_TEXT_LIMIT - len(subject) - 100)
+                parts = [text[i:i + size] for i in range(0, len(text), size)] or [""]
+                accepted = []
+                for p in parts:
+                    if _ops_gate(refs, continuing=True):
+                        accepted.append(False)
+                        break
+                    _ops_receipt(refs, claim, results, attempted, "partial", final=False)
+                    accepted.append(send_telegram(subject, html.escape(p)))
+                results[channel] = all(accepted)
+            if pending is not None:
+                pending["other_success"][channel] = results[channel]
+                pending["other_attempted"] = True
+                pending["first_attempted"] |= results[channel]
+                checkpoint()
+            _ops_receipt(refs, claim, results, attempted, "partial", final=False)
+        if "feishu" in targets:
+            if pending is None:
+                cfg = load_feishu_config() or {}
+                chat_id = (cfg.get("chat_ids") or {}).get("report", "")
+                parts = split_posts(subject, [_html_to_text(body)], chat_id)
+                confirmed = []
+            else:
+                parts, confirmed = pending["parts"], pending["confirmed_parts"]
+            for i, part in enumerate(parts):
+                if i in confirmed:
+                    continue
+                # Recheck between parts; superseded/healed payload cannot leak on retry.
+                gate = _ops_gate(refs, continuing=True)
+                if gate:
+                    break
+                if not send_feishu(subject, body, chat_key="report" if pending is not None else "alert", feishu_post=part, from_prefix=from_prefix):
+                    break
+                confirmed.append(i)
+                if pending is not None:
+                    pending["first_attempted"] = True
+                    checkpoint()
+                _ops_receipt(refs, claim, results, attempted, "partial", final=False)
+            results["feishu"] = len(confirmed) == len(parts)
+        status = "sent" if targets and all(results[c] for c in targets) else "partial" if any(results.values()) else "failed"
+    except Exception as exc:
+        status = "unknown"
+        _ops_audit(refs, status, "delivery interrupted: " + type(exc).__name__)
+    finally:
+        _LEDGER_LOCAL.depth = max(0, _ledger_depth() - 1)
+        _OPS_LOCAL.attempt = previous
+    persisted = _ops_receipt(refs, claim, results, attempted, status)
+    if attempted:
+        _record_ledger(subject, results, tier="ops", key=refs[0]["key"], group="report",
+                       ops_event_refs=refs, attempt_id=claim["attempt_id"], attempted_channels=attempted)
+    return _ops_result(status, refs, receipt_persisted=persisted, **results,
+                       attempt_id=claim["attempt_id"], attempted_channels=attempted)
+
+
+def _ops_feishu_config_event(missing):
+    """Notification infrastructure's own incident, never recursive send()."""
+    key = "feishu_config_missing"
+    try:
+        # Healthy business sends do not create files/locks or new event state.
+        if not missing:
+            st = _ops_read_state().get(key)
+            if not isinstance(st, dict) or st.get("status") != "active":
+                return None
+        with _ops_state_lock():
+            try:
+                state = _ops_read_state()
+            except FileNotFoundError:
+                state = {}
+            st = state.get(key)
+            if missing:
+                if not isinstance(st, dict) or st.get("status") != "active":
+                    st = {"event_id": uuid.uuid4().hex, "source_run": None,
+                          "status": "active", "requires_action": True,
+                          "first_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                          "keyword": "feishu_config_missing"}
+                    state[key] = st
+                    _ops_write_state(state)
+                elif not st.get("event_id"):
+                    # Adopt an already-open legacy monitor incident once; no
+                    # receipt or ACK is fabricated for its unverified history.
+                    st.update(event_id=uuid.uuid4().hex, source_run=None, requires_action=True)
+                    _ops_write_state(state)
+                return [{"key": key, "event_id": st["event_id"], "phase": "active", "source_run": st.get("source_run")}]
+            if isinstance(st, dict) and st.get("status") == "active":
+                st.update(status="recovered", requires_action=False)
+                _ops_write_state(state)
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, TimeoutError) as exc:
+        _ops_audit([], "unknown", "Feishu config incident state unavailable: " + type(exc).__name__)
+    return None
+
+
+def _ops_defer_warning(subject, body, refs, from_prefix=None, dry_run=False):
+    import fcntl
+    refs = _ops_refs(refs)
+    if dry_run:
+        return "dry_run"
+    gate = _ops_gate(refs)
+    if gate:
+        return gate["status"]
+    payload = {"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+               "rid": uuid.uuid4().hex, "subject": subject, "body": body,
+               "from_prefix": from_prefix, "ops_event_refs": refs}
+    try:
+        WARNING_BUFFER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with WARNING_BUFFER_FILE.open("a+") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            fh.seek(0)
+            entries, _ = _parse_buffer_lines(fh.read().encode())
+            identity = lambda r: tuple(r[k] for k in ("key", "event_id", "phase"))
+            if not any(e.get("ops_event_refs") and identity(e["ops_event_refs"][0]) == identity(refs[0]) for e in entries):
+                fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+        return "enqueued"
+    except (OSError, ValueError, KeyError, TypeError):
+        return "failed"
+
+
+
+
+def _ops_flush_digest(dry_run=False):
+    """Use the existing pending_delivery for exactly one ops payload at a time.
+
+    Old opaque/no-ref snapshots remain with the legacy delivery implementation.
+    Superseded/quiet entries are removed whole, with internal audit, never marked
+    sent. Unknown recovery stays visible in the buffer; other entries can proceed.
+    """
+    from alert_digest_delivery import remove_snapshot, signature, split_posts, validate_pending
+    try:
+        entries, bad = _parse_buffer_lines(ALERT_DIGEST_FILE.read_bytes()) if ALERT_DIGEST_FILE.exists() else ([], [])
+        try:
+            state = json.loads(ALERT_DIGEST_STATE_FILE.read_text()) if ALERT_DIGEST_STATE_FILE.exists() else {}
+        except (OSError, ValueError):
+            return None  # preserve the original reader diagnostic and retention
+        if not isinstance(state, dict):
+            return None  # legacy reader reports malformed state and retains all
+        pending = state.get("pending_delivery")
+        if pending and not any("ops_event_refs" in e for e in pending.get("entries", [])):
+            return None  # historical unverified payload: no inference from titles
+        if dry_run:
+            return {"sent": False, "n": 0, "n_remaining": len(entries)} if pending or any("ops_event_refs" in e for e in entries) else None
+        dropped, eligible = [], []
+        for e in entries:
+            if "ops_event_refs" not in e:
+                continue
+            try:
+                refs = _ops_refs(e["ops_event_refs"])
+                # An in-progress outbox can finish unconfirmed parts, not re-send
+                # full-content channels already accepted in this exact snapshot.
+                continuing = bool(pending and e in pending["entries"] and pending.get("first_attempted"))
+                gate = _ops_gate(refs, continuing=continuing)
+                if gate:
+                    if gate["status"] in ("suppressed", "superseded"):
+                        dropped.append(e)
+                else:
+                    eligible.append(e)
+            except (ValueError, TypeError):
+                _ops_audit(e.get("ops_event_refs"), "unknown", "invalid digest reference retained")
+        if pending:
+            validate_pending(pending)
+            if len(pending["entries"]) != 1:
+                raise ValueError("mixed ops pending payload cannot be safely split")
+            ref = _ops_refs(pending["entries"][0]["ops_event_refs"])
+            gate = _ops_gate(ref, continuing=pending["first_attempted"])
+            if gate:
+                if gate["status"] not in ("suppressed", "superseded"):
+                    return {"sent": False, "n": 0, "status": "unknown", "n_remaining": len(entries)}
+                dropped += pending["entries"]
+                state.pop("pending_delivery")
+                _write_digest_delivery_state(state)
+                pending = None
+        if dropped:
+            entries = remove_snapshot(entries, dropped)
+            _atomic_write_digest(entries, bad)
+            eligible = [e for e in eligible if e in entries]
+        if pending is None:
+            if not eligible or datetime.now().strftime("%H:%M") < ALERT_DIGEST_HM:
+                return None
+            # Per-event snapshot deliberately excludes all unrelated bodies.
+            e = eligible[0]
+            subject, body = e["subject"], e["body"]
+            lines = [_html_to_text(body)]
+            required, route_hash, chat_id = _digest_delivery_route()
+            pending = {"version": 1, "entries": [e], "subject": subject, "body": body,
+                       "lines": lines, "n": 1, "signature": signature([[e], subject, body, lines, 1]),
+                       "parts": split_posts(subject, lines, chat_id), "route_hash": route_hash,
+                       "feishu_required": required, "confirmed_parts": [], "other_attempted": False,
+                       "other_success": {"email": False, "telegram": False},
+                       "first_attempted": False, "complete": False}
+            pending["parts_signature"] = signature([pending["signature"], pending["parts"]])
+            state["pending_delivery"] = pending
+            _write_digest_delivery_state(state)
+        validate_pending(pending)
+        refs = _ops_refs(pending["entries"][0]["ops_event_refs"])
+        if not pending["complete"]:
+            # Do not reset accepted parts onto a changed destination silently.
+            _, route_hash, _ = _digest_delivery_route()
+            if route_hash != pending["route_hash"]:
+                _ops_audit(refs, "unknown", "pending destination changed; needs operator review")
+                return {"sent": False, "n": 0, "status": "unknown", "n_remaining": len(entries)}
+            result = _ops_transmit(pending["subject"], pending["body"], refs, pending=pending,
+                                   checkpoint=lambda: _write_digest_delivery_state(state))
+            # Completion keeps the old outbox rules; recovery may target email
+            # only, so do not falsely mark excluded Feishu parts as accepted.
+            _, st, _ = _ops_decision(refs, continuing=True)
+            needs_feishu = pending["feishu_required"]
+            if refs[0]["phase"] == "recovery":
+                needs_feishu = (st.get("notified_channels") or {}).get("feishu") is True
+                pending["feishu_required"] = needs_feishu
+            all_parts = len(pending["confirmed_parts"]) == len(pending["parts"])
+            complete = all_parts if needs_feishu else all_parts or any(pending["other_success"].values())
+            if not complete:
+                return {"sent": any(result.get(c) is True for c in OPS_CHANNELS), "n": 1,
+                        "status": result["status"], "n_remaining": len(entries)}
+            pending["complete"] = True
+            _write_digest_delivery_state(state)
+        current, bad = _parse_buffer_lines(ALERT_DIGEST_FILE.read_bytes())
+        kept = remove_snapshot(current, pending["entries"])
+        _atomic_write_digest(kept, bad)
+        state.pop("pending_delivery")
+        # Ops deliveries cannot consume the legacy business digest's daily slot.
+        _write_digest_delivery_state(state)
+        return {"sent": True, "n": 1, "n_remaining": len(kept)}
+    except Exception as exc:
+        print("[notify][ops] digest retained: " + type(exc).__name__, file=sys.stderr)
+        return {"sent": False, "n": 0, "status": "unknown"}
+
+
+def _ops_route(subject, body, refs, *, tier=None, dry_run=False, digest=False,
+               from_prefix=None, feishu_only=False):
+    refs = _ops_refs(refs)
+    if dry_run:
+        return _ops_result("dry_run", refs)
+    gate = _ops_gate(refs)
+    if gate:
+        return gate
+    if tier == "info":
+        _ops_audit(refs, "noop", "producer selected info")
+        return _ops_result("noop", refs)
+    if tier == "warning":
+        status = defer_warning(subject, body, from_prefix, ops_event_refs=refs)
+        return _ops_result("deferred" if status == "enqueued" else status, refs)
+    if digest:
+        ok = _absorb_to_digest(subject, body, key=None, category="ops", from_prefix=from_prefix,
+                               ops_event_refs=refs)
+        return _ops_result("digested" if ok else "failed", refs)
+    return _ops_transmit(subject, body, refs, from_prefix=from_prefix, feishu_only=feishu_only)
+
 # ---------------------------------------------------------------------------
 # 结构化发送结果(--result-file, 2026-10-21, 告警黑洞根因修)
 # 病灶: 调用方靠解析 stderr 字符串(「汇总: 已发出」)判断是否真发出 ⇒ 通道全失败/
@@ -136,6 +643,8 @@ def _mark_outcome(status: str, detail: str = "", tier: str | None = None,
     _OUTCOME = {"status": status, "detail": detail, "tier": tier,
                 "channels": dict(channels or {}),
                 "dedup_key": dedup_key}
+
+    _OUTCOME["delivery_status"] = ("deferred" if (channels or {}).get("deferred") else "noop" if (channels or {}).get("info_logged") else status)
 
 
 def _finish(rc: int, status: str, detail: str = "", tier: str | None = None,
@@ -254,7 +763,7 @@ def _record_ledger(subject: str, results: dict, *, tier: str | None = None,
                    key: str | None = None, source: str | None = None,
                    group: str | None = None, merged_count: int = 0,
                    noise_class: str | None = None,
-                   dry_run: bool = False) -> None:
+                   dry_run: bool = False, ops_event_refs=None, attempt_id=None, attempted_channels=None) -> None:
     """向单点台账追加一行 JSONL（best-effort，任何失败不影响通知主链路）。
 
     results：{"email": bool, "telegram": bool, "feishu": bool}——仅当**至少一个真实
@@ -271,13 +780,14 @@ def _record_ledger(subject: str, results: dict, *, tier: str | None = None,
       读侧一律 `.get()` 兼容。
     dry_run=True 直接短路（不写台账，与 latest.md 同契约）。
     """
+    # Ops failures share this ledger; status is not a channel receipt.
     if dry_run or os.environ.get("ALERT_LEDGER_DISABLE") == "1":
         return  # dry-run 不记；ALERT_LEDGER_DISABLE=1 = 一键回滚开关（字节级零副作用）
     try:
         ch = {"email": bool(results.get("email")), "feishu": bool(results.get("feishu"))}
         if telegram_configured():
             ch["telegram"] = bool(results.get("telegram"))
-        if not any(ch.values()):
+        if not any(ch.values()) and not attempt_id:
             return  # 全渠道未发出 = 未实际外发，不记
         src = source or os.environ.get("NOTIFY_SOURCE") or (
             Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "unknown")
@@ -291,6 +801,10 @@ def _record_ledger(subject: str, results: dict, *, tier: str | None = None,
             "source": src,
             "group": group,
         }
+        if attempt_id:
+            rec.update(ops_event_refs=ops_event_refs, attempt_id=attempt_id,
+                       attempted_channels=list(attempted_channels or []), ops_category="operations")
+            rec["channels"] = {c: results.get(c) is True for c in OPS_CHANNELS}
         if merged_count:
             rec["merged_count"] = int(merged_count)
         if noise_class:
@@ -737,6 +1251,7 @@ def send_telegram(subject: str, body: str, dry_run: bool = False,
         headers={"Content-Type": "application/json; charset=utf-8"},
     )
     try:
+        _ops_attempted("telegram")
         with urllib.request.urlopen(req, timeout=30) as resp:
             resp_data = json.loads(resp.read().decode("utf-8", "replace"))
         if resp_data.get("ok"):
@@ -915,6 +1430,7 @@ def _send_feishu_api(chat_id: str, subject: str, text: str,
     last_err = ""
     for attempt in range(_FEISHU_SEND_ATTEMPTS):
         try:
+            _ops_attempted("feishu")
             data = _feishu_http_post_json(url, payload, headers)
         except urllib.error.HTTPError as e:
             if e.code >= 500 and attempt < _FEISHU_SEND_ATTEMPTS - 1:
@@ -972,6 +1488,7 @@ def _send_feishu_webhook(url: str, subject: str, text: str,
                          ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json; charset=utf-8"}
     try:
+        _ops_attempted("feishu")
         data = _feishu_http_post_json(url, payload, headers)
     except Exception as e:  # noqa: BLE001
         print(f"[notify] Feishu webhook 发送失败（不阻塞）：{e}", file=sys.stderr)
@@ -1034,16 +1551,10 @@ def _resolve_feishu_chat_key(subject: str, from_prefix: str | None,
 
 
 def _alert_feishu_config_missing(dry_run: bool = False) -> None:
-    """飞书配置缺失邮件告警（2026-08-17 三件套①核心）。
-
-    feishu.json 丢失但 .env 已有 FEISHU_APP_ID/FEISHU_APP_SECRET = 配置本该存在却异常
-    丢失（曾静默停摆数天），走邮件告警链提醒恢复。全新环境未配置（.env 无凭证）不告警
-    （由调用方判定，静默跳过）。走 data/notify_dedup.json 去重（key=feishu_config_missing，
-    30min 内不重复发防刷屏）。只发邮件（Telegram 是占位符不用），不调 send_feishu 防递归。
-    dry_run=True 时只 print 不真发（供测试验证告警路径）。"""
-    dedup_key = "feishu_config_missing"
-    dedup_window = 1800  # 30min 内不重复告警
-    if not dry_run and check_dedup(dedup_key, dedup_window):
+    if dry_run:
+        return
+    refs = _ops_feishu_config_event(missing=True)
+    if refs is None:
         return
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     subject = "[告警] 飞书配置缺失 feishu.json 已丢失"
@@ -1064,18 +1575,9 @@ def _alert_feishu_config_missing(dry_run: bool = False) -> None:
 4. 校验：python scripts/notify.py --dry-run 测试发送
 
 ---
-本告警由 notify.py send_feishu 配置缺失触发，30min 内不重复发。
+本告警由 notify.py send_feishu 配置缺失触发，同一配置缺失事件不重复首报。
 </div>"""
-    ok = _send_email(subject, body, dry_run=dry_run, from_prefix="[告警]")
-    if ok and not dry_run:
-        update_dedup(dedup_key)
-        if _ledger_depth() > 0:
-            # W1 L1（2026-10-10）：本函数常被 send_feishu 内部（cfg 缺失分支）嵌套调用，
-            # 此时外层 send()/send_to() 的重入守卫会让 `_send_email` 渠道包装跳过记账；
-            # 但本条是**独立主题**的真实外发（基建告警，subject 与触发它的告警不同），
-            # 故在此显式补记一条，避免嵌套场景漏记（depth==0 时由渠道包装记账，不补防双记）。
-            _record_ledger(subject, {"email": True, "telegram": False, "feishu": False},
-                           tier="critical", key=dedup_key, group="alert")
+    _ops_transmit(subject, body, refs, from_prefix="[告警]", only_channels={"email"})
 
 
 def _host_tag_subject(subject: str) -> str:
@@ -1151,7 +1653,7 @@ def send_feishu(subject: str, body: str, chat_key: str | None = None,
     # （_send_feishu_webhook 内部处理）。build_feishu_post 已返回 {"zh_cn": ...}。
     msg_type, content = "text", None
     post_segments: list[dict] | None = None  # 分段 post（仅 report 群 + 超行数时非 None）
-    if feishu_post and chat_key == "report":
+    if feishu_post and (chat_key == "report" or getattr(_OPS_LOCAL, "attempt", None) is not None):
         # 超 FEISHU_POST_MAX_ROWS 行时按每段切分、多段连发（标题带 N/M 序号），绝不省略行
         # （2026-08-16 用户定：放开行数+超长分段连发，和页面一致，不丢细讲/风险/辩论/角色）。
         decoded = feishu_post.get("zh_cn", {})
@@ -1264,6 +1766,7 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
         # 本地 python 默认 SSL 证书链缺失会 CERTIFICATE_VERIFY_FAILED，用 certifi 证书
         # (launchd 裸环境无 certifi 时 _ssl_cafile 回退系统 CA 路径, 不再 ImportError)
         ctx = ssl.create_default_context(cafile=_ssl_cafile())
+        _ops_attempted("email")
         with smtplib.SMTP_SSL(smtp, port, timeout=30, context=ctx) as srv:
             srv.login(user, password)
             srv.sendmail(from_addr, [to_addr], msg.as_string())
@@ -1297,6 +1800,8 @@ def _ledger_feishu_dispatch(subject: str, body: str, chat_key: str | None = None
     ok = _send_feishu_core(subject, body, chat_key=chat_key, dry_run=dry_run,
                            severe=severe, from_prefix=from_prefix,
                            reply_to_message_id=reply_to_message_id, feishu_post=feishu_post)
+    if ok and not dry_run:
+        _ops_feishu_config_event(missing=False)
     if ok and not dry_run and _ledger_depth() == 0:
         _record_ledger(subject, {"email": False, "telegram": False, "feishu": True},
                        group=chat_key)
@@ -1338,7 +1843,7 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
          ledger_tier: str | None = None, ledger_key: str | None = None,
          ledger_group: str | None = None, merged_count: int = 0,
          budget_exempt: bool = False, dedup_window: int | None = None,
-         digest_only: bool = False) -> dict:
+         digest_only: bool = False, ops_event_refs=None) -> dict:
     """多渠道分发通知（邮件 + Telegram + 飞书）。各渠道独立失败不互相阻塞。
 
     先邮件后 Telegram 再飞书，任一渠道失败不影响其他。返回聚合结果：
@@ -1375,6 +1880,8 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     # 挂在 send() 入口=CLI 直调/send_tiered/notify_agent_done 全路径统一生效。
     # P2④（codex007）：dry_run 冒烟/测试全路径只读——不触碰真实 dedup state 文件；
     # 同时把 body 传下去，聚合恢复消息靠正文明细行逐源清零（泛化 subject 匹配不全）。
+    if ops_event_refs is not None:
+        return _ops_route(subject, body, ops_event_refs, dry_run=dry_run, digest=digest_only, from_prefix=from_prefix, feishu_only=feishu_only)
     _is_recovery = bool(_RECOVERY_PREFIX_RE.match(str(subject)))
     # 批次3-D(2026-10-28, #321): 恢复类「摘要链路不可用」fail-open 落 report 群时,
     # 主题不是 [告警] 也不在 _EMAIL_KEEP_PREFIXES 里 ⇒ 会被邮件按群分流机制掐掉。
@@ -2408,7 +2915,7 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
                       reason: str = "over_budget",
                       domain: str | None = None,
                       mark_seen: bool = False,
-                      bump_hits: bool = False) -> bool:
+                      bump_hits: bool = False, ops_event_refs=None) -> bool:
     """把「不即时直发」的告警并入当日摘要 buffer(幂等: 同日同 key 只 1 行)。
 
     返回 True=已并入(或当日同 key 已在 buffer, 幂等命中); False=append 失败
@@ -2442,6 +2949,9 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
     # flush_digest 的侧车锁是两套互斥机制(两条写路径两把锁 = 本次根治对象)。
     # 现统一到侧车锁 + _atomic_write_digest(tmp+fsync+os.replace): 原文件在 replace
     # 成功前一字节不动, 部分写入/ENOSPC/fsync/replace 任一失败原文件都必然完好。
+    if ops_event_refs is not None:
+        ops_event_refs = _ops_refs(ops_event_refs)
+        key = "ops|" + hashlib.sha256(json.dumps([ops_event_refs[0][k] for k in ("key", "event_id", "phase")]).encode()).hexdigest()
     import fcntl
     _now = datetime.now()
     _day = _now.strftime("%Y-%m-%d")
@@ -2479,12 +2989,14 @@ def _absorb_to_digest(subject: str, body: str, *, key: str | None, category: str
                         "key": _k,
                         "category": category,
                         "subject": re.sub(r"\s+", " ", str(subject)).strip()[:200],
-                        "body": str(body)[:DIGEST_ENTRY_BODY_LIMIT],
+                        "body": str(body) if ops_event_refs else str(body)[:DIGEST_ENTRY_BODY_LIMIT],
                         "from_prefix": from_prefix,
                         "source": source or os.environ.get("NOTIFY_SOURCE") or "notify.py",
                         "reason": reason,
                         "hits": 1,
                     }
+                    if ops_event_refs is not None:
+                        _rec["ops_event_refs"] = ops_event_refs
                     if domain:
                         _rec["domain"] = domain
                     _entries.append(_rec)
@@ -2920,7 +3432,7 @@ def clear_warning_dedup_for_recovery(subject: str, body: str = "") -> list[str]:
 
 
 def defer_warning(subject: str, body: str, from_prefix: str | None = None,
-                  dry_run: bool = False) -> str:
+                  dry_run: bool = False, ops_event_refs=None) -> str:
     """warning 级：写入聚合 buffer（warning_buffer.jsonl），等 flush_warning_batch 批发。
 
     不直接推送——由 schedule_monitor/monitor_72h 每轮尾部调 flush_warning_batch()，
@@ -2963,6 +3475,8 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None,
     send_tiered 之前拦截下轮重试，真告警被静默吞（#123 R4 同款翻版，本函数与其
     内部 4h 指纹窗是两套独立窗，勿混为一谈）。
     """
+    if ops_event_refs is not None:
+        return _ops_defer_warning(subject, body, ops_event_refs, from_prefix, dry_run)
     if dry_run:
         print(f"[notify][warning][dry-run] 模拟入聚合 buffer（不写盘）：{subject}",
               file=sys.stderr)
@@ -3131,7 +3645,58 @@ def flush_warning_batch(dry_run: bool = False) -> dict:
         return _flush_warning_batch_locked(dry_run=dry_run)
 
 
-def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
+def _flush_warning_batch_locked(dry_run=False):
+    """Move single-event payloads intact. Legacy entries keep their old batch."""
+    import fcntl
+    from alert_digest_delivery import remove_snapshot
+    moved = []
+    digested = False
+    try:
+        entries, _ = _parse_buffer_lines(WARNING_BUFFER_FILE.read_bytes())
+        for e in entries:
+            if "ops_event_refs" not in e:
+                continue
+            try:
+                refs = _ops_refs(e["ops_event_refs"])
+                gate = _ops_gate(refs, dry_run=dry_run)
+                due = (datetime.now() - datetime.strptime(e["ts"], "%Y-%m-%d %H:%M:%S")).total_seconds() >= WARNING_BATCH_WINDOW
+                if dry_run:
+                    continue
+                if gate:
+                    if gate["status"] in ("suppressed", "superseded"):
+                        moved.append(e)
+                    continue
+                if due and _absorb_to_digest(e["subject"], e["body"], key=None,
+                        category="ops", from_prefix=e.get("from_prefix"), ops_event_refs=refs):
+                    moved.append(e)
+                    digested = True
+            except (ValueError, KeyError, TypeError) as exc:
+                if not dry_run:
+                    _ops_audit(e.get("ops_event_refs"), "unknown", "invalid warning entry: " + type(exc).__name__)
+        if moved:
+            with WARNING_BUFFER_FILE.open("r+b") as fh:
+                fcntl.flock(fh, fcntl.LOCK_EX)
+                current, bad = _parse_buffer_lines(fh.read())
+                kept = remove_snapshot(current, moved)
+                raw = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in kept) + "".join(l + "\n" for l in bad)
+                fh.seek(0)
+                fh.write(raw.encode())
+                fh.truncate()
+                fh.flush()
+                os.fsync(fh.fileno())
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        print("[notify][ops] warning retained: " + str(exc), file=sys.stderr)
+    result = _flush_warning_batch_legacy_locked(dry_run)
+    if moved:
+        result["digested"] = bool(result.get("digested") or digested)
+        result["ops_processed"] = len(moved)
+    return result
+
+
+
+def _flush_warning_batch_legacy_locked(dry_run: bool = False) -> dict:
     """flush_warning_batch 的持锁主体（调用方必须已持有 WARNING_FLUSH_LOCK_FILE 锁）。"""
     import fcntl
     try:
@@ -3145,6 +3710,7 @@ def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
         print(f"[notify] warning buffer 读取失败：{e}", file=sys.stderr)
         return {"sent_batch": False, "n_due": 0, "n_remaining": 0}
     entries, bad_lines = _parse_buffer_lines(raw)
+    entries = [e for e in entries if "ops_event_refs" not in e]
     for i, bl in enumerate(bad_lines, 1):
         print(f"[notify][warning] buffer 坏行跳过（第{i}条，前80字符）：{bl[:80]!r}",
               file=sys.stderr)
@@ -3551,6 +4117,9 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
     A durable complete receipt precedes cleanup. Incomplete deliveries never move
     the watermark; retries bypass the daily gate, including across midnight.
     """
+    ops_result = _ops_flush_digest(dry_run)
+    if ops_result is not None:
+        return ops_result
     from alert_digest_delivery import remove_snapshot, signature, split_posts, validate_pending
     try:
         raw = ALERT_DIGEST_FILE.read_bytes()
@@ -3560,6 +4129,7 @@ def _flush_digest_locked(dry_run: bool = False) -> dict:
         print(f"[notify][digest] buffer 读取失败：{exc}", file=sys.stderr)
         return {"sent": False, "n": 0, "n_remaining": 0}
     entries, bad_lines = _parse_buffer_lines(raw)
+    entries = [e for e in entries if "ops_event_refs" not in e]
     for i, line in enumerate(bad_lines, 1):
         print(f"[notify][digest] buffer 坏行跳过（第{i}条，前80字符）：{line[:80]!r}", file=sys.stderr)
     state = {}
@@ -3664,7 +4234,7 @@ def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
                 feishu_group: str | None = None,
                 reply_to_message_id: str | None = None,
                 ledger_key: str | None = None,
-                dedup_window: int | None = None) -> dict:
+                dedup_window: int | None = None, ops_event_refs=None) -> dict:
     """三级分级统一入口（2026-08-24）。按 tier 路由：
 
     - critical：立即全渠道（=send(severe=True)，真故障即时可达用户，冻结契约不变）
@@ -3675,6 +4245,8 @@ def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
     返回 dict 含 tier 字段便于调用方日志。未知 tier 按 critical 处理（fail-critical：
     分级配置错误时宁多勿漏，绝不因降级逻辑吞掉真故障）。
     """
+    if ops_event_refs is not None:
+        return _ops_route(subject, body, ops_event_refs, tier=tier, dry_run=dry_run, from_prefix=from_prefix)
     if tier not in (TIER_CRITICAL, TIER_WARNING, TIER_INFO):
         # fail-critical（2026-08-24 reviewer P2 兑现本 docstring 承诺）：tier 不在
         # 白名单一律按 critical 立即全渠道发送，并 log 一行便于暴露拼写错误调用方；
@@ -3792,11 +4364,26 @@ def _main_impl(argv: list[str] | None = None) -> int:
                         help="把本次真实发送结果写成 JSON（status=sent/suppressed/failed/"
                              "noop/dry_run + detail + tier + channels + dedup_key）。"
                              "调用方据此判「真发出」, 不再解析 stderr 字符串（2026-10-21）")
+    parser.add_argument("--ops-event-refs", default=None, help="Single operations event JSON reference; source_run nullable")
     args = parser.parse_args(argv)
     global _RESULT_FILE
     _RESULT_FILE = args.result_file
 
     # warning 聚合批发模式（schedule_monitor/monitor_72h 每轮尾部调用）
+    if args.ops_event_refs is not None:
+        try:
+            if args.flush_warnings or args.flush_digest or args.agent_done or args.escalation_only:
+                raise ValueError("ops refs require a single source payload")
+            res = _ops_route(args.subject, args.body, args.ops_event_refs, tier=args.tier,
+                             dry_run=args.dry_run, digest=args.defer_digest or args.digest_only,
+                             from_prefix=args.from_prefix, feishu_only=args.feishu_only)
+        except (ValueError, TypeError) as exc:
+            return _finish(1, "failed", str(exc))
+        rc = _finish(0, res["status"], "ops event routing", tier=args.tier, channels=res,
+                     dedup_key=args.dedup_key)
+        _OUTCOME.update({k: v for k, v in res.items() if k not in OPS_CHANNELS})
+        print("[notify][ops] result: " + json.dumps(_OUTCOME, ensure_ascii=False), file=sys.stderr)
+        return rc
     if args.flush_warnings:
         r = flush_warning_batch(dry_run=args.dry_run)
         print(f"[notify] flush-warnings: {r}", file=sys.stderr)
