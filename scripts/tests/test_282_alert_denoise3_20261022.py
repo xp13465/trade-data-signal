@@ -298,44 +298,20 @@ def _run_stall_direct_with_save(lines: list[str], state: dict, state_pre: dict,
 
 
 def _load_active_escalate_inprocess(tmp_path: Path):
-    """取线上 `_active_escalate` 真函数体, subprocess.run 打桩为**进程内真跑 notify.main**。
+    """Actual embedded dependencies and actual notify CLI, transport-only stubs in iso.
 
-    这样断言的是「升级提醒经真实 notify 路由后的结局」(键/去重窗/正文), 不是在测一份模拟。
+    Requires the coordinated notify event-ref implementation in the integration tree.
+    No recovery/receipt/escalation predicate is mocked.
     """
-    import contextlib
-    import io
-
-    text = MONITOR.read_text(encoding="utf-8")
-    _mark = text.index("<<'PYEOF'")
-    start = text.index("\n", _mark) + 1
-    end = text.index("\nPYEOF", start)
-    py_src = text[start:end]
-    tree = ast.parse(py_src)
-    node = next(n for n in tree.body
-                if isinstance(n, ast.FunctionDef) and n.name == "_active_escalate")
-    code = ast.get_source_segment(py_src, node)
-    events: list[list[str]] = []
-
-    def _run(cmd, **kw):
+    from test_ops_quiet_schedule_20261111 import namespace
+    ns = namespace(tmp_path)
+    ns["NOW"] = datetime.now()
+    events = []
+    def run(cmd, **kw):
         events.append([str(c) for c in cmd])
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-            rc = notify.main([str(c) for c in cmd[2:]])  # cmd[0]=python, cmd[1]=notify.py
-        return types.SimpleNamespace(returncode=rc, stdout="", stderr=buf.getvalue())
-
-    from notify_sent import notify_sent as _ns
-    ns = {
-        "adr": adr, "NOW": datetime.now(), "sys": sys,
-        "hashlib": __import__("hashlib"), "REPO": tmp_path,
-        "MONITOR_LOG": tmp_path / "monitor.log",
-        "subprocess": types.SimpleNamespace(run=_run, SubprocessError=Exception),
-        "notify_sent": _ns,
-        # 批次3-D: 真函数体用 tempfile/json/os/Path 读 --result-file
-        "tempfile": tempfile, "json": json, "os": os, "Path": Path,
-        # #309 F2(2026-10-26): 升级真发出时累加告警邮件数(本用例不关心计数, 只需名字存在)
-        "_ALERT_MAIL_COUNTER": {"sent": 0},
-    }
-    exec(compile(code, "<monitor:_active_escalate>", "exec"), ns)
+        rc = notify.main([str(c) for c in cmd[2:]])
+        return types.SimpleNamespace(returncode=rc, stdout="", stderr="")
+    ns["subprocess"] = types.SimpleNamespace(run=run, SubprocessError=Exception)
     return ns["_active_escalate"], events
 
 
@@ -795,156 +771,82 @@ def test_b_active_judge_three_states_and_old_state():
 
 
 def _load_active_escalate(tmp_path: Path):
-    """从 schedule_monitor.sh 内嵌 python heredoc ast 提取 _active_escalate 真源码执行。
+    return _load_active_escalate_inprocess(tmp_path)
 
-    不重写副本(防第三实现漂移): 测的就是线上那个函数体。
-    """
-    text = MONITOR.read_text(encoding="utf-8")
-    _mark = text.index("<<'PYEOF'")
-    start = text.index("\n", _mark) + 1
-    end = text.index("\nPYEOF", start)
-    py_src = text[start:end]
-    tree = ast.parse(py_src)
-    node = next(n for n in tree.body
-                if isinstance(n, ast.FunctionDef) and n.name == "_active_escalate")
-    code = ast.get_source_segment(py_src, node)
-    events = []
 
-    def _run(cmd, **kw):
-        events.append({"cmd": cmd, "kw": kw})
-        # 批次3-D(#321): 升级档改读 --result-file 的结构化 status; 桩必须写结果文件,
-        # 否则 _active_escalate 按「未确认送达」返回 False(本用例的 sent 场景)。
-        if "--result-file" in cmd:
-            Path(cmd[cmd.index("--result-file") + 1]).write_text(
-                json.dumps({"status": "sent"}), encoding="utf-8")
-        return types.SimpleNamespace(returncode=0, stdout="[notify] sent", stderr="")
-
-    ns = {
-        "adr": adr, "NOW": datetime.now(), "sys": sys, "hashlib": __import__("hashlib"),
-        "REPO": tmp_path, "MONITOR_LOG": tmp_path / "monitor.log",
-        "subprocess": types.SimpleNamespace(run=_run),
-        "notify_sent": lambda out: "sent" in out,
-        # 批次3-D: 真函数体用 tempfile/json/os/Path 读 --result-file
-        "tempfile": tempfile, "json": json, "os": os, "Path": Path,
-        # #309 F2(2026-10-26): 升级真发出时累加告警邮件数(本用例不关心计数, 只需名字存在)
-        "_ALERT_MAIL_COUNTER": {"sent": 0},
-    }
-    exec(compile(code, "<monitor:_active_escalate>", "exec"), ns)
-    return ns["_active_escalate"], events
+def _accepted_event(fn, key, hours=25, **fields):
+    ns = fn.__globals__
+    entry = {"status":"active", "event_id":"test:" + key,
+             "source_run":None, "first_seen":_now_s(ns["NOW"] - timedelta(hours=hours)),
+             "message":"SEVERE: " + key, "requires_action":True,
+             "notified_event_id":"test:" + key,
+             "notified_at":_now_s(ns["NOW"] - timedelta(hours=hours)),
+             "notified_channels":{"email":True,"telegram":True,"feishu":True}, **fields}
+    ns["alert_state"][key] = entry
+    ns["save_alert_state"](ns["alert_state"])
+    return entry
 
 
 def test_b_active_escalate_helper_outbound_counts(iso):
     fn, events = _load_active_escalate(iso["tmp"])
-    now = datetime.now()
-    fresh = {"first_alerted": _now_s(now - timedelta(hours=1))}
+    fresh = _accepted_event(fn, "key|ConnectionError", hours=1)
     _chk(fn(fresh, "key|ConnectionError", "nextday_gap_check") is False)
-    _chk(len(events) == 0, "1h 持续只抑制不外发")
-    _chk(fresh["suppress_count"] == 1, "抑制轮次必须累计")
-
-    old = {"first_alerted": _now_s(now - timedelta(hours=25))}
-    _chk(fn(old, "key|ConnectionError", "nextday_gap_check") is True)
-    _chk(len(events) == 1, "满 24h 必须发一次升级")
-    body = events[0]["kw"].get("capture_output") is not None  # subprocess 调用形态
-    _chk(body, "升级提醒必须走 notify 子进程")
-    _chk("last_escalated" in old and old["n_escalated"] == 1, f"状态未记升级: {old}")
-    _chk(fn(old, "key|ConnectionError", "nextday_gap_check") is False)
-    _chk(len(events) == 1, "刚升级 24h 内不得重复")
-
-    legacy = {"last_alerted": _now_s(now - timedelta(hours=1))}
-    _chk(fn(legacy, "k2", "legacy") is False, "老状态不得崩")
-    _chk(len(events) == 1)
-    legacy2 = {"first_seen": _now_s(now - timedelta(hours=26))}
-    _chk(fn(legacy2, "k3", "legacy2") is True, "老状态 first_seen 满 24h 应升级")
-    _chk(len(events) == 2 and legacy2["first_alerted"] == legacy2["first_seen"],
-         "first_alerted 应回填")
-
+    _chk(len(events) == 0, "首次受理 1h 内不升级")
+    _chk(fresh["suppress_count"] == 1)
+    old = _accepted_event(fn, "old|ConnectionError")
+    _chk(fn(old, "old|ConnectionError", "nextday_gap_check") is True)
+    _chk(len(events) == 1 and len(iso["calls"]) == 3)
+    _chk(old["last_escalation_notified_event_id"] == old["event_id"])
+    fn.__globals__["NOW"] += timedelta(days=3)
+    _chk(fn(old, "old|ConnectionError", "nextday_gap_check") is False)
+    _chk(len(events) == 1, "同事件不因旧 24h 窗过去重发")
+    for key, timefield in [("legacy1", "last_alerted"), ("legacy2", "first_seen")]:
+        legacy = {"status":"active", timefield:_now_s(datetime.now() - timedelta(hours=26))}
+        fn.__globals__["alert_state"][key] = legacy
+        _chk(fn(legacy, key, key) is False)
+        _chk("notified_at" not in legacy, "未知旧通知历史不能补造受理")
+        _chk(legacy["message"] in fn.__globals__["alerts"], "未确认旧故障必须留首报候选")
     recs = [r for r in _supp_records(iso["tmp"]) if r["mechanism"] == "active"]
-    _chk(len(recs) == 5, f"每次 active 抑制都要留审计(5 次), 实际 {len(recs)}")
+    _chk(len(recs) == 5)
     _chk(all(r["source"] == "schedule_monitor" for r in recs))
-    _chk(all(r["first_seen"] for r in recs))
 
 
 def test_b_escalate_keeps_own_key_despite_r4(iso):
-    """MF2: 预置真实 R4 键后, 25h 升级提醒必须仍被处置(修复前被改写成
-    staticdata_backup_fail, 与 R4 共用 86400s 窗 ⇒ 永久发不出); 连续两轮(25h/26h)
-    只提醒 1 次。批次3-D(#321)起「处置」= 并入当日摘要(digest_only), 不再是即时直发。"""
+    """Existing R4 domain/dedup state cannot consume an independent event escalation."""
     fn, events = _load_active_escalate_inprocess(iso["tmp"])
-    now = datetime.now()
-    _seed_dedup(iso["alerts"], "staticdata_backup_fail", now=now)
-    st0 = json.loads(notify.DEDUP_FILE.read_text(encoding="utf-8"))
-    r4_ts = st0["staticdata_backup_fail"]["last_alerted"]
-
-    entry = {"first_alerted": _now_s(now - timedelta(hours=25))}
-    ok = fn(entry, "staticdata_backup_stale", "staticdata_backup 异步备份停摆")
-    _chk(ok is True, "真实 R4 键已存在时, 25h 升级提醒必须仍能被处置(并入摘要也算)")
-    _chk(len(events) == 1, f"本轮应只走一次 notify, 实际 {len(events)}")
-    # 批次3-D(#321): 升级档改 digest_only ⇒ 不即时直发, 并入当日摘要(report 群+邮件)。
-    _chk(len(iso["calls"]) == 0,
-         f"升级档不得即时直发(应并入摘要), 实际直发 {iso['calls']}")
-    cmd = [str(c) for c in events[0]]
-    _chk("--digest-only" in cmd, f"升级档必须走摘要吸收: {cmd}")
-    _chk("--severe" not in cmd, f"升级档不得再带 --severe(否则摘要吸收不可达): {cmd}")
-    _chk("--result-file" in cmd, "升级档必须读结构化 status(否则 absorbed 被判未送达)")
-    digest_entries = [json.loads(ln) for ln in
-                      (iso["alerts"] / "alert_digest.jsonl").read_text(
-                          encoding="utf-8").splitlines() if ln.strip()]
-    _chk(len(digest_entries) == 1, f"摘要 buffer 应有 1 条, 实际 {digest_entries}")
-    de = digest_entries[0]
-    subj = str(de.get("subject") or "")
-    body = str(de.get("body") or "")
-    _chk(subj.startswith("[告警] 【持续故障升级】"), f"标题不得被改写成停摆: {subj}")
-    _chk(not subj.startswith(adr.STALL_PREFIX), f"升级消息不得带停摆前缀: {subj}")
-    _chk("持续故障升级提醒" in body, f"正文应是升级模板: {body[:200]}")
-    _chk(de.get("category") == "escalation"
-         and de.get("reason") == notify.DIGEST_ESCALATION_REASON,
-         f"摘要条目分类/原因不符: {de}")
-    _chk("staticdata 备份心跳超 36h" not in body,
-         f"升级正文被改写成 staticdata 影响产物(修复前症状): {body[:300]}")
-    _chk(entry.get("last_escalated") is not None and entry.get("n_escalated") == 1,
-         f"升级处置成功必须记 last_escalated: {entry}")
-    st1 = json.loads(notify.DEDUP_FILE.read_text(encoding="utf-8"))
-    _chk(len([k for k in st1 if k.startswith("active_escalate|")]) == 0,
-         f"吸收路径不占 dedup 窗(24h 闸门由 monitor last_escalated 记): {sorted(st1)}")
-    _chk(st1["staticdata_backup_fail"]["last_alerted"] == r4_ts,
-         "R4 键时间戳不得被升级消息改写(共用键即 MF2 病灶)")
-
-    # 第二轮(26h): 刚升级 <24h ⇒ 不再发, notify 调用数与摘要条数都不变
-    entry["first_alerted"] = _now_s(now - timedelta(hours=26))
-    ok2 = fn(entry, "staticdata_backup_stale", "staticdata_backup 异步备份停摆")
-    _chk(ok2 is False, "连续两轮(25h/26h)应只提醒 1 次")
-    _chk(len(events) == 1, f"第二轮不得外发: {events}")
-
-    # 键/标题兜底双保险(单独断言)
-    _chk(adr.stall_canonical_key(
-        "active_escalate|deadbeef", "[告警] 【持续故障升级】staticdata_backup 异步备份停摆") is None,
-        "active_escalate| 键禁止被 subject 兜底改写成停摆键")
-    _chk(adr.stall_canonical_key(
-        None, "[告警] 【持续故障升级】staticdata_backup 异步备份停摆") is None,
-        "升级标题标记本身也必须阻断 subject 兜底")
+    _seed_dedup(iso["alerts"], "staticdata_backup_fail")
+    before = notify.DEDUP_FILE.read_bytes()
+    entry = _accepted_event(fn, "staticdata_backup_stale")
+    _chk(fn(entry, "staticdata_backup_stale", "staticdata_backup 异步备份停摆") is True)
+    _chk(len(events) == 1 and len(iso["calls"]) == 3)
+    cmd = events[0]
+    _chk("--ops-event-refs" in cmd and "--result-file" in cmd)
+    ref = json.loads(cmd[cmd.index("--ops-event-refs") + 1])[0]
+    _chk(ref == {"key":"staticdata_backup_stale", "event_id":entry["event_id"], "phase":"escalation", "source_run":None})
+    _chk("未认领故障" in cmd[2] and "同一事件不按天重复升级" in cmd[3])
+    _chk(entry["last_escalation_notified_event_id"] == entry["event_id"])
+    _chk(notify.DEDUP_FILE.read_bytes() == before)
+    fn.__globals__["NOW"] += timedelta(days=2)
+    _chk(fn(entry, "staticdata_backup_stale", "staticdata_backup 异步备份停摆") is False)
+    _chk(len(events) == 1)
+    # Existing canonical-key compatibility assertions retained.
+    _chk(adr.stall_canonical_key("active_escalate|deadbeef", "[告警] 【持续故障升级】staticdata_backup 异步备份停摆") is None)
+    _chk(adr.stall_canonical_key(None, "[告警] 【持续故障升级】staticdata_backup 异步备份停摆") is None)
 
 
 def test_b_escalate_suppressed_by_24h_dedup_counts_as_handled(iso):
-    """#321 边界: monitor 状态回滚/丢失而 dedup 台账仍在(24h 窗内) ⇒ notify 返回
-    suppressed。此时升级提醒**窗内确已送过一次**, 必须与 sent/digested 同判「已处置」
-    (落 last_escalated), 否则每 15min 重试、连续 24h(96 轮)刷日志且一封都发不出。
-    判别力: 把 suppressed 从已处置集合删掉 ⇒ 本用例红(ok 为 False、last_escalated 缺失)。"""
+    """A complete event receipt, not a legacy time-window record, suppresses re-escalation."""
     fn, events = _load_active_escalate_inprocess(iso["tmp"])
-    now = datetime.now()
     key = "staticdata_backup_stale"
-    esc_key = "active_escalate|" + __import__("hashlib").sha1(
-        key.encode("utf-8")).hexdigest()[:12]
-    _seed_dedup(iso["alerts"], esc_key, now=now)  # 窗内已发过
-
-    entry = {"first_alerted": _now_s(now - timedelta(hours=25))}
-    ok = fn(entry, key, "staticdata_backup 异步备份停摆")
-    _chk(ok is True, "24h 去重窗内已发过 ⇒ 也算已处置(不是未送达重试)")
-    _chk(len(events) == 1, f"本轮应只走一次 notify, 实际 {len(events)}")
-    _chk(len(iso["calls"]) == 0, f"去重窗内不得再直发, 实际 {iso['calls']}")
-    _chk(entry.get("last_escalated") is not None and entry.get("n_escalated") == 1,
-         f"处置成功必须记 last_escalated(防 15min 重试风暴): {entry}")
+    _seed_dedup(iso["alerts"], "active_escalate|" + __import__("hashlib").sha1(key.encode()).hexdigest()[:12])
+    entry = _accepted_event(fn, key, last_escalation_notified_event_id="test:" + key,
+                            last_escalation_notified=_now_s(datetime.now() - timedelta(days=5)))
+    _chk(fn(entry, key, "staticdata_backup 异步备份停摆") is False)
+    _chk(events == [] and iso["calls"] == [])
+    _chk(entry["status"] == "active" and entry["requires_action"] is True)
+    _chk(entry["last_escalation_notified_event_id"] == entry["event_id"])
     dg = iso["alerts"] / "alert_digest.jsonl"
-    _chk(not dg.exists() or not dg.read_text(encoding="utf-8").strip(),
-         "去重窗内不应再追加摘要条目(窗内已有一条)")
+    _chk(not dg.exists() or not dg.read_text().strip())
 
 
 def test_b_monitor_wiring_and_comment_consistency():
@@ -952,9 +854,9 @@ def test_b_monitor_wiring_and_comment_consistency():
     _chk("def _active_escalate(" in src)
     _chk(src.count("_active_escalate(") >= 21,
          f"active 抑制点应全部收敛到 _active_escalate, 实际 {src.count('_active_escalate(')}")
-    _chk(src.count("[suppress]") == 1, "只允许升级函数内部打印一次抑制日志")
-    _chk("原注释声称「真卡死仍响」但实现无条件静默" in src, "注释须如实说明旧口径矛盾")
-    _chk("首次告警满 24h 且距上次升级满 24h" in src, "新口径须写清")
+    _chk('reason="same open event"' in src, "持续观测须落内部抑制审计")
+    _chk("ACK never means healthy" in src, "认领不得等同业务健康")
+    _chk("同一事件不按天重复升级" in src, "受理与事件升级去重须写清")
     # A 的 monitor 接线: 停摆行必须在批次预算之前被拆出
     _chk("_stall_batch = []" in src and "adr.stall_line_key" in src)
     _chk(src.index("_stall_batch = []")

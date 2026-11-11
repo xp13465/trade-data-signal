@@ -63,6 +63,8 @@ export REPO
 # 用 python heredoc 处理日期解析 + JSON 读取（bash 处理太繁琐易错）
 "$REPO/.venv/bin/python" <<'PYEOF' 2>&1
 import hashlib
+import fcntl
+import time
 import gzip
 import json
 import os
@@ -317,14 +319,7 @@ recoveries = []  # 异常恢复通知(log_anomaly 从 true 变 false)
 # state 文件不进 git(与 sentiment.db 同级),丢失时 24h stale 降级兜底
 ALERT_STATE_FILE = REPO / "data" / "alert_state.json"
 
-# ── #309 F2(2026-10-26): 结论行可见性补位(「状态说明」邮件)───────────────
-# 背景: 结论行此前只 print 到监控日志; 而有些异常**故意不发邮件**(账本旧码不可信
-# ledger-stale / 同码去重 / 行级预算吸收) ⇒ 用户不主动翻日志就等于看不到 ⇒ 与「假 OK」
-# 同源病(拿沉默冒充没事)。
-# 口径(用户 2026-10-26 拍板): 只在「结论非 OK 且本轮真发出告警邮件数 = 0」时补发一封
-# 「状态说明」, 不是每轮发; 同一份结论内容只发一次(摘要键 active=不重发); 恢复正常后
-# 自然解除(恢复本身不额外发信), 恢复后 6h 内同内容复发不重发(复用 RECOVERY_COOLDOWN
-# 防结论 OK/异常抖动导致每轮发信)。
+# 结论持续显示在内部日志。旧key/常量保留供历史状态读取；无邮件不再触发补发。
 CONCLUSION_STATUS_KEY_PREFIX = "conclusion_status|"
 CONCLUSION_STATUS_SUBJECT_PREFIX = "[状态说明]"
 # 运行时总开关(#309 F2 P1 审查 D9, 2026-10-26): `MONITOR_CONCLUSION_STATUS_EMAIL=0`
@@ -363,15 +358,114 @@ def load_alert_state():
         return {}
 
 
+STATE_ACK_FIELDS = ("acknowledged", "ack_owner", "ack_event_id", "ack_note", "last_ack_log")
+STATE_NOTIFY_FIELDS = ("notified_event_id", "notified_at", "notified_channels",
+                       "last_recovery_notified_event_id", "last_recovery_notified",
+                       "last_escalation_notified_event_id", "last_escalation_notified",
+                       "last_notification_attempt", "notification_claim")
+STATE_SHARED_FIELDS = STATE_ACK_FIELDS + STATE_NOTIFY_FIELDS
+
+
+def _quiet_event(key, info, source_run=None):
+    """Identity of one open incident, not one poll or one calendar day."""
+    if not info.get("event_id"):
+        prior = globals().get("_STATE_PRE", {}).get(key) or {}
+        if (prior.get("event_id") and prior.get("status") in ("active", "pending")
+                and info.get("first_seen") == prior.get("first_seen")):
+            info["event_id"] = prior["event_id"]
+            info["source_run"] = prior.get("source_run")
+        else:
+            info["source_run"] = info.get("source_run") or source_run
+            identity = ["schedule_monitor", key, info.get("first_seen"), info.get("source_run")]
+            info["event_id"] = "schedule:" + hashlib.sha256(
+                json.dumps(identity, ensure_ascii=False).encode()).hexdigest()[:32]
+    return info["event_id"]
+
+
+def _quiet_source_run(key, info):
+    if key.startswith(("public_fund_daily|unit_exit!=0|", "overfit_monitor|unit_exit!=0|")):
+        run = info.get("source_run")
+        if not isinstance(run, str) or not re.fullmatch(r"[0-9a-fA-F]{32}", run):
+            info["source_run"] = None
+        return info.get("source_run")  # actual InvocationID or null, never last_run
+    task = key.split("|", 1)[0]
+    row = next((r for r in globals().get("stats", []) if r.get("task") == task), {})
+    run = info.get("source_run") or row.get("invocation_id") or row.get("unit_start") or row.get("last_run")
+    return run if isinstance(run, str) else None
+
+
 def save_alert_state(state):
-    """写 alert_state.json(目录不存在自动创建)"""
+    """Same lock as ACK/notify; never overwrite concurrent receipt or claim fields."""
     try:
         ALERT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        ALERT_STATE_FILE.write_text(
-            json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        with open(ALERT_STATE_FILE.parent / ".alert_state.lock", "a") as lock:
+            deadline = time.monotonic() + 2
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("alert state lock")
+                    time.sleep(0.01)
+            # A corrupt file is unknown, never an empty successful baseline.
+            disk = json.loads(ALERT_STATE_FILE.read_text()) if ALERT_STATE_FILE.exists() else {}
+            if not isinstance(disk, dict):
+                raise ValueError("alert state must be object")
+            for key, info in state.items():
+                old = disk.get(key)
+                if key == "notify|feishu_config_missing":
+                    if isinstance(old, dict):
+                        state[key] = old  # notify owns this condition and its health, not only receipts
+                    continue
+                if not isinstance(info, dict):
+                    continue
+                if (info.get("status") in ("active", "pending") and
+                        (info.get("message") or "requires_action" in info or
+                         (isinstance(old, dict) and old.get("event_id")))):
+                    _quiet_event(key, info, _quiet_source_run(key, info))
+                if info.get("event_id") and info.get("status") == "recovered":
+                    info["requires_action"] = False
+                if not isinstance(old, dict):
+                    continue
+                same = (info.get("event_id") == old.get("event_id")
+                        and (bool(info.get("event_id")) or info.get("first_seen") == old.get("first_seen")))
+                if same:
+                    if old.get("previous_events"):
+                        info["previous_events"] = old["previous_events"]
+                    for field in STATE_SHARED_FIELDS:
+                        if field in old:
+                            info[field] = old[field]
+                        else:
+                            info.pop(field, None)  # includes concurrent --clear
+                elif info.get("event_id"):
+                    # New incident: retire old claim/receipts without rewriting history.
+                    history = list(old.get("previous_events") or [])[-15:]
+                    history.append({field: old[field] for field in
+                                    ("event_id", "source_run", "status", "first_seen", "last_recovered", "keyword")
+                                    + STATE_SHARED_FIELDS if field in old})
+                    info["previous_events"] = history
+                    for field in STATE_SHARED_FIELDS:
+                        info.pop(field, None)
+            for key, entry in disk.items():
+                if key not in state and key not in globals().get("_STATE_PRE", {}):
+                    state[key] = entry  # independent concurrent event, not our deletion
+            fd, tmp = tempfile.mkstemp(prefix=".alert-state-", dir=ALERT_STATE_FILE.parent)
+            try:
+                with os.fdopen(fd, "w") as out:
+                    os.fchmod(out.fileno(), 0o600)
+                    json.dump(state, out, ensure_ascii=False, indent=2)
+                    out.write("\n")
+                    out.flush()
+                    os.fsync(out.fileno())
+                os.replace(tmp, ALERT_STATE_FILE)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+        return True
     except Exception as e:
-        print(f"[warn] 写 alert_state.json 失败: {e}", file=sys.stderr)
+        print(f"[warn] 写 alert_state.json 失败: {type(e).__name__}", file=sys.stderr)
+        return False
 
 
 def _diff_transition(new_state, pre_state, status):
@@ -398,6 +492,8 @@ def _rollback_transition(new_state, pre_state, status):
     """
     keys = _diff_transition(new_state, pre_state, status)
     for k in keys:
+        if isinstance(new_state.get(k), dict) and new_state[k].get("event_id"):
+            continue
         if k in pre_state:
             pv = pre_state[k]
             new_state[k] = dict(pv) if isinstance(pv, dict) else pv
@@ -424,12 +520,15 @@ in_progress_tasks = set()
 # 恢复邮件静默窗 + _recurrence_suppressed 复现抑制窗。
 # ⚠️ 2026-10-22(#282) 修正注释与实现不一致: 本常量**不**负责「持续 active 仍响」——
 #   那是 active 抑制分支的职责, 由 _active_escalate + adr.active_escalation_judge 实现
-#   (首次告警满 24h 且距上次升级满 24h ⇒ 强制升级提醒一次, 不留永久静音)。
+#   (实际首报受理满既有 24h 且未 ACK ⇒ 同事件升级一次，以事件回执去重)。
 RECOVERY_COOLDOWN = timedelta(hours=6)
 
 
 def _recovery_cooldown_ok(_key, _info):
     """A3: 同 key 上次恢复(last_recovered)距今 <RECOVERY_COOLDOWN(6h) 返回 False(不重复发恢复邮件)。"""
+    if _info.get("event_id"):
+        return (_quiet_notified(_info) and
+                _info.get("last_recovery_notified_event_id") != _info["event_id"])
     _lr = _info.get("last_recovered")
     if not _lr:
         return True
@@ -440,114 +539,152 @@ def _recovery_cooldown_ok(_key, _info):
     return NOW - _lr_dt >= RECOVERY_COOLDOWN
 
 
-def _recurrence_suppressed(existing):
-    """P1(2026-09-24 告警降噪): recovered 复现抑制。检测循环里 dedup_key 已存在但
-    status != active(recovered) = 异常曾恢复又复现; 若距上次恢复 <RECOVERY_COOLDOWN(6h)
-    = 同一事件的瞬时振荡(15min 轮询每次 detected 反复当"新异常"直发 = 9-18 一天 13 封
-    根因), 抑制 SEVERE 不重发。首次发现(None)/active(持续异常,走既有 suppress)/超过
-    窗口后复现(真复发)均放行——真卡死不被吞。"""
-    if existing is None:
-        return False
-    if existing.get("status") == "active":
-        return False  # active=持续异常, 由既有 suppress 分支处理
-    _lr = existing.get("last_recovered")
-    if not _lr:
-        return False  # 无恢复记录(如 pending 状态)不抑制
-    try:
-        _lr_dt = datetime.strptime(_lr, "%Y-%m-%d %H:%M:%S")
-    except (ValueError, TypeError):
-        return False
-    return NOW - _lr_dt < RECOVERY_COOLDOWN
+def _recurrence_suppressed(existing, source_run=None):
+    """Only a positively identical old observation is a replay, never a new run."""
+    return bool(existing and existing.get("status") == "recovered" and source_run
+                and existing.get("source_run") == source_run)
 
-# ── B(#282, 2026-10-22): active 抑制统一出口 = 计数 + 审计台账 + 24h 升级阶梯 ──
-# 依据(报告 §4.3/§5 盲区 3): nextday_gap_check|ConnectionError 自 10-13 09:30 起 active
-# 9 天、1,125 条 suppress 零再提醒; 原注释声称「真卡死仍响」但实现无条件静默。
-# 口径: active ≠ 永久静音。首次告警满 24h 且距上次升级满 24h ⇒ 强制发一次升级提醒
-# (正文: 首次告警时间 / 已持续时长 / 累计抑制轮次), 之后每 24h 一次直到恢复。
-# #321 出口分层(2026-10-28): 升级提醒并入当日摘要(digest_only, report 群 + 邮件),
-# 不再每 24h 单独一封即时告警; 「必然会提醒」的语义不变(摘要 23:25 出线, 失败 fail-open 直发)。
-# 每次抑制都写 data/alerts/suppression_ledger.jsonl(结构化审计, 永不外发)。
-# 老状态无 first_alerted ⇒ 退回 first_seen/last_alerted 回填, 绝不崩(向后兼容)。
-def _active_escalate(entry, key, label):
-    """在既有 active 抑制分支调用。返回 True=已发升级提醒(状态已记 last_escalated)。"""
-    _now_s = NOW.strftime("%Y-%m-%d %H:%M:%S")
-    _e = entry if isinstance(entry, dict) else {}
-    if not _e.get("first_alerted"):
-        _e["first_alerted"] = (_e.get("first_seen") or _e.get("last_alerted") or _now_s)
-    _e["suppress_count"] = int(_e.get("suppress_count") or 0) + 1
-    _should, _info = adr.active_escalation_judge(_e, NOW)
-    adr.record_suppression(
-        mechanism="active", key=key,
-        reason=("满 24h 发升级提醒" if _should else str(_info.get("reason") or "")),
-        first_seen=_e.get("first_alerted"), source="schedule_monitor", repo=REPO,
-        extra={"label": str(label)[:200], "suppress_count": _e["suppress_count"]})
-    if not _should:
-        print(f"[suppress] {label} 持续中, last_alerted={_e.get('last_alerted')}, 不重发 "
-              f"(持续 {_info.get('elapsed_hours')}h, 累计抑制 {_e['suppress_count']} 轮)")
-        return False
-    _subject = f"[告警] 【持续故障升级】{label}"
-    _body = (f"<b>持续故障升级提醒</b>: {label}<br>"
-             f"· 首次告警: {_info.get('first_alerted')}<br>"
-             f"· 已持续: {_info.get('elapsed_hours')} 小时<br>"
-             f"· 累计抑制: {_e['suppress_count']} 轮(监控每 15min 一轮)<br>"
-             f"该故障从首次告警至今一直未恢复 —— 已超过 24h 人工处置窗口, "
-             f"强制提醒一次; 若仍未处理, 之后每 24h 再提醒。")
-    _esc_key = "active_escalate|" + hashlib.sha1(str(key).encode("utf-8")).hexdigest()[:12]
-    # 批次3-D(2026-10-28, #321 出口分层): 升级档从「--severe 即时直发」改为
-    # 「--digest-only 并入当日摘要」(摘要 23:25 出线, report 群 + 邮件)。
-    #   · 不用 --severe: severe 会让 notify 的摘要吸收块(要求 not severe)物理不可达,
-    #     升级档又变回每 24h 一封即时告警; 且 critical 档(check_failed_units)仍走 --severe,
-    #     两者互不影响。
-    #   · 必须读 --result-file 的 status: 吸收后 notify 返回 digested(不是 sent),
-    #     只认 notify_sent(文本) 会把吸收判成「未送达」⇒ 每 15min 重试刷 buffer。
-    #   · status ∈ {sent, digested} 都算「已处置」→ 落 last_escalated; 只有真直发(sent)
-    #     才计入 _ALERT_MAIL_COUNTER(本轮告警邮件数, 不能把摘要吸收算成已发邮件)。
-    fd, _result_path = tempfile.mkstemp(prefix="notify_escalate_", suffix=".json")
-    os.close(fd)
+# 持续事件保留观察记录；首次未认领超期只升级一次，不按天发相同摘要。
+def _quiet_notified(info):
+    return (bool(info.get("event_id"))
+            and info.get("notified_event_id") == info["event_id"]
+            and bool(info.get("notified_at"))
+            and any((info.get("notified_channels") or {}).get(c) is True
+                    for c in ("email", "telegram", "feishu")))
+
+
+def _quiet_send(key, entry, phase, subject, body):
+    """One event and complete payload; notify owns asynchronous receipt merging."""
+    _quiet_event(key, entry)
+    refs = [{"key": key, "event_id": entry["event_id"], "phase": phase,
+             "source_run": entry.get("source_run")}]
+    save_alert_state(alert_state)
+    result_path = None
     try:
-        _r = subprocess.run(
-            [sys.executable, str(REPO / "scripts" / "notify.py"), _subject, _body,
-             "--digest-only", "--from-prefix", "[告警]",
-             "--alert-issue", "计划任务持续异常升级", "--alert-log", str(MONITOR_LOG),
-             "--dedup-key", _esc_key,
-             "--dedup-window", str(int(adr.ACTIVE_REMIND_INTERVAL_HOURS * 3600)),
-             "--result-file", _result_path],
-            capture_output=True, text=True, timeout=30, check=False)
-    except Exception as _e2:  # noqa: BLE001
-        try:
-            os.unlink(_result_path)
-        except OSError:
-            pass
-        print(f"[warn] 升级提醒发送异常({label}): {_e2}", file=sys.stderr)
-        return False
-    _out = (_r.stdout or "") + (_r.stderr or "")
-    if _out.strip():
-        print(_out.strip())
-    _status = None
-    try:
-        _status = json.loads(Path(_result_path).read_text(encoding="utf-8")).get("status")
-    except Exception:  # noqa: BLE001 - 缺失/损坏按「未确认送达」处理(不猜)
-        _status = None
-    try:
-        os.unlink(_result_path)
-    except OSError:
-        pass
-    # suppressed = notify 24h 去重窗判定「窗内已发过」(只可能出现在 monitor 状态
-    # 文件丢/回滚而 dedup 台账仍在时)。去重窗内已送达过一次 ⇒ 同样算已处置,
-    # 否则每 15min 重试一次、连续 24h(96 轮)刷日志且一封也发不出。
-    if _status in ("sent", "digested", "suppressed"):
-        if _status == "sent":
+        fd, result_path = tempfile.mkstemp(prefix="notify-event-", suffix=".json")
+        os.close(fd)
+        cmd = [sys.executable, str(REPO / "scripts" / "notify.py"), subject, body,
+               "--ops-event-refs", json.dumps(refs), "--result-file", result_path,
+               "--alert-log", str(MONITOR_LOG), "--from-prefix", "[恢复]" if phase == "recovery" else "[告警]"]
+        if phase != "recovery":
+            cmd += ["--tier", "critical"]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
+        outcome = json.loads(Path(result_path).read_text())
+        # sent+deferred/info_logged or rc=0 are not channel acceptance.
+        accepted = (outcome.get("status") in ("sent", "partial")
+                    and any((outcome.get("channels") or {}).get(c) is True
+                            for c in ("email", "telegram", "feishu")))
+        if accepted:
             _ALERT_MAIL_COUNTER["sent"] += 1
-        _e["last_escalated"] = _now_s
-        _e["n_escalated"] = int(_e.get("n_escalated") or 0) + 1
-        _where = {"sent": "已发出",
-                  "digested": "已并入当日摘要(23:25 出线)",
-                  "suppressed": "命中 24h 去重窗(窗内已发过),本轮不再重复"}[_status]
-        print(f"[active-escalate] {label} 已持续 {_info.get('elapsed_hours')}h, 升级提醒{_where}")
-        return True
-    print(f"[warn] 升级提醒未确认送达({label}, status={_status}, rc={_r.returncode}), 下轮重试",
-          file=sys.stderr)
-    return False
+        else:
+            print(f"[event-delivery] {key} phase={phase} status={outcome.get('status', 'unknown')}")
+        save_alert_state(alert_state)  # merge real sender's receipt, never synthesize one
+        return accepted
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        print(f"[event-delivery] {key} phase={phase} unknown: {type(exc).__name__}", file=sys.stderr)
+        return False
+    finally:
+        if result_path and os.path.exists(result_path):
+            os.unlink(result_path)
+
+
+def _quiet_route_alerts(batch):
+    save_alert_state(alert_state)  # merge CFU/asynchronous notify receipts before deciding
+    remaining = list(batch)
+    for key, entry in list(alert_state.items()):
+        if not isinstance(entry, dict) or entry.get("status") != "active":
+            continue
+        message = entry.get("message")
+        if not message or message not in remaining:
+            continue
+        task = key.split("|", 1)[0]
+        _quiet_event(key, entry, _quiet_source_run(key, entry))
+        entry["requires_action"] = True
+        if not _quiet_notified(entry):
+            _quiet_send(key, entry, "active", f"[告警] {task} {entry.get('keyword', '异常')}",
+                        _format_alert_item(message))
+        # No broad domain/budget fallback after an event attempt. Failure remains active,
+        # unconfirmed and retryable on the next poll, never turned into business recovery.
+        remaining = [line for line in remaining if line != message]
+    return remaining
+
+
+def _quiet_core_unit_refs():
+    refs = {}
+    for unit, task in (("trade-public-fund-daily.service", "public_fund_daily"),
+                       ("trade-overfit-monitor.service", "overfit_monitor")):
+        observed = globals().get("UNIT_STATES", {}).get(unit) or {}
+        invocation = observed.get("invocation_id")
+        code = observed.get("code")
+        if (observed.get("source") != "systemd" or type(code) is not int or code == 0
+                or not isinstance(invocation, str) or not re.fullmatch(r"[0-9a-fA-F]{32}", invocation)):
+            continue  # unknown/ledger fallback still belongs to the legacy CFU path
+        key = f"{task}|unit_exit!=0|{code}"
+        entry = alert_state.get(key)
+        if not isinstance(entry, dict) or entry.get("status") != "active":
+            continue
+        entry["source_run"] = invocation
+        _quiet_event(key, entry, invocation)
+        entry["requires_action"] = True
+        refs[unit] = {"key": key, "event_id": entry["event_id"], "phase": "active",
+                      "source_run": invocation, "exit_code": code}
+    if refs and not save_alert_state(alert_state):
+        return {}  # never hand off ownership based on state that failed to persist
+    return refs
+
+
+def _quiet_route_recoveries(batch):
+    managed = set()
+    for key, entry in list(alert_state.items()):
+        if key == "notify|feishu_config_missing" or not isinstance(entry, dict) or not entry.get("event_id"):
+            continue
+        task = key.split("|", 1)[0]
+        managed.add((task, entry.get("keyword"), entry.get("first_seen")))
+        if entry.get("status") == "recovered":
+            entry["requires_action"] = False
+            if (_quiet_notified(entry) and
+                    entry.get("last_recovery_notified_event_id") != entry["event_id"]):
+                _quiet_send(key, entry, "recovery", f"[恢复] {task} {entry.get('keyword', '')}",
+                            f"{task} {entry.get('keyword', '')} 的原事件已恢复；"
+                            f"首次发现 {entry.get('first_seen')}，恢复 {entry.get('last_recovered')}。")
+    # Legacy unreferenced evidence is not silently reclassified as healthy.
+    return [r for r in batch if (r.get("task"), r.get("keyword"), r.get("first_seen")) not in managed]
+
+
+def _active_escalate(entry, key, label):
+    """Persistent observation, one unclaimed escalation; ACK never means healthy."""
+    if not isinstance(entry, dict):
+        return False
+    _quiet_event(key, entry)
+    entry["requires_action"] = True
+    entry["suppress_count"] = int(entry.get("suppress_count") or 0) + 1
+    adr.record_suppression(mechanism="active", key=key, reason="same open event",
+                           first_seen=entry.get("first_seen"), source="schedule_monitor", repo=REPO)
+    if not _quiet_notified(entry):
+        # Legacy/unconfirmed delivery remains visible and can retry; no false sent marker.
+        entry.setdefault("message", f"SEVERE: {label} 持续异常，需人工核实；通知受理未确认")
+        if entry["message"] not in alerts:
+            alerts.append(entry["message"])
+        return False
+    if entry.get("ack_event_id") == entry["event_id"] and entry.get("acknowledged"):
+        return False
+    if entry.get("last_escalation_notified_event_id") == entry["event_id"]:
+        return False
+    try:
+        since = datetime.strptime(entry["notified_at"], "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        # Notify uses ISO timestamps; retain timezone when present.
+        try:
+            since = datetime.fromisoformat(entry["notified_at"].replace("Z", "+00:00"))
+            since = since.astimezone().replace(tzinfo=None)
+        except (ValueError, TypeError):
+            return False
+    if NOW - since < timedelta(hours=adr.ACTIVE_ESCALATE_AFTER_HOURS):
+        return False
+    return _quiet_send(key, entry, "escalation", f"[告警] 未认领故障：{label}",
+                       f"{entry.get('message', label)}<br>首次受理 {entry['notified_at']}；"
+                       f"超过既有 {adr.ACTIVE_ESCALATE_AFTER_HOURS} 小时处置窗口仍未认领。"
+                       "请认领并核实业务；同一事件不按天重复升级。")
 
 
 # 通知分级(2026-08-10): 自愈类(not_loaded/r2_unreachable 等可被 self_heal.sh/网络自愈)
@@ -627,6 +764,8 @@ for t in TASKS:
                             "consecutive_count": _missed_c,
                             "keyword": f"missed<{sch_hm}>",
                             "line_sample": f"last_run<{last_run_str}>",
+                            "message": alerts[-1],
+                            "requires_action": True,
                         }
                     else:
                         alert_state[missed_key] = {
@@ -1382,60 +1521,10 @@ def _conclusion_status_email_body(concl, now_str):
 
 def _maybe_send_conclusion_status_email(concl, alert_mail_sent, state, now,
                                         notify_runner, save_state):
-    """结论可见性补位唯一入口: 判定 → 补发「状态说明」→ 确认送达才落签。
-
-    返回 dict(decision + sent/subject/error), 供调用方日志与单测断言。
-    notify_runner(cmd)->notify 输出文本; **本函数绝不直接外发** —— 生产注入 notify.py
-    子进程 runner, 测试注入 stub ⇒ 自测零真实外发(§18 L48)。
-    """
-    if not _conclusion_email_enabled():
-        # 审查 D9 运行时开关: 关=整块停用(不判定/不发信/不写 state), 无需发版删代码。
-        return {"reason": "disabled", "send": False, "key": "", "digest": "", "sent": False}
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    d = _conclusion_status_decision(concl, alert_mail_sent, state, now)
-    d["sent"] = False
-    if d["reason"] == "ok":
-        # 恢复正常: 解除频率保护(标记 recovered), 不额外发信
-        if _conclusion_status_mark_recovered(state, now_str):
-            save_state(state)
-        return d
-    if not d["send"]:
-        return d
-    # 内容变化: 退休其它摘要键(同一时刻最多留一条, 防 alert_state 无界膨胀)
-    for _k in [k for k in list(state) if str(k).startswith(CONCLUSION_STATUS_KEY_PREFIX)
-               and k != d["key"]]:
-        state.pop(_k, None)
-    subject = (f"{CONCLUSION_STATUS_SUBJECT_PREFIX} 监控结论异常(本轮无告警邮件) "
-               f"{now.strftime('%m-%d %H:%M')}")
-    body = _conclusion_status_email_body(concl, now_str)
-    cmd = [
-        sys.executable, str(REPO / "scripts" / "notify.py"),
-        subject, body,
-        "--from-prefix", CONCLUSION_STATUS_SUBJECT_PREFIX,
-        "--alert-issue", "计划任务监控结论说明",
-        "--alert-log", str(MONITOR_LOG),
-    ]
-    try:
-        out = notify_runner(cmd) or ""
-    except Exception as e:  # noqa: BLE001
-        print(f"[warn] 状态说明邮件发送异常: {e}", file=sys.stderr)
-        d["error"] = str(e)
-        return d
-    if not notify_sent(out):
-        print("[warn] 状态说明邮件未确认送达 ⇒ 不落签, 下轮重试", file=sys.stderr)
-        return d
-    state[d["key"]] = {
-        "status": "active",
-        "first_seen": now_str,
-        "last_alerted": now_str,
-        "keyword": "conclusion_status",
-        "line_sample": str(concl or "")[:200],
-        "digest": d["digest"],
-    }
-    save_state(state)
-    d["sent"] = True
-    d["subject"] = subject
-    return d
+    """No mail is not another incident. Keep the conclusion in the monitor log."""
+    print(f"[状态说明·内部] {concl}")
+    return {"reason": "internal_only", "send": False, "sent": False,
+            "key": "", "digest": ""}
 
 
 def _unit_alert_events(unit_registry, unit_states, stats_by_task, now):
@@ -1489,6 +1578,7 @@ def _unit_alert_events(unit_registry, unit_states, stats_by_task, now):
             events.append({
                 "kind": "exit", "key": key, "task": task, "unit": unit,
                 "code": code, "source": source,
+                "source_run": st.get("invocation_id") if st.get("source") == "systemd" else None,
                 "msg": (f"SEVERE: {task} systemd 退出失败 {short} "
                         f"Result={st.get('result') or srow.get('unit_result')} "
                         f"exit={code} 源={source} "
@@ -1598,21 +1688,9 @@ R2_SKIP_OBS_WINDOW = timedelta(minutes=30)
 #   波动尾, 单轮碰线不是故障。口径:
 #     ① dur >= DUR_IMMEDIATE_MULTIPLE × 阈值(盘中 1800s / 盘后 3600s) = 单次极端超阈
 #        (卡死/严重退化量级) → 立即 SEVERE, 不等连续轮。
-#     ② 否则需连续 DUR_CONTINUOUS_THRESHOLD 轮(15min/轮)观测到超阈才 SEVERE(pending→active)。
-#     ⇒ 真退化照报: 极端单次立即报; 持续多轮报(如 09-30 盘后 2081s, 单 run/日但被其后
-#       多个 tick 连续看到 → 连续计数天然可达)。盘中卡死未完成另有 A1 通道(阈值900s+缓冲10min)。
-#   ⚠️ 复审 F2(2026-10-09, reviewer 结构性盲区根治): 「连续轮」口径有结构漏洞——
-#     dur=None 轮(最新 run 仍在进行中)进不了 dur 块、不登记 seen, 主恢复循环遂把 pending 桶
-#     静默翻 recovered、计数从头再来; 配合节拍数学(tick 15min, intraday 槽 10min), 两连观测
-#     的真实窗口条件退化为「run 时长 D < 15min, 且下一 tick 恰好没有新 run 在进行中」。
-#     阈值恰=900s=15min ⇒ 盘中 D∈[900,1800) 的 run 结构性凑不出「连续 2 轮」而**完全静默**
-#     (旧行为会报)。两处根治: ①恢复循环豁免 `|dur_buffer|` 键(桶复位只由 dur 块内联负责)
-#     ②桶记 last_run(区分「同一 run 被后续 tick 重复观测」与「另一 run 也超阈」, 供日志/排查;
-#     计数仍是「观测轮次」—— 对 1 run/日 的盘后槽, 同一 run 被后续 tick 重复观测正是其累积
-#     途径, 故不能按 run 去重)。桶含陈旧保护: 上次观测 >DUR_BUFFER_MAX_AGE 视为新建, 防停跑
-#     任务的陈年计数让单轮碰线假达阈。
-#     ⚠️ 残余(诚实标注): 同一超阈 run 若被连续两轮观测且中间没有新 run 介入(如午休/收盘后槽),
-#     会被计为 2 → SEVERE。这是「1 run/日 槽仍要能报」的必要代价, 且旧行为本就报该情形。
+#     ② 其余完成态须两个不同run连续超阈；重复poll不增加执行失败次数。
+#        dur=None不复位；已知新成功才复位。极端单次与运行中超时仍保留原判据。
+#        每日一轮的轻微慢任务只能记内部证据，不能伪造第二轮来触发。
 DUR_CONTINUOUS_THRESHOLD = 2
 DUR_IMMEDIATE_MULTIPLE = 2
 DUR_BUFFER_MAX_AGE = timedelta(hours=24)
@@ -1792,7 +1870,7 @@ if STATS_FILE.exists():
                     )
                 else:
                     existing = alert_state.get(dedup_key)
-                    if _recurrence_suppressed(existing):
+                    if _recurrence_suppressed(existing, last_run_str):
                         # P1(2026-09-24 告警降噪): recovered 后 6h 内复现=同一事件振荡,
                         # 抑制 SEVERE(9-18 一天 13 封根因: 15min 轮询每轮复现当新异常直发)。
                         # 状态翻 active 保持, 防持续复现时每轮重复进本分支仍被抑制。
@@ -1805,7 +1883,7 @@ if STATS_FILE.exists():
                             extra={"label": f"{s['task']} 退出失败", "exit": exit_code})
                         print(
                             f"[recurrence-suppress] {s['task']} 退出失败(exit={exit_code}) "
-                            f"恢复后<6h复现, 抑制不重发"
+                            f"已恢复旧 run 重放, 抑制不重发"
                         )
                     elif existing is None or existing.get("status") != "active":
                         # 首次发现 或 超过抑制窗口后复现 = 发 SEVERE + 写 state
@@ -1819,6 +1897,8 @@ if STATS_FILE.exists():
                             "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                             "keyword": f"exit={exit_code}",
                             "line_sample": f"last_run={last_run_str}",
+                            "message": alerts[-1],
+                            "requires_action": True,
                         }
                     else:
                         # 已 active = 抑制不重发, 满 24h 强制升级提醒一次
@@ -1870,7 +1950,7 @@ if STATS_FILE.exists():
                     )
                 else:
                     existing = alert_state.get(dedup_key)
-                    if _recurrence_suppressed(existing):
+                    if _recurrence_suppressed(existing, last_run_str_a):
                         # P1(2026-09-24 告警降噪): recovered 后 6h 内复现=同一事件振荡
                         # (瞬时 log 异常每轮复现被当"新异常"), 抑制 SEVERE。
                         # 状态翻 active 保持, 防持续复现每轮重复进本分支仍被抑制。
@@ -1882,7 +1962,7 @@ if STATS_FILE.exists():
                             source="schedule_monitor", repo=REPO,
                             extra={"label": f"{s['task']} {keyword} 异常"})
                         print(
-                            f"[recurrence-suppress] {s['task']} {keyword} 恢复后<6h复现, 抑制不重发"
+                            f"[recurrence-suppress] {s['task']} {keyword} 已恢复旧 run 重放, 抑制不重发"
                         )
                     elif existing is None or existing.get("status") != "active":
                         # 2026-08-24 瞬时超时降噪(教训: intraday_snapshot R2 PUT 超时
@@ -1901,7 +1981,9 @@ if STATS_FILE.exists():
                             _b = alert_state.get(_bk) or {}
                             _bs = _b.get("status")
                             if _bs == "pending":
-                                _c = (_b.get("consecutive_count") or 0) + 1
+                                _c = (_b.get("consecutive_count") or 0) + int(
+                                    bool(last_run_str_a) and bool(_b.get("last_run"))
+                                    and last_run_str_a > _b["last_run"])
                             elif _bs == "alerted":
                                 # 已就同类告警过但行内容变了=持续异常换脸,直接升级可见
                                 _c = TRANSIENT_TIMEOUT_THRESHOLD
@@ -1912,6 +1994,7 @@ if STATS_FILE.exists():
                                 "first_seen": _b.get("first_seen") or NOW.strftime("%Y-%m-%d %H:%M:%S"),
                                 "consecutive_count": _c,
                                 "keyword": "marker_buffer",
+                                "last_run": max(last_run_str_a or "", _b.get("last_run") or ""),
                                 "line_sample": line_sample,
                             }
                             # #232(2026-10-07): 计数桶补 mark seen —— 防主恢复循环(L1676-1684)对
@@ -1941,6 +2024,8 @@ if STATS_FILE.exists():
                                     "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                                     "keyword": keyword,
                                     "line_sample": line_sample,
+                                    "message": alerts[-1],
+                                    "requires_action": True,
                                 }
                         else:
                             # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
@@ -1955,6 +2040,8 @@ if STATS_FILE.exists():
                                 "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                                 "keyword": keyword,
                                 "line_sample": line_sample,
+                                "message": alerts[-1],
+                                "requires_action": True,
                             }
                     else:
                         # 已 active = 抑制不重发, 满 24h 强制升级提醒一次(报告实证病灶:
@@ -2062,16 +2149,18 @@ if STATS_FILE.exists():
                         if _dur >= _dur_thresh * DUR_IMMEDIATE_MULTIPLE:
                             _dur_c = DUR_CONTINUOUS_THRESHOLD  # 单次极端超阈: 视同已达连续阈值, 立即报
                         elif _dur_bs in ("pending", "alerted") and _dur_prev_c >= 1:
-                            # 上一轮(15min 前)已观测到超阈且未被复位(dur=None 轮不复位, 见恢复环豁免)
-                            # → 计数 +1。对「1 run/日」的槽(如盘后 20:35)这是唯一能累积的途径。
-                            _dur_c = _dur_prev_c + 1
+                            # Only a distinct completed run increases execution count.
+                            # Missing/older run identity is unknown, never another failure.
+                            _dur_c = _dur_prev_c + int(bool(_dur_lr)
+                                and bool(_dur_b.get("last_run"))
+                                and _dur_lr > _dur_b["last_run"])
                         else:
                             _dur_c = 1
                         alert_state[_dur_cnt_key] = {
                             "status": "alerted" if _dur_c >= DUR_CONTINUOUS_THRESHOLD else "pending",
                             "first_seen": _dur_b.get("first_seen") or NOW.strftime("%Y-%m-%d %H:%M:%S"),
                             "consecutive_count": _dur_c,
-                            "last_run": _dur_lr,
+                            "last_run": max(_dur_lr, _dur_b.get("last_run") or ""),
                             "last_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                             "keyword": "dur_buffer",
                             "line_sample": f"dur={_dur}s thresh={_dur_thresh}s last_run={_dur_lr}",
@@ -2101,6 +2190,8 @@ if STATS_FILE.exists():
                                 "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                                 "keyword": f"dur>{_dur_thresh}s",
                                 "line_sample": f"dur={_dur}s last_run={_dur_lr}",
+                                "message": alerts[-1],
+                                "requires_action": True,
                             }
                             adr.r2_merge_mark(alert_state, _dur_task, _dur_lr, NOW)
                         else:
@@ -2111,7 +2202,9 @@ if STATS_FILE.exists():
                     # 恢复通知仍由主恢复循环负责, 不在此发)。archive 语义与 marker_buffer 复位同款。
                     _dur_cnt_key_r = f"{_dur_task}{adr.DUR_BUFFER_KEY_MARK}{_dur_thresh}"
                     _dur_br = alert_state.get(_dur_cnt_key_r)
-                    if _dur_br and _dur_br.get("status") in ("pending", "alerted"):
+                    if (_dur_br and _dur_br.get("status") in ("pending", "alerted")
+                            and s.get("last_run") and
+                            s["last_run"] > (_dur_br.get("last_run") or "")):
                         alert_state[_dur_cnt_key_r] = {
                             **_dur_br,
                             "status": "recovered",
@@ -2213,34 +2306,14 @@ if STATS_FILE.exists():
                             f"上传缺口持续(收盘版/每日版可能未上 R2), 需人工关注"
                         )
                         if _r2_is_transient and _r2_n < R2_SKIP_ESCALATE_ROUNDS:
-                            # L3c: 自愈类先 warning(入 30min 聚合缓冲, ≤30~45min 批发; 非静默)
-                            try:
-                                subprocess.run(
-                                    [
-                                        sys.executable, str(REPO / "scripts" / "notify.py"),
-                                        f"[告警] {s['task']} R2 上传锁连续 {_r2_n} 轮跳过"
-                                        f"(自愈类, 延迟提示)",
-                                        _r2_severe_body + (
-                                            f"(自愈类任务先入聚合; 连续 ≥"
-                                            f"{R2_SKIP_ESCALATE_ROUNDS} 轮将升级直发)"
-                                        ),
-                                        "--tier", "warning",
-                                        "--dedup-key", f"{s['task']}|r2_skip_warn",
-                                        "--dedup-window", "21600",
-                                        "--from-prefix", "[告警]",
-                                    ],
-                                    capture_output=True, text=True, timeout=30, check=False,
-                                )
-                            except Exception as _r2we:
-                                print(f"[warn] {s['task']} r2-skip warning 入队失败: {_r2we}",
-                                      file=sys.stderr)
-                            print(f"[r2-skip-warn] {s['task']} 连续{_r2_n}轮, "
-                                  f"已入 warning 聚合(未达升级阈值)")
+                            # 自愈等待只留内部证据；持续缺口仍按既有边界升级。
+                            print(f"[r2-skip-pending] {s['task']} 连续{_r2_n}轮，内部记录；"
+                                  f"既有人工升级边界{R2_SKIP_ESCALATE_ROUNDS}轮未达")
                             alert_state[_r2_alert_key] = {
-                                "status": "active",
+                                "status": "pending",
                                 "first_seen": _r2_prev.get(
                                     "first_seen", NOW.strftime("%Y-%m-%d %H:%M:%S")),
-                                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                                "requires_action": False,
                                 "keyword": "r2_skip_continuous",
                                 "line_sample": _r2_line,
                                 "tier": "warning",
@@ -2260,6 +2333,8 @@ if STATS_FILE.exists():
                                 "keyword": "r2_skip_continuous",
                                 "line_sample": _r2_line,
                                 "tier": "severe",
+                                "message": alerts[-1],
+                                "requires_action": True,
                             }
                     else:
                         # 已告警过: 刷新计数 key 触发恢复检测(本轮 skip 仍存在), 不重发
@@ -2335,6 +2410,8 @@ if STATS_FILE.exists():
                     # #282 审查 MF6(2026-10-22): 首次即记连续轮次, 否则停摆正文
                     # 「连续失败」恒为「未知」(评估报告 §7.3 三字段硬要求)。
                     "consecutive_count": 1,
+                    "message": alerts[-1],
+                    "requires_action": True,
                 }
             else:
                 # MF6: active = 停摆持续, 每轮 +1(监控 15min 一轮)。恢复后状态键删除,
@@ -2388,6 +2465,8 @@ if STATS_FILE.exists():
                     "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                     "keyword": "round_incomplete",
                     "line_sample": f"round_start_ts={_erst} unit_active_state={_ustate} {_le_txt}",
+                    "message": alerts[-1],
+                    "requires_action": True,
                 }
             else:
                 _ex_ri["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
@@ -2424,9 +2503,12 @@ if SYSTEMD_TRUTH_ON:
                 "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                 "keyword": _ev.get("keyword"),
                 "line_sample": _ev.get("line_sample"),
+                "source_run": _ev.get("source_run"),
+                "message": alerts[-1],
+                "requires_action": True,
             }
         else:
-            _ex_ux["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+            _ex_ux["source_run"] = _ev.get("source_run")
             _active_escalate(_ex_ux, _ux_key, _ev.get("escalate_label") or _ev["task"])
 
 # A1 进行中超时检测（2026-08-14 告警优化）: 任务卡死/异常慢(未完成)检测。
@@ -2499,6 +2581,8 @@ for _ip_task in sorted(in_progress_tasks):
             "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
             "keyword": "in_progress_timeout",
             "line_sample": f"run={_run_min}min last_run={_ip_lr}",
+            "message": alerts[-1],
+            "requires_action": True,
         }
         adr.r2_merge_mark(alert_state, _ip_task, _ip_lr, NOW)
     else:
@@ -2665,6 +2749,8 @@ for _label in LAUNCHCTL_LABELS:
                     "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                     "keyword": "failed_no_exit",
                     "line_sample": _ff_msg[:200],
+                    "message": alerts[-1],
+                    "requires_action": True,
                 }
             else:
                 _ex_ff["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
@@ -2691,6 +2777,8 @@ for _label in LAUNCHCTL_LABELS:
                 "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                 "keyword": "failed",
                 "line_sample": _label,
+                "message": alerts[-1],
+                "requires_action": True,
             }
             print(f"[self-heal failed] {_label} 运行失败且无 exit!=0 通道覆盖, 首次发 SEVERE")
         else:
@@ -2768,6 +2856,8 @@ if STATICDATA_HB_FILE.exists():
                         "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                         "keyword": f"hb_stale_{_hb_result}",
                         "line_sample": f"last_ok={_hb_ts}",
+                        "message": alerts[-1],
+                        "requires_action": True,
                     }
                 else:
                     # 已 active = 抑制不重发, 满 24h 强制升级提醒一次(备份停摆是停摆级:
@@ -2921,7 +3011,7 @@ def _check_resource(_label, _scope, _pct):
                 reason="recovered 后 <6h 复现(同事件振荡)",
                 source="schedule_monitor", repo=REPO,
                 extra={"label": f"{_key} 资源占用 {_pct:.1f}%"})
-            print(f"[recurrence-suppress] {_key} {_pct:.1f}% 恢复后 <6h 复现, 抑制不重发")
+            print(f"[recurrence-suppress] {_key} {_pct:.1f}% 已恢复旧 run 重放, 抑制不重发")
         else:
             alerts.append(
                 f"SEVERE: {_label} 使用率 {_pct:.1f}% ({_scope}) "
@@ -2933,6 +3023,8 @@ def _check_resource(_label, _scope, _pct):
                 "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                 "keyword": f"{_label}_high",
                 "line_sample": f"{_scope} {_pct:.1f}%",
+                "message": alerts[-1],
+                "requires_action": True,
             }
     elif _pct >= RESOURCE_WARN_PCT:
         _wkey = f"host_resource_warn_{_label}_{_scope}".replace("/", "_")
@@ -2991,9 +3083,11 @@ _cfu_undelivered = None
 _cfu_failed = 0  # #309 W3: 结论行必须知道「巡检真发现了几个 failed」
 _cfu_out = ""    # P2-5: 结论行展示真实 failed unit 名列表(解析自本轮巡检输出)
 try:
+    _cfu_refs = _quiet_core_unit_refs()
+    _cfu_ref_args = ["--ops-unit-event-refs", json.dumps(_cfu_refs)] if _cfu_refs else []
     _r_cfu = subprocess.run(
         [sys.executable, str(REPO / "scripts" / "check_failed_units.py"),
-         "--repo", str(REPO), "--notify"],
+         "--repo", str(REPO), "--notify"] + _cfu_ref_args,
         capture_output=True, text=True, timeout=120, check=False,
     )
     _cfu_out = (_r_cfu.stdout or "").strip()
@@ -3041,6 +3135,8 @@ def _cfu_report(_key, _msg, _kw):
             "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
             "keyword": _kw,
             "line_sample": _msg[:200],
+            "message": alerts[-1],
+            "requires_action": True,
         }
     else:
         _ex["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
@@ -3079,7 +3175,7 @@ for _key, _info in list(alert_state.items()):
     # #309 F2(2026-10-26): 结论「状态说明」摘要键不是异常告警, 不参与恢复检测 —— 否则它
     # 永远不在 seen_keys_this_run 里, 下一轮就被误判「异常已消失」翻 recovered 并发假恢复邮件。
     # 它的生命周期由 _maybe_send_conclusion_status_email 自己管(OK 轮置 recovered)。
-    if _key.startswith(CONCLUSION_STATUS_KEY_PREFIX):
+    if _key == "notify|feishu_config_missing" or _key.startswith(CONCLUSION_STATUS_KEY_PREFIX):
         continue
     # #240 ③ 复审 F2(2026-10-09): dur 计数桶(|dur_buffer|)由 dur 块**内联自管复位**
     # (耗时回到阈值内 → recovered; 起止都在同一块), 不参与本恢复循环 —— 否则 dur=None 轮
@@ -3118,6 +3214,23 @@ for _key, _info in list(alert_state.items()):
         # feishu_ keys(飞书配置缺失, 2026-08-17 三件套①)同理: 检查块在恢复循环之后运行,
         # 由块内 inline 处理恢复(防未 seen 被误判已恢复, 与 r2_ 同模式)
         continue
+    # These identities come from systemd, never last_run/backup metadata.
+    # Missing the old code (including a running/unknown unit) is not recovery.
+    _core_unit = {"public_fund_daily": "trade-public-fund-daily.service",
+                  "overfit_monitor": "trade-overfit-monitor.service"}.get(_key.split("|", 1)[0])
+    if _core_unit and "|unit_exit!=0|" in _key and _key not in seen_keys_this_run:
+        _truth = globals().get("UNIT_STATES", {}).get(_core_unit) or {}
+        _inv = _truth.get("invocation_id")
+        if not (_truth.get("source") == "systemd" and type(_truth.get("code")) is int
+                and _truth["code"] == 0 and _truth.get("active_state") == "inactive"
+                and isinstance(_inv, str)
+                and re.fullmatch(r"[0-9a-fA-F]{32}", _inv)
+                and _info.get("source_run") and _inv != _info["source_run"]):
+            _info["recovery_evidence"] = "unknown: awaiting distinct verified successful invocation"
+            print(f"[hold] {_key} 无新的可核验成功 invocation，保持原故障")
+            continue
+        _info["recovery_evidence"] = "systemd_exit_only"
+        _info["recovery_source_run"] = _inv
     # 2026-08-14 告警优化 A1: 任务仍在进行中(dur=null + exit=null)时, 其历史异常 key
     # 不能判"已恢复" -> 防 8-14 误恢复(update_all 卡死 dur=null 未 seen 被误判异常已消失,
     # 18:00 误发 [恢复] update_all)。保持 active, 等任务真正完成(exit 非0/耗时超/或进行中
@@ -3336,6 +3449,8 @@ try:
                 "last_alerted": now_full,
                 "keyword": "overview_lag",
                 "line_sample": detail,
+                "message": alerts[-1],
+                "requires_action": True,
             }
         elif _r1_action == "buffer":
             _bf = alert_state.get(_ov_buf_key) or {}
@@ -3513,6 +3628,8 @@ try:
                         "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                         "keyword": "r2_overview_lag",
                         "line_sample": f"lag={ov_lag_min_r2}min collected_at={ov_collected_r2}",
+                        "message": alerts[-1],
+                        "requires_action": True,
                     }
                 elif _r2_ov_act == "buffer":
                     _bf_r2o = alert_state.get(_r2_ov_buf) or {}
@@ -3602,6 +3719,8 @@ try:
                             "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                             "keyword": "r2_intraday_lag",
                             "line_sample": f"lag={id_lag_min_r2}min collected_at={id_collected_r2}",
+                            "message": alerts[-1],
+                            "requires_action": True,
                         }
                     else:
                         _active_escalate(_ex_r2id, _r2_id_key, "R2 intraday 滞后")
@@ -3702,6 +3821,8 @@ try:
                 "keyword": "feishu_config_missing",
                 "line_sample": ("feishu_listener.err" if _feishu_err_missing
                                 else str(_feishu_cfg_path)),
+                "message": alerts[-1],
+                "requires_action": True,
             }
         else:
             _active_escalate(_ex_fs, _feishu_key, "飞书配置缺失")
@@ -3836,6 +3957,8 @@ try:
                 "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                 "keyword": "feishu_hb_stale",
                 "line_sample": "feishu_hook_heartbeat 心跳陈旧/缺失",
+                "message": alerts[-1],
+                "requires_action": True,
             }
         else:
             _active_escalate(_ex_hb, _hb_key, "飞书 hook 心跳陈旧")
@@ -3979,6 +4102,8 @@ try:
                 "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
                 "keyword": "feishu_ws_stale",
                 "line_sample": "feishu_ws_last_event 心跳陈旧/缺失",
+                "message": alerts[-1],
+                "requires_action": True,
             }
         else:
             _active_escalate(_ex_ws, _ws_key, "飞书 ws listener 心跳陈旧")
@@ -4127,6 +4252,9 @@ now_str = NOW.strftime("%Y-%m-%d %H:%M:%S")
 # ② 调用后立即 save_alert_state 落盘——否则 r2_pipeline_congestion|{YYYYMMDD} 状态只存在
 #    进程内存, 每轮独立进程退出即丢, 同轮第 2+ 种 R2 告警被吞且永久静默。
 _orig_has_alerts = bool(alerts)
+_event_before = len(alerts)
+alerts = _quiet_route_alerts(alerts)
+_event_routed = _event_before - len(alerts)
 # #245 批2 L2(2026-10-10): 批次行级日预算 —— 取代 r5 聚合(超集: 按类别日预算, 见
 # adr.alert_budget_process)。逐行判类别预算, 超预算的行移出批次交 --defer-digest 吸收
 # (当日 23:25 摘要出线, 或次日 stale 兜底); 未映射类别/类别首行照旧随批次即时直发。
@@ -4284,7 +4412,8 @@ if alerts:
     print(f"[{now_str}] {_concl}")
 elif _orig_has_alerts or _absorbed:
     # 本轮原有过告警但已全部被吸收(批次 kept 空) ⇒ 记日志(仅日志, 不影响发送)。
-    print(f"[{now_str}] 本轮告警已由类别日预算吸收, 见当日摘要 alert_digest.jsonl")
+    print(f"[{now_str}] 本轮 {_event_routed} 条告警按独立事件处理；"
+          f"其余摘要吸收 {len(_absorbed)} 条。受理以通知回执为准，未确认不代表恢复。")
     print(f"[{now_str}] {_concl}")
 else:
     print(f"[{now_str}] {_concl}")
@@ -4315,7 +4444,7 @@ _pend_items = [i for i in _pend.get("items", []) if isinstance(i, dict)] if isin
 # 合成发送内容 = 本轮 recoveries + pending 补列(按 (task,keyword) 去重, 防重复行)
 _combined = []
 _seen_r = set()
-for _r in (recoveries + _pend_items):
+for _r in _quiet_route_recoveries(recoveries + _pend_items):
     _tk = (str(_r.get("task", "")), str(_r.get("keyword", "")))
     if _tk in _seen_r:
         continue

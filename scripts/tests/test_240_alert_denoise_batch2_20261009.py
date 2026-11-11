@@ -492,11 +492,15 @@ def test_03_single_snap_no_alert_and_degradation_reported():
                    state=st3, seen=set())
     _chk(any("1900s" in x for x in a4), f"③ 单次极端(>=2×阈值)应立即 SEVERE, 实得 {a4}")
 
-    # 盘后槽真退化 2081s(09-30 实测): 阈值放宽 1800 → 单 run 被后续多轮 tick 连续看到 → 报, 不吞
+    # 盘后槽真退化 2081s(09-30 实测): 阈值放宽 1800 → 同 run 重观测不重复计数；另一真实完成 run 超时仍报
     st4 = {}
     _dur_tick(code, consts, dur=2081, last_run="2026-09-30 20:35", now=datetime.datetime(2026, 9, 30, 21, 15),
               state=st4, seen=set())
     a5 = _dur_tick(code, consts, dur=2081, last_run="2026-09-30 20:35", now=datetime.datetime(2026, 9, 30, 21, 30),
+                   state=st4, seen=set())
+    _chk(a5 == [] and st4["intraday_snapshot|dur_buffer|1800"]["consecutive_count"] == 1,
+         "同一完成 run 重复观测不能冒充连续失败")
+    a5 = _dur_tick(code, consts, dur=2081, last_run="2026-09-30 21:35", now=datetime.datetime(2026, 9, 30, 22, 15),
                    state=st4, seen=set())
     _chk(any("执行耗时 2081s 超阈值 1800s" in x for x in a5),
          f"③ 盘后真退化 2081s 应照报, 实得 {a5}")

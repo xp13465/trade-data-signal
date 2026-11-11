@@ -546,7 +546,7 @@ def test_zero_real_outbound(code, r2_src, monkeypatch):
     _chk(calls["n"] == 0, f"发生真实外发调用 {calls['n']} 次")
     _chk(len([1 for r in recs if r.alerts]) == 5)
     # 证明 transient 路的 notify 降级调用**确实发生**但走的是假 subprocess(真 subprocess 零调用)。
-    _chk(len([1 for r in recs_t if r.warn]) == 2, "transient warn 调用应发生(经假 subprocess)")
+    _chk(len([1 for r in recs_t if r.warn]) == 0, "transient 仅内部记录，不能进 warning 外发缓冲")
 
 
 # ══════════════════════ §2 L3c: fetch_news(自愈类)降 tier 专测 ══════════════════════
@@ -562,7 +562,7 @@ def test_l3c_transient_downgrade_real_fixture(code, r2_src):
     recs = _drive(code, consts, _ticks(), task="fetch_news")
     warns = [r.T.strftime("%m-%d %H:%M") for r in recs if r.warn]
     fires = [r.T.strftime("%m-%d %H:%M") for r in recs if r.alerts]
-    _chk(warns == ["10-04 04:00", "10-05 04:00"], f"warning(首达阈值)时点={warns}")
+    _chk(warns == [], f"短暂等待不得创建外发 warning: {warns}")
     _chk(fires == ["10-04 20:00"], f"升级 SEVERE 时点={fires}")
     m = [r.alerts[0] for r in recs if r.alerts][0]
     _chk(m.startswith("SEVERE: fetch_news R2 上传锁连续 6 轮跳过(SKIPPED_LOCKED)"), m)
@@ -575,14 +575,13 @@ def test_l3c_warn_argv_verbatim(code, r2_src):
     from-prefix), 且消息含「自愈类」标注(非静默)。"""
     _, consts = r2_src
     recs = _drive(code, consts, _ticks(), task="fetch_news")
-    argv = next(r.warn for r in recs if r.warn)
-    joined = " ".join(argv)
-    _chk(argv[0] == sys.executable, f"argv[0] 应为 python 解释器: {argv[0]}")
-    _chk("--tier" in argv and argv[argv.index("--tier") + 1] == "warning")
-    _chk("--dedup-key" in argv and argv[argv.index("--dedup-key") + 1] == "fetch_news|r2_skip_warn")
-    _chk("--dedup-window" in argv and argv[argv.index("--dedup-window") + 1] == "21600")
-    _chk("--from-prefix" in argv and argv[argv.index("--from-prefix") + 1] == "[告警]")
-    _chk("自愈类" in joined and "延迟提示" in joined)
+    _chk(all(r.warn is None for r in recs), "短暂锁不调用 notify，也不能延后 flush 外发")
+    pending = [r for r in recs if r.cnt.get("skip_rounds") in (3, 4, 5)]
+    _chk(bool(pending), "真实 fixture 必须覆盖短暂等待段")
+    _chk(all(not r.alerts for r in pending), "内部等待段不冒充 severe")
+    _chk(any(r.alerts for r in recs), "持续缺口仍达到原严重阈值")
+    _chk(consts["R2_SKIP_ESCALATE_ROUNDS"] == 6)
+    _chk(consts["R2_SKIP_CONTINUOUS_THRESHOLD"] == 3)
 
 
 def test_l3c_state_tier_progression(code, r2_src):
@@ -621,7 +620,7 @@ def test_l3c_escalation_escapes_warning_active(code, r2_src):
         T = base + datetime.timedelta(minutes=30 * k)
         ticks.append((T, (T - datetime.timedelta(minutes=15)).replace(second=0, microsecond=0), 1))
     recs = _drive(code, consts, ticks, task="fetch_news")
-    _chk(recs[2].warn is not None, "n=3 首达阈值应 warning")
+    _chk(recs[2].warn is None, "n=3 首达阈值只留内部证据")
     _chk(not recs[2].alerts, "n=3 不得 append SEVERE")
     _chk(recs[5].alerts and len(recs[5].alerts) == 1, "n=6 应升级 SEVERE 一次(escape active)")
     _chk(recs[5].alerts[0].endswith("超升级阈值(6)"), f"升级消息尾注={recs[5].alerts[0][-30:]}")
