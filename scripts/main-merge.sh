@@ -36,7 +36,8 @@
 #       0 pageerror; 违规 exit1 阻断发版; 线上不可达 exit2 打醒目告警后放行; SKIP_CONSOLE_CLEAN=1 逃生门
 #   8. 调 check_version_progress.py(A/B: 版本串倒退哨兵 + merge 净回退校验) → FAIL 阻断
 #   8.5 pending-index 销账软提醒(只提醒不阻断不自动改, 2026-08-22 用户授权流程小机制)
-#   9. commit(自动追加 Co-Authored-By) + push main
+#   9. commit(自动追加 Co-Authored-By) + push main; 首次 push 失败即 exit 5,
+#      由主控更新基线后重走完整入口, 不在检查后自动 rebase 改树再推。
 #   10. merge 即同步: push main 成功后自动 ssh 云上 git pull(2026-09-19 用户定, 根治「忘 pull」;
 #       云上 /home/ubuntu/code/trade-data 手动 pull, 不 pull 不生效。失败不静默打醒目 [!!] 告警 + exit 6)
 #   11. push main 后自动自查 CI 结论(2026-10-07 用户定): 轮询 GitHub Actions, 按 head_sha +
@@ -890,10 +891,11 @@ fi
 # merge commit 若未生成(pure bump 无 merge?)确保有 commit; 这里以 merge 已生成 commit 为准
 # push main
 if ! $GIT push origin main; then
-  echo "✗ push main 失败(可能 non-fast-forward)。优先 git fetch + rebase origin/main + 重试(§8 不 force)" >&2
-  $GIT fetch origin
-  $GIT rebase origin/main || { echo "✗ rebase 失败, 已 abort, 请人工处理" >&2; $GIT rebase --abort; exit 5; }
-  $GIT push origin main
+  # HC21: 检查后的 rebase 会改变已验证的树, 不能沿用旧结果直接重试 push。
+  echo "✗ push main 失败, 已停止(不自动 fetch/rebase/重试, 不 force)。" >&2
+  echo "  请主控核对远端状态、处理失败原因并更新基线后, 重走完整入口: bash scripts/main-merge.sh \"$FEAT\"" >&2
+  echo "  新基线必须重新经过构建、版本校验及全部适用门禁; 本次未执行云同步/CI 自查。" >&2
+  exit 5
 fi
 echo "✓ push main 成功"
 
