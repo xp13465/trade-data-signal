@@ -1,0 +1,22 @@
+{
+  "test_alert_recovery_r2_and_cleanup_20261031.py": {
+    "original_test_functions": 12,
+    "assertions_unchanged": true,
+    "current_sha256": "0353d62ca117473ec7aedd19d7d4fe0877cb414b72f733d3e147ecba1c9a4fa0"
+  },
+  "test_309_key_migration_20261025.py": {
+    "original_test_functions": 4,
+    "assertions_unchanged": true,
+    "current_sha256": "ee958af6a0e5b98bac71e3d6fe8f41523dbba545b6749d2e666458486c22fe70"
+  },
+  "test_245_l2_budget_digest_20261010.py": {
+    "original_test_functions": 43,
+    "assertions_unchanged": true,
+    "current_sha256": "333aefaa6d576436431b218c1a00b01f46f6534f0cbfbef932f09c575ba5111e"
+  },
+  "test_240_alert_denoise_batch2_20261009.py": {
+    "original_test_functions": 18,
+    "assertions_unchanged": true,
+    "current_sha256": "b41f5947dbcc4922d369cfe6a5e3ec1e8ab636e3f1a072dacadf588bd8fe71ef"
+  }
+}

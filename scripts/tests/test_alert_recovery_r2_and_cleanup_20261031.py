@@ -49,7 +49,10 @@ def _recovery_loop_src():
         if "recoveries.append" in seg and "_key not in seen_keys_this_run" in seg:
             segs.append(textwrap.dedent(" " * node.col_offset + seg))
     assert segs, "schedule_monitor.sh 恢复检测循环找不到了? 本测试锚点需同步"
-    return max(segs, key=len)
+    # The production loop calls this real definition; do not stub it false.
+    owner = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                 and n.name == "_producer_owned")
+    return ast.get_source_segment(src, owner) + "\n" + max(segs, key=len)
 
 
 def _run_recovery(state, seen):

@@ -532,7 +532,10 @@ def _recovery_loop_code():
                 and isinstance(n.target, ast.Tuple) and len(n.target.elts) == 2
                 and getattr(n.target.elts[0], "id", None) == "_key"
                 and getattr(n.target.elts[1], "id", None) == "_info")
-    return compile(textwrap.dedent(ast.get_source_segment(src, loop)),
+    # Load the actual dependency from the SAME source (including overrides).
+    owner = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                 and n.name == "_producer_owned")
+    return compile(ast.Module(body=[owner, loop], type_ignores=[]),
                    "<recovery-loop>", "exec")
 
 
