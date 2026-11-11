@@ -94,6 +94,14 @@ def wait_file(path, proc=None):
         time.sleep(.01)
 
 
+def publish_fixture_state(path, state):
+    # Existence is the ready signal consumed by the parent. Do not expose an
+    # empty/truncated JSON file between open() and write() under CPU contention.
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    tmp.write_text(json.dumps(sorted(state)))
+    tmp.replace(path)
+
+
 def worker(root, actor, mode="distinct"):
     assert str(root).startswith(("/tmp/", "/private/tmp/"))
     signal.alarm(12)
@@ -102,7 +110,7 @@ def worker(root, actor, mode="distinct"):
     subprocess.run = subprocess.Popen = forbidden
     ns, _ = namespace(root)
     state = ns["_load_etf_freeze"]()
-    (root / (actor + ".loaded")).write_text(json.dumps(sorted(state)))
+    publish_fixture_state(root / (actor + '.loaded'), state)
     key = A if actor == "A" or mode != "distinct" else B
     date, iid, sig = key.split("|")
     choice = entry("same" if mode == "same" else actor)
@@ -110,7 +118,7 @@ def worker(root, actor, mode="distinct"):
     ns["_resolve_etf"](date, iid, sig, {iid: choice}, state, "20261109")
     wait_file(root / (actor + ".go"))
     ns["_save_etf_freeze"](state)
-    (root / (actor + ".saved")).write_text(json.dumps(sorted(state)))
+    publish_fixture_state(root / (actor + '.saved'), state)
 
 
 @pytest.mark.parametrize("order", [("A", "B"), ("B", "A")])
