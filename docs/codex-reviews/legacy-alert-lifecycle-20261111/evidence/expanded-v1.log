@@ -1,0 +1,66 @@
+...F...............F                                                     [100%]
+=================================== FAILURES ===================================
+____________ test_recovery_then_new_fault_does_not_inherit_ack[s06] ____________
+
+producers = ((<module 'quiet_notify' from '/Users/linhuichen/code/trade/.claude/worktrees/codex-legacy-alert-lifecycle-20261111/sc...olders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-472/test_recovery_then_new_fault_d0/heartbeat'))
+which = 's06'
+
+    @pytest.mark.parametrize('which', ['s06', 'heartbeat'])
+    def test_recovery_then_new_fault_does_not_inherit_ack(producers, which):
+        b, snap, srun, hrun, heal, heartbeat = producers
+        if which == 's06':
+            snap(False); assert srun() == 1; flush(b)
+        else:
+            assert hrun() == 0
+        key, first = own_entry(b, 'producer_' + which + '|')
+        ref = [{'key': key, 'event_id': first['event_id'], 'phase': 'active', 'source_run': None}]
+        b[7](ref, acknowledged='2026-11-11 10:00:00', ack_event_id=first['event_id'])
+        before = len(b[3])
+        if which == 's06':
+            snap(True); assert srun() == 0
+            snap(False); assert srun() == 1; flush(b)
+        else:
+            heal(); assert hrun() == 0
+            heartbeat.unlink(); assert hrun() == 0
+        current = b[6]()[key]
+        assert current['event_id'] != first['event_id']
+        assert 'ack_event_id' not in current
+        assert current['previous_events'][-1]['ack_event_id'] == first['event_id']
+>       assert len(b[3]) == before + 3
+E       assert 3 == (3 + 3)
+E        +  where 3 = len([{'channel': 'email', 'body': 'coverage_end=20261106 落后最近已入库交易日 20261111 共 3 个交易日 (阈值>1 触发); generated_at=?。前端超覆盖期 fai...交易日 20261111 共 3 个交易日 (阈值>1 触发); generated_at=?。前端超覆盖期 fail-open 不拦截=S06 档静默退化，请查快照生成和输入链路。"}]]}}'}, 'accepted': True}])
+
+/Users/linhuichen/code/trade/.claude/worktrees/codex-legacy-alert-lifecycle-20261111/scripts/tests/test_legacy_ops_lifecycle_20261111.py:128: AssertionError
+----------------------------- Captured stdout call -----------------------------
+S06_FRESH_FAIL coverage_end=20261106 落后最近已入库交易日 20261111 共 3 个交易日 (阈值>1 触发); generated_at=?。前端超覆盖期 fail-open 不拦截=S06 档静默退化，请查快照生成和输入链路。
+S06_FRESH_OK coverage_end=20261111 落后最近已入库交易日 20261111 共 0 个交易日 (阈值>1 触发); generated_at=?。前端超覆盖期 fail-open 不拦截=S06 档静默退化，请查快照生成和输入链路。
+S06_FRESH_FAIL coverage_end=20261106 落后最近已入库交易日 20261111 共 3 个交易日 (阈值>1 触发); generated_at=?。前端超覆盖期 fail-open 不拦截=S06 档静默退化，请查快照生成和输入链路。
+----------------------------- Captured stderr call -----------------------------
+[check_s06_freshness.py] notify status=deferred rc=0
+[notify] 邮件已发送至 offline@example.test：S06 快照过期 3 日
+[notify] Telegram 已发送至 offline：S06 快照过期 3 日
+[notify] Feishu 已发送至 offline-report：S06 快照过期 3 日
+[notify][ledger] 台账登记 /private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-472/test_recovery_then_new_fault_d0/data/alerts/alert_ledger.jsonl
+[check_s06_freshness.py] notify status=deferred rc=0
+_________ test_recovery_between_transports_cancels_remaining_channels __________
+
+producers = ((<module 'quiet_notify' from '/Users/linhuichen/code/trade/.claude/worktrees/codex-legacy-alert-lifecycle-20261111/sc...olders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-472/test_recovery_between_transpor0/heartbeat'))
+
+    def test_recovery_between_transports_cancels_remaining_channels(producers):
+        b, _, _, run, heal, _ = producers
+        def recover(body):
+            heal(); assert run() == 0
+            return True
+        b[4]['email'] = recover
+>       assert run() == 0
+E       assert 2 == 0
+E        +  where 2 = <function producers.<locals>.hbrun at 0x10646f100>()
+
+/Users/linhuichen/code/trade/.claude/worktrees/codex-legacy-alert-lifecycle-20261111/scripts/tests/test_legacy_ops_lifecycle_20261111.py:252: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[monitor-heartbeat] ✗ heartbeat 文件不存在: /private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-472/test_recovery_between_transpor0/heartbeat
+[check_monitor_heartbeat.py] notify status=unknown rc=0
+=========================== short test summary info ============================
+FAILED scripts/tests/test_legacy_ops_lifecycle_20261111.py::test_recovery_then_new_fault_does_not_inherit_ack[s06]
+FAILED scripts/tests/test_legacy_ops_lifecycle_20261111.py::test_recovery_between_transports_cancels_remaining_channels
+2 failed, 18 passed in 1.50s

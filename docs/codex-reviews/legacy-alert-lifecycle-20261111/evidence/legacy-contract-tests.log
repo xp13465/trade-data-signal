@@ -1,0 +1,242 @@
+............FFFFFFF                                                      [100%]
+=================================== FAILURES ===================================
+_________________ test_02b_source_uses_shared_criterion_not_rc _________________
+
+    def test_02b_source_uses_shared_criterion_not_rc():
+        """静态锁: check_s06_freshness.py 不得再出现 `returncode == 0` 当 sent, 且用 notify_sent。"""
+        src = (SCRIPTS / "check_s06_freshness.py").read_text(encoding="utf-8")
+        _chk("returncode == 0" not in src, "#241 不得再用 rc==0 当落签判据")
+>       _chk("sent_ok = notify_sent(" in src, "#241 落签判据应为 notify_sent(...)")
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:134: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cond = False, msg = '#241 落签判据应为 notify_sent(...)'
+
+    def _chk(cond, msg=""):
+        _N[0] += 1
+>       assert cond, msg
+E       AssertionError: #241 落签判据应为 notify_sent(...)
+E       assert False
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:52: AssertionError
+_____ test_03_negative_control_all_channels_failed_no_consign_and_retries ______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10434fd50>
+tmp_path = PosixPath('/private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-475/test_03_negative_control_all_c0')
+
+    def test_03_negative_control_all_channels_failed_no_consign_and_retries(monkeypatch, tmp_path):
+        """负控(必修): notify **全渠道失败 / append_failed** ⇒ **不得落签** ⇒ 下轮重试。
+    
+        旧代码(rc==0)在 notify 恒 return 0 下会落签 ⇒ 下轮被抑制 = 真告警丢失;
+        本用例在旧代码上必 FAIL(red-before-green 判别力证据, 见报告)。
+        """
+        with ZeroOutboundTrap() as trap:
+>           rc1, n1, out1 = _run_main(monkeypatch, tmp_path, FAIL_GENERAL)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:187: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10434fd50>
+tmp = PosixPath('/private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-475/test_03_negative_control_all_c0')
+notify_out = '[notify] 汇总：全部渠道未发出（email/feishu）\n', rc = 0, sent_fn = None
+
+    def _run_main(monkeypatch, tmp: Path, notify_out: str, rc: int = 0, sent_fn=None):
+        """跑 csf.main()(--notify); notify 子进程整体打桩, 全程零真实 spawn/外发。
+    
+        sent_fn 非 None 时 monkeypatch `csf.notify_sent`(用于 red-before-green 切换判据;
+        不传则用真判据)。返回 (main_rc, notify 调用次数, 捕获输出)。
+        """
+        snap, idx = _mk_fixtures(tmp)
+        calls = []
+    
+        def _fake_run(cmd, *a, **k):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, rc, stdout="", stderr=notify_out)
+    
+>       monkeypatch.setattr(csf.subprocess, "run", _fake_run)
+                            ^^^^^^^^^^^^^^
+E       AttributeError: module 'check_s06_freshness' has no attribute 'subprocess'
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:164: AttributeError
+_________________ test_03b_negative_control_append_failed_tier _________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1043e0790>
+tmp_path = PosixPath('/private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-475/test_03b_negative_control_appe0')
+
+    def test_03b_negative_control_append_failed_tier(monkeypatch, tmp_path):
+        """负控 2: --tier warning 的 buffer 追加失败(append_failed, rc=0)同样**不得落签**。"""
+        with ZeroOutboundTrap() as trap:
+>           _, n1, out1 = _run_main(monkeypatch, tmp_path, TIER_APPEND_FAILED)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:204: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1043e0790>
+tmp = PosixPath('/private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-475/test_03b_negative_control_appe0')
+notify_out = "[notify][warning] buffer 追加失败（未入队，不占窗，后续同源继续尝试）：S06 快照过期 3 日\n[notify][tier=warning] 路由完成：{'tier': 'warning', 'email': False, 'telegram': False, 'feishu': False, 'deferred': False, 'defer_status': 'append_failed'}\n"
+rc = 0, sent_fn = None
+
+    def _run_main(monkeypatch, tmp: Path, notify_out: str, rc: int = 0, sent_fn=None):
+        """跑 csf.main()(--notify); notify 子进程整体打桩, 全程零真实 spawn/外发。
+    
+        sent_fn 非 None 时 monkeypatch `csf.notify_sent`(用于 red-before-green 切换判据;
+        不传则用真判据)。返回 (main_rc, notify 调用次数, 捕获输出)。
+        """
+        snap, idx = _mk_fixtures(tmp)
+        calls = []
+    
+        def _fake_run(cmd, *a, **k):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, rc, stdout="", stderr=notify_out)
+    
+>       monkeypatch.setattr(csf.subprocess, "run", _fake_run)
+                            ^^^^^^^^^^^^^^
+E       AttributeError: module 'check_s06_freshness' has no attribute 'subprocess'
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:164: AttributeError
+__________ test_04_positive_control_enqueued_consigns_and_suppresses ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1043da750>
+tmp_path = PosixPath('/private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-475/test_04_positive_control_enque0')
+
+    def test_04_positive_control_enqueued_consigns_and_suppresses(monkeypatch, tmp_path):
+        """正控: notify 真入聚合 buffer(deferred=True)⇒ 落签 ⇒ 下轮同状态被抑制(不重发)。"""
+        with ZeroOutboundTrap() as trap:
+>           rc1, n1, _ = _run_main(monkeypatch, tmp_path, TIER_ENQUEUED)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:214: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1043da750>
+tmp = PosixPath('/private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-475/test_04_positive_control_enque0')
+notify_out = "[notify][warning] 入聚合 buffer（30min 批发）：S06 快照过期 3 日\n[notify][tier=warning] 路由完成：{'tier': 'warning', 'email': False, 'telegram': False, 'feishu': False, 'deferred': True, 'defer_status': 'enqueued'}\n"
+rc = 0, sent_fn = None
+
+    def _run_main(monkeypatch, tmp: Path, notify_out: str, rc: int = 0, sent_fn=None):
+        """跑 csf.main()(--notify); notify 子进程整体打桩, 全程零真实 spawn/外发。
+    
+        sent_fn 非 None 时 monkeypatch `csf.notify_sent`(用于 red-before-green 切换判据;
+        不传则用真判据)。返回 (main_rc, notify 调用次数, 捕获输出)。
+        """
+        snap, idx = _mk_fixtures(tmp)
+        calls = []
+    
+        def _fake_run(cmd, *a, **k):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, rc, stdout="", stderr=notify_out)
+    
+>       monkeypatch.setattr(csf.subprocess, "run", _fake_run)
+                            ^^^^^^^^^^^^^^
+E       AttributeError: module 'check_s06_freshness' has no attribute 'subprocess'
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:164: AttributeError
+______________ test_04b_positive_control_suppressed_tier_consigns ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x104340f90>
+tmp_path = PosixPath('/private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-475/test_04b_positive_control_supp0')
+
+    def test_04b_positive_control_suppressed_tier_consigns(monkeypatch, tmp_path):
+        """正控 2: --tier warning 真抑制(deferred=True)也算已处理 ⇒ 落签。"""
+        with ZeroOutboundTrap() as trap:
+>           _, n1, _ = _run_main(monkeypatch, tmp_path, TIER_SUPPRESSED)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:230: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x104340f90>
+tmp = PosixPath('/private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-475/test_04b_positive_control_supp0')
+notify_out = "[notify][dedup] 同源抑制(窗口内第 2 次，已通知 1 次，4h 窗)：S06 快照过期 3 日\n[notify][tier=warning] 路由完成：{'tier': 'warning', 'email': False, 'telegram': False, 'feishu': False, 'deferred': True, 'defer_status': 'suppressed'}\n"
+rc = 0, sent_fn = None
+
+    def _run_main(monkeypatch, tmp: Path, notify_out: str, rc: int = 0, sent_fn=None):
+        """跑 csf.main()(--notify); notify 子进程整体打桩, 全程零真实 spawn/外发。
+    
+        sent_fn 非 None 时 monkeypatch `csf.notify_sent`(用于 red-before-green 切换判据;
+        不传则用真判据)。返回 (main_rc, notify 调用次数, 捕获输出)。
+        """
+        snap, idx = _mk_fixtures(tmp)
+        calls = []
+    
+        def _fake_run(cmd, *a, **k):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, rc, stdout="", stderr=notify_out)
+    
+>       monkeypatch.setattr(csf.subprocess, "run", _fake_run)
+                            ^^^^^^^^^^^^^^
+E       AttributeError: module 'check_s06_freshness' has no attribute 'subprocess'
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:164: AttributeError
+___________ test_05_red_before_green_old_rc_semantics_would_consign ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10433b710>
+tmp_path = PosixPath('/private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-475/test_05_red_before_green_old_r0')
+
+    def test_05_red_before_green_old_rc_semantics_would_consign(monkeypatch, tmp_path):
+        """red-before-green 证据: 用**旧 rc 语义**(notify 恒 return 0 ⇒ 判 True)跑同一负控场景,
+        复现 bug —— 全渠道失败却落签 ⇒ 下轮被抑制。
+    
+        证明 test_03 有判别力: 判据从 rc 换成 notify_sent 才让 test_03 PASS。
+        (notify.py 所有出口 rc=0, 故旧判据在本 case 恒 True, 与 `lambda out: True` 等价。)
+        """
+        with ZeroOutboundTrap() as trap:
+>           rc1, n1, _ = _run_main(monkeypatch, tmp_path, FAIL_GENERAL, sent_fn=lambda out: True)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10433b710>
+tmp = PosixPath('/private/var/folders/xb/5v1hplgn02s6t8q495h5m8fh0000gn/T/pytest-of-linhuichen/pytest-475/test_05_red_before_green_old_r0')
+notify_out = '[notify] 汇总：全部渠道未发出（email/feishu）\n', rc = 0
+sent_fn = <function test_05_red_before_green_old_rc_semantics_would_consign.<locals>.<lambda> at 0x1043b9da0>
+
+    def _run_main(monkeypatch, tmp: Path, notify_out: str, rc: int = 0, sent_fn=None):
+        """跑 csf.main()(--notify); notify 子进程整体打桩, 全程零真实 spawn/外发。
+    
+        sent_fn 非 None 时 monkeypatch `csf.notify_sent`(用于 red-before-green 切换判据;
+        不传则用真判据)。返回 (main_rc, notify 调用次数, 捕获输出)。
+        """
+        snap, idx = _mk_fixtures(tmp)
+        calls = []
+    
+        def _fake_run(cmd, *a, **k):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, rc, stdout="", stderr=notify_out)
+    
+>       monkeypatch.setattr(csf.subprocess, "run", _fake_run)
+                            ^^^^^^^^^^^^^^
+E       AttributeError: module 'check_s06_freshness' has no attribute 'subprocess'
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:164: AttributeError
+____________________________ test_99_min_assertions ____________________________
+
+    def test_99_min_assertions():
+        """§18 L49: 断言计数下限, 防收集/执行异常致假绿。"""
+>       _chk(_N[0] >= _MIN_ASSERTIONS, f"断言数 {_N[0]} < 下限 {_MIN_ASSERTIONS}(疑似假绿)")
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:255: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cond = False, msg = '断言数 17 < 下限 40(疑似假绿)'
+
+    def _chk(cond, msg=""):
+        _N[0] += 1
+>       assert cond, msg
+E       AssertionError: 断言数 17 < 下限 40(疑似假绿)
+E       assert False
+
+scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py:52: AssertionError
+=========================== short test summary info ============================
+FAILED scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py::test_02b_source_uses_shared_criterion_not_rc
+FAILED scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py::test_03_negative_control_all_channels_failed_no_consign_and_retries
+FAILED scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py::test_03b_negative_control_append_failed_tier
+FAILED scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py::test_04_positive_control_enqueued_consigns_and_suppresses
+FAILED scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py::test_04b_positive_control_suppressed_tier_consigns
+FAILED scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py::test_05_red_before_green_old_rc_semantics_would_consign
+FAILED scripts/tests/test_241_s06_fresh_sent_criterion_20261009.py::test_99_min_assertions
+7 failed, 12 passed in 0.09s
