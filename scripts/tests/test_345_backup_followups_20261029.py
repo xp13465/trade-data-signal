@@ -36,6 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "verify_backup.sh"
 REAL_UPLOAD_R2 = REPO_ROOT / "scripts" / "upload_r2.py"
 REAL_LOCK_PATHS = REPO_ROOT / "scripts" / "r2_lock_paths.py"
+REAL_SAFE_WRITE = REPO_ROOT / "scripts" / "r2_safe_write.py"
 REAL_EXPORT_PROOF = REPO_ROOT / "scripts" / "r2_export_proof.py"
 REAL_DELIVERY_EVIDENCE = REPO_ROOT / "scripts" / "delivery_evidence.py"
 REPO_PATHS_LIB = REPO_ROOT / "scripts" / "lib" / "repo_paths.sh"
@@ -110,6 +111,7 @@ def _run_list_block(tmp_path: Path, pages, *, name: str = "stock_daily",
     scripts = repo / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
     shutil.copy(REAL_LOCK_PATHS, scripts / "r2_lock_paths.py")
+    shutil.copy(REAL_SAFE_WRITE, scripts / "r2_safe_write.py")
     shutil.copy(REAL_EXPORT_PROOF, scripts / "r2_export_proof.py")
     shutil.copy(REAL_DELIVERY_EVIDENCE, scripts / "delivery_evidence.py")
     (scripts / "upload_r2.py").write_text(FAKE_UPLOAD_R2, encoding="utf-8")
