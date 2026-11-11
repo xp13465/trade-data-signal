@@ -1,0 +1,259 @@
+FFFFF.......FFFF.....................................F.................. [ 81%]
+......F.........                                                         [100%]
+=================================== FAILURES ===================================
+_____________ test_stale_exit_key_flips_recovered_when_service_ok ______________
+
+    def test_stale_exit_key_flips_recovered_when_service_ok():
+        state = {EXIT_KEY: _active(EXIT_KEY, "2026-10-21 00:00:01")}
+>       recoveries, state = _run_recovery(state, seen=set())
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py:78:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py:70: in _run_recovery
+    exec(_recovery_loop_src(), ns)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   NameError: name '_producer_owned' is not defined
+
+<string>:2: NameError
+___________ test_stale_unit_exit_key_flips_recovered_when_service_ok ___________
+
+    def test_stale_unit_exit_key_flips_recovered_when_service_ok():
+        state = {UNIT_KEY: _active(UNIT_KEY)}
+>       _, state = _run_recovery(state, seen=set())
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py:87:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py:70: in _run_recovery
+    exec(_recovery_loop_src(), ns)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   NameError: name '_producer_owned' is not defined
+
+<string>:2: NameError
+________________________ test_real_failures_stay_active ________________________
+
+    def test_real_failures_stay_active():
+        """真实失败每轮都会被通道写进 seen_keys_this_run ⇒ 恢复环不许动它。"""
+        true_unit = "r2_consistency|unit_exit!=0|124"
+        true_exit = "update_all|exit!=0|1"
+        state = {true_unit: _active(true_unit), true_exit: _active(true_exit)}
+>       _, state = _run_recovery(state, seen={true_unit, true_exit})
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py:98:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py:70: in _run_recovery
+    exec(_recovery_loop_src(), ns)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   NameError: name '_producer_owned' is not defined
+
+<string>:2: NameError
+________________ test_same_task_new_failure_code_not_recovered _________________
+
+    def test_same_task_new_failure_code_not_recovered():
+        """同任务换了新失败码: 新码 key 在 seen 里 ⇒ active; 旧码 key 不在 seen ⇒ 才允许恢复。"""
+        new_key = "r2_consistency|unit_exit!=0|137"
+        state = {UNIT_KEY: _active(UNIT_KEY), new_key: _active(new_key)}
+>       _, state = _run_recovery(state, seen={new_key})
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py:107:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py:70: in _run_recovery
+    exec(_recovery_loop_src(), ns)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   NameError: name '_producer_owned' is not defined
+
+<string>:2: NameError
+____________________ test_inline_managed_keys_still_skipped ____________________
+
+    def test_inline_managed_keys_still_skipped():
+        state = {
+            "r2_unreachable": _active("r2_unreachable"),
+            "r2_overview_lag": _active("r2_overview_lag"),
+            "r2_intraday_lag|buffer|20261031": {
+                "status": "pending", "consecutive_count": 1},
+            "overview_lag_3domain": _active("overview_lag_3domain"),
+            EXIT_KEY: _active(EXIT_KEY),
+        }
+>       _, state = _run_recovery(state, seen=set())
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py:123:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py:70: in _run_recovery
+    exec(_recovery_loop_src(), ns)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   NameError: name '_producer_owned' is not defined
+
+<string>:2: NameError
+________ test_old_key_active_plus_new_key_first_report_has_no_recovery _________
+
+    def test_old_key_active_plus_new_key_first_report_has_no_recovery():
+        state = {OLD: _active(OLD)}
+        seen = set()
+        moved = namespace()["_migrate_unit_owned_keys"](
+            TASK, 124, 124, state, seen, NOW.strftime("%Y-%m-%d %H:%M:%S"))
+        _register_new_key(state, seen)
+>       recoveries = _run_recovery(state, seen)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_309_key_migration_20261025.py:97:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+scripts/tests/test_309_key_migration_20261025.py:79: in _run_recovery
+    exec(_recovery_loop(), ns)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   NameError: name '_producer_owned' is not defined
+
+<string>:2: NameError
+_______ test_without_migration_the_same_state_would_send_false_recovery ________
+
+    def test_without_migration_the_same_state_would_send_false_recovery():
+        """反向对照(判别力): 不迁移 → 恢复环必发 1 条假恢复, 证明用例有牙。"""
+        state = {OLD: _active(OLD)}
+        seen = set()
+        _register_new_key(state, seen)
+>       recoveries = _run_recovery(state, seen)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_309_key_migration_20261025.py:111:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+scripts/tests/test_309_key_migration_20261025.py:79: in _run_recovery
+    exec(_recovery_loop(), ns)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   NameError: name '_producer_owned' is not defined
+
+<string>:2: NameError
+_______ test_old_key_with_different_code_is_retired_not_recovered_email ________
+
+    def test_old_key_with_different_code_is_retired_not_recovered_email():
+        old1 = f"{TASK}|exit!=0|1"
+        state = {old1: _active(old1)}
+        seen = set()
+        moved = namespace()["_migrate_unit_owned_keys"](
+            TASK, 124, 1, state, seen, NOW.strftime("%Y-%m-%d %H:%M:%S"))
+        _register_new_key(state, seen)
+>       recoveries = _run_recovery(state, seen)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_309_key_migration_20261025.py:123:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+scripts/tests/test_309_key_migration_20261025.py:79: in _run_recovery
+    exec(_recovery_loop(), ns)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   NameError: name '_producer_owned' is not defined
+
+<string>:2: NameError
+_________________ test_failure_without_event_still_marked_seen _________________
+
+    def test_failure_without_event_still_marked_seen():
+        """ledger-stale: stats 有非 0 码但本轮不发事件; 新键若已 active 不许被误恢复。"""
+        state = {OLD: _active(OLD), NEW: _active(NEW)}
+        seen = set()
+        namespace()["_migrate_unit_owned_keys"](
+            TASK, 124, 124, state, seen, NOW.strftime("%Y-%m-%d %H:%M:%S"))
+        # 本轮不登记任何事件(模拟 ledger-stale 不发 SEVERE)
+>       recoveries = _run_recovery(state, seen)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_309_key_migration_20261025.py:136:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+scripts/tests/test_309_key_migration_20261025.py:79: in _run_recovery
+    exec(_recovery_loop(), ns)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   NameError: name '_producer_owned' is not defined
+
+<string>:2: NameError
+_______________ test_08_pending_key_not_flipped_by_recovery_loop _______________
+
+    def test_08_pending_key_not_flipped_by_recovery_loop():
+        now = datetime(2026, 10, 10, 12, 0, 0)
+        state = {
+            "monitor_recovery|pending": {"status": "pending_hold",
+                                         "items": [{"task": "t", "keyword": "kw",
+                                                    "first_seen": "2026-10-10 10:00:00"}]},
+            "real_task|x": {"status": "active", "keyword": "kw2",
+                            "first_seen": "2026-10-10 09:00:00"},
+        }
+>       recs, state2 = _run_recovery_loop(state, seen=set(), now=now)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_245_l2_budget_digest_20261010.py:820:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+scripts/tests/test_245_l2_budget_digest_20261010.py:807: in _run_recovery_loop
+    exec(_recovery_loop_code(), g)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   NameError: name '_producer_owned' is not defined
+
+<recovery-loop>:2: NameError
+_____________ test_03c_dur_none_tick_does_not_reset_pending_bucket _____________
+
+    def test_03c_dur_none_tick_does_not_reset_pending_bucket():
+        """F2 核心(必修项): dur=None 轮(最新 run 进行中)不进 dur 块、桶不在 seen —— 恢复环必须
+        **豁免 `|dur_buffer|` 键**, 否则 pending 桶被静默翻 recovered、计数从头再来 ⇒
+        盘中 D∈[900,1800) 的 run 结构性凑不出「连续 2 轮」而完全静默(旧行为会报)。"""
+        now = datetime.datetime(2026, 10, 9, 10, 30)
+        bk = "intraday_snapshot|dur_buffer|900"
+        state = {bk: {"status": "pending", "first_seen": "2026-10-09 10:00:00",
+                      "consecutive_count": 1, "last_run": "2026-10-09 09:55",
+                      "last_seen": "2026-10-09 10:00:00"}}
+        # 对照: 其他任务的 pending key(dur=null 未 seen)应照旧被静默恢复
+        state["other_task|dur>900s"] = {"status": "pending", "first_seen": "2026-10-09 10:00:00",
+                                        "consecutive_count": 1}
+>       _run_recovery_loop(state, seen=set(), now=now)
+
+scripts/tests/test_240_alert_denoise_batch2_20261009.py:564:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+scripts/tests/test_240_alert_denoise_batch2_20261009.py:548: in _run_recovery_loop
+    exec(_recovery_loop_code(), g)  # noqa: S102  (真源码块: 只改 alert_state + 追加 recoveries)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   NameError: name '_producer_owned' is not defined
+
+<recovery-loop>:2: NameError
+=========================== short test summary info ============================
+FAILED scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py::test_stale_exit_key_flips_recovered_when_service_ok
+FAILED scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py::test_stale_unit_exit_key_flips_recovered_when_service_ok
+FAILED scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py::test_real_failures_stay_active
+FAILED scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py::test_same_task_new_failure_code_not_recovered
+FAILED scripts/tests/test_alert_recovery_r2_and_cleanup_20261031.py::test_inline_managed_keys_still_skipped
+FAILED scripts/tests/test_309_key_migration_20261025.py::test_old_key_active_plus_new_key_first_report_has_no_recovery
+FAILED scripts/tests/test_309_key_migration_20261025.py::test_without_migration_the_same_state_would_send_false_recovery
+FAILED scripts/tests/test_309_key_migration_20261025.py::test_old_key_with_different_code_is_retired_not_recovered_email
+FAILED scripts/tests/test_309_key_migration_20261025.py::test_failure_without_event_still_marked_seen
+FAILED scripts/tests/test_245_l2_budget_digest_20261010.py::test_08_pending_key_not_flipped_by_recovery_loop
+FAILED scripts/tests/test_240_alert_denoise_batch2_20261009.py::test_03c_dur_none_tick_does_not_reset_pending_bucket
+11 failed, 77 passed in 2.73s
