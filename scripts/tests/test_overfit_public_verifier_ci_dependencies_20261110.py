@@ -19,7 +19,10 @@ def test_full_script_regression_jobs_install_certifi(workflow):
             jobs.append(name)
             installed = set()
             for run in runs[:next(i for i, text in enumerate(runs) if re.search(r"pytest\b[^\n]*scripts/tests/(?:\s|$)", text)) + 1]:
-                for line in run.splitlines():
+                # Shell continuations form one logical command, including env
+                # assignments before pytest. A physical trailing slash is not
+                # independently parseable by shlex.
+                for line in run.replace("\\\n", "").splitlines():
                     if re.search(r"pytest\b[^\n]*scripts/tests/(?:\s|$)", line):
                         break
                     parts = shlex.split(line)

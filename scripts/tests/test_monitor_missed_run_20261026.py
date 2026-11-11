@@ -162,10 +162,12 @@ def test_active_key_not_repeated(tmp_path, monkeypatch, capsys):
     _run_round(ns, loop, capsys)          # 第 2 轮: active + 1 条 SEVERE
     assert len(ns["alerts"]) == 1
 
-    out3 = _run_round(ns, loop, capsys)   # 第 3 轮: 已 active
+    _run_round(ns, loop, capsys)         # 第 3 轮: 已 active
     assert len(ns["alerts"]) == 1, f"已 active 不该重复 SEVERE, 实得 {ns['alerts']}"
     assert ns["alert_state"][key]["status"] == "active"
-    assert "[suppress]" in out3, "已 active 应走抑制分支(打 [suppress])"
+    state = ns["alert_state"][key]
+    assert state["suppress_count"] == 1, "已 active 应记录抑制，不重复构造首报"
+    assert not state.get("notified_at"), "本测试没有真实受理，不能伪造发送回执"
 
 
 # ── 判别力: 常量搬回模块尾部(事故原形) ⇒ 本测试必须变红 ──────────────────────
