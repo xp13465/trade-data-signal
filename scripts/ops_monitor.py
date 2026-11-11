@@ -94,6 +94,8 @@ class Settings:
     schedule_max_age_seconds: int = 1800
     publication_head_url: str | None = None
     benefits_enabled: bool = False
+    # Explicit queue location: a missing configuration is not an empty queue.
+    r2_pending_flag: str | None = None
 
     @classmethod
     def load(cls, path):
@@ -115,6 +117,9 @@ class Settings:
                 raise ContractError('config budget')
         if not isinstance(cfg.ingest_url, str) or (cfg.publication_head_url is not None and not isinstance(cfg.publication_head_url, str)):
             raise ContractError('url type')
+        if cfg.r2_pending_flag is not None and (not isinstance(cfg.r2_pending_flag, str)
+                or not Path(cfg.r2_pending_flag).is_absolute() or '\x00' in cfg.r2_pending_flag):
+            raise ContractError('absolute pending flag required')
         return cfg
 
 
@@ -817,6 +822,35 @@ class Collector:
             self.add(check('business:' + name, category, status,
                            'Current invocation business evidence; scope and expiry apply', evidence))
 
+    def pending_publication(self):
+        """Observe only the configured local queue; no worker or network call."""
+        cid = 'publication:r2-pending-requests'
+        flag = getattr(self.cfg, 'r2_pending_flag', None)
+        if flag is None:
+            evidence = {'source_reason': 'pending_queue_not_configured',
+                        'unknown_reason': 'pending_queue_not_configured',
+                        'next_evidence': 'configure_same_pending_flag_as_producer',
+                        'public_bytes_status': 'unknown'}
+            status = 'unknown'
+        else:
+            from r2_pending_context import inspect_contexts, project_observation
+            report = inspect_contexts(Path(flag), Path(self.cfg.data_root) / 'static-site',
+                                      now=self.now.timestamp(),
+                                      budget_seconds=self.budget.remaining(2))
+            evidence = project_observation(report)
+            observed = evidence.pop('status')
+            status = 'ok' if observed == 'empty' else observed
+            if status not in ('ok', 'warning', 'unknown'):
+                raise ContractError('pending observation status')
+            evidence['source_reason'] = evidence.pop('reason')
+            if status == 'unknown':
+                evidence['unknown_reason'] = evidence['source_reason']
+            evidence['next_evidence'] = 'request_consumption_and_current_public_hash_verification'
+        row = check(cid, 'publication', status,
+                    'Local R2 request evidence only; current public content and delivery deadline are not verified', evidence)
+        row['name'] = 'R2 逐请求待发布队列'
+        self.add(row)
+
     def collect(self):
         rows = self.guarded('monitor:registry', 'monitor', lambda: load_registry(self.cfg.code_root))
         if rows is not None:
@@ -829,6 +863,7 @@ class Collector:
         self.resources()
         self.add(check('publication:served-content', 'publication', 'unknown', 'External content and deployed event membership are not inferred from local metadata', {'content_verified': False}))
         self.guarded('monitor:business-evidence', 'monitor', self.business_evidence)
+        self.guarded('publication:r2-pending-requests', 'publication', self.pending_publication)
         return self.snapshot()
 
     def snapshot(self):

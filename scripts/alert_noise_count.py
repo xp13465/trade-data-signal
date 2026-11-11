@@ -482,6 +482,20 @@ BUSINESS_PREFIXES = (
     "盘中异动", "盘中实时", "买卖点信号", "买卖点提醒", "汪汪队", "明日买入计划",
 )
 
+# These are model-risk notifications produced by overfit_monitor.ALERT_RULES,
+# not failures to run the monitor. Keep the historical alert-group ruler intact;
+# only the strict cross-channel operations account applies this narrow exclusion.
+OVERFIT_MODEL_KEYS = frozenset('overfit_' + name for name in (
+    'overfit_high', 'risk_climbing', 'quadrant_degrade', 'oos_fail', 'param_spike'))
+
+
+def _overfit_model_notice(rec):
+    return (Path(str(rec.get('source') or '')).name == 'overfit_monitor.py'
+            and isinstance(rec.get('key'), str) and rec['key'] in OVERFIT_MODEL_KEYS
+            and str(rec.get('subject') or '').startswith('[过拟合监控] ')
+            and isinstance(rec.get('tier'), str) and rec['tier'] in {'notice', 'critical'}
+            and not rec.get('noise_class') and not rec.get('ops_event_refs'))
+
 
 def operations_kind(rec: dict) -> tuple[str, str]:
     """现行标签/主题/来源的保守识别；不认识的记录显式归 unknown。"""
@@ -552,6 +566,8 @@ def outbound_account(records: list[dict], days: list[str]) -> dict:
         if not ts or ts.date().isoformat() not in days:
             continue
         kind, _ = operations_kind(rec)
+        if _overfit_model_notice(rec):
+            kind = 'business'
         if rec.get("noise_class") == "routine_notice":
             kind = "routine"
         # Exact, source-verified old update_all completion call (49fe9:424).
