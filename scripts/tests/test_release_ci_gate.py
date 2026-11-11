@@ -435,3 +435,21 @@ def test_removed_overfit_verifier_subscription_is_detected(removed):
         data["on"][event]["paths"].remove(removed)
     with pytest.raises(AssertionError):
         _assert_overfit_verifier_coverage(yaml.safe_dump(data, sort_keys=False))
+
+
+@pytest.mark.parametrize('filename', [
+    'app/fx_contract.py', 'app/collector/public_fund_gap.py',
+    'scripts/r2_safe_write.py', 'scripts/ops_business_evidence.py',
+    'scripts/d1_metrics_evidence.py', 'scripts/lib/d1_execute.sh',
+    'scripts/collect_fof_nav.py', 'scripts/main-merge.sh', 'scripts/deploy.sh',
+    'static-site/lab.js', 'static-site/lab.css',
+    'scripts/playwright-accept/mobile_source_harness.mjs',
+    'scripts/tests/test_hc21_deploy_push_gate.py',
+])
+def test_backlog_isolated_module_change_requires_ops_success(filename):
+    # A helper-only followup must not evade the release gate merely because its
+    # previously listed caller has not changed in this push.
+    api = API(files=[{'filename': filename, 'status': 'modified'}])
+    assert expected(api)
+    with pytest.raises(gate.GateError, match='超时'):
+        check(api, True)
