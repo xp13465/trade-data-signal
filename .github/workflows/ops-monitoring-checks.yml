@@ -41,6 +41,7 @@ on:
       - 'app/compute/signals.py'
       - 'static-site/export.py'
       - 'static-site/app.js'
+      - 'static-site/index.html'
       - 'static-site/app.min.js'
       - 'scripts/gen_schedule_stats.py'
       - 'scripts/schedule_monitor.sh'
@@ -152,6 +153,7 @@ on:
       - 'app/compute/signals.py'
       - 'static-site/export.py'
       - 'static-site/app.js'
+      - 'static-site/index.html'
       - 'static-site/app.min.js'
       - 'scripts/gen_schedule_stats.py'
       - 'scripts/schedule_monitor.sh'
@@ -232,7 +234,9 @@ concurrency:
 jobs:
   local-only:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    # The measured FX-only workflow already takes ~10 minutes; the integrated
+    # suite adds real deadline/backpressure checks. Keep full coverage bounded.
+    timeout-minutes: 20
     env:
       WRANGLER_SEND_METRICS: 'false'
       CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false'
@@ -275,6 +279,26 @@ jobs:
           python3 -m pytest -q scripts/tests/ ops/monitoring/tests/ --tb=short --junitxml="$RUNNER_TEMP/ops-scripts-tests.xml" || ops_test_status=$?
           python3 ops/monitoring/report_ci_tests.py "$RUNNER_TEMP/ops-scripts-tests.xml"
           exit "$ops_test_status"
+
+  fx-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned isolated browser test runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/ops-browser" --no-save --package-lock=false --no-audit --no-fund playwright@1.62.1
+          node "$RUNNER_TEMP/ops-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Real page prefetch and split-signal contract regression
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/ops-browser/node_modules/playwright
+          FX_EVIDENCE_DIR: ${{ runner.temp }}/ops-fx-browser
+        # The complete real HTML/app run with intercepted synthetic data;
+        # all other page requests are aborted. No production endpoint is used.
+        run: node scripts/tests/fx_bootstrap_browser_20261111.cjs
 
   unit-compat:
     runs-on: ubuntu-22.04

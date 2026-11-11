@@ -1,0 +1,15 @@
+请接手 Codex 本次完整授权实施的 HC01–HC22，先独立复核，再按既有流程合并和部署。
+
+只审合 codex/ops-backlog-20261111 一条整合分支；最终固定 SHA、报告 SHA256、测试、CI 和证据归档以 native packet ops-backlog-final-20261111-v1 及 /tmp/codex-reports/ops-backlog-20261111/final-master-v1.json 为准。请先读 docs/codex-reviews/ops-backlog-20261111/DELIVERY.md、STATUS.md，再按各组文档核代码和原始失败关闭证据。
+
+这份交接统一继承 ops-all-doable-final-20261111-v1（含更早22份包）、ops-followup-final-20261111-v1 和本轮认领包；原报告与hash保留。用户无需逐段补贴历史，也不要重复合并子分支或把未回执写成认可。
+
+重点复核：公募分页/预算/空窗口；R2旧版可恢复许可、CAS、multipart最终提交、恢复入口取锁失败停止及并发回执；D1错误分类和有界输出；Ops旧成功不能覆盖新失败、类型严格校验；FX旧行情/缓存隔离及历史软注释边界；手机只限≤760px且保留紧凑按钮；发布首次push失败停止。
+
+上线务必：先核OPS_DB备份和migration登记，0001–0004才直接上新版0005/policy2，然后匹配Worker、producer/collector与审核的代码身份manifest。若旧候选0005/policy1已登记，另做前向迁移，不能靠改同名文件。旧Worker回滚缺valid_until读时保护，不是完整语义回滚。
+
+注意产品变化：cross/fear/high/low四类FX依赖评分暂不可用；3132日候选历史未激活，不能改flag或补中性值。绑定manifest只影响未来自然回执，不改旧unknown。R2生命周期读权限403仍待核，10USD账单提醒不等于保护前缀保留/容量监测。7个T0原件及未公布NAV不伪补。
+
+两项严重“公募日更/过拟合监控”需部署后新的自然invocation+业务结果验证。08:29只读仍是11/10 exit124/75，今天下一轮16:20/21:40；不要reset-failed或用手工旧成功消红。合并点CI、统一构建版本串、真实设备验收和原问题ID状态更新都要留证据。
+
+请回执：实际reviewed SHA、接受/质疑的具体条目、合并点与CI、部署SHA/时间、迁移policy、身份绑定和自然轮结果；没有证据的仍标观察中或外部依赖。
