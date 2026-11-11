@@ -1,0 +1,462 @@
+{
+  "observed_at": "2026-11-11T00:21:09.412236+00:00",
+  "initial_count": 44,
+  "final_count": 41,
+  "trees": [
+    {
+      "worktree": "/Users/linhuichen/code/trade",
+      "HEAD": "2987bd337490e7ed400903bca182b524d94955ee",
+      "branch": "refs/heads/main",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "main active publication worktree: excluded",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a22ff37de68bb006e",
+      "HEAD": "6e3b2ea06299d664cc67e676a0b73614d32f6634",
+      "branch": "refs/heads/impl/freeze-persist-p1-20261109",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "Claude-named tree: deletion excluded; only exact HC19 alert quarantine allowed for agent-ae637b217439bb921",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a451b851dbac3a9df",
+      "HEAD": "6820d0853322d90d8613b83e0516ea35942415cf",
+      "branch": "refs/heads/feat/docs-1109-1110-closeout-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "Claude-named tree: deletion excluded; only exact HC19 alert quarantine allowed for agent-ae637b217439bb921",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-a824984b577d68f4a",
+      "HEAD": "41c567e6aabbfec13af0d310bcc08df59194fdbf",
+      "branch": "refs/heads/feat/fix/gate-registry-l58-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "Claude-named tree: deletion excluded; only exact HC19 alert quarantine allowed for agent-ae637b217439bb921",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-ae637b217439bb921",
+      "HEAD": "61a56ce7fc037e0a9f8ce8aad018ee1c173edd95",
+      "branch": "refs/heads/feat/fix/merge-fastcheck-gate-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "Claude-named tree: deletion excluded; only exact HC19 alert quarantine allowed for agent-ae637b217439bb921",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-inbox-alert-backup-independent-20261109",
+      "HEAD": "adfd77e7ad3a25033bf7ca02df85e0f459446e71",
+      "branch": "refs/heads/worktree-agent-inbox-alert-backup-independent-20261109",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "Claude-named tree: deletion excluded; only exact HC19 alert quarantine allowed for agent-ae637b217439bb921",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/agent-inbox-healthcheck-followup-20261110-alerts-initial",
+      "HEAD": "f35437a699d199076b5654dcde58780be89ee6b4",
+      "branch": "refs/heads/worktree-agent-inbox-healthcheck-followup-20261110-alerts-initial",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "Claude-named tree: deletion excluded; only exact HC19 alert quarantine allowed for agent-ae637b217439bb921",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-alert-backup-20261109",
+      "HEAD": "10e34d5756783bb2b8ca951688c2a8a1a905aa8c",
+      "branch": "refs/heads/codex/alert-backup-20261109",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-alert-d1-20261109",
+      "HEAD": "2162e539fed9fc82cbce74cc40cdb665b3b6dc59",
+      "branch": "refs/heads/codex/alert-d1-20261109",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-alert-freeze-20261109",
+      "HEAD": "da84ef8c7ef987e4c06c9f5ce488ad7ac3fb781e",
+      "branch": "refs/heads/codex/alert-freeze-20261109",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-alert-nextday-20261109",
+      "HEAD": "2d28eabdc6bc131f6993923d589d621a657a98b2",
+      "branch": "refs/heads/codex/alert-nextday-20261109",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-alert-release-ci-20261109",
+      "HEAD": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "branch": "refs/heads/codex/ops-alert-rootfix-ci-20261109",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-alert-stall-20261109",
+      "HEAD": "a4d38c95de0f93ece584fbafb5c6461698c8f954",
+      "branch": "refs/heads/codex/alert-stall-20261109",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-alert-takeover-docs-20261110",
+      "HEAD": "f35437a699d199076b5654dcde58780be89ee6b4",
+      "branch": "refs/heads/codex/alert-takeover-docs-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-backup-ci-fixture-20261109",
+      "HEAD": "16a260201bfe0fc3f6cb6622033197b9cb0e943d",
+      "branch": "refs/heads/codex/backup-ci-fixture-20261109",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-fof-nav-completeness-20261109",
+      "HEAD": "b1f20bca27d96db15a07230f7bed0d9e0f7d6f9e",
+      "branch": "refs/heads/codex/ops-fof-nav-completeness-20261109",
+      "action": "removed",
+      "exists_after": false,
+      "reason": "completed Codex ownership evidence + twice clean/unlocked/inactive/merged + verified ignored backup; normal git worktree remove",
+      "released_logical_bytes": 156988306,
+      "released_allocated_bytes": 162897920
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-freeze-persistence-rootfix-20261109",
+      "HEAD": "8840c79d70de4bf58376bcdbd9bc13239ad17781",
+      "branch": "refs/heads/codex/freeze-persistence-rootfix-20261109",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "dirty freeze reservation: explicitly excluded",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-fund-index-reconnect-20261109",
+      "HEAD": "e30d1c90a9482e754b802be202e9cd7d59b9875a",
+      "branch": "refs/heads/codex/ops-fund-index-reconnect-20261109",
+      "action": "removed",
+      "exists_after": false,
+      "reason": "completed Codex ownership evidence + twice clean/unlocked/inactive/merged + verified ignored backup; normal git worktree remove",
+      "released_logical_bytes": 156953534,
+      "released_allocated_bytes": 162865152
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-healthcheck-20261110-evening",
+      "HEAD": "87ecfdc1c37705ab6b782a7f401c5e4696dae1ff",
+      "branch": "refs/heads/codex/healthcheck-20261110-evening",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-healthcheck-alerts-20261110",
+      "HEAD": "f2c5343bd1bb2e33a91834e2235406fd39512519",
+      "branch": "refs/heads/codex/healthcheck-alerts-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-healthcheck-ui-20261110",
+      "HEAD": "77ca93ac60cc0f7834af42f32c73ae3cfef3494d",
+      "branch": "refs/heads/codex/healthcheck-ui-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-notify-test-isolation-20261110",
+      "HEAD": "ace115157617eceb0d1abd20c41cdeab4fb9b503",
+      "branch": "refs/heads/codex/notify-test-isolation-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-alert-recovery-20261110",
+      "HEAD": "2eb5f7abd03ff0cc86c025d6a95be8cb7addb895",
+      "branch": "refs/heads/codex/ops-alert-recovery-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-backlog-20261111",
+      "HEAD": "31d669e78d7d0319dc5a18c7f306a17c7ff6e834",
+      "branch": "refs/heads/codex/ops-backlog-20261111",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-business-evidence-20261111",
+      "HEAD": "0ad543ef41758be9d7102b42471489b24d0cb989",
+      "branch": "refs/heads/codex/ops-business-evidence-20261111",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-closeout-20261111",
+      "HEAD": "0ad6556b58fabff4bce06ed291904f88b573c0f6",
+      "branch": "refs/heads/codex/ops-closeout-20261111",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-d1-evidence-20261111",
+      "HEAD": "75bc0d3664a44dcc9d7917fcb8a9bf0cee56796e",
+      "branch": "refs/heads/codex/ops-d1-evidence-20261111",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "current implementation/integration/evidence tree: excluded; includes frozen Fund f26fa19b and this tree",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-followup-20261111",
+      "HEAD": "a387c243f26dcc4223325997110530a8a2cb7e5b",
+      "branch": "refs/heads/codex/ops-followup-20261111",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-fund-budget-20261110",
+      "HEAD": "01aa15a9bdfa54d95cccedffe2b9525ba99e02d3",
+      "branch": "refs/heads/codex/ops-fund-budget-20261110",
+      "action": "removed",
+      "exists_after": false,
+      "reason": "completed Codex ownership evidence + twice clean/unlocked/inactive/merged + verified ignored backup; normal git worktree remove",
+      "released_logical_bytes": 157221752,
+      "released_allocated_bytes": 163160064
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-fund-incremental-20261111",
+      "HEAD": "f26fa19b1d291b3e4048985db2f216821ee1e2e6",
+      "branch": "refs/heads/codex/ops-fund-incremental-20261111",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "current implementation/integration/evidence tree: excluded; includes frozen Fund f26fa19b and this tree",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-fx-contract-20261111",
+      "HEAD": "0ad543ef41758be9d7102b42471489b24d0cb989",
+      "branch": "refs/heads/codex/ops-fx-contract-20261111",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-healthcheck-wave1-20261110",
+      "HEAD": "2c5561870bb9068faaa061b9ec5d32c516b47fa2",
+      "branch": "refs/heads/codex/ops-healthcheck-wave1-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-history-cleanup-20261111",
+      "HEAD": "2346b6d621b254cdabc18225a3f98372a41980fd",
+      "branch": "refs/heads/codex/ops-history-cleanup-20261111",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "current implementation/integration/evidence tree: excluded; includes frozen Fund f26fa19b and this tree",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-overfit-retry-20261110",
+      "HEAD": "c8ae5ed0c7ec902f6de3030547aabcb884ed4727",
+      "branch": "refs/heads/codex/ops-overfit-retry-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-r2-safety-20261111",
+      "HEAD": "0ad543ef41758be9d7102b42471489b24d0cb989",
+      "branch": "refs/heads/codex/ops-r2-safety-20261111",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "public handoff head/branch: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-recovery-state-20261110",
+      "HEAD": "bc7568d2c7ea473151ac86c302cd98b91374e485",
+      "branch": "refs/heads/codex/ops-recovery-state-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-ops-release-gate-20261111",
+      "HEAD": "d3480ece9cd1669def125889f8f18ce8705a85c7",
+      "branch": "refs/heads/codex/ops-release-gate-20261111",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "current implementation/integration/evidence tree: excluded; includes frozen Fund f26fa19b and this tree",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-overfit-delivery-20261109",
+      "HEAD": "5b3ab1f3259deb7896e018677946660576041c77",
+      "branch": "refs/heads/codex/ops-overfit-delivery-20261109",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-preupload-accounting-20261110",
+      "HEAD": "684ec75d4e25925b2bacf9b82f3fb1a1349f2e17",
+      "branch": "refs/heads/codex/preupload-accounting-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-r2-purge-delivery-20261110",
+      "HEAD": "95be33a52edd1d29ba0a0588b9e20e153e618785",
+      "branch": "refs/heads/codex/overfit-public-verifier-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-release-ci-gate-20261109",
+      "HEAD": "9051125332058a286fbf9228f002967446610bce",
+      "branch": "refs/heads/codex/ops-release-ci-gate-20261109",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-reviewer",
+      "HEAD": "4f827e81fbb91c77c71c105125fc7ebbb2bdfdbb",
+      "branch": "refs/heads/codex/reviewer",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "reviewer: explicitly excluded",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/codex-worker375-log-diagnostic-20261110",
+      "HEAD": "22a558a6ec884c16dd5eb800e3c3d58ea5df0bb8",
+      "branch": "refs/heads/codex/worker375-log-diagnostic-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "outside narrow completed-owner selection; activity/ownership not certified for deletion",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    },
+    {
+      "worktree": "/Users/linhuichen/code/trade/.claude/worktrees/fix-main-merge-stale-ref-20261110",
+      "HEAD": "e3be96073713a1c54aeecdcacc7d87d3e9a9b4f0",
+      "branch": "refs/heads/fix/main-merge-stale-ref-20261110",
+      "action": "retained",
+      "exists_after": true,
+      "reason": "not confirmed Codex-owned: retained",
+      "released_logical_bytes": 0,
+      "released_allocated_bytes": 0
+    }
+  ],
+  "removed_by_this_task": 3,
+  "retained_branch_refs": [
+    {
+      "branch": "codex/ops-fof-nav-completeness-20261109",
+      "head": "b1f20bca27d96db15a07230f7bed0d9e0f7d6f9e"
+    },
+    {
+      "branch": "codex/ops-fund-index-reconnect-20261109",
+      "head": "e30d1c90a9482e754b802be202e9cd7d59b9875a"
+    },
+    {
+      "branch": "codex/ops-fund-budget-20261110",
+      "head": "01aa15a9bdfa54d95cccedffe2b9525ba99e02d3"
+    }
+  ]
+}
