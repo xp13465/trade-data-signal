@@ -11,8 +11,8 @@
   ② latest.md 覆盖区「最近一次 SEVERE」引用（D3 §5）：severe 流水 + 后续普通告警/恢复
      覆盖头部 → 覆盖区固定保留「最近一次 SEVERE」引用行，严重告警不再被恢复消息静默
      盖掉。反向：流水区无 severe 时不产生引用行（不污染头部、不假报严重）。
-  ③ schedule-monitor heartbeat 消费方（D3 §6 P0-1）：心跳缺失/陈旧 → notify --severe
-     告警（沉默即故障）；告警命令必须带防轰炸 dedup key/window（每窗口 1 封）；健康心跳
+  ③ schedule-monitor heartbeat 消费方（D3 §6 P0-1）：心跳缺失/陈旧 → critical
+     告警（沉默即故障）；沿用共享事件 refs/渠道回执，不按时间窗重复首报；健康心跳
      静默零输出、零 notify 调用。
 
 测试隔离：全部在 pytest tmp_path / monkeypatch 内构造状态文件，调**真实判定代码**
@@ -22,6 +22,7 @@
 跑法：
   python3 -m pytest -q scripts/tests/test_alertchain_hardening_20261003.py
 """
+import json
 import os
 import subprocess
 import sys
@@ -180,18 +181,17 @@ def test_brief_push_success_silent(tmp_path):
 # ══════════════════════════════════════════════════════════════════
 # ③ schedule-monitor heartbeat 消费方
 # ══════════════════════════════════════════════════════════════════
-def _run_heartbeat(args, monkeypatch, captured, output: str = None) -> int:
-    """跑 cmh.main，把 subprocess.run patch 成记录器（返回成功，绝不真调 notify）。
+def _run_heartbeat(args, monkeypatch, captured) -> int:
+    """真实 observe/dispatch；仅替换 notify 子进程，按现行结果文件契约返回。
 
-    #241 Pattern B / W2(2026-10-10): cmh 判据由「rc」改为「notify 输出三态」(notify_state)。
-    故 fake 必须回**真实汇总行**(sent), 否则空输出 ⇒ failed ⇒ rc 2(旧空输出的人造假样本作废)。
+    2026-11-11: stderr 汇总和固定 dedup window 已不再是心跳投递凭证。
+    各调用方 --repo 指向 tmp_path，事件状态与生产/开发 checkout 隔离。
     """
-    if output is None:
-        output = "[notify] 汇总：已发出 email/feishu\n"  # 真实通用路径成功行(notify.py:2359)
-
     def fake_run(cmd, *a, **k):
         captured.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=output)
+        result = Path(cmd[cmd.index("--result-file") + 1])
+        result.write_text(json.dumps({"status": "sent"}), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     return cmh.main(args)
@@ -205,24 +205,29 @@ def test_heartbeat_fresh_silent(tmp_path, monkeypatch):
     os.utime(hb, (now - 60, now - 60))  # 60s 前=新鲜
     captured = []
     rc = _run_heartbeat(["--heartbeat-path", str(hb), "--stale-seconds", "1800",
-                         "--repo", str(ROOT)], monkeypatch, captured)
+                         "--repo", str(tmp_path)], monkeypatch, captured)
     assert rc == 0
     assert captured == [], "健康路径不得调用 notify"
 
 
 def test_heartbeat_missing_stale_alerts(tmp_path, monkeypatch):
-    """③超时场景：心跳文件缺失 → notify --severe 告警发起（沉默即故障），命令带
-    dedup key/window 防轰炸。"""
+    """③缺失心跳仍首报；事件 refs 交既有通知层按实际渠道回执去重。"""
     missing = tmp_path / "nope-heartbeat.txt"
     captured = []
     rc = _run_heartbeat(["--heartbeat-path", str(missing), "--stale-seconds", "1800",
-                         "--repo", str(ROOT)], monkeypatch, captured)
+                         "--repo", str(tmp_path)], monkeypatch, captured)
     assert rc == 0, "告警已由 notify 独立通道发起，脚本正常完成"
     assert len(captured) == 1, "缺失场景必须调用 notify 一次"
     joined = " ".join(str(c) for c in captured[0])
-    assert "--severe" in joined
-    assert "--dedup-key" in joined and "schedule_monitor_heartbeat" in joined
-    assert "--dedup-window" in joined and str(cmh.DEDUP_WINDOW) in joined
+    cmd = captured[0]
+    assert cmd[cmd.index("--tier") + 1] == "critical"
+    assert "--result-file" in cmd
+    assert "--dedup-key" not in cmd and "--dedup-window" not in cmd
+    refs = json.loads(cmd[cmd.index("--ops-event-refs") + 1])
+    assert len(refs) == 1 and refs[0]["key"].startswith("producer_heartbeat|")
+    state = json.loads((tmp_path / "data/alert_state.json").read_text())
+    assert refs[0]["event_id"] == state[refs[0]["key"]]["event_id"]
+    assert state[refs[0]["key"]]["requires_action"] is True
     assert "schedule-monitor 心跳超时" in joined
 
 
@@ -234,7 +239,9 @@ def test_heartbeat_stale_old_file_alerts(tmp_path, monkeypatch):
     os.utime(hb, (now - 7200, now - 7200))  # 2h 前=陈旧
     captured = []
     rc = _run_heartbeat(["--heartbeat-path", str(hb), "--stale-seconds", "1800",
-                         "--repo", str(ROOT)], monkeypatch, captured)
+                         "--repo", str(tmp_path)], monkeypatch, captured)
     assert rc == 0
     assert len(captured) == 1
-    assert "--severe" in " ".join(str(c) for c in captured[0])
+    cmd = captured[0]
+    assert cmd[cmd.index("--tier") + 1] == "critical"
+    assert "--ops-event-refs" in cmd and "--result-file" in cmd

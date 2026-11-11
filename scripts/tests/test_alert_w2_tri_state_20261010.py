@@ -11,6 +11,9 @@
     suppressed → 成功且已知(被 dedup 窗口抑制, 不重试不报错)
     failed/未知 → 保守(回非 0, 交包装层告警/重试), 沿用 #241「不吞真故障」
 
+2026-11-11 心跳站点已迁移共享事件/结构化 result-file；本文件保留 nextday 两站
+旧三态契约，并对心跳改用真实 dispatch 的结果文件，验证缺失/坏结果不能被 rc0 或文本掩盖。
+
 零外发铁律(§18 L48 / memory notify-script-selftest-must-stub): 本文件全部用例
   **本次自测未产生任何真实外发** —— notify 子进程整体打桩(绝不 spawn)+ `ZeroOutboundTrap`
   包裹, `test_00` 先证 trap 武装生效、各用例收尾断言 `trap.hits == []`。
@@ -26,6 +29,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import io
+import json
 import os
 import subprocess
 import sys
@@ -112,27 +116,37 @@ def test_01_notify_state_classification():
 
 
 # ══════════════════════ ② check_monitor_heartbeat 三态 ══════════════════════
-def _run_cmh(monkeypatch, captured, output, heartbeat_path):
-    monkeypatch.setattr(subprocess, "run", _fake_run(output, rc=0, calls=captured))
+def _run_cmh(monkeypatch, captured, status, heartbeat_path, *, result_mode="json", output=""):
+    def fake_run(cmd, *a, **k):
+        captured.append(list(cmd))
+        result = Path(cmd[cmd.index("--result-file") + 1])
+        if result_mode == "json":
+            result.write_text(json.dumps({"status": status}), encoding="utf-8")
+        elif result_mode == "malformed":
+            result.write_text("{broken", encoding="utf-8")
+        else:
+            assert result_mode == "missing"
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=output)
+    monkeypatch.setattr(subprocess, "run", fake_run)
     return cmh.main(["--heartbeat-path", str(heartbeat_path), "--stale-seconds", "1800",
-                     "--repo", str(ROOT)])
+                     "--repo", str(heartbeat_path.parent)])
 
 
 def test_10_cmh_sent_rc0(tmp_path, monkeypatch):
     """正控: notify 真发出 ⇒ rc 0(不重试不报错)。"""
     captured = []
     with ZeroOutboundTrap() as trap:
-        rc = _run_cmh(monkeypatch, captured, SENT_GENERAL, tmp_path / "nope.txt")
+        rc = _run_cmh(monkeypatch, captured, "sent", tmp_path / "nope.txt")
     _chk(rc == 0, f"sent 应 rc 0, 实得 {rc}")
     _chk(len(captured) == 1, "缺失心跳必须调 notify 一次")
     _chk(trap.hits == [], f"零外发被破坏: {trap.hits}")
 
 
 def test_11_cmh_suppressed_rc0(tmp_path, monkeypatch):
-    """suppressed 分类: notify 被 dedup 窗口抑制 ⇒ 成功且已知, rc 0。"""
+    """suppressed 分类: notify 同事件渠道回执抑制 ⇒ 成功且已知, rc 0。"""
     captured = []
     with ZeroOutboundTrap() as trap:
-        rc = _run_cmh(monkeypatch, captured, SUPPRESS_CMH, tmp_path / "nope.txt")
+        rc = _run_cmh(monkeypatch, captured, "suppressed", tmp_path / "nope.txt")
     _chk(rc == 0, f"suppressed 应 rc 0, 实得 {rc}")
     _chk(trap.hits == [], f"零外发被破坏: {trap.hits}")
 
@@ -141,8 +155,23 @@ def test_12_cmh_failed_rc2(tmp_path, monkeypatch):
     """负控: notify 全渠道失败(旧 rc 也=0, 无判别力) ⇒ 三态判 failed ⇒ rc 2(保守告警)。"""
     captured = []
     with ZeroOutboundTrap() as trap:
-        rc = _run_cmh(monkeypatch, captured, FAILED_GENERAL, tmp_path / "nope.txt")
+        rc = _run_cmh(monkeypatch, captured, "failed", tmp_path / "nope.txt")
     _chk(rc == 2, f"failed 应 rc 2, 实得 {rc}")
+    _chk(trap.hits == [], f"零外发被破坏: {trap.hits}")
+
+
+@pytest.mark.parametrize("status,result_mode", [
+    ("sent", "missing"), ("sent", "malformed"),
+    ("partial", "json"), ("unknown", "json"), ("failed", "json"),
+])
+def test_13_cmh_text_and_rc_cannot_replace_result(tmp_path, monkeypatch, status, result_mode):
+    """负控: 即使 rc0 + 成功文本，也不能覆盖缺失、坏或未完成的结构化投递结果。"""
+    captured = []
+    with ZeroOutboundTrap() as trap:
+        rc = _run_cmh(monkeypatch, captured, status, tmp_path / "nope.txt",
+                      result_mode=result_mode, output=SENT_GENERAL)
+    _chk(rc == 2, "unknown/partial/failed must remain retryable")
+    _chk(len(captured) == 1, "fault still reaches actual dispatch boundary")
     _chk(trap.hits == [], f"零外发被破坏: {trap.hits}")
 
 
@@ -267,10 +296,15 @@ def test_40_red_before_green_old_rc_semantics_would_pass_failed():
 
 
 def test_50_static_lock_three_sites_use_tri_state():
-    """静态锁: 三站点源码均复用 notify_state 三态判据(不再是 rc), 且都 from notify_sent import。"""
+    """静态锁: 心跳使用结构化事件通知；nextday 两站保留原三态判据，均不按 rc 判成功。"""
+    heartbeat = (SCRIPTS / "check_monitor_heartbeat.py").read_text(encoding="utf-8")
+    adapter = (SCRIPTS / "ops_legacy_events.py").read_text(encoding="utf-8")
+    _chk("from ops_legacy_events import observe, dispatch" in heartbeat, "real event adapter")
+    _chk('status in ("sent", "suppressed", "superseded")' in heartbeat, "explicit accepted states")
+    _chk("--result-file" in adapter and 'payload.get("status", "unknown")' in adapter,
+         "delivery must use structured result; missing results remain unknown")
+    _chk("notify_state(out)" not in heartbeat, "heartbeat must not regress to text-only delivery")
     for script, markers in [
-        ("check_monitor_heartbeat.py",
-         ['notify_state(out)', 'state in ("sent", "suppressed")']),
         ("nextday_gap_check.py",
          ['notify_state(out)', 'state not in ("sent", "suppressed")']),
         ("nextday_plan_generator.py",
