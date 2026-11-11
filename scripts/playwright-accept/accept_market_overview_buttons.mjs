@@ -22,6 +22,8 @@ try {for(const width of [320,375,390,430,760,761,1280]) {
    check('all market period buttons compact and visible',heights.length>0&&heights.every(h=>h>0&&h<=32),heights);
    await buttons.first().click();check('market period control clickable',true);
    check('market has no page overflow',await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth<=1));
+   const pnl=await page.locator('.etf-tag-pnl').evaluateAll(els=>els.filter(e=>e.getBoundingClientRect().height>0).map(e=>({right:e.getBoundingClientRect().right,wrap:getComputedStyle(e).whiteSpace})));
+   check('long signal notes wrap within viewport',pnl.every(p=>p.right<=width+1&&p.wrap!=='nowrap'),pnl);
   }else{check('desktop mobile toolbar stays hidden',!(await page.locator('.h5-period-bar').isVisible()));}
   check('no script errors',row.errors.length===0,row.errors);
  }catch(e){check('scenario completed',false,String(e));}finally{await context.close();}

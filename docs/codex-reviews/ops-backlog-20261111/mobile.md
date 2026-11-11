@@ -34,3 +34,7 @@
 - 首次只读公网补测遭遇ERR_CONNECTION_CLOSED，原失败保留；随后源码+公网探测只完成320，760因为旧默认已打开而旧脚本再点击将其关掉，暴露了测试初态盲区。原日志/截图不覆盖。
 
 私有证据：`/tmp/codex-reports/ops-backlog-20261111/mobile-baseline/`、`mobile-after-v1/v2.json`及log、`overview-after-v1.json`、`mobile-compare.json`、`mobile-compare-checks.json`。原15PASS不能代替新矩阵，新矩阵也不覆盖iOS Safari/Android Chrome真机和系统字体设置。字体150%是浏览器中按计算字号放大的模拟，非操作系统验收。发布后还要真机验证软键盘、浏览器地址栏动态高度与触控手势。
+
+## 整合后的320px补查
+
+使用同一实际导出数据、整合FX和main build后，首次overview矩阵44通过/1失败：市场页长信号盈亏文案`.etf-tag-pnl`沿用nowrap，文字右界363.58px撑宽320px文档及底部导航。临时CSS反事实已消除溢出，现只在既有≤760px媒体查询允许该说明换行；按钮尺寸、桌面单行不变。修后原矩阵45通过，另增加长文案实际边界/换行断言。原失败JSON、DOM尺寸及截图保留在integration/overview-integrated.json和overview-overflow-v2.json，不能写成一次全绿。
