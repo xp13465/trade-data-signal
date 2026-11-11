@@ -47,8 +47,7 @@ d1_metrics_init() {
   D1_METRICS_RUN_ID=$("${PY:-python3}" -c 'import uuid; print(uuid.uuid4().hex)') || {
     _d1_metrics_warn; return 0;
   }
-  D1_METRICS_CODE_REF=$(git -C "${SCRIPT_SELF_DIR}/.." rev-parse HEAD 2>/dev/null) || D1_METRICS_CODE_REF=""
-  export D1_METRICS_DIR D1_METRICS_RUN_ID D1_METRICS_CODE_REF D1_METRICS_WARN_FD SCRIPT_NAME
+  export D1_METRICS_DIR D1_METRICS_RUN_ID D1_METRICS_WARN_FD SCRIPT_NAME
 }
 
 _d1_metrics_warn() {
@@ -56,7 +55,7 @@ _d1_metrics_warn() {
 }
 
 # Metadata only; original command is executed exactly once, with unchanged rc.
-# Streams stay in memory until extraction. SQL/credentials/results
+# Bounded samples stay in memory; bytes stream to original sinks. SQL/credentials/results
 # never enter the persistent evidence file. Standalone callers opt in via run ID.
 _d1_observe() {
   local stage="$1" operation="$2" scope="$3" tables="$4" attempt="$5" call_id="$6"
@@ -64,7 +63,7 @@ _d1_observe() {
   if [ -z "${D1_METRICS_RUN_ID:-}" ]; then
     "$@"; return $?
   fi
-  # The command wrapper captures pipes in memory, so ENOSPC in the evidence
+  # The command wrapper samples pipes in bounded memory, so ENOSPC in the evidence
   # directory cannot change Wrangler's rc or accidentally trigger a SQL retry.
   # All observed sites pass the existing timeout wrapper + its seconds first.
   if [ "$1" != "_d1_run_with_timeout" ] || [ ! -r "$_D1_METRICS_HELPER" ]; then

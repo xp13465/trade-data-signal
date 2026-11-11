@@ -8,11 +8,13 @@ See docs/codex-reviews/ops-backlog-20261111/d1.md for the evidence contract.
 import argparse
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import math
 import os
 from pathlib import Path
 import re
+import select
 import signal
 import stat
 import subprocess
@@ -24,12 +26,69 @@ from util_atomic import atomic_write_json
 MAX_RUNS = 128
 MAX_CALLS = 4096
 MAX_BYTES = 16 * 1024 * 1024
+SAMPLE_BYTES = 1024 * 1024
 MAX_AGE = 30 * 86400
 TABLES = {"fund_score", "fund_screener", "sync_meta", "screener_meta"}
+IDENTITY_FILES = ("sync_fund_score_to_d1.sh", "sync_fund_screener_to_d1.sh",
+                  "lib/d1_execute.sh", "lib/d1_hash_read.sh", "d1_metrics_evidence.py",
+                  "util_atomic.py", "delivery_evidence.py")
 
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def startup_identity(script_dir):
+    """Disk observation before sourcing D1 libs; explicitly not loaded shell proof."""
+    def git(*args):
+        try:
+            result = subprocess.run(["git", "-C", str(script_dir.parent), *args],
+                                    capture_output=True, timeout=2)
+            return result.stdout.decode().strip() if result.returncode == 0 else None
+        except (OSError, subprocess.TimeoutExpired, UnicodeError):
+            return None
+    before = git("rev-parse", "HEAD")
+    files = {}
+    for name in IDENTITY_FILES:
+        try:
+            with (script_dir / name).open("rb") as f:
+                raw = f.read(1024 * 1024 + 1)
+            files[name] = hashlib.sha256(raw).hexdigest() if len(raw) <= 1024 * 1024 else None
+        except OSError:
+            files[name] = None
+    dirty = git("status", "--porcelain", "--untracked-files=no", "--",
+                *("scripts/" + name for name in IDENTITY_FILES))
+    return {"schema": 1, "captured_utc": utc_now(), "head_before": before,
+            "head_after": git("rev-parse", "HEAD"),
+            "dirty_tracked": bool(dirty) if dirty is not None else None, "files_sha256": files}
+
+
+def code_identity():
+    # Reuse loaded bytecode identity. A reviewed manifest can bind THIS Python
+    # executor to a commit; it cannot attest the already running shell pipeline.
+    try:
+        from delivery_evidence import loaded_code_identity
+        executor = loaded_code_identity(main, Path(os.environ["REPO"]))
+    except Exception:
+        executor = {"sha": "unknown", "kind": "unavailable"}
+    startup = None
+    try:
+        raw = os.environ.get("D1_METRICS_STARTUP_IDENTITY", "")
+        if len(raw) <= 8192:
+            obj = json.loads(raw)
+            stamp = obj["captured_utc"]
+            datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            digest = lambda v, n: v if isinstance(v, str) and re.fullmatch("[0-9a-f]{%d}" % n, v) else None
+            startup = {"captured_utc": stamp, "head_before": digest(obj.get("head_before"), 40),
+                       "head_after": digest(obj.get("head_after"), 40),
+                       "dirty_tracked": obj.get("dirty_tracked") if type(obj.get("dirty_tracked")) is bool else None,
+                       "files_sha256": {n: digest(obj["files_sha256"].get(n), 64) for n in IDENTITY_FILES}}
+    except (ValueError, KeyError, TypeError, AttributeError):
+        pass
+    return {"executor": executor, "startup_disk_snapshot": startup,
+            "runtime_limits": {"sample_bytes_per_stream": SAMPLE_BYTES, "max_receipt_bytes": MAX_BYTES},
+            "coverage": "loaded_python_executor_plus_pre_d1_source_disk_snapshot",
+            "limitations": "shell_entry_already_started;disk_hash_not_loaded_shell_bytes;concurrent_replace_possible;git_heads_are_observations_not_code_attestation"}
 
 
 def documents(text):
@@ -194,18 +253,22 @@ def record(args, streams):
         raise ValueError("invalid_labels")
     for stamp in (args.start, args.end):
         datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-    code = os.environ.get("D1_METRICS_CODE_REF", "")
-    code = code if re.fullmatch(r"[0-9a-f]{40,64}", code) else None
     script = os.environ.get("SCRIPT_NAME")
     script = script if script in {"sync_fund_score_to_d1", "sync_fund_screener_to_d1"} else None
-    if any(len(raw) > MAX_BYTES for raw in streams):
-        raise ValueError("response_size_limit")
-    event = {"run_id": run_id, "call_id": args.call_id, "code_ref": code,
-             "code_ref_reason": None if code else "unavailable", "script": script,
+    observation = getattr(args, "response_observation", {})
+    overflow = observation.get("sample_overflow", False) or any(len(raw) > SAMPLE_BYTES for raw in streams)
+    rows = parse_results("", "", args.scope) if overflow else parse_results(
+        *(s.decode("utf-8", errors="replace") for s in streams), args.scope)
+    if overflow:
+        rows[0]["missing_reasons"] = {k: "response_sample_limit" for k in rows[0]["missing_reasons"]}
+    event = {"run_id": run_id, "call_id": args.call_id, "code_ref": None,
+             "code_ref_reason": "shell_chain_unattested", "script": script,
+             "code_identity": getattr(args, "code_identity", None) or code_identity(),
+             "response_observation": observation,
              "table_labels": tables, "stage": args.stage, "operation": args.operation,
              "start_utc": args.start, "end_utc": args.end, "attempt": args.attempt,
              "exit_code": args.exit_code, "status": "success" if args.exit_code == 0 else "failed",
-             "results": parse_results(*(s.decode("utf-8", errors="replace") for s in streams), args.scope)}
+             "results": rows}
     known = [r["rows_read"] is not None and r["rows_written"] is not None for r in event["results"]]
     event["metrics_status"] = "complete" if all(known) else "partial" if any(known) else "unavailable"
     persist(Path(os.environ["D1_METRICS_DIR"]), event)
@@ -232,7 +295,110 @@ def save_safely(args, streams):
         signal.alarm(0)
 
 
+def run_streamed(command, timeout, targets=(1, 2)):
+    """Continuously forward/drain two pipes with <=64 KiB pending per stream.
+
+    Only a bounded prefix is sampled; discard it after overflow. Never spool raw
+    responses to disk, and never close a child pipe because metrics are too large.
+    Small writes after select avoid unbounded blocking on slow downstream pipes.
+    """
+    samples = [bytearray(), bytearray()]
+    counts = [0, 0]
+    overflow = [False, False]
+    failed = [False, False]
+    pending = [b"", b""]
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            start_new_session=True, bufsize=0)
+    readers = {proc.stdout.fileno(): 0, proc.stderr.fileno(): 1}
+    pipes = (proc.stdout, proc.stderr)
+    deadline = time.monotonic() + timeout if timeout > 0 else float("inf")
+    stopped = None
+    cleanup_deadline = float("inf")
+    requested = [None]
+    previous = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
+    for s in previous:
+        signal.signal(s, lambda sig, _frame: requested.__setitem__(0, sig))
+    # PIPE_BUF-sized writes after writability cannot wait for a large pipe space.
+    write_sizes = []
+    for fd in targets:
+        try:
+            write_sizes.append(min(4096, os.fpathconf(fd, "PC_PIPE_BUF")))
+        except OSError:
+            write_sizes.append(512)
+
+    def kill_group():
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    try:
+        while readers or any(pending) or proc.poll() is None:
+            now = time.monotonic()
+            if stopped is None and (requested[0] or now >= deadline):
+                stopped = 128 + requested[0] if requested[0] else 124
+                kill_group()
+                cleanup_deadline = now + 2
+            if now >= cleanup_deadline:
+                # A detached descendant/blocked consumer must not retain us.
+                failed = [failed[i] or bool(pending[i]) or i in readers.values() for i in range(2)]
+                break
+            readable = [fd for fd, i in readers.items() if not pending[i]]
+            writable = [targets[i] for i in range(2) if pending[i] and not failed[i]]
+            wait = min(0.05, max(0, (deadline if stopped is None else cleanup_deadline) - now))
+            ready_r, ready_w, _ = select.select(readable, writable, [], wait)
+            for fd in ready_r:
+                i = readers[fd]
+                chunk = os.read(fd, 64 * 1024)
+                if not chunk:
+                    del readers[fd]
+                    pipes[i].close()
+                    continue
+                counts[i] += len(chunk)
+                if not overflow[i]:
+                    if counts[i] > SAMPLE_BYTES:
+                        overflow[i] = True
+                        samples[i].clear()
+                    else:
+                        samples[i].extend(chunk)
+                if not failed[i]:
+                    pending[i] = chunk
+            for i in range(2):
+                if pending[i] and targets[i] in ready_w:
+                    try:
+                        written = os.write(targets[i], pending[i][:write_sizes[i]])
+                        pending[i] = pending[i][written:]
+                    except OSError:
+                        failed[i] = True
+                        pending[i] = b""  # continue draining; do not change child rc
+        proc.wait(timeout=2)
+    finally:
+        if proc.poll() is None:
+            kill_group()
+            proc.wait(timeout=2)
+        for pipe in pipes:
+            pipe.close()
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+    if any(failed):
+        warn()
+    observation = {"sample_limit_per_stream": SAMPLE_BYTES, "sample_overflow": any(overflow),
+                   "stdout_bytes": counts[0], "stderr_bytes": counts[1],
+                   "stdout_sample_bytes": len(samples[0]), "stderr_sample_bytes": len(samples[1]),
+                   "stdout_overflow": overflow[0], "stderr_overflow": overflow[1],
+                   "forwarding_failed": any(failed)}
+    rc = stopped if stopped is not None else proc.returncode if proc.returncode >= 0 else 128 - proc.returncode
+    return tuple(bytes(s) for s in samples), observation, rc
+
+
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--capture-identity":
+        signal.alarm(8)
+        try:
+            print(json.dumps(startup_identity(Path(sys.argv[2]))))
+            return 0
+        finally:
+            signal.alarm(0)
     parser = argparse.ArgumentParser()
     parser.add_argument("--stdout")
     parser.add_argument("--stderr")
@@ -249,45 +415,21 @@ def main():
     parser.add_argument("--exit-code", type=int)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    args.code_identity = code_identity()  # actual loaded functions, before child execution
     if not args.run:
         with open(args.stdout, "rb") as out, open(args.stderr, "rb") as err:
-            streams = out.read(MAX_BYTES + 1), err.read(MAX_BYTES + 1)
+            streams = out.read(SAMPLE_BYTES + 1), err.read(SAMPLE_BYTES + 1)
         return 0 if save_safely(args, streams) else 1
     args.start = utc_now()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     try:
-        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                start_new_session=True)
+        streams, args.response_observation, args.exit_code = run_streamed(command, args.timeout)
     except OSError:
         streams = b"", b"[d1] executor unavailable\n"
         args.exit_code = 127
-    else:
-        def terminate(signum, _frame):
-            os.killpg(proc.pid, signal.SIGKILL)
-            proc.communicate()
-            raise SystemExit(128 + signum)
-        signal.signal(signal.SIGTERM, terminate)
-        signal.signal(signal.SIGINT, terminate)
-        try:
-            streams = proc.communicate(timeout=args.timeout if args.timeout > 0 else None)
-            args.exit_code = proc.returncode if proc.returncode >= 0 else 128 - proc.returncode
-        except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
-            streams = proc.communicate()
-            args.exit_code = 124
-        finally:
-            signal.signal(signal.SIGTERM, signal.SIG_DFL)
-            signal.signal(signal.SIGINT, signal.SIG_DFL)
+        os.write(2, streams[1])
     args.end = utc_now()
     save_safely(args, streams)
-    # Binary replay preserves stdout/stderr bytes, even invalid UTF-8. Persistence
-    # failure does not change business rc or feed the network retry classifier.
-    for target, raw in zip((sys.stdout.buffer, sys.stderr.buffer), streams):
-        try:
-            target.write(raw)
-            target.flush()
-        except OSError:
-            warn()
     return args.exit_code
 
 

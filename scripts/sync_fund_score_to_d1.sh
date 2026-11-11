@@ -61,6 +61,16 @@ SCRIPT_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_SELF_DIR/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
 resolve_repo "${BASH_SOURCE[0]}"
 PY="$REPO/.venv/bin/python"
+# Capture once at entry, before any D1 library source/call. This is a disk
+# snapshot, not a claim that Bash loaded an immutable copy of these files.
+if [ "${DRY_RUN:-}" != "1" ]; then
+  D1_METRICS_STARTUP_IDENTITY=$("$PY" "$SCRIPT_SELF_DIR/d1_metrics_evidence.py" \
+    --capture-identity "$SCRIPT_SELF_DIR") || {
+    D1_METRICS_STARTUP_IDENTITY=""
+    echo '[d1-evidence] WARN: startup code identity unavailable' >&2
+  }
+  export D1_METRICS_STARTUP_IDENTITY
+fi
 DB="$REPO/data/public_fund.db"
 LOG_PREFIX="[sync-d1]"
 SCRIPT_NAME="sync_fund_score_to_d1"

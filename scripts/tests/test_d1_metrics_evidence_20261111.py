@@ -277,7 +277,7 @@ def test_complete_sync_fake_only(tmp_path, monkeypatch, table, bad_count):
     (scripts / "lib").mkdir(parents=True)
     for name in ["d1_execute.sh", "d1_hash_read.sh", "d1_sql_bundle.py", "d1_incremental_sync.py", "repo_paths.sh"]:
         shutil.copy(ROOT / "scripts/lib" / name, scripts / "lib" / name)
-    for name in ["d1_metrics_evidence.py", "util_atomic.py", "sync_" + table + "_to_d1.sh"]:
+    for name in ["d1_metrics_evidence.py", "util_atomic.py", "delivery_evidence.py", "sync_fund_score_to_d1.sh", "sync_fund_screener_to_d1.sh"]:
         shutil.copy(ROOT / "scripts" / name, scripts / name)
     # Explicit stub for whoami/state recording: no credential reads or notification imports.
     (scripts / "d1_sync_state.py").write_text("import os,sys\nfrom pathlib import Path\np=Path(os.environ['REPO'])/'state-calls'\nwith p.open('a') as f:f.write(sys.argv[1]+'\\n')\n")
@@ -305,7 +305,10 @@ esac
     assert len(bundle["results"]) == 1 and bundle["results"][0]["scope"] == "bundle"
     for c in history:
         assert c["start_utc"] <= c["end_utc"]
-        assert c["code_ref"] is None and c["code_ref_reason"] == "unavailable"
+        assert c["code_ref"] is None and c["code_ref_reason"] == "shell_chain_unattested"
+        startup = c["code_identity"]["startup_disk_snapshot"]
+        assert all(startup["files_sha256"].values())
+        assert c["code_identity"]["executor"]["kind"] == "loaded_python_module"
     serialized = json.dumps(history)
     assert "SELECT" not in serialized.replace('"SELECT"', '""')
     assert "基金" not in serialized and "duplicate column" not in serialized
@@ -369,3 +372,207 @@ def test_retention_failure_is_not_business_failure(m, tmp_path, monkeypatch):
     # Refuse new receipt when eviction fails: bounded storage even under errors.
     assert not (tmp_path / ("b" * 32 + ".json")).exists()
     assert len(list(tmp_path.glob("*.json"))) == 1
+
+
+
+def observer_command(child, timeout="10"):
+    return [sys.executable, str(HELPER), "--run", "--timeout", timeout, "--call-id", "c" * 32,
+            "--attempt", "1", "--stage", "hash_prefetch", "--operation", "SELECT",
+            "--scope", "statement", "--tables", "fund_score", "--", sys.executable, str(child)]
+
+
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_large_real_child_bounded_sampling_preserves_bytes_and_rc(tmp_path, exit_code):
+    import hashlib
+    env = fake_env(tmp_path, "exit 91\n")
+    child = tmp_path / "large.py"
+    child.write_text("import os,sys\nfor i in range(18):\n os.write(1, bytes(range(256))*4096)\n os.write(2, bytes(reversed(range(256)))*4096)\nsys.exit(" + str(exit_code) + ")\n")
+    out, err = tmp_path / "stdout", tmp_path / "stderr"
+    with out.open("wb") as stdout, err.open("wb") as stderr:
+        p = subprocess.run(observer_command(child), env=env, stdout=stdout, stderr=stderr, timeout=20)
+    assert p.returncode == exit_code
+    history = calls(tmp_path)
+    assert history[0]["exit_code"] == exit_code
+    assert history[0]["metrics_status"] == "unavailable"
+    assert history[0]["results"][0]["missing_reasons"]["rows_read"] == "response_sample_limit"
+    seen = history[0]["response_observation"]
+    assert seen["stdout_bytes"] == seen["stderr_bytes"] == 18 * 1024 * 1024
+    assert seen["stdout_sample_bytes"] <= seen["sample_limit_per_stream"]
+    assert seen["stderr_sample_bytes"] <= seen["sample_limit_per_stream"]
+    for path, chunk in [(out, bytes(range(256))*4096), (err, bytes(reversed(range(256)))*4096)]:
+        digest = hashlib.sha256()
+        for _ in range(18):
+            digest.update(chunk)
+        assert hashlib.sha256(path.read_bytes()).digest() == digest.digest()
+
+
+def test_forward_before_child_exit(tmp_path):
+    import select
+    env = fake_env(tmp_path, "exit 91\n")
+    child = tmp_path / "stream.py"
+    gate = tmp_path / "gate"
+    child.write_text("import os,time\nfrom pathlib import Path\nos.write(1,b'ready\\x00\\xff')\nwhile not Path(" + repr(str(gate)) + ").exists(): time.sleep(.01)\nos.write(2,b'finished\\x00\\xfe')\n")
+    p = subprocess.Popen(observer_command(child, "6"), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        readable, _, _ = select.select([p.stdout], [], [], 2)
+        assert readable, "observer buffered stdout until child exit"
+        assert os.read(p.stdout.fileno(), 8) == b"ready\x00\xff"
+        assert p.poll() is None
+        gate.touch()
+        out, err = p.communicate(timeout=5)
+        assert p.returncode == 0 and out == b"" and err == b"finished\x00\xfe"
+    finally:
+        if p.poll() is None:
+            p.terminate()
+        p.communicate(timeout=5)
+
+
+def test_head_alone_cannot_attest_loaded_code(tmp_path):
+    env = fake_env(tmp_path, 'echo "[]"\n')
+    r = run_shell(tmp_path, env, 'd1_observed_command hash_prefetch SELECT fund_score _d1_run_with_timeout 3 npx')
+    assert r.returncode == 0
+    record = calls(tmp_path)[0]
+    assert record["code_ref"] is None
+    assert record["code_identity"]["executor"]["kind"] == "loaded_python_module"
+    assert len(record["code_identity"]["executor"]["module_sha256"]) == 64
+
+
+
+def test_startup_snapshot_survives_head_and_source_replacement(m, tmp_path):
+    import hashlib
+    scripts = tmp_path / "repo/scripts"
+    scripts.mkdir(parents=True)
+    for name in m.IDENTITY_FILES:
+        path = scripts / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("version one\n")
+    def git(*args):
+        return subprocess.check_output(["git", "-C", str(scripts.parent), *args], timeout=5, text=True).strip()
+    git("init", "-q")
+    git("config", "user.email", "test@example.invalid")
+    git("config", "user.name", "isolated fixture")
+    git("config", "core.hooksPath", str(tmp_path / "no-hooks"))
+    git("add", "."); git("commit", "-qm", "initial fixture")
+    snapshot = m.startup_identity(scripts)
+    initial = git("rev-parse", "HEAD")
+    assert snapshot["head_before"] == snapshot["head_after"] == initial
+    assert snapshot["dirty_tracked"] is False
+    for name in m.IDENTITY_FILES:
+        (scripts / name).write_text("version two\n")
+    dirty = m.startup_identity(scripts)
+    assert dirty["dirty_tracked"] is True
+    git("add", "."); git("commit", "-qm", "replacement fixture")
+    assert git("rev-parse", "HEAD") != initial
+    env = fake_env(tmp_path, 'echo "[]"\n')
+    env["D1_METRICS_STARTUP_IDENTITY"] = json.dumps(snapshot)
+    r = run_shell(tmp_path, env, 'd1_observed_command hash_prefetch SELECT fund_score _d1_run_with_timeout 3 npx')
+    assert r.returncode == 0
+    record = calls(tmp_path)[0]
+    assert record["code_ref"] is None
+    fixed = record["code_identity"]["startup_disk_snapshot"]
+    assert fixed["head_before"] == fixed["head_after"] == initial
+    assert all(v == hashlib.sha256(b"version one\n").hexdigest() for v in fixed["files_sha256"].values())
+    assert "disk_hash_not_loaded_shell_bytes" in record["code_identity"]["limitations"]
+
+
+def test_loaded_executor_identity_does_not_follow_disk(m, tmp_path, monkeypatch):
+    monkeypatch.setenv("REPO", str(tmp_path))
+    path = tmp_path / "observer_copy.py"
+    source = HELPER.read_text()
+    path.write_text(source)
+    def load():
+        spec = importlib.util.spec_from_file_location("identity_fixture", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    loaded = load()
+    original = loaded.code_identity()["executor"]["module_sha256"]
+    path.write_text(source.replace('def utc_now():', 'def utc_now():\n    return "replacement-version"'))
+    assert loaded.code_identity()["executor"]["module_sha256"] == original
+    assert load().code_identity()["executor"]["module_sha256"] != original
+
+
+def test_timeout_drains_and_kills_real_process_group(tmp_path):
+    import time
+    env = fake_env(tmp_path, "exit 91\n")
+    child = tmp_path / "tree.py"
+    pids = tmp_path / "pids"
+    child.write_text("import subprocess,sys,os,time\nfrom pathlib import Path\np=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\nPath(" + repr(str(pids)) + ").write_text(str(os.getpid())+' '+str(p.pid))\nos.write(1,b'prefix-out\\x00\\xff')\nos.write(2,b'prefix-err\\x00\\xfe')\ntime.sleep(60)\n")
+    started = time.monotonic()
+    r = subprocess.run(observer_command(child, "1"), env=env, capture_output=True, timeout=8)
+    assert r.returncode == 124 and time.monotonic() - started < 5
+    assert r.stdout == b"prefix-out\x00\xff" and r.stderr == b"prefix-err\x00\xfe"
+    for pid in pids.read_text().split():
+        # Reparented grandchildren may be zombies until init reaps them; no live process remains.
+        ps = subprocess.run(["ps", "-o", "stat=", "-p", pid], capture_output=True, text=True, timeout=2)
+        assert not ps.stdout.strip() or ps.stdout.strip().startswith("Z"), (pid, ps.stdout)
+    assert calls(tmp_path)[0]["exit_code"] == 124
+
+
+def test_real_child_sample_overflow_cannot_trigger_import_retry(tmp_path):
+    # Exercise the shell retry loop, not just the helper's return statement.
+    env = fake_env(tmp_path, '"$PY" -c \'import os; os.write(1,b"x"*(2*1024*1024)); os.write(2,b"y"*(2*1024*1024))\'\n')
+    r = run_shell(tmp_path, env, 'd1_execute_sql_file db unused "$REPO/out"')
+    assert r.returncode == 0
+    assert (tmp_path / "calls").read_text() == "x"
+    assert (tmp_path / "out").stat().st_size == 4 * 1024 * 1024
+    receipt = calls(tmp_path)[0]
+    assert receipt["metrics_status"] == "unavailable" and receipt["response_observation"]["sample_overflow"]
+
+
+def test_forward_sink_failure_drains_and_keeps_child_rc(m, tmp_path):
+    # Closed consumer / ENOSPC is a forwarding problem, never an evidence retry.
+    import errno
+    from unittest.mock import patch
+    real_write = os.write
+    fd = os.open(tmp_path / "sink", os.O_CREAT | os.O_WRONLY, 0o600)
+    def full(target, raw):
+        if target == fd:
+            raise OSError(errno.ENOSPC, "full")
+        return real_write(target, raw)
+    try:
+        with patch.object(m.os, "write", full):
+            streams, observed, rc = m.run_streamed([sys.executable, "-c", "import os; os.write(1,b'x'*2000000); os.write(2,b'y'*2000000)"], 5, targets=(fd, fd))
+        assert rc == 0 and observed["forwarding_failed"]
+        assert observed["stdout_bytes"] == observed["stderr_bytes"] == 2000000
+        assert all(len(s) <= m.SAMPLE_BYTES for s in streams)
+    finally:
+        os.close(fd)
+
+
+
+def test_reviewed_binding_only_attests_executor(m, tmp_path, monkeypatch):
+    monkeypatch.setenv("REPO", str(tmp_path))
+    import delivery_evidence
+    initial = m.code_identity()["executor"]
+    assert initial["sha"] == "unknown"
+    private = delivery_evidence.receipt_root(tmp_path)
+    private.mkdir(parents=True)
+    manifest = private / "producer-identity.json"
+    manifest.write_text(json.dumps({"schema": "trade-producer-identity-v1", "reviewed": True,
+        "code_sha": "d" * 40, "loaded_module_sha256": [initial["module_sha256"]]}))
+    manifest.chmod(0o600)
+    identity = m.code_identity()
+    assert identity["executor"]["sha"] == "d" * 40
+    assert identity["startup_disk_snapshot"] is None
+    assert "shell_entry_already_started" in identity["limitations"]
+
+
+def test_unread_consumer_does_not_defeat_timeout(tmp_path):
+    import time
+    env = fake_env(tmp_path, "exit 91\n")
+    child = tmp_path / "blocked.py"
+    child.write_text("import os\nwhile True: os.write(1,b'x'*65536)\n")
+    p = subprocess.Popen(observer_command(child, "1"), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    started = time.monotonic()
+    try:
+        # Deliberately do not drain stdout until the observer has exited.
+        assert p.wait(timeout=6) == 124
+        assert time.monotonic() - started < 5
+        p.communicate(timeout=2)
+    finally:
+        if p.poll() is None:
+            p.terminate()
+        p.communicate(timeout=5)
+    receipt = calls(tmp_path)[0]
+    assert receipt["response_observation"]["forwarding_failed"]
