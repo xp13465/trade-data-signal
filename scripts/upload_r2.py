@@ -62,6 +62,8 @@ except ModuleNotFoundError:
     _sys.path.insert(0, _os.path.dirname(_os.path.realpath(__file__)))
     import r2_lock_paths as _rlp  # noqa: E402
 
+from r2_safe_write import SafeWriter, UnsafeWrite, protected as _protected_key, PAIR as _OVERFIT_PAIR
+
 from r2_export_proof import build_export_manifest, load_run_proof, proof_matches, load_pending_contexts
 
 # stdout 行缓冲:遇换行就 flush,防止 `| tee -a` 管道时 block-buffered
@@ -405,11 +407,11 @@ def _remaining_work():
 
 
 def _effective_request_timeout():
-    """单请求有效超时 = min(配置超时, 剩余预算), 下限 1s; 未启用 ⇒ 配置值(逐字不变)。"""
+    """单请求有效超时不超过剩余预算(不足1秒也保留小数); 未启用 ⇒ 配置值(逐字不变)。"""
     rem = _remaining_work()
     if rem is None:
         return R2_UPLOAD_HTTP_TIMEOUT
-    return max(1, min(R2_UPLOAD_HTTP_TIMEOUT, int(rem)))
+    return max(0.001, min(R2_UPLOAD_HTTP_TIMEOUT, max(1, int(rem)), rem))
 
 
 def _work_budget_check(where=""):
@@ -630,7 +632,8 @@ class _ProgressBody:
     SigV4 会失配), 故本类 read() 的调用节奏 == 字节真实交给 socket 的节奏。
     """
 
-    def __init__(self, data, label, step=_PROGRESS_PUT_STEP, max_interval=_PROGRESS_PUT_MAX_INTERVAL):
+    def __init__(self, data, label, step=_PROGRESS_PUT_STEP, max_interval=_PROGRESS_PUT_MAX_INTERVAL, conn=None):
+        self._conn = conn
         self._buf = io.BytesIO(data)
         self._label = label
         self._total = len(data)
@@ -641,6 +644,9 @@ class _ProgressBody:
         self._mark_t = time.monotonic()
 
     def read(self, n=-1):
+        _work_budget_check("upload-chunk")
+        if self._conn is not None:
+            _set_conn_timeout(self._conn)
         chunk = self._buf.read(n)
         if chunk:
             self._sent += len(chunk)
@@ -658,7 +664,7 @@ class _ProgressBody:
         return chunk
 
 
-def _read_with_progress(resp, label):
+def _read_with_progress(resp, label, conn=None):
     """GET 响应体分块读 + 进度行(#364 S3, 2026-10-30)。
 
     病灶: 备份段 `GET`(老账号源 → 新账号备份桶中转)此前是 `resp.read()` 一次性读完整包,
@@ -672,27 +678,36 @@ def _read_with_progress(resp, label):
         total = int(raw_len) if raw_len is not None else -1
     except (TypeError, ValueError):
         total = -1
-    if total < _PROGRESS_PUT_MIN:
+    if total < _PROGRESS_PUT_MIN and _WORK_DEADLINE is None:
         return resp.read()
     chunks = []
     got = 0
     mark = 0
     mark_t = time.monotonic()
     while True:
-        chunk = resp.read(1024 * 1024)
+        _work_budget_check("download-chunk")
+        if conn is not None:
+            _set_conn_timeout(conn)
+        # 预算启用时 read1 最多一次底层读取，避免慢速持续流量一直等满 n。
+        reader = getattr(resp, "read1", resp.read) if _WORK_DEADLINE is not None else resp.read
+        chunk = reader(64 * 1024 if _WORK_DEADLINE is not None else 1024 * 1024)
         if not chunk:
             break
         chunks.append(chunk)
         got += len(chunk)
         now = time.monotonic()
-        if got - mark >= _PROGRESS_PUT_STEP or now - mark_t >= _PROGRESS_PUT_MAX_INTERVAL:
+        if (label and total >= _PROGRESS_PUT_MIN and
+                (got - mark >= _PROGRESS_PUT_STEP or now - mark_t >= _PROGRESS_PUT_MAX_INTERVAL)):
             delta = got - mark
             mark = got
             mark_t = now
             sys.stdout.write(
                 f"[{label}] ↓ 下载中 {got / 1048576:.1f}/{total / 1048576:.1f} MiB ({delta}B)\n")
             sys.stdout.flush()
-    return b"".join(chunks)
+    body = b"".join(chunks)
+    if _WORK_DEADLINE is not None and total >= 0 and len(body) != total:
+        raise http.client.IncompleteRead(body)
+    return body
 
 
 def s3_request(method, key, payload=b"", query="", bucket=None, content_type=None, with_headers=False, keep_alive=False, extra_headers=None, progress_label=None):
@@ -722,8 +737,14 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
         content_type = _CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
     bkt = bucket or BUCKET
     host, ak, sk = _route_bucket(bkt)   # #178: 按目标桶选端点/凭据(备份桶→独立新账号)
+    # 条件提交只发一次；连接断开/5xx 交 write-id 确认层处理，不能隐藏重试结果。
+    conditional_commit = any(name.lower() in (
+        "if-match", "if-none-match", "if-modified-since", "if-unmodified-since")
+        for name in (extra_headers or {})) and (
+        (method == "PUT" and not query) or (method == "POST" and "uploadId=" in query))
+    attempts = 1 if conditional_commit else 5
     last_exc = None
-    for attempt in range(5):
+    for attempt in range(attempts):
         conn = None
         # #364 拦截点 b(第 1 道): 每次 attempt 开始前查剩余预算 —— 剩 0 不再开新请求/新重试。
         _work_budget_check("s3_request-attempt")
@@ -749,7 +770,8 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
             # #180: 大文件单 PUT 打进度。必须显式 Content-Length(file-like body 否则 http.client
             # 退化 chunked 致 SigV4 失配)。加在签名前 -> 进 SignedHeaders, 与实际请求头一致。
             _use_progress = (progress_label is not None and method in ("PUT", "POST")
-                             and len(payload) >= _PROGRESS_PUT_MIN)
+                             and len(payload) >= _PROGRESS_PUT_MIN) or (
+                _WORK_DEADLINE is not None and method in ("PUT", "POST"))
             if _use_progress:
                 headers["content-length"] = str(len(payload))
 
@@ -783,15 +805,19 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 conn = http.client.HTTPSConnection(host, timeout=_effective_request_timeout(), context=_CTX)
             uri = path + ("?" + canonical_query if canonical_query else "")
             if _use_progress:
-                body = _ProgressBody(payload, progress_label)   # 每次重试重建(exhausted 不可复用)
+                body = _ProgressBody(payload, progress_label or key, conn=conn)   # 每次重试重建(exhausted 不可复用)
             else:
                 body = payload if method in ("PUT", "POST") else None
             conn.request(method, uri, body=body, headers=headers)
+            _work_budget_check("response-headers")
+            _set_conn_timeout(conn)
             resp = conn.getresponse()
             # #364 S3: GET 侧对称补进度(备份中转是老账号源 → 新账号备份桶的整包下载, 此前
             # `resp.read()` 一次读完, 85MB 在 51KB/s 下静默 ~28 分钟)。仅 GET + 有 label 时走
             # 分块读; `_read_with_progress` 内部再按 Content-Length 判大小(小文件不打点)。
-            if method == "GET" and progress_label is not None:
+            if _WORK_DEADLINE is not None and method != "HEAD":
+                data = _read_with_progress(resp, progress_label or key, conn=conn)
+            elif method == "GET" and progress_label is not None:
                 data = _read_with_progress(resp, progress_label)
             else:
                 data = resp.read()
@@ -802,7 +828,7 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
             # R2 侧偶发 500 InternalError 自愈,重试 1-2 次通常即成功,避免单文件 5xx
             # 致整批 ok!=total -> intraday 告警邮件轰炸(2026-07-30 修复)。
             # attempt 0-3 重试(sleep 1s/2s/4s/8s),attempt 4(最后一次)return 让调用方记失败。
-            if resp.status >= 500 and attempt < 4:
+            if resp.status >= 500 and attempt < attempts - 1:
                 import time
                 wait = 2 ** attempt  # 1s, 2s, 4s, 8s
                 print(f"  ⚠ {method} {key} HTTP {resp.status} attempt {attempt+1}, {wait}s 后重试", file=sys.stderr)
@@ -818,7 +844,9 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
             last_exc = e
             if keep_alive:
                 _drop_keepalive_conn(host)
-            if attempt < 4:
+            elif conn is not None:
+                conn.close()
+            if attempt < attempts - 1:
                 import time
                 wait = 2 ** attempt  # 1s, 2s, 4s, 8s
                 print(f"  ⚠ {method} {key} attempt {attempt+1} 失败({type(e).__name__}: {e}), {wait}s 后重试", file=sys.stderr)
@@ -963,6 +991,24 @@ def cmd_clean_data_backup():
 
 
 def cmd_upload(local, key):
+    from r2_safe_write import protected as _protected_key
+    if _protected_key(key):
+        canonical = STATIC_DIR / ("data/" + key if key.startswith("nav_bucket/") else key)
+        if Path(local).resolve() != canonical.resolve():
+            sys.exit("protected raw upload requires canonical local path")
+        lock = _acquire_lock_for_command("upload", [local, key])
+        if lock is None:
+            sys.exit("protected raw upload requires mutex")
+        try:
+            if _WORK_DEADLINE is None:
+                _work_budget_begin("upload")
+            path = Path(local)
+            ok, total, _, _ = _upload_glob(path.parent, [path.name], key.rpartition("/")[0])
+            if ok != total:
+                sys.exit(1)
+        finally:
+            _release_r2_upload_lock(lock)
+        return
     shared = key.startswith("data/") and key[5:] in build_export_manifest()
     lock = None
     if shared:
@@ -1048,7 +1094,7 @@ def _parse_upload_id(resp_body):
     return None
 
 
-def _multipart_upload(key, total, read_part, content_type, bucket=None, extra_headers=None):
+def _multipart_upload(key, total, read_part, content_type, bucket=None, extra_headers=None, before_complete=None):
     """大文件 multipart 上传: create -> 并行 upload-part -> complete(R2 官方流程)。
 
     2026-09-21 R2 上传失败根治: >100MB 单文件单 PUT 卡 600s 超时重试 5 次(放大器) →
@@ -1066,7 +1112,7 @@ def _multipart_upload(key, total, read_part, content_type, bucket=None, extra_he
         return st, data
     upload_id = _parse_upload_id(data)
     if not upload_id:
-        return st, data
+        return 502, data
 
     # 2) 分片并行 upload-part (PUT /key?partNumber=N&uploadId=)
     sizes = _multipart_part_sizes(total)
@@ -1117,17 +1163,91 @@ def _multipart_upload(key, total, read_part, content_type, bucket=None, extra_he
         "<Part><PartNumber>%d</PartNumber><ETag>%s</ETag></Part>" % (pn, uploaded[pn])
         for pn in sorted(uploaded))
     body = ("<CompleteMultipartUpload>%s</CompleteMultipartUpload>" % parts_xml).encode("utf-8")
+    complete_query = "uploadId=%s" % quote(upload_id, safe="")
+    if before_complete is not None:
+        before_complete(complete_query, body)
     st, data = s3_request("POST", key, payload=body,
                           query="uploadId=%s" % quote(upload_id, safe=""),
-                          content_type="application/xml", bucket=bucket)
+                          content_type="application/xml", bucket=bucket,
+                          **({"extra_headers": extra_headers} if extra_headers else {}))
+    # HTTP 200 的 XML Error 也不是成功。
+    if st == 200 and b"<Error" in data:
+        st = 502
     # complete 非 200: best-effort abort(DELETE?uploadId=), 与 part 失败/缺分片两分支同款;
     # 避免 dangling multipart upload 仅靠 R2 lifecycle 兜底(#315, 2026-11-01)。
-    if st != 200:
+    if st != 200 and not extra_headers:
         try:
             s3_request("DELETE", key, query="uploadId=%s" % quote(upload_id, safe=""), bucket=bucket)
         except Exception:
             pass
     return st, data
+
+
+
+
+def _record_confirmed_publication(key, payload, confirmed=True):
+    """沿用 version=1 本地 export proof；远端确认才交 Ops 写发布回执。"""
+    run_id = os.environ.get("R2_EXPORT_RUN_ID")
+    proof_path = os.environ.get("R2_EXPORT_PROOF_PATH")
+    if not run_id or not proof_path or not key.startswith("data/"):
+        return
+    proof = load_run_proof(proof_path, run_id, STATIC_DIR)
+    if not proof_matches(STATIC_DIR / key, payload, proof, STATIC_DIR):
+        return
+    # 不能拿 multipart 长度或本地 proof 当远端 hash；同响应 GET 验完整 bytes。
+    if confirmed:
+        st, body = s3_request("GET", key, keep_alive=True, progress_label=key)
+        if st != 200 or hashlib.sha256(body).digest() != hashlib.sha256(payload).digest():
+            raise UnsafeWrite("publication remote SHA256 not confirmed")
+    try:
+        from delivery_evidence import record_publication
+        result = record_publication(data_root=STATIC_DIR.parent.resolve(), run_id=run_id,
+            object_name=key[5:], sha256=hashlib.sha256(payload).hexdigest(),
+            size=len(payload), confirmed=confirmed)
+        print("R2_PUBLICATION: " + json.dumps({"run_id": run_id, "key": key,
+            "sha256": hashlib.sha256(payload).hexdigest(), "confirmed": confirmed,
+            "receipt": result}, default=str))
+    except Exception as exc:
+        print(f"R2_PUBLICATION: receipt unavailable ({type(exc).__name__}); remote confirmed={confirmed}",
+              file=sys.stderr)
+
+
+def cmd_recover_protected():
+    """有界重入逐键日志；未知保持非零，不提供无条件重写/删日志逃生门。"""
+    safe = SafeWriter(globals())
+    failures = []
+    for path in sorted(safe.root.glob("*.json")):
+        if path.name == "gc-manifest.json":
+            continue
+        _work_budget_check("protected-recovery")
+        row = json.loads(path.read_text())
+        key = row["key"]
+        lock = _acquire_r2_upload_lock(timeout=_remaining_work(),
+            lock_path_override=_rlp.key_lock_path(f"{BUCKET}/overfit-pair" if key in _OVERFIT_PAIR else f"{BUCKET}/{key}"))
+        try:
+            row = safe.load(key)
+            safe.recover(row, retry_put=True)
+            print("R2_RECOVERY: " + json.dumps({k: row.get(k) for k in
+                ("key", "run_id", "write_id", "sha256", "state", "confirmed", "pending_purge", "pair_id")}))
+            if row["state"] != "confirmed":
+                failures.append(key)
+        except Exception as exc:
+            failures.append(key)
+            print(f"R2_RECOVERY: {key}: {exc}", file=sys.stderr)
+        finally:
+            _release_r2_upload_lock(lock)
+    if failures:
+        sys.exit(1)
+
+
+def _put_bytes(key, payload, bucket=None, extra_headers=None, before_complete=None):
+    """固定 bytes 的公共传输入口；关键键必须先由 SafeWriter 签发逐键许可。"""
+    if len(payload) >= _MULTIPART_THRESHOLD:
+        return _multipart_upload(key, len(payload), lambda off, n: payload[off:off+n],
+            _infer_content_type(key), bucket=bucket, extra_headers=extra_headers,
+            before_complete=before_complete)
+    return s3_request("PUT", key, payload, bucket=bucket, extra_headers=extra_headers,
+                      keep_alive=True, progress_label=key)
 
 
 def _upload_multipart(key, payload, content_type, bucket=None):
@@ -1226,6 +1346,31 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
     if not files:
         print(f"⚠ {local_dir} 下 {glob_patterns} 无匹配文件")
         return 0, 0, [], []
+    from r2_safe_write import SafeWriter, UnsafeWrite, protected as _protected_key, PAIR as _OVERFIT_PAIR
+    safe = SafeWriter(globals()) if any(_protected_key(f"{r2_prefix}/{p.relative_to(local_dir)}") for p in files) else None
+    pair_payloads, pair_rows, pair_error = {}, {}, None
+    pair_lock = None
+    if any(f"{r2_prefix}/{p.relative_to(local_dir)}" in _OVERFIT_PAIR for p in files):
+        try:
+            pair_lock = _acquire_r2_upload_lock(
+                timeout=_remaining_work(),
+                lock_path_override=_rlp.key_lock_path(f"{BUCKET}/overfit-pair"))
+            if pair_lock is None:
+                raise UnsafeWrite("overfit pair mutex unavailable")
+            for key in _OVERFIT_PAIR:
+                p = STATIC_DIR / key
+                if p.parent.resolve() != local_dir.resolve():
+                    raise UnsafeWrite("overfit pair requires canonical local paths")
+                pair_payloads[key] = p.read_bytes()
+                if p not in files:
+                    files.append(p)
+            pair_rows = safe.prepare_pair(pair_payloads)
+        except Exception as exc:
+            pair_error = str(exc)
+        except BaseException:
+            if pair_lock is not None:
+                _release_r2_upload_lock(pair_lock)
+            raise
     total = len(files)
 
     def _upload_one(idx_f):
@@ -1237,7 +1382,7 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
         key_lock = None
         shared_key = key.startswith("data/") and key[5:] in build_export_manifest()
         try:
-            if shared_key:
+            if shared_key or (_protected_key(key) and key not in _OVERFIT_PAIR):
                 key_budget = _remaining_work()
                 key_lock = _acquire_r2_upload_lock(
                     timeout=None if key_budget is None else max(0, key_budget),
@@ -1248,14 +1393,28 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
             # FileNotFoundError,原代码在 try 外面不捕获致 _upload_glob 整批崩溃
             # (违背 docstring "单文件失败不中断整批"承诺)。移进 try 后单文件失败
             # 仅记日志跳过,不影响其他文件上传。
-            payload = f.read_bytes()
+            payload = pair_payloads[key] if key in pair_payloads else f.read_bytes()
             if payload_validator is not None and not payload_validator(f, payload):
                 return (i, False, rel, 0, "export proof changed before PUT", None)
+            if os.environ.get("R2_EXPORT_PROOF_PATH"):
+                _record_confirmed_publication(key, payload, confirmed=False)
             size = len(payload)
             md5_local = hashlib.md5(payload).hexdigest()
+            if _protected_key(key):
+                if key in _OVERFIT_PAIR and pair_error:
+                    raise UnsafeWrite(pair_error)
+                row = pair_rows[key] if key in pair_rows else safe.prepare(key, payload)
+                safe.commit(row, payload)
+                if os.environ.get("R2_EXPORT_PROOF_PATH"):
+                    _record_confirmed_publication(key, payload)
+                if on_payload_confirmed is not None:
+                    on_payload_confirmed(f, str(rel), size, md5_local, hashlib.sha256(payload).hexdigest())
+                return (i, True, rel, size, None, key)
             if verify_before_put and shared_key and size <= _MULTIPART_THRESHOLD:
                 hs, he = s3_head(key, keep_alive=True)
                 if hs == 200 and he is not None and he.strip('"') == md5_local:
+                    if os.environ.get("R2_EXPORT_PROOF_PATH"):
+                        _record_confirmed_publication(key, payload)
                     if on_payload_confirmed is not None:
                         on_payload_confirmed(f, str(rel), size, md5_local, hashlib.sha256(payload).hexdigest())
                     return (i, True, rel, size, None, None)  # verified same bytes; no PUT or purge
@@ -1270,6 +1429,8 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
                         hs, he, hl = s3_head(key, keep_alive=True, with_len=True)
                         if hs != 200 or hl is None or int(hl) != size:
                             return (i, False, rel, size, "shared multipart HEAD length mismatch", None)
+                    if os.environ.get("R2_EXPORT_PROOF_PATH"):
+                        _record_confirmed_publication(key, payload)
                     if on_payload_confirmed is not None:
                         on_payload_confirmed(f, str(rel), size, md5_local, hashlib.sha256(payload).hexdigest())
                     return (i, True, rel, size, None, key)
@@ -1292,6 +1453,8 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
                     if etag is not None and etag.strip('"') != md5_local:
                         return (i, False, rel, size,
                                 f"ETag对账不一致 etag={etag} local_md5={md5_local}", None)
+                if os.environ.get("R2_EXPORT_PROOF_PATH"):
+                    _record_confirmed_publication(key, payload)
                 if on_payload_confirmed is not None:
                     on_payload_confirmed(f, str(rel), size, md5_local, hashlib.sha256(payload).hexdigest())
                 return (i, True, rel, size, None, key)
@@ -1309,22 +1472,26 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
     ok = 0
     failed_rels = []
     uploaded_keys = []
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = [pool.submit(_upload_one, (i, f)) for i, f in enumerate(files, 1)]
-        done = 0
-        for fut in as_completed(futures):
-            i, success, rel, size, err, key = fut.result()
-            done += 1
-            if success:
-                ok += 1
-                if key is not None:
-                    uploaded_keys.append(key)
-                if on_success is not None:
-                    on_success(local_dir / str(rel), str(rel))
-                print(f"[{done}/{total}] ✓ {rel} ({size}B)")
-            else:
-                print(f"[{done}/{total}] ✗ {rel} {err}")
-                failed_rels.append(str(rel))
+    try:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = [pool.submit(_upload_one, (i, f)) for i, f in enumerate(files, 1)]
+            done = 0
+            for fut in as_completed(futures):
+                i, success, rel, size, err, key = fut.result()
+                done += 1
+                if success:
+                    ok += 1
+                    if key is not None:
+                        uploaded_keys.append(key)
+                    if on_success is not None:
+                        on_success(local_dir / str(rel), str(rel))
+                    print(f"[{done}/{total}] ✓ {rel} ({size}B)")
+                else:
+                    print(f"[{done}/{total}] ✗ {rel} {err}")
+                    failed_rels.append(str(rel))
+    finally:
+        if pair_lock is not None:
+            _release_r2_upload_lock(pair_lock)
     print(f"共上传 {ok}/{total} -> {PUBLIC}/{r2_prefix}/")
     return ok, total, failed_rels, uploaded_keys
 
@@ -1756,6 +1923,7 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         默认 None = 零行为变化(其余 11 个增量通道不传即维持原样); etf-score 传入 notify 回调。
     返回 (ok, total, failed_rels, uploaded_keys) —— 与 _upload_glob 同签名, 调用方照旧拿
     uploaded_keys 调 purge_cache(引擎不负责 purge, 各通道 purge 口径不同由通道函数自理)。"""
+    from r2_safe_write import SafeWriter, UnsafeWrite, protected as _protected_key, PAIR as _OVERFIT_PAIR
     label = label or state_name
     local_dir = Path(local_dir)
     fingerprint = fingerprint or _file_md5
@@ -1815,9 +1983,18 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         md5 = fingerprint(p)
         sigs[rel] = {"size": sz, "md5": md5}
         old = _norm_state_val(old_files.get(rel))
-        if old[1] is None or old[1] != md5 or (force_verify_fn is not None and force_verify_fn(p)):
+        protected_pending = False
+        if _protected_key(f"{r2_prefix}/{rel}") and not dry_run:
+            try:
+                prior = SafeWriter(globals()).load(f"{r2_prefix}/{rel}")
+                protected_pending = bool(prior and (prior.get("pending_purge") or prior["state"] != "confirmed"))
+            except (OSError, ValueError, UnsafeWrite):
+                protected_pending = True  # 交逐键门拒绝，不拖累非关键对象。
+        if protected_pending or old[1] is None or old[1] != md5 or (force_verify_fn is not None and force_verify_fn(p)):
             changed.append(p)
 
+    if any(f"{r2_prefix}/{p.relative_to(local_dir)}" in _OVERFIT_PAIR for p in changed):
+        changed = sorted(set(changed) | {p for p in all_json if f"{r2_prefix}/{p.relative_to(local_dir)}" in _OVERFIT_PAIR})
     now = _now()                                      # 可注入冻结的运行时刻(§18 L51)
     today_weekday = now.weekday()                     # Monday=0 ... Sunday=6
     # 进度文件提前读一次(§4 复用同一份, 不再二次读盘): marker 判定必须先知道「有没有可用进度」。
@@ -1830,7 +2007,8 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
     # 指纹与当前仍一致 ⇒ 该文件在中断那轮确实 PUT 成功且 ETag 对账过(_upload_glob 的
     # on_success 只在成功分支回调), 可以放心从待传清单剔除。
     resumed_rels = {rel for rel, md5 in ckpt_files.items()
-                    if rel in sigs and md5 == sigs[rel]["md5"]}
+                    if rel in sigs and md5 == sigs[rel]["md5"]
+                    and not _protected_key(f"{r2_prefix}/{rel}")}
     marker_stale = marker_path.exists()
     # #360(2026-10-30): resume_on_stale_marker=True 的通道, marker 残留时由「无条件罚全量」
     # 改为「有可用进度就按进度续传」—— 同一 channel 有多个调用方共享 marker 与 state 时
@@ -1930,6 +2108,8 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         tmp_path = state_path.with_name(state_path.name + ".tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(new_state, f, ensure_ascii=False, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp_path, state_path)
 
     if not changed:
@@ -2056,6 +2236,7 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
     # ---- export-guard L5 (2026-10-03): 真 PUT 前, 将被覆盖的既有 R2 key 先备份到备份桶 ----
     # (§25 备份先于覆盖机制化; 事故恢复现场依赖备份)。#237(2026-10-10)起备份实现 =
     # 客户端中转(GET 老账号源 → 校验 → PUT 新账号备份桶 → 回读校验),不再是服务端 COPY。
+    # 关键键已由 SafeWriter 独立逐键阻断；以下仅非关键键保持
     # 第一阶段(#237 §4.4)保持「失败不阻断上传」——只把 failed 计数 + 样本写结构化日志,
     # 供观测(pre-upload 真实成功率)+ check_preupload_backup.py 巡检消费;
     # C 级 fail-fast 阻断须待 A 观测 ≥1 交易日 failed≈0 后由用户拍板再开。
@@ -2065,7 +2246,7 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
     try:
         _bc, _bs, _bf, _bsamples = _backup_overwritten_keys(
             {f"{r2_prefix}/{str(p.relative_to(local_dir))}": sigs[str(p.relative_to(local_dir))]["md5"]
-             for p in changed}, label)
+             for p in changed if not _protected_key(f"{r2_prefix}/{p.relative_to(local_dir)}")}, label)
         print(f"[{label}] 备份完成 copied={_bc} skipped={_bs} failed={_bf}", flush=True)
         _phase_timing(label, "preupload_backup", _backup_started_at,
                       f"copied={_bc} skipped={_bs} failed={_bf}")
@@ -2077,7 +2258,7 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
 
     def _on_success(f, rel):
         nonlocal since_ckpt
-        done_map[str(rel)] = sigs[str(rel)]["md5"]
+        done_map[str(rel)] = confirmed_signatures.get(str(rel), sigs[str(rel)])["md5"]
         since_ckpt += 1
         if checkpoint_every > 0 and since_ckpt >= checkpoint_every:
             _save_ckpt(done_map)
@@ -2097,6 +2278,8 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
     upload_options = {"only_files": changed,
                       "on_success": _on_success if checkpoint_every > 0 else None,
                       "verify_etag": True}
+    if any(_protected_key(f"{r2_prefix}/{p.relative_to(local_dir)}") for p in changed):
+        upload_options["on_payload_confirmed"] = _confirm_sent_payload
     if payload_validator is not None:
         upload_options.update(
             verify_before_put=force_verify_fn is not None,
@@ -2133,6 +2316,8 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         if set(confirmed_signatures) != set(changed_rels):
             sys.exit("missing sent-payload confirmation; state not advanced")
         sigs.update(confirmed_signatures)
+    sigs.update({rel: value for rel, value in confirmed_signatures.items()
+                 if _protected_key(f"{r2_prefix}/{rel}")})
     _save_state(sigs, mode, changed_rels)
     try:
         marker_path.unlink(missing_ok=True)   # 全量成功 → 上传标记使命结束
@@ -2754,13 +2939,18 @@ def purge_cache(r2_keys, cache_prefix="/", *, failed_keys=None):
         last_err = ""
         attempts = PURGE_RETRY + 1
         for attempt in range(attempts):
+            _work_budget_check("purge-attempt")
             conn = None
             try:
-                conn = http.client.HTTPSConnection("ss.fx8.store", timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
+                conn = http.client.HTTPSConnection("ss.fx8.store", timeout=_effective_request_timeout(), context=_CTX)
                 conn.request("POST", "/api/purge-cache", body=body,
                              headers={"Content-Type": "application/json"})
+                if _WORK_DEADLINE is not None:
+                    _work_budget_check("purge-response-headers")
+                    _set_conn_timeout(conn)
                 resp = conn.getresponse()
-                data = resp.read().decode()
+                data = (_read_with_progress(resp, "purge-response", conn=conn)
+                        if _WORK_DEADLINE is not None else resp.read()).decode()
                 if resp.status == 200:
                     # Worker 计的是已处理的删除请求（缓存本来不存在也算完成）。
                     # 不完整回执无法确定哪些键失败，保守重试整批，最后保留整批身份。
@@ -2779,7 +2969,7 @@ def purge_cache(r2_keys, cache_prefix="/", *, failed_keys=None):
                 if conn is not None:
                     conn.close()
             if attempt < attempts - 1:
-                time.sleep(PURGE_RETRY_BACKOFF * (attempt + 1))
+                _work_sleep(PURGE_RETRY_BACKOFF * (attempt + 1))
         if purged is not None:
             total_purged += purged
             retried = f"（重试{attempt}次后成功）" if attempt > 0 else ""
@@ -2792,7 +2982,7 @@ def purge_cache(r2_keys, cache_prefix="/", *, failed_keys=None):
                   f"{last_err}")
         # 批间 sleep（最后一批不 sleep）
         if idx < total_batches:
-            time.sleep(PURGE_BATCH_SLEEP)
+            _work_sleep(PURGE_BATCH_SLEEP)
 
     # 汇总
     if failed_batches == 0:
@@ -2944,9 +3134,30 @@ def cmd_upload_turnover(scope):
     if missing:
         sys.exit("[turnover] 缺少必要产物: " + ", ".join(missing))
     files = _TURNOVER_UPLOAD_FILES[scope]
-    _incremental_upload(
-        data_dir, files, "data", f".r2_turnover_{scope}_state.json",
-        label=f"turnover-{scope}", checkpoint_every=1, resume_on_stale_marker=True)
+    prior_env = {k: os.environ.get(k) for k in ("R2_EXPORT_RUN_ID", "R2_EXPORT_PROOF_PATH")}
+    proof = {}
+    try:
+        run_id = os.environ.get("OPS_BUSINESS_RUN") or os.environ.get("INVOCATION_ID")
+        proof_path = os.environ.get("OPS_TURNOVER_PROOF")
+        if run_id and proof_path:
+            os.environ["R2_EXPORT_RUN_ID"] = run_id
+            os.environ["R2_EXPORT_PROOF_PATH"] = proof_path
+            proof = load_run_proof(proof_path, run_id, STATIC_DIR)
+        options = {}
+        if proof:
+            # 每一轮同run必须实际确认，包括本地未变、checkpoint已完成的文件。
+            options = {"payload_validator": lambda f, body: proof_matches(f, body, proof, STATIC_DIR),
+                       "force_verify_fn": lambda f: True}
+        _incremental_upload(
+            data_dir, files, "data", f".r2_turnover_{scope}_state.json",
+            label=f"turnover-{scope}", checkpoint_every=0 if proof else 1,
+            resume_on_stale_marker=True, **options)
+    finally:
+        for name, value in prior_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
     if _DRY_RUN:
         return
     keys = [f"data/{name}" for name in files]
@@ -4874,6 +5085,7 @@ def cmd_verify_r2():
     补传失败 → exit 1 → deploy.sh R2_FAIL 收尾 notify(层4 告警链)。
     另含双传互斥断言(data-large ∩ all-data = ∅)。
     """
+    from r2_safe_write import SafeWriter, protected as _protected_key
     from concurrent.futures import ThreadPoolExecutor, as_completed
     today_weekday = datetime.date.today().weekday()
     full = today_weekday == 6
@@ -4974,6 +5186,9 @@ def cmd_verify_r2():
             # keep_alive 连接复用(2026-09-21 R2 根治): 全量对账 ~3万 HEAD 每线程复用一个连接,
             # 省跨境握手(~1s/次)。multipart 大文件(>100MB)ETag=分片组合 non-md5, 改「存在 +
             # Content-Length==本地大小」判定(ETag 对账仅适用单 PUT 小文件)。
+            if _protected_key(key):
+                obj = SafeWriter(globals()).get(key)
+                return f, bool(obj and hashlib.sha256(obj[0]).hexdigest() == hashlib.sha256(f.read_bytes()).hexdigest())
             if local_size > _MULTIPART_THRESHOLD:
                 _st, _etag, clen = s3_head(key, keep_alive=True, with_len=True)
                 ok = (_st == 200 and clen is not None and int(clen) == local_size)
@@ -5732,7 +5947,9 @@ if __name__ == "__main__":
         # #364: 内层工作预算**锁拿到之后**才起表(等锁由 R2_UPLOAD_LOCK_TIMEOUT 管, 不占工作预算)。
         # env 未设 ⇒ 空操作, 行为逐字不变。
         _work_budget_begin(cmd)
-    if cmd == "list":
+    if cmd == "recover-protected":
+        cmd_recover_protected()
+    elif cmd == "list":
         # list [prefix] [bucket]   bucket 默认 signal-data;查私有桶(如 signal-backup)时显式传
         prefix = sys.argv[2] if len(sys.argv) > 2 else ""
         bucket = sys.argv[3] if len(sys.argv) > 3 else None

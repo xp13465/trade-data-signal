@@ -167,7 +167,7 @@ class Upload:
         fake_sys = types.SimpleNamespace(platform="linux", stderr=sys.stderr, path=[], exit=sys.exit)
         day = dt.date(2024, 1, 7 if sunday else 4)
         ns = self.ns = {
-            "sys": fake_sys, "Path": Path, "ROOT": Path("/home/fixture/trade"),
+            "sys": fake_sys, "Path": Path, "os": os, "ROOT": Path("/home/fixture/trade"),
             "REPO_EXPLICIT": True, "BUCKET": "invalid-fixture", "PUBLIC": "https://invalid.example",
             "STATIC_DIR": self.local.parent, "hashlib": hashlib, "json": json,
             "datetime": types.SimpleNamespace(date=types.SimpleNamespace(today=lambda: day), datetime=Clock),

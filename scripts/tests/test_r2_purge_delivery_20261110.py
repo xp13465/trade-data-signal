@@ -54,8 +54,9 @@ def namespace(sb, responses=(), secret="fixture"):
               sys=types.SimpleNamespace(path=[], exit=sys.exit), ROOT=sb.tmp,
               STATIC_DIR=sb.tmp / "static-site", time=types.SimpleNamespace(sleep=lambda n: None),
               http=types.SimpleNamespace(client=types.SimpleNamespace(HTTPSConnection=Connection)),
-              R2_UPLOAD_HTTP_TIMEOUT=30, _CTX=None)
-    exec(functions("purge_cache", "cmd_purge_low_freq", "_data_cache_ttl"), ns)
+              R2_UPLOAD_HTTP_TIMEOUT=30, _CTX=None, _WORK_DEADLINE=None)
+    exec(functions("purge_cache", "cmd_purge_low_freq", "_data_cache_ttl",
+                   "_remaining_work", "_work_budget_check", "_effective_request_timeout", "_work_sleep"), ns)
     return ns, calls
 
 
