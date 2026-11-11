@@ -2781,6 +2781,15 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
    作用域红线: 全部只写在 @media(max-width:760px) 内, 桌面端(>760px)零回归。
    对应评测: docs/codex-reviews/site-review-sigkelly-mobile-ux-impl-20260918.md */
 @media (max-width:760px){
+  /* HC22: 保留紧凑按钮；导航、底栏和标题换行都计入可用高度。 */
+  .lab-sigkelly-params-body.lab-sigkelly-params-open {
+    box-sizing: border-box;
+    max-height: var(--lab-params-max-height, 46vh);
+    overscroll-behavior-y: contain;
+    scroll-padding-block: 6px;
+  }
+  .lab-sigkelly-bar.lab-sigkelly-params-short { position: static; }
+  #lab-kelly-params-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
   /* §1 免责二合一 + 折叠: lab-top-disclaimer 折叠态压小(summary 一行), 全局 risk-banner 压小字(style.css 公共段) */
   .lab-top-disclaimer { padding: 6px 10px; margin-bottom: 8px; }
   .lab-top-disclaimer .lab-top-title { font-size: 12px; margin-bottom: 0; }

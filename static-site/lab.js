@@ -11072,16 +11072,45 @@ function _labKellyEvoRenderTable(host, evo, polluted, gran) {
     (evo.s6OpenCount ? `<div class="lab-kelly-evo-warn">⚠ S06 快照 ${evo.s6OpenCount} 笔 fail-open(快照缺行/未就绪按放行计数), 与全信号卡同警示</div>` : "");
 }
 
+// HC22: 参数区按实际剩余视口限高；不扩大按钮，不改变桌面布局。
+let _labSigParamsObserver = null;
+function _labFitSigKellyParams() {
+  const bar = document.querySelector('.lab-sigkelly-bar');
+  if (!bar) {
+    if (_labSigParamsObserver) _labSigParamsObserver.disconnect();
+    return;
+  }
+  const panel = bar.querySelector('.lab-sigkelly-params-body');
+  if (!panel) return;
+  if (!window.matchMedia('(max-width: 760px)').matches) {
+    bar.style.removeProperty('--lab-params-max-height');
+    bar.classList.remove('lab-sigkelly-params-short');
+    return;
+  }
+  const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  const bottom = document.querySelector('.h5-bottomnav');
+  const bottomHeight = bottom ? bottom.getBoundingClientRect().height : 0;
+  const top = parseFloat(getComputedStyle(bar).top) || 0;
+  const overhead = bar.getBoundingClientRect().height - panel.getBoundingClientRect().height;
+  const available = height - top - overhead - bottomHeight - 56; // 留出结果区域
+  const open = panel.classList.contains('lab-sigkelly-params-open');
+  // 极矮横屏/软键盘出现时解除这一块吸顶，让正文仍可通过页面滚动到达。
+  bar.classList.toggle('lab-sigkelly-params-short', open && available < 80);
+  bar.style.setProperty('--lab-params-max-height', Math.floor(Math.min(height * 0.46, Math.max(80, available))) + 'px');
+}
+window.addEventListener('resize', _labFitSigKellyParams);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', _labFitSigKellyParams);
+
 function _renderSigKellyBar(bar, data, period) {
   // B级UI(2026-08-15): 移动端吸顶条默认折叠成1行(周期+「参数」按钮), 全部控制台收进展开区, 点「参数」展开。用户方案A。
-  // 展开/收起态持久化 localStorage lab_sigkelly_params_open; 未设置过则按设备宽度默认(≤600px 收起 / >600px 展开=PC现状)。重渲染后保持, 不回落默认。
+  // 展开/收起态持久化 localStorage lab_sigkelly_params_open; 未设置过则与移动样式同界(≤760px 收起)。重渲染后保持。
   // 说明: PC 端保持展开(现状)避免用户觉得功能"藏起来"; 仅移动端默认收起缓解吸顶高度(叠加3层导航后内容被压到屏下)。
   const _sigParamsOpenState = _sigKellyParamsOpen();
   function _sigKellyParamsOpen() {
     let saved = null;
     try { saved = localStorage.getItem('lab_sigkelly_params_open'); } catch (e) { saved = null; }
     if (saved !== null) return saved === '1';
-    const isMobile = window.matchMedia && window.matchMedia("(max-width: 600px)").matches;
+    const isMobile = window.matchMedia && window.matchMedia("(max-width: 760px)").matches;
     return !isMobile; // 移动端默认收起, PC 默认展开
   }
   const cfg = data.config || {};
@@ -11410,7 +11439,7 @@ function _renderSigKellyBar(bar, data, period) {
   const _sumFee = _kellyFeeLabel();
   const _sumPos = _filters.positionCap ? `仓位K${_pcK || 1}` : "仓位off";
   const _sumGih = (_gihOn ? " · GIH开" : "");
-  const _paramBtn = `<button type="button" class="lab-sigkelly-params-toggle" id="lab-kelly-params-toggle" data-no-pop="" title="展开/收起 费率·降亏过滤·AI仓位·G/H/I 全部参数控制台">${_sigParamsOpenState ? "参数收起 ▲" : "⚙️ 参数 ▼"}</button>`;
+  const _paramBtn = `<button type="button" class="lab-sigkelly-params-toggle" id="lab-kelly-params-toggle" aria-controls="lab-kelly-params-body" aria-expanded="${_sigParamsOpenState}" data-no-pop="" title="展开/收起 费率·降亏过滤·AI仓位·G/H/I 全部参数控制台">${_sigParamsOpenState ? "参数收起 ▲" : "⚙️ 参数 ▼"}</button>`;
   // 2026-09-04 断链根治配套: 「演进」入口 = 每日回测快照迷你曲线(读 signal_kelly_snapshots/index.json,
   // 只读小 JSON, 展示 max_signal_date 演进 + 各模式 total_return 迷你曲线, 断链/突变可视化)。
   const _evoBtn = `<button type="button" class="lab-sigkelly-params-toggle" id="lab-kelly-evo-btn" data-no-pop="" title="信号凯利回测演进: 每日快照的 max_signal_date(m=信号日)与 total_return 迷你曲线(断链/突变可视化; d=快照日/m=信号日, m 因 T+1 次日开盘定价天然比 d 早 1 交易日属正常错位, 数据源=signal_kelly_snapshots/index.json)">📈 演进</button>`;
@@ -11435,7 +11464,7 @@ function _renderSigKellyBar(bar, data, period) {
       _paramBtn +
       _evoBtn +
     `</div>` +
-    `<div class="lab-sigkelly-params-body${_paramsBodyOpen}">` +
+    `<div id="lab-kelly-params-body" role="region" aria-label="回测参数" class="lab-sigkelly-params-body${_paramsBodyOpen}">` +
       `<div class="lab-sigkelly-params">` +
       // 2026-08-26 排版调整(用户拍板): topgrid 两列 = 左「费率模块(fee-row+自定义输入)」右「ai长线模式(G/H/I)仓位管理块」——
       //   PC 宽屏两列同行, 窄屏 flex-wrap 自然换行=费率一行/长线模式一行(样式见 lab.css .lab-sigkelly-topgrid);
@@ -11469,9 +11498,25 @@ function _renderSigKellyBar(bar, data, period) {
       if (open) body.classList.remove("lab-sigkelly-params-open");
       else body.classList.add("lab-sigkelly-params-open");
       _paramsToggle.textContent = open ? "⚙️ 参数 ▼" : "参数收起 ▲";
+      _paramsToggle.setAttribute('aria-expanded', String(!open));
       try { localStorage.setItem('lab_sigkelly_params_open', open ? '0' : '1'); } catch (e) {}
+      _labFitSigKellyParams();
+    };
+    bar.onkeydown = function (event) {
+      if (event.key !== 'Escape' || !window.matchMedia('(max-width: 760px)').matches || _paramsToggle.getAttribute('aria-expanded') !== 'true') return;
+      event.preventDefault();
+      _paramsToggle.click();
+      _paramsToggle.focus();
     };
   }
+  if (_labSigParamsObserver) _labSigParamsObserver.disconnect();
+  if (window.ResizeObserver) {
+    _labSigParamsObserver = new ResizeObserver(_labFitSigKellyParams);
+    _labSigParamsObserver.observe(bar.querySelector('.lab-sigkelly-bar-head'));
+    const bottom = document.querySelector('.h5-bottomnav');
+    if (bottom) _labSigParamsObserver.observe(bottom);
+  }
+  _labFitSigKellyParams();
   // 演进弹窗: 读 signal_kelly_snapshots/index.json(每日快照迷你索引, 见 scripts/signal_kelly_snapshot.py)
   var _evoToggle = bar.querySelector("#lab-kelly-evo-btn");
   if (_evoToggle) {
