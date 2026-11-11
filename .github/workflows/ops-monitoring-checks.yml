@@ -293,8 +293,14 @@ jobs:
       - name: 完整脚本与运维组合回归
         run: |
           ops_test_status=0
+          # Keep old-notifier / duplicate-unit negative controls executable in CI.
+          # This is a read-only historical source export, not a production checkout.
+          mkdir -p "$RUNNER_TEMP/ops-quiet-baseline"
+          git archive 49fe9bea75d6b2106445a8686a36fc3d51005abc scripts | tar -x -C "$RUNNER_TEMP/ops-quiet-baseline"
           # Avoid expanded subprocess locals (including inherited env) in failed traces.
-          python3 -m pytest -q scripts/tests/ ops/monitoring/tests/ --tb=short --junitxml="$RUNNER_TEMP/ops-scripts-tests.xml" || ops_test_status=$?
+          OPS_QUIET_BASELINE_ROOT="$RUNNER_TEMP/ops-quiet-baseline" \
+          OPS_QUIET_LEGACY_NOTIFY_SOURCE="$RUNNER_TEMP/ops-quiet-baseline/scripts/notify.py" \
+            python3 -m pytest -q scripts/tests/ ops/monitoring/tests/ --tb=short --junitxml="$RUNNER_TEMP/ops-scripts-tests.xml" || ops_test_status=$?
           python3 ops/monitoring/report_ci_tests.py "$RUNNER_TEMP/ops-scripts-tests.xml"
           exit "$ops_test_status"
 
