@@ -27,7 +27,7 @@ function declaration(source, name) {
 const sources = [
   ...["_labKellyFetchTrades", "_labKellyFetchTradesRetry", "_labKellyTradesUrl", "_labKellyTradesUrlCf", "fetchJSONProgress"]
     .map(name => declaration(lab, name)),
-  ...["_fundScoreApiFetch", "_fundScreenerApiFetch", "fetchJSON"].map(name => declaration(app, name)),
+  ...["_fundScoreApiFetch", "_fundScreenerApiFetch", "_guardFxPayload", "fetchJSON"].map(name => declaration(app, name)),
 ].join("\n");
 
 function clock() {

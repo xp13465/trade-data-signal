@@ -26,7 +26,15 @@ const block = (a,b) => src.slice(src.indexOf(a),src.indexOf(b,src.indexOf(a)));
       const archive={signals_today:[{index_id:'g.usdcnh'}]};
       const quote={fx:{code:'133.USDCNH',price:7.1}};
       _guardFxPayload('trades.json',archive);_guardFxPayload('intraday_snapshot.json',quote);
-      const newScores={today:{scores:{cross_market:fresh}}};_guardFxPayload('overview.json',newScores);
+      const newScores={today:{scores:{cross_market:fresh,a_sentiment:{value:0}}}};_guardFxPayload('overview.json',newScores);
+      const flagged={today:{scores:{a_sentiment:{value:0}}}};
+      for (const sid of ['cross_market','fear_greed','high_alert','low_alert']) {
+        flagged.today.scores[sid]={value:99,is_freeze:1,is_overheat:1,components:JSON.stringify(fresh.components)};
+        flagged[sid]=[fresh,{value:0,components:fresh.components}];
+      }
+      _guardFxPayload('sentiment-all.json',flagged);
+      const markedAlert=_guardFxPayload('alert.json',{fx_contract:'fx-excluded-v1',high:{score:99,triggered:true},low:{score:99,triggered:true}});
+      const markedSummary=_guardFxPayload('summary.json',{fx_contract:'fx-excluded-v1',fear_greed_value:99,buy_count:1});
       // Exercise the real shared fetchJSON success/cache path with a local transport stub.
       Object.assign(window,{_isMainSite:()=>true,_NO_CACHE_URLS:/$^/,_NO_R2_CACHE_URLS:/$^/,_resultCache:new Map(),_inflightFetch:new Map(),_CACHE_TTL:300000,_R2_FALLBACK_BASE:'http://invalid/',_tdsSsdUrlFor:()=>null});
       let calls=0;
@@ -37,7 +45,7 @@ const block = (a,b) => src.slice(src.indexOf(a),src.indexOf(b,src.indexOf(a)));
       _guardFxPayload('notifications.json',notifications);
       const summaries={items:[{date:'20261111',summary_short:'旧过热99',fear_greed_value:99,buy_count:99}]};
       _guardFxPayload('summary_history.json',summaries);
-      return {boot,global,archive,quote,newScores,fetched,cached,calls,notifications,summaries};
+      return {boot,global,archive,quote,newScores,fetched,cached,calls,notifications,summaries,flagged,markedAlert,markedSummary};
     });
     assert.equal(result.boot.overview.today.scores.cross_market.value,null);checks++;
     assert.equal(result.boot.overview.today.scores.fear_greed.value,null);checks++;
@@ -46,7 +54,19 @@ const block = (a,b) => src.slice(src.indexOf(a),src.indexOf(b,src.indexOf(a)));
     assert.equal(result.boot.alert.availability,'unavailable');checks++;
     assert.deepEqual(result.boot.overview.recent_freeze.map(x=>x.score_id),['a_sentiment']);checks++;
     assert.equal(result.boot.overview.sentiment_calendar.length,0);checks++;
-    assert.equal(result.newScores.today.scores.cross_market.value,43);checks++;
+    assert.equal(result.newScores.today.scores.cross_market.value,null);checks++;
+    assert.equal(result.newScores.today.scores.a_sentiment.value,0);checks++;
+    for (const sid of ['cross_market','fear_greed','high_alert','low_alert']) {
+      assert.equal(result.flagged.today.scores[sid].value,null);checks++;
+      assert.equal(result.flagged.today.scores[sid].is_freeze,null);checks++;
+      assert.equal(result.flagged.today.scores[sid].is_overheat,null);checks++;
+      assert.deepEqual(result.flagged[sid].map(r=>r.value),[null,null]);checks++;
+    }
+    assert.equal(result.flagged.today.scores.a_sentiment.value,0);checks++;
+    assert.equal(result.markedAlert.high.score,null);checks++;
+    assert.equal(result.markedAlert.low.triggered,false);checks++;
+    assert.equal(result.markedSummary.fear_greed_value,null);checks++;
+    assert.equal(result.markedSummary.buy_count,1);checks++;
     assert.equal(result.global.extras.usdcnh.length,0);checks++;
     assert.equal(result.archive.signals_today.length,1);checks++;
     assert.equal(result.quote.fx.code,'133.USDCNH');checks++;

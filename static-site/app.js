@@ -9782,19 +9782,21 @@ function _guardFxPayload(url, data) {
   const sigOK = r => !["g.usdcnh", "s.cross_market", "s.fear_greed"].includes(r.index_id);
   const score = r => {
     if (!r) return r;
-    let c = r.components;
-    try { if (typeof c === "string") c = JSON.parse(c); } catch (_) { c = null; }
-    return c && c._fx_contract === version && c._fx_available === true ? r : { ...r, value: null, is_freeze: null, is_overheat: null, components: null, availability: "unavailable" };
+    // No verified history activation exists in this release. Cache flags cannot
+    // activate any of the four dependent scores, even if marked available=true.
+    return { ...r, value: null, is_freeze: null, is_overheat: null, components: null, availability: "unavailable" };
   };
   if (data.alert) data.alert = _guardFxPayload("alert.json", data.alert);
   if (data.summary && typeof data.summary === "object") _guardFxPayload("summary.json", data.summary);
-  if (name === "alert.json" && data.fx_contract !== version) return {date: data.date, availability: "unavailable", reason: "旧FX参与的预警待重算"};
+  if (name === "alert.json") return {date: data.date, availability: "unavailable", reason: "FX历史合同未验证，评分缺维不可用",
+    high: {score: null, level: "数据不足", triggered: false, dims: []},
+    low: {score: null, level: "数据不足", triggered: false, dims: []}};
   if (name === "summary.json" && data.fx_contract !== version) {
     data.summary = data.summary_short = "历史摘要含未验证FX，相关信号统计与评分不可用；原记录保留，待重建。";
     data.buy_count = data.sell_count = data.buy_sentiment_count = data.sell_sentiment_count = null;
     data.is_freeze = null; data.freeze_info = "";
-    data.fear_greed_value = null; data.fear_greed_label = "不可用";
   }
+  if (name === "summary.json") { data.fear_greed_value = null; data.fear_greed_label = "不可用"; }
   if (name === "notifications.json") {
     data.signals = (data.signals || []).filter(sigOK);
     for (const side of ["high", "low"]) if (data.alerts && data.alerts[side]) data.alerts[side] = {score: null, level: "数据不足", triggered: false};
@@ -9805,7 +9807,7 @@ function _guardFxPayload(url, data) {
   if (data.signal_stats) _guardFxPayload("signal_stats.json", data.signal_stats);
   if (name === "signal_freq.json" && data._fx_contract !== version) return {availability: "unavailable"};
   if (name === "signal_stats.json") { delete data["g.usdcnh"]; delete data["s.cross_market"]; delete data["s.fear_greed"]; }
-  if (Array.isArray(data.signals_today)) data.signals_today = data.signals_today.filter(sigOK).map(r => ({...r, reason: String(r.reason || "").replace(/,?情绪分=[+-]?[0-9.]+\[[^\]]*\]/g, "")}));
+  if (Array.isArray(data.signals_today)) data.signals_today = data.signals_today.filter(sigOK).map(r => ({...r, reason: String(r.reason || "").replace(/,?\s*情绪分=[+-]?[0-9.]+\[[^\]]*\]/g, "")}));
   const scoreOK = r => !["cross_market", "fear_greed", "high_alert", "low_alert"].includes(r.score_id);
   if (Array.isArray(data.recent_freeze)) data.recent_freeze = data.recent_freeze.filter(scoreOK);
   if (Array.isArray(data.sentiment_calendar)) data.sentiment_calendar = data.sentiment_calendar.map(d => ({...d,

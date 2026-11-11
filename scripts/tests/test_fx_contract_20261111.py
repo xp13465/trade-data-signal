@@ -29,6 +29,7 @@ def extract(path, name, namespace=None):
 def isolated(monkeypatch, tmp_path):
     monkeypatch.setenv("REPO", str(tmp_path))
     monkeypatch.setenv("GIT_REPO", str(tmp_path))
+    monkeypatch.setenv("MAIN_REPO", str(tmp_path))
     def denied(*args, **kwargs):
         raise AssertionError("external transport forbidden")
     monkeypatch.setattr(socket, "getaddrinfo", denied)
@@ -157,7 +158,9 @@ def test_old_metric_and_score_query_guard(db):
     for cache in (None, {}):
         rows = score(db,"cross_market","20260101","20261231",cache=cache)
         assert rows[0]["value"] is None and rows[0]["is_freeze"] is None
-        assert rows[1]["value"] == 40
+        assert rows[1]["value"] is None  # row flags are not verified activation
+    db.execute("INSERT INTO score_daily VALUES('20261111','a_sentiment',0,1,0,'{}',NULL)")
+    assert score(db,"a_sentiment","20260101","20261231")[0]["value"] == 0
     assert db.execute("SELECT value FROM score_daily WHERE date='20261110'").fetchone()[0] == 30
 
 
@@ -185,9 +188,9 @@ def test_actual_normalize_and_alert_loaders(db,tmp_path,monkeypatch):
         fn=extract("app/compute/normalize.py",name,{"pd":pd,"get_conn":lambda:pytest.fail("must not read legacy")})
         assert fn("usdcnh").empty
     fn=extract("app/compute/normalize.py","load_score_value",{"pd":pd,"get_conn":conn,"__package__":"app.compute"})
-    assert fn("cross_market").to_dict()=={"20261111":23}
+    assert fn("cross_market").empty
     fn=extract("app/alert_score.py","load_score",{"pd":pd,"_conn_sent":conn,"DEPENDENT_SCORES":fx.DEPENDENT_SCORES,"guard_score":fx.guard_score})
-    assert fn("cross_market").to_dict()=={"20261111":23}
+    assert fn("cross_market").empty
 
 
 def test_fear_greed_uses_available_valid_scores_only(db,tmp_path):
@@ -361,9 +364,10 @@ def test_real_signal_count_to_alert_score_to_json_export(db,tmp_path,monkeypatch
     for i,d in enumerate(days):
         db.executemany("INSERT INTO index_daily VALUES(?,?,?)",[(d,iid,100+i%17+i/5) for iid in [*alerts._BROAD_INDICES,"us_spx"]])
         db.executemany("INSERT INTO daily_metric VALUES(?,?,?,?,NULL)",[(d,mid,i%19+1,"fixture") for mid in metric_ids])
-        db.executemany("INSERT INTO score_daily VALUES(?,?,?,0,0,'{}',NULL)",[(d,"a_sentiment",20),(d,"cross_market",99),(d,"fear_greed",99)])
+        flags=json.dumps({"_fx_contract":fx.SCORE_VERSION,"_fx_available":True})
+        db.executemany("INSERT INTO score_daily VALUES(?,?,?,0,0,?,NULL)",[(d,"a_sentiment",20,"{}"),(d,"cross_market",99,flags),(d,"fear_greed",99,flags)])
         db.executemany("INSERT INTO signal_daily VALUES(?,?,?,?)",[(d,"g.usdcnh","sell","old"),(d,"s.cross_market","sell","old"),(d,"sh","buy","independent")])
-    db.executemany("INSERT INTO score_daily VALUES(?,?,99,1,1,'{}','original')",[(days[-1],"high_alert"),(days[-1],"low_alert")]);db.commit()
+    db.executemany("INSERT INTO score_daily VALUES(?,?,99,1,1,?,'original')",[(days[-1],"high_alert",flags),(days[-1],"low_alert",flags)]);db.commit()
     # Uses sqlite3's real default tuple rows, unlike app.db's Row factory.
     assert alerts.load_score("cross_market").empty
     assert alerts._signal_count_daily(["sell"]).empty
