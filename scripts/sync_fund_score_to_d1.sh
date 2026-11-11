@@ -61,6 +61,16 @@ SCRIPT_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_SELF_DIR/lib/repo_paths.sh" || { echo "FATAL: repo_paths.sh missing" >&2; exit 2; }
 resolve_repo "${BASH_SOURCE[0]}"
 PY="$REPO/.venv/bin/python"
+# Capture once at entry, before any D1 library source/call. This is a disk
+# snapshot, not a claim that Bash loaded an immutable copy of these files.
+if [ "${DRY_RUN:-}" != "1" ]; then
+  D1_METRICS_STARTUP_IDENTITY=$("$PY" "$SCRIPT_SELF_DIR/d1_metrics_evidence.py" \
+    --capture-identity "$SCRIPT_SELF_DIR") || {
+    D1_METRICS_STARTUP_IDENTITY=""
+    echo '[d1-evidence] WARN: startup code identity unavailable' >&2
+  }
+  export D1_METRICS_STARTUP_IDENTITY
+fi
 DB="$REPO/data/public_fund.db"
 LOG_PREFIX="[sync-d1]"
 SCRIPT_NAME="sync_fund_score_to_d1"
@@ -173,6 +183,10 @@ HASHES_FILE="$GEN_DIR/d1_hashes.json"
 #   不落盘 → #275 告警链对本场景失明。d1_execute.sh 顶层只定义函数/常量, 提前 source 无副作用。
 source "$SCRIPT_SELF_DIR/lib/d1_execute.sh" || _fail "d1_execute.sh missing"
 source "$SCRIPT_SELF_DIR/lib/d1_hash_read.sh" || _fail "d1_hash_read.sh missing"
+if [ "$DRY_RUN" != "1" ]; then
+  d1_metrics_init
+  D1_METRICS_TABLES="fund_score,sync_meta"
+fi
 if [ "$DRY_RUN" = "1" ]; then
   if [ -n "$D1_EXISTING_HASHES_FILE" ] && [ -f "$D1_EXISTING_HASHES_FILE" ]; then
     cp "$D1_EXISTING_HASHES_FILE" "$HASHES_FILE"
@@ -500,7 +514,8 @@ done
 
 # 3) 验证: D1 侧 count 与本地一致(期望 = 本地行数 + daily 未清理的 removed 残留;
 #    weekly 清理 removed 时 RETAINED=0 退化为严格相等)
-D1_COUNT=$(_d1_run_with_timeout "$VERIFY_TIMEOUT_SEC" \
+D1_COUNT=$(d1_observed_command count_verify SELECT fund_score \
+  _d1_run_with_timeout "$VERIFY_TIMEOUT_SEC" \
   npx wrangler d1 execute trade-fund-score --remote -y --json \
   --command "SELECT COUNT(*) AS n FROM fund_score" 2>/dev/null \
   | "$PY" -c "import json,sys;d=json.load(sys.stdin);print(d[0]['results'][0]['n'])")

@@ -36,7 +36,7 @@ d1_migrate_column() {
   #   表不存在 → "no such table"(容忍, 后续 CREATE TABLE IF NOT EXISTS 会建);
   #   其他错误 → 真失败, 返回非 0。
   local out rc
-  out=$(_d1_hash_run "$db" \
+  out=$(D1_METRICS_STAGE=migration D1_METRICS_OP=ALTER D1_METRICS_TABLE="$table" _d1_hash_run "$db" \
     "ALTER TABLE ${table} ADD COLUMN ${col} ${col_ddl};" 2>&1)
   rc=$?
   if [ $rc -ne 0 ]; then
@@ -66,7 +66,7 @@ d1_read_hashes() {
       sql="SELECT fund_code, row_hash FROM ${table} WHERE fund_code > '${esc}' ORDER BY fund_code LIMIT ${batch}"
     fi
     local raw rc
-    raw=$(_d1_hash_run "$db" "$sql" 2>/dev/null)
+    raw=$(D1_METRICS_STAGE=hash_prefetch D1_METRICS_OP=SELECT D1_METRICS_TABLE="$table" _d1_hash_run "$db" "$sql" 2>/dev/null)
     rc=$?
     if [ $rc -ne 0 ]; then
       echo "[d1-hash] ERROR ${table} 读哈希失败(batch last_key=$last_key rc=$rc)" >&2
@@ -103,7 +103,8 @@ _d1_hash_run() {
   local db="$1" cmd="$2"
   # 优先用 d1_execute.sh 的 _d1_run_with_timeout(若已 source); 否则裸 timeout
   if command -v _d1_run_with_timeout >/dev/null 2>&1; then
-    _d1_run_with_timeout "$_D1_HASH_READ_TIMEOUT" \
+    d1_observed_command "${D1_METRICS_STAGE:-hash_prefetch}" "${D1_METRICS_OP:-SELECT}" "${D1_METRICS_TABLE:-}" \
+      _d1_run_with_timeout "$_D1_HASH_READ_TIMEOUT" \
       npx wrangler d1 execute "$db" --remote -y --json --command "$cmd"
   else
     npx wrangler d1 execute "$db" --remote -y --json --command "$cmd"

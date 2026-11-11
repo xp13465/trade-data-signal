@@ -36,6 +36,59 @@
 # 明确属于「重放也没用」的 SQL 类错误(小写匹配)。
 _D1_SQL_FATAL_RE='sqlite_toobig|statement too long|syntax error|no such (table|column)|constraint failed|has no column named'
 
+_D1_METRICS_HELPER="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/d1_metrics_evidence.py"
+
+# Called once per sync (before command substitutions). FD 9 keeps evidence errors
+# visible even when the original caller intentionally discards Wrangler stderr.
+d1_metrics_init() {
+  exec 9>&2
+  D1_METRICS_WARN_FD=9
+  D1_METRICS_DIR="${D1_METRICS_DIR:-$REPO/data/d1_metrics_evidence}"
+  D1_METRICS_RUN_ID=$("${PY:-python3}" -c 'import uuid; print(uuid.uuid4().hex)') || {
+    _d1_metrics_warn; return 0;
+  }
+  export D1_METRICS_DIR D1_METRICS_RUN_ID D1_METRICS_WARN_FD SCRIPT_NAME
+}
+
+_d1_metrics_warn() {
+  echo '[d1-evidence] WARN: 本次计数证据不完整；业务返回码保留，不因证据失败重放 SQL' >&${D1_METRICS_WARN_FD:-2}
+}
+
+# Metadata only; original command is executed exactly once, with unchanged rc.
+# Bounded samples stay in memory; bytes stream to original sinks. SQL/credentials/results
+# never enter the persistent evidence file. Standalone callers opt in via run ID.
+_d1_observe() {
+  local stage="$1" operation="$2" scope="$3" tables="$4" attempt="$5" call_id="$6"
+  shift 6
+  if [ -z "${D1_METRICS_RUN_ID:-}" ]; then
+    "$@"; return $?
+  fi
+  # The command wrapper samples pipes in bounded memory, so ENOSPC in the evidence
+  # directory cannot change Wrangler's rc or accidentally trigger a SQL retry.
+  # All observed sites pass the existing timeout wrapper + its seconds first.
+  if [ "$1" != "_d1_run_with_timeout" ] || [ ! -r "$_D1_METRICS_HELPER" ]; then
+    _d1_metrics_warn
+    "$@"; return $?
+  fi
+  shift
+  local seconds="$1"
+  shift
+  "${PY:-python3}" "$_D1_METRICS_HELPER" --run --timeout "$seconds" \
+    --call-id "$call_id" --attempt "$attempt" --stage "$stage" --operation "$operation" \
+    --scope "$scope" --tables "$tables" -- "$@"
+}
+
+_d1_call_id() {
+  "${PY:-python3}" -c 'import uuid; print(uuid.uuid4().hex)'
+}
+
+d1_observed_command() {
+  local stage="$1" operation="$2" tables="$3" call_id
+  shift 3
+  call_id=$(_d1_call_id) || call_id=""
+  _d1_observe "$stage" "$operation" statement "$tables" 1 "$call_id" "$@"
+}
+
 # _d1_run_with_timeout <秒> <命令...> - 带单次超时执行, 超时返回 124(与 coreutils timeout 同码)。
 #   · 云上 Linux 用 coreutils `timeout`(它会让命令自成进程组, 超时连带子进程一起收掉);
 #   · 本机 mac 默认没有 `timeout` ⇒ 退化为 bash 轮询实现(只影响本机/CI-mac 测试路径,
@@ -82,6 +135,8 @@ d1_execute_sql_file() {
   local budget_total="${D1_BUDGET_TOTAL_SEC:-0}"
   local started="${D1_BUDGET_START:-0}"
   local n=0 rc=124 delay now remaining attempt_timeout used
+  local call_id
+  call_id=$(_d1_call_id) || call_id=""
 
   while true; do
     # 每次尝试前先查预算: 预算不足时连一次调用都不发起(避免明知会超墙还硬跑)
@@ -105,7 +160,8 @@ d1_execute_sql_file() {
     fi
 
     n=$(( n + 1 ))
-    if _d1_run_with_timeout "$attempt_timeout" npx wrangler d1 execute "$db" --remote -y --file="$file" >"$out" 2>&1; then
+    if _d1_observe import IMPORT bundle "${D1_METRICS_TABLES:-}" "$n" "$call_id" \
+        _d1_run_with_timeout "$attempt_timeout" npx wrangler d1 execute "$db" --remote -y --json --file="$file" >"$out" 2>&1; then
       if [ "$n" -gt 1 ]; then
         echo "$prefix 重试第 $(( n - 1 )) 次成功(共 $n 次尝试)"
       fi

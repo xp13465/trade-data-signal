@@ -546,7 +546,7 @@ def test_execute_argv_shape_and_file_flag_with_spaces(tmp_path):
     """M1(审查差集 3): 命令行**逐参数**断言 —— 只数次数挡不住"命令拼错"(L49 同类)。
 
     期望形态(生产 `scripts/lib/d1_execute.sh` 的实际拼法):
-      npx wrangler d1 execute <db> --remote -y --file=<path>
+      npx wrangler d1 execute <db> --remote -y --json --file=<path>
     其中 `--file=` 与路径**必须是同一个参数**(路径含空格也不能被拆成两个),
     且 `--file=` 的值必须等于实际要导入的那个文件。
     判别力:把生产那行改成 `--file "$file"`(少引号)或调换参数顺序 ⇒ 本用例必红。
@@ -558,10 +558,10 @@ def test_execute_argv_shape_and_file_flag_with_spaces(tmp_path):
     assert len(calls) == 1, calls
     argv = calls[0]  # 假 npx 收到的是 npx 之后的实参($0 不在 "$@" 里)
     sql_path = tmp_path / "gen dir with space" / "full import.sql"
-    assert argv == ["wrangler", "d1", "execute", "testdb", "--remote", "-y",
+    assert argv == ["wrangler", "d1", "execute", "testdb", "--remote", "-y", "--json",
                     "--file=" + str(sql_path)], argv
-    # 实参个数: 7(多一个 = 空格路径被拆开 / 参数调换位置之类)
-    assert len(argv) == 7, "实参个数=%d(期望 7), argv=%r" % (len(argv), argv)
+    # 实参个数: 8(多一个 = 空格路径被拆开 / 参数调换位置之类)
+    assert len(argv) == 8, "实参个数=%d(期望 8), argv=%r" % (len(argv), argv)
     # `--file=` 只出现一次且是单个参数(拆开后这里会变成 0 个)
     assert [a for a in argv if a.startswith("--file=")] == ["--file=" + str(sql_path)], argv
     assert " " in argv[-1], "用例本身没覆盖到空格路径"
