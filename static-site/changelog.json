@@ -301,5 +301,11 @@
   ],
   "20261111-a661": [
     "docs(ops): verify FX contract, release retry and D1 evidence"
+  ],
+  "20261111-a662": [
+    "ci(ops): gate real FX page regressions and consolidate authorized delivery"
+  ],
+  "20261111-a663": [
+    "ci(ops): gate real FX page regressions and consolidate authorized delivery"
   ]
 }
