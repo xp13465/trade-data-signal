@@ -331,19 +331,18 @@ jobs:
   fx-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Match npm below; preinstalled browsers/libs avoid a fresh apt transaction
+    # on every run. Digest verified against Microsoft's official registry.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
+      options: --init --ipc=host
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      # Keep the 10-minute job bound, but identify package, apt and binary stalls.
-      # Two prior runs exhausted the combined install step before tests could run.
       - name: Install pinned isolated Playwright package
         run: npm install --prefix "$RUNNER_TEMP/ops-browser" --no-save --package-lock=false --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1 playwright@1.62.1
-      - name: Install Chromium system dependencies
-        run: node "$RUNNER_TEMP/ops-browser/node_modules/playwright/cli.js" install-deps chromium
-      - name: Install pinned Chromium binary
-        run: node "$RUNNER_TEMP/ops-browser/node_modules/playwright/cli.js" install chromium
       - name: Real page prefetch and split-signal contract regression
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/ops-browser/node_modules/playwright
