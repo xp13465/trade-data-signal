@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,21 @@ import ast,hashlib,importlib.util,json,os,sys,time,types
 from pathlib import Path
 sys.dont_write_bytecode=True
 P=Path(os.environ['TEST_ROOT']).resolve();S=P/'source';sys.path.insert(0,str(S/'scripts'))
+if sys.argv[1]=='-c':
+ # Execute the shell's actual stdlib JSON parser, not a canned queued/legacy answer.
+ # Install the guard BEFORE execution, including DNS/process/secret-file barriers.
+ class ForbiddenParser(BaseException):pass
+ def parser_guard(event,args):
+  if event.startswith('socket.') or event in ('subprocess.Popen','os.system','os.posix_spawn','os.exec','os.fork'):
+   raise ForbiddenParser(event)
+  if event=='open' and isinstance(args[0],(str,bytes)):
+   path,mode,flags=args;p=Path(os.fsdecode(path)).resolve()
+   write=(isinstance(mode,str) and any(x in mode for x in 'wax+')) or (isinstance(flags,int) and flags&(os.O_WRONLY|os.O_RDWR|os.O_CREAT|os.O_TRUNC|os.O_APPEND))
+   if (write or p.name=='.env') and not p.is_relative_to(P):raise ForbiddenParser(str(p))
+ sys.addaudithook(parser_guard)
+ code=sys.argv[2];sys.argv=['-c',*sys.argv[3:]]
+ exec(compile(code,'<local-shell-parser>','exec'),{'__name__':'__main__'})
+ sys.exit(0)
 script,*args=sys.argv[1:];name=Path(script).name
 if name in ('with_lock.py','r2_pending_context.py'):
  os.execv(sys.executable,[sys.executable,script]+args)
@@ -134,6 +150,44 @@ class PendingHandoffTest(unittest.TestCase):
         directory=Path(str(self.p/'pending')+'.contexts');return [json.loads(q.read_text()) for q in directory.glob('*.json')]
     def helper(self,env,action,*args,check=True):
         return subprocess.run([str(self.py),str(self.s/'scripts/r2_pending_context.py'),action,*args],env=env,capture_output=True,text=True,check=check,timeout=5)
+
+    def test_local_parser_executes_real_json_and_identity_validation(self):
+        env=self.producer('parser-run','hk-3m.json')
+        registered=json.loads(self.helper(env,'enqueue').stdout)
+        source=(self.s/'scripts/r2_upload_skip_notify.sh').read_text()
+        code,=re.findall(r'''_HANDOFF_STATE=\$\("\$PY" -c '(.*?)'\s*<<< "\$_ENQUEUE_RESULT"\)''',source,re.S)
+        samples=[(registered,'queued'),({'status':'legacy','registered':False},'legacy')]
+        samples += [(dict(registered,state=state),'recorded_terminal') for state in ('done','superseded')]
+        samples += [(dict(registered,**wrong),'invalid_result') for wrong in (
+            {'run_id':'other-run'},{'static_dir':str(self.p/'wrong-root')},{'proof_sha256':'not-a-hash'})]
+        for value,expected in samples:
+            with self.subTest(expected=expected,value=value):
+                result=subprocess.run([str(self.py),'-c',code],input=json.dumps(value),env=env,capture_output=True,text=True,timeout=5)
+                self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(result.stdout.strip(),expected)
+        invalid=subprocess.run([str(self.py),'-c',code],input='{invalid json',env=env,capture_output=True,text=True,timeout=5)
+        self.assertEqual(invalid.returncode,0,invalid.stderr);self.assertEqual(invalid.stdout.strip(),'invalid_result')
+        self.assertTrue(Path(env['R2_EXPORT_PROOF_PATH']).exists()) # Classification alone never retires source.
+
+    def test_local_parser_guard_rejects_external_actions_before_execution(self):
+        outside=self.p.parent/(self.p.name+'-forbidden-output')
+        probes=[
+            'import socket; socket.getaddrinfo("example.invalid",443)',
+            'import socket; socket.socket()',
+            'import subprocess,sys; subprocess.Popen([sys.executable,"-c","pass"])',
+            'import os; os.system("true")',
+            'from pathlib import Path; Path('+repr(str(outside))+').write_text("forbidden")',
+            'from pathlib import Path; Path('+repr(str(self.p.parent/'.env'))+').read_text()',
+        ]
+        for code in probes:
+            with self.subTest(code=code):
+                result=subprocess.run([str(self.py),'-c',code],env=self.env,capture_output=True,text=True,timeout=5)
+                self.assertNotEqual(result.returncode,0);self.assertIn('ForbiddenParser',result.stderr)
+        self.assertFalse(outside.exists())
+        # Positive control: the same guard permits actual isolated local work.
+        local=self.p/'parser-accepted.json'
+        result=subprocess.run([str(self.py),'-c','from pathlib import Path; Path('+repr(str(local))+').write_text("{}")'],env=self.env,capture_output=True,text=True,timeout=5)
+        self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(json.loads(local.read_text()),{})
+
     def test_two_actual_shell_producers_capture_new_proof_before_wait(self):
         a=self.producer('A','hk-3m.json');wa=self.worker(a,TEST_VERIFY_BLOCK='1');self.wait_file('at-verify',wa)
         self.assertEqual(self.remote_run(),'A')
