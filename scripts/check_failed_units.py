@@ -125,11 +125,13 @@ import argparse
 import fnmatch
 import json
 import os
+import re
 os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))  # #245 批2 W1: 台账 source 溯源
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -155,6 +157,10 @@ DEFAULT_REPO = next((p for p in DEFAULT_REPO_CANDIDATES if (p / "static-site" / 
 WATCHMAN_UNITS = adr.WATCHMAN_UNITS
 # patrol 包装器通道的 dedup key(= cloud_unit_patrol.sh 字面量)与其 unit 名
 PATROL_UNIT = "trade-cloud-unit-patrol.service"
+OPS_CORE_UNITS = {
+    "trade-public-fund-daily.service": "public_fund_daily",
+    "trade-overfit-monitor.service": "overfit_monitor",
+}
 
 # #309 F2 P1(2026-10-26): 本进程真实发出的告警邮件数, 由 _send_notify 单一发送点累加,
 # main() 包装层在进程尾部无条件打印 `NOTIFY_SENT=<n>` 供 schedule_monitor 解析。
@@ -349,10 +355,13 @@ def _run_unit_show(unit):
     ExecStart 可能多行(oneshot 多命令)⇒ 收集为 list(其余键仍是标量, 调用点不变)。
     Triggers: `.timer` 触发的目标 unit(`Triggers=<name>.service`), 供 _resolve_exec_entries
     把 timer 解析到真正持 ExecStart 的 .service(#203); 对 .service 该字段为空, 无害。
+    InvocationID/Result/ExecMain*: 两个 core service 的可选事件引用核验用。
     """
     r = subprocess.run(
         ["systemctl", "show", "-p", "ActiveState", "-p", "LoadState", "-p", "UnitFileState",
-         "-p", "Triggers", "-p", "ExecStart", unit],
+         "-p", "Triggers", "-p", "ExecStart",
+         "-p", "InvocationID", "-p", "Result", "-p", "ExecMainCode",
+         "-p", "ExecMainStatus", unit],
         capture_output=True, text=True, timeout=30, check=False,
     )
     d, exec_lines = {}, []
@@ -367,6 +376,112 @@ def _run_unit_show(unit):
     if exec_lines:
         d["ExecStart"] = exec_lines
     return d
+
+
+def _ops_entry(repo, ref):
+    """Read the atomically replaced shared state; notify rechecks under its lock.
+
+    CFU owns neither health nor receipts. Missing/corrupt/stale data is not proof
+    of delivery, and no timestamp is used as a substitute invocation identity.
+    """
+    try:
+        state = json.loads((Path(repo) / "data/alert_state.json").read_text())
+        entry = state.get(ref["key"])
+        if (isinstance(entry, dict) and entry.get("event_id") == ref["event_id"]
+                and entry.get("source_run") == ref["source_run"]
+                and entry.get("status") == "active" and entry.get("requires_action") is True):
+            return entry
+    except (OSError, ValueError, AttributeError):
+        pass
+    return {}
+
+
+def _verified_ops_refs(raw, failed, show, repo):
+    """Bind only the two authorized live failed invocations to schedule events."""
+    if raw is None:
+        return {}
+    try:
+        mapping = json.loads(raw)
+        if not isinstance(mapping, dict):
+            raise ValueError("expected unit -> event object")
+    except (ValueError, TypeError) as exc:
+        print(f"[ops-unit] invalid mapping; legacy fallback: {exc}", file=sys.stderr)
+        return {}
+    from unit_truth import derive_exit_code  # pure systemd parser; never ledger fallback
+
+    verified = {}
+    for unit, ref in mapping.items():
+        try:
+            if unit not in OPS_CORE_UNITS:
+                raise ValueError("outside the two core services")
+            if unit not in failed:
+                continue
+            if (not isinstance(ref, dict)
+                    or set(ref) != {"key", "event_id", "phase", "source_run", "exit_code"}
+                    or type(ref["exit_code"]) is not int or ref["exit_code"] == 0
+                    or ref["key"] != f"{OPS_CORE_UNITS[unit]}|unit_exit!=0|{ref['exit_code']}"
+                    or ref["phase"] != "active"
+                    or not isinstance(ref["event_id"], str) or not ref["event_id"].strip()
+                    or not isinstance(ref["source_run"], str)
+                    or not re.fullmatch(r"[0-9a-fA-F]{32}", ref["source_run"])):
+                raise ValueError("invalid event/invocation/exit identity")
+            props = show(unit)
+            if (props.get("Result") != "timeout"
+                    and not re.fullmatch(r"[0-9]+", str(props.get("ExecMainStatus", "")))):
+                raise ValueError("live exit status unavailable")
+            code, source = derive_exit_code(props)
+            if (props.get("InvocationID") != ref["source_run"]
+                    or props.get("ActiveState") != "failed"
+                    or source != "systemd" or code != ref["exit_code"]):
+                raise ValueError("current systemd invocation/exit does not match")
+            if not _ops_entry(repo, ref):
+                raise ValueError("saved active event/invocation unavailable")
+            verified[unit] = ref
+        except Exception as exc:  # bad handoff/query must never remove a failed unit
+            print(f"[ops-unit] {unit}: legacy fallback ({type(exc).__name__}: {exc})",
+                  file=sys.stderr)
+    return verified
+
+
+def _ops_notify_result(repo, ref, payload):
+    """Return (handled, actually_accepted); queued/unknown never means sent.
+
+    A concurrent claim is temporarily handled, retried next poll outside CFU's
+    daily signature gate. Only notify's matching positive receipt permits quiet.
+    """
+    status = payload.get("status")
+    results = payload.get("event_results")
+    if (not isinstance(results, list) or len(results) != 1
+            or not isinstance(results[0], dict)
+            or any(results[0].get(k) != v for k, v in ref.items())
+            or results[0].get("status") != status):
+        return False, False
+    channels = payload.get("channels") or {}
+    accepted = (isinstance(channels, dict)
+                and any(channels.get(c) is True for c in ("email", "telegram", "feishu")))
+    entry = _ops_entry(repo, ref)
+    receipt = (entry.get("notified_event_id") == ref["event_id"]
+               and bool(entry.get("notified_at"))
+               and isinstance(entry.get("notified_channels"), dict)
+               and any(entry["notified_channels"].get(c) is True
+                       for c in ("email", "telegram", "feishu")))
+    if status in ("sent", "partial"):
+        return bool(accepted and receipt and payload.get("receipt_persisted") is True), accepted
+    if status == "suppressed":
+        return bool(receipt), False
+    if status == "deferred":
+        claim = entry.get("notification_claim")
+        if isinstance(claim, dict):
+            try:
+                now = time.time()
+                pending = (claim.get("event_id") == ref["event_id"]
+                           and claim.get("phase") == "active"
+                           and bool(claim.get("attempt_id"))
+                           and now < float(claim.get("expires_at", 0)) <= now + 180)
+                return pending, False
+            except (TypeError, ValueError):
+                pass
+    return False, accepted
 
 
 def _as_list(v):
@@ -465,13 +580,16 @@ def _write_sig_state(path, prev_state, *, sent, reason, observed_sig, observed_i
               file=sys.stderr)
 
 
-def _send_notify(repo, subject, body, dedup_key=None, escalation_only=False):
+def _send_notify(repo, subject, body, dedup_key=None, escalation_only=False, ops_event_ref=None):
     """子进程调 notify.py(--severe 真发)。返回 (sent, detail)。
 
     dedup_key: 告警通道去重键, 默认 failed_units_patrol(原通道一字不改);
     #275 D1 同步通道传 d1_sync_fail(各自独立闸门, 互不占键)。
     escalation_only(★2 批次2, 2026-10-28): 只跑 #196 升级档判定, 不直发首报
       (notify 侧 --escalation-only)。非升级命中 ⇒ notify 返回 noop(本函数判「未发出」)。
+    ops_event_ref: 可选精确四字段引用。返回值表示共享事件已受理或正在合法领取中，
+      不代表业务恢复；只有真实渠道受理计 NOTIFY_SENT。失败/未知不走第二份 legacy 发送。
+      每事件超时 30s(与 schedule 发送入口一致)，超时保留 notify 的 claim/未知边界。
 
     ⚠️ #240 ② 起 `--dedup-window 0`: 每日 1 次/集合变化的闸门已由本脚本自管
     (failed_units_daily_judge), 若仍用 6h 窗则「集合有变立即报」会被 notify 的通用去重
@@ -507,8 +625,10 @@ def _send_notify(repo, subject, body, dedup_key=None, escalation_only=False):
              "--severe", "--from-prefix", "[告警]",
              *key_args, "--dedup-window", "0",
              *(["--escalation-only"] if escalation_only else []),
+             *(["--ops-event-refs", json.dumps([ops_event_ref])] if ops_event_ref else []),
              "--result-file", result_path],
-            capture_output=True, text=True, timeout=120, check=False,
+            capture_output=True, text=True, timeout=30 if ops_event_ref else 120, check=False,
+            **({"env": {**os.environ, "REPO": str(repo)}} if ops_event_ref else {}),
         )
         out = (proc.stdout or "") + (proc.stderr or "")
         _status, _channels = None, {}
@@ -521,8 +641,11 @@ def _send_notify(repo, subject, body, dedup_key=None, escalation_only=False):
         if _status is None:
             detail = out.strip()[-300:] or f"rc={proc.returncode}(无输出)"
             return False, f"status=missing(结果文件缺失/损坏, 按未送达处理) {detail}"
-        sent = _status in ("sent", "digested")
-        if sent:
+        if ops_event_ref:
+            sent, accepted = _ops_notify_result(repo, ops_event_ref, payload)
+        else:
+            sent = accepted = _status in ("sent", "digested")
+        if accepted:
             # #309 F2 P1: 真发出(含并入当日摘要)才计数 —— 单一发送点累加, 不逐 caller 打补丁
             # (7 级阶梯: 共享函数里一处守卫, 而非每个发送点各写一份)。
             _NOTIFY_SENT_COUNT["sent"] += 1
@@ -665,6 +788,9 @@ def _main_impl() -> int:
                     help="自测桩: schedule_stats.json 路径(抑制判定读 patrol last_run)")
     ap.add_argument("--allowlist-file", default=str(ALLOWLIST_DEFAULT_PATH),
                     help="failed-unit 白名单文件(#280; 默认 docs/deploy/failed-unit-allowlist.txt)")
+    ap.add_argument("--ops-unit-event-refs", default=None, metavar="JSON",
+                    help="仅公募/overfit: unit -> {key,event_id,phase,source_run,exit_code}; "
+                         "核验真实 InvocationID 后引用 schedule 事件; 缺身份保留原告警")
     args = ap.parse_args()
 
     repo = Path(args.repo)
@@ -770,6 +896,11 @@ def _main_impl() -> int:
     if failed:
         problems.append("云上 failed unit: " + ", ".join(failed))
     problems.extend(watchman)
+    observed_problems = list(problems)
+    if observed_problems:
+        # Preserve the machine-readable observation even when notification ownership moves.
+        print(f"CHECK_FAILED_UNITS_FAIL({len(observed_problems)} 项): "
+              + " | ".join(observed_problems))
     if suppressed:
         for s in suppressed:
             print(f"[suppress] {s}")
@@ -777,6 +908,26 @@ def _main_impl() -> int:
     now = datetime.now()
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     today_str = now.strftime("%Y-%m-%d")
+    ops_refs = _verified_ops_refs(args.ops_unit_event_refs, failed, _show, repo)
+    for unit, mapping in ops_refs.items():
+        ref = {k: mapping[k] for k in ("key", "event_id", "phase", "source_run")}
+        ops_subject = f"[告警] {unit} 运行失败"
+        ops_body = (f"<b>failed unit(运行过但失败)</b>: {unit}<br>"
+                    f"退出码: {mapping['exit_code']}<br>InvocationID: {ref['source_run']}<br>"
+                    "本轮 systemd 终态与 schedule 事件一致；不能据此推断连续停摆时长。<br>"
+                    f"处置: systemctl status {unit} / journalctl -u {unit} -n 100<br>"
+                    f"脚本: scripts/check_failed_units.py &nbsp;时间: {now_str}")
+        if do_notify:
+            handled, detail = _send_notify(repo, ops_subject, ops_body,
+                                          dedup_key=ref["key"], ops_event_ref=ref)
+            print(f"[ops-unit] {unit}: shared event handled={handled}; {detail}", file=sys.stderr)
+            if not handled:
+                _d1_rc = 4  # visible retry; never send a second legacy copy of this attempt
+        else:
+            print(f"[ops-unit] dry-run: {ops_subject}; {ops_body}", file=sys.stderr)
+    # Separate notification payloads/signatures, never the underlying observation.
+    failed = [u for u in failed if u not in ops_refs]
+    problems = (["云上 failed unit: " + ", ".join(failed)] if failed else []) + watchman
     _sig_state_path = repo / "data" / adr.FAILED_UNITS_SIG_STATE_FILENAME
     _prev_state = _read_sig_state(_sig_state_path)
     # 方向判定用的**细粒度成员**(见 adr.failed_units_identity): failed unit 名逐个 + 存活异常逐条
@@ -793,8 +944,11 @@ def _main_impl() -> int:
                              observed_sig="", observed_items=[],
                              today_str=today_str, now_str=now_str)
             print("[failed-units] 记录「集合已空」观测(供方向判定)", file=sys.stderr)
-        print(f"CHECK_FAILED_UNITS_OK failed=0 watchman={len(WATCHMAN_UNITS)} 个 timer 全部在跑")
-        return _merge_d1_rc(0, _d1_rc)
+        if observed_problems:
+            print("[ops-unit] failed observations retained; legacy candidates=0")
+        else:
+            print(f"CHECK_FAILED_UNITS_OK failed=0 watchman={len(WATCHMAN_UNITS)} 个 timer 全部在跑")
+        return _merge_d1_rc(1 if observed_problems else 0, _d1_rc)
 
     # ── ③ 降噪(#240 ② + 方向感知精修, 2026-10-09) ──
     # 同一失败集合当日只报 1 次(消除 09:45/16:00/22:15 三封同文); **新增** failed unit 立即报;
@@ -813,7 +967,6 @@ def _main_impl() -> int:
     body_lines.append("处置: 人类排查 `systemctl status <unit>` / `journalctl -u <unit> -n 100`;"
                       "确认修复后 `systemctl reset-failed <unit>`(本巡检只告警, 不改生产)。")
     body = "<br>".join(body_lines)
-    print(f"CHECK_FAILED_UNITS_FAIL({len(problems)} 项): " + " | ".join(problems))
 
     if do_notify:
         if not _send:
