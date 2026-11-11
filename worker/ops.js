@@ -153,7 +153,8 @@ function validateSnapshot(input, now) {
     }
     const reason = observed > now + FUTURE_MS || observed > collected + FUTURE_MS ? 'future_observation' : observed < now - AGE_MS ? 'stale_observation' : 'observed';
     const nonReal = c.id.startsWith('benefit:') && (c.evidence.record_kind !== 'delivery_v1' || c.evidence.measurement_kind !== 'real');
-    const status = reason === 'observed' && !nonReal ? c.status : 'unknown'; counts[status]++;
+    const businessExpired = c.id.startsWith('business:') && (!c.evidence.valid_until || !Number.isFinite(Date.parse(c.evidence.valid_until)) || Date.parse(c.evidence.valid_until) <= now);
+    const status = reason === 'observed' && !nonReal && !businessExpired ? c.status : 'unknown'; counts[status]++;
     return { ...c, status, reported_status: c.status, observation_status: reason, _observed_ms: Math.min(observed, collected) };
   });
   return { snapshot: { ...input, checks }, counts, collected };
@@ -163,9 +164,15 @@ async function ingest(request, env, db, now, diagnostic) {
   if (!env.OPS_INGEST_TOKEN) fail(503, 'ingest_not_configured');
   if (env.OPS_ADMIN_TOKEN && await sameSecret(env.OPS_ADMIN_TOKEN, env.OPS_INGEST_TOKEN)) fail(503, 'ops_token_configuration_invalid');
   if (!await sameSecret(bearer(request), env.OPS_INGEST_TOKEN)) fail(403, 'ingest_required');
-  const input = await body(request); const { snapshot, counts, collected } = validateSnapshot(input, now);
-  diagnostic.snapshot_id = snapshot.snapshot_id;
+  const input = await body(request);
+  // Hash the raw accepted input, before normalization; DB state cannot affect it.
   const hash = Array.from(await digest(canonical(input)), b => b.toString(16).padStart(2, '0')).join('');
+  const { snapshot, counts, collected } = validateSnapshot(structuredClone(input), now);
+  diagnostic.snapshot_id = snapshot.snapshot_id;
+  let policy;
+  try { policy = await stmt(db, 'SELECT version FROM ops_recovery_policy WHERE id=1').first(); }
+  catch { throw new OpsError(503, 'ops_recovery_migration_required', 'storage_configuration'); }
+  if (policy?.version !== 1) throw new OpsError(503, 'ops_recovery_migration_required', 'storage_configuration');
   // A conflicting replay fails a NOT NULL constraint inside the atomic batch.
   // Same-content duplicates perform no INSERT trigger/current-state work.
   try {
@@ -194,8 +201,8 @@ async function ingest(request, env, db, now, diagnostic) {
     if (prior && prior.content_hash !== hash) fail(409, 'snapshot_id_conflict');
     throw new OpsError(503, 'ops_storage_unavailable', storageErrorKind(error));
   }
-  const head = await stmt(db, 'SELECT (SELECT snapshot_id FROM ops_head WHERE id=1) snapshot_id,(SELECT counts_json FROM ops_runs WHERE snapshot_id=?) counts_json', snapshot.snapshot_id).first();
-  return response({ accepted: true, snapshot_id: snapshot.snapshot_id, current: head?.snapshot_id === snapshot.snapshot_id, counts: head?.counts_json ? JSON.parse(head.counts_json) : counts });
+  const head = await stmt(db, 'SELECT (SELECT snapshot_id FROM ops_head WHERE id=1) snapshot_id,counts_json,received_ms FROM ops_runs WHERE snapshot_id=?', snapshot.snapshot_id).first();
+  return response({ accepted: true, snapshot_id: snapshot.snapshot_id, ack_state: 'confirmed', received_at: iso(head?.received_ms), current: head?.snapshot_id === snapshot.snapshot_id, counts: head?.counts_json ? JSON.parse(head.counts_json) : counts });
 }
 function boundedLimit(url, defaultValue = 50) {
   const raw = url.searchParams.get('limit');
@@ -210,13 +217,14 @@ function eventRow(r) { return { ...r, created_at: iso(r.created_ms), next_attemp
 async function events(db, limit) { return (await stmt(db, EVENT_SQL + ' ORDER BY e.created_ms DESC,e.event_id DESC LIMIT ?', limit).all()).results.map(eventRow); }
 async function state(db, now) {
   const results = await db.batch([
-    stmt(db, 'SELECT h.collected_ms,r.snapshot_json,r.snapshot_id FROM ops_head h LEFT JOIN ops_runs r ON r.snapshot_id=h.snapshot_id WHERE h.id=1'),
+    stmt(db, 'SELECT h.collected_ms,r.snapshot_json,r.snapshot_id,r.received_ms FROM ops_head h LEFT JOIN ops_runs r ON r.snapshot_id=h.snapshot_id WHERE h.id=1'),
     stmt(db, 'SELECT * FROM ops_check_state ORDER BY updated_ms DESC,collector_id,check_id LIMIT 501'),
     stmt(db, 'SELECT COUNT(*) total FROM ops_check_state'),
     stmt(db, 'SELECT status,COUNT(*) total FROM ops_outbox GROUP BY status'),
     stmt(db, 'SELECT status,changed_ms,first_seen_ms FROM ops_watchdog WHERE id=1'),
   ]);
   const head = results[0].results[0]; const latest = head?.snapshot_json ? JSON.parse(head.snapshot_json) : null;
+  if (latest) latest.received_at = iso(head.received_ms);
   const freshness = !head ? 'unknown' : now - head.collected_ms > AGE_MS ? 'stale' : 'fresh';
   const persisted = new Map(results[1].results.map(c => [`${c.collector_id}:${c.check_id}`, c]));
   if (latest) latest.checks = latest.checks.map(c => {
@@ -226,7 +234,7 @@ async function state(db, now) {
     // A newer envelope can contain an older observation; never reuse its ok or
     // evidence when SQL deliberately retained a newer critical observation.
     const proof = current.observation_json ? JSON.parse(current.observation_json) : null;
-    const stale = now - current.observed_ms > AGE_MS;
+    const stale = now - current.observed_ms > AGE_MS || (c.id.startsWith('business:') && (!proof?.evidence?.valid_until || Date.parse(proof.evidence.valid_until) <= now));
     const retained = current.snapshot_id !== latest.snapshot_id;
     return { ...(proof || { id: c.id, category: c.category }), name: current.name,
       status: stale ? 'unknown' : current.status, summary: current.summary,

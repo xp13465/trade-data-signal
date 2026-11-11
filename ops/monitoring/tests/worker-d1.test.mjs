@@ -85,6 +85,36 @@ test('actual local Miniflare D1: migration, atomic concurrency, watchdog, CAS an
     await scheduleAt(now + 32 * 86400000);
     assert.equal((await call('/state')).body.latest.snapshot_id, newer.snapshot_id);
     const backup = await call('/export'); assert.equal(backup.status, 200); assert.equal(backup.body.runs.length, 1);
+    // The actual D1 binding must enforce invocation recovery inside its write
+    // transaction even when the newer failure commits after a request has read
+    // policy and before that request starts its batch.
+    const severe = (status, inv, offset, start) => {
+      const v=snapshot(status,offset),c=v.checks[0];c.id='cloud-service:trade-overfit-monitor.service';
+      c.evidence={execution_state:status==='ok'?'completed':'failed',unit_result:status==='ok'?'success':'exit-code',
+        exit_code:status==='ok'?0:124,invocation_id:inv.repeat(32),
+        last_start_utc:new Date(now+start).toISOString(),last_exit_utc:c.observed_at};return v;
+    };
+    await call('/ingest',severe('critical','a',2000,1900));
+    const candidate=severe('ok','b',4000,2100), failure=severe('critical','c',3000,2200);
+    let intercepted=false,release,entered;
+    const paused=new Promise(resolve=>entered=resolve),resume=new Promise(resolve=>release=resolve);
+    env.OPS_DB={prepare:db.prepare.bind(db),batch:db.batch.bind(db),withSession(mode){const session=db.withSession(mode);return {
+      prepare:session.prepare.bind(session),async batch(statements){
+        if(!intercepted){intercepted=true;entered();await resume;}
+        return session.batch(statements);
+      }
+    };}};
+    const pending=call('/ingest',candidate);await paused;
+    assert.equal((await call('/ingest',failure)).status,200);release();
+    assert.equal((await pending).body.counts.ok,0);env.OPS_DB=db;
+    assert.equal((await call('/state')).body.latest.checks[0].problem_open,true);
+    const recovered=severe('ok','d',5000,4500);
+    const recoveredAck=await call('/ingest',recovered);assert.equal(recoveredAck.status,200);
+    assert.equal((await call('/state')).body.latest.checks[0].problem_open,false);
+    const replays=await Promise.all([call('/ingest',recovered),call('/ingest',recovered),call('/ingest',failure)]);
+    assert.ok(replays.every(r=>r.status===200));
+    assert.equal(replays[0].body.received_at,recoveredAck.body.received_at);
+    assert.equal((await call('/state')).body.latest.checks[0].problem_open,false);
     // Real D1 exception/cause formatting must never leak SQL or injected text.
     await db.prepare("CREATE TRIGGER ops_fixture_failure BEFORE INSERT ON ops_runs BEGIN SELECT RAISE(ABORT, 'Bearer injected-private /home/private'); END").run();
     const originalLog = console.error; const safeLogs = []; console.error = value => safeLogs.push(value);

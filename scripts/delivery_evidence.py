@@ -560,6 +560,44 @@ def _finish_safely(current, status, reason):
         return _metadata_failure(exc)
 
 
+def record_publication(*, data_root, run_id, object_name, sha256, size, confirmed):
+    """Existing receipt contract, called only after R2 byte/hash confirmation.
+
+    data_root is the explicit runtime REPO (not git checkout or static directory).
+    run_id must equal the local export proof run_id. object_name is a filename
+    inside data/, matching export outputs exactly (no data/ prefix). No network,
+    credentials or content reads. Unknown results never create success receipts.
+    Metadata failure never changes the caller's publication result.
+    """
+    if not evidence_enabled():
+        return {"status": "disabled"}
+    try:
+        if (not isinstance(run_id, str) or not _ID.fullmatch(run_id) or run_id == 'unknown' or
+            not isinstance(object_name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,150}\.json', object_name) or
+            not isinstance(sha256, str) or not re.fullmatch('[a-f0-9]{64}', sha256) or
+            type(size) is not int or size < 0 or type(confirmed) is not bool or not Path(data_root).is_absolute()):
+            raise ValueError('invalid publication identity')
+        identity = {'object_id': object_name, 'sha256': sha256, 'size': size, 'identity_kind': 'bytes'}
+        day = datetime.now(ZoneInfo('Asia/Shanghai')).date().isoformat()
+        at = utc_now()
+        result = emit_receipt(data_root=data_root, stage='publish', chain_id='ops_publication',
+            object_id=object_name, session_date=day, attempt_id=run_id, batch_id=run_id,
+            stage_status='success' if confirmed else 'unknown', reason='remote_bytes_confirmed' if confirmed else 'remote_unconfirmed',
+            inputs=[identity], outputs=[identity] if confirmed else [],
+            counts={'expected': 1, 'validated': int(confirmed)}, evidence_quality='strong' if confirmed else 'unknown',
+            consumer_witness={'status': 'success' if confirmed else 'unknown', 'scope': 'remote_bytes'}, evaluated_at=at)
+        if result['status'] in ('written', 'idempotent'):
+            if __package__:
+                from .ops_business_evidence import write_publication_index
+            else:
+                from ops_business_evidence import write_publication_index
+            receipt = read_receipt(receipt_root(data_root) / 'receipts' / day / 'ops_publication' / (result['receipt_id'] + '.json'))
+            write_publication_index(data_root, receipt)
+        return result
+    except Exception as exc:
+        return _metadata_failure(exc)
+
+
 def capture_loaded(object_id, value, **metadata):
     """Return the identical value; disabled path never examines it."""
     current = _ACTIVE.get()

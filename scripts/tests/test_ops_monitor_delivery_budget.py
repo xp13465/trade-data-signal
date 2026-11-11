@@ -56,6 +56,12 @@ def test_trickle_read_cannot_consume_all_retries(tmp_path, m):
                                    str(secret), test_local=True)
         elapsed = time.monotonic() - started
         assert result['ok'], result
+        assert [a['ack_state'] for a in result['attempt_history']] == ['unknown', 'confirmed']
+        assert result['attempt_history'][0]['delivered_at'] is None
+        assert result['attempt_history'][1]['delivered_at'] is not None
+        assert result['attempt_history'][1]['received_at'] is None  # old API, never invented
+        assert all(a['snapshot_id'] == json.loads(payload)['snapshot_id'] for a in result['attempt_history'])
+        assert all(a['started_at'] <= a['finished_at'] for a in result['attempt_history'])
         assert len(attempts) == 2
         assert attempts == [payload, payload]
         assert elapsed < 8.3
