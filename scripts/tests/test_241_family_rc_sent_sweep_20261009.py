@@ -15,6 +15,14 @@
   「判不出 ⇒ False ⇒ 下轮重试」), 与 `check_failed_units`(#240 F1)/`check_s06_freshness`
   (#241)共用同一判据。
 
+2026-11-11 同步(overfit 站点升级三态): RCA(/tmp/notify-rca-20261111.md)后 overfit_monitor
+  的 send_notify 由二值 `notify_sent(out)` 升级为三态 `notify_state(out)`(同文件唯一实现,
+  sent/suppressed/failed; suppressed = dedup 窗口内已发过 = 成功且已知, 不再落 failed),
+  dedup 窗口 86400→82800(23h, 防每日 21:40 定时晚 55-75s 触发隔天一发)。cdg/svh 两处保持
+  二值不变。本文件 test_06/test_07 随源同步为三态口径, #241 精神不变: 判据落在
+  notify_sent.py 唯一实现、rc 永不参与。三态回归专项见
+  `test_overfit_notify_dedup_20261111.py`。
+
 零外发铁律(§18 L48 / memory notify-script-selftest-must-stub): 本文件全部用例
   **本次自测未产生任何真实外发** —— notify 子进程整体打桩(`subprocess.run` 替身, 根本不
   spawn)+ `ZeroOutboundTrap` 包裹; `test_00` 先证 trap 武装生效。
@@ -46,7 +54,7 @@ from _zero_outbound import ZeroOutboundTrap  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).absolute().parent.parent))
 import check_data_gap_alerts as cdg  # noqa: E402
-from notify_sent import notify_sent  # noqa: E402
+from notify_sent import notify_sent, notify_state  # noqa: E402
 
 ROOT = Path(__file__).absolute().parent.parent.parent
 SCRIPTS = ROOT / "scripts"
@@ -88,16 +96,29 @@ def _fake_run(output, rc=0, calls=None):
     return _run
 
 
+# overfit 真实 11-10 dedup 抑制行(逐字照 overfit_monitor.json alerts[].notify_error 原文,
+# notify_state 判 suppressed 的实锚, 见 test_overfit_notify_dedup_20261111.py)
+OVERFIT_SUPPRESS_LINE = (
+    "[notify][dedup] suppress key=overfit_overfit_high last_alerted=2026-11-09 21:41:04 "
+    "age=86388s < window=86400s, 不重发"
+)
+
+
 def _load_overfit_send_notify(stub_run):
     """AST 抽取 `overfit_monitor.send_notify`(§18 L50 static-only: 不 import 业务模块,
-    只把该函数体 exec 进隔离命名空间, 注入 subprocess 替身/notify_sent)。"""
+    只把该函数体 exec 进隔离命名空间, 注入 subprocess 替身/notify_state/窗口常量)。
+
+    2026-11-11 三态化: 函数体引用模块级常量 NOTIFY_DEDUP_WINDOW_SECS(82800)与
+    notify_state(判据唯一实现), 均注入; 窗口真值断言在
+    test_overfit_notify_dedup_20261111.py(避免两处重复锁同一字面量)。"""
     src = (SCRIPTS / "overfit_monitor.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     fn = next(n for n in tree.body
               if isinstance(n, ast.FunctionDef) and n.name == "send_notify")
     code = compile(ast.Module(body=[fn], type_ignores=[]), "<overfit.send_notify>", "exec")
     ns = {"os": os, "sys": sys, "SCRIPT_DIR": str(SCRIPTS),
-          "subprocess": types.SimpleNamespace(run=stub_run), "notify_sent": notify_sent}
+          "subprocess": types.SimpleNamespace(run=stub_run), "notify_state": notify_state,
+          "NOTIFY_DEDUP_WINDOW_SECS": 82800}
     exec(code, ns)
     return ns["send_notify"]
 
@@ -212,26 +233,32 @@ def test_05_data_gap_run_alerts_positive_control_consigns_and_dedups(monkeypatch
 
 
 def test_06_overfit_send_notify_criterion(monkeypatch):
-    """overfit_monitor.send_notify 返回 (ok, err); ok 由 notify_sent 判, 不看 rc。"""
-    for out, exp in [(SUCCESS_GENERAL, True), (FAIL_GENERAL, False), ("", False)]:
+    """overfit_monitor.send_notify 返回 (state, err); state 三态由 notify_state 判, 不看 rc。
+
+    2026-11-11 三态化(见模块 docstring 同步说明): sent/suppressed/failed;
+    suppressed = dedup 窗口内已发过 = 成功且已知, 不落 failed(#241「不吞真故障」精神保留:
+    全渠道失败/未知形态仍 failed ⇒ 调用方重试)。"""
+    for out, exp in [(SUCCESS_GENERAL, "sent"), (FAIL_GENERAL, "failed"),
+                     ("", "failed"), (OVERFIT_SUPPRESS_LINE, "suppressed")]:
         fn = _load_overfit_send_notify(_fake_run(out, rc=0))
-        ok, _err = fn("s", "b", "SEVERE", False, "overfit_x")
-        _chk(ok is exp, f"overfit send_notify out={out!r}: 期望 {exp} 实得 {ok}")
+        st, _err = fn("s", "b", "SEVERE", False, "overfit_x")
+        _chk(st == exp, f"overfit send_notify out={out!r}: 期望 {exp} 实得 {st}")
     # rc 不参与
     fn = _load_overfit_send_notify(_fake_run(SUCCESS_GENERAL, rc=7))
-    ok, _ = fn("s", "b", "WARN", False, None)
-    _chk(ok is True, "rc 不参与: 输出含真发出即 True")
+    st, _ = fn("s", "b", "WARN", False, None)
+    _chk(st == "sent", "rc 不参与: 输出含真发出即 sent")
 
 
-# ══════════════════════ ② 静态锁(判据落在 notify_sent, 不是 rc) ══════════════════════
-def _assert_no_rc_criterion(fn_src, label):
-    _chk("notify_sent(out)" in fn_src, f"{label} 判据应为 notify_sent(out)")
+# ══════════════════════ ② 静态锁(判据落在 notify_sent.py, 不是 rc) ══════════════════════
+def _assert_no_rc_criterion(fn_src, label, criterion="notify_sent(out)"):
+    _chk(criterion in fn_src, f"{label} 判据应为 {criterion}")
     _chk("returncode == 0" not in fn_src, f"{label} 不得用 returncode == 0 当 sent")
     _chk("if r.returncode != 0" not in fn_src, f"{label} 不得用 rc!=0 早退当 sent 判据")
 
 
 def test_07_static_locks_all_three_sites():
-    """三处源码: 判据 = notify_sent(唯一实现), 不再是 rc; 且都 from notify_sent import。"""
+    """三处源码: 判据 = notify_sent.py 唯一实现(二值 notify_sent / 三态 notify_state), 不再是 rc;
+    且都 from notify_sent import(overfit 2026-11-11 起三态 notify_state)。"""
     _assert_no_rc_criterion(inspect.getsource(cdg._notify), "check_data_gap._notify")
     _assert_no_rc_criterion(inspect.getsource(svh._notify), "sensenova._notify")
     # overfit: AST 只取 send_notify 段(该脚本别处仍有 R2 上传的 returncode==0, 不算本判据)
@@ -239,12 +266,16 @@ def test_07_static_locks_all_three_sites():
     tree = ast.parse(src)
     fn = next(n for n in tree.body
               if isinstance(n, ast.FunctionDef) and n.name == "send_notify")
-    _assert_no_rc_criterion(ast.get_source_segment(src, fn), "overfit.send_notify")
-    for p, label in [(SCRIPTS / "check_data_gap_alerts.py", "cdg"),
-                     (SCRIPTS / "sensenova-proxy-healthcheck.py", "svh"),
-                     (SCRIPTS / "overfit_monitor.py", "overfit")]:
-        _chk("from notify_sent import notify_sent" in p.read_text(encoding="utf-8"),
-             f"{label} 应复用唯一实现 notify_sent")
+    _assert_no_rc_criterion(ast.get_source_segment(src, fn), "overfit.send_notify",
+                            criterion="notify_state(out)")
+    for p, label, imp in [(SCRIPTS / "check_data_gap_alerts.py", "cdg",
+                           "from notify_sent import notify_sent"),
+                          (SCRIPTS / "sensenova-proxy-healthcheck.py", "svh",
+                           "from notify_sent import notify_sent"),
+                          (SCRIPTS / "overfit_monitor.py", "overfit",
+                           "from notify_sent import notify_state")]:
+        _chk(imp in p.read_text(encoding="utf-8"),
+             f"{label} 应复用唯一实现 notify_sent.py({imp})")
 
 
 # ══════════════════════ ③ red-before-green 判别力证据 ══════════════════════
