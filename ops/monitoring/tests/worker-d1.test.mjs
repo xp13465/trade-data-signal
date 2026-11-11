@@ -115,6 +115,23 @@ test('actual local Miniflare D1: migration, atomic concurrency, watchdog, CAS an
     assert.ok(replays.every(r=>r.status===200));
     assert.equal(replays[0].body.received_at,recoveredAck.body.received_at);
     assert.equal((await call('/state')).body.latest.checks[0].problem_open,false);
+    // Independent review negatives, using actual D1 JSON types and both IDs.
+    let offset=6000;
+    for(const id of ['cloud-service:trade-public-fund-daily.service','cloud-service:trade-overfit-monitor.service']){
+      const noProof=severe('ok','a',offset,offset-100);noProof.checks[0].id=id;noProof.checks[0].evidence={};
+      assert.equal((await call('/ingest',noProof)).body.counts.ok,0);
+      offset+=1000;
+      const critical=severe('critical','a',offset,offset-100);critical.checks[0].id=id;await call('/ingest',critical);
+      offset+=1000;
+      const warning=severe('warning','b',offset,offset-100);warning.checks[0].id=id;delete warning.checks[0].evidence.execution_state;await call('/ingest',warning);
+      offset+=1000;
+      const stale=severe('ok','c',offset,offset-1500);stale.checks[0].id=id;
+      assert.equal((await call('/ingest',stale)).body.counts.ok,0);
+      const typed=severe('ok','d',offset+100,offset+50);typed.checks[0].id=id;typed.checks[0].evidence.exit_code=false;
+      assert.equal((await call('/ingest',typed)).body.counts.ok,0);
+      assert.equal((await call('/state')).body.latest.checks[0].problem_open,true);
+      offset+=1000;
+    }
     // Real D1 exception/cause formatting must never leak SQL or injected text.
     await db.prepare("CREATE TRIGGER ops_fixture_failure BEFORE INSERT ON ops_runs BEGIN SELECT RAISE(ABORT, 'Bearer injected-private /home/private'); END").run();
     const originalLog = console.error; const safeLogs = []; console.error = value => safeLogs.push(value);

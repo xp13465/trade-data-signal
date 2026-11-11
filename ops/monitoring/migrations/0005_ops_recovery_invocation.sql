@@ -1,5 +1,6 @@
 -- Forward-only upgrade: preserve the last severe invocation through unknown
--- observations. Restrict policy to the two original severe services.
+-- observations. Warning failures also advance the anchor. Validate every OK,
+-- including first-seen/closed episodes, for the two original severe services only.
 ALTER TABLE ops_check_state ADD COLUMN recovery_failure_invocation TEXT;
 ALTER TABLE ops_check_state ADD COLUMN recovery_failure_ms INTEGER;
 
@@ -9,7 +10,7 @@ UPDATE ops_check_state SET
 WHERE problem_open=1 AND check_id IN ('cloud-service:trade-public-fund-daily.service','cloud-service:trade-overfit-monitor.service');
 
 CREATE TRIGGER ops_severe_anchor_insert AFTER INSERT ON ops_check_state
-WHEN NEW.status='critical' AND NEW.check_id IN ('cloud-service:trade-public-fund-daily.service','cloud-service:trade-overfit-monitor.service') BEGIN
+WHEN NEW.status IN ('warning','critical') AND NEW.check_id IN ('cloud-service:trade-public-fund-daily.service','cloud-service:trade-overfit-monitor.service') BEGIN
   UPDATE ops_check_state SET recovery_failure_ms=NEW.observed_ms,
     recovery_failure_invocation=(SELECT json_extract(c.value,'$.evidence.invocation_id')
       FROM ops_runs r,json_each(r.snapshot_json,'$.checks') c
@@ -18,7 +19,7 @@ WHEN NEW.status='critical' AND NEW.check_id IN ('cloud-service:trade-public-fund
 END;
 
 CREATE TRIGGER ops_severe_anchor_update AFTER UPDATE ON ops_check_state
-WHEN NEW.status='critical' AND NEW.snapshot_id<>OLD.snapshot_id
+WHEN NEW.status IN ('warning','critical') AND NEW.snapshot_id<>OLD.snapshot_id
   AND NEW.check_id IN ('cloud-service:trade-public-fund-daily.service','cloud-service:trade-overfit-monitor.service') BEGIN
   UPDATE ops_check_state SET recovery_failure_ms=NEW.observed_ms,
     recovery_failure_invocation=(SELECT json_extract(c.value,'$.evidence.invocation_id')
@@ -37,19 +38,31 @@ CREATE TRIGGER ops_run_insert AFTER INSERT ON ops_runs BEGIN
     SELECT NEW.collector_id,json_extract(c.value,'$.id'),json_extract(c.value,'$.name'),c.effective_status,
       json_extract(c.value,'$._observed_ms'),NEW.collected_ms,NEW.snapshot_id,NEW.received_ms,
       CASE WHEN c.effective_status IN ('warning','critical') THEN 1 ELSE 0 END,
-      CASE WHEN c.effective_status<>json_extract(c.value,'$.status') THEN 'Recovery invocation not verified; original problem remains open' ELSE json_extract(c.value,'$.summary') END
+      CASE WHEN c.effective_status<>json_extract(c.value,'$.status') THEN
+        CASE WHEN c.prior_problem_open=1 THEN 'Recovery invocation not verified; original problem remains open'
+          ELSE 'Natural invocation not verified; execution health remains unknown' END
+        ELSE json_extract(c.value,'$.summary') END
     FROM (
-      SELECT c.value, CASE WHEN previous.problem_open=1 AND json_extract(c.value,'$.status')='ok'
+      SELECT c.value, previous.problem_open AS prior_problem_open, CASE WHEN json_extract(c.value,'$.status')='ok'
         AND json_extract(c.value,'$.id') IN ('cloud-service:trade-public-fund-daily.service','cloud-service:trade-overfit-monitor.service')
         THEN CASE WHEN json_extract(c.value,'$.evidence.execution_state')='completed'
+          AND json_type(c.value,'$.evidence.exit_code')='integer'
           AND json_extract(c.value,'$.evidence.exit_code')=0
           AND json_extract(c.value,'$.evidence.unit_result')='success'
+          AND json_type(c.value,'$.evidence.invocation_id')='text'
           AND length(json_extract(c.value,'$.evidence.invocation_id'))=32
           AND json_extract(c.value,'$.evidence.invocation_id') NOT GLOB '*[^0-9a-f]*'
-          AND json_extract(c.value,'$.evidence.invocation_id')<>COALESCE(previous.recovery_failure_invocation,'')
+          AND json_type(c.value,'$.evidence.last_start_utc')='text'
+          AND json_type(c.value,'$.evidence.last_exit_utc')='text'
+          AND json_extract(c.value,'$.evidence.last_start_utc') GLOB '????-??-??T??:??:??*'
+          AND json_extract(c.value,'$.evidence.last_exit_utc') GLOB '????-??-??T??:??:??*'
+          AND (json_extract(c.value,'$.evidence.last_start_utc') GLOB '*Z' OR json_extract(c.value,'$.evidence.last_start_utc') GLOB '*[+-]??:??')
+          AND (json_extract(c.value,'$.evidence.last_exit_utc') GLOB '*Z' OR json_extract(c.value,'$.evidence.last_exit_utc') GLOB '*[+-]??:??')
           AND julianday(json_extract(c.value,'$.evidence.last_start_utc')) IS NOT NULL
           AND julianday(json_extract(c.value,'$.evidence.last_exit_utc')) IS NOT NULL
-          AND ROUND((julianday(json_extract(c.value,'$.evidence.last_start_utc'))-2440587.5)*86400000)>COALESCE(previous.recovery_failure_ms,previous.observed_ms)
+          AND ((previous.recovery_failure_ms IS NULL AND COALESCE(previous.problem_open,0)=0)
+            OR (json_extract(c.value,'$.evidence.invocation_id')<>COALESCE(previous.recovery_failure_invocation,'')
+              AND ROUND((julianday(json_extract(c.value,'$.evidence.last_start_utc'))-2440587.5)*86400000)>COALESCE(previous.recovery_failure_ms,previous.observed_ms)))
           AND julianday(json_extract(c.value,'$.evidence.last_exit_utc'))>=julianday(json_extract(c.value,'$.evidence.last_start_utc'))
           AND ROUND((julianday(json_extract(c.value,'$.evidence.last_exit_utc'))-2440587.5)*86400000)<=json_extract(c.value,'$._observed_ms') THEN 'ok' ELSE 'unknown' END
         ELSE json_extract(c.value,'$.status') END AS effective_status
@@ -90,4 +103,5 @@ END;
 
 -- Last statement marks the complete policy; new Worker refuses ingest without it.
 CREATE TABLE ops_recovery_policy(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL);
-INSERT INTO ops_recovery_policy VALUES(1,1);
+-- Revision 2 distinguishes this reviewed policy from the rejected pre-deploy candidate.
+INSERT INTO ops_recovery_policy VALUES(1,2);

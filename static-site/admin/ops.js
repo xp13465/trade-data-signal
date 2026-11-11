@@ -14,6 +14,7 @@
   const STATUS = { ok: 'OK', warning: '警告', critical: '严重', unknown: '未知', fresh: '采集新鲜', stale: '采集过期', failed: '失败', baseline: '版本基线' };
   // Exact product messages only (ops_monitor.py and ops state/watchdog). Raw evidence stays unchanged.
   const SUMMARIES = new Map(Object.entries({
+    'Natural invocation not verified; execution health remains unknown': '尚未取得完整的自然执行证据；执行健康仍未知。',
     'Recovery invocation not verified; original problem remains open': '尚未证实新的自然执行成功；原问题保持未关闭。',
     'Current invocation business evidence; scope and expiry apply': '本轮业务证据；只对声明的对象和有效期负责。',
     'Registered unit not observed as loaded': '未观察到已登记单元成功加载，状态未知。',
