@@ -783,12 +783,13 @@ def test_05a_source_invariants_machine_checked():
     _chk("[notify][digest] 恢复留痕已并入当日摘要 buffer" in _prefixes
          and "[notify][digest] warning 聚合批已并入当日摘要 buffer" in _prefixes,
          "批次3-B 恢复留痕/聚合批两条并入成功行必须登记进 notify_sent 抑制签名表")
-    # #253-d2 不变式(审查返工补机检): `_absorb_to_digest` **全部**调用点必须传 bump_hits=True
-    # (漏传 ⇒ 同日同形事件第二次被幂等静默吞掉, 摘要无 xN/最近时刻)。
+    # 旧事件每次发生计 hits；显式 ops 引用按稳定事件身份幂等，重复轮询不算新发生。
     import ast as _ast
     _no_bump = [n.lineno for n in _ast.walk(_ast.parse(src))
                 if isinstance(n, _ast.Call) and getattr(n.func, "id", "") == "_absorb_to_digest"
-                and not any(k.arg == "bump_hits" for k in n.keywords)]
+                and not any(k.arg == "ops_event_refs" for k in n.keywords)
+                and not any(k.arg == "bump_hits" and isinstance(k.value, _ast.Constant)
+                            and k.value.value is True for k in n.keywords)]
     _chk(_no_bump == [], f"_absorb_to_digest 调用点漏传 bump_hits=True: 行 {_no_bump}")
     adr_src = (SCRIPTS / "alert_denoise_rules.py").read_text(encoding="utf-8")
     _chk("def domain_of(" in adr_src and "def domain_inhibit_judge(" in adr_src,

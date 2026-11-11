@@ -93,6 +93,9 @@ def iso(tmp_path, monkeypatch):
 
     def _fake(kind):
         def _f(subject, body, *_a, **_k):
+            # Transport adapter: exercise the real claim fence/attempt bookkeeping;
+            # receipt persistence remains the production sender's responsibility.
+            notify._ops_attempted(kind)
             calls.append({"kind": kind, "subject": subject, "body": body,
                           "args": _a, "kwargs": _k})
             return True

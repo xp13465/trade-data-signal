@@ -282,7 +282,7 @@ def notification(sb, route="domain", state="healthy", delivered=False, writefail
     load(tree, path, {"send", "_ledger_key_of", "_digest_chain_available", "_absorb_to_digest",
                       "_atomic_write_digest", "_parse_buffer_lines", "_flock_ex_wait",
                       "_split_body_lines", "_absorb_split_to_digest", "flush_digest",
-                      "_flush_digest_locked", "_render_digest_delivery", "_digest_delivery_route",
+                      "_flush_digest_locked", "_ops_flush_digest", "_render_digest_delivery", "_digest_delivery_route",
                       "_write_digest_delivery_state", "_stable_rid", "_chmod_like_target", "_main_impl"}, ns)
     if state == "unmounted":
         # 仅验证 provider 返回不可用后的路由，不假装现有 helper 会检测实际挂载。

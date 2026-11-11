@@ -407,12 +407,13 @@ def test_real_jobs_no_false_zombie_when_pending(monkeypatch, tmp_path, shift_sec
             if REAL_TASKS.exists() else [])
     relevant = _patrol_relevant(real)
     source = "real"
-    if relevant:
+    if any(m.PROGRESS_PATH_RE.search(j.get("prompt") or "")
+           or m.PATROL_NAME_RE.search(j.get("prompt") or "") for j, _ in relevant):
         for j, ready_at in relevant:
             assert ready_at is not None, f"真实 job {j['id']} 应能算出 ready_at"
         sample = real
     else:
-        # 无巡检类 job(巡检已删净 / 只剩普通 job / 文件不存在) -> 固定样本兜底
+        # 无可判定的进度路径（含仅提及巡检的普通任务）仍跑完整固定样本。
         source = "fixed"
         sample = _fixed_patrol_jobs()
         relevant = _patrol_relevant(sample)

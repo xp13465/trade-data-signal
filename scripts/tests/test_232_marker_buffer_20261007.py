@@ -375,7 +375,8 @@ def test_r2_and_72h_prefix_protection_holds(code, consts):
     pre = {"r2_intraday_lag|buffer|20261102": {"status": "pending", "consecutive_count": 2},
            "72h_r2_prefix_demo": {"status": "pending"},
            "r2_consistency|exit!=0|1": {"status": "active", "first_seen": "2026-10-21 00:00:01"},
-           BUCKET: {"status": "pending", "consecutive_count": 1}}
+           BUCKET: {"status": "pending", "consecutive_count": 1,
+                    "last_run": "2026-11-02 09:00"}}
     recs = _drive(code, [_t("10:00")], consts, pre_state=pre)
     end = recs[-1].state
     _chk(end["r2_intraday_lag|buffer|20261102"]["status"] == "pending", "R2 inline 自管键被误翻")

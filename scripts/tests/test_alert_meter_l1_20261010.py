@@ -46,6 +46,7 @@ def _isolate(tmp_path, monkeypatch, request):
     """
     _OUTBOUND_HITS.clear()
     monkeypatch.setenv("REPO", str(tmp_path))
+    monkeypatch.setattr(notify, "REPO", tmp_path)  # shared incident state is import-bound too
     monkeypatch.setattr(notify, "ALERTS_DIR", tmp_path / "data" / "alerts")
     monkeypatch.setattr(notify, "ALERTS_FILE", tmp_path / "data" / "alerts" / "latest.md")
     monkeypatch.setattr(notify, "DEDUP_FILE", tmp_path / "data" / "notify_dedup.json")
@@ -327,23 +328,37 @@ def _stub_feishu_missing(monkeypatch):
     monkeypatch.delenv("TRADE_HOST_TAG", raising=False)  # 免 subject 来源标签扰动 key 哈希
 
 
+def _accepted_smtp(monkeypatch):
+    """Only replace the SMTP boundary; run actual send, attempt and receipt code."""
+    class SMTP:
+        def __init__(self, *a, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def login(self, *a): pass
+        def sendmail(self, *a): return {}
+    monkeypatch.setattr(notify, "load_email_config", lambda: {
+        "smtp": "smtp.invalid", "port": 465, "user": "u@invalid.test",
+        "password": "fixture-only", "to": "t@invalid.test"})
+    monkeypatch.setattr(notify.smtplib, "SMTP_SSL", SMTP)
+
+
 def test_H1_config_missing_direct_records_one(tmp_path, monkeypatch):
     """depth==0 直调 `_alert_feishu_config_missing`：走 _send_email 渠道包装 ⇒ 恰好 1 条。"""
     _stub_feishu_missing(monkeypatch)
-    monkeypatch.setattr(notify, "_send_email_core", lambda s, b, **k: True)
+    _accepted_smtp(monkeypatch)
     notify._alert_feishu_config_missing()
     lines = _ledger_lines(tmp_path)
     assert len(lines) == 1, f"应恰好 1 条（渠道包装记），实得 {len(lines)}"
-    # depth==0 走渠道包装 ⇒ 拿不到 dedup_key，key = subject 哈希（预期口径）
-    assert lines[0]["key"] == notify._ledger_key_of(
-        "[告警] 飞书配置缺失 feishu.json 已丢失", None)
-    assert lines[0]["channels"] == {"email": True, "feishu": False}
+    assert lines[0]["key"] == "feishu_config_missing"
+    assert lines[0]["channels"] == {"email": True, "telegram": False, "feishu": False}
+    notify._alert_feishu_config_missing()
+    assert len(_ledger_lines(tmp_path)) == 1, "同配置事件不应重复首报"
 
 
 def test_H2_config_missing_nested_no_miss_no_double(tmp_path, monkeypatch):
     """嵌套（send 内 feishu cfg 缺失）：外层消息 1 条 + 基建告警补记 1 条 = 2 条，无漏无误。"""
     _stub_feishu_missing(monkeypatch)
-    monkeypatch.setattr(notify, "_send_email_core", lambda s, b, **k: True)
+    _accepted_smtp(monkeypatch)
     monkeypatch.setattr(notify, "send_telegram", lambda *a, **k: False)
     # 不桩 _send_feishu_core：走真实 core → cfg None → 触发内部基建告警邮件
     notify.send("[告警] 外层主题", "x", severe=True, ledger_key="outer")
@@ -353,7 +368,7 @@ def test_H2_config_missing_nested_no_miss_no_double(tmp_path, monkeypatch):
     assert keys == ["feishu_config_missing", "outer"], f"键不符：{keys}"
     inner = [r for r in lines if r["key"] == "feishu_config_missing"][0]
     outer = [r for r in lines if r["key"] == "outer"][0]
-    assert inner["tier"] == "critical" and inner["group"] == "alert"
+    assert inner["tier"] == "ops" and inner["group"] == "alert"
     assert outer["channels"] == {"email": True, "feishu": False}, "外层只邮件发出"
 
 
