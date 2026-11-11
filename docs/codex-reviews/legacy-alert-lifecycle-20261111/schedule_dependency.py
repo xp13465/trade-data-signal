@@ -17,10 +17,12 @@ with tempfile.TemporaryDirectory(prefix='legacy-schedule-dependency-') as temp:
         in_progress_tasks=set(), recoveries=[], CONCLUSION_STATUS_KEY_PREFIX='monitor_conclusion|',
         RECOVERY_COOLDOWN=timedelta(hours=6), _recovery_cooldown_ok=lambda *a:False,
         ALERT_STATE_FILE=statepath, _STATE_PRE=copy.deepcopy(st))
+    owner=source[source.index('def _producer_owned'):source.index('def _quiet_event')]
+    exec(compile(owner,'schedule-owner-real-source','exec'),env)
     block=source[source.index('for _key, _info in list(alert_state.items()):'):source.index('# 2026-08-24 孤儿告警回收')]
     exec(compile(block,'schedule-recovery-real-source','exec'),env)
-    assert st[key]['status']=='recovered'
-    print('DEPENDENCY_REPRODUCED: schedule falsely recovers unobserved external producer')
+    assert st[key]['status']=='active'
+    print('PASS: schedule does not recover unobserved external producer')
     old_snapshot=copy.deepcopy(st)
     observe(root,key,lambda:{'action':False,'message':'actual healthy observation'})
     observe(root,key,fault)
@@ -29,5 +31,5 @@ with tempfile.TemporaryDirectory(prefix='legacy-schedule-dependency-') as temp:
     exec(compile(section,'schedule-save-real-source','exec'),env)
     assert env['save_alert_state'](old_snapshot)
     now=json.loads(statepath.read_text())[key]
-    assert now['event_id'] != new_id and now['status']=='recovered'
-    print('DEPENDENCY_REPRODUCED: stale schedule snapshot overwrites new producer event')
+    assert now['event_id'] == new_id and now['status']=='active'
+    print('PASS: stale schedule snapshot cannot overwrite new producer event')

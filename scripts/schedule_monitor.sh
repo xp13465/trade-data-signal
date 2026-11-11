@@ -367,6 +367,11 @@ STATE_NOTIFY_FIELDS = ("notified_event_id", "notified_at", "notified_channels",
 STATE_SHARED_FIELDS = STATE_ACK_FIELDS + STATE_NOTIFY_FIELDS
 
 
+def _producer_owned(key):
+    from ops_legacy_events import owns_event_key
+    return owns_event_key(key)
+
+
 def _quiet_event(key, info, source_run=None):
     """Identity of one open incident, not one poll or one calendar day."""
     if not info.get("event_id"):
@@ -413,7 +418,15 @@ def save_alert_state(state):
             disk = json.loads(ALERT_STATE_FILE.read_text()) if ALERT_STATE_FILE.exists() else {}
             if not isinstance(disk, dict):
                 raise ValueError("alert state must be object")
-            for key, info in state.items():
+            for key, info in list(state.items()):
+                if _producer_owned(key):
+                    # External producer owns health AND identity, not only receipts.
+                    # Never revive a deleted disk entry from this stale snapshot.
+                    if key in disk:
+                        state[key] = disk[key]
+                    else:
+                        state.pop(key, None)
+                    continue
                 old = disk.get(key)
                 if key == "notify|feishu_config_missing":
                     if isinstance(old, dict):
@@ -449,7 +462,7 @@ def save_alert_state(state):
                     for field in STATE_SHARED_FIELDS:
                         info.pop(field, None)
             for key, entry in disk.items():
-                if key not in state and key not in globals().get("_STATE_PRE", {}):
+                if _producer_owned(key) or (key not in state and key not in globals().get("_STATE_PRE", {})):
                     state[key] = entry  # independent concurrent event, not our deletion
             fd, tmp = tempfile.mkstemp(prefix=".alert-state-", dir=ALERT_STATE_FILE.parent)
             try:
@@ -556,6 +569,8 @@ def _quiet_notified(info):
 
 def _quiet_send(key, entry, phase, subject, body):
     """One event and complete payload; notify owns asynchronous receipt merging."""
+    if _producer_owned(key):
+        return False
     _quiet_event(key, entry)
     refs = [{"key": key, "event_id": entry["event_id"], "phase": phase,
              "source_run": entry.get("source_run")}]
@@ -593,6 +608,10 @@ def _quiet_route_alerts(batch):
     save_alert_state(alert_state)  # merge CFU/asynchronous notify receipts before deciding
     remaining = list(batch)
     for key, entry in list(alert_state.items()):
+        if _producer_owned(key):
+            if isinstance(entry, dict) and entry.get("message"):
+                remaining = [line for line in remaining if line != entry["message"]]
+            continue
         if not isinstance(entry, dict) or entry.get("status") != "active":
             continue
         message = entry.get("message")
@@ -641,6 +660,8 @@ def _quiet_route_recoveries(batch):
             continue
         task = key.split("|", 1)[0]
         managed.add((task, entry.get("keyword"), entry.get("first_seen")))
+        if _producer_owned(key):
+            continue
         if entry.get("status") == "recovered":
             entry["requires_action"] = False
             if (_quiet_notified(entry) and
@@ -654,7 +675,7 @@ def _quiet_route_recoveries(batch):
 
 def _active_escalate(entry, key, label):
     """Persistent observation, one unclaimed escalation; ACK never means healthy."""
-    if not isinstance(entry, dict):
+    if _producer_owned(key) or not isinstance(entry, dict):
         return False
     _quiet_event(key, entry)
     entry["requires_action"] = True
@@ -3165,6 +3186,8 @@ if _removed_stale:
 # 自更新), 跨日(日期<今天)静默清理(昨天漏跑 key 今天不检查了)。
 # 同日窗口外未 seen 保持 active(任务可能真漏跑未补, 等 next day 跨日清理)。
 for _key, _info in list(alert_state.items()):
+    if _producer_owned(_key):
+        continue  # unobserved by schedule is NOT recovered; producer owns truth
     # #123 R2/R5(2026-10-01): merge| 共享去重 key 与 r2_pipeline_congestion| 日汇总状态
     # 不是"异常告警", 不参与恢复检测(否则 merge key 未 seen 被误发恢复邮件)。
     if _key.startswith(adr.MERGE_PREFIX) or _key.startswith(adr.R2_CONGESTION_SUMMARY_KEY_PREFIX):

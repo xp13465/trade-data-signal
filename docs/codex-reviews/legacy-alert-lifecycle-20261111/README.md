@@ -2,7 +2,7 @@
 
 用户授权 Codex 独立分支实施；父任务整合，Claude 复核/合并/部署。
 基线：`30df57e6bc20d15c7ec82c14c60626476ab7d622`。
-本分支只是 producer 侧交付，**尚不可独立部署**；下列 schedule 接口必须配套。
+父任务随后明确扩大授权，本分支已补齐 schedule 接口和旧测试迁移，待固定 head 独立复验。
 
 ## 实现
 
@@ -22,7 +22,7 @@
   返回未知/失败，允许重复，优先不漏真故障；不能宣称这种降级具备事件去重。
 - dry run 不写状态/队列；未来心跳、乱序/重复/超前快照不能证明恢复。
 
-## 阻断接口：必须由父任务在 schedule_monitor.sh 配套
+## 已配套的 schedule_monitor.sh 接口
 
 1. 导入 `ops_legacy_events.owns_event_key`，通用恢复检测跳过其所属 key。
    前缀为 `producer_s06|` / `producer_heartbeat|`；不要借用 `72h_` 等别人的保留命名空间。
@@ -35,7 +35,7 @@
 
 真实 schedule 源码函数的临时隔离复现证明：当前基线会把未扫描 key 误恢复，并且会把
 新事件写回成旧事件。复现与日志保存在交付证据目录 `legacy-lifecycle/`。
-本分支未修改 schedule 或 notify，不能将此依赖写成已闭合。
+随后已修改 schedule 并补真实跨模块测试；notify.py 未改。原失败证据保留，当前修复结果见下。
 
 ## 历史迁移边界（不得静默清空）
 
@@ -60,15 +60,34 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest --n
   scripts/tests/test_notify_ops_quiet_20261111.py
 ```
 
-基线两原始反例：`2 failed in 0.18s`；修后组合：`69 passed in 3.59s`。
+基线两原始反例：`2 failed in 0.18s`；producer 初版组合：`69 passed in 3.59s`。
+最终五文件组合（另含原 #241、schedule 和 schedule→notify 接口）：`134 passed in 2.58s`。
 覆盖新故障/恢复/队列丢失/部分渠道失败/同事件ACK/旧ACK/腐损状态/并发观察/真实发送中恢复。
 发送中恢复导致 claim 失效时保留 `unknown`，不宣称成功或接收者一定收到。
 
-另外执行旧合约测试 `test_241_s06_fresh_sent_criterion_20261009.py`：
-`7 failed, 12 passed in 0.09s`。其 producer 断言要求旧文本判据、入队签名及跳过后续调用，
-与本次「每轮核对实际逐渠道回执」互斥。父任务须迁移这 7 条相关断言（含断言总数），
-保留其它仍使用 notify_sent 的通用解析用例；不允许直接将整个文件 skip。
-本次获准范围为独立新测试，未修改这个旧文件，不能声称全量 CI 通过。
+旧合约迁移前：`test_241_s06_fresh_sent_criterion_20261009.py` 得到
+`7 failed, 12 passed in 0.09s`，原始失败日志保留。扩大授权后已迁移文本判据/本地签名
+断言为真实 producer→notify 的失败重试、队列丢失、恢复和新故障；保留通用解析用例。
+没有删除失败语义或整文件 skip。上面的最终组合已包含迁移后的旧文件。
 
-未执行：完整回归、远端 CI、部署、真实告警收件/自然链稳定验收。
+另执行完整 schedule Python heredoc（非剪裁函数）+真实 S06/heartbeat/notify：
+5 次入口运行、每次 5 个网络/进程/凭据正控；停摆首报仅 3 个渠道受理，后续轮次无新增
+外发，S06 恢复如实写入共享事件。systemd、资源、云端查询与其它不相关 producer 是明确
+替身；不等于整段生产 shell 或线上自然链。首次 harness 出现重复 argv 参数 TypeError，
+修正测试构造后独立 v2 重跑通过，原日志保留 `whole.log`，不覆盖失败证据。
+
+未执行：全仓完整回归、远端 CI、部署、真实告警收件/自然链稳定验收。
 原外审 `independent/report.md`、`reproduce.py`、`results.json` 未覆盖修改。
+
+仓内 evidence 文本副本仅去除 pytest 尾随空白以通过 diff 检查；原始字节日志仍在交付证据目录。
+
+最终扩大影响面后的组合执行末行：`490 passed, 4 skipped in 17.43s`。
+四个 skip 是已有 CFU 套件的条件性用例，不计为通过；未声称全仓测试全绿。
+AST 测试夹具补齐新归属函数，并将其必备依赖分别校验；最后仅强化测试收集守卫后单跑
+`test_309_conclusion_email_20261026.py`，详见 evidence/harness-guard-final.log。
+
+schedule 影响面首轮缺 PYTHONPATH 收集失败，第二轮 29 fail 中有新归属函数未载入及
+CFU 子进程因 HOME 隔离导致 pytest 不可导入。修正只涉及两处 AST fixture，以及
+CFU fixture 自身 PYTHONPATH 显式加入当前 pytest 的 site-packages；没有为测试修改
+生产逻辑。之后该组 `356 passed, 4 skipped in 14.68s`，并纳入上述 490 组合。
+所有原失败均保留在 /tmp/codex-reports/ops-evidence-closeout-20261111/legacy-lifecycle/。
