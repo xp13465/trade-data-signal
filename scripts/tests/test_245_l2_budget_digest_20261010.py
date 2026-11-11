@@ -719,6 +719,12 @@ def _adr_stub(*, wrapper_alerted: bool):
     )
 
 
+def _real_recurrence():
+    # Actual schedule helper plus its real dependencies, including the nullable run input.
+    from test_ops_quiet_schedule_20261111 import namespace
+    return namespace(Path("/unused-offline-monitor-root"))["_recurrence_suppressed"]
+
+
 def _run_exit_segment(task, exit_code, *, wrapper_alerted: bool, state=None,
                       last_run="2026-10-10 09:26"):
     alerts, seen = [], set()
@@ -728,7 +734,7 @@ def _run_exit_segment(task, exit_code, *, wrapper_alerted: bool, state=None,
          "exit_code": exit_code, "alert_state": st, "seen_keys_this_run": seen,
          "alerts": alerts, "NOW": datetime(2026, 10, 10, 9, 40, 0),
          "datetime": datetime, "STALE_EXIT_THRESHOLD": timedelta(hours=24),
-         "sys": sys, "REPO": Path("/x"), "_recurrence_suppressed": lambda e: False,
+         "sys": sys, "REPO": Path("/x"), "_recurrence_suppressed": _real_recurrence(),
          "print": lambda *a, **k: None}
     exec(_exit_segment_code(), g)  # noqa: S102  (真源码块: 只 append alerts/改 state)
     return alerts, st, seen
@@ -761,7 +767,7 @@ def test_n13_keyword_segment_ngc_skip():
              "seen_keys_this_run": seen, "alerts": alerts, "hashlib": __import__("hashlib"),
              "NOW": datetime(2026, 10, 10, 9, 40, 0), "datetime": datetime,
              "STALE_EXIT_THRESHOLD": timedelta(hours=24), "sys": sys,
-             "_recurrence_suppressed": lambda e: False,
+             "_recurrence_suppressed": _real_recurrence(),
              "TRANSIENT_TIMEOUT_THRESHOLD": 3, "print": lambda *a, **k: None}
         exec(_keyword_segment_code(), g)  # noqa: S102
         return alerts, seen
