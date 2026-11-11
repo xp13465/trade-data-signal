@@ -62,6 +62,11 @@ ROOT = Path(__file__).resolve().parent.parent
 MAIN_REPO = Path(os.environ.get("MAIN_REPO", "/Users/linhuichen/code/trade-data"))  # launchd 主库/主数据(与 update_all.sh REPO 一致); 云上单仓用 MAIN_REPO env 覆盖
 
 # ── 通知(2026-08-11 追加需求):邮件+飞书报告群 ──────────────────────────────
+# 补仓库根进 sys.path(2026-11-12 修):run_daily_brief.sh 以「直接执行脚本」方式调用时
+# sys.path[0]=scripts/ 而 cwd≠仓库根,load_data() 里的 `from app.fx_contract import ...`
+# (7289085f5 引入)会 ModuleNotFoundError(云上 20:40 daily_brief rc=1 实证)。先插根再插
+# scripts/,保证搜索序 scripts/ 在前,不遮蔽 scripts/ 下同名模块,仅补 app 包可导入。
+sys.path.insert(0, str(ROOT))
 # import notify(多渠道统一出口)前把 scripts/ 放 sys.path,与 check_signals.py 同款。
 sys.path.insert(0, str(ROOT / "scripts"))
 import notify  # noqa: E402
