@@ -85,6 +85,25 @@ def main():
                         expect(page.locator('#detail-body')).to_contain_text('净值线上发布')
                         expect(page.locator('#detail-body')).to_contain_text('未取得本轮净值与公开文件的完整对应凭证')
                         page.locator('#detail-dialog').evaluate('(d) => d.close()')
+                    # UI projection fixtures only; actual byte binding is tested by
+                    # test_ops_nav_publication. A publication stage never makes the row OK.
+                    for stage, message in [('partial', '本批部分净值桶已核对'),
+                                           ('scoped_confirmed', '不代表持续有效或全池齐全')]:
+                        for check in snapshot['checks']:
+                            if check['id'] == 'business:public-fund':
+                                check['evidence']['publication_state'] = stage
+                        page.reload()
+                        page.locator('[data-tab="data"]').click()
+                        fund=page.locator('#data-live tbody tr').filter(has_text='公募日更 · 业务证据')
+                        expect(fund).to_contain_text('未知')
+                        fund.get_by_role('button',name='详情',exact=True).click()
+                        expect(page.locator('#detail-body')).to_contain_text(message)
+                        page.locator('#detail-dialog').evaluate('(d) => d.close()')
+                    for check in snapshot['checks']:
+                        if check['id'] == 'business:public-fund':
+                            check['evidence']['publication_state'] = 'unknown'
+                    assert not errors, errors
+                    assert not seen, seen
                     page.close()
                 print('PASS: actual ops HTML/JS/CSS; collector indices; desktop/mobile; unknown timestamps; XSS; zero external requests')
             finally:

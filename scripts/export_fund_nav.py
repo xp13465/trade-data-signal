@@ -92,6 +92,9 @@ ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.collector.public_fund import DB_PATH, STATIC_DATA_DIR  # noqa: E402
+from scripts.ops_nav_publication import (fund_bucket as _nav_fund_bucket,
+                                export_begin as _nav_begin, export_bucket as _nav_bucket,
+                                file_identity as _nav_file_identity)
 
 OUT_DIR = STATIC_DATA_DIR / "nav_bucket"
 
@@ -104,11 +107,7 @@ def _fund_bucket(code: str) -> str:
     (~2MB/桶)。**必须与 static-site/app.js `_fundNavBucket` 完全同构**(第二份实现防漂移
     §5.4⑦): 两端对同一 code 字符串算出同一桶名, 否则前端定位错桶。
     """
-    h = 2166136261
-    for ch in str(code or ""):
-        h ^= ord(ch)
-        h = (h * 16777619) & 0xFFFFFFFF
-    return f"{h & 0xFF:02x}"
+    return _nav_fund_bucket(code)
 
 
 def _atomic_write_json(out: Path, payload: dict) -> None:
@@ -125,7 +124,9 @@ def _atomic_write_json(out: Path, payload: dict) -> None:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
+            nav_file_token = _nav_file_identity(f.fileno())
         os.replace(tmp, out)  # 原子替换，POSIX 保证不会读到半截文件
+        _nav_bucket(ROOT, out, payload, text.encode('utf-8'), producer=_build_payload, file_token=nav_file_token)
     except BaseException:
         try:
             if tmp.exists():
@@ -186,8 +187,12 @@ def _refresh_one_bucket(task):
     path = Path(out_dir) / f"{b}.json"
     try:
         try:
-            with open(path, "r", encoding="utf-8") as fh:
-                bmap = json.load(fh)
+            with open(path, "rb") as fh:
+                nav_file_token = _nav_file_identity(fh.fileno())
+                loaded_bytes = fh.read()
+                if nav_file_token != _nav_file_identity(fh.fileno()):
+                    nav_file_token = None
+                bmap = json.loads(loaded_bytes.decode('utf-8'))
         except (json.JSONDecodeError, OSError) as e:
             return {"bucket": b, "changed": 0, "written": 0,
                     "error": f"桶文件读取失败 {path.name}({e})"}
@@ -208,6 +213,8 @@ def _refresh_one_bucket(task):
         if changed:
             # 桶内 code 升序(与全量导出逐位同构) + 原子写
             _atomic_write_json(path, dict(sorted(bmap.items())))
+        else:
+            _nav_bucket(ROOT, path, bmap, loaded_bytes, producer=_build_payload, file_token=nav_file_token)
         return {"bucket": b, "changed": changed, "written": 1 if changed else 0, "error": None}
     except Exception as e:  # noqa: BLE001 —— worker 内任何异常都必须变成失败结果
         return {"bucket": b, "changed": 0, "written": 0, "error": f"{type(e).__name__}: {e}"}
@@ -229,6 +236,7 @@ def daily_refresh(conn, out_dir: Path, recent_days: int, db_path=None, workers: 
     不改：写入范围仅 nav_bucket 桶文件(不动 R2, 不动其它产物; 17:50 全量链照旧全量重出)。
     """
     t0 = time.time()
+    _nav_begin(ROOT, _build_payload)
     if not out_dir.is_dir() or not any(out_dir.glob("*.json")):
         print(f"✗ nav_bucket 刷新失败: 产物目录缺失或为空({out_dir}), 无法增量合并; "
               f"请先全量导出 scripts/export_fund_nav.py", file=sys.stderr, flush=True)
@@ -327,6 +335,7 @@ def main() -> None:
         workers = min(4, os.cpu_count() or 1)
 
     out_dir = Path(args.out_dir)
+    _nav_begin(ROOT, _build_payload)
     t0 = time.time()
     conn = sqlite3.connect(args.db, timeout=10.0)
     conn.row_factory = sqlite3.Row

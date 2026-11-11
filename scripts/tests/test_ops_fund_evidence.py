@@ -84,6 +84,10 @@ def test_daily_source_date_and_commit_not_global_max(db, tmp_path, monkeypatch, 
     assert [tuple(x) for x in rows] == [(target, '000001', float(new or '1.10')), (target, '000002', None)]
     con.close()
     assert r['inputs'][0]['sha256'] != r['outputs'][0]['sha256']  # derived prev/pct bound after commit
+    from scripts import ops_nav_publication as nav
+    raw = nav._input_path(tmp_path, 'public-fund', r['attempt_id']).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == facts['publication_input']['sha256']
+    assert json.loads(raw)['rows'] == [['000001', target, float(new or '1.10'), float(new or '1.10')]]
 
 
 @pytest.mark.parametrize('kind,status,reason', [('exception', 'failure', 'source_error'),
@@ -136,6 +140,12 @@ def test_fof_mixed_commits_empty_errors_and_outside_batch(db, tmp_path, monkeypa
     con = _conn(db)
     assert con.execute('SELECT count(*) FROM fund_daily_nav WHERE unit_nav IS NOT NULL').fetchone()[0] == 1
     con.close()
+
+    # Real collector's committed prefix, not a source-response-only witness.
+    from scripts import ops_nav_publication as nav
+    raw = nav._input_path(tmp_path, 'fof-nav', r['attempt_id']).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == f['publication_input']['sha256']
+    assert json.loads(raw)['rows'] == [['000001', '20261106', 1.154, 1.154]]
 
 
 def test_fof_500_batch_is_never_full_pool(db, tmp_path, monkeypatch):
