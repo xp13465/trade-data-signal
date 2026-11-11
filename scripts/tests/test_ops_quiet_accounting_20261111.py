@@ -264,6 +264,7 @@ class AccountingCLI(unittest.TestCase):
     def test_same_run_poll_dedup_and_retry_retains_failure_evidence(self):
         good = self.receipt()
         failure = deepcopy(good); failure.update(receipt_id="earlier-failure", stage_status="failure", reason="upstream_failure", evaluated_at="2026-11-01T08:01:00+08:00")
+        failure["producer_time"]["completed_at"] = "2026-11-01T08:01:00+08:00"
         self.put("earlier.json", failure)
         old = deepcopy(self.obs["runs"][0]); old.update(receipt="earlier.json", upstream_failure=True)
         self.obs["runs"].insert(0, old)
@@ -279,6 +280,21 @@ class AccountingCLI(unittest.TestCase):
         # A newer unknown observation cannot erase an earlier proved failure.
         good["stage_status"] = "unknown"; self.put(self.obs["runs"][1]["receipt"], good)
         self.assertEqual(self.cli()["verdict"], "FAIL")
+
+    def test_reobserved_old_success_cannot_clear_new_failed_invocation(self):
+        good = self.receipt()
+        good["evaluated_at"] = "2026-11-01T08:30:00+08:00"
+        self.save_receipt(good)
+        failure = deepcopy(good)
+        failure.update(receipt_id="later-failure", attempt_id="later-run", batch_id="later-run",
+                       stage_status="failure", reason="upstream_failure", evaluated_at="2026-11-01T08:13:00+08:00")
+        failure["producer_time"] = {"started_at": "2026-11-01T08:10:00+08:00", "completed_at": "2026-11-01T08:12:00+08:00"}
+        self.put("later-failure.json", failure)
+        observation = deepcopy(self.obs["runs"][0]); observation["receipt"] = "later-failure.json"
+        self.obs["runs"].append(observation)
+        result = self.cli()
+        self.assertEqual(result["verdict"], "FAIL")
+        self.assertEqual(result["business_account"]["expected_slots"], 14)
 
     def test_duplicate_conflict_and_manual_not_hidden(self):
         duplicate = deepcopy(self.obs["runs"][0]); duplicate["journal_complete"] = False
@@ -503,6 +519,19 @@ class AccountingCLI(unittest.TestCase):
         self.assertEqual(strict["dataset"], "unknown")
         strict = self.strict([row(channels={"email": True, "feishu": True}, attempted_channels=["email", "feishu"])])
         self.assertEqual(strict["channels"]["telegram"]["result_unknown_rows"], 1)
+
+    def test_native_ops_tier_and_unknown_transport_result(self):
+        record = row(tier="ops", ops_category="operations")
+        self.ledger([record])
+        self.assertEqual(self.cli()["verdict"], "REPLAY_OK")
+        record["channels"]["email"] = None
+        strict = self.strict([record])
+        email = strict["channels"]["email"]
+        self.assertEqual(email["result_unknown_rows"], 1)
+        self.assertEqual(email["failed_attempt_rows"], 0)
+        self.assertEqual(email["declared_success_rows"], 0)
+        self.ledger([record])
+        self.assertEqual(self.cli()["verdict"], "UNKNOWN")
 
     def test_actual_metadata_producer_emits_adapter_compatible_receipt(self):
         # Actual record_result -> emit_receipt -> read_receipt; only temporary metadata.

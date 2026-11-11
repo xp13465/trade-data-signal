@@ -362,6 +362,7 @@ STATE_ACK_FIELDS = ("acknowledged", "ack_owner", "ack_event_id", "ack_note", "la
 STATE_NOTIFY_FIELDS = ("notified_event_id", "notified_at", "notified_channels",
                        "last_recovery_notified_event_id", "last_recovery_notified",
                        "last_escalation_notified_event_id", "last_escalation_notified",
+                       "last_recovery_notified_channels", "last_escalation_notified_channels",
                        "last_notification_attempt", "notification_claim")
 STATE_SHARED_FIELDS = STATE_ACK_FIELDS + STATE_NOTIFY_FIELDS
 

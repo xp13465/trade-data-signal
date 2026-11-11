@@ -233,6 +233,16 @@ def inspect_run(run, slot, plan, root, as_of, sources):
                 receipt["config_identity"].get("sha256") != plan["deployment"]["config_sha256"] or
                 receipt["config_identity"].get("sha256") != sha(RULE.encode())):
             raise ValueError("deployment_mismatch")
+        # Evaluation time is when a receipt was inspected, not when its task ran.
+        # Retain execution order for failures too. An unorderable proved failure
+        # remains a failure and cannot be cleared by a later poll of old success.
+        times = receipt["producer_time"]
+        try:
+            begin, finish = stamp(times["started_at"]), stamp(times["completed_at"])
+            if stamp(slot["scheduled_at"]) <= begin <= finish <= at:
+                result["completed_at"] = times["completed_at"]
+        except (KeyError, ValueError, TypeError, AttributeError):
+            pass
         if receipt["stage_status"] == "failure":
             result.update(status="fail", reasons=["business_failure:" + receipt["reason"]])
             return result
@@ -251,11 +261,8 @@ def inspect_run(run, slot, plan, root, as_of, sources):
             raise ValueError("journal_coverage_unknown")
         if journal.get("ActiveState") != "inactive" or journal.get("Result") != "success" or journal.get("ExecMainStatus") != "0":
             raise ValueError("completion_unverified")
-        times = receipt["producer_time"]
-        begin, finish = stamp(times["started_at"]), stamp(times["completed_at"])
-        if not stamp(slot["scheduled_at"]) <= begin <= finish <= at:
+        if "completed_at" not in result:
             raise ValueError("run_time_mismatch")
-        result["completed_at"] = times["completed_at"]
         if not finish <= stamp(witness["valid_until"]) <= begin + timedelta(hours=26):
             raise ValueError("invalid_receipt_validity")
         approved = deadline_approved(slot, stamp(plan["window_start"]))
@@ -391,14 +398,20 @@ def assess(plan, observed, root, ledgers, legacy, as_of):
                 conflicts.append(key)
             if not prior or evaluated(r) >= evaluated(prior):
                 latest[key] = r
-        states = sorted(latest.values(), key=evaluated)
+        def completed(r):
+            try:
+                return stamp(r["completed_at"])
+            except (KeyError, ValueError, TypeError, AttributeError):
+                return datetime.min.replace(tzinfo=timezone.utc)
+        states = sorted(latest.values(), key=lambda r: (completed(r), evaluated(r)))
         state = states[-1]["status"] if states else "unknown" if as_of >= stamp(slot["deadline"]) else "pending"
-        if conflicts:
+        if conflicts or any("completed_at" not in r or r["status"] == "unknown" for r in states):
             state = "unknown"
         # Unknown/missing/newer polls cannot erase a proved failure. A later
         # complete native receipt may resolve a recoverable attempt in budget.
         failures = [r for r in observations if r["status"] == "fail"]
-        if failures and (state != "consistent" or evaluated(states[-1]) <= max(map(evaluated, failures))):
+        if failures and (state != "consistent" or any("completed_at" not in r for r in failures)
+                         or completed(states[-1]) <= max(map(completed, failures))):
             state = "fail"
         if any(set(r["reasons"]) & {"public_bytes_mismatch", "coverage_set_mismatch", "coverage_count_mismatch",
                                      "business_deadline_missed"} for r in failures):

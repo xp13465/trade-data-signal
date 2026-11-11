@@ -768,7 +768,7 @@ def all_groups_view(paths: list[Path], days: list[str], *, cutoff: datetime | No
             reasons.append(evidence)
         tier = rec.get("tier")
         if (not isinstance(tier, str)
-                or tier not in {"critical", "warning", "info", "notice", "digest", "subscribe", "agent_done"}):
+                or tier not in {"critical", "warning", "info", "notice", "digest", "subscribe", "agent_done", "ops"}):
             reasons.append("unknown_or_missing_tier")
         channels = rec.get("channels")
         feishu = channels.get("feishu") if isinstance(channels, dict) else None
