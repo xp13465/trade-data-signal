@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 import threading
 import time
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode
 import uuid
 
 from r2_safe_write import durable
@@ -52,18 +52,22 @@ def validate(plan):
 
 
 class Probe:
-    def __init__(self, api, state, plan):
+    def __init__(self, api, state, plan, *, budget=180, request_timeout=25):
         validate(plan)
+        if not 1 <= request_timeout <= 120 or not request_timeout <= budget <= 600:
+            raise ValueError('probe budget must be request_timeout..600, request_timeout 1..120')
         self.api, self.state, self.plan = api, Path(state), plan
         self.lock = threading.Lock()
         self.local = threading.local()
         self.original = api.s3_request
-        self.deadline = time.monotonic() + 180
+        self.deadline = time.monotonic() + budget
+        self.request_timeout = request_timeout
+        self.limits = {'budget': budget, 'request_timeout': request_timeout}
         api._WORK_DEADLINE = self.deadline
-        api._WORK_BUDGET_S = 180
-        api._WORK_LABEL = 'isolated-probe'
-        api.R2_UPLOAD_HTTP_TIMEOUT = 25
-        # 每次逻辑请求(含底层重试)最多25s，全部流程180s，分片线程独立计时。
+        api._WORK_BUDGET_S = budget
+        api._WORK_LABEL = f'isolated-probe(request<={request_timeout}s,total<={budget}s)'
+        api.R2_UPLOAD_HTTP_TIMEOUT = request_timeout
+        # 探针独立有界预算；不改变生产入口默认值，分片线程独立计时。
         api._remaining_work = lambda: min(self.deadline,
             getattr(self.local, 'deadline', self.deadline)) - time.monotonic()
         api.s3_request = self.request
@@ -83,7 +87,7 @@ class Probe:
             if not uid or {'key': key, 'upload_id': uid} not in self.plan['multipart_uploads']:
                 raise ValueError('object DELETE forbidden; only own known multipart abort allowed')
         kwargs['bucket'] = self.plan['bucket']
-        self.local.deadline = time.monotonic() + 25
+        self.local.deadline = time.monotonic() + self.request_timeout
         try:
             result = self.original(method, key, **kwargs)
             if method == 'POST' and query == 'uploads=' and result[0] == 200:
@@ -150,6 +154,7 @@ class Probe:
     def run(self):
         if self.plan['status'] != 'planned':
             raise ValueError('plan already attempted; do not blindly replay, use a new unique plan')
+        self.plan['execution_limits'] = self.limits
         self.plan['status'] = 'running'; self.save()
         p = self.plan['prefix']
         # 所有新键先GET，写入仍必须If-None-Match，避免检查与写之间竞态。
@@ -193,6 +198,16 @@ class Probe:
         self.plan['status'] = 'passed'; self.save()
 
     def cleanup(self):
+        self.plan['cleanup_limits'] = self.limits
+        # 新进程的独立预算仅回收本计划已记下的multipart会话。
+        # 这不删除完整对象；已完成/已取消会话返回404也可收束。
+        aborted = []
+        for entry in self.plan['multipart_uploads']:
+            status, _ = self.request('DELETE', entry['key'],
+                query=urlencode({'uploadId': entry['upload_id']}))
+            aborted.append({**entry, 'status': status, 'closed': status in (204, 404)})
+        self.plan['multipart_cleanup'] = aborted
+        self.save()
         # R2未给DeleteObject原子条件合同。即使GET匹配也不能消除TOCTOU；宁留不误删。
         # 不递归LIST/不删除未知版本；完整归属状态供父任务与服务端生命周期决策。
         report = {}
@@ -214,6 +229,8 @@ def main():
     parser.add_argument('action', choices=('plan', 'execute', 'cleanup'))
     parser.add_argument('--bucket')
     parser.add_argument('--state', required=True, type=Path)
+    parser.add_argument('--budget', type=int, default=180)
+    parser.add_argument('--request-timeout', type=int, default=25)
     args = parser.parse_args()
     if not args.state.is_absolute():
         parser.error('--state must be an absolute isolated /tmp path')
@@ -230,7 +247,7 @@ def main():
     # 只在显式execute/cleanup时加载现有标准库SigV4客户端及其凭据；默认plan零网络。
     os.environ['REPO'] = str(args.state.parent / (args.state.stem + '-runtime'))
     api = importlib.import_module('upload_r2')
-    probe = Probe(api, args.state, plan)
+    probe = Probe(api, args.state, plan, budget=args.budget, request_timeout=args.request_timeout)
     try:
         if args.action == 'execute':
             probe.run()
@@ -238,6 +255,8 @@ def main():
             print(json.dumps(probe.cleanup(), indent=2))
     except BaseException as exc:
         plan['error_type'] = type(exc).__name__
+        if args.action == 'execute':
+            plan['status'] = 'failed'
         probe.save()
         raise
     print('R2_ISOLATED_PROBE: ' + plan['status'])

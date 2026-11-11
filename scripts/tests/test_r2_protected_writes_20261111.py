@@ -636,8 +636,22 @@ def test_isolated_probe_real_client_fake_transport_end_to_end(client, tmp_path):
     f.put('public', foreign, b'foreign', {'x-amz-meta-write-id': 'foreign'})
     cleanup = probe.cleanup()
     assert cleanup[foreign] == 'UNKNOWN-retained'
-    assert not [c for c in f.calls if c[0] == 'DELETE']
+    assert plan['execution_limits'] == {'budget':180,'request_timeout':25}
+    assert plan['cleanup_limits'] == {'budget':180,'request_timeout':25}
+    deletes = [c for c in f.calls if c[0] == 'DELETE']
+    assert deletes
+    assert all({'key': c[2], 'upload_id': c[3]['uploadId'][0]} in plan['multipart_uploads'] for c in deletes)
+    assert all('uploadId' in c[3] for c in deletes)  # Never DeleteObject.
     with pytest.raises(ValueError): probe.run()
+
+
+@pytest.mark.parametrize('budget,request_timeout', [(0,25),(601,25),(180,121),(10,25)])
+def test_probe_limits_are_bounded(client, tmp_path, budget, request_timeout):
+    import r2_isolated_probe as probe_module
+    m, _ = client
+    with pytest.raises(ValueError):
+        probe_module.Probe(m, tmp_path/'probe.json', probe_module.make_plan('public'),
+                           budget=budget, request_timeout=request_timeout)
 
 
 def test_probe_rejects_outside_prefix_and_unknown_deletes(client, tmp_path):
