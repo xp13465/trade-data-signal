@@ -101,7 +101,7 @@ def merge_ranges(ranges):
     return merged
 
 
-def plan(conn, stream, code, end, floor, lookback=7):
+def plan(conn, stream, code, end, floor, lookback=7, work_limit=None):
     """只读规划；返回候选状态。失败不会推进历史/扫描位置或删除NULL任务。"""
     table, key, fields = tables(stream)
     index = 'idx_daily_nav_code' if stream == 'nav' else 'idx_fund_index_daily_id'
@@ -111,13 +111,15 @@ def plan(conn, stream, code, end, floor, lookback=7):
     state = conn.execute('SELECT history_before,gap_after FROM fund_collection_state WHERE stream=? AND code=?',
                          (stream, code)).fetchone() if has_state else None
     before, after = tuple(state) if state else (shift(end, 1), '')
-    history_start = floor if stream == "index" else max(floor, shift(before, -HISTORY_DAYS))
-    ranges = [(history_start, shift(before, -1))] if before > floor else []
+    history_days = work_limit['history_days'] if work_limit else HISTORY_DAYS
+    gap_limit = work_limit['gap_fields'] if work_limit else GAP_LIMIT
+    history_start = floor if stream == "index" else max(floor, shift(before, -history_days))
+    history_ranges = [(history_start, shift(before, -1))] if before > floor else []
     latest = conn.execute(f'SELECT MAX(date) FROM {table} WHERE {key}=? AND {fields[0]} IS NOT NULL',
                           (code,)).fetchone()[0]
     # 从最后有效日回看，停采超7日时仍覆盖整段；加一条真实上下文供prevNAV。
     recent = shift(min(latest or end, end), -lookback)
-    ranges.append((recent, end))
+    recent_end = min(end, shift(latest, history_days)) if work_limit and latest else end
     predicate = ' OR '.join(f'{f} IS NULL' for f in fields)
     gaps = list(conn.execute(f'SELECT date,{",".join(fields)} FROM {table} WHERE {key}=? '
                             f'AND date>? AND date<=? AND ({predicate}) ORDER BY date LIMIT ?',
@@ -127,17 +129,36 @@ def plan(conn, stream, code, end, floor, lookback=7):
                                 f'AND date<=? AND ({predicate}) ORDER BY date LIMIT ?', (code, end, GAP_LIMIT)))
     discovered = [(r[0], f) for r in gaps for f, v in zip(fields, r[1:]) if v is None]
     queued = list(conn.execute('SELECT date,field FROM fund_collection_gaps WHERE stream=? AND code=? '
-                              'ORDER BY attempts,date,field LIMIT ?', (stream, code, GAP_LIMIT))) if has_state else []
-    selected = list(dict.fromkeys([tuple(r) for r in queued] + discovered))[:GAP_LIMIT]
-    ranges.extend((d, d) for d, _ in selected)
+                              'ORDER BY attempts,date,field LIMIT ?', (stream, code, gap_limit))) if has_state else []
+    selected = list(dict.fromkeys([tuple(r) for r in queued] + discovered))[:gap_limit]
+    next_history, next_gap = min(before, history_start), gaps[-1][0] if gaps else ''
+    gap_ranges = [(d, d) for d, _ in selected]
+    if work_limit:
+        # A timed-out target gets complete, smaller units, not an ever-repeated
+        # all-history+all-gaps transaction. These phases rotate independently of
+        # the fund cursor. Only the successfully fetched phase advances coverage.
+        phase = work_limit['phase']
+        ranges = {'recent': [(recent, recent_end)], 'history': history_ranges,
+                  'gap': gap_ranges}[phase]
+        if phase != 'history':
+            next_history = before
+        if phase != 'gap':
+            selected, discovered, next_gap = [], [], after
+    else:
+        ranges = history_ranges + [(recent, end)] + gap_ranges
     ranges = merge_ranges(ranges)
     with_context = []
     for start, stop in ranges:
         prev = conn.execute(f'SELECT MAX(date) FROM {table} WHERE {key}=? AND date<? '
                             f'AND {fields[0]} IS NOT NULL', (code, start)).fetchone()[0]
-        with_context.append((start if stream == 'index' and start == floor else (prev or shift(start, -7)), stop))
-    return {'ranges': merge_ranges(with_context), 'history_before': min(before, history_start),
-            'gap_after': gaps[-1][0] if gaps else '', 'discovered': discovered, 'selected': selected}
+        context = prev or shift(start, -7)
+        if work_limit:
+            # A distant old database row must not silently expand a one-day
+            # retry into years. Missing previous NAV remains NULL for later repair.
+            context = max(context, shift(start, -7))
+        with_context.append((start if stream == 'index' and start == floor else context, stop))
+    return {'ranges': merge_ranges(with_context), 'history_before': next_history,
+            'gap_after': next_gap, 'discovered': discovered, 'selected': selected}
 
 
 class NonNullConflict(RuntimeError):

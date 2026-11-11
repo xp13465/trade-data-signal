@@ -98,15 +98,96 @@ def test_timeout_half_batch_preserves_attempt_cursor_and_rolls_back_target(sandb
     monkeypatch.setattr(mod, 'fetch_lsjz', fetch)
     with pytest.raises(TimeoutError):
         mod.collect(budget_seconds=.06)
-    assert json.loads(sandbox.with_suffix('.fof-nav-progress.json').read_text())['last_code'] == '000001'
+    progress = json.loads(sandbox.with_suffix('.fof-nav-progress.json').read_text())
+    assert progress['last_code'] == '000002'
+    assert progress['work_limits']['000002']['history_days'] == 183
     c = _conn(sandbox)
     assert [r[0] for r in c.execute('SELECT fund_code FROM fund_daily_nav')] == ['000001']
     assert [r[0] for r in c.execute('SELECT code FROM fund_collection_state')] == ['000001']
     c.close()
-    # 重启/重入先到失败基金；旧基金重放幂等。
+    # 尝试游标不是成功游标：重启继续轮转，失败基金下一圈仍会回来。
     monkeypatch.setattr(mod, 'fetch_lsjz', lambda code,*a,**kw: [dict(date='20261106',fund_code=code,unit_nav=1,acc_nav=1,prev_unit_nav=None,nav_change_pct=0)])
     mod.collect(batch=1)
+    assert json.loads(sandbox.with_suffix('.fof-nav-progress.json').read_text())['last_code'] == '000001'
+    mod.collect(batch=1)
     assert json.loads(sandbox.with_suffix('.fof-nav-progress.json').read_text())['last_code'] == '000002'
+
+
+def slow_pages(monkeypatch, rows):
+    """真实分页/JSON/SQLite；确定性时钟避免用机器调度快慢决定断言。"""
+    from types import SimpleNamespace
+    from app.collector import public_fund_gap as gap
+    clock = [100.0]
+    timer = SimpleNamespace(monotonic=lambda: clock[0], time=lambda: clock[0], sleep=lambda seconds: None)
+    monkeypatch.setattr(mod, 'time', timer)
+    monkeypatch.setattr(gap, 'time', timer)
+    calls = source(monkeypatch, rows)
+    original = mod.urllib.request.urlopen
+    def slow(req, **kwargs):
+        result = original(req, **kwargs)
+        clock[0] += .09
+        return result
+    monkeypatch.setattr(mod.urllib.request, 'urlopen', slow)
+    return calls
+
+
+def test_timeout_rotates_funds_and_eventually_commits_complete_smaller_history(sandbox, monkeypatch):
+    _seed_basic(sandbox, [('000001','FOF','FOF'), ('000002','FOF','FOF')])
+    calls = slow_pages(monkeypatch, records())
+    progress_path = sandbox.with_suffix('.fof-nav-progress.json')
+    for expected in ('000001', '000002'):
+        with pytest.raises(TimeoutError):
+            mod.collect(batch=1, budget_seconds=.22)
+        assert json.loads(progress_path.read_text())['last_code'] == expected
+        c = _conn(sandbox)
+        assert c.execute('SELECT COUNT(*) FROM fund_daily_nav').fetchone()[0] == 0
+        assert c.execute('SELECT COUNT(*) FROM fund_collection_state').fetchone()[0] == 0
+        c.close()
+    # Empty recent windows remain legitimate. History shrinks only after a
+    # timeout and eventually admits full responses under the original budget.
+    for _ in range(24):
+        try:
+            mod.collect(batch=1, budget_seconds=.22)
+        except TimeoutError:
+            pass
+    c = _conn(sandbox)
+    for code in ('000001', '000002'):
+        rows = list(c.execute('SELECT date,unit_nav FROM fund_daily_nav WHERE fund_code=? ORDER BY date', (code,)))
+        assert len(rows) == 45
+        assert [tuple(r) for r in rows] == [(r['FSRQ'].replace('-',''), float(r['DWJZ'])) for r in records()]
+        assert c.execute('SELECT history_before FROM fund_collection_state WHERE code=?', (code,)).fetchone()[0] < '20260901'
+    c.close()
+    assert {q['fundCode'][0] for q in calls} == {'000001', '000002'}
+
+
+def test_sparse_gaps_shrink_without_advancing_failed_coverage(sandbox, monkeypatch):
+    from app.collector import public_fund_gap as gap
+    _seed_basic(sandbox, [('000001', 'FOF', 'FOF')])
+    c = _conn(sandbox); gap.migrate(c)
+    c.execute("INSERT INTO fund_collection_state VALUES('nav','000001','19900101','')")
+    for i in range(64):
+        day = date(2020,1,2)+timedelta(days=10*i)
+        c.execute("INSERT INTO fund_daily_nav(date,fund_code,unit_nav,acc_nav,prev_unit_nav,nav_change_pct) VALUES(?,'000001',1,1,1,0)", ((day-timedelta(days=1)).strftime('%Y%m%d'),))
+        c.execute("INSERT INTO fund_daily_nav(date,fund_code,unit_nav,prev_unit_nav,nav_change_pct) VALUES(?,'000001',1,1,0)", (day.strftime('%Y%m%d'),))
+    c.execute("INSERT INTO fund_daily_nav(date,fund_code,unit_nav,acc_nav,prev_unit_nav,nav_change_pct) VALUES('20261109','000001',1,1,1,0)")
+    c.commit(); c.close()
+    slow_pages(monkeypatch, [])
+    with pytest.raises(TimeoutError):
+        mod.collect(batch=1, budget_seconds=.22)
+    c = _conn(sandbox)
+    assert tuple(c.execute('SELECT history_before,gap_after FROM fund_collection_state').fetchone()) == ('19900101','')
+    assert c.execute('SELECT COUNT(*) FROM fund_collection_gaps').fetchone()[0] == 0
+    c.close()
+    for _ in range(22):
+        try:
+            mod.collect(batch=1, budget_seconds=.22)
+        except TimeoutError:
+            pass
+    c = _conn(sandbox)
+    assert c.execute('SELECT COUNT(*) FROM fund_collection_gaps WHERE attempts>0').fetchone()[0] >= 4
+    assert c.execute('SELECT COUNT(*) FROM fund_daily_nav WHERE acc_nav IS NULL').fetchone()[0] == 64
+    assert c.execute('SELECT history_before FROM fund_collection_state').fetchone()[0] == '19900101'
+    c.close()
 
 
 def test_http_trickle_is_absolute_bounded(sandbox, monkeypatch):

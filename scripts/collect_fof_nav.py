@@ -158,7 +158,8 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
 
     按代码轮转，每轮最多500只；不从库内零星非空值猜上游完整发布日期。
     进度文件邻接实际连接的DB，复用原子助手；损坏时明示重头复查，不跳过未知基金。
-    单基金落库后才记尝试位置；中断最多重试一只，COALESCE保证可安全重放。
+    已尝试目标即使超时回滚也记录轮转位置；它不是成功/完整覆盖游标。
+    超时目标在原version=1进度中保留缩小后的工作范围，历史/缺口业务状态不假推进。
     dry_run只读已存在的库；limit调试小样不读写轮转位置。
     """
     from app.collector import public_fund_gap as gap
@@ -209,6 +210,7 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
         total_pool = len(all_funds)
         progress = None
         last_code = ""
+        work_limits = {}
         if not dry_run and limit is None and fund_code is None and all_funds:
             db_file = conn.execute("PRAGMA database_list").fetchone()[2]
             if not db_file:
@@ -222,11 +224,26 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                 last_code = saved["last_code"]
                 if saved.get("version") != 1 or not isinstance(last_code, str) or not last_code.isdigit():
                     raise ValueError("进度格式异常")
+                pool = {row[0] for row in all_funds}
+                limits = saved.get('work_limits', {})
+                if not isinstance(limits, dict):
+                    raise ValueError('工作预算记录不是对象')
+                for code, value in limits.items():
+                    if code not in pool:
+                        continue
+                    if (not isinstance(value, dict) or type(value.get('history_days')) is not int
+                            or not 1 <= value['history_days'] <= gap.HISTORY_DAYS
+                            or type(value.get('gap_fields')) is not int
+                            or not 1 <= value['gap_fields'] <= gap.GAP_LIMIT
+                            or value.get('phase') not in ('recent', 'history', 'gap')):
+                        raise ValueError('工作预算记录格式异常')
+                    work_limits[code] = value
             except FileNotFoundError:
                 pass
             except (ValueError, KeyError, TypeError):
                 print("[fof_nav] WARN 轮转进度损坏，从头复查(不代表已补齐)", flush=True)
                 last_code = ""
+                work_limits = {}
         pending = [r for r in all_funds if r[0] > last_code] + [r for r in all_funds if r[0] <= last_code]
         pending = pending[:min(limit if limit is not None else batch, BATCH_SIZE)]
         run_batch = len(pending)
@@ -254,11 +271,14 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                 raise TimeoutError('FOF整轮预算耗尽，保留已提交目标和原尝试游标')
             attempted += 1
             candidate = None
+            target_limit = work_limits.get(fund_code)
+            budget_failed = False
             try:
                 gap.configure(conn, deadline)
                 # 定向/limit为明确窗口；正常轮转独立推进完整历史和长期NULL队列。
                 if limit is None and target_rows is None:
-                    candidate = gap.plan(conn, 'nav', fund_code, end.strftime('%Y%m%d'), '19900101', days)
+                    candidate = gap.plan(conn, 'nav', fund_code, end.strftime('%Y%m%d'), '19900101', days,
+                                         work_limit=target_limit)
                     ranges = candidate['ranges']
                 else:
                     ranges = [(start.strftime('%Y%m%d'), end.strftime('%Y%m%d'))]
@@ -309,17 +329,29 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                 if isinstance(e, gap.NonNullConflict) and not dry_run:
                     gap.save_conflicts(conn, 'nav', fund_code, e)
                 if time.monotonic() >= deadline:
-                    conn.close()
+                    budget_failed = True
                     raise TimeoutError('FOF整轮预算耗尽，本基金已回滚') from e
                 error_count += 1  # 真实异常计入整批判据
                 fail += 1
                 print(f"[fof_nav] FAIL {fund_code} {fund_type}: {e}", flush=True)
-            if progress is not None:
-                try:
-                    atomic_write_json(progress, {"version": 1, "last_code": fund_code})
-                except OSError:
-                    conn.close()
-                    raise  # 进度写失败必须非零退出，不能假称后批可续跑。
+            finally:
+                if progress is not None:
+                    if budget_failed:
+                        previous = target_limit or {'history_days': gap.HISTORY_DAYS,
+                                                    'gap_fields': gap.GAP_LIMIT, 'phase': 'gap'}
+                        work_limits[fund_code] = {
+                            'history_days': max(1, previous['history_days'] // 2),
+                            'gap_fields': max(1, previous['gap_fields'] // 2),
+                            'phase': {'recent': 'history', 'history': 'gap', 'gap': 'recent'}[previous['phase']]}
+                    elif target_limit:
+                        work_limits[fund_code] = dict(target_limit, phase={
+                            'recent': 'history', 'history': 'gap', 'gap': 'recent'}[target_limit['phase']])
+                    value = {"version": 1, "last_code": fund_code}
+                    if work_limits:
+                        value['work_limits'] = work_limits
+                    # Small, atomic attempt metadata is outside the rolled-back
+                    # NAV transaction; a failed write remains a nonzero failure.
+                    atomic_write_json(progress, value)
             if idx % 50 == 0:
                 print(f"[fof_nav] 进度 {idx}/{len(pending)} ok={ok} fail={fail} "
                       f"empty={empty} error={error_count} written={total_written} "
