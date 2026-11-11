@@ -138,6 +138,8 @@
   }
   function summaryOf(value) { return SUMMARIES.get(value) || value; }
   function checkName(check) {
+    if (check.id === 'business:public-fund') return '公募日更 · 业务证据';
+    if (check.id === 'business:fof-nav') return 'FOF 净值 · 业务证据';
     const record = state.recordMap.get(check.id);
     if (record?.kind === 'data' && known(record.name)) return record.name;
     let names = unitNameIndexes.get(state.records);
@@ -332,6 +334,10 @@
       business_failed: '业务结果失败', expired_or_invalid_time: '证据过期或时间不合法', business_date_mismatch: '业务日期不匹配',
       coverage_or_completion_unverified: '完成或覆盖范围未证实', hash_or_confirmation_missing: '内容哈希或发布确认缺失',
       generation_unverified: '主文件与扩展文件尚未证明属于同一轮生成',
+      fund_collection_receipt_missing: '缺少本轮净值采集明细凭证',
+      fund_metadata_incomplete: '净值采集凭证不完整',
+      fund_collection_failed: '本轮净值采集出现异常',
+      fund_publication_unverified: '已有采集阶段记录，尚未验证净值线上发布',
       pending_queue_not_configured: '尚未配置与发布任务一致的队列位置',
       inspection_incomplete: '队列检查不完整，不能按空队列处理',
       invalid_request_evidence: '请求记录或发布凭证损坏，需保留原件核查',
@@ -638,10 +644,17 @@
       ['业务发生时间', check.evidence?.event_at ? fullTime(check.evidence.event_at) : '未知'], ['接收时间', state.data.state?.latest?.received_at ? fullTime(state.data.state.latest.received_at) : '未知'],
       ['确认送达时间', state.data.state?.latest?.delivered_at ? fullTime(state.data.state.latest.delivered_at) : '未知'], ['证据有效期', check.evidence?.valid_until ? fullTime(check.evidence.valid_until) : '未知']]));
     if (check.id === 'publication:r2-pending-requests') {
-      const e = check.evidence || {}, count = k => Number.isFinite(e[k]) ? String(e[k]) : '未知';
+      const e = check.evidence || {}, count = k => Number.isFinite(e[k]) ? String(Math.floor(e[k])) : '未知';
       append(host, pairs([['已观察待处理', count('pending_count')], ['尚未被取入批次', count('unoffered_count')],
         ['凭证缺失或损坏', count('proof_invalid_count')], ['最久等待（秒）', count('oldest_wait_seconds')],
         ['检查范围', e.inspection_status === 'complete' && e.truncated === false ? '本次有界扫描完整' : '不完整或未知；数量不能当作队列总数']]));
+    }
+    if (['business:public-fund', 'business:fof-nav'].includes(check.id)) {
+      const e = check.evidence || {}, count = k => Number.isFinite(e[k]) ? String(e[k]) : '未知';
+      append(host, pairs([['采集阶段', ({scoped_committed:'所选批次事务已提交', legal_empty:'查询结果为空，不代表全量齐全', failure:'存在采集异常'})[e.collection_state] || '未知'],
+        ['净值线上发布', '未取得本轮净值与公开文件的完整对应凭证'], ['池内尚未尝试', count('pool_not_attempted')],
+        ['所选批次尚未尝试', count('selected_not_attempted')], ['源端非空净值行', count('published_rows')],
+        ['已提交非空输入行', count('committed_rows')]]));
     }
     if (check._missing) host.append(notice('该检查未在最新覆盖范围。保留旧状态仅供追溯，当前为 unknown，不作恢复。', 'warning'));
     if (freshness() !== 'fresh') host.append(notice('采集过期或不可判定：此记录仅是最近证据，当前状态未知。', 'warning'));

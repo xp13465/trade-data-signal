@@ -1170,6 +1170,7 @@ WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
 Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+Environment=OPS_DELIVERY_EVIDENCE_ENABLED=1
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_daily.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
@@ -1777,6 +1778,7 @@ Type=oneshot
 User=ubuntu
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=REPO=/home/ubuntu/code/trade-data
+Environment=OPS_DELIVERY_EVIDENCE_ENABLED=1
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_fof_nav_collect.sh
 TimeoutStartSec=900
 ```

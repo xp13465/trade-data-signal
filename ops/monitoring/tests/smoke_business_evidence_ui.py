@@ -76,7 +76,15 @@ def main():
                     assert not seen, seen
                     out=Path(os.environ.get('OPS_UI_EVIDENCE_DIR','/tmp/codex-reports/ops-evidence-closeout-20261111/ui'))
                     out.mkdir(parents=True,exist_ok=True)
-                    page.screenshot(path=str(out/f'business-ui-{width}.png'),full_page=True)
+                    page.screenshot(path=str(out/f'business-ui-{width}.png'),full_page=False)
+                    page.locator('#detail-dialog').evaluate('(d) => d.close()')
+                    for name in ('公募日更 · 业务证据','FOF 净值 · 业务证据'):
+                        fund=page.locator('#data-live tbody tr').filter(has_text=name)
+                        expect(fund).to_contain_text('未知')
+                        fund.get_by_role('button',name='详情',exact=True).click()
+                        expect(page.locator('#detail-body')).to_contain_text('净值线上发布')
+                        expect(page.locator('#detail-body')).to_contain_text('未取得本轮净值与公开文件的完整对应凭证')
+                        page.locator('#detail-dialog').evaluate('(d) => d.close()')
                     page.close()
                 print('PASS: actual ops HTML/JS/CSS; collector indices; desktop/mobile; unknown timestamps; XSS; zero external requests')
             finally:
