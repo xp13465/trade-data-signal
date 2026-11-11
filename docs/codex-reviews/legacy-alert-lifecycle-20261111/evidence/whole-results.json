@@ -1,0 +1,32 @@
+[
+  {
+    "actor": "heartbeat-first",
+    "rc": 0,
+    "wire": 3,
+    "guards": 5
+  },
+  {
+    "actor": "schedule-fault",
+    "rc": 0,
+    "wire": 0,
+    "guards": 5
+  },
+  {
+    "actor": "schedule-repeat",
+    "rc": 0,
+    "wire": 0,
+    "guards": 5
+  },
+  {
+    "actor": "schedule-recovered",
+    "rc": 0,
+    "wire": 0,
+    "guards": 5
+  },
+  {
+    "actor": "heartbeat-repeat",
+    "rc": 0,
+    "wire": 0,
+    "guards": 5
+  }
+]

@@ -305,3 +305,84 @@ def test_inconsistent_old_entry_does_not_hide_current_fault(producers):
     assert run() == 0
     assert own_entry(b, 'producer_heartbeat|')[1]['event_id'] != old['event_id']
     assert len(b[3]) == 6
+
+
+def schedule_ns(box):
+    from test_notify_ops_schedule_integration_20261111 import monitor_namespace
+    ns, tree = monitor_namespace(box[-1])
+    ns['alert_state'] = box[6]()
+    ns['_STATE_PRE'] = json.loads(json.dumps(ns['alert_state']))
+    ns['CONCLUSION_STATUS_KEY_PREFIX'] = 'conclusion_status|'
+    return ns, tree
+
+
+@pytest.mark.parametrize('which', ['s06', 'heartbeat'])
+def test_schedule_cannot_recover_or_route_owned_incident(producers, which):
+    import ast
+    b, snap, srun, hrun, *_ = producers
+    if which == 's06':
+        snap(False); assert srun() == 1
+    else:
+        assert hrun() == 0
+    key, old = own_entry(b, 'producer_' + which + '|')
+    ns, tree = schedule_ns(b)
+    loop = next(n for n in tree.body if isinstance(n, ast.For) and ast.unparse(n.target) == '(_key, _info)')
+    exec(compile(ast.Module(body=[loop], type_ignores=[]), 'actual-schedule-recovery', 'exec'), ns)
+    assert ns['alert_state'][key] == old
+    before = len(b[3])
+    assert ns['_quiet_route_alerts']([old['message']]) == []
+    assert ns['_active_escalate'](ns['alert_state'][key], key, 'independent') is False
+    assert ns['_quiet_send'](key, ns['alert_state'][key], 'recovery', 'fake', 'fake') is False
+    assert len(b[3]) == before
+    assert b[6]()[key] == old
+
+
+@pytest.mark.parametrize('which', ['s06', 'heartbeat'])
+def test_schedule_stale_snapshot_preserves_new_incident_receipts_and_ack(producers, which):
+    b, snap, srun, hrun, heal, hb = producers
+    if which == 's06':
+        snap(False); assert srun() == 1
+    else:
+        assert hrun() == 0
+    ns, _ = schedule_ns(b)
+    key, old = own_entry(b, 'producer_' + which + '|')
+    if which == 's06':
+        snap(True); assert srun() == 0
+        snap(False); assert srun() == 1; flush(b)
+    else:
+        heal(); assert hrun() == 0
+        hb.unlink(); assert hrun() == 0
+    fresh = b[6]()[key]
+    b[7]([{'key':key}], ack_event_id=fresh['event_id'], acknowledged='now', ack_owner='oncall')
+    expected = b[6]()[key]
+    assert expected['event_id'] != old['event_id']
+    assert ns['save_alert_state'](ns['alert_state'])
+    assert b[6]()[key] == expected == ns['alert_state'][key]
+
+
+def test_schedule_missing_disk_entry_never_revived_and_concurrent_new_key_kept(producers):
+    b, _, _, run, *_ = producers
+    assert run() == 0
+    ns, _ = schedule_ns(b)
+    key, _ = own_entry(b, 'producer_heartbeat|')
+    path = b[-1] / 'data/alert_state.json'
+    path.write_text('{}')
+    assert ns['save_alert_state'](ns['alert_state'])
+    assert key not in b[6]() and key not in ns['alert_state']
+    assert run() == 0
+    latest = b[6]()[key]
+    ns['alert_state'].pop(key, None)
+    assert ns['save_alert_state'](ns['alert_state'])
+    assert b[6]()[key] == latest
+
+
+def test_schedule_never_emits_owned_recovery(producers):
+    b, _, _, run, heal, _ = producers
+    assert run() == 0
+    heal(); assert run() == 0
+    ns, _ = schedule_ns(b)
+    key, old = own_entry(b, 'producer_heartbeat|')
+    rec = {'task':key.split('|')[0], 'keyword':old.get('keyword'), 'first_seen':old['first_seen']}
+    assert ns['_quiet_route_recoveries']([rec]) == []
+    assert len(b[3]) == 3
+    assert b[6]()[key]['status'] == 'recovered'

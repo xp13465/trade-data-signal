@@ -14,7 +14,7 @@ producers = ((<module 'quiet_notify' from '/Users/linhuichen/code/trade/.claude/
         flush(b)
 >       assert b[3] == []
 E       AssertionError: assert [{'channel': ...epted': True}] == []
-E         
+E
 E         Left contains 3 more items, first extra item: {'channel': 'email', 'body': '以下 1 条告警未即时直发, 已并入本摘要(被合并 1 条; 构成: warning 聚合批(本次并入摘要, 未单独外发) 1 条); 条目全量可检索(逐条含来源脚本/去重键)...at=?。前端超覆盖期 fail-open 不拦截=S06 档静默退化, 请查 s06_snapshot_launchd.log(gen/check/R2 三段)与 update_all 是否漏跑。', 'accepted': True}
 E         Use -v to get more diff
 

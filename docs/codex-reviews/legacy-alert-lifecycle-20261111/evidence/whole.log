@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/tmp/codex-reports/ops-evidence-closeout-20261111/legacy-lifecycle/run_full_schedule.py", line 41, in <module>
+    run('heartbeat-first','accounting',script='check_monitor_heartbeat.py',argv=['--repo',str(repo),'--heartbeat-path',str(repo/'missing-heartbeat')])
+  File "/tmp/codex-reports/ops-evidence-closeout-20261111/legacy-lifecycle/run_full_schedule.py", line 28, in run
+    req=dict(repo=str(repo),archive=str(SOURCE),actor=name,entry=entry,argv=[],at='2026-11-11T03:00:00',**extra)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: dict() got multiple values for keyword argument 'argv'

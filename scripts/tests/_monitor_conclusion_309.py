@@ -112,9 +112,9 @@ def recovery_loop(alert_state, seen_keys_this_run, now, in_progress_tasks=()):
     tree = ast.parse(src)
     picked, found = [], set()
     for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name == "_recovery_cooldown_ok":
+        if isinstance(node, ast.FunctionDef) and node.name in ("_recovery_cooldown_ok", "_producer_owned"):
             picked.append(ast.get_source_segment(src, node) + "\n")
-            found.add("func")
+            found.add(node.name)
         elif isinstance(node, ast.Assign):
             for tgt in node.targets:
                 if isinstance(tgt, ast.Name) and tgt.id == "RECOVERY_COOLDOWN":
@@ -125,7 +125,7 @@ def recovery_loop(alert_state, seen_keys_this_run, now, in_progress_tasks=()):
               == ["_key", "_info"]):
             picked.append(ast.get_source_segment(src, node) + "\n")
             found.add("loop")
-    missing = {"func", "cooldown", "loop"} - found
+    missing = {"_recovery_cooldown_ok", "_producer_owned", "cooldown", "loop"} - found
     assert not missing, f"恢复检测循环结构变了(缺 {sorted(missing)}), 本 harness 需同步"
     ns = {
         "datetime": datetime.datetime, "timedelta": datetime.timedelta,

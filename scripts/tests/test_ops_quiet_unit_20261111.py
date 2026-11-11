@@ -136,7 +136,7 @@ def _offline_notify(source):
 def _schedule_namespace(source, root):
     text = Path(source).read_text().split("<<'PYEOF' 2>&1\n", 1)[1].split("\nPYEOF", 1)[0]
     tree = ast.parse(text)
-    names = {"_quiet_event", "_quiet_source_run", "save_alert_state", "_quiet_notified",
+    names = {"_producer_owned", "_quiet_event", "_quiet_source_run", "save_alert_state", "_quiet_notified",
              "_quiet_send", "_quiet_core_unit_refs", "_quiet_route_alerts", "_format_alert_item",
              "_unit_short_name", "_unit_alert_events", "_sm_alert_subject", "_task_name_of", "_task_names_of"}
     constants = {"STATE_ACK_FIELDS", "STATE_NOTIFY_FIELDS", "STATE_SHARED_FIELDS"}
@@ -174,7 +174,7 @@ def box(tmp_path):
     schedule = Path(os.environ.get("OPS_QUIET_SCHEDULE_SOURCE", SCRIPTS / "schedule_monitor.sh"))
     env = {k: v for k, v in os.environ.items() if not k.startswith(("FEISHU_", "SMTP_", "TELEGRAM_", "ALERT_", "NOTIFY_"))}
     env.update(REPO=str(root), MAIN_REPO=str(root), GIT_REPO=str(root), HOME=str(root),
-               PATH="/nonexistent", PYTHONPATH=os.pathsep.join((str(scripts), str(SCRIPTS))),
+               PATH="/nonexistent", PYTHONPATH=os.pathsep.join((str(scripts), str(SCRIPTS), str(Path(pytest.__file__).resolve().parent.parent))),
                PYTHONDONTWRITEBYTECODE="1")
     runner = ("import runpy,sys\nns=runpy.run_path(" + repr(str(Path(__file__).resolve())) + ")\n"
               "sys.exit(ns['_offline_notify'](" + repr(str(notify)) + "))\n")

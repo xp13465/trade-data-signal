@@ -1,0 +1,1 @@
+PASS: 5 full-entrypoint runs, real S06 + heartbeat + notify; 3 first-report channel acceptances, zero repeats/recovery noise; 25 positive guard controls
