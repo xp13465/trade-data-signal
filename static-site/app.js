@@ -9770,7 +9770,7 @@ function dataUrl(filename) {
 function _guardFxPayload(url, data) {
   if (!data || typeof data !== "object") return data;
   const name = String(url).split("/").pop().split("?")[0];
-  const allowed = /^(boot|overview|signal_stats|signal_freq|global(?:-.*)?|sentiment(?:-.*)?|summary(?:_history)?|alert|notifications)\.json$/;
+  const allowed = /^(boot|overview|signals_today|signal_stats|signal_freq|global(?:-.*)?|sentiment(?:-.*)?|summary(?:_history)?|alert|notifications)\.json$/;
   if (!allowed.test(name)) return data;
   const version = "fx-excluded-v1";
   if (name === "summary_history.json") {
@@ -10188,12 +10188,14 @@ async function _bootJSON() {
     window.__bootPrefetch = null;
     try {
       const boot = await pre;
-      if (boot && typeof boot === "object") return boot;
+      // HTML prefetch uses native fetch before app.js loads, so it has not
+      // passed through fetchJSON's contract boundary yet.
+      if (boot && typeof boot === "object") return _guardFxPayload("boot.json", boot);
     } catch (e) {
       console.warn("[fetchBoot] 预取 boot.json 失败, 回退 fetchJSON", e?.message || e);
     }
   }
-  return fetchJSON("./data/boot.json");
+  return _guardFxPayload("boot.json", await fetchJSON("./data/boot.json"));
 }
 
 // C3(2026-10-17, 弱网第三批·拆产物): 补齐 overview 对象上的 signals_today(拆产物后的唯一来源)。
@@ -10203,29 +10205,32 @@ async function _bootJSON() {
 let _sigTodayPromise = null;
 async function _ensureSignalsToday(ov) {
   if (!ov) return null;
-  if (Array.isArray(ov.signals_today)) return ov.signals_today;
-  if (_sigTodayPromise) return _sigTodayPromise;
-  _sigTodayPromise = (async () => {
+  // Guard every attachment, including embedded legacy arrays and a shared
+  // request consumed by a different overview object after bootstrap.
+  const attach = payload => {
+    const st = _guardFxPayload("signals_today.json", payload);
+    if (!st || !Array.isArray(st.signals_today)) return null;
+    ov.signals_today = st.signals_today;
+    if (st.signals_meta && !ov.signals_meta) ov.signals_meta = st.signals_meta;
+    return ov.signals_today;
+  };
+  if (Array.isArray(ov.signals_today)) return attach(ov);
+  if (!_sigTodayPromise) _sigTodayPromise = (async () => {
     let st = null;
     try { st = await fetchJSON("./data/signals_today.json"); } catch (e) { /* 落 404/网络失败 → 走下方 overview 回退 */ }
     if (!st || !Array.isArray(st.signals_today)) {
       // 回退①: 独立产物缺失(例: 数据层尚未重建/部署) → 用 overview.json 的 signals_today 顶一次
       try {
-        const ovf = await fetchJSON("./data/overview.json");
-        if (ovf && Array.isArray(ovf.signals_today)) {
-          ov.signals_today = ovf.signals_today;
-          if (ovf.signals_meta && !ov.signals_meta) ov.signals_meta = ovf.signals_meta;
-          return ov.signals_today;
-        }
+        st = await fetchJSON("./data/overview.json");
       } catch (e) { /* 回退②: 都失败 → 本轮保持空, 由 ≤3min overview 轮询自愈(_maybeRerenderSigCard 会自动重绘) */ }
+    }
+    if (!st || !Array.isArray(st.signals_today)) {
       _sigTodayPromise = null; // 失败不粘缓存: 后续任何调用可重试
       return null;
     }
-    ov.signals_today = st.signals_today;
-    if (st.signals_meta && !ov.signals_meta) ov.signals_meta = st.signals_meta;
-    return ov.signals_today;
+    return _guardFxPayload("signals_today.json", st);
   })();
-  return _sigTodayPromise;
+  return attach(await _sigTodayPromise);
 }
 
 let _bootPromise = null;
@@ -10248,8 +10253,8 @@ function fetchBoot() {
             _setCachedOverview(boot.overview);
             // C3(2026-10-17, 弱网第三批·拆产物): signals_today 已从 boot 内嵌副本拆出独立产物
             //   /data/signals_today.json(boot 与 overview.json 不再各存一份 103KB gz 重复副本)。
-            //   旧数据层(尚未重建的 boot) 仍带 signals_today → 直接可用, 不发起补拉(下方显式判空,
-            //   零补拉零重绘 = 旧格式行为逐位不变); 新数据层 boot 无 signals_today(export pop 掉该键)
+            //   旧数据层仍带 signals_today → _bootJSON 已过滤后直接复用, 不发起补拉;
+            //   新数据层 boot 无 signals_today(export pop 掉该键)
             //   → 补拉一次(失败回退 overview.json, 再失败由 ≤3min 的 overview 轮询自愈), 保证信号卡不空。
             //   §22 单一来源=signals_today.json。
             // ⚠ F1 整改(2026-10-17 审查条件③): 补拉**不再 await** 且**只在本分支发起**。原写法 await 在
@@ -16225,7 +16230,7 @@ async function renderAlertBar(host) {
   let a;
   // P1-8: 优先用 boot.json 的 alert（首屏单 fetch 合并），fallback fetch
   try {
-    a = (_bootData && _bootData.alert) ? _bootData.alert : await fetchJSON("./data/alert.json");
+    a = _guardFxPayload("alert.json", (_bootData && _bootData.alert) ? _bootData.alert : await fetchJSON("./data/alert.json"));
   } catch { return; }
   if (!a || !a.date) return;
   if (a.availability === "unavailable") {
