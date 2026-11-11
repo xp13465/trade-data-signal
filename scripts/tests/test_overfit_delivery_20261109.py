@@ -18,7 +18,7 @@ SOURCE = Path(__file__).resolve().parents[1] / 'overfit_monitor.py'
 
 
 def load_functions():
-    wanted = {'_run_delivery_process', '_delivery_worker', 'publish_overfit', 'main',
+    wanted = {'build_output', '_run_delivery_process', '_delivery_worker', 'publish_overfit', 'main', '_bind_publication_pair',
               '_read_overfit_public', '_verify_overfit_public_pair', '_overfit_publication_day',
               '_overfit_seconds_to_midnight'}
     tree = ast.parse(SOURCE.read_text())
@@ -60,7 +60,7 @@ def worker_fixture(tmp_path, monkeypatch, *, locked=False, fail=False, mismatch=
     data = tmp_path / 'static-site/data'
     data.mkdir(parents=True)
     for name in ('overfit_monitor.json', 'overfit_monitor_ext.json'):
-        body = {'generated_at': '2026-11-09 21:40', 'test': name}
+        body = {'generated_at': '2026-11-09 21:40', 'publication_run_id':'fixture-generation-a', 'test': name}
         keys = ('accuracy', 'overfit', 'filtered') if name == 'overfit_monitor.json' else ('by_k', 'filtered_by_k')
         body.update({key: {} for key in keys})
         (data / name).write_text(json.dumps(body, separators=(',', ':')))
@@ -95,6 +95,63 @@ def test_worker_same_generation_public_both_routes(tmp_path, monkeypatch):
     assert events[0] == ('lock', ('upload-data-files', ['overfit_monitor.json', 'overfit_monitor_ext.json']), {'skip_if_locked': True})
     assert len([e for e in events if e[0] == 'get']) == 4
     assert events[-1] == ('release', 12)
+
+
+@pytest.mark.parametrize('damage',['none','pair','same_length_hash','same_minute_different_run','legacy_no_run'])
+def test_public_pair_ops_receipt_is_only_after_four_hash_checks(tmp_path,monkeypatch,damage):
+    ns,events,data=worker_fixture(tmp_path,monkeypatch)
+    monkeypatch.setenv('REPO',str(tmp_path))
+    monkeypatch.setenv('OPS_DELIVERY_EVIDENCE_ENABLED','1')
+    monkeypatch.setenv('OPS_BUSINESS_RUN','natural-run')
+    monkeypatch.setenv('OPS_BUSINESS_STARTED','2026-11-09T13:00:00Z')
+    monkeypatch.setenv('INVOCATION_ID','a'*32)
+    if damage=='pair':
+        p=data/'overfit_monitor_ext.json';body=json.loads(p.read_text());body['generated_at']='2026-11-08 21:40';p.write_text(json.dumps(body))
+    if damage=='same_length_hash':
+        import urllib.request,io
+        monkeypatch.setattr(urllib.request,'urlopen',lambda req,timeout: io.BytesIO(b'x'*len((data/req.full_url.rsplit('/',1)[1]).read_bytes())))
+    if damage in ('same_minute_different_run','legacy_no_run'):
+        for name in ('overfit_monitor.json','overfit_monitor_ext.json'):
+            p=data/name;body=json.loads(p.read_text())
+            if damage=='legacy_no_run':body.pop('publication_run_id')
+            elif name.endswith('_ext.json'):body['publication_run_id']='different-run'
+            p.write_text(json.dumps(body,separators=(',',':')))
+    rc=ns['_delivery_worker']()
+    index=tmp_path/'data/ops_delivery/index/overfit.json'
+    if damage!='none':
+        assert rc!=0
+        assert not index.exists()
+    else:
+        assert rc==0
+        body=json.loads(index.read_text())
+        assert body['stage_status']=='success'
+        assert body['attempt_id']=='natural-run'
+        assert len(body['outputs'])==len(body['consumer_witness']['confirmed'])==2
+        assert body['consumer_witness']['publication_run_id']=='fixture-generation-a'
+        assert len([e for e in events if e[0]=='get'])==4
+
+
+def test_pair_writer_shared_unique_run_before_both_atomic_writes(monkeypatch):
+    bind=load_functions()['_bind_publication_pair']
+    monkeypatch.delenv('OPS_BUSINESS_RUN',raising=False)
+    a,b,c,d={},{},{},{}
+    bind(a,b);bind(c,d)
+    assert a['publication_run_id']==b['publication_run_id']
+    assert c['publication_run_id']==d['publication_run_id']!=a['publication_run_id']
+    monkeypatch.setenv('OPS_BUSINESS_RUN','existing-generation')
+    bind(a,b)
+    first=a['publication_run_id']
+    assert first==b['publication_run_id'] and first!='existing-generation'
+    bind(c,d)
+    assert c['publication_run_id']==d['publication_run_id']!=first
+    # The actual build function must bind once before either real writer, and
+    # the alert update must retain out's same token.
+    tree=ast.parse(SOURCE.read_text())
+    build=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='build_output')
+    calls=[n for n in ast.walk(build) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name)]
+    binds=[n for n in calls if n.func.id=='_bind_publication_pair']
+    writes=[n for n in calls if n.func.id=='atomic_write_json']
+    assert len(binds)==1 and len(writes)>=2 and all(n.lineno>binds[0].lineno for n in writes)
 
 
 @pytest.mark.parametrize('failure', ['locked', 'fail', 'mismatch', 'pair'])
@@ -241,3 +298,56 @@ def test_child_log_tail_decoding_preserves_exit_code(capsys, payload, expected, 
         [sys.executable, '-c', program], dict(os.environ), 3)
     assert actual == rc
     assert capsys.readouterr().out == expected
+
+
+def test_actual_build_output_twice_with_same_environment_has_distinct_pair_tokens(tmp_path, monkeypatch):
+    from datetime import datetime, date
+    import sqlite3
+    from scripts.util_atomic import atomic_write_json
+    ns = load_functions()
+    monkeypatch.setenv('REPO', str(tmp_path))
+    monkeypatch.setenv('OPS_BUSINESS_RUN', 'same-publish-attempt')
+    monkeypatch.setenv('INVOCATION_ID', 'a'*32)
+    data = tmp_path/'static-site/data'
+    def guard(root):
+        assert root == tmp_path
+    def forbidden(*args, **kwargs):
+        pytest.fail('external notification forbidden')
+    def bank(*args, **kwargs):
+        return {'overfit': {'current': dict(d1=0,d2=0,d3=0,d4=0,risk_score=0)},
+                'accuracy': {'rolling': dict(by_signal={},by_grade={},backtest={},actual={})}}
+    ns.update(REPO=tmp_path, guard_deploy_source_tree=guard, sqlite3=sqlite3,
+              find_db=lambda: str(tmp_path/'isolated.db'),
+              load_trades=lambda: ({},None), FilterCtx=lambda *a,**k: types.SimpleNamespace(ts_map={}),
+              _compute_bank=bank, load_market_tier_map=lambda: ({},{}),
+              load_loss_rules_recent=lambda: (None,None), build_recent_block=lambda *a: {'rows':[]},
+              assessed_prev_scores=lambda prev: [], evaluate_alerts=lambda *a: [],
+              risk_level=lambda risk: 'fixture', send_notify=forbidden,
+              date_cls=date, datetime=datetime, atomic_write_json=atomic_write_json,
+              OUT_JSON=str(data/'overfit_monitor.json'), OUT_EXT_JSON=str(data/'overfit_monitor_ext.json'),
+              DEFAULT_K=1,AFG_MODES=[],OVERFIT_MODE='fixture',WINDOWS=[],W_D1=0,W_D2=0,W_D3=0,W_D4=0,
+              RECENT_DAYS=1,SURFACE_DAYS=1)
+    for name in ('load_signal_daily','load_index_close','load_market_map','load_signal_grade_map',
+                 'load_board_etf_track_score','build_market_state_hs300','load_board_etf_track_tier',
+                 'filter_actual_by_date','filter_trades_by_date','build_topk_kept_map','filter_by_date_by_kept',
+                 'filter_trades_by_kept','load_prev_state'):
+        ns[name]=lambda *a,**k: {}
+    # Execute both entire production build bodies and the real atomic file writer;
+    # only computation inputs and side-effect boundaries are replaced.
+    ns['build_output'](dry_run=True)
+    first=[json.loads((data/name).read_text()) for name in ('overfit_monitor.json','overfit_monitor_ext.json')]
+    ns['build_output'](dry_run=True)
+    second=[json.loads((data/name).read_text()) for name in ('overfit_monitor.json','overfit_monitor_ext.json')]
+    assert first[0]['publication_run_id']==first[1]['publication_run_id']
+    assert second[0]['publication_run_id']==second[1]['publication_run_id']
+    assert first[0]['publication_run_id']!=second[0]['publication_run_id']
+    assert all(len(p['publication_run_id'])==32 for p in first+second)
+
+
+@pytest.mark.parametrize('token,valid', [('A',True),('a'+'_.:-Z09'*18,True),('a'*128,True),
+                                        ('a'*129,False),('_bad',False),('-bad',False),('a/b',False),('',False)])
+def test_publication_generation_token_contract(tmp_path, monkeypatch, token, valid):
+    ns,events,data=worker_fixture(tmp_path,monkeypatch)
+    for p in data.iterdir():
+        obj=json.loads(p.read_text());obj['publication_run_id']=token;p.write_text(json.dumps(obj,separators=(',',':')))
+    assert (ns['_delivery_worker']()==0) is valid

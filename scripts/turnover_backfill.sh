@@ -159,6 +159,10 @@ if [ "${1:-}" != "force" ]; then
 fi
 
 RC_PIPE=0; RC_EXPORT=0; RC_R2=0; RC_R2L=0
+export OPS_BUSINESS_RUN="${INVOCATION_ID:-turnover-$(date +%s)-$$}"
+export OPS_BUSINESS_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export OPS_TURNOVER_PROOF="$REPO/data/ops_delivery/turnover-${OPS_BUSINESS_RUN}.json"
+run_to 5 "$PY" "$GIT_REPO/scripts/ops_business_evidence.py" begin --object turnover --root "$REPO" --run "$OPS_BUSINESS_RUN" --started "$OPS_BUSINESS_STARTED" >> "$LOG" 2>&1 || true
 
 # 1) 等 update_all 主链结束(摘出后主链 17:50+~115min≈19:45, 21:10 时通常已结束; 防御性等待
 #    防并发 baostock 采集/DB 锁, 最多 1800s = 30min。等满仍在跑=update_all 卡死, 记录警告继续:
@@ -226,6 +230,16 @@ if (boot.get("overview") != expected or st != {
     "signals_meta": ov.get("signals_meta"),
 }):
     raise RuntimeError("turnover 首屏依赖重导不一致，拒绝交付")
+# Reuse the existing export proof; no claim of remote delivery from local bytes.
+try:
+    from scripts.delivery_evidence import evidence_enabled
+    from scripts.r2_export_proof import write_run_proof, output_record
+    from scripts.ops_business_evidence import TURNOVER
+    if evidence_enabled():
+        write_run_proof(os.environ["OPS_TURNOVER_PROOF"], os.environ["OPS_BUSINESS_RUN"], DATA_DIR.parent,
+                        {name: output_record((DATA_DIR / name).read_bytes()) for name in TURNOVER})
+except Exception:
+    print("[delivery-evidence] turnover export metadata unavailable")
 PYEOF
   RC_EXPORT=$?
   if [ "$RC_EXPORT" -ne 0 ]; then
@@ -335,4 +349,5 @@ if [ "$FINAL_RC" -ne 0 ]; then
 fi
 
 echo "=== turnover_backfill.sh 结束 $(date '+%F %T') 退出码=$FINAL_RC ===" >> "$LOG"
+run_to 5 "$PY" "$GIT_REPO/scripts/ops_business_evidence.py" turnover --object turnover --root "$REPO" --run "$OPS_BUSINESS_RUN" --started "$OPS_BUSINESS_STARTED" --rc "$FINAL_RC" >> "$LOG" 2>&1 || true
 exit "$FINAL_RC"

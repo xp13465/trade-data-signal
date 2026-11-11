@@ -169,7 +169,7 @@ PYEOF
 download_one() {
   local name="$1" out_dir="$2"
   if [ -n "${VERIFY_BACKUP_SOURCE_PROOF:-}${VERIFY_BACKUP_RUN_ID:-}" ]; then
-    "$PY" "$GIT_REPO/scripts/backup_source_proof.py" --name "$name" --out-dir "$out_dir"
+    REPO="$REPO" GIT_REPO="$GIT_REPO" "$PY" "$GIT_REPO/scripts/backup_source_proof.py" --name "$name" --out-dir "$out_dir"
   else
     "$PY" "$REPO/scripts/upload_r2.py" download-db "$name" "$out_dir"
   fi

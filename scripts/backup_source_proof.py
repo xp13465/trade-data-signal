@@ -102,6 +102,14 @@ def check_restored(path, entry):
 def restore_bound(ur, receipt, run_id, name, out_dir, downloader):
     """Reuse the existing bounded-memory Range downloader; never select latest."""
     entry = select_entry(receipt, run_id, name, ur.BACKUP_BUCKET)
+    # Same source proof/bytes as the existing restore, metadata failure is inert.
+    evidence_start = None
+    try:
+        from ops_business_evidence import record_backup, stamp, now
+        evidence_start = stamp(now())
+        record_backup(os.environ.get('REPO', str(Path(__file__).resolve().parents[1])), entry, run_id, evidence_start, False)
+    except Exception:
+        pass
 
     def head():
         status, _body, headers = ur.s3_request("HEAD", entry["key"], bucket=entry["bucket"], with_headers=True)
@@ -138,6 +146,10 @@ def restore_bound(ur, receipt, run_id, name, out_dir, downloader):
     if head() != before:
         raise ValueError("unknown/not_verified: R2 object changed during restore")
     atomic_json(marker, entry)
+    try:
+        record_backup(os.environ.get('REPO', str(Path(__file__).resolve().parents[1])), entry, run_id, evidence_start, True)
+    except Exception:
+        pass
     gz.unlink()  # only this invocation's temporary download; never touch history
     return str(db)
 

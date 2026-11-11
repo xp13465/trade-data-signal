@@ -1820,6 +1820,13 @@ def _r2_upload_timeout(outer_wall_secs=None):
     return base
 
 
+def _bind_publication_pair(main, ext):
+    """One computation's identity, independent of the minute display timestamp."""
+    import uuid
+    token = uuid.uuid4().hex
+    main['publication_run_id'] = ext['publication_run_id'] = token
+
+
 def build_output(rebuild=False, dry_run=False):
     # 写/上传路径守卫(惰性求值, 方案 A 2026-09-30): import 不再触发(曾致 import 即 SystemExit
     # + 假告警); 真正写盘/上传前先校验部署源树, 误写 git 仓仍拦截 + 告警(防再犯机制 E, §23.11
@@ -1967,6 +1974,7 @@ def build_output(rebuild=False, dry_run=False):
     # 写文件(A瘦身 2026-08-24): indent=2 → compact separators。indent 纯缩进空格占 64% 体积
     # (线上实测 26.6MB→9.7MB compact), br 压缩后传输同步下降; 字段/数值零变化(json.load 无感)。
     os.makedirs(os.path.dirname(OUT_JSON), exist_ok=True)
+    _bind_publication_pair(out, ext_out)
     atomic_write_json(OUT_JSON, out, separators=(",", ":"))
     # B拆分(2026-08-24): ext 文件同 compact 口径落盘(by_k/filtered_by_k), 与主文件同一次打点。
     atomic_write_json(OUT_EXT_JSON, ext_out, separators=(",", ":"))
@@ -2135,6 +2143,11 @@ def _delivery_worker():
         paths = [Path(OUT_JSON), Path(OUT_EXT_JSON)]
         payloads = [p.read_bytes() for p in paths]
         generations = [json.loads(b).get("generated_at") for b in payloads]
+        publication_runs = [json.loads(b).get('publication_run_id') for b in payloads]
+        import re
+        if (not isinstance(publication_runs[0], str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}', publication_runs[0])
+                or publication_runs[0] != publication_runs[1]):
+            raise ValueError('主/ext 缺少同轮 publication_run_id；旧产物需正常计算重生，不能补造身份')
         if not generations[0] or generations[0] != generations[1]:
             raise ValueError("主/ext 不同代，拒绝发布")
         from datetime import datetime
@@ -2158,6 +2171,15 @@ def _delivery_worker():
         if publication_day != _overfit_publication_day():
             raise ValueError("发布期间跨日，不确认旧产物为当日交付")
         print(f"overfit 发布已核验: 主/ext {generations[0]}，两站逐字节一致", flush=True)
+        try:
+            from ops_business_evidence import record_publication, identity_for_bytes
+            from r2_export_proof import output_record
+            outputs = {name: output_record(payload) for name, payload in zip(names, payloads)}
+            record_publication(REPO, 'overfit', os.environ['OPS_BUSINESS_RUN'], os.environ['OPS_BUSINESS_STARTED'],
+                               outputs, outputs, [identity_for_bytes(name, payload) for name, payload in zip(names, payloads)], 2, 2,
+                               publication_run_id=publication_runs[0])
+        except Exception:
+            pass  # Evidence must not change the publication result.
         return 0
     except (Exception, SystemExit) as exc:
         # 76仅表示公开交付未确认，不能当作PUT失败；原上传器的非零保留在upload阶段。
@@ -2227,6 +2249,15 @@ def main():
         parser.error("--delivery-worker 不允许与计算/试跑参数混用")
     if args.publish_only and (args.rebuild or args.dry_run or os.environ.get("OVERFIT_SKIP_R2") == "1"):
         parser.error("--publish-only 不允许重算/试跑/跳过发布")
+    if os.environ.get('OPS_DELIVERY_EVIDENCE_ENABLED') == '1' and not args.dry_run and not args.delivery_worker:
+        try:
+            from ops_business_evidence import record_result, stamp, now
+            import uuid
+            os.environ.setdefault('OPS_BUSINESS_RUN', os.environ.get('INVOCATION_ID') or uuid.uuid4().hex)
+            os.environ.setdefault('OPS_BUSINESS_STARTED', stamp(now()))
+            record_result(REPO, 'overfit', run_id=os.environ['OPS_BUSINESS_RUN'], started_at=os.environ['OPS_BUSINESS_STARTED'])
+        except Exception:
+            pass
     if args.delivery_worker:
         guard_deploy_source_tree(REPO)
         return _delivery_worker()
@@ -2236,7 +2267,15 @@ def main():
         print("overfit 本次仅计算，发布交上游负责(未核验公开交付)")
         return 0
     guard_deploy_source_tree(REPO)
-    return publish_overfit()
+    rc = publish_overfit()
+    if rc and os.environ.get('OPS_DELIVERY_EVIDENCE_ENABLED') == '1':
+        try:
+            record_result(REPO, 'overfit', run_id=os.environ['OPS_BUSINESS_RUN'], started_at=os.environ['OPS_BUSINESS_STARTED'],
+                          status='failure', reason='publication_incomplete', finished_at=stamp(now()))
+        except Exception:
+            pass
+    return rc
+
 
 
 if __name__ == "__main__":

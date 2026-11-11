@@ -14,6 +14,8 @@
   const STATUS = { ok: 'OK', warning: '警告', critical: '严重', unknown: '未知', fresh: '采集新鲜', stale: '采集过期', failed: '失败', baseline: '版本基线' };
   // Exact product messages only (ops_monitor.py and ops state/watchdog). Raw evidence stays unchanged.
   const SUMMARIES = new Map(Object.entries({
+    'Recovery invocation not verified; original problem remains open': '尚未证实新的自然执行成功；原问题保持未关闭。',
+    'Current invocation business evidence; scope and expiry apply': '本轮业务证据；只对声明的对象和有效期负责。',
     'Registered unit not observed as loaded': '未观察到已登记单元成功加载，状态未知。',
     'Systemd reports failed; business impact not evaluated': '系统报告执行失败；业务影响尚未核实。',
     'Registered timer is not active': '已登记的定时器当前未启用。',
@@ -318,7 +320,19 @@
     const running = freshness() === 'fresh' && !check._missing && check.observation_status === 'observed' && check.status === 'unknown' && check.evidence?.execution_state === 'running';
     const display = append(node('div'), badge(liveStatus(check), running ? '运行中（待完成）' : check._missing ? '未覆盖 · 未知' : undefined));
     if (check.problem_open === true) display.append(node('div', 'small muted', '此前问题未证实恢复'));
+    if (check.evidence?.source_reason) display.append(node('div', 'small muted', evidenceReason(check.evidence.source_reason)));
     return display;
+  }
+  function evidenceReason(reason) {
+    return ({ metadata_only: '只有文件信息，内容待验证', fixed_source_not_configured: '尚未接入固定证据源',
+      receipt_missing: '缺少本轮业务回执', receipt_invalid: '回执无法校验', code_ref_mismatch: '代码版本不匹配',
+      invocation_not_verified: '未能对应当前运行', invocation_running: '当前任务尚在运行', invocation_failed: '当前运行失败',
+      business_failed: '业务结果失败', expired_or_invalid_time: '证据过期或时间不合法', business_date_mismatch: '业务日期不匹配',
+      coverage_or_completion_unverified: '完成或覆盖范围未证实', hash_or_confirmation_missing: '内容哈希或发布确认缺失',
+      generation_unverified: '主文件与扩展文件尚未证明属于同一轮生成',
+      current_invocation_verified: '本轮证据已核对（仅限声明范围）', completion_not_observed: '尚未观察到完成',
+      next_trigger_observed: '已观察到下一触发点', active_timer_next_not_observed: '定时器活动中，下一触发点未观察到'
+    })[reason] || '证据待核查';
   }
   function visibleChecks(categories) {
     return currentChecks().filter(c => (!categories || categories.includes(c.category)) && (matches(c) || matches(checkName(c)) || matches(summaryOf(c.summary))) && (state.status === 'all' || liveStatus(c) === state.status));
@@ -609,6 +623,10 @@
   function showCheck(check) {
     const host = openDetail(checkName(check), '实时采集 / ' + text(check.category));
     append(host, pairs([['稳定 ID', check.id], ['当前状态', checkDisplay(check)], ['最近记录值', STATUS[check.previous_status || check.reported_status || check.status] || check.previous_status || check.status], ['观察标记', check.observation_status], ['检查时间', fullTime(check.observed_at)], ['最新快照时间', fullTime(state.data.state?.latest?.collected_at)], ['摘要', summaryOf(check.summary)]]));
+    append(host, pairs([['执行状态', ({running:'运行中', completed:'已完成', failed:'失败', scheduled:'等待触发', not_observed:'未观察到'})[check.evidence?.execution_state] || '未知'],
+      ['证据说明', evidenceReason(check.evidence?.source_reason)], ['下一份所需证据', check.evidence?.next_evidence ? '对应业务的本轮回执：运行编号、业务日、输入输出哈希、覆盖数、规则和有效期。' : '未知'],
+      ['业务发生时间', check.evidence?.event_at ? fullTime(check.evidence.event_at) : '未知'], ['接收时间', state.data.state?.latest?.received_at ? fullTime(state.data.state.latest.received_at) : '未知'],
+      ['确认送达时间', state.data.state?.latest?.delivered_at ? fullTime(state.data.state.latest.delivered_at) : '未知'], ['证据有效期', check.evidence?.valid_until ? fullTime(check.evidence.valid_until) : '未知']]));
     if (check._missing) host.append(notice('该检查未在最新覆盖范围。保留旧状态仅供追溯，当前为 unknown，不作恢复。', 'warning'));
     if (freshness() !== 'fresh') host.append(notice('采集过期或不可判定：此记录仅是最近证据，当前状态未知。', 'warning'));
     append(host, node('h3', '', '安全证据字段'), node('pre', '', text(check.evidence)));

@@ -68,6 +68,15 @@ async function fixture(run, schema = migration) {
   try { await run(f); } finally { Date.now = realNow; globalThis.fetch = realFetch; db.sql.close(); }
 }
 
+// Seed snapshots as the deployed pre-policy worker did; never bypass the new API gate.
+function seedLegacy(f, snapshot) {
+  const normalized={...snapshot, checks:snapshot.checks.map(c=>({...c,_observed_ms:Date.parse(c.observed_at)}))};
+  const counts={ok:0,warning:0,critical:0,unknown:0};
+  normalized.checks.forEach(c=>counts[c.status]++);
+  f.db.sql.prepare('INSERT INTO ops_runs VALUES(?,?,?,?,?,?,?,?)').run(snapshot.snapshot_id,snapshot.snapshot_id,
+    snapshot.collector_id,Date.parse(snapshot.collected_at),f.now(),snapshot.duration_ms,JSON.stringify(counts),JSON.stringify(normalized));
+}
+
 test('auth fails closed: member/ingest denied, strict provider UID and separate bootstrap', () => fixture(async f => {
   for (const role of [null, 'member', 'ingest']) assert.ok([401, 403].includes((await f.call('/state', { role })).status));
   assert.equal((await f.call('/state', { role: 'session' })).status, 200);
@@ -77,6 +86,92 @@ test('auth fails closed: member/ingest denied, strict provider UID and separate 
   assert.equal((await f.call('/state', { bindings: { ...f.env, OPS_INGEST_TOKEN: keys.OPS_ADMIN_TOKEN } })).status, 503);
   assert.equal((await f.call('/ingest', { value: f.snapshot() })).status, 403);
   for (const path of ['/state', '/knowledge', '/incidents', '/export', '/events', '/history']) assert.equal((await f.call(path, { role: 'ingest' })).status, 403);
+}));
+
+test('ACK preserves first received timestamp through lost-response concurrent retries', () => fixture(async f => {
+  const s = f.snapshot(); const first = await f.push(s); // discarded by transport
+  assert.equal(first.body.ack_state, 'confirmed');
+  assert.equal(first.body.received_at, new Date(f.now()).toISOString());
+  f.advance(1000);
+  const retries = await Promise.all([f.push(s), f.push(s)]);
+  assert.ok(retries.every(r => r.body.received_at === first.body.received_at));
+  assert.equal(f.db.sql.prepare('SELECT count(*) n FROM ops_runs').get().n, 1);
+  assert.equal((await f.call()).body.latest.received_at, first.body.received_at);
+  assert.equal((await f.call()).body.latest.delivered_at, undefined);
+}));
+
+test('business expiry cannot be kept green by refreshing collection time', () => fixture(async f => {
+  const s=f.snapshot(); s.checks[0].id='business:overfit';
+  s.checks[0].evidence={valid_until:new Date(f.now()+1000).toISOString()};
+  await f.push(s);
+  assert.equal((await f.call()).body.latest.checks[0].status,'ok');
+  f.advance(1500);
+  assert.equal((await f.call()).body.latest.checks[0].status,'unknown');
+  s.snapshot_id=crypto.randomUUID();s.collected_at=new Date(f.now()).toISOString();
+  await f.push(s);
+  assert.equal((await f.call()).body.latest.checks[0].status,'unknown');
+}));
+
+test('original severe needs successful natural invocation, not same failed invocation reset', () => fixture(async f => {
+  const s=f.snapshot('critical');s.checks[0].id='cloud-service:trade-overfit-monitor.service';
+  s.checks[0].evidence={execution_state:'failed',invocation_id:'a'.repeat(32),exit_code:124};
+  await f.push(s); f.advance(1000);
+  const reset=f.snapshot(); reset.checks[0].id=s.checks[0].id;
+  reset.checks[0].evidence={execution_state:'completed',unit_result:'success',invocation_id:'a'.repeat(32),exit_code:0,last_start_utc:new Date(f.now()-500).toISOString(),last_exit_utc:new Date(f.now()).toISOString()};
+  await f.push(reset);
+  assert.equal((await f.call()).body.latest.checks[0].status,'unknown');
+  assert.equal((await f.call()).body.latest.checks[0].problem_open,true);
+  f.advance(1000);reset.snapshot_id=crypto.randomUUID();reset.collected_at=new Date(f.now()).toISOString();reset.checks[0].observed_at=reset.collected_at;
+  await f.push(reset);
+  assert.equal((await f.call()).body.latest.checks[0].status,'unknown');
+  f.advance(1000); const recovered=f.snapshot(); recovered.checks[0].id=s.checks[0].id;
+  recovered.checks[0].evidence={...reset.checks[0].evidence,invocation_id:'b'.repeat(32)};
+  await f.push(recovered);
+  assert.equal((await f.call()).body.latest.checks[0].status,'ok');
+}));
+
+function severeSnapshot(f, status, invocation, offset = 0, startOffset = offset) {
+  const s=f.snapshot(status);s.collected_at=new Date(f.now()+offset).toISOString();
+  const c=s.checks[0];c.id='cloud-service:trade-overfit-monitor.service';c.observed_at=s.collected_at;
+  c.evidence={execution_state:status==='ok'?'completed':'failed',invocation_id:invocation.repeat(32),
+    exit_code:status==='ok'?0:124,unit_result:status==='ok'?'success':'exit-code',
+    last_start_utc:new Date(f.now()+startOffset).toISOString(),last_exit_utc:s.collected_at};
+  return s;
+}
+
+test('raw recovery snapshot hash is independent of prior state and duplicate replay', () => fixture(async f => {
+  const failed=severeSnapshot(f,'critical','a');assert.equal((await f.push(failed)).status,200);
+  f.advance(1000);const recovered=severeSnapshot(f,'ok','b',0,-500);
+  const first=await f.push(recovered);assert.equal(first.status,200);
+  assert.equal((await f.call()).body.latest.checks[0].problem_open,false);
+  f.advance(1000);const duplicate=await f.push(recovered);
+  assert.equal(duplicate.status,200);
+  assert.equal(duplicate.body.received_at,first.body.received_at);
+  assert.equal((await f.push(failed)).status,200);
+  assert.equal((await f.call()).body.latest.checks[0].problem_open,false);
+  await f.push(severeSnapshot(f,'critical','c'));
+  assert.equal((await f.push(recovered)).status,200);
+  assert.equal((await f.call()).body.latest.checks[0].problem_open,true);
+}));
+
+test('controlled batch interleaving rechecks recovery against concurrently committed failure', () => fixture(async f => {
+  await f.push(severeSnapshot(f,'critical','a'));
+  const candidate=severeSnapshot(f,'ok','b',1000,100);
+  const failure=severeSnapshot(f,'critical','c',500,400);
+  const batch=f.db.batch.bind(f.db);let intercepted=false,release,entered;
+  const paused=new Promise(resolve=>entered=resolve);
+  const resume=new Promise(resolve=>release=resolve);
+  f.db.batch=async statements=>{
+    if(!intercepted){intercepted=true;entered();await resume;}
+    return batch(statements);
+  };
+  const pending=f.push(candidate);await paused;
+  assert.equal((await f.push(failure)).status,200);
+  release();assert.equal((await pending).status,200);
+  const current=(await f.call()).body.latest.checks[0];
+  assert.equal(current.problem_open,true);
+  assert.notEqual(current.status,'ok');
+  assert.equal((await f.call('/events')).body.events.filter(e=>e.kind==='recovery').length,0);
 }));
 
 // Both handlers consume the same signed cookie; auth.me also resolves its KV user.
@@ -257,8 +352,8 @@ test('OPS-R1 migration backfills the previously elected critical observation, no
   const oldSchema = readdirSync(migrationDir).filter(f => /^000[12]_.*\.sql$/.test(f)).sort().map(f => readFileSync(new URL(f, migrationDir), 'utf8')).join('\n');
   return fixture(async f => {
     const critical = f.snapshot('critical'); critical.checks[0].evidence = { marker: 'before_migration' };
-    await f.push(critical); f.advance(1000);
-    const old = f.snapshot('ok'); old.checks[0].observed_at = new Date(f.now() - 2000).toISOString(); await f.push(old);
+    seedLegacy(f,critical); f.advance(1000);
+    const old = f.snapshot('ok'); old.checks[0].observed_at = new Date(f.now() - 2000).toISOString(); seedLegacy(f,old);
     f.db.sql.exec(readFileSync(new URL('0003_check_observation.sql', migrationDir), 'utf8'));
     const state = (await f.call('/state')).body;
     assert.equal(state.latest.checks[0].status, 'critical'); assert.equal(state.counts.ok, 0);
@@ -523,3 +618,58 @@ test('export streams private retained database plus all nine sanitized baseline 
   assert.ok(knowledge.records.some(r => r.kind === 'incident'));
   assert.equal((await f.call('/history?limit=99999')).status, 400);
 }));
+
+
+test('forward upgrade preserves an open severe anchor; new worker rejects old schema explicitly', () => {
+  const oldSchema=readdirSync(migrationDir).filter(f=>/^000[1-4]_.*\.sql$/.test(f)).sort().map(f=>readFileSync(new URL(f,migrationDir),'utf8')).join('\n');
+  return fixture(async f=>{
+    const failed=severeSnapshot(f,'critical','a');seedLegacy(f,failed);f.advance(1000);
+    const s=severeSnapshot(f,'ok','a',0,-500);
+    const refusal=await f.push(s);assert.equal(refusal.status,503);
+    assert.equal(refusal.body.error,'ops_recovery_migration_required');
+    assert.equal(refusal.body.error_kind,'storage_configuration');
+    assert.equal(f.db.sql.prepare('SELECT count(*) n FROM ops_runs').get().n,1);
+    assert.equal((await f.call()).body.latest.checks[0].problem_open,true);
+    f.db.sql.exec(readFileSync(new URL('0005_ops_recovery_invocation.sql',migrationDir),'utf8'));
+    assert.equal((await f.push(s)).status,200);
+    assert.equal((await f.call()).body.latest.checks[0].problem_open,true);
+    f.advance(1000);assert.equal((await f.push(severeSnapshot(f,'ok','b',0,-500))).status,200);
+    assert.equal((await f.call()).body.latest.checks[0].problem_open,false);
+  },oldSchema);
+});
+
+test('blocked severe recovery does not suppress other checks or inflate ACK/history green counts', () => fixture(async f=>{
+  await f.push(severeSnapshot(f,'critical','a'));f.advance(1000);
+  const s=severeSnapshot(f,'ok','a',0,-500);
+  s.checks.push({...f.snapshot().checks[0],id:'service:unrelated'});
+  const ack=await f.push(s);assert.equal(ack.status,200);
+  const state=(await f.call()).body;
+  assert.equal(state.latest.checks.find(c=>c.id==='service:unrelated').status,'ok');
+  assert.equal(state.latest.checks.find(c=>c.id.startsWith('cloud-service:')).status,'unknown');
+  assert.equal(ack.body.counts.ok,1);assert.equal(ack.body.counts.unknown,1);
+  const stored=JSON.parse(f.db.sql.prepare('SELECT counts_json FROM ops_runs WHERE snapshot_id=?').get(s.snapshot_id).counts_json);
+  assert.deepEqual(stored,ack.body.counts);
+}));
+
+
+for (const service of ['trade-public-fund-daily.service','trade-overfit-monitor.service']) {
+  for (const damage of ['same_start','old_start','bad_hex','missing_result','exit124','running','future_exit','missing_exit']) {
+    test(`severe recovery negative ${service} ${damage}`,()=>fixture(async f=>{
+      const failed=severeSnapshot(f,'critical','a');failed.checks[0].id='cloud-service:'+service;
+      await f.push(failed);f.advance(1000);
+      const s=severeSnapshot(f,'ok','b',0,-500);s.checks[0].id=failed.checks[0].id;
+      const e=s.checks[0].evidence;
+      if(damage==='same_start')e.last_start_utc=failed.collected_at;
+      if(damage==='old_start')e.last_start_utc=new Date(f.now()-2000).toISOString();
+      if(damage==='bad_hex')e.invocation_id='z'.repeat(32);
+      if(damage==='missing_result')delete e.unit_result;
+      if(damage==='exit124')e.exit_code=124;
+      if(damage==='running')e.execution_state='running';
+      if(damage==='future_exit')e.last_exit_utc=new Date(f.now()+1).toISOString();
+      if(damage==='missing_exit')delete e.last_exit_utc;
+      const ack=await f.push(s);assert.equal(ack.status,200);assert.equal(ack.body.counts.ok,0);
+      const current=(await f.call()).body.latest.checks[0];
+      assert.equal(current.status,'unknown');assert.equal(current.problem_open,true);
+    }));
+  }
+}

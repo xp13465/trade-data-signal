@@ -50,10 +50,10 @@ SAFE_PROPS = ('Id', 'LoadState', 'ActiveState', 'SubState', 'Type', 'Result',
               'ExecMainCode', 'ExecMainStatus', 'ExecMainStartTimestamp',
               'ExecMainExitTimestamp', 'UnitFileState', 'TimersCalendar',
               'TimersMonotonic', 'NextElapseUSecRealtime', 'NextElapseUSecMonotonic',
-              'LastTriggerUSec', 'Persistent', 'SuccessExitStatus')
+              'LastTriggerUSec', 'Persistent', 'SuccessExitStatus', 'InvocationID')
 DELIVERY_ERRORS = frozenset({'ops_storage_unavailable', 'ops_storage_or_service_unavailable',
                             'ingest_not_configured', 'ops_token_configuration_invalid',
-                            'ingest_required', 'snapshot_id_conflict'})
+                            'ingest_required', 'snapshot_id_conflict', 'ops_recovery_migration_required'})
 SERVER_ERROR_KINDS = frozenset({'unknown', 'storage_transient', 'storage_quota',
                                'storage_configuration', 'storage_constraint',
                                'storage_overloaded', 'storage_resource_limit', 'configuration'})
@@ -410,11 +410,14 @@ def unit_check(name, props):
     evidence = {'loaded': True, 'active': active in ('active', 'activating', 'reloading'),
                 'failed': active == 'failed'}
     if not timer:
+        invocation = first(props, 'InvocationID')
+        evidence['invocation_id'] = invocation if re.fullmatch('[a-f0-9]{32}', invocation) else None
         evidence['last_start_utc'] = systemd_time_utc(first(props, 'ExecMainStartTimestamp'))
         evidence['last_exit_utc'] = systemd_time_utc(first(props, 'ExecMainExitTimestamp'))
         evidence['exit_code'] = int(code) if code.isdigit() else None
         evidence['unit_result'] = result
     if active == 'failed':
+        evidence.update(execution_state='failed', source_reason='systemd_failed')
         evidence['exit_code'] = int(code) if code.isdigit() else None
         return check(cid, category, 'critical', 'Systemd reports failed; business impact not evaluated', evidence)
     if timer:
@@ -427,13 +430,17 @@ def unit_check(name, props):
         if active != 'active':
             return check(cid, category, 'warning', 'Registered timer is not active', evidence)
         status = 'ok' if n and evidence['next_observed'] and evidence['calendar_sha256'] else 'unknown'
+        evidence.update(execution_state='scheduled' if evidence['next_observed'] else 'not_observed',
+                        source_reason='next_trigger_observed' if evidence['next_observed'] else 'active_timer_next_not_observed')
         return check(cid, category, status, 'Timer scheduling state only; job outcome is separate', evidence)
     if active in ('active', 'activating', 'reloading'):
-        return check(cid, category, 'ok', 'Unit is executing; this is not completed business validation', evidence)
+        evidence.update(execution_state='running', source_reason='completion_not_observed')
+        return check(cid, category, 'unknown', 'Unit is executing; this is not completed business validation', evidence)
     has_run = evidence['last_start_utc'] is not None
     evidence['run_record_present'] = has_run
     if typ == 'oneshot' and active == 'inactive':
         if has_run and result == 'success' and exit_matches_success_policy(props):
+            evidence.update(execution_state='completed', source_reason='systemd_completion')
             if code != '0':
                 evidence['accepted_success_exit'] = True
             return check(cid, category, 'ok', 'Oneshot last systemd run succeeded; data correctness not checked', evidence)
@@ -577,10 +584,16 @@ class Collector:
                            if count else 'Asset content unverified; fixed source absent or outside lightweight scope')
                 self.add(check(cid, 'data', 'unknown', summary,
                                {'fixed_sources': len(relatives), 'observed_sources': count, 'bytes': sizes,
-                                'unreadable_sources': denied, 'content_verified': False}))
+                                'unreadable_sources': denied, 'content_verified': False,
+                                'execution_state': 'not_observed', 'source_reason': 'metadata_only' if relatives else 'fixed_source_not_configured',
+                                'unknown_reason': 'metadata_only' if relatives else 'fixed_source_not_configured',
+                                'next_evidence': cid.removeprefix('data:') + ':current_run_date_hash_coverage_rule_expiry'}))
             except Exception as exc:
                 self.counts['source_errors'] += 1
-                self.add(check(cid, 'data', 'unknown', 'Asset observation budget unavailable', {'error_kind': type(exc).__name__[:64]}))
+                self.add(check(cid, 'data', 'unknown', 'Asset observation budget unavailable',
+                               {'error_kind': type(exc).__name__[:64], 'execution_state': 'not_observed',
+                                'source_reason': 'collection_unavailable', 'unknown_reason': 'collection_unavailable',
+                                'next_evidence': cid.removeprefix('data:') + ':current_run_date_hash_coverage_rule_expiry'}))
         self.counts['asset_groups'] = len(ids)
 
     def schedule(self, rows):
@@ -756,7 +769,8 @@ class Collector:
                                'Default local backup metadata only; remote copy and restore validity unknown',
                                {'present': s is not None, 'bytes': s.st_size if s else 0,
                                 'age_seconds': max(0, int(self.now.timestamp() - s.st_mtime)) if s else None,
-                                'restore_verified': False}))
+                                'restore_verified': False, 'unknown_reason': 'local_metadata_only',
+                                'next_evidence': family + ':local_snapshot_hash_and_bound_restore'}))
         except Exception as exc:
             self.counts['source_errors'] += 1
             for family in ('sentiment', 'etf_national_team', 'stock_daily'):
@@ -767,7 +781,7 @@ class Collector:
             if not isinstance(obj, dict):
                 raise ContractError('backup ledger')
             present = sum(isinstance(obj.get(k), dict) for k in ('sentiment.db', 'etf_national_team.db', 'stock_daily.db', 'public_fund.db'))
-            self.add(check('backup:remote-ledger', 'backup', 'unknown', 'Backup ledger exists; remote objects and restoration not verified', {'known_database_entries': present, 'remote_verified': False}))
+            self.add(check('backup:remote-ledger', 'backup', 'unknown', 'Backup ledger exists; remote objects and restoration not verified', {'known_database_entries': present, 'remote_verified': False, 'unknown_reason': 'ledger_is_not_restore_proof', 'next_evidence': 'four_source_bound_restore_receipts_same_invocation'}))
         self.guarded('backup:remote-ledger', 'backup', ledger)
 
     def resources(self):
@@ -794,6 +808,15 @@ class Collector:
         for cid, fn in (('resource:runtime-disk', disk), ('resource:memory', memory), ('resource:load', load)):
             self.guarded(cid, 'resource', fn)
 
+    def business_evidence(self):
+        from ops_business_evidence import OBJECTS, assess
+        current_code = code_ref(self.cfg.code_root)
+        for name, (unit, category) in OBJECTS.items():
+            self.budget.remaining()
+            status, evidence = assess(self.cfg.data_root, name, self.now, current_code, self.unit_observations.get(unit, {}))
+            self.add(check('business:' + name, category, status,
+                           'Current invocation business evidence; scope and expiry apply', evidence))
+
     def collect(self):
         rows = self.guarded('monitor:registry', 'monitor', lambda: load_registry(self.cfg.code_root))
         if rows is not None:
@@ -805,6 +828,7 @@ class Collector:
         self.backups()
         self.resources()
         self.add(check('publication:served-content', 'publication', 'unknown', 'External content and deployed event membership are not inferred from local metadata', {'content_verified': False}))
+        self.guarded('monitor:business-evidence', 'monitor', self.business_evidence)
         return self.snapshot()
 
     def snapshot(self):
@@ -960,6 +984,12 @@ def request_http(url, payload=None, secret_file=None, head=False, test_local=Fal
                 ack = json.loads(body, object_pairs_hook=strict_pairs)
                 sent_id = json.loads(payload)['snapshot_id']
                 result['ok'] = isinstance(ack, dict) and ack.get('accepted') is True and ack.get('snapshot_id') == sent_id
+                # Old servers remain compatible; absent timestamps stay absent.
+                if result['ok'] and isinstance(ack.get('received_at'), str):
+                    value = ack['received_at']
+                    if re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?Z', value):
+                        datetime.fromisoformat(value.replace('Z', '+00:00'))
+                        result['received_at'] = value
             except (ValueError, UnicodeError, ContractError):
                 result['ok'] = False
             if not result['ok']:
@@ -1013,7 +1043,7 @@ def _network_worker(pipe, url, payload, secret_file, head, test_local, deadline)
         pipe.close()
 
 
-def network_bounded(budget, url, payload=None, secret_file=None, head=False, test_local=False):
+def network_bounded(budget, url, payload=None, secret_file=None, head=False, test_local=False, record_attempt=None):
     # Preserve the original total deadline; use its remaining budget, not a
     # second fixed 8s ceiling. Every retry reuses identical payload bytes/ID.
     endpoint(url, head=head, test_local=test_local)
@@ -1021,11 +1051,19 @@ def network_bounded(budget, url, payload=None, secret_file=None, head=False, tes
     deadline = started + max(0, budget.remaining() - .15)
     context = multiprocessing.get_context('spawn')
     result = {'ok': False, 'error_kind': 'NetworkDeadline', 'attempts': 0}
+    history = []
+    snapshot_id = json.loads(payload)['snapshot_id'] if payload else None
     for attempt in range(1, 2 if head else 4):
         if deadline - time.monotonic() <= .15:
             result['deadline_exhausted'] = True
             break
         attempt_deadline = min(deadline, time.monotonic() + 5)
+        attempt_started = utc_now()
+        attempt_record = {'snapshot_id': snapshot_id, 'attempt': attempt, 'started_at': attempt_started,
+                          'finished_at': None, 'http_status': None, 'error_kind': None,
+                          'ack_state': 'unknown', 'received_at': None, 'delivered_at': None}
+        if record_attempt:
+            record_attempt(attempt_record)
         receive, send = context.Pipe(duplex=False)
         proc = context.Process(target=_network_worker,
                                args=(send, url, payload, secret_file, head, test_local, attempt_deadline))
@@ -1048,6 +1086,14 @@ def network_bounded(budget, url, payload=None, secret_file=None, head=False, tes
             receive.close()
             send.close()
         result['attempts'] = attempt
+        ack_state = 'confirmed' if result.get('ok') else 'rejected' if result.get('http_status') in (400, 401, 403, 409, 413, 415) else 'unknown'
+        ended = utc_now()
+        history.append({'snapshot_id': snapshot_id, 'attempt': attempt, 'started_at': attempt_started,
+                        'finished_at': ended, 'http_status': result.get('http_status'),
+                        'error_kind': result.get('error_kind'), 'ack_state': ack_state,
+                        'received_at': result.get('received_at'), 'delivered_at': ended if result.get('ok') else None})
+        if record_attempt:
+            record_attempt(history[-1])
         kind = result.get('error_kind')
         retry = (kind in ('TimeoutError', 'ConnectionError') or result.get('http_status') in (502, 503, 504))
         if (head or result['ok'] or not retry or kind in NONRETRY_KINDS or
@@ -1059,6 +1105,9 @@ def network_bounded(budget, url, payload=None, secret_file=None, head=False, tes
             break
         time.sleep(delay)
     result['elapsed_ms'] = int((time.monotonic() - started) * 1000)
+    result['attempt_history'] = history
+    result['ack_state'] = history[-1]['ack_state'] if history else 'not_attempted'
+    result['delivered_at'] = history[-1]['delivered_at'] if history else None
     return result
 
 
@@ -1183,13 +1232,18 @@ def run_once(cfg, collect_only=False, test_local_http=False):
     delivery = {'ok': False, 'state': 'collect_only'}
     if not collect_only:
         try:
-            delivery = network_bounded(total_budget, cfg.ingest_url, payload, cfg.secret_file, test_local=test_local_http)
+            def persist_attempt(value):
+                atomic_private_json(cfg.output_dir, 'delivery-' + snapshot['snapshot_id'] + '-' + str(value['attempt']) + '.json', value)
+            delivery = network_bounded(total_budget, cfg.ingest_url, payload, cfg.secret_file, test_local=test_local_http,
+                                       record_attempt=persist_attempt)
         except Exception as exc:
             delivery = {'ok': False, 'error_kind': network_error_kind(exc)}
     report = {'snapshot_id': snapshot['snapshot_id'], 'collector_id': cfg.collector_id,
               'completed_at': utc_now(), 'coverage': snapshot['coverage'], 'delivery': delivery,
               'duration_ms': int((total_budget.clock() - total_budget.started) * 1000)}
     atomic_private_json(cfg.output_dir, 'report.json', report)
+    # Immutable per-snapshot names preserve ambiguous attempts across later runs.
+    atomic_private_json(cfg.output_dir, 'delivery-' + snapshot['snapshot_id'] + '.json', report)
     return report, 0 if collect_only or delivery.get('ok') else 2
 
 

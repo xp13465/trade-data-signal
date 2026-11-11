@@ -136,6 +136,27 @@ def test_real_upload_restore_and_live_minus_116(case):
     assert not (case[1] / "notify").exists()
 
 
+def test_real_restore_emits_source_bound_ops_indices(case, monkeypatch):
+    repo, _ = case
+    for file in ('ops_business_evidence.py','delivery_evidence.py','ops_monitor.py'):
+        shutil.copyfile(ROOT/'scripts'/file,repo/'scripts'/file)
+    monkeypatch.setenv('OPS_DELIVERY_EVIDENCE_ENABLED','1')
+    monkeypatch.setenv('INVOCATION_ID','a'*32)
+    receipt=upload(case)
+    result=verify(case)
+    assert result.returncode==0,result.stdout+result.stderr
+    for name in proof.TABLES:
+        index=json.loads((repo/'data/ops_delivery/index'/('backup-'+name+'.json')).read_text())
+        assert index['stage_status']=='success'
+        assert index['attempt_id']==receipt['run_id']
+        assert index['consumer_witness']['invocation_id']=='a'*32
+        assert index['outputs'][0]['sha256']==receipt['objects'][name]['raw']['sha256']
+        assert index['counts']['expected']==index['counts']['validated']==len(proof.TABLES[name])
+        # No reviewed loaded-code identity was provisioned by this isolated fixture.
+        assert index['code_identity']['sha']=='unknown'
+    assert not (case[1]/'notify').exists()
+
+
 @pytest.mark.parametrize("attack", ["truncate", "wrong-object", "same-length", "covered-run", "receipt-tamper", "wrong-run", "no-proof"])
 def test_object_and_proof_attacks_fail(case, attack):
     receipt = upload(case)
