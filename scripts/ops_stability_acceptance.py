@@ -234,6 +234,12 @@ def inspect_run(run, slot, plan, root, as_of, sources):
                 receipt["config_identity"].get("sha256") != plan["deployment"]["config_sha256"] or
                 receipt["config_identity"].get("sha256") != sha(RULE.encode())):
             raise ValueError("deployment_mismatch")
+        if slot["object_id"] in ("public-fund", "fof-nav"):
+            try:
+                from .ops_fund_evidence import assessment
+            except ImportError:
+                from ops_fund_evidence import assessment
+            _, fund_reason, result["fund_evidence"] = assessment(receipt)
         # Evaluation time is when a receipt was inspected, not when its task ran.
         # Retain execution order for failures too. An unorderable proved failure
         # remains a failure and cannot be cleared by a later poll of old success.
@@ -270,6 +276,8 @@ def inspect_run(run, slot, plan, root, as_of, sources):
         if approved and finish > stamp(slot["deadline"]):
             result.update(status="fail", reasons=["business_deadline_missed"])
             return result
+        if slot["object_id"] in ("public-fund", "fof-nav"):
+            raise ValueError(fund_reason)
         if receipt["stage_status"] != "success" or receipt["evidence_quality"] != "strong":
             raise ValueError("business_completion_unverified")
         if not slot.get("coverage"):

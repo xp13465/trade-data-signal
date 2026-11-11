@@ -36,6 +36,8 @@ OVERFIT = ('overfit_monitor.json', 'overfit_monitor_ext.json')
 METRICS = ('a_turnover_mean', 'a_turnover_median', 'a_turnover_p90', 'a_turnover_p10', 'a_turnover_gt5_pct')
 OBJECTS = {'turnover': ('trade-turnover-backfill.service', 'publication'),
            'overfit': ('trade-overfit-monitor.service', 'publication'),
+           'public-fund': ('trade-public-fund-daily.service', 'publication'),
+           'fof-nav': ('trade-fof-nav-collect.service', 'publication'),
            **{'backup-' + name: ('trade-backup-db.service', 'backup') for name in ('sentiment', 'etf_national_team', 'stock_daily', 'public_fund')}}
 
 
@@ -158,7 +160,8 @@ def publication_confirmations(root, run_id, outputs, started_at):
 
 def record_result(root, object_id, *, run_id, started_at, status='unknown', reason='not_observed',
                   inputs=(), outputs=(), confirmed=(), expected=0, observed=0, business_date=None,
-                  invocation_id=None, code=None, finished_at=None, valid_until=None, publication_run_id=None):
+                  invocation_id=None, code=None, finished_at=None, valid_until=None, publication_run_id=None,
+                  fund_evidence=None):
     """Best effort metadata only; original business return/exception is unchanged."""
     if not evidence_enabled():
         return {'status': 'disabled'}
@@ -170,11 +173,13 @@ def record_result(root, object_id, *, run_id, started_at, status='unknown', reas
         witness = {'scope': RULE, 'invocation_id': invocation_id if invocation_id is not None else os.environ.get('INVOCATION_ID', 'unknown'),
                    'rule_version': RULE, 'valid_until': valid_until or stamp(parsed(started_at) + timedelta(hours=26)),
                    'confirmed': list(confirmed), 'publication_run_id': publication_run_id}
+        if fund_evidence is not None:
+            witness['fund_evidence'] = fund_evidence
         result = emit_receipt(data_root=root, stage='restore' if object_id.startswith('backup-') else 'publish',
             chain_id='ops_business', object_id=object_id, session_date=day, attempt_id=run_id,
             batch_id=run_id, stage_status=status, reason=reason, inputs=inputs, outputs=outputs,
             counts={'expected': expected, 'validated': observed},
-            code_identity={'sha': code} if code else loaded_code_identity(record_result, root),
+            code_identity=code if isinstance(code, dict) else {'sha': code} if code else loaded_code_identity(record_result, root),
             config_identity={'sha256': hashlib.sha256(RULE.encode()).hexdigest()}, consumer_witness=witness,
             producer_time={'started_at': started_at, 'completed_at': finished_at}, evaluated_at=stamp(at),
             evidence_quality='strong' if status == 'success' else 'unknown')
@@ -234,6 +239,21 @@ def assess(root, object_id, at, code, live):
             return result('completion_missing')
         if not end:
             return result('completion_missing')
+        if object_id in ('public-fund', 'fof-nav'):
+            try:
+                from .ops_fund_evidence import assessment
+            except ImportError:
+                from ops_fund_evidence import assessment
+            status, reason, facts = assessment(r)
+            counts = facts.get('counts', {})
+            # Public monitor accepts bounded scalars only; detailed batch scope
+            # stays in the private receipt and the offline acceptance report.
+            ev.update(collection_state=facts.get('collection_status', 'unknown'), publication_state='unknown',
+                      pool_not_attempted=counts.get('pool_not_attempted'),
+                      selected_not_attempted=counts.get('selected_not_attempted'),
+                      published_rows=counts.get('published_rows'), committed_rows=counts.get('committed_rows'))
+            if r['stage_status'] != 'failure':
+                return result(reason, status)
         if r['stage_status'] == 'failure':
             ev['execution_state'] = 'failed'
             return result('business_failed', 'warning')

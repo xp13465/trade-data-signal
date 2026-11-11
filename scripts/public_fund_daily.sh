@@ -65,12 +65,27 @@ fi
 
 echo "=== public_fund_daily.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 
+# Private current-invocation metadata only; disabled by default. No DB/network.
+# The same identity crosses the collector and shell. rc0 is never NAV delivery.
+fund_evidence() {
+  [ "${OPS_DELIVERY_EVIDENCE_ENABLED:-0}" = "1" ] || return 0
+  "$PY" -m scripts.ops_fund_evidence "$@" --root "$REPO" \
+    --run "$OPS_FUND_RUN" --started "$OPS_FUND_STARTED" || \
+    echo "[fund-evidence] metadata_failure" >&2
+}
+if [ "${OPS_DELIVERY_EVIDENCE_ENABLED:-0}" = "1" ]; then
+  export OPS_FUND_RUN="pf-$(date -u +%Y%m%dT%H%M%S)-$$"
+  export OPS_FUND_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  fund_evidence begin
+fi
+
 # 交易日闸门
 FORCE=0
 [ "${1:-}" = "force" ] && FORCE=1
 IS_TRADING=$("$PY" -c "from app.calendar import is_trading_day; print(1 if is_trading_day() else 0)" 2>/dev/null)
 echo "交易日判断: IS_TRADING=${IS_TRADING:-unknown} FORCE=$FORCE" | tee -a "$LOG"
 if [ "$IS_TRADING" != "1" ] && [ "$FORCE" != "1" ]; then
+  fund_evidence finish --reason calendar_not_attempted
   echo "非交易日，跳过公募基金日更（force 可绕过）" | tee -a "$LOG"
   echo "=== public_fund_daily.sh 结束（非交易日）$(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
   exit 0
@@ -147,4 +162,5 @@ echo "=== public_fund_daily.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') deploy=$DEPLO
   || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"
 bash "$REPO/scripts/push_schedule_stats.sh" || echo "⚠ push_schedule_stats 失败" | tee -a "$LOG"
 
+fund_evidence finish --rc "$FINAL_RC" --reason "collect_${COLLECT_RC}_export_${EXPORT_RC}_nav_${NAV_REFRESH_RC}_deploy_${DEPLOY_RC}"
 exit "$FINAL_RC"

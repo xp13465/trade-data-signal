@@ -52,6 +52,8 @@ except Exception:  # cloud 无 certifi 时用系统 CA
 # 复用 public_fund 的 DB 连接/schema/锁(§6.5 第 2 层: 库里已有不重写)
 from app.collector.public_fund import DB_PATH, get_conn, init_db, _acquire_lock, _safe_float
 from scripts.util_atomic import atomic_write_json
+from scripts.ops_fund_evidence import (capture as _fund_capture, observe as _fund_observe,
+                                       setup_seconds as _fund_setup_seconds)
 
 LSJZ_URL = "https://api.fund.eastmoney.com/f10/lsjz"
 REFERER = "https://fundf10.eastmoney.com/"
@@ -147,6 +149,7 @@ def fetch_lsjz(fund_code: str, start_date: str, end_date: str, *,
     return out
 
 
+@_fund_capture('fof-nav', lambda: DB_PATH.parent.parent)
 def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
             batch: int = BATCH_SIZE, fund_code: str | None = None,
             budget_seconds: float = 290.0) -> int:
@@ -165,7 +168,7 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
     from app.collector import public_fund_gap as gap
     if not math.isfinite(budget_seconds) or budget_seconds <= 0 or budget_seconds > 290:
         raise ValueError('整轮预算须在(0,290]秒内')
-    deadline = time.monotonic() + budget_seconds
+    deadline = time.monotonic() + budget_seconds - _fund_setup_seconds()
     global LAST_BATCH_FAILED
     LAST_BATCH_FAILED = False  # 每轮重置, 防同进程跨轮残留(合法空数据/锁占/无待采均保持 False)
     if days < 0 or batch < 1 or (limit is not None and limit < 1):
@@ -174,6 +177,7 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                                   or not fund_code.isascii() or not fund_code.isdigit()):
         raise ValueError("fund_code须为6位ASCII数字")
     if not _acquire_lock(nonblock=True, lock_name="public_fund", **({"read_only": True} if dry_run else {})):
+        _fund_observe('reason', reason='lock_not_attempted')
         print("[fof_nav] WARN public_fund.lock 被占, 跳过(防与 daily/quarterly 并发写同库)",
               flush=True)
         return 0
@@ -189,6 +193,7 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
             target_rows = list(conn.execute(
                 "SELECT * FROM (" + SELECT_SQL + ") WHERE fund_code=?", (fund_code,)))
             if not target_rows:
+                _fund_observe('reason', reason='target_outside_universe')
                 print(f"[fof_nav] 非既有FOF/QDII目标 {fund_code}，跳过(未写库)", flush=True)
                 conn.close()
                 return 0
@@ -253,6 +258,11 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
         pending = [r for r in all_funds if r[0] > last_code] + [r for r in all_funds if r[0] <= last_code]
         pending = pending[:min(limit if limit is not None else batch, BATCH_SIZE)]
         run_batch = len(pending)
+        _fund_observe('scope', pool_count=total_pool, selected_count=run_batch,
+                      selected_codes=[r[0] for r in pending],
+                      selection='targeted' if target_rows is not None else 'limited' if limit is not None else 'rotating',
+                      pool_scope='target_only' if target_rows is not None else 'FOF_QDII',
+                      recent_window=[start_str, end_str], expected_publication='T_plus_1_or_2_not_SLA')
 
         print(f"[fof_nav] FOF/QDII 总数={total_pool} 轮转起点={last_code or '起始'} "
               f"待采={len(pending)}/{total_pool} 本轮尝试(不代表整窗完整) "
@@ -276,6 +286,7 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                 conn.close()
                 raise TimeoutError('FOF整轮预算耗尽，保留已提交目标和原尝试游标')
             attempted += 1
+            _fund_observe('attempt', fund_code=fund_code)
             candidate = None
             target_limit = work_limits.get(fund_code)
             budget_failed = False
@@ -289,17 +300,23 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                     ranges = candidate['ranges']
                 else:
                     ranges = [(start.strftime('%Y%m%d'), end.strftime('%Y%m%d'))]
+                _fund_observe('ranges', fund_code=fund_code, planned_ranges=ranges)
                 merged = {}
                 for first, last in ranges:
                     def iso(d):
                         return f'{d[:4]}-{d[4:6]}-{d[6:]}'
+                    _fund_observe('range_attempt', fund_code=fund_code, first=first, last=last)
                     batch_rows = fetch_lsjz(fund_code, iso(first), iso(last), deadline=deadline)
+                    _fund_observe('range_return', fund_code=fund_code, first=first, last=last,
+                                  published_rows=len(batch_rows))
                     for row in batch_rows:
                         old = merged.get(row['date'])
                         if old and old != row:
                             raise ValueError('重叠范围返回不一致')
                         merged[row['date']] = row
                 rows = list(merged.values())
+                if ranges:
+                    _fund_observe('source', rows=rows)
                 gap.remaining(deadline)
                 if not dry_run:
                     conn.execute('BEGIN IMMEDIATE')
@@ -323,10 +340,12 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                     gap.remaining(deadline)
                     conn.commit()  # NAV+历史覆盖+缺口队列在同一基金事务内提交
                     target_committed = True
+                    _fund_observe('committed', rows=rows)
                 if rows:
                     total_written += len(rows)
                     ok += 1
             except Exception as e:
+                _fund_observe('error', reason=type(e).__name__)
                 # P2-C(2026-11-05): 显式回滚, 保证失败那只零落库、不影响下一只。
                 # 旧代码只计数不回滚: 失败那只的部分写入留在未提交事务里, 会被下一只
                 # 的 commit 一起提交。失败基金本轮不留部分NAV，下次轮转仍会复查。

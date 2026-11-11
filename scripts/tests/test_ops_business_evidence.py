@@ -82,7 +82,9 @@ def test_valid_receipt_and_bounded_collector(evidence, tmp_path, monkeypatch):
     c.business_evidence()
     snapshot = c.snapshot()
     assert m.validate_snapshot(snapshot)
-    assert len(snapshot['checks']) == 6
+    assert len(snapshot['checks']) == 8
+    assert {c['id'] for c in snapshot['checks'] if c['status'] == 'unknown'} >= {
+        'business:public-fund', 'business:fof-nav', 'business:backup-public_fund'}
     assert next(c for c in snapshot['checks'] if c['id']=='business:overfit')['status']=='ok'
     assert str(tmp_path) not in json.dumps(snapshot)
 

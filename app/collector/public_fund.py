@@ -69,6 +69,7 @@ import akshare as ak
 from .base import safe_call, throttle
 # pct/prev 的单一计算实现(§23.2③:禁止在本文件或回填脚本里再复制第二份比较/计算逻辑)
 from .fund_pct import PrevNavCache, fill_row_prev_pct
+from scripts.ops_fund_evidence import capture as _fund_capture, observe as _fund_observe
 
 # ── 路径与常量 ──────────────────────────────────────────────────────────────────
 _ROOT = Path(__file__).absolute().parent.parent.parent
@@ -881,12 +882,15 @@ def fetch_hold_structure() -> int:
 
 
 # ── Fetcher E: 基金日净值 ───────────────────────────────────────────────────────
+@_fund_capture('public-fund', lambda: DB_PATH.parent.parent)
 def fetch_daily_nav() -> int:
     """fund_open_fund_daily_em (~23738) -> fund_daily_nav（日更）。"""
     print("[E] fetch_daily_nav() ...", flush=True)
     t = time.time()
     df = safe_call(ak.fund_open_fund_daily_em, retries=2)
     if isinstance(df, Exception) or df is None or len(df) == 0:
+        _fund_observe('reason', reason='source_error' if isinstance(df, Exception) else 'source_empty_unclassified',
+                      failure=isinstance(df, Exception))
         print(f"[E] FAIL: {df}", flush=True)
         return 0
     # ── 列选择：按「列名里的日期」定位，不依赖列顺序、不依赖 showday 下标（#251 根治）────────
@@ -907,6 +911,7 @@ def fetch_daily_nav() -> int:
             acc_by_date["".join(m.groups())] = s
     dates_desc = sorted(unit_by_date, reverse=True)  # 新→旧
     if not dates_desc:
+        _fund_observe('reason', reason='source_date_columns_missing', failure=True)
         print(f"[E] WARN 找不到单位净值日期列, cols[:10]={list(df.columns)[:10]}", flush=True)
         return 0
 
@@ -922,6 +927,8 @@ def fetch_daily_nav() -> int:
 
     target_date = next((d for d in dates_desc if _col_published(unit_by_date[d])), None)
     if target_date is None:
+        _fund_observe('scope', source_dates=dates_desc, source_row_count=len(df), selected_date=None)
+        _fund_observe('source', rows=[])
         print(f"[E] WARN 所有净值列均无已发布值(数据源当日尚未发布), dates={dates_desc}", flush=True)
         return 0
     today_col_unit = unit_by_date[target_date]
@@ -950,6 +957,10 @@ def fetch_daily_nav() -> int:
         prev_unit = _safe_float(r.get(prev_col_unit)) if prev_col_unit else None
         nav_pct = _safe_float(r.get("日增长率")) if use_pct else None
         rows.append((today_str, fund_code, fund_name, unit_nav, acc_nav, prev_unit, nav_pct))
+    _fund_observe('daily', rows=rows, source_dates=dates_desc, selected_date=target_date,
+                  source_row_count=len(df), skipped_code_rows=len(df)-len(rows),
+                  latest_column_unpublished=target_date != dates_desc[0],
+                  universe='source_snapshot_only', expected_publication='usually_T_minus_1_not_SLA')
     conn = get_conn()
     # 缺 pct / prev 的兜底（**单一实现** `app/collector/fund_pct.py`，2026-10-28 根治）：
     #   正常路径：源端该日没给「日增长率」⇒ 用**前一交易日**那一行 unit_nav 派生 pct；
@@ -981,6 +992,7 @@ def fetch_daily_nav() -> int:
         rows,
     )
     conn.commit()
+    _fund_observe('daily_commit', rows=rows)
     conn.close()
     print(f"[E] fund_daily_nav 写入 {len(rows)} 行 @{today_str}, {time.time()-t:.1f}s", flush=True)
     return len(rows)
