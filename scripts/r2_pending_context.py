@@ -8,8 +8,11 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
+import re
+import stat
 import time
 import uuid
 from util_atomic import atomic_write_json, atomic_write_text
@@ -188,16 +191,308 @@ def retire_source(flag, root, path, run_id):
         return {"retired_source": True}
 
 
+# Inspect deliberately does not call _locked: diagnostics must never mkdir/touch/write.
+INSPECT_MAX_RECORDS = 128
+INSPECT_MAX_ENTRIES = 1024
+INSPECT_RECORD_BYTES = 64 * 1024
+INSPECT_PROOF_BYTES = 1024 * 1024
+INSPECT_SECONDS = 5
+
+
+def _inspect_require(condition, reason):
+    if not condition:
+        raise ValueError(reason)
+
+
+def _inspect_path(value):
+    path = Path(value)
+    _inspect_require(path.is_absolute() and '..' not in path.parts
+                     and len(str(path)) <= 4096, 'unsafe_path')
+    # The OS-owned /tmp alias is needed by the existing default on macOS.
+    # No other caller-controlled symlink is resolved.
+    if path.parts[1:2] == ('tmp',):
+        path = Path('/tmp').resolve().joinpath(*path.parts[2:])
+    return path
+
+
+@contextlib.contextmanager
+def _inspect_directory(path):
+    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in path.parts[1:]:
+            new = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                          dir_fd=fd)
+            os.close(fd)
+            fd = new
+        info = os.fstat(fd)
+        _inspect_require(info.st_uid == os.geteuid() and not info.st_mode & 0o022,
+                         'unsafe_directory')
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _inspect_stamp(info):
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns,
+            info.st_ctime_ns, info.st_mode, info.st_nlink, info.st_uid)
+
+
+def _inspect_regular(info, private=True):
+    _inspect_require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                     and info.st_uid == os.geteuid()
+                     and not info.st_mode & (0o077 if private else 0o022),
+                     'unsafe_file')
+
+
+def _inspect_read(fd, name, limit, observed):
+    opened = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+    with os.fdopen(opened, 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        _inspect_regular(before)
+        _inspect_require(before.st_size <= limit, 'file_too_large')
+        raw = stream.read(limit + 1)
+        _inspect_require(len(raw) <= limit, 'file_too_large')
+        stamp = _inspect_stamp(before)
+        _inspect_require(stamp == _inspect_stamp(os.fstat(stream.fileno()))
+                         == _inspect_stamp(os.stat(name, dir_fd=fd, follow_symlinks=False)),
+                         'changed_during_read')
+        observed[name] = stamp
+        return raw
+
+
+def _inspect_json(raw):
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            _inspect_require(key not in result, 'duplicate_json_key')
+            result[key] = value
+        return result
+    body = json.loads(raw, object_pairs_hook=pairs)
+    _inspect_require(isinstance(body, dict), 'invalid_json_object')
+    return body
+
+
+def _inspect_time(value):
+    return (type(value) in (int, float) and value >= 0
+            and (type(value) is int or math.isfinite(value)))
+
+
+def _inspect_row(fd, directory, name, root, now, observed):
+    answer = {'record_file': name, 'id': None, 'run_id': None,
+              'state': 'unknown', 'consumption_status': 'unknown',
+              'proof_integrity': 'unknown', 'wait_seconds': None,
+              'since_last_offer_seconds': None, 'deadline_status': 'unknown',
+              'deadline_reason': 'no_explicit_request_contract',
+              'public_bytes_status': 'unknown', 'issues': []}
+    try:
+        row = _inspect_json(_inspect_read(fd, name, INSPECT_RECORD_BYTES, observed))
+        identity, run_id, static_dir = row.get('id'), row.get('run_id'), row.get('static_dir')
+        _inspect_require(type(row.get('version')) is int and row['version'] == 1
+                         and isinstance(run_id, str) and 0 < len(run_id) <= 4096
+                         and isinstance(static_dir, str) and Path(static_dir).is_absolute()
+                         and '..' not in Path(static_dir).parts
+                         and str(Path(static_dir)) == static_dir
+                         and identity == _identity(run_id, static_dir)
+                         and name == identity + '.json', 'invalid_request_identity')
+        answer.update(id=identity, run_id=run_id,
+                      scope='requested_root' if static_dir == str(root) else 'other_root')
+        state = row.get('state')
+        _inspect_require(state in ('pending', 'missing', 'done', 'superseded'), 'invalid_state')
+        terminal = state in ('done', 'superseded')
+        answer.update(state=state, **{field: row.get(field) if _inspect_time(row.get(field))
+                      else None for field in ('created_at', 'offered_at', 'completed_at')})
+        created, offered = row.get('created_at'), row.get('offered_at')
+        completed = row.get('completed_at')
+        end = completed if terminal else now
+        if (not all(_inspect_time(t) for t in (created, offered, end))
+                or not 0 < created <= end <= now
+                or (offered != 0 and not created <= offered <= end)
+                or (terminal and offered == 0)
+                or (not terminal and completed is not None)):
+            answer['issues'].append('invalid_or_future_timestamp')
+        else:
+            answer['wait_seconds'] = end - created
+            answer['since_last_offer_seconds'] = end - offered if offered else None
+            answer['consumption_status'] = (state if terminal else
+                                            'offered' if offered else 'not_offered')
+        digest = row.get('proof_sha256')
+        answer['proof_sha256'] = (digest if isinstance(digest, str)
+            and re.fullmatch('[0-9a-f]{64}', digest) else None)
+        if state == 'missing':
+            answer['proof_integrity'] = 'missing'
+            answer['issues'].append('proof_unavailable')
+            return answer
+        _inspect_require(isinstance(digest, str) and re.fullmatch('[0-9a-f]{64}', digest),
+                         'invalid_proof_digest')
+        proof_name = identity + '.' + digest + '.proof'
+        _inspect_require(row.get('proof_path') == str(directory / proof_name),
+                         'unsafe_proof_path')
+        try:
+            raw = _inspect_read(fd, proof_name, INSPECT_PROOF_BYTES, observed)
+        except FileNotFoundError:
+            observed[proof_name] = None
+            answer['proof_integrity'] = 'retired' if terminal else 'missing'
+            if not terminal:
+                answer['issues'].append('proof_unavailable')
+            return answer
+        _inspect_require(hashlib.sha256(raw).hexdigest() == digest, 'proof_hash_mismatch')
+        proof = _inspect_json(raw)
+        _inspect_require(type(proof.get('version')) is int and proof['version'] == 1
+                         and proof.get('run_id') == run_id
+                         and proof.get('static_dir') == static_dir, 'proof_identity_mismatch')
+        outputs = proof.get('outputs')
+        _inspect_require(isinstance(outputs, dict) and bool(outputs), 'invalid_proof_outputs')
+        for key, value in outputs.items():
+            _inspect_require(isinstance(key, str) and bool(key)
+                             and not Path(key).is_absolute() and '..' not in Path(key).parts
+                             and str(Path(key)) == key and '\\' not in key
+                             and isinstance(value, dict) and type(value.get('size')) is int
+                             and value['size'] >= 0 and isinstance(value.get('sha256'), str)
+                             and re.fullmatch('[0-9a-f]{64}', value['sha256']),
+                             'invalid_proof_output')
+        answer.update(proof_integrity='verified_owned_copy', output_count=len(outputs))
+    except (OSError, ValueError, TypeError, RecursionError) as exc:
+        answer['issues'].append(_inspect_error(exc))
+        answer['proof_integrity'] = 'unknown' if answer['id'] is None else 'invalid'
+    return answer
+
+
+def _inspect_error(exc):
+    # Do not echo attacker-controlled JSON, paths, or exception text into diagnostics.
+    if isinstance(exc, OSError):
+        return 'filesystem_error_' + str(exc.errno)
+    if type(exc) is ValueError and re.fullmatch('[a-z_]+', str(exc)):
+        return str(exc)
+    return 'invalid_metadata_' + type(exc).__name__
+
+
+def inspect_contexts(flag, root, *, limit=LIMIT, now=None, budget_seconds=INSPECT_SECONDS):
+    """Bounded, local, read-only evidence; never a public-byte health/SLA assertion.
+
+    Only the requested root is returned; all scanned records count against limits.
+    Observed counts in a partial view are not queue totals. No deadline contract
+    exists in this schema. budget_seconds is a cooperative local I/O budget only.
+    """
+    _inspect_require(type(limit) is int and 1 <= limit <= INSPECT_MAX_RECORDS, 'invalid_limit')
+    _inspect_require(type(budget_seconds) in (int, float)
+                     and 0 <= budget_seconds <= INSPECT_SECONDS, 'invalid_budget')
+    now = time.time() if now is None else now
+    _inspect_require(_inspect_time(now), 'invalid_now')
+    result = {'version': 1, 'observed_at': now, 'inspection_status': 'unavailable',
+              'health': 'unknown', 'public_bytes_status': 'unknown',
+              'records': [], 'issues': [], 'truncated': False, 'entries_scanned': 0,
+              'records_scanned': 0, 'other_root_records': 0,
+              'limits': {'records': limit, 'entries': INSPECT_MAX_ENTRIES,
+                         'record_bytes': INSPECT_RECORD_BYTES,
+                         'proof_bytes': INSPECT_PROOF_BYTES, 'seconds': budget_seconds}}
+    started = time.monotonic()
+    try:
+        _inspect_require(budget_seconds > 0, 'inspection_budget_exhausted')
+        directory = _inspect_path(str(flag) + '.contexts')
+        root = Path(root).resolve()
+        with _inspect_directory(directory) as fd:
+            before = _inspect_stamp(os.fstat(fd))
+            lock = os.open('.lock', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+            try:
+                lock_info = os.fstat(lock)
+                _inspect_regular(lock_info, private=False)
+                fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                observed = {'.lock': _inspect_stamp(lock_info)}
+                with os.scandir(fd) as entries:
+                    for entry in entries:
+                        if (result['entries_scanned'] >= INSPECT_MAX_ENTRIES
+                                or time.monotonic() - started >= budget_seconds):
+                            result['truncated'] = True
+                            break
+                        result['entries_scanned'] += 1
+                        if not entry.name.endswith('.json'):
+                            continue
+                        if result['records_scanned'] >= limit:
+                            result['truncated'] = True
+                            break
+                        result['records_scanned'] += 1
+                        row = _inspect_row(fd, directory, entry.name, root, now, observed)
+                        if row.pop('scope', None) == 'other_root':
+                            result['other_root_records'] += 1
+                            if row['issues']:
+                                result['issues'].append('invalid_other_root_record')
+                        else:
+                            result['records'].append(row)
+                for name, stamp in observed.items():
+                    try:
+                        current = _inspect_stamp(os.stat(name, dir_fd=fd, follow_symlinks=False))
+                    except FileNotFoundError:
+                        current = None
+                    _inspect_require(current == stamp, 'changed_during_inspection')
+                _inspect_require(before == _inspect_stamp(os.fstat(fd)), 'directory_changed')
+                with _inspect_directory(directory) as reopened:
+                    _inspect_require(before == _inspect_stamp(os.fstat(reopened)), 'directory_changed')
+                if time.monotonic() - started >= budget_seconds:
+                    result['truncated'] = True
+                if result['truncated']:
+                    result['issues'].append('scan_truncated')
+                result['inspection_status'] = ('incomplete' if result['issues']
+                    or any(r['issues'] for r in result['records']) else 'complete')
+            finally:
+                os.close(lock)
+    except (OSError, ValueError, TypeError, RecursionError) as exc:
+        result['issues'].append(_inspect_error(exc))
+        # Any rows already read are evidence only, not a coherent scan.
+        result['inspection_status'] = 'incomplete' if result['records'] else 'unavailable'
+    result['records'].sort(key=lambda row: row['record_file'])
+    result['counts'] = {state: sum(r['state'] == state for r in result['records'])
+                                 for state in ('pending', 'missing', 'done', 'superseded', 'unknown')}
+    read_uncertain = any(
+        issue.startswith('filesystem_error_') or issue == 'changed_during_read'
+        for row in result['records'] for issue in row['issues'])
+    if result['issues'] or result['inspection_status'] == 'unavailable' or read_uncertain:
+        result.update(status='unknown', reason='inspection_incomplete')
+    elif any(r['issues'] for r in result['records']):
+        result.update(status='warning', reason='invalid_request_evidence')
+    elif result['counts']['pending'] or result['counts']['missing']:
+        result.update(status='unknown', reason='pending_without_deadline_contract')
+    else:
+        result.update(status='empty', reason='no_pending_requests_observed')
+    result['summary'] = project_observation(result)
+    return result
+
+
+def project_observation(report):
+    """Pure <=20-scalar projection for ops evidence; no paths or free-form text."""
+    rows = report['records']
+    active = [r for r in rows if r['state'] in ('pending', 'missing')]
+    waits = [r['wait_seconds'] for r in active if r['wait_seconds'] is not None]
+    return {
+        'status': report['status'], 'reason': report['reason'],
+        'inspection_status': report['inspection_status'],
+        **{state + '_count': count for state, count in report['counts'].items()},
+        'proof_invalid_count': sum(r['proof_integrity'] in ('invalid', 'missing') for r in rows),
+        'invalid_record_count': sum(bool(r['issues']) for r in rows),
+        'oldest_wait_seconds': max(waits, default=None),
+        'unoffered_count': sum(r['consumption_status'] == 'not_offered' for r in active),
+        'records_scanned': report['records_scanned'],
+        'entries_scanned': report['entries_scanned'],
+        'other_root_records': report['other_root_records'],
+        'truncated': report['truncated'],
+        'deadline_status': 'unknown', 'public_bytes_status': 'unknown',
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("enqueue", "snapshot", "finish", "retire-source"))
+    parser.add_argument("action", choices=("enqueue", "snapshot", "finish", "retire-source", "inspect"))
     parser.add_argument("--batch")
     parser.add_argument("--result")
     parser.add_argument("--phase-ok", action="store_true")
+    parser.add_argument("--limit", type=int, default=LIMIT, help="inspect record limit (1..128)")
     args = parser.parse_args()
+    if args.action == "inspect" and not 1 <= args.limit <= INSPECT_MAX_RECORDS:
+        parser.error("--limit must be between 1 and 128")
     flag = os.environ.get("R2_UPLOAD_ASYNC_PENDING", "/tmp/trade_r2_upload_async.pending")
     root = (Path(os.environ["REPO"]) / "static-site").resolve()
-    if args.action == "enqueue":
+    if args.action == "inspect":
+        answer = inspect_contexts(flag, root, limit=args.limit)
+    elif args.action == "enqueue":
         answer = enqueue(flag, root, os.environ.get("R2_EXPORT_PROOF_PATH"), os.environ.get("R2_EXPORT_RUN_ID"))
     elif args.action == "retire-source":
         answer = retire_source(flag, root, os.environ.get("R2_EXPORT_PROOF_PATH"), os.environ.get("R2_EXPORT_RUN_ID"))
@@ -206,6 +501,8 @@ def main():
     else:
         answer = finish(flag, root, args.batch, args.result, args.phase_ok)
     print(json.dumps(answer, ensure_ascii=False))
+    if args.action == "inspect" and answer["inspection_status"] != "complete":
+        raise SystemExit(2)
 
 if __name__ == "__main__":
     main()
