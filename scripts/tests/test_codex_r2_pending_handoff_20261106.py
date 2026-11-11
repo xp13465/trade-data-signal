@@ -67,6 +67,9 @@ old_exists=Path.exists;Path.exists=lambda self:False if self.name=='.env' and no
 spec=importlib.util.spec_from_file_location('actual_uploader',S/'scripts/upload_r2.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);Path.exists=old_exists
 remote=P/'remote';remote.mkdir(exist_ok=True)
 def request(method,key,payload=b'',**kw):
+ if method=='GET':
+  p=remote/key.replace('/','__')
+  return (200,p.read_bytes()) if p.exists() else (404,b'NoSuchKey')
  assert method=='PUT';(remote/key.replace('/','__')).write_bytes(payload)
  with (P/'puts.jsonl').open('a') as f:f.write(json.dumps({'key':key,'sha256':hashlib.sha256(payload).hexdigest()})+'\n')
  return 200,b''
@@ -92,7 +95,7 @@ class PendingHandoffTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='r2-pending-portable-')
         self.p = Path(self.temp.name).resolve(); self.s = self.p/'source'
-        for rel in ['scripts/upload_r2.py','scripts/r2_upload_async.sh','scripts/r2_upload_skip_notify.sh','scripts/r2_pending_context.py','scripts/r2_export_proof.py','scripts/delivery_evidence.py','scripts/r2_lock_paths.py','scripts/util_atomic.py','scripts/with_lock.py','scripts/lib/repo_paths.sh','scripts/lib/upload_watchdog.sh','static-site/export.py']:
+        for rel in ['scripts/upload_r2.py','scripts/r2_upload_async.sh','scripts/r2_upload_skip_notify.sh','scripts/r2_pending_context.py','scripts/r2_export_proof.py','scripts/r2_safe_write.py','scripts/delivery_evidence.py','scripts/r2_lock_paths.py','scripts/util_atomic.py','scripts/with_lock.py','scripts/lib/repo_paths.sh','scripts/lib/upload_watchdog.sh','static-site/export.py']:
             dst=self.s/rel;dst.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(ROOT/rel,dst)
             if dst.suffix == '.sh': dst.chmod(0o755)
         # Relocate only the lockfile literal, so tests exercise the actual outer exec/timeout safely.

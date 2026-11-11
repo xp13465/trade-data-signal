@@ -256,9 +256,9 @@ def test_t2b_backup_phase_expiry_not_swallowed(tmp_path, monkeypatch, capsys):
     assert ps["marker"].exists() and ps["state"].read_bytes() == state_before
 
 
-# ---------------- T3: 拦截点 a —— 单请求超时 = min(配置, 剩余), 下限 1s ----------------
+# ---------------- T3: 拦截点 a —— 单请求超时 = min(配置, 剩余), 不足1秒时按实际剩余值 ----------------
 def test_t3_request_timeout_clamped_to_remaining(tmp_path, monkeypatch, capsys):
-    """剩余 3s ⇒ 生效超时 3s(而非配置 30s); 下限 1s; 禁用 ⇒ 配置值。"""
+    """剩余 3s ⇒ 生效超时 3s(而非配置 30s); 不足1秒时按实际剩余值; 禁用 ⇒ 配置值。"""
     monkeypatch.setenv("R2_UPLOAD_WORK_TIMEOUT", "5")
     ur._work_budget_begin("data-large")
     assert ur._WORK_BUDGET_S == 5
@@ -266,7 +266,7 @@ def test_t3_request_timeout_clamped_to_remaining(tmp_path, monkeypatch, capsys):
     ur._WORK_DEADLINE = time.monotonic() + 3.9
     assert ur._effective_request_timeout() == 3
     ur._WORK_DEADLINE = time.monotonic() + 0.2
-    assert ur._effective_request_timeout() == 1, "下限 1s(不能给 0/负数)"
+    assert 0 < ur._effective_request_timeout() <= 0.2, "不足1秒时仍不能越过剩余预算"
     ur._WORK_DEADLINE = None
     assert ur._effective_request_timeout() == ur.R2_UPLOAD_HTTP_TIMEOUT
 
