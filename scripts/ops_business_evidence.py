@@ -16,6 +16,7 @@ import re
 import sqlite3
 import stat
 import tempfile
+import time
 import uuid
 
 try:
@@ -28,6 +29,7 @@ except ImportError:
                                    identity_for_loaded, loaded_code_identity, _validate, _canonical)
 
 RULE = 'ops-business-v1'
+INDEX_LOCK_TIMEOUT_SECONDS = 0.25
 ZONE = ZoneInfo('Asia/Shanghai')
 TURNOVER = ('overview.json', 'boot.json', 'signals_today.json') + tuple('a-stock-' + r + '.json' for r in ('3m', '6m', '1y', '3y', '5y', 'all'))
 OVERFIT = ('overfit_monitor.json', 'overfit_monitor_ext.json')
@@ -64,15 +66,33 @@ def bounded_json(path):
     return json.loads(payload)
 
 
+def _index_lock_path(directory, object_id):
+    # Ordering is per object; unrelated R2 callbacks must never contend.
+    return directory / ('.' + hashlib.sha256(object_id.encode()).hexdigest() + '.lock')
+
+
+def _acquire_index_lock(fd):
+    deadline = time.monotonic() + INDEX_LOCK_TIMEOUT_SECONDS
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError as exc:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('evidence index lock deadline') from exc
+            time.sleep(min(0.01, remaining))
+
+
 def write_index(root, record):
     """No older success can overwrite a newer running or failed invocation."""
     directory = receipt_root(root) / 'index'
     _private_dir(directory)
     target = directory / (record['object_id'] + '.json')
-    lock = os.open(directory / '.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    lock = os.open(_index_lock_path(directory, record['object_id']), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     tmp = None
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _acquire_index_lock(lock)
         try:
             prior = bounded_json(target)
         except FileNotFoundError:
@@ -97,10 +117,10 @@ def write_publication_index(root, record):
     directory /= hashlib.sha256(record['attempt_id'].encode()).hexdigest()
     _private_dir(directory)
     target = directory / record['object_id']
-    lock = os.open(directory / '.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    lock = os.open(_index_lock_path(directory, record['object_id']), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     tmp = None
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _acquire_index_lock(lock)
         try:
             prior = bounded_json(target)
         except FileNotFoundError:
