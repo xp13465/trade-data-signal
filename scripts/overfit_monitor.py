@@ -83,7 +83,7 @@ from pick_repo import pick_repo, pick_git_repo, force_env, guard_deploy_source_t
 # signal_kelly_backtest 顶层仅常量/函数定义, 无 DB 连接/重计算副作用, import 安全。
 from signal_kelly_backtest import TRADE_FIELDS  # noqa: E402
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
-from notify_sent import notify_sent  # noqa: E402  (#241 同族: notify 真发出判据唯一实现, 不看 rc)
+from notify_sent import notify_state  # noqa: E402  #241 同族: 通知结果三态判据唯一实现, 不看 rc
 REPO = str(pick_repo())         # trade-data/(部署源树); 惰性求值: guard 见 build_output 开头
 
 # ── 常量 ──────────────────────────────────────────────────────────────────────
@@ -99,6 +99,13 @@ WINDOWS = [10, 15, 30, 60, 100]
 DEFAULT_K = 1
 OVERFIT_MODE = "G"        # 主展示/预警口径的卖出模式(用户主推 G = 信号驱动卖出)
 SURFACE_DAYS = 200        # 曲线序列裁剪窗口(2026-08-16: 前端显示范围上限 180, 序列只需 ~200 天即够画; 体积控制)
+# 告警去重窗口: 23 小时(82800s), **不用 24h(86400s)**。
+# 依据(2026-11-11 RCA /tmp/notify-rca-20261111.md): 本任务每日 21:40 定时启动, 通知环节恒在
+# 开跑后 ~55-75s 才走到 notify.py(check_dedup), 上一轮 last_alerted 落在 21:40:54~21:41:15
+# (台账实测), 于是每轮 age≈86388s、只差 12s 不满 86400s ⇒ 被 dedup 抑制; 而抑制不落窗
+# (update_dedup 仅发送成功后写) ⇒ 下一轮 age≈48h 才放行 = **隔天一发**。
+# 23h 给「定时抖动 + 计算耗时」留 1h 余量, 保证每个交易日都能真发出, 同时仍拦截同日重跑轰炸。
+NOTIFY_DEDUP_WINDOW_SECS = 82800
 # 4 维权重
 W_D1, W_D2, W_D3, W_D4 = 0.40, 0.25, 0.20, 0.15
 
@@ -1472,25 +1479,65 @@ def _mk_alert(typ, risk_score, date, **kw):
 def send_notify(subject, body, level="WARN", dry_run=False, dedup_key=None):
     """调 notify.py 发邮件+Telegram+飞书。dry_run 试发。
 
-    返回 (ok, err); ok = **是否真发出**(`notify_sent` 判 notify.py 输出里的真实路由结果,
-    **不看 rc**)。#241 同族病灶: notify.py main() 恒 return 0(含「全部渠道未发出」)⇒ 旧
-    判据按 rc 判「成功」, 在渠道全失败时也判成功, 使覆盖本脚本 alerts[].sent 观测标志
-    失真(即使不触发抑制, 误标「已送达」也会误导排障)。fail-safe: 判不出 ⇒ False。
+    返回 (state, err); state 三态(**判据 = `notify_state` 解析 notify.py 输出, 不看 rc**):
+      · "sent"       = 真发出/真入队;
+      · "suppressed" = 命中 notify.py 的 dedup 抑制行(`[notify][dedup] suppress key=...`)⇒
+                       **成功且已知**(窗口内已发过, 本轮不重发), 不是发送失败;
+      · "failed"     = 全渠道失败 / 未知形态 / 子进程异常。
+    历史病灶(#241 同族 + 2026-11-11 RCA): notify.py main() 恒 return 0 ⇒ 不能看 rc; 旧实现用
+    二值 `notify_sent`, 把 dedup 抑制当 False, 调用方再打成「发送失败」并写 notify_error, 线上
+    数据产物误报。现改用 `notify_state` 三态, 由调用方区分抑制(不写 notify_error)。
+    fail-safe: 判不出 ⇒ "failed"(下轮重试, 不吞真故障)。
     """
     notify = os.path.join(SCRIPT_DIR, "notify.py")
     cmd = [sys.executable, notify, subject, body]
     if level == "SEVERE":
         cmd.append("--severe")
     if dedup_key:
-        cmd += ["--dedup-key", dedup_key, "--dedup-window", "86400"]  # 同 key 24h 不重发
+        # 窗口 = 23h(见 NOTIFY_DEDUP_WINDOW_SECS 注释: 24h 会因每日定时晚 55-75s 触发隔天一发)
+        cmd += ["--dedup-key", dedup_key, "--dedup-window", str(NOTIFY_DEDUP_WINDOW_SECS)]
     if dry_run:
         cmd.append("--dry-run")
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         out = (r.stdout or "") + (r.stderr or "")
-        return notify_sent(out), r.stderr
+        return notify_state(out), r.stderr
     except Exception as e:  # noqa: BLE001
-        return False, str(e)
+        return "failed", str(e)
+
+
+def deliver_alerts(alerts, dry_run=False):
+    """给每条预警发通知, 并回写 `sent` / `notify_state` / `notify_error`(dry-run 不发)。
+
+    字段语义(2026-11-11 RCA 三态改造):
+      · `sent`         = **真实发出**才算 True(suppressed/failed 均为 False), 保持既有观测字段语义;
+      · `notify_state` = "sent" / "suppressed" / "failed"(dry-run 时 "dry_run", 非发送尝试);
+      · `notify_error` = 仅 "failed" 非空; **"suppressed" 是成功且已知(窗口内已发过), 不得写错误**。
+    独立成函数 = 三态写回语义的唯一实现点, 便于单测直接喂替身 subprocess。
+    """
+    for a in alerts:
+        print(f"   ⚠ 触发预警: {a['type']} ({a['level']})")
+    if dry_run:
+        for a in alerts:
+            a["sent"] = False
+            a["notify_state"] = "dry_run"
+            a["notify_error"] = "dry_run"
+        return alerts
+    # SEVERE 优先发; warn 也发(不轰炸: 同类型 23h dedup, 见 NOTIFY_DEDUP_WINDOW_SECS)
+    for a in alerts:
+        dedup = "overfit_" + a["type"]
+        state, err = send_notify(a["subject"], a["body"], a["level"],
+                                 dry_run=dry_run, dedup_key=dedup)
+        a["sent"] = state == "sent"
+        a["notify_state"] = state
+        a["notify_error"] = err if state == "failed" else None
+        if state == "suppressed":
+            print(f"   {a['type']}: 窗口内抑制(成功且已知, 本轮不重发)")
+        elif state == "sent":
+            print(f"   {a['type']}: 发送成功")
+        else:
+            print(f"   {a['type']}: 发送失败 {(err or '').strip()[-200:]}")
+    return alerts
 
 
 # ── 主流程 ───────────────────────────────────────────────────────────────────
@@ -1990,21 +2037,7 @@ def build_output(rebuild=False, dry_run=False):
 
     # 预警通知
     if alerts:
-        for a in alerts:
-            print(f"   ⚠ 触发预警: {a['type']} ({a['level']})")
-        if not dry_run:
-            # SEVERE 优先发; warn 也发(不轰炸: 同类型 24h dedup)
-            for a in alerts:
-                dedup = "overfit_" + a["type"]
-                ok, err = send_notify(a["subject"], a["body"], a["level"],
-                                      dry_run=dry_run, dedup_key=dedup)
-                a["sent"] = ok
-                a["notify_error"] = err if not ok else None
-                print(f"   {a['type']}: 发送{'成功' if ok else '失败'} {('dry-run' if dry_run else '')}")
-        else:
-            for a in alerts:
-                a["sent"] = False
-                a["notify_error"] = "dry_run"
+        deliver_alerts(alerts, dry_run=dry_run)
         out["alerts"] = alerts
     else:
         print("   无触发预警")
