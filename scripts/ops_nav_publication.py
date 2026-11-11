@@ -160,6 +160,8 @@ def _scope(root, receipt, bucket_fn):
     at = business.now()
     if not business.parsed(started) <= at <= business.parsed(started) + timedelta(hours=26):
         raise ValueError('expired/future collection')
+    if receipt['session_date'] != business.parsed(started).astimezone(business.ZONE).date().isoformat():
+        raise ValueError('collection business date mismatch')
     identity = receipt['consumer_witness']['fund_evidence']['publication_input']
     path = _input_path(root, obj, run)
     if not stat.S_ISDIR(path.parent.lstat().st_mode) or stat.S_IMODE(path.parent.stat().st_mode) != 0o700:
@@ -316,7 +318,8 @@ def _export_record(root, scope, bucket):
         w.get('input_sha256') != scope['identity']['sha256'] or w.get('collection_object') != r['object_id'] or
         w.get('collection_started') != r['producer_time']['started_at'] or w.get('remote_key') != 'nav_bucket/'+bucket+'.json' or
         e['counts'] != {'expected': len(scope['buckets'][bucket]), 'validated': len(scope['buckets'][bucket])} or
-        len(e['outputs']) != 1 or business.parsed(e['evaluated_at']) < business.parsed(r['producer_time']['started_at'])):
+        len(e['outputs']) != 1 or e['session_date'] != r['session_date'] or
+        not business.parsed(r['producer_time']['started_at']) <= business.parsed(e['evaluated_at']) <= business.now()):
         raise ValueError('export witness not bound to current scope')
     o = e['outputs'][0]
     if o.get('object_id') != 'nav-bucket-'+bucket+'.json' or not re.fullmatch('[a-f0-9]{64}', o.get('sha256', '')) or type(o.get('size')) is not int or not 0 < o['size'] <= MAX_BUCKET_BYTES:
@@ -340,7 +343,8 @@ def _confirmed(root, scope, bucket, export):
                 w.get('remote_key') == 'nav_bucket/'+bucket+'.json' and p['counts'] == export['counts'] and
                 w.get('local_file') == export['consumer_witness'].get('local_file') == _current_file(root, bucket) and
                 w.get('public_url') == PUBLIC_BASE+bucket+'.json' and
-                business.parsed(p['evaluated_at']) >= business.parsed(export['evaluated_at']))
+                p['session_date'] == export['session_date'] == scope['receipt']['session_date'] and
+                business.parsed(export['evaluated_at']) <= business.parsed(p['evaluated_at']) <= business.now())
     except (OSError, ValueError, KeyError, TypeError):
         return False
 
@@ -361,6 +365,8 @@ def inspect_scope(root, receipt, seconds=1.0):
                 result['public_buckets'] += int(_confirmed(root, scope, b, e))
             except (OSError, ValueError, KeyError, TypeError):
                 continue
+        if time.monotonic() >= deadline:
+            result['reason'] = 'inspection_budget'; return result
         result['state'] = 'scoped_confirmed' if result['public_buckets'] == result['expected_buckets'] else 'partial' if result['public_buckets'] else 'unknown'
     except (OSError, ValueError, KeyError, TypeError):
         result['reason'] = 'input_or_witness_unverified'

@@ -316,3 +316,32 @@ def test_slow_sidecar_preserves_commit_fact_but_not_publication_proof(pipeline, 
     assert facts['publication_finalize_seconds'] >= .03
     assert facts['publication_input'] is None
     assert nav.inspect_scope(root, receipt)['state'] == 'unknown'
+
+
+def test_last_inspection_cannot_finish_successfully_after_deadline(pipeline, monkeypatch):
+    root, conn, collect, export, fetch, calls = pipeline
+    receipt = collect(); export(); nav.verify(root, fetch=fetch)
+    original = nav._confirmed
+    visited = []
+    def slow_last(*args):
+        visited.append(args[2])
+        answer = original(*args)
+        if len(visited) == 2: time.sleep(.03)
+        return answer
+    monkeypatch.setattr(nav, '_confirmed', slow_last)
+    result = nav.inspect_scope(root, receipt, seconds=.02)
+    assert result['public_buckets'] == 2
+    assert result['state'] == 'unknown' and result['reason'] == 'inspection_budget'
+
+
+@pytest.mark.parametrize('stage', ['export','public'])
+@pytest.mark.parametrize('field', ['evaluated_at','session_date'])
+def test_future_or_wrong_business_date_cannot_confirm(pipeline, stage, field):
+    root, conn, collect, export, fetch, calls = pipeline
+    receipt = collect(); export(); nav.verify(root, fetch=fetch)
+    for bucket in nav._scope(root, receipt, nav.fund_bucket)['buckets']:
+        path = nav.receipt_root(root)/'publication'/hashlib.sha256(receipt['attempt_id'].encode()).hexdigest()/('nav-'+stage+'-'+bucket+'.json')
+        body = json.loads(path.read_bytes())
+        body[field] = business.stamp(business.now()+timedelta(hours=1)) if field == 'evaluated_at' else '2000-01-01'
+        path.write_bytes(json.dumps(body).encode())
+    assert nav.inspect_scope(root, receipt)['state'] == 'unknown'
