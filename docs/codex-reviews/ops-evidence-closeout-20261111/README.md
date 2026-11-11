@@ -30,7 +30,7 @@
 2. 经复核合并后核对合并 commit CI、站点 build/Worker 与云上实际代码版本。GitHub 部署任务成功不能证明 systemd、D1 policy 或业务恢复。
 3. 通过唯一 canonical 文档生成并安装两个基金 service，保留现有调度和 timeout。新增 `Environment=OPS_DELIVERY_EVIDENCE_ENABLED=1` 只启用阶段凭证；核对 EnvironmentFile/drop-in 是否覆盖，以及真实运行的 InvocationID。FOF 原 unit 不读取 `.env`，不能只改 `.env` 就认为已启用。
 4. 在审核后的实际 Python 运行入口核对 loaded module digest，配置既有私有 `data/ops_delivery/producer-identity.json`。不要仅复制任意 receipt 的 digest 作为批准；helper/入口导入命名空间变化须重新核对。详见公募文档的身份步骤。
-5. 采集器配置新增 `r2_pending_flag`，必须与生产 uploader 的真实值一致；示例为 `/tmp/trade_r2_upload_async.pending`。未配置保留 unknown，不会悄悄读取另一套默认队列。核验管理员面板中的两项基金证据和 R2 队列详情。
+5. 采集器配置新增 `r2_pending_flag`，必须与生产 uploader 的真实值一致；示例为 `/tmp/trade_r2_upload_async.pending`。监控 unit 保留 `PrivateTmp=yes`，只将对应 `.contexts` 目录用 `BindReadOnlyPaths` 暴露到私有命名空间；若生产 flag 自定义，须同步核对 canonical 挂载源/目标。未配置、未挂载或源不存在均 unknown，不会悄悄读另一套队列。可选 `-` 允许首次尚未创建源目录，后续 oneshot 启动再读取。此行为依据 [systemd.exec 文档](https://freedesktop.org/software/systemd/man/latest/systemd.exec.html)。核验管理员面板中的两项基金证据和 R2 队列详情。
 6. 在发布身份固定后预先冻结自然观察计划与真实交易日历，再记录每个应跑轮次、原始失败和补跑。单次离线回放、测试全绿、采集新鲜或“没有新邮件”都不证明根因关闭；14/30 日窗口也不能跳过周/月/季频所需轮次。
 
 Codex 本轮没有执行生产任务、上传/部署、迁移 D1、改主工作树或发送测试运维通知。

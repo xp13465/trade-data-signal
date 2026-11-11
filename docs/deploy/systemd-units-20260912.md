@@ -1840,6 +1840,8 @@ ReadWritePaths=/run/trade-ops-monitor
 ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=yes
+# Keep the namespace private; expose only the existing queue, read-only.
+BindReadOnlyPaths=-/tmp/trade_r2_upload_async.pending.contexts
 PrivateDevices=yes
 NoNewPrivileges=yes
 ProtectKernelTunables=yes
