@@ -338,6 +338,8 @@
       fund_metadata_incomplete: '净值采集凭证不完整',
       fund_collection_failed: '本轮净值采集出现异常',
       fund_publication_unverified: '已有采集阶段记录，尚未验证净值线上发布',
+      fund_scope_publication_partial: '已验证部分净值桶；本批线上发布凭证尚不完整',
+      fund_scope_publication_scoped_confirmed: '本批已提交净值曾与公开文件逐值及逐字节对应；全池健康仍待核实',
       pending_queue_not_configured: '尚未配置与发布任务一致的队列位置',
       inspection_incomplete: '队列检查不完整，不能按空队列处理',
       invalid_request_evidence: '请求记录或发布凭证损坏，需保留原件核查',
@@ -652,7 +654,7 @@
     if (['business:public-fund', 'business:fof-nav'].includes(check.id)) {
       const e = check.evidence || {}, count = k => Number.isFinite(e[k]) ? String(e[k]) : '未知';
       append(host, pairs([['采集阶段', ({scoped_committed:'所选批次事务已提交', legal_empty:'查询结果为空，不代表全量齐全', failure:'存在采集异常'})[e.collection_state] || '未知'],
-        ['净值线上发布', '未取得本轮净值与公开文件的完整对应凭证'], ['池内尚未尝试', count('pool_not_attempted')],
+        ['净值线上发布', ({partial:'本批部分净值桶已核对，其余仍待验证', scoped_confirmed:'本批已提交非空净值已逐值对应公开文件字节；分桶核对时点不同，不代表持续有效或全池齐全'})[e.publication_state] || '未取得本轮净值与公开文件的完整对应凭证'], ['池内尚未尝试', count('pool_not_attempted')],
         ['所选批次尚未尝试', count('selected_not_attempted')], ['源端非空净值行', count('published_rows')],
         ['已提交非空输入行', count('committed_rows')]]));
     }

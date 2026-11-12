@@ -113,7 +113,7 @@ def write_index(root, record):
         os.close(lock)
 
 
-def write_publication_index(root, record):
+def write_publication_index(root, record, validate_current=None):
     directory = receipt_root(root) / 'publication'
     _private_dir(directory)
     directory /= hashlib.sha256(record['attempt_id'].encode()).hexdigest()
@@ -123,6 +123,8 @@ def write_publication_index(root, record):
     tmp = None
     try:
         _acquire_index_lock(lock)
+        if validate_current is not None:
+            validate_current()
         try:
             prior = bounded_json(target)
         except FileNotFoundError:
@@ -132,6 +134,8 @@ def write_publication_index(root, record):
         fd, tmp = tempfile.mkstemp(prefix='.publication-', dir=directory)
         with os.fdopen(fd, 'wb') as stream:
             stream.write(_canonical(record)); stream.flush(); os.fsync(stream.fileno())
+        if validate_current is not None:
+            validate_current()
         os.replace(tmp, target)
     finally:
         if tmp:
@@ -244,11 +248,11 @@ def assess(root, object_id, at, code, live):
                 from .ops_fund_evidence import assessment
             except ImportError:
                 from ops_fund_evidence import assessment
-            status, reason, facts = assessment(r)
+            status, reason, facts = assessment(r, root=root)
             counts = facts.get('counts', {})
             # Public monitor accepts bounded scalars only; detailed batch scope
             # stays in the private receipt and the offline acceptance report.
-            ev.update(collection_state=facts.get('collection_status', 'unknown'), publication_state='unknown',
+            ev.update(collection_state=facts.get('collection_status', 'unknown'), publication_state=facts.get('publication_check', {}).get('state', 'unknown'),
                       pool_not_attempted=counts.get('pool_not_attempted'),
                       selected_not_attempted=counts.get('selected_not_attempted'),
                       published_rows=counts.get('published_rows'), committed_rows=counts.get('committed_rows'))

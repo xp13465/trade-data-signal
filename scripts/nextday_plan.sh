@@ -60,6 +60,18 @@ fi
 
 echo "=== nextday_plan.sh 开始 $(date '+%F %T') ===" >> "$LOG"
 
+# Shared execution fence after calendar gate. Real --date/backfill failures
+# still alert; only dry/test/local-only modes disable operational notifications.
+# Pass argv intact to the same parser used by the Python producer. The reserved
+# disabled token is explicit; empty stdout on metadata failure remains fail-visible.
+export OPS_LEGACY_TASK=nextday_plan
+if [ "${#GEN_ARGS[@]}" -gt 0 ]; then
+  OPS_LEGACY_RUN=$("$PY" scripts/ops_legacy_events.py begin --repo "$REPO" --task nextday_plan --producer-args "${GEN_ARGS[@]}") || OPS_LEGACY_RUN=""
+else
+  OPS_LEGACY_RUN=$("$PY" scripts/ops_legacy_events.py begin --repo "$REPO" --task nextday_plan --producer-args) || OPS_LEGACY_RUN=""
+fi
+export OPS_LEGACY_RUN
+export OPS_LEGACY_LOG="$LOG"
 RC=0
 if [ "${#GEN_ARGS[@]}" -gt 0 ]; then
   "$PY" scripts/nextday_plan_generator.py "${GEN_ARGS[@]}" >> "$LOG" 2>&1
@@ -69,12 +81,8 @@ fi
 RC=$?
 if [ "$RC" -ne 0 ]; then
   echo "✗ 次日买入计划生成失败 rc=${RC}" >> "$LOG"
-  "$PY" scripts/notify.py \
-    "[告警] 次日买入计划生成失败 $(date '+%m-%d %H:%M')" \
-    "nextday_plan_generator.py 退出码 ${RC}(两类可能: ①产物未生成 ②已生成但 R2 上传未同步 或 关键通知未送达 —— py 侧两者同交非 0 退出)。<br>日志: $LOG(尾部 50 行)<br>影响: 明日可能无自动买入计划(干跑阶段, 不真实下单), 或计划已生成但未同步/未送达; 需人工核查产物(signal_kelly_trades/backtest/s06/loss 是否就绪)与 R2/通知链路。<br>注意: 本条为包装层兜底(py 同 dedup key: py 已发时本条被抑制; py 未发时本条兜底; py 侧已带明细, 若仅 R2 未同步而本地已落盘, 明细以 py 侧为准)。" \
-    --severe --from-prefix "[告警]" \
-    --alert-issue "次日买入计划生成失败" --alert-log "$LOG" \
-    --dedup-key nextday_plan_fail --dedup-window 3600 2>&1 | tee -a "$LOG" || true
+  "$PY" scripts/ops_legacy_events.py fail --repo "$REPO" --task nextday_plan \
+    --run "$OPS_LEGACY_RUN" --detail "nextday_plan.sh: child rc=${RC}；日志 ${LOG}；本轮结果未证实" >> "$LOG" 2>&1 || true
 fi
 
 echo "=== nextday_plan.sh 结束 $(date '+%F %T') 退出码=$RC ===" >> "$LOG"

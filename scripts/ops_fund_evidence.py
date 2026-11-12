@@ -31,8 +31,8 @@ _ACTIVE = contextvars.ContextVar('fund_collection', default=None)
 MAX_WORK_SECONDS = 0.5  # total in-memory observation work, not an added I/O timeout
 
 
-def assessment(receipt):
-    """Deliberately no success path until row->export->public binding exists."""
+def assessment(receipt, root=None):
+    """Report selected publication separately; never infer whole-pool health."""
     facts = receipt['consumer_witness'].get('fund_evidence')
     if not isinstance(facts, dict) or facts.get('version') != VERSION:
         return 'unknown', 'fund_collection_receipt_missing', {}
@@ -40,6 +40,15 @@ def assessment(receipt):
         return 'unknown', 'fund_metadata_incomplete', facts
     if facts.get('collection_status') == 'failure':
         return 'warning', 'fund_collection_failed', facts
+    if root is not None:
+        try:
+            from .ops_nav_publication import inspect_scope
+        except ImportError:
+            from ops_nav_publication import inspect_scope
+        facts = dict(facts, publication_check=inspect_scope(root, receipt))
+        # Stage facts only: no source completeness/SLA/whole-pool health inferred.
+        state = facts['publication_check']['state']
+        return 'unknown', ('fund_publication_unverified' if state == 'unknown' else 'fund_scope_publication_'+state), facts
     return 'unknown', 'fund_publication_unverified', facts
 
 
@@ -61,6 +70,7 @@ class Round:
         self.hashes = {k: hashlib.sha256() for k in ('source', 'committed', 'attempts')}
         self.sizes = dict.fromkeys(self.hashes, 0)
         self.work = 0.0
+        self.nav_rows = {}
         self.record(finished=False)
 
     def digest(self, key, values):
@@ -110,6 +120,8 @@ class Round:
                 self.facts['outcomes'][-1][2] = 'committed'
                 self.facts['outcomes'][-1][4] = len(rows)
             self.digest(action, rows)
+            if action == 'committed':
+                self.capture_nav_rows(rows)
             self.facts['reason'] = 'source_observed'
         elif action == 'error':
             c['errors'] = c.get('errors', 0) + 1
@@ -137,9 +149,25 @@ class Round:
         elif action == 'daily_commit':
             # Same loaded rows were passed to the completed UPSERT transaction.
             self.digest('committed', data['rows'])
+            self.capture_nav_rows(data['rows'])
             c['committed_rows'] = c['published_rows']
             c['committed_targets'] = c['selected']
             c['committed_statements'] = c['selected']
+
+    def capture_nav_rows(self, rows):
+        try:
+            from .ops_nav_publication import normalized_row, MAX_INPUT_ROWS
+        except ImportError:
+            from ops_nav_publication import normalized_row, MAX_INPUT_ROWS
+        for row in rows:
+            if time.monotonic() >= self.observation_deadline or len(self.nav_rows) >= MAX_INPUT_ROWS:
+                raise TimeoutError('NAV scope observation budget')
+            value = normalized_row(row)
+            if value is not None:
+                key = (value[0], value[1])
+                if key in self.nav_rows and self.nav_rows[key] != value:
+                    raise ValueError('conflicting committed NAV scope')
+                self.nav_rows[key] = value
 
     def record(self, *, finished=True):
         c = self.facts['counts']
@@ -153,6 +181,20 @@ class Round:
                 'failure' if c.get('errors', 0) or self.facts.get('terminal_error') else
                 'scoped_committed' if selected and c.get('committed_targets') == selected else
                 'legal_empty' if c.get('legal_empty') else 'unknown')
+            if self.nav_rows and not self.facts.get('metadata_failed'):
+                try:
+                    from .ops_nav_publication import save_inputs
+                except ImportError:
+                    from ops_nav_publication import save_inputs
+                finalization_started = time.monotonic()
+                self.facts['publication_input'] = save_inputs(self.root, self.object_id, self.run, self.started, self.nav_rows)
+                elapsed = time.monotonic() - finalization_started
+                self.facts['publication_finalize_seconds'] = round(elapsed, 6)
+                if elapsed > MAX_WORK_SECONDS:
+                    # Preserve the transaction facts but do not certify metadata
+                    # completed within budget. This cannot undo an I/O stall.
+                    self.facts['publication_input'] = None
+                    self.facts['publication_reason'] = 'metadata_finalize_budget'
         def identity(key):
             return {'object_id': key + '_observations', 'sha256': self.hashes[key].hexdigest(),
                     'size': self.sizes[key], 'identity_kind': 'ordered_loaded_rows', 'quality': 'stage_only'}
@@ -223,6 +265,11 @@ def producer_identity(fn, root):
     namespace = dict(fn.__globals__)
     namespace.update({'fund.' + k: v for k, v in globals().items() if inspect.isfunction(v)})
     namespace.update({'fund.Round.' + k: v for k, v in vars(Round).items() if inspect.isfunction(v)})
+    try:
+        from . import ops_nav_publication as nav
+    except ImportError:
+        import ops_nav_publication as nav
+    namespace.update({'nav.'+k: v for k, v in vars(nav).items() if inspect.isfunction(v)})
     return loaded_code_identity(types.FunctionType(fn.__code__, namespace), root)
 
 

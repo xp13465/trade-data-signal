@@ -1,38 +1,10 @@
 # -*- coding: utf-8 -*-
-"""#247 nextday_plan py/sh dedup key 统一 —— 行为级正/负控自验(2026-10-10)。
+"""#247 compatibility tests for historical no-context notify dedup.
 
-病灶(见 docs/ops/245-batch2-impl-review-20261010.md §四 决策项 10):
-  nextday_plan 链路在 R2 上传失败/超时/异常时, **同一事件秒级两封 SEVERE**:
-    · py 侧 `scripts/nextday_plan_generator.py:_severe_alert`
-      `--dedup-key nextday_plan_gen_fail`(带明细 stderr)后 `return 1`;
-    · sh 侧 `scripts/nextday_plan.sh` RC!=0 → 无条件
-      `--dedup-key nextday_plan_fail`(带「次日买入计划未生成」汇总, R2 失败时文案失真)。
-  notify dedup 按 **key** 判 ⇒ 两键互不抑制 ⇒ 双发。
-
-修法(同 #245 批2 B4-3 nextday_gap_check 先例, 统一方向 = py 改到 sh 的键):
-  py `_severe_alert` 键 `nextday_plan_gen_fail` → `nextday_plan_fail`, 与包装层同键;
-  py docstring 删「不同 key 不互吞=双保险」过时论证并写新语义; sh 段文案对齐 B4-3 风格。
-
-本文件覆盖(逐条对验收口径):
-  ① 静态机检: py `_severe_alert` 键 == sh 包装 `--dedup-key` == `nextday_plan_fail`(红先验核心);
-  ② 行为: R2 失败场景 py 先发(带明细) → sh 同键窗内被抑制 ⇒ **只一封**;
-  ③ 行为: py 未发(崩溃/超时/被杀) → sh 同键窗内无已发记录 ⇒ **照发兜底**(不断层);
-  ④ 行为: 统一键窗口内互抑制(方向无关, sh→py 亦抑制);
-  ⑤ 行为: 窗口过期后可再发(去重非永久);
-  ⑥ 反向负控: 若键分歧(回归), 两键互不吞 ⇒ 两封 —— 证明 ②③ 断言有判别力(非同义反复);
-  ⑦ 文案/文档静态: sh 段含新语义; py docstring 含「统一为 nextday_plan_fail」。
-
-零外发铁律(§18 L48 / memory notify-script-selftest-must-stub):本文件全部用例
-  **本次自测未产生任何真实外发** —— 渠道函数(send_feishu / _send_email / send_telegram)
-  在 fixture 内整体打桩为「只记录、返回 True」的假函数, 外层再套 `ZeroOutboundTrap`
-  包裹最底层 urllib/smtplib 出口; 收尾断言 `trap.hits == []` 即「全程零真实外发」。
-  所有落盘面(台账/latest.md/dedup/摘要)全指向 tmp_path, 绝不碰生产 data/。
-
-红先验:GEN_PY / PLAN_SH 可用环境变量覆盖(默认指本仓 scripts/ 下真文件)。
-  对 main 版跑(两键不同) → ①④(以及 ②「只一封」) 必失败; 对分支版跑 → 全绿。
-  跑法见文件末复现段。
-
-跑法: python3 -m pytest -q scripts/tests/test_247_nextday_plan_key_20261010.py
+The live py/sh producers now share native ops event refs, NOT a time window.
+Tests 02-06 retain the old generic dedup/parser contract for historical callers;
+real producer partial-channel/fallback/recovery contracts are exercised by
+ test_legacy_operation_producers_20261111 and test_legacy_operation_shell_20261111.
 """
 from __future__ import annotations
 
@@ -172,19 +144,19 @@ def _read_state(iso) -> dict:
 
 # ══════════════════════════ ① 静态机检: py/sh 键统一(红先验核心) ══════════════════════════
 def test_01_py_sh_key_parity():
-    py_key = _py_dedup_key(GEN_PY, "_severe_alert")
-    sh_keys = _sh_dedup_keys(PLAN_SH)
-    _chk(sh_keys == [EXPECTED_KEY], f"sh --dedup-key 应唯一={EXPECTED_KEY}, 实={sh_keys}")
-    _chk(py_key == EXPECTED_KEY, f"py _severe_alert 键应={EXPECTED_KEY}, 实={py_key}")
-    _chk(py_key == sh_keys[0],
-         f"py/sh dedup key 必须统一(否则同一事件双发): py={py_key} vs sh={sh_keys[0]}")
-    _chk(OLD_PY_KEY != py_key, "修复前的 py 键不得残留(且应与统一键不同)")
-
+    from ops_legacy_events import owns_event_key
+    sh = PLAN_SH.read_text()
+    py = GEN_PY.read_text()
+    _chk('OPS_LEGACY_TASK=nextday_plan' in sh, "wrapper shares task")
+    _chk('--run "$OPS_LEGACY_RUN"' in sh, "wrapper shares run")
+    _chk('@tracked_operation("nextday_plan"' in py, "real Python entrypoint participates")
+    _chk(owns_event_key('producer_nextday_plan|operation'), "schedule preservation uses real owner")
+    _chk(_sh_dedup_keys(PLAN_SH) == [], "live wrapper cannot use elapsed-time suppression")
 
 # ══════════════════════════ ② R2 失败场景: py 先发 → sh 同键被抑制 = 只一封 ══════════════════════════
 def test_02_r2_fail_only_one_mail(_iso, capsys):
     py_key = _py_dedup_key(GEN_PY, "_severe_alert")
-    sh_key = _sh_dedup_keys(PLAN_SH)[0]
+    sh_key = EXPECTED_KEY  # historical generic compatibility route
     log = str(_iso["tmp"] / "nextday_plan_launchd.log")
 
     rc1 = notify.main(_py_severe_args(py_key, log))
@@ -206,7 +178,7 @@ def test_02_r2_fail_only_one_mail(_iso, capsys):
 
 # ══════════════════════════ ③ py 未发(崩溃/超时) → sh 兜底照发 ══════════════════════════
 def test_03_sh_fallback_when_py_silent(_iso, capsys):
-    sh_key = _sh_dedup_keys(PLAN_SH)[0]
+    sh_key = EXPECTED_KEY  # historical generic compatibility route
     log = str(_iso["tmp"] / "nextday_plan_launchd.log")
     rc = notify.main(_sh_severe_args(sh_key, log))
     out = capsys.readouterr()
@@ -219,7 +191,7 @@ def test_03_sh_fallback_when_py_silent(_iso, capsys):
 # ══════════════════════════ ④ 统一键窗口内互抑制(方向无关) ══════════════════════════
 def test_04_mutual_suppress_sh_then_py(_iso, capsys):
     py_key = _py_dedup_key(GEN_PY, "_severe_alert")
-    sh_key = _sh_dedup_keys(PLAN_SH)[0]
+    sh_key = EXPECTED_KEY  # historical generic compatibility route
     log = str(_iso["tmp"] / "nextday_plan_launchd.log")
     # 先 sh 后 py(实际时序为 py 先, 此为正反方向对称验证: 同键 ⇒ 双向互抑制)
     notify.main(_sh_severe_args(sh_key, log))
@@ -235,7 +207,7 @@ def test_04_mutual_suppress_sh_then_py(_iso, capsys):
 def test_05_window_expiry_allows_resend(_iso, capsys):
     """窗口过期后可再发(去重非永久)。"""
     import json
-    sh_key = _sh_dedup_keys(PLAN_SH)[0]
+    sh_key = EXPECTED_KEY  # historical generic compatibility route
     log = str(_iso["tmp"] / "nextday_plan_launchd.log")
     notify.main(_sh_severe_args(sh_key, log))
     capsys.readouterr()
@@ -267,14 +239,10 @@ def test_06_divergent_keys_double_send_negative_control(_iso, capsys):
 
 # ══════════════════════════ ⑦ 文案/文档静态对齐 ══════════════════════════
 def test_07_text_alignment_static():
-    sh_txt = PLAN_SH.read_text(encoding="utf-8")
-    _chk("py 同 dedup key" in sh_txt,
-         "sh 段文案应对齐 B4-3 风格(写明 py 已发被抑制 / py 未发兜底)")
-    py_txt = GEN_PY.read_text(encoding="utf-8")
-    _chk("统一为 nextday_plan_fail" in py_txt,
-         "py docstring 应写明新语义(键统一为 nextday_plan_fail)")
-    _chk("已废止" in py_txt, "py docstring 应标注旧「不同 key 不互吞」论证已废止")
-
+    py_txt = GEN_PY.read_text()
+    _chk('operation_failure(subject, body)' in py_txt, "live context captures failure")
+    _chk(_py_dedup_key(GEN_PY, "_severe_alert") == EXPECTED_KEY, "helper-only compatibility key preserved")
+    _chk('ops_legacy_events.py fail' in PLAN_SH.read_text(), "wrapper fallback still present")
 
 # ══════════════════════════ 断言下限兜底(防假绿) ══════════════════════════
 def test_zz_assertion_floor():

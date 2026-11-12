@@ -57,7 +57,12 @@ def audit(event, args):
 sys.addaudithook(audit)
 
 target = Path(sys.argv[1])
-assert target.parent == root / "scripts"
+if str(target) != "-c":
+    target = target.absolute()
+assert target.parent == root / "scripts" or (str(target) == "-c")
+if str(target) == "-c":
+    print(os.environ.get("TEST_TRADING", "1"))
+    sys.exit(0)
 args = sys.argv[2:]
 record("cli", target=target.name, args=args)
 if target.name == "with_lock.py":
@@ -80,7 +85,7 @@ if target.name == "staticdata_write_guard.py":
     sys.exit(int(os.environ["TEST_AUTH_RC"]))
 if target.name == "daily_summary_email.py":
     sys.exit(int(os.environ["TEST_SUMMARY_RC"]))
-assert target.name == "notify.py", "unexpected production entry point"
+assert target.name in ("notify.py", "ops_legacy_events.py"), "unexpected production entry point"
 sys.path.insert(0, os.environ["TEST_SCRIPTS"])
 spec = importlib.util.spec_from_file_location("quiet_notify_under_test", Path(os.environ["TEST_SCRIPTS"]) / "notify.py")
 notify = importlib.util.module_from_spec(spec)
@@ -98,6 +103,18 @@ def channel(name):
 notify._send_email = channel("email")
 notify.send_telegram = channel("telegram")
 notify.send_feishu = channel("feishu")
+if target.name == "ops_legacy_events.py":
+    import ops_legacy_events as ops
+    import contextlib, io, subprocess
+    def transport_cli(cmd, **kwargs):
+        assert Path(cmd[1]).name == "notify.py"
+        record("cli", target="notify.py", args=cmd[2:])
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = notify.main(cmd[2:])
+        return subprocess.CompletedProcess(cmd, rc, out.getvalue(), err.getvalue())
+    ops.subprocess.run = transport_cli
+    sys.exit(ops.main(args))
 sys.exit(notify.main(args))
 '''
 
@@ -137,7 +154,7 @@ SECTIONS = {
 @pytest.fixture
 def runner(tmp_path):
     root = tmp_path / "runtime"
-    for name in ("scripts", "config", "data", "static-site/data", "bin"):
+    for name in ("scripts", "config", "data", "static-site/data", "bin", "tmp"):
         (root / name).mkdir(parents=True, exist_ok=True)
     driver = root / "driver"
     driver.write_text(f"#!{sys.executable}\n" + DRIVER)
@@ -153,7 +170,7 @@ def runner(tmp_path):
     env = {
         "PATH": str(root / "bin"), "PY": str(driver), "REPO": str(root),
         "GIT_REPO": str(root), "MAIN_REPO": str(root), "PYTHONDONTWRITEBYTECODE": "1",
-        "TEST_SCRIPTS": str(SCRIPTS), "STATICDATA_REPO": str(root / "staticdata"),
+        "TMPDIR": str(root / "tmp"), "TEST_SCRIPTS": str(SCRIPTS), "STATICDATA_REPO": str(root / "staticdata"),
         "LOG": str(root / "shell.log"), "TRIGGER": "offline-producer-test",
         "TEST_AUTH_RC": "1", "TEST_FRESH_RC": "0", "TEST_SUMMARY_RC": "0",
         "STATICDATA_FAIL": "0", "SYNC_FAIL": "0", "_SKIP_NONPROD": "0",
@@ -165,7 +182,8 @@ def runner(tmp_path):
 
     def run(kind, **overrides):
         script = root / "branch.sh"
-        script.write_text("set -u\nset -o pipefail\n_NOTIFY_DRY=()\n" + section(*SECTIONS[kind]) +
+        prelude = ('_UA_OP_RUN=$("$PY" "$REPO/scripts/ops_legacy_events.py" begin --repo "$REPO" --task update_all)\n' if kind == "update" else "")
+        script.write_text("set -u\nset -o pipefail\n_NOTIFY_DRY=()\n" + prelude + section(*SECTIONS[kind]) +
                           '\nprintf "STATE %s %s %s %s %s\\n" "${_R2_SKIP:-unset}" '
                           '"${_GA_GIT_SKIP:-unset}" "${_GA_OK:-unset}" "$STATICDATA_FAIL" "$SYNC_FAIL"\n')
         proc = bounded_shell([bash, str(script)], {**env, **overrides}, root)
@@ -205,8 +223,9 @@ def test_expected_success_and_protection_are_local_info(runner, kind):
 
 
 def test_update_completion_mail_restored_baseline_delivery(runner):
-    # 2026-11-12 回退基线语义(用户拍板 F3): update_all 完成邮件照旧外发(无 --tier info),
-    # 不再是仅记 dashboard 的静默形态; 情绪速递 main 调用照旧。
+    # 2026-11-12 合并：同时保留完成邮件外发 + 运行证据/unknown 语义。
+    # 完成邮件按 main 的 F3 回退版本外发（无 --tier info，info=noop 会被静默）；
+    # Codex 侧的 ops_legacy_events 运行证据（unknown）必须同在，旧故障不自动关闭。
     root, run = runner
     proc, records = run("update")
     assert proc.returncode == 0, proc
@@ -215,8 +234,11 @@ def test_update_completion_mail_restored_baseline_delivery(runner):
     assert calls[0][0].startswith("[完成] update_all")
     assert "--tier" not in calls[0]
     assert [r["subject"] for r in transports(records)] == [calls[0][0]] * len(transports(records))
-    assert transports(records), records
+    assert transports(records), records  # 完成邮件真的外发。
     assert any(r.get("target") == "daily_summary_email.py" and r["args"] == ["--mode", "main"] for r in records)
+    unknown = [r for r in records if r.get("target") == "ops_legacy_events.py"
+               and "unknown" in r["args"]]
+    assert unknown, records  # 证据不足保留 unknown，不自动关闭旧故障。
 
 
 @pytest.mark.parametrize("kind,key", [
@@ -265,20 +287,23 @@ def test_update_failure_preserves_alert_and_business_summary(runner):
     proc, records = run("update", SEVERE="1", RC_CORE="1")
     assert proc.returncode == 0, proc
     call, = notifications(records)
-    assert "--severe" in call and "--tier" not in call
+    assert call[call.index("--tier") + 1] == "critical" and "--ops-event-refs" in call
     assert transports(records)
     assert any(r.get("target") == "daily_summary_email.py" for r in records)
 
 
 def test_business_summary_failure_still_alerts_after_baseline_success(runner):
-    # 2026-11-12 回退基线语义(用户拍板 F3): 完成通知无 --tier(照旧外发); 情绪速递失败告警仍照发。
+    # 2026-11-12 合并：同时保留完成邮件外发 + 运行证据/unknown 语义。
+    # 成功分支：完成通知无 --tier（照旧外发，进入 transports）；
+    # 失败分支：改由 ops_legacy_events 产生 daily_summary 操作失败（带 --ops-event-refs），照旧外发。
     _, run = runner
     proc, records = run("update", TEST_SUMMARY_RC="3")
     assert proc.returncode == 0, proc
     success, failure = notifications(records)
     assert "--tier" not in success
-    assert "情绪速递邮件失败" in failure[0] and "--tier" not in failure
-    assert transports(records) and {r["subject"] for r in transports(records)} == {success[0], failure[0]}
+    assert "daily_summary 操作失败" in failure[0] and "--ops-event-refs" in failure
+    subjects = {r["subject"] for r in transports(records)}
+    assert transports(records) and subjects == {success[0], failure[0]}
 
 
 def test_missing_backup_repository_still_alerts(runner):
@@ -310,7 +335,7 @@ def full_runner(runner):
     (root / "scripts/lib").mkdir()
     shutil.copyfile(SCRIPTS / "lib/repo_paths.sh", root / "scripts/lib/repo_paths.sh")
     for name in (".venv/bin", "staticdata/.git", "staticdata/data", "tmp"):
-        (root / name).mkdir(parents=True)
+        (root / name).mkdir(parents=True, exist_ok=True)
     (root / ".venv/bin/python").symlink_to(root / "driver")
     (root / "static-site/data/probe.json").write_text('{"test":true}')
     for command in ("dirname", "basename", "mkdir", "cp", "mv", "rm", "mktemp", "tail"):

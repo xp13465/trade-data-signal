@@ -67,8 +67,9 @@ def skip_runner(tmp_path):
     shutil.copyfile(SCRIPTS / SCRIPT, root / "scripts" / SCRIPT)
     shutil.copyfile(SCRIPTS / "lib/repo_paths.sh", root / "scripts/lib/repo_paths.sh")
     text = DRIVER.replace('target = Path(sys.argv[1])', INLINE_PYTHON + '\ntarget = Path(sys.argv[1])')
-    text = text.replace('assert target.name == "notify.py", "unexpected production entry point"',
-                        PENDING + '\nassert target.name == "notify.py", "unexpected production entry point"')
+    dispatch_guard = 'assert target.name in ("notify.py", "ops_legacy_events.py"), "unexpected production entry point"'
+    assert text.count(dispatch_guard) == 1
+    text = text.replace(dispatch_guard, PENDING + '\n' + dispatch_guard)
     assert text != DRIVER and text.count("pending_under_test") == 1
     driver = root / ".venv/bin/python"
     driver.write_text(f"#!{sys.executable}\n" + text)

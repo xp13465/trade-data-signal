@@ -77,6 +77,9 @@ fi
 
 [ "$FORCE" = "1" ] && [ "$IS_TRADING" != "1" ] && echo "⚠ force 模式：非交易日强制采集（补数据/校准）" | tee -a "$LOG"
 
+# Latest-run fence for the existing supervised operation (not business health).
+_UA_OP_RUN=$("$PY" "$REPO/scripts/ops_legacy_events.py" begin --repo "$REPO" --task update_all) || _UA_OP_RUN=""
+
 # 交易日：并发启动 pipeline
 # core/width/futures 前台并发（wait 等）；stock_daily 后台（死端不 wait，不阻塞）。
 # turnover 已摘出主链（#82 C6）：a_turnover 由独立任务 scripts/turnover_backfill.sh 延后跑
@@ -131,6 +134,8 @@ else
     sudo -n systemd-run --collect --unit="fund-nav-upload-$(date +%H%M%S)" \
       --uid="$(id -u)" --gid="$(id -g)" \
       --setenv=REPO="$REPO" --setenv=GIT_REPO="$GIT_REPO" \
+      --setenv=OPS_DELIVERY_EVIDENCE_ENABLED="${OPS_DELIVERY_EVIDENCE_ENABLED:-0}" \
+      --setenv=OPS_NAV_PUBLIC_READBACK_ENABLED="${OPS_NAV_PUBLIC_READBACK_ENABLED:-0}" \
       bash "$REPO/scripts/fund_nav_upload_async.sh" 2>&1 | tee -a "$LOG" || \
       echo "⚠ fund-nav 异步上传触发失败(systemd-run), 需手动补跑: cd $REPO && python scripts/upload_r2.py upload-fund-nav" | tee -a "$LOG"
   else
@@ -413,14 +418,22 @@ if [ "$SEVERE" -eq 1 ]; then
   [ "${FUND_NAV_RSYNC_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}nav_bucket镜像rsync失败(rc=${FUND_NAV_RSYNC_RC:-0},镜像未同步) "
   [ "${SCORE_LIST_RSYNC_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}etf_score_list镜像rsync失败(rc=${SCORE_LIST_RSYNC_RC:-0},镜像未同步) "
   [ "${FUND_SCORE_RSYNC_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}fund_score镜像rsync失败(rc=${FUND_SCORE_RSYNC_RC:-0},镜像未同步) "
-  # 防噪 2026-08-27: 复用 notify.py 现成 --dedup-key/--dedup-window(状态文件 data/notify_dedup.json,
-  # 发送成功才登记/suppress 静默退0/fail-open; 先例=intraday upload-index R2 失败去重)。
-  # key=完整 ISSUE 问题串: 同一问题组合 30min 内只发一次(手动补跑/force 连跑窗口防轰炸),
-  # 问题组合变化(rc 或触发项不同)=新 key 正常发送, 不漏报。
-  # 告警噪音根治 2026-09-11: ISSUE 已不含分钟数(见上), key 同日同类型稳定→去重真正生效,
-  # 不再"每天耗时不同→key 不同→每天新发"。
-  "$PY" "$REPO/scripts/notify.py" "[告警] update_all ${ISSUE} ${MM_DD_HM}" "$NOTIFY_BODY" --severe --from-prefix "[告警]" --alert-issue "$ISSUE" --alert-log "$LOG" --dedup-key "update_all_severe:${ISSUE}" --dedup-window 1800 || true
+  # Shared event + per-channel receipts replace the elapsed dedup window.
+  # A new problem combination must not inherit the previous incident ACK.
+  # Stable failure classes: dates/error prose in ISSUE must not create daily incidents.
+  _UA_CAUSES="slow=$(( ELAPSED > 5400 ));core=$(( RC_CORE != 0 ));fresh=$FRESH_OK"
+  for _UA_NAME in DEPLOY_ALL_RC FUND_NAV_RC SCORE_LIST_RC FUND_SCORE_RC FUND_NAV_RSYNC_RC SCORE_LIST_RSYNC_RC FUND_SCORE_RSYNC_RC; do
+    _UA_VALUE=${!_UA_NAME:-0}
+    _UA_CAUSES="$_UA_CAUSES;$_UA_NAME=$(( _UA_VALUE != 0 ))"
+  done
+  "$PY" "$REPO/scripts/ops_legacy_events.py" fail --repo "$REPO" --task update_all \
+    --run "${_UA_OP_RUN:-}" --kind "$_UA_CAUSES" --detail "$ISSUE<br>$NOTIFY_BODY" || true
 else
+  # 例行成功仅记 dashboard；下方业务情绪速递仍按原流程交付。
+  # Local freshness + exit codes do not certify per-run remote publication.
+  "$PY" "$REPO/scripts/ops_legacy_events.py" unknown --repo "$REPO" --task update_all \
+    --run "${_UA_OP_RUN:-}" --detail "监督检查通过；完整发布凭证未覆盖，旧故障不自动关闭" || true
+  # 2026-11-12 合并：完成邮件按 main 010909ed2 恢复外发（F3），不带 --tier info（info=noop 会被静默）。
   "$PY" "$REPO/scripts/notify.py" "[完成] update_all ${ELAPSED_MIN}min ${MM_DD_HM}" "$NOTIFY_BODY" --from-prefix "[完成]" || true
 fi
 
@@ -429,13 +442,14 @@ fi
 # 失败不阻塞主流程：调 notify.py 告警，退出码仍以 RC_CORE 为准。
 # 非交易日已在上方 exit 0 不会走到这；脚本内部对无数据日期也优雅跳过。
 echo "-> daily_summary_email 情绪速递邮件(main) ..." | tee -a "$LOG"
-if "$PY" "$REPO/scripts/daily_summary_email.py" --mode main >> "$LOG" 2>&1; then
+_DSE_OP_RUN=$("$PY" "$REPO/scripts/ops_legacy_events.py" begin --repo "$REPO" --task daily_summary) || _DSE_OP_RUN=""
+if OPS_LEGACY_TASK=daily_summary OPS_LEGACY_RUN="$_DSE_OP_RUN" OPS_LEGACY_LOG="$LOG" "$PY" "$REPO/scripts/daily_summary_email.py" --mode main >> "$LOG" 2>&1; then
   echo "  ✓ 情绪速递邮件已处理" | tee -a "$LOG"
 else
   _DSE_RC=$?
   echo "⚠ daily_summary_email 失败(不阻塞主流程) rc=$_DSE_RC" | tee -a "$LOG"
-  "$PY" "$REPO/scripts/notify.py" "[告警] 情绪速递邮件失败 ${MM_DD_HM}" \
-    "daily_summary_email 退出码 $_DSE_RC<br>日志: $LOG" --from-prefix "[告警]" || true
+  "$PY" "$REPO/scripts/ops_legacy_events.py" fail --repo "$REPO" --task daily_summary \
+    --run "$_DSE_OP_RUN" --detail "daily_summary_email rc=${_DSE_RC}；日志 $LOG" || true
 fi
 
 # daily_brief 每日AI预测（第一阶段后端：单 prompt 主链路 + 双配置开关 + 机检回测 + 合规 + 归档）。

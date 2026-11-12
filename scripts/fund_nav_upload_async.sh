@@ -47,3 +47,11 @@ if [ "$rc" -ne 0 ]; then
   exit "$rc"
 fi
 echo "✓ upload-fund-nav 异步上传完成 $(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$LOG"
+
+# 可选元数据回读位于异步任务尾部，不增加采集/主链等待，不把上传 rc0 当发布凭证。
+# 只 GET 固定公开路径，默认 60s/64MiB；不足可手动对同轮续验，未知不发恢复通知。
+if [ "${OPS_DELIVERY_EVIDENCE_ENABLED:-0}" = "1" ] && [ "${OPS_NAV_PUBLIC_READBACK_ENABLED:-0}" = "1" ]; then
+  "$PY" "$REPO/scripts/ops_nav_publication.py" verify --root "$REPO" --seconds 60 --max-bytes 67108864 >> "$LOG" 2>&1 || \
+    echo "NAV 公开回读未完成，发布状态仍以逐桶凭证为准" | tee -a "$LOG"
+fi
+exit 0  # 回读仅元数据；原上传成功的业务退出码不变。

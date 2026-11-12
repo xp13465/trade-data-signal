@@ -51,10 +51,25 @@ def extract(path, names, ns):
     tree = ast.parse(path.read_text(encoding="utf-8"))
     selected = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
     assert {n.name for n in selected} == set(names)
-    exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"), ns)
+    # Keep real decorator/health logic when extracting main, never identity/lambda stubs.
+    imports = [n for n in tree.body if isinstance(n, ast.ImportFrom) and n.module == "ops_legacy_events"]
+    exec(compile(ast.Module(body=imports + selected, type_ignores=[]), str(path), "exec"), ns)
 
 
 def produce(tmp_path, monkeypatch, *, args=(), opens=None, targets=None, message="upstream disconnected", plan_kind="normal", day="20261102", source_path=None, fetch_trace=None):
+    import ops_legacy_events as ops
+    monkeypatch.setenv("REPO", str(tmp_path))
+    n = ops._state_api(tmp_path)
+    monkeypatch.setattr(n, "_send_email", lambda *a, **kw: True)
+    monkeypatch.setattr(n, "send_telegram", lambda *a, **kw: True)
+    monkeypatch.setattr(n, "send_feishu", lambda *a, **kw: True)
+    def notify_cli(cmd, **kwargs):
+        assert Path(cmd[1]).name == "notify.py"
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = n.main(cmd[2:])
+        return subprocess.CompletedProcess(cmd, rc, out.getvalue(), err.getvalue())
+    monkeypatch.setattr(subprocess, "run", notify_cli)
     targets = targets or {"513260": 0.9}
     opens = {"513260": 0.904} if opens is None else opens
     def fail_primary():

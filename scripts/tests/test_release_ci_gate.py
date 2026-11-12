@@ -376,9 +376,19 @@ def test_alert_inputs_push_pr_and_gate_one_to_one():
     for filename in ["scripts/unrelated_collector.py", "app/unrelated.py", "docs/report.md"]:
         assert not expected(API(files=[{"filename": filename, "status": "modified"}]))
 
+def _workflow_for_mutation():
+    data = yaml.load(WORKFLOW, Loader=yaml.BaseLoader)
+    # Production aliases intentionally share one list. Negative controls must
+    # detach them so changing only PR still models a genuinely drifted workflow.
+    for event in ("push", "pull_request"):
+        data["on"][event]["paths"] = list(data["on"][event]["paths"])
+    assert data["on"]["push"]["paths"] is not data["on"]["pull_request"]["paths"]
+    return data
+
+
 @pytest.mark.parametrize("removed", ALERT_INPUTS)
 def test_removing_alert_subscription_is_detected(removed):
-    data = yaml.load(WORKFLOW, Loader=yaml.BaseLoader)
+    data = _workflow_for_mutation()
     for event in ["push", "pull_request"]:
         data["on"][event]["paths"].remove(removed)
     with pytest.raises(AssertionError):
@@ -400,7 +410,7 @@ def test_real_alert_push_previously_filtered_and_now_requires_ops():
         check(API(files=records), ops=True)
 
 def test_push_pr_subscription_drift_requires_ops():
-    data = yaml.load(WORKFLOW, Loader=yaml.BaseLoader)
+    data = _workflow_for_mutation()
     data["on"]["pull_request"]["paths"].remove("scripts/upload_r2.py")
     assert expected(API(), workflow=yaml.safe_dump(data, sort_keys=False)) is True
 
@@ -430,7 +440,7 @@ def test_overfit_verifier_tests_require_exact_head_ops():
 
 @pytest.mark.parametrize("removed", OVERFIT_VERIFIER_INPUTS)
 def test_removed_overfit_verifier_subscription_is_detected(removed):
-    data = yaml.load(WORKFLOW, Loader=yaml.BaseLoader)
+    data = _workflow_for_mutation()
     for event in ("push", "pull_request"):
         data["on"][event]["paths"].remove(removed)
     with pytest.raises(AssertionError):
