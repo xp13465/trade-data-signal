@@ -197,11 +197,28 @@ def test_unclaimed_escalates_once_and_ack_does_not_change_failure(tmp_path,monke
     assert row['status']=='active' and row['requires_action'] is True
 
 
-def test_status_conclusion_zero_mail_is_internal_only(tmp_path):
+def test_status_conclusion_runtime_switch_gates_and_baseline_delivery(tmp_path,monkeypatch):
+    # 2026-11-12 回退基线语义(用户拍板): 状态说明邮件恢复完整实现, 不再是 internal_only 硬桩。
     ns=namespace(tmp_path)
+    ns['CONCLUSION_STATUS_EMAIL_ENV']='MONITOR_CONCLUSION_STATUS_EMAIL'
+    ns['CONCLUSION_STATUS_KEY_PREFIX']='conclusion_status|'
+    ns['CONCLUSION_STATUS_SUBJECT_PREFIX']='[状态说明]'
+    _pair = next(n for n in TREE.body if isinstance(n, ast.Assign)
+                 and any(getattr(t,'id','')=='_CONCLUSION_PAIR_RE' for t in n.targets))
+    exec(compile(ast.Module(body=[_pair],type_ignores=[]), str(MONITOR),'exec'), ns)
+    from notify_sent import notify_sent
+    ns['notify_sent']=notify_sent
     def forbidden(*a,**kw):pytest.fail('status-conclusion external notification')
+    monkeypatch.setenv('MONITOR_CONCLUSION_STATUS_EMAIL','0')
     result=ns['_maybe_send_conclusion_status_email']('not OK: same known failure',0,{},ns['NOW'],forbidden,lambda s:None)
-    assert result['sent'] is False
+    assert result['reason']=='disabled' and result['sent'] is False
+    monkeypatch.setenv('MONITOR_CONCLUSION_STATUS_EMAIL','1')
+    calls=[];saves=[]
+    def stub(cmd):
+        calls.append(cmd)
+        return '[notify] 汇总：已发出 email'
+    result=ns['_maybe_send_conclusion_status_email']('not OK: same known failure',0,{},ns['NOW'],stub,lambda s:saves.append(s))
+    assert result['sent'] is True and calls and saves
 
 
 def test_ack_real_cli_mutates_only_claim_not_business_or_notify(tmp_path,monkeypatch):

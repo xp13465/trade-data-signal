@@ -1543,10 +1543,60 @@ def _conclusion_status_email_body(concl, now_str):
 
 def _maybe_send_conclusion_status_email(concl, alert_mail_sent, state, now,
                                         notify_runner, save_state):
-    """No mail is not another incident. Keep the conclusion in the monitor log."""
-    print(f"[状态说明·内部] {concl}")
-    return {"reason": "internal_only", "send": False, "sent": False,
-            "key": "", "digest": ""}
+    """结论可见性补位唯一入口: 判定 → 补发「状态说明」→ 确认送达才落签。
+
+    返回 dict(decision + sent/subject/error), 供调用方日志与单测断言。
+    notify_runner(cmd)->notify 输出文本; **本函数绝不直接外发** —— 生产注入 notify.py
+    子进程 runner, 测试注入 stub ⇒ 自测零真实外发(§18 L48)。
+    """
+    if not _conclusion_email_enabled():
+        # 审查 D9 运行时开关: 关=整块停用(不判定/不发信/不写 state), 无需发版删代码。
+        return {"reason": "disabled", "send": False, "key": "", "digest": "", "sent": False}
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    d = _conclusion_status_decision(concl, alert_mail_sent, state, now)
+    d["sent"] = False
+    if d["reason"] == "ok":
+        # 恢复正常: 解除频率保护(标记 recovered), 不额外发信
+        if _conclusion_status_mark_recovered(state, now_str):
+            save_state(state)
+        return d
+    if not d["send"]:
+        return d
+    # 内容变化: 退休其它摘要键(同一时刻最多留一条, 防 alert_state 无界膨胀)
+    for _k in [k for k in list(state) if str(k).startswith(CONCLUSION_STATUS_KEY_PREFIX)
+               and k != d["key"]]:
+        state.pop(_k, None)
+    subject = (f"{CONCLUSION_STATUS_SUBJECT_PREFIX} 监控结论异常(本轮无告警邮件) "
+               f"{now.strftime('%m-%d %H:%M')}")
+    body = _conclusion_status_email_body(concl, now_str)
+    cmd = [
+        sys.executable, str(REPO / "scripts" / "notify.py"),
+        subject, body,
+        "--from-prefix", CONCLUSION_STATUS_SUBJECT_PREFIX,
+        "--alert-issue", "计划任务监控结论说明",
+        "--alert-log", str(MONITOR_LOG),
+    ]
+    try:
+        out = notify_runner(cmd) or ""
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] 状态说明邮件发送异常: {e}", file=sys.stderr)
+        d["error"] = str(e)
+        return d
+    if not notify_sent(out):
+        print("[warn] 状态说明邮件未确认送达 ⇒ 不落签, 下轮重试", file=sys.stderr)
+        return d
+    state[d["key"]] = {
+        "status": "active",
+        "first_seen": now_str,
+        "last_alerted": now_str,
+        "keyword": "conclusion_status",
+        "line_sample": str(concl or "")[:200],
+        "digest": d["digest"],
+    }
+    save_state(state)
+    d["sent"] = True
+    d["subject"] = subject
+    return d
 
 
 def _unit_alert_events(unit_registry, unit_states, stats_by_task, now):

@@ -46,3 +46,7 @@
 
 Codex 本轮没有执行生产任务、上传/部署、迁移 D1、改主工作树或发送测试运维通知。
 原生 handoff 的 queued/context-emitted 与 Claude 明确 ACK 分开报告；没有 ACK 不写成“已接单”。
+
+## Claude 复核回退记录(2026-11-12)
+
+Claude 独立复核(`/tmp/closeout-review-report.md`)发现 F1/F3 两处未授权静默(「状态说明」补位邮件被换成 internal_only 硬桩;update_all 完成邮件 `--tier info` 化)。用户 2026-11-11 拍板回退这两处:本 commit 仅回退 F1/F3(含锁桩语义的配套用例同步改写),其余 40 commit 内容不变。

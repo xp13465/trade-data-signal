@@ -187,24 +187,36 @@ def transports(records):
     return [r for r in records if r["kind"] == "transport"]
 
 
-@pytest.mark.parametrize("kind", ["update", "r2", "async_git", "sync_git"])
+@pytest.mark.parametrize("kind", ["r2", "async_git", "sync_git"])
 def test_expected_success_and_protection_are_local_info(runner, kind):
     root, run = runner
     proc, records = run(kind)
     assert proc.returncode == 0, proc
-    assert not transports(records), records  # Fails on all four unpatched producers.
+    assert not transports(records), records  # Fails on all unpatched producers.
     calls = notifications(records)
     assert len(calls) == 1
     assert calls[0][calls[0].index("--tier") + 1] == "info"
     logged = [json.loads(line) for line in (root / "data/alerts/info_log.jsonl").read_text().splitlines()]
     assert [r["subject"] for r in logged] == [calls[0][0]]
     assert not (root / "data/alerts/latest.md").exists()
-    if kind == "update":
-        assert any(r.get("target") == "daily_summary_email.py" and r["args"] == ["--mode", "main"] for r in records)
-    else:
-        expected = {"r2": "STATE 1 unset unset 0 0", "async_git": "STATE unset 1 unset 0 0",
-                    "sync_git": "STATE unset unset 0 0 1"}
-        assert expected[kind] in proc.stdout  # No changes to the actual guard decision/exit state.
+    expected = {"r2": "STATE 1 unset unset 0 0", "async_git": "STATE unset 1 unset 0 0",
+                "sync_git": "STATE unset unset 0 0 1"}
+    assert expected[kind] in proc.stdout  # No changes to the actual guard decision/exit state.
+
+
+def test_update_completion_mail_restored_baseline_delivery(runner):
+    # 2026-11-12 回退基线语义(用户拍板 F3): update_all 完成邮件照旧外发(无 --tier info),
+    # 不再是仅记 dashboard 的静默形态; 情绪速递 main 调用照旧。
+    root, run = runner
+    proc, records = run("update")
+    assert proc.returncode == 0, proc
+    calls = notifications(records)
+    assert len(calls) == 1
+    assert calls[0][0].startswith("[完成] update_all")
+    assert "--tier" not in calls[0]
+    assert [r["subject"] for r in transports(records)] == [calls[0][0]] * len(transports(records))
+    assert transports(records), records
+    assert any(r.get("target") == "daily_summary_email.py" and r["args"] == ["--mode", "main"] for r in records)
 
 
 @pytest.mark.parametrize("kind,key", [
@@ -258,14 +270,15 @@ def test_update_failure_preserves_alert_and_business_summary(runner):
     assert any(r.get("target") == "daily_summary_email.py" for r in records)
 
 
-def test_business_summary_failure_still_alerts_after_quiet_success(runner):
+def test_business_summary_failure_still_alerts_after_baseline_success(runner):
+    # 2026-11-12 回退基线语义(用户拍板 F3): 完成通知无 --tier(照旧外发); 情绪速递失败告警仍照发。
     _, run = runner
     proc, records = run("update", TEST_SUMMARY_RC="3")
     assert proc.returncode == 0, proc
     success, failure = notifications(records)
-    assert "--tier" in success
+    assert "--tier" not in success
     assert "情绪速递邮件失败" in failure[0] and "--tier" not in failure
-    assert transports(records) and all(r["subject"] == failure[0] for r in transports(records))
+    assert transports(records) and {r["subject"] for r in transports(records)} == {success[0], failure[0]}
 
 
 def test_missing_backup_repository_still_alerts(runner):

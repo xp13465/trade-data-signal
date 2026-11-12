@@ -180,6 +180,9 @@ def test_index_backfill_fallback_row_routes_through_audit(tmp_prod_db, monkeypat
     c.close()
     calls = []
     monkeypatch.setattr(history_audit, "send_alert", lambda s, b, **kw: calls.append(s) or 0)
+    # 钉死运行日(同 test_signals_store_wires_t1_audit 的时敏防跨天红): 不钉则 20261013 行
+    # 行龄随真实今天增长, 满 30 天(2026-11-12 起)会额外触发「旧行真覆盖」critical 第二条告警。
+    monkeypatch.setattr(history_audit, "today_ymd", lambda: RUN_DATE)
     c = get_conn()
     index_backfill._audit_hist_row(
         c, "20261013", "hkHSI", (25000.0, 25100.0, 24900.0, 24000.0, -2.1, None))
@@ -255,6 +258,9 @@ def test_upsert_index_rows_wires_t3_audit_and_source(tmp_prod_db, monkeypatch):
     c.close()
     calls = []
     monkeypatch.setattr(history_audit, "send_alert", lambda s, b, **kw: calls.append(s) or 0)
+    # 钉死运行日(时敏防跨天红, 同 test_signals_store_wires_t1_audit): 不钉则 20261013 行
+    # 行龄随真实今天增长, 满 30 天(2026-11-12 起)会额外触发「旧行真覆盖」critical 第二条告警。
+    monkeypatch.setattr(history_audit, "today_ymd", lambda: RUN_DATE)
 
     # 行情源全历史重采: 历史行 close 由占位 3126 被真实 3057.907 覆盖
     # 2026-10-28 ★4 审查 F2: caller 已改为显式登记(缺省 None = 未登记 fail-closed),
