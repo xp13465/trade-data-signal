@@ -91,6 +91,7 @@
 | 45※ | `check_sentiment_r2_upload.py`(#231 H1,**链尾收口**,2026-10-17 新增) | `intraday_snapshot.sh` 链尾(盘中每轮,非独立 timer) | critical(`--severe`) | 1800 | `r2` | 首报必达 | —(四元组自本表起线后首个全声明条目) |
 | 46※ | `deploy.sh`(**连续部署失败聚合档**,2026-10-21 新增) | deploy.sh EXIT trap(每次部署结果;成功清零) | critical(`--severe`) | 21600 | `deploy` | 首报必达(跨过阈值那一次必发) | —(四元组全声明;状态 `data/deploy_fail_state.json`,阈值默认 2,env `DEPLOY_FAIL_ALERT_THRESHOLD` 可配) |
 | 47※ | `deploy.sh`(**仅告警级校验失败**,2026-10-21 新增) | check_data_integrity rc=3(上游独立产物缺/滞后, deploy 不退出) | notice(send() 旧行为, **未加 `--severe`**) | 21600 | `deploy` | 首报必达 | tier 走 send() 旧行为(与 #46 刻意区分: 阻断级才 severe);清单见 `check_data_integrity.ALERT_ONLY_CHECKS` |
+| 48※ | `collect_fof_nav.py`(FOF 净值同源非空冲突拒绝告警,2026-11-12 新增,用户 11-11 拍板「维持旧值+加告警」) | `trade-fof-nav-collect.timer` 21:10 每轮收尾(仅当本轮确实发生 NonNullConflict 拒绝>0 才发; 正常收尾与 TimeoutError 预算中断均覆盖) | warning(`--tier warning`) | 72000(20h: 同日多轮不刷屏, 次日晚间轮仍提醒) | `collect` | 入聚合 | —(四元组全声明于 `_notify_nonnull_conflicts` docstring;发送失败只记日志不改 rc;11-11 生产实证 60 只拒绝零告警见 /tmp/night-fail-triage.md §3) |
 
 > ※ 编号说明:#45 在 §2.2(业务订阅表)已被 `detect_intraday_anomaly.py` 占用;本行属**故障告警表**(§2.1),两表独立计数,引用时请写「§2.1 #45※」以免混淆。#46※/#47※ 同此约定(§2.2 的 46/47 是 run_daily_brief / gen_daily_brief)。
 

@@ -36,6 +36,7 @@ import json
 import math
 import sqlite3
 import ssl
+import subprocess
 import sys
 import time
 import urllib.error
@@ -90,6 +91,63 @@ UPSERT_SQL = (
     "prev_unit_nav  = COALESCE(fund_daily_nav.prev_unit_nav,  excluded.prev_unit_nav), "
     "nav_change_pct = COALESCE(fund_daily_nav.nav_change_pct, excluded.nav_change_pct)"
 )
+
+# ---- 同源非空冲突告警(2026-11-12, 用户 11-11 拍板「维持旧值 + 加告警」)----
+# 生产实证(11-11 21:10 轮): 60 只 20261019 prev_unit_nav eastmoney 修订值触发整只拒绝,
+# fund_collection_conflicts 存了 60 条, 但 run_fof_nav_collect.sh 无 notify 调用、unit 无
+# OnFailure ⇒ 全程零告警(/tmp/night-fail-triage.md §3)。拍板: 拒绝逻辑/DB 写入/rc 语义
+# 一字不改, 只补「失败可见性」——本轮确实发生 NonNullConflict(拒绝>0)才发一次业务告警;
+# 无冲突不发(不搞每晚「一切正常」); 只读内存已收集的冲突记录, 不额外扫库/不发采集请求。
+CONFLICT_ALERT_DEDUP_KEY = "fof_nav_nonnull_conflict"
+CONFLICT_ALERT_DEDUP_WINDOW = 72000  # 20h: 同一天多轮(含手动重跑)不刷屏, 次日晚间轮仍提醒
+
+
+def _notify_nonnull_conflicts(conflicts, attempted=None, committed=None, not_attempted=None):
+    """本轮同源非空冲突拒绝 → 一次业务告警(仅拒绝>0 才发, 无冲突直接返回)。
+
+    四元组: tier=warning(批量档, 由 schedule_monitor 尾部 --flush-warnings 30min 聚合批发)
+    / dedup window=72000s(20h) / 聚合域=collect / 首报策略=入聚合。
+    只读内存里已收集的冲突记录(fund_collection_conflicts 同款字段), 唯一外发 =
+    notify.py 子进程; 发送失败只记日志, 不改 rc/返回值/主流程结果。
+    零外发铁律(§18 L48): 测试必须打桩本模块 subprocess.run 并断言调用参数。
+    """
+    if not conflicts:
+        return
+    codes = sorted({str(c['code']) for c in conflicts})
+    dates = sorted({str(c['date']) for c in conflicts})
+    fields = sorted({str(c['field']) for c in conflicts})
+    sources = sorted({str(c.get('source') or 'unknown') for c in conflicts})
+    rel = []
+    for c in conflicts:
+        before, after = c.get('before'), c.get('after')
+        try:
+            if before not in (None, 0):
+                rel.append(abs(after - before) / abs(before))
+        except Exception:  # noqa: BLE001  非数值/缺值只跳过, 不影响告警
+            pass
+    rel_txt = f"{min(rel):.4%}~{max(rel):.4%}" if rel else "不可计算(旧值为 0/缺失)"
+    subject = (f"[告警] FOF 净值同源非空冲突 {len(conflicts)} 条/{len(codes)} 只"
+               f"(DB 旧值保留未覆盖)")
+    body = "<br>".join([
+        "<b>FOF/QDII 净值采集同源非空冲突: 已按规则维持 DB 旧值(未覆盖)</b>",
+        f"本轮冲突条数: {len(conflicts)} 条; 涉及基金: {len(codes)} 只",
+        f"冲突日期: {', '.join(dates)}",
+        f"冲突字段: {', '.join(fields)}",
+        f"数据源: {', '.join(sources)}",
+        f"相对差异范围(|修订值-旧值|/旧值): {rel_txt}",
+        f"样本基金(最多 5 只): {', '.join(codes[:5])}",
+        f"本轮计数: attempted={attempted} committed={committed} not_attempted={not_attempted}",
+        "DB 旧值保留未覆盖;需人工拍板接受修订或维持旧值"
+        "(修订证据已存 fund_collection_conflicts 审计表)。",
+    ])
+    cmd = [sys.executable, str(Path(__file__).resolve().parent / "notify.py"),
+           subject, body, "--tier", "warning", "--from-prefix", "[告警]",
+           "--dedup-key", CONFLICT_ALERT_DEDUP_KEY,
+           "--dedup-window", str(CONFLICT_ALERT_DEDUP_WINDOW)]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+    except Exception as e:  # noqa: BLE001  发送失败不影响采集主流程/rc
+        print(f"[fof_nav] 非空冲突告警发送失败(不影响采集主流程): {e}", flush=True)
 
 
 def fetch_lsjz(fund_code: str, start_date: str, end_date: str, *,
@@ -202,6 +260,7 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
     if not dry_run:
         init_db()  # 在现有同库锁内初始化；dry_run不迁移/建库/设置WAL。
         conn = get_conn()
+    nonnull_conflicts = []  # 本轮同源非空冲突(拒绝)记录, 收尾统一告警(见 _notify_nonnull_conflicts)
     try:
         gap.configure(conn, deadline)
         if not dry_run:
@@ -355,6 +414,7 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                     pass
                 if isinstance(e, gap.NonNullConflict) and not dry_run:
                     gap.save_conflicts(conn, 'nav', fund_code, e)
+                    nonnull_conflicts.extend({'code': fund_code, **ev} for ev in e.evidence)
                 if time.monotonic() >= deadline:
                     budget_failed = True
                     raise TimeoutError('FOF整轮预算耗尽，本基金已回滚') from e
@@ -409,6 +469,15 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
         return total_written
     finally:
         conn.close()
+        if nonnull_conflicts:
+            # 冲突告警放 finally: 正常收尾与 TimeoutError 预算中断都覆盖(中断轮已检出的
+            # 冲突也可见); 只读内存已收集记录, 不扫库。发送失败不改 rc/返回值/主流程。
+            try:
+                _notify_nonnull_conflicts(
+                    nonnull_conflicts, attempted=attempted, committed=ok,
+                    not_attempted=total_pool - attempted)
+            except Exception as e:  # noqa: BLE001  兜底: 告警绝不掩盖采集主异常
+                print(f"[fof_nav] 非空冲突告警异常(不影响采集主流程): {e}", flush=True)
         validate_snapshot()
 
 
