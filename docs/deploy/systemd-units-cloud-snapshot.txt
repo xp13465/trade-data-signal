@@ -247,6 +247,7 @@ Type=oneshot
 User=ubuntu
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=REPO=/home/ubuntu/code/trade-data
+Environment=OPS_DELIVERY_EVIDENCE_ENABLED=1
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_fof_nav_collect.sh
 TimeoutStartSec=900
 @@@FILE:trade-freeze-orphan-cleanup.service
@@ -543,6 +544,7 @@ WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
 Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+Environment=OPS_DELIVERY_EVIDENCE_ENABLED=1
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_daily.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
@@ -1241,6 +1243,7 @@ ReadWritePaths=/run/trade-ops-monitor
 ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=yes
+BindReadOnlyPaths=-/tmp/trade_r2_upload_async.pending.contexts
 PrivateDevices=yes
 NoNewPrivileges=yes
 ProtectKernelTunables=yes
