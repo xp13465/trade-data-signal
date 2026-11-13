@@ -103,7 +103,9 @@ def test_timeout_half_batch_preserves_attempt_cursor_and_rolls_back_target(sandb
     assert progress['work_limits']['000002']['history_days'] == 183
     c = _conn(sandbox)
     assert [r[0] for r in c.execute('SELECT fund_code FROM fund_daily_nav')] == ['000001']
-    assert [r[0] for r in c.execute('SELECT code FROM fund_collection_state')] == ['000001']
+    # 2026-11-13 方案 C: pass A「recent 增量扫」只提交 NAV 行, 不写 fund_collection_state
+    # (无 state 基金保持「无 state」直至首个回补相位提交) ⇒ 预算中断轮后 state 为空。
+    assert [r[0] for r in c.execute('SELECT code FROM fund_collection_state')] == []
     c.close()
     # 尝试游标不是成功游标：重启继续轮转，失败基金下一圈仍会回来。
     monkeypatch.setattr(mod, 'fetch_lsjz', lambda code,*a,**kw: [dict(date='20261106',fund_code=code,unit_nav=1,acc_nav=1,prev_unit_nav=None,nav_change_pct=0)])
@@ -145,7 +147,9 @@ def test_timeout_rotates_funds_and_eventually_commits_complete_smaller_history(s
         c.close()
     # Empty recent windows remain legitimate. History shrinks only after a
     # timeout and eventually admits full responses under the original budget.
-    for _ in range(24):
+    # 2026-11-13 方案 C: 两遍结构下回补相位隔轮推进(pass A 增量扫占半数轮次),
+    # 收敛所需轮数约为旧单遍的 2 倍(24→48)。
+    for _ in range(48):
         try:
             mod.collect(batch=1, budget_seconds=.22)
         except TimeoutError:
@@ -247,7 +251,8 @@ def test_null_queue_fairness_no_repaired_marker_on_empty(sandbox, monkeypatch):
     c.executemany("INSERT INTO fund_daily_nav(date,fund_code) VALUES(?,'000001')",[(r['FSRQ'].replace('-',''),) for r in records(100)])
     c.commit();c.close()
     source(monkeypatch,[])
-    for _ in range(4):
+    # 2026-11-13 方案 C: gap 相位隔轮推进(与 history 交替), 4 轮 → 8 轮才覆盖同等缺口对数。
+    for _ in range(8):
         mod.collect()
     c = _conn(sandbox)
     assert c.execute('SELECT COUNT(*) FROM fund_collection_gaps WHERE attempts>0').fetchone()[0] >= 200
@@ -260,7 +265,9 @@ def test_initial_history_resumes_without_replacing_fof_cursor(sandbox, monkeypat
     _seed_basic(sandbox,[('000001','FOF','FOF')])
     old = dict(FSRQ='2001-01-03',DWJZ='1.1',LJJZ='1.1',JZZZL='0')
     calls=source(monkeypatch,[old])
-    for _ in range(37):
+    # 2026-11-13 方案 C: 首查历史按 366 日/次推进, 回补相位隔轮(与 gap 交替)推进
+    # ⇒ 所需轮数约为旧单遍(37)的 2 倍。
+    for _ in range(80):
         mod.collect()
     c=_conn(sandbox)
     assert c.execute('SELECT unit_nav FROM fund_daily_nav').fetchone()[0] == 1.1

@@ -154,7 +154,9 @@ def test_fof_500_batch_is_never_full_pool(db, tmp_path, monkeypatch):
     assert fof.collect() == 0
     r, f = read(tmp_path)
     assert r['stage_status'] == 'unknown' and not fof.LAST_BATCH_FAILED
-    assert f['counts']['pool_not_attempted'] == 1 and f['counts']['legal_empty'] == 500
+    # 方案 C(2026-11-13) 两遍: 同 500 只 pass A 增量扫 + pass B 回补各计一次合法空;
+    # attempted/committed_targets 仍按基金去重(每只只计一次), pool_not_attempted 不变。
+    assert f['counts']['pool_not_attempted'] == 1 and f['counts']['legal_empty'] == 1000
     assert f['counts']['committed_rows'] == 0
     assert f['historical_completeness'] == 'unknown'
     assert len(f['samples']) == 8

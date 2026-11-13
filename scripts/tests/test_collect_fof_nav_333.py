@@ -264,7 +264,10 @@ def test_partial_window_is_rechecked(tmp_db, monkeypatch):
 
     n = mod.collect(days=7, limit=None, dry_run=False, batch=10)
     assert set(called) == {"005827", "005828", "005829"}
-    assert n == 2  # HC07授权新语义：冲突基金整只拒绝，另两只正常提交。
+    # HC07授权新语义：冲突基金整只拒绝，另两只正常提交。
+    # 2026-11-13 方案 C 两遍: 冲突基金(005827) pass A 拒绝后 pass B 跳过;
+    # 005828/005829 pass A 增量扫 + pass B 回补各提交一次(幂等行会计两遍) ⇒ n=4。
+    assert n == 4
     c = _conn(tmp_db)
     assert c.execute("SELECT unit_nav FROM fund_daily_nav WHERE fund_code='005827'").fetchone()[0] == 1.5
     assert tuple(c.execute("SELECT acc_nav,prev_unit_nav,nav_change_pct FROM fund_daily_nav WHERE fund_code='005827'").fetchone()) == (None,None,None)
@@ -290,8 +293,9 @@ def test_batch_limits_per_run(tmp_db, monkeypatch):
     monkeypatch.setattr(mod, "date", type("_D", (), {"today": staticmethod(lambda: _d(2026, 11, 2))}))
 
     n = mod.collect(days=7, limit=None, dry_run=False, batch=2)
-    # batch=2, 只跑前 2 只
-    assert len(called) == 2
+    # batch=2, 只跑前 2 只(2026-11-13 方案 C 两遍: pass A 增量扫 + pass B 回补各 2 次调用)
+    assert len(called) == 4
+    assert list(dict.fromkeys(called)) == ["000001", "000002"]
     assert n >= 2
 
 
