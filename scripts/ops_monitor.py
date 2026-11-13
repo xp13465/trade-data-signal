@@ -57,6 +57,10 @@ DELIVERY_ERRORS = frozenset({'ops_storage_unavailable', 'ops_storage_or_service_
 SERVER_ERROR_KINDS = frozenset({'unknown', 'storage_transient', 'storage_quota',
                                'storage_configuration', 'storage_constraint',
                                'storage_overloaded', 'storage_resource_limit', 'configuration'})
+# Optional server refinement of error_kind='storage_quota' only: which D1 free-tier
+# limit was exceeded. Diagnostics only; it never changes retry/exit behaviour.
+QUOTA_KINDS = frozenset({'storage_daily_read', 'storage_daily_write',
+                         'storage_account', 'storage_db_size'})
 NONRETRY_KINDS = SERVER_ERROR_KINDS - {'unknown', 'storage_transient'}
 
 
@@ -1037,7 +1041,8 @@ def request_http(url, payload=None, secret_file=None, head=False, test_local=Fal
             except (ValueError, UnicodeError, ContractError):
                 error = None
             if isinstance(error, dict):
-                for key, allowed in (('error', DELIVERY_ERRORS), ('error_kind', SERVER_ERROR_KINDS)):
+                for key, allowed in (('error', DELIVERY_ERRORS), ('error_kind', SERVER_ERROR_KINDS),
+                                     ('quota_kind', QUOTA_KINDS)):
                     if isinstance(error.get(key), str) and error[key] in allowed:
                         result[key] = error[key]
         return result
@@ -1125,7 +1130,8 @@ def network_bounded(budget, url, payload=None, secret_file=None, head=False, tes
         ended = utc_now()
         history.append({'snapshot_id': snapshot_id, 'attempt': attempt, 'started_at': attempt_started,
                         'finished_at': ended, 'http_status': result.get('http_status'),
-                        'error_kind': result.get('error_kind'), 'ack_state': ack_state,
+                        'error_kind': result.get('error_kind'), 'quota_kind': result.get('quota_kind'),
+                        'ack_state': ack_state,
                         'received_at': result.get('received_at'), 'delivered_at': ended if result.get('ok') else None})
         if record_attempt:
             record_attempt(history[-1])
@@ -1303,7 +1309,7 @@ def main(argv=None):
         report, code = run_once(cfg, collect_only=args.collect_only, test_local_http=args.test_local_http)
         print(json.dumps({'snapshot_id': report['snapshot_id'], 'checks': report['coverage']['counts']['checks'],
                           'delivery_ok': report['delivery'].get('ok', False), 'collect_only': args.collect_only,
-                          'delivery': {key: report['delivery'][key] for key in ('http_status', 'error_kind', 'attempts', 'elapsed_ms',
+                          'delivery': {key: report['delivery'][key] for key in ('http_status', 'error_kind', 'quota_kind', 'attempts', 'elapsed_ms',
                                                                           'deadline_exhausted', 'attempt_deadline_exceeded')
                                        if key in report['delivery']}}))
         return code

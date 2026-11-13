@@ -474,6 +474,46 @@ class CollectorTests(unittest.TestCase):
                 run_once.assert_called_once()
                 self.assertEqual(run_once.call_args.kwargs['collect_only'], mode == '--collect-only')
 
+    def test_quota_kind_reflection_whitelist_and_projection(self):
+        # Server 503 body reflection: whitelisted quota_kind survives, anything else is dropped.
+        snapshot = self.collect();payload = m.validate_snapshot(snapshot)
+        body = {'error': 'ops_storage_unavailable', 'error_kind': 'storage_quota',
+                'quota_kind': 'storage_daily_read'}
+        for quota, expected in (('storage_daily_read', 'storage_daily_read'),
+                                ('storage_daily_write', 'storage_daily_write'),
+                                ('storage_account', 'storage_account'),
+                                ('storage_db_size', 'storage_db_size'),
+                                ('free-tier-read-limit', None), (None, None)):
+            conn = MagicMock();response = conn.getresponse.return_value
+            response.status = 503
+            inner = dict(body)
+            if quota is None:inner.pop('quota_kind', None)
+            else:inner['quota_kind'] = quota
+            response.read.return_value = json.dumps(inner).encode()
+            with patch.object(m.http.client, 'HTTPSConnection', return_value=conn):
+                result = m.request_http(self.cfg.ingest_url, payload, str(self.secret))
+            self.assertFalse(result['ok'])
+            self.assertEqual(result.get('error_kind'), 'storage_quota')  # unchanged category
+            if expected is None:self.assertNotIn('quota_kind', result)
+            else:self.assertEqual(result['quota_kind'], expected)
+        # Stdout journal projection carries quota_kind when present, omits otherwise.
+        cfgfile = self.temp / 'quota-collector.json'
+        cfgfile.write_text(json.dumps(self.cfg.__dict__))
+        for delivery, expected in (
+                ({'ok': False, 'http_status': 503, 'error_kind': 'storage_quota', 'quota_kind': 'storage_daily_read'},
+                 {'http_status': 503, 'error_kind': 'storage_quota', 'quota_kind': 'storage_daily_read'}),
+                ({'ok': False, 'http_status': 503, 'error_kind': 'storage_quota'},
+                 {'http_status': 503, 'error_kind': 'storage_quota'})):
+            with self.subTest(delivery=expected):
+                report = {'snapshot_id': 'synthetic-quota-projection',
+                          'coverage': {'counts': {'checks': 7}}, 'delivery': dict(delivery)}
+                out = io.StringIO()
+                with patch.object(m, 'run_once', return_value=(report, 2)):
+                    with contextlib.redirect_stdout(out):
+                        rc = m.main(['--config', str(cfgfile), '--once'])
+                self.assertEqual(rc, 2)
+                self.assertEqual(json.loads(out.getvalue())['delivery'], expected)
+
     def test_upload_reserve_survives_collection_deadline_and_skips_head(self):
         now = [100.0]
         real_budget = m.Budget

@@ -20,11 +20,14 @@ const UPDATE_FIELDS = ['expected_revision', 'workflow_status', 'root_cause_state
 class OpsError extends Error {
   constructor(status, code, kind) { super(code); this.status = status; this.code = code; this.kind = kind; }
 }
-function storageErrorKind(error) {
+function boundedMessage(error) {
   // Inspect bounded text only to select literal categories. Never log the text,
   // cause, SQL, stack, request headers or bindings, even on unknown failures.
   const messages = [error?.message, error?.cause?.message].filter(v => typeof v === 'string').map(v => v.slice(0, 2048));
-  const message = messages.join(' ');
+  return messages.join(' ');
+}
+function storageErrorKind(error) {
+  const message = boundedMessage(error);
   if (/maximum account storage limit|Exceeded maximum DB size|free tier daily row (?:read|write) limit/i.test(message)) return 'storage_quota';
   if (/D1_TYPE_ERROR|D1_COLUMN_NOTFOUND|no such (?:table|column)|No SQL statements detected/i.test(message)) return 'storage_configuration';
   if (/SQLITE_CONSTRAINT|(?:NOT NULL|UNIQUE|FOREIGN KEY|CHECK) constraint failed/i.test(message)) return 'storage_constraint';
@@ -34,6 +37,18 @@ function storageErrorKind(error) {
   if (/D1 DB(?:'s isolate)? exceeded its (?:CPU time|memory) limit|D1 query result exceeded the maximum response size limit/i.test(message)) return 'storage_resource_limit';
   if (/Network connection lost\.|Replica disconnected from primary\.|Cannot resolve D1 DB due to transient issue on remote node\.|D1 DB reset because its code was updated\.|Internal error (?:while starting up|in) D1 DB storage caused object to be reset\./.test(message)) return 'storage_transient';
   return 'unknown';
+}
+// Backward-compatible refinement of the storage_quota family only: error_kind stays
+// 'storage_quota' (client whitelists/tests depend on it) and quota_kind pinpoints which
+// D1 free-tier limit was exceeded: daily read rows / daily write rows / account
+// storage / per-DB size. Diagnostics only; it never changes retry behaviour.
+function storageQuotaKind(error) {
+  const message = boundedMessage(error);
+  if (/free tier daily row read limit/i.test(message)) return 'storage_daily_read';
+  if (/free tier daily row write limit/i.test(message)) return 'storage_daily_write';
+  if (/maximum account storage limit/i.test(message)) return 'storage_account';
+  if (/Exceeded maximum DB size/i.test(message)) return 'storage_db_size';
+  return null;
 }
 function fail(status, code) { throw new OpsError(status, code); }
 function response(body, status = 200) {
@@ -199,7 +214,9 @@ async function ingest(request, env, db, now, diagnostic) {
     try { prior = await stmt(db, 'SELECT content_hash FROM ops_runs WHERE snapshot_id=?', snapshot.snapshot_id).first(); }
     catch { /* Keep the original batch failure category if diagnosis also fails. */ }
     if (prior && prior.content_hash !== hash) fail(409, 'snapshot_id_conflict');
-    throw new OpsError(503, 'ops_storage_unavailable', storageErrorKind(error));
+    const quotaError = new OpsError(503, 'ops_storage_unavailable', storageErrorKind(error));
+    quotaError.quota_kind = storageQuotaKind(error);
+    throw quotaError;
   }
   const head = await stmt(db, 'SELECT (SELECT snapshot_id FROM ops_head WHERE id=1) snapshot_id,counts_json,received_ms FROM ops_runs WHERE snapshot_id=?', snapshot.snapshot_id).first();
   return response({ accepted: true, snapshot_id: snapshot.snapshot_id, ack_state: 'confirmed', received_at: iso(head?.received_ms), current: head?.snapshot_id === snapshot.snapshot_id, counts: head?.counts_json ? JSON.parse(head.counts_json) : counts });
@@ -366,7 +383,8 @@ export default async function opsHandler(request, env, ctx) {
     if (status < 500) return response({ error: code }, status);
     const configCodes = ['ops_storage_unavailable', 'ingest_not_configured', 'ops_token_configuration_invalid', 'admin_not_configured'];
     const error_kind = known ? error.kind || (configCodes.includes(code) ? 'configuration' : 'unknown') : storageErrorKind(error);
-    const safe = { error: code, error_kind, ...diagnostic };
+    const quota_kind = known ? error.quota_kind ?? null : storageQuotaKind(error);
+    const safe = { error: code, error_kind, ...(quota_kind ? { quota_kind } : {}), ...diagnostic };
     console.error({ event: 'ops_request_failed', ...safe });
     return response(safe, status);
   }

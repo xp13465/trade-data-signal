@@ -299,11 +299,41 @@ test('storage diagnostics whitelist causes and correlate without reflecting priv
       assert.match(result.body.request_id, /^[a-f0-9-]{36}$/);
       assert.equal(logs.at(-1).request_id, result.body.request_id);
       assert.equal(logs.at(-1).error_kind, kind);
-      assert.deepEqual(Object.keys(logs.at(-1)).sort(), ['error', 'error_kind', 'event', 'request_id', 'snapshot_id']);
+      assert.deepEqual(Object.keys(logs.at(-1)).sort(), kind === 'storage_quota'
+        ? ['error', 'error_kind', 'event', 'quota_kind', 'request_id', 'snapshot_id']
+        : ['error', 'error_kind', 'event', 'request_id', 'snapshot_id']);
       assert.ok(!JSON.stringify([result, logs]).includes('injected-private'));
       assert.ok(!JSON.stringify([result, logs]).includes('private_table'));
     }
   } finally { console.error = originalLog; f.db.batch = original; }
+}));
+
+test('storage quota kinds refine the quota family without changing error_kind or other categories', () => fixture(async f => {
+  const original = f.db.batch;
+  try {
+    for (const [message, quota_kind] of [
+      ["D1_ERROR: You have exceeded the free tier daily row read limit.", 'storage_daily_read'],
+      ["D1_ERROR: Your account has exceeded D1's free tier daily row write limit.", 'storage_daily_write'],
+      ['D1_ERROR: You have exceeded the maximum account storage limit.', 'storage_account'],
+      ['D1_ERROR: Exceeded maximum DB size.', 'storage_db_size'],
+    ]) {
+      f.db.batch = async () => { throw new Error(message); };
+      const s = f.snapshot(); const result = await f.push(s);
+      assert.equal(result.status, 503);
+      assert.equal(result.body.error_kind, 'storage_quota');  // backward compatible
+      assert.equal(result.body.quota_kind, quota_kind);
+      assert.equal(result.body.snapshot_id, s.snapshot_id);
+    }
+    // Non-quota storage failures keep no quota_kind at all.
+    f.db.batch = async () => { throw new Error('D1_ERROR: Network connection lost.'); };
+    const transient = await f.push(f.snapshot());
+    assert.equal(transient.body.error_kind, 'storage_transient');
+    assert.equal('quota_kind' in transient.body, false);
+    f.db.batch = async () => { throw new Error('D1_ERROR: no such table: private_table'); };
+    const config = await f.push(f.snapshot());
+    assert.equal(config.body.error_kind, 'storage_configuration');
+    assert.equal('quota_kind' in config.body, false);
+  } finally { f.db.batch = original; }
 }));
 
 test('failed diagnostic read retains original batch cause; real schema failure is safe', () => fixture(async f => {
