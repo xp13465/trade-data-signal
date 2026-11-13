@@ -149,13 +149,23 @@ def _ok_df(n=3) -> pd.DataFrame:
     })
 
 
+# ── mock 东财主源(单点, 2026-11-13 CI 三红修复) ───────────────────────────────
+# CI 门禁 ⑧ 只装 pytest/numpy/pandas/pyarrow 不装 akshare(conftest -> _ci_stubs 对未装
+# akshare 注入**空 ModuleType** stub, 导入级不带任何运行时属性); monkeypatch.setattr
+# 默认 raising=True 要求「属性已存在」⇒ CI 空 stub 上 AttributeError(本机真 akshare 有
+# fund_etf_spot_em ⇒ 假绿, 2026-11-13 CI 三红根因)。raising=False 两环境同绿且判别力
+# 不变: mock 值(抛错/返回 df)完全由用例控制, 属性存在与否不影响被测行为。
+def _mock_em(monkeypatch, fn):
+    monkeypatch.setattr(esf.ak, "fund_etf_spot_em", fn, raising=False)
+
+
 # ── ① 源A 失败 → 源B 成功 ────────────────────────────────────────────────────
 
 def test_01_main_fail_sina_ok(monkeypatch, tmp_path):
     calls = {"em": 0, "sina": 0}
-    monkeypatch.setattr(esf.ak, "fund_etf_spot_em",
-                        lambda: calls.__setitem__("em", calls["em"] + 1) or (_ for _ in ()).throw(
-                            ConnectionError("Remote end closed connection without response")))
+    _mock_em(monkeypatch,
+             lambda: calls.__setitem__("em", calls["em"] + 1) or (_ for _ in ()).throw(
+                 ConnectionError("Remote end closed connection without response")))
     monkeypatch.setattr(esf, "_sina_etf_spot_df", lambda: calls.__setitem__("sina", calls["sina"] + 1) or _ok_df())
     df = esf.fund_etf_spot_df()
     assert len(df) == 3
@@ -165,7 +175,7 @@ def test_01_main_fail_sina_ok(monkeypatch, tmp_path):
 
 
 def test_01b_eastmoney_ok_no_fallback(monkeypatch):
-    monkeypatch.setattr(esf.ak, "fund_etf_spot_em", lambda: _ok_df())
+    _mock_em(monkeypatch, lambda: _ok_df())
     df = esf.fund_etf_spot_df()
     assert len(df) == 3
     assert esf.last_source() == "eastmoney"
@@ -175,8 +185,8 @@ def test_01b_eastmoney_ok_no_fallback(monkeypatch):
 # ── ② A/B 全失败 → 第三源成功 ────────────────────────────────────────────────
 
 def test_02_all_fallback_levels_to_tencent(monkeypatch, tmp_path):
-    monkeypatch.setattr(esf.ak, "fund_etf_spot_em",
-                        lambda: (_ for _ in ()).throw(ConnectionError("RemoteDisconnected")))
+    _mock_em(monkeypatch,
+             lambda: (_ for _ in ()).throw(ConnectionError("RemoteDisconnected")))
     monkeypatch.setattr(esf, "_sina_etf_spot_df",
                         lambda: (_ for _ in ()).throw(RuntimeError(
                             "新浪节点 etf_hq_fund 仅返回 938 只(下限 1500), fail-closed 拒用")))
@@ -202,8 +212,8 @@ def test_02b_tencent_amount_and_price_numeric(monkeypatch, tmp_path):
 # ── ③ 全失败 → fail-closed ───────────────────────────────────────────────────
 
 def test_03_all_fail_fail_closed(monkeypatch):
-    monkeypatch.setattr(esf.ak, "fund_etf_spot_em",
-                        lambda: (_ for _ in ()).throw(ConnectionError("RemoteDisconnected")))
+    _mock_em(monkeypatch,
+             lambda: (_ for _ in ()).throw(ConnectionError("RemoteDisconnected")))
     monkeypatch.setattr(esf, "_sina_etf_spot_df",
                         lambda: (_ for _ in ()).throw(RuntimeError("新浪 938<1500 拒用")))
     monkeypatch.setattr(esf, "_tencent_etf_spot_df",
