@@ -228,5 +228,90 @@ def test_dry_run_conflict_sends_no_alert(tmp_db, monkeypatch, stub_notify):
     assert stub_notify == [], f"dry-run 轮不应发告警, 实发 {len(stub_notify)} 次"
 
 
+def test_timeout_round_still_alerts_nonnull_conflicts(tmp_db, monkeypatch, stub_notify):
+    """⑥ TimeoutError 预算中断轮: 此前已检出的非空冲突 → finally 告警仍发出且参数完整。
+
+    审查差集 #1 补锚点: 既有用例全走正常收尾, 覆盖不到「冲突已 extend 进
+    nonnull_conflicts 后整轮预算耗尽」的中断路径(告警放 finally 就是为覆盖它)。
+
+    场景: 冲突基金先处理(SELECT_SQL 按 fund_code 升序, 给它最小代码) →
+    NonNullConflict 被 extend 进 nonnull_conflicts; 该只轮转进度落盘后视为
+    预算耗尽 → 下一只循环顶 time.monotonic() >= deadline → collect 抛
+    TimeoutError(不吞掉), 外层 finally 仍恰发一次告警。
+
+    预算耗尽触发(不碰 stdlib time, 只换本模块绑定 mod.time 的假钟):
+    atomic_write_json 是本模块每只收尾写轮转进度的必经点, 包一层在冲突基金
+    进度落盘后翻「已超时」标志; gap/notify 等其余模块用自己的 time import 不受牵连。
+    打桩方式与既有用例一致(monkeypatch fetch_lsjz/subprocess.run, 零真实外发/联网, L48)。
+    """
+    import types as _types
+
+    d = _conflict_date()
+    _seed_basic(tmp_db, [
+        ("001828", "FOF-冲突先处理", "FOF-均衡型"),
+        ("005829", "FOF-预算耗尽未处理", "FOF-进取型"),
+    ])
+    _seed_conflict_row(tmp_db, "001828", d)
+
+    def fake_fetch(code, start, end, **kw):
+        return [{"date": d, "fund_code": code, "unit_nav": 1.234, "acc_nav": 2.0,
+                 "prev_unit_nav": 1.5, "nav_change_pct": 0.5}]
+
+    monkeypatch.setattr(mod, "fetch_lsjz", fake_fetch)
+    monkeypatch.setattr(mod, "RATE_LIMIT", 0.0)
+
+    state = {"expired": False}
+    real_time = mod.time
+
+    def fake_monotonic():
+        return 1e18 if state["expired"] else real_time.monotonic()
+
+    monkeypatch.setattr(mod, "time", _types.SimpleNamespace(
+        monotonic=fake_monotonic, time=real_time.time))
+
+    real_awj = mod.atomic_write_json
+
+    def flip_awj(path, value):
+        real_awj(path, value)
+        state["expired"] = True
+
+    monkeypatch.setattr(mod, "atomic_write_json", flip_awj)
+
+    # TimeoutError 按原语义抛出(不吞掉、不转 rc)
+    with pytest.raises(TimeoutError, match="预算耗尽"):
+        mod.collect(days=7, limit=None, dry_run=False)
+
+    # finally 仍恰发一次告警, 参数完整(warning 档/20h 去重窗/计数)
+    assert len(stub_notify) == 1, f"中断轮应恰发一次告警, 实发 {len(stub_notify)} 次"
+    cmd = stub_notify[0]
+    assert cmd[1].endswith("scripts/notify.py"), f"应调 scripts/notify.py, 得 {cmd[1]}"
+    subject, body = cmd[2], cmd[3]
+    assert "[告警] FOF 净值同源非空冲突" in subject, f"主题缺关键词: {subject}"
+    assert "1 条" in subject and "1 只" in subject, f"主题应含冲突条数/只数: {subject}"
+    assert "--tier" in cmd and cmd[cmd.index("--tier") + 1] == "warning"
+    assert "--dedup-key" in cmd and cmd[cmd.index("--dedup-key") + 1] == "fof_nav_nonnull_conflict"
+    assert "--dedup-window" in cmd and cmd[cmd.index("--dedup-window") + 1] == "72000"
+    for needle in (d, "prev_unit_nav", "eastmoney", "DB 旧值保留未覆盖",
+                   "attempted=1", "committed=0", "not_attempted=1", "001828"):
+        assert needle in body, f"正文缺要素: {needle}\n---\n{body}"
+
+    # DB 旧值保持不变 + 冲突审计已存(中断不丢已检出证据)
+    c = _conn(tmp_db)
+    row = c.execute("SELECT unit_nav, prev_unit_nav FROM fund_daily_nav "
+                    "WHERE fund_code='001828' AND date=?", (d,)).fetchone()
+    assert row["prev_unit_nav"] == 1.0, f"中断轮旧值应保留 1.0, 得 {row['prev_unit_nav']}"
+    assert row["unit_nav"] is None, "冲突基金应整只拒绝, unit_nav 不应被写入"
+    audited = c.execute("SELECT before_value, after_value FROM "
+                        "fund_collection_conflicts").fetchone()
+    assert audited["before_value"] == 1.0 and audited["after_value"] == 1.5
+    # 预算耗尽即停: 后续基金零写入
+    left = c.execute("SELECT COUNT(*) FROM fund_daily_nav "
+                     "WHERE fund_code='005829'").fetchone()[0]
+    assert left == 0, "预算耗尽后不应继续采集后续基金"
+    c.close()
+    # TimeoutError 中断未走到 batch_fail 判定行, 不置整批失败信号
+    assert mod.LAST_BATCH_FAILED is False
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
