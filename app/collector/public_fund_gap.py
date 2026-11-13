@@ -164,15 +164,32 @@ def plan(conn, stream, code, end, floor, lookback=7, work_limit=None):
 
 
 class NonNullConflict(RuntimeError):
-    def __init__(self, evidence):
+    def __init__(self, evidence, rounding_aligned=0):
         self.evidence = evidence
+        # 2026-11-13 方案 B: 「舍入差已对齐」条数(nav_change_pct 两位小数对齐放行的同源
+        # 精度差)。携带在异常上供采集方区分「舍入对齐」与「真实冲突」两类计数,
+        # 不改变拒绝行为本身(真实冲突仍整目标拒绝)。
+        self.rounding_aligned = rounding_aligned
         super().__init__('同源非空冲突，整目标拒绝: ' + json.dumps(evidence, ensure_ascii=False))
+
+
+# 2026-11-13 方案 B(FOF 239 只停更根治, 依据 /tmp/fof-budget-rca-20261113.md):
+# 库内旧 nav_change_pct 多来自 akshare fund_open_fund_daily_em 的长浮点(如
+# -0.9095554420030627), lsjz 接口 JZZZL 为两位小数(如 -0.91); rel_tol=1e-10 下
+# 这 650 条同源舍入差结构性每晚必拒。nav_change_pct 判定前按两位小数对齐:
+# 两值 round(x,2) 相等 = 同源舍入差 → 放行(不算冲突); round 后仍不等 = 真实差异
+# → 仍走 1e-10 严格拒绝。取 round 相等而非 abs_tol=0.005: 两位小数桶与源接口
+# (JZZZL 两位小数)发布精度一致, 判定与审计口径更清晰。
+# unit_nav/acc_nav/prev_unit_nav(净值本体)维持 1e-10 严格不动; 指数流
+# (close/pct_change)不在对齐集合, 同样维持 1e-10 严格。
+ROUNDING_ALIGNED_FIELDS = frozenset({'nav_change_pct'})
 
 
 def check_conflicts(conn, stream, code, rows, source):
     table, key, fields = tables(stream)
     evidence = []
     seen = {}
+    rounding_aligned = 0
     for row in rows:
         d = row['date']
         if d in seen and row != seen[d]:
@@ -183,10 +200,17 @@ def check_conflicts(conn, stream, code, rows, source):
             continue
         for field, before in zip(fields, old):
             after = row.get(field)
-            if before is not None and after is not None and not math.isclose(before, after, rel_tol=1e-10, abs_tol=1e-10):
+            if before is None or after is None:
+                continue
+            if field in ROUNDING_ALIGNED_FIELDS and round(float(before), 2) == round(float(after), 2):
+                # 舍入差已对齐(同源接口精度差, 视为一致): 计数供区分, 不入冲突证据。
+                rounding_aligned += 1
+                continue
+            if not math.isclose(before, after, rel_tol=1e-10, abs_tol=1e-10):
                 evidence.append({'date': d, 'field': field, 'before': before, 'after': after, 'source': source})
     if evidence:
-        raise NonNullConflict(evidence)
+        raise NonNullConflict(evidence, rounding_aligned)
+    return rounding_aligned
 
 
 def save_conflicts(conn, stream, code, error):

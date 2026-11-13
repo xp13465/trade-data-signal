@@ -60,7 +60,9 @@ def test_more_than_500_empty_and_errors_reach_tail_after_process_restart(sandbox
         return []
     monkeypatch.setattr(mod, "fetch_lsjz", first)
     assert mod.collect() == 0
-    assert called == [f"{i:06d}" for i in range(1, 501)]
+    # 2026-11-13 方案 C 两遍: pass A 增量扫 500 只(1..250 空成功, 251..500 异常);
+    # pass B 回补只跑未失败的 1..250(251..500 在 failed_funds 跳过)。
+    assert called == [f"{i:06d}" for i in range(1, 501)] + [f"{i:06d}" for i in range(1, 251)]
     assert mod.LAST_BATCH_FAILED is True  # F01混合空/异常零成功契约不变。
     # 新Python进程，不依赖父进程内变量，读取同一临时DB旁的持久进度。
     program = """
@@ -90,7 +92,8 @@ print(json.dumps(called))
                             capture_output=True, text=True, timeout=15)
     assert result.returncode == 0, result.stderr
     tail = json.loads(result.stdout.splitlines()[-1])
-    assert tail == [f"{i:06d}" for i in range(501, 1001)]
+    # 方案 C 两遍: pass A 501..1000 增量扫 + pass B 同 500 只回补(全部成功, 无 failed 跳过)。
+    assert tail == [f"{i:06d}" for i in range(501, 1001)] + [f"{i:06d}" for i in range(501, 1001)]
     called.clear()
     mod.collect()
     assert called[0] == "001001"
@@ -143,7 +146,8 @@ def test_corrupt_progress_recovers_by_rechecking(sandbox, monkeypatch, broken, c
     called = []
     monkeypatch.setattr(mod, "fetch_lsjz", lambda code, *a, **kw: called.append(code) or [])
     mod.collect()
-    assert called == ["016989"]
+    # 方案 C 两遍: 进度损坏从头复查, pass A 增量扫 + pass B 回补各调一次(幂等, 无状态)。
+    assert called == ["016989", "016989"]
     assert "进度损坏" in capsys.readouterr().out
 
 
@@ -186,7 +190,9 @@ def test_500_hard_cap_including_debug_limit(sandbox, monkeypatch, kwargs):
     called = []
     monkeypatch.setattr(mod, "fetch_lsjz", lambda code, *a, **kw: called.append(code) or [])
     mod.collect(**kwargs)
-    assert len(called) == 500
+    # 方案 C: batch 轮转模式两遍(pass A 增量扫 500 + pass B 回补 500);
+    # limit 显式窗口模式仍单遍(不读写轮转进度), 500 不变。
+    assert len(called) == 1000 if "batch" in kwargs else 500
     if "limit" in kwargs:
         assert not sandbox.with_suffix(".fof-nav-progress.json").exists()
 
@@ -236,7 +242,8 @@ def test_window_moves_and_removed_cursor_code_do_not_restart_head(sandbox, monke
     monkeypatch.setattr(mod, "date", type("Clock", (), {"today": staticmethod(lambda: date(2026, 11, 10))}))
     called.clear()
     mod.collect(batch=2)
-    assert called == ["000003", "000004"]
+    # 方案 C 两遍: pass A 增量扫 + pass B 回补, 本轮 2 只各调一次。
+    assert called == ["000003", "000004", "000003", "000004"]
 
 
 
