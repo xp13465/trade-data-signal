@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ETF 实时行情多源获取：东财主源 + 新浪/腾讯兜底(2026-09-24 用户拍板"加,仅主源失败时启用")。
+"""ETF 实时行情多源获取：东财主源 + 新浪/腾讯兜底 + 腾讯全量兜底(2026-09-24 新浪/腾讯兜底,
+2026-11-13 加第三级腾讯全量)。
 
 背景：东财 push2/push2delay/push2his 行情子域按域特征封禁(本机+云上双地实测 HTTP 000,
 akshare fund_etf_spot_em() 直挂 → board_etf_map 连续断档)。本模块提供统一入口：
-主源(东财)成功走原路径行为不变；仅主源失败时启用新浪+腾讯兜底。
+主源(东财)成功走原路径行为不变；仅主源失败时逐级启用兜底。
 
-兜底链路(已实测 2026-09-24)：
+兜底链路三级(逐级降级,每级失败都打印告警,绝不静默)：
   1. 新浪行情中心 Market_Center.getHQNodeData(node=etf_hq_fund+lof_hq_fund) 拉全量代码/行情
-     - 覆盖东财 fs=b:MK0021-24 等价集，实测 2045 只(场内ETF 1685 + 场内LOF 360)，8/8 连续调用成功
-     - amount(成交额)单位=元(量×价比值 1.00-1.01 实测)，ticktime 为当日时点
+     (2026-09-24 实测 2045 只; 2026-11-13 实测节点缩水 etf=938/lof=391, 938<1500 被自家
+     防截断下限拒用 → 引出第 3 级)
+     - amount(成交额)单位=元, ticktime 为当日时点
      - 差异：东财另有 29 只 519/580 段场外基金(无实时行情,amount=0,不参与有效匹配)，新浪无对应行情
   2. 腾讯 qt.gtimg.cn/q=sh|sz+code 批量补**全称名称**(新浪返回的 name 是深交所简称,如"创业板TF"
      而非"创业板ETF南方"，会导致名称关键词匹配全断——已实测腾讯返回全称,批量 500 只 0.3s 稳定)
      - 前缀映射 code[0]=='5'→sh，code[0] in '1234'→sz
+  3. 腾讯全量兜底(2026-11-13 双源全挂 40h 后新增): static-site/data/etf/{code}-all.json
+     universe 底盘(export_etf_hist.py 产物,云上实测 1745 只,含场内 ETF+LOF) + qt.gtimg.cn
+     逐码批量(500/批, 实测 1745/1745 有效/2.1s): 全称=f[1]/最新价=f[3]/成交额(元)=f[35]
+     "价/量/额"第三段。三重 fail-closed: universe<1500 拒用/有效行<1500 拒用/覆盖度对账
+     (universe 缺失>50)拒用,下限与新浪同值不放宽。
+     依据表: /tmp/board-etf-map-fix-report.md(第 0 步云上出口实测, 2026-11-13)。
 
 本模块为共享单源，供以下消费点复用(均已核对只消费 代码/名称/成交额 三列)：
   - scripts/build_board_etf_map.py (L1418)
@@ -26,20 +34,29 @@ akshare fund_etf_spot_em() 直挂 → board_etf_map 连续断档)。本模块提
     df 由 build_board_etf_map.py 预计算传入)
 """
 import time
+from pathlib import Path
 from typing import Dict, Any, List
 
 import akshare as ak
 import pandas as pd
 import requests
 
-# 本次进程内最后一次 fund_etf_spot_df() 是否走了兜底(供 build_board_etf_map 写 _meta.source 标注,
-# 纯调试信息字段, 前端/机检不消费, 2026-09-24 核对)
-_LAST_USED_FALLBACK = False
+ROOT = Path(__file__).resolve().parent.parent
+
+# 本次进程内最后一次 fund_etf_spot_df() 用的源(供 build_board_etf_map 写 _meta.source 标注,
+# 纯调试信息字段, 前端/机检不消费, 2026-09-24 核对; 2026-11-13 由 bool 升级为三源枚举)
+# 取值: "eastmoney"(东财主源) / "sina_tencent"(新浪全量+腾讯补名) / "tencent_universe"(腾讯全量兜底)
+_LAST_SOURCE = "eastmoney"
 
 
 def was_fallback_used() -> bool:
-    """返回最近一次 fund_etf_spot_df() 是否走了新浪+腾讯兜底(供产物元数据标注)。"""
-    return _LAST_USED_FALLBACK
+    """返回最近一次 fund_etf_spot_df() 是否走了兜底(供产物元数据标注,兼容旧消费点)。"""
+    return _LAST_SOURCE != "eastmoney"
+
+
+def last_source() -> str:
+    """返回最近一次 fund_etf_spot_df() 实际使用的源名(三源枚举, 2026-11-13)。"""
+    return _LAST_SOURCE
 
 _SINA_HEADERS = {
     "Referer": "https://finance.sina.com.cn",
@@ -57,6 +74,21 @@ _SINA_NODE_MIN_ROWS = {"etf_hq_fund": 1500, "lof_hq_fund": 300}
 
 _TENCENT_URL = "https://qt.gtimg.cn/q="
 _TENCENT_BATCH = 500
+
+# ── 第三源: 腾讯全量行情(etf/ universe 底盘, 2026-11-13 双源全挂后新增) ──────────
+# 依据(云上出口 122.51.111.173 只读实测 2026-11-13, 全表见 /tmp/board-etf-map-fix-report.md):
+# - 东财 fund_etf_spot_em() 仍封禁(RemoteDisconnected, 出口 IP 级, 40h+);
+# - 新浪 etf_hq_fund 节点真实总数 938 < 1500 下限(节点缩水 ~45%, 非瞬时截断)→ 兜底失效;
+# - 腾讯 qt.gtimg.cn 云上可用: universe 1745 只逐码批量(500/批)实测 1745/1745 有效(2.1s),
+#   全称=f[1] / 最新价=f[3] / 成交额(元)=f[35]("价/量/额"第三段, 与东财同为元口径)。
+# universe 底盘 = static-site/data/etf/{code}-all.json 文件名(export_etf_hist.py 产物,
+# 云上 deploy 树实测 1745 只, 含场内 ETF+LOF)。deploy 内 gen/build 先于 R2/静态站同步执行,
+# 该目录在 deploy 树长期在位(由每周全史导出任务刷新)。
+_TENCENT_UNIVERSE_DIR = ROOT / "static-site" / "data" / "etf"
+# 有效行下限: 与新浪同值同理由(防静默缩水覆盖, 不放宽; 腾讯实测能拉 ~1745)
+_TENCENT_UNIVERSE_MIN_ROWS = 1500
+# 覆盖度对账: universe 代码中腾讯未返回有效行情的数 > 此值 = 拒用(防批量请求中途被截断)
+_TENCENT_UNIVERSE_MAX_MISSING = 50
 
 # 新浪行情字段 → 东财 fund_etf_spot_em 列名映射(仅消费点实际用到的三列必映射，trade 附送)
 _SINA_MAP = {
@@ -152,6 +184,81 @@ def _tencent_fetch_names(codes: List[str]) -> tuple:
     return names, missing
 
 
+def _tencent_universe_codes() -> List[str]:
+    """第三源 universe 底盘: static-site/data/etf/{code}-all.json 文件名集合。
+
+    目录缺失/为空 → 返回空列表(调用方按 fail-closed 拒用, 不静默换源)。
+    """
+    d = _TENCENT_UNIVERSE_DIR
+    if not d.is_dir():
+        return []
+    return sorted({f.name.split("-")[0] for f in d.glob("*-all.json")
+                   if f.name[:1].isdigit() and f.name[6:7] == "-"})
+
+
+def _tencent_etf_spot_df() -> pd.DataFrame:
+    """第三源(2026-11-13 新增): 腾讯全量行情 = etf/ universe 底盘 + qt.gtimg.cn 逐码批量。
+
+    fail-closed(§23.11 绝不静默, 三重下限一个不放宽):
+    - universe 底盘不足 1500 只 → 拒用(底盘残缺说明环境异常, 不能基于残缺清单构建);
+    - 有效行情行 < 1500 → 拒用(与新浪 1500 下限同值同理由: 防静默缩水覆盖, 实测能拉 ~1745);
+    - 覆盖度对账: universe 中无有效行情的代码 > 50 → 拒用(防批量请求中途截断静默漏码)。
+    """
+    codes = _tencent_universe_codes()
+    if len(codes) < _TENCENT_UNIVERSE_MIN_ROWS:
+        raise RuntimeError(
+            f"腾讯全量源 universe 底盘不足: {_TENCENT_UNIVERSE_DIR} 仅 {len(codes)} 只"
+            f"(< {_TENCENT_UNIVERSE_MIN_ROWS}), 疑似 etf/ 全史产物目录缺失/残缺, fail-closed 拒用")
+    rows: List[Dict[str, Any]] = []
+    for i in range(0, len(codes), _TENCENT_BATCH):
+        batch = codes[i:i + _TENCENT_BATCH]
+        q = ",".join(_code_prefix(c) for c in batch)
+        r = requests.get(_TENCENT_URL + q, timeout=20)
+        r.raise_for_status()
+        # 返回多行 v_sh510050="..."; GBK 显式解码(同 _tencent_fetch_names)
+        text = r.content.decode("gbk", errors="replace")
+        for line in text.strip().split(";"):
+            line = line.strip()
+            if not line.startswith("v_"):
+                continue
+            m = line.split("=", 1)
+            if len(m) != 2:
+                continue
+            sym = m[0].strip().removeprefix("v_")
+            f = m[1].strip().strip('"').split("~")
+            # 全称=索引1, 最新价=索引3, 成交额(元)=索引35 "价/量/额" 第三段(2026-11-13 云上实测)
+            if len(f) <= 35:
+                continue
+            name = f[1].strip()
+            pva = f[35].split("/")
+            if not name or len(pva) < 3:
+                continue
+            rows.append({"代码": sym[2:], "名称": name, "最新价": pva[0], "成交额": pva[2]})
+        time.sleep(0.3)
+    if len(rows) < _TENCENT_UNIVERSE_MIN_ROWS:
+        raise RuntimeError(
+            f"腾讯全量源仅返回 {len(rows)} 只有效行情(< {_TENCENT_UNIVERSE_MIN_ROWS}),"
+            f"疑似批量请求中途截断/数据源异常, fail-closed 拒用")
+    got = {r["代码"] for r in rows}
+    missing = [c for c in codes if c not in got]
+    if len(missing) > _TENCENT_UNIVERSE_MAX_MISSING:
+        raise RuntimeError(
+            f"腾讯全量源覆盖度对账失败: universe {len(codes)} 只中缺 {len(missing)} 只"
+            f"(> {_TENCENT_UNIVERSE_MAX_MISSING}), 如 {','.join(missing[:10])}, fail-closed 拒用")
+    df = pd.DataFrame(rows)
+    amount_num = pd.to_numeric(df["成交额"], errors="coerce")
+    n_bad_amount = int(amount_num.isna().sum())
+    if n_bad_amount > 50:
+        raise RuntimeError(
+            f"腾讯全量源成交额解析失败 {n_bad_amount} 只, fail-closed 拒用")
+    df["成交额"] = amount_num.fillna(0)
+    if "最新价" in df.columns:
+        df["最新价"] = pd.to_numeric(df["最新价"], errors="coerce")
+    if n_bad_amount:
+        print(f"⚠ [etf-fallback] 腾讯全量源成交额解析失败 {n_bad_amount} 只, 回落 0", flush=True)
+    return df
+
+
 def _sina_etf_spot_df() -> pd.DataFrame:
     """新浪+腾讯兜底：新浪拉全量代码/行情 → 腾讯批量补全称，映射列名到东财口径。"""
     all_rows: List[Dict[str, Any]] = []
@@ -202,18 +309,20 @@ def _sina_etf_spot_df() -> pd.DataFrame:
 
 
 def fund_etf_spot_df() -> pd.DataFrame:
-    """东财主源 + 新浪/腾讯兜底统一入口。
+    """东财主源 + 新浪/腾讯兜底 + 腾讯全量兜底 统一入口。
 
     - 主源(东财)成功：返回 ak.fund_etf_spot_em() 原样 df，行为完全不变。
-    - 仅主源失败：启用新浪+腾讯兜底，打印明确告警日志(不静默降级)。
-    - 两源都失败：抛异常如实报错(上游感知失败)。
+    - 主源失败：启用新浪+腾讯兜底(全量+补全称)，失败再启用腾讯全量兜底
+      (etf/ universe 底盘 + qt.gtimg.cn 逐码批量, 2026-11-13 双源全挂 40h 后新增)。
+    - 每级失败都打印明确告警日志(不静默降级)；全部失败抛聚合异常，
+      消息带每个源名/条数/原因(可诊断, 2026-11-13 加固)。
     """
-    global _LAST_USED_FALLBACK
+    global _LAST_SOURCE
     try:
         df = ak.fund_etf_spot_em()
         if df is None or df.empty:
             raise ValueError("东财 fund_etf_spot_em() 返回空 DataFrame")
-        _LAST_USED_FALLBACK = False
+        _LAST_SOURCE = "eastmoney"
         return df
     except Exception as e_main:
         err_main = f"{type(e_main).__name__}: {e_main}"[:200]
@@ -221,11 +330,22 @@ def fund_etf_spot_df() -> pd.DataFrame:
               f"启用新浪+腾讯兜底(新浪全量+腾讯全称) ...", flush=True)
         try:
             df = _sina_etf_spot_df()
-            _LAST_USED_FALLBACK = True
+            _LAST_SOURCE = "sina_tencent"
             print(f"✅ [etf-fallback] 新浪+腾讯兜底成功：{len(df)} 只(代码/名称全称/成交额口径)",
                   flush=True)
             return df
-        except Exception as e_fb:
-            err_fb = f"{type(e_fb).__name__}: {e_fb}"[:200]
-            raise RuntimeError(
-                f"ETF 实时行情两源均失败：东财({err_main})；新浪+腾讯兜底({err_fb})") from e_fb
+        except Exception as e_fb1:
+            err_fb1 = f"{type(e_fb1).__name__}: {e_fb1}"[:200]
+            print(f"⚠ [etf-fallback] 新浪+腾讯兜底失败({err_fb1})，"
+                  f"启用腾讯全量兜底(etf/ universe 底盘 + qt.gtimg.cn 逐码批量) ...", flush=True)
+            try:
+                df = _tencent_etf_spot_df()
+                _LAST_SOURCE = "tencent_universe"
+                print(f"✅ [etf-fallback] 腾讯全量兜底成功：{len(df)} 只"
+                      f"(universe 底盘 + 代码/全称/最新价/成交额口径)", flush=True)
+                return df
+            except Exception as e_fb2:
+                err_fb2 = f"{type(e_fb2).__name__}: {e_fb2}"[:200]
+                raise RuntimeError(
+                    f"ETF 实时行情三源均失败：东财({err_main})；"
+                    f"新浪+腾讯兜底({err_fb1})；腾讯全量兜底({err_fb2})") from e_fb2

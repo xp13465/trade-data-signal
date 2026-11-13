@@ -18,6 +18,7 @@ import json
 import re
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import akshare as ak
@@ -27,7 +28,7 @@ ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 from util_atomic import atomic_write_text  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
-from _etf_spot_fallback import fund_etf_spot_df, was_fallback_used  # noqa: E402  (东财主源+新浪兜底, 2026-09-24)
+from _etf_spot_fallback import fund_etf_spot_df, last_source  # noqa: E402  (东财主源+新浪/腾讯全量兜底, 2026-09-24/11-13)
 from app.collector.fetchers import load_config
 from app.collector.overlap_fetcher import match_overlap as _overlap_match
 from app.collector.overlap_fetcher import match_holdings_overlap as _holdings_match
@@ -1499,10 +1500,15 @@ def main():
         for _, r in df.iterrows():
             df_by_code[str(r["代码"])] = r
 
-    _source_label = ("akshare fund_etf_spot_em + fundf10 track_index"
-                     if not was_fallback_used()
-                     else "新浪+腾讯兜底(东财主源失败, fund_etf_spot_em 不可用) + fundf10 track_index")
-    out: dict = {"_meta": {"source": _source_label,
+    # 行情源标注(三源, 2026-11-13): fund_etf_spot_df 逐级降级 eastmoney→sina_tencent→tencent_universe
+    _SRC_LABELS = {
+        "eastmoney": "akshare fund_etf_spot_em + fundf10 track_index",
+        "sina_tencent": "新浪+腾讯兜底(东财主源失败, fund_etf_spot_em 不可用) + fundf10 track_index",
+        "tencent_universe": "腾讯全量兜底(etf/ universe 底盘+qt.gtimg.cn; 东财封禁+新浪节点缩水<1500 双源失败, 2026-11-13) + fundf10 track_index",
+    }
+    _source_label = _SRC_LABELS.get(last_source(), _SRC_LABELS["eastmoney"])
+    out: dict = {"_meta": {"date": time.strftime("%Y%m%d"),  # 构建日(YYYYMMDD), check_data_integrity board_etf_map_fresh 消费; 旧版无此字段时新鲜度检查退 mtime(2026-11-13)
+                           "source": _source_label,
                            "sort_by": "track_score(降序,跟踪分最高在前; None排最后); LOF净值取自fund_open_fund_info_em",
                            "match_method": "全量叠加: track_index_code(base) + track_index_name + overlap + kw + holdings_overlap(d) + sum_pct(e) 合并去重, 按track_score降序排",
                            "similarity_fields": "similarity(1-max_err/100) / max_err(5周期最大误差%) / grade(excellent<1%/good<5%/warn>=5%) / fund_type(etf|lof)",

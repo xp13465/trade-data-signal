@@ -248,6 +248,13 @@ ALERT_ONLY_CHECKS = {
               "滞后=副图旧, 不阻断主数据",
     "a_stock": "A股 1 年概览(上游日频); 滞后/缺段=该区块降级",
     "trade_sim_indices": "模拟指数对比(展示型衍生产物); 缺失不影响主功能",
+    # board_etf_map_fresh(2026-11-13): build 失败时 deploy 按既定设计用旧版兜底+severe 告警
+    # 一次(dedup 窗口内首响), 持续陈旧(如 11-11 19:30 起双源全挂 40h+)除此之外零可见。
+    # 本检查挂在每轮 deploy 的 check_data_integrity 里, 陈旧期间每轮独立报警(独立 dedup key,
+    # 6h 窗口), 让持续陈旧可见。定级=告警级: build 失败属上游数据源故障, deploy 重跑修不了,
+    # 阻断级会掐断旧版兜底继续上线其他数据的既定设计(§23.7 不降级告警口径, 只加可见性)。
+    "board_etf_map_fresh": "board_etf_map 新鲜度(行情源/build 故障时旧版兜底持续陈旧); "
+                           "滞后>1 个交易日=FAIL 告警级, 每轮 deploy 独立报警",
     # etf_since_return 是 overview.json 的注入字段: 根因可为上游覆盖率不足或 deploy 注入
     # 失败(混合), 分级保留但理由写清(2026-10-22 审查差集, 原「展示型衍生产物」不精确)。
     "etf_since_return": "ETF 至今收益统计(overview 注入字段; 根因混合: 上游覆盖率不足 / "
@@ -354,6 +361,49 @@ def check_board_etf_map(repo_data_dir: Path) -> CheckResult:
                      f"{BOARD_ETF_EMPTY_WARN_RATIO:.0%}")
 
     return _ok(name, f"空数组占比 {ratio:.1%} ({empty_count}/{len(index_keys)})")
+
+
+# board_etf_map 新鲜度滞后阈值(交易日): >1 个交易日 = FAIL(告警级)。依据(2026-11-13
+# 双源全挂 RCA): map 停在 11-11 18:53, deploy 每轮失败但旧版兜底设计正确继续上线,
+# 唯一告警只在 dedup 窗口首响 → 40h+ 持续陈旧零可见。正常态 deploy 盘后跑, date 应=最新交易日(=0)。
+BOARD_ETF_MAP_MAX_LAG_TRADING_DAYS = 1
+
+
+def check_board_etf_map_fresh(repo_data_dir: Path) -> CheckResult:
+    """校验 board_etf_map.json 新鲜度(2026-11-13 双源全挂 40h 零可见教训)。
+
+    口径: 数据日期 = _meta.date(YYYYMMDD, build_board_etf_map.py 2026-11-13 起写入;
+    旧版产物无该字段 → 退 mtime 兜底, 一次性过渡), 滞后交易日数(权威=app.calendar
+    lag_trading_days, 不可用退自然日 fail-safe) > 1 → FAIL 告警级。
+    挂每轮 deploy 的 check_data_integrity → 陈旧期间每轮独立报警, 不只首响一次。
+    """
+    name = "board_etf_map_fresh"
+    path = repo_data_dir / "board_etf_map.json"
+    data, err = _load_json(path)
+    if err:
+        return _fail(name, err)
+    date_str = ""
+    date_src = "_meta.date"
+    if isinstance(data, dict) and isinstance(data.get("_meta"), dict):
+        date_str = str(data["_meta"].get("date") or "").strip()
+    if not date_str:
+        # 过渡兜底: 旧版产物(2026-11-13 前)无 _meta.date → 用文件 mtime(11-11 事故期间
+        # 三副本 mtime 均停在 11-11 18:53, 可用; 首次成功重建后即有 _meta.date)
+        try:
+            date_str = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y%m%d")
+        except OSError:
+            return _fail(name, "board_etf_map.json 无 _meta.date 且 mtime 不可读, 无法判新鲜度")
+        date_src = "mtime"
+    lag = _lag_trading_days(date_str)
+    if lag is None:
+        return _fail(name, f"board_etf_map 数据日期({date_src})格式异常: {date_str}")
+    if lag > BOARD_ETF_MAP_MAX_LAG_TRADING_DAYS:
+        return _fail(name, f"board_etf_map 数据日期滞后 {lag} 个交易日(> "
+                          f"{BOARD_ETF_MAP_MAX_LAG_TRADING_DAYS}, {date_src}={date_str}): "
+                          f"行情源/ build 故障, 旧版兜底持续陈旧, 须人工处置(看 deploy 日志定位失败源)")
+    if lag == BOARD_ETF_MAP_MAX_LAG_TRADING_DAYS:
+        return _warn(name, f"board_etf_map 数据日期滞后 1 个交易日({date_src}={date_str})")
+    return _ok(name, f"数据日期={date_str}({date_src}, 滞后 {lag} 个交易日)")
 
 
 def check_overview(data_dir: Path) -> CheckResult:
@@ -2275,6 +2325,8 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
 
     # 15 个校验函数
     results.append(check_board_etf_map(repo_data_dir))
+    # board_etf_map 新鲜度(2026-11-13): build 失败旧版兜底持续陈旧, 每轮 deploy 独立报警
+    results.append(check_board_etf_map_fresh(repo_data_dir))
     results.append(check_overview(data_dir))
     results.append(check_sentiment_card_date(data_dir))
     results.append(check_boot(data_dir))
