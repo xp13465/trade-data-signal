@@ -442,11 +442,17 @@ def test_expired_deadline_never_launches_or_writes(isolated):
 
 def _entrypoints(isolated):
     tree = ast.parse((ROOT / 'app/collector/public_fund.py').read_text())
-    nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef)
-             and n.name in ('pipeline_daily', 'main')]
+    # 2026-11-13 E3 有条件跳过: pipeline_daily 新引用 _e3_* 模块级函数, 一并从源码 AST 提取;
+    # 标记路径指向本用例 tmp(_ROOT), atomic_write_json 给桩 —— 既有用例零真实写、隔天仍绿(时间全冻结/标记恒缺)。
+    names = ('pipeline_daily', 'main', '_e3_now', '_e3_round_label',
+             '_e3_read_marker', '_e3_skip_check', '_e3_write_marker')
+    nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
     ns = dict(isolated.fetch.__globals__)
     ns.update(init_db=lambda: None, _acquire_lock=lambda **kw: True,
-              fetch_daily_nav=lambda: 0, fetch_estimation=lambda: 0)
+              fetch_daily_nav=lambda: 0, fetch_estimation=lambda: 0,
+              E3_SKIP_MARKER_PATH=isolated.fetch.__globals__['_ROOT'] / 'e3_index_daily_success.json',
+              atomic_write_json=lambda path, data, **kw: path.write_text(
+                  json.dumps(data, ensure_ascii=False), encoding='utf-8'))
     exec(compile(ast.Module(body=nodes, type_ignores=[]), '<entrypoints>', 'exec'), ns)
     return ns
 

@@ -1083,6 +1083,76 @@ def fetch_estimation() -> int:
         return 0
 
 
+# ── E3 有条件跳过(2026-11-13, /tmp/pf-1700-exit2-rca-20261113.md 用户拍板方案②a) ──
+# 17:00 补档仅在「同一交易日 16:20 轮 E3 已成功」时跳过 E3; 16:20 失败/缺失/跨日一律照跑。
+# 背景: 17:00 档 E3(baostock login 10002007)自 11-10 连续失败, 而 16:20 档全月全成功且
+# fund_index_daily 恒为 T-1(11 月逐日 deploy 校验行), 17:00 档 E3 成功也拿不到当日指数, 增量价值≈0。
+# 判据 = 当日真实产物事实标记(日期+轮次+成功时间+三指数写入行数), 跨日失效, 文件存在不算数。
+# 轮次区分: 云上同一 timer 两个 OnCalendar(16:20/17:00)同一脚本无参数, 只能按 wall-clock:
+# 16:20 主档 pipeline_daily 的 E3 阶段最晚 ~16:25 到达(实测 elapsed ≤200s), 16:50 为补档判定阈值,
+# persistent 补跑歧义时保守照跑(不猜)。
+E3_SKIP_MARKER_PATH = _DATA_DIR / "e3_index_daily_success.json"
+
+
+def _e3_now() -> dt.datetime:
+    """wall-clock 单一注入点(测试冻结运行日用, L51)。"""
+    return dt.datetime.now()
+
+
+def _e3_round_label(now: dt.datetime) -> str:
+    """按 wall-clock 判轮次: >=16:50 = 17:00 补档, 否则 16:20 主档。"""
+    return "17:00" if now.time() >= dt.time(16, 50) else "16:20"
+
+
+def _e3_read_marker() -> dict | None:
+    """读 E3 当日成功标记; 缺失/损坏/非 dict 一律返回 None(=照跑 E3)。"""
+    try:
+        data = json.loads(E3_SKIP_MARKER_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _e3_skip_check(now: dt.datetime | None = None) -> dict | None:
+    """17:00 补档跳过判据: 同一交易日 16:20 轮 E3 已成功才返回标记 dict; 其余一律 None=照跑。
+
+    跨日失效: 标记 date != 今天 → None; 16:20 失败(标记缺失)/rows=0/success≠true/轮次
+    非 16:20(含 persistent 补跑歧义)→ None。16:20 主档自身永不跳过(它是标记的生产者)。
+    """
+    now = now or _e3_now()
+    if _e3_round_label(now) != "17:00":
+        return None
+    marker = _e3_read_marker()
+    if not marker or marker.get("round") != "16:20":
+        return None
+    if marker.get("date") != now.strftime("%Y%m%d"):
+        return None
+    if marker.get("success") is not True:
+        return None
+    rows = marker.get("rows")
+    if not isinstance(rows, dict):
+        return None
+    if not all(isinstance(rows.get(k), int) and not isinstance(rows.get(k), bool)
+               and rows[k] > 0 for k in ("hs300", "csi500", "gem")):
+        return None
+    return marker
+
+
+def _e3_write_marker(rows: dict, now: dt.datetime | None = None) -> None:
+    """E3 三指数全部采集成功后写当日成功标记(只读证据, 供 17:00 补档判跳过, 非第二套状态系统)。
+
+    rows: {index_id: fetch_index_daily 返回的写入行数}。任一指数失败时本函数不被调用(无标记=17:00 照跑)。
+    """
+    now = now or _e3_now()
+    atomic_write_json(E3_SKIP_MARKER_PATH, {
+        "date": now.strftime("%Y%m%d"),
+        "round": _e3_round_label(now),
+        "success_ts": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "success": True,
+        "rows": {k: int(rows.get(k) or 0) for k in ("hs300", "csi500", "gem")},
+    })
+
+
 # ── Fetcher E3: 基准指数日频 (baostock 沪深300) ──────────────────────────────────
 def fetch_index_daily(start_date: str | None = None, end_date: str | None = None,
                       index_id: str = "hs300", *, deadline: float | None = None,
@@ -4560,9 +4630,27 @@ def pipeline_daily(*, budget_seconds: float = 290.0) -> dict:
     stats["fund_daily_nav"] = fetch_daily_nav()
     # 盘中实时估算(盘后/非交易日返回 0 正常, 不阻塞)
     stats["fund_estimation_nav"] = fetch_estimation()
-    # 三指数日频刷新(反推算法基准, baostock ~5s, 每日必采避免 fund_index_daily 滞后)
-    for _idx in ("hs300", "csi500", "gem"):
-        stats[f"index_{_idx}"] = fetch_index_daily(index_id=_idx, deadline=deadline)
+    # 三指数日频刷新(反推算法基准, baostock ~5s, 每日必采避免 fund_index_daily 滞后)。
+    # 2026-11-13 有条件跳过: 17:00 补档且「同交易日 16:20 轮 E3 已成功」(当日标记, 跨日失效)时
+    # 跳过 E3(fund_index_daily 恒 T-1, 17:00 档增量价值≈0); 其余一律照跑, 失败仍走
+    # main daily 分支的 exit 2/124 映射(:5829-5834 一行不改), 防旧数据闭锁不动。
+    _e3_marker = _e3_skip_check()
+    if _e3_marker is not None:
+        _e3_rows = _e3_marker["rows"]
+        print(f"[E3] skipped: 16:20 round succeeded at {_e3_marker['success_ts']}, "
+              f"fund_index_daily date={_e3_marker['date']} rows={sum(_e3_rows.values())}", flush=True)
+        for _idx in ("hs300", "csi500", "gem"):
+            stats[f"index_{_idx}"] = f"skipped({_e3_rows[_idx]})"
+    else:
+        _e3_rows: dict = {}
+        for _idx in ("hs300", "csi500", "gem"):
+            _e3_rows[_idx] = fetch_index_daily(index_id=_idx, deadline=deadline)
+            stats[f"index_{_idx}"] = _e3_rows[_idx]
+        # 成功标记写入失败只降级为「17:00 补档照跑 E3」(安全方向), 不让已成功的采集变 exit≠0。
+        try:
+            _e3_write_marker(_e3_rows)
+        except OSError as exc:
+            print(f"[E3] 成功标记写入失败(17:00 补档将照跑 E3 兜底): {exc}", flush=True)
     # 估算仓位变化（用 fund_position_history 最新两期 cninfo 季报环比）
     conn = get_conn()
     rows = conn.execute(
