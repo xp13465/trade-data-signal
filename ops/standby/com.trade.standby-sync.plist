@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.trade.standby-sync.plist — 备用机每日凌晨同步模板(工作包三/D 批)。
+
+  ⚠️ 本文件是模板, 按下方占位符改完再装(load); 本仓库提交的模板本身**不会被安装**。
+  占位符(两处, 必改):
+    __STANDBY_PYTHON__   备用机 python 绝对路径(建议专用 venv: <工作根>/.venv/bin/python)
+    __STANDBY_REPO__     备用机上的独立 git clone 工作根(勿指向开发树 ~/code/trade)
+
+  调度: 每日 00:30 Asia/Shanghai(StartCalendarInterval 用机器本地时区;
+  备用机系统时区必须设为 Asia/Shanghai, 否则按实际时区等效换算 HH:MM)。
+  选点依据(方案「调度规则」第 1 条, 由现场排程定, 非凭空):
+  - 云上备份链 21:00 起至 22:24(public_fund 上传实测完成时点)之后;
+  - 避开本机 03:17 claude 自备份(com.claude.self-backup)与云上 05:0x
+    staticdata 备份高峰(错开 ≥30min);
+  - 留出云上 23:00~00:00 尾部任务余量 ⇒ 00:30。
+
+  启动补偿(launchd 机器睡眠/关机不补跑 StartCalendarInterval):
+  配套 com.trade.standby-sync-catchup.plist(RunAtLoad=true)用
+  `sync --only-if-missed`: 开机/唤醒即检查, 今日已成功则静默退出; 未成功则
+  补做一次有效同步(脚本内漏跑补偿记 missed_runs, 不补跑一串历史调度)。
+  flock 保证两个 plist 撞车时只有一个更新者。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.trade.standby-sync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__STANDBY_PYTHON__</string>
+    <string>__STANDBY_REPO__/scripts/standby_sync.py</string>
+    <string>--root</string>
+    <string>/Users/linhuichen/trade-standby</string>
+    <string>--repo-dir</string>
+    <string>__STANDBY_REPO__</string>
+    <string>sync</string>
+    <!-- 每窗口最多 3 次尝试, 指数退避 120s 起, 共享总截止 120 分钟 -->
+    <string>--max-attempts</string>
+    <string>3</string>
+    <string>--backoff-seconds</string>
+    <string>120</string>
+    <string>--deadline-minutes</string>
+    <string>120</string>
+    <!-- 成功/无变化/窗口内重试成功静默; 损坏/超窗/过期/空间不足才发事件 -->
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>0</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/linhuichen/trade-standby/logs/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/linhuichen/trade-standby/logs/launchd.err.log</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

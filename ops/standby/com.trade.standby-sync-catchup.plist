@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.trade.standby-sync-catchup.plist — 启动补偿入口模板(与主 plist 配套)。
+
+  机制: RunAtLoad=true(登录/开机即跑)+ `sync --only-if-missed`:
+  - 今日已成功(状态 JSON last_success_date=今日)⇒ 静默退出 rc=0, 零成本;
+  - 昨晚窗口漏跑(关机/睡眠/断网)⇒ 补做**一次**有效同步, missed_runs 如实入账;
+  - 与主 plist 撞车 ⇒ standby_sync 的 flock 单实例锁保证只有一个更新者。
+
+  占位符同主 plist(__STANDBY_PYTHON__ / __STANDBY_REPO__)。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.trade.standby-sync-catchup</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__STANDBY_PYTHON__</string>
+    <string>__STANDBY_REPO__/scripts/standby_sync.py</string>
+    <string>--root</string>
+    <string>/Users/linhuichen/trade-standby</string>
+    <string>--repo-dir</string>
+    <string>__STANDBY_REPO__</string>
+    <string>sync</string>
+    <string>--only-if-missed</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StartInterval</key>
+  <integer>3600</integer>
+  <!-- 兜底: 每小时醒一次, --only-if-missed 使其在成功日恒静默退出 -->
+
+  <key>StandardOutPath</key>
+  <string>/Users/linhuichen/trade-standby/logs/catchup.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/linhuichen/trade-standby/logs/catchup.err.log</string>
+</dict>
+</plist>
