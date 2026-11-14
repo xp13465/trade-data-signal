@@ -7,6 +7,7 @@ import time
 import uuid
 import fcntl
 import shutil
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -73,19 +74,40 @@ class SafeWriter:
                 fcntl.flock(lock, fcntl.LOCK_UN)
 
     def gc(self):
-        """在 storage_lock 下按持久引用清理；坏 manifest 一律拒绝删除。"""
+        """在 storage_lock 下按持久引用清理；坏 manifest 一律拒绝删除。
+
+        容错模式(实例属性 `gc_tolerate_unreadable=True`, 仅自动自愈轮设置, 见
+        upload_r2.cmd_recover_protected): 存在无法解析的 journal 时**零删除**并继续 ——
+        引用集不完整时删除任何文件都可能删掉坏文件引用的恢复锚点, 故整轮跳过清理、
+        保留全部文件与旧 gc 清单, 坏文件留给人工核验。默认(属性未设)保持严格失败,
+        既有「坏 manifest 一律拒绝删除」契约不变。
+        """
+        tolerate = bool(getattr(self, 'gc_tolerate_unreadable', False))
         if any(p.is_symlink() for p in self.root.rglob('*')):
             raise UnsafeWrite('protected storage contains symlink; GC refused')
         keep = {self.root / '.gc.lock', self.root / 'gc-manifest.json'}
         rows = []
+        unreadable = []
         for path in self.root.glob('*.json'):
             if path.name == 'gc-manifest.json':
                 continue
-            rows.append(json.loads(path.read_text()))
+            try:
+                rows.append(json.loads(path.read_text()))
+            except (OSError, ValueError):
+                if not tolerate:
+                    raise
+                unreadable.append(path)
             keep.add(path)
         history = {}
         for path in (self.root / 'history').glob('*.json'):
-            row = json.loads(path.read_text())
+            try:
+                row = json.loads(path.read_text())
+            except (OSError, ValueError):
+                if not tolerate:
+                    raise
+                unreadable.append(path)
+                keep.add(path)
+                continue
             history.setdefault(row['key'], []).append((path, row))
             if (row['state'] == 'unknown' or row.get('pending_purge') or
                     (row.get('pair_id') and row['state'] != 'confirmed')):
@@ -121,6 +143,13 @@ class SafeWriter:
                 keep.add(path); seen_pairs.add(pair_id)
                 rows.extend(manifest['objects'].values())
         files = [p for p in self.root.rglob('*') if p.is_file()]
+        if unreadable:
+            # 容错模式: 引用集不完整 ⇒ 本轮零删除 + 不覆写 gc 清单(旧清单保留供人工核验),
+            # 只如实把全部现存文件返回给容量核算; 坏文件保留原地。
+            print('R2_PROTECTED_GC: ' + json.dumps({
+                'tolerated_unreadable': [str(p.relative_to(self.root)) for p in unreadable],
+                'action': 'cleanup-skipped-no-deletion'}, ensure_ascii=False), file=sys.stderr)
+            return files
         garbage = [p for p in files if p not in keep]
         # 先持久记录引用集合，再删除无引用的本地缓存；不存在先删后补清单窗口。
         manifest = json.dumps({
@@ -228,6 +257,8 @@ class SafeWriter:
             if (obj and sha(obj[0]) == row['sha256'] and
                 self.a['_header_lookup'](obj[2], 'x-amz-meta-write-id') == row['write_id']):
                 row.update(state='confirmed', confirmed=True)
+                # 未决锚点清零(2026-11-14 B批 D1): confirmed 即已解决; 单点清, 正常/恢复路径同口径。
+                row['first_unresolved_at'] = None
                 self.save(row)
                 return True
         return False
@@ -296,11 +327,25 @@ class SafeWriter:
                 if obj and sha(obj[0]) == digest:
                     return prev
         old = self.get(key)
+        # 可见性字段(2026-11-14 B批 D1, NAV 发布自动恢复): 全部可选, 读侧 .get 兼容旧 row,
+        # 不动 version=1、不进产物字节。来源=调用方 env 注入(fund_nav_upload_async.sh 侧),
+        # env 未设 ⇒ None/0, 既有通道行为逐字不变。
+        business_date = os.environ.get('R2_BUSINESS_DATE') or None
+        run_id = os.environ.get('R2_EXPORT_RUN_ID') or os.environ.get('INVOCATION_ID') or uuid.uuid4().hex
         row = {'version': 1, 'bucket': self.bucket, 'key': key, 'sha256': digest,
                'size': len(payload), 'write_id': uuid.uuid4().hex, 'state': 'preparing',
                'confirmed': False, 'pending_purge': False,
-               'run_id': os.environ.get('R2_EXPORT_RUN_ID') or os.environ.get('INVOCATION_ID') or uuid.uuid4().hex,
-               'old_sha256': sha(old[0]) if old else None, 'backup_key': None}
+               'run_id': run_id,
+               'old_sha256': sha(old[0]) if old else None, 'backup_key': None,
+               # 业务交易日(YYYY-MM-DD); 来源轮次(如 fund_nav_upload_async);
+               # 代次=run_id@business_date 组合(nav_bucket 产物无 generated_at, 零产物改动);
+               # 首次进入非 confirmed 的时刻(UTC, prepare 生成即初始化, confirm 清);
+               # 自动恢复已尝试次数(仅 upload_r2 自动恢复路径递增, 人工 recover-protected 不限)。
+               'business_date': business_date,
+               'source_channel': os.environ.get('R2_SOURCE_CHANNEL') or None,
+               'generation': f"{run_id}@{business_date}" if business_date else run_id,
+               'first_unresolved_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+               'retry_count': 0}
         if old:
             row['backup_key'] = f'protected-versions/v1/{self.bucket}/{key}/{sha(old[0])}'
             row['old_generation'] = self.generation(old[0]) if key in PAIR else None
