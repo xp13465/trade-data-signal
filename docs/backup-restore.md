@@ -333,7 +333,7 @@ etf_index_map/etf_track_index/lof_track_index 等）。本节机制把这套状�
 `declared_inventory`（捕获前声明的恢复清单）/ `declared_excludes`（声明排除）/ `files`（逐文件
 sha256+业务日期+来源 stat）/ `missing` / `skipped`（含原因）/ `db_leg`（同轮热备引用）/
 **`db_cutoff`（数据业务截止点 = DB 各库 `MAX(date)` 的最小值，即「所有库共同覆盖到哪一天」；
-`all_databases_covered` 标是否每个库都读到了日期；**恢复/接管以它为准**）** /
+`all_databases_covered` 标是否每个库都读到了日期；恢复/接管以它为准）** /
 `common_business_cutoff`（共同业务截止点 = 集合内最新触点：文件内业务日期优先、mtime 兜底、
 方法逐项记录；**含文件 mtime 触点，云上 `alert_state.json`/`unit_exit_ledger.json` 的 mtime 是
 运行日 ⇒ 该字段会被抬成运行日，不等于数据业务截止日**，不得用于判定数据覆盖到哪天）/
