@@ -263,3 +263,91 @@ import 时 `load_env()` 自动载入 `.env` 的 `R2_S3_ENDPOINT` / `R2_S3_ACCESS
 
 **一句话**：大 JSON 从 git 层搬到 R2 私有桶版本化层，`signal-backup2` 桶仍是 DB + 大 JSON 的
 统一异地灾备锚点；恢复侧统一入口 = `restore-large-json.sh`。
+
+---
+
+## 九、状态集「完整可恢复集合」成套捕获（工作包二, 2026-11-14）
+
+DB 四库之外，「真实接管所需状态」原先**零备份**（盘点见 2026-11-14 恢复清单盘点：冻结表
+signal_kelly_etf_freeze.json 5.9MB 每日更新、采集游标 ×3、发布状态集 `.r2_*_state` ×20 /
+ops_delivery、通知状态集 alert_state/notify_dedup/6 个 notified 台账、映射历史
+etf_index_map/etf_track_index/lof_track_index 等）。本节机制把这套状态做成
+**成套、带 hash、带业务日期、带来源证明**的归档集合。
+
+### 机制
+
+- **捕获脚本**：`scripts/backup_state_capture.py`（恢复清单 = 脚本 `DECLARED_INVENTORY`，
+  **捕获前**写进 manifest，缺文件如实记 `missing`，绝不发现缺文件后缩小清单凑成功）
+- **接线**：`backup_db.sh` 新增 `STATE_CAPTURE_ENABLED=1` 开关段（默认关；部署时由主控启用），
+  在三库热备之后调捕获脚本，产出后调 `upload_r2.py upload-state-capture` 归档；捕获/上传失败
+  **不改 backup_db.sh 既有退出码与通知契约**，本段不发任何通知（manifest 如实记失败）
+- **独立出根（F1）**：集合根 = `<BACKUP_DIR>/state-capture-sets`，与 C4 `benefit_capture`
+  的 `<BACKUP_DIR>/capture-sets` **完全分离**——C4 的 `capture_admission` 只认纯 UUID 目录名，
+  同根会让 C4 链每晚 `CaptureError`；两开关同开互不干扰（`backup_state_capture.OUT_ROOT_SUBDIR`）
+- **预算超限/IO 失败不崩溃（F2）**：单文件超 `MAX_FILE_BYTES`(64MB) ⇒ 记 `budget_excluded`
+  （如实入 manifest、`complete=false`、不缩表）；磁盘满/读失败 ⇒ `status=failed` +
+  `reason=io_failure_*`，`finally` 清掉 `.pending-*` 临时目录（不 traceback、不泄漏）；
+  文件在捕获窗内被轮转删除 ⇒ 记 `missing`(`vanished_during_capture`)。**IO 异常全程不逃逸
+  （审查二轮 #1）**：声明 manifest 原子写、清单展开（目录遍历）、出根目录创建、收尾写
+  manifest/ready-file 全部在兜底内 ⇒ ENOSPC/EIO 一律落 `status=failed` 并清 pending，
+  `capture()`/`main()` 不 traceback
+- **本地清理（F3）**：`--prune-days`（`backup_db.sh` 传 `RETAIN_DAYS`）滚动清理
+  `<BACKUP_DIR>/state-capture-sets/`：**先验后删**（只认 `YYYYMMDD_HHMM-8hex` 登记目录 +
+  已上传才删）+ 不删最新集合与唯一已上传集合；未上传/失败集合永不删（上传成功前不得删除
+  本地集合）。**已上传双判据（审查二轮 #3）**：上传成功后先在集合目录原子写 `.uploaded`
+  标记（object key + gzip sha256 + 时间），prune 认「标记存在 **OR**
+  `manifest.archive.status == uploaded`」——manifest 回写失败（磁盘满等）时集合也不会永远
+  判 `not_uploaded` 无限堆积（`upload_r2.py` 收尾写失败只告警、不回溯成上传失败）
+- **DB 腿只引用不复制**：manifest 记同轮 `backup_db.sh` 热备产物的 sha256/`PRAGMA
+  integrity_check`/关键表行数/MAX(date)（只读）；public_fund 大库只记源身份（归档走既有
+  `upload-db` R2 链，不重复复制）
+- **sidecar 一致性**：每文件读前后 stat 复查 + 全部复制完 finalize 前 stat+hash 复查；捕获期间
+  被修改 ⇒ **整体重试一次**，仍变 ⇒ 记 `inconsistent`、`uploadable=false`、拒绝宣称完整
+- **secret 拒绝面**：文件名 deny-list（.env*/pem/key/p12/pid/sock/token/secret/credentials）
+  + 内容嗅探（私钥头/sk-/Bearer/**password=/api_key=/aws_secret_access_key=/AWS AKIA/SKIA/
+  GCP private_key_id**，审查二轮 #5）⇒ 记 `skipped`，绝不进集合；**瞬态锁**（`.lock` 事务锁）按
+  设计排除（记 `transient_lock_by_design`，不算缺口）
+- **符号链接记账（审查二轮 #4）**：目录声明里的 symlink 不跟随进集合（防跨出集合/重复），
+  但逐个记 `skipped`(`symlink_not_followed_by_design`) 写进 manifest，不算缺口、不静默
+- **声明排除**（捕获前声明、非事后缩表）：`.r2-protected/payloads/` 内容寻址载荷不进每日集合
+  （1.21GB/日预算原因，见 `DECLARED_EXCLUDES` 注释；journal/history 状态 JSON 全量捕获，
+  载荷 sha256 已随 journal 可对账；未决锚点载荷另立归档任务）；如实记录在
+  `manifest.declared_excludes`
+- **清单透明度（F6，两轮审查）**：盘点/云上实测缺口逐项显式处置，不许静默缺席——
+  `audit/frozen_missing`（云上 1.16MB/201 文件冻结缺失诊断台账，不可重建）**已纳入捕获**；
+  `signal_kelly_trades.json`(32MB 旧回测产物)/`daily-k.parquet`(181MB 旧快照)/
+  `baostock_logs/` 标「待主控拍板」；`sw_components.json`/`stock_codes.json`/`trade_dates.txt`
+  标「可从源重建」；`news_digest/` 已由 R2 `news-digest` 归档通道 + staticdata 同步覆盖；
+  `d1_metrics_evidence/`（30 天 TTL 自愈诊断）/`d1_sync_state/`（按设计覆盖写、云上实测空目录）
+  无恢复语义；`staticdata_backup_heartbeat.json`（88B 灾备心跳）已纳入清单
+- **归档**：R2 `signal-backup2` 私有桶 `backup/state_YYYYMMDD.tar.gz`（tar.gz 集合含
+  manifest），proof 契约同 `upload-db`（`R2_STATE_CAPTURE_PROOF`+`R2_STATE_CAPTURE_RUN_ID`
+  成对传，receipt 同 schema:1 结构），保留 14 天滚动（`_prune_state_captures`）；上传成功前
+  本地集合不删
+- **自校验**：集合内逐文件 sha256 复算 + DB 副本 integrity_check（在 db_leg 逐库记录）；
+  校验失败 ⇒ `uploadable=false`，不冒充成功
+
+### manifest 关键字段
+
+`declared_inventory`（捕获前声明的恢复清单）/ `declared_excludes`（声明排除）/ `files`（逐文件
+sha256+业务日期+来源 stat）/ `missing` / `skipped`（含原因）/ `db_leg`（同轮热备引用）/
+`common_business_cutoff`（共同业务截止点：文件内业务日期优先、mtime 兜底、方法逐项记录）/
+`verification` / `complete` / `uploadable` / `archive`（上传成功后回写 key+gzip sha256）。
+
+### 单测与证据
+
+`scripts/tests/test_backup_state_capture.py`（缺项不缩表 / **只缺单个 sidecar 的独立锚(F4)** /
+sidecar 变化重试一次与仍变判 inconsistent / hash 篡改 FAIL / secret 类不进集合 /
+payloads 声明排除 / 瞬态锁记账 / **出根与 C4 分离(F1)** / **超预算记账与磁盘满清理(F2)** /
+**声明写与清单展开 IO 异常不逃逸（二轮 #1）** / **`.uploaded` 标记兜底 manifest 回写失败
+（二轮 #3）** / **symlink 记账不静默（二轮 #4）** / **secret 内容面 password=/api_key=/云 key
+（二轮 #5）** / **滚动清理先验后删(F3)** / **业务日期归一(F5)** / **缺口清单显式集合驱动(F6，
+二轮 #2)** / upload-state-capture 拒绝非集合目录）；云上试跑实测（只读源、写 /tmp 临时目录）见
+`docs/ops/backup-state-capture-trial-20261114.md`。
+
+### 恢复语义（对照执行方案工作包二）
+
+- 通知状态**不得恢复成全绿或清空历史**（alert_state/notify_dedup/ledger 原样带回，已自愈的
+  告警去重状态随集合恢复，避免已通知事件重发）
+- DB 与 sidecar 的共同业务截止点以 `common_business_cutoff` 为准；无法对应时不宣称完整可接管
+- `.env` 凭据**不入归档**（deny-list 拒绝），接管时人工受控配置；manifest 只记配置名与凭据引用

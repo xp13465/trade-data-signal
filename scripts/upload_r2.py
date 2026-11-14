@@ -117,7 +117,8 @@ def _is_production_writer() -> bool:
 
 
 # 只写私有桶(signal-backup2)的上传命令: 本机开发树仍允许(不污染公共 R2)。
-_PRIVATE_ONLY_CMDS = {"upload-db", "upload-large-json", "upload-claude-backup", "upload-decommissioned"}
+_PRIVATE_ONLY_CMDS = {"upload-db", "upload-large-json", "upload-claude-backup", "upload-decommissioned",
+                      "upload-state-capture"}
 # 不写 R2 对象的命令；verify-r2 会自动补传，必须经过公共桶写门禁。
 _READ_ONLY_CMDS = {"list", "download-db", "verify-channels", "purge-low-freq"}
 
@@ -4181,6 +4182,126 @@ def cmd_upload_db():
         sys.exit(1)
 
 
+def cmd_upload_state_capture(set_dir):
+    """「完整可恢复集合」成套归档上传(备份工作包二, 2026-11-14)。
+
+    backup_db.sh 的 STATE_CAPTURE_ENABLED=1 链在 backup_state_capture.py 产出集合目录后
+    调本命令: tar.gz 打包集合(含 manifest) -> BACKUP_BUCKET backup/state_YYYYMMDD.tar.gz。
+
+    - proof 机制复用 backup_db.sh→upload-db 同款契约: R2_STATE_CAPTURE_PROOF 与
+      R2_STATE_CAPTURE_RUN_ID 成对传(只传一个 = 报错), receipt 结构同 r2-db-source-*
+      (schema:1 + run_id + complete + objects), 对象 run 绑定元数据同 metadata()。
+    - 保留: backup/state_*.tar.gz 自带 14 天滚动清理(_prune_layer 的 .db.gz 正则
+      不匹配本前缀, 单独清理); 与 backup/ 层 DB 日备同一保留口径。
+    - 上传成功前不得删除本地集合(任务书「归档接线」): 本命令不删任何本地文件;
+      上传成功后回写 manifest.archive(F3: 本地集合由 backup_state_capture.py 的
+      --prune-days=RETAIN_DAYS 滚动清理, 只删 archive.status=uploaded 且超期的
+      <backup_dir>/state-capture-sets/<YYYYMMDD_HHMM-8hex> 目录)。
+    - 本命令不发通知(告警契约归 backup_db.sh 既有链)。
+    """
+    import datetime as _dt, tarfile, tempfile, shutil
+    from backup_source_proof import atomic_json, metadata
+    set_dir = Path(set_dir).resolve()
+    manifest_path = set_dir / "manifest.json"
+    if not manifest_path.is_file():
+        sys.exit(f"不是状态集集合目录(缺 manifest.json): {set_dir}")
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get("schema") != "trade-state-capture-v1":
+        sys.exit(f"不是状态集集合目录(缺 trade-state-capture-v1 manifest): {set_dir}")
+    if not manifest.get("uploadable", False):
+        sys.exit(f"集合不可上传(status={manifest.get('status')}), 拒绝归档不完整集合: {set_dir}")
+    proof_path = os.environ.get("R2_STATE_CAPTURE_PROOF")
+    run_id = os.environ.get("R2_STATE_CAPTURE_RUN_ID")
+    if bool(proof_path) != bool(run_id):
+        raise ValueError("state capture proof requires both R2_STATE_CAPTURE_PROOF and R2_STATE_CAPTURE_RUN_ID")
+    receipt = {"schema": 1, "run_id": run_id, "complete": False,
+               "objects": {}} if proof_path else None
+    if receipt is not None:
+        atomic_json(proof_path, receipt)  # 上传前先作废旧结果(同 upload-db 契约)
+    today = _dt.datetime.now().strftime("%Y%m%d")
+    key = f"backup/state_{today}.tar.gz"
+    source = None if receipt is None else {
+        "run_id": run_id, "name": "state_capture", "bucket": BACKUP_BUCKET, "key": key}
+    manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    files_in_set = sorted(p.relative_to(set_dir).as_posix()
+                          for p in set_dir.rglob("*") if p.is_file())
+    tmpdir = tempfile.mkdtemp(prefix="r2-state-capture-")
+    try:
+        tar_path = os.path.join(tmpdir, f"state_{today}.tar.gz")
+        h = hashlib.sha256()
+        with tarfile.open(tar_path, "w:gz", compresslevel=6) as tar:
+            tar.add(set_dir, arcname=f"state-capture/{manifest['capture_set_id']}")
+        with open(tar_path, "rb") as f:
+            for part in iter(lambda: f.read(1 << 20), b""):
+                h.update(part)
+        gz_sha, gz_size = h.hexdigest(), os.path.getsize(tar_path)
+        status, data = _upload_file_to_key(
+            key, tar_path, "application/gzip", bucket=BACKUP_BUCKET,
+            **({"extra_headers": metadata(source)} if source is not None else {}))
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    if status != 200:
+        print(f"✗ state capture 上传失败 status={status} {data.decode('utf-8', errors='replace')[:300]}")
+        sys.exit(1)
+    print(f"✓ state capture ({len(files_in_set)} 文件, {gz_size // 1024}KB gzip) "
+          f"-> {BACKUP_BUCKET}/{key} (私有桶)")
+    if receipt is not None:
+        receipt["objects"]["state_capture"] = {**source,
+                                              "manifest_sha256": manifest_sha,
+                                              "gzip": {"sha256": gz_sha, "size": gz_size},
+                                              "files": len(files_in_set)}
+        receipt["complete"] = True
+        atomic_json(proof_path, receipt)
+        print(f"state capture source proof run={run_id} complete=true path={proof_path}")
+    # 审查二轮 #3: 先写集合内 `.uploaded` 标记 —— manifest 回写失败(磁盘满等)时,
+    # prune 靠「标记存在 OR manifest uploaded」仍能认出已上传, 不会永久堆积。
+    from backup_state_capture import write_upload_marker
+    marker_path = None
+    try:
+        marker_path = write_upload_marker(
+            set_dir, object_key=key, bucket=BACKUP_BUCKET,
+            gzip_sha256=gz_sha, gzip_size=gz_size, run_id=run_id)
+        print(f"  .uploaded 标记: {marker_path}")
+    except OSError as exc:
+        print(f"⚠ .uploaded 标记写入失败({type(exc).__name__}: {exc}), 依赖 manifest 回写")
+    # 回写 manifest.archive(本地集合与 R2 对象对账依据; 双保险, 照常做)
+    manifest["archive"] = {"status": "uploaded", "key": key, "bucket": BACKUP_BUCKET,
+                            "gzip_sha256": gz_sha, "gzip_size": gz_size,
+                            "manifest_sha256": manifest_sha,
+                            "uploaded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "run_id": run_id}
+    try:
+        atomic_json(manifest_path, manifest)
+    except OSError as exc:
+        # 上传本体已成功: 收尾写失败不回溯成上传失败(marker 在 ⇒ prune 仍认已上传)。
+        print(f"⚠ manifest.archive 回写失败({type(exc).__name__}: {exc}); "
+              + ("已由 .uploaded 标记保证 prune 识别" if marker_path
+                 else "本地集合将按 not_uploaded 保留(不误删)"))
+    _prune_state_captures()
+
+
+def _prune_state_captures(keep_days=14, bucket=None):
+    """删 backup/state_YYYYMMDD.tar.gz 超过 keep_days 的旧集合(与 backup/ 层同 14 天口径;
+    _prune_layer 的 .db.gz 正则不匹配 tar.gz, 状态集单独清理, 防无限堆积)。"""
+    import re, datetime as _dt
+    bkt = bucket or BACKUP_BUCKET
+    deleted = 0
+    for key in _list_keys("backup/", bucket=bkt):
+        m = re.search(r"^backup/state_(\d{8})\.tar\.gz$", key)
+        if not m:
+            continue
+        kd = _dt.datetime.strptime(m.group(1), "%Y%m%d")
+        if kd < _dt.datetime.now() - _dt.timedelta(days=keep_days):
+            st, _ = s3_request("DELETE", key, bucket=bkt, keep_alive=True)
+            if st == 204:
+                deleted += 1
+                print(f"  删除旧 {bkt}/{key}")
+            else:
+                print(f"  ⚠ 删除失败 {bkt}/{key} status={st}")
+    if deleted:
+        print(f"state capture 旧集合清理 {deleted} 个 (> {keep_days} 天)")
+
+
 def cmd_upload_decommissioned(local, key_name):
     """退役归档上传到 R2 signal-backup2 私有桶 decommissioned/ 前缀(独立前缀,不进 _prune)。
 
@@ -5766,7 +5887,7 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False, lock_path_overri
                              "upload-all-data", "upload-data-files", "upload-intraday", "upload-turnover",
                              "upload-kelly-parts", "upload-kelly-parts-sdc", "upload-kelly-snapshots",
                              "upload-db", "upload-large-json", "upload-claude-backup",
-                             "upload-decommissioned", "verify-r2", "verify-channels", "purge-low-freq"}
+                             "upload-decommissioned", "upload-state-capture", "verify-r2", "verify-channels", "purge-low-freq"}
             _R2_LOCK_OBSERVATIONS[fds[-1]] = {
                 "path": str(_p), "stage": "override" if lock_path_override is not None
                 else ("domain" if domain is not None and _i == 0 else "global"),
@@ -6024,6 +6145,10 @@ if __name__ == "__main__":
         cmd_verify_channels(sys.argv[2:])
     elif cmd == "upload-db":
         cmd_upload_db()
+    elif cmd == "upload-state-capture":
+        # upload-state-capture <set_dir>  状态集合成套归档 -> signal-backup2/backup/state_*.tar.gz
+        # (backup_db.sh STATE_CAPTURE_ENABLED=1 链; proof 契约同 upload-db, 见 cmd_upload_state_capture)
+        cmd_upload_state_capture(sys.argv[2] if len(sys.argv) > 2 else "")
     elif cmd == "upload-large-json":
         # upload-large-json [--dry-run] [--full]  staticdata 备份 git 排除的大 JSON -> 私有桶 large-json/
         # (2026-09-25, 排除对象清单来源 large_json_excludes.py --print)
@@ -6063,5 +6188,6 @@ if __name__ == "__main__":
             "upload-fund-nav|upload-accum-nav|upload-data-large|upload-kelly-parts|upload-kelly-parts-sdc|upload-db|upload-large-json|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
             "upload-claude-backup [path]|upload-decommissioned <local> <key_name>|"
+            "upload-state-capture <set_dir>|"
             "upload-turnover <small|large>|upload-all-data|upload-intraday|purge-low-freq|verify-r2|verify-channels <desc...>]"
         )
