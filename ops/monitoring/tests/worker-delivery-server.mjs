@@ -34,6 +34,13 @@ const server = http.createServer(async (req, res) => {
     const count = table => db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n;
     res.end(JSON.stringify({ attempts, runs: count('ops_runs'), events: count('ops_events'), outbox: count('ops_outbox') })); return;
   }
+  if (req.method === 'GET' && req.url.startsWith('/api/ops/ack')) {
+    const response = await handler(new Request('https://fixture.invalid' + req.url, {
+      method: 'GET', headers: { Authorization: req.headers.authorization || '' } }),
+      { OPS_DB: binding, OPS_INGEST_TOKEN: 'fixture-token-0123456789', OPS_ALERT_ENABLED: 'false' }, {});
+    res.statusCode = response.status;
+    res.end(await response.text()); return;
+  }
   const chunks = []; for await (const chunk of req) chunks.push(chunk);
   const raw = Buffer.concat(chunks);
   attempts.push({ hash: createHash('sha256').update(raw).digest('hex'), id: JSON.parse(raw).snapshot_id });

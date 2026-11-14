@@ -1,0 +1,14 @@
+{
+  "_comment": "外部失联告警配置模板(B批 monitor-obs, 2026-11-14)。仅模板不实配: 本仓不含真实 webhook token, 启用前不外发任何真实通知(L48)。启用流程: ①先私下 wrangler secret put OPS_ALERT_WEBHOOK(仅 open.feishu.cn 合法 host, 见 worker/ops.js outboxConfiguration 校验) ②再把 OPS_ALERT_ENABLED=true 同步进根 wrangler.jsonc 的版本化 vars ③审核合并后从该 source 部署并验证; 禁只在 CF 控制台临时改 vars(下次 main 部署会覆盖)。当前生产缺口如实登记(2026-11-14): OPS_ALERT_ENABLED=false 且 OPS_ALERT_WEBHOOK 未配置 —— 断主机场景 watchdog 判得出 stale 但发不出, 缺口未擅自打开, 待用户拍板启用。",
+  "vars": {
+    "OPS_ALERT_ENABLED": "true",
+    "OPS_ALERT_SCOPE": "watchdog"
+  },
+  "secrets": {
+    "OPS_ALERT_WEBHOOK": "https://open.feishu.cn/open-apis/bot/v2/hook/<REPLACE-WITH-PRIVATE-BOT-TOKEN>"
+  },
+  "verification": {
+    "enable": "停投递源(测试环境)后 30 分钟内 watchdog stale 告警外发可收, 恢复采样后收到【恢复】",
+    "existing_coverage": "ops/monitoring/tests/worker-d1.test.mjs 已含断主机(无采样到达)时 watchdog stale/恢复判定的本地单测(Miniflare+真实迁移, 不发真实通知)"
+  }
+}

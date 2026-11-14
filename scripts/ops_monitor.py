@@ -40,6 +40,10 @@ MAX_COMMAND = 128 * 1024
 MAX_UNITS = 72
 MAX_CHECKS = 250
 SELF_UNIT = 'trade-ops-monitor.service'
+# Read-only late-arrival reconciliation budget: one bounded journal read plus one
+# bounded server GET after the delivery attempt. Independent of the 20s round
+# budget; the delivery path and its per-attempt 5s cap stay untouched.
+LATE_ACK_SECONDS = 3
 SELF_JOURNAL = ('/usr/bin/journalctl', '--no-pager', '--quiet', '--boot=0',
                 '--unit=' + SELF_UNIT, '--lines=64', '--output=json',
                 '--output-fields=__REALTIME_TIMESTAMP,_BOOT_ID,_PID,UNIT,MESSAGE_ID,JOB_TYPE,JOB_RESULT,INVOCATION_ID,_SYSTEMD_UNIT,_SYSTEMD_INVOCATION_ID,SYSLOG_IDENTIFIER,MESSAGE')
@@ -380,6 +384,42 @@ def previous_monitor_completion(raw, derived_end, current_start, now, max_age):
         return None
     end = datetime.fromtimestamp(ts, timezone.utc).isoformat().replace('+00:00', 'Z')
     return done, end
+
+
+def previous_failed_delivery(raw, round_start_wall, max_age):
+    """Latest earlier-invocation stdout line that reported delivery_ok=false.
+
+    Bounded journal projection, mirroring previous_monitor_completion. Only the
+    collector's own app records count; a collect-only round is not a delivery
+    failure and is excluded."""
+    if len(raw.encode()) > MAX_COMMAND or len(raw.splitlines()) > 64:
+        raise LimitError('delivery journal cap')
+    failed = []
+    for line in raw.splitlines():
+        if not line:
+            continue
+        r = json.loads(line, object_pairs_hook=strict_pairs)
+        if not isinstance(r, dict):
+            raise ContractError('delivery record')
+        if r.get('_SYSTEMD_UNIT') != SELF_UNIT or r.get('SYSLOG_IDENTIFIER') != 'trade-ops-monitor':
+            continue
+        usec = r.get('__REALTIME_TIMESTAMP')
+        if not isinstance(usec, str) or not usec.isdigit():
+            continue
+        try:
+            msg = json.loads(r.get('MESSAGE', ''), object_pairs_hook=strict_pairs)
+        except (ValueError, TypeError, ContractError):
+            continue
+        if (isinstance(msg, dict) and msg.get('delivery_ok') is False
+                and msg.get('collect_only') is False and isinstance(msg.get('delivery'), dict)
+                and isinstance(msg.get('snapshot_id'), str)):
+            try:
+                uuid.UUID(msg['snapshot_id'])
+            except ValueError:
+                continue
+            failed.append((int(usec) / 1000000, msg['snapshot_id']))
+    prior = [f for f in failed if f[0] < round_start_wall and round_start_wall - f[0] <= max_age]
+    return max(prior, key=lambda f: f[0]) if prior else None
 
 
 def calendar_fingerprint(props):
@@ -975,9 +1015,12 @@ def validate_snapshot(obj):
 
 def endpoint(url, head=False, test_local=False):
     parsed = urlsplit(url)
-    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+    if parsed.username or parsed.password or parsed.fragment:
         raise ContractError('endpoint components')
-    allowed_path = parsed.path in HEAD_PATHS if head else parsed.path == '/api/ops/ingest'
+    # Only the read-only late-ack lookup may carry a query (snapshot_id=<uuid>).
+    if parsed.query and parsed.path != '/api/ops/ack':
+        raise ContractError('endpoint components')
+    allowed_path = parsed.path in HEAD_PATHS if head else parsed.path in ('/api/ops/ingest', '/api/ops/ack')
     if not allowed_path:
         raise ContractError('endpoint route')
     if test_local and parsed.scheme == 'http' and parsed.hostname == '127.0.0.1' and parsed.port and parsed.port >= 1024:
@@ -999,18 +1042,21 @@ def read_secret(path):
     return token
 
 
-def request_http(url, payload=None, secret_file=None, head=False, test_local=False, timeout=5):
+def request_http(url, payload=None, secret_file=None, head=False, test_local=False, timeout=5, method=None, expect_id=None):
     """No redirects, no response-body export, certificate verification mandatory."""
     target = endpoint(url, head=head, test_local=test_local)
+    method = method or ('HEAD' if head else 'POST')
     headers = {'Accept': 'application/json'}
     if not head:
         headers['Authorization'] = 'Bearer ' + read_secret(secret_file)
+    if payload is not None:
         headers['Content-Type'] = 'application/json'
+    path = target.path + (('?' + target.query) if target.query else '')
     connection = (http.client.HTTPConnection(target.hostname, target.port, timeout=timeout)
                   if target.scheme == 'http' else
                   http.client.HTTPSConnection(target.hostname, target.port or 443, timeout=timeout, context=ssl.create_default_context()))
     try:
-        connection.request('HEAD' if head else 'POST', target.path, body=payload, headers=headers)
+        connection.request(method, path, body=payload, headers=headers)
         response = connection.getresponse()
         # Response may contain secrets/error bodies: don't return/print them.
         body = response.read(4097)
@@ -1018,6 +1064,26 @@ def request_http(url, payload=None, secret_file=None, head=False, test_local=Fal
             raise LimitError('response size')
         ok = 200 <= response.status < 300
         result = {'ok': ok, 'http_status': int(response.status)}
+        if method == 'GET':
+            # Read-only late-ack lookup: strictly {received:bool,snapshot_id,received_at?}.
+            if not ok:
+                return result
+            try:
+                ack = json.loads(body, object_pairs_hook=strict_pairs)
+                received = ack.get('received') if isinstance(ack, dict) else None
+                if type(received) is not bool or ack.get('snapshot_id') != expect_id:
+                    raise ContractError('ack contract')
+                result['received'] = received
+                value = ack.get('received_at')
+                if isinstance(value, str):
+                    if not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?Z', value):
+                        raise ContractError('ack contract')
+                    datetime.fromisoformat(value.replace('Z', '+00:00'))
+                    result['received_at'] = value
+            except (ValueError, UnicodeError, ContractError):
+                result['ok'] = False
+                result['error_kind'] = 'ProtocolError'
+            return result
         if ok and not head:
             try:
                 ack = json.loads(body, object_pairs_hook=strict_pairs)
@@ -1152,6 +1218,107 @@ def network_bounded(budget, url, payload=None, secret_file=None, head=False, tes
     return result
 
 
+def _late_ack_worker(pipe, url, secret_file, snapshot_id, test_local, deadline):
+    # One read-only GET, no retry: an ambiguous answer stays 'unknown'.
+    try:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            result = {'ok': False, 'error_kind': 'TimeoutError'}
+        else:
+            result = request_http(url, secret_file=secret_file, expect_id=snapshot_id,
+                                  test_local=test_local, timeout=min(2.5, left), method='GET')
+    except Exception as exc:
+        result = {'ok': False, 'error_kind': network_error_kind(exc)}
+    try:
+        pipe.send(result)
+    finally:
+        pipe.close()
+
+
+def late_ack_probe(seconds, url, secret_file, snapshot_id, test_local=False):
+    # Same child-process isolation as delivery: a stalled TLS read can never
+    # hang the round body itself (outer systemd TimeoutStartSec bounds it).
+    deadline = time.monotonic() + seconds
+    context = multiprocessing.get_context('spawn')
+    result = {'ok': False, 'error_kind': 'NetworkError'}
+    receive, send = context.Pipe(duplex=False)
+    proc = context.Process(target=_late_ack_worker,
+                           args=(send, url, secret_file, snapshot_id, test_local, deadline))
+    try:
+        proc.start()
+        send.close()
+        if receive.poll(max(0, deadline - time.monotonic())):
+            try:
+                result = receive.recv()
+            except EOFError:
+                pass
+        else:
+            result = {'ok': False, 'error_kind': 'TimeoutError'}
+    finally:
+        if proc.pid is not None:
+            proc.join(timeout=.01)
+            if proc.is_alive():
+                proc.kill()
+                proc.join(timeout=.1)
+        receive.close()
+        send.close()
+    return result
+
+
+def attempts_detail(delivery):
+    """Journal-safe per-attempt projection of attempt_history.
+
+    Observable stage = client attempt boundaries only; DNS/TLS/uplink/server
+    statement execution/return flight have no timing points in this process,
+    marked as 'unobserved' instead of being invented."""
+    detail = []
+    for entry in (delivery or {}).get('attempt_history') or []:
+        try:
+            duration_ms = int((timestamp(entry['finished_at']) - timestamp(entry['started_at'])) * 1000)
+        except (KeyError, TypeError, ValueError):
+            duration_ms = None
+        detail.append({'attempt': entry.get('attempt'), 'started_at': entry.get('started_at'),
+                       'finished_at': entry.get('finished_at'), 'duration_ms': duration_ms,
+                       'http_status': entry.get('http_status'), 'error_kind': entry.get('error_kind'),
+                       'quota_kind': entry.get('quota_kind'), 'ack_state': entry.get('ack_state'),
+                       'in_flight_stages': 'unobserved'})
+    return detail
+
+
+def reconcile_late_ack(cfg, round_started_wall, test_local=False, runner=None):
+    """Separate 'arrived late but stored' from 'never arrived' for the previous
+    failed round. One bounded journal read + one read-only server GET; never
+    re-delivers, never retries, never changes the current round's verdict."""
+    try:
+        if runner is None:
+            runner = CommandRunner(Budget(LATE_ACK_SECONDS), min(cfg.command_timeout_seconds, LATE_ACK_SECONDS))
+        since = int(round_started_wall - cfg.schedule_max_age_seconds)
+        raw = runner.run([*SELF_JOURNAL, '--since=@' + str(since)])
+        previous = previous_failed_delivery(raw, round_started_wall, cfg.schedule_max_age_seconds)
+    except Exception:
+        # Journal unavailable is honestly 'unknown', never guessed as lost.
+        return {'state': 'unknown', 'reason': 'journal_unavailable'}
+    if previous is None:
+        return None
+    _, snapshot_id = previous
+    parsed = urlsplit(cfg.ingest_url)
+    ack_url = parsed._replace(path='/api/ops/ack', query='snapshot_id=' + snapshot_id).geturl()
+    result = late_ack_probe(LATE_ACK_SECONDS, ack_url, cfg.secret_file, snapshot_id, test_local=test_local)
+    if result.get('ok') and result.get('received') is True:
+        late = {'state': 'late_ok', 'snapshot_id': snapshot_id}
+        if result.get('received_at'):
+            late['received_at'] = result['received_at']
+        return late
+    if result.get('ok') and result.get('received') is False:
+        return {'state': 'lost', 'snapshot_id': snapshot_id}
+    late = {'state': 'unknown', 'snapshot_id': snapshot_id}
+    if result.get('error_kind'):
+        late['error_kind'] = result['error_kind']
+    if result.get('http_status') is not None:
+        late['http_status'] = result['http_status']
+    return late
+
+
 def atomic_private_json(directory, filename, obj):
     directory = Path(directory)
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -1244,6 +1411,7 @@ def append_benefits(snapshot, cfg, budget):
 
 
 def run_once(cfg, collect_only=False, test_local_http=False):
+    started_wall = time.time()
     total_budget = Budget(cfg.total_timeout_seconds)
     collection_budget = Budget(cfg.total_timeout_seconds)
     collection_budget.started = total_budget.started
@@ -1279,9 +1447,17 @@ def run_once(cfg, collect_only=False, test_local_http=False):
                                        record_attempt=persist_attempt)
         except Exception as exc:
             delivery = {'ok': False, 'error_kind': network_error_kind(exc)}
+    late_ack = None
+    if not collect_only:
+        try:
+            late_ack = reconcile_late_ack(cfg, started_wall, test_local=test_local_http)
+        except Exception:
+            late_ack = {'state': 'unknown', 'reason': 'late_ack_unavailable'}
     report = {'snapshot_id': snapshot['snapshot_id'], 'collector_id': cfg.collector_id,
               'completed_at': utc_now(), 'coverage': snapshot['coverage'], 'delivery': delivery,
               'duration_ms': int((total_budget.clock() - total_budget.started) * 1000)}
+    if late_ack is not None:
+        report['late_ack'] = late_ack
     atomic_private_json(cfg.output_dir, 'report.json', report)
     # Immutable per-snapshot names preserve ambiguous attempts across later runs.
     atomic_private_json(cfg.output_dir, 'delivery-' + snapshot['snapshot_id'] + '.json', report)
@@ -1307,11 +1483,18 @@ def main(argv=None):
         if cfg.publication_head_url:
             endpoint(cfg.publication_head_url, head=True, test_local=args.test_local_http)
         report, code = run_once(cfg, collect_only=args.collect_only, test_local_http=args.test_local_http)
-        print(json.dumps({'snapshot_id': report['snapshot_id'], 'checks': report['coverage']['counts']['checks'],
-                          'delivery_ok': report['delivery'].get('ok', False), 'collect_only': args.collect_only,
-                          'delivery': {key: report['delivery'][key] for key in ('http_status', 'error_kind', 'quota_kind', 'attempts', 'elapsed_ms',
-                                                                          'deadline_exhausted', 'attempt_deadline_exceeded')
-                                       if key in report['delivery']}}))
+        delivery_projection = {key: report['delivery'][key] for key in ('http_status', 'error_kind', 'quota_kind', 'attempts', 'elapsed_ms',
+                                                                       'deadline_exhausted', 'attempt_deadline_exceeded')
+                               if key in report['delivery']}
+        detail = attempts_detail(report['delivery'])
+        if detail:
+            delivery_projection['attempts_detail'] = detail
+        projection = {'snapshot_id': report['snapshot_id'], 'checks': report['coverage']['counts']['checks'],
+                      'delivery_ok': report['delivery'].get('ok', False), 'collect_only': args.collect_only,
+                      'delivery': delivery_projection}
+        if report.get('late_ack') is not None:
+            projection['late_ack'] = report['late_ack']
+        print(json.dumps(projection))
         return code
     except Exception as exc:
         # Error messages can contain URLs/paths/response text: expose exception class only.

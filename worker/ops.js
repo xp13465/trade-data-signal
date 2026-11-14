@@ -221,6 +221,25 @@ async function ingest(request, env, db, now, diagnostic) {
   const head = await stmt(db, 'SELECT (SELECT snapshot_id FROM ops_head WHERE id=1) snapshot_id,counts_json,received_ms FROM ops_runs WHERE snapshot_id=?', snapshot.snapshot_id).first();
   return response({ accepted: true, snapshot_id: snapshot.snapshot_id, ack_state: 'confirmed', received_at: iso(head?.received_ms), current: head?.snapshot_id === snapshot.snapshot_id, counts: head?.counts_json ? JSON.parse(head.counts_json) : counts });
 }
+// Read-only late-arrival reconciliation for the collector's own previous
+// failed round (B 批 monitor-obs 2026-11-14). Same secret as ingest; a single
+// indexed SELECT by snapshot_id; no writes, no retry, never re-delivers.
+async function ackLookup(request, env, db, now, diagnostic) {
+  if (!env.OPS_INGEST_TOKEN) fail(503, 'ingest_not_configured');
+  if (env.OPS_ADMIN_TOKEN && await sameSecret(env.OPS_ADMIN_TOKEN, env.OPS_INGEST_TOKEN)) fail(503, 'ops_token_configuration_invalid');
+  if (!await sameSecret(bearer(request), env.OPS_INGEST_TOKEN)) fail(403, 'ingest_required');
+  const id = new URL(request.url).searchParams.get('snapshot_id') || '';
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) fail(400, 'invalid_snapshot_id');
+  let row;
+  try { row = await stmt(db, 'SELECT snapshot_id,received_ms FROM ops_runs WHERE snapshot_id=?', id).first(); }
+  catch (error) {
+    const quotaError = new OpsError(503, 'ops_storage_unavailable', storageErrorKind(error));
+    quotaError.quota_kind = storageQuotaKind(error);
+    throw quotaError;
+  }
+  diagnostic.snapshot_id = id;
+  return response({ received: !!row, snapshot_id: id, received_at: iso(row?.received_ms ?? null) });
+}
 function boundedLimit(url, defaultValue = 50) {
   const raw = url.searchParams.get('limit');
   if (raw === null) return defaultValue;
@@ -358,6 +377,7 @@ export default async function opsHandler(request, env, ctx) {
   try {
     const url = new URL(request.url); const now = Date.now(); const db = binding(env);
     if (url.pathname === '/api/ops/ingest' && request.method === 'POST') return await ingest(request, env, db, now, diagnostic);
+    if (url.pathname === '/api/ops/ack' && request.method === 'GET') return await ackLookup(request, env, db, now, diagnostic);
     const auth = await admin(request, env);
     if (url.pathname === '/api/ops/benefits' || url.pathname.startsWith('/api/ops/benefits/')) return await benefitsRoute(request, db, env, auth, now, { fail, response, body, safeText, exactKeys, integer, boundedLimit });
     if (request.method === 'GET') {
