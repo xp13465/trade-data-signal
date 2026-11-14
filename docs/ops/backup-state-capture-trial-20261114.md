@@ -43,9 +43,12 @@
 本节以上数字是 **pre-F5 历史证据**(当时分支代码的云上实测),按「历史记录不追改」原样保留;
 当前代码口径示例:
 
-- `common_business_cutoff` 现统一归一成 ISO `YYYY-MM-DD`:同一次试跑在
-  `normalize_business_date` 之后会写 **`2026-11-13`**(上面表格里的 `20261113` 是 F5 归一前的
-  历史值——8 位与 10 位混排直接字典序比较会让 8 位恒赢,`('-'(45) < 数字)`,F5 即修此)。
+- `common_business_cutoff` 现统一归一成 ISO `YYYY-MM-DD`(F5:8 位与 10 位混排直接字典序比较
+  会让 8 位恒赢,`('-'(45) < 数字)`);但**该字段含 sidecar 的 mtime 兜底触点,不等于数据业务
+  截止日**——云上 `alert_state.json`/`unit_exit_ledger.json` 的 mtime 是运行日,F5 之后同一次
+  试跑会把它写成**运行日(如 `2026-11-14`),不是 `2026-11-13`**;本段旧补注「会写 2026-11-13」
+  已被 N1(2026-11-15 审查三轮)实测证伪,以本行为准。数据业务截止日改用新增的 `db_cutoff`
+  (=三库 `MAX(date)` 的最小值,该次为 `2026-11-13`),接管口径见 `docs/backup-restore.md` §九。
 - 声明清单/排除项随审查二轮更新(新增 `audit/frozen_missing` 纳入捕获;`news_digest` /
   `d1_metrics_evidence` / `d1_sync_state` 显式声明排除),故下一次真实试跑的
   `files_by_category` / `declared_excludes` 计数与本表不再逐位相同;机制口径以

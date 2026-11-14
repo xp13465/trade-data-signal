@@ -62,13 +62,18 @@ def make_repo(tmp_path: Path, *, full: bool = True) -> Path:
 
 def make_backups(tmp_path: Path) -> Path:
     import sqlite3
+
+    import backup_source_proof
     bdir = tmp_path / "backups"
     bdir.mkdir()
     for name in bsc.DB_LEG_NAMES:
         p = bdir / f"{name}_{STAMP}.db"
         con = sqlite3.connect(p)
-        con.execute("CREATE TABLE score_daily(date TEXT, score REAL)")
-        con.execute("INSERT INTO score_daily VALUES('20261113', 1.0)")
+        # 用各库关键表清单里的第一张(带 date 列), 否则 db_max_date 读不到 MAX(date),
+        # db_cutoff 的「所有库共同覆盖日」就没有独立锚(N1)。
+        table = backup_source_proof.TABLES[name][0]
+        con.execute(f'CREATE TABLE "{table}"(date TEXT, score REAL)')
+        con.execute(f'INSERT INTO "{table}" VALUES(\'20261113\', 1.0)')
         con.commit()
         con.close()
     return bdir
@@ -583,6 +588,8 @@ GAPS_REVIEWED_20261114 = {
     "news_digest": "already_archived_elsewhere",
     "d1_metrics_evidence": "self_expiring_diagnostics",
     "d1_sync_state": "no_restore_semantics",
+    # N2(2026-11-15 审查三轮): 盘点第 6 类 logs/ 单位的备份过程日志 —— 只补这一项。
+    "logs/backup_db_*.log": "no_restore_semantics",
 }
 
 
@@ -626,3 +633,84 @@ def test_upload_state_capture_rejects_non_set_dir(tmp_path):
         json.dumps({"schema": "trade-state-capture-v1", "uploadable": False, "status": "inconsistent"}))
     with pytest.raises(SystemExit):
         ur.cmd_upload_state_capture(str(not_uploadable))
+
+
+# ---- N1/N2(2026-11-15 审查三轮) ----
+
+def test_n1_db_cutoff_takes_min_of_db_max_dates():
+    """N1 样例(构造): DB 截止 11-13/11-13/11-12 + 文件 mtime 兜底 11-14 ⇒
+    db_cutoff=2026-11-12(所有库共同覆盖到哪天, 取 min), common_business_cutoff=2026-11-14
+    (集合最新触点, 含 mtime)。变异「db_cutoff 改取 max」后本用例必红。"""
+    m = {
+        "files": [{"rel": "alert_state.json", "business_date": "2026-11-14",
+                   "business_date_method": "mtime_fallback"}],
+        "db_leg": {"databases": {
+            "sentiment": {"status": "ok", "max_date": "20261113"},
+            "etf_national_team": {"status": "ok", "max_date": "2026-11-13"},
+            "stock_daily": {"status": "ok", "max_date": "20261112"},
+            "public_fund": {"status": "reference_only"},
+        }},
+    }
+    c = bsc.db_cutoff(m)
+    assert c["date"] == "2026-11-12"
+    assert c["evidence"] == "db:stock_daily"
+    assert c["all_databases_covered"] is True
+    assert c["databases"] == {"sentiment": "2026-11-13", "etf_national_team": "2026-11-13",
+                              "stock_daily": "2026-11-12"}
+    assert "public_fund" not in c["databases"]  # 大库只引用, 不参与共同覆盖日
+    assert bsc.common_cutoff(m)["date"] == "2026-11-14"  # 原义保留: 集合最新触点
+
+
+def test_n1_capture_manifest_exposes_db_cutoff_and_doc_matches(tmp_path):
+    """N1 端到端: DB 截止 11-13 + sidecar mtime 11-14(云上真实形态) ⇒
+    manifest.db_cutoff=2026-11-13、common_business_cutoff=2026-11-14(被 mtime 抬高),
+    且 docs/backup-restore.md §九 的口径与实现一致(接管以 db_cutoff 为准)。"""
+    import os
+    import time
+
+    repo = make_repo(tmp_path)
+    late = time.mktime((2026, 11, 14, 10, 30, 0, 0, 0, -1))
+    for name in ("alert_state.json", "unit_exit_ledger.json"):
+        os.utime(repo / "data" / name, (late, late))
+    result = run_capture(repo, make_backups(tmp_path), tmp_path / "capture-sets")
+    m = result["manifest"]
+    assert m["db_cutoff"]["date"] == "2026-11-13"
+    assert m["db_cutoff"]["evidence"].startswith("db:")
+    assert m["db_cutoff"]["all_databases_covered"] is True
+    assert m["common_business_cutoff"]["date"] == "2026-11-14"
+    assert "mtime_fallback" in m["common_business_cutoff"]["methods_seen"]
+    assert "不等于数据业务截止日" in m["common_business_cutoff"]["note"]
+    doc = (ROOT / "docs" / "backup-restore.md").read_text()
+    assert "数据业务截止点以 `db_cutoff` 为准" in doc
+    assert "不等于数据业务截止日" in doc
+    assert "`db_cutoff`（数据业务截止点 = DB 各库 `MAX(date)` 的最小值" in doc
+
+
+def test_n1_db_cutoff_unknown_without_full_db_leg(tmp_path):
+    """N1 边界: 无 DB 腿(--no-db-leg)或任一库读不到日期 ⇒ 不冒充全覆盖
+    (all_databases_covered=false), date 只取已读到的库的最小值。"""
+    repo = make_repo(tmp_path)
+    result = run_capture(repo, make_backups(tmp_path), tmp_path / "capture-sets",
+                         with_db_leg=False)
+    c = result["manifest"]["db_cutoff"]
+    assert c["date"] is None and c["evidence"] == "none"
+    assert c["all_databases_covered"] is False
+    partial = bsc.db_cutoff({"db_leg": {"databases": {
+        "sentiment": {"status": "ok", "max_date": "20261113"},
+        "etf_national_team": {"status": "missing"},
+        "stock_daily": {"status": "ok", "max_date": None}}}})
+    assert partial["date"] == "2026-11-13"
+    assert partial["all_databases_covered"] is False
+    assert partial["databases"]["etf_national_team"] is None
+
+
+def test_n2_backup_db_process_logs_declared_excluded():
+    """N2(2026-11-15 审查三轮): logs/backup_db_*.log(备份过程日志, 无恢复语义)进
+    DECLARED_EXCLUDES 并写明理由; 声明即真生效(通配匹配), 不误伤 proof 台账。"""
+    prefixes = {e["prefix"]: e["reason"] for e in bsc.DECLARED_EXCLUDES}
+    reason = prefixes["logs/backup_db_*.log"]
+    assert "无恢复语义" in reason and "§25" in reason
+    assert bsc.is_declared_excluded("logs/backup_db_20261113_2100.log") is True
+    assert bsc.is_declared_excluded("logs/backup_db_20261113_2100.log.gz") is False
+    assert bsc.is_declared_excluded("logs/r2-db-source-x.json") is False  # proof 台账不被误伤
+    assert bsc.is_declared_excluded(".r2-protected/payloads/abc") is True  # 前缀语义不受影响

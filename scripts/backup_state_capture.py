@@ -14,8 +14,11 @@
   (sha256/size/mtime + PRAGMA integrity_check + 关键表行数, 只读)。
 - **sidecar 一致性**: 在 DB 快照之后读取; 每文件读前后 stat 复查 + 全部复制完
   finalize 前对源文件 stat+hash 复查; 变化 ⇒ 整体重试一次, 仍变 ⇒ 记 inconsistent,
-  拒绝宣称完整(uploadable=false)。DB 与 sidecar 的共同业务截止点写入
-  common_business_cutoff(文件内业务日期优先, mtime 兜底, 方法逐项记录)。
+  拒绝宣称完整(uploadable=false)。业务截止点字段分两个(N1, 2026-11-15 审查三轮):
+  **db_cutoff = DB 各库 MAX(date) 的最小值**(所有库共同覆盖到哪一天, 恢复/接管以它为准)与
+  common_business_cutoff(文件内业务日期优先、mtime 兜底、方法逐项记录; **含文件 mtime 触点,
+  不等于数据业务截止日** —— 云上 alert_state/unit_exit_ledger 的 mtime 是运行日, 会把该字段
+  抬成运行日)。
 - **绝不含 secret/token/PID/socket/锁**: 文件名 deny-list(.env*/pem/key/p12/pid/
   sock/lock/token/credentials/id_rsa 等)+ 内容嗅探(私钥头/sk-/Bearer); 命中 ⇒ 记
   skipped/excluded, 不进集合(绝不静默)。
@@ -59,6 +62,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
@@ -187,6 +191,13 @@ DECLARED_EXCLUDES = [
      "reason": "F6_no_restore_semantics: D1 同步失败可见化状态(云上实测 0 文件/空目录),"
                " 每次同步按设计覆盖写(d1_sync_state.py:14); 恢复旧失败态反而误导排查;"
                " 不占恢复集"},
+    # N2(2026-11-15 审查三轮): 盘点第 6 类 logs/ 单位里的备份过程日志 —— 既未纳入也未声明
+    # 属透明度缺口。备份过程日志是每次运行的诊断输出(与 proof 台账 logs/r2-db-source-*.json
+    # 不同), 无恢复语义; 历史日志按 §25 保留策略(磁盘/R2 生命周期)另管, 不进恢复集。
+    {"prefix": "logs/backup_db_*.log",
+     "reason": "no_restore_semantics: 备份过程日志(backup_db.sh 每日运行的诊断输出, 非状态/"
+               "非证明), 无恢复语义; 历史日志按 §25 保留策略(磁盘/R2 生命周期)另管;"
+               " proof 证明项已由 logs/r2-db-source-*.json 纳入捕获"},
 ]
 
 # DB 腿: 引用同轮 backup_db.sh 热备产物(不重复复制, 任务书「预算」条)。
@@ -354,16 +365,29 @@ def business_date_of(payload: bytes, path: Path) -> tuple[str, str]:
     return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d"), "mtime_fallback"
 
 
+def is_declared_excluded(rel: str) -> bool:
+    """rel 是否落在 DECLARED_EXCLUDES 声明面内(捕获前声明, 非事后缩表)。
+
+    前缀项按「完全相同 或 下钻子路径」匹配; 含通配符的项(如 `logs/backup_db_*.log`,
+    N2 2026-11-15)按 fnmatch 匹配 —— 声明项即真生效, 不做「只写不生效」的空声明。
+    """
+    for entry in DECLARED_EXCLUDES:
+        p = entry["prefix"]
+        if rel == p or rel.startswith(p + "/"):
+            return True
+        if any(ch in p for ch in "*?[") and fnmatch.fnmatch(rel, p):
+            return True
+    return False
+
+
 def expand_inventory(data_dir: Path) -> list[dict]:
     """把声明清单展开成逐文件条目(声明先行: 只展开, 不判断存在与否, missing 由捕获记录)。
     DECLARED_EXCLUDES 前缀下的文件在展开层就排除(捕获前声明, 绝不静默)。
 
     审查二轮 #4: 符号链接也展开成条目(is_symlink=True), 由捕获层记 `skipped`
     (`symlink_not_followed_by_design`)——不跟随进集合, 但绝不静默跳过不记账。"""
-    excludes = tuple(e["prefix"] for e in DECLARED_EXCLUDES)
-
     def excluded(rel: str) -> bool:
-        return any(rel == p or rel.startswith(p + "/") for p in excludes)
+        return is_declared_excluded(rel)
 
     items = []
     for category, pattern, kind in DECLARED_INVENTORY:
@@ -572,7 +596,12 @@ def verify_set(set_dir: Path, manifest: dict) -> dict:
 
 
 def common_cutoff(manifest: dict) -> dict:
-    """共同业务截止点: 文件内业务日期(有 mtime 兜底项如实标注)+ DB 腿 max_date/热备 mtime。"""
+    """共同业务截止点(原义保留): 文件内业务日期(有 mtime 兜底项如实标注)+ DB 腿 max_date。
+
+    ⚠️ N1(2026-11-15 审查三轮): 本字段**含文件 mtime 触点**(云上 alert_state/unit_exit_ledger
+    的 mtime 是运行日), 因此**不等于数据业务截止日**; 它回答的是「集合里最新触点」。恢复/
+    接管请以 `db_cutoff`(DB 各库 MAX(date) 的最小值)为准, 见 docs/backup-restore.md §九。
+    """
     dates = [(r["business_date"], r["rel"]) for r in manifest.get("files", [])]
     methods = {r["business_date_method"] for r in manifest.get("files", [])}
     for name, rec in manifest.get("db_leg", {}).get("databases", {}).items():
@@ -584,7 +613,31 @@ def common_cutoff(manifest: dict) -> dict:
     best = max(dates) if dates else ("unknown", "none")
     return {"date": best[0], "evidence": best[1],
             "methods_seen": sorted(methods),
-            "note": "文件内业务日期优先, mtime 兜底项见 files[].business_date_method"}
+            "note": "文件内业务日期优先, mtime 兜底项见 files[].business_date_method; "
+                    "含文件 mtime 触点, 不等于数据业务截止日 —— 接管以 db_cutoff 为准"}
+
+
+def db_cutoff(manifest: dict) -> dict:
+    """数据业务截止点 = DB 各库 MAX(date) 的**最小值**(「所有库共同覆盖到哪一天」)。
+
+    N1(2026-11-15 审查三轮): common_business_cutoff 会被 sidecar 的 mtime 兜底(运行日)抬高,
+    不能回答「数据到哪天了」。本字段只取 DB 腿(sentiment/etf_national_team/stock_daily)
+    的归一化 MAX(date), 取最小; 任一库读不到 ⇒ all_databases_covered=false(不冒充全覆盖)。
+    DB 腿缺失(调试 --no-db-leg)或全部无 date ⇒ date=None, 不得据此宣称可接管。
+    """
+    dbs = manifest.get("db_leg", {}).get("databases", {})
+    per_db = {}
+    for name in DB_LEG_NAMES:
+        rec = dbs.get(name) or {}
+        per_db[name] = (normalize_business_date(rec.get("max_date"))
+                        if rec.get("status") == "ok" else None)
+    covered = bool(dbs) and all(per_db.values())
+    known = sorted((d, name) for name, d in per_db.items() if d)
+    base = {"databases": per_db, "all_databases_covered": covered,
+            "note": "DB 各库 MAX(date) 的最小值(所有库共同覆盖到该日); 不含文件 mtime 触点"}
+    if not known:
+        return {"date": None, "evidence": "none", **base}
+    return {"date": known[0][0], "evidence": f"db:{known[0][1]}", **base}
 
 
 def capture(repo: Path, out_root: Path, backup_dir: Path, stamp: str, scripts_dir: Path,
@@ -634,6 +687,9 @@ def capture(repo: Path, out_root: Path, backup_dir: Path, stamp: str, scripts_di
         manifest["missing"].append(m)
     verification = verify_set(pending, manifest)
     manifest["verification"] = verification
+    # N1: 两个截止点各司其职 —— db_cutoff=DB 各库共同覆盖日(接管口径),
+    # common_business_cutoff=集合最新触点(含 mtime, 见其 note 与 docs §九)。
+    manifest["db_cutoff"] = db_cutoff(manifest)
     manifest["common_business_cutoff"] = common_cutoff(manifest)
     # 判定: missing(真缺) + secret 类 skipped(真缺口) + budget_excluded(F2 已声明
     # 未捕获) + 校验 + DB 腿缺/坏 ⇒ 不完整; 按设计排除的 skipped(瞬态锁/symlink, 见

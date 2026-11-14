@@ -319,7 +319,8 @@ etf_index_map/etf_track_index/lof_track_index 等）。本节机制把这套状�
   `baostock_logs/` 标「待主控拍板」；`sw_components.json`/`stock_codes.json`/`trade_dates.txt`
   标「可从源重建」；`news_digest/` 已由 R2 `news-digest` 归档通道 + staticdata 同步覆盖；
   `d1_metrics_evidence/`（30 天 TTL 自愈诊断）/`d1_sync_state/`（按设计覆盖写、云上实测空目录）
-  无恢复语义；`staticdata_backup_heartbeat.json`（88B 灾备心跳）已纳入清单
+  无恢复语义；`logs/backup_db_*.log`（备份过程日志，无恢复语义，历史按 §25 保留策略另管）
+  显式声明排除；`staticdata_backup_heartbeat.json`（88B 灾备心跳）已纳入清单
 - **归档**：R2 `signal-backup2` 私有桶 `backup/state_YYYYMMDD.tar.gz`（tar.gz 集合含
   manifest），proof 契约同 `upload-db`（`R2_STATE_CAPTURE_PROOF`+`R2_STATE_CAPTURE_RUN_ID`
   成对传，receipt 同 schema:1 结构），保留 14 天滚动（`_prune_state_captures`）；上传成功前
@@ -331,7 +332,11 @@ etf_index_map/etf_track_index/lof_track_index 等）。本节机制把这套状�
 
 `declared_inventory`（捕获前声明的恢复清单）/ `declared_excludes`（声明排除）/ `files`（逐文件
 sha256+业务日期+来源 stat）/ `missing` / `skipped`（含原因）/ `db_leg`（同轮热备引用）/
-`common_business_cutoff`（共同业务截止点：文件内业务日期优先、mtime 兜底、方法逐项记录）/
+**`db_cutoff`（数据业务截止点 = DB 各库 `MAX(date)` 的最小值，即「所有库共同覆盖到哪一天」；
+`all_databases_covered` 标是否每个库都读到了日期；**恢复/接管以它为准**）** /
+`common_business_cutoff`（共同业务截止点 = 集合内最新触点：文件内业务日期优先、mtime 兜底、
+方法逐项记录；**含文件 mtime 触点，云上 `alert_state.json`/`unit_exit_ledger.json` 的 mtime 是
+运行日 ⇒ 该字段会被抬成运行日，不等于数据业务截止日**，不得用于判定数据覆盖到哪天）/
 `verification` / `complete` / `uploadable` / `archive`（上传成功后回写 key+gzip sha256）。
 
 ### 单测与证据
@@ -342,12 +347,18 @@ payloads 声明排除 / 瞬态锁记账 / **出根与 C4 分离(F1)** / **超预
 **声明写与清单展开 IO 异常不逃逸（二轮 #1）** / **`.uploaded` 标记兜底 manifest 回写失败
 （二轮 #3）** / **symlink 记账不静默（二轮 #4）** / **secret 内容面 password=/api_key=/云 key
 （二轮 #5）** / **滚动清理先验后删(F3)** / **业务日期归一(F5)** / **缺口清单显式集合驱动(F6，
-二轮 #2)** / upload-state-capture 拒绝非集合目录）；云上试跑实测（只读源、写 /tmp 临时目录）见
+二轮 #2)** / **`db_cutoff` 与 `common_business_cutoff` 分离（N1，三轮）** /
+**`logs/backup_db_*.log` 声明排除（N2，三轮）** / upload-state-capture 拒绝非集合目录）；
+云上试跑实测（只读源、写 /tmp 临时目录）见
 `docs/ops/backup-state-capture-trial-20261114.md`。
 
 ### 恢复语义（对照执行方案工作包二）
 
 - 通知状态**不得恢复成全绿或清空历史**（alert_state/notify_dedup/ledger 原样带回，已自愈的
   告警去重状态随集合恢复，避免已通知事件重发）
-- DB 与 sidecar 的共同业务截止点以 `common_business_cutoff` 为准；无法对应时不宣称完整可接管
+- **数据业务截止点以 `db_cutoff` 为准**（DB 各库 `MAX(date)` 的最小值 = 所有库共同覆盖到哪一天；
+  `all_databases_covered=false` 或 `date` 为空即「无法对应」⇒ 不宣称完整可接管）。历史集合
+  （2026-11-15 前产出、无 `db_cutoff` 字段）按 `db_leg.databases[].max_date` 取最小值作等价口径
+- `common_business_cutoff` 只表示「集合内最新触点」（含 sidecar 的 mtime 兜底，可能是运行日），
+  **不能拿来判定数据业务截止日**；它仍保留用于排查 sidecar 新鲜度与 mtime 兜底项
 - `.env` 凭据**不入归档**（deny-list 拒绝），接管时人工受控配置；manifest 只记配置名与凭据引用
