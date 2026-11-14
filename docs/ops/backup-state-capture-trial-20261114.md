@@ -6,7 +6,7 @@
 
 ## 试跑环境与方法
 
-- 云上生产数据仓库 `/home/ubuntu/code/trade-data`(只读源:其 `data/` 全部 sidecar + 
+- 云上生产数据仓库 `/home/ubuntu/code/trade-data`(只读源:其 `data/` 全部 sidecar +
   `data/backups/` 同轮热备产物);写入仅限 `/tmp/standby-capture-trial/`。
 - 脚本 = feat 分支 `scripts/backup_state_capture.py`(scp 到 `/tmp/backup_state_capture_trial.py`
   运行,不改云上任何生产文件);`--scripts-dir` 指生产 `scripts/`(复用 backup_source_proof 的
@@ -37,6 +37,19 @@
   methods_seen 含 json_field/json_freeze_key_prefix/mtime_fallback,兜底项逐文件可见)
 - `declared_excludes`=['.r2-protected/payloads'](带理由原文,见脚本 `DECLARED_EXCLUDES`)
 - files_by_category:不可重建历史 6 / 采集进度 4 / 发布状态 1215 / 通知状态 28 / proof台账 4
+
+## 口径说明(审查二轮 #6 补注,2026-11-14)
+
+本节以上数字是 **pre-F5 历史证据**(当时分支代码的云上实测),按「历史记录不追改」原样保留;
+当前代码口径示例:
+
+- `common_business_cutoff` 现统一归一成 ISO `YYYY-MM-DD`:同一次试跑在
+  `normalize_business_date` 之后会写 **`2026-11-13`**(上面表格里的 `20261113` 是 F5 归一前的
+  历史值——8 位与 10 位混排直接字典序比较会让 8 位恒赢,`('-'(45) < 数字)`,F5 即修此)。
+- 声明清单/排除项随审查二轮更新(新增 `audit/frozen_missing` 纳入捕获;`news_digest` /
+  `d1_metrics_evidence` / `d1_sync_state` 显式声明排除),故下一次真实试跑的
+  `files_by_category` / `declared_excludes` 计数与本表不再逐位相同;机制口径以
+  `scripts/backup_state_capture.py` + `docs/backup-restore.md` §九为准。
 
 ## 预算结论
 

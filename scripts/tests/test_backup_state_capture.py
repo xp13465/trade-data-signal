@@ -2,6 +2,8 @@
 
 覆盖任务书「证据用例」1-4(缺项不缩表 / sidecar 变化重试一次 / hash 篡改 FAIL /
 secret 类文件不进集合), 外加 upload-state-capture 入口的最小拒绝守卫。
+审查二轮(同日)补: 声明写/清单展开 IO 异常不逃逸(#1)、缺口清单显式集合驱动(#2)、
+`.uploaded` 标记兜底 manifest 回写失败(#3)、symlink 记账不静默(#4)、secret 内容面(#5)。
 全部走临时目录, 不碰生产数据、不发通知(本模块本身也无通知链路, L48)。
 不写死运行日(不 assert 今天日期; 冻结表样例数据用固定历史日期字面量, 与运行日无关, L51)。
 """
@@ -33,7 +35,7 @@ SIDE_FILES = [
 
 def make_repo(tmp_path: Path, *, full: bool = True) -> Path:
     data = tmp_path / "repo" / "data"
-    for d in ("alerts", "logs", "ops_delivery/pub", ".r2-protected"):
+    for d in ("alerts", "logs", "ops_delivery/pub", ".r2-protected", "audit/frozen_missing"):
         (data / d).mkdir(parents=True)
     (data / "signal_kelly_etf_freeze.json").write_text(
         '{"20261110|sh000001|buy":{"code":"510300","frozen_at":"2026-11-10"},'
@@ -46,6 +48,7 @@ def make_repo(tmp_path: Path, *, full: bool = True) -> Path:
         (data / "alerts" / "alert_ledger.jsonl").write_text('{"e":1}\n')
         (data / "logs" / "r2-db-source-x.json").write_text('{"run":1}')
         (data / "ops_delivery" / "pub" / "r.json").write_text('{"r":1}')
+        (data / "audit" / "frozen_missing" / "run1.json").write_text('{"run":1}')
         (data / ".r2-protected" / "p.json").write_text('{"p":1}')
         (data / ".r2-protected" / "history").mkdir(parents=True, exist_ok=True)
         (data / ".r2-protected" / "history" / "w1.json").write_text('{"state":"confirmed"}')
@@ -203,19 +206,23 @@ def test_secret_files_not_in_capture_set(tmp_path):
     (data / "ops_delivery" / "pub" / "creds.pem").write_text("x")
     (data / "board_etf_map.json").write_text(
         "-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----\n")  # 内容嗅探
+    (data / "alerts" / "settings.json").write_text('{"api_key":"abcd1234efgh"}')  # 审查二轮 #5
     out_root = tmp_path / "capture-sets"
     result = run_capture(repo, make_backups(tmp_path), out_root)
     m = result["manifest"]
     set_dir = result["set_dir"]
     captured_rels = {r["rel"] for r in m["files"]}
     for rel in ("alerts/.env", "alerts/daemon.pid", "alerts/upload.lock",
-                ".r2_token_state.json", "ops_delivery/pub/creds.pem", "board_etf_map.json"):
+                ".r2_token_state.json", "ops_delivery/pub/creds.pem", "board_etf_map.json",
+                "alerts/settings.json"):
         assert rel not in captured_rels, f"{rel} 不应进捕获集合"
         assert not (set_dir / rel).exists(), f"{rel} 不应存在于集合目录"
     skipped_rels = {s["rel"] for s in m["skipped"]}
     for rel in ("alerts/.env", "alerts/daemon.pid", ".r2_token_state.json"):
         assert rel in skipped_rels
     assert any(s["reason"] == "secret_content_pattern" for s in m["skipped"])
+    assert any(s["rel"] == "alerts/settings.json" and s["reason"] == "secret_content_pattern"
+               for s in m["skipped"]), "api_key= 内容必须在捕获层被拦并记账"
     assert m["complete"] is False  # 有声明项被排除 ⇒ 如实不完整
 
 
@@ -343,6 +350,131 @@ def test_f2_disk_full_fails_cleanly_no_pending(tmp_path, monkeypatch):
     assert not list(out_root.glob(".pending-*"))
 
 
+def test_f2_declare_manifest_write_failure_fails_cleanly(tmp_path, monkeypatch, capsys):
+    """审查二轮 #1: 声明 manifest 原子写抛 OSError(ENOSPC)⇒ 不得逃出 capture/main:
+    status=failed、exit=1、无 .pending-* 泄漏、无未捕获异常(旧实现这步在 try 之前)。"""
+    repo = make_repo(tmp_path)
+    bdir = make_backups(tmp_path)
+    out_root = tmp_path / "capture-sets"
+
+    def disk_full(path, value):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(bsc, "atomic_json", disk_full)
+    result = bsc.capture(repo, out_root, bdir, STAMP, ROOT / "scripts", with_db_leg=False)
+    assert result["uploadable"] is False and result["set_dir"] is None
+    m = result["manifest"]
+    assert m["status"] == "failed" and m["reason"] == "io_failure_during_capture"
+    assert m["error"]["phase"] == "declare_or_expand"
+    assert "No space left" in m["error"]["detail"]
+    assert not list(out_root.glob(".pending-*")), "IO 失败必须清掉 .pending-* 临时目录"
+    rc = bsc.main(["--repo", str(repo), "--backup-dir", str(bdir), "--stamp", STAMP,
+                   "--out-root", str(out_root), "--scripts-dir", str(ROOT / "scripts"),
+                   "--no-db-leg"])
+    assert rc == 1
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["status"] == "failed"
+
+
+def test_f2_expand_inventory_io_failure_fails_cleanly(tmp_path, monkeypatch):
+    """审查二轮 #1: 清单展开(目录遍历)抛 OSError(EIO)⇒ 同样 status=failed、exit=1、
+    无 .pending-*、不 traceback。"""
+    repo = make_repo(tmp_path)
+    bdir = make_backups(tmp_path)
+    out_root = tmp_path / "capture-sets"
+
+    def eio(data_dir):
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(bsc, "expand_inventory", eio)
+    result = bsc.capture(repo, out_root, bdir, STAMP, ROOT / "scripts", with_db_leg=False)
+    m = result["manifest"]
+    assert result["uploadable"] is False and result["set_dir"] is None
+    assert m["status"] == "failed"
+    assert m["error"] == {"type": "OSError", "detail": "[Errno 5] Input/output error",
+                          "phase": "declare_or_expand"}
+    assert not list(out_root.glob(".pending-*"))
+    rc = bsc.main(["--repo", str(repo), "--backup-dir", str(bdir), "--stamp", STAMP,
+                   "--out-root", str(out_root), "--scripts-dir", str(ROOT / "scripts"),
+                   "--no-db-leg"])
+    assert rc == 1
+
+
+def test_upload_marker_saves_prune_when_manifest_rewrite_fails(tmp_path, monkeypatch):
+    """审查二轮 #3: 上传成功但 manifest 回写失败 ⇒ 集合内 .uploaded 标记让 prune 认出
+    「已上传」(否则永远 not_uploaded 无限堆积); 未上传集合仍不误删。"""
+    import os
+
+    import backup_source_proof
+    import upload_r2 as ur
+
+    now = 1_700_000_000.0
+    old = now - 40 * 86400
+    set_dir = tmp_path / "20260101_2100-abcdef01"   # A: 标记型已上传
+    set_dir.mkdir()
+    (set_dir / "f.json").write_text('{"ok":1}')
+    (set_dir / "manifest.json").write_text(json.dumps({
+        "schema": bsc.SCHEMA, "capture_set_id": set_dir.name, "status": "captured",
+        "uploadable": True, "complete": True, "files": [],
+        "archive": {"status": "not_uploaded"}}))
+    monkeypatch.delenv("R2_STATE_CAPTURE_PROOF", raising=False)
+    monkeypatch.delenv("R2_STATE_CAPTURE_RUN_ID", raising=False)
+    monkeypatch.setattr(ur, "_upload_file_to_key", lambda *a, **k: (200, b""))
+    monkeypatch.setattr(ur, "_prune_state_captures", lambda *a, **k: None)
+
+    def disk_full(path, value):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(backup_source_proof, "atomic_json", disk_full)
+    ur.cmd_upload_state_capture(str(set_dir))  # 上传本体成功 ⇒ 不抛异常、不回溯成失败
+    marker = json.loads((set_dir / bsc.UPLOAD_MARKER_NAME).read_text())
+    assert marker["schema"] == bsc.UPLOAD_MARKER_SCHEMA
+    assert marker["object_key"].startswith("backup/state_")
+    assert marker["gzip_sha256"] and marker["gzip_size"] > 0
+    # manifest 回写确实失败(仍是旧状态) —— 标记必须是唯一证据源
+    assert json.loads((set_dir / "manifest.json").read_text())["archive"]["status"] == "not_uploaded"
+    # 对照: B 最近上传(未超期要保留)、C 未上传(最新集合, 永不删)
+    b = _make_set(tmp_path, "20260102_2100-abcdef02", "uploaded", now - 1 * 86400)
+    c = _make_set(tmp_path, "20260103_2100-abcdef03", "not_uploaded", old)
+    os.utime(set_dir, (old, old))
+    res = {r["name"]: r for r in bsc.prune_capture_sets(tmp_path, 30, now=now)}
+    assert res[set_dir.name]["action"] == "deleted", res[set_dir.name]
+    assert res[set_dir.name]["archive_key"].startswith("backup/state_")
+    assert not set_dir.exists()
+    assert res[b.name]["action"] == "keep" and res[b.name]["reason"] == "within_retain_days"
+    assert res[c.name]["action"] == "keep" and res[c.name]["reason"] == "newest_or_only_uploaded"
+    assert (b / "manifest.json").exists() and (c / "manifest.json").exists()
+
+
+def test_symlink_skipped_recorded_not_silent(tmp_path):
+    """审查二轮 #4: 目录声明里的符号链接不跟随进集合, 但必须记 skipped
+    (symlink_not_followed_by_design)写进 manifest, 不算缺口。"""
+    import os
+    repo = make_repo(tmp_path)
+    data = repo / "data"
+    real = data / "alerts" / "real.json"
+    real.write_text('{"x":1}')
+    os.utime(real, (FIXTURE_MTIME, FIXTURE_MTIME))
+    (data / "alerts" / "link.json").symlink_to(real)
+    result = run_capture(repo, make_backups(tmp_path), tmp_path / "capture-sets")
+    m = result["manifest"]
+    assert {"rel": "alerts/link.json", "reason": "symlink_not_followed_by_design"} in m["skipped"]
+    rels = {r["rel"] for r in m["files"]}
+    assert "alerts/real.json" in rels and "alerts/link.json" not in rels
+    assert not (result["set_dir"] / "alerts" / "link.json").exists()
+    assert m["complete"] is True, {"skipped": m["skipped"], "missing": m["missing"]}
+
+
+def test_secret_content_patterns_cover_password_api_key_cloud_keys():
+    """审查二轮 #5: 内容嗅探补齐 password= / api_key= / AWS(AKIA/SKIA) / GCP private_key_id。"""
+    for payload in (b'password=hunter2', b'{"api_key":"abcd1234efgh"}',
+                    b'aws_secret_access_key=abcdefghij', b'AKIAABCDEFGHIJKLMNOP',
+                    b'SKIAABCDEFGHIJKLMNOP',
+                    b'"private_key_id": "0123456789abcdef0123456789abcdef"'):
+        assert bsc.contains_secret_pattern(payload), payload
+    for payload in (b'{"ok":1}', b'{"api":"x"}', b'{"pass":true}'):
+        assert bsc.contains_secret_pattern(payload) is None, payload
+
+
 def test_f2_vanished_before_read_marked_missing(tmp_path, monkeypatch):
     """F2(2026-11-14 审查): 展开后、读取前被轮转删除 ⇒ 记 missing(vanished_during_capture),
     不崩溃、complete=false。"""
@@ -436,17 +568,43 @@ def test_f3_prune_keeps_only_uploaded_restore_point(tmp_path):
     assert (out / "20260101_2100-abcdef01").exists()
 
 
+# 审查二轮 #2 · 盘点缺口显式集合(独立锚, 不从模块自证):
+# 来源 = `/tmp/backup-inventory-20261114.md` §二/§三(38 项盘点, :8/:83) + 2026-11-14 云上实测
+# (audit/frozen_missing 1,155,828B/201;news_digest 1.5MB/65;d1_metrics_evidence 203KB/9;
+#  d1_sync_state 空目录)。处置 = included(纳入清单) / 其余必须有一条 DECLARED_EXCLUDES 声明。
+GAPS_REVIEWED_20261114 = {
+    "signal_kelly_trades.json": "pending_owner_decision",
+    "daily-k.parquet": "pending_owner_decision",
+    "baostock_logs": "pending_owner_decision",
+    "sw_components.json": "rebuildable_static_reference",
+    "stock_codes.json": "rebuildable_static_reference",
+    "trade_dates.txt": "rebuildable_static_reference",
+    "audit/frozen_missing": "included",
+    "news_digest": "already_archived_elsewhere",
+    "d1_metrics_evidence": "self_expiring_diagnostics",
+    "d1_sync_state": "no_restore_semantics",
+}
+
+
 def test_f6_declared_excludes_cover_inventory_gaps():
-    """F6(2026-11-14 审查): 盘点 38 项里未纳入的条目必须逐项显式声明(纳入或
-    DECLARED_EXCLUDES 写明理由/待拍板), 不许静默缺席。"""
+    """F6(2026-11-14 审查两轮): 盘点/云上实测的缺口项逐项显式处置 —— 纳入清单或在
+    DECLARED_EXCLUDES 写明具体理由/待拍板, 不许静默缺席; audit 必须在覆盖内。"""
+    patterns = {p for _, p, _ in bsc.DECLARED_INVENTORY}
     prefixes = {e["prefix"]: e["reason"] for e in bsc.DECLARED_EXCLUDES}
-    for p in ("signal_kelly_trades.json", "daily-k.parquet", "sw_components.json",
-              "stock_codes.json", "trade_dates.txt", "baostock_logs"):
-        assert p in prefixes, f"盘点项 {p} 既未纳入也未声明排除"
+    for gap, disposition in GAPS_REVIEWED_20261114.items():
+        in_inventory = any(gap == p or p.startswith(gap + "/") for p in patterns)
+        in_excludes = gap in prefixes
+        assert in_inventory or in_excludes, f"盘点缺口 {gap} 既未纳入也未声明排除"
+        if disposition == "included":
+            assert in_inventory, f"{gap} 标了 included 却不在 DECLARED_INVENTORY"
+        else:
+            assert in_excludes and prefixes[gap].strip(), gap
+    assert "audit/frozen_missing" in patterns, "audit 缺口必须纳入捕获清单"
     for p in ("signal_kelly_trades.json", "daily-k.parquet", "baostock_logs"):
         assert "待主控拍板" in prefixes[p], f"{p} 必须写明待主控拍板"
-    patterns = {p for _, p, _ in bsc.DECLARED_INVENTORY}
     assert "staticdata_backup_heartbeat.json" in patterns
+    # 声明排除不得出现空理由(逐条可解释)
+    assert all(e["reason"].strip() for e in bsc.DECLARED_EXCLUDES)
 
 
 def test_upload_state_capture_rejects_non_set_dir(tmp_path):

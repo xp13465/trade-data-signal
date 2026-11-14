@@ -32,9 +32,21 @@
   (不 traceback 崩溃、不泄漏临时目录); 文件在捕获窗内被轮转删除 ⇒ 记 missing
   (`vanished_during_capture`), 不崩溃。
 - **本地保留治理**(F3): `prune_capture_sets` 参数化天数(`--prune-days`, 由
-  backup_db.sh 传 RETAIN_DAYS)+ **先验后删**(所有权校验 + `manifest.archive.status ==
-  uploaded` 才删)+ **只删本任务登记目录**(纯 UUID / `.pending-*` / 陌生目录一律不碰)
-  + **绝不删最新集合与唯一可用集合**。上传成功前本地集合不删(R2 归档确认后才允许清理)。
+  backup_db.sh 传 RETAIN_DAYS)+ **先验后删**(所有权校验 + 已上传才删)+ **只删本任务登记目录**
+  (纯 UUID / `.pending-*` / 陌生目录一律不碰)+ **绝不删最新集合与唯一可用集合**。
+  上传成功前本地集合不删(R2 归档确认后才允许清理)。
+- **IO 异常全程不逃逸**(审查二轮 #1): 声明 manifest 原子写 + 清单展开(`expand_inventory`
+  目录遍历)也在 try 内,`succeeded=False` 提前置位 ⇒ ENOSPC/EIO 同样记 `status=failed`、
+  `finally` 清 `.pending-*`、capture()/main() 不 traceback(磁盘满不得泄漏临时目录)。
+- **上传标记双保险**(审查二轮 #3): 上传成功后先在集合目录原子写 `.uploaded` 标记
+  (object key + sha256 + 时间); prune 以「标记存在 **OR** `manifest.archive.status ==
+  uploaded`」判定已上传 —— manifest 回写失败(磁盘满等)也不会让本地集合永久判 not_uploaded
+  无限堆积。
+- **符号链接不静默**(审查二轮 #4): 目录声明里的 symlink 记入 `skipped`
+  (`symlink_not_followed_by_design`)并写进 manifest, 不跟随进集合也不漏记账;
+  与瞬态锁同属「按设计排除」, 不影响 complete 判定。
+- **secret 内容嗅探面**(审查二轮 #5): 私钥头 / `sk-…` / `Bearer …` + `password=` /
+  `api_key=` / AWS `AKIA…`/`SKIA…` / GCP `private_key_id` / `aws_secret_access_key`。
 
 用法:
   python3 scripts/backup_state_capture.py --repo <repo> --backup-dir <dir> \
@@ -72,6 +84,17 @@ MAX_FILE_BYTES = 64 << 20
 
 # F3: 只删本任务登记的集合目录名(YYYYMMDD_HHMM-8hex); 陌生目录一律不碰。
 CAPTURE_SET_DIR_RE = re.compile(r"^\d{8}_\d{4}-[0-9a-f]{8}$")
+
+# 审查二轮 #3: 上传成功后写在集合目录内的标记(manifest 回写失败时的第二证据源)。
+# 由 upload_r2.py cmd_upload_state_capture 调 write_upload_marker 写入, prune 读它。
+UPLOAD_MARKER_NAME = ".uploaded"
+UPLOAD_MARKER_SCHEMA = "trade-state-capture-upload-marker-v1"
+
+# 按设计排除的 skipped 原因(跨机无恢复意义/不跟随), 不算缺口, 不影响 complete。
+BY_DESIGN_SKIP_REASONS = frozenset({
+    "transient_lock_by_design",       # .lock 事务锁(瞬态, 云上 ops_delivery 实测 292 个)
+    "symlink_not_followed_by_design",  # 审查二轮 #4: symlink 不跟随(防跨出集合/重复)
+})
 
 # ---- 恢复清单(捕获前声明; 改这里 = 改恢复范围, 必须同步 docs/backup-restore.md) ----
 # pattern 相对 <repo>/data/; kind: file=单文件 / glob=通配 / dir=递归目录。
@@ -111,6 +134,10 @@ DECLARED_INVENTORY = [
     ("通知状态", "brief_push_state.json", "file"),
     # proof 台账(R2 归档的源证明, 原本仅云上本地无远端副本)
     ("proof台账", "logs/r2-db-source-*.json", "glob"),
+    # F6 审查二轮 #2: 盘点文档(:8/:83)明确把 audit/ 列为缺口(云上实测
+    # audit/frozen_missing 1,155,828B / 201 文件, signal_kelly_backtest.py:492 写入)。
+    # 冻结缺失诊断取证台账不可重建(过去某次运行的输入快照), 体积 1.16MB 在每日预算内 ⇒ 纳入。
+    ("proof台账", "audit/frozen_missing", "dir"),
 ]
 
 # ---- 声明排除(捕获前声明, 与恢复清单同一时刻写进 manifest; 不是发现缺文件后缩表) ----
@@ -146,6 +173,20 @@ DECLARED_EXCLUDES = [
     {"prefix": "baostock_logs",
      "reason": "F6_pending_owner_decision: 采集分块诊断日志(6.9MB/67 文件), 无可恢复语义; "
                "是否纳入归档 待主控拍板"},
+    # F6 审查二轮 #2: 云上实测的其余三个目录逐个显式处置(不许静默缺席)。
+    {"prefix": "news_digest",
+     "reason": "F6_already_archived_elsewhere: 新闻按日归档(云上实测 1.5MB/65 文件)由"
+               "fetch_news.py:648-688 复制到 static-site/data/news_digest, 已有 R2 `news-digest` "
+               "归档通道(upload_r2.py:5092, data/news_digest 前缀) + staticdata 同步双副本;"
+               " 不重复进每日集合"},
+    {"prefix": "d1_metrics_evidence",
+     "reason": "F6_self_expiring_diagnostics: D1 同步证据(云上实测 203KB/9 文件)是带 30 天 TTL "
+               "的自愈诊断(d1_metrics_evidence.py `MAX_AGE = 30 * 86400`, 超龄自动丢弃),"
+               " 无接管恢复语义; 不占恢复集"},
+    {"prefix": "d1_sync_state",
+     "reason": "F6_no_restore_semantics: D1 同步失败可见化状态(云上实测 0 文件/空目录),"
+               " 每次同步按设计覆盖写(d1_sync_state.py:14); 恢复旧失败态反而误导排查;"
+               " 不占恢复集"},
 ]
 
 # DB 腿: 引用同轮 backup_db.sh 热备产物(不重复复制, 任务书「预算」条)。
@@ -177,6 +218,14 @@ _SECRET_CONTENT_RES = (
     re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(rb"\bsk-[A-Za-z0-9]{16,}\b"),
     re.compile(rb"Bearer\s+[A-Za-z0-9._-]{20,}"),
+    # 审查二轮 #5: 键值型凭据(password=/api_key=)与云厂商 key 形态
+    # (JSON 风格 `"api_key": "…"` 允许键名后带引号, shell 风格 `api_key=…` 也覆盖)。
+    re.compile(rb"(?i)\b(?:password|passwd|pwd)[\"']?\s*[:=]\s*[\"']?[^\s\"',}]{4,}"),
+    re.compile(rb"(?i)\bapi[_-]?key[\"']?\s*[:=]\s*[\"']?[^\s\"',}]{8,}"),
+    re.compile(rb"(?i)\baws_secret_access_key[\"']?\s*[:=]\s*[\"']?[^\s\"',}]{8,}"),
+    re.compile(rb"\bAKIA[0-9A-Z]{16}\b"),          # AWS access key id
+    re.compile(rb"\bSKIA[0-9A-Z]{16}\b"),          # AWS 旧式 secret(审查点名形态)
+    re.compile(rb"\"private_key_id\"\s*:\s*\"[0-9a-f]{20,64}\""),  # GCP service account key
 )
 
 
@@ -307,7 +356,10 @@ def business_date_of(payload: bytes, path: Path) -> tuple[str, str]:
 
 def expand_inventory(data_dir: Path) -> list[dict]:
     """把声明清单展开成逐文件条目(声明先行: 只展开, 不判断存在与否, missing 由捕获记录)。
-    DECLARED_EXCLUDES 前缀下的文件在展开层就排除(捕获前声明, 绝不静默)。"""
+    DECLARED_EXCLUDES 前缀下的文件在展开层就排除(捕获前声明, 绝不静默)。
+
+    审查二轮 #4: 符号链接也展开成条目(is_symlink=True), 由捕获层记 `skipped`
+    (`symlink_not_followed_by_design`)——不跟随进集合, 但绝不静默跳过不记账。"""
     excludes = tuple(e["prefix"] for e in DECLARED_EXCLUDES)
 
     def excluded(rel: str) -> bool:
@@ -328,7 +380,11 @@ def expand_inventory(data_dir: Path) -> list[dict]:
             if root.is_dir():
                 for p in sorted(root.rglob("*")):
                     rel = p.relative_to(data_dir).as_posix()
-                    if p.is_file() and not p.is_symlink() and not excluded(rel):
+                    if p.is_symlink():
+                        if not excluded(rel):
+                            items.append({**base, "rel": rel, "is_symlink": True})
+                        continue
+                    if p.is_file() and not excluded(rel):
                         items.append({**base, "rel": rel})
         else:
             raise ValueError("unknown inventory kind: " + kind)
@@ -408,13 +464,23 @@ def _capture_attempt(repo: Path, out_root: Path, backup_dir: Path, stamp: str,
                 "declared_excludes": [dict(e) for e in DECLARED_EXCLUDES],
                 "files": [], "missing": [], "skipped": [], "budget_excluded": [],
                 "archive": {"status": "not_uploaded"}}
-    atomic_json(pending / "manifest.json", manifest)
-    expanded = expand_inventory(data_dir)
     succeeded = False
+    # 审查二轮 #1: 声明写入 + 清单展开也必须在 try 内 —— ENOSPC/EIO 不得逃出本函数
+    # (旧实现这两步在 try 之前 ⇒ traceback + .pending-* 泄漏)。succeeded 已提前置 False,
+    # 任何异常路径都会走 finally 清 pending。
+    phase = "declare_or_expand"
     try:
+        atomic_json(pending / "manifest.json", manifest)
+        expanded = expand_inventory(data_dir)
+        phase = "read_or_write"
         for item in expanded:
             rel = item["rel"]
             src = data_dir / rel
+            if item.get("is_symlink"):
+                # 审查二轮 #4: 不跟随符号链接(防跨出集合/重复), 但必须记账不静默。
+                manifest["skipped"].append(
+                    {"rel": rel, "reason": "symlink_not_followed_by_design"})
+                continue
             if is_transient_lock(src.name):
                 # 瞬态锁: 按设计排除(跨机无恢复意义), 不计缺口 ⇒ 不影响 complete。
                 # (先于 secret 判定: .lock 也在 secret 后缀表内, 但锁语义是"瞬态"非"缺口")
@@ -473,7 +539,7 @@ def _capture_attempt(repo: Path, out_root: Path, backup_dir: Path, stamp: str,
         # F2: 读/写 IO 失败(磁盘满、权限等) ⇒ 不重试、不 traceback、不泄漏 pending;
         # 如实记 status=failed(调用方据此产出 failed manifest, 不冒充成功)。
         manifest["error"] = {
-            "type": type(exc).__name__, "detail": str(exc), "phase": "read_or_write"}
+            "type": type(exc).__name__, "detail": str(exc), "phase": phase}
         return manifest, pending, "io_failed"
     finally:
         # 非 consistent 路径一律清掉 pending 临时目录(源变化/IO 失败), 防堆积泄漏。
@@ -529,8 +595,16 @@ def capture(repo: Path, out_root: Path, backup_dir: Path, stamp: str, scripts_di
     retries = 0
     outcome = "io_failed"
     for attempt in range(2):
-        manifest, pending, outcome = _capture_attempt(
-            repo, out_root, backup_dir, stamp, scripts_dir, with_db_leg, started_at)
+        try:
+            manifest, pending, outcome = _capture_attempt(
+                repo, out_root, backup_dir, stamp, scripts_dir, with_db_leg, started_at)
+        except OSError as exc:
+            # 审查二轮 #1 兜底: mkdtemp/out_root 创建失败时 pending 还不存在(无目录可清),
+            # 同样如实落 status=failed, 绝不 traceback 到 main()/backup_db.sh。
+            manifest = {"files": [], "error": {"type": type(exc).__name__,
+                                               "detail": str(exc),
+                                               "phase": "create_pending"}}
+            outcome = "io_failed"
         if outcome == "consistent":
             break
         if outcome == "io_failed":
@@ -561,10 +635,11 @@ def capture(repo: Path, out_root: Path, backup_dir: Path, stamp: str, scripts_di
     verification = verify_set(pending, manifest)
     manifest["verification"] = verification
     manifest["common_business_cutoff"] = common_cutoff(manifest)
-    # complete 判定: missing(真缺) + secret 类 skipped(真缺口) + budget_excluded(F2 已声明
-    # 未捕获) + 校验 + DB 腿缺/坏 ⇒ 不完整; 瞬态锁 skipped(transient_lock_by_design) 是
-    # 按设计排除, 不算缺口 —— 与声明排除同语义。
-    _secret_skips = [s for s in manifest["skipped"] if s["reason"] != "transient_lock_by_design"]
+    # 判定: missing(真缺) + secret 类 skipped(真缺口) + budget_excluded(F2 已声明
+    # 未捕获) + 校验 + DB 腿缺/坏 ⇒ 不完整; 按设计排除的 skipped(瞬态锁/symlink, 见
+    # BY_DESIGN_SKIP_REASONS)不算缺口 —— 与声明排除同语义。
+    _secret_skips = [s for s in manifest["skipped"]
+                     if s["reason"] not in BY_DESIGN_SKIP_REASONS]
     complete = (not manifest["missing"] and not _secret_skips
                 and not manifest["budget_excluded"]
                 and verification["status"] == "pass"
@@ -624,6 +699,44 @@ def _missing_patterns(manifest: dict) -> list[dict]:
     return out
 
 
+def write_upload_marker(set_dir: Path, *, object_key: str, bucket: str,
+                        gzip_sha256: str, gzip_size: int,
+                        run_id: str | None = None) -> Path:
+    """上传成功后写集合内 `.uploaded` 标记(审查二轮 #3)。
+
+    manifest 回写失败(磁盘满等)时, 这个标记仍能让 prune 认出「已上传」——
+    否则集合永远判 not_uploaded 无限堆积。原子写(atomic_json: tmp + fsync + replace)。
+    """
+    path = Path(set_dir) / UPLOAD_MARKER_NAME
+    atomic_json(path, {
+        "schema": UPLOAD_MARKER_SCHEMA,
+        "object_key": object_key,
+        "bucket": bucket,
+        "gzip_sha256": gzip_sha256,
+        "gzip_size": gzip_size,
+        "run_id": run_id,
+        "uploaded_at": now_iso(),
+    })
+    return path
+
+
+def upload_evidence(set_dir: Path, manifest: dict) -> tuple[bool, dict]:
+    """已上传判据(审查二轮 #3)= `.uploaded` 标记存在 **OR** manifest.archive.status==uploaded。
+
+    返回(是否已上传, 归档信息)。标记存在但内容不可解析时仍认「已上传」(原子写保证
+    「要么完整要么不存在」; 存在即上传成功过), 只是归档信息退回 manifest。
+    """
+    archive = manifest.get("archive") or {}
+    marker_path = Path(set_dir) / UPLOAD_MARKER_NAME
+    if marker_path.is_file():
+        try:
+            marker = json.loads(marker_path.read_text())
+        except (OSError, ValueError):
+            marker = {}
+        return True, {**archive, **{k: v for k, v in marker.items() if k != "schema"}}
+    return archive.get("status") == "uploaded", archive
+
+
 def prune_capture_sets(out_root: Path, retain_days: int,
                        now: float | None = None) -> list[dict]:
     """F3 本地集合滚动清理(参数化保留天数 + 先验后删 + 只删本任务登记目录)。
@@ -631,8 +744,10 @@ def prune_capture_sets(out_root: Path, retain_days: int,
     安全护栏(任一不满足 ⇒ 保留, 记 reason):
     - 目录名必须匹配 `YYYYMMDD_HHMM-8hex`(纯 UUID / `.pending-*` / 陌生目录一律不碰);
     - 目录必须非 symlink, 且 manifest.json 可读、`schema == SCHEMA`;
-    - `manifest.archive.status == "uploaded"`(R2 归档已确认)才允许删 —— 未上传/上传失败的
-      集合永不删(任务书「上传成功前不得删除本地集合」);
+    - 已上传(R2 归档已确认)才允许删 —— 判据 = 集合内 `.uploaded` 标记存在 **OR**
+      `manifest.archive.status == "uploaded"`(审查二轮 #3: manifest 回写失败但标记成功
+      也算已上传, 防永久堆积); 未上传/上传失败的集合永不删(任务书「上传成功前不得删除
+      本地集合」);
     - 不删最新集合、也不删唯一一个已上传集合(始终留至少一个可恢复点)。
 
     返回逐目录处置记录; 清理本身失败不抛出(不得影响备份主链)。
@@ -658,7 +773,8 @@ def prune_capture_sets(out_root: Path, retain_days: int,
             results.append({"name": entry.name, "action": "keep", "reason": "foreign_schema"})
             continue
         owned.append((entry, manifest))
-    uploaded = [(p, m) for p, m in owned if m.get("archive", {}).get("status") == "uploaded"]
+    evidence = {p.name: upload_evidence(p, m) for p, m in owned}
+    uploaded = [(p, m) for p, m in owned if evidence[p.name][0]]
     keep_names = set()
     if owned:
         keep_names.add(max(owned, key=lambda pm: pm[0].name)[0].name)  # 最新集合
@@ -669,7 +785,7 @@ def prune_capture_sets(out_root: Path, retain_days: int,
         if name in keep_names:
             results.append({"name": name, "action": "keep", "reason": "newest_or_only_uploaded"})
             continue
-        if manifest.get("archive", {}).get("status") != "uploaded":
+        if not evidence[name][0]:
             results.append({"name": name, "action": "keep", "reason": "not_uploaded"})
             continue
         try:
@@ -684,7 +800,8 @@ def prune_capture_sets(out_root: Path, retain_days: int,
         results.append({"name": name,
                         "action": "deleted" if not entry.exists() else "delete_failed",
                         "reason": "older_than_retain_days",
-                        "archive_key": manifest.get("archive", {}).get("key")})
+                        "archive_key": evidence[name][1].get("object_key")
+                        or evidence[name][1].get("key")})
     return results
 
 
@@ -707,7 +824,15 @@ def main(argv=None) -> int:
     repo = Path(args.repo).resolve()
     backup_dir = Path(args.backup_dir).resolve()
     out_root = Path(args.out_root).resolve() if args.out_root else default_out_root(backup_dir)
-    out_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        out_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError as exc:
+        # 审查二轮 #1: 出根目录都建不出来(磁盘满/权限)同样如实失败, 不 traceback。
+        print(json.dumps({"status": "failed", "complete": False, "set_dir": None,
+                          "reason": "io_failure_during_out_root_create",
+                          "error": {"type": type(exc).__name__, "detail": str(exc)}},
+                         ensure_ascii=False))
+        return 1
     # F3: 先清理超期的「已上传」旧集合(当前新集合 manifest.archive=not_uploaded, 不会被删)。
     # 清理属旁路, 任何异常都不得影响捕获主链。
     try:
@@ -720,9 +845,18 @@ def main(argv=None) -> int:
     manifest = result["manifest"]
     manifest["duration_seconds"] = round(time.monotonic() - t0, 2)
     if result["uploadable"] and result["set_dir"] is not None:
-        atomic_json(result["set_dir"] / "manifest.json", manifest)
-        if args.ready_file:
-            Path(args.ready_file).write_text(str(result["set_dir"]) + "\n")
+        try:
+            atomic_json(result["set_dir"] / "manifest.json", manifest)
+            if args.ready_file:
+                Path(args.ready_file).write_text(str(result["set_dir"]) + "\n")
+        except OSError as exc:
+            # 审查二轮 #1: 收尾写 manifest / ready-file 时磁盘满同样不 traceback。
+            print(json.dumps({"status": "failed", "complete": False,
+                              "set_dir": str(result["set_dir"]),
+                              "reason": "io_failure_during_main_finalize",
+                              "error": {"type": type(exc).__name__, "detail": str(exc)}},
+                             ensure_ascii=False))
+            return 1
         summary = {"status": manifest["status"], "complete": manifest["complete"],
                    "files": len(manifest["files"]), "missing": len(manifest["missing"]),
                    "skipped": len(manifest["skipped"]),

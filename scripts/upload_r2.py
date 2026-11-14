@@ -4199,7 +4199,7 @@ def cmd_upload_state_capture(set_dir):
       <backup_dir>/state-capture-sets/<YYYYMMDD_HHMM-8hex> 目录)。
     - 本命令不发通知(告警契约归 backup_db.sh 既有链)。
     """
-    import datetime as _dt, tarfile, tempfile
+    import datetime as _dt, tarfile, tempfile, shutil
     from backup_source_proof import atomic_json, metadata
     set_dir = Path(set_dir).resolve()
     manifest_path = set_dir / "manifest.json"
@@ -4253,13 +4253,30 @@ def cmd_upload_state_capture(set_dir):
         receipt["complete"] = True
         atomic_json(proof_path, receipt)
         print(f"state capture source proof run={run_id} complete=true path={proof_path}")
-    # 回写 manifest.archive(本地集合与 R2 对象对账依据; 只在成功后写)
+    # 审查二轮 #3: 先写集合内 `.uploaded` 标记 —— manifest 回写失败(磁盘满等)时,
+    # prune 靠「标记存在 OR manifest uploaded」仍能认出已上传, 不会永久堆积。
+    from backup_state_capture import write_upload_marker
+    marker_path = None
+    try:
+        marker_path = write_upload_marker(
+            set_dir, object_key=key, bucket=BACKUP_BUCKET,
+            gzip_sha256=gz_sha, gzip_size=gz_size, run_id=run_id)
+        print(f"  .uploaded 标记: {marker_path}")
+    except OSError as exc:
+        print(f"⚠ .uploaded 标记写入失败({type(exc).__name__}: {exc}), 依赖 manifest 回写")
+    # 回写 manifest.archive(本地集合与 R2 对象对账依据; 双保险, 照常做)
     manifest["archive"] = {"status": "uploaded", "key": key, "bucket": BACKUP_BUCKET,
                             "gzip_sha256": gz_sha, "gzip_size": gz_size,
                             "manifest_sha256": manifest_sha,
                             "uploaded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                             "run_id": run_id}
-    atomic_json(manifest_path, manifest)
+    try:
+        atomic_json(manifest_path, manifest)
+    except OSError as exc:
+        # 上传本体已成功: 收尾写失败不回溯成上传失败(marker 在 ⇒ prune 仍认已上传)。
+        print(f"⚠ manifest.archive 回写失败({type(exc).__name__}: {exc}); "
+              + ("已由 .uploaded 标记保证 prune 识别" if marker_path
+                 else "本地集合将按 not_uploaded 保留(不误删)"))
     _prune_state_captures()
 
 
