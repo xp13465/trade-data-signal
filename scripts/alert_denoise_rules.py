@@ -1565,6 +1565,9 @@ NON_STALL_KEYS = frozenset({
     "intraday_upload_index_r2_fail", "intraday_upload_intraday_r2_fail",
     "intraday_schedule_stats_r2_fail", "intraday_sentiment_r2_upload_fail",
     "schedule_stats_r2_fail", "fund_nav_async_upload_fail",
+    # NAV 发布未决积压超期(2026-11-14 B批): 超期可行动事件, 自带 6h 去重窗 + severe,
+    # 恢复通知走独立键; 非整条产物停摆(积压根因由本轮/下轮 recover-protected 自愈)
+    "nav_pending_overdue",
     "kelly_intraday_upload_r2_fail", "kelly_intraday_rerun_fail",
     "kelly_intraday_verify_fail", "kelly_intraday_gate_decider_crash",
     "update_lab_r2_upload_fail", "update_lab_labjson_r2_fail", "update_lab_tradesim_r2_fail",
