@@ -18,6 +18,36 @@
 不阻断主链: 本脚本任何内部失败只打日志, 退出码恒 0(主链 rc 由调用方保留)。
 不做的: 不重写 upload_r2 主流程 / 不改 SafeWriter 协议 / 不扩大单次超时 / 不新增无限重试。
 
+作用范围(2026-11-15 审查 F15 显式声明): journal 根 data/.r2-protected/ 是**全站受保护键共用**
+(SafeWriter 主 journal, 除 fund_nav 的 nav_bucket/ 外还有 nextday_plan/overfit-pair 等)。
+本脚本不按前缀过滤: ①自动恢复调用的是既有 recover-protected, 对全部 unknown 键走同一套
+键锁+CAS 安全路径(与人工执行同一个命令), 不新增覆盖面; ②超期事件的对象范围按实际键域
+(domain_of)逐条列出, 正文不用「fund_nav journal」误标 —— 本步主责是 NAV 发布键, 非 NAV
+受保护键一并可见/可恢复属设计取舍(声明不隐藏)。
+
+已知口径偏差(P1-4, 二选一取「接交易日历」+ 缺历回退声明): 自动重试龄上限「超 3 业务日」
+的业务日计数以 data/trade_dates.txt 交易日历为准(排周末+节假日, 与 app.calendar 同源);
+**日历缺失/覆盖不到目标日期时回退只排周末**(节假日周会提前耗尽 3 业务日 ⇒ 提前只报不试,
+仍由超期事件兜底告警, 不影响正确性)。超期判定里 business_date 的比较仍用**日历日**
+(「漏过任一日即视为跨轮」), 与龄上限的交易日口径分工不同, 刻意不合并。
+
+老 row 兜底(审查 F8): 过渡期遗留的 unknown 行可能缺 business_date/first_unresolved_at,
+此时用 journal 文件 mtime 作为「首次未决」兜底, 超过 24h 照样进超期事件; 半写/损坏 journal
+(state=unreadable)同样按 mtime 兜底, 保证坏文件不静默失告警。
+
+preparing 跨日常驻(审查 F16, 人工处置路径): 自动模式永不重试 preparing(设计: 下轮同通道正常
+上传会重建 journal 自愈)。若某键已不再产出(永远停在 preparing), 恢复通知会一直 withheld;
+人工处置 = 确认该键确实无需发布后, 用既有 `python scripts/upload_r2.py recover-protected`
+人工模式核验(不限次数), 或让该通道下一轮上传把它覆盖为 confirmed; 事件正文「需人工动作」
+一行给出同一命令。
+
+工作预算(审查 P1-3): 自动恢复子进程注入 R2_UPLOAD_WORK_TIMEOUT(默认 600s, 见
+RECOVER_WORK_BUDGET; 与 upload_r2 内层工作预算同一套机制), R2 大面积不可达时自愈步有界
+退出(rc=124), 不占满下一轮上传锁等待窗口; 自愈步自身仍恒 0, 不改主链 rc。
+
+恢复通知清状态(审查 F5): 只有 send_recovery 返回码 0(真发出)才清状态; 发送失败保留状态,
+下次运行重试 —— 恢复信号不因一次发送失败永久丢失。
+
 测试桩: NAV_SELFHEAL_NOW=ISO 冻结时钟; NAV_SELFHEAL_NOTIFY_DRY_RUN=1 → notify 走
 --dry-run(零外发, L48); invoke_recover/send_event/send_recovery 为模块级函数可 monkeypatch。
 """
@@ -36,6 +66,7 @@ RECOVERY_DEDUP_KEY = "nav_pending_overdue_recovered"
 DEDUP_WINDOW = 21600  # 6h, 与 with_lock 排队超时同档(设计报告 D3)
 STATE_FILE = "data/.nav_autorecover_state.json"  # 运行时状态(已通知事件), 不进 git
 OVERDUE_UNRESOLVED_HOURS = 24
+RECOVER_WORK_BUDGET = "600"   # 自愈步内层工作预算秒(P1-3): upload_r2 的 R2_UPLOAD_WORK_TIMEOUT 同一机制
 
 
 def _now():
@@ -50,8 +81,20 @@ def journal_root(repo):
     return Path(repo) / "data" / ".r2-protected"
 
 
+def _journal_mtime(path):
+    """journal 文件 mtime → UTC ISO 串(F8 兜底: 老 row 缺时间字段时的「首次未决」代理)。"""
+    try:
+        return datetime.datetime.utcfromtimestamp(path.stat().st_mtime).strftime(FMT)
+    except OSError:
+        return None
+
+
 def scan_journal(repo):
-    """只读扫描主 journal(排除 gc-manifest); 坏文件如实入列不吞。"""
+    """只读扫描主 journal(排除 gc-manifest); 坏文件如实入列不吞。
+
+    每行附 `_journal_mtime`(文件 mtime, UTC ISO): 老 row 缺 business_date /
+    first_unresolved_at 时的超期兜底, 也是坏文件(state=unreadable)唯一的年龄信号。
+    """
     rows = []
     root = journal_root(repo)
     if not root.is_dir():
@@ -59,11 +102,17 @@ def scan_journal(repo):
     for path in sorted(root.glob("*.json")):
         if path.name == "gc-manifest.json":
             continue
+        mtime = _journal_mtime(path)
         try:
-            rows.append(json.loads(path.read_text()))
+            row = json.loads(path.read_text())
         except (OSError, ValueError) as exc:
-            rows.append({"key": f"<unreadable:{path.name}>", "state": "unreadable",
-                         "unreadable_error": str(exc)})
+            row = {"key": f"<unreadable:{path.name}>", "state": "unreadable",
+                   "unreadable_error": str(exc)}
+        if not isinstance(row, dict):
+            row = {"key": f"<unreadable:{path.name}>", "state": "unreadable",
+                   "unreadable_error": f"顶层非对象({type(row).__name__})"}
+        row["_journal_mtime"] = mtime
+        rows.append(row)
     return rows
 
 
@@ -98,17 +147,44 @@ def log_distribution(tag, rows):
 
 
 def invoke_recover(repo):
-    """调用既有 recover-protected(自动模式)。单点函数, 供测试 monkeypatch。"""
+    """调用既有 recover-protected(自动模式)。单点函数, 供测试 monkeypatch。
+
+    工作预算(P1-3): 注入 R2_UPLOAD_WORK_TIMEOUT(默认 600s; 调用方若已设别的值则沿用,
+    setdefault 不覆盖), 由 upload_r2 内层预算在同一套拦截点上到期退出(rc=124),
+    防 R2 大面积不可达时自愈步长时间占锁/拖到下一轮。
+    """
     env = dict(os.environ)
     env["R2_RECOVER_AUTO"] = "1"
     env.setdefault("REPO", str(repo))
     env.setdefault("R2_UPLOAD_LOCK_TIMEOUT", "1800")
+    env.setdefault("R2_UPLOAD_WORK_TIMEOUT", RECOVER_WORK_BUDGET)
     cmd = [sys.executable, str(Path(repo) / "scripts" / "upload_r2.py"), "recover-protected"]
     return subprocess.run(cmd, env=env, capture_output=True, text=True)
 
 
+def unresolved_since(row):
+    """「首次未决」时间: first_unresolved_at 优先, 缺字段时用 journal mtime 兜底(F8)。"""
+    fu = row.get("first_unresolved_at")
+    if fu:
+        try:
+            return datetime.datetime.strptime(fu, FMT)
+        except ValueError:
+            pass
+    mt = row.get("_journal_mtime")
+    if mt:
+        try:
+            return datetime.datetime.strptime(mt, FMT)
+        except ValueError:
+            pass
+    return None
+
+
 def overdue_rows(rows, now):
-    """超期判定(设计 D4): business_date ≤ T-1 的非 confirmed 键, 或首次未决 >24h。"""
+    """超期判定(设计 D4): business_date ≤ T-1 的非 confirmed 键, 或首次未决 >24h。
+
+    超期条件 ①(业务日期)用**日历日**比较(漏过任一日即视为跨轮);条件 ②(年龄)用小时,
+    输入取 first_unresolved_at, 缺字段(过渡期老 row / 坏文件)取 journal mtime 兜底。
+    """
     out = []
     for r in rows:
         if r.get("state") == "confirmed":
@@ -122,14 +198,11 @@ def overdue_rows(rows, now):
             if bdate and bdate < now.date():  # 早于今天 ⇒ business_date ≤ T-1
                 out.append((r, "business_date_overdue"))
                 continue
-        fu = r.get("first_unresolved_at")
-        if fu:
-            try:
-                started = datetime.datetime.strptime(fu, FMT)
-            except ValueError:
-                started = None
-            if started and (now - started).total_seconds() > OVERDUE_UNRESOLVED_HOURS * 3600:
-                out.append((r, "unresolved_over_24h"))
+        started = unresolved_since(r)
+        if started and (now - started).total_seconds() > OVERDUE_UNRESOLVED_HOURS * 3600:
+            reason = ("unresolved_over_24h" if r.get("first_unresolved_at")
+                      else "journal_mtime_over_24h")
+            out.append((r, reason))
     return out
 
 
@@ -217,12 +290,13 @@ def main(argv=None):
             if state and (now - datetime.datetime.strptime(state["notified_at"], FMT)).total_seconds() <= DEDUP_WINDOW:
                 print(f"[nav-journal-selfheal] 超期持续 {len(overdue)} 键, 6h 去重窗内不重复首报")
             else:
-                oldest = min((r.get("first_unresolved_at") or "?") for r, _ in overdue)
+                starts = [s for s in (unresolved_since(r) for r, _ in overdue) if s]
+                oldest = min(starts).strftime(FMT) if starts else "?"
                 domains = sorted({domain_of(r.get("key", "")) for r, _ in overdue})
                 confirmed = sum(1 for r in rows if r.get("state") == "confirmed")
                 subject = "[告警] NAV 发布未决积压超期"
-                body = (f"fund_nav journal 存在超期未决对象 {len(overdue)} 个(原因: {','.join(reasons)})。"
-                        f"<br>对象范围: {', '.join(domains)} {keys}"
+                body = (f"受保护对象 journal 存在超期未决对象 {len(overdue)} 个(原因: {','.join(reasons)})。"
+                        f"<br>对象范围: {', '.join(domains)} {keys}(journal 为全站受保护键共用根, 非 NAV 键一并列出)"
                         f"<br>保留版本: journal 已 confirmed {confirmed}/{len(rows)}"
                         f"<br>数据年龄: 最早未决 {oldest}"
                         f"<br>需人工动作: cd {repo} && python scripts/upload_r2.py recover-protected(人工模式不限次数); "
@@ -231,15 +305,28 @@ def main(argv=None):
                 _write_state(repo, now, keys)
                 print(f"[nav-journal-selfheal] 超期事件已发(恰一条, dedup-key={DEDUP_KEY} window={DEDUP_WINDOW}s)")
         elif state:
-            # 恢复判据: journal 全部 confirmed(unknown 不得直接清绿; rc=0 不是发布凭证)。
             unresolved = [r.get("key") for r in rows if r.get("state") != "confirmed"]
-            if unresolved:
-                print(f"[nav-journal-selfheal] 超期条件已消失但仍有非 confirmed 键 {len(unresolved)} 个, 恢复通知 withheld")
+            if not rows:
+                # P1-1(2026-11-15 审查): 空 journal 不是「全部 confirmed」。0/0 清绿 = 假恢复
+                # (根目录配错/扫描树不对时立刻误报), 一律 withheld 且状态保留。
+                print("[nav-journal-selfheal] journal 为空(0/0), 无法判定恢复, 恢复通知 withheld, 状态保留")
+            elif unresolved:
+                # 恢复判据: journal 非空且全部 confirmed(unknown 不得直接清绿; rc=0 不是发布凭证)。
+                states = sorted({r.get("state") for r in rows if r.get("state") != "confirmed"})
+                hint = ("; preparing 跨日常驻时自动恢复永不重试 —— 确认该键无需发布后按"
+                        " recover-protected 人工模式核验" if "preparing" in states else "")
+                print(f"[nav-journal-selfheal] 超期条件已消失但仍有非 confirmed 键 {len(unresolved)} 个"
+                      f"(状态: {','.join(str(s) for s in states)}), 恢复通知 withheld{hint}")
             else:
-                send_recovery(repo, "[恢复] NAV 发布未决积压已清",
-                              f"fund_nav journal 已全部 confirmed({len(rows)}/{len(rows)}), 此前超期事件恢复。")
-                _clear_state(repo)
-                print("[nav-journal-selfheal] 恢复通知已发(只对已通知事件发一次), 状态已清")
+                res = send_recovery(repo, "[恢复] NAV 发布未决积压已清",
+                                    f"受保护对象 journal 已全部 confirmed({len(rows)}/{len(rows)}), 此前超期事件恢复。")
+                if getattr(res, "returncode", 1) == 0:
+                    _clear_state(repo)
+                    print("[nav-journal-selfheal] 恢复通知已发(只对已通知事件发一次), 状态已清")
+                else:
+                    # F5: 发送失败不占「已恢复」——状态保留, 下次运行重试, 恢复信号不丢。
+                    print(f"[nav-journal-selfheal] 恢复通知发送失败 rc={getattr(res, 'returncode', '?')}, "
+                          f"状态保留, 下次运行重试")
     except Exception as exc:  # 不阻断主链: 自愈步任何内部失败只留日志
         print(f"[nav-journal-selfheal] 自愈步内部异常(不阻断主链): {type(exc).__name__}: {exc}",
               file=sys.stderr)

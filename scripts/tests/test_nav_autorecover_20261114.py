@@ -12,9 +12,11 @@
 (monkeypatch send_*);冻结时钟 NAV_SELFHEAL_NOW / R2_RECOVER_NOW(L51);env 一律
 monkeypatch 自动还原(L56);不裸写 os.environ。
 """
+import datetime
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import types
@@ -55,10 +57,23 @@ def write_row(repo, key, **over):
     return row
 
 
+def row_path(repo, key):
+    return repo / "data" / ".r2-protected" / (hashlib.sha256(("public/" + key).encode()).hexdigest() + ".json")
+
+
 def read_row(repo, key):
-    root = repo / "data" / ".r2-protected"
-    jname = hashlib.sha256(("public/" + key).encode()).hexdigest() + ".json"
-    return json.loads((root / jname).read_text())
+    return json.loads(row_path(repo, key).read_text())
+
+
+def state_path(repo):
+    return repo / "data/.nav_autorecover_state.json"
+
+
+def write_state(repo, notified_at=NOW, keys=None):
+    state_path(repo).parent.mkdir(parents=True, exist_ok=True)
+    state_path(repo).write_text(json.dumps({"event": "nav_pending_overdue",
+                                            "notified_at": notified_at,
+                                            "overdue_keys": keys or ["nav_bucket/2e.json"]}))
 
 
 # ── 证据用例 1 / 3 / 5: 自愈步脚本层(stub recover + stub notify) ──────────────
@@ -183,6 +198,169 @@ def test_case4_overdue_single_event_and_recovery(selfheal):
     # 再跑 → 不重复发恢复
     rc = mod.main(["--root", str(repo)])
     assert len(rec.recoveries) == 1
+
+
+# ── P0-1 恢复判据判别用例(审查 §5/§9: 原 case4 第 173 次运行仍在 overdue 分支, 断言空转) ──
+
+
+def test_case4b_unresolved_not_overdue_withholds_recovery(selfheal, capsys):
+    """P0-1 判别: 已通知超期事件 + journal 仍 unknown/preparing + **本次未超期** →
+    ①不发恢复通知 ②状态不被清除 ③再次运行仍 withheld。
+
+    场景刻意不进 overdue 分支(business_date=今天、first_unresolved_at=NOW 即 0h),
+    确保真正走到 `elif state:` 的恢复判据; 变异「本次无 unknown 就算恢复」必须在此红。
+    """
+    mod, rec, repo = selfheal
+    write_row(repo, "nav_bucket/2e.json", state="unknown")            # 未清: unknown 仍在
+    write_row(repo, "data/nextday_plan.json", state="preparing")      # 另一类未决
+    write_state(repo)                                                 # 已通知过的超期事件
+    rc = mod.main(["--root", str(repo)])
+    out1 = capsys.readouterr().out
+    assert rc == 0
+    assert rec.recoveries == []                                       # ① 不发恢复
+    assert state_path(repo).exists()                                  # ② 状态保留
+    assert "恢复通知 withheld" in out1
+    assert "恢复通知已发" not in out1
+    rc = mod.main(["--root", str(repo)])                              # ③ 再次运行仍 withheld
+    out2 = capsys.readouterr().out
+    assert rc == 0
+    assert rec.recoveries == []
+    assert state_path(repo).exists()
+    assert "恢复通知 withheld" in out2
+
+
+# ── P1-1 空 journal 不得假恢复 ────────────────────────────────────────────────
+
+
+def test_p1_1_empty_journal_withholds_and_keeps_state(selfheal, capsys):
+    """P1-1: journal 为空(0/0) + 已有事件状态 → withheld、状态保留、措辞不声称「全部 confirmed」。"""
+    mod, rec, repo = selfheal
+    (repo / "data" / ".r2-protected").mkdir(parents=True, exist_ok=True)
+    write_state(repo)
+    rc = mod.main(["--root", str(repo)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert rec.recoveries == []
+    assert state_path(repo).exists()
+    assert "journal 为空" in out
+    assert "全部 confirmed" not in out          # 0/0 不是「全部 confirmed」的事实
+
+
+# ── F5 恢复通知发送失败不清状态 ──────────────────────────────────────────────
+
+
+def test_f5_recovery_send_failure_keeps_state_then_success_clears(selfheal, capsys):
+    """F5: send_recovery 失败(rc!=0) → 状态保留、下次重试; 成功后同一状态才被清。"""
+    mod, rec, repo = selfheal
+    write_row(repo, "nav_bucket/2e.json", state="confirmed", confirmed=True, pending_purge=False)
+    write_state(repo)
+    calls = []
+
+    def failing(repo_, subject, body):
+        calls.append(subject)
+        return types.SimpleNamespace(returncode=1)
+
+    mod.send_recovery = failing
+    rc = mod.main(["--root", str(repo)])
+    assert rc == 0
+    assert len(calls) == 1
+    assert state_path(repo).exists()             # 发送失败 → 不清状态
+    assert "状态保留" in capsys.readouterr().out
+    # 下一次成功 → 清状态, 不重复发
+    mod.send_recovery = lambda repo_, subject, body: (
+        calls.append(subject), types.SimpleNamespace(returncode=0))[1]
+    rc = mod.main(["--root", str(repo)])
+    assert rc == 0
+    assert len(calls) == 2
+    assert not state_path(repo).exists()
+
+
+# ── F8 老 row 缺时间字段 / 坏 journal: mtime 兜底进超期事件 ──────────────────
+
+
+def test_f8_legacy_row_and_unreadable_journal_use_mtime_fallback(selfheal):
+    """F8/F2: 缺 business_date+first_unresolved_at 的老 row 与半写 journal, mtime>24h →
+    同一超期事件可见(原因 journal_mtime_over_24h), 不静默失告警。"""
+    mod, rec, repo = selfheal
+    write_row(repo, "nav_bucket/2e.json", state="unknown",
+              business_date=None, first_unresolved_at=None)
+    bad = repo / "data" / ".r2-protected" / "bad-halfwritten.json"
+    bad.write_text('{"version": 1, "key": ')     # 半写文件
+    old = datetime.datetime.strptime(NOW, "%Y-%m-%dT%H:%M:%SZ") - datetime.timedelta(hours=25)
+    ts = (old - datetime.datetime(1970, 1, 1)).total_seconds()
+    os.utime(row_path(repo, "nav_bucket/2e.json"), (ts, ts))
+    os.utime(bad, (ts, ts))
+    rc = mod.main(["--root", str(repo)])
+    assert rc == 0
+    assert len(rec.events) == 1                  # 恰一条事件(两类未决合并为一条)
+    subject, body = rec.events[0]
+    assert "journal_mtime_over_24h" in body
+    assert "<unreadable:bad-halfwritten.json>" in body
+    assert state_path(repo).exists()
+
+
+# ── F16 preparing 跨日常驻: withheld + 人工处置提示 ─────────────────────────
+
+
+def test_f16_preparing_only_withheld_prints_manual_hint(selfheal, capsys):
+    """F16: 只剩 preparing(自动永不重试) → withheld 且给出人工处置路径(可 grep 提示)。"""
+    mod, rec, repo = selfheal
+    write_row(repo, "data/nextday_plan.json", state="preparing")
+    write_state(repo)
+    rc = mod.main(["--root", str(repo)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert rec.recoveries == []
+    assert state_path(repo).exists()
+    assert "恢复通知 withheld" in out
+    assert "preparing" in out and "recover-protected 人工模式" in out
+
+
+# ── P1-3 自愈步工作预算接线 + 不阻断主链 ─────────────────────────────────────
+
+
+def test_p1_3_recover_work_budget_wired_and_non_blocking(selfheal, monkeypatch):
+    """P1-3: invoke_recover 注入 R2_UPLOAD_WORK_TIMEOUT(默认 600; 已设则沿用),
+    预算到期(rc=124)时自愈步仍退 0、不刷事件、不改主链 rc。"""
+    mod, rec, repo = selfheal
+    write_row(repo, "nav_bucket/2e.json", state="unknown")
+    captured = {}
+
+    def fake_run(cmd, env=None, capture_output=True, text=True):
+        captured.update(env or {})
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    real = load_selfheal()                       # fixture 已把 mod.invoke_recover 换成桩
+    monkeypatch.setattr(real.subprocess, "run", fake_run)
+    real.invoke_recover(repo)
+    assert captured["R2_UPLOAD_WORK_TIMEOUT"] == "600"
+    assert captured["R2_RECOVER_AUTO"] == "1"
+    captured.clear()
+    monkeypatch.setenv("R2_UPLOAD_WORK_TIMEOUT", "900")   # 显式设值不覆盖(setdefault)
+    real.invoke_recover(repo)
+    assert captured["R2_UPLOAD_WORK_TIMEOUT"] == "900"
+    # 预算到期: 子进程 rc=124 → 自愈步照旧退 0, 不发事件/恢复
+    mod.invoke_recover = lambda r: types.SimpleNamespace(returncode=124, stdout="预算到期", stderr="")
+    rc = mod.main(["--root", str(repo)])
+    assert rc == 0
+    assert rec.events == [] and rec.recoveries == []
+
+
+# ── P1-4 业务日口径(交易日历)+ 24h 年龄门控边界 ────────────────────────────
+
+
+def test_overdue_24h_boundary(selfheal):
+    """P1-4 边界: 刚过 24h 进超期; 未到 24h(差 60s)不进。"""
+    mod, rec, repo = selfheal
+    now = datetime.datetime.strptime(NOW, "%Y-%m-%dT%H:%M:%SZ")
+    just_over = (now - datetime.timedelta(hours=24, seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    not_yet = (now - datetime.timedelta(hours=24) + datetime.timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    base = {"state": "unknown", "business_date": NOW[:10]}   # 业务日期=今天, 不触发条件①
+    rows = [dict(base, key="a", first_unresolved_at=just_over),
+            dict(base, key="b", first_unresolved_at=not_yet)]
+    got = mod.overdue_rows(rows, now)
+    assert [r["key"] for r, _ in got] == ["a"]
+    assert got[0][1] == "unresolved_over_24h"
 
 
 # ── 证据用例 2: CAS 412 拒绝旧代次(真实 uploader + Transport fake) ────────────
@@ -332,10 +510,73 @@ def test_auto_mode_retry_cap_and_preparing_skip(cas_client, monkeypatch):
 
 def test_business_days_between(cas_client):
     """业务日计数: 周五→周一=1, 周四→周五=1, 同日=0(超龄判定基础)。"""
-    import datetime
     m, _ = cas_client
     d = datetime.date
     assert m._business_days_between(d(2026, 11, 13), d(2026, 11, 16)) == 1  # 五→一
     assert m._business_days_between(d(2026, 11, 12), d(2026, 11, 13)) == 1
     assert m._business_days_between(d(2026, 11, 13), d(2026, 11, 13)) == 0
     assert m._business_days_between(d(2026, 11, 13), d(2026, 11, 18)) == 3   # 超龄线
+
+
+def test_business_days_uses_trading_calendar_and_declared_fallback(cas_client, monkeypatch):
+    """P1-4: 龄计数走交易日历(排节假日); 缺历时回退只排周末(声明的已知偏差)。"""
+    m, _ = cas_client
+    d = datetime.date
+    # 2026 国庆 10-01..10-07 休市: 9-30→10-9 只有 10-8/10-9 两个交易日; 只排周末会算 7
+    assert m._business_days_between(d(2026, 9, 30), d(2026, 10, 9)) == 2
+    monkeypatch.setattr(m, "_trade_day_window", lambda: None)   # 模拟缺历
+    assert m._business_days_between(d(2026, 9, 30), d(2026, 10, 9)) == 7
+
+
+def test_business_days_beyond_calendar_coverage_falls_back(cas_client):
+    """P1-4: 日期区间超出日历覆盖(2030 年) → 回退只排周末, 不用日历空集把龄算成 0。"""
+    m, _ = cas_client
+    d = datetime.date
+    assert m._business_days_between(d(2030, 1, 7), d(2030, 1, 11)) == 4   # 一→五(回退)
+
+
+def test_p1_2_bad_journal_does_not_abort_other_keys(cas_client, monkeypatch):
+    """P1-2: 半写/损坏 journal 只跳过本文件并如实非零, 其余 unknown 键照常恢复(不再整轮中止)。
+
+    同时断言容错轮 GC 零删除(坏文件保留 / 无引用文件不被删 / 旧清单不覆写)。
+    """
+    m, fake = cas_client
+    safe = m.SafeWriter(m.__dict__)
+    key = "nav_bucket/6e.json"
+    payload = b"ok"
+    row = {"version": 1, "bucket": "public", "key": key,
+           "sha256": hashlib.sha256(payload).hexdigest(), "size": len(payload),
+           "write_id": "f" * 32, "state": "unknown", "confirmed": False,
+           "pending_purge": True, "run_id": "r" * 32, "old_sha256": None, "backup_key": None,
+           "business_date": NOW[:10], "first_unresolved_at": NOW, "retry_count": 0,
+           "headers": {"x-amz-meta-write-id": "f" * 32}}
+    safe.save(row)
+    safe.store(safe.root / "payloads" / row["sha256"], payload)
+    # 坏 journal 文件名排序在前 ⇒ 若仍整轮中止, 后面的合法键永远处理不到
+    (safe.root / "000-bad-journal.json").write_text('{"version": 1, "key": ')
+    manifest_before = (safe.root / "gc-manifest.json").read_bytes()
+    orphan = safe.root / "payloads" / ("0" * 64)
+    orphan.write_bytes(b"orphan")                # 默认 gc 会删; 容错轮必须零删除
+    monkeypatch.setenv("R2_RECOVER_AUTO", "1")
+    monkeypatch.setenv("R2_RECOVER_NOW", NOW)
+    with pytest.raises(SystemExit) as ei:
+        m.cmd_recover_protected()
+    assert ei.value.code == 1                    # 坏文件如实非零(该键仍未恢复)
+    assert fake.calls                             # 合法键照常尝试
+    assert safe.load(key)["state"] == "confirmed"  # 合法键恢复成功(未被坏文件阻断)
+    # 容错轮零删除: 坏文件原地保留(供人工核验) + 无引用文件不被删 + 旧 gc 清单不覆写
+    assert (safe.root / "000-bad-journal.json").exists()
+    assert orphan.exists()
+    assert (safe.root / "gc-manifest.json").read_bytes() == manifest_before
+
+
+def test_p1_2_default_mode_still_strict_on_corrupt_journal(cas_client):
+    """P1-2 对照: 容错仅在自动自愈轮开; 默认(人工/其它调用方)仍严格失败不删任何东西。"""
+    m, _ = cas_client
+    safe = m.SafeWriter(m.__dict__)
+    safe.root.mkdir(parents=True, exist_ok=True)
+    (safe.root / "corrupt.json").write_text('{bad json')
+    with pytest.raises(ValueError):
+        with safe.storage_lock():
+            safe.gc()
+    assert (safe.root / "corrupt.json").exists()

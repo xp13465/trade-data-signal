@@ -1221,10 +1221,46 @@ def _recover_utcnow():
     return datetime.datetime.utcnow()
 
 
+_TRADE_DAYS_CACHE = None      # (set[str], min YYYYMMDD, max YYYYMMDD); None=未加载未命中
+_TRADE_DAYS_LOADED = False
+
+
+def _trade_day_window():
+    """交易日历窗口(集合/最早/最晚, YYYYMMDD)。源 = 本脚本代码树 data/trade_dates.txt
+    (与 app.calendar._CACHE_PATH 同源, git 跟踪); 缺失/不可读 ⇒ None(调用方回退只排周末)。"""
+    global _TRADE_DAYS_CACHE, _TRADE_DAYS_LOADED
+    if _TRADE_DAYS_LOADED:
+        return _TRADE_DAYS_CACHE
+    _TRADE_DAYS_LOADED = True
+    try:
+        ds = {ln.strip() for ln in (ROOT / "data" / "trade_dates.txt").read_text().splitlines()
+              if ln.strip()}
+    except OSError:
+        ds = set()
+    _TRADE_DAYS_CACHE = (ds, min(ds), max(ds)) if ds else None
+    return _TRADE_DAYS_CACHE
+
+
 def _business_days_between(d1, d2):
-    """d1→d2 之间的工作日数(周六周日不计; 只用于超期/重试龄判定, 输入是 date)。"""
+    """d1→d2 之间的**交易日**数(剔周末+节假日; 只用于超期/重试龄判定, 输入是 date)。
+
+    2026-11-15 审查 P1-4: 原实现只排周末, 长假周会提前耗尽「3 业务日」。现接交易日历
+    data/trade_dates.txt(与 app.calendar 同源)。**缺历 / 日期区间超出日历覆盖时回退只排周末**
+    (声明的已知偏差: 节假日周该回退会把龄算大 ⇒ 提前只报不试, 由超期事件兜底, 不影响正确性)。
+    """
     if d2 <= d1:
         return 0
+    win = _trade_day_window()
+    if win:
+        ds, lo, hi = win
+        lo_s, hi_s = d1.strftime("%Y%m%d"), d2.strftime("%Y%m%d")
+        if lo_s >= lo and hi_s <= hi:
+            days, cur = 0, d1
+            while cur < d2:
+                cur += datetime.timedelta(days=1)
+                if cur.strftime("%Y%m%d") in ds:
+                    days += 1
+            return days
     days, cur = 0, d1
     while cur < d2:
         cur += datetime.timedelta(days=1)
@@ -1263,19 +1299,44 @@ def cmd_recover_protected():
       ② unknown 且 retry_count>=3 或首次未决超 3 业务日 → 只计入 failures(如实非零), 不再尝试;
       ③ 尝试前 retry_count+1 先落盘 — 失败也计数, 不虚增不虚减(每次运行每键至多 +1)。
     人工模式(不设 env)行为逐字不变。
+
+    2026-11-15 审查补强: ④ 单文件隔离容错 — 坏/半写 journal 只跳过该文件(打
+    `skipped=unreadable` 标记行 + 计入非零 rc), 其余键照常处理, 不再整轮中止;
+    自动模式同时给 SafeWriter 打开 gc 容错(存在不可解析 journal ⇒ 本轮零删除,
+    保留全部文件与旧清单; 引用集不完整时删任何文件都可能删掉恢复锚点);
+    ⑤ 「超 3 业务日」的龄计数走交易日历 data/trade_dates.txt(缺历回退只排周末, 见
+    _business_days_between 的已知偏差声明); ⑥ 内层工作预算由调用方注入
+    R2_UPLOAD_WORK_TIMEOUT(自愈步默认 600s, 见 nav_journal_selfheal.RECOVER_WORK_BUDGET)。
     """
     auto = os.environ.get("R2_RECOVER_AUTO") == "1"
     safe = SafeWriter(globals())
+    # P1-2: 自动自愈轮容错 —— 单个损坏 journal 不得让整轮其余键都无法恢复。容错模式下
+    # SafeWriter.gc 遇不可解析 journal 零删除并继续(引用集不完整不删任何文件; 默认严格
+    # 失败契约不变, 人工模式照旧)。坏文件仍按 ④ 记 skipped + 非零 rc, 不静默。
+    safe.gc_tolerate_unreadable = auto
     failures = []
+    unreadable = []
     for path in sorted(safe.root.glob("*.json")):
         if path.name == "gc-manifest.json":
             continue
         _work_budget_check("protected-recovery")
-        row = json.loads(path.read_text())
-        key = row["key"]
-        lock = _acquire_r2_upload_lock(timeout=_remaining_work(),
-            lock_path_override=_rlp.key_lock_path(f"{BUCKET}/overfit-pair" if key in _OVERFIT_PAIR else f"{BUCKET}/{key}"))
+        key = None
+        lock = None
         try:
+            try:
+                row = json.loads(path.read_text())
+                if not isinstance(row, dict) or not row.get("key"):
+                    raise ValueError("journal 顶层非对象或缺 key")
+            except (OSError, ValueError) as exc:
+                # P1-2(2026-11-15 审查): 单文件隔离容错 —— 坏/半写 journal 只跳过本文件,
+                # 其余键照常恢复; 打一行可 grep 标记并如实计入 rc(该键仍未恢复, 不静默)。
+                unreadable.append(path.name)
+                print("R2_RECOVERY: " + json.dumps({"journal": path.name, "skipped": "unreadable",
+                      "error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False))
+                continue
+            key = row["key"]
+            lock = _acquire_r2_upload_lock(timeout=_remaining_work(),
+                lock_path_override=_rlp.key_lock_path(f"{BUCKET}/overfit-pair" if key in _OVERFIT_PAIR else f"{BUCKET}/{key}"))
             if lock is None:
                 raise UnsafeWrite("protected recovery requires key/pair mutex")
             row = safe.load(key)
@@ -1298,12 +1359,15 @@ def cmd_recover_protected():
             if row["state"] != "confirmed":
                 failures.append(key)
         except Exception as exc:
-            failures.append(key)
-            print(f"R2_RECOVERY: {key}: {exc}", file=sys.stderr)
+            failures.append(key or path.name)
+            print(f"R2_RECOVERY: {key or path.name}: {exc}", file=sys.stderr)
         finally:
             if lock is not None:
                 _release_r2_upload_lock(lock)
-    if failures:
+    if unreadable:
+        print(f"R2_RECOVERY: 坏 journal {len(unreadable)} 个已跳过(其余键照常处理): {unreadable}",
+              file=sys.stderr)
+    if failures or unreadable:
         sys.exit(1)
 
 

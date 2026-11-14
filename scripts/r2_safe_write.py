@@ -7,6 +7,7 @@ import time
 import uuid
 import fcntl
 import shutil
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -73,19 +74,40 @@ class SafeWriter:
                 fcntl.flock(lock, fcntl.LOCK_UN)
 
     def gc(self):
-        """在 storage_lock 下按持久引用清理；坏 manifest 一律拒绝删除。"""
+        """在 storage_lock 下按持久引用清理；坏 manifest 一律拒绝删除。
+
+        容错模式(实例属性 `gc_tolerate_unreadable=True`, 仅自动自愈轮设置, 见
+        upload_r2.cmd_recover_protected): 存在无法解析的 journal 时**零删除**并继续 ——
+        引用集不完整时删除任何文件都可能删掉坏文件引用的恢复锚点, 故整轮跳过清理、
+        保留全部文件与旧 gc 清单, 坏文件留给人工核验。默认(属性未设)保持严格失败,
+        既有「坏 manifest 一律拒绝删除」契约不变。
+        """
+        tolerate = bool(getattr(self, 'gc_tolerate_unreadable', False))
         if any(p.is_symlink() for p in self.root.rglob('*')):
             raise UnsafeWrite('protected storage contains symlink; GC refused')
         keep = {self.root / '.gc.lock', self.root / 'gc-manifest.json'}
         rows = []
+        unreadable = []
         for path in self.root.glob('*.json'):
             if path.name == 'gc-manifest.json':
                 continue
-            rows.append(json.loads(path.read_text()))
+            try:
+                rows.append(json.loads(path.read_text()))
+            except (OSError, ValueError):
+                if not tolerate:
+                    raise
+                unreadable.append(path)
             keep.add(path)
         history = {}
         for path in (self.root / 'history').glob('*.json'):
-            row = json.loads(path.read_text())
+            try:
+                row = json.loads(path.read_text())
+            except (OSError, ValueError):
+                if not tolerate:
+                    raise
+                unreadable.append(path)
+                keep.add(path)
+                continue
             history.setdefault(row['key'], []).append((path, row))
             if (row['state'] == 'unknown' or row.get('pending_purge') or
                     (row.get('pair_id') and row['state'] != 'confirmed')):
@@ -121,6 +143,13 @@ class SafeWriter:
                 keep.add(path); seen_pairs.add(pair_id)
                 rows.extend(manifest['objects'].values())
         files = [p for p in self.root.rglob('*') if p.is_file()]
+        if unreadable:
+            # 容错模式: 引用集不完整 ⇒ 本轮零删除 + 不覆写 gc 清单(旧清单保留供人工核验),
+            # 只如实把全部现存文件返回给容量核算; 坏文件保留原地。
+            print('R2_PROTECTED_GC: ' + json.dumps({
+                'tolerated_unreadable': [str(p.relative_to(self.root)) for p in unreadable],
+                'action': 'cleanup-skipped-no-deletion'}, ensure_ascii=False), file=sys.stderr)
+            return files
         garbage = [p for p in files if p not in keep]
         # 先持久记录引用集合，再删除无引用的本地缓存；不存在先删后补清单窗口。
         manifest = json.dumps({

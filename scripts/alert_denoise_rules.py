@@ -1565,9 +1565,14 @@ NON_STALL_KEYS = frozenset({
     "intraday_upload_index_r2_fail", "intraday_upload_intraday_r2_fail",
     "intraday_schedule_stats_r2_fail", "intraday_sentiment_r2_upload_fail",
     "schedule_stats_r2_fail", "fund_nav_async_upload_fail",
-    # NAV 发布未决积压超期(2026-11-14 B批): 超期可行动事件, 自带 6h 去重窗 + severe,
-    # 恢复通知走独立键; 非整条产物停摆(积压根因由本轮/下轮 recover-protected 自愈)
+    # NAV 发布未决积压超期(2026-11-14 B批): 超期可行动事件, 自带 6h 去重窗 + severe;
+    # 非整条产物停摆(积压根因由本轮/下轮 recover-protected 自愈)。该键**未被 domain_of/
+    # category_of 映射** ⇒ 域/预算门不适用(首报直发 + 6h 同键去重), 原注释「不 bypass 预算/
+    # 域窗」与事实相反, 2026-11-15 审查 F14 改齐(行为不变, 只改注释与登记口径)。
     "nav_pending_overdue",
+    # 恢复通知独立键(动态拼接, 2026-11-15 审查 F13 显式登记): 只对已通知过的超期事件各发
+    # 一次、发出即清状态; 属恢复类通知, 天然非停摆级。
+    "nav_pending_overdue_recovered",
     "kelly_intraday_upload_r2_fail", "kelly_intraday_rerun_fail",
     "kelly_intraday_verify_fail", "kelly_intraday_gate_decider_crash",
     "update_lab_r2_upload_fail", "update_lab_labjson_r2_fail", "update_lab_tradesim_r2_fail",
