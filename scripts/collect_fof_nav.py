@@ -65,6 +65,9 @@ except Exception:  # cloud 无 certifi 时用系统 CA
 
 # 复用 public_fund 的 DB 连接/schema/锁(§6.5 第 2 层: 库里已有不重写)
 from app.collector.public_fund import DB_PATH, get_conn, init_db, _acquire_lock, _safe_float
+# 2026-11-14 T+2 prev 错位根治: 复用 fund_pct 的「期望前一交易日」唯一判据
+# (与 fetch_daily_nav 次新列采信同一口径, 不另写第二套日历判断)。
+from app.collector.fund_pct import is_prev_trading_day
 from scripts.util_atomic import atomic_write_json
 from scripts.ops_fund_evidence import (capture as _fund_capture, observe as _fund_observe,
                                        setup_seconds as _fund_setup_seconds)
@@ -179,7 +182,17 @@ def _notify_nonnull_conflicts(conflicts, attempted=None, committed=None, not_att
 
 def fetch_lsjz(fund_code: str, start_date: str, end_date: str, *,
                deadline: float | None = None) -> list[dict]:
-    """完整分页后才返回；校验页号/总数/日期降序，跨页计算prevNAV。"""
+    """完整分页后才返回；校验页号/总数/日期降序，跨页计算prevNAV。
+
+    2026-11-14 T+2 窗口 prev 错位根治(依据 /tmp/fof-conflict-audit-20261114.md):
+    旧逻辑把 lsjz 降序相邻行无条件当 prev; QDII/FOF 是 T+2 披露, 当目标行的前一交易日
+    净值尚未发布时相邻行是更早交易日(如 10-19 行取到 10-15), 错位 prev 首写无冲突直接
+    入业务表, 待真值(10-16)发布后重拉必与库内错值冲突 ⇒ 整只拒绝停旧(20261019 单日
+    553 只)。现只在「相邻行日期 == 期望前一交易日」时才采信(fund_pct.is_prev_trading_day
+    唯一判据, 与 fetch_daily_nav 次新列采信同口径); 未发布窗口/日历不可判一律写 NULL,
+    待该日发布后 gap 复查自然补齐(UPSERT 只补空, 自愈)。日历不可用 ⇒ 判据 None ⇒ 同样
+    NULL(宁缺勿错, fund_pct 既有降级口径)。
+    """
     from app.collector.public_fund_gap import request_budget, remaining
     deadline = time.monotonic() + 290 if deadline is None else deadline
     rows = []
@@ -223,10 +236,18 @@ def fetch_lsjz(fund_code: str, start_date: str, end_date: str, *,
         unit = _safe_float(r.get('DWJZ'))
         if unit is None:
             continue  # 未公布值绝不制造占位。
+        prev = None
+        if i + 1 < len(rows):
+            adj = rows[i + 1]
+            # 仅当相邻行日期恰为「期望前一交易日」才采信其 DWJZ 作 prev; 相邻行是更早
+            # 交易日(T+2 未发布窗口)或日历不可判 ⇒ prev=None(不写错位值, 见函数头)。
+            if is_prev_trading_day(str(adj.get('FSRQ', '')).replace('-', ''),
+                                   r['FSRQ'].replace('-', '')):
+                prev = _safe_float(adj.get('DWJZ'))
         parsed = {'date': r['FSRQ'].replace('-', ''), 'fund_code': fund_code,
                   'unit_nav': unit, 'acc_nav': _safe_float(r.get('LJJZ')),
                   'nav_change_pct': _safe_float(r.get('JZZZL')),
-                  'prev_unit_nav': _safe_float(rows[i+1].get('DWJZ')) if i+1 < len(rows) else None}
+                  'prev_unit_nav': prev}
         if any(v is not None and not math.isfinite(v) for k, v in parsed.items()
                if k not in ('date', 'fund_code')):
             raise ValueError('lsjz含非有限数值')

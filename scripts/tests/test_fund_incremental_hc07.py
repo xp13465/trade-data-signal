@@ -33,7 +33,13 @@ def test_long_gap_reads_all_pages(sandbox, monkeypatch):
     rows = mod.fetch_lsjz('000001', '2026-09-01', '2026-11-09')
     assert len(rows) == 45
     assert len(calls) >= 3
-    assert rows[19]['prev_unit_nav'] == rows[20]['unit_nav']
+    # 2026-11-14 T+2 prev 错位根治后: prev 只在相邻行日期恰为「期望前一交易日」时采信
+    # (fund_pct.is_prev_trading_day, 仓库入库交易日历)。records 是自然日连续桩(含周末/
+    # 中秋 09-25 休市日): rows[19]=09-26(周六)的前一交易日是 09-24(周四), 相邻行 09-25
+    # 是休市日 ⇒ 不采信错位值(prev=None); rows[20]=09-25 的相邻行 09-24 恰为期望前一
+    # 交易日 ⇒ 正常采信(与旧行为一致)。
+    assert rows[19]['prev_unit_nav'] is None
+    assert rows[20]['prev_unit_nav'] == rows[21]['unit_nav']
 
 
 def test_late_null_outside_seven_days(sandbox, monkeypatch):
