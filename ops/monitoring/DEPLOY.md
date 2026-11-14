@@ -370,6 +370,7 @@ python3 ops/monitoring/verify_deployment.py --origin https://ss.fx8.store --admi
 - 两次5min采样与独立Worker cron均实际发生；D1新库可读写、历史/事件幂等去重、人工修订乐观冲突保护。
 - 停collector的失联演练应先在本地smoke中完成；生产演练如需做，由Claude单独安排并保持真实通知关闭。unknown、stale、critical不能以“已发信”关闭。
 - 真实通知仍为可选：只有用户/Claude显式启用 `OPS_ALERT_ENABLED=true` 并私下配置批准host的HTTPS `OPS_ALERT_WEBHOOK` 后才允许；默认 `OPS_ALERT_SCOPE=watchdog`，只通知collector失联/恢复。后续启用或调整scope时，先配置所需secret，再把实际开关同步到根 `wrangler.jsonc` 的版本化vars，审核合并后从该source部署并验证。不能只在CF控制台临时改vars，否则下次main部署可能覆盖；不用`--keep-vars`代替配置对账。业务事件必须保留且以 `owned_by_existing_chain` suppressed 可见，不新增业务通知。显式 `all` 必须由Claude先审核与旧链的故障域/实例/恢复去重。启用前审查已有outbox积压/重试记录，防旧事件集中投递；本轮测试不发送真实消息。
+- 外部失联告警配置模板与缺口登记（2026-11-14 B批 monitor-obs，定位报告 `/tmp/monitor-timeout-20261114.md` 第五节）：断主机场景唯一独立外发通道=本 Worker watchdog（独立 `*/15` cron，不依赖云主机），当前生产 `OPS_ALERT_ENABLED=false` 且 `OPS_ALERT_WEBHOOK` 未配置——watchdog 判得出 stale 但**发不出**，如实登记为配置缺口，本批不擅自打开（待用户拍板）。启用模板见 [alert-webhook.example.json](alert-webhook.example.json)：按上条既有流程（先私下配 secret → 同步版本化 vars → 审核合并后从 source 部署验证），验证用例=测试环境停投递源后 30 分钟内 stale 告警外发可收、恢复后收到【恢复】。断主机（无采样到达）时 watchdog stale/恢复判定已有本地单测（`tests/worker-d1.test.mjs`，Miniflare+真实迁移、不发真实通知）；架构性缺口如实保留：D1/Worker 自身不可用时 watchdog 也在 D1 内，无更外层通道覆盖（定位报告缺口2），云主机侧仅同机 `schedule_monitor` unit 体检可发现（缺口3）。
 
 ## 7. 不丢数据库的回滚
 
