@@ -7,6 +7,7 @@ standby_sync.emit_event 记录调用)、不触网(local 源)、冻结运行日(L
 monkeypatch standby_sync._now 固定时刻, 不裸写 os.environ(L56: monkeypatch.setenv)。
 """
 import datetime as dt
+import errno
 import gzip
 import hashlib
 import io
@@ -15,6 +16,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).absolute().parent.parent))
 import standby_sync  # noqa: E402
@@ -95,8 +97,7 @@ def events(monkeypatch):
     rec: list[str] = []
     monkeypatch.setattr(
         standby_sync, "emit_event",
-        lambda key, subject, body, dry_run=False, log=None:
-            rec.append(key) or True)
+        lambda key, subject, body, *a, **k: rec.append(key) or True)
     return rec
 
 
@@ -551,3 +552,330 @@ def test_verify_subcommand_rechecks_latest(tmp_path, frozen, events):
          "backup" / "sentiment_20261113.db.gz")
     p.write_bytes(b"tampered")
     assert run_main(tmp_path, src, sub=("verify",)) == 1
+
+
+# ===================== 审查 FAIL 修复补用例(2026-11-14) =====================
+
+def _tamper_freeze(src: Path) -> None:
+    """篡改 freeze sidecar 内容(gz 重打包): manifest hash 由此不匹配。"""
+    p = src / "backup" / "signal_kelly_etf_freeze.json.gz"
+    buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=buf, mode="wb", mtime=0) as g:
+        g.write(b'{"tampered": true}')
+    p.write_bytes(buf.getvalue())
+
+
+def _state_path(tmp_path) -> Path:
+    return tmp_path / "standby" / "state" / "standby_sync_state.json"
+
+
+# ---- F1: dry-run 异常路径零状态零外发, 且不吞当日真告警 ------------------
+
+def test_f1_dry_run_corrupt_no_state_no_swallow(tmp_path, frozen, events,
+                                                monkeypatch):
+    src = build_source(tmp_path)
+    _tamper_freeze(src)
+    monkeypatch.setattr(standby_sync, "_sleep", lambda s: None)
+    rc = run_main(tmp_path, src, sub=("sync", "--dry-run"),
+                  extra=("--backoff-seconds", "0"))
+    assert rc == 5
+    assert not _state_path(tmp_path).exists()   # 演练零状态写入
+    assert events == []                         # 不注册去重、不外发
+    # 紧接着真跑同损坏源 ⇒ 首报必达(演练不会吞掉当日真告警)
+    rc = run_main(tmp_path, src, extra=("--backoff-seconds", "0"))
+    assert rc == 5
+    assert events == [standby_sync.EVENT_KEYS["corrupt_set"]]
+    assert state_of(tmp_path)["last_failure"]["rc"] == 5
+
+
+def test_f1_dry_run_space_fail_no_state(tmp_path, frozen, events, monkeypatch):
+    old = _prime_old_version(tmp_path, frozen, events)
+    events.clear()
+    src = build_source(tmp_path, run="run005", business_date="2026-11-14")
+    before = state_of(tmp_path)
+    monkeypatch.setattr(standby_sync, "_disk_free", lambda p: 1 << 20)
+    assert run_main(tmp_path, src, sub=("sync", "--dry-run")) == 4
+    assert state_of(tmp_path) == before         # 不写 last_failure/events_notified
+    assert events == []
+    assert versions_of(tmp_path) == [old]
+    # 真跑仍首报
+    assert run_main(tmp_path, src) == 4
+    assert events == [standby_sync.EVENT_KEYS["space_insufficient"]]
+    assert versions_of(tmp_path) == [old]
+
+
+def test_f1_dry_run_window_fail_no_state(tmp_path, frozen, events,
+                                         monkeypatch):
+    src = build_source(tmp_path)
+
+    def dead(self, key, dest):
+        raise OSError("network unreachable")
+
+    monkeypatch.setattr(standby_sync.LocalSource, "fetch_file", dead)
+    monkeypatch.setattr(standby_sync, "_sleep", lambda s: None)
+    assert run_main(tmp_path, src, sub=("sync", "--dry-run"),
+                    extra=("--backoff-seconds", "0")) == 1
+    assert not _state_path(tmp_path).exists()
+    assert events == []
+    assert run_main(tmp_path, src,
+                    extra=("--backoff-seconds", "0")) == 1
+    assert events == [standby_sync.EVENT_KEYS["window_fail"]]
+
+
+# ---- F2: 故障恢复通知(只对已通知事件发一次, 未通知不发) ----------------
+
+def test_f2_recovery_after_corrupt_set_once(tmp_path, frozen, events,
+                                            monkeypatch):
+    old = _prime_old_version(tmp_path, frozen, events)
+    events.clear()
+    src = build_source(tmp_path, run="run002", business_date="2026-11-14")
+    _tamper_freeze(src)
+    monkeypatch.setattr(standby_sync, "_sleep", lambda s: None)
+    assert run_main(tmp_path, src, extra=("--backoff-seconds", "0")) == 5
+    corrupt = standby_sync.EVENT_KEYS["corrupt_set"]
+    rec = corrupt + "_recovered"
+    assert events == [corrupt]
+    assert state_of(tmp_path)["pending_recovery"] == [corrupt]
+    # 真修好(同轮次同业务日期, 内容恢复正确)
+    src = build_source(tmp_path, run="run002", business_date="2026-11-14")
+    # dry-run 同步成功: 不切链不清账, 也不发恢复
+    before = state_of(tmp_path)
+    assert run_main(tmp_path, src, sub=("sync", "--dry-run")) == 0
+    assert state_of(tmp_path) == before
+    assert events == [corrupt]
+    # 真跑 ⇒ 成功 + 一次恢复通知
+    assert run_main(tmp_path, src) == 0
+    assert events == [corrupt, rec]
+    assert state_of(tmp_path)["pending_recovery"] == []
+    assert latest_of(tmp_path) != old
+    # 恢复只发一次: 后续成功静默
+    assert run_main(tmp_path, src) == 0
+    assert events == [corrupt, rec]
+
+
+def test_f2_no_recovery_when_never_notified(tmp_path, frozen, monkeypatch):
+    calls: list[str] = []
+    # 通知发送失败(未真发出) ⇒ 不登记待恢复
+    monkeypatch.setattr(standby_sync, "emit_event",
+                        lambda key, *a, **k: calls.append(key) or False)
+    src = build_source(tmp_path)
+    assert run_main(tmp_path, src) == 0          # 打底(成功静默)
+    src = build_source(tmp_path, run="run002", business_date="2026-11-14")
+    _tamper_freeze(src)
+    monkeypatch.setattr(standby_sync, "_sleep", lambda s: None)
+    assert run_main(tmp_path, src, extra=("--backoff-seconds", "0")) == 5
+    assert calls == [standby_sync.EVENT_KEYS["corrupt_set"]]
+    assert "pending_recovery" not in state_of(tmp_path)
+    # 修好后成功同步: 从未通知过 ⇒ 不发恢复
+    src = build_source(tmp_path, run="run002", business_date="2026-11-14")
+    assert run_main(tmp_path, src) == 0
+    assert not any(k.endswith("_recovered") for k in calls)
+
+
+def test_f2_recovery_uses_recovery_prefix(tmp_path, frozen, monkeypatch):
+    """恢复通知邮件前缀 [恢复](不是 [告警]), 故障事件仍走默认前缀。"""
+    calls: list[tuple[str, object]] = []
+
+    def stub(key, subject, body, *a, **k):
+        calls.append((key, k.get("from_prefix")))
+        return True
+
+    monkeypatch.setattr(standby_sync, "emit_event", stub)
+    src = build_source(tmp_path)
+    src = build_source(tmp_path, run="run002", business_date="2026-11-14")
+    _tamper_freeze(src)
+    monkeypatch.setattr(standby_sync, "_sleep", lambda s: None)
+    assert run_main(tmp_path, src, extra=("--backoff-seconds", "0")) == 5
+    src = build_source(tmp_path, run="run002", business_date="2026-11-14")
+    assert run_main(tmp_path, src) == 0
+    corrupt = standby_sync.EVENT_KEYS["corrupt_set"]
+    assert calls == [(corrupt, None), (corrupt + "_recovered", "[恢复]")]
+
+
+def test_f2_stale_recovery_notification(tmp_path, frozen, events):
+    src = build_source(tmp_path)
+    assert run_main(tmp_path, src) == 0
+    stale = standby_sync.EVENT_KEYS["stale_recovery_point"]
+    rec = stale + "_recovered"
+    assert run_main(tmp_path, src, extra=("--stale-days", "0")) == 0
+    assert events == [stale]
+    assert state_of(tmp_path)["pending_recovery"] == [stale]
+    # 恢复点回到阈值内 ⇒ 一次恢复通知并清账
+    assert run_main(tmp_path, src, extra=("--stale-days", "5")) == 0
+    assert events == [stale, rec]
+    assert state_of(tmp_path)["pending_recovery"] == []
+    assert run_main(tmp_path, src, extra=("--stale-days", "5")) == 0
+    assert events == [stale, rec]
+
+
+# ---- F3: 空间估算用解压后大小 + 中途磁盘满归 space_insufficient ----------
+
+def test_f3_normalize_estimates_uncompressed_size(tmp_path):
+    src = build_source(tmp_path)
+    raw = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
+    m = standby_sync.normalize_manifest(raw)
+    for f in m["files"]:
+        assert f["size_uncompressed"] == int(
+            f["size"] * standby_sync.DEFAULT_UNCOMPRESSED_RATIO)
+    # manifest 显式给解压大小优先; 非 gz 对象缺省=自身大小
+    raw2 = dict(raw)
+    raw2["files"] = [dict(raw["files"][0], size_uncompressed=424242),
+                     {"key": "backup/x.json", "role": "state", "size": 10,
+                      "sha256_gz": "d" * 64}]
+    m2 = standby_sync.normalize_manifest(raw2)
+    assert m2["files"][0]["size_uncompressed"] == 424242
+    assert m2["files"][1]["size_uncompressed"] == 10
+
+
+def test_f3_check_space_peak_uses_uncompressed(tmp_path, monkeypatch):
+    manifest = {"files": [
+        {"key": "a.db.gz", "size": 1000, "size_uncompressed": 3600},
+        {"key": "b.json.gz", "size": 500, "size_uncompressed": 1800}]}
+    free = {"v": 0}
+    monkeypatch.setattr(standby_sync, "_disk_free", lambda p: free["v"])
+    min_free = 5 * (1 << 30)
+    need = int((1500 + 3600) * 1.1) + min_free
+    # 临界值: 差 1 字节 ⇒ 拒绝; 恰好够 ⇒ 放行(用压缩大小估会误放行)
+    free["v"] = need - 1
+    with pytest.raises(standby_sync.SpaceError):
+        standby_sync.check_space(tmp_path, manifest, min_free_after=min_free)
+    free["v"] = need
+    standby_sync.check_space(tmp_path, manifest, min_free_after=min_free)
+
+
+def test_f3_enospc_mid_download_is_space_insufficient(tmp_path, frozen,
+                                                      events, monkeypatch):
+    src = build_source(tmp_path)
+    calls = {"n": 0}
+
+    def enospc(self, key, dest):
+        calls["n"] += 1
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(standby_sync.LocalSource, "fetch_file", enospc)
+    monkeypatch.setattr(standby_sync, "_sleep", lambda s: None)
+    rc = run_main(tmp_path, src, extra=("--backoff-seconds", "0"))
+    assert rc == 4
+    assert calls["n"] == 1                        # 不可重试
+    assert events == [standby_sync.EVENT_KEYS["space_insufficient"]]
+    assert state_of(tmp_path)["last_failure"]["rc"] == 4
+
+
+def test_f3_enospc_during_verify_is_space_insufficient(tmp_path, frozen,
+                                                       events, monkeypatch):
+    src = build_source(tmp_path)
+
+    def no_space(*a, **k):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(standby_sync.shutil, "copyfileobj", no_space)
+    monkeypatch.setattr(standby_sync, "_sleep", lambda s: None)
+    rc = run_main(tmp_path, src, extra=("--backoff-seconds", "0"))
+    assert rc == 4
+    assert events == [standby_sync.EVENT_KEYS["space_insufficient"]]
+    st = state_of(tmp_path)["last_failure"]
+    assert st["rc"] == 4 and "ENOSPC" in st["error"]
+
+
+# ---- F4: 原子切换判别力 + 防御分支用例 -----------------------------------
+
+def _unit_layout(tmp_path):
+    ns = SimpleNamespace(root=str(tmp_path / "u"), work_dir=None,
+                         data_dir=None, archive_dir=None, state_dir=None,
+                         log_dir=None)
+    layout = standby_sync.Layout(ns)
+    layout.ensure()
+    return layout
+
+
+def _unit_manifest():
+    return {"schema_version": 1, "complete": True,
+            "business_date": "2026-11-13", "generated_at": "",
+            "source_run": "r", "archive_hint": "",
+            "files": [{"key": "backup/x.db.gz", "role": "db",
+                       "name": "x.db", "size": 1, "size_uncompressed": 3,
+                       "sha256_gz": "a" * 64,
+                       "sha256_uncompressed": "b" * 64,
+                       "business_date": "2026-11-13", "tables": {},
+                       "probe": {}}]}
+
+
+def test_f4_atomic_switch_interruption_never_partial(tmp_path, frozen,
+                                                     monkeypatch):
+    """切换/固化任一环节中断: latest_verified 要么指旧版要么指完整新版。"""
+    layout = _unit_layout(tmp_path)
+    manifest = _unit_manifest()
+    mbytes = json.dumps(manifest).encode()
+    old = "2026-11-13-old-aaaaaaaaaa"
+    _make_version(layout.archive, old, "2026-11-13")
+    os.symlink(f"versions/{old}", layout.latest)
+
+    # 场景 1: 固化完成, 原子切换(临时 symlink + rename)中断
+    new = "2026-11-14-new-bbbbbbbbbb"
+    staging = layout.work / f"staging-{new}"
+    staging.mkdir(parents=True)
+    (staging / "blob.bin").write_bytes(b"x")
+    orig_replace = os.replace
+
+    def fail_switch(src, dst):
+        if str(dst).endswith("latest_verified"):
+            raise OSError("simulated crash during atomic switch")
+        return orig_replace(src, dst)
+
+    monkeypatch.setattr(standby_sync.os, "replace", fail_switch)
+    with pytest.raises(OSError):
+        standby_sync._finalize(layout, manifest, staging, new, mbytes, 0.0,
+                              lambda m: None)
+    assert os.readlink(layout.latest) == f"versions/{old}"   # 绝不指半成品
+    assert (layout.versions / new / "verify_record.json").exists()
+    assert (layout.versions / new / ".standby-managed").exists()
+    assert (layout.versions / new / "manifest.json").read_bytes() == mbytes
+
+    # 场景 2: 固化目录 rename 阶段中断 ⇒ latest 不动, 新版不出现
+    monkeypatch.setattr(standby_sync.os, "replace", orig_replace)
+    new2 = "2026-11-14-new-cccccccccc"
+    staging2 = layout.work / f"staging-{new2}"
+    staging2.mkdir(parents=True)
+    orig_rename = os.rename
+
+    def fail_rename(src, dst):
+        if "staging-" in str(src):
+            raise OSError("simulated crash during finalize")
+        return orig_rename(src, dst)
+
+    monkeypatch.setattr(standby_sync.os, "rename", fail_rename)
+    with pytest.raises(OSError):
+        standby_sync._finalize(layout, manifest, staging2, new2, mbytes, 0.0,
+                              lambda m: None)
+    assert os.readlink(layout.latest) == f"versions/{old}"
+    assert not (layout.versions / new2).exists()
+    assert (staging2 / "verify_record.json").exists()   # 成品完整, 非半成品
+
+
+@pytest.mark.parametrize("kind,expect", [
+    ("complete_false", "complete=false"),
+    ("schema_version", "schema_version"),
+    ("path_escape", "路径逃逸"),
+    ("bad_role", "未知 role"),
+])
+def test_f4_defense_branches(kind, expect, tmp_path, frozen, events,
+                             monkeypatch):
+    src = build_source(tmp_path)
+    mp = src / "manifest.json"
+    m = json.loads(mp.read_text(encoding="utf-8"))
+    if kind == "complete_false":
+        m["complete"] = False
+    elif kind == "schema_version":
+        m["schema_version"] = 2
+    elif kind == "path_escape":
+        m["files"].append({"key": "../evil.bin", "role": "state",
+                           "size": 3, "sha256_gz": "c" * 64})
+    elif kind == "bad_role":
+        m["files"][0]["role"] = "evil"
+    mp.write_text(json.dumps(m), encoding="utf-8")
+    monkeypatch.setattr(standby_sync, "_sleep", lambda s: None)
+    assert run_main(tmp_path, src,
+                    extra=("--backoff-seconds", "0")) == 5
+    assert events == [standby_sync.EVENT_KEYS["corrupt_set"]]
+    st = state_of(tmp_path)["last_failure"]
+    assert st["rc"] == 5 and expect in st["error"]

@@ -70,6 +70,11 @@
 - **事件**(notify.py,四元组 critical/604800s/backup 域/首报必达):
   新集合损坏、超窗口失败、恢复点过期(>2 天,`--stale-days`)、空间不足;
   同一事件 7 天去重窗内不重复(不按尝试次数/日期刷屏);
+- **故障恢复通知**:上述故障事件**真发出过**的,真正恢复后对每个事件发一次
+  恢复通知(`<事件键>_recovered`,同 7 天去重窗),发出成功即清账;从未通知过
+  的故障不发恢复(不会出现「没收到告警却收到恢复」);`pending_recovery` 记在状态文件;
+- **dry-run 严格零副作用**:成功/失败任何分支都不写状态、不注册去重、不外发
+  (也不会吞掉当日真实告警),只在屏幕/日志打印演练结论;
 - 保留策略:默认日保 7 天+周保 4 周,空间不足自动降级(报告说明),永远保
   `latest_verified`+至少 2 份已验证版本,只删本工具登记目录,不碰未登记目录。
 
@@ -83,14 +88,19 @@ python scripts/standby_sync.py retention --dry-run       # 保留计划预览
 
 状态文件字段:`latest_downloadable / latest_verified / business_date /
 source_run / manifest_sha256 / last_success_ts(_utc) / missed_runs_last /
-latest_recovery_point_age_days / last_failure / history[]`(本地+UTC 双时区)。
+latest_recovery_point_age_days / last_failure / pending_recovery[] / history[]`
+(本地+UTC 双时区)。
 
 ## 六、空间预算(盘点实测)
 
 完整集合 gzip ≈0.996GiB、解压 ≈3.61GiB;归档根建议 ≥64GiB 可用
 (7 日+4 周 ≈10.95GiB + staging 1.0GiB + 单份解压 3.61GiB + 旧版共存峰值
-≈16.6~19.2GiB,64GiB 含月备扩展余量)。空间不足时本工具**拒绝下载并报事件**,
-不删唯一可用版本换空间。备用机磁盘身份/清理由用户拍板(见盘点报告第六节)。
+≈16.6~19.2GiB,64GiB 含月备扩展余量)。下载前空间检查按「staging gz 合计 +
+最大对象**解压后**大小 × 1.1 + `--min-free-gb` 保底」算峰值;解压后大小取
+manifest 的 `size_uncompressed`,缺省按实测解压比 3.6 估算——不会用压缩大小
+低估需求而击穿 `--min-free-gb`。下载/解压/写盘中途磁盘满同样归
+`space_insufficient`(不会误报成 `window_fail`)。空间不足时本工具**拒绝下载
+并报事件**,不删唯一可用版本换空间。备用机磁盘身份/清理由用户拍板(见盘点报告第六节)。
 
 ## 七、退出码速查
 

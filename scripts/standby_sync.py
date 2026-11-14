@@ -53,7 +53,18 @@ C 批尚在开发、契约未合入, 本文件先按任务书字段(文件清单
 dedup window 取 7 天: 备用机同事件通常每日最多触发一次, 逐日重报=「按日期刷屏」
 (方案通知规则明令禁止); 7 天后仍未恢复重报一次, 兼顾不无限沉默。
 成功/无变化/窗口内重试成功 ⇒ 完全静默(只写状态, 零外发)。
+故障恢复通知(执行方案第 120 行/任务书第 7 项): 故障事件**真发出过**后记入
+``state["pending_recovery"]``; 真正恢复时对每个已通知事件发一次恢复通知
+(事件身份 ``<event_key>_recovered``, 同 7 天去重窗, notify.py 身份/去重沿用),
+发出成功即清账; **从未成功通知过的故障不发恢复**(避免「没收到告警却收到恢复」)。
+dry-run 既不写状态也不发任何事件(含失败分支与恢复通知, README 承诺)。
 测试全部打桩(monkeypatch emit_event, §18 L48 禁真发)。
+
+== 空间估算口径 ==
+check_space 按「staging gz 合计 + 最大对象解压后大小」估峰值; 解压后大小优先取
+manifest 的 size_uncompressed, 缺省按实测解压比 DEFAULT_UNCOMPRESSED_RATIO=3.6
+(盘点报告 3.61GiB 原始 / 0.996GiB gzip)估算, 保证 --min-free-gb 不被击穿。
+下载/解压/写盘中途 ENOSPC 一律归 space_insufficient(不误报 window_fail)。
 
 == 幂等/断点要点 ==
 - 同一归档(同一 manifest 内容)⇒ 同一 version_id, 不产生冲突版本; 已固化已验的
@@ -109,6 +120,10 @@ DEFAULT_DENY_PATHS = [
 ]
 ROLES = {"db", "freeze", "cursor", "state", "sidecar"}
 REQUIRED_ROLES_DEFAULT = ["db"]        # 恢复范围下限: 必须含活跃 DB
+# 解压比(盘点实测 3.61GiB 原始 / 0.996GiB gzip ≈ 3.6); manifest 可给
+# size_uncompressed 覆盖, 缺省按本比值估峰值空间(staging 1 份 + 单份解压)。
+DEFAULT_UNCOMPRESSED_RATIO = 3.6
+RECOVERY_EVENT_SUFFIX = "_recovered"   # 恢复通知事件身份(notify.py dedup-key 同源)
 
 
 def _now() -> dt.datetime:
@@ -158,15 +173,51 @@ def emit_event_once(state: dict, store: "StateStore", event_key: str,
     ok = emit_event(event_key, subject, body, log=log)
     if ok:
         noted[event_key] = today
+        _mark_pending_recovery(state, event_key)
         store.save(state)
     return ok
 
 
+def _mark_pending_recovery(state: dict, event_key: str) -> None:
+    """故障事件真发出后登记「待恢复」, 恢复时才能发恢复通知(未通知过不发)。"""
+    pend = state.setdefault("pending_recovery", [])
+    if event_key not in pend:
+        pend.append(event_key)
+
+
+def emit_recovery_once(state: dict, store: "StateStore", event_key: str,
+                       detail: str, log) -> bool:
+    """对**已通知过**的故障事件发一次恢复通知, 成功后清账。
+
+    事件身份/去重沿用 notify.py: dedup-key = ``<event_key>_recovered``, 7 天窗
+    (与故障事件身份不同 ⇒ 不被故障事件的去重窗吞掉)。发送失败保持待恢复,
+    下次成功同步再补发; 未进入 pending_recovery(从未成功通知)⇒ 直接跳过。
+    """
+    pend = state.get("pending_recovery") or []
+    if event_key not in pend:
+        return False
+    now = _now()
+    rec_key = event_key + RECOVERY_EVENT_SUFFIX
+    ok = emit_event(rec_key,
+                    f"[恢复] {event_key} 已恢复 {now:%m-%d %H:%M}",
+                    f"{detail}<br>时间(本地): {now:%Y-%m-%d %H:%M:%S}"
+                    f"<br>本恢复通知只对已通知过的故障事件发送一次。",
+                    log=log, from_prefix="[恢复]")
+    if ok:
+        pend.remove(event_key)
+        state["pending_recovery"] = pend
+        store.save(state)
+        log(f"[standby_sync] 恢复通知已发 {rec_key}")
+    return ok
+
+
 def emit_event(event_key: str, subject: str, body: str,
-               dry_run: bool = False, log=None) -> bool:
+               dry_run: bool = False, log=None,
+               from_prefix: str = "[告警]") -> bool:
     """经 notify.py CLI 发事件(四元组见模块 docstring)。
 
     测试/演练全部打桩(monkeypatch 本函数, L48 禁真发); dry_run 透传 --dry-run。
+    故障事件 from_prefix="[告警]", 恢复通知传 "[恢复]"(邮件标题不误导)。
     返回 True=CLI 退出 0(suppress 也算已路由), False=调用失败(只记日志不重试)。
     """
     log = log or (lambda m: print(m, flush=True))
@@ -175,7 +226,7 @@ def emit_event(event_key: str, subject: str, body: str,
         log(f"[standby_sync] notify.py 不存在, 事件 {event_key} 只落日志")
         return False
     cmd = [sys.executable, str(notify), subject, body,
-           "--severe", "--from-prefix", "[告警]",
+           "--severe", "--from-prefix", from_prefix,
            "--dedup-key", event_key,
            "--dedup-window", str(DEDUP_WINDOW_SECONDS),
            "--alert-issue", f"{TOOL_NAME} {event_key}"]
@@ -244,9 +295,14 @@ def normalize_manifest(raw: dict) -> dict:
         if fbd and fbd != bd:
             raise ManifestError(
                 f"{key}: 对象业务日期 {fbd} != 集合业务日期 {bd}(错业务日期)")
+        # 解压后大小: manifest 显式给(精确)或用实测解压比估算(峰值空间口径)
+        size_u = ent.get("size_uncompressed", ent.get("uncompressed_size"))
+        if not isinstance(size_u, int) or isinstance(size_u, bool) or size_u < 0:
+            size_u = (int(size * DEFAULT_UNCOMPRESSED_RATIO)
+                      if key.endswith(".gz") else size)
         out_files.append({
             "key": key, "role": role, "name": ent.get("name") or Path(key).name,
-            "size": size, "sha256_gz": sha,
+            "size": size, "size_uncompressed": size_u, "sha256_gz": sha,
             "sha256_uncompressed": ent.get("sha256_uncompressed") or "",
             "business_date": fbd,
             "tables": ent.get("tables") or {},
@@ -454,6 +510,10 @@ def verify_staged(manifest: dict, staging: Path, scratch: Path,
                         for chunk in iter(lambda: gz.read(1 << 20), b""):
                             h.update(chunk)
                 except OSError as exc:
+                    if getattr(exc, "errno", None) == errno.ENOSPC:
+                        # 解压/写盘中途磁盘满: 归 space_insufficient, 不误报损坏
+                        raise SpaceError(
+                            f"{key}: 解压/写盘中途磁盘满(ENOSPC): {exc}") from exc
                     errors.append(f"{key}: gunzip 失败({exc})")
                     continue
                 if h.hexdigest() != f["sha256_uncompressed"]:
@@ -535,14 +595,20 @@ def check_recovery_scope(manifest: dict, required_roles: list[str]) -> None:
 
 def check_space(free_probe_dir: Path, manifest: dict,
                 margin: float = 1.1, min_free_after: int = 0) -> None:
-    """核空间: gz 总量 + 最大解压对象 + 余量必须放得下; 放不下抛 SpaceError。"""
+    """核空间: staging gz 总量 + 最大对象**解压后**大小 + 余量必须放得下。
+
+    解压需求按 size_uncompressed(manifest 精确值, 缺省按实测解压比 3.6 估算)
+    计算 —— 用压缩大小估会低估峰值(实测 3.6 倍), 导致 --min-free-gb 被击穿。
+    """
     total_gz = sum(f["size"] for f in manifest["files"])
-    biggest = max((f["size"] for f in manifest["files"]), default=0)
+    biggest = max((f.get("size_uncompressed") or f["size"]
+                   for f in manifest["files"]), default=0)
     need = int((total_gz + biggest) * margin) + min_free_after
     free = _disk_free(free_probe_dir)
     if free < need:
         raise SpaceError(f"空间不足: 可用 {free}B < 需要 {need}B "
-                         f"(gz 合计 {total_gz} + 最大解压 {biggest} × {margin})")
+                         f"(staging gz 合计 {total_gz} + 最大解压 {biggest} "
+                         f"× {margin} + 保底 {min_free_after})")
 
 
 # ------------------------------------------------------------------- dirs ---
@@ -753,6 +819,98 @@ def _check_stale(layout: Layout, store: StateStore, state: dict, args,
         log(f"[standby_sync] 恢复点过期告警已发(年龄 {age} 天)")
     else:
         log(f"[standby_sync] 恢复点年龄 {age} 天(阈值内)")
+        # 过期告警曾发出且现已回到阈值内 ⇒ 对已通知事件发一次恢复通知
+        key = EVENT_KEYS["stale_recovery_point"]
+        if key in (state.get("pending_recovery") or []):
+            emit_recovery_once(
+                state, store, key,
+                f"最新已验证恢复点已刷新: 业务日期 {bd}, 年龄 {age} 天 "
+                f"≤ 阈值 {args.stale_days} 天, latest_verified: {vid}", log)
+
+
+def _emit_sync_recoveries(layout: "Layout", state: dict, store: StateStore,
+                          log) -> None:
+    """同步成功后: 对已通知且已解除的三类故障事件各发一次恢复通知。
+
+    只在本次同步真正成功(校验通过/reused/no-change)后调用; dry-run 在调用点
+    之前已提前 return, 不会清账也不会外发。
+    """
+    for name in ("corrupt_set", "window_fail", "space_insufficient"):
+        key = EVENT_KEYS[name]
+        if key in (state.get("pending_recovery") or []):
+            emit_recovery_once(
+                state, store, key,
+                f"备用机同步已恢复正常(本次同步成功), latest_verified: "
+                f"{_latest_vid(layout)}", log)
+
+
+def _handle_space_insufficient(args, layout: "Layout", state: dict,
+                               store: StateStore, now: dt.datetime,
+                               error: str, log) -> int:
+    """空间不足处置(dry-run 不写状态不外发: README/CLI help 承诺)。"""
+    if args.dry_run:
+        log(f"[standby_sync] dry-run: {error}; rc=4 拒绝下载(不写状态不外发)")
+        return 4
+    state["last_failure"] = {
+        "ts_local": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "rc": 4, "error": error}
+    store.save(state)
+    emit_event_once(
+        state, store, EVENT_KEYS["space_insufficient"],
+        f"[告警] standby_sync 空间不足 拒绝下载 {now:%m-%d %H:%M}",
+        f"备用机同步空间不足, 已拒绝下载并保留全部旧版本。"
+        f"<br>时间(本地): {now:%Y-%m-%d %H:%M:%S}<br>错误: {error}"
+        f"<br>latest_verified: {_latest_vid(layout)}(不受影响)"
+        f"<br>需要动作: 清理归档盘或调整 --min-free-gb。",
+        log=log)
+    log(f"[standby_sync] {error}; rc=4 拒绝下载")
+    return 4
+
+
+def _handle_corrupt_set(args, layout: "Layout", state: dict,
+                        store: StateStore, now: dt.datetime,
+                        error: str, log) -> int:
+    """新集合损坏处置(dry-run 不写状态不外发)。"""
+    if args.dry_run:
+        log(f"[standby_sync] dry-run: 新集合损坏 {error}; rc=5(不写状态不外发)")
+        return 5
+    state["last_failure"] = {
+        "ts_local": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "rc": 5, "error": error}
+    store.save(state)
+    emit_event_once(
+        state, store, EVENT_KEYS["corrupt_set"],
+        f"[告警] standby_sync 新集合损坏 {now:%m-%d %H:%M}",
+        f"备用机新集合校验失败, 已拒绝生效, 旧版本保留可用。"
+        f"<br>时间(本地): {now:%Y-%m-%d %H:%M:%S}<br>错误: {error}"
+        f"<br>latest_verified: {_latest_vid(layout)}(不受影响)"
+        f"<br>需要动作: 排查云端备份链/manifest(具体对象见错误信息)。",
+        log=log)
+    log(f"[standby_sync] 新集合损坏 rc=5: {error}")
+    return 5
+
+
+def _handle_window_fail(args, layout: "Layout", state: dict,
+                        store: StateStore, now: dt.datetime,
+                        error: str, log) -> int:
+    """超窗口失败处置(dry-run 不写状态不外发)。"""
+    if args.dry_run:
+        log(f"[standby_sync] dry-run: 超窗口失败 {error}; rc=1(不写状态不外发)")
+        return 1
+    state["last_failure"] = {
+        "ts_local": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "rc": 1, "error": error}
+    store.save(state)
+    emit_event_once(
+        state, store, EVENT_KEYS["window_fail"],
+        f"[告警] standby_sync 超窗口失败 {now:%m-%d %H:%M}",
+        f"备用机同步窗口预算耗尽仍失败, 旧版本保留可用。"
+        f"<br>时间(本地): {now:%Y-%m-%d %H:%M:%S}<br>错误: {error}"
+        f"<br>latest_verified: {_latest_vid(layout)}"
+        f"<br>需要动作: 排查网络/R2 可达性; 明日窗口自动重试。",
+        log=log)
+    log(f"[standby_sync] 超窗口失败 rc=1: {error}")
+    return 1
 
 
 def sync_command(args, log) -> int:
@@ -821,6 +979,7 @@ def sync_command(args, log) -> int:
                     _record_success(state, store, now, vid, vid, manifest,
                                     manifest_bytes, 0.0, attempt, missed,
                                     "no-change", log)
+                    _emit_sync_recoveries(layout, state, store, log)
                     _check_stale(layout, store, state, args, log)
                     return 0
 
@@ -837,6 +996,7 @@ def sync_command(args, log) -> int:
                     _record_success(state, store, now, vid, vid, manifest,
                                     manifest_bytes, 0.0, attempt, missed,
                                     "reused", log)
+                    _emit_sync_recoveries(layout, state, store, log)
                     _check_stale(layout, store, state, args, log)
                     return 0
 
@@ -882,32 +1042,30 @@ def sync_command(args, log) -> int:
                 _record_success(state, store, now, vid, vid, manifest,
                                 manifest_bytes, duration, attempt, missed,
                                 "synced", log)
+                _emit_sync_recoveries(layout, state, store, log)
                 retention_command(args, log, layout=layout,
                                   after_success=True)
                 _check_stale(layout, store, state, args, log)
                 _sweep_staging(layout, log)
                 return 0
             except SpaceError as exc:
-                state["last_failure"] = {
-                    "ts_local": now.strftime("%Y-%m-%d %H:%M:%S"),
-                    "rc": 4, "error": str(exc)}
-                store.save(state)
-                emit_event_once(
-                    state, store, EVENT_KEYS["space_insufficient"],
-                    f"[告警] standby_sync 空间不足 拒绝下载 {now:%m-%d %H:%M}",
-                    f"备用机同步空间不足, 已拒绝下载并保留全部旧版本。"
-                    f"<br>时间(本地): {now:%Y-%m-%d %H:%M:%S}<br>错误: {exc}"
-                    f"<br>latest_verified: {_latest_vid(layout)}(不受影响)"
-                    f"<br>需要动作: 清理归档盘或调整 --min-free-gb。",
-                    log=log)
-                log(f"[standby_sync] {exc}; rc=4 拒绝下载")
-                return 4
+                return _handle_space_insufficient(
+                    args, layout, state, store, now, str(exc), log)
             except ManifestError as exc:
                 # 确定性损坏(hash/缺文件/错日期/integrity): 窗口内仍重试(排除
                 # 瞬态传输错), 尽头报 corrupt_set; staging 不生效
                 last_err = exc
                 log(f"[standby_sync] 集合完整性错误: {exc}")
-            except (OSError, ValueError, urllib.error.URLError,
+            except OSError as exc:
+                if getattr(exc, "errno", None) == errno.ENOSPC:
+                    # 下载/解压/写盘中途磁盘满: 不可重试, 归 space_insufficient
+                    # (不能落进可重试分支最后误报 window_fail 误导排查方向)
+                    return _handle_space_insufficient(
+                        args, layout, state, store, now,
+                        f"下载/解压写盘中途磁盘满(ENOSPC): {exc}", log)
+                last_err = exc
+                log(f"[standby_sync] 尝试失败(可重试): {exc!r}")
+            except (ValueError, urllib.error.URLError,
                     subprocess.SubprocessError) as exc:
                 # 传输/网络/本地 IO: 可重试
                 last_err = exc
@@ -921,37 +1079,13 @@ def sync_command(args, log) -> int:
                 backoff *= 2
         # 窗口预算耗尽
         if isinstance(last_err, ManifestError):
-            state["last_failure"] = {
-                "ts_local": now.strftime("%Y-%m-%d %H:%M:%S"),
-                "rc": 5, "error": str(last_err)}
-            store.save(state)
-            emit_event_once(
-                state, store, EVENT_KEYS["corrupt_set"],
-                f"[告警] standby_sync 新集合损坏 {now:%m-%d %H:%M}",
-                f"备用机新集合校验失败, 已拒绝生效, 旧版本保留可用。"
-                f"<br>时间(本地): {now:%Y-%m-%d %H:%M:%S}<br>错误: {last_err}"
-                f"<br>latest_verified: {_latest_vid(layout)}(不受影响)"
-                f"<br>需要动作: 排查云端备份链/manifest(具体对象见错误信息)。",
-                log=log)
-            log(f"[standby_sync] 新集合损坏 rc=5: {last_err}")
-            return 5
+            return _handle_corrupt_set(
+                args, layout, state, store, now, str(last_err), log)
         raise WindowFailError(
             f"窗口预算耗尽({args.max_attempts} 次尝试), 最后错误: {last_err!r}")
     except WindowFailError as exc:
-        state["last_failure"] = {
-            "ts_local": now.strftime("%Y-%m-%d %H:%M:%S"),
-            "rc": 1, "error": str(exc)}
-        store.save(state)
-        emit_event_once(
-            state, store, EVENT_KEYS["window_fail"],
-            f"[告警] standby_sync 超窗口失败 {now:%m-%d %H:%M}",
-            f"备用机同步窗口预算耗尽仍失败, 旧版本保留可用。"
-            f"<br>时间(本地): {now:%Y-%m-%d %H:%M:%S}<br>错误: {exc}"
-            f"<br>latest_verified: {_latest_vid(layout)}"
-            f"<br>需要动作: 排查网络/R2 可达性; 明日窗口自动重试。",
-            log=log)
-        log(f"[standby_sync] 超窗口失败 rc=1: {exc}")
-        return 1
+        return _handle_window_fail(
+            args, layout, state, store, now, str(exc), log)
     finally:
         os.close(lock_fd)
 
@@ -1244,7 +1378,8 @@ def main(argv: list[str] | None = None) -> int:
     global emit_event
     _orig_emit = emit_event
     if args.dry_run:
-        def _dry_emit(event_key, subject, body, dry_run=False, log=None):
+        def _dry_emit(event_key, subject, body, dry_run=False, log=None,
+                      **kwargs):
             (log or print)(f"[standby_sync][dry-run] 事件 {event_key} 未真发")
             return True
         emit_event = _dry_emit
