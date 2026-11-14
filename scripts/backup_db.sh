@@ -117,6 +117,42 @@ if [ "${VERIFY_BACKUP_SKIP:-0}" != "1" ]; then
   esac
 fi
 R2_RC=0
+
+# 「完整可恢复集合」成套捕获(备份工作包二, 2026-11-14; 默认关, 主控部署时 STATE_CAPTURE_ENABLED=1 启用)。
+# ①捕获: backup_state_capture.py 在三库热备之后读 sidecar 状态集(冻结表/游标/通知/发布/proof
+#   台账, 恢复清单=脚本 DECLARED_INVENTORY 捕获前声明), 缺项如实记 missing 不缩小清单;
+#   sidecar 捕获期间被修改 ⇒ 整体重试一次, 仍变 ⇒ 记 inconsistent 拒绝宣称完整。
+# ②归档: upload_r2.py upload-state-capture 打包推 R2 backup/state_*.tar.gz(私有桶,
+#   proof 契约同 upload-db; 上传成功前本地集合不删; 复用 backup_db 锁域=同写 backup/ 前缀)。
+# 捕获/上传失败不改本脚本既有 RC 与通知契约(同上方 C4 块), manifest 如实记失败不冒充成功;
+# 本段不发任何通知。预算: 捕获+hash+tar+上传实测秒级(见 docs/backup-restore.md), 远小于
+# trade-backup-db.service TimeoutStartSec=12600 的看门狗预算。
+if [ "${STATE_CAPTURE_ENABLED:-0}" = "1" ] && [ -f "$REPO/scripts/backup_state_capture.py" ]; then
+  echo "-> 状态集成套捕获(backup_state_capture.py) ..." | tee -a "$LOG"
+  STATE_READY_FILE="$LOGDIR/.state-capture-ready"
+  rm -f "$STATE_READY_FILE"
+  "$PY" "$REPO/scripts/backup_state_capture.py" \
+    --repo "$REPO" --backup-dir "$BACKUP_DIR" --stamp "$STAMP" \
+    --out-root "$BACKUP_DIR/capture-sets" --ready-file "$STATE_READY_FILE" >> "$LOG" 2>&1
+  CAPTURE_RC=$?
+  echo "状态集捕获 rc=$CAPTURE_RC (0=产出可上传集合, missing 如实记录)" | tee -a "$LOG"
+  if [ -s "$STATE_READY_FILE" ]; then
+    CAPTURE_SET_DIR=$(cat "$STATE_READY_FILE")
+    echo "  集合目录: $CAPTURE_SET_DIR" | tee -a "$LOG"
+    if [ -f "$REPO/scripts/upload_r2.py" ]; then
+      echo "-> 状态集 R2 归档上传(upload-state-capture) ..." | tee -a "$LOG"
+      env R2_STATE_CAPTURE_PROOF="$LOGDIR/r2-state-source-${BACKUP_RUN_ID}.json" \
+        R2_STATE_CAPTURE_RUN_ID="$BACKUP_RUN_ID" \
+        R2_UPLOAD_LOCK_DOMAIN=backup_db R2_UPLOAD_LOCK_TIMEOUT=9000 \
+        "$PY" "$REPO/scripts/upload_r2.py" upload-state-capture "$CAPTURE_SET_DIR" >> "$LOG" 2>&1 \
+        || echo "⚠ 状态集 R2 上传失败(原备份退出码不变; 本地集合保留)" | tee -a "$LOG"
+    fi
+  else
+    echo "⚠ 状态集捕获失败/不一致, 未产出可上传集合(原备份退出码不变; 详见上方日志)" | tee -a "$LOG"
+  fi
+  rm -f "$STATE_READY_FILE"
+fi
+
 if [ -f "$REPO/scripts/upload_r2.py" ]; then
   echo "-> 推 R2 异地备份 ..." | tee -a "$LOG"
   env R2_DB_BACKUP_REQUIRE_PUBLIC_FUND="$REQUIRE_PUBLIC_FUND_SOURCE" R2_DB_BACKUP_RUN_ID="$BACKUP_RUN_ID" R2_DB_BACKUP_PROOF="$BACKUP_SOURCE_PROOF" R2_UPLOAD_LOCK_DOMAIN=backup_db R2_UPLOAD_LOCK_TIMEOUT=9000 "$PY" "$REPO/scripts/upload_r2.py" upload-db >> "$LOG" 2>&1 || R2_RC=$?
