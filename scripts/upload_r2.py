@@ -1212,8 +1212,58 @@ def _record_confirmed_publication(key, payload, confirmed=True):
               file=sys.stderr)
 
 
+def _recover_utcnow():
+    """恢复路径当前时刻(UTC)。R2_RECOVER_NOW=ISO 注入冻结时钟(单测/回放用, L51 先例)。"""
+    injected = os.environ.get("R2_RECOVER_NOW")
+    if injected:
+        return datetime.datetime.strptime(injected, "%Y-%m-%dT%H:%M:%SZ")
+    return datetime.datetime.utcnow()
+
+
+def _business_days_between(d1, d2):
+    """d1→d2 之间的工作日数(周六周日不计; 只用于超期/重试龄判定, 输入是 date)。"""
+    if d2 <= d1:
+        return 0
+    days, cur = 0, d1
+    while cur < d2:
+        cur += datetime.timedelta(days=1)
+        if cur.weekday() < 5:
+            days += 1
+    return days
+
+
+_RECOVER_AUTO_MAX_RETRY = 3      # 每对象自动重试上限(D2): 到顶只报不试, 人工 recover-protected 不受限
+_RECOVER_AUTO_MAX_AGE_DAYS = 3   # 首次未决距今业务日上限(D2): 超龄只进超期事件不重试
+
+
+def _recover_auto_skip(row):
+    """自动模式跳过判定; 返回原因串(None=允许尝试)。未知输入不拦(fail-open 只影响重试, 不影响正确性)。"""
+    if row.get("retry_count", 0) >= _RECOVER_AUTO_MAX_RETRY:
+        return "retry-exhausted"
+    fu = row.get("first_unresolved_at")
+    if not fu:
+        return None
+    try:
+        started = datetime.datetime.strptime(fu, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return None
+    if _business_days_between(started.date(), _recover_utcnow().date()) > _RECOVER_AUTO_MAX_AGE_DAYS:
+        return "age-exhausted"
+    return None
+
+
 def cmd_recover_protected():
-    """有界重入逐键日志；未知保持非零，不提供无条件重写/删日志逃生门。"""
+    """有界重入逐键日志；未知保持非零，不提供无条件重写/删日志逃生门。
+
+    自动模式(R2_RECOVER_AUTO=1, 2026-11-14 B批 NAV 自动恢复接线): 由
+    scripts/nav_journal_selfheal.py 在 fund_nav_upload_async.sh 收尾步调用, 复用本命令全部
+    既有锁/预算/幂等语义, 只加三道门:
+      ① preparing 跳过(下轮正常上传自愈, 不计 failure — 人工模式仍按原样计);
+      ② unknown 且 retry_count>=3 或首次未决超 3 业务日 → 只计入 failures(如实非零), 不再尝试;
+      ③ 尝试前 retry_count+1 先落盘 — 失败也计数, 不虚增不虚减(每次运行每键至多 +1)。
+    人工模式(不设 env)行为逐字不变。
+    """
+    auto = os.environ.get("R2_RECOVER_AUTO") == "1"
     safe = SafeWriter(globals())
     failures = []
     for path in sorted(safe.root.glob("*.json")):
@@ -1228,6 +1278,19 @@ def cmd_recover_protected():
             if lock is None:
                 raise UnsafeWrite("protected recovery requires key/pair mutex")
             row = safe.load(key)
+            if auto and row.get("state") == "preparing":
+                # preparing 由下一轮同通道正常上传重建 journal 自愈(设计 ③ 状态矩阵), 自动恢复不碰。
+                print("R2_RECOVERY: " + json.dumps({"key": key, "state": "preparing",
+                    "skipped": "self-heals-next-round"}))
+                continue
+            if auto and row.get("state") == "unknown":
+                reason = _recover_auto_skip(row)
+                if reason:
+                    failures.append(key)
+                    print("R2_RECOVERY: " + json.dumps({"key": key, "state": "unknown", "skipped": reason}))
+                    continue
+                row["retry_count"] = row.get("retry_count", 0) + 1
+                safe.save(row)  # 先落盘再尝试: 崩溃也不丢计数
             safe.recover(row, retry_put=True)
             print("R2_RECOVERY: " + json.dumps({k: row.get(k) for k in
                 ("key", "run_id", "write_id", "sha256", "state", "confirmed", "pending_purge", "pair_id")}))

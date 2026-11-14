@@ -228,6 +228,8 @@ class SafeWriter:
             if (obj and sha(obj[0]) == row['sha256'] and
                 self.a['_header_lookup'](obj[2], 'x-amz-meta-write-id') == row['write_id']):
                 row.update(state='confirmed', confirmed=True)
+                # 未决锚点清零(2026-11-14 B批 D1): confirmed 即已解决; 单点清, 正常/恢复路径同口径。
+                row['first_unresolved_at'] = None
                 self.save(row)
                 return True
         return False
@@ -296,11 +298,25 @@ class SafeWriter:
                 if obj and sha(obj[0]) == digest:
                     return prev
         old = self.get(key)
+        # 可见性字段(2026-11-14 B批 D1, NAV 发布自动恢复): 全部可选, 读侧 .get 兼容旧 row,
+        # 不动 version=1、不进产物字节。来源=调用方 env 注入(fund_nav_upload_async.sh 侧),
+        # env 未设 ⇒ None/0, 既有通道行为逐字不变。
+        business_date = os.environ.get('R2_BUSINESS_DATE') or None
+        run_id = os.environ.get('R2_EXPORT_RUN_ID') or os.environ.get('INVOCATION_ID') or uuid.uuid4().hex
         row = {'version': 1, 'bucket': self.bucket, 'key': key, 'sha256': digest,
                'size': len(payload), 'write_id': uuid.uuid4().hex, 'state': 'preparing',
                'confirmed': False, 'pending_purge': False,
-               'run_id': os.environ.get('R2_EXPORT_RUN_ID') or os.environ.get('INVOCATION_ID') or uuid.uuid4().hex,
-               'old_sha256': sha(old[0]) if old else None, 'backup_key': None}
+               'run_id': run_id,
+               'old_sha256': sha(old[0]) if old else None, 'backup_key': None,
+               # 业务交易日(YYYY-MM-DD); 来源轮次(如 fund_nav_upload_async);
+               # 代次=run_id@business_date 组合(nav_bucket 产物无 generated_at, 零产物改动);
+               # 首次进入非 confirmed 的时刻(UTC, prepare 生成即初始化, confirm 清);
+               # 自动恢复已尝试次数(仅 upload_r2 自动恢复路径递增, 人工 recover-protected 不限)。
+               'business_date': business_date,
+               'source_channel': os.environ.get('R2_SOURCE_CHANNEL') or None,
+               'generation': f"{run_id}@{business_date}" if business_date else run_id,
+               'first_unresolved_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+               'retry_count': 0}
         if old:
             row['backup_key'] = f'protected-versions/v1/{self.bucket}/{key}/{sha(old[0])}'
             row['old_generation'] = self.generation(old[0]) if key in PAIR else None

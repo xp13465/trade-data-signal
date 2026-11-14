@@ -23,7 +23,7 @@
 | 域 key | 域名 | 覆盖 checker(示例) |
 |---|---|---|
 | `monitor` | 监控链(元监控) | schedule_monitor / check_monitor_heartbeat / check_failed_units / agent_inbox_watcher / uptime_check(孤儿) / monitor_72h(孤儿) |
-| `r2` | R2 存储 / 多源一致性(双树) | check_r2_consistency / intraday_snapshot / r2_upload_async / r2_upload_skip_notify / fund_nav_upload_async |
+| `r2` | R2 存储 / 多源一致性(双树) | check_r2_consistency / intraday_snapshot / r2_upload_async / r2_upload_skip_notify / fund_nav_upload_async / nav_journal_selfheal |
 | `snapshot` | 快照 | s06_snapshot / check_s06_freshness |
 | `deploy` | 部署 / unit 漂移 / 版本一致性 | deploy / cloud_unit_patrol / pick_repo / update_lab / push_schedule_stats |
 | `collect` | 采集 / 回采 / 锁跳过 | update_all / retry_failed_metrics / self_heal / gold_night / turnover_backfill / with_lock / feishu_missed_fetch / 锁跳过类 |
@@ -92,6 +92,7 @@
 | 46※ | `deploy.sh`(**连续部署失败聚合档**,2026-10-21 新增) | deploy.sh EXIT trap(每次部署结果;成功清零) | critical(`--severe`) | 21600 | `deploy` | 首报必达(跨过阈值那一次必发) | —(四元组全声明;状态 `data/deploy_fail_state.json`,阈值默认 2,env `DEPLOY_FAIL_ALERT_THRESHOLD` 可配) |
 | 47※ | `deploy.sh`(**仅告警级校验失败**,2026-10-21 新增) | check_data_integrity rc=3(上游独立产物缺/滞后, deploy 不退出) | notice(send() 旧行为, **未加 `--severe`**) | 21600 | `deploy` | 首报必达 | tier 走 send() 旧行为(与 #46 刻意区分: 阻断级才 severe);清单见 `check_data_integrity.ALERT_ONLY_CHECKS` |
 | 48※ | `collect_fof_nav.py`(FOF 净值同源非空冲突拒绝告警,2026-11-12 新增,用户 11-11 拍板「维持旧值+加告警」) | `trade-fof-nav-collect.timer` 21:10 每轮收尾(仅当本轮确实发生 NonNullConflict 拒绝>0 才发; 正常收尾与 TimeoutError 预算中断均覆盖) | warning(`--tier warning`) | 72000(20h: 同日多轮不刷屏, 次日晚间轮仍提醒) | `collect` | 入聚合 | —(四元组全声明于 `_notify_nonnull_conflicts` docstring;发送失败只记日志不改 rc;11-11 生产实证 60 只拒绝零告警见 /tmp/night-fail-triage.md §3) |
+| 49※ | `nav_journal_selfheal.py`(NAV 发布 journal 积压超期事件,2026-11-14 B批新增) | `fund_nav_upload_async.sh` 收尾自愈步(每轮 17:50 链 + 补跑轮;仅当超期判定成立才发) | critical(`--severe`) | 21600(6h,与 with_lock 排队超时同档) | `r2` | 首报必达 | —(四元组全声明;恢复通知走独立 dedup-key `nav_pending_overdue_recovered` 只对已通知事件发一次;已通知事件状态 `data/.nav_autorecover_state.json`,恢复判据=journal 全部 confirmed,unknown 不直接清绿) |
 
 > ※ 编号说明:#45 在 §2.2(业务订阅表)已被 `detect_intraday_anomaly.py` 占用;本行属**故障告警表**(§2.1),两表独立计数,引用时请写「§2.1 #45※」以免混淆。#46※/#47※ 同此约定(§2.2 的 46/47 是 run_daily_brief / gen_daily_brief)。
 
