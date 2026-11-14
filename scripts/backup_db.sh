@@ -131,9 +131,13 @@ if [ "${STATE_CAPTURE_ENABLED:-0}" = "1" ] && [ -f "$REPO/scripts/backup_state_c
   echo "-> 状态集成套捕获(backup_state_capture.py) ..." | tee -a "$LOG"
   STATE_READY_FILE="$LOGDIR/.state-capture-ready"
   rm -f "$STATE_READY_FILE"
+  # F1: 独立出根 state-capture-sets(C4 benefit_capture 的 capture-sets 只认纯 UUID 目录,
+  #     同根会让 C4 capture_admission 每晚 CaptureError); F3: --prune-days 参数化本地清理,
+  #     只删「已上传且超期」的本任务集合(上传成功前不删)。
   "$PY" "$REPO/scripts/backup_state_capture.py" \
     --repo "$REPO" --backup-dir "$BACKUP_DIR" --stamp "$STAMP" \
-    --out-root "$BACKUP_DIR/capture-sets" --ready-file "$STATE_READY_FILE" >> "$LOG" 2>&1
+    --out-root "$BACKUP_DIR/state-capture-sets" --prune-days "$RETAIN_DAYS" \
+    --ready-file "$STATE_READY_FILE" >> "$LOG" 2>&1
   CAPTURE_RC=$?
   echo "状态集捕获 rc=$CAPTURE_RC (0=产出可上传集合, missing 如实记录)" | tee -a "$LOG"
   if [ -s "$STATE_READY_FILE" ]; then

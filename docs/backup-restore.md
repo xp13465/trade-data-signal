@@ -281,6 +281,17 @@ etf_index_map/etf_track_index/lof_track_index 等）。本节机制把这套状�
 - **接线**：`backup_db.sh` 新增 `STATE_CAPTURE_ENABLED=1` 开关段（默认关；部署时由主控启用），
   在三库热备之后调捕获脚本，产出后调 `upload_r2.py upload-state-capture` 归档；捕获/上传失败
   **不改 backup_db.sh 既有退出码与通知契约**，本段不发任何通知（manifest 如实记失败）
+- **独立出根（F1）**：集合根 = `<BACKUP_DIR>/state-capture-sets`，与 C4 `benefit_capture`
+  的 `<BACKUP_DIR>/capture-sets` **完全分离**——C4 的 `capture_admission` 只认纯 UUID 目录名，
+  同根会让 C4 链每晚 `CaptureError`；两开关同开互不干扰（`backup_state_capture.OUT_ROOT_SUBDIR`）
+- **预算超限/IO 失败不崩溃（F2）**：单文件超 `MAX_FILE_BYTES`(64MB) ⇒ 记 `budget_excluded`
+  （如实入 manifest、`complete=false`、不缩表）；磁盘满/读失败 ⇒ `status=failed` +
+  `reason=io_failure_*`，`finally` 清掉 `.pending-*` 临时目录（不 traceback、不泄漏）；
+  文件在捕获窗内被轮转删除 ⇒ 记 `missing`(`vanished_during_capture`)
+- **本地清理（F3）**：`--prune-days`（`backup_db.sh` 传 `RETAIN_DAYS`）滚动清理
+  `<BACKUP_DIR>/state-capture-sets/`：**先验后删**（只认 `YYYYMMDD_HHMM-8hex` 登记目录 +
+  `manifest.archive.status == uploaded` 才删）+ 不删最新集合与唯一已上传集合；未上传/失败集合
+  永不删（上传成功前不得删除本地集合）
 - **DB 腿只引用不复制**：manifest 记同轮 `backup_db.sh` 热备产物的 sha256/`PRAGMA
   integrity_check`/关键表行数/MAX(date)（只读）；public_fund 大库只记源身份（归档走既有
   `upload-db` R2 链，不重复复制）
@@ -293,6 +304,10 @@ etf_index_map/etf_track_index/lof_track_index 等）。本节机制把这套状�
   （1.21GB/日预算原因，见 `DECLARED_EXCLUDES` 注释；journal/history 状态 JSON 全量捕获，
   载荷 sha256 已随 journal 可对账；未决锚点载荷另立归档任务）；如实记录在
   `manifest.declared_excludes`
+- **清单透明度（F6）**：盘点 38 项里未纳入的条目逐项显式声明——`signal_kelly_trades.json`
+  (32MB 旧回测产物)/`daily-k.parquet`(181MB 旧快照)/`baostock_logs/` 标「待主控拍板」；
+  `sw_components.json`/`stock_codes.json`/`trade_dates.txt` 标「可从源重建」；
+  `staticdata_backup_heartbeat.json`（88B 灾备心跳）已纳入清单
 - **归档**：R2 `signal-backup2` 私有桶 `backup/state_YYYYMMDD.tar.gz`（tar.gz 集合含
   manifest），proof 契约同 `upload-db`（`R2_STATE_CAPTURE_PROOF`+`R2_STATE_CAPTURE_RUN_ID`
   成对传，receipt 同 schema:1 结构），保留 14 天滚动（`_prune_state_captures`）；上传成功前
@@ -309,8 +324,10 @@ sha256+业务日期+来源 stat）/ `missing` / `skipped`（含原因）/ `db_le
 
 ### 单测与证据
 
-`scripts/tests/test_backup_state_capture.py`（缺项不缩表 / sidecar 变化重试一次与仍变判
-inconsistent / hash 篡改 FAIL / secret 类不进集合 / payloads 声明排除 / 瞬态锁记账 /
+`scripts/tests/test_backup_state_capture.py`（缺项不缩表 / **只缺单个 sidecar 的独立锚(F4)** /
+sidecar 变化重试一次与仍变判 inconsistent / hash 篡改 FAIL / secret 类不进集合 /
+payloads 声明排除 / 瞬态锁记账 / **出根与 C4 分离(F1)** / **超预算记账与磁盘满清理(F2)** /
+**滚动清理先验后删(F3)** / **业务日期归一(F5)** / **清单透明度(F6)** /
 upload-state-capture 拒绝非集合目录）；云上试跑实测（只读源、写 /tmp 临时目录）见
 `docs/ops/backup-state-capture-trial-20261114.md`。
 

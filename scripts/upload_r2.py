@@ -4194,7 +4194,9 @@ def cmd_upload_state_capture(set_dir):
     - 保留: backup/state_*.tar.gz 自带 14 天滚动清理(_prune_layer 的 .db.gz 正则
       不匹配本前缀, 单独清理); 与 backup/ 层 DB 日备同一保留口径。
     - 上传成功前不得删除本地集合(任务书「归档接线」): 本命令不删任何本地文件;
-      上传成功后回写 manifest.archive(集合本地保留归 RETAIN_DAYS/capture-sets 治理)。
+      上传成功后回写 manifest.archive(F3: 本地集合由 backup_state_capture.py 的
+      --prune-days=RETAIN_DAYS 滚动清理, 只删 archive.status=uploaded 且超期的
+      <backup_dir>/state-capture-sets/<YYYYMMDD_HHMM-8hex> 目录)。
     - 本命令不发通知(告警契约归 backup_db.sh 既有链)。
     """
     import datetime as _dt, tarfile, tempfile
