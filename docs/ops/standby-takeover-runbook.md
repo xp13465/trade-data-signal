@@ -493,6 +493,7 @@ rm -f ~/Library/LaunchAgents/com.trade.standby-sync.plist \
 ### 8.2 重装调度(仓库模板与已安装一致,时点 01:00)
 
 ```bash
+# 以下命令在仓库根目录执行(本机 = /Users/linhuichen/code/trade)
 # 1) 从仓库模板拷回(合并后模板即 01:00,与已安装值一致)
 mkdir -p ~/Library/LaunchAgents
 cp ops/standby/com.trade.standby-sync.plist ~/Library/LaunchAgents/com.trade.standby-sync.plist
