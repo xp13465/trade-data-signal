@@ -35,7 +35,12 @@ mkdir -p "$(dirname "$LOG")"
 echo "=== fund_nav_upload_async 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "REPO=$REPO GIT_REPO=$GIT_REPO" | tee -a "$LOG"
 
-env R2_UPLOAD_LOCK_DOMAIN=fund_nav R2_UPLOAD_LOCK_TIMEOUT=1800 "$PY" "$REPO/scripts/upload_r2.py" upload-fund-nav >> "$LOG" 2>&1
+# B 批(2026-11-14) NAV 发布自动恢复: 注入 journal 可见性字段(业务日期/来源轮次),
+# env 未设时 upload_r2 侧字段为 None, 行为不变; 字段落在 SafeWriter journal(不进产物字节)。
+BIZ_DATE=$(date +%F)
+env R2_UPLOAD_LOCK_DOMAIN=fund_nav R2_UPLOAD_LOCK_TIMEOUT=1800 \
+  R2_BUSINESS_DATE="$BIZ_DATE" R2_SOURCE_CHANNEL=fund_nav_upload_async \
+  "$PY" "$REPO/scripts/upload_r2.py" upload-fund-nav >> "$LOG" 2>&1
 rc=$?
 if [ "$rc" -ne 0 ]; then
   echo "✗ upload-fund-nav 异步上传失败 rc=$rc (不静默, 走 notify 告警)" | tee -a "$LOG"
@@ -44,6 +49,16 @@ if [ "$rc" -ne 0 ]; then
     "fund_nav 异步上传失败(退出码 $rc)。R2 nav_bucket/ 前缀可能停留旧版, 前端「净值走势」懒加载读 R2 会拿到过期数据。<br>建议手动重试: cd $REPO && python scripts/upload_r2.py upload-fund-nav<br>日志: $LOG" \
     --severe --from-prefix "[告警]" --alert-issue "fund-nav异步上传失败" --alert-log "$LOG" \
     --dedup-key "fund_nav_async_upload_fail" --dedup-window 3600 2>&1 | tee -a "$LOG" || true
+fi
+
+# B 批(2026-11-14) journal 自愈步: 主链 rc 判定之后、exit 之前(设计报告 D3)。
+# 只读扫描 .r2-protected journal; 存在 unknown 才调用既有 recover-protected(自动模式:
+# 幂等/全走锁/每对象重试上限 3/超龄只报不试); preparing 留给下一轮正常上传自愈;
+# 积压超期发恰一条可行动事件(dedup 6h)。本步任何失败不阻断主链、不改主链 rc。
+"$PY" "$REPO/scripts/nav_journal_selfheal.py" --root "$REPO" >> "$LOG" 2>&1 || \
+  echo "⚠ nav journal 自愈步失败(不阻断主链, 不改主链 rc)" | tee -a "$LOG"
+
+if [ "$rc" -ne 0 ]; then
   exit "$rc"
 fi
 echo "✓ upload-fund-nav 异步上传完成 $(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$LOG"
