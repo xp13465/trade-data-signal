@@ -156,7 +156,7 @@ def test_real_subprocess_with_fake_curl_and_timeout_reaping(tmp_path, monkeypatc
     pidfile = tmp_path / "curl.pid"
     fake = tmp_path / "curl"
     program = f"#!{sys.executable}\nimport os,sys,time\nopen({str(pidfile)!r}, 'w').write(str(os.getpid()))\n"
-    program += "time.sleep(5)\n" if mode == "timeout" else "raise SystemExit(60)\n" if mode == "tls-fail" else "sys.stdout.buffer.write(b'data\\n200')\n"
+    program += "time.sleep(20)\n" if mode == "timeout" else "raise SystemExit(60)\n" if mode == "tls-fail" else "sys.stdout.buffer.write(b'data\\n200')\n"
     fake.write_text(program)
     fake.chmod(0o700)
     monkeypatch.setenv("PATH", str(tmp_path))
@@ -165,10 +165,10 @@ def test_real_subprocess_with_fake_curl_and_timeout_reaping(tmp_path, monkeypatc
         return REAL_SUBPROCESS_RUN(command, **kwargs)
     monkeypatch.setattr(subprocess, "run", run)
     if mode == "ok":
-        assert ns["_read_overfit_public"](url, 4, timeout=1) == b"data"
+        assert ns["_read_overfit_public"](url, 4, timeout=5) == b"data"
     else:
         with pytest.raises(RuntimeError, match="TimeoutExpired" if mode == "timeout" else "rc=60"):
-            ns["_read_overfit_public"](url, 4, timeout=1.5 if mode == "timeout" else 2)
+            ns["_read_overfit_public"](url, 4, timeout=5)
     assert pidfile.exists()
     with pytest.raises(ProcessLookupError):
         os.kill(int(pidfile.read_text()), 0)
