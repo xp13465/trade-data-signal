@@ -443,9 +443,49 @@ def _work_sleep(wait):
     if wait > 0:
         time.sleep(wait)
 
-# macOS 系统 Python 缺 CA 束（CERTIFICATE_VERIFY_FAILED），用系统 /etc/ssl/cert.pem
-_CA = "/etc/ssl/cert.pem"
-_CTX = ssl.create_default_context(cafile=_CA) if Path(_CA).exists() else ssl._create_unverified_context()
+# TLS 证书 CA 束按序探测(2026-11-15 F3 生产 P1 根治):
+#   原实现只认 macOS 的 /etc/ssl/cert.pem, 云上 Ubuntu 22.04 无该文件 ⇒ 退
+#   ssl._create_unverified_context() = **生产上传链实际未校验证书**。现改为
+#   certifi → 系统 CA 路径按序探测, 全缺 ⇒ 抛错 fail-closed(绝不再退 unverified)。
+#   云上只读核对(2026-11-15): venv python 3.11.15 有 certifi
+#   (/home/ubuntu/code/trade-data/.venv/.../certifi/cacert.pem, 240216B, 存在);
+#   系统 /etc/ssl/certs/ca-certificates.crt 存在(182140B), /etc/ssl/cert.pem 与
+#   /etc/pki/tls/certs/ca-bundle.crt 缺失 ⇒ 第 1 顺位 certifi 命中, 不阻断上传。
+_CA_CANDIDATES = (
+    "/etc/ssl/cert.pem",                   # macOS / 部分发行版
+    "/etc/ssl/certs/ca-certificates.crt",  # Debian/Ubuntu(云上实测有)
+    "/etc/pki/tls/certs/ca-bundle.crt",    # RHEL/CentOS
+)
+
+
+def _resolve_ca_bundle(candidates=None, exists=None) -> str:
+    """按序探测 CA 束并返回路径; 全缺 ⇒ RuntimeError(fail-closed, 禁 unverified)。
+
+    ``candidates``/``exists`` 为测试接缝(F3 四组可用性组合用例注入)。
+    """
+    candidates = _CA_CANDIDATES if candidates is None else tuple(candidates)
+    exists = (lambda p: Path(p).exists()) if exists is None else exists
+    try:
+        import certifi
+        certifi_ca = certifi.where()
+    except (ImportError, OSError):
+        certifi_ca = None
+    if certifi_ca and exists(certifi_ca):
+        return certifi_ca
+    for cand in candidates:
+        if exists(cand):
+            return cand
+    raise RuntimeError(
+        "upload_r2: 找不到任何 TLS CA 束(certifi / " + " / ".join(candidates)
+        + ") ⇒ 拒绝以未校验证书方式连接(fail-closed)。请安装 certifi 或补齐系统 CA。")
+
+
+def _make_tls_context(ca_file: str) -> ssl.SSLContext:
+    """由 CA 束构造校验开启的上下文(单点构造, 测试断言 CERT_REQUIRED)。"""
+    return ssl.create_default_context(cafile=ca_file)
+
+
+_CTX = _make_tls_context(_resolve_ca_bundle())
 
 # ---- keep-alive 连接复用 (2026-09-21 R2 上传失败根治: verify-r2 周日全量对账 ~3万 key 逐个 HEAD,
 # 每个 HEAD 新建 HTTPSConnection 跨境握手 ~1s 结构性超时; 同一连接复用连续 HEAD 省 60%+ 对账时间)。

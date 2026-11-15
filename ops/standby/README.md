@@ -36,6 +36,13 @@
    `backup_db.sh → upload_r2.py standby-manifest` 生成(G3/G4, 契约见
    `scripts/standby_manifest.py`);**未开启开关前 R2 上无此对象**,首次真实同步前必须确认
    云上开关已开且该 key 存在(用 `standby_sync.py verify` 或 `list standby/` 核)。
+   - **⚠ 双开关依赖(启用前必读,2026-11-15)**:清单生产者硬依赖状态集捕获产物目录,云上必须
+     **同时**开 `STATE_CAPTURE_ENABLED=1`（产出 `CAPTURE_SET_DIR`/state receipt）和
+     `STANDBY_MANIFEST_ENABLED=1`（生成发布清单）。**只开清单开关** ⇒ `backup_db.sh`
+     每晚打印「⚠ 备用机同步清单跳过(缺捕获集合或本轮 receipt)」静默跳过（只进备份日志、
+     不发通知、不改退出码）⇒ R2 永远没有 `standby/manifest_latest.json`,备用机 `sync`
+     一直 404;**只开捕获开关** ⇒ 状态集归档有了但清单仍不生成。启用前置:确认判龄口径为交易日
+     （本分支默认 `--stale-mode trading`;旧版会每周一误报 severe）。
 3. **改模板占位符**:把两个 plist 里 `__STANDBY_PYTHON__`、`__STANDBY_REPO__`
    换成真实绝对路径。
 4. **先手动演练**(D 批完成条件「先手动在隔离环境跑通」):
@@ -70,7 +77,8 @@
   (`--deadline-minutes`),不跨窗口重试;
 - **静默**(只写状态,零外发):成功、无变化、窗口内重试后成功;
 - **事件**(notify.py,四元组 critical/604800s/backup 域/首报必达):
-  新集合损坏、超窗口失败、恢复点过期(>2 天,`--stale-days`)、空间不足;
+  新集合损坏、超窗口失败、恢复点过期(>2 个交易日,`--stale-days`;
+  默认 `--stale-mode trading`,自然日口径需显式 `--stale-mode natural`)、空间不足;
   同一事件 7 天去重窗内不重复(不按尝试次数/日期刷屏);
 - **故障恢复通知**:上述故障事件**真发出过**的,真正恢复后对每个事件发一次
   恢复通知(`<事件键>_recovered`,同 7 天去重窗),发出成功即清账;从未通知过

@@ -334,6 +334,20 @@ etf_index_map/etf_track_index/lof_track_index 等）。本节机制把这套状�
   对真实上传字节的指纹（缺失即拒绝，不编造），`public_fund` 记在 `excluded`（归档走独立大库流式链）。
   发布为「临时 key → 同桶 CopyObject 覆盖 latest → 删临时 key」，任一步失败不碰 latest（旧清单
   保留）；写前过 `standby_sync.normalize_manifest` 契约校验（单一事实源）。
+- **⚠ 双开关依赖（启用前必读，2026-11-15 补）**：清单生产者**硬依赖状态集捕获产物目录**，
+  因此 R2 上真正出现 `standby/manifest_latest.json` 需要**两个开关同时开**：
+  1. `STATE_CAPTURE_ENABLED=1`（`backup_db.sh` 捕获 + `upload-state-capture` 归档段）——
+     没有它就没有 `CAPTURE_SET_DIR`、没有本轮 state receipt；
+  2. `STANDBY_MANIFEST_ENABLED=1`（清单生成/发布段）。
+  - **只开清单开关、不开捕获开关**：每晚 `backup_db.sh` 走到清单段时前置不全，打印
+    `⚠ 备用机同步清单跳过(缺捕获集合或本轮 receipt; 原备份退出码不变)` **静默跳过**
+    （只进备份日志，不发通知、不改退出码）⇒ R2 永远没有 `standby/manifest_latest.json`，
+    备用机 `sync` 会一直 404。
+  - **只开捕获开关、不开清单开关**：状态集照常归档，但清单不生成 ⇒ 备用机仍无清单可读。
+  - **启用前置条件**：备用机同步工具启用（装 launchd）前**必须先确认判龄口径为交易日**
+    （`standby_sync.py` 默认已是 `--stale-mode trading`，2026-11-15 起；若跑旧版会每周一
+    因周末自然日差距误报一次 severe），另外先用 `standby_sync.py verify` 或
+    `upload_r2.py list standby/ signal-backup2` 确认清单 key 已存在再装载定时任务。
 - **自校验**：集合内逐文件 sha256 复算 + DB 副本 integrity_check（在 db_leg 逐库记录）；
   校验失败 ⇒ `uploadable=false`，不冒充成功
 

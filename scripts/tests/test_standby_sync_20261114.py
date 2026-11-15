@@ -164,8 +164,10 @@ def test_e2_no_new_set_keep_real_age(tmp_path, frozen, events):
     assert versions_of(tmp_path) == [vid0]
     st = state_of(tmp_path)
     assert st["history"][-1]["outcome"] == "no-change"
-    # 真实年龄: 业务日期 11-13, 冻结今天 11-14 ⇒ 1 天, 如实入账不重写
-    assert st["latest_recovery_point_age_days"] == 1
+    # 真实年龄: 业务日期 11-13, 冻结今天 11-14(周六)⇒ 交易日口径滞后 0
+    # (F1 2026-11-15: 默认判龄改交易日, 周末/节后不误报); 自然日口径仍可从 status 取
+    assert st["latest_recovery_point_age_days"] == 0
+    assert st["latest_recovery_point_age_mode"] == "trading"
     assert st["business_date"] == "2026-11-13"
     assert events == []                      # 无变化静默
     # status 输出真实年龄
@@ -175,20 +177,28 @@ def test_e2_no_new_set_keep_real_age(tmp_path, frozen, events):
         rc = run_main(tmp_path, src, sub=("status",))
     assert rc == 0
     out = json.loads(buf.getvalue())
-    assert out["latest_recovery_point_age_days"] == 1
+    assert out["latest_recovery_point_age_days"] == 0
+    assert out["latest_recovery_point_age_unit"] == "trading"
     assert out["versions"][0]["age_days"] == 1
+    assert out["versions"][0]["lag_trading_days"] == 0
 
 
 def test_stale_recovery_point_event_once(tmp_path, frozen, events):
-    """恢复点过期(>阈值) ⇒ 首报一次(成功路径也查, 不静默吞停更)。"""
+    """恢复点过期(>阈值) ⇒ 首报一次(成功路径也查, 不静默吞停更)。
+
+    这里显式用 --stale-mode natural 走旧自然日口径(冻结周六 ⇒ 年龄 1 天);
+    交易日口径的周末/节后行为由 test_standby_followup_20261115.py 专测(F1)。
+    """
     src = build_source(tmp_path)
     assert run_main(tmp_path, src) == 0
-    # 默认阈值 2 天, 当前年龄 1 天 → 不报; 阈值改 0 → 报一次
-    assert run_main(tmp_path, src, extra=("--stale-days", "0")) == 0
+    # natural 口径当前年龄 1 天 → 阈值 0 时报一次(默认 trading 下周六滞后 0 不报)
+    assert run_main(tmp_path, src, extra=("--stale-mode", "natural",
+                                          "--stale-days", "0")) == 0
     assert events == [standby_sync.EVENT_KEYS["stale_recovery_point"]]
     # 同一事件不按尝试/日期刷屏: 再跑一次仍然只有一条(去重由 notify 层,
     # 本层保证成功路径不重复进入 emit)
-    assert run_main(tmp_path, src, extra=("--stale-days", "0")) == 0
+    assert run_main(tmp_path, src, extra=("--stale-mode", "natural",
+                                          "--stale-days", "0")) == 0
     assert len(events) == 1
 
 
@@ -697,14 +707,18 @@ def test_f2_stale_recovery_notification(tmp_path, frozen, events):
     assert run_main(tmp_path, src) == 0
     stale = standby_sync.EVENT_KEYS["stale_recovery_point"]
     rec = stale + "_recovered"
-    assert run_main(tmp_path, src, extra=("--stale-days", "0")) == 0
+    # 显式 natural 口径(旧行为; 交易日口径由 followup F1 用例专测)
+    assert run_main(tmp_path, src, extra=("--stale-mode", "natural",
+                                          "--stale-days", "0")) == 0
     assert events == [stale]
     assert state_of(tmp_path)["pending_recovery"] == [stale]
     # 恢复点回到阈值内 ⇒ 一次恢复通知并清账
-    assert run_main(tmp_path, src, extra=("--stale-days", "5")) == 0
+    assert run_main(tmp_path, src, extra=("--stale-mode", "natural",
+                                          "--stale-days", "5")) == 0
     assert events == [stale, rec]
     assert state_of(tmp_path)["pending_recovery"] == []
-    assert run_main(tmp_path, src, extra=("--stale-days", "5")) == 0
+    assert run_main(tmp_path, src, extra=("--stale-mode", "natural",
+                                          "--stale-days", "5")) == 0
     assert events == [stale, rec]
 
 
