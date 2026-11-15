@@ -15,7 +15,7 @@
 | 恢复点有多旧? | 恢复点年龄 **1 个交易日**(2026-11-16 01:09 实测),阈值 2 个交易日 | 同上 |
 | 接管要多久? | **数据面约 24.4 分钟**;其中 public_fund 拉取 **22.2 分钟** + 校验 **1.9 分钟**(合计 99%,实测约 0.65 MB/s);不带公募库约 16 秒(纯命令) | §4 分步实测 |
 | 丢多少数据? | 演练 2026-11-15 23:47 开始、2026-11-16 00:45 CST 收尾(UTC 15:47–16:45);恢复点 `db_cutoff` = 2026-11-13 周五 ⇒ **0 个交易日 / 2 个自然日**(14/15 是周末)。注:sentiment.db 自身最大日期是 2026-11-14,比 `db_cutoff` 多 1 天,判缺口仍只认 `db_cutoff` | RPO 实测 |
-| 每天几点同步? | **01:00 CST**(launchd,已装)。首个自然轮 **2026-11-16 01:00:05 已实际触发,结果 `outcome=no-change`**(无新数据可同步,链路正常;≠ 已验过新数据自动同步) | §12 |
+| 每天几点同步? | **01:00 CST**(launchd,已装)。首个自然轮 **2026-11-16 01:00:05 已实际触发,结果 `outcome=no-change`**(无新数据可同步,链路正常;≠ 已验过新数据自动同步) | §12 |  <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 | 一次同步多久? | 首次:工具自记 **28.6 秒** / 同目录外层计时文件记 **86 秒**(差异未查明,见 §11)/ 无新集合 1~2 秒 | §11 / §12 |
 
 ---
@@ -84,7 +84,7 @@ cd /Users/linhuichen/code/trade
 git branch --show-current        # 记下当前分支,防误判"同步的是哪份代码"
 ```
 
-> 注意(实测现状):launchd 里 `--repo-dir` 直接指向 **开发树** `/Users/linhuichen/code/trade`(不是独立 clone)。好处是不用再维护第二份代码;代价是**切分支/改脚本会立刻影响同步逻辑**。接管期间不要在这个树上做开发改动。
+> 注意(实测现状):launchd 里 `--repo-dir` 直接指向 **开发树** `/Users/linhuichen/code/trade`(不是独立 clone)。好处是不用再维护第二份代码;代价是**切分支/改脚本会立刻影响同步逻辑**。接管期间不要在这个树上做开发改动。  <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 > 换机器时才 clone 代码仓库,且 **clone 目录必须与数据根 `~/trade-standby`(即 `--root`)分开**(用 `~/trade-standby-repo`):代码仓库目录 ≠ 数据根,`.env` 与 `config/*.json` 也留在数据根之外(见 §8.3);两者指同一个目录会把 `archive/`、`work/`、`logs/` 混进代码树。
 
 ### 3.3 凭据
@@ -398,17 +398,17 @@ sqlite3 sentiment.db "SELECT COUNT(*) FROM score_daily WHERE date='20261113';
 
 ## 6. 停止备用同步(需要时)
 
-现装两个 launchd 任务(本轮实测 `launchctl list | grep -i standby` 两条都在,`last exit code` 都是 0):
+现装两个 launchd 任务(本轮实测 `launchctl list | grep -i standby` 两条都在,`last exit code` 都是 0):  <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 
 | 标签 | 作用 | 实测调度 |
 | --- | --- | --- |
-| `com.trade.standby-sync` | 每天主同步 | `launchctl print` 里 `"Hour" => 1` / `"Minute" => 0` ⇒ **01:00 CST** |
+| `com.trade.standby-sync` | 每天主同步 | `launchctl print` 里 `"Hour" => 1` / `"Minute" => 0` ⇒ **01:00 CST** |  <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 | `com.trade.standby-sync-catchup` | 开机/每小时补跑(今日已成功则静默) | `run interval = 3600 seconds`;实测 01:38:33 触发并打印「今日已成功,补偿入口静默退出」 |
 
 **合盖 = 睡眠**:合上笔记本盖子期间 01:00 主任务不会执行;开盖/唤醒时 catchup 的 `RunAtLoad`
 立即补跑一次,之后每小时再检查。所以合盖过夜**不需要额外操作**,开盖后自动补上当天缺失的那一次。
 
-主任务的完整参数(本轮从已安装 plist 实读,`launchctl print` 同样可见):
+主任务的完整参数(本轮从已安装 plist 实读,`launchctl print` 同样可见):  <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 
 ```
 /Users/linhuichen/code/trade/.venv/bin/python3 /Users/linhuichen/code/trade/scripts/standby_sync.py
@@ -424,9 +424,9 @@ sqlite3 sentiment.db "SELECT COUNT(*) FROM score_daily WHERE date='20261113';
 ### 6.1 查
 
 ```bash
-launchctl list | grep -i standby
-launchctl print gui/$(id -u)/com.trade.standby-sync | sed -n '/event triggers/,/}/p'   # 看 Hour/Minute
-launchctl print gui/$(id -u)/com.trade.standby-sync-catchup | grep -E "state|run interval|last exit"
+launchctl list | grep -i standby  # <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
+launchctl print gui/$(id -u)/com.trade.standby-sync | sed -n '/event triggers/,/}/p'   # 看 Hour/Minute  # <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
+launchctl print gui/$(id -u)/com.trade.standby-sync-catchup | grep -E "state|run interval|last exit"  # <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 pgrep -fl standby_sync      # 有在跑的实例会列出来;本轮实测无输出(退出码 1)
 ```
 
@@ -441,7 +441,7 @@ launchctl bootout gui/$(id -u)/com.trade.standby-sync-catchup
 `Could not find service "..." in domain for user gui: 501`;假任务文件已删除。
 
 验证点:
-- `launchctl print gui/$(id -u)/<标签>` 报 `Could not find service` ⇒ 已卸下。
+- `launchctl print gui/$(id -u)/<标签>` 报 `Could not find service` ⇒ 已卸下。  <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 - `pgrep -fl standby_sync` 无输出 ⇒ 没有实例在跑。
 - 再跑 §3.6 的 `status`,`last_success_ts` 不再前进。
 - **保留版本**:`ls ~/trade-standby/archive/versions/` 仍在,`latest_verified` 指向不变(停同步不影响已存版本)。
@@ -489,8 +489,7 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'sudo xargs systemctl start' \
 ```bash
 launchctl bootout gui/$(id -u)/com.trade.standby-sync
 launchctl bootout gui/$(id -u)/com.trade.standby-sync-catchup
-rm -f ~/Library/LaunchAgents/com.trade.standby-sync.plist \
-      ~/Library/LaunchAgents/com.trade.standby-sync-catchup.plist
+rm -f ~/Library/LaunchAgents/com.trade.standby-sync.plist  ~/Library/LaunchAgents/com.trade.standby-sync-catchup.plist  # <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 ```
 
 > 若只想**临时**停掉、之后还要装回来,跳过 `rm -f` 那行(保留安装副本);要装回来时直接走 §8.2 第 1 步重新拷模板。
@@ -500,14 +499,14 @@ rm -f ~/Library/LaunchAgents/com.trade.standby-sync.plist \
 ```bash
 # 以下命令在仓库根目录执行(本机 = /Users/linhuichen/code/trade)
 # 1) 从仓库模板拷回(合并后模板即 01:00,与已安装值一致)
-mkdir -p ~/Library/LaunchAgents
-cp ops/standby/com.trade.standby-sync.plist ~/Library/LaunchAgents/com.trade.standby-sync.plist
-cp ops/standby/com.trade.standby-sync-catchup.plist ~/Library/LaunchAgents/com.trade.standby-sync-catchup.plist
+mkdir -p ~/Library/LaunchAgents  # <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
+cp ops/standby/com.trade.standby-sync.plist ~/Library/LaunchAgents/com.trade.standby-sync.plist  # <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
+cp ops/standby/com.trade.standby-sync-catchup.plist ~/Library/LaunchAgents/com.trade.standby-sync-catchup.plist  # <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 
 # 2) 装载
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.trade.standby-sync.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.trade.standby-sync-catchup.plist
-launchctl print gui/$(id -u)/com.trade.standby-sync | sed -n '/event triggers/,/}/p'   # 期望 Hour=1 Minute=0
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.trade.standby-sync.plist  # <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.trade.standby-sync-catchup.plist  # <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
+launchctl print gui/$(id -u)/com.trade.standby-sync | sed -n '/event triggers/,/}/p'   # 期望 Hour=1 Minute=0  # <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 ```
 
 > 两条 plist 的 `StartCalendarInterval` 都是 01:00(Asia/Shanghai),模板与 `~/Library/LaunchAgents/` 下已安装副本一致;首个自然轮 2026-11-16 01:00:05 已实际触发(`outcome=no-change`)。
@@ -603,8 +602,8 @@ du -sh ~/trade-standby/archive ~/trade-standby/restore-drills
 ### 10.4 每月顺手核一遍
 
 ```bash
-launchctl list | grep -i standby                      # 两个任务在不在
-launchctl print gui/$(id -u)/com.trade.standby-sync | sed -n '/event triggers/,/}/p'   # 还是 01:00 吗
+launchctl list | grep -i standby                      # 两个任务在不在  # <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
+launchctl print gui/$(id -u)/com.trade.standby-sync | sed -n '/event triggers/,/}/p'   # 还是 01:00 吗  # <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 tail -5 ~/trade-standby/logs/standby_sync_$(date +%Y%m%d).log
 ```
 
@@ -620,7 +619,7 @@ tail -5 ~/trade-standby/logs/standby_sync_$(date +%Y%m%d).log
 | 演练产物(7.3G,建议留到 2026-11-22) | `~/trade-standby/restore-drills/20261115T154720Z/` |
 | 本机已固化版本 | `~/trade-standby/archive/versions/2026-11-13-364b4665cd4242c89779f321-8b0a4852b9/`(`verify_record.json` 记 2026-11-15 23:05:21 验证通过) |
 | 首次同步耗时(三段如实) | ①**工具自记 28.6 秒**:`04-verify_record.json` 的 `duration_seconds=28.6`;②**日志跨度 31 秒**:`03-sync.out` 首行 23:04:51、末行 23:05:22;③**外层计时文件 86 秒**:`03-sync-timing.txt` 的 `sync_start=23:04:51` / `sync_end=23:06:17`。**86 秒与 28.6 秒的差异未查明**——不抹掉 86 秒,也不拿 28.6 秒当全部耗时。旁证:`02-dryrun-timing.txt`(71 秒 vs 日志 52 秒)与 `05-idempotent-timing.txt`(21 秒 vs 日志 1 秒)显示该外层计时口径本身固定多算约 19–20 秒(收尾/证据落盘);但 03 这次多出 55 秒,比另两次多约 35 秒,可能是 217MB 下载落盘后的文件系统收尾(写回/元数据)、staging 清理与 wrapper 后处理,按现有证据**无法逐段复现**。 |
-| 同步日志 | `~/trade-standby/logs/standby_sync_YYYYMMDD.log` + `launchd.{out,err}.log` + `catchup.{out,err}.log` |
+| 同步日志 | `~/trade-standby/logs/standby_sync_YYYYMMDD.log` + `launchd.{out,err}.log` + `catchup.{out,err}.log` |  <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 | 同步状态 | `~/trade-standby/state/standby_sync_state.json` |
 
 **下次演练该更新的数字**(照这张表对):
@@ -647,10 +646,10 @@ tail -5 ~/trade-standby/logs/standby_sync_$(date +%Y%m%d).log
 | `standby_sync.py sync --dry-run` | 演练同步 | ✅ | 2 秒;「远端无新集合…dry-run: 无新集合, 不写状态」rc=0 |
 | `standby_sync.py verify` | 复验版本 | ✅ | 11 秒;`PASS (files=4)` rc=0 |
 | `standby_sync.py retention --dry-run` | 看保留计划 | ✅ | 保留 1、拟删 0 |
-| `launchctl list \| grep -i standby` | 看任务在不在 | ✅ | 两条,exit code 0/0 |
-| `launchctl print gui/$UID/com.trade.standby-sync` | 看调度时点 | ✅ | `"Hour" => 1` / `"Minute" => 0` |
-| `launchctl print …-catchup` | 看补跑周期 | ✅ | `run interval = 3600 seconds` |
-| `launchctl bootstrap gui/$UID <plist>` | 装任务 | ✅(假任务实测) | rc=0,print 可见 |
+| `launchctl list \| grep -i standby` | 看任务在不在 | ✅ | 两条,exit code 0/0 |  <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
+| `launchctl print gui/$UID/com.trade.standby-sync` | 看调度时点 | ✅ | `"Hour" => 1` / `"Minute" => 0` |  <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
+| `launchctl print …-catchup` | 看补跑周期 | ✅ | `run interval = 3600 seconds` |  <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
+| `launchctl bootstrap gui/$UID <plist>` | 装任务 | ✅(假任务实测) | rc=0,print 可见 |  <!-- staleness-ok: 备用机(macOS)本机同步调度用 launchd,非生产定时任务;生产定时任务在云上 systemd timer -->
 | `launchctl bootout gui/$UID/<label>` | 停任务 | ✅(假任务实测) | rc=0;之后 print 报 `Could not find service` |
 | `pgrep -fl standby_sync` | 查有无实例 | ✅ | 无输出(退出码 1) |
 | `shasum -a 256 backup/state_20261115.tar.gz` | 验状态包 | ✅ | `628fed47…bec` 与清单一致 |
