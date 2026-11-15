@@ -5,6 +5,7 @@ sentiment.db / etf_national_team.db / public_fund.db 的备份机制 + 事故恢
 
 > 本文档为 DB 灾备唯一权威文档（合并原 `docs/restore-db.md`，A7 2026-07-20 整理）。
 > 相关脚本：`scripts/backup_db.sh`（备份）/ `scripts/upload_r2.py`（R2 上传下载）/ `scripts/verify_backup.sh`（恢复演练）。
+> 备用机接管 / 云回滚 / 回切的分步手册（含当前能力实测与阻断清单）：[ops/standby-takeover-runbook.md](ops/standby-takeover-runbook.md)。
 
 ---
 
@@ -39,11 +40,11 @@ sentiment.db / etf_national_team.db / public_fund.db 的备份机制 + 事故恢
 | 周备份 | `weekly/<name>_YYYYMMDD.db.gz` | 28 天（4 周） | 本周首次上传，跨周损坏兜底 |
 | 月备份 | `monthly/<name>_YYYYMMDD.db.gz` | 365 天（12 月） | 本月首次上传，长期归档 |
 
-查可用备份列表：
+查可用备份列表（`list` 的位置参数是 `<前缀> <桶名>`，**不是** `--bucket`；写成 `--bucket` 会被当成桶名，返回 `InvalidBucketName`）：
 ```bash
-.venv/bin/python scripts/upload_r2.py list "backup/sentiment_" --bucket signal-backup2
-.venv/bin/python scripts/upload_r2.py list "weekly/sentiment_" --bucket signal-backup2
-.venv/bin/python scripts/upload_r2.py list "monthly/sentiment_" --bucket signal-backup2
+.venv/bin/python scripts/upload_r2.py list "backup/sentiment_" signal-backup2
+.venv/bin/python scripts/upload_r2.py list "weekly/sentiment_" signal-backup2
+.venv/bin/python scripts/upload_r2.py list "monthly/sentiment_" signal-backup2
 ```
 
 > **如需读老桶快照**（#178 迁移前存量）：临时 `R2_BACKUP_BUCKET=signal-backup` 覆盖后 `upload_r2.py list` / `download-db`，
