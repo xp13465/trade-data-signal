@@ -70,6 +70,11 @@ check_data_integrity / monitor 同源), **不另造日历**; 该函数在日历�
   - 周六跑、db_cutoff=周五 ⇒ 滞后 0; 周一早上跑、db_cutoff=上周五 ⇒ 滞后 1
     (周末/节假日本身不计滞后) ⇒ 都不会误报。
   - 真落后(如 5 个交易日) ⇒ 超过阈值告警, 文案写「落后 N 个交易日」。
+  - 日历不可用三种情形一律诚实降级(回退自然日并标注「天(日历不可用回退自然日)」,
+    不把启发式/少算结果标成交易日): ①日历空集(文件缺失且 akshare 不可用, 工作日
+    启发式在长假会误报) ②日历陈旧(最新日期 < 今天, 会静默算出 0/少算) ③日历文件
+    不可读(OSError, 不崩主流程)。备用机仓库的 ``data/trade_dates.txt`` 不自动更新,
+    需随同步/定期更新(见 docs/backup-restore.md 与 ops/standby/README.md)。
 历史自然日口径保留为显式参数 ``--stale-mode natural``(旧行为, 周末/节后会算出
 3 天 ⇒ 每周一误报; 仅排障对照用)。默认值 2026-11-15 起由自然日改为交易日。
 
@@ -873,19 +878,47 @@ def _trading_lag_days(business_date: str, today: dt.date) -> "int | None":
     直接复用仓库既有交易日历实现 ``app.calendar.lag_trading_days``(单一事实源,
     见 app/calendar.py:127; 区间 (business_date, today] 内的交易日个数, 周末/节假日
     不计滞后), **不另造一份日历**。解析失败/模块不可用返回 None 由调用方回退。
+
+    日历可用性三道护栏(边界加固 D1/D2/D3, 2026-11-15; 任一不满足一律返回 None,
+    由调用方回退自然日并在文案标注单位, 绝不把非日历口径的数字标成「个交易日」):
+      - D1 空集: 日历文件缺失且 akshare 不可用 ⇒ ``app.calendar`` 会退化成
+        「周一~周五」工作日启发式, 长假会被当成交易日(实测 09-30→10-08 算 6,
+        真实 1) ⇒ 启发式结果不是交易日历, 判不可用。
+      - D2 陈旧: 日历最新日期 < 今天 ⇒ 区间内交易日全部缺席, 会静默算出 0
+        (永不告警)或系统性少算 ⇒ 判不可用。**不放宽周末/节假日**: 正常日历由
+        akshare 刷新, 含未来交易日直到年末, 「今天是非交易日」不会让最新日期
+        落后于今天; 放宽反而会掩盖真陈旧。
+      - D3 不可读: PermissionError/OSError 等读取异常 ⇒ 按不可用处理, 不崩主流程。
     """
     try:
         repo_root = Path(__file__).resolve().parent.parent
         if str(repo_root) not in sys.path:
             sys.path.insert(0, str(repo_root))
-        from app.calendar import is_trading_day, lag_trading_days, last_trading_day
-        # app.calendar 在「今天不在日历覆盖内」时会静默回退自然日; 这里提前判出,
-        # 让调用方把单位标成「天(日历不可用回退自然日)」而不是误标交易日。
+        from app.calendar import (
+            _load_trade_dates, is_trading_day, lag_trading_days,
+            last_trading_day)
+        dates = _load_trade_dates()
+    except (ImportError, ValueError, AttributeError, OSError):
+        # D3: 日历文件不可读(PermissionError/IsADirectoryError 等 OSError)或
+        # app.calendar 不可用 ⇒ 按不可用处理, 不抛到主流程。
+        return None
+    # D1: 空集 = 日历缺失且 akshare 不可用 ⇒ 后续 is_trading_day 会走工作日启发式。
+    if not dates:
+        return None
+    # D2: 覆盖判定 —— 最新日期必须覆盖到今天, 否则陈旧日历会静默少算/算出 0。
+    try:
+        if max(dates) < today.strftime("%Y%m%d"):
+            return None
+    except (TypeError, ValueError):
+        return None
+    try:
+        # app.calendar 在「今天不在日历覆盖内」时会静默回退自然日; 覆盖已由 D2 保证,
+        # 这里仍保留定位参考交易日的判据, 让调用方单位标注与口径一致。
         if not is_trading_day(last_trading_day(today)):
             return None
         compact = dt.datetime.strptime(business_date, "%Y-%m-%d").strftime("%Y%m%d")
         return lag_trading_days(compact, today=today)
-    except (ImportError, ValueError, AttributeError):
+    except (ValueError, AttributeError, OSError):
         return None
 
 

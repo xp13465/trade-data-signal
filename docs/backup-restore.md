@@ -348,6 +348,13 @@ etf_index_map/etf_track_index/lof_track_index 等）。本节机制把这套状�
     （`standby_sync.py` 默认已是 `--stale-mode trading`，2026-11-15 起；若跑旧版会每周一
     因周末自然日差距误报一次 severe），另外先用 `standby_sync.py verify` 或
     `upload_r2.py list standby/ signal-backup2` 确认清单 key 已存在再装载定时任务。
+  - **⚠ 备用机仓库的交易日历不自动更新（2026-11-15 补）**：判龄读的是**备用机工作根自己**的
+    `data/trade_dates.txt`（`app.calendar` 单一事实源），它随 `git clone` 落地后**不会**自己刷新
+    （生产侧的每日刷新只写云上 trade-data 树）。启用前必须把主仓最新 `data/trade_dates.txt`
+    同步/拷贝到备用机工作根，之后**定期更新**（建议随每次备用机同步批次或至少每月一次；
+    跨年前必须更新，否则 1 月起日历最新日期 < 今天）。日历空集/陈旧/文件不可读时判龄**诚实
+    降级**：回退自然日，告警文案标注「天(日历不可用回退自然日)」，方向是**偏响（可能误报）
+    而非静默漏报**；因此看到该标注先补日历，不要当成真实交易日滞后。
 - **自校验**：集合内逐文件 sha256 复算 + DB 副本 integrity_check（在 db_leg 逐库记录）；
   校验失败 ⇒ `uploadable=false`，不冒充成功
 

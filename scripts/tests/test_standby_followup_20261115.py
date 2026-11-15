@@ -153,6 +153,101 @@ def test_f1_natural_mode_keeps_old_behavior(tmp_path, monkeypatch):
     assert "3天" in sent[0][2] or "3 天" in sent[0][2]
 
 
+# ============================================ D1/D2/D3 日历边界加固 ===
+# 来源: /tmp/review-standby-followup-20261115.md 边界差集 D1/D2/D3。
+# 一切都用 monkeypatch 注入日历, 零触网、零读生产状态。
+
+def _app_calendar():
+    """导入真实 app.calendar(仓库根加到 sys.path), 供 monkeypatch 其日历源。"""
+    root = Path(__file__).absolute().parent.parent.parent
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    import app.calendar as cal
+    return cal
+
+
+def _patch_calendar_dates(monkeypatch, dates):
+    cal = _app_calendar()
+    monkeypatch.setattr(cal, "_load_trade_dates", lambda: set(dates))
+
+
+def test_d1_empty_calendar_not_labeled_as_trading_days(monkeypatch):
+    # D1 日历空集(文件缺失且 akshare 不可用) ⇒ 工作日启发式(09-30→10-08 算 6)
+    # 不是交易日历, 判不可用, 不得输出「个交易日」。
+    _patch_calendar_dates(monkeypatch, [])
+    assert standby_sync._trading_lag_days(
+        "2026-09-30", dt.date(2026, 10, 8)) is None
+
+
+def test_d1_empty_calendar_flow_alerts_with_natural_label(tmp_path, monkeypatch):
+    _patch_calendar_dates(monkeypatch, [])
+    sent, st = _run_stale(tmp_path, monkeypatch, _now(2026, 10, 8),
+                          "2026-09-30")
+    # 自然日 8 > 2 ⇒ 必须告警(宁可响亮, 不静默/不误标交易日)
+    assert [s[0] for s in sent] == [_stale_key()]
+    assert st["latest_recovery_point_age_days"] == 8
+    assert "天(日历不可用回退自然日)" in sent[0][2]
+    assert "6 个交易日" not in sent[0][1] + sent[0][2]
+
+
+def test_d2_stale_calendar_never_silent_zero(monkeypatch):
+    # D2 日历只到 11-13、今天 11-27 ⇒ 旧实现返回 0(真实 10)永不告警。
+    _patch_calendar_dates(monkeypatch, ["20261111", "20261112", "20261113"])
+    assert standby_sync._trading_lag_days(
+        "2026-11-17", dt.date(2026, 11, 27)) is None
+
+
+def test_d2_stale_calendar_flow_alerts_not_green(tmp_path, monkeypatch):
+    _patch_calendar_dates(monkeypatch, ["20261111", "20261112", "20261113"])
+    sent, st = _run_stale(tmp_path, monkeypatch, _now(2026, 11, 27),
+                          "2026-11-17")
+    # 真过期 10 自然日(日历不可用) ⇒ 必须告警, 不许可绿
+    assert [s[0] for s in sent] == [_stale_key()]
+    assert st["latest_recovery_point_age_days"] == 10
+    assert "天(日历不可用回退自然日)" in sent[0][2]
+
+
+def test_d3_unreadable_calendar_direct_no_crash(monkeypatch):
+    # D3 日历读取抛 PermissionError ⇒ 按不可用处理, 不抛到调用方
+    cal = _app_calendar()
+
+    def _boom():
+        raise PermissionError("calendar unreadable")
+
+    monkeypatch.setattr(cal, "_load_trade_dates", _boom)
+    assert standby_sync._trading_lag_days(
+        "2026-11-13", dt.date(2026, 11, 16)) is None
+
+
+def test_d3_unreadable_calendar_flow_does_not_crash(tmp_path, monkeypatch):
+    cal = _app_calendar()
+
+    def _boom():
+        raise PermissionError("calendar unreadable")
+
+    monkeypatch.setattr(cal, "_load_trade_dates", _boom)
+    sent, st = _run_stale(tmp_path, monkeypatch, _now(2026, 11, 16),
+                          "2026-11-13")
+    assert [s[0] for s in sent] == [_stale_key()]     # 自然日 3 > 2
+    assert st["latest_recovery_point_age_days"] == 3
+    assert "天(日历不可用回退自然日)" in sent[0][2]
+
+
+def test_d3_unreadable_calendar_real_read_path(tmp_path, monkeypatch):
+    # D3 真实读盘路径: 日历路径指向目录 ⇒ read_text 抛 IsADirectoryError(OSError),
+    # 不 mock _load_trade_dates 本身, 验证 app.calendar 真实读文件异常被兜住。
+    cal = _app_calendar()
+    bad = tmp_path / "trade_dates_as_dir"
+    bad.mkdir()
+    monkeypatch.setattr(cal, "_CACHE_PATH", bad)
+    cal._load_trade_dates.cache_clear()
+    try:
+        assert standby_sync._trading_lag_days(
+            "2026-11-13", dt.date(2026, 11, 16)) is None
+    finally:
+        cal._load_trade_dates.cache_clear()
+
+
 # ======================================================== F2 TLS 三支兜底 ===
 # 原缺口: 把系统 CA 兜底分支改成 unverified, 14 个用例仍全绿。以下三支都断言
 # verify_mode=CERT_REQUIRED 且 check_hostname=True, 任一支改 unverified 必红。
