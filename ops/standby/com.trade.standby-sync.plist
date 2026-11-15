@@ -2,26 +2,32 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  com.trade.standby-sync.plist — 备用机每日凌晨同步模板(工作包三/D 批)。
+  com.trade.standby-sync.plist — 备用机每日凌晨同步(本机 2026-11-15 已实际安装)。
 
-  ⚠️ 本文件是模板, 按下方占位符改完再装(load); 本仓库提交的模板本身**不会被安装**。
-  占位符(两处, 必改):
-    __STANDBY_PYTHON__   备用机 python 绝对路径(建议专用 venv: <工作根>/.venv/bin/python)
-    __STANDBY_REPO__     备用机上的独立 git clone 工作根(勿指向开发树 ~/code/trade)
+  路径已按本机实际环境写死(不再有占位符):
+    python = /Users/linhuichen/code/trade/.venv/bin/python3(3.11.0,含 certifi)
+    repo   = /Users/linhuichen/code/trade(R2 凭据读该目录 .env 的 R2_BACKUP2_* 四键)
+  换机器/换路径时改下面 ProgramArguments 前两行与 --repo-dir,再 plutil -lint。
 
-  调度: 每日 00:30 Asia/Shanghai(StartCalendarInterval 用机器本地时区;
+  调度: 每日 01:00 Asia/Shanghai(StartCalendarInterval 用机器本地时区;
   备用机系统时区必须设为 Asia/Shanghai, 否则按实际时区等效换算 HH:MM)。
-  选点依据(方案「调度规则」第 1 条, 由现场排程定, 非凭空):
+  选点依据(用户 2026-11-15 拍板 01:00, 替代早期模板示例 00:30):
   - 云上备份链 21:00 起至 22:24(public_fund 上传实测完成时点)之后;
   - 避开本机 03:17 claude 自备份(com.claude.self-backup)与云上 05:0x
     staticdata 备份高峰(错开 ≥30min);
-  - 留出云上 23:00~00:00 尾部任务余量 ⇒ 00:30。
+  - 01:00 仍留足云上 23:00~00:00 尾部任务余量, 且早于 03:17 自备份 ⇒ 采用。
 
   启动补偿(launchd 机器睡眠/关机不补跑 StartCalendarInterval):
-  配套 com.trade.standby-sync-catchup.plist(RunAtLoad=true)用
+  配套 com.trade.standby-sync-catchup.plist(RunAtLoad=true + 每小时)用
   `sync --only-if-missed`: 开机/唤醒即检查, 今日已成功则静默退出; 未成功则
   补做一次有效同步(脚本内漏跑补偿记 missed_runs, 不补跑一串历史调度)。
   flock 保证两个 plist 撞车时只有一个更新者。
+
+  空间保护 / 过期判定(默认值显式写进参数, 见脚本 argparse 默认):
+  --min-free-gb 5    下载前最低可用空间; 不足 ⇒ 拒绝下载 + 发 space_insufficient 告警,
+                     不删任何旧版本(空间预算按 staging gz + 最大对象解压后 × 1.1 + 保底算)
+  --stale-days 2     恢复点过期阈值(交易日口径)
+  --stale-mode trading 判龄按交易日, 周末/节后不误报
 -->
 <plist version="1.0">
 <dict>
@@ -30,12 +36,12 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>__STANDBY_PYTHON__</string>
-    <string>__STANDBY_REPO__/scripts/standby_sync.py</string>
+    <string>/Users/linhuichen/code/trade/.venv/bin/python3</string>
+    <string>/Users/linhuichen/code/trade/scripts/standby_sync.py</string>
     <string>--root</string>
     <string>/Users/linhuichen/trade-standby</string>
     <string>--repo-dir</string>
-    <string>__STANDBY_REPO__</string>
+    <string>/Users/linhuichen/code/trade</string>
     <string>sync</string>
     <!-- 每窗口最多 3 次尝试, 指数退避 120s 起, 共享总截止 120 分钟 -->
     <string>--max-attempts</string>
@@ -44,21 +50,32 @@
     <string>120</string>
     <string>--deadline-minutes</string>
     <string>120</string>
+    <!-- 空间不足自动不动手 + 告警; 恢复点过期告警按交易日口径 -->
+    <string>--min-free-gb</string>
+    <string>5</string>
+    <string>--stale-days</string>
+    <string>2</string>
+    <string>--stale-mode</string>
+    <string>trading</string>
     <!-- 成功/无变化/窗口内重试成功静默; 损坏/超窗/过期/空间不足才发事件 -->
   </array>
 
   <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key>
-    <integer>0</integer>
+    <integer>1</integer>
     <key>Minute</key>
-    <integer>30</integer>
+    <integer>0</integer>
   </dict>
 
   <key>StandardOutPath</key>
   <string>/Users/linhuichen/trade-standby/logs/launchd.out.log</string>
   <key>StandardErrorPath</key>
   <string>/Users/linhuichen/trade-standby/logs/launchd.err.log</string>
+
+  <!-- 每日一次的任务: 防异常快速重启刷屏, 5 分钟内不重复拉起 -->
+  <key>ThrottleInterval</key>
+  <integer>300</integer>
 
   <key>RunAtLoad</key>
   <false/>
