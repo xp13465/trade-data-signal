@@ -67,11 +67,20 @@
    ```
    卸载 = 反向 `launchctl unload` + `rm`(停用同步不影响云端主生产与已存版本)。
 
-## 三、调度设计(为什么是 00:30)
+## 三、调度设计(为什么定在凌晨 1 点;模板写 00:30、实际装的是 01:00)
 
-- 云上备份链 21:00 起,public_fund 上传实测最晚 22:24 完成 ⇒ 之后才开始拉;
+> **⚠ 时点漂移(2026-11-16 实测,以实际安装为准)**:仓库里的主 plist **模板**写
+> `Hour 0 / Minute 30`(00:30),但 `~/Library/LaunchAgents/` 下**真实安装的副本**是
+> `Hour 1 / Minute 0`(**01:00 CST**)——已安装副本注释写明「用户 2026-11-15 拍板 01:00,
+> 替代早期模板示例 00:30」,即 01:00 是有效决定、模板没跟上。实测
+> `launchctl print gui/$UID/com.trade.standby-sync` 输出 `"Hour" => 1` / `"Minute" => 0`;
+> 当日状态文件 `last_success_ts = 2026-11-16 01:00:05`,日志同日 `01:00:05` 有真实同步记录。
+> **重装/接管时以已安装副本为准,别用模板覆盖**;两者对齐另派任务处理。
+> 接管全流程见 `docs/ops/standby-takeover-runbook.md`。
+
+- 云上备份链 21:00 起,public_fund 上传实测最晚 22:24 完成 ⇒ 之后才开始拉;留到凌晨 1 点还有余量;
 - 避开本机 03:17 claude 自备份与云上 05:0x staticdata 备份高峰(错开 ≥30min);
-- 主 plist `StartCalendarInterval` 00:30 Asia/Shanghai;**launchd 对睡眠/关机漏跑的
+- 主 plist `StartCalendarInterval` 01:00 Asia/Shanghai(已装值;模板 00:30 待对齐);**launchd 对睡眠/关机漏跑的
   StartCalendarInterval 不补跑**,故配套 catchup plist(`RunAtLoad`+每小时
   `sync --only-if-missed`)做启动补偿:今日已成功恒静默,漏跑只补**一次**有效同步
   (`missed_runs` 入账,不重写时间戳)。两个 plist 撞车由脚本内 flock 兜底。
@@ -97,6 +106,9 @@
   `latest_verified`+至少 2 份已验证版本,只删本工具登记目录,不碰未登记目录。
 
 ## 五、日常核查
+
+> 停机演练 / 真正接管 / 回切 / 回滚的完整操作步骤,见 `docs/ops/standby-takeover-runbook.md`
+> (其中每条命令都标了实测方式与实测结果)。本章只讲"平时怎么看一眼"。
 
 ```bash
 python scripts/standby_sync.py status                    # 恢复点真实年龄/版本清单
