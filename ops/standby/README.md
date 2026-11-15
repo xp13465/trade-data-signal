@@ -32,8 +32,12 @@
 
 1. **工作根**:本机现装 = **直接使用本机开发仓** `/Users/linhuichen/code/trade`(**不要另
    clone 到 `~/trade-standby-repo`——该目录不存在,照旧命令做会失败**)。只有**换机器/换到
-   另一台机器正式接管**时才 `git clone` 到独立目录(如 `~/trade-standby`),checkout 已验证
-   HEAD,建 venv 装 `requirements.txt`,并把两份模板里的 python/repo 路径改成新机实值。
+   另一台机器正式接管**时才 `git clone` 到独立目录,目录用 `~/trade-standby-repo`:
+   **代码仓库目录必须与数据根 `~/trade-standby`(即 `--root`)分开,两者不能是同一个目录**
+   ——否则 `archive/`、`work/`、`logs/` 会混进代码树,`.env` 与 `config/*.json` 也会落进数据根,
+   违反"配置放数据根之外"的约定。clone 后 checkout 已验证 HEAD,建 venv 装
+   `requirements.txt`,并把两份模板里的 python/repo 路径改成新机实值(注意模板里的
+   `--root` 仍指数据根 `~/trade-standby`,不是仓库目录)。
    - **⚠ 交易日历要单独同步(2026-11-15 补)**:判龄读的是**备用机工作根自己**的
      `data/trade_dates.txt`,clone 后**不会自动更新**(生产每日刷新只写云上 trade-data 树)。
      启用前把主仓最新文件拷过来,之后**定期更新**(建议随每次同步批次或至少每月一次;
@@ -45,7 +49,8 @@
    `standby/manifest_latest.json`:云上既有备份链在 `STANDBY_MANIFEST_ENABLED=1` 时由
    `backup_db.sh → upload_r2.py standby-manifest` 生成(G3/G4, 契约见
    `scripts/standby_manifest.py`);**未开启开关前 R2 上无此对象**,首次真实同步前必须确认
-   云上开关已开且该 key 存在(用 `standby_sync.py verify` 或 `list standby/` 核)。
+   云上开关已开且该 key 存在(用 `standby_sync.py sync --dry-run` 核:它会真的去 R2 读清单,
+   key 不存在会报 4xx/`NoSuchKey`;`verify` 只验本地已下载版本,不能用来确认 R2 上有没有对象)。
    - **⚠ 双开关依赖(启用前必读,2026-11-15)**:清单生产者硬依赖状态集捕获产物目录,云上必须
      **同时**开 `STATE_CAPTURE_ENABLED=1`（产出 `CAPTURE_SET_DIR`/state receipt）和
      `STANDBY_MANIFEST_ENABLED=1`（生成发布清单）。**只开清单开关** ⇒ `backup_db.sh`

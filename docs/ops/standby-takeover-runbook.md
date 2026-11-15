@@ -85,6 +85,7 @@ git branch --show-current        # 记下当前分支,防误判"同步的是哪�
 ```
 
 > 注意(实测现状):launchd 里 `--repo-dir` 直接指向 **开发树** `/Users/linhuichen/code/trade`(不是独立 clone)。好处是不用再维护第二份代码;代价是**切分支/改脚本会立刻影响同步逻辑**。接管期间不要在这个树上做开发改动。
+> 换机器时才 clone 代码仓库,且 **clone 目录必须与数据根 `~/trade-standby`(即 `--root`)分开**(用 `~/trade-standby-repo`):代码仓库目录 ≠ 数据根,`.env` 与 `config/*.json` 也留在数据根之外(见 §8.3);两者指同一个目录会把 `archive/`、`work/`、`logs/` 混进代码树。
 
 ### 3.3 凭据
 
@@ -97,9 +98,11 @@ grep -o '^[A-Za-z0-9_]*=' /Users/linhuichen/code/trade/.env   # 只列字段名,
 
 **凭据轮换步骤**(R2 密钥到期/疑似泄露/换账号时):
 1. 在 R2 控制台建新密钥,把 `.env` 里上述 4 个键改成新值(文件权限保持 600);
-2. `.venv/bin/python scripts/standby_sync.py verify` 复验最新版本仍能下载校验 → 期望 `PASS (files=4)`;
-3. `.venv/bin/python scripts/standby_sync.py sync --dry-run` 演练 → 期望 `sync --dry-run` 正常读到远端清单(不再 401/403);
-4. 两步都过才算换好;任何一步失败先回滚 `.env` 旧值,查 §12(TLS/签名错另见证据表)。
+2. **验证新凭据(唯一能验凭据的一步)**:在仓库根执行 `.venv/bin/python scripts/standby_sync.py sync --dry-run --max-attempts 1 --backoff-seconds 0` —— 该命令会真的拿这 4 个键去 R2 读清单,凭据错会报 HTTP 4xx(本轮用假密钥实测为 `HTTPError 400`,也常见 401/403),日志「尝试失败(可重试)」+ `rc=1`;预期日志出现「远端无新集合」或「dry-run: 校验通过」且退出码 0(若远端确有新集合,dry-run 会顺带下载并校验整套集合:压缩约 207MiB,首次实测工具自记 28.6 秒,网络慢时更久,同样证明凭据可用)。**务必带 `--max-attempts 1 --backoff-seconds 0`**:默认会按 120/240 秒退避重试 3 次,凭据错时要干等约 6 分钟才报 rc=1;dry-run 下失败不写状态、不外发告警,可放心反复试;
+3. **复验本地已固化版本(可选,验的是本地数据不是凭据)**:`.venv/bin/python scripts/standby_sync.py verify` → 期望 `PASS (files=4)`;
+4. **第 2 步过才算凭据换好**;任何一步失败先回滚 `.env` 旧值,查 §12(TLS/签名错另见证据表)。
+
+> ⚠ **`verify` 不能验凭据**:它只对本机已下载的版本做 sha/integrity 复验,**完全不访问 R2**——R2 密钥全错它也照样 `PASS (files=4)`。凭据有效性必须用**会真正访问 R2** 的命令证明(上表只有第 2 步的 `sync --dry-run` 符合;`status` 也是纯本地读状态文件,同样不碰 R2)。
 
 ### 3.4 磁盘空间
 
@@ -120,7 +123,7 @@ ls -l /Users/linhuichen/code/trade/data/trade_dates.txt     # mtime 2026-09-12 1
 
 判据:文件最后一行 ≥ 今天 ⇒ 交易日口径可用;最后一行 < 今天 ⇒ 工具自动**降级为自然日**并标注「天(日历不可用回退自然日)」,周末会误报。当前覆盖到 2026-12-31(内容最后一次变更是 2026-07-07 的那次提交,9-12 只是拷贝时间),**跨年前必须重刷**,见 §10。
 
-### 3.6 网络与远端清单(一条命令全测)
+### 3.6 本机状态摘要(`status`,纯本地;不测网络/凭据)
 
 ```bash
 cd /tmp && /Users/linhuichen/code/trade/.venv/bin/python3 \
@@ -130,6 +133,8 @@ cd /tmp && /Users/linhuichen/code/trade/.venv/bin/python3 \
 
 本轮实测(2026-11-16 01:09:23,耗时 0.45 秒):`latest_verified: 2026-11-13-364b...`,`last_success_ts: 2026-11-16 01:00:05`,`business_date: 2026-11-13`,`latest_recovery_point_age_days: 1`(单位 `trading`),版本列表 1 条、`size_bytes: 217263649`。
 
+> ⚠ `status` **只读本机状态文件,不访问 R2**(0.45 秒就是本地读盘耗时),所以它既不能证明网络通、也不能证明凭据有效。要验远端可达与凭据,用 §3.3 第 2 步的 `sync --dry-run`。
+
 判定表:
 
 | 看到什么 | 结论 | 处置 |
@@ -137,7 +142,7 @@ cd /tmp && /Users/linhuichen/code/trade/.venv/bin/python3 \
 | `latest_verified: "(none)"` | 本机没有已验证版本 | 先补同步(§6/§8),别谈接管 |
 | `latest_recovery_point_age_days` > 2 且单位是 `trading` | 恢复点过期 | 查云上备份是否还在产;仍要用旧点就如实记缺口 |
 | 单位变成自然日却又带「日历不可用」标注 | 日历过期了 | 先按 §10 刷日历,再看判龄 |
-| 命令报 TLS/签名错 | 网络或凭据问题 | 查 §12 里的历史缺陷是否复发 |
+| `sync --dry-run` 报 TLS/签名错(本命令 `status` 不会报这类错) | 网络或凭据问题 | 查 §12 里的历史缺陷是否复发 |
 
 ### 3.7 云端捕获链现状(本轮只读/既有证据实测)
 
