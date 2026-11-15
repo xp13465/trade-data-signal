@@ -66,6 +66,11 @@ from r2_safe_write import SafeWriter, UnsafeWrite, protected as _protected_key, 
 
 from r2_export_proof import build_export_manifest, load_run_proof, proof_matches, load_pending_contexts
 
+# G3/G4(2026-11-15): 备用机同步清单生产者(standby/manifest_latest.json)在
+# standby_manifest.py, 由 dispatch 的 `standby-manifest` 分支**惰性 import**(默认关)。
+# 不做模块级 import: 本文件会被「只复制 upload_r2.py 的单文件树」(单测/恢复链)加载,
+# 硬依赖同目录模块会让那些加载方 ModuleNotFoundError(test_345 A1 守卫用例如实抓到)。
+
 # stdout 行缓冲:遇换行就 flush,防止 `| tee -a` 管道时 block-buffered
 # 致 industry(268文件~10分钟)等长任务日志静默被误判卡死。
 # Python 3.7+ 支持。覆盖 intraday/deploy/手动所有调用场景。
@@ -118,6 +123,7 @@ def _is_production_writer() -> bool:
 
 # 只写私有桶(signal-backup2)的上传命令: 本机开发树仍允许(不污染公共 R2)。
 _PRIVATE_ONLY_CMDS = {"upload-db", "upload-large-json", "upload-claude-backup", "upload-decommissioned",
+                      "standby-manifest",
                       "upload-state-capture"}
 # 不写 R2 对象的命令；verify-r2 会自动补传，必须经过公共桶写门禁。
 _READ_ONLY_CMDS = {"list", "download-db", "verify-channels", "purge-low-freq"}
@@ -437,9 +443,49 @@ def _work_sleep(wait):
     if wait > 0:
         time.sleep(wait)
 
-# macOS 系统 Python 缺 CA 束（CERTIFICATE_VERIFY_FAILED），用系统 /etc/ssl/cert.pem
-_CA = "/etc/ssl/cert.pem"
-_CTX = ssl.create_default_context(cafile=_CA) if Path(_CA).exists() else ssl._create_unverified_context()
+# TLS 证书 CA 束按序探测(2026-11-15 F3 生产 P1 根治):
+#   原实现只认 macOS 的 /etc/ssl/cert.pem, 云上 Ubuntu 22.04 无该文件 ⇒ 退
+#   ssl._create_unverified_context() = **生产上传链实际未校验证书**。现改为
+#   certifi → 系统 CA 路径按序探测, 全缺 ⇒ 抛错 fail-closed(绝不再退 unverified)。
+#   云上只读核对(2026-11-15): venv python 3.11.15 有 certifi
+#   (/home/ubuntu/code/trade-data/.venv/.../certifi/cacert.pem, 240216B, 存在);
+#   系统 /etc/ssl/certs/ca-certificates.crt 存在(182140B), /etc/ssl/cert.pem 与
+#   /etc/pki/tls/certs/ca-bundle.crt 缺失 ⇒ 第 1 顺位 certifi 命中, 不阻断上传。
+_CA_CANDIDATES = (
+    "/etc/ssl/cert.pem",                   # macOS / 部分发行版
+    "/etc/ssl/certs/ca-certificates.crt",  # Debian/Ubuntu(云上实测有)
+    "/etc/pki/tls/certs/ca-bundle.crt",    # RHEL/CentOS
+)
+
+
+def _resolve_ca_bundle(candidates=None, exists=None) -> str:
+    """按序探测 CA 束并返回路径; 全缺 ⇒ RuntimeError(fail-closed, 禁 unverified)。
+
+    ``candidates``/``exists`` 为测试接缝(F3 四组可用性组合用例注入)。
+    """
+    candidates = _CA_CANDIDATES if candidates is None else tuple(candidates)
+    exists = (lambda p: Path(p).exists()) if exists is None else exists
+    try:
+        import certifi
+        certifi_ca = certifi.where()
+    except (ImportError, OSError):
+        certifi_ca = None
+    if certifi_ca and exists(certifi_ca):
+        return certifi_ca
+    for cand in candidates:
+        if exists(cand):
+            return cand
+    raise RuntimeError(
+        "upload_r2: 找不到任何 TLS CA 束(certifi / " + " / ".join(candidates)
+        + ") ⇒ 拒绝以未校验证书方式连接(fail-closed)。请安装 certifi 或补齐系统 CA。")
+
+
+def _make_tls_context(ca_file: str) -> ssl.SSLContext:
+    """由 CA 束构造校验开启的上下文(单点构造, 测试断言 CERT_REQUIRED)。"""
+    return ssl.create_default_context(cafile=ca_file)
+
+
+_CTX = _make_tls_context(_resolve_ca_bundle())
 
 # ---- keep-alive 连接复用 (2026-09-21 R2 上传失败根治: verify-r2 周日全量对账 ~3万 key 逐个 HEAD,
 # 每个 HEAD 新建 HTTPSConnection 跨境握手 ~1s 结构性超时; 同一连接复用连续 HEAD 省 60%+ 对账时间)。
@@ -4130,6 +4176,22 @@ def _sqlite_snapshot_to_gz(src_path, dst_gz_path, source=None):
     return os.path.getsize(dst_gz_path)
 
 
+def _gzip_uncompressed_fingerprint(path):
+    """解压 gz 文件一遍, 返回 (解压体 sha256, 解压体字节数)。
+
+    G3/G4(2026-11-15): 备用机同步清单的 state 项契约要求 sha256_uncompressed/
+    size_uncompressed(standby_sync.normalize_manifest 校验)。tar.gz 由本脚本就地生成,
+    解压体指纹只是纯计算, 不触网、不改既有 receipt 字段语义(仅新增键)。
+    """
+    import gzip as _gzip
+    h, size = hashlib.sha256(), 0
+    with _gzip.open(path, "rb") as f:
+        for part in iter(lambda: f.read(1 << 20), b""):
+            h.update(part)
+            size += len(part)
+    return h.hexdigest(), size
+
+
 def _backup_public_fund_db(dbdir, repo, today, receipt=None):
     """public_fund.db -> R2: 未变更跳过 -> 快照+gzip -> 分片上传 -> 周/月副本。
 
@@ -4362,6 +4424,9 @@ def cmd_upload_state_capture(set_dir):
             for part in iter(lambda: f.read(1 << 20), b""):
                 h.update(part)
         gz_sha, gz_size = h.hexdigest(), os.path.getsize(tar_path)
+        # G3/G4(2026-11-15): 备用机清单契约要求 state 项带解压体 sha256/size
+        # (files[].sha256_uncompressed / size_uncompressed); 纯新增字段, 不改既有语义。
+        uncompressed_sha, uncompressed_size = _gzip_uncompressed_fingerprint(tar_path)
         status, data = _upload_file_to_key(
             key, tar_path, "application/gzip", bucket=BACKUP_BUCKET,
             **({"extra_headers": metadata(source)} if source is not None else {}))
@@ -4375,7 +4440,9 @@ def cmd_upload_state_capture(set_dir):
     if receipt is not None:
         receipt["objects"]["state_capture"] = {**source,
                                               "manifest_sha256": manifest_sha,
-                                              "gzip": {"sha256": gz_sha, "size": gz_size},
+                                              "gzip": {"sha256": gz_sha, "size": gz_size,
+                                                       "uncompressed_sha256": uncompressed_sha,
+                                                       "uncompressed_size": uncompressed_size},
                                               "files": len(files_in_set)}
         receipt["complete"] = True
         atomic_json(proof_path, receipt)
@@ -6276,6 +6343,14 @@ if __name__ == "__main__":
         # upload-state-capture <set_dir>  状态集合成套归档 -> signal-backup2/backup/state_*.tar.gz
         # (backup_db.sh STATE_CAPTURE_ENABLED=1 链; proof 契约同 upload-db, 见 cmd_upload_state_capture)
         cmd_upload_state_capture(sys.argv[2] if len(sys.argv) > 2 else "")
+    elif cmd == "standby-manifest":
+        # standby-manifest <set_dir> <db_proof.json> <state_proof.json>
+        # G3/G4(2026-11-15): 把同轮已上传的捕获集合/DB 最新版本映射成备用机同步清单
+        # standby/manifest_latest.json(备用机 standby_sync.py 唯一入口)。默认关:
+        # 未设 STANDBY_MANIFEST_ENABLED=1 时打印跳过并 exit 0(零 R2 接触), 见 standby_manifest.py。
+        import standby_manifest
+        sys.exit(standby_manifest.main(sys.argv[2:], s3_request=s3_request,
+                                       s3_head=s3_head, bucket=BACKUP_BUCKET))
     elif cmd == "upload-large-json":
         # upload-large-json [--dry-run] [--full]  staticdata 备份 git 排除的大 JSON -> 私有桶 large-json/
         # (2026-09-25, 排除对象清单来源 large_json_excludes.py --print)
@@ -6315,6 +6390,6 @@ if __name__ == "__main__":
             "upload-fund-nav|upload-accum-nav|upload-data-large|upload-kelly-parts|upload-kelly-parts-sdc|upload-db|upload-large-json|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
             "upload-claude-backup [path]|upload-decommissioned <local> <key_name>|"
-            "upload-state-capture <set_dir>|"
+            "upload-state-capture <set_dir>|standby-manifest <set_dir> <db_proof> <state_proof>|"
             "upload-turnover <small|large>|upload-all-data|upload-intraday|purge-low-freq|verify-r2|verify-channels <desc...>]"
         )

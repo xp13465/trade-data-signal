@@ -326,6 +326,36 @@ etf_index_map/etf_track_index/lof_track_index 等）。本节机制把这套状�
   manifest），proof 契约同 `upload-db`（`R2_STATE_CAPTURE_PROOF`+`R2_STATE_CAPTURE_RUN_ID`
   成对传，receipt 同 schema:1 结构），保留 14 天滚动（`_prune_state_captures`）；上传成功前
   本地集合不删
+- **备用机同步清单（G3/G4，2026-11-15）**：`standby/manifest_latest.json` 由既有上传链在
+  `upload-db` 之后生成（`backup_db.sh` 调 `upload_r2.py standby-manifest <set_dir> <db_proof>
+  <state_proof>`；**默认关**，`STANDBY_MANIFEST_ENABLED=1` 才执行，不新开进程/定时任务，未开启时
+  上传链行为与退出码不变）。内容 = 同轮已上传产物的映射：`business_date` **只取捕获集合
+  `db_cutoff.date`**（`all_databases_covered=false`/缺失即拒绝写），files 的 `size`/`sha256_gz`/
+  `sha256_uncompressed`/`size_uncompressed` 全部取自同轮 upload-db / upload-state-capture receipt
+  对真实上传字节的指纹（缺失即拒绝，不编造），`public_fund` 记在 `excluded`（归档走独立大库流式链）。
+  发布为「临时 key → 同桶 CopyObject 覆盖 latest → 删临时 key」，任一步失败不碰 latest（旧清单
+  保留）；写前过 `standby_sync.normalize_manifest` 契约校验（单一事实源）。
+- **⚠ 双开关依赖（启用前必读，2026-11-15 补）**：清单生产者**硬依赖状态集捕获产物目录**，
+  因此 R2 上真正出现 `standby/manifest_latest.json` 需要**两个开关同时开**：
+  1. `STATE_CAPTURE_ENABLED=1`（`backup_db.sh` 捕获 + `upload-state-capture` 归档段）——
+     没有它就没有 `CAPTURE_SET_DIR`、没有本轮 state receipt；
+  2. `STANDBY_MANIFEST_ENABLED=1`（清单生成/发布段）。
+  - **只开清单开关、不开捕获开关**：每晚 `backup_db.sh` 走到清单段时前置不全，打印
+    `⚠ 备用机同步清单跳过(缺捕获集合或本轮 receipt; 原备份退出码不变)` **静默跳过**
+    （只进备份日志，不发通知、不改退出码）⇒ R2 永远没有 `standby/manifest_latest.json`，
+    备用机 `sync` 会一直 404。
+  - **只开捕获开关、不开清单开关**：状态集照常归档，但清单不生成 ⇒ 备用机仍无清单可读。
+  - **启用前置条件**：备用机同步工具启用前（备用机 macOS 本机同步调度用 launchd，属备用机自身的本地调度，**不是**生产定时任务；生产定时任务已全部在云上 systemd timer）**必须先确认判龄口径为交易日** <!-- staleness-ok: 备用机 macOS 本机同步用 launchd,属备用机本地调度而非生产定时任务(生产全在云上 systemd) -->
+    （`standby_sync.py` 默认已是 `--stale-mode trading`，2026-11-15 起；若跑旧版会每周一
+    因周末自然日差距误报一次 severe），另外先用 `standby_sync.py verify` 或
+    `upload_r2.py list standby/ signal-backup2` 确认清单 key 已存在再装载定时任务。
+  - **⚠ 备用机仓库的交易日历不自动更新（2026-11-15 补）**：判龄读的是**备用机工作根自己**的
+    `data/trade_dates.txt`（`app.calendar` 单一事实源），它随 `git clone` 落地后**不会**自己刷新
+    （生产侧的每日刷新只写云上 trade-data 树）。启用前必须把主仓最新 `data/trade_dates.txt`
+    同步/拷贝到备用机工作根，之后**定期更新**（建议随每次备用机同步批次或至少每月一次；
+    跨年前必须更新，否则 1 月起日历最新日期 < 今天）。日历空集/陈旧/文件不可读时判龄**诚实
+    降级**：回退自然日，告警文案标注「天(日历不可用回退自然日)」，方向是**偏响（可能误报）
+    而非静默漏报**；因此看到该标注先补日历，不要当成真实交易日滞后。
 - **自校验**：集合内逐文件 sha256 复算 + DB 副本 integrity_check（在 db_leg 逐库记录）；
   校验失败 ⇒ `uploadable=false`，不冒充成功
 

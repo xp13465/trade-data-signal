@@ -48,7 +48,8 @@ C 批尚在开发、契约未合入, 本文件先按任务书字段(文件清单
   聚合域 = backup / 首报策略 = 首报必达
   - standby_sync_corrupt_set          新集合损坏(坏 hash/缺 sidecar/SQLite 损坏/错业务日期)
   - standby_sync_window_fail           超窗口仍失败(尝试/共享总预算耗尽)
-  - standby_sync_stale_recovery_point 最新可恢复点过期(默认 >2 天)
+  - standby_sync_stale_recovery_point 最新可恢复点过期(默认 >2 个交易日,
+    --stale-mode trading; 自然日口径需显式 --stale-mode natural)
   - standby_sync_space_insufficient    空间不足(拒绝下载)
 dedup window 取 7 天: 备用机同事件通常每日最多触发一次, 逐日重报=「按日期刷屏」
 (方案通知规则明令禁止); 7 天后仍未恢复重报一次, 兼顾不无限沉默。
@@ -59,6 +60,23 @@ dedup window 取 7 天: 备用机同事件通常每日最多触发一次, 逐日
 发出成功即清账; **从未成功通知过的故障不发恢复**(避免「没收到告警却收到恢复」)。
 dry-run 既不写状态也不发任何事件(含失败分支与恢复通知, README 承诺)。
 测试全部打桩(monkeypatch emit_event, §18 L48 禁真发)。
+
+== 恢复点判龄口径(2026-11-15 启用前必修 F1) ==
+默认 ``--stale-mode trading``: 判龄 = 「business_date(即 db_cutoff)距参考交易日的
+交易日数」, 参考日 = 最近一个交易日(今天本身是交易日则含今天)。交易日历复用仓库
+单一事实源 ``app.calendar.lag_trading_days``(``data/trade_dates.txt``, 与
+check_data_integrity / monitor 同源), **不另造日历**; 该函数在日历缺覆盖时内部回退
+自然日(fail-safe, 已在 app/calendar.py 声明)。
+  - 周六跑、db_cutoff=周五 ⇒ 滞后 0; 周一早上跑、db_cutoff=上周五 ⇒ 滞后 1
+    (周末/节假日本身不计滞后) ⇒ 都不会误报。
+  - 真落后(如 5 个交易日) ⇒ 超过阈值告警, 文案写「落后 N 个交易日」。
+  - 日历不可用三种情形一律诚实降级(回退自然日并标注「天(日历不可用回退自然日)」,
+    不把启发式/少算结果标成交易日): ①日历空集(文件缺失且 akshare 不可用, 工作日
+    启发式在长假会误报) ②日历陈旧(最新日期 < 今天, 会静默算出 0/少算) ③日历文件
+    不可读(OSError, 不崩主流程)。备用机仓库的 ``data/trade_dates.txt`` 不自动更新,
+    需随同步/定期更新(见 docs/backup-restore.md 与 ops/standby/README.md)。
+历史自然日口径保留为显式参数 ``--stale-mode natural``(旧行为, 周末/节后会算出
+3 天 ⇒ 每周一误报; 仅排障对照用)。默认值 2026-11-15 起由自然日改为交易日。
 
 == 空间估算口径 ==
 check_space 按「staging gz 合计 + 最大对象解压后大小」估峰值; 解压后大小优先取
@@ -155,6 +173,97 @@ def _sha256_file(path: Path, chunk: int = 1 << 20) -> str:
 def _disk_free(path: Path) -> int:
     """可用字节数。测试 monkeypatch 本函数模拟空间不足。"""
     return shutil.disk_usage(str(path)).free
+
+
+# ------------------------------------------------------------ tls / sigv4 ---
+# G5/G6 修复(2026-11-15 实测缺陷, 取证见 /tmp/standby-d-report.md):
+#   G5 原签名首步 HMAC 参数写反(`_sign("AWS4"+sk, b"")` ⇒ 用空 key 派生)⇒ R2 回
+#      403 SignatureDoesNotMatch; 现按 AWS SigV4 规范顺序派生, 并以纯函数暴露,
+#      供「与 upload_r2.py 签名器逐字对照」用例复用(不依赖网络)。
+#   G6 原 urlopen 不带证书上下文 ⇒ 本机 Python 3.11 报 CERTIFICATE_VERIFY_FAILED;
+#      现与 upload_r2.py 同源做法挂 certifi CA(缺 certifi / 无法加载时退系统 CA),
+#      **永不关闭校验**(禁 _create_unverified_context / verify=False)。
+
+def aws_signing_key(date_stamp: str, secret_key: str) -> bytes:
+    """SigV4 派生签名密钥: 首步 HMAC(key="AWS4"+SK, msg=date_stamp), 再派生 region/service。"""
+    import hmac as _hmac
+    k = _hmac.new(("AWS4" + secret_key).encode("utf-8"),
+                  date_stamp.encode("utf-8"), hashlib.sha256).digest()
+    for part in ("auto", "s3", "aws4_request"):
+        k = _hmac.new(k, part.encode("utf-8"), hashlib.sha256).digest()
+    return k
+
+
+SYSTEM_CA_CANDIDATES = (
+    "/etc/ssl/cert.pem",                 # macOS / 部分发行版
+    "/etc/ssl/certs/ca-certificates.crt",  # Debian/Ubuntu(云上 22.04 实测有)
+    "/etc/pki/tls/certs/ca-bundle.crt",    # RHEL/CentOS
+)
+
+
+def _file_exists(path: str) -> bool:
+    """文件存在性判定的测试接缝(F2: 三支兜底分支必须可注入、可判别)。"""
+    return Path(path).exists()
+
+
+def resolve_ca_file() -> "str | None":
+    """按序探测 CA 束: certifi → 系统路径;全缺返回 None(由 tls_context 用系统默认)。
+
+    三条分支(2026-11-15 F2 覆盖缺口): ①certifi 可用 ②certifi 不可用但系统 CA 在
+    ③都不可用 → ssl 默认上下文(仍开校验, **绝不** unverified)。
+    """
+    try:
+        import certifi
+        ca = certifi.where()
+        if ca and _file_exists(ca):
+            return ca
+    except (ImportError, OSError):
+        pass
+    for cand in SYSTEM_CA_CANDIDATES:
+        if _file_exists(cand):
+            return cand
+    return None
+
+
+def tls_context():
+    """HTTPS 证书校验上下文: certifi CA 优先, 系统 CA 兜底; 任何分支都保持校验开启。"""
+    import ssl
+    ca = resolve_ca_file()
+    if ca:
+        try:
+            return ssl.create_default_context(cafile=ca)
+        except OSError:
+            pass                                 # CA 束读不了 ⇒ 退系统默认(仍校验)
+    return ssl.create_default_context()
+
+
+def build_signed_get(endpoint: str, bucket: str, key: str, ak: str, sk: str,
+                     now: dt.datetime) -> tuple[str, dict]:
+    """构造 SigV4 GET 的 (url, headers) —— 纯函数, _s3_get 与签名对照用例共用。"""
+    import hmac as _hmac
+    from urllib.parse import quote, urlparse
+    host = urlparse(endpoint).hostname
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+    payload_hash = hashlib.sha256(b"").hexdigest()
+    path = f"/{bucket}/" + quote(key, safe="/")
+    headers = {
+        "host": host,
+        "x-amz-date": amz_date,
+        "x-amz-content-sha256": payload_hash,
+    }
+    signed = ";".join(sorted(headers))
+    canonical_headers = "".join(f"{k}:{headers[k]}\n" for k in sorted(headers))
+    canonical_request = f"GET\n{path}\n\n{canonical_headers}\n{signed}\n{payload_hash}"
+    scope = f"{date_stamp}/auto/s3/aws4_request"
+    sts = (f"AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n"
+           + hashlib.sha256(canonical_request.encode("utf-8")).hexdigest())
+    signature = _hmac.new(aws_signing_key(date_stamp, sk), sts.encode("utf-8"),
+                          hashlib.sha256).hexdigest()
+    headers["Authorization"] = (
+        f"AWS4-HMAC-SHA256 Credential={ak}/{scope}, "
+        f"SignedHeaders={signed}, Signature={signature}")
+    return f"{endpoint.rstrip('/')}{path}", headers
 
 
 def emit_event_once(state: dict, store: "StateStore", event_key: str,
@@ -369,8 +478,10 @@ class LocalSource(Source):
 class R2Source(Source):
     """R2 备份桶 GET(纯标准库 SigV4; 不 import upload_r2——其模块级 load_env
     会 sys.exit, import 即副作用)。凭据自 .env(R2_BACKUP2_* 键, 与
-    upload_r2.py 同名), 值不打印不入命令行。manifest_key 待 C 批契约定案
-    后对齐(当前缺省 standby/manifest_latest.json 为占位)。
+    upload_r2.py 同名), 值不打印不入命令行。manifest_key 缺省
+    standby/manifest_latest.json —— 该对象由云上既有备份链在
+    STANDBY_MANIFEST_ENABLED=1 时生成(G3/G4, 2026-11-15, 见 scripts/standby_manifest.py;
+    契约以本模块 normalize_manifest 为准)。
     """
 
     def __init__(self, endpoint: str, bucket: str, ak: str, sk: str,
@@ -384,39 +495,13 @@ class R2Source(Source):
         self.timeout = timeout
 
     def _s3_get(self, key: str) -> bytes:
-        import hmac as _hmac
-        from urllib.parse import quote
-        now = dt.datetime.now(dt.timezone.utc)
-        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
-        date_stamp = now.strftime("%Y%m%d")
-        payload_hash = hashlib.sha256(b"").hexdigest()
-        path = f"/{self.bucket}/" + quote(key, safe="/")
-        headers = {
-            "host": self.host,
-            "x-amz-date": amz_date,
-            "x-amz-content-sha256": payload_hash,
-        }
-        signed = ";".join(sorted(headers))
-        canonical_headers = "".join(f"{k}:{headers[k]}\n" for k in sorted(headers))
-        req = f"GET\n{path}\n\n{canonical_headers}\n{signed}\n{payload_hash}"
-        scope = f"{date_stamp}/auto/s3/aws4_request"
-        sts = (f"AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n"
-               + hashlib.sha256(req.encode()).hexdigest())
-
-        def _sign(msg: bytes, key_: bytes) -> bytes:
-            return _hmac.new(key_, msg, hashlib.sha256).digest()
-
-        k = _sign(("AWS4" + self.sk).encode(), b"")
-        for part in (date_stamp, "auto", "s3", "aws4_request"):
-            k = _sign(part.encode(), k)
-        sig = _hmac.new(k, sts.encode(), hashlib.sha256).hexdigest()
-        url = f"{self.endpoint}{path}"
-        req_headers = dict(headers)
-        req_headers["Authorization"] = (
-            f"AWS4-HMAC-SHA256 Credential={self.ak}/{scope}, "
-            f"SignedHeaders={signed}, Signature={sig}")
+        url, req_headers = build_signed_get(
+            self.endpoint, self.bucket, key, self.ak, self.sk,
+            dt.datetime.now(dt.timezone.utc))
         request = urllib.request.Request(url, headers=req_headers, method="GET")
-        with urllib.request.urlopen(request, timeout=self.timeout) as resp:
+        # G6: 显式证书上下文(certifi/系统 CA), 不关闭校验。
+        with urllib.request.urlopen(request, timeout=self.timeout,
+                                    context=tls_context()) as resp:
             return resp.read()
 
     def fetch_manifest(self) -> tuple[bytes, dict]:
@@ -787,9 +872,62 @@ def _record_success(state, store, now: dt.datetime, downloadable, verified,
         f"business_date={manifest['business_date']} missed_runs={missed}")
 
 
+def _trading_lag_days(business_date: str, today: dt.date) -> "int | None":
+    """business_date(YYYY-MM-DD)落后参考交易日的**交易日数**(F1, 2026-11-15)。
+
+    直接复用仓库既有交易日历实现 ``app.calendar.lag_trading_days``(单一事实源,
+    见 app/calendar.py:127; 区间 (business_date, today] 内的交易日个数, 周末/节假日
+    不计滞后), **不另造一份日历**。解析失败/模块不可用返回 None 由调用方回退。
+
+    日历可用性三道护栏(边界加固 D1/D2/D3, 2026-11-15; 任一不满足一律返回 None,
+    由调用方回退自然日并在文案标注单位, 绝不把非日历口径的数字标成「个交易日」):
+      - D1 空集: 日历文件缺失且 akshare 不可用 ⇒ ``app.calendar`` 会退化成
+        「周一~周五」工作日启发式, 长假会被当成交易日(实测 09-30→10-08 算 6,
+        真实 1) ⇒ 启发式结果不是交易日历, 判不可用。
+      - D2 陈旧: 日历最新日期 < 今天 ⇒ 区间内交易日全部缺席, 会静默算出 0
+        (永不告警)或系统性少算 ⇒ 判不可用。**不放宽周末/节假日**: 正常日历由
+        akshare 刷新, 含未来交易日直到年末, 「今天是非交易日」不会让最新日期
+        落后于今天; 放宽反而会掩盖真陈旧。
+      - D3 不可读: PermissionError/OSError 等读取异常 ⇒ 按不可用处理, 不崩主流程。
+    """
+    try:
+        repo_root = Path(__file__).resolve().parent.parent
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
+        from app.calendar import (
+            _load_trade_dates, is_trading_day, lag_trading_days,
+            last_trading_day)
+        dates = _load_trade_dates()
+    except (ImportError, ValueError, AttributeError, OSError):
+        # D3: 日历文件不可读(PermissionError/IsADirectoryError 等 OSError)或
+        # app.calendar 不可用 ⇒ 按不可用处理, 不抛到主流程。
+        return None
+    # D1: 空集 = 日历缺失且 akshare 不可用 ⇒ 后续 is_trading_day 会走工作日启发式。
+    if not dates:
+        return None
+    # D2: 覆盖判定 —— 最新日期必须覆盖到今天, 否则陈旧日历会静默少算/算出 0。
+    try:
+        if max(dates) < today.strftime("%Y%m%d"):
+            return None
+    except (TypeError, ValueError):
+        return None
+    try:
+        # app.calendar 在「今天不在日历覆盖内」时会静默回退自然日; 覆盖已由 D2 保证,
+        # 这里仍保留定位参考交易日的判据, 让调用方单位标注与口径一致。
+        if not is_trading_day(last_trading_day(today)):
+            return None
+        compact = dt.datetime.strptime(business_date, "%Y-%m-%d").strftime("%Y%m%d")
+        return lag_trading_days(compact, today=today)
+    except (ValueError, AttributeError, OSError):
+        return None
+
+
 def _check_stale(layout: Layout, store: StateStore, state: dict, args,
                  log) -> None:
-    """最新可恢复点过期检测(成功/无变化路径都查: 远端停更要暴露, 不静默)。"""
+    """最新可恢复点过期检测(成功/无变化路径都查: 远端停更要暴露, 不静默)。
+
+    判龄口径见模块 docstring: 默认 --stale-mode trading(交易日), natural 为显式旧口径。
+    """
     vid = _latest_vid(layout)
     if vid == "(none)":
         return
@@ -802,30 +940,42 @@ def _check_stale(layout: Layout, store: StateStore, state: dict, args,
             pass
     if not bd:
         return
-    age = (_now().date() - dt.datetime.strptime(bd, "%Y-%m-%d").date()).days
+    now = _now()
+    bd_date = dt.datetime.strptime(bd, "%Y-%m-%d").date()
+    natural_age = (now.date() - bd_date).days
+    if getattr(args, "stale_mode", "trading") == "trading":
+        lag = _trading_lag_days(bd, now.date())
+        if lag is not None:
+            age, unit = lag, "个交易日"
+        else:
+            # 日历不可用(异常/日期超覆盖): 回退自然日并标注, 不静默改成 0
+            age, unit = natural_age, "天(日历不可用回退自然日)"
+    else:
+        age, unit = natural_age, "天"
     state["latest_recovery_point_age_days"] = age
+    state["latest_recovery_point_age_mode"] = getattr(
+        args, "stale_mode", "trading")
     store.save(state)
     if age > args.stale_days:
-        now = _now()
         emit_event_once(
             state, store, EVENT_KEYS["stale_recovery_point"],
-            f"[告警] standby_sync 最新可恢复点过期 {age}天 {now:%m-%d %H:%M}",
-            f"备用机最新已验证恢复点业务日期 {bd}, 已 {age} 天"
-            f"(阈值 {args.stale_days} 天)。<br>时间(本地): "
+            f"[告警] standby_sync 最新可恢复点过期 {age} {unit} {now:%m-%d %H:%M}",
+            f"备用机最新已验证恢复点业务日期 {bd}, 已落后 {age} {unit}"
+            f"(阈值 {args.stale_days} {unit})。<br>时间(本地): "
             f"{now:%Y-%m-%d %H:%M:%S}<br>latest_verified: {vid}"
             f"<br>需要动作: 排查云端备份链是否停更(C 批 capture 链)"
             f"<br>本告警 7 天去重窗内不重复, 期间每日静默只记状态。",
             log=log)
-        log(f"[standby_sync] 恢复点过期告警已发(年龄 {age} 天)")
+        log(f"[standby_sync] 恢复点过期告警已发(年龄 {age} {unit})")
     else:
-        log(f"[standby_sync] 恢复点年龄 {age} 天(阈值内)")
+        log(f"[standby_sync] 恢复点年龄 {age} {unit}(阈值内)")
         # 过期告警曾发出且现已回到阈值内 ⇒ 对已通知事件发一次恢复通知
         key = EVENT_KEYS["stale_recovery_point"]
         if key in (state.get("pending_recovery") or []):
             emit_recovery_once(
                 state, store, key,
-                f"最新已验证恢复点已刷新: 业务日期 {bd}, 年龄 {age} 天 "
-                f"≤ 阈值 {args.stale_days} 天, latest_verified: {vid}", log)
+                f"最新已验证恢复点已刷新: 业务日期 {bd}, 年龄 {age} {unit} "
+                f"≤ 阈值 {args.stale_days} {unit}, latest_verified: {vid}", log)
 
 
 def _emit_sync_recoveries(layout: "Layout", state: dict, store: StateStore,
@@ -1272,19 +1422,24 @@ def status_command(args, log) -> int:
         "missed_runs_last": state.get("missed_runs_last"),
         "latest_recovery_point_age_days":
             state.get("latest_recovery_point_age_days"),
+        "latest_recovery_point_age_unit":
+            state.get("latest_recovery_point_age_mode", "trading"),
         "versions": [],
     }
     for v in _version_infos(layout):
         age = None
+        lag = None
         if v["business_date"]:
             try:
                 age = (now.date() - dt.datetime.strptime(
                     v["business_date"], "%Y-%m-%d").date()).days
+                lag = _trading_lag_days(v["business_date"], now.date())
             except ValueError:
                 pass
         out["versions"].append({
             "vid": v["vid"], "verified": v["verified"],
             "business_date": v["business_date"], "age_days": age,
+            "lag_trading_days": lag,
             "size_bytes": v["size"]})
     if state.get("last_success_ts"):
         try:
@@ -1340,7 +1495,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--deadline-minutes", type=float, default=120.0,
                    help="共享总截止(默认 120 分钟)")
     s.add_argument("--stale-days", type=int, default=2,
-                   help="恢复点过期阈值(默认 2 天)")
+                   help="恢复点过期阈值(默认 2; 交易日口径, --stale-mode natural 时为自然日)")
+    s.add_argument("--stale-mode", choices=["trading", "natural"], default="trading",
+                   help="判龄口径(默认 trading=交易日, 周末/节后不误报; "
+                        "natural=旧自然日口径, 周末/节后会多算, 仅排障对照)")
     s.add_argument("--min-free-gb", type=float, default=5.0,
                    help="下载前最低可用空间(默认 5GiB)")
     s.add_argument("--only-if-missed", action="store_true",

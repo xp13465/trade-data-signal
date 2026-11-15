@@ -29,11 +29,25 @@
 
 1. **建独立工作根**(勿复用开发树):`git clone` 仓库到如 `~/trade-standby-repo`,
    checkout 已验证 HEAD;建 venv 装 `requirements.txt`。
+   - **⚠ 交易日历要单独同步(2026-11-15 补)**:判龄读的是**备用机工作根自己**的
+     `data/trade_dates.txt`,clone 后**不会自动更新**(生产每日刷新只写云上 trade-data 树)。
+     启用前把主仓最新文件拷过来,之后**定期更新**(建议随每次同步批次或至少每月一次;
+     **跨年前必须更新**)。缺失/陈旧/不可读时判龄诚实降级为自然日,告警文案标注
+     「天(日历不可用回退自然日)」= 偏响(可能误报)而非静默漏报;看到该标注先补日历。
 2. **R2 凭据**:`<工作根>/.env` 写 `R2_BACKUP2_ENDPOINT / R2_BACKUP2_BUCKET /
    R2_BACKUP2_ACCESS_KEY_ID / R2_BACKUP2_SECRET_ACCESS_KEY`(与 upload_r2.py 同键名;
-   该文件 `.gitignore`,禁 commit)。manifest key 当前缺省
-   `standby/manifest_latest.json` 为**占位**——待 C 批(feat/standby-capture-20261114)
-   契约定案后在 `--manifest-key` 对齐,首次真实同步前必须核。
+   该文件 `.gitignore`,禁 commit)。manifest key 缺省
+   `standby/manifest_latest.json`:云上既有备份链在 `STANDBY_MANIFEST_ENABLED=1` 时由
+   `backup_db.sh → upload_r2.py standby-manifest` 生成(G3/G4, 契约见
+   `scripts/standby_manifest.py`);**未开启开关前 R2 上无此对象**,首次真实同步前必须确认
+   云上开关已开且该 key 存在(用 `standby_sync.py verify` 或 `list standby/` 核)。
+   - **⚠ 双开关依赖(启用前必读,2026-11-15)**:清单生产者硬依赖状态集捕获产物目录,云上必须
+     **同时**开 `STATE_CAPTURE_ENABLED=1`（产出 `CAPTURE_SET_DIR`/state receipt）和
+     `STANDBY_MANIFEST_ENABLED=1`（生成发布清单）。**只开清单开关** ⇒ `backup_db.sh`
+     每晚打印「⚠ 备用机同步清单跳过(缺捕获集合或本轮 receipt)」静默跳过（只进备份日志、
+     不发通知、不改退出码）⇒ R2 永远没有 `standby/manifest_latest.json`,备用机 `sync`
+     一直 404;**只开捕获开关** ⇒ 状态集归档有了但清单仍不生成。启用前置:确认判龄口径为交易日
+     （本分支默认 `--stale-mode trading`;旧版会每周一误报 severe）。
 3. **改模板占位符**:把两个 plist 里 `__STANDBY_PYTHON__`、`__STANDBY_REPO__`
    换成真实绝对路径。
 4. **先手动演练**(D 批完成条件「先手动在隔离环境跑通」):
@@ -68,8 +82,12 @@
   (`--deadline-minutes`),不跨窗口重试;
 - **静默**(只写状态,零外发):成功、无变化、窗口内重试后成功;
 - **事件**(notify.py,四元组 critical/604800s/backup 域/首报必达):
-  新集合损坏、超窗口失败、恢复点过期(>2 天,`--stale-days`)、空间不足;
+  新集合损坏、超窗口失败、恢复点过期(>2 个交易日,`--stale-days`;
+  默认 `--stale-mode trading`,自然日口径需显式 `--stale-mode natural`)、空间不足;
   同一事件 7 天去重窗内不重复(不按尝试次数/日期刷屏);
+- **日历不可用降级**:备用机仓库日历缺失/陈旧/不可读时,恢复点判龄回退自然日并标注
+  「天(日历不可用回退自然日)」——偏响(可能误报)而非静默漏报;先按安装步骤补
+  `data/trade_dates.txt`,不要把该标注当真实交易日滞后;
 - **故障恢复通知**:上述故障事件**真发出过**的,真正恢复后对每个事件发一次
   恢复通知(`<事件键>_recovered`,同 7 天去重窗),发出成功即清账;从未通知过
   的故障不发恢复(不会出现「没收到告警却收到恢复」);`pending_recovery` 记在状态文件;

@@ -107,6 +107,7 @@ echo "当前备份数：${N}（${BACKUP_DIR}）" | tee -a "$LOG"
 # Per-run selector is unrelated to the earlier local hot backups.
 BACKUP_RUN_ID=$("$PY" -c 'import uuid; print(uuid.uuid4().hex)')
 BACKUP_SOURCE_PROOF="$LOGDIR/r2-db-source-${BACKUP_RUN_ID}.json"
+BACKUP_STATE_PROOF="$LOGDIR/r2-state-source-${BACKUP_RUN_ID}.json"
 # Keep the existing weekly/explicit drill schedule in the caller. No new job.
 REQUIRE_PUBLIC_FUND_SOURCE=0
 if [ "${VERIFY_BACKUP_SKIP:-0}" != "1" ]; then
@@ -145,7 +146,7 @@ if [ "${STATE_CAPTURE_ENABLED:-0}" = "1" ] && [ -f "$REPO/scripts/backup_state_c
     echo "  集合目录: $CAPTURE_SET_DIR" | tee -a "$LOG"
     if [ -f "$REPO/scripts/upload_r2.py" ]; then
       echo "-> 状态集 R2 归档上传(upload-state-capture) ..." | tee -a "$LOG"
-      env R2_STATE_CAPTURE_PROOF="$LOGDIR/r2-state-source-${BACKUP_RUN_ID}.json" \
+      env R2_STATE_CAPTURE_PROOF="$BACKUP_STATE_PROOF" \
         R2_STATE_CAPTURE_RUN_ID="$BACKUP_RUN_ID" \
         R2_UPLOAD_LOCK_DOMAIN=backup_db R2_UPLOAD_LOCK_TIMEOUT=9000 \
         "$PY" "$REPO/scripts/upload_r2.py" upload-state-capture "$CAPTURE_SET_DIR" >> "$LOG" 2>&1 \
@@ -177,6 +178,24 @@ if [ -f "$REPO/scripts/upload_r2.py" ]; then
   fi
 else
   echo "⚠ $REPO/scripts/upload_r2.py 不存在，跳过 R2 异地备份" | tee -a "$LOG"
+fi
+
+# 备用机同步清单生产者(G3/G4, 2026-11-15; 默认关, 主控部署时 STANDBY_MANIFEST_ENABLED=1 启用)。
+# 把「本轮已上传的 DB 最新版 + 状态集 tar.gz」映射成 standby_sync.py 契约的
+# standby/manifest_latest.json(备用机同步唯一入口; 此前该 key 不存在 ⇒ 备用机首次同步 404)。
+# 落在既有上传链里(upload-db 之后, 两份 receipt 均已落盘), 不新开进程/定时任务。
+# 前置不全(未开启 / 无捕获集合 / 本轮 receipt 缺失)直接跳过; 生成/发布失败只告警不改
+# 本脚本 RC(同上方 C4 块的契约), 生成器保证失败不覆盖旧可用 manifest。
+if [ "${STANDBY_MANIFEST_ENABLED:-0}" = "1" ]; then
+  if [ -n "${CAPTURE_SET_DIR:-}" ] && [ -s "$BACKUP_SOURCE_PROOF" ] && [ -s "$BACKUP_STATE_PROOF" ]; then
+    echo "-> 备用机同步清单(upload_r2.py standby-manifest) ..." | tee -a "$LOG"
+    env STANDBY_MANIFEST_ENABLED=1 R2_UPLOAD_LOCK_DOMAIN=backup_db R2_UPLOAD_LOCK_TIMEOUT=9000 \
+      "$PY" "$REPO/scripts/upload_r2.py" standby-manifest \
+      "$CAPTURE_SET_DIR" "$BACKUP_SOURCE_PROOF" "$BACKUP_STATE_PROOF" >> "$LOG" 2>&1 \
+      || echo "⚠ 备用机同步清单未更新(原备份退出码不变; 旧 manifest 保留)" | tee -a "$LOG"
+  else
+    echo "⚠ 备用机同步清单跳过(缺捕获集合或本轮 receipt; 原备份退出码不变)" | tee -a "$LOG"
+  fi
 fi
 
 # R2 备份恢复演练（verify_backup.sh）：上传 R2 后立即校验可恢复性。
