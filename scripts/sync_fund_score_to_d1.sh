@@ -379,9 +379,25 @@ print(f"[sync-d1-python] diff: total={len(rows)} changed={len(changed)} "
 
 set_cols = [name for name, _ in cols if name != "fund_code"] + ["row_hash"]
 # 依据数据库当前键值分写；日期/hash 初始化不 SET 未变索引列。NULL 用 IS/IS NOT 比较。
+#
+# 写放大瘦身(2026-11-16, 依据 /tmp/fund-index-audit-20261116.md §5.4):
+#   D1 只要 SET 里含索引列就多写一行索引(与值是否变无关)。把原「全列 SET」按索引列
+#   是否真变拆成两条互斥语句, 每行只被一条命中:
+#     A composite_index_clause: fund_type 未变 + composite_score 变
+#                              ⇒ SET 非索引列 + composite_score(1 表 + 1 索引 = 2 行写)
+#     B full_clause           : fund_type 变 ⇒ SET 全部列(1 表 + 2 索引 = 3 行写)
+#     C nonindex_clause       : 两个索引列都没变、其它列变 ⇒ SET 非索引列(1 行写, 语句不变)
+#   三条 WHERE 两两互斥(A/B 在 fund_type 等与不等上互补; C 要求两列全等, 与 A 在
+#   composite_score 等值上互补、与 B 在 fund_type 上互补) ⇒ 数据值与改前逐字段一致。
 index_cols = ("composite_score", "fund_type")  # 与上方两个二级索引一致
-conflict_clause = build_conflict_clause("fund_score", set_cols, "fund_code") + " WHERE " + " OR ".join(
-    f"fund_score.{c} IS NOT excluded.{c}" for c in index_cols)
+secondary_index_cols = tuple(c for c in index_cols if c != "composite_score")  # fund_type
+full_clause = build_conflict_clause("fund_score", set_cols, "fund_code") + " WHERE " + " OR ".join(
+    f"fund_score.{c} IS NOT excluded.{c}" for c in secondary_index_cols)
+composite_index_clause = build_conflict_clause(
+    "fund_score", [c for c in set_cols if c not in secondary_index_cols], "fund_code"
+) + " WHERE " + " AND ".join(
+    ["fund_score.composite_score IS NOT excluded.composite_score"]
+    + [f"fund_score.{c} IS excluded.{c}" for c in secondary_index_cols])
 nonindex_clause = build_conflict_clause(
     "fund_score", [c for c in set_cols if c not in index_cols], "fund_code"
 ) + " WHERE " + " AND ".join(
@@ -401,8 +417,10 @@ if split_mode == "single":
         if write_rows:
             write_cols = [name for name, _ in cols] + ["row_hash"]
             write_vals = ["(" + ", ".join(sql_lit(r[name]) for name in write_cols) + ")" for r in write_rows]
-            bundle.add_inserts(head, write_vals, conflict_clause=conflict_clause)
-            # 两条均为完整 INSERT；冲突更新互斥，数据与 hash 始终同一语句落盘，重试可跳过。
+            # 三条均为完整 INSERT；冲突更新两两互斥(每行只被一条命中)，数据与 hash
+            # 始终同一语句落盘，重试可跳过，也不会把同一行重复计写。
+            bundle.add_inserts(head, write_vals, conflict_clause=composite_index_clause)
+            bundle.add_inserts(head, write_vals, conflict_clause=full_clause)
             bundle.add_inserts(head, write_vals, conflict_clause=nonindex_clause)
         else:
             print("[sync-d1-python] 增量空写: changed+new=0, 跳过 INSERT(只写 meta+removed)", flush=True)

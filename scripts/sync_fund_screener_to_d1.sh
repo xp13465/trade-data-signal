@@ -560,9 +560,26 @@ print(f"[sync-screener-python] diff: total={len(rows)} changed={len(changed)} "
 # SET 子句列(不含冲突键 fund_code, 含 row_hash)
 set_cols = [c for c in COLS if c != "fund_code"]
 # 依据数据库当前键值分写；日期/年数/hash 初始化不 SET 未变索引列，NULL 安全。
+#
+# 写放大瘦身(2026-11-16, 依据 /tmp/fund-index-audit-20261116.md §5.4):
+#   D1 官方口径 = "SET 里出现索引列就多写一行索引, 与该列值是否真变无关"。
+#   因此把原「全列 SET」按「索引列到底变没变」拆成两条互斥语句, 每行只被一条命中:
+#     A composite_index_clause: fund_type/scale 未变 + composite_score 变
+#                              ⇒ SET 非索引列 + composite_score(1 表 + 1 索引 = 2 行写)
+#     B full_clause           : fund_type 或 scale 变 ⇒ SET 全部列(1 表 + 3 索引 = 4 行写)
+#     C nonindex_clause       : 三个索引列都没变、其它列变 ⇒ SET 非索引列(1 行写, 语句不变)
+#   三条 WHERE 两两互斥(A 要求 fund_type/scale 全等, B 要求至少一个不等; C 要求三列全等,
+#   与 A 在 composite_score 等值上互补、与 B 在 fund_type/scale 上互补), 合起来覆盖
+#   「row_hash 变了」的全部行 ⇒ 落库后的数据值与改前逐字段一致, 只是少写了没变的索引行。
 index_cols = ("composite_score", "fund_type", "scale")  # 与上方三个二级索引一致
-conflict_clause = build_conflict_clause("fund_screener", set_cols, "fund_code") + " WHERE " + " OR ".join(
-    f"fund_screener.{c} IS NOT excluded.{c}" for c in index_cols)
+secondary_index_cols = tuple(c for c in index_cols if c != "composite_score")  # fund_type, scale
+full_clause = build_conflict_clause("fund_screener", set_cols, "fund_code") + " WHERE " + " OR ".join(
+    f"fund_screener.{c} IS NOT excluded.{c}" for c in secondary_index_cols)
+composite_index_clause = build_conflict_clause(
+    "fund_screener", [c for c in set_cols if c not in secondary_index_cols], "fund_code"
+) + " WHERE " + " AND ".join(
+    ["fund_screener.composite_score IS NOT excluded.composite_score"]
+    + [f"fund_screener.{c} IS excluded.{c}" for c in secondary_index_cols])
 nonindex_clause = build_conflict_clause(
     "fund_screener", [c for c in set_cols if c not in index_cols], "fund_code"
 ) + " WHERE " + " AND ".join(
@@ -593,8 +610,10 @@ if split_mode == "single":
         write_rows = changed + new_rows
         if write_rows:
             write_vals = ["(" + ", ".join(sql_lit(r[c]) for c in COLS) + ")" for r in write_rows]
-            bundle.add_inserts(head, write_vals, conflict_clause=conflict_clause)
-            # 两条均为完整 INSERT；互补条件保证部分成功/重试不会只写新 hash 而留下旧字段。
+            # 三条均为完整 INSERT；互补条件(两两互斥)保证同一行只被其中一条写一次,
+            # 部分成功/重试不会只写新 hash 而留下旧字段, 也不会把同一行重复计写。
+            bundle.add_inserts(head, write_vals, conflict_clause=composite_index_clause)
+            bundle.add_inserts(head, write_vals, conflict_clause=full_clause)
             bundle.add_inserts(head, write_vals, conflict_clause=nonindex_clause)
         else:
             print("[sync-screener-python] 增量空写: changed+new=0, 跳过 INSERT(只写 meta+removed)",
