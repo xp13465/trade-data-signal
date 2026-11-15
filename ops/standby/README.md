@@ -31,9 +31,11 @@
    checkout 已验证 HEAD;建 venv 装 `requirements.txt`。
 2. **R2 凭据**:`<工作根>/.env` 写 `R2_BACKUP2_ENDPOINT / R2_BACKUP2_BUCKET /
    R2_BACKUP2_ACCESS_KEY_ID / R2_BACKUP2_SECRET_ACCESS_KEY`(与 upload_r2.py 同键名;
-   该文件 `.gitignore`,禁 commit)。manifest key 当前缺省
-   `standby/manifest_latest.json` 为**占位**——待 C 批(feat/standby-capture-20261114)
-   契约定案后在 `--manifest-key` 对齐,首次真实同步前必须核。
+   该文件 `.gitignore`,禁 commit)。manifest key 缺省
+   `standby/manifest_latest.json`:云上既有备份链在 `STANDBY_MANIFEST_ENABLED=1` 时由
+   `backup_db.sh → upload_r2.py standby-manifest` 生成(G3/G4, 契约见
+   `scripts/standby_manifest.py`);**未开启开关前 R2 上无此对象**,首次真实同步前必须确认
+   云上开关已开且该 key 存在(用 `standby_sync.py verify` 或 `list standby/` 核)。
 3. **改模板占位符**:把两个 plist 里 `__STANDBY_PYTHON__`、`__STANDBY_REPO__`
    换成真实绝对路径。
 4. **先手动演练**(D 批完成条件「先手动在隔离环境跑通」):

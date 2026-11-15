@@ -325,6 +325,15 @@ etf_index_map/etf_track_index/lof_track_index 等）。本节机制把这套状�
   manifest），proof 契约同 `upload-db`（`R2_STATE_CAPTURE_PROOF`+`R2_STATE_CAPTURE_RUN_ID`
   成对传，receipt 同 schema:1 结构），保留 14 天滚动（`_prune_state_captures`）；上传成功前
   本地集合不删
+- **备用机同步清单（G3/G4，2026-11-15）**：`standby/manifest_latest.json` 由既有上传链在
+  `upload-db` 之后生成（`backup_db.sh` 调 `upload_r2.py standby-manifest <set_dir> <db_proof>
+  <state_proof>`；**默认关**，`STANDBY_MANIFEST_ENABLED=1` 才执行，不新开进程/定时任务，未开启时
+  上传链行为与退出码不变）。内容 = 同轮已上传产物的映射：`business_date` **只取捕获集合
+  `db_cutoff.date`**（`all_databases_covered=false`/缺失即拒绝写），files 的 `size`/`sha256_gz`/
+  `sha256_uncompressed`/`size_uncompressed` 全部取自同轮 upload-db / upload-state-capture receipt
+  对真实上传字节的指纹（缺失即拒绝，不编造），`public_fund` 记在 `excluded`（归档走独立大库流式链）。
+  发布为「临时 key → 同桶 CopyObject 覆盖 latest → 删临时 key」，任一步失败不碰 latest（旧清单
+  保留）；写前过 `standby_sync.normalize_manifest` 契约校验（单一事实源）。
 - **自校验**：集合内逐文件 sha256 复算 + DB 副本 integrity_check（在 db_leg 逐库记录）；
   校验失败 ⇒ `uploadable=false`，不冒充成功
 

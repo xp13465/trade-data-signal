@@ -157,6 +157,68 @@ def _disk_free(path: Path) -> int:
     return shutil.disk_usage(str(path)).free
 
 
+# ------------------------------------------------------------ tls / sigv4 ---
+# G5/G6 修复(2026-11-15 实测缺陷, 取证见 /tmp/standby-d-report.md):
+#   G5 原签名首步 HMAC 参数写反(`_sign("AWS4"+sk, b"")` ⇒ 用空 key 派生)⇒ R2 回
+#      403 SignatureDoesNotMatch; 现按 AWS SigV4 规范顺序派生, 并以纯函数暴露,
+#      供「与 upload_r2.py 签名器逐字对照」用例复用(不依赖网络)。
+#   G6 原 urlopen 不带证书上下文 ⇒ 本机 Python 3.11 报 CERTIFICATE_VERIFY_FAILED;
+#      现与 upload_r2.py 同源做法挂 certifi CA(缺 certifi / 无法加载时退系统 CA),
+#      **永不关闭校验**(禁 _create_unverified_context / verify=False)。
+
+def aws_signing_key(date_stamp: str, secret_key: str) -> bytes:
+    """SigV4 派生签名密钥: 首步 HMAC(key="AWS4"+SK, msg=date_stamp), 再派生 region/service。"""
+    import hmac as _hmac
+    k = _hmac.new(("AWS4" + secret_key).encode("utf-8"),
+                  date_stamp.encode("utf-8"), hashlib.sha256).digest()
+    for part in ("auto", "s3", "aws4_request"):
+        k = _hmac.new(k, part.encode("utf-8"), hashlib.sha256).digest()
+    return k
+
+
+def tls_context():
+    """HTTPS 证书校验上下文: certifi CA 优先, 系统 CA 兜底; 任何分支都保持校验开启。"""
+    import ssl
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except (ImportError, OSError):
+        pass
+    system_ca = Path("/etc/ssl/cert.pem")
+    if system_ca.exists():
+        return ssl.create_default_context(cafile=str(system_ca))
+    return ssl.create_default_context()
+
+
+def build_signed_get(endpoint: str, bucket: str, key: str, ak: str, sk: str,
+                     now: dt.datetime) -> tuple[str, dict]:
+    """构造 SigV4 GET 的 (url, headers) —— 纯函数, _s3_get 与签名对照用例共用。"""
+    import hmac as _hmac
+    from urllib.parse import quote, urlparse
+    host = urlparse(endpoint).hostname
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+    payload_hash = hashlib.sha256(b"").hexdigest()
+    path = f"/{bucket}/" + quote(key, safe="/")
+    headers = {
+        "host": host,
+        "x-amz-date": amz_date,
+        "x-amz-content-sha256": payload_hash,
+    }
+    signed = ";".join(sorted(headers))
+    canonical_headers = "".join(f"{k}:{headers[k]}\n" for k in sorted(headers))
+    canonical_request = f"GET\n{path}\n\n{canonical_headers}\n{signed}\n{payload_hash}"
+    scope = f"{date_stamp}/auto/s3/aws4_request"
+    sts = (f"AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n"
+           + hashlib.sha256(canonical_request.encode("utf-8")).hexdigest())
+    signature = _hmac.new(aws_signing_key(date_stamp, sk), sts.encode("utf-8"),
+                          hashlib.sha256).hexdigest()
+    headers["Authorization"] = (
+        f"AWS4-HMAC-SHA256 Credential={ak}/{scope}, "
+        f"SignedHeaders={signed}, Signature={signature}")
+    return f"{endpoint.rstrip('/')}{path}", headers
+
+
 def emit_event_once(state: dict, store: "StateStore", event_key: str,
                     subject: str, body: str, log) -> bool:
     """同日事件去重(本层): 同一事件当日已报过 ⇒ 不再进入外发路径。
@@ -369,8 +431,10 @@ class LocalSource(Source):
 class R2Source(Source):
     """R2 备份桶 GET(纯标准库 SigV4; 不 import upload_r2——其模块级 load_env
     会 sys.exit, import 即副作用)。凭据自 .env(R2_BACKUP2_* 键, 与
-    upload_r2.py 同名), 值不打印不入命令行。manifest_key 待 C 批契约定案
-    后对齐(当前缺省 standby/manifest_latest.json 为占位)。
+    upload_r2.py 同名), 值不打印不入命令行。manifest_key 缺省
+    standby/manifest_latest.json —— 该对象由云上既有备份链在
+    STANDBY_MANIFEST_ENABLED=1 时生成(G3/G4, 2026-11-15, 见 scripts/standby_manifest.py;
+    契约以本模块 normalize_manifest 为准)。
     """
 
     def __init__(self, endpoint: str, bucket: str, ak: str, sk: str,
@@ -384,39 +448,13 @@ class R2Source(Source):
         self.timeout = timeout
 
     def _s3_get(self, key: str) -> bytes:
-        import hmac as _hmac
-        from urllib.parse import quote
-        now = dt.datetime.now(dt.timezone.utc)
-        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
-        date_stamp = now.strftime("%Y%m%d")
-        payload_hash = hashlib.sha256(b"").hexdigest()
-        path = f"/{self.bucket}/" + quote(key, safe="/")
-        headers = {
-            "host": self.host,
-            "x-amz-date": amz_date,
-            "x-amz-content-sha256": payload_hash,
-        }
-        signed = ";".join(sorted(headers))
-        canonical_headers = "".join(f"{k}:{headers[k]}\n" for k in sorted(headers))
-        req = f"GET\n{path}\n\n{canonical_headers}\n{signed}\n{payload_hash}"
-        scope = f"{date_stamp}/auto/s3/aws4_request"
-        sts = (f"AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n"
-               + hashlib.sha256(req.encode()).hexdigest())
-
-        def _sign(msg: bytes, key_: bytes) -> bytes:
-            return _hmac.new(key_, msg, hashlib.sha256).digest()
-
-        k = _sign(("AWS4" + self.sk).encode(), b"")
-        for part in (date_stamp, "auto", "s3", "aws4_request"):
-            k = _sign(part.encode(), k)
-        sig = _hmac.new(k, sts.encode(), hashlib.sha256).hexdigest()
-        url = f"{self.endpoint}{path}"
-        req_headers = dict(headers)
-        req_headers["Authorization"] = (
-            f"AWS4-HMAC-SHA256 Credential={self.ak}/{scope}, "
-            f"SignedHeaders={signed}, Signature={sig}")
+        url, req_headers = build_signed_get(
+            self.endpoint, self.bucket, key, self.ak, self.sk,
+            dt.datetime.now(dt.timezone.utc))
         request = urllib.request.Request(url, headers=req_headers, method="GET")
-        with urllib.request.urlopen(request, timeout=self.timeout) as resp:
+        # G6: 显式证书上下文(certifi/系统 CA), 不关闭校验。
+        with urllib.request.urlopen(request, timeout=self.timeout,
+                                    context=tls_context()) as resp:
             return resp.read()
 
     def fetch_manifest(self) -> tuple[bytes, dict]:
