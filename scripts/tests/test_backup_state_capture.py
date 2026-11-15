@@ -677,6 +677,10 @@ def test_n1_capture_manifest_exposes_db_cutoff_and_doc_matches(tmp_path):
     assert m["db_cutoff"]["date"] == "2026-11-13"
     assert m["db_cutoff"]["evidence"].startswith("db:")
     assert m["db_cutoff"]["all_databases_covered"] is True
+    # 新字段必须真落盘到集合 manifest.json(审查补:此前只断内存返回值)
+    on_disk = json.loads((result["set_dir"] / "manifest.json").read_text())
+    assert on_disk["db_cutoff"]["date"] == "2026-11-13"
+    assert on_disk["db_cutoff"]["all_databases_covered"] is True
     assert m["common_business_cutoff"]["date"] == "2026-11-14"
     assert "mtime_fallback" in m["common_business_cutoff"]["methods_seen"]
     assert "不等于数据业务截止日" in m["common_business_cutoff"]["note"]

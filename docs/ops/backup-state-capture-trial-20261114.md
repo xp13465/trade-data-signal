@@ -48,7 +48,9 @@
   截止日**——云上 `alert_state.json`/`unit_exit_ledger.json` 的 mtime 是运行日,F5 之后同一次
   试跑会把它写成**运行日(如 `2026-11-14`),不是 `2026-11-13`**;本段旧补注「会写 2026-11-13」
   已被 N1(2026-11-15 审查三轮)实测证伪,以本行为准。数据业务截止日改用新增的 `db_cutoff`
-  (=三库 `MAX(date)` 的最小值,该次为 `2026-11-13`),接管口径见 `docs/backup-restore.md` §九。
+  (=三库 `MAX(date)` 的最小值,该次为 `2026-11-12`——最小值取自 stock_daily 的 `20261112`,
+  三库为 sentiment/etf_national_team/stock_daily = 20261113/20261113/20261112),接管口径见
+  `docs/backup-restore.md` §九。
 - 声明清单/排除项随后续审查更新(新增 `audit/frozen_missing` 纳入捕获;`news_digest` /
   `d1_metrics_evidence` / `d1_sync_state` / `logs/backup_db_*.log`(备份过程日志, N2 三轮)
   显式声明排除),故下一次真实试跑的
