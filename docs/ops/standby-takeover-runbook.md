@@ -13,7 +13,7 @@
 | 现在能不能接管? | **能,数据面可接管**;但有一批东西不在恢复集里,接管后通知链、公募库、站点展示要单独补 | §3 前置检查 / §9 缺口 |
 | 手上有哪个版本? | `2026-11-13-364b4665cd4242c89779f321-8b0a4852b9`,业务日 2026-11-13,4 个文件 217,259,895 字节,4/4 sha 一致 | `standby_sync.py status` 实测 |
 | 恢复点有多旧? | 恢复点年龄 **1 个交易日**(2026-11-16 01:09 实测),阈值 2 个交易日 | 同上 |
-| 接管要多久? | **数据面约 24.4 分钟**;其中 **24.1 分钟(99%)是公募库 public_fund 慢链**;不带公募库约 16 秒(纯命令) | §4 分步实测 |
+| 接管要多久? | **数据面约 24.4 分钟**;其中 public_fund 拉取 **22.2 分钟** + 校验 **1.9 分钟**(合计 99%,实测约 0.65 MB/s);不带公募库约 16 秒(纯命令) | §4 分步实测 |
 | 丢多少数据? | 演练 2026-11-15 23:47 开始、2026-11-16 00:45 CST 收尾(UTC 15:47–16:45);恢复点 `db_cutoff` = 2026-11-13 周五 ⇒ **0 个交易日 / 2 个自然日**(14/15 是周末)。注:sentiment.db 自身最大日期是 2026-11-14,比 `db_cutoff` 多 1 天,判缺口仍只认 `db_cutoff` | RPO 实测 |
 | 每天几点同步? | **01:00 CST**(launchd,已装并已真实触发过)| §12 |
 | 一次同步多久? | 首次 28.6 秒(工具自记)/ 无新集合 1~2 秒 | §12 |
@@ -132,6 +132,28 @@ cd /tmp && /Users/linhuichen/code/trade/.venv/bin/python3 \
 | `latest_recovery_point_age_days` > 2 且单位是 `trading` | 恢复点过期 | 查云上备份是否还在产;仍要用旧点就如实记缺口 |
 | 单位变成自然日却又带「日历不可用」标注 | 日历过期了 | 先按 §10 刷日历,再看判龄 |
 | 命令报 TLS/签名错 | 网络或凭据问题 | 查 §12 里的历史缺陷是否复发 |
+
+### 3.7 云端捕获链现状(本轮只读/既有证据实测)
+
+云上要**两个开关同时开**才有清单可读,少一个就静默跳过(只进备份日志、不发通知、不改退出码):
+
+| 开关 | 作用 | 现状 |
+| --- | --- | --- |
+| `STATE_CAPTURE_ENABLED=1` | 每晚产出一套状态集合 | 已开(改前备份 `.env.bak.20261115T141818Z`) |
+| `STANDBY_MANIFEST_ENABLED=1` | 用集合生成发布清单 | 已开(同上) |
+
+首轮实测三段(2026-11-15 22:28–22:29 CST):
+
+| 段 | 耗时 | 结果 |
+| --- | --- | --- |
+| 状态捕获 | 16.95 秒 | 1491 文件 / 16,723,023 B / missing 0 / 293 个瞬时锁跳过(设计如此) |
+| 状态包上传 | 7.613 秒 | `signal-backup2/backup/state_20261115.tar.gz` 1,818,481 B |
+| 清单发布 | 10.531 秒 | `standby/manifest_latest.json` HTTP 200 / 2476 B |
+
+清单内容(实测):`schema_version=1`、`complete=true`、`business_date=2026-11-13`、`files=4`、`source_run=364b4665cd4242c89779f32184c83704`、`excluded` 明写 public_fund 走独立链。
+取回核验(只读):`GET standby/manifest_latest.json status=200 bytes=2476`;四个包 HEAD/GET 全部 PASS(state 与 sentiment 做了全量 sha 比对,另两个 HEAD 长度 + uncompressed sha 字段存在);`LIST standby/` 只有这一个 key。
+
+接管前 30 秒自检:上面 §3.6 的 `status` 若不再报错、年龄在阈值内,说明这条链当天是通的。若想直接看远端清单,用 `upload_r2.py` 的只读子命令(本轮从源码核实 `list` / `download-db` 属只读白名单,不写任何东西)。
 
 ---
 
@@ -367,6 +389,19 @@ sqlite3 sentiment.db "SELECT COUNT(*) FROM score_daily WHERE date='20261113';
 | `com.trade.standby-sync` | 每天主同步 | `launchctl print` 里 `"Hour" => 1` / `"Minute" => 0` ⇒ **01:00 CST** |
 | `com.trade.standby-sync-catchup` | 开机/每小时补跑(今日已成功则静默) | `run interval = 3600 seconds`;实测 01:38:33 触发并打印「今日已成功,补偿入口静默退出」 |
 
+主任务的完整参数(本轮从已安装 plist 实读,`launchctl print` 同样可见):
+
+```
+/Users/linhuichen/code/trade/.venv/bin/python3 /Users/linhuichen/code/trade/scripts/standby_sync.py
+  --root /Users/linhuichen/trade-standby
+  --repo-dir /Users/linhuichen/code/trade
+  sync
+  --max-attempts 3 --backoff-seconds 120 --deadline-minutes 120
+  --min-free-gb 5 --stale-days 2 --stale-mode trading
+```
+
+含义:每个窗口最多 3 次尝试、退避从 120 秒起、整窗总截止 120 分钟;可用空间低于 5GiB 就**拒绝下载并告警**(不删旧版本换空间);恢复点超过 **2 个交易日**才判过期(按交易日算,周末/节后不误报)。补跑任务额外带 `sync --only-if-missed`。
+
 ### 6.1 查
 
 ```bash
@@ -550,7 +585,7 @@ tail -5 ~/trade-standby/logs/standby_sync_$(date +%Y%m%d).log
 | 云端开开关 + 成套捕获证据 | `/tmp/cloud-capture-enable-evidence/` |
 | 完整隔离恢复演练证据包 | `/tmp/restore-drill-evidence/`(含 `drill-20261115T154720Z/evidence/`、报告 `restore-drill-report.md`、脚本 `restore-drill.sh`) |
 | 演练产物(7.3G,建议留到 2026-11-22) | `~/trade-standby/restore-drills/20261115T154720Z/` |
-| 本机已固化版本 | `~/trade-standby/archive/versions/2026-11-13-364b4665cd4242c89779f321-8b0a4852b9/`(`verify_record.json` 记 2026-11-15 23:05:21 验证通过,28.6 秒) |
+| 本机已固化版本 | `~/trade-standby/archive/versions/2026-11-13-364b4665cd4242c89779f321-8b0a4852b9/`(`verify_record.json` 记 2026-11-15 23:05:21 验证通过,工具自记 28.6 秒;同一次同步的墙钟跨度约 30 秒,差值来自进程启动/收尾与日志落盘,不影响结论) |
 | 同步日志 | `~/trade-standby/logs/standby_sync_YYYYMMDD.log` + `launchd.{out,err}.log` + `catchup.{out,err}.log` |
 | 同步状态 | `~/trade-standby/state/standby_sync_state.json` |
 
@@ -588,6 +623,8 @@ tail -5 ~/trade-standby/logs/standby_sync_$(date +%Y%m%d).log
 | `sqlite3 <库> "PRAGMA integrity_check;"` | 验库 | ✅ | 三库 ok(sentiment 2.81 秒);public_fund 见演练证据 ok |
 | `sqlite3 <库> "SELECT COUNT(*) FROM …"` | 对行数 | ✅ | 38856 / 72140 / 1528786 / 427096 全对 |
 | `upload_r2.py download-db sentiment <dir>` | 拉小库 | ✅ | 59,286,140 B(gz)→ 236,056,576 B(.db),rc=0 |
+| `upload_r2.py list standby/ signal-backup2` | 确认远端清单存在 | ✅(既有证据) | `keys=['standby/manifest_latest.json']` |
+| 远端清单取回核验 | 清单 200/2476B/四包 PASS | ✅(既有证据) | `status=200 bytes=2476`;4 包全 PASS;`business_date=2026-11-13` |
 | `docs/scripts/restore_r2_db_backup.py --name public_fund --out-dir <dir>` | 流式拉大库 | 📄(本轮未重跑;演练报告有实测) | 参数表已核;演练实测 1332.1 秒 / 3,175,059,456 B / 22 表 / integrity ok |
 | §4.9 打桩业务链 `run_business_chain.py` | 验信号链 | ✅(本轮复跑) | rc=0;27 信号;notify 0;SMTP 0 |
 | `ssh … systemctl list-timers` | 看云端任务 | 🔍 | 45 个 `trade-*.timer` |
