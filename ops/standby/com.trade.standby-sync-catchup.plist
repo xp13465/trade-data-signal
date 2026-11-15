@@ -2,14 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  com.trade.standby-sync-catchup.plist — 启动补偿入口模板(与主 plist 配套)。
+  com.trade.standby-sync-catchup.plist — 启动补偿入口(与主 plist 配套, 本机 2026-11-15 已实际安装)。
 
-  机制: RunAtLoad=true(登录/开机即跑)+ `sync --only-if-missed`:
+  机制: RunAtLoad=true(登录/开机即跑)+ StartInterval=3600(每小时)+ `sync --only-if-missed`:
   - 今日已成功(状态 JSON last_success_date=今日)⇒ 静默退出 rc=0, 零成本;
-  - 昨晚窗口漏跑(关机/睡眠/断网)⇒ 补做**一次**有效同步, missed_runs 如实入账;
+  - 昨晚 01:00 窗口漏跑(关机/睡眠/断网)⇒ 补做**一次**有效同步, missed_runs 如实入账;
   - 与主 plist 撞车 ⇒ standby_sync 的 flock 单实例锁保证只有一个更新者。
 
-  占位符同主 plist(__STANDBY_PYTHON__ / __STANDBY_REPO__)。
+  路径与空间/过期参数同主 plist(本机写死, 换机器改前两行与 --repo-dir)。
 -->
 <plist version="1.0">
 <dict>
@@ -18,14 +18,26 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>__STANDBY_PYTHON__</string>
-    <string>__STANDBY_REPO__/scripts/standby_sync.py</string>
+    <string>/Users/linhuichen/code/trade/.venv/bin/python3</string>
+    <string>/Users/linhuichen/code/trade/scripts/standby_sync.py</string>
     <string>--root</string>
     <string>/Users/linhuichen/trade-standby</string>
     <string>--repo-dir</string>
-    <string>__STANDBY_REPO__</string>
+    <string>/Users/linhuichen/code/trade</string>
     <string>sync</string>
     <string>--only-if-missed</string>
+    <string>--max-attempts</string>
+    <string>3</string>
+    <string>--backoff-seconds</string>
+    <string>120</string>
+    <string>--deadline-minutes</string>
+    <string>120</string>
+    <string>--min-free-gb</string>
+    <string>5</string>
+    <string>--stale-days</string>
+    <string>2</string>
+    <string>--stale-mode</string>
+    <string>trading</string>
   </array>
 
   <key>RunAtLoad</key>
@@ -39,5 +51,9 @@
   <string>/Users/linhuichen/trade-standby/logs/catchup.out.log</string>
   <key>StandardErrorPath</key>
   <string>/Users/linhuichen/trade-standby/logs/catchup.err.log</string>
+
+  <!-- 小时级兜底: 1 分钟内不重复拉起(主间隔 3600s 已足够疏, 此处只防手滑连点/异常紧环) -->
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
 </dict>
 </plist>

@@ -3,8 +3,10 @@
 工具:`scripts/standby_sync.py`(子命令 `sync` / `verify` / `status` / `retention`,
 全子命令支持 `--dry-run`)。执行方案出处:`/tmp/codex-reports/claude-cloud-primary-local-backup-20261114-execution-plan.md` 工作包三。
 
-> **本任务只交模板+说明,不 load 任何 plist**(部署另派,任务书「不做的」明令)。
-> 首个自然轮留证、真实 R2 凭据配置、恢复演练均属后续批次(E 批)。
+> **2026-11-15 已在本机实际安装**(用户拍板每日 **01:00**):两份 plist 的路径已写死为
+> 本机实际值并 `launchctl bootstrap` 装入 `~/Library/LaunchAgents/`,首次真实同步已于
+> 2026-11-15 手动 kickstart 验证(no-change 静默)。首个 **01:00 自然轮**待 2026-11-16 观察。
+> 换机器/换路径时改两份模板前两行与 `--repo-dir`,再按第二节重装。
 
 ## 一、目录布局(与开发树硬隔离)
 
@@ -48,8 +50,9 @@
      不发通知、不改退出码）⇒ R2 永远没有 `standby/manifest_latest.json`,备用机 `sync`
      一直 404;**只开捕获开关** ⇒ 状态集归档有了但清单仍不生成。启用前置:确认判龄口径为交易日
      （本分支默认 `--stale-mode trading`;旧版会每周一误报 severe）。
-3. **改模板占位符**:把两个 plist 里 `__STANDBY_PYTHON__`、`__STANDBY_REPO__`
-   换成真实绝对路径。
+3. **路径**:两份模板已把本机真实绝对路径写死
+   (python=`/Users/linhuichen/code/trade/.venv/bin/python3`,repo=`/Users/linhuichen/code/trade`)。
+   换机器才需要改(改完 `plutil -lint` 验证)。
 4. **先手动演练**(D 批完成条件「先手动在隔离环境跑通」):
    ```bash
    # dry-run:只下载+校验,不固化不切链不写状态零外发
@@ -58,23 +61,34 @@
    # 真跑一次(固化+切 latest_verified),之后 status 看恢复点真实年龄
    ... sync ; ... status
    ```
-5. **装载**(部署批次,本任务不做):
+5. **装载/卸载**(本机 2026-11-15 已执行;换机器照此):
    ```bash
+   # 装(先备份同名 plist,若有)
    mkdir -p ~/Library/LaunchAgents
-   cp com.trade.standby-sync.plist com.trade.standby-sync-catchup.plist ~/Library/LaunchAgents/
-   launchctl load ~/Library/LaunchAgents/com.trade.standby-sync.plist
-   launchctl load ~/Library/LaunchAgents/com.trade.standby-sync-catchup.plist
+   for f in com.trade.standby-sync com.trade.standby-sync-catchup; do
+     [ -f ~/Library/LaunchAgents/$f.plist ] && cp ~/Library/LaunchAgents/$f.plist /tmp/$f.plist.bak-$(date +%Y%m%d%H%M%S)
+     cp ops/standby/$f.plist ~/Library/LaunchAgents/$f.plist
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/$f.plist
+   done
+   # 卸载(可逆: 停调度, 不动已存版本, 不影响云端生产)
+   launchctl bootout gui/$(id -u)/com.trade.standby-sync-catchup
+   launchctl bootout gui/$(id -u)/com.trade.standby-sync
    ```
-   卸载 = 反向 `launchctl unload` + `rm`(停用同步不影响云端主生产与已存版本)。
+   卸载后如需彻底清除:`rm ~/Library/LaunchAgents/com.trade.standby-sync{,-catchup}.plist`
+   (需要时从 `/tmp/*.plist.bak-*` 或本仓库模板恢复)。
 
-## 三、调度设计(为什么是 00:30)
+## 三、调度设计(为什么是 01:00)
 
+- 用户 2026-11-15 拍板:每日 **01:00(Asia/Shanghai)**,替代早期模板示例 00:30;
 - 云上备份链 21:00 起,public_fund 上传实测最晚 22:24 完成 ⇒ 之后才开始拉;
 - 避开本机 03:17 claude 自备份与云上 05:0x staticdata 备份高峰(错开 ≥30min);
-- 主 plist `StartCalendarInterval` 00:30 Asia/Shanghai;**launchd 对睡眠/关机漏跑的
+- 主 plist `StartCalendarInterval` 01:00 Asia/Shanghai;**launchd 对睡眠/关机漏跑的
   StartCalendarInterval 不补跑**,故配套 catchup plist(`RunAtLoad`+每小时
   `sync --only-if-missed`)做启动补偿:今日已成功恒静默,漏跑只补**一次**有效同步
   (`missed_runs` 入账,不重写时间戳)。两个 plist 撞车由脚本内 flock 兜底。
+- 两份 plist 都显式写死保护参数:`--min-free-gb 5`(空间不足自动不动手 + 告警)、
+  `--stale-days 2 --stale-mode trading`(恢复点过期按交易日判)、
+  `ThrottleInterval`(每日 300s / 补偿 60s)。
 
 ## 四、重试与通知语义
 
