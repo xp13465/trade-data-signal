@@ -15,8 +15,8 @@
 | 恢复点有多旧? | 恢复点年龄 **1 个交易日**(2026-11-16 01:09 实测),阈值 2 个交易日 | 同上 |
 | 接管要多久? | **数据面约 24.4 分钟**;其中 public_fund 拉取 **22.2 分钟** + 校验 **1.9 分钟**(合计 99%,实测约 0.65 MB/s);不带公募库约 16 秒(纯命令) | §4 分步实测 |
 | 丢多少数据? | 演练 2026-11-15 23:47 开始、2026-11-16 00:45 CST 收尾(UTC 15:47–16:45);恢复点 `db_cutoff` = 2026-11-13 周五 ⇒ **0 个交易日 / 2 个自然日**(14/15 是周末)。注:sentiment.db 自身最大日期是 2026-11-14,比 `db_cutoff` 多 1 天,判缺口仍只认 `db_cutoff` | RPO 实测 |
-| 每天几点同步? | **01:00 CST**(launchd,已装并已真实触发过)| §12 |
-| 一次同步多久? | 首次 28.6 秒(工具自记)/ 无新集合 1~2 秒 | §12 |
+| 每天几点同步? | **01:00 CST**(launchd,已装)。首个自然轮 **2026-11-16 01:00:05 已实际触发,结果 `outcome=no-change`**(无新数据可同步,链路正常;≠ 已验过新数据自动同步) | §12 |
+| 一次同步多久? | 首次:工具自记 **28.6 秒** / 同目录外层计时文件记 **86 秒**(差异未查明,见 §11)/ 无新集合 1~2 秒 | §11 / §12 |
 
 ---
 
@@ -94,6 +94,12 @@ grep -o '^[A-Za-z0-9_]*=' /Users/linhuichen/code/trade/.env   # 只列字段名,
 ```
 
 本轮实测:文件 21 行、权限 600、12 个字段;备用同步只用到其中 4 个 —— `R2_BACKUP2_ENDPOINT` / `R2_BACKUP2_BUCKET` / `R2_BACKUP2_ACCESS_KEY_ID` / `R2_BACKUP2_SECRET_ACCESS_KEY`。**手册里不写任何值**。
+
+**凭据轮换步骤**(R2 密钥到期/疑似泄露/换账号时):
+1. 在 R2 控制台建新密钥,把 `.env` 里上述 4 个键改成新值(文件权限保持 600);
+2. `.venv/bin/python scripts/standby_sync.py verify` 复验最新版本仍能下载校验 → 期望 `PASS (files=4)`;
+3. `.venv/bin/python scripts/standby_sync.py sync --dry-run` 演练 → 期望 `sync --dry-run` 正常读到远端清单(不再 401/403);
+4. 两步都过才算换好;任何一步失败先回滚 `.env` 旧值,查 §12(TLS/签名错另见证据表)。
 
 ### 3.4 磁盘空间
 
@@ -174,11 +180,16 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 \
 # 2) 全停(定时器停 = 以后不再触发;正在跑的 service 不受影响)
 ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 "sudo systemctl stop 'trade-*.timer'"
 
+# 2.5) 【必须】确认没有还在跑的 oneshot;有就等它跑完或按第 3 条拍板停掉
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 \
+  "systemctl list-units --type=service --state=running 'trade-*' --no-pager"
+
 # 3) 需要连"当前这一轮"也停(会截断正在跑的任务,单独拍板)
 ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 "sudo systemctl stop 'trade-*.service'"
 ```
 
 验证:再跑一次 `systemctl list-timers --all --no-pager | grep -c 'trade-.*\.timer'` ⇒ 期望 `0`。
+**双写窗口判据(第 2.5 条)**:第 2.5 条命令**必须输出为空**(一行 `0 loaded units` 也算空,但要看表头下方无 `trade-*` 行)。若仍有 running 的 `trade-*.service`(如 `trade-update-all` / 发布链),**接管不许开始**——timer 停了但该轮 oneshot 会跑完并继续写 R2/static-site,与备用机同时发布就是双写;等它自然结束,或按第 3 条拍板强行停(会截断,记下时点)。
 **记录冻结时点**(本地 `date -Iseconds`),后面算缺口要用。
 失败怎么办:某条停不掉(报 unit not loaded)先 `systemctl status <unit>` 看状态,不要反复重启服务。
 
@@ -389,6 +400,9 @@ sqlite3 sentiment.db "SELECT COUNT(*) FROM score_daily WHERE date='20261113';
 | `com.trade.standby-sync` | 每天主同步 | `launchctl print` 里 `"Hour" => 1` / `"Minute" => 0` ⇒ **01:00 CST** |
 | `com.trade.standby-sync-catchup` | 开机/每小时补跑(今日已成功则静默) | `run interval = 3600 seconds`;实测 01:38:33 触发并打印「今日已成功,补偿入口静默退出」 |
 
+**合盖 = 睡眠**:合上笔记本盖子期间 01:00 主任务不会执行;开盖/唤醒时 catchup 的 `RunAtLoad`
+立即补跑一次,之后每小时再检查。所以合盖过夜**不需要额外操作**,开盖后自动补上当天缺失的那一次。
+
 主任务的完整参数(本轮从已安装 plist 实读,`launchctl print` 同样可见):
 
 ```
@@ -463,6 +477,8 @@ ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'sudo xargs systemctl start' \
 
 ## 8. 回滚(接管不成 / 接管后撤回)
 
+> §8.1 与 §8.2 是**两个独立场景,按需二选一**:只想停调度、不再装 → 只做 §8.1;卸载后要重新装回来 → 直接做 §8.2(§8.2 自带「从仓库模板拷回」步骤,不依赖 §8.1 删掉的安装文件,顺序照做不会失败)。
+
 ### 8.1 卸载调度
 
 ```bash
@@ -472,15 +488,23 @@ rm -f ~/Library/LaunchAgents/com.trade.standby-sync.plist \
       ~/Library/LaunchAgents/com.trade.standby-sync-catchup.plist
 ```
 
-### 8.2 重装调度(这次装的是**已安装副本**,时点 01:00)
+> 若只想**临时**停掉、之后还要装回来,跳过 `rm -f` 那行(保留安装副本);要装回来时直接走 §8.2 第 1 步重新拷模板。
+
+### 8.2 重装调度(仓库模板与已安装一致,时点 01:00)
 
 ```bash
+# 1) 从仓库模板拷回(合并后模板即 01:00,与已安装值一致)
+mkdir -p ~/Library/LaunchAgents
+cp ops/standby/com.trade.standby-sync.plist ~/Library/LaunchAgents/com.trade.standby-sync.plist
+cp ops/standby/com.trade.standby-sync-catchup.plist ~/Library/LaunchAgents/com.trade.standby-sync-catchup.plist
+
+# 2) 装载
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.trade.standby-sync.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.trade.standby-sync-catchup.plist
 launchctl print gui/$(id -u)/com.trade.standby-sync | sed -n '/event triggers/,/}/p'   # 期望 Hour=1 Minute=0
 ```
 
-> ⚠️ 已知漂移(本轮发现,未在本任务修):仓库里的主 plist **模板**还写着 `00:30`,而**已安装副本**是 **01:00**——已安装副本的注释明确写了「用户 2026-11-15 拍板 01:00,替代早期模板示例 00:30」。结论:01:00 是**有效决定**,00:30 只是模板没跟上。重装**必须用 `~/Library/LaunchAgents/` 下的已安装副本**,别用仓库模板覆盖;模板对齐另派任务处理。
+> 两条 plist 的 `StartCalendarInterval` 都是 01:00(Asia/Shanghai),模板与 `~/Library/LaunchAgents/` 下已安装副本一致;首个自然轮 2026-11-16 01:00:05 已实际触发(`outcome=no-change`)。
 
 ### 8.3 恢复配置 / 保留旧版本
 
@@ -492,7 +516,7 @@ launchctl print gui/$(id -u)/com.trade.standby-sync | sed -n '/event triggers/,/
 
 ## 9. 已知缺口与未决载荷(不许用 `complete=true` 掩盖)
 
-集合清单里 `complete=true` 只表示"**清单登记的东西**齐了",下面这些是**已声明不捕获 / 不在清单**的东西:
+集合清单里 `complete=true` 只表示"**清单登记的东西**齐了",下面这些是**已声明不捕获 / 不在清单**的东西(主要缺口与处置;完整机器可读清单以集合内层 `manifest.json` 的 `excluded` 段为准,本表与它逐条对齐):
 
 | # | 缺什么 | 量级/证据 | 处置 |
 | --- | --- | --- | --- |
@@ -506,6 +530,9 @@ launchctl print gui/$(id -u)/com.trade.standby-sync | sed -n '/event triggers/,/
 | 8 | 站点已发布静态数据**本体** | 集合里只有发布回执(280 个 `ops_delivery/publication/*` 文件,每个约 1KB,记录对象名/sha256/字节数,如 `overview.json` 3,246,238 字节);`overview.json`/`a-stock-*.json` 等**内容本身不在集合** | 采集链重出,或从 R2 `staticdata` 副本取;只跑信号链时前端展示拿不到 |
 | 9 | 通知密钥四件 | `email.json` / `feishu.json` / `telegram.json` / `subscriptions.json`(另有 `sub_pwd.json` / `brief_push.json`) | 见下面「从哪里取」 |
 | 10 | `signal_stats.json` | 不在状态集(本轮核对状态包内无此文件) | 信号链走降级路径(不影响信号产出,影响统计展示) |
+| 11 | `d1_metrics_evidence` | D1 同步证据 203KB / 9 文件;带 30 天 TTL 的自愈诊断(`d1_metrics_evidence.py` 的 `MAX_AGE = 30 * 86400`,超龄自动丢弃) | **声明排除**(manifest `F6_self_expiring_diagnostics`):无接管恢复语义,不占恢复集 |
+| 12 | `d1_sync_state` | D1 同步失败可见化状态(云上实测 0 文件 / 空目录) | **声明排除**(manifest `F6_no_restore_semantics`):每次同步按设计覆盖写,恢复旧失败态反而误导排查 |
+| 13 | `logs/backup_db_*.log` | 备份过程日志(`backup_db.sh` 每日运行的诊断输出) | **声明排除**(manifest `no_restore_semantics`):无恢复语义;证明项已由 `logs/r2-db-source-*.json` 纳入捕获,历史日志按 §25 保留策略另管 |
 
 ### 9.1 通知密钥从哪里取、谁有权
 
@@ -585,7 +612,8 @@ tail -5 ~/trade-standby/logs/standby_sync_$(date +%Y%m%d).log
 | 云端开开关 + 成套捕获证据 | `/tmp/cloud-capture-enable-evidence/` |
 | 完整隔离恢复演练证据包 | `/tmp/restore-drill-evidence/`(含 `drill-20261115T154720Z/evidence/`、报告 `restore-drill-report.md`、脚本 `restore-drill.sh`) |
 | 演练产物(7.3G,建议留到 2026-11-22) | `~/trade-standby/restore-drills/20261115T154720Z/` |
-| 本机已固化版本 | `~/trade-standby/archive/versions/2026-11-13-364b4665cd4242c89779f321-8b0a4852b9/`(`verify_record.json` 记 2026-11-15 23:05:21 验证通过,工具自记 28.6 秒;同一次同步的墙钟跨度约 30 秒,差值来自进程启动/收尾与日志落盘,不影响结论) |
+| 本机已固化版本 | `~/trade-standby/archive/versions/2026-11-13-364b4665cd4242c89779f321-8b0a4852b9/`(`verify_record.json` 记 2026-11-15 23:05:21 验证通过) |
+| 首次同步耗时(三段如实) | ①**工具自记 28.6 秒**:`04-verify_record.json` 的 `duration_seconds=28.6`;②**日志跨度 31 秒**:`03-sync.out` 首行 23:04:51、末行 23:05:22;③**外层计时文件 86 秒**:`03-sync-timing.txt` 的 `sync_start=23:04:51` / `sync_end=23:06:17`。**86 秒与 28.6 秒的差异未查明**——不抹掉 86 秒,也不拿 28.6 秒当全部耗时。旁证:`02-dryrun-timing.txt`(71 秒 vs 日志 52 秒)与 `05-idempotent-timing.txt`(21 秒 vs 日志 1 秒)显示该外层计时口径本身固定多算约 19–20 秒(收尾/证据落盘);但 03 这次多出 55 秒,比另两次多约 35 秒,可能是 217MB 下载落盘后的文件系统收尾(写回/元数据)、staging 清理与 wrapper 后处理,按现有证据**无法逐段复现**。 |
 | 同步日志 | `~/trade-standby/logs/standby_sync_YYYYMMDD.log` + `launchd.{out,err}.log` + `catchup.{out,err}.log` |
 | 同步状态 | `~/trade-standby/state/standby_sync_state.json` |
 
@@ -603,6 +631,7 @@ tail -5 ~/trade-standby/logs/standby_sync_$(date +%Y%m%d).log
 ## 12. 命令实测状态总表
 
 > ✅ = 本轮实跑过;🔍 = 云端/本机只读实核;📄 = 读源码/帮助核实;⛔ = 本轮不可测(写明原因)。
+> 本表共 **29 个数据行**(此前报告称 27 行,属报告口径小误,以本表为准)。
 
 | 命令 | 用途 | 状态 | 结果 |
 | --- | --- | --- | --- |
@@ -633,7 +662,7 @@ tail -5 ~/trade-standby/logs/standby_sync_$(date +%Y%m%d).log
 | `systemctl is-active …timer` | 核在跑 | 🔍 | `trade-backup-db.timer` / `trade-update-all.timer` 均 `active` |
 | `systemctl stop/start 'trade-*.timer'` | 冻结/恢复云端 | ⛔ | 会停生产,本轮只做只读核;通配展开已证有效 |
 | 云端改库/改名/删 WAL、`download-db` 落位到生产路径 | 回滚生产库 | ⛔ | 写生产,需用户拍板;本轮不执行 |
-| `launchctl bootout` 真任务 | 停真同步 | ⛔ | 会停掉每日同步;用假任务证明了同一命令的语义 |
+| `launchctl bootout` 真任务 | 停真同步 | ✅(已在真任务实测) | 已在本机两个真任务(`com.trade.standby-sync` / `…-catchup`)上实做:bootout 后 `launchctl print` 报 `Could not find service "…" in domain for user gui: 501`,再 bootstrap 恢复后 print 可见且 `Hour=1 Minute=0` 一致(证据 `07c/07d/08a`) |
 | 业务链之外的采集/发布链 | 接管后的持续生产 | ⛔ | 本轮只验代表链(信号链);采集/发布链未在隔离环境跑过,接管时要逐段起、逐段验 |
 
 ---
