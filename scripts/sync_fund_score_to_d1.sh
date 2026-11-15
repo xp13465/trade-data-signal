@@ -210,7 +210,9 @@ elif [ "$INCREMENTAL" = "1" ]; then
   #   已含该列, 不补列首跑必败; 幂等 ALTER(已存在容错跳过), 与 row_hash 同机制。
   d1_migrate_column "$D1_DB" "fund_score" "score_date" "TEXT" \
     || _fail "score_date 列迁移失败(fund_score)" unknown
-  if ! d1_read_hashes "$D1_DB" "fund_score" "$HASHES_FILE"; then
+  # 额外读回两个索引列的旧值(2026-11-16 客户端路由): 每行才能只进一条 upsert 语句。
+  # 第 4 参数空串 = batch 用 lib 默认 5000; rowsRead 按行计, 多读列不增读行数。
+  if ! d1_read_hashes "$D1_DB" "fund_score" "$HASHES_FILE" "" composite_score fund_type; then
     _fail "读 D1 现存哈希失败(fund_score, wrangler SELECT)" unknown
   fi
 else
@@ -240,7 +242,8 @@ CLEANUP_REMOVED = sys.argv[11] == "1"
 sys.path.insert(0, str(script_dir / "lib"))
 from d1_sql_bundle import Bundle, BundleTooLargeError  # noqa: E402
 from d1_incremental_sync import (compute_row_hash, diff_hashes,  # noqa: E402
-                                 build_conflict_clause, load_d1_hashes)
+                                 build_conflict_clause, load_d1_rows,
+                                 route_rows, split_present_new)
 conn = sqlite3.connect(db_path)
 conn.row_factory = sqlite3.Row
 
@@ -360,10 +363,19 @@ meta_stmt = (
 # ---------- 增量 diff(2026-11-08): 只 upsert changed/new + 批 DELETE removed ----------
 # removed 清理: fund_score 仅 weekly(FUND_SCORE_CLEANUP_REMOVED=1)时做; daily 不删(防误删待恢复基金)。
 #   daily 不删的多余行会留在 D1(retained_removed), 导入后 count 校验按 rows+retained 对账。
-d1_hashes = load_d1_hashes(HASHES_FILE) if INCREMENTAL else {}
+index_cols = ("composite_score", "fund_type")  # 与上方两个二级索引一致
+secondary_index_cols = tuple(c for c in index_cols if c != "composite_score")  # fund_type
+d1_rows = load_d1_rows(HASHES_FILE) if INCREMENTAL else {}
+d1_hashes = {c: v.get("row_hash") for c, v in d1_rows.items()}
+routed = {"composite": [], "full": [], "nonindex": []}
+present_new, absent_new = [], []
 retained_removed = 0
 if INCREMENTAL:
     changed, new_rows, removed_codes, unchanged = diff_hashes(rows, d1_hashes)
+    # new 里「D1 其实已有该行、只是 row_hash 为 NULL」(2026-11-08 列迁移后的存量行) 有旧值
+    # 可读 ⇒ 与 changed 一样按旧值路由; 真·新增行没有冲突可触发, 走 INSERT 全列。
+    present_new, absent_new = split_present_new(new_rows, d1_rows)
+    routed = route_rows(changed + present_new, d1_rows, secondary_index_cols)
     if not CLEANUP_REMOVED:
         # daily: 不清理 removed(D1 里多余的基金先留着, 等周日全量再清; 防工作日误删)
         retained_removed = len(removed_codes)
@@ -372,25 +384,33 @@ else:
     # INCREMENTAL=0 回退: 全部当 new, 走旧「DELETE 全表 + INSERT 全量」路径(见 single 分支)
     changed, new_rows, removed_codes, unchanged = [], rows, [], 0
 print(f"[sync-d1-python] diff: total={len(rows)} changed={len(changed)} "
-      f"new={len(new_rows)} removed={len(removed_codes)} retained={retained_removed} "
+      f"new={len(new_rows)}(present={len(present_new)}+absent={len(absent_new)}) "
+      f"removed={len(removed_codes)} retained={retained_removed} "
       f"unchanged={unchanged} "
       f"d1_existing={len(d1_hashes)} incremental={INCREMENTAL} cleanup_removed={CLEANUP_REMOVED}",
       flush=True)
+if INCREMENTAL:
+    print(f"[sync-d1-python] 客户端路由: composite(A)={len(routed['composite'])} "
+          f"full(B)={len(routed['full'])} nonindex(C)={len(routed['nonindex'])} "
+          f"新增行(absent)={len(absent_new)}", flush=True)
 
 set_cols = [name for name, _ in cols if name != "fund_code"] + ["row_hash"]
 # 依据数据库当前键值分写；日期/hash 初始化不 SET 未变索引列。NULL 用 IS/IS NOT 比较。
 #
 # 写放大瘦身(2026-11-16, 依据 /tmp/fund-index-audit-20261116.md §5.4):
 #   D1 只要 SET 里含索引列就多写一行索引(与值是否变无关)。把原「全列 SET」按索引列
-#   是否真变拆成两条互斥语句, 每行只被一条命中:
+#   是否真变拆成两条互斥语句:
 #     A composite_index_clause: fund_type 未变 + composite_score 变
 #                              ⇒ SET 非索引列 + composite_score(1 表 + 1 索引 = 2 行写)
 #     B full_clause           : fund_type 变 ⇒ SET 全部列(1 表 + 2 索引 = 3 行写)
 #     C nonindex_clause       : 两个索引列都没变、其它列变 ⇒ SET 非索引列(1 行写, 语句不变)
 #   三条 WHERE 两两互斥(A/B 在 fund_type 等与不等上互补; C 要求两列全等, 与 A 在
 #   composite_score 等值上互补、与 B 在 fund_type 上互补) ⇒ 数据值与改前逐字段一致。
-index_cols = ("composite_score", "fund_type")  # 与上方两个二级索引一致
-secondary_index_cols = tuple(c for c in index_cols if c != "composite_score")  # fund_type
+#
+#   ⚠ 每行只进一条语句(2026-11-16 复查修): 初版把每条 changed 行同时灌进三条语句、靠 WHERE
+#   互斥只写一次 —— 写行数对, 但包体 = 每行三份, 单次导入时长有撞 300s 上限的风险。
+#   现在由 route_rows 按 D1 旧值 vs 新值先在客户端分流, 每行只出现在一条语句里;
+#   WHERE 互斥条件保留作纵深防御(即使路由判错也不会被两条语句各写一次)。
 full_clause = build_conflict_clause("fund_score", set_cols, "fund_code") + " WHERE " + " OR ".join(
     f"fund_score.{c} IS NOT excluded.{c}" for c in secondary_index_cols)
 composite_index_clause = build_conflict_clause(
@@ -413,15 +433,24 @@ if split_mode == "single":
     for s in schema_stmts:
         bundle.add(s)
     if INCREMENTAL:
-        write_rows = changed + new_rows
-        if write_rows:
-            write_cols = [name for name, _ in cols] + ["row_hash"]
-            write_vals = ["(" + ", ".join(sql_lit(r[name]) for name in write_cols) + ")" for r in write_rows]
-            # 三条均为完整 INSERT；冲突更新两两互斥(每行只被一条命中)，数据与 hash
-            # 始终同一语句落盘，重试可跳过，也不会把同一行重复计写。
-            bundle.add_inserts(head, write_vals, conflict_clause=composite_index_clause)
-            bundle.add_inserts(head, write_vals, conflict_clause=full_clause)
-            bundle.add_inserts(head, write_vals, conflict_clause=nonindex_clause)
+        write_cols = [name for name, _ in cols] + ["row_hash"]
+
+        def _vals(rs):
+            return ["(" + ", ".join(sql_lit(r[name]) for name in write_cols) + ")" for r in rs]
+
+        # 每条 changed 行只在**一条**语句里出现(客户端已分流); 真·新增行无可触发的冲突,
+        # 放进第一条(A): INSERT 路径写全列, 万一并发下已存在则由 A 的谓词兜底, 下轮收敛。
+        rows_a = routed["composite"] + absent_new
+        rows_b = routed["full"]
+        rows_c = routed["nonindex"]
+        if rows_a or rows_b or rows_c:
+            # 三条均为完整 INSERT；WHERE 两两互斥(纵深防御) ⇒ 同一行最多被一条命中一次,
+            # 数据与 hash 始终同一语句落盘, 重试可跳过, 也不会把同一行重复计写。
+            for rows_k, clause in ((rows_a, composite_index_clause),
+                                   (rows_b, full_clause),
+                                   (rows_c, nonindex_clause)):
+                if rows_k:
+                    bundle.add_inserts(head, _vals(rows_k), conflict_clause=clause)
         else:
             print("[sync-d1-python] 增量空写: changed+new=0, 跳过 INSERT(只写 meta+removed)", flush=True)
         for i in range(0, len(removed_codes), 500):
@@ -450,7 +479,9 @@ if split_mode == "single":
           f"soft_cap={MAX_STMT_BYTES} hard_cap={ASSERT_MAX_BYTES} "
           f"oversize_single_row_stmts={st['oversize_single_row_stmts']} "
           f"upsert_rows={len(changed) + len(new_rows)} removed={len(removed_codes)} "
-          f"retained={retained_removed}", flush=True)
+          f"retained={retained_removed} "
+          f"route_A={len(routed['composite']) + len(absent_new)} route_B={len(routed['full'])} "
+          f"route_C={len(routed['nonindex'])}", flush=True)
 else:
     # legacy: 旧的多文件逐批模式（回退开关）, 全量 DELETE+INSERT(不走增量, 安全回退)
     (gen_dir / "000_schema.sql").write_text(schema, encoding="utf-8")

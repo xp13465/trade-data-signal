@@ -79,20 +79,106 @@ def build_conflict_clause(table: str, set_cols: list[str], key_col: str = "fund_
     return f"ON CONFLICT({key_col}) DO UPDATE SET {assigns}"
 
 
-def load_d1_hashes(path_or_obj) -> dict:
-    """从 JSON 文件路径 / 已读 dict 读 D1 现存哈希。文件不存在或空 → {}(视 D1 为空表)。"""
+class RoutingMetadataMissing(ValueError):
+    """D1 哈希源里缺路由所需的索引列旧值(旧扁平格式 / 该列没读回来)。"""
+
+
+def _same(old, new) -> bool:
+    """NULL 安全相等 —— 与 SQLite `IS` 逐点对应(路由判定必须与三条 WHERE 同语义)。
+
+    · 双方 None ⇒ 相等; 单边 None ⇒ 不等(SQL 里 NULL IS 5 为假)
+    · 数字按数值比(80 与 80.0 相等; REAL 列整数值从 D1 JSON 回来可能是 int)
+    · 其余(字符串等)按 ==
+    判错方向会漏写: 判"相等"但 SQL 判不等 ⇒ 该行既不进 A/B(谓词假)也不进 C(谓词假)。
+    """
+    if old is None or new is None:
+        return old is None and new is None
+    if isinstance(old, (int, float)) and isinstance(new, (int, float)):
+        return float(old) == float(new)
+    return old == new
+
+
+def load_d1_rows(path_or_obj) -> dict:
+    """读 D1 现存行为 {fund_code: {"row_hash": h, <额外列>: 旧值, ...}}。
+
+    支持的来源形态:
+      · 嵌套 dict  {"code": {"row_hash": "h", "composite_score": 61.0, ...}}  ← 生产/新版模拟
+      · 扁平 dict  {"code": "h"}                                            ← 旧格式(兼容)
+      · wrangler --json 的 results 列表 [{fund_code, row_hash, ...}, ...]     ← 兼容
+    文件不存在 / 坏 JSON → {}(视 D1 为空表, 全按新增)。
+    """
     if isinstance(path_or_obj, dict):
-        return dict(path_or_obj)
-    p = Path(path_or_obj)
-    if not p.exists():
-        return {}
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-    if isinstance(data, dict):
-        return data
+        data = path_or_obj
+    else:
+        p = Path(path_or_obj)
+        if not p.exists():
+            return {}
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
     if isinstance(data, list):
-        # wrangler --json 的 results 形如 [{"fund_code": "X", "row_hash": "abc"}, ...]
-        return {r["fund_code"]: r.get("row_hash") for r in data if r.get("fund_code")}
-    return {}
+        return {r["fund_code"]: {k: v for k, v in r.items() if k != "fund_code"}
+                for r in data if r.get("fund_code")}
+    if not isinstance(data, dict):
+        return {}
+    rows = {}
+    for code, val in data.items():
+        if isinstance(val, dict):
+            rows[code] = dict(val)
+        else:
+            rows[code] = {"row_hash": val}   # 旧扁平格式: 只有哈希, 无路由列
+    return rows
+
+
+def load_d1_hashes(path_or_obj) -> dict:
+    """从 JSON 文件路径 / 已读 dict 读 D1 现存 {fund_code: row_hash}。空/坏 → {}。"""
+    return {c: v.get("row_hash") for c, v in load_d1_rows(path_or_obj).items()}
+
+
+def split_present_new(new_rows: list[dict], d1_rows: dict) -> tuple[list[dict], list[dict]]:
+    """把 diff 的 new(哈希缺失)拆成 (D1 里其实已存在的行, 真·新增行)。
+
+    row_hash 列是 2026-11-08 才补的, 迁移后存量行 row_hash 为 NULL ⇒ diff 把「行已在
+    D1、只是哈希没写」也归进 new。这些行在 D1 有旧值可读 ⇒ 必须和 changed 一样按旧值路由,
+    否则冲突时若只落到某一条语句, 可能因该语句 WHERE 为假而写不全。
+    """
+    present = [r for r in new_rows if r.get("fund_code") in d1_rows]
+    absent = [r for r in new_rows if r.get("fund_code") not in d1_rows]
+    return present, absent
+
+
+def route_rows(rows: list[dict], d1_rows: dict, secondary_index_cols=(),
+               composite_col: str = "composite_score") -> dict:
+    """客户端路由: 按「D1 旧值 vs 本地新值」把每条行分进 A/B/C 三类中的**一类**。
+
+    规则(与两个同步脚本三条互斥 WHERE 严格对应):
+      · secondary 索引列(fund_type/scale)有变 ⇒ "full"(B, 全列 SET)
+      · 否则 composite_score 变               ⇒ "composite"(A, 非索引列 + composite)
+      · 否则                                  ⇒ "nonindex"(C, 仅非索引列)
+
+    为什么要客户端先判: 旧实现把每条 changed 行**同时**灌进三条语句, 靠 WHERE 互斥保证只
+    写一次 —— 落库对, 但 SQL 包体 = 每行三份(+50%), 撞 30 分钟墙。每行只生成一条语句后
+    包体回到「每行一份」, 写行数(rowsWritten)与三条互斥版完全相同。
+
+    返回 {"composite": [...], "full": [...], "nonindex": [...]}。路由列缺失 ⇒
+    RoutingMetadataMissing(宁可报错也不猜: 猜错会让该行永远写不进去)。
+    """
+    buckets = {"composite": [], "full": [], "nonindex": []}
+    required = (composite_col,) + tuple(secondary_index_cols)
+    for r in rows:
+        code = r.get("fund_code")
+        old = d1_rows.get(code)
+        if not isinstance(old, dict) or any(c not in old for c in required):
+            raise RoutingMetadataMissing(
+                "D1 哈希源缺路由列(需要 %s; 行 %r 的旧值=%r)。生产由 d1_read_hashes 带"
+                "额外列自动产出嵌套格式; DRY_RUN 的 D1_EXISTING_HASHES_FILE 也必须是"
+                " {code: {row_hash, %s}}。" % (", ".join(required), code, old,
+                                               ", ".join(required)))
+        if any(not _same(old[c], r.get(c)) for c in secondary_index_cols):
+            buckets["full"].append(r)
+        elif not _same(old[composite_col], r.get(composite_col)):
+            buckets["composite"].append(r)
+        else:
+            buckets["nonindex"].append(r)
+    return buckets

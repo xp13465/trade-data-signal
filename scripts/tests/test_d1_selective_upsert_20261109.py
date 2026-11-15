@@ -6,6 +6,9 @@
   B 全列语句        : fund_type 或 scale(screener) 变
   C 非索引语句      : 索引列全未变、其它列变(原语句不变)
 断言: 索引列没变不更新索引列; 索引列变走全列; 同一行只被一条语句更新一次; 重试幂等。
+2026-11-16 复查: 改为**客户端分流**(每行只生成一条语句, 包体回到每行一份) —— 同一行全包
+恰好出现 1 次(E1); 代价是「包生成后被外部改过索引键」的行本轮不会被硬覆盖, 下一轮同步按
+读回值走 B 全列 SET 自愈(本文件有断言锁住这条收敛路径)。
 """
 from __future__ import annotations
 
@@ -141,6 +144,11 @@ def test_three_pass_routing_and_mutual_exclusion(tmp_path, script, table, ddl, b
         if code_scale:
             want.append((code_scale, "B"))
         assert log == sorted(want), "同一行被重复写/路由错: %s" % (log,)
+        # E1 独立复核: 每条参与写入的 fund_code 在整个数据包里恰好出现 1 次(不是 0/2/3 次)。
+        expected_codes = [r[0] for r in expected]
+        per_code = {code: sum(stmt.count("('%s'," % code) for stmt in data)
+                    for code in expected_codes}
+        assert all(n == 1 for n in per_code.values()), per_code
         assert remote.execute(f"SELECT * FROM {table} ORDER BY fund_code").fetchall() == expected
         base._assert_indexes(remote, table, indexes)
 
@@ -191,9 +199,11 @@ def test_interrupted_three_pass_retry_and_current_index_guard(tmp_path, script, 
                           "VALUES ('NEW','20260913',88)")
         _, sql = base._generate(script, repo, tmp_path, {"D1_EXISTING_HASHES_FILE": str(mock)})
         data = [s for s in _statements(sql) if s.startswith(f"INSERT INTO {table} ")]
-        assert len(data) == 3, "小样应形成 composite / 全列 / 非索引 三条完整语句"
+        # 2026-11-16 客户端路由: 本样本无索引列变化 ⇒ 只有 A(真·新增 NEW 行) + C(改名的存量行)
+        # 两条语句; B 桶为空 ⇒ 不生成语句(旧版每行三份才有三条)。
+        assert len(data) == 2, "小样应形成 新增(A) / 非索引(C) 两条完整语句"
         by_kind = {_kind(s, table): s for s in data}
-        assert set(by_kind) == {"A", "B", "C"}, by_kind
+        assert set(by_kind) == {"A", "C"}, by_kind
         # 第一阶段(A)成功后连接中断；新行已完整插入，旧行未改变(A 只命中 composite 真变的行)。
         remote.executescript(by_kind["A"])
         assert remote.execute(f"SELECT * FROM {table} WHERE fund_code!='NEW' ORDER BY fund_code").fetchall() == before
@@ -207,10 +217,7 @@ def test_interrupted_three_pass_retry_and_current_index_guard(tmp_path, script, 
             remote.executescript(by_kind["C"])
         assert remote.execute(f"SELECT * FROM {table} WHERE fund_code!='NEW' ORDER BY fund_code").fetchall() == before
         remote.execute("DROP TRIGGER reject_name")
-        # B 只命中 fund_type/scale 真变的行；本样本没有 ⇒ 零行变化。
-        remote.executescript(by_kind["B"])
-        assert remote.execute(f"SELECT * FROM {table} WHERE fund_code!='NEW' ORDER BY fund_code").fetchall() == before
-        # 模拟三条语句之间另一份完整状态修改索引键；C 必须基于当前值拒绝套用旧 hash。
+        # 模拟包生成与导入之间另一份完整状态修改索引键；C 必须基于当前值拒绝套用旧 hash。
         code = before[0][0]
         columns = [r[1] for r in remote.execute(f"PRAGMA table_info({table})")]
         other = dict(zip(columns, before[0]))
@@ -221,8 +228,18 @@ def test_interrupted_three_pass_retry_and_current_index_guard(tmp_path, script, 
         intervening = remote.execute(f"SELECT * FROM {table} WHERE fund_code=?", (code,)).fetchone()
         remote.executescript(by_kind["C"])
         assert remote.execute(f"SELECT * FROM {table} WHERE fund_code=?", (code,)).fetchone() == intervening
-        # 重试整个包：B 恢复索引不同的行，C 补其余行；全部字段/hash一致。
+        # 重试整个包：其余行由 C 补回; 被外部改过索引键的那一行**本轮不硬覆盖**
+        # (客户端路由基于上一次读回的旧值, 包里没有它的 B 语句。旧三份版靠 B 同轮打回;
+        # 代价是包体 +50% 撞 300s 墙, 故接受「下一轮同步自愈」——见下面断言)。
         remote.executescript(sql)
+        final = remote.execute(f"SELECT * FROM {table} ORDER BY fund_code").fetchall()
+        exp_by_code = {r[0]: r for r in expected}
+        assert all(r == exp_by_code[r[0]] for r in final if r[0] != code)
+        assert next(r for r in final if r[0] == code) == intervening, "本轮不得硬覆盖外部改动"
+        # 下一轮同步(生产每小时一轮): 读回当前 D1 行 ⇒ 该行索引列与本地不同 ⇒ 走 B 全列 SET 收敛。
+        base._save_hashes(remote, table, mock)
+        _, sql_next = base._generate(script, repo, tmp_path, {"D1_EXISTING_HASHES_FILE": str(mock)})
+        remote.executescript(sql_next)
         assert remote.execute(f"SELECT * FROM {table} ORDER BY fund_code").fetchall() == expected
         base._assert_indexes(remote, table, indexes)
 

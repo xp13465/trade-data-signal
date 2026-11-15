@@ -67,17 +67,26 @@ def _run_sync(script, repo, tmp_path, extra=None):
     return _run_script(script, repo, tmp_path, extra)
 
 
+ROUTING_COLS = ("composite_score", "fund_type", "scale")
+
+
 def _mock_from_package(gen_dir, table, out_file):
-    """把上一轮 DRY_RUN 包导入临时 sqlite, 提取 {fund_code: row_hash} 落盘为 mock
-    D1 现存哈希源（模拟"D1 表已同步成上一轮的样子"）。"""
+    """把上一轮 DRY_RUN 包导入临时 sqlite, 提取 D1 现存行落盘为 mock(D1 表上一轮的样子)。
+
+    2026-11-16 起 mock 为嵌套格式 ``{code: {row_hash, composite_score, fund_type[, scale]}}``:
+    客户端分流要拿 D1 旧索引列值判「哪条索引列真变了」; 只给 row_hash 会抛
+    RoutingMetadataMissing。返回 dict 的 key 仍是 fund_code, 供断言集合用。"""
     con = sqlite3.connect(":memory:")
     for f in _sql_files(gen_dir):
         con.executescript(f.read_text(encoding="utf-8"))
-    hashes = {code: h for code, h in con.execute(
-        "SELECT fund_code, row_hash FROM %s" % table)}
+    columns = [r[1] for r in con.execute("PRAGMA table_info(%s)" % table)]
+    extra = [c for c in ROUTING_COLS if c in columns]
+    sel = ", ".join(["fund_code", "row_hash"] + extra)
+    rows = {code: {"row_hash": h, **dict(zip(extra, vals))}
+            for code, h, *vals in con.execute("SELECT %s FROM %s" % (sel, table))}
     con.close()
-    out_file.write_text(json.dumps(hashes), encoding="utf-8")
-    return hashes
+    out_file.write_text(json.dumps(rows), encoding="utf-8")
+    return rows
 
 
 def _package_text(gen_dir):
@@ -175,6 +184,115 @@ def test_load_d1_hashes_variants(tmp_path):
     f.write_text("{oops 坏 JSON", encoding="utf-8")
     assert inc.load_d1_hashes(f) == {}
     assert inc.load_d1_hashes(tmp_path / "not_exist.json") == {}
+
+
+def test_hash_read_parser_nested_with_extra_columns_and_flat_legacy():
+    """bash 侧读回格式守卫(2026-11-16 客户端分流): 带额外列 ⇒ 嵌套 {row_hash, <列旧值>};
+    不带额外列 ⇒ 旧扁平字符串(向后兼容, test_d1_metrics_evidence 依赖)。
+    只 source lib 定义并直接调解析函数, 零网络(L50 static-only)。"""
+    import subprocess
+    import tempfile
+    lib = ROOT / "scripts" / "lib" / "d1_hash_read.sh"
+    raw = json.dumps([{"results": [
+        {"fund_code": "F1", "row_hash": "h1", "composite_score": 61.5,
+         "fund_type": "股票型", "scale": 12.5},
+        {"fund_code": "F2", "row_hash": None, "composite_score": None,
+         "fund_type": None, "scale": None},
+    ]}])
+    with tempfile.TemporaryDirectory() as td:
+        probe = Path(td) / "probe.sh"
+        probe.write_text(
+            "source '%s'\nPY=python3\n"
+            "printf '%%s' '%s' > \"$1\"\n"
+            "_d1_hash_py_parse \"$(cat \"$1\")\" 1 'composite_score,fund_type,scale'\n"
+            "printf '\\n---FLAT---\\n'\n"
+            "_d1_hash_py_parse \"$(cat \"$1\")\" 1 ''\n" % (lib, raw.replace("'", "'\"'\"'")),
+            encoding="utf-8")
+        r = subprocess.run(["bash", str(probe), str(Path(td) / "raw.json")],
+                           capture_output=True, text=True, timeout=30, cwd=td)
+        assert r.returncode == 0, r.stdout + r.stderr
+    nested_part, flat_part = r.stdout.split("---FLAT---")
+    n, last, entries = nested_part.strip().split("\t")
+    assert n == "2" and last == "F2"
+    nested = json.loads("{" + entries + "}")
+    assert nested["F1"] == {"row_hash": "h1", "composite_score": 61.5,
+                            "fund_type": "股票型", "scale": 12.5}
+    assert nested["F2"] == {"row_hash": None, "composite_score": None,
+                            "fund_type": None, "scale": None}
+    n2, _, flat_entries = flat_part.strip().split("\t")
+    assert n2 == "2"
+    assert json.loads("{" + flat_entries + "}") == {"F1": "h1", "F2": ""}
+
+
+def test_load_d1_rows_forms_and_routing_columns(tmp_path):
+    """2026-11-16 客户端分流: 嵌套 dict 原样带旧值; 扁平 dict/ results 列表兼容;
+    坏 JSON/缺文件 → {}(全按新增)。"""
+    nested = {"A": {"row_hash": "ha", "composite_score": 61.0, "fund_type": "股票型"}}
+    assert inc.load_d1_rows(nested) == nested
+    assert inc.load_d1_rows(tmp_path / "nope.json") == {}
+    # wrangler --json results 形态
+    wr = tmp_path / "wr.json"
+    wr.write_text(json.dumps([{"fund_code": "A", "row_hash": "ha",
+                               "composite_score": 61, "fund_type": None}]),
+                  encoding="utf-8")
+    assert inc.load_d1_rows(wr) == {"A": {"row_hash": "ha", "composite_score": 61,
+                                          "fund_type": None}}
+    # 扁平 dict(旧格式) ⇒ 只有 row_hash, 无路由列
+    assert inc.load_d1_rows({"A": "ha"}) == {"A": {"row_hash": "ha"}}
+
+
+def test_route_rows_three_buckets_and_one_bucket_per_row():
+    """每行只进一个桶; 优先级 secondary(full) > composite > nonindex, 与三条 WHERE 一致。"""
+    d1 = {
+        "F1": {"row_hash": "h", "composite_score": 60.0, "fund_type": "股票型", "scale": 10},
+        "F2": {"row_hash": "h", "composite_score": 60.0, "fund_type": "股票型", "scale": 10},
+        "F3": {"row_hash": "h", "composite_score": 60.0, "fund_type": "股票型", "scale": 10},
+        "F4": {"row_hash": "h", "composite_score": 60.0, "fund_type": "股票型", "scale": 10},
+    }
+    rows = [
+        {"fund_code": "F1", "composite_score": 60.0, "fund_type": "股票型", "scale": 10,
+         "fund_name": "改名"},                                    # 只非索引列变 ⇒ C
+        {"fund_code": "F2", "composite_score": 77.5, "fund_type": "股票型", "scale": 10,
+         "fund_name": "x"},                                       # composite 变 ⇒ A
+        {"fund_code": "F3", "composite_score": 77.5, "fund_type": "债券型", "scale": 10,
+         "fund_name": "x"},                                       # type+composite 变 ⇒ B 独占
+        {"fund_code": "F4", "composite_score": 60.0, "fund_type": "股票型", "scale": 99.0,
+         "fund_name": "x"},                                       # scale 变 ⇒ B
+    ]
+    out = inc.route_rows(rows, d1, ("fund_type", "scale"))
+    codes = {k: [r["fund_code"] for r in v] for k, v in out.items()}
+    assert codes == {"composite": ["F2"], "full": ["F3", "F4"], "nonindex": ["F1"]}, codes
+    flat = [r["fund_code"] for v in out.values() for r in v]
+    assert sorted(flat) == ["F1", "F2", "F3", "F4"], "同一行进了多个桶: %s" % flat
+
+
+def test_route_rows_null_and_numeric_equality_mirrors_sqlite_is():
+    """路由判等必须与 SQLite `IS` 同语义, 否则会判定"没变"但 WHERE 判"不等" ⇒ 该行永久写不进。"""
+    assert inc._same(None, None) is True
+    assert inc._same(None, 0) is False and inc._same(0, None) is False
+    assert inc._same(80, 80.0) is True          # REAL 列整数值回来可能是 int
+    assert inc._same("股票型", "股票型") is True
+    assert inc._same("股票型", "债券型") is False
+    d1 = {"A": {"row_hash": "h", "composite_score": 80, "fund_type": None}}
+    out = inc.route_rows([{"fund_code": "A", "composite_score": 80.0, "fund_type": None,
+                           "other": 1}], d1, ("fund_type",))
+    assert [r["fund_code"] for r in out["nonindex"]] == ["A"], out
+
+
+def test_route_rows_requires_routing_metadata():
+    """扁平哈希源(只有 row_hash)不能猜路由 ⇒ 抛 RoutingMetadataMissing(宁可报错也不写错)。"""
+    with pytest.raises(inc.RoutingMetadataMissing, match="composite_score"):
+        inc.route_rows([{"fund_code": "A", "composite_score": 61.0}],
+                       {"A": {"row_hash": "h"}}, ("fund_type",))
+
+
+def test_split_present_new_separates_hash_null_rows():
+    """row_hash 列 2026-11-08 才补: 存量行 row_hash=NULL ⇒ diff 归 new, 但 D1 有旧值,
+    必须按旧值路由(与 changed 同路), 否则可能因所选语句 WHERE 假而写不进。"""
+    present, absent = inc.split_present_new(
+        [{"fund_code": "OLD"}, {"fund_code": "NEW"}], {"OLD": {"row_hash": None}})
+    assert [r["fund_code"] for r in present] == ["OLD"]
+    assert [r["fund_code"] for r in absent] == ["NEW"]
 
 
 # ============================ ② DRY_RUN 端到端: fund_score 增量往返 ============================

@@ -255,12 +255,13 @@ def test_screener_dry_run_long_row_isolated_and_passes(tmp_path):
                       lambda c: _build_screener_rows(c, long_chars=21660, n_normal=5))  # 64980 字节
     r, gen_dir = _run_script(SYNC_SCREENER, repo, tmp_path)
     assert r.returncode == 0, r.stdout + r.stderr
-    # 增量分写三遍 VALUES(composite 索引 / 全列 / 非索引, 2026-11-16 写放大瘦身);
-    # 每遍长行仍须独立成句，不能放松字节上限。
-    assert "oversize_single_row_stmts=3" in r.stdout, r.stdout
+    # 增量分写 A/B/C 三类(2026-11-16 写放大瘦身); 本样本无 D1 旧值 ⇒ 全部按真·新增行
+    # 走 A 一条语句(2026-11-16 复查: 客户端路由后每行只进一条语句, 不再三份)。
+    # 长行仍须独立成句，不能放松字节上限。
+    assert "oversize_single_row_stmts=1" in r.stdout, r.stdout
     text = _sql_files(gen_dir)[0].read_text(encoding="utf-8")
     big = [s for s in text.split(";\n") if "长" * 100 in s]
-    assert len(big) == 3, "长行所在语句数=%d" % len(big)
+    assert len(big) == 1, "长行所在语句数=%d" % len(big)
     assert all(s.count("\n(") == 1 for s in big), "长行与其他行混批"
     body_bytes = [len(s.encode("utf-8")) for s in text.split(";\n") if s.strip()]
     assert max(body_bytes) < 90000, max(body_bytes)

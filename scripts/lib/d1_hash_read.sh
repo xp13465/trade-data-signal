@@ -11,7 +11,14 @@
 #   source scripts/lib/d1_hash_read.sh
 #   d1_migrate_row_hash <d1_db> <table>            # 幂等加 row_hash TEXT 列(容忍已存在/表不存在)
 #   d1_migrate_column <d1_db> <table> <col> <ddl>   # 幂等加任意列(如 fund_score.score_date, F1)
-#   d1_read_hashes <d1_db> <table> <out_json> [batch]   # 批量 SELECT, 写 {fund_code: row_hash}
+#   d1_read_hashes <d1_db> <table> <out_json> [batch] [额外列...]
+#       # 批量 SELECT, 写 {fund_code: row_hash}
+#       # 带额外列(2026-11-16 客户端路由)时写嵌套格式:
+#       #   {fund_code: {"row_hash": h, "composite_score": 61.0, "fund_type": "股票型", ...}}
+#       # 为什么多取这几列: 写放大瘦身要在**客户端**判定「哪条索引列真变了」, 才能把每条行
+#       #   只塞进 A/B/C 三条 upsert 里的一条(否则每行三份 = 包体 +50%, 撞 30 分钟墙)。
+#       #   rowsRead 按行计, 加列不增加读行数。
+#       # batch 传空串 = 用默认 5000; 不传额外列 = 旧扁平格式(向后兼容)。
 # 返回: 0 成功; 非 0 失败(调用方按 DRY_RUN/生产 决定 _fail 或兜底)。
 #
 # DRY_RUN 友好: 调用方在 DRY_RUN 时若本函数失败, 可兜底为空 JSON({}); 生产则 _fail。
@@ -53,17 +60,27 @@ d1_migrate_column() {
 
 d1_read_hashes() {
   local db="$1" table="$2" out_json="$3" batch="${4:-$_D1_HASH_BATCH}"
+  # 第 5 个参数起 = 额外要读回来的列(客户端路由用); 4 个参数时 downstream 全空。
+  local _shift_n=$#; [ "$_shift_n" -gt 4 ] && _shift_n=4
+  shift "$_shift_n"
+  local extra_cols=("$@")
+  local sel="fund_code, row_hash" extra_csv=""
+  if [ "${#extra_cols[@]}" -gt 0 ]; then
+    local c
+    for c in "${extra_cols[@]}"; do sel="$sel, $c"; done
+    extra_csv=$(IFS=,; printf '%s' "${extra_cols[*]}")
+  fi
   : > "$out_json" 2>/dev/null || true
   printf '{' >>"$out_json"
   local last_key="" n=0 first=1
   while true; do
     local sql
     if [ -z "$last_key" ]; then
-      sql="SELECT fund_code, row_hash FROM ${table} ORDER BY fund_code LIMIT ${batch}"
+      sql="SELECT ${sel} FROM ${table} ORDER BY fund_code LIMIT ${batch}"
     else
       # fund_code > '<last>' —— 单引号转义
       local esc; esc=$(printf '%s' "$last_key" | sed "s/'/''/g")
-      sql="SELECT fund_code, row_hash FROM ${table} WHERE fund_code > '${esc}' ORDER BY fund_code LIMIT ${batch}"
+      sql="SELECT ${sel} FROM ${table} WHERE fund_code > '${esc}' ORDER BY fund_code LIMIT ${batch}"
     fi
     local raw rc
     raw=$(D1_METRICS_STAGE=hash_prefetch D1_METRICS_OP=SELECT D1_METRICS_TABLE="$table" _d1_hash_run "$db" "$sql" 2>/dev/null)
@@ -75,7 +92,7 @@ d1_read_hashes() {
     # wrangler --json 返回 [{"results":[{"fund_code":"X","row_hash":"abc"}, ...]}]
     # 用 python 解析本批, 输出 "k":"v" 片段追加; 同时拿本批最后 key 与数量
     local parsed
-    parsed=$(_d1_hash_py_parse "$raw" "$first") || { rc=$?; return $rc; }
+    parsed=$(_d1_hash_py_parse "$raw" "$first" "$extra_csv") || { rc=$?; return $rc; }
     # parsed 形如: <n>\t<last_key>\t<json-entries>
     local bn blkey entries
     bn=$(printf '%s' "$parsed" | cut -f1)
@@ -113,9 +130,10 @@ _d1_hash_run() {
 
 # ---- 内部: 用 python 解析 wrangler --json 一批, 输出 "n\tlast_key\tentries" ----
 _d1_hash_py_parse() {
-  local raw="$1" need_comma_prefix="$2"
+  local raw="$1" need_comma_prefix="$2" extra_csv="${3:-}"
   printf '%s' "$raw" | "$PY" -c '
 import json, sys
+extra = [c for c in (sys.argv[1] if len(sys.argv) > 1 else "").split(",") if c]
 raw = sys.stdin.read()
 try:
     data = json.loads(raw)
@@ -132,10 +150,17 @@ for r in results:
     code = r.get("fund_code")
     if not code:
         continue
-    h = r.get("row_hash") or ""
-    # JSON 字符串拼接(k/v 都已转义)
-    entries.append("\"%s\":\"%s\"" % (str(code).replace("\"","\\\""), str(h).replace("\"","\\\"")))
+    if extra:
+        # 嵌套格式: 行哈希 + 路由列(旧值), 供客户端判定索引列是否真变
+        obj = {"row_hash": r.get("row_hash")}
+        for c in extra:
+            obj[c] = r.get(c)
+        val = json.dumps(obj, ensure_ascii=False)
+    else:
+        h = r.get("row_hash") or ""
+        val = json.dumps(str(h), ensure_ascii=False)
+    entries.append("%s:%s" % (json.dumps(str(code), ensure_ascii=False), val))
     last_key = str(code)
 sys.stdout.write("%d\t%s\t%s" % (len(entries), last_key, ",".join(entries)))
-'
+' "$extra_csv"
 }

@@ -36,8 +36,20 @@ def _generate(script, repo, tmp_path, extra=None):
     return result.stdout, "\n".join(p.read_text() for p in sync._sql_files(gen))
 
 
+ROUTING_COLS = ("composite_score", "fund_type", "scale")
+
+
 def _save_hashes(con, table, path):
-    hashes = dict(con.execute(f"SELECT fund_code, row_hash FROM {table}"))
+    """落 D1 现存哈希 mock; 2026-11-16 起为嵌套格式并带路由列(客户端分流的旧值来源)。
+
+    路由列 = 该表真有、且属于 {"composite_score","fund_type","scale"} 的那些(score 无 scale,
+    screener 三列齐)。只给 row_hash 的扁平格式会让 route_rows 抛 RoutingMetadataMissing。
+    """
+    columns = [r[1] for r in con.execute(f"PRAGMA table_info({table})")]
+    extra = [c for c in ROUTING_COLS if c in columns]
+    sel = ", ".join(["fund_code", "row_hash"] + extra)
+    hashes = {code: {"row_hash": h, **dict(zip(extra, vals))}
+              for code, h, *vals in con.execute(f"SELECT {sel} FROM {table}")}
     path.write_text(json.dumps(hashes))
 
 

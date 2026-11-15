@@ -211,7 +211,10 @@ if [ "$DRY_RUN" = "1" ]; then
   fi
 elif [ "$INCREMENTAL" = "1" ]; then
   d1_migrate_row_hash "$D1_DB" "fund_screener" || _fail "row_hash 列迁移失败(fund_screener)" unknown
-  if ! d1_read_hashes "$D1_DB" "fund_screener" "$HASHES_FILE"; then
+  # 额外读回三个索引列的旧值(2026-11-16 客户端路由): 每行才能只进一条 upsert 语句。
+  # 第 4 参数空串 = batch 用 lib 默认 5000; rowsRead 按行计, 多读列不增读行数。
+  if ! d1_read_hashes "$D1_DB" "fund_screener" "$HASHES_FILE" "" \
+        composite_score fund_type scale; then
     _fail "读 D1 现存哈希失败(fund_screener, wrangler SELECT)" unknown
   fi
 else
@@ -242,7 +245,8 @@ INCREMENTAL = sys.argv[10] == "1"
 sys.path.insert(0, str(script_dir / "lib"))
 from d1_sql_bundle import Bundle, BundleTooLargeError  # noqa: E402
 from d1_incremental_sync import (compute_row_hash, diff_hashes,  # noqa: E402
-                                 build_conflict_clause, load_d1_hashes)
+                                 build_conflict_clause, load_d1_rows,
+                                 route_rows, split_present_new)
 conn = sqlite3.connect(db_path)
 conn.row_factory = sqlite3.Row
 RUN_DATE = dt.date.today()
@@ -548,14 +552,28 @@ row_values = ["(" + ", ".join(sql_lit(r[c]) for c in COLS) + ")" for r in rows]
 # ---------- 增量 diff(2026-11-08): 只 upsert changed/new + 批 DELETE removed ----------
 # INCREMENTAL=0 回退旧全量替换语义(DELETE 全表 + 全量 INSERT, 见 single 分支)。
 # legacy 模式始终全量 DELETE+INSERT(安全回退, 不走增量)。
-d1_hashes = load_d1_hashes(HASHES_FILE) if INCREMENTAL else {}
+index_cols = ("composite_score", "fund_type", "scale")  # 与上方三个二级索引一致
+secondary_index_cols = tuple(c for c in index_cols if c != "composite_score")  # fund_type, scale
+d1_rows = load_d1_rows(HASHES_FILE) if INCREMENTAL else {}
+d1_hashes = {c: v.get("row_hash") for c, v in d1_rows.items()}
+routed = {"composite": [], "full": [], "nonindex": []}
+present_new, absent_new = [], []
 if INCREMENTAL:
     changed, new_rows, removed_codes, unchanged = diff_hashes(rows, d1_hashes)
+    # new 里「D1 其实已有该行、只是 row_hash 为 NULL」(2026-11-08 列迁移后的存量行) 有旧值
+    # 可读 ⇒ 与 changed 一样按旧值路由; 真·新增行没有冲突可触发, 走 INSERT 全列。
+    present_new, absent_new = split_present_new(new_rows, d1_rows)
+    routed = route_rows(changed + present_new, d1_rows, secondary_index_cols)
 else:
     changed, new_rows, removed_codes, unchanged = [], rows, [], 0  # 全量=全部当 new
 print(f"[sync-screener-python] diff: total={len(rows)} changed={len(changed)} "
-      f"new={len(new_rows)} removed={len(removed_codes)} unchanged={unchanged} "
+      f"new={len(new_rows)}(present={len(present_new)}+absent={len(absent_new)}) "
+      f"removed={len(removed_codes)} unchanged={unchanged} "
       f"d1_existing={len(d1_hashes)} incremental={INCREMENTAL}", flush=True)
+if INCREMENTAL:
+    print(f"[sync-screener-python] 客户端路由: composite(A)={len(routed['composite'])} "
+          f"full(B)={len(routed['full'])} nonindex(C)={len(routed['nonindex'])} "
+          f"新增行(absent)={len(absent_new)}", flush=True)
 
 # SET 子句列(不含冲突键 fund_code, 含 row_hash)
 set_cols = [c for c in COLS if c != "fund_code"]
@@ -563,7 +581,7 @@ set_cols = [c for c in COLS if c != "fund_code"]
 #
 # 写放大瘦身(2026-11-16, 依据 /tmp/fund-index-audit-20261116.md §5.4):
 #   D1 官方口径 = "SET 里出现索引列就多写一行索引, 与该列值是否真变无关"。
-#   因此把原「全列 SET」按「索引列到底变没变」拆成两条互斥语句, 每行只被一条命中:
+#   因此把原「全列 SET」按「索引列到底变没变」拆成两条互斥语句:
 #     A composite_index_clause: fund_type/scale 未变 + composite_score 变
 #                              ⇒ SET 非索引列 + composite_score(1 表 + 1 索引 = 2 行写)
 #     B full_clause           : fund_type 或 scale 变 ⇒ SET 全部列(1 表 + 3 索引 = 4 行写)
@@ -571,8 +589,11 @@ set_cols = [c for c in COLS if c != "fund_code"]
 #   三条 WHERE 两两互斥(A 要求 fund_type/scale 全等, B 要求至少一个不等; C 要求三列全等,
 #   与 A 在 composite_score 等值上互补、与 B 在 fund_type/scale 上互补), 合起来覆盖
 #   「row_hash 变了」的全部行 ⇒ 落库后的数据值与改前逐字段一致, 只是少写了没变的索引行。
-index_cols = ("composite_score", "fund_type", "scale")  # 与上方三个二级索引一致
-secondary_index_cols = tuple(c for c in index_cols if c != "composite_score")  # fund_type, scale
+#
+#   ⚠ 每行只进一条语句(2026-11-16 复查修): 初版把每条 changed 行同时灌进三条语句、靠 WHERE
+#   互斥只写一次 —— 写行数对, 但包体 = 每行三份(54.8MB→≈82MB, 单次导入撞 300s 上限)。
+#   现在由上面的 route_rows 按 D1 旧值 vs 新值先在客户端分流, 每行只出现在一条语句里;
+#   WHERE 互斥条件保留作纵深防御(即使路由判错也不会被两条语句各写一次)。
 full_clause = build_conflict_clause("fund_screener", set_cols, "fund_code") + " WHERE " + " OR ".join(
     f"fund_screener.{c} IS NOT excluded.{c}" for c in secondary_index_cols)
 composite_index_clause = build_conflict_clause(
@@ -607,14 +628,22 @@ if split_mode == "single":
     for s in schema_stmts:
         bundle.add(s)
     if INCREMENTAL:
-        write_rows = changed + new_rows
-        if write_rows:
-            write_vals = ["(" + ", ".join(sql_lit(r[c]) for c in COLS) + ")" for r in write_rows]
-            # 三条均为完整 INSERT；互补条件(两两互斥)保证同一行只被其中一条写一次,
-            # 部分成功/重试不会只写新 hash 而留下旧字段, 也不会把同一行重复计写。
-            bundle.add_inserts(head, write_vals, conflict_clause=composite_index_clause)
-            bundle.add_inserts(head, write_vals, conflict_clause=full_clause)
-            bundle.add_inserts(head, write_vals, conflict_clause=nonindex_clause)
+        def _vals(rs):
+            return ["(" + ", ".join(sql_lit(r[c]) for c in COLS) + ")" for r in rs]
+
+        # 每条 changed 行只在**一条**语句里出现(客户端已分流); 真·新增行无可触发的冲突,
+        # 放进第一条(A): INSERT 路径写全列, 万一并发下已存在则由 A 的谓词兜底, 下轮收敛。
+        rows_a = routed["composite"] + absent_new
+        rows_b = routed["full"]
+        rows_c = routed["nonindex"]
+        if rows_a or rows_b or rows_c:
+            # 三条均为完整 INSERT；WHERE 两两互斥(纵深防御) ⇒ 同一行最多被一条命中一次,
+            # 部分成功/重试不会只写新 hash 而留下旧字段。单条语句含同一行的份数恒为 1。
+            for rows_k, clause in ((rows_a, composite_index_clause),
+                                   (rows_b, full_clause),
+                                   (rows_c, nonindex_clause)):
+                if rows_k:
+                    bundle.add_inserts(head, _vals(rows_k), conflict_clause=clause)
         else:
             print("[sync-screener-python] 增量空写: changed+new=0, 跳过 INSERT(只写 meta+removed)",
                   flush=True)
@@ -647,6 +676,8 @@ if split_mode == "single":
           f"oversize_single_row_stmts={st['oversize_single_row_stmts']} "
           f"coverage_cols={len(coverage)} "
           f"upsert_rows={len(changed) + len(new_rows)} removed={len(removed_codes)} "
+          f"route_A={len(routed['composite']) + len(absent_new)} route_B={len(routed['full'])} "
+          f"route_C={len(routed['nonindex'])} "
           f"incremental={int(INCREMENTAL)}", flush=True)
 else:
     # legacy: 旧的多文件逐批模式（回退开关）, 保留全量替换语义
