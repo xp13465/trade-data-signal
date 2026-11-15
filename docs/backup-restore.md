@@ -344,7 +344,7 @@ etf_index_map/etf_track_index/lof_track_index 等）。本节机制把这套状�
     （只进备份日志，不发通知、不改退出码）⇒ R2 永远没有 `standby/manifest_latest.json`，
     备用机 `sync` 会一直 404。
   - **只开捕获开关、不开清单开关**：状态集照常归档，但清单不生成 ⇒ 备用机仍无清单可读。
-  - **启用前置条件**：备用机同步工具启用（装 launchd）前**必须先确认判龄口径为交易日**
+  - **启用前置条件**：备用机同步工具启用前（备用机 macOS 本机同步调度用 launchd，属备用机自身的本地调度，**不是**生产定时任务；生产定时任务已全部在云上 systemd timer）**必须先确认判龄口径为交易日** <!-- staleness-ok: 备用机 macOS 本机同步用 launchd,属备用机本地调度而非生产定时任务(生产全在云上 systemd) -->
     （`standby_sync.py` 默认已是 `--stale-mode trading`，2026-11-15 起；若跑旧版会每周一
     因周末自然日差距误报一次 severe），另外先用 `standby_sync.py verify` 或
     `upload_r2.py list standby/ signal-backup2` 确认清单 key 已存在再装载定时任务。
