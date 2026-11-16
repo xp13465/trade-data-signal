@@ -534,15 +534,26 @@ export async function opsScheduled(controller, env, ctx) {
     // be older than 90 days and must NOT be deleted. Only checks absent from the
     // CURRENT head snapshot are eligible, and only while the head is fresh (a stalled
     // collector's last snapshot is not trustworthy evidence of disappearance).
-    // Rows of collectors other than the head one are retained: their liveness cannot
-    // be judged from another collector's snapshot. Reads: one json_each over the head
-    // snapshot (~186 rows) per 15-minute cron.
+    // The candidate set is restricted to the HEAD collector (the head run's
+    // collector_id): another collector's liveness cannot be judged from this
+    // collector's snapshot, so their rows are always retained. The head payload must
+    // exist (snapshot_json IS NOT NULL) — a NULL payload would make json_each empty
+    // and the NOT IN membership test vacuously true, deleting every old row of that
+    // collector. A NULL id inside the payload only makes NOT IN unknown (retain).
+    // Reads: the membership set is an UNCORRELATED one-shot materialization (one
+    // json_each over the head snapshot, ~186 rows) probed once per candidate row; it
+    // is not re-expanded per candidate. The earlier correlated NOT EXISTS was
+    // O(candidates x snapshot size) json_each rows, which would have reached ~34.8k
+    // rows per cron round once unchanged checks started crossing 90 days.
     stmt(db, `DELETE FROM ops_check_state
-      WHERE updated_ms<? AND EXISTS(SELECT 1 FROM ops_head h WHERE h.id=1 AND h.collected_ms>=?)
-        AND NOT EXISTS(SELECT 1 FROM ops_runs r, json_each(r.snapshot_json,'$.checks') c
-          WHERE r.snapshot_id=(SELECT snapshot_id FROM ops_head WHERE id=1)
-            AND r.collector_id=ops_check_state.collector_id
-            AND json_extract(c.value,'$.id')=ops_check_state.check_id)`, now - 90 * DAY, now - AGE_MS),
+      WHERE updated_ms<?
+        AND collector_id=(SELECT r.collector_id FROM ops_head h
+          JOIN ops_runs r ON r.snapshot_id=h.snapshot_id WHERE h.id=1)
+        AND EXISTS(SELECT 1 FROM ops_head h JOIN ops_runs r ON r.snapshot_id=h.snapshot_id
+          WHERE h.id=1 AND h.collected_ms>=? AND r.snapshot_json IS NOT NULL)
+        AND check_id NOT IN (SELECT json_extract(c.value,'$.id')
+          FROM ops_head h JOIN ops_runs r ON r.snapshot_id=h.snapshot_id
+          CROSS JOIN json_each(r.snapshot_json,'$.checks') c WHERE h.id=1)`, now - 90 * DAY, now - AGE_MS),
     stmt(db, "UPDATE ops_outbox SET status='failed',last_error='lease_expired_after_retry_limit',lease_token=NULL WHERE status='sending' AND lease_until_ms<=? AND attempts>=?", now, MAX_ATTEMPTS),
   ]);
   try { await benefitsRetain(db, env, now); } catch { /* Original cron remains independent. */ }

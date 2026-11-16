@@ -224,7 +224,9 @@ node node_modules/wrangler/bin/wrangler.js d1 migrations list OPS_DB --remote --
 node node_modules/wrangler/bin/wrangler.js d1 migrations apply OPS_DB --remote --config "$OPS_CANDIDATE"
 ```
 
-**0007 起迁移与 Worker 的顺序(2026-11-16 A2 写放大瘦身起)**:0007 把「每轮重写全部 check」改成「内容变化才写」,并让 `/state` 用轮级 `ops_head` 时钟判过期。新 Worker 兼容旧 0006 触发器(只是少写),但**旧 Worker 不兼容新触发器**(旧 Worker 仍按每条 check 的 `observed_ms` 判过期,而 0007 不再每轮刷新它)⇒ 顺序必须是**先部署新 `worker/ops.js`,确认成功,再 apply 0007**;反过来会出现大面积假 unknown。回滚顺序相反:先部署旧 Worker,再按 0007 文件末尾注释里的 SQL 恢复 0006 触发器。0007 只改写入频率、不改存储内容,两个方向都不需要回填数据。
+**0007 起迁移与 Worker 的顺序(2026-11-16 A2 写放大瘦身起)**:0007 把「每轮重写全部 check」改成「内容变化才写」,并让 `/state` 用轮级 `ops_head` 时钟判过期。新 Worker 兼容旧 0006 触发器(只是少写),但**旧 Worker 不兼容新触发器**(旧 Worker 仍按每条 check 的 `observed_ms` 判过期,而 0007 不再每轮刷新它)⇒ 上线必须是**先部署新 `worker/ops.js`,确认成功,再 apply 0007**;反过来会出现大面积假 unknown。
+
+**回滚顺序不是上线顺序的倒放**(审查实测兼容矩阵 3/3):直接「先降旧 Worker,再恢复 0006 触发器」会留出一段「旧 Worker + 0007 触发器」的窗口,同样是大面积假 unknown。正确顺序是 ①先停 `trade-ops-monitor.timer`/`service`(回滚窗口内不再有 ingest;不停也可以,但 ①② 之间的间隔必须小于一个 15min 采集轮)②按 0007 文件末尾注释里的 SQL 恢复 0006 触发器(`DROP`/`CREATE` 回 0006 的 `ops_run_insert`;**这一步新 Worker 仍在跑,兼容**)③再降旧 Worker。恢复 0006 后 `observed_ms` 要等下一轮 ingest 才会重新刷新,该轮完成前旧 Worker 的按 check 过期判定仍可能把未变的 check 显示成 unknown/stale(自愈,不是数据问题)——等 ①~③ 加一轮 ingest 都完成再验收 `/state`。0007 只改写入频率、不改存储内容,两个方向都不需要回填数据。
 
 6. **main-merge前配置secrets**：确认目标是既有生产Worker，并核对当前版本/旧业务路由基线，再由Claude执行下列有副作用的密钥更新。私有JSON只含本次需要的字符串值，不含null（null会删除密钥）；既有session/ADMIN_USERS等未列出的secret保留。`OPS_INGEST_TOKEN`必须就绪，`OPS_ADMIN_TOKEN`仅在使用bootstrap时设置。密钥值不进配置/提交/日志；仅记录目标、密钥名称及更新后的版本。更新后复核旧业务路由，失败时停止合并。
 
@@ -378,7 +380,7 @@ python3 ops/monitoring/verify_deployment.py --origin https://ss.fx8.store --admi
 
 1. **暂停写入**：`sudo systemctl disable --now trade-ops-monitor.timer`，随后 `sudo systemctl stop trade-ops-monitor.service`。不要删输出文件来制造“已恢复”，不要移除业务任务。
 2. **关闭真实通知与独立cron**：在私有回滚候选配置中令 `OPS_ALERT_ENABLED=false`、`OPS_ALERT_SCOPE=watchdog`，只移除本次新增 `*/15 * * * *` watchdog cron，保留所有原有cron/绑定。若部署前本来就有相同表达式，不能机械移除共享cron，交Claude按原配置恢复。由Claude显式deploy回滚候选，并将同样的非密钥vars/cron回滚同步到版本化根配置、审核合并，防下次自动deploy重新启用；保留OPS_DB绑定和资源。Cron删除同样有传播延时，不能仅停collector后假定不会触发失联告警。
-3. 必要时回滚 Worker 到已记录的先前版本，保留回滚前候选、版本与私有证据；既有业务API/session/assets要按原基线验收。Worker代码回滚不等于数据库迁移逆转，也不保证cron配置一同撤回，单独核对。
+3. 必要时回滚 Worker 到已记录的先前版本，保留回滚前候选、版本与私有证据；既有业务API/session/assets要按原基线验收。Worker代码回滚不等于数据库迁移逆转，也不保证cron配置一同撤回，单独核对。**若回滚跨越 0007（写放大瘦身），不得先降 Worker**：必须先恢复 0006 触发器（新 Worker 兼容）再降旧 Worker，或回滚窗口内停 collector/ingest；顺序与理由见第4节第5步，`old-worker + 0007 trigger` 的窗口实测会出大面积假 unknown。
 4. **保留 OPS_DB 资源、迁移表、事件和人工修订**。不执行 d1 delete、不删迁移、不TRUNCATE、不将其改绑业务库。停止scheduled后保留期清理也暂停，历史暂时超过原保留窗属于暂停状态，交Claude评估容量，不自动删除。
 5. 原生数据库备份与隔离恢复演练按下一节执行；保持umask077，不放静态资源/R2/public仓。不能以面板数据导出替代数据库备份，也不能以导出成功代替恢复成功。
 6. 重新启用时先核对兼容迁移/secret一致、告警关闭、fresh首次采样、独立cron，再启timer；旧事件不会自动关闭人工incident，旧D1证据不被baseline覆盖。

@@ -846,6 +846,46 @@ test('A2 retention is gated on a fresh head: nothing is pruned while the collect
   assert.equal(f.db.sql.prepare('SELECT COUNT(*) n FROM ops_check_state').get().n,2);
 }));
 
+// Independent-review fixes (2026-11-16): the 90d check-row retention must judge only
+// the head collector's rows and must be unable to run on a NULL head payload.
+test('A2 retention keeps other collectors\' rows and refuses to prune on a NULL head payload',()=>fixture(async f=>{
+  // The second collector publishes first (older collected_at) so its row is never part
+  // of the later head snapshot; after 91d it must still survive.
+  const foreign={...f.snapshot(),collector_id:'other-collector'};
+  foreign.collected_at=new Date(f.now()-60000).toISOString();
+  foreign.checks=[{...f.snapshot().checks[0],id:'service:foreign',name:'Foreign service',observed_at:foreign.collected_at}];
+  assert.equal((await f.push(foreign)).status,200);
+  const head=f.snapshot();
+  head.checks=[{...f.snapshot().checks[0],id:'service:live',name:'Live service'},
+               {...f.snapshot().checks[0],id:'service:gone',name:'Gone service'}];
+  head.coverage.counts.checked=2;
+  assert.equal((await f.push(head)).status,200);
+  assert.equal(f.db.sql.prepare('SELECT r.collector_id FROM ops_head h JOIN ops_runs r ON r.snapshot_id=h.snapshot_id WHERE h.id=1').get().collector_id,'fixture');
+  f.advance(1000);
+  const next=f.snapshot();
+  next.checks=[{...f.snapshot().checks[0],id:'service:live',name:'Live service'}];
+  assert.equal((await f.push(next)).status,200); // service:gone -> unknown, written once
+  assert.equal(f.db.sql.prepare("SELECT status FROM ops_check_state WHERE check_id='service:gone'").get().status,'unknown');
+  // 0007 never rewrites unchanged content, so after ~91 days this is the normal shape:
+  // every row's updated_ms is its last CONTENT change (the disappearance was 91d ago).
+  const old=f.now()-91*86400000;
+  f.db.sql.prepare('UPDATE ops_check_state SET updated_ms=?').run(old);
+  await f.scheduled();
+  const rows=f.db.sql.prepare('SELECT collector_id,check_id FROM ops_check_state ORDER BY collector_id,check_id').all()
+    .map(r=>r.collector_id+'/'+r.check_id);
+  assert.deepEqual(rows,['fixture/service:live','other-collector/service:foreign']);
+  // Defense in depth: null the head payload while an orphan head row is still old and
+  // absent from coverage. json_each over NULL yields no rows, so only the explicit
+  // IS NOT NULL gate can stop the membership test from deleting everything.
+  f.db.sql.prepare("INSERT INTO ops_check_state(collector_id,check_id,name,status,observed_ms,collected_ms,snapshot_id,updated_ms,problem_open,summary,observation_json) VALUES('fixture','service:orphan','Orphan','unknown',0,?,?,?,0,'orphan','{}')")
+    .run(f.now(),f.now(),old);
+  f.db.sql.prepare('UPDATE ops_runs SET snapshot_json=NULL WHERE snapshot_id=(SELECT snapshot_id FROM ops_head WHERE id=1)').run();
+  await f.scheduled();
+  const kept=f.db.sql.prepare('SELECT collector_id,check_id FROM ops_check_state ORDER BY collector_id,check_id').all()
+    .map(r=>r.collector_id+'/'+r.check_id);
+  assert.deepEqual(kept,['fixture/service:live','fixture/service:orphan','other-collector/service:foreign']);
+}));
+
 test('A2 stale gap: expiry is display-derived, the stored row is untouched and recovery fires once',()=>fixture(async f=>{
   await f.push(f.snapshot('critical'));
   f.advance(40*60000); // head stale: /state expires the check without rewriting it

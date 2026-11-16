@@ -24,13 +24,23 @@
 -- (D1 d1_migrations applied_at 2026-11-13 01:31:09, measured in
 -- /tmp/monitor-quota-rca-20261116.md §3.1).
 --
--- Deployment order (see DEPLOY.md §7): deploy the matching worker/ops.js FIRST, then
--- apply this migration. The new worker is compatible with the old 0006 trigger (it only
--- derives per-check freshness from ops_head), but the old worker is NOT compatible with
--- this trigger: it still expires checks via observed_ms, which this migration stops
--- refreshing every round, producing a false-unknown storm. Rollback below restores the
--- exact 0006 trigger; 0007 only changes write frequency, never stored content, so no
--- backfill is needed in either direction.
+-- Deployment order (see DEPLOY.md §4 step 5 and §7): deploy the matching worker/ops.js
+-- FIRST, then apply this migration. The new worker is compatible with the old 0006
+-- trigger (it only derives per-check freshness from ops_head), but the old worker is
+-- NOT compatible with this trigger: it still expires checks via observed_ms, which this
+-- migration stops refreshing every round, producing a false-unknown storm.
+-- Rollback is NOT the reverse order of deployment: restore the 0006 trigger below
+-- FIRST (the new worker stays compatible), and only then deploy the old worker. The
+-- reverse leaves an old-worker + 0007-trigger window with the same false-unknown storm
+-- (measured 3/3 in the 2026-11-16 review). Optionally stop the collector timer/ingest
+-- for the rollback window. After the restore, stored observed_ms is refreshed by the
+-- next ingest round; until then the previous worker may show unchanged checks as
+-- stale/unknown (self-healing, no data loss). 0007 only changes write frequency, never
+-- stored content, so no backfill is needed in either direction.
+-- If a check field is added or renamed, the content predicate in the ON CONFLICT UPDATE
+-- below AND validateSnapshot's exactKeys in worker/ops.js must change in the same
+-- commit: the trigger writes only when a compared column differs, so an uncompared
+-- field would silently stop being persisted.
 
 DROP TRIGGER ops_run_insert;
 CREATE TRIGGER ops_run_insert AFTER INSERT ON ops_runs BEGIN
@@ -119,11 +129,15 @@ END;
 
 -- ============================================================================
 -- ROLLBACK (reversible). Do NOT uncomment inside a migration run; wrangler applies
--- every statement in this file when the migration runs. To roll back 0007, deploy the
--- previous worker/ops.js first (it expects every round to refresh observed_ms), then run
--- the SQL below manually via `wrangler d1 execute OPS_DB --remote --config <config>
--- --file <this-extracted-sql>`. It restores the exact 0006 trigger verbatim. No table
--- data is touched: 0007 never changes stored content, only write frequency.
+-- every statement in this file when the migration runs. To roll back 0007: keep the
+-- current (new) worker deployed, restore the 0006 trigger with the SQL below via
+-- `wrangler d1 execute OPS_DB --remote --config <config> --file <this-extracted-sql>`,
+-- and only THEN deploy the previous worker/ops.js. The reverse order leaves old worker
+-- + this trigger, which restores observed_ms only on content changes and therefore
+-- shows a false-unknown storm. It restores the exact 0006 trigger verbatim (comments
+-- included). No table data is touched: 0007 never changes stored content, only write
+-- frequency; after the restore the next ingest round refreshes observed_ms as the
+-- previous worker expects.
 --
 -- DROP TRIGGER ops_run_insert;
 -- CREATE TRIGGER ops_run_insert AFTER INSERT ON ops_runs BEGIN
@@ -178,6 +192,8 @@ END;
 --       (SELECT json_extract(value,'$.id') FROM json_each(NEW.snapshot_json,'$.checks'))
 --     AND NOT EXISTS(SELECT 1 FROM ops_head WHERE id=1 AND
 --       (collected_ms>NEW.collected_ms OR (collected_ms=NEW.collected_ms AND snapshot_id>=NEW.snapshot_id)));
+--   -- ACK/history counts describe the atomically elected states, not an unverified
+--   -- producer claim of recovery. Duplicates retain these first-ingest counts.
 --   UPDATE ops_runs SET counts_json=(
 --     SELECT json_object('ok',SUM(s.status='ok'),'warning',SUM(s.status='warning'),
 --       'critical',SUM(s.status='critical'),'unknown',SUM(s.status='unknown'))
