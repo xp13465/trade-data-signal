@@ -224,6 +224,8 @@ node node_modules/wrangler/bin/wrangler.js d1 migrations list OPS_DB --remote --
 node node_modules/wrangler/bin/wrangler.js d1 migrations apply OPS_DB --remote --config "$OPS_CANDIDATE"
 ```
 
+**0007 起迁移与 Worker 的顺序(2026-11-16 A2 写放大瘦身起)**:0007 把「每轮重写全部 check」改成「内容变化才写」,并让 `/state` 用轮级 `ops_head` 时钟判过期。新 Worker 兼容旧 0006 触发器(只是少写),但**旧 Worker 不兼容新触发器**(旧 Worker 仍按每条 check 的 `observed_ms` 判过期,而 0007 不再每轮刷新它)⇒ 顺序必须是**先部署新 `worker/ops.js`,确认成功,再 apply 0007**;反过来会出现大面积假 unknown。回滚顺序相反:先部署旧 Worker,再按 0007 文件末尾注释里的 SQL 恢复 0006 触发器。0007 只改写入频率、不改存储内容,两个方向都不需要回填数据。
+
 6. **main-merge前配置secrets**：确认目标是既有生产Worker，并核对当前版本/旧业务路由基线，再由Claude执行下列有副作用的密钥更新。私有JSON只含本次需要的字符串值，不含null（null会删除密钥）；既有session/ADMIN_USERS等未列出的secret保留。`OPS_INGEST_TOKEN`必须就绪，`OPS_ADMIN_TOKEN`仅在使用bootstrap时设置。密钥值不进配置/提交/日志；仅记录目标、密钥名称及更新后的版本。更新后复核旧业务路由，失败时停止合并。
 
 ```bash

@@ -793,3 +793,55 @@ test('revised worker refuses superseded 0005 policy1 without accepting a snapsho
   f.db.sql.exec('UPDATE ops_recovery_policy SET version=2 WHERE id=1');
   assert.equal((await f.push(s)).status,200);
 }));
+
+// A2 write-amplification regression: 0007 writes a check row only when its CONTENT
+// changes, and /state derives expiry from the round-level ops_head clock.
+test('A2 content-change-only writes: 24h of unchanged rounds stays ok and writes only structure rows',()=>fixture(async f=>{
+  await f.push(f.snapshot());
+  const stable=f.db.sql.prepare('SELECT check_id,status,observed_ms,updated_ms,observation_json FROM ops_check_state ORDER BY check_id').all();
+  const before=f.db.sql.prepare('SELECT total_changes() n').get().n;
+  for(let i=0;i<96;i++){
+    f.advance(15*60000);
+    assert.equal((await f.push(f.snapshot())).status,200);
+    const state=(await f.call()).body;
+    assert.equal(state.collector_status,'fresh');
+    assert.equal(state.latest.checks[0].status,'ok');
+    assert.equal(state.counts.unknown,0);
+  }
+  const after=f.db.sql.prepare('SELECT total_changes() n').get().n;
+  // 96 unchanged rounds: only ops_runs insert + ops_head advance each round.
+  assert.ok(after-before<=96*20,after-before);
+  assert.deepEqual(f.db.sql.prepare('SELECT check_id,status,observed_ms,updated_ms,observation_json FROM ops_check_state ORDER BY check_id').all(),stable);
+  // Display still reports THIS round's observation; expiry uses the round clock.
+  const live=(await f.call()).body.latest.checks[0];
+  assert.equal(live.observed_at,new Date(f.now()).toISOString());
+  assert.notEqual(live.observation_status,'retained_current_observation');
+}));
+
+test('A2 retention: an unchanged live check survives 90d; a check absent from the head snapshot is pruned',()=>fixture(async f=>{
+  const a=f.snapshot();
+  a.checks.push({...a.checks[0],id:'service:retired',name:'Retired check'});
+  await f.push(a);
+  f.advance(86400000);
+  await f.push(f.snapshot()); // retired check disappears -> unknown, written once
+  assert.equal(f.db.sql.prepare("SELECT status FROM ops_check_state WHERE check_id='service:retired'").get().status,'unknown');
+  f.advance(92*86400000);
+  await f.push(f.snapshot()); // head fresh again; service:fixture content unchanged since day 0
+  await f.scheduled();
+  const rows=f.db.sql.prepare('SELECT check_id FROM ops_check_state ORDER BY check_id').all().map(r=>r.check_id);
+  assert.deepEqual(rows,['service:fixture']);
+  const state=(await f.call()).body;
+  assert.equal(state.collector_status,'fresh');
+  assert.equal(state.latest.checks[0].status,'ok'); // old updated_ms alone must not delete/expire it
+}));
+
+test('A2 retention is gated on a fresh head: nothing is pruned while the collector is stale',()=>fixture(async f=>{
+  const a=f.snapshot();
+  a.checks.push({...a.checks[0],id:'service:retired',name:'Retired check'});
+  await f.push(a);
+  f.advance(86400000);
+  await f.push(f.snapshot()); // retired check unknown
+  f.advance(92*86400000); // head is now 92d stale; no new snapshot
+  await f.scheduled();
+  assert.equal(f.db.sql.prepare('SELECT COUNT(*) n FROM ops_check_state').get().n,2);
+}));

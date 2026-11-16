@@ -270,11 +270,20 @@ async function state(db, now) {
     // A newer envelope can contain an older observation; never reuse its ok or
     // evidence when SQL deliberately retained a newer critical observation.
     const proof = current.observation_json ? JSON.parse(current.observation_json) : null;
-    const stale = now - current.observed_ms > AGE_MS || (c.id.startsWith('business:') && (!proof?.evidence?.valid_until || Date.parse(proof.evidence.valid_until) <= now));
-    const retained = current.snapshot_id !== latest.snapshot_id;
+    // 0007 content-change-only writes: a live check's stored observed_ms is the time
+    // its CONTENT last changed, so per-check age can no longer decide expiry. The
+    // round-level ops_head clock does: when the collector stops sampling, every
+    // present check expires to unknown after AGE_MS. The observation age of THIS
+    // round comes from the envelope for display only.
+    const envelopeObserved = Number.isFinite(c._observed_ms) ? c._observed_ms : Date.parse(c.observed_at);
+    const stale = now - head.collected_ms > AGE_MS || (c.id.startsWith('business:') && (!proof?.evidence?.valid_until || Date.parse(proof.evidence.valid_until) <= now));
+    // A newer envelope can contain an older observation; never reuse its ok or
+    // evidence when SQL deliberately retained a newer critical observation.
+    const retained = Number.isFinite(envelopeObserved) ? current.observed_ms > envelopeObserved : current.snapshot_id !== latest.snapshot_id;
     return { ...(proof || { id: c.id, category: c.category }), name: current.name,
       status: stale ? 'unknown' : current.status, summary: current.summary,
-      evidence: proof?.evidence || {}, observed_at: proof?.observed_at || iso(current.observed_ms),
+      evidence: proof?.evidence || {},
+      observed_at: retained ? (proof?.observed_at || iso(current.observed_ms)) : (c.observed_at || proof?.observed_at || iso(current.observed_ms)),
       _observed_ms: current.observed_ms, current_snapshot_id: current.snapshot_id, problem_open: !!current.problem_open,
       observation_status: stale ? 'stale_observation' : !proof ? 'current_evidence_unavailable' : retained ? 'retained_current_observation' : proof.observation_status,
       ...(retained ? { received_observation: { snapshot_id: latest.snapshot_id, observed_at: c.observed_at,
@@ -511,13 +520,29 @@ export async function opsScheduled(controller, env, ctx) {
         changed_ms=CASE WHEN ops_watchdog.status<>excluded.status THEN excluded.changed_ms ELSE ops_watchdog.changed_ms END,
         first_seen_ms=COALESCE(ops_watchdog.first_seen_ms,excluded.first_seen_ms)
       WHERE excluded.changed_ms>=ops_watchdog.changed_ms`, now, now - AGE_MS, now - AGE_MS, now, now),
-    stmt(db, "UPDATE ops_check_state SET status='unknown',summary='Observation expired; not a recovery',updated_ms=? WHERE observed_ms<? AND status<>'unknown'", now, now - AGE_MS),
+    // Per-check expiry is derived by /state from the round-level ops_head clock
+    // (0007 content-change-only writes mean observed_ms no longer moves on an
+    // unchanged live check). Do NOT also expire rows here: that would rewrite all
+    // 186 rows on every stale/recovery episode.
     stmt(db, 'UPDATE ops_runs SET snapshot_json=NULL WHERE received_ms<? AND snapshot_json IS NOT NULL AND snapshot_id NOT IN(SELECT snapshot_id FROM ops_head)', now - DAY),
     stmt(db, 'DELETE FROM ops_runs WHERE received_ms<? AND snapshot_id NOT IN(SELECT snapshot_id FROM ops_head)', now - 30 * DAY),
     stmt(db, 'DELETE FROM ops_outbox WHERE created_ms<?', now - 90 * DAY),
     stmt(db, 'DELETE FROM ops_events WHERE created_ms<?', now - 90 * DAY),
     stmt(db, 'DELETE FROM ops_incident_revisions WHERE updated_ms<?', now - 90 * DAY),
-    stmt(db, 'DELETE FROM ops_check_state WHERE updated_ms<?', now - 90 * DAY),
+    // 90-day retention, re-based for content-change-only writes: updated_ms is the
+    // last time the row's CONTENT changed, so an unchanged live check can legitimately
+    // be older than 90 days and must NOT be deleted. Only checks absent from the
+    // CURRENT head snapshot are eligible, and only while the head is fresh (a stalled
+    // collector's last snapshot is not trustworthy evidence of disappearance).
+    // Rows of collectors other than the head one are retained: their liveness cannot
+    // be judged from another collector's snapshot. Reads: one json_each over the head
+    // snapshot (~186 rows) per 15-minute cron.
+    stmt(db, `DELETE FROM ops_check_state
+      WHERE updated_ms<? AND EXISTS(SELECT 1 FROM ops_head h WHERE h.id=1 AND h.collected_ms>=?)
+        AND NOT EXISTS(SELECT 1 FROM ops_runs r, json_each(r.snapshot_json,'$.checks') c
+          WHERE r.snapshot_id=(SELECT snapshot_id FROM ops_head WHERE id=1)
+            AND r.collector_id=ops_check_state.collector_id
+            AND json_extract(c.value,'$.id')=ops_check_state.check_id)`, now - 90 * DAY, now - AGE_MS),
     stmt(db, "UPDATE ops_outbox SET status='failed',last_error='lease_expired_after_retry_limit',lease_token=NULL WHERE status='sending' AND lease_until_ms<=? AND attempts>=?", now, MAX_ATTEMPTS),
   ]);
   try { await benefitsRetain(db, env, now); } catch { /* Original cron remains independent. */ }
