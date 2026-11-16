@@ -13,8 +13,13 @@
 - **DB 不裸拷**: 本模块不复制任何 .db/-wal; DB 腿只「引用」同轮 backup_db.sh 产物
   (sha256/size/mtime + PRAGMA integrity_check + 关键表行数, 只读)。
 - **sidecar 一致性**: 在 DB 快照之后读取; 每文件读前后 stat 复查 + 全部复制完
-  finalize 前对源文件 stat+hash 复查; 变化 ⇒ 整体重试一次, 仍变 ⇒ 记 inconsistent,
-  拒绝宣称完整(uploadable=false)。业务截止点字段分两个(N1, 2026-11-15 审查三轮):
+  finalize 前对源文件 stat+hash 复查; 变化 ⇒ 整体重试一次(间隔 RETRY_INTERVAL_SECONDS,
+  受 RETRY_TOTAL_WINDOW_SECONDS 总窗口上限约束, 绝不无限等), 仍变 ⇒ 记 inconsistent,
+  拒绝宣称完整(uploadable=false)。判死必须点名: 重试前与失败时都输出变化/消失文件名
+  (changed_files/vanished_files + 总数, MAX_REPORTED_CHANGES 截断)与采样差异
+  sample_diff, stderr 行 STATE_CAPTURE_RETRY / STATE_CAPTURE_INCONSISTENT。
+  写入中间件(.receipt-*/ *.tmp*)按设计排除(transient_intermediate_by_design, 宁窄勿宽),
+  真实状态文件一律纳判。业务截止点字段分两个(N1, 2026-11-15 审查三轮):
   **db_cutoff = DB 各库 MAX(date) 的最小值**(所有库共同覆盖到哪一天, 恢复/接管以它为准)与
   common_business_cutoff(文件内业务日期优先、mtime 兜底、方法逐项记录; **含文件 mtime 触点,
   不等于数据业务截止日** —— 云上 alert_state/unit_exit_ledger 的 mtime 是运行日, 会把该字段
@@ -97,8 +102,22 @@ UPLOAD_MARKER_SCHEMA = "trade-state-capture-upload-marker-v1"
 # 按设计排除的 skipped 原因(跨机无恢复意义/不跟随), 不算缺口, 不影响 complete。
 BY_DESIGN_SKIP_REASONS = frozenset({
     "transient_lock_by_design",       # .lock 事务锁(瞬态, 云上 ops_delivery 实测 292 个)
+    "transient_intermediate_by_design",  # 2026-11-17: .receipt-*/ *.tmp*(写入中间件, 见下方判定函数)
     "symlink_not_followed_by_design",  # 审查二轮 #4: symlink 不跟随(防跨出集合/重复)
 })
+
+# ---- 一致性重试与诊断(2026-11-17;依据 /tmp/rca-backup-nav-20261116.md 实测) ----
+# 2026-11-16 21:00 首次正式槽位: 两轮各 ~16s、**间隔 0s**, 都在 finalize 复查判死 ⇒
+# inconsistent 且只打状态不打文件名(32.06s ≈ 2 × 16.0s)。根因三条:
+#   ① 判据要求「整个捕获窗口零变更」, 捕获集合本身含活跃写入面;
+#   ② 重试间隔 0s ⇒ 两次落在同一繁忙区间;
+#   ③ expand_inventory 的 rglob("*") 不过滤写入中间件(`.receipt-*` 实测由 C4 回执链在捕获
+#      目录内 mkstemp 后 unlink, 见 scripts/delivery_evidence.py:242/249/268) ⇒ 展开时有、
+#      finalize 时无, 被旧判据当成「源被修改」。
+# 修法(有界, 不无限等待): 正间隔重试一次 + 总窗口上限 + 失败点名 offender + 只排除明显瞬态中间件。
+RETRY_INTERVAL_SECONDS = 2.0        # 重试前等待(RCA 建议 ≥2s; 0s 已实测同区间必复现)
+RETRY_TOTAL_WINDOW_SECONDS = 90.0   # 总窗口上限: 两次尝试 + 间隔合计超过即放弃重试(绝不无限等)
+MAX_REPORTED_CHANGES = 20           # 诊断清单截断(另带总数, 防日志被大清单刷爆)
 
 # ---- 恢复清单(捕获前声明; 改这里 = 改恢复范围, 必须同步 docs/backup-restore.md) ----
 # pattern 相对 <repo>/data/; kind: file=单文件 / glob=通配 / dir=递归目录。
@@ -225,6 +244,25 @@ def is_transient_lock(name: str) -> bool:
     return name.lower().endswith(".lock")
 
 
+def is_transient_intermediate(name: str) -> bool:
+    """明显瞬态中间件判定(2026-11-17): 只排「写入过程中短暂存在、与最终产物可区分」的名字。
+
+    依据(2026-11-16 RCA /tmp/rca-backup-nav-20261116.md §A2, 逐条实测):
+      ① `.receipt-*`: C4 回执链的 mkstemp 临时件 —— scripts/delivery_evidence.py:242 建、
+         :249 `os.link` 成最终 `<receipt_id>.json`、:268 unlink。它在 rglob 展开时可能刚存在、
+         finalize 复查时已消失 ⇒ 旧判据误判「源被修改」。
+      ② `*.tmp` / `*.tmp.<随机>` / `*.tmp-<随机>`: 原子写临时名(r2_safe_write.durable 的
+         `name + '.tmp.' + uuid` 等同款)。`.tmp` 必须是独立名字段: `x.json.tmpl` 这类不匹配。
+    **宁窄勿宽**: 不排除 `.r2_*_state.json`(真实发布状态)、`.r2-protected/gc-manifest.json`
+    (持久引用清单)、`ops_delivery/receipts/**` 最终回执、任何 `.json/.jsonl` 产物 —— 它们
+    变了就是真缺口, 必须照旧判 inconsistent 并点名。
+    """
+    low = name.lower()
+    if low.startswith(".receipt-"):
+        return True
+    return bool(re.search(r"\.tmp(?:[.\-_]|$)", low))
+
+
 _SECRET_CONTENT_RES = (
     re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(rb"\bsk-[A-Za-z0-9]{16,}\b"),
@@ -280,7 +318,15 @@ def atomic_json(path: Path, value) -> None:
 
 
 class SourceChanged(Exception):
-    """sidecar 在捕获期间被修改(读前后 stat 或 finalize 复查不一致)。"""
+    """sidecar 在捕获期间被修改(读前后 stat 或 finalize 复查不一致)。
+
+    2026-11-17: 带上 offender 清单(changed/vanished 的 rel), 让失败可逐位定位(旧实现只抛
+    第一个 rel、且最终输出只打状态)。"""
+    def __init__(self, rel, changed=None, vanished=None):
+        super().__init__(rel)
+        self.rel = rel
+        self.changed = list(changed or [rel])
+        self.vanished = list(vanished or [])
 
 
 class CaptureBudgetExceeded(Exception):
@@ -472,12 +518,14 @@ def db_max_date(path: Path, name: str) -> str | None:
 
 
 def _capture_attempt(repo: Path, out_root: Path, backup_dir: Path, stamp: str,
-                      scripts_dir: Path, with_db_leg: bool, started_at: str) -> tuple[dict, Path, str]:
-    """一次捕获尝试。返回(manifest, pending_dir, outcome)。
+                      scripts_dir: Path, with_db_leg: bool, started_at: str) -> tuple[dict, Path, str, dict]:
+    """一次捕获尝试。返回(manifest, pending_dir, outcome, diagnosis)。
 
     outcome: "consistent"=成功 / "inconsistent"=sidecar 捕获期间被修改(调用方整体
     重试一次) / "io_failed"=读取或写入 IO 失败(磁盘满等, 不重试、不崩溃, pending 已清)。
-    单文件超预算记 budget_excluded 后继续; 文件在窗内消失记 missing。"""
+    单文件超预算记 budget_excluded 后继续; 文件在窗内消失记 missing。
+    diagnosis: 本轮采样快照(sample: rel→stat_identity)+ 不一致时的 offender 清单
+    (changed/vanished, 各截断到 MAX_REPORTED_CHANGES 并带总数), 供重试前后日志点名。"""
     data_dir = repo / "data"
     capture_id = f"{stamp}-{uuid.uuid4().hex[:8]}"
     pending = Path(tempfile.mkdtemp(prefix=".pending-", dir=out_root))
@@ -488,6 +536,10 @@ def _capture_attempt(repo: Path, out_root: Path, backup_dir: Path, stamp: str,
                 "declared_excludes": [dict(e) for e in DECLARED_EXCLUDES],
                 "files": [], "missing": [], "skipped": [], "budget_excluded": [],
                 "archive": {"status": "not_uploaded"}}
+    # 本轮采样快照(展开时逐 rel stat): 仅用于「上一轮 vs 本轮」差异诊断, 不参与一致性判定。
+    sample = {}
+    diagnosis = {"changed": [], "changed_total": 0, "vanished": [], "vanished_total": 0,
+                 "sample": sample}
     succeeded = False
     # 审查二轮 #1: 声明写入 + 清单展开也必须在 try 内 —— ENOSPC/EIO 不得逃出本函数
     # (旧实现这两步在 try 之前 ⇒ traceback + .pending-* 泄漏)。succeeded 已提前置 False,
@@ -500,10 +552,20 @@ def _capture_attempt(repo: Path, out_root: Path, backup_dir: Path, stamp: str,
         for item in expanded:
             rel = item["rel"]
             src = data_dir / rel
+            try:
+                sample[rel] = stat_identity(src)
+            except OSError:
+                sample[rel] = None   # 展开后即消失: 由下方 missing/vanished 语义处理
             if item.get("is_symlink"):
                 # 审查二轮 #4: 不跟随符号链接(防跨出集合/重复), 但必须记账不静默。
                 manifest["skipped"].append(
                     {"rel": rel, "reason": "symlink_not_followed_by_design"})
+                continue
+            if is_transient_intermediate(src.name):
+                # 写入中间件(.receipt-* / *.tmp*): 展开时有、finalize 时无属正常; 不进集合、不参与
+                # 一致性判定, 但按设计排除如实记账(2026-11-17, 见 is_transient_intermediate)。
+                manifest["skipped"].append(
+                    {"rel": rel, "reason": "transient_intermediate_by_design"})
                 continue
             if is_transient_lock(src.name):
                 # 瞬态锁: 按设计排除(跨机无恢复意义), 不计缺口 ⇒ 不影响 complete。
@@ -518,6 +580,9 @@ def _capture_attempt(repo: Path, out_root: Path, backup_dir: Path, stamp: str,
                 continue
             try:
                 payload, before = read_stable(src)
+            except SourceChanged:
+                # 读前后 stat 不一致 ⇒ 点名本次 rel(诊断清单要的是集合内相对路径, 不是绝对路径)。
+                raise SourceChanged(rel)
             except CaptureBudgetExceeded as exc:
                 # F2: 超预算 ⇒ 如实记账(不缩表不崩溃), complete 由 budget_excluded 推出 false。
                 manifest["budget_excluded"].append({
@@ -545,26 +610,35 @@ def _capture_attempt(repo: Path, out_root: Path, backup_dir: Path, stamp: str,
         # ② DB 腿(引用同轮热备产物, 只读)
         if with_db_leg:
             manifest["db_leg"] = db_leg(repo, backup_dir, stamp, scripts_dir)
-        # ③ sidecar finalize 复查: 全部复制+DB 引用后, 对每个源 stat+hash 复查
+        # ③ sidecar finalize 复查: 全部复制+DB 引用后, 对每个源 stat+hash 复查。
+        # 2026-11-17: 不再「首个变化即抛」——枚举全部 offender(旧实现丢掉清单, 失败无法定位)。
+        changed, vanished = [], []
         for rec in manifest["files"]:
             src = data_dir / rec["rel"]
             try:
-                changed = (stat_identity(src) != rec["source_stat"]
-                           or sha256_file(src) != rec["sha256"])
+                cur = stat_identity(src)
             except FileNotFoundError:
-                changed = True  # 读后轮转删除 ⇒ 与「被修改」同语义(整体重试一次)
-            if changed:
-                raise SourceChanged(rec["rel"])
+                vanished.append(rec["rel"])   # 读后轮转删除 ⇒ 与「被修改」同语义(整体重试)
+                continue
+            if cur != rec["source_stat"] or sha256_file(src) != rec["sha256"]:
+                changed.append(rec["rel"])
+        if changed or vanished:
+            raise SourceChanged((changed + vanished)[0], changed=changed, vanished=vanished)
         succeeded = True
-        return manifest, pending, "consistent"
-    except SourceChanged:
-        return manifest, pending, "inconsistent"
+        return manifest, pending, "consistent", diagnosis
+    except SourceChanged as exc:
+        diagnosis.update({
+            "changed": exc.changed[:MAX_REPORTED_CHANGES],
+            "changed_total": len(set(exc.changed) | set(exc.vanished)),
+            "vanished": exc.vanished[:MAX_REPORTED_CHANGES],
+            "vanished_total": len(exc.vanished)})
+        return manifest, pending, "inconsistent", diagnosis
     except OSError as exc:
         # F2: 读/写 IO 失败(磁盘满、权限等) ⇒ 不重试、不 traceback、不泄漏 pending;
         # 如实记 status=failed(调用方据此产出 failed manifest, 不冒充成功)。
         manifest["error"] = {
             "type": type(exc).__name__, "detail": str(exc), "phase": phase}
-        return manifest, pending, "io_failed"
+        return manifest, pending, "io_failed", diagnosis
     finally:
         # 非 consistent 路径一律清掉 pending 临时目录(源变化/IO 失败), 防堆积泄漏。
         if not succeeded:
@@ -640,16 +714,35 @@ def db_cutoff(manifest: dict) -> dict:
     return {"date": known[0][0], "evidence": f"db:{known[0][1]}", **base}
 
 
+def _sample_diff(prev: dict | None, cur: dict | None) -> dict:
+    """两轮采样快照差异(rel 级): added / removed / changed, 各截断并带总数(诊断用)。"""
+    prev, cur = prev or {}, cur or {}
+    added = [rel for rel in cur if rel not in prev]
+    removed = [rel for rel in prev if rel not in cur]
+    changed = [rel for rel in cur if rel in prev and prev[rel] != cur[rel]]
+    return {"added": added[:MAX_REPORTED_CHANGES], "added_total": len(added),
+            "removed": removed[:MAX_REPORTED_CHANGES], "removed_total": len(removed),
+            "changed": changed[:MAX_REPORTED_CHANGES], "changed_total": len(changed)}
+
+
 def capture(repo: Path, out_root: Path, backup_dir: Path, stamp: str, scripts_dir: Path,
             with_db_leg: bool = True) -> dict:
-    """成套捕获入口(重试一次语义 + 汇总 manifest)。失败也不静默: 全部状态如实入 manifest。"""
+    """成套捕获入口(重试一次语义 + 汇总 manifest)。失败也不静默: 全部状态如实入 manifest。
+
+    2026-11-17: 重试前等待 RETRY_INTERVAL_SECONDS(正间隔, 不再 0s), 总窗口受
+    RETRY_TOTAL_WINDOW_SECONDS 上限约束(超出即放弃重试, 绝不无限等); 失败时点名 offender。
+    """
     started_at = now_iso()
     out_root.mkdir(parents=True, exist_ok=True)  # 直接函数调用时目录可能不存在
+    deadline = time.monotonic() + RETRY_TOTAL_WINDOW_SECONDS
     retries = 0
     outcome = "io_failed"
+    window_exhausted = False
+    diagnosis = {"changed": [], "changed_total": 0, "vanished": [], "vanished_total": 0}
+    samples = []
     for attempt in range(2):
         try:
-            manifest, pending, outcome = _capture_attempt(
+            manifest, pending, outcome, diagnosis = _capture_attempt(
                 repo, out_root, backup_dir, stamp, scripts_dir, with_db_leg, started_at)
         except OSError as exc:
             # 审查二轮 #1 兜底: mkdtemp/out_root 创建失败时 pending 还不存在(无目录可清),
@@ -658,11 +751,26 @@ def capture(repo: Path, out_root: Path, backup_dir: Path, stamp: str, scripts_di
                                                "detail": str(exc),
                                                "phase": "create_pending"}}
             outcome = "io_failed"
+        samples.append(diagnosis.get("sample") or {})
         if outcome == "consistent":
             break
         if outcome == "io_failed":
             break  # F2: IO 失败不重试(磁盘满重试无意义), 直接如实失败
         retries += 1
+        if attempt == 0:
+            # 重试前把本轮 offender 清单 + 采样规模打到 stderr(日志可逐位定位;
+            # stdout 只保留 main() 的唯一 JSON 摘要行)。
+            print("STATE_CAPTURE_RETRY: " + json.dumps({
+                "attempt": attempt + 1, "outcome": outcome,
+                "retry_in_seconds": round(RETRY_INTERVAL_SECONDS, 3),
+                "sampled_files": len(diagnosis.get("sample") or {}),
+                "changed": diagnosis["changed"], "changed_total": diagnosis["changed_total"],
+                "vanished": diagnosis["vanished"], "vanished_total": diagnosis["vanished_total"]},
+                ensure_ascii=False), file=sys.stderr)
+            if time.monotonic() + RETRY_INTERVAL_SECONDS > deadline:
+                window_exhausted = True   # 有界: 总窗口上限已到, 不再等待/重试
+                break
+            time.sleep(RETRY_INTERVAL_SECONDS)
     if outcome == "io_failed":
         # F2: 读/写 IO 失败 ⇒ 如实标 failed(不崩溃、pending 已清), 不冒充成功。
         result = {"schema": SCHEMA, "status": "failed", "started_at": started_at,
@@ -673,10 +781,24 @@ def capture(repo: Path, out_root: Path, backup_dir: Path, stamp: str, scripts_di
         return {"uploadable": False, "manifest": result, "set_dir": None}
     if outcome == "inconsistent":
         # 重试一次仍变 ⇒ 记 inconsistent, 拒绝宣称完整(不产出可上传集合, pending 已清)。
+        # 2026-11-17: **必须带文件名失败**(旧实现只打状态, 无法逐位定位是哪个文件在变);
+        # 另附两轮采样快照差异, 便于下次直接看出是新增/删除/被改写。
+        diff = _sample_diff(samples[0] if samples else None, samples[-1] if samples else None)
         result = {"schema": SCHEMA, "status": "inconsistent", "started_at": started_at,
                   "completed_at": now_iso(), "retries": retries,
                   "reason": "sidecar_changed_across_capture_after_one_retry",
+                  "changed_files": diagnosis["changed"],
+                  "changed_total": diagnosis["changed_total"],
+                  "vanished_files": diagnosis["vanished"],
+                  "vanished_total": diagnosis["vanished_total"],
+                  "sample_diff": diff,
+                  "retry_window_exhausted": window_exhausted,
                   "files_captured_before_inconsistency": len(manifest.get("files", []))}
+        print("STATE_CAPTURE_INCONSISTENT: " + json.dumps({
+            "changed_files": result["changed_files"], "changed_total": result["changed_total"],
+            "vanished_files": result["vanished_files"],
+            "vanished_total": result["vanished_total"], "sample_diff": diff},
+            ensure_ascii=False), file=sys.stderr)
         return {"uploadable": False, "manifest": result, "set_dir": None}
     manifest["status"] = "captured"
     manifest["sidecar_consistency"] = {
@@ -923,9 +1045,14 @@ def main(argv=None) -> int:
                    "duration_seconds": manifest["duration_seconds"]}
         print(json.dumps(summary, ensure_ascii=False))  # 唯一 stdout 行
         return 0
-    print(json.dumps({"status": manifest["status"], "complete": False,
-                      "set_dir": None, "duration_seconds": manifest["duration_seconds"]},
-                     ensure_ascii=False))
+    # 2026-11-17: 失败行带 offender 文件名(旧实现只有 status/set_dir/duration, 无法定位)。
+    failure = {"status": manifest["status"], "complete": False,
+               "set_dir": None, "duration_seconds": manifest["duration_seconds"]}
+    for key in ("changed_files", "changed_total", "vanished_files", "vanished_total",
+                "sample_diff", "retry_window_exhausted", "reason"):
+        if key in manifest:
+            failure[key] = manifest[key]
+    print(json.dumps(failure, ensure_ascii=False))  # 唯一 stdout 行
     return 1
 
 

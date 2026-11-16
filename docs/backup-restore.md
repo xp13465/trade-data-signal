@@ -303,11 +303,21 @@ etf_index_map/etf_track_index/lof_track_index 等）。本节机制把这套状�
   integrity_check`/关键表行数/MAX(date)（只读）；public_fund 大库只记源身份（归档走既有
   `upload-db` R2 链，不重复复制）
 - **sidecar 一致性**：每文件读前后 stat 复查 + 全部复制完 finalize 前 stat+hash 复查；捕获期间
-  被修改 ⇒ **整体重试一次**，仍变 ⇒ 记 `inconsistent`、`uploadable=false`、拒绝宣称完整
+  被修改 ⇒ **整体重试一次**（2026-11-17 起间隔为**正的 2 秒**，并受 **90 秒总窗口**上限约束，
+  窗口不够就不等不重试、绝不无限等），仍变 ⇒ 记 `inconsistent`、`uploadable=false`、拒绝宣称完整。
+  **判死必须点名**（2026-11-17）：重试前与最终失败都输出**变化文件名清单**
+  （`changed_files`/`vanished_files` + 总数，最多 20 条）与本轮/上轮采样差异 `sample_diff`，
+  stderr 行 `STATE_CAPTURE_RETRY` / `STATE_CAPTURE_INCONSISTENT`；只看得到「不一致」而看不到
+  「哪个文件不一致」= 没法排查（2026-11-16 21:00 两轮判死即此病灶）
 - **secret 拒绝面**：文件名 deny-list（.env*/pem/key/p12/pid/sock/token/secret/credentials）
   + 内容嗅探（私钥头/sk-/Bearer/**password=/api_key=/aws_secret_access_key=/AWS AKIA/SKIA/
   GCP private_key_id**，审查二轮 #5）⇒ 记 `skipped`，绝不进集合；**瞬态锁**（`.lock` 事务锁）按
   设计排除（记 `transient_lock_by_design`，不算缺口）
+- **写入中间件按设计排除**（2026-11-17，**宁窄勿宽**）：只排除与最终产物**可区分**的中间态 —
+  `.receipt-*`（`delivery_evidence.py` 的 mkstemp→link→unlink 临时收据）与 `*.tmp[.\-_]`/`*.tmp`
+  （原子写的临时名）；记 `skipped`(`transient_intermediate_by_design`)，不算缺口。**不排除任何
+  真实状态文件**：`.r2_*_state.json`、`.r2-protected/gc-manifest.json`、最终 receipt、所有
+  `.json/.jsonl` 产物一律照常纳入一致性判定（这些才是要如实抓的「真变了」）
 - **符号链接记账（审查二轮 #4）**：目录声明里的 symlink 不跟随进集合（防跨出集合/重复），
   但逐个记 `skipped`(`symlink_not_followed_by_design`) 写进 manifest，不算缺口、不静默
 - **声明排除**（捕获前声明、非事后缩表）：`.r2-protected/payloads/` 内容寻址载荷不进每日集合
@@ -380,7 +390,11 @@ payloads 声明排除 / 瞬态锁记账 / **出根与 C4 分离(F1)** / **超预
 （二轮 #5）** / **滚动清理先验后删(F3)** / **业务日期归一(F5)** / **缺口清单显式集合驱动(F6，
 二轮 #2)** / **`db_cutoff` 与 `common_business_cutoff` 分离（N1，三轮）** /
 **`logs/backup_db_*.log` 声明排除（N2，三轮）** / upload-state-capture 拒绝非集合目录）；
-云上试跑实测（只读源、写 /tmp 临时目录）见
+**2026-11-17 修复批** 另立 `scripts/tests/test_upload_retry_capture_fix_20261117.py`：上传条件
+写入有界重试（首断次成 / 持续断 3 次后如实失败 / 412 不重试不覆盖 / 自己的写入已落地遇 412
+只认自己字节 / 备份读回 404 重试 / 永久 4xx 与真内容不符不重试）＋ 捕获一致性诊断（稳定成功 /
+持续改真实文件必点名 / 只有 `.receipt-*`·`*.tmp*` 在动不判死 / 间隔为正 / 总窗口上限 / 主入口
+失败行带文件名）。云上试跑实测（只读源、写 /tmp 临时目录）见
 `docs/ops/backup-state-capture-trial-20261114.md`。
 
 ### 恢复语义（对照执行方案工作包二）

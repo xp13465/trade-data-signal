@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import random
 import re
 import time
 import uuid
@@ -18,6 +19,37 @@ CRITICAL = frozenset((*PAIR, 'data/nextday_plan.json', 'data/auto_trade_steps.js
 
 def protected(key):
     return key in CRITICAL or bool(re.fullmatch(r'nav_bucket/[^/]+\.json', key))
+
+
+# ---- 传输层有界重试(2026-11-17;依据 /tmp/rca-backup-nav-20261116.md 实测) ----
+# 病灶: 条件 PUT 设计上只发一次(upload_r2.s3_request 对 if-match/if-none-match 请求 attempts=1),
+# 跨境链拥塞时一次 TLS 断连/响应丢失即判死。2026-11-16 晚 upload p50 49.4s / max 600.1s(基线
+# ~16s), 两种报错同源: 15 份主对象 `write unconfirmed HTTP 0` + 15 份备份桶
+# `backup readback SHA256 mismatch`(备份键内容寻址, 该报错真实语义 = 备份 PUT 未落地、读回 404 空)。
+#
+# 边界(测试逐条锁定, 见 scripts/tests/test_upload_retry_capture_fix_20261117.py):
+#   - 只重放**传输层**失败: st==0(连接断/响应丢失) / st>=500(服务端偶发) / 条件 PUT 返回 200
+#     但 write-id+sha 读回确认不到(GET 侧同属传输故障); 备份桶侧 = 读回为空(404)或 GET 报错。
+#   - 412 Precondition Failed: **绝不重试、绝不覆盖**。唯一例外: 前序尝试本身是传输层失败, 本次
+#     412 可能由「自己那次写入已落地」造成 —— 先按 write_id+sha 确认, 确认到自己的字节才算成功
+#     (不覆盖任何他人写入), 确认不到如实失败。
+#   - 永久性 4xx(412 除外)、备份读回内容确不相同(内容寻址路径上出现别的字节=真异常): 不重试。
+#   - 重试耗尽: 与改动前同口径判失败(UnsafeWrite ⇒ 上游 rc=1), **不吞错**。
+#   - 每对象最多 TRANSPORT_RETRIES 次重试(共 3 次尝试), 退避 2s → 8s + 抖动; 退避一律走
+#     `_work_sleep`(受 #364 工作预算约束), 每次重试前过 `_work_budget_check`。
+TRANSPORT_RETRIES = 2
+TRANSPORT_BACKOFF_SECONDS = (2.0, 8.0)
+
+
+def retry_wait(attempt):
+    """第 attempt 次重试前的退避秒数(2s → 8s, ±20% 抖动, 越界取最后一段)。"""
+    base = TRANSPORT_BACKOFF_SECONDS[min(attempt - 1, len(TRANSPORT_BACKOFF_SECONDS) - 1)]
+    return base * (1 + random.uniform(-0.2, 0.2))
+
+
+def _permanent_http(status):
+    """永久性 HTTP 状态(4xx; 408/429 属可重试的传输层限流/超时)判定。"""
+    return 400 <= status < 500 and status not in (408, 429)
 
 
 def sha(body):
@@ -200,6 +232,13 @@ class SafeWriter:
             print('R2_PHASE: ' + json.dumps({'key': key, 'phase': name,
                 'seconds': round(time.monotonic() - started, 6)}), flush=True)
 
+    @staticmethod
+    def _log_retry(key, attempt, error_kind, elapsed_ms, exhausted):
+        """每次重试决策一行可观测日志(key/attempt/error_kind/elapsed_ms), 走 stderr 不污染 stdout。"""
+        print('R2_WRITE_RETRY: ' + json.dumps({
+            'key': key, 'attempt': attempt, 'error_kind': error_kind,
+            'elapsed_ms': elapsed_ms, 'exhausted': exhausted}), file=sys.stderr)
+
     def path(self, key):
         return self.root / (sha((self.bucket + '/' + key).encode()) + '.json')
 
@@ -235,17 +274,44 @@ class SafeWriter:
         return body, etag, headers
 
     def immutable(self, key, body):
-        with self.phase(key, 'backup_write'):
+        """备份桶不可变写入(内容寻址键)。传输层失败有界重放: 键含内容 sha, 重放同一 bytes 幂等;
+        if-none-match:'*' 下 412 = 同内容已存在(读回 sha 校验通过即成功), 不是覆盖冲突。"""
+        attempts = 1 + TRANSPORT_RETRIES
+        digest = sha(body)
+        for attempt in range(1, attempts + 1):
+            started = time.monotonic()
+            with self.phase(key, 'backup_write' if attempt == 1 else 'backup_write_retry'):
+                try:
+                    st, _ = self.a['_put_bytes'](key, body, bucket=self.backup,
+                        extra_headers={'if-none-match': '*', 'x-amz-meta-write-id': uuid.uuid4().hex})
+                except (OSError, self.a['http'].client.HTTPException):
+                    st = 0
+            if st not in (0, 200, 412) and st < 500:
+                # 永久性 4xx(412 除外): 不重试(412 = 同内容已存在, 走读回校验)。
+                raise UnsafeWrite(f'backup HTTP {st}')
+            error_kind = None
+            actual = None
             try:
-                st, _ = self.a['_put_bytes'](key, body, bucket=self.backup,
-                    extra_headers={'if-none-match': '*', 'x-amz-meta-write-id': uuid.uuid4().hex})
-            except (OSError, self.a['http'].client.HTTPException):
-                st = 0
-        if st not in (0, 200, 412) and st < 500:
-            raise UnsafeWrite(f'backup HTTP {st}')
-        actual = self.get(key, self.backup)
-        if actual is None or sha(actual[0]) != sha(body):
-            raise UnsafeWrite('backup readback SHA256 mismatch')
+                actual = self.get(key, self.backup)
+            except UnsafeWrite as exc:
+                # 读回 GET 失败: 属传输层可重试; 永久 4xx(GET 的 403 等)不重试。
+                error_kind = 'readback_error'
+                m = re.search(r'HTTP (\d{3})', str(exc))
+                if m and _permanent_http(int(m.group(1))):
+                    raise
+            if actual is not None:
+                if sha(actual[0]) == digest:
+                    return
+                # 内容寻址路径上读到别的字节 = 真异常(不是传输抖动), 不重试、不覆盖。
+                raise UnsafeWrite('backup readback SHA256 mismatch')
+            error_kind = error_kind or 'readback_empty'
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            exhausted = attempt >= attempts
+            self._log_retry(key, attempt, error_kind, elapsed_ms, exhausted)
+            if exhausted:
+                raise UnsafeWrite('backup readback SHA256 mismatch')
+            self.a['_work_budget_check']('backup-write-retry')
+            self.a['_work_sleep'](retry_wait(attempt))
 
     def confirm(self, row):
         # 有界确认，不把负读/其他写者的相同 bytes 当成本次成功。
@@ -440,20 +506,43 @@ class SafeWriter:
             row['complete'] = {'query': query, 'body': body.decode()}
             self.save(row)
 
-        with self.phase(row['key'], 'upload'):
-            try:
-                st, _ = self.a['_put_bytes'](row['key'], payload, extra_headers=row['headers'],
-                                            before_complete=before_complete)
-            except (OSError, self.a['http'].client.HTTPException):
-                st = 0
-        if len(payload) >= self.a['_MULTIPART_THRESHOLD'] and not row.get('complete') and st != 200:
-            row.update(state='failed', pending_purge=False, status=st)
-            self.save(row)
-            raise UnsafeWrite('multipart stopped before completion; no committed object')
-        if st in (412, 409, 403, 400):
-            row.update(state='failed', pending_purge=False, status=st)
-            self.save(row)
-            raise UnsafeWrite(f'conditional write rejected HTTP {st}')
-        if not self.confirm(row):
-            raise UnsafeWrite(f'write unconfirmed HTTP {st}; no fallback')
-        self.purge(row)
+        attempts = 1 + TRANSPORT_RETRIES
+        transport_failures = 0
+        st = None
+        for attempt in range(1, attempts + 1):
+            started = time.monotonic()
+            with self.phase(row['key'], 'upload' if attempt == 1 else 'upload_retry'):
+                try:
+                    st, _ = self.a['_put_bytes'](row['key'], payload, extra_headers=row['headers'],
+                                                before_complete=before_complete)
+                except (OSError, self.a['http'].client.HTTPException):
+                    st = 0
+            if len(payload) >= self.a['_MULTIPART_THRESHOLD'] and not row.get('complete') and st != 200:
+                # multipart 中途未 complete = 无对象落地; 沿用既有语义直接判失败, 不新开 upload-id 重放。
+                row.update(state='failed', pending_purge=False, status=st)
+                self.save(row)
+                raise UnsafeWrite('multipart stopped before completion; no committed object')
+            if st in (412, 409, 403, 400):
+                # 412 = 条件不成立(对象已被更新的写入覆盖) ⇒ 绝不重试、绝不覆盖。
+                # 例外仅一种: 前序尝试是传输层失败, 本次 412 由「自己那次写入已落地」造成 ——
+                # 先按 write_id+sha 确认, 确认到自己的字节才算成功, 否则如实失败。
+                if st == 412 and transport_failures and self.confirm(row):
+                    self.purge(row)
+                    return
+                row.update(state='failed', pending_purge=False, status=st)
+                self.save(row)
+                raise UnsafeWrite(f'conditional write rejected HTTP {st}')
+            if self.confirm(row):
+                self.purge(row)
+                return
+            # 未取得确认(HTTP 0 连接断 / 5xx / 200 但 write-id+sha 读不到): 传输层可重放。
+            error_kind = ('connection' if st == 0 else
+                          ('server_' + str(st) if st >= 500 else 'unconfirmed_http_' + str(st)))
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            exhausted = attempt >= attempts
+            self._log_retry(row['key'], attempt, error_kind, elapsed_ms, exhausted)
+            if exhausted:
+                raise UnsafeWrite(f'write unconfirmed HTTP {st}; no fallback')
+            transport_failures += 1
+            self.a['_work_budget_check']('conditional-write-retry')
+            self.a['_work_sleep'](retry_wait(attempt))
