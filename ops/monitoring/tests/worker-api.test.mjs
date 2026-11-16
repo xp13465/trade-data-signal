@@ -845,3 +845,17 @@ test('A2 retention is gated on a fresh head: nothing is pruned while the collect
   await f.scheduled();
   assert.equal(f.db.sql.prepare('SELECT COUNT(*) n FROM ops_check_state').get().n,2);
 }));
+
+test('A2 stale gap: expiry is display-derived, the stored row is untouched and recovery fires once',()=>fixture(async f=>{
+  await f.push(f.snapshot('critical'));
+  f.advance(40*60000); // head stale: /state expires the check without rewriting it
+  const stale=(await f.call()).body;
+  assert.equal(stale.collector_status,'stale');
+  assert.equal(stale.latest.checks[0].status,'unknown');
+  assert.equal(stale.latest.checks[0].observation_status,'stale_observation');
+  assert.equal(f.db.sql.prepare('SELECT status FROM ops_check_state').get().status,'critical');
+  const recoveries=(await f.call('/events')).body.events.filter(e=>e.kind==='recovery').length;
+  await f.push(f.snapshot('ok'));
+  assert.equal((await f.call()).body.latest.checks[0].status,'ok');
+  assert.equal((await f.call('/events')).body.events.filter(e=>e.kind==='recovery').length,recoveries+1);
+}));
