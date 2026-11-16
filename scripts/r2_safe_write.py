@@ -294,11 +294,17 @@ class SafeWriter:
             try:
                 actual = self.get(key, self.backup)
             except UnsafeWrite as exc:
-                # 读回 GET 失败: 属传输层可重试; 永久 4xx(GET 的 403 等)不重试。
+                # 读回 GET 失败: 404(含「404 + 空 body」这种响应形态)一律视为「读回为空」可重试
+                # —— 真实故障 `backup readback SHA256 mismatch` 的语义就是读回空; 其余 GET 失败属
+                # 传输层可重试; 永久 4xx(GET 的 403 等)不重试。
                 error_kind = 'readback_error'
                 m = re.search(r'HTTP (\d{3})', str(exc))
-                if m and _permanent_http(int(m.group(1))):
-                    raise
+                if m:
+                    code = int(m.group(1))
+                    if code == 404:
+                        error_kind = 'readback_empty'
+                    elif _permanent_http(code):
+                        raise
             if actual is not None:
                 if sha(actual[0]) == digest:
                     return
@@ -532,6 +538,12 @@ class SafeWriter:
                 row.update(state='failed', pending_purge=False, status=st)
                 self.save(row)
                 raise UnsafeWrite(f'conditional write rejected HTTP {st}')
+            if _permanent_http(st):
+                # 408/429 之外的全部 4xx 都是永久错误(404/405/422 等): 一律不重试、不重放,
+                # 与文件头边界「永久性 4xx(412 除外)不重试」一致。400/403/409/412 已由上面分支处理。
+                row.update(state='failed', pending_purge=False, status=st)
+                self.save(row)
+                raise UnsafeWrite(f'write rejected HTTP {st}')
             if self.confirm(row):
                 self.purge(row)
                 return

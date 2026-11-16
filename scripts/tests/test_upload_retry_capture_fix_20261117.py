@@ -11,9 +11,13 @@
 上传: ①第 1 次连接断、第 2 次成功 ②持续断开 ⇒ 恰好 3 次尝试后失败 ③412 ⇒ 只 1 次、不覆盖
       ④备份读回 404 两次后成功 ⑤自己写入已落地 + 首轮确认失败 ⇒ 重试遇 412 只认自己的字节
       ⑥永久 403 不重试 ⑦备份读回内容确不相同不重试
+      ⑧其余永久 4xx(404/405/422)⇒ 恰好 1 次 PUT 后失败 ⑨408/429 属可重试
+      ⑩备份读回「404 + 空 body」= 读回为空 ⇒ 可重试 ⑪412 例外确认不到自己的写
+      入(他人已覆盖)⇒ 如实失败且对象不被覆盖
 捕获: ①稳定目录成功 ②窗口内持续改真实状态文件 ⇒ 失败且报出该文件名 ③只有 .receipt-*/ *.tmp*
-      变化 ⇒ 成功且不因中间件判死 ④重试间隔为正且被使用 ⑤总窗口上限生效(不无限等待)
-      ⑥失败 stdout 行带 offender(主入口)
+      变化 ⇒ 成功且不因中间件判死 ④重试间隔为正且被使用 ⑤总窗口上限生效(不无限等待,
+      且未真重试时 retries=0) ⑥失败 stdout 行带 offender(主入口) ⑦只有 vanished 时
+      changed_total=0(changed/vanished 分开计)
 全部临时目录, 不碰生产数据、不发通知、不涉网络(HTTPS 连接被 fake 接管)。
 运行日无关(无 date.today() 断言, 样例 mtime 固定历史时点, L51)。
 """
@@ -51,11 +55,13 @@ class Transport:
     def __init__(self):
         self.objects = {}
         self.calls = []
-        self.public_put_actions = []   # 依次消费: 'ok' / 'raise' / 'status:<code>'
+        self.public_put_actions = []   # 依次消费: 'ok' / 'raise' / 'landed_raise' / 'status:<code>'
         self.public_put_always_raise = False
         self.public_puts = 0
         self.strip_write_id_gets = 0  # 落地后前 N 次 public GET 去掉 write-id(模拟首轮确认读不到)
-        self.backup_hide_gets = 0     # 前 N 次备份 GET 返回 404(备份 PUT 未落地)
+        self.backup_hide_gets = 0     # 前 N 次备份 GET 返回 404+NoSuchKey(备份 PUT 未落地)
+        self.backup_empty404_gets = 0  # 前 N 次备份 GET 返回 404+空 body(响应形态差异, 语义同「读回为空」)
+        self.intruder_before_put = None  # 下一次 public PUT 前先由「他人」落地这些字节(模拟并发覆盖)
         self.corrupt_backup = False
 
     def put(self, bucket, key, body, headers=None):
@@ -74,6 +80,9 @@ class Transport:
         self.calls.append((method, bucket, key, dict(q), dict(headers)))
         old = self.objects.get((bucket, key))
         if method in ('GET', 'HEAD'):
+            if bucket == 'backup' and self.backup_empty404_gets > 0:
+                self.backup_empty404_gets -= 1
+                return 404, b'', {}     # 404 + 空 body: 语义同样是「读回为空」
             if bucket == 'backup' and self.backup_hide_gets > 0:
                 self.backup_hide_gets -= 1
                 return 404, b'<Error><Code>NoSuchKey</Code></Error>', {}
@@ -91,10 +100,19 @@ class Transport:
                 action = 'raise'
             elif self.public_put_actions:
                 action = self.public_put_actions.pop(0)
+            if action == 'landed_raise':
+                # 模拟「自己那次写入已在服务端落地, 但响应丢失」: 先把字节真写进对象, 再抛连接断。
+                self.put(bucket, key, body, headers)
+                raise OSError('connection reset after bytes landed')
             if action == 'raise':
                 raise OSError('connection reset before known commit')
             if action.startswith('status:'):
                 return int(action.split(':', 1)[1]), b'', {}
+        if self.intruder_before_put is not None:
+            # 模拟「别人在我们重试之前抢先写入」: 落地他人字节+他人 write-id, 我方条件必 412。
+            self.put(bucket, key, self.intruder_before_put,
+                     {'x-amz-meta-write-id': 'someone-else'})
+            self.intruder_before_put = None
         if ('if-none-match' in headers and old) or (
                 'if-match' in headers and (not old or old[1]['ETag'] != headers['if-match'])):
             return 412, b'precondition', {}
@@ -237,12 +255,16 @@ def test_backup_readback_empty_twice_then_success(client, capsys):
 
 
 def test_own_write_landed_then_412_confirms_own_bytes(client, capsys):
-    """⑤首轮 PUT 已落地但响应丢失 + 确认期读不到 write-id ⇒ 重试遇 412 只认自己的字节算成功。"""
+    """⑤首轮 PUT 已落地但响应丢失 + 确认期读不到 write-id ⇒ 重试遇 412 只认自己的字节算成功。
+
+    关键: `landed_raise` 在抛连接断**之前**真写对象(模拟「自己写入已落地、响应丢失」),
+    否则第 2 次 PUT 会走正常 200 路径、412 例外分支永远进不去(旧用例即此假覆盖)。
+    """
     m, f = client
     seed_old(f)
     safe = safe_writer(m)
     row = safe.prepare(KEY, b'new')
-    f.public_put_actions = ['raise']         # 先把字节写进假对象, 再抛连接断
+    f.public_put_actions = ['landed_raise']  # 字节真落地后抛连接断
     f.strip_write_id_gets = 2                # 首轮 confirm 的 2 次 GET 都读不到 write-id ⇒ 不认
     safe.commit(row, b'new')
     assert safe.load(KEY)['confirmed'] is True
@@ -282,6 +304,69 @@ def test_backup_corrupt_readback_not_retried(client, capsys):
     after = len([c for c in f.calls if c[0] == 'PUT' and c[1] == 'backup'])
     assert after - before == 1                   # 只发一次, 不重放
     assert retry_logs(capsys) == []              # 一个字节不差才叫真异常, 不打重试日志
+
+
+@pytest.mark.parametrize("code", [404, 405, 422])
+def test_other_permanent_4xx_stops_after_one_put(client, code):
+    """⑧其余永久 4xx(404/405/422)⇒ 恰好 1 次 PUT 后如实失败(旧实现会重放 3 次)。"""
+    m, f = client
+    seed_old(f)
+    safe = safe_writer(m)
+    row = safe.prepare(KEY, b'new')
+    f.public_put_actions = ['status:%d' % code]
+    with pytest.raises(Exception) as exc:
+        safe.commit(row, b'new')
+    assert ('write rejected HTTP %d' % code) in str(exc.value)
+    assert len(public_put_calls(f)) == 1
+    assert f.objects['public', KEY][0] == b'old'
+    assert safe.load(KEY)['status'] == code
+
+
+@pytest.mark.parametrize("code", [408, 429])
+def test_retryable_4xx_is_retried(client, capsys, code):
+    """⑨408/429 属可重试的传输层限流/超时 ⇒ 第 2 次成功。"""
+    m, f = client
+    seed_old(f)
+    safe = safe_writer(m)
+    row = safe.prepare(KEY, b'new')
+    f.public_put_actions = ['status:%d' % code, 'ok']
+    safe.commit(row, b'new')
+    assert len(public_put_calls(f)) == 2
+    assert safe.load(KEY)['confirmed'] is True
+    logs = retry_logs(capsys)
+    assert [x['error_kind'] for x in logs] == ['unconfirmed_http_%d' % code]
+    assert logs[0]['exhausted'] is False
+
+
+def test_backup_readback_404_empty_body_is_retried(client, capsys):
+    """⑩备份读回「404 + 空 body」(响应形态差异, 真实故障的语义同样是读回为空)⇒ 可重试。"""
+    m, f = client
+    seed_old(f)
+    safe = safe_writer(m)
+    row = safe.prepare(KEY, b'new')
+    f.backup_empty404_gets = 2       # 前两次读回 404+空 body ⇒ 与 NoSuchKey 同语义, 重试
+    safe.immutable(row['backup_key'], b'old')
+    logs = retry_logs(capsys)
+    assert [x['attempt'] for x in logs] == [1, 2]
+    assert [x['error_kind'] for x in logs] == ['readback_empty', 'readback_empty']
+    assert f.objects['backup', row['backup_key']][0] == b'old'
+
+
+def test_412_after_transport_failure_never_accepts_others_write(client):
+    """⑪自己落地+响应丢失后, 对象又被他人覆盖 ⇒ 重试 412 确认不到自己的 write_id
+    ⇒ 如实失败且对象保持他人字节(412 例外只认自己的字节, 绝不覆盖他人)。"""
+    m, f = client
+    seed_old(f)
+    safe = safe_writer(m)
+    row = safe.prepare(KEY, b'new')
+    f.public_put_actions = ['landed_raise']   # 自己的字节先落地, 响应丢失
+    f.strip_write_id_gets = 2                 # 首轮确认读不到 write-id ⇒ 不认
+    f.intruder_before_put = b'concurrent'     # 重试前他人抢先覆盖
+    with pytest.raises(Exception) as exc:
+        safe.commit(row, b'new')
+    assert 'conditional write rejected HTTP 412' in str(exc.value)
+    assert len(public_put_calls(f)) == 2
+    assert f.objects['public', KEY][0] == b'concurrent'   # 他人字节一个都不动
 
 
 def test_upload_path_end_to_end_still_succeeds(client):
@@ -433,6 +518,33 @@ def test_capture_retry_total_window_bound(tmp_path, monkeypatch):
     assert calls["n"] == 1                     # 也没跑第二轮
     assert m["status"] == "inconsistent" and m["retry_window_exhausted"] is True
     assert m["changed_files"] == ["alert_state.json"]
+    assert m["retries"] == 0                   # 没真重试就不许虚记 retries(旧实现错记 1)
+
+
+def test_capture_vanished_only_changed_total_counts_changed_only(tmp_path, monkeypatch):
+    """捕获⑦: 只有文件消失(vanished)时 changed_total 必须为 0 —— changed 与 vanished 分开计。"""
+    monkeypatch.setattr(bsc, "RETRY_INTERVAL_SECONDS", 0.01)
+    repo = make_repo(tmp_path)
+    target = repo / "data" / "alert_state.json"
+
+    def revive_on_retry_sleep(seconds):
+        # 重试间隔里把同名文件重新投放, 让下一轮仍能展开到它(模拟轮转后新文件再次出现)。
+        target.write_text('{"revived":1}')
+        os.utime(target, (caps_repo.FIXTURE_MTIME, caps_repo.FIXTURE_MTIME))
+
+    monkeypatch.setattr(bsc.time, "sleep", revive_on_retry_sleep)
+    orig_write = bsc.write_bytes_0600
+
+    def write_then_vanish(path, payload):
+        orig_write(path, payload)
+        if Path(path).name == target.name:
+            target.unlink()          # 复制落盘后源文件被轮转删除 ⇒ finalize 复查判 vanished
+    monkeypatch.setattr(bsc, "write_bytes_0600", write_then_vanish)
+    result = run_capture(repo, tmp_path / "sets")
+    m = result["manifest"]
+    assert m["status"] == "inconsistent" and result["uploadable"] is False
+    assert m["changed_files"] == [] and m["changed_total"] == 0
+    assert m["vanished_files"] == ["alert_state.json"] and m["vanished_total"] == 1
 
 
 def test_capture_main_stdout_names_offenders(tmp_path, monkeypatch, capsys):

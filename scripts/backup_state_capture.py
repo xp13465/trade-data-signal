@@ -325,8 +325,10 @@ class SourceChanged(Exception):
     def __init__(self, rel, changed=None, vanished=None):
         super().__init__(rel)
         self.rel = rel
-        self.changed = list(changed or [rel])
-        self.vanished = list(vanished or [])
+        # 显式名单优先: 传空列表([])表示「这一类一个都没有」, 不得回退成 [rel](否则只有 vanished
+        # 的场景会被错记成 changed, 诊断字段张冠李戴)。
+        self.changed = [rel] if changed is None else list(changed)
+        self.vanished = [] if vanished is None else list(vanished)
 
 
 class CaptureBudgetExceeded(Exception):
@@ -629,7 +631,7 @@ def _capture_attempt(repo: Path, out_root: Path, backup_dir: Path, stamp: str,
     except SourceChanged as exc:
         diagnosis.update({
             "changed": exc.changed[:MAX_REPORTED_CHANGES],
-            "changed_total": len(set(exc.changed) | set(exc.vanished)),
+            "changed_total": len(set(exc.changed)),
             "vanished": exc.vanished[:MAX_REPORTED_CHANGES],
             "vanished_total": len(exc.vanished)})
         return manifest, pending, "inconsistent", diagnosis
@@ -756,7 +758,6 @@ def capture(repo: Path, out_root: Path, backup_dir: Path, stamp: str, scripts_di
             break
         if outcome == "io_failed":
             break  # F2: IO 失败不重试(磁盘满重试无意义), 直接如实失败
-        retries += 1
         if attempt == 0:
             # 重试前把本轮 offender 清单 + 采样规模打到 stderr(日志可逐位定位;
             # stdout 只保留 main() 的唯一 JSON 摘要行)。
@@ -770,6 +771,7 @@ def capture(repo: Path, out_root: Path, backup_dir: Path, stamp: str, scripts_di
             if time.monotonic() + RETRY_INTERVAL_SECONDS > deadline:
                 window_exhausted = True   # 有界: 总窗口上限已到, 不再等待/重试
                 break
+            retries += 1                  # 只有真进入下一轮才计一次重试(窗口耗尽记 0, 不虚记)
             time.sleep(RETRY_INTERVAL_SECONDS)
     if outcome == "io_failed":
         # F2: 读/写 IO 失败 ⇒ 如实标 failed(不崩溃、pending 已清), 不冒充成功。
