@@ -38,6 +38,7 @@
 #   D1_MAX_STMT_BYTES_ASSERT / D1_RETRY_DELAYS="30 90" / D1_RETRY_BUDGET=<秒> /
 #   D1_EXEC_TIMEOUT_SEC=300 / D1_VERIFY_TIMEOUT_SEC=60
 #   (详表见 docs/ops/pfscore-d1-single-import-20261026.md)
+# DRY_RUN 手工喂 D1_EXISTING_HASHES_FILE 必须用嵌套格式 {code:{row_hash,composite_score,fund_type}}(扁平 {code:hash} 会 fail-loud 报 RoutingMetadataMissing: 路由判定必须有依据)。
 # 预算默认值随模式(2026-10-26 复审 N1): single 360s(远小于 daily 现网 1800s 墙, 30 分钟,
 #   云上 drop-in `timeout-1800.conf`); legacy 3600s —— 旧多文件模式单表实测 2220~2640s,
 #   360s 会在 `DELETE FROM` 早已生效之后被掐断、把线上表留成半成品; legacy 还要求

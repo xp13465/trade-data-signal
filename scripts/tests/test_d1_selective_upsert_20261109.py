@@ -236,7 +236,8 @@ def test_interrupted_three_pass_retry_and_current_index_guard(tmp_path, script, 
         exp_by_code = {r[0]: r for r in expected}
         assert all(r == exp_by_code[r[0]] for r in final if r[0] != code)
         assert next(r for r in final if r[0] == code) == intervening, "本轮不得硬覆盖外部改动"
-        # 下一轮同步(生产每小时一轮): 读回当前 D1 行 ⇒ 该行索引列与本地不同 ⇒ 走 B 全列 SET 收敛。
+        # 下一轮同步(生产每日 16:00, 周更周日 03:17; 单写者 + 脚本锁, 外部改索引键的行下一轮自愈,
+        # 最长陈旧约 24h): 读回当前 D1 行 ⇒ 该行索引列与本地不同 ⇒ 走 B 全列 SET 收敛。
         base._save_hashes(remote, table, mock)
         _, sql_next = base._generate(script, repo, tmp_path, {"D1_EXISTING_HASHES_FILE": str(mock)})
         remote.executescript(sql_next)

@@ -37,6 +37,7 @@
 #       diff, 只写 changed/new + 批删 removed; INCREMENTAL=0 回退旧「DELETE 全表+重插」),
 #       同一 DB 同一运行日下重复跑结果逐行一致（派生年限列随运行日变, 属预期）。
 # 注意: BATCH 可用 SCREENER_D1_BATCH 覆盖（默认 80 行/语句, **仅 legacy 多文件模式**用）。
+# DRY_RUN 手工喂 D1_EXISTING_HASHES_FILE 必须用嵌套格式 {code:{row_hash,composite_score,fund_type,scale}}(扁平 {code:hash} 会 fail-loud 报 RoutingMetadataMissing: 路由判定必须有依据)。
 #
 # ── 2026-10-26 一表一文件 · 一次导入（D1 导入提速 + 单语句字节封顶）──────────────
 # 旧做法每 80 行一个 SQL 文件、逐文件 `wrangler d1 execute --file`: 单表 347~354 次调用,
