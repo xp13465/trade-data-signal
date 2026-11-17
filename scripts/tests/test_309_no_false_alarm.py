@@ -92,7 +92,7 @@ def test_seven_green_days_produce_no_events_and_ok(offset, NOW_BY_DAY):
     assert events == [], f"{day} 全绿却产生事件: {events}"
     text = conclusion()(stats, NOW_BY_DAY[day], cfu_failed=0, alerts=0)
     assert text.startswith("OK 所有任务按计划执行")
-    assert "覆盖 45/45(42 业务+基础, 3 自监控)" in text
+    assert "覆盖 46/46(43 业务+基础, 3 自监控)" in text
 
 
 def test_injected_unit_failure_emits_severe(NOW_BY_DAY):

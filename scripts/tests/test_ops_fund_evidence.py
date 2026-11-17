@@ -134,8 +134,8 @@ def test_fof_mixed_commits_empty_errors_and_outside_batch(db, tmp_path, monkeypa
     assert r['stage_status'] == 'failure'
     assert f['scope']['selected_codes'] == ['000001', '000002', '000003']
     assert f['counts'] == dict(selected=3, attempted=3, committed_targets=2, published_rows=1,
-        committed_rows=1, legal_empty=1, errors=1, selected_not_attempted=0, pool_not_attempted=1,
-        query_ranges_attempted=3, query_ranges_returned=2)
+        committed_rows=1, committed_events=2, legal_empty=1, errors=1, selected_not_attempted=0,
+        pool_not_attempted=1, query_ranges_attempted=3, query_ranges_returned=2)
     assert f['publication_status'] == 'unknown'
     con = _conn(db)
     assert con.execute('SELECT count(*) FROM fund_daily_nav WHERE unit_nav IS NOT NULL').fetchone()[0] == 1

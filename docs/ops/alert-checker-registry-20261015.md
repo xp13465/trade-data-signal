@@ -26,7 +26,7 @@
 | `r2` | R2 存储 / 多源一致性(双树) | check_r2_consistency / intraday_snapshot / r2_upload_async / r2_upload_skip_notify / fund_nav_upload_async |
 | `snapshot` | 快照 | s06_snapshot / check_s06_freshness |
 | `deploy` | 部署 / unit 漂移 / 版本一致性 | deploy / cloud_unit_patrol / pick_repo / update_lab / push_schedule_stats |
-| `collect` | 采集 / 回采 / 锁跳过 | update_all / retry_failed_metrics / self_heal / gold_night / turnover_backfill / with_lock / feishu_missed_fetch / 锁跳过类 |
+| `collect` | 采集 / 回采 / 锁跳过 | update_all / retry_failed_metrics / self_heal / gold_night / turnover_backfill / with_lock / feishu_missed_fetch / 锁跳过类 / check_fof_backfill |
 | `kelly` | 信号凯利(回测/冻结表/盘中闸) | kelly_intraday_gate_decider / kelly_intraday_rerun / signal_kelly_backtest |
 | `plan` | 次日计划 / 缺口 | nextday_plan_generator / nextday_plan.sh / nextday_gap_check(.py/.sh) |
 | `backup` | 备份(DB/staticdata/R2 演练) | backup_db / verify_backup / check_preupload_backup / staticdata_backup_async / staticdata_sync / alert_denoise_rules(R4) |
@@ -50,6 +50,7 @@
 | 4 | `check_monitor_heartbeat.py` | `trade-check-monitor-heartbeat.timer` 每 15min | critical(`--severe`) | 3600 | `monitor` | 首报必达 | — |
 | 5 | `check_s06_freshness.py` | schedule_monitor 尾部(每 15min) | warning | **未声明**(自管 `_state_matches` 落签,无 `--dedup-key`) | `snapshot` | 入聚合 | **dedup window 未声明** |
 | 6 | `check_preupload_backup.py` | schedule_monitor 尾部 | warning | 21600 | `backup` | 入聚合 | — |
+| 6b | `check_fof_backfill.py`(2026-11-17 新增) | schedule_monitor 尾部(每 15min) | warning | **未声明**(`ops_legacy_events` 自管同状态落签, 同 #5) | `collect` | 入聚合 | 判据=recent 覆盖率 + 回补滞后 >7 个交易日; `backfill_not_attempted` 仅可见不告警 |
 | 7 | `check_r2_consistency.sh` | `trade-r2-consistency.timer` 23:20 | critical(`--severe`) | 21600 | `r2` | 首报必达 | — |
 | 8 | `nextday_gap_check.py` | `trade-nextday-gap-check.timer` 09:26 | critical(`--severe`) | 3600 | `plan` | 首报必达 | — |
 | 9 | `nextday_gap_check.sh`(包装层) | `trade-nextday-gap-check.timer` 09:26 | critical(`--severe`) | 3600 | `plan` | 首报必达 | — |

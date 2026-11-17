@@ -29,6 +29,23 @@
   - pass A 当轮失败(异常/冲突)的基金 pass B 跳过(省预算, 下轮轮转再来)。
   - 预算耗尽语义不变: deadline 到仍 raise TimeoutError → rc=1, 不做「优雅收尾 rc=0」。
 
+2026-11-17 相位拆分(根治 11-16 pass B 共用 290s 预算被截断 → rc=1 每晚假故障,
+  依据 /tmp/fof-budget-rca-20261117.md + 用户拍板 A+B 合并方案):
+  - `--phase recent`:21:10 单元只跑 pass A「recent 增量扫」, 代码预算 200s(硬上限),
+    run_to 480, 外层 TimeoutStartSec=600(最晚 21:20 收尾)。预算耗尽仍 rc=1 = 真故障。
+  - `--phase backfill`:21:22 回补单元跑 pass B(顺延 2 分钟避开 futures-backfill 21:20), 代码预算 600s(硬上限), run_to 720,
+    外层 TimeoutStartSec=900(最晚 21:35 收尾); `--deadline-at 21:35` 墙钟保险(定时器
+    迟到时按剩余墙钟收缩预算)。到点**软停**: break + stdout `backfill_not_attempted=N`
+    + rc=0(未跑到的目标保留在优先队列, 下轮必再取); 锁被占=exit 3(不是 rc=0, 防假成功)。
+  - `--phase both`:保留旧两遍同 290s 预算语义(手动排障用; 默认值, 既有行为不变)。
+  - 回补优先队列(进度 v1 新增可选字段):`backfill_pending`(待回补代码队列)、
+    `backfill_pending_since`(首次入队日)、`backfill_last_attempt`(最近尝试日, 滞后判据)、
+    `backfill_cursor`(回补专用轮转游标)。每轮先取队列(按滞后/入队顺序), 再留 1/5 名额
+    按游标补齐 = **游标保底推进**, 防队列长期占满导致后段基金饿死。
+  - 每轮相位摘要写进进度文件 `last_runs`, 供 check_fof_backfill.py 看门狗读覆盖率
+    (recent: attempted/selected; backfill: 滞后) —— 两相位同晚先后写同一 evidence 收据,
+    不能靠收据互相覆盖后判覆盖。
+
 入口: python -m scripts.collect_fof_nav [--days N] [--limit N] [--batch N] [--dry-run] [--fund-code CODE]
   --days   拉 lsjz 的近 N 自然日(默认 7, 覆盖 T-1/T-2 + 周末)
   --limit  只跑前 N 只(调试/小样, 优先于 --batch，不推进轮转，最多500)
@@ -38,9 +55,12 @@
   --onetime-backfill 一次性清欠: 只跑无 fund_collection_state 记录的基金(全相位首查),
     复用同一拉取/冲突/写库路径; 只用于一次性清欠, 不得配进定时任务。
   --onetime-budget --onetime-backfill 专用独立预算秒数(默认/上限 1800)。
+  --phase recent|backfill|both 相位(默认 both = 旧两遍行为, 手动排障用)。
+  --deadline-at HH:MM 墙钟保险(backfill 传 21:35; 窗口已过 ⇒ 软停 rc=0, 手动跑不传)。
 
-时点(云上 timer): 21:10 交易日(21:00 backfill-evening 写 sentiment.db 不撞同库,
-  21:20 futures 写期货不撞; public_fund.db 写入只 16:20/17:00 daily + 03:00 quarterly)。
+时点(云上 timer): 21:10 recent + 21:22 backfill, 交易日(21:00 backup-db/21:10 turnover-backfill/
+  21:15 ab-direction-anchor 写 sentiment.db 不撞同库; 21:20 futures-backfill 写期货库不撞;
+  public_fund.db 写入只 16:20/17:00 daily + 22:00 full + 03:00/04:00/07:00 quarterly)。
 """
 from __future__ import annotations
 
@@ -86,12 +106,35 @@ BATCH_SIZE = 500  # 每轮硬上限；轮转位置跨日保留，不因窗口移
 # state 基金; 只用于一次性清欠, 不得配进定时任务)。与日常 290s 轮转预算互不影响。
 ONETIME_BUDGET_CAP = 1800.0
 
+# 2026-11-17 相位拆分(依据 /tmp/fof-budget-rca-20261117.md, 用户拍板 A+B 合并):
+# 每相位代码预算硬上限 = L55 内层的那个值; 外层 TimeoutStartSec 见 unit(必须更大留梯度)。
+PHASE_BUDGET_CAPS = {'both': 290.0, 'recent': 200.0, 'backfill': 600.0}
+BACKFILL_DEADLINE_AT = '21:35'  # 回补单元墙钟硬上限(单元 21:22 启动, 900s 硬杀在 21:37 之后)
+BACKFILL_ROTATION_RESERVE = 5   # 队列优先占 4/5; 余 1/5 名额按 backfill_cursor 补齐(游标保底推进)
+
+
+class _SoftBudgetStop(Exception):
+    """backfill 相位到点软停: 不算故障, 保留优先队列, collect 内消化 → rc=0。
+
+    不能用 TimeoutError: 它会一路冒到 _fund_capture, 被记成 abort/failure → ops_monitor
+    仍然每晚告警(= 假故障没消)。只在 collect 内部传播, 循环层捕获后 break。
+    """
+
+
+def _seconds_until(hhmm: str) -> float:
+    """今天 HH:MM 的剩余墙钟秒数(已过则负数)。格式非法 → ValueError(由 main 转 ap.error)。"""
+    target = datetime.strptime(hhmm, '%H:%M').time()
+    return (datetime.combine(date.today(), target) - datetime.now()).total_seconds()
+
 # 整批失败信号(#366/F01): collect() 每轮置位, main() 据此 exit 2。
 # 判定 = 本轮确有待采(pending 非空) + 非空(dry_run 不报) + ok==0 且零写入
 # ⇒ exit 2 让 systemd 把 trade-fof-nav-collect.service 标 failed,
 #   现有消费者 scripts/check_failed_units.py(扫 systemctl --failed)即可发现。
 # 单只 FAIL 是常态(封闭期/份额类上游空),不算整批失败,不触发本信号。
 LAST_BATCH_FAILED = False
+# 2026-11-17: backfill 相位锁被占 → main() exit 3(真故障可见: systemd failed →
+# check_failed_units 告警)。旧语义锁被占 return 0 是假成功(RCA 假成功路径之一)。
+LAST_LOCK_OCCUPIED = False
 SELECT_SQL = (
     "SELECT fund_code, fund_name, fund_type FROM fund_basic "
     "WHERE fund_type LIKE 'FOF%' OR fund_type LIKE 'QDII%' "
@@ -258,8 +301,9 @@ def fetch_lsjz(fund_code: str, start_date: str, end_date: str, *,
 @_fund_capture('fof-nav', lambda: DB_PATH.parent.parent)
 def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
             batch: int = BATCH_SIZE, fund_code: str | None = None,
-            budget_seconds: float = 290.0, onetime: bool = False,
-            onetime_budget: float = ONETIME_BUDGET_CAP) -> int:
+            budget_seconds: float | None = None, onetime: bool = False,
+            onetime_budget: float = ONETIME_BUDGET_CAP, phase: str = 'both',
+            deadline_at: str | None = None) -> int:
     """主流程。返回写入行数。
 
     整批失败信号(#366/F01): 若本轮确有待采(pending 非空)、非 dry_run、且 ok==0 且零写入,
@@ -284,25 +328,61 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
     onetime_budget(默认/上限 1800s), 不读写轮转进度; 只用于一次性清欠, 不得配进定时任务。
     """
     from app.collector import public_fund_gap as gap
+    if phase not in PHASE_BUDGET_CAPS:
+        raise ValueError('phase须为 recent/backfill/both')
+    if deadline_at is not None and phase != 'backfill':
+        raise ValueError('--deadline-at 只用于 backfill 相位')
     if onetime:
         if not math.isfinite(onetime_budget) or onetime_budget <= 0 or onetime_budget > ONETIME_BUDGET_CAP:
             raise ValueError(f'一次性清欠预算须在(0,{int(ONETIME_BUDGET_CAP)}]秒内')
         if dry_run or fund_code is not None or limit is not None:
             raise ValueError('一次性清欠(onetime)不兼容 dry_run/fund_code/limit')
-    if not math.isfinite(budget_seconds) or budget_seconds <= 0 or budget_seconds > 290:
-        raise ValueError('整轮预算须在(0,290]秒内')
-    deadline = time.monotonic() + (onetime_budget if onetime else budget_seconds) - _fund_setup_seconds()
-    global LAST_BATCH_FAILED
+    cap = PHASE_BUDGET_CAPS[phase]
+    if budget_seconds is None:
+        budget_seconds = cap
+    if not math.isfinite(budget_seconds) or budget_seconds <= 0 or budget_seconds > cap:
+        raise ValueError(f'{phase}相位预算须在(0,{cap:g}]秒内')
+    budget = onetime_budget if onetime else budget_seconds
+    deadline = time.monotonic() + budget - _fund_setup_seconds()
+    global LAST_BATCH_FAILED, LAST_LOCK_OCCUPIED
     LAST_BATCH_FAILED = False  # 每轮重置, 防同进程跨轮残留(合法空数据/锁占/无待采均保持 False)
+    LAST_LOCK_OCCUPIED = False
+    window_closed = False
+    if deadline_at is not None:
+        # 墙钟保险: 定时器迟到时按剩余墙钟收缩预算; 窗口已过 ⇒ 本轮软停(不抢锁/不写库)。
+        left = _seconds_until(deadline_at)
+        if left <= 0:
+            window_closed = True
+        else:
+            deadline = min(deadline, time.monotonic() + left - _fund_setup_seconds())
     if days < 0 or batch < 1 or (limit is not None and limit < 1):
         raise ValueError("days须非负，batch/limit须为正整数")
     if fund_code is not None and (not isinstance(fund_code, str) or len(fund_code) != 6
                                   or not fund_code.isascii() or not fund_code.isdigit()):
         raise ValueError("fund_code须为6位ASCII数字")
+    if window_closed:
+        # 回补墙钟窗已关(定时器迟到/手动跑过点): 显式报未尝试, 不制造假成功也不报假失败。
+        pool_n = None
+        try:
+            ro = sqlite3.connect(DB_PATH.absolute().as_uri() + "?mode=ro", uri=True, timeout=5)
+            pool_n = ro.execute("SELECT COUNT(*) FROM (" + SELECT_SQL + ")").fetchone()[0]
+            ro.close()
+        except Exception:  # noqa: BLE001  DB 不可读本身是故障, 交给看门狗 rc=2
+            pass
+        _fund_observe('reason', reason='window_closed')
+        _fund_observe('scope', phase=phase, window_deadline=deadline_at,
+                      backfill_not_attempted=pool_n if pool_n is not None else -1)
+        print(f"[fof_nav] backfill_not_attempted={pool_n if pool_n is not None else 'unknown'} "
+              f"(回补墙钟窗 {deadline_at} 已过, 本轮不写库; 下一交易日重试)", flush=True)
+        return 0
     if not _acquire_lock(nonblock=True, lock_name="public_fund", **({"read_only": True} if dry_run else {})):
         _fund_observe('reason', reason='lock_not_attempted')
         print("[fof_nav] WARN public_fund.lock 被占, 跳过(防与 daily/quarterly 并发写同库)",
               flush=True)
+        if phase == 'backfill':
+            # 回补相位锁被占 = 真故障(20:xx 起无正当长任务持锁); rc=0 会变成假成功。
+            LAST_LOCK_OCCUPIED = True
+            print("[fof_nav] 回补相位锁被占 → exit 3(真故障可见, 下轮重试)", flush=True)
         return 0
     target_rows = None
     validate_snapshot = lambda: None
@@ -340,6 +420,41 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
         progress = None
         last_code = ""
         work_limits = {}
+        # 2026-11-17 回补优先队列(进度 v1 可选字段; 旧进度缺省=空, 不视为损坏)。
+        backfill_cursor = ""
+        backfill_pending = []
+        backfill_pending_since = {}
+        backfill_last_attempt = {}
+        last_runs = {}
+        progress_state = None
+
+        def _code_ok(value):
+            return (isinstance(value, str) and len(value) == 6
+                    and value.isascii() and value.isdigit())
+
+        def _date_ok(value):
+            if not isinstance(value, str) or len(value) != 8:
+                return False
+            try:
+                datetime.strptime(value, '%Y%m%d')
+            except ValueError:
+                return False
+            return True
+
+        def _save_progress(cursor_code):
+            if progress is None or progress_state is None:
+                return
+            progress_state['last_code'] = cursor_code
+            progress_state['work_limits'] = work_limits
+            progress_state['backfill_cursor'] = backfill_cursor
+            progress_state['backfill_pending'] = backfill_pending
+            progress_state['backfill_pending_since'] = backfill_pending_since
+            progress_state['backfill_last_attempt'] = backfill_last_attempt
+            progress_state['last_runs'] = last_runs
+            # Small, atomic attempt metadata is outside the rolled-back NAV
+            # transaction; a failed write remains a nonzero failure.
+            atomic_write_json(progress, progress_state)
+
         if not dry_run and limit is None and fund_code is None and all_funds and not onetime:
             db_file = conn.execute("PRAGMA database_list").fetchone()[2]
             if not db_file:
@@ -373,12 +488,42 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                             raise ValueError('已查窗口日期异常')
                         datetime.strptime(through, '%Y%m%d')
                     work_limits[code] = value
+                raw_cursor = saved.get('backfill_cursor', '')
+                if raw_cursor and not _code_ok(raw_cursor):
+                    raise ValueError('回补游标格式异常')
+                backfill_cursor = raw_cursor or ''
+                raw_queue = saved.get('backfill_pending', [])
+                if not isinstance(raw_queue, list) or any(not _code_ok(c) for c in raw_queue):
+                    raise ValueError('回补队列格式异常')
+                backfill_pending = [c for c in dict.fromkeys(raw_queue) if c in pool]
+                raw_since = saved.get('backfill_pending_since', {})
+                if not isinstance(raw_since, dict):
+                    raise ValueError('回补入队记录不是对象')
+                backfill_pending_since = {c: d for c, d in raw_since.items()
+                                          if c in pool and _date_ok(d)}
+                raw_attempt = saved.get('backfill_last_attempt', {})
+                if not isinstance(raw_attempt, dict):
+                    raise ValueError('回补尝试记录不是对象')
+                backfill_last_attempt = {c: d for c, d in raw_attempt.items()
+                                         if c in pool and _date_ok(d)}
+                raw_runs = saved.get('last_runs', {})
+                if not isinstance(raw_runs, dict):
+                    raise ValueError('相位摘要格式异常')
+                last_runs = {k: v for k, v in raw_runs.items()
+                             if k in ('recent', 'backfill', 'both') and isinstance(v, dict)}
+                progress_state = saved
             except FileNotFoundError:
-                pass
+                progress_state = {"version": 1}
             except (ValueError, KeyError, TypeError):
                 print("[fof_nav] WARN 轮转进度损坏，从头复查(不代表已补齐)", flush=True)
                 last_code = ""
                 work_limits = {}
+                backfill_cursor = ""
+                backfill_pending = []
+                backfill_pending_since = {}
+                backfill_last_attempt = {}
+                last_runs = {}
+                progress_state = {"version": 1}
         if onetime:
             # 方案 A: 只挑无 fund_collection_state('nav') 行的基金(2026-11-13 实测 1091 只);
             # 单遍全相位首查(与旧 stateless 首查同路径), 不读写轮转进度。
@@ -394,25 +539,50 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                   f"{run_batch}/{total_pool} 只, 独立预算 {onetime_budget:g}s "
                   f"(只用于一次性清欠, 不得配进定时任务; 全相位首查, 不读写轮转进度)", flush=True)
         else:
-            pending = [r for r in all_funds if r[0] > last_code] + [r for r in all_funds if r[0] <= last_code]
-            pending = pending[:min(limit if limit is not None else batch, BATCH_SIZE)]
+            batch_n = min(limit if limit is not None else batch, BATCH_SIZE)
+            selection = ('targeted' if target_rows is not None else
+                         'limited' if limit is not None else 'rotating')
+            if phase == 'backfill' and progress is not None:
+                # 回补相位选择(2026-11-17): 优先队列打头(上一轮被截断/未完成的基金),
+                # 再用 code 游标补足。BACKFILL_ROTATION_RESERVE 保证每轮至少留 1 个名额
+                # 给游标尾部(新 code 不会被大队列饿死)。
+                row_by_code = {r[0]: r for r in all_funds}
+                # 队列按入队日升序 = 滞后最久的先补(同日按入队先后, 稳定排序)。
+                queue = sorted((c for c in backfill_pending if c in row_by_code),
+                               key=lambda c: backfill_pending_since.get(c, ''))
+                reserve = min(batch_n, max(1, batch_n // BACKFILL_ROTATION_RESERVE)) if queue else 0
+                queue_pick = queue[:batch_n - reserve]
+                rotation_order = ([r for r in all_funds if r[0] > backfill_cursor]
+                                  + [r for r in all_funds if r[0] <= backfill_cursor])
+                slots = batch_n - len(queue_pick)
+                rotation_pick = rotation_order[:max(0, slots)]
+                if rotation_pick:
+                    backfill_cursor = rotation_pick[-1][0]  # 保底推进(下一轮从其后继续)
+                picked = list(dict.fromkeys(queue_pick + [r[0] for r in rotation_pick]))
+                pending = [row_by_code[c] for c in picked]
+                if queue_pick:
+                    selection = 'backfill_queue'
+            else:
+                pending = [r for r in all_funds if r[0] > last_code] + [r for r in all_funds if r[0] <= last_code]
+                pending = pending[:batch_n]
             run_batch = len(pending)
             _fund_observe('scope', pool_count=total_pool, selected_count=run_batch,
-                          selected_codes=[r[0] for r in pending],
-                          selection='targeted' if target_rows is not None else 'limited' if limit is not None else 'rotating',
+                          selected_codes=[r[0] for r in pending], selection=selection,
                           pool_scope='target_only' if target_rows is not None else 'FOF_QDII',
-                          recent_window=[start_str, end_str], expected_publication='T_plus_1_or_2_not_SLA')
+                          recent_window=[start_str, end_str], phase=phase,
+                          backfill_cursor=backfill_cursor or '',
+                          backfill_queue_depth=len(backfill_pending),
+                          expected_publication='T_plus_1_or_2_not_SLA')
 
-            print(f"[fof_nav] FOF/QDII 总数={total_pool} 轮转起点={last_code or '起始'} "
-                  f"待采={len(pending)}/{total_pool} 本轮尝试(不代表整窗完整) "
-                  f"(拉近{days}日 {start_str}~{end_str} batch={run_batch} dry_run={dry_run})",
+            print(f"[fof_nav] FOF/QDII 总数={total_pool} 相位={phase} "
+                  f"轮转起点={last_code or '起始'}"
+                  + (f" 回补游标={backfill_cursor or '起始'} 队列={len(backfill_pending)}"
+                     if phase == 'backfill' else '')
+                  + f" 待采={run_batch}/{total_pool} 本轮尝试(不代表整窗完整) "
+                  f"(拉近{days}日 {start_str}~{end_str} batch={batch_n} dry_run={dry_run})",
                   flush=True)
-        if not pending:
-            print("[fof_nav] 无FOF/QDII目标，跳过", flush=True)
-            conn.close()
-            return 0
 
-        had_pending = True  # 走到此处 = pending 非空(上方 not pending 已 early-return)
+        had_pending = bool(pending)
         stats = {'written': 0, 'ok': 0, 'fail': 0, 'empty': 0, 'error': 0, 'aligned': 0,
                  'recent_committed': 0, 'backfill_committed': 0}
         # fail 保留原义=空+异常之和(日志口径不变); empty/error 拆细供整批判据。
@@ -420,9 +590,53 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
         # error  = 真实异常(urlopen 抛错/JSON 解码失败/ErrCode!=0/非空冲突)→ 整批判据只看这个
         attempted_funds = set()  # 去重: 两遍结构下每只基金只计一次「尝试/提交」(evidence 口径不变)
         committed_funds = set()
+        # 本轮已处置(提交或合法空)的基金: 回补相位据此结算优先队列(处置完出队, 否则留队下轮优先)。
+        settled_funds = set()
         failed_funds = set()     # pass A 当轮失败(异常/冲突)基金: pass B 跳过省预算, 下轮再来
         t0 = time.time()
         rotation = progress is not None
+        cursor = last_code  # 尝试制轮转游标: 逐只推进; pass B/backfill 相位保持不动(不丢/不回退)。
+        soft_stopped = False
+
+        def _enqueue_backfill(code):
+            if code not in backfill_pending:
+                backfill_pending.append(code)
+            backfill_pending_since.setdefault(code, end.strftime('%Y%m%d'))
+
+        def _run_summary(stage_status, terminal_error=None):
+            """本轮相位摘要(落进度文件 last_runs + 收据 fund_evidence.scope)。
+
+            每个相位独立记(21:10 recent 与 21:22 backfill 依次覆盖同一个收据文件,
+            进度里的 last_runs 才是两相位并存的事实源, 覆盖率看门狗读这里)。
+            """
+            summary = {
+                'date': end.strftime('%Y%m%d'), 'phase': phase, 'stage_status': stage_status,
+                'selected': run_batch, 'attempted': len(attempted_funds),
+                'ok': stats['ok'], 'empty': stats['empty'], 'error': stats['error'],
+                'written': stats['written'],
+                'not_attempted': max(0, run_batch - len(attempted_funds)),
+            }
+            if phase in ('backfill', 'both'):
+                summary['backfill_not_attempted'] = max(0, run_batch - len(attempted_funds))
+                summary['backfill_queue_depth'] = len(backfill_pending)
+                summary['backfill_cursor'] = backfill_cursor or ''
+            if phase in ('recent', 'both'):
+                summary['recent_not_attempted'] = max(0, run_batch - len(attempted_funds))
+            if terminal_error:
+                summary['terminal_error'] = terminal_error
+            last_runs[phase] = summary
+            _fund_observe('scope', phase=phase, stage_status=stage_status,
+                          **{k: summary[k] for k in ('backfill_not_attempted', 'recent_not_attempted')
+                             if k in summary})
+            if progress is not None:
+                _save_progress(cursor)
+
+        if not pending:
+            print("[fof_nav] 无FOF/QDII目标，跳过", flush=True)
+            if rotation:
+                _run_summary('empty_pool')
+            conn.close()
+            return 0
 
         def attempt(fund, target_limit, backfill_limit, cursor_code, recent_sweep):
             """单只单相位尝试; 拉取/冲突/写库全复用既有路径(2026-11-13 方案 C 两遍结构)。
@@ -433,15 +647,24 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
             recent_sweep=False: pass B「回补」或单遍模式——按存储相位拉取('recent' 视作
               history), 相位 history<->gap 轮转; 不移动轮转游标(cursor_code=当前游标)。
             limit/fund_code/dry_run/onetime 单遍模式: target_limit=None。
-            预算耗尽语义不变: 顶检查 + 各检查点 raise TimeoutError(不吞、不优雅收尾)。
+            预算耗尽的相位语义(2026-11-17): recent/both 相位仍 raise TimeoutError(硬承诺,
+            rc=1); backfill 相位转 _SoftBudgetStop(软完成, collect 内消化 → rc=0 +
+            backfill_not_attempted), 且不收缩工作单元(软停是常态, 不是该基金的问题)。
             """
             fund_code, fund_name, fund_type = fund
+            soft = (phase == 'backfill')
+            stopped = False
             if time.monotonic() >= deadline:
                 conn.close()
+                if soft:
+                    raise _SoftBudgetStop('回补到点软停(本只未开始)')
                 raise TimeoutError('FOF整轮预算耗尽，保留已提交目标和原尝试游标')
             if fund_code not in attempted_funds:
                 attempted_funds.add(fund_code)
                 _fund_observe('attempt', fund_code=fund_code)
+            if not recent_sweep:
+                # 回补相位: 记最近尝试日(看门狗「滞后」判据的事实源), 与入队日分开。
+                backfill_last_attempt[fund_code] = end.strftime('%Y%m%d')
             candidate = None
             budget_failed = False
             target_committed = False
@@ -480,6 +703,8 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                     # 合法空(HTTP200 + ErrCode=0 + LSJZList=[]): 该基金区间内本无净值, 非异常
                     stats['empty'] += 1
                     stats['fail'] += 1  # fail 仍含空(日志口径不变, 无外部程序化消费者)
+                    # 合法空也是「本轮已处置」: 不算回补欠账, 从优先队列移除。
+                    settled_funds.add(fund_code)
                 elif not dry_run:
                     params = [
                         (
@@ -502,12 +727,17 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                     stats['written'] += len(rows)
                     stats['ok'] += 1
                     committed_funds.add(fund_code)
+                    settled_funds.add(fund_code)
                     if recent_sweep:
                         stats['recent_committed'] += 1
                     else:
                         stats['backfill_committed'] += 1
             except Exception as e:
-                _fund_observe('error', reason=type(e).__name__)
+                stopped = time.monotonic() >= deadline
+                if not stopped:
+                    # 到点中断不是该基金的数据错误; 软完成/硬截断都不计入 error,
+                    # 否则收据会被记成 failure(回补软停的告警降噪就白做了)。
+                    _fund_observe('error', reason=type(e).__name__)
                 # P2-C(2026-11-05): 显式回滚, 保证失败那只零落库、不影响下一只。
                 # 旧代码只计数不回滚: 失败那只的部分写入留在未提交事务里, 会被下一只
                 # 的 commit 一起提交。失败基金本轮不留部分NAV，下次轮转仍会复查。
@@ -520,7 +750,9 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                     nonnull_conflicts.extend({'code': fund_code, **ev} for ev in e.evidence)
                     # 方案 B: 冲突拒绝路径也累计该只的「舍入对齐」条数(两数分开, 不混算)。
                     stats['aligned'] += getattr(e, 'rounding_aligned', 0)
-                if time.monotonic() >= deadline:
+                if stopped:
+                    if soft:
+                        raise _SoftBudgetStop('回补到点软停，本基金已回滚') from e
                     budget_failed = True
                     raise TimeoutError('FOF整轮预算耗尽，本基金已回滚') from e
                 stats['error'] += 1  # 真实异常计入整批判据
@@ -528,6 +760,9 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                 failed_funds.add(fund_code)  # 当轮失败(异常/冲突): 回补 pass 跳过, 下轮再来
                 print(f"[fof_nav] FAIL {fund_code} {fund_type}: {e}", flush=True)
             finally:
+                # 到点中断(budget_failed/软停)也必须落盘: 沿用「尝试即轮转」语义——
+                # 被中断那只已试过, last_code 必须记到它, 否则下轮从上一只重来(进度停滞)。
+                # 但只有 budget_failed 才收缩工作单元; 软停(回补到点)不收缩, 交优先队列重试。
                 if progress is not None:
                     if budget_failed:
                         # 预算中断(尝试制): 工作单元减半、相位保持——同一只下次拿到
@@ -538,6 +773,10 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                         work_limits[fund_code] = {**previous,
                             'history_days': max(1, previous['history_days'] // 2),
                             'gap_fields': max(1, previous['gap_fields'] // 2)}
+                    elif stopped:
+                        # 软停: 本只已回滚且未处置, 不推进任何相位/窗口; 保留原工作单元,
+                        # 由 backfill_pending 优先队列下轮补(否则会被当成已轮转而漏补)。
+                        pass
                     elif recent_sweep:
                         # 增量扫不消耗/不轮转回补相位; 已查窗口(recent_through)只在链式
                         # (超时收缩)基金上推进——条件 = recent_end<end(链未到头)或原本已有
@@ -556,22 +795,28 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                     else:
                         # 回补相位轮转(尝试即轮转, 与旧机制同精神): history<->gap 交替;
                         # recent 已由增量扫每轮覆盖, 不再占轮转位。
-                        phase = (target_limit or {}).get('phase')
+                        # ⚠️ 局部名不得复用 phase: 它是 collect() 的相位参数, 在本函数内赋值
+                        # 会让 phase 变成局部名 ⇒ 顶部 soft=(phase=='backfill') 抛
+                        # UnboundLocalError(半成品实现留下的真实崩溃点)。
+                        stored_phase = (target_limit or {}).get('phase')
                         work_limits[fund_code] = dict(target_limit,
-                                                       phase='history' if phase == 'gap' else 'gap')
-                    value = {"version": 1, "last_code": cursor_code}
-                    if work_limits:
-                        value['work_limits'] = work_limits
-                    # Small, atomic attempt metadata is outside the rolled-back
-                    # NAV transaction; a failed write remains a nonzero failure.
-                    atomic_write_json(progress, value)
+                                                       phase='history' if stored_phase == 'gap' else 'gap')
+                    # 进度落盘统一走 _save_progress: 除 last_code/work_limits 外还必须保留
+                    # backfill_pending/backfill_cursor/last_runs; 旧写法只写两个 key, 每只基金
+                    # 写完就把优先队列与相位摘要清空(静默丢字段)。
+                    _save_progress(cursor_code)
             if RATE_LIMIT:
                 time.sleep(min(RATE_LIMIT, max(0, deadline-time.monotonic())))
 
         cursor = last_code  # 尝试制轮转游标: pass A 逐只推进, pass B 保持不动(不丢/不回退)。
-        if rotation:
-            # ---- pass A「recent 增量扫」: 全批次优先保 T-1 新鲜(方案 C, 2026-11-13) ----
-            for idx, fund in enumerate(pending, 1):
+
+        def _recent_pass(selected):
+            """pass A「recent 增量扫」: 全批次优先保 T-1 新鲜(方案 C, 2026-11-13)。
+
+            预算耗尽仍 raise TimeoutError(硬承诺, rc=1): 新鲜度没扫完就是真失败。
+            """
+            nonlocal cursor, soft_stopped
+            for idx, fund in enumerate(selected, 1):
                 code = fund[0]
                 stored = work_limits.get(code)
                 state_row = conn.execute(
@@ -581,34 +826,88 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                 # (history_before≤19900101, 历史已完成) → gap。
                 backfill = stored or {'history_days': gap.HISTORY_DAYS, 'gap_fields': gap.GAP_LIMIT,
                                       'phase': 'gap' if state_row and state_row[0] <= '19900101' else 'history'}
-                attempt(fund, dict(backfill, phase='recent'), backfill, code, True)
-                cursor = code
+                try:
+                    attempt(fund, dict(backfill, phase='recent'), backfill, code, True)
+                except _SoftBudgetStop:  # recent 相位不该软停; 出现=实现错误, 按硬失败处理
+                    soft_stopped = True
+                    break
+                except TimeoutError:
+                    # 尝试制: 只有「已进入该只尝试」(attempted_funds 有它)才推进游标。
+                    # 循环顶部到点中断(attempt 开头 raise)那只并未尝试, 游标必须停在上一只,
+                    # 否则下轮跳过一只从未采集的基金。落盘由 finally/_run_summary 完成。
+                    if code in attempted_funds:
+                        cursor = code
+                    raise
+                cursor = code  # 正常返回: 本只已尝试完成
                 if idx % 50 == 0:
-                    print(f"[fof_nav] 进度[recent增量扫] {idx}/{len(pending)} ok={stats['ok']} "
+                    print(f"[fof_nav] 进度[recent增量扫] {idx}/{len(selected)} ok={stats['ok']} "
                           f"fail={stats['fail']} empty={stats['empty']} error={stats['error']} "
                           f"written={stats['written']} {time.time()-t0:.0f}s", flush=True)
-            # ---- pass B「回补」: 剩余预算跑 history/gap 相位; pass A 失败基金跳过 ----
-            for idx, fund in enumerate(pending, 1):
+
+        def _backfill_pass(selected):
+            """pass B「回补」: 独立预算跑 history/gap 相位(2026-11-17 起可单独成单元)。
+
+            backfill 相位到点 ⇒ _SoftBudgetStop 上抛, 由本层捕获置 soft_stopped(rc=0)。
+            """
+            nonlocal soft_stopped
+            for idx, fund in enumerate(selected, 1):
                 code = fund[0]
-                if code in failed_funds or code not in work_limits:
+                if code in failed_funds or (rotation and code not in work_limits):
                     continue
-                stored = dict(work_limits[code])
+                stored = dict(work_limits.get(code) or {})
+                if not stored:
+                    # 回补单元独立跑时, 队列里的基金可能还没有存储相位(上一轮 recent 刚扫过)。
+                    state_row = conn.execute(
+                        "SELECT history_before FROM fund_collection_state WHERE stream=? AND code=?",
+                        ('nav', code)).fetchone()
+                    stored = {'history_days': gap.HISTORY_DAYS, 'gap_fields': gap.GAP_LIMIT,
+                              'phase': 'gap' if state_row and state_row[0] <= '19900101' else 'history'}
                 if stored.get('phase') == 'recent':
                     # 遗留 'recent' 相位(旧进度文件)由增量扫每轮覆盖, 回补视作 history。
                     stored['phase'] = 'history'
-                attempt(fund, stored, stored, cursor, False)
+                try:
+                    attempt(fund, stored, stored, cursor, False)
+                except _SoftBudgetStop:
+                    soft_stopped = True
+                    break
                 if idx % 50 == 0:
-                    print(f"[fof_nav] 进度[回补] {idx}/{len(pending)} ok={stats['ok']} "
+                    print(f"[fof_nav] 进度[回补] {idx}/{len(selected)} ok={stats['ok']} "
                           f"fail={stats['fail']} empty={stats['empty']} error={stats['error']} "
                           f"written={stats['written']} 舍入对齐={stats['aligned']} "
                           f"{time.time()-t0:.0f}s", flush=True)
-        else:
-            for idx, fund in enumerate(pending, 1):
-                attempt(fund, None, None, fund[0], False)
-                if idx % 50 == 0:
-                    print(f"[fof_nav] 进度 {idx}/{len(pending)} ok={stats['ok']} fail={stats['fail']} "
-                          f"empty={stats['empty']} error={stats['error']} written={stats['written']} "
-                          f"{time.time()-t0:.0f}s", flush=True)
+
+        try:
+            if rotation:
+                if phase in ('recent', 'both'):
+                    _recent_pass(pending)
+                if phase in ('backfill', 'both'):
+                    # both: pass A 失败基金跳过省预算; backfill: 队列优先 + 游标保底已在选批时定
+                    selected = [f for f in pending if f[0] not in failed_funds] \
+                        if phase == 'both' else pending
+                    _backfill_pass(selected)
+            else:
+                # 单遍模式(dry_run/limit/fund_code/onetime): 语义不变, 逐只尝试。
+                for idx, fund in enumerate(pending, 1):
+                    attempt(fund, None, None, fund[0], False)
+                    if idx % 50 == 0:
+                        print(f"[fof_nav] 进度 {idx}/{len(pending)} ok={stats['ok']} "
+                              f"fail={stats['fail']} empty={stats['empty']} error={stats['error']} "
+                              f"written={stats['written']} {time.time()-t0:.0f}s", flush=True)
+        except TimeoutError as exc:
+            # 硬截断(recent 相位新鲜度没扫完 / both 手动两遍): 如实记 truncated 后原样上抛,
+            # rc=1 语义不变(不吞、不做优雅收尾)。
+            if rotation:
+                _run_summary('truncated', terminal_error=type(exc).__name__)
+            raise
+        if rotation and phase == 'backfill':
+            # 结算优先队列: 已处置(提交/合法空)出队; 其余(未跑到/失败/到点中断)留队并记入队日。
+            for code in list(backfill_pending):
+                if code in settled_funds:
+                    backfill_pending.remove(code)
+                    backfill_pending_since.pop(code, None)
+            for fund in pending:
+                if fund[0] not in settled_funds:
+                    _enqueue_backfill(fund[0])
         conn.close()
         remaining = total_pool - len(attempted_funds)
         print(f"[fof_nav] 完成 ok={stats['ok']} fail={stats['fail']} empty={stats['empty']} "
@@ -630,6 +929,19 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                   f"零成功零写入 且 error={stats['error']}>0(含真实异常, 非合法空) "
                   f"(常见原因=网络/WAF 或写库异常, 已写数据保留, 下轮自动续跑)",
                   flush=True)
+        if rotation:
+            # 相位收尾: soft_complete(回补到点软停, rc=0) / batch_failed / complete。
+            # backfill_not_attempted 与已处理数分开打印(用户在日志/收据上能分辨)。
+            not_attempted = max(0, run_batch - len(attempted_funds))
+            if soft_stopped:
+                print(f"[fof_nav] 回补到点软停(soft_complete): backfill_not_attempted={not_attempted} "
+                      f"已尝试={len(attempted_funds)} 优先队列={len(backfill_pending)}(下轮优先补, 不丢)",
+                      flush=True)
+                _run_summary('soft_complete')
+            elif batch_fail:
+                _run_summary('batch_failed', terminal_error='batch_failed')
+            else:
+                _run_summary('complete')
         LAST_BATCH_FAILED = batch_fail  # global 声明在函数头(配合顶部复位)
         return stats['written']
     finally:
@@ -656,7 +968,13 @@ def main() -> int:
                     help=f"每轮最多采 N 只(默认/上限 {BATCH_SIZE}, 持久轮转续跑)")
     ap.add_argument("--dry-run", action="store_true", help="只拉不写")
     ap.add_argument("--fund-code", help="只复查指定6位基金代码(须为既有FOF/QDII，不动全局轮转进度)")
-    ap.add_argument('--budget-seconds', type=float, default=290, help='整轮绝对预算，最多290秒')
+    ap.add_argument('--budget-seconds', type=float, default=None,
+                    help='相位绝对预算(缺省=相位硬上限: both 290 / recent 200 / backfill 600)')
+    ap.add_argument('--phase', choices=('recent', 'backfill', 'both'), default='both',
+                    help='recent=只扫近端增量(21:10 单元, 截断 rc=1); '
+                         'backfill=只跑回补(21:22 单元, 到点软停 rc=0); both=旧两遍(手动排障)')
+    ap.add_argument('--deadline-at', default=None, metavar='HH:MM',
+                    help='backfill 墙钟保险(定时任务传 21:35): 到点软停 rc=0, 窗口已过则不写库')
     ap.add_argument('--onetime-backfill', action='store_true',
                     help='一次性清欠: 只跑无 fund_collection_state 记录的基金(全相位首查), '
                          '独立预算(默认/上限1800s)。只用于一次性清欠, 不得配进定时任务')
@@ -665,10 +983,18 @@ def main() -> int:
     args = ap.parse_args()
     if args.onetime_backfill and (args.dry_run or args.fund_code is not None or args.limit is not None):
         ap.error("--onetime-backfill 不兼容 --dry-run/--fund-code/--limit")
+    if args.deadline_at is not None:
+        if args.phase != 'backfill':
+            ap.error("--deadline-at 只用于 --phase backfill")
+        try:
+            _seconds_until(args.deadline_at)
+        except ValueError:
+            ap.error("--deadline-at 须为 HH:MM(24小时制)")
     try:
         n = collect(days=args.days, limit=args.limit, dry_run=args.dry_run, batch=args.batch,
                     fund_code=args.fund_code, budget_seconds=args.budget_seconds,
-                    onetime=args.onetime_backfill, onetime_budget=args.onetime_budget)
+                    onetime=args.onetime_backfill, onetime_budget=args.onetime_budget,
+                    phase=args.phase, deadline_at=args.deadline_at)
     except ValueError as exc:
         ap.error(str(exc))
     print(f"[fof_nav] return written={n}", flush=True)
@@ -678,6 +1004,11 @@ def main() -> int:
     if LAST_BATCH_FAILED:
         print("[fof_nav] exit 2: 整批失败信号已置位(供 check_failed_units 消费)", flush=True)
         return 2
+    if LAST_LOCK_OCCUPIED:
+        # 回补相位锁被占 = 真故障(不是"跳过")。rc=0 会被 systemd 记成功 → 假绿,
+        # 与本轮要消灭的「每晚假失败/假成功」同一病根, 故给独立退出码 3。
+        print("[fof_nav] exit 3: 回补相位锁被占(public_fund.lock), 真故障可见, 下一轮重试", flush=True)
+        return 3
     return 0
 
 

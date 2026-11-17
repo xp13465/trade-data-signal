@@ -71,6 +71,10 @@ class Round:
         self.sizes = dict.fromkeys(self.hashes, 0)
         self.work = 0.0
         self.nav_rows = {}
+        # 2026-11-17 量纲统一: committed_targets 是「只」(按基金去重), 不是提交事件数。
+        # 旧实现每 range/每 pass 各加 1 ⇒ 两遍结构下 > 选中数(11-16 实测 795 vs 500),
+        # 与 expected(只)不同量纲, 覆盖率无法直接比。事件数另存 committed_events。
+        self.committed_codes = set()
         self.record(finished=False)
 
     def digest(self, key, values):
@@ -88,6 +92,12 @@ class Round:
             if 'selected_count' in data:
                 c.update(selected=data['selected_count'], attempted=0, committed_targets=0,
                          published_rows=0, committed_rows=0, legal_empty=0, errors=0)
+                self.committed_codes = set()
+            # 相位级「未尝试」指标(2026-11-17): 只做可见计数, 不参与 collection_status 判定。
+            # backfill_not_attempted 是软完成指标(不是故障), recent_not_attempted 跟随硬失败。
+            for key in ('backfill_not_attempted', 'recent_not_attempted'):
+                if isinstance(data.get(key), int) and not isinstance(data.get(key), bool):
+                    c[key] = data[key]
         elif action == 'reason':
             self.facts['reason'] = data['reason']
             if data.get('failure'):
@@ -116,7 +126,14 @@ class Round:
                     self.facts['outcomes'][-1][3] = len(rows)
             else:
                 c['committed_rows'] = c.get('committed_rows', 0) + len(rows)
-                c['committed_targets'] = c.get('committed_targets', 0) + 1
+                c['committed_events'] = c.get('committed_events', 0) + 1
+                code = self.facts['outcomes'][-1][0] if self.facts['outcomes'] else None
+                # 同一只基金在一轮里可能提交多次(pass A recent + pass B 回补,
+                # 或一个目标拆多段 range), committed_targets 只按基金计一次。
+                if code is None or code not in self.committed_codes:
+                    if code is not None:
+                        self.committed_codes.add(code)
+                    c['committed_targets'] = c.get('committed_targets', 0) + 1
                 self.facts['outcomes'][-1][2] = 'committed'
                 self.facts['outcomes'][-1][4] = len(rows)
             self.digest(action, rows)
@@ -181,6 +198,12 @@ class Round:
                 'failure' if c.get('errors', 0) or self.facts.get('terminal_error') else
                 'scoped_committed' if selected and c.get('committed_targets') == selected else
                 'legal_empty' if c.get('legal_empty') else 'unknown')
+            # 2026-11-17 相位语义: 收据 stage_status 只允许 success/failure/unknown
+            # (delivery_evidence._validate), 故细粒度运行状态写进 fund_evidence.run_status
+            # (complete / soft_complete / truncated / batch_failed / empty_pool / lock_not_attempted)。
+            run_status = self.facts['scope'].get('stage_status')
+            if isinstance(run_status, str) and run_status:
+                self.facts['run_status'] = run_status
             if self.nav_rows and not self.facts.get('metadata_failed'):
                 try:
                     from .ops_nav_publication import save_inputs
@@ -198,11 +221,23 @@ class Round:
         def identity(key):
             return {'object_id': key + '_observations', 'sha256': self.hashes[key].hexdigest(),
                     'size': self.sizes[key], 'identity_kind': 'ordered_loaded_rows', 'quality': 'stage_only'}
+        # stage_status: 本相位正常收尾(含回补到点软完成)记 success, 只有真失败才 failure。
+        # 软完成不是失败(2026-11-17 用户拍板: 回补截断 rc=0, 由覆盖率+滞后看门狗兜底)。
+        run_status = self.facts.get('run_status')
+        collected = self.facts['collection_status'] != 'failure'
+        # success 只在「本相位跑完且确有提交(或软停但已提交若干)」时成立; 全空批
+        # (legal_empty)保持 unknown —— 全批合法空说明不了任何覆盖完成, 记 success 即假成功。
+        committed_any = c.get('committed_rows', 0) > 0
+        receipt_status = ('failure' if not collected else
+                          'success' if run_status in ('complete', 'soft_complete') and committed_any
+                          else 'unknown')
         return business.record_result(self.root, self.object_id, run_id=self.run, started_at=self.started,
-            status='failure' if self.facts['collection_status'] == 'failure' else 'unknown',
-            reason=self.facts['reason'] if self.facts['collection_status'] == 'failure' else 'fund_publication_unverified',
+            status=receipt_status,
+            reason=('backfill_truncated' if collected and run_status == 'soft_complete' else
+                    self.facts['reason'] if not collected else 'fund_publication_unverified'),
             inputs=[identity(k) for k in ('source', 'attempts') if self.sizes[k]],
             outputs=[identity('committed')] if self.sizes['committed'] else [],
+            # expected/observed 统一为「只」(按基金去重), 事件数见 counts.committed_events。
             expected=selected, observed=c.get('committed_targets', 0), fund_evidence=self.facts,
             code=self.code,
             finished_at=business.stamp(business.now()) if finished else None)

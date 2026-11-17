@@ -239,11 +239,11 @@ def test_unit_truth_trust_window_is_120s(tmp_path, monkeypatch, unit_start, trus
 
 # ---------------------------------------------------------------- 覆盖与全绿
 
-def test_systemd_mode_emits_42_rows_and_45_registry(tmp_path, monkeypatch):
+def test_systemd_mode_emits_43_rows_and_46_registry(tmp_path, monkeypatch):
     monkeypatch.setenv("MONITOR_EXIT_SOURCE", "systemd")
     rows, _ = _build(tmp_path, _Runner())
-    assert len(rows) == 42
-    assert len(gss.UNIT_REGISTRY) == 45
+    assert len(rows) == 43
+    assert len(gss.UNIT_REGISTRY) == 46
     # 3 个自监控 unit 不进统计表(拍板点 2 = A)
     tasks = {r["task"] for r in rows}
     assert "ops_monitor" in tasks

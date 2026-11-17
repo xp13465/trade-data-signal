@@ -1745,13 +1745,14 @@ StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/freeze_cleanup_laun
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/freeze_cleanup_launchd.err
 ```
 
-### 2.41 fof-nav-collect(每日 21:10,#333 批1 FOF/QDII 净值止漏)
+### 2.41 fof-nav-collect(每日 21:10,recent 相位,#333 批1 FOF/QDII 净值止漏)
 
 > 追加于 2026-11-02(#333 批1,用户 2026-11-01 拍板方案 A 独立采集器走历史 API 止漏):非迁移批新增(无 launchd 源)。生成源模板见 `docs/ops/333-systemd-unit-template.md`,四副本纪律 L54/L55。
-> - script:`scripts/run_fof_nav_collect.sh`(交易日闸门 `is_trading_day` + `run_to 600` + STAMP 日志 `data/logs/fof_nav_collect_*.log`)→ 调 `python -m scripts.collect_fof_nav`(只补 NULL,幂等不覆盖)
+> **2026-11-17 相位拆分(用户拍板 A+B,依据 `/tmp/fof-budget-rca-20261117.md`)**:21:10 单元只跑 recent 增量扫(硬承诺 T-1 新鲜度,预算耗尽仍 rc=1),回补改由 21:22 的 `trade-fof-nav-backfill` 单元独立预算跑(见 §2.41b)。
+> - script:`scripts/run_fof_nav_collect.sh`(交易日闸门 `is_trading_day` + `run_to 480` + STAMP 日志 `data/logs/fof_nav_collect_*.log`)→ 调 `python -m scripts.collect_fof_nav --phase recent`(只补 NULL,幂等不覆盖)
 > - 时点依据(§14):每日 21:10 盘后;21:00 backup-db 写 sentiment.db、21:10 turnover-backfill 写 sentiment.db、21:15 ab-direction-anchor 写 sentiment.db——均不撞 public_fund.db(本任务唯一写入对象);public_fund.db 写入任务(2026-11-02 云上 `systemctl cat` 实查):`trade-public-fund-daily.timer` 16:20+17:00(写 fund_daily_nav 净值表)、`trade-public-fund-estimation.timer` 10:00/11:00/13:30/14:30(写 fund_estimation_nav 估算表)、`trade-public-fund-full.timer` 22:00、`trade-public-fund-quarterly.timer` 03:00/04:00/07:00;21:10 无重叠
 > - `Persistent=true` 保证宕机错过当日补跑;宕机跨日补跑若落在非交易日会被 `is_trading_day` 闸门拦住,靠 `--days 7` 默认窗口在下个交易日自然拾回(只补 NULL,幂等)
-> - 预算(内外层成对 L55,按分批后最坏路径复算):FOF/QDII 共 1796 只,每轮 BATCH_SIZE=500;最坏 ~350s;内层 `run_to 600`(余量 250s);外层 `TimeoutStartSec=900`(梯度 300s,外>内留梯度)
+> - 预算(内外层成对 L55,按相位拆分后最坏路径复算):recent 相位只扫一轮 500 只增量窗口,代码内预算 `PHASE_BUDGET_CAPS['recent']=200s`;内层 `run_to 480`(余量 280s);外层 `TimeoutStartSec=600`(梯度 120s,外>内留梯度)。回补预算见 §2.41b(内 600/run_to 720/外 900)。
 > - 云上首次部署(2026-11-02):`systemctl show -p TimeoutStartUSec`=`15min`、is-enabled=enabled、next=21:10;手动小样 `--limit 5 --days 5` written=8(冲突 no-op,5 只 nulls=0 无 NULL 可补)、0 覆盖(60 行 presnap 逐位零覆盖、计数/max_date 不变)
 
 `trade-fof-nav-collect.timer`:
@@ -1780,6 +1781,44 @@ WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=REPO=/home/ubuntu/code/trade-data
 Environment=OPS_DELIVERY_EVIDENCE_ENABLED=1
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_fof_nav_collect.sh
+TimeoutStartSec=600
+```
+
+### 2.41b fof-nav-backfill(每日 21:22,#333 回补相位,21:35 墙钟软截止)
+
+> 追加于 2026-11-17(相位拆分 A+B,依据 `/tmp/fof-budget-rca-20261117.md`;与 §2.41 共用同一把 FOF 锁与同一个轮转进度文件)。
+> - **时点选择**:原定 21:20 与 `trade-futures-backfill.timer` 第二次触发(19:45/21:20)同分钟。两者写不同库(futures→sentiment.db,本任务→public_fund.db)、不共享锁,但同为重网络任务,同分钟起跑会让 systemd 启动顺序不确定并叠加网络压力 ⇒ **顺延 2 分钟到 21:22**。21:10 recent 相位最坏 480s 内结束(21:18),锁在 21:22 前已释放;21:22 → 硬截止 21:35 余量 780s ≥ 代码内预算 600s + 启动开销。
+> - script:`scripts/run_fof_nav_backfill.sh`(`run_to 720` + 日志 `data/logs/fof_nav_backfill_*.log`)→ 调 `python -m scripts.collect_fof_nav --phase backfill --deadline-at 21:35`
+> - **软完成语义**:到 21:35 墙钟软截止 ⇒ 打印 `backfill_not_attempted=N` 并以 **rc=0** 结束(不是故障;欠账由优先队列下一轮先补),收据 `run_status=soft_complete`。**锁被占 ⇒ exit 3**(真故障可见,不许静默 return 0)。
+> - **为什么 21:35 必须收尾**:22:00 起的 `trade-public-fund-full` 会持 public_fund 锁至 ~23:17(见 `docs/ops/alert-noise-rca-*` 同批记录),21:35 软截止留出充分间隔,不与它抢锁。
+> - 预算(内外层成对 L55):代码内 `PHASE_BUDGET_CAPS['backfill']=600s`;内层 `run_to 720`(余量 120s);外层 `TimeoutStartSec=900`(梯度 180s);且 21:35 墙钟软截止(约 780s)早于 900s 硬杀 ⇒ 到点先软停打印摘要,不会被 systemd 静默杀掉。
+
+`trade-fof-nav-backfill.timer`:
+```ini
+[Unit]
+Description=Trade FOF/QDII nav backfill daily 21:22 (soft stop 21:35)
+
+[Timer]
+OnCalendar=*-*-* 21:22:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-fof-nav-backfill.service`:
+```ini
+[Unit]
+Description=Trade FOF/QDII net-value backfill (#333, soft stop 21:35)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=OPS_DELIVERY_EVIDENCE_ENABLED=1
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_fof_nav_backfill.sh
 TimeoutStartSec=900
 ```
 
@@ -1789,8 +1828,9 @@ TimeoutStartSec=900
 > 采集/推送契约见 `ops/monitoring/contract.md`。此节 ini 是 canonical 唯一源;
 > `gen_systemd_units.py` 从本文件生成,`ops/monitoring/install/` 两份安装副本由
 > `scripts/tests/test_ops_monitor_registry.py` 逐字节校验,修改任一侧必须同步另一侧。
-> 当前源码共 45 对 service/timer(90 文件);登记表保留原 44 条并新增 `ops_monitor`,
-> include=True,共 42 条业务+基础统计行,原 3 条自监控不变。旧章节的迁移数量为历史记录。
+> 当前源码共 46 对 service/timer(92 文件);登记表保留原 44 条并新增 `ops_monitor`,
+> include=True,共 43 条业务+基础统计行(2026-11-17 相位拆分再增 `fof_nav_backfill`),原 3 条自监控不变。
+> 旧章节的迁移数量为历史记录。
 > 服务只运行独立采集器,不调用业务入口;240s 外层预算小于 15 分钟周期。
 > 专用配置与凭证由 Claude 部署阶段提供,此处仅记录路径、不包含值。journal 输出;
 > 私有临时目录与仅可写运行目录不赋予业务数据写权限。

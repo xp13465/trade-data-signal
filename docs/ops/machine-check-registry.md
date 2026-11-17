@@ -58,6 +58,7 @@
 | scripts/check_ds_resilience.py | 数据源韧性排查,手动跑,未挂链 |
 | scripts/check_failed_units.py | 失败单元可见性(#196 机制),未挂链(生产实跑实证见 #203) |
 | scripts/check_file_owners.py | 文件归属登记核对,手动跑,未挂链 |
+| scripts/check_fof_backfill.py | FOF 回补滞后/本轮覆盖率看门狗(2026-11-17 新增),schedule_monitor 尾部每 15min 以 `--notify` 走 defer_warning 入聚合队列,**不是守门员**(只读进度文件+告警,不拦部署/merge),未挂 CI/merge 链;真故障通道(recent rc=1/整批 exit 2/锁占 exit 3)仍归 systemd failed-unit 通道,本看门狗不接管不抑制 |
 | scripts/check_kelly_unique_parts_restore.py | 凯利唯一化片段恢复核对,一次性/手动跑,未挂链 |
 | scripts/check_kelly_unique_restore.py | 凯利唯一化恢复核对,一次性/手动跑,未挂链 |
 | scripts/check_large_json_excluded.py | 大 JSON 出仓核对,手动跑,未挂链 |

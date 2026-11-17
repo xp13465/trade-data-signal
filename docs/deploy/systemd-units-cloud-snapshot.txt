@@ -237,6 +237,19 @@ ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-
 TimeoutStartSec=1080
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.err
+@@@FILE:trade-fof-nav-backfill.service
+[Unit]
+Description=Trade FOF/QDII net-value backfill (#333, soft stop 21:35)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=OPS_DELIVERY_EVIDENCE_ENABLED=1
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_fof_nav_backfill.sh
+TimeoutStartSec=900
 @@@FILE:trade-fof-nav-collect.service
 [Unit]
 Description=Trade FOF/QDII net-value collector (#333 batch1, 源 com.trade.fof-nav-collect)
@@ -249,7 +262,7 @@ WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=REPO=/home/ubuntu/code/trade-data
 Environment=OPS_DELIVERY_EVIDENCE_ENABLED=1
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_fof_nav_collect.sh
-TimeoutStartSec=900
+TimeoutStartSec=600
 @@@FILE:trade-freeze-orphan-cleanup.service
 [Unit]
 Description=Trade freeze-orphan-cleanup daily 21:50 dry-run (源 #124)
@@ -873,6 +886,16 @@ Description=Trade fetch-news hourly :01/:45 (源 com.trade.fetch-news)
 
 [Timer]
 OnCalendar=*-*-* *:01,45:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-fof-nav-backfill.timer
+[Unit]
+Description=Trade FOF/QDII nav backfill daily 21:22 (soft stop 21:35)
+
+[Timer]
+OnCalendar=*-*-* 21:22:00
 Persistent=true
 
 [Install]

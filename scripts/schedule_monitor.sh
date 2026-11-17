@@ -845,8 +845,8 @@ except Exception as e:
     STATS_REFRESH_OK = False
     print(f"[warn] gen_schedule_stats 刷新失败(读旧 schedule_stats.json): {e}", file=sys.stderr)
 
-# ── #309 W3/W5: 43 unit 真值扫描(含 3 自监控; ledger 单写者=本监控) ──
-# 覆盖口径: 42 业务/基础进执行统计表(含 ops-monitor), 3 自监控不入表但仍做 unit 级体检。
+# ── #309 W3/W5: 44 unit 真值扫描(含 3 自监控; ledger 单写者=本监控) ──
+# 覆盖口径: 43 业务/基础进执行统计表(含 ops-monitor), 3 自监控不入表但仍做 unit 级体检。
 EXIT_MODE = ut.exit_source_mode() if ut else "log"
 UNIT_REGISTRY = list(gss.UNIT_REGISTRY) if gss else []
 UNIT_REGISTRY_UNITS = {r.get("unit") for r in UNIT_REGISTRY if r.get("unit")}
@@ -924,8 +924,8 @@ def _in_progress_state(_s, _now):
 
 # ── #309 W3: 结论行合成(纯函数, AST 可抽取; 单测 test_309_ok_line_truth) ──
 # 铁律: 只有「无退出失败 + 无漏跑 + 无未知退出码 + 无 CFU failed」才允许打
-# 「OK 所有任务按计划执行」; 覆盖数必须每次写明(45/45 或仅日志 17/42)。
-COVERAGE_BUSINESS_TOTAL = 42
+# 「OK 所有任务按计划执行」; 覆盖数必须每次写明(46/46 或仅日志 17/43)。
+COVERAGE_BUSINESS_TOTAL = 43
 COVERAGE_SELF_MONITOR = 3
 LOG_CALIBER_COVERAGE = 17
 
@@ -4702,6 +4702,29 @@ try:
               f"{(_r_pu.stdout + _r_pu.stderr).strip()[:200]}", file=sys.stderr)
 except Exception as e:
     print(f"[warn] preupload backup 检查失败(不阻塞主流程): {e}", file=sys.stderr)
+
+# FOF 回补滞后 + 本轮覆盖率看门狗（2026-11-17 相位拆分配套）：
+# 回补到点软停(rc=0)后, 「有没有欠账/欠了多久」不再靠 systemd failed 通道表达 ⇒ 独立脚本
+# 读采集器自己的轮转进度(last_runs/backfill_pending_*), 主判据 = ①recent 覆盖率
+# ②回补滞后 >7 个交易日; backfill_not_attempted 只可见不告警。判定逻辑可 dry 单测,
+# 监控层只看退出码(同 check_s06_freshness.py 先例); --notify 走 defer_warning 入聚合队列。
+# 真故障通道(recent rc=1 / 整批失败 exit 2 / 锁被占 exit 3)仍由 failed-unit + 退出码
+# 通道负责, 本检查不接管、不抑制。
+try:
+    _r_fof = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "check_fof_backfill.py"),
+         "--repo", str(REPO), "--notify"],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    if _r_fof.returncode == 0:
+        print(f"[fof] {_r_fof.stdout.strip().splitlines()[0] if _r_fof.stdout.strip() else '回补 OK'}")
+    elif _r_fof.returncode == 1:
+        print(f"[fof] 回补滞后/覆盖率异常(已 defer_warning 入聚合队列): {_r_fof.stdout.strip()[:200]}")
+    else:
+        print(f"[warn] fof backfill 无法判定 rc={_r_fof.returncode}: "
+              f"{(_r_fof.stdout + _r_fof.stderr).strip()[:200]}", file=sys.stderr)
+except Exception as e:
+    print(f"[warn] fof backfill 检查失败(不阻塞主流程): {e}", file=sys.stderr)
 
 # Heartbeat：每次完整跑完都更新时间戳（主控 Claude Code cron 读此文件，
 # 超过 30 分钟未更新 = launchd 层可能挂了，立即提示用户）。
