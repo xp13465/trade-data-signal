@@ -29,6 +29,7 @@ from app.collector import public_fund_gap as gap
 from scripts import collect_fof_nav as fof
 from scripts import check_fof_backfill as watchdog
 from scripts import ops_business_evidence as business
+from scripts import ops_legacy_events
 from scripts.tests.test_collect_fof_nav_333 import _conn, _seed_basic
 
 
@@ -448,3 +449,106 @@ def test_watchdog_cli_exit_codes(tmp_path, monkeypatch):
     assert watchdog.main() == 1
     path.write_text('not-json')
     assert watchdog.main() == 2
+
+
+# ── P0(2026-11-17 审查): 看门狗 --notify 生产路径的事件键归属 ─────────────
+def test_p0_fof_backfill_event_key_is_owned():
+    """生产 key = 'fof_backfill|' + abs path; 未登记 ⇒ observe() 先抛错 ⇒ 每 15min rc=2。
+
+    修复前 PREFIXES 无此前缀 (审查报告 P0); 本条在删掉前缀时必红。
+    """
+    assert ops_legacy_events.owns_event_key('fof_backfill|x') is True
+    assert ops_legacy_events.owns_event_key(
+        'fof_backfill|/home/ubuntu/code/trade-data/data/public_fund.fof-nav-progress.json') is True
+    assert ops_legacy_events.owns_event_key('producer_s06|x') is True   # 既有前缀不回归
+    assert ops_legacy_events.owns_event_key('not_owned|x') is False     # 仍拒绝越界 key
+
+
+def test_p0_watchdog_notify_healthy_path_rc0(tmp_path, monkeypatch, capsys):
+    """--notify 健康路径 rc=0(此前只有 dry 模式覆盖 = P0 盲区)。
+
+    走真实 observe()(只登记前缀不够, 必须整条 CLI 通过), 通知发送件 dispatch 打桩
+    (§18 L48: 绝不让自测产生真实外发)。
+    """
+    path = tmp_path / 'prog.json'
+    path.write_text(json.dumps(_progress(selected=2, attempted=2)))
+    sent = []
+    monkeypatch.setattr(watchdog, 'dispatch', lambda *a, **k: sent.append(a) or 'deferred')
+    monkeypatch.setattr(sys, 'argv', ['check_fof_backfill.py', '--repo', str(tmp_path),
+                                      '--progress', str(path), '--today', '20261117',
+                                      '--notify'])
+    assert watchdog.main() == 0                 # 前缀未登记时这里是 2(生产每 15min 假告警)
+    assert sent == []                           # 健康不告警 = 零外发
+    assert 'FOF_BACKFILL_OK' in capsys.readouterr().out
+
+    # 异常路径也归本前缀: 滞后 ⇒ observe() 建事件 + refs 非空 ⇒ dispatch 收到事件引用。
+    path.write_text(json.dumps(_progress(selected=2, attempted=1)))
+    assert watchdog.main() == 1
+    assert len(sent) == 1
+    assert sent[0][4] is not None               # refs: observe() 已成功登记事件
+
+
+# ── P2(2026-11-17 审查): 回补选批 × work_limits 缺失不得静默跳过 ─────────
+def test_p2_backfill_fund_without_work_limits_not_skipped(db, clock, monkeypatch):
+    """队列里的基金没有 work_limits 记录时必须走 stored 兜底, 不得被 continue 跳过。
+
+    修复前守卫 `(rotation and code not in work_limits)` 恒真 ⇒ 该基金永远补不到、
+    且未处置反复重新入队空转(审查 P2: 首轮 500 只里 356 只被跳过)。
+    """
+    _seed_basic(db, _funds(3))
+    _progress_path(db).write_text(json.dumps({
+        'version': 1, 'last_code': '000000',
+        'work_limits': _limits(['000001']),          # 只有 000001 有相位, 000002 没有
+        'backfill_pending': ['000002'],
+        'backfill_pending_since': {'000002': '20261110'},
+    }))
+    fetched = []
+    monkeypatch.setattr(fof, 'fetch_lsjz',
+                        lambda code, *a, **k: fetched.append(code) or [_row(code)])
+    fof.collect(batch=3, phase='backfill')
+
+    assert '000002' in fetched                   # 修复前: 被静默跳过 ⇒ 本断言红
+    assert fetched[0] == '000002'                # 队列滞后优先(仍排在游标补位之前)
+    assert len(fetched) == 2                     # 选中 2 只全部尝试, 0 只被无理由跳过
+    saved = json.loads(_progress_path(db).read_text())
+    assert saved['backfill_pending'] == []       # 已处置出队, 不再未处置反复入队空转
+
+
+# ── P3(2026-11-17 审查): 墙钟窗已过分支 ─────────────────────────────────
+def test_p3_deadline_window_closed_no_lock_no_write_rc0(db, clock, monkeypatch, capsys):
+    """冻结时钟 21:36 + --deadline-at 21:35 ⇒ 不抢锁、不写库、rc=0、报 backfill_not_attempted。"""
+    _seed_basic(db, _funds(2))
+    acquired = []
+    monkeypatch.setattr(fof, '_acquire_lock',
+                        lambda **kw: acquired.append(kw) or True)
+    _freeze(monkeypatch, now=datetime(2026, 11, 17, 21, 36, 0))
+    monkeypatch.setattr(sys, 'argv', ['collect_fof_nav', '--phase', 'backfill',
+                                      '--batch', '2', '--deadline-at', '21:35'])
+
+    assert fof.main() == 0                       # 过点不是失败 rc=0
+    assert acquired == []                        # 不抢锁
+    assert not _progress_path(db).exists()       # 不写进度/不写库
+    out = capsys.readouterr().out
+    assert 'backfill_not_attempted=2' in out
+    assert '已过' in out and '不写库' in out
+
+
+# ── P3(2026-11-17 审查): recent 相位软停 = 实现错误, 必须按硬失败 rc=1 ────
+def test_p3_recent_soft_stop_raises_timeout_not_rc0(db, clock, monkeypatch):
+    """防御分支语义修正: recent 截断必须 rc=1, 不得记 soft_completed/rc=0。
+
+    分支正常不可达(soft 只在 phase=='backfill' 成立), 用注入方式走到它并断言硬失败。
+    """
+    _seed_basic(db, _funds(1))
+    real_observe = fof._fund_observe
+
+    def observe(kind, **fields):
+        if kind == 'attempt':
+            raise fof._SoftBudgetStop('注入: recent 相位出现软停')
+        return real_observe(kind, **fields)
+
+    monkeypatch.setattr(fof, '_fund_observe', observe)
+    with pytest.raises(TimeoutError):
+        fof.collect(batch=1, phase='recent')
+    saved = json.loads(_progress_path(db).read_text())
+    assert saved['last_runs']['recent']['stage_status'] == 'truncated'

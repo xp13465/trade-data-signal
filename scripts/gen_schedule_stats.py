@@ -270,7 +270,7 @@ LABEL_MAP = {
     "cloud_unit_patrol": "com.trade.cloud-unit-patrol",
 }
 
-# ── #309 W2 全覆盖登记; 2026-11-07 加独立 ops-monitor 后共 45 unit ──
+# ── #309 W2 全覆盖登记; 2026-11-07 加独立 ops-monitor 后共 46 unit ──
 # 口径: 43 业务+基础进执行统计表; 3 个自监控 unit(monitor/self-heal/heartbeat)排除出表
 #    但仍做 unit 级体检(monitor 自己算 3/3), 详见 schedule_monitor.sh 结论行。
 # 回滚第②层: 任一行改 `include: False` 即从表里消失(全部 False ⇒ 退回旧 19 行);

@@ -85,7 +85,7 @@ import alert_denoise_rules as adr  # noqa: E402
 # main() 所有出口恒 return 0)。用于「先落签后 fire-and-forget 通知」病灶的回滚判定。
 from notify_sent import notify_sent, notify_state  # noqa: E402
 
-# #309 W1/W2/W3: systemd unit 真值(单一事实源) + 45 unit 登记表。
+# #309 W1/W2/W3: systemd unit 真值(单一事实源) + 46 unit 登记表。
 # 导入失败按「仅日志口径」降级(不崩监控), 但结论行会如实写覆盖降级。
 try:
     import unit_truth as ut  # noqa: E402
@@ -845,7 +845,7 @@ except Exception as e:
     STATS_REFRESH_OK = False
     print(f"[warn] gen_schedule_stats 刷新失败(读旧 schedule_stats.json): {e}", file=sys.stderr)
 
-# ── #309 W3/W5: 44 unit 真值扫描(含 3 自监控; ledger 单写者=本监控) ──
+# ── #309 W3/W5: 46 unit 真值扫描(含 3 自监控; ledger 单写者=本监控) ──
 # 覆盖口径: 43 业务/基础进执行统计表(含 ops-monitor), 3 自监控不入表但仍做 unit 级体检。
 EXIT_MODE = ut.exit_source_mode() if ut else "log"
 UNIT_REGISTRY = list(gss.UNIT_REGISTRY) if gss else []
@@ -2546,8 +2546,8 @@ if STATS_FILE.exists():
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 
-# ── #309 W3 新通道①: systemd `unit_exit!=0`(覆盖 43 unit, 含 3 自监控) ──
-# **systemd 真值失败的唯一权威通道**(2026-10-25 P2-3/P2-4): 43 unit 全走这里, 无论
+# ── #309 W3 新通道①: systemd `unit_exit!=0`(覆盖 46 unit, 含 3 自监控) ──
+# **systemd 真值失败的唯一权威通道**(2026-10-25 P2-3/P2-4): 46 unit 全走这里, 无论
 # stats 是否已合并同一 code、无论是否自监控/日志无行。既有 last_exit 通道遇到
 # exit_source∈{systemd,ledger,ledger-stale} 且 unit_exit!=0 的行会显式跳过(见上方),
 # 同一故障因此只有一跳(旧行为: stats 刷新失败时本通道报一次, 下轮 stats 恢复后
@@ -2770,7 +2770,7 @@ for _label in LAUNCHCTL_LABELS:
         continue  # 已加载，不 add seen（让恢复检测处理 active/pending->recovered）
     if _lstate == "failed":
         # 2026-09-19 语义修正 第一层: failed=已加载但运行失败, 不是"未加载"。
-        # P2-4(2026-10-25): systemd 真值通道覆盖全部 43 unit(含 self-heal 等自监控),
+        # P2-4(2026-10-25): systemd 真值通道覆盖全部 46 unit(含 self-heal 等自监控),
         # 且本轮真读到非 0 退出码 ⇒ 由它唯一登记, 本通道(两条分支)都不再二次登记。
         # 旧行为: self_heal failed 同轮两条(unit_exit!=0 + {label}|failed);且本 defer
         # 早先误放进 stats 分支里, 对不在 stats 的自监控 label 完全无效。
@@ -4433,7 +4433,7 @@ for _ent in _absorbed:
             source="schedule_monitor", repo=REPO,
             extra={"line": _ent["line"][:300], "category": _ent.get("category")})
         print(f"[budget-absorb] {_ent['category']} 并入当日摘要: {_ent['line'][:80]}")
-# #309 W3 结论行: 唯一结论=事实合成(43 unit 真值 + 漏跑 + 未知码 + CFU)。
+# #309 W3 结论行: 唯一结论=事实合成(46 unit 真值 + 漏跑 + 未知码 + CFU)。
 # 无论 alerts 是否为空都打印, 让每轮日志都能对账「覆盖多少 / 有没有失败」。
 _concl = _build_conclusion(
     stats, NOW, cfu_failed=_cfu_failed, alerts=len(alerts),

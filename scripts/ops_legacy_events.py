@@ -21,7 +21,8 @@ from datetime import datetime
 import uuid
 
 PREFIXES = ("producer_s06|", "producer_heartbeat|", "producer_nextday_plan|",
-            "producer_nextday_gap|", "producer_update_all|", "producer_daily_summary|")
+            "producer_nextday_gap|", "producer_update_all|", "producer_daily_summary|",
+            "fof_backfill|")
 ACK_FIELDS = ("acknowledged", "ack_owner", "ack_event_id", "ack_note", "last_ack_log")
 
 

@@ -828,9 +828,9 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
                                       'phase': 'gap' if state_row and state_row[0] <= '19900101' else 'history'}
                 try:
                     attempt(fund, dict(backfill, phase='recent'), backfill, code, True)
-                except _SoftBudgetStop:  # recent 相位不该软停; 出现=实现错误, 按硬失败处理
-                    soft_stopped = True
-                    break
+                except _SoftBudgetStop as exc:  # recent 相位不该软停; 出现=实现错误
+                    # 语义 = recent 截断必须 rc=1(硬承诺), 绝不能记成 soft_completed/rc=0。
+                    raise TimeoutError('recent 相位出现软停(实现错误), 按硬失败处理') from exc
                 except TimeoutError:
                     # 尝试制: 只有「已进入该只尝试」(attempted_funds 有它)才推进游标。
                     # 循环顶部到点中断(attempt 开头 raise)那只并未尝试, 游标必须停在上一只,
@@ -852,11 +852,14 @@ def collect(days: int = 7, limit: int | None = None, dry_run: bool = False,
             nonlocal soft_stopped
             for idx, fund in enumerate(selected, 1):
                 code = fund[0]
-                if code in failed_funds or (rotation and code not in work_limits):
+                if code in failed_funds:
                     continue
                 stored = dict(work_limits.get(code) or {})
                 if not stored:
-                    # 回补单元独立跑时, 队列里的基金可能还没有存储相位(上一轮 recent 刚扫过)。
+                    # 回补单元独立跑时, 队列里的基金可能还没有存储相位(上一轮 recent 刚扫过,
+                    # 或只有部分基金进过 recent 增量扫)。必须走本兜底按 fund_collection_state
+                    # 注入起点相位; 不在此静默 continue, 否则队列里的基金永远补不到、
+                    # 还会未处置反复入队空转(2026-11-17 审查 P2)。
                     state_row = conn.execute(
                         "SELECT history_before FROM fund_collection_state WHERE stream=? AND code=?",
                         ('nav', code)).fetchone()
