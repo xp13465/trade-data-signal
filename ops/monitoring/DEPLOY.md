@@ -224,7 +224,9 @@ node node_modules/wrangler/bin/wrangler.js d1 migrations list OPS_DB --remote --
 node node_modules/wrangler/bin/wrangler.js d1 migrations apply OPS_DB --remote --config "$OPS_CANDIDATE"
 ```
 
-**0007 起迁移与 Worker 的顺序(2026-11-16 A2 写放大瘦身起)**:0007 把「每轮重写全部 check」改成「内容变化才写」,并让 `/state` 用轮级 `ops_head` 时钟判过期。新 Worker 兼容旧 0006 触发器(只是少写),但**旧 Worker 不兼容新触发器**(旧 Worker 仍按每条 check 的 `observed_ms` 判过期,而 0007 不再每轮刷新它)⇒ 上线必须是**先部署新 `worker/ops.js`,确认成功,再 apply 0007**;反过来会出现大面积假 unknown。
+**0007 的迁移顺序是特例（与本文第 5 步「main-merge 前先迁移」相反，勿套用）**:0007 把「每轮重写全部 check」改成「内容变化才写」,并让 `/state` 用轮级 `ops_head` 时钟判过期。新 Worker 兼容旧 0006 触发器(只是少写),但**旧 Worker 不兼容新触发器**(旧 Worker 仍按每条 check 的 `observed_ms` 判过期,而 0007 不再每轮刷新它)⇒ 0007 上线必须是**先部署新 `worker/ops.js`,确认成功,再 apply 0007**;反过来会出现大面积假 unknown。也就是说「第 5 步 main-merge 前先迁移」这条通用做法**不能套在 0007 上**；0007 已上线（2026-11-13），此处保留说明供回滚/复演参考。
+
+**0008 的迁移顺序（与 0007 相反，按第 5 步通用顺序）**:0008 新增派生表 `ops_alert_daily`（每日告警量走势）。新 Worker 的定时清理把 `DELETE FROM ops_alert_daily` 放进 `opsScheduled` 的同一个 `db.batch`，表不存在时**整批失败** ⇒ watchdog 状态推进与 outbox 维护会一起停摆（不是只影响走势图）。因此**必须先 apply 0008，再部署新 Worker**；反过来不是「少一个功能」，而是定时批整体挂掉。旧 Worker 不认识新表、不会引用它，所以先迁移对现网无影响。迁移头（`0008_ops_alert_daily.sql`）与 `contract.md` 同口径。
 
 **回滚顺序不是上线顺序的倒放**(审查实测兼容矩阵 3/3):直接「先降旧 Worker,再恢复 0006 触发器」会留出一段「旧 Worker + 0007 触发器」的窗口,同样是大面积假 unknown。正确顺序是 ①先停 `trade-ops-monitor.timer`/`service`(回滚窗口内不再有 ingest;不停也可以,但 ①② 之间的间隔必须小于一个 15min 采集轮)②按 0007 文件末尾注释里的 SQL 恢复 0006 触发器(`DROP`/`CREATE` 回 0006 的 `ops_run_insert`;**这一步新 Worker 仍在跑,兼容**)③再降旧 Worker。恢复 0006 后 `observed_ms` 要等下一轮 ingest 才会重新刷新,该轮完成前旧 Worker 的按 check 过期判定仍可能把未变的 check 显示成 unknown/stale(自愈,不是数据问题)——等 ①~③ 加一轮 ingest 都完成再验收 `/state`。0007 只改写入频率、不改存储内容,两个方向都不需要回填数据。
 
@@ -302,6 +304,14 @@ INGEST_TOKEN_SOURCE="$HOME/.local/state/trade-ops-deploy/ingest.token"
 sudo install -d -m 0700 -o root -g root /etc/trade-ops-monitor
 sudo install -m 0600 -o root -g root "$INGEST_TOKEN_SOURCE" /etc/trade-ops-monitor/ingest.token
 ```
+
+**`trade-schedule-monitor.service` 同样需要该凭据（2026-11-18 起）**:每日告警量走势上报（`scripts/schedule_monitor.sh` → `POST /api/ops/alert-daily`）跑在这个 unit 里，`User=ubuntu` 直接读 root:root 0600 的源 token 会 PermissionError。按 `trade-ops-monitor.service` 同款做法，在实际 unit 加一行，然后 `systemctl daemon-reload`：
+
+```ini
+LoadCredential=ops_ingest_token:/etc/trade-ops-monitor/ingest.token
+```
+
+脚本按 `显式 OPS_INGEST_TOKEN_FILE > ${CREDENTIALS_DIRECTORY}/ops_ingest_token > /etc/trade-ops-monitor/ingest.token` 顺序取路径。验收：`systemctl show trade-schedule-monitor.service -p LoadCredential` 有值；以 ubuntu 身份跑一轮（或 `systemd-run --uid=ubuntu --setenv=CREDENTIALS_DIRECTORY=... /bin/bash scripts/schedule_monitor.sh` 的等价模拟）后日志里没有「采集令牌文件不存在/PermissionError」，且 `POST /api/ops/alert-daily` 回 200。源 token 文件不存在时 LoadCredential 会让该 service 启动失败，所以安装 token 必须在这行之前完成。
 
 配置目录示例权限需允许 `ubuntu` 读取非敏感 JSON（目录0700 root会阻断，因此在写入完成后使用下列组读目录策略）；token仍root0600，systemd管理器通过 LoadCredential 复制到只读私有credential目录。collector接受owner-only0400/0600且owner是当前uid或root的普通非symlink文件。`${CREDENTIALS_DIRECTORY}/ops_ingest_token` 由 systemd 在 `ExecStart` 中展开，只作路径参数，不暴露值。
 

@@ -36,6 +36,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -53,6 +54,11 @@ TREND_FILENAME = "alert_trend.json"
 # 走势图窗口：admin/ops 默认 30 天、可切 7/90；源数据固定重算最近 90 天。
 # 90 天以前不留（台账 2026-10-10 才起步，更早的天天然无数据，前端画灰柱）。
 TREND_DAYS = 90
+
+# 上报契约（与 worker/ops.js 的 TREND_DAY_KEYS 同一集合）：`no_data` 只是本地产物的
+# 缺日标记，不进上报体——worker 按固定键白名单校验，多一个键整批 400（2026-11-18
+# 审查 P0-1 契约断裂）。发送端唯一入口 = build_trend_payload()，不在别处拼键。
+TREND_PAYLOAD_KEYS = ("date", "total", "real", "noise", "escalation", "by_tier")
 
 # 告警群口径（用户「0~3 条/天」判据的主口径）：飞书 alert 群。
 ALERT_GROUPS = {"alert"}
@@ -298,6 +304,19 @@ def trend_recount(trees: list[Path], end_day: str | None = None, days: int = TRE
     return {"end_day": end_day, "written": written, "trend": obj}
 
 
+def build_trend_payload(trend: dict, computed_ms: int | None = None) -> dict:
+    """把 build_trend 产物投影成上报体（**发送端唯一契约**，schedule_monitor 直接用）。
+
+    - 只带有数据的天：缺日由端点合成 no_data（永不补 0 冒充「零告警」）。
+    - 只带 TREND_PAYLOAD_KEYS：worker 固定键白名单（`no_data` 等产物字段不得外发）。
+    - computed_ms 是墙钟（只作新鲜度心跳），不写进本地 alert_trend.json（保持幂等）。
+    """
+    rows = [{k: d[k] for k in TREND_PAYLOAD_KEYS}
+            for d in trend.get("days", []) if not d.get("no_data")]
+    return {"computed_ms": int(time.time() * 1000) if computed_ms is None else computed_ms,
+            "days": rows}
+
+
 # ----------------------------------------------------------------------------
 # 查询
 # ----------------------------------------------------------------------------
@@ -455,6 +474,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="幂等重算 alert_daily.json（写每棵树；巡检每轮末尾/23:30 收尾轮调用）")
     ap.add_argument("--trend", action="store_true",
                     help="幂等重算最近 90 天每日告警量走势 alert_trend.json（写每棵树）")
+    ap.add_argument("--payload-out", default=None,
+                    help="配合 --trend：把上报体写到该文件（6 键投影、只发有数据的天）")
     ap.add_argument("--date", default=None, help="指定日期 YYYY-MM-DD（默认今日）")
     ap.add_argument("--trees", default=None,
                     help=f"树根列表（{os.pathsep} 分隔），默认 REPO + 兄弟树")
@@ -480,6 +501,11 @@ def main(argv: list[str] | None = None) -> int:
               f"写入 {len(r['written'])} 棵树")
         for w in r["written"]:
             print(f"  {w}")
+        if args.payload_out:
+            payload = build_trend_payload(r["trend"])
+            _atomic_write_json(Path(args.payload_out), payload)
+            print(f"[alert_meter] trend payload → {args.payload_out}"
+                  f"（有数据 {len(payload['days'])} 天，上报 6 键）")
         return 0
 
     if args.today:

@@ -1443,6 +1443,7 @@ StandardError=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.er
 
 ### 2.35 schedule-monitor(每 15 分 :00/:15/:30/:45)
 - 脚本:`schedule_monitor.sh`(源脚本 launchctl 加载检查需阶段4 Linux 适配)| ExitTimeOut=600
+- **LoadCredential(2026-11-18 追加)**:走势上报 POST `/api/ops/alert-daily` 需要 ingest 令牌。源 token 是 `root:root 0600`（DEPLOY.md §5.2），本服务 `User=ubuntu` 直接读会 PermissionError（审查 P0-2）。按 `trade-ops-monitor.service` 同款做法加 `LoadCredential=ops_ingest_token:/etc/trade-ops-monitor/ingest.token`，由 systemd 管理器复制到仅本服务可读的 `${CREDENTIALS_DIRECTORY}/ops_ingest_token`；`schedule_monitor.sh` 优先读该路径（显式 `OPS_INGEST_TOKEN_FILE` 仍可覆盖，供测试/排查）。源 token 不存在时 LoadCredential 会让 service 启动失败，因此 token 文件必须先按 DEPLOY.md §5.2 安装好。
 
 `trade-schedule-monitor.timer`:
 ```ini
@@ -1472,6 +1473,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/schedule_monitor.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
+LoadCredential=ops_ingest_token:/etc/trade-ops-monitor/ingest.token
 TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/schedule_monitor_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/schedule_monitor_launchd.err

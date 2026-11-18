@@ -3,7 +3,11 @@
 // 不变不写（96 轮/天 × 90 行必须挡住）；缺日合成 no_data；180 天保留清理。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import handler, { opsScheduled } from '../../../worker/ops.js';
 
@@ -39,8 +43,39 @@ async function fixture() {
   }
   return { mf, db, env, raw, scheduleAt };
 }
+// 下两行手造的是「线上报文（wire）形状」= worker 固定 6 键，用于鉴权/校验/幂等分支。
+// 生产端真实形状另由下方 contract 测试用 alert_meter 实跑生成（2026-11-18 审查 P0-1：
+// 只测手造 6 键会漏掉「生产者多带 no_data → 整批 400」的断裂）。
 const row = (date, total, real, noise, escalation = 0, byTier = { notice: real, warning: noise }) => ({ date, total, real, noise, escalation, by_tier: byTier });
 const payload = (days, computed_ms) => ({ computed_ms, days });
+
+// 真跑生产端（alert_meter.py --trend --payload-out），返回本地走势产物 + 实际上报体。
+// 不手造行、不手写投影：发送契约若漂移，下面 contract 测试必红。
+function realTrendPayload(days) {
+  const root = mkdtempSync(join(tmpdir(), 'trend-producer-'));
+  const tree = join(root, 'tree');
+  const ledger = join(tree, 'data', 'alerts', 'alert_ledger.jsonl');
+  mkdirSync(dirname(ledger), { recursive: true });
+  const rec = (day, tier, subject) => JSON.stringify({
+    ts: `${day} 09:00:00`, group: 'alert', tier, subject, key: subject,
+    source: 'fixture', channels: ['feishu'],
+  });
+  const lines = [];
+  for (const [i, day] of days.entries()) {
+    lines.push(rec(day, 'digest', `每日摘要 ${i}`));
+    for (let k = 0; k <= i; k += 1) lines.push(rec(day, 'notice', `故障 ${i}-${k}`));
+  }
+  writeFileSync(ledger, lines.join('\n') + '\n');
+  const repo = fileURLToPath(new URL('../../../', import.meta.url));
+  const payloadPath = join(root, 'payload.json');
+  execFileSync('python3', [join(repo, 'scripts', 'alert_meter.py'), '--trend',
+    '--trees', tree, '--date', days.at(-1), '--payload-out', payloadPath],
+  { cwd: repo, stdio: 'pipe', timeout: 60000 });
+  return {
+    trend: JSON.parse(readFileSync(join(tree, 'data', 'alerts', 'alert_trend.json'), 'utf8')),
+    payload: JSON.parse(readFileSync(payloadPath, 'utf8')),
+  };
+}
 
 test('alert-daily: auth matrix, validation, unchanged-no-write, no_data synthesis, retention', { timeout: 60000 }, async () => {
   const { mf, db, raw, scheduleAt } = await fixture();
@@ -121,5 +156,51 @@ test('alert-daily: auth matrix, validation, unchanged-no-write, no_data synthesi
     assert.equal(await countRows(), 3);
     const kept = await db.prepare('SELECT COUNT(*) n FROM ops_alert_daily WHERE date=?').bind(D(0)).first();
     assert.equal(kept.n, 1);
+  } finally { await mf.dispose(); }
+});
+
+// 2026-11-18 审查 P0-1 回归锁：用生产端**真实输出**喂路由，而不是手造 6 键。
+// 原 bug：alert_meter 每行 7 键含 no_data → worker 固定键白名单整批 400 → 静默空转。
+test('alert-daily contract: real alert_meter producer output accepted end-to-end', { timeout: 120000 }, async () => {
+  const { mf, db, raw } = await fixture();
+  try {
+    const now = Date.now();
+    const D = n => new Date(now + n * 86400000).toISOString().slice(0, 10);
+    // 有数据的两天 + 中间一天缺口（验证缺日仍由端点合成，不被补 0）。
+    const { trend, payload: produced } = realTrendPayload([D(-2), D(0)]);
+    const dataDay = trend.days.find(d => !d.no_data);
+    // 本地产物形状 = 7 键含 no_data（生产端真实形状，非手造）。
+    assert.deepEqual(Object.keys(dataDay).sort(),
+      ['by_tier', 'date', 'escalation', 'no_data', 'noise', 'real', 'total']);
+    // 上报体 = 6 键投影、无 no_data、只含有数据的天。
+    assert.equal(produced.days.length, 2);
+    for (const r of produced.days) {
+      assert.deepEqual(Object.keys(r).sort(),
+        ['by_tier', 'date', 'escalation', 'noise', 'real', 'total']);
+    }
+    // 端到端：真实上报体 → 200 并落表（原 bug 在这里会 400 invalid_fields）。
+    const sent = await raw('/alert-daily', {
+      method: 'POST', auth: 'ingest', body: produced,
+    });
+    assert.equal(sent.status, 200);
+    assert.equal(sent.body.received, 2);
+    assert.equal(sent.body.changed, 2);
+    // 落表值与 build_trend 真实输出逐日对账（total == real + noise 同源恒等式）。
+    const stored = (await db.prepare(
+      'SELECT date,total,real,noise,escalation,by_tier FROM ops_alert_daily').all()).results;
+    for (const r of produced.days) {
+      const src = trend.days.find(d => d.date === r.date);
+      const got = stored.find(s => s.date === r.date);
+      assert.deepEqual([got.total, got.real, got.noise, got.escalation, got.by_tier],
+        [src.total, src.real, src.noise, src.escalation, JSON.stringify(src.by_tier)]);
+      assert.equal(got.total, got.real + got.noise);
+    }
+    // GET 连续 3 天：中间缺口 no_data=true + null，绝不出现 0。
+    const get = await raw('/alert-daily?days=3');
+    assert.equal(get.status, 200);
+    assert.deepEqual(get.body.window, [D(-2), D(0)]);
+    const gap = get.body.days.find(d => d.date === D(-1));
+    assert.equal(gap.no_data, true);
+    assert.equal(gap.total, null);
   } finally { await mf.dispose(); }
 });

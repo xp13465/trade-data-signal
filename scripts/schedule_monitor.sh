@@ -4889,50 +4889,57 @@ except Exception as e:
 # 口径与 alert_daily 同源（台账 group=alert；噪音判定复用 alert_noise_count.classify_rows）。
 # best-effort：失败只 warn 不阻塞，本机制自身绝不告警；盘后重任务窗口同 recount 跳过。
 _ALERT_TREND_URL = os.environ.get("OPS_ALERT_DAILY_URL", "https://ss.fx8.store/api/ops/alert-daily")
-_ALERT_TREND_TOKEN_FILE = Path(os.environ.get("OPS_INGEST_TOKEN_FILE",
-                                             "/etc/trade-ops-monitor/ingest.token"))
+# 令牌来源优先级：显式 env（测试/排查口）> systemd LoadCredential 目录 > 旧 root 路径。
+# 本服务以 ubuntu 运行，旧路径 /etc/trade-ops-monitor/ingest.token 是 root:root 0600，
+# ubuntu 读不到（2026-11-18 审查 P0-2）；unit 已加
+# LoadCredential=ops_ingest_token:/etc/trade-ops-monitor/ingest.token，由 systemd
+# 管理器复制到仅本服务可读的 ${CREDENTIALS_DIRECTORY}/ops_ingest_token。
+_ALERT_TREND_TOKEN_FILE = Path(
+    os.environ.get("OPS_INGEST_TOKEN_FILE")
+    or (str(Path(os.environ["CREDENTIALS_DIRECTORY"]) / "ops_ingest_token")
+        if os.environ.get("CREDENTIALS_DIRECTORY") else "")
+    or "/etc/trade-ops-monitor/ingest.token"
+)
 
 try:
     if _in_guarded_window(NOW):
         print("[alert_trend] 盘后重任务窗口内，本轮跳过走势上报")
     else:
-        _r_trend = subprocess.run(
-            [sys.executable, str(REPO / "scripts" / "alert_meter.py"), "--trend"],
-            capture_output=True, text=True, timeout=60, check=False,
-        )
-        if _r_trend.returncode != 0:
-            print(f"[warn] alert_meter trend rc={_r_trend.returncode}: "
-                  f"{(_r_trend.stdout + _r_trend.stderr).strip()[:200]}", file=sys.stderr)
-        elif not _ALERT_TREND_TOKEN_FILE.is_file():
-            print(f"[alert_trend] 采集令牌文件不存在，跳过上报：{_ALERT_TREND_TOKEN_FILE}")
-        else:
-            _trend_obj = json.loads(
-                (REPO / "data" / "alerts" / "alert_trend.json").read_text(encoding="utf-8"))
-            # 只上报有数据的天：缺失日由端点合成 no_data（永不补 0 冒充「零告警」）。
-            _rows = [d for d in _trend_obj.get("days", []) if not d.get("no_data")]
-            _payload = json.dumps({"computed_ms": int(time.time() * 1000), "days": _rows},
-                                  ensure_ascii=False, sort_keys=True)
-            # 令牌不进 argv/日志：头文件 0600 经 curl -H @file 读取，临时目录用完即删。
-            # 用 /usr/bin/curl 而非 urllib：venv python 缺系统 CA 证书（同第 4 节注释）。
-            with tempfile.TemporaryDirectory(prefix="ops-alert-trend-") as _td:
-                _hdr = Path(_td) / "h"
+        # 令牌不进 argv/日志：头文件 0600 经 curl -H @file 读取，临时目录用完即删。
+        # 用 /usr/bin/curl 而非 urllib：venv python 缺系统 CA 证书（同第 4 节注释）。
+        with tempfile.TemporaryDirectory(prefix="ops-alert-trend-") as _td:
+            _td_path = Path(_td)
+            _payload_path = _td_path / "payload.json"
+            # 上报体由 alert_meter 生成（build_trend_payload：6 键投影 + 只发有数据的天）。
+            # 此处绝不再自行拼键/塞 no_data——2026-11-18 审查 P0-1：发送端与 worker
+            # 固定键白名单漂移会让每轮 POST 恒 400 静默空转。
+            _r_trend = subprocess.run(
+                [sys.executable, str(REPO / "scripts" / "alert_meter.py"), "--trend",
+                 "--payload-out", str(_payload_path)],
+                capture_output=True, text=True, timeout=60, check=False,
+            )
+            if _r_trend.returncode != 0:
+                print(f"[warn] alert_meter trend rc={_r_trend.returncode}: "
+                      f"{(_r_trend.stdout + _r_trend.stderr).strip()[:200]}", file=sys.stderr)
+            elif not _ALERT_TREND_TOKEN_FILE.is_file():
+                print(f"[alert_trend] 采集令牌文件不存在，跳过上报：{_ALERT_TREND_TOKEN_FILE}")
+            else:
+                _hdr = _td_path / "h"
                 _hdr.write_text(
                     "Authorization: Bearer "
                     + _ALERT_TREND_TOKEN_FILE.read_text(encoding="ascii").strip()
                     + "\nContent-Type: application/json\n", encoding="ascii")
                 os.chmod(_hdr, 0o600)
-                _body = Path(_td) / "b.json"
-                _body.write_text(_payload, encoding="utf-8")
                 _resp = subprocess.run(
                     ["/usr/bin/curl", "-sS", "--max-time", "10", "-o", os.devnull,
                      "-w", "%{http_code}", "-X", "POST", "-H", f"@{_hdr}",
-                     "--data-binary", f"@{_body}", _ALERT_TREND_URL],
+                     "--data-binary", f"@{_payload_path}", _ALERT_TREND_URL],
                     capture_output=True, text=True, timeout=15, check=False,
                 )
-            if _resp.stdout.strip() != "200":
-                print(f"[warn] alert trend POST {_ALERT_TREND_URL} "
-                      f"HTTP {_resp.stdout.strip()} rc={_resp.returncode}: "
-                      f"{_resp.stderr.strip()[:160]}", file=sys.stderr)
+                if _resp.stdout.strip() != "200":
+                    print(f"[warn] alert trend POST {_ALERT_TREND_URL} "
+                          f"HTTP {_resp.stdout.strip()} rc={_resp.returncode}: "
+                          f"{_resp.stderr.strip()[:160]}", file=sys.stderr)
 except Exception as e:
     print(f"[warn] alert_trend 上报失败(不阻塞): {e}", file=sys.stderr)
 

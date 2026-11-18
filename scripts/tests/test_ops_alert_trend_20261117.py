@@ -136,3 +136,24 @@ def test_frozen_run_day_does_not_read_today(tmp_path, monkeypatch):
     assert trend["window"][-1] == "2026-11-17"
     recounted = alert_meter.trend_recount([tree], "2026-11-17")
     assert recounted["end_day"] == "2026-11-17"
+
+
+def test_payload_projects_wire_contract(tmp_path):
+    """上报体（发送端唯一契约）：只 6 键、不带 no_data、只发有数据的天。
+
+    2026-11-18 审查 P0-1：此前 schedule_monitor 直接把本地 7 键行（含 no_data）发出去，
+    worker 固定键白名单整批 400 ⇒ 生产静默空转。这里锁死投影规则。
+    """
+    tree = _tree(tmp_path, "t1", _sample_records("2026-11-17"))
+    trend = alert_meter.build_trend([tree], "2026-11-17", days=7)
+    # 本地产物仍是 7 键（含 no_data），供前端/本地排查。
+    assert "no_data" in trend["days"][-1]
+    payload = alert_meter.build_trend_payload(trend, computed_ms=1234)
+    assert payload["computed_ms"] == 1234
+    assert len(payload["days"]) == 1  # 7 天里只有 11-17 有数据，缺日不外发
+    assert set(payload["days"][0]) == {"date", "total", "real", "noise",
+                                       "escalation", "by_tier"}
+    assert payload["days"][0]["date"] == "2026-11-17"
+    assert payload["days"][0]["total"] == (payload["days"][0]["real"]
+                                           + payload["days"][0]["noise"])
+    assert alert_meter.build_trend_payload({"days": []}, computed_ms=1)["days"] == []
