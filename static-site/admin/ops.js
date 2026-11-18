@@ -70,7 +70,7 @@
     token: '', authorized: false, locked: false, epoch: 0, loadSeq: 0, job: null, controllers: new Set(),
     timer: null, paused: false, interval: 30000, view: 'overview', query: '', status: 'all',
     data: {}, errors: {}, records: [], recordMap: new Map(), incidents: [], revisions: [],
-    graphFocus: null, selectedRecord: null, edit: null, saving: false, exporting: false,
+    graphFocus: null, selectedRecord: null, edit: null, saving: false, exporting: false, trendDays: 30,
     serverOffset: 0, lastUpdated: null, hasStateError: false, toastTimer: null, exportURLs: new Set()
   };
 
@@ -272,7 +272,7 @@
     clearTimer();
     const job = { controller: new AbortController(), seq: ++state.loadSeq, epoch: state.epoch };
     state.job = job; setBusy();
-    const paths = { benefits: '/api/ops/benefits' + (state.benefitCursor ? '?study_after=' + encodeURIComponent(state.benefitCursor) : ''), state: '/api/ops/state', history: '/api/ops/history?limit=60', events: '/api/ops/events?limit=100', incidents: '/api/ops/incidents' };
+    const paths = { benefits: '/api/ops/benefits' + (state.benefitCursor ? '?study_after=' + encodeURIComponent(state.benefitCursor) : ''), state: '/api/ops/state', history: '/api/ops/history?limit=60', trend: '/api/ops/alert-daily?days=' + state.trendDays, events: '/api/ops/events?limit=100', incidents: '/api/ops/incidents' };
     if (!state.data.knowledge || forceKnowledge) paths.knowledge = '/api/ops/knowledge';
     const keys = Object.keys(paths);
     try {
@@ -510,8 +510,142 @@
       finally { state.saving = false; submit.disabled = false; if (state.authorized) refresh(); }
     }); details.append(form); host.append(details);
   }
+  const TREND_FRESH_MS = 2 * 60 * 60 * 1000;
+  function renderAlertTrend() {
+    const host = $('alert-trend');
+    if (!host) return;
+    host.replaceChildren();
+    const payload = state.data.trend;
+    if (state.errors.trend || !payload) {
+      host.append(empty('每日告警量暂时取不到', state.errors.trend || '接口未返回数据；这不代表今天没有告警。'));
+      return;
+    }
+    const days = list(payload.days);
+    if (!days.length) {
+      host.append(empty('尚未收到每日告警量', '采集器每轮幂等重算后推送；首次推送前不显示 0，避免误读为“今天零告警”。'));
+      return;
+    }
+    const withData = days.filter(d => !d.no_data);
+    const panel = node('section', 'panel trend-panel');
+    const computed = Number.isFinite(payload.computed_ms) ? payload.computed_ms : null;
+    const age = computed === null ? null : Date.now() + state.serverOffset - computed;
+    const lag = age !== null && age > TREND_FRESH_MS;
+    const freshnessBadge = computed === null ? badge('unknown', '新鲜度未知')
+      : lag ? badge('warning', '数据可能滞后') : badge('ok', '数据更新于 ' + time(new Date(computed).toISOString()));
+    const meta = append(node('div', 'trend-meta'), node('span', 'small muted', '口径：每日实际外发告警条数（台账 group=alert）；真故障 / 噪音为判定口径推导值，不是发送侧逐行标注。'), freshnessBadge);
+    panel.append(meta);
+    // 顶部三行数字：只统计窗口最后 7 个自然日；缺日不按 0 计入分母，并明确标注实际样本天数。
+    const tail = days.slice(-7).filter(d => !d.no_data && Number.isFinite(d.total));
+    const totalSum = tail.reduce((s, d) => s + d.total, 0);
+    const realSum = tail.reduce((s, d) => s + (Number.isFinite(d.real) ? d.real : 0), 0);
+    const noiseSum = tail.reduce((s, d) => s + (Number.isFinite(d.noise) ? d.noise : 0), 0);
+    const avg = tail.length ? totalSum / tail.length : null;
+    const ratio = totalSum > 0 ? (noiseSum / totalSum) * 100 : null;
+    const metrics = node('div', 'metrics');
+    append(metrics,
+      metric('近 7 天日均', avg === null ? '—' : avg.toFixed(1), tail.length ? '按有数据 ' + tail.length + ' 天计算 · 缺日不按 0' : '近 7 天没有可用的台账数据'),
+      metric('真故障合计', tail.length ? realSum : '—', '近 7 天 · 判定口径推导'),
+      metric('噪音占比', ratio === null ? '—' : ratio.toFixed(0) + '%', totalSum ? '噪音 ' + noiseSum + ' / 总计 ' + totalSum : '总计为 0 或未知'));
+    panel.append(metrics);
+    const legend = node('div', 'trend-legend');
+    append(legend, node('span', 'trend-key real', '真故障'), node('span', 'trend-key noise', '噪音'), node('span', 'trend-key ma', '7 日均线'), node('span', 'trend-key nodata', '灰色虚线 = 无数据（不按 0）'));
+    panel.append(legend);
+    const ns = 'http://www.w3.org/2000/svg';
+    const wrap = node('div', 'trend-wrap');
+    const width = Math.max(620, days.length * (days.length > 30 ? 12 : days.length > 7 ? 24 : 44) + 52);
+    const height = 220, top = 16, bottom = 26, left = 36, right = 10;
+    const plotW = width - left - right, plotH = height - top - bottom;
+    const maxTotal = Math.max(1, ...withData.map(d => Number.isFinite(d.total) ? d.total : 0));
+    const x = i => left + (i + 0.5) * (plotW / days.length);
+    const y = v => top + plotH - (v / maxTotal) * plotH;
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+    svg.setAttribute('class', 'trend-svg');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', '每日告警量：最近 ' + days.length + ' 天，真故障与噪音堆叠，柱顶连 7 日均线；灰色虚线为无数据');
+    [...new Set([0, Math.round(maxTotal / 2), maxTotal])].forEach(value => {
+      const line = document.createElementNS(ns, 'line');
+      line.setAttribute('x1', left); line.setAttribute('x2', width - right);
+      line.setAttribute('y1', y(value)); line.setAttribute('y2', y(value));
+      line.setAttribute('class', 'trend-grid'); svg.append(line);
+      const label = document.createElementNS(ns, 'text');
+      label.setAttribute('x', left - 6); label.setAttribute('y', y(value) + 3);
+      label.setAttribute('text-anchor', 'end'); label.setAttribute('class', 'trend-axis');
+      label.textContent = String(value); svg.append(label);
+    });
+    const barW = Math.max(4, Math.min(34, (plotW / days.length) * 0.62));
+    const pop = node('div', 'trend-pop'); pop.hidden = true;
+    days.forEach((d, i) => {
+      const cx = x(i);
+      if (d.no_data) {
+        // 缺日 = 灰色虚线空柱 + 「无数据」：绝不画成 0（0 是“当天确实零告警”的错误断言）。
+        const rect = document.createElementNS(ns, 'rect');
+        rect.setAttribute('x', cx - barW / 2); rect.setAttribute('y', top);
+        rect.setAttribute('width', barW); rect.setAttribute('height', plotH);
+        rect.setAttribute('class', 'trend-nodata');
+        const title = document.createElementNS(ns, 'title'); title.textContent = d.date + ' 无数据（不按 0 计）'; rect.append(title);
+        svg.append(rect);
+        if (days.length <= 30 && barW >= 12) {
+          const t = document.createElementNS(ns, 'text');
+          t.setAttribute('x', cx); t.setAttribute('y', top + plotH / 2 + 3);
+          t.setAttribute('text-anchor', 'middle'); t.setAttribute('class', 'trend-axis trend-nodata-label');
+          t.textContent = '无数据'; svg.append(t);
+        }
+        return;
+      }
+      const total = Number(d.total) || 0, real = Number(d.real) || 0, noise = Number(d.noise) || 0;
+      const g = document.createElementNS(ns, 'g');
+      g.setAttribute('class', 'trend-bar'); g.setAttribute('tabindex', '0'); g.setAttribute('role', 'button');
+      const realH = plotH * (real / maxTotal), noiseH = plotH * (noise / maxTotal);
+      if (real > 0) {
+        const r = document.createElementNS(ns, 'rect');
+        r.setAttribute('x', cx - barW / 2); r.setAttribute('y', top + plotH - realH);
+        r.setAttribute('width', barW); r.setAttribute('height', Math.max(1, realH));
+        r.setAttribute('class', 'trend-bar-real'); g.append(r);
+      }
+      if (noise > 0) {
+        const r = document.createElementNS(ns, 'rect');
+        r.setAttribute('x', cx - barW / 2); r.setAttribute('y', top + plotH - realH - noiseH);
+        r.setAttribute('width', barW); r.setAttribute('height', Math.max(1, noiseH));
+        r.setAttribute('class', 'trend-bar-noise'); g.append(r);
+      }
+      const detail = d.date + '：总 ' + total + ' = 真故障 ' + real + ' + 噪音 ' + noise;
+      const title = document.createElementNS(ns, 'title'); title.textContent = detail; g.append(title);
+      const show = () => {
+        pop.textContent = detail; pop.hidden = false;
+        pop.style.left = Math.min(86, Math.max(2, (cx / width) * 100)) + '%';
+      };
+      g.addEventListener('click', show);
+      g.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); show(); } });
+      svg.append(g);
+    });
+    // 7 日均线：窗口内按“有数据的天”求均值（缺日不进分母），连成折线画在柱顶。
+    const points = [];
+    days.forEach((d, i) => {
+      const win = days.slice(Math.max(0, i - 6), i + 1).filter(v => !v.no_data && Number.isFinite(v.total));
+      if (!win.length) return;
+      points.push([x(i), y(win.reduce((s, v) => s + v.total, 0) / win.length)]);
+    });
+    if (points.length > 1) {
+      const poly = document.createElementNS(ns, 'polyline');
+      poly.setAttribute('points', points.map(p => p.join(',')).join(' '));
+      poly.setAttribute('class', 'trend-ma'); svg.append(poly);
+    }
+    const step = Math.max(1, Math.ceil(days.length / 10));
+    days.forEach((d, i) => {
+      if (i % step && i !== days.length - 1) return;
+      const t = document.createElementNS(ns, 'text');
+      t.setAttribute('x', x(i)); t.setAttribute('y', height - 8);
+      t.setAttribute('text-anchor', 'middle'); t.setAttribute('class', 'trend-axis');
+      t.textContent = d.date.slice(5); svg.append(t);
+    });
+    wrap.append(svg, pop);
+    panel.append(wrap, node('p', 'small muted', '点击柱子查看当日「总 N = 真故障 X + 噪音 Y」。7 日均线按窗口内有数据的天计算。90 天窗口里更早的日期天然无台账（2026-10-10 起才有），显示为灰柱。'));
+    host.append(panel);
+  }
   function renderHistory() {
     renderBenefits();
+    renderAlertTrend();
     const runs = list(state.data.history?.runs).filter(matches);
     const rows = runs.map(r => [append(node('div'), button(r.snapshot_id || '采集记录', () => showGeneric('采集记录', r), 'link-button')), time(r.collected_at), time(r.received_at), countText(r.counts), Number.isFinite(r.duration_ms) ? r.duration_ms + ' ms' : 'unknown']);
     $('history-content').replaceChildren(table(['快照 ID', '采集时间', '接收时间', '结果分布', '耗时'], rows, '尚无采集历史'));
@@ -805,6 +939,14 @@
   let searchTimer;
   $('search-input').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { state.query = $('search-input').value.trim().toLocaleLowerCase(); renderAll(); }, 130); });
   ['status-filter', 'data-category', 'knowledge-kind', 'incident-group', 'delivery-filter'].forEach(id => $(id).addEventListener('change', () => { state.status = $('status-filter').value; renderAll(); }));
+  // 时间窗切换只重拉走势接口，不触发整页刷新（避免无谓的全量请求）。
+  $('trend-range').addEventListener('change', async () => {
+    if (!state.authorized) return;
+    state.trendDays = Number($('trend-range').value);
+    try { state.data.trend = await request('/api/ops/alert-daily?days=' + state.trendDays); delete state.errors.trend; }
+    catch (e) { if (state.authorized) state.errors.trend = errorMessage(e); }
+    if (state.authorized) renderHistory();
+  });
   $('graph-reset').addEventListener('click', () => { state.graphFocus = null; renderGraph(); });
   $('detail-close').addEventListener('click', () => $('detail-dialog').close());
   $('edit-close').addEventListener('click', () => $('edit-dialog').close());

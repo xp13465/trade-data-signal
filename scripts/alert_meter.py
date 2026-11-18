@@ -27,6 +27,7 @@
   python scripts/alert_meter.py --budget           # L5 验收视图：近 7 天 P50/P90 → PASS/FAIL
   python scripts/alert_meter.py --top 20           # 近 7 天 top talkers
   python scripts/alert_meter.py --recount          # 幂等重算 alert_daily.json（写每棵树）
+  python scripts/alert_meter.py --trend            # 幂等重算最近 90 天走势 alert_trend.json（写每棵树）
   python scripts/alert_meter.py --today --json     # 机读 JSON 输出
 """
 from __future__ import annotations
@@ -39,10 +40,19 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+# 噪音判定直接复用 alert_noise_count.classify_rows（§5.4⑦：复刻判定逻辑 = 第二份实现,
+# 必漂移）。import 而非复制；scripts/ 在 sys.path（脚本运行与 pytest conftest 均覆盖）。
+import alert_noise_count as anc
+
 REPO = Path(os.environ.get("REPO") or Path(__file__).resolve().parent.parent)
 
 LEDGER_FILENAME = "alert_ledger.jsonl"
 DAILY_FILENAME = "alert_daily.json"
+TREND_FILENAME = "alert_trend.json"
+
+# 走势图窗口：admin/ops 默认 30 天、可切 7/90；源数据固定重算最近 90 天。
+# 90 天以前不留（台账 2026-10-10 才起步，更早的天天然无数据，前端画灰柱）。
+TREND_DAYS = 90
 
 # 告警群口径（用户「0~3 条/天」判据的主口径）：飞书 alert 群。
 ALERT_GROUPS = {"alert"}
@@ -222,6 +232,73 @@ def recount(trees: list[Path], day: str | None = None) -> dict:
 
 
 # ----------------------------------------------------------------------------
+# 每日告警量走势（admin/ops 图，2026-11-18）
+# ----------------------------------------------------------------------------
+def trend_path(tree: Path) -> Path:
+    return tree / "data" / "alerts" / TREND_FILENAME
+
+
+def build_trend(trees: list[Path], end_day: str, days: int = TREND_DAYS) -> dict:
+    """幂等构建走势（纯派生，无墙钟 ⇒ 同台账同末日两次重算逐位一致）。
+
+    口径：主 = 每日实际外发告警条数（台账 group=alert）；辅 = 同一天拆真故障/噪音。
+    真故障/噪音判定**直接调用 alert_noise_count.classify_rows**（不复制规则）。
+    无 alert 行的天标 no_data=True（不得补 0 冒充「当天零告警」）；前端据此画灰柱。
+    """
+    end = datetime.strptime(end_day, "%Y-%m-%d").date()
+    day_list = [(end - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+    records: list[dict] = []
+    for tree in trees:
+        recs, _bad, _bad_subject = anc.load_records(ledger_path(tree))
+        records.extend(recs)
+    classified = anc.classify_rows(records, day_list)
+
+    tier_by_day: dict[str, Counter] = {d: Counter() for d in day_list}
+    for rec in records:
+        if str(rec.get("group") or "") != "alert":
+            continue
+        ts = anc.parse_ts(rec.get("ts"))
+        if ts is None:
+            continue
+        key = ts.strftime("%Y-%m-%d")
+        if key in tier_by_day:
+            tier_by_day[key][str(rec.get("tier") or "notice")] += 1
+
+    out_days = []
+    for row in classified["days"]:
+        d = row["date"]
+        out_days.append({
+            "date": d,
+            "total": row["alert"],
+            "real": row["real"],
+            "noise": row["noise"],
+            "escalation": row["escalation"],
+            "by_tier": dict(sorted(tier_by_day[d].items())),
+            "no_data": row["no_data"],
+        })
+    return {
+        "window": [day_list[0], day_list[-1]],
+        "days_count": len(out_days),
+        "days": out_days,
+        "source": "alert_ledger group=alert; noise=alert_noise_count.classify_rows",
+    }
+
+
+def trend_recount(trees: list[Path], end_day: str | None = None, days: int = TREND_DAYS) -> dict:
+    """幂等重算最近 N 天走势，写入**每棵树**的 alert_trend.json（§22 一致）。"""
+    end_day = end_day or date.today().isoformat()
+    obj = build_trend(trees, end_day, days)
+    written = []
+    for t in trees:
+        try:
+            _atomic_write_json(trend_path(t), obj)
+            written.append(str(trend_path(t)))
+        except OSError as e:
+            print(f"[alert_meter] 写走势失败(跳过该树)：{trend_path(t)}: {e}", file=sys.stderr)
+    return {"end_day": end_day, "written": written, "trend": obj}
+
+
+# ----------------------------------------------------------------------------
 # 查询
 # ----------------------------------------------------------------------------
 def _top_talkers(records: list[dict], n: int = 8) -> list[tuple[str, int, str, str]]:
@@ -376,6 +453,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="近 7 天 top talkers（默认 10）")
     ap.add_argument("--recount", action="store_true",
                     help="幂等重算 alert_daily.json（写每棵树；巡检每轮末尾/23:30 收尾轮调用）")
+    ap.add_argument("--trend", action="store_true",
+                    help="幂等重算最近 90 天每日告警量走势 alert_trend.json（写每棵树）")
     ap.add_argument("--date", default=None, help="指定日期 YYYY-MM-DD（默认今日）")
     ap.add_argument("--trees", default=None,
                     help=f"树根列表（{os.pathsep} 分隔），默认 REPO + 兄弟树")
@@ -388,6 +467,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.recount:
         r = recount(trees, args.date)
         print(f"[alert_meter] recount {r['day']}：共 {r['daily']['total']} 条，"
+              f"写入 {len(r['written'])} 棵树")
+        for w in r["written"]:
+            print(f"  {w}")
+        return 0
+
+    if args.trend:
+        r = trend_recount(trees, args.date)
+        data_days = sum(1 for d in r["trend"]["days"] if not d["no_data"])
+        print(f"[alert_meter] trend {r['trend']['window'][0]} ~ {r['trend']['window'][1]}："
+              f"{r['trend']['days_count']} 天里有数据 {data_days} 天，"
               f"写入 {len(r['written'])} 棵树")
         for w in r["written"]:
             print(f"  {w}")

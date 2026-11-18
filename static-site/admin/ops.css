@@ -16,3 +16,28 @@
 #benefits-content td { white-space: nowrap; overflow-wrap: normal; min-width: 90px; }
 #benefits-content td:first-child { min-width: 150px; }
 #benefits-content > .panel { margin-top: .75rem; }
+
+/* 每日告警量走势（2026-11-18）。手绘 SVG，沿用 .timeline 的柱状视觉基因：
+   柱顶堆叠、石板灰噪音、缺日灰色虚线空柱（绝不画 0）。窄屏照 .graph 横向滚动。 */
+.trend-panel { margin-top: .75rem; }
+.trend-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: .6rem; }
+.trend-legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--unknown); margin: .5rem 0 .35rem; }
+.trend-key { display: inline-flex; align-items: center; gap: 5px; }
+.trend-key::before { content: ""; width: 10px; height: 10px; border-radius: 2px; background: var(--accent); opacity: .65; }
+.trend-key.real::before { background: var(--bad); opacity: .85; }
+.trend-key.noise::before { background: var(--unknown); opacity: .55; }
+.trend-key.ma::before { height: 3px; border-radius: 2px; background: var(--accent); opacity: 1; }
+.trend-key.nodata::before { background: transparent; border: 1px dashed var(--unknown); opacity: .8; }
+.trend-wrap { position: relative; overflow: auto; overscroll-behavior-x: contain; }
+.trend-svg { min-width: 620px; width: 100%; height: auto; display: block; }
+.trend-grid { stroke: var(--line); stroke-width: 1; }
+.trend-axis { fill: var(--unknown); font-size: 10px; }
+.trend-nodata { fill: none; stroke: var(--unknown); stroke-width: 1; stroke-dasharray: 3 3; opacity: .55; }
+.trend-nodata-label { opacity: .8; }
+.trend-bar { cursor: pointer; }
+.trend-bar:focus-visible { outline: none; }
+.trend-bar:focus-visible rect { stroke: var(--accent); stroke-width: 1.5; }
+.trend-bar-real { fill: var(--bad); opacity: .85; }
+.trend-bar-noise { fill: var(--unknown); opacity: .55; }
+.trend-ma { fill: none; stroke: var(--accent); stroke-width: 2; opacity: .9; }
+.trend-pop { position: absolute; top: 4px; transform: translateX(-50%); background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; font-size: 11px; white-space: nowrap; box-shadow: 0 4px 14px rgb(0 0 0 / 18%); pointer-events: none; }

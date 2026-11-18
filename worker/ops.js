@@ -16,6 +16,11 @@ const enc = new TextEncoder();
 const CATEGORIES = new Set(['service', 'timer', 'data', 'publication', 'backup', 'resource', 'monitor']);
 const STATUSES = new Set(['ok', 'warning', 'critical', 'unknown']);
 const UPDATE_FIELDS = ['expected_revision', 'workflow_status', 'root_cause_state', 'remediation_state', 'deployment_state', 'verification_state', 'observation_status', 'note', 'evidence_url'];
+// 每日告警量走势（0008_ops_alert_daily.sql）：采集端每轮推送最近 90 天派生历史；
+// 保留 180 天，README 口径见迁移文件头。上限 90 天与 alert_meter TREND_DAYS 一致。
+const MAX_TREND_DAYS = 90;
+const TREND_RETENTION_DAYS = 180;
+const TREND_DAY_KEYS = ['date', 'total', 'real', 'noise', 'escalation', 'by_tier'];
 
 class OpsError extends Error {
   constructor(status, code, kind) { super(code); this.status = status; this.code = code; this.kind = kind; }
@@ -240,6 +245,120 @@ async function ackLookup(request, env, db, now, diagnostic) {
   diagnostic.snapshot_id = id;
   return response({ received: !!row, snapshot_id: id, received_at: iso(row?.received_ms ?? null) });
 }
+// ---------------------------------------------------------------------------
+// 每日告警量走势（admin/ops 图，2026-11-18；迁移 0008_ops_alert_daily.sql）
+// 权威源 = 云上台账 group=alert；本端点只持久化派生历史，不参与告警判定/投递。
+// ---------------------------------------------------------------------------
+function trendDate(v) {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) fail(400, 'invalid_trend_date');
+  const ms = Date.parse(v + 'T00:00:00Z');
+  // 拒绝 2026-02-30 这类格式合法但日历不存在的日期（归一化后不再是同一串）。
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== v) fail(400, 'invalid_trend_date');
+  return v;
+}
+function trendTiers(v) {
+  if (!object(v) || Object.keys(v).length > 32) fail(400, 'invalid_trend_tiers');
+  const out = {};
+  for (const [k, n] of Object.entries(v)) {
+    if (!/^[a-z][a-z0-9_]{0,31}$/.test(k)) fail(400, 'invalid_trend_tiers');
+    out[k] = integer(n, 1000000);
+  }
+  // 规范化（键排序）序列化：与库内文本逐位比对的前提，与输入端键序无关。
+  return JSON.stringify(Object.keys(out).sort().reduce((o, k) => (o[k] = out[k], o), {}));
+}
+function parseTiers(v) {
+  try { const o = JSON.parse(v); return object(o) ? o : {}; } catch { return {}; }
+}
+async function ingestTrend(request, env, db, now) {
+  if (!env.OPS_INGEST_TOKEN) fail(503, 'ingest_not_configured');
+  if (env.OPS_ADMIN_TOKEN && await sameSecret(env.OPS_ADMIN_TOKEN, env.OPS_INGEST_TOKEN)) fail(503, 'ops_token_configuration_invalid');
+  if (!await sameSecret(bearer(request), env.OPS_INGEST_TOKEN)) fail(403, 'ingest_required');
+  const input = await body(request);
+  exactKeys(input, ['computed_ms', 'days']);
+  const computed = integer(input.computed_ms);
+  // 远端给的时间戳只用于新鲜度展示，允许时钟抖动，但拒绝远期伪造时间。
+  if (computed > now + DAY) fail(400, 'invalid_computed_ms');
+  if (!Array.isArray(input.days) || input.days.length > MAX_TREND_DAYS) fail(400, 'invalid_trend_days');
+  const rows = new Map();
+  for (const raw of input.days) {
+    exactKeys(raw, TREND_DAY_KEYS);
+    const date = trendDate(raw.date);
+    if (rows.has(date)) fail(400, 'duplicate_trend_date');
+    const total = integer(raw.total, 1000000), real = integer(raw.real, 1000000);
+    const noise = integer(raw.noise, 1000000), escalation = integer(raw.escalation, 1000000);
+    // classify_rows 的定义式 alert = real + noise；不符即采集端漂移，整批拒绝。
+    if (real + noise !== total) fail(400, 'invalid_trend_totals');
+    rows.set(date, { date, total, real, noise, escalation, tiers: trendTiers(raw.by_tier) });
+  }
+  const dates = [...rows.keys()].sort();
+  const existing = new Map();
+  if (dates.length) {
+    try {
+      const found = await stmt(db, `SELECT date,total,real,noise,escalation,by_tier FROM ops_alert_daily WHERE date IN (${dates.map(() => '?').join(',')})`, ...dates).all();
+      for (const r of found.results) existing.set(r.date, r);
+    } catch (error) {
+      const quotaError = new OpsError(503, 'ops_storage_unavailable', storageErrorKind(error));
+      quotaError.quota_kind = storageQuotaKind(error);
+      throw quotaError;
+    }
+  }
+  const statements = [];
+  let changed = 0;
+  for (const row of rows.values()) {
+    const prev = existing.get(row.date);
+    // 不变不写：内容逐字段相同即跳过（96 轮/天 × 90 行必须挡住）。
+    if (prev && prev.total === row.total && prev.real === row.real && prev.noise === row.noise
+      && prev.escalation === row.escalation && prev.by_tier === row.tiers) continue;
+    changed++;
+    statements.push(stmt(db, `INSERT INTO ops_alert_daily(date,total,real,noise,escalation,by_tier,computed_ms)
+      VALUES(?,?,?,?,?,?,?) ON CONFLICT(date) DO UPDATE SET total=excluded.total,real=excluded.real,
+      noise=excluded.noise,escalation=excluded.escalation,by_tier=excluded.by_tier,computed_ms=excluded.computed_ms`,
+    row.date, row.total, row.real, row.noise, row.escalation, row.tiers, computed));
+  }
+  // 内容全不变时只推进「最新一天」的 computed_ms 心跳（每次推送 ≤1 行写，行数不变），
+  // 否则长时间无告警会让前端把整张图误判为「数据可能滞后」。只允许时间前进。
+  let heartbeat = false;
+  if (!changed && dates.length) {
+    heartbeat = true;
+    statements.push(stmt(db, 'UPDATE ops_alert_daily SET computed_ms=? WHERE date=? AND computed_ms<?', computed, dates[dates.length - 1], computed));
+  }
+  try { if (statements.length) await db.batch(statements); }
+  catch (error) {
+    const quotaError = new OpsError(503, 'ops_storage_unavailable', storageErrorKind(error));
+    quotaError.quota_kind = storageQuotaKind(error);
+    throw quotaError;
+  }
+  return response({ accepted: true, received: rows.size, changed, heartbeat, latest: dates.length ? dates[dates.length - 1] : null });
+}
+async function alertDaily(db, url) {
+  const raw = url.searchParams.get('days');
+  if (raw !== null && !/^\d{1,2}$/.test(raw)) fail(400, 'invalid_days');
+  const days = raw === null ? 30 : Number(raw);
+  if (days < 1 || days > MAX_TREND_DAYS) fail(400, 'invalid_days');
+  let rows;
+  try {
+    rows = (await stmt(db, 'SELECT date,total,real,noise,escalation,by_tier,computed_ms FROM ops_alert_daily ORDER BY date DESC LIMIT ?', days).all()).results;
+  } catch (error) {
+    const quotaError = new OpsError(503, 'ops_storage_unavailable', storageErrorKind(error));
+    quotaError.quota_kind = storageQuotaKind(error);
+    throw quotaError;
+  }
+  const out = [];
+  if (rows.length) {
+    // 窗口终点 = 表内最新日期（采集器按日回算，不会有「今天还没到」的时区假洞）。
+    const end = Date.parse(rows[0].date + 'T00:00:00Z');
+    const byDate = new Map(rows.map(r => [r.date, r]));
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(end - i * DAY).toISOString().slice(0, 10);
+      const r = byDate.get(d);
+      // 缺失日绝不补 0：total/real/noise 置 null + no_data，前端画灰柱「无数据」。
+      out.push(r ? { date: d, total: r.total, real: r.real, noise: r.noise, escalation: r.escalation, by_tier: parseTiers(r.by_tier), computed_ms: r.computed_ms, no_data: false }
+        : { date: d, total: null, real: null, noise: null, escalation: null, by_tier: {}, computed_ms: null, no_data: true });
+    }
+  }
+  const computed = rows.length ? Math.max(...rows.map(r => r.computed_ms)) : null;
+  return response({ window: out.length ? [out[0].date, out[out.length - 1].date] : null, days_count: out.length, computed_ms: computed, days: out });
+}
 function boundedLimit(url, defaultValue = 50) {
   const raw = url.searchParams.get('limit');
   if (raw === null) return defaultValue;
@@ -387,6 +506,8 @@ export default async function opsHandler(request, env, ctx) {
     const url = new URL(request.url); const now = Date.now(); const db = binding(env);
     if (url.pathname === '/api/ops/ingest' && request.method === 'POST') return await ingest(request, env, db, now, diagnostic);
     if (url.pathname === '/api/ops/ack' && request.method === 'GET') return await ackLookup(request, env, db, now, diagnostic);
+    // 采集侧写入：只认 ingest bearer，与 /api/ops/ingest 同款；GET 走 admin()（见下方 switch）。
+    if (url.pathname === '/api/ops/alert-daily' && request.method === 'POST') return await ingestTrend(request, env, db, now);
     const auth = await admin(request, env);
     if (url.pathname === '/api/ops/benefits' || url.pathname.startsWith('/api/ops/benefits/')) return await benefitsRoute(request, db, env, auth, now, { fail, response, body, safeText, exactKeys, integer, boundedLimit });
     if (request.method === 'GET') {
@@ -396,6 +517,7 @@ export default async function opsHandler(request, env, ctx) {
         case '/api/ops/events': return response({ events: await events(db, boundedLimit(url)) });
         case '/api/ops/knowledge': return response(BASELINE);
         case '/api/ops/incidents': return response(await incidents(db));
+        case '/api/ops/alert-daily': return await alertDaily(db, url);
         case '/api/ops/export': return exportBackup(db, now, env);
         default: fail(404, 'ops_route_not_found');
       }
@@ -529,6 +651,9 @@ export async function opsScheduled(controller, env, ctx) {
     stmt(db, 'DELETE FROM ops_outbox WHERE created_ms<?', now - 90 * DAY),
     stmt(db, 'DELETE FROM ops_events WHERE created_ms<?', now - 90 * DAY),
     stmt(db, 'DELETE FROM ops_incident_revisions WHERE updated_ms<?', now - 90 * DAY),
+    // 走势历史保留 180 天（0008_ops_alert_daily.sql）。纯派生数据，过期即删可再回算。
+    // 依赖 0008 先于本 worker 上线；顺序反了本 batch 会因缺表整批失败（迁移文件头有说明）。
+    stmt(db, 'DELETE FROM ops_alert_daily WHERE date<?', new Date(now - TREND_RETENTION_DAYS * DAY).toISOString().slice(0, 10)),
     // 90-day retention, re-based for content-change-only writes: updated_ms is the
     // last time the row's CONTENT changed, so an unchanged live check can legitimately
     // be older than 90 days and must NOT be deleted. Only checks absent from the

@@ -4884,6 +4884,58 @@ try:
 except Exception as e:
     print(f"[warn] alert_meter recount 失败(不阻塞): {e}", file=sys.stderr)
 
+# 2026-11-18 admin/ops 每日告警量走势：本地幂等重算 alert_trend.json（写每棵树），
+# 再带采集令牌 POST /api/ops/alert-daily（D1 历史表 → 管理员只读端点 → 手绘 SVG）。
+# 口径与 alert_daily 同源（台账 group=alert；噪音判定复用 alert_noise_count.classify_rows）。
+# best-effort：失败只 warn 不阻塞，本机制自身绝不告警；盘后重任务窗口同 recount 跳过。
+_ALERT_TREND_URL = os.environ.get("OPS_ALERT_DAILY_URL", "https://ss.fx8.store/api/ops/alert-daily")
+_ALERT_TREND_TOKEN_FILE = Path(os.environ.get("OPS_INGEST_TOKEN_FILE",
+                                             "/etc/trade-ops-monitor/ingest.token"))
+
+try:
+    if _in_guarded_window(NOW):
+        print("[alert_trend] 盘后重任务窗口内，本轮跳过走势上报")
+    else:
+        _r_trend = subprocess.run(
+            [sys.executable, str(REPO / "scripts" / "alert_meter.py"), "--trend"],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+        if _r_trend.returncode != 0:
+            print(f"[warn] alert_meter trend rc={_r_trend.returncode}: "
+                  f"{(_r_trend.stdout + _r_trend.stderr).strip()[:200]}", file=sys.stderr)
+        elif not _ALERT_TREND_TOKEN_FILE.is_file():
+            print(f"[alert_trend] 采集令牌文件不存在，跳过上报：{_ALERT_TREND_TOKEN_FILE}")
+        else:
+            _trend_obj = json.loads(
+                (REPO / "data" / "alerts" / "alert_trend.json").read_text(encoding="utf-8"))
+            # 只上报有数据的天：缺失日由端点合成 no_data（永不补 0 冒充「零告警」）。
+            _rows = [d for d in _trend_obj.get("days", []) if not d.get("no_data")]
+            _payload = json.dumps({"computed_ms": int(time.time() * 1000), "days": _rows},
+                                  ensure_ascii=False, sort_keys=True)
+            # 令牌不进 argv/日志：头文件 0600 经 curl -H @file 读取，临时目录用完即删。
+            # 用 /usr/bin/curl 而非 urllib：venv python 缺系统 CA 证书（同第 4 节注释）。
+            with tempfile.TemporaryDirectory(prefix="ops-alert-trend-") as _td:
+                _hdr = Path(_td) / "h"
+                _hdr.write_text(
+                    "Authorization: Bearer "
+                    + _ALERT_TREND_TOKEN_FILE.read_text(encoding="ascii").strip()
+                    + "\nContent-Type: application/json\n", encoding="ascii")
+                os.chmod(_hdr, 0o600)
+                _body = Path(_td) / "b.json"
+                _body.write_text(_payload, encoding="utf-8")
+                _resp = subprocess.run(
+                    ["/usr/bin/curl", "-sS", "--max-time", "10", "-o", os.devnull,
+                     "-w", "%{http_code}", "-X", "POST", "-H", f"@{_hdr}",
+                     "--data-binary", f"@{_body}", _ALERT_TREND_URL],
+                    capture_output=True, text=True, timeout=15, check=False,
+                )
+            if _resp.stdout.strip() != "200":
+                print(f"[warn] alert trend POST {_ALERT_TREND_URL} "
+                      f"HTTP {_resp.stdout.strip()} rc={_resp.returncode}: "
+                      f"{_resp.stderr.strip()[:160]}", file=sys.stderr)
+except Exception as e:
+    print(f"[warn] alert_trend 上报失败(不阻塞): {e}", file=sys.stderr)
+
 # ============================================================
 # #327 前端错误每日汇总（2026-10-31, 纯新增）
 #   每日 ~23:25 窗口（±5min）拉 /api/err/stats, ≥20 条同一错误采样 → notify --severe
