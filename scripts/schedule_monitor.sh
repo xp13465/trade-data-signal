@@ -101,6 +101,7 @@ STATS_FILE = REPO / "static-site" / "data" / "schedule_stats.json"
 MONITOR_LOG = LOG_DIR / "schedule_monitor_launchd.log"
 
 NOW = datetime.now()
+NOW_STR = NOW.strftime("%Y-%m-%d %H:%M:%S")  # 日志行前缀时间戳（#327 fe-err 块用）
 TOLERANCE = timedelta(minutes=30)  # 漏跑检查容忍窗口（适用所有任务，与采集频率无关）
 # 产物时效检查阈值（intraday 15min 频率 + 5min buffer = 20min）：
 #   intraday 15min 推一次 overview.json，下一轮 sch+15min 已推新版，留 5min buffer 给
