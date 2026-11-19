@@ -379,6 +379,8 @@ def _save_etf_freeze(freeze):
 FROZEN_MISSING_SEVERE_THRESHOLD = 10
 
 # 2026-10-11 告警降噪(①, 用户拍板「直接干」): 已确认接受的冻结缺失事件登记表。
+# 2026-11-19 方案 B1: accepted[] 条目升级为对象 {key, category, evidence}, 缺证据字段即拒收
+# (「无证据不得 accepted」= 11-09 复审铁律); 只登记有双源证据的存量事件, 未登记新事件照报。
 # 治根(把「已确认接受」落到数据层使其不再触发): 部分历史信号事件(date < latest_signal_date)
 # 在冻结表里完全无键——信号是事后回填进 signal_daily 的(冻结分时点防御闸 2026-09-18 拒绝
 # 补冻历史信号), 读侧 _freeze_fallback(2026-09-22, 接「同一 (date,index) 有其它 signal 变体」)
@@ -393,12 +395,26 @@ FROZEN_MISSING_ACCEPTED_PATH = os.path.join(
 def _load_frozen_missing_accepted():
     """读「已确认接受的冻结缺失事件」登记表 -> set[date|index_id|signal]。
 
+    条目格式(2026-11-19 方案 B1,「无证据不得 accepted」): accepted[] 每条必须是对象且带
+    非空 key/category/evidence 三字段; 缺任一字段(含遗留纯字符串条目)⇒ 拒绝该条(该事件
+    继续告警), 绝不因格式缺陷静默吞真告警。
     失败/缺失/损坏一律返回空集(fail-safe: 空集 = 全量告警, 不静默)。
     """
     try:
         with open(FROZEN_MISSING_ACCEPTED_PATH, encoding="utf-8") as f:
             data = json.load(f)
-        return {str(k) for k in (data.get("accepted") or [])}
+        out = set()
+        for item in (data.get("accepted") or []):
+            if not isinstance(item, dict):
+                continue
+            key = item.get("key")
+            category = item.get("category")
+            evidence = item.get("evidence")
+            if (isinstance(key, str) and key
+                    and isinstance(category, str) and category
+                    and isinstance(evidence, str) and evidence):
+                out.add(key)
+        return out
     except (OSError, json.JSONDecodeError, AttributeError, TypeError):
         return set()
 

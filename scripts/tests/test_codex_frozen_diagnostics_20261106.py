@@ -69,7 +69,10 @@ class FrozenDiagnosticsTests(unittest.TestCase):
         self.assertEqual(self.traps, [])
 
     def set_accepted(self, rows):
-        (self.root / 'accepted.json').write_text(json.dumps({'accepted': ['|'.join(x) for x in rows]}))
+        # 2026-11-19 方案 B1 格式: 每条带 key/category/evidence(缺证据字段会被 loader 拒绝)
+        (self.root / 'accepted.json').write_text(json.dumps({'accepted': [
+            {'key': '|'.join(x), 'category': 'test_fixture', 'evidence': 'fixture evidence'}
+            for x in rows]}))
 
     def send_alert(self, *args, **kwargs):
         self.calls.append((args, kwargs))
