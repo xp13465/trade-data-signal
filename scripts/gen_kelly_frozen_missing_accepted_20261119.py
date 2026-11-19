@@ -57,6 +57,82 @@ DATAGAP = {
     "20261104|csi_000102|buy": "freeze.md:50 11/5 17:55:14 close 3081.81→3240.09 后 11/5 17:56:48 signal appeared",
 }
 
+# 2026-11-20 补证 13 键(用户拍板「先补证据再登记」): 云上 history_overwrite_audit
+# changed→appeared 时序 + 冻结表 28650 键全量无该 (date,index) 任何变体 + 11-09 复审互证。
+# 证据文字抄 /tmp/kelly-remaining-evidence-20261119.md 原文, 不改写。
+ARCH_EVID = ("归档 %s@%s(filtered_missing_sha256=%s) 列入本键; "
+             % (RUN_ID, RECORDED_AT, ARCHIVE_SHA))
+E13 = {
+    "20261013|csi_000330|buy_aux":
+        "云上 history_overwrite_audit 显示 2026-10-14T17:56:47 index_daily(date=20261013,index=csi_000330) "
+        "close 5208.03→5283.33(pct -1.66→-0.2413), 2026-10-14T17:58:17 signal_daily appeared buy_aux"
+        "(同批无 disappeared 记录); 云上 signal_kelly_etf_freeze.json(28650 键)逐键核验无该 "
+        "(date,index) 任何 signal 变体; 11-09 复审 freeze.md:40/52 归入「18 键历史行情改写→信号 appeared」"
+        "的其余 13 键 → 历史行情改写后信号事后 appeared, 非信号日当时产生。",
+    "20261013|csi_000673|buy_aux":
+        "history_overwrite_audit: 2026-10-14T17:56:48 index_daily(date=20261013,index=csi_000673) "
+        "close 2987.8→3058.18(pct -2.29→0.0088), 2026-10-14T17:58:17 signal_daily appeared buy_aux"
+        "(无 disappeared); 冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 其余 13 键 "
+        "→ 历史行情改写后信号事后 appeared, 非信号日当时产生。",
+    "20261013|csi_970070|buy_aux":
+        "history_overwrite_audit: 2026-10-14T17:55:41 index_daily(date=20261013,index=csi_970070) "
+        "close 6349.04→6658.74(pct -2.9→1.8356), 2026-10-14T17:58:17 signal_daily appeared buy_aux"
+        "(无 disappeared); 冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 其余 13 键 "
+        "→ 历史行情改写后信号事后 appeared, 非信号日当时产生。",
+    "20261016|thsc_300008|buy_aux":
+        "history_overwrite_audit: 2026-10-19T17:56:40 index_daily(date=20261016,index=thsc_300008) "
+        "close 4098.07→4098.16(pct 1.03→1.03208, open/high/low 未变), 2026-10-19T17:59:50 signal_daily "
+        "appeared buy_aux(无 disappeared); 冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 "
+        "其余 13 键(且 §3 另记 THS 映射恢复)→ 信号在信号日之后 appeared, 非当日产生。",
+    "20261019|sz_div|buy":
+        "history_overwrite_audit: 2026-10-20T17:57:15 index_daily(date=20261019,index=sz_div) "
+        "close 7489.13→7560.18(pct -0.43→0.5145), 2026-10-20T18:00:02 signal_daily appeared buy"
+        "(无 disappeared); 冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 其余 13 键 "
+        "→ 历史行情改写后信号事后 appeared, 非信号日当时产生。",
+    "20261023|csi_970070|buy":
+        "history_overwrite_audit: 2026-10-26T17:56:52 index_daily(date=20261023,index=csi_970070) "
+        "close 5688.7→6043.27(pct -2.18→3.9187), 2026-10-26T17:59:24 signal_daily appeared buy"
+        "(无 disappeared); 冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 其余 13 键 "
+        "→ 历史行情改写后信号事后 appeared, 非信号日当时产生。",
+    "20261023|gz_399395|buy":
+        "history_overwrite_audit: 2026-10-26T17:56:48 index_daily(date=20261023,index=gz_399395) "
+        "close 7472.41→7838.08(pct -2.66→2.1018), 2026-10-26T17:59:24 signal_daily appeared buy"
+        "(无 disappeared); 冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 其余 13 键 "
+        "→ 历史行情改写后信号事后 appeared, 非信号日当时产生。",
+    "20261023|sw_801050|buy":
+        "history_overwrite_audit: 2026-10-26T17:53:03 index_daily(date=20261023,index=sw_801050) "
+        "close 6839.03→6882.7(before open/high/low=NULL、amount=0, after 6571.28/6889.71/6522.38, "
+        "pct 1.44→2.0877), 2026-10-26T17:59:24 signal_daily appeared buy(无 disappeared); "
+        "冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 其余 13 键 "
+        "→ 历史行情改写后信号事后 appeared, 非信号日当时产生。",
+    "20261023|sz_div|buy":
+        "history_overwrite_audit: 2026-10-26T17:56:37 index_daily(date=20261023,index=sz_div) "
+        "close 7180.29→7424.8(pct -1→2.3736), 2026-10-26T17:59:24 signal_daily appeared buy"
+        "(无 disappeared); 冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 其余 13 键 "
+        "→ 历史行情改写后信号事后 appeared, 非信号日当时产生。",
+    "20261026|sw_801160|buy_aux":
+        "history_overwrite_audit: 2026-10-28T17:54:26 index_daily(date=20261026,index=sw_801160) "
+        "close 2387.91→2412.59(before open/high/low=NULL、amount=0, after 2392.38/2415.1/2392.38, "
+        "pct -0.35→0.6798), 2026-10-28T18:00:14 signal_daily appeared buy_aux(无 disappeared); "
+        "冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 其余 13 键 "
+        "→ 历史行情改写后信号事后 appeared, 非信号日当时产生。",
+    "20261104|csi_000330|buy":
+        "history_overwrite_audit: 2026-11-05T17:55:12 index_daily(date=20261104,index=csi_000330) "
+        "close 4647.47→4810.95(pct 0.23→3.7542), 2026-11-05T17:56:48 signal_daily appeared buy"
+        "(无 disappeared); 冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 其余 13 键 "
+        "→ 历史行情改写后信号事后 appeared, 非信号日当时产生。",
+    "20261104|csi_000673|buy":
+        "history_overwrite_audit: 2026-11-05T17:55:13 index_daily(date=20261104,index=csi_000673) "
+        "close 2413.83→2558.01(pct 0.46→6.4556), 2026-11-05T17:56:48 signal_daily appeared buy"
+        "(无 disappeared); 冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 其余 13 键 "
+        "→ 历史行情改写后信号事后 appeared, 非信号日当时产生。",
+    "20261104|gz_399395|buy":
+        "history_overwrite_audit: 2026-11-05T17:54:00 index_daily(date=20261104,index=gz_399395) "
+        "close 7302.27→7675.52(pct 0.24→5.3635), 2026-11-05T17:56:48 signal_daily appeared buy"
+        "(无 disappeared); 冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 其余 13 键 "
+        "→ 历史行情改写后信号事后 appeared, 非信号日当时产生。",
+}
+
 
 def build(archive_path):
     d = json.load(open(archive_path, encoding="utf-8"))
@@ -98,6 +174,14 @@ def build(archive_path):
                 f"11-09 复审 {DATAGAP[k]}; 冻结表无此键 → 历史行情改写后信号事后 appeared, 非信号日当时产生。"
             ),
         })
+    for k, ev in E13.items():
+        assert k in miss, f"11-20 补证键不在本轮归档: {k}"
+        accepted.append({
+            "key": k,
+            "category": "B_changed_appeared_chain",
+            "evidence": ARCH_EVID + ev,
+        })
+    assert len(accepted) == 122, f"accepted 应为 122(8 legacy+96 A+5 DataGap+13 补证), 实 {len(accepted)}"
 
     return {
         "_meta": {
@@ -108,7 +192,7 @@ def build(archive_path):
             "discriminator_preserved": "出现「不在本表内」的新缺键事件(新出现的/异常的/规模超常的)照常告警: n<10 → WARN(24h dedup/摘要), n>=10 → SEVERE(1h dedup 直发)",
             "how_to_extend": "新增已确认接受的事件 → accepted 追加 {\"key\":\"date|index_id|signal\",\"category\":\"分类\",\"evidence\":\"可复核证据锚点(归档run_id+sha/文档行号/数据出处)\"} + approval_log 追加一行(日期/依据/审批人)。无证据条目会被 loader 拒绝。",
             "fail_safe": "文件缺失/损坏 ⇒ 视为空表(全量告警, 绝不静默吞真告警); 单条目缺 key/category/evidence ⇒ 只拒绝该条(继续告警)",
-            "decision": "2026-09-21 用户拍板「接受跳过」; 2026-10-11 用户拍板「直接干」告警降噪三项; 2026-11-19 方案 B1 按 11-09 四分类登记有双源证据的存量事件(96 早年 csi_000813 + 5 个 changed→appeared 键), 无证据项一律留报",
+            "decision": "2026-09-21 用户拍板「接受跳过」; 2026-10-11 用户拍板「直接干」告警降噪三项; 2026-11-19 方案 B1 按 11-09 四分类登记有双源证据的存量事件(96 早年 csi_000813 + 5 个 changed→appeared 键), 无证据项一律留报; 2026-11-20 用户拍板「先补证据再登记」→ 调研报告 /tmp/kelly-remaining-evidence-20261119.md 以云上 history_overwrite_audit + 冻结表全量核验 补证 13 键, 按 B_changed_appeared_chain 登记(109+13=122); 余 7 键(20261009 三键 + 20261019 csi_000813 + 20261105 dax + 2 真故障嫌疑)证据不全/有反证, 继续留报",
             "baseline_archive": {
                 "run_id": RUN_ID,
                 "recorded_at": RECORDED_AT,
@@ -139,6 +223,18 @@ def build(archive_path):
                         "20261019|sz_div、20261023 csi_970070/gz_399395/sz_div、"
                         "20261104 csi_000330/csi_000673/gz_399395、20261111|cac40|buy_special、"
                         "20261113|csi_931946|buy_special); 均证据不全 → 留报, 补新证据后再登记",
+            },
+            {
+                "date": "2026-11-20",
+                "event": "13 键 appeared 链补登记(20261013 三键 / 20261016 thsc_300008 / "
+                         "20261019 sz_div / 20261023 四键 / 20261026 sw_801160 / 20261104 三键)",
+                "decision": "登记 accepted(方案 B1 补证, B 类)",
+                "note": "用户拍板「先补证据再登记」; 依据=调研报告 "
+                        "/tmp/kelly-remaining-evidence-20261119.md:逐键经云上 history_overwrite_audit "
+                        "changed→appeared 时序 + signal_kelly_etf_freeze.json 全量 28650 键无该 (date,index) "
+                        "任何变体 + 11-09 复审 freeze.md:40/52 互证; evidence 文字直接抄报告原文; "
+                        "余 7 键(20261009 三键审计窗口前无记录 / 20261019 csi_000813 盘内 24 条反证 / "
+                        "20261105 dax 无 appeared 且冻结键断档 / cac40、csi_931946 真故障嫌疑)继续留报",
             },
         ],
     }

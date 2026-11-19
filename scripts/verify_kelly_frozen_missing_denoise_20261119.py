@@ -5,15 +5,17 @@
 做法: 读一份冻结缺失诊断归档(--archive), 喂给 signal_kelly_backtest._alert_frozen_missing,
 把「写归档」与「发告警」两处出口都打桩(monkeypatch), 只断言分类结果:
 - 已登记(有证据)的键进 accepted_hits → 只写日志、不告警
-- 未登记的键进 new_events → 继续告警(>=10 条 → 1 条 SEVERE)
+- 未登记的键进 new_events → 继续告警(>=10 条 → 1 条 SEVERE; <10 条 → 非 SEVERE 延后摘要)
 并断言登记键不出现在告警正文(防「登记了却仍报」/「留报键被静默吞掉」)。
 
 为何必须打桩(§18 L48): 本脚本会走真实告警判定链, 不打桩就会给用户发真邮件/飞书。
 
-基线期望(2026-11-19 归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51, 121 条 filtered_missing):
-  accepted_hits = 101(A 96 + B 5 + legacy 命中 0 条: 8 条 legacy 键不在本归档内)
-  new_events(留报) = 20 = 1 待定(20261019|csi_000813) + 19 条证据不足键
-  告警 = 1 条 SEVERE(20 >= 10), 主题含「20 个」
+基线期望(2026-11-19 归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51, 121 条 filtered_missing;
+config 为 2026-11-20 补登记 13 键后的 122 条版本):
+  accepted_hits = 114(A 96 + B 5 + 11-20 补证 13 + legacy 命中 0: 8 条 legacy 键不在本归档内)
+  new_events(留报) = 7 = 20261009 三键 + 20261019|csi_000813 + 20261105|dax
+                     + 2 真故障嫌疑(20261111|cac40、20261113|csi_931946)
+  告警 = 1 条非 SEVERE(7 < 10, severe=False + defer_digest=True 进摘要), 主题含「7 个」
 
 用法(仓库根目录):
   .venv/bin/python scripts/verify_kelly_frozen_missing_denoise_20261119.py \
@@ -30,15 +32,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-EXPECT_ACCEPTED_HIT = 101
-EXPECT_KEPT = 20
-# 本批必须留报的代表键(待定 + 4 余键 + THS + SW 疑似真故障)
+EXPECT_ACCEPTED_HIT = 114
+EXPECT_KEPT = 7
+# 2026-11-20 补登记 13 键后剩余必须留报的 7 键(5 证据不全/真实缺冻 + 2 真故障嫌疑)
 MUST_KEEP = [
-    "20261019|csi_000813|buy_aux",
     "20261009|csi_000330|buy_aux", "20261009|csi_970070|buy_aux",
-    "20261009|sz_div|buy", "20261105|dax|buy_special",
-    "20261016|thsc_300008|buy_aux",
-    "20261023|sw_801050|buy", "20261026|sw_801160|buy_aux",
+    "20261009|sz_div|buy",
+    "20261019|csi_000813|buy_aux",
+    "20261105|dax|buy_special",
+    "20261111|cac40|buy_special",
+    "20261113|csi_931946|buy_special",
 ]
 
 
@@ -83,11 +86,12 @@ def main():
         "accepted_hit 应为 %d, 实 %d" % (EXPECT_ACCEPTED_HIT, len(accepted_hit))
     assert len(new_events) == EXPECT_KEPT, \
         "留报应为 %d, 实 %d" % (EXPECT_KEPT, len(new_events))
-    assert len(sent) == 1, "应发 1 条 SEVERE, 实 %d" % len(sent)
+    assert len(sent) == 1, "应发 1 条留报告警, 实 %d" % len(sent)
     subject, body = sent[0][0][0], sent[0][0][1]
     print("subject:", subject)
     assert ("%d 个" % EXPECT_KEPT) in subject, subject
-    assert sent[0][1].get("severe") is True, sent[0][1]
+    assert sent[0][1].get("severe") is False, sent[0][1]
+    assert sent[0][1].get("defer_digest") is True, sent[0][1]
 
     new_keys = ["%s|%s|%s" % (a, b, c) for a, b, c in new_events]
     for k in MUST_KEEP:
