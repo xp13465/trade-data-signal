@@ -62,482 +62,482 @@
     {
       "key": "20120517|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20120517 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20120517 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20120611|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20120611 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20120611 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20120629|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20120629 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20120629 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20120801|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20120801 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20120801 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20120831|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20120831 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20120831 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20120912|csi_000813|buy_backup",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20120912 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20120912 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20121114|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121114 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121114 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20121121|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121121 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121121 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20121130|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121130 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121130 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20121205|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121205 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121205 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20121212|csi_000813|buy_backup",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121212 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121212 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20121221|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121221 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121221 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20121224|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121224 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20121224 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130104|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130104 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130104 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130107|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130107 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130107 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130110|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130110 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130110 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130122|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130122 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130122 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130416|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130416 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130416 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130503|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130503 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130503 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130614|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130614 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130614 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130617|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130617 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130617 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130625|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130625 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130625 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130702|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130702 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130702 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130812|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130812 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130812 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130813|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130813 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130813 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20130924|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130924 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20130924 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20131028|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20131028 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20131028 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20131030|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20131030 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20131030 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20131125|csi_000813|buy_backup",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20131125 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20131125 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20131129|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20131129 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20131129 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140107|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140107 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140107 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140114|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140114 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140114 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140217|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140217 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140217 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140219|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140219 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140219 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140414|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140414 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140414 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140415|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140415 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140415 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140429|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140429 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140429 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140430|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140430 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140430 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140505|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140505 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140505 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140620|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140620 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140620 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140703|csi_000813|buy_backup",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140703 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140703 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140707|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140707 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140707 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140708|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140708 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140708 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140709|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140709 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140709 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140710|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140710 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140710 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140721|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140721 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140721 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140722|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140722 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140722 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140801|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140801 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140801 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140804|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140804 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140804 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140805|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140805 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140805 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140806|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140806 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140806 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140807|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140807 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140807 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140811|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140811 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140811 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140812|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140812 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140812 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140813|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140813 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140813 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140818|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140818 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140818 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140819|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140819 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140819 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140822|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140822 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140822 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140825|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140825 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140825 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140910|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140910 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140910 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140911|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140911 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140911 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140912|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140912 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140912 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20140915|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140915 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20140915 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20141013|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141013 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141013 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20141015|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141015 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141015 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20141016|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141016 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141016 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20141201|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141201 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141201 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20141202|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141202 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141202 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20141203|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141203 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141203 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20141204|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141204 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141204 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20141217|csi_000813|buy_backup",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141217 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141217 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20141219|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141219 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20141219 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150113|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150113 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150113 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150114|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150114 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150114 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150115|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150115 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150115 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150128|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150128 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150128 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150303|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150303 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150303 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150305|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150305 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150305 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150306|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150306 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150306 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150309|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150309 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150309 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150316|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150316 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150316 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150317|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150317 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150317 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150630|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150630 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150630 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150706|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150706 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150706 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150710|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150710 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150710 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20150827|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150827 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20150827 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20151020|csi_000813|buy_backup",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20151020 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20151020 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20160106|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160106 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160106 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20160108|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160108 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160108 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20160114|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160114 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160114 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20160119|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160119 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160119 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20160129|csi_000813|buy",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160129 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160129 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20160407|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160407 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160407 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20160412|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160412 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160412 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20160413|csi_000813|buy_special",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160413 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160413 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20160511|csi_000813|buy_aux",
       "category": "A_new_listing_etf_no_tradable_historically",
-      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160511 早于三只当前映射化工ETF最早首现 20210303(159870; 561620=20260805, 158006=20260807, 见本地 etf_daily min(date)); 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
+      "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; 信号日 20160511 早于全部 13 只当前映射化工ETF(561620/158006/159870/159087/158017/159093/159082/158032/159129/516020/516120/159133/516220)最早首现 20210303(159870, 见本地 etf_daily min(date)); etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档(kelly-freeze-timespot-rootfix-20260918.md:50)载该指数当时 track_score=None 不进 best_etf 且云上冻结表 0 键 → 该信号日当时无任何可交易映射 ETF, 历史 buy 从未有可交易 ETF。"
     },
     {
       "key": "20261028|csi_000102|buy",
@@ -582,7 +582,7 @@
       "date": "2026-11-19",
       "event": "96 个 2012-2016 csi_000813 键",
       "decision": "登记 accepted(方案 B1, A 类)",
-      "note": "映射 ETF 561620/158006/159870 首现 20260805/20260807/20210303 全部晚于 2016; 9/18 文档载当时 track_score=None 不进 best_etf 且冻结表 0 键 → 信号日当时无可交易 ETF"
+      "note": "全部 13 只当前映射化工ETF最早首现 20210303(159870), 最晚 20260914, 全部晚于 2016; etf_daily(2005-02-23 起)无任何化工ETF早于 20210303; 9/18 文档载当时 track_score=None 不进 best_etf 且冻结表 0 键 → 信号日当时无可交易 ETF"
     },
     {
       "date": "2026-11-19",
@@ -600,7 +600,7 @@
       "date": "2026-11-19",
       "event": "其余 19 条(20261009~20261113 非 DataGap 键)",
       "decision": "留报不登记",
-      "note": "无逐键可复核证据(13 键证据文件已丢失按无证据处理; 17 THS 映射恢复类/4 余键/新增 churn 键均证据不全)"
+      "note": "与 dry 留报清单逐条对账(共 20 条留报 = 1 待定 + 19 条本行): 4 余键(20261009|csi_000330|csi_970070|sz_div 三键 + 20261105|dax|buy_special, 11-09 复审证据不足, 13 键证据文件已丢失按无证据) + 1 THS(20261016|thsc_300008|buy_aux) + 2 真故障嫌疑(20261023|sw_801050|buy、20261026|sw_801160|buy_aux, SW 映射链疑真故障) + 12 无逐键 appeared 证据键(20261013 csi_000330/csi_000673/csi_970070、20261019|sz_div、20261023 csi_970070/gz_399395/sz_div、20261104 csi_000330/csi_000673/gz_399395、20261111|cac40|buy_special、20261113|csi_931946|buy_special); 均证据不全 → 留报, 补新证据后再登记"
     }
   ]
 }

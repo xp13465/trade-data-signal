@@ -331,3 +331,29 @@ v1.1.7 审计 P1 #97（北向增量截断→递增丢日）修复及其返修（
 ```bash
 python3 scripts/check_north_gap_backfill.py   # 全 PASS 输出 38/38、退出码 0；有 FAIL 退出码 1
 ```
+
+### 冻结表缺失事件降噪（方案 B1，2026-11-19）
+
+两个配套脚本，解决「冻结表缺失历史信号」告警每天误报：把**有双源证据**的存量事件登记进
+`config/signal_kelly_frozen_missing_accepted.json`（缺证据的绝不登记，未登记新事件照常告警）。
+判断口径见 `docs/codex-reviews/alert-rootfix-20261109/freeze.md`（11-09 四分类）。
+
+- `gen_kelly_frozen_missing_accepted_20261119.py` — 由一份冻结缺失诊断归档重算整张登记表。
+  默认只生成到指定路径；`--check` 与已提交 config 逐字节比对（复现性检查）。
+- `verify_kelly_frozen_missing_denoise_20261119.py` — 端到端 dry 验证：把「写归档/发告警」
+  两个出口都打桩（**不会真发通知**），断言已登记事件只记日志、未登记事件继续告警。
+
+```bash
+# 复现性核对（用基线归档重算，必须与已提交 config 逐字节一致）
+.venv/bin/python scripts/gen_kelly_frozen_missing_accepted_20261119.py \
+    --archive /tmp/frozen_missing_latest_20261119.json \
+    --check config/signal_kelly_frozen_missing_accepted.json
+
+# dry 验证（预期输出 101 命中 / 20 留报 / 1 条 SEVERE，末行 DRY_PASS）
+.venv/bin/python scripts/verify_kelly_frozen_missing_denoise_20261119.py \
+    --archive /tmp/frozen_missing_latest_20261119.json \
+    --config config/signal_kelly_frozen_missing_accepted.json
+```
+
+基线归档 = 云上 `data/audit/frozen_missing/5bc33ec582cc4c6cbbdd3e0aa7f84d51.json`
+（run_id `5bc33ec5…`，filtered_missing_sha256 `1a66c6b6…b88396e`，121 条）。
