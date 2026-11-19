@@ -93,10 +93,16 @@ class _FakeRun:
         return types.SimpleNamespace(returncode=0, stdout="", stderr="")
 
 
+def _accepted_obj(rows):
+    """2026-11-19 方案 B1 格式: 每条 {key, category, evidence}(缺证据字段会被 loader 拒绝)。"""
+    return [{"key": f"{d}|{i}|{s}", "category": "test_fixture", "evidence": "fixture evidence"}
+            for d, i, s in rows]
+
+
 @pytest.fixture()
 def accepted_file(tmp_path):
     p = tmp_path / "accepted.json"
-    p.write_text(json.dumps({"accepted": [f"{d}|{i}|{s}" for d, i, s in ACCEPTED_8]}),
+    p.write_text(json.dumps({"accepted": _accepted_obj(ACCEPTED_8)}),
                  encoding="utf-8")
     return p
 
@@ -126,6 +132,32 @@ def test_1_loader_failsafe_on_corrupt(monkeypatch, tmp_path):
     p.write_text("{not json", encoding="utf-8")
     monkeypatch.setattr(sk, "FROZEN_MISSING_ACCEPTED_PATH", str(p))
     _chk(sk._load_frozen_missing_accepted() == set(), "损坏应返回空集")
+
+
+def test_1_loader_rejects_entry_missing_evidence(monkeypatch, tmp_path):
+    """格式保护(2026-11-19 方案 B1「无证据不得 accepted」): 缺 key/category/evidence
+    任一字段(含空串/遗留纯字符串)的条目被拒, 只有完整三字段条目生效。"""
+    p = tmp_path / "accepted.json"
+    p.write_text(json.dumps({"accepted": [
+        {"key": "20260922|sz_div|buy", "category": "x"},                     # 缺 evidence
+        {"key": "20260929|gz_399395|buy_aux", "evidence": "x"},              # 缺 category
+        {"category": "x", "evidence": "x"},                                 # 缺 key
+        {"key": "20261002|cac40|buy", "category": "x", "evidence": ""},     # evidence 空串
+        "20261005|hscei|buy_aux",                                           # 遗留纯字符串
+        {"key": "20261002|dax|buy_aux", "category": "ok", "evidence": "ok"},  # 唯一完整
+    ]}), encoding="utf-8")
+    monkeypatch.setattr(sk, "FROZEN_MISSING_ACCEPTED_PATH", str(p))
+    got = sk._load_frozen_missing_accepted()
+    _chk(got == {"20261002|dax|buy_aux"}, f"只应接受完整三字段条目, 实得 {sorted(got)}")
+
+
+def test_1_rejected_entry_still_alerts(monkeypatch, tmp_path):
+    """缺证据条目被拒 ⇒ 对应事件仍照常告警(绝不因格式缺陷静默吞真告警)。"""
+    p = tmp_path / "accepted.json"
+    p.write_text(json.dumps({"accepted": [{"key": "20260922|sz_div|buy", "category": "x"}]}),
+                 encoding="utf-8")
+    calls = _run_alert(monkeypatch, [("20260922", "sz_div", "buy")], p)
+    _chk(len(calls) == 1, f"无证据条目不应生效, 应告警, 实发 {len(calls)}")
 
 
 def test_1_denoise_effective_8_accepted_no_notify(monkeypatch, accepted_file):
