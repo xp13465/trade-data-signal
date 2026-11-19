@@ -194,8 +194,8 @@ def test_three_real_failures_continue_under_errexit(sandbox, dry, skip, expected
     repo, env = sandbox
     p = repo / "CLAUDE.md"
     text = p.read_text()
-    assert "全量 58L+31E" in text
-    p.write_text(text.replace("全量 58L+31E", "全量 999L+31E", 1))
+    assert "全量 60L+31E" in text
+    p.write_text(text.replace("全量 60L+31E", "全量 999L+31E", 1))
     p = repo / "docs/ops/machine-check-registry.md"
     lines = p.read_text().splitlines(True)
     victims = [line for line in lines if line.startswith("|") and "scripts/main-merge.sh 3.5 四态对账" in line]

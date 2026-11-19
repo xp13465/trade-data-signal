@@ -2,7 +2,7 @@
 
 > 本节为 CLAUDE.md §18 犯错积累与防重犯(2026-08-08 起)原文全量快照,由 CLAUDE.md 整理提炼(去重12+提炼8+归档3大件)归档。
 > 原文出处:CLAUDE.md L205-287(归档前版本,commit 见 git log)。CLAUDE.md 现保留索引+防重犯精华,索引能反向追到此原文。
-> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L58 过错锚点 + E01-E31 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 58 = 零丢失校验锚(机检 `scripts/check_ledger.py`)。
+> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L60 过错锚点 + E01-E31 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 60 = 零丢失校验锚(机检 `scripts/check_ledger.py`)。
 > 归档日期:2026-08-12
 
 ---
@@ -111,7 +111,7 @@
 > 注意:本文件行号会随未来编辑漂移,追到后若行号对不上按锚点 id 关键词 grep 定位。
 > 「**机检=**」字段(2026-10-18 加,评鉴 P9⑥):每条锚点行尾带 `机检=是(闸门:<脚本/闸门名>)` 或 `机检=否`。判据:**是** = 该条约束**现存可指认的自动拦闸门**(脚本/CI/hook,改名要跟着改);**否** = 目前只靠纪律执行(其中「是否可机检化」留 P5 逐条评估,此字段只表达现状不表达潜力)。**新增/补录锚点必带此字段**,由 `scripts/check_ledger.py` F 维机检(缺字段即 FAIL)。
 
-### 过错锚点(58 条;线性列表,锚点 id 可 `grep` 反查原文,与根 CLAUDE.md §18 滚动窗锚点 id 一致)
+### 过错锚点(60 条;线性列表,锚点 id 可 `grep` 反查原文,与根 CLAUDE.md §18 滚动窗锚点 id 一致)
 
 L01 | 通知丢失不设cron傻等 → 防重犯:§11 cron兜底必设 | archive:L13 | 机检=否
 L02 | DB方案理解反复3次 → 关键决策前复述确认 | archive:L14 | 机检=否
@@ -182,6 +182,10 @@ L56 | 全量测试有 failed 时删计数、把确定性顺序依赖说成 flaky
 L57 | 发布脚本运行中被自身 merge 替换 → 后续步骤继续执行旧逻辑(2026-11-05 合并 feat/fix-bump-products-20261105 时,`scripts/main-merge.sh` 主流程仍是合并前加载版本:旧 `BUMP_PRODUCTS` 不含 `__build.json`/`databrief.html`/`trade_sim.html`,而 bump 已把三文件写成 a657(mtime 12:09)却没进提交;`102cdde94` 提交文件集正好等于旧数组覆盖集;origin/main 与线上 `__build.json`=a656,index/sw=a657 ⇒ §22 版本串不一致已上线,触发 #327 跨 tab 自动 reload 一度生效) → 防再犯三条:①**凡 merge/deploy 流程会修改自身正在运行的脚本,禁止假设"文件改了当前进程就用新逻辑"**——merge 后校验自身文件 sha,变化则 `exec` 新版从断点续跑,并防循环(resume 二次变化 exit 8)、防重复 merge(resume 断言 ancestor);②发布工具链改动必须先在沙箱复现旧行为、再验新机制端到端生效(首个真实合入须见自更新 BANNER + resume 断言日志);③生成物提交清单用 `git add` 后 `git diff --name-only -- static-site` 必须为空兜底,不靠人工数组完整性(§22/§24) | (2026-11-05 新加;来源:统一入口合并 bump 产物漏提交,线上 §22 不一致;证据:旧版执行 commit 102cdde94 / 热修 c508c0a72 / 根因修复 5e0d90b7d 合入 9acf768c7) | 机检=是(闸门:scripts/main-merge.sh 自更新 sha 校验 + bump 残留守卫)
 
 L58 | main-merge 用过期本地 ref 合错 head(worktree 内 agent push 只更新 `refs/remotes/origin/*`,共享仓本地 `refs/heads/*` 不自动前进;2026-11-09 约 23:08 跑 `scripts/main-merge.sh codex/freeze-persistence-rootfix-20261109` 时,main 被快进到 `8840c79d7`(07:51 建的旧本地 ref),而 origin 同名分支已是 `6e3b2ea06`(含 P1 冻结并发修复 + F2 基线同步)⇒ main 少一段;发现=核「6e3 是否在 main」为否 → `git reflog show` 证实本地 ref 停在 07:51;纠正=新建 `feat/freeze-persist-p1-20261109` @6e3b2ea06 重跑 main-merge,origin/main 回 `6e3b2ea06` 并同步云上;根因=main-merge.sh 原逻辑只校验「本地 ref 存在」不校验「与 origin 一致」,直接 merge 本地 ref) → 防再犯三条:①**合任何 feat 前必须对账「本地 `refs/heads/<FEAT>` vs `origin/<FEAT>`」**——相同才继续;本地是 origin 祖先必须 `git branch -f` 快进到 origin;分叉必须停下上报,不许二选一;②合并工具的「本地 ref 存在」检查**不等于**「本地 ref 是最新」——存在性检查必须升级为四态对账(相同/仅本地/祖先可快进/分叉拒绝);③ref 被其他 worktree 占用无法 `branch -f` 时,降级用 `origin/$FEAT` 作合并目标并在日志声明,不静默跳过(同族:§23.11 git 冲突绝不静默 / L40 打 tag 先全量核对版本链——「先对账再动作」族) | (2026-11-09 新加;来源:main-merge 过期本地 ref 合错 head 事故;证据:根因修复 `e3be96073` 合入,main-merge.sh 第 3.5 步四态对账 + `MERGE_REF` 贯穿 5 个下游点;临时仓六用例 + 独立 reviewer 补测「本地领先」「斜杠分支」两例 + 判别力探针;全量 pytest 3736 passed) | 机检=是(闸门:scripts/main-merge.sh 3.5 四态对账)
+
+L59 | 改「登记类计数/列表常量」后没跑 CI 侧独立断言面，CI 确定性红(2026-11-19)：commit `5dfc71289` 修 FOF 回补单元入登记后 `ops/monitoring/tests/smoke_local.py:144` 的 registry_services 断言 45→46 才让 CI 绿 —— 前一笔只把单元加进登记表、只跑了改动相关的 pytest，而该硬编码数字断言是 CI `ops-monitoring-checks` 工作流里的**独立断言面**（不在 pytest 范围内），故 CI 确定性红。 → 防再犯：改任何「登记类列表/计数常量」（服务登记 / timer 单元登记 / 白名单条目数 / 键集常量）后，自验必含①**全仓 grep 该计数/列表名，同步所有独立断言面**（`ops/monitoring/tests/smoke_local.py` 等 CI 闸门里的硬编码数字/长度断言）②本机跑 `pytest -q scripts/tests/` 全量 + 该 smoke 断言；「pytest 绿 ≠ CI 绿」已有 E31（生效判定）/ push-main-then-check-ci 家族，本条补的是 **CI 内部另一类断言面（非 pytest）**（同族：L52 改源码未跑全量 pytest / L51 时敏测试跨天红 —— 测试面覆盖族） | (2026-11-19 新加；来源：FOF 回补单元入登记后 CI ops-monitoring-checks 红，修复 commit `5dfc71289`；断言锚点 `ops/monitoring/tests/smoke_local.py:144`) | 机检=是(闸门:ops/monitoring/tests/smoke_local.py registry_services 断言 + CI ops-monitoring-checks)
+
+L60 | 看门狗「无法判定」分支无去重键，异常态每 15 分钟一条 critical 邮件(2026-11-18)：17:2x 用户收到「断档邮件」，根因=`scripts/check_fof_backfill.py:104-106` 进度文件旧格式缺 `last_runs` 键 → `judge()` raise ValueError → 调用方 `:184-196` 以 `refs=None` 走 `dispatch(...)` → critical 告警无 dedup key → 每 15 分钟一条；21:00 新代码首跑写入 last_runs 后自愈（21:00:35 后零新增，实测） → 防再犯：所有「无法判定/数据缺失/格式不符」类守护分支：①**告警必须带稳定 dedup key**（对象标识入键），不许因取值失败退化成无键；②正文写明**缺失字段名与期望格式**；③**解析前先兼容旧格式**（缺字段降级为一次格式告警 + 可自愈判定），不让每轮轮询重复炸；④新增/改看门狗必须用「喂旧格式进度文件」用例验证不轰炸（同族：§23.10 通知一致性 / L48 通知脚本自测打桩 —— 告警稳定性族） | (2026-11-18 新加；来源：FOF 回补看门狗旧格式进度文件致 critical 邮件每 15 分钟一条；锚点 `scripts/check_fof_backfill.py:104-106`、`:176` key 生成、`:184-196` refs=None 分支) | 机检=否,待补用例
 
 ### 经验锚点(31 条,非过错,适用场景;线性列表,锚点 id 可 `grep` 反查原文)
 
