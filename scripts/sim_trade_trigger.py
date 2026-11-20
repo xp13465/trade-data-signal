@@ -5,8 +5,8 @@
   --stage signal      T 22:45   读 nextday_plan.json 定格 T+1 信号 → sim_trade_signal
   --stage buy_fill    T+1 09:50 拉实时开盘价(expect_date fail-closed) → 买入指令 + provisional fill
   --stage sell_order  D+10 14:55 到期持仓写卖出指令 + 可选 14:55 实时价 provisional fill
-  --stage settle      D+10 22:45 etf_daily 复核当天买入(confirmed, supersedes provisional)
-                                + D+10 收盘价结算卖出
+  --stage settle      D+10 22:45 etf_daily 补写 exec_date<=结算日 的漏跑买入 + 复核过期 provisional
+                                (confirmed, supersedes provisional) + D+10 收盘价结算卖出
 
 口径(2026-11-20 用户拍板):
   ① 买入 = 次日 09:30 市价单; 成交价用触发器实抓的当天真实开盘价(不用理论价), 滑点/费率如实记。
@@ -336,8 +336,18 @@ def fetch_buy_open_prices(codes: list[str], expect_date: str) -> tuple[dict, lis
     return _fetch_intraday_open_prices(codes, expect_date=expect_date)
 
 
+def _norm_quote_date(value) -> str | None:
+    """东财「数据日期」归一为 YYYYMMDD; 无法解析返回 None(fail-closed)。"""
+    s = str(value).strip()[:10].replace("-", "")
+    return s if len(s) == 8 and s.isdigit() else None
+
+
 def fetch_last_prices(codes: list[str], expect_date: str) -> dict:
-    """14:55 实时最新价(东财 spot, 数据日期须==expect_date; 失败返回 {} 不写假价)。"""
+    """14:55 实时最新价(东财 spot)。
+
+    fail-closed(2026-11-21 F5): 必须能证明「这一行价格就是 expect_date 当天的」——
+    缺「数据日期」列、日期解析失败、或日期 != expect_date 一律返回 {} 不写假价。
+    """
     try:
         import warnings
         import akshare as ak
@@ -351,13 +361,15 @@ def fetch_last_prices(codes: list[str], expect_date: str) -> dict:
             return {}
     if df is None or getattr(df, "empty", True) or "代码" not in df.columns:
         return {}
-    if "数据日期" in df.columns:
-        try:
-            dates = {str(x)[:10].replace("-", "") for x in df["数据日期"].tolist()}
-            if dates and expect_date not in dates:
-                return {}
-        except Exception:  # noqa: BLE001
-            return {}
+    if "数据日期" not in df.columns:
+        return {}  # 无日期列 ⇒ 无法证明是当日价 ⇒ fail-closed
+    try:
+        quote_dates = df["数据日期"].map(_norm_quote_date)
+    except Exception:  # noqa: BLE001
+        return {}
+    df = df[quote_dates == expect_date]  # 逐行校验, 混日期源也不会串价
+    if df is None or getattr(df, "empty", True):
+        return {}
     out = {}
     for _, row in df[df["代码"].isin([str(c) for c in codes])].iterrows():
         try:
@@ -382,7 +394,8 @@ def run_buy_fill(args) -> dict:
     date = args.date
     con = _open_db(args)
     stats = {"stage": "buy_fill", "date": date, "signals": 0, "orders": 0,
-             "fills": 0, "fill_failed": 0, "confirmed_existing": 0, "skipped": 0}
+             "fills": 0, "fill_failed": 0, "confirmed_existing": 0, "skipped": 0,
+             "superseded": 0}
     signals = con.execute(
         "SELECT * FROM v_sim_signal_effective WHERE exec_date=? AND signal_date<?", (date, date)).fetchall()
     stats["signals"] = len(signals)
@@ -437,7 +450,15 @@ def run_buy_fill(args) -> dict:
             calc = calc_buy(s["amount"] or 10000, equiv, code, FEE_PRESETS[CALC_FEE_PRESET]) if equiv else None
             real = real_buy(s["amount"] or 10000, px, code, FEE_PRESETS[REAL_FEE_PRESET])
             fee_json = fee_config_json(real, calc or {}, REAL_FEE_PRESET, CALC_FEE_PRESET)
+            # 同日重跑(2026-11-21 F4): 已有有效 provisional 且新价不同 → 新行 supersede 旧行,
+            # 保证一单任何时刻只有 1 条有效买入成交(append-only: 只追加纠错链, 不删不改)。
+            prev = con.execute(
+                "SELECT fill_id, price_raw FROM v_sim_fill_effective"
+                " WHERE order_id=? AND side='buy'"
+                " ORDER BY CASE status WHEN 'confirmed' THEN 0 ELSE 1 END, created_at DESC LIMIT 1",
+                (order_id,)).fetchone()
             fill_id = db.stable_id(order_id, date, "realtime", round(px, 6), round(real["shares"], 6))
+            supersedes = prev[0] if (prev and prev[0] != fill_id) else None
             fill = {
                 "fill_id": fill_id, "order_id": order_id, "side": "buy", "fill_date": date,
                 "fill_time": "09:30", "price_kind": "open", "price_raw": px,
@@ -449,11 +470,21 @@ def run_buy_fill(args) -> dict:
                 "stamp_tax": (calc or {}).get("stamp_tax"), "net": (calc or {}).get("net"),
                 "fee_preset": CALC_FEE_PRESET, "fee_config": fee_json,
                 "source": "realtime", "source_ts": db.now_iso(), "quote_date": date,
-                "status": "provisional", "supersedes_fill_id": None,
-                "correction_reason": None, "created_at": db.now_iso(),
+                "status": "provisional", "supersedes_fill_id": supersedes,
+                "correction_reason": "同日异价重跑: 新 provisional 取代旧 provisional" if supersedes else None,
+                "created_at": db.now_iso(),
             }
             if db.insert_or_ignore(con, "sim_trade_fill", fill):
                 stats["fills"] += 1
+                if supersedes:
+                    stats["superseded"] += 1
+                    db.record_event(con, "correction", order_id=order_id, signal_id=s["signal_id"],
+                                    payload={"stage": "buy_fill", "date": date,
+                                             "reason": "rerun_price_differs",
+                                             "prev_fill_id": supersedes,
+                                             "prev_price_raw": prev["price_raw"],
+                                             "new_fill_id": fill_id, "new_price_raw": px},
+                                    source="sim_trade_trigger")
             else:
                 stats["skipped"] += 1
         if not args.dry_run:
@@ -485,6 +516,17 @@ def run_sell_order(args) -> dict:
         for p in rows:
             code = p["etf_code"]
             qty = p["buy_shares_real"] or 0
+            # 2026-11-21 F2: 没有有效买入成交就没有可卖的东西。只记事件, 不写卖出指令/0 份额假成交。
+            if p["buy_fill_id"] is None or qty <= 0:
+                if not args.dry_run:
+                    db.record_event(con, "sell_skipped_no_fill", signal_id=p["signal_id"],
+                                    payload={"stage": "sell_order", "date": date,
+                                             "reason": "no_valid_buy_fill",
+                                             "buy_fill_id": p["buy_fill_id"],
+                                             "buy_shares_real": p["buy_shares_real"]},
+                                    source="sim_trade_trigger")
+                stats["skipped"] += 1
+                continue
             order_id = db.stable_id(p["signal_id"], "sell", "1455", qty, "market", None)
             if args.dry_run:
                 stats["orders"] += 1
@@ -514,6 +556,9 @@ def run_sell_order(args) -> dict:
             calc = calc_sell(p["buy_shares_calc"] or qty, equiv, code, FEE_PRESETS[CALC_FEE_PRESET]) if equiv else None
             real = real_sell(qty, px, code, FEE_PRESETS[REAL_FEE_PRESET])
             fill_id = db.stable_id(order_id, date, "realtime", round(px, 6), round(qty, 6))
+            # 同日重跑的 F4 同类面在卖出侧天然不成立: 第一笔 provisional 卖出就让
+            # v_sim_trade_position.closed=1, 重跑扫不到该持仓(positions=0), 不会产生第二条有效卖出。
+            # 结算复核用 prev_fill_id supersede 最新有效卖出(见 run_settle 阶段 2)。
             fill = {
                 "fill_id": fill_id, "order_id": order_id, "side": "sell", "fill_date": date,
                 "fill_time": "14:55", "price_kind": "intraday", "price_raw": px,
@@ -551,38 +596,56 @@ def run_sell_order(args) -> dict:
 def run_settle(args) -> dict:
     date = args.date
     con = _open_db(args)
-    stats = {"stage": "settle", "date": date, "buy_confirmed": 0, "sell_settled": 0,
-             "no_bar": 0, "skipped": 0}
+    stats = {"stage": "settle", "date": date, "buy_confirmed": 0, "buy_backfilled": 0,
+             "buy_backfill_failed": 0, "sell_settled": 0, "no_bar": 0, "skipped": 0}
     etf = open_etf_ro(args.etf_db)
     if etf is None:
         raise SystemExit(f"etf_daily DB 不存在: {args.etf_db}")
     try:
-        # 1) 当天买入复核: provisional(realtime) → confirmed(etf_daily open)
-        rows = con.execute(
-            "SELECT s.*, o.order_id, f.fill_id AS prev_fill_id, f.price_raw AS prev_px "
-            "FROM v_sim_signal_effective s "
-            "JOIN sim_trade_order o ON o.signal_id=s.signal_id AND o.side='buy' "
-            "JOIN sim_trade_fill f ON f.order_id=o.order_id AND f.side='buy' "
-            "WHERE s.exec_date=? AND f.status='provisional'", (date,)).fetchall()
-        for s in rows:
-            bar = etf_bar(etf, s["etf_code"], date)
+        # 1a) 漏跑补写(2026-11-21 F1): exec_date <= 结算日 且没有任何有效买入成交的信号,
+        #     用 etf_daily 该执行日官方开盘价追加 confirmed 买入(缺 order 一并补建, FK 需要)。
+        #     覆盖 09:50 取价失败 / timer 漏跑 / 机器不在线 / 隔日手动补, 交易不再永久丢失。
+        missing = con.execute(
+            "SELECT s.* FROM v_sim_signal_effective s "
+            "WHERE s.exec_date<=? AND s.trigger_source<>'backfill' AND NOT EXISTS ("
+            "  SELECT 1 FROM sim_trade_order o JOIN v_sim_fill_effective f"
+            "  ON f.order_id=o.order_id AND f.side='buy'"
+            "  WHERE o.signal_id=s.signal_id AND o.side='buy') "
+            "ORDER BY s.exec_date, s.signal_id", (date,)).fetchall()
+        for s in missing:
+            exec_date = s["exec_date"]
+            order_id = db.stable_id(s["signal_id"], "buy", "0930", s["amount"],
+                                    "market", s["plan_prev_close"])
+            bar = etf_bar(etf, s["etf_code"], exec_date)
             if not bar or not bar.get("open"):
-                db.record_event(con, "fill_failed", order_id=s["order_id"], signal_id=s["signal_id"],
-                                payload={"stage": "settle", "reason": "no_etf_daily_open", "date": date},
-                                source="sim_trade_trigger")
-                stats["no_bar"] += 1
+                if not args.dry_run:
+                    db.record_event(con, "fill_failed", order_id=order_id, signal_id=s["signal_id"],
+                                    payload={"stage": "settle_backfill", "reason": "no_etf_daily_open",
+                                             "date": exec_date, "etf_code": s["etf_code"]},
+                                    source="sim_trade_trigger")
+                stats["buy_backfill_failed"] += 1
                 continue
             px = float(bar["open"])
             accum_ref, close_ref = s["signal_accum_nav"], s["signal_close_raw"]
             equiv = (accum_ref * px / close_ref) if (accum_ref and close_ref and close_ref > 0) else None
             calc = calc_buy(s["amount"] or 10000, equiv, s["etf_code"], FEE_PRESETS[CALC_FEE_PRESET]) if equiv else None
             real = real_buy(s["amount"] or 10000, px, s["etf_code"], FEE_PRESETS[REAL_FEE_PRESET])
-            fill_id = db.stable_id(s["order_id"], date, "etf_daily", round(px, 6), round(real["shares"], 6))
             if args.dry_run:
-                stats["buy_confirmed"] += 1
+                stats["buy_backfilled"] += 1
                 continue
+            db.insert_or_ignore(con, "sim_trade_order", {
+                "order_id": order_id, "signal_id": s["signal_id"], "strategy": "A",
+                "side": "buy", "action": "open", "etf_code": s["etf_code"], "etf_name": s["etf_name"],
+                "qty_plan": float(int((s["amount"] or 10000) / (s["plan_prev_close"] or 1) / 100) * 100),
+                "qty_unit": "share", "amount": s["amount"], "price_type": "market",
+                "limit_price": None, "intended_at": "09:30", "triggered_at": db.now_iso(),
+                "trigger_source": "sim_trade_trigger.settle_backfill", "broker_account": None,
+                "broker_order_id": None, "request_payload": None, "response_payload": None,
+                "initial_status": "submitted", "created_at": db.now_iso(),
+            })
+            fill_id = db.stable_id(order_id, exec_date, "etf_daily", round(px, 6), round(real["shares"], 6))
             fill = {
-                "fill_id": fill_id, "order_id": s["order_id"], "side": "buy", "fill_date": date,
+                "fill_id": fill_id, "order_id": order_id, "side": "buy", "fill_date": exec_date,
                 "fill_time": "22:45", "price_kind": "open", "price_raw": px,
                 "price_equiv": equiv, "accum_nav_ref": accum_ref, "raw_close_ref": close_ref,
                 "raw_ref_date": s["signal_date"],
@@ -592,7 +655,63 @@ def run_settle(args) -> dict:
                 "stamp_tax": (calc or {}).get("stamp_tax"), "net": (calc or {}).get("net"),
                 "fee_preset": CALC_FEE_PRESET,
                 "fee_config": fee_config_json(real, calc or {}, REAL_FEE_PRESET, CALC_FEE_PRESET),
-                "source": "etf_daily", "source_ts": db.now_iso(), "quote_date": date,
+                "source": "etf_daily", "source_ts": db.now_iso(), "quote_date": exec_date,
+                "status": "confirmed", "supersedes_fill_id": None,
+                "correction_reason": "settle 漏跑补写: etf_daily 开盘价", "created_at": db.now_iso(),
+            }
+            if db.insert_or_ignore(con, "sim_trade_fill", fill):
+                stats["buy_backfilled"] += 1
+                db.record_event(con, "settle_backfill", order_id=order_id, signal_id=s["signal_id"],
+                                payload={"stage": "settle_backfill", "date": exec_date,
+                                         "price_raw": px, "price_equiv": equiv},
+                                source="sim_trade_trigger")
+            else:
+                stats["skipped"] += 1
+        # 1b) 买入复核: 每个买入 order 取最新一条「有效 provisional」, 用 etf_daily 该执行日开盘价
+        #     追加 confirmed 并 supersede 它(过期未复核的也补)。用 v_sim_fill_effective 取,
+        #     已被 supersede 的旧 provisional 不会重复复核(2026-11-21 F1/F7 联动)。
+        rows = con.execute(
+            "SELECT s.*, o.order_id, f.fill_id AS prev_fill_id "
+            "FROM v_sim_signal_effective s "
+            "JOIN sim_trade_order o ON o.signal_id=s.signal_id AND o.side='buy' "
+            "JOIN v_sim_fill_effective f ON f.fill_id = ("
+            "  SELECT f2.fill_id FROM v_sim_fill_effective f2"
+            "  WHERE f2.order_id=o.order_id AND f2.side='buy' AND f2.status='provisional'"
+            "  ORDER BY f2.created_at DESC, f2.fill_id LIMIT 1) "
+            "WHERE s.exec_date<=? AND s.trigger_source<>'backfill' "
+            "ORDER BY s.exec_date, s.signal_id", (date,)).fetchall()
+        for s in rows:
+            exec_date = s["exec_date"]
+            bar = etf_bar(etf, s["etf_code"], exec_date)
+            if not bar or not bar.get("open"):
+                if not args.dry_run:
+                    db.record_event(con, "fill_failed", order_id=s["order_id"], signal_id=s["signal_id"],
+                                    payload={"stage": "settle", "reason": "no_etf_daily_open",
+                                             "date": exec_date, "etf_code": s["etf_code"]},
+                                    source="sim_trade_trigger")
+                stats["no_bar"] += 1
+                continue
+            px = float(bar["open"])
+            accum_ref, close_ref = s["signal_accum_nav"], s["signal_close_raw"]
+            equiv = (accum_ref * px / close_ref) if (accum_ref and close_ref and close_ref > 0) else None
+            calc = calc_buy(s["amount"] or 10000, equiv, s["etf_code"], FEE_PRESETS[CALC_FEE_PRESET]) if equiv else None
+            real = real_buy(s["amount"] or 10000, px, s["etf_code"], FEE_PRESETS[REAL_FEE_PRESET])
+            fill_id = db.stable_id(s["order_id"], exec_date, "etf_daily", round(px, 6), round(real["shares"], 6))
+            if args.dry_run:
+                stats["buy_confirmed"] += 1
+                continue
+            fill = {
+                "fill_id": fill_id, "order_id": s["order_id"], "side": "buy", "fill_date": exec_date,
+                "fill_time": "22:45", "price_kind": "open", "price_raw": px,
+                "price_equiv": equiv, "accum_nav_ref": accum_ref, "raw_close_ref": close_ref,
+                "raw_ref_date": s["signal_date"],
+                "shares_calc": (calc or {}).get("shares"), "shares_real": real["shares"],
+                "gross": (calc or {}).get("gross"), "commission": (calc or {}).get("commission"),
+                "transfer_fee": (calc or {}).get("transfer_fee"),
+                "stamp_tax": (calc or {}).get("stamp_tax"), "net": (calc or {}).get("net"),
+                "fee_preset": CALC_FEE_PRESET,
+                "fee_config": fee_config_json(real, calc or {}, REAL_FEE_PRESET, CALC_FEE_PRESET),
+                "source": "etf_daily", "source_ts": db.now_iso(), "quote_date": exec_date,
                 "status": "confirmed", "supersedes_fill_id": s["prev_fill_id"],
                 "correction_reason": "etf_daily 开盘价复核", "created_at": db.now_iso(),
             }
@@ -612,12 +731,25 @@ def run_settle(args) -> dict:
             "  SELECT 1 FROM sim_trade_fill f WHERE f.order_id=o.order_id AND f.side='sell'"
             "  AND f.status='confirmed')", (date,)).fetchall()
         for p in sells:
+            # 2026-11-21 F2: 无有效买入成交(或 0 份额)时拒绝结算卖出, 只记事件。
+            if p["buy_fill_id"] is None or not p["buy_shares_real"] or p["buy_shares_real"] <= 0:
+                if not args.dry_run:
+                    db.record_event(con, "sell_skipped_no_fill", order_id=p["order_id"],
+                                    signal_id=p["signal_id"],
+                                    payload={"stage": "settle", "date": date,
+                                             "reason": "no_valid_buy_fill",
+                                             "buy_fill_id": p["buy_fill_id"],
+                                             "buy_shares_real": p["buy_shares_real"]},
+                                    source="sim_trade_trigger")
+                stats["skipped"] += 1
+                continue
             bar = etf_bar(etf, p["etf_code"], date)
             if not bar or not bar.get("close"):
-                db.record_event(con, "fill_failed", order_id=p["order_id"], signal_id=p["signal_id"],
-                                payload={"stage": "settle", "reason": "no_etf_daily_close",
-                                         "date": date, "etf_code": p["etf_code"]},
-                                source="sim_trade_trigger")
+                if not args.dry_run:
+                    db.record_event(con, "fill_failed", order_id=p["order_id"], signal_id=p["signal_id"],
+                                    payload={"stage": "settle", "reason": "no_etf_daily_close",
+                                             "date": date, "etf_code": p["etf_code"]},
+                                    source="sim_trade_trigger")
                 stats["no_bar"] += 1
                 continue
             px = float(bar["close"])

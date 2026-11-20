@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """sim_trade_backfill.py - 历史种子回填(K=1 两组口径)到 append-only 模拟交易账本。
 
+⚠️ 默认 `--db` = /tmp/sim_trade_backfill.db(2026-11-21 F6): 写生产账本必须显式传 --db;
+   目标库内若已有 live 信号(source<>'backfill')直接拒绝写入(防回填 supersede 压掉实盘行)。
+
 回填池(与 docs/auto-trade/scripts/nextday_buy_full_loop_backtest.py::build_kept 同款):
   signal_kelly_trades.json + signal_kelly_backtest.json + kelly_mode_s06_state.json
   + kelly_loss_features.json
@@ -26,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -35,6 +39,10 @@ if str(SCRIPT_DIR) not in sys.path:
 import sim_trade_db as db  # noqa: E402
 import sim_trade_trigger as trig  # noqa: E402
 import kelly_posrating as kp  # noqa: E402
+
+# 回填默认写 /tmp 临时库(2026-11-21 F6): data/sim_trade.db 是 live 触发器专用账本,
+# 回填必须显式 --db 指定, 绝不默认落到生产路径。
+DEFAULT_DB = str(Path(tempfile.gettempdir()) / "sim_trade_backfill.db")
 
 
 def build_kept(trades_doc: dict, backtest_doc: dict, s06_doc: dict, feat_doc: dict):
@@ -119,6 +127,14 @@ def backfill(args) -> dict:
         con.close()
         raise SystemExit(f"账本 {args.db} 已有 {conflict} 行其他口径回填, 本次 fee={args.fee} 拒绝混口径;"
                          f" 请换独立 --db")
+    # 防 live/backfill 混库(2026-11-21 F6): 库里有 live 信号(source<>'backfill')时,
+    # 回填的 plan_hash 不同可能通过 supersede 语义压掉 live 信号 ⇒ 直接拒绝, 回填必须独立库。
+    live_rows = con.execute(
+        "SELECT COUNT(*) FROM sim_trade_signal WHERE source<>'backfill'").fetchone()[0]
+    if live_rows:
+        con.close()
+        raise SystemExit(f"账本 {args.db} 已有 {live_rows} 行 live 信号(source<>'backfill'),"
+                         f" 回填拒绝写入混库; 回填请换独立临时库(默认 {DEFAULT_DB})")
     etf = trig.open_etf_ro(args.etf_db)
     stats = {"stage": "backfill", "fee": args.fee, "asof": args.asof, "rows": len(rows),
              "signals": 0, "orders": 0, "fills": 0, "marks": 0, "skipped": 0}
@@ -283,9 +299,10 @@ def backfill(args) -> dict:
     return stats
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="模拟交易账本历史回填(K=1 两组口径)")
-    ap.add_argument("--db", default="data/sim_trade.db")
+    ap.add_argument("--db", default=DEFAULT_DB,
+                    help=f"回填目标库(默认 {DEFAULT_DB}; 写生产账本请显式传路径)")
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--etf-db", default="data/etf_national_team.db")
     ap.add_argument("--trade-dates", default="data/trade_dates.txt")
@@ -295,7 +312,11 @@ def main(argv=None) -> int:
     ap.add_argument("--from-date", default=None)
     ap.add_argument("--mark-open", action="store_true", help="未平仓笔追加估值标记(页面口径对账)")
     ap.add_argument("--reconcile", action="store_true", help="打印锚点复算(缺省也打印)")
-    args = ap.parse_args(argv)
+    return ap
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
     stats = backfill(args)
     print(json.dumps(stats, ensure_ascii=False))
     return 0

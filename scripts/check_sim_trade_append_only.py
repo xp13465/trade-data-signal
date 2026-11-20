@@ -2,14 +2,17 @@
 """check_sim_trade_append_only.py - 模拟交易账本 append-only 闸门(静态扫描 + 临时库实测)。
 
 三层检查:
-  ① 静态: sim_trade_*.py 源码里禁出现对 sim_trade_* 表的 UPDATE / DELETE /
+  ① 静态: `scripts/sim_trade_*.py` 源码里禁出现对 sim_trade_* 表的 UPDATE / DELETE /
      INSERT OR REPLACE / REPLACE INTO(唯一例外: 触发器 DDL 自身的 RAISE 文案)。
+     ⚠️ 扫描范围只认 `sim_trade_*.py`; 目录里 0 个目标文件 ⇒ 直接 FAIL(fail-closed,
+     防 `--scripts-dir` 指错目录时静态层空转假绿, 2026-11-21 F3)。
   ② 结构: 临时库 --init 后 4 表 / 3 视图 / 8 触发器 / integrity_check=ok。
   ③ 实测: 向 4 张表各插 1 行, 逐表尝试 UPDATE 与 DELETE, 必须全部 IntegrityError(ABORT);
      再试 INSERT OR REPLACE 命中主键冲突, 必须同样 ABORT(REPLACE 先 DELETE 被拦)。
 
 退出码: 0=全 PASS, 1=任一层 FAIL(打印失败项)。
 用法: python3 scripts/check_sim_trade_append_only.py [--scripts-dir scripts]
+    (默认目录 = 本脚本所在 scripts/, 文档里的验收命令直接用默认参数)
 """
 from __future__ import annotations
 
@@ -55,16 +58,23 @@ def _sql_like_strings(path: Path):
             yield node.lineno, node.value
 
 
-def static_scan(scripts_dir: Path) -> list[str]:
+def scan_targets(scripts_dir: Path) -> list[Path]:
+    """静态扫描目标: 只认 scripts_dir 下的 sim_trade_*.py(非递归)。"""
+    return sorted(scripts_dir.glob("sim_trade_*.py"))
+
+
+def static_scan(scripts_dir: Path) -> tuple[list[str], list[str]]:
+    """返回 (禁词命中, 实际扫到的文件名)。0 个目标文件由 run() 判 FAIL。"""
+    files = scan_targets(scripts_dir)
     bad = []
-    for p in sorted(scripts_dir.glob("sim_trade_*.py")):
+    for p in files:
         for lineno, text in _sql_like_strings(p):
             if TRIGGER_DDL_PAT.search(text) or "RAISE(ABORT" in text:
                 continue  # 触发器拦截器 DDL 本身允许出现 BEFORE UPDATE/DELETE
             for pat, name in FORBIDDEN:
                 if pat.search(text):
                     bad.append(f"{p.name}:{lineno}: {name} -> {text.strip()[:120]}")
-    return bad
+    return bad, [p.name for p in files]
 
 
 def _seed_rows(con: sqlite3.Connection) -> dict:
@@ -146,10 +156,15 @@ def dynamic_check() -> dict:
 
 
 def run(scripts_dir: Path) -> dict:
-    static = static_scan(scripts_dir)
+    static, files = static_scan(scripts_dir)
+    if not files:
+        # fail-closed: 扫 0 个文件不是「没问题」, 是「没扫到」(2026-11-21 F3 空转假绿)。
+        static = [f"静态层 0 文件: {scripts_dir} 下没有 sim_trade_*.py(--scripts-dir 指错会空转)"]
     dyn = dynamic_check()
     return {
         "static_forbidden_hits": static,
+        "static_files_scanned": len(files),
+        "static_files": files,
         "structure_ok": dyn["structure"]["ok"],
         "trigger_count": dyn["structure"]["trigger_count"],
         "aborts": dyn["aborts"],

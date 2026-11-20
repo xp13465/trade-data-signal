@@ -93,15 +93,17 @@ def test_four_stage_twice(tmp_path):
     a.prices_json = None
     t1 = trig.run_settle(a)
     t2 = trig.run_settle(a)
-    assert t1["buy_confirmed"] == 0  # 买入复核只在 exec_date 当天执行, 此处 date=卖出日
+    # 2026-11-21 F1: settle 复核范围从「exec_date=当天」放宽为「exec_date<=当天」,
+    # 过期未复核的 provisional 也会补成 confirmed(不再依赖当天 22:45 恰好跑到)
+    assert t1["buy_confirmed"] == 1, t1
     assert t1["sell_settled"] == 1, t1
-    assert t2["sell_settled"] == 0, t2
+    assert (t2["buy_confirmed"], t2["sell_settled"]) == (0, 0), t2
 
     counts = _counts(a.db)
-    # 信号 1 / 买卖各 1 order / 买入 provisional 1 + 卖出 provisional 1 + 卖出 confirmed 1 = 3 fills
+    # 信号 1 / 买卖各 1 order / 买入 provisional+confirmed + 卖出 provisional+confirmed = 4 fills
     assert counts["sim_trade_signal"] == 1
     assert counts["sim_trade_order"] == 2
-    assert counts["sim_trade_fill"] == 3
+    assert counts["sim_trade_fill"] == 4
     con = sqlite3.connect(a.db)
     con.row_factory = sqlite3.Row
     try:

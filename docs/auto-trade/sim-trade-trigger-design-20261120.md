@@ -91,7 +91,8 @@ $PY scripts/sim_trade_trigger.py --stage buy_fill --date 20261121 \
 
 - 实时价复用 `signal_kelly_backtest._fetch_intraday_open_prices`,**expect_date 必须等于执行日**,取不到就不写假价:
   写 `sim_trade_event(type='fill_failed')`,等 22:45 用 etf_daily 复核。
-- 首次写 `status='provisional'`(price_kind=`realtime`);22:45 settle 用官方开盘价复核后追加 `confirmed` 行并 supersede 旧的。
+- 首次写 `status='provisional'`(`price_kind='open'`, `source='realtime'`);22:45 settle 用官方开盘价复核后追加 `confirmed` 行并 supersede 旧的。
+- 同日重跑:同价重跑幂等跳过;异价重跑(如 09:50 抓价后又补跑一次)新 provisional 会 `supersedes_fill_id` 指向旧 provisional 并记 `correction` 事件,任何时刻一单只有 1 条有效买入成交。
 - 调试可加 `--prices-json '{"510300":4.02}'` 覆盖价格(不联网)。
 
 ### 阶段 3:sell_order(卖出日 14:55) — 记尾盘实时卖出
@@ -102,7 +103,10 @@ $PY scripts/sim_trade_trigger.py --stage sell_order --date 20261204 \
 ```
 
 - 扫 `sell_due_date = 今天` 且未平仓的持仓,按 14:55 最新价写 `price_kind='intraday'` 的 provisional 成交。
-- 取不到价记 `price_unavailable` 事件,不写假价。
+- **没有有效买入成交的持仓不写卖出指令/成交**(只记 `sell_skipped_no_fill` 事件):没买到就没东西可卖,不能编出 0 份额假平仓。
+- 取不到价记 `price_unavailable` 事件,不写假价;实时价源缺「数据日期」列或日期不是今天(逐行校验)同样返回空,不写假价。
+- 同日重跑:第一笔 provisional 卖出成交写入后该持仓 `closed=1`,重跑扫不到(`positions=0`),天然不会产生第二条有效卖出;
+  结算复核再用 `prev_fill_id` supersede 最新一条有效卖出(见阶段 4 ③)。
 
 ### 阶段 4:settle(D+10 22:45) — 复核买入 + 收盘结算
 
@@ -111,9 +115,10 @@ $PY scripts/sim_trade_trigger.py --stage settle --date 20261204 \
   --db $DB --data-dir $DATA --etf-db $ETF --trade-dates $DATES --log-dir data/logs
 ```
 
-- ①当天有买入的执行日:用 etf_daily 官方开盘价追加 confirmed 买入成交;
-- ②当天是 D+10:用收盘价追加 confirmed 卖出成交,`net = 10000 + 该口径利润`。
-- 幂等:同一天重跑 `buy_confirmed=0 sell_settled=0`。
+- ①**补写漏跑买入**:对 `exec_date <= 结算日` 且没有任何有效买入成交的信号,用 etf_daily **该执行日**官方开盘价追加 confirmed 买入(缺 order 一并补建;取不到价记 `fill_failed`,绝不编价)。这条兜住 09:50 取价失败 / timer 漏跑 / 机器不在线 / 隔日手动补,交易不会永久丢失。
+- ②**复核过期 provisional**:对 `exec_date <= 结算日` 仍有有效 provisional 买入的信号,同样用该执行日官方开盘价追加 confirmed 并 supersede 旧行(不再要求复核当天恰好跑到)。
+- ③当天是 D+10:用收盘价追加 confirmed 卖出成交,`net = 10000 + 该口径利润`;无有效买入成交的持仓拒绝结算(只记 `sell_skipped_no_fill`)。
+- 幂等:同一天重跑 `buy_confirmed=0 buy_backfilled=0 sell_settled=0`。
 
 ### 生产开关
 
@@ -141,6 +146,9 @@ $PY scripts/sim_trade_review.py --db /tmp/sim_page.db --caliber real --include-m
 
 - **一份账本只能装一种回填口径**(`signal_id` 不含费率档,混跑会被幂等吞掉一半行):脚本检测到其他口径的
   回填行会直接拒绝,要求换独立 `--db`。
+- **回填默认写 `/tmp/sim_trade_backfill.db`**(2026-11-21 F6):`data/sim_trade.db` 是 live 触发器专用账本,
+  回填必须显式 `--db` 指定;目标库里已有 live 信号(`source<>'backfill'`)时直接报错拒绝(防回填的
+  plan_hash 不同经 supersede 语义压掉实盘行)。
 - 2026-11-20 云上实测对账(云上数据 11-20 23:11 那批):
   - 页面卡口径:`n=586 / ret 144.7282% / dd 20.9296%`,与云上 `latest_posrating.json` K1 卡
     (144.7282 / 20.9296 / 586)**逐位一致**;
@@ -168,14 +176,31 @@ systemctl list-timers 'trade-sim-trade-*'
 ## 7. 机检闸门
 
 ```bash
-$PY scripts/check_sim_trade_append_only.py --scripts-dir .
+$PY scripts/check_sim_trade_append_only.py          # 默认扫脚本所在 scripts/ 目录
 ```
 
-三层检查:①静态扫 `scripts/**/*.py` 里的 `UPDATE sim_trade_*` / `DELETE FROM sim_trade_*` /
-`INSERT OR REPLACE ... sim_trade_*`(跳过触发器 DDL 和文档字符串);②结构检查(8 触发器 + `PRAGMA integrity_check`);
-③临时库动态实测(4 表 × UPDATE/DELETE + REPLACE 必须全部 ABORT,行数不变)。任一不过 `pass=false` 非零退出。
+三层检查:①静态扫 `scripts/sim_trade_*.py` 里的 `UPDATE sim_trade_*` / `DELETE FROM sim_trade_*` /
+`INSERT OR REPLACE ... sim_trade_*`(跳过触发器 DDL 和文档字符串;**扫描范围只认 `sim_trade_*.py`,不是全仓
+`scripts/**/*.py`;目录里 0 个目标文件直接 FAIL**——`--scripts-dir` 指错目录时会当场报错,不再空转假绿);
+②结构检查(8 触发器 + `PRAGMA integrity_check`);③临时库动态实测(4 表 × UPDATE/DELETE + REPLACE 必须全部
+ABORT,行数不变)。任一不过 `pass=false` 非零退出。
 
 ## 8. 回滚
 
 本阶段没有安装任何定时任务、没有改生产数据、没有接通知,回滚 = 不合并分支即可。
 账本库是独立文件(`data/sim_trade.db`),删掉重建不影响任何既有数据(删除前按 §25 先备份)。
+
+## 9. 已知限制(第一阶段,装 timer 前必读)
+
+1. **timer 全部 `Persistent=false`**:机器休眠/关机/重启错过的时点不会自动补跑。
+   - 买入侧已由 settle 兜住:settle 会把 `exec_date <= 结算日` 的缺失买入按 etf_daily 官方开盘价补写,
+     过期 provisional 也补成 confirmed;但**前提是之后至少跑过一次 settle**。
+   - 卖出侧仍只认 `sell_due_date` 当天:漏了卖出日的 settle 需要手动
+     `--stage sell_order --date <该卖出日>` / `--stage settle --date <该卖出日>` 重跑。
+   - 装 timer 时再评估是否加「缺日巡检」(检查每个交易日的 signal/buy_fill/settle 是否都有运行事件);
+     本次不安装 timer,也不改 `Persistent`(开机晚跑会用盘中任意价冒充 09:30 开盘价,方向是错的)。
+2. **实时价边界**:盘中真实抓价(`_fetch_intraday_open_prices` / 东财 spot)本阶段只用合成数据测过,
+   还没有一次真实盘中实跑;装 timer 前必须补一次真实取价验证。
+3. **裸 `sqlite3.connect` 绕过 append-only**:见 §2 已知限制,所有读写必须走 `db.connect()` / `db.init_db()`。
+4. **K>1 扩展待办**:signal 的 supersede 目前只按 `exec_date` 查、不含 `etf_code`;K=1 阶段不触发,
+   但启用 K>1 前必须补 `etf_code` 条件 + 多标的测试。
