@@ -1,0 +1,14 @@
+[Unit]
+Description=Sim trade ledger: freeze tomorrow's buy signals (T 22:45)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+
+[Timer]
+# 信号日 22:45: 当天收盘数据与 nextday_plan.json 已生成(盘后任务 22:00 之后)
+OnCalendar=Mon..Fri *-*-* 22:45:00
+AccuracySec=30s
+# 故意不补跑: 补跑昨天的信号定格毫无意义, 还会让 exec_date 错位
+Persistent=false
+Unit=trade-sim-trade@signal.service
+
+[Install]
+WantedBy=timers.target

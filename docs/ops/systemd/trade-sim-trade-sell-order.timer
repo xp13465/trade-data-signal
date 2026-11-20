@@ -1,0 +1,13 @@
+[Unit]
+Description=Sim trade ledger: record 14:55 real-time sell orders (due day)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+
+[Timer]
+# 卖出日 14:55: 尾盘 5 分钟前的实时价, 与 D+10 收盘结算分列两条成交
+OnCalendar=Mon..Fri *-*-* 14:55:00
+AccuracySec=30s
+Persistent=false
+Unit=trade-sim-trade@sell_order.service
+
+[Install]
+WantedBy=timers.target

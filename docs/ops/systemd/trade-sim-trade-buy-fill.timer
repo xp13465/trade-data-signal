@@ -1,0 +1,13 @@
+[Unit]
+Description=Sim trade ledger: record real buy fills (exec day 09:50)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+
+[Timer]
+# 执行日 09:50: 开盘 20 分钟后取开盘价, 避开 09:30 集合竞价
+OnCalendar=Mon..Fri *-*-* 09:50:00
+AccuracySec=30s
+Persistent=false
+Unit=trade-sim-trade@buy_fill.service
+
+[Install]
+WantedBy=timers.target

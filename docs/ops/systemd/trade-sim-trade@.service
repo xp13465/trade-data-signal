@@ -1,0 +1,22 @@
+[Unit]
+Description=Sim trade ledger stage %i (A mode signal-triggered paper trading)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=SIM_TRADE_ENABLED=1
+Environment=TZ=Asia/Shanghai
+Environment=PYTHONUNBUFFERED=1
+# 业务日期统一取当天(北京时间)。非交易日执行 = 空跑: 无待定格信号 / 无到期持仓, 不写任何行。
+# 生产开关 SIM_TRADE_ENABLED=1 必须显式给, 缺省等于关闭写库。
+ExecStart=/bin/sh -c 'exec /usr/bin/python3 /home/ubuntu/code/trade-data-signal/scripts/sim_trade_trigger.py --stage %i --date $(date +%%Y%%m%%d) --db /home/ubuntu/code/trade-data/data/sim_trade.db --data-dir /home/ubuntu/code/trade-data/static-site/data --etf-db /home/ubuntu/code/trade-data/data/etf_national_team.db --trade-dates /home/ubuntu/code/trade-data/data/trade_dates.txt --log-dir /home/ubuntu/code/trade-data/data/logs'
+TimeoutStartSec=600
+Nice=10
+Restart=no
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/sim_trade_systemd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/sim_trade_systemd.log

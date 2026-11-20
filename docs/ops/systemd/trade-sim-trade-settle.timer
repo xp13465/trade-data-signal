@@ -1,0 +1,13 @@
+[Unit]
+Description=Sim trade ledger: confirm buy fills + settle D+10 close (22:50)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+
+[Timer]
+# 22:50: 在 signal(22:45) 之后, 避免同库并发写竞争; 仍在 23:00 安全窗口之前
+OnCalendar=Mon..Fri *-*-* 22:50:00
+AccuracySec=30s
+Persistent=false
+Unit=trade-sim-trade@settle.service
+
+[Install]
+WantedBy=timers.target
