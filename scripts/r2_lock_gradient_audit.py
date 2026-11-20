@@ -118,6 +118,8 @@ SITES = [
     ("scripts/update_all.sh", "fund score", "fund_score", 600, None, "trade-update-all.service", 'R2_UPLOAD_LOCK_DOMAIN=fund_score R2_UPLOAD_LOCK_TIMEOUT=600'),
     ("scripts/kelly_intraday_rerun.sh", "盘中增量档", "data", 400, None, "trade-kelly-intraday-rerun.service", 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=400'),
     ("scripts/push_schedule_stats.sh", "schedule_stats", "data", 120, None, None, 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=120'),
+    # 模拟交易账本展示层: 22:55 只发布 simtrade.json 一个文件, 外层 unit TimeoutStartSec=300。
+    ("scripts/simtrade_export_publish.sh", "simtrade.json(顶层 data)", "data", 180, None, "trade-simtrade-export.service", 'R2_UPLOAD_LOCK_DOMAIN=data R2_UPLOAD_LOCK_TIMEOUT=180'),
     # ── Python 调用方(subprocess timeout = 内层预算) ──
     ("scripts/fetch_news.py", "news_digest 归档", "data", 120, 180, "trade-fetch-news.service", 'R2_UPLOAD_LOCK_TIMEOUT"] = "120"'),
     ("scripts/gen_daily_brief.py", "daily brief", "data", 80, 120, "trade-daily-brief.service", 'R2_UPLOAD_LOCK_TIMEOUT"] = "80"'),

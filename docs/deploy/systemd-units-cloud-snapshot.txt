@@ -699,6 +699,28 @@ EnvironmentFile=/home/ubuntu/code/trade-data/.env
 TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.err
+@@@FILE:trade-simtrade-export.service
+[Unit]
+Description=Sim trade ledger: export simtrade.json + publish to R2 data/ (22:55)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+After=network-online.target trade-sim-trade@settle.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=TZ=Asia/Shanghai
+Environment=PYTHONUNBUFFERED=1
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=CODE=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/simtrade_export_publish.sh
+TimeoutStartSec=300
+Nice=10
+Restart=no
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/simtrade_export.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/simtrade_export.log
 @@@FILE:trade-turnover-backfill.service
 [Unit]
 Description=Trade turnover-backfill (源 com.trade.turnover-backfill)
@@ -1205,6 +1227,18 @@ Description=Trade self-heal every 15min :07/:22/:37/:52 (源 com.trade.self-heal
 [Timer]
 OnCalendar=*-*-* *:07,22,37,52:00
 Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-simtrade-export.timer
+[Unit]
+Description=Sim trade ledger: daily export to admin workbench (22:55)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 22:55:00
+AccuracySec=30s
+Persistent=false
+Unit=trade-simtrade-export.service
 
 [Install]
 WantedBy=timers.target
