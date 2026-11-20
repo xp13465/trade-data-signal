@@ -1,0 +1,22 @@
+[Unit]
+Description=Sim trade ledger: export simtrade.json + publish to R2 data/ (22:55)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+After=network-online.target trade-sim-trade@settle.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=TZ=Asia/Shanghai
+Environment=PYTHONUNBUFFERED=1
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=CODE=/home/ubuntu/code/trade-data-signal
+# 只导出 simtrade.json 一个文件并走 upload-data-files(data/ 前缀), 不跑全量 export/deploy, 不推 main。
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/simtrade_export_publish.sh
+TimeoutStartSec=300
+Nice=10
+Restart=no
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/simtrade_export.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/simtrade_export.log

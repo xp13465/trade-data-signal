@@ -158,6 +158,9 @@ $PY scripts/sim_trade_review.py --db /tmp/sim_page.db --caliber real --include-m
 
 ## 6. systemd 单元样本(只放文档,本阶段不安装)
 
+> 2026-11-21 更新:4 个账本 timer 已在云上安装(signal/buy_fill/sell_order/settle,见安装报告);
+> 展示层 export timer 见 §10,样本同目录。
+
 放 `docs/ops/systemd/` 下的 5 个文件:`trade-sim-trade@.service` + 4 个 `.timer`。
 安装前必须先核当天定时任务清单(§14),并确认账本路径、`SIM_TRADE_ENABLED=1`、日志目录权限。
 安装示例(明确要用户拍板后才做):
@@ -204,3 +207,34 @@ ABORT,行数不变)。任一不过 `pass=false` 非零退出。
 3. **裸 `sqlite3.connect` 绕过 append-only**:见 §2 已知限制,所有读写必须走 `db.connect()` / `db.init_db()`。
 4. **K>1 扩展待办**:signal 的 supersede 目前只按 `exec_date` 查、不含 `etf_code`;K=1 阶段不触发,
    但启用 K>1 前必须补 `etf_code` 条件 + 多标的测试。
+
+## 10. 展示层:admin 私有工作台「模拟交易」tab(2026-11-21)
+
+用户需求原话:「要做到 admin/* 菜单里 给我看」。展示层只读公开静态产物,不新增私有接口、不改 4 个账本 timer。
+
+数据链路:
+
+```
+data/sim_trade.db(append-only 账本)
+  -> scripts/export_sim_trade.py(只读, 走 db.connect, 原子写)
+  -> static-site/data/simtrade.json(公开静态产物)
+  -> upload_r2.py upload-data-files simtrade.json(R2 data/ 前缀 + purge)
+  -> admin/ops.html 第 7 个 tab「模拟交易」(admin/ops.js 渲染)
+```
+
+- **导出脚本** `scripts/export_sim_trade.py`:持仓(有有效买入未平仓;最新价读 etf_daily)、
+  成交流水(近 200 条,费用/滑点按 fee_config.real 段)、累计双口径(直接复用
+  `sim_trade_review.review`,calc/real 分开不混算)、运行状态(最近 3 个业务日四阶段,
+  取 `sim_trade_event` 的 `trigger_run` + 每日 JSONL 日志)、可选回填对照(`--backfill-db`)。
+  空库/账本未建立也写合法 JSON(`source.status=missing/empty` + 空数组),前端不白屏。
+- **发布脚本** `scripts/simtrade_export_publish.sh`:导出后只上传 `simtrade.json` 一个文件,
+  **不跑全量 export/deploy、不推 main**。
+- **定时** `docs/ops/systemd/trade-simtrade-export.{service,timer}`:交易日 22:55(settle 22:50 之后),
+  `Persistent=false`。手动补跑:`REPO=/home/ubuntu/code/trade-data CODE=/home/ubuntu/code/trade-data-signal bash scripts/simtrade_export_publish.sh`。
+- **前端** `static-site/admin/ops.html` 导航新增 `data-tab="simtrade"`;`ops.js` 的 `loadSimTrade()`
+  取 `/data/simtrade.json`(404 按「账本运行中,暂无记录」处理,不进全局错误条)。
+  四个区块:当前持仓 / 成交流水 / 累计指标双口径 / 每日运行状态;回填对照未配置时显示原因。
+- **测试**:`python -m pytest -q scripts/tests/test_export_sim_trade.py`(空库/原子写/双口径与
+  review 逐字段一致/运行状态合并);前端 `node --check static-site/admin/ops.js` + 浏览器冒烟。
+- **回滚**:删 `trade-simtrade-export.timer/service` + daemon-reload 即停止每日导出;
+  已生成的 `simtrade.json` 可删(公开产物,不影响账本),前端 tab 退化为空态。

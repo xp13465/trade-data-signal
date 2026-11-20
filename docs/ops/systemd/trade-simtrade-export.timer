@@ -1,0 +1,13 @@
+[Unit]
+Description=Sim trade ledger: daily export to admin workbench (22:55)
+
+[Timer]
+# 22:55: settle(22:50) 之后, 账本当天结算结果已写入; 不推 main, 只上传 R2 data/ 前缀。
+OnCalendar=Mon..Fri *-*-* 22:55:00
+AccuracySec=30s
+# 不补跑: 错过时点就等下一次, export 是幂等只读快照, 手动补跑用同一脚本。
+Persistent=false
+Unit=trade-simtrade-export.service
+
+[Install]
+WantedBy=timers.target

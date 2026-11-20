@@ -460,7 +460,7 @@ docs/kelly/             # 凯利回测专题文档子目录（2026-08-14 按主�
 
 ## 📡 监控与告警
 
-- **运行架构知识库与私有运维工作台**：[统一入口](docs/ops/architecture/README.md)收录服务、计划任务、数据血缘、发布与告警链路、运行手册及近期问题；[在线工作台实现](docs/ops/architecture/12-online-operations.md)提供只读持续采集、管理员面板、状态历史、问题修订审计和独立失联检查。面板入口 `/admin/ops.html`，私有状态使用专用 OPS_DB；默认只通知采集失联/恢复，业务告警继续走原链。[部署与回滚](ops/monitoring/DEPLOY.md)由 Claude 审核合并后执行，不能把代码已完成当作已生产启用。
+- **运行架构知识库与私有运维工作台**：[统一入口](docs/ops/architecture/README.md)收录服务、计划任务、数据血缘、发布与告警链路、运行手册及近期问题；[在线工作台实现](docs/ops/architecture/12-online-operations.md)提供只读持续采集、管理员面板、状态历史、问题修订审计和独立失联检查。面板入口 `/admin/ops.html`，私有状态使用专用 OPS_DB；工作台另有「模拟交易」tab，展示 A 模式信号触发的模拟账本（当前持仓、成交流水、calc/real 双口径累计、每日四阶段运行状态），数据由 `scripts/export_sim_trade.py` 导出为 `static-site/data/simtrade.json` 后发布；默认只通知采集失联/恢复，业务告警继续走原链。[部署与回滚](ops/monitoring/DEPLOY.md)由 Claude 审核合并后执行，不能把代码已完成当作已生产启用。
   - [告警与监控接管记录](docs/codex-reviews/cloud-alert-closeout-20261108.md)：正文分类、turnover专属发布范围、15分钟采样候选和真实首样的验证边界。
 
 - **schedule_monitor**：定时任务状态监控（云上 systemd timer 触发，异常自动发邮件，告警去重，15min 周期不轰炸）

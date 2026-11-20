@@ -3,7 +3,7 @@
   'use strict';
 
   const $ = id => document.getElementById(id);
-  const TITLES = { overview: ['概览', '运行概览', '把当前观察与历史证据分开看。'], services: ['服务与定时器', '服务与定时器', '看执行状态，也保留业务健康的未知。'], data: ['数据与发布', '数据与交付', '数据、发布、备份和资源，各自按证据对账。'], architecture: ['架构与知识库', '架构与知识库', '从版本化目录导航到依赖、合同和来源。'], incidents: ['问题与跟进', '问题与跟进', '修复、根因、部署、验收与观察，分轴记录。'], history: ['采集与事件', '采集与事件', '区分检查变化、恢复事件与实际投递。'] };
+  const TITLES = { overview: ['概览', '运行概览', '把当前观察与历史证据分开看。'], services: ['服务与定时器', '服务与定时器', '看执行状态，也保留业务健康的未知。'], data: ['数据与发布', '数据与交付', '数据、发布、备份和资源，各自按证据对账。'], architecture: ['架构与知识库', '架构与知识库', '从版本化目录导航到依赖、合同和来源。'], incidents: ['问题与跟进', '问题与跟进', '修复、根因、部署、验收与观察，分轴记录。'], history: ['采集与事件', '采集与事件', '区分检查变化、恢复事件与实际投递。'], simtrade: ['模拟交易', '模拟交易账本', 'A 模式信号触发的模拟成交、持仓与双口径复盘。'] };
   const GROUPS = { pending_review: '待复核', investigating: '调查', repair_pending: '修复', awaiting_verification: '待验', observing: '观察', scoped_verified: '已限定验收', not_replayable: '不可回放', mixed_historical_disposition: '混合历史处置' };
   const WORKFLOW = { unknown: '未知', open: '待处理', investigating: '调查中', repairing: '修复中', in_progress: '处理中', blocked: '受阻', verification: '待验', observing: '观察中', closed: '已关闭（有证据）', accepted_risk: '已接受风险', not_replayable: '不可回放' };
   const VERIFICATION = { unknown: '未知', unverified: '未验证', pending: '待验证', failed: '验证失败', scoped_pass: '限定通过', verified: '已验证', passed: '通过' };
@@ -71,7 +71,8 @@
     timer: null, paused: false, interval: 30000, view: 'overview', query: '', status: 'all',
     data: {}, errors: {}, records: [], recordMap: new Map(), incidents: [], revisions: [],
     graphFocus: null, selectedRecord: null, edit: null, saving: false, exporting: false, trendDays: 30,
-    serverOffset: 0, lastUpdated: null, hasStateError: false, toastTimer: null, exportURLs: new Set()
+    serverOffset: 0, lastUpdated: null, hasStateError: false, toastTimer: null, exportURLs: new Set(),
+    simtrade: null, simtradeError: ''
   };
 
   function node(tag, className, text) {
@@ -192,6 +193,7 @@
     state.records = []; state.recordMap.clear(); state.incidents = []; state.revisions = [];
     state.graphFocus = null; state.selectedRecord = null; state.edit = null; state.saving = false;
     state.hasStateError = false; state.lastUpdated = null; state.serverOffset = 0;
+    state.simtrade = null; state.simtradeError = '';
     for (const url of state.exportURLs) URL.revokeObjectURL(url); state.exportURLs.clear();
     document.querySelectorAll('.private-content').forEach(n => n.replaceChildren());
     for (const id of ['detail-dialog', 'edit-dialog']) if ($(id).open) $(id).close();
@@ -267,16 +269,36 @@
     [...groups].sort().forEach(k => $('incident-group').add(new Option(groupLabel(k), k)));
     $('incident-group').value = [...$('incident-group').options].some(o => o.value === old) ? old : 'all';
   }
+  // 模拟交易账本是公开静态产物(static-site/data/simtrade.json), 不走 /api/ops 私有接口。
+  // 文件尚未生成(404)按「账本运行中, 暂无记录」处理, 不进全局错误条, 不影响私有面板。
+  async function loadSimTrade(signal) {
+    const requestEpoch = state.epoch;
+    try {
+      const response = await fetch('/data/simtrade.json', { cache: 'no-store', credentials: 'same-origin', mode: 'same-origin', signal });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const payload = await response.json();
+      if (state.epoch !== requestEpoch) return;
+      state.simtrade = object(payload) ? payload : null;
+      state.simtradeError = state.simtrade ? '' : '返回内容不是合法 JSON 对象';
+    } catch (error) {
+      if (error?.name === 'AbortError' || state.epoch !== requestEpoch) return;
+      state.simtrade = null;
+      state.simtradeError = error?.message === 'HTTP 404' ? '数据尚未生成，等待首次导出' : '数据读取失败（' + (error?.message || '未知') + '）';
+    }
+  }
+
   async function refresh(forceKnowledge = false) {
     if (state.job || state.locked || state.saving) return;
     clearTimer();
     const job = { controller: new AbortController(), seq: ++state.loadSeq, epoch: state.epoch };
     state.job = job; setBusy();
+    const simtradeJob = loadSimTrade(job.controller.signal);
     const paths = { benefits: '/api/ops/benefits' + (state.benefitCursor ? '?study_after=' + encodeURIComponent(state.benefitCursor) : ''), state: '/api/ops/state', history: '/api/ops/history?limit=60', trend: '/api/ops/alert-daily?days=' + state.trendDays, events: '/api/ops/events?limit=100', incidents: '/api/ops/incidents' };
     if (!state.data.knowledge || forceKnowledge) paths.knowledge = '/api/ops/knowledge';
     const keys = Object.keys(paths);
     try {
       const results = await Promise.allSettled(keys.map(key => request(paths[key], {}, job.controller.signal)));
+      await simtradeJob;
       if (state.epoch !== job.epoch || state.loadSeq !== job.seq) return;
       const stateResult = results[keys.indexOf('state')];
       if (!state.authorized && stateResult.status !== 'fulfilled') {
@@ -720,6 +742,106 @@
     renderGraph();
   }
 
+  function renderSimTrade() {
+    const d = state.simtrade;
+    const money = value => value !== null && value !== undefined && Number.isFinite(Number(value)) ? Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '—';
+    const pct = value => value !== null && value !== undefined && Number.isFinite(Number(value)) ? Number(value).toFixed(2) + '%' : '—';
+    const signed = value => value !== null && value !== undefined && Number.isFinite(Number(value)) ? (Number(value) > 0 ? '+' : '') + money(value) : '—';
+    const meta = $('simtrade-meta');
+    if (!d) {
+      meta.replaceChildren(empty('账本运行中，暂无记录', state.simtradeError || '等待首次导出'));
+      ['positions', 'trades', 'summary', 'runs', 'backfill'].forEach(key => $('simtrade-' + key).replaceChildren());
+      return;
+    }
+    const src = object(d.source) ? d.source : {};
+    const status = src.status === 'ok' ? badge('ok', '账本可读') : src.status === 'error' ? badge('critical', '账本异常') : badge('warning', '等待数据');
+    meta.replaceChildren(append(node('div', 'baseline-meta'), status,
+      node('span', 'small muted', '生成时间：' + fullTime(d.generated_at)),
+      node('span', 'small muted', '账本：' + text(src.db)),
+      node('span', 'small muted', '流水总数 ' + text(d.trade_meta?.total) + ' 条')));
+    if (src.note) meta.append(node('p', 'small muted', src.note));
+
+    const positions = list(d.positions);
+    const positionRows = positions.map(p => {
+      const name = append(node('div'), node('span', 'mono', p.etf_code || 'unknown'), node('span', 'small muted', p.etf_name || ''));
+      const price = p.latest_price !== null && p.latest_price !== undefined
+        ? append(node('div'), node('span', '', money(p.latest_price)), node('span', 'small muted', p.latest_date || ''))
+        : node('span', 'muted', '价格未取到');
+      const profit = p.profit === null || p.profit === undefined
+        ? node('span', 'muted', '待最新价')
+        : append(node('div'), node('span', p.profit < 0 ? 'error-text' : 'success-text', signed(p.profit)), node('span', 'small muted', pct(p.profit_pct)));
+      return [name, p.buy_date || 'unknown', money(p.buy_price), money(p.shares), price, money(p.market_value), profit, p.sell_due_date || 'unknown'];
+    });
+    $('simtrade-positions').replaceChildren(table(['标的', '买入日', '成本价', '份额', '最新价', '市值', '浮动盈亏', '到期卖出日'], positionRows, '当前没有未平仓持仓'));
+
+    const tradeRows = list(d.trades).map(t => {
+      const name = append(node('div'), node('span', 'mono', t.etf_code || 'unknown'), node('span', 'small muted', t.etf_name || ''));
+      const statusCell = t.status === 'confirmed' ? badge('ok', '已确认') : badge('warning', '临时待复核');
+      const slip = t.slippage_est === null || t.slippage_est === undefined ? '—' : money(t.slippage_est) + '（按费率档估算）';
+      return [t.fill_date || 'unknown', t.side === 'buy' ? '买入' : '卖出', name, money(t.price), money(t.shares), money(t.fee), slip, statusCell];
+    });
+    $('simtrade-trades').replaceChildren(table(['成交日', '方向', '标的', '价格', '份额', '费用', '滑点估算', '状态'], tradeRows, '账本运行中，暂无记录'));
+
+    const summaryHost = $('simtrade-summary');
+    summaryHost.replaceChildren();
+    const summary = object(d.summary) ? d.summary : null;
+    if (!summary) summaryHost.append(empty('账本运行中，暂无记录', '累计指标尚未生成'));
+    else {
+      const grid = node('div', 'overview-grid');
+      [['calc', '回测等价口径（calc）', '回测费率与分数份额，用于和回测锚点对账'],
+       ['real', '真实可执行口径（real）', '真实费率与 100 份整手，实际可执行盈亏']].forEach(([key, title, foot]) => {
+        const s = object(summary[key]) ? summary[key] : null;
+        const panel = node('section', 'panel');
+        append(panel, node('h2', '', title), node('p', 'small muted', foot + '；只计已平仓，未平仓估值标记不计入。'));
+        if (s) {
+          const m = node('div', 'metrics');
+          append(m, metric('已平仓笔数', text(s.n), '信号总数 ' + text(s.n_total_signals)),
+            metric('总盈亏', signed(s.total_profit), '元', Number(s.total_profit) < 0 ? 'bad' : ''),
+            metric('胜率', pct(s.win_rate), '盈利笔数占比'),
+            metric('峰值资金收益率', pct(s.rmh), '总盈亏 / 峰值占用资金', 'accent'),
+            metric('最大回撤', pct(s.dd_pct), '相对峰值占用资金'));
+          panel.append(m);
+        } else panel.append(empty('尚未计算'));
+        grid.append(panel);
+      });
+      summaryHost.append(grid);
+      const counts = object(summary.counts) ? summary.counts : {};
+      summaryHost.append(node('p', 'count-note', '信号 ' + text(counts.signals) + ' · 已平仓 ' + text(counts.closed) + ' · 未平仓 ' + text(counts.open) + ' · 无成交 ' + text(counts.no_fill)));
+    }
+
+    const stageCell = st => {
+      if (!st || !st.ran) return badge('unknown', '未跑');
+      const parts = [badge('ok', '已跑')];
+      if (st.inserted !== null && st.inserted !== undefined || st.ignored !== null && st.ignored !== undefined) {
+        parts.push(node('span', 'small muted', '写入 ' + (st.inserted === null || st.inserted === undefined ? '—' : st.inserted) + ' / 忽略 ' + (st.ignored === null || st.ignored === undefined ? '—' : st.ignored)));
+      }
+      return append(node('div'), ...parts);
+    };
+    const runs = list(d.runs);
+    const runRows = runs.map(r => [r.date, ...list(r.stages).map(stageCell)]);
+    $('simtrade-runs').replaceChildren(runs.length
+      ? table(['业务日', '信号 22:45', '买入 09:50', '卖出 14:55', '结算 22:45'], runRows, '最近 3 天没有运行记录')
+      : empty('账本运行中，暂无记录', '最近 3 天没有四阶段运行记录'));
+
+    const backfill = object(d.backfill) ? d.backfill : {};
+    const backfillHost = $('simtrade-backfill');
+    if (!backfill.available) {
+      backfillHost.replaceChildren(empty('未配置回填对照', backfill.reason || '设置 --backfill-db 后显示 K=1 页面卡口径累计指标。'));
+    } else {
+      const grid = node('div', 'overview-grid');
+      [['calc', '回填 · 回测等价口径'], ['real', '回填 · 真实口径']].forEach(([key, title]) => {
+        const s = object(backfill[key]) ? backfill[key] : {};
+        const panel = node('section', 'panel');
+        append(panel, node('h2', '', title), pairs([
+          ['笔数 n', text(s.n)], ['总盈亏', signed(s.total_profit) + ' 元'],
+          ['峰值资金收益率', pct(s.rmh)], ['最大回撤', pct(s.dd_pct)],
+        ]));
+        grid.append(panel);
+      });
+      backfillHost.replaceChildren(node('p', 'small muted', backfill.note || ''), grid);
+    }
+  }
+
   function renderAll() {
     if (!state.authorized) return;
     updateHeader();
@@ -738,6 +860,7 @@
       case 'architecture': renderKnowledge(); break;
       case 'incidents': renderIncidents(); break;
       case 'history': renderHistory(); break;
+      case 'simtrade': renderSimTrade(); break;
     }
     setBusy();
   }

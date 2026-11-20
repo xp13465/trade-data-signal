@@ -44,6 +44,7 @@
         <button data-tab="architecture" class="nav-item"><span aria-hidden="true">⌘</span>架构与知识库</button>
         <button data-tab="incidents" class="nav-item"><span aria-hidden="true">☷</span>问题与跟进</button>
         <button data-tab="history" class="nav-item"><span aria-hidden="true">◷</span>采集与事件</button>
+        <button data-tab="simtrade" class="nav-item"><span aria-hidden="true">⇄</span>模拟交易</button>
       </nav>
       <div class="sidebar-note"><span class="private-dot"></span> 私有管理员视图<p>运行态 ≠ 业务健康<br>交接完成 ≠ 根因关闭</p></div>
     </aside>
@@ -95,6 +96,19 @@
           <div id="alert-trend" class="private-content"></div>
           <div class="section-heading"><h2>告警事件与投递</h2><select id="delivery-filter" aria-label="投递状态"><option value="all">全部投递</option><option value="sent">已投递</option><option value="pending">待投递 / 重试</option><option value="failed">投递失败</option><option value="suppressed">按策略不投递</option><option value="disabled">投递未启用</option><option value="unknown">投递未知</option></select></div>
           <p class="small muted">事件按状态变化记录；重复投递可能发生，不能视为严格只投递一次。未知与过期不代表恢复。</p><div id="events-content" class="private-content"></div>
+        </section>
+        <section id="view-simtrade" class="view" aria-label="模拟交易" hidden>
+          <div id="simtrade-meta" class="private-content"></div>
+          <div class="section-heading"><h2>当前持仓</h2><span class="small muted">有有效买入、尚未平仓；最新价来自 etf_daily</span></div>
+          <div id="simtrade-positions" class="private-content"></div>
+          <div class="section-heading"><h2>成交流水</h2><span class="small muted">近 200 条有效买卖成交；不含未平仓估值标记</span></div>
+          <div id="simtrade-trades" class="private-content"></div>
+          <div class="section-heading"><h2>累计指标 · 双口径</h2><span class="small muted">回测等价口径与真实可执行口径分开，不混算</span></div>
+          <div id="simtrade-summary" class="private-content"></div>
+          <div class="section-heading"><h2>每日运行状态</h2><span class="small muted">最近 3 个业务日的四阶段：信号 / 买入 / 卖出 / 结算</span></div>
+          <div id="simtrade-runs" class="private-content"></div>
+          <div class="section-heading"><h2>回填全史对照</h2><span class="small muted">K=1 页面卡口径；与 live 账本分开计算</span></div>
+          <div id="simtrade-backfill" class="private-content"></div>
         </section>
         <footer class="page-footer">只读观察与人工跟进 · unknown 保留未知 · 时间统一显示为北京时间</footer>
       </main>
