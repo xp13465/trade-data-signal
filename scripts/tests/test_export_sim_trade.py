@@ -92,7 +92,8 @@ def _seed(path: Path):
 def test_missing_db_still_writes_legal_json(tmp_path):
     out = tmp_path / "simtrade.json"
     code = exp.main(["--db", str(tmp_path / "nope.db"), "--out", str(out),
-                     "--log-dir", str(tmp_path / "logs")])
+                     "--log-dir", str(tmp_path / "logs"),
+                     "--etf-db", str(tmp_path / "no-etf.db")])
     assert code == 0
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["source"]["status"] == "missing"
@@ -106,7 +107,9 @@ def test_empty_db_file_reports_empty(tmp_path):
     blank = tmp_path / "blank.db"
     blank.write_bytes(b"")
     out = tmp_path / "simtrade.json"
-    code = exp.main(["--db", str(blank), "--out", str(out)])
+    code = exp.main(["--db", str(blank), "--out", str(out),
+                     "--etf-db", str(tmp_path / "no-etf.db"),
+                     "--log-dir", str(tmp_path / "logs")])
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["source"]["status"] == "empty"
     assert code == 0  # empty = 正常空态, 不许当失败
@@ -117,7 +120,9 @@ def test_corrupt_db_reports_error_not_empty(tmp_path):
     bad = tmp_path / "bad.db"
     bad.write_bytes(b"not a sqlite database")
     out = tmp_path / "simtrade.json"
-    code = exp.main(["--db", str(bad), "--out", str(out)])
+    code = exp.main(["--db", str(bad), "--out", str(out),
+                     "--etf-db", str(tmp_path / "no-etf.db"),
+                     "--log-dir", str(tmp_path / "logs")])
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["source"]["status"] == "error"
     assert code == 2  # D5: 账本坏了必须非零退出, 发布脚本/systemd 才能记 failed 发告警
@@ -127,7 +132,9 @@ def test_corrupt_db_reports_error_not_empty(tmp_path):
 
 def test_atomic_write_leaves_no_tmp(tmp_path):
     out = tmp_path / "simtrade.json"
-    exp.main(["--db", str(tmp_path / "nope.db"), "--out", str(out)])
+    exp.main(["--db", str(tmp_path / "nope.db"), "--out", str(out),
+              "--etf-db", str(tmp_path / "no-etf.db"),
+              "--log-dir", str(tmp_path / "logs")])
     assert out.exists()
     assert not list(tmp_path.glob("*.tmp"))
 
@@ -136,7 +143,11 @@ def test_seeded_ledger_sections_and_review_consistency(tmp_path):
     ledger = tmp_path / "sim.db"
     _seed(ledger)
     out = tmp_path / "simtrade.json"
-    exp.main(["--db", str(ledger), "--out", str(out), "--log-dir", str(tmp_path / "logs")])
+    # 显式钉死价源 + 日志目录: 用例不依赖运行目录里恰好有没有 data/etf_national_team.db
+    # 或 data/logs(生产发布脚本 simtrade_export_publish.sh 本来也是显式传的)。
+    # 历史上曾靠 CLI 隐式回退读该库 ⇒ 主仓(有库)取到真实价、干净 worktree 为 None, 红绿随环境漂移。
+    exp.main(["--db", str(ledger), "--out", str(out), "--log-dir", str(tmp_path / "logs"),
+              "--etf-db", str(tmp_path / "no-etf.db")])
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["source"]["status"] == "ok"
     # 持仓: 只有未平仓那一笔; 最新价无 etf 库时为空但不崩
@@ -190,7 +201,7 @@ def test_log_runs_and_backfill(tmp_path):
         json.dumps({"stage": "buy_fill", "inserted": 1, "ignored": 0}) + "\n", encoding="utf-8")
     out = tmp_path / "simtrade.json"
     exp.main(["--db", str(ledger), "--out", str(out), "--log-dir", str(logs),
-              "--backfill-db", str(ledger)])
+              "--backfill-db", str(ledger), "--etf-db", str(tmp_path / "no-etf.db")])
     payload = json.loads(out.read_text(encoding="utf-8"))
     dates = {r["date"]: r for r in payload["runs"]}
     assert "20260106" in dates
@@ -209,6 +220,26 @@ def _etf_db(path: Path, rows):
     con.close()
 
 
+def test_no_implicit_etf_price_fallback(tmp_path, monkeypatch):
+    """防重犯: 不传 --etf-db 时不得隐式读运行目录 ROOT/data/etf_national_team.db。
+
+    历史缺陷: main() 在该文件存在时自动取价 ⇒ 主仓(有库)取到真实价、干净 worktree 取不到,
+    同一用例红绿随运行环境漂移。用 monkeypatch 把 ROOT 指到 tmp_path 并放一个"诱饵" etf 库,
+    若隐式 fallback 复活, latest_price 会变成 4.152, 本用例必红(有判别力)。
+    """
+    ledger = tmp_path / "sim.db"
+    _seed(ledger)
+    decoy = tmp_path / "data" / "etf_national_team.db"
+    decoy.parent.mkdir()
+    _etf_db(decoy, [("510300", "20260121", 4.152)])
+    monkeypatch.setattr(exp, "ROOT", tmp_path)
+    out = tmp_path / "simtrade.json"
+    exp.main(["--db", str(ledger), "--out", str(out), "--log-dir", str(tmp_path / "logs")])
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["positions"][0]["latest_price"] is None
+    assert payload["positions"][0]["price_source"] == "unavailable"
+
+
 def test_open_position_latest_price_and_profit_from_etf_daily(tmp_path):
     """O9/D4: 未平仓估值分支(etf 最新价)锁死行为: 市值/浮盈/浮盈%。
 
@@ -220,7 +251,9 @@ def test_open_position_latest_price_and_profit_from_etf_daily(tmp_path):
     etf = tmp_path / "etf.db"
     _etf_db(etf, [("510300", "20260121", 4.25)])
     out = tmp_path / "simtrade.json"
-    exp.main(["--db", str(ledger), "--out", str(out), "--etf-db", str(etf)])
+    # 显式钉死价源 + 日志目录, 不依赖运行目录里的 data/ 是否恰好有库/日志
+    exp.main(["--db", str(ledger), "--out", str(out), "--etf-db", str(etf),
+              "--log-dir", str(tmp_path / "logs")])
     payload = json.loads(out.read_text(encoding="utf-8"))
     pos = next(p for p in payload["positions"] if p["etf_code"] == "510300")
     assert (pos["latest_price"], pos["latest_date"]) == (4.25, "20260121")
@@ -243,7 +276,8 @@ def test_open_position_mark_branch_uses_estimated_profit(tmp_path):
     out = tmp_path / "simtrade.json"
     # 显式给不存在的 etf 库 ⇒ 无最新价, price_source 落到 mark
     exp.main(["--db", str(ledger), "--out", str(out),
-              "--etf-db", str(tmp_path / "no-etf.db")])
+              "--etf-db", str(tmp_path / "no-etf.db"),
+              "--log-dir", str(tmp_path / "logs")])
     payload = json.loads(out.read_text(encoding="utf-8"))
     pos = next(p for p in payload["positions"] if p["etf_code"] == "510300")
     assert pos["price_source"] == "mark"
@@ -260,7 +294,9 @@ def test_output_has_no_absolute_server_path(tmp_path):
     ledger = tmp_path / "sim.db"
     _seed(ledger)
     out = tmp_path / "simtrade.json"
-    exp.main(["--db", str(ledger), "--out", str(out), "--backfill-db", str(ledger)])
+    exp.main(["--db", str(ledger), "--out", str(out), "--backfill-db", str(ledger),
+              "--etf-db", str(tmp_path / "no-etf.db"),
+              "--log-dir", str(tmp_path / "logs")])
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["source"]["db"] == "sim.db"
     assert payload["backfill"]["db"] == "sim.db"

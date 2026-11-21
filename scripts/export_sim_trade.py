@@ -19,7 +19,8 @@
 
 用法:
   python3 scripts/export_sim_trade.py --db data/sim_trade.db \
-      --out static-site/data/simtrade.json
+      --out static-site/data/simtrade.json \
+      --etf-db data/etf_national_team.db   # 不传则不取价: 未平仓最新价为空(不做隐式路径回退)
   python3 scripts/export_sim_trade.py --backfill-db /tmp/sim_trade_backfill.db
 """
 from __future__ import annotations
@@ -307,18 +308,13 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default=str(ROOT / "static-site" / "data" / "simtrade.json"))
     ap.add_argument("--backfill-db", default=None)
     ap.add_argument("--etf-db", default=None,
-                    help="etf_daily 库(取未平仓最新价); 缺省取 data/etf_national_team.db")
+                    help="etf_daily 库(取未平仓最新价); 不传则不取价(最新价为空), 不做隐式路径回退")
     ap.add_argument("--log-dir", default=str(ROOT / "data" / "logs"))
     ap.add_argument("--recent", type=int, default=200)
     args = ap.parse_args(argv)
 
-    etf_db = args.etf_db
-    if etf_db is None:
-        candidate = ROOT / "data" / "etf_national_team.db"
-        etf_db = str(candidate) if candidate.exists() else None
-
     payload = build_payload(args.db, args.out, args.backfill_db,
-                            args.log_dir, etf_db, args.recent)
+                            args.log_dir, args.etf_db, args.recent)
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     from util_atomic import atomic_write_json  # 与 export.py 同一原子写实现(同目录 fsync+replace)
