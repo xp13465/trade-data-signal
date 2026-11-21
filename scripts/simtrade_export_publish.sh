@@ -19,6 +19,9 @@ LOG="$REPO/data/logs/simtrade_export.log"
 mkdir -p "$(dirname "$LOG")" "$DATA"
 
 echo "[$(date '+%F %T')] simtrade export start" >> "$LOG"
+# export 退出码: 0 = ok/missing/empty(正常空态); 2 = 账本 error(损坏/读不了)。
+# 非零时不上传、直接 exit 1, 由 systemd 记 failed 触发告警; 线上保留上一份可信 JSON。
+
 if ! "$PY" "$CODE/scripts/export_sim_trade.py" \
     --db "$REPO/data/sim_trade.db" \
     --out "$DATA/simtrade.json" \

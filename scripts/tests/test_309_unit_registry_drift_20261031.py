@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """#309/#310 收尾 A: UNIT_REGISTRY 漂移机检单测(2026-10-31)。
 
-V1 现状: 43/43 无漂移。
+V1 现状: 47/47 无漂移(2026-11-21 登记模拟交易导出后)。
 V2 注入: 多/少一个 timer ⇒ FAIL 并明列差异。
 V3 main-merge 闸门: 走 check_drift() 入口, 漂移非零退出, 正常零退出。
 
@@ -30,13 +30,13 @@ def drift_mod(monkeypatch):
 
 
 def _real_set():
-    """取当前 43 个 .service 作为「真实集」基线(与登记表一致)。"""
+    """取当前 47 个 .service 作为「真实集」基线(与登记表一致)。"""
     import gen_schedule_stats as gss
     return {r["unit"] for r in gss.UNIT_REGISTRY if r["unit"].endswith(".service")}
 
 
-def test_v1_no_drift_43(drift_mod, monkeypatch, capsys):
-    """V1: 现状 43/43 → PASS (rc=0)。"""
+def test_v1_no_drift_47(drift_mod, monkeypatch, capsys):
+    """V1: 现状 47/47 → PASS (rc=0)。"""
     baseline = _real_set()
     monkeypatch.setattr(drift_mod, "_static_real_services", lambda: set(baseline))
     rc = drift_mod.check_drift(quiet=True)

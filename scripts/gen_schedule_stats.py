@@ -270,8 +270,8 @@ LABEL_MAP = {
     "cloud_unit_patrol": "com.trade.cloud-unit-patrol",
 }
 
-# ── #309 W2 全覆盖登记; 2026-11-07 加独立 ops-monitor 后共 46 unit ──
-# 口径: 43 业务+基础进执行统计表; 3 个自监控 unit(monitor/self-heal/heartbeat)排除出表
+# ── #309 W2 全覆盖登记; 2026-11-07 加独立 ops-monitor 后共 46 unit, 2026-11-21 加模拟交易导出后共 47 ──
+# 口径: 44 业务+基础进执行统计表; 3 个自监控 unit(monitor/self-heal/heartbeat)排除出表
 #    但仍做 unit 级体检(monitor 自己算 3/3), 详见 schedule_monitor.sh 结论行。
 # 回滚第②层: 任一行改 `include: False` 即从表里消失(全部 False ⇒ 退回旧 19 行);
 #    `MONITOR_EXIT_SOURCE=log` 一键退回旧口径(单位行不输出 + 不读 systemd)。
@@ -299,7 +299,8 @@ TASK_UNITS = {
     "fetch_news": "trade-fetch-news.service",
 }
 
-# 24 个仅由 systemd 口径统计的 unit(不硬编码时点; 含独立 ops-monitor; 2026-11-17 增 FOF 回补)。
+# 25 个仅由 systemd 口径统计的 unit(不硬编码时点; 含独立 ops-monitor; 2026-11-17 增 FOF 回补;
+# 2026-11-21 增模拟交易导出)。
 UNIT_ONLY = [
     {"unit": "trade-ab-direction-anchor.service", "task": "ab_direction_anchor", "name": "AB方向锚"},
     {"unit": "trade-alert-weekly-review.service", "task": "alert_weekly_review", "name": "告警周报"},
@@ -325,6 +326,7 @@ UNIT_ONLY = [
     {"unit": "trade-public-fund-estimation.service", "task": "public_fund_estimation", "name": "盘中估值"},
     {"unit": "trade-public-fund-full.service", "task": "public_fund_full", "name": "公募全量"},
     {"unit": "trade-public-fund-quarterly.service", "task": "public_fund_quarterly", "name": "季报采集"},
+    {"unit": "trade-simtrade-export.service", "task": "simtrade_export", "name": "模拟交易导出"},
 ]
 
 # 自监控 3 个: 不进执行统计表(拍板点 2 = A), 但仍做 unit 级体检。
@@ -336,7 +338,7 @@ SELF_MONITOR_UNITS = [
 
 
 def _mk_registry():
-    """把 TASKS / EXTRA / UNIT_ONLY / SELF_MONITOR 展开成 46 行登记表。"""
+    """把 TASKS / EXTRA / UNIT_ONLY / SELF_MONITOR 展开成 47 行登记表。"""
     rows = []
     for t in TASKS:
         rows.append({

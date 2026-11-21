@@ -279,7 +279,7 @@ def test_real_repository_inventory_preserves_conditionals_and_no_sla(tmp_path, m
     result = sc.reconcile({"window_start": START, "window_end": END, "generated_at": FROZEN, "frozen_at": FROZEN,
                            "status": "frozen", "slots": [], "trading_dates": [], "schedule_contract": contract}, tmp_path)
     # 2026-11-17: +1 = trade-fof-nav-backfill(FOF 回补相位拆分), 46 = 45 业务+基础 + 1 新回补
-    assert result["registry_tasks"] == result["timer_units"] == len(sc.registry.UNIT_REGISTRY) == 46
+    assert result["registry_tasks"] == result["timer_units"] == len(sc.registry.UNIT_REGISTRY) == 47
     unknown = {r["task_id"] for r in result["tasks"] if r["status"] == "unknown"}
     assert unknown == {"check_monitor_heartbeat", "r2_consistency", "cloud_unit_patrol"}
     assert result["denominator_completeness"] == result["business_deadline_coverage"] == "unknown"

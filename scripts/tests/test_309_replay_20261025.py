@@ -7,7 +7,7 @@ fixture = `scripts/tests/fixtures/309/`:
   - `x2_backfill/logs/`: X2 同轮 backfill_evening 日志(单独放, 避免污染 X2 主断言;
     方案 X2 的「+ backfill_evening(exit=1)」由独立行级用例覆盖)
 
-执行链: 原快照 + 单独标记的 ops-monitor/FOF 回补 模拟扩展 → build() 生成当前 43 行 →
+执行链: 原快照 + 单独标记的 ops-monitor/FOF 回补 模拟扩展 → build() 生成当前 44 行 →
 schedule_monitor.sh 的结论函数(AST 提取)合成结论行。全程 static-only:
 不启真 systemctl、不跑业务脚本、不调用 notify。
 
@@ -35,14 +35,14 @@ X1_EXPECT = (
     "2 个任务退出失败: "
     "pf-score-daily(Result=timeout, exit=124, 16:00:01→16:10:01); "
     "s06-snapshot(Result=exit-code, exit=124, 10-23 20:35:01→20:58:01); "
-    "漏跑 0; 覆盖 46/46(43 业务+基础, 3 自监控)"
+    "漏跑 0; 覆盖 47/47(44 业务+基础, 3 自监控)"
 )
 X2_EXPECT = (
     "1 个任务退出失败: lhb-backfill(exit=1, 源=systemd; "
     "日志 deploy=1 且无 退出码=, exit_conflict=true); "
-    "漏跑 0; 覆盖 46/46(43 业务+基础, 3 自监控)"
+    "漏跑 0; 覆盖 47/47(44 业务+基础, 3 自监控)"
 )
-X3_EXPECT = "OK 所有任务按计划执行，无漏跑，无退出失败; 覆盖 46/46(43 业务+基础, 3 自监控)"
+X3_EXPECT = "OK 所有任务按计划执行，无漏跑，无退出失败; 覆盖 47/47(44 业务+基础, 3 自监控)"
 
 
 def _load_units(name):
@@ -64,6 +64,11 @@ def _run(tmp_path: Path, units: dict, now, log_case: str, *, with_ops=True):
             assert bf not in units
             units[bf] = dict(units[f"trade-ab-direction-anchor.{suffix}"],
                              InvocationID=f"synthetic-fof-nav-backfill-{suffix}")
+            # 2026-11-21 新增模拟交易导出单元: 同样只在内存补健康模拟, 不改写历史快照。
+            se = f"trade-simtrade-export.{suffix}"
+            assert se not in units
+            units[se] = dict(units[f"trade-ab-direction-anchor.{suffix}"],
+                             InvocationID=f"synthetic-simtrade-export-{suffix}")
     log_dir = tmp_path / "logs"
     shutil.copytree(FIX / log_case / "logs", log_dir)
     out = tmp_path / "schedule_stats.json"
@@ -152,7 +157,7 @@ def test_three_cases_do_not_cross_contaminate(tmp_path):
     x1_rows, x1_text = _run(tmp_path / "x1", _load_units("x1_units.json"), X1_NOW, "x1")
     x2_rows, x2_text = _run(tmp_path / "x2", _load_units("x2_units.json"), X2_NOW, "x2")
     x3_rows, x3_text = _run(tmp_path / "x3", _load_units("x3_units.json"), X3_NOW, "x3")
-    assert (len(x1_rows), len(x2_rows), len(x3_rows)) == (43, 43, 43)
+    assert (len(x1_rows), len(x2_rows), len(x3_rows)) == (44, 44, 44)
     assert x1_text == X1_EXPECT and x2_text == X2_EXPECT and x3_text == X3_EXPECT
     assert x1_text != x2_text != x3_text
     # X1 的失败不得漏进 X3 / X2 的行里
@@ -168,5 +173,5 @@ def test_unextended_historical_snapshot_cannot_confirm_new_unit(tmp_path):
     assert ops["last_exit"] is None
     assert ops["exit_source"] == "missing"
     assert "OK 所有任务" not in text
-    # 2026-11-17 起新增单元共两个(ops-monitor + FOF 回补), 旧快照两个都缺。
-    assert "退出码未知 2 个" in text
+    # 2026-11-17 起新增(ops-monitor + FOF 回补)、2026-11-21 再增模拟交易导出, 旧快照三个都缺。
+    assert "退出码未知 3 个" in text

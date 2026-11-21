@@ -1830,8 +1830,9 @@ TimeoutStartSec=900
 > 采集/推送契约见 `ops/monitoring/contract.md`。此节 ini 是 canonical 唯一源;
 > `gen_systemd_units.py` 从本文件生成,`ops/monitoring/install/` 两份安装副本由
 > `scripts/tests/test_ops_monitor_registry.py` 逐字节校验,修改任一侧必须同步另一侧。
-> 当前源码共 46 对 service/timer(92 文件);登记表保留原 44 条并新增 `ops_monitor`,
-> include=True,共 43 条业务+基础统计行(2026-11-17 相位拆分再增 `fof_nav_backfill`),原 3 条自监控不变。
+> 当前源码共 47 对 service/timer(94 文件);登记表保留原 44 条并新增 `ops_monitor`,
+> include=True,共 44 条业务+基础统计行(2026-11-17 相位拆分再增 `fof_nav_backfill`,
+> 2026-11-21 再增 `simtrade_export`,见 §2.43),原 3 条自监控不变。
 > 旧章节的迁移数量为历史记录。
 > 服务只运行独立采集器,不调用业务入口;240s 外层预算小于 15 分钟周期。
 > 专用配置与凭证由 Claude 部署阶段提供,此处仅记录路径、不包含值。journal 输出;
@@ -1904,6 +1905,53 @@ LimitNOFILE=1024
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=trade-ops-monitor
+```
+
+### 2.43 simtrade-export(周一~五 22:55,模拟交易账本导出 simtrade.json + 发布 R2)
+
+> 2026-11-21 补登记(上一批 feat/simtrade-admin-page-20261121 只装了云上 + 写了快照,
+> 生成源漏了这对 unit,main-merge 7.8 生成源审计确定性红;审查缺陷 D1)。
+> 时点 22:55 晚于 `trade-sim-trade@settle.timer`(22:50)5 分钟,只读账本、不写库。
+> 发布脚本只跑 export + `upload-data-files simtrade.json`(无 deploy、无 push)。
+
+`trade-simtrade-export.timer`:
+```ini
+[Unit]
+Description=Sim trade ledger: daily export to admin workbench (22:55)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 22:55:00
+AccuracySec=30s
+Persistent=false
+Unit=trade-simtrade-export.service
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-simtrade-export.service`:
+```ini
+[Unit]
+Description=Sim trade ledger: export simtrade.json + publish to R2 data/ (22:55)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+After=network-online.target trade-sim-trade@settle.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=TZ=Asia/Shanghai
+Environment=PYTHONUNBUFFERED=1
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=CODE=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/simtrade_export_publish.sh
+TimeoutStartSec=300
+Nice=10
+Restart=no
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/simtrade_export.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/simtrade_export.log
 ```
 
 ## 7. 落地注意事项(stage4 用)

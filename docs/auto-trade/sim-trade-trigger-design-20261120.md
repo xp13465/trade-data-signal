@@ -52,7 +52,7 @@ SQLite 默认 `PRAGMA recursive_triggers=OFF`,`INSERT OR REPLACE` 内部的删�
 | `real`(真实可执行) | 真实开盘价(或 14:55 实时价) | 100 股整手(`shares_real`) | `etf_main` 档:万 0.5 / 最低 0.1 元 | `fee_config.real` 段(完整费率明细) |
 
 - **卖出双记**:结算写 `price_kind='close'`(D+10 收盘);14:55 实时单写 `price_kind='intraday'`(provisional,
-  当天 22:45 结算时被 confirmed 的 `close` 成交 supersede,不是 UPDATE)。
+  当天 22:50 结算时被 confirmed 的 `close` 成交 supersede,不是 UPDATE)。
 - **未平仓**:真实账本不计已实现盈亏;`--mark-open` 只给回填的页面卡对账用,写 `price_kind='mark'` 的
   provisional 估值行,视图里 `closed=0`、`profit_calc/profit_real=NULL`,估值利润单独放 `profit_mark`。
 - **真实口径卖出份额必须用整手 `shares_real`**:回测产物里的 `trades.shares` 是分数份额(高价 ETF 可差十几倍),
@@ -90,8 +90,8 @@ $PY scripts/sim_trade_trigger.py --stage buy_fill --date 20261121 \
 ```
 
 - 实时价复用 `signal_kelly_backtest._fetch_intraday_open_prices`,**expect_date 必须等于执行日**,取不到就不写假价:
-  写 `sim_trade_event(type='fill_failed')`,等 22:45 用 etf_daily 复核。
-- 首次写 `status='provisional'`(`price_kind='open'`, `source='realtime'`);22:45 settle 用官方开盘价复核后追加 `confirmed` 行并 supersede 旧的。
+  写 `sim_trade_event(type='fill_failed')`,等 22:50 用 etf_daily 复核。
+- 首次写 `status='provisional'`(`price_kind='open'`, `source='realtime'`);22:50 settle 用官方开盘价复核后追加 `confirmed` 行并 supersede 旧的。
 - 同日重跑:同价重跑幂等跳过;异价重跑(如 09:50 抓价后又补跑一次)新 provisional 会 `supersedes_fill_id` 指向旧 provisional 并记 `correction` 事件,任何时刻一单只有 1 条有效买入成交。
 - 调试可加 `--prices-json '{"510300":4.02}'` 覆盖价格(不联网)。
 
@@ -108,7 +108,7 @@ $PY scripts/sim_trade_trigger.py --stage sell_order --date 20261204 \
 - 同日重跑:第一笔 provisional 卖出成交写入后该持仓 `closed=1`,重跑扫不到(`positions=0`),天然不会产生第二条有效卖出;
   结算复核再用 `prev_fill_id` supersede 最新一条有效卖出(见阶段 4 ③)。
 
-### 阶段 4:settle(D+10 22:45) — 复核买入 + 收盘结算
+### 阶段 4:settle(D+10 22:50) — 复核买入 + 收盘结算
 
 ```bash
 $PY scripts/sim_trade_trigger.py --stage settle --date 20261204 \

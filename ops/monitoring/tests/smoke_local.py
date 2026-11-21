@@ -141,7 +141,7 @@ def main():
                 cli=subprocess.run(['python3',str(ROOT/'scripts/ops_monitor.py'),'--config',str(collector_config),'--once','--test-local-http'],cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=32)
                 check('real collector CLI uploads accepted snapshot '+cli.stderr[-150:],cli.returncode==0)
                 state=call('/api/ops/state')[2]
-                check('real collector covers registry and data groups',state['latest']['collector_id']=='smoke-cli' and state['latest']['coverage']['counts'].get('registry_services')==46 and state['latest']['coverage']['counts'].get('asset_groups')==34)
+                check('real collector covers registry and data groups',state['latest']['collector_id']=='smoke-cli' and state['latest']['coverage']['counts'].get('registry_services')==47 and state['latest']['coverage']['counts'].get('asset_groups')==34)
                 check('partial source failure remains unknown',state['counts']['unknown']>0)
                 if args.snapshot_file:
                     raw=args.snapshot_file.read_bytes()

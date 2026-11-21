@@ -820,7 +820,7 @@
     const runs = list(d.runs);
     const runRows = runs.map(r => [r.date, ...list(r.stages).map(stageCell)]);
     $('simtrade-runs').replaceChildren(runs.length
-      ? table(['业务日', '信号 22:45', '买入 09:50', '卖出 14:55', '结算 22:45'], runRows, '最近 3 天没有运行记录')
+      ? table(['业务日', '信号 22:45', '买入 09:50', '卖出 14:55', '结算 22:50'], runRows, '最近 3 天没有运行记录')
       : empty('账本运行中，暂无记录', '最近 3 天没有四阶段运行记录'));
 
     const backfill = object(d.backfill) ? d.backfill : {};

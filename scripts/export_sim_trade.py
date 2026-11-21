@@ -168,11 +168,11 @@ def export_backfill(path: str | Path | None) -> dict:
         return {"available": False, "reason": "未配置回填对照库(--backfill-db)"}
     p = Path(path)
     if not p.exists():
-        return {"available": False, "reason": "回填对照库不存在: " + str(p)}
+        return {"available": False, "reason": "回填对照库不存在: " + p.name}
     con = db.connect(p)
     try:
         return {
-            "available": True, "db": str(p),
+            "available": True, "db": p.name,
             "note": "K=1 页面卡口径(含未平仓估值标记), 与 live 账本分开计算",
             "calc": review_mod.review(con, "calc", "signal", True),
             "real": review_mod.review(con, "real", "signal", True),
@@ -257,7 +257,8 @@ def build_payload(db_path: str, out_path: str, backfill_db=None,
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "source": {"db": str(db_path), "db_exists": Path(db_path).exists(),
+        # 公开 /data/ 链路: 只写库文件名, 不泄服务器绝对路径(审查缺陷 D6)
+        "source": {"db": Path(db_path).name, "db_exists": Path(db_path).exists(),
                    "status": "ok", "note": None},
         "positions": [], "trades": [], "trade_meta": {"shown": 0, "total": 0, "limit": recent},
         "summary": None, "backfill": {"available": False, "reason": "未配置"},
@@ -327,7 +328,10 @@ def main(argv=None) -> int:
         "positions": len(payload["positions"]), "trades": payload["trade_meta"]["shown"],
         "runs": len(payload["runs"]),
     }, ensure_ascii=False))
-    return 0
+    # 退出码语义(审查缺陷 D5): 只有 error(账本损坏/读取失败)非零, 让发布脚本/systemd
+    # 记 failed 并触发告警; missing(库还没建, 首跑前正常)与 empty(库已建未初始化)
+    # 仍是正常空态 → 0, 否则首跑前每天报假失败。
+    return 2 if payload["source"]["status"] == "error" else 0
 
 
 if __name__ == "__main__":
