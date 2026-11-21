@@ -1069,6 +1069,11 @@ main { padding: 16px 24px; }
 /* 2026-08-13 AI 降亏过滤命中灰显: 总开关开 + 命中降亏条件(凯利区实际开启) → 灰显+删除线(建议回避), 与 poscap 灰显视觉区分(更强调) */
 .sig-item.sig-ai-hit { opacity: 0.45; filter: grayscale(0.5); text-decoration: line-through; }
 .sig-ai-hit-badge { font-size: 10px; vertical-align: super; line-height: 0; margin-left: 2px; cursor: help; font-weight: 600; border-radius: 3px; padding: 0 3px; color: #b42318; background: #b423181a; text-decoration: none; }
+/* 2026-11-21 MA3连3日降亏筛选命中(独立开关 tds_home_ma3, 默认关): 灰显+删除线风格与 AI 降亏同款(同属「建议回避」层),
+   但角标配色改用琥珀色, 两层同时命中时一眼可区分是哪层命中; 只对买入类信号可出现。 */
+.sig-item.sig-ma3-hit { opacity: 0.45; filter: grayscale(0.5); text-decoration: line-through; }
+.sig-ma3-badge { font-size: 10px; vertical-align: super; line-height: 0; margin-left: 2px; cursor: help; font-weight: 600; border-radius: 3px; padding: 0 3px; color: #b45309; background: #b453091a; text-decoration: none; }
+[data-theme="dark"] .sig-ma3-badge, [data-theme="redgold"] .sig-ma3-badge { color: #fbbf24; background: #fbbf2426; }
 /* 信号至今对错角标（☑️符合预测/✖️不符预测，since_correct）。与 sig-score 同 sup 上标风格。
    2026-07-28: 评级+对错移到指数名前,指数名放最右被 ellipsis 优先截断,评级+对错始终可见。 */
 .sig-correct { font-size: 10px; vertical-align: super; line-height: 0; margin-left: 2px; cursor: help; }
@@ -7485,6 +7490,7 @@ select.tds-fade-mode-sel:hover, select.tds-fade-mode-sel:focus { border-color: v
   .sig-late-badge, .sig-score, .sig-poscap-badge { font-size: 11px; }
   .sig-kbtn-r, .sig-kbtn-help .sig-kbtn-r { font-size: 11px; }
   .sig-ai-hit-badge, .sig-correct { font-size: 11px; }
+  .sig-ma3-badge { font-size: 11px; }
   .kpi-sent-tooltip .kst-comp-title,
   .kpi-sent-tooltip .kst-comp-row { font-size: 11px; }
   .kpi-forecast-pop .kfp-dev-label { font-size: 11px; }

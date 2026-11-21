@@ -3080,6 +3080,21 @@ function _readHomeAvailOnlyFlag() {
   } catch (e) {}
   return true; // 默认开(2026-08-30 用户拍板)
 }
+// 2026-11-21 「MA3连3日」降亏筛选开关: 裸键 tds_home_ma3("1"=开, 缺省/其他=关, 默认关)。
+// 独立作用域, 与「AI降亏过滤」「AI仓位建议」「仅显示可用信号」三开关正交; 纯展示层
+// (命中=灰显+删除线+标注), 不改任何判定链/AI建议编号/仓位建议(§23.7 纯新增, 默认关零行为变化)。
+function _readHomeMa3Flag() {
+  try { return localStorage.getItem("tds_home_ma3") === "1"; } catch (e) {}
+  return false;
+}
+// MA3 筛选说明文案: 单一事实源=purpose-notes.js 的 home.ma3filter(§21 算法公示/§22 不抄第二份数字)。
+// purpose-notes 未加载/旧缓存时只给不含数字的短兜底, 防两份数字漂移。
+function _ma3FilterNote() {
+  try {
+    if (typeof PURPOSE_NOTES !== "undefined" && PURPOSE_NOTES["home.ma3filter"]) return PURPOSE_NOTES["home.ma3filter"];
+  } catch (e) {}
+  return "MA3连3日降亏筛选(默认关): 信号自身标的 ETF 连续 3 个交易日收盘低于 3 日均线 → 灰显+标注建议回避; 判定只用信号日及之前收盘(防前视), 数据不足保持亮显; 规则/口径/回测数字见 purpose-notes 公示。";
+}
 // 首页枯竭类提示共用的当前模式键集(单一事实源): 与首页判定链同一 preset(_readHomeFadeMode→_tdsFadeModeById)。
 // 消费点=AI建议区常驻 chip(_mountHomeDroughtChip)+「仅显示可用信号」空态枯竭统计(_mountSigEmptyDrought), §22 同源同数字。
 function _homeDroughtModeKeys() {
@@ -3228,6 +3243,13 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
     // S06 状态/降级提示槽(codex-task-20260825-001): 仅 s06 选中时由 _mountHomeS06State 异步填充;
     // 快照不可用=持续可见警示(过滤暂不生效), 正常=显示当前生效基座与覆盖期(§23.2 可见降级不静默)
     `<span class="sig-s06-state" id="home-sig-s06-state-slot" style="font-size:11px;color:var(--text-3)"></span>` +
+    // 2026-11-21 「MA3连3日」降亏筛选(默认关, 独立键 tds_home_ma3; 与 AI降亏过滤同款开关样式):
+    // 开启=信号自身 top1 ETF 连续 3 日收盘 < MA3 的买入信号灰显+删除线+「MA3连3日下」标注; 数据不可判保持亮显。
+    // 纯展示层, 不改 AI建议编号/仓位建议/任何判定链(§23.7); 文案单源=purpose-notes home.ma3filter(§21/§22)。
+    `<label class="sig-switch-lab sig-switch-ma3" data-no-pop="" title="${_escAttr(_ma3FilterNote())}">` +
+      `<input type="checkbox" class="sig-switch-ma3-cb"${_readHomeMa3Flag() ? " checked" : ""}> MA3连3日` +
+      `<span class="sig-switch-tip" data-no-pop="" data-tip="${_escAttr(_ma3FilterNote())}">ⓘ</span>` +
+    `</label>` +
     `<label class="sig-switch-lab sig-switch-avail" data-no-pop="" title="仅显示可用信号(视图控制开关, 默认开(2026-08-30 用户拍板), 记忆键 tds_home_show_available_only): 开启=把信号列表里所有「灰显/删除线」的行整体隐藏——即 AI降亏过滤命中类(AI降亏 sig-ai-hit 删除线+置灰 / 未入样本 sig-poscap-notuni 删除线+置灰), 只留干净可用的放行信号; 关闭=恢复完整列表。纯展示层视图控制: 不改变任何判定链/统计口径/AI建议编号, 与「AI降亏过滤」「AI仓位建议 K」两开关正交叠加——本开关隐藏 AI降亏层已画删除线的行(AI降亏命中 / 未入样本)+「当日已满」行(入宇宙买类超出K名=当日不可买), 卖出/持有类风险提示正常亮显不受影响; 汇总条准确率仍按全量人口统计便于对比。开启后若近30个交易日无任何可用信号, 列表区显示枯竭引导空态(连续无放行天数与历史统计, 数据源与常驻枯竭 chip 同源 §22)">` +
       `<input type="checkbox" class="sig-switch-avail-cb"${_readHomeAvailOnlyFlag() ? " checked" : ""}> 仅显示可用信号` +
     `</label>` +
@@ -3448,6 +3470,10 @@ function _bindSigSwitchRow(sigCard) {
       // checkbox change 走 change 事件, click 这里只处理按钮; 空实现避免误吞(change 在下方单独绑)
       return;
     }
+    // 2026-11-21 MA3连3日开关同理: change 走下方 change 监听, click 空实现防误吞
+    if (e.target.closest(".sig-switch-ma3-cb")) {
+      return;
+    }
   });
   sigCard.addEventListener("change", (e) => {
     // T3-2 任务①(2026-08-23) 首页「AI降亏·模式」下拉: 写独立键 tds_home_fade_mode 后重绘生效;
@@ -3479,6 +3505,23 @@ function _bindSigSwitchRow(sigCard) {
       e.stopPropagation();
       try { localStorage.setItem("tds_home_show_available_only", availCb.checked ? "1" : "0"); } catch (err) {}
       _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
+      return;
+    }
+    // 2026-11-21 MA3连3日降亏筛选开关(独立键 tds_home_ma3, 默认关): 纯展示层视图控制,
+    // 与 AI降亏(tds_home_fade)/仅显示可用(tds_home_show_available_only) 三键互独立、可叠加;
+    // 开启后命中行灰显+标注「MA3连3日下」, 并与 AI 降亏层一样从统计人口/仅显示可用/枯竭判定中排除。
+    const ma3Cb = e.target.closest(".sig-switch-ma3-cb");
+    if (ma3Cb) {
+      e.preventDefault();
+      e.stopPropagation();
+      const _ma3OnVal = ma3Cb.checked;
+      const _ma3GridBefore = (document.querySelector(".sig-card .signal-grid") || {}).innerHTML;
+      try { localStorage.setItem("tds_home_ma3", _ma3OnVal ? "1" : "0"); } catch (err) {}
+      _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
+      const _ma3GridAfter = (document.querySelector(".sig-card .signal-grid") || {}).innerHTML;
+      if (_ma3GridBefore != null && _ma3GridAfter === _ma3GridBefore) {
+        _showSigToast("当前无命中「MA3连3日」的信号, 列表无变化; 命中信号将" + (_ma3OnVal ? "灰显+标注「MA3连3日下」" : "恢复正常样式"));
+      }
       return;
     }
     const aiCb = e.target.closest(".sig-switch-ai-cb");
@@ -6388,6 +6431,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // ⚠️ 2026-08-13 融合口径: 本判定必须前移到 top-K 选取之前(先滤降亏、再选 top-K, 与凯利回测 lab.js _kellyCollectBasePool 先过 passesFade 一致)
   // ⚠️ 2026-08-21 前移到 popItems 之前, 使分栏计数和准确率统计也能排除降亏命中信号
   let _fadeOn = true;
+  // 2026-11-21 MA3连3日降亏筛选(独立开关 tds_home_ma3, 默认关): 只控展示层灰显/隐藏, 不参与任何判定链。
+  // 必须在下方 _statItems/_isMa3Hit 调用前初始化(TDZ 铁律, 同 _fadeOn/_homeS06FailOpen)。
+  let _ma3On = false;
   const _aiOnMembers = {};
   // T3-2(2026-08-23) 模式化: 键集合从 common.js _KELLY_FADE_MODE_PRESETS 单源拉取(任务①④)。
   // 默认模式的 keys 由 common.js 预设表单源拉取(T3-2 时默认=p8≡原固定 8 键零变化; v1.1.5 起默认=new14·NEW14 十四键);
@@ -6425,6 +6471,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   }
   if (kind === "signal") {
     _fadeOn = _readHomeFadeFlag();
+    _ma3On = _readHomeMa3Flag();
   }
   // (2026-08-22 用户拍板) 新降亏键「牛市×辅备买全停」: 所选模式命中(tier=牛市·主升 × 辅买/备买)走 AI降亏视觉链
   // (置灰+删除线+标注+top-K 补位, 与 8 键同链同源); tier map 未就绪先保守放行(宁漏勿误, 盘中新信号 date 不在文件内不误杀),
@@ -6454,7 +6501,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 2026-08-21: 准确率/分栏计数排除降亏命中信号(当 AI降亏过滤开启时), 与列表展示解耦:
   //   popItems = 信号列表人口(含降亏命中, 保持列表完整展示);
   //   _statItems = 统计人口(排除降亏命中, 使准确率+分栏计数随过滤联动)
-  let _statItems = _fadeOn ? popItems.filter((it) => !_isAiFadeHit(it)) : popItems;
+  // 2026-11-21: 统计人口同时排除 MA3连3日命中(仅 MA3 开关开启时 _isMa3Hit 可能 true), 与列表过滤联动。
+  let _statItems = popItems.filter((it) => !_isAiFadeHit(it) && !_isMa3Hit(it));
   // 列表 = 人口 ∩ 列表子筛选(grade/correct/type)；5 个筛选正交组合(AND)
   // v1.1.5(2026-08-24) 第6个正交开关「仅显示可用信号」(_availOnlyOn, 裸键 tds_home_show_available_only, 默认开(2026-08-30 用户拍板)):
   // 在现有渲染结果上隐藏灰显/删除线行——隐藏判定与 cellHtml 画线条件逐字同源, 不改变任何判定链:
@@ -6470,7 +6518,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // ===== 仅显示可用信号 过滤(两步: ①posCap前藏降亏+未入 ②posCap后藏当日已满) =====
   if (_availOnlyOn) {
     // _isSellRow=卖出/持有类(sell/sell_stop_loss/band_hold/波段减仓/波段止损), 豁免不藏
-    filtered = filtered.filter((it) => !_isAiFadeHit(it) && (it._bt_in_universe !== false || _isSellRow(it)));
+    filtered = filtered.filter((it) => !_isAiFadeHit(it) && !_isMa3Hit(it) && (it._bt_in_universe !== false || _isSellRow(it)));
   }
   // 按 date 分组（降序），今日组单独提到最前(必须在 posCap 之前,posCap 的 for-of dates 依赖此)
   const groups = {};
@@ -6492,7 +6540,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     for (const it of items) {
       if (it && it.date && it._bt_in_universe !== false && _BUY_UNI_SIGS[it.signal]) {
         _dateHasInUniverseBuy[it.date] = true;
-        if (!_isAiFadeHit(it)) _homeHasPassBuy = true;
+        if (!_isAiFadeHit(it) && !_isMa3Hit(it)) _homeHasPassBuy = true;
       }
     }
   }
@@ -6531,6 +6579,14 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     // S06: 仅当日基座=a9(含 bullAuxBackupStop)才启用本分支(new14 基座不含该键)
     const _bullOn = _homeIsS06 ? (_s6Base === "a9") : _bullStopActive;
     return _bullOn && _isBullStopHit(it);
+  }
+  // 2026-11-21 MA3连3日降亏筛选命中判定(纯展示层): 开关开 + 后端 _ma3.status==="ok" 且 hit===true。
+  // 数据不足/无ETF/信号日收盘未入库(status="na") → 恒 false 保守放行(保持亮显, 不误灰; 口径写进公示)。
+  // 只对买入类信号有 _ma3 字段(后端只给 buy/buy_aux/buy_special/buy_backup 打标), 卖类天然不命中。
+  function _isMa3Hit(it) {
+    if (!_ma3On || !it) return false;
+    const _m = it._ma3;
+    return !!(_m && _m.status === "ok" && _m.hit === true);
   }
   // 2026-08-26 Fix(bug1+bug2): _isSellRow/_isSellSig 提升到外层作用域(原在 cellHtml 内, cellHtml 外的 _isDayFull/_availOnlyOn 过滤无法访问)
   // _isSellRow: 卖出类/持有中性(sell/sell_stop_loss/band_hold/波段减仓/波段止损)——跳过「当日已满」badge
@@ -6623,7 +6679,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             if (!_dayItems.length) continue;
             // 2026-08-13 融合口径(与凯利回测一致: 先滤降亏、再选top-K): 被降亏命中的信号不占AI建议位,
             // 顺延补位给后续未命中信号; 判定走共享谓词 _isAiFadeHit(受首页「AI降亏过滤」开关门控: 开关关→不滤, top-K 正常取)。
-            _dayItems = _dayItems.filter((it) => !_isAiFadeHit(it));
+            // 2026-11-21 MA3 同口径: 命中 MA3连3日(开关开时)也不占 AI建议位, 否则「仅显示可用」把 kept 行藏掉
+            //   却不补位(该日期 AI建议 空白), 与 6513 行「被藏行不占位」不变式冲突。
+            _dayItems = _dayItems.filter((it) => !_isAiFadeHit(it) && !_isMa3Hit(it));
             if (!_dayItems.length) continue;
             // s06p1(2026-08-29 观察档): 仅 K=1 时从候选池中剔除高评级信号(mid/low 递补),
             // 单一事实源=common.js _tdsS06P1StripHigh(mode,K); K=2/3/4 不剔(Δ=0 铁律)。
@@ -6648,9 +6706,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   }
   // 2026-08-21: ETF 档位按钮计数——fade + kept 过滤后、ETF 档位筛选前的基线
   // 告诉用户"该档还有多少信号可看"，随 K 档/降亏联动，但不受 ETF 档位筛选影响（选了某档不影响其他档计数）
+  // 2026-11-21: MA3 命中同 AI 降亏命中口径排除(_isMa3Hit 受 MA3 开关门控, 默认关恒 false → 既有计数不变),
+  //   否则开 MA3 后档位按钮计数把已置灰/已被「仅显示可用」隐藏的行仍算作"可看"。
   const _tierCountItems = _pcOn && _posCapKeptMap
-    ? windowedItems.filter((it) => !_isAiFadeHit(it) && (() => { const k = _posCapKeptMap.get(it.date); return k && k.has(it.index_id + '|' + it.date + '|' + it.signal); })())
-    : (_fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems);
+    ? windowedItems.filter((it) => !_isAiFadeHit(it) && !_isMa3Hit(it) && (() => { const k = _posCapKeptMap.get(it.date); return k && k.has(it.index_id + '|' + it.date + '|' + it.signal); })())
+    : ((_fadeOn || _ma3On) ? windowedItems.filter((it) => !_isAiFadeHit(it) && !_isMa3Hit(it)) : windowedItems);
   // ② posCap后: 藏当日已满(降亏命中/未入已在第一步藏了, 这里只补当日已满)
   // 2026-08-27 fix(用户实测 bug: csi_399976@20260817 buy_special 置灰却未被隐藏): 原实现 reassign 局部变量
   //   filtered 是死赋值——groups/dates 已在 Step1 之后构建完成(L4644+), 渲染 rows 循环遍历 groups[dt],
@@ -6909,7 +6969,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 未入样宇宙(uni=False)的买入类信号(如 8/10 csi_931892/gz_399440、8/12 thsc_306380)不该被误标"当日已满"。
         // 未入样信号压根不参与AI建议top-K, 应保持零标注(与 kept 空/空态一致), 而非落 else 显示"当日已满"。
         // (§23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处, 同步修正口径)。
-        if (_posCapRank && !_isAiFadeHit(it) && !_isSellRow(it) && it._bt_in_universe !== false) {
+        // 2026-11-21 MA3 命中同 AI降亏: 不占 AI建议位/不显示「当日已满」(被过滤语义, 已有 MA3 删除线+标注兜底展示)
+        if (_posCapRank && !_isAiFadeHit(it) && !_isMa3Hit(it) && !_isSellRow(it) && it._bt_in_universe !== false) {
           const _capRank = _posCapRank.get(it.index_id + '|' + it.date + '|' + it.signal) || 0;
           if (_capRank) {
             posCapCls = " sig-poscap-kept";
@@ -6930,13 +6991,13 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // band_hold 持有中性不标不置灰(现状保持)。fade-hit 信号已有 AI降亏 删除线+标注, 不叠加 ⓐ/ⓑ 防双重矛盾。
         // ⓐ AI警示(仓位层): AI仓位开关开启时, 卖出类信号给亮色警示框+「AI警示」标注(2026-09-06 bandfix: 去掉
         //    _bt_in_universe 门槛, 波段调整=signal"sell"+reason波段词, 债类 _bt_in_universe===false 也亮警示)。
-        if (_pcOn && !posCapCls && !_isAiFadeHit(it) && _isSellSig(it)) {
+        if (_pcOn && !posCapCls && !_isAiFadeHit(it) && !_isMa3Hit(it) && _isSellSig(it)) {
           posCapCls = " sig-poscap-warn";
           posCapBadge = `<sup class="sig-poscap-badge sig-poscap-warnbadge" data-tip="AI警示(由「AI仓位建议」开关控制): 本信号是卖/离场类(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}), 属风险警示——${_t("sell_short")}=保护已实现利润/离场, 与买入建议方向相反, 故不参与 AI 建议买入 top-K; 卖类无K档约束、不判K, 作为离场保护信号不设宇宙门槛(回测口径: 卖类不过滤宇宙、统计全部卖信号), 只要出现即亮显警示; 波段调整(国债波段减仓/止损, 债类不入买入回测宇宙)同为警示信号常驻亮显。盘后补齐的迟到${_t("sell_short")}信号(如 8/14 中证银行${_t("sell_short")})会同时挂「AI警示」+「盘后补齐」角标, 两者独立不冲突。">AI警示</sup>`;
         }
         // ⓑ 未入样本(降亏层): AI降亏开关开启时, 未入宇宙信号画删除线+灰显+「未入样本」标注(表述"被过滤掉")。
         // 2026-09-06 bandfix: 卖类警示信号(_isSellRow, 含 band_hold 与波段减仓/止损)不走本分支——警示常驻不置灰不画删除线。
-        else if (_fadeOn && !posCapCls && !_isAiFadeHit(it) && !_isSellRow(it) && it._bt_in_universe === false) {
+        else if (_fadeOn && !posCapCls && !_isAiFadeHit(it) && !_isMa3Hit(it) && !_isSellRow(it) && it._bt_in_universe === false) {
           posCapCls = " sig-poscap-notuni";
           posCapBadge = `<sup class="sig-poscap-badge sig-poscap-notunibadge" data-tip="未入样本(由「AI降亏过滤」开关控制): 本信号不在凯利回测【入样宇宙】内(按官方入样规则, 只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别), 回测未纳入因此不参与 AI 建议买入选择, 在 AI 过滤视图下删除线+灰显弱化。仅展示参考, 若买入属自行决策(首页 1:1 遵从回测入样判定, 不自行重算)。">未入样本</sup>`;
         }
@@ -6964,6 +7025,17 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="删除线原因: 本信号命中AI降亏过滤条件【${_hitNames}】→ 被过滤建议回避, 所以显示删除线, 且不占AI建议位(顺延补位给未命中信号)(由首页「AI降亏过滤」开关判定, 独立作用域与凯利区互不影响; 关闭首页「AI降亏过滤」开关即可恢复正常样式)">AI降亏</sup>`;
             aiHitAttr = ` data-ai-hit="1" data-ai-hit-names="${_escAttr(_hitNames)}"`;
           }
+        }
+        // 2026-11-21 MA3连3日降亏筛选(独立开关 tds_home_ma3, 默认关): 命中=灰显+删除线+「MA3连3日下」标注。
+        // 与 AI降亏层正交叠加(AI降亏也命中时两层都标, 互不覆盖); 只对买入类信号由后端写 _ma3(卖类无字段)。
+        // 每 cell 重置变量防隐式全局污染(同 aiHitCls 三变量基线)。
+        let ma3Cls = "";
+        let ma3Badge = "";
+        if (_isMa3Hit(it)) {
+          ma3Cls = " sig-ma3-hit";
+          const _m3 = it._ma3 || {};
+          const _m3Tip = "本信号命中「MA3连3日」筛选: 自身标的ETF(" + (_m3.etf || "?") + ") 连续3个交易日收盘都低于3日均线(判定日=" + it.date + ", 只用该日及之前的收盘, 未用其后数据) → 按回测变体「ETF consec w3 p3(post)」建议回避。" + _ma3FilterNote();
+          ma3Badge = `<sup class="sig-ma3-badge" data-tip="${_escAttr(_m3Tip)}">MA3连3日下</sup>`;
         }
         // 评分尾缀：技术参考点综合把握度（10d 窗口 score）
         const sc = _getSignalScore(it);
@@ -7057,7 +7129,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         } else {
           _consAttr = ` data-consensus="na"`;
         }
-        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxWinNAttr}${_idxSettledAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr}${aiHitAttr}${_consAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${warnBadge}${lateBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
+        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}${ma3Cls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxWinNAttr}${_idxSettledAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr}${aiHitAttr}${_consAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${ma3Badge}${warnBadge}${lateBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
