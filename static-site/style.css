@@ -4068,6 +4068,10 @@ main { padding: 16px 24px; }
   /* A股第一个板块移动端: hint文案换行多(资金面注4行), 卡片固定高度放宽到420保证图表区≥220 */
   .astock-top-grid .chart-card { height: 420px; min-height: 280px; }
   .sig-items { grid-template-columns: repeat(2, 1fr); }
+  /* 2026-11-21 P2-6: 窄屏命中行允许折行 —— .sig-item 基线是单行 nowrap+ellipsis, 390px 两列格宽约
+     134px 时尾部「MA3连3日下」角标实测右溢出格宽 ~14px 被裁掉。只对命中行(已灰显+删除线)放开折行,
+     正常信号行仍保持原单行紧凑布局, 不影响既有视觉。 */
+  .sig-item.sig-ma3-hit { white-space: normal; overflow-wrap: anywhere; }
   .sig-day-date { flex: 0 0 56px; font-size: 11px; }
   /* 移动端日期标签点击目标≥44px(2026-09-30, 用户拍板): 行高由格子内容撑起通常≥44, 此处仅兜底矮行 */
   .sig-day-date-btn { min-height: 44px; }

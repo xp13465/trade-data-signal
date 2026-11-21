@@ -469,10 +469,76 @@ def _align_home_top1_to_backtest(_s: dict, freeze: dict) -> None:
 # 前端「MA3连3日」开关(默认关, tds_home_ma3)开启时据此灰显/隐藏, 纯展示层, 不改判定链。
 # 防前视(硬约束, §5.1⑥): 只用信号日 T 及之前的收盘; T 日收盘未入库/历史不足 → status="na"
 # 保守放行(不误灰)。回测口径与依据: /tmp/ma5-extension-research-20261121.md §5.1。
-# 前复权口径: etf_daily.accum_nav 与 static-site/data/etf/{code}-all.json 的 forward_accum_nav
-# 在比值上等价(复权因子同乘同除, MA3 比较时抵消), 故直接用 accum_nav, 不另取未复权 close。
-# self ETF(指数本体即 ETF, 如 cgb_10y_etf)走 index_daily.close(原始收盘), 属少数债券 ETF, 如实标注。
+#
+# ⚠️ 数据源必须与回测同源(2026-11-21 审查 P1-1 返工): 回测(scripts kelly_posrating / ma5x)
+# 用的是 static-site/data/etf/{code}-all.json 的「前复权 close」(ohlc 第 5 列), 不是
+# etf_daily.accum_nav。两者在 QDII/跨境 ETF 上因复权因子/汇率/分红处理不同会岔开, 实测
+# 8/271 条信号判定翻转(159501/159513/513080/159561 等), 故这里必须读前者。
+# 懒加载: 只按实际被判定到的 top1 ETF code 读单文件(不全量扫目录), 进程内按 mtime 缓存。
+# self ETF(指数本体即 ETF, 如 cgb_10y_etf=511260)无 etf/{code}-all.json, 走 index_daily.close
+# (与页面信号灯/该指数历史序列同源; 该类债 ETF 不在回测入样宇宙, 如实标注)。
 _MA3_BUY_SIGNALS = {"buy", "buy_aux", "buy_special", "buy_backup"}
+# 进程内 ETF 前复权收盘缓存: code -> (mtime, {date: close}); mtime 变化(每日导出重写)自动重载。
+_MA3_ETF_CLOSE_CACHE: dict = {}
+
+
+def _ma3_etf_data_dir():
+    """静态站 ETF 历史文件目录(static-site/data/etf)。
+
+    解析顺序: 环境变量 MA3_ETF_DATA_DIR(测试/特殊部署显式指定) → 仓库根(按本文件位置推)
+    → 进程 cwd(trade-data 生产侧) 下的 static-site/data/etf。都找不到返回 None(判定转 na 保守放行)。
+    """
+    import os
+    _env = os.environ.get("MA3_ETF_DATA_DIR")
+    if _env:
+        return _env if os.path.isdir(_env) else None
+    _bases = [Path(__file__).resolve().parent.parent]
+    try:
+        _bases.append(Path.cwd())
+    except Exception:
+        pass
+    for _b in _bases:
+        _p = _b / "static-site" / "data" / "etf"
+        if _p.is_dir():
+            return str(_p)
+    return None
+
+
+def _ma3_etf_close_map(code):
+    """读 etf/{code}-all.json 的前复权收盘序列 -> {YYYYMMDD: close}。
+
+    - 只读实际被判定到的 code(懒加载, 不全量扫目录); 文件缺失/损坏 -> {} (=数据缺失, 保守放行)。
+    - 按文件 mtime 缓存, 每日重导出后自动失效重载; 不改任何文件。
+    """
+    code = str(code or "")
+    if not code:
+        return {}
+    _dir = _ma3_etf_data_dir()
+    if not _dir:
+        return {}
+    _p = Path(_dir) / ("%s-all.json" % code)
+    try:
+        _mtime = _p.stat().st_mtime
+    except OSError:
+        return {}
+    _hit = _MA3_ETF_CLOSE_CACHE.get(code)
+    if _hit and _hit[0] == _mtime:
+        return _hit[1]
+    _m: dict = {}
+    try:
+        with open(_p, "r", encoding="utf-8") as _f:
+            _d = json.load(_f)
+        for _r in (_d.get("ohlc") or []):
+            if not _r or len(_r) < 5:
+                continue
+            _c = _r[4]
+            if isinstance(_c, (int, float)):
+                _m[str(_r[0])] = float(_c)
+    except Exception as _e:  # 文件损坏/权限 -> 数据缺失(保守放行), 不阻断 overview
+        logging.warning("MA3 ETF 历史读取失败 code=%s: %s", code, _e)
+        _m = {}
+    _MA3_ETF_CLOSE_CACHE[code] = (_mtime, _m)
+    return _m
 
 
 def _ma3_pick_top_etf(etfs):
@@ -535,11 +601,12 @@ def _ma3_consec_below(closes_by_date, sig_date, days=3):
     }
 
 
-def _ma3_tag_sig(sig, etf_close_cache, load_close_map):
+def _ma3_tag_sig(sig, load_index_close_map):
     """单条信号打标: 返回要写入信号 dict 的 _ma3 字段(不改入参, 便于单测)。
 
     - top1 ETF 选取与前端 _topEtfByScore 同源(_ma3_pick_top_etf)。
-    - self ETF 用 index_daily.close(经 load_close_map), 其余用 etf_daily.accum_nav 缓存。
+    - 非 self ETF: 与回测同源的 etf/{code}-all.json 前复权 close(懒加载, 见 _ma3_etf_close_map)。
+    - self ETF: index_daily.close(经 load_index_close_map; 该类无 etf 历史文件)。
     - 无 ETF/无代码 → status="na" reason="no_etf"(前端保守放行)。
     """
     _top = _ma3_pick_top_etf((sig or {}).get("etfs") or [])
@@ -547,10 +614,10 @@ def _ma3_tag_sig(sig, etf_close_cache, load_close_map):
         return {"hit": None, "status": "na", "reason": "no_etf", "etf": None}
     _code = _top.get("code")
     if _top.get("match_method") == "self":
-        # self ETF(指数本体即 ETF)数据在 index_daily.close, 不在 etf_daily.accum_nav
-        _cm = load_close_map(sig.get("index_id")) if load_close_map else {}
+        # self ETF(指数本体即 ETF)数据在 index_daily.close, 无 etf/{code}-all.json
+        _cm = load_index_close_map(sig.get("index_id")) if load_index_close_map else {}
     else:
-        _cm = (etf_close_cache or {}).get(_code) or {}
+        _cm = _ma3_etf_close_map(_code)
     _hit, _detail = _ma3_consec_below(_cm, sig.get("date"))
     return {
         "hit": (bool(_hit) if _hit is not None else None),
@@ -1691,12 +1758,14 @@ def overview(conn, cfg):
                 _e["etf_price_diff"] = round(_today_close - _sig_close, 3)
 
         # 2026-11-21 均线降亏筛选打标(默认关, 前端独立开关 tds_home_ma3 消费; §23.7 纯新增字段):
-        # 每条买入类信号注入 _ma3={hit,status,reason,etf,ma3,close}。复用上面已加载的 ETF 收盘缓存,
-        # 零额外 DB 查询; 不参与 AI建议 top-K/仓位建议/任何既有判定链(只在前端开关开启时影响灰显)。
+        # 每条买入类信号注入 _ma3={hit,status,reason,etf,ma3,close}。数据源=与回测同源的
+        # etf/{code}-all.json 前复权 close(覆盖上述 accum_nav 盈亏缓存, 不为 MA3 复用 accum_nav:
+        # QDII 上两者判定会翻转, 审查 P1-1); 懒加载按 code 单文件读+mtime 缓存, 零 DB 查询。
+        # 不参与 AI建议 top-K/仓位建议/任何既有判定链(只在前端开关开启时影响灰显)。
         for _s in sigs:
             if _s.get("signal") not in _MA3_BUY_SIGNALS:
                 continue
-            _s["_ma3"] = _ma3_tag_sig(_s, _etf_close_cache, _load_close_map)
+            _s["_ma3"] = _ma3_tag_sig(_s, _load_close_map)
 
     # AI宏降亏命中标注(2026-08-13 首页 AI 开关): 每条信号注入 ai_macro:{hit, filters}
     # 8 键(toggle 基础5+核心3, v1.1.2 excludeSpecialBear 升四档)谓词与凯利区 AI宏默认降亏

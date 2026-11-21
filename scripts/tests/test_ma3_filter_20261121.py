@@ -16,11 +16,17 @@
 冻结运行日说明: 被测函数全部接收显式 sig_date 参数, 内部不取 today()/now(),
 故本文件不存在跨天红风险(§18 L51); 断言全为逐位等值, 无时间敏感项。
 """
+import json
+import re
+from pathlib import Path
+
 import pytest
 
 from app.queries import (
     _MA3_BUY_SIGNALS,
+    _MA3_ETF_CLOSE_CACHE,
     _ma3_consec_below,
+    _ma3_etf_close_map,
     _ma3_pick_top_etf,
     _ma3_tag_sig,
 )
@@ -164,12 +170,62 @@ def test_no_valid_etf_returns_none(etfs):
     assert _ma3_pick_top_etf(etfs) is None
 
 
+# ===== etf/{code}-all.json 前复权收盘加载(与回测同源, P1-1) =====
+
+def _write_etf_file(dirpath, code, ohlc):
+    p = Path(dirpath) / ("%s-all.json" % code)
+    p.write_text(json.dumps({
+        "date": "20260105", "code": code, "name": "x", "count": len(ohlc),
+        "adj": "forward_accum_nav", "ohlc": ohlc,
+    }), encoding="utf-8")
+    return p
+
+
+@pytest.fixture
+def etf_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("MA3_ETF_DATA_DIR", str(tmp_path))
+    _MA3_ETF_CLOSE_CACHE.clear()
+    yield tmp_path
+    _MA3_ETF_CLOSE_CACHE.clear()
+
+
+def test_etf_close_map_reads_ohlc_close_column(etf_dir):
+    _write_etf_file(etf_dir, "510300", [
+        ["20260101", 1.0, 1.1, 0.9, 10.0],
+        ["20260102", 1.0, 1.1, 0.9, 9.0],
+        ["20260103", 1.0, 1.1, 0.9, None],   # 非数值收盘按缺失剔除
+    ])
+    m = _ma3_etf_close_map("510300")
+    assert m == {"20260101": 10.0, "20260102": 9.0}
+
+
+def test_etf_close_map_missing_file_is_empty(etf_dir):
+    assert _ma3_etf_close_map("999999") == {}
+
+
+def test_etf_close_map_mtime_cache_invalidation(etf_dir):
+    p = _write_etf_file(etf_dir, "510300", [["20260101", 0, 0, 0, 10.0]])
+    assert _ma3_etf_close_map("510300") == {"20260101": 10.0}
+    # 内容不变时命中缓存(同一 dict 对象)
+    assert _ma3_etf_close_map("510300") is _MA3_ETF_CLOSE_CACHE["510300"][1]
+    # 重写文件(mtime 变化) -> 自动重载新值
+    import os
+    import time
+    time.sleep(0.01)
+    _write_etf_file(etf_dir, "510300", [["20260101", 0, 0, 0, 11.0]])
+    os.utime(p, None)
+    assert _ma3_etf_close_map("510300") == {"20260101": 11.0}
+
+
 # ===== _ma3_tag_sig =====
 
-def test_tag_buy_signal_with_etf_cache():
+def test_tag_buy_signal_uses_etf_file_close(etf_dir):
+    _write_etf_file(etf_dir, "510300", [
+        [f"2026010{d}", 0, 0, 0, v] for d, v in zip(range(1, 6), [10, 9, 8, 7, 6])
+    ])
     sig = {"date": "20260105", "index_id": "csi300", "signal": "buy",
            "etfs": [{"code": "510300", "track_score": 0.9, "match_method": "track"}]}
-    out = _ma3_tag_sig(sig, {"510300": _series([10, 9, 8, 7, 6])}, lambda _i: {})
+    out = _ma3_tag_sig(sig, lambda _i: {})
     assert out["hit"] is True
     assert out["status"] == "ok"
     assert out["reason"] is None
@@ -178,8 +234,21 @@ def test_tag_buy_signal_with_etf_cache():
     assert out["close"] == pytest.approx(6.0)
 
 
+def test_tag_does_not_use_accum_nav_source(etf_dir):
+    """P1-1 判别力: 文件 close 判命中、若误用 accum_nav 则判不命中, 断言跟随文件。"""
+    _write_etf_file(etf_dir, "159501", [
+        ["20261019", 0, 0, 0, 2.187], ["20261020", 0, 0, 0, 2.187],
+        ["20261021", 0, 0, 0, 2.178], ["20261022", 0, 0, 0, 2.146],
+        ["20261023", 0, 0, 0, 2.142],
+    ])
+    sig = {"date": "20261023", "index_id": "us_ndx", "signal": "buy",
+           "etfs": [{"code": "159501", "track_score": 0.9, "match_method": "track"}]}
+    out = _ma3_tag_sig(sig, lambda _i: {})
+    assert out["hit"] is True, "必须按 etf/{code}-all.json 前复权 close 判定(回测同源)"
+
+
 def test_tag_no_etf_is_na():
-    out = _ma3_tag_sig({"date": "20260105", "etfs": []}, {}, lambda _i: {})
+    out = _ma3_tag_sig({"date": "20260105", "etfs": []}, lambda _i: {})
     assert out == {"hit": None, "status": "na", "reason": "no_etf", "etf": None}
 
 
@@ -192,20 +261,58 @@ def test_tag_self_etf_uses_index_close_map():
 
     sig = {"date": "20260105", "index_id": "cgb_10y_etf", "signal": "buy",
            "etfs": [{"code": "511260", "match_method": "self", "track_score": 0.3}]}
-    out = _ma3_tag_sig(sig, {}, _load)  # ETF 缓存故意为空: 命中只可能来自 index 收盘
+    out = _ma3_tag_sig(sig, _load)  # self 无 etf 文件: 命中只可能来自 index 收盘
     assert calls == ["cgb_10y_etf"]
     assert out["hit"] is True
     assert out["etf"] == "511260"
 
 
-def test_tag_etf_cache_missing_code_is_na():
+def test_tag_missing_etf_file_is_na(etf_dir):
     sig = {"date": "20260105", "index_id": "x", "signal": "buy",
            "etfs": [{"code": "999999", "track_score": 0.9, "match_method": "track"}]}
-    out = _ma3_tag_sig(sig, {}, lambda _i: {})
+    out = _ma3_tag_sig(sig, lambda _i: {})
     assert out["hit"] is None
     assert out["status"] == "na"
     assert out["reason"] == "no_data"
     assert out["etf"] == "999999"
+
+
+# ===== QDII 回归: 前复权 close vs etf_daily.accum_nav 在 4 只跨境 ETF 上判定翻转 =====
+# 数据逐位取自 2026-11-21 本机实库(审查证据 8/271 条信号翻转):
+#   etf/{code}-all.json 前复权 close 与 etf_daily.accum_nav 两条序列, 同一算法结论相反。
+# 断言「新口径(close)判 X」+「旧口径(accum_nav)判 非X」= 证明实现确实换了数据源、且翻转方向正确。
+_MA3_QDII_FLIPS = [
+    # (code, 信号日, close 序列末 5 日, accum_nav 序列末 5 日, close 口径预期, accum 口径预期)
+    ("159501", "20261023",
+     [2.187, 2.187, 2.178, 2.146, 2.142],
+     [1.8571, 1.8544, 1.875, 1.8208, 1.8202], True, False),
+    ("159501", "20261019",
+     [2.221, 2.229, 2.170, 2.207, 2.187],
+     [1.9252, 1.8850, 1.8840, 1.8361, 1.8571], False, True),
+    ("513080", "20261009",
+     [1.695, 1.696, 1.707, 1.638, 1.655],
+     [1.6603, 1.6501, 1.6310, 1.5667, 1.5799], False, True),
+    ("159561", "20261009",
+     [1.302, 1.300, 1.312, 1.285, 1.283],
+     [1.2972, 1.2971, 1.2823, 1.2489, 1.2616], False, True),
+    ("159513", "20260929",
+     [1.874, 1.891, 1.857, 1.843, 1.851],
+     [1.7225, 1.7080, 1.7089, 1.6955, 1.6990], False, True),
+]
+
+
+@pytest.mark.parametrize("code,sig_date,closes,accs,exp_fwd,exp_acc", _MA3_QDII_FLIPS)
+def test_qdii_close_vs_accum_nav_flip(code, sig_date, closes, accs, exp_fwd, exp_acc):
+    # 5 个交易日键(字符串可排序, 末日==信号日), 与库内 YYYYMMDD 形态一致
+    keys = ["20260101", "20260102", "20260103", "20260104", sig_date]
+    fwd = dict(zip(keys, closes))
+    acc = dict(zip(keys, accs))
+    hit_fwd, det = _ma3_consec_below(fwd, sig_date)
+    hit_acc, _ = _ma3_consec_below(acc, sig_date)
+    assert det["status"] == "ok"
+    assert hit_fwd is exp_fwd, f"{code}@{sig_date} 前复权 close 口径应判 {exp_fwd}"
+    assert hit_acc is exp_acc, f"{code}@{sig_date} accum_nav 旧口径应为 {exp_acc}(对照)"
+    assert hit_fwd != hit_acc, "判别力: 两条序列必须给出相反结论(否则本用例证明不了换源)"
 
 
 # ===== 打标范围契约 =====
@@ -215,3 +322,22 @@ def test_buy_signal_set_is_exactly_four_buy_classes():
     assert _MA3_BUY_SIGNALS == {"buy", "buy_aux", "buy_special", "buy_backup"}
     for sell in ("sell", "sell_stop_loss", "band_hold", "band_sell"):
         assert sell not in _MA3_BUY_SIGNALS
+
+
+def test_buy_signal_set_matches_frontend_constants():
+    """P2-5 常量交叉机检: 后端 _MA3_BUY_SIGNALS 必须与前端买入类常量集合逐键相等。
+
+    前端没有可 import 的模块常量(浏览器全局 IIFE), 用源码形状守卫解析两处既有常量:
+    _BUY_UNI_SIGS(首页入样买信号集合) 与 _CONS_BUY(AI 认可度买类集合)。任一处与后端集合
+    不一致 = 同一事实多副本漂移(§22), 直接红。
+    """
+    app_js = Path(__file__).resolve().parents[2] / "static-site" / "app.js"
+    src = app_js.read_text(encoding="utf-8")
+
+    def _keys_of(name):
+        m = re.search(r"const\s+%s\s*=\s*\{([^}]*)\}" % re.escape(name), src)
+        assert m, f"前端 {name} 常量未找到(源码形状变了, 请同步本守卫)"
+        return set(re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*:", m.group(1)))
+
+    assert _keys_of("_BUY_UNI_SIGS") == _MA3_BUY_SIGNALS
+    assert _keys_of("_CONS_BUY") == _MA3_BUY_SIGNALS

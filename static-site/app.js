@@ -3093,8 +3093,63 @@ function _ma3FilterNote() {
   try {
     if (typeof PURPOSE_NOTES !== "undefined" && PURPOSE_NOTES["home.ma3filter"]) return PURPOSE_NOTES["home.ma3filter"];
   } catch (e) {}
-  return "MA3连3日降亏筛选(默认关): 信号自身标的 ETF 连续 3 个交易日收盘低于 3 日均线 → 灰显+标注建议回避; 判定只用信号日及之前收盘(防前视), 数据不足保持亮显; 规则/口径/回测数字见 purpose-notes 公示。";
+  return "MA3连3日降亏筛选(默认关): 信号自身标的 ETF 连续 3 个交易日收盘低于 3 日均线 → 灰显+标注建议回避; 命中仍占原 AI建议位、不补位(post 口径); 判定只用信号日及之前收盘(防前视), 数据不足保持亮显; 规则/口径/回测数字见 purpose-notes 公示。";
 }
+// 2026-11-21 P2-2: 开关/角标「hover 短句」必须纯文本(原生 title 与 term-pop 都按纯文本渲染, 塞 HTML 会字面显示
+// <b> 标签, 与冰点图例同一 bug 同修法)。完整 HTML 公示只走点击 ⓘ 弹窗(innerHTML), 两者同源同口径(§21/§22)。
+// 公示纯文本化(P2-2 举一反三): 角标 data-tip 走 term-pop 的 textContent 渲染, 塞 HTML 会字面显示 <b>;
+// 直接去标签复用 purpose-notes 原文 = 数字/口径单源不抄第二份(§22), 且保留全部回测数字供 hover 查看。
+function _ma3FilterNotePlain() {
+  return String(_ma3FilterNote())
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+function _ma3FilterHoverText() {
+  return "MA3连3日(默认关): 信号自身标的 ETF 连续 3 个交易日收盘都低于 3 日均线 → 该买入信号灰显+标注建议回避;"
+    + " 命中仍占原 AI建议位、不补位(post 口径, 该日建议位置空缺不给替补); 判定只用信号日及之前收盘(防前视),"
+    + " 数据不足保持亮显。点击右侧 ⓘ 查看完整口径与回测数字。";
+}
+// 完整公示弹窗(2026-11-21 P2-2, 同冰点图例 _openIcepointNoteModal 先例): innerHTML 渲染 purpose-notes 原文,
+// 多段 HTML/<b> 正常显示; 与 hover 短句口径一致, 完整公示仍以 purpose-notes 为唯一事实源。
+function _openMa3FilterNoteModal() {
+  const text = (typeof PURPOSE_NOTES !== "undefined" && PURPOSE_NOTES["home.ma3filter"]) ? PURPOSE_NOTES["home.ma3filter"] : "";
+  if (!text) return;
+  let modal = document.getElementById("ma3FilterNoteModal");
+  const isFirst = !modal;
+  if (isFirst) {
+    modal = document.createElement("div");
+    modal.id = "ma3FilterNoteModal";
+    modal.className = "rule-modal hidden";
+    document.body.appendChild(modal);
+  }
+  const _close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+  modal.innerHTML =
+    '<div class="rule-modal-overlay"></div>' +
+    '<div class="rule-modal-body"><div class="rule-modal-header"><h3>💡 MA3连3日降亏筛选 · 完整公示</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
+    '<div class="rule-modal-content"><div class="purpose-note" style="white-space:pre-line">' + text + '</div></div>' +
+    '<div class="rule-modal-footer">⚠ 研究标注，非交易指令；过往表现不代表未来收益。规则/口径/回测数字详见上方公示。</div>' +
+    '</div></div>';
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
+  modal.querySelector(".rule-modal-close").addEventListener("click", _close);
+  if (isFirst) {
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) _close(); });
+  }
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+// click 委托: [data-ma3-note] 弹完整公示(capture 先于 term-pop 移动端 pop click, stopPropagation 防双弹)
+(function _initMa3NoteDelegation() {
+  document.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-ma3-note]");
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _openMa3FilterNoteModal();
+  }, true);
+})();
 // 首页枯竭类提示共用的当前模式键集(单一事实源): 与首页判定链同一 preset(_readHomeFadeMode→_tdsFadeModeById)。
 // 消费点=AI建议区常驻 chip(_mountHomeDroughtChip)+「仅显示可用信号」空态枯竭统计(_mountSigEmptyDrought), §22 同源同数字。
 function _homeDroughtModeKeys() {
@@ -3246,9 +3301,9 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
     // 2026-11-21 「MA3连3日」降亏筛选(默认关, 独立键 tds_home_ma3; 与 AI降亏过滤同款开关样式):
     // 开启=信号自身 top1 ETF 连续 3 日收盘 < MA3 的买入信号灰显+删除线+「MA3连3日下」标注; 数据不可判保持亮显。
     // 纯展示层, 不改 AI建议编号/仓位建议/任何判定链(§23.7); 文案单源=purpose-notes home.ma3filter(§21/§22)。
-    `<label class="sig-switch-lab sig-switch-ma3" data-no-pop="" title="${_escAttr(_ma3FilterNote())}">` +
+    `<label class="sig-switch-lab sig-switch-ma3" data-no-pop="" title="${_escAttr(_ma3FilterHoverText())}">` +
       `<input type="checkbox" class="sig-switch-ma3-cb"${_readHomeMa3Flag() ? " checked" : ""}> MA3连3日` +
-      `<span class="sig-switch-tip" data-no-pop="" data-tip="${_escAttr(_ma3FilterNote())}">ⓘ</span>` +
+      `<span class="sig-switch-tip" data-tip="${_escAttr(_ma3FilterHoverText())}" data-ma3-note="1">ⓘ</span>` +
     `</label>` +
     `<label class="sig-switch-lab sig-switch-avail" data-no-pop="" title="仅显示可用信号(视图控制开关, 默认开(2026-08-30 用户拍板), 记忆键 tds_home_show_available_only): 开启=把信号列表里所有「灰显/删除线」的行整体隐藏——即 AI降亏过滤命中类(AI降亏 sig-ai-hit 删除线+置灰 / 未入样本 sig-poscap-notuni 删除线+置灰), 只留干净可用的放行信号; 关闭=恢复完整列表。纯展示层视图控制: 不改变任何判定链/统计口径/AI建议编号, 与「AI降亏过滤」「AI仓位建议 K」两开关正交叠加——本开关隐藏 AI降亏层已画删除线的行(AI降亏命中 / 未入样本)+「当日已满」行(入宇宙买类超出K名=当日不可买), 卖出/持有类风险提示正常亮显不受影响; 汇总条准确率仍按全量人口统计便于对比。开启后若近30个交易日无任何可用信号, 列表区显示枯竭引导空态(连续无放行天数与历史统计, 数据源与常驻枯竭 chip 同源 §22)">` +
       `<input type="checkbox" class="sig-switch-avail-cb"${_readHomeAvailOnlyFlag() ? " checked" : ""}> 仅显示可用信号` +
@@ -6510,7 +6565,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   ② 未入样本(it._bt_in_universe===false 且非 band_hold 且非卖类警示信号(sell/sell_stop_loss/波段减仓/波段止损, _isSellRow)
   //      → sig-poscap-notuni 删除线+置灰; 卖类警示信号不隐藏, 常驻显示)
   //   ③ 当日已满(_isDayFull → sig-poscap-excluded, 入宇宙但不在 top-K; 2026-08-26 fix: 设计初衷=隐藏所有灰显/不可用信号)
-  // 纯展示层视图控制: 汇总条统计人口(_statItems)/AI建议编号(kept 本就先滤降亏, 被藏行不占位)/ETF档计数基线均不变。
+  // 纯展示层视图控制: 汇总条统计人口(_statItems)/AI建议编号(kept 先滤 AI降亏; MA3 命中按 post 口径仍占原 AI建议位、
+  //   不补位, 但命中行本身被本开关隐藏, 故该日期可见 AI建议数会少于 K, 这是 post 口径的正常表现)/ETF档计数基线均不变。
   // 卖出/持有类风险提示正常亮显, 不在本开关隐藏范围(卖出=离场保护, 非不可用; 2026-09-06 bandfix: 波段调整
   //   signal="sell"+reason波段减仓/止损 属卖类警示信号, _bt_in_universe===false(债类)也须常驻可见, 用 _isSellRow 豁免)。
   const _availOnlyOn = (kind === "signal") && _readHomeAvailOnlyFlag();
@@ -6661,6 +6717,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
               // 快照已固化完整入样买排序(剔除晚到); 取前 K; 信号 key 与动态口径同款
               // (index_id|date|signal)。晚到信号不在快照 → 不参与 top-K(正是根治点)。
               // snap 条目字段: index_id/signal/etf_code/etf_name/track_score/rating/bk_ts/late
+              // 2026-11-21 MA3(post 口径, P2-1): 快照 slice 里可能含 MA3 命中信号——命中**照常占位**(不补位,
+              //   与上面动态分支同语义); 灰显/删除线/角标由渲染层按 it._ma3 统一绘制, 两分支展示一致。
               const _snapKept = _snapList.slice(0, _posCapK)
                 .map((s2) => s2.index_id + '|' + dt + '|' + s2.signal)
                 .filter(Boolean);
@@ -6679,9 +6737,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             if (!_dayItems.length) continue;
             // 2026-08-13 融合口径(与凯利回测一致: 先滤降亏、再选top-K): 被降亏命中的信号不占AI建议位,
             // 顺延补位给后续未命中信号; 判定走共享谓词 _isAiFadeHit(受首页「AI降亏过滤」开关门控: 开关关→不滤, top-K 正常取)。
-            // 2026-11-21 MA3 同口径: 命中 MA3连3日(开关开时)也不占 AI建议位, 否则「仅显示可用」把 kept 行藏掉
-            //   却不补位(该日期 AI建议 空白), 与 6513 行「被藏行不占位」不变式冲突。
-            _dayItems = _dayItems.filter((it) => !_isAiFadeHit(it) && !_isMa3Hit(it));
+            // 2026-11-21 MA3 口径 = post(用户拍板②, 2026-11-21): 基线 top-K 选完后再剔除命中, 命中**仍占**原 AI建议位,
+            //   **不补位**(与 AI降亏的 pre 补位不同源; 回测变体名带 (post) 即此语义, 公示数字 88.4/28.7/47.27/97.7 全是 post 口径)。
+            //   命中行不在此剔除: 由渲染层灰显+删除线+角标标注, 统计/档位计数/枯竭判定另在 _statItems/_tierCountItems/_homeHasPassBuy 排除。
+            _dayItems = _dayItems.filter((it) => !_isAiFadeHit(it));
             if (!_dayItems.length) continue;
             // s06p1(2026-08-29 观察档): 仅 K=1 时从候选池中剔除高评级信号(mid/low 递补),
             // 单一事实源=common.js _tdsS06P1StripHigh(mode,K); K=2/3/4 不剔(Δ=0 铁律)。
@@ -7034,7 +7093,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         if (_isMa3Hit(it)) {
           ma3Cls = " sig-ma3-hit";
           const _m3 = it._ma3 || {};
-          const _m3Tip = "本信号命中「MA3连3日」筛选: 自身标的ETF(" + (_m3.etf || "?") + ") 连续3个交易日收盘都低于3日均线(判定日=" + it.date + ", 只用该日及之前的收盘, 未用其后数据) → 按回测变体「ETF consec w3 p3(post)」建议回避。" + _ma3FilterNote();
+          // P2-2: 角标 tooltip 用纯文本(去 HTML 标签)拼接, 防 term-pop textContent 字面显示 <b>; 数字单源 purpose-notes。
+          const _m3Tip = "本信号命中「MA3连3日」筛选: 自身标的ETF(" + (_m3.etf || "?") + ") 连续3个交易日收盘都低于3日均线(判定日=" + it.date + ", 只用该日及之前的收盘, 未用其后数据) → 按回测变体「ETF consec w3 p3(post)」(先选 top-K 再剔除命中, 命中占原 AI建议位不补位)建议回避。\n" + _ma3FilterNotePlain();
           ma3Badge = `<sup class="sig-ma3-badge" data-tip="${_escAttr(_m3Tip)}">MA3连3日下</sup>`;
         }
         // 评分尾缀：技术参考点综合把握度（10d 窗口 score）
@@ -8078,7 +8138,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：mootdx（通达信协议）收�
   // data-strategy-help / data-glossary / data-ice-note) 双绑定。桌面有意设计: hover 短文本 + click 详版 modal;
   // 移动端 tap 会合成 mouseover+click 双事件, 若 term-pop 也处理就与 modal 双弹(stopPropagation 拦不住同节点后续 capture listener)。
   // 故 term-pop 对这批选择器: mouseover 仅 isTouch 排除, click 路径直接排除 —— modal 单弹。根因修一次, 不打 5 处补丁。
-  var _modalHelpSel = "[data-ice-note],[data-overfit-help],[data-signal-help],[data-strategy-help],[data-glossary],[data-ind-help]";
+  var _modalHelpSel = "[data-ice-note],[data-ma3-note],[data-overfit-help],[data-signal-help],[data-strategy-help],[data-glossary],[data-ind-help]";
   // AI 信号认可度 tooltip 三档互证文案(§23.9 白话+场景+1:1 举例; 计数口径用户拍板 2026-08-27「当日主推=
   // 当日票数最多的唯一一支」; 举例数字核验自 static-site/data/overview.json 30 日窗口重放,
   // 见 docs/ops/homepage-ai-endorsement-semantic-audit-20260827.md)
@@ -8107,6 +8167,10 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：mootdx（通达信协议）收�
     // 2026-08-06: target 在 [data-no-pop] 内（如信号 cell 的 .etf-tag 自带 pop 系统）时不触发 term-pop。
     // 否则 target 冒泡到父级 .sig-item 的 [title] 命中后 term-pop(z:9999) 会盖住 .etf-popup(z:100)，
     // 致 hover 主ETF pop（512710）看不见。data-no-pop 元素自管 pop，term-pop 应让位。
+    // 2026-11-21 P2-2: MA3 开关行的 ⓘ(data-ma3-note) 显式豁免——它在 data-no-pop 的开关行内, 但需要 hover 短句
+    // (纯文本) + click 完整公示弹窗, 与冰点图例 ❓ 同型; 只豁免本图标本身, 不放宽其余 data-no-pop 语义。
+    var _ma3NoteEl = target.closest("[data-ma3-note]");
+    if (_ma3NoteEl) return _ma3NoteEl;
     if (target.closest("[data-no-pop]")) return null;
     var el = target.closest("[data-tip]");
     if (el) return el;

@@ -176,6 +176,7 @@ jobs:
           node --check static-site/lab.js
           node --check scripts/playwright-accept/accept_mobile_ux_sigkelly.mjs
           node --check scripts/playwright-accept/accept_market_overview_buttons.mjs
+          node --check scripts/playwright-accept/accept_ma3_filter_toggle.mjs
           node --check scripts/playwright-accept/mobile_source_harness.mjs
       - run: python3 ops/monitoring/build_baseline.py --check
       - run: npm run ops:types -- --check
