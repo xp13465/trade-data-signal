@@ -307,5 +307,8 @@
   ],
   "20261111-a663": [
     "ci(ops): gate real FX page regressions and consolidate authorized delivery"
+  ],
+  "20261122-a664": [
+    "fix(ma3-filter): \u8fd4\u5de5\u62792 P1-3 \u6570\u636e\u76ee\u5f55\u7981 resolve + P2-a \u516c\u793a\u52a0\u7c97 + P2-b \u540c\u65e5\u65ad\u8a00 + P3 \u24d8\u5f39\u7a97\u7528\u4f8b"
   ]
 }
