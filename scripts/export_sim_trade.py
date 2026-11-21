@@ -286,8 +286,12 @@ def build_payload(db_path: str, out_path: str, backfill_db=None,
             payload["summary"] = export_summary(con, etf_con)
             payload["runs"] = export_runs(con, log_dir)
         except sqlite3.Error as exc:
-            # 空文件/未初始化库: 合法空 JSON, 不崩
-            payload["source"].update({"status": "empty", "note": "账本尚未初始化: " + str(exc)})
+            msg = str(exc)
+            # 空库/未初始化库 -> empty(等待首个触发器); 损坏/无法读取 -> error(不能伪装成「等数据」)。
+            if "no such table" in msg or "no such view" in msg:
+                payload["source"].update({"status": "empty", "note": "账本尚未初始化: " + msg})
+            else:
+                payload["source"].update({"status": "error", "note": "账本无法读取: " + msg})
     finally:
         con.close()
         if etf_con is not None:

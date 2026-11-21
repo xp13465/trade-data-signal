@@ -85,6 +85,28 @@ def test_missing_db_still_writes_legal_json(tmp_path):
     assert payload["generated_at"]
 
 
+def test_empty_db_file_reports_empty(tmp_path):
+    """0 字节库 = 尚未初始化 -> empty, 与损坏库的 error 区分开。"""
+    blank = tmp_path / "blank.db"
+    blank.write_bytes(b"")
+    out = tmp_path / "simtrade.json"
+    exp.main(["--db", str(blank), "--out", str(out)])
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["source"]["status"] == "empty"
+
+
+def test_corrupt_db_reports_error_not_empty(tmp_path):
+    """损坏账本必须报 error, 不能伪装成「等待数据」——否则巡检查不出账本坏了。"""
+    bad = tmp_path / "bad.db"
+    bad.write_bytes(b"not a sqlite database")
+    out = tmp_path / "simtrade.json"
+    exp.main(["--db", str(bad), "--out", str(out)])
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["source"]["status"] == "error"
+    assert payload["source"]["note"].startswith("账本无法读取")
+    assert payload["positions"] == []
+
+
 def test_atomic_write_leaves_no_tmp(tmp_path):
     out = tmp_path / "simtrade.json"
     exp.main(["--db", str(tmp_path / "nope.db"), "--out", str(out)])
