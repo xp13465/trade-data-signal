@@ -86,6 +86,7 @@ async function rowsInfo(page, keys) {
     if (!el) return { k, found: false };
     return {
       k, found: true,
+      date: d,
       ok: !!el.querySelector('.sig-poscap-ok'),
       full: !!el.querySelector('.sig-poscap-full'),
       poscapBadges: el.querySelectorAll('.sig-poscap-badge').length,
@@ -131,13 +132,17 @@ try {
   for (const v of visible) (byDate[v.date] = byDate[v.date] || []).push(v);
   const okDates = Object.keys(byDate).filter((d) => byDate[d].some((x) => x.ok));
   const mixedDates = okDates.filter((d) => byDate[d].some((x) => x.full) && byDate[d].some((x) => x.ok));
-  // 命中目标优先取两个不同日期的「AI建议(kept)」行: post 口径下它们仍占位, 便于 D1 用行数精确断言。
+  // 命中目标取两个不同日期的「AI建议(kept)」行: post 口径下它们仍占位, 便于 D1 用行数精确断言。
+  // 第 1 条固定取「同日含 ok+full 的混合日」→ 保证 B13b 断言 sibling 与命中行同日(2026-11-22 P2-b 返工;
+  // 原实现 sibling 取 mixedDates[0] 而命中行取 okDates[0], 两者可能不同日, 断言名不副实)。
+  const mixedDate = mixedDates[0] || null;
   const hitTargets = [];
+  if (mixedDate) hitTargets.push(byDate[mixedDate].find((x) => x.ok));
   for (const d of okDates) {
+    if (d === mixedDate) continue;
     hitTargets.push(byDate[d].find((x) => x.ok));
     if (hitTargets.length === 2) break;
   }
-  const mixedDate = mixedDates[0] || null;
   const sibling = mixedDate ? byDate[mixedDate].find((x) => x.full) : null;
   const others = visible.filter((v) => !hitTargets.some((h) => KEY(h) === KEY(v)) && (!sibling || KEY(sibling) !== KEY(v)));
   if (hitTargets.length !== 2 || !mixedDate || !sibling || others.length < 2) {
@@ -207,7 +212,7 @@ try {
     hitRow.found && hitRow.ma3 && !hitRow.ok && !hitRow.full && hitRow.poscapBadges === 0,
     hitRow);
   check('B13b 同日兄弟行仍是「当日已满」(命中占位不补位, post 口径)',
-    sibRow.found && sibRow.full === true && sibRow.ok === false,
+    sibRow.found && sibRow.full === true && sibRow.ok === false && sibRow.date === hitRow.date,
     sibRow);
   const tips = await page.locator('.sig-card .sig-ma3-badge').evaluateAll((els) => els.map((e) => e.getAttribute('data-tip') || ''));
   check('B7 角标说明含规则名', tips.length === 2 && tips.every((t) => t.includes('MA3连3日') && t.includes('3日均线')));
@@ -254,6 +259,21 @@ try {
   check('F4 公示含 post 占位语义(命中=该日建议位置空缺不给替补)', note.includes('post 口径') && note.includes('不给替补') && note.includes('不会顺延补位'));
   check('F5 公示含年份依赖(49.9%主要来自2026/99笔/7笔未平仓/28.7%靠2018)', note.includes('主要来自 2026 年') && note.includes('99 笔') && note.includes('7 笔未平仓') && note.includes('2018 年那段真金白银的改善'));
   check('F6 无页面 JS 报错', pageErrors.length === 0, pageErrors);
+  // F7-F9(2026-11-22 P3 并入): 真点 ⓘ → 完整公示弹窗可见且含完整公示文本 → 不误切开关 → 可关闭。
+  await page.locator('.sig-switch-ma3 .sig-switch-tip[data-ma3-note]').click();
+  const modalVisible = (await page.locator('#ma3FilterNoteModal:not(.hidden)').count()) === 1;
+  const modalText = modalVisible ? await page.locator('#ma3FilterNoteModal .rule-modal-content').innerText() : '';
+  check('F7 ⓘ点击弹出完整公示弹窗且含完整公示文本',
+    modalVisible && modalText.includes('MA3连3日') && modalText.includes('不给替补')
+      && modalText.includes('不构成投资建议') && modalText.includes('49.9%')
+      && !modalText.includes('**'),
+    { modalVisible, len: modalText.length, hasLiteralMarkdown: modalText.includes('**') });
+  check('F7b 公示加粗走 <b> 标签渲染(无字面 Markdown)',
+    modalVisible && (await page.locator('#ma3FilterNoteModal .rule-modal-content').innerHTML()).includes('<b>仍然占着'));
+  check('F8 点击ⓘ不误切MA3开关', !(await page.locator('.sig-switch-ma3-cb').isChecked()));
+  await page.locator('#ma3FilterNoteModal .rule-modal-close').click();
+  check('F9 弹窗可关闭', (await page.locator('#ma3FilterNoteModal.hidden').count()) === 1);
+  check('F6b 点击/关闭弹窗后仍无页面 JS 报错', pageErrors.length === 0, pageErrors);
   await context.close();
 
   // ===== G. 老数据无 _ma3 字段 + 开关开 → 不误灰、不误占位 =====

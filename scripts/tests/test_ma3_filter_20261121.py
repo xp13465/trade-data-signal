@@ -341,3 +341,41 @@ def test_buy_signal_set_matches_frontend_constants():
 
     assert _keys_of("_BUY_UNI_SIGS") == _MA3_BUY_SIGNALS
     assert _keys_of("_CONS_BUY") == _MA3_BUY_SIGNALS
+
+
+# ===== P1-3 数据目录解析: 经 trade-data/app symlink 调用不得跳回代码仓 =====
+
+def test_etf_data_dir_via_trade_data_symlink(tmp_path, monkeypatch):
+    """从 trade-data/app 链接侧调用, 必须返回 trade-data 下的 etf 目录, 不跳回代码仓 trade。
+
+    复刻生产布局(trade-data/app -> trade/app 软链, 见 scripts/export_etf_hist.py 顶部警告):
+    代码仓侧 trade/static-site/data/etf 与数据仓侧 trade-data/static-site/data/etf 都存在,
+    只从链接侧路径加载模块, 断言取数据仓(链接侧)。旧实现 Path(__file__).resolve() 会跳回
+    代码仓 -> 本用例红。判别力: 两侧都真实存在, 不是「找不到才回退」的假绿。
+    """
+    import importlib.util
+
+    monkeypatch.delenv("MA3_ETF_DATA_DIR", raising=False)
+    _repo_queries = Path(__file__).resolve().parents[2] / "app" / "queries.py"
+    _code_root = tmp_path / "code" / "trade"
+    _data_root = tmp_path / "code" / "trade-data"
+    (_code_root / "app").mkdir(parents=True)
+    (_code_root / "app" / "queries.py").write_text(_repo_queries.read_text(encoding="utf-8"), encoding="utf-8")
+    _code_etf = _code_root / "static-site" / "data" / "etf"
+    _data_etf = _data_root / "static-site" / "data" / "etf"
+    _code_etf.mkdir(parents=True)
+    _data_etf.mkdir(parents=True)
+    (_data_root / "app").mkdir()
+    (_data_root / "app" / "queries.py").symlink_to(_code_root / "app" / "queries.py")
+
+    _link_queries = _data_root / "app" / "queries.py"
+    _spec = importlib.util.spec_from_file_location("app.queries_symlink_probe", str(_link_queries))
+    _mod = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+
+    assert Path(_mod.__file__) == _link_queries, "前置: 模块 __file__ 必须是链接侧路径(未 resolve)"
+    assert _mod._ma3_etf_data_dir() == str(_data_etf), "必须读数据仓(trade-data)的 etf 目录"
+    # 判别力自证: 旧写法 .resolve() 会落到代码仓目录, 与本实现结果不同
+    _legacy = Path(_link_queries).resolve().parent.parent / "static-site" / "data" / "etf"
+    assert str(_legacy) == str(_code_etf)
+    assert str(_legacy) != _mod._ma3_etf_data_dir()

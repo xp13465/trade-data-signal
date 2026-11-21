@@ -485,23 +485,17 @@ _MA3_ETF_CLOSE_CACHE: dict = {}
 def _ma3_etf_data_dir():
     """静态站 ETF 历史文件目录(static-site/data/etf)。
 
-    解析顺序: 环境变量 MA3_ETF_DATA_DIR(测试/特殊部署显式指定) → 仓库根(按本文件位置推)
-    → 进程 cwd(trade-data 生产侧) 下的 static-site/data/etf。都找不到返回 None(判定转 na 保守放行)。
+    解析顺序: 环境变量 MA3_ETF_DATA_DIR(测试/特殊部署显式指定) → 与 _STATIC_DATA_DIR 同源
+    (本文件位置推, .absolute() 不解析 symlink)。
+    ⚠ 禁用 Path.resolve(): trade-data/app 是到 trade/app 的 symlink, resolve() 会跳回代码仓
+    trade 读那里的旧导出产物(生产静默读旧数据/全 na), 同 scripts/export_etf_hist.py 顶部警告。
+    目录不存在返回 None(判定转 na 保守放行)。
     """
     import os
     _env = os.environ.get("MA3_ETF_DATA_DIR")
     if _env:
         return _env if os.path.isdir(_env) else None
-    _bases = [Path(__file__).resolve().parent.parent]
-    try:
-        _bases.append(Path.cwd())
-    except Exception:
-        pass
-    for _b in _bases:
-        _p = _b / "static-site" / "data" / "etf"
-        if _p.is_dir():
-            return str(_p)
-    return None
+    return str(_STATIC_DATA_DIR / "etf")
 
 
 def _ma3_etf_close_map(code):
