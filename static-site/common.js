@@ -889,8 +889,8 @@ var _KELLY_FADE_MODE_PRESETS = [
   // HOT(2026-11-22 用户拍板): 老档双第一(净利 101,467 / 近1年 +7,494), 仅展示层角标, 键集/判定/默认零变化
   { id: "a9", name: "⭐⭐ A 进攻王", tagline: "近端牛市吃满·回撤恢复99天", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, stars: 2, hot: true, hotTip: "历史效果最好的档: 净利 101,467、近1年 +7,494 老档双第一(数据验证)",
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "v1HighVol20", "r1VolRatioLow", "k3ConceptBuy", "r2bSpecialGlobal", "r2gLowRatingQ3"] },
-  // HOT(2026-11-22 用户拍板): 回撤 -13,633 全档最浅(数据验证), 仅展示层角标
-  { id: "b9", name: "⭐ B 均衡卡", tagline: "每项不差无短板·K档最钝感", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, stars: 1, hot: true, hotTip: "历史回撤最浅的档: 最大回撤 -13,633 全档最浅(数据验证)",
+  // HOT(2026-11-22 用户拍板): 最大回撤 -13,633(数据验证); 文案不用「最」字绝对词, 避免与 NEW14 冻结公示「回撤最浅」同屏互斥
+  { id: "b9", name: "⭐ B 均衡卡", tagline: "每项不差无短板·K档最钝感", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, stars: 1, hot: true, hotTip: "最大回撤 -13,633,持仓更稳(数据验证)",
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "r1VolRatioLow", "r2bSpecialGlobal", "r2gLowRatingQ3"] },
   { id: "c9", name: "C 防守", tagline: "笔数最少·熊市少亏", caliber: "⚠ 叠 9 键口径(速查卡注: 真选 C 应叠 8 键下线候选1)", calWarn: true,
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
@@ -1097,8 +1097,11 @@ function _tdsFadeModeDdInit() {
       var sel = w ? w.querySelector("select") : null;
       if (sel) {
         var mv = opt.getAttribute("data-fade-mode-opt");
-        if (sel.value !== mv) sel.value = mv;
-        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        // 2026-11-22: 点当前已选中档时值未变, 与原生 select 行为对齐 —— 不 dispatch change(避免重复写记忆/重绘/toast)
+        if (sel.value !== mv) {
+          sel.value = mv;
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
       }
       _tdsFadeModeDdCloseAll(null);
       _tdsFadeModeDdSync(w);

@@ -62,6 +62,11 @@ function ddInfo(page, selId) {
       opts: opts,
       badges: badges,
       cur: (w.querySelector('.tds-fade-mode-cur') || {}).textContent || '',
+      // 可见触发按钮的提示承载位(data-tip 由站内 tooltip 读; 降级/回退提示写这里, 原生 select 隐藏后它才是用户看得见的展示位)
+      btnTip: (function () {
+        const b = w.querySelector('.tds-fade-mode-ddb');
+        return b ? (b.getAttribute('data-tip') || b.getAttribute('title') || '') : '';
+      })(),
       selW: Math.round(sel.getBoundingClientRect().width),
       btnW: Math.round(w.querySelector('.tds-fade-mode-ddb').getBoundingClientRect().width),
       // 原生 select 必须退成隐藏值源(否则会出现「原生下拉+触发按钮」双控件, 四消费点都要守)
@@ -155,6 +160,10 @@ async function openPanel(page, selId) {
       opened ? opened.badges.map((b) => b.row + ':' + b.text).join(' | ') : '');
     ok('①HOT 文案=HOT', opened && opened.badges.every((b) => b.text === 'HOT'));
     ok('①HOT hover 提示含数据依据(一句白话)', opened && opened.badges.every((b) => b.title.length >= 8), opened ? opened.badges.map((b) => b.title.slice(0, 24)).join(' | ') : '');
+    // P2-1: b9 文案不得带「最浅/全档」绝对表述(与 NEW14 冻结公示「回撤最浅」同屏互斥);
+    // 「最大回撤」是指标名不算绝对词, 故只排除比较级措辞。
+    const b9Title = ((opened ? opened.badges.find((b) => b.row === 'b9') : null) || {}).title || '';
+    ok('P2-1 b9 HOT 文案不含「最浅/全档」绝对表述', b9Title.length > 0 && b9Title.indexOf('最浅') < 0 && b9Title.indexOf('全档') < 0, b9Title);
     ok('①HOT 角标不收缩(flex:0 0 auto, 防 390px 裁切)', opened && opened.badges.every((b) => b.flexShrink === '0' && b.w > 0));
     ok('①HOT 角标完整落在选项行内(不裁切)', opened && opened.badges.every((b) => b.inRow));
     ok('②展开面板后折叠区仍默认收起(s06 不在折叠区)', opened && opened.moreOpen === false);
@@ -180,9 +189,27 @@ async function openPanel(page, selId) {
     const afterEsc = await ddInfo(page, 'lab-kelly-fade-mode-sel');
     ok('Esc 关闭面板(不误触发切档)', afterEsc && afterEsc.panelHidden === true && afterEsc.value === 's06');
 
+    // P3-1: 点「当前已选中档」值未变 → 不重复 dispatch change(与原生 select 行为对齐, 不刷记忆/不重绘)
+    await openPanel(page, 'lab-kelly-fade-mode-sel');
+    await page.evaluate(() => {
+      const s = document.getElementById('lab-kelly-fade-mode-sel');
+      window.__hotddChg = 0;
+      s.addEventListener('change', () => { window.__hotddChg++; });
+    });
+    await page.locator('.tds-fade-mode-dd').filter({ has: page.locator('#lab-kelly-fade-mode-sel') }).first()
+      .locator('[data-fade-mode-opt="s06"]').click();
+    await page.waitForTimeout(150);
+    const chgSame = await page.evaluate(() => window.__hotddChg);
+    ok('P3-1 点当前已选中档(s06)不重复 dispatch change', chgSame === 0, `change=${chgSame}`);
+    const afterSame = await ddInfo(page, 'lab-kelly-fade-mode-sel');
+    ok('P3-1 点当前档后仍 s06 且面板照常关闭', afterSame && afterSame.value === 's06' && afterSame.panelHidden === true,
+      afterSame ? `value=${afterSame.value} panelHidden=${afterSame.panelHidden}` : '');
+
     // ④ 选折叠区档 p8 → 刷新后选中态正确
     await pickFadeMode(page, 'lab-kelly-fade-mode-sel', 'p8');
     await page.waitForTimeout(600);
+    const chgDiff = await page.evaluate(() => window.__hotddChg);
+    ok('P3-1 点不同档(p8)正常触发一次 change', chgDiff === 1, `change=${chgDiff}`);
     const p8State = await ddInfo(page, 'lab-kelly-fade-mode-sel');
     ok('④选 p8 成功(值源+记忆)', p8State && p8State.value === 'p8');
     ok('④触发按钮显示 p8 当前选中名(折叠不等于失效)', p8State && /8键/.test(p8State.cur), p8State ? p8State.cur : '');
@@ -247,6 +274,8 @@ async function openPanel(page, selId) {
         ov ? `options=${ov.nativeOptions}` : '');
       ok('⑥监控卡原生 select 已退为隐藏值源(无双控件)', ov && ov.selPos === 'absolute' && ov.selOpacity === '0',
         ov ? `position=${ov.selPos} opacity=${ov.selOpacity} selW=${ov.selW} btnW=${ov.btnW}` : '');
+      // P3-2: 原生 select 隐藏后, 提示(含「明细缺失回退」降级提示)的可见展示位 = 触发按钮 data-tip/title
+      ok('P3-2 监控卡提示承载在可见触发按钮上(非隐藏 select)', ov && ov.btnTip.length >= 20, ov ? `btnTip=${ov.btnTip.length}字` : '');
       await openPanel(p2, 'overfit-fade-mode-sel');
       await p2.waitForTimeout(200);
       const ovOpen = await ddInfo(p2, 'overfit-fade-mode-sel');

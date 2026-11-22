@@ -2629,6 +2629,17 @@ async function _appendOverfitCard(colA2, r, snap) {
     if (ovSelForTip) {
       if (!ovSelForTip.dataset.titleBase) ovSelForTip.dataset.titleBase = ovSelForTip.getAttribute("title") || "";
       ovSelForTip.setAttribute("title", ovSelForTip.dataset.titleBase + (fallbackTip ? " " + fallbackTip : ""));
+      // 2026-11-22: 该 select 已退为隐藏值源(opacity:0/pointer-events:none), title 用户看不到;
+      // 回退提示同步写到可见触发按钮(.tds-fade-mode-ddb)的 data-tip, 实际展示位不丢提示。
+      const ovDd = ovSelForTip.closest(".tds-fade-mode-dd");
+      const ovDdB = ovDd ? ovDd.querySelector(".tds-fade-mode-ddb") : null;
+      if (ovDdB) {
+        if (!ovDdB.dataset.tipBase) ovDdB.dataset.tipBase = ovDdB.getAttribute("data-tip") || ovDdB.getAttribute("title") || "";
+        const ovTip = ovDdB.dataset.tipBase + (fallbackTip ? " " + fallbackTip : "");
+        ovDdB.setAttribute("data-tip", ovTip);
+        if (ovDdB.hasAttribute("title")) ovDdB.removeAttribute("title");
+        if (ovDdB.hasAttribute("data-ddtip")) ovDdB.setAttribute("data-ddtip", ovTip);
+      }
     }
     // 更新准确率/风险分标题副标(反映当前维度; 卖类无回测对照 -> 注"仅实盘实际、无回测对照/风险分不适用")
     const accSub = card.querySelector(".ov-sub-dim");
