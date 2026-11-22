@@ -54,6 +54,8 @@ function ddInfo(page, selId) {
     return {
       value: sel.value,
       nativeOptions: sel.options.length,
+      // lab 标签区 withCustom=true 会多一个 disabled hidden 的「自定义」占位项, 档数口径=排除它
+      nativePresetCount: Array.prototype.filter.call(sel.options, (o) => o.value !== 'custom').length,
       panelHidden: panel.hidden,
       moreOpen: more ? more.open : null,
       moreLabel: more ? (more.querySelector('summary').textContent || '').trim() : '',
@@ -62,9 +64,21 @@ function ddInfo(page, selId) {
       cur: (w.querySelector('.tds-fade-mode-cur') || {}).textContent || '',
       selW: Math.round(sel.getBoundingClientRect().width),
       btnW: Math.round(w.querySelector('.tds-fade-mode-ddb').getBoundingClientRect().width),
+      // 原生 select 必须退成隐藏值源(否则会出现「原生下拉+触发按钮」双控件, 四消费点都要守)
+      selOpacity: getComputedStyle(sel).opacity,
+      selPos: getComputedStyle(sel).position,
       ddTag: sel.tagName,
     };
   }, selId);
+}
+// 新手引导全屏遮罩会拦截真实点击(测试环境残留, 不属于被测功能), 只在本浏览器会话内关掉
+async function dismissRuleModal(page) {
+  await page.evaluate(() => {
+    document.querySelectorAll('.rule-modal .rule-modal-close').forEach((b) => b.click());
+    document.querySelectorAll('.rule-modal').forEach((m) => m.classList.add('hidden'));
+    document.querySelectorAll('.rule-modal-overlay').forEach((o) => o.remove());
+  });
+  await page.waitForTimeout(200);
 }
 async function openPanel(page, selId) {
   const wrap = page.locator('.tds-fade-mode-dd').filter({ has: page.locator('#' + selId) }).first();
@@ -92,6 +106,7 @@ async function openPanel(page, selId) {
     await page.goto(BASE + '/index.html#lab?sub=sigkelly', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForSelector('#lab-kelly-fade-mode-sel', { timeout: 90000 });
     await page.waitForTimeout(1500);
+    await dismissRuleModal(page);
     const before = await ddInfo(page, 'lab-kelly-fade-mode-sel');
     ok('①lab 下拉存在且原生 select 保留为值源(tag=SELECT)', before && before.ddTag === 'SELECT');
     ok('③lab 默认档 s06 选中不变', before && before.value === 's06', before ? `value=${before.value}` : '');
@@ -99,13 +114,16 @@ async function openPanel(page, selId) {
     ok('②lab 面板默认收起', before && before.panelHidden === true);
     ok('②lab 折叠区默认收起', before && before.moreOpen === false);
     ok('②lab 折叠头文案=更多模式(5 档·已收纳)', before && /更多模式\(5 档·已收纳\)/.test(before.moreLabel), before ? before.moreLabel : '');
-    ok('②lab 档总数 9 不变(原生 select)', before && before.nativeOptions === 9, before ? `options=${before.nativeOptions}` : '');
+    ok('②lab 档总数 9 不变(原生 select 预设项, 不含自定义占位)', before && before.nativePresetCount === 9,
+      before ? `presets=${before.nativePresetCount} options=${before.nativeOptions}` : '');
     ok('②lab 主列表=4 档(s06/A进攻王/NEW14/B均衡卡)',
       before && before.opts.filter((o) => o.main).map((o) => o.id).join(',') === MAIN_IDS.join(','),
       before ? before.opts.filter((o) => o.main).map((o) => o.id).join(',') : '');
     ok('②lab 折叠区=5 档', before && before.opts.filter((o) => !o.main).length === 5, before ? String(before.opts.filter((o) => !o.main).length) : '');
     ok('②lab 可见层+隐藏层档总数 9', before && before.opts.length === 9, before ? String(before.opts.length) : '');
     ok('几何: 触发按钮宽==原生 select 宽(同行/宽度断言不受影响)', before && before.selW === before.btnW && before.selW === 200, before ? `sel=${before.selW} btn=${before.btnW}` : '');
+    ok('②原生 select 已退为隐藏值源(无「原生下拉+按钮」双控件)', before && before.selPos === 'absolute' && before.selOpacity === '0',
+      before ? `position=${before.selPos} opacity=${before.selOpacity}` : '');
 
     // 展开面板 → HOT 角标
     await openPanel(page, 'lab-kelly-fade-mode-sel');
@@ -167,7 +185,7 @@ async function openPanel(page, selId) {
     const afterReload = await ddInfo(page, 'lab-kelly-fade-mode-sel');
     ok('④刷新后选中态正确(p8 仍在, 触发按钮文案=p8)', afterReload && afterReload.value === 'p8' && /8键/.test(afterReload.cur),
       afterReload ? `${afterReload.value}/${afterReload.cur}` : '');
-    ok('④刷新后档总数/折叠结构不变', afterReload && afterReload.nativeOptions === 9 && afterReload.opts.length === 9 && afterReload.moreOpen === false);
+    ok('④刷新后档总数/折叠结构不变', afterReload && afterReload.nativePresetCount === 9 && afterReload.opts.length === 9 && afterReload.moreOpen === false);
   } catch (e) {
     fail++;
     console.log('FAIL  lab 用例异常  (' + String(e.message).slice(0, 200) + ')');
@@ -180,10 +198,13 @@ async function openPanel(page, selId) {
     await p2.goto(BASE + '/index.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await p2.waitForSelector('#sig-home-fade-mode-sel', { timeout: 90000 });
     await p2.waitForTimeout(1500);
+    await dismissRuleModal(p2);
     const home = await ddInfo(p2, 'sig-home-fade-mode-sel');
     ok('⑥首页下拉同款结构(默认 s06/9 档/主 4+折叠 5)',
       home && home.value === 's06' && home.nativeOptions === 9 && home.opts.filter((o) => o.main).length === 4 && home.opts.filter((o) => !o.main).length === 5,
       home ? `value=${home.value} options=${home.nativeOptions} main=${home.opts.filter((o) => o.main).length}` : '');
+    ok('⑥首页原生 select 已退为隐藏值源(无双控件)', home && home.selPos === 'absolute' && home.selOpacity === '0',
+      home ? `position=${home.selPos} opacity=${home.selOpacity} selW=${home.selW} btnW=${home.btnW}` : '');
     await openPanel(p2, 'sig-home-fade-mode-sel');
     await p2.waitForTimeout(200);
     const homeOpen = await ddInfo(p2, 'sig-home-fade-mode-sel');
@@ -201,6 +222,8 @@ async function openPanel(page, selId) {
       ok('⑥监控卡下拉同款结构(9 档/主 4+折叠 5)',
         ov && ov.nativeOptions === 9 && ov.opts.filter((o) => o.main).length === 4 && ov.opts.filter((o) => !o.main).length === 5,
         ov ? `options=${ov.nativeOptions}` : '');
+      ok('⑥监控卡原生 select 已退为隐藏值源(无双控件)', ov && ov.selPos === 'absolute' && ov.selOpacity === '0',
+        ov ? `position=${ov.selPos} opacity=${ov.selOpacity} selW=${ov.selW} btnW=${ov.btnW}` : '');
       await openPanel(p2, 'overfit-fade-mode-sel');
       await p2.waitForTimeout(200);
       const ovOpen = await ddInfo(p2, 'overfit-fade-mode-sel');
@@ -224,6 +247,7 @@ async function openPanel(page, selId) {
     await mp.goto(BASE + '/index.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await mp.waitForSelector('#sig-home-fade-mode-sel', { timeout: 90000 });
     await mp.waitForTimeout(1500);
+    await dismissRuleModal(mp);
     await openPanel(mp, 'sig-home-fade-mode-sel');
     await mp.waitForTimeout(250);
     const mob = await mp.evaluate(() => {

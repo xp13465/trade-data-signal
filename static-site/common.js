@@ -1045,11 +1045,14 @@ function _tdsFadeModeDdToggle(w) {
   panel.hidden = false;
   w.classList.add("is-open");
   btn.setAttribute("aria-expanded", "true");
-  // 小屏/贴右边缘时向左对齐, 防面板横向溢出(390px 不裁切)
+  // 小屏/贴边时把面板夹进视口(左右各留 8px), 防横向裁切(390px 不裁切)
   try {
     panel.style.left = "0"; panel.style.right = "auto";
-    var r = panel.getBoundingClientRect();
-    if (r.right > window.innerWidth - 8 || r.left < 8) { panel.style.left = "auto"; panel.style.right = "0"; }
+    var wr = w.getBoundingClientRect();
+    var pr = panel.getBoundingClientRect();
+    var vw = window.innerWidth;
+    var want = Math.min(Math.max(wr.left, 8), Math.max(8, vw - 8 - pr.width));
+    panel.style.left = (want - wr.left) + "px";
   } catch (e) {}
 }
 function _tdsFadeModeDdInit() {

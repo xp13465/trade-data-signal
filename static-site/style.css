@@ -7439,7 +7439,9 @@ select.tds-fade-mode-sel:hover, select.tds-fade-mode-sel:focus { border-color: v
    原生 select 仍是值源/兼容层(隐藏覆盖在触发按钮上, 外框尺寸与外层一致, 既有同行/宽度断言不受影响);
    可见交互=触发按钮 + 面板(主 4 档 + 更多模式折叠区)。 */
 .tds-fade-mode-dd { position: relative; display: inline-flex; width: 200px; vertical-align: middle; }
-.tds-fade-mode-dd > select.tds-fade-mode-sel { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
+/* 注: 包装内 select 可能是直接 HTML 消费点传入的私有类(如 sim-mode-sel/home-mode-sel, 无 tds-fade-mode-sel),
+   故用「包装内任意 select」兜底, 保证四消费点都只剩一个可见控件(不出现原生下拉+按钮双控件)。 */
+.tds-fade-mode-dd > select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
 .tds-fade-mode-ddb { display: inline-flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; padding: 2px 6px; font-size: 11px; line-height: 1.6; font-family: inherit; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-1); cursor: pointer; text-align: left; }
 .tds-fade-mode-ddb:hover, .tds-fade-mode-dd.is-open .tds-fade-mode-ddb { border-color: var(--primary); outline: none; }
 .tds-fade-mode-cur { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
