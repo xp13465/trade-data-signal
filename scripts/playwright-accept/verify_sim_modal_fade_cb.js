@@ -15,6 +15,8 @@
  */
 'use strict';
 const { chromium } = require('playwright');
+// 2026-11-22 下拉压缩折叠: p8 收进「更多模式」折叠区, 选 p8 改为真实路径(展开→点) helper, 断言语义不变
+const { pickFadeMode } = require('./fade_mode_dd_helper.mjs');
 const FEAT = process.argv[2] || 'http://localhost:8137';
 const MAIN = process.argv[3] || 'http://localhost:8138';
 let pass = 0, fail = 0;
@@ -147,7 +149,8 @@ async function renderState(page) {
     && on2.fadeKey !== '0');
 
   // 切一个别的模式再关/开(验证"恢复的是当前所选模式"而非固定 new14)
-  await page.selectOption('#sim-fade-mode-sel', 'p8');
+  // 2026-11-22: p8 在「更多模式」折叠区 → 走真实点击路径(展开面板+折叠区再点), 断言语义不变
+  await pickFadeMode(page, 'sim-fade-mode-sel', 'p8');
   await page.waitForFunction(() => !/筛选结果.*加载/.test((document.querySelector('#simBacktestModal .sim-table-loading') || {}).style || {}) , { timeout: 1000 }).catch(() => {});
   await page.waitForTimeout(2500);
   await page.waitForFunction(() => {

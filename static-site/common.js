@@ -886,9 +886,11 @@ var _KELLY_FADE_MODE_PRESETS = [
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15"] },
   { id: "p9", name: "⭐ 9键", tagline: "8键+候选1·牛市辅备买拦截", caliber: "✓ 叠 8 键(+候选1)", calWarn: false, stars: 1,
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop"] },
-  { id: "a9", name: "⭐⭐ A 进攻王", tagline: "近端牛市吃满·回撤恢复99天", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, stars: 2,
+  // HOT(2026-11-22 用户拍板): 老档双第一(净利 101,467 / 近1年 +7,494), 仅展示层角标, 键集/判定/默认零变化
+  { id: "a9", name: "⭐⭐ A 进攻王", tagline: "近端牛市吃满·回撤恢复99天", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, stars: 2, hot: true, hotTip: "历史效果最好的档: 净利 101,467、近1年 +7,494 老档双第一(数据验证)",
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "v1HighVol20", "r1VolRatioLow", "k3ConceptBuy", "r2bSpecialGlobal", "r2gLowRatingQ3"] },
-  { id: "b9", name: "⭐ B 均衡卡", tagline: "每项不差无短板·K档最钝感", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, stars: 1,
+  // HOT(2026-11-22 用户拍板): 回撤 -13,633 全档最浅(数据验证), 仅展示层角标
+  { id: "b9", name: "⭐ B 均衡卡", tagline: "每项不差无短板·K档最钝感", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, stars: 1, hot: true, hotTip: "历史回撤最浅的档: 最大回撤 -13,633 全档最浅(数据验证)",
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "r1VolRatioLow", "r2bSpecialGlobal", "r2gLowRatingQ3"] },
   { id: "c9", name: "C 防守", tagline: "笔数最少·熊市少亏", caliber: "⚠ 叠 9 键口径(速查卡注: 真选 C 应叠 8 键下线候选1)", calWarn: true,
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
@@ -971,10 +973,139 @@ function _tdsFadeModeMatch(filters) {
 //   样式=.tds-fade-mode-wrap/.tds-fade-mode-sel(style.css 公共段单份, 各页不留私有副本)。
 //   已接入: lab 凯利区(lab.js _renderSigKellyBar)、模拟回测弹窗(app.js _openSimBacktestModal);
 //   待接(T3-2): 首页 AI 建议卡、AI 监控卡——直接复用本组件, 不再各写一份 select。
+// ── 可见层压缩折叠(2026-11-22 用户拍板): 主列表保留 4 档 + 其余 5 档收「更多模式」折叠区(默认收起·档位不删) ──
+// 实现要点(§23.7 冻结: 默认行为零变化):
+//   ① 原生 <select id=...> 仍是唯一值源/记忆载体(4 消费点按 el.value + change 读写, 10+ 验收脚本零改),
+//      但视觉上退为覆盖在触发按钮上的隐藏层(opacity:0/pointer-events:none, 外框尺寸与外层一致, 同行断言/宽度断言不受影响);
+//   ② 可见层=触发按钮 + 面板(主 4 档 + <details>「更多模式(5 档·已收纳)」), 点击委托单份实现(本文件 _tdsFadeModeDdInit);
+//   ③ 选档写回 select 后派发冒泡 change → 既有 4 消费点绑定路径原样生效; 折叠区已选档在触发按钮显示当前选中名,
+//      重开面板时折叠区自动展开并高亮(折叠≠失效)。
+var _TDS_FADE_DD_MAIN_IDS = ["s06", "a9", "new14", "b9"];
+var _TDS_FADE_DD_MORE_LABEL = "更多模式(5 档·已收纳)";
+function _tdsFadeModeEscHTML(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+// HOT 角标: 样式类独立(.hot-tier-badge 与已上线 NEW 角标同款药丸风), 仅展示层; hotTip=hover 一句白话数据依据
+function _tdsFadeModeHotBadgeHTML(p) {
+  if (!p || !p.hot) return "";
+  return '<span class="hot-tier-badge" data-hot="1" title="' + _tdsFadeModeEscHTML(p.hotTip || "历史效果最好的档, 数据验证") + '">HOT</span>';
+}
+function _tdsFadeModeOptHTML(p, selectedId) {
+  var on = p.id === selectedId;
+  return '<button type="button" class="tds-fade-mode-opt' + (on ? " is-active" : "") + '" data-fade-mode-opt="' + _tdsFadeModeEscHTML(p.id) + '" role="option" aria-selected="' + (on ? "true" : "false") + '">' +
+    '<span class="tds-fade-mode-opt-name">' + _tdsFadeModeEscHTML(p.name) + "</span>" +
+    _tdsFadeModeHotBadgeHTML(p) +
+    '<span class="tds-fade-mode-opt-tag">' + _tdsFadeModeEscHTML(p.tagline) + (p.calWarn ? " ⚠" : "") + "</span>" +
+  "</button>";
+}
+function _tdsFadeModeDdSync(w) {
+  if (!w) return;
+  var sel = w.querySelector("select");
+  if (!sel) return;
+  var curName = null;
+  var p = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(sel.value) : null;
+  if (p) curName = p.name;
+  else if (sel.value === "custom") curName = "⚙️ 自定义(手动勾选生成)";
+  else curName = sel.value || "";
+  var cur = w.querySelector(".tds-fade-mode-cur");
+  if (cur) cur.textContent = curName;
+  var opts = w.querySelectorAll("[data-fade-mode-opt]");
+  for (var i = 0; i < opts.length; i++) {
+    var on = opts[i].getAttribute("data-fade-mode-opt") === sel.value;
+    if (on) opts[i].classList.add("is-active"); else opts[i].classList.remove("is-active");
+    opts[i].setAttribute("aria-selected", on ? "true" : "false");
+  }
+}
+function _tdsFadeModeDdCloseAll(except) {
+  var ws = document.querySelectorAll(".tds-fade-mode-dd.is-open");
+  for (var i = 0; i < ws.length; i++) {
+    var w = ws[i];
+    if (w === except) continue;
+    w.classList.remove("is-open");
+    var b = w.querySelector(".tds-fade-mode-ddb");
+    if (b) b.setAttribute("aria-expanded", "false");
+    var panel = w.querySelector(".tds-fade-mode-panel");
+    if (panel) panel.hidden = true;
+  }
+}
+function _tdsFadeModeDdToggle(w) {
+  if (!w) return;
+  var panel = w.querySelector(".tds-fade-mode-panel");
+  var btn = w.querySelector(".tds-fade-mode-ddb");
+  if (!panel || !btn) return;
+  var open = !panel.hidden;
+  if (open) {
+    panel.hidden = true;
+    w.classList.remove("is-open");
+    btn.setAttribute("aria-expanded", "false");
+    return;
+  }
+  _tdsFadeModeDdCloseAll(w);
+  _tdsFadeModeDdSync(w);
+  panel.hidden = false;
+  w.classList.add("is-open");
+  btn.setAttribute("aria-expanded", "true");
+  // 小屏/贴右边缘时向左对齐, 防面板横向溢出(390px 不裁切)
+  try {
+    panel.style.left = "0"; panel.style.right = "auto";
+    var r = panel.getBoundingClientRect();
+    if (r.right > window.innerWidth - 8 || r.left < 8) { panel.style.left = "auto"; panel.style.right = "0"; }
+  } catch (e) {}
+}
+function _tdsFadeModeDdInit() {
+  if (window._tdsFadeModeDdInited) return;
+  window._tdsFadeModeDdInited = true;
+  document.addEventListener("click", function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var btn = t.closest(".tds-fade-mode-ddb");
+    if (btn) {
+      e.preventDefault();
+      _tdsFadeModeDdToggle(btn.closest(".tds-fade-mode-dd"));
+      return;
+    }
+    var opt = t.closest("[data-fade-mode-opt]");
+    if (opt) {
+      e.preventDefault();
+      var w = opt.closest(".tds-fade-mode-dd");
+      var sel = w ? w.querySelector("select") : null;
+      if (sel) {
+        var mv = opt.getAttribute("data-fade-mode-opt");
+        if (sel.value !== mv) sel.value = mv;
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      _tdsFadeModeDdCloseAll(null);
+      _tdsFadeModeDdSync(w);
+      return;
+    }
+    if (t.closest(".tds-fade-mode-panel")) return; // 面板内其它点击(折叠区展开/收起)不关闭面板
+    _tdsFadeModeDdCloseAll(null);
+  });
+  // 程序化赋值(含既有验收脚本 sel.value= + dispatch change)后同步可见层文案/选中态
+  document.addEventListener("change", function (e) {
+    var t = e.target;
+    if (t && t.tagName === "SELECT" && t.classList.contains("tds-fade-mode-sel")) {
+      var w = t.closest ? t.closest(".tds-fade-mode-dd") : null;
+      if (w) _tdsFadeModeDdSync(w);
+    }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    if (!document.querySelector(".tds-fade-mode-dd.is-open")) return;
+    _tdsFadeModeDdCloseAll(null);
+    // 面板打开时 Esc 只关面板, 不连带关闭宿主弹窗(如模拟回测弹窗)
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+  });
+}
 function _tdsFadeModeSelectHTML(id, selectedId, withCustom, cls, title) {
-  var h = '<select id="' + id + '" class="' + (cls || "tds-fade-mode-sel") + '"' + (title ? ' title="' + title + '"' : "") + '>';
   // v20260826: 渲染顺序走 _tdsFadeModeDisplayList(星多靠前/无星殿后沿用原相对序), name 已含星前缀
   var _list = (typeof _tdsFadeModeDisplayList === "function") ? _tdsFadeModeDisplayList() : _KELLY_FADE_MODE_PRESETS;
+  var _selEsc = _tdsFadeModeEscHTML(title);
+  // 各消费点的私有尺寸类(ov-mode-sel/home-mode-sel/sim-fade-mode-sel 等)同时挂到可见按钮, 视觉/几何与旧 select 一致
+  var _extraCls = String(cls || "").replace(/\btds-fade-mode-sel\b/g, "").replace(/\s+/g, " ").trim();
+  var h = '<span class="tds-fade-mode-dd" data-fade-mode-dd="1">';
+  // ① 原生 select(值源/兼容层, 隐藏覆盖): 保留全部 9 档, 顺序与旧版一致
+  h += '<select id="' + id + '" class="' + (cls || "tds-fade-mode-sel") + '" tabindex="-1" aria-hidden="true"' + (title ? ' title="' + _selEsc + '"' : "") + '>';
   for (var i = 0; i < _list.length; i++) {
     var p = _list[i];
     h += '<option value="' + p.id + '"' + (p.id === selectedId ? " selected" : "") + ">" + p.name + " · " + p.tagline + (p.calWarn ? " ⚠" : "") + "</option>";
@@ -983,6 +1114,32 @@ function _tdsFadeModeSelectHTML(id, selectedId, withCustom, cls, title) {
     h += '<option value="custom"' + ("custom" === selectedId ? " selected" : "") + ' disabled hidden>⚙️ 自定义(手动勾选生成)</option>';
   }
   h += "</select>";
+  // ② 可见层: 触发按钮(显示当前选中名, 折叠区档位也正常显示)
+  var _curP = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(selectedId) : null;
+  var _curName = _curP ? _curP.name : (selectedId === "custom" ? "⚙️ 自定义(手动勾选生成)" : (_tdsFadeModeById(_KELLY_FADE_DEFAULT_MODE) || {}).name || "");
+  h += '<button type="button" class="tds-fade-mode-ddb' + (_extraCls ? " " + _extraCls : "") + '" aria-haspopup="listbox" aria-expanded="false"' + (title ? ' title="' + _selEsc + '"' : "") + '>' +
+       '<span class="tds-fade-mode-cur">' + _tdsFadeModeEscHTML(_curName) + '</span><span class="tds-fade-mode-ddcaret">▾</span></button>';
+  // ③ 面板: 主列表 4 档(s06/A进攻王/NEW14/B均衡卡) + 更多模式折叠区(其余 5 档, 默认收起)
+  var _byId = {};
+  for (var k = 0; k < _list.length; k++) _byId[_list[k].id] = _list[k];
+  h += '<div class="tds-fade-mode-panel" role="listbox" hidden>';
+  for (var m = 0; m < _TDS_FADE_DD_MAIN_IDS.length; m++) {
+    var pm = _byId[_TDS_FADE_DD_MAIN_IDS[m]];
+    if (pm) h += _tdsFadeModeOptHTML(pm, selectedId);
+  }
+  var extras = [];
+  for (var n = 0; n < _list.length; n++) {
+    if (_TDS_FADE_DD_MAIN_IDS.indexOf(_list[n].id) < 0) extras.push(_list[n]);
+  }
+  var moreOpen = false;
+  for (var q = 0; q < extras.length; q++) { if (extras[q].id === selectedId) moreOpen = true; }
+  h += '<details class="tds-fade-mode-more"' + (moreOpen ? " open" : "") + ">";
+  h += '<summary class="tds-fade-mode-more-sum">' + _TDS_FADE_DD_MORE_LABEL + ' <span class="tds-fade-mode-ddcaret">▾</span></summary>';
+  h += '<div class="tds-fade-mode-extra">';
+  for (var x = 0; x < extras.length; x++) h += _tdsFadeModeOptHTML(extras[x], selectedId);
+  h += "</div></details>";
+  h += "</div></span>";
+  if (!window._tdsFadeModeDdInited && typeof document !== "undefined") _tdsFadeModeDdInit();
   return h;
 }
 // 挂载层: 往挂载点(元素或 id)渲染下拉并绑 onchange(value)=>; 返回 select 元素(失败返回 null)。
@@ -993,7 +1150,8 @@ function _tdsFadeModeSelectMount(mount, cfg) {
   if (!el) return null;
   var selId = cfg.id || ("tds-fade-mode-sel-" + Date.now() + "-" + Math.floor(Math.random() * 1e4));
   el.innerHTML = _tdsFadeModeSelectHTML(selId, cfg.value || _KELLY_FADE_DEFAULT_MODE, !!cfg.withCustom, "tds-fade-mode-sel" + (cfg.cls ? " " + cfg.cls : ""), cfg.title || "");
-  var sel = el.firstElementChild;
+  // 2026-11-22 压缩折叠: 根节点改为 .tds-fade-mode-dd 包装, select 在包装内(不再是 firstElementChild)
+  var sel = el.querySelector("select");
   if (sel && typeof cfg.onchange === "function") {
     sel.addEventListener("change", function () { cfg.onchange(sel.value, sel); });
   }
@@ -1033,8 +1191,14 @@ window._tdsFadeModeById = _tdsFadeModeById;
 window._tdsFadeModeDisplayList = _tdsFadeModeDisplayList;
 window._tdsFadeModeApply = _tdsFadeModeApply;
 window._tdsFadeModeMatch = _tdsFadeModeMatch;
+// 委托事件尽早绑定: 不依赖某消费点首次渲染(面板开/关、程序化赋值同步、Esc 关面板)
+if (typeof document !== "undefined") _tdsFadeModeDdInit();
 window._tdsFadeModeSelectHTML = _tdsFadeModeSelectHTML;
 window._tdsFadeModeSelectMount = _tdsFadeModeSelectMount;
+window._tdsFadeModeDdInit = _tdsFadeModeDdInit;
+window._tdsFadeModeHotBadgeHTML = _tdsFadeModeHotBadgeHTML;
+window._TDS_FADE_DD_MAIN_IDS = _TDS_FADE_DD_MAIN_IDS;
+window._TDS_FADE_DD_MORE_LABEL = _TDS_FADE_DD_MORE_LABEL;
 window._tdsStoreWithTTL = _tdsStoreWithTTL;
 window._tdsLoadWithTTL = _tdsLoadWithTTL;
 window._TDS_FADE_TTL_MS = _TDS_FADE_TTL_MS;

@@ -22,6 +22,8 @@
  */
 'use strict';
 const { chromium } = require('playwright');
+// 2026-11-22 下拉压缩折叠: p8 收进「更多模式」折叠区, 选 p8 改为真实路径(展开→点) helper, 断言语义不变
+const { pickFadeMode } = require('./fade_mode_dd_helper.mjs');
 
 const URL = process.argv[2] || 'http://localhost:8137';
 const results = [];
@@ -200,11 +202,8 @@ async function auditLines(page) {
     `首行日期=${afterDate.firstDate} rows ${rowsBefore}→${afterDate.rows} rerendered=${!!rerendered}`);
 
   // ③b 切 AI降亏过滤 模式(p8) → localStorage tds_sim_fade_mode 写入 + 重渲染
-  await page.evaluate(() => {
-    const el = document.querySelector('#sim-fade-mode-sel');
-    el.value = 'p8';
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  // 2026-11-22: p8 在「更多模式」折叠区 → 走真实点击路径(展开面板+折叠区再点), 断言语义不变
+  await pickFadeMode(page, 'sim-fade-mode-sel', 'p8');
   await page.waitForTimeout(800);
   const lsFade = await page.evaluate(() => {
     try { return JSON.parse(localStorage.getItem('tds_sim_fade_mode')); } catch (e) { return null; }

@@ -21,6 +21,8 @@
  */
 'use strict';
 const { chromium } = require('playwright');
+// 2026-11-22 下拉压缩折叠: p8 收进「更多模式」折叠区, 选 p8 改为真实路径(展开→点) helper, 断言语义不变
+const { pickFadeMode } = require('./fade_mode_dd_helper.mjs');
 
 const URL = process.argv[2] || 'http://localhost:8000';
 // v20260826(用户拍板): new18 从下拉移除 → 清单同步去 new18 加 s06 动态档
@@ -98,9 +100,10 @@ function check(tag, cond, detail) {
     const homeStored = await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_home_fade_mode') || 'null'); return o ? o.v : null; });
     const homeTsOk = await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_home_fade_mode') || 'null'); return !!(o && typeof o.ts === 'number'); });
     check('首页快速连切7模式: localStorage=最后选择(s06)+TTL格式', homeStored === 's06' && homeTsOk, `got=${homeStored}`);
+    // 2026-11-22: p8 在「更多模式」折叠区 → 走真实点击路径(展开面板+折叠区再点), 断言语义不变
+    await pickFadeMode(page, 'sig-home-fade-mode-sel', 'p8');
+    await page.waitForTimeout(300);
     const respOK = await page.evaluate(() => {
-      const s = document.querySelector('#sig-home-fade-mode-sel');
-      s.value = 'p8'; s.dispatchEvent(new Event('change', { bubbles: true }));
       const o = JSON.parse(localStorage.getItem('tds_home_fade_mode') || 'null');
       return !!(o && o.v === 'p8' && typeof o.ts === 'number');
     });
@@ -122,9 +125,10 @@ function check(tag, cond, detail) {
     await page.waitForTimeout(2500);   // 组集重绘两图留渲染时间
     const ovStored = await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_overfit_fade_mode') || 'null'); return o ? o.v : null; });
     check('监控卡快速连切7模式: localStorage=最后选择(s06)+TTL格式', ovStored === 's06', `got=${ovStored}`);
+    // 2026-11-22: p8 在「更多模式」折叠区 → 走真实点击路径(展开面板+折叠区再点), 断言语义不变
+    await pickFadeMode(page, 'overfit-fade-mode-sel', 'p8');
+    await page.waitForTimeout(300);
     const ovResp = await page.evaluate(() => {
-      const s = document.querySelector('#overfit-fade-mode-sel');
-      s.value = 'p8'; s.dispatchEvent(new Event('change', { bubbles: true }));
       const o = JSON.parse(localStorage.getItem('tds_overfit_fade_mode') || 'null');
       return !!(o && o.v === 'p8' && typeof o.ts === 'number');
     });
