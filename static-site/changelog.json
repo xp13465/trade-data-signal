@@ -310,5 +310,8 @@
   ],
   "20261122-a664": [
     "fix(ma3-filter): \u8fd4\u5de5\u62792 P1-3 \u6570\u636e\u76ee\u5f55\u7981 resolve + P2-a \u516c\u793a\u52a0\u7c97 + P2-b \u540c\u65e5\u65ad\u8a00 + P3 \u24d8\u5f39\u7a97\u7528\u4f8b"
+  ],
+  "20261122-a665": [
+    "fix(lab): \u8fd4\u5de5 P2-1 k2c5 tip \u53bb\u5b57\u9762\u661f\u53f7 + P2-2 \u9a8c\u6536 J4 \u904d\u5386 tooltip \u5c5e\u6027"
   ]
 }
