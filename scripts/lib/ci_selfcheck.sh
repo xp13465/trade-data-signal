@@ -33,8 +33,8 @@ CI_API_BASE="${CI_API_BASE:-https://api.github.com}"
 # 目标 workflow(默认 CI 门禁; 同 push 的 deploy-* run 共享 head_sha, 必须靠此过滤区分)
 CI_WORKFLOW_NAME="${CI_WORKFLOW_NAME:-CI Quality Gate}"
 CI_WORKFLOW_PATH="${CI_WORKFLOW_PATH:-.github/workflows/ci.yml}"
-CI_POLL_INTERVAL="${CI_POLL_INTERVAL:-15}"      # 轮询间隔(秒)
-CI_POLL_MAX_WAIT="${CI_POLL_MAX_WAIT:-480}"     # 总上限(秒), 默认 8 分钟
+CI_POLL_INTERVAL="${CI_POLL_INTERVAL:-30}"      # 轮询间隔(秒)
+CI_POLL_MAX_WAIT="${CI_POLL_MAX_WAIT:-900}"     # 总上限(秒), 默认 15 分钟
 CI_CURL_BIN="${CI_CURL_BIN:-curl}"              # 单测注入点(stub 命令替换 curl)
 CI_SELFCHECK_SKIP="${CI_SELFCHECK_SKIP:-0}"     # =1 跳过自查(逃生门)
 CI_CURL_MAX_TIME="${CI_CURL_MAX_TIME:-20}"      # 单次 HTTP 超时(秒)
