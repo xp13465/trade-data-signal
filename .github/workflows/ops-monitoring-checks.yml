@@ -178,6 +178,8 @@ jobs:
           node --check scripts/playwright-accept/accept_market_overview_buttons.mjs
           node --check scripts/playwright-accept/accept_ma3_filter_toggle.mjs
           node --check scripts/playwright-accept/mobile_source_harness.mjs
+          node --check scripts/playwright-accept/verify_hot_badge_dropdown_20261122.mjs
+          node --check scripts/playwright-accept/fade_mode_dd_helper.mjs
       - run: python3 ops/monitoring/build_baseline.py --check
       - run: npm run ops:types -- --check
       - run: python3 ops/monitoring/tests/smoke_local.py

@@ -2428,10 +2428,10 @@ async function _appendOverfitCard(colA2, r, snap) {
       // 数据未含 recent(老 json)时优雅回退现有 bank(下拉不生效, 不裸崩)。
       // (2026-08-24 用户拍板) 旧「牛市×辅备买全停(+1)」独立 checkbox 已删: 该能力并入模式下拉
       // (p9/a9/b9/c9 的 keys 含 bullAuxBackupStop, 组集时经 _ovRecentRowFiltered 第三参恒 false 关闭独立叠加, 仅模式键生效)。
-      '<span class="overfit-fade-label" data-tip="降亏模式(T3-2 2026-08-23, 与凯利区/模拟回测弹窗同款预设): v1.1.7 起默认=s06·大盘领先切换(动态) / v1.1.5~v1.1.6 默认=new14·NEW 14键 / p8=8键旧默认·对照(走老 filtered bank) / ⭐9键=8键+候选1 / ⭐⭐A进攻王 / ⭐B均衡卡 / C防守=叠9键口径 / ⭐⭐NEW14+1·15键 / ⭐S06+1·仅K1剔高评级(观察, 2026-08-29)。⭐=推荐星标(v20260826 用户拍板), 下拉星多靠前、无星殿后沿用原相对序; NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。切换后监控两图按所选模式的降亏成员键组集重算(recent明细逐信号键命中标注, 后端打标)。仅 AI降亏过滤开关开启时生效; 老数据无明细时自动回退p8对照bank。">降亏模式</span>' +
+      '<span class="overfit-fade-label" data-tip="降亏模式(T3-2 2026-08-23, 与凯利区/模拟回测弹窗同款预设): v1.1.7 起默认=s06·大盘领先切换(动态) / v1.1.5~v1.1.6 默认=new14·NEW 14键 / p8=8键旧默认·对照(走老 filtered bank) / ⭐9键=8键+候选1 / ⭐⭐A进攻王 / ⭐B均衡卡 / C防守=叠9键口径 / ⭐⭐NEW14+1·15键 / ⭐S06+1·仅K1剔高评级(观察, 2026-08-29)。⭐=推荐星标(v20260826 用户拍板), 下拉星多靠前、无星殿后沿用原相对序（2026-11-22 起下拉分两层: 主列表固定 S06/A进攻王/NEW14/B均衡卡 四档, 其余 5 档收「更多模式(5 档·已收纳)」折叠区, 默认收起、档位不删）; NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。切换后监控两图按所选模式的降亏成员键组集重算(recent明细逐信号键命中标注, 后端打标)。仅 AI降亏过滤开关开启时生效; 老数据无明细时自动回退p8对照bank。">降亏模式</span>' +
       (typeof _tdsFadeModeSelectHTML === "function"
         ? _tdsFadeModeSelectHTML("overfit-fade-mode-sel", _readOverfitFadeMode(), false, "sim-mode-sel ov-mode-sel",
-            "AI降亏模式(预设一键套用): 切换后准确率/风险分两图按所选模式重算。v1.1.7(2026-08-26)起默认=s06·大盘领先切换(与全站一致); v1.1.5~v1.1.6 默认=new14·NEW 14键; p8=8键旧默认·对照(走老filtered bank); ⭐9键/A进攻王⭐⭐/B均衡卡⭐/C防守=叠9键口径(含牛市×辅备买全停); ⭐⭐NEW14+1·15键; ⭐S06+1·仅K1剔高评级(观察, 2026-08-29, 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号, K=2/3/4 与 S06 完全一致Δ=0, 非默认)。⭐=推荐星标(v20260826 用户拍板), 下拉星多靠前、无星殿后沿用原相对序; NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过(v4f 恒不命中); 北向流出×概念类(n2NorthOutConcept)已接入打标(2026-08-23 修复后端漏列), 评级维度回测曲线同步恢复出数(FIELD 列修复)。⚠模式记忆仅保留 18 小时(TDS_FADE_TTL 单源, 滑动过期=每次切换刷新计时, 超时回默认 s06 并清记忆); 存了已下线 new18 的旧记忆会自动校验失败回默认不报错。旧独立+1开关已删(2026-08-24), 牛市×辅备买全停由 9键/A/B/C 模式一并启用。S06=大盘领先动态切换默认档⭐️⭐️⭐️(v1.1.7 起): 非固定键组合, 组集按每行信号日期读快照生效基座(a9/new14); 快照缺失=该行不拦并警示(真降级); 日期超覆盖期=按 NEW14·14键 兜底规则过滤+轻标注(2026-09-02 用户拍板), 不静默回退。")
+            "AI降亏模式(预设一键套用): 切换后准确率/风险分两图按所选模式重算。v1.1.7(2026-08-26)起默认=s06·大盘领先切换(与全站一致); v1.1.5~v1.1.6 默认=new14·NEW 14键; p8=8键旧默认·对照(走老filtered bank); ⭐9键/A进攻王⭐⭐/B均衡卡⭐/C防守=叠9键口径(含牛市×辅备买全停); ⭐⭐NEW14+1·15键; ⭐S06+1·仅K1剔高评级(观察, 2026-08-29, 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号, K=2/3/4 与 S06 完全一致Δ=0, 非默认)。⭐=推荐星标(v20260826 用户拍板), 下拉星多靠前、无星殿后沿用原相对序（2026-11-22 起下拉分两层: 主列表固定 S06/A进攻王/NEW14/B均衡卡 四档, 其余 5 档收「更多模式(5 档·已收纳)」折叠区, 默认收起、档位不删）; NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过(v4f 恒不命中); 北向流出×概念类(n2NorthOutConcept)已接入打标(2026-08-23 修复后端漏列), 评级维度回测曲线同步恢复出数(FIELD 列修复)。⚠模式记忆仅保留 18 小时(TDS_FADE_TTL 单源, 滑动过期=每次切换刷新计时, 超时回默认 s06 并清记忆); 存了已下线 new18 的旧记忆会自动校验失败回默认不报错。旧独立+1开关已删(2026-08-24), 牛市×辅备买全停由 9键/A/B/C 模式一并启用。S06=大盘领先动态切换默认档⭐️⭐️⭐️(v1.1.7 起): 非固定键组合, 组集按每行信号日期读快照生效基座(a9/new14); 快照缺失=该行不拦并警示(真降级); 日期超覆盖期=按 NEW14·14键 兜底规则过滤+轻标注(2026-09-02 用户拍板), 不静默回退。")
         : "") +
       '<span class="overfit-fade-state2" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
       '</div>' +
@@ -2629,6 +2629,17 @@ async function _appendOverfitCard(colA2, r, snap) {
     if (ovSelForTip) {
       if (!ovSelForTip.dataset.titleBase) ovSelForTip.dataset.titleBase = ovSelForTip.getAttribute("title") || "";
       ovSelForTip.setAttribute("title", ovSelForTip.dataset.titleBase + (fallbackTip ? " " + fallbackTip : ""));
+      // 2026-11-22: 该 select 已退为隐藏值源(opacity:0/pointer-events:none), title 用户看不到;
+      // 回退提示同步写到可见触发按钮(.tds-fade-mode-ddb)的 data-tip, 实际展示位不丢提示。
+      const ovDd = ovSelForTip.closest(".tds-fade-mode-dd");
+      const ovDdB = ovDd ? ovDd.querySelector(".tds-fade-mode-ddb") : null;
+      if (ovDdB) {
+        if (!ovDdB.dataset.tipBase) ovDdB.dataset.tipBase = ovDdB.getAttribute("data-tip") || ovDdB.getAttribute("title") || "";
+        const ovTip = ovDdB.dataset.tipBase + (fallbackTip ? " " + fallbackTip : "");
+        ovDdB.setAttribute("data-tip", ovTip);
+        if (ovDdB.hasAttribute("title")) ovDdB.removeAttribute("title");
+        if (ovDdB.hasAttribute("data-ddtip")) ovDdB.setAttribute("data-ddtip", ovTip);
+      }
     }
     // 更新准确率/风险分标题副标(反映当前维度; 卖类无回测对照 -> 注"仅实盘实际、无回测对照/风险分不适用")
     const accSub = card.querySelector(".ov-sub-dim");
@@ -3283,7 +3294,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   const _homeModeNow = _readHomeFadeMode();
   const _homeModeSel = (typeof _tdsFadeModeSelectHTML === "function")
     ? _tdsFadeModeSelectHTML("sig-home-fade-mode-sel", _homeModeNow, false, "sim-mode-sel home-mode-sel",
-      "AI降亏·模式(首页独立作用域, v1.1.7(2026-08-26)起默认=s06·大盘领先切换; 换模式只改本区块判定键集合, 不影响凯利区/模拟回测/AI监控卡各自的模式下拉)。⭐=推荐星标(v20260826 用户拍板): S06 3星 / A进攻王·NEW 14键·NEW14+1·15键 2星 / 9键·B均衡卡 1星, 下拉星多靠前、无星殿后沿用原相对序。静态预设: ⭐️⭐️⭐️S06 · 大盘领先切换(默认) / ⭐⭐A进攻王 / ⭐⭐NEW 14键 / ⭐⭐NEW14+1·15键 / ⭐9键 / ⭐B均衡卡 / C防守 / 8键旧默认·对照——键集合单源来自 common.js 预设表, 与 lab 页同款同源(§21 公示 purpose-notes lab.sigkelly); NEW2 18键对照档已从下拉移除(用户拍板\"不用对照啦 14+1 对照够啦\", 其组成对比区卡 2026-08-26 亦删)。⭐S06+1·仅K1剔高评级(观察档, 2026-08-29 用户拍板形态乙): 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号(mid/low 递补), K=2/3/4 与 S06 完全一致(Δ=0), 非默认档。所选模式记忆仅保留 18 小时(滑动过期, 超时回默认 s06; 若存了已下线的 new18 记忆会自动回默认不报错)。切换依据=mine28/mine30 记分板 NEW14 第一。"
+      "AI降亏·模式(首页独立作用域, v1.1.7(2026-08-26)起默认=s06·大盘领先切换; 换模式只改本区块判定键集合, 不影响凯利区/模拟回测/AI监控卡各自的模式下拉)。⭐=推荐星标(v20260826 用户拍板): S06 3星 / A进攻王·NEW 14键·NEW14+1·15键 2星 / 9键·B均衡卡 1星, 下拉星多靠前、无星殿后沿用原相对序（2026-11-22 起下拉分两层: 主列表固定 S06/A进攻王/NEW14/B均衡卡 四档, 其余 5 档收「更多模式(5 档·已收纳)」折叠区, 默认收起、档位不删）。静态预设: ⭐️⭐️⭐️S06 · 大盘领先切换(默认) / ⭐⭐A进攻王 / ⭐⭐NEW 14键 / ⭐⭐NEW14+1·15键 / ⭐9键 / ⭐B均衡卡 / C防守 / 8键旧默认·对照——键集合单源来自 common.js 预设表, 与 lab 页同款同源(§21 公示 purpose-notes lab.sigkelly); NEW2 18键对照档已从下拉移除(用户拍板\"不用对照啦 14+1 对照够啦\", 其组成对比区卡 2026-08-26 亦删)。⭐S06+1·仅K1剔高评级(观察档, 2026-08-29 用户拍板形态乙): 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号(mid/low 递补), K=2/3/4 与 S06 完全一致(Δ=0), 非默认档。所选模式记忆仅保留 18 小时(滑动过期, 超时回默认 s06; 若存了已下线的 new18 记忆会自动回默认不报错)。切换依据=mine28/mine30 记分板 NEW14 第一。"
       + ((typeof _tdsS06Tooltip === "function") ? ("\n———\n" + _tdsS06Tooltip()) : "")
       // s06p1(2026-08-29 观察档)公示(§21): 当前所选为 S06+1 观察档时追加附加规则说明(单源 common.js _tdsS06P1Tooltip)
       + ((_homeModeNow === "s06p1" && typeof _tdsS06P1Tooltip === "function")

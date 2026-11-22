@@ -1028,6 +1028,8 @@ main { padding: 16px 24px; }
 .sig-switch-tip { cursor: help; color: var(--text-3); font-size: 11px; }
 /* 2026-11-22 NEW 角标(最新上线功能标记, 当前仅 MA3连3日): 纯展示药丸, 不参与交互; flex 不收缩防 390px 被裁切 */
 .hot-new-badge { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; height: 14px; padding: 0 5px; border-radius: 7px; font-size: 9px; font-weight: 700; line-height: 1; letter-spacing: 0.5px; color: #fff; background: linear-gradient(135deg, #ff4d4f, #ff7a45); box-shadow: 0 1px 3px rgba(255, 77, 79, 0.35); white-space: nowrap; }
+/* 2026-11-22 HOT 档角标(降亏模式 A进攻王/B均衡卡): 与 NEW 角标同款药丸风, 独立类名互不复用; flex:0 0 auto 防 390px 被裁切 */
+.hot-tier-badge { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; height: 14px; padding: 0 5px; border-radius: 7px; font-size: 9px; font-weight: 700; line-height: 1; letter-spacing: 0.5px; color: #fff; background: linear-gradient(135deg, #ff4d4f, #ff7a45); box-shadow: 0 1px 3px rgba(255, 77, 79, 0.35); white-space: nowrap; }
 .sig-kbtns { display: inline-flex; gap: 2px; margin: 0 2px; }
 .sig-kbtn { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-width: 32px; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; line-height: 1.25; transition: all 0.15s; }
 .sig-kbtn:hover { border-color: var(--primary); color: var(--text-1); }
@@ -7432,6 +7434,30 @@ select.tds-fade-mode-sel {
   transition: border-color 0.15s;
 }
 select.tds-fade-mode-sel:hover, select.tds-fade-mode-sel:focus { border-color: var(--primary); outline: none; }
+
+/* === 2026-11-22 降亏模式下拉压缩折叠(common.js _tdsFadeModeSelectHTML 可见层) ===
+   原生 select 仍是值源/兼容层(隐藏覆盖在触发按钮上, 外框尺寸与外层一致, 既有同行/宽度断言不受影响);
+   可见交互=触发按钮 + 面板(主 4 档 + 更多模式折叠区)。 */
+.tds-fade-mode-dd { position: relative; display: inline-flex; width: 200px; vertical-align: middle; }
+/* 注: 包装内 select 可能是直接 HTML 消费点传入的私有类(如 sim-mode-sel/home-mode-sel, 无 tds-fade-mode-sel),
+   故用「包装内任意 select」兜底, 保证四消费点都只剩一个可见控件(不出现原生下拉+按钮双控件)。 */
+.tds-fade-mode-dd > select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
+.tds-fade-mode-ddb { display: inline-flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; padding: 2px 6px; font-size: 11px; line-height: 1.6; font-family: inherit; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-1); cursor: pointer; text-align: left; }
+.tds-fade-mode-ddb:hover, .tds-fade-mode-dd.is-open .tds-fade-mode-ddb { border-color: var(--primary); outline: none; }
+.tds-fade-mode-cur { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tds-fade-mode-ddcaret { flex: 0 0 auto; font-size: 9px; opacity: 0.7; }
+.tds-fade-mode-panel { position: absolute; top: calc(100% + 3px); left: 0; z-index: 70; min-width: 100%; width: max-content; max-width: min(340px, calc(100vw - 16px)); max-height: 60vh; overflow-y: auto; padding: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); box-shadow: 0 6px 18px var(--shadow-strong); }
+.tds-fade-mode-panel[hidden] { display: none; }
+.tds-fade-mode-opt { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 4px; width: 100%; padding: 4px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--text-1); font-size: 11.5px; font-family: inherit; line-height: 1.35; cursor: pointer; text-align: left; }
+.tds-fade-mode-opt:hover { background: var(--bg-hover); }
+.tds-fade-mode-opt.is-active { background: var(--primary-bg); color: var(--primary); font-weight: 700; }
+.tds-fade-mode-opt-name { white-space: nowrap; }
+.tds-fade-mode-opt-tag { flex-basis: 100%; font-size: 10px; color: var(--text-3); }
+.tds-fade-mode-more { margin-top: 2px; border-top: 1px dashed var(--border); }
+.tds-fade-mode-more-sum { cursor: pointer; user-select: none; font-size: 11px; font-weight: 700; color: var(--text-2); padding: 5px 6px; list-style: none; }
+.tds-fade-mode-more-sum::-webkit-details-marker { display: none; }
+.tds-fade-mode-more-sum:hover { color: var(--primary); }
+.tds-fade-mode-extra { padding-bottom: 2px; }
 
 /* S06 状态/降级提示槽(2026-08-28 codex-s06copyfix-001): 防溢出换行 */
 .sig-s06-state {
