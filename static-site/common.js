@@ -1016,6 +1016,26 @@ function _tdsFadeModeDdSync(w) {
     opts[i].setAttribute("aria-selected", on ? "true" : "false");
   }
 }
+// 触发按钮带公示 tooltip(title→站内 .term-pop, z-index 9999)。面板打开时该浮层压在面板上会挡住点击,
+// 故打开期间:①收起现显示的 term-pop ②触发按钮临时挂 data-no-pop(跳过 term-pop, 不影响面板内 HOT 角标自身 tooltip);
+// 关闭时恢复 data-tip(原 title 首次 hover 时被 term-pop 迁移成 data-tip, 这里按迁移后的形态还原)。
+function _tdsFadeModeDdTipMute(w, mute) {
+  try {
+    var pops = document.querySelectorAll(".term-pop");
+    for (var pi = 0; pi < pops.length; pi++) pops[pi].style.display = "none";
+  } catch (e) {}
+  var btn = w ? w.querySelector(".tds-fade-mode-ddb") : null;
+  if (!btn) return;
+  try {
+    if (mute) {
+      if (btn.hasAttribute("data-tip") && !btn.hasAttribute("data-ddtip")) btn.setAttribute("data-ddtip", btn.getAttribute("data-tip"));
+      btn.setAttribute("data-no-pop", "");
+    } else {
+      btn.removeAttribute("data-no-pop");
+      if (btn.hasAttribute("data-ddtip")) { btn.setAttribute("data-tip", btn.getAttribute("data-ddtip")); btn.removeAttribute("data-ddtip"); }
+    }
+  } catch (e) {}
+}
 function _tdsFadeModeDdCloseAll(except) {
   var ws = document.querySelectorAll(".tds-fade-mode-dd.is-open");
   for (var i = 0; i < ws.length; i++) {
@@ -1026,6 +1046,7 @@ function _tdsFadeModeDdCloseAll(except) {
     if (b) b.setAttribute("aria-expanded", "false");
     var panel = w.querySelector(".tds-fade-mode-panel");
     if (panel) panel.hidden = true;
+    _tdsFadeModeDdTipMute(w, false);
   }
 }
 function _tdsFadeModeDdToggle(w) {
@@ -1038,6 +1059,7 @@ function _tdsFadeModeDdToggle(w) {
     panel.hidden = true;
     w.classList.remove("is-open");
     btn.setAttribute("aria-expanded", "false");
+    _tdsFadeModeDdTipMute(w, false);
     return;
   }
   _tdsFadeModeDdCloseAll(w);
@@ -1045,6 +1067,7 @@ function _tdsFadeModeDdToggle(w) {
   panel.hidden = false;
   w.classList.add("is-open");
   btn.setAttribute("aria-expanded", "true");
+  _tdsFadeModeDdTipMute(w, true);
   // 小屏/贴边时把面板夹进视口(左右各留 8px), 防横向裁切(390px 不裁切)
   try {
     panel.style.left = "0"; panel.style.right = "auto";
