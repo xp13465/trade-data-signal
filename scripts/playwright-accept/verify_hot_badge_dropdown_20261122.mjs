@@ -71,14 +71,34 @@ function ddInfo(page, selId) {
     };
   }, selId);
 }
-// 新手引导全屏遮罩会拦截真实点击(测试环境残留, 不属于被测功能), 只在本浏览器会话内关掉
+// 站内「首次解释/新手引导」弹窗(异步 2~3s 后才弹)会全屏遮罩拦截真实点击, 不属于被测功能。
+// 处理: ①已弹的点站内真实「跳过,下次不再显示」(落该弹窗自己的 localStorage 标记) ②装 MutationObserver
+// 兜住晚到/重复弹出的引导, 同样先点跳过再隐藏 —— 只影响首访引导, 不碰被测下拉的任何 DOM。
 async function dismissRuleModal(page) {
   await page.evaluate(() => {
+    const kill = () => {
+      const intro = document.querySelector('.onboarding-modal:not(.hidden)');
+      if (intro) {
+        const skip = intro.querySelector('.onboarding-skip');
+        if (skip) skip.click();
+        else intro.classList.add('hidden');
+      }
+      document.querySelectorAll('.rule-modal-overlay').forEach((o) => {
+        if (o.getBoundingClientRect().width > 0) {
+          const m = o.closest('.rule-modal');
+          if (m) m.classList.add('hidden');
+        }
+      });
+    };
+    window.__hotddKillIntro = kill;
+    if (!window.__hotddIntroObserver) {
+      window.__hotddIntroObserver = new MutationObserver(() => { if (document.querySelector('.onboarding-modal:not(.hidden)')) kill(); });
+      window.__hotddIntroObserver.observe(document.body, { childList: true, subtree: true });
+    }
     document.querySelectorAll('.rule-modal .rule-modal-close').forEach((b) => b.click());
-    document.querySelectorAll('.rule-modal').forEach((m) => m.classList.add('hidden'));
-    document.querySelectorAll('.rule-modal-overlay').forEach((o) => o.remove());
+    kill();
   });
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(500);
 }
 async function openPanel(page, selId) {
   const wrap = page.locator('.tds-fade-mode-dd').filter({ has: page.locator('#' + selId) }).first();
@@ -185,7 +205,10 @@ async function openPanel(page, selId) {
     const afterReload = await ddInfo(page, 'lab-kelly-fade-mode-sel');
     ok('④刷新后选中态正确(p8 仍在, 触发按钮文案=p8)', afterReload && afterReload.value === 'p8' && /8键/.test(afterReload.cur),
       afterReload ? `${afterReload.value}/${afterReload.cur}` : '');
-    ok('④刷新后档总数/折叠结构不变', afterReload && afterReload.nativePresetCount === 9 && afterReload.opts.length === 9 && afterReload.moreOpen === false);
+    // 刷新后 p8 仍是选中档(在折叠区) ⇒ 折叠区按设计自动展开(档不丢/选中可见); 面板本体仍默认收起
+    ok('④刷新后档总数/折叠结构不变(9 档/选中档在折叠区→其自动展开, 面板默认收起)',
+      afterReload && afterReload.nativePresetCount === 9 && afterReload.opts.length === 9 && afterReload.moreOpen === true && afterReload.panelHidden === true,
+      afterReload ? `presets=${afterReload.nativePresetCount} opts=${afterReload.opts.length} moreOpen=${afterReload.moreOpen} panelHidden=${afterReload.panelHidden}` : '');
   } catch (e) {
     fail++;
     console.log('FAIL  lab 用例异常  (' + String(e.message).slice(0, 200) + ')');
