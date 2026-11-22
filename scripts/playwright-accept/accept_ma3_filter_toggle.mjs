@@ -489,6 +489,25 @@ try {
       && labNote.html.includes('<b>未定价标的') && labNote.html.includes('<b>不计入本轮买价基准</b>')
       && labNote.html.includes('<b>甲档</b>') && labNote.html.includes('<b>乙档</b>'),
     labNote && { boldCount: labNote.boldCount });
+  // J4(2026-11-22 返工 P2-2): 遍历凯利区所有开关 tooltip(属性走 term-pop textContent / 原生 title,
+  // 不能用 HTML), 断言属性值无字面 ** —— 防同类面再漏(如 k2c5HkChase 的 NEW14 tip)。
+  await jpage.locator('.lab-sigkelly-wrap .lab-sigkelly-toggle[data-tip]').first().waitFor({ state: 'attached', timeout: 90000 });
+  const tipScan = await jpage.evaluate(() => {
+    const els = [...document.querySelectorAll('.lab-sigkelly-wrap .lab-sigkelly-toggle[data-tip], .lab-sigkelly-wrap .lab-sigkelly-toggle-tip[title]')];
+    const bad = [];
+    for (const el of els) {
+      for (const attr of ['data-tip', 'title']) {
+        const v = el.getAttribute(attr);
+        if (v && v.includes('**')) {
+          const i = v.indexOf('**');
+          bad.push({ cls: String(el.className || ''), attr, snippet: v.slice(Math.max(0, i - 25), i + 25) });
+        }
+      }
+    }
+    return { count: els.length, bad };
+  });
+  check('J4 凯利区开关 tooltip 属性无字面 Markdown 星号(遍历)',
+    tipScan.count >= 10 && tipScan.bad.length === 0, tipScan);
   check('J3 凯利区场景无 JS 报错', jErrors.length === 0, jErrors);
   await jctx.close();
 } catch (e) {
