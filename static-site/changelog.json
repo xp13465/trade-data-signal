@@ -313,5 +313,8 @@
   ],
   "20261122-a665": [
     "fix(lab): \u8fd4\u5de5 P2-1 k2c5 tip \u53bb\u5b57\u9762\u661f\u53f7 + P2-2 \u9a8c\u6536 J4 \u904d\u5386 tooltip \u5c5e\u6027"
+  ],
+  "20261123-a666": [
+    "fix(fade-dropdown): \u8fd4\u5de5 P2-2/P2-1/P3-2/P3-1 \u2014\u2014 CI node --check \u8865\u65b0\u811a\u672c\u3001b9 \u6587\u6848\u53bb\u7edd\u5bf9\u8bcd\u3001\u964d\u7ea7\u63d0\u793a\u5199\u53ef\u89c1\u6309\u94ae\u3001\u540c\u503c\u4e0d\u91cd\u590d dispatch"
   ]
 }
