@@ -1026,6 +1026,8 @@ main { padding: 16px 24px; }
 .sig-switch-lab { display: inline-flex; align-items: center; gap: 4px; cursor: default; color: var(--text-2); font-weight: 600; }
 .sig-switch-lab input[type="checkbox"] { cursor: pointer; vertical-align: middle; }
 .sig-switch-tip { cursor: help; color: var(--text-3); font-size: 11px; }
+/* 2026-11-22 NEW 角标(最新上线功能标记, 当前仅 MA3连3日): 纯展示药丸, 不参与交互; flex 不收缩防 390px 被裁切 */
+.hot-new-badge { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; height: 14px; padding: 0 5px; border-radius: 7px; font-size: 9px; font-weight: 700; line-height: 1; letter-spacing: 0.5px; color: #fff; background: linear-gradient(135deg, #ff4d4f, #ff7a45); box-shadow: 0 1px 3px rgba(255, 77, 79, 0.35); white-space: nowrap; }
 .sig-kbtns { display: inline-flex; gap: 2px; margin: 0 2px; }
 .sig-kbtn { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-width: 32px; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; line-height: 1.25; transition: all 0.15s; }
 .sig-kbtn:hover { border-color: var(--primary); color: var(--text-1); }

@@ -3303,6 +3303,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
     // 纯展示层, 不改 AI建议编号/仓位建议/任何判定链(§23.7); 文案单源=purpose-notes home.ma3filter(§21/§22)。
     `<label class="sig-switch-lab sig-switch-ma3" data-no-pop="" title="${_escAttr(_ma3FilterHoverText())}">` +
       `<input type="checkbox" class="sig-switch-ma3-cb"${_readHomeMa3Flag() ? " checked" : ""}> MA3连3日` +
+      `<span class="hot-new-badge" title="最新上线的筛选功能">NEW</span>` +
       `<span class="sig-switch-tip" data-tip="${_escAttr(_ma3FilterHoverText())}" data-ma3-note="1">ⓘ</span>` +
     `</label>` +
     `<label class="sig-switch-lab sig-switch-avail" data-no-pop="" title="仅显示可用信号(视图控制开关, 默认开(2026-08-30 用户拍板), 记忆键 tds_home_show_available_only): 开启=把信号列表里所有「灰显/删除线」的行整体隐藏——即 AI降亏过滤命中类(AI降亏 sig-ai-hit 删除线+置灰 / 未入样本 sig-poscap-notuni 删除线+置灰), 只留干净可用的放行信号; 关闭=恢复完整列表。纯展示层视图控制: 不改变任何判定链/统计口径/AI建议编号, 与「AI降亏过滤」「AI仓位建议 K」两开关正交叠加——本开关隐藏 AI降亏层已画删除线的行(AI降亏命中 / 未入样本)+「当日已满」行(入宇宙买类超出K名=当日不可买), 卖出/持有类风险提示正常亮显不受影响; 汇总条准确率仍按全量人口统计便于对比。开启后若近30个交易日无任何可用信号, 列表区显示枯竭引导空态(连续无放行天数与历史统计, 数据源与常驻枯竭 chip 同源 §22)">` +

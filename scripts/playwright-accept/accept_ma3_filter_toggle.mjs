@@ -187,6 +187,15 @@ try {
   check('A2 默认态无灰显行', (await page.locator('.sig-card .sig-ma3-hit').count()) === 0);
   check('A3 默认态无 MA3 角标', (await page.locator('.sig-card .sig-ma3-badge').count()) === 0);
   check('A4 默认态未写本机记忆', (await page.evaluate(() => localStorage.getItem('tds_home_ma3'))) === null);
+  // A5(2026-11-22 新增): MA3 开关旁的 NEW 角标可见、文案=NEW、带 hover 说明, 且不改变开关默认态。
+  const newBadge = await page.evaluate(() => {
+    const b = document.querySelector('.sig-switch-lab.sig-switch-ma3 .hot-new-badge');
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    return { text: (b.textContent || '').trim(), title: b.getAttribute('title') || '', w: r.width, h: r.height };
+  });
+  check('A5 NEW角标在MA3开关旁可见且文案=NEW',
+    !!newBadge && newBadge.text === 'NEW' && newBadge.w > 0 && newBadge.h > 0 && newBadge.title.includes('最新上线'), newBadge);
 
   // ===== B. 全量列表(AI降亏关 / 仅显示可用关 / 仓位建议默认 K=1): 勾选后逐项断言 =====
   await page.evaluate(() => { localStorage.setItem('tds_home_fade', '0'); localStorage.setItem('tds_home_show_available_only', '0'); });
@@ -404,8 +413,11 @@ try {
     const bb = badge ? badge.getBoundingClientRect() : null;
     const item = badge ? badge.closest('.sig-item') : null;
     const ib = item ? item.getBoundingClientRect() : null;
+    const nb = lab ? lab.querySelector('.hot-new-badge') : null;
+    const nbb = nb ? nb.getBoundingClientRect() : null;
     return {
       lab: lb ? { l: lb.left, r: lb.right, w: lb.width, h: lb.height } : null,
+      newBadge: nbb ? { l: nbb.left, r: nbb.right, w: nbb.width, h: nbb.height } : null,
       badge: bb ? { l: bb.left, r: bb.right, t: bb.top, b: bb.bottom, w: bb.width, h: bb.height } : null,
       item: ib ? { l: ib.left, r: ib.right, t: ib.top, b: ib.bottom } : null,
       docScrollW: document.documentElement.scrollWidth,
@@ -443,8 +455,42 @@ try {
   } else {
     check('I4 390px 长tooltip 可弹出且不横向溢出', false, { reason: '无角标可 hover' });
   }
+  // I6(2026-11-22 新增): NEW 角标 390px 可见、在视口内、不被裁切/不撑出横向滚动。
+  check('I6 390px NEW角标可见且在视口内不裁切',
+    !!mInfo.newBadge && mInfo.newBadge.w > 0 && mInfo.newBadge.h > 0
+      && mInfo.newBadge.l >= 0 && mInfo.newBadge.r <= 390
+      && mInfo.docScrollW <= mInfo.viewportW + 1,
+    { newBadge: mInfo.newBadge, scrollW: mInfo.docScrollW, vw: mInfo.viewportW });
   check('I5 390px 场景无 JS 报错', mErrors.length === 0, mErrors);
   await mctx.close();
+
+  // ===== J. 凯利区 lab.sigkelly 公示: 无字面 ** + 加粗走 <b> 渲染(2026-11-22) =====
+  const jctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+  const jpage = await jctx.newPage();
+  const jErrors = []; jpage.on('pageerror', (e) => jErrors.push(String(e)));
+  process.env.DATA_ROOT = TMP;
+  await installSources(jpage);
+  await jpage.goto(BASE + '/index.html#lab?sub=sigkelly', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await jpage.locator('.lab-sigkelly-wrap .purpose-note').waitFor({ state: 'attached', timeout: 60000 });
+  const labNote = await jpage.evaluate(() => {
+    const el = document.querySelector('.lab-sigkelly-wrap .purpose-note');
+    if (!el) return null;
+    return {
+      text: el.textContent || '',
+      html: el.innerHTML,
+      boldCount: el.querySelectorAll('b').length,
+    };
+  });
+  check('J1 凯利区公示无字面 Markdown 星号',
+    !!labNote && labNote.text.length > 500 && !labNote.text.includes('**') && !labNote.html.includes('**'),
+    labNote && { len: labNote.text.length });
+  check('J2 凯利区公示原星号内容改走 <b> 渲染',
+    !!labNote && labNote.boldCount >= 6
+      && labNote.html.includes('<b>未定价标的') && labNote.html.includes('<b>不计入本轮买价基准</b>')
+      && labNote.html.includes('<b>甲档</b>') && labNote.html.includes('<b>乙档</b>'),
+    labNote && { boldCount: labNote.boldCount });
+  check('J3 凯利区场景无 JS 报错', jErrors.length === 0, jErrors);
+  await jctx.close();
 } catch (e) {
   check('scenario completed', false, String(e));
 } finally {
