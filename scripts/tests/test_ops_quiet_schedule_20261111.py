@@ -286,6 +286,11 @@ def test_real_unit_detection_to_state_refs_and_channel_receipt(tmp_path,monkeypa
         ns['UNIT_STATES'][unit]=ut.derive_unit_state(unit,props)
     block=next(n for n in ast.walk(TREE) if isinstance(n,ast.For) and isinstance(n.iter,ast.Call)
                and getattr(n.iter.func,'id','')=='_unit_alert_events')
+    # 循环体外依赖(2026-11-24 ACK 对账新增): 本用例两个 task 都不是 ops_monitor,
+    # 走不到 pending 分支, 只补名字让提取块可执行; 断言仍是原「真 unit → 首报」路径。
+    ns['MONITOR_ACK_TASKS']=('ops_monitor',);ns['UNIT_PENDING']=[]
+    ns.setdefault('monitor_ack_evidence',lambda **kw:{})
+    ns.setdefault('monitor_ack_decision',lambda *a,**kw:{'action':'report','reason':'stub','detail':''})
     exec(compile(ast.Module(body=[block],type_ignores=[]),str(MONITOR),'exec'),ns)
     assert len(ns['alerts'])==2 and len(ns['UNIT_FAILURES'])==2
     ns['_quiet_route_alerts'](ns['alerts'])
