@@ -89,6 +89,7 @@ def test_save_prunes_expired_entries(tmp_path, monkeypatch):
         "600003": _entry(now - mod.HOLDINGS_CACHE_TTL),  # 恰好 TTL = 过期
         "600004": {"holders": []},                       # 缺 cached_at
         "600005": "not-a-dict",                          # 结构损坏
+        "600006": {"cached_at": "abc", "holders": []},   # cached_at 非数值(脏数据)
     }
     mod._save_holdings_cache(cache)
 
