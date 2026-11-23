@@ -15,10 +15,19 @@
 """
 import time
 import json
+import sys
 from pathlib import Path
 
 import requests
 import akshare as ak
+
+# 原子写公共模块(仓内统一实现: 同目录 .tmp + fsync + os.replace,2026-09-21 抽取)。
+# 与 intraday_snapshot.py / public_fund.py 同款接线;用 resolve() 与 HOLDINGS_CACHE_PATH 同一仓根
+# (云上 trade-data 为 symlink,resolve 后收敛到真实代码仓,不产生第二份路径)。
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+from util_atomic import atomic_write_text  # noqa: E402
 
 # ===== 1. 概念 -> 东财 BK 代码映射 =====
 # 9 个 KW 匹配为空的 thsc 概念（8 目标 + 东数西算）。
@@ -325,11 +334,28 @@ def _load_holdings_cache() -> dict:
 
 
 def _save_holdings_cache(cache: dict) -> None:
-    """保存持仓反查缓存。"""
+    """保存持仓反查缓存(原子写 + 过期剪枝,键结构/格式/路径均不变)。
+
+    ① 原子写:走仓内公共实现 atomic_write_text(同目录 .tmp + fsync + os.replace),
+       进程写中被打断不会留下半截 JSON(旧缓存要么完整保留、要么被完整新版本替换)。
+    ② 过期剪枝:只写回 TTL(7 天)内的条目。加载侧(_fetch_stock_holders)命中条件是
+       `isinstance(entry, dict) and time.time() - entry["cached_at"] < TTL`:超 TTL 的条目
+       本来就不会被命中,下次查询到该股票必然重采并覆盖;不再被查询的股票则是永久死重。
+       因此写入时丢弃零行为变化,只控制文件只增不减(本机 47MB / 云上 118MB)。
+       结构损坏(非 dict / cached_at 不可比)的条目加载侧同样不会命中,一并丢弃。
+    """
+    now = time.time()
+    fresh: dict = {}
+    for code, entry in cache.items():
+        try:
+            if isinstance(entry, dict) and now - entry.get("cached_at", 0) < HOLDINGS_CACHE_TTL:
+                fresh[code] = entry
+        except TypeError:  # cached_at 非数值(历史脏数据),加载侧同样不会命中
+            continue
     try:
-        HOLDINGS_CACHE_PATH.write_text(
-            json.dumps(cache, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8",
+        atomic_write_text(
+            HOLDINGS_CACHE_PATH,
+            json.dumps(fresh, ensure_ascii=False, separators=(",", ":")),
         )
     except Exception as e:
         print(f"  [holdings] ⚠ 缓存保存失败: {e}")
