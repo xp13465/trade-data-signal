@@ -10074,8 +10074,8 @@ var _kellyFadeFlagGroups = [
     { k: "v4f", cls: "lab-sigkelly-toggle-v4f", name: "6月+周三+主关注+关联", ratio: -5.1, warn: "⚠️监控",
       advice: "转负最末位,样本太小 · 比值-5.1", tip: "❌非默认⚠监控: 排除6月+周三+主关注+关联。每日池比值-5.1(组合总盈亏转坏,最末位)。旧每笔1万比值999(JEP虚高),每日池下转负。⚠n=60太小只3年数据,每年6月检查。" },
     // T1(2026-08-23) 新键·日历族(R2 替补族): 月份主导(仅7-9月生效)归本组; 规格单源=scripts/loss_rules.py
-    { k: "r2gLowRatingQ3", cls: "lab-sigkelly-toggle-r2gq3", name: "7-9月+低评+低分", ratio: null, warn: "🆕NEW默认关",
-      advice: "🆕三季末砍低评低分 · vs9键+19,442", tip: "🆕NEW(T1 2026-08-23 方法池全量落库, 非默认推荐)默认关: 排除 rating=low 低评级 × 月份∈{07,08,09}(signal_date) × track_score<75 的交易(空分数视为999不拦)。挖掘代号 R2g(R2 三轮替补族之一, 与 R2a≡主关注×概念/R2b 同族)。【白话】三季度末(7-9月)低评级+低分的信号是历史亏损密集区, 开启后整段剔除。【场景】7-9月回撤放大时开启实测减亏效果; 其余月份本键不产生任何过滤。【1:1】vs9键边际 +19,442 元(round3 口径, docs/kelly/analysis round3 mine14_substitute_validate; 与 R2a +9,681 / R2b +8,254 同批验证)。⚠诚实标注: 上数为 vs9 键边际(补位口径 K1, mode A), 非每日池比值——每日池口径比值待补测, 不编数; 门字段数字以 g2 修正重跑后为准。规格与阈值单源=scripts/loss_rules.py, 判定与凯利区/首页同源(§22)。" }
+    { k: "r2gLowRatingQ3", cls: "lab-sigkelly-toggle-r2gq3", name: "7-9月+低评+低分", ratio: null, warn: "NEW默认关",
+      advice: "三季末砍低评低分 · vs9键+19,442", tip: "NEW(T1 2026-08-23 方法池全量落库, 非默认推荐)默认关: 排除 rating=low 低评级 × 月份∈{07,08,09}(signal_date) × track_score<75 的交易(空分数视为999不拦)。挖掘代号 R2g(R2 三轮替补族之一, 与 R2a≡主关注×概念/R2b 同族)。【白话】三季度末(7-9月)低评级+低分的信号是历史亏损密集区, 开启后整段剔除。【场景】7-9月回撤放大时开启实测减亏效果; 其余月份本键不产生任何过滤。【1:1】vs9键边际 +19,442 元(round3 口径, docs/kelly/analysis round3 mine14_substitute_validate; 与 R2a +9,681 / R2b +8,254 同批验证)。⚠诚实标注: 上数为 vs9 键边际(补位口径 K1, mode A), 非每日池比值——每日池口径比值待补测, 不编数; 门字段数字以 g2 修正重跑后为准。规格与阈值单源=scripts/loss_rules.py, 判定与凯利区/首页同源(§22)。" }
   ]},
   { key: "combo", title: "复合并集·广谱管理·ratio每日池口径", flags: [
     { k: "r8PureNonMay", cls: "lab-sigkelly-toggle-r8", name: "纯非5月三稳", ratio: 2.11,
@@ -10103,20 +10103,20 @@ var _kellyFadeFlagGroups = [
   ]},
   { key: "market", title: "市场防御·大盘择时·ratio每日池口径", flags: [
     { k: "excludeSpecialBear", cls: "lab-sigkelly-toggle-specialbear", name: "追关注×熊市交叉(四档)", ratio: 2.90, warn: "⭐曾默认·v1.1.5移出",
-      advice: "🆕追涨只在熊市主跌/下降期做 · 比值2.90 · v1.1.5起非默认", tip: "⭐ 曾是默认推荐(v1.1.2 2026-08-17 用户拍板 四档升级 → v1.1.4 默认), v1.1.5 起 NEW14 重构换基座后移出默认——其「下降期」拦截位由 declinePhaseSpecial(NEW14 hist 键, 全市场口径)替代且不保留熊市主跌段, 本键保留可手动开(§23.7 不删档): 排除buy_special追关注在四档{熊市·主跌,下降期}的A股类交易。四档=hs300 价 vs MA200 + MA20/60/120 排列: 牛市·主升=价>MA200且多头排列 / 上升期=价>MA200非多头 / 下降期=价<MA200非空头 / 熊市·主跌=价<MA200且空头排列。G模式K1正边际+19,712。" },
+      advice: "追涨只在熊市主跌/下降期做 · 比值2.90 · v1.1.5起非默认", tip: "⭐ 曾是默认推荐(v1.1.2 2026-08-17 用户拍板 四档升级 → v1.1.4 默认), v1.1.5 起 NEW14 重构换基座后移出默认——其「下降期」拦截位由 declinePhaseSpecial(NEW14 hist 键, 全市场口径)替代且不保留熊市主跌段, 本键保留可手动开(§23.7 不删档): 排除buy_special追关注在四档{熊市·主跌,下降期}的A股类交易。四档=hs300 价 vs MA200 + MA20/60/120 排列: 牛市·主升=价>MA200且多头排列 / 上升期=价>MA200非多头 / 下降期=价<MA200非空头 / 熊市·主跌=价<MA200且空头排列。G模式K1正边际+19,712。" },
     { k: "marketTiming", cls: "lab-sigkelly-toggle-mkt", name: "MA60大盘择时", ratio: 1.24, warn: "⚠️慎用(破坏性)",
       advice: "别单开,全模式净负 · 比值1.24", tip: "❌非默认⚠慎用(破坏性): MA60大盘择时(仅A股a/concept/industry,沪深300在60日均线之上才进场)。每日池减亏37.26%/损盈30.14%/比值1.24(降亏强但损盈更多,全模式净负-14.9万)。诚实标注:别单开。" },
-    // v1.1.2 三键备选(2026-08-17 用户拍板): 老MA60熊×追买 / 下降期×追关注, 均默认关带🆕NEW标签
-    { k: "legacyMa60Special", cls: "lab-sigkelly-toggle-legacyma60", name: "老MA60熊×追买", ratio: 2.31, warn: "🆕NEW默认关",
-      advice: "🆕旧MA60判定·默认关 · 比值2.31", tip: "🆕NEW(v1.1.2 2026-08-17 用户拍板)默认关备选: 保留 v1.1.0 excludeSpecialBear 原 MA60 判定——buy_special 追关注 × A股类 × close<MA60(MA60熊)。与主键四档(excludeSpecialBear)的差别: 主键用四档{熊市·主跌,下降期}判坏, 本键用旧 MA60 判熊。默认关, 如需「绝不放急跌段追高」可手动开(≈ R1_lag 收紧变体方向, 未入默认, 回测见 docs/market-state/kelly-4tier-lagexempt-compare.md)。" },
+    // v1.1.2 三键备选(2026-08-17 用户拍板): 老MA60熊×追买 / 下降期×追关注, 均默认关带NEW标签
+    { k: "legacyMa60Special", cls: "lab-sigkelly-toggle-legacyma60", name: "老MA60熊×追买", ratio: 2.31, warn: "NEW默认关",
+      advice: "旧MA60判定·默认关 · 比值2.31", tip: "NEW(v1.1.2 2026-08-17 用户拍板)默认关备选: 保留 v1.1.0 excludeSpecialBear 原 MA60 判定——buy_special 追关注 × A股类 × close<MA60(MA60熊)。与主键四档(excludeSpecialBear)的差别: 主键用四档{熊市·主跌,下降期}判坏, 本键用旧 MA60 判熊。默认关, 如需「绝不放急跌段追高」可手动开(≈ R1_lag 收紧变体方向, 未入默认, 回测见 docs/market-state/kelly-4tier-lagexempt-compare.md)。" },
     { k: "declinePhaseSpecial", cls: "lab-sigkelly-toggle-decline", name: "下降期×追关注", ratio: 1.38, rec: true, linked: true,
-      advice: "🆕下降期剔追涨·全市场 · 比值1.38 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认 hist 键; 原 v1.1.2 备选键转正): 排除 buy_special 追关注 × 四档=下降期 × 全市场(不限于A股, = B 方案 V4d_all 增量, 回测全周期 Δ+40,409 见 docs/market-state/kelly-4tier-lagexempt-compare.md)。下降期=价<MA200 但均线纠缠(未空头排列)。在 NEW14 中承担「下降期」拦截位(替代 v1.1.2 主键 excludeSpecialBear 的 A股限定版且更广)。" },
+      advice: "下降期剔追涨·全市场 · 比值1.38 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认 hist 键; 原 v1.1.2 备选键转正): 排除 buy_special 追关注 × 四档=下降期 × 全市场(不限于A股, = B 方案 V4d_all 增量, 回测全周期 Δ+40,409 见 docs/market-state/kelly-4tier-lagexempt-compare.md)。下降期=价<MA200 但均线纠缠(未空头排列)。在 NEW14 中承担「下降期」拦截位(替代 v1.1.2 主键 excludeSpecialBear 的 A股限定版且更广)。" },
     // #69(2026-08-19 用户拍板) cyb 四档版降亏新键: excludeSpecialBearCyb, 默认关非默认推荐(判定源 hs300→cyb 创业板指)
-    { k: "excludeSpecialBearCyb", cls: "lab-sigkelly-toggle-specialbearcyb", name: "追关注×熊市交叉(cyb四档)", ratio: null, warn: "🆕NEW默认关(非默认推荐)",
-      advice: "🆕cyb四档剔追涨·非默认 · 比值待用户实测", tip: "🆕NEW(#69 2026-08-19 用户拍板)非默认推荐, 默认关: cyb(创业板指)四档版 excludeSpecialBear——判定语义与主键完全一致, 仅判定源 hs300 四档 → cyb(创业板指)四档: buy_special 追关注 × A股类 × cyb四档∈{熊市·主跌,下降期}。四档定义同主键(价 vs MA200 + MA20/60/120 排列)。默认不进默认组合(生产推荐保持稳定 §23.7), 供用户凯利区人工复测看数据变化; 判定源差异: 主键看沪深300大盘四档, 本键看创业板指四档(创业板指代表成长/中小盘风险偏好, 与沪深300大盘四档可能不同步)。人工开启后, 凯利区「最后结果」按本键重算, 可对比 hs300 版 vs cyb 版过滤差异。" },
+    { k: "excludeSpecialBearCyb", cls: "lab-sigkelly-toggle-specialbearcyb", name: "追关注×熊市交叉(cyb四档)", ratio: null, warn: "NEW默认关(非默认推荐)",
+      advice: "cyb四档剔追涨·非默认 · 比值待用户实测", tip: "NEW(#69 2026-08-19 用户拍板)非默认推荐, 默认关: cyb(创业板指)四档版 excludeSpecialBear——判定语义与主键完全一致, 仅判定源 hs300 四档 → cyb(创业板指)四档: buy_special 追关注 × A股类 × cyb四档∈{熊市·主跌,下降期}。四档定义同主键(价 vs MA200 + MA20/60/120 排列)。默认不进默认组合(生产推荐保持稳定 §23.7), 供用户凯利区人工复测看数据变化; 判定源差异: 主键看沪深300大盘四档, 本键看创业板指四档(创业板指代表成长/中小盘风险偏好, 与沪深300大盘四档可能不同步)。人工开启后, 凯利区「最后结果」按本键重算, 可对比 hs300 版 vs cyb 版过滤差异。" },
     // (2026-08-22 用户拍板) 第 5 个降亏键 bullAuxBackupStop: 牛市·主升×(辅买∪备买)全停, 默认关纯新增(§23.7); 仅 A-F 短线适用, G/H/I 长线豁免(桶级选路径)
-    { k: "bullAuxBackupStop", cls: "lab-sigkelly-toggle-bullstop", name: "牛市×辅备买全停(A-F)", ratio: null, warn: "🆕NEW默认关(非默认推荐)",
-      advice: "🆕牛主升停辅备买·默认关 · 全史+6,573", tip: "🆕NEW(2026-08-22 用户拍板)非默认推荐, 默认关: 牛市·主升(hs300四档) × 信号∈{buy_aux辅买, buy_backup备买} → 该买入信号拦下(时段级全停)。【白话】牛市主升末段(MA排列滞后判定已走一大段后)的低质量买入(辅买/备买)是历史稳定毒药, 开启后全史 +66,530→+73,103(改善+6,573; 理想对照=被拦笔直接消失口径 +9,895)。【场景】5-8月连亏想减亏时开此键实测; 开启后牛主升段不再接辅买/备买。【1:1】2026年 5-8月 mode A K1 基线 50笔 -5,166 → 开启后 41笔 -1,030(⚠弹窗/凯利区实测=补位口径: 被拦天的次优信号自动顶上, 与理想对照略有差异; 理想对照=-256); 2026 全年 +5,626 → +7,490(理想对照 +10,596)。【诚实标注】除注明外均为补位口径=前端真实链路; 近1/2/3/5年 +15,154→+16,653 / +39,682→+43,084 / +41,523→+45,839 / +31,647→+36,503 五窗全改善; 变差年 4 个(理想对照口径)合计 -5,825(2014/-938、2018/-2,109、2020/-2,039、2025/-739, 均牛市年边缘利润); 仅 A-F 短线适用, G/H/I 长线模式自动豁免(选中 G/H/I 时本键不生效); 默认关不入默认组合(§23.7), 未来若并入默认组合走版本升级流程(§5.4⑥)。数据支撑: docs/kelly/analysis/sim-window-loss-mining-20260822.md(§11 为理想对照口径)。" },
+    { k: "bullAuxBackupStop", cls: "lab-sigkelly-toggle-bullstop", name: "牛市×辅备买全停(A-F)", ratio: null, warn: "NEW默认关(非默认推荐)",
+      advice: "牛主升停辅备买·默认关 · 全史+6,573", tip: "NEW(2026-08-22 用户拍板)非默认推荐, 默认关: 牛市·主升(hs300四档) × 信号∈{buy_aux辅买, buy_backup备买} → 该买入信号拦下(时段级全停)。【白话】牛市主升末段(MA排列滞后判定已走一大段后)的低质量买入(辅买/备买)是历史稳定毒药, 开启后全史 +66,530→+73,103(改善+6,573; 理想对照=被拦笔直接消失口径 +9,895)。【场景】5-8月连亏想减亏时开此键实测; 开启后牛主升段不再接辅买/备买。【1:1】2026年 5-8月 mode A K1 基线 50笔 -5,166 → 开启后 41笔 -1,030(⚠弹窗/凯利区实测=补位口径: 被拦天的次优信号自动顶上, 与理想对照略有差异; 理想对照=-256); 2026 全年 +5,626 → +7,490(理想对照 +10,596)。【诚实标注】除注明外均为补位口径=前端真实链路; 近1/2/3/5年 +15,154→+16,653 / +39,682→+43,084 / +41,523→+45,839 / +31,647→+36,503 五窗全改善; 变差年 4 个(理想对照口径)合计 -5,825(2014/-938、2018/-2,109、2020/-2,039、2025/-739, 均牛市年边缘利润); 仅 A-F 短线适用, G/H/I 长线模式自动豁免(选中 G/H/I 时本键不生效); 默认关不入默认组合(§23.7), 未来若并入默认组合走版本升级流程(§5.4⑥)。数据支撑: docs/kelly/analysis/sim-window-loss-mining-20260822.md(§11 为理想对照口径)。" },
     // K2C5/K3 (2026-08-15 #86 新增 纯前端实验键; v1.1.0 2026-08-15 用户拍板: K2C5 默认开, K3 维持默认关)
     { k: "k2c5HkChase", cls: "lab-sigkelly-toggle-k2c5", name: "港股追涨", ratio: 4.55, rec: true, warn: "⭐默认开(v1.1.0)",
       advice: "剔除港股追涨 · 比值4.55 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.0 并入旧八键基座 → v1.1.5 起随基座切 NEW14 继续为默认成员, hist6 之一) = 现役 AI宏组成 NEW14 十四键 + 1类回测剔除(债类/波段不入宇宙 _bt_in_universe); K2C5 已穷举验证(16组合全扫、去K2C5损失+41,445第二大贡献、y1样本外正贡献,见 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md)。剔除 signal∈{buy_special,buy_backup}×港股 的交易(当前数据文件实算:独立信号728个/全9模式占1431条)。每日池减亏2.88%/损盈0.63%/比值4.55(>2高性价比, 与其他键同口径 ALL9-K1; K2档损盈-0.03%不取, 见 docs/kelly/analysis/kelly-k2c5-dailypool-ratio.md)。全信号除 G 外双升(A/F/H 多年稳定,净利 Δ +4,458~+7,840),16象限 92.4% 正,港股卡剔除后 0 负全转正(它就是港股卡亏损主源);除G外唯一负贡献 I 微负 -1,365。诚实标注 G: 因强平兑现口径分裂, b0(保守,强平记0利)=-2,256 / b1(乐观,按持有时间线性兑现)=+11,755,方向依赖口径,真实强平收益在区间[b0,b1],不把 b1 当承诺。" },
@@ -10127,45 +10127,45 @@ var _kellyFadeFlagGroups = [
     //   阈值=qth快照(mine10_features.json 2026-08-22版全史分位固化, 不滚动重算); 特征数据=data/kelly_loss_features.json。
     //   ratio=null=每日池口径比值无现成数字待补测(诚实不编数 §23.9), tip 内给 vs9键边际(vs9_net, mine20_pool.json 补位口径 K1 mode A; R2 族=round3 9键边际)。门字段以 g2 修正重跑后为准。
     { k: "n1NorthOutflow", cls: "lab-sigkelly-toggle-n1out", name: "北向20日净流出", ratio: null, rec: true, linked: true,
-      advice: "🆕北向流出期全停 · vs9键+13,695 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 N1; 原 T1 2026-08-23 落库): 排除 north_d20(北向资金近20日净流入,亿)<全史30分位(-58.3) 的全部买入交易。【白话】北向连续净流出时外资在撤, 全类型追买历史亏损密集。【场景】外资大幅流出周自动拦截; 流入期本键零过滤。【1:1】vs9键边际 +13,695 元 / 命中1480笔(mode A K1 补位口径, mine20_pool.json), 池内11键中边际第1。⚠每日池比值待补测。" },
+      advice: "北向流出期全停 · vs9键+13,695 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 N1; 原 T1 2026-08-23 落库): 排除 north_d20(北向资金近20日净流入,亿)<全史30分位(-58.3) 的全部买入交易。【白话】北向连续净流出时外资在撤, 全类型追买历史亏损密集。【场景】外资大幅流出周自动拦截; 流入期本键零过滤。【1:1】vs9键边际 +13,695 元 / 命中1480笔(mode A K1 补位口径, mine20_pool.json), 池内11键中边际第1。⚠每日池比值待补测。" },
     { k: "t1LowTurnSpecial", cls: "lab-sigkelly-toggle-t1turn", name: "换手冰点×追关注", ratio: null, rec: true, linked: true,
-      advice: "🆕缩量行情别追高 · vs9键+10,549 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 T1; 原 T1 2026-08-23 落库): 排除 turn_pct(全市场换手率3年滚动分位)<30 × buy_special 追关注。【白话】全市场换手降到冰点(近3年最冷的30%时段)还去追涨的信号, 胜率差。【场景】地量行情期自动拦截。【1:1】vs9键边际 +10,549 / 命中144笔(mine20_pool.json)。⚠每日池比值待补测。" },
+      advice: "缩量行情别追高 · vs9键+10,549 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 T1; 原 T1 2026-08-23 落库): 排除 turn_pct(全市场换手率3年滚动分位)<30 × buy_special 追关注。【白话】全市场换手降到冰点(近3年最冷的30%时段)还去追涨的信号, 胜率差。【场景】地量行情期自动拦截。【1:1】vs9键边际 +10,549 / 命中144笔(mine20_pool.json)。⚠每日池比值待补测。" },
     { k: "d1LowDivYield", cls: "lab-sigkelly-toggle-d1div", name: "股息率低位(估值贵)", ratio: null, rec: true, linked: true,
-      advice: "🆕整体估值贵时停手 · vs9键+8,552 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 D1; 原 T1 2026-08-23 落库): 排除 div_yield(a_div_yield 全市场股息率%)<全史50分位(2.59) 的全部买入。【白话】股息率低=市场整体贵, 贵的时候少进场。【场景】指数高位/股息率压到2.6%下方时自动拦截。【1:1】vs9键边际 +8,552 / 命中621笔(mine20_pool.json)。⚠每日池比值待补测。" },
+      advice: "整体估值贵时停手 · vs9键+8,552 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 D1; 原 T1 2026-08-23 落库): 排除 div_yield(a_div_yield 全市场股息率%)<全史50分位(2.59) 的全部买入。【白话】股息率低=市场整体贵, 贵的时候少进场。【场景】指数高位/股息率压到2.6%下方时自动拦截。【1:1】vs9键边际 +8,552 / 命中621笔(mine20_pool.json)。⚠每日池比值待补测。" },
     { k: "q1QvixLowPct", cls: "lab-sigkelly-toggle-q1qvix", name: "QVIX低分位(自满)", ratio: null, rec: true, linked: true,
-      advice: "🆕波动率过低=暴风雨前 · vs9键+4,341 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 Q1; 原 T1 2026-08-23 落库): 排除 qvix_pct(QVIX 3年滚动分位)<10 的全部买入。【白话】隐含波动率压到历史最低一档, 市场过度自满, 后面容易变盘。【场景】QVIX 分位跌破10时自动拦截。【1:1】vs9键边际 +4,341 / 命中461笔(mine20_pool.json)。⚠每日池比值待补测。" },
+      advice: "波动率过低=暴风雨前 · vs9键+4,341 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 Q1; 原 T1 2026-08-23 落库): 排除 qvix_pct(QVIX 3年滚动分位)<10 的全部买入。【白话】隐含波动率压到历史最低一档, 市场过度自满, 后面容易变盘。【场景】QVIX 分位跌破10时自动拦截。【1:1】vs9键边际 +4,341 / 命中461笔(mine20_pool.json)。⚠每日池比值待补测。" },
     { k: "h1VolChgHighA", cls: "lab-sigkelly-toggle-h1volchg", name: "升波×A股", ratio: null, rec: true, linked: true,
-      advice: "🆕波动放大期停A股 · vs9键+6,647 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 H1; 原 T1 2026-08-23 落库): 排除 h_volchg(hs300 5日std/20日std年化比-1,% )>全史30分位(-23.6) × A股类(mkt=a)。【白话】短端波动比长端明显放大(升波)时,A股信号先撤——升波常伴随急跌启动。【场景】大盘开始放量异动时自动拦截。【1:1】vs9键边际 +6,647 / 命中605笔(mine20_pool.json)。⚠每日池比值待补测。" },
+      advice: "波动放大期停A股 · vs9键+6,647 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 H1; 原 T1 2026-08-23 落库): 排除 h_volchg(hs300 5日std/20日std年化比-1,% )>全史30分位(-23.6) × A股类(mkt=a)。【白话】短端波动比长端明显放大(升波)时,A股信号先撤——升波常伴随急跌启动。【场景】大盘开始放量异动时自动拦截。【1:1】vs9键边际 +6,647 / 命中605笔(mine20_pool.json)。⚠每日池比值待补测。" },
     { k: "m1MarginDownBull", cls: "lab-sigkelly-toggle-m1margin", name: "牛主升×两融降温", ratio: null, rec: true, linked: true,
-      advice: "🆕杠杆退潮的牛市别信 · vs9键+3,035 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 M1; 原 T1 2026-08-23 落库): 排除 margin_chg20(两融余额20日变化率%)<全史70分位(2.08) × hs300四档=牛市·主升(A股类)。【白话】名义上是牛市主升, 但两融(杠杆资金)在退潮, 这种背离段的买入不可信。【场景】牛市段发现两融连续下降时自动拦截。【1:1】vs9键边际 +3,035 / 命中348笔(mine20_pool.json)。⚠每日池比值待补测; 两融序列仅2021-02起(源边界, 更早日期本键不拦)。" },
-    { k: "d2LowDivBull", cls: "lab-sigkelly-toggle-d2div", name: "牛主升×股息率低位", ratio: null, warn: "🆕NEW默认关",
-      advice: "🆕牛市末段估值贵 · vs9键+5,301", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 div_yield<全史70分位(2.93) × 牛市·主升(A股类四档)。【白话】牛市主升+市场贵(股息率低)的组合≈牛市后半场追高。【场景】牛主升段里股息率再破2.93时开启。【1:1】vs9键边际 +5,301 / 命中1062笔(mine20_pool.json, 过 g1/g3 门)。⚠每日池比值待补测。" },
+      advice: "杠杆退潮的牛市别信 · vs9键+3,035 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 M1; 原 T1 2026-08-23 落库): 排除 margin_chg20(两融余额20日变化率%)<全史70分位(2.08) × hs300四档=牛市·主升(A股类)。【白话】名义上是牛市主升, 但两融(杠杆资金)在退潮, 这种背离段的买入不可信。【场景】牛市段发现两融连续下降时自动拦截。【1:1】vs9键边际 +3,035 / 命中348笔(mine20_pool.json)。⚠每日池比值待补测; 两融序列仅2021-02起(源边界, 更早日期本键不拦)。" },
+    { k: "d2LowDivBull", cls: "lab-sigkelly-toggle-d2div", name: "牛主升×股息率低位", ratio: null, warn: "NEW默认关",
+      advice: "牛市末段估值贵 · vs9键+5,301", tip: "NEW(T1 2026-08-23, 默认关): 排除 div_yield<全史70分位(2.93) × 牛市·主升(A股类四档)。【白话】牛市主升+市场贵(股息率低)的组合≈牛市后半场追高。【场景】牛主升段里股息率再破2.93时开启。【1:1】vs9键边际 +5,301 / 命中1062笔(mine20_pool.json, 过 g1/g3 门)。⚠每日池比值待补测。" },
     { k: "p1LowDivBackup", cls: "lab-sigkelly-toggle-p1div", name: "备买×股息率分位低", ratio: null, rec: true, linked: true,
-      advice: "🆕便宜市也别接备买刀 · vs9键+571 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 P1; 原 T1 2026-08-23 落库): 排除 div_pct(div_yield 3年滚动分位)<30 × buy_backup 备买。【白话】即便估值分位不高, 备买(兜底型信号)在股息率偏低的时段接飞刀依然亏。【场景】备买信号在低估值分位时段自动拦截。【1:1】vs9键边际 +571 / 命中195笔(mine20_pool.json)。⚠每日池比值待补测。" },
-    { k: "v1HighVol20", cls: "lab-sigkelly-toggle-v1vol20", name: "高波动>90分位", ratio: null, warn: "🆕NEW默认关",
-      advice: "🆕恐慌顶部全停 · vs9键+3,566", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 h_vol20(hs300 20日年化已实现波动%)>全史90分位(30.7) 的全部买入。【白话】20日实现波动冲进历史最高一档=市场正在剧烈动荡, 此时任何买入都是赌。【场景】暴跌震荡期开启。【1:1】vs9键边际 +3,566 / 命中189笔(mine20_pool.json)。⚠每日池比值待补测。" },
-    { k: "s1SentALow", cls: "lab-sigkelly-toggle-s1senta", name: "A股情绪冰点", ratio: null, warn: "🆕NEW默认关",
-      advice: "🆕情绪<20分位全停 · vs9键+982", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 sent_a(a_sentiment A股情绪分)<全史20分位(33.27) 的全部买入。【白话】情绪分压到历史最低两成时, 反转没来之前继续阴跌。【场景】情绪指标长期低迷段开启。【1:1】vs9键边际 +982 / 命中382笔(mine20_pool.json)。⚠g3 门未过(前瞻弱), 每日池比值待补测。" },
-    { k: "r1VolRatioLow", cls: "lab-sigkelly-toggle-r1volratio", name: "量能萎缩<10分位", ratio: null, warn: "🆕NEW默认关",
-      advice: "🆕极端地量全停 · vs9键+1,553", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 vol_ratio_all(a_volume_ratio 全市场量比)<全史10分位(0.876) 的全部买入。【白话】量比缩到历史最低一档=流动性枯竭, 买入滑点与假突破风险都大。【场景】节假日前后/地量段开启。【1:1】vs9键边际 +1,553 / 命中391笔(mine20_pool.json)。⚠g3 未过, 每日池比值待补测。" },
+      advice: "便宜市也别接备买刀 · vs9键+571 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 P1; 原 T1 2026-08-23 落库): 排除 div_pct(div_yield 3年滚动分位)<30 × buy_backup 备买。【白话】即便估值分位不高, 备买(兜底型信号)在股息率偏低的时段接飞刀依然亏。【场景】备买信号在低估值分位时段自动拦截。【1:1】vs9键边际 +571 / 命中195笔(mine20_pool.json)。⚠每日池比值待补测。" },
+    { k: "v1HighVol20", cls: "lab-sigkelly-toggle-v1vol20", name: "高波动>90分位", ratio: null, warn: "NEW默认关",
+      advice: "恐慌顶部全停 · vs9键+3,566", tip: "NEW(T1 2026-08-23, 默认关): 排除 h_vol20(hs300 20日年化已实现波动%)>全史90分位(30.7) 的全部买入。【白话】20日实现波动冲进历史最高一档=市场正在剧烈动荡, 此时任何买入都是赌。【场景】暴跌震荡期开启。【1:1】vs9键边际 +3,566 / 命中189笔(mine20_pool.json)。⚠每日池比值待补测。" },
+    { k: "s1SentALow", cls: "lab-sigkelly-toggle-s1senta", name: "A股情绪冰点", ratio: null, warn: "NEW默认关",
+      advice: "情绪<20分位全停 · vs9键+982", tip: "NEW(T1 2026-08-23, 默认关): 排除 sent_a(a_sentiment A股情绪分)<全史20分位(33.27) 的全部买入。【白话】情绪分压到历史最低两成时, 反转没来之前继续阴跌。【场景】情绪指标长期低迷段开启。【1:1】vs9键边际 +982 / 命中382笔(mine20_pool.json)。⚠g3 门未过(前瞻弱), 每日池比值待补测。" },
+    { k: "r1VolRatioLow", cls: "lab-sigkelly-toggle-r1volratio", name: "量能萎缩<10分位", ratio: null, warn: "NEW默认关",
+      advice: "极端地量全停 · vs9键+1,553", tip: "NEW(T1 2026-08-23, 默认关): 排除 vol_ratio_all(a_volume_ratio 全市场量比)<全史10分位(0.876) 的全部买入。【白话】量比缩到历史最低一档=流动性枯竭, 买入滑点与假突破风险都大。【场景】节假日前后/地量段开启。【1:1】vs9键边际 +1,553 / 命中391笔(mine20_pool.json)。⚠g3 未过, 每日池比值待补测。" },
     { k: "r2bSpecialGlobal", cls: "lab-sigkelly-toggle-r2bglobal", name: "追关注×全球类", ratio: null, rec: true, linked: true,
-      advice: "🆕全球类追涨剔除 · vs9键+8,254 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 R2b; 原 T1 2026-08-23 落库): 排除 buy_special 追关注 × mkt=global 全球类的交易。挖掘代号 R2b(R2 三轮替补族)。【白话】全球类(海外指数ETF)的追关注信号历史胜率差, 与 K2C5 港股追涨同思路、不同域类。【场景】NEW14 内与 K2C5 互补(港股+全球类追涨一起收掉)。【1:1】vs9键边际 +8,254 元(round3 口径, 同批 R2a +9,681 / R2g +19,442)。⚠每日池比值待补测。" },
-    { k: "n2NorthOutConcept", cls: "lab-sigkelly-toggle-n2nout", name: "北向流出×概念类", ratio: null, warn: "🆕NEW默认关",
-      advice: "🆕外资撤+题材炒作双杀 · vs9键+7,054", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 north_d20<全史30分位(-58.3亿) × mkt=concept 概念类(N1 的子集变体)。【白话】外资在撤的同时还在炒题材概念, 双重风险叠加。【场景】北向流出期只想收概念仓时用(比 N1 精准、砍量更少)。【1:1】vs9键边际 +7,054 / 命中784笔(mine20_pool.json; 开 N1 时本键不再新增过滤, 属其子集)。⚠每日池比值待补测。" },
-    { k: "v2Vol20Gt25", cls: "lab-sigkelly-toggle-v2vol25", name: "波动≥25%(固定线)", ratio: null, warn: "🆕NEW默认关",
-      advice: "🆕波动破25%全停 · vs9键-8,636", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 h_vol20≥25%(固定常数, 非分位) 的全部买入。一轮候选3 变体(V1 的放宽版)。【白话】波动一旦越过25%这条固定警戒线就停手。【场景】想用绝对阈值(而非历史分位)控波动暴露时开。【1:1】vs9键边际 -8,635.64 / 命中688笔(mine20_pool.json)。⚠诚实标注: 边际为负(单开损净利), 落池键仅作协同定性参考; 每日池比值待补测。" },
-    { k: "s2SentHs300Low", cls: "lab-sigkelly-toggle-s2sent300", name: "HS300情绪冰点", ratio: null, warn: "🆕NEW默认关",
-      advice: "🆕300情绪冰点全停 · vs9键-879", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 sent_hs300(score_daily sentiment_hs300)<全史20分位(35.07) 的全部买入(S1 的 hs300 版)。【白话】沪深300维度情绪同样冰冷时的停手变体。【场景】对比 S1(A股情绪版)哪个更贴身时开。【1:1】vs9键边际 -879.07 / 命中437笔(mine20_pool.json)。⚠诚实标注: 单开边际为负; 每日池比值待补测。" },
-    { k: "w1BackupDecline", cls: "lab-sigkelly-toggle-w1backup", name: "备买×下降期", ratio: null, warn: "🆕NEW默认关",
-      advice: "🆕下降期别接备买 · vs9键-2,485", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 buy_backup 备买 × hs300四档=下降期(A股类)。一轮观察型候选(W 族)。【白话】下降趋势里的兜底型买入=接飞刀变体, 但样本小效果不稳。【场景】下降期想单独收紧备买(不动其他信号)时开。【1:1】vs9键边际 -2,484.65 / 命中40笔(mine20_pool.json, 三门全未过)。⚠诚实标注: 单开边际为负+样本小; 每日池比值待补测。" },
-    { k: "a1BullAllStop", cls: "lab-sigkelly-toggle-a1bull", name: "牛主升全停(超集)", ratio: null, warn: "🆕NEW默认关",
-      advice: "🆕牛主升全类型停 · vs9键-11,884", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 hs300四档=牛市·主升(A股类)的全部买入——bullAuxBackupStop(只停辅买∪备买)的全类型超集。一轮候选2激进版。【白话】把牛市主升段所有买入全停掉, 比 bullAuxBackupStop 狠得多。【场景】仅在「牛市末段全面避险」实验时开。【1:1】vs9键边际 -11,884.00 / 命中1767笔(mine20_pool.json)。⚠诚实标注: 单开边际大幅为负(误伤牛市盈利主体), 落池键仅作对照; 每日池比值待补测。" },
-    { k: "v3Vol20LowPct", cls: "lab-sigkelly-toggle-v3vollow", name: "低波动<10分位", ratio: null, warn: "🆕NEW默认关",
-      advice: "🆕极度平静期也危险 · vs9键-2,470", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 h_vol20<全史10分位(10.73) 的全部买入(V1 的反面: 低波不动段)。【白话】波动压到历史最低一档=多空都没劲, 信号质量普遍差。【场景】窄幅横盘段实验开启。【1:1】vs9键边际 -2,470.24 / 命中1057笔(mine20_pool.json)。⚠诚实标注: 单开边际为负且砍量大(命中1057笔); 每日池比值待补测。" },
-    { k: "ad1AdlineHot", cls: "lab-sigkelly-toggle-ad1hot", name: "AD线广度过热", ratio: null, warn: "🆕NEW默认关",
-      advice: "🆕普涨过热期停手 · vs9键-236", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 adline_gap((a_ad_line-a_ad_line_ma20)/|ma20|)>全史70分位(0.060) 的全部买入。【白话】腾落线(AD)远高于其20日线=个股普涨过热, 追买容易买在短期顶部。【场景】普涨大阳线频出时实验开启。【1:1】vs9键边际 -235.61 / 命中845笔(mine20_pool.json)。⚠诚实标注: 单开微负(接近零效应); 每日池比值待补测。" },
-    { k: "excludeTierNone", cls: "lab-sigkelly-toggle-xtnone", name: "整剔有跟踪ETF象限", ratio: null, warn: "🆕NEW默认关·NEW14+1成员",
-      advice: "🆕回撤改善档 · 数字扩围后待重算", tip: "🆕NEW(X1, mine29c 2026-08-24 用户拍板, 默认关): 排除「有跟踪ETF」整卡信号(track_tier=none/null——匹配不到强关联/相关/近似 ETF: none=30-49 弱跟踪兜底、null=<30 极弱或 N<30 无分; 2026-08-24 用户拍板由仅剔 none 扩为剔 none+null, 与回测卡/首页筛选档4口径完全统一)——NEW14+1·15键可选档(new15)唯一新增键。【白话】连一只像样跟踪标的都配不上的信号=指数代表性最差的一档, 整组不碰。【场景】想要比 NEW14 更浅的回撤时, 切模式下拉「NEW14+1 · 15键」一键带上本键(单独手开亦可)。【1:1·⚠扩围前仅剔none历史口径, 扩围后作废待正式穷举回测重算】NEW14 全史 +122,648/mdd -4,178 → 加本键 +122,705(+56.61, +0.05%)/mdd -3,550(-628, -15%)(etf_def 口径); 页面口径被剔17笔毛+584.62/费359.07/净+225.56, 替补3笔-196.70, Δ=-422。近5年12笔账面 -1,450.66 但补位回收 +1,253.96(mine29c §10.1)。⚠诚实标注: mine29 判决=「噪声级无效改善」, bootstrap 全窗含0 不显著, 回撤改善是唯一真实正效用; 远古5笔(2020-07~2021-08)+1,676.22 掩盖了近端亏损——用户知情后拍板保留为可选档供实测。" }
+      advice: "全球类追涨剔除 · vs9键+8,254 · NEW14默认开", tip: "⭐ NEW14 默认开(v1.1.5 起现役默认规则键 R2b; 原 T1 2026-08-23 落库): 排除 buy_special 追关注 × mkt=global 全球类的交易。挖掘代号 R2b(R2 三轮替补族)。【白话】全球类(海外指数ETF)的追关注信号历史胜率差, 与 K2C5 港股追涨同思路、不同域类。【场景】NEW14 内与 K2C5 互补(港股+全球类追涨一起收掉)。【1:1】vs9键边际 +8,254 元(round3 口径, 同批 R2a +9,681 / R2g +19,442)。⚠每日池比值待补测。" },
+    { k: "n2NorthOutConcept", cls: "lab-sigkelly-toggle-n2nout", name: "北向流出×概念类", ratio: null, warn: "NEW默认关",
+      advice: "外资撤+题材炒作双杀 · vs9键+7,054", tip: "NEW(T1 2026-08-23, 默认关): 排除 north_d20<全史30分位(-58.3亿) × mkt=concept 概念类(N1 的子集变体)。【白话】外资在撤的同时还在炒题材概念, 双重风险叠加。【场景】北向流出期只想收概念仓时用(比 N1 精准、砍量更少)。【1:1】vs9键边际 +7,054 / 命中784笔(mine20_pool.json; 开 N1 时本键不再新增过滤, 属其子集)。⚠每日池比值待补测。" },
+    { k: "v2Vol20Gt25", cls: "lab-sigkelly-toggle-v2vol25", name: "波动≥25%(固定线)", ratio: null, warn: "NEW默认关",
+      advice: "波动破25%全停 · vs9键-8,636", tip: "NEW(T1 2026-08-23, 默认关): 排除 h_vol20≥25%(固定常数, 非分位) 的全部买入。一轮候选3 变体(V1 的放宽版)。【白话】波动一旦越过25%这条固定警戒线就停手。【场景】想用绝对阈值(而非历史分位)控波动暴露时开。【1:1】vs9键边际 -8,635.64 / 命中688笔(mine20_pool.json)。⚠诚实标注: 边际为负(单开损净利), 落池键仅作协同定性参考; 每日池比值待补测。" },
+    { k: "s2SentHs300Low", cls: "lab-sigkelly-toggle-s2sent300", name: "HS300情绪冰点", ratio: null, warn: "NEW默认关",
+      advice: "300情绪冰点全停 · vs9键-879", tip: "NEW(T1 2026-08-23, 默认关): 排除 sent_hs300(score_daily sentiment_hs300)<全史20分位(35.07) 的全部买入(S1 的 hs300 版)。【白话】沪深300维度情绪同样冰冷时的停手变体。【场景】对比 S1(A股情绪版)哪个更贴身时开。【1:1】vs9键边际 -879.07 / 命中437笔(mine20_pool.json)。⚠诚实标注: 单开边际为负; 每日池比值待补测。" },
+    { k: "w1BackupDecline", cls: "lab-sigkelly-toggle-w1backup", name: "备买×下降期", ratio: null, warn: "NEW默认关",
+      advice: "下降期别接备买 · vs9键-2,485", tip: "NEW(T1 2026-08-23, 默认关): 排除 buy_backup 备买 × hs300四档=下降期(A股类)。一轮观察型候选(W 族)。【白话】下降趋势里的兜底型买入=接飞刀变体, 但样本小效果不稳。【场景】下降期想单独收紧备买(不动其他信号)时开。【1:1】vs9键边际 -2,484.65 / 命中40笔(mine20_pool.json, 三门全未过)。⚠诚实标注: 单开边际为负+样本小; 每日池比值待补测。" },
+    { k: "a1BullAllStop", cls: "lab-sigkelly-toggle-a1bull", name: "牛主升全停(超集)", ratio: null, warn: "NEW默认关",
+      advice: "牛主升全类型停 · vs9键-11,884", tip: "NEW(T1 2026-08-23, 默认关): 排除 hs300四档=牛市·主升(A股类)的全部买入——bullAuxBackupStop(只停辅买∪备买)的全类型超集。一轮候选2激进版。【白话】把牛市主升段所有买入全停掉, 比 bullAuxBackupStop 狠得多。【场景】仅在「牛市末段全面避险」实验时开。【1:1】vs9键边际 -11,884.00 / 命中1767笔(mine20_pool.json)。⚠诚实标注: 单开边际大幅为负(误伤牛市盈利主体), 落池键仅作对照; 每日池比值待补测。" },
+    { k: "v3Vol20LowPct", cls: "lab-sigkelly-toggle-v3vollow", name: "低波动<10分位", ratio: null, warn: "NEW默认关",
+      advice: "极度平静期也危险 · vs9键-2,470", tip: "NEW(T1 2026-08-23, 默认关): 排除 h_vol20<全史10分位(10.73) 的全部买入(V1 的反面: 低波不动段)。【白话】波动压到历史最低一档=多空都没劲, 信号质量普遍差。【场景】窄幅横盘段实验开启。【1:1】vs9键边际 -2,470.24 / 命中1057笔(mine20_pool.json)。⚠诚实标注: 单开边际为负且砍量大(命中1057笔); 每日池比值待补测。" },
+    { k: "ad1AdlineHot", cls: "lab-sigkelly-toggle-ad1hot", name: "AD线广度过热", ratio: null, warn: "NEW默认关",
+      advice: "普涨过热期停手 · vs9键-236", tip: "NEW(T1 2026-08-23, 默认关): 排除 adline_gap((a_ad_line-a_ad_line_ma20)/|ma20|)>全史70分位(0.060) 的全部买入。【白话】腾落线(AD)远高于其20日线=个股普涨过热, 追买容易买在短期顶部。【场景】普涨大阳线频出时实验开启。【1:1】vs9键边际 -235.61 / 命中845笔(mine20_pool.json)。⚠诚实标注: 单开微负(接近零效应); 每日池比值待补测。" },
+    { k: "excludeTierNone", cls: "lab-sigkelly-toggle-xtnone", name: "整剔有跟踪ETF象限", ratio: null, warn: "NEW默认关·NEW14+1成员",
+      advice: "回撤改善档 · 数字扩围后待重算", tip: "NEW(X1, mine29c 2026-08-24 用户拍板, 默认关): 排除「有跟踪ETF」整卡信号(track_tier=none/null——匹配不到强关联/相关/近似 ETF: none=30-49 弱跟踪兜底、null=<30 极弱或 N<30 无分; 2026-08-24 用户拍板由仅剔 none 扩为剔 none+null, 与回测卡/首页筛选档4口径完全统一)——NEW14+1·15键可选档(new15)唯一新增键。【白话】连一只像样跟踪标的都配不上的信号=指数代表性最差的一档, 整组不碰。【场景】想要比 NEW14 更浅的回撤时, 切模式下拉「NEW14+1 · 15键」一键带上本键(单独手开亦可)。【1:1·⚠扩围前仅剔none历史口径, 扩围后作废待正式穷举回测重算】NEW14 全史 +122,648/mdd -4,178 → 加本键 +122,705(+56.61, +0.05%)/mdd -3,550(-628, -15%)(etf_def 口径); 页面口径被剔17笔毛+584.62/费359.07/净+225.56, 替补3笔-196.70, Δ=-422。近5年12笔账面 -1,450.66 但补位回收 +1,253.96(mine29c §10.1)。⚠诚实标注: mine29 判决=「噪声级无效改善」, bootstrap 全窗含0 不显著, 回撤改善是唯一真实正效用; 远古5笔(2020-07~2021-08)+1,676.22 掩盖了近端亏损——用户知情后拍板保留为可选档供实测。" }
   ]}
 ];
 
@@ -10203,7 +10203,7 @@ var _KELLY_MODE_COMPARE_CARDS = [
     ],
     perf: { net: "+73,103", y1: "+17,213", mdd: "-17,650", rec: "349天", n: "1032笔/胜率53.1%" },
     tip: "【9键 · 叠8键+候选1】✓ 叠 8 键再开候选1(bullAuxBackupStop 牛市·主升×辅买∪备买全停)。【白话】比 8键全面小胜 +6,572 元, 但也只是「8键 plus」无质变。【场景】A/B/C 三张卡的叠放基座就是它; v1.1.4 及以前默认口径(v1.1.5 起为对照档, 现役默认=NEW14 十四键)。【1:1】全史净利 +73,103 元, 最大回撤 -17,650 元(恢复 349 天); 近1年 +17,213 / 2026YTD +7,490; 1032 笔胜率 53.1%。" },
-  { id: "a9", name: "A on9", tagline: "进攻王·近端牛市吃满", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, best: true,
+  { id: "a9", name: "A进攻王(on9)", tagline: "进攻王·近端牛市吃满", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, best: true, hot: true, hotTip: "历史效果最好的进攻档: 全史净利 +119,110 元、近1年 +26,630 元全场第一(数据验证)",
     keys: [
       ["excludeSpecialBear", "追关注×熊市交叉(四档)", "base"],
       ["n2NovSpecialIndustry", "11月+追关注+行业", "base"],
@@ -10224,8 +10224,8 @@ var _KELLY_MODE_COMPARE_CARDS = [
       ["r2gLowRatingQ3", "7-9月+低评+低分(R2g)", "add"]
     ],
     perf: { net: "+119,110", y1: "+26,630", mdd: "-6,784", rec: "99天", n: "574笔/胜率63.1%" },
-    tip: "【A on9 · 进攻王】⚠ 叠 9 键口径: 在 9 键基座上再叠 8 条规则(T1/Q1/M1/V1/R1/R2a≡主关注×概念/R2b/R2g), 不是独立组合。【白话】赚最多跑最快: 频次砍半、胜率升到 63%, 近端牛市吃满。【场景】要历史利润最大化且回撤可控、能接受偶发砍牛市利润时选它。【1:1】全史净利 +119,110 元(vs 8键 +66,530); 回撤 -6,784 元恢复 99 天(8键 350 天的不到三分之一); 近1年 +26,630 全场第一 / 2026YTD +15,574 第一; 574 笔胜率 63.1%。弱=新方案里回撤最大、2019-20 结构牛会砍利润、G/I 长线不适配。" },
-  { id: "b9", name: "B on9", tagline: "均衡卡·K档最钝感", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, best: false,
+    tip: "【A进攻王(on9)】⚠ 叠 9 键口径: 在 9 键基座上再叠 8 条规则(T1/Q1/M1/V1/R1/R2a≡主关注×概念/R2b/R2g), 不是独立组合。【白话】赚最多跑最快: 频次砍半、胜率升到 63%, 近端牛市吃满。【场景】要历史利润最大化且回撤可控、能接受偶发砍牛市利润时选它。【1:1】全史净利 +119,110 元(vs 8键 +66,530); 回撤 -6,784 元恢复 99 天(8键 350 天的不到三分之一); 近1年 +26,630 全场第一 / 2026YTD +15,574 第一; 574 笔胜率 63.1%。弱=新方案里回撤最大、2019-20 结构牛会砍利润、G/I 长线不适配。" },
+  { id: "b9", name: "B均衡卡(on9)", tagline: "均衡卡·K档最钝感", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, best: false, hot: true, hotTip: "最大回撤 -12,408 元、K 档最钝感(数据验证)",
     keys: [
       ["excludeSpecialBear", "追关注×熊市交叉(四档)", "base"],
       ["n2NovSpecialIndustry", "11月+追关注+行业", "base"],
@@ -10244,7 +10244,7 @@ var _KELLY_MODE_COMPARE_CARDS = [
       ["r2gLowRatingQ3", "7-9月+低评+低分(R2g)", "add"]
     ],
     perf: { net: "+109,572", y1: "+22,905", mdd: "-12,408", rec: "267天", n: "628笔/胜率61.5%" },
-    tip: "【B on9 · 均衡卡】⚠ 叠 9 键口径: 在 9 键基座上叠 6 条规则(T1/Q1/M1/R1/R2b/R2g)。【白话】每项都不差、无单项冠军也无短板, K 档最不敏感(±710)。【场景】想要 K 档敏感性最小的稳妥叠加、不追求单项极致时选它。【1:1】全史净利 +109,572 元; 回撤 -12,408 元恢复 267 天; 近1年 +22,905 / 2026YTD +11,849; 628 笔胜率 61.5%。弱=回撤明显大于 A/C/NEW。诚实标注: 速查卡曾写恢复「约200天」, mine24_compare.json 原始值=267 天(trough 2022-05-10 → recover 2023-02-02), 以 json 为准。" },
+    tip: "【B均衡卡(on9)】⚠ 叠 9 键口径: 在 9 键基座上叠 6 条规则(T1/Q1/M1/R1/R2b/R2g)。【白话】每项都不差、无单项冠军也无短板, K 档最不敏感(±710)。【场景】想要 K 档敏感性最小的稳妥叠加、不追求单项极致时选它。【1:1】全史净利 +109,572 元; 回撤 -12,408 元恢复 267 天; 近1年 +22,905 / 2026YTD +11,849; 628 笔胜率 61.5%。弱=回撤明显大于 A/C/NEW。诚实标注: 速查卡曾写恢复「约200天」, mine24_compare.json 原始值=267 天(trough 2022-05-10 → recover 2023-02-02), 以 json 为准。" },
   { id: "c9", name: "C on9", tagline: "保守防守·熊市少亏", caliber: "⚠ 叠 9 键口径(注: 选 C 更优应叠 8 键并下线候选1)", calWarn: true, best: false,
     keys: [
       ["excludeSpecialBear", "追关注×熊市交叉(四档)", "base"],
@@ -10317,7 +10317,7 @@ function _kellyModeCompareHTML() {
       return `<span class="lab-sigkelly-mode-chip ${_chipCls[kv[2]] || ""}" title="${kv[0]}">${kv[1]}</span>`;
     }).join("");
     return `<div class="lab-sigkelly-mode-card${c.best ? " lab-sigkelly-mode-card-best" : ""}" tabindex="0" data-no-pop="" data-tip="${c.tip}">` +
-        `<div class="lab-sigkelly-mode-card-head"><span class="lab-sigkelly-mode-card-name">${c.name}</span><span class="lab-sigkelly-mode-tagline">${c.tagline}</span>${c.best ? '<span class="lab-sigkelly-mode-star">★</span>' : ""}</div>` +
+        `<div class="lab-sigkelly-mode-card-head"><span class="lab-sigkelly-mode-card-name">${c.name}</span>${c.hot ? '<span class="hot-tier-badge" data-hot="1" title="' + c.hotTip + '">HOT</span>' : ""}<span class="lab-sigkelly-mode-tagline">${c.tagline}</span>${c.best ? '<span class="lab-sigkelly-mode-star">★</span>' : ""}</div>` +
         `<div class="lab-sigkelly-mode-caliber${c.calWarn ? " warn" : ""}">${c.caliber}</div>` +
         `<div class="lab-sigkelly-mode-keys">${chips}</div>` +
         `<div class="lab-sigkelly-mode-perf">全史净利 <b>${c.perf.net}</b> 元 · 回撤 <b>${c.perf.mdd}</b>(恢复 ${c.perf.rec}) · 近1年 ${c.perf.y1} · ${c.perf.n}<span class="lab-sigkelly-toggle-tip" title="${c.tip}">ⓘ</span></div>` +
@@ -11167,15 +11167,12 @@ function _renderSigKellyBar(bar, data, period) {
     }
     return f.rec ? " lab-sigkelly-fade-warn-green" : "";
   };
-  // v1.1.2 红色 NEW 徽章(2026-08-18 用户定: 🆕 emoji 浏览器兼容差, 改红色 NEW 小徽章; 与「⚠️慎用红」区分=红底白字小徽章, 非整行警示)
-  const _kellyNewBadge = '<span class="lab-sigkelly-toggle-new">NEW</span>';
-  const _kellyAdviceHtml = (advice) => advice.replace(/^🆕/, _kellyNewBadge + " ");
   const _flagToggleHTML = (f) => {
     return `<label class="lab-sigkelly-toggle${f.rec ? " lab-sigkelly-rec" : ""}${_fadeWarnCls(f)}" tabindex="0" data-no-pop="" data-tip="${f.tip}">` +
       `<input type="checkbox" class="${f.cls}"${_filters[f.k] ? " checked" : ""}>` +
       (f.rec ? _kellyRecBadge(!!_filters[f.k]) : "") +
       (f.linked ? `<span class="lab-sigkelly-toggle-linked">🔗AI宏14键</span>` : "") +
-      `<span class="lab-sigkelly-fade-advice">${_kellyAdviceHtml(f.advice)}</span>` +
+      `<span class="lab-sigkelly-fade-advice">${f.advice}</span>` +
       `<span class="lab-sigkelly-toggle-tip" title="${f.tip}">ⓘ</span></label>`;
   };
   // 顶部「怎么用」三行汇总(默认即可/进阶调法/别做啥), 用户不必读长 tip
@@ -12195,7 +12192,7 @@ function _kellyComboAdviceHtml() {
           `<div class="lab-sigkelly-advice-li lab-sigkelly-gmethod"><b>定案档位（2026-08-30 用户三连拍板=只保留 10万单档；数字为真实权威数，废弃 b0/b1 估算）</b>：<b>G P≤3d@10万</b> = 146.72%（净 +146,718，峰10笔=10 倍本金=可操作，年化 6.00%，强平375笔，负年2011/2021/2023）；旧 13万档 188.88%/+245,538（v1.1.4 八键基座历史口径）与旧 189.29% 估算已作废——「10万份本金内先卖年轻仓」既压住可操作性（10 倍）又吃满收益率，数据定案后 15/20 万选项早删（可配合本面板「ai长线模式(G/H/I)仓位管理」开关联动看效果）。</div>` +
           `<div class="lab-sigkelly-advice-li lab-sigkelly-gmethod"><b>为什么可信（对比证明）</b>：P≤3d 在 若干档位收益率都高于旧 FIFO（卖最老＝卖掉了利润引擎本体）；15 个不同起始年 <b>全部</b>胜 FIFO（收益率均值 98.9% vs FIFO 62.0%）、随机 30 个起始点 <b>0/30 负</b>。且 P≤3d 强平的正好是 0-3 天新仓（还没累积利润）→ 强平日按真实净值价重算（2026-08-30 拍板真实权威数）＝<b>数字即真实、不再依赖估算模型</b>；反观旧 FIFO 强平的是最老仓（平均已持 73 天、自然利润合计 +45 万）→ 原估算区间宽 105pp 不可信。<span class="lab-sigkelly-advice-warn-red">⚠P3d 红色警示——结果稳定性存疑+实操性差（2026-08-30 用户拍板）：方法价值保留，但强平盈亏随资金量剧烈波动（同池扫描 3万档强平+20,285 → 10万档-31,547，同方法不同资金量结果不一致）+操作复杂需严格执行先卖年轻仓规则→明确不主推。</span><b>结论：G 用户若上仓位管理，用 P≤3d「先卖年轻仓」代替旧 FIFO（真实权威数 146.72%）；三模式中最稳最优推 H（满仓不买无强平 230.83%）——主推两条硬道理（2026-08-30 用户拍板）：①收益率最高且无强平=完全确定；②操作最简单=满仓不买、无强平规则，实盘执行不混乱。</b></div>` +
           `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note lab-sigkelly-gmethod">📌 G 方法三层流程（白话说一遍）：① 选组合=AI宏默认组合（S06 动态基座，以页面实时为准）；② G 玩法教学已定案（见上方「G 玩法完整交易方法」），2026-08-30 用户三连拍板 P≤3d@10万；③ 实盘仓位=每日池均分 + P≤3d「先卖年轻仓」@10万定案单档(2026-08-30 定案，15/20 档早删)。<span class="lab-sigkelly-advice-warn-red">⚠G/I(P3d)红色警示——结果稳定性存疑+实操性差（2026-08-30 用户拍板）：同方法不同资金量结果不一致（3万档强平反盈+20,285 → 10万档巨额-31,547）+操作复杂需严格执行先卖年轻仓规则，方法价值保留为可选档、明确不主推</span>；✿主推建议=H（满仓不买@5万，无强平 230.83% 全场最高+操作最简单，2026-08-30 用户拍板）；G 3 负年、I 2 负年。本段为研究结论（详见上方「G模式复核」报告），实际交易以页面「ai长线模式(G/H/I)仓位管理」开关勾选联动为准，仍需你盯盘确认信号。</div>` +
-          `<div class="lab-sigkelly-advice-li lab-sigkelly-nextday"><b>🆕 回测买入价口径（v1.1.4 起默认=信号次日开盘）</b>：凯利回测买入价 = <b>信号次日开盘价</b>（信号收盘后固化、次日开盘才能真实成交），按 gap 比例换算到 accum_nav 口径（次日开盘 accum_nav 等价值 = 信号日 accum_nav × (次日原始 open / 信号日原始 close)，正确处理分红/份额折算）；旧基线「信号日收盘等价 accum_nav」因收盘价不可成交已于 v1.1.4 切换（量化见 kelly-nextday-open-backtest.md：净利仅微降 0.01%~0.57%、收益率基本不变）。</div><div class="lab-sigkelly-advice-li lab-sigkelly-nextday"><b>🆕 次日买入玩法（分批挂单，数据更稳，2026-08-15 SOP）</b>：买入执行尽量放<b>次日</b>而非当日收盘——次日开盘直接买比当日收盘买几乎不输（净利仅低 0.01%，胜率反升）；更稳的玩法是<b>分 N 单挂「次日开盘价 -1%」限价单，未触达尾盘按现价补满 1 万预算</b>，回测比次日开盘直接买多赚约 6 万（均价 -0.37%，87.9% 交易日日内最低点低于开盘=免费搭日内下探便车）。数据支撑 「次日分批挂单SOP」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-nextday-batch-limit-sop">🔍查看报告</button> §3.4，与首页「推荐方法·参考说明」同口径（§22）。</div>` +
+          `<div class="lab-sigkelly-advice-li lab-sigkelly-nextday"><b> 回测买入价口径（v1.1.4 起默认=信号次日开盘）</b>：凯利回测买入价 = <b>信号次日开盘价</b>（信号收盘后固化、次日开盘才能真实成交），按 gap 比例换算到 accum_nav 口径（次日开盘 accum_nav 等价值 = 信号日 accum_nav × (次日原始 open / 信号日原始 close)，正确处理分红/份额折算）；旧基线「信号日收盘等价 accum_nav」因收盘价不可成交已于 v1.1.4 切换（量化见 kelly-nextday-open-backtest.md：净利仅微降 0.01%~0.57%、收益率基本不变）。</div><div class="lab-sigkelly-advice-li lab-sigkelly-nextday"><b> 次日买入玩法（分批挂单，数据更稳，2026-08-15 SOP）</b>：买入执行尽量放<b>次日</b>而非当日收盘——次日开盘直接买比当日收盘买几乎不输（净利仅低 0.01%，胜率反升）；更稳的玩法是<b>分 N 单挂「次日开盘价 -1%」限价单，未触达尾盘按现价补满 1 万预算</b>，回测比次日开盘直接买多赚约 6 万（均价 -0.37%，87.9% 交易日日内最低点低于开盘=免费搭日内下探便车）。数据支撑 「次日分批挂单SOP」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-nextday-batch-limit-sop">🔍查看报告</button> §3.4，与首页「推荐方法·参考说明」同口径（§22）。</div>` +
           `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">⚠ 口径说明：本节「投资习惯」行为表格/总建议数字为<b>每日资金池等分+top-K（2026-08-13 恢复, 2026-08-14 #BC 对齐重算）口径</b>；页面实时 K 档评级/全信号表同为<b>每日资金池等分+top-K</b>，可对照。核心决策以每日池为准：A/F 短持→维持页面默认降亏组合；长线三模式 ai长线→主推 H（满仓不买@5万，无强平完全确定 230.83%+操作最简单，2026-08-30 用户拍板），G=P≤3d@10万 可操作档、I=P≤3d@9万 为备选（真实权威数；<span class="lab-sigkelly-advice-warn-red">⚠G/I(P3d)红色警示——结果稳定性存疑+实操性差：强平随资金量剧烈波动（3万档+20,285→10万档-31,547）+操作复杂，非主推</span>）。上方 A/F/G 三玩法表为全周期 all 口径(每日池,实时联动)，下方「最后结果」全信号表随周期切换（切到「全部」时两表同值）。</div>` +
         `</div>` +
       `</div>` +

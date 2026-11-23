@@ -1009,6 +1009,9 @@ function _tdsFadeModeDdSync(w) {
   else curName = sel.value || "";
   var cur = w.querySelector(".tds-fade-mode-cur");
   if (cur) cur.textContent = curName;
+  // 触发按钮 HOT 角标随选中档同步(仅 a9/b9 等 hot 档显示; 选其他档/HOT 档之间切换都要更新)
+  var hotSlot = w.querySelector(".tds-fade-mode-cur-hot");
+  if (hotSlot) hotSlot.innerHTML = _tdsFadeModeHotBadgeHTML(p);
   var opts = w.querySelectorAll("[data-fade-mode-opt]");
   for (var i = 0; i < opts.length; i++) {
     var on = opts[i].getAttribute("data-fade-mode-opt") === sel.value;
@@ -1146,8 +1149,13 @@ function _tdsFadeModeSelectHTML(id, selectedId, withCustom, cls, title) {
   // ② 可见层: 触发按钮(显示当前选中名, 折叠区档位也正常显示)
   var _curP = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(selectedId) : null;
   var _curName = _curP ? _curP.name : (selectedId === "custom" ? "⚙️ 自定义(手动勾选生成)" : (_tdsFadeModeById(_KELLY_FADE_DEFAULT_MODE) || {}).name || "");
+  // 触发按钮角标(2026-11-23): ①HOT=当前选中档是 hot 档(A进攻王 a9/B均衡卡 b9)时显示, 复用 .hot-tier-badge 同款;
+  // ②NEW=「更多模式」折叠升级标记(常显, 轻量药丸, hover 说明折叠收纳); 两者 flex:0 0 auto 不收缩, 390px 不裁切, 档名超长走省略号。
   h += '<button type="button" class="tds-fade-mode-ddb' + (_extraCls ? " " + _extraCls : "") + '" aria-haspopup="listbox" aria-expanded="false"' + (title ? ' title="' + _selEsc + '"' : "") + '>' +
-       '<span class="tds-fade-mode-cur">' + _tdsFadeModeEscHTML(_curName) + '</span><span class="tds-fade-mode-ddcaret">▾</span></button>';
+       '<span class="tds-fade-mode-cur">' + _tdsFadeModeEscHTML(_curName) + '</span>' +
+       '<span class="tds-fade-mode-cur-hot">' + _tdsFadeModeHotBadgeHTML(_curP) + '</span>' +
+       '<span class="hot-new-badge tds-fade-mode-new" data-new="1" title="刚升级: 更多模式已折叠收纳">NEW</span>' +
+       '<span class="tds-fade-mode-ddcaret">▾</span></button>';
   // ③ 面板: 主列表 4 档(s06/A进攻王/NEW14/B均衡卡) + 更多模式折叠区(其余 5 档, 默认收起)
   var _byId = {};
   for (var k = 0; k < _list.length; k++) _byId[_list[k].id] = _list[k];

@@ -1030,6 +1030,10 @@ main { padding: 16px 24px; }
 .hot-new-badge { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; height: 14px; padding: 0 5px; border-radius: 7px; font-size: 9px; font-weight: 700; line-height: 1; letter-spacing: 0.5px; color: #fff; background: linear-gradient(135deg, #ff4d4f, #ff7a45); box-shadow: 0 1px 3px rgba(255, 77, 79, 0.35); white-space: nowrap; }
 /* 2026-11-22 HOT 档角标(降亏模式 A进攻王/B均衡卡): 与 NEW 角标同款药丸风, 独立类名互不复用; flex:0 0 auto 防 390px 被裁切 */
 .hot-tier-badge { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; height: 14px; padding: 0 5px; border-radius: 7px; font-size: 9px; font-weight: 700; line-height: 1; letter-spacing: 0.5px; color: #fff; background: linear-gradient(135deg, #ff4d4f, #ff7a45); box-shadow: 0 1px 3px rgba(255, 77, 79, 0.35); white-space: nowrap; }
+/* 2026-11-23 降亏模式下拉触发按钮角标: HOT 槽随选中档显示/隐藏(:empty 不占位、不产生多余 gap); NEW=「更多模式」折叠升级轻量标记 */
+.tds-fade-mode-cur-hot { display: inline-flex; flex: 0 0 auto; }
+.tds-fade-mode-cur-hot:empty { display: none; }
+.tds-fade-mode-new { flex: 0 0 auto; }
 .sig-kbtns { display: inline-flex; gap: 2px; margin: 0 2px; }
 .sig-kbtn { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-width: 32px; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; line-height: 1.25; transition: all 0.15s; }
 .sig-kbtn:hover { border-color: var(--primary); color: var(--text-1); }
