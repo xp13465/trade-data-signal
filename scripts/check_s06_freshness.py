@@ -43,7 +43,7 @@ from pathlib import Path
 # 使子进程 notify.py 的 REPO 探测落在与调用方(schedule_monitor flusher)同一棵树
 SCRIPT_DIR = Path(__file__).absolute().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from ops_legacy_events import observe, dispatch  # noqa: E402
+from ops_legacy_events import observe, dispatch, observe_failure, close_observe_failure  # noqa: E402
 # 数据仓候选: env 注入(REPO/GIT_REPO/MAIN_REPO, 与 pick_repo.candidate_repos 同类语义)优先,
 # 云上单仓(REPO=GIT_REPO=MAIN_REPO=/home/ubuntu/code/trade-data-signal)env 排最前;
 # env 缺失回退 macOS 本机 trade-data(向后兼容, 行为不变)。云上若仍用本机硬编码会读不到
@@ -91,6 +91,8 @@ def main() -> int:
 
     key = "producer_s06|" + hashlib.sha256(
         json.dumps([str(snap_path.absolute()), str(idx_path.absolute())]).encode()).hexdigest()
+    # 「无法观测」独立事件 key(同 L60 家族): 输入读不到/解析失败时用稳定身份, 不每轮 critical。
+    observe_key = key + "|unobservable"
 
     def probe():
         dates, snap = load_daily_dates(snap_path)
@@ -113,13 +115,36 @@ def main() -> int:
     except Exception as exc:
         print(f"S06_FRESH_ERROR 状态/输入无法判定: {type(exc).__name__}: {exc}", file=sys.stderr)
         if args.notify:
+            body = ("检查输入或共享事件状态失败，不能证明恢复："
+                    f"{type(exc).__name__}: {exc}。持续同一原因只更新本条；输入恢复后自动发一次恢复。")
             try:
+                _, obs_refs = observe_failure(repo, observe_key, body,
+                                              {"exception_type": type(exc).__name__,
+                                               "exception_detail": str(exc)[:500]},
+                                              cause_key=type(exc).__name__)
+                # 既有契约: 无法判定 = fail-visible 立即首报(critical), 不降级入聚合;
+                # 去重靠稳定事件同一 event_id(同因只首报一次, 恢复一次), 不靠 warning 缓冲。
                 dispatch(repo, SCRIPT_DIR / "notify.py", "[告警] S06 新鲜度无法判定",
-                         "检查输入或共享事件状态失败，不能证明恢复：" + str(exc), None,
-                         source="check_s06_freshness.py")
+                         body, obs_refs, source="check_s06_freshness.py")
             except Exception as send_exc:
-                print(f"[s06-fresh] 未确认告警: {send_exc}", file=sys.stderr)
+                print(f"[s06-fresh] 事件状态未知: {send_exc}", file=sys.stderr)
+                try:
+                    dispatch(repo, SCRIPT_DIR / "notify.py", "[告警] S06 新鲜度无法判定",
+                             body + "\n共享事件状态无法确认；本次按稳定 key 限频首报。",
+                             None, tier="critical", dedup_key=observe_key,
+                             source="check_s06_freshness.py")
+                except Exception as retry_exc:
+                    print(f"[s06-fresh] 未确认告警: {retry_exc}", file=sys.stderr)
         return 2
+    if args.notify:
+        try:
+            rec_refs = close_observe_failure(repo, observe_key, "S06 新鲜度检查输入恢复可读。")
+            if rec_refs:
+                dispatch(repo, SCRIPT_DIR / "notify.py", "[恢复] S06 新鲜度检查恢复可观测",
+                         "S06 新鲜度检查输入恢复可读，判定回到正常路径。", rec_refs,
+                         source="check_s06_freshness.py")
+        except Exception as rec_exc:
+            print(f"[s06-fresh] 恢复事件未确认: {rec_exc}", file=sys.stderr)
     if not facts["action"]:
         print("S06_FRESH_OK " + facts["message"])
         return 0

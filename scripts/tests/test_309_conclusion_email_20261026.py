@@ -32,6 +32,13 @@ SENT_OUT = "[notify] 汇总：已发出 email/feishu\n"
 FAILED_OUT = "[notify] 汇总：全部渠道未发出（email=False feishu=False）\n"
 
 
+@pytest.fixture(autouse=True)
+def _legacy_cases_opt_in(monkeypatch):
+    """2026-11-24 默认翻转为关(#alert-noise)后, 本文件的历史用例默认显式打开(=1),
+    保持原有验收面不变; 「默认关」本身由 test_env_switch_default_off 单独验。"""
+    monkeypatch.setenv("MONITOR_CONCLUSION_STATUS_EMAIL", "1")
+
+
 class StubNotify:
     """notify.py 子进程替身: 记录每次命令, 返回固定输出(默认=确认送达)。"""
 
@@ -512,11 +519,29 @@ def test_env_switch_off_disables_everything(monkeypatch, val):
     assert stub.calls == [] and saves == [] and state == {}
 
 
-def test_env_switch_default_on(monkeypatch):
+def test_env_switch_default_off(monkeypatch):
+    """2026-11-24 用户拍板: 默认关(正常例行安静), 不再是默认开。"""
     monkeypatch.delenv("MONITOR_CONCLUSION_STATUS_EMAIL", raising=False)
+    assert _ns()["_conclusion_email_enabled"]() is False
+    res, stub, saves, state = _run(BAD_LEDGER, alert_mail_sent=0)
+    assert res["reason"] == "disabled" and res["sent"] is False
+    assert stub.calls == [] and saves == [] and state == {}
+
+
+@pytest.mark.parametrize("val", ["1", "true", "on", "yes", " TRUE "])
+def test_env_switch_explicit_on_reopens(monkeypatch, val):
+    """显式 =1/true/on/yes 完整恢复旧行为(可逆)。"""
+    monkeypatch.setenv("MONITOR_CONCLUSION_STATUS_EMAIL", val)
     assert _ns()["_conclusion_email_enabled"]() is True
     res, stub, _s, _st = _run(BAD_LEDGER, alert_mail_sent=0)
     assert res["sent"] is True and len(stub.calls) == 1
+
+
+@pytest.mark.parametrize("val", ["", "maybe", "2", "none"])
+def test_env_switch_invalid_values_stay_off(monkeypatch, val):
+    """非法值按关处理: 默认安静且不猜。"""
+    monkeypatch.setenv("MONITOR_CONCLUSION_STATUS_EMAIL", val)
+    assert _ns()["_conclusion_email_enabled"]() is False
 
 
 # ── 判定点定位: 必须在两条批发通道之后(源码形状护栏) ──────────────────────
@@ -547,7 +572,7 @@ def test_recovery_block_exception_does_not_block_status_mail(capsys, monkeypatch
     抛 `TimeoutExpired` 的 subprocess 替身; 再 exec 紧随其后的结论判定调用语句, 断言
     stub notify 真被调用 1 次。去掉 try/except 外壳 ⇒ 这里直接抛异常 ⇒ 红。
     """
-    monkeypatch.delenv("MONITOR_CONCLUSION_STATUS_EMAIL", raising=False)
+    monkeypatch.setenv("MONITOR_CONCLUSION_STATUS_EMAIL", "1")
     src = m309.heredoc_source()
     tree = ast.parse(src)
     try_node = next(

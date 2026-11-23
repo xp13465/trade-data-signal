@@ -91,8 +91,11 @@ def main(argv: list[str] | None = None) -> int:
             "\n请排查 schedule-monitor 对应 timer/service、日志是否仍在推进。" +
             ("\n共享事件状态无法确认；本次为 fail-visible 首报，未证明去重/恢复。" if state_unknown else ""))
     try:
+        # 共享状态坏掉时(refs=None)也必须有限通知: 用稳定 dedup key + 6h 窗口兜底,
+        # 不许退回「critical + --dedup-window 0」每轮一封(L60 家族)。
         status = dispatch(repo, notify_py, "[告警] schedule-monitor 心跳超时（监控停摆）",
-                          body, refs, source="check_monitor_heartbeat.py")
+                          body, refs, source="check_monitor_heartbeat.py",
+                          dedup_key=(key + "|state_unknown") if state_unknown else None)
     except Exception as exc:
         print(f"[monitor-heartbeat] notify 未确认: {exc}", file=sys.stderr)
         return 2

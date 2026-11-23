@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 os.environ.setdefault("NOTIFY_SOURCE", os.path.basename(__file__))
@@ -44,7 +45,7 @@ from pathlib import Path
 # absolute() 非 resolve(): 保持 trade-data/scripts 的 symlink 字面路径, 与调用方同树。
 SCRIPT_DIR = Path(__file__).absolute().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from ops_legacy_events import observe, dispatch  # noqa: E402
+from ops_legacy_events import observe, dispatch, observe_failure, close_observe_failure  # noqa: E402
 
 DEFAULT_REPO_CANDIDATES = [
     Path(c) for c in (
@@ -157,6 +158,42 @@ def judge(progress: dict, today: str, calendar: set[str] | None = None) -> dict:
             "lag_days": max_lag, "lag_codes": [c for c, _ in lag_codes], "visible": visible}
 
 
+def observation_evidence(exc: Exception, progress_path: Path) -> dict:
+    """无法观测时的结构化证据: 具体异常 + 进度文件版本/hash/最后写入 + 首次应完成时点。
+
+    只读文件元数据; 读不到就给「未知」, 不拿猜的值冒充事实。
+    """
+    ev = {"exception_type": type(exc).__name__,
+          "exception_detail": str(exc)[:500],
+          "progress_path": str(progress_path.absolute()),
+          "progress_present": progress_path.exists(),
+          "progress_version": None, "progress_sha256": None,
+          "progress_size": None, "progress_last_write": None,
+          "first_expected_at": None}
+    try:
+        st = progress_path.stat()
+        ev["progress_size"] = st.st_size
+        ev["progress_last_write"] = dt.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        ev["first_expected_at"] = ev["progress_last_write"]
+        ev["progress_sha256"] = hashlib.sha256(progress_path.read_bytes()).hexdigest()
+    except OSError:
+        pass
+    try:
+        raw = json.loads(progress_path.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            ev["progress_version"] = raw.get("version")
+    except (OSError, ValueError):
+        pass
+    return ev
+
+
+def observation_message(exc: Exception, ev: dict) -> str:
+    return (f"看门狗本轮无法判定回补健康: {ev['exception_type']}: {ev['exception_detail']}。"
+            f"进度文件={ev['progress_path']} 版本={ev['progress_version']!r} "
+            f"sha256={(ev['progress_sha256'] or '未知')[:12]} 最后写入={ev['progress_last_write']}。"
+            "持续同一原因只更新本条, 不重复发信; 文件恢复可读后自动发一次恢复。")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="FOF/QDII 回补滞后 + 本轮覆盖率看门狗")
     ap.add_argument("--repo", default=str(DEFAULT_REPO), help="数据仓根(trade-data)")
@@ -174,6 +211,9 @@ def main() -> int:
     calendar = _load_trading_dates()
 
     key = "fof_backfill|" + progress_path.absolute().as_posix()
+    # 独立健康的「无法观测」事件 key: 与业务判定 key 分开, 观测恢复到可读后单独收口。
+    observe_key = "fof_backfill|" + hashlib.sha256(
+        (progress_path.absolute().as_posix() + "|unobservable").encode()).hexdigest()
 
     def probe():
         payload = json.loads(progress_path.read_text(encoding="utf-8"))
@@ -187,13 +227,36 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001  文件缺失/格式坏 = 无法判定, 不装健康
         print(f"FOF_BACKFILL_ERROR 进度无法判定: {type(exc).__name__}: {exc}", file=sys.stderr)
         if args.notify:
+            ev = observation_evidence(exc, progress_path)
+            body = observation_message(exc, ev)
             try:
+                # 稳定事件: 同一持续原因同 event_id, 首报一次, 之后只更新观测。
+                _, obs_refs = observe_failure(
+                    repo, observe_key, body, ev,
+                    cause_key=f"{ev['exception_type']}|{ev['progress_version']!r}")
                 dispatch(repo, SCRIPT_DIR / "notify.py", "[告警] FOF 回补看门狗无法判定",
-                         f"读不到或读不懂轮转进度文件({progress_path})，不能证明回补健康：{exc}",
-                         None, source="check_fof_backfill.py")
-            except Exception as send_exc:  # noqa: BLE001
-                print(f"[fof-backfill] 未确认告警: {send_exc}", file=sys.stderr)
+                         body, obs_refs, warning=True, source="check_fof_backfill.py")
+            except Exception as send_exc:  # noqa: BLE001  共享状态坏: 稳定 dedup key 兜底
+                print(f"[fof-backfill] 事件状态未知: {send_exc}", file=sys.stderr)
+                try:
+                    dispatch(repo, SCRIPT_DIR / "notify.py", "[告警] FOF 回补看门狗无法判定",
+                             body + "\n共享事件状态无法确认；本次按稳定 key 限频首报，未证明去重/恢复。",
+                             None, warning=True, tier="warning", dedup_key=observe_key,
+                             source="check_fof_backfill.py")
+                except Exception as retry_exc:  # noqa: BLE001
+                    print(f"[fof-backfill] 未确认告警: {retry_exc}", file=sys.stderr)
         return 2
+    if args.notify:
+        # 观测恢复: 只在此前确有「无法观测」事件时补发一次恢复, 不凭空造恢复对。
+        try:
+            rec_refs = close_observe_failure(repo, observe_key, "FOF 轮转进度文件已恢复可读, 回补看门狗恢复观测。")
+            if rec_refs:
+                dispatch(repo, SCRIPT_DIR / "notify.py", "[恢复] FOF 回补看门狗已恢复可观测",
+                         "FOF 轮转进度文件恢复可读, 业务判定恢复正常路径; 本条只表示看门狗恢复观测, "
+                         "不代表回补本身健康(以业务判定为准)。", rec_refs,
+                         source="check_fof_backfill.py")
+        except Exception as rec_exc:  # noqa: BLE001
+            print(f"[fof-backfill] 恢复事件未确认: {rec_exc}", file=sys.stderr)
     if not facts["action"]:
         print("FOF_BACKFILL_OK " + facts["visible"])
         return 0

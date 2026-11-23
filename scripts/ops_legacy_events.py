@@ -24,6 +24,9 @@ PREFIXES = ("producer_s06|", "producer_heartbeat|", "producer_nextday_plan|",
             "producer_nextday_gap|", "producer_update_all|", "producer_daily_summary|",
             "fof_backfill|")
 ACK_FIELDS = ("acknowledged", "ack_owner", "ack_event_id", "ack_note", "last_ack_log")
+# 「看门狗无法观测」事件: 共享状态本身坏掉时, 通知仍有稳定身份。
+# 6h 窗口 = 同一持续观测故障最多每 6h 一封(有限通知, 不是每轮一封)。
+UNOBSERVABLE_DEDUP_WINDOW = 6 * 3600
 
 
 def owns_event_key(key):
@@ -40,12 +43,14 @@ def _state_api(repo):
     return module
 
 
-def observe(repo, key, probe, *, run_id=None):
+def observe(repo, key, probe, *, run_id=None, probe_state=False):
     """Probe under the SAME state lock, update health, preserve current ACK/receipts.
 
     probe returns {action: bool, message: str, ...facts}. Errors never recover an
     old fault. Returning no ref means healthy without any prior identified event.
     New incidents get new IDs; legacy ACK without an ID is not reused.
+    `probe_state=True` passes the locked state to probe, so cause comparison and
+    the "new event?" decision stay atomic under concurrent reentry.
     """
     if not owns_event_key(key):
         raise ValueError("producer key outside owned scope")
@@ -61,7 +66,7 @@ def observe(repo, key, probe, *, run_id=None):
                 raise ValueError("run fence missing; outcome unknown")
             if current_run != run_id:
                 return {"action": None, "message": "superseded run"}, None
-        facts = probe(state) if run_id is not None else probe()
+        facts = probe(state) if (run_id is not None or probe_state) else probe()
         if type(facts.get("action")) is not bool:
             raise ValueError("unknown observation cannot prove recovery")
         old = state.get(key)
@@ -97,23 +102,83 @@ def observe(repo, key, probe, *, run_id=None):
             entry["last_recovered"] = now
         state[key] = entry
         api._ops_write_state(state)
-        return facts, [{"key": key, "event_id": entry["event_id"], "phase": "active", "source_run": None}]
+        if not facts["action"] and old.get("status") == "recovered":
+            # Recovery ref only on the active→recovered transition: a second
+            # close (concurrent reentry or a later healthy poll) must not emit
+            # a second [恢复] for the same episode.
+            return facts, None
+        phase = "active" if facts["action"] else "recovery"
+        return facts, [{"key": key, "event_id": entry["event_id"], "phase": phase, "source_run": None}]
 
 
-def dispatch(repo, notify_py, subject, body, refs, *, warning=False, source):
+def observe_failure(repo, key, message, evidence=None, *, cause_key=None):
+    """One stable event for "the watchdog can not observe its input".
+
+    Continuous same-cause failures reuse the same event id and only refresh the
+    structured observation; a changed concrete cause is a new event (new report).
+    The event is closed by `close_observe_failure` once observation works again,
+    never by guessing from a missing poll.
+    """
+    base = dict(evidence or {})
+    base.update(action=True, message=message)
+
+    def probe(state):
+        # Same locked snapshot as the event-id decision: two concurrent first
+        # observations cannot each mint a new incident / a second first report.
+        facts = dict(base)
+        if cause_key is not None:
+            old = state.get(key) or {}
+            if not isinstance(old, dict):
+                old = {}
+            obs = old.get("observation")
+            prev = obs.get("unobservable_cause") if isinstance(obs, dict) else None
+            facts["new_cause"] = bool(old.get("status") == "active" and prev != cause_key)
+            facts["unobservable_cause"] = cause_key
+        return facts
+
+    return observe(repo, key, probe, probe_state=True)
+
+
+def close_observe_failure(repo, key, message):
+    """Close an open "cannot observe" event once, with a recovery ref.
+
+    Returns refs (phase=recovery) only when the entry was active, else None.
+    A missing/healthy entry is never invented into a recovery.
+    """
+    api = _state_api(repo)
+    with api._ops_state_lock():
+        try:
+            old = (api._ops_read_state() or {}).get(key) or {}
+        except FileNotFoundError:
+            old = {}
+    if not isinstance(old, dict) or old.get("status") != "active":
+        return None
+    # observe() re-checks under its own lock, so a racing second close still
+    # gets None (status already recovered) instead of a duplicate [恢复].
+    _facts, refs = observe(repo, key, lambda: {"action": False, "message": message})
+    return refs
+
+
+def dispatch(repo, notify_py, subject, body, refs, *, warning=False, source,
+             tier=None, dedup_key=None, dedup_window=None):
     """Real notify CLI, structured outcome; rc=0 is never proof of delivery.
 
-    State failure: caller explicitly uses refs=None, immediate fail-visible send
-    without legacy dedup (unknown state cannot suppress a real fault). No queued
-    no-ref warning is created. The caller retains a nonzero unknown result.
+    State failure: the caller may pass a stable `dedup_key` instead of refs so
+    the fallback still has one bounded identity (never an unbounded per-poll
+    critical). No queued no-ref warning is created; the caller keeps the
+    nonzero unknown result.
     """
     with tempfile.TemporaryDirectory(prefix="ops-producer-result-") as temp:
         result = Path(temp) / "result.json"
+        effective_tier = tier or ("warning" if warning and refs else "critical")
         cmd = [sys.executable, str(notify_py), subject, body,
-               "--tier", "warning" if warning and refs else "critical",
+               "--tier", effective_tier,
                "--from-prefix", "[告警]", "--result-file", str(result)]
         if refs:
             cmd += ["--ops-event-refs", json.dumps(refs)]
+        elif dedup_key:
+            cmd += ["--dedup-key", str(dedup_key),
+                    "--dedup-window", str(UNOBSERVABLE_DEDUP_WINDOW if dedup_window is None else int(dedup_window))]
         else:
             cmd += ["--dedup-window", "0"]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False,
