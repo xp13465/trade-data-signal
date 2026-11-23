@@ -11,6 +11,7 @@
  *   ⑥ 老验收脚本 verify_hot_badge_dropdown_20261122.mjs 不红(由本任务单独跑, 结构断言不变)
  *
  * 用法:
+ *   须先 build_min(或 merge 后)再跑: min 由 main-merge 统一构建。
  *   ln -sfn /Users/linhuichen/code/trade/static-site/data static-site/data   # worktree 只读数据软链
  *   python3 -m http.server 8000 -d static-site &
  *   cd scripts/playwright-accept && node verify_hot_visibility_20261123.mjs http://localhost:8000
