@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """2026-11-24 告警噪音三修验收: 反例逐个断言(task book 要求)。
 
-① FOF「无法判定」分支: 稳定事件 + 有界兜底, 不再 critical + 零去重旁路。
+① FOF「无法判定」分支: 稳定事件 + 有界兜底, 保持 critical 立即首报 + 稳定去重
+   (复审判定: 降 warning 属动已上线行为, 已还原)。
    反例: 同一旧格式进度文件连续 48 轮 / 重启后重读 / 并发重入 ⇒ 同 event 同 phase,
    通知队列只有 1 条; 文件恢复 ⇒ 恢复只发 1 次; 真实业务故障仍走原首报路径。
-② 监控首报消费同 snapshot ACK 对账 + 30min 新鲜度合同。
+② 监控首报消费同 snapshot ACK 对账 + 30min 新鲜度合同(复审 P1-1: 数据源 = 持久
+   journal 按 invocation 轮次对齐, 不读 /run 瞬态目录)。
    反例: 客户端超时但服务端已收且数据新鲜 ⇒ pending(不造故障/恢复对);
    真失联 / 401 / 503 / ACK 读不出 / 任务没启动 / 新鲜度超期 ⇒ 仍首报。
 ③ 「本轮无告警邮件」状态补位默认关。
@@ -227,7 +229,9 @@ def test_fof_broken_shared_state_fallback_is_stable_and_bounded(fof):
     assert len(fallbacks) == 3
     keys = {c["kw"].get("dedup_key") for c in fallbacks}
     assert len(keys) == 1 and next(iter(keys)).startswith("fof_backfill|")
-    assert {c["kw"].get("tier") for c in fallbacks} == {"warning"}  # 不是无键 critical
+    # 严重级不降级(复审 P1-2): 仍 critical, 但有稳定 key + 6h 窗口 ⇒ 不会每轮轰炸。
+    assert {c["kw"].get("tier") for c in fallbacks} == {"critical"}
+    assert all(c["kw"].get("dedup_key") for c in fallbacks)
 
 
 def test_ops_dispatch_fallback_uses_stable_key_not_zero_window(monkeypatch, tmp_path):
@@ -253,48 +257,90 @@ def test_ops_dispatch_fallback_uses_stable_key_not_zero_window(monkeypatch, tmp_
     assert "--ops-event-refs" not in cmd
 
 
-# ─────────────────────── ② monitor 首报消费 ACK 对账 ───────────────────────
+# ───────────── ② monitor 首报消费 ACK 对账(复审 P1-1: 持久 journal, 无 runtime 目录) ─────────────
 def _decision(evidence):
     return m309.namespace()["monitor_ack_decision"](evidence, NOW)
 
 
-def _evidence(report_dir: Path):
-    return m309.namespace()["monitor_ack_evidence"](report_dir, NOW)
+def _evidence(raw, invocation):
+    return m309.namespace()["monitor_ack_evidence"](
+        now=NOW, journal_loader=lambda now: raw, unit_state={"invocation_id": invocation})
 
 
-def _write_report(report_dir: Path, snapshot: str, age_min: float, delivery: dict,
-                  late_ack: dict | None = None, name: str = "report.json") -> None:
-    report_dir.mkdir(parents=True, exist_ok=True)
-    completed = (NOW - timedelta(minutes=age_min)).isoformat()
-    obj = {"snapshot_id": snapshot, "completed_at": completed, "delivery": delivery}
+def _t(minutes_ago):
+    return NOW - timedelta(minutes=minutes_ago)
+
+
+def _jline(at, invocation, snapshot, ok, late_ack=None):
+    """journalctl -o json 一行: 字段/嵌套 MESSAGE 形状与 ops_monitor.py:1492-1497 一致。"""
+    msg = {"snapshot_id": snapshot, "checks": 7, "delivery_ok": ok, "collect_only": False,
+           "delivery": {"attempts": 3 if not ok else 1}}
     if late_ack is not None:
-        obj["late_ack"] = late_ack
-    (report_dir / name).write_text(json.dumps(obj), encoding="utf-8")
+        msg["late_ack"] = late_ack
+    row = {"__REALTIME_TIMESTAMP": str(int(at.timestamp() * 1000000)),
+           "UNIT": "trade-ops-monitor.service",
+           "_SYSTEMD_UNIT": "trade-ops-monitor.service",
+           "_SYSTEMD_INVOCATION_ID": invocation,
+           "SYSLOG_IDENTIFIER": "trade-ops-monitor",
+           "MESSAGE": json.dumps(msg, ensure_ascii=False)}
+    return json.dumps(row, ensure_ascii=False)
 
 
-FAILED = {"ok": False, "http_status": None, "error_kind": "TimeoutError", "attempts": 3}
-SUCCESS = {"ok": True, "http_status": 202, "attempts": 1}
-
-
-def _late_ok(snapshot: str, age_min: float) -> dict:
+def _late_ok(snapshot, minutes_ago):
     return {"state": "late_ok", "snapshot_id": snapshot,
-            "received_at": (NOW - timedelta(minutes=age_min)).isoformat().replace("+00:00", "Z")}
+            "received_at": _t(minutes_ago).isoformat().replace("+00:00", "Z")}
 
 
-def test_monitor_late_ok_with_fresh_data_stays_pending(tmp_path):
-    d = tmp_path / "ops"
-    _write_report(d, "snap-a", 2, FAILED, _late_ok("snap-a", 1.5))
-    ev = _evidence(d)
-    assert ev["read_ok"] and ev["failed_snapshot_id"] == "snap-a"
-    assert ev["ack_state"] == "late_ok"
+# 云上真实四轮(2026-11-17 18:45/19:00/19:15/19:30 CST, 取自
+# /tmp/codex-reports/alert-root-cause-20261123-code-evidence/monitor-sample.json 657 条真实 journal):
+# A/B/C 三轮 delivery_ok=false, 每轮 late_ack 都指向上一轮并 late_ok —— 正是「13 首报 / 11 late_ok」
+# 的现场形态; D 轮恢复成功。id/invocation 全为真实值, 不是自造样本(L49)。
+INV_A = "21437e9888be45d0aa345693bba80e8c"
+INV_B = "75db6afe7879400cbc6b08c9f14e505d"
+INV_C = "a753db2357bf445480878aa682df0568"
+INV_D = "6c77f760cc1648b5904cc759d61ab8b0"
+SNAP_A = "8c1bb993-d38c-4ccb-a416-7858dfcc17a5"
+SNAP_B = "21c8bae7-90bc-4557-a405-2000d2793b87"
+SNAP_C = "ecbdbeab-7abc-4d43-9066-fd03627bfba3"
+SNAP_D = "a2d0e9d5-9ee8-4dd4-a786-3adef187d28f"
+
+
+def test_monitor_journal_fixture_matches_ops_monitor_parser():
+    """尺子先验: 同一份 journal 行喂 ops_monitor 的真实解析函数, 必须解出同一 snapshot。
+
+    证明测试样本字段/嵌套 MESSAGE 形状是真的(L49 假样本养绿教训), 不是自造字段。
+    """
+    import ops_monitor
+
+    raw = "\n".join([_jline(_t(16), INV_A, SNAP_A, False),
+                     _jline(_t(1), INV_B, SNAP_B, False, _late_ok(SNAP_A, 15.9))])
+    got = ops_monitor.previous_failed_delivery(raw, _t(1).timestamp(), 1800)
+    assert got is not None and got[1] == SNAP_A
+    assert _evidence(raw, INV_A)["alarmed_snapshot_id"] == SNAP_A
+
+
+def test_monitor_real_cloud_chain_aligns_alarmed_round_and_pending():
+    """真实三轮生命周期: 被告警轮按 invocation 对齐, ACK 由下一轮携带; 新鲜 ⇒ pending。"""
+    raw = "\n".join([
+        _jline(_t(31), INV_A, SNAP_A, False),
+        _jline(_t(16), INV_B, SNAP_B, False, _late_ok(SNAP_A, 31.1)),
+        _jline(_t(1), INV_C, SNAP_C, False, _late_ok(SNAP_B, 16.1)),
+    ])
+    ev = _evidence(raw, INV_B)  # 被告警轮 = B(而不是最新的 C)
+    assert ev["read_ok"] and ev["alarmed_snapshot_id"] == SNAP_B
+    assert ev["verdict_kind"] == "fresh" and ev["chain_failed_rounds"] == 3
     dec = _decision(ev)
     assert dec["action"] == "pending" and dec["reason"] == "server_received_and_fresh"
+    # 同一份 journal, 被告警轮换成 A: A 的回执已 31 分钟 ⇒ 新鲜度超期, 仍首报。
+    ev_a = _evidence(raw, INV_A)
+    assert ev_a["alarmed_snapshot_id"] == SNAP_A
+    assert _decision(ev_a)["reason"] == "late_ok_but_freshness_expired"
 
 
-def test_monitor_three_polls_same_snapshot_make_no_fault_or_recovery_pair(tmp_path):
-    d = tmp_path / "ops"
-    _write_report(d, "snap-a", 2, FAILED, _late_ok("snap-a", 1.5))
-    decisions = [_decision(_evidence(d)) for _ in range(3)]
+def test_monitor_three_polls_same_snapshot_make_no_fault_or_recovery_pair():
+    raw = "\n".join([_jline(_t(2), INV_A, SNAP_A, False),
+                     _jline(_t(1), INV_B, SNAP_B, False, _late_ok(SNAP_A, 1.2))])
+    decisions = [_decision(_evidence(raw, INV_A)) for _ in range(3)]
     assert [x["action"] for x in decisions] == ["pending"] * 3
 
     concl = m309.namespace()["_build_conclusion"](
@@ -305,73 +351,103 @@ def test_monitor_three_polls_same_snapshot_make_no_fault_or_recovery_pair(tmp_pa
     assert "ops-monitor" in concl  # _unit_short_name 去掉 .service 后缀
 
 
-def test_monitor_late_ack_for_older_snapshot_is_not_borrowed(tmp_path):
-    d = tmp_path / "ops"
-    _write_report(d, "snap-old", 20, FAILED, _late_ok("snap-old", 19), name="delivery-snap-old.json")
-    _write_report(d, "snap-new", 4, FAILED, None)  # 最新失败轮还没有同 snapshot ACK
-    ev = _evidence(d)
-    assert ev["failed_snapshot_id"] == "snap-new"
-    assert ev["ack_state"] == "absent"
-    assert _decision(ev)["action"] == "pending"  # 预算内尚未对账
+def test_monitor_late_ack_for_older_snapshot_is_not_borrowed():
+    raw = "\n".join([_jline(_t(10), INV_A, SNAP_A, False),
+                     _jline(_t(2), INV_B, SNAP_B, False, _late_ok(SNAP_A, 9.9))])
+    ev = _evidence(raw, INV_B)
+    assert ev["alarmed_snapshot_id"] == SNAP_B
+    assert ev["verdict_kind"] == "absent"
+    assert _decision(ev)["action"] == "pending"  # 下一轮还没对账, 链起点 10min 在预算内
 
 
-def test_monitor_true_loss_first_reports(tmp_path):
-    d = tmp_path / "ops"
-    _write_report(d, "snap-a", 2, FAILED, {"state": "lost", "snapshot_id": "snap-a"})
-    assert _decision(_evidence(d)) == {
-        **_decision(_evidence(d)), "action": "report", "reason": "server_confirmed_not_received"}
+def test_monitor_true_loss_first_reports():
+    raw = "\n".join([_jline(_t(2), INV_A, SNAP_A, False),
+                     _jline(_t(1), INV_B, SNAP_B, False,
+                            {"state": "lost", "snapshot_id": SNAP_A})])
+    assert _decision(_evidence(raw, INV_A))["reason"] == "server_confirmed_not_received"
+
+
+def test_monitor_sustained_loss_in_chain_first_reports():
+    """最新一轮回执未到, 但链上更早一轮已定论 lost ⇒ 真失联不许被继续 pending 掉。"""
+    raw = "\n".join([_jline(_t(20), INV_A, SNAP_A, False),
+                     _jline(_t(5), INV_B, SNAP_B, False,
+                            {"state": "lost", "snapshot_id": SNAP_A})])
+    ev = _evidence(raw, INV_B)
+    assert ev["verdict_kind"] == "absent" and ev["bad_verdict"]["kind"] == "lost"
+    assert _decision(ev)["reason"] == "server_confirmed_not_received"
 
 
 @pytest.mark.parametrize("status", [401, 403, 503])
-def test_monitor_ack_http_error_first_reports(tmp_path, status):
-    d = tmp_path / "ops"
-    _write_report(d, "snap-a", 2, FAILED,
-                  {"state": "unknown", "snapshot_id": "snap-a", "http_status": status})
-    dec = _decision(_evidence(d))
+def test_monitor_ack_http_error_first_reports(status):
+    raw = "\n".join([_jline(_t(2), INV_A, SNAP_A, False),
+                     _jline(_t(1), INV_B, SNAP_B, False,
+                            {"state": "unknown", "snapshot_id": SNAP_A, "http_status": status})])
+    dec = _decision(_evidence(raw, INV_A))
     assert dec["action"] == "report" and dec["reason"] == "ack_http_error"
 
 
-@pytest.mark.parametrize("case", ["missing", "corrupt", "no-failed-round"])
-def test_monitor_unreadable_or_never_started_first_reports(tmp_path, case):
-    d = tmp_path / "ops"
-    if case == "corrupt":
-        d.mkdir()
-        (d / "report.json").write_text("{oops", encoding="utf-8")
-    elif case == "no-failed-round":
-        _write_report(d, "snap-ok", 1, SUCCESS)
-    dec = _decision(_evidence(d))
+@pytest.mark.parametrize("case", ["missing", "unreadable", "corrupt", "no-failed-round",
+                                  "wrong-unit", "round-missing"])
+def test_monitor_unreadable_or_never_started_first_reports(case):
+    ns = m309.namespace()
+
+    def loader(now):
+        if case == "unreadable":
+            raise OSError("journalctl rc=1")
+        if case == "missing":
+            return ""
+        if case == "corrupt":
+            return "{oops\nnot-json"
+        if case == "wrong-unit":
+            row = json.loads(_jline(_t(1), INV_A, SNAP_A, False))
+            row["_SYSTEMD_UNIT"] = "trade-other.service"
+            return json.dumps(row)
+        if case == "no-failed-round":
+            return _jline(_t(1), INV_A, SNAP_A, True)
+        return _jline(_t(1), INV_A, SNAP_A, False)  # round-missing: 被告警轮是 B
+    ev = ns["monitor_ack_evidence"](now=NOW, journal_loader=loader,
+                                    unit_state={"invocation_id": INV_B})
+    dec = ns["monitor_ack_decision"](ev, NOW)
     assert dec["action"] == "report"
-    assert dec["reason"].startswith(("ack_unreadable", "no_failed_round"))
+    assert dec["reason"].startswith(
+        ("ack_unreadable", "no_failed_delivery_in_journal",
+         "alarmed_round_has_no_delivery_record"))
 
 
-def test_monitor_unknown_within_budget_pending_and_past_budget_reports(tmp_path):
-    d = tmp_path / "ops"
-    _write_report(d, "snap-a", 5, FAILED,
-                  {"state": "unknown", "snapshot_id": "snap-a", "error_kind": "TimeoutError"})
-    assert _decision(_evidence(d))["action"] == "pending"
+def test_monitor_invocation_unknown_first_reports():
+    raw = _jline(_t(1), INV_A, SNAP_A, False)
+    ev = m309.namespace()["monitor_ack_evidence"](now=NOW, journal_loader=lambda now: raw,
+                                                  unit_state={})
+    assert ev["reason"] == "alarmed_invocation_unknown"
+    assert _decision(ev)["action"] == "report"
 
-    d2 = tmp_path / "ops2"
-    _write_report(d2, "snap-a", 40, FAILED,
-                  {"state": "unknown", "snapshot_id": "snap-a", "error_kind": "TimeoutError"})
-    dec = _decision(_evidence(d2))
+
+def test_monitor_unknown_within_budget_pending_and_past_budget_reports():
+    unk = {"state": "unknown", "snapshot_id": SNAP_B, "error_kind": "TimeoutError"}
+    within = "\n".join([_jline(_t(10), INV_A, SNAP_A, False),
+                        _jline(_t(2), INV_B, SNAP_B, False),
+                        _jline(_t(1), INV_C, SNAP_C, False, unk)])
+    assert _decision(_evidence(within, INV_B))["action"] == "pending"
+
+    # 失败链起点 35min 前 ⇒ 超 30min 预算, 持续未知不许吞。
+    past = "\n".join([_jline(_t(35), INV_A, SNAP_A, False),
+                      _jline(_t(2), INV_B, SNAP_B, False),
+                      _jline(_t(1), INV_C, SNAP_C, False, unk)])
+    dec = _decision(_evidence(past, INV_B))
     assert dec["action"] == "report" and dec["reason"] == "unknown_sustained_past_budget"
 
 
-def test_monitor_late_ok_but_freshness_expired_reports(tmp_path):
-    d = tmp_path / "ops"
-    _write_report(d, "snap-a", 45, FAILED, _late_ok("snap-a", 40))
-    dec = _decision(_evidence(d))
+def test_monitor_late_ok_but_freshness_expired_reports():
+    raw = "\n".join([_jline(_t(45), INV_A, SNAP_A, False),
+                     _jline(_t(30), INV_B, SNAP_B, False, _late_ok(SNAP_A, 40))])
+    dec = _decision(_evidence(raw, INV_A))
     assert dec["action"] == "report" and dec["reason"] == "late_ok_but_freshness_expired"
 
 
-def test_monitor_ack_found_in_later_success_report(tmp_path):
-    """失败轮 A 的 ACK 由更晚一轮成功报告携带: 仍按同 snapshot 认。"""
-    d = tmp_path / "ops"
-    _write_report(d, "snap-a", 10, FAILED, None, name="delivery-snap-a.json")
-    _write_report(d, "snap-b", 1, SUCCESS, _late_ok("snap-a", 0.5), name="delivery-snap-b.json")
-    ev = _evidence(d)
-    assert ev["failed_snapshot_id"] == "snap-a" and ev["ack_state"] == "late_ok"
-    assert _decision(ev)["action"] == "pending"
+def test_monitor_future_round_clock_is_invalid():
+    raw = _jline(_t(-3), INV_A, SNAP_A, False)  # 完成时刻在未来 3 分钟 > 120s 容差
+    dec = _decision(_evidence(raw, INV_A))
+    assert dec["action"] == "report" and dec["reason"] == "failed_round_clock_invalid"
 
 
 # ─────────────────────── ③ 状态补位默认关 ───────────────────────

@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -34,8 +35,9 @@ WANT_ASSIGN = {"COVERAGE_BUSINESS_TOTAL", "COVERAGE_SELF_MONITOR", "LOG_CALIBER_
                "CONCLUSION_STATUS_EMAIL_ENV",
                # ★5b/5c 批次2(2026-10-28): 签名归一化 + 24h 再提醒
                "CONCLUSION_STATUS_REMIND_HOURS", "_CONCLUSION_PAIR_RE",
-               # 修2(2026-11-24): ops_monitor ACK 对账常量
-               "MONITOR_ACK_TASKS", "MONITOR_ACK_REPORT_DIR",
+               # 修2(2026-11-24): ops_monitor ACK 对账常量(复审 P1-1: 持久 journal 路线)
+               "MONITOR_ACK_TASKS", "MONITOR_ACK_UNIT", "MONITOR_ACK_JOURNAL",
+               "MONITOR_ACK_LOOKBACK", "MONITOR_ACK_MAX_RAW",
                "MONITOR_ACK_FRESH_WINDOW", "MONITOR_ACK_SKEW"}
 WANT_FUNC = {
     "_unit_short_name", "_fmt_time_part", "_fmt_span", "_stat_exit_code", "_unit_channel_owns_row",
@@ -51,8 +53,9 @@ WANT_FUNC = {
     "_cfu_alert_mail_delta", "_read_notify_result_status", "_flush_alert_mail_delta",
     "_alert_mail_count", "_conclusion_email_enabled",
     "_recovery_cooldown_ok",
-    # 修2(2026-11-24): ops_monitor ACK 对账
-    "_parse_monitor_ts", "monitor_ack_evidence", "monitor_ack_decision",
+    # 修2(2026-11-24): ops_monitor ACK 对账(复审 P1-1: 持久 journal 路线)
+    "_parse_monitor_ts", "_monitor_journal_raw", "_monitor_journal_records",
+    "_monitor_verdict", "monitor_ack_evidence", "monitor_ack_decision",
 }
 
 
@@ -83,9 +86,10 @@ def namespace() -> dict:
     assert not missing, (
         f"schedule_monitor.sh 里未找到 {sorted(missing)}: 被重命名/删除了? 本测试锚点需同步"
     )
-    ns = {"datetime": datetime.datetime, "timedelta": datetime.timedelta, "ut": ut, "re": re,
+    ns = {"datetime": datetime.datetime, "timedelta": datetime.timedelta,
+          "timezone": datetime.timezone, "ut": ut, "re": re,
           "hashlib": hashlib, "sys": sys, "notify_sent": notify_sent,
-          "os": os, "json": json, "Path": Path,
+          "os": os, "json": json, "Path": Path, "subprocess": subprocess,
           "REPO": ROOT, "MONITOR_LOG": Path("/tmp/schedule_monitor_launchd.log")}
     exec(compile("\n".join(picked), "<monitor-conclusion>", "exec"), ns)  # noqa: S102
     return ns

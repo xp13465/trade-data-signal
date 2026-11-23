@@ -231,17 +231,21 @@ def main() -> int:
             body = observation_message(exc, ev)
             try:
                 # 稳定事件: 同一持续原因同 event_id, 首报一次, 之后只更新观测。
+                # 分级保持 critical(2026-11-24 复审 P1-2): 这是「看门狗自己看不见输入」,
+                # 与业务判定(warning/聚合)不同级; 去重靠稳定 event_id, 不靠降 tier。
                 _, obs_refs = observe_failure(
                     repo, observe_key, body, ev,
                     cause_key=f"{ev['exception_type']}|{ev['progress_version']!r}")
                 dispatch(repo, SCRIPT_DIR / "notify.py", "[告警] FOF 回补看门狗无法判定",
-                         body, obs_refs, warning=True, source="check_fof_backfill.py")
+                         body, obs_refs, source="check_fof_backfill.py")
             except Exception as send_exc:  # noqa: BLE001  共享状态坏: 稳定 dedup key 兜底
                 print(f"[fof-backfill] 事件状态未知: {send_exc}", file=sys.stderr)
                 try:
+                    # 共享状态坏时仍 critical(严重级不悄悄下降), 但带稳定 key + 6h 窗口
+                    # (L60: 有界, 不是每轮一封无键 critical)。
                     dispatch(repo, SCRIPT_DIR / "notify.py", "[告警] FOF 回补看门狗无法判定",
                              body + "\n共享事件状态无法确认；本次按稳定 key 限频首报，未证明去重/恢复。",
-                             None, warning=True, tier="warning", dedup_key=observe_key,
+                             None, tier="critical", dedup_key=observe_key,
                              source="check_fof_backfill.py")
                 except Exception as retry_exc:  # noqa: BLE001
                     print(f"[fof-backfill] 未确认告警: {retry_exc}", file=sys.stderr)

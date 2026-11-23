@@ -73,7 +73,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # #123 告警降噪 R1~R5 判定规则纯函数(2026-10-01): REPO/scripts 是 trade-data -> trade 的
@@ -1617,21 +1617,32 @@ def _maybe_send_conclusion_status_email(concl, alert_mail_sent, state, now,
 
 
 # ── 修2(2026-11-24): ops_monitor 首报先消费「同 snapshot ACK 对账 + 30min 新鲜度合同」──
-# 病灶(根因报告 §2C): 本周 13 条 monitor 首报里 11 条后续 late_ok —— 客户端 15s 超时,
-# 服务端其实已收(snapshot 已落库), 于是「首报 + 后续恢复」= 一对假故障/恢复通知。
-# ops_monitor.py:1288-1313 已经做同 snapshot 只读 ACK 对账(late_ack: late_ok/lost/unknown),
-# 且 Settings.schedule_max_age_seconds=1800 就是既有 30min 新鲜度合同; 这里只做「消费」:
+# 病灶(根因报告 §2C + 2026-11-24 复审 P1-1): 本周 13 条 monitor 首报里 11 条后续 late_ok
+# —— 客户端 15s 超时, 服务端其实已收(snapshot 已落库), 于是「首报 + 后续恢复」=
+# 一对假故障/恢复通知。
+# 数据源必须持久: /run/trade-ops-monitor 是 systemd 瞬态目录(RuntimeDirectoryPreserve=no,
+# unit 只活 4-5 秒), 分钟开头读它恒 ack_unreadable 或读到错轮次 —— 不能作为对账依据。
+# 唯一持久且轮次可对齐的源 = journald 里 ops_monitor 每轮收尾打印的 projection 行
+# (snapshot_id/delivery_ok/delivery/late_ack, 见 ops_monitor.py:1492-1497):
+#   · 先用 UNIT_STATES 的 invocation_id 精确对齐「被告警轮」, 绝不拿别轮的 ACK 顶替;
 #   · late_ok 且 received_at 在 [-120s, 30min] 新鲜窗内 ⇒ 客户端超时但服务端已收、数据仍新鲜
-#     ⇒ pending/unknown(不发信、不建故障事件、也不制造恢复对), 只在结论行可见;
-#   · lost(服务端明确没收到) / 401/503 / ACK 读不出 / report 缺失(任务没启动) / 新鲜度超期
+#     ⇒ pending(不发信、不建故障事件、不制造恢复对), 结论行 + [pending-ack] 可见;
+#   · 同一失败链里任一失败轮已有定论 lost / ACK HTTP 错 / 回执坏 ⇒ 仍首报(真失联不许吞);
+#   · ACK 读不出 / 被告警轮在 journal 里没有投递记录(任务没启动/崩在打印前) / 新鲜度超期
 #     ⇒ 仍按原通道首报;
-#   · unknown 且没有明确服务端结论(如探测本身超时): 预算(30min, 自失败轮完成时刻起算)内
-#     pending, 超期 ⇒ 仍首报(持续未知不吞掉)。
+#   · 回执未到(下一轮还没对账)只给 30min 预算, 预算锚 = 失败链起点(不在每轮重置),
+#     超期 ⇒ 仍首报(持续未知不吞掉)。
 # 保留传输诊断: pending 行带 late_ack 状态/错误类/HTTP 码; 不改 unit rc、不延 timeout。
 MONITOR_ACK_TASKS = ("ops_monitor",)
-MONITOR_ACK_REPORT_DIR = Path(os.environ.get("TRADE_OPS_MONITOR_OUTPUT_DIR", "/run/trade-ops-monitor"))
+MONITOR_ACK_UNIT = "trade-ops-monitor.service"  # 与 ops_monitor.py:SELF_UNIT 同一 unit
+MONITOR_ACK_JOURNAL = ("/usr/bin/journalctl", "--no-pager", "--quiet", "--boot=0",
+                       "--unit=" + MONITOR_ACK_UNIT, "--lines=64", "--output=json",
+                       "--output-fields=__REALTIME_TIMESTAMP,UNIT,_SYSTEMD_UNIT,"
+                       "_SYSTEMD_INVOCATION_ID,SYSLOG_IDENTIFIER,MESSAGE")
+MONITOR_ACK_LOOKBACK = timedelta(minutes=45)      # 30min 合同 + 15min 轮询余量(有界)
 MONITOR_ACK_FRESH_WINDOW = timedelta(minutes=30)  # 对齐 ops_monitor Settings.schedule_max_age_seconds 默认 1800
-MONITOR_ACK_SKEW = timedelta(seconds=120)         # 对齐 ops_monitor schedule() 的 -120s 时钟容差
+MONITOR_ACK_SKEW = timedelta(seconds=120)         # 对齐 ops_monitor reconcile 的 -120s 时钟容差
+MONITOR_ACK_MAX_RAW = 262144                      # 有界读取(64 行投影行远小于此)
 
 
 def _parse_monitor_ts(value):
@@ -1647,97 +1658,179 @@ def _parse_monitor_ts(value):
     return _dt
 
 
-def monitor_ack_evidence(report_dir=None, now=None):
-    """读 ops_monitor 私产目录, 找「最近一次 delivery 失败轮」+ 它的同 snapshot ACK。
+def _monitor_journal_raw(now=None):
+    """读 ops_monitor 的持久 journal(只读); 失败抛异常 ⇒ 调用方 fail-visible。"""
+    _now = now if now is not None else datetime.now()
+    _since = int(_now.timestamp() - MONITOR_ACK_LOOKBACK.total_seconds())
+    _proc = subprocess.run([*MONITOR_ACK_JOURNAL, "--since=@" + str(_since)],
+                           capture_output=True, text=True, timeout=10, check=False)
+    if _proc.returncode != 0:
+        raise OSError(f"journalctl rc={_proc.returncode}")
+    return (_proc.stdout or "")[:MONITOR_ACK_MAX_RAW]
 
-    只读, 无副作用。任何缺失/格式坏都显式标 read_ok=False —— 调用方据此 fail-visible
-    首报(ACK 读不出 = 不能证明已收, 宁报不漏)。返回 dict:
-      read_ok, reason, report_dir,
-      failed_snapshot_id, failed_age_seconds, failed_completed_at,
-      ack_state, ack_received_at, ack_received_age_seconds, ack_http_status,
-      ack_error_kind, diagnostics
+
+def _monitor_journal_records(raw):
+    """解析 journalctl -o json → 本 collector 每轮投影记录(按完成时间升序)。
+
+    只认 _SYSTEMD_UNIT==trade-ops-monitor.service 且 SYSLOG_IDENTIFIER==trade-ops-monitor
+    (与 ops_monitor.previous_failed_delivery 同一身份口径); MESSAGE 必须是 JSON 投影。
+    单行坏跳过(不因一行坏把整段 journal 判不可读); 无任何合法行 = 空列表。
     """
-    now = now if now is not None else datetime.now()
-    _dir = Path(report_dir if report_dir is not None else MONITOR_ACK_REPORT_DIR)
-    ev = {"read_ok": False, "reason": "", "report_dir": str(_dir),
-          "failed_snapshot_id": None, "failed_age_seconds": None,
-          "failed_completed_at": None, "ack_state": None, "ack_received_at": None,
-          "ack_received_age_seconds": None, "ack_http_status": None,
-          "ack_error_kind": None, "diagnostics": ""}
-    reports = []  # (completed_dt, snapshot_id, delivery, late_ack)
+    _records = []
+    for _line in (raw or "").splitlines():
+        if not _line.strip():
+            continue
+        try:
+            _row = json.loads(_line)
+        except ValueError:
+            continue
+        if not isinstance(_row, dict):
+            continue
+        if (_row.get("_SYSTEMD_UNIT") != MONITOR_ACK_UNIT
+                or _row.get("SYSLOG_IDENTIFIER") != "trade-ops-monitor"):
+            continue
+        try:
+            _usec = int(_row.get("__REALTIME_TIMESTAMP"))
+        except (TypeError, ValueError):
+            continue
+        try:
+            _msg = json.loads(_row.get("MESSAGE") or "")
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(_msg, dict) or not isinstance(_msg.get("snapshot_id"), str):
+            continue
+        _records.append({
+            "completed_at": datetime.fromtimestamp(_usec / 1000000.0, tz=timezone.utc),
+            "invocation_id": _row.get("_SYSTEMD_INVOCATION_ID"),
+            "snapshot_id": _msg["snapshot_id"],
+            "delivery_ok": _msg.get("delivery_ok"),
+            "collect_only": _msg.get("collect_only"),
+            "late_ack": _msg.get("late_ack") if isinstance(_msg.get("late_ack"), dict) else None,
+        })
+    _records.sort(key=lambda r: r["completed_at"])
+    return _records
+
+
+def _monitor_verdict(records, rec, now):
+    """某一失败轮的最终 ACK 定论(由更晚一轮的投影行携带, 同 snapshot 才认)。"""
+    _ack, _ack_at = None, None
+    for _r in records:
+        _la = _r.get("late_ack")
+        if (isinstance(_la, dict) and _la.get("snapshot_id") == rec["snapshot_id"]
+                and _r["completed_at"] > rec["completed_at"]):
+            if _ack_at is None or _r["completed_at"] >= _ack_at:
+                _ack, _ack_at = _la, _r["completed_at"]
+    _v = {"state": None, "kind": "absent", "received_age_seconds": None,
+          "http_status": None, "error_kind": None}
+    if _ack is None:
+        return _v
+    _state = str(_ack.get("state") or "malformed")
+    _v["state"] = _state
+    _v["http_status"] = _ack.get("http_status")
+    _v["error_kind"] = _ack.get("error_kind")
+    _recv = _parse_monitor_ts(_ack.get("received_at"))
+    if _recv is not None:
+        _v["received_age_seconds"] = now.timestamp() - _recv.timestamp()
+    if _state == "late_ok":
+        _ra = _v["received_age_seconds"]
+        _v["kind"] = "fresh" if (_ra is not None
+                                 and -MONITOR_ACK_SKEW.total_seconds() <= _ra
+                                 <= MONITOR_ACK_FRESH_WINDOW.total_seconds()) else "expired"
+    elif _state == "lost":
+        _v["kind"] = "lost"
+    elif _state == "unknown":
+        _v["kind"] = "http_error" if _v["http_status"] is not None else "unknown"
+    else:
+        _v["kind"] = "malformed"
+    return _v
+
+
+def monitor_ack_evidence(now=None, journal_loader=None, unit_state=None):
+    """从持久 journal 找「被告警轮」的 delivery 失败 + 同 snapshot ACK 定论(只读)。
+
+    不读 /run 瞬态目录, 不发起网络请求(ACK 定论由 ops_monitor 写入 journal)。
+    任何缺失/格式坏都显式标 read_ok=False 或 alarmed_snapshot_id=None —— 调用方据此
+    fail-visible 首报(ACK 读不出 = 不能证明已收, 宁报不漏)。返回 dict 字段见下。
+    """
+    _now = now if now is not None else datetime.now()
+    ev = {"read_ok": False, "reason": "", "records": 0,
+          "alarmed_snapshot_id": None, "alarmed_age_seconds": None,
+          "alarmed_invocation": None, "alarmed_source": None,
+          "verdict_state": None, "verdict_kind": None,
+          "verdict_received_age_seconds": None, "verdict_http_status": None,
+          "verdict_error_kind": None,
+          "chain_started_seconds": None, "chain_failed_rounds": 0,
+          "bad_verdict": None, "diagnostics": ""}
     try:
-        _paths = [p for p in sorted(_dir.glob("delivery-*.json"))]
-        _report = _dir / "report.json"
-        if _report.exists():
-            _paths.append(_report)
-        for _p in _paths:
-            try:
-                _obj = json.loads(_p.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            if not isinstance(_obj, dict):
-                continue
-            _snap, _delivery = _obj.get("snapshot_id"), _obj.get("delivery")
-            if not isinstance(_snap, str) or not isinstance(_delivery, dict):
-                continue  # 单次尝试文件(delivery-<snap>-<n>.json)没有 delivery 块, 跳过
-            _done = _parse_monitor_ts(_obj.get("completed_at"))
-            if _done is None:
-                try:
-                    _done = datetime.fromtimestamp(_p.stat().st_mtime).astimezone()
-                except OSError:
-                    continue
-            reports.append((_done, _snap, _delivery, _obj.get("late_ack")))
-        if not reports:
-            ev["reason"] = "no_monitor_reports(任务可能根本没启动/输出目录不可读)"
-            return ev
-        reports.sort(key=lambda r: r[0])
-        _failed = [r for r in reports if r[2].get("ok") is False]
-        if not _failed:
-            # 目录里没有失败轮: 失败信号不来自本目录(可能是旧 unit 真值/统计滞后), 不套用。
-            ev["read_ok"] = True
-            ev["reason"] = "no_failed_delivery_in_report_dir"
-            return ev
-        _done, _snap, _delivery, _late = _failed[-1]
-        # timestamp() 同时支持 naive(本地)/aware, 避免 naive-aware 相减 TypeError。
-        _age = now.timestamp() - _done.timestamp()
-        ev.update(read_ok=True, failed_snapshot_id=_snap, failed_age_seconds=_age,
-                  failed_completed_at=_done.isoformat())
-        # 同 snapshot 的 ACK: 只认 snapshot_id 对得上的 late_ack(可在更晚一轮报告里)。
-        _ack, _ack_done = None, None
-        for _d, _s, _dl, _l in reports:
-            if isinstance(_l, dict) and _l.get("snapshot_id") == _snap:
-                if _ack is None or _d >= _ack_done:
-                    _ack, _ack_done = _l, _d
-        ev["diagnostics"] = (f"failed_snapshot={_snap[:8]} age={int(_age)}s "
-                             f"http_status={_delivery.get('http_status')} "
-                             f"error_kind={_delivery.get('error_kind')} "
-                             f"attempts={_delivery.get('attempts')}")
-        if _ack is None:
-            ev["ack_state"] = "absent"
-            return ev
-        ev["ack_state"] = str(_ack.get("state") or "malformed")
-        ev["ack_http_status"] = _ack.get("http_status")
-        ev["ack_error_kind"] = _ack.get("error_kind")
-        _recv = _parse_monitor_ts(_ack.get("received_at"))
-        if _recv is not None:
-            ev["ack_received_at"] = _recv.isoformat()
-            ev["ack_received_age_seconds"] = now.timestamp() - _recv.timestamp()
+        _raw = (journal_loader or _monitor_journal_raw)(_now)
+    except Exception as exc:  # noqa: BLE001  journal 不可用 = 诚实 unknown, 不猜已收
+        ev["reason"] = f"journal_unavailable: {type(exc).__name__}: {exc}"
         return ev
-    except OSError as exc:
-        ev["reason"] = f"report_dir_unreadable: {type(exc).__name__}: {exc}"
+    ev["read_ok"] = True
+    _records = _monitor_journal_records(_raw)
+    ev["records"] = len(_records)
+    _failed = [r for r in _records
+               if r.get("delivery_ok") is False and r.get("collect_only") is not True]
+    if not _failed:
+        ev["reason"] = "no_failed_delivery_in_journal"
         return ev
+    _inv = (unit_state or {}).get("invocation_id") if isinstance(unit_state, dict) else None
+    ev["alarmed_invocation"] = _inv if isinstance(_inv, str) else None
+    if not isinstance(_inv, str) or not _inv:
+        # 没有 invocation 就无法把 ACK 钉到被告警轮: 不许借用别轮, fail-visible。
+        ev["reason"] = "alarmed_invocation_unknown"
+        return ev
+    _alarmed = None
+    for _r in _failed:
+        if _r.get("invocation_id") == _inv:
+            _alarmed = _r
+    if _alarmed is None:
+        # 该轮在 journal 里没有投递记录(崩在打印前/任务没启动): 同样不许借用别轮。
+        ev["reason"] = "alarmed_round_has_no_delivery_record"
+        return ev
+    ev["alarmed_source"] = "invocation"
+    _age = _now.timestamp() - _alarmed["completed_at"].timestamp()
+    ev.update(alarmed_snapshot_id=_alarmed["snapshot_id"], alarmed_age_seconds=_age)
+    _verdict = _monitor_verdict(_records, _alarmed, _now)
+    ev.update(verdict_state=_verdict["state"], verdict_kind=_verdict["kind"],
+              verdict_received_age_seconds=_verdict["received_age_seconds"],
+              verdict_http_status=_verdict["http_status"],
+              verdict_error_kind=_verdict["error_kind"])
+    # 同一失败链(最近一次成功投递之后的所有失败轮): 任一已有定论 lost / ACK HTTP 错 /
+    # 坏回执 ⇒ 真失联可见, 不许被「最新一轮回执未到」继续 pending 掉。
+    _chain = []
+    for _r in reversed(_records):
+        if _r.get("collect_only") is True:
+            continue
+        if _r.get("delivery_ok") is not True:
+            _chain.append(_r)
+            continue
+        break
+    _chain.reverse()
+    ev["chain_failed_rounds"] = len(_chain)
+    if _chain:
+        ev["chain_started_seconds"] = _now.timestamp() - _chain[0]["completed_at"].timestamp()
+    for _r in reversed(_chain):
+        _k = _monitor_verdict(_records, _r, _now)
+        if _k["kind"] in ("lost", "http_error", "malformed"):
+            ev["bad_verdict"] = {"snapshot_id": _r["snapshot_id"], "kind": _k["kind"],
+                                 "http_status": _k["http_status"], "error_kind": _k["error_kind"]}
+            break
+    ev["diagnostics"] = (f"alarmed_snapshot={_alarmed['snapshot_id'][:8]} age={int(_age)}s "
+                         f"verdict={_verdict['kind']} chain={len(_chain)}轮 "
+                         f"chain_start={int(ev['chain_started_seconds'] or 0)}s")
+    return ev
 
 
 def monitor_ack_decision(evidence, now=None):
     """纯判定: {action: "pending"|"report", reason, detail}。
 
-    pending = 客户端超时但服务端已收且数据仍新鲜 / 预算内尚未对账: 不建故障事件、不发信、
-    不制造恢复对, 只在结论行可见。report = 仍走原首报通道(真失联/超期/ACK 读不出/401/503/
-    任务没启动)。负面控制必须真变红, 不许一律吞成 pending。
+    pending 只有两种正当理由(都可被反证): ①同一 snapshot 的 late_ok 且数据新鲜(服务端
+    确收) ②回执尚未对账且失败链没超 30min 预算。其余一律 report —— 负面控制(lost /
+    401/503 / ACK 读不出 / 任务没启动 / 新鲜度超期 / 持续未知)必须真变红, 不许吞成 pending。
     """
-    now = now if now is not None else datetime.now()
+    _now = now if now is not None else datetime.now()
     _ev = evidence or {}
-    _skew = MONITOR_ACK_SKEW.total_seconds()
     _window = MONITOR_ACK_FRESH_WINDOW.total_seconds()
     _diag = str(_ev.get("diagnostics") or "")
 
@@ -1751,30 +1844,36 @@ def monitor_ack_decision(evidence, now=None):
 
     if not _ev.get("read_ok"):
         return _r("ack_unreadable", str(_ev.get("reason") or "unknown"))
-    if not _ev.get("failed_snapshot_id"):
-        return _r("no_failed_round", str(_ev.get("reason") or ""))
-    _age = _ev.get("failed_age_seconds")
-    if _age is None or _age < -_skew:
-        return _r("failed_round_clock_invalid", f"failed_age={_age}")
-    _state = _ev.get("ack_state")
-    if _state == "late_ok":
-        _ra = _ev.get("ack_received_age_seconds")
-        if _ra is not None and -_skew <= _ra <= _window:
-            return _p("server_received_and_fresh", f"received_age={int(_ra)}s")
-        return _r("late_ok_but_freshness_expired", f"received_age={_ra}")
-    if _state == "lost":
+    if not _ev.get("alarmed_snapshot_id"):
+        return _r(str(_ev.get("reason") or "alarmed_round_not_aligned"))
+    _age = _ev.get("alarmed_age_seconds")
+    if _age is None or _age < -MONITOR_ACK_SKEW.total_seconds():
+        return _r("failed_round_clock_invalid", f"alarmed_age={_age}")
+    _kind = _ev.get("verdict_kind")
+    if _kind == "fresh":
+        return _p("server_received_and_fresh",
+                  f"received_age={int(_ev.get('verdict_received_age_seconds'))}s")
+    if _kind == "expired":
+        return _r("late_ok_but_freshness_expired",
+                  f"received_age={_ev.get('verdict_received_age_seconds')}")
+    if _kind == "lost":
         return _r("server_confirmed_not_received")
-    if _state == "unknown":
-        if _ev.get("ack_http_status") is not None:
-            return _r("ack_http_error", f"http_status={_ev.get('ack_http_status')}")
-        if _age <= _window:
-            return _p("unknown_within_budget", f"failed_age={int(_age)}s")
-        return _r("unknown_sustained_past_budget", f"failed_age={int(_age)}s")
-    if _state == "absent":
-        if _age <= _window:
-            return _p("ack_not_yet_reconciled_within_budget", f"failed_age={int(_age)}s")
-        return _r("ack_absent_past_budget", f"failed_age={int(_age)}s")
-    return _r(f"ack_state={_state}")
+    if _kind == "http_error":
+        return _r("ack_http_error", f"http_status={_ev.get('verdict_http_status')}")
+    _bad = _ev.get("bad_verdict") or {}
+    if _bad:
+        _why = {"lost": "server_confirmed_not_received", "http_error": "ack_http_error",
+                "malformed": "ack_receipt_malformed"}.get(_bad.get("kind"), "ack_bad_verdict")
+        return _r(_why, f"failed_snapshot={str(_bad.get('snapshot_id'))[:8]} "
+                        f"http_status={_bad.get('http_status')}")
+    _chain_age = _ev.get("chain_started_seconds")
+    if _kind == "unknown":
+        if _chain_age is None or _chain_age <= _window:
+            return _p("unknown_within_budget", f"chain_age={int(_chain_age or 0)}s")
+        return _r("unknown_sustained_past_budget", f"chain_age={int(_chain_age)}s")
+    if _chain_age is None or _chain_age <= _window:
+        return _p("ack_not_yet_reconciled_within_budget", f"chain_age={int(_chain_age or 0)}s")
+    return _r("ack_absent_past_budget", f"chain_age={int(_chain_age)}s")
 
 
 def _unit_alert_events(unit_registry, unit_states, stats_by_task, now):
@@ -2741,7 +2840,8 @@ if SYSTEMD_TRUTH_ON:
         _ux_key = _ev["key"]
         if _ev.get("kind") == "exit":
             if _ev.get("task") in MONITOR_ACK_TASKS:
-                _ack_ev = monitor_ack_evidence(now=NOW)
+                _ack_ev = monitor_ack_evidence(
+                    now=NOW, unit_state=(UNIT_STATES or {}).get(MONITOR_ACK_UNIT) or {})
                 _ack_dec = monitor_ack_decision(_ack_ev, NOW)
                 if _ack_dec["action"] == "pending":
                     # 客户端超时但服务端已收且数据仍新鲜(或预算内尚未对账): 不建故障事件、
