@@ -77,6 +77,18 @@ def test_tag_miss_when_last_close_above_ma3(etf_dir):
     assert skb._ma3_trade_tag("20260105", "csi300", "510300", "track") == "miss"
 
 
+def test_tag_strictly_less_than_boundary(etf_dir):
+    """判别力(严格小于): 收盘恰好等于 MA3 时不得判 hit。
+
+    全平序列 9,9,9,9,9 → 每日收盘 == 各自 MA3;若误写成 <= 则判 hit,
+    正确语义(严格低于)必须判 miss。这是「严格小于」与「小于等于」的唯一边界。
+    """
+    _write_etf_file(etf_dir, "510300", [
+        [f"2026010{d}", 0, 0, 0, 9.0] for d in range(1, 6)
+    ])
+    assert skb._ma3_trade_tag("20260105", "csi300", "510300", "track") == "miss"
+
+
 def test_tag_ignores_accum_nav_uses_close_column(etf_dir):
     """判别力: 同一文件里 ohlc 前 3 列(开高低)不是判定源, 第 5 列 close 才是。"""
     # close 序列下降=hit; 若误用第 2 列(开)则横盘/上行 → 结论会不同

@@ -7859,6 +7859,26 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
 function _kellyBaseKey(t, fIdx) {
   return (t[fIdx.signal_date] || "") + "|" + (t[fIdx.index_id] || "") + "|" + (t[fIdx.signal] || "") + "|" + (t[fIdx.buy_date] || "") + "|" + (t[fIdx.etf_code] || "");
 }
+// 2026-11-24 MA3连3日(post 口径)剔除谓词: 只剔 ma3==="hit"; "miss"/"na"(信号日缺收盘/历史不足)一律放行(保守不误伤),
+// 字段缺失(旧产物未含 ma3 列)也不剔。命中判定唯一事实源=回测产物 ma3 列(后端 app/ma3.py 判定), 前端不重算均线(§5.4⑦ 禁第二份实现)。
+function _kellyMa3PostDrops(t, fIdx, active) {
+  if (!active || !t || !fIdx) return false;
+  var i = fIdx.ma3;
+  if (typeof i !== "number") return false;
+  return t[i] === "hit";
+}
+// 独立键 tds_kelly_ma3_post("1"=开, 缺省/其他=关, 默认关); 与 tds_kelly_filters 正交, 不参与 AI 宏成员/组合派生、不写 tds_kelly_filters。
+function _kellyMa3PostFlag() {
+  if (typeof state.labSigKellyMa3Post === "boolean") return state.labSigKellyMa3Post;
+  var v = false;
+  try { v = localStorage.getItem("tds_kelly_ma3_post") === "1"; } catch (e) {}
+  state.labSigKellyMa3Post = v;
+  return v;
+}
+function _kellySetMa3Post(on) {
+  state.labSigKellyMa3Post = !!on;
+  try { localStorage.setItem("tds_kelly_ma3_post", on ? "1" : "0"); } catch (e) {}
+}
 // 计算 positionCap 保留基笔 key 集合(top K per signal_date, 排序口径见上方注释)
 function _kellyPositionCapKeptKeys(pool, fIdx, K) {
   var kept = {};
@@ -9011,6 +9031,11 @@ async function _kellyApplyFeeRecompute(feeParams) {
   // labSigKellyFilters → 单轮内口径撕裂。此处拍快照(浅拷贝), 本轮全程用快照算完; 用户新态由
   // _kellyRunRecompute 的 pending 合批收尾再跑一轮, 最终一致。
   var filters = Object.assign({}, state.labSigKellyFilters || _kellyDefaultFilters());
+  // 2026-11-24 MA3连3日(post)降亏筛选: 开关态与本轮 filters 同批拍快照(防 await 让步期间用户改态致单轮口径撕裂);
+  // 生效前提=产物已含 ma3 列(块2 起 28 列), 缺列时开关不生效并在渲染层可见提示(不静默假装过滤)。
+  // post 语义: 本开关不参与 passesFade / posCapKept(先按原规则选 K), 只在选样结果上再剔命中笔, 被剔位不补位。
+  var _ma3PostOn = _kellyMa3PostFlag();
+  var _ma3PostActive = _ma3PostOn && (typeof fIdx.ma3 === "number");
   // v3标志需维度查找map(mkt_dim/rating_dim不在trade数组内,编码在quadrant key里)
   var _tradeDims = state.labSigKellyTradeDims;
   if (!_tradeDims && td.quadrants) {
@@ -9033,12 +9058,15 @@ async function _kellyApplyFeeRecompute(feeParams) {
   var _labPartsReady = _labKellyAllReady ? "A" : (_labKellyY1Ready ? "Y1" : "P0");
   var cacheKey = feeSig + "|pool|" + JSON.stringify(filters) + "|gih" + (state.labSigKellyGihOn ? ("1|" + _kellyGihGTier()) : "0")
     + (_labS06 ? ("|" + _labModeBase + "|" + (((typeof window._tdsS06Status === "function") && window._tdsS06Status().coverageEnd) || "")) : "")
+    // 2026-11-24 MA3(post)开关态并入签名: 切换必须强制重算(否则短路命中旧缓存, 开关视觉上无效)
+    + "|ma3post=" + (_ma3PostActive ? "1" : "0")
     + "|parts=" + _labPartsReady;
   if (_kellyStatsCacheKey === cacheKey && _kellyStatsCacheVal) {
     return _kellyStatsCacheVal;
   }
   var result = {};
   result.__partsState = _labPartsReady;   // 数据源完整度(渲染层诊断/占位判断附加信息)
+  result.__ma3Post = { on: _ma3PostOn, active: _ma3PostActive };  // MA3(post)开关诊断: active=false 且 on=true ⇒ 产物缺 ma3 列(渲染层可见提示)
   result.__periodsReady = {};             // 各周期就绪状态(数据实证所需片数见 _labKellyPeriodShardNeed)
   // 降亏toggle过滤谓词(只算一次, positionCap/仓位控制共用)
   var monthMask = _kellyActiveMonthMask(filters);
@@ -9145,6 +9173,9 @@ async function _kellyApplyFeeRecompute(feeParams) {
       toggledByMode[modeKey] = rawTrades.filter(function (t) {
         if (!_pf(t)) return false;
         if (_pk && !_pk[_kellyBaseKey(t, fIdx)]) return false;
+        // 2026-11-24 MA3(post): 必须排在 _pk(先选 K)之后 ⇒ 先按原规则选好 top-K, 再把命中笔剔掉且不补位
+        // (放前面就退化成 pre/补位口径; 被剔那笔的每日池份额不摊给别人, 对应「T+1 不买」)。
+        if (_kellyMa3PostDrops(t, fIdx, _ma3PostActive)) return false;
         return true;
       });
       await _kellyYield(); // 桶间让步(2026-08-23 性能专项): 单模式过滤 ~10-30ms, 10 模式连排原为 ~100-300ms 同步块
@@ -11274,7 +11305,7 @@ function _renderSigKellyBar(bar, data, period) {
     `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开下方 组合降亏快捷按钮 + 58个单标志(4大分类组), 默认收起">${_aiDetailText}</button>`;
   // #54 2026-08-13 (用户20:27 必做): 「重置为AI默认推荐」按钮——尝试各种组合后一键恢复 AI默认勾选(_kellyDefaultFilters 默认档全开, v1.1.7 起=当前默认基座 S06 动态模式+AI仓位建议K=1), 重写 tds_kelly_filters 持久化, 刷新三态/hoverpop动态值
   const aiMacroResetBtnHTML =
-    `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-reset" style="margin-left:8px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="一键恢复 AI 默认推荐勾选(v1.1.7 起=当前默认基座 S06 动态模式, 按大盘风格按日切 A进攻王/NEW14, 含 1类回测剔除, 其中+1类只读不可勾选; + AI仓位建议 K=1), 重写本地记忆并刷新统计">重置为AI默认推荐</button>`;
+    `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-reset" style="margin-left:8px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="一键恢复 AI 默认推荐勾选(v1.1.7 起=当前默认基座 S06 动态模式, 按大盘风格按日切 A进攻王/NEW14, 含 1类回测剔除, 其中+1类只读不可勾选; + AI仓位建议 K=1 + MA3连3日(post)回默认关), 重写本地记忆并刷新统计">重置为AI默认推荐</button>`;
   // T3-1(2026-08-23): AI降亏模式下拉(7预设一键套用) —— 总开关保留, 原「多选标签直选」升级为「模式预设+细粒度自定义」双层;
   // 选下拉=一键套用该模式完整键组合(标签勾选态由 _kellyOnFilterChange 完成回调重渲染 bar 自动点亮);
   // 手动勾/取消任一标签 -> _tdsFadeModeMatch 反查不匹配任何预设 -> 下拉显示「自定义」占位态(option disabled hidden 仅展示);
@@ -11318,6 +11349,21 @@ function _renderSigKellyBar(bar, data, period) {
       `<span id="lab-kelly-fade-mode-caliber" class="lab-sigkelly-fee-label" title="${fadeModeTitle}"${_fadeDisp.calWarn ? ' style="color:#b45309;font-weight:600"' : ""}>${_fadeCaliberHTML}</span>` +
       `<span id="lab-kelly-s06-state" class="lab-sigkelly-fee-label" style="color:#c0392b;font-weight:600;${_s6StateWarn ? "" : "display:none"}">${_s6StateWarn}</span>` +
     `</span>`;
+  // 2026-11-24 MA3连3日(post 口径)降亏筛选开关(独立键 tds_kelly_ma3_post, 默认关):
+  //   数字/口径公示单源=purpose-notes.js lab.ma3post(§21/§22, 与首页 home.ma3filter 同一批数字);
+  //   命中判定单源=回测产物 ma3 列(后端 app/ma3.py), 前端只读不重算; 产物未含 ma3 列时开关不生效并可见提示。
+  const _ma3PostOnUI = _kellyMa3PostFlag();
+  const _ma3PostReadyUI = !!(state.labSigKellyTradesData && state.labSigKellyTradesData.fIdx && typeof state.labSigKellyTradesData.fIdx.ma3 === "number");
+  const _ma3PostNotePlain = String((typeof PURPOSE_NOTES !== "undefined" && PURPOSE_NOTES["lab.ma3post"]) ? PURPOSE_NOTES["lab.ma3post"] : "MA3连3日(post): 先按原规则选好 top-K, 再把连着3个交易日收盘都低于各自MA3的命中笔剔除, 不补位; 默认关。")
+    .replace(/<[^>]+>/g, "").replace(/"/g, "”");
+  const ma3PostHTML =
+    `<label class="lab-sigkelly-toggle${_ma3PostOnUI ? " lab-sigkelly-rec" : ""}" tabindex="0" data-no-pop="" data-tip="${_ma3PostNotePlain}">` +
+      `<input type="checkbox" class="lab-sigkelly-toggle-ma3post"${_ma3PostOnUI ? " checked" : ""}>` +
+      `<span class="hot-new-badge" title="最新上线的筛选功能">NEW</span>` +
+      ` MA3连3日降亏(post)` +
+      ((_ma3PostOnUI && !_ma3PostReadyUI) ? `<span class="lab-sigkelly-fade-advice" style="color:#b45309;font-weight:600">（回测产物未含 ma3 列，暂不生效）</span>` : "") +
+      `<span class="lab-sigkelly-toggle-tip">ⓘ</span>` +
+    `</label>`;
   const positionCapHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap">` +
     `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): AI仓位建议(技术别名:仓位控制过滤)=仅在凯利回测入样宇宙内选择。★结构=v1.1.5 起默认基座 NEW14(十四键, 重构换基座): hist6(r10May6NonMay/greedy15/janMidSpecial/k2c5HkChase/k3ConceptBuy/declinePhaseSpecial)+规则8(N1北向20日净流出/T1换手冰点×追关注/D1股息率低位/Q1 QVIX低分位/H1升波×A股/M1牛主升×两融降温/P1备买×股息率分位低/R2b追关注×全球类)=保留入样、可被AI建议推荐的降亏键; 旧八键(基础5+核心3, v1.1.2~v1.1.4 默认)保留为手动可开对照档; +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 即下述排除类别)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(已剔除出回测宇宙), 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。§23.6 入样宇宙规则, 权威=官方入样规则: 入样白名单只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 入样依赖=标的有 ETF/场内 LOF(16/15/501/502) 跟踪且有跟踪分(即回测入样判定; 场外 LOF 00/01/02 与退市 LOF(已全量回填后场内仍零行)不入样); 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 自我ETF唯一例外=10年国债ETF 由 self-ETF 兜底; 首页/本区 1:1 遵从回测入样判定不自行重算), 卖类(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不入位——同日只买最优K个买入类信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型${_t("buy_backup")}&gt;${_t("type_buy")}&gt;${_t("buy_aux")}&gt;${_t("buy_special")}→买入日↑ 排序保留前K，命中信号日冻结表的信号其排序分取冻结时点值（2026-09-18③随信号日T固化, 不随board_etf_map重生漂移）, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。K档评级(2026-08-13 #54 动态化: 随当前降亏勾选/费率档/最新数据实时重算, 与首页/凯利K按钮评级 hoverpop 同源 common.js, §22 一致): ${_aiPoscapRatingSummary("tds_poscap_lab")}。★主推=收益率最高档(数据驱动, 不固定 K1, 以评级表实时数字为准); K越大收益率递减(含最低佣金5元费率重算口径)。每日池口径下 K 越大净利反升(每日资金池恒定, 砍量越少持仓越多)。G模式历史口径(关32.27%/K1 48.58%/K2 40.41%/K3 38.96%等, 每笔固定1万·positionCap单独回测未叠加AI降亏过滤)为已废弃的旧口径(2026-08-13 起默认=每日资金池等分), 以本 K 档评级 hoverpop(每日池+top-K, 实时随勾选动态)与下方「全信号表 · 按年窗口增长」表(每日池实时, 可切 G 并跟 K 档联动)为准, 旧口径数值不再单独公示。OFF按钮(关)=写 tds_poscap_lab {on:false} 关闭AI仓位建议、该区退化普通列表(不再显示「AI建议N」「当日已满」), 再点某 K 档恢复 {on:true,k}(独立键 tds_poscap_lab, 与首页/交易页各自独立互不联动, 2026-08-30 已拆)。与降亏同开仅推荐默认组合(v1.1.5 起 AI降亏过滤默认=NEW14 十四键: hist6=r10May6NonMay/greedy15/janMidSpecial/k2c5HkChase/k3ConceptBuy/declinePhaseSpecial + 规则8=n1NorthOutflow/t1LowTurnSpecial/d1LowDivYield/q1QvixLowPct/h1VolChgHighA/m1MarginDownBull/p1LowDivBackup/r2bSpecialGlobal, 每日池+K=1下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 NEW14 默认内); B模式(3%止盈)仓位控制下转负建议关。范围扩展: 交易页整个信号列表(近30交易日, 2026-08-24 由15扩30)按同一排序展示 AI建议(AI建议买入/当日已满)。⚠2026-08-14 首页「AI过滤视图」两开关正交不绑定(§21): 开关1「AI降亏」(tds_home_fade)=删除线过滤层——开启时未入样宇宙(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)信号=删线+灰显+「未入样本」标注(卖类警示信号/波段调整豁免——无宇宙门槛不标未入样本, 2026-09-06 bandfix); 开关2「AI仓位」(tds_poscap_lab.on)=badge标注层——开启时卖类警示信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}波段调整, 无宇宙门槛——入不入回测宇宙都亮、不标未入样本)=亮色「AI警示」(${_t("sell_short")}无K约束不判K), 买入进K=「AI建议N」/超K=「当日已满」; 全关=全量视图全亮不标注, band_hold波段持有=中性不标; 迟到${_t("sell_short")}(如8/14中证银行${_t("sell_short")})「AI警示」+「盘后补齐」角标共存不冲突。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}>${_kellyRecBadge(_filters.positionCap)} AI仓位建议 K: <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
@@ -11325,6 +11371,8 @@ function _renderSigKellyBar(bar, data, period) {
     // 修复批③: 模式下拉紧跟「AI降亏过滤」总开关文字(同一 flex 行, 不再拆到组尾), 细节见上方 fadeModeHTML 注释
     aiMacroLabelHTML +
     fadeModeHTML +
+    // 2026-11-24 MA3连3日(post)独立开关: 与 AI降亏/仓位建议正交, 放在同一交互行(一个功能的开关不拆两处)
+    ma3PostHTML +
     aiMacroDetailBtnHTML +
     aiMacroResetBtnHTML +
     // v1.1.5 枯竭提示 chip 占位(纯展示层): 异步拉 overfit_monitor.json recent 块计算「连续 N 交易日无放行」,
@@ -11860,6 +11908,13 @@ function _renderSigKellyBar(bar, data, period) {
     _syncPosCapActive(bar, posCapCb.checked, state.labSigKellyFilters.positionCapK || 1);
     _kellyOnFilterChange({ keepS06: true }); // posCap是持仓参数非过滤标签, 不改模式基座(S06 keepS06修复)
   };
+  // 2026-11-24 MA3连3日(post)降亏筛选开关: 独立键 tds_kelly_ma3_post(默认关), 与 tds_kelly_filters 正交;
+  // keepS06=true 保持动态基座态(MA3 是「先选 K 再剔除」的 post 层, 不改降亏键集/基座)。
+  var ma3PostCb = bar.querySelector(".lab-sigkelly-toggle-ma3post");
+  if (ma3PostCb) ma3PostCb.onchange = function () {
+    _kellySetMa3Post(ma3PostCb.checked);
+    _kellyOnFilterChange({ keepS06: true });
+  };
   bar.querySelectorAll(".lab-sigkelly-kbtn").forEach(function (btn) {
     btn.onclick = function () {
       if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
@@ -11975,6 +12030,7 @@ function _renderSigKellyBar(bar, data, period) {
       if (typeof _tdsStoreWithTTL === "function") _tdsStoreWithTTL("tds_kelly_fade_mode", { mode: _dftModeId2 });
       else try { localStorage.setItem("tds_kelly_fade_mode", JSON.stringify({ mode: _dftModeId2 })); } catch (e) {}
       _kellySetSharedPosCap(true, 1);
+      _kellySetMa3Post(false); // 2026-11-24: MA3连3日(post)独立键默认关, 重置一并回默认(与「恢复默认」语义一致)
       _kellyPersistFilters(); // 重写 tds_kelly_filters(当前默认基座 S06 动态 + aiMacro:true), 持久化恢复默认
       _kellyRunRecompute(host,
         '<div class="lab-custom-loading">⏳ 重置为AI默认推荐,重算统计…</div>',
@@ -11987,7 +12043,7 @@ function _renderSigKellyBar(bar, data, period) {
           _updateSigKellyQuadrantsInPlace(hb4, state.labSigKellyData, state.labSigKellyPeriod);
         }
       );
-      _kellyToast("已重置为AI默认推荐(v1.1.7: 当前默认基座 S06 动态模式 + 1类回测剔除 + AI仓位建议 K=1主推)");
+      _kellyToast("已重置为AI默认推荐(v1.1.7: 当前默认基座 S06 动态模式 + 1类回测剔除 + AI仓位建议 K=1主推 + MA3连3日(post)关)");
     });
   }
   // 4大分类组 收起/展开(2026-08-13 融合 #39: 组标题可点击收展该组, 4组默认全展开)

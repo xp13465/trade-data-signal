@@ -28,7 +28,10 @@ class FrozenInputContextTests(unittest.TestCase):
         self.mod = isolated.source_module(SOURCE, ("_SIG_RANK", "_FREEZE_DI_IDX", "_FREEZE_DI_IDX_LEN"),
             ("_signal_key", "_build_freeze_di_idx", "_freeze_fallback", "_resolve_etf",
              "_frozen_input_identity", "_frozen_missing_context", "_archive_frozen_missing_diagnostics",
-             "_etf_freeze_path"))
+             "_etf_freeze_path",
+             # 2026-11-24: compute() 传 ma3_tag_fn=_ma3_trade_tag(回测打标), 隔离执行需一并抽取;
+             # 本用例只验冻结上下文编排, _classify_buy_rows 已打桩, 打标函数不会被真正调用。
+             "_ma3_trade_tag", "_ma3_bt_etf_data_dir", "_ma3_bt_etf_close_map", "_ma3_bt_index_close_map"))
         compute = next(n for n in ast.parse(SOURCE.read_text()).body
                        if isinstance(n, ast.FunctionDef) and n.name == "compute")
         compute.decorator_list = []  # instrumentation wrapper is outside this orchestration test
@@ -115,7 +118,7 @@ class FrozenInputContextTests(unittest.TestCase):
         m._union_freeze_backfill_rows = lambda rows, *a: rows
         m._etf_daily_today_ready = lambda: (True, "20261106", 1)
         m._batch_load_etf_prices = lambda codes: ({}, {}, {}, {})
-        m._classify_buy_rows = lambda *a: ({}, dict(classified=0, skipped_no_etf=1,
+        m._classify_buy_rows = lambda *a, **kw: ({}, dict(classified=0, skipped_no_etf=1,
             skipped_no_score=1, skipped_no_price=0, frozen_used=0))
         def save(obj):
             if fail_save:
