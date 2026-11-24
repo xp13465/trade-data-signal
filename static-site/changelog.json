@@ -319,5 +319,8 @@
   ],
   "20261123-a667": [
     "fix(hot-visibility): \u6e05 app.js \u89c4\u5219\u5361\u4e24\u5904\u65e7 \ud83c\udd95 + \u9a8c\u6536\u811a\u672c usage \u8865 build_min \u524d\u7f6e"
+  ],
+  "20261125-a668": [
+    "fix(ma3-post): \u4e09\u5904\u540c\u53e3\u5f84\u5c55\u793a\u4f4d\u6ce8\u5165 post \u5254\u9664 + \u65e7\u552f\u4e00\u5316\u4ea7\u7269 schema \u663e\u5f0f\u5224\u578b(\u5ba1\u67e5\u8fd4\u5de5)"
   ]
 }
