@@ -8,7 +8,7 @@
 
 做两路独立对账(§5.4⑦ 同构对账铁律):
   A) 集合等价: 三表重建的 {(qk, mode, base_key)} 键集 == 原 quadrants 键集, 零缺零多。
-  B) 值逐位:   遍历原 quadrants 每行(按原行序), base_key 索引三表还原 27 列, 与原行逐位比对。
+  B) 值逐位:   遍历原 quadrants 每行(按原行序), base_key 索引三表还原 28 列, 与原行逐位比对。
 部分一致即 FAIL(退出码 1)。schema 与字段划分实证见
 docs/kelly/analysis/kelly-unique-schema-20260920.md。
 """
@@ -49,7 +49,7 @@ def build_rebuilt(u):
             vrow = u["variants"][m][i]
             if vrow is None:
                 continue  # 该基笔该 mode 无有效回测(None 哨兵, 当前数据全覆盖)
-            # 按 TRADE_FIELDS 原列序拼回 27 列: 共享字段按序取 share_vals, 卖出字段按序取 vrow
+            # 按 TRADE_FIELDS 原列序拼回 28 列: 共享字段按序取 share_vals, 卖出字段按序取 vrow
             row27 = []
             sh_j = sv_j = 0
             for fi in range(len(TRADE_FIELDS)):

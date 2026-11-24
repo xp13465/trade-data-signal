@@ -35,7 +35,10 @@ def producer_namespace():
              "_freeze_buy_keys", "_freeze_key_of", "_union_freeze_backfill_rows", "_load_etf_freeze",
              "_etf_freeze_path", "_save_etf_freeze", "_frozen_input_identity", "_frozen_missing_context",
              "_load_frozen_missing_accepted", "_archive_frozen_missing_diagnostics", "_alert_frozen_missing",
-             "_classify_buy_rows"}
+             "_classify_buy_rows",
+             # 2026-11-24: compute() 传 ma3_tag_fn=_ma3_trade_tag(回测打标), 隔离执行需一并抽取;
+             # 前缀的 _MA3_BT_*_CACHE={} 是 ast.Assign, 由下方常量分支自动带入。
+             "_ma3_trade_tag", "_ma3_bt_etf_data_dir", "_ma3_bt_etf_close_map", "_ma3_bt_index_close_map"}
     ns = dict(__file__=str(SOURCE), datetime=datetime, json=json, os=os, sys=sys)
     nodes = []
     for n in ast.parse(SOURCE.read_text()).body:

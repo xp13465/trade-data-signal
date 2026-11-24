@@ -36,7 +36,10 @@ def module(name, path):
 def namespace(root):
     names = {"_etf_freeze_path", "_load_etf_freeze", "_save_etf_freeze", "_signal_key",
              "_build_freeze_di_idx", "_freeze_fallback", "_resolve_etf", "compute", "main",
-             "_frozen_input_identity", "_frozen_missing_context", "_classify_buy_rows"}
+             "_frozen_input_identity", "_frozen_missing_context", "_classify_buy_rows",
+             # 2026-11-24: compute() 传 ma3_tag_fn=_ma3_trade_tag(回测打标), 隔离执行需一并抽取;
+             # _MA3_BT_*_CACHE={} 是 ast.Assign, 由下方常量分支自动带入。
+             "_ma3_trade_tag", "_ma3_bt_etf_data_dir", "_ma3_bt_etf_close_map", "_ma3_bt_index_close_map"}
     evidence = module("isolated_persist_evidence", ROOT / "scripts/delivery_evidence.py")
     atomic = module("isolated_persist_atomic", ROOT / "scripts/util_atomic.py")
     ns = dict(__file__=str(SOURCE), ROOT=str(root), os=os, json=json, sys=sys,
@@ -374,7 +377,8 @@ def test_real_compute_cli_uses_old_canonical_metadata(sandbox, monkeypatch, fail
     ns["KELLY_BUY_NEXTDAY"] = nextday
     run()
     result = json.loads(trades.read_text())["quadrants"]
-    assert result["etf_related"]["A"][0] == dict(etf_code="510300", etf_name="old frozen", track_tier="related", track_score=66)
+    # 2026-11-24 起 compute 统一注入 ma3 打标列(沙箱无 etf 历史文件 → "na" 保守放行, 属正确形态)
+    assert result["etf_related"]["A"][0] == dict(etf_code="510300", etf_name="old frozen", track_tier="related", track_score=66, ma3="na")
     assert not result["etf_strong"]["A"]
     assert seen["price_codes"] == {"510300"}
     assert json.loads(freeze_file(sandbox).read_text())[A] == old

@@ -86,7 +86,7 @@ HOLD_DAYS = 10             # 默认最大持有交易日(ABCD 模式用; E=5/F=1
 KELLY_BUY_NEXTDAY = int(os.environ.get("KELLY_BUY_NEXTDAY", "1"))
 # 基笔唯一化三表导出开关(L42 数据瘦身步1, 2026-09-20): 默认 0 关闭,
 # 开=在 main() 末尾额外生成 signal_kelly_trades_unique.json(主档)/ _sdc_unique.json(sdc 双套),
-# 由 quadrants 中间态拆出「主表(19 共享字段+4 qk 归属)+ 变体表(8 卖出字段×11 mode)」,
+# 由 quadrants 中间态拆出「主表(20 共享字段+4 qk 归属)+ 变体表(8 卖出字段×11 mode)」,
 # 消除同一基笔 4qk×10mode=40 倍重复膨胀(75MB→~5MB)。关=完全不生成三表, 现有产物零变化;
 # 注意: 开关默认关, compute_intraday 共用 _build_outputs 不受影响(盘中档无膨胀, 唯一化无必要)。
 KELLY_UNIQUE_EXPORT = int(os.environ.get("KELLY_UNIQUE_EXPORT", "0"))
@@ -190,7 +190,77 @@ TRADE_FIELDS = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "e
                 "buy_price", "sell_price", "shares", "profit", "return_pct",
                 "hold_days", "sell_reason", "current_price", "real_buy_price", "real_buy_date",
                 "real_current_price",
-                "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
+                "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating",
+                # 2026-11-24 新增第 28 列(追加在末尾, 既有 27 列索引/列序零位移):
+                # MA3连3日降亏打标, 取值 "hit"(连3日收盘均低于各自MA3, 建议回避) /
+                # "miss"(不满足) / "na"(T日收盘缺失/历史不足/无ETF, 保守放行不剔除)。
+                # 判定日 = 买入信号日 T, 数据 = 该笔交易 ETF 的 etf/{code}-all.json 前复权 close
+                # (self ETF 走 index_daily.close); 判定逻辑单一事实源 = app/ma3.py, 与首页信号
+                # 打标同一份(§5.4⑦)。该列是基笔级常量(同基笔 10 个 mode 全同), 见 _build_unique_tables
+                # 的 share_fields。
+                "ma3"]
+
+
+# ── MA3 连3日降亏打标(2026-11-24, 判定单一事实源 = app/ma3.py) ────────────────
+# 与首页 signal 打标同一份判定/数据源解析(§5.4⑦ 防第二份实现漂移): 非 self ETF 读
+# static-site/data/etf/{code}-all.json 前复权 close; self ETF(指数本体即ETF, 如 511260)
+# 读 index_daily.close。缓存独立于首页侧(本进程只跑回测, 与 app/queries 的进程内缓存互不影响)。
+# 防前视: 只用信号日 T 及之前的收盘(app.ma3.ma3_consec_below 内切片), T 日收盘缺失/历史不足 → "na"。
+_MA3_BT_ETF_CACHE = {}     # code -> (mtime, {date: close})
+_MA3_BT_INDEX_CACHE = {}   # index_id -> {date: close}
+
+
+def _ma3_bt_etf_data_dir():
+    """回测侧 ETF 历史目录(环境变量 MA3_ETF_DATA_DIR 优先, 供特殊部署/验证指向数据仓)。"""
+    from app.ma3 import ma3_etf_data_dir
+    return ma3_etf_data_dir(os.path.join(ROOT, "static-site", "data"))
+
+
+def _ma3_bt_etf_close_map(code):
+    from app.ma3 import ma3_etf_close_map
+    return ma3_etf_close_map(code, _ma3_bt_etf_data_dir(), _MA3_BT_ETF_CACHE)
+
+
+def _ma3_bt_index_close_map(iid):
+    """index_daily.close 序列(分支口径与 app/queries.py overview 的 _load_close_map 逐处同源:
+    g./s. 合成指数读 daily_metric/score_daily 的 value, 其余读 index_daily.close)。
+    self ETF 实际都落 index_daily 分支; 另两支仅为防 g./s. 前缀 self 指数静默读空转 na。"""
+    if not iid:
+        return {}
+    if iid in _MA3_BT_INDEX_CACHE:
+        return _MA3_BT_INDEX_CACHE[iid]
+    m: dict = {}
+    conn = get_conn()
+    try:
+        if iid.startswith("g."):
+            rows = conn.execute(
+                "SELECT date, value FROM daily_metric WHERE metric_id=? AND value IS NOT NULL",
+                (iid[2:],)).fetchall()
+        elif iid.startswith("s."):
+            rows = conn.execute(
+                "SELECT date, value FROM score_daily WHERE score_id=? AND value IS NOT NULL",
+                (iid[2:],)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT date, close FROM index_daily WHERE index_id=? AND close IS NOT NULL",
+                (iid,)).fetchall()
+        for r in rows:
+            if isinstance(r[1], (int, float)):
+                m[str(r[0])] = float(r[1])
+    finally:
+        conn.close()
+    _MA3_BT_INDEX_CACHE[iid] = m
+    return m
+
+
+def _ma3_trade_tag(sig_date, iid, etf_code, match_method):
+    """单笔打标 -> "hit"/"miss"/"na"(判定逻辑全部委托 app.ma3, 本函数只做状态码映射)。"""
+    from app.ma3 import ma3_tag_etf
+    tag = ma3_tag_etf(etf_code, match_method, sig_date, iid,
+                      _ma3_bt_index_close_map, _ma3_bt_etf_close_map)
+    if tag.get("status") != "ok":
+        return "na"
+    return "hit" if tag.get("hit") else "miss"
 
 
 # ── 数据加载 ──────────────────────────────────────────────────────────────────
@@ -2084,7 +2154,7 @@ def _compute_stats(trades, period_key="all", buy_amount=None):
 def _classify_buy_rows(buy_rows, best_etf, etf_freeze, signal_stats, market_map,
                        price_map, open_map, close_map, sorted_dates_map, sell_timeline,
                        market_state, market_dates, market_tiers, cyb_tiers, today_str,
-                       latest_signal_date=None):
+                       latest_signal_date=None, ma3_tag_fn=None):
     """逐信号分类 + 10 模式回测(compute 全量与 compute_intraday 盘中增量共用, 单一实现防漂移 §5.4⑦)。
 
     buy_rows: [(date, index_id, signal)]; 价格/信号时间线/大盘态已由调用方按口径准备好
@@ -2093,6 +2163,8 @@ def _classify_buy_rows(buy_rows, best_etf, etf_freeze, signal_stats, market_map,
     (当天盘后新信号)就地补冻, date < latest_signal_date 的历史信号缺失冻结值→拒绝补冻记异常。
     全量档传 etf_daily 最新数据日(与 today_str 同语义, 但需在 needed_etfs 前可算);
     盘中档传 signal_date_str(T 日, 因为盘中 today_str 是 T+1 注入后不可用)。
+    ma3_tag_fn: 可选 (sig_date, iid, etf_code, match_method) -> "hit"/"miss"/"na" 打标函数
+    (compute/盘中档都传 _ma3_trade_tag; 缺省 None 时不写该列, 供单测按旧形态调用)。
     返回 (quadrants {qk: {mk: [trade,...]}}, 统计 dict)。副作用: 就地写 etf_freeze
     (新信号事件固化 ETF 选择)——是否持久化由调用方决定(全量档保存, 盘中档只读不保存)。
     """
@@ -2148,6 +2220,9 @@ def _classify_buy_rows(buy_rows, best_etf, etf_freeze, signal_stats, market_map,
         mt_cyb = _market_tier_at(date, cyb_tiers, market_dates)
         mt_cyb = mt_cyb if market in A_STOCK_MARKETS else ""
 
+        # MA3 打标(每基笔一次, 10 个 mode 共享同一 tag; 取值/口径见 TRADE_FIELDS 第 28 列注释)
+        ma3_val = ma3_tag_fn(date, iid, etf_code, be.get("match_method")) if ma3_tag_fn else ""
+
         # 10 模式回测(A-F/J 固定规则 + G/H/I 信号驱动)
         prices = price_map.get(etf_code, {})
         sdates = sorted_dates_map.get(etf_code, [])
@@ -2162,6 +2237,7 @@ def _classify_buy_rows(buy_rows, best_etf, etf_freeze, signal_stats, market_map,
                                    market_tier_cyb=mt_cyb, open_map=open_map, close_map=close_map)
             if result is None:
                 continue  # 数据不足(信号日无价格/未来不足 hold_days 天)
+            result["ma3"] = ma3_val
             any_valid = True
             # 归入评级象限
             quadrants[f"rating_{rating}"][mode_key].append(result)
@@ -2276,22 +2352,23 @@ def _build_unique_tables(quadrants):
 
     由 _classify_buy_rows 的 quadrants 中间态直接生成, 不触碰 _build_outputs 任何逻辑
     (output/trades_output 一行不改, 现有产物零变化)。拆出逻辑三表:
-      base     : 每基笔一行 = 19 共享字段(跨 qk/mode 全同, 实证) + 4 个 qk_group 枚举码归属
+      base     : 每基笔一行 = 20 共享字段(跨 qk/mode 全同, 实证) + 4 个 qk_group 枚举码归属
       variants : 每 mode 一个数组 = 每基笔×mode 的 8 卖出侧字段(随 mode 变); 索引 i ↔ base[i]
       qk_groups: 4 组 qk 枚举(rating/etf/sig/mkt), 每基笔每组恰取 1 个 qk(实证 7608/7608 零例外)
 
     基笔键 = signal_date|index_id|signal|buy_date|etf_code(前端 _simBaseKey 口径)。
-    无损还原: 遍历 base 每行, 19 共享 + 归属 4 码, 对每 mode 取 variants[mode][i] 8 卖出字段,
-    按 TRADE_FIELDS 原列序拼回 27 列, 该基笔进归属 qk 的该 mode。逐位对账与体积实测见
+    无损还原: 遍历 base 每行, 20 共享 + 归属 4 码, 对每 mode 取 variants[mode][i] 8 卖出字段,
+    按 TRADE_FIELDS 原列序拼回 28 列, 该基笔进归属 qk 的该 mode。逐位对账与体积实测见
     docs/kelly/analysis/kelly-unique-schema-20260920.md。
     注意: 本函数只在 main() 主流程(全量 compute)由环境变量 KELLY_UNIQUE_EXPORT 显式触发,
     compute_intraday 共用 _build_outputs 不触发(盘中档无 40 倍膨胀, 唯一化无必要)。
     """
-    # 字段划分(实证见 schema 文档 §一): 共享 19 / 卖出 8
+    # 字段划分(实证见 schema 文档 §一): 共享 20 / 卖出 8(ma3 为 2026-11-24 新增基笔级常量)
     share_fields = ["signal_date", "index_id", "signal", "buy_date", "etf_code", "etf_name",
                     "track_tier", "track_score", "match_method", "track_low_confidence",
                     "buy_price", "shares", "real_buy_price", "real_buy_date",
-                    "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
+                    "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating",
+                    "ma3"]
     sell_fields = ["sell_date", "sell_price", "profit", "return_pct", "hold_days", "sell_reason",
                    "current_price", "real_current_price"]
     key_fields = ["signal_date", "index_id", "signal", "buy_date", "etf_code"]
@@ -2308,7 +2385,7 @@ def _build_unique_tables(quadrants):
     qk_group_of = {q: g for g, qs in qk_groups.items() for q in qs}
     qk_enum_of = {q: i for g, qs in qk_groups.items() for i, q in enumerate(qs)}
 
-    base_map = {}       # key -> 19 共享值 list
+    base_map = {}       # key -> 20 共享值 list
     attr_map = {}       # key -> {group: enum_code}
     variants_map = {}   # (key, mode) -> 8 卖出值 list
     for qk, mk_map in quadrants.items():
@@ -2485,7 +2562,7 @@ def compute():
         buy_rows, best_etf, etf_freeze, signal_stats, market_map,
         price_map, open_map, close_map, sorted_dates_map, sell_timeline,
         market_state, market_dates, market_tiers, cyb_tiers, today_str,
-        latest_signal_date,
+        latest_signal_date, ma3_tag_fn=_ma3_trade_tag,
     )
     classified = loop_stats["classified"]
     skipped_no_etf = loop_stats["skipped_no_etf"]
@@ -2711,7 +2788,7 @@ def compute_intraday(signal_date_str, main_trades_path):
         buy_rows, best_etf, etf_freeze, signal_stats, market_map,
         price_map, open_map, close_map, sorted_dates_map, sell_timeline,
         market_state, market_dates, market_tiers, cyb_tiers, today_str,
-        latest_signal_date,
+        latest_signal_date, ma3_tag_fn=_ma3_trade_tag,
     )
     print(f"   盘中档分类完成: {loop_stats['classified']} 信号有有效回测 / {loop_stats['skipped_no_price']} 跳过(T+1 无价或伪跳空)")
     output, trades_output = _build_outputs(quadrants)
@@ -2963,7 +3040,7 @@ def _export_unique_parts(parts_dir, recent_rows, recent_cut, by_year, grouped):
 
     与全量唯一化三表同构(schema 见 docs/kelly/analysis/kelly-unique-schema-20260920.md §二):
     每片独立 = {base 主表 + variants 变体表 + qk_groups 归属}, 由 _build_unique_tables 对
-    该片 quadrants 直接生成——字段划分(19 共享/8 卖出)/基笔键(signal_date|index_id|signal|
+    该片 quadrants 直接生成——字段划分(20 共享/8 卖出)/基笔键(signal_date|index_id|signal|
     buy_date|etf_code)/qk 归属枚举全部复用步1 结论, 不重新发明(一致性)。
     切法 = 按基笔 signal_date, 变体行跟着基笔走:
       unique_recent.json : signal_date >= recent_cut 的基笔(与 quadrants recent.json 同窗)

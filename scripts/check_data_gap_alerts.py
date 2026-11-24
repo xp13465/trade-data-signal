@@ -2077,7 +2077,7 @@ def self_test() -> int:
             fails.append(f"case F4(非交易日)不应判, 实得 {[(f.key, f.level) for f in fF4]}")
 
         # ── case K/K2/K4: 交易记录断档监控 two-way 自测(设计 §7 项 1/4) ──
-        # 生产 trades 顶层 fields 列(单一事实源 = signal_kelly_backtest.TRADE_FIELDS L187-192);
+        # 生产 trades 顶层 fields 列(单一事实源 = signal_kelly_backtest.TRADE_FIELDS, 2026-11-24 起 28 列);
         # 仅作夹具形态真实用(本检查器只消费 quadrants 行 [0:3]), 照抄不 import(避免自测引入重模块)。
         _TRADE_FIELDS_FIXTURE = [
             "signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
@@ -2085,7 +2085,7 @@ def self_test() -> int:
             "buy_price", "sell_price", "shares", "profit", "return_pct",
             "hold_days", "sell_reason", "current_price", "real_buy_price", "real_buy_date",
             "real_current_price",
-            "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
+            "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating", "ma3"]
 
         def _kelly_files(repo_p, sd_sigs, latest_trades, nav_ok, placeholder_98=False,
                          open_ok=False, freeze=None, generated_at="2026-09-08 05:10",

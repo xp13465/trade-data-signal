@@ -385,7 +385,7 @@ def load_trades():
         else:
             raise FileNotFoundError("signal_kelly_trades.json 未找到 (static-site/data/ 和 data/ 都没有)")
 
-    # trade 行字段: schema 实际 27 列, 单一事实源 = signal_kelly_backtest.TRADE_FIELDS(顶部 import)。
+    # trade 行字段: schema 实际 28 列(2026-11-24 起), 单一事实源 = signal_kelly_backtest.TRADE_FIELDS(顶部 import)。
     # 若列序与 trades.json 漂移 → 后续列整体前移, t["rating"] 读到 market_tier 字符串, by_grade
     # 回测桶/评级类过滤键全部静默失效。改为单源后不再各自硬编码(2026-08-23/09-15 两次同款病灶)。
     FIELD = list(TRADE_FIELDS)
