@@ -40,6 +40,10 @@ def protected(key):
 TRANSPORT_RETRIES = 2
 TRANSPORT_BACKOFF_SECONDS = (2.0, 8.0)
 
+# 关键存储文件数预算(2026-11-25 块3 抽为模块常量, 生产值不变 = 原硬编码 8192; 单测可临时
+# monkeypatch 小值以构造「超预算」场景, 不靠造 8000+ 文件拖慢门禁)。
+PROTECTED_FILE_BUDGET = 8192
+
 
 def retry_wait(attempt):
     """第 attempt 次重试前的退避秒数(2s → 8s, ±20% 抖动, 越界取最后一段)。"""
@@ -108,6 +112,11 @@ class SafeWriter:
     def gc(self):
         """在 storage_lock 下按持久引用清理；坏 manifest 一律拒绝删除。
 
+        2026-11-25 块2/块3: 保留集 = GC 引用闭包 + **全部 nonconfirmed 历史**(保守 hold);
+        回收路径不再受新增写入配额(cap/8192/reserve)预检阻挡, 只要引用已证明、同锁域、
+        清单 durable 落盘成功即可删本地无引用文件; 新写入配额由 store_many 在回收后按
+        保留集 + 新 writes 原样拦截。
+
         容错模式(实例属性 `gc_tolerate_unreadable=True`, 仅自动自愈轮设置, 见
         upload_r2.cmd_recover_protected): 存在无法解析的 journal 时**零删除**并继续 ——
         引用集不完整时删除任何文件都可能删掉坏文件引用的恢复锚点, 故整轮跳过清理、
@@ -141,8 +150,13 @@ class SafeWriter:
                 keep.add(path)
                 continue
             history.setdefault(row['key'], []).append((path, row))
-            if (row['state'] == 'unknown' or row.get('pending_purge') or
-                    (row.get('pair_id') and row['state'] != 'confirmed')):
+            # 2026-11-25 块2(方案 §3.2): 保守保留**所有 nonconfirmed 历史**, 不再只保
+            # unknown/pending_purge/非 confirmed pair。preparing/prepared/failed/plain 等
+            # 未结状态的行都可能是恢复锚点: 11-25 复核实测 55 条 plain preparing 历史在旧
+            # 语义下可被删, 而它们的 old_sha256 payload(103 个/0.29GiB)只有这些行还挂着引用。
+            # 保留后其 new/old payload 与 pair 由下方引用闭包递归保住(sha256/old_sha256 +
+            # pair manifest.objects)。禁 HISTORY_KEEP=0、禁把未知状态改写成 confirmed 来省空间。
+            if row.get('state') != 'confirmed' or row.get('pending_purge'):
                 keep.add(path); rows.append(row)
         count = int(os.environ.get('R2_PROTECTED_HISTORY_KEEP', '1'))
         if not 0 <= count <= 16:
@@ -183,16 +197,54 @@ class SafeWriter:
                 'action': 'cleanup-skipped-no-deletion'}, ensure_ascii=False), file=sys.stderr)
             return files
         garbage = [p for p in files if p not in keep]
+        # 2026-11-25 块3(方案 §3.3): 回收预算与新增写入配额拆开。
+        # 旧行为用 check_capacity(全部旧文件) 在 unlink 前预检, C 根 9286 文件 > 8192 且
+        # 10.68GB > 2GiB cap 时必抛 UnsafeWrite ⇒ GC 永远清不动(11-25 复核 §6)。
+        # 回收路径的准入改由三条自证: ①引用已证明(上文 journal/payload/pair 全量校验, 坏
+        # JSON/缺引用/非法身份提前 raise, 零删除); ②同锁域(生产唯一调用方 store_many 在
+        # storage_lock 内); ③清单安全落盘(durable 先于任何 unlink, 落盘失败抛错、零删除)。
+        # 新增写入配额仍由 store_many 在回收后按「保留文件 + 新 writes」跑原 check_capacity
+        # 的 cap/8192/reserve 拦截 —— 仅保留集合本身超预算时照旧拒绝新写, 不调大 cap/降 reserve。
+        cap = int(os.environ.get('R2_PROTECTED_MAX_BYTES', str(2 * 1024**3)))
+        planned_used = sum(p.stat().st_size + 4096 for p in files)
+        if cap > 0 and (planned_used > cap or len(files) + 1 > PROTECTED_FILE_BUDGET):
+            print('R2_PROTECTED_GC: ' + json.dumps({
+                'action': 'reclaim-over-write-budget', 'planned_used': planned_used,
+                'planned_files': len(files), 'cap': cap, 'file_budget': PROTECTED_FILE_BUDGET,
+                'retired_count': len(garbage)}, ensure_ascii=False), file=sys.stderr)
+        # 删除前复核计划: 文件集或待删文件身份在「计划 → 清单落盘」之间变化(计划后新引用文件 /
+        # 文件被替换/消失)⇒ 整批零删除。同锁域下正常恒等, 此步是最后一道身份闸门。
+        manifest_path = self.root / 'gc-manifest.json'
+        planned_paths = {p for p in files if p != manifest_path}
+        identities = {p: self._file_identity(p) for p in garbage}
         # 先持久记录引用集合，再删除无引用的本地缓存；不存在先删后补清单窗口。
         manifest = json.dumps({
             'version': 1, 'keep': sorted(str(p.relative_to(self.root)) for p in keep),
             'retired_count': len(garbage)}).encode()
-        self.check_capacity(files, {self.root / 'gc-manifest.json': manifest})
-        durable(self.root / 'gc-manifest.json', manifest)
+        durable(manifest_path, manifest)
+        self._revalidate_gc_plan(planned_paths, identities, manifest_path)
         for path in garbage:
             self.a['_work_budget_check']('protected-gc')
             path.unlink()
         return [p for p in keep if p.is_file()]
+
+    @staticmethod
+    def _file_identity(path):
+        st = path.stat()
+        return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+
+    def _revalidate_gc_plan(self, planned_paths, identities, manifest_path):
+        """清单落盘后、unlink 前复核: 文件集或待删文件身份变化 ⇒ 整批零删除(UnsafeWrite)。"""
+        current = {p for p in self.root.rglob('*') if p.is_file() and p != manifest_path}
+        if current != set(planned_paths):
+            raise UnsafeWrite('protected GC plan stale: file set changed before unlink; zero deletion')
+        for path, identity in identities.items():
+            try:
+                now = self._file_identity(path)
+            except FileNotFoundError:
+                raise UnsafeWrite('protected GC plan stale: planned file vanished; zero deletion') from None
+            if now != identity:
+                raise UnsafeWrite('protected GC plan stale: planned file identity changed; zero deletion')
 
     def store_many(self, writes):
         with self.storage_lock():
@@ -208,7 +260,7 @@ class SafeWriter:
         used = sum(p.stat().st_size + 4096 for p in files)
         extra = sum(len(body) + 4096 for body in writes.values())
         # 包括GC manifest与替换时新临时文件的峰值；容量不足不删未决锚点。
-        if used + extra > cap or len(files) + len(writes) > 8192:
+        if used + extra > cap or len(files) + len(writes) > PROTECTED_FILE_BUDGET:
             raise UnsafeWrite(f'protected capacity budget exhausted: used={used} extra={extra} cap={cap}; '
                               'unresolved anchors retained')
         reserve = int(os.environ.get('R2_PROTECTED_MIN_FREE_BYTES', str(128 * 1024**2)))

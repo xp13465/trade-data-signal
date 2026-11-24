@@ -83,6 +83,9 @@ def test_c1_deploy_rsync_excludes_db():
     for exc in ("--exclude=trade.db", "--exclude=trade_dates.txt",
                 "--exclude=index_etf_map.json", "--exclude=stock_codes.json"):
         assert exc in cmd, f"原有 clone 种子排除 {exc} 被误删; 实文: {cmd}"
+    # 2026-11-25 存储治理块1: protected 本地缓存不得被跨树复制(同一条 data rsync 同一登记面,
+    # 详见 test_storage_deploy_protected_exclude_20261125.py 的夹具行为守卫)。
+    assert "--exclude=.r2-protected/" in cmd, f"data rsync 缺 .r2-protected 精确排除; 实文: {cmd}"
 
     # 日志文案: 不再自称「DB 同步到」(验收用例 V3 要 grep 这条)
     assert "DB 同步到" not in text, "deploy.sh 日志文案仍有「DB 同步到」(与「不再复制 DB」矛盾)"

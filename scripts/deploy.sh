@@ -746,11 +746,19 @@ if [ "$REPO" != "$GIT_REPO" ]; then
   # 停掉后 DB 唯一副本 = 主库 data/(异地靠 R2 signal-backup2 日/周/月备份),
   # 代码仓只保留 JSON/parquet(如 daily-k.parquet / holdings_overlap_cache.json)镜像用途。
   # 注意: --exclude='*.db' 不带前导斜杠, 会匹配 data/ 下任意层级的 .db 文件(含子目录)。
+  # 2026-11-25 存储治理块1(方案 §3.1): 精确排除 R2 protected 本地缓存 .r2-protected/。
+  # 病灶: 该缓存是 upload 通道的本地恢复锚点(r2_safe_write.SafeWriter.root = REPO/data/
+  # .r2-protected), 只由持 .gc.lock 的 uploader 在自身引用契约下清理; 被 rsync 抄进
+  # 代码仓(GIT_REPO)后, 目标树里的副本既不再被清理、又会在下一次部署被再抄一遍 ⇒
+  # C 根 9286 文件/10.68GB 只进不出, GC 因超预算卡死(11-25 复核 §5/§6 实证)。
+  # 只加这一条精确排除: 不开全目录 --delete(会连带删目标树正常 JSON/parquet 镜像),
+  # 不取消任何现有 DB/JSON/parquet 镜像; 源端(.r2-protected)生成与清理逻辑不变。
   rsync -a --exclude=logs/ --exclude=notify_dedup.json --exclude=alert_state.json \
         --exclude=alerts/ --exclude=warning_* --exclude=backups/ \
         --exclude=index_etf_map.json --exclude=stock_codes.json \
         --exclude=trade.db --exclude=trade_dates.txt \
         --exclude='*.db' --exclude='*.db-wal' --exclude='*.db-shm' \
+        --exclude=.r2-protected/ \
         "$REPO/data/" "$GIT_REPO/data/" 2>&1 | tee -a "$LOG"
   RSYNC_DB_RC=${PIPESTATUS[0]}
   if [ "$RSYNC_DB_RC" -ne 0 ]; then
