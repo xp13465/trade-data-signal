@@ -30,6 +30,39 @@ def base_key(row27, key_idx):
     return tuple(row27[i] for i in key_idx)
 
 
+def validate_unique_schema(u):
+    """产物 schema 与当前 TRADE_FIELDS 必须同版, 不同版直接报错而不是越界/静默错配。
+
+    背景(2026-11-24 审查 P2-2): TRADE_FIELDS 由 27 扩到 28(末列 ma3, 基笔级常量)。
+    旧唯一化产物的 fields 少一列, 按旧 fields 拼 28 列时会把 ma3 当卖出字段去取 vrow →
+    越界或错位。这里按「共享字段名 ⊆ TRADE_FIELDS」+「base 行宽」+「variants 行宽 ==
+    TRADE_FIELDS 长度 - 共享字段数」三条显式判型, 不符即退出并给出重建指引。
+    """
+    share_fields = u.get("fields") or []
+    unknown = [f for f in share_fields if f not in TRADE_FIELDS]
+    if unknown:
+        raise SystemExit(f"唯一化产物 fields 含当前 TRADE_FIELDS 里没有的字段 {unknown}; 产物与代码不同版")
+    if len(set(share_fields)) != len(share_fields):
+        raise SystemExit("唯一化产物 fields 有重复字段")
+    n_share = len(share_fields)
+    qk_groups = u.get("qk_groups") or []
+    n_variant = len(TRADE_FIELDS) - n_share
+    for i, brow in enumerate(u.get("base") or []):
+        if len(brow) != n_share + len(qk_groups):
+            raise SystemExit(
+                f"唯一化产物 base[{i}] 行宽 {len(brow)} != 共享字段 {n_share} + 枚举码 {len(qk_groups)}; 产物与代码不同版")
+    for m in u.get("modes") or []:
+        for i, vrow in enumerate(u.get("variants", {}).get(m) or []):
+            if vrow is not None and len(vrow) != n_variant:
+                hint = ""
+                if "ma3" in TRADE_FIELDS and "ma3" not in share_fields:
+                    hint = "(当前 TRADE_FIELDS 已含 ma3 列, 旧唯一化产物无此列)"
+                raise SystemExit(
+                    f"唯一化产物 variants[{m}][{i}] 行宽 {len(vrow)} != 期望 {n_variant}(TRADE_FIELDS {len(TRADE_FIELDS)} - 共享字段 {n_share}){hint};"
+                    " 旧版产物须用新代码重跑回测(main() 末尾自动重建 unique)后再跑本工具")
+    return n_share
+
+
 def build_rebuilt(u):
     """从三表重建 {qk: {mode: [row27,...]}}。"""
     import collections
@@ -74,6 +107,7 @@ def main():
 
     u = load(args.unique)
     o = load(args.trades)
+    validate_unique_schema(u)
     rebuilt, key_idx = build_rebuilt(u)
 
     # A) 键集等价

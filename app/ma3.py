@@ -45,7 +45,9 @@ def ma3_etf_data_dir(static_data_dir):
     ⚠ 调用方禁用 Path.resolve() 推导 static_data_dir: trade-data/app 是到 trade/app 的
     symlink, resolve() 会跳回代码仓 trade 读那里的旧导出产物(生产静默读旧数据/全 na),
     同 scripts/export_etf_hist.py 顶部警告。
-    目录不存在返回 None(判定转 na 保守放行)。
+    返回约定: 环境变量分支显式指定但目录不存在 → 返回 None(判定转 na 保守放行);
+    默认分支(static_data_dir/etf)不在此处探测存在性, 目录/单文件缺失由下游
+    ma3_etf_close_map 返回空映射(同样转 na 保守放行)兜住。
     """
     _env = os.environ.get("MA3_ETF_DATA_DIR")
     if _env:

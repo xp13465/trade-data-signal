@@ -9360,6 +9360,8 @@ async function _kellyApplyFeeRecompute(feeParams) {
             var _tb = _posRaw[_ti];
             if (!passesFade(_tb)) continue;
             if (!_kept[_kellyBaseKey(_tb, fIdx)]) continue;
+            // 2026-11-24 MA3连3日(post): K 档评级与卡面同口径——先选 K 再剔命中笔(不补位, §22 跨展示位一致)
+            if (_kellyMa3PostDrops(_tb, fIdx, _ma3PostActive)) continue;
             _keptArr.push(_tb);
           }
           var _recomp = _keptArr.map(function (tt) {
@@ -10791,6 +10793,9 @@ async function _kellyOperationalPool(feeParams) {
       posDayCountsNB = _kellyKeptDayCounts(posCapKeptNB);
     }
   }
+  // 2026-11-24 MA3连3日(post)剔除开关: 与主引擎逐字同口径——先按 K 选样(上面 posCapKept 用未过滤基笔池构建, 语义不变)再剔命中笔, 不补位;
+  //   旧产物缺 ma3 列时 fIdx.ma3 非 number ⇒ 不生效(演进表数字与卡面保持一致, §22)
+  var _ma3PostActiveOp = _kellyMa3PostFlag() && (typeof fIdx.ma3 === "number");
   // per-mode 过滤 + 费率重算 + (G/H/I)套长线仓位法
   var perModeTrades = {};
   var _poolNavPending = false;   // 2026-09-17 时序门控: G/H/I 需真实价但 nav 尚未就绪 → 整体标记, 供演进表占位等 nav 到位重建
@@ -10801,6 +10806,7 @@ async function _kellyOperationalPool(feeParams) {
     var toggled = rawTrades.filter(function (t) {
       if (!_pf(t)) return false;
       if (_pk && !_pk[_kellyBaseKey(t, fIdx)]) return false;
+      if (_kellyMa3PostDrops(t, fIdx, _ma3PostActiveOp)) return false;
       return true;
     });
     var _pdcM = (_bullOn && _isLongMode(modeKey) && posDayCountsNB) ? posDayCountsNB : posDayCounts;
@@ -13208,10 +13214,13 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     _posCapKept = _kellyPositionCapKeptKeys(_basePool, _fIdx, _filters.positionCapK);
     _posDayCounts = _kellyKeptDayCounts(_posCapKept);
   }
+  // 2026-11-24 MA3连3日(post)剔除: 与卡面主引擎同口径——降亏/posCap(先选 K)通过后再剔命中笔, 不补位; 旧产物缺 ma3 列则不生效
+  var _ma3PostActiveM = _kellyMa3PostFlag() && (typeof _fIdx.ma3 === "number");
   let trades = rawTrades.filter(function (t) {
     if (cutoff && cutoff !== "0" && (t[_fIdx.buy_date] || "") < cutoff) return false;
     if (!_pcFadeFn(t)) return false;
     if (_posCapKept && !_posCapKept[_kellyBaseKey(t, _fIdx)]) return false;
+    if (_kellyMa3PostDrops(t, _fIdx, _ma3PostActiveM)) return false;
     return true;
   });
 
@@ -13219,12 +13228,18 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   // 淘汰=未通过 _pcFadeFn(降亏toggle) 或 未被 positionCap 前K保留; 周期cutoff不算淘汰(原语义过滤)
   let eliminated = rawTrades.filter(function (t) {
     if (cutoff && cutoff !== "0" && (t[_fIdx.buy_date] || "") < cutoff) return false;
-    return !_pcFadeFn(t) || (_posCapKept && !_posCapKept[_kellyBaseKey(t, _fIdx)]);
+    if (!_pcFadeFn(t)) return true;
+    if (_posCapKept && !_posCapKept[_kellyBaseKey(t, _fIdx)]) return true;
+    // 2026-11-24 MA3连3日(post)命中笔进淘汰区(卡面已剔, 此处对照展示因何被剔, 不参与统计 §22)
+    if (_kellyMa3PostDrops(t, _fIdx, _ma3PostActiveM)) return true;
+    return false;
   });
   // 淘汰原因逐行记录(2026-09-01 需求: 淘汰区加「淘汰原因」列, 用户需区分降亏/仓位/长线满仓不买便于判对错与溯源):
   // 与判定顺序一致取第一个命中(降亏优先); AI长线·满仓不买单在下方 GIH 块追加。挂载必须在全部 transform 之后
   const _elimReasons = eliminated.map(function (t) {
-    return !_pcFadeFn(t) ? "AI降亏" : "AI仓位";
+    if (!_pcFadeFn(t)) return "AI降亏";
+    if (_posCapKept && !_posCapKept[_kellyBaseKey(t, _fIdx)]) return "AI仓位";
+    return "MA3连3日(post)";
   });
 
   // 始终重算(含默认档)以获取费率消耗: 重算 profit/return_pct/fee_cost
@@ -13411,22 +13426,24 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       if (s["AI降亏"]) parts.push("降亏");
       if (s["AI仓位"]) parts.push("AI仓位建议");
       if (s["AI长线·满仓不买"]) parts.push("AI长线·满仓不买");
+      if (s["MA3连3日(post)"]) parts.push("MA3连3日(post)");
       return parts.join("/") || "降亏/AI仓位建议";
     })();
-    // 原因 → tooltip 说明(文案对齐既有公示: 降亏=模式键集判定 / 仓位=K前K保留 / 长线=满仓不买仿真)
+    // 原因 → tooltip 说明(文案对齐既有公示: 降亏=模式键集判定 / 仓位=K前K保留 / 长线=满仓不买仿真 / MA3=post 剔除)
     const _elimReasonTip = {
       "AI降亏": "未通过 AI降亏过滤(当前模式键集判定剔除, 不参与统计)",
       "AI仓位": "未被 AI仓位建议(K=当日资金池前K保留)选中",
       "AI长线·满仓不买": "ai长线模式(G/H/I)仓位管理仿真: 当日买入被仓位判定跳过(仓位已满或强平腾位后仍超容)",
+      "MA3连3日(post)": "该笔的 ETF 收盘价连续 3 个交易日低于各自 MA3(MA3连3日降亏, post 口径: 先选 K 再剔除、不补位), 已从卡片/按年表剔除, 不参与统计",
     };
     // 淘汰原因下拉选项(仅列实际在场原因, 与 _elimReasonLabel 动态清单一致; 缺省纯新增不占位)
     const _elimReasonOptionsHtml = (function () {
       const s = {};
       eliminated.forEach(function (t) { if (t._elimReason) s[t._elimReason] = 1; });
-      const order = ["AI降亏", "AI仓位", "AI长线·满仓不买"];
+      const order = ["AI降亏", "AI仓位", "AI长线·满仓不买", "MA3连3日(post)"];
       let html = "";
       order.forEach(function (r) {
-        if (s[r]) html += `<option value="${r}"${filter.elimReason === r ? " selected" : ""}>${r === "AI降亏" ? "仅降亏" : (r === "AI仓位" ? "仅AI仓位建议" : "仅AI长线·满仓不买")}</option>`;
+        if (s[r]) html += `<option value="${r}"${filter.elimReason === r ? " selected" : ""}>${r === "AI降亏" ? "仅降亏" : (r === "AI仓位" ? "仅AI仓位建议" : (r === "AI长线·满仓不买" ? "仅AI长线·满仓不买" : "仅MA3连3日(post)"))}</option>`;
       });
       return html;
     })();

@@ -92,6 +92,39 @@ test("开关渲染带 NEW 角标, 且 lab.js 不残留旧 🆕 字符", () => {
   assert.ok(!lab.includes("🆕"), "不得残留旧版 🆕 字符(统一用 .hot-new-badge)");
 });
 
+test("三处同口径展示位都注入 post 剔除(§22 多展示位一致, 审查返工 P1-1)", () => {
+  // ① 演进弹窗池 _kellyOperationalPool: 与主引擎同序(先 _pk 选 K 再剔 MA3), 不放补位
+  const evo = declaration(lab, "_kellyOperationalPool");
+  const evoKeptBuild = evo.indexOf("posCapKept = _kellyPositionCapKeptKeys(basePool");
+  const evoFilter = evo.indexOf("var toggled = rawTrades.filter");
+  const evoKept = evo.indexOf("_pk && !_pk[_kellyBaseKey", evoFilter);
+  const evoMa3 = evo.indexOf("_kellyMa3PostDrops(t, fIdx, _ma3PostActiveOp)", evoFilter);
+  assert.ok(evoKeptBuild > 0 && evoFilter > evoKeptBuild, "演进池: K 选样集合必须先于过滤构建");
+  assert.ok(evoKept > 0 && evoMa3 > evoKept, "演进池: MA3 必须在 _pk 选 K 之后剔除");
+  // ② K 档评级动态源: 先 kept 再剔 MA3
+  const krStart = lab.indexOf("var _posRaw = quadsAll[_posModeKey];");
+  const krEnd = lab.indexOf("var _st = _kellyComputeStats(_recomp", krStart);
+  assert.ok(krStart > 0 && krEnd > krStart, "找到 K 档评级聚合块");
+  const kr = lab.slice(krStart, krEnd);
+  const krKept = kr.indexOf("if (!_kept[_kellyBaseKey(_tb, fIdx)]) continue;");
+  const krMa3 = kr.indexOf("if (_kellyMa3PostDrops(_tb, fIdx, _ma3PostActive)) continue;");
+  assert.ok(krKept > 0 && krMa3 > krKept, "K 档评级: MA3 必须在 kept 选样之后剔除");
+  // ③ 交易记录弹窗: 主表剔除 + 淘汰区收编(带原因), 判定顺序 降亏→posCap→MA3
+  const modal = declaration(lab, "_openSigKellyTradesModal");
+  const tStart = modal.indexOf("let trades = rawTrades.filter");
+  const eStart = modal.indexOf("let eliminated = rawTrades.filter");
+  assert.ok(tStart > 0 && eStart > tStart, "找到弹窗主表/淘汰区过滤");
+  const tBlock = modal.slice(tStart, eStart);
+  assert.ok(tBlock.indexOf("_posCapKept && !_posCapKept[_kellyBaseKey(t, _fIdx)]) return false;") < tBlock.indexOf("_kellyMa3PostDrops(t, _fIdx, _ma3PostActiveM)) return false;"), "弹窗主表: MA3 必须在降亏/posCap 之后剔除");
+  const eBlock = modal.slice(eStart, modal.indexOf("const _elimReasons", eStart));
+  assert.ok(eBlock.indexOf("!_pcFadeFn(t)) return true;") < eBlock.indexOf("_kellyMa3PostDrops(t, _fIdx, _ma3PostActiveM)) return true;"), "弹窗淘汰区: MA3 命中笔必须进淘汰区");
+  assert.match(modal, /return "MA3连3日\(post\)";/, "淘汰原因必须标 MA3连3日(post)");
+  // 淘汰原因标签/tooltip/下拉三处都要在场, 否则筛选不到该类
+  assert.match(lab, /if \(s\["MA3连3日\(post\)"\]\) parts\.push\("MA3连3日\(post\)"\);/);
+  assert.match(lab, /"MA3连3日\(post\)": "该笔的 ETF 收盘价连续 3 个交易日低于各自 MA3/);
+  assert.match(lab, /"仅MA3连3日\(post\)"/);
+});
+
 test("产物缺 ma3 列时渲染层可见提示, 不静默假装过滤", () => {
   assert.match(lab, /回测产物未含 ma3 列，暂不生效/);
   assert.match(lab, /result\.__ma3Post = \{ on: _ma3PostOn, active: _ma3PostActive \}/);
@@ -114,9 +147,16 @@ test("lab.ma3post 公示存在且关键口径数字与首页 home.ma3filter 一�
     assert.ok(labNote.includes(fig), "lab 公示缺少关键数字 " + fig);
     assert.ok(homeNote.includes(fig), "首页公示缺少关键数字 " + fig);
   }
-  for (const phrase of ["先选 K 再剔除", "不补位", "默认关", "99 笔", "7 笔未平仓", "没有跨过 30%"]) {
+  for (const phrase of ["先选 K 再剔除", "不补位", "默认关", "99 笔", "7 笔未平仓", "距 30% 的高稳健门槛还差 1.3 个百分点"]) {
     assert.ok(labNote.includes(phrase), "lab 公示缺少口径说明: " + phrase);
   }
+  // P2-1(审查返工): 两处公示「门槛」措辞统一为同一句, 不再一处说「跨过门槛」另一处说「没跨过 30% 门槛」
+  const threshold = "跨过了「剔除 2026 后改善仍成立」这条稳健性门槛";
+  assert.ok(labNote.includes(threshold), "lab 公示缺少统一门槛措辞");
+  assert.ok(homeNote.includes(threshold), "首页公示缺少统一门槛措辞");
+  assert.ok(labNote.includes("距 30% 的高稳健门槛还差 1.3 个百分点"), "lab 公示缺 30% 差距如实标注");
+  assert.ok(homeNote.includes("距 30% 的高稳健门槛还差 1.3 个百分点"), "首页公示缺 30% 差距如实标注");
+  assert.ok(!labNote.includes("没有跨过 30%"), "lab 公示旧措辞应已统一");
   assert.ok(labNote.includes("app/ma3.py"), "公示须写明命中判定单源");
   assert.ok(labNote.includes("绝不用 T+1"), "公示须写明防前视口径");
 });
