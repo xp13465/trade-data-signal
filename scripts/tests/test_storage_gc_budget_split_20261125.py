@@ -8,7 +8,8 @@
 修复后契约:
   ① 超 cap / 超文件预算的**无引用**文件能本地回收(引用已证明 + 同锁域 + 清单先落盘);
   ② 新增写入仍被原 cap/8192/reserve 拦截(只保留集合本身超预算 ⇒ 照旧拒绝新写);
-  ③ 坏 JSON / 缺引用 / 文件身份变化 / 计划后新引用 / 锁冲突全部阻断删除;
+  ③ 坏 JSON / 缺引用(kept payload 缺失) / symlink / 文件身份变化 / 计划后新引用 / 锁冲突
+     全部阻断删除;
   ④ 清单落盘失败零删除。
 
 全部临时目录, 零网络零外发, 不触生产 data/。时点固定历史 epoch(L51)。
@@ -21,7 +22,7 @@ import json
 import pytest
 
 import r2_safe_write
-from _storage_mechfix_fixture_20261125 import BASE_MTIME, ProtectedTree, wid
+from _storage_mechfix_fixture_20261125 import BASE_MTIME, ProtectedTree, sha256_bytes, wid
 
 
 def _superseded(tree, n, key='nav_bucket/gc.json'):
@@ -116,6 +117,61 @@ def test_invalid_payload_reference_stops_whole_batch(tmp_path):
     for row in rows:
         assert tree.history_path(row['write_id']).exists()
         assert tree.payload_path(row['sha256']).exists()
+
+
+def test_missing_referenced_payload_stops_whole_batch(tmp_path):
+    """§6「缺引用整批停」: kept journal 引用的 payload 不在盘上 ⇒ 整批零删除(审查 P1-1)。"""
+    tree = ProtectedTree(tmp_path)
+    rows = _superseded(tree, 2)
+    # 当前 confirmed journal(顶层)引用的 payload 缺失
+    tree.payload_path(sha256_bytes(b'current')).unlink()
+    safe = r2_safe_write.SafeWriter(tree.api)
+
+    with pytest.raises(r2_safe_write.UnsafeWrite, match='payload reference missing'):
+        with safe.storage_lock():
+            safe.gc()
+    for row in rows:
+        assert tree.history_path(row['write_id']).exists()
+        assert tree.payload_path(row['sha256']).exists()
+    assert not (tree.root / 'gc-manifest.json').exists()
+
+
+def test_missing_nonconfirmed_payload_only_warns(tmp_path, capsys):
+    """口径锁定: nonconfirmed 锚点的 payload 缺失 = 协议内合法瞬态(prepare 先写引用后存 bytes /
+    崩溃残留), 只打可观测告警并照常回收无引用文件, 不整批炸 —— 否则一条崩溃残留会让此后每次
+    写入(store_many→gc)都失败 = 生产写入整体停摆。confirmed 行缺失才是硬失败(上一条用例)。"""
+    tree = ProtectedTree(tmp_path)
+    row = tree.add('nav_bucket/pending.json', b'never-stored', wid(600), state='unknown')
+    tree.payload_path(row['sha256']).unlink()
+    orphan = tree.root / 'payloads' / ('9' * 64)
+    orphan.write_bytes(b'orphan')
+    safe = r2_safe_write.SafeWriter(tree.api)
+
+    with safe.storage_lock():
+        safe.gc()
+
+    assert tree.history_path(row['write_id']).exists()   # 恢复锚点保留
+    assert not orphan.exists()                           # 无引用文件照常回收
+    err = capsys.readouterr().err
+    assert 'missing_nonconfirmed_payload' in err          # 缺失可观测, 不静默
+
+
+def test_symlink_in_tree_refuses_gc_with_zero_deletion(tmp_path):
+    """§6「symlink 整批停」: 树内任一 symlink ⇒ UnsafeWrite 零删除(审查 P1-2)。"""
+    tree = ProtectedTree(tmp_path)
+    rows = _superseded(tree, 2)
+    link = tree.root / 'payloads' / ('d' * 64)
+    link.symlink_to(tree.payload_path(rows[0]['sha256']))
+    safe = r2_safe_write.SafeWriter(tree.api)
+
+    with pytest.raises(r2_safe_write.UnsafeWrite, match='symlink'):
+        with safe.storage_lock():
+            safe.gc()
+    assert link.is_symlink()
+    for row in rows:
+        assert tree.history_path(row['write_id']).exists()
+        assert tree.payload_path(row['sha256']).exists()
+    assert not (tree.root / 'gc-manifest.json').exists()
 
 
 def test_file_identity_change_after_manifest_write_blocks_deletion(tmp_path, monkeypatch):

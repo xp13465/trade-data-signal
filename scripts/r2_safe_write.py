@@ -196,6 +196,36 @@ class SafeWriter:
                 'tolerated_unreadable': [str(p.relative_to(self.root)) for p in unreadable],
                 'action': 'cleanup-skipped-no-deletion'}, ensure_ascii=False), file=sys.stderr)
             return files
+        # 2026-11-25 审查返工 P1-1: kept 引用的 payload 存在性校验(方案 §4.2/§6「缺引用整批停」)。
+        # 旧实现只对坏 JSON/非法身份/缺 pair manifest 抛错; payload 缺失会被下面的 files(只列
+        # 现存文件)静默过滤, GC 照删其余 garbage, 引用集残缺却当完整处理。
+        # 口径按 row 状态区分(依据 = 本文件写入协议):
+        #   · confirmed 行 = 主对象已上传并回读确认(state 由 confirm() 在 payload 落盘之后才置
+        #     confirmed) ⇒ 其 sha256/old_sha256 payload 必然在盘; 缺失 = 缓存损坏/被外部删除
+        #     ⇒ 引用集不可信 ⇒ 任何 unlink 之前整批零删除(raise)。
+        #   · nonconfirmed 行(preparing/prepared/failed/unknown/plain) = 块2 保留的恢复锚点,
+        #     协议允许「先写引用后存 bytes」窗口与崩溃残留, payload 缺失是合法瞬态; 若也对它们
+        #     硬失败, 一条崩溃残留会让此后每次写入(store_many→gc)都炸 = 生产写入整体停摆。
+        #     故只打可观测告警并照常回收无引用文件(缺的文件本不在盘上, 回收不损任何现存引用)。
+        must_exist = set()
+        soft_missing = set()
+        for row in rows:
+            for digest in (row.get('sha256'), row.get('old_sha256')):
+                if digest and re.fullmatch('[a-f0-9]{64}', digest):
+                    path = self.root / 'payloads' / digest
+                    (must_exist if row.get('state') == 'confirmed' else soft_missing).add(path)
+        missing = sorted(str(p.relative_to(self.root)) for p in must_exist if not p.is_file())
+        if missing:
+            raise UnsafeWrite('protected payload reference missing: ' + ', '.join(missing[:5])
+                              + '; unresolved anchors retained')
+        soft_missing = sorted(str(p.relative_to(self.root))
+                              for p in soft_missing - must_exist if not p.is_file())
+        if soft_missing:
+            print('R2_PROTECTED_GC: ' + json.dumps({
+                'missing_nonconfirmed_payload': soft_missing[:5],
+                'missing_nonconfirmed_payload_count': len(soft_missing),
+                'action': 'unresolved-anchor-payload-absent-reclaim-unreferenced-only'},
+                ensure_ascii=False), file=sys.stderr)
         garbage = [p for p in files if p not in keep]
         # 2026-11-25 块3(方案 §3.3): 回收预算与新增写入配额拆开。
         # 旧行为用 check_capacity(全部旧文件) 在 unlink 前预检, C 根 9286 文件 > 8192 且
@@ -205,6 +235,8 @@ class SafeWriter:
         # storage_lock 内); ③清单安全落盘(durable 先于任何 unlink, 落盘失败抛错、零删除)。
         # 新增写入配额仍由 store_many 在回收后按「保留文件 + 新 writes」跑原 check_capacity
         # 的 cap/8192/reserve 拦截 —— 仅保留集合本身超预算时照旧拒绝新写, 不调大 cap/降 reserve。
+        # 注: 配额 env 的合法性校验(cap 必须为正、reserve 非负)随 check_capacity 一起只在
+        # 新增写入路径执行; 回收路径不依赖配额配置(引用已证明即可回收), 非法 env 只会拦新写。
         cap = int(os.environ.get('R2_PROTECTED_MAX_BYTES', str(2 * 1024**3)))
         planned_used = sum(p.stat().st_size + 4096 for p in files)
         if cap > 0 and (planned_used > cap or len(files) + 1 > PROTECTED_FILE_BUDGET):
@@ -477,6 +509,9 @@ class SafeWriter:
         row['headers'] = {'if-match': old[1]} if old else {'if-none-match': '*'}
         row['headers']['x-amz-meta-write-id'] = row['write_id']
         # preparing 未发主对象请求；先持久引用，再存固定 bytes，GC 才能安全并发。
+        # 「先写引用(本行 state=preparing)、后存 bytes」是协议内合法窗口: GC 在此期间看到该
+        # payload 缺失, 由 gc() 里「只对 confirmed 行做存在性硬校验、nonconfirmed 行告警放行」
+        # 的口径覆盖(见 gc 注释), 不需要额外的瞬态豁免集。
         self.save(row)
         self.store(self.root / 'payloads' / digest, payload)
         if old:
