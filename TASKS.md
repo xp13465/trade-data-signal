@@ -8,6 +8,8 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
+> 🗂 **2026-11-26 云存储治理三阶段收口(已完成,移完成侧)** — 三机制修复 + A/B/C 三阶段全部收口,累计释放 ≈14.7GiB(云盘 88%→68%);报告 7 份归档 `docs/ops/storage-*`,收口摘要见 NOTES.md 同名段,完成登记见 [docs/tasks-done-list.md](docs/tasks-done-list.md)「2026-11-26 会话移入」。远期待办两条:**#383** C 阶段根 `sentiment` 库退役(前置=21:15 pick_db 读者改造)、**#384** REPO 路径解析不一致立项(待用户拍板)。
+
 > 🧭 **v3本轮收口(2026-11-10，源95be与#382兼容验收完成，历史/自然轮OPEN)——最新入口**
 > **恢复入口**：ACTIVE packet `alert-takeover-active-20261110-v1` / report `active-takeover-checkpoint-v1.json` SHA `f0a5ee549c65f3f07e846f893f0b1a234961fadd948a8b82b4dc6c3152e8ffe1`；integrity verified/queued/ACK null，父确认home同字节副本。恢复先读，避免重复merge4d/并发改docs；终版将新id supersede，不把queued称收到/复核。
 > **源发布/适用CI**：main/云CODE同95be33a52edd1d29ba0a0588b9e20e153e618785，标准main-merge exit0、Quality自查success；精确头Linux42765507696总4275=4268通过+7skip、0失败错误。main Quality42766606335/Ops42766606020/Pages42766606019三条实际success。Worker此次push paths不匹配、代码/配置blob未变，不适用且无需重部署，沿用ec307既有成功版本。MAIN_MERGE_SKIP_PYTEST=1只以同头完整Linux替代本地重复全量，其余门禁启用。

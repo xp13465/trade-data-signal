@@ -8652,3 +8652,28 @@ Boyle正式runtime报告证当前主/ext四URL由curl200/hash追平，74/red是�
 NAV12格/三指数3行恢复与Turing24receipt窄postcheck PASS不外推public自然链或非目标基金正样本（UNKNOWN_NOT_SAMPLED）。ETF/136/七历史键/#373/D1自然轮/74red/锁持有者与960publish继续按边界OPEN；#375网关504症状已知但内部原因未知，父观察处置不叠外层retry、不改权限secret，原生3总尝试耗尽真实FAIL保留。#374只D1、#382独立，误号仅addendum；所有v1/v2原件不改。
 
 文档分支按父授权仅ff到95be，原12材料先备份且SHA完整保留；本次仅允许文档范围单commit交父，不push/mainmerge，不重跑源码全量。ACTIVE checkpoint queued/ACKnull、13旧packet无ACK均不冒称签收；终版新id由父supersede。481件私有tar与56件固定持久证据分开，后续verifier/终版由父再补，不公开原始正文。
+
+## 2026-11-26 云存储治理三阶段收口
+
+### 一、做了什么
+- **三机制修复合 main `40a2da02f`**:阻断 protected 跨树复制、保守 hold 未确认行、GC 回收预算拆分;返工补齐「缺引用整批停」(confirmed 行 payload 存在性校验)+ symlink 反例用例。
+- **A 阶段**:释放 **8.47GiB**(8045 项)。
+- **B 阶段**:释放 **3.22GiB**(三旧库归档到 R2,回读验证通过后才退役)。
+- **C 阶段**:释放 **3.00GiB**(`etf` / `public_fund` 库退役;`sentiment` 因 21:15 的 pick_db 读者仍在用而冻结未动;`stock_daily` 两份保留)。
+- **合计 ≈14.7GiB,云盘占用 88% → 68%**。
+
+### 二、报告锚点(全在 docs/ops/)
+| 报告 | 内容 |
+|---|---|
+| `storage-cleanup-plan-20261124.md` | 执行方案(全部动作的依据) |
+| `storage-recheck-20261125.md` | 前置复核 |
+| `storage-mechfix-20261125.md` | 三机制修复报告 |
+| `storage-mechfix-review-20261125.md` | 三机制修复独立审查 |
+| `storage-phaseA-report-20261125.md` | A 阶段 |
+| `storage-phaseB-report-20261125.md` | B 阶段 |
+| `storage-phaseC-report-20261126.md` | C 阶段 |
+
+### 三、残余风险与观察项
+1. **C 阶段根目录 `sentiment` 库退役未做**:前置 = 21:15 的 pick_db 读者改造(远期待办 #383)。
+2. **日更写入目标已核实**:16:20 / 17:00 / 20:07 三个时点的日更任务写的是 D 树,不是本次退役的旧库(已逐时点核实)。
+3. **sidecar(附属文件)误删后的推送情况观察中**。
