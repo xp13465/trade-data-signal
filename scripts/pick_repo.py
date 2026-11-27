@@ -9,8 +9,10 @@
 
 本模块统一「部署源树/上传源树」repo 解析, 所有写部署源树 + R2 上传 + staticdata 同步入口统一走它:
   - pick_repo():  部署源树(trade-data, launchd 主数据/上传源树), 写 static-site/data 的目标
+  - data_root():  数据根(读侧唯一权威入口, #384): env REPO(读侧守卫) → 布局派生
   - sentiment_db(): 部署数据树的 sentiment.db 单源(<repo>/data/sentiment.db), 供各读者统一调用
-  - pick_git_repo(): trade git 仓库(deploy.sh commit/push 目标)
+  - code_root():  代码根(env GIT_REPO → 脚本所在仓库; #384 从 pick_git_repo 抽名)
+  - pick_git_repo(): trade git 仓库(deploy.sh commit/push 目标, 兼容保留 = code_root())
   - force_env():  env 强制覆盖 REPO/GIT_REPO(不用 setdefault), 确保子进程解析到同一 repo
   - guard_deploy_source_tree(): 写源树守卫——目标必须 = trade-data(上传源树), 误写 trade(git 仓)
     即报错(§23.11 发现问题绝不静默, 立即阻断, 不静默继续)。
@@ -28,11 +30,50 @@ import subprocess
 import sys
 from pathlib import Path
 
-# 部署源树(上传源树, 非 git 仓): launchd/update_all 写主数据的位置
-# 云上单仓(REPO=GIT_REPO)下用 MAIN_REPO env 覆盖为单仓路径; 默认 macOS 本机 trade-data。
-MAIN_REPO = Path(os.environ.get("MAIN_REPO", "/Users/linhuichen/code/trade-data"))
-# git 仓库: deploy.sh commit/push 目标
-GIT_REPO_DEFAULT = Path(__file__).resolve().parent.parent  # trade/scripts/pick_repo.py -> trade
+# ── 两个根(#384 批1, 2026-11-27) ──────────────────────────────────────────────
+# 代码根 CODE_ROOT = 本仓物理路径(resolve, 恒折叠 symlink);
+# INVOKED_ROOT = 实际被调用的路径(absolute, 不折叠 —— 经 <数据根>/scripts symlink 调用时 = 数据根)。
+# 两者对应 bash scripts/lib/repo_paths.sh 的 _real_dir / _raw_dir, 派生算法严格同构(§1.3)。
+CODE_ROOT = Path(__file__).resolve().parent.parent      # trade/scripts/pick_repo.py -> trade
+INVOKED_ROOT = Path(__file__).absolute().parent.parent  # 经 trade-data/scripts symlink 调用 -> trade-data
+# git 仓库: deploy.sh commit/push 目标(兼容旧名; candidate_repos 消费, 冻结不动)
+GIT_REPO_DEFAULT = CODE_ROOT
+
+
+def _derive_data_root(code_root: Path | str, invoked_root: Path | str) -> Path:
+    """按布局确定性推导数据根(#384 §1.3, 与 scripts/lib/repo_paths.sh:43-76 严格同构)。
+
+    候选 A: 经 <数据根>/scripts symlink 调用 —— 前提 = scripts 目录**本身**是 symlink
+            (#208 修正: 祖先 symlink 不算, 否则误判为 A 静默推出代码根);
+    候选 B: 代码根的兄弟目录 trade-data 存在 → 该兄弟目录;
+    回退:   代码根本身(真单仓)。
+    """
+    code = Path(code_root)
+    invoked = Path(invoked_root)  # 不 resolve: A 候选靠 absolute 路径与 scripts symlink 识别
+    if (invoked / "scripts").is_symlink() and invoked.resolve() != code.resolve():
+        return invoked
+    sibling = code.parent / "trade-data"
+    if sibling.is_dir():
+        return sibling
+    return code
+
+
+def code_root() -> Path:
+    """代码根: env GIT_REPO 有效目录优先, 否则脚本所在仓库(原 pick_git_repo body)。"""
+    env_g = os.environ.get("GIT_REPO", "").strip()
+    if env_g:
+        p = Path(env_g).resolve()
+        if p.is_dir():
+            return p
+    return CODE_ROOT.resolve()
+
+
+_DERIVED_DATA_ROOT = _derive_data_root(CODE_ROOT, INVOKED_ROOT)
+
+# 部署源树(上传源树, 非 git 仓): launchd/update_all 写主数据的位置。
+# #384 批1: 默认由布局派生(原为写死 mac 路径 —— Linux 无 env 时该路径不存在, candidate_repos
+# 退化到代码仓陈旧库); env MAIN_REPO 仍最高优先。
+MAIN_REPO = Path(os.environ.get("MAIN_REPO", "").strip() or str(_DERIVED_DATA_ROOT))
 
 
 def candidate_repos() -> list[Path]:
@@ -52,13 +93,8 @@ def candidate_repos() -> list[Path]:
 
 
 def pick_git_repo() -> Path:
-    """返回 trade git 仓库(env GIT_REPO 优先, 否则脚本所在仓库)。"""
-    env_g = os.environ.get("GIT_REPO", "").strip()
-    if env_g:
-        p = Path(env_g).resolve()
-        if p.is_dir():
-            return p
-    return GIT_REPO_DEFAULT.resolve()
+    """返回 trade git 仓库(env GIT_REPO 优先, 否则脚本所在仓库)。兼容保留, 委托 code_root()。"""
+    return code_root()
 
 
 def pick_repo() -> Path:
@@ -88,16 +124,36 @@ def pick_repo() -> Path:
     return best
 
 
-def sentiment_db(repo: Path | None = None) -> Path:
-    """部署数据树单源 sentiment.db 路径(2026-11-27 #383)。
+def data_root() -> Path:
+    """数据根(读侧唯一权威入口, #384 §1.3/§1.4, 2026-11-27)。
 
-    返回 (repo or pick_repo()) / "data" / "sentiment.db" —— 只认部署数据树, 不再遍历候选仓
-    逐个打开 MAX(date) 挑最新。根因: candidate_repos() 把 git 仓(GIT_REPO/GIT_REPO_DEFAULT)
-    也当数据候选, 云上 C(trade-data-signal)是 10-28 起冻结的陈旧镜像, 每日被各读者
-    只读打开(刷新 -shm); 且 C 与 mac 镜像同旧, 镜像兜底=喂 1 个月旧数据。
+    与写侧 pick_repo() 的分工: pick_repo() 是「写/上传哪棵树」的既有契约(按 overview 日期选,
+    冻结不动); data_root() 是「读哪棵数据树」的确定性推导 —— 不猜日期、不把代码仓当数据候选。
+
+    env REPO 有效目录 → 经读侧守卫(复用 guard_deploy_source_tree 同一判据)后采用;
+    否则按布局派生(候选 A symlink / 候选 B 兄弟 trade-data / 单仓回退代码根)。
+
+    §1.4 读侧守卫: env REPO 解析到代码仓、而独立部署树存在 → SystemExit(响亮失败)。
+    为什么不在错配时 warn 放行: 放行仍会读到代码仓里的陈旧库(= 静默用坏数据, §23.11)。
+    """
+    env_repo = os.environ.get("REPO", "").strip()
+    if env_repo:
+        p = Path(env_repo)
+        if p.is_dir():
+            return guard_deploy_source_tree(p)
+    return _derive_data_root(CODE_ROOT, INVOKED_ROOT)
+
+
+def sentiment_db(repo: Path | None = None) -> Path:
+    """部署数据树单源 sentiment.db 路径(2026-11-27 #383; 默认根 #384 改走 data_root())。
+
+    返回 (repo 显式指定 或 data_root()) / "data" / "sentiment.db" —— 只认部署数据树,
+    不再遍历候选仓逐个打开 MAX(date) 挑最新。根因: candidate_repos() 把 git 仓
+    (GIT_REPO/GIT_REPO_DEFAULT)也当数据候选, 云上 C(trade-data-signal)是 10-28 起冻结的
+    陈旧镜像, 每日被各读者只读打开(刷新 -shm); 且 C 与 mac 镜像同旧, 镜像兜底=喂 1 个月旧数据。
     库缺失/损坏时返回路径本身, 由调用方 sqlite3.connect(mode=ro) 响亮报错(不再静默回退旧库)。
     """
-    return (repo or pick_repo()) / "data" / "sentiment.db"
+    return (repo if repo is not None else data_root()) / "data" / "sentiment.db"
 
 
 def _read_overview_date(ov: Path) -> str:

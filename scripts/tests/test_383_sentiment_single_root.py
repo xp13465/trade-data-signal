@@ -54,15 +54,15 @@ def test_excludes_git_repo_even_if_newer(tmp_path, monkeypatch):
     assert got != git_db
 
 
-def test_no_env_falls_back_to_pick_repo(tmp_path, monkeypatch):
-    """用例 2: 无 env 时跟随 pick_repo() 选中的部署数据树。"""
+def test_no_env_falls_back_to_data_root(tmp_path, monkeypatch):
+    """用例 2: 无显式 repo 时跟随数据根(默认入口 = data_root(), #384 批1 起)。"""
     chosen = tmp_path / "c"
     chosen.mkdir()
 
     monkeypatch.delenv("REPO", raising=False)
     monkeypatch.delenv("GIT_REPO", raising=False)
     monkeypatch.delenv("MAIN_REPO", raising=False)
-    monkeypatch.setattr(pick_repo, "pick_repo", lambda: chosen)
+    monkeypatch.setattr(pick_repo, "data_root", lambda: chosen)
 
     assert pick_repo.sentiment_db() == chosen / "data" / "sentiment.db"
 
