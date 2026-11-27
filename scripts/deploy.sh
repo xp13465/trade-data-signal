@@ -741,7 +741,8 @@ if [ "$REPO" != "$GIT_REPO" ]; then
   # →REPO/data, 数据仓侧先命中), 种子语义不破坏。
   # 2026-10-28 磁盘治理(本次): 再排除全部 *.db / *.db-wal / *.db-shm —— 代码仓(GIT_REPO)的
   # data/*.db 在云上零读取方(运行期所有 unit 都带 REPO=trade-data,脚本解析到的库=主库;
-  # 镜像兜底 gen_daily_brief.py pick_db/aggregate_shadow.py _pick_db 都容忍文件不存在),
+  # sentiment.db 读者已在 2026-11-27 #383 收敛为 pick_repo.sentiment_db 部署数据树单源,
+  # 不再遍历候选仓读取代码仓镜像;库缺失时调用方 sqlite3(mode=ro) 响亮报错),
   # 却每次部署被全量复制一轮(今日实测待传 491MB,public_fund 刷新日最多 3.5G 写放大)。
   # 停掉后 DB 唯一副本 = 主库 data/(异地靠 R2 signal-backup2 日/周/月备份),
   # 代码仓只保留 JSON/parquet(如 daily-k.parquet / holdings_overlap_cache.json)镜像用途。

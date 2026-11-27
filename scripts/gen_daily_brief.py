@@ -105,7 +105,7 @@ STRONG_INSTRUCTION_RE = re.compile(
 # (2026-08-18 断点根因: fetch_news/项6 写错源树 → deploy rsync 反覆盖线上, §23.11 不静默)。
 # scripts/ 已在上面 L64 sys.path.insert, 直接 import。
 from pick_repo import (  # noqa: E402
-    candidate_repos, pick_repo, pick_git_repo, force_env, guard_deploy_source_tree,
+    sentiment_db, pick_repo, pick_git_repo, force_env, guard_deploy_source_tree,
 )
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
@@ -125,24 +125,11 @@ except Exception:  # noqa: BLE001
 
 
 def pick_db(repo: Path) -> Path:
-    """挑 daily_metric MAX(date) 最新的 sentiment.db(主库优先,镜像兜底;同日期优先 trade-data)。"""
-    best, best_date = None, ""
-    for r in candidate_repos():
-        db = r / "data" / "sentiment.db"
-        if not db.exists():
-            continue
-        m = ""
-        try:
-            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=10)
-            cur = conn.cursor()
-            cur.execute("SELECT MAX(date) FROM daily_metric")
-            m = (cur.fetchone() or [""])[0] or ""
-            conn.close()
-        except Exception:
-            m = ""
-        if m > best_date:
-            best_date, best = m, db
-    return best or repo / "data" / "sentiment.db"
+    """sentiment.db = 部署数据树单源(2026-11-27 #383 收敛)。
+
+    签名保留(3 个调用点兼容);实现委托 pick_repo.sentiment_db, 不再遍历候选仓打开
+    git 仓侧的陈旧镜像库(云上 C 10-28 起冻结, 每日被只读打开刷新 -shm)。"""
+    return sentiment_db(repo)
 
 
 def load_env() -> None:

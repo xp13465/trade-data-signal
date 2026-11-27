@@ -17,7 +17,6 @@
 """
 import argparse
 import json
-import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -25,50 +24,12 @@ from pathlib import Path
 # 与 gen_daily_brief 同口径(防口径分叉):HIT_THRESHOLD=0.5 涨跌幅>0.5% 才 up/down 否则 flat
 HIT_THRESHOLD = 0.5
 SHADOW_FILE = "brief_shadow.json"
-# 与 gen_daily_brief.pick_db 同口径帮: 挑 daily_metric 最新的 sentiment.db
-# (主库优先,镜像兜底), 与影子记录写入同库同源。
+# sentiment.db 与影子记录同库同源: 统一走 pick_repo.sentiment_db 部署数据树单源(2026-11-27 #383)。
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pick_repo import pick_repo  # noqa: E402
+from pick_repo import pick_repo, sentiment_db  # noqa: E402
 from shadow_track_md import update_shadow_track_md  # noqa: E402  (维护 docs/ai-predict-shadow-track.md)
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
-
-
-def _pick_db() -> Path:
-    """与 gen_daily_brief.pick_db 同口径挑最新 sentiment.db(主库→镜像兜底)。"""
-    repo = pick_repo()
-    best, best_date = None, ""
-    for r in _candidate_repos():
-        db = r / "data" / "sentiment.db"
-        if not db.exists():
-            continue
-        m = ""
-        try:
-            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=10)
-            m = (conn.execute("SELECT MAX(date) FROM daily_metric").fetchone() or [""])[0] or ""
-            conn.close()
-        except Exception:
-            m = ""
-        if m > best_date:
-            best_date, best = m, db
-    return best or repo / "data" / "sentiment.db"
-
-
-def _candidate_repos() -> list[Path]:
-    """与 pick_repo.candidate_repos 并列: trade-data / trade / 环境 REPO/GIT_REPO。"""
-    out: list[Path] = []
-    for env in ("REPO", "GIT_REPO"):
-        if os.environ.get(env):
-            out.append(Path(os.environ[env]).resolve())
-    out += [
-        Path("/Users/linhuichen/code/trade-data"),
-        Path("/Users/linhuichen/code/trade"),
-    ]
-    uniq: list[Path] = []
-    for p in out:
-        if p not in uniq:
-            uniq.append(p)
-    return uniq
 
 
 def _load_sh_pct_map(db_path: Path) -> dict:
@@ -198,7 +159,7 @@ def main() -> int:
         return 0
 
     rows = _load_shadow(shadow_path)
-    db_path = _pick_db()
+    db_path = sentiment_db(repo)
     n_rows = len(rows)
 
     if not args.no_reconcile:

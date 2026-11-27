@@ -71,7 +71,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pick_repo import pick_repo, candidate_repos  # noqa: E402
+from pick_repo import pick_repo, sentiment_db  # noqa: E402
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 LEDGER_FILE = "brief_ledger.json"
@@ -105,25 +105,10 @@ def save_ledger(repo: Path, rows: list[dict]) -> None:
 
 
 def _pick_db(explicit: str = "") -> Path:
-    """挑 daily_metric MAX(date) 最新的 sentiment.db(REPO env → trade-data → trade),
-    与 gen_daily_brief.pick_db 同口径;显式 --db 优先(自验/回放用)。"""
+    """sentiment.db = 部署数据树单源(2026-11-27 #383);显式 --db 优先(自验/回放用)。"""
     if explicit:
         return Path(explicit)
-    best, best_date = None, ""
-    for r in candidate_repos():
-        db = r / "data" / "sentiment.db"
-        if not db.exists():
-            continue
-        m = ""
-        try:
-            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=10)
-            m = (conn.execute("SELECT MAX(date) FROM daily_metric").fetchone() or [""])[0] or ""
-            conn.close()
-        except Exception:
-            m = ""
-        if m > best_date:
-            best_date, best = m, db
-    return best or Path("/Users/linhuichen/code/trade-data/data/sentiment.db")
+    return sentiment_db()
 
 
 def _actual_direction(pct) -> str | None:

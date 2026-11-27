@@ -54,6 +54,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent  # scripts/ 的父目录 = trade/
 # 把 repo 根 + scripts/ 都进 sys.path，import gen_daily_brief（gen 内自己 sys.path.insert ../scripts）
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pick_repo import sentiment_db  # noqa: E402  (sentiment.db = 部署数据树单源, 2026-11-27 #383)
 
 
 def _pick_repo() -> Path:
@@ -86,7 +88,7 @@ def main() -> int:
     cfg["review_enabled"] = False
     repo = _pick_repo()
     static_dir = repo / "static-site" / "data"
-    db_path = gen_daily_brief.pick_db(repo)
+    db_path = sentiment_db(repo)
     date = args.date
 
     def log(msg: str) -> None:

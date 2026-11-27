@@ -36,7 +36,7 @@ ab_direction_anchor.py - 方向锚「开锚 vs 关锚」严格 7 日线上 A/B h
 HIT_THRESHOLD/_actual_direction。
 
 输入依赖
-- sentiment.db(futures_position/daily_metric/index_daily,只读 ro,由 pick_db 按 date 取最新)
+- sentiment.db(futures_position/daily_metric/index_daily,只读 ro,由 sentiment_db 走部署数据树单源)
 - static-site/data 当日 JSON 快照(load_data,与 gen_daily_brief 同构)
 - daily_brief_history.json(生产通道同日 direction 引用,只读)
 - deepseek API key(.env,DEEPSEEK_API_KEY),provider 走 config/daily_brief.yaml
@@ -86,7 +86,7 @@ AB_OUT_FILE = "ab_direction_anchor_7d.json"
 # 生产 history(只读引用生产方向)
 HISTORY_FILE = "daily_brief_history.json"
 
-from pick_repo import pick_repo, pick_git_repo  # noqa: E402
+from pick_repo import pick_repo, pick_git_repo, sentiment_db  # noqa: E402
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 
@@ -95,12 +95,6 @@ def _read_json(path: Path) -> dict | list | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
-
-
-def _pick_db(repo: Path) -> Path:
-    """与 gen_daily_brief.pick_db 同口径挑最新 sentiment.db(主库→镜像兜底)。"""
-    import gen_daily_brief
-    return gen_daily_brief.pick_db(repo)
 
 
 def _load_sh_pct_map(db_path: Path) -> dict:
@@ -266,7 +260,7 @@ def _build_ref(cfg: dict, date: str, repo: Path):
     cfg["direction_anchor_enabled"] = False  # 关锚唯一变量
     cfg["review_enabled"] = False            # 参考通道关 review 注入,排除已知偏差干扰
     static_dir = repo / "static-site" / "data"
-    db_path = _pick_db(repo)
+    db_path = sentiment_db(repo)
     data = gen_daily_brief.load_data(static_dir, db_path, date)
     messages = gen_daily_brief.build_prompt(date, data, cfg, known_bias="")
     return messages, data, db_path
@@ -298,7 +292,7 @@ def _main() -> int:
     # ── 对账聚算模式 ──────────────────────────────────────────────────
     if args.reconcile:
         records = _load_records(rec_path)
-        db_path = _pick_db(repo)
+        db_path = sentiment_db(repo)
         records, n_new = _reconcile_records(records, db_path)
         if n_new:
             atomic_write_json(rec_path, records, indent=2)

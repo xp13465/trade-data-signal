@@ -9,6 +9,7 @@
 
 本模块统一「部署源树/上传源树」repo 解析, 所有写部署源树 + R2 上传 + staticdata 同步入口统一走它:
   - pick_repo():  部署源树(trade-data, launchd 主数据/上传源树), 写 static-site/data 的目标
+  - sentiment_db(): 部署数据树的 sentiment.db 单源(<repo>/data/sentiment.db), 供各读者统一调用
   - pick_git_repo(): trade git 仓库(deploy.sh commit/push 目标)
   - force_env():  env 强制覆盖 REPO/GIT_REPO(不用 setdefault), 确保子进程解析到同一 repo
   - guard_deploy_source_tree(): 写源树守卫——目标必须 = trade-data(上传源树), 误写 trade(git 仓)
@@ -85,6 +86,18 @@ def pick_repo() -> Path:
     if best is None:
         best = candidate_repos()[0]
     return best
+
+
+def sentiment_db(repo: Path | None = None) -> Path:
+    """部署数据树单源 sentiment.db 路径(2026-11-27 #383)。
+
+    返回 (repo or pick_repo()) / "data" / "sentiment.db" —— 只认部署数据树, 不再遍历候选仓
+    逐个打开 MAX(date) 挑最新。根因: candidate_repos() 把 git 仓(GIT_REPO/GIT_REPO_DEFAULT)
+    也当数据候选, 云上 C(trade-data-signal)是 10-28 起冻结的陈旧镜像, 每日被各读者
+    只读打开(刷新 -shm); 且 C 与 mac 镜像同旧, 镜像兜底=喂 1 个月旧数据。
+    库缺失/损坏时返回路径本身, 由调用方 sqlite3.connect(mode=ro) 响亮报错(不再静默回退旧库)。
+    """
+    return (repo or pick_repo()) / "data" / "sentiment.db"
 
 
 def _read_overview_date(ov: Path) -> str:
