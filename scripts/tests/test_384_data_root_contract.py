@@ -27,9 +27,14 @@ import pick_repo  # noqa: E402
 
 
 def _mk_dual_tree(tmp_path: Path) -> tuple[Path, Path]:
-    """造双树布局: C(代码根) + D(数据根), 且 D/scripts -> C/scripts(symlink)。"""
+    """造双树布局: C(代码根) + D(数据根), 且 D/scripts -> C/scripts(symlink)。
+
+    D 目录名刻意**不叫 trade-data**(审查 F2 判别力修正):候选 B 只认
+    `代码根.parent / "trade-data"`,若 D 同名则候选 A 与 B 同解,把 A 分支改坏
+    (变异)后 B 仍能推出同一路径,用例不会判红 = 判别力缺口。
+    """
     code = tmp_path / "code" / "trade-data-signal"
-    data = tmp_path / "code" / "trade-data"
+    data = tmp_path / "code" / "deploy-data-tree"
     (code / "scripts").mkdir(parents=True)
     (code / "scripts" / "pick_repo.py").write_text("", encoding="utf-8")
     data.mkdir(parents=True)

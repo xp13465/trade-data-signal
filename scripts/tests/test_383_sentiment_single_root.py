@@ -4,11 +4,12 @@
 背景: pick_db 家族(gen_daily_brief / brief_ledger / aggregate_shadow / ab_direction_anchor /
 replay_direction_anchor)原先遍历 candidate_repos() 逐个打开 data/sentiment.db 读
 MAX(date) 挑最新, 把 git 仓侧陈旧镜像(云上 C 10-28 起冻结)也当数据源, 每日被只读打开。
-现收敛为 pick_repo.sentiment_db() 单源 = (repo or pick_repo()) / "data" / "sentiment.db"。
+现收敛为 pick_repo.sentiment_db() 单源 = (repo or data_root()) / "data" / "sentiment.db"
+(#384 批1 起默认根由 pick_repo() 改为 data_root())。
 
 本文件固化两条证据用例(调研 /tmp/repo-paths-research-20261127.md §3):
   1. 排除代码仓: env 的代码仓侧库 MAX(date) 更新也不得被选中;
-  2. 无 env 回退: 跟随 pick_repo() 的部署数据树。
+  2. 无 env 回退: 跟随 data_root() 的数据根。
 
 零网络、零生产 DB 写(全部落在 pytest tmp_path)。
 """
