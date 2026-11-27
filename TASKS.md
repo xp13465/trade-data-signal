@@ -8,6 +8,8 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
+> 🗂 **2026-11-27 今日完成(#383 全链 + #384 批 1,归档收尾)** — ①**#383 全链已完成**:调研 → 单源改造 → 独立审查 → 合 main → 21:27 读者消失验证 PASS → 备份验活(R2 key `c-root-sentiment-db-20261127.tar.gz`)→ C 根旧库退役,收 232MB;②**#384 批 1 已合 main(`2ab2e880b`)**:数据根单源(`data_root()`/`code_root()`)+ 读侧守卫 + 10 用例 + 独立审查 PASS + 小修,CI #1116 绿;批 2(app/db.py 阶梯收口)~批 5 排期中(设计见 `docs/ops/repo-unify-design-20261127.md`);③上游 429 全天反复拉锯,全部断点续跑扛过;④14:05 设计阶段验证守卫未打桩真发一次 critical 告警(L48 新实例)已落档 `docs/ops/l48-stub-violation-20261127.md`。今日 9 份报告归档 `docs/ops/*-20261127.md`。
+
 > 🗂 **2026-11-26 云存储治理三阶段收口(已完成,移完成侧)** — 三机制修复 + A/B/C 三阶段全部收口,累计释放 ≈14.7GiB(云盘 88%→68%);报告 7 份归档 `docs/ops/storage-*`,收口摘要见 NOTES.md 同名段,完成登记见 [docs/tasks-done-list.md](docs/tasks-done-list.md)「2026-11-26 会话移入」。远期待办两条:**#383** C 阶段根 `sentiment` 库退役(前置=21:15 pick_db 读者改造)、**#384** REPO 路径解析不一致立项(待用户拍板)。
 
 > 🧭 **v3本轮收口(2026-11-10，源95be与#382兼容验收完成，历史/自然轮OPEN)——最新入口**
