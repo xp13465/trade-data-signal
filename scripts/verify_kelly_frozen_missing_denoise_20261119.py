@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""冻结缺失降噪方案 B1 的端到端 dry 验证(不真发通知, 不落归档)。
+"""冻结缺失降噪方案 B1 的端到端 dry 验证(不真发通知, 不落归档, 不写生产状态)。
 
 做法: 读一份冻结缺失诊断归档(--archive), 喂给 signal_kelly_backtest._alert_frozen_missing,
 把「写归档」与「发告警」两处出口都打桩(monkeypatch), 只断言分类结果:
@@ -9,6 +9,9 @@
 并断言登记键不出现在告警正文(防「登记了却仍报」/「留报键被静默吞掉」)。
 
 为何必须打桩(§18 L48): 本脚本会走真实告警判定链, 不打桩就会给用户发真邮件/飞书。
+状态文件隔离(2026-11-28 M1): 告警判定会读写 `SIGNAL_KELLY_FROZEN_MISSING_SEEN_STATE`;
+脚本用临时文件覆盖该 env, 绝不写仓库 `data/alerts/kelly_frozen_missing_seen.json`
+(否则在生产树跑一次就把 7 个留报键预静音, 抵消降噪回退)。
 
 基线期望(2026-11-19 归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51, 121 条 filtered_missing;
 config 为 2026-11-20 补登记 13 键后的 122 条版本):
@@ -25,7 +28,9 @@ config 为 2026-11-20 补登记 13 键后的 122 条版本):
 """
 import argparse
 import json
+import os
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -65,7 +70,8 @@ def main():
 
     def fake_send_alert(*a, **kw):
         sent.append((a, kw))
-        return types.SimpleNamespace(rc=0, route="dry")
+        # 真实投递成功形态(status=sent 才算已报; rc 单独不足以判定, 见 notify_hook B1)
+        return types.SimpleNamespace(rc=0, route="dry", status="sent")
 
     def fake_archive(new_events, accepted_hit, context=None):
         archived.append((sorted(new_events), sorted(accepted_hit)))
@@ -75,7 +81,20 @@ def main():
     import app.notify_hook  # noqa: E402
     app.notify_hook.send_alert = fake_send_alert
 
-    sk._alert_frozen_missing(events)
+    # M1: 状态文件只写临时路径, 不写仓库生产状态(防把 7 个留报键预静音)
+    repo_state_existed = os.path.exists(sk.FROZEN_MISSING_SEEN_PATH)
+    fd, state_path = tempfile.mkstemp(prefix="kelly_frozen_missing_state_", suffix=".json")
+    os.close(fd)
+    os.unlink(state_path)  # 首跑形态 = 状态缺失
+    prev_state_env = os.environ.get(sk.FROZEN_MISSING_SEEN_ENV)
+    os.environ[sk.FROZEN_MISSING_SEEN_ENV] = state_path
+    try:
+        sk._alert_frozen_missing(events)
+    finally:
+        if prev_state_env is None:
+            os.environ.pop(sk.FROZEN_MISSING_SEEN_ENV, None)
+        else:
+            os.environ[sk.FROZEN_MISSING_SEEN_ENV] = prev_state_env
 
     assert len(archived) == 1, "归档应恰好 1 次, 实 %d" % len(archived)
     new_events, accepted_hit = archived[0]
@@ -101,9 +120,19 @@ def main():
     for k in accepted_keys:
         assert k not in body, "登记键泄漏进告警: " + k
 
+    # M1 证据: 状态只落临时隔离路径; 仓库生产状态文件未被创建/改动
+    assert os.path.exists(state_path), "状态未写临时隔离路径(应写一次)"
+    assert os.path.exists(sk.FROZEN_MISSING_SEEN_PATH) == repo_state_existed, \
+        "生产状态文件被本脚本创建/改动: %s" % sk.FROZEN_MISSING_SEEN_PATH
+    print("state_file(isolated):", state_path)
+
     print("留报键:")
     for k in new_keys:
         print("  ", k)
+    try:
+        os.unlink(state_path)
+    except OSError:
+        pass
     print("DRY_PASS")
 
 

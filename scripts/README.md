@@ -343,18 +343,26 @@ python3 scripts/check_north_gap_backfill.py   # 全 PASS 输出 38/38、退出�
 - `gen_kelly_frozen_missing_accepted_20261119.py` — 由一份冻结缺失诊断归档重算整张登记表。
   默认只生成到指定路径；`--check` 核对 122 条与重算逐字节一致。
 - `verify_kelly_frozen_missing_denoise_20261119.py` — 端到端 dry 验证：把「写归档/发告警」
-  两个出口都打桩（**不会真发通知**），断言已登记事件只记日志、未登记事件继续告警。
+  两个出口都打桩（**不会真发通知**），断言已登记事件只记日志、未登记事件继续告警；
+  状态文件用临时路径隔离（**不写**仓库 `data/alerts/kelly_frozen_missing_seen.json`，
+  2026-11-28 M1：否则在生产树跑一次就把 7 个留报键预静音）。
 
 2026-11-28 返修（审查 B1/B2）：此前「34 个晚到回填键登记 accepted（122→156）」已**回退**——
 rowid 判据经代码/数据复核无判别力（`signal_daily` 每次全历史 DELETE+INSERT 重算，rowid 只是
 最近一次重算顺序，实测 82.2% 行命中），且会永久静音 11-20 明确留报的 7 键（含 2 个真故障嫌疑）。
 config 恢复 122 条；`gen_..._20261128.py` / `verify_..._20261128.py` 已删除（git 历史即备份，§25）。
 降噪改走**告警层**：`signal_kelly_backtest._alert_frozen_missing` 用「事件集合指纹 sha256」持久
-去重——同一表外事件集合报过一次后仅日志，出现新缺失键才再报；状态文件
+去重——同一表外事件集合实报过后仅日志，出现新缺失键才再报；同一集合距上次实报 **>30 天
+周期重报一次**并刷新时间戳（真故障不会永久沉默，2026-11-28 拍板）。状态文件
 `data/alerts/kelly_frozen_missing_seen.json`（env `SIGNAL_KELLY_FROZEN_MISSING_SEEN_STATE` 可覆盖），
-缺失/损坏 fail-open 照常告警。回归套 `scripts/tests/test_frozen_missing_set_dedup_20261128.py`
-覆盖：同集合静音 / 子集静音 / 新键必报且指纹变化 / 状态损坏 fail-open / 发送失败不记状态 /
-category 白名单 / 交付 config 122 且无 C 类目；两个出口全打桩并自证打桩真被调用（零外发）。
+记「已告警键并集 + 每个集合指纹 last_reported」；缺失/损坏 fail-open 照常告警。
+**「已实报」判定 = notify `--result-file` 的 status ∈ {sent, digested, suppressed}，不是 rc==0**
+（notify 全渠道失败仍 rc=0，只看 rc 会把失败记成已报 ⇒ 同集合永久静音；根因修复在
+`app/notify_hook._deliver` 统一解析 status，供所有调用方复用）。回归套
+`scripts/tests/test_frozen_missing_set_dedup_20261128.py` 覆盖：同集合 30 天内静音 / 超 30 天重报
+并刷新 / 子集静音 / 新键必报且指纹变化 / 状态缺失与损坏 fail-open / 全渠道失败(rc=0)+
+status=failed 不记状态且下次再报 / 各 status 落状态矩阵 / category 白名单 / 交付 config 122
+且无 C 类目；两个出口全打桩并自证打桩真被调用（零外发）。
 
 ```bash
 # 复现性核对（122 条基线）

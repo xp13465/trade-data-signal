@@ -472,16 +472,21 @@ FROZEN_MISSING_ACCEPTED_CATEGORIES = frozenset({
 # 2026-11-28 返修(审查 B2「降噪必须保留真故障判别维度」): 冻结缺失告警改到告警层做
 # 「事件集合指纹」持久去重, 不再靠把事件登记进 accepted 来静音(登记即永久不报, 连真故障
 # 嫌疑也一并关掉)。口径:
-#   · 状态文件记录「历史上已实际发出过告警的事件键并集」;
-#   · 本次表外事件若全部已在并集内 ⇒ 仅日志、不重复告警(11-20 留报键集合不变时不再轰炸);
+#   · 状态文件记录「历史上已实际发出过告警的事件键并集」+ 每个集合指纹的 last_reported 时间;
+#   · 本次表外事件若全部已在并集内、且同一集合距上次实报 ≤30 天 ⇒ 仅日志、不重复告警;
+#   · 同集合距上次实报 >30 天 ⇒ 周期重报一次并刷新时间戳(真故障不会永久沉默, 2026-11-28 拍板);
 #   · 只要出现任意新键 ⇒ 集合指纹变化 ⇒ 照常告警(新缺失键必报, 判别力保留);
+#   · 「已实报」= notify 返回 status ∈ {sent,digested,suppressed}, **不是 rc==0**
+#     (notify 全渠道失败仍 rc=0, 只看 rc 会把失败记成已报 ⇒ 同集合永久静音, 2026-11-28 B1);
 #   · 状态缺失/损坏/形状不对 ⇒ fail-open 照常告警(fail-safe: 宁多勿漏)。
 # 键形态参考 notify 既有 dedup: `{task}|{keyword}|{md5}` 的稳定指纹前缀。
 FROZEN_MISSING_SEEN_ENV = "SIGNAL_KELLY_FROZEN_MISSING_SEEN_STATE"
 FROZEN_MISSING_SEEN_PATH = os.path.join(
     ROOT, "data", "alerts", "kelly_frozen_missing_seen.json")
-# 同一集合指纹的 notify 层二次去重窗口(天的秒数): 状态文件写失败时仍能吸收短期重复。
-FROZEN_MISSING_SET_DEDUP_WINDOW = 30 * 24 * 3600
+# 同一集合「重报周期」: 距上次实报超过这么多秒, 即使集合不变也重报一次并刷新时间戳。
+FROZEN_MISSING_REREPORT_WINDOW = 30 * 24 * 3600
+# 同一集合指纹的 notify 层二次去重窗口(与重报周期同值): 状态写失败时仍能吸收短期重复。
+FROZEN_MISSING_SET_DEDUP_WINDOW = FROZEN_MISSING_REREPORT_WINDOW
 
 
 def _load_frozen_missing_accepted():
@@ -517,10 +522,20 @@ def _frozen_missing_seen_path():
     return os.environ.get(FROZEN_MISSING_SEEN_ENV) or FROZEN_MISSING_SEEN_PATH
 
 
-def _load_frozen_missing_seen():
-    """读「已实际告警过的事件键并集」-> (set, ok)。
+def _parse_seen_time(value):
+    """状态文件时间戳 -> datetime;格式不对返回 None(由调用方按「过期/无记录」fail-open)。"""
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return None
 
-    缺失/损坏/形状不对 => (set(), False), 由调用方 fail-open 照常告警一次并重写状态。
+
+def _load_frozen_missing_seen():
+    """读状态文件 -> (已告警键并集 set, {集合指纹: 上次实报时间 datetime}, ok)。
+
+    缺失/损坏/形状不对 => (set(), {}, False), 由调用方 fail-open 照常告警一次并重写状态。
+    兼容首版 schema(只有顶层 fingerprint + updated_at): 无指纹时间表时按该条读出,
+    若也缺时间则视为无记录(下次告警即刷新)。
     """
     try:
         with open(_frozen_missing_seen_path(), encoding="utf-8") as f:
@@ -528,10 +543,25 @@ def _load_frozen_missing_seen():
         keys = data.get("seen_keys") if isinstance(data, dict) else None
         if (not isinstance(keys, list)
                 or not all(isinstance(k, str) and k.count("|") == 2 for k in keys)):
-            return set(), False
-        return set(keys), True
+            return set(), {}, False
+        stamps = {}
+        raw_stamps = data.get("fingerprints")
+        if raw_stamps is not None:
+            if not isinstance(raw_stamps, dict):
+                return set(), {}, False
+            for fp, ts in raw_stamps.items():
+                dt = _parse_seen_time(ts)
+                if not isinstance(fp, str) or not fp or dt is None:
+                    return set(), {}, False
+                stamps[fp] = dt
+        else:
+            fp = data.get("fingerprint")
+            dt = _parse_seen_time(data.get("updated_at"))
+            if isinstance(fp, str) and fp and dt is not None:
+                stamps[fp] = dt
+        return set(keys), stamps, True
     except (OSError, json.JSONDecodeError, AttributeError, TypeError):
-        return set(), False
+        return set(), {}, False
 
 
 def _frozen_missing_set_fingerprint(keys):
@@ -540,20 +570,29 @@ def _frozen_missing_set_fingerprint(keys):
     return hashlib.sha256("\n".join(sorted(keys)).encode("utf-8")).hexdigest()
 
 
-def _save_frozen_missing_seen(keys):
-    """原子写「已告警键并集」(参考冻结孤儿基线同一持久化范式)。
+def _save_frozen_missing_seen(keys, stamps=None):
+    """原子写「已告警键并集 + 各集合指纹上次实报时间」(参考冻结孤儿基线同一持久化范式)。
 
+    stamps: {集合指纹: datetime};无则按现在补本条集合指纹(兼容旧调用)。
     写失败只留痕不抛: 下次同集合会再发一次 = fail-open, 绝不因状态丢失而永久静默。
     """
     path = _frozen_missing_seen_path()
+    now = datetime.now()
+    stamps = dict(stamps or {})
+    top_fp = _frozen_missing_set_fingerprint(keys)
+    stamps[top_fp] = now
     try:
         parent = os.path.dirname(path)
         if parent:
             os.makedirs(parent, exist_ok=True)
         atomic_write_json(path, {
             "seen_keys": sorted(keys),
-            "fingerprint": _frozen_missing_set_fingerprint(keys),
-            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "fingerprints": {
+                fp: ts.strftime("%Y-%m-%d %H:%M:%S")
+                for fp, ts in sorted(stamps.items()) if isinstance(ts, datetime)
+            },
+            "fingerprint": top_fp,
+            "updated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
         })
     except Exception as e:  # noqa: BLE001
         print(f"   ⚠ 冻结缺失告警集合状态写入失败({path}): {e}", file=sys.stderr)
@@ -689,12 +728,21 @@ def _alert_frozen_missing(events, context=None):
         return
     # 2026-11-28 返修: 告警层「事件集合指纹」持久去重(替代把未证实事件登记进 accepted 静音)。
     current_keys = {f"{d}|{i}|{s}" for d, i, s in new_events}
-    seen_keys, seen_ok = _load_frozen_missing_seen()
+    seen_keys, seen_times, seen_ok = _load_frozen_missing_seen()
+    now = datetime.now()
     if seen_ok and current_keys <= seen_keys:
         fp = _frozen_missing_set_fingerprint(seen_keys)
-        print(f"   冻结缺失: {len(current_keys)} 个表外事件均已在历史告警集合内"
-              f"(集合指纹 {fp[:16]}), 跳过重复告警(仅日志)", file=sys.stderr)
-        return
+        last = seen_times.get(fp)
+        age = (now - last).total_seconds() if last is not None else None
+        if age is not None and age <= FROZEN_MISSING_REREPORT_WINDOW:
+            print(f"   冻结缺失: {len(current_keys)} 个表外事件均已在历史告警集合内"
+                  f"(集合指纹 {fp[:16]}, 距上次实报 {age / 86400:.1f} 天), 跳过重复告警(仅日志)",
+                  file=sys.stderr)
+            return
+        age_text = "无时间记录" if age is None else ("%.1f 天" % (age / 86400))
+        print("   冻结缺失: 同集合距上次实报 %s > %.0f 天 ⇒ 周期重报一次"
+              % (age_text, FROZEN_MISSING_REREPORT_WINDOW / 86400),
+              file=sys.stderr)
     merged_keys = seen_keys | current_keys
     fingerprint = _frozen_missing_set_fingerprint(merged_keys)
     sorted_events = new_events
@@ -708,7 +756,7 @@ def _alert_frozen_missing(events, context=None):
     # 2026-10-28 审查 F1: 改走 app/notify_hook.send_alert(与 history_audit 共用**单一** defer
     # fail-open 实现), 不再自己拼 notify.py 参数——原先直调 notify.py 且只打印 rc, 摘要未吸收
     # (ALERT_BUDGET_DISABLE / ALERT_DIGEST_DISABLE / 吸收失败)时条目会被静默丢掉。
-    from app.notify_hook import send_alert
+    from app.notify_hook import DELIVERED_STATUSES, send_alert
     severe = n >= FROZEN_MISSING_SEVERE_THRESHOLD
     try:
         result = send_alert(
@@ -724,13 +772,19 @@ def _alert_frozen_missing(events, context=None):
             defer_digest=not severe,
             digest_category=None if severe else "kelly_frozen_missing",
         )
-        print(f"   ⚠ 冻结缺失告警 rc={result.rc} route={result.route} "
+        delivery_status = getattr(result, "status", None)
+        print(f"   ⚠ 冻结缺失告警 rc={result.rc} status={delivery_status} route={result.route} "
               f"({n} 个历史信号事件拒绝补冻, 集合指纹 {fingerprint[:16]}, "
               f"{'SEVERE' if severe else '仅进摘要'})",
               file=sys.stderr)
-        if result.rc == 0:
-            # 发送(或摘要吸收)成功才记录并集: 失败时下次照常重试(notice 可重发)。
-            _save_frozen_missing_seen(merged_keys)
+        if delivery_status in DELIVERED_STATUSES:
+            # 只有 notify 真实结局为 sent/digested/suppressed 才记录:
+            # rc==0 但 status=failed = 全渠道失败 ⇒ 不记, 下次同集合照常重告(2026-11-28 B1)。
+            seen_times[fingerprint] = now
+            _save_frozen_missing_seen(merged_keys, seen_times)
+        else:
+            print(f"   ⚠ 冻结缺失告警未真实投递(status={delivery_status}, rc={result.rc}), "
+                  f"状态不记录, 下次同集合会再次告警", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
         print(f"   ⚠ 冻结缺失告警调用异常: {e}", file=sys.stderr)
 

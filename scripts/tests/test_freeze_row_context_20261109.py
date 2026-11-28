@@ -35,7 +35,7 @@ def producer_namespace():
              "_freeze_buy_keys", "_freeze_key_of", "_union_freeze_backfill_rows", "_load_etf_freeze",
              "_etf_freeze_path", "_save_etf_freeze", "_frozen_input_identity", "_frozen_missing_context",
              "_load_frozen_missing_accepted", "_archive_frozen_missing_diagnostics", "_alert_frozen_missing",
-             "_frozen_missing_seen_path", "_load_frozen_missing_seen",
+             "_frozen_missing_seen_path", "_parse_seen_time", "_load_frozen_missing_seen",
              "_frozen_missing_set_fingerprint", "_save_frozen_missing_seen",
              "_classify_buy_rows",
              # 2026-11-24: compute() 传 ma3_tag_fn=_ma3_trade_tag(回测打标), 隔离执行需一并抽取;
@@ -106,6 +106,7 @@ def run_case(monkeypatch):
                 "B_changed_appeared_chain"}),
             FROZEN_MISSING_SEEN_ENV="SIGNAL_KELLY_FROZEN_MISSING_SEEN_STATE",
             FROZEN_MISSING_SEEN_PATH=str(temp / "data/alerts/seen.json"),
+            FROZEN_MISSING_REREPORT_WINDOW=30 * 24 * 3600,
             FROZEN_MISSING_SET_DEDUP_WINDOW=30 * 24 * 3600,
             _load_signal_stats=lambda:{}, _load_board_etf_map=lambda:{}, _build_best_etf=lambda m:best,
             _load_market_map=lambda:{}, _load_market_state=lambda c:({},[]), _load_market_tiers=lambda c,**kw:{},
@@ -126,7 +127,8 @@ def run_case(monkeypatch):
             ns["_frozen_input_identity"] = injected_hash
         calls=[]
         fake = types.ModuleType("app.notify_hook")
-        fake.send_alert=lambda *a,**kw:calls.append((a,kw)) or types.SimpleNamespace(rc=0,route="isolated")
+        fake.DELIVERED_STATUSES=frozenset({"sent","digested","suppressed"})
+        fake.send_alert=lambda *a,**kw:calls.append((a,kw)) or types.SimpleNamespace(rc=0,route="isolated",status="sent")
         with monkeypatch.context() as m, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
             m.setitem(sys.modules,"app.notify_hook",fake)
             m.setenv(ns["ETF_FREEZE_PATH_ENV"],str(freeze_path)); m.setenv(ns["FREEZE_UNION_ENV"],"0")

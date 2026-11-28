@@ -40,6 +40,7 @@ class FrozenDiagnosticsTests(unittest.TestCase):
         self.patches.enter_context(patch.object(subprocess, 'run', forbidden))
         fake = types.ModuleType('app.notify_hook')
         fake.send_alert = self.send_alert
+        fake.DELIVERED_STATUSES = frozenset({'sent', 'digested', 'suppressed'})
         self.patches.enter_context(patch.dict(sys.modules, {'app.notify_hook': fake}))
         spec = importlib.util.spec_from_file_location('frozen_test_atomic', ATOMIC)
         atomic = importlib.util.module_from_spec(spec)
@@ -49,7 +50,7 @@ class FrozenDiagnosticsTests(unittest.TestCase):
                  # 2026-11-28 集合指纹去重 helper(本文件专测诊断归档; 去重行为由
                  # test_frozen_missing_set_dedup_20261128.py 覆盖, 这里把状态读写做成 no-op,
                  # 保持「每次调用都归档/告警」的既有断言语义)。
-                 '_frozen_missing_seen_path', '_load_frozen_missing_seen',
+                 '_frozen_missing_seen_path', '_parse_seen_time', '_load_frozen_missing_seen',
                  '_frozen_missing_set_fingerprint', '_save_frozen_missing_seen'}
         tree = ast.parse(SOURCE.read_text())
         self.ns = {'__file__': str(SOURCE), 'ROOT': str(self.root), 'os': os,
@@ -63,13 +64,14 @@ class FrozenDiagnosticsTests(unittest.TestCase):
                        'B_changed_appeared_chain'}),
                    'FROZEN_MISSING_SEEN_ENV': 'SIGNAL_KELLY_FROZEN_MISSING_SEEN_STATE',
                    'FROZEN_MISSING_SEEN_PATH': str(self.root / 'data/alerts/seen.json'),
+                   'FROZEN_MISSING_REREPORT_WINDOW': 30 * 24 * 3600,
                    'FROZEN_MISSING_SET_DEDUP_WINDOW': 30 * 24 * 3600,
                    'FROZEN_MISSING_ACCEPTED_PATH': str(self.root / 'accepted.json')}
         exec(compile(ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef)
                                      and n.name in names], type_ignores=[]), str(SOURCE), 'exec'), self.ns)
         # 本文件专注诊断归档(去重状态 no-op), 见 names 注释。
-        self.ns['_load_frozen_missing_seen'] = lambda: (set(), False)
-        self.ns['_save_frozen_missing_seen'] = lambda keys: None
+        self.ns['_load_frozen_missing_seen'] = lambda: (set(), {}, False)
+        self.ns['_save_frozen_missing_seen'] = lambda *a, **kw: None
         self.accepted = [('20260922', 'sz_div', 'buy')]
         self.events = {('20120517', f'candidate_{n:03d}', 'buy_aux') for n in range(118)}
         self.set_accepted(self.accepted)
@@ -91,7 +93,7 @@ class FrozenDiagnosticsTests(unittest.TestCase):
 
     def send_alert(self, *args, **kwargs):
         self.calls.append((args, kwargs))
-        return types.SimpleNamespace(rc=0, route='stubbed')
+        return types.SimpleNamespace(rc=0, route='stubbed', status='sent')
 
     def alert(self, events):
         before = (self.root / 'accepted.json').read_bytes()

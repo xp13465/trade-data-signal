@@ -9,8 +9,12 @@
 
 契约
   · subprocess 调 scripts/notify.py,**不抛异常**(通知失败不阻塞主流程)。
-  · 失败(rc!=0 / 异常 / 超时)经 fail_hook(subject, detail) 留痕;未传 fail_hook 时打印 stderr。
-  · 返回 `SendResult`(rc / absorbed / route / detail),供调用方与测试判定**真实投递路径**。
+  · 失败(rc!=0 / 异常 / 超时 / **全渠道失败但 rc==0**)经 fail_hook(subject, detail) 留痕;
+    未传 fail_hook 时打印 stderr。
+  · 返回 `SendResult`(rc / absorbed / route / detail / status),供调用方与测试判定**真实投递路径**。
+  · **rc==0 不等于已投递**(2026-11-28 B1):notify.py 正常路径恒 `_finish(0, ...)`,全渠道失败
+    也是 rc=0(只有 `status == "failed"` 能区分)。故 `_deliver` 传 `--result-file` 解析
+    `status`,调用方一律以 `status in DELIVERED_STATUSES` 判「真投递成功」,禁止只看 rc。
 
 摘要通道的 fail-open(2026-10-28 ★4 审查 F1,治「消息黑洞」)
   `defer_digest=True` 表示「常态事件只进当日 23:25 摘要、不单发」。但 notify.py 有三个口
@@ -36,6 +40,13 @@ from typing import Callable, NamedTuple
 # app/notify_hook.py -> app/ -> 仓库根 -> scripts/notify.py
 NOTIFY_PY = Path(__file__).absolute().parent.parent / "scripts" / "notify.py"
 
+# notify.py `_OUTCOME["status"]` 里算「这条告警已被真实处置」的取值(单一事实源):
+#   sent       = 至少一个真实渠道投递成功
+#   digested   = 已被当日摘要 buffer 吸收(摘要链会外发)
+#   suppressed = 去重窗口内主动抑制(此前已投递过, 属有意不重发)
+# 其余 failed / noop / dry_run / 缺失 一律不算投递成功。
+DELIVERED_STATUSES = frozenset({"sent", "digested", "suppressed"})
+
 
 class SendResult(NamedTuple):
     """一次告警投递的真实结果(供调用方判定, 不再只靠 rc 猜)。
@@ -45,11 +56,14 @@ class SendResult(NamedTuple):
                None=非 defer(普通直发)
     route    : "direct"(普通直发) / "digest"(已进摘要) / "fail_open_direct"(defer 未吸收, 退回直发)
     detail   : defer 探测细节(status=… rc=…)或失败说明, 便于日志定位
+    status   : notify.py `--result-file` 的真实结局(sent/suppressed/digested/failed/noop/dry_run);
+               结果文件缺失或坏 = None。**判「已投递」用 `status in DELIVERED_STATUSES`, 不看 rc。**
     """
     rc: int | None
     absorbed: bool | None
     route: str
     detail: str = ""
+    status: str | None = None
 
 
 def send_alert(subject: str, body: str, *,
@@ -87,7 +101,8 @@ def send_alert(subject: str, body: str, *,
 
     absorbed, rc, detail = _absorb_into_digest(base, subject, digest_category, timeout)
     if absorbed:
-        return SendResult(rc=rc, absorbed=True, route="digest", detail=detail)
+        return SendResult(rc=rc, absorbed=True, route="digest", detail=detail,
+                          status="digested")
     # 摘要没吸收 ⇒ 退回直发(宁多勿吞): 与批次2 check_failed_units._defer_digest 同口径。
     print(f"[alert-notify] 摘要未吸收({detail}) ⇒ fail-open 直发 subject={subject!r}",
           file=sys.stderr, flush=True)
@@ -136,17 +151,38 @@ def _absorb_into_digest(base: list[str], subject: str, digest_category: str | No
 def _deliver(base: list[str], subject: str, timeout: int,
              fail_hook: Callable[[str, str], None] | None, *,
              route: str, absorbed: bool | None, detail: str = "") -> SendResult:
-    """真正发出去(不带 --defer-digest)。失败按既有 `_fail` 留痕, 不上抛。"""
+    """真正发出去(不带 --defer-digest)。失败按既有 `_fail` 留痕, 不上抛。
+
+    2026-11-28 B1: 传 `--result-file` 解析 notify 的真实结局。**全渠道失败时 notify 仍 rc=0**,
+    只看 rc 会把「一条都没发出去」误判成已投递;这里 `status` 缺失/`failed` 同样走 `_fail` 留痕。
+    """
+    fd, result_path = tempfile.mkstemp(prefix="notify_direct_", suffix=".json")
+    os.close(fd)
+    cmd = list(base) + ["--result-file", result_path]
     try:
-        r = subprocess.run(base, timeout=timeout, check=False,
-                           capture_output=True, text=True)
-    except Exception as e:  # noqa: BLE001  通知失败不阻塞主流程, 但必须留痕
-        _fail(fail_hook, subject, f"subprocess 异常 {type(e).__name__}: {e}")
-        return SendResult(rc=None, absorbed=absorbed, route=route, detail=detail)
-    if r.returncode != 0:
+        try:
+            r = subprocess.run(cmd, timeout=timeout, check=False,
+                               capture_output=True, text=True)
+        except Exception as e:  # noqa: BLE001  通知失败不阻塞主流程, 但必须留痕
+            _fail(fail_hook, subject, f"subprocess 异常 {type(e).__name__}: {e}")
+            return SendResult(rc=None, absorbed=absorbed, route=route, detail=detail,
+                              status=None)
+        status = None
+        try:
+            status = json.loads(Path(result_path).read_text(encoding="utf-8")).get("status")
+        except Exception:  # noqa: BLE001  结果文件缺失/损坏: 不猜, 按未投递处理
+            status = None
+    finally:
+        try:
+            os.unlink(result_path)
+        except OSError:  # 清理失败不外抛(临时文件残留可容忍)
+            pass
+    detail = (f"{detail} status={status} rc={r.returncode}").strip()
+    if r.returncode != 0 or status not in DELIVERED_STATUSES:
         tail = (((r.stderr or "") + " " + (r.stdout or "")).strip())[-300:]
-        _fail(fail_hook, subject, f"rc={r.returncode} {tail}")
-    return SendResult(rc=r.returncode, absorbed=absorbed, route=route, detail=detail)
+        _fail(fail_hook, subject, f"rc={r.returncode} status={status} {tail}".strip())
+    return SendResult(rc=r.returncode, absorbed=absorbed, route=route, detail=detail,
+                      status=status)
 
 
 def _fail(fail_hook: Callable[[str, str], None] | None, subject: str, detail: str) -> None:

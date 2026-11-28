@@ -76,9 +76,10 @@ class _Recorder:
 class _FakeRun:
     """记录 argv 的假 subprocess.run(不真起子进程 = 零真实外发)。
 
-    digest_status: 若 argv 带 --result-file, 按 notify.py 的契约回写该文件
+    digest_status: 若 argv 带 --defer-digest + --result-file, 按 notify.py 的契约回写该文件
       (main 版契约: 吸收成功 = status "digested"; noop/failed = 未吸收)。
       None ⇒ 不写文件(模拟 result-file 缺失)。
+    直发路径(2026-11-28 B1 起也带 --result-file): 真实结局按 rc 回写 sent/failed。
     """
 
     def __init__(self, rc=0, digest_status="digested"):
@@ -88,9 +89,14 @@ class _FakeRun:
 
     def __call__(self, argv, **kw):
         self.calls.append(list(argv))
-        if "--result-file" in argv and self.digest_status is not None:
+        if "--result-file" in argv:
             p = Path(argv[argv.index("--result-file") + 1])
-            p.write_text(json.dumps({"status": self.digest_status}), encoding="utf-8")
+            if "--defer-digest" in argv:
+                if self.digest_status is not None:
+                    p.write_text(json.dumps({"status": self.digest_status}), encoding="utf-8")
+            else:
+                status = "sent" if self.rc == 0 else "failed"
+                p.write_text(json.dumps({"status": status}), encoding="utf-8")
         return types.SimpleNamespace(returncode=self.rc, stdout="", stderr="")
 
 
@@ -594,7 +600,8 @@ def test_g2_digest_disabled_sends_direct_without_buffer(monkeypatch):
         res = _send_deferred(fake)
     _chk(len(fake.calls) == 1, f"摘要禁用时应只直发 1 次, 得 {len(fake.calls)}")
     _chk("--defer-digest" not in fake.calls[0], "不得写进永不外发的 buffer")
-    _chk("--result-file" not in fake.calls[0], "直发不需要 result-file")
+    # 2026-11-28 B1: 直发也必须带 --result-file(rc==0 全渠道失败仍是 rc=0, 结局只能看 status)
+    _chk("--result-file" in fake.calls[0], "直发必须带 result-file 取真实 status")
     _chk(res.route == "fail_open_direct" and res.absorbed is False,
          f"route={res.route} absorbed={res.absorbed}")
     _chk(trap.hits == [], f"零外发被破坏: {trap.hits}")

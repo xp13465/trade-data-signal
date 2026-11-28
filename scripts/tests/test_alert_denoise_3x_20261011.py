@@ -80,6 +80,7 @@ class _FakeRun:
 
     --result-file 契约(2026-10-28 审查 F1): defer 成功态 = 回写 status "digested";
     不回写的话调用方会按 fail-open 再直发一次, 断言「只 1 条」就失真。
+    2026-11-28 B1: 直发路径也带 --result-file, 真实成功态 = "sent"(不能拿 digested 冒充)。
     """
 
     def __init__(self):
@@ -89,7 +90,8 @@ class _FakeRun:
         self.calls.append(list(argv))
         if "--result-file" in argv:
             p = Path(argv[argv.index("--result-file") + 1])
-            p.write_text(json.dumps({"status": "digested"}), encoding="utf-8")
+            status = "digested" if "--defer-digest" in argv else "sent"
+            p.write_text(json.dumps({"status": status}), encoding="utf-8")
         return types.SimpleNamespace(returncode=0, stdout="", stderr="")
 
 
