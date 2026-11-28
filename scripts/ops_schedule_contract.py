@@ -175,6 +175,14 @@ def inventory(contract, hashes):
         raise ValueError("schedule_source_changed_during_read")
     order, units = units_parser.parse_units(str(ROOT / SOURCE))
     titles = [m[1] for line in raw.decode().splitlines() if (m := units_parser.TITLE_RE.match(line.strip()))]
+    # 云上专属 unit 族(模板 service + 实例 timer)不属于本「日程合同」的 47 个冻结任务:
+    # 模板含 @ 且 4 个 timer 指向同一模板的不同实例, 没有 1:1 task↔timer 关系; 它们由
+    # gen_schedule_stats.CLOUD_MANAGED_UNITS 单独登记并交给漂移闸门核对。此处剔除后
+    # 仍按原合同校验 47 个业务/基础 unit 的集合与 timer 配对完全一致。
+    cloud_managed = set(getattr(registry, "CLOUD_MANAGED_UNITS", ()))
+    order = [name for name in order if name not in cloud_managed]
+    titles = [name for name in titles if name not in cloud_managed]
+    units = {name: lines for name, lines in units.items() if name not in cloud_managed}
     if not order or len(titles) != len(set(titles)) or titles != order:
         raise ValueError("duplicate_or_unparsed_unit_title")
     if len(rows) != len({r["unit"] for r in rows}) or len(rows) != len({r["task"] for r in rows}):

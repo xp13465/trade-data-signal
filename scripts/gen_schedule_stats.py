@@ -358,6 +358,22 @@ def _mk_registry():
 
 
 UNIT_REGISTRY = _mk_registry()
+
+# 云上专属 unit 族(2026-11-28 告警风暴 RCA P1): 模板 service + 4 个实例 timer。
+# 这 5 个 unit 只在云上 systemd 存在, 由 sim_trade_trigger.py 的 %i 实例化驱动;
+# 它们没有「固定时点 → 单行任务」的一一映射(模板含 @, 4 个 timer 都指向同一模板的不同实例),
+# 不能塞进 UNIT_REGISTRY(ops_monitor.UNIT_RE 只认 trade-*.service 且每个 row 要独立 task/时点),
+# 否则执行统计/覆盖数/自监控口径全被污染。但它们必须与「文档生成源 + 云上快照」同批登记,
+# 否则会发生 #309/#310 同类静默漂移(巡检看不见云上多出来的 unit)。
+# 消费方: check_unit_registry_drift(并入 .service 集做对称差) / ops_schedule_contract(从日程合同剔除)。
+CLOUD_MANAGED_UNITS = [
+    "trade-sim-trade@.service",
+    "trade-sim-trade-buy-fill.timer",
+    "trade-sim-trade-sell-order.timer",
+    "trade-sim-trade-settle.timer",
+    "trade-sim-trade-signal.timer",
+]
+
 # 日志侧可解析的任务(=旧 19 行: 17 TASKS + 2 EXTRA), 用于 log 口径回滚与覆盖数。
 LOG_TASKS = {t["task"] for t in TASKS} | {m["task"] for m in EXTRA_MARKER_SCANS}
 _UNIT_BY_TASK = {r["task"]: r["unit"] for r in UNIT_REGISTRY}

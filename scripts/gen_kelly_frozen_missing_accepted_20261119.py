@@ -21,7 +21,8 @@
   (云上冻结表 0 条)」
 
 用法(仓库根目录):
-  # 核对:用同一归档重算, 必须与已提交 config 逐字节一致(复现性检查)
+  # 核对:用同一归档重算, 已提交 config 的**历史 122 条**必须与重算逐字段一致
+  # (2026-11-28 起 config 追加了后续批次 34 条, 见 gen_..._20261128.py; 本脚本只管 122 基线)
   .venv/bin/python scripts/gen_kelly_frozen_missing_accepted_20261119.py \
       --archive /tmp/frozen_missing_latest_20261119.json \
       --check config/signal_kelly_frozen_missing_accepted.json
@@ -245,17 +246,29 @@ def main():
     ap.add_argument("--archive", required=True,
                     help="冻结缺失诊断归档 JSON(本地只读副本)")
     ap.add_argument("--out", help="输出路径; 与 --check 二选一")
-    ap.add_argument("--check", help="与给定 config 逐字节比对(复现性检查)")
+    ap.add_argument("--check", help="核对给定 config 的历史 122 条(复现性检查)")
     args = ap.parse_args()
     config = build(args.archive)
     text = json.dumps(config, ensure_ascii=False, indent=2) + "\n"
     if args.check:
-        cur = open(args.check, encoding="utf-8").read()
-        if cur != text:
-            print("FAIL: 重算结果与 %s 不一致" % args.check)
+        try:
+            cur_cfg = json.loads(open(args.check, encoding="utf-8").read())
+        except json.JSONDecodeError as exc:
+            print("FAIL: %s 不是合法 JSON: %s" % (args.check, exc))
             sys.exit(1)
         n = len(config["accepted"])
-        print("PASS: 重算结果与 %s 逐字节一致(accepted=%d)" % (args.check, n))
+        cur_acc = cur_cfg.get("accepted") or []
+        if cur_acc[:n] != config["accepted"]:
+            print("FAIL: %s 的历史 %d 条 accepted 与重算不一致" % (args.check, n))
+            sys.exit(1)
+        cur_appr = cur_cfg.get("approval_log") or []
+        m = len(config["approval_log"])
+        if cur_appr[:m] != config["approval_log"]:
+            print("FAIL: %s 的历史 %d 条 approval_log 与重算不一致" % (args.check, m))
+            sys.exit(1)
+        print("PASS: %s 历史 %d 条 accepted + %d 条 approval_log 与重算逐字段一致"
+              "(现存共 %d 条 accepted, 后续批次 %d 条)"
+              % (args.check, n, m, len(cur_acc), len(cur_acc) - n))
     elif args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(text)

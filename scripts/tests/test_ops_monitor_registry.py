@@ -51,12 +51,16 @@ def test_canonical_all_pairs_and_install_byte_parity(tmp_path):
     order, units = gsu.parse_units(str(DOC))
     titles = [m.group(1) for line in DOC.read_text().splitlines()
               if (m := gsu.TITLE_RE.match(line.strip()))]
-    assert len(titles) == len(set(titles)) == len(order) == 94
+    # 2026-11-28 P1: 云上专属 sim-trade 模板族(1 模板 service + 4 实例 timer)补进生成源。
+    assert len(titles) == len(set(titles)) == len(order) == 99
     services = {u for u in order if u.endswith(".service")}
     timers = {u for u in order if u.endswith(".timer")}
-    assert services == {r["unit"] for r in gss.UNIT_REGISTRY}
-    assert timers == {u.removesuffix(".service") + ".timer" for u in services}
-    assert gsu.write_units(str(tmp_path), order, units) == 94
+    cloud_services = {u for u in gss.CLOUD_MANAGED_UNITS if u.endswith(".service")}
+    cloud_timers = {u for u in gss.CLOUD_MANAGED_UNITS if u.endswith(".timer")}
+    assert services == {r["unit"] for r in gss.UNIT_REGISTRY} | cloud_services
+    assert timers == {u.removesuffix(".service") + ".timer"
+                      for u in {r["unit"] for r in gss.UNIT_REGISTRY}} | cloud_timers
+    assert gsu.write_units(str(tmp_path), order, units) == 99
     for name in (OPS, TIMER):
         expected = gsu.render_unit(units[name]).encode()
         assert (tmp_path / name).read_bytes() == expected

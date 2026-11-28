@@ -699,6 +699,29 @@ EnvironmentFile=/home/ubuntu/code/trade-data/.env
 TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.err
+@@@FILE:trade-sim-trade@.service
+[Unit]
+Description=Sim trade ledger stage %i (A mode signal-triggered paper trading)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=SIM_TRADE_ENABLED=1
+Environment=TZ=Asia/Shanghai
+Environment=PYTHONUNBUFFERED=1
+# 业务日期统一取当天(北京时间)。非交易日执行 = 空跑: 无待定格信号 / 无到期持仓, 不写任何行。
+# 生产开关 SIM_TRADE_ENABLED=1 必须显式给, 缺省等于关闭写库。
+ExecStart=/bin/sh -c 'exec /usr/bin/python3 /home/ubuntu/code/trade-data-signal/scripts/sim_trade_trigger.py --stage %i --date $(date +%%Y%%m%%d) --db /home/ubuntu/code/trade-data/data/sim_trade.db --data-dir /home/ubuntu/code/trade-data/static-site/data --etf-db /home/ubuntu/code/trade-data/data/etf_national_team.db --trade-dates /home/ubuntu/code/trade-data/data/trade_dates.txt --log-dir /home/ubuntu/code/trade-data/data/logs'
+TimeoutStartSec=600
+Nice=10
+Restart=no
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/sim_trade_systemd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/sim_trade_systemd.log
 @@@FILE:trade-simtrade-export.service
 [Unit]
 Description=Sim trade ledger: export simtrade.json + publish to R2 data/ (22:55)
@@ -1227,6 +1250,63 @@ Description=Trade self-heal every 15min :07/:22/:37/:52 (源 com.trade.self-heal
 [Timer]
 OnCalendar=*-*-* *:07,22,37,52:00
 Persistent=true
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-sim-trade-buy-fill.timer
+[Unit]
+Description=Sim trade ledger: record real buy fills (exec day 09:50)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+
+[Timer]
+# 执行日 09:50: 开盘 20 分钟后取开盘价, 避开 09:30 集合竞价
+OnCalendar=Mon..Fri *-*-* 09:50:00
+AccuracySec=30s
+Persistent=false
+Unit=trade-sim-trade@buy_fill.service
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-sim-trade-sell-order.timer
+[Unit]
+Description=Sim trade ledger: record 14:55 real-time sell orders (due day)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+
+[Timer]
+# 卖出日 14:55: 尾盘 5 分钟前的实时价, 与 D+10 收盘结算分列两条成交
+OnCalendar=Mon..Fri *-*-* 14:55:00
+AccuracySec=30s
+Persistent=false
+Unit=trade-sim-trade@sell_order.service
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-sim-trade-settle.timer
+[Unit]
+Description=Sim trade ledger: confirm buy fills + settle D+10 close (22:50)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+
+[Timer]
+# 22:50: 在 signal(22:45) 之后, 避免同库并发写竞争; 仍在 23:00 安全窗口之前
+OnCalendar=Mon..Fri *-*-* 22:50:00
+AccuracySec=30s
+Persistent=false
+Unit=trade-sim-trade@settle.service
+
+[Install]
+WantedBy=timers.target
+@@@FILE:trade-sim-trade-signal.timer
+[Unit]
+Description=Sim trade ledger: freeze tomorrow's buy signals (T 22:45)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+
+[Timer]
+# 信号日 22:45: 当天收盘数据与 nextday_plan.json 已生成(盘后任务 22:00 之后)
+OnCalendar=Mon..Fri *-*-* 22:45:00
+AccuracySec=30s
+# 故意不补跑: 补跑昨天的信号定格毫无意义, 还会让 exec_date 错位
+Persistent=false
+Unit=trade-sim-trade@signal.service
 
 [Install]
 WantedBy=timers.target

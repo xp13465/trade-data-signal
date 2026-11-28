@@ -31,7 +31,10 @@ import sys
 MD_REL_PATH = os.path.join("docs", "deploy", "systemd-units-20260912.md")
 
 # 标题行:`trade-xxx.timer`:(反引号 + trade- 前缀 + 文件名 + 反引号 + 冒号)
-TITLE_RE = re.compile(r"^`(trade-[A-Za-z0-9-]+\.(?:timer|service))`:$")
+# 标题行:`trade-xxx.timer`:(反引号 + trade- 前缀 + 文件名 + 反引号 + 冒号)
+# 2026-11-28 起允许模板实例占位符 `@`(如 trade-sim-trade@.service), 否则云端
+# 模板 unit 永远进不了生成源, 与快照/云上三处漂移(告警风暴 RCA P1)。
+TITLE_RE = re.compile(r"^`(trade-[A-Za-z0-9@_-]+\.(?:timer|service))`:$")
 
 
 def repo_root():

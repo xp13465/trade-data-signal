@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """#309/#310 收尾 A: UNIT_REGISTRY 漂移机检单测(2026-10-31)。
 
-V1 现状: 47/47 无漂移(2026-11-21 登记模拟交易导出后)。
+V1 现状: 48/48 无漂移(2026-11-28 补登记云上专属 sim-trade 模板族后:
+        47 条 UNIT_REGISTRY 执行单元 + 1 个 trade-sim-trade@.service 模板)。
 V2 注入: 多/少一个 timer ⇒ FAIL 并明列差异。
 V3 main-merge 闸门: 走 check_drift() 入口, 漂移非零退出, 正常零退出。
 
@@ -30,14 +31,22 @@ def drift_mod(monkeypatch):
 
 
 def _real_set():
-    """取当前 47 个 .service 作为「真实集」基线(与登记表一致)。"""
+    """取当前 48 个 .service 作为「真实集」基线(与登记侧一致)。
+
+    = 47 条 UNIT_REGISTRY 执行单元 ∪ 1 个云上专属模板 trade-sim-trade@.service
+    (2026-11-28 P1: 云上专属 unit 族由同模块 CLOUD_MANAGED_UNITS 声明)。
+    """
     import gen_schedule_stats as gss
-    return {r["unit"] for r in gss.UNIT_REGISTRY if r["unit"].endswith(".service")}
+    svc = {r["unit"] for r in gss.UNIT_REGISTRY if r["unit"].endswith(".service")}
+    svc |= {u for u in gss.CLOUD_MANAGED_UNITS if u.endswith(".service")}
+    return svc
 
 
 def test_v1_no_drift_47(drift_mod, monkeypatch, capsys):
-    """V1: 现状 47/47 → PASS (rc=0)。"""
+    """V1: 现状 48/48 → PASS (rc=0); 且 docs 实际解析集与登记集一致。"""
     baseline = _real_set()
+    real_docs = drift_mod._static_real_services()
+    assert real_docs == baseline, "docs 解析集与登记集不一致: %s" % (real_docs ^ baseline)
     monkeypatch.setattr(drift_mod, "_static_real_services", lambda: set(baseline))
     rc = drift_mod.check_drift(quiet=True)
     out = capsys.readouterr()

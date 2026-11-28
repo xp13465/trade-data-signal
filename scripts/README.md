@@ -339,21 +339,36 @@ python3 scripts/check_north_gap_backfill.py   # 全 PASS 输出 38/38、退出�
 判断口径见 `docs/codex-reviews/alert-rootfix-20261109/freeze.md`（11-09 四分类）。
 
 - `gen_kelly_frozen_missing_accepted_20261119.py` — 由一份冻结缺失诊断归档重算整张登记表。
-  默认只生成到指定路径；`--check` 与已提交 config 逐字节比对（复现性检查）。
+  默认只生成到指定路径；`--check` 核对其**历史 122 条**与重算逐字段一致（2026-11-28 起
+  config 追加了后续批次，本脚本只负责 122 基线，不因新增批次变红）。
 - `verify_kelly_frozen_missing_denoise_20261119.py` — 端到端 dry 验证：把「写归档/发告警」
   两个出口都打桩（**不会真发通知**），断言已登记事件只记日志、未登记事件继续告警。
+  按 config 实际登记情况自动判别 122/156 两种基线。
+
+2026-11-28 追加（告警风暴 P2，34 个晚到回填键 → 156 条）：
+
+- `gen_kelly_frozen_missing_accepted_20261128.py` — 旧 122 + 本批 34 生成/核对。
+  证据=云上 `signal_daily` 逐键 rowid 落在同 index 跨多年连续批量回补块内 + 归档 run_id/sha；
+  `--check` 逐字段重算核对已提交 config（无需 `--base`）。
+- `verify_kelly_frozen_missing_denoise_20261128.py` — 34 键归档 dry 复算：应 34 命中接受 / 0 留报 / 0 通知。
 
 ```bash
-# 复现性核对（用基线归档重算，必须与已提交 config 逐字节一致）
+# 复现性核对（历史 122 条）
 .venv/bin/python scripts/gen_kelly_frozen_missing_accepted_20261119.py \
     --archive /tmp/frozen_missing_latest_20261119.json \
     --check config/signal_kelly_frozen_missing_accepted.json
 
-# dry 验证（预期输出 101 命中 / 20 留报 / 1 条 SEVERE，末行 DRY_PASS）
-.venv/bin/python scripts/verify_kelly_frozen_missing_denoise_20261119.py \
-    --archive /tmp/frozen_missing_latest_20261119.json \
-    --config config/signal_kelly_frozen_missing_accepted.json
+# 2026-11-28 批核对（34 条 C_late_rowid_bulk_backfill）
+.venv/bin/python scripts/gen_kelly_frozen_missing_accepted_20261128.py \
+    --archive /tmp/frozen_missing_20261128.json \
+    --check config/signal_kelly_frozen_missing_accepted.json
+
+# dry 验证（34 键全部命中接受，末行 DRY_PASS）
+.venv/bin/python scripts/verify_kelly_frozen_missing_denoise_20261128.py \
+    --archive /tmp/frozen_missing_20261128.json
 ```
 
-基线归档 = 云上 `data/audit/frozen_missing/5bc33ec582cc4c6cbbdd3e0aa7f84d51.json`
-（run_id `5bc33ec5…`，filtered_missing_sha256 `1a66c6b6…b88396e`，121 条）。
+2026-11-19 基线归档 = 云上 `data/audit/frozen_missing/5bc33ec582cc4c6cbbdd3e0aa7f84d51.json`
+（run_id `5bc33ec5…`，filtered_missing_sha256 `1a66c6b6…b88396e`，121 条）；
+2026-11-28 基线归档 = `data/audit/frozen_missing/2d1b21f1a8b6493dbbea8d0427ca515b.json`
+（run_id `2d1b21f1…`，filtered_missing_sha256 `e573f3a4…7b1aee2`，34 条）。

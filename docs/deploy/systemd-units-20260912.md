@@ -18,6 +18,7 @@
 > - **历史链(逐项,含 commit 可反查)**:`2026-09-12` 首版 = **35 周期 + 1 backup_db = 36 timer**(`6f7e5b13a`);`2026-09-14` 新增 `trade-lof-track-index`(§2.6-1)→ **36 周期**(`9993cfba5`);`2026-09-17` #45 补 `trade-nextday-gap-check`(§2.14-1)→ **37 周期**(`fd6d5c78d`);`2026-10-03` P0-1 新增 `trade-check-monitor-heartbeat`(§2.36)→ **38 周期**;`2026-10-05` #160 新增 `trade-r2-consistency`(§2.37,§22 一致性巡检)→ **39 周期 = 40 timer**;`2026-10-05` #191 新增 `trade-cloud-unit-patrol`(§2.38,云上 unit 直连巡检)→ **40 周期 = 41 timer**;`2026-10-16` #264 新增 `trade-alert-weekly-review`(§2.39,告警周度 review 挂载)→ **41 周期 = 42 timer** ✓。
 > - **云上 mtime 交叉验证(独立第二源)**:42 个 `trade-*.timer` 中 34 个 mtime 停在 `2026-09-14`(= 迁移批 36 减去之后被改过的 `trade-update-all`(10-04 周日错峰)与 `trade-nextday-plan`(09-17));其余 8 个 = 6 新增(lof-track-index 09-15 / nextday-gap-check 09-17 / check-monitor-heartbeat 10-03 / r2-consistency 10-05 / cloud-unit-patrol 10-05 / alert-weekly-review 10-16)+ 2 修改。34 + 8 = 42,与**全文 42 对**(§2 区内物理 38 对,`### 2.37`/`### 2.38`/`### 2.39` 三对物理落在 §6、`trade-backup-db` 对落在 §4;= 41 周期 + 1 backup_db)、`gen_systemd_units.py --check` 的 84 单元(42 timer + 42 service)三源一致。
 > - **旧数字差异(§0「37」/§1.4「32」/§1.7「36」)**:三者均按当时点数、未随后续新增重算——「37」= 迁移批基线经 #45 后的中途值;「32」= 37 − 5(当时 append 例外 shell 型数);「36」= 阶段4b 统一环境变量时的 service 数。本次统一重算:**§0 = 41 周期**(= 42 − 1 backup_db)、**§1.4(其余不 append)= 33**(全 42 service 分区:7 个 shell 型 + 2 个 python heredoc 型 + 其余 **33** = 42 ✓;注意分区对象是**全部 42 个 service**而非 41 周期,故不能拿「41 − 7」推)、**§1.7 = 42**(全 service 均注入三 env,实测)。
+> - **2026-11-28 更新(P1,补登记云上专属 sim-trade 模板族)**:§2.44 新增 1 个模板 service(`trade-sim-trade@.service`)+ 4 个实例 timer(buy-fill 09:50 / sell-order 14:55 / signal 22:45 / settle 22:50),`gen_systemd_units.py --check` 现 **99 unit = 48 service + 51 timer**;此前「84 单元 / 42 timer」为 2026-10-16 时点锚,按历史保留可反查(本段不追改,新增只追加)。
 
 ## 1. 统一约定
 
@@ -1954,6 +1955,107 @@ StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/simtrade_export.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/simtrade_export.log
 ```
 
+### 2.44 sim-trade(周一~五 09:50/14:55/22:45/22:50,模拟交易分阶段实例)
+
+> 2026-11-28 补登记(告警风暴 RCA P1: 云上 11-21 起已装 5 个 unit, 但文档生成源/快照/
+> 登记模块都没收录, 云上巡检对称差 rc=2 持续告警)。模板 service 由 `%i` 实例化成
+> buy_fill / sell_order / settle / signal 四个阶段; 4 个 timer 分别驱动对应实例。
+> 22:45 signal → 22:50 settle → 22:55 simtrade-export, 时点依次错开。
+
+`trade-sim-trade@.service`:
+```ini
+[Unit]
+Description=Sim trade ledger stage %i (A mode signal-triggered paper trading)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=SIM_TRADE_ENABLED=1
+Environment=TZ=Asia/Shanghai
+Environment=PYTHONUNBUFFERED=1
+# 业务日期统一取当天(北京时间)。非交易日执行 = 空跑: 无待定格信号 / 无到期持仓, 不写任何行。
+# 生产开关 SIM_TRADE_ENABLED=1 必须显式给, 缺省等于关闭写库。
+ExecStart=/bin/sh -c 'exec /usr/bin/python3 /home/ubuntu/code/trade-data-signal/scripts/sim_trade_trigger.py --stage %i --date $(date +%%Y%%m%%d) --db /home/ubuntu/code/trade-data/data/sim_trade.db --data-dir /home/ubuntu/code/trade-data/static-site/data --etf-db /home/ubuntu/code/trade-data/data/etf_national_team.db --trade-dates /home/ubuntu/code/trade-data/data/trade_dates.txt --log-dir /home/ubuntu/code/trade-data/data/logs'
+TimeoutStartSec=600
+Nice=10
+Restart=no
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/sim_trade_systemd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/sim_trade_systemd.log
+```
+
+`trade-sim-trade-buy-fill.timer`:
+```ini
+[Unit]
+Description=Sim trade ledger: record real buy fills (exec day 09:50)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+
+[Timer]
+# 执行日 09:50: 开盘 20 分钟后取开盘价, 避开 09:30 集合竞价
+OnCalendar=Mon..Fri *-*-* 09:50:00
+AccuracySec=30s
+Persistent=false
+Unit=trade-sim-trade@buy_fill.service
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-sim-trade-sell-order.timer`:
+```ini
+[Unit]
+Description=Sim trade ledger: record 14:55 real-time sell orders (due day)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+
+[Timer]
+# 卖出日 14:55: 尾盘 5 分钟前的实时价, 与 D+10 收盘结算分列两条成交
+OnCalendar=Mon..Fri *-*-* 14:55:00
+AccuracySec=30s
+Persistent=false
+Unit=trade-sim-trade@sell_order.service
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-sim-trade-settle.timer`:
+```ini
+[Unit]
+Description=Sim trade ledger: confirm buy fills + settle D+10 close (22:50)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+
+[Timer]
+# 22:50: 在 signal(22:45) 之后, 避免同库并发写竞争; 仍在 23:00 安全窗口之前
+OnCalendar=Mon..Fri *-*-* 22:50:00
+AccuracySec=30s
+Persistent=false
+Unit=trade-sim-trade@settle.service
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-sim-trade-signal.timer`:
+```ini
+[Unit]
+Description=Sim trade ledger: freeze tomorrow's buy signals (T 22:45)
+Documentation=file:/home/ubuntu/code/trade-data-signal/docs/auto-trade/sim-trade-trigger-design-20261120.md
+
+[Timer]
+# 信号日 22:45: 当天收盘数据与 nextday_plan.json 已生成(盘后任务 22:00 之后)
+OnCalendar=Mon..Fri *-*-* 22:45:00
+AccuracySec=30s
+# 故意不补跑: 补跑昨天的信号定格毫无意义, 还会让 exec_date 错位
+Persistent=false
+Unit=trade-sim-trade@signal.service
+
+[Install]
+WantedBy=timers.target
+```
 ## 7. 落地注意事项(stage4 用)
 
 1. **只生成配置,不 enable/start**:本文件是配置落档;`systemctl daemon-reload && systemctl enable --now trade-<name>.timer` 由阶段4 执行。

@@ -10,7 +10,9 @@
   的漂移做成可机检闸门, 任一侧多/少一个 unit ⇒ 非零退出 + 明列差异。
 
 【口径(单事实源复用, 不新造第三份清单)】
-  - 登记表侧: `gen_schedule_stats.UNIT_REGISTRY`(47 个 `.service`, 含 3 个自监控);
+  - 登记表侧: `gen_schedule_stats.UNIT_REGISTRY`(47 个 `.service`, 含 3 个自监控)
+    ∪ `gen_schedule_stats.CLOUD_MANAGED_UNITS` 的 `.service`(2026-11-28 起: 云上专属
+    sim-trade 模板 `trade-sim-trade@.service`; 现共 48 个 `.service` 参与对称差);
   - 真实侧: 仿 `check_failed_units.collect_real_units()` = 静态(`docs/deploy/systemd-units-*.md`
     经 `gen_systemd_units.parse_units` 枚举) ∪ 动态(`systemctl list-unit-files` 现状);
   - 动态取不到(dev/CI 无 systemd)⇒ 回退静态集合 + 打 INFO(不崩、不因此放行);
@@ -51,11 +53,17 @@ _UNIT_SUFFIXES = (".service", ".timer", ".socket")
 
 
 def _load_registry_services():
-    """从 gen_schedule_stats.UNIT_REGISTRY 取 .service 名集合(单一事实源)。"""
+    """登记侧 .service 集 = UNIT_REGISTRY ∪ CLOUD_MANAGED_UNITS(单一事实源)。
+
+    CLOUD_MANAGED_UNITS 是同一登记模块里的「云上专属 unit 族」声明(模板 service + 实例
+    timer), 不进执行统计表但必须参与漂移对称差, 否则云上多出来的 unit 永远静默(#310)。
+    """
     if str(_SCRIPTS_DIR) not in sys.path:
         sys.path.insert(0, str(_SCRIPTS_DIR))
     import gen_schedule_stats as gss  # noqa: PLC0415
-    return {r["unit"] for r in gss.UNIT_REGISTRY if r["unit"].endswith(".service")}
+    rows = {r["unit"] for r in gss.UNIT_REGISTRY if r["unit"].endswith(".service")}
+    cloud = {u for u in getattr(gss, "CLOUD_MANAGED_UNITS", ()) if u.endswith(".service")}
+    return rows | cloud
 
 
 def _static_real_services():
