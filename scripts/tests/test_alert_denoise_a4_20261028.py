@@ -400,6 +400,9 @@ def accepted_file(tmp_path):
 def _run_frozen_missing(monkeypatch, n, accepted_path):
     fake = _FakeRun()
     monkeypatch.setattr(sk, "FROZEN_MISSING_ACCEPTED_PATH", str(accepted_path))
+    # 2026-11-28 集合指纹状态: 每个用例独立临时文件(防用例间集合并集污染、不碰真实 data/alerts/)。
+    monkeypatch.setattr(sk, "FROZEN_MISSING_SEEN_PATH",
+                        str(__import__("pathlib").Path(accepted_path).parent / "seen_state.json"))
     monkeypatch.setattr(sk.subprocess, "run", fake)
     events = {("20261020", f"idx{k:03d}", "buy") for k in range(n)}
     sk._alert_frozen_missing(events)
@@ -424,7 +427,8 @@ def test_d2_frozen_missing_severe_unchanged(monkeypatch, accepted_file):
     _chk(len(calls) == 1, "应 1 条")
     _chk("--severe" in calls[0], "11 个应 severe")
     _chk("--defer-digest" not in calls[0], "severe 不得进摘要")
-    _chk("signal_kelly_frozen_missing" in calls[0], "应带 severe dedup key")
+    _chk(any(str(x).startswith("signal_kelly_frozen_missing") for x in calls[0]),
+         "应带 severe dedup key")
     _chk("11 个" in calls[0][2], f"subject 应报 11 个: {calls[0][2]}")
 
 
@@ -439,6 +443,8 @@ def test_d4_frozen_missing_small_absorb_failure_fails_open(monkeypatch, accepted
     """审查差集 B: <10 通道吸收失败 ⇒ 必须 fail-open 直发(旧实现只打印 rc 就完事)。"""
     fake = _FakeRun(digest_status="noop")          # 等价 ALERT_BUDGET_DISABLE=1 / 吸收失败
     monkeypatch.setattr(sk, "FROZEN_MISSING_ACCEPTED_PATH", str(accepted_file))
+    monkeypatch.setattr(sk, "FROZEN_MISSING_SEEN_PATH",
+                        str(accepted_file.parent / "seen_state.json"))
     monkeypatch.setattr(sk.subprocess, "run", fake)
     events = {("20261020", f"idx{k:03d}", "buy") for k in range(9)}
     sk._alert_frozen_missing(events)

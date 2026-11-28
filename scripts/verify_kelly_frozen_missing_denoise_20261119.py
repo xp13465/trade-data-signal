@@ -17,10 +17,6 @@ config 为 2026-11-20 补登记 13 键后的 122 条版本):
                      + 2 真故障嫌疑(20261111|cac40、20261113|csi_931946)
   告警 = 1 条非 SEVERE(7 < 10, severe=False + defer_digest=True 进摘要), 主题含「7 个」
 
-2026-11-28 起(config 122→156, 上述 7 键按 C_late_rowid_bulk_backfill 登记):
-  同一归档重跑 ⇒ accepted_hits = 121, new_events = 0, 不发通知、不写归档。
-  本脚本按 --config 实际登记情况自动判别两种基线, 防「config 升级后旧断言必红」。
-
 用法(仓库根目录):
   .venv/bin/python scripts/verify_kelly_frozen_missing_denoise_20261119.py \
       --archive /tmp/frozen_missing_latest_20261119.json \
@@ -79,22 +75,7 @@ def main():
     import app.notify_hook  # noqa: E402
     app.notify_hook.send_alert = fake_send_alert
 
-    cfg = json.load(open(args.config, encoding="utf-8"))
-    accepted_cfg = {a["key"] for a in cfg["accepted"]
-                    if isinstance(a, dict) and a.get("key")}
-    post_batch = all(k in accepted_cfg for k in MUST_KEEP)  # 2026-11-28 后: 7 键已登记
-
     sk._alert_frozen_missing(events)
-
-    print("config 版本:", "2026-11-28 后(156)" if post_batch else "2026-11-20(122)")
-    if post_batch:
-        assert not archived, "全部登记后不应写归档, 实 %d" % len(archived)
-        assert not sent, "全部登记后不应发通知, 实 %d" % len(sent)
-        print("input events:", len(events))
-        print("accepted_hit:", len(events))
-        print("new_events(留报): 0")
-        print("DRY_PASS")
-        return
 
     assert len(archived) == 1, "归档应恰好 1 次, 实 %d" % len(archived)
     new_events, accepted_hit = archived[0]

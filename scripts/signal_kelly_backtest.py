@@ -461,6 +461,28 @@ FROZEN_MISSING_SEVERE_THRESHOLD = 10
 FROZEN_MISSING_ACCEPTED_PATH = os.path.join(
     ROOT, "config", "signal_kelly_frozen_missing_accepted.json")
 
+# S1(2026-11-28 审查建议): category 白名单——loader 只认已定义的类目。每个类目都对应一份
+# 已核证据口径; 新类目必须同批补白名单 + 证据说明, 防拼写错误/未核类目静默混入 accepted。
+FROZEN_MISSING_ACCEPTED_CATEGORIES = frozenset({
+    "legacy_accepted_20260921_20261011",
+    "A_new_listing_etf_no_tradable_historically",
+    "B_changed_appeared_chain",
+})
+
+# 2026-11-28 返修(审查 B2「降噪必须保留真故障判别维度」): 冻结缺失告警改到告警层做
+# 「事件集合指纹」持久去重, 不再靠把事件登记进 accepted 来静音(登记即永久不报, 连真故障
+# 嫌疑也一并关掉)。口径:
+#   · 状态文件记录「历史上已实际发出过告警的事件键并集」;
+#   · 本次表外事件若全部已在并集内 ⇒ 仅日志、不重复告警(11-20 留报键集合不变时不再轰炸);
+#   · 只要出现任意新键 ⇒ 集合指纹变化 ⇒ 照常告警(新缺失键必报, 判别力保留);
+#   · 状态缺失/损坏/形状不对 ⇒ fail-open 照常告警(fail-safe: 宁多勿漏)。
+# 键形态参考 notify 既有 dedup: `{task}|{keyword}|{md5}` 的稳定指纹前缀。
+FROZEN_MISSING_SEEN_ENV = "SIGNAL_KELLY_FROZEN_MISSING_SEEN_STATE"
+FROZEN_MISSING_SEEN_PATH = os.path.join(
+    ROOT, "data", "alerts", "kelly_frozen_missing_seen.json")
+# 同一集合指纹的 notify 层二次去重窗口(天的秒数): 状态文件写失败时仍能吸收短期重复。
+FROZEN_MISSING_SET_DEDUP_WINDOW = 30 * 24 * 3600
+
 
 def _load_frozen_missing_accepted():
     """读「已确认接受的冻结缺失事件」登记表 -> set[date|index_id|signal]。
@@ -482,11 +504,59 @@ def _load_frozen_missing_accepted():
             evidence = item.get("evidence")
             if (isinstance(key, str) and key
                     and isinstance(category, str) and category
+                    and category in FROZEN_MISSING_ACCEPTED_CATEGORIES
                     and isinstance(evidence, str) and evidence):
                 out.add(key)
         return out
     except (OSError, json.JSONDecodeError, AttributeError, TypeError):
         return set()
+
+
+def _frozen_missing_seen_path():
+    """集合指纹状态文件路径(env 可覆盖, 测试/演练指到临时文件用)。"""
+    return os.environ.get(FROZEN_MISSING_SEEN_ENV) or FROZEN_MISSING_SEEN_PATH
+
+
+def _load_frozen_missing_seen():
+    """读「已实际告警过的事件键并集」-> (set, ok)。
+
+    缺失/损坏/形状不对 => (set(), False), 由调用方 fail-open 照常告警一次并重写状态。
+    """
+    try:
+        with open(_frozen_missing_seen_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        keys = data.get("seen_keys") if isinstance(data, dict) else None
+        if (not isinstance(keys, list)
+                or not all(isinstance(k, str) and k.count("|") == 2 for k in keys)):
+            return set(), False
+        return set(keys), True
+    except (OSError, json.JSONDecodeError, AttributeError, TypeError):
+        return set(), False
+
+
+def _frozen_missing_set_fingerprint(keys):
+    """事件键并集的 sha256(排序后), 作为告警层去重键的指纹段。"""
+    import hashlib
+    return hashlib.sha256("\n".join(sorted(keys)).encode("utf-8")).hexdigest()
+
+
+def _save_frozen_missing_seen(keys):
+    """原子写「已告警键并集」(参考冻结孤儿基线同一持久化范式)。
+
+    写失败只留痕不抛: 下次同集合会再发一次 = fail-open, 绝不因状态丢失而永久静默。
+    """
+    path = _frozen_missing_seen_path()
+    try:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        atomic_write_json(path, {
+            "seen_keys": sorted(keys),
+            "fingerprint": _frozen_missing_set_fingerprint(keys),
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+    except Exception as e:  # noqa: BLE001
+        print(f"   ⚠ 冻结缺失告警集合状态写入失败({path}): {e}", file=sys.stderr)
 
 
 def _frozen_input_identity(value):
@@ -602,6 +672,9 @@ def _alert_frozen_missing(events, context=None):
     2026-10-11 降噪(①): 先按 config/signal_kelly_frozen_missing_accepted.json 过滤掉
     已确认接受(跳过)的精确键事件(仅写日志); 只剩「表外新事件」才进入分级告警路径,
     全部命中接受表 ⇒ 不发任何通知(治根, 消除每日 report 噪音; 判别维度保留: 新事件照报)。
+    2026-11-28 返修(审查 B2): accepted 只登记有双源证据的存量键, 不再用来静音「疑似晚到」
+    的未证实事件; 降噪改由本函数内的「事件集合指纹」持久去重承担——同一表外事件集合报过
+    一次后仅日志, 出现新键才再报(见 FROZEN_MISSING_SEEN_* 常量注释)。
     """
     accepted = _load_frozen_missing_accepted()
     accepted_hit, new_events = [], []
@@ -614,6 +687,16 @@ def _alert_frozen_missing(events, context=None):
               f"{_acc_sample}", file=sys.stderr)
     if not new_events:
         return
+    # 2026-11-28 返修: 告警层「事件集合指纹」持久去重(替代把未证实事件登记进 accepted 静音)。
+    current_keys = {f"{d}|{i}|{s}" for d, i, s in new_events}
+    seen_keys, seen_ok = _load_frozen_missing_seen()
+    if seen_ok and current_keys <= seen_keys:
+        fp = _frozen_missing_set_fingerprint(seen_keys)
+        print(f"   冻结缺失: {len(current_keys)} 个表外事件均已在历史告警集合内"
+              f"(集合指纹 {fp[:16]}), 跳过重复告警(仅日志)", file=sys.stderr)
+        return
+    merged_keys = seen_keys | current_keys
+    fingerprint = _frozen_missing_set_fingerprint(merged_keys)
     sorted_events = new_events
     n = len(sorted_events)
     _archive_frozen_missing_diagnostics(sorted_events, accepted_hit, context)
@@ -630,19 +713,24 @@ def _alert_frozen_missing(events, context=None):
     try:
         result = send_alert(
             subject, body,
-            dedup_key="signal_kelly_frozen_missing", dedup_window=3600,
-            # 大事件(批量历史暴露)保持 SEVERE + 1h dedup 直发(真 P0 不降级);
+            # 去重键 = 「事件集合指纹」(已告警键 ∪ 本次键)的 sha256 前 16 位; 集合变化 ⇒ 新键
+            # ⇒ 新 dedup key ⇒ 必报。状态文件是主闸(持久), 这里 30 天窗口兜短期重复/状态写失败。
+            dedup_key=f"signal_kelly_frozen_missing|{fingerprint[:16]}",
+            dedup_window=FROZEN_MISSING_SET_DEDUP_WINDOW,
+            # 大事件(批量历史暴露)保持 SEVERE 直发(真 P0 不降级);
             # 小缺口(<10)只进当日 23:25 摘要(--defer-digest, 由 schedule_monitor 批发)。
             # 依据: 台账 18 条逐条复核 = 15 条 <10(噪音) / 3 条 ≥10(11/12/14, 真 P0), 阈值 10 不动。
-            # 备选「key 集合 md5 去重」的前提(集合是否每天不变)未验证, 不采用(research §8①)。
             severe=severe, from_prefix="[kelly]", feishu_group="alert",
             defer_digest=not severe,
             digest_category=None if severe else "kelly_frozen_missing",
         )
         print(f"   ⚠ 冻结缺失告警 rc={result.rc} route={result.route} "
-              f"({n} 个历史信号事件拒绝补冻, "
+              f"({n} 个历史信号事件拒绝补冻, 集合指纹 {fingerprint[:16]}, "
               f"{'SEVERE' if severe else '仅进摘要'})",
               file=sys.stderr)
+        if result.rc == 0:
+            # 发送(或摘要吸收)成功才记录并集: 失败时下次照常重试(notice 可重发)。
+            _save_frozen_missing_seen(merged_keys)
     except Exception as e:  # noqa: BLE001
         print(f"   ⚠ 冻结缺失告警调用异常: {e}", file=sys.stderr)
 

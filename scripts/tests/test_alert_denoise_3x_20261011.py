@@ -95,7 +95,7 @@ class _FakeRun:
 
 def _accepted_obj(rows):
     """2026-11-19 方案 B1 格式: 每条 {key, category, evidence}(缺证据字段会被 loader 拒绝)。"""
-    return [{"key": f"{d}|{i}|{s}", "category": "test_fixture", "evidence": "fixture evidence"}
+    return [{"key": f"{d}|{i}|{s}", "category": "legacy_accepted_20260921_20261011", "evidence": "fixture evidence"}
             for d, i, s in rows]
 
 
@@ -110,6 +110,9 @@ def accepted_file(tmp_path):
 def _run_alert(monkeypatch, events, accepted_path):
     fake = _FakeRun()
     monkeypatch.setattr(sk, "FROZEN_MISSING_ACCEPTED_PATH", str(accepted_path))
+    # 2026-11-28 集合指纹状态: 指到与本用例 accepted 表同目录的临时文件(不碰真实 data/alerts/)。
+    monkeypatch.setattr(sk, "FROZEN_MISSING_SEEN_PATH",
+                        str(Path(accepted_path).parent / "seen_state.json"))
     monkeypatch.setattr(sk.subprocess, "run", fake)
     sk._alert_frozen_missing(set(events))
     return fake.calls
@@ -144,7 +147,7 @@ def test_1_loader_rejects_entry_missing_evidence(monkeypatch, tmp_path):
         {"category": "x", "evidence": "x"},                                 # 缺 key
         {"key": "20261002|cac40|buy", "category": "x", "evidence": ""},     # evidence 空串
         "20261005|hscei|buy_aux",                                           # 遗留纯字符串
-        {"key": "20261002|dax|buy_aux", "category": "ok", "evidence": "ok"},  # 唯一完整
+        {"key": "20261002|dax|buy_aux", "category": "B_changed_appeared_chain", "evidence": "ok"},  # 唯一完整
     ]}), encoding="utf-8")
     monkeypatch.setattr(sk, "FROZEN_MISSING_ACCEPTED_PATH", str(p))
     got = sk._load_frozen_missing_accepted()
@@ -182,7 +185,8 @@ def test_1_discriminator_bulk_new_severe(monkeypatch, accepted_file):
     calls = _run_alert(monkeypatch, ACCEPTED_8 + news, accepted_file)
     _chk(len(calls) == 1, "批量新事件应发 1 条")
     _chk("--severe" in calls[0], ">=10 应带 --severe")
-    _chk("signal_kelly_frozen_missing" in calls[0], "应带 severe dedup key")
+    _chk(any(str(x).startswith("signal_kelly_frozen_missing") for x in calls[0]),
+         "应带 severe dedup key")
 
 
 def test_1_failsafe_all_alert_when_table_missing(monkeypatch, tmp_path):

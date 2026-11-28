@@ -19,6 +19,7 @@
 > - **云上 mtime 交叉验证(独立第二源)**:42 个 `trade-*.timer` 中 34 个 mtime 停在 `2026-09-14`(= 迁移批 36 减去之后被改过的 `trade-update-all`(10-04 周日错峰)与 `trade-nextday-plan`(09-17));其余 8 个 = 6 新增(lof-track-index 09-15 / nextday-gap-check 09-17 / check-monitor-heartbeat 10-03 / r2-consistency 10-05 / cloud-unit-patrol 10-05 / alert-weekly-review 10-16)+ 2 修改。34 + 8 = 42,与**全文 42 对**(§2 区内物理 38 对,`### 2.37`/`### 2.38`/`### 2.39` 三对物理落在 §6、`trade-backup-db` 对落在 §4;= 41 周期 + 1 backup_db)、`gen_systemd_units.py --check` 的 84 单元(42 timer + 42 service)三源一致。
 > - **旧数字差异(§0「37」/§1.4「32」/§1.7「36」)**:三者均按当时点数、未随后续新增重算——「37」= 迁移批基线经 #45 后的中途值;「32」= 37 − 5(当时 append 例外 shell 型数);「36」= 阶段4b 统一环境变量时的 service 数。本次统一重算:**§0 = 41 周期**(= 42 − 1 backup_db)、**§1.4(其余不 append)= 33**(全 42 service 分区:7 个 shell 型 + 2 个 python heredoc 型 + 其余 **33** = 42 ✓;注意分区对象是**全部 42 个 service**而非 41 周期,故不能拿「41 − 7」推)、**§1.7 = 42**(全 service 均注入三 env,实测)。
 > - **2026-11-28 更新(P1,补登记云上专属 sim-trade 模板族)**:§2.44 新增 1 个模板 service(`trade-sim-trade@.service`)+ 4 个实例 timer(buy-fill 09:50 / sell-order 14:55 / signal 22:45 / settle 22:50),`gen_systemd_units.py --check` 现 **99 unit = 48 service + 51 timer**;此前「84 单元 / 42 timer」为 2026-10-16 时点锚,按历史保留可反查(本段不追改,新增只追加)。
+> - **覆盖边界声明(S5)**:上述 5 个云上专属 sim-trade unit **不在** `schedule_monitor` / `ops_monitor` 的 47 个任务覆盖内(`ops_monitor.UNIT_RE` 只认不带 `@` 的 `trade-*.service`,模板实例名不匹配);它们只由 systemd 层(失败态/journal)与云上 `trade-cloud-unit-patrol` 兜底,勿把「99 unit 已登记」误读为「99 个都在任务级巡检覆盖 100%」。
 
 ## 1. 统一约定
 
@@ -1831,7 +1832,8 @@ TimeoutStartSec=900
 > 采集/推送契约见 `ops/monitoring/contract.md`。此节 ini 是 canonical 唯一源;
 > `gen_systemd_units.py` 从本文件生成,`ops/monitoring/install/` 两份安装副本由
 > `scripts/tests/test_ops_monitor_registry.py` 逐字节校验,修改任一侧必须同步另一侧。
-> 当前源码共 47 对 service/timer(94 文件);登记表保留原 44 条并新增 `ops_monitor`,
+> 当前源码共 **99 unit = 48 service + 51 timer**(含 §2.44 云上专属 sim-trade 模板族
+> 1 service + 4 timer;其中 47 对为业务/基础 unit);登记表保留原 44 条并新增 `ops_monitor`,
 > include=True,共 44 条业务+基础统计行(2026-11-17 相位拆分再增 `fof_nav_backfill`,
 > 2026-11-21 再增 `simtrade_export`,见 §2.43),原 3 条自监控不变。
 > 旧章节的迁移数量为历史记录。

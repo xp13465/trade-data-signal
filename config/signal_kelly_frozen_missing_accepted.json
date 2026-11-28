@@ -7,7 +7,7 @@
     "discriminator_preserved": "出现「不在本表内」的新缺键事件(新出现的/异常的/规模超常的)照常告警: n<10 → WARN(24h dedup/摘要), n>=10 → SEVERE(1h dedup 直发)",
     "how_to_extend": "新增已确认接受的事件 → accepted 追加 {\"key\":\"date|index_id|signal\",\"category\":\"分类\",\"evidence\":\"可复核证据锚点(归档run_id+sha/文档行号/数据出处)\"} + approval_log 追加一行(日期/依据/审批人)。无证据条目会被 loader 拒绝。",
     "fail_safe": "文件缺失/损坏 ⇒ 视为空表(全量告警, 绝不静默吞真告警); 单条目缺 key/category/evidence ⇒ 只拒绝该条(继续告警)",
-    "decision": "2026-09-21 用户拍板「接受跳过」; 2026-10-11 用户拍板「直接干」告警降噪三项; 2026-11-19 方案 B1 按 11-09 四分类登记有双源证据的存量事件(96 早年 csi_000813 + 5 个 changed→appeared 键), 无证据项一律留报; 2026-11-20 用户拍板「先补证据再登记」→ 调研报告 /tmp/kelly-remaining-evidence-20261119.md 以云上 history_overwrite_audit + 冻结表全量核验 补证 13 键, 按 B_changed_appeared_chain 登记(109+13=122); 余 7 键(20261009 三键 + 20261019 csi_000813 + 20261105 dax + 2 真故障嫌疑)证据不全/有反证, 继续留报; 2026-11-28 告警风暴 P2: 34 个晚到键按新类别 C_late_rowid_bulk_backfill 登记(证据=signal_daily rowid 同 index 跨多年连续块=批量回补, 非伪造 appeared 链; 旧 122 + 34 = 156)",
+    "decision": "2026-09-21 用户拍板「接受跳过」; 2026-10-11 用户拍板「直接干」告警降噪三项; 2026-11-19 方案 B1 按 11-09 四分类登记有双源证据的存量事件(96 早年 csi_000813 + 5 个 changed→appeared 键), 无证据项一律留报; 2026-11-20 用户拍板「先补证据再登记」→ 调研报告 /tmp/kelly-remaining-evidence-20261119.md 以云上 history_overwrite_audit + 冻结表全量核验 补证 13 键, 按 B_changed_appeared_chain 登记(109+13=122); 余 7 键(20261009 三键 + 20261019 csi_000813 + 20261105 dax + 2 真故障嫌疑)证据不全/有反证, 继续留报",
     "baseline_archive": {
       "run_id": "5bc33ec582cc4c6cbbdd3e0aa7f84d51",
       "recorded_at": "2026-11-19T07:10:18",
@@ -16,16 +16,7 @@
       "filtered_missing_sha256": "1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e",
       "latest_signal_date": "20261118"
     },
-    "generated_at": "2026-11-28",
-    "late_backfill_archive": {
-      "run_id": "2d1b21f1a8b6493dbbea8d0427ca515b",
-      "recorded_at": "2026-11-28T05:08:35",
-      "source": "云上 data/audit/frozen_missing/2d1b21f1a8b6493dbbea8d0427ca515b.json(只读拉取本地副本 /tmp/frozen_missing_20261128.json)",
-      "filtered_missing_count": 34,
-      "filtered_missing_sha256": "e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2",
-      "latest_signal_date": "20261127"
-    },
-    "discriminator_note": "登记只精确屏蔽「冻结缺失(晚到回填)」告警本身, 不等于确认信号值正确: signal_daily 信号值改动仍由 history_overwrite_audit changed 链路独立检测(不被本表屏蔽); 其中 20261111|cac40|buy_special / 20261113|csi_931946|buy_special 的 2026-11-20「真故障嫌疑」未核销, 以 suspicion_unresolved 字段与 evidence 原文保留; 7 个 2026-11-20 留报键以 prior_left_reported 字段留痕, 便于后续复核。"
+    "generated_at": "2026-11-19"
   },
   "accepted": [
     {
@@ -637,185 +628,6 @@
       "key": "20261104|gz_399395|buy",
       "category": "B_changed_appeared_chain",
       "evidence": "归档 5bc33ec582cc4c6cbbdd3e0aa7f84d51@2026-11-19T07:10:18(filtered_missing_sha256=1a66c6b6c6724ff6a87c0889333be1438c25319ebc0253cbe47c16749b88396e) 列入本键; history_overwrite_audit: 2026-11-05T17:54:00 index_daily(date=20261104,index=gz_399395) close 7302.27→7675.52(pct 0.24→5.3635), 2026-11-05T17:56:48 signal_daily appeared buy(无 disappeared); 冻结表 28650 键无该 (date,index) 任何变体; 11-09 freeze.md:40/52 其余 13 键 → 历史行情改写后信号事后 appeared, 非信号日当时产生。"
-    },
-    {
-      "key": "20261009|csi_000330|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=118578, 紧邻 rowid 118574..118582 为同一 index(csi_000330)的连续块, 覆盖 20260714..20261123 多期键 → 该行随整块一次批量回补写入, 非信号日 20261009 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 无该键盘内记录(无盘内正向佐证, 仅 rowid 回补证据)。 该键 2026-11-20 拍板时属「留报」7 键之一; 本次按 rowid 批量回补证据登记, 历史留报判断保留可查。",
-      "prior_left_reported": "2026-11-20"
-    },
-    {
-      "key": "20261009|csi_970070|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=108734, 紧邻 rowid 108730..108738 为同一 index(csi_970070)的连续块, 覆盖 20260702..20261023 多期键 → 该行随整块一次批量回补写入, 非信号日 20261009 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 无该键盘内记录(无盘内正向佐证, 仅 rowid 回补证据)。 该键 2026-11-20 拍板时属「留报」7 键之一; 本次按 rowid 批量回补证据登记, 历史留报判断保留可查。",
-      "prior_left_reported": "2026-11-20"
-    },
-    {
-      "key": "20261009|sz_div|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=78981, 紧邻 rowid 78977..78985 为同一 index(sz_div)的连续块, 覆盖 20060403..20261127 多期键 → 该行随整块一次批量回补写入, 非信号日 20261009 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 无该键盘内记录(无盘内正向佐证, 仅 rowid 回补证据)。 该键 2026-11-20 拍板时属「留报」7 键之一; 本次按 rowid 批量回补证据登记, 历史留报判断保留可查。",
-      "prior_left_reported": "2026-11-20"
-    },
-    {
-      "key": "20261009|thsc_300830|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=104446, 紧邻 rowid 104442..104450 为同一 index(thsc_300830)的连续块, 覆盖 20260721..20261126 多期键 → 该行随整块一次批量回补写入, 非信号日 20261009 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 10 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261009|thsc_308300|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=104804, 紧邻 rowid 104800..104808 为同一 index(thsc_308300)的连续块, 覆盖 20260529..20261123 多期键 → 该行随整块一次批量回补写入, 非信号日 20261009 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 13 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261019|csi_000813|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=117369, 紧邻 rowid 117365..117373 为同一 index(csi_000813)的连续块, 覆盖 20121221..20261127 多期键 → 该行随整块一次批量回补写入, 非信号日 20261019 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 24 条同键扫描行 → 信号盘内真实出现过(正向佐证)。 该键 2026-11-20 拍板时属「留报」7 键之一; 本次按 rowid 批量回补证据登记, 历史留报判断保留可查。",
-      "prior_left_reported": "2026-11-20"
-    },
-    {
-      "key": "20261019|thsc_308491|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=105055, 紧邻 rowid 105051..105059 为同一 index(thsc_308491)的连续块, 覆盖 20260714..20261123 多期键 → 该行随整块一次批量回补写入, 非信号日 20261019 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 21 条同键扫描行 → 信号盘内真实出现过(正向佐证)。 另 history_overwrite_audit 2026-10-20T17:57:05 有 index_daily changed 记录。"
-    },
-    {
-      "key": "20261020|thsc_307940|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=102162, 紧邻 rowid 102158..102166 为同一 index(thsc_307940)的连续块, 覆盖 20260721..20261104 多期键 → 该行随整块一次批量回补写入, 非信号日 20261020 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 16 条同键扫描行 → 信号盘内真实出现过(正向佐证)。 另 history_overwrite_audit 2026-10-21T17:55:34 有 index_daily changed 记录。"
-    },
-    {
-      "key": "20261020|thsc_308300|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=104807, 紧邻 rowid 104803..104811 为同一 index(thsc_308300)的连续块, 覆盖 20211117..20261126 多期键 → 该行随整块一次批量回补写入, 非信号日 20261020 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 29 条同键扫描行 → 信号盘内真实出现过(正向佐证)。 另 history_overwrite_audit 2026-10-21T17:55:44 有 index_daily changed 记录。"
-    },
-    {
-      "key": "20261020|thsc_308725|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=104659, 紧邻 rowid 104655..104663 为同一 index(thsc_308725)的连续块, 覆盖 20230202..20261126 多期键 → 该行随整块一次批量回补写入, 非信号日 20261020 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 26 条同键扫描行 → 信号盘内真实出现过(正向佐证)。 另 history_overwrite_audit 2026-10-21T17:55:43 有 index_daily changed 记录。"
-    },
-    {
-      "key": "20261023|thsc_307940|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=102163, 紧邻 rowid 102159..102167 为同一 index(thsc_307940)的连续块, 覆盖 20260731..20261123 多期键 → 该行随整块一次批量回补写入, 非信号日 20261023 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 9 条同键扫描行 → 信号盘内真实出现过(正向佐证)。 另 history_overwrite_audit 2026-10-26T17:56:17 有 index_daily changed 记录。"
-    },
-    {
-      "key": "20261023|thsc_308491|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=105056, 紧邻 rowid 105052..105060 为同一 index(thsc_308491)的连续块, 覆盖 20260721..20261126 多期键 → 该行随整块一次批量回补写入, 非信号日 20261023 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 9 条同键扫描行 → 信号盘内真实出现过(正向佐证)。 另 history_overwrite_audit 2026-10-26T17:56:28 有 index_daily changed 记录。"
-    },
-    {
-      "key": "20261028|thsc_307940|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=102164, 紧邻 rowid 102160..102168 为同一 index(thsc_307940)的连续块, 覆盖 20261013..20261126 多期键 → 该行随整块一次批量回补写入, 非信号日 20261028 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 24 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261028|thsc_308491|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=105057, 紧邻 rowid 105053..105061 为同一 index(thsc_308491)的连续块, 覆盖 20260723..20261127 多期键 → 该行随整块一次批量回补写入, 非信号日 20261028 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 29 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261028|thsc_309049|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=101856, 紧邻 rowid 101852..101860 为同一 index(thsc_309049)的连续块, 覆盖 20231120..20261123 多期键 → 该行随整块一次批量回补写入, 非信号日 20261028 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 30 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261102|thsc_300830|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=104448, 紧邻 rowid 104444..104452 为同一 index(thsc_300830)的连续块, 覆盖 20200707..20261127 多期键 → 该行随整块一次批量回补写入, 非信号日 20261102 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 20 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261102|thsc_307940|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=102165, 紧邻 rowid 102161..102169 为同一 index(thsc_307940)的连续块, 覆盖 20231113..20261126 多期键 → 该行随整块一次批量回补写入, 非信号日 20261102 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 15 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261102|thsc_308491|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=105058, 紧邻 rowid 105054..105062 为同一 index(thsc_308491)的连续块, 覆盖 20200227..20261127 多期键 → 该行随整块一次批量回补写入, 非信号日 20261102 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 24 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261102|thsc_309049|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=101857, 紧邻 rowid 101853..101861 为同一 index(thsc_309049)的连续块, 覆盖 20231120..20261123 多期键 → 该行随整块一次批量回补写入, 非信号日 20261102 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 15 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261104|thsc_307940|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=102166, 紧邻 rowid 102162..102170 为同一 index(thsc_307940)的连续块, 覆盖 20231113..20261126 多期键 → 该行随整块一次批量回补写入, 非信号日 20261104 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 16 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261104|thsc_309049|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=101858, 紧邻 rowid 101854..101862 为同一 index(thsc_309049)的连续块, 覆盖 20231120..20261123 多期键 → 该行随整块一次批量回补写入, 非信号日 20261104 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 11 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261105|dax|buy_special",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=127079, 紧邻 rowid 127075..127083 为同一 index(dax)的连续块, 覆盖 20221027..20261105 多期键 → 该行随整块一次批量回补写入, 非信号日 20261105 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 无该键盘内记录(无盘内正向佐证, 仅 rowid 回补证据)。 该键 2026-11-20 拍板时属「留报」7 键之一; 本次按 rowid 批量回补证据登记, 历史留报判断保留可查。",
-      "prior_left_reported": "2026-11-20"
-    },
-    {
-      "key": "20261111|cac40|buy_special",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=127235, 紧邻 rowid 127231..127239 为同一 index(cac40)的连续块, 覆盖 20230414..20261111 多期键 → 该行随整块一次批量回补写入, 非信号日 20261111 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 无该键盘内记录(无盘内正向佐证, 仅 rowid 回补证据)。 该键 2026-11-20 拍板时属「留报」7 键之一; 本次按 rowid 批量回补证据登记, 历史留报判断保留可查。 注: 2026-11-20 曾标「真故障嫌疑」, 本次未核销该嫌疑, 仅登记为晚到回填。",
-      "prior_left_reported": "2026-11-20",
-      "suspicion_unresolved": "真故障嫌疑(2026-11-20), 本次仅登记晚到回填, 未核销"
-    },
-    {
-      "key": "20261113|csi_931946|buy_special",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=124473, 紧邻 rowid 124469..124477 为同一 index(csi_931946)的连续块, 覆盖 20260213..20261113 多期键 → 该行随整块一次批量回补写入, 非信号日 20261113 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 无该键盘内记录(无盘内正向佐证, 仅 rowid 回补证据)。 该键 2026-11-20 拍板时属「留报」7 键之一; 本次按 rowid 批量回补证据登记, 历史留报判断保留可查。 注: 2026-11-20 曾标「真故障嫌疑」, 本次未核销该嫌疑, 仅登记为晚到回填。",
-      "prior_left_reported": "2026-11-20",
-      "suspicion_unresolved": "真故障嫌疑(2026-11-20), 本次仅登记晚到回填, 未核销"
-    },
-    {
-      "key": "20261123|thsc_300830|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=104449, 紧邻 rowid 104445..104453 为同一 index(thsc_300830)的连续块, 覆盖 20200707..20261127 多期键 → 该行随整块一次批量回补写入, 非信号日 20261123 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 11 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261123|thsc_308300|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=104808, 紧邻 rowid 104804..104812 为同一 index(thsc_308300)的连续块, 覆盖 20211117..20261126 多期键 → 该行随整块一次批量回补写入, 非信号日 20261123 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 15 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261123|thsc_308491|buy",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=105059, 紧邻 rowid 105055..105063 为同一 index(thsc_308491)的连续块, 覆盖 20200227..20261127 多期键 → 该行随整块一次批量回补写入, 非信号日 20261123 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 13 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261123|thsc_309049|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=101859, 紧邻 rowid 101855..101863 为同一 index(thsc_309049)的连续块, 覆盖 20231120..20261123 多期键 → 该行随整块一次批量回补写入, 非信号日 20261123 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 28 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261126|dax|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=126992, 紧邻 rowid 126988..126996 为同一 index(dax)的连续块, 覆盖 20221101..20261126 多期键 → 该行随整块一次批量回补写入, 非信号日 20261126 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 无该键盘内记录(无盘内正向佐证, 仅 rowid 回补证据)。"
-    },
-    {
-      "key": "20261126|thsc_300830|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=104450, 紧邻 rowid 104446..104454 为同一 index(thsc_300830)的连续块, 覆盖 20200707..20261127 多期键 → 该行随整块一次批量回补写入, 非信号日 20261126 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 29 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261126|thsc_307940|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=102168, 紧邻 rowid 102164..102172 为同一 index(thsc_307940)的连续块, 覆盖 20231113..20261126 多期键 → 该行随整块一次批量回补写入, 非信号日 20261126 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 29 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261126|thsc_308300|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=104809, 紧邻 rowid 104805..104813 为同一 index(thsc_308300)的连续块, 覆盖 20211117..20261126 多期键 → 该行随整块一次批量回补写入, 非信号日 20261126 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 27 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261126|thsc_308491|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=105060, 紧邻 rowid 105056..105064 为同一 index(thsc_308491)的连续块, 覆盖 20200227..20261127 多期键 → 该行随整块一次批量回补写入, 非信号日 20261126 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 29 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
-    },
-    {
-      "key": "20261126|thsc_308725|buy_aux",
-      "category": "C_late_rowid_bulk_backfill",
-      "evidence": "归档 2d1b21f1a8b6493dbbea8d0427ca515b@2026-11-28T05:08:35(filtered_missing_sha256=e573f3a43f04658228f0022385475668e42406555ccccfcdaf19265be7b1aee2) 列入本键; 云上 signal_daily rowid=104661, 紧邻 rowid 104657..104665 为同一 index(thsc_308725)的连续块, 覆盖 20230202..20261126 多期键 → 该行随整块一次批量回补写入, 非信号日 20261126 当天入库(首次入库晚于冻结时点; history_overwrite_audit 无该键 signal appeared 记录); 冻结表 28821 键无该 (date,index) 任何变体, 云上 signal_daily 现有该行 → 晚到回填, 信号日冻结时不可得。 signal_intraday_log 该日盘内 29 条同键扫描行 → 信号盘内真实出现过(正向佐证)。"
     }
   ],
   "approval_log": [
@@ -860,12 +672,6 @@
       "event": "13 键 appeared 链补登记(20261013 三键 / 20261016 thsc_300008 / 20261019 sz_div / 20261023 四键 / 20261026 sw_801160 / 20261104 三键)",
       "decision": "登记 accepted(方案 B1 补证, B 类)",
       "note": "用户拍板「先补证据再登记」; 依据=调研报告 /tmp/kelly-remaining-evidence-20261119.md:逐键经云上 history_overwrite_audit changed→appeared 时序 + signal_kelly_etf_freeze.json 全量 28650 键无该 (date,index) 任何变体 + 11-09 复审 freeze.md:40/52 互证; evidence 文字直接抄报告原文; 余 7 键(20261009 三键审计窗口前无记录 / 20261019 csi_000813 盘内 24 条反证 / 20261105 dax 无 appeared 且冻结键断档 / cac40、csi_931946 真故障嫌疑)继续留报"
-    },
-    {
-      "date": "2026-11-28",
-      "event": "34 个晚到冻结缺失键(20261009~20261126, 以 THS 为主)",
-      "decision": "登记 accepted(P2, C 类)",
-      "note": "依据=告警风暴 RCA §1.1/§2.1 + 云上归档 2d1b21f1…(34 键, sha e573f3a4…) + 云上 sentiment.db signal_daily rowid 逐键核验: 每键的 rowid 均落在同 index 跨多年/多期的连续批量回补块内, 证明非信号日当天入库; 冻结表 28821 键无该 (date,index) 任何变体。history_overwrite_audit 仅 6 键有 index_daily changed, 全批无 signal appeared, 故不用 B 类、不伪造 appeared 链, 单列 C 类。"
     }
   ]
 }

@@ -180,6 +180,12 @@ def inventory(contract, hashes):
     # gen_schedule_stats.CLOUD_MANAGED_UNITS 单独登记并交给漂移闸门核对。此处剔除后
     # 仍按原合同校验 47 个业务/基础 unit 的集合与 timer 配对完全一致。
     cloud_managed = set(getattr(registry, "CLOUD_MANAGED_UNITS", ()))
+    # S3(2026-11-28 审查建议): 云上专属族与 47 个冻结任务必须互斥。若某个 unit 同时被写进
+    # UNIT_REGISTRY(应被契约校验)和 CLOUD_MANAGED_UNITS(被剔除),契约会静默缩水仍绿——
+    # 在此直接拒绝,防常量写错后保护面悄悄消失。
+    overlap = cloud_managed & {r["unit"] for r in rows}
+    if overlap:
+        raise ValueError("cloud_managed_units_overlap_registry:" + ",".join(sorted(overlap)))
     order = [name for name in order if name not in cloud_managed]
     titles = [name for name in titles if name not in cloud_managed]
     units = {name: lines for name, lines in units.items() if name not in cloud_managed}

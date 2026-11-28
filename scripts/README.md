@@ -332,43 +332,43 @@ v1.1.7 审计 P1 #97（北向增量截断→递增丢日）修复及其返修（
 python3 scripts/check_north_gap_backfill.py   # 全 PASS 输出 38/38、退出码 0；有 FAIL 退出码 1
 ```
 
-### 冻结表缺失事件降噪（方案 B1，2026-11-19）
+### 冻结表缺失事件降噪（方案 B1 + 告警层集合指纹，2026-11-19 / 2026-11-28）
 
-两个配套脚本，解决「冻结表缺失历史信号」告警每天误报：把**有双源证据**的存量事件登记进
+解决「冻结表缺失历史信号」告警每天误报：把**有双源证据**的存量事件登记进
 `config/signal_kelly_frozen_missing_accepted.json`（缺证据的绝不登记，未登记新事件照常告警）。
 判断口径见 `docs/codex-reviews/alert-rootfix-20261109/freeze.md`（11-09 四分类）。
+当前 config = **122 条**（legacy 8 + A 96 + B 18），loader 另有 **category 白名单**（只认这三个
+已核类目；新类目必须同批补白名单 + 证据说明，防拼错/未核类目静默混入）。
 
 - `gen_kelly_frozen_missing_accepted_20261119.py` — 由一份冻结缺失诊断归档重算整张登记表。
-  默认只生成到指定路径；`--check` 核对其**历史 122 条**与重算逐字段一致（2026-11-28 起
-  config 追加了后续批次，本脚本只负责 122 基线，不因新增批次变红）。
+  默认只生成到指定路径；`--check` 核对 122 条与重算逐字节一致。
 - `verify_kelly_frozen_missing_denoise_20261119.py` — 端到端 dry 验证：把「写归档/发告警」
   两个出口都打桩（**不会真发通知**），断言已登记事件只记日志、未登记事件继续告警。
-  按 config 实际登记情况自动判别 122/156 两种基线。
 
-2026-11-28 追加（告警风暴 P2，34 个晚到回填键 → 156 条）：
-
-- `gen_kelly_frozen_missing_accepted_20261128.py` — 旧 122 + 本批 34 生成/核对。
-  证据=云上 `signal_daily` 逐键 rowid 落在同 index 跨多年连续批量回补块内 + 归档 run_id/sha；
-  `--check` 逐字段重算核对已提交 config（无需 `--base`）。
-- `verify_kelly_frozen_missing_denoise_20261128.py` — 34 键归档 dry 复算：应 34 命中接受 / 0 留报 / 0 通知。
+2026-11-28 返修（审查 B1/B2）：此前「34 个晚到回填键登记 accepted（122→156）」已**回退**——
+rowid 判据经代码/数据复核无判别力（`signal_daily` 每次全历史 DELETE+INSERT 重算，rowid 只是
+最近一次重算顺序，实测 82.2% 行命中），且会永久静音 11-20 明确留报的 7 键（含 2 个真故障嫌疑）。
+config 恢复 122 条；`gen_..._20261128.py` / `verify_..._20261128.py` 已删除（git 历史即备份，§25）。
+降噪改走**告警层**：`signal_kelly_backtest._alert_frozen_missing` 用「事件集合指纹 sha256」持久
+去重——同一表外事件集合报过一次后仅日志，出现新缺失键才再报；状态文件
+`data/alerts/kelly_frozen_missing_seen.json`（env `SIGNAL_KELLY_FROZEN_MISSING_SEEN_STATE` 可覆盖），
+缺失/损坏 fail-open 照常告警。回归套 `scripts/tests/test_frozen_missing_set_dedup_20261128.py`
+覆盖：同集合静音 / 子集静音 / 新键必报且指纹变化 / 状态损坏 fail-open / 发送失败不记状态 /
+category 白名单 / 交付 config 122 且无 C 类目；两个出口全打桩并自证打桩真被调用（零外发）。
 
 ```bash
-# 复现性核对（历史 122 条）
+# 复现性核对（122 条基线）
 .venv/bin/python scripts/gen_kelly_frozen_missing_accepted_20261119.py \
     --archive /tmp/frozen_missing_latest_20261119.json \
     --check config/signal_kelly_frozen_missing_accepted.json
 
-# 2026-11-28 批核对（34 条 C_late_rowid_bulk_backfill）
-.venv/bin/python scripts/gen_kelly_frozen_missing_accepted_20261128.py \
-    --archive /tmp/frozen_missing_20261128.json \
-    --check config/signal_kelly_frozen_missing_accepted.json
-
-# dry 验证（34 键全部命中接受，末行 DRY_PASS）
-.venv/bin/python scripts/verify_kelly_frozen_missing_denoise_20261128.py \
-    --archive /tmp/frozen_missing_20261128.json
+# dry 验证（已登记只记日志 / 未登记继续告警，不真发通知）
+.venv/bin/python scripts/verify_kelly_frozen_missing_denoise_20261119.py \
+    --archive /tmp/frozen_missing_latest_20261119.json \
+    --config config/signal_kelly_frozen_missing_accepted.json
 ```
 
 2026-11-19 基线归档 = 云上 `data/audit/frozen_missing/5bc33ec582cc4c6cbbdd3e0aa7f84d51.json`
-（run_id `5bc33ec5…`，filtered_missing_sha256 `1a66c6b6…b88396e`，121 条）；
-2026-11-28 基线归档 = `data/audit/frozen_missing/2d1b21f1a8b6493dbbea8d0427ca515b.json`
-（run_id `2d1b21f1…`，filtered_missing_sha256 `e573f3a4…7b1aee2`，34 条）。
+（run_id `5bc33ec5…`，filtered_missing_sha256 `1a66c6b6…b88396e`，121 条）。
+2026-11-28 归档 `data/audit/frozen_missing/2d1b21f1a8b6493dbbea8d0427ca515b.json`（34 条）仅作当时
+诊断留存,不作 config 基线（该批登记已回退；run_id `2d1b21f1…`，filtered_missing_sha256 `e573f3a4…7b1aee2`）。

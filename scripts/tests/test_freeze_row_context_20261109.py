@@ -35,6 +35,8 @@ def producer_namespace():
              "_freeze_buy_keys", "_freeze_key_of", "_union_freeze_backfill_rows", "_load_etf_freeze",
              "_etf_freeze_path", "_save_etf_freeze", "_frozen_input_identity", "_frozen_missing_context",
              "_load_frozen_missing_accepted", "_archive_frozen_missing_diagnostics", "_alert_frozen_missing",
+             "_frozen_missing_seen_path", "_load_frozen_missing_seen",
+             "_frozen_missing_set_fingerprint", "_save_frozen_missing_seen",
              "_classify_buy_rows",
              # 2026-11-24: compute() 传 ma3_tag_fn=_ma3_trade_tag(回测打标), 隔离执行需一并抽取;
              # 前缀的 _MA3_BT_*_CACHE={} 是 ast.Assign, 由下方常量分支自动带入。
@@ -98,6 +100,13 @@ def run_case(monkeypatch):
         ns.update(ROOT=str(temp), get_conn=connect, atomic_write_json=atom.atomic_write_json,
             ETF_FREEZE_PATH_ENV="SIGNAL_KELLY_ETF_FREEZE_PATH",
             FROZEN_MISSING_ACCEPTED_PATH=str(temp / "accepted.json"),
+            FROZEN_MISSING_ACCEPTED_CATEGORIES=frozenset({
+                "legacy_accepted_20260921_20261011",
+                "A_new_listing_etf_no_tradable_historically",
+                "B_changed_appeared_chain"}),
+            FROZEN_MISSING_SEEN_ENV="SIGNAL_KELLY_FROZEN_MISSING_SEEN_STATE",
+            FROZEN_MISSING_SEEN_PATH=str(temp / "data/alerts/seen.json"),
+            FROZEN_MISSING_SET_DEDUP_WINDOW=30 * 24 * 3600,
             _load_signal_stats=lambda:{}, _load_board_etf_map=lambda:{}, _build_best_etf=lambda m:best,
             _load_market_map=lambda:{}, _load_market_state=lambda c:({},[]), _load_market_tiers=lambda c,**kw:{},
             _detect_freeze_orphan_buy_events=lambda *a:[], _load_freeze_backfill_registry=lambda:set(),
@@ -131,7 +140,10 @@ def run_case(monkeypatch):
         assert [tuple(r) for r in seen["sql_rows"]] == ROWS
         assert result["payload"]["filtered_missing"] == ["20261103|old|buy"]
         assert len(calls)==1
-        assert calls[0][1] == dict(dedup_key="signal_kelly_frozen_missing",dedup_window=3600,
+        kw = calls[0][1]
+        assert kw["dedup_key"].startswith("signal_kelly_frozen_missing|"), kw["dedup_key"]
+        assert len(kw["dedup_key"].split("|")[1]) == 16
+        assert kw == dict(dedup_key=kw["dedup_key"], dedup_window=30 * 24 * 3600,
             severe=False,from_prefix="[kelly]",feishu_group="alert",defer_digest=True,digest_category="kelly_frozen_missing")
         assert set(result["saved"]) == (set() if fail_save else {"20261104|new|buy"})
         assert result["returned"] == ({"fixture_aggregate":True},{})

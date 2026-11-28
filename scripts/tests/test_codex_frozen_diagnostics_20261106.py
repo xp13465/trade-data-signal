@@ -45,16 +45,31 @@ class FrozenDiagnosticsTests(unittest.TestCase):
         atomic = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(atomic)
         names = {'_archive_frozen_missing_diagnostics', '_alert_frozen_missing',
-                 '_load_frozen_missing_accepted', '_etf_freeze_path'}
+                 '_load_frozen_missing_accepted', '_etf_freeze_path',
+                 # 2026-11-28 集合指纹去重 helper(本文件专测诊断归档; 去重行为由
+                 # test_frozen_missing_set_dedup_20261128.py 覆盖, 这里把状态读写做成 no-op,
+                 # 保持「每次调用都归档/告警」的既有断言语义)。
+                 '_frozen_missing_seen_path', '_load_frozen_missing_seen',
+                 '_frozen_missing_set_fingerprint', '_save_frozen_missing_seen'}
         tree = ast.parse(SOURCE.read_text())
         self.ns = {'__file__': str(SOURCE), 'ROOT': str(self.root), 'os': os,
                    'sys': sys, 'json': json, 'datetime': datetime,
                    'atomic_write_json': atomic.atomic_write_json,
                    'FROZEN_MISSING_SEVERE_THRESHOLD': 10, 'KELLY_BUY_NEXTDAY': 1,
                    'ETF_FREEZE_PATH_ENV': 'SIGNAL_KELLY_ETF_FREEZE_PATH',
+                   'FROZEN_MISSING_ACCEPTED_CATEGORIES': frozenset({
+                       'legacy_accepted_20260921_20261011',
+                       'A_new_listing_etf_no_tradable_historically',
+                       'B_changed_appeared_chain'}),
+                   'FROZEN_MISSING_SEEN_ENV': 'SIGNAL_KELLY_FROZEN_MISSING_SEEN_STATE',
+                   'FROZEN_MISSING_SEEN_PATH': str(self.root / 'data/alerts/seen.json'),
+                   'FROZEN_MISSING_SET_DEDUP_WINDOW': 30 * 24 * 3600,
                    'FROZEN_MISSING_ACCEPTED_PATH': str(self.root / 'accepted.json')}
         exec(compile(ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef)
                                      and n.name in names], type_ignores=[]), str(SOURCE), 'exec'), self.ns)
+        # 本文件专注诊断归档(去重状态 no-op), 见 names 注释。
+        self.ns['_load_frozen_missing_seen'] = lambda: (set(), False)
+        self.ns['_save_frozen_missing_seen'] = lambda keys: None
         self.accepted = [('20260922', 'sz_div', 'buy')]
         self.events = {('20120517', f'candidate_{n:03d}', 'buy_aux') for n in range(118)}
         self.set_accepted(self.accepted)
@@ -71,7 +86,7 @@ class FrozenDiagnosticsTests(unittest.TestCase):
     def set_accepted(self, rows):
         # 2026-11-19 方案 B1 格式: 每条带 key/category/evidence(缺证据字段会被 loader 拒绝)
         (self.root / 'accepted.json').write_text(json.dumps({'accepted': [
-            {'key': '|'.join(x), 'category': 'test_fixture', 'evidence': 'fixture evidence'}
+            {'key': '|'.join(x), 'category': 'legacy_accepted_20260921_20261011', 'evidence': 'fixture evidence'}
             for x in rows]}))
 
     def send_alert(self, *args, **kwargs):
@@ -107,7 +122,9 @@ class FrozenDiagnosticsTests(unittest.TestCase):
         self.assertEqual(args, ('[kelly] 冻结表缺失历史信号事件 118 个',
             '回测拒绝补冻历史信号事件 118 个(冻结分时点防御闸触发)。'
             '冻结表缺失 118 个历史信号事件, 拒绝补冻已跳过, 请核查生产冻结流程。样例: ' + sample))
-        self.assertEqual(kw, dict(dedup_key='signal_kelly_frozen_missing', dedup_window=3600,
+        self.assertTrue(kw['dedup_key'].startswith('signal_kelly_frozen_missing|'), kw['dedup_key'])
+        self.assertEqual(len(kw['dedup_key'].split('|')[1]), 16, kw['dedup_key'])
+        self.assertEqual(kw, dict(dedup_key=kw['dedup_key'], dedup_window=30 * 24 * 3600,
             severe=True, from_prefix='[kelly]', feishu_group='alert', defer_digest=False,
             digest_category=None))
         self.assertNotIn(data['run_id'], ''.join(args))
